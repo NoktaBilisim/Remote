@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Uzaktan destek — Nokta Bilişim</title>
+<link rel="icon" href="img/favicon-32x32.png"><link rel="stylesheet" href="tasarim.css">
+<script src="tasarim.js"></script><script src="ikonlar.js" defer></script>
+</head>
+<body>
+<div class="mock-bar" role="region" aria-label="Taslak denetimleri">
+  <a href="index.html"><svg class="i" aria-hidden="true"><use href="#i-arrow-left"/></svg>Taslaklar</a>
+  <span class="lbl">Sayfa</span>
+  <span class="seg"><button data-set="s:form">Form</button><button data-set="s:indirildi">İndirildi + rehber</button><button data-set="s:doldu">Süresi doldu (410)</button><button data-set="s:iptal">İptal (410)</button><button data-set="s:yukleniyor">Yükleniyor</button><button data-set="s:hata">Hata</button></span>
+  <span class="lbl" data-when="s:form">Form</span>
+  <span class="seg" data-when="s:form"><button data-set="form:dolu">Doldurulmuş</button><button data-set="form:bos">Boş (butonlar pasif)</button></span>
+  <span class="spacer row"><span class="lbl">Tema</span><span class="seg"><button data-tema="acik"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg>Açık</button><button data-tema="koyu"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg>Koyu</button><button data-tema="sistem"><svg class="i" aria-hidden="true"><use href="#i-laptop"/></svg>Sistem</button></span></span>
+</div>
+<main class="guest">
+  <header class="guest-head">
+    <span class="logo-card"><img src="img/logo.png" alt="Nokta Bilişim" height="52"></span>
+    <span class="spacer muted small row"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg>Uçtan uca şifreli bağlantı</span>
+  </header>
+
+  <!-- FORM -->
+  <div class="stack" data-when="s:form">
+    <div><h1>Uzaktan destek bağlantısı</h1><p class="muted">Nokta Bilişim teknisyeni ekranınızı görmek için izin istiyor.</p></div>
+    <section class="panel tech-card" aria-label="Teknisyen">
+      <span class="avatar lg">MK</span>
+      <div><b>Mehmet Kaya</b><p class="muted small">Teknisyen · Nokta Bilişim</p></div>
+      <div class="verify"><span class="small muted">Teknisyen doğrulama kodu</span><span class="code">7305</span><span class="small muted">Telefondaki teknisyen de bu kodu söylemeli.</span></div>
+    </section>
+    <div class="alert warning" role="note"><svg class="i i-5" aria-hidden="true"><use href="#i-shield-alert"/></svg><div class="stack-2"><strong>Sizi biz aramadıysak devam etmeyin</strong><p>Sizi kendiliğinden arayan biri bunu istediyse bu sayfayı kapatın. Banka veya şifre işlemi yapmayın; teknisyenimiz şifrenizi hiçbir zaman sormaz.</p><a href="mailto:kotuye-kullanim@noktabilisim.com.tr" class="row"><svg class="i" aria-hidden="true"><use href="#i-flag"/></svg>Kötüye kullanımı bildir</a></div></div>
+    <section class="panel panel-pad stack" aria-labelledby="bilgi-t">
+      <h2 id="bilgi-t">Bilgileriniz</h2>
+      <div class="field"><label class="label" for="ad">Adınız ve soyadınız</label><input class="input" id="ad" autocomplete="name" placeholder="Örn. Ayşe Yılmaz" aria-describedby="ad-h"><p class="hint" id="ad-h">Teknisyeniniz sizi bu adla görür.</p></div>
+      <label class="check"><input type="checkbox" id="kvkk"><span>Aydınlatma metnini okudum; ekran görüntümün bu oturum boyunca teknisyenle paylaşılmasını kabul ediyorum. Uzaktan kontrol için ayrıca onay istenir.</span></label>
+      <details class="details"><summary>Aydınlatma metnini oku <span class="muted small">(sürüm 3 · 02.11.2026)</span></summary>
+        <p>Nokta Bilişim Danışmanlık ve Elektronik San. Tic. Ltd. Şti., destek oturumu boyunca adınızı, IP adresinizi ve tarayıcı bilginizi oturum kaydı amacıyla işler. Ekran görüntünüz kaydedilmez; yalnızca canlı olarak teknisyene iletilir. Oturum kayıtları 180 gün saklanır, ardından anonimleştirilir.</p></details>
+    </section>
+    <section class="stack" aria-labelledby="yol-t">
+      <h2 id="yol-t">Nasıl bağlanmak istersiniz?</h2>
+      <button class="choice primary" data-set="s:indirildi"><svg class="i i-6" aria-hidden="true"><use href="#i-download"/></svg><span class="row wrap"><b>Hızlı Destek'i indir</b><span class="badge wait nodot">Önerilen · tam destek</span></span><span class="muted">Teknisyen ekranınızı görür; siz izin verirseniz fare ve klavyeyi kullanabilir. Kurulum ve yönetici yetkisi gerekmez.</span><span class="small muted">Destek-48291376.exe · 9,8 MB · Windows 10 / 11</span></button>
+      <button class="choice" onclick="location.href='03-musteri-lobi.html'"><svg class="i i-6" aria-hidden="true"><use href="#i-screen-share"/></svg><b>Yalnız ekranımı tarayıcıdan paylaş</b><span class="muted">Uygulama çalışmıyorsa (şirket politikası, engelleme). Teknisyen yalnızca görür, kontrol edemez.</span><span class="small muted">Tarayıcınız hangi ekranı paylaşacağınızı soracak.</span></button>
+      <p class="hint" id="eksik" data-when="form:bos">Devam etmek için adınızı yazın ve aydınlatma metnini onaylayın.</p>
+    </section>
+  </div>
+
+  <!-- İNDİRİLDİ + SMARTSCREEN REHBERİ -->
+  <div class="stack" data-when="s:indirildi">
+    <div class="alert success" role="status"><svg class="i i-5" aria-hidden="true"><use href="#i-circle-check"/></svg><div><strong>İndirme başladı</strong>Destek-48291376.exe — tarayıcınızın indirilenler bölümünde.</div></div>
+    <div class="row wrap"><h1 class="grow">Hızlı Destek'i çalıştırın</h1><span class="muted small">Teknisyen doğrulama kodu <b class="code">7305</b></span></div>
+    <ol class="steps">
+      <li><div><b>İndirilen dosyayı açın</b><p class="muted">Tarayıcının altında veya sağ üstünde görünen dosyaya tıklayın.</p>
+        <div class="schem" aria-hidden="true"><div class="row"><svg class="i" aria-hidden="true"><use href="#i-file"/></svg><span class="grow">Destek-48291376.exe · 9,8 MB</span><span class="fakebtn hl">Aç</span></div></div></div></li>
+      <li><div><b>“Windows bilgisayarınızı korudu” penceresinde <span class="u">Ek bilgi</span>'ye tıklayın</b><p class="muted">Bu mavi uyarı, uygulamanın imza sertifikası olmadığı için çıkar.</p>
+        <div class="schem ss" aria-hidden="true"><b>Windows bilgisayarınızı korudu</b><span>Microsoft Defender SmartScreen tanınmayan bir uygulamanın başlatılmasını engelledi.</span><span class="hl u">Ek bilgi</span><span class="fakebtn">Çalıştırma</span></div></div></li>
+      <li><div><b><span class="u">Yine de çalıştır</span>'a tıklayın</b><p class="muted">Yayımcı “Bilinmeyen yayımcı” görünür; dosya adı Destek-48291376.exe olmalı.</p>
+        <div class="schem ss" aria-hidden="true"><span>Uygulama: Destek-48291376.exe<br>Yayımcı: Bilinmeyen yayımcı</span><div class="row"><span class="spacer fakebtn hl">Yine de çalıştır</span><span class="fakebtn">Çalıştırma</span></div></div></div></li>
+      <li><div><b>Hızlı Destek açılır, kodunuz otomatik gelir</b><p class="muted">Penceredeki doğrulama kodu <b class="code">7305</b> ve sunucu adresi <b>destek.noktabilisim.com.tr</b> olmalı. Farklıysa kapatın.</p></div></li>
+    </ol>
+    <details class="details"><summary>Dosyayı doğrulamak istiyorum (BT yöneticileri için)</summary>
+      <p>Hızlı Destek açık kaynaktır ve imzasız dağıtılır. SHA-256 özeti GitHub sürüm sayfasındaki <span class="code">SHA256SUMS</span> ile eşleşmelidir:</p>
+      <p class="code small break">3f9a1c07e2b45d18a0c96f7b21e4d3a85c0f6e9b7d2a14c3e8f50b6a9d7c2e14</p></details>
+    <div class="row wrap"><button class="btn" data-set="s:form"><svg class="i" aria-hidden="true"><use href="#i-arrow-left"/></svg>Geri</button><span class="spacer"></span><a class="btn ghost" href="03-musteri-lobi.html"><svg class="i" aria-hidden="true"><use href="#i-screen-share"/></svg>Uygulama açılmıyor — tarayıcıdan paylaş</a></div>
+  </div>
+
+  <!-- 410 / YÜKLENİYOR / HATA -->
+  <section class="panel empty" data-when="s:doldu"><svg class="i i-8" aria-hidden="true"><use href="#i-hourglass"/></svg><h1>Bu destek bağlantısının süresi doldu</h1><p>Bağlantılar güvenliğiniz için 15 dakika geçerlidir ve yalnızca bir kez kullanılabilir. Teknisyeninizden yeni bir bağlantı isteyin.</p></section>
+  <section class="panel empty" data-when="s:iptal"><svg class="i i-8" aria-hidden="true"><use href="#i-circle-x"/></svg><h1>Bu destek bağlantısı iptal edildi</h1><p>Teknisyen bu oturumu kapattı. Destek almaya devam etmek istiyorsanız teknisyeninizden yeni bir bağlantı isteyin.</p></section>
+  <div class="stack" data-when="s:yukleniyor" aria-busy="true" aria-label="Bağlantı bilgileri yükleniyor"><span class="sk w50 sk-h"></span><div class="panel tech-card"><span class="avatar lg"></span><div class="stack-2 grow"><span class="sk w30"></span><span class="sk w50"></span></div></div><span class="sk sk-tall"></span><span class="sk sk-tall"></span></div>
+  <div class="alert danger" role="alert" data-when="s:hata"><svg class="i i-5" aria-hidden="true"><use href="#i-wifi-off"/></svg><div class="grow"><strong>Bağlantı bilgileri alınamadı</strong>İnternet bağlantınızı kontrol edip tekrar deneyin. Sorun sürerse teknisyeninize “hata kodu 7f3c” deyin.</div><button class="btn sm" data-set="s:form"><svg class="i" aria-hidden="true"><use href="#i-rotate-cw"/></svg>Tekrar dene</button></div>
+
+  <footer class="muted small row wrap"><svg class="i" aria-hidden="true"><use href="#i-shield-check"/></svg>Paylaşımı istediğiniz an durdurabilirsiniz. Ekranınız kaydedilmez.<span class="spacer"></span><a href="mailto:kotuye-kullanim@noktabilisim.com.tr">Kötüye kullanımı bildir</a></footer>
+</main>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    var ad = document.getElementById("ad"), kv = document.getElementById("kvkk");
+    function sync() { var ok = ad.value.trim().length >= 2 && kv.checked; document.querySelectorAll("[data-when='s:form'] .choice").forEach(function (c) { c.disabled = !ok; c.setAttribute("aria-describedby", ok ? "" : "eksik"); }); }
+    function fill() { var f = document.documentElement.getAttribute("data-s-form") === "dolu"; ad.value = f ? "Ayşe Yılmaz" : ""; kv.checked = f; sync(); }
+    ad.addEventListener("input", sync); kv.addEventListener("change", sync);
+    document.addEventListener("click", function (e) { if (e.target.closest("[data-set^='form:']")) fill(); });
+    fill();
+  });
+</script>
+</body>
+</html>

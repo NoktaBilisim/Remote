@@ -1,0 +1,11 @@
+# gitleaks yapılandırması (mimari §5.4, G-18). Varsayılan kurallar + dar istisnalar.
+# İstisna eklemek: yalnız sahte test değeri içeren TEK dosya yolu; gerekçe yorumda yazılır.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Sahte test değerleri"
+paths = [
+  # Entegrasyon testi sabit parolası (gerçek ortamda geçerli değil)
+  '''^apps/server/test/helpers/app\.ts$''',
+]

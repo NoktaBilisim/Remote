@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ekranınız paylaşılıyor — Nokta Bilişim</title>
+<link rel="icon" href="img/favicon-32x32.png"><link rel="stylesheet" href="tasarim.css">
+<script src="tasarim.js"></script><script src="ikonlar.js" defer></script>
+</head>
+<body>
+<div class="mock-bar" role="region" aria-label="Taslak denetimleri">
+  <a href="index.html"><svg class="i" aria-hidden="true"><use href="#i-arrow-left"/></svg>Taslaklar</a>
+  <span class="lbl">Durum</span>
+  <span class="seg"><button data-set="s:paylas">Paylaşılıyor</button><button data-set="s:durdu">Paylaşım durdu</button><button data-set="s:koptu">Bağlantı koptu</button><button data-set="s:bitti">Oturum bitti</button></span>
+  <span class="spacer row"><span class="lbl">Tema</span><span class="seg"><button data-tema="acik"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg>Açık</button><button data-tema="koyu"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg>Koyu</button><button data-tema="sistem"><svg class="i" aria-hidden="true"><use href="#i-laptop"/></svg>Sistem</button></span></span>
+</div>
+
+<div class="share-strip" role="status" data-when="s:paylas">
+  <span class="live"><span class="rec" aria-hidden="true"></span>Ekranınız paylaşılıyor</span>
+  <span class="muted small">Mehmet Kaya (Nokta Bilişim) görüyor · yalnız görüntü · <span class="num">12:48</span></span>
+  <span class="spacer"></span>
+  <button class="btn sm" data-set="s:durdu"><svg class="i" aria-hidden="true"><use href="#i-circle-stop"/></svg>Paylaşımı durdur</button>
+  <button class="btn danger sm" data-open="dlg-bitir"><svg class="i" aria-hidden="true"><use href="#i-power"/></svg>Oturumu bitir</button>
+</div>
+<div class="share-strip warn" role="status" data-when="s:durdu">
+  <span class="live"><svg class="i" aria-hidden="true"><use href="#i-screen-share-off"/></svg>Paylaşım durdu — teknisyen ekranınızı görmüyor</span>
+  <span class="spacer"></span>
+  <button class="btn primary sm" data-set="s:paylas"><svg class="i" aria-hidden="true"><use href="#i-screen-share"/></svg>Yeniden paylaş</button>
+  <button class="btn danger sm" data-open="dlg-bitir"><svg class="i" aria-hidden="true"><use href="#i-power"/></svg>Oturumu bitir</button>
+</div>
+<div class="share-strip warn" role="alert" data-when="s:koptu">
+  <span class="live"><svg class="i spin" aria-hidden="true"><use href="#i-loader-circle"/></svg>Bağlantı koptu, yeniden bağlanılıyor…</span>
+  <span class="muted small">Bu sekmeyi kapatmayın · <span class="num">1:46</span> içinde bağlanamazsa oturum biter</span>
+</div>
+
+<main class="sess" data-when="s:paylas|durdu|koptu">
+  <div class="stack">
+    <section class="panel panel-pad stack" aria-labelledby="on-t">
+      <div class="row wrap"><h1 id="on-t" class="grow">Teknisyenin gördüğü</h1><span class="badge lobby nodot" data-when="s:paylas"><svg class="i" aria-hidden="true"><use href="#i-pen-line"/></svg>Mehmet Kaya işaretliyor</span></div>
+      <div class="remote mini" role="img" aria-label="Ekranınızın önizlemesi; teknisyen hata penceresini daire içine almış">
+        <div class="scr-win"><div class="scr-title">Muhasebe — e-Fatura Gönderim Listesi</div><div class="scr-tb"><span>Gönder</span><span>Yenile</span></div>
+          <div class="scr-rows"><div><span>Fatura No</span><span>Alıcı</span><span>Tutar</span><span>Durum</span></div><div><span>NKT2026000418</span><span>Demir Lojistik</span><span>12.480,00 ₺</span><span>Gönderildi</span></div><div><span>NKT2026000419</span><span>Kaya Yapı</span><span>3.250,00 ₺</span><span>Hata</span></div></div></div>
+        <div class="scr-dlg"><b>e-Fatura gönderilemedi</b><p>Entegratör bağlantısı zaman aşımına uğradı.</p><span>Tamam</span></div>
+        <div class="scr-task"></div>
+        <svg class="annot" viewBox="0 0 1000 562" preserveAspectRatio="none" aria-hidden="true" data-when="s:paylas"><ellipse cx="510" cy="250" rx="200" ry="80"/></svg>
+      </div>
+      <p class="muted small">İşaretler yalnız bu önizlemede ve teknisyenin ekranında görünür; çalıştığınız pencerelere bir şey çizilmez.</p>
+    </section>
+    <div class="alert info"><svg class="i i-5" aria-hidden="true"><use href="#i-eye"/></svg><div><strong>Teknisyen yalnızca görebilir</strong>Tarayıcıdan paylaşımda fareniz ve klavyeniz kullanılamaz. Bu sekmeyi kapatırsanız paylaşım durur.</div></div>
+    <section class="panel panel-pad stack-2" aria-labelledby="dosya-t" data-when="s:paylas">
+      <h2 id="dosya-t" class="row"><svg class="i i-5" aria-hidden="true"><use href="#i-paperclip"/></svg>Gelen dosya</h2>
+      <div class="file"><svg class="i i-5" aria-hidden="true"><use href="#i-file-text"/></svg><div><b>efatura-ayar-rehberi.pdf</b><div class="meta">Mehmet Kaya gönderiyor · 1,2 MB</div></div><span></span></div>
+      <p class="small muted row"><svg class="i" aria-hidden="true"><use href="#i-triangle-alert"/></svg>Yalnız beklediğiniz dosyaları açın.</p>
+      <div class="row wrap"><button class="btn primary sm" data-toast="efatura-ayar-rehberi.pdf indirildi"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Kabul et ve indir</button><button class="btn sm" data-toast="Dosya reddedildi">Reddet</button></div>
+    </section>
+  </div>
+  <section class="panel chat" aria-labelledby="sohbet-t">
+    <h2 id="sohbet-t" class="row chat-h"><svg class="i i-5" aria-hidden="true"><use href="#i-message-square"/></svg>Sohbet</h2>
+    <div class="side-body" aria-live="polite">
+      <span class="sys">14:08 Bağlandınız</span>
+      <div class="msg me"><small>Siz · 14:09</small><p>Fatura gönderirken hata veriyor, ekranımı görüyor musunuz?</p></div>
+      <div class="msg"><small>Mehmet Kaya · 14:09</small><p>Görüyorum. Hata penceresini işaretledim, size bir rehber gönderiyorum.</p></div>
+    </div>
+    <form class="composer" onsubmit="return false"><label class="sr-only" for="m">Mesaj</label><textarea class="input grow" id="m" placeholder="Mesajınızı yazın"></textarea><button class="btn primary icon" aria-label="Gönder"><svg class="i" aria-hidden="true"><use href="#i-send"/></svg></button></form>
+  </section>
+</main>
+
+<main class="guest" data-when="s:bitti">
+  <section class="panel empty"><svg class="i i-8" aria-hidden="true"><use href="#i-circle-check"/></svg><h1>Oturum sona erdi</h1><p>Ekran paylaşımı kapandı; teknisyen artık ekranınızı göremez. Bu sekmeyi kapatabilirsiniz.</p><p class="small">Süre 38 dk · Teknisyen Mehmet Kaya · Nokta Bilişim</p></section>
+</main>
+
+<dialog class="dlg dlg-sm" id="dlg-bitir" aria-labelledby="dlg-bitir-t">
+  <div class="dlg-head"><h2 id="dlg-bitir-t">Oturumu bitirmek istiyor musunuz?</h2></div>
+  <div class="dlg-body"><p>Ekran paylaşımı ve sohbet kapanır. Tekrar destek için teknisyeninizden yeni bağlantı istemeniz gerekir.</p></div>
+  <div class="dlg-foot"><button class="btn" data-close autofocus>Devam et</button><button class="btn danger" data-close data-set="s:bitti">Oturumu bitir</button></div>
+</dialog>
+</body>
+</html>

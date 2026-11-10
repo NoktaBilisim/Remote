@@ -1,0 +1,34 @@
+import { defineConfig, devices } from "@playwright/test";
+
+// E2E: üretim derlemesi (gerçek CSP) + sahte API (e2e/mock-api.mjs). Komut: pnpm --filter @remote/web e2e
+const PORT = 3217;
+export default defineConfig({
+  testDir: "e2e",
+  fullyParallel: true,
+  reporter: [["list"]],
+  use: { baseURL: `http://localhost:${PORT}`, trace: "retain-on-failure" },
+  projects: [
+    { name: "desktop", use: { ...devices["Desktop Chrome"] } },
+    { name: "mobile", use: { ...devices["Pixel 7"] } },
+  ],
+  webServer: [
+    { command: "node e2e/mock-api.mjs", port: 4217, reuseExistingServer: false, env: { MOCK_API_PORT: "4217" } },
+    {
+      // Üretim imajıyla aynı yol (apps/web/Dockerfile): standalone server.js + static/public kopyası
+      command:
+        "./node_modules/.bin/next build && cp -R .next/static .next/standalone/apps/web/.next/ && " +
+        "cp -R public .next/standalone/apps/web/ && node .next/standalone/apps/web/server.js",
+      port: PORT,
+      timeout: 180_000,
+      reuseExistingServer: false,
+      env: {
+        API_INTERNAL_URL: "http://127.0.0.1:4217",
+        PUBLIC_BASE_URL: `http://localhost:${PORT}`,
+        PORT: String(PORT),
+        // Yalnız e2e: gerçek sır DEĞİL. Üretim derlemesi readEdgeSecret() ile >= 32 karakter ister (lib/edge-forward.ts)
+        EDGE_PROXY_SECRET: "e2e-only-edge-secret-not-for-production-000",
+        HOSTNAME: "0.0.0.0",
+      },
+    },
+  ],
+});

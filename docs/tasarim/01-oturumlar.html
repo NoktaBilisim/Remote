@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Destek oturumları — Nokta Uzaktan Destek</title>
+<link rel="icon" href="img/favicon-32x32.png"><link rel="stylesheet" href="tasarim.css">
+<script src="tasarim.js"></script><script src="ikonlar.js" defer></script>
+</head>
+<body>
+<div class="mock-bar" role="region" aria-label="Taslak denetimleri">
+  <a href="index.html"><svg class="i" aria-hidden="true"><use href="#i-arrow-left"/></svg>Taslaklar</a>
+  <span class="lbl">Liste</span>
+  <span class="seg"><button data-set="liste:dolu">Dolu</button><button data-set="liste:bos">Boş</button><button data-set="liste:yukleniyor">Yükleniyor</button><button data-set="liste:hata">Hata</button></span>
+  <span class="lbl">Diyalog</span>
+  <span class="seg"><button data-set="dlg:olustu">Oluştu</button><button data-set="dlg:olusturuluyor">Oluşturuluyor</button><button data-set="dlg:limit">Limit (409)</button></span>
+  <span class="spacer row"><span class="lbl">Tema</span><span class="seg"><button data-tema="acik"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg>Açık</button><button data-tema="koyu"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg>Koyu</button><button data-tema="sistem"><svg class="i" aria-hidden="true"><use href="#i-laptop"/></svg>Sistem</button></span></span>
+</div>
+<div class="shell">
+  <nav class="sidebar" aria-label="Ana menü">
+    <div class="brand"><span class="logo-card"><img src="img/nokta-kucuk.png" alt="Nokta Bilişim" width="28" height="28"></span>Uzaktan Destek</div>
+    <div class="nav stack-2">
+      <a href="01-oturumlar.html" aria-current="page"><svg class="i i-5" aria-hidden="true"><use href="#i-monitor-smartphone"/></svg>Oturumlar<span class="count" aria-label="1 katılımcı bekliyor">1</span></a>
+      <a href="#"><svg class="i i-5" aria-hidden="true"><use href="#i-history"/></svg>Oturum geçmişi</a>
+      <p class="nav-sep">Yönetim</p>
+      <a href="07-kullanici-yetki.html"><svg class="i i-5" aria-hidden="true"><use href="#i-users"/></svg>Kullanıcılar</a>
+      <a href="#"><svg class="i i-5" aria-hidden="true"><use href="#i-settings"/></svg>Ayarlar</a>
+      <a href="#"><svg class="i i-5" aria-hidden="true"><use href="#i-scroll-text"/></svg>Audit log</a>
+    </div>
+  </nav>
+  <div class="main">
+    <header class="topbar">
+      <ol class="crumb" aria-label="Konum">
+        <li><a href="#"><svg class="i" aria-hidden="true"><use href="#i-house"/></svg>Ana sayfa</a></li>
+        <li aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-chevron-right"/></svg></li>
+        <li><span aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-monitor-smartphone"/></svg>Oturumlar</span></li>
+      </ol>
+      <span class="spacer"></span>
+      <button class="btn ghost icon" aria-label="Tema: Sistem"><svg class="i i-5" aria-hidden="true"><use href="#i-laptop"/></svg></button>
+      <button class="btn ghost" aria-label="Hesap menüsü: Mehmet Kaya"><span class="avatar">MK</span><span>Mehmet Kaya</span><svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+    </header>
+    <main class="page">
+      <div class="page-head">
+        <div class="grow"><h1>Destek oturumları</h1><p>Link ve kod 15 dakika geçerlidir, tek kullanımlıktır. Aynı anda en fazla 3 açık oturumunuz olabilir.</p></div>
+        <button class="btn primary" data-open="dlg-yeni"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Yeni destek oturumu</button>
+      </div>
+      <div class="toolbar" data-when="liste:dolu|hata">
+        <span class="seg" role="group" aria-label="Durum filtresi"><button aria-pressed="true">Tümü <span class="muted num">6</span></button><button aria-pressed="false">Açık <span class="muted num">3</span></button><button aria-pressed="false">Bitmiş <span class="muted num">3</span></button></span>
+        <label class="search"><span class="sr-only">Müşteri adı veya kodla ara</span><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input class="input" type="search" placeholder="Müşteri adı veya kod"></label>
+        <span class="spacer muted small">Son güncelleme 14:13:40 · canlı</span>
+      </div>
+      <div data-when="liste:dolu">
+        <div class="alert warning" role="status" data-mb><svg class="i i-5" aria-hidden="true"><use href="#i-user-check"/></svg><div class="grow"><strong>Ayşe Yılmaz lobide bekliyor</strong>Telefonda 4 haneli kabul kodunu sorun ve konsolda girin. Bekleme 5 dakika ile sınırlıdır.</div><a class="btn primary sm" href="04-konsol.html?durum=ekran:lobi">Konsola git<svg class="i" aria-hidden="true"><use href="#i-arrow-right"/></svg></a></div>
+        <div class="table-wrap">
+        <table class="t">
+          <caption class="sr-only">Destek oturumları</caption>
+          <thead><tr><th scope="col">Müşteri</th><th scope="col">Durum</th><th scope="col">Oturum kodu</th><th scope="col">Bağlantı</th><th scope="col">Oluşturma</th><th scope="col">Süre</th><th scope="col"><span class="sr-only">Eylemler</span></th></tr></thead>
+          <tbody>
+            <tr class="attn"><td><div class="who"><span class="avatar">AY</span><div>Ayşe Yılmaz<small>Muhasebe — Kaya Yapı</small></div></div></td><td data-l="Durum"><span class="badge lobby">Lobide</span></td><td data-l="Kod" class="code">4829 1376</td><td data-l="Bağlantı">Hızlı Destek</td><td data-l="Oluşturma" class="num">14:02</td><td data-l="Süre" class="num"><span class="row"><svg class="i" aria-hidden="true"><use href="#i-timer"/></svg>11:24 kaldı</span></td><td class="act"><a class="btn primary sm" href="04-konsol.html?durum=ekran:lobi">Kabul et</a></td></tr>
+            <tr><td><div class="who"><span class="avatar none" aria-hidden="true">—</span><div class="muted">Henüz katılmadı<small>Link e-postayla gönderildi</small></div></div></td><td data-l="Durum"><span class="badge wait">Bekliyor</span></td><td data-l="Kod" class="code">7710 3348</td><td data-l="Bağlantı" class="muted">—</td><td data-l="Oluşturma" class="num">14:10</td><td data-l="Süre" class="num"><span class="row"><svg class="i" aria-hidden="true"><use href="#i-timer"/></svg>13:51 kaldı</span></td><td class="act"><button class="btn ghost icon sm" aria-label="Linki kopyala" data-copy="https://destek.noktabilisim.com.tr/session/…" data-copy-msg="Oturum linki kopyalandı"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg></button><button class="btn ghost icon sm" aria-label="Oturumu iptal et" data-open="dlg-iptal"><svg class="i" aria-hidden="true"><use href="#i-circle-x"/></svg></button></td></tr>
+            <tr><td><div class="who"><span class="avatar">BD</span><div>Burak Demir<small>Satış — Demir Lojistik</small></div></div></td><td data-l="Durum"><span class="badge active">Aktif</span></td><td data-l="Kod" class="muted">—</td><td data-l="Bağlantı">Tarayıcı (yalnız görüntü)</td><td data-l="Oluşturma" class="num">13:41</td><td data-l="Süre" class="num">22:15</td><td class="act"><a class="btn sm" href="04-konsol.html">Konsolu aç</a></td></tr>
+            <tr><td><div class="who"><span class="avatar">SA</span><div>Selin Arslan<small>Ticket #DS-20481</small></div></div></td><td data-l="Durum"><span class="badge done">Bitti</span></td><td data-l="Kod" class="muted">—</td><td data-l="Bağlantı">Hızlı Destek</td><td data-l="Oluşturma" class="num">11:05</td><td data-l="Süre" class="num">38 dk</td><td class="act"><a class="btn ghost sm" href="#">Ayrıntı</a></td></tr>
+            <tr><td><div class="who"><span class="avatar none" aria-hidden="true">—</span><div class="muted">Katılım olmadı</div></div></td><td data-l="Durum"><span class="badge expired">Süresi doldu</span></td><td data-l="Kod" class="muted">—</td><td data-l="Bağlantı" class="muted">—</td><td data-l="Oluşturma" class="num">10:30</td><td data-l="Süre" class="muted">—</td><td class="act"></td></tr>
+            <tr><td><div class="who"><span class="avatar">KÖ</span><div>Kemal Öztürk<small>Teknisyen iptal etti</small></div></div></td><td data-l="Durum"><span class="badge cancel">İptal</span></td><td data-l="Kod" class="muted">—</td><td data-l="Bağlantı" class="muted">—</td><td data-l="Oluşturma" class="num">09:52</td><td data-l="Süre" class="muted">—</td><td class="act"></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel" data-when="liste:bos">
+        <div class="empty"><svg class="i i-8" aria-hidden="true"><use href="#i-monitor-smartphone"/></svg><h2>Henüz destek oturumunuz yok</h2><p>Yeni bir oturum oluşturun; müşterinize link veya 8 haneli kod gönderin. Müşteri katıldığında burada “Lobide” olarak görünür.</p><button class="btn primary" data-open="dlg-yeni"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Yeni destek oturumu</button></div>
+      </div>
+      <div class="table-wrap" data-when="liste:yukleniyor" aria-busy="true" aria-label="Oturumlar yükleniyor">
+        <div class="stack pad-4"><span class="sk w30"></span><span class="sk"></span><span class="sk w85"></span><span class="sk"></span><span class="sk w70"></span></div>
+      </div>
+      <div class="alert danger" role="alert" data-when="liste:hata"><svg class="i i-5" aria-hidden="true"><use href="#i-circle-alert"/></svg><div class="grow"><strong>Oturumlar alınamadı</strong>Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin. <span class="muted small">İstek kimliği: 7f3c-a91e</span></div><button class="btn sm" data-set="liste:dolu"><svg class="i" aria-hidden="true"><use href="#i-rotate-cw"/></svg>Tekrar dene</button></div>
+    </main>
+  </div>
+</div>
+
+<dialog class="dlg" id="dlg-yeni" aria-labelledby="dlg-yeni-t">
+  <div class="dlg-head"><div class="grow"><h2 id="dlg-yeni-t">Yeni destek oturumu</h2><p class="muted" data-when="dlg:olustu">Linki veya kodu müşterinize iletin. 15 dakika içinde kullanılmazsa geçersiz olur.</p></div><button class="btn ghost icon sm" aria-label="Kapat" data-close><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+  <div class="dlg-body" data-when="dlg:olustu">
+    <div class="field"><label class="label" for="lnk">Oturum linki</label>
+      <div class="row"><input class="input grow code" id="lnk" readonly value="https://destek.noktabilisim.com.tr/session/q3Vf8kL2xR0pNw7tYbE1cJ"><button class="btn" data-copy="https://destek.noktabilisim.com.tr/session/q3Vf8kL2xR0pNw7tYbE1cJ" data-copy-msg="Oturum linki kopyalandı"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg>Kopyala</button></div>
+      <p class="hint">Link yalnız şimdi gösterilir; sonradan tekrar görüntülenemez.</p></div>
+    <div class="codes">
+      <div class="code-box"><span class="label">Oturum kodu</span><span class="code big">4829 1376</span><button class="btn ghost sm" data-copy="48291376" data-copy-msg="Oturum kodu kopyalandı"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg>Kopyala</button><p class="hint">Hızlı Destek uygulaması dosya adından okur; değişirse müşteri elle girer.</p></div>
+      <div class="code-box"><span class="label">Teknisyen doğrulama kodu</span><span class="code big">7305</span><p class="hint">Müşterinin ekranında da bu kod yazar. Telefonda söyleyin; eşleşmezse müşteri devam etmemeli.</p></div>
+    </div>
+    <div class="field"><label class="label" for="eposta">E-posta ile gönder</label>
+      <div class="row"><input class="input grow" id="eposta" type="email" placeholder="ad.soyad@firma.com.tr" autocomplete="off"><button class="btn" data-toast="Link ayse.yilmaz@kayayapi.com.tr adresine gönderildi"><svg class="i" aria-hidden="true"><use href="#i-mail"/></svg>Gönder</button></div></div>
+    <p class="row muted small"><svg class="i" aria-hidden="true"><use href="#i-timer"/></svg>Geçerlilik: <b class="num">14:52</b> kaldı (14:28'de sona erer)</p>
+  </div>
+  <div class="dlg-body" data-when="dlg:olusturuluyor" aria-busy="true"><p class="row muted"><svg class="i spin" aria-hidden="true"><use href="#i-loader-circle"/></svg>Güvenli link ve kod oluşturuluyor…</p><span class="sk"></span><div class="codes"><span class="sk sk-tall"></span><span class="sk sk-tall"></span></div></div>
+  <div class="dlg-body" data-when="dlg:limit"><div class="alert warning" role="alert"><svg class="i i-5" aria-hidden="true"><use href="#i-triangle-alert"/></svg><div><strong>Açık oturum sınırına ulaştınız</strong>Aynı anda en fazla 3 açık oturumunuz olabilir. Kullanılmayan bir oturumu iptal edin veya bitmesini bekleyin.</div></div></div>
+  <div class="dlg-foot">
+    <button class="btn danger-ghost" data-open="dlg-iptal" data-when="dlg:olustu"><svg class="i" aria-hidden="true"><use href="#i-circle-x"/></svg>Oturumu iptal et</button>
+    <span class="spacer"></span>
+    <button class="btn" data-close>Kapat</button>
+    <a class="btn primary" href="04-konsol.html?durum=ekran:bekliyor" data-when="dlg:olustu"><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg>Konsolu aç</a>
+  </div>
+</dialog>
+
+<dialog class="dlg dlg-sm" id="dlg-iptal" aria-labelledby="dlg-iptal-t">
+  <div class="dlg-head"><div class="grow"><h2 id="dlg-iptal-t">Oturum iptal edilsin mi?</h2></div></div>
+  <div class="dlg-body"><p>Kod <b class="code">7710 3348</b> ve link hemen geçersiz olur. Müşteri linki açarsa “Bu destek bağlantısı iptal edildi” görür. Bu işlem geri alınamaz.</p></div>
+  <div class="dlg-foot"><button class="btn" data-close autofocus>Vazgeç</button><button class="btn danger" data-close data-toast="Oturum iptal edildi">İptal et</button></div>
+</dialog>
+</body>
+</html>

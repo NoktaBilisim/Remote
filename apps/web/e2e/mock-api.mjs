@@ -1,0 +1,109 @@
+// E2E için sahte API (yalnız test). docs/mimari-api.md "Auth" sözleşmesini taklit eder.
+// SSR'daki /auth/me çağrısı da buraya geldiği için Playwright route mock yerine küçük bir HTTP sunucusu.
+import { createServer } from "node:http";
+// Çerez/başlık adları tek kaynaktan (Node 24 .ts tür ayıklama ile doğrudan okunur)
+import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { handleSessions, sessionUser } from "./mock-sessions.mjs";
+
+const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
+const CSRF = "csrf-test-token";
+
+const users = {
+  "s-ok": { id: "01JUSER0000000000000000001", email: "teknisyen@ornek.com", fullName: "Ayşe Teknisyen", role: "USER", mustChangePassword: false },
+  "s-must": { id: "01JUSER0000000000000000002", email: "yeni@ornek.com", fullName: "Yeni Kullanıcı", role: "ADMIN", mustChangePassword: true },
+};
+const accounts = {
+  "teknisyen@ornek.com": { password: "DogruSifre123!", session: "s-ok" },
+  "yeni@ornek.com": { password: "GeciciSifre123!", session: "s-must" },
+};
+
+const err = (code, message, extra = {}) => ({ error: { code, message, requestId: "01JREQ00000000000000000000", ...extra } });
+
+function cookies(req) {
+  return Object.fromEntries(
+    (req.headers.cookie ?? "").split(";").filter(Boolean).map((p) => {
+      const [k, ...v] = p.trim().split("=");
+      return [k, decodeURIComponent(v.join("="))];
+    }),
+  );
+}
+
+function send(res, status, body, setCookies = [], extra = {}) {
+  const headers = { "Content-Type": "application/json; charset=utf-8", ...extra };
+  if (setCookies.length) headers["Set-Cookie"] = setCookies;
+  res.writeHead(status, headers);
+  res.end(body === undefined ? undefined : JSON.stringify(body));
+}
+
+const sessionCookies = (token) => [
+  `${SESSION_COOKIE}=${token}; Path=/; Secure; HttpOnly; SameSite=Strict`,
+  `${CSRF_COOKIE}=${CSRF}; Path=/; Secure; SameSite=Strict`,
+];
+const clearCookies = [`${SESSION_COOKIE}=; Path=/; Secure; Max-Age=0`, `${CSRF_COOKIE}=; Path=/; Secure; Max-Age=0`];
+
+async function readJson(req) {
+  let raw = "";
+  for await (const chunk of req) raw += chunk;
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    return {};
+  }
+}
+
+createServer(async (req, res) => {
+  const c = cookies(req);
+  const session = c[SESSION_COOKIE];
+  const url = req.url ?? "";
+  const csrfOk = req.headers[CSRF_HEADER.toLowerCase()] === CSRF && c[CSRF_COOKIE] === CSRF;
+  // Backend gibi: durum değiştiren isteklerde Origin allowlist'te olmalı (ADR-0008)
+  if (req.method !== "GET" && req.headers.origin !== (process.env.MOCK_ALLOWED_ORIGIN ?? "http://localhost:3217"))
+    return send(res, 403, err("FORBIDDEN", "Origin reddedildi."));
+
+  if (req.method === "POST" && url === "/api/v1/auth/login") {
+    const { login = "", password = "" } = await readJson(req);
+    if (login === "kilitli@ornek.com")
+      return send(res, 423, err("ACCOUNT_LOCKED", "Çok fazla hatalı deneme. Hesap geçici olarak kilitlendi."), [], {
+        "Retry-After": "878",
+      });
+    if (login === "hata500@ornek.com") return send(res, 500, err("INTERNAL", "Sunucu hatası oluştu."));
+    const acc = accounts[login.toLowerCase()];
+    if (!acc || acc.password !== password)
+      return send(res, 401, err("UNAUTHENTICATED", "Giriş bilgileri hatalı."));
+    const user = users[acc.session];
+    return send(res, 200, { user, mfaRequired: false, mustChangePassword: user.mustChangePassword }, sessionCookies(acc.session));
+  }
+
+  if (req.method === "GET" && url === "/api/v1/auth/me") {
+    // Yavaş API simülasyonu (kararsızlık testi): MOCK_ME_DELAY_MS=400 pnpm e2e
+    const delay = Number(process.env.MOCK_ME_DELAY_MS ?? 0);
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    if (session === "s-broken") return send(res, 503, err("INTERNAL", "Hazır değil"));
+    const tenant = { id: "01JTENANT", name: "Demo Firma" };
+    const su = sessionUser(session);
+    if (su) return send(res, 200, { ...su, tenant });
+    const user = users[session];
+    if (!user) return send(res, 401, err("UNAUTHENTICATED", "Oturum gerekli."));
+    return send(res, 200, { user, permissions: ["sessions.view", "sessions.create", "sessions.delete"], tenant });
+  }
+
+  if (req.method === "POST" && url === "/api/v1/auth/password/change") {
+    if (!users[session]) return send(res, 401, err("UNAUTHENTICATED", "Oturum gerekli."));
+    if (!csrfOk) return send(res, 403, err("FORBIDDEN", "CSRF doğrulaması başarısız."));
+    const { current, next } = await readJson(req);
+    if (current !== "GeciciSifre123!" && current !== "DogruSifre123!")
+      return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { current: "Mevcut şifre hatalı." } }));
+    if (typeof next !== "string" || next.length < 12)
+      return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { next: "En az 12 karakter." } }));
+    return send(res, 204, undefined, sessionCookies("s-ok"));
+  }
+
+  if (req.method === "POST" && url === "/api/v1/auth/logout") {
+    if (!csrfOk) return send(res, 403, err("FORBIDDEN", "CSRF doğrulaması başarısız."));
+    return send(res, 204, undefined, clearCookies);
+  }
+
+  if (await handleSessions(req, res, { url, session, csrfOk, send, err, readJson })) return;
+
+  send(res, 404, err("NOT_FOUND", "Bulunamadı."));
+}).listen(PORT, "127.0.0.1", () => console.log(`mock-api :${PORT}`));

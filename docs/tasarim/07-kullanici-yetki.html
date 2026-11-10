@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Can Aydın — Kullanıcılar — Nokta Uzaktan Destek</title>
+<link rel="icon" href="img/favicon-32x32.png"><link rel="stylesheet" href="tasarim.css">
+<script src="tasarim.js"></script><script src="ikonlar.js" defer></script>
+</head>
+<body>
+<div class="mock-bar" role="region" aria-label="Taslak denetimleri">
+  <a href="index.html"><svg class="i" aria-hidden="true"><use href="#i-arrow-left"/></svg>Taslaklar</a>
+  <span class="lbl">Form</span>
+  <span class="seg"><button data-set="form:temiz">Kaydedilmiş</button><button data-set="form:degisti">Değişti</button><button data-set="form:hata">Sunucu hatası</button><button data-set="form:yukleniyor">Yükleniyor</button></span>
+  <span class="spacer row"><span class="lbl">Tema</span><span class="seg"><button data-tema="acik"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg>Açık</button><button data-tema="koyu"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg>Koyu</button><button data-tema="sistem"><svg class="i" aria-hidden="true"><use href="#i-laptop"/></svg>Sistem</button></span></span>
+</div>
+<div class="shell">
+  <nav class="sidebar" aria-label="Ana menü">
+    <div class="brand"><span class="logo-card"><img src="img/nokta-kucuk.png" alt="Nokta Bilişim" width="28" height="28"></span>Uzaktan Destek</div>
+    <div class="nav stack-2">
+      <a href="01-oturumlar.html"><svg class="i i-5" aria-hidden="true"><use href="#i-monitor-smartphone"/></svg>Oturumlar<span class="count" aria-label="1 katılımcı bekliyor">1</span></a>
+      <a href="#"><svg class="i i-5" aria-hidden="true"><use href="#i-history"/></svg>Oturum geçmişi</a>
+      <p class="nav-sep">Yönetim</p>
+      <a href="07-kullanici-yetki.html" aria-current="page"><svg class="i i-5" aria-hidden="true"><use href="#i-users"/></svg>Kullanıcılar</a>
+      <a href="#"><svg class="i i-5" aria-hidden="true"><use href="#i-settings"/></svg>Ayarlar</a>
+      <a href="#"><svg class="i i-5" aria-hidden="true"><use href="#i-scroll-text"/></svg>Audit log</a>
+    </div>
+  </nav>
+  <div class="main">
+    <header class="topbar">
+      <ol class="crumb" aria-label="Konum">
+        <li><a href="#"><svg class="i" aria-hidden="true"><use href="#i-house"/></svg>Ana sayfa</a></li>
+        <li aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-chevron-right"/></svg></li>
+        <li><a href="#"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg>Kullanıcılar</a></li><li aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-chevron-right"/></svg></li><li><span aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-user-round"/></svg>Can Aydın</span></li>
+      </ol>
+      <span class="spacer"></span>
+      <button class="btn ghost icon" aria-label="Tema: Sistem"><svg class="i i-5" aria-hidden="true"><use href="#i-laptop"/></svg></button>
+      <button class="btn ghost" aria-label="Hesap menüsü: Zeynep Koç"><span class="avatar">ZK</span><span>Zeynep Koç · Admin</span><svg class="i" aria-hidden="true"><use href="#i-chevron-down"/></svg></button>
+    </header>
+    <main class="page">
+      <div class="page-head">
+        <div class="grow"><h1>Can Aydın</h1><p>Teknisyen · can.aydin@noktabilisim.com.tr · son giriş 11.11.2026 09:12</p></div>
+        <button class="btn danger-ghost" data-open="dlg-pasif"><svg class="i" aria-hidden="true"><use href="#i-user-x"/></svg>Kullanıcıyı pasife al</button>
+      </div>
+      <div class="alert danger" role="alert" data-when="form:hata"><svg class="i i-5" aria-hidden="true"><use href="#i-circle-alert"/></svg><div><strong>Değişiklikler kaydedilemedi</strong>“Audit log — Dışa aktar” yetkisine sizin sahip olmadığınız için bu yetkiyi veremezsiniz. Diğer değişiklikleriniz formda duruyor. <span class="muted small">İstek kimliği: 2b81-c07d</span></div></div>
+      <div class="user-grid" data-when="form:temiz|degisti|hata">
+        <section class="panel panel-pad stack" aria-labelledby="prof-t">
+          <h2 id="prof-t">Profil</h2>
+          <div class="row"><span class="avatar lg">CA</span><div class="stack-2"><div class="row wrap"><button class="btn sm"><svg class="i" aria-hidden="true"><use href="#i-upload"/></svg>Resim yükle</button><button class="btn ghost sm" disabled><svg class="i" aria-hidden="true"><use href="#i-trash-2"/></svg>Kaldır</button></div><p class="hint">PNG, JPG veya WEBP · en fazla 2 MB · kare kırpılır</p></div></div>
+          <div class="field"><label class="label" for="ad">Ad soyad</label><input class="input" id="ad" value="Can Aydın"></div>
+          <div class="field"><label class="label" for="ep">E-posta</label><input class="input" id="ep" type="email" value="can.aydin@noktabilisim.com.tr"></div>
+          <div class="field"><label class="label" for="rol">Rol</label><select class="input" id="rol"><option>Kullanıcı (teknisyen)</option><option>Admin</option></select><p class="hint">Rol değişince yetkiler o rolün varsayılanına döner.</p></div>
+          <div class="row"><div class="grow"><b>Hesap durumu</b><p class="hint">Pasif kullanıcı giriş yapamaz.</p></div><span class="badge active">Aktif</span></div>
+          <div class="row"><div class="grow"><b>İki adımlı doğrulama</b><p class="hint">TOTP etkin · 03.10.2026</p></div><button class="btn sm"><svg class="i" aria-hidden="true"><use href="#i-key-round"/></svg>Sıfırla</button></div>
+        </section>
+        <section class="panel" aria-labelledby="yt-t">
+          <div class="panel-pad perm-head"><h2 id="yt-t">Yetkiler</h2><p class="muted">Kullanıcı rolü tümü kapalı başlar. Kaydettiğinizde kullanıcının açık destek oturumu sonlanır ve yeni yetkilerle tekrar giriş yapar.</p></div>
+          <table class="t perm">
+            <caption class="sr-only">Modül bazlı yetkiler</caption>
+            <thead><tr><th scope="col">Modül</th><th scope="col">Tümü</th><th scope="col">Görüntüle</th><th scope="col">Ekle</th><th scope="col">Düzenle</th><th scope="col">Sil</th><th scope="col">Dışa aktar</th><th scope="col">Diğer</th></tr></thead>
+            <tbody>
+<tr><th scope="row"><span class="row"><svg class="i i-5 muted" aria-hidden="true"><use href="#i-monitor-smartphone"/></svg>Oturumlar</span></th><td data-l="Tümünü aç/kapat"><span class="switch-hit"><button class="switch" role="switch" aria-checked="mixed" data-all="sessions" aria-label="Oturumlar: tümünü aç/kapat"></button></span></td><td data-l="Görüntüle"><span class="switch-hit"><button class="switch" role="switch" aria-checked="true" data-grp="sessions" aria-label="Oturumlar — Görüntüle"></button></span></td><td data-l="Ekle"><span class="switch-hit"><button class="switch" role="switch" aria-checked="true" data-grp="sessions" aria-label="Oturumlar — Ekle"></button></span></td><td data-l="Düzenle"><span class="switch-hit"><button class="switch" role="switch" aria-checked="true" data-grp="sessions" aria-label="Oturumlar — Düzenle"></button></span></td><td data-l="Sil"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-grp="sessions" aria-label="Oturumlar — Sil"></button></span></td><td data-l="Dışa aktar"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Zorla sonlandır"><span class="row"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-grp="sessions" aria-label="Oturumlar — Zorla sonlandır"></button></span><span class="small">Zorla sonlandır</span></span></td></tr>
+<tr><th scope="row"><span class="row"><svg class="i i-5 muted" aria-hidden="true"><use href="#i-mouse-pointer-click"/></svg>Uzaktan kontrol</span></th><td data-l="Tümünü aç/kapat"><span class="switch-hit"><button class="switch" role="switch" aria-checked="true" data-all="remote_control" aria-label="Uzaktan kontrol: tümünü aç/kapat"></button></span></td><td data-l="Görüntüle"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Ekle"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Düzenle"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Sil"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Dışa aktar"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Kullan"><span class="row"><span class="switch-hit"><button class="switch" role="switch" aria-checked="true" data-grp="remote_control" aria-label="Uzaktan kontrol — Kullan"></button></span><span class="small">Kullan</span></span></td></tr>
+<tr><th scope="row"><span class="row"><svg class="i i-5 muted" aria-hidden="true"><use href="#i-paperclip"/></svg>Dosya aktarımı</span></th><td data-l="Tümünü aç/kapat"><span class="switch-hit"><button class="switch" role="switch" aria-checked="true" data-all="file_transfer" aria-label="Dosya aktarımı: tümünü aç/kapat"></button></span></td><td data-l="Görüntüle"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Ekle"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Düzenle"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Sil"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Dışa aktar"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Kullan"><span class="row"><span class="switch-hit"><button class="switch" role="switch" aria-checked="true" data-grp="file_transfer" aria-label="Dosya aktarımı — Kullan"></button></span><span class="small">Kullan</span></span></td></tr>
+<tr><th scope="row"><span class="row"><svg class="i i-5 muted" aria-hidden="true"><use href="#i-history"/></svg>Oturum geçmişi</span></th><td data-l="Tümünü aç/kapat"><span class="switch-hit"><button class="switch" role="switch" aria-checked="mixed" data-all="session_history" aria-label="Oturum geçmişi: tümünü aç/kapat"></button></span></td><td data-l="Görüntüle"><span class="switch-hit"><button class="switch" role="switch" aria-checked="true" data-grp="session_history" aria-label="Oturum geçmişi — Görüntüle"></button></span></td><td data-l="Ekle"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Düzenle"><span class="switch-hit"><button class="switch" role="switch" aria-checked="true" data-grp="session_history" aria-label="Oturum geçmişi — Düzenle"></button></span></td><td data-l="Sil"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Dışa aktar"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-grp="session_history" aria-label="Oturum geçmişi — Dışa aktar"></button></span></td><td data-l="Diğer"><span class="na" aria-label="Uygulanmaz">—</span></td></tr>
+<tr><th scope="row"><span class="row"><svg class="i i-5 muted" aria-hidden="true"><use href="#i-users"/></svg>Kullanıcılar</span></th><td data-l="Tümünü aç/kapat"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-all="users" aria-label="Kullanıcılar: tümünü aç/kapat"></button></span></td><td data-l="Görüntüle"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-grp="users" aria-label="Kullanıcılar — Görüntüle"></button></span></td><td data-l="Ekle"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-grp="users" aria-label="Kullanıcılar — Ekle"></button></span></td><td data-l="Düzenle"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-grp="users" aria-label="Kullanıcılar — Düzenle"></button></span></td><td data-l="Sil"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-grp="users" aria-label="Kullanıcılar — Sil"></button></span></td><td data-l="Dışa aktar"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Diğer"><span class="na" aria-label="Uygulanmaz">—</span></td></tr>
+<tr><th scope="row"><span class="row"><svg class="i i-5 muted" aria-hidden="true"><use href="#i-settings"/></svg>Ayarlar</span></th><td data-l="Tümünü aç/kapat"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-all="settings" aria-label="Ayarlar: tümünü aç/kapat"></button></span></td><td data-l="Görüntüle"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-grp="settings" aria-label="Ayarlar — Görüntüle"></button></span></td><td data-l="Ekle"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Düzenle"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-grp="settings" aria-label="Ayarlar — Düzenle"></button></span></td><td data-l="Sil"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Dışa aktar"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Diğer"><span class="na" aria-label="Uygulanmaz">—</span></td></tr>
+<tr><th scope="row"><span class="row"><svg class="i i-5 muted" aria-hidden="true"><use href="#i-scroll-text"/></svg>Audit log</span></th><td data-l="Tümünü aç/kapat"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-all="audit" aria-label="Audit log: tümünü aç/kapat"></button></span></td><td data-l="Görüntüle"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" data-grp="audit" aria-label="Audit log — Görüntüle"></button></span></td><td data-l="Ekle"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Düzenle"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Sil"><span class="na" aria-label="Uygulanmaz">—</span></td><td data-l="Dışa aktar"><span class="switch-hit"><button class="switch" role="switch" aria-checked="false" disabled data-grp="audit" aria-label="Audit log — Dışa aktar: verilemez — bu yetkiye sizin sahip olmadığınız için" title="Sahip olmadığınız yetkiyi veremezsiniz"></button><svg class="i lock" aria-hidden="true"><use href="#i-lock"/></svg></span></td><td data-l="Diğer"><span class="na" aria-label="Uygulanmaz">—</span></td></tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+      <div class="user-grid" data-when="form:yukleniyor" aria-busy="true" aria-label="Kullanıcı yükleniyor"><div class="panel panel-pad stack"><span class="avatar lg"></span><span class="sk"></span><span class="sk w70"></span><span class="sk w50"></span></div><div class="panel panel-pad stack"><span class="sk w30"></span><span class="sk"></span><span class="sk"></span><span class="sk"></span><span class="sk w85"></span></div></div>
+      <div class="savebar" data-when="form:degisti|hata" role="region" aria-label="Kaydedilmemiş değişiklikler"><svg class="i i-5" aria-hidden="true"><use href="#i-circle-alert"/></svg><span class="grow">Kaydedilmemiş değişiklikler var. Sayfadan ayrılırsanız kaybolur.</span><button class="btn" data-set="form:temiz">Vazgeç</button><button class="btn primary" data-set="form:temiz" data-toast="Can Aydın kaydedildi · yetki değişiklikleri audit log'a yazıldı">Kaydet</button></div>
+    </main>
+  </div>
+</div>
+<dialog class="dlg dlg-sm" id="dlg-pasif" aria-labelledby="dlg-pasif-t">
+  <div class="dlg-head"><h2 id="dlg-pasif-t">Can Aydın pasife alınsın mı?</h2></div>
+  <div class="dlg-body"><p>Kullanıcı hemen oturumdan çıkarılır, açık destek oturumları sonlanır. Daha sonra tekrar aktif edebilirsiniz.</p></div>
+  <div class="dlg-foot"><button class="btn" data-close autofocus>Vazgeç</button><button class="btn danger" data-close data-toast="Can Aydın pasife alındı">Pasife al</button></div>
+</dialog>
+</body>
+</html>

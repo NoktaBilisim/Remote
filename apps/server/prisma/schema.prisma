@@ -1,0 +1,180 @@
+// Remote Support — P1+P2 veri modeli (docs/mimari.md §3, docs/db-notlari.md).
+// Kurallar: PK ULID CHAR(26) (uygulama üretir, lib/ids.ts); zaman DATETIME(3) UTC;
+// enum'lar VARCHAR(20) + zod enum; FK'ler ON DELETE RESTRICT (cascade yok);
+// tenant/kullanıcı soft delete (deleted_at/status); audit_logs append-only.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Tenant {
+  id        String    @id @db.Char(26)
+  name      String    @db.VarChar(120)
+  slug      String    @unique @db.VarChar(60)
+  status    String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | PASSIVE
+  logoPath  String?   @map("logo_path") @db.VarChar(200)
+  deletedAt DateTime? @map("deleted_at") @db.DateTime(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  settings        TenantSettings?
+  users           User[]
+  actingSessions  AuthSession[]
+  auditLogs       AuditLog[]
+  supportSessions SupportSession[]
+
+  @@map("tenants")
+}
+
+model TenantSettings {
+  tenantId        String   @id @map("tenant_id") @db.Char(26)
+  sessionTtlMin   Int      @default(15) @map("session_ttl_min") // 15..30
+  maxOpenSessions Int      @default(3) @map("max_open_sessions") // 1..10
+  maxActiveHours  Int      @default(4) @map("max_active_hours") // 1..8
+  maxFileMb       Int      @default(100) @map("max_file_mb") // 1..2048
+  requireTech2fa  Boolean  @default(true) @map("require_tech_2fa")
+  retentionDays   Int      @default(365) @map("retention_days") // 90..730
+  smtpHost        String?  @map("smtp_host") @db.VarChar(255)
+  smtpPort        Int?     @map("smtp_port")
+  smtpSecurity    String?  @map("smtp_security") @db.VarChar(20) // NONE | SSL | STARTTLS
+  smtpUser        String?  @map("smtp_user") @db.VarChar(190)
+  smtpPassEnc     Bytes?   @map("smtp_pass_enc") @db.VarBinary(512) // AES-256-GCM, §3.2
+  smtpFromName    String?  @map("smtp_from_name") @db.VarChar(100)
+  smtpFromEmail   String?  @map("smtp_from_email") @db.VarChar(190)
+  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("tenant_settings")
+}
+
+model User {
+  id                 String    @id @db.Char(26)
+  tenantId           String?   @map("tenant_id") @db.Char(26) // SUPER_ADMIN için NULL
+  email              String    @unique @db.VarChar(190)
+  username           String?   @unique @db.VarChar(60)
+  fullName           String    @map("full_name") @db.VarChar(100)
+  role               String    @db.VarChar(20) // SUPER_ADMIN | ADMIN | USER
+  passwordHash       String    @map("password_hash") @db.VarChar(255) // argon2id
+  mustChangePassword Boolean   @default(true) @map("must_change_password")
+  failedLoginCount   Int       @default(0) @map("failed_login_count") // 1 sa pencere (G-23)
+  failedWindowAt     DateTime? @map("failed_window_at") @db.DateTime(3)
+  lockedUntil        DateTime? @map("locked_until") @db.DateTime(3) // yalnız hesap geneli kilit
+  totpSecretEnc      Bytes?    @map("totp_secret_enc") @db.VarBinary(255)
+  totpEnabled        Boolean   @default(false) @map("totp_enabled")
+  avatarPath         String?   @map("avatar_path") @db.VarChar(200)
+  theme              String    @default("SYSTEM") @db.VarChar(20) // LIGHT | DARK | SYSTEM
+  status             String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | PASSIVE
+  deletedAt          DateTime? @map("deleted_at") @db.DateTime(3)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant          Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  permissions     UserPermission[]
+  authSessions    AuthSession[]
+  supportSessions SupportSession[] @relation("SessionTechnician")
+
+  @@index([tenantId, status])
+  @@map("users")
+}
+
+model UserPermission {
+  userId    String   @map("user_id") @db.Char(26)
+  permKey   String   @map("perm_key") @db.VarChar(60) // packages/contracts/src/permissions.ts
+  granted   Boolean
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([userId, permKey])
+  @@map("user_permissions")
+}
+
+model AuthSession {
+  id             String    @id @db.Char(26)
+  userId         String    @map("user_id") @db.Char(26)
+  tokenHash      String    @unique @map("token_hash") @db.Char(64) // SHA-256 hex; düz token DB'de yok
+  actingTenantId String?   @map("acting_tenant_id") @db.Char(26) // Super Admin tenant geçişi
+  ip             String    @db.VarChar(45)
+  userAgent      String    @map("user_agent") @db.VarChar(300)
+  lastSeenAt     DateTime  @map("last_seen_at") @db.DateTime(3)
+  expiresAt      DateTime  @map("expires_at") @db.DateTime(3) // mutlak ≤ 8 sa
+  revokedAt      DateTime? @map("revoked_at") @db.DateTime(3)
+  mfaPassed      Boolean   @default(false) @map("mfa_passed")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  user         User    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actingTenant Tenant? @relation(fields: [actingTenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt]) // retention: süresi dolan +7 gün silme (§3.4)
+  @@map("auth_sessions")
+}
+
+// Append-only (G-15): app DB kullanıcısının bu tabloda UPDATE yetkisi yok (prisma/sql/grants.sql).
+// BEFORE UPDATE/DELETE tetikleyicileri P11 migration'ında eklenir (mimari §3.3, §10.3).
+// user_id bilinçli olarak FK değil: başarısız girişte NULL/var olmayan kullanıcı olabilir,
+// kayıt kullanıcıdan bağımsız kalıcıdır (username denormalize).
+model AuditLog {
+  id            BigInt   @id @default(autoincrement())
+  createdAt     DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  tenantId      String?  @map("tenant_id") @db.Char(26)
+  userId        String?  @map("user_id") @db.Char(26)
+  username      String?  @db.VarChar(190)
+  action        String   @db.VarChar(60)
+  entity        String   @db.VarChar(40)
+  entityId      String?  @map("entity_id") @db.VarChar(40)
+  oldValue      Json?    @map("old_value")
+  newValue      Json?    @map("new_value")
+  ipAddress     String?  @map("ip_address") @db.VarChar(45)
+  userAgent     String?  @map("user_agent") @db.VarChar(300)
+  result        String   @db.VarChar(20) // success | fail
+  correlationId String?  @map("correlation_id") @db.Char(26)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, userId, createdAt])
+  @@index([tenantId, action, createdAt])
+  @@index([createdAt]) // retention: 730 gün silme (§3.4)
+  @@map("audit_logs")
+}
+
+// P2 (mimari §3.1, ADR-0006, G-02/G-22). Yalnız P2 alanları; P3/P4+ alanları (mode, consumed_at,
+// started_at, terminated_by, customer_*, ticket_no, note, quality_summary, anonymized_at) kendi
+// paketlerinin migration'larında eklenir (expand). Hard delete yok; retention P13.
+// CHECK kısıtları migration.sql'de (elle): status/ended_by enum, kod biçimleri,
+// PENDING <=> active_code dolu, bitmiş durum <=> ended_at dolu, TTL 15..30 dk (+/-1 dk tolerans).
+model SupportSession {
+  id             String    @id @db.Char(26)
+  tenantId       String    @map("tenant_id") @db.Char(26)
+  technicianId   String    @map("technician_id") @db.Char(26) // oluşturan teknisyen (users.id)
+  tokenHash      String    @unique @map("token_hash") @db.Char(64) // SHA-256 hex; düz token DB'de yok (AC-2)
+  activeCode     String?   @unique @map("active_code") @db.Char(8) // yalnız PENDING iken dolu; global tekil (AC-3)
+  techVerifyCode String    @map("tech_verify_code") @db.Char(4) // müşterinin teknisyeni teyidi (G-01)
+  status         String    @default("PENDING") @db.VarChar(20) // PENDING | ACTIVE | ENDED | EXPIRED | CANCELLED
+  expiresAt      DateTime  @map("expires_at") @db.DateTime(3) // created_at + tenant session_ttl_min
+  endedAt        DateTime? @map("ended_at") @db.DateTime(3) // iptal/expiry/bitiş anı
+  endedBy        String?   @map("ended_by") @db.VarChar(20) // TECH | CUSTOMER | ADMIN | SYSTEM
+  endReason      String?   @map("end_reason") @db.VarChar(40) // ör. cancelled, expired
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  technician User   @relation("SessionTechnician", fields: [technicianId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, createdAt]) // tenant geneli liste (P8) + tenant FK
+  @@index([technicianId, status]) // AC-11 açık oturum sayımı + technician FK
+  @@index([technicianId, createdAt]) // "kendi oturumlarım" listesi, AC-12 saatlik sayım
+  @@index([status, expiresAt]) // expiry işi: status='PENDING' AND expires_at <= NOW(3)
+  @@map("support_sessions")
+}

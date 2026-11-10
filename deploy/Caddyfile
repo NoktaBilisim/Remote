@@ -1,0 +1,89 @@
+# Remote Support — tek TLS girişi (ADR-0002, mimari §2/§5.4/§8.2).
+#   /api/*, /ws/*  -> server:3001 (REST + WebSocket sinyalizasyon)
+#   diğer her şey  -> web:3000 (Next.js)
+#   /health, /ready, /metrics dışarıya kapalı (mimari-api "Operasyon"): iç ağdan/healthcheck ile.
+# Güvenlik başlıklarının sahibi uygulamadır (Next middleware + @fastify/helmet). Caddy yalnız
+# `Server` başlığını siler ve uygulama koymadıysa temel başlıkları "?" (yoksa ekle) ile tamamlar;
+# böylece başlıklar çift yazılmaz / çakışmaz.
+# TLS: staging'de alan adı yok (K1) -> `tls internal` (Caddy'nin yerel CA'sı; kök sertifika test
+# makinelerine kurulur, runbook). 80/443 başka serviste olduğundan ACME HTTP/TLS-ALPN çalışmaz;
+# prod sertifika yöntemi P13'te.
+# X-Forwarded-For: `trusted_proxies` bilinçli olarak YOK -> istemcinin gönderdiği XFF ezilir (G-11).
+# X-Edge-Auth (S-P2-1): web'e giden her isteğe paylaşılan sır yazılır (istemcinin gönderdiği aynı ad
+# başlık önce silinir). Web, XFF'i server'a yalnız bu başlık eşleşirse iletir; edge ağından web:3000'e
+# doğrudan gelen istek IP taklit edemez. Sır loglanmaz (aşağıdaki filtre istemcinin gönderdiğini de siler).
+{
+	admin off
+	servers {
+		protocols h1 h2
+		timeouts {
+			read_header 10s
+			read_body 30s
+			idle 2m
+		}
+	}
+}
+
+https://{$SITE_HOST}:4450 {
+	tls internal
+
+	log {
+		output stdout
+		# G-10 / AC-90: sorgu dizesi, oturum token'ı, çerez ve WS subprotocol (ticket) loglanmaz.
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "\?.*$" ""
+				request>uri regexp "/session/[^/?]+" "/session/***"
+				request>headers>Sec-Websocket-Protocol delete
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+				request>headers>X-Csrf-Token delete
+				request>headers>Referer delete
+				request>headers>X-Edge-Auth delete
+				resp_headers>Set-Cookie delete
+				resp_headers>Location delete
+				resp_headers>Sec-Websocket-Protocol delete
+			}
+		}
+	}
+
+	header {
+		-Server
+		-X-Powered-By
+		-Via
+		?Strict-Transport-Security "max-age=31536000"
+		?X-Content-Type-Options "nosniff"
+		?Referrer-Policy "no-referrer"
+	}
+
+	@ops path /health /health/* /ready /ready/* /metrics /metrics/*
+	handle @ops {
+		respond 404
+	}
+
+	handle /api/* {
+		request_body {
+			max_size 2MB
+		}
+		reverse_proxy server:3001 {
+			header_up -X-Edge-Auth
+		}
+	}
+
+	handle /ws/* {
+		reverse_proxy server:3001 {
+			header_up -X-Edge-Auth
+		}
+	}
+
+	handle {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy web:3000 {
+			# Değer atamak (set) istemcinin gönderdiği aynı ad başlığı ezer; ayrıca silmek gerekmez.
+			header_up X-Edge-Auth {env.EDGE_PROXY_SECRET}
+		}
+	}
+}

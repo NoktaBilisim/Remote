@@ -1,0 +1,36 @@
+# Bağımlılıklar
+node_modules/
+.pnpm-store/
+
+# Ortam / gizli bilgiler (yalnız .env.example repoya girer)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Build çıktıları
+dist/
+.next/
+apps/web/out/
+coverage/
+*.tsbuildinfo
+.turbo/
+apps/agent-win/bin/
+
+# Üretilen kod
+apps/server/src/generated/
+
+# Test çıktıları
+playwright-report/
+test-results/
+blob-report/
+
+# TURN ortam dosyaları (altyapı IP'leri, G-05)
+deploy/turn/*.local.conf
+
+# Log / OS / editör
+*.log
+.DS_Store
+.idea/
+.vscode/

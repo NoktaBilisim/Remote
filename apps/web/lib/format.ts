@@ -1,0 +1,63 @@
+/*
+ * Arayüz biçimlendirme yardımcıları (ham toFixed / Date string'i yerine).
+ * Saatler Europe/Istanbul'da gösterilir (sunucu ve tarayıcı saat diliminden bağımsız).
+ */
+
+const TZ = "Europe/Istanbul";
+
+/** 8 haneli oturum kodu → "4829 1376" (AC-3). Biçimsiz değer olduğu gibi döner. */
+export function formatSessionCode(code: string): string {
+  return /^\d{8}$/.test(code) ? `${code.slice(0, 4)} ${code.slice(4)}` : code;
+}
+
+/** Kalan süre (ms) → "14:52" (dk:sn); 1 saati aşarsa "1:02:05". Negatif → "0:00". */
+export function formatRemaining(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+const timeFmt = new Intl.DateTimeFormat("tr-TR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+const timeSecFmt = new Intl.DateTimeFormat("tr-TR", {
+  timeZone: TZ,
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+const dateTimeFmt = new Intl.DateTimeFormat("tr-TR", {
+  timeZone: TZ,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** ISO → "14:28" */
+export function formatTime(iso: string | number | Date): string {
+  return timeFmt.format(new Date(iso));
+}
+
+/** ISO → "14:28:05" */
+export function formatTimeSeconds(iso: string | number | Date): string {
+  return timeSecFmt.format(new Date(iso));
+}
+
+/** ISO → "11.11.2026 14:28" */
+export function formatDateTime(iso: string | number | Date): string {
+  return dateTimeFmt.format(new Date(iso));
+}
+
+/** Retry-After (sn) → en az 1, yukarı yuvarlanmış dakika. */
+export function retryMinutes(seconds: number | undefined): number {
+  return Math.max(1, Math.ceil((seconds ?? 60) / 60));
+}
+
+/** Ad soyad → en çok 2 baş harf ("Ayşe Yılmaz" → "AY"), Türkçe büyük harf. */
+export function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const letters = parts.length > 1 ? [parts[0], parts[parts.length - 1]] : parts;
+  return letters.map((p) => (p ?? "").charAt(0).toLocaleUpperCase("tr-TR")).join("") || "?";
+}

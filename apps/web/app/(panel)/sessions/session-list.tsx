@@ -1,0 +1,120 @@
+"use client";
+
+import type { SessionView } from "@remote/contracts/api/sessions";
+import { CircleX, Copy, Timer } from "lucide-react";
+import { StatusBadge } from "@/components/ui/badge";
+import { CodeDisplay } from "@/components/ui/code-display";
+import { useToast } from "@/components/ui/toast";
+import { formatRemaining, formatSessionCode, formatTime } from "@/lib/format";
+import { t } from "@/lib/i18n";
+import { copyText, useNow } from "@/lib/use-now";
+
+interface Props {
+  items: SessionView[];
+  showTechnician: boolean;
+  canCancel: boolean;
+  onCancel: (s: SessionView) => void;
+}
+
+const iconBtn =
+  "inline-flex size-11 cursor-pointer items-center justify-center rounded-md text-fg-muted transition-transform duration-150 ease-out hover:bg-surface-muted hover:text-fg active:scale-[0.97]";
+
+/** Oturum listesi: ≥ md tablo, dar ekranda kart listesi (aynı veri, aynı eylemler). */
+export function SessionList({ items, showTechnician, canCancel, onCancel }: Props) {
+  const now = useNow();
+  const toast = useToast();
+
+  const remaining = (s: SessionView) => {
+    if (s.status !== "PENDING") return null;
+    if (now === null) return "—";
+    return t("s.left", { time: formatRemaining(Date.parse(s.expiresAt) - now) });
+  };
+  const copy = async (code: string) => {
+    const ok = await copyText(code);
+    toast(ok ? t("toast.copied") : t("toast.copyFailed"), ok ? "success" : "danger");
+  };
+  const actions = (s: SessionView) => {
+    const pending = s.status === "PENDING" && (now === null || Date.parse(s.expiresAt) > now);
+    if (!pending) return null;
+    const code = s.code ? formatSessionCode(s.code) : "";
+    return (
+      <div className="flex justify-end gap-1">
+        {s.code && (
+          <button type="button" className={iconBtn} aria-label={t("s.copyCode", { code })} onClick={() => copy(s.code!)}>
+            <Copy aria-hidden className="size-4" />
+          </button>
+        )}
+        {canCancel && (
+          <button type="button" className={iconBtn} aria-label={t("s.cancelRow", { code })} onClick={() => onCancel(s)}>
+            <CircleX aria-hidden className="size-4" />
+          </button>
+        )}
+      </div>
+    );
+  };
+  const timeCell = (s: SessionView) => {
+    const r = remaining(s);
+    return r ? (
+      <span className="inline-flex items-center gap-1.5 tabular-nums text-fg">
+        <Timer aria-hidden className="size-4 text-fg-muted" />
+        {r}
+      </span>
+    ) : (
+      <span className="text-fg-muted">—</span>
+    );
+  };
+
+  return (
+    <>
+      <div className="hidden overflow-x-auto rounded-lg border border-border bg-surface md:block">
+        <table className="w-full text-left text-sm" data-testid="sessions-table">
+          <thead className="bg-surface-muted text-xs text-fg-muted">
+            <tr>
+              <th scope="col" className="px-4 py-3 font-medium">{t("s.col.status")}</th>
+              <th scope="col" className="px-4 py-3 font-medium">{t("s.col.code")}</th>
+              {showTechnician && <th scope="col" className="px-4 py-3 font-medium">{t("s.col.tech")}</th>}
+              <th scope="col" className="px-4 py-3 font-medium">{t("s.col.created")}</th>
+              <th scope="col" className="px-4 py-3 font-medium">{t("s.col.time")}</th>
+              <th scope="col" className="px-4 py-3 font-medium"><span className="sr-only">{t("s.col.actions")}</span></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {items.map((s) => (
+              <tr key={s.id} data-testid="session-row">
+                <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
+                <td className="px-4 py-2">{s.code ? <CodeDisplay code={s.code} size="sm" /> : <span className="text-fg-muted">—</span>}</td>
+                {showTechnician && <td className="px-4 py-2 text-fg">{s.technician.name}</td>}
+                <td className="px-4 py-2 tabular-nums text-fg">{formatTime(s.createdAt)}</td>
+                <td className="px-4 py-2">{timeCell(s)}</td>
+                <td className="px-2 py-1">{actions(s)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <ul className="flex flex-col gap-2 md:hidden" data-testid="sessions-cards">
+        {items.map((s) => (
+          <li key={s.id} data-testid="session-card" className="rounded-lg border border-border bg-surface p-3">
+            <div className="flex items-center justify-between gap-2">
+              <StatusBadge status={s.status} />
+              <span className="text-xs tabular-nums text-fg-muted">
+                {t("s.col.created")}: {formatTime(s.createdAt)}
+              </span>
+            </div>
+            {(s.status === "PENDING" || showTechnician) && (
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-col gap-1 text-sm">
+                  {s.code && <CodeDisplay code={s.code} size="sm" />}
+                  {showTechnician && <span className="truncate text-fg-muted">{s.technician.name}</span>}
+                  {s.status === "PENDING" && timeCell(s)}
+                </div>
+                {actions(s)}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}

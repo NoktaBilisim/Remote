@@ -1,0 +1,112 @@
+# REST API Sözleşmesi — Remote Support
+Ana belge: `docs/mimari.md` §4. Şemalar `packages/contracts/src/api/*.ts` içinde zod ile tanımlanır; bu tablo bağlayıcıdır.
+
+## Ortak kurallar
+- `sessionRef`: `base64url(HMAC-SHA256(SESSION_REF_KEY, sessionId))` + id; tahmin edilemez, token değildir (tüketim sağlamaz).
+- Taban: `/api/v1`. JSON, UTF-8. Kimlik: `__Host-rs_session` çerezi (HttpOnly, Secure, SameSite=Strict, Path=/).
+- Origin: durum değiştiren **tüm** isteklerde (POST/PUT/PATCH/DELETE, login ve public uçlar dahil) `Origin` başlığı zorunludur ve `ALLOWED_ORIGINS` (boşsa `PUBLIC_BASE_URL` origin'i) içinde olmalıdır; yoksa/izinsizse 403 `CSRF_INVALID`.
+- CSRF: oturumlu durum değiştiren uçlar ayrıca `X-CSRF-Token` başlığı ister (double-submit: `__Host-rs_csrf` çerezi, SameSite=Strict); eksik/eşleşmiyorsa 403 `CSRF_INVALID`. Login (henüz çerez yok) ve public müşteri uçları (çerezsiz) `X-CSRF-Token` istemez.
+- Şifre değişimi zorunluyken (`mustChangePassword=true`) yalnız GET `/auth/me`, POST `/auth/logout`, POST `/auth/password/change` serbesttir; diğer oturumlu uçlar 403 `PASSWORD_CHANGE_REQUIRED`.
+- Uç sırası: auth → yetki (`requirePerm`) → tenant kapsamı (`tenantScope`) → zod doğrulama → servis → yanıt.
+- Hata gövdesi: `{ "error": { "code": "SESSION_EXPIRED", "message": "<Türkçe, kullanıcıya>", "fields"?: {"ttlMinutes":"15-30 arası olmalı"}, "requestId": "<ulid>" } }`.
+- Sayfalama: `?page=1&pageSize=25` (üst 100), yanıt `{ items, page, pageSize, total }`; sıralama `?sort=createdAt:desc` (izinli alan listesi uçta sabit).
+- Başka tenant kaydı / yetkisiz sahiplik → **404** (varlığı sızdırmaz; AC-61, AC-69). Yetki anahtarı yok → 403.
+- Hata kodu → HTTP (tek kaynak `packages/contracts/src/errors.ts` `ERROR_STATUS`; yeni kod önce oraya eklenir, sonra bu tabloya):
+
+| Kod | HTTP | Anlam | Paket |
+|---|---|---|---|
+| `VALIDATION` | 400 | zod doğrulama hatası (`fields` dolu) | P1 ✓ |
+| `HOST_NOT_ALLOWED` | 400 | SMTP host özel/loopback IP'ye çözümlendi (netguard) | P10 |
+| `INVALID_IMAGE` | 400 | Yükleme türü/içeriği geçersiz (magic bytes) | P9 |
+| `UNAUTHENTICATED` | 401 | Oturum yok/geçersiz; login'de genel hatalı kimlik mesajı | P1 ✓ |
+| `FORBIDDEN` | 403 | Yetki anahtarı yok / ret listesi | P1 ✓ |
+| `CSRF_INVALID` | 403 | Origin eksik/izinsiz veya `X-CSRF-Token` eksik/eşleşmiyor | P1 ✓ |
+| `PASSWORD_CHANGE_REQUIRED` | 403 | `mustChangePassword=true` iken serbest olmayan uç | P1 ✓ |
+| `NOT_FOUND` | 404 | Kayıt yok / başka tenant / sahiplik yok | P1 ✓ |
+| `METHOD_NOT_ALLOWED` | 405 | Audit log'a PUT/PATCH/DELETE | P11 |
+| `CONFLICT` | 409 | Durum uygun değil (ör. PENDING/ACTIVE değil), tekil alan çakışması (email) | P2 |
+| `OPEN_SESSION_LIMIT` | 409 | Teknisyenin açık (PENDING) oturum üst sınırı dolu | P2 |
+| `LOBBY_FULL` | 409 | Lobide bekleyen misafir sınırı dolu | P3 |
+| `SESSION_EXPIRED` | 410 | Oturum/link/kod süresi dolmuş | P2 |
+| `SESSION_CONSUMED` | 410 | Token/kod admit ile tüketilmiş (AC-7) | P2 |
+| `SESSION_CANCELLED` | 410 | Oturum iptal edilmiş (AC-8) | P2 |
+| `NONCE_INVALID` | 410 | `joinNonce` süresi dolmuş/kullanılmış | P3 |
+| `RESET_TOKEN_INVALID` | 410 | Şifre sıfırlama tokenı geçersiz/süresi dolmuş | P10 |
+| `PAYLOAD_TOO_LARGE` | 413 | Yükleme > 2 MB | P9 |
+| `ACCOUNT_LOCKED` | 423 | Giriş kilidi (hesap+IP veya hesap geneli); `Retry-After` (sn) | P1 ✓ |
+| `RATE_LIMITED` | 429 | Hız sınırı; `Retry-After` | P1 ✓ |
+| `INTERNAL` | 500 | Beklenmeyen hata (ayrıntı yalnız log, `requestId`) | P1 ✓ |
+| `UPSTREAM` | 502 | SMTP/MySQL/dış servis testi başarısız | P10 |
+| `NOT_READY` | 503 | `/ready`: DB'ye ulaşılamıyor veya migration uygulanmamış | P1 ✓ |
+
+✓ = `errors.ts`'te mevcut. Diğerleri ilgili paket `errors.ts`'e ekler; 410 için genel `GONE` kodu **kullanılmaz**, nedeni belirten kod döner.
+
+## Yetki anahtarları (`packages/contracts/src/permissions.ts` — tek tanım, AC-72)
+| Modül | Anahtar ön eki | Alt yetkiler |
+|---|---|---|
+| Oturumlar | `sessions` | view, create, edit, delete(iptal), terminate (aktif oturumu zorla sonlandır, G-04) |
+| Uzaktan kontrol | `remote_control` | use |
+| Dosya transferi | `file_transfer` | use |
+| Oturum geçmişi | `session_history` | view, edit(not/ticket), export |
+| Kullanıcılar | `users` | view, create, edit, delete |
+| Ayarlar | `settings` | view, edit |
+| Audit log | `audit` | view, export |
+Rol kuralı: SUPER_ADMIN tümü + sistem uçları (rol kontrolü, toggle değil). ADMIN varsayılan tümü açık; USER tümü kapalı (AC-73).
+
+## Auth (`/auth`)
+| Uç | Girdi | Çıktı | Hatalar | Yetki / AC |
+|---|---|---|---|---|
+| POST `/auth/login` | `{ login: string(3..190), password: string(1..200), tenantSlug?: string }` — `login` `@` içeriyorsa **yalnız email**, içermiyorsa **yalnız username** ile aranır | `{ user, mfaRequired: bool, mustChangePassword: bool }` + `__Host-rs_session` + `__Host-rs_csrf` çerezleri | 400 `VALIDATION`, 401 `UNAUTHENTICATED` (genel mesaj; yok/pasif kullanıcı/pasif tenant aynı), 403 `CSRF_INVALID` (Origin), 423 `ACCOUNT_LOCKED` (+`Retry-After`; kilitliyken doğru şifre de 423), 429 `RATE_LIMITED` | Public (Origin zorunlu); IP 20/dk; hesap+IP 15 dk'da 5. hatalı → 423; AC-64, AC-65 |
+| POST `/auth/mfa/verify` | `{ code: /^\d{6}$/ \| recoveryCode: string(10..12) }` | `{ user }` | 401, 429 (5/5dk) | Yarı oturum; AC-67 |
+| POST `/auth/mfa/setup` · `/auth/mfa/enable` | — · `{ code }` | `{ otpauthUrl, qrDataUrl }` · `{ recoveryCodes: string[10] }` | 400 | Oturumlu |
+| POST `/auth/logout` | — (boş gövde kabul) | 204, sunucu oturumu iptal + iki çerez `Max-Age=0` | 401 `UNAUTHENTICATED`, 403 `CSRF_INVALID` — **401/403'te de çerezler temizlenir**; sunucu oturumu yalnız geçerli CSRF ile iptal edilir | Oturum + CSRF; `mustChangePassword` iken serbest; AC-65 |
+| POST `/auth/logout-all` | — | 204 (diğer auth_sessions revoked + `rooms.endByTechnician`, G-04) | — | AC-68, 115 |
+| POST `/auth/password/change` | `{ current: string(1..200), next: string(12..200) }` (`next` ≠ `current`) | 204 + **yeni oturum** (`__Host-rs_session`) + **yeni CSRF çerezi**; eski oturum ve kullanıcının diğer oturumları iptal | 400 `VALIDATION` (yanlış mevcut şifre dahil), 401 `UNAUTHENTICATED` (oturum yok; ya da aynı oturumda **5 hatalı mevcut şifre → oturum iptal**, yeniden giriş), 403 `CSRF_INVALID` | Oturum + CSRF; `mustChangePassword` iken serbest; AC-66 |
+| POST `/auth/password/forgot` | `{ email }` | 202 (her durumda aynı) | 429 | AC-66 |
+| POST `/auth/password/reset` | `{ token, next }` | 204 | 410 | AC-66 |
+| GET `/auth/me` | — | `{ user, permissions: string[], tenant, actingTenant? }` | 401 | — |
+| PATCH `/auth/me` | `{ fullName?, theme? }` | `{ user }` | 400 | AC-85 |
+
+## Destek oturumları (`/sessions`) — teknisyen
+| Uç | Girdi | Çıktı | Hatalar | Yetki / AC |
+|---|---|---|---|---|
+| POST `/sessions` | `{}` | `{ id, link, code (8 hane), techVerifyCode, expiresAt, status }` (link **yalnız bu yanıtta** — düz token DB'de yok, GET `/:id` link döndürmez; `code` PENDING iken GET `/:id`'de de döner, G-22) | 409 `OPEN_SESSION_LIMIT`, 429 (20/sa/teknisyen) | sessions.create; AC-1..4, 11, 12 |
+| GET `/sessions?status=&from=&to=&technicianId=&customer=&mode=&page=` | sorgu | sayfalı liste | 400 | sessions.view (USER yalnız kendi) / session_history.view; AC-60, 61 |
+| GET `/sessions/:id` | — | detay + consents + files + quality | 404 | AC-62; USER yalnız `technician_id = user.id` (PATCH ve export dahil, G-22) |
+| POST `/sessions/:id/cancel` | — | `{ status: "CANCELLED" }` | 404, 409 (PENDING değil) | sessions.delete; AC-8 |
+| POST `/sessions/:id/end` | — | `{ status: "ENDED" }` | 404, 409 | sessions.edit; AC-59 |
+| POST `/sessions/:id/terminate` | `{ reason?: string(≤200) }` | `{ status: "ENDED", endedBy: "ADMIN" }` | 404, 409 (ACTIVE değil) | sessions.terminate (ADMIN aynı tenant) / SUPER_ADMIN; `rooms` → `session.ended{admin}`; audit `session.terminated`; AC-114 (G-04) |
+| POST `/sessions/:id/email` | `{ to: email }` | `{ sent: true }` | 404, 429 (20/sa/teknisyen, G-23), 502 | sessions.create; AC-10 |
+| PATCH `/sessions/:id` | `{ ticketNo?: string(≤50), note?: string(≤4000) }` | detay | 400, 404 | session_history.edit; AC-63 |
+| GET `/sessions/export.csv?<liste filtreleri>` | sorgu | `text/csv` UTF-8 BOM, akış, hücreler `lib/csv.ts` ile formül kaçışlı (G-16) | 403 | session_history.export; AC-63, 124 |
+Not: Link plain token'ı DB'de yok (AC-2). PENDING iken tekrar göstermek için token yanıtta tek sefer verilir; konsol sayfası belleğinde tutar. Kaybolursa "Yeni link üret" = iptal + yeni oturum (basit, ADR-0006).
+
+## Public müşteri uçları (`/public`) — çerezsiz, kimliksiz
+| Uç | Girdi | Çıktı | Hatalar | Koruma / AC |
+|---|---|---|---|---|
+| POST `/public/sessions/resolve` | `{ token: string(43) } \| { code: /^\d{8}$/ }`, `clientKind: "BROWSER"\|"AGENT"` | `{ sessionRef (opak), tenant:{name,logoUrl}, technician:{name,avatarUrl?}, techVerifyCode (müşterinin teknisyeni teyidi; müşteriyi doğrulamaz — G-01), consentText:{id,version,body}, expiresAt, joinNonce, nonceExpiresAt }` | 404 (kod yok), 410 `SESSION_EXPIRED`/`SESSION_CONSUMED`/`SESSION_CANCELLED` | Başarısız kod: `ipKey` 10/dk + `prefixKey` 30/dk, aşımda o anahtar 15 dk 429; token 30/dk/ipKey; global sayaç yalnız metrik/alarm (G-02, G-11); resolve tüketmez; AC-3, 5, 6, 16, 26, 97 |
+| POST `/public/sessions/join` | `{ joinNonce, customerName: string(2..100), customerEmail?: email, consentTextId, consentAccepted: true }` | `{ wsTicket, admitCode (4 hane, yalnız bu misafire), technicianName }` — **iceServers ve reconnectToken yok** (admit sonrası `hello`'da, G-01/G-13) | 400 (`consentTextId` oturumun tenant'ının `is_current` sürümü değil — G-24), 403 (ret listesindeki ipKey), 409 `LOBBY_FULL`, 410 (nonce/oturum PENDING değil) | Tek kullanımlık nonce; join **tüketmez**, misafiri lobiye alır (audit `guest.pending`: ad, ip); tüketim + consent kaydı `guest.admit` TX'inde; AC-6, 7, 16, 28, 29, 98, 112, 113, 127 |
+| GET `/public/sessions/status?ref=<sessionRef>` | — | `{ status }` | 404 | Karşılama sayfası/istemci join öncesi 2 sn'de bir yoklar → iptalde "Oturum iptal edildi" (AC-8); IP 60/dk |
+| GET `/public/tenants/:slug/branding` | — | `{ name, logoUrl }` | 404 → sistem logosu | Login logosu; AC-82 |
+| GET `/public/files/logo/:tenantId/:file` | — | resim | 404 | AC-81, 84 |
+| GET `/public/agent/download?ref=<sessionRef>` | — | 302 → `/downloads/NoktaDestek.exe` ile `Content-Disposition: attachment; filename="Destek-<kod>.exe"` | 410 | AC-27, ADR-0006 |
+
+## Yönetim
+| Uç | Girdi | Çıktı | Hatalar | Yetki / AC |
+|---|---|---|---|---|
+| GET/POST `/users`, GET/PATCH `/users/:id` | `{ email, fullName, role: ADMIN\|USER, permissions: Record<key,bool> }` | kullanıcı (+ geçici şifre yalnız oluşturmada) | 403 (sahip olmadığı yetki), 404, 409 email | users.*; AC-71, 73, 74 |
+| POST `/users/:id/deactivate` · `/users/:id/reset-mfa` | — | 204 | 404 | users.edit; ikisi de auth_sessions revoke + `rooms.endByTechnician` (G-04, AC-115). PATCH `/users/:id` yetki değişimi → `rooms.applyPermChange` |
+| GET/PUT `/settings/tenant` | tenant_settings alanları (gizliler boşsa korunur) | ayarlar (gizliler `hasPassword: bool`) | 400 | settings.*; AC-4, 78, 79 |
+| POST `/settings/smtp/test` | `{ to: email }` | `{ ok, message }` (mesaj genel: "Sunucuya bağlanılamadı" / "Kimlik reddedildi" / "TLS hatası"; ayrıntı yalnız sunucu logunda) | 400 `HOST_NOT_ALLOWED` (çözümlenen IP özel/loopback/link-local/CGNAT/Docker — `lib/netguard.ts`; bağlantı çözümlenen IP'ye, SNI=host), 429 (5/dk/tenant), 502 | settings.edit; AC-80, 122 (G-12). Aynı netguard kontrolü PUT `/settings/tenant` SMTP host kaydında |
+| PUT `/settings/consent-text` | `{ body: string(50..20000) }` | yeni sürüm | 400 | settings.edit; AC-29 |
+| POST/DELETE `/settings/logo` | multipart `file` | `{ logoUrl }` | 400 `INVALID_IMAGE`, 413 | settings.edit; AC-81, 84 |
+| POST/DELETE `/users/:id/avatar` (`me` dahil) | multipart | `{ avatarUrl }` | 400, 413, 404 | kendi veya users.edit; AC-83, 84 |
+| GET `/files/avatar/:tenantId/:file` | — | resim | 404 (tenant uyuşmazlığı) | Oturumlu; AC-84 |
+| GET `/audit?from&to&userId&action&result&page` · GET `/audit/export.csv` (formül kaçışlı, G-16) | sorgu | sayfalı | — ; PUT/PATCH/DELETE → 405 | audit.view/export; AC-76 |
+| GET/POST/PATCH `/admin/tenants`, POST `/admin/tenants/:id/deactivate`, POST `/admin/switch-tenant` `{ tenantId\|null }` | tenant alanları | tenant | 404 | SUPER_ADMIN; AC-70 |
+| GET/PUT `/admin/settings/mysql`, POST `/admin/settings/mysql/test` | `{ host, port=3306, database, user, password? }` | `{ ok, message, latencyMs }` (10 sn timeout) | 502, 429 (5/dk) | SUPER_ADMIN (host kısıtı yok — DB iç ağda olabilir); audit; AC-77, 78 |
+| GET/PUT `/admin/settings/turn` | `{ urls: string[], secret? }` | (secret maskeli) | 400 | SUPER_ADMIN; AC-78 |
+| POST/DELETE `/admin/settings/system-logo` | multipart | — | 400 | SUPER_ADMIN; AC-82 |
+
+## Operasyon (proxy dışına kapalı)
+`GET /health` → 200 `{ status: "ok" }` (süreç canlı), `GET /ready` → 200 `{ status: "ready", migration }` / 503 `NOT_READY` (DB ping + migration sürümü); ikisi `/api` dışında, Caddy dışarıya 404, `GET /metrics` (Prometheus metin; `METRICS_TOKEN` Bearer zorunlu ve Caddy'de yalnız iç ağ) — AC-88, 89.

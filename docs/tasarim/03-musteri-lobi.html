@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teknisyen onayı bekleniyor — Nokta Bilişim</title>
+<link rel="icon" href="img/favicon-32x32.png"><link rel="stylesheet" href="tasarim.css">
+<script src="tasarim.js"></script><script src="ikonlar.js" defer></script>
+</head>
+<body>
+<div class="mock-bar" role="region" aria-label="Taslak denetimleri">
+  <a href="index.html"><svg class="i" aria-hidden="true"><use href="#i-arrow-left"/></svg>Taslaklar</a>
+  <span class="lbl">Durum</span>
+  <span class="seg"><button data-set="s:bekliyor">Bekliyor</button><button data-set="s:koptu">Bağlantı koptu</button><button data-set="s:kabul">Kabul edildi</button><button data-set="s:red">Reddedildi</button><button data-set="s:doldu">Bekleme doldu</button></span>
+  <span class="spacer row"><span class="lbl">Tema</span><span class="seg"><button data-tema="acik"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg>Açık</button><button data-tema="koyu"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg>Koyu</button><button data-tema="sistem"><svg class="i" aria-hidden="true"><use href="#i-laptop"/></svg>Sistem</button></span></span>
+</div>
+<main class="guest">
+  <header class="guest-head">
+    <span class="logo-card"><img src="img/logo.png" alt="Nokta Bilişim" height="52"></span>
+    <span class="spacer muted small row"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg>Uçtan uca şifreli bağlantı</span>
+  </header>
+
+  <section class="panel lobby-panel" data-when="s:bekliyor|koptu" aria-labelledby="kod-t">
+    <span class="badge lobby" data-when="s:bekliyor" role="status">Teknisyen onayı bekleniyor</span>
+    <div class="alert warning" role="status" data-when="s:koptu"><svg class="i i-5" aria-hidden="true"><use href="#i-wifi-off"/></svg><div><strong>Bağlantı koptu, yeniden deneniyor…</strong>Sayfayı kapatmayın. Kodunuz değişmedi.</div></div>
+    <h1 id="kod-t">Kabul kodunuz</h1>
+    <div class="code-xl" aria-label="Kabul kodu: 4 8 2 1"><span>4</span><span>8</span><span>2</span><span>1</span></div>
+    <p class="lead">Bu kodu telefonda <b>teknisyeninize okuyun</b>. Teknisyen kodu girdiğinde bağlantı başlar.</p>
+    <p class="muted small row"><svg class="i" aria-hidden="true"><use href="#i-shield-alert"/></svg>Kodu yalnız sizi aradığını bildiğiniz teknisyene söyleyin.</p>
+    <hr class="divider">
+    <dl class="facts">
+      <div><dt>Teknisyen</dt><dd>Mehmet Kaya · doğrulama <b class="code">7305</b></dd></div>
+      <div><dt>Paylaşılacak</dt><dd>Tüm ekran (Ekran 1) · yalnız görüntü</dd></div>
+      <div><dt>Kalan bekleme</dt><dd class="num">4:12</dd></div>
+    </dl>
+    <button class="btn danger-ghost" data-set="s:cikti"><svg class="i" aria-hidden="true"><use href="#i-log-out"/></svg>Vazgeç ve çık</button>
+  </section>
+
+  <section class="panel empty" data-when="s:kabul" role="status"><svg class="i i-8 spin" aria-hidden="true"><use href="#i-loader-circle"/></svg><h1>Teknisyen kabul etti</h1><p>Bağlantı kuruluyor… Birkaç saniye sürebilir.</p><a class="btn primary" href="05-musteri-oturum.html">Oturuma geç (taslak)</a></section>
+  <section class="panel empty" data-when="s:red" role="alert"><svg class="i i-8" aria-hidden="true"><use href="#i-user-x"/></svg><h1>Teknisyen bağlantıyı reddetti</h1><p>Teknisyeninizle telefonda görüşüyorsanız kodu doğru okuduğunuzdan emin olun ve onu arayın. Kimseyle görüşmüyorsanız bu sayfayı kapatın.</p></section>
+  <section class="panel empty" data-when="s:doldu"><svg class="i i-8" aria-hidden="true"><use href="#i-hourglass"/></svg><h1>Bekleme süresi doldu</h1><p>5 dakika içinde kabul edilmediniz. Destek bağlantısı hâlâ geçerliyse tekrar katılabilirsiniz.</p><a class="btn primary" href="02-musteri-karsilama.html"><svg class="i" aria-hidden="true"><use href="#i-rotate-cw"/></svg>Tekrar katıl</a></section>
+  <section class="panel empty" data-when="s:cikti"><svg class="i i-8" aria-hidden="true"><use href="#i-log-out"/></svg><h1>Bekleme odasından çıktınız</h1><p>Ekranınız paylaşılmadı. Bu pencereyi kapatabilirsiniz.</p></section>
+</main>
+</body>
+</html>

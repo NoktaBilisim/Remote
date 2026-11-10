@@ -1,0 +1,159 @@
+// Destek oturumu yaşam döngüsü — teknisyen tarafı (P2: AC-1..4, 8, 11, 12, 61 kısmi).
+// Oluşturma: teknisyen satırı FOR UPDATE → açık oturum + saatlik sayım → INSERT → audit, tek TX.
+// active_code çakışmasında (P2002, index adı) tüm TX yeni kodla en çok 5 kez denenir (ADR-0006).
+import type { CreateSessionResponse, ListSessionsQuery, SessionEndedBy, SessionListResponse, SessionStatus, SessionView } from "@remote/contracts/api/sessions";
+import { writeAudit, type AuditContext } from "../audit/service.ts";
+import type { AuthContext } from "../auth/session.ts";
+import type { Db } from "../lib/db.ts";
+import { AppError } from "../lib/errors.ts";
+import { newId, sha256Hex } from "../lib/ids.ts";
+import { isActiveCodeConflict, newSessionCode, newSessionToken, newTechVerifyCode } from "./codes.ts";
+import * as repo from "./repo.ts";
+
+const HOUR_MS = 60 * 60 * 1000;
+const HOURLY_CREATE_LIMIT = 20; // AC-12
+const CODE_ATTEMPTS = 5;
+
+export interface CodeGenerators {
+  token: () => string;
+  code: () => string;
+  verify: () => string;
+}
+const defaultGen: CodeGenerators = { token: newSessionToken, code: newSessionCode, verify: newTechVerifyCode };
+
+const who = (auth: AuthContext, tenantId: string) => ({ tenantId, userId: auth.user.id, username: auth.user.email });
+
+/** USER yalnız kendi oturumları (AC-61, G-22); ADMIN/SUPER_ADMIN etkin tenant'ın tümü. */
+function sessionScope(auth: AuthContext, tenantId: string): repo.SessionScope {
+  return auth.user.role === "USER" ? { tenantId, technicianId: auth.user.id } : { tenantId };
+}
+
+function toView(r: repo.SessionRow): SessionView {
+  return {
+    id: r.id,
+    status: r.status as SessionStatus,
+    code: r.status === "PENDING" ? r.activeCode : null,
+    techVerifyCode: r.techVerifyCode,
+    technician: { id: r.technician.id, name: r.technician.fullName },
+    createdAt: r.createdAt.toISOString(),
+    expiresAt: r.expiresAt.toISOString(),
+    endedAt: r.endedAt?.toISOString() ?? null,
+    endedBy: (r.endedBy as SessionEndedBy | null) ?? null,
+    endReason: r.endReason,
+  };
+}
+
+const sessionLink = (publicBaseUrl: string, token: string): string =>
+  `${publicBaseUrl.replace(/\/+$/, "")}/session/${token}`;
+
+export async function createSupportSession(
+  db: Db,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  publicBaseUrl: string,
+  gen: CodeGenerators = defaultGen,
+): Promise<CreateSessionResponse> {
+  // Teknisyen-tenant eşleşmesi servis katmanında (db-notlari P2): oturum yalnız kendi tenant'ında açılır.
+  if (auth.user.tenantId !== tenantId) throw new AppError("FORBIDDEN", { message: "Oturum yalnız kendi firmanızda açılabilir." });
+  const technicianId = auth.user.id;
+  const token = gen.token();
+  for (let attempt = 1; ; attempt++) {
+    const code = gen.code();
+    try {
+      return await db.$transaction(async (tx) => {
+        await repo.lockTechnician(tx, technicianId);
+        const settings = await repo.sessionSettings(tx, tenantId);
+        if (!settings) throw new Error("tenant_settings satırı yok");
+        const now = new Date();
+        if ((await repo.countOpen(tx, technicianId, now)) >= settings.maxOpenSessions) {
+          throw new AppError("OPEN_SESSION_LIMIT");
+        }
+        const recent = await repo.createdSince(tx, technicianId, new Date(now.getTime() - HOUR_MS));
+        if (recent.count >= HOURLY_CREATE_LIMIT) {
+          const waitMs = (recent.oldest?.getTime() ?? now.getTime()) + HOUR_MS - now.getTime();
+          throw new AppError("RATE_LIMITED", { retryAfterSec: Math.max(1, Math.ceil(waitMs / 1000)) });
+        }
+        const id = newId();
+        const expiresAt = new Date(now.getTime() + settings.sessionTtlMin * 60_000); // createdAt ile aynı now (CHECK)
+        const techVerifyCode = gen.verify();
+        await repo.insertSession(tx, { id, tenantId, technicianId, tokenHash: sha256Hex(token), activeCode: code, techVerifyCode, status: "PENDING", expiresAt, createdAt: now });
+        await writeAudit(tx, ctx, {
+          ...who(auth, tenantId),
+          action: "session.created",
+          entity: "support_sessions",
+          entityId: id,
+          result: "success",
+          newValue: { status: "PENDING", expiresAt: expiresAt.toISOString(), ttlMin: settings.sessionTtlMin },
+        });
+        return { id, link: sessionLink(publicBaseUrl, token), code, techVerifyCode, expiresAt: expiresAt.toISOString(), status: "PENDING" as const };
+      });
+    } catch (err) {
+      if (attempt < CODE_ATTEMPTS && isActiveCodeConflict(err)) continue;
+      throw err;
+    }
+  }
+}
+
+export async function listSessions(db: Db, auth: AuthContext, tenantId: string, q: ListSessionsQuery): Promise<SessionListResponse> {
+  const { rows, total } = await repo.listInScope(
+    db,
+    sessionScope(auth, tenantId),
+    { ...(q.status ? { status: q.status } : {}), ...(q.technicianId ? { technicianId: q.technicianId } : {}) },
+    { skip: (q.page - 1) * q.pageSize, take: q.pageSize },
+  );
+  return { items: rows.map(toView), page: q.page, pageSize: q.pageSize, total };
+}
+
+export async function getSession(db: Db, auth: AuthContext, tenantId: string, id: string): Promise<SessionView> {
+  const row = await repo.findInScope(db, sessionScope(auth, tenantId), id);
+  if (!row) throw new AppError("NOT_FOUND");
+  return toView(row);
+}
+
+/** İptal (AC-8): tek koşullu UPDATE → link ve kod aynı anda geçersiz. Başka tenant/sahiplik → 404, PENDING değil → 409. */
+export async function cancelSession(db: Db, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string): Promise<void> {
+  const scope = sessionScope(auth, tenantId);
+  await db.$transaction(async (tx) => {
+    const now = new Date();
+    const count = await repo.cancelPending(tx, scope, id, now);
+    if (count === 0) {
+      const exists = await repo.findInScope(tx, scope, id);
+      throw new AppError(exists ? "CONFLICT" : "NOT_FOUND", exists ? { message: "Yalnız bekleyen oturum iptal edilebilir." } : {});
+    }
+    await writeAudit(tx, ctx, {
+      ...who(auth, tenantId),
+      action: "session.cancelled",
+      entity: "support_sessions",
+      entityId: id,
+      result: "success",
+      oldValue: { status: "PENDING" },
+      newValue: { status: "CANCELLED" },
+    });
+  });
+}
+
+/** PENDING + süresi dolmuş tek oturumu EXPIRED/SYSTEM yapar ve audit yazar; başka süreç önce davrandıysa false. */
+export async function expireSession(db: Db, ctx: AuditContext, s: { id: string; tenantId: string }, now: Date): Promise<boolean> {
+  return db.$transaction(async (tx) => {
+    if ((await repo.expireOne(tx, s.id, now)) === 0) return false;
+    await writeAudit(tx, ctx, {
+      tenantId: s.tenantId,
+      username: "system",
+      action: "session.expired",
+      entity: "support_sessions",
+      entityId: s.id,
+      result: "success",
+      oldValue: { status: "PENDING" },
+      newValue: { status: "EXPIRED" },
+    });
+    return true;
+  });
+}
+
+/** Expiry işi gövdesi (jobs/scheduler.ts): bir turda en çok `batch` oturum. Dönen: EXPIRED yapılan sayı. */
+export async function expireDue(db: Db, ctx: AuditContext, now: Date, batch = 500): Promise<number> {
+  let done = 0;
+  for (const s of await repo.findExpiredPending(db, now, batch)) if (await expireSession(db, ctx, s, now)) done++;
+  return done;
+}

@@ -1,0 +1,134 @@
+@import "tailwindcss";
+
+/*
+ * Tasarım token'ları — tek kaynak. Ayrıntı ve kullanım kuralları: DESIGN.md
+ * Tailwind'in varsayılan renk paleti kapatılır (--color-*: initial); bileşenlerde
+ * yalnız aşağıdaki anlamsal renkler kullanılabilir (ham renk yasağı, std. 1.8).
+ */
+@theme {
+  --color-*: initial;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+@theme inline {
+  --color-canvas: var(--rs-canvas);
+  --color-surface: var(--rs-surface);
+  --color-surface-muted: var(--rs-surface-muted);
+  --color-border: var(--rs-border);
+  --color-fg: var(--rs-fg);
+  --color-fg-muted: var(--rs-fg-muted);
+  --color-primary: var(--rs-primary);
+  --color-primary-hover: var(--rs-primary-hover);
+  --color-on-primary: var(--rs-on-primary);
+  --color-danger: var(--rs-danger);
+  --color-danger-surface: var(--rs-danger-surface);
+  --color-warning: var(--rs-warning);
+  --color-warning-surface: var(--rs-warning-surface);
+  --color-success: var(--rs-success);
+  --color-success-surface: var(--rs-success-surface);
+  --color-ring: var(--rs-ring);
+  --color-logo-surface: var(--rs-logo-surface);
+  --color-primary-surface: var(--rs-primary-surface);
+  --color-overlay: var(--rs-overlay);
+  --color-stage: var(--rs-stage);
+  --color-on-stage: var(--rs-on-stage);
+  --color-control-frame: var(--rs-control-frame);
+  --color-on-control: var(--rs-on-control);
+  --color-annotate: var(--rs-annotate);
+  --shadow-lg: var(--rs-shadow-lg);
+  --shadow-sm: var(--rs-shadow-sm);
+  --shadow-md: var(--rs-shadow-md);
+}
+
+/* Açık tema (varsayılan) */
+:root {
+  color-scheme: light;
+  --rs-canvas: #f5f7fa;
+  --rs-surface: #ffffff;
+  --rs-surface-muted: #eef2f6;
+  --rs-border: #d5dce4;
+  --rs-fg: #1b2129;
+  --rs-fg-muted: #56606c;
+  --rs-primary: #0a6cb0;
+  --rs-primary-hover: #085a93;
+  --rs-on-primary: #ffffff;
+  --rs-danger: #b42318;
+  --rs-danger-surface: #fdeceb;
+  --rs-warning: #8a5300;
+  --rs-warning-surface: #fff3d6;
+  --rs-success: #17723a;
+  --rs-success-surface: #e6f4ea;
+  --rs-ring: #0a6cb0;
+  --rs-logo-surface: #ffffff;
+  --rs-shadow-sm: 0 1px 2px rgb(16 24 40 / 0.06);
+  --rs-shadow-md: 0 4px 12px rgb(16 24 40 / 0.08), 0 1px 3px rgb(16 24 40 / 0.06);
+  /* 2026-11-11 onaylı taslaklardan (docs/tasarim/) — DESIGN.md §2 */
+  --rs-primary-surface: #e6f0f9;
+  --rs-overlay: rgb(14 19 24 / 0.5);
+  --rs-stage: #10151b;
+  --rs-on-stage: #c3ccd5;
+  --rs-control-frame: #d92d20;
+  --rs-on-control: #ffffff;
+  --rs-annotate: #e0218a;
+  --rs-shadow-lg: 0 16px 40px rgb(16 24 40 / 0.18), 0 2px 6px rgb(16 24 40 / 0.08);
+}
+
+/* Koyu tema — P1'de işletim sistemi tercihine göre; kullanıcı tercihi (DB) P12 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --rs-canvas: #0e1318;
+    --rs-surface: #151b22;
+    --rs-surface-muted: #1d252e;
+    --rs-border: #303a45;
+    --rs-fg: #e6ebf0;
+    --rs-fg-muted: #9ba7b3;
+    --rs-primary: #56b0ec;
+    --rs-primary-hover: #79c1f1;
+    --rs-on-primary: #08131d;
+    --rs-danger: #ff8a80;
+    --rs-danger-surface: #3b1714;
+    --rs-warning: #e9b949;
+    --rs-warning-surface: #33260a;
+    --rs-success: #4cc06a;
+    --rs-success-surface: #12301b;
+    --rs-ring: #56b0ec;
+    --rs-logo-surface: #f5f7fa;
+    --rs-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --rs-shadow-md: 0 4px 12px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.3);
+    --rs-primary-surface: #10283a;
+    --rs-overlay: rgb(0 0 0 / 0.62);
+    --rs-stage: #07090c;
+    --rs-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-canvas text-fg font-sans antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--rs-ring);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-property: opacity !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

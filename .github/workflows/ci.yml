@@ -1,0 +1,139 @@
+# CI (P1): lint -> type-check -> test (MySQL) -> build (+ Docker imajları) ; audit, lisans, gitleaks.
+# G-18: tüm Action'lar commit SHA ile sabit; varsayılan izin yalnız `contents: read`; secret kullanılmaz
+# (fork PR'leri de güvenle çalışır). main'e merge için tüm job'lar "required status check" yapılır (runbook).
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  NODE_VERSION: "22.23.4"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  quality:
+    name: lint + type-check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm -r --if-present run lint
+      - run: pnpm -r --if-present run typecheck
+
+  test:
+    name: test (MySQL 8.4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4.13@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-only
+          MYSQL_DATABASE: remote
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pci-root-only --silent"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      # Yalnız CI'da geçerli, gerçek ortamla ilgisi olmayan değerler.
+      MYSQL_ROOT_PASSWORD: ci-root-only
+      MYSQL_DATABASE: remote
+      MYSQL_APP_PASSWORD: ciapp
+      MYSQL_MIGRATOR_PASSWORD: cimigrator
+      MIGRATE_DATABASE_URL: mysql://migrator:cimigrator@127.0.0.1:3306/remote
+      DATABASE_URL: mysql://app:ciapp@127.0.0.1:3306/remote?allowPublicKeyRetrieval=true
+      TEST_DATABASE_URL: mysql://app:ciapp@127.0.0.1:3306/remote?allowPublicKeyRetrieval=true
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - name: DB kullanıcıları (deploy/mysql/init/01-users.sh, compose ile aynı betik)
+        run: |
+          docker exec -i -e MYSQL_ROOT_PASSWORD -e MYSQL_DATABASE -e MYSQL_APP_PASSWORD \
+            -e MYSQL_MIGRATOR_PASSWORD ${{ job.services.mysql.id }} bash < deploy/mysql/init/01-users.sh
+      - run: pnpm db:migrate
+      - name: app kullanıcısı yetki sınırı (G-15)
+        run: APP_PW=ciapp CONTAINER=${{ job.services.mysql.id }} DB=remote bash deploy/mysql/check-app-grants.sh
+      - run: pnpm -r --if-present run test
+      - run: pnpm --filter @remote/server test:int
+
+  build:
+    name: build (+ Docker imajları)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm -r --if-present run build # server derlenmez (node src/server.ts); web next build
+      - run: docker build -f apps/server/Dockerfile --target migrate -t remote-migrate:ci .
+      - run: docker build -f apps/server/Dockerfile --target runtime -t remote-server:ci .
+      - run: docker build -f apps/web/Dockerfile --target runtime -t remote-web:ci .
+      - name: compose yapılandırması geçerli
+        working-directory: deploy
+        run: |
+          cp ../.env.example .env
+          sed -i -e 's/^MYSQL_ROOT_PASSWORD=$/MYSQL_ROOT_PASSWORD=x/' -e 's/^MYSQL_DATABASE=$/MYSQL_DATABASE=x/' \
+            -e 's/^MYSQL_APP_PASSWORD=$/MYSQL_APP_PASSWORD=x/' -e 's/^MYSQL_MIGRATOR_PASSWORD=$/MYSQL_MIGRATOR_PASSWORD=x/' \
+            -e 's|^PUBLIC_BASE_URL=$|PUBLIC_BASE_URL=https://localhost:4450|' \
+            -e 's|^SESSION_REF_KEY=$|SESSION_REF_KEY=ci-only-0123456789abcdef0123456789abcdef|' \
+            -e 's|^EDGE_PROXY_SECRET=$|EDGE_PROXY_SECRET=ci-only-edge-0123456789abcdef0123456789|' .env
+          docker compose config --quiet
+          if docker compose config --format json | jq -e '.services.server.environment.MIGRATE_DATABASE_URL'; then
+            echo 'server MIGRATE_DATABASE_URL görmemeli'; exit 1
+          fi
+          docker run --rm -e SITE_HOST=localhost -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+  e2e:
+    name: web e2e (Playwright, mock API)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @remote/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @remote/web e2e
+
+  supply-chain:
+    name: audit + lisans + gitleaks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false, fetch-depth: 0 }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level high
+      - name: lisans (AGPL/GPL yasak)
+        run: pnpm licenses list --json --prod | node scripts/check-licenses.mjs
+      - name: gitleaks (tüm geçmiş)
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            git /repo --config /repo/.gitleaks.toml --redact --no-banner --exit-code 1

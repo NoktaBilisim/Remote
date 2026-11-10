@@ -1,0 +1,22 @@
+# Build bağlamı repo kökü; imaja yalnız kaynak + lockfile girer (gizli bilgi ve yerel çıktı girmez).
+.git
+.github
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/*.tsbuildinfo
+**/.turbo
+apps/server/src/generated
+apps/agent-win
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+deploy
+docs
+**/*.log
+**/playwright-report
+**/test-results
+.DS_Store

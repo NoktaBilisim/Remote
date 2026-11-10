@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hızlı Destek istemcisi (Windows) — taslak</title>
+<link rel="icon" href="img/favicon-32x32.png"><link rel="stylesheet" href="tasarim.css">
+<script src="tasarim.js"></script><script src="ikonlar.js" defer></script>
+</head>
+<body>
+<div class="mock-bar" role="region" aria-label="Taslak denetimleri">
+  <a href="index.html"><svg class="i" aria-hidden="true"><use href="#i-arrow-left"/></svg>Taslaklar</a>
+  <span class="lbl">Karşılama</span>
+  <span class="seg"><button data-set="kar:normal">Normal</button><button data-set="kar:hata">Kod geçersiz</button><button data-set="kar:bekleme">Onay bekleniyor</button></span>
+  <span class="lbl">Üst çubuk</span>
+  <span class="seg"><button data-set="bar:kontrol">Kontrol aktif</button><button data-set="bar:izleme">Yalnız izleniyor</button></span>
+  <span class="spacer row"><span class="lbl">Tema</span><span class="seg"><button data-tema="acik"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg>Açık</button><button data-tema="koyu"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg>Koyu</button><button data-tema="sistem"><svg class="i" aria-hidden="true"><use href="#i-laptop"/></svg>Sistem</button></span></span>
+</div>
+<main class="page wide">
+  <div class="page-head"><div><h1>Hızlı Destek istemcisi — Windows pencereleri</h1><p>Win32 yerel denetimleriyle çizilecek sade pencereler (Segoe UI 9 pt). Pencereler Windows'un açık görünümünü izler; sayfa teması yalnız çevreyi değiştirir.</p></div></div>
+
+  <section class="stack" aria-labelledby="a-t">
+    <h2 id="a-t">1. Karşılama penceresi</h2>
+    <div class="desk">
+      <div class="w32 w-480" role="dialog" aria-label="Nokta Hızlı Destek — karşılama">
+        <div class="w-title"><img src="img/nokta-kucuk.png" alt="" width="16" height="16">Nokta Hızlı Destek<span class="spacer"></span><span class="w-cap" aria-hidden="true"><svg class="i"><use href="#i-minus"/></svg></span><span class="w-cap close" aria-hidden="true"><svg class="i"><use href="#i-x"/></svg></span></div>
+        <div class="w-body" data-when="kar:normal|hata">
+          <div class="row"><span class="logo-card"><img src="img/logo.png" alt="Nokta Bilişim" height="36"></span><span class="spacer w-srv">Bağlanılan sunucu:<b>destek.noktabilisim.com.tr</b></span></div>
+          <fieldset class="w-group"><legend>Teknisyen</legend><div class="row"><span>Mehmet Kaya — Nokta Bilişim</span><span class="spacer">Doğrulama kodu: <b class="code w-code">7305</b></span></div></fieldset>
+          <div class="w-warn"><svg class="i" aria-hidden="true"><use href="#i-shield-alert"/></svg><span>Sizi kendiliğinden arayan biri bunu istediyse kapatın. Banka veya şifre işlemi yapmayın. <a href="#">Kötüye kullanımı bildir</a></span></div>
+          <div class="w-form">
+            <label for="wc">Oturum kodu:</label><div><input id="wc" class="w-edit code" value="48291376" aria-describedby="wc-h"> <span id="wc-h" class="w-note" data-when="kar:normal">dosya adından alındı</span><span class="w-err" role="alert" data-when="kar:hata">Kod geçersiz veya süresi dolmuş. Teknisyeninizden yeni kod isteyin.</span></div>
+            <label for="wn">Adınız:</label><input id="wn" class="w-edit" value="Ayşe Yılmaz">
+            <label for="wm">Paylaşılacak ekran:</label><select id="wm" class="w-edit"><option>Ekran 1 — 1920×1080 (birincil)</option><option>Ekran 2 — 1680×1050</option></select>
+          </div>
+          <label class="w-check"><input type="checkbox" checked> Aydınlatma metnini okudum; ekranımın paylaşılmasını kabul ediyorum. <a href="#">Metni göster</a></label>
+          <div class="w-btns"><button class="w-btn default">Bağlan</button><button class="w-btn">Kapat</button></div>
+        </div>
+        <div class="w-body w-center" data-when="kar:bekleme" role="status">
+          <p>Teknisyen onayı bekleniyor. Teknisyeninize telefonda şu kodu söyleyin:</p>
+          <div class="code w-big">4821</div>
+          <p class="w-note">Teknisyen: Mehmet Kaya · doğrulama 7305 · kalan bekleme 4:12</p>
+          <div class="w-btns"><button class="w-btn">Vazgeç</button></div>
+        </div>
+        <div class="w-status">Sürüm 1.0.3 · SHA-256 3f9a1c07 · imzasız — doğrulama: GitHub SHA256SUMS</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="stack" aria-labelledby="b-t">
+    <div class="row wrap"><h2 id="b-t" class="grow">2. Kontrol izni diyaloğu</h2><button class="btn sm" id="replay"><svg class="i" aria-hidden="true"><use href="#i-rotate-cw"/></svg>Canlı oynat (1,5 sn)</button></div>
+    <div class="desk two">
+      <figure class="w-fig">
+        <div class="w32 w-400 perm" id="perm-live" role="alertdialog" aria-label="Uzaktan kontrol isteği — açıldığı an">
+          <div class="w-title">Uzaktan kontrol isteği<span class="spacer"></span><span class="w-cap close" aria-hidden="true"><svg class="i"><use href="#i-x"/></svg></span></div>
+          <div class="w-body"><div class="row w-top"><svg class="i i-8 w-shield" aria-hidden="true"><use href="#i-shield-alert"/></svg><p><b>Mehmet Kaya (Nokta Bilişim)</b> bilgisayarınızın faresini ve klavyesini kullanmak istiyor.<br>İstediğiniz an <b>Ctrl+Shift+F12</b> ile kontrolü geri alabilirsiniz.</p></div>
+            <div class="w-btns"><button class="w-btn focus">Reddet</button><span class="w-allow"><button class="w-btn" disabled>İzin ver</button><span class="w-prog"><i></i></span></span></div></div>
+        </div>
+        <figcaption><b>Açıldığı an (0–1,5 sn)</b> — “İzin ver” pasif, alttaki çubuk dolunca etkinleşir. Odak “Reddet”te (kesikli çerçeve).</figcaption>
+      </figure>
+      <figure class="w-fig">
+        <div class="w32 w-400 perm" role="alertdialog" aria-label="Uzaktan kontrol isteği — 1,5 sn sonra">
+          <div class="w-title">Uzaktan kontrol isteği<span class="spacer"></span><span class="w-cap close" aria-hidden="true"><svg class="i"><use href="#i-x"/></svg></span></div>
+          <div class="w-body"><div class="row w-top"><svg class="i i-8 w-shield" aria-hidden="true"><use href="#i-shield-alert"/></svg><p><b>Mehmet Kaya (Nokta Bilişim)</b> bilgisayarınızın faresini ve klavyesini kullanmak istiyor.<br>İstediğiniz an <b>Ctrl+Shift+F12</b> ile kontrolü geri alabilirsiniz.</p></div>
+            <div class="w-btns"><button class="w-btn focus">Reddet</button><span class="w-allow"><button class="w-btn">İzin ver</button><span class="w-prog done"><i></i></span></span></div></div>
+        </div>
+        <figcaption><b>1,5 sn sonra</b> — “İzin ver” yalnız fareyle gerçek tıklamayla seçilir.</figcaption>
+      </figure>
+    </div>
+    <ul class="rules">
+      <li><svg class="i" aria-hidden="true"><use href="#i-keyboard"/></svg>Enter ve Space her zaman “Reddet”i seçer; “İzin ver” klavye varsayılanı olamaz.</li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-mouse-pointer-2"/></svg>Diyalog fare imlecinin altında açılmaz; uzaktan enjekte edilen tıklamalar yok sayılır.</li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-timer"/></svg>Reddedilen istekten sonra 30 sn yeni istek gelmez; oturum başına en çok 5 istek.</li>
+    </ul>
+  </section>
+
+  <section class="stack" aria-labelledby="c-t">
+    <h2 id="c-t">3. Her zaman üstte durum çubuğu</h2>
+    <div class="desk screen" data-s="bar">
+      <div class="w-topbar ctl" data-when="bar:kontrol" role="status"><span class="w-dot" aria-hidden="true"></span><b>Uzaktan kontrol aktif — Mehmet Kaya</b><button class="w-btn">Kontrolü kapat <span class="w-kbd">Ctrl+Shift+F12</span></button><button class="w-btn">Oturumu bitir</button></div>
+      <div class="w-topbar view" data-when="bar:izleme" role="status"><svg class="i" aria-hidden="true"><use href="#i-eye"/></svg><b>Ekranınız izleniyor — Mehmet Kaya</b><button class="w-btn">Oturumu bitir</button></div>
+      <div class="scr-ghost" aria-hidden="true"></div>
+    </div>
+    <p class="muted">Çubuk her monitörün üst kenarında, diğer pencerelerin üstünde durur; gizlenemez, sürüklenemez. Kontrol aktifken ekranın tamamı 3 px kırmızı çerçeveyle çevrilir. Kısayol kaydedilemezse çubukta Ctrl+Shift+F11 yazar.</p>
+  </section>
+</main>
+<script>
+  document.getElementById("replay").addEventListener("click", function () {
+    var w = document.getElementById("perm-live"), b = w.querySelector(".w-allow .w-btn"), p = w.querySelector(".w-prog");
+    b.disabled = true; p.classList.remove("done", "run"); void p.offsetWidth; p.classList.add("run");
+    setTimeout(function () { b.disabled = false; p.classList.add("done"); }, 1500);
+  });
+</script>
+</body>
+</html>
