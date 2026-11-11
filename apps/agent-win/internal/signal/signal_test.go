@@ -60,6 +60,12 @@ func decodeGuest(raw []byte) ([]byte, error) {
 		m = &SessionEnd{}
 	case "file.meta":
 		m = &FileMeta{}
+	case "control.state":
+		m = &ControlState{}
+	case "env.state":
+		m = &EnvState{}
+	case "monitor.denied":
+		m = &MonitorDenied{}
 	default:
 		return nil, errors.New("misafir bu tipi gönderemez")
 	}
@@ -148,7 +154,7 @@ func TestServerMessageStrictness(t *testing.T) {
 		`{"t":"hello","role":"guest","sessionId":"01JC0000000000000000000000","peerPresent":true,"iceServers":[{"urls":["stun:a"],"extra":1}],"maxEndsAt":null}`,
 		`{"t":"hello","role":"guest","sessionId":"01JC0000000000000000000000","peerPresent":true,"iceServers":[],"maxEndsAt":null,"caps":["admin"]}`,
 		`{"t":"sdp.offer","id":"1","sdp":"v=0"}`, // sunucu id'yi atar
-		`{"t":"control.request"}`,                // P7 öncesi bilinmiyor
+		`{"t":"control.grant"}`,                  // sözleşmede yok (izin yalnız istemcide)
 		`[]`, `not json`,
 	}
 	for _, s := range bad {
@@ -244,5 +250,80 @@ func TestAC109DialRejectsUntrustedCertAndBadCredential(t *testing.T) {
 		if _, err := Dial(ctx, &http.Client{}, u, c); err == nil {
 			t.Errorf("geçersiz kimlik bilgisi kabul edildi: %+v", c)
 		}
+	}
+}
+
+func TestAC99P7ServerControlMessages(t *testing.T) {
+	good := map[string]string{
+		`{"t":"control.request"}`:                      "control.request",
+		`{"t":"monitor.request","monitorId":2}`:        "monitor.request",
+		`{"t":"control.revoke","reason":"permission"}`: "control.revoke",
+		`{"t":"control.revoke","reason":"audit"}`:      "control.revoke",
+		`{"t":"control.revoke","reason":"reconnect"}`:  "control.revoke",
+		`{"t":"control.revoke","reason":"stale"}`:      "control.revoke",
+		`{"t":"control.release"}`:                      "control.release",
+		`{"t":"control.cancel"}`:                       "control.cancel",
+		`{"t":"caps.update","caps":[]}`:                "caps.update",
+		`{"t":"caps.update","caps":["file_transfer"]}`: "caps.update",
+	}
+	for raw, typ := range good {
+		m, err := ParseServer([]byte(raw))
+		if err != nil || m.Type() != typ {
+			t.Errorf("%s: %v", raw, err)
+		}
+	}
+	bad := []string{`{"t":"control.request","x":1}`, `{"t":"monitor.request","monitorId":1.5}`,
+		`{"t":"monitor.request","monitorId":65}`, `{"t":"monitor.request"}`, `{"t":"control.revoke","reason":"x"}`,
+		`{"t":"caps.update","caps":["admin"]}`, `{"t":"caps.update"}`, `{"t":"caps.update","caps":null}`,
+		`{"t":"control.grant"}`, `{"t":"control.release","x":1}`, `{"t":"control.cancel","reason":"x"}`}
+	for _, raw := range bad {
+		if _, err := ParseServer([]byte(raw)); err == nil {
+			t.Errorf("kabul edildi: %s", raw)
+		}
+	}
+	for _, raw := range []string{`{"t":"control.state","state":"GRANTED","source":"UI"}`,
+		`{"t":"env.state","elevatedForeground":true,"secureDesktop":false,"selfElevated":false}`, `{"t":"monitor.denied","monitorId":1}`} {
+		if _, err := ParseServer([]byte(raw)); !errors.Is(err, ErrNotForGuest) {
+			t.Errorf("%s misafire yönelik değil: %v", raw, err)
+		}
+	}
+}
+
+func TestAC111ControlStateEncode(t *testing.T) {
+	for _, m := range []ControlState{{T: "control.state", State: "GRANTED", Source: "UI"},
+		{T: "control.state", State: "VIEW", Source: "HOTKEY"}, {T: "control.state", State: "VIEW", Source: "SYSTEM"},
+		{T: "control.state", State: "VIEW", Source: "DENIED"}} {
+		b, err := Encode(m)
+		if err != nil {
+			t.Fatalf("%+v: %v", m, err)
+		}
+		if out, err := decodeGuest(b); err != nil || !jsonEqual(t, b, out) {
+			t.Fatalf("gidiş-dönüş: %s %v", b, err)
+		}
+	}
+	for _, m := range []ControlState{{T: "control.state", State: "GRANTED", Source: "SYSTEM"},
+		{T: "control.state", State: "OPEN", Source: "UI"}, {T: "control.state", State: "VIEW", Source: "X"},
+		// S7-10 / §3: RECONNECT ve TECH yalnız sunucu üretir; misafir göndermez.
+		{T: "control.state", State: "VIEW", Source: "RECONNECT"}, {T: "control.state", State: "VIEW", Source: "TECH"}} {
+		if _, err := Encode(m); err == nil {
+			t.Errorf("geçersiz control.state kodlandı: %+v", m)
+		}
+	}
+	// K4: monitör reddi.
+	if b, err := Encode(MonitorDenied{T: "monitor.denied", MonitorID: 2}); err != nil || string(b) != `{"t":"monitor.denied","monitorId":2}` {
+		t.Fatalf("monitor.denied: %s %v", b, err)
+	}
+	for _, id := range []int{-1, 65} {
+		if _, err := Encode(MonitorDenied{T: "monitor.denied", MonitorID: id}); err == nil {
+			t.Errorf("monitorId %d kodlandı", id)
+		}
+	}
+	// K8: selfElevated false iken de yazılır (strict şema zorunlu alan; omitempty olsaydı sunucu 1008 verirdi).
+	b, err := Encode(EnvState{T: "env.state", SecureDesktop: true})
+	if err != nil || string(b) != `{"t":"env.state","elevatedForeground":false,"secureDesktop":true,"selfElevated":false}` {
+		t.Fatalf("env.state: %s %v", b, err)
+	}
+	if _, err := decodeGuest([]byte(`{"t":"env.state","elevatedForeground":false,"secureDesktop":false}`)); err == nil {
+		t.Fatal("K8: selfElevated eksik env.state reddedilmeli")
 	}
 }

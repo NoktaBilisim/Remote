@@ -10,7 +10,8 @@
     "./api/sessions": "./src/api/sessions.ts",
     "./ws": "./src/ws.ts",
     "./dc": "./src/dc.ts",
-    "./files": "./src/files.ts"
+    "./files": "./src/files.ts",
+    "./audit": "./src/audit.ts"
   },
   "scripts": {
     "lint": "eslint .",

@@ -56,6 +56,7 @@ var (
 	pSetForegroundWindow       = user32.NewProc("SetForegroundWindow")
 	pGetSysColor               = user32.NewProc("GetSysColor")
 	pGetSysColorBrush          = user32.NewProc("GetSysColorBrush")
+	pGetCurrentInputMsgSource  = user32.NewProc("GetCurrentInputMessageSource")
 
 	pCreateFontW            = gdi32.NewProc("CreateFontW")
 	pDeleteObject           = gdi32.NewProc("DeleteObject")
@@ -91,6 +92,11 @@ const (
 	WM_KEYDOWN          = 0x0100
 	WM_KEYUP            = 0x0101
 	WM_CHAR             = 0x0102
+	WM_SYSKEYDOWN       = 0x0104
+	WM_SYSCHAR          = 0x0106
+	WM_LBUTTONDOWN      = 0x0201
+	WM_LBUTTONUP        = 0x0202
+	WM_LBUTTONDBLCLK    = 0x0203
 	WM_COMMAND          = 0x0111
 	WM_TIMER            = 0x0113
 	WM_CTLCOLOREDIT     = 0x0133
@@ -313,6 +319,21 @@ func TranslateDispatch(m *MSG) {
 func IsDialogMessage(h uintptr, m *MSG) bool {
 	r, _, _ := pIsDialogMessageW.Call(h, uintptr(unsafe.Pointer(m)))
 	return r != 0
+}
+
+// InputOrigin S7-5/S7-12: şu an işlenen girdi mesajının INPUT_MESSAGE_SOURCE.originId değeri
+// (GetCurrentInputMessageSource, Windows 8+), yorumsuz. ok=false: API yok veya çağrı başarısız. Karar (yalnız
+// IMO_HARDWARE yerel) platformdan bağımsız control.OriginInjected / control.CharInjected'dadır.
+func InputOrigin() (origin uint32, ok bool) {
+	if pGetCurrentInputMsgSource.Find() != nil {
+		return 0, false
+	}
+	var src struct{ DeviceType, OriginID uint32 }
+	r, _, _ := pGetCurrentInputMsgSource.Call(uintptr(unsafe.Pointer(&src)))
+	if r == 0 {
+		return 0, false
+	}
+	return src.OriginID, true
 }
 
 func Root(h uintptr) uintptr {

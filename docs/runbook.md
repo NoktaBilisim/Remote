@@ -1,4 +1,4 @@
-# Runbook — Remote Support (P1–P6)
+# Runbook — Remote Support (P1–P7)
 Sahibi: devops. Kapsam P1: kurulum, başlatma/durdurma, env, log, migrate/seed. Yedek, alarm, rollback
 provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md` §8.
 
@@ -92,6 +92,12 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
 ## 6. Migration ve seed
 - Her `docker compose up -d`'de `migrate` önce çalışır (`prisma migrate deploy` + `grants.sql`); başarısızsa
   server **başlamaz**. Log: `docker compose logs migrate`.
+- **Yayın sırası: önce migrate, sonra server.** Compose bunu `depends_on: service_completed_successfully` ile sağlar.
+  Servisleri tek tek güncelliyorsanız sırayı koruyun: `docker compose run --rm migrate` → `docker compose up -d server`.
+  P7 için bu zorunludur: migration `20261111050000_p7_consent_source_tech` `session_consents.source` CHECK'ine `TECH`
+  ekler; P7 server'ı migration'sız çalışırsa "Kontrolü bırak" kaydı CHECK hatasıyla (3819) yazılamaz (kontrol yine
+  kapanır, log'a `ref` düşer). Geri alma sırası tersidir: önce P7 öncesi imaj, sonra `down.sql`; `source='TECH'` satırı
+  varsa `down.sql` atomik başarısız olur, bu satırlar KVKK kanıtıdır ve silinmez (`docs/db-notlari.md` P7).
 - Elle: `docker compose run --rm migrate` · seed: `docker compose --profile setup run --rm seed`.
 - Geri alma (veri kaybı olur, önce yedek): `docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/<ad>/down.sql`, sonra önceki imaj etiketiyle `up -d` (ayrıntı `docs/db-notlari.md`).
 - `app` yetki sınırı kontrolü: `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD CONTAINER=remote-mysql-1 DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh`.
@@ -120,6 +126,12 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
 | `/downloads/*.exe` 503 `NOT_READY` (JSON) | S6-2: Caddy dosyayı sunmadan önce `forward_auth` ile server'ın iç `/internal/agent-ready` ucuna sorar; yukarıdaki satırla aynı nedenler (`alarm: "agent_binary"`). Server ayakta değilse 502. İç uç dışarıdan 404'tür; elle kontrol: `docker compose exec caddy wget -S -O- --header 'X-Forwarded-Method: GET' http://server:3001/internal/agent-ready` → `204` |
 | `/downloads/Destek-<kod>.exe` 404 | Caddy yalnız `NoktaDestek.exe` ve `Destek-<8 hane>.exe` adlarını sunar (her ikisi aynı dosya); volume `caddy` servisine `/srv/downloads` olarak bağlı mı: `docker compose exec caddy ls -l /srv/downloads` |
 | Müşteri resolve audit'inde IP hep `172.30.0.3` | `EDGE_PROXY_SECRET` caddy ile web arasında farklı: iki servisi birlikte yeniden yaratın (`docker compose up -d --force-recreate caddy web`). Kontrol için sırrın kendisini değil özetini karşılaştırın: `docker compose exec web sh -c 'printf %s "$EDGE_PROXY_SECRET" \| sha256sum'`, aynı komutu `caddy` için de çalıştırın |
+| Teknisyen "Kontrol iste"de `CONFLICT` alıyor | P7 `control.request` süzgeci: "Müşteri bağlı değil." (misafir kopuk/lobide), "Önceki kontrol isteği müşteride bekliyor." (önce **Vazgeç**), "Kontrol zaten açık." (iki sekme). Monitör isteğinde "Önceki monitör isteği müşteride bekliyor." → yanıt ya da 30 sn beklenir. Sunucu hatası değildir; ayrıntı `docs/api.md` "Uzaktan kontrol (P7)" |
+| Teknisyen `RATE_LIMITED` alıyor (kontrol veya monitör) | Ret/yanıtsızlık sonrası 30 sn bekleme veya oturum başına 5 istek sınırı (G-03, bilinçli). Sınır oturum başınadır; teknisyen yeni oturum açarak devam eder. Ayar yoktur |
+| Konsolda "Kontrol sistem tarafından kapatıldı (yetki veya kayıt)", müşteri izin vermişti | Fail-closed (G-15): izin kaydı (consent + audit) yazılamadı veya 800 ms'yi aştı → kontrol geri alındı, teknisyene `error{INTERNAL}` + `ref`. Kontrol: `docker compose logs server --since 10m \| grep <ref>`; `rs_control_total{event="grant_audit_error"\|"grant_audit_timeout"}` artıyor mu; DB gecikmesi/bağlantısı (`/ready`, `docker compose logs mysql`). DB düzelince kontrol yeniden istenebilir; kodda gevşetilecek bir ayar yoktur |
+| Yetkisi kaldırılan teknisyenin kontrolü hemen kapanmadı | P9'a kadar yetki değişikliği teknisyen soketinin 60 sn'lik yeniden doğrulamasında uygulanır (`caps.update` + `control.revoke{permission}`, metrik `caps_narrowed`, `revoke_permission`). En geç ~60 sn beklenir. Hemen kesmek için oturumu zorla sonlandırın (`POST /api/v1/sessions/:id/terminate`, Oturumlar → "Zorla sonlandır") |
+| Uzaktan kontrol olaylarını izleme | `/metrics` → `rs_control_total{event}` (komut: `docs/api.md` "GET /metrics"; olay listesi `apps/server/src/ops/metrics.ts`). Dikkat: `grant_audit_{error,timeout}` > 0 (izin kaydı yazılamıyor), `control_request_audit_failed` > 0 (istek audit'i yazılamadı, istek yine iletildi), `control_state_unexpected` sık artıyorsa (beklenmeyen izin mesajı; değiştirilmiş istemci şüphesi, log oda başına dakikada ≤ 1) |
+| Konsolda "Kontrol iste" düğmesi yok | Teknisyende `remote_control.use` yok (staging: `staging-users.sh` USER'a açar), müşteri tarayıcıdan bağlı (yalnız görüntü; "Uzaktan kontrol" pasif) veya görüntü henüz gelmedi |
 | Tüm müşteriler aynı IP'den (`172.30.0.x`) görünüyor / token limiti (429) ortak işliyor | web'in adresi .3 değil veya `TRUSTED_PROXY_CIDR` kapsamıyor: `docker inspect remote-web-1 -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'` |
 
 ## 8. Staging (185.126.217.99:4450)

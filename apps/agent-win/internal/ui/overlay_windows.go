@@ -22,21 +22,24 @@ var (
 // indicator AC-103: her monitörde kırmızı kenarlık + üst-orta etiket; 1 sn'de bir yeniden en üste alınır.
 // Pencereler tıklama geçirgendir ve yakalamadan hariç tutulur (teknisyen görüntüsünde çift çerçeve olmaz).
 type indicator struct {
-	bars []*form
+	bars   []*form
+	labels []*form
+	text   string
 }
 
 func newIndicator(t *thread, text string) *indicator {
-	ind := &indicator{}
+	ind := &indicator{text: text}
 	for _, m := range win.Monitors() {
 		r := m.Rect
 		w, h := r.Right-r.Left, r.Bottom-r.Top
 		const b = 5
 		for _, e := range [][4]int32{{r.Left, r.Top, w, b}, {r.Left, r.Bottom - b, w, b}, {r.Left, r.Top, b, h}, {r.Right - b, r.Top, b, h}} {
-			ind.bars = append(ind.bars, newBar(t, e[0], e[1], e[2], e[3], ""))
+			ind.bars = append(ind.bars, newBar(t, e[0], e[1], e[2], e[3], nil))
 		}
 		lw, lh := int32(460), int32(32)
-		lbl := newBar(t, r.Left+(w-lw)/2, r.Top, lw, lh, text)
+		lbl := newBar(t, r.Left+(w-lw)/2, r.Top, lw, lh, &ind.text)
 		ind.bars = append(ind.bars, lbl)
+		ind.labels = append(ind.labels, lbl)
 	}
 	if len(ind.bars) > 0 {
 		first := ind.bars[0]
@@ -46,7 +49,8 @@ func newIndicator(t *thread, text string) *indicator {
 	return ind
 }
 
-func newBar(t *thread, x, y, w, h int32, text string) *form {
+// newBar text nil ise yalnız kenarlık; değilse etiket metni her boyamada *text'ten okunur (setText).
+func newBar(t *thread, x, y, w, h int32, text *string) *form {
 	f := t.newPopup(classBar, x, y, w, h, true)
 	win.SetLayered(f.h, 0, 235, win.LWA_ALPHA)
 	win.ExcludeFromCapture(f.h)
@@ -54,18 +58,26 @@ func newBar(t *thread, x, y, w, h int32, text string) *form {
 		br := win.SolidBrush(colorBar)
 		win.FillRect(dc, &r, br)
 		win.DeleteObject(br)
-		if text != "" {
+		if text != nil && *text != "" {
 			ft := win.Font(f.s(-15), win.FW_SEMIBOLD)
 			old := win.SelectObject(dc, ft)
 			win.SetBkMode(dc, win.TRANSPARENT)
 			win.SetTextColor(dc, win.RGB(255, 255, 255))
-			win.DrawText(dc, text, &r, win.DT_CENTER|win.DT_VCENTER|win.DT_SINGLELINE|win.DT_NOPREFIX)
+			win.DrawText(dc, *text, &r, win.DT_CENTER|win.DT_VCENTER|win.DT_SINGLELINE|win.DT_NOPREFIX)
 			win.SelectObject(dc, old)
 			win.DeleteObject(ft)
 		}
 	}
 	win.ShowWindow(f.h, win.SW_SHOWNOACTIVATE)
 	return f
+}
+
+// setText AC-103: "Ekranınız izleniyor — <ad>" ↔ "Uzaktan kontrol aktif — <ad>".
+func (ind *indicator) setText(text string) {
+	ind.text = text
+	for _, l := range ind.labels {
+		win.Invalidate(l.h)
+	}
 }
 
 func (ind *indicator) raise() {

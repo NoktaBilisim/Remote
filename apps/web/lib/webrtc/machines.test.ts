@@ -144,7 +144,8 @@ describe("sinyal yardımcıları", () => {
   it("şema dışı/bozuk mesaj yok sayılır", () => {
     expect(parseServerMessage("{")).toBeNull();
     expect(parseServerMessage(JSON.stringify({ t: "lobby.wait", expiresAt: "x" }))).toBeNull();
-    expect(parseServerMessage(JSON.stringify({ t: "control.revoke", reason: "admin" }))).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ t: "control.revoke", reason: "bogus" }))).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ t: "p99.unknown" }))).toBeNull();
     expect(parseServerMessage(JSON.stringify({ t: "share.state", state: "sharing" }))).toEqual({ t: "share.state", state: "sharing" });
   });
   it("geri çekilme 10 sn ile sınırlı", () => {

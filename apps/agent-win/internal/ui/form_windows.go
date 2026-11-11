@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/win"
 )
 
@@ -58,9 +59,21 @@ type form struct {
 	paint    func(dc uintptr, r win.RECT)
 	// noKey bu düğmeye gelen Enter/Space yutulur (onay diyaloğu kuralı, G-03).
 	noKey uintptr
+	// S7-5: bu forma gelen son sol düğme basışının / tuş basışının kaynağı enjekte (veya bilinmiyor) muydu.
+	downInjected bool
+	keyInjected  bool
+}
+
+// inputMark şu an işlenen girdi mesajı ve kaynağı (S7-5). İzin düğmesinin BN_CLICKED'i bu mesajın işlenmesi
+// sırasında gelir; böylece karar sistem genelindeki "son basış"a değil, tıklamayı üreten olayın kendisine dayanır.
+type inputMark struct {
+	f        *form
+	msg      uint32
+	injected bool
 }
 
 type thread struct {
+	cur    inputMark // yalnız UI iş parçacığında
 	mu     sync.Mutex
 	queue  []func()
 	msgWnd uintptr
@@ -103,17 +116,54 @@ func startThread() (*thread, error) {
 func (t *thread) loop() {
 	var m win.MSG
 	for win.GetMessage(&m) > 0 {
-		if m.Message == win.WM_KEYDOWN || m.Message == win.WM_KEYUP || m.Message == win.WM_CHAR {
-			if (m.WParam == win.VK_RETURN || m.WParam == win.VK_SPACE) && t.isNoKey(m.Hwnd) {
-				continue
-			}
-		}
-		if f := t.forms[win.Root(m.Hwnd)]; f != nil && f.ctrls != nil && win.IsDialogMessage(f.h, &m) {
-			continue
-		}
-		win.TranslateDispatch(&m)
+		t.track(&m)
+		t.handle(&m)
+		// S7-14: işaret yalnız bu mesajın işlenmesi süresince geçerli. Sonraki GetMessage içinde teslim edilen
+		// gönderilmiş (sent) bir BM_CLICK önceki yerel tıklamanın işaretini görmemeli.
+		t.cur = inputMark{}
 	}
 }
+
+func (t *thread) handle(m *win.MSG) {
+	if m.Message == win.WM_KEYDOWN || m.Message == win.WM_KEYUP || m.Message == win.WM_CHAR {
+		if (m.WParam == win.VK_RETURN || m.WParam == win.VK_SPACE) && t.isNoKey(m.Hwnd) {
+			return
+		}
+	}
+	if f := t.forms[win.Root(m.Hwnd)]; f != nil && f.ctrls != nil && win.IsDialogMessage(f.h, m) {
+		return
+	}
+	win.TranslateDispatch(m)
+}
+
+// track S7-5/S7-12: form penceresine gelen girdi mesajının kaynağını (GetCurrentInputMessageSource) kaydeder; karar
+// control.OriginInjected'dadır (yalnız IMO_HARDWARE yerel, gerisi enjekte — fail-closed). Fare tıklaması = basış +
+// bırakma; ikisinden biri enjekteyse tıklama enjekte sayılır. Erişim tuşu (Alt+İ) WM_SYSCHAR ile gelir; kaynağı
+// bilinmiyorsa onu üreten tuş basışının kararı kullanılır (control.CharInjected).
+func (t *thread) track(m *win.MSG) {
+	t.cur = inputMark{}
+	f := t.forms[win.Root(m.Hwnd)]
+	if f == nil {
+		return
+	}
+	origin, ok := win.InputOrigin()
+	inj := control.OriginInjected(origin, ok)
+	switch m.Message {
+	case win.WM_LBUTTONDOWN, win.WM_LBUTTONDBLCLK:
+		f.downInjected = inj
+	case win.WM_LBUTTONUP:
+		t.cur = inputMark{f: f, msg: m.Message, injected: inj || f.downInjected}
+	case win.WM_KEYDOWN, win.WM_SYSKEYDOWN:
+		f.keyInjected = inj
+		t.cur = inputMark{f: f, msg: m.Message, injected: f.keyInjected}
+	case win.WM_CHAR, win.WM_SYSCHAR:
+		t.cur = inputMark{f: f, msg: m.Message, injected: control.CharInjected(f.keyInjected, origin, ok)}
+	}
+}
+
+// userInput S7-5: şu an işlenen mesaj f formuna gelen, enjekte olmayan yerel bir tıklama/tuş mu. Girdi mesajı
+// işlenmiyorsa (ör. başka bir sürecin gönderdiği WM_COMMAND/BM_CLICK) false.
+func (t *thread) userInput(f *form) bool { return t.cur.f == f && !t.cur.injected }
 
 func (t *thread) isNoKey(h uintptr) bool {
 	for _, f := range t.forms {
@@ -351,20 +401,16 @@ func (f *form) show(wa win.RECT, center bool, focus *ctrl) {
 	}
 }
 
-// showAwayFromCursor G-03: diyalog fare imlecini içermeyecek konumda açılır (imleç ortadaysa üst-orta).
+// showAwayFromCursor G-03: diyalog fare imlecini içermeyecek konumda açılır (imleç ortadaysa üst-orta;
+// konum kuralı platformsuz control.PlaceAway'de, birim testli).
 func (f *form) showAwayFromCursor(focus *ctrl) {
 	f.layout()
 	w, h := f.size()
 	cur := win.CursorPos()
 	wa := win.WorkAreaAt(cur)
-	pad := f.s(24)
-	x := (wa.Left + wa.Right - w) / 2
-	for _, y := range []int32{(wa.Top + wa.Bottom - h) / 2, wa.Top + pad, wa.Bottom - h - pad} {
-		if !(win.RECT{Left: x, Top: y, Right: x + w, Bottom: y + h}).Contains(cur) {
-			win.SetWindowPos(f.h, 0, x, y, w, h, win.SWP_NOZORDER|win.SWP_NOACTIVATE)
-			break
-		}
-	}
+	x, y := control.PlaceAway(control.Point{X: cur.X, Y: cur.Y},
+		control.Rect{Left: wa.Left, Top: wa.Top, Right: wa.Right, Bottom: wa.Bottom}, w, h, f.s(24))
+	win.SetWindowPos(f.h, 0, x, y, w, h, win.SWP_NOZORDER|win.SWP_NOACTIVATE)
 	win.ShowWindow(f.h, win.SW_SHOWNORMAL)
 	win.SetForegroundWindow(f.h)
 	if focus != nil {

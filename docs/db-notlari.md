@@ -1,4 +1,4 @@
-# DB Notları — Remote Support (P1–P5)
+# DB Notları — Remote Support (P1–P7)
 Sahibi: dba. Tasarım kaynağı: `docs/mimari.md` §3, ADR-0003. MySQL 8.4, Prisma 7.10.1 (stabil; 8.x RC kullanılmadı).
 
 ## Dosyalar
@@ -176,3 +176,19 @@ Migration `apps/server/prisma/migrations/20261111040000_p5_session_files/{migrat
 
 ### Test (2026-11-11, `scripts/test-db.sh`, mysql 8.4)
 P1→P4 üzerine P5 migrate + grants OK; `migrate diff --exit-code` 0. `check-app-grants.sh` **76/76 PASS** (P5: 9 yeni — SELECT/INSERT + quality UPDATE izinli; UPDATE/DELETE/ALTER reddi; çapraz tenant FK; file_name/direction CHECK; PENDING'de quality_summary). `down.sql` → tablo, sütun, CHECK ve kayıt kalktı (P4 UQ duruyor), diff exit 2 (beklenen); yeniden migrate OK, drift 0, `migrate status` güncel. Yeni `test/integration/session-files-p5.test.ts` 7/7 (meta yazma/okuma + sütun listesi, tenant izolasyonu FK, enum/sha/boyut CHECK, 17 kötü dosya adı + 6 geçerli ad, app yetki sınırı, quality_summary yazma/üzerine yazma/DbNull + PENDING/dizi/metin/>4 KB reddi). `test:int` **112/112**, `test` 79/79, typecheck + lint temiz.
+
+## P7 — `session_consents.source` += `TECH` (2026-11-11)
+Migration `apps/server/prisma/migrations/20261111050000_p7_consent_source_tech/{migration.sql,down.sql}` (ADR-0013, mimari §3.1 + §10.2 P7, mimari-protokol §3.3 K1). Yeni tablo/sütun **yok**; yalnız `session_consents_source_chk` genişletildi: `UI | HOTKEY | RECONNECT | SYSTEM | TECH`.
+- `TECH` = teknisyenin kontrolü bırakması (`control.release`) veya GRANTED iken `control.cancel` → satır `CONTROL / REVOKED / TECH`, metinsiz (consent_text_id/sha NULL; `text_scope_chk` zaten buna izin verir). REQUESTED iken `control.cancel` satır **yazmaz** (müşteri karar vermedi).
+- Elle yazıldı (Prisma CHECK ifade edemez); `schema.prisma`'da yalnız yorum değişti → `migrate diff` 0.
+- **Kilit:** MySQL'de CHECK değişimi = tek `ALTER … DROP CHECK x, ADD CONSTRAINT x CHECK (…)` (aynı ad tek ifadede çalışıyor; kısıtsız ara an yok). `ADD CHECK` ALGORITHM=COPY → tablo yeniden yazılır, süresince yazma bekler. Tablo küçük, prod henüz açık değil (P10) → kabul. İfade genişlediği için mevcut satırlar ihlal üretmez.
+- **Geri alma:** `down.sql` CHECK'i P4 kümesine daraltır + `_prisma_migrations` kaydını siler. `source='TECH'` satırı varsa 3819 ile **atomik başarısız** olur (test edildi, hiçbir şey değişmez). Bu satırlar KVKK onay kanıtıdır: silinmez/SYSTEM'e çevrilmez → TECH satırı oluştuktan sonra ileri düzeltme. Önce P7 kodu geri alınmalı.
+- **Grant:** değişmedi (yeni tablo yok; `session_consents` SELECT/INSERT P4'ten).
+- **Gözlem (mevcut tüm enum CHECK'leri için, P7'ye özgü değil):** sütunlar `utf8mb4_unicode_ci` → `IN (…)` harf duyarsız; `'tech'` CHECK'ten geçer (test edildi). Büyük harf yazım uygulamanın sabitleriyle (contracts) sağlanıyor; DB'de harf duyarlılığı istenirse ayrı karar (ör. `` `source` COLLATE utf8mb4_bin IN (…) ``), tüm enum CHECK'lerine birlikte uygulanmalı — P8 zaman çizelgesi/CSV öncesi mimar değerlendirmesi önerilir.
+
+### Backend-dev için (P7)
+- `control.release`/`control.cancel(GRANTED)`: `sessionConsent.create({ data: { id: newId(), sessionId, tenantId: room.tenantId, level: 'CONTROL', decision: 'REVOKED', source: 'TECH' } })` + audit `control.released` aynı `$transaction` (protokol §3.3: önce bellek durumu, sonra DB; hata → log + ref). `ip`/`userAgent` teknisyen bağlantısından doldurulabilir ya da NULL.
+- Kaynak değerleri tek yerden (contracts sabiti) yazılmalı; küçük harf DB'de reddedilmez (yukarıdaki gözlem).
+
+### Test (2026-11-11, `scripts/test-db.sh` ayrı ad/port `rs-mysql-dba-p7:33317`, mysql 8.4, sonra silindi)
+P1→P5 üzerine P7 migrate + grants OK; `migrate diff --exit-code` 0. `check-app-grants.sh` **78/78 PASS** (P7: 2 yeni — CONTROL/REVOKED/TECH izinli; `BOGUS` kaynak `session_consents_source_chk` ile reddi). Yeni `test/integration/consent-source-p7.test.ts` 2/2 (TECH + P4 kaynakları kabul, zaman çizelgesi sorgusu; `TECHNICIAN`/`DENIED`/`ADMIN`/boş → `session_consents_source_chk`). TECH satırı varken `down.sql` → 3819, CHECK ve kayıt değişmedi; TECH satırları (yalnız geçici DB'de) silinince `down.sql` OK → P4 kümesi, P7 kaydı yok, drift 0; yeniden migrate OK, `migrate status` güncel, 78/78. `test:int` **158/158** (P7 backend testleri dahil), `test` 218/218, typecheck + lint temiz.

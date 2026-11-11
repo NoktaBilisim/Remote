@@ -51,7 +51,11 @@ export default async function ConsolePage({ params }: { params: Promise<{ id: st
           {back}
         </div>
       ) : (
-        <ConsoleView session={res.data} canFiles={me.me.permissions.includes("file_transfer.use")} />
+        <ConsoleView
+          session={res.data}
+          canFiles={me.me.permissions.includes("file_transfer.use")}
+          canControl={me.me.permissions.includes("remote_control.use")}
+        />
       )}
     </div>
   );

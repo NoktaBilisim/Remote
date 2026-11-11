@@ -1,12 +1,13 @@
 // Package rtc misafir tarafı WebRTC eşidir (Pion v4, MIT; mimari-protokol §3–4). Offer'ı teknisyen oluşturur
 // (recvonly video + `ctl`/`file` DataChannel'ları); bu paket answer verir, ekran görüntüsünü sendonly H.264 track ile
 // gönderir ve DC mesajlarını sözleşmeye göre doğrulayıp (internal/dc) yetenek filtresinden (G-09) geçirir.
-// `input` kanalı P7'dedir: bu pakette açılırsa yok sayılır (mesajları okunmaz).
+// `input` kanalı (P7) yalnız `remote_control` yeteneği varken Handlers.Input'a iletilir; izin kararı alıcıdaki kapıdadır.
 package rtc
 
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -45,6 +46,9 @@ type Handlers struct {
 	Ctl func(dc.Ctl)
 	// FileChunk `file` kanalının çözülmüş çerçevesi; bozuk çerçeve ok=false ile bildirilir (alıcı transferi iptal eder).
 	FileChunk func(c dc.Chunk, ok bool)
+	// Input `input` kanalının ham metin mesajı. Pion goroutine'inden eşzamanlı çağrılır (gecikme için akışa
+	// aktarılmaz); alıcı (input.Applier) doğrular ve kapıyı SendInput'tan hemen önce denetler. nil ise kanal kapatılır.
+	Input func(raw []byte)
 	// State bağlantı durumu: "connected", "disconnected", "failed", "closed".
 	State func(string)
 }
@@ -70,6 +74,8 @@ type Option func(*webrtc.SettingEngine)
 // MaxPendingICE offer'dan önce kuyruğa alınan uzak aday üst sınırı (S6-7); fazlası düşürülür. Normal bir eş
 // birkaç düzine aday üretir; sınır, offer göndermeden aday yağdıran eşin istemci belleğini büyütmesini engeller.
 const MaxPendingICE = 64
+
+const capRemoteControl = "remote_control"
 
 // ErrNoCtl `ctl` kanalı henüz açık değil.
 var ErrNoCtl = errors.New("rtc: ctl kanalı açık değil")
@@ -164,8 +170,24 @@ func (p *Peer) onDataChannel(ch *webrtc.DataChannel) {
 			}
 			p.h.FileChunk(c, ok)
 		})
+	case dc.LabelInput:
+		if p.h.Input == nil {
+			ch.OnOpen(func() { _ = ch.Close() })
+			return
+		}
+		ch.OnMessage(func(msg webrtc.DataChannelMessage) {
+			if !msg.IsString {
+				return
+			}
+			p.mu.Lock()
+			allowed := slices.Contains(p.caps, capRemoteControl) // G-09: yetenek yoksa düşür
+			p.mu.Unlock()
+			if allowed {
+				p.h.Input(msg.Data)
+			}
+		})
 	default:
-		// `input` (P7) ve bilinmeyen kanallar: mesaj okunmaz, kanal kapatılır.
+		// Bilinmeyen kanallar: mesaj okunmaz, kanal kapatılır.
 		ch.OnOpen(func() { _ = ch.Close() })
 	}
 }
@@ -192,7 +214,7 @@ func (p *Peer) handleCtl(raw []byte) {
 	}
 }
 
-// SetCaps yetenek listesini günceller (caps.update P7'de sözleşmeye eklenince).
+// SetCaps yetenek listesini günceller (caps.update, G-09).
 func (p *Peer) SetCaps(caps []string) {
 	p.mu.Lock()
 	p.caps = append([]string(nil), caps...)

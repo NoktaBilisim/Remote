@@ -71,7 +71,7 @@ export async function roomFixture(rooms: Rooms, perms: PermissionKey[] = ["sessi
   const row = await repo.findForSignal(testDb(), s.id);
   if (!row) throw new Error("oturum yok");
   const techPeer = fakePeer();
-  const tech: TechConn = { peer: techPeer, userId: user.id, username: user.email, authToken: "x", permissions: new Set(perms), ctx: { ip: "10.0.0.1", userAgent: "test", requestId: "r" } };
+  const tech: TechConn = { peer: techPeer, userId: user.id, username: user.email, authToken: "x", permissions: new Set(perms), role: "USER", ctx: { ip: "10.0.0.1", userAgent: "test", requestId: "r" } };
   const room = rooms.attachTech(row, tech);
   const consent = await acceptConsent(testDb(), tenant.id, await currentConsentId(tenant.id), { ip: "203.0.113.7", userAgent: "test-ua" });
   /** join + ticket ile WS → LOBBY. */

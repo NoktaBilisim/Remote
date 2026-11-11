@@ -1397,3 +1397,260 @@ Not: `TRUSTED_PROXY_CIDR=172.30.0.2/31` web konteynerini (172.30.0.3) de kapsıy
 N6-1 ve B-1 "Sonra" listesine eklenebilir. S6-9 bilinen 2 (attestation) P10 prod açılışı için ön koşul olarak kalıyor.
 
 DURUM: GEÇTİ (Kritik 0 / Yüksek 0; S6-1 ve S6-2 Orta bulguları kapandı)
+
+---
+
+## P7 — Tur 1 — Uzaktan kontrol (2026-11-11)
+DURUM: DÜZELTİLMELİ
+Özet: Kritik 0 / Yüksek 1 / Orta 3 / Düşük 7
+
+Kapsam: commit edilmemiş P7 değişiklikleri: `packages/contracts/src/{ws,dc,audit}.ts`, `apps/server/src/signaling/{control,rooms,handlers,ws,types}.ts`, `apps/agent-win/internal/{control,input,env,signal,rtc,flow,ui}` + `cmd/noktadestek/main.go`, `apps/web/lib/control/*` (machine.ts ayrıntılı, input/use-remote-input yüzeysel). Ölçüt: `docs/mimari-protokol.md` §3.3 ve §4.3. §3.3 artık mimar kararını içeriyor (ADR-0013 olarak anılıyor, ancak `docs/adr/` altında dosya yok). Bu tur yalnız statik inceleme yapıldı; Windows'ta davranış doğrulanmadı.
+
+### Bulgular (öncelik sırasıyla)
+
+#### S7-1 [YÜKSEK] "Kontrolü bırak" yalnız konsolda yerel duraklatma; müşteri kapısı ve sunucu durumu GRANTED kalıyor — A01 Erişim Kontrolü / A04 Güvensiz Tasarım
+Yer: `apps/web/lib/control/machine.ts:106-109` (`release`/`resume` yalnız `paused`). Kodda `control.release` yok: `packages/contracts/src/ws.ts:104-107, 183-187`, `apps/server/src/signaling/control.ts` ve `apps/agent-win/internal/flow/control.go:58-88` bu mesajı tanımıyor. Bağlayıcı karar: `docs/mimari-protokol.md` §3.3 K1.
+Sorun: Teknisyen kontrolü bıraktığını sanıyor, ama müşteri istemcisinde kapı açık kalıyor. Sunucu kaydı GRANTED olarak sürüyor. "Kontrole devam" yeni izin istemeden girdi göndermeyi yeniden başlatıyor. Müşteri teknisyenin işi bıraktığını sanıp göstergeyi önemsemeyebilir.
+İstismar senaryosu: Teknisyen "bıraktım" diyor, müşteri işine dönüyor. Daha sonra konsol (aynı sekme; XSS, kötü niyetli tarayıcı eklentisi ya da bilerek yapılan "devam") müşteriye yeni diyalog göstermeden fare ve klavye enjekte edebiliyor. Audit zaman çizelgesinde kontrol oturum sonuna kadar açık görünüyor ve bırakma anı kaydedilmiyor (AC-111 zaman çizelgesi eksik kalıyor). En az yetki ilkesi ihlal ediliyor.
+Düzeltme: K1 uygulanmalı. contracts'a `control.release` ve `source: "TECH"` eklenmeli. Sunucu GRANTED iken önce VIEW'a geçmeli, misafire `control.release`, teknisyene `{VIEW,TECH}` göndermeli, ardından REVOKED/TECH ve `control.released` audit kaydını yazmalı. `session_consents.source` CHECK kısıtına `TECH` eklenmeli (dba). Go istemci `control.release`/`control.cancel` gelince durumdan bağımsız olarak kapıyı kapatmalı ve diyaloğu kapatmalı. Konsolda "Kontrolü bırak" `control.release` göndermeli; "Kontrole devam" yeni `control.request` olmalı. (atanan: backend-dev — sunucu + contracts + Go; frontend-dev — konsol; dba — CHECK migration)
+
+#### S7-2 [ORTA] Sunucu GRANTED'i bekleyen istek olmadan kabul ediyor, konsol istenmemiş GRANTED ile yakalamayı başlatıyor; istek iptali (`control.cancel`) yok — A04 / A08 Bütünlük
+Yer: `apps/server/src/signaling/control.ts:151-153`: `onGranted` yalnız `c.state === "GRANTED"` olup olmadığına bakıyor, `REQUESTED` şartı aramıyor; `control.revoke{stale}` yok. `apps/web/lib/control/machine.ts:151`: `control.state{GRANTED}` her fazda (idle/ended/denied) `phase: "granted"` yapıyor. "Vazgeç" yok (Frontend P7 sapma 2). Karar: §3.3 K2.
+Sorun ve istismar:
+(a) Kabul edilmiş ama kötü niyetli bir misafir (AGENT gibi davranan özel istemci), istek olmadan `control.state{GRANTED,UI}` ve ardından `{VIEW,UI}` mesajlarını 50 msg/sn token bucket sınırına kadar gönderebilir. Her çift `session_consents` + audit tablosuna TX yazıyor: veri tabanı yükü büyüyor ve sahte "müşteri izin verdi" kayıtları oluşuyor (zaman çizelgesi bütünlüğü bozuluyor). Teknisyen konsolu da istemediği hâlde yakalamaya geçiyor; görüntü alanında basılan tuşlar misafire gidiyor.
+(b) İptal mesajı yok: teknisyenin vazgeçtiği bir istek müşteri ekranında açık kalıyor. Müşteri bunu sonradan onaylarsa kapı açılıyor.
+Düzeltme: K2 uygulanmalı. GRANTED yalnız `REQUESTED` durumunda işlenmeli. VIEW durumundaki geç GRANTED'e `control.revoke{stale}` gönderilmeli, kayıt yazılmamalı, log `control_state_unexpected` düşülmeli. `control.cancel` eklenmeli. Konsol beklemediği GRANTED'de yakalamayı başlatmamalı ve `control.release` göndermeli. Sunucu kontrolüne ek olarak misafir başına `control.state` için ayrı ve düşük bir kota konmalı (örneğin dakikada 20). (backend-dev, frontend-dev)
+
+#### S7-3 [ORTA] Kısayol kanca iş parçacığında `gate.Close()` → `ReleaseAll` Applier kilidini bekliyor; aynı anda `SendInput` aynı iş parçacığının LL kancasını bekliyor → kanca zaman aşımına kadar kilitlenme, Windows kancayı sessizce kaldırabilir — A04
+Yer: `apps/agent-win/internal/input/host_windows.go:132-136` (WM_HOTKEY → `g.Close()` kanca iş parçacığında). `internal/control/gate.go:31-42` (`Close` dinleyicileri senkron çalıştırıyor). `internal/input/applier.go:92-104` (`Handle`, `a.mu` kilidini tutarken `Inject` çağırıyor).
+Sorun: Enjekte edilen girdi LL kancalarından geçer. Kanca prosedürü, kancayı kuran iş parçacığının mesaj döngüsünde çalışır. Teknisyen sürekli fare hareketi gönderirken müşteri Ctrl+Shift+F12'ye basarsa iki taraf birbirini bekler: kanca iş parçacığı `ReleaseAll` → `a.mu`'yu, Pion goroutine'i ise `a.mu` tutarken `SendInput` → kanca iş parçacığını bekler. Kilit `LowLevelHooksTimeout` (~300 ms–1 sn) dolunca çözülür. Kapı `Swap(false)` ile hemen kapandığı için yeni olay uygulanmaz, ancak:
+(1) Windows 7+ zaman aşımına uğrayan kancayı bildirim yapmadan kaldırabilir. Bu durumda oturumun geri kalanında AC-104 yerel önceliği ve enjekte tıklama tespiti (`lastPressInjected`) çalışmaz; tespit son değerde donar ve fail-open olur.
+(2) Kısayol işlenene kadar kullanıcı girdisi sistem genelinde takılır.
+Davranış Windows'ta doğrulanmalı (elle test adımı 30/31 sürekli hareket altında yapılmalı).
+Düzeltme: Kanca iş parçacığında yalnız atomik kapatma yapılmalı (`g.open.Store(false)`). `ReleaseAll` ve `onHotkey` ayrı bir goroutine'e taşınmalı (`go ...`). Genel kural: `Gate.Close` dinleyicileri kanca iş parçacığından senkron çağrılmamalı. Kanca prosedürlerinde kilit alınmadığı test veya yorumla güvenceye bağlanmalı. (backend-dev — Go)
+
+#### S7-4 [ORTA → tasarım uyumu] Teknisyen kopmasında/sekme değişiminde sunucu `control.revoke{reconnect}` göndermiyor (K3 ikinci katman eksik)
+Yer: `apps/server/src/signaling/rooms.ts` `attachTech` (`resetControl` + `peer.joined`) ve `detachTech` (`resetControl` + `peer.left`). `CONTROL_REVOKE_REASONS` içinde `reconnect`/`stale` yok (`packages/contracts/src/ws.ts:106`). Go tarafında `revokeReasons` (`internal/signal/messages.go`) da bu değerleri bilmediği için yeni bir değer gelirse şema hatası verir.
+Sorun: Bugün kapı yalnız istemcinin `peer.left/peer.joined{tech}` → `techChanged` yoluyla kapanıyor (`internal/flow/control.go:207-214`). Tek katmanlı bir güvenlik kontrolü: istemci bu mesajı kaçırırsa ya da gelecekte bir yeniden düzenleme bu yolu bozarsa, yeni teknisyen sekmesine açık kapı devredilir. Önem Orta: bugün istismar edilebilir bir yol görülmedi, ancak bağlayıcı tasarımın savunma derinliği eksik.
+Düzeltme: Sunucu, ADMITTED misafir bağlıysa önce `control.revoke{reconnect}`, sonra `peer.left/joined` göndermeli. contracts ve Go `revokeReasons` listesine `reconnect` ve `stale` eklenmeli. Go istemci bilinmeyen `reason` değerini yine kapatma olarak işlemeli: kapatma yönünde şema hatası fail-closed olmalı. (backend-dev)
+
+#### S7-5 [DÜŞÜK] Enjekte tıklama tespiti "sistem genelindeki son basış"a bakıyor; dosya teklifi diyaloğunda hiç yok — A04 (G-03)
+Yer: `apps/agent-win/internal/input/host_windows.go:73-76` (`lastPressInjected` her basışta global olarak değişiyor). `internal/ui/control_windows.go:92`. `internal/ui/screens_windows.go:434-480` (`FileOffer`: `LastPressInjected` kontrolü yok, ortak `consentDlg` kullanılmıyor).
+Sorun: Kontrol açıkken teknisyen monitör diyaloğundaki "İzin ver" düğmesine enjekte `down` gönderir. Arada müşterinin yaptığı yerel bir tuş basışı bayrağı `false` yapar. Teknisyen 1 sn askı sonrasında `up` gönderir ve BN_CLICKED izin olarak sayılır. Dosya teklifi diyaloğunda teknisyen kendi gönderdiği dosyayı (ör. `.exe`) enjekte tıklamayla doğrudan kabul edebilir. Her iki durumda da kapı zaten açık olduğu için etki sınırlı, ancak G-03'ün "ortak consent_dialog" vaadi karşılanmıyor.
+Düzeltme: BN_CLICKED anında `GetCurrentInputMessageSource` (`IMO_INJECTED`) kullanılmalı ya da tıklamayı başlatan `down` olayının bayrağı düğme bazında tutulmalı. Dosya teklifi de `consentDlg` üzerine taşınmalı (Kabul et = enjekte değilse). (backend-dev — Go)
+
+#### S7-6 [DÜŞÜK] Oturum penceresindeki "Erişime izin ver" sabit konumda; imleç-dışı yerleşim kuralı (G-03) bu yolda yok — A04 (clickjacking)
+Yer: `apps/agent-win/internal/ui/screens_windows.go:325-331, 343-346`; `control_windows.go:79-87` (`arm` bu düğmeyi de etkinleştiriyor).
+Sorun: Müşteri sohbet sırasında oturum penceresindeki Gönder/Oturumu bitir alanında çalışırken teknisyen istek gönderir. 1,5 sn sonra imlecin altında ya da yakınında etkin bir "Erişime izin ver" belirir. Diyalog `PlaceAway` ile konumlanıyor ama bu ikinci yol konumlanmıyor.
+Düzeltme: Düğme, imleç düğme dikdörtgenindeyse etkinleştirilmemeli. Ya da ilk 1,5 sn'den sonra yalnız fare düğmenin üstüne yeniden girdikten (`WM_MOUSEMOVE` giriş) sonraki tıklama kabul edilmeli. Daha basit seçenek: bu düğme diyaloğu öne getirsin, izin vermesin. (backend-dev — Go)
+
+#### S7-7 [DÜŞÜK] LL fare/klavye kancaları ve global kısayol programın tüm ömrü boyunca kurulu (KVKK onayı ve lobi öncesi dahil)
+Yer: `apps/agent-win/cmd/noktadestek/main.go:71-72` (`input.Start` UI kurulumunun hemen ardından). Agent P7 sapma 7.
+Sorun: Kanca yalnız bayrak okuyor, tuş değeri saklamıyor; gizlilik etkisi yok. Ancak (1) imzasız tek dosya + `WH_KEYBOARD_LL`, AV/EDR keylogger buluşsallarını tetikleme olasılığını artırıyor. (2) Her sistem girdisi bir Go geri çağrısından geçiyor; GC duraklamasında sistem genelinde girdi gecikiyor. (3) Ctrl+Shift+F12 bütün süre boyunca başka uygulamalardan alınmış oluyor.
+Düzeltme: Kısayol başlangıçta kayıtlı kalabilir (G-21 için gerekçe geçerli). LL kancaları yalnız `phActive` iken ve en azından ilk kontrol isteği ile oturum sonu arasında kurulmalı. Bu kararın gerekçesi implementation.md'ye yazılmalı. (backend-dev — Go)
+
+#### S7-8 [DÜŞÜK] `input` kanalında hız sınırı yok; işleme Pion goroutine'inde senkron yapılıyor
+Yer: `apps/agent-win/internal/rtc/rtc.go` `LabelInput` dalı (`OnMessage` → `p.h.Input`); `internal/input/applier.go:87-105`.
+Sorun: Kapı kapalıyken her mesaj JSON olarak ayrıştırılıp düşürülüyor. Kapı açıkken sınırsız `SendInput` yapılıyor. Kötü niyetli konsol, müşteri CPU'sunu ve girdi kuyruğunu doldurabilir. 512 bayt sınırı mevcut.
+Düzeltme: Token bucket eklenmeli (ör. 250 msg/sn, ani patlama 500). Aşımda düşürülmeli ve sayılmalı. Kapı kapalıyken ayrıştırma yapmadan erken düşürülmeli (`gate.IsOpen()` ön kontrolü, kilit altındaki asıl kontrol korunarak). (backend-dev — Go)
+
+#### S7-9 [DÜŞÜK] İstemci yönetici olarak çalıştırılırsa yükseltilmiş pencereler ve masaüstündeki UAC denetlenebilir; uyarı yok
+Yer: `apps/agent-win/internal/env/probe_windows.go:29-31` (kendi süreç yükseltilmişse `elevatedForeground=false`).
+Sorun: Müşteri "Yönetici olarak çalıştır" ile açarsa UIPI sınırı kalkar. Teknisyen yönetici yetkisiyle işlem yapar; `PromptOnSecureDesktop=0` olan makinelerde UAC onayını da enjekte tıklamayla verebilir. Gereksinim §"kapsam dışı 2" ile çelişen ve görünmeyen bir yetki artışı.
+Düzeltme: Yükseltilmiş çalışma algılanırsa kontrol diyaloğunda açık uyarı gösterilmeli. Tercih edilen yol: kontrol izni verilmemeli ya da `env.state`'e `selfElevated` eklenip audit'e yazılmalı. Karar mimarda. (backend-dev — Go, mimar)
+
+#### S7-10 [DÜŞÜK] Misafirden gelen `control.state` `RECONNECT`/`SYSTEM` kaynağını kabul ediyor
+Yer: `packages/contracts/src/ws.ts:104, 118`. §3.3'e göre `RECONNECT`/`TECH` değerlerini yalnız sunucu üretir; misafirden gelirse 1008 olmalı.
+Etki: Misafir `REVOKED/RECONNECT` kaydı yazdırabilir; sahte "kopma" kaydıyla zaman çizelgesi yanıltılabilir.
+Düzeltme: Misafir şemasına refine eklenmeli: VIEW yalnız `UI|HOTKEY|DENIED|SYSTEM`. (backend-dev)
+
+#### S7-11 [DÜŞÜK / izleme] AC-115 "5 sn" bugün yalnız 60 sn'lik yedek yolla karşılanıyor
+Yer: `apps/server/src/signaling/ws.ts:203-215` (`revalidateTech`). `endByTechnician`/`applyPermChange` için kod tabanında bu yol dışında çağıran yok (kullanıcı/yetki servisleri P9/P10'da gelecek).
+Durum: S-P3-8 sunucu tarafında doğru kapandı. Yetki tazeleniyor, rol değişimi veya pasif kullanıcı tüm odaları bitiriyor, caps daralırsa `caps.update` + `control.revoke{permission}` gönderiliyor. Ancak P9/P10 servisleri commit sonrası `app.rooms.*` çağırmazsa yetki kaldırıldıktan sonra kontrol en çok 60 sn açık kalır. P9 ve P10 için giriş şartı olarak izlenmeli. (backend-dev)
+
+### Otomatik tarama çıktıları
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found** (2026-11-11, bu tur).
+- Gizli bilgi taraması (`git grep` kalıbı, P7 yolları): eşleşme yok.
+- govulncheck (`golang:1.26.11-bookworm`, linux + GOOS=windows): **bu tur çalıştırılmadı** (tur sınırı). implementation.md "Agent P7" v1.1.4 sonucunu iki hedefte "0 vulnerabilities" olarak bildiriyor. Yeni bağımlılık yok (`golang.org/x/sys`, stdlib); kanıt bir sonraki turda veya CI çıktısıyla teyit edilmeli.
+
+### Tasarımda vaat edilip kodda bulunmayanlar (§3.3, ADR-0013)
+- K1 `control.release` (S7-1), K2 `control.cancel` + `revoke{stale}` + GRANTED yalnız REQUESTED (S7-2), K3 `revoke{reconnect}` (S7-4).
+- K4 `monitor.denied`: istemci reddi bildirmiyor, sunucu 30 sn yanıtsızlığa dayanıyor; ret audit'i yok.
+- K5-d: oturum sonunda açık kontrol için REVOKED/SYSTEM satırı yazılmıyor (her GRANTED kaydının bir kapanışı olmalı).
+- Teknisyen kopmasında bekleyen monitör isteğinin temizlenmesi (`resetControl`, `monitorPending`'e dokunmuyor).
+- G-03 "ortak `ui/consent_dialog.go`": dosya teklifi ortak diyaloğu kullanmıyor (S7-5).
+- `docs/adr/0013-*.md` dosyası yok (mimar).
+
+### Olumlu
+- **Kapı varsayılan kapalı ve yarışsız:** `control.Gate` atomik bool kullanıyor. Kapı her yolda kapanıyor: UI düğmesi UI iş parçacığında, kısayol kanca iş parçacığında, akışı beklemeden kapatıyor; `control.revoke`, `caps.update` (remote_control yok), `peer.left/joined{tech}`, WS kopması, PeerConnection disconnected/failed/closed, her `hello`, `session.ended`, `cleanup` de kapatıyor. `Applier.Handle` kapıyı enjeksiyondan hemen önce, `ReleaseAll` ile aynı kilit altında denetliyor; `Close` döndükten sonra basma olayı uygulanamıyor (AC-101 sağlanıyor; S7-3 gecikme istisnası hariç).
+- `EvControlGrant` son savunma katmanı (`flow/control.go:95`): bekleyen istek, etkin oturum, `remote_control` yeteneği ve kayıtlı kısayol şart. Kısayol yoksa izin verilemiyor (G-21).
+- İzin diyaloğu: Reddet varsayılan ve odakta. Enter/Space mesaj döngüsünde yutuluyor (`form_windows.go:107-111`). 1,5 sn kilit hem zamanlayıcıyla hem `CanGrant` ile uygulanıyor. Diyalog `PlaceAway` ile imleç dışına yerleşiyor ve birim testli. Diyalog açıkken ikinci istek açılmıyor. İstemci tarafında 30 sn / 5 istek yedek sayacı var.
+- Input şeması iki tarafta da katı: ≤512 bayt, geçerli UTF-8, null ve bilinmeyen alan reddi, koordinat 0..1, tekerlek ±1200, `code` `^[A-Za-z0-9]{1,32}$` ve beyaz listedeki VK, `key` ≤4 UTF-16 birimi ve tek yazdırılabilir karakter. Ctrl+Alt+Del ve Win+L engelli. Yalnız kendi bastığı tuşları bırakıyor. `input` DC yalnız `remote_control` yeteneği varken iletiliyor; daralmada `SetCaps` ile kesiliyor.
+- Sunucu: `remote_control.use` + caps kontrolü, BROWSER reddi, 30 sn / 5 istek kuralı sunucuda. GRANTED kaydı consent + audit tek TX; 800 ms veya hata durumunda `control.revoke{audit}` + `error{INTERNAL, ref}`; geç commit edilen kayıt REVOKED ile dengeleniyor (G-15 fail-closed). İşlemler oda başına sıralı. `epoch` ile eskimiş GRANTED dengeleniyor. Hata metninde ayrıntı yok.
+- S-P3-8: 60 sn yeniden doğrulamada yetkiler tazeleniyor; rol değişimi veya pasif kullanıcı/tenant tüm odaları `auth_revoked` ile bitiriyor; `attachTech` güncel yetkiyle caps'i daraltıyor; caps oturum içinde genişlemiyor.
+- Konsol: girdi yalnız GRANTED + görüntü varken gönderiliyor. VIEW, revoke, caps, INTERNAL, peer.left, kopma ya da oturum sonu gelince dinleyiciler sökülüyor ve `k.release_all` gönderiliyor. Ctrl+Alt+Del gönderilmiyor.
+
+### Ajan bazında
+- backend-dev (sunucu + contracts): S7-1, S7-2, S7-4, S7-10, S7-11 (izleme).
+- backend-dev (Go): S7-1 (istemci tarafı), S7-3, S7-5, S7-6, S7-7, S7-8, S7-9.
+- frontend-dev: S7-1 (bırak = `control.release`), S7-2 (Vazgeç + beklenmeyen GRANTED).
+- dba: S7-1 (`session_consents.source` CHECK'e `TECH`).
+- mimar: ADR-0013 dosyası; S7-9 kararı.
+
+### Öneri (`docs/gereksinimler.md` §9 "Sonra")
+S7-6, S7-7, S7-8 ve S7-9 "Sonra" listesine alınabilir. S7-3 ve S7-5 Windows elle testinde doğrulanana kadar P7 kapanış listesinde kalmalı.
+
+DURUM: DÜZELTİLMELİ (Yüksek 1: S7-1)
+
+## P7 — Tur 2 — S7-1..S7-11 kapanış doğrulaması + yeni yüzeyler (2026-11-11)
+DURUM: DÜZELTİLMELİ
+Özet: Kritik 0 / Yüksek 1 / Orta 0 / Düşük 5 (+ S7-9 açık, S7-11 izleme)
+
+Kapsam: Tur 1 sonrası değişiklikler: `apps/server/src/signaling/{control,rooms,handlers}.ts`, `packages/contracts/src/ws.ts`, `apps/agent-win/internal/{control/gate.go, input/{applier.go,host_windows.go}, win/win_windows.go, ui/{form,control}_windows.go, flow/control.go}`. Ölçüt: `docs/mimari-protokol.md` §3.3 K1–K5, ADR-0013 (dosya artık var). Windows'ta çalıştırma yapılmadı; Win32 sabitleri mingw-w64 `winuser.h` ile karşılaştırıldı.
+
+### Tur 1 maddelerinin durumu
+| ID | Durum | Kanıt / not |
+|---|---|---|
+| S7-1 | KAPANDI | Sunucu `control.ts:157-180` `handleControlClose`: GRANTED/granting → önce bellek VIEW + epoch, misafire `control.release`, teknisyene `{VIEW,TECH}`, sonra REVOKED/TECH + `control.released` (`recordClose`). Açılış yazılırken bırakma `interrupt` ile dengeleniyor (`onGranted` 320-326). Go `flow/control.go:84-91` durumdan bağımsız `gate.Close()` + diyalog kapanışı, yanıt yok. Konsol `k.release_all` → `control.release`, "Kontrole devam" yeni istek. Uçtan uca zincir tutarlı. |
+| S7-2 | KAPANDI | `onGranted` yalnız `REQUESTED && !granting` (`control.ts:279-285`); VIEW'da `control.revoke{stale}`, kayıt yok. `control.cancel` var; Go'da cancel sonrası gelen `EvControlGrant` `ctlReq.Pending()` şartıyla düşüyor (`flow/control.go:124`). Konsol beklenmeyen GRANTED'de yakalama başlatmıyor. Misafir başına `control.state` kotası eklenmedi; gerekçe kabul edildi (geçiş kuralları oturum başına ~10 consent satırıyla sınırlıyor, beklenmeyen mesaj kayıt üretmiyor, log dakikada 1). |
+| S7-3 | KAPANDI (statik) — Windows elle doğrulama bekliyor (adım 37) | `host_windows.go:138-139` WM_HOTKEY → `gate.Shut`; `gate.go:51-62` Swap + goroutine, kilit yok. Kanca geri çağrıları yalnız atomik `Suspend` yazıyor; `Hooks()` yalnız `PostThreadMessage`. Host iş parçacığında `a.mu` veya `g.mu` alan yol yok, kilitlenme döngüsü kırılmış. Close sonrası garanti: `Handle` kapıyı `a.mu` altında, `Inject`'ten hemen önce `Allow` ile denetliyor. `Close` (UI/akış) `ReleaseAll` ile uçuştaki enjeksiyonu bekliyor, dönüşten sonra 0 olay. `Shut` dönüşünde en çok **bir** mesajlık parti (≤ 4 olay; Swap'tan önce `Allow`'u geçmiş) uygulanabilir, sonra `ReleaseAll` basılı kalanları bırakıyor. Yeni basma olayı yok, kabul edilebilir. Bkz. S7-16 (küçük sıra yarışı). |
+| S7-4 | KAPANDI | `rooms.ts:167` ve `:180-181`: ADMITTED misafire önce `control.revoke{reconnect}`, sonra `peer.left/joined{tech}`; `monitorPending` temizleniyor. Go bilinmeyen `reason`'da `ParseServer` hatası → WS kapanışı → `cleanup` kapıyı kapatıyor (kapatma yönü fail-closed). |
+| S7-5 | **AÇIK → S7-12 (Yüksek)** | Mekanizma doğru seçilmiş (olay bazlı `GetCurrentInputMessageSource`, bilinmezse enjekte sayma, dosya teklifi ortak `consentDlg`'de). Ancak sabit ters tanımlanmış, ayrıntı aşağıda. |
+| S7-6 | KAPANDI (statik) — Windows adım 39 | Oturum penceresindeki düğme yalnız `present()` çağırıyor (imleç dışına yerleştirme, Reddet odağı, 1,5 sn kilidinin yeniden başlaması), izin vermiyor. |
+| S7-7 | KAPANDI | LL kancaları `gate.OnOpen/OnClose` → `Hooks(on)`. `wmHooksOn` işlenirken `g.IsOpen()` tekrar denetleniyor (`host_windows.go:141`). Kısayol baştan kayıtlı (G-21 gerekçesi geçerli). |
+| S7-8 | KAPANDI, kısmi atlatma → S7-13 | Kapalı kapıda ayrıştırmadan düşürme ve 250/sn, 500 patlama var. Bırakma muafiyeti sınırı atlatmak için kullanılabiliyor. |
+| S7-9 | AÇIK (Düşük) — mimar kararı bekliyor | Go yalnız yerel kırmızı uyarı gösteriyor (oturum penceresi ve kontrol diyaloğu). Değerlendirme: müşteri bilgilendiriliyor ve izin yine müşteride, yerel uyarı Düşük için yeterli bir ara önlem. Teknisyene/audit'e görünürlük yok. Sapma 5'teki gerekçe doğru: `env.state` strict olduğu için alan eklemek 1008'e yol açar. Öneri (mimar): `env.state.selfElevated` (contracts + sunucu + konsol rozeti) ve GRANTED audit'inin `newValue`'una `selfElevated` yazılması. P10 prod açılışından önce karara bağlanmalı. GEÇTİ'yi engellemez. |
+| S7-10 | KAPANDI | `ws.ts` `controlStateSchema.refine` (GRANTED yalnız UI; VIEW yalnız UI\|HOTKEY\|DENIED\|SYSTEM). Go tarafı da RECONNECT/TECH göndermiyor. |
+| S7-11 | İZLEME | Kod değişmedi; implementation.md "P9/P10 için zorunlu not" doğru yazılmış. P9/P10 güvenlik turunda giriş şartı. |
+
+### Yeni bulgular (öncelik sırasıyla)
+
+#### S7-12 [YÜKSEK] `IMO_INJECTED` sabiti yanlış: enjekte girdi "yerel", donanım girdisi "enjekte" sayılıyor; G-03 enjekte tıklama koruması tersine çalışıyor — A04 Güvensiz Tasarım / A07
+Yer: `apps/agent-win/internal/win/win_windows.go:325` (`const imoInjected = 0x01`) ve `:338` (`src.OriginID&imoInjected != 0`). Kullanan: `internal/ui/form_windows.go:141-151` (`track`), `control_windows.go:127` (`tryGrant`).
+Kanıt: mingw-w64 `winuser.h` (Debian bookworm `mingw-w64-x86-64-dev`):
+`IMO_UNAVAILABLE = 0x0, IMO_HARDWARE = 0x1, IMO_INJECTED = 0x2, IMO_SYSTEM = 0x4`. Koddaki 0x01 değeri **IMO_HARDWARE**'dir.
+Sorun: Teknisyenin `SendInput` ile ürettiği tıklamada `OriginID = 2` olur. `2 & 1 == 0` olduğu için `injected=false, known=true` dönüyor ve tıklama yerel kullanıcı tıklaması sayılıyor. Müşterinin gerçek fare/klavye girdisinde ise `OriginID = 1` olduğu için girdi enjekte sayılıyor.
+Etki ve istismar:
+(1) **İşlevsel:** Gerçek Windows'ta müşteri kontrol izni, monitör izni ve dosya kabulü ("Kabul et") düğmelerinin hiçbirini kullanamaz (`tryGrant` hep reddeder). P7 kullanılamaz durumda. Dosya teklifi ortak diyaloğa taşındığı için P5'teki Go dosya kabulü de bozulmuş durumda (gerileme).
+(2) **Güvenlik:** Kapı açıkken (ör. bu belirtiyi gidermek için kaynak denetimini gevşeten bir ara düzeltme ya da başka bir yoldan açılmış kapı) teknisyenin enjekte tıklaması monitör diyaloğunda "İzin ver"i ve dosya teklifinde "Kabul et"i (kendi gönderdiği `.exe` dahil) geçerli sayar. G-03'ün koruması tam tersine işliyor. Bugün kapı ilk kez açılamadığı için doğrudan istismar yolu kapalı, ancak kontrol mantığı ters. Windows elle testinde (adım 38) "hiçbir şey olmuyor" sonucu yanlışlıkla doğru yorumlanabilir.
+Linux birim testleri bunu yakalayamıyor: sabit `windows` build etiketi altında ve sahte değerle test edilmiyor.
+Düzeltme: `imoHardware = 0x01`, `imoInjected = 0x02`, `imoSystem = 0x04` sabitleri tanımlanmalı. Fail-closed kural: `injected = OriginID != imoHardware`. Yani yalnız IMO_HARDWARE yerel sayılmalı; INJECTED, SYSTEM ve bilinmeyen değerler enjekte sayılmalı. Not: UIAccess uygulamalarının enjeksiyonu da IMO_HARDWARE görünür, bu bilinen bir sınır olarak implementation.md'ye yazılmalı. Eşlemeyi platformdan bağımsız saf bir fonksiyona (`originInjected(id uint32) bool`) ayırıp her değer için birim testi eklenmeli. Windows adım 38 düzeltmeden sonra koşulmalı; ek olarak "müşterinin kendi tıklaması izin verir" adımı da doğrulanmalı. (atanan: backend-dev — Go)
+
+#### S7-13 [DÜŞÜK] Bırakma muafiyeti hız sınırını atlatıyor: basılı olmayan düğme için `m.btn{down:false}` her seferinde fare hareketi + düğme bırakma enjekte ediyor — A04 (DoS)
+Yer: `apps/agent-win/internal/input/applier.go:123` (`!isRelease(m) && !a.takeLocked`), `:139` (`isRelease` yalnız `down=false`'a bakıyor), `:185-195` (`translate` `m.btn` dalı, düğme basılı olmasa da `[mv, up]` döndürüyor).
+İstismar senaryosu: Değiştirilmiş konsol, kapı açıkken saniyede binlerce `{"t":"m.btn","b":"l","down":false,"x":..,"y":..}` gönderiyor. Her mesaj jeton harcamadan mutlak fare hareketi ve eşleşmeyen bir LBUTTONUP enjekte ediyor. 250/sn sınırı (S7-8) fiilen devre dışı kalıyor; müşteri CPU'su ve girdi kuyruğu doluyor. `k{down:false}` için risk yok: basılı olmayan tuş `key()` içinde `nil` dönüyor. Yerel öncelik (AC-104) ve kısayol çalışmaya devam ettiği için etki Düşük.
+Düzeltme: Yalnız **basılı** bir düğme veya tuşun bırakılması muaf tutulmalı (`a.buttons[m.B]` / `a.keys[m.Code]`). Diğer bırakma mesajları jeton harcamalı. Basılı olmayan düğme için bırakma olayı enjekte edilmemeli, en fazla hareket enjekte edilmeli (o da sınırdan geçerek). `TestS78InputRateLimit`'e bu senaryo eklenmeli. (backend-dev — Go)
+
+#### S7-14 [DÜŞÜK] `thread.cur` mesaj gönderimi bittikten sonra sıfırlanmıyor; sonraki `GetMessage` içinde teslim edilen çapraz iş parçacığı `BM_CLICK`'i önceki yerel tıklamanın işaretini görüyor — A04
+Yer: `apps/agent-win/internal/ui/form_windows.go:110-125` (`loop`: `track` her mesajın başında `t.cur`'u yazıyor, `TranslateDispatch`'ten sonra sıfırlamıyor), `:157` (`userInput`).
+Sorun: Gönderilen (sent) mesajlar `GetMessage` içinde, `track` çalışmadan önce işlenir. Müşteri diyaloğun herhangi bir yerine yerel tıkladıktan hemen sonra aynı masaüstündeki başka bir süreç "İzin ver"e `SendMessage(BM_CLICK)` gönderirse `userInput` true döner. Teknisyen pencere mesajı gönderemediği için (yalnız `SendInput`) tehdit yalnız yerel kötü amaçlı yazılım. Bu da kapsam dışı sayılabilir. Yine de "girdi mesajı işlenmiyorsa false" yorumu bu durumda doğru değil.
+Düzeltme: `IsDialogMessage`/`TranslateDispatch` döndükten sonra `t.cur = inputMark{}` yapılmalı. (backend-dev — Go)
+
+#### S7-15 [DÜŞÜK] Misafir kopmasında bekleyen monitör isteği temizlenmiyor; yeniden bağlanan istemcinin `share.state`'i sahte `monitor.granted` yazdırabiliyor — A09
+Yer: `apps/server/src/signaling/control.ts:383-389` (`resetOnGuestGone`, `monitorPending`'e dokunmuyor), `:245-253` (`onShareMonitor`).
+Sorun: Teknisyen 2 numaralı monitörü istiyor, istemci kopuyor ve 30 sn içinde yeniden bağlanıyor. Yeni istemci diyalog göstermeden ilk `share.state`'ini gönderiyor. `activeMonitor` bekleyen kimlikle aynıysa (ör. istemcinin seçtiği varsayılan monitör o ise) müşteri onayı olmadığı hâlde audit'e `monitor.granted` yazılıyor. Ayrıca teknisyen 30 sn boyunca `CONFLICT`, ardından 30 sn `RATE_LIMITED` alıyor. Aynı kimlik zaten etkin olan monitör istendiğinde de benzer sahte kayıt oluşuyor. Monitör değişimini sahte bildirmek için tek başına bir kontrol açılmıyor; etki zaman çizelgesi bütünlüğüyle sınırlı.
+Düzeltme: `resetOnGuestGone`'da `monitorPending = undefined` yapılmalı (teknisyen tarafında K3'te zaten yapılıyor). `handleMonitorRequest` `share.activeMonitor === monitorId` için istek açmamalı (no-op / VALIDATION). (backend-dev)
+
+#### S7-16 [DÜŞÜK] `Shut` dinleyicileri goroutine'de çalıştığından gecikmiş `Hooks(false)`, hemen ardından açılan kapının kancalarını kaldırabiliyor — A04 (AC-104)
+Yer: `apps/agent-win/internal/control/gate.go:51-62`, `internal/input/host_windows.go:149-150` (`wmHooksOff` kapı durumuna bakmıyor).
+Sorun: Kısayolla kapatma → goroutine zamanlanmadan önce yeniden `Open` → `HooksOn`, ardından geç gelen `HooksOff`. Sonuçta kapı açık, kancalar yok: yerel öncelik çalışmaz. Kapı ve kısayol etkilenmez. Pratikte yeni istek ve 1,5 sn kilidi gerektiği için olasılık çok düşük.
+Düzeltme: `wmHooksOff` işlenirken `if !g.IsOpen() { unhook() }` denetimi yapılmalı (`wmHooksOn`'daki desenin simetriği). (backend-dev — Go)
+
+### Yeni yüzeylerin incelemesi (bulgu yok)
+- **release/cancel yarışları:** `handleControlClose` kuyruğa alınmıyor ama bellekte eşzamanlı çalışıyor. Kuyrukta bekleyen `onGranted` VIEW gördüğünde `revoke{stale}` gönderiyor. İstek audit'i sürerken gelen iptal epoch ile `superseded` ediliyor, müşteriye geç istek gitmiyor. Go tarafında `ctlReq.Pending()` şartı geç `EvControlGrant`'i düşürüyor; olay sırası tersse kapı açılıp hemen kapanıyor ve sunucu `stale` ile tutarlı kalıyor.
+- **Consent dengeleme satırları:** `recordClose` → granting ise `interrupt ??=` (ilk kapatma kazanıyor). `onGranted` commit sonrası epoch farkında `interrupt` ile REVOKED yazıyor. Zaman aşımında geç commit `balance` ile dengeleniyor. Hata (rollback) yolunda dengeleme gerekmiyor. Her GRANTED satırına tam bir kapanış düşüyor. `closeControlOnEnd` `session.ended` sonrası yazıyor ve beklenmiyor (K5-d).
+- **`monitor.denied` sahteciliği:** Yalnız AGENT ve yalnız bekleyen kimlikle kabul ediliyor. Müşteri zaten reddedebileceği için yeni yetki doğmuyor. Kayıt bekleyen istek sayısıyla sınırlı (≤ 5). Teknisyenden gelen `monitor.denied` şemada yok, 1008.
+- **CONFLICT kuralı:** REQUESTED'de ikinci istek ve bekleyen monitör isteğinde yeni istek `CONFLICT`. Sayaç sızdırmıyor, bilgi sızıntısı yok.
+- **Açılış penceresi (bilgi):** Go kapıyı `GRANTED` göndermeden önce açıyor. Sunucu kaydı 800 ms içinde yazılamazsa `revoke{audit}`. Bu sürede kayıt olmadan girdi uygulanabilir. ADR-0009/G-15 gereği kabul edilmiş tasarım; konsol GRANTED onayı gelmeden girdi göndermiyor.
+
+### Otomatik tarama çıktıları
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found** (2026-11-11).
+- govulncheck v1.1.4, `golang:1.26.11-bookworm`, DB 2026-11-11 (`apps/agent-win`):
+  - linux: "Your code is affected by 0 vulnerabilities", exit 0.
+  - `GOOS=windows GOARCH=amd64`: "Your code is affected by 0 vulnerabilities", exit 0.
+  - Gereken modüllerde çağrılmayan 3 kayıt var: GO-2026-6866 ve GO-2026-6860 (`golang.org/x/net@v0.60.0`, düzeltme v0.62.0), GO-2026-5932 (`golang.org/x/crypto@v0.57.0`, düzeltme pseudo-version). Kod bu sembolleri çağırmıyor. Dependabot ile yükseltilmesi önerilir (Bilgi).
+- Gizli bilgi (`git grep` kalıbı; izlenen ve izlenmeyen P7 dosyaları): eşleşme yok. Git geçmişinde yalnız `.env.example` var.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+- G-03 "enjekte tıklamayla izin verilemez": mekanizma var, sabit yanlış (S7-12).
+- Tur 1 listesindeki K1–K5, `monitor.denied`, oturum sonu kapanış satırı, teknisyen kopmasında monitör temizliği ve ADR-0013 dosyası: **tamamlandı**. Misafir kopmasında monitör temizliği eksik (S7-15).
+
+### Windows elle doğrulama bekleyenler (GEÇTİ'yi engellemez; S7-12 düzeltildikten sonra)
+Adım 37 (S7-3: sürekli hareket altında kısayol, takılma yok, AC-104 sonrası kanca hâlâ etkin), 38 (S7-5/S7-12: teknisyen enjekte tıklaması ve Alt+İ izin vermez, **müşterinin kendi tıklaması izin verir**; dosya kabulünde de aynısı), 39 (S7-6), 40 (S7-7), 42 (S7-9 uyarısı).
+
+### Olumlu
+- Kapatma yönü her katmanda DB'den bağımsız ve iki katmanlı (sunucu revoke + istemci `peer.*`/`hello`/kopma). Yeni mesajların hiçbiri kapıyı açamıyor.
+- Host iş parçacığı kilitsiz; kilit sırası yorumla ve `TestS73HotkeyOnHookThreadDoesNotDeadlockWithSendInput` ile güvenceye alınmış.
+- Kancalar artık yalnız kontrol açıkken kurulu; global "son basış" bayrağı kaldırılmış.
+- Misafir şeması sunucu kaynaklarını reddediyor (1008). Fixture'lar iki dilde ortak.
+
+### Ajan bazında
+- backend-dev (Go): **S7-12 (zorunlu)**, S7-13, S7-14, S7-16.
+- backend-dev (sunucu): S7-15.
+- mimar: S7-9 kararı (`env.state.selfElevated` + audit).
+
+### Öneri (`docs/gereksinimler.md` §9 "Sonra")
+S7-13, S7-14, S7-15, S7-16 ve S7-9 (mimar kararı) "Sonra" listesine alınabilir. Go `x/net`/`x/crypto` yükseltmesi Dependabot ile yapılabilir.
+
+DURUM: DÜZELTİLMELİ (Yüksek 1: S7-12 — `IMO_INJECTED` sabiti; düzeltme tek satır + birim testi)
+
+---
+
+## P7 — Tur 3 — S7-12..S7-16 kapanışı + K6/K8 (2026-11-11)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (yeni). S7-12 (Yüksek) kapandı. S7-11 izlemede. Windows elle doğrulama bekleyenler aşağıda listelendi.
+
+Kapsam: Tur 2'den sonra değişen yerler: `apps/agent-win/internal/{control/{origin,gate}.go, win/win_windows.go, ui/form_windows.go, input/{applier,host_windows}.go, flow/{control,flow}.go, signal/messages.go}`, `cmd/noktadestek/main.go`, `apps/server/src/signaling/{control,types}.ts`, `packages/contracts/src/ws.ts` + fixtures, `apps/web/lib/control/machine.ts`, `components/console/{stage,control-button}.tsx`. Ölçüt: `docs/mimari-protokol.md` §3.3 K6–K8, "P7 Tur 2 kararları", ADR-0013 "Ek — P7 Tur 2". `go.mod`/`go.sum`/`pnpm-lock.yaml` HEAD'e göre değişmemiş. Bu yüzden govulncheck/audit tekrar koşulmadı, Tur 2 sonucu geçerli.
+
+### Tur 2 maddelerinin durumu
+| ID | Durum | Kanıt / not |
+|---|---|---|
+| S7-12 [YÜKSEK] | **KAPANDI** (statik). Windows adım 38 bekliyor | `internal/control/origin.go:6-9`: `IMO_UNAVAILABLE=0, IMO_HARDWARE=1, IMO_INJECTED=2, IMO_SYSTEM=4`, winuser.h ile birebir. `OriginInjected` (`:16-18`) `!ok \|\| origin != IMO_HARDWARE` döndürüyor, yani fail-closed: yalnız başarılı sorguda donanım girdisi yerel sayılıyor; birleşik ve bilinmeyen değerler (8, 1\|2, 0xFFFFFFFF) enjekte. `CharInjected` (`:23-28`) WM_(SYS)CHAR kaynağı bilinmiyorsa onu üreten WM_(SYS)KEYDOWN kararını kullanıyor, o karar da fail-closed. TranslateMessage karakteri tuş basışıyla aynı hwnd'ye gönderdiği için bayat bir karar devralınmıyor. Çağrı yolu: `form_windows.go:146-162` `track` → `userInput` (`:166`) → `control_windows.go:126-127` `tryGrant`. Kontrol, monitör ve dosya diyaloglarının üçü de `newConsent` ile aynı `consentDlg`'yi kullanıyor. Alt+İ yolu `WM_SYSCHAR` → `CharInjected`. Grep: `imoInjected`/`InputInjected` repoda yok. `win.InputOrigin` (`win_windows.go:327`) yalnız ham değeri döndürüyor ve tek çağıranı `track`. Birim test: `TestS712OriginInjectedFailClosed`, `TestS712CharInjected` (platformdan bağımsız, linux CI'da da koşuyor). |
+| S7-12 UIAccess sınırı | Kabul edildi (bilgi) | UIAccess'li bir sürecin `SendInput`'u IMO_HARDWARE görünüyor. Bu yol imzalı ve güvenli konumda (Program Files/System32) kurulu yerel bir uygulama gerektiriyor. Teknisyenin elinde yalnız istemcinin `SendInput`'u var (INJECTED). Tehdit modeli dışında. `origin.go:15` ve implementation.md "Kararlar 1"de yazılı. Yerel kötü amaçlı yazılım zaten müşteri oturumunda istediğini yapabilir. |
+| S7-13 | KAPANDI | `applier.go:139-152` `heldReleaseLocked`: hız sınırından yalnız `a.keys`/`a.buttons`'ta gerçekten basılı olanın bırakılması muaf. `translate` (`m.btn`, `:200-204`) basılı olmayan düğmeyi bırakmayı no-op yapıyor, hareket de enjekte edilmiyor. Muafiyet her basış için bir kez kullanılabiliyor (enjeksiyon kaydı siliyor), basış da jeton harcıyor. Askıdayken (AC-104) muaf bırakmalar `Allow`'da düşüyor ve enjekte edilmiyor, yük yalnız ayrıştırma. `TestS713ReleaseExemptionOnlyForHeld` yeşil. |
+| S7-14 | KAPANDI (statik) | `form_windows.go:116-124`: `track` → `handle` → `t.cur = inputMark{}`. Sonraki `GetMessage` içinde teslim edilen gönderilmiş BM_CLICK işaretsiz kalıyor, `userInput` false. Win32 döngüsü olduğu için birim testi yok, kabul edilebilir. |
+| S7-15 | KAPANDI | `control.ts:406-408` `resetOnGuestGone` her kopmada `monitorPending` ve `guestEnv`'i temizliyor. `onShareMonitor` (`:252-253`) yalnız `guest.peer === monitorPending.peer` ise karşılıyor. `handleMonitorRequest` (`:194`) etkin monitör için `VALIDATION` döndürüyor ve sayaç düşmüyor. İletim `pending.peer`'e yapılıyor, süpersede koşulu bağlantı değişimini de kapsıyor (`:204`). Ek kontrol: WS açıkken PC kopması (K6) monitör diyaloğunu mesajsız kapatıyor, `monitorPending.peer` aynı kalıyor. Go istemci monitörü yalnız ilk `hello`'da seçiyor (`flow.go:487-507`), sonrasında yalnız onaylı `monitor.request` ile değiştiriyor (`control.go:165-198`). Yeniden kurulan PC'nin `share.state`'i bekleyen kimliği bildiremez, sahte `monitor.granted` yolu yok. |
+| S7-16 | KAPANDI (statik). Windows adım 37 bekliyor | `gate.go`: `state = nesil<<1\|açık` tek atomik değerde, CAS ile tutuluyor. `Shut` kapanan neslin değerini goroutine'deki dinleyiciye veriyor. `host_windows.go:149-154` `wmHooksOff` kancayı yalnız `StillClosed(gen)` ise kaldırıyor. wParam okuması amd64 MSG düzeniyle uyumlu (`msg[16]`). Bayat kaldırma yok sayılıyor. Kapanmamış kanca yalnız AC-104 askısını tetikleyebilir, bu da güvenli yöndedir. `TestS716StaleHooksOffIgnoredAfterReopen` ve `TestS716GenerationRaceFree` -race altında yeşil. |
+| S7-9 | KAPANDI (K8) | Aşağıda K8 maddesi. |
+| S7-11 | İZLEME | Değişmedi. P9/P10 güvenlik turunda giriş şartı. |
+
+### Mimar kararlarının (K6–K8) güvenlik incelemesi
+- **K6 (`onView`, `control.ts:358-372`)** — REQUESTED durumunda gelen `{VIEW, UI\|HOTKEY\|SYSTEM}` isteği iptal ediyor. Consent yazılmıyor, `deniedAt` başlamıyor, `requests` geri verilmiyor. Kötüye kullanım değerlendirmesi:
+  - *Sayaç/cooldown atlatma:* Mesajı yalnız misafir (AGENT) gönderebiliyor. Teknisyen şemasında `control.state` yok, gelirse 1008. Bekleme olmaması yalnız teknisyenin lehine. Misafir bunu istese de zaten "Reddet" ile aynı sonucu alabiliyor. Teknisyenin 5 istek kotası her iki yolda da harcanıyor. Yeni yetki doğmuyor.
+  - *Audit şişirme:* `control.cancelled{by:"agent"}` yalnız `state === "REQUESTED"` iken yazılıyor. Her satır teknisyenin başlattığı bir `control.requested`'e karşılık geliyor; kota oturum başına ≤ 5. VIEW'da tekrar gelen mesaj `:356` ile kayıt üretmiyor. Sınırlı.
+  - *Yarış:* `onView` `enqueue` ile `onGranted` ile sıralı çalışıyor. `granting` iken iptal araya giremiyor. Geç gelen `VIEW/SYSTEM`'in yeni isteği kapatması kapatma yönünde ve mimarca kabul edildi (reqId genişleme noktası).
+  - *Ret izinin silinmesi (bilgi):* Kötü niyetli ya da değiştirilmiş bir istemci DENIED yerine `VIEW/UI` göndererek consent'e "ret" düşmeden isteği kapatabiliyor. Audit'te `by:"agent", source:"UI"` olarak ayrı ve izlenebilir şekilde kalıyor. Gerçek Go istemcisi yalnız `SYSTEM` gönderiyor. Etki yok, bulgu açılmadı. İstenirse P8 zaman çizelgesinde `source≠SYSTEM` olan iptaller "beklenmeyen" diye işaretlenebilir (öneri).
+- **K8 `selfElevated`** — `ws.ts:144` `z.strictObject` içinde `z.boolean()` zorunlu. Eksik ya da null değer 1008 alıyor (contracts testi ve entegrasyon testi var). Sunucu alanları yeniden kurarak iletiyor (`handleEnvState`, `:270`), tarayıcı misafirinden gelen değeri yok sayıyor. Audit değeri yalnız `"true"\|"false"\|"unknown"` sabitlerinden üretiliyor (`:276`). İstemci kaynaklı serbest metin yok. Go: `messages.go:224` `json:"selfElevated"`, `omitempty` yok. Değer `env.SelfElevated()` (`TokenElevation`) ile açılışta bir kez ölçülüyor. Değer istemcinin beyanı ve değiştirilmiş bir istemci yalan söyleyebilir. Bu bilgilendirme amaçlı bir alan, kontrol kararı buna dayanmıyor. Kabul edildi.
+- **VALIDATION kuralı** — Etkin monitör için `VALIDATION` dönülüyor. Hata yalnız isteyen teknisyene gidiyor ve teknisyen etkin monitörü zaten görüyor, bilgi sızıntısı yok. Sayaç ve metrik tutarlı.
+- **Konsol** — Rozet yalnız boolean `control.selfElevated` ile koşullanıyor ve metin i18n'den geliyor (`stage.tsx:169-173`), XSS yüzeyi yok. CONFLICT `notice` olarak sunucu metnini React metin düğümünde gösteriyor (`control-button.tsx:83,106`). Değişen dosyalarda `dangerouslySetInnerHTML` yok. Monitör kilidi (`canRequestMonitor`, `MONITOR_BLOCK_MS`) yalnız arayüz kolaylığı. Yetkili karar sunucuda (`handleMonitorRequest` CONFLICT/RATE_LIMITED/VALIDATION). Kontrol isteğine gelen VALIDATION yok sayılıyor ve faz değişmiyor.
+
+### Yeni bulgular
+Yok.
+
+### Otomatik tarama / test çıktıları (2026-11-11)
+- Go (`golang:1.26.11-bookworm`, `apps/agent-win`): `gofmt -l .` boş. `go vet ./...` ve `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...` temiz (VET_OK). `go test -race -count=1 ./...` sonucunda **15/15 paket ok**.
+- `pnpm --filter @remote/server test`: **12 dosya / 244 test** yeşil. `pnpm --filter @remote/contracts test`: **4 dosya / 43 test** yeşil.
+- Bağımlılık: `git diff HEAD -- apps/agent-win/go.mod apps/agent-win/go.sum pnpm-lock.yaml` boş. govulncheck ve pnpm audit Tur 2'de temiz çıkmıştı (3 çağrılmayan x/net ve x/crypto kaydı, Dependabot).
+- Gizli bilgi kalıbı (`git grep` + izlenmeyen P7 dizinleri): eşleşme yok.
+- Entegrasyon testleri (`test:int`, MySQL) bu turda koşulmadı. Backend raporu: 23 dosya / 186 test yeşil.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+Yok. G-03 enjekte girdi koruması, K6, K7, K8 ve S7-15 temizliği kodda karşılığını buldu.
+
+### Windows elle doğrulama bekliyor (GEÇTİ'yi engellemez; `docs/gereksinimler.md` "Sonra / açık — P7'den")
+- Adım 37: kısayol ve ardından hemen yeniden izin (S7-16). Kancalar kurulu kalmalı, AC-104 yerel öncelik çalışmalı.
+- Adım 38: S7-12. Üç diyalogda (kontrol, monitör, dosya) müşterinin gerçek tıklaması ve Alt+İ ile **izin verilebilmeli**, teknisyenin `SendInput` tıklaması ve Alt+İ'si **izin verememeli**.
+- Adım 39, 40.
+- Adım 42: yönetici olarak açılışta konsol rozeti ve GRANTED audit'inde `selfElevated:"true"`.
+Adım 38 gerçek Windows'ta başarısız olursa (ör. müşteri tıklaması reddedilirse ya da enjekte tıklama kabul edilirse) G-03 açık sayılır ve **Yüksek** olarak yeniden açılır.
+
+### Olumlu
+- Kaynak kararı Win32'den ayrılmış saf bir fonksiyonda tutuluyor ve her sabit için test var. Tur 2'deki türden bir hata artık linux CI'da yakalanıyor.
+- Kapı durumu ve nesli tek atomik değerde tutuluyor. Kilitsiz tasarım korunmuş.
+- K6/K8 sözleşmesi contracts, sunucu, Go ve konsolda tutarlı ve ortak fixture ile iki dilde test ediliyor.
+
+### Öneri (`docs/gereksinimler.md` §9 "Sonra")
+- P8 zaman çizelgesinde `control.cancelled{by:"agent"}` kayıtlarından `source≠SYSTEM` olanlar "beklenmeyen istemci davranışı" olarak işaretlenebilir (bilgi).
+- Go `x/net`/`x/crypto` yükseltmesi Dependabot ile yapılabilir (Tur 2'den taşınan madde).
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0; S7-12..S7-16 ve S7-9 kapandı; Windows adım 37/38/42 elle doğrulama bekliyor)

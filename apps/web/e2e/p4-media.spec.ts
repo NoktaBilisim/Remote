@@ -275,6 +275,10 @@ test("AC-43: konsol sahnesi Sığdır / %100 (kaydırmalı) / Tam ekran — klav
   const stage = page.getByTestId("stage");
   await expect(stage).toHaveAttribute("data-share", "sharing");
   await expect(stage).toHaveAttribute("data-mode", "fit");
+  // TEST-P7-2: 1280 px'te sahne dar → görünüm araçları "Görünüm" menüsünde; klavyeyle açılır (Enter), seçimde açık kalır
+  await expect(page.getByTestId("stage-tools")).toHaveAttribute("data-compact", "true");
+  await page.getByTestId("stage-view-menu").locator("summary").focus();
+  await page.keyboard.press("Enter");
   const fit = page.getByRole("button", { name: "Sığdır" });
   const actual = page.getByRole("button", { name: "%100" });
   await expect(fit).toHaveAttribute("aria-pressed", "true");

@@ -1,7 +1,9 @@
 // WS sinyalizasyon sözleşmesi (docs/mimari-protokol.md §1–3, P3 kapsamı). Tek kaynak: sunucu gelen her
 // mesajı bu şemalarla doğrular (strict — ekstra alan reddedilir); Go istemci aynı sözleşmeyi
 // `packages/contracts/fixtures/ws-messages.json` örnekleriyle doğrular (ADR-0004).
-// P5: quality.summary, file.meta (+ hello/peer.joined `maxFileMb`). P7+ tipleri (control.*, monitor.request, env.state) kendi paketinde.
+// P5: quality.summary, file.meta (+ hello/peer.joined `maxFileMb`). P7: control.request/state/revoke, monitor.request,
+// env.state, caps.update (mimari-protokol §3, akış A3/A5). P7 düzeltme 1 (§3.3, ADR-0013): control.release/cancel,
+// monitor.denied, kaynak `TECH`, revoke nedenleri `reconnect`/`stale`, misafir kaynak kısıtı.
 import { z } from "zod";
 
 export const WS_SUBPROTOCOL = "rs.v1";
@@ -22,7 +24,8 @@ export const SESSION_ENDED_REASONS = [
 ] as const;
 export type SessionEndedReason = (typeof SESSION_ENDED_REASONS)[number];
 
-export const WS_ERROR_CODES = ["ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND", "VALIDATION"] as const;
+/** P7: `INTERNAL` — sunucu kaydı yazamadı (ör. kontrol verme audit'i; fail-closed, G-15). Mesaj referans kimliği taşır. */
+export const WS_ERROR_CODES = ["ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND", "VALIDATION", "INTERNAL"] as const;
 export type WsErrorCode = (typeof WS_ERROR_CODES)[number];
 
 export const CAPS = ["remote_control", "file_transfer"] as const;
@@ -94,12 +97,58 @@ export const qualitySummarySchema = z.strictObject({
 });
 export type QualitySummary = Omit<z.infer<typeof qualitySummarySchema>, "t" | "id">;
 
+// --- P7: uzaktan kontrol (mimari-protokol §3, §4.3; akış A3, A5; AC-43, 47–51, 99–105, 111, 115, 116) ---
+/** Müşteri tarafındaki izin durumu. İzin kararı istemcide (Go `gate`); sunucu kaydeder ve iletir. */
+export const CONTROL_STATES = ["VIEW", "GRANTED"] as const;
+export type ControlState = (typeof CONTROL_STATES)[number];
+/**
+ * `DENIED` = diyalogda "Reddet"; `RECONNECT` = yeniden bağlanmada sıfırlama; `SYSTEM` = `control.revoke` sonrası;
+ * `TECH` = teknisyen bıraktı/iptal etti (§3.3 K1–K2). `RECONNECT` ve `TECH` yalnız sunucu üretir.
+ */
+export const CONTROL_SOURCES = ["UI", "HOTKEY", "DENIED", "RECONNECT", "SYSTEM", "TECH"] as const;
+export type ControlSource = (typeof CONTROL_SOURCES)[number];
+/** Misafirden kabul edilen kaynaklar (§3 tablo, S7-10): GRANTED yalnız UI; VIEW yalnız bu küme. */
+export const GUEST_VIEW_SOURCES = ["UI", "HOTKEY", "DENIED", "SYSTEM"] as const;
+export type GuestControlSource = (typeof GUEST_VIEW_SOURCES)[number];
+/**
+ * Sunucu kaynaklı kapatma nedeni (§3.3). İstemci her nedende aynı davranır (kapıyı kapatır); yeni neden buraya eklenir.
+ * `reconnect` = teknisyen bağlantısı gitti / sekme değişti (K3); `stale` = sunucu VIEW iken gelen GRANTED (K2).
+ */
+export const CONTROL_REVOKE_REASONS = ["permission", "audit", "admin", "reconnect", "stale"] as const;
+export type ControlRevokeReason = (typeof CONTROL_REVOKE_REASONS)[number];
+/** G-03 / AC-116: oturum başına iletilen en çok istek ve ret sonrası bekleme (control.request ve monitor.request ayrı sayılır). */
+export const CONTROL_REQUEST_MAX = 5;
+export const CONTROL_DENY_COOLDOWN_MS = 30_000;
+/** Monitör kimliği aralığı (`share.state.monitors[].id` ile aynı). */
+const monitorId = z.number().int().min(0).max(64);
+
+export const controlRequestSchema = z.strictObject({ t: z.literal("control.request"), id });
+export const monitorRequestSchema = z.strictObject({ t: z.literal("monitor.request"), id, monitorId });
+/** tech → S → guest (§3.3 K1): teknisyen kontrolü bırakır; istemci kapıyı kapatır, yanıt göndermez. */
+export const controlReleaseSchema = z.strictObject({ t: z.literal("control.release"), id });
+/** tech → S → guest (§3.3 K2): bekleyen isteği geri çeker; GRANTED iken bırakma sayılır. */
+export const controlCancelSchema = z.strictObject({ t: z.literal("control.cancel"), id });
+/**
+ * guest → S → tech. `GRANTED` yalnız `UI` (yerel "İzin ver"); `VIEW` yalnız `UI|HOTKEY|DENIED|SYSTEM`.
+ * `RECONNECT`/`TECH` yalnız sunucu üretir — misafirden gelirse şema hatası → 1008 (S7-10).
+ */
+export const controlStateSchema = z
+  .strictObject({ t: z.literal("control.state"), id, state: z.enum(CONTROL_STATES), source: z.enum(CONTROL_SOURCES) })
+  .refine((m) => (m.state === "GRANTED" ? m.source === "UI" : (GUEST_VIEW_SOURCES as readonly string[]).includes(m.source)), {
+    message: "Misafir kaynağı geçersiz",
+  });
+/** guest(AGENT) → S → tech (§3.3 K4): müşteri monitör isteğini reddetti. */
+export const monitorDeniedSchema = z.strictObject({ t: z.literal("monitor.denied"), id, monitorId });
+/** guest(AGENT) → S → tech (AC-105). */
+/** AC-105; `selfElevated` zorunlu (§3.3 K8, S7-9): istemci süreci yönetici belirteciyle mi çalışıyor. */
+export const envStateSchema = z.strictObject({ t: z.literal("env.state"), id, elevatedForeground: z.boolean(), secureDesktop: z.boolean(), selfElevated: z.boolean() });
+
 /** Teknisyenden kabul edilen mesajlar. */
-export const techInboundSchema = z.discriminatedUnion("t", [guestAdmitSchema, guestRejectSchema, sdpOfferSchema, iceSchema, iceRestartSchema, sessionEndSchema, fileMetaSchema, qualitySummarySchema]);
+export const techInboundSchema = z.discriminatedUnion("t", [guestAdmitSchema, guestRejectSchema, sdpOfferSchema, iceSchema, iceRestartSchema, sessionEndSchema, fileMetaSchema, qualitySummarySchema, controlRequestSchema, monitorRequestSchema, controlReleaseSchema, controlCancelSchema]);
 export type TechInbound = z.infer<typeof techInboundSchema>;
 
 /** Misafirden kabul edilen mesajlar (lobideyken yalnız `session.end`, mimari-protokol §3.1). */
-export const guestInboundSchema = z.discriminatedUnion("t", [sdpAnswerSchema, iceSchema, shareStateSchema, sessionEndSchema, fileMetaSchema]);
+export const guestInboundSchema = z.discriminatedUnion("t", [sdpAnswerSchema, iceSchema, shareStateSchema, sessionEndSchema, fileMetaSchema, controlStateSchema, envStateSchema, monitorDeniedSchema]);
 export type GuestInbound = z.infer<typeof guestInboundSchema>;
 
 // --- Sunucu → istemci ---
@@ -153,6 +202,17 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
   z.strictObject({ t: z.literal("session.ended"), reason: z.enum(SESSION_ENDED_REASONS) }),
   z.strictObject({ t: z.literal("session.warning"), kind: z.literal("max_duration_5min"), endsAt: iso }),
   z.strictObject({ t: z.literal("error"), code: z.enum(WS_ERROR_CODES), message: z.string().max(300) }),
+  // P7 — misafire: kontrol/monitör isteği, bırakma/iptal, sunucu kaynaklı kapatma, yetenek daralması;
+  // teknisyene: izin durumu (sunucu kaynaklı SYSTEM/RECONNECT/TECH dahil), ortam, monitör reddi.
+  z.strictObject({ t: z.literal("control.request") }),
+  z.strictObject({ t: z.literal("control.release") }),
+  z.strictObject({ t: z.literal("control.cancel") }),
+  z.strictObject({ t: z.literal("monitor.request"), monitorId }),
+  z.strictObject({ t: z.literal("monitor.denied"), monitorId }),
+  z.strictObject({ t: z.literal("control.revoke"), reason: z.enum(CONTROL_REVOKE_REASONS) }),
+  z.strictObject({ t: z.literal("caps.update"), caps: z.array(z.enum(CAPS)) }),
+  z.strictObject({ t: z.literal("control.state"), state: z.enum(CONTROL_STATES), source: z.enum(CONTROL_SOURCES) }),
+  envStateSchema.omit({ id: true }),
 ]);
 export type ServerOutbound = z.infer<typeof serverOutboundSchema>;
 /** Odada saklanan son paylaşım durumu (teknisyen hello `share` alanı). */

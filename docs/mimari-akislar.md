@@ -110,6 +110,13 @@ sequenceDiagram
   A->>S: control.state{VIEW, UI|HOTKEY}
   S->>S: session_consents(CONTROL,REVOKED) + audit (AC-111)
   S->>T: control.state → "Kontrol müşteri tarafından kapatıldı" (≤1 sn, AC-50)
+  Note over T: Teknisyen "Kontrolü bırak" / bekleyen istekte "Vazgeç" (ADR-0013, protokol §3.3)
+  T->>S: control.release | control.cancel
+  S->>A: control.release | control.cancel
+  A->>A: gate=CLOSED, açık diyalog kapanır (yanıt yok)
+  S->>T: control.state{VIEW, TECH}
+  S->>S: release: session_consents(CONTROL,REVOKED,TECH) + audit control.released · cancel: audit control.cancelled
+  Note over S,A: Teknisyen kopması: S→A control.revoke{reconnect} + peer.left{tech}; A ikisinden biriyle kapıyı kapatır (iki katman)
 ```
 
 ## A4. Kopma, yeniden bağlanma, sonlandırma

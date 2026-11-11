@@ -53,6 +53,20 @@
           "max": 120
         },
         "connType": "relay"
+      },
+      {
+        "t": "control.request"
+      },
+      {
+        "t": "monitor.request",
+        "monitorId": 1
+      },
+      {
+        "t": "control.release"
+      },
+      {
+        "t": "control.cancel",
+        "id": "7"
       }
     ],
     "guest": [
@@ -88,6 +102,41 @@
         "sizeBytes": 1024,
         "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "result": "CORRUPT"
+      },
+      {
+        "t": "control.state",
+        "state": "GRANTED",
+        "source": "UI"
+      },
+      {
+        "t": "control.state",
+        "state": "VIEW",
+        "source": "DENIED"
+      },
+      {
+        "t": "control.state",
+        "state": "VIEW",
+        "source": "HOTKEY"
+      },
+      {
+        "t": "control.state",
+        "state": "VIEW",
+        "source": "SYSTEM"
+      },
+      {
+        "t": "env.state",
+        "elevatedForeground": true,
+        "secureDesktop": false,
+        "selfElevated": false
+      },
+      {
+        "t": "control.state",
+        "state": "VIEW",
+        "source": "UI"
+      },
+      {
+        "t": "monitor.denied",
+        "monitorId": 1
       }
     ],
     "server": [
@@ -204,6 +253,71 @@
         "t": "error",
         "code": "ADMIT_CODE_INVALID",
         "message": "Kod eşleşmedi."
+      },
+      {
+        "t": "control.request"
+      },
+      {
+        "t": "monitor.request",
+        "monitorId": 1
+      },
+      {
+        "t": "control.revoke",
+        "reason": "permission"
+      },
+      {
+        "t": "caps.update",
+        "caps": [
+          "file_transfer"
+        ]
+      },
+      {
+        "t": "caps.update",
+        "caps": []
+      },
+      {
+        "t": "control.state",
+        "state": "GRANTED",
+        "source": "UI"
+      },
+      {
+        "t": "env.state",
+        "elevatedForeground": false,
+        "secureDesktop": true,
+        "selfElevated": true
+      },
+      {
+        "t": "control.release"
+      },
+      {
+        "t": "control.cancel"
+      },
+      {
+        "t": "monitor.denied",
+        "monitorId": 1
+      },
+      {
+        "t": "control.revoke",
+        "reason": "reconnect"
+      },
+      {
+        "t": "control.revoke",
+        "reason": "stale"
+      },
+      {
+        "t": "control.state",
+        "state": "VIEW",
+        "source": "TECH"
+      },
+      {
+        "t": "control.state",
+        "state": "VIEW",
+        "source": "RECONNECT"
+      },
+      {
+        "t": "error",
+        "code": "INTERNAL",
+        "message": "Kontrol kaydı yazılamadı; kontrol geri alındı (ref: 01JC0000000000000000000000)."
       }
     ]
   },
@@ -225,9 +339,6 @@
       {
         "t": "sdp.answer",
         "sdp": "x"
-      },
-      {
-        "t": "control.request"
       },
       {
         "t": "file.meta",
@@ -299,6 +410,39 @@
           "min": 1,
           "max": 1
         }
+      },
+      {
+        "t": "control.request",
+        "force": true
+      },
+      {
+        "t": "monitor.request"
+      },
+      {
+        "t": "monitor.request",
+        "monitorId": 65
+      },
+      {
+        "t": "control.state",
+        "state": "GRANTED",
+        "source": "UI"
+      },
+      {
+        "t": "control.release",
+        "force": true
+      },
+      {
+        "t": "control.cancel",
+        "reason": "x"
+      },
+      {
+        "t": "monitor.denied",
+        "monitorId": 1
+      },
+      {
+        "t": "control.state",
+        "state": "VIEW",
+        "source": "TECH"
       }
     ],
     "guest": [
@@ -345,6 +489,62 @@
         "sizeBytes": -1,
         "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "result": "OK"
+      },
+      {
+        "t": "control.state",
+        "state": "GRANTED",
+        "source": "HOTKEY"
+      },
+      {
+        "t": "control.state",
+        "state": "GRANTED",
+        "source": "DENIED"
+      },
+      {
+        "t": "control.state",
+        "state": "OPEN",
+        "source": "UI"
+      },
+      {
+        "t": "env.state",
+        "elevatedForeground": true,
+        "selfElevated": true
+      },
+      {
+        "t": "env.state",
+        "elevatedForeground": false,
+        "secureDesktop": false
+      },
+      {
+        "t": "control.request"
+      },
+      {
+        "t": "control.state",
+        "state": "VIEW",
+        "source": "RECONNECT"
+      },
+      {
+        "t": "control.state",
+        "state": "VIEW",
+        "source": "TECH"
+      },
+      {
+        "t": "control.state",
+        "state": "GRANTED",
+        "source": "TECH"
+      },
+      {
+        "t": "monitor.denied"
+      },
+      {
+        "t": "monitor.denied",
+        "monitorId": 65
+      },
+      {
+        "t": "control.release"
+      },
+      {
+        "t": "control.cancel"
       }
     ]
   }

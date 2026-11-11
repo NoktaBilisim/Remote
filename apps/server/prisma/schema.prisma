@@ -230,7 +230,7 @@ model SessionConsent {
   tenantId      String   @map("tenant_id") @db.Char(26)
   level         String   @db.VarChar(20) // VIEW | CONTROL
   decision      String   @db.VarChar(20) // GRANTED | DENIED | REVOKED
-  source        String   @db.VarChar(20) // UI | HOTKEY | RECONNECT | SYSTEM
+  source        String   @db.VarChar(20) // UI | HOTKEY | RECONNECT | SYSTEM | TECH (P7, ADR-0013: teknisyen bırakması)
   consentTextId String?  @map("consent_text_id") @db.Char(26) // join anında onaylanan metin (A1)
   consentSha256 String?  @map("consent_sha256") @db.Char(64) // = consent_texts.sha256 (bileşik FK)
   ip            String?  @db.VarChar(45) // SYSTEM kaynağında yok; retention'da NULL

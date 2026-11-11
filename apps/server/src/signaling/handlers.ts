@@ -1,10 +1,12 @@
 // Gelen WS mesajlarının işlenmesi (mimari-protokol §1–3, AC-17..20): JSON + zod (strict) → aksi 1008;
 // 50 mesaj/sn token-bucket → 1008 + log `ws_rate_exceeded`; relay yalnız aynı odanın karşı tarafına ve
 // alanlar yeniden kurularak (gelen nesne aktarılmaz). Lobi misafiri yalnız `session.end` gönderebilir.
+// P7: control.request/release/cancel, monitor.request/denied, control.state, env.state → control.ts (§3.3, ADR-0013).
 import { guestInboundSchema, techInboundSchema, WS_CLOSE, WS_MAX_PAYLOAD } from "@remote/contracts/ws";
 import type { z } from "zod";
 import { admitGuest, rejectGuest } from "./admit.ts";
 import { handleFileMeta, handleQualitySummary } from "./collab.ts";
+import { handleControlClose, handleControlRequest, handleControlState, handleEnvState, handleMonitorDenied, handleMonitorRequest, onShareMonitor } from "./control.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Clock, Guest, Peer, Room } from "./types.ts";
 
@@ -81,6 +83,18 @@ export async function onTechMessage(rooms: Rooms, room: Room, peer: Peer, bucket
     case "quality.summary":
       await handleQualitySummary(rooms, room, { fps: m.fps, kbps: m.kbps, rttMs: m.rttMs, connType: m.connType });
       return;
+    case "control.request":
+      await handleControlRequest(rooms, room, tech);
+      return;
+    case "control.release":
+      await handleControlClose(rooms, room, tech, "release");
+      return;
+    case "control.cancel":
+      await handleControlClose(rooms, room, tech, "cancel");
+      return;
+    case "monitor.request":
+      await handleMonitorRequest(rooms, room, tech, m.monitorId);
+      return;
     case "session.end":
       if (room.admitted) await rooms.finish(room, "tech", "TECH", tech.ctx);
       else tech.peer.send({ t: "error", code: "CONFLICT", message: "Bekleyen oturum iptal ile kapatılır." });
@@ -113,8 +127,18 @@ export async function onGuestMessage(rooms: Rooms, room: Room, guest: Guest, pee
       const snap = { state: m.state, ...(m.monitors ? { monitors: m.monitors } : {}), ...(m.activeMonitor !== undefined ? { activeMonitor: m.activeMonitor } : {}) };
       room.share = snap; // QA-P4-12: teknisyen yeniden bağlanınca hello.share
       tech?.send({ t: "share.state", ...snap });
+      await onShareMonitor(rooms, room, guest, m.activeMonitor); // P7: karşılanan monitör isteği → monitor.granted
       return;
     }
+    case "control.state":
+      await handleControlState(rooms, room, guest, { state: m.state, source: m.source });
+      return;
+    case "env.state":
+      handleEnvState(rooms, room, guest, m);
+      return;
+    case "monitor.denied":
+      await handleMonitorDenied(rooms, room, guest, m.monitorId);
+      return;
     case "file.meta":
       await handleFileMeta(rooms, room, { side: "guest", peer }, m);
       return;

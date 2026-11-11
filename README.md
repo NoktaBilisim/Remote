@@ -4,9 +4,10 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P6 tamamlandı
-İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P6 tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0).
-Sıradaki paket P7 (uzaktan kontrol).
+## Şu anki durum: P1–P7 tamamlandı
+İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P7 tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0).
+P7'nin gerçek Windows'ta elle doğrulaması (implementation.md "Agent P7" adım 25–42) P8 kod turundan önce yapılacak.
+Sıradaki paket P8 (oturum geçmişi).
 
 **P1 — ince iskelet**
 - E-posta veya kullanıcı adı + şifre ile giriş, çıkış, ilk girişte zorunlu şifre değişimi.
@@ -102,8 +103,33 @@ Sıradaki paket P7 (uzaktan kontrol).
   server'ın bütünlük kapısına sorar (`forward_auth`), hash `AGENT_SHA256` ile uyuşmazsa 503 (fail-closed).
   Ayrıntı: [`docs/api.md`](docs/api.md).
 - Bilinen sınırlamalar: karşılamada firma logosu yerine Nokta amblemi görünür (sunucu firma logosunu P9'a kadar `null`
-  döner); fare imleci görüntüye çizilmez (teknisyen imleci görmez); uzaktan kontrol P7'dedir; istemci arayüzü yalnız
-  açık temadadır.
+  döner); fare imleci görüntüye çizilmez (teknisyen imleci görmez); istemci arayüzü yalnız açık temadadır.
+
+**P7 — uzaktan kontrol** (yalnız Hızlı Destek istemcisi; tarayıcı misafiri yalnız görüntüler)
+- Konsolda **Kontrol iste** → müşteride izin diyaloğu. "Reddet" varsayılan ve odakta; "İzin ver" 1,5 sn sonra
+  etkinleşir; Enter/Space izin vermez; teknisyenin uzaktan (enjekte) tıklaması izin sayılmaz; diyalog fare imlecinin
+  altında açılmaz. Ret sonrası 30 sn yeni istek iletilmez; oturum başına en çok 5 istek.
+- İstek bekliyorken **Vazgeç** (`control.cancel`); izin gelince **Kontrol sizde** + kırmızı çerçeve. **Kontrolü bırak**
+  müşteri tarafında da kapıyı kapatır (`control.release`); **Kontrole devam** yeni istektir, müşteri yeniden onaylar.
+- Fare (sol/sağ/orta, tekerlek, sürükleme) ve klavye (Türkçe karakterler düzenden bağımsız). **Özel tuşlar** menüsü:
+  Alt+Tab, Win, Win+D/R/E, Alt+F4, Ctrl+Shift+Esc, Print Screen. Ctrl+Alt+Del ve Win+L gönderilmez. Klavye
+  odağından çıkış: Ctrl+Alt+Shift. Tam ekranda (Chromium) sistem tuşları doğrudan yakalanır.
+- "%100" görünümü müşterinin monitörünü piksel piksel (1:1) gösterir. Sahne 960 px'ten darsa monitör, Sığdır/%100 ve
+  Tam ekran **Görünüm** menüsünde toplanır.
+- Monitör değiştirme müşteri onayı ister (aynı diyalog kuralları; ret anında konsola bildirilir).
+- Müşteri kontrolü **Kontrolü kapat** düğmesiyle veya **Ctrl+Shift+F12** (kayıt edilemezse Ctrl+Shift+F11) ile
+  anında kapatır. İkisi de kaydedilemezse izin verilemez. Müşteri kendi faresini/klavyesini kullanınca uzaktan girdi
+  ~1 sn durur. Gösterge "Uzaktan kontrol aktif — <teknisyen>" olur.
+- Konsol uyarıları: yükseltilmiş (yönetici) pencere, güvenli masaüstü (UAC/kilit ekranı), istemcinin yönetici olarak
+  çalışması.
+- Kopma, teknisyen sekmesi değişimi/yenilemesi, oturum sonu ve yetki kaldırılması kontrolü kapatır; yeniden bağlanınca
+  yalnız görüntüleme ile başlanır. Yetki: `remote_control.use`.
+- Her istek, izin, ret, bırakma, iptal ve kapanış `session_consents` + audit'e yazılır. İzin kaydı yazılamazsa
+  (hata veya 800 ms) kontrol açılmaz (fail-closed).
+- Migration `20261111050000_p7_consent_source_tech` (`session_consents.source` += `TECH`); yeni ortam değişkeni yok.
+  Yayında migrate server'dan önce çalışmalıdır (compose bunu kendisi yapar, bkz. "Deploy").
+- Bilinen sınırlar: Windows elle testi bekliyor; fare imleci görüntüye çizilmez; UIAccess yetkili yerel bir programın
+  ürettiği girdi gerçek kullanıcı girdisinden ayırt edilemez (kapsam dışı, `docs/implementation.md` Agent P7 tur 2).
 
 API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
 Müşteri için Hızlı Destek kullanımı: [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
@@ -120,7 +146,7 @@ açamaz (403; tenant geçişi P9). Kullanıcı yönetimi ekranı P9'da gelene ka
 | P4 ✓ | Tarayıcı modu ekran paylaşımı, KVKK onayı, teknisyen konsolu video |
 | P5 ✓ | Sohbet, dosya transferi, ekran üzerine işaretleme + lazer + yüzen pencere, kalite paneli |
 | P6 ✓ | Windows istemci (Go, imzasız; SHA-256 + build attestation) |
-| P7 | Uzaktan kontrol (izin diyaloğu, klavye/fare) |
+| P7 ✓ | Uzaktan kontrol (izin diyaloğu, klavye/fare, monitör değiştirme) |
 | P8 | Oturum geçmişi, not/ticket, CSV dışa aktarma |
 | P9 | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
 | P10 | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış |
@@ -259,15 +285,21 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 `e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
-### Son test sonuçları (P6, 2026-11-11)
+### Son test sonuçları (P7, 2026-11-11)
 | Takım | Sonuç |
 |---|---|
-| Windows istemci (`go test -race`, linux) | 12/12 paket ok; `GOOS=windows go vet` temiz; govulncheck 0 erişilebilir zafiyet; iki derleme aynı SHA-256 |
-| Birim (`pnpm -r run test`) | 309: server 178, web 99, contracts 32 |
-| Server entegrasyon (`test:int`) | 142 (21 dosya) |
-| Web e2e (sahte API/WS) | 142 geçti + 34 atlandı (masaüstü akışlarının mobil kopyaları); P6 spec'i `e2e/p6-agent-download.spec.ts` dahil |
+| Windows istemci (`go test -race`, linux) | 15/15 paket ok (yeni: control, env, input); `GOOS=windows go vet` temiz; govulncheck 0 erişilebilir zafiyet; iki derleme aynı SHA-256 |
+| Birim (`pnpm -r run test`) | 415: server 244, web 128, contracts 43 |
+| Server entegrasyon (`test:int`) | 186 (23 dosya) |
+| Web e2e (sahte API/WS) | 153 geçti + 45 atlandı (masaüstü akışlarının mobil kopyaları); P7 spec'i `e2e/p7-control.spec.ts` (11 test) dahil |
 | Gerçek sunucu e2e (`scripts/e2e-real.sh`) | 5/5 (P5'ten değişmedi) |
 | TURN (`deploy/turn/test-local.sh`) | 62 kontrol (P4'ten değişmedi) |
+
+P7 e2e'si sahte bir Hızlı Destek istemcisiyle (`e2e/fake-agent.ts`, gerçek WebRTC + `input` kanalı) koşar: istek →
+bekleme/Vazgeç → izin → tık/klavye/Alt+Tab → bırak/devam → müşteri kısayolu; ret + 30 sn; 5 hak (sekme yenilense de);
+canlı yetki kaldırma; yetkisiz kullanıcıda düğme yok; monitör isteği/ret/yanıtsızlık; yükseltilmiş pencere, güvenli
+masaüstü ve yönetici rozeti; "%100" ve "Sığdır" kiplerinde ±1 px koordinat. Gerçek Windows'ta Türkçe karakter, UAC,
+kısayol ve enjekte tıklama kontrolü elle yapılır (`docs/implementation.md` Agent P7, adım 25–42).
 
 P6 e2e'si: indirme bağlantısı ve `Destek-<8 hane>.exe` dosya adı, SmartScreen rehberi, 503 → "Tarayıcıdan devam et",
 410 → iptal ekranı, macOS ve mobilde indirme seçeneğinin olmaması, 375 px taşma, açık/koyu axe 0.
@@ -286,7 +318,12 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
 - TURN: `deploy/turn` ayrı compose projesidir (host ağı); kurulum, güvenlik duvarı ve doğrulama `docs/runbook.md` §9.
   Staging'de TURN'ün dışarıdan çalışması için üst NAT'ta (pfSense) 3478/udp+tcp, 5349/tcp ve 49160–49199/udp
   yönlendirmesi gerekir (runbook §9.3, ağ yöneticisi talebi).
-- Migration her `up -d`'de `migrate` servisiyle otomatik uygulanır. Yedekleme P13'te eklenecek.
+- Migration her `up -d`'de `migrate` servisiyle otomatik uygulanır; server `migrate` başarıyla bitmeden başlamaz.
+  Yedekleme P13'te eklenecek.
+- **P7 yayını:** `20261111050000_p7_consent_source_tech` migration'ı P7 server'ından **önce** uygulanmalıdır (P7 server
+  `source='TECH'` satırı yazar; eski CHECK bunu reddeder). Compose sırası bunu sağlar; elle yayında önce
+  `docker compose run --rm migrate`, sonra `docker compose up -d server`. Geri alma: önce P7 kodu, sonra `down.sql`
+  (`docs/db-notlari.md` P7; `TECH` satırı varsa `down.sql` atomik olarak başarısız olur).
 
 ### Windows istemciyi derleme ve yayınlama (runbook §11)
 **Derleme** — `apps/agent-win/build/build.sh <https://alan-adı[:port]> <sürüm x.y.z> [çıktı]`. Betik go-winres ile
@@ -318,7 +355,8 @@ içindeki `AGENT_SHA256`'yı yazar, server'ı yeniden başlatır ve Caddy üzeri
 apps/server/        Fastify API (src/), Prisma şeması ve migration'lar (prisma/), testler (test/)
 apps/web/           Next.js arayüzü (app/, components/, lib/), e2e testleri (e2e/)
 packages/contracts/ Ortak zod şemaları, yetki listesi, hata kodları
-apps/agent-win/     Windows istemci (Go): cmd/noktadestek, internal/ (api, flow, rtc, capture, ui, transfer…),
+apps/agent-win/     Windows istemci (Go): cmd/noktadestek, internal/ (api, flow, rtc, capture, ui, transfer, control,
+                    input, env…),
                     build/ (build.sh, winres.json), test/trace-check.ps1
 deploy/             docker-compose.yml, Caddyfile, mysql/ (kullanıcı init + yetki kontrol betiği),
                     turn/ (coturn compose, başlatıcı, güvenlik duvarı ve test betikleri),
@@ -349,6 +387,11 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 - Windows istemci: imzasız ama tekrarlanabilir derleme + `SHA256SUMS` + build attestation; sunucu hash'i `AGENT_SHA256`
   ile tutmayan dosyayı sunmaz (503). İstemci yalnız gömülü adrese TLS ≥ 1.2 ile bağlanır, yönlendirme izlemez,
   DLL'leri yalnız System32'den yükler, kabul edilen dosyaya MOTW yazar ve iz bırakmaz.
+- Uzaktan kontrol (P7): tek izin kaynağı istemcideki kapıdır; sunucu ve konsol kapıyı açamaz, yalnız kapatabilir.
+  Kapı her `SendInput`'tan hemen önce denetlenir; kapanınca takılı tuşlar bırakılır. İzin diyaloğu (kontrol, monitör,
+  dosya kabulü) yalnız müşterinin gerçek fare/klavye girdisini kabul eder. İstemcide girdi hız sınırı (250 olay/sn).
+  Yetki daralması 60 sn'lik teknisyen yeniden doğrulamasında `caps.update` + `control.revoke{permission}` ile kontrolü
+  keser. İzin kaydı yazılamazsa kontrol açılmaz.
 - Konteynerler salt okunur kök dosya sistemi, `cap_drop: ALL`, root olmayan kullanıcıyla çalışır; imajlar digest ile sabitlenir.
 - CI: `pnpm audit`, lisans denetimi (GPL/AGPL yasak), gitleaks. Repoya gizli bilgi girmez.
 - Ayrıntı: `docs/guvenlik-raporu.md`, ADR'ler `docs/adr/`.

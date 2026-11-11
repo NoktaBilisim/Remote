@@ -1347,3 +1347,439 @@ gönderimini hem relay'e çıkışı taşıyor + ev ağı/pfSense UDP kuyruğu; 
 (farklı uplink) tekrarla; pfSense'te UDP state/limiter ve WAN kuyruk istatistiklerini (`pfctl -si`, Status › Queues) koşu
 sırasında oku; sunucuda koşu sırasında `nstat` + `tcpdump -ni ens18 udp portrange 49160-49199 -w` ile sunucuya giren/çıkan
 paket sayısını istemci kaybıyla karşılaştır (kayıp sunucuya varmadan mı oluyor).
+
+## Backend P7 — sunucu (backend-dev, 2026-11-11)
+Kapsam: `control.*`, `monitor.request`, `env.state`, `caps.update`, `control.revoke` sunucu tarafı + S-P3-8 giriş şartı + contracts tipleri. **Şema değişikliği yok, dba gerekmiyor** (P4 `session_consents` CHECK kümesi yeterli: `CONTROL` + `GRANTED/DENIED/REVOKED` + `UI/HOTKEY/RECONNECT/SYSTEM`; protokoldeki `source: DENIED` DB'ye `decision=DENIED, source=UI` olarak yazılır). Yeni bağımlılık yok.
+
+### Değişen dosyalar
+| Dosya | Değişiklik |
+|---|---|
+| `packages/contracts/src/ws.ts` | `controlRequestSchema`, `monitorRequestSchema`, `controlStateSchema` (GRANTED yalnız UI), `envStateSchema`; tech/guest inbound birleşimlerine eklendi; sunucu çıkışına `control.request`, `monitor.request`, `control.revoke`, `caps.update`, `control.state`, `env.state`; sabitler `CONTROL_STATES/SOURCES/REVOKE_REASONS`, `CONTROL_REQUEST_MAX=5`, `CONTROL_DENY_COOLDOWN_MS=30000`; `WS_ERROR_CODES += INTERNAL` |
+| `packages/contracts/src/dc.ts` | `input` kanalı: `m.move`, `m.btn`, `m.wheel` (±1200), `k` (`code` ≤32, `key?` ≤4), `k.release_all`; `inputMessageSchema`, `parseInputMessage` |
+| `packages/contracts/src/audit.ts` (yeni, `exports["./audit"]`) | `CONTROL_AUDIT` action adları (tek kaynak; P8 zaman çizelgesi aynı adları okur) |
+| `packages/contracts/fixtures/ws-messages.json` | P7 geçerli/geçersiz örnekleri; eski "P7 öncesi bilinmiyor" `control.request` geçersiz örneği kaldırıldı |
+| `packages/contracts/fixtures/dc-input.json` (yeni) | `input` kanalı geçerli/geçersiz örnekleri (Go `internal/input` için) |
+| `apps/server/src/signaling/control.ts` (yeni) | istek süzgeci, `control.state` kaydı (fail-closed), `revokeControl`, `resetControl`, `narrowCaps`, `env.state` iletimi |
+| `apps/server/src/signaling/types.ts` | `Room.control: ControlRoom`, `TechConn.role`, `Guest.ctx` |
+| `apps/server/src/signaling/rooms.ts` | `TechnicianLiveControl` arayüzü (`endByTechnician`, `applyPermChange`); kopmada/sekme değişiminde VIEW'a sıfırlama; `attachTech` güncel yetkiyle caps daraltır |
+| `apps/server/src/signaling/handlers.ts` | yeni tiplerin yönlendirmesi; `share.state` bekleyen monitör isteğini karşılar |
+| `apps/server/src/signaling/ws.ts` | TechConn `role`; misafir bağlam (ip/UA) saklanır; 60 sn yeniden doğrulama: geçerli → `applyPermChange`, rol değişti / kullanıcı-tenant pasif → `endByTechnician`, yalnız oturum geçersiz → o oda `auth_revoked` |
+| `apps/server/src/ops/metrics.ts` | `rs_control_total{event}` |
+| `apps/server/test/integration/signaling-control-p7.test.ts`, `test/unit/dc-input-fixtures.test.ts`, `packages/contracts/test/control-p7.test.ts` (yeni); `test/helpers/ws.ts` (TechConn `role`) | testler |
+| `docs/mimari-protokol.md` | sonuna "P7 backend uygulama notları" (aşağıdaki sapmalar) |
+
+### Davranış özeti
+- `control.request`: sıra `remote_control.use` + `caps` yok → `FORBIDDEN` (AC-51) · misafir yok → `CONFLICT` · BROWSER → `FORBIDDEN` "Müşteri tarayıcı modunda: yalnız görüntüleme." (AC-34) · zaten açık → `CONFLICT` · ret sonrası 30 sn → `RATE_LIMITED` · 5 iletilmiş istekten sonra → `RATE_LIMITED` (G-03, AC-116). İletilirse `controlState=REQUESTED` + audit `control.requested`.
+- `control.state` (yalnız AGENT; BROWSER'dan gelen yok sayılır, oda başına sıralı işlenir): `GRANTED` → `session_consents(CONTROL,GRANTED,UI)` + audit `control.granted` tek TX, **ancak commit sonrası** teknisyene `control.state{GRANTED}`; TX hata verir ya da 800 ms'de bitmezse misafire `control.revoke{audit}`, teknisyene `error{INTERNAL, ref}` (AC-111, G-15); geç commit edilen GRANTED bir `REVOKED/SYSTEM` ile dengelenir. `VIEW/DENIED` yalnız REQUESTED iken kaydedilir (30 sn sayacı başlar); `VIEW/UI|HOTKEY` açık kontrolü `REVOKED/<kaynak>` olarak kaydeder (AC-50, 111). Tekrarlanan/no-op mesajlar kayıt şişirmez.
+- `monitor.request` (AC-43): yalnız AGENT; `room.share.monitors` biliniyorsa kimlik doğrulanır (`VALIDATION`); 5 istek / 30 sn kuralı.
+- `env.state` (AC-105): AGENT → teknisyene alanlar yeniden kurularak.
+- Kopma (AC-24): misafir/teknisyen kopunca `controlState=VIEW`, açık kontrol `REVOKED/RECONNECT`; misafir kopunca teknisyene `control.state{VIEW, RECONNECT}`; yeniden bağlanan taraf VIEW ile başlar.
+- **S-P3-8 / AC-115:** `app.rooms.applyPermChange(userId, effectivePermissions)` ve `app.rooms.endByTechnician(userId)` P9/P10 servislerinden commit sonrası doğrudan çağrılmalı (60 sn yalnız yedek yol). Daralmada misafire `caps.update`, `remote_control` düştüyse `control.revoke{permission}` + teknisyene `control.state{VIEW, SYSTEM}` + `REVOKED/SYSTEM` + audit `session.caps_changed`.
+
+### Sapmalar (gerekçeli; `docs/mimari-protokol.md` sonuna da not düşüldü)
+1. **monitor.request 30 sn kuralı:** protokolde müşteri ret mesajı yok; sunucu yanıtlanmamış (share.state ile karşılanmamış) isteği 30 sn bekletir — ret ile aynı koruma, yeni mesaj tipi icat edilmedi.
+2. **`error.code = INTERNAL`** eklendi: fail-closed hatasını teknisyen UI'ı ayırt edebilsin (mesajda log referansı).
+3. **Sunucu teknisyene `control.state` gönderir** (revoke → `SYSTEM`, misafir kopması → `RECONNECT`): misafir onayına güvenmeden konsol girdi göndermeyi kessin (AC-115 "5 sn içinde").
+4. **caps yalnız daralır:** oturum içinde yetki eklenmesi yeni oturumda geçerli (G-09 güvenli varsayılan; protokol yalnız daralmayı tanımlıyor).
+5. **Teknisyen kopmasında misafire `control.revoke` yok** (`reason` kümesinde uygun değer yok). Agent `peer.left{role:"tech"}` / `peer.joined{role:"tech"}` aldığında kapıyı kapatmalı. **Mimar kararı bekleniyor** (alternatif `reason: "reconnect"`).
+6. Oturum bitişinde açık kontrol için ayrı `REVOKED` satırı yazılmaz (bitiş `session.ended` audit'iyle zaten zaman çizelgesinde; P8 görüntülemesi bunu kontrolün sonu sayabilir).
+
+### Frontend ve Go için sözleşme notları
+- Yeni tipler `@remote/contracts/ws` ve `@remote/contracts/dc` (input) içinde; action adları `@remote/contracts/audit`.
+- Konsol: input göndermeye yalnız sunucudan `control.state{GRANTED}` gelince başla; `control.state{VIEW,*}`, `error{INTERNAL}`, `peer.left` ile dur. Hata metinleri sunucudan gelir (`RATE_LIMITED` bekleme mesajı dahil).
+- **web:** `apps/web/lib/webrtc/machines.test.ts:147` `control.revoke`'u şema dışı varsayıyor; artık geçerli tip → test güncellenmeli (frontend-dev).
+- **Go:** `internal/signal` `ParseServer`'a `control.request`, `monitor.request`, `control.revoke`, `caps.update` eklenmeli; `control.state` ve `env.state` sunucu çıkışında teknisyene özel (`techOnlyTypes`); `decodeGuest`'e `control.state` (GRANTED yalnız UI) ve `env.state`. `signal_test.go` `TestServerMessageStrictness`'teki `{"t":"control.request"}` "P7 öncesi bilinmiyor" satırı artık geçerli → kaldırılmalı. `dc-input.json` `internal/input` testinde kullanılmalı. Teknisyen kopmasında kapı kapatma (sapma 5).
+
+### Test
+Komutlar: `pnpm -r run lint` · `pnpm -r run typecheck` · `pnpm --filter @remote/server test` · `pnpm --filter @remote/contracts test` · entegrasyon `eval "$(apps/server/scripts/test-db.sh up)" && pnpm --filter @remote/server test:int`.
+Son çıktı: lint 3/3 temiz, typecheck 3/3 temiz; server unit **218/218**; contracts **39/39**; server tümü (unit + entegrasyon, ayrı MySQL 8.4 konteyneri) **374/374**, P7 dosyası 3 tekrarda 14/14. P7 testleri: AC-51 FORBIDDEN, AC-34 BROWSER reddi, AC-47/99/116 ret + 30 sn, AC-116 5 istek, AC-111 zaman çizelgesi (GRANTED→REVOKED/HOTKEY), AC-111 fail-closed (DB hatası ve 800 ms asılı DB), AC-24 kopmada sıfırlama, AC-43 monitör kuralları, AC-105 env.state, AC-115 oda katmanı + **uçtan uca** (kontrol açıkken `remote_control.use` kaldırılınca 60 sn yeniden doğrulamasında `control.revoke{permission}` + `caps.update`; pasif teknisyenin teknisyeni kopuk oda dahil tüm odaları `auth_revoked` + 4401; rol değişimi).
+Bilinen kırmızı (bu paketin dışında): `pnpm --filter @remote/web test` 98/99 — yukarıdaki web test satırı.
+
+## Agent P7 — Windows istemci kontrol (backend-dev/Go, 2026-11-11)
+Kapsam: yalnız `apps/agent-win/`. Sözleşme `packages/contracts/src/{ws,dc}.ts` (P7) ve `fixtures/{ws-messages,dc-input}.json` ile birebir; yeni bağımlılık yok, CGO yok.
+
+### Dosyalar
+| Dosya | İçerik | AC |
+|---|---|---|
+| `internal/control/gate.go` (yeni, platformsuz) | İzin kapısı: varsayılan CLOSED, atomik `IsOpen/Allow`; `Close` açıktan kapanınca dinleyicileri (takılı tuş bırakma) çalıştırır; `Suspend` yerel öncelik (1 sn); düşürülen olay sayacı | 24, 101, 104 |
+| `internal/control/requests.go` | İstek sayacı (kontrol ve monitör ayrı): diyalog açıkken ikinci istek diyalog açmaz, ret sonrası 30 sn, oturum başına 5 | 116 |
+| `internal/control/consent.go` | G-03 kuralları: 1,5 sn kilit, Enter/Space asla izin vermez, enjekte etkileşim yok sayılır, kısayol kaydı yoksa izin yok | 102, 116 |
+| `internal/control/place.go` | `PlaceAway`: diyalog imleci içermez (orta → üst-orta → alt-orta → sol → sağ); `ui.showAwayFromCursor` buna taşındı | 116 |
+| `internal/control/hotkey.go` | `RegisterHotkey`: Ctrl+Shift+F12, olmazsa Ctrl+Shift+F11, ikisi de olmazsa `ErrNoHotkey` | 102 |
+| `internal/input/messages.go` | `input` DC katı şema (m.move, m.btn, m.wheel, k, k.release_all; ≤ 512 bayt, null/bilinmeyen alan reddi) | 47–49 |
+| `internal/input/keys.go` | `KeyboardEvent.code` → VK + genişletilmiş bayrak tablosu (harf, rakam, F1–F12, oklar, numpad, değiştiriciler) | 48 |
+| `internal/input/applier.go` | Alıcı: doğrula → **kilit altında** `gate.Allow` → çevir → enjekte. Kapalı/askıdaysa düşer + sayar. Yazı tuşunda `key` tek karakterse ve Ctrl/AltSol/Win basılı değilse `KEYEVENTF_UNICODE` (Türkçe karakterler düzenden bağımsız); kısayollar VK. Ctrl+Alt+Del ve Win+L iletilmez. Normalize koordinat → aktif monitör → sanal masaüstü mutlak (`ABSOLUTE|VIRTUALDESK`). Kapı kapanınca yalnız kendi bastığı tuş/düğmeleri bırakır | 48, 49, 101 |
+| `internal/input/sendinput_windows.go` | `SendInput` (amd64 INPUT düzeni, tek çağrıda toplu), `MapVirtualKey` ile scan kodu, `VirtualScreen` | 48 |
+| `internal/input/host_windows.go` | Kilitli iş parçacığı: `WH_MOUSE_LL`/`WH_KEYBOARD_LL` (enjekte olmayan olay → `gate.Suspend`; son basışın `INJECTED` bayrağı tutulur) + `RegisterHotKey` (yedekli). WM_HOTKEY → **önce `gate.Close()`**, sonra akışa bildirim | 102, 104 |
+| `internal/env/env.go` + `probe_windows.go` | 500 ms'de bir yoklama, yalnız değişimde bildirim. Yükseltilmiş ön plan: kendi süreç yükseltilmemişse ön plan sürecinin belirteci `TokenElevation` (açılamıyorsa yükseltilmiş sayılır). Güvenli masaüstü: `OpenInputDesktop` başarısız veya adı `Default` değil | 105 |
+| `internal/signal/messages.go` | Gelen: `control.request`, `monitor.request{monitorId 0..64}`, `control.revoke{permission\|audit\|admin}`, `caps.update{caps[]}`; giden: `control.state` (GRANTED yalnız `UI`), `env.state`; `control.state`/`env.state` misafire gelirse `ErrNotForGuest`; `error.code` `INTERNAL` eklendi | 99, 105, 111, 115 |
+| `internal/rtc/rtc.go` | `input` kanalı: `Handlers.Input` yoksa kapatılır; yalnız metin ve yalnız `remote_control` yeteneği varken alıcıya gider (Pion goroutine'inden doğrudan, akış kuyruğu yok) | 101, 115 |
+| `internal/flow/control.go` (yeni) + `flow.go` | Kontrol akışı: istek → diyalog; izin → `gate.Open` + `control.state{GRANTED,UI}`; ret → `{VIEW,DENIED}`; düğme/kısayol → `{VIEW,UI\|HOTKEY}`; `control.revoke` → kapı + `{VIEW,SYSTEM}`; `caps.update` → `peer.SetCaps` + yetki yoksa kapı kapanır; `peer.left/peer.joined{tech}`, WS kopması, PeerConnection disconnected/failed/closed, her `hello` (AC-24) ve oturum sonu kapıyı kapatır; monitör isteği diyaloğu + kaynak değişimi + `share.state`; `env.state` (ilk değer, değişim, yeniden bağlanmada tekrar) | 24, 43, 47, 50, 99, 102, 105, 111, 115, 116 |
+| `internal/ui/control_windows.go` (yeni), `screens_windows.go`, `overlay_windows.go`, `form_windows.go` | Ortak izin diyaloğu (kontrol + monitör): Reddet varsayılan/odak, "İzin ver" 1,5 sn sonra etkin, `noKey` ile Enter/Space yutulur, `input.LastPressInjected()` ise yok sayılır, imleç altında açılmaz, kısayol yoksa kırmızı açıklama + izin düğmesi hiç etkinleşmez. Oturum penceresi: "Erişime izin ver" (bekleyen istek varken ve 1,5 sn sonra), "Kontrolü kapat" (UI iş parçacığında anında `gate.Close`), kısayol satırı, "Oturumu bitir". Gösterge metni "Ekranınız izleniyor" ↔ "Uzaktan kontrol aktif — <ad>" | 100, 102, 103, 116 |
+| `cmd/noktadestek/main.go` | Kapı → UI → Applier → Host (kısayol) → flow bağlantısı | — |
+
+### Tasarımdan sapmalar / kararlar (gerekçeli)
+1. **Kapı `internal/control/gate.go`'da, kapı denetimi `input.Applier` kilidi altında:** `Close` → `OnClose(ReleaseAll)` aynı kilidi aldığından `Close` döndükten sonra tek bir basma olayı bile uygulanamaz (AC-101 "≤ 100 ms" yerine fiilen anında). Kapatan her yol önce kapıyı kapatır, akışı beklemez (UI düğmesi UI iş parçacığında, kısayol kanca iş parçacığında).
+2. **Yeniden bağlanmada istemci `control.state{VIEW, RECONNECT}` göndermez:** sunucu misafir kopunca durumu kendisi VIEW yapıp teknisyene `RECONNECT` bildiriyor (Backend P7 not 4); çift audit olmasın diye. Kapı istemcide kopuşta kapanır ve her `hello`'da kapalı başlar.
+3. **Teknisyen kopması (`peer.left`/`peer.joined{role:"tech"}`):** sunucu notu 6'ya uygun olarak kapı kapanır; kontrol açıksa `control.state{VIEW, SYSTEM}` gönderilir.
+4. **Monitör reddi WS'e bildirilmez** (sözleşmede mesaj yok; sunucu yanıtsız isteği ret sayıyor). İstemci de 30 sn / 5 istek kuralını ayrı sayaçla uygular.
+5. **Unicode kuralı:** Ctrl, AltSol, Win basılıyken harf tuşları VK gider (Ctrl+C, Win+E çalışsın); AltGr (AltRight) Unicode'u engellemez (`@`, `€`). Boşluk her zaman VK.
+6. **Tekerlek birimi WHEEL_DELTA** (contracts `WHEEL_MAX = 120×10`); `dy` işareti çevrilir (tarayıcıda +aşağı, Windows'ta +yukarı).
+7. **Kanca ve kısayol program açıkken kayıtlı** (yalnız oturum sırasında değil): kısayolun kontrol istenmeden önce alınabildiği bilinsin ve izin diyaloğu buna göre açılsın (G-21). Kancalar yalnız atomik yazma yapar.
+8. **"Erişime izin ver" (oturum penceresi)** yalnız bekleyen bir kontrol isteği varken ve diyalogla aynı 1,5 sn sonra etkinleşir; G-03 kurallarını atlamaz.
+9. Fare imleci hâlâ görüntüye çizilmiyor (P6 Aşama 3 açığı); teknisyen kendi imlecini görür. Uzaktan kontrolde kullanılabilirlik için ayrı iş önerilir.
+
+### Bağımlılık
+Yeni bağımlılık yok (`golang.org/x/sys/windows`, stdlib). AGPL/GPL yok.
+
+### Testler ve son çıktı
+Komut (docker `golang:1.26.11-bookworm`, repo kökü bağlı, `apps/agent-win`): `gofmt -l` boş → `go vet ./...` → `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...` → `go mod verify` → `go test -race -count=1 ./...` → tüm paketler için `GOOS=windows go test -c` → `build/build.sh` iki kez (arada `go clean -cache`) → govulncheck (linux + windows/amd64).
+Son çıktı: gofmt temiz; iki vet temiz; `go mod verify` ok; `go test -race` **15/15 paket ok** (yeni: control, env, input); Windows test ikilileri derlendi; iki build aynı SHA-256 `86370035…3d220e92` (12,08 MB); govulncheck v1.1.4 iki hedefte "Your code is affected by 0 vulnerabilities" (modül düzeyinde 3 erişilemez kayıt P6'dakilerle aynı).
+Yeni testler: `control` — AC-101 kapı varsayılan kapalı/Close dinleyicisi, eşzamanlı Close yarışsız; AC-104 1 sn askı; AC-116 30 sn + 5 istek + tek diyalog; AC-116 diyalog zamanlama/odak (ilk 1,5 sn tıklama, Enter/Space, enjekte tıklama, Alt+İ); AC-102 kısayolsuz izin yok, yedeğe düşüş ve ikisi de başarısız; AC-116 imleç altında açılmama (6 konum + büyük diyalog). `input` — **AC-101 sahte enjektörle kapalı kapıda 0 olay**, sürekli hareket akarken Close → Close sonrası 0 olay (< 100 ms), kapanışta takılı tuş/düğme bırakma; AC-104; AC-48 Türkçe ş ı i ğ ü ö ç İ → `KEYEVENTF_UNICODE`, Ctrl+C / Alt+Tab / F12 / ok (genişletilmiş) VK; Ctrl+Alt+Del ve Win+L engeli; AC-49 iki monitörlü sanal masaüstünde ±2 piksel; tekerlek/sağ tık; şema katılığı + `fixtures/dc-input.json`. `signal` — P7 sunucu tipleri kabul/red, `control.state` GRANTED yalnız UI, `env.state` kodlaması, misafire gelen `control.state/env.state` → `ErrNotForGuest`. `rtc` — gerçek iki Pion eşiyle `input` kanalı yalnız `remote_control` varken iletilir, `SetCaps` ile daralınca düşer. `flow` — AC-99 ret + 30 sn bekleme, AC-50/111 düğme ve kısayol, AC-102 kısayolsuz izin yok, AC-115 revoke ve caps.update, AC-24 kopuşta kapanma + yeniden bağlanmada kapalı, teknisyen kopması, AC-43 monitör izni (girdi monitörü güncellenir), AC-105 env.state.
+
+### Windows'ta elle doğrulanacaklar (P6 listesinin 24 adımına ek)
+Ön koşul: staging P7 sunucusu + konsol; istemci `build/build.sh https://<staging-alan-adı>:4450 0.7.0`; iki monitörlü makine tercih edilir. Konsoldan "Kontrol iste".
+25. **Diyalog (G-03/AC-116):** imleci ekran ortasına koyup istek gönder → diyalog imlecin altında değil (üst-orta); odak "Reddet"te; Enter → reddeder (konsol "Kontrol reddedildi"); "İzin ver" ilk 1,5 sn gri; Tab ile "İzin ver"e gelip Space/Enter → hiçbir şey olmamalı; 1,5 sn sonra fareyle veya Alt+İ ile izin. Ret sonrası 30 sn içindeki istek diyalog açmamalı; 6. istek hiç gelmemeli.
+26. **Gösterge (AC-103):** izin sonrası her monitörde üst etiket "Uzaktan kontrol aktif — <ad>"; kapatınca "Ekranınız izleniyor — <ad>".
+27. **Türkçe karakter (AC-48):** Not Defteri'nde konsoldan `çğıöşüİ ÇĞIÖŞÜ` + rakamlar + `@ € { }` (AltGr) yaz; müşteri klavyesi TR-Q ve ayrıca EN-US düzenindeyken aynı metin çıkmalı. Ctrl+C/Ctrl+V, Ctrl+Z çalışmalı.
+28. **Alt+Tab ve Win:** konsoldan Alt basılı tutup Tab'a iki kez bas → pencere değiştirici açılıp seçim yapılmalı; Win+E Gezgin'i açmalı; Win+L kilitlememeli; F1–F12 ve oklar çalışmalı.
+29. **Fare (AC-48/49):** sol/sağ/orta tık, çift tık (masaüstü simgesi açılır), sürükle (pencere taşıma), tekerlek dikey/yatay; %100/%150 ölçekte ve ikinci monitörde (monitör değişiminden sonra) tıklama hedefe ±2 piksel düşmeli.
+30. **Kontrolü kapat (AC-50/101):** fare sürekli hareket ederken "Kontrolü kapat" → hareket anında durmalı, konsol ≤ 1 sn "Kontrol müşteri tarafından kapatıldı"; basılı Ctrl/Shift kalmamalı (Not Defteri'nde yazı normal).
+31. **Kısayol (AC-102):** istemci arka planda (başka pencere odakta) Ctrl+Shift+F12 → kontrol kapanmalı, konsolda kaynak HOTKEY. Yedek: başka bir programla (ör. AutoHotkey `^+F12::return`) F12'yi önceden kapıp istemciyi başlat → oturum penceresinde "Ctrl+Shift+F11" yazmalı ve çalışmalı; F11'i de kapınca diyalogda kırmızı açıklama ve "İzin ver" hiç etkinleşmemeli.
+32. **Yerel öncelik (AC-104):** teknisyen fareyi hareket ettirirken müşteri kendi faresini oynatınca uzaktan hareket ~1 sn durmalı, sonra devam etmeli.
+33. **UAC / Güvenli Masaüstü (AC-105):** kontrol açıkken yönetici olarak bir program başlat → UAC sırasında konsolda "Müşteri güvenli masaüstünde"; UAC'ı onayla ve yükseltilmiş pencereye (ör. yönetici CMD) odaklan → konsolda "Yükseltilmiş pencere — kontrol edilemiyor" ve o pencereye tuş/tık gitmemeli; normal pencereye geçince uyarı kalkmalı. Win+L kilit ekranı da güvenli masaüstü sayılır.
+34. **Monitör izni (AC-43):** konsoldan diğer ekranı iste → aynı kurallı diyalog; izin → görüntü ve işaretleme katmanı yeni ekrana geçmeli, tıklamalar yeni ekrana düşmeli; ret → değişmemeli.
+35. **Revoke (AC-115):** kontrol açıkken yöneticiden teknisyenin "Uzaktan kontrol" yetkisini kaldır → ≤ 5 sn içinde kapı kapanmalı, istemcide "Uzaktan kontrol sunucu tarafından kapatıldı", gösterge "izleniyor"a dönmeli; yeni istek diyalog açmamalı.
+36. **Kopma (AC-24):** kontrol açıkken Wi-Fi'ı 10 sn kapat/aç → yeniden bağlandıktan sonra kontrol kapalı (yalnız görüntüleme); teknisyen sekmesini yenileyince de kontrol kapanmalı.
+
+### frontend-dev / backend için sözleşme notları
+Sözleşme değişikliği yok. Konsolun dikkat etmesi gerekenler: `k.key` yalnız tek yazdırılabilir karakter için gönderilmeli (`"Shift"` gibi ≥5 karakterlik adlar şema gereği reddedilir; mesaj tamamen düşer); `code` yalnız harf/rakam (`^[A-Za-z0-9]{1,32}$`); tekerlek WHEEL_DELTA biriminde, `dy>0` aşağı. İstemci yeniden bağlanmada `RECONNECT` göndermez (sunucu üretir); monitör reddine yanıt yoktur.
+
+## Frontend P7 — konsol uzaktan kontrol (frontend-dev, 2026-11-11)
+Kapsam: yalnız teknisyen konsolu (`apps/web`). Tipler `packages/contracts`'tan (`ws.ts` control.*/monitor.request/env.state/caps.update, `dc.ts` input şeması); contracts'a dokunulmadı. İş başında tipler yoktu, geçici yerel şema yazıldı; backend contracts'a ekleyince ona geçildi — `lib/control/protocol.ts` artık yalnız contracts'tan yeniden dışa aktarım.
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/sessions/[id]/console` (değişti) | Evet (oturumun teknisyeni) | Hızlı Destek (AGENT) misafirde ve `remote_control.use` varsa "Kontrol iste" akışı, izinde fare/klavye yakalama, özel tuşlar, monitör seçimi, `env.state` uyarıları. Tarayıcı misafirde P4 pasif "Uzaktan kontrol" düğmesi aynen |
+Yeni rota yok.
+
+### Dosyalar
+- Yeni: `apps/web/lib/control/machine.ts` (saf durum makinesi: idle → requested → granted/paused → ended/denied; ≤5 istek, 30 sn ret beklemesi, FORBIDDEN/RATE_LIMITED eşleme, `error{INTERNAL}` = G-15 fail-closed, revoke/caps.update, kopma/yeniden bağlanma/oturum sonu → yakalama kapanır, monitör isteği + 30 sn yanıtsızlık, `env.state`), `lib/control/input.ts` (koordinat normalize, düğme/tekerlek/klavye eşleme, Ctrl+Alt+Shift çıkış kısayolu, özel kombinasyonlar), `lib/control/use-remote-input.ts` (DOM dinleyicileri → `input` DC; tam ekranda Keyboard Lock), `lib/control/protocol.ts`, `components/console/control-button.tsx` (`ControlButton`, `MonitorPicker`, özel tuşlar menüsü), testler `lib/control/{machine,input}.test.ts`, e2e `e2e/p7-control.spec.ts` + `e2e/fake-agent.ts`.
+- Değişen: `lib/webrtc/peer.ts` (AGENT misafire `input` DC, `onInput`), `lib/webrtc/use-tech-session.ts` (kontrol reducer'ı, `requestControl/requestMonitor/releaseControl/resumeControl`, `input` kanalı), `components/console/stage.tsx` (araç şeridi görüntünün dışına, kontrol çerçevesi, yakalama, `stage-elevated`/`stage-secure`), `app/(panel)/sessions/[id]/console/{page,console-view}.tsx` (`canControl` = `remote_control.use`, bildirimler), `components/console/collab-side.tsx` (`AnnotToolbar.disabledHint`), `components/ui/button.tsx` (React 19 `ref` prop), `messages/tr.json` (`p7.*`), `lib/webrtc/machines.test.ts` (control.revoke artık tanınan tip), e2e sahte sunucu `e2e/mock-{ws,sessions,api}.mjs` (AGENT misafir `rs.e2eagent.<id>`, control/monitor/env aktarımı, FORBIDDEN/30 sn/≤5 kuralları, `GET /__e2e/revoke/:id`), `DESIGN.md` §4 ikonlar + §6 üç yeni satır.
+
+### Davranış özeti
+- Girdi yalnız sunucudan `control.state{GRANTED}` gelince ve görüntü varken gönderilir; `VIEW` (UI/HOTKEY/SYSTEM/RECONNECT), `control.revoke`, `caps.update` (remote_control yok), `error{INTERNAL}`, `peer.left`, kendi WS kopması, oturum sonu, güvenli masaüstü → dinleyiciler anında sökülür + `k.release_all` (AC-50 e2e: < 1 sn).
+- Koordinatlar videonun görünen içerik alanına göre 0..1, 5 ondalık (AC-49); %100 kipinde kaydırma çubuğu tıkları gönderilmez. Klavye: `code` (`^[A-Za-z0-9]{1,32}$`) her zaman, `key` yalnız tek yazdırılabilir karakterde (Türkçe ç ğ ı ö ş ü İ); örnekler testte contracts `parseInputMessage` ile doğrulanır. Tekerlek WHEEL_DELTA birimi, `dy>0` aşağı (Go istemci ters çevirir — uyumlu).
+- Klavyeyle çıkış: Ctrl+Alt+Shift birlikte basılıp başka tuş olmadan bırakılınca odak "Kontrolü bırak"a geçer (Tab uzak ekrana gittiği için).
+- Özel tuşlar menüsü: Alt+Tab, Win, Win+D/R/E, Alt+F4, Ctrl+Shift+Esc, Print Screen; Ctrl+Alt+Del yok (AC-48). Tam ekranda Chromium Keyboard Lock sistem tuşlarını doğrudan yakalar.
+- İşaretleme ↔ kontrol: kontrol yakalanırken işaretleme araç çubuğu pasif, katman girdi almaz.
+- Görsel bulgu düzeltildi: işaretleme araç çubuğu + görüntü kontrolleri artık görüntü üstünde değil, sahnenin üst şeridinde (e2e: şeridin altı ≤ görüntü alanının üstü).
+
+### Sapmalar (gerekçeli)
+1. **[KAPANDI — düzeltme turu 1, §3.3 K1]** ~~**"Kontrolü bırak" yerel duraklatmadır.** Protokolde teknisyenden müşteriye bırakma mesajı yok (mimari-protokol §3); konsol girdi göndermeyi keser, müşteri izni açık kalır ("Kontrole devam" yeni istek gerektirmez) ve bu açıkça yazılır. Öneri (mimar/backend): `control.release` (tech→S→guest) eklenirse istemci kapıyı kapatır; konsolda tek satırlık değişiklik.~~ Artık `control.release` gönderilir (bkz. "Frontend P7 — düzeltme turu 1").
+2. **[KAPANDI — §3.3 K2]** ~~**"Vazgeç" (istek iptali) yok** (taslakta var): protokolde istek iptali mesajı yok.~~ "Vazgeç" → `control.cancel`.
+3. **[KAPANDI — §3.3 K4]** ~~**Monitör reddi bilinmez:** istemci ret yanıtı göndermiyor; 30 sn içinde `share.state.activeMonitor` istenen değere dönmezse "Müşteri monitör değişikliğini onaylamadı" yazılır.~~ `monitor.denied` gelince hemen "Müşteri monitör değişikliğini reddetti"; 30 sn yanıtsızlık yedek yol olarak kalır.
+4. **Sonner yerine projenin `ui/toast`'ı** (DESIGN §6: Sonner nonce'suz `<style>` enjekte eder → CSP).
+5. **Bileşen testleri Vitest + DOM yerine Playwright'ta:** projede jsdom/testing-library yok (mimari §10.4 dışı bağımlılık eklenmedi); saf mantık Vitest'te (machine/input), bileşen davranışı + a11y (axe) e2e'de.
+6. "Uzaktan kontrol aktif" çipi taslaktaki gibi görüntü üstünde değil: görüntüyü kapatmamak için kırmızı 4 px çerçeve + şeritte "Kontrol sizde" hapı (`control-frame`).
+7. `remote_control.use` yoksa düğme hiç yok (AC-51); sunucu sonradan FORBIDDEN/revoke verirse not "Uzaktan kontrol yetkiniz yok" + düğme kalkar.
+
+### Testler
+- `pnpm --filter @remote/web lint` / `typecheck` temiz; `test` 15 dosya / 114 test yeşil (yeni: `lib/control/machine.test.ts`, `input.test.ts`).
+- `pnpm --filter @remote/web e2e` 147 geçti / 39 atlandı (mobil projede konsol testleri atlanır). P7: `e2e/p7-control.spec.ts` — AC-47/48/49/99/50 (iste → bekleniyor, onaysız girdi 0 → izin → tık/klavye/Alt+Tab input DC'de → Ctrl+Alt+Shift → bırak/devam → müşteri kısayolla kapatır, < 1 sn, sonrasında girdi 0), AC-99/116 (ret, "Kontrol reddedildi", 0:30 geri sayım ilerler, "4 istek hakkı kaldı"), AC-115 (canlı revoke → yakalama biter, girdi 0), AC-51 (yetkisiz → düğme yok), AC-43/105 (monitör isteği → onay → Ekran 2; yükseltilmiş pencere / güvenli masaüstü). Her durumda axe 0 ihlal, konsol hata/uyarı 0.
+- Sahte istemci (`e2e/fake-agent.ts`) gerçek WebRTC ile teklifi yanıtlar ve `input` DC'yi kaydeder; doğrudan sahte sunucuya bağlanır (Next yok, gerçek istemci gibi).
+- Elle (test-operatörü / gerçek Windows istemcisi): Türkçe karakter + Alt+Tab'ın uzak ekranda uygulanması, tam ekranda Keyboard Lock, farklı DPI'da ±2 px.
+- Tasarım skill dosyaları okunmadı: iş P5 sahnesinin düzen düzeltmesi + mevcut primitiflerle yeni durum çubuğu; DESIGN.md ve `docs/tasarim/04-konsol.html` taslağı esas alındı.
+
+## Frontend P7 — düzeltme turu 1 (frontend-dev, 2026-11-11)
+Kaynak: `docs/mimari-protokol.md` §3.3 K1–K4, ADR-0013, güvenlik raporu "P7 — Tur 1" S7-1/S7-2, qa-raporu QA-P7-6. Kapsam yalnız teknisyen konsolu (`apps/web`). Tipler `packages/contracts`'tan (`control.release`, `control.cancel`, `monitor.denied`, kaynak `TECH`, revoke `reconnect`/`stale`) — sunucu ajanı paralelde eklemişti, iş başında mevcuttu; geçici yerel tip yazılmadı, contracts'a dokunulmadı.
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/sessions/[id]/console` (değişti) | Evet (oturumun teknisyeni) | "Kontrolü bırak" artık müşteri kapısını kapatır; "Kontrole devam" yeni istek; bekleyen istekte "Vazgeç"; monitör reddi anında yazılır |
+Yeni rota yok.
+
+### Davranış
+- **S7-1 / K1:** "Kontrolü bırak" → önce `input` kanalına `k.release_all` (kapı kapanmadan takılı tuş kalmasın), makine `granted → ended{tech}` (yakalama dinleyicileri anında sökülür), WS `control.release`. Yerel duraklatma (`paused`, `resume`) kaldırıldı. Düğme yerine `primary` **Kontrole devam** gelir = yeni `control.request` (müşteri yeniden onaylar); not: "Kontrolü bıraktınız; devam etmek için müşteri yeniden onaylamalı · saat · bu oturumda n istek hakkı kaldı". Kendi bırakması bildirim (toast) üretmez. Odak kalkan düğmeden "Kontrole devam"a geçer.
+- **K2:** bekleyen istekte `secondary` **Vazgeç** (`X`) → `control.cancel`, makine `requested → ended{cancel}`; hak iade edilmez (sunucu sayacıyla aynı), 30 sn beklemesi başlamaz. Not: "Kontrol isteğini geri çektiniz".
+- **S7-2:** `control.state{GRANTED}` yalnız `requested` fazında (ve yetki varken) izne çevrilir. Diğer her fazda (idle/ended/denied/forbidden) durum değişmez, yakalama başlamaz ve hook WS'e `control.release` yollar (`isUnexpectedGrant`). Zaten `granted`'ken tekrar GRANTED yalnız yok sayılır (açık kontrol bozulmaz, gereksiz bırakma yok).
+- **`{VIEW, TECH}`** (bırak/iptal sunucu onayı) sessiz geçer; açık kontrolde gelirse de kapatır (neden `tech`, bildirim yok).
+- **K4:** `monitor.denied{monitorId}` bekleyen istekle eşleşirse hemen "Müşteri monitör değişikliğini reddetti" (görünür `role=status`); başka monitöre ait geç ret yok sayılır. 30 sn yanıtsızlık yedek yolu ("onaylamadı") kalır.
+- **`control.revoke{reconnect|stale}`:** protokolde S→guest'tir; konsola gelirse de kapatma yönünde işlenir (`reconnect` → `idle`/"Bağlantı yenilendi", `stale` → sistem kapanışı, yetki bayrağı değişmez). Asıl doğrulama e2e sahte istemcide (aşağıda).
+- **QA-P7-6:** bekleme düğmesi metni AC-47 ile birebir **"Kontrol bekleniyor"**; açıklama not satırında "Müşterinin onayı bekleniyor; şu an yalnız görüntüleme".
+- Hook: makinenin eşzamanlı kopyası (`ctl` ref) artık her olayda `dispatchCtl` içinde güncellenir (önceden render sonrası efektle) — beklenmeyen-izin/bırak/vazgeç kararları render beklemeden verilir.
+
+### Değişen dosyalar
+- `apps/web/lib/control/machine.ts` (`paused`/`resume` kaldırıldı; `release`/`cancel` olayları, `canRelease`/`canCancel`/`isUnexpectedGrant`, `ControlEndCause` + `tech`/`cancel`, `monitorOutcome` + `denied`, `TECH` kaynağı, revoke nedenleri), `lib/control/machine.test.ts` (+4 senaryo: K1, K2, S7-2, K4; K3/stale revoke).
+- `apps/web/lib/webrtc/use-tech-session.ts` (`releaseControl` → `k.release_all` + `control.release`, yeni `cancelControl`, `resumeControl` kaldırıldı, beklenmeyen GRANTED → `control.release`, `inputRef`).
+- `apps/web/components/console/control-button.tsx` (Vazgeç, Kontrole devam = yeni istek, odak yönetimi, monitör reddi notu), `app/(panel)/sessions/[id]/console/console-view.tsx` (`onCancel`, kendi bırakmasında toast yok).
+- `apps/web/messages/tr.json` (`p7.waiting` = "Kontrol bekleniyor", yeni `p7.waitingNote`, `p7.cancel`, `p7.end.tech`, `p7.end.cancel`, `p7.monitorDenied`; `p7.paused` kaldırıldı).
+- e2e: `e2e/mock-ws.mjs` (oda kontrol durumu VIEW/REQUESTED/GRANTED; `control.release`/`cancel` → misafire aynı mesaj + teknisyene `{VIEW, TECH}`; GRANTED yalnız REQUESTED'da, VIEW'da misafire `control.revoke{stale}`; `monitor.denied` aktarımı; teknisyen kopması/değişimi → misafire `control.revoke{reconnect}`; ws-log'a `control.release`/`cancel`), `e2e/mock-api.mjs` (`GET /__e2e/stray-grant/:id` — sunucu kuralını atlayan istenmemiş izin), `e2e/fake-agent.ts` (Go `gate` taklidi + `closes` kaydı), `e2e/p7-control.spec.ts`.
+- `DESIGN.md` §4 ikon satırı, §6 `console/control-button.tsx` satırı.
+
+### Testler
+- `pnpm --filter @remote/web lint` / `typecheck` temiz; `test` 15 dosya / 117 test yeşil.
+- `pnpm --filter @remote/web e2e` tam paket **148 geçti / 40 atlandı** (mobil projede konsol testleri atlanır). P7 6/6: ana akış artık "Kontrol bekleniyor" + Vazgeç görünür → izin → … → **bırak**: sahte istemci `release` alır, kapı kapalı, `k.release_all` bırakmadan önce input DC'de, teknisyen `control.request, control.release` göndermiş, "Kontrole devam" odakta, girdi 0 → devam = 2. istek → yeniden izin → kısayolla kapanış ("3 istek hakkı kaldı"). Yeni test **"K2/S7-2"**: Vazgeç → `cancel`; müşteri geç onaylar → sahte sunucu `revoke:stale`, konsola izin gelmez; istenmemiş izin (`/__e2e/stray-grant`) → yakalama yok, "Kontrol sizde" yok, konsol `control.release` yollar, girdi 0; izin açıkken sekme yenilenir → misafire `revoke:reconnect`, kapı kapalı. AC-43/105'e **K4**: Ekran 1 isteği → `monitor.denied` → ≤ 2 sn "Müşteri monitör değişikliğini reddetti". axe 0 ihlal, konsol hata/uyarı 0.
+- Not: üç tam koşudan birinde P5 `AC-39 axe (light/dark)` yük altında 30 sn zaman aşımına düştü; tek başına ve sonraki tam koşuda geçti (P7 değişikliğiyle ilgisiz, kararsız test adayı).
+
+### Sapmalar
+- Yok. (Önceki Frontend P7 sapma 1–3 yukarıda KAPANDI olarak işaretlendi; 4–7 değişmedi.)
+- Tasarım skill dosyaları okunmadı: görsel dil değişmedi, mevcut `Button`/not satırı primitifleriyle iki düğme durumu eklendi.
+
+## Backend P7 — düzeltme turu 1 (backend-dev, sunucu + contracts, 2026-11-11)
+Kaynak: `docs/mimari-protokol.md` §3 tablo + §3.3 (K1–K5), ADR-0013, `docs/qa-raporu.md` (QA-P7-3/4/5), `docs/guvenlik-raporu.md` "P7 — Tur 1" (S7-1, S7-2, S7-4, S7-10, S7-11). Commit yapılmadı.
+
+### Kapanan maddeler
+| ID | Ne yapıldı |
+|---|---|
+| S7-1 (sunucu + contracts) | `control.release` (tech→S→guest). GRANTED iken önce bellek VIEW + misafire `control.release` + teknisyene `control.state{VIEW, TECH}` (DB beklenmez), sonra sırada `session_consents(CONTROL, REVOKED, TECH)` + audit `control.released` (aktör teknisyen, `newValue.via`) tek TX; yazılamazsa log + ref. Açılış kaydı yazılırken (granting) gelen bırakma: GRANTED teknisyene iletilmez, geç commit REVOKED/TECH ile dengelenir (`ControlRoom.interrupt`). |
+| S7-2 / QA-P7-4 | `control.cancel`: REQUESTED → VIEW, misafire `control.cancel`, teknisyene `{VIEW, TECH}`, audit `control.cancelled` (consent yok); GRANTED iken = bırakma; VIEW'da yok sayılır. Sayaç düşmez, 30 sn ret beklemesi başlamaz. `control.state{GRANTED}` yalnız REQUESTED'de işlenir: VIEW'da kayıt/iletim yok + misafire `control.revoke{stale}`, GRANTED'de yok sayılır; ikisinde de metrik + log `control_state_unexpected` (oda başına dakikada ≤ 1 log). |
+| S7-4 | Teknisyen kopması (`detachTech`) ve sekme değişimi / yeniden bağlanma (`attachTech`): ADMITTED misafir bağlıysa **her zaman** önce `control.revoke{reconnect}`, ardından `peer.left{tech}` / `peer.joined{tech}`; bekleyen monitör isteği temizlenir; açık kontrol REVOKED/RECONNECT (`newValue.side: "tech"`). |
+| S7-10 | `controlStateSchema` refine: GRANTED yalnız UI; VIEW yalnız UI\|HOTKEY\|DENIED\|SYSTEM (`GUEST_VIEW_SOURCES`). Misafirden RECONNECT/TECH → şema hatası → 1008 (uçtan uca test). |
+| QA-P7-3 | `dc.ts` `keySchema.code` → `^[A-Za-z0-9]{1,32}$`; `fixtures/dc-input.json` invalid'e `Key-A` ve 33 karakterlik kod. |
+| QA-P7-5 | `control.requested` (ve aynı kalıpla `monitor.requested`) audit'i iletimden **önce** yazılır (zaman çizelgesinde istek satırı karardan önce). Mimar tablosu istek için fail-closed istemiyor (ADR-0013: yalnız açma yönü) → yazılamazsa (hata / 800 ms) log + ref + metrik `control_request_audit_failed`, istek yine iletilir. Yazım sürerken iptal/kopma olduysa istek müşteriye gitmez (`superseded`). |
+| K4 / K5-e | `monitor.denied` (guest(AGENT)→S→tech): yalnız bekleyen istekle aynı `monitorId` için — bekleyen temizlenir, 30 sn bekleme, audit `monitor.denied`, teknisyene alanlar yeniden kurularak iletilir; diğer kimlik / bekleyen yok → yok say + metrik/log; BROWSER → yok say. Tek bekleyen istek: bekleyen varken yeni `monitor.request` → `error{CONFLICT}`. 30 sn yanıtsızlık ret gibi işler (audit/mesaj yok, sonraki 30 sn `RATE_LIMITED`). `share.state.activeMonitor === bekleyen` → audit `monitor.granted`, bekleme kalkar. |
+| K5-d | Oturum sonu (`teardown`, hem `finish` hem `closeSession`): `session.ended` gönderildikten sonra açık kontrol için en iyi çabayla REVOKED/SYSTEM + `control.revoked{reason: "session_ended"}`; beklenmez, yazılamazsa log + ref, bitiş engellenmez. |
+| `rs_control_total` | Olay değerleri `metrics.ts` HELP metninde listelendi (yeni: `cancelled`, `released`, `released_by_cancel`, `{release,cancel}_ignored`, `revoke_reconnect`, `revoke_session_ended`, `reset_guest_gone`, `control_state_unexpected`, `monitor_{granted,denied}`, `monitor_denied_{unexpected,ignored}`, `*_request_{conflict,superseded}`, `*_request_audit_failed`). |
+
+### P9/P10 için zorunlu not (S7-11 — kod değişikliği yok)
+`app.rooms` `TechnicianLiveControl` arayüzü (`apps/server/src/signaling/rooms.ts`): **`endByTechnician(userId)`** ve **`applyPermChange(userId, permissions)`**. P9 (kullanıcı deaktivasyonu, yetki toggle, rol değişimi) ve P10 (logout-all, reset-MFA) servisleri bunları **DB TX commit edildikten sonra** doğrudan çağırmak zorundadır (TX içinde değil — geri alınan değişiklik canlı odayı kapatmasın; commit'ten önce değil — yarışta eski yetki okunmasın). Çağrılmazsa AC-115 "5 sn" hedefi tutmaz, yetki kaldırıldıktan sonra kontrol /ws/tech 60 sn yeniden doğrulamasına kadar (yedek yol) açık kalabilir. P9/P10 qa/güvenlik turunda giriş şartı olarak denetlenmeli; her biri için "commit sonrası çağrı + ≤ 5 sn'de `control.revoke{permission}` / `session.ended{auth_revoked}`" entegrasyon testi beklenir.
+
+### Değişen dosyalar
+- `packages/contracts/src/ws.ts` — `CONTROL_SOURCES += TECH`, `GUEST_VIEW_SOURCES`, `CONTROL_REVOKE_REASONS += reconnect, stale`, `controlReleaseSchema`, `controlCancelSchema` (tech inbound), `monitorDeniedSchema` (guest inbound), sunucu çıkışına `control.release`, `control.cancel`, `monitor.denied`; misafir `control.state` refine.
+- `packages/contracts/src/audit.ts` — `RELEASED`, `CANCELLED`, `MONITOR_GRANTED`, `MONITOR_DENIED`.
+- `packages/contracts/src/dc.ts` — `keySchema.code` regex.
+- `packages/contracts/fixtures/ws-messages.json` (geçerli: tech release/cancel, guest monitor.denied + VIEW/UI, server release/cancel/monitor.denied/revoke reconnect+stale/control.state TECH+RECONNECT/error INTERNAL; geçersiz: tech release+alan, cancel+alan, tech'ten monitor.denied ve control.state, guest VIEW/RECONNECT, VIEW/TECH, GRANTED/TECH, kimliksiz/65 monitor.denied, guest'ten release/cancel), `fixtures/dc-input.json`.
+- `packages/contracts/test/control-p7.test.ts` — S7-10, K1–K2, K4, revoke nedenleri, audit adları, QA-P7-3.
+- `apps/server/src/signaling/control.ts` — `handleControlClose` (release/cancel), `handleMonitorDenied`, `onShareMonitor` (monitor.granted; imza `rooms, room, guest, activeMonitor`), `revokeOnTechChange` (K3), `resetOnGuestGone` (eski `resetControl`'ün misafir yolu), `closeControlOnEnd` (K5-d), `recordClose` / `interrupt` dengelemesi, `auditBeforeForward` (QA-P7-5); `onGranted` yalnız REQUESTED.
+- `apps/server/src/signaling/types.ts` — `ConsentSource` (+TECH), `CloseRecord`, `ControlRoom.{interrupt, monitorDeniedAt, unexpectedLogAt}`.
+- `apps/server/src/signaling/rooms.ts` — `attachTech`/`detachTech` K3 sırası, `teardown` → `closeControlOnEnd`.
+- `apps/server/src/signaling/handlers.ts` — `control.release`, `control.cancel`, `monitor.denied` yönlendirme; `share.state` iletimden sonra `onShareMonitor`.
+- `apps/server/src/ops/metrics.ts` — `rs_control_total` HELP.
+- `apps/server/test/integration/signaling-control-p7.test.ts` — mevcut testler yeni kurala uyarlandı (GRANTED öncesi istek; 5 istek döngüsü iptalle; monitör CONFLICT) + yeni testler (aşağıda).
+- Dokunulmadı: migration `20261111050000_p7_consent_source_tech/` ve `schema.prisma` (dba); testten önce klasörün tamam olduğu ve uygulandığı doğrulandı.
+
+### Testler ve son çıktı
+- `pnpm -r run lint` · `pnpm -r run typecheck` → 3/3 temiz.
+- `pnpm -r run test` → contracts **43/43**, server unit **243/243**, web **117/117**.
+- Entegrasyon: `TEST_DB_CONTAINER=rs-mysql-p7fix1 TEST_DB_PORT=33371 apps/server/scripts/test-db.sh up` (MySQL 8.4, P7 TECH migration'ı dahil uygulandı) → `pnpm --filter @remote/server test:int` → **23 dosya / 179 test** yeşil (iki kez); konteyner `down` ile silindi.
+- Yeni entegrasyon testleri: S7-1 (DB asılıyken bırakma anında mesajlar; REVOKED/TECH + `control.released`; granting sırasında bırakma dengelemesi), §3.3 VIEW'da release/cancel no-op, S7-2 (cancel, GRANTED'de cancel = release), QA-P7-4 (iptal sonrası ve istek yokken GRANTED → `revoke{stale}`, kayıt yok; çift GRANTED), bekleyen istekte ikinci istek CONFLICT, QA-P7-5 (audit iletimden önce; audit hatasında iletim + metrik), S7-4 (kopmada revoke→peer.left sırası; yeni sekmede revoke→peer.joined, VIEW'da da), K5-d (kapanış satırı; DB hatasında bitiş sürer; kapalı kontrolde satır yok), K4 (monitor.denied kimlik eşleşmesi, audit, 30 sn; yanıtsızlık yedek yolu; BROWSER), uçtan uca WS (cancel/release yönlendirme, sekme kapanınca `revoke{reconnect}`, S7-10 1008, `monitor.denied` iletimi).
+
+### Sapmalar (gerekçeli)
+1. **`control.request` REQUESTED iken → `error{CONFLICT}`** ("Önceki kontrol isteği müşteride bekliyor."). §3.3 tablosu isteği yalnız VIEW'dan tanımlıyor; önceki kod REQUESTED'de yeniden iletiyordu. Teknisyen tekrar istemek için önce `control.cancel` göndermeli (sayaçtan düşer). **frontend-dev:** "Kontrol iste" REQUESTED'de devre dışı / "Vazgeç" sonrası etkin olmalı.
+2. **S7-2'deki "misafir başına `control.state` kotası (dakikada 20)" eklenmedi.** Mimar tablosunda yok; durum kuralı DB yazımını zaten sınırlıyor: GRANTED yalnız REQUESTED'de, REQUESTED yalnız teknisyen isteğiyle (oturum başına ≤ 5), DENIED yalnız REQUESTED'de, REVOKED yalnız GRANTED'den → oturum başına en çok ~10 consent satırı. Beklenmeyen mesajlar kayıt üretmez; log oda başına dakikada ≤ 1 (metrik her zaman). Genel 50 msg/sn token bucket geçerli.
+3. **`control.requested` için fail-closed yok** (QA-P7-5): ADR-0013 fail-closed'u yalnız açma yönüne (GRANTED) bağlıyor; istek kapıyı açmaz. Audit iletimden önce, 800 ms sınırlı bekleme ile yazılır.
+4. **Açılış yazılırken kapatma:** misafire `control.release`/`revoke` hemen gider; geç commit edilen GRANTED satırı **ilk** kapatmanın kaydıyla dengelenir (önceden her durumda REVOKED/SYSTEM `superseded`). Tabloyla uyumlu (aktör doğru), ek şema yok.
+5. **Teknisyen kopması REVOKED/RECONNECT `newValue`'una `side: "tech" | "guest"` eklendi** (P8 zaman çizelgesi kim koptu ayrımı için; consent şeması değişmedi).
+
+### Diğer ajanlar için sözleşme notları
+- **Go (backend-dev):** `fixtures/ws-messages.json` genişledi — `internal/signal` fixture testi yeni tipleri (`control.release`, `control.cancel`, `monitor.denied`, `control.revoke{reconnect|stale}`, `control.state{TECH|RECONNECT}`, `error{INTERNAL}`) tanıyana kadar kırmızı olur. Misafir tarafından gönderilen `control.state` kaynakları: VIEW → UI\|HOTKEY\|DENIED\|SYSTEM (RECONNECT/TECH göndermeyin → 1008). `monitor.denied{monitorId}` yalnız bekleyen istekle aynı kimlikle anlamlıdır. `dc-input.json` invalid'e `Key-A` eklendi (Go zaten reddediyor).
+- **frontend-dev:** teknisyen `control.release` / `control.cancel` gönderir; yanıt `control.state{VIEW, source:"TECH"}`. Sunucudan `monitor.denied{monitorId}` gelir. Bekleyen monitör isteği varken yeni istek `error{CONFLICT}`. Teknisyen yeniden bağlandığında konsol `hello` ile VIEW başlar. Bkz. sapma 1.
+- Yeni bağımlılık yok.
+
+## Agent P7 — düzeltme turu 1 (backend-dev/Go, 2026-11-11)
+Kaynak: `docs/mimari-protokol.md` §3/§3.3 K1–K4/§4.3, ADR-0013, `docs/guvenlik-raporu.md` "P7 — Tur 1" (S7-1 istemci, S7-3, S7-5..S7-9, S7-4/S7-10 istemci tarafı). Yalnız `apps/agent-win/`. Yeni bağımlılık yok.
+
+### Değişen dosyalar
+| Dosya | Değişiklik | Bulgu |
+|---|---|---|
+| `internal/signal/messages.go` | Gelen `control.release`, `control.cancel`; `control.revoke.reason` += `reconnect`, `stale`; giden `monitor.denied{monitorId 0..64}`; misafir `control.state` VIEW kaynağı yalnız UI\|HOTKEY\|DENIED\|SYSTEM (RECONNECT/TECH gönderilemez); `monitor.denied` sunucudan misafire gelirse `ErrNotForGuest` | S7-1, S7-2, S7-4, S7-10, K4 |
+| `internal/flow/control.go`, `flow.go` | release/cancel: kapı + kontrol diyaloğu kapanır, yanıt yok; metin "Teknisyen kontrolü bıraktı" (kapı açıktıysa) / "Teknisyen isteği geri çekti" (yalnız diyalog açıktıysa). revoke (her reason): kapı + kontrol ve monitör diyaloğu kapanır, `{VIEW,SYSTEM}` **yalnız kapı açıktıysa** (önceden her zaman gidiyordu). `reconnect`: "Teknisyenin bağlantısı koptu — uzaktan kontrol kapatıldı" yalnız kapı/diyalog açıktıysa; ardından gelen `peer.left/joined{tech}` bu metni ezmez. `peer.left/joined{tech}` ile kapatma (K3 ikinci katman) korundu. Monitör diyaloğunda ret → `monitor.denied{monitorId}`. `UI.MonitorPromptClosed()` eklendi (kontrol ve monitör diyaloğu ayrı kapanır) | S7-1, S7-2, S7-4, K4 |
+| `internal/control/gate.go` | `Shut(after)`: kapıyı atomik kapatır, kapanış dinleyicileri + `after` ayrı goroutine'de, asla bloklamaz (kanca/kısayol iş parçacığı için). `OnOpen` dinleyicisi (kapalı→açık geçişinde) | S7-3, S7-7 |
+| `internal/input/host_windows.go` | WM_HOTKEY → `gate.Shut(onHotkey)` (kilit beklenmez). LL kancaları yalnız kapı açıkken kurulu: `gate.OnOpen/OnClose` → `Host.Hooks(on)` → `PostThreadMessage` ile Host iş parçacığında kur/kaldır. Global "son basış enjekte mi" bayrağı (`LastPressInjected`) kaldırıldı; kancalar yalnız AC-104 yerel önceliği için | S7-3, S7-5, S7-7 |
+| `internal/input/applier.go` | Kilit sırası belgelendi (Host iş parçacığı `a.mu`'yu asla almaz). Kapı kapalıyken ayrıştırmadan erken düşürme; jeton kovası 250 msg/sn, ani 500; aşan basma/hareket/tekerlek düşer ve `Limited()` sayar; bırakma olayları (`k`/`m.btn` down=false, `k.release_all`) sınırdan muaf (takılı tuş kalmasın). 512 bayt sınırı `Parse`'ta sürüyor | S7-8 |
+| `internal/win/win_windows.go` | `InputInjected()` = `GetCurrentInputMessageSource` (IMO_INJECTED; bilinmiyorsa known=false); WM_SYSKEYDOWN/WM_SYSCHAR/WM_LBUTTON* sabitleri | S7-5 |
+| `internal/ui/form_windows.go` | UI mesaj döngüsü her form girdi mesajının kaynağını kaydeder (sol tık = basış + bırakma, ikisi de yerel olmalı; Alt+İ = WM_SYSCHAR, kaynağı bilinmiyorsa onu üreten tuş basışı). `thread.userInput(f)`: şu an işlenen mesaj bu forma gelen, enjekte olmayan girdi mi; girdi mesajı işlenmiyorsa (başka süreçten WM_COMMAND/BM_CLICK) false | S7-5 |
+| `internal/ui/control_windows.go` | Ortak `consentDlg` (kontrol, monitör, **dosya teklifi**): `consentSpec` + `present()` (imleç dışında yerleşim, Reddet odağı, 1,5 sn kilidi yeniden başlatır); `tryGrant` olay-özgü kaynağa bakar; birden çok kırmızı uyarı satırı; yönetici uyarısı | S7-5, S7-6, S7-9 |
+| `internal/ui/screens_windows.go` | Oturum penceresinde "Erişime izin ver" artık izin **vermez**: bekleyen kontrol diyaloğunu `present()` ile öne getirir (imleç dışı + 1,5 sn + Reddet odağı); bekleyen istek varken etkin. Dosya teklifi ortak diyaloğa taşındı ("Kabul et" enjekte tıklamayla verilemez). Yönetici olarak çalışıyorsa oturum penceresinde kırmızı uyarı | S7-5, S7-6, S7-9 |
+| `internal/env/probe_windows.go`, `cmd/noktadestek/main.go` | `env.SelfElevated()`; `u.SetElevated(...)` | S7-9 |
+
+### Kararlar / sapmalar (gerekçeli)
+1. **S7-3 kilit tasarımı:** `SendInput` yine `Applier` kilidi altında (AC-101: `Close` döndükten sonra 0 olay, `Close` uçuştaki enjeksiyonu bekler). Kilitlenme döngüsü "Host iş parçacığı hiçbir kilit beklemez" kuralıyla kırıldı: kancalar yalnız atomik yazar, kısayol `Shut` kullanır. `Shut` sonrası yeni olay uygulanmaz; `Shut` anında zaten `SendInput` içinde olan tek parti (olayları sisteme verilmiş, kancayı bekleyen) tamamlanır — bu olaylar kapanıştan önce verilmiştir. UI düğmesi ve akış yolları senkron `Close` kullanmaya devam eder (bu iş parçacıklarında LL kanca yok).
+2. **S7-5 olay kaynağı:** Görevdeki "LLMHF/LLKHF_INJECTED olayın kendisinde" isteği, kancadaki bayrak yerine tıklamayı üreten pencere mesajının kendi kaynağıyla (`GetCurrentInputMessageSource`, Win8+; hedef Win10 22H2+) karşılandı. Kanca bayrağını mesajla eşlemek zaman/nokta tahmini gerektirirdi; mesaj kaynağı tam olarak o olayın IMO_INJECTED bilgisidir ve global duruma bağlı değildir. Kaynak bilinmiyorsa enjekte sayılır (fail-closed).
+3. **S7-7:** LL kancaları yalnız **kapı açıkken** kurulu (izin diyaloğu açıkken değil): S7-5 sonrası diyalogların kancaya ihtiyacı kalmadı; kancanın tek işi AC-104 yerel önceliği, o da yalnız kapı açıkken anlamlı. Böylece KVKK onayı/lobi/görüntüleme boyunca sistem girdisi Go geri çağrısından geçmez ve AV/EDR keylogger buluşsalı daha az tetiklenir. `RegisterHotKey` başlangıçta kalır (G-21: diyalog kısayolun alınıp alınamadığını bilmeli).
+4. **S7-8 sınır değeri:** 250/sn + 500 patlama (güvenlik önerisi). Konsol hareketi 16 ms'de bir (~62/sn) gönderiyor; 4 kat pay. Görevde örnek verilen ~1000/sn yerine bu seçildi çünkü normal kullanımı etkilemeden daha sıkı.
+5. **S7-9 (mimar kararı yok → en güvenli bilgi uyarısı):** İstemci yükseltilmişse oturum penceresinde ve kontrol izni diyaloğunda kırmızı uyarı; izin engellenmez. `env.state`'e `selfElevated` **eklenmedi**: sunucu şeması `strict`, bilinmeyen alan 1008 ile bağlantıyı keser; sözleşme değişikliği mimar + sunucu + konsol işidir. Mimardan karar beklenir (teknisyene gösterilsin / audit'e yazılsın mı).
+6. **release/cancel yalnız kontrol diyaloğunu kapatır**, monitör diyaloğu sürer (sunucu bu mesajlarda bekleyen monitör isteğine dokunmuyor, K2). revoke, kopma, hello, PeerConnection kopması ve `peer.left/joined{tech}` ikisini de kapatır. Kullanıcının "Kontrolü kapat"ı/kısayolu artık monitör diyaloğunu kapatmaz (o diyalog kendi kararını `monitor.denied` ile bildirir).
+7. **Bilinmeyen `control.revoke.reason`:** `ParseServer` katı kalır; şema hatası WS'i kapatır, oturum sonlanır ve `cleanup` kapıyı kapatır — kapatma yönü fail-closed.
+
+### Testler ve son çıktı
+Komut (docker `golang:1.26.11-bookworm`, `apps/agent-win`): `gofmt -l .` (boş) → `go vet ./...` → `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...` → `go mod verify` → `go test -race -count=1 ./...` (+ flow/input/control/signal `-count=3`) → tüm paketler `GOOS=windows go test -c` → `build/build.sh https://staging.example:4450 0.7.1` iki kez (arada `go clean -cache`) → govulncheck v1.1.4 (linux + `GOOS=windows`).
+Son çıktı: gofmt temiz; iki vet temiz; `all modules verified`; **15/15 paket ok** (-race), güncel `fixtures/ws-messages.json` ve `dc-input.json` ile fixture testleri yeşil; Windows test ikilileri derlendi; iki build aynı SHA-256 `482a7a9b…edb60943b` (12,09 MB); govulncheck iki hedefte "Your code is affected by 0 vulnerabilities".
+Yeni testler: `control` — `TestS73ShutNeverBlocksAndClosesAtomically` (dinleyici bloklu iken Shut hemen döner, kapı anında kapalı), `TestS77OpenListenerOnlyOnTransition`. `input` — `TestS73HotkeyOnHookThreadDoesNotDeadlockWithSendInput` (SendInput'u "kanca iş parçacığı" onayına bağlayan sahte enjektör; enjeksiyon kilit altında beklerken kısayol → kilitlenme yok, ≤ 100 ms, sonrasında 0 olay), `TestS78InputRateLimit` (patlama/dolum, bırakma muafiyeti, kapalı kapıda erken düşürme). `signal` — release/cancel/revoke{reconnect,stale} kabulü, ek alan reddi, `monitor.denied` kodlama/sınır, misafirden RECONNECT/TECH reddi. `flow` — `TestK1ReleaseClosesGateWithoutReply`, `TestK2CancelClosesPromptAndLateGrantIgnored`, `TestK1K2IdleAndPromptTexts`, `TestK2CancelKeepsMonitorPromptRevokeClosesIt`, `TestK2StaleRevokeWhileViewSendsNothing`, `TestK3ReconnectRevokeThenPeerLeft`, `TestK3PeerJoinedClosesPromptWithoutRevoke`, `TestK4MonitorDeniedSent`.
+
+### Windows'ta elle doğrulanacaklar (adım 25–36'ya ek)
+37. **S7-3 (kısayol + sürekli hareket):** kontrol açıkken teknisyen fareyi konsolda kesintisiz dairesel hareket ettirsin; müşteri bu sırada başka bir pencere odaktayken Ctrl+Shift+F12'ye bassın → hareket anında durmalı, sistemde girdi takılması (fare/klavye donması) olmamalı, konsolda kaynak HOTKEY. Ardından yeni kontrol izni verip AC-104'ü (adım 32) tekrar et: yerel fare hareketi uzaktan girdiyi hâlâ ~1 sn askıya almalı (kanca Windows tarafından kaldırılmamış). 10 kez tekrarla.
+38. **S7-5 (enjekte tıklama):** kontrol açıkken konsoldan monitör isteği gönder ve teknisyen kendi faresiyle müşteri ekranındaki diyalogda 1,5 sn sonra "İzin ver"e tıklasın → hiçbir şey olmamalı; bu sırada müşteri klavyede bir tuşa bassa bile (eski global bayrak açığı) teknisyenin tıklaması izin vermemeli. Teknisyen Alt+İ gönderirse de izin olmamalı. Müşteri kendi faresiyle tıklayınca izin verilmeli. Aynı adımı dosya teklifinde ("Kabul et") tekrarla: teknisyenin enjekte tıklaması dosyayı kabul etmemeli; müşterinin tıklaması etmeli. **Tur 2 (S7-12) ek kontrol:** müşterinin kendi gerçek fare tıklaması (ve kendi Alt+İ'si) izin **verir**; SendInput ile üretilen tıklama (teknisyen girdisi veya yerelde bir SendInput test aracı) izin **vermez**. Bu kontrol kontrol izni, monitör izni ve dosya kabulü diyaloglarının üçünde de yapılır; yalnız "hiçbir şey olmuyor" sonucu yeterli değildir.
+39. **S7-6:** kontrol isteği gelince oturum penceresindeki "Erişime izin ver"e tıkla → izin verilmemeli; diyalog imlecin altında olmayacak şekilde öne gelmeli, odak "Reddet"te, "İzin ver" 1,5 sn gri.
+40. **S7-7:** Görüntüleme sırasında (kontrol yok) Process Explorer/`Get-Process` yerine Spy++ veya AV loguyla LL kanca yokluğunu; kontrol verildiğinde kurulduğunu, kapatınca kalktığını gözle (adım 32 kontrol açıkken çalışmalı, kapalıyken anlamsız).
+41. **K1–K4:** konsolda "Kontrolü bırak" → müşteride gösterge "izleniyor", durum "Teknisyen kontrolü bıraktı"; bekleyen istekte konsol "Vazgeç" → diyalog kapanır, "Teknisyen isteği geri çekti"; teknisyen sekmesini kapat/yenile → "Teknisyenin bağlantısı koptu — uzaktan kontrol kapatıldı" (yalnız kontrol veya diyalog açıkken); monitör diyaloğunda Reddet/Esc/X → konsol 30 sn beklemeden "reddetti".
+42. **S7-9:** istemciyi "Yönetici olarak çalıştır" ile aç → oturum penceresinde ve kontrol izni diyaloğunda kırmızı yönetici uyarısı görünmeli; normal açılışta görünmemeli.
+
+### frontend-dev / backend için sözleşme notları
+Sözleşme değişikliği yok (contracts sunucu turuyla geldi; Go buna uyar). İstemci: release/cancel'a yanıt göndermez; revoke'ta yalnız kapı açıktıysa `{VIEW,SYSTEM}` döner (VIEW'daki `stale`'e yanıt yok); monitör reddinde `monitor.denied{monitorId}` gönderir; RECONNECT/TECH kaynağı göndermez. S7-9 için `env.state.selfElevated` önerisi mimar kararı bekliyor.
+
+## Backend P7 — düzeltme turu 2 (sunucu, S7-15)
+
+Kaynak: `docs/guvenlik-raporu.md` "P7 — Tur 2" S7-15 [DÜŞÜK]. Yalnız sunucu; `apps/agent-win` ve konsola dokunulmadı.
+
+### Değişen dosyalar
+- `apps/server/src/signaling/types.ts` — `ControlRoom.monitorPending` artık isteğin iletildiği misafir bağlantısını taşır: `{ id, at, peer }`.
+- `apps/server/src/signaling/control.ts`
+  - `resetOnGuestGone`: bekleyen monitör isteği **her kopmada** temizlenir (`closeState`'ten önce; kontrol VIEW'da olsa bile). Teknisyen kopmasındaki K3 temizliğinin simetriği. Teknisyen artık 30 sn `CONFLICT` + 30 sn `RATE_LIMITED` almaz.
+  - `onShareMonitor`: `monitor.granted` yalnız `guest.peer === monitorPending.peer` iken yazılır. Yeniden bağlanan istemcinin ilk `share.state`'i karşılama sayılmaz. `reattachGuest` F5 yarışında da `detachGuest` → temizlik çalışır.
+  - `handleMonitorRequest`: zaten etkin monitör (`room.share.activeMonitor === monitorId`) için istek açılmaz: `error{VALIDATION, "Bu monitör zaten paylaşılıyor."}`, sayaç düşmez, metrik `monitor_request_already_active`. İletim `pending.peer`'e yapılır, süpersede koşulu bağlantı değişimini de kapsar.
+- `docs/mimari-protokol.md` §3 `monitor.request` satırı: etkin monitör → VALIDATION, karşılanma aynı bağlantıdan, kopmada temizlik.
+- `apps/server/test/integration/signaling-control-p7.test.ts` — yeni testler + mevcut testlerin uyarlanması (aşağıda).
+
+### Sapma / gerekçe
+- Raporun ikinci önerisi ("etkin monitör istenirse no-op / VALIDATION") **VALIDATION** olarak uygulandı. Sessiz no-op konsolu 30 sn yanıt bekletirdi; hata hemen bildirilir. Mevcut hata kodu kullanıldı, yeni kod yok.
+- Bağlantı eşlemesi `Peer` nesnesiyle yapıldı (Guest nesnesi yeniden bağlanmada aynı kalıyor, `peer` değişiyor). Ek sayaç/epoch gerekmedi.
+
+### Testler
+- Yeni: `S7-15/AC-43` (oda katmanı: istek → `detachGuest` → bekleyen temizlendi → `reattachGuest` → `share.state{activeMonitor = istenen}` → **monitor.granted YOK** → yeni istek CONFLICT değil, yeni bağlantıya iletilir); `S7-15` (farklı bağlantı kimliğiyle bekleyen istek karşılanmaz); `S7-15` uçtan uca gerçek WS (AGENT misafir monitör isteği bekliyorken kopar, `rs.reconnect` ile döner, ilk `share.state` istenen monitörü bildirir → `monitor.granted` audit 0, `monitor.requested` 2, ikinci istek iletilir).
+- Uyarlanan: AC-43 testi etkin monitör 0'ı CONFLICT örneği olarak kullanıyordu. Artık `already_active`/VALIDATION bekleniyor; CONFLICT için 3. monitör eklendi. `monitorPending` literal'lerine `peer` eklendi.
+- Mutasyon kontrolü: iki koruma (kopmada temizlik + bağlantı eşlemesi) geçici kaldırılınca 3 yeni test kırmızı. Geri alınınca yeşil.
+- Komutlar ve son çıktı: `pnpm -r run lint` ✓ · `pnpm -r run typecheck` ✓ · `pnpm --filter @remote/server test` → 12 dosya / 243 test ✓ · `TEST_DB_CONTAINER=rs-mysql-p7fix2 TEST_DB_PORT=33372 apps/server/scripts/test-db.sh up` (MySQL 8.4, 6 migration) + `pnpm --filter @remote/server test:int` → **23 dosya / 182 test** ✓ (iki kez). Konteyner `down` ile silindi.
+
+### Ek iş: mimar kararları K6 + K8/S7-9 (koordinatör ataması, `mimari-protokol.md` §3.3, ADR-0013 Ek)
+- **Contracts (önce bitti):** `packages/contracts/src/ws.ts` `envStateSchema` (strict) şemasına zorunlu `selfElevated: z.boolean()` eklendi. Teknisyene giden şema `envStateSchema.omit({id})` olduğu için alan oraya da kendiliğinden geçti. `fixtures/ws-messages.json`: 3 env.state örneğine alan eklendi (valid.guest `false`, valid.server `true`, invalid.guest `true` — o örnek `secureDesktop` eksik olduğu için yine geçersiz). Yeni geçersiz örnek: `selfElevated` eksik env.state. `test/control-p7.test.ts`: eksik alan / null / teknisyen şeması durumları test ediliyor.
+- **K8 sunucu:** `types.ts` içinde `GuestEnv` tipi ve `Room.guestEnv` alanı. `handleEnvState` son değeri saklıyor ve alanları yeniden kurarak iletiyor. `resetOnGuestGone` alanı temizliyor. `onGranted` GRANTED audit `newValue`'suna `selfElevated: "true"|"false"|"unknown"` yazıyor (`session_consents` değişmedi, migration yok).
+- **K6 sunucu:** `onView` içinde `REQUESTED` + `{VIEW, UI|HOTKEY|SYSTEM}` durumunda oda VIEW'a geçiyor ve teknisyene `{VIEW, <gelen kaynak>}` gidiyor. Consent yazılmıyor; `deniedAt` ve sayaç değişmiyor. Audit `control.cancelled` `{by:"agent", source}` (aktör müşteri) fire-and-forget yazılıyor; hata olursa log + ref. Metrik: `cancelled_by_agent`. Önceden bu durumda kayıt hiç yazılmıyordu.
+- `ops/metrics.ts` yardım metnine `already_active` ve `cancelled_by_agent` eklendi.
+- **Testler:**
+  - K6 oda katmanı: SYSTEM, UI ve HOTKEY kaynakları için consent 0, cancelled audit, bekleme yok, yeni istek hemen iletiliyor, VIEW'da tekrar gelen mesaj ek kayıt üretmiyor.
+  - K6 gerçek WS testi.
+  - K8 oda katmanı: env.state saklanıyor, iletiliyor ve kopmada temizleniyor. GRANTED audit'inde önce `unknown`, env.state geldikten sonra `true`.
+  - K8 gerçek WS: alan iletiliyor, GRANTED audit'inde `selfElevated:"true"` var, alan eksikse **1008**.
+  - Tarayıcı misafirinden gelen env.state `guestEnv`'e yazılmıyor.
+- **Son çıktı:** `pnpm -r run lint` ✓ · `pnpm -r run typecheck` ✓ · `pnpm -r run test` → contracts 43, server unit 244, web 124 ✓ · `test-db.sh up` (rs-mysql-p7fix2, MySQL 8.4) + `test:int` → **23 dosya / 186 test** ✓ (iki kez). Konteyner silindi.
+- **Go istemci için:** Fixture artık `selfElevated` içeriyor. Go struct alanı eklenene kadar `apps/agent-win/internal/signal` fixture testleri kırmızı olur (beklenen). Alan `omitempty` olmadan eklenmeli (K8).
+
+### frontend-dev için sözleşme notu
+- **K8:** Teknisyene giden `env.state` artık `selfElevated: boolean` taşıyor (zorunlu). Konsol `true` iken K8 rozetini gösterir.
+- **K6:** `requested` fazında gelen `{VIEW, SYSTEM}` (veya UI/HOTKEY) isteği kapatır. Bekleme yoktur, yeni istek hemen gönderilebilir.
+- **Monitör (S7-15):** Şema değişikliği yok. Konsol, zaten paylaşılan monitörü isterse artık `error{code: "VALIDATION"}` alır; mevcut VALIDATION işleme yeterli. Misafir koptuğunda sunucu bekleyen monitör isteğini düşürür ve teknisyene ayrı mesaj göndermez (`peer.left{guest}` gelir). Konsol kendi bekleme göstergesini `peer.left`'te kapatabilir.
+
+## Agent P7 — düzeltme turu 2 (backend-dev/Go, 2026-11-11)
+Kaynak: `docs/guvenlik-raporu.md` "P7 — Tur 2" (S7-12, S7-13, S7-14, S7-16), mimar kararları `docs/mimari-protokol.md` §3.3 K6, K8 ve ADR-0013 "Ek — P7 Tur 2". Yalnız `apps/agent-win/` (+ bu dosya). Yeni bağımlılık yok.
+
+### Değişen dosyalar
+| Dosya | Değişiklik | Bulgu |
+|---|---|---|
+| `internal/control/origin.go` (yeni) | winuser.h adlarıyla `IMO_UNAVAILABLE=0, IMO_HARDWARE=1, IMO_INJECTED=2, IMO_SYSTEM=4`. Saf `OriginInjected(origin, ok)`: yalnız başarılı sorguda `IMO_HARDWARE` yerel, diğer her değer enjekte (fail-closed). `CharInjected(keyInjected, origin, ok)`: WM_CHAR/WM_SYSCHAR kaynağı yoksa tuş basışının kararı | S7-12 |
+| `internal/win/win_windows.go` | Yanlış `imoInjected = 0x01` ve `InputInjected` kaldırıldı. Yerine yorumsuz `InputOrigin() (originId, ok)` geldi; karar `control`'da | S7-12 |
+| `internal/ui/form_windows.go` | `track` kararı `control.OriginInjected`/`CharInjected` ile veriyor. Mesaj döngüsünde `t.cur` her mesaj işlendikten sonra sıfırlanıyor (`handle` ayrıldı) | S7-12, S7-14 |
+| `internal/input/applier.go` | `isRelease` yerine `heldReleaseLocked`: yalnız basılı tuş/düğmenin bırakılması sınırdan muaf. Basılı olmayan düğmeyi bırakma no-op (hareket de enjekte edilmez) ve jeton harcar | S7-13 |
+| `internal/control/gate.go` | Durum tek atomik `state = nesil<<1 \| açık`; her açılış yeni nesil. Kapanış dinleyicisi kapanan neslin değerini alır (`OnCloseGen`). `StillClosed(gen)` eklendi. `OnOpen`/`OnClose` imzaları değişmedi | S7-16 |
+| `internal/input/host_windows.go` | `wmHooksOff` wParam'da nesil taşıyor. Kanca yalnız `gate.StillClosed(nesil)` ise kaldırılıyor; bayat Shut isteği yeni açılışın kancalarını kaldırmıyor. `Hooks(on)` → `post(msg, wp)` | S7-16 |
+| `internal/signal/messages.go` | ``EnvState.SelfElevated bool `json:"selfElevated"` `` (omitempty yok, strict zorunlu) | K8 / S7-9 |
+| `internal/flow/control.go`, `flow.go` | **K8:** `Deps.SelfElevated`. Her `hello`'dan hemen sonra (closeControl'den sonra, monitör seçiminden önce) `helloEnv` ile tek `env.state` gidiyor; alanlar o an ölçülüyor, yoklayıcı yoksa false. İzleyici olayları yalnız son gönderilenden farklıysa gönderiliyor. `envKnown` kaldırıldı. **K6:** `onPeer` disconnected/failed/closed dalında `closeControl` sonucu "kontrol diyaloğu açıktı ve kapı kapalıydı" ise ek `control.state{VIEW,SYSTEM}` gidiyor. `closeControl` genel davranışı değişmedi; monitör diyaloğu mesajsız kapanıyor | K6, K8 |
+| `cmd/noktadestek/main.go` | `env.SelfElevated()` açılışta bir kez ölçülüyor; hem `u.SetElevated` hem `Deps.SelfElevated` | K8 |
+| Testler | `control/control_test.go`, `input/input_test.go`, `flow/control_test.go`, `flow/flow_test.go` (fakeConn `env.state`'i ayrı `env` kanalına yazıyor), `signal/signal_test.go` | — |
+
+### Doğrulanan çağrı yolları (S7-12)
+Kontrol izni (`u.ctlDlg`), monitör izni (`u.monDlg`) ve dosya kabulü (`u.offer`) üçü de `newConsent` → `consentDlg.tryGrant` → `thread.userInput` → `track` → `control.OriginInjected`/`CharInjected` yolunu kullanıyor. `win.InputOrigin`'in başka çağıranı yok.
+
+### Kararlar / sapmalar (gerekçeli)
+1. **S7-12 bilinen sınır:** UIAccess yetkili bir uygulamanın SendInput'u da `IMO_HARDWARE` görünür. Bu yerel ve yetkili yazılım gerektirir, teknisyen bu yolu kullanamaz. Kapsam dışı olarak kabul edildi.
+2. **S7-12 WM_CHAR:** TranslateMessage ile üretilen karakter mesajının kaynağı çoğunlukla `IMO_UNAVAILABLE`. Bu durumda onu üreten WM_SYSKEYDOWN'ın kararı kullanılıyor (o da fail-closed). Kaynak biliniyorsa yalnız `IMO_HARDWARE` kabul ediliyor.
+3. **S7-13:** Basılı olmayan düğmeyi bırakma tamamen no-op (rapor "en fazla hareket" diyordu). Hareketin ayrı enjekte edilmesi gereksiz ve yine hareket mesajıyla yapılabiliyor.
+4. **S7-16:** Rapordaki `!g.IsOpen()` denetimi yerine görevdeki nesil sayacı uygulandı. Açıklık ve nesil tek atomik değerde, bu yüzden Open/Shut arası yarış da kapsanıyor. `ReleaseAll` dinleyicisi nesilden bağımsız çalışmaya devam ediyor; eski açılıştan basılı kalan tuşlar yine bırakılıyor.
+5. **K6:** WS kopmasında ve sunucunun bildiği kapanışlarda (revoke, release, cancel, caps.update, peer.left/joined{tech}, hello) diyalog için mesaj gitmiyor. Bunu testler doğruluyor.
+
+### Testler ve son çıktı
+Komut (docker `golang:1.26.11-bookworm`, repo kökü bağlı, `apps/agent-win`): `gofmt -l .` → `go vet ./...` → `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...` → `go test -race -count=1 ./...` → `build/build.sh https://staging.example:4450 0.7.2` iki kez → govulncheck v1.1.4 (linux + `GOOS=windows`).
+Son çıktı: gofmt temiz, iki vet temiz, **15/15 paket ok** (-race; güncel `fixtures/ws-messages.json` ile fixture testleri yeşil). İki build aynı SHA-256 `0f8b8433…7528357a` (12,09 MB). govulncheck iki hedefte "Your code is affected by 0 vulnerabilities"; çağrılmayan 3 modül kaydı önceki turdakiyle aynı (x/net, x/crypto; Dependabot).
+Yeni testler:
+- `control`: `TestS712OriginInjectedFailClosed` (her IMO sabiti, bilinmeyen 8, birleşik 1\|2, 0xFFFFFFFF, başarısız sorgu), `TestS712CharInjected`, `TestS716StaleHooksOffIgnoredAfterReopen` (Shut → dinleyici bekletilir → yeniden Open → bayat kaldırma yok sayılır, geçerli kapanış kaldırır), `TestS716GenerationRaceFree`.
+- `input`: `TestS713ReleaseExemptionOnlyForHeld` (basılı olmayan bırakma seli 0 olay enjekte ediyor ve jeton harcıyor; basılı olanın bırakılması boş kovada da geçiyor).
+- `flow`: `TestK8EnvStateAfterEveryHelloWithSelfElevated` (ilk ve yeniden bağlanma hello'su başına tek env.state, tekrar yok), `TestK8EnvStateWithoutProbe`, `TestK6PeerDropWithOpenPromptSendsViewSystemOnce` (disconnected/failed/closed), `TestK6PeerDropGrantedIdleAndMonitorPrompt`, `TestK6ServerKnownClosuresSendNothingForPrompt` (6 sunucu mesajı + hello + WS kopması).
+- `signal`: selfElevated false da kodlanıyor, eksikse reddediliyor.
+S7-14 Win32 mesaj döngüsünde olduğu için birim testi yok; değişiklik tek satır ve statik.
+
+### Windows'ta elle doğrulanacaklar
+Adım 38'e S7-12 ek kontrolü eklendi: müşterinin gerçek tıklaması izin verir, SendInput tıklaması vermez (üç diyalogda). Adım 37 (S7-16 sonrası: kısayol + hemen yeniden izin → AC-104 yerel önceliği çalışmalı) ve adım 42 (yönetici açılışında konsol rozeti, K8) tekrar koşulmalı.
+
+### frontend-dev / backend için sözleşme notları
+- İstemci her `hello`'dan hemen sonra `env.state{elevatedForeground, secureDesktop, selfElevated}` gönderiyor (selfElevated her zaman var). Sonra yalnız değişimde gönderiyor.
+- PeerConnection koptuğunda (WS açık) bekleyen kontrol diyaloğu varsa `control.state{VIEW, SYSTEM}` gidiyor (K6). Kapı açıksa önceki davranış sürüyor (tek mesaj). Bekleyen monitör diyaloğu mesajsız kapanıyor.
+
+## Frontend P7 — düzeltme turu 2 (frontend-dev, 2026-11-11)
+Kaynak: `docs/mimari-protokol.md` §3.3 K6–K8 + "P7 Tur 2 kararları", ADR-0013 "Ek — P7 Tur 2", koordinatör notu (sunucu S7-15: zaten paylaşılan monitör → `error{VALIDATION}`; misafir kopmasında yalnız `peer.left{guest}`). Kapsam yalnız `apps/web`; contracts'a dokunulmadı — `env.state.selfElevated` (zorunlu) iş sırasında sunucu ajanınca eklendi, doğrudan contracts tipine geçildi (geçici yerel tip kaldırıldı).
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/sessions/[id]/console` (değişti) | Evet (oturumun teknisyeni) | K6 istek kapanma metni, monitör seçiminde bekleme/geri sayım, "yönetici olarak çalışıyor" rozeti |
+Yeni rota yok.
+
+### Davranış
+- **K6:** `requested` fazında `control.state{VIEW, SYSTEM}` → istek kapanır (`ended{agent}`), not "Müşteri tarafında bağlantı kesildi; istek kapandı"; ret sayılmaz, 30 sn bekleme yok, düğme hemen kullanılabilir (sayaç düşmez — sunucuyla aynı). Açık kontrolde `{VIEW, SYSTEM}` eskisi gibi sistem kapanışı.
+- **K7 (monitör):** `monitor.denied` veya yerel 30 sn yanıtsızlıkta `monitorBlockedUntil = now + CONTROL_DENY_COOLDOWN_MS + 1 sn` (`MONITOR_BLOCK_MS` = 31 sn). Bu süre ve `monitorPending` varken `canRequestMonitor(s, now)` = false → `Segmented` grubu `disabled`, notta "… · yeni istek 0:2x sonra" geri sayımı. Monitör isteğine `error{CONFLICT|RATE_LIMITED}` (FORBIDDEN da) → bekleme kapanır, `monitorRequests` geri alınır, bekleme `now + 31 sn`'ye uzar, metin "Önceki istek henüz kapanmadı / müşteri onaylamadı; biraz sonra tekrar deneyin".
+- **K7 (kontrol):** kontrol isteğine `error{CONFLICT}` → faz değişmez (`requested` kalır), not satırında yalnız sunucunun metni (`notice`, uyarı rengi); sonraki GRANTED/kapanışta temizlenir. Eşleme mevcut 5 sn `lastSent` penceresiyle.
+- **S7-15:** monitör isteğine `error{VALIDATION}` ("Bu monitör zaten paylaşılıyor.") → bekleme kapanır, sayaç geri alınır, ek bekleme yok, not "Bu monitör zaten paylaşılıyor". Kontrol isteğine gelen VALIDATION yok sayılır.
+- **Misafir kopması:** `peer.left{guest}` bekleyen monitör (`monitorPending`) ve kontrol göstergesini zaten kapatıyordu (`idle`, "Müşteri bağlantısı koptu; kontrol kapandı"); birim testle güvenceye alındı.
+- **K8 / S7-9:** `env` → `{ elevated, secure, self }`; `selfElevated=true` iken şerit altında kalıcı `warning-surface` rozeti (`ShieldUser`, `role=status`, `stage-self-elevated`): "Müşteri istemcisi yönetici olarak çalışıyor — yükseltilmiş pencereler ve UAC ekranı denetlenebilir". Görüntü olmasa da gösterilir; kontrol engellenmez. Yeni PeerConnection / `hello` / kopma `env`'i sıfırlar.
+
+### Değişen dosyalar
+- `apps/web/lib/control/machine.ts` (`ControlEndCause` + `agent`, `notice`, `monitorBlockedUntil`, `MONITOR_BLOCK_MS`, `monitorBlockLeft`, `canRequestMonitor(s, now)`, `monitorOutcome` + `already`, hata eşlemesine CONFLICT/VALIDATION, `env.self`), `lib/control/machine.test.ts` (+7 test: K6, K7 ×3, S7-15, peer.left, K8).
+- `apps/web/lib/webrtc/use-tech-session.ts` (`canRequestMonitor(c, now)`).
+- `apps/web/components/console/control-button.tsx` (`MonitorPicker` `now` + pasif grup + geri sayım; `notice`), `components/console/stage.tsx` (`StageControl.selfElevated`, rozet), `app/(panel)/sessions/[id]/console/console-view.tsx`.
+- `apps/web/components/ui/segmented.tsx`: opsiyonel `disabled` prop (mevcut primitife küçük ek; yeni primitif yok — DESIGN §6 güncellendi).
+- `apps/web/messages/tr.json` (`p7.end.agent`, `p7.monitorAlready`, `p7.monitorRetryIn`, `p7.selfElevated`; `p7.monitorRate` metni K7'ye göre).
+- e2e: `e2e/mock-ws.mjs` (K6 iletimi; monitör kuralları: bekleyen varken CONFLICT, ret sonrası 30 sn RATE_LIMITED, aktif monitör → VALIDATION; `selfElevated` aktarımı), `e2e/p7-control.spec.ts`.
+- `DESIGN.md` §6 (`segmented`, kontrol modu sahnesi, `MonitorPicker`).
+
+### Testler
+- `lint` / `typecheck` temiz; `test` 15 dosya / 124 test yeşil.
+- `pnpm --filter @remote/web e2e` tam paket **149 geçti / 41 atlandı**. P7 7/7: yeni **"K6"** testi (istek → `{VIEW, SYSTEM}` → metin, "Kontrol iste" etkin, "Kontrol reddedildi" yok, 2. istek gider); AC-43/105'e K7 (ret sonrası "yeni istek 0:3x sonra", Ekran 1 pasif, geri sayım ilerler) ve K8 (`stage-self-elevated` metni; güvenli masaüstü adımında `selfElevated=false` ile kalkar) + axe 0 ihlal.
+- Monitör CONFLICT/RATE_LIMITED/VALIDATION ve `peer.left` yolları birim testte (konsol arayüzü aktif monitörü ve bekleyen istekte ikinci isteği zaten engellediği için e2e'de tetiklenemez).
+
+### Sapmalar
+- Yok.
+
+## Frontend P7 — sayfa testi düzeltmeleri (frontend-dev, 2026-11-11)
+Kaynak: `docs/test-raporu.md` (P7) TEST-P7-1, TEST-P7-2, TEST-P7-3 ve "kontrol açıkken müşteri kopar" gözlemi. Kapsam yalnız `apps/web`; contracts'a dokunulmadı.
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/sessions/[id]/console` (değişti) | Evet (oturumun teknisyeni) | "%100" müşteri monitörüyle 1:1; dar sahnede monitör/görünüm/tam ekran "Görünüm" menüsünde; kopma notu sahnede; yenilemede hak sayacı korunur |
+Yeni rota yok.
+
+### TEST-P7-1 — kök neden ve düzeltme
+- Ölçüm: normalizasyon (`pointFromClient`, `getBoundingClientRect` → kaydırmayı zaten içerir) doğru. Raporun (50,50) tıklaması gösterilen 320×180 karede `50/320 = 0.15625`, `50/180 = 0.27778` verdi — yani **alınan akış 320×180'di** (WebRTC ilk saniyelerde/bant darlığında çözünürlüğü düşürür) ve "%100" kipi videoyu doğal (küçültülmüş) boyutunda çiziyordu. Tıklanan ekran pikseli uzak ekranda 4× uzaktaki piksele düşüyordu; AC-49 "görüntüye göre normalize" sağlanıyor ama "%100" 1:1 değildi.
+- Düzeltme: "%100" artık görüntülenen monitörün piksel boyutunda çizilir (`share.state.monitors[].w×h`; akış oranı ±%2 tutmazsa veya monitör bilinmiyorsa doğal video boyutu) — `lib/control/input.ts` `actualViewSize`. Boyut `element.style` (CSSOM) ile verilir; CSP `style-src` nonce'u `style` özniteliğine izin vermez. Video `resize` olayında yeniden hesaplanır.
+- Testler: birim `input.test.ts` (kaydırılmış/kaydırılmamış %100 ve Sığdır letterbox ±1 px, `actualViewSize`); e2e "TEST-P7-1 / AC-49": Sığdır (123,456), %100 (50,50) ve 300/200 kaydırılmış (350,250) — hepsi ±1 px; video CSS 1280×720.
+
+### TEST-P7-2 — şerit
+- Sahne 960 px'ten darsa monitör seçimi + Sığdır/%100 + Tam ekran sağda tek **Görünüm** menüsüne toplanır (yeni primitif `components/ui/menu.tsx`; Özel tuşlar da buna taşındı — ikisi aynı `<details>` deseni). Genişte satır içi kalır.
+- Kontrol sırasında pasif işaretleme grubu şeritte gösterilmez; Ctrl+Alt+Shift ipucu not satırında yalnız ekran okuyucuya, görünür olarak Özel tuşlar menüsünün altında; "Kontrol sizde" hapı ikonsuz (durum metin + kırmızı çerçeve). Sonuç: 1280 px'te kontrol şeridi **tek satır** (e2e: ≤ 64 px); kontrol yokken işaretleme + kontrol düğmesi iki satır (tasarım gereği — işaretleme grubu tek başına 512 px).
+- Kontrol çubuğu `display: contents`: dar ekranda (390 px) öğeler şeritte birlikte sarar. Tam ekranda menü/şerit düzeni donar (genişleyen sahne odaktaki düğmeyi yeniden oluşturmasın).
+- Menüdeki monitör sonuçları (reddetti/onaylamadı/iletilmedi/zaten paylaşılıyor) toast'la da duyurulur; bekleyen istekte menü tetikleyicisinde dönen gösterge + ekran okuyucu metni.
+
+### TEST-P7-3 — sahte sunucu ve iki akış
+- `e2e/mock-ws.mjs`: teknisyen `hello`'su misafir varken `guestKind`/`guestName` taşır (`active.ts sendHelloTech` gibi); yanıtsız monitör isteği 30 sn sonra düşer ve bekleme `at + 30 sn`'den başlar (`control.ts` gibi); `ageRoom` + `GET /__e2e/age/:id?ms=` zaman damgalarını geçmişe çeker.
+- Konsol: kontrol/monitör sayaçları (`requests`, `deniedAt`, `monitorRequests`, `monitorBlockedUntil`) sekmede `sessionStorage` `rs.ctl.<id>`'de tutulur, yenilemede `restore` olayıyla birleştirilir (büyük olan kazanır; bozuk değer 0/null; izin durumu asla geri yüklenmez; oturum bitince silinir). Önceden yenileme yerel sayacı sıfırlıyordu ("5 hak" gösterip sunucudan RATE_LIMITED alırdı).
+- e2e "TEST-P7-3: yenileme sonrası hak sayacı" (2 istek → yenile → "3 istek hakkı kaldı" → 3 istek daha → "hakkı doldu (5/5)", düğme pasif) ve "TEST-P7-3: yanıtsız monitör" (`page.clock` ile 30 sn → "onaylamadı · yeni istek 0:3x sonra", seçim pasif → 31 sn → etkin → ikinci istek iletilir, CONFLICT yok).
+
+### Gözlem — kopma notu
+- Kontrol açıkken müşteri koparsa "Bağlantı koptu" katmanında "Müşteri bağlantısı koptu; kontrol kapandı" yazılır (`stage-control-ended`); toast zaten vardı. Not satırı da `idle`'a dönen `peer` nedenini artık gösterir (şerit geri gelince). e2e "gözlem: …" + axe 0.
+
+### Değişen dosyalar
+- Yeni: `apps/web/components/ui/menu.tsx`.
+- `apps/web/lib/control/input.ts` (+`actualViewSize`), `input.test.ts` (+3), `lib/control/machine.ts` (`restore` olayı, `ControlCounters`), `machine.test.ts` (+1), `lib/webrtc/use-tech-session.ts` (sayaç depolama), `components/console/stage.tsx` (%100 boyutu, uyarlanır şerit + Görünüm menüsü, `monitors`/`monitorBusy`/`nativeSize`/`endedNote`), `components/console/control-button.tsx` (Özel tuşlar → `Menu`, `contents`, ikonsuz hap, `peer` notu), `app/(panel)/sessions/[id]/console/console-view.tsx`, `messages/tr.json` (`cs.viewMenu`, `cs.viewMenuBusy`).
+- e2e: `mock-ws.mjs`, `mock-api.mjs`, `p7-control.spec.ts` (+4 test, menü açma), `p4-media.spec.ts` (AC-43 görünüm araçları menüden, klavyeyle).
+- `DESIGN.md` §4 ikonlar, §6 `ui/menu.tsx`, kontrol modu sahnesi, ControlButton satırı.
+
+### Testler
+- `lint` / `typecheck` temiz; `test` 15 dosya / 128 test yeşil.
+- `pnpm --filter @remote/web e2e` tam paket **153 geçti / 45 atlandı** (mobil projede konsol testleri atlanır). P7 11 test + P4 AC-43 dahil. Görsel kontrol: 1280 (boş, kontrol + menü açık) ve 390 px ekran görüntüleri.
+
+### Sapmalar
+1. Menü adı "Daha fazla" değil **"Görünüm"** (`MonitorCog`): içerik yalnız görünümle ilgili (monitör, ölçek, tam ekran) ve ikon kuralı anlamlı başlık istiyor.
+2. Kontrol yokken (işaretleme açıkken) şerit 1280 px'te iki satır kalır: işaretleme grubu tek başına 512 px; bulgu kontrol modundaki üç satırdı, o artık tek satır.
+

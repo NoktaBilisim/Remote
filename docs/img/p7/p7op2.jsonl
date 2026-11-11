@@ -1,0 +1,86 @@
+{"test":"TEST-P7-2 şerit 1440 light","kind":"geom","label":"idle 1440-light","stripH":123,"viewH":450,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"geom","label":"idle 1280-light","stripH":123,"viewH":400,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"geom","label":"idle 1280-dark","stripH":123,"viewH":400,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"axe","label":"idle 1440-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"geom","label":"requested 1440-light","stripH":123,"viewH":450,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-1: %100 kaydırılmamış/kaydırılmış ve Sığdır tıklaması ±1 px (hemen ve 3 sn sonra)","kind":"video","label":"actual immediately","css":[1280,720],"native":[320,180]}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"axe","label":"idle 1280-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"axe","label":"idle 1280-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"geom","label":"requested 1280-light","stripH":175,"viewH":400,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"geom","label":"requested 1280-dark","stripH":175,"viewH":400,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"axe","label":"requested 1440-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"axe","label":"requested 1280-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"axe","label":"requested 1280-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"geom","label":"granted 1440-light","stripH":61,"viewH":479,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"strip-summary","tag":"1440-light","idle":123,"requested":123,"granted":61,"viewH":479}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"geom","label":"granted 1280-light","stripH":61,"viewH":419,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"strip-summary","tag":"1280-light","idle":123,"requested":175,"granted":61,"viewH":419}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"axe","label":"granted 1440-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"menu","label":"keys 1440-light","b":{"x":548.546875,"y":275,"width":246,"height":352},"vw":1440}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"geom","label":"granted 1280-dark","stripH":61,"viewH":419,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"strip-summary","tag":"1280-dark","idle":123,"requested":175,"granted":61,"viewH":419}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"axe","label":"granted 1280-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"menu","label":"keys 1280-light","b":{"x":548.546875,"y":275,"width":246,"height":352},"vw":1280}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"axe","label":"granted 1280-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"menu","label":"keys 1280-dark","b":{"x":548.546875,"y":275,"width":246,"height":352},"vw":1280}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"axe","label":"keys 1440-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"axe","label":"keys 1280-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"axe","label":"keys 1280-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"axe","label":"view menu 1440-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"geom","label":"env 1440-light","stripH":61,"viewH":450,"overlap":-72,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"axe","label":"view menu 1280-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"geom","label":"env 1280-light","stripH":61,"viewH":400,"overlap":-92,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"axe","label":"env 1440-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"strip-summary","tag":"1440-light","envViewTop":{"stripH":61,"viewH":450,"overlap":-72,"compact":"true"}}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"axe","label":"view menu 1280-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"geom","label":"env 1280-dark","stripH":61,"viewH":400,"overlap":-92,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"axe","label":"env 1280-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"strip-summary","tag":"1280-light","envViewTop":{"stripH":61,"viewH":400,"overlap":-92,"compact":"true"}}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"axe","label":"peer lost 1440-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 light","kind":"overflow","label":"1440-light","px":0}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"axe","label":"env 1280-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"strip-summary","tag":"1280-dark","envViewTop":{"stripH":61,"viewH":400,"overlap":-92,"compact":"true"}}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"axe","label":"peer lost 1280-light","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 light","kind":"overflow","label":"1280-light","px":0}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"axe","label":"peer lost 1280-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1280 dark","kind":"overflow","label":"1280-dark","px":0}
+{"test":"TEST-P7-1: %100 kaydırılmamış/kaydırılmış ve Sığdır tıklaması ±1 px (hemen ve 3 sn sonra)","kind":"video","label":"actual after 3s","css":[1280,720],"native":[320,180]}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"geom","label":"idle 1440-dark","stripH":123,"viewH":450,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"axe","label":"idle 1440-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"geom","label":"requested 1440-dark","stripH":123,"viewH":450,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-3: yenileme sonrası misafir türü ve hak sayacı korunur","kind":"text","label":"after reload","note":"Şu an yalnız görüntüleme · bu oturumda 3 istek hakkı kaldı"}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"axe","label":"requested 1440-dark","violations":[]}
+{"test":"TEST-P7-3: yenileme sonrası misafir türü ve hak sayacı korunur","kind":"text","label":"after 2nd reload","note":"Şu an yalnız görüntüleme · Bu oturumda kontrol isteği hakkı doldu (5/5)","disabled":true}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"overflow","label":"390 idle light","px":0}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"geom","label":"390 granted light","stripH":113,"viewH":422,"overlap":0,"compact":"true"}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"overflow","label":"390 granted light","px":0}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"geom","label":"granted 1440-dark","stripH":61,"viewH":479,"overlap":0,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"strip-summary","tag":"1440-dark","idle":123,"requested":123,"granted":61,"viewH":479}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"axe","label":"390 granted light","violations":[]}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"menu","label":"390 keys light","b":{"x":29,"y":440,"width":246,"height":352},"vw":390}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"menu","label":"390 view light","b":{"x":110,"y":435,"width":256,"height":202}}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"overflow","label":"390 view menu light","px":0}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"axe","label":"granted 1440-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"menu","label":"keys 1440-dark","b":{"x":548.546875,"y":275,"width":246,"height":352},"vw":1440}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"axe","label":"390 view light","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"axe","label":"keys 1440-dark","violations":[]}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"axe","label":"390 peer lost light","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"axe","label":"view menu 1440-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"geom","label":"env 1440-dark","stripH":61,"viewH":450,"overlap":-72,"compact":"true"}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"axe","label":"env 1440-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"strip-summary","tag":"1440-dark","envViewTop":{"stripH":61,"viewH":450,"overlap":-72,"compact":"true"}}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"axe","label":"peer lost 1440-dark","violations":[]}
+{"test":"TEST-P7-2 şerit 1440 dark","kind":"overflow","label":"1440-dark","px":0}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"overflow","label":"390 idle dark","px":0}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"geom","label":"390 granted dark","stripH":113,"viewH":422,"overlap":0,"compact":"true"}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"overflow","label":"390 granted dark","px":0}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"axe","label":"390 granted dark","violations":[]}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"menu","label":"390 keys dark","b":{"x":29,"y":440,"width":246,"height":352},"vw":390}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"menu","label":"390 view dark","b":{"x":110,"y":435,"width":256,"height":202}}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"overflow","label":"390 view menu dark","px":0}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"axe","label":"390 view dark","violations":[]}
+{"test":"390 px: kontrol durumları, menüler, kopma notu","kind":"axe","label":"390 peer lost dark","violations":[]}
+{"test":"TEST-P7-1: %100 kaydırılmamış/kaydırılmış ve Sığdır tıklaması ±1 px (hemen ve 3 sn sonra)","kind":"video","label":"actual immediately","css":[1280,720],"native":[320,180]}
+{"test":"TEST-P7-1: %100 kaydırılmamış/kaydırılmış ve Sığdır tıklaması ±1 px (hemen ve 3 sn sonra)","kind":"video","label":"actual after 3s","css":[1280,720],"native":[320,180]}
+{"test":"TEST-P7-1: %100 kaydırılmamış/kaydırılmış ve Sığdır tıklaması ±1 px (hemen ve 3 sn sonra)","kind":"clicks","res":[{"label":"fit 123,456","got":[122.9952,455.9976],"exp":[123,456],"dx":-0.004800000000003024,"dy":-0.0024000000000228283},{"label":"actual 50,50 (hemen)","got":[49.99679999999999,49.9968],"exp":[50,50],"dx":-0.003200000000006753,"dy":-0.0031999999999996476},{"label":"actual kaydırılmış 300/200 + 50,50","got":[350.0032,249.99839999999998],"exp":[350,250],"dx":0.003199999999992542,"dy":-0.0016000000000246928},{"label":"actual kaydırılmış 600/300 + 200,40 (3 sn)","got":[800,339.9984],"exp":[800,340],"dx":0,"dy":-0.001599999999996271},{"label":"actual sağ alt","got":[1270.0032,709.9992],"exp":[1270,710],"dx":0.003200000000106229,"dy":-0.0008000000000265572}]}
+{"test":"TEST-P7-1: %100 kaydırılmamış/kaydırılmış ve Sığdır tıklaması ±1 px (hemen ve 3 sn sonra)","kind":"axe","label":"actual granted","violations":[]}

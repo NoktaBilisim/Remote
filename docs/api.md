@@ -1,10 +1,10 @@
-# API Dokümanı — Remote Support (P1–P6)
+# API Dokümanı — Remote Support (P1–P7)
 
-Bu belge P1–P6'da **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P7'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
-`packages/contracts/src/{errors.ts,ws.ts,api/auth.ts,api/sessions.ts}`.
+`signaling/control.ts` (P7), `packages/contracts/src/{errors.ts,ws.ts,dc.ts,audit.ts,api/auth.ts,api/sessions.ts}`.
 
 ## Genel kurallar
 - Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres Caddy üzerinden `https://<SITE_HOST>:4450`.
@@ -398,7 +398,7 @@ Seriler (etiketlerde IP, oturum kimliği veya kod yok): sayaçlar `rs_ws_connect
 `rs_ws_rejected_total{role,reason}`, `rs_ws_closed_policy_total{reason}`, `rs_admit_total{result}`,
 `rs_sessions_ended_total{reason}`, P5: `rs_file_meta_total{result}` (`recorded`, `sender_reported`, `forbidden`,
 `too_large`, `rate_limited`, `rejected_by_db`, `error`) ve `rs_file_meta_rate_limited_total{class}` (`accepted`,
-`declined`, `sender`); göstergeler `rs_ws_connections`, `rs_active_sessions`, `rs_active_rooms`,
+`declined`, `sender`), P7: `rs_control_total{event}` (olay değerleri aşağıda "Uzaktan kontrol" bölümünde); göstergeler `rs_ws_connections`, `rs_active_sessions`, `rs_active_rooms`,
 `rs_resolve_failed`. Alarm eşikleri: `docs/runbook.md` §9.8 (P5: `rate(rs_file_meta_rate_limited_total{class="sender"}[5m]) > 0`
 uyarı — olası audit şişirme veya değiştirilmiş istemci).
 
@@ -463,7 +463,8 @@ const ws = new WebSocket("wss://<host>:4450/ws/guest", ["rs.v1", "rs.ticket." + 
 | `session.end` | iki taraf→S | — (PENDING'de teknisyenden gelirse `error{CONFLICT}`; iptal REST ile yapılır) |
 | `session.ended` | S→taraf | `reason`: `tech`, `customer`, `timeout`, `max_duration`, `cancelled`, `tenant_passive`, `server`, `admin`, `auth_revoked`, `rejected`, `lobby_timeout` |
 | `session.warning` | S→iki taraf | `kind: "max_duration_5min"`, `endsAt` |
-| `error` | S→taraf | `code: ADMIT_CODE_INVALID\|CONFLICT\|FORBIDDEN\|RATE_LIMITED\|NOT_FOUND\|VALIDATION` (P5), `message` (≤ 300) |
+| `error` | S→taraf | `code: ADMIT_CODE_INVALID\|CONFLICT\|FORBIDDEN\|RATE_LIMITED\|NOT_FOUND\|VALIDATION\|INTERNAL` (`VALIDATION` P5, `INTERNAL` P7), `message` (≤ 300) |
+| P7 kontrol mesajları | — | `control.*`, `monitor.*`, `env.state`, `caps.update`: aşağıda "Uzaktan kontrol (P7)" |
 
 İstemci mesajlarına isteğe bağlı `id` (≤ 26) eklenebilir. Sunucu mesajı karşı tarafa yeniden kurarak iletir.
 
@@ -566,7 +567,7 @@ içinde gelen özet yazılmaz, 4096 baytı aşan JSON yazılmaz. Hata istemciye 
 |---|---|---|
 | `ctl` | sıralı, güvenilir; JSON, mesaj ≤ 16 KB | sohbet, işaretleme, dosya teklif/yanıt mesajları, `ping` |
 | `file` | sıralı, güvenilir, ikili | dosya parçaları: `fidIndex` (uint16, big-endian, = `file.offer.idx`) \| `seq` (uint32, 0'dan ardışık) \| veri (≤ 16 KB) |
-| `input` | — | Yalnız Windows istemcisi (P7); tarayıcı misafiri bu kanalı kapatır |
+| `input` | sıralı, güvenilir; JSON | Fare/klavye (P7). Yalnız Windows istemcisi kabul eder; tarayıcı misafiri bu kanalı kapatır. Şema aşağıda "Uzaktan kontrol (P7)" |
 
 `ctl` mesajları (bilinmeyen tip ve ekstra alan reddedilir):
 | `t` | Alanlar | Kural |
@@ -586,6 +587,118 @@ iptal/bozuk); `caps`'te `file_transfer` yoksa gelen teklif otomatik reddedilir; 
 Blob'u olarak sunulur. Ad temizleme kuralı ve tehlikeli uzantı listesi tek kaynaktır: `packages/contracts/src/files.ts`
 (`sanitizeFileName`, `DANGEROUS_EXT`, `fileNameWarning` → `none | dangerous | double_extension`).
 
+## Uzaktan kontrol (P7)
+Tasarım: `docs/mimari-protokol.md` §3, §3.3 (durum tablosu K1–K8) ve §4.3; karar kaydı `docs/adr/0013-kontrol-yasam-dongusu-teknisyen-mesajlari.md`.
+Şemalar: `packages/contracts/src/ws.ts` (WS), `src/dc.ts` (`input`), audit adları `src/audit.ts`. Örnekler:
+`packages/contracts/fixtures/ws-messages.json`, `fixtures/dc-input.json` (TS ve Go testleri aynı dosyayı okur).
+
+**Temel kural:** izin yalnız müşterinin Windows istemcisinde verilir (istemcideki izin kapısı). Sunucunun ve konsolun
+tuttuğu durum (`VIEW` / `REQUESTED` / `GRANTED`) kayıt ve bilgi içindir; hiçbir mesaj kapıyı uzaktan **açamaz**,
+yalnız kapatabilir. Tarayıcı misafiri kontrol edilemez (`input` kanalı yok, istek `FORBIDDEN`).
+
+**Yetki:** teknisyende `remote_control.use` ve oturumun `caps` listesinde `remote_control`. `caps` oturum içinde yalnız
+daralır; yetki eklenirse yeni oturumda geçerli olur.
+
+### WS mesajları
+| `t` | Yön | Alanlar | Ne olur |
+|---|---|---|---|
+| `control.request` | teknisyen→S→misafir | — | Kontrol isteği. Süzgeç aşağıda. Geçerse oda `REQUESTED`, sayaç +1, audit `control.requested` (iletimden önce yazılır), misafire iletilir |
+| `control.cancel` | teknisyen→S→misafir | — | "Vazgeç". `REQUESTED` → `VIEW`, misafire `control.cancel`, teknisyene `control.state{VIEW, TECH}`, audit `control.cancelled`. `GRANTED` iken `control.release` ile aynı. `VIEW` iken yok sayılır. Sayaç geri verilmez; 30 sn bekleme başlamaz |
+| `control.release` | teknisyen→S→misafir | — | "Kontrolü bırak". Yalnız `GRANTED` iken: misafire `control.release`, teknisyene `{VIEW, TECH}` (DB beklenmez), sonra consent `REVOKED/TECH` + audit `control.released`. `REQUESTED` iken = cancel; `VIEW` iken yok sayılır |
+| `control.state` | misafir→S→teknisyen; S→teknisyen | `state: VIEW\|GRANTED`, `source: UI\|HOTKEY\|DENIED\|RECONNECT\|SYSTEM\|TECH` | Misafirden: `GRANTED` yalnız `UI`; `VIEW` yalnız `UI\|HOTKEY\|DENIED\|SYSTEM` (diğerleri şema hatası → 1008). `RECONNECT` ve `TECH` yalnız sunucu üretir. Ayrıntı: durum tablosu |
+| `control.revoke` | S→misafir | `reason: permission\|audit\|admin\|reconnect\|stale` | İstemci her nedende kapıyı ve açık izin diyaloglarını kapatır; kapı açıktıysa `control.state{VIEW, SYSTEM}` döner |
+| `caps.update` | S→misafir | `caps: ("remote_control"\|"file_transfer")[]` | Teknisyen yetkisi daraldı. `remote_control` düştüyse ardından `control.revoke{permission}` gelir |
+| `monitor.request` | teknisyen→S→misafir | `monitorId: 0..64` | Paylaşılan ekranı değiştirme isteği (yalnız Hızlı Destek). Süzgeç aşağıda. Audit `monitor.requested` |
+| `monitor.denied` | misafir→S→teknisyen | `monitorId: 0..64` | Müşteri reddetti (Reddet, Esc, pencereyi kapatma). Yalnız bekleyen istekle aynı kimlik işlenir; 30 sn bekleme başlar; audit `monitor.denied` |
+| `env.state` | misafir→S→teknisyen | `elevatedForeground`, `secureDesktop`, `selfElevated` (üçü de zorunlu boolean) | İstemci her `hello`'dan hemen sonra bir kez, sonra yalnız değişimde gönderir. Sunucu son değeri saklar, alanları yeniden kurarak iletir; `selfElevated` GRANTED audit'ine yazılır |
+
+Monitör onayı ayrı mesajla gelmez: isteğin iletildiği **aynı misafir bağlantısından** gelen `share.state.activeMonitor ===
+monitorId` onaydır (audit `monitor.granted`). Yanıtsız istek 30 sn sonra ret gibi düşer (mesaj ve audit yok).
+
+### `control.request` süzgeci (ilk tutan döner; istek iletilmez, sayaç değişmez)
+| Sıra | Koşul | Yanıt |
+|---|---|---|
+| 1 | `remote_control.use` yok veya `caps`'te `remote_control` yok | `error{FORBIDDEN, "Uzaktan kontrol yetkiniz yok."}` |
+| 2 | Kabul edilmiş misafir bağlı değil | `error{CONFLICT, "Müşteri bağlı değil."}` |
+| 3 | Misafir tarayıcı modunda | `error{FORBIDDEN, "Müşteri tarayıcı modunda: yalnız görüntüleme."}` |
+| 4 | Önceki istek bekliyor (`REQUESTED`) | `error{CONFLICT, "Önceki kontrol isteği müşteride bekliyor."}` — önce `control.cancel` |
+| 5 | Kontrol açık veya izin kaydı yazılıyor | `error{CONFLICT, "Kontrol zaten açık."}` |
+| 6 | Son retten bu yana 30 sn geçmedi | `error{RATE_LIMITED, "Müşteri reddetti; 30 sn sonra tekrar isteyebilirsiniz."}` |
+| 7 | Bu oturumda 5 istek iletildi | `error{RATE_LIMITED, "Bu oturumda kontrol isteği sınırına ulaşıldı."}` |
+
+### `monitor.request` süzgeci (sayaç kontrolden ayrı)
+| Koşul | Yanıt |
+|---|---|
+| Kabul edilmiş misafir bağlı değil | `error{CONFLICT, "Müşteri bağlı değil."}` |
+| Misafir tarayıcı modunda | `error{FORBIDDEN, "Monitör değiştirme yalnız istemci modunda."}` |
+| Bilinen monitörler arasında yok | `error{VALIDATION, "Monitör bulunamadı."}` |
+| Zaten paylaşılan monitör | `error{VALIDATION, "Bu monitör zaten paylaşılıyor."}` (sayaç düşmez) |
+| Bekleyen monitör isteği var | `error{CONFLICT, "Önceki monitör isteği müşteride bekliyor."}` |
+| Ret veya yanıtsızlıktan bu yana 30 sn geçmedi | `error{RATE_LIMITED, "Müşteri onaylamadı; 30 sn sonra tekrar deneyin."}` |
+| Bu oturumda 5 istek iletildi | `error{RATE_LIMITED, "Bu oturumda monitör isteği sınırına ulaşıldı."}` |
+
+### Durum tablosu (özet; tam hali mimari-protokol §3.3)
+| Olay | Oda durumu | Misafire | Teknisyene | Kayıt (consent / audit) |
+|---|---|---|---|---|
+| `control.state{GRANTED, UI}` | `REQUESTED` → `GRANTED` (TX commit sonrası) | — | `{GRANTED, UI}` | `GRANTED/UI` / `control.granted` (`selfElevated`) |
+| Aynı, TX hata veya > 800 ms | `VIEW` | `control.revoke{audit}` | `error{INTERNAL}` | log + ref |
+| `control.state{GRANTED}` beklenmedik (`VIEW`) | değişmez | `control.revoke{stale}` | — | yok (metrik) |
+| `control.state{VIEW, DENIED}` | `REQUESTED` → `VIEW`, 30 sn bekleme | — | `{VIEW, DENIED}` | `DENIED/UI` / `control.denied` |
+| `control.state{VIEW, UI\|HOTKEY\|SYSTEM}` (kontrol açıkken) | → `VIEW` | — | aynı kaynak | `REVOKED/<kaynak>` / `control.revoked` |
+| Aynı, istek bekliyorken (istemci diyaloğu kendisi kapattı) | → `VIEW`, bekleme yok | — | aynı kaynak | consent yok / `control.cancelled{by:"agent"}` |
+| Yetki daralması | → `VIEW` | `caps.update` + `control.revoke{permission}` | `{VIEW, SYSTEM}` | `REVOKED/SYSTEM` / `control.revoked` + `session.caps_changed` |
+| Misafir kopması | → `VIEW` | — | `{VIEW, RECONNECT}` | `REVOKED/RECONNECT` |
+| Teknisyen kopması / sekme değişimi | → `VIEW` | önce `control.revoke{reconnect}`, sonra `peer.left`/`peer.joined{tech}` | (yeni `hello` VIEW ile) | `REVOKED/RECONNECT` (`side: "tech"`) |
+| Oturum sonu (kontrol açık) | — | `session.ended` | `session.ended` | en iyi çabayla `REVOKED/SYSTEM` (`reason: "session_ended"`) |
+
+`error{INTERNAL}` yalnız sunucunun kendi hatasında gelir; mesaj genel metin + log referansıdır
+(`"Kontrol kaydı yazılamadı; kontrol geri alındı (ref: <ref>)."`), ayrıntı içermez.
+
+### Örnek akış
+```json
+// teknisyen → S
+{ "t": "control.request" }
+// S → misafir
+{ "t": "control.request" }
+// misafir → S (müşteri "İzin ver"e tıkladı)
+{ "t": "control.state", "state": "GRANTED", "source": "UI" }
+// S → teknisyen (kayıt commit edildikten sonra)
+{ "t": "control.state", "state": "GRANTED", "source": "UI" }
+// teknisyen → S ("Kontrolü bırak")
+{ "t": "control.release" }
+// S → teknisyen
+{ "t": "control.state", "state": "VIEW", "source": "TECH" }
+```
+```json
+{ "t": "env.state", "elevatedForeground": false, "secureDesktop": false, "selfElevated": false }
+{ "t": "monitor.request", "monitorId": 1 }
+{ "t": "error", "code": "RATE_LIMITED", "message": "Müşteri reddetti; 30 sn sonra tekrar isteyebilirsiniz." }
+```
+
+### `input` DataChannel
+Teknisyen offer'da açar; JSON, bilinmeyen tip ve ekstra alan reddedilir. İstemci mesajı yalnız `caps`'te
+`remote_control` varken ve izin kapısı açıkken uygular; aksi halde sessizce düşürür. İstemci tarafında mesaj ≤ 512
+bayt ve saniyede 250 olay (ani 500) sınırı vardır; yalnız basılı tuş/düğmenin bırakılması sınırdan muaftır.
+| `t` | Alanlar | Not |
+|---|---|---|
+| `m.move` | `x`, `y`: 0..1 | Görüntülenen monitöre göre normalize |
+| `m.btn` | `b: l\|r\|m`, `down: bool`, `x`, `y` | — |
+| `m.wheel` | `dx`, `dy`: tam sayı −1200..1200 | WHEEL_DELTA (120) birimi; `dy > 0` aşağı |
+| `k` | `code`: `^[A-Za-z0-9]{1,32}$` (`KeyboardEvent.code`), `down: bool`, `key?`: 1..4 karakter | `key` yalnız tek yazdırılabilir karakterde (Türkçe harfler düzenden bağımsız yazılır); Ctrl/Alt/Win basılıyken kısayol olarak gider. Ctrl+Alt+Del ve Win+L uygulanmaz |
+| `k.release_all` | — | Basılı kalan tuş ve düğmeleri bırakır (konsol bırakmadan önce gönderir) |
+```json
+{ "t": "m.btn", "b": "l", "down": true, "x": 0.41250, "y": 0.73125 }
+{ "t": "k", "code": "KeyS", "down": true, "key": "ş" }
+{ "t": "k.release_all" }
+```
+
+### Metrik `rs_control_total{event}`
+Olay değerleri `apps/server/src/ops/metrics.ts` yardım metninde listelidir. Sık bakılanlar:
+`control_request_{forwarded,forbidden,browser,no_guest,conflict,cooldown,limit}`, `granted`, `denied`, `released`,
+`cancelled`, `cancelled_by_agent`, `revoke_{permission,audit,reconnect,session_ended}`, `grant_audit_{error,timeout}`
+(fail-closed tetiklendi), `control_request_audit_failed`, `control_state_unexpected`,
+`monitor_request_{forwarded,conflict,cooldown,already_active}`, `monitor_{granted,denied}`, `caps_narrowed`.
+
 ## Audit
 Giriş (başarılı/başarısız), kilit (`auth.locked`, kapsam `account_ip` veya `account`), çıkış ve şifre değişimi
 `audit_logs` tablosuna yazılır. P2: `session.created`, `session.cancelled`, `session.expired` (SYSTEM) ve
@@ -600,4 +713,9 @@ P5: `file.transfer` (alıcı raporu; entity `session_files`), `file.transfer.sen
 P6: istemci indirme ucu yeni audit olayı üretmez; süresi dolmuş PENDING için `session.expired` yazılır, 404/410
 denemeleri resolve ile aynı başarısız sayaçlara (`rs_resolve_failed`) girer. İkili uyuşmazlığı audit değil server
 logunda `alarm: "agent_binary"` olarak (durum geçişinde bir kez; yol ve hash yazılmaz) görünür.
+P7: `control.requested`, `control.granted` (`newValue.selfElevated: "true"|"false"|"unknown"`), `control.denied`,
+`control.revoked`, `control.released`, `control.cancelled` (`{by:"agent", source}` ise istemci kapattı),
+`monitor.requested`, `monitor.granted`, `monitor.denied`, `session.caps_changed`. İzin kararları ayrıca
+`session_consents` tablosuna (`level=CONTROL`, `decision=GRANTED|DENIED|REVOKED`, `source=UI|HOTKEY|RECONNECT|SYSTEM|TECH`)
+yazılır. Klavye/fare içeriği hiçbir yere yazılmaz.
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Audit ekranı P11'de gelir.

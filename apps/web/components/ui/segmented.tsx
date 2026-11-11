@@ -8,11 +8,14 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: T;
   options: { value: T; label: string; count?: number; icon?: ReactNode }[];
   onChange: (v: T) => void;
+  /** Tüm grup geçici olarak kullanılamaz (ör. bekleyen istek); neden çağıranın görünür metninde yazılır. */
+  disabled?: boolean;
 }) {
   return (
     <div role="group" aria-label={label} className="inline-flex rounded-md border border-border bg-surface p-1 shadow-sm">
@@ -23,8 +26,9 @@ export function Segmented<T extends string>({
             key={o.value}
             type="button"
             aria-pressed={active}
+            disabled={disabled}
             onClick={() => onChange(o.value)}
-            className={`inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-sm px-3 text-sm font-medium ${
+            className={`inline-flex min-h-11 cursor-pointer items-center disabled:cursor-not-allowed disabled:opacity-60 gap-1.5 rounded-sm px-3 text-sm font-medium ${
               active ? "bg-primary-surface text-primary" : "text-fg-muted hover:bg-surface-muted hover:text-fg"
             }`}
           >

@@ -2,6 +2,7 @@
 // DB'ye yalnız oturum bitişi (ACTIVE→ENDED) yazılır; tüketim admit.ts'te tek atomik UPDATE ile.
 import { randomInt } from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
+import type { PermissionKey } from "@remote/contracts/permissions";
 import type { GuestKind, SessionEndedReason } from "@remote/contracts/ws";
 import { WS_CLOSE } from "@remote/contracts/ws";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
@@ -16,6 +17,7 @@ import { OneTimeStore } from "./store.ts";
 import type { TurnConfig } from "./turn.ts";
 import { DEFAULT_TIMING, LOBBY_MAX, realClock, type Clock, type Guest, type Peer, type Room, type TechConn, type Timing } from "./types.ts";
 import { scheduleActive, sendGuestJoined, sendHelloGuest, sendHelloTech, syncDisconnect } from "./active.ts";
+import { closeControlOnEnd, narrowCaps, newControl, resetOnGuestGone, revokeOnTechChange } from "./control.ts";
 
 export interface RoomsDeps {
   db: Db;
@@ -30,7 +32,19 @@ type RoomRow = Pick<repo.SignalSessionRow, "id" | "tenantId" | "technicianId" | 
 export const admitHash = (guestId: string, code: string): string => sha256Hex(`${guestId}:${code}`);
 const SYSTEM_CTX: AuditContext = { ip: "", userAgent: "signaling", requestId: "" };
 
-export class Rooms implements RoomNotifier {
+/**
+ * Canlı oturumlara yetki/hesap değişikliğinin yansıması (S-P3-8, AC-115, G-04). Kullanıcı/yetki/oturum servisleri
+ * (P9 deaktivasyon/yetki/rol, P10 logout-all/reset-mfa) commit sonrası `app.rooms` üzerinden doğrudan çağırır;
+ * /ws/tech 60 sn yeniden doğrulaması yalnız yedek yoldur.
+ */
+export interface TechnicianLiveControl {
+  /** Teknisyenin tüm odaları `session.ended{auth_revoked}` ile biter (teknisyen soketi 4401). */
+  endByTechnician(userId: string): Promise<void>;
+  /** Yeni etkin yetkiler: caps daralırsa `caps.update`, `remote_control` düştüyse `control.revoke{permission}`. */
+  applyPermChange(userId: string, permissions: Iterable<PermissionKey>): Promise<void>;
+}
+
+export class Rooms implements RoomNotifier, TechnicianLiveControl {
   readonly db: Db;
   readonly log: FastifyBaseLogger;
   readonly turn: TurnConfig;
@@ -72,7 +86,7 @@ export class Rooms implements RoomNotifier {
   private getOrCreate(row: RoomRow): Room {
     let room = this.rooms.get(row.id);
     if (!room) {
-      room = { sessionId: row.id, tenantId: row.tenantId, technicianId: row.technicianId, technicianName: row.technician.fullName, expiresAt: row.expiresAt.getTime(), lobby: new Map(), admitting: false, admitFails: 0, rejectedIps: new Set(), caps: [], fileMeta: { quotas: new Map(), auditAt: new Map() }, timers: {}, ending: false };
+      room = { sessionId: row.id, tenantId: row.tenantId, technicianId: row.technicianId, technicianName: row.technician.fullName, expiresAt: row.expiresAt.getTime(), lobby: new Map(), admitting: false, admitFails: 0, rejectedIps: new Set(), caps: [], fileMeta: { quotas: new Map(), auditAt: new Map() }, control: newControl(), timers: {}, ending: false };
       this.rooms.set(row.id, room);
     }
     return room;
@@ -149,6 +163,9 @@ export class Rooms implements RoomNotifier {
     const old = room.tech;
     room.tech = conn;
     old?.peer.close(WS_CLOSE.REPLACED, "replaced");
+    // §3.3 K3: yeni konsol (sekme değişimi / yeniden bağlanma) yalnız görüntüleme ile başlar; misafire önce revoke{reconnect}.
+    if (room.admitted) revokeOnTechChange(this, room);
+    void narrowCaps(this, room, conn.permissions); // bağlanma anındaki güncel yetki (S-P3-8)
     sendHelloTech(this, room);
     for (const g of room.lobby.values()) if (g.state === "LOBBY") conn.peer.send(pending(g));
     if (room.admitted?.peer) room.admitted.peer.send({ t: "peer.joined", role: "tech" });
@@ -160,6 +177,7 @@ export class Rooms implements RoomNotifier {
     if (!this.live(room) || room.tech?.peer !== peer) return;
     room.tech = undefined;
     if (room.admitted) {
+      revokeOnTechChange(this, room); // AC-24, §3.3 K3: önce control.revoke{reconnect}, sonra peer.left
       room.admitted.peer?.send({ t: "peer.left", role: "tech", reason: "disconnect" });
       syncDisconnect(this, room);
     } else this.dropRoomIfIdle(room);
@@ -170,6 +188,7 @@ export class Rooms implements RoomNotifier {
     if (guest.state !== "ADMITTED") return this.leaveLobby(room, guest, "left");
     guest.peer = undefined;
     room.share = { state: "stopped" }; // QA-P4-12: misafir yokken paylaşım sürmüyor
+    resetOnGuestGone(this, room); // A4/AC-24: controlState=VIEW; yeniden bağlanan istemci kapıyı kapalı başlatır
     room.tech?.peer.send({ t: "peer.left", role: "guest", reason: "disconnect" });
     syncDisconnect(this, room);
   }
@@ -231,12 +250,25 @@ export class Rooms implements RoomNotifier {
       p?.send(msg);
       p?.close(reason === "auth_revoked" && p === room.tech?.peer ? WS_CLOSE.AUTH_REVOKED : WS_CLOSE.NORMAL, reason);
     }
+    closeControlOnEnd(this, room); // §3.3 K5-d: session.ended sonrası, en iyi çaba (beklenmez)
   }
 
   /** Yetki iptali (G-04, AC-115): teknisyenin tüm odaları `auth_revoked` ile biter. */
   async endByTechnician(userId: string): Promise<void> {
     const mine = [...this.rooms.values()].filter((r) => r.technicianId === userId);
     await Promise.all(mine.map((r) => this.finish(r, "auth_revoked", "SYSTEM")));
+  }
+
+  /** Yetki değişimi (S-P3-8): bağlı teknisyenin yetki kümesi tazelenir (sonraki admit caps'i buradan), caps yalnız daralır. */
+  async applyPermChange(userId: string, permissions: Iterable<PermissionKey>): Promise<void> {
+    const perms: ReadonlySet<PermissionKey> = new Set(permissions);
+    const jobs: Promise<void>[] = [];
+    for (const room of this.rooms.values()) {
+      if (room.technicianId !== userId || room.ending) continue;
+      if (room.tech?.userId === userId) room.tech.permissions = perms;
+      jobs.push(narrowCaps(this, room, perms));
+    }
+    await Promise.all(jobs);
   }
 
   techRooms(): Room[] {

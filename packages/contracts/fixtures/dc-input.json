@@ -1,0 +1,111 @@
+{
+  "_doc": "DC `input` kanalı örnekleri (mimari-protokol §4.3, P7). valid.* inputMessageSchema'dan geçmeli, invalid.* reddedilmeli. Go istemci (internal/input) aynı dosyayı go test ile doğrular.",
+  "valid": [
+    {
+      "t": "m.move",
+      "x": 0.5,
+      "y": 0.25
+    },
+    {
+      "t": "m.btn",
+      "b": "l",
+      "down": true,
+      "x": 0,
+      "y": 1
+    },
+    {
+      "t": "m.btn",
+      "b": "m",
+      "down": false,
+      "x": 0.1,
+      "y": 0.9
+    },
+    {
+      "t": "m.wheel",
+      "dx": 0,
+      "dy": -120
+    },
+    {
+      "t": "k",
+      "code": "KeyA",
+      "down": true
+    },
+    {
+      "t": "k",
+      "code": "KeyI",
+      "down": true,
+      "key": "İ"
+    },
+    {
+      "t": "k",
+      "code": "Semicolon",
+      "down": false,
+      "key": "ş"
+    },
+    {
+      "t": "k.release_all"
+    }
+  ],
+  "invalid": [
+    {
+      "t": "m.move",
+      "x": 1.5,
+      "y": 0
+    },
+    {
+      "t": "m.move",
+      "x": 0.5
+    },
+    {
+      "t": "m.btn",
+      "b": "x",
+      "down": true,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "t": "m.wheel",
+      "dx": 0,
+      "dy": 1201
+    },
+    {
+      "t": "m.wheel",
+      "dx": 0.5,
+      "dy": 0
+    },
+    {
+      "t": "k",
+      "code": "",
+      "down": true
+    },
+    {
+      "t": "k",
+      "code": "KeyA",
+      "down": true,
+      "key": "abcde"
+    },
+    {
+      "t": "k.release_all",
+      "x": 1
+    },
+    {
+      "t": "control.request"
+    },
+    {
+      "t": "chat",
+      "id": "1",
+      "text": "x",
+      "ts": 1
+    },
+    {
+      "t": "k",
+      "code": "Key-A",
+      "down": true
+    },
+    {
+      "t": "k",
+      "code": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "down": true
+    }
+  ]
+}

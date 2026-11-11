@@ -66,12 +66,13 @@ func (a *fakeAPI) Join(_ context.Context, req api.JoinRequest) (*api.JoinResult,
 type fakeConn struct {
 	toClient chan any
 	sent     chan signal.Outbound
+	env      chan signal.EnvState
 	closed   chan struct{}
 	once     sync.Once
 }
 
 func newConn() *fakeConn {
-	return &fakeConn{toClient: make(chan any, 16), sent: make(chan signal.Outbound, 32), closed: make(chan struct{})}
+	return &fakeConn{toClient: make(chan any, 16), sent: make(chan signal.Outbound, 32), env: make(chan signal.EnvState, 32), closed: make(chan struct{})}
 }
 
 func (c *fakeConn) Read(ctx context.Context) (signal.Inbound, error) {
@@ -92,6 +93,10 @@ func (c *fakeConn) Send(_ context.Context, m signal.Outbound) error {
 	if _, err := signal.Encode(m); err != nil {
 		return err
 	}
+	if e, ok := m.(signal.EnvState); ok { // K8: her hello'dan sonra gider; ayrı kanalda denetlenir
+		c.env <- e
+		return nil
+	}
 	c.sent <- m
 	return nil
 }
@@ -99,6 +104,8 @@ func (c *fakeConn) Send(_ context.Context, m signal.Outbound) error {
 func (c *fakeConn) Close() error { c.once.Do(func() { close(c.closed) }); return nil }
 
 type fakePeer struct {
+	mu     sync.Mutex
+	caps   []string
 	h      rtc.Handlers
 	offers chan string
 	ctl    chan []byte
@@ -108,9 +115,14 @@ func (p *fakePeer) HandleOffer(sdp string) (signal.SdpAnswer, error) {
 	p.offers <- sdp
 	return signal.SdpAnswer{T: "sdp.answer", SDP: "answer-for-" + sdp}, nil
 }
-func (p *fakePeer) AddRemoteICE(signal.RemoteIce) error            { return nil }
-func (p *fakePeer) SetICEServers([]signal.IceServer) error         { return nil }
-func (p *fakePeer) SendCtl(b []byte) error                         { p.ctl <- b; return nil }
+func (p *fakePeer) AddRemoteICE(signal.RemoteIce) error    { return nil }
+func (p *fakePeer) SetICEServers([]signal.IceServer) error { return nil }
+func (p *fakePeer) SendCtl(b []byte) error                 { p.ctl <- b; return nil }
+func (p *fakePeer) SetCaps(c []string) {
+	p.mu.Lock()
+	p.caps = append([]string(nil), c...)
+	p.mu.Unlock()
+}
 func (p *fakePeer) Stream(ctx context.Context, _ rtc.Source) error { <-ctx.Done(); return ctx.Err() }
 func (p *fakePeer) Close() error                                   { return nil }
 
@@ -172,6 +184,18 @@ func (u *fakeUI) FileOfferWithdrawn(string)            { u.log("withdrawn") }
 func (u *fakeUI) FileProgress(int64, int64)            {}
 func (u *fakeUI) FileResult(r transfer.Result)         { u.log("fileresult:" + r.Status) }
 func (u *fakeUI) Ended(m Message)                      { u.log("ended:" + m.Title) }
+func (u *fakeUI) ControlRequest(p ControlPrompt)       { u.log("ctlreq:" + p.TechName + ":" + p.Hotkey) }
+func (u *fakeUI) MonitorRequest(m signal.Monitor)      { u.log("monreq:" + m.Name) }
+func (u *fakeUI) ControlPromptClosed()                 { u.log("promptclosed") }
+func (u *fakeUI) MonitorPromptClosed()                 { u.log("monpromptclosed") }
+func (u *fakeUI) MonitorChanged(m signal.Monitor)      { u.log("monchanged:" + m.Name) }
+func (u *fakeUI) ControlState(on bool, hk string) {
+	if on {
+		u.log("control:on:" + hk)
+	} else {
+		u.log("control:off")
+	}
+}
 
 type harness struct {
 	api    *fakeAPI

@@ -1,7 +1,8 @@
 // WS upgrade + kimlik (mimari-protokol §1, G-10, AC-14..19, 120): /ws/tech (Origin + çerez + oturum sahibi),
 // /ws/guest (sorgu dizesi yok; `Sec-WebSocket-Protocol: rs.v1, rs.ticket.*|rs.reconnect.*`; checkPublicClient
 // kuralı ticket kind'ı ile). Ret upgrade öncesi HTTP 403. Ping 30 sn, 2 pong kaçarsa terminate; teknisyen
-// oturumu 60 sn'de bir yeniden doğrulanır (G-04). Ticket/token/çerez loglanmaz.
+// oturumu 60 sn'de bir yeniden doğrulanır (G-04; P7/S-P3-8: yetkiler tazelenir, rol değişimi/pasif kullanıcı →
+// endByTechnician). Ticket/token/çerez loglanmaz.
 import type { IncomingMessage } from "node:http";
 import { STATUS_CODES } from "node:http";
 import type { Duplex } from "node:stream";
@@ -11,7 +12,8 @@ import type { FastifyInstance } from "fastify";
 import { WebSocket, WebSocketServer } from "ws";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { publicClientAllowed } from "../auth/guards.ts";
-import { resolveSession } from "../auth/session.ts";
+import { findUserById } from "../auth/repo.ts";
+import { canSignIn, resolveSession } from "../auth/session.ts";
 import { newId, sha256Hex } from "../lib/ids.ts";
 import { cidrMatcher, ipKey } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
@@ -102,7 +104,7 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
     const open = row && ((row.status === "PENDING" && row.expiresAt.getTime() > Date.now()) || (row.status === "ACTIVE" && rooms.get(row.id)));
     if (!row || row.technicianId !== auth.user.id || !open) return { status: 403, reason: "session" };
     accept(req, socket, head, "tech", (ws, peer) => {
-      const conn = { peer, userId: auth.user.id, username: auth.user.email, authToken: token, permissions: auth.permissions, ctx: ctxOf(req) };
+      const conn = { peer, userId: auth.user.id, username: auth.user.email, authToken: token, permissions: auth.permissions, role: auth.user.role, ctx: ctxOf(req) };
       const room = rooms.attachTech(row, conn);
       const bucket = new TokenBucket(rooms.clock);
       ws.on("message", (data: Buffer, bin) => void onTechMessage(rooms, room, peer, bucket, data, bin).catch((err: unknown) => app.log.error({ err }, "ws teknisyen mesajı işlenemedi")));
@@ -132,7 +134,7 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
       if (!room || !g || g.state !== "TICKETED") return { status: 403, reason: "ticket" };
       if (!publicClientAllowed(req.headers, env.allowedOrigins, g.kind)) return { status: 403, reason: "client_kind" };
       const r = room;
-      accept(req, socket, head, "guest", (ws, peer) => bindGuest(ws, peer, r, g, () => rooms.attachGuest(r, g, peer)));
+      accept(req, socket, head, "guest", (ws, peer) => bindGuest(ws, peer, r, g, ctx, () => rooms.attachGuest(r, g, peer)));
       return null;
     }
     const sessionId = rooms.reconnect.get(sha256Hex(value));
@@ -151,12 +153,13 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
       return { status: 403, reason: "reconnect_conflict" };
     }
     const r = room;
-    accept(req, socket, head, "guest", (ws, peer) => bindGuest(ws, peer, r, g, () => rooms.reattachGuest(r, peer)));
+    accept(req, socket, head, "guest", (ws, peer) => bindGuest(ws, peer, r, g, ctx, () => rooms.reattachGuest(r, peer)));
     return null;
   }
 
-  function bindGuest(ws: WebSocket, peer: Peer, room: Room, g: NonNullable<Room["admitted"]>, attach: () => void): void {
+  function bindGuest(ws: WebSocket, peer: Peer, room: Room, g: NonNullable<Room["admitted"]>, ctx: AuditContext, attach: () => void): void {
     if (!rooms.live(room)) return void ws.close(1000, "ended");
+    g.ctx = ctx; // P7: kontrol onayı kaydı bu bağlantının ip/user_agent'ı ile
     attach();
     const bucket = new TokenBucket(rooms.clock);
     ws.on("message", (data: Buffer, bin) => void onGuestMessage(rooms, room, g, peer, bucket, data, bin).catch((err: unknown) => app.log.error({ err }, "ws misafir mesajı işlenemedi")));
@@ -195,11 +198,21 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
     for (const room of rooms.techRooms()) {
       const t = room.tech;
       if (!t) continue;
-      void resolveSession(db, t.authToken, new Date())
-        .then((a) => (a ? undefined : rooms.finish(room, "auth_revoked", "SYSTEM")))
-        .catch((err: unknown) => app.log.error({ err }, "ws teknisyen yeniden doğrulama hatası"));
+      void revalidateTech(room, t).catch((err: unknown) => app.log.error({ err }, "ws teknisyen yeniden doğrulama hatası"));
     }
   }, opts.revalidateMs ?? 60_000);
+
+  /**
+   * Yedek yol (S-P3-8, AC-115): oturum geçersiz → bu oda `auth_revoked`; kullanıcı pasif / tenant pasif / rol değişti →
+   * teknisyenin TÜM odaları biter; aksi halde güncel yetkiler `applyPermChange` ile caps'e yansır.
+   */
+  async function revalidateTech(room: Room, t: NonNullable<Room["tech"]>): Promise<void> {
+    const a = await resolveSession(db, t.authToken, new Date());
+    if (a && a.user.role === t.role) return rooms.applyPermChange(t.userId, a.permissions);
+    const user = a ? null : await findUserById(db, t.userId);
+    if (a || !user || !canSignIn(user)) return rooms.endByTechnician(t.userId);
+    return rooms.finish(room, "auth_revoked", "SYSTEM");
+  }
   ping.unref();
   revalidate.unref();
   // preClose: server.close() yükseltilmiş soketleri beklemesin diye önce WS'ler kapatılır.

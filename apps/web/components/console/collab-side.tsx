@@ -51,7 +51,9 @@ export type { Tab as CollabTab };
 const SWATCH: Record<AnnotColor, string> = { red: "bg-annot-red", yellow: "bg-annot-yellow", green: "bg-annot-green", blue: "bg-annot-blue" };
 
 /** İşaretleme araç çubuğu (AC-56): araç seçimi (yeniden tıklama kapatır), 4 renk, geri al, temizle. */
-export function AnnotToolbar({ tool, color, onTool, onColor, onUndo, onClear }: {
+export function AnnotToolbar({ tool, color, onTool, onColor, onUndo, onClear, disabledHint }: {
+  /** P7: kontrol yakalanırken işaretleme kapalı (iki mod çakışmaz); verilirse düğmeler pasif + açıklama. */
+  disabledHint?: string | null;
   tool: DrawTool | null;
   color: AnnotColor;
   onTool: (t: DrawTool | null) => void;
@@ -65,25 +67,26 @@ export function AnnotToolbar({ tool, color, onTool, onColor, onUndo, onClear }: 
     ["rect", Square, t("p5.a.rect")],
     ["laser", CircleDot, t("p5.a.laser")],
   ];
-  const btn = "inline-flex size-11 items-center justify-center rounded-sm text-fg-muted hover:bg-surface-muted hover:text-fg aria-pressed:bg-primary-surface aria-pressed:text-primary";
+  const btn = "inline-flex size-11 items-center justify-center rounded-sm text-fg-muted hover:bg-surface-muted hover:text-fg aria-pressed:bg-primary-surface aria-pressed:text-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent";
+  const off = Boolean(disabledHint);
   return (
-    <div role="toolbar" aria-label={t("p5.a.toolbar")} className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-surface p-1 shadow-sm" data-testid="annot-toolbar">
+    <div role="toolbar" aria-label={t("p5.a.toolbar")} aria-disabled={off || undefined} title={disabledHint ?? undefined} className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-surface p-1 shadow-sm" data-testid="annot-toolbar">
       {tools.map(([k, Icon, label]) => (
-        <button key={k} type="button" aria-label={label} title={label} aria-pressed={tool === k} onClick={() => onTool(tool === k ? null : k)} className={btn} data-testid={`annot-${k}`}>
+        <button key={k} type="button" aria-label={label} title={label} aria-pressed={tool === k} disabled={off} onClick={() => onTool(tool === k ? null : k)} className={btn} data-testid={`annot-${k}`}>
           <Icon aria-hidden className="size-4" />
         </button>
       ))}
       <span aria-hidden className="mx-1 h-6 w-px bg-border" />
       {ANNOT_COLORS.map((c) => (
-        <button key={c} type="button" aria-label={t(`p5.a.color.${c}`)} aria-pressed={color === c} onClick={() => onColor(c)} className={btn}>
+        <button key={c} type="button" aria-label={t(`p5.a.color.${c}`)} aria-pressed={color === c} disabled={off} onClick={() => onColor(c)} className={btn}>
           <span aria-hidden className={`size-4 rounded-full ${SWATCH[c]} ${color === c ? "ring-2 ring-fg ring-offset-1 ring-offset-surface" : ""}`} />
         </button>
       ))}
       <span aria-hidden className="mx-1 h-6 w-px bg-border" />
-      <button type="button" aria-label={t("p5.a.undo")} title={t("p5.a.undo")} onClick={onUndo} className={btn} data-testid="annot-undo">
+      <button type="button" aria-label={t("p5.a.undo")} title={t("p5.a.undo")} disabled={off} onClick={onUndo} className={btn} data-testid="annot-undo">
         <Undo2 aria-hidden className="size-4" />
       </button>
-      <button type="button" aria-label={t("p5.a.clear")} title={t("p5.a.clear")} onClick={onClear} className={btn} data-testid="annot-clear">
+      <button type="button" aria-label={t("p5.a.clear")} title={t("p5.a.clear")} disabled={off} onClick={onClear} className={btn} data-testid="annot-clear">
         <Eraser aria-hidden className="size-4" />
       </button>
     </div>

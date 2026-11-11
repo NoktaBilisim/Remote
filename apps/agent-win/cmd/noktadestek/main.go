@@ -16,9 +16,12 @@ import (
 	"remote-support/agent-win/internal/api"
 	"remote-support/agent-win/internal/capture"
 	"remote-support/agent-win/internal/config"
+	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/dllsafe"
+	"remote-support/agent-win/internal/env"
 	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/input"
 	"remote-support/agent-win/internal/pairing"
 	"remote-support/agent-win/internal/rtc"
 	"remote-support/agent-win/internal/signal"
@@ -56,12 +59,27 @@ func run() int {
 		ui.ShowError("Program dosyası okunamadı. Dosyayı yeniden indirip tekrar deneyin.")
 		return exitIdentity
 	}
-	u, err := ui.New(cfg.DisplayHost(), cfg.Version, fp)
+	gate := &control.Gate{} // P7 izin kapısı: varsayılan kapalı (yalnız görüntüleme)
+	u, err := ui.New(cfg.DisplayHost(), cfg.Version, fp, gate)
 	if err != nil {
 		ui.ShowError("Arayüz başlatılamadı.")
 		return exitUI
 	}
 	defer u.Close()
+
+	selfElevated := env.SelfElevated() // S7-9/K8: süreç ömrü boyunca sabit, açılışta bir kez ölçülür
+	u.SetElevated(selfElevated)        // yerel kırmızı uyarı
+
+	// P7: SendInput alıcısı, kapatma kısayolu (Ctrl+Shift+F12, yedek Ctrl+Shift+F11) ve yalnız kapı açıkken kurulan
+	// yerel öncelik kancaları (S7-7).
+	applier := input.NewApplier(gate, input.SendInputInjector{}, nil)
+	host := input.Start(gate, u.HotkeyPressed)
+	defer host.Stop()
+	hotkey := ""
+	if host.HotkeyErr == nil {
+		hotkey = host.Hotkey.Label
+	}
+	u.SetHotkey(hotkey)
 
 	client := api.New(cfg.ServerURL, cfg.Version)
 	code, _ := pairing.FromFileName(exe) // AC-97: okunamazsa flow elle giriş ister
@@ -81,6 +99,16 @@ func run() int {
 		Logo:        client.Logo, // AC-98: yalnız gömülü sunucu kökeni, PNG/JPG ≤ 2 MB
 		UI:          u,
 		Events:      u.Events(),
+		Gate:        gate,
+		Hotkey:      hotkey,
+		Input:       applier.Handle,
+		SetInputMonitor: func(id int) {
+			if r, ok := capture.MonitorRect(id); ok {
+				applier.SetTarget(control.Rect{Left: r.Left, Top: r.Top, Right: r.Right, Bottom: r.Bottom}, input.VirtualScreen())
+			}
+		},
+		EnvProbe:     env.Probe,
+		SelfElevated: selfElevated, // K8: env.state.selfElevated (GRANTED audit'i, konsol rozeti)
 	}, code)
 	if out.Message != (flow.Message{}) {
 		u.Ended(out.Message)

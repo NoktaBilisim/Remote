@@ -1,11 +1,13 @@
 # Remote Support — Kullanım Kılavuzu
 
 Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekranlarını anlatır. Platform paketler hâlinde
-geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölüm:
+geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
-- **Müşteri için:** Hızlı Destek uygulaması (Windows)
+- **Müşteri için:** Hızlı Destek uygulaması (Windows), uzaktan kontrol izni
+- **Teknisyen için:** Uzaktan kontrol (konsol)
+- **Admin için:** Uzaktan kontrol yetkisi ve kayıtlar
 
-Teknisyen konsolu ve yönetim paneli bölümleri, ilgili ekranlar tamamlandıkça eklenecektir.
+Teknisyen konsolunun diğer bölümleri ve yönetim paneli, ilgili ekranlar tamamlandıkça eklenecektir.
 
 ---
 
@@ -20,15 +22,18 @@ yönetici şifresi sormaz, bilgisayarınızda iz bırakmaz. Program kapandığı
 - Teknisyeninizin size gönderdiği **destek bağlantısı** veya **8 haneli destek kodu**.
 - Telefonda teknisyeninizle görüşüyor olmanız (kodları birbirinize okuyacaksınız).
 
-**Bu sürümde teknisyen neler yapabilir?**
-- Ekranınızı **görebilir**. Fare ve klavyenizi **kullanamaz**.
+**Teknisyen neler yapabilir?**
+- Ekranınızı **görebilir**.
+- **Siz izin verirseniz** fare ve klavyenizi kullanabilir. İzni her istediğinizde tek tıkla veya bir tuş kombinasyonuyla
+  geri alırsınız (bkz. "Teknisyen bilgisayarımı kullanmak isterse").
 - Sizinle yazışabilir (sohbet).
 - Ekranınızın üzerine geçici çizimler yapabilir (ok, kalem, dikdörtgen, kısa süreli lazer noktası). Bu çizimler
   tıklamanızı engellemez.
 - Size dosya gönderebilir. Her dosyayı siz onaylarsınız.
 
 **Bilmeniz gerekenler**
-- Teknisyen **fare imlecinizi göremez**. Ekranda bir yeri göstermek istiyorsanız sohbette yazın veya telefonda tarif edin.
+- Teknisyen **fare imlecinizi göremez** (uzaktan kontrol sırasında da). Ekranda bir yeri göstermek istiyorsanız
+  sohbette yazın veya telefonda tarif edin.
 - Karşılama penceresinin sağ üstünde şimdilik firmanızın değil **Nokta Bilişim'in logosu** görünür. Firma adı ve
   teknisyen adı yazı olarak yine gösterilir.
 - Program sizden teknisyene dosya göndermez; yalnız teknisyenden dosya alır.
@@ -135,6 +140,56 @@ Diğer durumlar:
   bir sürücüdedir; program çalıştırabilen dosyalar bu durumda kaydedilmez. Teknisyeninize söyleyin.
 - Kaydedilen dosyalar Windows'ta "internetten indirildi" olarak işaretlenir. Açarken Windows ek bir uyarı gösterebilir.
 
+### Teknisyen bilgisayarımı kullanmak isterse (uzaktan kontrol)
+Teknisyen fare ve klavyenizi kullanmak isterse ekranınızda **Uzaktan kontrol isteği** penceresi açılır. Pencerede
+teknisyenin adı ve kontrolü nasıl kapatacağınız yazar. Siz izin vermeden teknisyen hiçbir şeye tıklayamaz, yazamaz.
+
+**İzin vermek için**
+1. Pencereyi okuyun. İsteği beklemiyorsanız **Reddet**'e tıklayın. Enter'a basmak da reddeder.
+2. Bekliyorsanız **kendi farenizle** **İzin ver**'e tıklayın. Bu düğme yanlışlıkla basılmasın diye ilk **1,5 saniye**
+   çalışmaz. Klavyeyle Alt+İ de kullanılabilir.
+3. İzin verince ekranın üstündeki yazı **"Uzaktan kontrol aktif — <teknisyen adı>"** olur.
+
+Güvenliğiniz için:
+- Pencere fare imlecinizin hemen altında açılmaz; istemeden tıklamazsınız.
+- Teknisyenin uzaktan yaptığı tıklama bu pencerede **sayılmaz**. İzni yalnız siz verebilirsiniz.
+- Pencereyi kaçırdıysanız **Nokta Destek — Oturum** penceresindeki **Erişime izin ver** düğmesi isteği yeniden öne
+  getirir. Bu düğme tek başına izin vermez.
+- Reddettikten sonraki 30 saniye içinde yeni istek gelmez. Teknisyen bir oturumda en çok 5 kez istek gönderebilir.
+
+**Kontrolü geri almak için** (istediğiniz an)
+- Oturum penceresinde **Kontrolü kapat**'a tıklayın, **veya**
+- Klavyede **Ctrl+Shift+F12**'ye basın. Hangi pencere önde olursa olsun çalışır. Bu kombinasyonu başka bir program
+  kullanıyorsa yerine **Ctrl+Shift+F11** atanır. Hangisinin geçerli olduğu oturum penceresinde "Uzaktan kontrolü
+  anında kapatmak için: …" satırında yazar.
+- Kendi farenizi veya klavyenizi kullandığınızda teknisyenin hareketi yaklaşık 1 saniye durur. Bilgisayar her zaman
+  önce sizi dinler.
+
+Kontrol kapanınca üstteki yazı yeniden **"Ekranınız izleniyor — <teknisyen adı>"** olur.
+
+**Teknisyen başka bir ekranı görmek isterse:** birden fazla monitörünüz varsa **Ekran değiştirme isteği** penceresi
+açılır. Kurallar aynıdır: Reddet varsayılandır, İzin ver 1,5 saniye sonra çalışır. İzin verirseniz teknisyen o
+ekrandaki her şeyi görür.
+
+**Oturum penceresinde görebileceğiniz mesajlar**
+| Mesaj | Anlamı |
+|---|---|
+| Teknisyen kontrolü bıraktı | Teknisyen işini bitirdi; fare ve klavye yeniden yalnız sizde. |
+| Teknisyen isteği geri çekti | Teknisyen isteğinden vazgeçti; açık olan izin penceresi kapandı. |
+| Uzaktan kontrol kapatıldı. | Kontrolü siz kapattınız. |
+| Uzaktan kontrol sunucu tarafından kapatıldı. | Sistem kontrolü kapattı (ör. teknisyenin yetkisi kaldırıldı). |
+| Teknisyenin bağlantısı koptu — uzaktan kontrol kapatıldı | Teknisyenin bağlantısı gitti; kontrol güvenlik için kapandı. |
+| Seçilen ekran paylaşılamadı; önceki ekran paylaşılıyor. | Yeni ekrana geçilemedi; teknisyen önceki ekranı görmeye devam eder. |
+
+İnternet koparsa kontrol kendiliğinden kapanır. Bağlantı geri geldiğinde teknisyen yalnız ekranı görür; kontrol için
+yeniden izin istemesi gerekir.
+
+**Kırmızı uyarılar**
+- **"Kontrolü kapatma kısayolu kaydedilemedi … uzaktan kontrol izni verilemez."** Başka programlar iki kısayolu da
+  kullanıyor. Güvenliğiniz için bu durumda izin düğmesi hiç çalışmaz. Teknisyen ekranınızı görmeye devam edebilir.
+- **"Dikkat: Bu program yönetici olarak çalışıyor …"** Programı "Yönetici olarak çalıştır" ile açtınız. Bu durumda
+  teknisyen yönetici onayı isteyen pencereleri de kullanabilir. Gerekmiyorsa oturumu bitirip programı normal açın.
+
 ### Oturumu kapatma
 - **Oturumu bitir** düğmesine tıklayın. Teknisyen ekranınızı artık göremez ve program birkaç saniye içinde kendiliğinden
   kapanır.
@@ -160,3 +215,117 @@ Diğer durumlar:
 | Bağlantı kesildi | İnternetinizi kontrol edin. Kod hâlâ geçerliyse programı yeniden açın. |
 | Bu program hatalı derlenmiş (sunucu adresi yok). | Dosya bozuk veya yanlış. Teknisyeninizden yeni bir indirme bağlantısı isteyin. |
 | Program dosyası okunamadı. | Dosyayı yeniden indirip tekrar deneyin. |
+| İzin ver düğmesi çalışmıyor | İlk 1,5 saniye beklenir; sonra kendi farenizle tıklayın. Kırmızı "kısayol kaydedilemedi" uyarısı varsa izin verilemez. |
+| Teknisyen tıklıyor ama bir pencerede hiçbir şey olmuyor | O pencere yönetici yetkisiyle açılmış olabilir (ör. yönetici komut istemi). Teknisyen bunu konsolda görür; gerekirse işlemi siz yapın. |
+| Windows onay ekranı (UAC) açıkken teknisyen ekranı göremiyor | Bu ekran güvenlik gereği paylaşılmaz. Onayı siz verin; görüntü kendiliğinden geri gelir. |
+
+---
+
+## Teknisyen için: Uzaktan kontrol (konsol)
+
+Uzaktan kontrol yalnız müşteri **Hızlı Destek** uygulamasıyla bağlandığında kullanılabilir. Müşteri tarayıcıdan
+bağlandıysa konsolda "Uzaktan kontrol" düğmesi pasiftir; yalnız görüntü alırsınız. Hesabınızda **Uzaktan kontrol**
+yetkisi (`remote_control.use`) yoksa kontrol düğmesi hiç görünmez.
+
+### Nasıl kontrol isterim?
+1. **Oturumlar** ekranından oturumun **Konsolu aç** bağlantısına tıklayın. Müşteriyi kabul edin ve görüntünün gelmesini
+   bekleyin. Görüntü gelmeden düğme çalışmaz ("Görüntü geldiğinde kontrol istenebilir").
+2. Sahnenin üst şeridinde **Kontrol iste**'ye tıklayın.
+3. Düğme **Kontrol bekleniyor** olur; altında "Müşterinin onayı bekleniyor; şu an yalnız görüntüleme" yazar. Bu sırada
+   gönderdiğiniz hiçbir tıklama müşteriye gitmez.
+4. Müşteriye telefonda ekranındaki pencereden **İzin ver**'e tıklamasını söyleyin.
+5. Müşteri izin verince "Müşteri kontrol izni verdi" bildirimi çıkar, şeritte **Kontrol sizde** yazar ve görüntünün
+   çevresinde kırmızı çerçeve görünür. Artık fare ve klavyeniz müşterinin bilgisayarına gider.
+
+İsteğinizden vazgeçerseniz **Vazgeç**'e tıklayın ("Kontrol isteğini geri çektiniz"). Müşteri pencereyi sonradan
+onaylasa bile kontrol açılmaz.
+
+### Hak ve bekleme kuralları
+- Bir oturumda en çok **5 istek** gönderebilirsiniz. Kalan hak not satırında yazar ("bu oturumda 3 istek hakkı kaldı").
+  Vazgeçtiğiniz istek de haktan düşer. Sayfayı yenilemek hakları sıfırlamaz.
+- Müşteri reddederse "Kontrol reddedildi" bildirimi çıkar ve düğme **Tekrar iste (0:25)** gibi geri sayar. 30 saniye
+  dolmadan yeni istek gönderilemez.
+- Hak bitince "Bu oturumda kontrol isteği hakkı doldu (5/5)" yazar ve düğme pasif kalır.
+
+### Kontrol sırasında
+- **Fare:** sol, sağ ve orta tık, çift tık, sürükleme ve tekerlek çalışır. Tıklama görüntüde gördüğünüz noktaya düşer.
+- **Klavye:** yazdığınız metin müşterinin klavye düzeninden bağımsız aynen çıkar (ç ğ ı ö ş ü İ dahil). Ctrl+C,
+  Ctrl+V gibi kısayollar çalışır.
+- **Özel tuşlar** menüsü (klavye ikonu): Alt+Tab, Windows tuşu, Win+D, Win+R, Win+E, Alt+F4, Ctrl+Shift+Esc,
+  Print Screen. Seçince "Gönderildi: …" yazar. **Ctrl+Alt+Del ve Win+L gönderilemez.**
+- **Tam ekran** kipinde (Chrome/Edge) Windows tuşu ve Alt+Tab gibi sistem tuşları doğrudan müşteriye gider.
+- **Klavyeden çıkmak:** Tab tuşu da müşteriye gittiği için sayfada gezinemezsiniz. **Ctrl+Alt+Shift**'e birlikte basıp
+  başka tuşa basmadan bırakın; odak **Kontrolü bırak** düğmesine geçer.
+- Kontrol sırasında işaretleme araçları kapalıdır ("Kontrol sırasında işaretleme kapalı; önce kontrolü bırakın").
+- Müşteri kendi faresini oynatırsa sizin hareketiniz yaklaşık 1 saniye durur. Bu beklenen davranıştır.
+- Müşterinin fare imleci görüntüde görünmez; yalnız kendi imlecinizi görürsünüz.
+
+### Görünüm ve monitör
+- **Sığdır:** müşteri ekranının tamamı sahneye sığar.
+- **%100:** müşteri ekranı piksel piksel (1:1) gösterilir; sahneden büyükse kaydırma çubuklarıyla gezinirsiniz.
+  Kaydırma çubuğuna tıklamanız müşteriye gitmez. Küçük yazıları okumak ve hassas tıklama için bu kipi kullanın.
+- Sahne 960 pikselden darsa (küçük pencere, yan panel açık) monitör seçimi, Sığdır/%100 ve Tam ekran sağdaki
+  **Görünüm** menüsünde toplanır. Genişte şeritte yan yana durur.
+- **Monitör değiştirme:** müşterinin birden fazla ekranı varsa **Monitör** seçiminde ("Ekran 1", "Ekran 2") başka
+  ekranı seçin. Müşteri onay verir; bu sırada "Ekran 2 için müşteri onayı bekleniyor…" yazar.
+  - Onaylarsa "Ekran 2 gösteriliyor".
+  - Reddederse "Müşteri monitör değişikliğini reddetti"; 30 saniye yanıt gelmezse "Müşteri monitör değişikliğini
+    onaylamadı". İki durumda da seçim kısa süre pasif olur ve "yeni istek 0:30 sonra" gibi geri sayar.
+  - Zaten gösterilen ekranı seçemezsiniz ("Bu monitör zaten paylaşılıyor"). Monitör isteği de oturumda en çok 5 kez.
+
+### Kontrolü bırakma
+- İşiniz bitince **Kontrolü bırak**'a tıklayın. Müşteri tarafında kontrol hemen kapanır, basılı kalan tuş olmaz.
+- Düğme **Kontrole devam** olur. Tekrar kontrol için tıklayın; bu yeni bir istektir, müşteri yeniden onaylar ve
+  haktan düşer.
+
+### Kontrolün kendiliğinden kapandığı durumlar
+| Konsolda gördüğünüz | Ne oldu | Ne yapmalı |
+|---|---|---|
+| Kontrol müşteri tarafından kapatıldı | Müşteri "Kontrolü kapat"a tıkladı | Müşteriyle konuşun; gerekirse yeniden isteyin |
+| Kontrol müşteri tarafından kısayolla kapatıldı | Müşteri Ctrl+Shift+F12 (veya F11) bastı | Aynı |
+| Kontrol sistem tarafından kapatıldı (yetki veya kayıt) | Yetkiniz kaldırıldı veya izin kaydı yazılamadı | Yetkiniz varsa yeniden deneyin; tekrarlıyorsa yöneticinize bildirin |
+| Uzaktan kontrol yetkiniz yok; kontrol istenemez | Hesabınızda yetki yok veya oturum sırasında kaldırıldı | Yöneticinizden yetki isteyin; yeni oturumda geçerli olur |
+| Müşteri bağlantısı koptu; kontrol kapandı | Müşterinin interneti gitti | Yeniden bağlanınca yeniden isteyin |
+| Bağlantı yenilendi; kontrol yeniden istenmeli | Sizin bağlantınız koptu veya sekmeyi yenilediniz | Yeniden isteyin |
+| Müşteri tarafında bağlantı kesildi; istek kapandı | İstek beklerken müşterinin görüntü bağlantısı koptu | Ret sayılmaz; hemen yeniden isteyebilirsiniz |
+
+### Uyarılar
+- **"Yükseltilmiş pencere — kontrol edilemiyor. Müşteriden onaylamasını isteyin."** Müşterinin önündeki pencere yönetici
+  yetkisiyle açılmış. Windows bu pencereye uzaktan girdi kabul etmez. İşlemi müşteriye yaptırın.
+- **"Müşteri güvenli masaüstünde"** Müşteride Windows onay ekranı (UAC) veya kilit ekranı açık. Bu sırada görüntü
+  durur, kontrol uygulanamaz. Müşteri işlemi bitirince görüntü geri gelir.
+- **"Müşteri istemcisi yönetici olarak çalışıyor — yükseltilmiş pencereler ve UAC ekranı denetlenebilir"** Müşteri
+  Hızlı Destek'i yönetici olarak açmış. Kontrol engellenmez; müşteri de ekranında bir uyarı görür. Gerekmiyorsa
+  müşteriden programı normal açmasını isteyin.
+
+---
+
+## Admin için: Uzaktan kontrol yetkisi ve kayıtlar
+
+### Yetki
+- Uzaktan kontrol **Uzaktan kontrol → Kullan** (`remote_control.use`) yetkisine bağlıdır. Yetkisi olmayan teknisyen
+  konsolda kontrol düğmesini görmez; sunucu da isteği reddeder.
+- Kullanıcı yetki ekranı (aç/kapa anahtarları) P9 paketiyle gelecektir. O zamana kadar staging hesapları
+  `deploy/staging-users.sh` ile oluşturulur ve teknisyen hesabına bu yetki açık gelir (`docs/runbook.md` §6).
+- **Yetki kaldırılınca:** teknisyenin bağlantısı her 60 saniyede bir yeniden denetlenir. Yetki kaldırıldıysa açık
+  kontrol kapanır, müşteri tarafında "Uzaktan kontrol sunucu tarafından kapatıldı." yazar ve teknisyen yeni istek
+  gönderemez. Hesap pasife alınır veya rolü değişirse teknisyenin tüm oturumları sonlanır. Oturum sırasında yetki
+  **verilirse** bu yalnız yeni oturumlarda geçerli olur.
+
+### Kayıtlar (audit)
+Her uzaktan kontrol adımı denetim kaydına yazılır; klavye ve fare içeriği hiçbir yere yazılmaz. Audit log ekranı P11
+paketiyle gelecektir; kayıtlar o zamana kadar veritabanında tutulur.
+
+| Kayıt | Ne zaman |
+|---|---|
+| `control.requested` | Teknisyen kontrol istedi ve istek müşteriye iletildi |
+| `control.granted` | Müşteri izin verdi (istemcinin yönetici olarak çalışıp çalışmadığı da yazılır) |
+| `control.denied` | Müşteri reddetti |
+| `control.released` | Teknisyen kontrolü bıraktı |
+| `control.cancelled` | Teknisyen isteği geri çekti, ya da istek müşteri karar vermeden kapandı |
+| `control.revoked` | Kontrol kapandı: müşteri (düğme/kısayol), bağlantı kopması, yetki kaldırılması veya oturum sonu |
+| `monitor.requested` / `monitor.granted` / `monitor.denied` | Monitör değiştirme isteği, onayı, reddi |
+| `session.caps_changed` | Teknisyenin oturumdaki yetkileri daraldı |
+
+İzin, ret ve kapanışlar ayrıca KVKK onay kanıtı olarak saklanır. **İzin kaydı yazılamazsa kontrol hiç açılmaz**:
+müşterinin onayı kaydedilmeden teknisyen bilgisayarı kullanamaz.

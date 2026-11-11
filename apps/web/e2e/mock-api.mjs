@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 // Çerez/başlık adları tek kaynaktan (Node 24 .ts tür ayıklama ile doğrudan okunur)
 import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import { handleSessions, sessionUser } from "./mock-sessions.mjs";
-import { attachWs, wsLog } from "./mock-ws.mjs";
+import { ageRoom, attachWs, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
 const CSRF = "csrf-test-token";
@@ -59,6 +59,15 @@ const srv = createServer(async (req, res) => {
   // P5 e2e: sahte sunucunun aldığı file.meta / quality.summary kaydı (yalnız test)
   const logHit = req.method === "GET" && url.match(/^\/__e2e\/ws-log\/([0-9A-Z]{26})$/);
   if (logHit) return send(res, 200, wsLog.get(logHit[1]) ?? []);
+  // P7 e2e: canlı yetki kaldırma (AC-115) — misafire control.revoke + caps.update, teknisyene control.state{VIEW,SYSTEM}
+  const revokeHit = req.method === "GET" && url.match(/^\/__e2e\/revoke\/([0-9A-Z]{26})$/);
+  if (revokeHit) return send(res, revokeControl(revokeHit[1]) ? 200 : 404, {});
+  // P7 düzeltme 1 (S7-2): teknisyene istenmemiş control.state{GRANTED} (sunucu kuralını atlayan yarış/hata taklidi)
+  const strayHit = req.method === "GET" && url.match(/^\/__e2e\/stray-grant\/([0-9A-Z]{26})$/);
+  if (strayHit) return send(res, strayGrant(strayHit[1]) ? 200 : 404, {});
+  // TEST-P7-3: oda zaman damgalarını geçmişe çek (?ms=), 30 sn kurallarını beklemeden sınamak için
+  const ageHit = req.method === "GET" && url.match(/^\/__e2e\/age\/([0-9A-Z]{26})\?ms=(\d+)$/);
+  if (ageHit) return send(res, ageRoom(ageHit[1], Number(ageHit[2])) ? 200 : 404, {});
   const csrfOk = req.headers[CSRF_HEADER.toLowerCase()] === CSRF && c[CSRF_COOKIE] === CSRF;
   // Backend gibi: durum değiştiren isteklerde Origin allowlist'te olmalı (ADR-0008)
   if (req.method !== "GET" && req.headers.origin !== (process.env.MOCK_ALLOWED_ORIGIN ?? "http://localhost:3217"))

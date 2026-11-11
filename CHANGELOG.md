@@ -5,6 +5,73 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P7 (uzaktan kontrol)
+- **WS sözleşmesi (`packages/contracts/src/ws.ts`, ADR-0013, mimari-protokol §3/§3.3):** teknisyen → `control.request`,
+  `control.cancel`, `control.release`, `monitor.request`; misafir (yalnız Hızlı Destek) → `control.state`,
+  `monitor.denied`, `env.state{elevatedForeground, secureDesktop, selfElevated}`; sunucu → misafire `control.revoke`
+  (`permission|audit|admin|reconnect|stale`), `caps.update`; teknisyene sunucu kaynaklı `control.state`
+  (`SYSTEM|RECONNECT|TECH`). `error.code` kümesine `INTERNAL` eklendi.
+- **`input` DataChannel (`src/dc.ts`):** `m.move`, `m.btn`, `m.wheel` (±1200), `k` (`code` `^[A-Za-z0-9]{1,32}$`,
+  `key` ≤ 4), `k.release_all`; örnekler `fixtures/dc-input.json` (TS ve Go aynı fixture'la test edilir).
+- **Sunucu (`apps/server/src/signaling/control.ts`):** istek süzgeci (sıra: yetki → misafir bağlı → tarayıcı modu →
+  bekleyen istek → açık kontrol → ret sonrası 30 sn → oturum başına 5 istek); monitör isteği için ayrı sayaç, tek
+  bekleyen istek, etkin monitör `VALIDATION`; misafir/teknisyen kopması, sekme değişimi ve oturum sonunda kontrolün
+  kapatılması; 60 sn teknisyen yeniden doğrulamasında yetki daralması → `caps.update` + `control.revoke{permission}`
+  (S-P3-8 / AC-115 yedek yolu). Audit adları tek kaynak `packages/contracts/src/audit.ts` (`control.requested/granted/
+  denied/revoked/released/cancelled`, `monitor.requested/granted/denied`, `session.caps_changed`). Metrik
+  `rs_control_total{event}`.
+- **Windows istemci (`apps/agent-win`):** izin kapısı (`internal/control`, varsayılan kapalı, her `SendInput`'tan önce
+  atomik denetim); ortak izin diyaloğu (kontrol, monitör, dosya kabulü: "Reddet" odakta, "İzin ver" 1,5 sn kilitli,
+  Enter/Space izin vermez, imleç altında açılmaz, enjekte girdi yok sayılır); "Kontrolü kapat" ve global kısayol
+  Ctrl+Shift+F12 (yedek Ctrl+Shift+F11; ikisi de alınamazsa izin verilemez); girdi uygulayıcı (`internal/input`:
+  Türkçe karakterler `KEYEVENTF_UNICODE`, kısayollar VK, Ctrl+Alt+Del ve Win+L engelli, çoklu monitör/sanal masaüstü
+  koordinatı, kapanışta takılı tuş bırakma, 250 olay/sn sınırı); yerel öncelik (müşteri girdisi uzaktan girdiyi ~1 sn
+  askıya alır); ortam izleyici (`internal/env`: yükseltilmiş ön plan penceresi, güvenli masaüstü, istemcinin yönetici
+  olarak çalışması); gösterge "Uzaktan kontrol aktif — <ad>".
+- **Konsol (`/sessions/[id]/console`):** Kontrol iste / Kontrol bekleniyor + Vazgeç / Kontrol sizde + Kontrolü bırak /
+  Kontrole devam; ret geri sayımı ve kalan hak (sekme yenilense de korunur); Özel tuşlar menüsü; Ctrl+Alt+Shift ile
+  klavye odağından çıkış; tam ekranda Keyboard Lock; monitör seçimi (onay bekleme, ret, yanıtsızlık geri sayımı);
+  yükseltilmiş pencere / güvenli masaüstü / yönetici olarak çalışan istemci uyarıları; kırmızı kontrol çerçevesi.
+  Kontrol sırasında işaretleme pasif. `remote_control.use` yoksa düğme görünmez.
+- **Migration `20261111050000_p7_consent_source_tech`:** `session_consents_source_chk` += `TECH` (yeni tablo/sütun yok).
+  P7 server'ından önce uygulanmalı; geri alma için önce P7 kodu, `TECH` satırı varsa `down.sql` atomik başarısız olur.
+
+### Değişti — P7
+- Konsol "%100" görünümü artık müşteri monitörünün piksel boyutunda (1:1) çizilir; önceden düşük çözünürlüklü akışta
+  tıklamalar kayıyordu (TEST-P7-1).
+- Sahne 960 px'ten darsa monitör seçimi, Sığdır/%100 ve Tam ekran **Görünüm** menüsünde toplanır; kontrol şeridi
+  1280 px'te tek satır (TEST-P7-2). Yeni primitif `components/ui/menu.tsx`; `ui/segmented.tsx`'e `disabled`.
+- İşaretleme araç çubuğu ve görüntü kontrolleri görüntünün üstünden sahnenin üst şeridine taşındı.
+- P5 dosya kabul diyaloğu (istemci) ortak izin diyaloğuna taşındı: "Kabul et" enjekte tıklamayla verilemez.
+- Müşteri kopunca bekleyen monitör isteği temizlenir; yeniden bağlanan istemcinin ilk `share.state`'i onay sayılmaz (S7-15).
+
+### Güvenlik — P7
+- **Fail-closed açma (G-15, AC-111):** `control.granted` kaydı (consent + audit tek TX) hata verir ya da 800 ms'de
+  bitmezse misafire `control.revoke{audit}`, teknisyene `error{INTERNAL}` (ref ile); kontrol açılmaz.
+- **S7-1/S7-2 (ADR-0013 K1/K2):** "Kontrolü bırak" müşteri kapısını kapatır; vazgeçilen isteğin geç onayı
+  `control.revoke{stale}` ile düşer; konsol beklemediği izinde yakalama başlatmaz.
+- **S7-4 (K3):** teknisyen koptuğunda veya sekme değiştiğinde misafire önce `control.revoke{reconnect}`; istemci
+  `peer.left/joined{tech}` ile de kapatır (iki katman).
+- **S7-3/S7-16:** kısayol kapatması kanca iş parçacığını bloklamaz; kapı nesil sayacıyla bayat kanca kaldırma isteği
+  yeni açılışı etkilemez.
+- **S7-5/S7-12:** izin diyaloğu girdinin kaynağını `GetCurrentInputMessageSource` ile denetler; yalnız
+  `IMO_HARDWARE` kabul, diğer her durum enjekte sayılır.
+- **S7-7:** düşük seviye kancalar yalnız kontrol açıkken kurulu. **S7-8/S7-13:** girdi hız sınırı; yalnız basılı
+  tuş/düğmenin bırakılması sınırdan muaf.
+- **S7-9 (K8):** istemci yönetici olarak çalışıyorsa müşteriye kırmızı uyarı, konsola rozet; GRANTED audit'inde
+  `selfElevated`.
+- **S7-10:** misafir `RECONNECT`/`TECH` kaynağı gönderemez (şema hatası → 1008).
+
+### Bilinen sınırlamalar — P7
+- Gerçek Windows'ta elle doğrulama (implementation.md "Agent P7" adım 25–42: Türkçe karakter, Alt+Tab, DPI, UAC,
+  kısayol, enjekte tıklama) henüz yapılmadı; P8 kod turundan önce yapılacak.
+- UIAccess yetkili yerel bir programın `SendInput`'u donanım girdisi gibi görünür; teknisyen bu yolu kullanamaz,
+  kapsam dışı kabul edildi.
+- Fare imleci görüntüye çizilmez; teknisyen yalnız kendi imlecini görür.
+- Yetki kaldırma ekranı P9'da gelir; bugün yetki değişikliği en geç 60 sn'lik yeniden doğrulamada kontrolü keser
+  (AC-115'in 5 sn hedefi P9/P10 servislerinin doğrudan çağrısıyla sağlanacak, S7-11).
+- Monitör isteği için iptal mesajı yok; yanıtsız istek 30 sn sonra düşer.
+
 ### Eklendi — P6 (Windows istemci "Hızlı Destek")
 - **Windows istemci (`apps/agent-win`, Go 1.26, CGO'suz, ADR-0010):** tek dosya, kurulumsuz, `asInvoker` (UAC yok),
   PerMonitorV2 DPI, Türkçe Win32 arayüz. Sunucu adresi ve sürüm yalnız `-ldflags` ile gömülür; `https://host[:port]`
@@ -85,8 +152,8 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Firma logosu: sunucu resolve yanıtında `logoUrl` değerini P9'a kadar `null` döner; istemci sistem logosunu (Nokta
   amblemi) gösterir.
 - Fare imleci görüntüye çizilmez; teknisyen müşterinin imlecini göremez.
-- Uzaktan kontrol yok (P7). Web indirme kartındaki "siz izin verirseniz fare ve klavyeyi kullanabilir" metni P7
-  davranışını anlatır.
+- Uzaktan kontrol yok (P7'de eklendi). Web indirme kartındaki "siz izin verirseniz fare ve klavyeyi kullanabilir"
+  metni P7 davranışını anlatır.
 - İstemci müşteriden teknisyene dosya göndermez; dosya kaydetme yeri sorulmaz (her zaman İndirilenler).
 - İstemci arayüzü yalnız açık temadadır (koyu tema yok).
 - Win10 2004 öncesinde gösterge ve işaretleme görüntüde görünebilir.

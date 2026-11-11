@@ -1,0 +1,302 @@
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"geom","label":"idle 1280-dark","tools":{"x":272,"y":214,"width":580,"height":195},"view":{"x":272,"y":409,"width":580,"height":400},"video":{"x":276,"y":413,"width":572,"height":392},"border":"rgba(0, 0, 0, 0) 4px","overlap":0}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"geom","label":"idle 1280-light","tools":{"x":272,"y":214,"width":580,"height":195},"view":{"x":272,"y":409,"width":580,"height":400},"video":{"x":276,"y":413,"width":572,"height":392},"border":"rgba(0, 0, 0, 0) 4px","overlap":0}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"geom","label":"idle 1440-dark","tools":{"x":272,"y":214,"width":740,"height":195},"view":{"x":272,"y":409,"width":740,"height":450},"video":{"x":276,"y":413,"width":732,"height":442},"border":"rgba(0, 0, 0, 0) 4px","overlap":0}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"geom","label":"idle 1440-light","tools":{"x":272,"y":214,"width":740,"height":195},"view":{"x":272,"y":409,"width":740,"height":450},"video":{"x":276,"y":413,"width":732,"height":442},"border":"rgba(0, 0, 0, 0) 4px","overlap":0}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"strip","label":"idle 1280-dark","stripH":195,"bad":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"strip","label":"idle 1280-light","stripH":195,"bad":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"strip","label":"idle 1440-dark","stripH":195,"bad":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"strip","label":"idle 1440-light","stripH":195,"bad":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"idle 1440-dark","violations":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"idle 1280-light","violations":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"overflow","label":"idle 1280-light","px":0}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"overflow","label":"idle 1440-dark","px":0}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"idle 1440-light","violations":[]}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"idle 1280-dark","violations":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"overflow","label":"idle 1440-light","px":0}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"overflow","label":"idle 1280-dark","px":0}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"strip","label":"requested 1280-dark","stripH":185,"bad":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"strip","label":"requested 1280-light","stripH":185,"bad":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"strip","label":"requested 1440-dark","stripH":185,"bad":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"strip","label":"requested 1440-light","stripH":185,"bad":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"requested 1280-light","violations":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"requested 1440-light","violations":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"requested 1440-dark","violations":[]}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"requested 1280-dark","violations":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"geom","label":"granted 1440-dark","tools":{"x":272,"y":214,"width":740,"height":185},"view":{"x":272,"y":399,"width":740,"height":450},"video":{"x":276,"y":403,"width":732,"height":442},"border":"rgb(217, 45, 32) 4px","overlap":0}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"geom","label":"granted 1440-light","tools":{"x":272,"y":214,"width":740,"height":185},"view":{"x":272,"y":399,"width":740,"height":450},"video":{"x":276,"y":403,"width":732,"height":442},"border":"rgb(217, 45, 32) 4px","overlap":0}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"geom","label":"granted 1280-dark","tools":{"x":272,"y":214,"width":580,"height":209},"view":{"x":272,"y":423,"width":580,"height":400},"video":{"x":276,"y":427,"width":572,"height":392},"border":"rgb(217, 45, 32) 4px","overlap":0}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"geom","label":"granted 1280-light","tools":{"x":272,"y":214,"width":580,"height":209},"view":{"x":272,"y":423,"width":580,"height":400},"video":{"x":276,"y":427,"width":572,"height":392},"border":"rgb(217, 45, 32) 4px","overlap":0}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"strip","label":"granted 1440-dark","stripH":185,"bad":[]}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"strip","label":"granted 1280-dark","stripH":209,"bad":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"strip","label":"granted 1440-light","stripH":185,"bad":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"strip","label":"granted 1280-light","stripH":209,"bad":[]}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"granted 1280-dark","violations":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"granted 1440-dark","violations":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"menu","label":"1440-dark","menu":{"x":565.546875,"y":332,"width":256,"height":362},"vw":1440}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"menu","label":"1280-dark","menu":{"x":565.546875,"y":332,"width":256,"height":362},"vw":1280}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"granted 1280-light","violations":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"granted 1440-light","violations":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"menu","label":"1280-light","menu":{"x":565.546875,"y":332,"width":256,"height":362},"vw":1280}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"menu","label":"1440-light","menu":{"x":565.546875,"y":332,"width":256,"height":362},"vw":1440}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"menu 1280-dark","violations":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"menu 1440-dark","violations":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"geom","label":"env 1440-dark","tools":{"x":272,"y":214,"width":740,"height":185},"view":{"x":272,"y":471,"width":740,"height":450},"video":{"x":276,"y":475,"width":732,"height":442},"border":"rgb(217, 45, 32) 4px","overlap":-72}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"geom","label":"env 1280-dark","tools":{"x":272,"y":214,"width":580,"height":209},"view":{"x":272,"y":515,"width":580,"height":400},"video":{"x":276,"y":519,"width":572,"height":392},"border":"rgb(217, 45, 32) 4px","overlap":-92}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"menu 1280-light","violations":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"menu 1440-light","violations":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"geom","label":"env 1440-light","tools":{"x":272,"y":214,"width":740,"height":185},"view":{"x":272,"y":471,"width":740,"height":450},"video":{"x":276,"y":475,"width":732,"height":442},"border":"rgb(217, 45, 32) 4px","overlap":-72}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"geom","label":"env 1280-light","tools":{"x":272,"y":214,"width":580,"height":209},"view":{"x":272,"y":515,"width":580,"height":400},"video":{"x":276,"y":519,"width":572,"height":392},"border":"rgb(217, 45, 32) 4px","overlap":-92}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"elevated 1440-dark","violations":[]}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"elevated 1280-dark","violations":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"elevated 1440-light","violations":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"elevated 1280-light","violations":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"secure 1440-light","violations":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"secure 1440-dark","violations":[]}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"secure 1280-dark","violations":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"secure 1280-light","violations":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"denied 1440-dark","violations":[]}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"denied 1280-dark","violations":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"denied 1440-light","violations":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"denied 1280-light","violations":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"strip","label":"monitor-denied 1440-light","stripH":185,"bad":[]}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"strip","label":"monitor-denied 1280-dark","stripH":247,"bad":[]}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"strip","label":"monitor-denied 1440-dark","stripH":185,"bad":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"strip","label":"monitor-denied 1280-light","stripH":247,"bad":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"monitor 1440-light","violations":[]}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"monitor 1280-dark","violations":[]}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"axe","label":"monitor 1280-light","violations":[]}
+{"test":"galeri 1280 dark: kontrol durumları + şerit geometrisi","kind":"overflow","label":"end 1280-dark","px":0}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"axe","label":"monitor 1440-dark","violations":[]}
+{"test":"galeri 1440 light: kontrol durumları + şerit geometrisi","kind":"overflow","label":"end 1440-light","px":0}
+{"test":"galeri 1280 light: kontrol durumları + şerit geometrisi","kind":"overflow","label":"end 1280-light","px":0}
+{"test":"galeri 1440 dark: kontrol durumları + şerit geometrisi","kind":"overflow","label":"end 1440-dark","px":0}
+{"test":"mobil 390 px: konsol kontrol durumlarında taşma","kind":"overflow","label":"390 idle","px":0}
+{"test":"mobil 390 px: konsol kontrol durumlarında taşma","kind":"overflow","label":"390 requested","px":0}
+{"test":"mobil 390 px: konsol kontrol durumlarında taşma","kind":"overflow","label":"390 granted+menu","px":0}
+{"test":"mobil 390 px: konsol kontrol durumlarında taşma","kind":"menu","label":"390","menu":{"x":24,"y":545,"width":256,"height":362}}
+{"test":"mobil 390 px: konsol kontrol durumlarında taşma","kind":"strip","label":"390 granted","stripH":371,"bad":[]}
+{"test":"mobil 390 px: konsol kontrol durumlarında taşma","kind":"axe","label":"390 granted","violations":[]}
+{"test":"5 istek hakkı: Vazgeç ×5 → düğme pasif, 'hak doldu (5/5)'; çift tıklama tek istek","kind":"text","label":"exhausted","note":"Kontrol isteğini geri çektiniz · 16:07 · Bu oturumda kontrol isteği hakkı doldu (5/5)","btn":"Kontrol iste"}
+{"test":"5 istek hakkı: Vazgeç ×5 → düğme pasif, 'hak doldu (5/5)'; çift tıklama tek istek","kind":"axe","label":"exhausted","violations":[]}
+{"test":"kontrol sürerken: %100 görünüm, işaretleme araçları, müşteri kopması, oturumu bitir","kind":"geom","label":"annot pen vs view","pen":{"x":285,"y":227,"width":44,"height":44},"view":{"x":272,"y":409,"width":580,"height":400}}
+{"test":"kontrol sürerken: %100 görünüm, işaretleme araçları, müşteri kopması, oturumu bitir","kind":"input","label":"actual mode click","after":{"t":"m.btn","b":"l","down":true,"x":0.15625,"y":0.27778}}
+{"test":"kontrol açıkken oturumu bitir → ekran bitti, yakalama yok; geri tuşu","kind":"text","label":"ended","text":"Oturum sona erdiOturumu siz bitirdiniz.Oturumlara dön","closes":[]}
+{"test":"kontrol açıkken oturumu bitir → ekran bitti, yakalama yok; geri tuşu","kind":"text","label":"back after end","ended":false,"ctl":0,"id":"01J0E8A385F21FA61805B199D9"}
+{"test":"kontrol sürerken: %100 görünüm, işaretleme araçları, müşteri kopması, oturumu bitir","kind":"axe","label":"peer lost","violations":[]}
+{"test":"ağ: teknisyen WS kopar (offline) iken kontrol kapanır","kind":"text","label":"offline","ctl":"on","note":"Klavyeyi bırakmak için Ctrl+Alt+Shift"}
+{"test":"ağ: teknisyen WS kopar (offline) iken kontrol kapanır","kind":"text","label":"online again","ctl":"on","note":"Klavyeyi bırakmak için Ctrl+Alt+Shift","closes":[]}
+{"test":"tarama: login","kind":"status","label":"login 1280 light","status":200,"url":"http://localhost:3217/login"}
+{"test":"tarama: login","kind":"overflow","label":"login-1280-light","px":0}
+{"test":"tarama: login","kind":"axe","label":"login-1280-light","violations":[]}
+{"test":"tarama: login","kind":"status","label":"login 1280 dark","status":200,"url":"http://localhost:3217/login"}
+{"test":"tarama: login","kind":"overflow","label":"login-1280-dark","px":0}
+{"test":"tarama: login","kind":"axe","label":"login-1280-dark","violations":[]}
+{"test":"tarama: login","kind":"status","label":"login 1440 light","status":200,"url":"http://localhost:3217/login"}
+{"test":"tarama: login","kind":"overflow","label":"login-1440-light","px":0}
+{"test":"tarama: login","kind":"axe","label":"login-1440-light","violations":[]}
+{"test":"tarama: login","kind":"status","label":"login 1440 dark","status":200,"url":"http://localhost:3217/login"}
+{"test":"tarama: login","kind":"overflow","label":"login-1440-dark","px":0}
+{"test":"tarama: login","kind":"axe","label":"login-1440-dark","violations":[]}
+{"test":"tarama: login","kind":"status","label":"login 390 light","status":200,"url":"http://localhost:3217/login"}
+{"test":"tarama: login","kind":"overflow","label":"login-390-light","px":0}
+{"test":"tarama: login","kind":"axe","label":"login-390-light","violations":[]}
+{"test":"tarama: login","kind":"status","label":"login 390 dark","status":200,"url":"http://localhost:3217/login"}
+{"test":"tarama: login","kind":"overflow","label":"login-390-dark","px":0}
+{"test":"tarama: login","kind":"axe","label":"login-390-dark","violations":[]}
+{"test":"tarama: panel","kind":"status","label":"panel 1280 light","status":200,"url":"http://localhost:3217/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1280-light","px":0}
+{"test":"tarama: panel","kind":"axe","label":"panel-1280-light","violations":[]}
+{"test":"tarama: panel","kind":"link","from":"panel","href":"/#icerik","status":200}
+{"test":"tarama: panel","kind":"link","from":"panel","href":"/","status":200}
+{"test":"tarama: panel","kind":"link","from":"panel","href":"/sessions","status":200}
+{"test":"tarama: panel","kind":"status","label":"panel 1280 dark","status":200,"url":"http://localhost:3217/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1280-dark","px":0}
+{"test":"tarama: panel","kind":"axe","label":"panel-1280-dark","violations":[]}
+{"test":"monitör: 30 sn yanıtsızlık → 'onaylamadı' + geri sayım → tekrar seçilebilir","kind":"text","label":"monitor noAnswer","note":"Müşteri monitör değişikliğini onaylamadı · yeni istek 0:32 sonra"}
+{"test":"tarama: panel","kind":"status","label":"panel 1440 light","status":200,"url":"http://localhost:3217/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1440-light","px":0}
+{"test":"tarama: panel","kind":"axe","label":"panel-1440-light","violations":[]}
+{"test":"tarama: panel","kind":"status","label":"panel 1440 dark","status":200,"url":"http://localhost:3217/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1440-dark","px":0}
+{"test":"tarama: panel","kind":"axe","label":"panel-1440-dark","violations":[]}
+{"test":"tarama: oturumlar-dolu","kind":"status","label":"oturumlar-dolu 1280 light","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-dolu","kind":"overflow","label":"oturumlar-dolu-1280-light","px":0}
+{"test":"tarama: panel","kind":"status","label":"panel 390 light","status":200,"url":"http://localhost:3217/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-390-light","px":0}
+{"test":"tarama: oturumlar-dolu","kind":"axe","label":"oturumlar-dolu-1280-light","violations":[]}
+{"test":"tarama: oturumlar-dolu","kind":"link","from":"oturumlar-dolu","href":"/sessions#icerik","status":200}
+{"test":"tarama: oturumlar-dolu","kind":"link","from":"oturumlar-dolu","href":"/","status":200}
+{"test":"tarama: oturumlar-dolu","kind":"link","from":"oturumlar-dolu","href":"/sessions","status":200}
+{"test":"tarama: oturumlar-dolu","kind":"link","from":"oturumlar-dolu","href":"/sessions/01JC589F3F452741A9C8F5A75E/console","status":200}
+{"test":"tarama: oturumlar-dolu","kind":"link","from":"oturumlar-dolu","href":"/sessions/01J1B46B35FD6F4772C1188BA3/console","status":200}
+{"test":"tarama: panel","kind":"axe","label":"panel-390-light","violations":[]}
+{"test":"tarama: panel","kind":"status","label":"panel 390 dark","status":200,"url":"http://localhost:3217/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-390-dark","px":0}
+{"test":"tarama: oturumlar-dolu","kind":"status","label":"oturumlar-dolu 1280 dark","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-dolu","kind":"overflow","label":"oturumlar-dolu-1280-dark","px":0}
+{"test":"tarama: panel","kind":"axe","label":"panel-390-dark","violations":[]}
+{"test":"tarama: oturumlar-dolu","kind":"axe","label":"oturumlar-dolu-1280-dark","violations":[]}
+{"test":"tarama: oturumlar-bos","kind":"status","label":"oturumlar-bos 1280 light","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-bos","kind":"overflow","label":"oturumlar-bos-1280-light","px":0}
+{"test":"tarama: oturumlar-bos","kind":"axe","label":"oturumlar-bos-1280-light","violations":[]}
+{"test":"tarama: oturumlar-bos","kind":"link","from":"oturumlar-bos","href":"/sessions#icerik","status":200}
+{"test":"tarama: oturumlar-bos","kind":"link","from":"oturumlar-bos","href":"/","status":200}
+{"test":"tarama: oturumlar-bos","kind":"link","from":"oturumlar-bos","href":"/sessions","status":200}
+{"test":"tarama: oturumlar-dolu","kind":"status","label":"oturumlar-dolu 1440 light","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-dolu","kind":"overflow","label":"oturumlar-dolu-1440-light","px":0}
+{"test":"tarama: oturumlar-dolu","kind":"axe","label":"oturumlar-dolu-1440-light","violations":[]}
+{"test":"tarama: oturumlar-bos","kind":"status","label":"oturumlar-bos 1280 dark","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-bos","kind":"overflow","label":"oturumlar-bos-1280-dark","px":0}
+{"test":"tarama: oturumlar-bos","kind":"axe","label":"oturumlar-bos-1280-dark","violations":[]}
+{"test":"tarama: oturumlar-dolu","kind":"status","label":"oturumlar-dolu 1440 dark","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-dolu","kind":"overflow","label":"oturumlar-dolu-1440-dark","px":0}
+{"test":"tarama: oturumlar-bos","kind":"status","label":"oturumlar-bos 1440 light","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-bos","kind":"overflow","label":"oturumlar-bos-1440-light","px":0}
+{"test":"tarama: oturumlar-bos","kind":"axe","label":"oturumlar-bos-1440-light","violations":[]}
+{"test":"tarama: oturumlar-dolu","kind":"axe","label":"oturumlar-dolu-1440-dark","violations":[]}
+{"test":"tarama: oturumlar-bos","kind":"status","label":"oturumlar-bos 1440 dark","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-bos","kind":"overflow","label":"oturumlar-bos-1440-dark","px":0}
+{"test":"tarama: oturumlar-bos","kind":"axe","label":"oturumlar-bos-1440-dark","violations":[]}
+{"test":"tarama: oturumlar-dolu","kind":"status","label":"oturumlar-dolu 390 light","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-dolu","kind":"overflow","label":"oturumlar-dolu-390-light","px":0}
+{"test":"tarama: oturumlar-dolu","kind":"axe","label":"oturumlar-dolu-390-light","violations":[]}
+{"test":"tarama: oturumlar-bos","kind":"status","label":"oturumlar-bos 390 light","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-bos","kind":"overflow","label":"oturumlar-bos-390-light","px":0}
+{"test":"tarama: oturumlar-bos","kind":"axe","label":"oturumlar-bos-390-light","violations":[]}
+{"test":"tarama: oturumlar-dolu","kind":"status","label":"oturumlar-dolu 390 dark","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-dolu","kind":"overflow","label":"oturumlar-dolu-390-dark","px":0}
+{"test":"tarama: oturumlar-dolu","kind":"axe","label":"oturumlar-dolu-390-dark","violations":[]}
+{"test":"tarama: oturumlar-bos","kind":"status","label":"oturumlar-bos 390 dark","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-bos","kind":"overflow","label":"oturumlar-bos-390-dark","px":0}
+{"test":"tarama: oturumlar-bos","kind":"axe","label":"oturumlar-bos-390-dark","violations":[]}
+{"test":"tarama: oturumlar-hata","kind":"status","label":"oturumlar-hata 1280 light","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-hata","kind":"overflow","label":"oturumlar-hata-1280-light","px":0}
+{"test":"tarama: sifre-degistir","kind":"status","label":"sifre-degistir 1280 light","status":200,"url":"http://localhost:3217/change-password"}
+{"test":"tarama: sifre-degistir","kind":"overflow","label":"sifre-degistir-1280-light","px":0}
+{"test":"tarama: oturumlar-hata","kind":"axe","label":"oturumlar-hata-1280-light","violations":[]}
+{"test":"tarama: oturumlar-hata","kind":"link","from":"oturumlar-hata","href":"/sessions#icerik","status":200}
+{"test":"tarama: oturumlar-hata","kind":"link","from":"oturumlar-hata","href":"/","status":200}
+{"test":"tarama: oturumlar-hata","kind":"link","from":"oturumlar-hata","href":"/sessions","status":200}
+{"test":"tarama: sifre-degistir","kind":"axe","label":"sifre-degistir-1280-light","violations":[]}
+{"test":"tarama: oturumlar-hata","kind":"status","label":"oturumlar-hata 1280 dark","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-hata","kind":"overflow","label":"oturumlar-hata-1280-dark","px":0}
+{"test":"tarama: sifre-degistir","kind":"status","label":"sifre-degistir 1280 dark","status":200,"url":"http://localhost:3217/change-password"}
+{"test":"tarama: sifre-degistir","kind":"overflow","label":"sifre-degistir-1280-dark","px":0}
+{"test":"tarama: oturumlar-hata","kind":"axe","label":"oturumlar-hata-1280-dark","violations":[]}
+{"test":"tarama: sifre-degistir","kind":"axe","label":"sifre-degistir-1280-dark","violations":[]}
+{"test":"tarama: oturumlar-hata","kind":"status","label":"oturumlar-hata 1440 light","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-hata","kind":"overflow","label":"oturumlar-hata-1440-light","px":0}
+{"test":"tarama: sifre-degistir","kind":"status","label":"sifre-degistir 1440 light","status":200,"url":"http://localhost:3217/change-password"}
+{"test":"tarama: sifre-degistir","kind":"overflow","label":"sifre-degistir-1440-light","px":0}
+{"test":"tarama: oturumlar-hata","kind":"axe","label":"oturumlar-hata-1440-light","violations":[]}
+{"test":"tarama: sifre-degistir","kind":"axe","label":"sifre-degistir-1440-light","violations":[]}
+{"test":"tarama: oturumlar-hata","kind":"status","label":"oturumlar-hata 1440 dark","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-hata","kind":"overflow","label":"oturumlar-hata-1440-dark","px":0}
+{"test":"tarama: sifre-degistir","kind":"status","label":"sifre-degistir 1440 dark","status":200,"url":"http://localhost:3217/change-password"}
+{"test":"tarama: sifre-degistir","kind":"overflow","label":"sifre-degistir-1440-dark","px":0}
+{"test":"tarama: oturumlar-hata","kind":"axe","label":"oturumlar-hata-1440-dark","violations":[]}
+{"test":"tarama: sifre-degistir","kind":"axe","label":"sifre-degistir-1440-dark","violations":[]}
+{"test":"tarama: sifre-degistir","kind":"status","label":"sifre-degistir 390 light","status":200,"url":"http://localhost:3217/change-password"}
+{"test":"tarama: sifre-degistir","kind":"overflow","label":"sifre-degistir-390-light","px":0}
+{"test":"tarama: oturumlar-hata","kind":"status","label":"oturumlar-hata 390 light","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-hata","kind":"overflow","label":"oturumlar-hata-390-light","px":0}
+{"test":"tarama: sifre-degistir","kind":"axe","label":"sifre-degistir-390-light","violations":[]}
+{"test":"tarama: oturumlar-hata","kind":"axe","label":"oturumlar-hata-390-light","violations":[]}
+{"test":"tarama: sifre-degistir","kind":"status","label":"sifre-degistir 390 dark","status":200,"url":"http://localhost:3217/change-password"}
+{"test":"tarama: sifre-degistir","kind":"overflow","label":"sifre-degistir-390-dark","px":0}
+{"test":"tarama: oturumlar-hata","kind":"status","label":"oturumlar-hata 390 dark","status":200,"url":"http://localhost:3217/sessions"}
+{"test":"tarama: oturumlar-hata","kind":"overflow","label":"oturumlar-hata-390-dark","px":0}
+{"test":"tarama: sifre-degistir","kind":"axe","label":"sifre-degistir-390-dark","violations":[]}
+{"test":"tarama: oturumlar-hata","kind":"axe","label":"oturumlar-hata-390-dark","violations":[]}
+{"test":"tarama: misafir-mac","kind":"status","label":"misafir-mac 1280 light","status":200,"url":"http://localhost:3217/session/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}
+{"test":"tarama: misafir-win-indir","kind":"status","label":"misafir-win-indir 1280 light","status":200,"url":"http://localhost:3217/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir-win-indir","kind":"overflow","label":"misafir-win-indir-1280-light","px":0}
+{"test":"tarama: misafir-mac","kind":"overflow","label":"misafir-mac-1280-light","px":0}
+{"test":"tarama: misafir-mac","kind":"axe","label":"misafir-mac-1280-light","violations":[]}
+{"test":"tarama: misafir-win-indir","kind":"axe","label":"misafir-win-indir-1280-light","violations":[]}
+{"test":"tarama: misafir-win-indir","kind":"status","label":"misafir-win-indir 1280 dark","status":200,"url":"http://localhost:3217/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir-mac","kind":"status","label":"misafir-mac 1280 dark","status":200,"url":"http://localhost:3217/session/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}
+{"test":"tarama: misafir-mac","kind":"overflow","label":"misafir-mac-1280-dark","px":0}
+{"test":"tarama: misafir-win-indir","kind":"overflow","label":"misafir-win-indir-1280-dark","px":0}
+{"test":"tarama: misafir-win-indir","kind":"axe","label":"misafir-win-indir-1280-dark","violations":[]}
+{"test":"tarama: misafir-mac","kind":"axe","label":"misafir-mac-1280-dark","violations":[]}
+{"test":"tarama: misafir-mac","kind":"status","label":"misafir-mac 1440 light","status":200,"url":"http://localhost:3217/session/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}
+{"test":"tarama: misafir-win-indir","kind":"status","label":"misafir-win-indir 1440 light","status":200,"url":"http://localhost:3217/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir-mac","kind":"overflow","label":"misafir-mac-1440-light","px":0}
+{"test":"tarama: misafir-win-indir","kind":"overflow","label":"misafir-win-indir-1440-light","px":0}
+{"test":"tarama: misafir-mac","kind":"axe","label":"misafir-mac-1440-light","violations":[]}
+{"test":"tarama: misafir-win-indir","kind":"axe","label":"misafir-win-indir-1440-light","violations":[]}
+{"test":"tarama: misafir-mac","kind":"status","label":"misafir-mac 1440 dark","status":200,"url":"http://localhost:3217/session/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}
+{"test":"tarama: misafir-win-indir","kind":"status","label":"misafir-win-indir 1440 dark","status":200,"url":"http://localhost:3217/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir-mac","kind":"overflow","label":"misafir-mac-1440-dark","px":0}
+{"test":"tarama: misafir-win-indir","kind":"overflow","label":"misafir-win-indir-1440-dark","px":0}
+{"test":"tarama: misafir-win-indir","kind":"axe","label":"misafir-win-indir-1440-dark","violations":[]}
+{"test":"tarama: misafir-mac","kind":"axe","label":"misafir-mac-1440-dark","violations":[]}
+{"test":"tarama: misafir-mac","kind":"status","label":"misafir-mac 390 light","status":200,"url":"http://localhost:3217/session/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}
+{"test":"tarama: misafir-mac","kind":"overflow","label":"misafir-mac-390-light","px":0}
+{"test":"tarama: misafir-win-indir","kind":"status","label":"misafir-win-indir 390 light","status":200,"url":"http://localhost:3217/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir-win-indir","kind":"overflow","label":"misafir-win-indir-390-light","px":0}
+{"test":"tarama: misafir-mac","kind":"axe","label":"misafir-mac-390-light","violations":[]}
+{"test":"tarama: misafir-win-indir","kind":"axe","label":"misafir-win-indir-390-light","violations":[]}
+{"test":"tarama: misafir-mac","kind":"status","label":"misafir-mac 390 dark","status":200,"url":"http://localhost:3217/session/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}
+{"test":"tarama: misafir-win-indir","kind":"status","label":"misafir-win-indir 390 dark","status":200,"url":"http://localhost:3217/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir-mac","kind":"overflow","label":"misafir-mac-390-dark","px":0}
+{"test":"tarama: misafir-win-indir","kind":"overflow","label":"misafir-win-indir-390-dark","px":0}
+{"test":"tarama: misafir-win-indir","kind":"axe","label":"misafir-win-indir-390-dark","violations":[]}
+{"test":"tarama: misafir-mac","kind":"axe","label":"misafir-mac-390-dark","violations":[]}
+{"test":"tarama: misafir-kullanildi","kind":"status","label":"misafir-kullanildi 1280 light","status":200,"url":"http://localhost:3217/session/UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU"}
+{"test":"tarama: misafir-kullanildi","kind":"overflow","label":"misafir-kullanildi-1280-light","px":0}
+{"test":"tarama: misafir-suresi-doldu","kind":"status","label":"misafir-suresi-doldu 1280 light","status":200,"url":"http://localhost:3217/session/EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"}
+{"test":"tarama: misafir-suresi-doldu","kind":"overflow","label":"misafir-suresi-doldu-1280-light","px":0}
+{"test":"tarama: misafir-kullanildi","kind":"axe","label":"misafir-kullanildi-1280-light","violations":[]}
+{"test":"tarama: misafir-suresi-doldu","kind":"axe","label":"misafir-suresi-doldu-1280-light","violations":[]}
+{"test":"tarama: misafir-suresi-doldu","kind":"status","label":"misafir-suresi-doldu 1280 dark","status":200,"url":"http://localhost:3217/session/EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"}
+{"test":"tarama: misafir-suresi-doldu","kind":"overflow","label":"misafir-suresi-doldu-1280-dark","px":0}
+{"test":"tarama: misafir-kullanildi","kind":"status","label":"misafir-kullanildi 1280 dark","status":200,"url":"http://localhost:3217/session/UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU"}
+{"test":"tarama: misafir-kullanildi","kind":"overflow","label":"misafir-kullanildi-1280-dark","px":0}
+{"test":"tarama: misafir-kullanildi","kind":"axe","label":"misafir-kullanildi-1280-dark","violations":[]}
+{"test":"tarama: misafir-suresi-doldu","kind":"axe","label":"misafir-suresi-doldu-1280-dark","violations":[]}
+{"test":"tarama: misafir-suresi-doldu","kind":"status","label":"misafir-suresi-doldu 1440 light","status":200,"url":"http://localhost:3217/session/EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"}
+{"test":"tarama: misafir-kullanildi","kind":"status","label":"misafir-kullanildi 1440 light","status":200,"url":"http://localhost:3217/session/UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU"}
+{"test":"tarama: misafir-suresi-doldu","kind":"overflow","label":"misafir-suresi-doldu-1440-light","px":0}
+{"test":"tarama: misafir-kullanildi","kind":"overflow","label":"misafir-kullanildi-1440-light","px":0}
+{"test":"tarama: misafir-kullanildi","kind":"axe","label":"misafir-kullanildi-1440-light","violations":[]}
+{"test":"tarama: misafir-suresi-doldu","kind":"axe","label":"misafir-suresi-doldu-1440-light","violations":[]}
+{"test":"tarama: misafir-suresi-doldu","kind":"status","label":"misafir-suresi-doldu 1440 dark","status":200,"url":"http://localhost:3217/session/EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"}
+{"test":"tarama: misafir-suresi-doldu","kind":"overflow","label":"misafir-suresi-doldu-1440-dark","px":0}
+{"test":"tarama: misafir-kullanildi","kind":"status","label":"misafir-kullanildi 1440 dark","status":200,"url":"http://localhost:3217/session/UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU"}
+{"test":"tarama: misafir-kullanildi","kind":"overflow","label":"misafir-kullanildi-1440-dark","px":0}
+{"test":"tarama: misafir-kullanildi","kind":"axe","label":"misafir-kullanildi-1440-dark","violations":[]}
+{"test":"tarama: misafir-suresi-doldu","kind":"axe","label":"misafir-suresi-doldu-1440-dark","violations":[]}
+{"test":"tarama: misafir-kullanildi","kind":"status","label":"misafir-kullanildi 390 light","status":200,"url":"http://localhost:3217/session/UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU"}
+{"test":"tarama: misafir-kullanildi","kind":"overflow","label":"misafir-kullanildi-390-light","px":0}
+{"test":"tarama: misafir-suresi-doldu","kind":"status","label":"misafir-suresi-doldu 390 light","status":200,"url":"http://localhost:3217/session/EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"}
+{"test":"tarama: misafir-suresi-doldu","kind":"overflow","label":"misafir-suresi-doldu-390-light","px":0}
+{"test":"tarama: misafir-kullanildi","kind":"axe","label":"misafir-kullanildi-390-light","violations":[]}
+{"test":"tarama: misafir-suresi-doldu","kind":"axe","label":"misafir-suresi-doldu-390-light","violations":[]}
+{"test":"tarama: misafir-suresi-doldu","kind":"status","label":"misafir-suresi-doldu 390 dark","status":200,"url":"http://localhost:3217/session/EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"}
+{"test":"tarama: misafir-suresi-doldu","kind":"overflow","label":"misafir-suresi-doldu-390-dark","px":0}
+{"test":"tarama: misafir-kullanildi","kind":"status","label":"misafir-kullanildi 390 dark","status":200,"url":"http://localhost:3217/session/UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU"}
+{"test":"tarama: misafir-kullanildi","kind":"overflow","label":"misafir-kullanildi-390-dark","px":0}
+{"test":"tarama: misafir-suresi-doldu","kind":"axe","label":"misafir-suresi-doldu-390-dark","violations":[]}
+{"test":"tarama: misafir-kullanildi","kind":"axe","label":"misafir-kullanildi-390-dark","violations":[]}
+{"test":"tarama: yok-404","kind":"status","label":"yok-404 1280 light","status":200,"url":"http://localhost:3217/login?next=%2Fyok-boyle-sayfa"}
+{"test":"tarama: yok-404","kind":"overflow","label":"yok-404-1280-light","px":0}
+{"test":"tarama: yok-404","kind":"axe","label":"yok-404-1280-light","violations":[]}
+{"test":"tarama: yok-404","kind":"status","label":"yok-404 1280 dark","status":200,"url":"http://localhost:3217/login?next=%2Fyok-boyle-sayfa"}
+{"test":"tarama: yok-404","kind":"overflow","label":"yok-404-1280-dark","px":0}
+{"test":"tarama: yok-404","kind":"axe","label":"yok-404-1280-dark","violations":[]}
+{"test":"tarama: yok-404","kind":"status","label":"yok-404 1440 light","status":200,"url":"http://localhost:3217/login?next=%2Fyok-boyle-sayfa"}
+{"test":"tarama: yok-404","kind":"overflow","label":"yok-404-1440-light","px":0}
+{"test":"tarama: yok-404","kind":"axe","label":"yok-404-1440-light","violations":[]}
+{"test":"tarama: yok-404","kind":"status","label":"yok-404 1440 dark","status":200,"url":"http://localhost:3217/login?next=%2Fyok-boyle-sayfa"}
+{"test":"tarama: yok-404","kind":"overflow","label":"yok-404-1440-dark","px":0}
+{"test":"tarama: yok-404","kind":"axe","label":"yok-404-1440-dark","violations":[]}
+{"test":"tarama: yok-404","kind":"status","label":"yok-404 390 light","status":200,"url":"http://localhost:3217/login?next=%2Fyok-boyle-sayfa"}
+{"test":"tarama: yok-404","kind":"overflow","label":"yok-404-390-light","px":0}
+{"test":"tarama: yok-404","kind":"axe","label":"yok-404-390-light","violations":[]}
+{"test":"tarama: yok-404","kind":"status","label":"yok-404 390 dark","status":200,"url":"http://localhost:3217/login?next=%2Fyok-boyle-sayfa"}
+{"test":"tarama: yok-404","kind":"overflow","label":"yok-404-390-dark","px":0}
+{"test":"tarama: yok-404","kind":"axe","label":"yok-404-390-dark","violations":[]}
+{"test":"monitör: 30 sn yanıtsızlık → 'onaylamadı' + geri sayım → tekrar seçilebilir","kind":"text","label":"monitor after block","note":"Müşteri monitör değişikliğini onaylamadı"}
+{"test":"kontrol sürerken: %100 görünüm, işaretleme araçları, müşteri kopması, oturumu bitir","kind":"text","label":"peer lost","note":null}

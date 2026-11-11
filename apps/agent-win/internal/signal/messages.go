@@ -206,6 +206,71 @@ func (m FileMeta) validate() error {
 	return checkID(m.T, m.ID)
 }
 
+// ControlState P7 (AC-29, 111): izin kararı istemcide verilir, sunucu yalnız kaydeder ve teknisyene iletir.
+type ControlState struct {
+	T      string `json:"t"`
+	ID     string `json:"id,omitempty"`
+	State  string `json:"state"`
+	Source string `json:"source"`
+}
+
+// EnvState P7 (AC-105): odaktaki pencere yükseltilmiş / Güvenli Masaüstü; K8 (S7-9): istemci süreci yönetici
+// belirteciyle çalışıyor. Üç bool da zorunludur (strict şema) — omitempty YASAK, false da gönderilmeli.
+type EnvState struct {
+	T                  string `json:"t"`
+	ID                 string `json:"id,omitempty"`
+	ElevatedForeground bool   `json:"elevatedForeground"`
+	SecureDesktop      bool   `json:"secureDesktop"`
+	SelfElevated       bool   `json:"selfElevated"`
+}
+
+// MonitorDenied P7 K4: müşteri monitör diyaloğunu reddetti (Reddet, Esc veya pencere kapatma).
+type MonitorDenied struct {
+	T         string `json:"t"`
+	ID        string `json:"id,omitempty"`
+	MonitorID int    `json:"monitorId"`
+}
+
+// guestViewSources misafirin gönderebileceği VIEW kaynakları (mimari-protokol §3; RECONNECT/TECH yalnız sunucu üretir).
+var guestViewSources = []string{"UI", "HOTKEY", "DENIED", "SYSTEM"}
+
+func (m ControlState) validate() error {
+	if m.T != "control.state" {
+		return fail(m.T, "tip")
+	}
+	switch m.State {
+	case "GRANTED":
+		// GRANTED yalnız yerel UI kararıyla.
+		if m.Source != "UI" {
+			return fail(m.T, "GRANTED yalnız UI")
+		}
+	case "VIEW":
+		if !slices.Contains(guestViewSources, m.Source) {
+			return fail(m.T, "VIEW kaynağı")
+		}
+	default:
+		return fail(m.T, "state")
+	}
+	return checkID(m.T, m.ID)
+}
+
+func (m MonitorDenied) validate() error {
+	if m.T != "monitor.denied" {
+		return fail(m.T, "tip")
+	}
+	if m.MonitorID < 0 || m.MonitorID > monitorIDMax {
+		return fail(m.T, "monitorId")
+	}
+	return checkID(m.T, m.ID)
+}
+
+func (m EnvState) validate() error {
+	if m.T != "env.state" {
+		return fail(m.T, "tip")
+	}
+	return checkID(m.T, m.ID)
+}
+
 // Encode doğrulanmış mesajı JSON'a çevirir; geçersiz mesaj gönderilmez (sunucu 1008 ile kapatırdı).
 func Encode(m Outbound) ([]byte, error) {
 	if err := m.validate(); err != nil {
@@ -307,6 +372,46 @@ type ErrorMsg struct {
 	Message string `json:"message"`
 }
 
+// ControlRequest teknisyenin kontrol isteği (yalnız istek; izin müşteri diyaloğunda, AC-99).
+type ControlRequest struct {
+	T string `json:"t"`
+}
+
+// MonitorRequest teknisyenin monitör değiştirme isteği (AC-43; müşteri diyaloğu).
+type MonitorRequest struct {
+	T         string `json:"t"`
+	MonitorID int    `json:"monitorId"`
+}
+
+// ControlRelease teknisyen kontrolü bıraktı (K1); ControlCancel bekleyen isteği geri çekti (K2). İkisinde de istemci
+// durumdan bağımsız kapıyı ve açık kontrol diyaloğunu kapatır, yanıt göndermez.
+type ControlRelease struct {
+	T string `json:"t"`
+}
+
+type ControlCancel struct {
+	T string `json:"t"`
+}
+
+// ControlRevoke sunucu kontrolü geri aldı (G-04/G-15): istemci kapıyı kapatır, açamaz.
+type ControlRevoke struct {
+	T      string `json:"t"`
+	Reason string `json:"reason"`
+}
+
+// CapsUpdate teknisyen yetkisi değişti (G-09).
+type CapsUpdate struct {
+	T    string   `json:"t"`
+	Caps []string `json:"caps"`
+}
+
+func (m ControlRequest) Type() string { return m.T }
+func (m MonitorRequest) Type() string { return m.T }
+func (m ControlRevoke) Type() string  { return m.T }
+func (m ControlRelease) Type() string { return m.T }
+func (m ControlCancel) Type() string  { return m.T }
+func (m CapsUpdate) Type() string     { return m.T }
+
 func (m Hello) Type() string          { return m.T }
 func (m LobbyWait) Type() string      { return m.T }
 func (m IceServers) Type() string     { return m.T }
@@ -324,8 +429,10 @@ var (
 	guestKinds    = []string{"BROWSER", "AGENT"}
 	caps          = []string{"remote_control", "file_transfer"}
 	endedReasons  = []string{"tech", "customer", "timeout", "max_duration", "cancelled", "tenant_passive", "server", "admin", "auth_revoked", "rejected", "lobby_timeout"}
-	wsErrorCodes  = []string{"ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND", "VALIDATION"}
-	techOnlyTypes = []string{"peer.pending", "peer.pending.left", "sdp.answer", "share.state"}
+	wsErrorCodes  = []string{"ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND", "VALIDATION", "INTERNAL"}
+	techOnlyTypes = []string{"peer.pending", "peer.pending.left", "sdp.answer", "share.state", "control.state", "env.state",
+		"monitor.denied"}
+	revokeReasons = []string{"permission", "audit", "admin", "reconnect", "stale"}
 )
 
 func validIceServers(list []IceServer) bool {
@@ -340,6 +447,18 @@ func validIceServers(list []IceServer) bool {
 			if utf16Len(u) > iceURLMax {
 				return false
 			}
+		}
+	}
+	return true
+}
+
+func validCaps(list []string) bool {
+	if list == nil {
+		return false
+	}
+	for _, c := range list {
+		if !slices.Contains(caps, c) {
+			return false
 		}
 	}
 	return true
@@ -401,6 +520,18 @@ func ParseServer(raw []byte) (Inbound, error) {
 		return decodeValid(raw, func(m *SessionEnded) bool { return slices.Contains(endedReasons, m.Reason) })
 	case "session.warning":
 		return decodeValid(raw, func(m *SessionWarning) bool { return m.Kind == "max_duration_5min" && isISO(m.EndsAt) })
+	case "control.request":
+		return decodeValid(raw, func(*ControlRequest) bool { return true })
+	case "monitor.request":
+		return decodeValid(raw, func(m *MonitorRequest) bool { return m.MonitorID >= 0 && m.MonitorID <= monitorIDMax })
+	case "control.revoke":
+		return decodeValid(raw, func(m *ControlRevoke) bool { return slices.Contains(revokeReasons, m.Reason) })
+	case "control.release":
+		return decodeValid(raw, func(*ControlRelease) bool { return true })
+	case "control.cancel":
+		return decodeValid(raw, func(*ControlCancel) bool { return true })
+	case "caps.update":
+		return decodeValid(raw, func(m *CapsUpdate) bool { return validCaps(m.Caps) })
 	case "error":
 		return decodeValid(raw, func(m *ErrorMsg) bool {
 			return slices.Contains(wsErrorCodes, m.Code) && utf16Len(m.Message) <= errMsgMax

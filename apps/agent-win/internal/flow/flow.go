@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"remote-support/agent-win/internal/api"
+	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/dc"
+	"remote-support/agent-win/internal/env"
 	"remote-support/agent-win/internal/pairing"
 	"remote-support/agent-win/internal/rtc"
 	"remote-support/agent-win/internal/signal"
@@ -39,6 +41,7 @@ type Peer interface {
 	AddRemoteICE(m signal.RemoteIce) error
 	SetICEServers(list []signal.IceServer) error
 	SendCtl(b []byte) error
+	SetCaps(caps []string)
 	Stream(ctx context.Context, src rtc.Source) error
 	Close() error
 }
@@ -71,6 +74,13 @@ type UI interface {
 	FileProgress(done, total int64)
 	FileResult(r transfer.Result)
 	Ended(m Message)
+	// P7: kontrol/monitör izin diyalogları (G-03 kuralları UI'da), kapanışları ve kontrol durumu göstergesi.
+	ControlRequest(p ControlPrompt)
+	MonitorRequest(mon signal.Monitor)
+	ControlPromptClosed() // kontrol izni diyaloğu karar verilmeden kapanır
+	MonitorPromptClosed() // monitör izni diyaloğu karar verilmeden kapanır
+	ControlState(granted bool, hotkey string)
+	MonitorChanged(mon signal.Monitor)
 }
 
 // EventKind kullanıcıdan akışa gelen olay.
@@ -82,13 +92,21 @@ const (
 	EvFileAccept                  // FID
 	EvFileReject                  // FID
 	EvFileCancel                  // süren alımı iptal
+	// P7. EvControlGrant yalnız yerel, enjekte olmayan, 1,5 sn sonraki tıklama/Alt+İ ile üretilir (UI denetler).
+	EvControlGrant
+	EvControlDeny
+	EvControlClose  // "Kontrolü kapat" (UI kapıyı zaten kapattı)
+	EvControlHotkey // global kısayol (input.Host kapıyı zaten kapattı)
+	EvMonitorAccept // Monitor
+	EvMonitorDeny
 )
 
 // Event kullanıcı olayı.
 type Event struct {
-	Kind EventKind
-	Text string
-	FID  string
+	Kind    EventKind
+	Text    string
+	FID     string
+	Monitor int
 }
 
 // Deps akışın bağımlılıkları.
@@ -105,7 +123,19 @@ type Deps struct {
 	Logo   func(ctx context.Context, logoURL string) (image.Image, error)
 	UI     UI
 	Events <-chan Event
-	Now    func() time.Time
+	// Gate izin kapısı (UI, input.Host ve input.Applier ile paylaşılır); nil ise akış kendi kapısını kurar.
+	Gate *control.Gate
+	// Hotkey kaydedilen kapatma kısayolu ("Ctrl+Shift+F12" / yedek); boşsa kontrol izni verilemez (G-21).
+	Hotkey string
+	// Input `input` DC alıcısı (input.Applier.Handle); nil ise kanal kapatılır.
+	Input func(raw []byte)
+	// SetInputMonitor fare koordinatlarının eşleneceği monitör (AC-49).
+	SetInputMonitor func(id int)
+	// EnvProbe AC-105 ortam yoklaması (env.Probe); nil olabilir.
+	EnvProbe func() env.State
+	// SelfElevated K8 (S7-9): istemci süreci yönetici belirteciyle çalışıyor (açılışta bir kez ölçülür, sabit).
+	SelfElevated bool
+	Now          func() time.Time
 	// ReconnectWindow AC-24: kopuştan sonra yeniden bağlanma süresi (varsayılan 120 sn).
 	ReconnectWindow time.Duration
 	// ReconnectEvery deneme aralığı (varsayılan 2 sn).
@@ -132,7 +162,7 @@ func Run(ctx context.Context, d Deps, initial string) Outcome {
 	if !ok {
 		return out
 	}
-	s := &session{d: d, techName: res.Technician.Name}
+	s := &session{d: d, techName: res.Technician.Name, gate: newGate(d.Gate), pendingMon: -1}
 	return s.run(ctx, jr)
 }
 
@@ -258,6 +288,17 @@ type session struct {
 	in     chan inbound
 	peerEv chan peerEvent
 	redial chan Conn
+
+	// P7
+	gate       *control.Gate
+	granted    bool
+	ctlReq     control.Requests
+	monReq     control.Requests
+	pendingMon int
+	env        env.State
+	envCh      chan env.State
+	// techLost bir önceki sunucu mesajı control.revoke{reconnect} idi ve kontrol/diyalog kapattı (yalnız bir mesaj yaşar).
+	techLost bool
 }
 
 func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
@@ -298,6 +339,7 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 					return Outcome{Message: msgLost}
 				}
 				// AC-24: kabul edilmiş misafir reconnectToken ile 120 sn içinde döner; yeni PeerConnection kurulur.
+				s.closeControl(ctx, "", true) // kopuşta kapı kapanır; sunucu durumu VIEW yapar (AC-24)
 				s.phase = phReconnecting
 				reconnectDeadline = s.d.Now().Add(s.d.ReconnectWindow)
 				s.dropPeer()
@@ -316,6 +358,8 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 			s.attach(ctx, c)
 		case e := <-s.peerEv:
 			s.onPeer(ctx, e)
+		case st := <-s.envCh:
+			s.onEnv(ctx, st)
 		case <-s.shareErr:
 			s.stopStream()
 			s.sendShare(ctx, "stopped")
@@ -365,6 +409,8 @@ func (s *session) send(ctx context.Context, m signal.Outbound) {
 }
 
 func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool) {
+	lost := s.techLost
+	s.techLost = false
 	switch m := m.(type) {
 	case signal.LobbyWait:
 		// Lobi ekranı join sonrası zaten gösterildi; expiresAt yalnız bilgi.
@@ -393,11 +439,11 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 		// Teknisyen ardından iceRestart'lı yeni offer gönderir; answer HandleOffer'da üretilir.
 	case signal.PeerLeft:
 		if m.Role == "tech" {
-			s.d.UI.Status(statusTechLeft)
+			s.techChanged(ctx, lost, statusTechLeft)
 		}
 	case signal.PeerJoined:
 		if m.Role == "tech" {
-			s.d.UI.Status(statusTechBack)
+			s.techChanged(ctx, lost, statusTechBack)
 		}
 		if m.MaxFileMb != nil {
 			s.maxFileMb = *m.MaxFileMb
@@ -405,7 +451,11 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 	case signal.SessionWarning:
 		s.d.UI.Status(statusWarn5min)
 	case signal.SessionEnded:
+		s.gate.Close()
 		return Outcome{Message: endedMessage(m.Reason)}, true
+	case signal.ControlRequest, signal.MonitorRequest, signal.ControlRevoke, signal.ControlRelease, signal.ControlCancel,
+		signal.CapsUpdate:
+		s.onControlServer(ctx, m)
 	case signal.ErrorMsg:
 		s.d.UI.Status(m.Message)
 	}
@@ -415,6 +465,8 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 // onHello admit (ilk) veya yeniden bağlanma (sonraki) — her ikisinde yeni PeerConnection (AC-24).
 func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 	first := s.phase == phLobby
+	s.closeControl(ctx, "", true) // AC-24: her yeni PeerConnection kapı kapalı başlar
+	s.helloEnv(ctx)               // K8: hello'dan hemen sonra tek env.state (monitör seçimi beklenmez)
 	if h.ReconnectToken != "" {
 		s.token = h.ReconnectToken
 	}
@@ -464,6 +516,8 @@ func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 		s.d.UI.Status(statusReconnected)
 	}
 	s.phase = phActive
+	s.setInputMonitor()
+	s.startEnv(ctx)
 	if s.src == nil {
 		s.sendShare(ctx, "stopped")
 		s.d.UI.Status(statusCaptureFail)
@@ -571,6 +625,7 @@ func (s *session) handlers(ctx context.Context) rtc.Handlers {
 		Ctl:       func(m dc.Ctl) { push(peerEvent{ctl: &m}) },
 		FileChunk: func(c dc.Chunk, ok bool) { push(peerEvent{chunk: &c, ok: ok}) },
 		State:     func(st string) { push(peerEvent{state: st}) },
+		Input:     s.d.Input,
 	}
 }
 
@@ -578,6 +633,13 @@ func (s *session) onPeer(ctx context.Context, e peerEvent) {
 	switch {
 	case e.ice != nil:
 		s.send(ctx, *e.ice)
+	case e.state == "disconnected" || e.state == "failed" || e.state == "closed":
+		// PeerConnection kopması kapıyı ve diyalogları kapatır. K6: sunucu bu kopmayı bilmez (WS açık); bekleyen kontrol
+		// diyaloğu kapandıysa {VIEW, SYSTEM} ile isteği kapattırır (kapı açıktıysa closeControl zaten gönderdi).
+		// Monitör diyaloğu mesajsız kapanır (sunucu 30 sn yedek yoluyla temizler; müşteriye ret atfedilmez).
+		if c := s.closeControl(ctx, "SYSTEM", true); c.ctlPrompt && !c.granted {
+			s.sendControl(ctx, "VIEW", "SYSTEM")
+		}
 	case e.chunk != nil:
 		if s.files == nil {
 			return
@@ -644,6 +706,8 @@ func (s *session) onUser(ctx context.Context, ev Event) (Outcome, bool) {
 		if r != nil {
 			s.d.UI.FileResult(*r)
 		}
+	case EvControlGrant, EvControlDeny, EvControlClose, EvControlHotkey, EvMonitorAccept, EvMonitorDeny:
+		s.onControlUser(ctx, ev)
 	case EvFileCancel:
 		if s.files != nil {
 			if r := s.files.CancelLocal(); r != nil {
@@ -676,6 +740,7 @@ func chatMessage(text string, now time.Time) ([]byte, error) {
 }
 
 func (s *session) cleanup() {
+	s.gate.Close()
 	s.dropPeer()
 	if s.src != nil {
 		_ = s.src.Close()

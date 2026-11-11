@@ -28,13 +28,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * Senaryolar: u-seed-* (4 kayıt), u-broken-* (liste 500), u-flaky-* (ilk liste 200, yenilemeler 500),
  * u-slow-* (liste/oluşturma gecikmeli), u-expire-* (liste 200, POST'lar 401), u-limit-* (409), u-rate-* (429).
  * P5: u-p5-* `file_transfer.use` yetkili (müşteriye caps=[file_transfer]); u-p5nf-* yetkisiz (caps=[]). İkisinde maxFileMb=1.
+ * P7: u-p7-* `remote_control.use` yetkili; u-p7np-* yetkisiz (sunucu control.request → FORBIDDEN).
  */
 export function sessionUser(cookie) {
   if (!cookie?.startsWith("u-") || dead.has(cookie)) return null;
   const admin = cookie.startsWith("u-admin-");
   return {
     user: { id: TECH.id, email: "mehmet@ornek.com", fullName: TECH.name, role: admin ? "ADMIN" : "USER", mustChangePassword: false },
-    permissions: cookie.startsWith("u-noperm-") ? [] : admin ? [...ALL, "sessions.terminate"] : cookie.startsWith("u-p5-") ? [...ALL, "file_transfer.use"] : ALL,
+    permissions: cookie.startsWith("u-noperm-") ? [] : admin ? [...ALL, "sessions.terminate"] : cookie.startsWith("u-p5-") ? [...ALL, "file_transfer.use"] : cookie.startsWith("u-p7-") ? [...ALL, "remote_control.use"] : ALL,
   };
 }
 
@@ -187,6 +188,7 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
     const rec = newSession();
     // P5: sunucu hello/peer.joined'a caps + maxFileMb koyar (küçük sınır: 100 MB'lık dosya üretmeden sınır testi)
     if (session.startsWith("u-p5")) Object.assign(rec, { caps: session.startsWith("u-p5-") ? ["file_transfer"] : [], maxFileMb: 1 });
+    if (session.startsWith("u-p7")) Object.assign(rec, { caps: session.startsWith("u-p7-") ? ["remote_control"] : [], canControl: session.startsWith("u-p7-") });
     list.push(rec);
     const v = rec.view;
     const body = { id: v.id, link: `${BASE}/session/${rec.token}`, code: v.code, techVerifyCode: v.techVerifyCode, expiresAt: v.expiresAt, status: "PENDING" };

@@ -24,6 +24,7 @@ type techPeer struct {
 	ctlIn chan string
 	open  chan struct{}
 	ssrc  atomic.Uint32
+	input *webrtc.DataChannel
 }
 
 func newTech(t *testing.T) *techPeer {
@@ -43,7 +44,11 @@ func newTech(t *testing.T) *techPeer {
 	if _, err := pc.CreateDataChannel(dc.LabelFile, nil); err != nil {
 		t.Fatal(err)
 	}
-	tp := &techPeer{pc: pc, ctl: ctl, track: make(chan struct{}, 1), ctlIn: make(chan string, 8), open: make(chan struct{})}
+	input, err := pc.CreateDataChannel(dc.LabelInput, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tp := &techPeer{pc: pc, ctl: ctl, input: input, track: make(chan struct{}, 1), ctlIn: make(chan string, 8), open: make(chan struct{})}
 	pc.OnTrack(func(tr *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		if tr.Codec().MimeType == webrtc.MimeTypeH264 {
 			tp.ssrc.Store(uint32(tr.SSRC()))
@@ -103,6 +108,11 @@ func wait[T any](t *testing.T, ch <-chan T, what string) T {
 
 func connect(t *testing.T, caps []string, ctlOut chan dc.Ctl) (*techPeer, *Peer) {
 	t.Helper()
+	return connectInput(t, caps, ctlOut, nil)
+}
+
+func connectInput(t *testing.T, caps []string, ctlOut chan dc.Ctl, input func([]byte)) (*techPeer, *Peer) {
+	t.Helper()
 	tech := newTech(t)
 	var guest *Peer
 	var err error
@@ -120,7 +130,8 @@ func connect(t *testing.T, caps []string, ctlOut chan dc.Ctl) (*techPeer, *Peer)
 			}
 			_ = tech.pc.AddICECandidate(init)
 		},
-		Ctl: func(m dc.Ctl) { ctlOut <- m },
+		Ctl:   func(m dc.Ctl) { ctlOut <- m },
+		Input: input,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -293,5 +304,27 @@ func TestAC41KeyframeOnStreamStartAndPLI(t *testing.T) {
 			t.Fatal(err)
 		}
 		wait(t, src.req, fmt.Sprintf("%T sonrası anahtar kare isteği", pk))
+	}
+}
+
+// G-09 + P7: input kanalı yalnız remote_control yeteneğinde alıcıya ulaşır; caps.update ile daralınca düşer.
+func TestAC115InputChannelFollowsCaps(t *testing.T) {
+	got := make(chan string, 8)
+	tech, guest := connectInput(t, []string{"remote_control"}, make(chan dc.Ctl, 8), func(b []byte) { got <- string(b) })
+	inOpen := make(chan struct{})
+	tech.input.OnOpen(func() { close(inOpen) })
+	wait(t, inOpen, "input açılışı")
+	if err := tech.input.SendText(`{"t":"m.move","x":0.5,"y":0.5}`); err != nil {
+		t.Fatal(err)
+	}
+	if m := wait(t, got, "input iletimi"); m != `{"t":"m.move","x":0.5,"y":0.5}` {
+		t.Fatalf("gelen %s", m)
+	}
+	guest.SetCaps([]string{"file_transfer"})
+	_ = tech.input.SendText(`{"t":"m.move","x":0.1,"y":0.1}`)
+	select {
+	case m := <-got:
+		t.Fatalf("yetenek kaldırıldıktan sonra input iletildi: %s", m)
+	case <-time.After(300 * time.Millisecond):
 	}
 }

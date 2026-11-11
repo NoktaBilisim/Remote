@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"remote-support/agent-win/internal/capture"
+	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/flow"
@@ -21,18 +22,17 @@ const appTitle = "Nokta Destek"
 
 // Denetim kimlikleri. IDOK (1) Enter'ın, IDCANCEL (2) Esc'in tetiklediği komuttur.
 const (
-	idOK          = win.IDOK
-	idCancel      = win.IDCANCEL
-	idAbuse       = 20
-	idConsent     = 21
-	idName        = 22
-	idChatInput   = 30
-	idFileCancel  = 31
-	idEndSession  = 32
-	idAccept      = 40
-	timerAccept   = 1
-	timerTopmost  = 2
-	acceptDelayMs = 1500 // G-03: kabul düğmesi 1,5 sn kilitli
+	idOK         = win.IDOK
+	idCancel     = win.IDCANCEL
+	idAbuse      = 20
+	idConsent    = 21
+	idName       = 22
+	idChatInput  = 30
+	idFileCancel = 31
+	idEndSession = 32
+	idGrant      = 41
+	idCtlClose   = 42
+	timerTopmost = 2
 )
 
 // UI flow.UI'nin Win32 uygulaması.
@@ -43,11 +43,22 @@ type UI struct {
 
 	lobby    *form
 	sess     *sessionWin
-	offer    *form
+	offer    *consentDlg // dosya teklifi (ortak izin diyaloğu, S7-5)
 	offerFID string
 	ind      *indicator
 	ov       *overlay
 	ended    *form
+
+	// P7
+	gate     *control.Gate
+	techName string
+	ctlDlg   *consentDlg
+	monDlg   *consentDlg
+	granted  bool
+	// hotkeyLabel kaydedilen kapatma kısayolu; boşsa kontrol izni verilemez (G-21).
+	hotkeyLabel string
+	// elevated istemci yönetici olarak çalışıyor (S7-9): oturum penceresinde ve kontrol diyaloğunda uyarı.
+	elevated bool
 }
 
 type sessionWin struct {
@@ -60,18 +71,22 @@ type sessionWin struct {
 	fileBtn  *ctrl
 	endBtn   *ctrl
 	sendBtn  *ctrl
+	grantBtn *ctrl
+	closeBtn *ctrl
+	hotkey   *ctrl
 	unread   int
 	active   bool
 	finished bool
 }
 
-// New UI iş parçacığını başlatır. footer "Hakkında" satırıdır (alan adı + sürüm + parmak izi, AC-128).
-func New(host, version, fingerprint string) (*UI, error) {
+// New UI iş parçacığını başlatır. footer "Hakkında" satırıdır (alan adı + sürüm + parmak izi, AC-128). gate izin
+// kapısıdır: "Kontrolü kapat" onu UI iş parçacığında, akışı beklemeden kapatır (AC-101).
+func New(host, version, fingerprint string, gate *control.Gate) (*UI, error) {
 	t, err := startThread()
 	if err != nil {
 		return nil, err
 	}
-	return &UI{t: t, events: make(chan flow.Event, 16),
+	return &UI{t: t, events: make(chan flow.Event, 16), gate: gate,
 		footer: fmt.Sprintf("Sunucu: %s  ·  Sürüm %s  ·  Parmak izi %s", host, version, fingerprint)}, nil
 }
 
@@ -294,7 +309,12 @@ func (u *UI) Active(techName string, mon signal.Monitor) {
 			u.lobby = nil
 		}
 		watchText := "Ekranınız izleniyor — " + techName
-		f := u.t.newForm(appTitle+" — Oturum", 440, 430, false)
+		u.techName = techName
+		height, endY := int32(500), int32(456)
+		if u.elevated {
+			height, endY = 552, 508
+		}
+		f := u.t.newForm(appTitle+" — Oturum", 440, height, false)
 		s := &sessionWin{f: f}
 		s.watch = f.danger(watchText, 16, 14, 408, 22, fontBold)
 		s.status = f.label("Bağlantı kuruluyor…", 16, 40, 408, 36, fontNormal)
@@ -304,7 +324,18 @@ func (u *UI) Active(techName string, mon signal.Monitor) {
 		s.sendBtn = f.button("Gönder", idOK, 338, 305, 86, true)
 		s.fileLbl = f.label("", 16, 344, 260, 20, fontNormal)
 		s.fileBtn = f.button("Aktarımı iptal et", idFileCancel, 284, 340, 140, false)
-		s.endBtn = f.button("Oturumu bitir", idEndSession, 16, 384, 160, false)
+		// AC-100: "Erişime izin ver", "Kontrolü kapat", "Oturumu bitir" her zaman görünür, klavyeyle erişilir.
+		// S7-6: "Erişime izin ver" izin vermez; bekleyen kontrol diyaloğunu imleç dışında, 1,5 sn kilitle öne getirir.
+		s.grantBtn = f.button("Erişime &izin ver", idGrant, 16, 380, 200, false)
+		s.closeBtn = f.button("&Kontrolü kapat", idCtlClose, 224, 380, 200, false)
+		s.hotkey = f.label(hotkeyText(u.hotkeyLabel), 16, 416, 408, 36, fontNormal)
+		if u.elevated {
+			f.danger(elevatedText, 16, 456, 408, 48, fontNormal)
+		}
+		s.endBtn = f.button("Oturumu bitir", idEndSession, 16, endY, 160, false)
+		win.EnableWindow(s.grantBtn.h, false)
+		win.EnableWindow(s.closeBtn.h, false)
+		f.noKey = s.grantBtn.h // G-03: Enter/Space bu düğmeyi de tetiklemez
 		win.ShowWindow(s.fileBtn.h, win.SW_HIDE)
 		f.command = func(id, _ int) {
 			switch id {
@@ -317,6 +348,12 @@ func (u *UI) Active(techName string, mon signal.Monitor) {
 				}
 			case idFileCancel:
 				u.emit(flow.Event{Kind: flow.EvFileCancel})
+			case idGrant:
+				if u.ctlDlg != nil {
+					u.ctlDlg.present()
+				}
+			case idCtlClose:
+				u.closeControlNow()
 			case idEndSession:
 				if !s.finished {
 					u.emit(flow.Event{Kind: flow.EvEnd})
@@ -401,63 +438,41 @@ func humanSize(n int64) string {
 	return fmt.Sprintf("%d bayt", n)
 }
 
-// FileOffer AC-36 + G-03: "Reddet" varsayılan ve odakta; "Kabul et" 1,5 sn kilitli, Enter/Space ile tetiklenmez;
-// diyalog imlecin altında açılmaz.
+// FileOffer AC-36 + G-03 (ortak izin diyaloğu, S7-5): "Reddet" varsayılan ve odakta; "Kabul et" 1,5 sn kilitli,
+// Enter/Space ile ve enjekte tıklamayla tetiklenmez (teknisyen kendi gönderdiği dosyayı kabul edemez); diyalog
+// imlecin altında açılmaz.
 func (u *UI) FileOffer(p transfer.Prompt) {
 	u.t.Do(func() {
-		f := u.t.newForm(appTitle+" — Dosya teklifi", 420, 250, true)
-		f.label("Dosya teklifi", 16, 14, 388, 24, fontBold)
-		f.label("Teknisyen size bir dosya göndermek istiyor:", 16, 44, 388, 20, fontNormal)
-		f.label(p.Name, 16, 66, 388, 36, fontBold)
-		f.label("Boyut: "+humanSize(p.Size)+"  ·  İndirilenler klasörüne kaydedilir", 16, 104, 388, 20, fontNormal)
+		closeDlg(u.offer) // transfer.Manager aynı anda tek bekleyen teklif tutar
+		var warns []string
 		switch p.Warning {
 		case files.WarnDoubleExtension:
-			f.danger("Dikkat: Dosya adı çift uzantılı; gerçek türü gizleniyor olabilir. Beklemediğiniz bir dosyaysa reddedin.",
-				16, 128, 388, 52, fontBold)
+			warns = append(warns, "Dikkat: Dosya adı çift uzantılı; gerçek türü gizleniyor olabilir. Beklemediğiniz bir dosyaysa reddedin.")
 		case files.WarnDangerous:
-			f.danger("Dikkat: Bu dosya türü bilgisayarınızda program çalıştırabilir. Yalnız beklediğiniz bir dosyaysa kabul edin.",
-				16, 128, 388, 52, fontBold)
+			warns = append(warns, "Dikkat: Bu dosya türü bilgisayarınızda program çalıştırabilir. Yalnız beklediğiniz bir dosyaysa kabul edin.")
 		}
-		reject := f.button("Reddet", idOK, 220, 200, 90, true)
-		accept := f.button("&Kabul et", idAccept, 316, 200, 88, false)
-		win.EnableWindow(accept.h, false)
-		f.noKey = accept.h
-		decide := func(ok bool) {
-			kind := flow.EvFileReject
-			if ok {
-				kind = flow.EvFileAccept
-			}
-			u.emit(flow.Event{Kind: kind, FID: p.FID})
-			f.destroy()
-			u.offer, u.offerFID = nil, ""
-		}
-		f.command = func(id, _ int) {
-			switch id {
-			case idOK, idCancel:
-				decide(false)
-			case idAccept:
-				decide(true)
+		body := "Teknisyen size bir dosya göndermek istiyor:\r\n" + p.Name + "\r\nBoyut: " + humanSize(p.Size) +
+			"  ·  İndirilenler klasörüne kaydedilir"
+		fid := p.FID
+		decide := func(kind flow.EventKind) func() {
+			return func() {
+				u.offerFID = ""
+				u.emit(flow.Event{Kind: kind, FID: fid})
 			}
 		}
-		f.close = func() { decide(false) }
-		f.timer = func(id uintptr) {
-			if id == timerAccept {
-				win.KillTimer(f.h, timerAccept)
-				win.EnableWindow(accept.h, true)
-			}
-		}
-		f.showAwayFromCursor(reject)
-		win.SetTimer(f.h, timerAccept, acceptDelayMs)
-		u.offer, u.offerFID = f, p.FID
+		u.offer = u.newConsent(consentSpec{title: "Dosya teklifi", heading: "Dosya teklifi", body: body,
+			grantText: "&Kabul et", warns: warns, hotkeyOK: true, slot: &u.offer,
+			onGrant: decide(flow.EvFileAccept), onDeny: decide(flow.EvFileReject)})
+		u.offerFID = fid
 	})
 }
 
-// FileOfferWithdrawn gönderen teklifi geri çekti: diyalog kapanır.
+// FileOfferWithdrawn gönderen teklifi geri çekti: diyalog karar verilmeden kapanır.
 func (u *UI) FileOfferWithdrawn(fid string) {
 	u.t.Do(func() {
 		if u.offer != nil && u.offerFID == fid {
-			u.offer.destroy()
-			u.offer, u.offerFID = nil, ""
+			closeDlg(u.offer)
+			u.offerFID = ""
 		}
 	})
 }
@@ -513,7 +528,7 @@ func (u *UI) Ended(m flow.Message) {
 			s.finished = true
 			win.SetText(s.watch.h, m.Title)
 			win.SetText(s.status.h, m.Body)
-			for _, c := range []*ctrl{s.input, s.sendBtn, s.endBtn, s.fileBtn} {
+			for _, c := range []*ctrl{s.input, s.sendBtn, s.endBtn, s.fileBtn, s.grantBtn, s.closeBtn} {
 				win.EnableWindow(c.h, false)
 			}
 			return
@@ -528,11 +543,10 @@ func (u *UI) Ended(m flow.Message) {
 }
 
 func (u *UI) teardownSession() {
-	for _, f := range []**form{&u.lobby, &u.offer} {
-		if *f != nil {
-			(*f).destroy()
-			*f = nil
-		}
+	u.closePrompts()
+	if u.lobby != nil {
+		u.lobby.destroy()
+		u.lobby = nil
 	}
 	if u.ind != nil {
 		u.ind.close()

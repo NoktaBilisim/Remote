@@ -1,5 +1,5 @@
 import { LoaderCircle } from "lucide-react";
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, Ref } from "react";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "danger-ghost";
 
@@ -15,6 +15,8 @@ const variants: Record<Variant, string> = {
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   loading?: boolean;
+  /** React 19: ref düz prop olarak iletilir (P7 "Kontrolü bırak"a odak). */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 /** Tek buton primitifi. Dokunma hedefi ≥ 44px (min-h-11); basınca scale(0.97). */

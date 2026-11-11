@@ -3,9 +3,10 @@
 import type { SessionView } from "@remote/contracts/api/sessions";
 import { ArrowLeft, CircleX, MousePointer2, Power } from "lucide-react";
 import Link from "next/link";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { DrawTool } from "@/components/collab/annot-layer";
 import { AnnotToolbar, CollabSide, type CollabTab } from "@/components/console/collab-side";
+import { ControlButton, MonitorPicker, monitorName } from "@/components/console/control-button";
 import { LobbyPanel } from "@/components/console/lobby-panel";
 import { Stage } from "@/components/console/stage";
 import { Alert } from "@/components/ui/alert";
@@ -23,12 +24,16 @@ import type { AnnotColor } from "@/lib/dc/ctl";
 import { useCollab } from "@/lib/dc/use-collab";
 import { useQuality } from "@/lib/webrtc/use-quality";
 import { useTechSession } from "@/lib/webrtc/use-tech-session";
+import { comboMsgs, SPECIAL_COMBOS, type SpecialComboId } from "@/lib/control/input";
+import { isCapturing } from "@/lib/control/machine";
+import { sendInput } from "@/lib/control/use-remote-input";
 
 const pill = "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap";
 
 /** Konsol: üst bar (müşteri, durum, süre, doğrulama kodu, bitir/iptal) + sahne. Sohbet/dosya/işaretleme/kalite P5. */
-export function ConsoleView({ session, canFiles }: { session: SessionView; canFiles: boolean }) {
-  const { state, stream, channels, pc, send, maxFileMb, admit, reject, end: endWs } = useTechSession(session.id);
+export function ConsoleView({ session, canFiles, canControl }: { session: SessionView; canFiles: boolean; canControl: boolean }) {
+  const { state, stream, channels, pc, send, maxFileMb, admit, reject, end: endWs, control, input, requestControl, requestMonitor, releaseControl, cancelControl } =
+    useTechSession(session.id);
   const [tab, setTab] = useState<CollabTab>("chat");
   const [tool, setTool] = useState<DrawTool | null>(null);
   const [color, setColor] = useState<AnnotColor>("red");
@@ -46,6 +51,42 @@ export function ConsoleView({ session, canFiles }: { session: SessionView; canFi
   const controlHint = useId();
   const live = state.phase === "live";
   const name = state.guest?.name ?? t("c.customer");
+
+  // P7 uzaktan kontrol (yalnız Hızlı Destek misafiri + remote_control.use; AC-34, 51)
+  const agent = live && state.guest?.kind === "AGENT";
+  const capturing = isCapturing(control);
+  const releaseRef = useRef<HTMLButtonElement>(null);
+  const showing = live && state.share === "sharing" && state.peerLostSince === null && state.reconnectSince === null;
+  // İşaretleme ve kontrol çakışmaz: kontrol yakalanırken çizim aracı etkisiz (araç çubuğu pasif)
+  const drawTool = capturing ? null : tool;
+  // "%100" = görüntülenen monitörün pikselleriyle 1:1 (TEST-P7-1); tarayıcı paylaşımında monitör bilgisi yok
+  const activeMon = control.monitors.find((m) => m.id === control.activeMonitor) ?? null;
+  const nativeSize = agent && activeMon ? { w: activeMon.w, h: activeMon.h } : null;
+  // Durum geçiş bildirimleri (AC-50 ≤ 1 sn, AC-99 "Kontrol reddedildi")
+  const prev = useRef(control);
+  useEffect(() => {
+    const p = prev.current;
+    prev.current = control;
+    if (p.phase !== "granted" && control.phase === "granted") toast(t("p7.toast.granted"), "success");
+    else if (p.phase !== "denied" && control.phase === "denied") toast(t("p7.toast.denied"), "danger");
+    // Teknisyenin kendi bırakması/iptali bildirim üretmez (not satırında yazar)
+    else if (p.phase === "granted" && control.phase !== "granted" && control.endedBy && control.endedBy !== "tech") toast(t(`p7.end.${control.endedBy}`), "danger");
+    if (!p.forbidden && control.forbidden) toast(t("p7.forbidden"), "danger");
+    // Dar sahnede monitör seçimi menüde: sonuç menü kapalıyken de duyurulsun (TEST-P7-2)
+    if (p.monitorOutcome !== control.monitorOutcome && control.monitorOutcome && control.monitorOutcome !== "switched") {
+      const key = { denied: "p7.monitorDenied", noAnswer: "p7.monitorNoAnswer", rate: "p7.monitorRate", already: "p7.monitorAlready" } as const;
+      toast(t(key[control.monitorOutcome]), "danger");
+    }
+    if (p.monitorOutcome !== "switched" && control.monitorOutcome === "switched") {
+      const i = control.monitors.findIndex((m) => m.id === control.activeMonitor);
+      if (i >= 0) toast(t("p7.monitorSwitched", { name: monitorName(control.monitors[i]!, i) }), "success");
+    }
+  }, [control, toast]);
+  const sendKeys = (id: SpecialComboId) => {
+    const c = SPECIAL_COMBOS.find((x) => x.id === id);
+    if (!c || !capturing) return;
+    for (const m of comboMsgs(c.codes)) sendInput(input, m);
+  };
 
   const status =
     state.phase === "ended" ? { cls: "bg-surface-muted text-fg-muted", label: t("c.st.ended") }
@@ -101,7 +142,7 @@ export function ConsoleView({ session, canFiles }: { session: SessionView; canFi
         </div>
         <span className="flex-1" />
         {live && state.guest?.kind === "BROWSER" && (
-          // AC-34: tarayıcı modunda kontrol yok — buton pasif, nedeni yanında (kontrol akışı P7)
+          // AC-34: tarayıcı modunda kontrol yok — buton pasif, nedeni yanında (AGENT'ta etkin akış: ControlButton, P7)
           // TEST-P4-4: dar masaüstünde (1280 px) açıklama satır kırarak daralır; "Oturumu bitir" aynı satırda kalır
           <div className="flex min-w-0 items-center gap-2">
             <Button variant="secondary" disabled className="shrink-0" aria-describedby={controlHint} data-testid="console-control">
@@ -146,8 +187,8 @@ export function ConsoleView({ session, canFiles }: { session: SessionView; canFi
             lobby={<LobbyPanel state={state} onAdmit={admit} onReject={(p) => reject(p.guestId)} />}
             annot={collab.ready ? {
               state: collab.annot,
-              input: tool ? {
-                tool,
+              input: drawTool ? {
+                tool: drawTool,
                 color,
                 onStroke: (s) => collab.sendAnnot({ t: "annot.stroke", id: s.id, tool: s.tool, color: s.color, pts: s.pts }),
                 onLaser: (x, y) => collab.sendAnnot({ t: "annot.laser", x, y }),
@@ -155,14 +196,43 @@ export function ConsoleView({ session, canFiles }: { session: SessionView; canFi
             } : null}
             tools={collab.ready ? (
               <AnnotToolbar
-                tool={tool}
+                tool={drawTool}
                 color={color}
                 onTool={setTool}
                 onColor={setColor}
                 onUndo={() => collab.sendAnnot({ t: "annot.undo", ...(collab.annot.strokes.at(-1) ? { id: collab.annot.strokes.at(-1)?.id } : {}) })}
                 onClear={() => collab.sendAnnot({ t: "annot.clear" })}
+                disabledHint={capturing ? t("p7.annotOff") : null}
               />
             ) : null}
+            controlBar={agent ? (
+              <>
+                {canControl && (
+                  <ControlButton
+                    s={control}
+                    now={now}
+                    available={showing}
+                    onRequest={requestControl}
+                    onRelease={releaseControl}
+                    onCancel={cancelControl}
+                    onKeys={sendKeys}
+                    releaseRef={releaseRef}
+                  />
+                )}
+              </>
+            ) : null}
+            monitors={agent && control.monitors.length > 1 ? <MonitorPicker s={control} now={now} onRequest={requestMonitor} /> : null}
+            monitorBusy={control.monitorPending !== null}
+            nativeSize={nativeSize}
+            control={agent ? {
+              active: canControl && capturing,
+              channel: input,
+              onKeyboardRelease: () => releaseRef.current?.focus(),
+              elevated: control.env.elevated,
+              secureDesktop: control.env.secure,
+              selfElevated: control.env.self,
+              endedNote: control.phase === "idle" && control.endedBy === "peer" ? t("p7.end.peer") : null,
+            } : null}
           />
           {live && <CollabSide collab={collab} quality={quality} canFiles={canFiles} peerName={name} tab={tab} onTab={setTab} />}
         </div>

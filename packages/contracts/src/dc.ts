@@ -1,5 +1,5 @@
 // DataChannel sözleşmesi (docs/mimari-protokol.md §4). P4: temel zarf + kanal adları; P5: `ctl` mesajları (chat,
-// annot.*, file.*, ping), `file` kanalı çerçevesi ve alınan bayt sınırı. DC'de `control.*` tipi YOKTUR (kontrol isteği
+// annot.*, file.*, ping), `file` kanalı çerçevesi ve alınan bayt sınırı; P7: `input` kanalı. DC'de `control.*` tipi YOKTUR (kontrol isteği
 // yalnız WS'den); strict şema bilinmeyen tipi/alanı reddeder (G-09).
 import { z } from "zod";
 
@@ -192,4 +192,37 @@ export class FileReceiveGuard {
   complete(): boolean {
     return this.received === this.declared;
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// P7 — `input` kanalı (mimari-protokol §4.3; AC-47..50, 101, 104). Yalnız AGENT misafir kabul eder; uygulama kararı
+// istemcideki izin kapısındadır (`gate.IsOpen()` SendInput'tan hemen önce). Koordinatlar aktif monitöre göre 0..1 (AC-49).
+
+export const MOUSE_BUTTONS = ["l", "r", "m"] as const;
+/** Tekerlek delta sınırı (WHEEL_DELTA=120 × 10). */
+export const WHEEL_MAX = 1200;
+
+export const mouseMoveSchema = z.strictObject({ t: z.literal("m.move"), x: unit, y: unit });
+export const mouseButtonSchema = z.strictObject({ t: z.literal("m.btn"), b: z.enum(MOUSE_BUTTONS), down: z.boolean(), x: unit, y: unit });
+export const mouseWheelSchema = z.strictObject({
+  t: z.literal("m.wheel"),
+  dx: z.number().int().min(-WHEEL_MAX).max(WHEEL_MAX),
+  dy: z.number().int().min(-WHEEL_MAX).max(WHEEL_MAX),
+});
+/**
+ * `code` = KeyboardEvent.code (yalnız harf/rakam, ≤ 32 — Go `internal/input` ile aynı, QA-P7-3); `key` yalnız
+ * yazdırılabilir karakter için (Türkçe → KEYEVENTF_UNICODE).
+ */
+export const keySchema = z.strictObject({ t: z.literal("k"), code: z.string().regex(/^[A-Za-z0-9]{1,32}$/), down: z.boolean(), key: z.string().min(1).max(4).optional() });
+/** Odak kaybında takılı tuş önleme. */
+export const keyReleaseAllSchema = z.strictObject({ t: z.literal("k.release_all") });
+
+export const inputMessageSchema = z.discriminatedUnion("t", [mouseMoveSchema, mouseButtonSchema, mouseWheelSchema, keySchema, keyReleaseAllSchema]);
+export type InputMessage = z.infer<typeof inputMessageSchema>;
+
+/** Ham `input` çerçevesi → tipli mesaj; boyut/JSON/şema hatasında null (alıcı düşürür). */
+export function parseInputMessage(raw: unknown): InputMessage | null {
+  if (parseDcEnvelope(raw) === null) return null;
+  const r = inputMessageSchema.safeParse(JSON.parse(raw as string));
+  return r.success ? r.data : null;
 }

@@ -4,6 +4,7 @@
  * anlaşma gerektirmez. Uzak ICE adayları remoteDescription gelene dek kuyrukta bekler.
  * DataChannel'lar (P5): teknisyen ilk teklifte `ctl` + `file` açar; misafir `ondatachannel` ile alır, `input`'u
  * (tarayıcı modu, AC-34) kapatır. İki kanal da açılınca `onChannels` çağrılır.
+ * P7: teknisyen AGENT misafire `input` kanalını da açar (`withInput`); açılınca `onInput` (§4.3).
  */
 import { DC_LABELS } from "@remote/contracts/dc";
 import type { IceServer } from "@remote/contracts/ws";
@@ -27,8 +28,11 @@ export class PeerLink {
   private dc: Partial<Channels> = {};
   /** ctl + file açıldığında (yeniden bağlanmada yeni PeerLink → yeni kanallar). */
   onChannels: ((c: Channels) => void) | null = null;
+  /** P7: `input` kanalı açıldı / kapandı (null). */
+  onInput: ((c: RTCDataChannel | null) => void) | null = null;
+  private input: RTCDataChannel | null = null;
 
-  constructor(iceServers: IceServer[], private send: (m: SignalOut) => void) {
+  constructor(iceServers: IceServer[], private send: (m: SignalOut) => void, private withInput = false) {
     this.pc = new RTCPeerConnection({ iceServers: toRtcIce(iceServers) });
     this.pc.ondatachannel = (e) => this.adopt(e.channel);
     this.pc.onicecandidate = (e) => {
@@ -67,6 +71,12 @@ export class PeerLink {
     if (!this.dc.ctl) {
       this.adopt(this.pc.createDataChannel(DC_LABELS.CTL, { ordered: true }));
       this.adopt(this.pc.createDataChannel(DC_LABELS.FILE, { ordered: true }));
+    }
+    if (this.withInput && !this.input) {
+      const ch = this.pc.createDataChannel(DC_LABELS.INPUT, { ordered: true });
+      this.input = ch;
+      ch.addEventListener("open", () => this.onInput?.(ch), { once: true });
+      ch.addEventListener("close", () => this.onInput?.(null), { once: true });
     }
     const o = await this.pc.createOffer({ iceRestart });
     await this.pc.setLocalDescription(o);
@@ -119,6 +129,7 @@ export class PeerLink {
     this.pc.onicecandidate = null;
     this.pc.ondatachannel = null;
     this.onChannels = null;
+    this.onInput = null;
     this.pc.close();
   }
 }
