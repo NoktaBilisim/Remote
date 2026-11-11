@@ -151,6 +151,8 @@ git bundle create /tmp/remote.bundle main && scp /tmp/remote.bundle root@185.126
 cd /opt/remote && git pull /root/remote.bundle main && rm /root/remote.bundle
 cd deploy && TAG=$(git rev-parse --short HEAD) && sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$TAG/" .env
 docker compose build && docker compose up -d     # migrate önce çalışır; başarısızsa server başlamaz
+docker compose --profile setup run --rm seed     # her yayında zararsız; P4+ tenant aydınlatma metni eksikse ekler
+                                                 # (yoksa misafir sayfası 500 "consent_text_missing" → "Bağlantı bilgisi alınamadı")
 docker compose ps && docker compose logs --since 5m migrate
 docker image rm remote-server:<eski> remote-web:<eski> remote-migrate:<eski>   # yalnız kendi eski imajlarımız
 ```
