@@ -20,6 +20,8 @@ const REDACT_PATHS = [
   "*.nonce",
   "*.ticket",
   "*.secret",
+  // sessionRef (P6 indirme ucu dosya adına kodu yazar → ref kodla eşdeğer gizli; G-10)
+  "*.ref",
 ];
 
 interface LoggableRequest {

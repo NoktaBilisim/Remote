@@ -1247,3 +1247,153 @@ Düzeltme: mimar: Rapor ekranı tasarlanırken `session_files` audit'teki actor 
 
 ### Öneri (`docs/gereksinimler.md` §9 "Sonra")
 S-P5-T2-1 (disk yolu testi ve uyarı), S-P5-T2-2 (`auditAt` taraf anahtarı, küçük düzeltme, bu pakette yapılabilir), S-P5-T2-3 (gönderen raporu için ayrı düşük kota ve alarm), S-P5-T2-4 (raporlayan ve `fid` eşleşmesi, P12/P13). P5 için güvenlik kapısı açık: Kritik/Yüksek 0.
+
+## P6 kod turu 1 — Windows istemcisi, indirme ucu, CI/yayın (2026-11-11)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 2 / Düşük 7
+
+Kapsam, commit edilmemiş P6 değişiklikleridir: `apps/agent-win/**`, `apps/server/src/public/{routes,agent,agent-binary}.ts`, `sessions/public.ts`, `sessions/repo.ts`, `lib/logger.ts`, `deploy/{Caddyfile,docker-compose.yml}`, `deploy/agent/verify-and-publish.sh`, `.github/workflows/{agent-win,agent-watch}.yml`, `.github/dependabot.yml` ve `.env.example`.
+Not: Tur sınırı nedeniyle `capture/` (DXGI/MF) kodu yalnız `unsafe.Slice` noktalarında örneklendi. `ui/screens_windows.go` ve `ui/form_windows.go` satır satır okunmadı.
+
+### Bulgular (öncelik sırasıyla)
+
+#### S6-1 [ORTA] Win32 metin işaretçisi `uintptr`'a yardımcı fonksiyonda çevriliyor, bu yüzden GC tamponu çağrıdan önce serbest bırakabilir (use-after-free) — A08 / bellek güvenliği
+Yer: `apps/agent-win/internal/win/win_windows.go:240` (`func ptr(s string) uintptr { return uintptr(unsafe.Pointer(Str(s))) }`). Kullanım yerleri: `:265` (CreateWindowExW, iki `ptr` arka arkaya), `:317` (`SendMessageStr`: EM_REPLACESEL/LB_ADDSTRING), `:320` (`SetText`), `:335` (MessageBox), `:438` (DrawText), `:459` (CreateFont) ve `:513` (ShellExecute `mailto:`).
+Sorun: `unsafe.Pointer` kuralı (4) gereği `uintptr` dönüşümü `Proc.Call(...)` argüman listesinin içinde yazılmalıdır. Ancak o zaman derleyici (`//go:uintptrescapes`) nesneyi çağrı bitene kadar canlı tutar. Burada dönüşüm ayrı bir fonksiyonda yapılıyor ve `ptr` döndükten sonra UTF-16 tampona hiçbir referans kalmıyor. Bu durumda iki sorun çıkabilir:
+- Pion ve yakalama goroutine'leri sürekli bellek ayırıyor. GC araya girerse tampon serbest kalır ve yeniden kullanılır. Win32 çağrısı başka bir nesnenin baytlarını okur ve NUL bulana kadar okumayı sürdürebilir (taşma okuması).
+- `CreateWindow` içinde ikinci `ptr` çağrısının yaptığı bellek ayırma, ilk tamponu tek başına geçersiz kılabilir.
+İstismar senaryosu: Tamponun içeriği teknisyen tarafından kontrol edilebiliyor. Örneğin `chat` metni (≤2000 UTF-16) EM_REPLACESEL ile gösteriliyor. Yoğun video sırasında teknisyen art arda chat gönderirse, müşteri ekranında başka heap verisi görünebilir (ör. TURN credential, reconnectToken parçaları) ya da istemci çöker. Güvenilir bir kod yürütme yolu görülmedi. Etki: müşteri tarafında DoS ve bellek içeriğinin ekrana sızması. Olasılık düşük ama gerçek.
+Düzeltme (backend-dev): `ptr` kaldırılmalı. `Str(s)` `*uint16` döndürmeli ve dönüşüm çağrı ifadesinin içinde yapılmalı: `p := Str(s); pX.Call(h, uintptr(unsafe.Pointer(p)))`. Alternatif olarak çağrıdan sonra `runtime.KeepAlive(p)` eklenmeli. `go vet` bu durumu yakalamaz; bu yüzden `win` paketine "`uintptr(unsafe.Pointer(` yalnız `.Call(` satırında" diye bir grep testi eklenmeli.
+
+#### S6-2 [ORTA] SHA-256 bütünlük kapısı yalnız 302 yönlendirmesinde var; asıl dağıtım yolu `/downloads/*` kapıyı atlıyor — A08 (G-07, T13)
+Yer: `deploy/Caddyfile` `@agentExe` bloğu (`handle @agentExe { root * /srv/downloads … file_server }`), `apps/server/src/public/agent.ts:50`, `.github/workflows/agent-watch.yml:41`
+Sorun: Mimari §8.1 ve T13 "uyuşmazlıkta indirme 503 (fail-closed)" diyor. Kodda ise `AgentBinary.check()` yalnız `GET /api/v1/public/agent/download` yanıtını etkiliyor. Caddy `/downloads/NoktaDestek.exe` ve `/downloads/Destek-<herhangi 8 hane>.exe` yollarındaki dosyayı hash kontrolü yapmadan, kimlik ve ref istemeden doğrudan sunuyor. Volume'daki dosya `AGENT_SHA256` ile uyuşmasa bile (yarım yayın, elle kopya, tahrif) dağıtım sürüyor. Ayrıca `agent-watch` doğrudan Caddy yolunu izliyor ve Caddy hiçbir zaman 503 dönmüyor, dolayısıyla `server503` dalı ölü kod. Gözcü uyuşmazlığı yine de hash karşılaştırmasıyla yakalar, ancak bu ertesi gün olur.
+İstismar senaryosu: Sunucuda volume'a yazabilen ama `.env`'e dokunamayan bir aktör ya da hatalı bir operatör adımı volume'a farklı bir exe koyar. Uç 503 döner ama müşterilere daha önce iletilmiş `/downloads/...` bağlantıları değiştirilmiş ikiliyi sunmaya devam eder. Alarm ancak 24 saate kadar sonra gelir.
+Düzeltme (devops + backend-dev): Caddy `@agentExe` bloğunun önüne `forward_auth server:3001 { uri /api/v1/public/agent/ready }` eklenmeli. Bu iç uç `agentBinary.check()` "ok" değilse 503 döner. Alternatif: dosya sunucudan akıtılmalı. `agent-watch` hem doğrudan yolu hem de `?ref`'siz 503 kontrolünü yapmalı ya da ölü dal kaldırılmalı. Kalan risk (sunucunun tümüyle ele geçirilmesi) G-07 sadeleştirmesiyle kabul edilmişti; bu bulgu yalnız "fail-closed" vaadinin gerçek dağıtım yolunda da sağlanmasıyla ilgili.
+
+#### S6-3 [DÜŞÜK] MOTW, yeniden adlandırmadan sonra yazılıyor; yazılamazsa dosya MOTW'suz kalıyor; `os.Rename` üzerine yazıyor — A08 (G-06)
+Yer: `apps/agent-win/internal/transfer/transfer.go:189-210`, `internal/files/motw_windows.go:13`
+Sorun:
+- Nihai ad (ör. `.exe`) önce MOTW'suz oluşuyor, `Zone.Identifier` ondan sonra ekleniyor (kısa bir pencere).
+- NTFS dışı birimde MOTW hatası yalnız `MOTWFailed` uyarısına dönüşüyor. Tehlikeli uzantılı dosya SmartScreen koruması olmadan Downloads'ta kalıyor.
+- Windows'ta `os.Rename`, `MoveFileEx(MOVEFILE_REPLACE_EXISTING)` kullanıyor. Bu yüzden `Lstat` ile `Rename` arasında aynı adla oluşan bir dosyanın üzerine yazılıyor. Bu, "üzerine yazma yok" kuralıyla çelişiyor (TOCTOU).
+İstismar senaryosu: Etki sınırlı. Kullanıcı aynı anda tarayıcıdan aynı adla bir dosya indirirse o dosya kaybolur. FAT32/exFAT USB'ye yönlendirilmiş bir Downloads klasöründe teknisyenin gönderdiği `.exe` MOTW'suz çalıştırılabilir.
+Düzeltme (backend-dev):
+- MOTW `.part` dosyasına, kapanıştan sonra ve yeniden adlandırmadan önce yazılmalı (ADS yeniden adlandırmayla birlikte taşınır).
+- Yeniden adlandırma `windows.MoveFileEx(src, dst, 0)` ile, değiştirme bayrağı olmadan yapılmalı. `ERROR_ALREADY_EXISTS` gelirse `AvailableName` ile yeniden denenmeli.
+- MOTW yazılamazsa ve `NameWarning != none` ise dosya silinmeli ve sonuç `CORRUPT/REJECTED` olmalı (ya da kullanıcıya açık bir onay sorulmalı).
+
+#### S6-4 [DÜŞÜK] PR derlemeleri gerçek `AGENT_SERVER_URL` ile üretiliyor (yorum aksini söylüyor) — A08 (G-18)
+Yer: `.github/workflows/agent-win.yml:22-23, 90-100`
+Sorun: Yorumda "PR/fork derlemelerinde placeholder" yazıyor. Ancak `server=${VAR_SERVER_URL:-$PLACEHOLDER_SERVER_URL}` ifadesi aynı repodaki PR'larda (repo değişkenleri erişilebilir) gerçek adresi gömüyor. İncelenmemiş PR kodu prod/staging adresine bağlanan bir exe olarak 7 ve 30 gün artifact'te tutuluyor. `verify-and-publish --run` bunu `push/main` kontrolüyle engelliyor, ancak artifact elle indirilip dağıtılabilir.
+Düzeltme (devops): Gerçek adres yalnız `github.event_name == 'push'` (main veya etiket) koşullarında kullanılmalı, diğer tüm durumlarda placeholder kullanılmalı.
+
+#### S6-5 [DÜŞÜK] `verify-and-publish.sh` başarısız CI koşusunu ve kökeni belirsiz `--dir` ikilisini staging'de yayınlayabiliyor — A08 (G-07)
+Yer: `deploy/agent/verify-and-publish.sh:115` (`concl != success` → yalnız UYARI), `:118` + `:133` (`--dir` ile `--no-attestation` birlikte kullanılınca köken kanıtı yok)
+Sorun: Staging'de kırmızı bir koşunun (ör. govulncheck veya test hatası) artifact'i yayınlanabiliyor. `--dir` modunda herhangi bir yerel exe + SHA256SUMS çifti `ALLOW_UNATTESTED=staging` ile volume'a girebiliyor. Bu durumda tek güvence operatör disiplini.
+Düzeltme (devops):
+- `--run` için `conclusion=success` zorunlu olmalı; aşmak için açık bir `--allow-failed-run` bayrağı ve `PUBLISHED.log`'a not düşülmeli.
+- `--dir` ile `--no-attestation` birlikte yasaklanmalı.
+
+#### S6-6 [DÜŞÜK] İstemci `HTTP(S)_PROXY` ortam değişkenine uyuyor — A05 (T13 "env yok" ifadesiyle kısmi çelişki)
+Yer: `apps/agent-win/internal/api/api.go:68` (`Proxy: http.ProxyFromEnvironment`). WS de aynı istemciyi kullanıyor.
+Sorun: Sunucu adresi değiştirilemiyor ve TLS uçtan uca sistem köklerine göre doğrulanıyor, bu yüzden MITM yok. Ancak ortam değişkeni trafiği üçüncü bir noktadan geçirebiliyor (meta veri ve bağlantı engelleme). Mimari "komut satırı/env/registry yok" diyor.
+Düzeltme (backend-dev): Bilinçli bir karar ise (kurumsal proxy desteği) `docs/implementation.md` "Agent (P6)" bölümüne gerekçe yazılmalı ve mimari T13 metni "yalnız URL" olarak netleştirilmeli (mimar). Değilse `Proxy: nil` yapılmalı.
+
+#### S6-7 [DÜŞÜK] Derin savunma eksikleri: sınırsız ICE kuyruğu ve istemcide doğrulanmayan `abuseEmail` — A04
+Yer: `apps/agent-win/internal/rtc/rtc.go:268-272` (`pending` offer gelmeden sınırsız büyüyor), `internal/win/win_windows.go:513` + `api.go:110` (`AbuseEmail` doğrulanmadan `mailto:`+addr ile ShellExecute'a gidiyor)
+Sorun: Teknisyen offer göndermeden çok sayıda `ice` gönderirse istemci belleği büyür (WS 50 msg/sn ile sınırlı). `mailto:` sabit önek olduğu için şema değiştirilemiyor, ancak sunucudan gelen değer ham olarak kabuk API'sine veriliyor.
+Düzeltme (backend-dev): `pending` için üst sınır konmalı (ör. 64, fazlası düşürülür). `AbuseEmail` istemcide basit bir e-posta regex'i ve ≤190 karakter sınırıyla doğrulanmalı; `?`, `&` ve kontrol karakterleri reddedilmeli.
+
+#### S6-8 [DÜŞÜK] Tehlikeli uzantı listesinde Windows'ta çalıştırılabilen birkaç tür eksik — A08 (G-06, AC-36)
+Yer: `apps/agent-win/internal/files/files.go:87-90` (contracts `DANGEROUS_EXT` eşi)
+Sorun: `one`, `onepkg`, `wsc`, `sct`, `diagcab`, `website`, `ade`, `adp`, `mde`, `mshxml`, `jnlp`, `cab` listede yok. Bunlar uyarısız kabul diyaloğuna düşer. Alıcı onayı zorunlu olduğu için etkisi düşük.
+Düzeltme (backend-dev): Liste `packages/contracts/src/files.ts` ve fixture ile birlikte genişletilmeli (tek kaynak kuralı).
+
+#### S6-9 [DÜŞÜK] Bilinen konular — durum notu
+- (Bilinen 1) `go.mod` şu an `toolchain go1.26.11` ve `golang.org/x/net v0.60.0` gösteriyor; CI imajı da 1.26.11 digest'li. Bu turda govulncheck yerelde çalıştırılmadı. Kapanış kanıtı olarak CI `check` job'unun yeşil çıktısı `docs/implementation.md`'ye eklenmeli.
+- (Bilinen 2) Repo private olduğu için attestation yok. `attest` job'u main push'larında kırmızı olacak ve `release` (`needs: attest`) Release'i fiilen engelliyor. Prod açılışından (P10) önce repo public yapılmalı ya da Enterprise Cloud kullanılmalı. `--no-attestation` yalnız `ALLOW_UNATTESTED=staging` ile çalışıyor; betikteki bu koruma doğrulandı.
+- (Bilinen 3, G-10) Caddy hata logu maskelenmiyor. P6 ile kapsam genişledi: hata logunda `?ref=` sorgu dizesi ve `/downloads/Destek-<kod>.exe` yolu da açık görünebilir. Erişim logu iki yolu da maskeliyor (`request>uri` regexp + `Content-Disposition`/`Location` silme; doğrulandı).
+
+### Doğrulanan kontroller (Olumlu)
+- **İndirme ucu** (`public/agent.ts`, `routes.ts`): Yanıt yalnız `PENDING && expires_at > now` olduğunda veriliyor. Süresi dolmuş PENDING aynı istekte EXPIRED'a çekiliyor ve 410 dönüyor. Geçersiz/HMAC uyuşmayan ref 404, ACTIVE/ENDED/CANCELLED 410 alıyor. 404 ve 410 kod yolu kovalarına (`codeIp` 10/dk + `codePrefix` 30/dk, 15 dk blok) sayılıyor, ayrıca `downloadIp` 20/dk. 503 (`NOT_READY`) deneme sayılmıyor. `Cache-Control: no-store` hata yanıtlarında da var. Mimari-api sözleşmesine uygun.
+- **`ref` hiçbir yere yazılmıyor:** pino `req` serileştiricisi sorgu dizesini atıyor, `*.ref` redakte ediliyor, audit'e ref/kod geçmiyor, Caddy erişim logunda `Location` ve `Content-Disposition` siliniyor.
+- **302 hedef sapması** (`/downloads/Destek-<kod>.exe` ve Caddy `Content-Disposition`): Güvenlik açısından kabul edilebilir. Yol yalnız `[0-9]{8}` kabul ediyor ve her ad aynı ikiliyi sunuyor. Kod doğrulanmıyor ya da sızdırılmıyor. Kod tarayıcı geçmişine giriyor, ancak yalnız PENDING iken geçerli ve kısa ömürlü olduğu için kabul.
+- **ldflags-only config:** `os.Args`, `Getenv`, registry ya da `flag` kullanımı yok (grep ile doğrulandı). `parse` yalnız `https://host[:port]` kabul ediyor; yol, sorgu, kullanıcı bilgisi ve fragment reddediliyor.
+- **TLS:** Sistem kökleri ve TLS ≥1.2 kullanılıyor, `InsecureSkipVerify` yok, yönlendirme izlenmiyor. WS kimlik bilgisi `Sec-WebSocket-Protocol` üzerinden gidiyor, URL'de sorgu yok, `rs.v1` seçilmezse bağlantı kapanıyor.
+- **dllsafe:** `SetDefaultDllDirectories(SYSTEM32)` + `SetDllDirectory("")` `main`'in ilk işi. Tüm DLL'ler `NewLazySystemDLL` ile yükleniyor, `NewLazyDLL`/`LoadLibrary` yok. Manifest `asInvoker`. %TEMP%'e çıkarma ya da `CreateTemp` yok. Procmon kanıtı manuel AC olarak bekliyor.
+- **Dosya adı:** Son bileşen alınıyor; `\/:*?"<>|`, kontrol karakterleri ve Unicode Cf (RTLO) siliniyor (`:` silindiği için ADS yok). Sondaki nokta/boşluk temizleniyor, ayrılmış adlar `_` önekleniyor, uzunluk 255. `.part` `O_EXCL` ile oluşturuluyor. Boyut sınırı alınan bayt sayacıyla uygulanıyor, sıra dışı parça transferi iptal ediyor, SHA-256 sabit zamanlı karşılaştırılıyor.
+- **DataChannel:** `ParseCtl` ≤16 KB ve geçerli UTF-8 istiyor. Anahtarlar büyük/küçük harf duyarlı izinli listeyle denetleniyor, `null` reddediliyor, zorunlu alanlar ve değer aralıkları kontrol ediliyor. `caps` filtresi (G-09) çalışıyor, yetenek dışı `file.offer` otomatik reddediliyor. `input` ve bilinmeyen kanallar açılınca kapatılıyor. WS mesajları da katı şemayla doğrulanıyor (1008).
+- **Overlay:** Gösterge şeritleri ve işaretleme katmanı `WDA_EXCLUDEFROMCAPTURE` ile yakalamadan hariç, tıklama geçirgen ve `NOACTIVATE`. Şeritler 1 sn'de bir yeniden TOPMOST yapılıyor.
+- **DXGI/MF:** Örneklenen `unsafe.Slice` noktaları (`pitch*(h-1)+w*4`, MF Lock uzunluğu, MFTEnumEx dizisi + `CoTaskMemFree`) sınırlar içinde.
+- **CI:** Tüm Action'lar SHA ile sabitlenmiş. Varsayılan izin `contents: read`; `id-token`/`attestations` yalnız `attest` job'unda, `contents: write` yalnız `environment: agent-release` onaylı `release` job'unda. `persist-credentials: false`, `GOTOOLCHAIN=local`, `-mod=readonly`, `go mod verify`, govulncheck, go-licenses ve iki build arasında SHA eşitliği var; Release `--verify-tag` ile oluşturuluyor. Dependabot gomod eklendi.
+- **verify-and-publish:** `gh attestation verify` `--signer-workflow`, `--deny-self-hosted-runners` ve `--source-ref` ile çalışıyor. Volume'a ağsız konteynerden yazılıyor; kopyanın hash'i yeniden kontrol edilip atomik `mv` yapılıyor. `umask 077` ayarlı, girdiler regex ile doğrulanıyor, Caddy üzerinden son hash kontrolü yapılıyor.
+
+### Otomatik tarama çıktıları (P6)
+- Sır taraması (`git diff` + izlenmeyen tüm dosyalar, `(api_key|secret|password|token)\s*[:=]\s*'…{8,}'`): Tek isabet test fixture'ı (`const token = "rrrr…"`); gerçek değer değil. İzlenmeyen `.env`, `.pem` ya da `.exe` yok.
+- `git log --all -- '*.env*'`: P1/P2 ve P3/P4 commit'lerinde isabet var. Önceki turlarda bunların yalnız `.env.example` olduğu doğrulanmıştı; P6'da yeni `.env` dosyası yok.
+- govulncheck / `go test`: Bu turda yerelde çalıştırılmadı (Go toolchain ve tur sınırı). Kanıt CI `check` + `test-windows` job'larından alınmalı.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+- "Uyuşmazlıkta indirme 503" yalnız yönlendirme ucunda var, dağıtım yolunda yok (S6-2).
+- "env yok" (T13): Proxy ortam değişkeni okunuyor (S6-6).
+- Manuel kanıtlar bekliyor: Procmon DLL araması 0, SmartScreen yolu, gerçek NTFS'te `Zone.Identifier`, `trace-check.ps1`.
+
+### Ajan bazında
+- backend-dev: S6-1, S6-3, S6-6 (veya gerekçe), S6-7, S6-8; S6-2'de `/ready` iç ucu.
+- devops: S6-2 (Caddy `forward_auth`, agent-watch), S6-4, S6-5, S6-9 (Caddy hata logu).
+- mimar: S6-6 için T13 metninin netleştirilmesi.
+
+### Öneri (`docs/gereksinimler.md` §9 "Sonra")
+S6-1 ve S6-2 Orta derecede ama P6 kapanmadan düzeltilmesi önerilir (küçük değişiklikler). S6-3..S6-8 "Sonra" listesine eklenebilir. Kritik/Yüksek 0, P6 güvenlik kapısı açık.
+
+DURUM: GEÇTİ
+
+## P6 doğrulama turu 2 — S6-1..S6-9 kapanışı + yeni yüzeyler (2026-11-11)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 (yeni) + 1 bilgi notu
+
+Kapsam: S6-1..S6-9 düzeltmeleri commit edilmemiş değişiklik olarak incelendi. Bu tur yalnız statik inceleme yapıldı; `go test`, govulncheck ve `pnpm test` çalıştırılmadı. Tur sınırı nedeniyle bazı yüzeyler doğrulanamadı; bunlar aşağıda "doğrulanmadı" olarak işaretlendi.
+
+### S6 maddelerinin durumu
+| Madde | Durum | Kanıt |
+|---|---|---|
+| S6-1 (Orta) `ptr()` use-after-free | **KAPANDI** | `ptr()` kaldırıldı. `Str()` artık `*uint16` döndürüyor (`internal/win/win_windows.go:250`). Dönüşümler çağrı argümanının içinde yapılıyor: `:281-282` CreateWindowExW, `:334-335` SendMessageStr, `:340-341` SetText, `:357-358` MessageBox, `:461-462` DrawText, `:482-484` CreateFont, `:539-540` ShellExecute. `capture/com_windows.go:27` (`call`) ve `:52` (`procHR`) `//go:uintptrescapes` ile işaretli. `internal/win/unsafeptr_test.go` AST testi tüm modülü tarıyor: `uintptr(unsafe.Pointer(…))` yalnız `Call/call/procHR/SyscallN` argümanında olabilir ve iki sarmalayıcıda işaret zorunlu. Test derleme etiketi taşımıyor, bu yüzden Linux CI'da da çalışır. Kalan tek dönüşüm `form_windows.go:200` (WM_DPICHANGED lParam → `*RECT`); bu bellek işletim sistemine ait olduğu için sorun değil. |
+| S6-2 (Orta) `/downloads/*` kapıyı atlıyor | **KAPANDI** | `deploy/Caddyfile:101-104`: `@agentExe` → `route { forward_auth server:3001 { uri /internal/agent-ready } … file_server }`. Kapı dosya sunulmadan önce çalışıyor; 2xx dışı yanıt (503 veya server erişilemezse 502) istemciye dönüyor, dolayısıyla fail-closed. `X-Forwarded-Uri` maskeli. `:86`: `/internal/*` dışarıya 404. Server tarafı `public/routes.ts:32-41`: soket adresi `TRUSTED_PROXY_CIDR` içinde olmalı (tanımsızsa loopback) ve `X-Forwarded-Method` gelmeli, aksi halde 404. `assertAgentReady` (`public/agent.ts:55`) 302 yolu ile aynı kapı. Uç `app.ts:163` ile `/internal` önekinde kayıtlı. Global `log default` filtresi (`Caddyfile:20-35`) hata loguna sorgu dizesi, `/session/***`, `/downloads/Destek-***` ve kimlik başlıkları maskesini uyguluyor; bu S6-9 bilinen 3'ü de kapatıyor. `agent-watch.yml`'deki ölü `server503` dalı **doğrulanmadı**. |
+| S6-3 (Düşük) MOTW/rename | **KAPANDI** | `internal/transfer/transfer.go:190-197`: MOTW `.part` dosyasına rename'den önce yazılıyor. MOTW yazılamazsa ve `NameWarning != none` ise `.part` siliniyor ve sonuç `REJECTED` oluyor. `rename_windows.go:22`: `MoveFileEx(s, d, 0)` değiştirme bayrağı olmadan çağrılıyor; `ERROR_ALREADY_EXISTS`/`ERROR_FILE_EXISTS` → `errExists`. `transfer.go:216-232` `place()` bu durumda en fazla 5 kez yeni ad deniyor. Windows dışı eşdeğer (`rename_other.go`) `os.Link` ile çalışıyor, o da üzerine yazmıyor. |
+| S6-4 (Düşük) PR derlemesinde gerçek URL | **KAPANDI** | `.github/workflows/agent-win.yml:142-144`: gerçek adres yalnız `EVENT = push` olduğunda gömülüyor; PR ve `workflow_dispatch` placeholder alıyor. Etiket derlemesi yalnız etiket push'unda yapılıyor (`:132-134`). |
+| S6-5 (Düşük) başarısız koşu ve `--dir` yayını | **KAPANDI (kısmen kabul edilen risk)** | `deploy/agent/verify-and-publish.sh:125-129`: `conclusion != success` → `die`. Bu ancak açık `--allow-failed-run` ile aşılabiliyor ve etiket `-failedrun` oluyor (`PUBLISHED.log`). `:113`: bu bayrak yalnız `--run` ile geçerli. `--dir` + `--no-attestation` önerildiği gibi tamamen yasaklanmadı. Ancak `ALLOW_UNATTESTED=staging` olmadan `die` ediyor (`:109-111`), uyarı veriyor ve etiket `-unattested` oluyor. Repo private olduğu için attestation üretilemiyor (S6-9 bilinen 2); bu nedenle staging'de bu kalan risk kabul edilebilir. Prod'da (P10) repo public olunca `--no-attestation` kullanılmamalı. `--allow-failed-run` için staging kısıtı betikte zorlanmıyor, yalnız metinde yazıyor (bilgi notu B-1). |
+| S6-6 (Düşük) proxy env | **KAPANDI (bilinçli karar)** | `docs/adr/0010-imzasiz-dagitim.md:13` (r3, Proxy satırı): gerekçe, sınır, kabul edilen risk ve reddedilen alternatif yazılı. `docs/mimari.md:199` T13 metni "HTTP(S)_PROXY yalnız taşıma yolu; URL/TLS değiştirilemez" olarak güncellendi. Kod: `internal/api/api.go:68` (`ProxyFromEnvironment`), TLS ≥1.2, `CheckRedirect` → `ErrUseLastResponse`. |
+| S6-7 (Düşük) ICE kuyruğu / abuseEmail | **KAPANDI** | `internal/rtc/rtc.go:72` `MaxPendingICE = 64`, `:274-275` sınır dolunca fazlası düşürülüyor. `internal/api/logo.go:121-130` `ValidAbuseEmail`: ≤190 karakter ve katı regex; `?`, `&`, boşluk ve denetim karakterleri biçim gereği dışarıda kalıyor. Doğrulama `internal/flow/flow.go:166` içinde ShellExecute'tan önce yapılıyor; geçersizse bağlantı gizleniyor. |
+| S6-8 (Düşük) tehlikeli uzantı listesi | **KAPANDI** | `packages/contracts/src/files.ts` (+12 uzantı: one, onepkg, wsc, sct, diagcab, website, ade, adp, mde, mshxml, jnlp, cab). Go eşi `internal/files/files.go:87-93` aynı listeyi içeriyor. `files_test.go:94` `TestS68DangerousExtMatchesContracts` contracts kaynak dosyasını okuyup birebir eşitliği test ediyor. Fixture güncellendi (`fixtures/file-names.json`, +48 satır). |
+| S6-9 bilinen 1 (govulncheck kanıtı) | **AÇIK, doğrulanmadı** | Bu tur CI çıktısı görülmedi. Kanıt `docs/implementation.md`'ye eklenmeli (P6 kapanış koşulu değil, kayıt). |
+| S6-9 bilinen 2 (attestation / private repo) | **AÇIK (bilinen, P10 öncesi)** | Değişiklik yok. Prod açılışından önce repo public yapılmalı ya da Enterprise Cloud kullanılmalı. |
+| S6-9 bilinen 3 (Caddy hata logu) | **KAPANDI** | `deploy/Caddyfile:20-35` global `log default` filtresi. |
+
+### Yeni yüzeyler
+- **Go logo indirme (`internal/api/logo.go`)**: Olumlu. Yalnız kök-göreli yol ya da scheme ve host:port'u gömülü adresle birebir aynı URL kabul ediliyor (`:36-58`). `//`, userinfo, fragment, opaque, ters bölü, NUL, CR/LF ve boşluk reddediliyor. Çözümlenen sonuçta köken yeniden kontrol ediliyor. Yönlendirme izlenmiyor (`api.go` `CheckRedirect`). İstek kimlik başlığı taşımıyor. Yalnız 200 kabul ediliyor, `Content-Length` ve `LimitReader` ile ≤2 MB. `Content-Type` ve magic bayt birlikte kontrol ediliyor. Çözmeden önce `DecodeConfig` ile en/boy ≤2048 sınırı uygulanıyor (bomba koruması; en kötü durumda ~32 MB). Yalnız ilgili türün çözücüsü çağrılıyor. 3 sn zaman aşımı var ve her hatada sistem logosu gösteriliyor (`flow.go:201-210`). Ölçekleme (`ui/logo.go`) sınır kontrollü.
+- **`capture/` + `ui/screens_windows.go`, `ui/form_windows.go` (hızlı bakış)**: Olumlu. DXGI `Map` dilimi `pitch*(h-1)+w*4` ile sınırlı ve `pitch < w*4` reddediliyor (`dxgi_windows.go:195-199`). `ConvertBGRA` girdiyi ayrıca doğruluyor (`nv12.go:69-71`). MF Lock dilimleri tampon uzunluğuyla sınırlı (`mf_windows.go:332, 504`). Sohbet geçmişi ve onay metni `ES_READONLY` (`screens_windows.go:170, 302`). Sohbet girişi `EM_LIMITTEXT` 2000. `mailto:` yalnız doğrulanmış adresle açılıyor (`:190`).
+- **Web indirme bileşeni (`apps/web/app/session/[token]/agent-download.tsx`, `apps/web/lib/agent-download.ts`)**: **doğrulanmadı** (tur sınırı).
+- **`apps/agent-win/test/trace-check.ps1` ve `.github/workflows/agent-watch.yml`**: **doğrulanmadı** (tur sınırı). Salt okunurluk ve `server503` dalının kaldırılması bir sonraki turda kontrol edilmeli.
+
+### Yeni bulgular
+#### N6-1 [DÜŞÜK] Bütünlük önbelleği anahtarı `ctime` içermiyor; yerinde yeniden yazma ve `mtime` geri alma ile hash yeniden hesaplanmıyor — A08 (G-07)
+Yer: `apps/server/src/public/agent-binary.ts:45` (`const key = \`${st.size}:${st.mtimeMs}:${st.ino}\``)
+Sorun: Volume'a yazabilen biri dosyayı aynı inode üzerinde aynı boyutla yeniden yazıp `touch -d` ile `mtime`'ı geri alırsa önbellek anahtarı değişmez. Kapı bu durumda server yeniden başlayana kadar "ok" dönmeye devam eder.
+İstismar senaryosu: Volume'a yazma yetkisi gerekir (S6-2'deki tehdit aktörü). Günlük dış gözcü (agent-watch) uyuşmazlığı yine yakalar, dolayısıyla etki fail-closed vaadinin zayıflamasıyla sınırlı.
+Düzeltme (backend-dev): Anahtara `st.ctimeMs` eklenmeli. `ctime` kullanıcı tarafından geri alınamaz.
+
+#### B-1 [BİLGİ] `--allow-failed-run` staging kısıtı yalnız metinde
+Yer: `deploy/agent/verify-and-publish.sh:125-129`. Bayrak `ALLOW_UNATTESTED=staging` ya da hedef ortamla ilişkilendirilmemiş. Prod (P10) öncesi bayrağın da `ALLOW_UNATTESTED=staging` (veya ayrı bir staging göstergesi) şartına bağlanması önerilir (devops).
+
+Not: `TRUSTED_PROXY_CIDR=172.30.0.2/31` web konteynerini (172.30.0.3) de kapsıyor. Bu yüzden `/internal/agent-ready` web'den çağrılabilir. Uç yalnız hazır/hazır değil bilgisi döndürdüğü için etkisi yok; bilgi amaçlı.
+
+### Ajan bazında
+- backend-dev: N6-1 (tek satır).
+- devops: B-1; S6-9 bilinen 1 kanıtı; `agent-watch.yml` ölü dalının durumu (sonraki turda doğrulanacak).
+- Sonraki tur: web indirme bileşeni, `trace-check.ps1`, `agent-watch.yml`.
+
+### Öneri (`docs/gereksinimler.md` §9 "Sonra")
+N6-1 ve B-1 "Sonra" listesine eklenebilir. S6-9 bilinen 2 (attestation) P10 prod açılışı için ön koşul olarak kalıyor.
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0; S6-1 ve S6-2 Orta bulguları kapandı)

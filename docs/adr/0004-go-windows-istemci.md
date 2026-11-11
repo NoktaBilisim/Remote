@@ -1,5 +1,5 @@
 # ADR-0004 — Windows Hızlı Destek istemcisi: Go + Pion + Win32
-Durum: Kabul (kullanıcı kararı S1) · Tarih: 2026-11-10
+Durum: Kabul (kullanıcı kararı S1), r2 2026-11-11 (P6 uygulamasıyla eşitlendi: Dosyalar, Proxy) · Tarih: 2026-11-10
 ## Bağlam
 Admin'siz, kurulumsuz, tek dosya ≤ 40 MB, açılış ≤ 5 sn, kalıcı iz yok (AC-95..110). RustDesk (AGPL, R8) kullanılmaz.
 ## Karar
@@ -13,9 +13,10 @@ Admin'siz, kurulumsuz, tek dosya ≤ 40 MB, açılış ≤ 5 sn, kalıcı iz yok
 | Global kısayol | `RegisterHotKey` **Ctrl+Shift+F12** → kontrolü kapat | Sistem kısayollarıyla çakışmaz, arka planda çalışır (AC-102) |
 | WS | `github.com/coder/websocket` | Bakımlı, bağımlılıksız |
 | Config | Sunucu URL'si derleme zamanı `-ldflags -X`; binary içine token/kod gömülmez | İmza bozulmaz (V6) |
-| TLS | Sistem kök deposu (`crypto/tls` + Windows root), pinning yok | Sertifika yenilemede istemci kırılmaz; MITM kurumsal kökle mümkün → kabul edilen risk, kılavuzda |
+| TLS | Sistem kök deposu (`crypto/tls` + Windows root), TLS ≥ 1.2, pinning yok, yönlendirme izlenmez | Sertifika yenilemede istemci kırılmaz; MITM kurumsal kökle mümkün → kabul edilen risk, kılavuzda |
+| Proxy (r2, S6-6) | `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` ortam değişkenlerine uyulur (`http.ProxyFromEnvironment`; REST ve WS aynı istemci). Sunucu URL'si env ile **değiştirilemez** (yalnız ldflags) | Kurumsal ağda doğrudan çıkış yoktur; proxy yalnız taşıma yolunu değiştirir, hedef sunucu adı ve TLS doğrulaması aynı kalır (ayrıntı ADR-0010) |
 | Sözleşme | Go struct'ları elle; `packages/contracts/fixtures/*.json` ile çift yönlü test | Kod üretici (quicktype vb.) ek araç, 20 mesaj için gereksiz |
-| Dosyalar | Yalnız `%TEMP%\NoktaDestek-<rand>\` (log yok, yalnız bellek); çıkışta silinir; gelen dosyalar müşterinin seçtiği klasöre | AC-108 |
+| Dosyalar (r2, 2026-11-11 — uygulanan) | İstemci kendi adına diske **hiç yazmaz**: `%TEMP%` kullanılmaz (Go runtime, Pion, Win32 UI dosya oluşturmaz), log yok, durum yalnız bellekte; bu yüzden `%TEMP%` temizlik kodu (`cleanup`) yoktur. Tek disk yazımı müşterinin **Kabul** ettiği gelen dosyadır: `İndirilenler` (KnownFolder) altında `<ad>.part` (O_EXCL) → SHA-256 + boyut doğrulaması → yeniden adlandırma (üzerine yazma yok, ` (n)`) → MOTW `Zone.Identifier` ZoneId=3; iptal/hata/oturum sonunda yarım `.part` silinir. Kayıt yeri sorulmaz (comdlg32 Kaydet diyaloğu yok); müşterinin seçimi = Kabul/Reddet. AC-108 iz testi Windows'ta elle doğrulanır | AC-36, 54, 108 |
 | Build/imza | GitHub Actions; **imzasız**, tekrarlanabilir build + SHA-256 yayını — ayrıntı ADR-0010 (bu satırı geçersiz kılar) | AC-94, 96 (revize) |
 ## Alternatifler
 Rust (webrtc-rs daha az olgun), Tauri/Electron (boyut, WebView2 iz), RustDesk (AGPL).

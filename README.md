@@ -4,8 +4,9 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P5 tamamlandı, P6 (Windows istemci) geliştirmede
-İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P5 tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ). P6 (Windows istemci) geliştirmede.
+## Şu anki durum: P1–P6 tamamlandı
+İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P6 tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0).
+Sıradaki paket P7 (uzaktan kontrol).
 
 **P1 — ince iskelet**
 - E-posta veya kullanıcı adı + şifre ile giriş, çıkış, ilk girişte zorunlu şifre değişimi.
@@ -78,7 +79,34 @@ Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta v
   60 sn'de bir ve bitişte sunucuya gider, `support_sessions.quality_summary`'de tutulur.
 - Migration `20261111040000_p5_session_files`; yeni ortam değişkeni yok.
 
+**P6 — Windows istemci ("Hızlı Destek", `apps/agent-win`)**
+- Tek dosyalık, kurulumsuz Windows 10/11 programı (Go, CGO'suz, `asInvoker`: yönetici yetkisi istemez). Sunucu adresi
+  ve sürüm derlemede ikiliye gömülür; başka bir sunucuya bağlanamaz. İmzasızdır (ADR-0010): bütünlük SHA-256,
+  tekrarlanabilir derleme ve GitHub build attestation ile kanıtlanır.
+- Müşteri web karşılama sayfasından (`/session/<token>`, yalnız Windows masaüstünde) "Hızlı Destek uygulamasını indir"
+  ile `Destek-<8 hane>.exe` dosyasını indirir; program kodu dosya adından okur. Ad değişmişse 8 haneli kodu sorar.
+  Sayfada SmartScreen ("Ek bilgi → Yine de çalıştır") rehberi bulunur.
+- Akış: karşılama (firma, teknisyen adı, teknisyen doğrulama kodu, bağlanılan sunucu, dolandırıcılık uyarısı,
+  "Kötüye kullanımı bildir", KVKK metni + ad + onay) → bekleme odası (4 haneli kabul kodu) → ekran seçimi (birden çok
+  monitörde) → oturum penceresi (sohbet, dosya alma, "Oturumu bitir"). Pencerelerin alt satırında sunucu, sürüm ve
+  parmak izi (SHA-256'nın ilk 8 hanesi) görünür.
+- Ekran: DXGI Desktop Duplication + Media Foundation H.264 (donanım, olmazsa yazılım kodlayıcı), en çok 1920×1080,
+  hedef 30 fps, alt sınır 15 fps. Paylaşılan her monitörde kırmızı kenarlık ve "Ekranınız izleniyor — <teknisyen>"
+  etiketi; teknisyenin işaretlemeleri ekranda çizilir. Gösterge ve işaretleme görüntüye girmez (Win10 2004+).
+- Dosya alma: her teklif onaylanır ("Reddet" varsayılan, "Kabul et" 1,5 sn kilitli), tehlikeli/çift uzantı uyarısı;
+  dosya `İndirilenler`'e yazılır, SHA-256 doğrulanır, üzerine yazılmaz, "internetten geldi" işareti (MOTW) eklenir.
+  İstemci müşteriden teknisyene dosya **göndermez**.
+- Kopuşta 120 sn içinde kendiliğinden yeniden bağlanır. Oturum bitince birkaç saniye içinde kapanır, %TEMP%, kayıt
+  defteri veya AppData'da iz bırakmaz (`apps/agent-win/test/trace-check.ps1`, runbook §11.8).
+- Sunucu: `GET /api/v1/public/agent/download?ref=` (302 → `/downloads/Destek-<kod>.exe`); Caddy dosyayı sunmadan önce
+  server'ın bütünlük kapısına sorar (`forward_auth`), hash `AGENT_SHA256` ile uyuşmazsa 503 (fail-closed).
+  Ayrıntı: [`docs/api.md`](docs/api.md).
+- Bilinen sınırlamalar: karşılamada firma logosu yerine Nokta amblemi görünür (sunucu firma logosunu P9'a kadar `null`
+  döner); fare imleci görüntüye çizilmez (teknisyen imleci görmez); uzaktan kontrol P7'dedir; istemci arayüzü yalnız
+  açık temadadır.
+
 API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
+Müşteri için Hızlı Destek kullanımı: [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
 
 **Staging'de teknisyen hesabı:** Seed yalnız Super Admin oluşturur. Super Admin tenant seçmeden destek oturumu
 açamaz (403; tenant geçişi P9). Kullanıcı yönetimi ekranı P9'da gelene kadar ADMIN/USER hesabı
@@ -91,7 +119,7 @@ açamaz (403; tenant geçişi P9). Kullanıcı yönetimi ekranı P9'da gelene ka
 | P3 ✓ | Sinyalizasyon sunucusu (WebSocket), lobi + teknisyen kabulü, TURN (coturn), `/metrics` |
 | P4 ✓ | Tarayıcı modu ekran paylaşımı, KVKK onayı, teknisyen konsolu video |
 | P5 ✓ | Sohbet, dosya transferi, ekran üzerine işaretleme + lazer + yüzen pencere, kalite paneli |
-| P6 | Windows istemci (Go, imzasız; SHA-256 + build attestation) |
+| P6 ✓ | Windows istemci (Go, imzasız; SHA-256 + build attestation) |
 | P7 | Uzaktan kontrol (izin diyaloğu, klavye/fare) |
 | P8 | Oturum geçmişi, not/ticket, CSV dışa aktarma |
 | P9 | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
@@ -111,13 +139,16 @@ Prod açılışı P10 (2FA) sonrasıdır; o zamana kadar yalnız staging kullan�
 | DB | MySQL 8.4 |
 | Giriş | Caddy 2.11 (TLS, ters vekil, log filtresi) |
 | Sinyalizasyon / TURN | `ws` 8.21 (Fastify sunucusunda), coturn 4.18 (ayrı compose) |
-| Test | Vitest, Playwright + axe |
+| Windows istemci | Go 1.26 (CGO'suz), Pion WebRTC v4, `coder/websocket`, `golang.org/x/sys`; Win32 arayüz |
+| Test | Vitest, Playwright + axe, `go test -race` |
 | Paket yöneticisi | pnpm 9 (corepack), monorepo |
 
 ## Gereksinimler
 - Node.js **≥ 22.18** (CI ve imajlar 22.23.4 kullanır), pnpm 9 (`corepack enable` ile `packageManager` sürümü gelir).
 - Docker Engine 27+ ve Docker Compose v2 (yığın ve entegrasyon testi için).
 - MySQL 8.4 (compose içinde gelir; ayrı kurulum gerekmez).
+- Windows istemciyi derlemek için Go kurulumu gerekmez; derleme Docker'daki `golang` imajında yapılır.
+- Müşteri tarafı: Windows 10 / 11 (64 bit). Windows N sürümlerinde Media Feature Pack gerekir; yoksa görüntü gönderilemez.
 
 ## Kurulum (geliştirme)
 ```bash
@@ -160,6 +191,8 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 | `TURN_SECRET` | Evet | TURN credential HMAC sırrı, ≥ 32 karakter (`openssl rand -hex 32`); coturn ile **aynı** değer |
 | `TURN_CRED_TTL_MIN` | Hayır | TURN credential ömrü, dk (5–60, varsayılan 20) |
 | `METRICS_TOKEN` | Hayır | `/metrics` Bearer token'ı, ≥ 16 karakter; boşsa `/metrics` 404 |
+| `AGENT_SHA256` | İndirme için | Yayındaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). Elle yazılmaz; `deploy/agent/verify-and-publish.sh` doğrulamadan sonra yazar. Boşsa istemci indirmesi 503 döner, server yine açılır |
+| `AGENT_BINARY_PATH` | Compose dışı | İkilinin mutlak yolu. Compose `/data/downloads/NoktaDestek.exe` verir; yalnız yerel `pnpm` çalıştırmada gerekir |
 | `ABUSE_EMAIL` | Önerilir | Müşteri ekranındaki "Kötüye kullanımı bildir" adresi (ör. `abuse@<alan-adı>`). Production'da boşsa bağlantı gizlenir; Super Admin e-postası kullanılmaz. Boş bırakmak güvenlidir; dolu ama geçersiz adres server'ı açtırmaz |
 | `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `TRUSTED_PROXY_CIDR`, `API_INTERNAL_URL` | Compose dışı | Compose bunları kendisi üretir; yalnız yerel `pnpm` çalıştırmada gerekir |
 
@@ -194,6 +227,15 @@ pnpm --filter @remote/web e2e
 ```
 TURN (coturn) testleri Docker ile yerelde koşar: `cd deploy/turn && ./test-local.sh` (runbook §9.7).
 
+Windows istemci testleri (Go kurulu olması gerekmez; CI ile aynı imaj, repo kökünden):
+```bash
+IMG=golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+docker run --rm -v "$PWD":/src -v remote-gomod:/go/pkg/mod -w /src/apps/agent-win -e GOFLAGS=-mod=readonly $IMG sh -c '
+  test -z "$(gofmt -l .)" && go vet ./... && go test -race -count=1 ./... &&
+  GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...'
+```
+Win32/DXGI/MOTW'a dokunan testler yalnız Windows'ta koşar (CI `agent-win.yml` → `test-windows`).
+
 ### Gerçek sunucu e2e (P4 regresyonu)
 Varsayılan e2e sahte API/WS'ye karşı koşar. `e2e/p4-real.spec.ts` ise gerçek server + MySQL ile uçtan uca akışı
 (KVKK → lobi → kabul → ekran paylaşımı → bitiş, ret, zorla sonlandırma, konsol yenileme) dener. CI'da koşmaz.
@@ -217,14 +259,19 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 `e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
-### Son test sonuçları (P5, 2026-11-11)
+### Son test sonuçları (P6, 2026-11-11)
 | Takım | Sonuç |
 |---|---|
-| Birim (`pnpm -r run test`) | 275: server 160, web 83, contracts 32 |
-| Server entegrasyon (`test:int`) | 128 (20 dosya) |
-| Web e2e (sahte API/WS) | 135 geçti + 27 atlandı (masaüstü akışlarının mobil kopyaları); art arda 5 koşu yeşil |
-| Gerçek sunucu e2e (`scripts/e2e-real.sh`) | 5/5 |
+| Windows istemci (`go test -race`, linux) | 12/12 paket ok; `GOOS=windows go vet` temiz; govulncheck 0 erişilebilir zafiyet; iki derleme aynı SHA-256 |
+| Birim (`pnpm -r run test`) | 309: server 178, web 99, contracts 32 |
+| Server entegrasyon (`test:int`) | 142 (21 dosya) |
+| Web e2e (sahte API/WS) | 142 geçti + 34 atlandı (masaüstü akışlarının mobil kopyaları); P6 spec'i `e2e/p6-agent-download.spec.ts` dahil |
+| Gerçek sunucu e2e (`scripts/e2e-real.sh`) | 5/5 (P5'ten değişmedi) |
 | TURN (`deploy/turn/test-local.sh`) | 62 kontrol (P4'ten değişmedi) |
+
+P6 e2e'si: indirme bağlantısı ve `Destek-<8 hane>.exe` dosya adı, SmartScreen rehberi, 503 → "Tarayıcıdan devam et",
+410 → iptal ekranı, macOS ve mobilde indirme seçeneğinin olmaması, 375 px taşma, açık/koyu axe 0.
+Gerçek Windows'ta SmartScreen, ekran yakalama, DPI ve iz testi elle yapılır (runbook §11.8).
 
 P5 e2e'si (`e2e/p5-collab.spec.ts`, yalnız masaüstü): sohbet + XSS, iki yön dosya, tenant sınırı, bozuk SHA, iptal,
 teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, PiP, kalite paneli, axe (açık/koyu) ve
@@ -240,6 +287,30 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
   Staging'de TURN'ün dışarıdan çalışması için üst NAT'ta (pfSense) 3478/udp+tcp, 5349/tcp ve 49160–49199/udp
   yönlendirmesi gerekir (runbook §9.3, ağ yöneticisi talebi).
 - Migration her `up -d`'de `migrate` servisiyle otomatik uygulanır. Yedekleme P13'te eklenecek.
+
+### Windows istemciyi derleme ve yayınlama (runbook §11)
+**Derleme** — `apps/agent-win/build/build.sh <https://alan-adı[:port]> <sürüm x.y.z> [çıktı]`. Betik go-winres ile
+manifest ve sürüm bilgisini ekler, sunucu adresini ve sürümü `-ldflags` ile gömer. Makinede Go yoksa Docker'daki
+`golang` imajıyla, temiz bir checkout'ta (repo kökünden):
+```bash
+IMG=golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+mkdir -p /tmp/b1
+docker run --rm -v "$PWD":/src -v /tmp/b1:/out -w /src -e GOFLAGS=-mod=readonly -e GOTOOLCHAIN=local $IMG \
+  sh -c 'git config --global --add safe.directory /src; apps/agent-win/build/build.sh https://<adres>:4450 <x.y.z> /out/NoktaDestek.exe'
+shasum -a 256 /tmp/b1/NoktaDestek.exe
+```
+Derleme tekrarlanabilirdir: aynı commit, adres ve sürümle iki derlemenin SHA-256'sı aynıdır. Exe'ye gömülü adres
+alan adı olmalı ve sertifikası Windows'un güvendiği köklerden gelmelidir (istemci sertifika sabitleme yapmaz,
+geçersiz sertifikayı reddeder).
+
+**Yayın** — CI (`.github/workflows/agent-win.yml`) iki ayrı runner'da derler, hash eşitliğini doğrular, `SHA256SUMS` ve
+build attestation üretir; `v*` etiketinde onaylı Release açar. Sunucuya yayın operatör makinesinden yapılır:
+```bash
+deploy/agent/verify-and-publish.sh --tag vX.Y.Z --ssh root@185.126.217.99      # önce --dry-run ile yalnız doğrulama
+```
+Betik `SHA256SUMS` + `gh attestation verify` doğrular, exe'yi `agent_downloads` volume'una koyar, `deploy/.env`
+içindeki `AGENT_SHA256`'yı yazar, server'ı yeniden başlatır ve Caddy üzerinden hash'i kontrol eder. Rollback, staging
+(Release'siz) yayını, private repo yolu ve bütünlük alarmı: runbook §11.3–§11.7. Günlük dış gözcü: `agent-watch.yml`.
 - Günlük işlemler, loglar, sorun giderme: [`docs/runbook.md`](docs/runbook.md).
 
 ## Klasör yapısı
@@ -247,10 +318,13 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
 apps/server/        Fastify API (src/), Prisma şeması ve migration'lar (prisma/), testler (test/)
 apps/web/           Next.js arayüzü (app/, components/, lib/), e2e testleri (e2e/)
 packages/contracts/ Ortak zod şemaları, yetki listesi, hata kodları
+apps/agent-win/     Windows istemci (Go): cmd/noktadestek, internal/ (api, flow, rtc, capture, ui, transfer…),
+                    build/ (build.sh, winres.json), test/trace-check.ps1
 deploy/             docker-compose.yml, Caddyfile, mysql/ (kullanıcı init + yetki kontrol betiği),
-                    turn/ (coturn compose, başlatıcı, güvenlik duvarı ve test betikleri)
+                    turn/ (coturn compose, başlatıcı, güvenlik duvarı ve test betikleri),
+                    agent/ (verify-and-publish.sh: istemci yayını)
 scripts/            Lisans denetimi, gerçek sunucu e2e betiği (e2e-real.sh)
-.github/            CI iş akışı, Dependabot
+.github/            CI iş akışları (ci, agent-win, agent-watch), Dependabot
 docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim raporları
 ```
 
@@ -272,6 +346,9 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
   kaydedilir. Alıcı her teklifi onaylar; sınır beyan edilen değil alınan bayta göre uygulanır, SHA-256 tutmazsa dosya
   atılır. İndirme `application/octet-stream` olarak sunulur. `file.meta` kayıtları taraf ve sınıf başına kotalıdır;
   sohbet ve işaretleme mesajları alıcıda hız sınırlıdır.
+- Windows istemci: imzasız ama tekrarlanabilir derleme + `SHA256SUMS` + build attestation; sunucu hash'i `AGENT_SHA256`
+  ile tutmayan dosyayı sunmaz (503). İstemci yalnız gömülü adrese TLS ≥ 1.2 ile bağlanır, yönlendirme izlemez,
+  DLL'leri yalnız System32'den yükler, kabul edilen dosyaya MOTW yazar ve iz bırakmaz.
 - Konteynerler salt okunur kök dosya sistemi, `cap_drop: ALL`, root olmayan kullanıcıyla çalışır; imajlar digest ile sabitlenir.
 - CI: `pnpm audit`, lisans denetimi (GPL/AGPL yasak), gitleaks. Repoya gizli bilgi girmez.
 - Ayrıntı: `docs/guvenlik-raporu.md`, ADR'ler `docs/adr/`.

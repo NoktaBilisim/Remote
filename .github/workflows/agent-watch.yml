@@ -1,0 +1,100 @@
+# Dış gözcü (G-07, T13, AC-128): public indirme adresindeki exe'nin SHA-256'sını GitHub Release SHA256SUMS'ları ile
+# karşılaştırır. Uyuşmazlık / 503 (Caddy forward_auth → server /internal/agent-ready: dosya yok ya da AGENT_SHA256
+# uyuşmazlığı, S6-2) → bütünlük alarmı; 502/504 (server kapalı/yanıtsız) → ayrı "sunucu erişilemez" alarmı. İkisi de
+# issue (etiket agent-watch) + kırmızı koşu (GitHub bildirim e-postası). Ayrıca günlük govulncheck (kod değişmeden yeni çıkan Go zafiyetleri).
+# Yapılandırma (repo değişkenleri, gizli değil): AGENT_WATCH_URL (ör. https://<host>:4450/downloads/NoktaDestek.exe),
+# AGENT_WATCH_CA_PEM (staging `tls internal` kök sertifikası; gerçek CA'lı ortamda boş). Runbook §11.5.
+name: agent-watch
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent-watch
+  cancel-in-progress: false
+
+jobs:
+  hash:
+    name: indirme hash'i = Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      WATCH_URL: ${{ vars.AGENT_WATCH_URL }}
+      WATCH_CA_PEM: ${{ vars.AGENT_WATCH_CA_PEM }}
+    steps:
+      - name: indir + karşılaştır
+        id: cmp
+        run: |
+          set -u
+          if [ -z "$WATCH_URL" ]; then
+            echo "::warning::AGENT_WATCH_URL tanımlı değil; gözcü atlandı (runbook §11.5)"; echo "result=skip" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          ca=(); if [ -n "$WATCH_CA_PEM" ]; then printf '%s\n' "$WATCH_CA_PEM" > ca.pem; ca=(--cacert ca.pem); fi
+          code=$(curl -sS "${ca[@]}" --proto '=https' --max-time 120 --max-filesize 62914560 -o agent.exe -w '%{http_code}' "$WATCH_URL") || {
+            echo "::error::indirme ağı/TLS hatası"; exit 1; }
+          case "$code" in
+            503) echo "result=server503" >> "$GITHUB_OUTPUT"
+                 echo "detail=sunucu 503 döndü: istemci dosyası yok ya da SHA-256'sı AGENT_SHA256 ile uyuşmuyor (forward_auth /internal/agent-ready)" >> "$GITHUB_OUTPUT"; exit 0 ;;
+            502|504) echo "result=unreachable" >> "$GITHUB_OUTPUT"
+                 echo "detail=sunucu erişilemez: HTTP $code (Caddy server'a ulaşamadı; server kapalı ya da yanıt vermiyor)" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          [ "$code" = 200 ] || { echo "::error::HTTP $code"; exit 1; }
+          got=$(sha256sum agent.exe | cut -d' ' -f1)
+          echo "indirilen sha256=$got"
+          match=""
+          for tag in $(gh release list --repo "$REPO" --limit 100 --exclude-drafts --json tagName --jq '.[].tagName'); do
+            mkdir -p "sums/$tag"
+            gh release download "$tag" --repo "$REPO" -p SHA256SUMS -D "sums/$tag" --clobber 2>/dev/null || continue
+            if grep -Eq "^${got}[[:space:]]+\*?NoktaDestek\.exe$" "sums/$tag/SHA256SUMS"; then match="$tag"; break; fi
+          done
+          latest=$(gh release view --repo "$REPO" --json tagName --jq .tagName 2>/dev/null || true)
+          if [ -z "$match" ]; then
+            echo "result=mismatch" >> "$GITHUB_OUTPUT"; echo "detail=sha256 $got hiçbir Release SHA256SUMS'ında yok" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "result=ok" >> "$GITHUB_OUTPUT"
+          echo "Eşleşen Release: $match (en son: ${latest:-yok})" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$match" = "$latest" ] || echo "::warning::yayındaki sürüm en son Release değil (rollback olabilir): $match"
+      - name: alarm (issue)
+        if: contains(fromJSON('["mismatch","server503","unreachable"]'), steps.cmp.outputs.result)
+        env:
+          RESULT: ${{ steps.cmp.outputs.result }}
+          DETAIL: ${{ steps.cmp.outputs.detail }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$RESULT" = unreachable ]; then
+            title="ALARM: istemci indirme sunucusu erişilemez (agent-watch)"
+            body="agent-watch: $DETAIL. URL: $WATCH_URL. Koşu: $RUN_URL. Bütünlük olayı değil, erişilebilirlik: runbook §11.7 \"Sunucu erişilemez\" ve §5/§7."
+          else
+            title="ALARM: istemci indirme bütünlüğü (agent-watch)"
+            body="agent-watch: $DETAIL. URL: $WATCH_URL. Koşu: $RUN_URL. Runbook §11.7 (istemci bütünlük alarmı) uygulanmalı."
+          fi
+          gh label create agent-watch --repo "$REPO" --color B60205 --description "İstemci bütünlük alarmı (G-07)" --force
+          num=$(gh issue list --repo "$REPO" --label agent-watch --state open --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then gh issue comment "$num" --repo "$REPO" --body "$body"
+          else gh issue create --repo "$REPO" --label agent-watch --title "$title" --body "$body"; fi
+          echo "::error::$DETAIL"; exit 1
+
+  govulncheck:
+    name: govulncheck (günlük)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+    env:
+      GOFLAGS: -mod=readonly
+      GOTOOLCHAIN: local
+    defaults:
+      run:
+        working-directory: apps/agent-win
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - run: GOFLAGS='' go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+      - run: GOOS=windows GOARCH=amd64 govulncheck ./...

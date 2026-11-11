@@ -14,6 +14,26 @@
 # doğrudan gelen istek IP taklit edemez. Sır loglanmaz (aşağıdaki filtre istemcinin gönderdiğini de siler).
 {
 	admin off
+	# G-10 (S6 bilinen 3): hata logu (http.log.error, reverse_proxy/forward_auth 502/503 vb.) varsayılan logger'a
+	# `request` nesnesiyle tam URI ve başlıkları yazar. Site `log` bloğu yalnız erişim logunu kapsar; aynı filtre
+	# burada da uygulanır (sorgu dizesi, /session/<token>, /downloads/Destek-<kod>.exe, kimlik başlıkları).
+	log default {
+		output stderr
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "\?.*$" ""
+				request>uri regexp "/session/[^/?]+" "/session/***"
+				request>uri regexp "/downloads/Destek-[^/?]+" "/downloads/Destek-***"
+				request>headers>Sec-Websocket-Protocol delete
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+				request>headers>X-Csrf-Token delete
+				request>headers>Referer delete
+				request>headers>X-Edge-Auth delete
+			}
+		}
+	}
 	# Staging'e IP ile bağlanılır; istemci IP adresi için SNI göndermez (RFC 6066) -> SNI'sız
 	# el sıkışmada SITE_HOST sertifikası seçilir. Yoksa TLS "internal error" alert'i döner.
 	default_sni {$SITE_HOST}
@@ -38,6 +58,7 @@ https://{$SITE_HOST}:4450 {
 			fields {
 				request>uri regexp "\?.*$" ""
 				request>uri regexp "/session/[^/?]+" "/session/***"
+				request>uri regexp "/downloads/Destek-[^/?]+" "/downloads/Destek-***"
 				request>headers>Sec-Websocket-Protocol delete
 				request>headers>Cookie delete
 				request>headers>Authorization delete
@@ -46,6 +67,7 @@ https://{$SITE_HOST}:4450 {
 				request>headers>X-Edge-Auth delete
 				resp_headers>Set-Cookie delete
 				resp_headers>Location delete
+				resp_headers>Content-Disposition delete
 				resp_headers>Sec-Websocket-Protocol delete
 			}
 		}
@@ -60,8 +82,38 @@ https://{$SITE_HOST}:4450 {
 		?Referrer-Policy "no-referrer"
 	}
 
-	@ops path /health /health/* /ready /ready/* /metrics /metrics/*
+	# /internal/*: server'ın forward_auth iç ucu (S6-2) — dışarıdan erişilemez.
+	@ops path /health /health/* /ready /ready/* /metrics /metrics/* /internal /internal/*
 	handle @ops {
+		respond 404
+	}
+
+	# P6 (AC-27, ADR-0006/0010): tek jenerik Windows istemcisi. GET /api/v1/public/agent/download?ref= yalnız PENDING
+	# oturumda buraya 302 verir. Dosya adı (Destek-<8 hane>.exe) yoldan gelir; her adda içerik aynı ikili, bu yol kod
+	# doğrulamaz/sızdırmaz. NoktaDestek.exe: kodsuz ad (dış gözcü agent-watch). Volume'u verify-and-publish doldurur.
+	# S6-2 (G-07, T13 fail-closed): dosya sunulmadan önce server'ın iç ucu volume'daki ikilinin SHA-256'sını AGENT_SHA256
+	# ile karşılaştırır (önbellekli); 2xx değilse (uyuşmazlık / dosya yok / yapılandırma yok → 503, server erişilemez →
+	# 502) yanıt istemciye döner ve dosya SUNULMAZ. `route` sırayı sabitler: kapı, Content-Disposition/rewrite'tan önce.
+	# Orijinal URI (koddan oluşan ad) server'a gönderilmez.
+	@agentExe path_regexp agentExe ^/downloads/(NoktaDestek|Destek-[0-9]{8})\.exe$
+	handle @agentExe {
+		route {
+			forward_auth server:3001 {
+				uri /internal/agent-ready
+				header_up X-Forwarded-Uri "/downloads/***"
+			}
+			root * /srv/downloads
+			rewrite * /NoktaDestek.exe
+			header {
+				Content-Disposition "attachment; filename=\"{re.agentExe.1}.exe\""
+				Content-Type "application/octet-stream"
+				Cache-Control "no-store"
+				X-Content-Type-Options "nosniff"
+			}
+			file_server
+		}
+	}
+	handle /downloads/* {
 		respond 404
 	}
 

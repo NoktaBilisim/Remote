@@ -1,7 +1,7 @@
 "use client";
 
 import { Eye, EyeOff } from "lucide-react";
-import { useId, useState, type InputHTMLAttributes } from "react";
+import { useId, useState, type InputHTMLAttributes, type Ref } from "react";
 import { t } from "@/lib/i18n";
 
 interface Props extends Omit<InputHTMLAttributes<HTMLInputElement>, "id"> {
@@ -10,6 +10,8 @@ interface Props extends Omit<InputHTMLAttributes<HTMLInputElement>, "id"> {
   hint?: string;
   /** type="password" alanlarda göster/gizle düğmesi ekler. */
   revealable?: boolean;
+  /** React 19: ref prop olarak input'a iletilir (odak taşıma için). */
+  ref?: Ref<HTMLInputElement>;
 }
 
 /** Etiketli metin alanı: label–input eşleşmesi, alan bazlı hata (aria-invalid + aria-describedby). */

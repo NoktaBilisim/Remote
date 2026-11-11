@@ -44,13 +44,16 @@ export function isSanitizedFileName(name: string): boolean {
 }
 
 /** AC-36 (rev.) tehlikeli uzantı listesi — tek sabit; küçük harf, noktasız. S-P5-7 ile genişletildi (betik/kurulum
- * yardımcıları, Office makro eklentileri, kabuk kısayolları ve tarayıcıda açılıp oltalama için kullanılan HTML/SVG/MHT). */
+ * yardımcıları, Office makro eklentileri, kabuk kısayolları ve tarayıcıda açılıp oltalama için kullanılan HTML/SVG/MHT);
+ * S6-8 ile yine genişletildi. Go eşi (`apps/agent-win/internal/files`) bu listeyle test ile karşılaştırılır. */
 export const DANGEROUS_EXT: ReadonlySet<string> = new Set([
   "exe", "msi", "bat", "cmd", "ps1", "psm1", "vbs", "js", "wsf", "sh", "scr", "lnk", "hta", "cpl", "msc", "jar", "dll",
   "com", "pif", "reg", "scf", "url", "chm", "iso", "img", "vhd", "vhdx", "appx", "msix", "appinstaller", "application",
   "xll", "docm", "xlsm",
   "vbe", "jse", "ws", "wsh", "msp", "mst", "inf", "ps1xml", "psc1", "psd1", "settingcontent-ms", "library-ms",
   "searchconnector-ms", "appref-ms", "gadget", "xbap", "xlam", "xla", "pptm", "dotm", "html", "htm", "mht", "mhtml", "svg",
+  // S6-8: OneNote eki, betik bileşenleri, tanılama paketi, internet kısayolu, Access projeleri, Java Web Start, kabin.
+  "one", "onepkg", "wsc", "sct", "diagcab", "website", "ade", "adp", "mde", "mshxml", "jnlp", "cab",
 ]);
 
 function extensions(name: string): string[] {

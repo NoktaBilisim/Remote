@@ -7,7 +7,7 @@ export function guardConsole() {
   const errors: string[] = [];
   test.beforeEach(({ page }) => {
     errors.length = 0;
-    const expectedNet = /^Failed to load resource: the server responded with a status of (400|401|403|404|409|410|423|429|500)/;
+    const expectedNet = /^Failed to load resource: the server responded with a status of (400|401|403|404|409|410|423|429|500|503)/;
     page.on("console", (m) => {
       if ((m.type() === "error" || m.type() === "warning") && !expectedNet.test(m.text())) errors.push(m.text());
     });

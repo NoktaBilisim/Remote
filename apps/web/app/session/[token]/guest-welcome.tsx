@@ -6,11 +6,12 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { CodeDisplay } from "@/components/ui/code-display";
 import { api, ApiError } from "@/lib/api";
-import { isScreenShareSupported, readSupportEnv } from "@/lib/device-support";
+import { isScreenShareSupported, isWindowsDesktop, readSupportEnv } from "@/lib/device-support";
 import { formatRemaining } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { useNow } from "@/lib/use-now";
 import { GuestEndScreen, type GuestEnd } from "../guest-ui";
+import { AgentDownload } from "./agent-download";
 import { JoinForm, type ResolveData } from "./join-form";
 
 const POLL_MS = 2000;
@@ -21,7 +22,10 @@ const END: Partial<Record<PublicSessionStatusResponse["status"], GuestEnd>> = {
   ENDED: "ended",
 };
 
-/** Karşılama: teknisyen + doğrulama kodu → dolandırıcılık uyarısı → ad + aydınlatma onayı → tarayıcıdan paylaş (DESIGN §8); 2 sn durum yoklaması (AC-8). */
+/**
+ * Karşılama: teknisyen + doğrulama kodu → dolandırıcılık uyarısı → ad + aydınlatma onayı → iki yol: Windows'ta Hızlı Destek
+ * (önerilen) / tarayıcıdan yalnız görüntü; macOS/Linux'ta yalnız tarayıcı (DESIGN §8, AC-27); 2 sn durum yoklaması (AC-8).
+ */
 export function GuestWelcome({
   data,
   abuseEmail,
@@ -36,6 +40,8 @@ export function GuestWelcome({
   const left = now === null ? null : Date.parse(data.expiresAt) - now;
   // AC-33: sunucuda bilinmez (null) → form; istemcide mobil/API yoksa form yerine "desteklenmiyor"
   const supported = useSyncExternalStore(noop, () => isScreenShareSupported(readSupportEnv()), () => null);
+  // AC-27: indirme yalnız Windows masaüstünde; sunucuda bilinmez → yalnız tarayıcı modu (hidrasyon sonrası karar)
+  const windows = useSyncExternalStore(noop, () => isWindowsDesktop(readSupportEnv()), () => false);
 
   useEffect(() => {
     if (end) return;
@@ -110,6 +116,13 @@ export function GuestWelcome({
       </section>
 
       {supported === false ? (
+        <>
+        {windows && (
+          <section aria-labelledby="yol-t" className="flex flex-col gap-3">
+            <h2 id="yol-t" className="text-lg font-semibold text-fg">{t("gj.howTitle")}</h2>
+            <AgentDownload sessionRef={data.sessionRef} verifyCode={data.techVerifyCode} onEnd={setEnd} />
+          </section>
+        )}
         <section
           role="status"
           aria-labelledby="desteklenmiyor-t"
@@ -122,8 +135,9 @@ export function GuestWelcome({
             <p className="mt-1 text-sm text-fg-muted">{t("g.unsupportedBody")}</p>
           </div>
         </section>
+        </>
       ) : (
-        <JoinForm data={data} onJoined={onJoined} onEnd={setEnd} />
+        <JoinForm data={data} windows={windows} onJoined={onJoined} onEnd={setEnd} />
       )}
       <p className="inline-flex items-center gap-1.5 text-sm text-fg-muted" data-testid="guest-next">
         <Timer aria-hidden className="size-4" />

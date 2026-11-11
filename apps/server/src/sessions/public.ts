@@ -107,6 +107,8 @@ export interface PublicLimits {
   statusIp: FixedWindowCounter;
   /** join: 20/dk/ipKey (P3). */
   joinIp: FixedWindowCounter;
+  /** Agent indirme ucu, tüm istekler: 20/dk/ipKey (P6, mimari-api). Başarısızlar ayrıca codeIp/codePrefix'e sayılır. */
+  downloadIp: FixedWindowCounter;
   /** Aynı oturum + 410 sebebi için 10 dk'da tek audit satırı (S-P2-6). */
   goneAudit: FixedWindowCounter;
   resolveFailed: ResolveFailedAlarm;
@@ -120,6 +122,7 @@ export const createPublicLimits = (log: FastifyBaseLogger, trustedProxyCidr?: st
   tokenIp: new FixedWindowCounter(31, MIN, MIN),
   statusIp: new FixedWindowCounter(61, MIN, MIN),
   joinIp: new FixedWindowCounter(21, MIN, MIN),
+  downloadIp: new FixedWindowCounter(21, MIN, MIN),
   goneAudit: new FixedWindowCounter(2, 10 * MIN, 10 * MIN),
   resolveFailed: new ResolveFailedAlarm((s) => log.warn({ alarm: "resolve_failed", ...s }, "global başarısız kod eşiği aşıldı")),
   clientIpIsProxy: new ClientIpIsProxyAlarm(trustedProxyCidr, () =>
@@ -128,18 +131,32 @@ export const createPublicLimits = (log: FastifyBaseLogger, trustedProxyCidr?: st
 });
 
 export const closePublicLimits = (l: PublicLimits): void =>
-  [l.codeIp, l.codePrefix, l.tokenIp, l.statusIp, l.joinIp, l.goneAudit].forEach((c) => c.close());
+  [l.codeIp, l.codePrefix, l.tokenIp, l.statusIp, l.joinIp, l.downloadIp, l.goneAudit].forEach((c) => c.close());
 
 const rateLimited = (sec: number) => new AppError("RATE_LIMITED", { retryAfterSec: Math.max(1, sec) });
 
 /** Limit kontrolü + sayım; kilitliyse veya bu olayla kilit başladıysa 429. */
-function consume(counter: FixedWindowCounter, key: string, blockSec: number): void {
+export function consume(counter: FixedWindowCounter, key: string, blockSec: number): void {
   const wait = counter.blockedFor(key);
   if (wait > 0) throw rateLimited(wait);
   if (counter.hit(key)) throw rateLimited(blockSec);
 }
 
-const GONE: Partial<Record<string, ErrorCode>> = {
+/** Kod yolu kovaları (ipKey 10/dk + prefixKey 30/dk) kilitliyse 429; resolve (kod) ve agent indirme ortak (G-02). */
+export function assertLookupAllowed(limits: PublicLimits, ip: string, prefix: string): void {
+  const wait = Math.max(limits.codeIp.blockedFor(ip), limits.codePrefix.blockedFor(prefix));
+  if (wait > 0) throw rateLimited(wait);
+}
+
+/** Başarısız çözümleme sayımı: global alarm + yalnız bu ip/önek; bu olayla kilit başladıysa 15 dk 429 fırlatır. */
+export function countFailedLookup(limits: PublicLimits, ip: string, prefix: string): void {
+  limits.resolveFailed.record(prefix);
+  const ipHit = limits.codeIp.hit(ip);
+  const prefixHit = limits.codePrefix.hit(prefix);
+  if (ipHit || prefixHit) throw rateLimited(15 * 60);
+}
+
+export const GONE: Partial<Record<string, ErrorCode>> = {
   ACTIVE: "SESSION_CONSUMED",
   ENDED: "SESSION_CONSUMED",
   EXPIRED: "SESSION_EXPIRED",
@@ -171,15 +188,11 @@ export async function resolvePublicSession(
     if (!row) throw new AppError("NOT_FOUND", { message: "Bağlantı geçersiz." });
   } else {
     const prefix = prefixKey(ctx.ip);
-    const wait = Math.max(limits.codeIp.blockedFor(ip), limits.codePrefix.blockedFor(prefix));
-    if (wait > 0) throw rateLimited(wait);
+    assertLookupAllowed(limits, ip, prefix);
     row = await repo.findByActiveCode(db, input.code);
     if (!row) {
-      limits.resolveFailed.record(prefix);
       // Yalnız başarısız çözümleme sayılır; aşımda yalnız bu ip/önek kilitlenir (G-02).
-      const ipHit = limits.codeIp.hit(ip);
-      const prefixHit = limits.codePrefix.hit(prefix);
-      if (ipHit || prefixHit) throw rateLimited(15 * 60);
+      countFailedLookup(limits, ip, prefix);
       throw new AppError("NOT_FOUND", { message: "Kod bulunamadı. Kodu kontrol edip tekrar deneyin." });
     }
   }

@@ -1,4 +1,4 @@
-# G-18: bağımlılık güncellemeleri haftalık PR. gomod P6'da apps/agent-win eklenince açılır.
+# G-18: bağımlılık güncellemeleri haftalık PR (npm, gomod — apps/agent-win, Actions, Docker).
 version: 2
 updates:
   - package-ecosystem: npm
@@ -13,3 +13,8 @@ updates:
   - package-ecosystem: docker
     directories: [/apps/server, /apps/web]
     schedule: { interval: weekly }
+  - package-ecosystem: gomod
+    directory: /apps/agent-win
+    schedule: { interval: weekly }
+    groups:
+      go-minor-patch: { update-types: [minor, patch] }

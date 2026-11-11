@@ -282,6 +282,54 @@
   {
    "name": "not.txt",
    "warning": "none"
+  },
+  {
+   "name": "not.one",
+   "warning": "dangerous"
+  },
+  {
+   "name": "defter.onepkg",
+   "warning": "dangerous"
+  },
+  {
+   "name": "bilesen.wsc",
+   "warning": "dangerous"
+  },
+  {
+   "name": "betik.sct",
+   "warning": "dangerous"
+  },
+  {
+   "name": "tani.diagcab",
+   "warning": "dangerous"
+  },
+  {
+   "name": "site.website",
+   "warning": "dangerous"
+  },
+  {
+   "name": "veri.ADP",
+   "warning": "dangerous"
+  },
+  {
+   "name": "rapor.pdf.jnlp",
+   "warning": "double_extension"
+  },
+  {
+   "name": "arsiv.cab",
+   "warning": "dangerous"
+  },
+  {
+   "name": "liste.mde",
+   "warning": "dangerous"
+  },
+  {
+   "name": "proje.ade",
+   "warning": "dangerous"
+  },
+  {
+   "name": "kabuk.mshxml",
+   "warning": "dangerous"
   }
  ]
 }

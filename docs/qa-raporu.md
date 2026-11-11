@@ -1,177 +1,170 @@
-# QA Raporu — P5 (konsol işbirliği) — Tur 3
-DURUM: DÜZELTİLMELİ (ürün kodunda açık bulgu yok; tek açık madde: `bash scripts/e2e-real.sh` bu turda kurulum aşamasında düştü, 5/5 kanıtı yeniden alınamadı)
+# QA Raporu — P6 (Windows istemci) — Tur 2
+DURUM: GEÇTİ (Tur 2, 2026-11-11 — Tur 1 bulguları kapandı; ayrıntı en altta "Tur 2" bölümü. Aşağıdaki Tur 1 içeriği tarihçe olarak korunmuştur.)
+
+Önceki rapor: `docs/arsiv/p5-qa-raporu.md`. Kapsam: commit edilmemiş P6 değişiklikleri (`apps/agent-win/**`,
+`apps/server/src/public/*` + testleri, `deploy/` Caddyfile/compose/`agent/verify-and-publish.sh`,
+`.github/workflows/agent-win.yml` + `agent-watch.yml`, runbook §11, implementation.md P6 bölümleri).
 
 ## Test sonucu (2026-11-11, yerel)
 | Komut | Sonuç |
 |---|---|
-| `pnpm -r run lint` | temiz (3 workspace projesi; `apps/agent-win` workspace'te yok, kapsam dışı) |
+| `pnpm -r run lint` | temiz (contracts, server, web) |
 | `pnpm -r run typecheck` | temiz |
-| `pnpm -r run test` | contracts 32/32, server 160/160, web **83/83** (Tur 2: 79; +4 `lib/dc/p5-teklif.test.ts`); skip yok |
-| `pnpm --filter @remote/web e2e` (tam takım, 2 ardışık koşu, paralel build yok) | Koşu 1: **135 geçti**, 27 atlandı, 0 kırmızı. Koşu 2: **135 geçti**, 27 atlandı, 0 kırmızı. Atlananlar: Tur 2'deki 25 + yeni iki TEST-P5-1 testinin mobil projede `project !== "desktop"` ile atlanması; `p4-real.spec.ts` `E2E_REAL` kapısı. Gerekçeleri yazılı. |
-| `bash scripts/e2e-real.sh` | **2 deneme, ikisi de rc=3 "KURULUM HATASI: test DB / migrate"**: `prisma migrate` → `P1017: Server has closed the connection` (127.0.0.1:33317). Testler hiç çalışmadı. `test-db.sh up` farklı port ve konteyner adıyla (33399) tek başına denendi, aynı hata verdi. Konteyner logunda "ready for connections" satırı yok, yani MySQL hazır olmadan migrate başlıyor. |
+| `pnpm -r run test` | contracts 32/32, server 166/166, web 83/83; skip yok |
+| `test-db.sh up` (kendi konteyner: `rs-mysql-qa6`, port 33386) + `pnpm --filter @remote/server test:int` | **21 dosya / 137 test yeşil**, skip yok; konteyner sonra silindi |
+| Go (`golang:1.26.11-bookworm`, ayrı kopyada): `gofmt -l`, `go vet`, `go mod verify`, `go test -race -count=1 ./...`, `GOOS=windows go vet` | gofmt boş, vet temiz, modüller doğrulandı, **10/10 paket ok**, windows vet temiz |
+| `govulncheck` (linux) | erişilebilir zafiyet 0. windows/amd64 taramasını koordinatörün kanıtı karşılıyor (go1.26.11 + x/net v0.60.0 sonrası 0) |
+| `build/build.sh` ×2 (arada `go clean -cache`) | iki SHA-256 eşit `d8f7fc78…`, 11 798 016 B (≤ 40 MB), `MZ`, `UPX` izi yok, VERSIONINFO dolu (CompanyName/ProductName/FileVersion 0.6.0.0/LegalCopyright), manifest `asInvoker` + `permonitorv2,system`, ikilide `/src` veya `/Users` yolu yok |
 
-## Tur 2 açıkları ve sayfa testi bulguları
-| Bulgu | Durum | Doğrulama |
-|---|---|---|
-| QA-P5-7 kararsız e2e (AC-54 `acceptOffer`) | ✅ kapandı | `p5-collab.spec.ts:66` `toBeEnabled({ timeout: 10_000 })`. Ürün kodunda değişiklik yok, kök neden implementation.md'de yazılı. Tam takım 2/2 koşuda yeşil. Kesin kapanış için ikiden fazla koşu gerekir, ama Tur 2'deki 1/3 kırmızıyla karşılaştırıldığında yeterli. |
-| TEST-P5-1 teklif kilidi | ✅ kapandı | Birim: `p5-teklif.test.ts` 4 test. Kendi sınırı `'rate'` döner ve teklif çıkmaz. Alıcı teklifi düşürünce `timeout`, `file.cancel` ve `CANCELLED` gönderilir, kilit açılır. İptal edilince geç kabul yok sayılır ve `getTimerCount()==0`. Kabulde zaman aşımı tetiklenmez. e2e `:191` (4. teklif `file-error` "en çok 3 dosya", satır yok, pencere sonrası gönderim `ok`), `:209` (kanca ile alıcıda düşme yolu: satır `timeout`, "Yanıt yok", ws-log'da guest `CANCELLED`, ardından `z.txt` `ok`). Kancalar (`__rsOfferTimeoutMs`, `__rsNoSelfThrottle`) yalnız `NEXT_PUBLIC_RS_E2E === "1"` iken etkin (`use-collab.ts:36,39`). (c) seçeneğinin (alıcıda `reason`) yapılmama gerekçesi (contracts strictObject, S-P5-2) implementation.md'de yazılı ve kabul edilebilir. |
-| TEST-P5-2 günlük klavye erişimi | ✅ kapandı | AC-39 axe testi (`:306`): 2000 karakterlik mesaj, açık ve koyu temada axe temiz, `role="log"` kabı odaklanabilir. |
-| TEST-P5-3 uzun mesaj taşması | ✅ kapandı | `:314-315`: iki tarafta balon ve günlükte `scrollWidth <= clientWidth + 1`. |
+İlk Go koşusunda `files` ve `signal` fixture testleri kırmızıydı. Neden, benim kopyamın dizin düzeniydi: `apps/` seviyesi yoktu, bu yüzden `../../../../packages` yolu çözülemedi. Düzen düzeltilince testler yeşil oldu, yani ürün hatası değil. Bu testler repo kökünün yapısına bağımlı ve CI'da bu yapı var.
 
 ## Kabul kriterleri
-Tur 2 tablosu geçerli: tüm P5 AC'leri ✅. AC-41 ve AC-57 yerel ön kanıtla ✅, staging ölçümü mimar kararıyla takipte. Bu turda bir AC'nin durumu değişmedi. Değişen kodu (lib/dc/files.ts, chat-panel, files-panel) kapsayan e2e ve birim testleri yeşil.
+| AC | Durum | Kanıt / eksik |
+|---|---|---|
+| 27 (istemci + indirme ucu) | ⚠️ | İstemci tarafı ✅: `pairing.TestAC97FromFileName` (`Destek-<8>.exe`, ` (1)` eki, Unicode rakam red). İndirme ucu ✅: `agent-download.test.ts:50,62,84,95,107,122,137`. **Eksik:** web karşılamadaki birincil "Hızlı Destek uygulamasını indir" butonu ve SmartScreen rehberi yok (implementation.md:1110). Uç kullanıcıya ulaşmıyor → QA-P6-3 |
+| 36 (istemci) | ✅ | `files.TestAC36WarningMatchesContractsFixture` (TS ile aynı fixture), `transfer.TestAC36RejectCooldownAndSingleOffer`. Diyalog davranışı Windows elle testinde |
+| 37 / 56 (istemci, işaretleme) | ✅ (kod) / Windows elle | `dc.TestAC35AC56CtlValidMessages`. Overlay çizimi yalnız Windows'ta görülebilir |
+| 52 | ✅ | `rtc.TestAC52SignalMappingVideoAndChat` (iki gerçek Pion eşi), `flow.TestAC106AC107HappyPath` (sohbet iki yönde) |
+| 53 | ✅ | `dc.TestAC53MaxFileBytes`, `transfer.TestAC53ExceededCancels`, `TestAC53OverLimitAutoRejected` |
+| 54 | ✅ | `dc.TestAC54ReceiverVerifiesSizeAndSHA256`, `transfer.TestAC54ReceiveVerifyRenameMOTW`, `TestAC54CorruptDeletesPart` |
+| 55 | ✅ | `dc.TestAC55ReceiverGuardBoundaries`. İçerik yalnız DC'den geçer, WS'ye yalnız `file.meta` gider |
+| 94 (istemci build) | ✅ (yerel) / Sonra | Workflow incelendi: Action'lar SHA ile sabit, varsayılan izin `contents: read`, `id-token`/`attestations` yalnız `attest` job'unda, `contents: write` yalnız `release` job'unda (`v*` + `environment`). Gate'ler: gofmt/vet/test-race/govulncheck/go-licenses. İki ayrı runner'da hash eşitliği aranıyor. Yerelde hash eşitliği kanıtlandı. Gerçek CI koşusu ve attestation, repo public olana kadar yapılamaz → Sonra |
+| 95 | Windows elle testi bekliyor | Manifest `asInvoker` ikilide doğrulandı |
+| 96 | ✅ (boyut, tek dosya, UPX yok, hash) / Sonra | ≤ 40 MB ve SHA256SUMS üretimi doğrulandı. Sunucuda hash uyuşmazlığında 503: `agent-download.test.ts:146`, `agent-binary.test.ts`. `gh attestation verify` ve "≤ 5 sn karşılama" → Sonra / Windows |
+| 97 | ✅ | `pairing.TestAC97*`, `flow.TestAC97ManualCodeAfterInvalidAndNotFound`, `TestAC97ExpiredAndConsumedShowFinalMessage`, `api.TestAC97ResolveErrorEnvelopeNotRetried` |
+| 98 | ❌ | Onaysız join yok: `flow.TestAC98NoJoinWithoutConsent`. Teknisyen, kod, sunucu, uyarı ve KVKK ekranda var. **Firma logosu yok** (implementation.md:939, 990) → QA-P6-1 |
+| 103 (izleniyor) | ✅ (kod) / Windows elle | `overlay_windows.go:44` 1000 ms timer, `:73` `HWND_TOPMOST`, her monitörde bir pencere. Davranış Windows'ta gözle doğrulanmalı |
+| 106 | ✅ (akış) / Windows elle | `flow.TestAC106AC107HappyPath`; gerçek monitör eşlemesi Windows'ta |
+| 107 | ✅ | `flow.TestAC106AC107HappyPath`. `main.go` `closeDelay` 2,5 sn ≤ 3 sn |
+| 108 | ⚠️ | `transfer.TestAC108CloseRemovesPart` var. Mimarinin iz testi betiği `apps/agent-win/test/trace-check.ps1` yazılmamış (§9, §10.3 DoD) → QA-P6-2. Kalan kısım Windows elle testi |
+| 109 | ✅ | `config.TestAC109ParseAcceptsHTTPSOnly`, `TestAC109LoadWithoutLdflagsFails`, `api.TestAC109RejectsUntrustedCertificate`, `signal.TestAC109DialRejectsUntrustedCertAndBadCredential`. Kodda `os.Args`, `Getenv`, `flag` ya da registry kullanımı yok (grep). Proxy env yalnız tüneli etkiler, TLS sunucu adına doğrulanır (implementation.md:871, gerekçeli) |
+| 110 | Windows elle testi bekliyor | Arayüz metinleri Türkçe. DPI kodu `GetDpiForWindow`/`WM_DPICHANGED` kullanıyor |
+| 112 (istemci UI) | ✅ | `flow.TestAC112LobbyRejected`, `signal.TestAC112ServerMessagesMatchContractsFixture`, `TestLobbyCancelSendsSessionEnd` |
+| 117 (Go) | ✅ / Windows elle | `files.TestAC117SanitizeMatchesContractsFixture` (TS ile aynı fixture), `TestAC117InvalidUTF8AndLength`, `TestAC54AvailableNameNoOverwrite`. MOTW yalnız sahte fonksiyonla test ediliyor, gerçek ADS yazımı Windows'ta denenmeli (QA-P6-4) |
+| 118 | Windows elle testi bekliyor (Procmon) | `dllsafe.Harden` `main`'in ilk işi. Yalnız `NewLazySystemDLL` kullanılıyor, `NewLazyDLL`/`LoadDLL` yok (grep) |
+| 119 (Go) | ✅ | `dc.TestAC119CtlRejectsInvalidAndControl`, `rtc.TestAC119FileOfferRejectedWithoutCap`, `signal.TestAC119GuestOutboundMatchesContractsFixture` |
+| 125 (istemci) | ✅ (kod) / Windows elle | Uyarı metni ve `screens_windows.go:159-184` "Kötüye kullanımı bildir" → `mailto:`. `ABUSE_EMAIL` boşsa buton gizleniyor. AC-25 ile aynı davranış |
+| 128 | ✅ (istemci + gözcü kodu) / Sonra | `config.TestAC128FingerprintIsFirst8HexOfSHA256`. Alt satırda sunucu, sürüm ve parmak izi var (`screens_windows.go:75`). `agent-watch.yml` günlük çalışır ve uyuşmazlıkta issue açar (`issues: write` yalnız ilgili job'da). Gözcünün gerçek koşusu için repo public olmalı → Sonra |
 
 ## Düzeltilmeli
-1. [devops] `apps/server/scripts/test-db.sh:18-21`: 90 sn'lik hazır olma döngüsü zaman aşımında hata vermeden `db:migrate`'e geçiyor, bu yüzden hata yalnız `P1017` olarak görünüyor. Beklenen: döngü bitince bağlantı hâlâ yoksa `docker logs` son satırlarıyla açık bir hata verip çıkması. Ayrıca bu makinede MySQL konteynerinin neden 90 sn içinde hazır olmadığı bulunmalı (Docker yükü ve kaynakları, `mysql:8.4` init betikleri). Ardından `bash scripts/e2e-real.sh` çalıştırılıp 5/5 sonucu implementation.md'ye yazılmalı. QA bu madde için yalnız o koşunun sonucunu doğrular.
+1. **QA-P6-1 · Orta · AC-98 · [backend-dev (Go)]** `apps/agent-win/internal/ui/screens_windows.go` karşılama ekranı (~:150-190) ve `internal/flow/flow.go:161` civarı. Karşılamada firma logosu yok. Beklenen: resolve yanıtındaki `logoUrl`, yalnız yapılandırılmış sunucu alan adından (aynı `http.Client`, TLS doğrulamalı, boyut sınırlı, yalnız PNG/JPG) indirilip gösterilmeli. Logo yoksa ya da indirilemezse sistem logosu (Nokta) gösterilmeli. `flow` testine "karşılama verisinde logo URL'si yalnız sunucu host'undan" kontrolü eklenmeli.
+2. **QA-P6-2 · Orta · AC-108 (DoD §10.3) · [devops]** `apps/agent-win/test/trace-check.ps1` yok. Beklenen: betik HKCU/HKLM `Software`, servisler, zamanlanmış görevler, Startup klasörü, `%APPDATA%`, `%LOCALAPPDATA%` ve `%TEMP%` için çalıştırma öncesi ve sonrası fark alsın; istemciye ait iz bulursa çıkış kodu ≠ 0 versin. Kullanımı runbook §11'e eklenmeli. Betiğin koşturulması Windows elle testinde yapılır.
+3. **QA-P6-3 · Orta · AC-27 · [frontend-dev] (paket ataması için proje-yoneticisi)** `apps/web/app/session/[token]/` karşılama. Windows masaüstünde birincil buton "Hızlı Destek uygulamasını indir" (`href="/api/v1/public/agent/download?ref=<sessionRef>"`) ve aynı adımda SmartScreen "Ek bilgi → Yine de çalıştır" rehberi olmalı. İkincil seçenek tarayıcı modu olmalı. macOS/Linux'ta yalnız tarayıcı modu sunulmalı. 503 `NOT_READY` alınırsa tarayıcı moduna yönlendirilmeli. Bu buton olmadan P6 indirme ucu dikey olarak tamamlanmış sayılmaz. Buton P6 dışında kalacaksa proje-yoneticisi AC-27'yi hangi pakete verdiğini mimari §11'e işlemeli.
+4. **QA-P6-4 · Düşük · AC-117/118 · [backend-dev (Go)]** Windows'a özel birim testi yok. CI `test-windows` job'u yalnız platformdan bağımsız testleri koşuyor. Beklenen: `internal/files/motw_windows_test.go` (geçici dosyaya `WriteMOTW` → `:Zone.Identifier` okununca `ZoneId=3`) ve `internal/dllsafe/dllsafe_windows_test.go` (`Harden` hatasız döner).
+5. **QA-P6-5 · Düşük · sözleşme · [mimar]** `docs/mimari-api.md:92` hâlâ "302 → `/downloads/NoktaDestek.exe` + Content-Disposition" diyor. Kodda hedef `/downloads/Destek-<kod>.exe`. Sapma implementation.md:1080-1086'da teknik olarak doğru gerekçelendirilmiş (tarayıcılar 3xx yanıtındaki Content-Disposition'ı yok sayar), ancak sözleşme güncellenmemiş. Beklenen: mimari-api ve ADR-0006 güncellenmeli. Ayrıca ADR-0004:18'deki "%TEMP%\NoktaDestek-<rand>" ve "müşterinin seçtiği klasör" ifadeleri uygulanan kararla (İndirilenler, %TEMP% yazımı yok; implementation.md:935-937) eşitlenmeli.
 
-## Definition of Done
+## Sonra / Windows elle testi (DÜZELTİLMELİ sebebi değil)
+- AC-95 UAC'siz çalışma; AC-96 çift tıktan karşılamaya ≤ 5 sn; SmartScreen "Yine de çalıştır" yolu (DoD).
+- AC-118 Procmon'da Downloads klasöründe DLL araması 0; G-06 alınan dosyada `Zone.Identifier`.
+- AC-103 gösterge her monitörde ve 1 sn'de en üste; AC-106 gerçek monitör eşlemesi; AC-110 %100/%125/%150 ölçek.
+- AC-108 iz testi (QA-P6-2 betiğiyle); gerçek DXGI + MF yakalama, FPS ve donanım/yazılım MFT (implementation.md adım 15-24).
+- AC-94/96/128: gerçek CI koşusu, iki runner hash eşitliği, `gh attestation verify`, agent-watch koşusu. Repo private olduğu için attestation yok; repo public olunca doğrulanacak (implementation.md:1150).
+- SignPath başvurusu (süreç işi, kullanıcıda).
+
+## Definition of Done (P6, mimari §10.3)
 | Madde | ✅/❌ | Not |
 |---|---|---|
-| lint / typecheck temiz | ✅ | |
-| Birim ve entegrasyon testleri yeşil, gerekçesiz skip yok | ✅ | Birim 275/275. Entegrasyon testi bu turda koşturulmadı, değişiklik yalnız web tarafında; Tur 2 sonucu 128/128. |
-| e2e kararlı (tam takım) | ✅ | 2/2 koşu, 135/135 |
-| Gerçek sunucu e2e (QA-P5-6 kapısı) | ❌ | Bu turda kurulum hatası, kanıt yok (yukarıdaki 1. madde) |
-| Yeni bağımlılık yok veya gerekçeli | ✅ | Yok |
-| implementation.md güncel | ✅ | "P5 sayfa testi + QA Tur 2 düzeltmesi" |
-
-## Olumlu
-- TEST-P5-1 için seçilen çözüm sözleşmeyi değiştirmiyor ve S-P5-2'yi koruyor. Hem dürüst istemci yolu (gönderen tarafta sınır) hem de kötü niyetli istemci yolu (zaman aşımı) ayrı testlerle kanıtlandı.
-- e2e kancaları derleme bayrağına bağlı, üretim derlemesinde etkisiz.
-
----
-
-# QA Raporu — P5 (konsol işbirliği) — Tur 2
-DURUM: DÜZELTİLMELİ (tek madde: kararsız e2e testi QA-P5-7; ürün kodunda açık bulgu yok)
-
-## Test sonucu (2026-11-11, yerel)
-| Komut | Sonuç |
-|---|---|
-| `pnpm -r run lint` | temiz |
-| `pnpm -r run typecheck` | temiz |
-| `pnpm -r run test` | contracts 32/32, server unit 160/160, web 79/79 (önceki tur 73); skip yok |
-| `eval "$(test-db.sh up)"` + `test:int` + `down` | 20 dosya, 128/128 (önceki tur 126); konteyner silindi |
-| `pnpm --filter @remote/web e2e` (tam takım, 3 koşu) | Koşu 1: **132 geçti, 1 kırmızı**, 25 atlandı. Kırmızı test: `[desktop] p5-collab.spec.ts:163` "AC-54: SHA-256 uyuşmazlığı…". Hata `acceptOffer()` içinde, satır 65 `expect(file-accept).toBeEnabled()` (varsayılan 5 sn). Koşu 2 ve 3: 133/133 geçti. Yalnız P5 dosyası 3 kez koşturuldu, üçünde de 15/15 geçti. Atlanan 25 testin hepsi mobil projede `test.skip(project !== "desktop")` ile atlanıyor ve gerekçesi yazılı. |
-| `bash scripts/e2e-real.sh` (gerçek sunucu) | **5/5 geçti** (rc=0, 13 sn) |
-| `pnpm audit --audit-level high` | Bilinen açık yok |
-
-## Tur 1 bulguları
-| Bulgu | Durum | Doğrulama |
-|---|---|---|
-| QA-P5-1 AC-53 iptal | ✅ kapandı | e2e `:280`: alıcı ve gönderen iptali, iki tarafta `cancelled`, indirme yok, ws-log'da iki taraftan CANCELLED. Yavaşlatma kancası (`__rsSlowFileMs`) yalnız `NEXT_PUBLIC_RS_E2E=1` derlemesinde çalışıyor. |
-| QA-P5-2 AC-37 PiP | ✅ kapandı | e2e `:329` (API varsa buton açılıyor ve kapanıyor; API yoksa test açıkça kırmızı), `:343` (global silinince buton hiç render edilmiyor) |
-| QA-P5-3 AC-57 p95 | ✅ kapandı (yerel ön kanıt) | e2e `:354`: 20 çizgi, `pointerup` anından `data-strokes` artışına kadar ölçülüyor, `expect(p95).toBeLessThan(200)`. Mimar kararıyla staging'de tekrarlanacak (gereksinimler "Sonra / açık — P5'ten"). |
-| QA-P5-4 AC-41 | ✅ kapandı (yerel ön kanıt) | e2e `:400`: 1920x1080 `captureStream(30)` stub'ı, panelde "1920×1080" görünüyor, ısınma sonrası medyan FPS ≥ 15. Gerçek ağ ve donanım ölçümü mimar kararıyla (mimari §10.3 P5) staging'e bırakıldı ve takipte. |
-| QA-P5-5 AC-36 metni | ✅ kapandı | `gereksinimler-kabul-kriterleri-e1-e4.md:49` "(rev. …, QA-P5-5)". Tek kaynak `DANGEROUS_EXT` + fikstür. |
-| QA-P5-6 gerçek sunucu e2e | ✅ kapandı | `scripts/e2e-real.sh` tek komutla 5/5, bu turda bağımsız olarak yeniden koşturuldu. implementation.md kurulum adım 1'e `SEED_*` eklendi, sonuç kayıtlı. |
-
-## Kabul kriterleri (Tur 1'den değişenler; diğerleri ✅ olarak aynı kaldı)
-| AC | Durum | Kanıt |
-|---|---|---|
-| 36 (rev.) | ✅ | e2e AC-36/53/117 ve AC-36/117 testleri; doküman güncel |
-| 37 | ✅ | e2e "AC-37: Document PiP destekleniyorsa…" ve "…yoksa buton hiç çizilmez" |
-| 41 | ✅ (yerel) | e2e "AC-41: 1920x1080 kaynak…". Staging ölçümü takipte (mimar kararı) |
-| 53 | ✅ | e2e "AC-53: aktarım sürerken alıcı ve gönderen iptal eder…" + Tur 1 kanıtları |
-| 54 | ✅ (test kararsız) | Kriteri doğru kanıtlıyor. Ancak tam takımda 1/3 koşuda kırmızı çıktı (QA-P5-7). |
-| 57 | ✅ (yerel) | e2e "AC-57: … p95 < 200 ms (20 çizgi)"; Tur 1'deki lazer unit testi. Staging ölçümü takipte. |
-
-## Düzeltilmeli
-1. **QA-P5-7 [frontend-dev]** `apps/web/e2e/p5-collab.spec.ts:65` (`acceptOffer`): `expect(file-accept).toBeEnabled()` tam paralel takımda kararsız. 3 tam koşunun birinde AC-54 testi bu satırda düştü. Playwright config'de `retries` yok, dolayısıyla CI'da da kırmızı çıkabilir.
-   - **Beklenen:** 1,5 sn'lik `ARM_MS` kilidinden sonra butonun etkinleşmesini yük altında da güvenilir biçimde beklemek. Örnek: `toBeEnabled({ timeout: 10_000 })`.
-   - **Kök neden:** yük altında misafir sayfasında `setTimeout` gecikmesi mi, yoksa `pending.fid` değişip zamanlayıcının yeniden kurulması mı (`files-panel.tsx:67-72`)? Bunu doğrula ve implementation.md'ye bir satır yaz.
-   - **Kabul ölçütü:** tam e2e takımı art arda 5 koşuda yeşil.
-
-## Definition of Done
-| Madde | Durum | Not |
-|---|---|---|
-| Lint / typecheck temiz | ✅ | |
-| Unit + entegrasyon + mock e2e yeşil, gerekçesiz skip yok | ❌ | Skip'ler gerekçeli. Mock e2e 3 koşunun birinde kırmızı (QA-P5-7). |
-| Paketin tüm AC'leri testle kanıtlı | ✅ | AC-41 ve AC-57 yerel ön kanıtla; staging kısmı mimar kararıyla P5 kapanışından ayrıldı |
-| §10.3 P5 bitti tanımı | ✅ | |
-| P4 regresyonu (gerçek sunucu) | ✅ | `e2e-real.sh` 5/5 |
-| Tasarım-kod uyumu; sapmalar gerekçeli | ✅ | |
-| Yeni bağımlılık yok veya gerekçeli | ✅ | |
-| `pnpm audit` high yok | ✅ | |
-| Gereksinim dokümanı güncel | ✅ | AC-36 rev.; "Sonra / açık — P5'ten" tablosu var |
-| Audit tek TX | ✅ | int 128/128 |
-| a11y / iki tema / 375 px | ✅ | Tur 1 ile aynı |
+| İki CI build'inin SHA-256'sı eşit | ✅ yerel / Sonra CI | Yerelde `d8f7fc78…` ×2. Workflow iki ayrı runner'da karşılaştırıyor |
+| `SHA256SUMS` Release'de | ✅ (workflow) / Sonra | `reproducible` + `release` job'ları |
+| UPX/packer yok | ✅ | grep 0; CI'da gate var |
+| versioninfo dolu | ✅ | strings ile doğrulandı. CI bunu kontrol etmiyor (Öneri 1) |
+| ≤ 40 MB | ✅ | 11,8 MB; CI'da gate var |
+| SmartScreen yolu, UAC'siz, Procmon, Zone.Identifier | Windows elle | yukarıdaki liste |
+| `trace-check.ps1` temiz | ❌ | betik yok (QA-P6-2) |
+| `go test` yeşil | ✅ | 10/10 (-race) |
+| `gh attestation verify` | Sonra | repo private |
+| `--server`/env ile URL değiştirilemiyor | ✅ | config yalnız ldflags; testli |
+| İndirme ucu entegrasyon testi (302 / 410 / 404 / 429) | ✅ | `agent-download.test.ts`, 137/137 |
+| Lint / typecheck / test | ✅ | |
+| Tüm AC'ler testle kanıtlandı | ❌ | AC-98 ❌, AC-27 ve AC-108 ⚠️ |
+| Sapmalar implementation.md'de gerekçeli | ✅ | Sözleşme dokümanı senkronu açık (QA-P6-5) |
+| Yeni bağımlılık gerekçesi | ✅ | Pion, coder/websocket, x/sys (§10.4); go-winres yalnız build aracı olarak gerekçeli. AGPL/GPL yok (go-licenses gate'i var) |
 
 ## Öneriler (zorunlu değil)
-- `scripts/e2e-real.sh` içindeki "ekran kilitli" uyarısı ve baş yorumu, `getDisplayMedia` stub'ı geldikten sonra geçersiz kaldı. implementation.md bunu not etmiş; devops temizleyebilir.
-- Tur 1 önerileri (`QualityAgg` bellek kullanımı ve `"host"` varsayılanı; disk yolunda `abort()` unit testi) hâlâ açık.
+1. [devops] `agent-win.yml` `reproducible` job'una VERSIONINFO kontrolü eklenebilir (ör. `strings -el | grep FileVersion`).
+2. [devops/güvenlik] Caddy `http.log.error`, upstream hatasında tam URI'yi (`ref`, `/session/<token>`) filtresiz yazıyor (implementation.md:1115-1117). G-10 kapsamında güvenlik raporunda ele alınmalı.
+3. [backend-dev (Go)] Desktop Duplication imleci kareye çizmiyor. P7 (uzaktan kontrol) öncesinde `GetFramePointerShape` eklenmeli.
+4. [backend-dev (Go)] Win32 istemcide koyu tema yok (ortak standart 1.6). Ya ayrı iş olarak planlanmalı ya da kapsam dışı olduğu gerekçeyle yazılmalı.
+5. Go fixture testleri repo düzenine (`../../../../packages`) bağlı. Kök dizin yoksa anlaşılır bir hata mesajı vermeleri iyi olur.
 
 ## Olumlu
-- Tur 1'deki altı bulgunun altısı da kapandı. Yeni testler kriteri ölçüyor, yalnız varlık kontrolü yapmıyor: p95 assert ediliyor, FPS medyanı ölçülüyor, PiP yokken test açıkça başarısız oluyor.
-- Gerçek sunucu e2e'si artık tek komutla ve fiziksel ekrandan bağımsız koşuyor. Bu turda bağımsız olarak 5/5 doğrulandı.
+- Platformdan bağımsız çekirdek (flow/rtc/transfer/signal/dc) yüksek kapsamla test edilmiş. Gerçek iki Pion eşiyle WebRTC testi var; TS ile ortak fixture'lardan sözleşme uyumu kanıtlanıyor.
+- AC-109 sıkı uygulanmış: yalnız ldflags; TLS reddi hem HTTP hem WS için testli; yönlendirme izlenmiyor; join tekrar denenmiyor.
+- İndirme ucu fail-closed (hash uyuşmazlığında 503) ve resolve ile aynı başarısız deneme kovalarını kullanıyor. ref/kod log ve audit'e yazılmıyor, bu da testli.
+- CI en az yetkiyle kurulmuş: SHA ile sabit Action'lar, iki ayrı runner'da tekrarlanabilirlik, yazma izinleri yalnız ilgili job'larda. Operatör makinesinde attestation doğrulaması (G-07) yapılıyor.
+
 
 ---
 
-# QA Raporu — P5 (konsol işbirliği) — Tur 1
-DURUM: DÜZELTİLMELİ
+# Tur 2 — 2026-11-11
+DURUM: GEÇTİ
 
-P4 raporu: `docs/arsiv/p4-qa-raporu.md`.
-
-## Test sonucu (2026-11-11, yerel)
+## Test sonucu (yerel, bu turda koşturuldu)
 | Komut | Sonuç |
 |---|---|
 | `pnpm -r run lint` | temiz (çıkış 0) |
 | `pnpm -r run typecheck` | temiz (çıkış 0) |
-| `pnpm -r run test` | contracts 32/32, server unit 160/160, web 73/73; skip yok |
-| `test-db.sh up` + `pnpm --filter @remote/server test:int` | 20 dosya, 126/126; konteyner silindi |
-| `pnpm --filter @remote/web e2e` | 128 geçti, 20 atlandı. Atlananlar, mobil projede çalışmayan masaüstü akışları (`test.skip(project !== "desktop", ...)`, gerekçesi yazılı). |
-| `pnpm audit --audit-level high` | Bilinen açık yok |
-| Gerçek sunucu e2e (`e2e:real:users` + `e2e:real`) | **Koşturulamadı.** Denemede 5/5 kırmızı çıktı. Sebep kurulum: `db:seed`, `SEED_SUPERADMIN_EMAIL/PASSWORD` verilmediği için çalışmadı, kullanıcı oluşmadı, girişler başarısız oldu. Bunu regresyon kanıtı saymıyorum. Tur bütçesi yüzünden ikinci deneme yapılmadı. P4 gerçek sunucu akışlarının P5 sonrasında geçtiği **kanıtsız**. |
+| `pnpm -r run test` | contracts 32/32 · server (unit) 178/178 · web 99/99 · skip 0 |
+| `pnpm test:int` (server; geçici `qa-p6t2-mysql` konteyneri, port 33419, `test-db.sh up/down`, iş bitince silindi) | 21 dosya, 142/142, skip 0 |
+| Go (docker `golang:1.26.11-bookworm`, repo kökü mount): `go vet ./...`, `go test -race -count=1 ./...` | 12/12 paket ok (api, capture, config, dc, files, flow, pairing, rtc, signal, transfer, ui, win) |
+| `GOOS=windows go vet ./...` + `GOOS=windows go test -c` (files, dllsafe, transfer) | temiz; Windows testleri derleniyor. **Koşumu yalnız CI `test-windows` (windows-2025)**, burada koşturulamadı |
+| `build/build.sh https://destek.example.com 1.0.0` ×2 | SHA-256 eşit: `ac0e5c1b64ac7848eb1f38701232c1e928d795cc285bd9ad2b22fc6210ed7dca` (ikisi de) |
+| `pnpm --filter @remote/web e2e e2e/p6-agent-download.spec.ts` | 7 geçti / 7 atlandı / 0 kalan. Atlananların hepsi gerekçeli proje ayrımı: Windows/macOS senaryoları `mobile` projesinde, mobil senaryo `desktop` projesinde `test.skip` |
 
-## Kabul kriterleri
-| AC | Durum | Kanıt veya eksik |
+## Tur 1 bulgularının doğrulaması
+| Bulgu | Durum | Kanıt |
 |---|---|---|
-| 35 | ✅ | e2e "AC-35/52: … HTML/XSS denemesi düz metin" (`<img onerror>`/`<script>` DOM'a girmiyor, `__rsXss` tanımsız); unit `p5.test.ts` "sohbet": 2000 karakter sınırı |
-| 36 (rev.) | ✅ (doküman eksiği var) | e2e "AC-36/53/117" (`fatura.pdf.exe` çift uzantı, `kurulum.exe` uyarısı, kabul diyaloğu); `DANGEROUS_EXT`, AC-36 listesini kapsıyor ve genişletiyor. `gereksinimler-kabul-kriterleri-e1-e4.md` AC-36 metni güncellenmedi (bkz. QA-P5-5). |
-| 37 | ⚠️ kanıtsız | Çizim ve lazerin müşteri önizlemesinde görünmesi e2e'de kanıtlı (AC-56/57). Document PiP için test yok: destekleyen tarayıcıda butonun görünmesi ve desteklemeyende gizlenmesi doğrulanmıyor (`guest-collab.tsx` `PipButton`). |
-| 41 | ⚠️ kanıtsız | 1920x1080 kaynakta ≥ 15 FPS ölçen hiçbir test yok. implementation.md'de AC-41'den hiç söz edilmiyor. |
-| 44 | ✅ | e2e "AC-44/46: kalite paneli değerleri görünür" (FPS/kbps/"Doğrudan"); unit "RTCStatsReport values()" |
-| 45 | ✅ | unit "3 sn süren eşik aşımı uyarı, kısa sıçrama değil" (warn/bad); `quality-panel.tsx` nedeni metinle de gösteriyor |
-| 46 | ✅ | int "AC-46: ACTIVE oturuma yazılır…", "PENDING'de yazılmaz", "gerçek WS"; e2e: bitirişte `quality.summary` gidiyor; unit: ort/min/maks + bağlantı tipi |
-| 52 | ✅ | e2e AC-35/52 (iki yön, okunmamış rozeti); unit: okunmamış sayaç |
-| 53 | ⚠️ kısmi | İki yön, tenant sınırı ve ilerleme kanıtlı (e2e "AC-53: tenant sınırı (1 MB)"; int "AC-53: maxFileMb = tenant ayarı"; varsayılan 100, `consent-p4.test.ts`). **Kullanıcının başlattığı iptal (`file-cancel` → `collab.cancel`) hiçbir unit veya e2e testinde yok.** Yalnız karşı tarafın `file.cancel` seli test edilmiş. |
-| 54 | ✅ | unit "bozuk SHA-256 → tampon atılır, meta CORRUPT, indirme adresi yok"; e2e "AC-54: … 'Dosya bozuk', indirme sunulmaz". 256 MB üstü disk yolunda `abort()` için test yok (bkz. Öneriler). |
-| 55 | ✅ | int "AC-55: alıcı raporu session_files + audit (aynı TX); içerik yok", "S-P5-3", "dbcheck 3819", tenant izolasyonu |
-| 56 | ✅ | e2e "AC-56/57" (kalem, dikdörtgen, geri al, temizle); unit: normalize, ≤ 500 nokta, 4 renk token'ı |
-| 57 | ⚠️ kısmi | "Lazer 1 sn içinde söner" unit'te kanıtlı. **Müşteride görünme gecikmesi için p95 < 200 ms ölçümü yok.** |
-| 58 | ✅ | Tarayıcı modunda müşteri tarafı yapısal olarak girdi olayı üretemez. İşaretleme `ctl` DC'den gider, input DC kapalı (`peer.ts`). e2e işaretlemeyi kontrol izni olmadan çalıştırıyor. Go istemci tarafı P6'da. |
-| 117 (web) | ✅ | contracts fixture `file-names.json` (sanitize ve uyarı örnekleri); int "AC-117: kötü ad sunucuda temizlenir"; unit "sınır ALINAN bayt ile". `(1)` eki ve MOTW Go'ya ait (P6). |
-| 119 (web) | ✅ | int "AC-119: caps.file_transfer kapalı → FORBIDDEN"; unit "yetki yoksa teklif otomatik ret"; e2e "AC-119/G-09" |
+| QA-P6-1 (AC-98 logo) | ✅ kapandı | `internal/api/logo.go`: `LogoURL` yalnız kök-göreli yol ya da gömülü sunucuyla aynı şema+host+port kabul ediyor (`//host`, userinfo, fragment, opaque, ters bölü, CR/LF red; çözümden sonra köken yeniden denetleniyor). `Logo` aynı TLS'li istemci (yönlendirme izlenmiyor), yalnız 200 + `image/png`/`image/jpeg` + aynı türün sihirli baytları, ≤ 2 MB (Content-Length ve okunan bayt), çözmeden önce ≤ 2048 px. `ui/logo.go`: gömülü `nokta-kucuk.png` sistem logosu. `screens_windows.go:155-160`: `w.Logo` nil ise sistem logosu. `flow.go:173,201-207`: 3 sn üst süre, her hatada nil. `main.go:81` `Logo: client.Logo` bağlı. Testler: `flow.TestAC98WelcomeLogoOnlyFromServerHost` (göreli ve aynı köken → indirilir; `https://evil.example`, `//evil.example` → indirme çağrısı yapılmaz, Logo nil), `TestAC98WelcomeLogoFetchErrorFallsBack`, `api.TestAC98LogoURLOnlySameOrigin`, `TestAC98LogoDownloadedWithLimits` (httptest; boyut, piksel, tür, köken), `TestAC98DecodeLogoChecksMagicBytes`. Not: sunucu resolve'da `logoUrl: null` dönüyor (`apps/server/src/sessions/public.ts:214`, logo servisi P9). Uçtan uca firma logosu P9'da görünür olacak; o zamana kadar sistem logosu gösterilir. Bu, mimarideki paket planına uygun |
+| QA-P6-2 (trace-check) | ✅ kapandı | `apps/agent-win/test/trace-check.ps1` (265 satır, salt okunur): HKCU/HKLM `Software` (+WOW6432Node), Run/RunOnce, servisler (ImagePath), zamanlanmış görevler (eylem komutu), kullanıcı ve ortak Startup (.lnk hedefi), `%APPDATA%`, `%LOCALAPPDATA%`, `%TEMP%`, İndirilenler'de `*.part`, açık süreç. Snapshot, Compare ve Check modları var. Çıkış kodları: 0 temiz, 1 iz, 2 kullanım hatası. CI `agent-win.yml` `test-windows`: yer tutucu `.invalid` adresli exe derleniyor, snapshot alınıyor, exe çalıştırılıp WM_CLOSE ile kapatılıyor, sonra Compare koşuyor ve iz bulunursa job kırmızı oluyor. Runbook §11.8 ve sorun tablosu (runbook.md:504, 515) eklenmiş. CI koşusu burada görülemedi (Sonra) |
+| QA-P6-3 (AC-27 web) | ✅ kapandı | `agent-download.tsx`: birincil "Hızlı Destek uygulamasını indir" bağlantısı (`/api/v1/public/agent/download?ref=`) + aynı adımda SmartScreen rehberi; tarayıcı yolu ikincil. `p6-agent-download.spec.ts` gerçekten kriterleri ölçüyor: href biçimi, rehberde "Ek bilgi"/"Yine de çalıştır"/"imzasız", birincil seçeneğin tarayıcı yolundan önce gelmesi, ≥ 44 px, indirilen dosya adı `^Destek-\d{8}\.exe$`, sayfanın yerinde kalması, 503 → uyarı + "Tarayıcıdan devam et" + odağın ad alanına gitmesi (indirme yok), 410 → iptal ekranı, macOS'ta ve mobilde indirme seçeneğinin olmaması, 375 px'te taşma olmaması, açık ve koyu temada axe 0. Linux yolu e2e'de yok, birim testte (`lib/device-support.ts` testleri) var. Sapmalar implementation.md "Frontend P6" bölümünde gerekçeli |
+| QA-P6-4 (Windows testleri) | ✅ kod / CI'da koşacak | `files/motw_windows_test.go` (gerçek ADS'de `[ZoneTransfer]` + `ZoneId=3`, ana akış değişmiyor), `dllsafe/dllsafe_windows_test.go` (`Harden` iki kez hatasız, System32 DLL'i yükleniyor), `transfer/rename_windows_test.go` (S6-3: MOTW `.part`'tan `MoveFileEx` ile taşınıyor, hedef varken `errExists` dönüyor, üzerine yazılmıyor). Üçü de `GOOS=windows` ile derleniyor. Yeşil oldukları yalnız CI `test-windows` koşusunda görülecek (bu ortamda Windows yok) |
+| QA-P6-5 (sözleşme) | ✅ kapandı | `mimari-api.md:92`: 302 → `/downloads/Destek-<8 hane>.exe`, 302'de Content-Disposition yok, son yanıtta Caddy `attachment`; S6-2 kapısı (`forward_auth` → `/internal/agent-ready`) eklenmiş. `ADR-0004` r2 (satır 2, 17, 19): `%TEMP%` yazımı yok, İndirilenler + `.part`, Kaydet diyaloğu yok, proxy kararı. Eski "%TEMP%\NoktaDestek-<rand>" ve "müşterinin seçtiği klasör" metinleri kalmadı (grep 0). `ADR-0006` r3 (satır 2, 7) güncel. `gereksinimler.md:115` İstemci NFR'si ADR-0004 r2 ile eşit |
 
-**§10.3 P5 "bitti" tanımı:** chat XSS düz metin ✅ (e2e). Bozuk SHA'da dosya silinir ✅ (unit + e2e, bellek yolunda). 100 MB sınırı ✅: e2e mekanizmayı 1 MB tenant sınırıyla doğruluyor, int/consent testi varsayılanın 100 olduğunu gösteriyor.
+## Güvenlik düzeltmeleri (S6-1..8): AC etkisi
+Tüm testler yeşil; hiçbir AC kırılmadı.
+- **S6-1:** `uintptr` dönüşümleri yalnız `Call` argümanında; `win.unsafeptr_test.go` AST taramasıyla bunu koruyor. Davranış değişikliği yok.
+- **S6-2:** `/downloads/*` için `forward_auth` + 503 kapısı. AC-27 akışı için web ön kontrolü aynı 503'ü uyarıya çeviriyor (e2e 503 testi). Caddy zinciri e2e'de mock ile sınanıyor, gerçek Caddy ile değil (Sonra).
+- **S6-3:** MOTW `.part`'a yazılıyor, üzerine yazılmayan rename yapılıyor. MOTW yazılamazsa tehlikeli dosya teslim edilmiyor. Bu AC-36/54/117'yi daraltıyor, kırmıyor (`transfer_test` + Windows testi).
+- **S6-6:** Proxy davranışı korundu, ADR-0004 r2'de karar olarak yazıldı. AC-109 (yalnız ldflags URL) testleri yeşil.
+- **S6-7:** Geçersiz `abuseEmail` → bağlantı gizleniyor (sunucunun null davranışıyla aynı). ICE kuyruğu 64 ile sınırlı (`rtc` testi).
+- **S6-8:** Uzantı listesi genişledi; `TestS68DangerousExtMatchesContracts` Go ve TS listelerini birebir karşılaştırıyor. Server fixture testi yeşil.
+
+## Kabul kriterleri (Tur 1'de açık kalanlar)
+| AC | Durum | Kanıt |
+|---|---|---|
+| 27 | ✅ | `agent-download.test.ts` (uç, entegrasyon) + `p6-agent-download.spec.ts` (6 masaüstü + 1 mobil senaryo) + `pairing.TestAC97FromFileName` |
+| 98 | ✅ | `flow.TestAC98NoJoinWithoutConsent`, `TestAC98WelcomeLogoOnlyFromServerHost`, `TestAC98WelcomeLogoFetchErrorFallsBack`, `api.TestAC98*` (3). Firma logosunun uçtan uca görünmesi P9 logo servisine bağlı (yukarıdaki not) |
+| 108 | ✅ (otomatik kısım) / Windows elle | `transfer.TestAC108CloseRemovesPart` + `trace-check.ps1` + CI iz adımı. Tam senaryo (dosya aktarımlı oturum) runbook §11.8 elle testi |
+| 117/118 | ✅ (Go) / CI-Windows | Tur 1 kanıtları + Windows ADS/Harden testleri (CI'da koşacak) |
+Tur 1'de ✅ olan diğer AC'ler bu turda yeniden koşturulan testlerle yeşil kaldı.
 
 ## Düzeltilmeli
-1. **QA-P5-1 [frontend-dev]** `apps/web/e2e/p5-collab.spec.ts`: AC-53 iptal testi yok. Gönderim sürerken `file-cancel`'e basılacak, iki tarafta durum `cancelled` olacak, alıcıda indirme olmayacak, `file.meta` CANCELLED olacak. Testi yaz. Gerekirse küçük `maxFileMb` ile yavaşlatılmış veya parçalı bir gönderim kullan.
-2. **QA-P5-2 [frontend-dev]** `apps/web/e2e/p5-collab.spec.ts`: AC-37 PiP testi yok. `documentPictureInPicture` olan Chromium'da `pip-open` görünür olmalı. `addInitScript` ile global silindiğinde buton hiç render edilmemeli. İkisini de test et.
-3. **QA-P5-3 [frontend-dev]** AC-57 p95 < 200 ms kanıtı yok. e2e'de en az 20 çizgi için şu süre ölçülecek: teknisyen `pointerup` anından müşteri katmanında `data-strokes` artışına kadar (`performance.now()` ile iki sayfa arası; yerelde RTT < 100 ms). p95 < 200 ms assert edilecek.
-4. **QA-P5-4 [frontend-dev]** AC-41 kanıtı yok. 1920x1080 sahte kaynakla bir e2e eklenecek (`canvas.captureStream(30)` → `getDisplayMedia` stub'ı). Teknisyen tarafında `getStats` ile `inbound-rtp` FPS ≥ 15 ve `frameWidth` ≥ 1920 ölçülecek. Gerçek ağ ölçümü P6'ya bırakılacaksa bu kararın gerekçesi mimar onayıyla `implementation.md`'ye yazılacak, AC-41 bu durumda paket dışı işaretlenecek.
-5. **QA-P5-5 [proje-yoneticisi]** `docs/gereksinimler-kabul-kriterleri-e1-e4.md:49` AC-36: uzantı listesi koddaki listeyle aynı değil. Kodda S-P5-7 ile `vbe jse … svg` eklendi. Metin "Liste: `packages/contracts/src/files.ts` `DANGEROUS_EXT` (tek kaynak)" olarak revize edilecek ve "(rev.)" işareti eklenecek.
-6. **QA-P5-6 [devops]** Gerçek sunucu e2e (P4 regresyonu) P5 sonrasında koşturulup kayda geçirilecek. `implementation.md` "Frontend (P4) — Gerçek sunucu entegrasyonu / Kurulum" adım 1'e `SEED_SUPERADMIN_EMAIL` / `SEED_SUPERADMIN_PASSWORD` gereksinimi eklenecek. Ardından `e2e:real` 5/5 sonucu implementation.md'ye yazılacak.
+Yok.
 
-## Definition of Done
-| Madde | Durum | Not |
+## Definition of Done (Tur 2 güncellemesi)
+| Madde | ✅/❌ | Not |
 |---|---|---|
-| Lint / typecheck temiz | ✅ | |
-| Unit + entegrasyon + mock e2e yeşil, gerekçesiz skip yok | ✅ | |
-| Paketin tüm AC'leri testle kanıtlı | ❌ | AC-37, 41, 53 (iptal), 57 (p95) |
-| §10.3 P5 bitti tanımı | ✅ | |
-| P4 regresyonu (gerçek sunucu) | ❌ | kanıtsız (QA-P5-6) |
-| Tasarım-kod uyumu; sapmalar gerekçeli | ✅ | `maxFileMb`, `idx`, `file.result`, `VALIDATION` ve gönderen raporu mimari-protokol §3/§4'e işlenmiş |
-| Yeni bağımlılık yok veya gerekçeli | ✅ | yok (SHA-256 saf TS) |
-| `pnpm audit` high yok | ✅ | |
-| Gereksinim dokümanı güncel | ❌ | AC-36 metni (QA-P5-5) |
-| Audit (file.transfer, sender_report, rate_limited, rejected_by_db) tek TX | ✅ | int testleri |
-| a11y / iki tema / 375 px | ✅ | e2e axe açık/koyu ve 375 px taşma testi. Görsel ekran görüntüsü kontrolü yapılmadı (test-operatoru). |
+| İki build SHA-256 eşit | ✅ yerel / Sonra CI | `ac0e5c1b…` ×2 |
+| `trace-check.ps1` temiz | ✅ betik + CI adımı / Sonra | İlk yeşil CI koşusu ve VM elle testi bekleniyor |
+| `go test` yeşil | ✅ | 12/12 paket (-race); Windows testleri derleniyor, CI'da koşacak |
+| Lint / typecheck / test / entegrasyon / e2e (p6) | ✅ | 32 + 178 + 99 + 142 + 7 (7 skip gerekçeli) |
+| Tüm AC'ler testle kanıtlandı | ✅ | Windows'a özgü kısımlar elle teste ayrıldı |
+| Sapmalar gerekçeli, sözleşme senkron | ✅ | QA-P6-5 kapandı |
+| Yeni bağımlılık | ✅ | Yeni bağımlılık yok (stdlib `image/png`, `image/jpeg`) |
+Diğer DoD maddeleri Tur 1'deki gibi.
+
+## Sonra / Windows elle testi ve CI (DÜZELTİLMELİ sebebi değil)
+- CI `test-windows`'un ilk yeşil koşusu: Windows birim testleri (MOTW ADS, Harden, MoveFileEx) ve trace-check adımı. CI'da exe pencere açamazsa adım `::warning::` verip süreci zorla sonlandırıyor; bu durumda iz testi yalnız açılış-kapanış izini ölçmüş olur.
+- AC-108 tam iz testi: dosya aktarımlı oturum, ardından trace-check Compare (runbook §11.8).
+- Gerçek Caddy ile S6-2 kapısı: hash uyuşmazlığında `/downloads/Destek-<kod>.exe` → 503.
+- Tur 1 "Sonra" listesindeki diğer maddeler (UAC, ≤ 5 sn, SmartScreen, Procmon, monitör/ölçek, attestation) aynen geçerli.
 
 ## Öneriler (zorunlu değil)
-- 256 MB üstü `showSaveFilePicker` yolunda, SHA uyuşmazlığında `abort()` ile dosyanın diske hiç yazılmadığını kanıtlayan bir unit test (sahte `FileSystemWritableFileStream`) yazılabilir.
-- `QualityAgg` tüm örnekleri dizide tutuyor. Çok uzun oturumda bunun yerine sayaç ve toplam (min/maks/toplam/adet) yeterli.
-- `QualityAgg.summary()` bağlantı tipi hiç gelmediğinde `"host"` varsayıyor. Gerçek değeri yansıtması için null daha doğru olabilir (şema izin veriyorsa).
+1. [backend-dev, P9] Ortak standart 1.5 WEBP logo yüklemeye izin veriyor, ancak istemci yalnız PNG/JPG kabul ediyor. P9'da logo ucu PNG/JPG'ye dönüştürüp sunmalı ya da bu kısıt mimari-api'ye yazılmalı. Aksi halde WEBP logolu firmada istemci sessizce sistem logosunu gösterir.
+2. [frontend-dev] `agent-download.tsx:72` `active:scale-[0.99]` standarttaki 0.97'den farklı; `:153` `align-[-3px]` ham px. İkisi küçük token sapması.
+3. [devops] `trace-check.ps1` saf fonksiyonları (`Compare-TraceSnapshot`, `Test-TraceEntry`) nokta-kaynakla test edilebilir yazılmış, ancak Pester testi yok. CI'da küçük bir Pester testi eklenebilir.
 
 ## Olumlu
-- E2E gerçek hatalar buldu ve bunlar düzeltildi: `RTCStatsReport` iterasyonu, `file.done` sıra yarışı, "Reddet" odağı.
-- Sunucu tarafında kota (taraf × sınıf), DB CHECK reddi ve tenant izolasyonu entegrasyon testleriyle kapsanmış.
-- Ad temizleme için tek kaynak (contracts) ve paylaşılan fixture var; Go eşi için hazır.
+- Logo indirme derin savunmalı: köken çözümden sonra yeniden denetleniyor, sihirli bayt ve tür eşleşmesi aranıyor, sıkıştırma bombasına karşı önce `DecodeConfig`, yalnız tek türün çözücüsü kullanılıyor.
+- S6-8 için Go ve TS listeleri artık birebir karşılaştırılıyor; Tur 1'deki "fixture yalnız örnek içeriyor" açığı kapandı.
+- e2e testleri AC metnini gerçekten ölçüyor (dosya adı deseni, odak taşınması, sıralama, 44 px hedef, iki temada axe).

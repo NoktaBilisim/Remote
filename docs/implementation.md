@@ -983,6 +983,7 @@ olan alan adı — IP ile TLS doğrulaması başarısız olur, AC-109). Konsolda
 12. **Yeniden bağlanma:** oturumda Wi-Fi'ı 10 sn kapat/aç → "Bağlantı koptu, yeniden bağlanılıyor…" → "Bağlantı yeniden kuruldu".
 13. **Ölçek (AC-110):** %100/%125/%150'de karşılama ve oturum penceresi taşmadan okunmalı; pencereyi farklı DPI'lı monitöre sürükle.
 14. **İz (AC-108):** kapanıştan sonra `%TEMP%`, `%APPDATA%`, `%LOCALAPPDATA%`, HKCU\Software'de istemciye ait kayıt yok (İndirilenler'deki kabul edilen dosyalar hariç). Procmon: Downloads'ta DLL araması 0 (AC-118).
+    Betikle: adım 1'den ÖNCE `pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Snapshot -SnapshotPath C:\iz\once.json`, program kapandıktan sonra `... -Mode Compare -SnapshotPath C:\iz\once.json -ExePath "$env:USERPROFILE\Downloads\Destek-<kod>.exe"` → `TEMİZ`, çıkış 0 (runbook §11.8).
 Hata görülürse ekran görüntüsü + adım numarası yeterli.
 
 ### Eksikler (Aşama 3)
@@ -996,3 +997,328 @@ Hata görülürse ekran görüntüsü + adım numarası yeterli.
 ### frontend-dev / backend için sözleşme notları
 Sözleşme değişikliği yok. İstemci monitör kimliklerini 1'den başlatır ("Ekran 1"…); `share.state.activeMonitor` bu kimliktir
 (P7 `monitor.request.monitorId` aynı kimliği kullanmalı). Gösterge ve işaretleme katmanı yakalamaya girmez (konsol kendi çizimini gösterir).
+
+## Agent (P6) — Aşama 3: ekran yakalama + H.264 (backend-dev/Go, 2026-11-11)
+Aşama 2 eksiği 1 kapatıldı: `capture.Open` artık gerçek kaynak döner (DXGI Desktop Duplication → CPU BGRA→NV12 →
+Media Foundation H.264 → Annex-B). CGO yok; COM vtable çağrıları `syscall.SyscallN` ile, dizinler ve GUID'ler mingw-w64
+SDK başlıklarından (d3d11.h, dxgi1_2.h, mfobjects.h, mftransform.h, mfapi.h, codecapi.h, wmcodecdsp.h) betikle doğrulandı.
+Bu ortamda (Windows yok) COM/MF kodu **çalıştırılamadı**; yalnız derleme + vet + platformdan bağımsız birim testleri.
+
+### Dosyalar (`apps/agent-win/`)
+| Dosya | İçerik |
+|---|---|
+| `internal/capture/nv12.go` (yeni, platformsuz) | `ConvertBGRA` BGRA → NV12 (BT.601 sınırlı aralık, 2×2 renk ortalaması), DXGI döndürmesi (90/180/270, satır/sütun ofset tablolarıyla — iç döngüde ek maliyet yok), en yakın komşu küçültme; `OutputSize` 1920×1080 sınırına (iki yönde) en-boy korunarak sığdırma, çift boyut |
+| `internal/capture/annexb.go` (yeni, platformsuz) | Annex-B NAL ayrıştırma (3/4 baytlık başlangıç kodu), SPS/PPS önbelleği: her IDR önünde SPS/PPS garantisi (`MF_MT_MPEG_SEQUENCE_HEADER`'dan da öğrenir) |
+| `internal/capture/ratectl.go` (yeni, platformsuz) | Kare hızı denetimi (hedef 30, alt sınır 15 — AC-41; maliyet EWMA'sı bütçenin %90'ını aşarsa −5, 2 sn %50 altında kalırsa +5), CBR bit hızı (~0,075 bpp, 0,3–8 Mbit/s; 1080p30 ≈ 4,7 Mbit/s), anahtar kare saati (GOP 2 sn + istek, PLI selinde en sık 500 ms'de bir) |
+| `internal/capture/com_windows.go` (yeni) | `comObj` vtable çağrısı (`//go:uintptrescapes`), HRESULT, `NewLazySystemDLL` ile d3d11/dxgi/mfplat/ole32 (G-08), IID'ler |
+| `internal/capture/dxgi_windows.go` (yeni) | `CreateDXGIFactory1` → adaptör/çıkış taraması, monitör eşlemesi GDI aygıt adıyla (`\\.\DISPLAYn` = `win.Monitors()[id-1].Device`) → `D3D11CreateDevice(adapter)` → `IDXGIOutput1::DuplicateOutput` → `AcquireNextFrame`/staging `CopyResource`/`Map`/`ReleaseFrame`; döndürme `DXGI_OUTDUPL_DESC.Rotation`'dan; yalnız fare hareketi (`LastPresentTime=0`) yeni kare sayılmaz |
+| `internal/capture/mf_windows.go` (yeni) | H.264 MFT: önce `MFTEnumEx(HARDWARE)` (asenkron → `MF_TRANSFORM_ASYNC_UNLOCK` + `IMFMediaEventGenerator` olay döngüsü, NO_WAIT yoklama, 500 ms zaman aşımı), olmazsa senkron yazılım MFT (`MFTEnumEx(SYNCMFT)`, son çare `CoCreateInstance(CLSID_CMSH264EncoderMFT)`); Baseline (66), CBR, düşük gecikme, GOP = 2 sn, hız öncelikli; `CODECAPI_AVEncVideoForceKeyFrame` ile anahtar kare; `MF_E_TRANSFORM_STREAM_CHANGE`'de çıkış türü yeniden anlaşılır; çıktı örneğini MFT sağlamıyorsa biz ayırırız |
+| `internal/capture/source_windows.go` (yeniden yazıldı) | `Open` → kilitli tek OS iş parçacığında worker (COM MTA + `MFStartup(LITE)`); `NextFrame` kanal üzerinden; ilk kare + kodlayıcı kurulamazsa `Open` hata döner (mevcut "Ekran görüntüsü alınamadı" yolu korunur). Çoğaltma kaybında (ACCESS_LOST, UAC/Güvenli Masaüstü, kilit ekranı, mod/çözünürlük değişimi) oturum kapatılır, 250 ms → 2 sn geri çekilmeyle yeniden açılır; bu sürede son kare 1 sn'de bir yeniden kodlanır. Çözünürlük değişirse kodlayıcı yeniden kurulur + anahtar kare. Ekran değişmiyorsa kodlama yapılmaz (1 sn canlı tutma hariç). `ErrUnavailable` kaldırıldı |
+| `internal/rtc/rtc.go` | `KeyframeRequester` (isteğe bağlı kaynak yeteneği): `Stream` başında anahtar kare ister (yeniden bağlanmada yeni eş IDR ile başlar); RTCP okuyucu PLI/FIR'de kaynaktan anahtar kare ister (`drainRTCP` → `readRTCP`) |
+| `go.mod` | `github.com/pion/rtcp` dolaylıdan doğrudana taşındı (zaten Pion bağımlılığı; yeni modül yok) |
+| testler | `internal/capture/capture_test.go` (yeni), `internal/rtc/rtc_test.go` (+1 test) |
+
+### Tasarımdan sapmalar (gerekçeli)
+1. **NV12 dönüşümü CPU'da** (Video Processor MFT değil): sürücü bağımsız, birim testli; 1080p'de tek geçiş + ofset tabloları. Ölçülemedi; Windows'ta 1080p'de dönüşüm + kodlama > 66 ms çıkarsa (≤ 15 fps) GPU dönüşümüne geçmek ayrı iş.
+2. **Kodlanan çözünürlük ≤ 1920×1080** (4K/ultra geniş ekranlar en-boy korunarak küçültülür): AC-41 kare hızı ve SDP'deki `profile-level-id=42e01f` (Level 3.1) ile uyum için. Koordinatlar P7'de (uzaktan kontrol) oransal eşlenmeli.
+3. **GOP 2 sn** (Aşama 2 planındaki "≤ 2 sn") + PLI/FIR ile anında IDR (500 ms sınırlı).
+
+### Testler ve son çıktı
+Komut Aşama 2 ile aynı (`gofmt -l` boş → `go vet` → `go test -race` → `GOOS=windows go vet` → iki `build/build.sh` + `sha256sum`).
+Son çıktı: gofmt temiz; linux `go vet` temiz; `go test -race` **10/10 paket ok** (capture yeni); `GOOS=windows go vet` temiz;
+iki build aynı SHA-256 (`9d49966c…`, arada `go clean -cache`); exe 11,5 MB; `go mod verify` tamam.
+Yeni testler: `capture` — `TestNV12SolidColorsBT601` (siyah/beyaz/kırmızı/mavi Y/U/V), `TestNV12RotationAndStride` (0/90/180/270
++ satır dolgulu stride), `TestNV12ScaleDownAndInvalid` (küçültme, kısa kaynak/tek genişlik/kısa stride reddi),
+`TestAC41OutputSizeFitsEncoderLimit` (4K, 1440p, 21:9, dikey, tek boyut), `TestAnnexBSplitAndParamSets` (karışık başlangıç
+kodu, IDR'ye SPS/PPS ekleme, sıra başlığından öğrenme), `TestAC41RateControlKeepsAtLeast15FPS`, `TestBitrateBounds`,
+`TestKeyClockPLIRateLimited`; `rtc` — `TestAC41KeyframeOnStreamStartAndPLI` (gerçek iki Pion eşi; yayın başı + teknisyenden
+PLI ve FIR → kaynakta anahtar kare isteği).
+
+### Windows'ta elle doğrulanacaklar (Aşama 2 listesinin 14 adımına ek)
+Adım 7 artık geçersiz: görüntü gelmeli. Konsolda `chrome://webrtc-internals` açık tutulursa fps/bit hızı/çözünürlük okunur.
+15. **Görüntü (AC-41):** 1920×1080 monitör paylaşımı ≤ 3 sn içinde konsolda görünür; video oynatırken/pencere sürüklerken `framesPerSecond` ≥ 15 (hedef 30); `webrtc-internals`'da `keyFramesDecoded` 2 sn'de bir artar; masaüstü durgunken bant genişliği düşer.
+16. **Donanım/yazılım kodlayıcı:** Intel/AMD/NVIDIA GPU'lu makinede ve GPU'suz VM'de (Hyper-V/VirtualBox, "Microsoft Basic Display Adapter") ayrı ayrı görüntü gelmeli (VM'de yazılım MFT). Görüntü yeşil/bozuksa veya hiç gelmiyorsa makine/GPU modeli not edilsin (asenkron MFT olay döngüsü).
+17. **Monitör eşlemesi:** iki monitörde "Ekran 2" seçilince gerçekten 2. monitör gelmeli; göstergenin çizildiği monitörle aynı olmalı.
+18. **Gösterge yakalamaya girmez:** konsoldaki görüntüde kırmızı kenarlık/üst çubuk ve işaretleme çizimleri **görünmemeli** (Win10 2004+). Win10 1909 ve öncesinde görünebilir — sürümü not edin.
+19. **Ölçek/DPI:** %150 ölçekli 4K monitörde görüntü tam masaüstü (kesik değil), 1920×1080'e küçültülmüş ve keskin; yazılar okunur.
+20. **Döndürme:** Ekran ayarlarından monitörü "Dikey" ve "Dikey (ters çevrilmiş)" yap → görüntü konsolda doğru yönde (dik, ayna değil); yan yatık/ters gelirse hangi yön olduğu not edilsin (90/270 eşlemesi Windows'ta doğrulanmadı).
+21. **Kayıp ve yeniden kurulum:** paylaşım sürerken (a) UAC isteyen bir şey çalıştır (Güvenli Masaüstü), (b) Win+L kilit + aç, (c) çözünürlüğü değiştir, (d) tam ekran bir oyun/video aç-kapa → her birinde görüntü en çok ~2 sn donar, sonra kendiliğinden devam eder; akış "durdu"ya düşmemeli.
+22. **PLI:** konsol sekmesini 30 sn arka plana alıp geri getir / ağ kesintisi sonrası yeniden bağlanma (adım 12) → görüntü gri/bozuk kalmadan ≤ 1 sn içinde düzelmeli.
+23. **Kaynak tüketimi:** Görev Yöneticisi'nde 1080p paylaşımda istemci CPU'su not edilsin (yazılım kodlayıcıda yüksek olabilir); oturum bitince istemci süreci kapanmalı (iş parçacığı/COM sızıntısı yok).
+24. **Windows N:** Media Feature Pack yoksa paylaşım "Ekran görüntüsü alınamadı" ile durmalı, program çökmemeli.
+
+### Yazılamayan / doğrulanamayan kısımlar
+1. **Fare imleci görüntüye çizilmiyor:** Desktop Duplication imleci kareye katmaz; `GetFramePointerShape` + birleştirme yapılmadı. Teknisyen imleci göremez (P7 uzaktan kontrol öncesi gerekli olabilir).
+2. **COM/MF çalışma zamanı doğrulanmadı:** vtable dizinleri/GUID'ler başlıklardan doğrulandı ama donanım MFT'lerinin (özellikle sistem belleği NV12 kabul etmeyen, D3D yöneticisi isteyenler) davranışı denenmedi; donanım kurulumu hata verirse yazılım MFT'ye düşülür, ancak donanım MFT kurulup **çalışma sırasında** hata verirse yazılıma otomatik geçiş yok (akış durur → adım 16).
+3. **Kirli dikdörtgen (dirty rect) optimizasyonu yok:** her yeni karede tam yüzey kopyalanıp dönüştürülür.
+4. **Win10 2004 öncesi** `WDA_EXCLUDEFROMCAPTURE` desteklenmez; gösterge görüntüde görünebilir (adım 18).
+5. Aşama 2 eksiklerinin 2–6. maddeleri (logo, koyu tema, P7 tipleri, `maxFileMb` güncellemesi, CI) değişmedi.
+
+### frontend-dev / backend için sözleşme notları
+WS/DC sözleşmesi değişmedi. Video H.264 Constrained Baseline, en çok 1920×1080 (büyük ekranlar küçültülür); tarayıcı
+PLI/FIR gönderirse istemci ≤ 500 ms içinde IDR üretir.
+
+### Bakım: Go 1.26 + x/net güvenlik yükseltmesi (backend-dev/Go, 2026-11-11)
+- Neden: CI govulncheck 12 erişilebilir zafiyet buldu. Kaynakları Go 1.25.14 stdlib'i (net/http, crypto/tls,
+  crypto/x509, net/textproto; Go 1.25 desteği bitti, düzeltme go1.26.11'de) ve `golang.org/x/net v0.50.0`
+  (düzeltme v0.60.0'da).
+- `apps/agent-win/go.mod`: `go 1.26.0`, `toolchain go1.26.11` (Docker Hub'daki en güncel 1.26.x yaması).
+  `golang.org/x/net v0.50.0 → v0.60.0`. MVS bunun gereği olarak `golang.org/x/sys v0.45.0 → v0.48.0` ve
+  `golang.org/x/crypto v0.48.0 → v0.57.0` yükseltti. Pion ve diğer bağımlılıklar değişmedi.
+- İmaj: `golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0`.
+  Güncellenen yerler: `.github/workflows/agent-win.yml` (`GO_IMAGE`, `GO_VERSION`, container'lar),
+  `.github/workflows/agent-watch.yml`, `docs/runbook.md` §11.2. `build/build.sh` sürüm sabiti taşımıyor, değişmedi.
+- Doğrulama (aynı imaj): gofmt temiz, `go vet` ve `GOOS=windows go vet` temiz, `go test -race ./...` 10/10 paket ok.
+  `govulncheck` (windows/amd64 + linux) **0 erişilebilir zafiyet** verdi. `build.sh` iki kez çalıştırıldı ve
+  SHA-256'lar eşit çıktı. actionlint temiz.
+- Açık kalan (erişilemez, yalnız modül düzeyinde): GO-2026-6866 ve GO-2026-6860 (x/net/html, v0.62.0'da
+  düzeltildi), GO-2026-5932 (x/crypto/openpgp). Kod bu paketleri içe aktarmıyor ve CI kapısını etkilemiyor.
+  Görev "en küçük yükseltme" olduğu için x/net v0.62.0'a çıkılmadı. Günlük `agent-watch` izliyor.
+
+### Düzeltme turu 1 (backend-dev/Go, 2026-11-11) — S6-1, S6-3, S6-6 (not), S6-7, S6-8, QA-P6-1, QA-P6-4
+**Değişen / eklenen dosyalar (`apps/agent-win/`)**
+- `internal/win/win_windows.go`, `internal/win/doc.go`, `internal/win/unsafeptr_test.go` — **S6-1:** `ptr()` kaldırıldı;
+  her UTF-16 tamponu yerel değişkende tutulup `uintptr(unsafe.Pointer(p))` dönüşümü yalnız `LazyProc.Call(...)`
+  argümanında yapılıyor (CreateWindow, SendMessageStr, SetText, MessageBox, DrawText, Font, OpenMailto).
+  `SendMessageStr` artık `SendMessage(…, uintptr)` sarmalayıcısından geçmiyor. Paket belgesi `doc.go`'ya taşındı
+  (testin Linux'ta da koşması için). `unsafeptr_test.go` AST ile tüm `internal/**` + `cmd/**` dosyalarını tarar:
+  `uintptr(unsafe.Pointer(…))` yalnız `Call`/`call`/`procHR`/`SyscallN` argümanında olabilir; `call` ve `procHR`'ın
+  `//go:uintptrescapes` taşıdığını da denetler. Mutasyonla doğrulandı (yardımcıya geri eklenen dönüşüm testi kırıyor).
+- `internal/capture/com_windows.go` — **S6-1 (tarama bulgusu):** değişken argümanlı `procHR` sarmalayıcısında
+  `//go:uintptrescapes` yoktu; `&yerel` dönüşümleri (MFCreateSample, D3D11CreateDevice, MFTEnumEx…) yığın büyümesinde
+  bayatlayabilirdi. İşaret eklendi (`comObj.call`'da zaten vardı). ui/files/dllsafe'de kalıp yok; `form_windows.go`
+  WM_DPICHANGED `lParam` okuması işletim sistemi belleği olduğu için kapsam dışı.
+- `internal/api/logo.go` (+`logo_test.go`) — **QA-P6-1 / AC-98:** `Client.LogoURL` resolve yanıtındaki
+  `tenant.logoUrl`'i (mimari-api `/public/sessions/resolve`; logo ucu `/public/files/logo/:tenantId/:file`) yalnız
+  kök-göreli yol veya gömülü sunucuyla aynı şema+host+port olan mutlak URL olarak kabul eder (`//host`, userinfo,
+  fragment, `data:`/`file:`, ters bölü, CR/LF reddedilir). `Client.Logo` aynı TLS doğrulamalı, yönlendirme izlemeyen
+  istemciyi kullanır; yalnız 200 + `image/png|image/jpeg` başlığı + aynı türün sihirli baytları, ≤ 2 MB
+  (Content-Length ve okunan bayt), çözmeden önce `DecodeConfig` ile ≤ 2048×2048; yalnız o türün çözücüsü.
+  `ValidAbuseEmail` (**S6-7**): basit e-posta biçimi, ≤ 190 (sunucu `ABUSE_EMAIL` z.email().max(190) ile aynı);
+  `?`, `&`, boşluk, denetim karakteri biçim gereği reddedilir.
+- `internal/flow/flow.go` (+test) — `Welcome.Logo image.Image`, `Deps.Logo`; logo 3 sn zaman aşımıyla indirilir, her
+  hatada nil (sistem logosu). Geçersiz `abuseEmail` → boş ("Kötüye kullanımı bildir" gizli).
+- `internal/ui/logo.go` (+`logo_test.go`), `internal/ui/assets/nokta-kucuk.png` (NOKTA_LOGO'dan kopya, `go:embed`),
+  `form_windows.go` (`picture` denetimi: SS_BITMAP + 24 bit DIB, her DPI değişiminde yeniden üretilir, bitmap'ler
+  form kapanınca silinir), `screens_windows.go` (karşılamada sağ üstte 128×68 logo kutusu; firma logosu yoksa Nokta
+  amblemi). `win.Bitmap24` (CreateDIBSection) eklendi. `cmd/noktadestek/main.go`: `Logo: client.Logo`.
+- `internal/transfer/transfer.go`, `rename_windows.go`, `rename_other.go` (+testler) — **S6-3:** MOTW artık
+  `.part`'a, kapanıştan sonra ve yeniden adlandırmadan önce yazılıyor (ADS taşınır). Yeniden adlandırma
+  `MoveFileEx(src, dst, 0)` (değiştirme bayrağı yok); `ERROR_ALREADY_EXISTS/ERROR_FILE_EXISTS` → `AvailableName` ile
+  en çok 5 deneme. MOTW yazılamazsa: tehlikeli/çift uzantılı dosya silinir, `file.result ok=false`, `file.meta
+  REJECTED`, kullanıcıya "Dosya kaydedilmedi … güvenlik işareti yazılamıyor"; uyarısız türde eskisi gibi uyarıyla
+  teslim. Windows dışı eş (yalnız test): `os.Link` + `Remove` (hedef varsa EEXIST).
+- `internal/rtc/rtc.go` (+test) — **S6-7:** offer öncesi uzak ICE kuyruğu `MaxPendingICE = 64`; fazlası sessizce düşer.
+- `internal/files/files.go` (+test), `packages/contracts/src/files.ts`, `packages/contracts/fixtures/file-names.json`
+  — **S6-8:** `one onepkg wsc sct diagcab website ade adp mde mshxml jnlp cab` iki listeye eklendi; fixture'a 12 örnek.
+  Yeni `TestS68DangerousExtMatchesContracts` Go listesini `files.ts` içindeki `DANGEROUS_EXT` ile birebir karşılaştırır
+  (önceki fixture yalnız örnek içeriyordu, liste farkını yakalamıyordu). `apps/server` testine dokunulmadı; mevcut
+  fixture testi yeni örnekleri otomatik kapsıyor.
+- **QA-P6-4:** `internal/files/motw_windows_test.go` (gerçek ADS'de `ZoneId=3`), `internal/dllsafe/dllsafe_windows_test.go`
+  (`Harden` iki kez hatasız + System32 DLL yüklenir), `internal/transfer/rename_windows_test.go` (MOTW'un
+  MoveFileEx ile taşınması + üzerine yazmama). Yerelde `GOOS=windows go vet` ve tüm paketler için
+  `GOOS=windows go test -c` derlendi; koşumu CI `test-windows` job'unda.
+
+**S6-6 (HTTP(S)_PROXY):** davranış değiştirilmedi (`Proxy: http.ProxyFromEnvironment` duruyor). Gerekçe: kurumsal
+müşteri ağlarında açık proxy zorunlu olabilir; sunucu adresi değişmez ve TLS sunucu adına sistem kökleriyle
+doğrulandığından MITM yok, etkisi meta veri/engelleme ile sınırlı. Mimar kararı (T13 metni "yalnız URL" mı, `Proxy: nil`
+mı) bekleniyor; karar `nil` olursa tek satırlık değişiklik (`internal/api/api.go` `newClient`).
+
+**Sapmalar:** QA "logo URL'si flow testinde" dedi; köken kuralı `api.Client.LogoURL`'de (temel URL orada) ve flow testi
+(`TestAC98WelcomeLogoOnlyFromServerHost`) aynı fonksiyonu kullanarak yabancı kökende Welcome.Logo'nun nil kaldığını
+doğruluyor. Logo ekranı geciktirmesin diye üst süre 3 sn (AC-96 ≤ 5 sn bütçesi). Yeni bağımlılık yok (stdlib
+`image/png`, `image/jpeg`).
+
+**Doğrulama (docker `golang:1.26.11-bookworm@sha256:dc40a13b…`, repo kökü bağlı, 2026-11-11):**
+gofmt temiz; `go vet ./...` + `GOOS=windows go vet ./...` temiz; `go mod verify` ok; `go test -race -count=1 ./...`
+12/12 paket ok; govulncheck v1.7.0 (windows/amd64 + linux) "No vulnerabilities found"; `build/build.sh` iki kez →
+SHA-256 `471023c7d02128050c8b7b91cc5a4416c8385ef07fa258fea8ae25e2f83c311e` ×2 (11,97 MB). contracts değiştiği için
+`pnpm -r run typecheck` (3/3) ve `pnpm -r run test`: contracts 32/32, server 178/178, web 99/99; contracts lint temiz.
+
+**Windows'ta elle:** karşılamada logo (firma logosu P9'a kadar sunucuda `logoUrl: null` → Nokta amblemi görünmeli),
+%100/%150 ölçekte logo netliği, FAT32/exFAT USB'ye yönlendirilmiş İndirilenler'de `.exe` teklifinin kaydedilmemesi.
+
+## Backend P6 — Windows istemcisi indirme ucu (backend-dev, 2026-11-11)
+Kapsam: yalnız sunucu tarafı `GET /api/v1/public/agent/download?ref=<sessionRef>` (mimari-api public tablosu, P3 giriş
+şartı 1; AC-27 sunucu kısmı, AC-96 sunucu bütünlük kapısı, G-07, G-10). `apps/agent-win/**` değiştirilmedi.
+
+### Değişen dosyalar
+| Dosya | Değişiklik |
+|---|---|
+| `apps/server/src/public/routes.ts` (yeni) | `publicAgentRoutes` (`/api/v1/public/agent`), `Cache-Control: no-store` hata yanıtlarında da; ref biçimi `sessionStatusQuerySchema` (aynı opak sessionRef) |
+| `apps/server/src/public/agent.ts` (yeni) | Servis: tüm istekler ipKey 20/dk → kod yolu kova kilidi → ref HMAC → PENDING + süresi dolmamış → ikili kapısı → `/downloads/Destek-<kod>.exe`. Geçersiz ref / 410 başarısız deneme sayılır (resolve ile **aynı** `codeIp`/`codePrefix` kovaları + `rs_resolve_failed`). Süresi dolmuş PENDING aynı istekte EXPIRED yapılır (resolve ile aynı) |
+| `apps/server/src/public/agent-binary.ts` (yeni) | `AgentBinary`: volume'daki ikilinin SHA-256'sı `AGENT_SHA256` ile eşleşmedikçe indirme 503 (fail-closed). Dosya değişince (boyut/mtime/inode) yeniden hesaplanır; eşzamanlı çağrılar tek hesaplama; sorun durumu geçişte bir kez `alarm: "agent_binary"` logu (yol/hash yazılmaz) |
+| `apps/server/src/sessions/public.ts` | `consume`, `GONE` dışa açıldı; resolve kod yolundaki kilit kontrolü/başarısız sayım `assertLookupAllowed` + `countFailedLookup` olarak çıkarıldı (davranış aynı, indirme ucu ortak kullanır); `downloadIp` (21/dk eşik = 20 serbest) eklendi |
+| `apps/server/src/sessions/repo.ts` | `findForDownload` (id, tenantId, status, expiresAt, activeCode) |
+| `apps/server/src/app.ts` | `agentBinary` dekoratörü + açılışta ısıtma (`onReady`), rota kaydı |
+| `apps/server/src/env.ts` | `AGENT_BINARY_PATH` (mutlak yol), `AGENT_SHA256` (64 hex, küçük harfe indirilir); ikisi de opsiyonel — boşsa indirme 503, server açılır |
+| `apps/server/src/lib/logger.ts` | Redaksiyona `*.ref` (savunma; URL serileştiricisi sorgu dizesini zaten yazmıyor) |
+| `deploy/Caddyfile` | `@agentExe` (`/downloads/(NoktaDestek\|Destek-<8 hane>).exe` → aynı `NoktaDestek.exe`, `Content-Disposition: attachment; filename="<ad>.exe"`, `octet-stream`, `no-store`, `nosniff`); diğer `/downloads/*` 404. Log filtresi: `/downloads/Destek-***`, `resp_headers>Content-Disposition delete` |
+| `deploy/docker-compose.yml` | `agent_downloads` volume'u (server `/data/downloads:ro`, caddy `/srv/downloads:ro`); server env `AGENT_BINARY_PATH` (sabit), `AGENT_SHA256: ${AGENT_SHA256:-}` |
+| `.env.example`, `docs/runbook.md` (§3 env, §5 log, §7 sorun giderme) | Yeni değişkenler ve 503/`agent_binary` alarmı |
+| `apps/server/test/integration/agent-download.test.ts` (yeni), `apps/server/test/unit/agent-binary.test.ts` (yeni), `test/helpers/tenant-matrix.ts` (rota sınıfı `public`) | Testler |
+
+### Tasarımdan sapmalar (gerekçeli) — mimar onayı / mimari-api güncellemesi gerekir
+1. **302 hedefi `/downloads/NoktaDestek.exe` değil `/downloads/Destek-<kod>.exe`.** Tarayıcılar 3xx yanıtındaki
+   `Content-Disposition`'ı yok sayar; dosya adı son yanıttan (ya da URL yolundan) gelir. Sözleşmedeki biçimle dosya
+   `NoktaDestek.exe` olarak kaydedilir ve istemci kodu dosya adından okuyamaz (AC-27/AC-97 kırılır). Çözüm: Caddy her
+   iki adı da aynı jenerik ikiliyle sunar, `Content-Disposition` son yanıtta. Bu statik yol kod doğrulamaz ve sızdırmaz
+   (her 8 hane aynı ikiliyi verir); kod yalnız müşterinin tarayıcısına giden `Location`'da (Caddy logunda silinir) ve
+   istek yolunda (logda `Destek-***`) bulunur. 302 yanıtına `Content-Disposition` **konmadı** (etkisiz + Caddy loguna kod yazardı).
+2. **503 kodu:** mimari "uyuşmazlıkta indirme 503" diyor, kod belirtmiyor. Yeni hata kodu eklemek yerine mevcut
+   `NOT_READY` (503) özel mesajla kullanıldı (contracts değişmedi). Yapılandırma eksik / dosya yok da 503 (fail-closed).
+3. **Başarılı indirme audit'e yazılmaz:** mimari bu uç için audit tanımlamıyor; süresi dolmuş PENDING için mevcut
+   `session.expired` satırı yazılır. ref/kod hiçbir audit/log satırında yok (testle kanıtlı).
+4. **Sürüm env'i eklenmedi:** mimari §8.1'de sunucu tarafı sürüm değişkeni yok; sürüm ikilide ldflags ile (G-07).
+   SHA-256 API'ye eklenmedi: mimari parmak izini web'de değil istemci karşılama penceresinde gösteriyor (T13, AC-128).
+
+### Bağımlılık
+Yok.
+
+### Testler ve son çıktı
+- `pnpm -r run lint` · `pnpm -r run typecheck`: temiz. `pnpm -r run test`: contracts 32, server unit 166, web 83 — yeşil.
+- `eval "$(apps/server/scripts/test-db.sh up)" && pnpm --filter @remote/server test:int`: **21 dosya / 137 test yeşil**.
+  Yeni (AC adlı): PENDING → 302 + no-store + çerez yok + tüketmez; CANCELLED/EXPIRED/ACTIVE/ENDED/süresi dolmuş PENDING → 410
+  (sebep kodlu, DB EXPIRED olur); geçersiz ref (yanlış HMAC, biçimsiz, eksik, bilinmeyen) → 404; 11. başarısız/dk → 429
+  (Retry-After ≈ 15 dk, kilit geçerli ref'i de keser, başka IP etkilenmez); 410'lar resolve kod yolu kovasını doldurur;
+  /24 önek kovası 31. başarısızlıkta 429 + global sayaç; tüm istekler 20/dk; hash uyuşmazlığı/yapılandırma yok/dosya yok → 503;
+  ref ve kod log ve audit'te yok. Birim: `AgentBinary` durumları, dosya değişince yeniden hesaplama, env doğrulama, `*.ref` redaksiyonu.
+- Caddy (`caddy:2.11.9-alpine`, sabit digest) konteynerde elle doğrulandı: iki ad 200 + doğru `Content-Disposition`,
+  `Destek-1234.exe`/`x.exe` 404, erişim logunda `uri: /downloads/Destek-***`, `Content-Disposition` silinmiş.
+  `docker compose config` geçerli.
+
+### frontend-dev / devops için notlar
+- **frontend-dev:** AC-27 web karşılamadaki "Hızlı Destek uygulamasını indir" butonu P6'ya atanmadığı için yapılmadı.
+  Yapılacaksa bağlantı `href="/api/v1/public/agent/download?ref=<sessionRef>"` (resolve yanıtındaki `sessionRef`);
+  503 `NOT_READY` → "indirme şu anda kullanılamıyor, tarayıcı modu" yolu; 410/404/429 standart hata zarfı. Contracts değişmedi.
+- **devops:** `verify-and-publish.sh` ikiliyi `agent_downloads` volume'una `NoktaDestek.exe` adıyla (0644) koymalı ve
+  `AGENT_SHA256`'yı yazıp `docker compose up -d server` çalıştırmalı. `agent-watch` kodsuz `GET /downloads/NoktaDestek.exe`'yi çekebilir.
+- **Açık bulgu (devops/güvenlik, mevcut durum):** Caddy `log { format filter }` yalnız erişim logunu süzer. Upstream'e
+  ulaşılamadığında (`http.log.error`, ör. 502) tam URI — sorgu dizesindeki `ref`, `/session/<token>` dahil — filtresiz
+  yazılır (konteynerde doğrulandı). G-10 kapsamında error logger'ın da süzülmesi/kapatılması gerekir.
+
+## Backend P6 — düzeltme turu 1 (backend-dev, 2026-11-11)
+Kapsam: güvenlik raporu "P6 kod turu 1" **S6-2 (Orta)** ve **S6-9 bilinen 3 (G-10, Caddy hata logu)**. Başka madde açılmadı.
+
+### Karar: `forward_auth` (dosyayı server'dan akıtma değil)
+Caddy statik sunumu (Range, HEAD, sendfile) korunur; server yalnız önbellekli hash durumunu (`AgentBinary.check()`,
+boyut/mtime/inode anahtarlı) döner, büyük gövde Node'dan geçmez. Server erişilemezse forward_auth 502 → yine fail-closed.
+
+### Değişen dosyalar
+- `apps/server/src/public/agent.ts` — `assertAgentReady(binary)` (503 `NOT_READY`); indirme ucu ve iç uç aynı kapıyı kullanır.
+- `apps/server/src/public/routes.ts` — `internalAgentRoutes`: `GET /internal/agent-ready` → 204 / 503, `Cache-Control: no-store`.
+  Erişim: soket adresi `TRUSTED_PROXY_CIDR` içinde (tanımsızsa yalnız loopback) **ve** `X-Forwarded-Method` başlığı (forward_auth
+  işareti) yoksa 404. XFF değil soket adresi esas alınır (XFF ile taklit edilemez; test var).
+- `apps/server/src/app.ts` — `internalAgentRoutes` `/internal` önekiyle kaydı (tek satır).
+- `apps/server/test/helpers/tenant-matrix.ts` — AC-69 sınıflandırması: `GET /internal/agent-ready` = public.
+- `apps/server/test/integration/agent-download.test.ts` — 5 yeni test (hazır 204; uyuşmazlık/dosya yok/yapılandırma yok 503;
+  yayından sonra tahrif → yeniden başlatmadan 503; dış soket / başlıksız / CIDR dışı / XFF taklidi 404; sorgu dizesi loga yazılmaz).
+- `deploy/Caddyfile` — `@agentExe` bloğu `route { forward_auth server:3001 { uri /internal/agent-ready; header_up X-Forwarded-Uri "/downloads/***" } … file_server }`
+  (`route` sırayı sabitler: kapı `header`/`rewrite`'tan önce; aksi halde 503 JSON `Content-Disposition: …exe` ile inerdi; koddan
+  oluşan ad server'a gitmez). `@ops`'a `/internal /internal/*` eklendi (dışarıya 404). Global `log default` + aynı `filter` alanları
+  (G-10): Caddy 2.11'de hata logu `http.log.error.log0` adıyla **default** logger'a düşüyor (site `log` yalnız `http.log.access.log0`'ı
+  içeriyor), bu yüzden filtre orada da gerekli.
+- `docs/mimari-api.md` (Operasyon) — iç uç satırı. `docs/runbook.md` §5 (hata logu maskesi), §10 (503 satırı + iç uç kontrolü), §11.
+- `deploy/docker-compose.yml` değişmedi (caddy zaten `edge`'de 172.30.0.2; server `TRUSTED_PROXY_CIDR=172.30.0.2/31`).
+
+### Tasarımdan sapmalar
+- Yeni iç uç `GET /internal/agent-ready` (mimari-api'ye işlendi; güvenlik raporundaki önerinin `/api/v1/public/agent/ready` yolu
+  yerine `/api` dışı seçildi: Caddy `/api/*`'ı server'a yönlendirdiği için `/api` altında olsaydı dışarıdan erişilebilirdi).
+- 503 gövdesi server'ın standart JSON hata zarfı (Caddy forward_auth yanıtı olduğu gibi döner); `.exe` adı/Content-Disposition yok.
+
+### Bağımlılık
+Yok.
+
+### Testler ve son çıktı (2026-11-11)
+- Test DB: `TEST_DB_CONTAINER=rs-mysql-s62 TEST_DB_PORT=33362 apps/server/scripts/test-db.sh up` (sonra `down`).
+- `pnpm --filter @remote/server lint` ✓ · `typecheck` ✓ · `test` 11 dosya / 166 test ✓ · `test:int` 21 dosya / 142 test ✓.
+- `caddy validate` (caddy:2.11.9-alpine, proje imajı) → `Valid configuration`; `caddy adapt` → default logger `exclude: [http.log.access.log0]`
+  korunuyor, `request>uri` `multi_regexp` 3 işlem.
+- Konteyner denemesi (gerçek server host'ta, Caddy konteynerde; `server:3001` → host): hash eşleşirken `/downloads/NoktaDestek.exe` ve
+  `/downloads/Destek-12345678.exe` 200 (hash doğru); dosyaya 1 bayt eklenince ikisi de **503** `NOT_READY` (Content-Disposition yok,
+  `no-store`), server logunda bir kez `alarm: "agent_binary" state: "mismatch"`; geri yüklenince 200; dosya silinince 503;
+  `/internal/agent-ready` dışarıdan 404; `/downloads/Destek-1.exe` 404.
+- Gerçek 502 (server durduruldu, web yok): `?ref=SECRETREF…`, `/downloads/Destek-87654321.exe`, `/session/TOKEN…?x=…`, Cookie/Authorization/Referer
+  başlıklı istekler → Caddy logunda gizli dizelerin sayısı **0**; hata satırlarında `uri` `/api/v1/public/agent/download`, `/downloads/Destek-***`,
+  `/session/***`. Aynı denemede eski Caddyfile (global filtre yok) hata logunda `"uri":"/api/v1/public/agent/download?ref=SECRETREF123"` ve
+  `"/downloads/Destek-87654321.exe"` yazıyordu (açık doğrulandı ve kapandı).
+
+### devops / frontend-dev için notlar
+- `.github/workflows/agent-watch.yml` (dokunulmadı): `server503` dalı artık gerçek dağıtım yolunda tetiklenebilir (Caddy 503 döner);
+  ölü kod değil. Server ayakta değilse Caddy 502 döner — gözcünün 502'yi nasıl sınıflandırdığı devops'a ait.
+- Frontend sözleşmesi değişmedi.
+
+## DevOps (P6) — istemci CI, yayın, dış gözcü (2026-11-11)
+### Dosyalar
+| Dosya | İçerik | AC |
+|---|---|---|
+| `.github/workflows/agent-win.yml` | `check` (Go imajı digest sabit konteyner: toolchain=go.mod, gofmt, `go mod verify`, vet, `go test -race`, windows vet, govulncheck v1.7.0 windows+linux, go-licenses v2.0.1 forbidden/restricted/unknown yasak) · `test-windows` (windows-2025, `go test`) · `build` ×2 ayrı runner (`build/build.sh`, `SOURCE_DATE_EPOCH`=commit) · `reproducible` (iki SHA-256 eşit, ≤40 MB, MZ, UPX yok, `SHA256SUMS`) · `attest` (push/dispatch; yalnız bu job `id-token`/`attestations: write`) · `release` (yalnız `v*`, `environment: agent-release`, yalnız bu job `contents: write`) | 94, 96 |
+| `.github/workflows/agent-watch.yml` | günlük: `AGENT_WATCH_URL` exe hash'i ∈ herhangi bir Release `SHA256SUMS` (rollback alarm değil); 503 veya uyuşmazlık → `agent-watch` etiketli issue + kırmızı koşu; günlük govulncheck | 128, G-07 |
+| `.github/dependabot.yml` | `gomod` `/apps/agent-win` haftalık | G-18 |
+| `deploy/agent/verify-and-publish.sh` | `--tag`/`--run`/`--dir`; SHA256SUMS + PE/boyut/packer + `gh attestation verify` (repo, signer-workflow, source-ref, self-hosted red) operatör makinesinde; `--ssh` ile betik kendini `--apply` modunda sunucuya taşır: bayt eşitliği → `remote_agent_downloads` volume'una 0644 atomik yazım (compose'daki caddy imajı, ağsız) → `.env` `AGENT_SHA256` → `up -d --no-deps server` → Caddy üzerinden hash kontrolü; `PUBLISHED.log` | 96, 128 |
+| `docs/runbook.md` §11 | ayarlar, yerel doğrulama, yayın, rollback, private repo yolu, alarm | 92 |
+| `.gitignore` | `deploy/agent/PUBLISHED.log` (`.env.bak.*` zaten `.env.*` kapsamında) | — |
+Compose (`agent_downloads` volume), Caddyfile (`/downloads/{NoktaDestek,Destek-<8 hane>}.exe`), `.env.example`
+`AGENT_SHA256`/`AGENT_BINARY_PATH` backend-dev'in; ben yalnız betiği onlara uydurdum (aynı anda eklediğim kopyaları geri aldım).
+
+### Kararlar / sapmalar
+1. Go adımları `setup-go` yerine **digest sabit `golang` imajında** (yerel provayla bire bir aynı ortam); yalnız Windows testi `setup-go` (cache kapalı).
+2. Tekrarlanabilirlik iki **ayrı runner**'da (aynı runner + `go clean` değil) kanıtlanır.
+3. Attestation `check`'e bağlı değil (köken ≠ güvenli); Release `check` + `test-windows` + `attest` ister.
+4. Doğrulama sunucuda değil operatör makinesinde (sunucuda GitHub kimliği yok; ele geçirilmiş sunucu kendi doğrulamasını atlar — G-07).
+5. Path filtresi yok: required check her PR'da raporlansın diye.
+6. PR/main build'lerinde `AGENT_SERVER_URL` yoksa yer tutucu `https://destek.example.invalid:4450`; etiket build'inde değişken zorunlu.
+
+### Doğrulama (yerel, 2026-11-11)
+- actionlint (rhysd/actionlint, shellcheck dahil): 0 bulgu (ci.yml dahil tüm workflow'lar).
+- İki ayrı temiz konteynerde build.sh: SHA-256 eşit `1e127543…`, 11 527 168 B, MZ, UPX yok.
+- `check` adımları: toolchain eşleşmesi, gofmt, `go mod verify`, vet, `go test -race` 10/10 ok, windows vet ok, go-licenses ok.
+- **govulncheck: KIRMIZI** — 12 erişilebilir zafiyet: stdlib `go1.25.14` (net/http, crypto/tls, crypto/x509, net/textproto; düzeltme yalnız go1.26.9+/1.26.11 — Go 1.25 desteği bitti) ve `golang.org/x/net v0.50.0` (düzeltme v0.60.0). Gate doğru çalışıyor; istemci koduna dokunmadım → backend-dev.
+- Betik: red senaryoları (onaysız `--no-attestation`, SHA256SUMS uyuşmazlığı, attestation'sız exe → 404 red) ve `--local` yayın A → B → A (rollback) provası geçti; volume yazımı (caddy imajı, 0644, yanlış hash → çıkış 3, uid 1000 okuyabiliyor) ayrıca denendi; `gh attestation verify` bayrakları herkese açık attestation'lı bir Release ile denendi (doğru ref geçer, yanlış ref red).
+- `docker compose config` + `caddy validate` geçerli; değişen dosyalarda gitleaks 0.
+
+### Açık
+- backend-dev: `go.mod` toolchain → go1.26.11 (veya 1.27.x) + `x/net` ≥ v0.60.0; sonra iki workflow'da `GO_IMAGE`/`GO_VERSION`/container imajı aynı sürüme (devops). govulncheck yeşil olmadan Release çıkmaz.
+- Repo private → attestation yok; prod öncesi public (veya Enterprise). Environment onayı/tag ruleset private repoda ücretli plan gerektirebilir.
+- `apps/agent-win/test/trace-check.ps1` (mimari §11) yok; Windows VM elle testi (test-operatoru).
+- SignPath Foundation başvurusu (süreç, kod yok) kullanıcıda.
+
+## Frontend P6 — AC-27 web karşılamada "Hızlı Destek" indirme (frontend-dev, 2026-11-11, QA-P6-3)
+Rota değişmedi: `/session/[token]` (auth yok). Windows masaüstünde "Nasıl bağlanmak istersiniz?" bölümünde birincil
+**Hızlı Destek uygulamasını indir** (`Download`, "Önerilen · tam destek") + hemen altında SmartScreen rehberi (numaralı 4 adım,
+"Ek bilgi → Yine de çalıştır" şema kutuları, imzasız olduğu, 4. adımda doğrulama kodu + sunucu adresi, BT yöneticisi için
+SHA256SUMS/parmak izi notu). Tarayıcı yolu ikincil: "Uygulama çalışmıyor mu? Tarayıcıdan yalnızca görüntü paylaş" (AC metni).
+macOS/Linux/mobilde indirme ve rehber hiç render edilmez (eski metin "Yalnız ekranımı tarayıcıdan paylaş" kalır).
+
+### Davranış
+- Bağlantı `href=/api/v1/public/agent/download?ref=<sessionRef>` (resolve yanıtındaki `sessionRef`). Tıklamada önce
+  `fetch(..., { redirect: "manual" })` ön kontrolü: opaqueredirect/3xx → `location.assign(href)` (Caddy attachment, sayfa yerinde)
+  + "İndirme başladı"; 503 `NOT_READY` → uyarı + **Tarayıcıdan devam et** (eksik varsa ad alanına, hazırsa paylaş düğmesine odak);
+  410 → bitiş ekranı (iptal/süre/kullanıldı), 404 → geçersiz bağlantı; 429 → `Retry-After` dakikalı mesaj; diğer → hata + hata kodu.
+- Windows tespiti istemcide (`isWindowsDesktop`: UA'da `Windows NT`, mobil değil); SSR'da false → hidrasyon sonrası görünür.
+- Windows'ta tarayıcı modu desteklenmiyorsa (getDisplayMedia yok) indirme yine sunulur, "desteklenmiyor" kartı altında kalır.
+
+### Değişen / eklenen dosyalar
+- `apps/web/app/session/[token]/agent-download.tsx` (yeni), `join-form.tsx`, `guest-welcome.tsx`
+- `apps/web/lib/agent-download.ts` (+ `.test.ts`, 10 test), `lib/device-support.ts` (+ 6 test)
+- `apps/web/components/ui/text-field.tsx`: React 19 `ref` prop tipi (odak taşıma için; davranış aynı)
+- `apps/web/messages/tr.json`: `ga.*`, `gj.browserWin*`
+- `apps/web/e2e/p6-agent-download.spec.ts` (yeni), `e2e/mock-sessions.mjs` (indirme ucu + `/downloads/Destek-<kod>.exe`; token
+  `D`=503, `G`=410), `e2e/helpers.ts` (konsol filtresinde beklenen 503)
+
+### Sapmalar (gerekçeli)
+1. **İndirme ad/onaya bağlı değil** (taslak 02'de iki seçenek de form dolunca etkin). Gerekçe: web formundaki ad ve onay yalnız
+   tarayıcı modu join'i içindir, istemciye gitmez; istemci kendi karşılamasında onay ister (AC-98). Bağlamak yanıltıcı olurdu.
+2. **Rehber ayrı ekran değil, düğmenin altında hep görünür** (taslakta "İndirildi + rehber" ayrı durum). AC-27 "aynı adımda"
+   diyor; indirme başlayınca rehber vurgulanır (`border-primary`) ve üstte başarı mesajı çıkar.
+3. **Ön kontrol bir istek daha harcar:** başarılı indirme ucun `ipKey` 20/dk kovasından 2 hak kullanır (ön kontrol + asıl
+   indirme). Başarısız ön kontrol tek başarısız deneme sayılır. Düz bağlantı 503/410 JSON'una gideceği için bilinçli tercih.
+4. Dosya boyutu ve kod karşılamada gösterilmez: resolve yanıtında yok (sözleşmede olmayan alan uydurulmadı).
+5. Not (S6-2): `/downloads/*` hash uyuşmazsa 503 dönüyor; ön kontrol aynı kontrolü uçta yaptığı için kullanıcı 503'ü
+   uyarı olarak görür. Ön kontrol ile indirme arasındaki çok kısa pencerede uyuşmazlık başlarsa tarayıcı 503 sayfasına gider (kabul).
+
+### Testler
+`pnpm --filter @remote/web lint typecheck test` temiz (99 birim). `pnpm --filter @remote/web e2e` 142 geçti / 34 atlandı
+(yeni spec: indirme + `Destek-\d{8}.exe` dosya adı, 503 → tarayıcı önerisi + odak, 410 → iptal ekranı, macOS'ta yok, mobilde
+yok, 375 px taşma yok, açık/koyu axe 0). Tasarım skill'i (`ui-ux-pro-max`) mevcut; DESIGN.md §8 kararı esas alındı.
+Windows'ta gerçek SmartScreen yolu elle testte (DoD) doğrulanacak.

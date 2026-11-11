@@ -1,4 +1,4 @@
-# Runbook — Remote Support (P1–P5)
+# Runbook — Remote Support (P1–P6)
 Sahibi: devops. Kapsam P1: kurulum, başlatma/durdurma, env, log, migrate/seed. Yedek, alarm, rollback
 provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md` §8.
 
@@ -57,6 +57,7 @@ Tarayıcı: `https://<SITE_HOST>:4450`. `tls internal` kök sertifikası test ma
 | `SEED_SUPERADMIN_EMAIL/PASSWORD/NAME` | boşluk içeren değer tırnakla yazılır (`SEED_SUPERADMIN_NAME="Super Admin"`), yoksa §6'daki `. ./.env` kabukta hata verir. |
 | ↳ | yalnız seed için; parola ≥ 12, ilk girişte değiştirilir; seed sonrası `.env`'den silinebilir |
 | `ABUSE_EMAIL` | Misafir karşılama ekranındaki "Kötüye kullanımı bildir" `mailto:` adresi (AC-125, V13, S-P4-1), ör. `abuse@<alan-adı>`. **production'da boşsa bağlantı gizlenir** (Super Admin e-postasına düşülmez). Staging/prod'da doldurulması önerilir. Değişiklik: `.env` → `docker compose up -d server`. Kullanmayacaksanız boş bırakmak (`ABUSE_EMAIL=`) veya satırı silmek güvenlidir: env.ts boş/yalnız boşluk değerleri tanımsız sayar (`withoutBlanks`), server açılır ve production'da bağlantı gizlenir. Dolu ama geçersiz bir adres (ör. `abuse@`) ise env.ts doğrulamasında server'ı açtırmaz |
+| `AGENT_SHA256` | P6 (G-07): `agent_downloads` volume'undaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). **Elle yazılmaz**: `deploy/agent/verify-and-publish.sh` attestation + `SHA256SUMS` doğrulamasından sonra yazar, ardından `docker compose up -d server`. Boşsa, dosya yoksa veya hash uyuşmazsa `GET /api/v1/public/agent/download` **503** döner (fail-closed) ve server logunda bir kez `alarm: "agent_binary"` uyarısı çıkar. `AGENT_BINARY_PATH` compose'da sabittir (`/data/downloads/NoktaDestek.exe`); `.env`'deki değer yalnız compose dışı çalıştırmada kullanılır |
 | `NODE_ENV`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `CADDY_BIND`, `IMAGE_TAG` | opsiyonel (varsayılan: production, info, PUBLIC_BASE_URL, 0.0.0.0, local) |
 `DATABASE_URL` / `MIGRATE_DATABASE_URL` compose'da parolalardan **üretilir**; `.env`'deki değerleri yalnız
 compose dışı (yerel `pnpm`) çalıştırmada kullanılır. Server konteynerine yalnız ihtiyaç duyduğu
@@ -81,7 +82,10 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
 - Loglar JSON (pino; `reqId` korelasyon kimliği, yanıtta `X-Request-Id`): `docker compose logs -f --since 10m server`.
   Kullanıcının bildirdiği `requestId` ile arama: `docker compose logs server | grep <requestId>`.
 - Caddy erişim logu: `docker compose logs caddy | grep handled`. Sorgu dizesi, `/session/<token>`,
-  `Cookie`, `Authorization`, `X-Csrf-Token`, `Sec-WebSocket-Protocol`, `Set-Cookie` **yazılmaz** (G-10).
+  `/downloads/Destek-<kod>.exe` (→ `Destek-***`), `Cookie`, `Authorization`, `X-Csrf-Token`, `Sec-WebSocket-Protocol`,
+  `Set-Cookie`, `Location`, `Content-Disposition` **yazılmaz** (G-10).
+  Caddy **hata logu** (`http.log.error.*`, ör. upstream 502) global `log default` filtresiyle aynı maskelemeyi alır (P6
+  düzeltme 1); Caddyfile'da iki filtre listesi birlikte güncellenir.
   Doğrulama: `docker compose logs caddy | grep -c 'ticket=\|Sec-Websocket-Protocol'` → `0`.
 - Log dönüşü: json-file 10 MB × 5 dosya / servis.
 
@@ -112,6 +116,9 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
 | TLS `internal error` alert'i (IP ile bağlanınca) | IP adresine bağlanan istemci SNI göndermez; Caddyfile global `default_sni {$SITE_HOST}` olmalı |
 | Dışarıdan 4450 zaman aşımı, sunucuda `curl -k https://127.0.0.1:4450/login` 200 | Paket VM'e ulaşmıyor: üst NAT/firewall yönlendirmesi eksik (§8). Kontrol: `tcpdump -ni ens18 tcp port 4450` dışarıdan istek sırasında boş |
 | `Address already in use` (ağ) | 172.30.0.0/24 host'ta başka ağla çakışıyor → compose `edge` alt ağını, caddy/web sabit adreslerini ve `TRUSTED_PROXY_CIDR` sabitini birlikte değiştir |
+| Müşteri "uygulamayı indir"de 503 / server logunda `alarm: "agent_binary"` (`state`: `unconfigured` \| `missing` \| `mismatch`) | P6 indirme kapısı: `AGENT_SHA256` boş, volume'da `NoktaDestek.exe` yok/okunamıyor (dosya izni 0644 olmalı; server root olmayan kullanıcıyla okur) veya hash uyuşmuyor. **`mismatch` güvenlik olayıdır** (ikili değiştirilmiş olabilir): volume'u elle düzeltmeyin, `verify-and-publish.sh` ile Release'den yeniden yayımlayın. Kontrol (hash değerini karşılaştırın, ikiliyi kopyalamayın): `docker compose exec server sha256sum /data/downloads/NoktaDestek.exe`. Dosya değişince server yeniden başlatma gerekmeden hash'i yeniden hesaplar; `AGENT_SHA256` değişirse `docker compose up -d server` |
+| `/downloads/*.exe` 503 `NOT_READY` (JSON) | S6-2: Caddy dosyayı sunmadan önce `forward_auth` ile server'ın iç `/internal/agent-ready` ucuna sorar; yukarıdaki satırla aynı nedenler (`alarm: "agent_binary"`). Server ayakta değilse 502. İç uç dışarıdan 404'tür; elle kontrol: `docker compose exec caddy wget -S -O- --header 'X-Forwarded-Method: GET' http://server:3001/internal/agent-ready` → `204` |
+| `/downloads/Destek-<kod>.exe` 404 | Caddy yalnız `NoktaDestek.exe` ve `Destek-<8 hane>.exe` adlarını sunar (her ikisi aynı dosya); volume `caddy` servisine `/srv/downloads` olarak bağlı mı: `docker compose exec caddy ls -l /srv/downloads` |
 | Müşteri resolve audit'inde IP hep `172.30.0.3` | `EDGE_PROXY_SECRET` caddy ile web arasında farklı: iki servisi birlikte yeniden yaratın (`docker compose up -d --force-recreate caddy web`). Kontrol için sırrın kendisini değil özetini karşılaştırın: `docker compose exec web sh -c 'printf %s "$EDGE_PROXY_SECRET" \| sha256sum'`, aynı komutu `caddy` için de çalıştırın |
 | Tüm müşteriler aynı IP'den (`172.30.0.x`) görünüyor / token limiti (429) ortak işliyor | web'in adresi .3 değil veya `TRUSTED_PROXY_CIDR` kapsamıyor: `docker inspect remote-web-1 -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'` |
 
@@ -160,6 +167,7 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
   | Tarih | Kapsam | Commit / `IMAGE_TAG` | Migration | Not |
   |---|---|---|---|---|
   | 2026-11-11 | P3+P4 | `0f1b89a` / `0f1b89a` | `20261111030000_p4_consents` | coturn `TURN_LISTEN_IPS=auto` (3478 yalnız 127.0.0.1 ve özel IP'de dinliyor); dış TURN erişimi pfSense NAT'ı bekliyor (§8.2) |
+| 2026-11-11 | P5 | `c910495` / `c910495` | `20261111040000_p5_session_files` | `app` yetkisi `session_files`'ta doğrulandı; eski `d90dd2d` imajları + build önbelleği silindi (disk %83 → %60) |
 
   Rollback hedefi: bir önceki satırdaki `IMAGE_TAG`; şema geri alması gerekiyorsa §6.
 
@@ -421,3 +429,113 @@ Kırmızıda loglar `$TMPDIR/rs-e2e-real.*/` altında kalır (yol son satırda y
 | Ön koşul: `port … dolu` / `konteyner … zaten var` | önceki yarım koşu: `docker rm -f rs-mysql-e2e-real`, `lsof -nP -iTCP:3218 -sTCP:LISTEN` |
 | 409 oturum oluşturma | AC-12 saatlik sınır; betik her koşuda yeni DB açtığı için normalde görülmez |
 | Kurulum mu ürün mü? | `E2E_REAL_REF=<son yeşil commit> scripts/e2e-real.sh`: o da aynı yerde kırmızıysa ortam/kurulum, yeşilse ürün regresyonu |
+
+## 11. Windows istemci yayını (P6; ADR-0010, G-07, AC-94/96/128)
+Akış: `agent-win.yml` (CI) → iki bağımsız build'in SHA-256 eşitliği → `SHA256SUMS` → build provenance attestation →
+(etiket) onaylı Release → operatör makinesinde `deploy/agent/verify-and-publish.sh` (SHA256SUMS + `gh attestation verify`)
+→ sunucuda `agent_downloads` volume'u + `deploy/.env` `AGENT_SHA256` → `docker compose up -d --no-deps server` →
+Caddy `/downloads/NoktaDestek.exe` hash kontrolü. Caddy her `/downloads/*.exe` isteğinde server'ın hash kapısına
+(`forward_auth` → `/internal/agent-ready`) sorar; uyuşmazlıkta 503 (fail-closed, S6-2). Günlük dış gözcü: `agent-watch.yml`.
+
+### 11.1 Tek seferlik GitHub ayarları (repo sahibi)
+| Ayar | Değer |
+|---|---|
+| Repo değişkeni `AGENT_SERVER_URL` | exe'ye ldflags ile gömülen tek adres, ör. `https://185.126.217.99:4450` (staging). Etiket build'i bu değişken yoksa durur. Prod için ayrı değer/etiket (P13) |
+| Environment `agent-release` | Settings → Environments: required reviewers (kendiniz), "Deployment tags": `v*` |
+| Tag ruleset | `v*` etiketlerini yalnız yöneticiler oluşturabilir/silebilir (AC-94 "korumalı v* etiketi") |
+| Branch protection (main) | required checks: `ci` job'ları + `agent-win` → `check`, `test-windows`, `build 1/2`, `build 2/2`, `tekrarlanabilirlik + SHA256SUMS` |
+| Repo değişkenleri (gözcü) | `AGENT_WATCH_URL` = `https://<host>:4450/downloads/NoktaDestek.exe`; staging'de `AGENT_WATCH_CA_PEM` = §8'deki Caddy kök sertifikası (PEM, gizli değil) |
+| Görünürlük | **Repo public olmalı**: GitHub attestation private repoda yalnız Enterprise Cloud'da çalışır (§11.6) |
+
+### 11.2 Yerel doğrulama (CI ile aynı imaj; Go kurulu olması gerekmez)
+```bash
+cd <repo>   # temiz checkout (VCS damgası exe'ye girer: kirli ağaçta hash farklı olur)
+IMG=golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+for n in 1 2; do mkdir -p /tmp/b$n; docker run --rm -v "$PWD":/src -v /tmp/b$n:/out -w /src -e GOFLAGS=-mod=readonly -e GOTOOLCHAIN=local $IMG \
+  sh -c 'git config --global --add safe.directory /src; apps/agent-win/build/build.sh https://<adres>:4450 <x.y.z> /out/NoktaDestek.exe'; done
+shasum -a 256 /tmp/b1/NoktaDestek.exe /tmp/b2/NoktaDestek.exe   # aynı olmalı; Release SHA256SUMS ile de aynı (aynı commit+adres+sürüm)
+docker run --rm -v "$PWD:/repo" rhysd/actionlint:latest       # workflow sözdizimi
+```
+
+### 11.3 Sürüm yayını (Release)
+1. main yeşil (özellikle `check`: govulncheck + lisans). `git tag -s vX.Y.Z && git push origin vX.Y.Z`.
+2. Actions → agent-win → `agent-release` onayı → Release'de `NoktaDestek.exe` + `SHA256SUMS`.
+3. Operatör makinesinde (gh oturumu açık):
+   `deploy/agent/verify-and-publish.sh --tag vX.Y.Z --ssh root@185.126.217.99`
+   Betik: indirir → `SHA256SUMS` → PE/≤40 MB/UPX yok → `gh attestation verify --repo NoktaBilisim/Remote --signer-workflow
+   NoktaBilisim/Remote/.github/workflows/agent-win.yml --source-ref refs/tags/vX.Y.Z --deny-self-hosted-runners` → scp →
+   sunucuda bayt eşitliği yeniden → volume'a `NoktaDestek.exe` (0644, atomik `mv`) → `.env` `AGENT_SHA256` (yedek
+   `.env.bak.agent.<zaman>`, son 5 tutulur) → `docker compose up -d --no-deps server` → healthy bekler →
+   `https://127.0.0.1:4450/downloads/NoktaDestek.exe` hash'i = beklenen. Kayıt: `deploy/agent/PUBLISHED.log`.
+4. Önce `--dry-run` ile yalnız doğrulama yapılabilir. Çıkış 0 dışı → hiçbir şey yayınlanmamış ya da yarım kalmışsa §11.4.
+5. Windows'ta kontrol: istemci "Hakkında" parmak izi = `SHA256SUMS` ilk 8 hane (AC-128). AV yanlış pozitifinde Microsoft
+   Defender'a gönderim: https://www.microsoft.com/wdsi/filesubmission (ADR-0010).
+
+### 11.4 Rollback (denendi 2026-11-11, yerel `--local` provası: A → B → A, `.env` ve dosya hash'i A'ya döndü)
+Önceki sürümü **aynı doğrulamayla** yeniden yayınlayın (sunucudaki eski kopyaya güvenilmez):
+`deploy/agent/verify-and-publish.sh --tag v<önceki> --ssh root@185.126.217.99`. Hangi sürümün yayında olduğu:
+`ssh root@185.126.217.99 tail -3 /opt/remote/deploy/agent/PUBLISHED.log`. agent-watch eski Release ile eşleşmeyi kabul eder
+(uyarı verir, alarm üretmez).
+
+### 11.5 Staging test yayını (Release'siz, main artifact'i)
+`gh run list --repo NoktaBilisim/Remote --workflow agent-win.yml --branch main --event push -L 5` → run-id →
+`deploy/agent/verify-and-publish.sh --run <run-id> --ssh root@185.126.217.99` (attestation `--source-ref refs/heads/main`).
+Yalnız main push koşuları kabul edilir. Koşu `success` değilse (ör. govulncheck kırmızı) **reddedilir** (S6-5); yalnız
+staging için bilerek: `--allow-failed-run` (etiket `run-<id>-failedrun` olarak `PUBLISHED.log`'a yazılır) — prod'a asla.
+Not: PR ve elle tetiklenen (`workflow_dispatch`) derlemelerde exe'ye yer tutucu `https://destek.example.invalid:4450`
+gömülür; gerçek `AGENT_SERVER_URL` yalnız main/etiket push'unda (S6-4). Bu yüzden staging'e yalnız main push artifact'i konur.
+
+### 11.6 Repo private iken (geçici, yalnız staging)
+Attestation üretilemez/doğrulanamaz. `--dir` (yerel exe+SHA256SUMS) ile `--no-attestation` birlikte kökeni hiç kanıtlanmamış
+dosya demektir; betik bunu yalnız açık `ALLOW_UNATTESTED=staging` ile kabul eder (etiket `dir-<zaman>-unattested`). Staging için: `ALLOW_UNATTESTED=staging deploy/agent/verify-and-publish.sh --run <id>
+--ssh root@185.126.217.99 --no-attestation` (köken = GitHub'dan kimlikli indirme + SHA256SUMS; etiket `-unattested` ekiyle
+kaydedilir). Prod açılışı (P10/P13) öncesi repo public yapılır ve bu yol kullanılmaz.
+
+### 11.7 Alarm: istemci bütünlüğü (agent-watch issue / server `alarm: "agent_binary"` `mismatch`)
+Güvenlik olayıdır. 1) Volume'a elle dokunmayın; kanıt için hash alın: `docker compose exec server sha256sum /data/downloads/NoktaDestek.exe`.
+2) Sunucu erişim/SSH loglarını ve `deploy/agent/PUBLISHED.log`'u inceleyin. 3) Son Release'i §11.3 ile yeniden yayınlayın; agent-watch'u
+elle tetikleyin (Actions → agent-watch → Run workflow), yeşil olunca issue'yu kapatın. 4) Sunucu ele geçirilmiş olabilir şüphesinde
+indirmeyi kapatın (`AGENT_SHA256=` boş → `docker compose up -d --no-deps server` → 503; müşteri tarayıcı modunu kullanır).
+**Sunucu erişilemez alarmı** (agent-watch issue başlığı "sunucu erişilemez", HTTP 502/504): bütünlük olayı değildir. Caddy
+server'a ulaşamıyor: `docker compose ps server` + `docker compose logs --tail 200 server` (§5, §7); server healthy olunca
+agent-watch'u elle tetikleyin, yeşilse issue'yu kapatın. 503 ise yukarıdaki bütünlük adımları (dosya yok / hash uyuşmazlığı).
+| Belirti | Neden / çözüm |
+|---|---|
+| `agent-win` `test-windows` kırmızı: "İZ BULUNDU" | trace-check (AC-108) istemciye ait yeni girdi buldu; koşu çıktısındaki satır kategori + yolu gösterir (§11.8) |
+| `test-windows` uyarı "WM_CLOSE ile kapanmadı" | runner'da etkileşimli masaüstü yok, istemci zorla kapatıldı; iz testi yine koşar ama kapanış yolu sınanmamıştır → §11.8 elle test |
+| `build` kırmızı: "etiket derlemesi yalnız etiket push'unda" | etiket üzerinde elle tetikleme; Release yalnız etiket push'uyla (S6-4) |
+| `--run` "koşu sonucu 'failure' … yayınlanmadı" | S6-5: önce koşuyu yeşile çekin; yalnız staging'de bilerek `--allow-failed-run` |
+| `agent-win` `check` kırmızı: govulncheck | Go/x/net zafiyeti; go.mod `toolchain` + bağımlılık yükseltilir, `GO_IMAGE`/`GO_VERSION` (agent-win.yml, agent-watch.yml) aynı sürüme |
+| `check`: "imaj goX, go.mod goY" | go.mod toolchain değişti; iki workflow'daki imaj etiketi + digest güncellenir (`docker buildx imagetools inspect golang:<sürüm>-bookworm`) |
+| `tekrarlanabilirlik` kırmızı | build.sh/winres/zaman damgası kaynağı; iki artifact'i indirip `cmp -l` ile fark bulun |
+| `attest` "Feature not available" | repo private (§11.6) |
+| betik `gh attestation verify başarısız` | yanlış etiket/run, fork'tan build veya dosya değişmiş — yayınlamayın |
+| agent-watch "AGENT_WATCH_URL tanımlı değil" | §11.1 değişkenleri |
+
+### 11.8 İz testi: `apps/agent-win/test/trace-check.ps1` (AC-108, T17; P6 DoD)
+Salt okunur PowerShell betiği (Windows PowerShell 5.1 ve 7). Taradığı yerler: HKCU/HKLM `Software` (+WOW6432Node) anahtar
+adları, HKCU/HKLM `Run`/`RunOnce`, servisler (ad + ImagePath), zamanlanmış görevler (+ eylem komutu), kullanıcı/ortak Başlangıç
+klasörü (.lnk hedefi), `%APPDATA%`, `%LOCALAPPDATA%`, `%TEMP%`, İndirilenler (yarım `*.part`), açık istemci süreci.
+İz deseni: `NoktaDestek`, `Nokta Destek`, `Destek-<8 hane>`, `remote-support`, `-ExePath` dosya adı. Windows'un kendi kayıtları
+(Prefetch, AmCache, UserAssist, MuiCache, AppCompatFlags) istemci verisi değildir, taranmaz.
+| Mod | Ne yapar |
+|---|---|
+| `-Mode Snapshot -SnapshotPath <json>` | çalıştırmadan önceki durumu kaydeder (tek yazım bu dosya) |
+| `-Mode Compare -SnapshotPath <json> [-ExePath <exe>] [-Strict]` | sonrası ile fark: desene uyan yeni girdi / yeni `.part` / açık süreç = iz. Desene uymayan yeniler "İNCELEYİN" listesi (`-Strict` ile onlar da iz) |
+| `-Mode Check` (varsayılan) | önceki durum yok; desene uyan her girdi iz |
+Çıkış kodu: **0** temiz · **1** iz bulundu · **2** kullanım/ortam hatası (Windows değil, snapshot okunamadı).
+
+**CI:** `agent-win.yml` → `test-windows` job'u her PR/push'ta yer tutucu adresli exe'yi `Destek-12345678.exe` adıyla
+başlatır (resolve ağ hatası → kod penceresi; hiçbir sunucuya istek gitmez), 15 sn sonra `WM_CLOSE` ile kapatır ve Compare
+koşar. Oturum, dosya aktarımı ve ekran yakalama CI'da yoktur; bunlar için aşağıdaki elle test **zorunludur** (DoD).
+
+**Elle test (temiz Windows 10 22H2 / 11 VM, standart kullanıcı):**
+1. Repo'yu ya da yalnız `trace-check.ps1`'i VM'e kopyalayın (ör. `C:\iz\`). PowerShell 7 yoksa `powershell -ExecutionPolicy Bypass -File ...`.
+2. `pwsh -File C:\iz	race-check.ps1 -Mode Snapshot -SnapshotPath C:\iz\once.json`
+3. Exe'yi tarayıcıdan indirin (`Destek-<kod>.exe`), implementation.md "Windows'ta elle doğrulanacaklar" 1-12 akışını yapın:
+   oturum, sohbet, bir dosya kabul, bir aktarımı yarıda iptal, "Oturumu bitir" → program kapanır.
+4. `pwsh -File C:\iz	race-check.ps1 -Mode Compare -SnapshotPath C:\iz\once.json -ExePath "$env:USERPROFILE\Downloads\Destek-<kod>.exe"`
+5. Beklenen: `TEMİZ` ve çıkış 0. Kabul edilen dosya ile exe'nin kendisi iz sayılmaz. "İNCELEYİN" listesindeki girdileri
+   gözden geçirin (Defender/Windows Update kaynaklı olabilir). Sonucu ve çıktının ekran görüntüsünü `docs/test-raporu.md`'ye ekleyin.
+6. Ayrıca görev yöneticisiyle sonlandırma (zorla kapatma) senaryosunda adım 2-4'ü tekrarlayın: yarım `.part` kalırsa iz olarak raporlanır.
+

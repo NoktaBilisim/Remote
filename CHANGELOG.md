@@ -5,6 +5,97 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P6 (Windows istemci "Hızlı Destek")
+- **Windows istemci (`apps/agent-win`, Go 1.26, CGO'suz, ADR-0010):** tek dosya, kurulumsuz, `asInvoker` (UAC yok),
+  PerMonitorV2 DPI, Türkçe Win32 arayüz. Sunucu adresi ve sürüm yalnız `-ldflags` ile gömülür; `https://host[:port]`
+  dışı adres reddedilir (AC-109). Pencere alt satırında sunucu, sürüm ve parmak izi (exe SHA-256'sının ilk 8 hanesi,
+  `SHA256SUMS` ile aynı; AC-128).
+- **Kod (AC-27, 97):** kod `Destek-<8 hane>.exe` dosya adından (tarayıcının ` (1)` eki dahil) okunur; okunamazsa
+  elle giriş ("1234 5678", "1234-5678" kabul).
+- **Karşılama (AC-98, 125):** firma ve teknisyen adı, teknisyen doğrulama kodu, bağlanılan sunucu, dolandırıcılık
+  uyarısı, "Kötüye kullanımı bildir" (`mailto:`, yalnız geçerli `abuseEmail`), KVKK metni + ad + onay kutusu; ad ve onay
+  olmadan "Bağlan" pasif. Logo yalnız gömülü sunucu kökeninden, PNG/JPEG, ≤ 2 MB, ≤ 2048 px kabul edilir; yoksa
+  Nokta amblemi.
+- **Akış (AC-24, 106, 107, 112):** resolve (`clientKind=AGENT`, Origin'siz) → join → `/ws/guest` (ticket subprotocol) →
+  bekleme odası (4 haneli kabul kodu, "Vazgeç ve çık") → ekran seçimi (birden çok monitörde) → oturum. Kopuşta 120 sn
+  `reconnectToken` ile yeniden bağlanma, her seferinde yeni PeerConnection. Bitişte son ekran ve ~2,5 sn sonra kapanış.
+- **Görüntü (AC-41):** DXGI Desktop Duplication → BGRA→NV12 (CPU, BT.601) → Media Foundation H.264 (önce donanım,
+  olmazsa yazılım MFT), Constrained Baseline, en çok 1920×1080, hedef 30 fps / alt sınır 15 fps, CBR, GOP 2 sn,
+  PLI/FIR'de ≤ 500 ms içinde anahtar kare. Ekran döndürme desteklenir. Güvenli Masaüstü/kilit/çözünürlük değişiminde
+  yakalama 250 ms → 2 sn geri çekilmeyle kendiliğinden yeniden açılır.
+- **Gösterge ve işaretleme (AC-37, 56, 103):** paylaşılan her monitörde kırmızı kenarlık + "Ekranınız izleniyor —
+  <teknisyen>", saniyede bir en üste alınır; teknisyenin kalem/ok/dikdörtgen/lazer çizimleri tıklama geçirgen katmanda.
+  İkisi de `WDA_EXCLUDEFROMCAPTURE` ile görüntüye girmez.
+- **Sohbet ve dosya alma (AC-35, 36, 53–55, 117, 119):** iki yönlü sohbet (okunmamış sayacı başlıkta); teknisyenden
+  gelen dosya için kabul diyaloğu ("Reddet" odakta, "Kabul et" 1,5 sn kilitli, Enter/Space Kabul'e ulaşmaz),
+  tehlikeli/çift uzantı uyarısı, ret sonrası 30 sn otomatik ret. Dosya `İndirilenler`'e `.part` olarak yazılır, alınan
+  bayta göre sınır, SHA-256 doğrulaması, MOTW (`ZoneId=3`), üzerine yazmadan ` (n)` adlandırma.
+- **İz bırakmama ve DLL güvenliği (AC-108, 118):** %TEMP%/AppData/kayıt defterine yazım yok; yarım `.part` oturum
+  sonunda silinir. İlk iş `SetDefaultDllDirectories(System32)`. İz testi betiği `apps/agent-win/test/trace-check.ps1`
+  (Snapshot / Compare / Check; çıkış 0/1/2).
+- **İndirme ucu (sunucu, AC-27, 96):** `GET /api/v1/public/agent/download?ref=<sessionRef>` → 302
+  `/downloads/Destek-<kod>.exe`; yalnız PENDING ve süresi dolmamış oturumda. 404/410/429/503, `Cache-Control: no-store`.
+  Ref ve kod log/audit'e yazılmaz. `AgentBinary`: volume'daki ikilinin SHA-256'sı `AGENT_SHA256` ile eşleşmedikçe 503.
+- **İç uç `GET /internal/agent-ready`** (204/503): Caddy `forward_auth` ile `/downloads/*.exe` sunulmadan önce çağırır.
+- **Caddy:** `/downloads/{NoktaDestek,Destek-<8 hane>}.exe` aynı ikiliyi `Content-Disposition: attachment` ile sunar;
+  diğer `/downloads/*` 404.
+- **Web (AC-27):** Windows masaüstünde müşteri karşılama sayfasında birincil "Hızlı Destek uygulamasını indir" ve
+  hemen altında SmartScreen rehberi (4 adım, "Ek bilgi → Yine de çalıştır", BT yöneticisi için SHA256SUMS notu).
+  Tarayıcı yolu ikincil: "Uygulama çalışmıyor mu? Tarayıcıdan yalnızca görüntü paylaş". 503'te "Tarayıcıdan devam et",
+  429'da bekleme süresi. macOS/Linux/mobilde indirme gösterilmez.
+- **CI/yayın (AC-94, 96, 128, G-07):** `.github/workflows/agent-win.yml` (gofmt, `go mod verify`, vet, `go test -race`,
+  govulncheck, go-licenses; Windows runner'da `go test` + iz testi; iki ayrı runner'da derleme ve hash eşitliği,
+  `SHA256SUMS`, build attestation, `v*` etiketinde onaylı Release), `agent-watch.yml` (günlük dış hash gözcüsü +
+  govulncheck), Dependabot `gomod`. `deploy/agent/verify-and-publish.sh` operatör makinesinde doğrular ve yayınlar.
+- Yeni ortam değişkenleri: `AGENT_SHA256`, `AGENT_BINARY_PATH`. Compose: `agent_downloads` volume'u. Runbook §11.
+
+### Değişti — P6
+- `packages/contracts/src/files.ts` `DANGEROUS_EXT`: `one onepkg wsc sct diagcab website ade adp mde mshxml jnlp cab`
+  eklendi (S6-8); Go listesi testle birebir eşlenir.
+- Resolve kod yolundaki kilit kontrolü ve başarısız sayım ortak fonksiyonlara alındı (`assertLookupAllowed`,
+  `countFailedLookup`); indirme ucu aynı kovaları kullanır. Davranış değişmedi.
+- Logger redaksiyonuna `*.ref` eklendi.
+- `docs/mimari-api.md`: 302 hedefi `/downloads/Destek-<8 hane>.exe` (tarayıcılar 3xx'teki `Content-Disposition`'ı yok
+  sayar); iç uç satırı. ADR-0004 r2 (%TEMP% yazımı yok, İndirilenler + `.part`), ADR-0006 r3, ADR-0010 r3 (proxy).
+
+### Güvenlik — P6
+- **S6-1:** Win32/COM çağrılarında `uintptr(unsafe.Pointer)` dönüşümleri yalnız çağrı argümanında; `//go:uintptrescapes`
+  zorunlu. AST testi tüm modülü tarar.
+- **S6-2:** `/downloads/*` artık sunulmadan önce server bütünlük kapısından geçer (`forward_auth`); server erişilemezse
+  502, uyuşmazlıkta 503 (fail-closed). `/internal/*` dışarıya 404; iç uç yalnız güvenilen proxy soketinden ve
+  `X-Forwarded-Method` ile yanıt verir (XFF taklidi testle reddedilir).
+- **S6-3:** MOTW yeniden adlandırmadan önce `.part`'a yazılır; `MoveFileEx` değiştirme bayrağı olmadan. MOTW yazılamazsa
+  (ör. FAT32/exFAT) program çalıştırabilen dosya kaydedilmez.
+- **S6-4/S6-5:** PR ve elle tetiklenen derlemelere yer tutucu adres gömülür; başarısız CI koşusunun artifact'i
+  yayınlanmaz (yalnız staging'de açık `--allow-failed-run`), attestation'sız yayın yalnız `ALLOW_UNATTESTED=staging` ile.
+- **S6-7:** uzak ICE kuyruğu 64 ile sınırlı; `abuseEmail` biçim ve uzunluk denetiminden geçmezse bağlantı gizlenir.
+- **S6-9 (G-10):** Caddy hata logu da (default logger) sorgu dizesini, `/session/***` ve `/downloads/Destek-***`
+  yollarını maskeler.
+- **N6-1:** ikili bütünlük önbelleği anahtarına `ctime` eklendi (mtime geri alınsa da yeniden hesaplanır).
+- Go 1.26.11 + `golang.org/x/net` v0.60.0: govulncheck 0 erişilebilir zafiyet.
+
+### Düzeltildi — P6 (QA)
+- **QA-P6-1:** karşılamada logo (firma logosu / Nokta amblemi) eklendi.
+- **QA-P6-2:** iz testi betiği ve CI adımı eklendi.
+- **QA-P6-3:** web karşılamada indirme seçeneği ve SmartScreen rehberi (AC-27).
+- **QA-P6-4:** MOTW, DLL sertleştirme ve yeniden adlandırma için Windows'a özgü testler (CI `test-windows`).
+- **QA-P6-5:** `mimari-api.md` ve ADR'ler kodla eşitlendi.
+
+### Bilinen sınırlamalar — P6
+- Firma logosu: sunucu resolve yanıtında `logoUrl` değerini P9'a kadar `null` döner; istemci sistem logosunu (Nokta
+  amblemi) gösterir.
+- Fare imleci görüntüye çizilmez; teknisyen müşterinin imlecini göremez.
+- Uzaktan kontrol yok (P7). Web indirme kartındaki "siz izin verirseniz fare ve klavyeyi kullanabilir" metni P7
+  davranışını anlatır.
+- İstemci müşteriden teknisyene dosya göndermez; dosya kaydetme yeri sorulmaz (her zaman İndirilenler).
+- İstemci arayüzü yalnız açık temadadır (koyu tema yok).
+- Win10 2004 öncesinde gösterge ve işaretleme görüntüde görünebilir.
+- Donanım kodlayıcı çalışma sırasında hata verirse yazılım kodlayıcıya otomatik geçiş yok; COM/Media Foundation
+  davranışı gerçek donanımda elle test edilir (runbook §11.8).
+- İmzasız dağıtım: SmartScreen ilk açılışta uyarır. Repo private iken attestation üretilemez; prod (P10) öncesi repo
+  public yapılmalı.
+- Oturum ortasında gelen `peer.joined.maxFileMb` alım sınırını güncellemez; `caps.update`/`control.*` WS tipleri P7'de.
+
 ### Eklendi — P5 (konsol işbirliği)
 - **Teknisyen konsolu yan paneli:** Sohbet / Dosyalar / Kalite (`collab-side`); sahnede işaretleme araç çubuğu.
   **Müşteri sayfası:** "Teknisyenle iletişim" (Sohbet; `caps.file_transfer` varsa Dosyalar). Yeni rota yok.

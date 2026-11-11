@@ -20,6 +20,8 @@ import { Rooms } from "./signaling/rooms.ts";
 import type { Clock, Timing } from "./signaling/types.ts";
 import { attachSignaling, type SignalingOptions } from "./signaling/ws.ts";
 import { startScheduler, type Scheduler } from "./jobs/scheduler.ts";
+import { AgentBinary } from "./public/agent-binary.ts";
+import { internalAgentRoutes, publicAgentRoutes } from "./public/routes.ts";
 import { refKeyFrom } from "./sessions/codes.ts";
 import { closePublicLimits, createPublicLimits, type PublicLimits } from "./sessions/public.ts";
 import { publicSessionRoutes, sessionRoutes } from "./sessions/routes.ts";
@@ -33,6 +35,7 @@ declare module "fastify" {
     sessionRefKey: string;
     rooms: Rooms;
     metrics: Metrics;
+    agentBinary: AgentBinary;
   }
   interface FastifyRequest {
     auth: AuthContext | null;
@@ -105,6 +108,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate("publicLimits", publicLimits);
   app.decorate("sessionRefKey", refKeyFrom(env.SESSION_REF_KEY));
   app.addHook("onClose", async () => closePublicLimits(publicLimits));
+  // P6 (G-07): indirme yalnız volume'daki ikilinin hash'i AGENT_SHA256 ile eşleşirken açık; açılışta bir kez ısıtılır.
+  const agentBinary = new AgentBinary(env.AGENT_BINARY_PATH, env.AGENT_SHA256, (state) =>
+    app.log.warn({ alarm: "agent_binary", state }, "Windows istemcisi indirilemez (yapılandırma eksik, dosya yok veya SHA-256 uyuşmuyor)"),
+  );
+  app.decorate("agentBinary", agentBinary);
+  app.addHook("onReady", async () => {
+    await agentBinary.check();
+  });
   const metrics = createMetrics();
   app.decorate("metrics", metrics);
   const sig = deps.signaling ?? {};
@@ -148,5 +159,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(authRoutes, { prefix: "/api/v1/auth" });
   void app.register(sessionRoutes, { prefix: "/api/v1/sessions" });
   void app.register(publicSessionRoutes, { prefix: "/api/v1/public/sessions" });
+  void app.register(publicAgentRoutes, { prefix: "/api/v1/public/agent" });
+  void app.register(internalAgentRoutes, { prefix: "/internal" });
   return app;
 }

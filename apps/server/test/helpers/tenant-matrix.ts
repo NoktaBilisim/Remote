@@ -28,6 +28,10 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /metrics": "public",
   "POST /api/v1/sessions/:id/terminate": "tenant",
   "POST /api/v1/public/sessions/join": "public",
+  // P6
+  "GET /api/v1/public/agent/download": "public",
+  // P6 düzeltme 1 (S6-2): Caddy forward_auth iç ucu; yalnız güvenilen proxy soketinden, tenant verisi yok
+  "GET /internal/agent-ready": "public",
 };
 
 export interface TwoTenants {

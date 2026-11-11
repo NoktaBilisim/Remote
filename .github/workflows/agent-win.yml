@@ -1,0 +1,241 @@
+# Windows istemci (P6, ADR-0010, G-07, AC-94/96/128): kalite + tekrarlanabilir build + SHA256SUMS + attestation + Release.
+# G-18: Action'lar commit SHA ile sabit; varsayılan izin `contents: read`; yazma izinleri yalnız attest/release job'larında.
+# Go adımları sabit digest'li resmi imajda koşar (yerel doğrulama komutuyla birebir aynı ortam, runbook §11).
+# Go sürümü değişince (go.mod `toolchain`) GO_IMAGE de değişir; `check` job'u uyuşmazlıkta kırmızı olur.
+name: agent-win
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent-win-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+env:
+  GO_IMAGE: golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+  GO_VERSION: "1.26.11"
+  GOFLAGS: -mod=readonly
+  GOTOOLCHAIN: local
+  # Gerçek AGENT_SERVER_URL yalnız `push` (main dalı veya v* etiketi) derlemelerine gömülür (S6-4). PR (aynı repo dahil),
+  # workflow_dispatch ve test-windows iz testi bu adresi kullanır: .invalid TLD çözülmez, exe hiçbir sunucuya bağlanamaz
+  # (ldflags; config yalnız https://host[:port] kabul eder).
+  PLACEHOLDER_SERVER_URL: https://destek.example.invalid:4450
+
+jobs:
+  check:
+    name: gofmt + vet + test -race + govulncheck + lisans
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+    defaults:
+      run:
+        working-directory: apps/agent-win
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: toolchain go.mod ile aynı mı
+        run: |
+          want="go$(sed -n 's/^toolchain go//p' go.mod)"
+          test "$(go env GOVERSION)" = "$want" || { echo "::error::imaj $(go env GOVERSION), go.mod $want — GO_IMAGE'i güncelleyin"; exit 1; }
+      - run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go mod verify
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+      - name: windows/amd64 vet
+        run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...
+      - name: araçlar (sürüm sabit; sum.golang.org doğrular)
+        run: |
+          GOFLAGS='' go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          GOFLAGS='' go install github.com/google/go-licenses/v2@v2.0.1
+      - name: govulncheck (windows/amd64 + linux; erişilebilir zafiyet 0)
+        run: |
+          GOOS=windows GOARCH=amd64 govulncheck ./...
+          govulncheck ./...
+      - name: lisans (AGPL/GPL/bilinmeyen yasak)
+        run: GOOS=windows GOARCH=amd64 go-licenses check ./... --ignore remote-support/agent-win --disallowed_types=forbidden,restricted,unknown
+
+  test-windows:
+    name: go test (Windows)
+    runs-on: windows-2025
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/agent-win
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version: "${{ env.GO_VERSION }}", cache: false }
+      - run: go test -count=1 ./...
+      # AC-108 / P6 DoD "trace-check.ps1 temiz": yer tutucu adresli exe (gerçek sunucuya istek atmaz) dosya adından kodla
+      # açılır → resolve ağ hatası → kod penceresi → WM_CLOSE ile kapatılır → önce/sonra farkı. Dosya aktarımı ve oturum
+      # akışı burada yok; tam senaryo Windows VM elle testinde (runbook §11.8).
+      - name: iz testi için exe dizini
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'trace') | Out-Null
+      - name: iz testi için exe (yer tutucu adres)
+        shell: bash
+        run: build/build.sh "$PLACEHOLDER_SERVER_URL" 0.0.0 "$RUNNER_TEMP/trace/Destek-12345678.exe"
+      - name: trace-check (AC-108)
+        shell: pwsh
+        run: |
+          $dir  = Join-Path $env:RUNNER_TEMP 'trace'
+          $exe  = Join-Path $dir 'Destek-12345678.exe'
+          $snap = Join-Path $dir 'once.json'
+          ./test/trace-check.ps1 -Mode Snapshot -SnapshotPath $snap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $p = Start-Process -FilePath $exe -PassThru
+          $null = $p.Handle   # çıkış kodunu okuyabilmek için
+          Start-Sleep -Seconds 15
+          $p.Refresh()
+          if ($p.HasExited) {
+            Write-Output "istemci kendiliğinden kapandı, çıkış kodu $($p.ExitCode)"
+          } else {
+            Write-Output "istemci açık: pencere='$($p.MainWindowTitle)' handle=$($p.MainWindowHandle)"
+            [void]$p.CloseMainWindow()
+            if ($p.WaitForExit(15000)) {
+              Write-Output "WM_CLOSE ile kapandı, çıkış kodu $($p.ExitCode)"
+            } else {
+              Write-Output "::warning::istemci WM_CLOSE ile kapanmadı (masaüstü penceresi yok?); zorla sonlandırıldı"
+              Stop-Process -Id $p.Id -Force
+              [void]$p.WaitForExit(10000)
+            }
+          }
+          Start-Sleep -Seconds 2
+          ./test/trace-check.ps1 -Mode Compare -SnapshotPath $snap -ExePath $exe
+          exit $LASTEXITCODE
+
+  build:
+    name: build ${{ matrix.n }}/2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        n: [1, 2]
+    container:
+      image: golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: sürüm + sunucu adresi
+        id: meta
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          VAR_SERVER_URL: ${{ vars.AGENT_SERVER_URL }}
+        run: |
+          if [ "$REF_TYPE" = tag ] && [ "$EVENT" != push ]; then
+            echo "::error::etiket derlemesi yalnız etiket push'unda (elle tetiklemede Release exe'si üretilmez)"; exit 1
+          fi
+          if [ "$REF_TYPE" = tag ]; then
+            echo "$REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::etiket vX.Y.Z olmalı"; exit 1; }
+            version="${REF_NAME#v}"
+            [ -n "$VAR_SERVER_URL" ] || { echo "::error::Release için repo değişkeni AGENT_SERVER_URL gerekli"; exit 1; }
+          else
+            version=0.0.0
+          fi
+          # S6-4: incelenmemiş kod (PR, elle tetikleme) gerçek adrese bağlanan exe üretmez.
+          server="$PLACEHOLDER_SERVER_URL"
+          if [ "$EVENT" = push ] && [ -n "$VAR_SERVER_URL" ]; then server="$VAR_SERVER_URL"; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "server=$server" >> "$GITHUB_OUTPUT"
+      - name: build/build.sh
+        env:
+          SERVER: ${{ steps.meta.outputs.server }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          # Konteyner root, çalışma alanı runner kullanıcısının: VCS damgası için git güvenli dizin (build.sh değişmez).
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"; export SOURCE_DATE_EPOCH
+          apps/agent-win/build/build.sh "$SERVER" "$VERSION" "$RUNNER_TEMP/out/NoktaDestek.exe"
+          printf '%s\n%s\n' "$SERVER" "$VERSION" > "$RUNNER_TEMP/out/build-meta.txt"
+          sha256sum "$RUNNER_TEMP/out/NoktaDestek.exe"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-win-build-${{ matrix.n }}
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          retention-days: 7
+
+  reproducible:
+    name: tekrarlanabilirlik + SHA256SUMS
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { pattern: agent-win-build-*, path: builds }
+      - name: iki build aynı SHA-256 + boyut/packer kontrolü
+        run: |
+          a=$(sha256sum builds/agent-win-build-1/NoktaDestek.exe | cut -d' ' -f1)
+          b=$(sha256sum builds/agent-win-build-2/NoktaDestek.exe | cut -d' ' -f1)
+          echo "build1=$a"; echo "build2=$b"
+          [ "$a" = "$b" ] || { echo "::error::tekrarlanabilir build başarısız: SHA-256 farklı"; exit 1; }
+          f=builds/agent-win-build-1/NoktaDestek.exe
+          size=$(stat -c %s "$f"); echo "boyut=$size"
+          [ "$size" -le 41943040 ] || { echo "::error::exe 40 MB'ı aşıyor (AC-96)"; exit 1; }
+          [ "$(head -c2 "$f")" = MZ ] || { echo "::error::PE değil"; exit 1; }
+          if grep -aq 'UPX!' "$f"; then echo "::error::UPX/packer izi (ADR-0010)"; exit 1; fi
+          mkdir dist && cp "$f" builds/agent-win-build-1/build-meta.txt dist/
+          (cd dist && sha256sum NoktaDestek.exe > SHA256SUMS && cat SHA256SUMS)
+          { echo "### NoktaDestek.exe"; echo '```'; cat dist/SHA256SUMS; cat dist/build-meta.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-win
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  attest:
+    name: build provenance attestation
+    # Fork PR'larında id-token yok; yalnız main/etiket push'u ve elle tetikleme. GitHub, attestation'ı private
+    # repoda yalnız Enterprise Cloud'da destekler (runbook §11.6).
+    if: github.event_name != 'pull_request'
+    needs: reproducible
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agent-win, path: dist }
+      - run: cd dist && sha256sum -c SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with: { subject-path: dist/NoktaDestek.exe }
+
+  release:
+    name: GitHub Release (korumalı v* etiketi)
+    if: github.ref_type == 'tag'
+    needs: [check, test-windows, attest]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Ortam onayı (required reviewers) repo ayarında: Settings → Environments → agent-release (runbook §11.1).
+    environment: agent-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: agent-win, path: dist }
+      - name: Release oluştur (exe + SHA256SUMS)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          cd dist && sha256sum -c SHA256SUMS
+          server=$(sed -n 1p build-meta.txt)
+          {
+            echo "Nokta Destek Windows istemcisi $TAG (imzasız, ADR-0010). Sunucu: $server"
+            echo
+            echo '```'; cat SHA256SUMS; echo '```'
+            echo
+            echo "Doğrulama: \`sha256sum -c SHA256SUMS\` ve \`gh attestation verify NoktaDestek.exe --repo $REPO --signer-workflow $REPO/.github/workflows/agent-win.yml --source-ref refs/tags/$TAG\`"
+          } > notes.md
+          gh release create "$TAG" NoktaDestek.exe SHA256SUMS --repo "$REPO" --verify-tag --title "Nokta Destek $TAG" --notes-file notes.md

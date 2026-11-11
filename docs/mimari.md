@@ -196,7 +196,7 @@ Saldırganlar: (A1) internetten anonim, (A2) dolandırıcı (sosyal mühendislik
 | T10 | Tenant arası veri erişimi (IDOR) | I | Zorunlu `tenantScope`, 404, otomatik test | AC-61, 69, 84 |
 | T11 | XSS (chat, dosya adı, müşteri adı) | T | React metin bağlama, `dangerouslySetInnerHTML` lint yasağı, nonce CSP; Go istemci Win32 metin kontrolü (HTML yok) | AC-35 |
 | T12 | Kötü amaçlı dosya gönderimi | T | Alıcı onayı zorunlu, çalıştırılabilir uyarısı, SHA-256; sunucu içerik görmez | AC-36, 54 |
-| T13 | Sahte/değiştirilmiş istemci binary'si (imza yok), sunucu ele geçirilerek binary + hash'in birlikte değiştirilmesi (G-07) | S/T | Köken sunucudan bağımsız: CI'da GitHub **build provenance attestation** (Sigstore, anahtarsız) + `SHA256SUMS` Release'de; deploy betiği binary'yi volume'a koymadan önce `gh attestation verify` çalıştırır; **günlük dış gözcü** workflow'u (`agent-watch.yml`) public indirme ucundaki exe'nin hash'ini Release ile karşılaştırır, uyuşmazlıkta issue/e-posta alarmı; `serverURL` yalnız ldflags (komut satırı/env/registry yok); istemci karşılamada alan adı + sürüm + SHA-256 ilk 8 hane; SignPath başvurusu P6 ile paralel. İstemci sistem kök TLS (pinning yok) | AC-94, 96, 109, 128 |
+| T13 | Sahte/değiştirilmiş istemci binary'si (imza yok), sunucu ele geçirilerek binary + hash'in birlikte değiştirilmesi (G-07) | S/T | Köken sunucudan bağımsız: CI'da GitHub **build provenance attestation** (Sigstore, anahtarsız) + `SHA256SUMS` Release'de; deploy betiği binary'yi volume'a koymadan önce `gh attestation verify` çalıştırır; **günlük dış gözcü** workflow'u (`agent-watch.yml`) public indirme ucundaki exe'nin hash'ini Release ile karşılaştırır, uyuşmazlıkta issue/e-posta alarmı; **sunucu URL'si yalnız ldflags — komut satırı, env veya registry ile değiştirilemez; `HTTP(S)_PROXY`/`NO_PROXY` desteklenir (yalnız taşıma yolu), TLS doğrulaması zorunlu ve devre dışı bırakılamaz: sertifika `serverURL` ana bilgisayar adına sistem kökleriyle doğrulanır, başarısızsa bağlanmaz (S6-6, ADR-0010 Proxy satırı)**; istemci karşılamada alan adı + sürüm + SHA-256 ilk 8 hane; SignPath başvurusu P6 ile paralel. İstemci sistem kök TLS (pinning yok) | AC-94, 96, 109, 128 |
 | T18 | Açık kaynak repoda gizli bilgi sızıntısı | I | `.env*` git-ignore (yalnız `.env.example` boş anahtarlar), CI'da **gitleaks** (PR + push, bulgu = kırmızı), pre-commit gitleaks önerisi; test fixture'larında gerçek değer yok; seed şifresi env'den | — |
 | T14 | Audit kaydının değiştirilmesi (G-15) | R | Append-only API + DB tetikleyicisi + `app` DB kullanıcısında TRIGGER/ALTER/DROP/UPDATE yok; kontrol izni audit'i yazılamazsa kontrol geri alınır (fail-closed) | AC-75, 76, 111, 123 |
 | T19 | Kontrol/monitör/dosya izin diyaloğuna tıklama/tuş tuzağı ve istek spam'i (G-03) | E | Odak "Reddet"; Enter/Space "İzin ver"i tetiklemez; butonlar 1,5 sn sonra etkin; diyalog imlecin altında açılmaz; sunucu: ret sonrası 30 sn bekleme + oturum başına ≤5 `control.request`/`monitor.request`; dosya teklifi istemci tarafında aynı kural (DC, sunucu göremez) | AC-99, 116 |
@@ -289,10 +289,10 @@ Remote/
 │  └─ e2e/*.spec.ts (Playwright)
 ├─ apps/agent-win/                Go istemci (`go.mod` ayrı; pnpm dışı)
 │  ├─ cmd/noktadestek/main.go                                             (P6)
-│  ├─ internal/{config (yalnız ldflags sunucu URL — CLI/env/registry yok, G-07), pairing (8 hane), api (resolve/join), signal (WS, lobi bekleme),
+│  ├─ internal/{config (yalnız ldflags sunucu URL — CLI/env/registry yok, G-07; HTTP(S)_PROXY yalnız taşıma, S6-6), pairing (8 hane), api (resolve/join), signal (WS, lobi bekleme),
 │  │            dllsafe (SetDefaultDllDirectories, G-08), files (ad temizleme + MOTW, G-06),
 │  │            rtc (Pion), capture (DXGI), encode (Media Foundation H.264), ui (Win32 pencere, gösterge),
-│  │            cleanup (%TEMP%)}                                         (P6)
+│  │            transfer (İndirilenler\<ad>.part → doğrula → ad, MOTW)}  (P6; %TEMP% yazımı yok → cleanup paketi yok, ADR-0004 r2)
 │  ├─ internal/{control/gate.go, input (SendInput, hook), env (elevated/secure desktop)}   (P7)
 │  └─ build/{app.manifest (asInvoker, PerMonitorV2), versioninfo.json}   (P6)
 ├─ deploy/

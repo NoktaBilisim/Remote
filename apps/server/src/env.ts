@@ -38,6 +38,14 @@ const schema = z
     // "Kötüye kullanımı bildir" mailto: adresi (AC-125, K10). Boşsa dev/test'te ilk aktif Super Admin e-postası (V13);
     // production'da boşsa resolve `abuseEmail: null` döner — Super Admin adresi açığa çıkmaz (S-P4-1).
     ABUSE_EMAIL: z.email().max(190).optional(),
+    // Windows istemcisi (P6, mimari §8.1, ADR-0010, G-07): volume'daki ikilinin yolu ve deploy betiğinin
+    // attestation + SHA256SUMS doğrulamasından sonra yazdığı SHA-256. İkisi dolu ve dosya hash'i eşleşmedikçe indirme 503.
+    AGENT_BINARY_PATH: z.string().startsWith("/", "mutlak yol olmalı").optional(),
+    AGENT_SHA256: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/, "64 haneli onaltılık SHA-256 olmalı")
+      .transform((v) => v.toLowerCase())
+      .optional(),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   })
   .refine((e) => e.NODE_ENV !== "production" || e.TRUSTED_PROXY_CIDR, {

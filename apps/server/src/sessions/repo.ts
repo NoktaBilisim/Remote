@@ -137,6 +137,11 @@ export function findStatus(db: DbOrTx, id: string) {
   return db.supportSession.findUnique({ where: { id }, select: { id: true, tenantId: true, status: true, expiresAt: true } });
 }
 
+/** Agent indirme ucu (P6): dosya adı için yalnız PENDING iken dolu olan kısa kod. */
+export function findForDownload(db: DbOrTx, id: string) {
+  return db.supportSession.findUnique({ where: { id }, select: { id: true, tenantId: true, status: true, expiresAt: true, activeCode: true } });
+}
+
 // --- P3: admit tüketimi ve ACTIVE oturum bitişi (mimari-protokol §3.2, db-notlari P3) ---
 
 /**

@@ -1,10 +1,10 @@
 # ADR-0006 — İstemci–oturum eşleme: dosya adındaki 8 haneli kod + lobi ve teknisyen kabulü
-Durum: Kabul, r2 (güvenlik raporu Tur 0: G-01, G-02, G-22; K6 kapandı) · Tarih: 2026-11-10
+Durum: Kabul, r3 (r2: güvenlik raporu Tur 0: G-01, G-02, G-22; K6 kapandı · r3 2026-11-11: indirme 302 hedefi, QA-P6-5) · Tarih: 2026-11-10
 ## Bağlam
 Binary jeneriktir ve tekrarlanabilir build hash'i (ADR-0010) bozulmamalıdır; oturum verisi gömülmez. Müşteri dosyayı yeniden adlandırabilir; tarayıcı `(1)` ekleyebilir.
 r1'de iki zayıflık bulundu (G-01, G-02): `verifyCode` resolve yanıtında herkese dönüyordu, yani kodu tahmin eden saldırgan da aynı 4 haneyi görüyor ve müşteriyi doğrulamıyordu; join oturumu tüketiyordu, bu yüzden saldırgan gerçek müşteriyi kilitliyordu; global başarısız-kod limiti de tek saldırgana tüm tenant'ları kapatma imkânı veriyordu.
 ## Karar
-- Tek jenerik `NoktaDestek.exe`; indirme ucu `Content-Disposition: filename="Destek-<8 hane>.exe"`. İstemci `filepath.Base(os.Executable())` üzerinde `(?:^|\D)(\d{8})(?:\D|$)` arar; bulamazsa 8 haneli kod giriş alanı (AC-97). Ekranda `4829 1376` biçiminde gösterilir.
+- Tek jenerik `NoktaDestek.exe`. İndirme ucu (`GET /public/agent/download?ref=`) **302 → `/downloads/Destek-<8 hane>.exe`** döner (r3, QA-P6-5: tarayıcı 3xx yanıtındaki `Content-Disposition`'ı yok sayar, ad son yanıttan gelir); Caddy aynı ikiliyi `NoktaDestek.exe` ve `Destek-<8 hane>.exe` adlarıyla, son yanıtta `Content-Disposition: attachment; filename="<ad>.exe"` ile sunar. Statik yol kod doğrulamaz (her 8 hane aynı ikili), kodun geçerliliği yalnız indirme ucunda (PENDING + süre + hız kovaları) denetlenir; ikili kapısı kapalıysa (hash uyuşmazlığı/yapılandırma yok/dosya yok) hem uç hem `/downloads/*` 503 (sözleşme: `docs/mimari-api.md` public tablosu). İstemci `filepath.Base(os.Executable())` üzerinde `(?:^|\D)(\d{8})(?:\D|$)` arar; bulamazsa 8 haneli kod giriş alanı (AC-97). Ekranda `4829 1376` biçiminde gösterilir.
 - Kod: `crypto.randomInt(0, 10⁸)`, tek sütun `active_code`, **yalnız PENDING iken dolu** ve global tekil (UQ; çakışmada yeniden üretilir, 5 deneme). Ayrı `short_code` sütunu yok (G-22).
 - **Limitler (G-02):** başarısız kod çözümlemesi `ipKey` (IPv4 /32, IPv6 /64) için 10/dk, `prefixKey` (IPv4 /24, IPv6 /56) için 30/dk; aşımda **yalnız o anahtar** 15 dk 429 alır. Global sayaç engellemez, yalnız alarm üretir (> 100/dk). Token yolu: 30/dk/ipKey.
 - **Lobi + kabul (G-01, K6):**

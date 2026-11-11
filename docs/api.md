@@ -1,8 +1,9 @@
-# API Dokümanı — Remote Support (P1–P5)
+# API Dokümanı — Remote Support (P1–P6)
 
-Bu belge P1–P4'te **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P6'da **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
-`ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent}.ts`, `signaling/*.ts`,
+`ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
+`signaling/*.ts`, `deploy/Caddyfile`,
 `packages/contracts/src/{errors.ts,ws.ts,api/auth.ts,api/sessions.ts}`.
 
 ## Genel kurallar
@@ -61,7 +62,7 @@ stack, SQL veya iç ayrıntı içermez.
 | `ACCOUNT_LOCKED` | 423 | Giriş kilidi; `Retry-After` (saniye) başlığı ile |
 | `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar); `Retry-After` ile |
 | `INTERNAL` | 500 | Beklenmeyen hata |
-| `NOT_READY` | 503 | `/ready`: DB'ye ulaşılamıyor veya migration yok |
+| `NOT_READY` | 503 | `/ready`: DB'ye ulaşılamıyor veya migration yok; P6: Windows istemci ikilisi yok, yapılandırılmamış veya SHA-256'sı `AGENT_SHA256` ile uyuşmuyor |
 
 ## Uçlar
 | Metot | Yol | Yetki | Başarı |
@@ -78,8 +79,11 @@ stack, SQL veya iç ayrıntı içermez.
 | POST | `/api/v1/public/sessions/resolve` | Public (Origin veya AGENT) | 200 |
 | POST | `/api/v1/public/sessions/join` | Public (Origin veya AGENT) | 200 |
 | GET | `/api/v1/public/sessions/status` | Public | 200 |
+| GET | `/api/v1/public/agent/download` (P6) | Public | 302 |
+| GET | `/downloads/NoktaDestek.exe`, `/downloads/Destek-<8 hane>.exe` (P6, Caddy statik) | Public, server bütünlük kapısı | 200 |
 | GET | `/health`, `/ready` | Yalnız iç ağ | 200 |
 | GET | `/metrics` | Yalnız iç ağ + `METRICS_TOKEN` (Bearer) | 200 |
+| GET | `/internal/agent-ready` (P6) | Yalnız Caddy `forward_auth`; dışarıya kapalı | 204 |
 | WS | `/ws/tech?sessionId=<id>` | Oturum çerezi + Origin, oturumun teknisyeni | 101 |
 | WS | `/ws/guest` | Subprotocol'de `wsTicket` veya `reconnectToken` | 101 |
 
@@ -322,6 +326,59 @@ reddetti); 409 `LOBBY_FULL` (lobide 3 misafir var); 410 `NONCE_INVALID` veya `SE
 `consentTextId` hatası `joinNonce`'u yakar (nonce tek kullanımlıktır). İstemci yeniden resolve edip güncel metni
 göstermeli ve onayı yeniden almalıdır.
 
+### GET /api/v1/public/agent/download?ref=<sessionRef> (P6)
+Müşteri karşılama sayfasındaki "Hızlı Destek uygulamasını indir" bağlantısıdır. Çerez, kimlik ve `Origin` istemez
+(GET, durum değiştirmez). `ref` resolve yanıtındaki `sessionRef`'tir. Oturumu tüketmez. **Her yanıtta (hatalar dahil)
+`Cache-Control: no-store`** bulunur.
+```bash
+curl -sk -i "https://localhost:4450/api/v1/public/agent/download?ref=$REF"
+```
+Yanıt **302** (gövdesiz):
+```
+HTTP/2 302
+location: /downloads/Destek-48291376.exe
+cache-control: no-store
+```
+- Hedef yol 8 haneli oturum kodunu taşır; Windows istemcisi kodu dosya adından okur. Tarayıcılar 3xx yanıtındaki
+  `Content-Disposition`'ı yok saydığı için dosya adı son yanıttan gelir; 302'de bu başlık yoktur.
+- Yalnız oturum **PENDING ve süresi dolmamışsa** 302 döner. Süresi dolmuş PENDING aynı istekte EXPIRED yapılır
+  (audit `session.expired`).
+- Başarılı indirme audit'e yazılmaz. `ref` ve kod hiçbir log/audit satırına yazılmaz (logger `*.ref` redaksiyonu, Caddy
+  log filtresi).
+
+| HTTP | Kod | Ne zaman |
+|---|---|---|
+| 302 | — | Oturum PENDING ve süresi dolmamış, ikili hazır |
+| 404 | `NOT_FOUND` | `ref` eksik, biçimsiz, HMAC'i tutmuyor veya oturum yok |
+| 410 | `SESSION_EXPIRED` / `SESSION_CONSUMED` / `SESSION_CANCELLED` | Oturum süresi dolmuş, kabul edilmiş (ACTIVE/ENDED) veya iptal |
+| 429 | `RATE_LIMITED` | Hız sınırı veya başarısız deneme kilidi; `Retry-After` (saniye) |
+| 503 | `NOT_READY` | İkili yapılandırılmamış (`AGENT_SHA256`/`AGENT_BINARY_PATH` boş), dosya yok veya SHA-256 uyuşmuyor (fail-closed). Mesaj: "İndirme şu anda kullanılamıyor. Biraz sonra tekrar deneyin ya da tarayıcıdan paylaşımı kullanın." |
+
+Hız sınırları (resolve kod yoluyla **ortak** kovalar):
+| Sınır | Aşımda |
+|---|---|
+| Tüm istekler: IP başına 20/dk | 429 (`Retry-After` ≤ 60 sn) |
+| 404 ve 410 başarısız deneme sayılır: IP başına 10/dk, /24 (IPv6 /56) önek başına 30/dk | O IP / önek 15 dk 429; kilit geçerli `ref`'i ve resolve kod yolunu da keser |
+
+Web arayüzü bağlantıya gitmeden önce aynı adresi `redirect: "manual"` ile yoklar; başarılı bir indirme IP kovasından
+2 hak kullanır. 503'te "Tarayıcıdan devam et", 429'da bekleme süresi, 410'da bitiş ekranı gösterir.
+
+### GET /downloads/NoktaDestek.exe ve /downloads/Destek-<8 hane>.exe (P6, Caddy)
+Server'a değil Caddy'ye ait statik yoldur (`deploy/Caddyfile` `@agentExe`). İki ad da volume'daki **aynı jenerik
+ikiliyi** sunar (`agent_downloads` → `/srv/downloads/NoktaDestek.exe`); yol kodu doğrulamaz, her 8 hane aynı dosyayı
+verir. Başlıklar: `Content-Disposition: attachment; filename="<istenen ad>.exe"`, `Content-Type: application/octet-stream`,
+`Cache-Control: no-store`, `X-Content-Type-Options: nosniff`. Başka her `/downloads/*` yolu 404.
+
+**Bütünlük kapısı (`forward_auth`, S6-2):** Caddy dosyayı sunmadan **önce** server'ın iç ucuna
+(`GET /internal/agent-ready`) sorar. Server 204 dönerse dosya sunulur; 503 `NOT_READY` dönerse bu JSON hata zarfı
+olduğu gibi istemciye gider (`.exe` adı ve `Content-Disposition` olmadan). Server erişilemezse Caddy 502 döner; her iki
+durumda da dosya sunulmaz (fail-closed). Server'a giden `X-Forwarded-Uri` `/downloads/***` olarak maskelenir; erişim ve
+hata loglarında yol `/downloads/Destek-***` yazılır. Günlük dış gözcü (`agent-watch.yml`) kodsuz
+`/downloads/NoktaDestek.exe`'yi çekip hash'ini Release `SHA256SUMS` ile karşılaştırır.
+```bash
+curl -sk -o /dev/null -D - https://localhost:4450/downloads/NoktaDestek.exe
+```
+
 ### GET /health ve GET /ready
 `/api` dışındadır; Caddy dışarıya **404** döner. Konteyner içinden veya Docker healthcheck ile çağrılır.
 - `/health` → 200 `{ "status": "ok" }` (süreç canlı).
@@ -344,6 +401,16 @@ Seriler (etiketlerde IP, oturum kimliği veya kod yok): sayaçlar `rs_ws_connect
 `declined`, `sender`); göstergeler `rs_ws_connections`, `rs_active_sessions`, `rs_active_rooms`,
 `rs_resolve_failed`. Alarm eşikleri: `docs/runbook.md` §9.8 (P5: `rate(rs_file_meta_rate_limited_total{class="sender"}[5m]) > 0`
 uyarı — olası audit şişirme veya değiştirilmiş istemci).
+
+### GET /internal/agent-ready (P6, iç uç — dışarıya kapalı)
+Yalnız Caddy `forward_auth` içindir; dışarıdan erişilemez. İki katmanda kapalıdır:
+1. Caddy `/internal` ve `/internal/*` yollarını dışarıya **404** döner (`@ops`); yalnız `/api/*` ve `/ws/*` server'a gider.
+2. Server isteği yalnız soket adresi `TRUSTED_PROXY_CIDR` içinde olan (tanımsızsa yalnız loopback) **ve**
+   `X-Forwarded-Method` başlığı taşıyan GET için yanıtlar; aksi halde **404** (uç varlığı açığa çıkmaz).
+   `X-Forwarded-For` değil soket adresi esas alınır; XFF ile taklit edilemez.
+
+Yanıt: **204** ikili hazır; **503** `NOT_READY` (indirme ucuyla aynı kapı, `assertAgentReady`). `Cache-Control: no-store`.
+Bu uç `/api` altında değildir: `/api/*` dışarıya açık olduğu için bilinçli olarak dışarıda tutuldu.
 
 ## WebSocket sinyalizasyonu (P3)
 Sözleşme tek kaynaktan gelir: `packages/contracts/src/ws.ts` (zod, ekstra alan reddedilir); örnek mesajlar
@@ -530,4 +597,7 @@ P4: `guest.pending` KVKK metin kimliği ve sürümünü, `guest.admitted` `newVa
 özetini içerir.
 P5: `file.transfer` (alıcı raporu; entity `session_files`), `file.transfer.sender_report`, `file.meta.rate_limited`
 (`{sessionId, side, class}`), `file.meta.rejected_by_db`. Dosya içeriği hiçbir yere yazılmaz.
+P6: istemci indirme ucu yeni audit olayı üretmez; süresi dolmuş PENDING için `session.expired` yazılır, 404/410
+denemeleri resolve ile aynı başarısız sayaçlara (`rs_resolve_failed`) girer. İkili uyuşmazlığı audit değil server
+logunda `alarm: "agent_binary"` olarak (durum geçişinde bir kez; yol ve hash yazılmaz) görünür.
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Audit ekranı P11'de gelir.

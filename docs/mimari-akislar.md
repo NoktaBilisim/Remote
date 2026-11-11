@@ -136,7 +136,7 @@ sequenceDiagram
   T->>S: session.end (onay diyaloğu sonrası, AC-59)
   S->>S: ENDED(ended_by=TECH), quality_summary kaydı
   S->>G: session.ended{tech}
-  G->>G: AGENT: gate kapalı, %TEMP% temizlik, 3 sn içinde çıkış (AC-107)
+  G->>G: AGENT: gate kapalı, yarım .part silinir (%TEMP% yazımı yok, ADR-0004 r2), 3 sn içinde çıkış (AC-107)
 ```
 Teknisyen tarafı kopması da aynı 120 sn kuralı ile; teknisyen sayfayı yenilediğinde çerez + sahiplik ile odaya döner.
 Max süre (AC-13): `maxDurationTimer` 5 dk kala `session.warning`, sonunda `session.ended{max_duration}`.

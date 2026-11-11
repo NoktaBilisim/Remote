@@ -10,6 +10,7 @@ import { api, ApiError } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
 import type { GuestEnd } from "../guest-ui";
+import { AgentDownload } from "./agent-download";
 
 export type ResolveData = ResolveSessionResponse;
 
@@ -17,13 +18,19 @@ const NONCE_MARGIN_MS = 5000;
 const noop = () => () => undefined;
 const END_CODES: Record<string, GuestEnd> = { SESSION_EXPIRED: "expired", SESSION_CANCELLED: "cancelled", SESSION_CONSUMED: "consumed" };
 
-/** Ad + aydınlatma onayı + "tarayıcıdan paylaş" (AC-26, 125, 127). joinNonce 60 sn: eskiyse sayfa sunucuda yeniden resolve edilir. */
+/**
+ * Ad + aydınlatma onayı + "tarayıcıdan paylaş" (AC-26, 125, 127). joinNonce 60 sn: eskiyse sayfa sunucuda yeniden resolve edilir.
+ * AC-27: Windows masaüstünde birincil yol "Hızlı Destek uygulamasını indir" (+ SmartScreen rehberi), tarayıcı ikincil.
+ * İndirme ad/onaya bağlı değildir: istemci kendi karşılamasında onay ister (AC-98); buradaki ad yalnız tarayıcı modu içindir.
+ */
 export function JoinForm({
   data,
+  windows = false,
   onJoined,
   onEnd,
 }: {
   data: ResolveData;
+  windows?: boolean;
   onJoined: (r: JoinSessionResponse & { customerName: string }) => void;
   onEnd: (e: GuestEnd) => void;
 }) {
@@ -35,6 +42,8 @@ export function JoinForm({
   const [fieldErr, setFieldErr] = useState<string | undefined>();
   const [formErr, setFormErr] = useState<UiError | null>(null);
   const waitNonce = useRef<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const browserRef = useRef<HTMLButtonElement>(null);
   // Hidrasyon öncesi tıklama yerel form gönderimi (sayfa yenileme) yapmasın
   const hydrated = useSyncExternalStore(noop, () => true, () => false);
   const ready = hydrated && name.trim().length >= 2 && consent;
@@ -92,6 +101,13 @@ export function JoinForm({
     }
   });
 
+  // 503 NOT_READY → tarayıcı modu: eksik varsa ad alanına, hazırsa paylaş düğmesine odak
+  const toBrowser = () => {
+    const el = ready ? browserRef.current : nameRef.current;
+    el?.scrollIntoView({ block: "center" });
+    el?.focus();
+  };
+
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!busy && ready) void submit();
@@ -108,6 +124,7 @@ export function JoinForm({
           placeholder={t("gj.namePlaceholder")}
           autoComplete="name"
           maxLength={100}
+          ref={nameRef}
           value={name}
           error={fieldErr}
           disabled={busy}
@@ -137,19 +154,23 @@ export function JoinForm({
 
       <section aria-labelledby="yol-t" className="flex flex-col gap-3">
         <h2 id="yol-t" className="text-lg font-semibold text-fg">{t("gj.howTitle")}</h2>
+        {windows && (
+          <AgentDownload sessionRef={data.sessionRef} verifyCode={data.techVerifyCode} onEnd={onEnd} onBrowser={toBrowser} />
+        )}
         <button
+          ref={browserRef}
           type="submit"
           disabled={!ready || busy}
           aria-describedby={ready ? undefined : hintId}
           aria-busy={busy || undefined}
           data-testid="join-browser"
-          className="flex min-h-11 cursor-pointer flex-col items-start gap-1 rounded-lg border-2 border-primary bg-surface p-4 text-left shadow-sm transition-[transform,opacity] duration-150 ease-out hover:bg-primary-surface active:scale-[0.99] disabled:cursor-not-allowed disabled:border-border disabled:opacity-60 disabled:active:scale-100"
+          className={`flex min-h-11 cursor-pointer flex-col items-start gap-1 rounded-lg bg-surface p-4 ${windows ? "border border-border" : "border-2 border-primary"} text-left shadow-sm transition-[transform,opacity] duration-150 ease-out hover:bg-primary-surface active:scale-[0.99] disabled:cursor-not-allowed disabled:border-border disabled:opacity-60 disabled:active:scale-100`}
         >
           <span className="inline-flex items-center gap-2 font-semibold text-fg">
             <ScreenShare aria-hidden className="size-5 text-primary" />
-            {busy ? t("gj.joining") : t("gj.browser")}
+            {busy ? t("gj.joining") : t(windows ? "gj.browserWin" : "gj.browser")}
           </span>
-          <span className="text-sm text-fg-muted">{t("gj.browserBody")}</span>
+          <span className="text-sm text-fg-muted">{t(windows ? "gj.browserWinBody" : "gj.browserBody")}</span>
         </button>
         {!ready && (
           <p id={hintId} className="text-xs text-fg-muted">{t("gj.missing")}</p>

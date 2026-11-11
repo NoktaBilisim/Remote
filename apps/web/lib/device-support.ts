@@ -17,6 +17,15 @@ export function isScreenShareSupported(env: SupportEnv): boolean {
   return !MOBILE_UA.test(env.userAgent);
 }
 
+/**
+ * AC-27: "Hızlı Destek" indirme seçeneği yalnız Windows masaüstünde sunulur (macOS/Linux/mobilde yalnız tarayıcı modu).
+ * Windows'ta Chrome/Edge/Firefox UA'sı (UA indirgemesinde de) "Windows NT" taşır; mobil UA ve UA-CH mobile=true hariç.
+ */
+export function isWindowsDesktop(env: Pick<SupportEnv, "uaMobile" | "userAgent">): boolean {
+  if (env.uaMobile === true) return false;
+  return /Windows NT/i.test(env.userAgent) && !MOBILE_UA.test(env.userAgent);
+}
+
 /** Tarayıcıdan ortam bilgisini okur (yalnız istemcide çağrılır). */
 export function readSupportEnv(): SupportEnv {
   const nav = navigator as Navigator & { userAgentData?: { mobile?: boolean } };

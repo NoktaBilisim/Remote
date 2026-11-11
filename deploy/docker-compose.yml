@@ -96,6 +96,12 @@ services:
       # AC-125/S-P4-1: misafir "Kötüye kullanımı bildir" adresi. Tanımsız veya boş olabilir: env.ts boş dizeyi tanımsız
       # sayar (withoutBlanks) → production'da bağlantı gizlenir. Dolu ama geçersiz adres server'ı açtırmaz (runbook §3).
       ABUSE_EMAIL:
+      # P6 (mimari §8.1, G-07): Windows istemcisi. AGENT_SHA256'yı deploy/agent/verify-and-publish.sh attestation +
+      # SHA256SUMS doğrulamasından sonra yazar; boşsa veya dosya hash'i uyuşmazsa indirme ucu 503 (fail-closed).
+      AGENT_BINARY_PATH: /data/downloads/NoktaDestek.exe
+      AGENT_SHA256: ${AGENT_SHA256:-}
+    volumes:
+      - agent_downloads:/data/downloads:ro
     networks: [edge, db]
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -140,6 +146,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      # P6: /downloads/{NoktaDestek,Destek-<kod>}.exe → tek jenerik ikili (Caddyfile @agentExe)
+      - agent_downloads:/srv/downloads:ro
     networks:
       edge: { ipv4_address: 172.30.0.2 }
     depends_on:
@@ -161,3 +169,5 @@ volumes:
   mysql_data:
   caddy_data:
   caddy_config:
+  # P6: Windows istemcisi (NoktaDestek.exe); yalnız verify-and-publish yazar, server ve caddy salt okunur bağlar.
+  agent_downloads:

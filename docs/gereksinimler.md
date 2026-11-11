@@ -112,7 +112,7 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 ## 6. Fonksiyonel olmayan gereksinimler
 - **Performans:** ilk kare p95 < 5 sn (doğrudan) / < 8 sn (TURN); uçtan uca görüntü gecikmesi p95 < 400 ms (RTT < 50 ms); uzaktan girdi gecikmesi p95 < 150 ms (RTT < 50 ms); işaretleme p95 < 200 ms. Tek sunucuda (4 vCPU / 8 GB) 50 eşzamanlı aktif oturum sinyalizasyonu; liste uçları 10.000 kayıtta < 500 ms.
 - **Güvenlik:** TLS zorunlu (getDisplayMedia güvenli bağlam ister); DTLS-SRTP; medya uygulama sunucusundan geçmez (TURN yalnızca şifreli paket görür); strict CORS ve nonce tabanlı CSP, HSTS, `frame-ancestors 'none'`; rate limiting; WS Origin + kimlik doğrulama; tüm girdiler zod ile; uzaktan kontrol izni **istemci tarafında** uygulanır (sunucu P2P input'u engelleyemez, istemci izin yokken gelen her input olayını düşürür); teknisyen kabulü olmadan SDP/ICE ve TURN kimlik bilgisi verilmez (AC-112).
-- **İstemci:** Windows 10 22H2+ ve Windows 11, x64; tek dosya ≤ 40 MB; çift tıktan karşılama ekranına ≤ 5 sn; yazma yalnızca `%TEMP%` altında ve çıkışta silinir; kayıt defteri, servis, zamanlanmış görev, başlangıç kısayolu yok; imzasız, tekrarlanabilir build, SHA-256 `SHA256SUMS` ile ve GitHub build attestation ile doğrulanabilir (K8, AC-96).
+- **İstemci:** Windows 10 22H2+ ve Windows 11, x64; tek dosya ≤ 40 MB; çift tıktan karşılama ekranına ≤ 5 sn; istemci kendi dosyası yazmaz (`%TEMP%` dahil); tek disk yazımı müşterinin Kabul ettiği dosyadır (İndirilenler, `.part` → doğrulama → MOTW; yarım kalan `.part` silinir — ADR-0004 r2, 2026-11-11); kayıt defteri, servis, zamanlanmış görev, başlangıç kısayolu yok; imzasız, tekrarlanabilir build, SHA-256 `SHA256SUMS` ile ve GitHub build attestation ile doğrulanabilir (K8, AC-96).
 - **Tarayıcı desteği:** teknisyen ve müşteri: Chrome/Edge son 2 sürüm (tam), Firefox son 2 sürüm (Document PiP yok), Safari macOS son 2 sürüm (müşteri, best-effort).
 - **Erişilebilirlik:** WCAG 2.1 AA; klavye ile tam kullanım; durumlar yalnız renkle anlatılmaz.
 - **Yerelleştirme:** arayüz Türkçe; tarihler UTC saklanır, Europe/Istanbul gösterilir; metinler i18n anahtarlarından.
@@ -196,6 +196,21 @@ Kaynak: `~/.claude/checklists/tasarim-kontrol-listesi.md` bölüm 1, 5, 8, 9.
 | 9. Definition of Done | `~/.claude/checklists/kalite-standartlari.md` geçerli; ek: istemci imzasız, tekrarlanabilir build + SHA-256 + attestation doğrulaması ve temiz-makine iz testi | K8 |
 | 9. Dokümantasyon planı | Kapsamda: README, docs/api.md, KULLANIM_KILAVUZU, DATASHEET, PDF, ADR'ler, kurumsal hash allowlist rehberi, SmartScreen rehberi | Ortak standart 1.7 |
 | Sonra | Oturum kaydı, çoklu teknisyen, ses, clipboard, macOS/Linux istemci, SSO, SMS/WhatsApp link, İngilizce, ITSM entegrasyonu, SAS (DTLS parmak izi) doğrulaması (G-14), oturum sonu müşteri özeti (G-17-6; AC-107 ile çelişir, tasarım gerekir), OpenSSF Scorecard (G-18), SignPath Foundation imzası (ADR-0010) | Unutulmasın diye |
+
+### Sonra / açık — P6'dan (2026-11-11)
+Kaynak: `docs/implementation.md` "Agent (P6)" Aşama 1–3, "Backend P6", "DevOps (P6)"; `docs/guvenlik-raporu.md` "P6 kod turu 1"; `docs/qa-raporu.md` (P6); mimar kararı (ADR-0004 r2, ADR-0006 r3, ADR-0010 r3). TEST-P5-4 P5 tablosunda, burada tekrarlanmaz.
+
+| Madde | Ne yapılacak | Sahip | Ne zaman |
+|---|---|---|---|
+| Windows elle testi | Temiz Win10 22H2 / Win11 VM'de: AC-95 (tek dosya ≤ 40 MB, açılış ≤ 5 sn), AC-96 (SHA-256/SmartScreen "Yine de çalıştır" yolu), AC-103, AC-106 (monitör seçimi, gösterge), AC-110 (DPI/manifest), AC-118 (Procmon DLL araması 0), gerçek NTFS'te `Zone.Identifier`, AC-108 iz testi (`apps/agent-win/test/trace-check.ps1` yazılacak), gerçek yakalama FPS — AC-41 (1080p ≥ 15 fps; DXGI/MF kodu bu ortamda hiç çalıştırılamadı) | test-operatoru (+ backend-dev/Go düzeltme) | P7 başlamadan |
+| Fare imleci | İmleç görüntüye çizilmiyor (DXGI kare imleci içermez): `DXGI_OUTDUPL_FRAME_INFO.PointerPosition` + `GetFramePointerShape` ile NV12 karesine bindirme | backend-dev (Go) | P7 öncesi (uzaktan kontrol imleçsiz kullanılamaz) |
+| Donanım MFT yedeği | Donanım H.264 MFT oturum sırasında hata verirse/takılırsa yazılım MFT'ye otomatik geçiş (bugün yalnız açılışta seçim yapılıyor) | backend-dev (Go) | Windows elle testi sonucuna göre; en geç P13 |
+| Dirty-rect | `GetFrameDirtyRects`/`MoveRects` ile yalnız değişen bölgenin dönüştürülmesi (CPU BGRA→NV12 maliyeti); AC-41 ölçümü 15 fps altında kalırsa öne çekilir | backend-dev (Go) | Sonra (ölçüme bağlı) |
+| Koyu tema (istemci) | Windows istemci pencerelerinde sistem koyu temasına uyum (ortak standart 1.6; bugün yalnız açık) | backend-dev (Go) | P13 |
+| Repo görünürlüğü + attestation | Repo private iken GitHub build provenance attestation üretilemiyor/doğrulanamıyor (T13, G-07); repo public yapılacak (veya Enterprise), environment onayı + `v*` tag ruleset etkinleştirilecek, `verify-and-publish.sh` `--no-attestation` olmadan çalıştırılacak | kullanıcı + devops | Prod açılışı öncesi (P10) |
+| Staging istemci testi | Staging (185.126.217.99:4450) Caddy iç CA kullanıyor; istemci sistem kökleriyle doğruladığı için (AC-109) test makinesine Caddy kök CA'sı kurulmalı **veya** staging'e gerçek alan adı + genel sertifika verilmeli. Karar ve adımlar runbook'a | devops (+ kullanıcı: alan adı) | Windows elle testinden önce |
+| SignPath | SignPath Foundation başvurusu (ADR-0010; kod yok, süreç). Kabul edilirse `agent-win.yml`'e imza adımı | kullanıcı (+ devops) | P6 ile paralel başladı; sonuç gelince |
+| x/net v0.62 | `golang.org/x/net` v0.60.0 → v0.62.0: GO-2026-6866 / GO-2026-6860 (`x/net/html`) ve GO-2026-5932 (`x/crypto/openpgp`) istemciden erişilemiyor, yalnız modül düzeyinde (govulncheck 0 erişilebilir); bir sonraki Dependabot/sürüm yükseltmesinde güncellenecek, govulncheck yeşil kalmalı | backend-dev (Go) | Sonraki bağımlılık turu (en geç P13) |
 
 ### Sonra / açık — P5'ten (2026-11-11)
 Kaynak: `docs/guvenlik-raporu.md` (P5 turları), `docs/qa-raporu.md` (P5); mimar kararı (`docs/mimari.md` §3.1 `session_files` risk kabulü, §10.3 P5).

@@ -82,6 +82,12 @@ byToken.set(fixed("A"), newSession("PENDING"));
 byToken.get(fixed("A")).token = fixed("A");
 // "B": ABUSE_EMAIL ve Super Admin e-postası yok → resolve abuseEmail: null (bildir bağlantısı gizlenir)
 byToken.set(fixed("B"), Object.assign(newSession("PENDING"), { noAbuse: true }));
+// P6 (AC-27) indirme ucu: "D" istemci yayında değil (503 NOT_READY), "G" indirme anında oturum iptal (410)
+byToken.set(fixed("D"), Object.assign(newSession("PENDING"), { agent: "notReady" }));
+byToken.set(fixed("G"), Object.assign(newSession("PENDING"), { agent: "gone" }));
+// Gerçek sunucu 302 → /downloads/Destek-<kod>.exe (Caddy, attachment). E2E'de Caddy yok: aynı yolu sahte API sunar.
+const DOWNLOAD_BASE = `http://127.0.0.1:${process.env.MOCK_API_PORT ?? 4010}`;
+
 
 /** true → istek işlendi. */
 export async function handleSessions(req, res, { url, session, csrfOk, send, err, readJson }) {
@@ -125,6 +131,24 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
     const admitCode = String(1000 + Math.floor(Math.random() * 8999));
     tickets.set(wsTicket, { rec, name, admitCode });
     return send(res, 200, { wsTicket, admitCode, technicianName: rec.view.technician.name }), true;
+  }
+  if (path === "/api/v1/public/agent/download" && req.method === "GET") {
+    const rec = byRef.get(q.get("ref") ?? "");
+    if (!rec) return send(res, 404, err("NOT_FOUND", "Bulunamadı."), [], { "Cache-Control": "no-store" }), true;
+    if (rec.agent === "notReady")
+      return send(res, 503, err("NOT_READY", "İndirme şu anda kullanılamıyor. Biraz sonra tekrar deneyin ya da tarayıcıdan paylaşımı kullanın."), [], { "Cache-Control": "no-store" }), true;
+    if (rec.agent === "gone" || rec.view.status === "CANCELLED") return send(res, 410, err("SESSION_CANCELLED", "Oturum iptal edildi.")), true;
+    if (rec.view.status === "EXPIRED") return send(res, 410, err("SESSION_EXPIRED", "Süresi doldu.")), true;
+    if (rec.view.status !== "PENDING") return send(res, 410, err("SESSION_CONSUMED", "Bu bağlantı zaten kullanıldı.")), true;
+    res.writeHead(302, { Location: `${DOWNLOAD_BASE}/downloads/Destek-${rec.view.code}.exe`, "Cache-Control": "no-store" });
+    res.end();
+    return true;
+  }
+  const dl = path.match(/^\/downloads\/(Destek-\d{8}\.exe)$/);
+  if (dl && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${dl[1]}"` });
+    res.end("MZ-e2e");
+    return true;
   }
   if (path === "/api/v1/public/sessions/status" && req.method === "GET") {
     const rec = byRef.get(q.get("ref") ?? "");
