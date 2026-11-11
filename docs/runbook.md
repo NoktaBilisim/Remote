@@ -1,4 +1,4 @@
-# Runbook — Remote Support (P1 iskeleti)
+# Runbook — Remote Support (P1–P2)
 Sahibi: devops. Kapsam P1: kurulum, başlatma/durdurma, env, log, migrate/seed. Yedek, alarm, rollback
 provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md` §8.
 
@@ -90,6 +90,15 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
 - Elle: `docker compose run --rm migrate` · seed: `docker compose --profile setup run --rm seed`.
 - Geri alma (veri kaybı olur, önce yedek): `docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/<ad>/down.sql`, sonra önceki imaj etiketiyle `up -d` (ayrıntı `docs/db-notlari.md`).
 - `app` yetki sınırı kontrolü: `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD CONTAINER=remote-mysql-1 DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh`.
+- **Staging teknisyen hesapları** (gereksinimler §9; P9 kullanıcı yönetimine kadar): `bash staging-users.sh`
+  (`deploy/` içinde, yığın ayakta). Demo tenant'ı (seed `NODE_ENV=production`'da oluşturmaz) ve bir ADMIN + bir
+  USER oluşturur. Hash server konteynerinde `src/auth/password.ts` (`ARGON2_OPTIONS`, argon2id) ile, SQL
+  mysql konteynerinde `app` kullanıcısıyla (utf8mb4) çalışır; `must_change_password=1`. USER'a test için
+  `sessions.view/create/edit/delete/terminate`, `remote_control.use`, `file_transfer.use`, `session_history.view`
+  açılır. Tekrar çalıştırmak güvenli: var olan tenant/kullanıcıya dokunmaz, parola ezmez. Parolalar yalnız
+  `ACCESS.txt`'e (600) eklenir, ekrana yazılmaz. Oluşturma/yetki olayları audit'e `source: staging-users.sh` ile yazılır.
+  Opsiyonel: `ADMIN_EMAIL=… USER_EMAIL=… ACCESS_FILE=… bash staging-users.sh`. Parola sıfırlama P9'a kadar yok:
+  kullanıcıyı silmek yerine farklı e-postayla yeni hesap açın.
 
 ## 7. Sorun giderme (P1)
 | Belirti | Kontrol / çözüm |
@@ -99,6 +108,49 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
 | server `unhealthy` | `logs server`; `/ready` 503 → DB erişimi / migration sürümü |
 | Tarayıcı sertifika uyarısı | kök sertifika kurulmamış (§2) veya `SITE_HOST` ≠ adres çubuğundaki ad |
 | 4450 açılmıyor | `CADDY_BIND`, host güvenlik duvarı, `docker compose logs caddy` |
+| TLS `internal error` alert'i (IP ile bağlanınca) | IP adresine bağlanan istemci SNI göndermez; Caddyfile global `default_sni {$SITE_HOST}` olmalı |
+| Dışarıdan 4450 zaman aşımı, sunucuda `curl -k https://127.0.0.1:4450/login` 200 | Paket VM'e ulaşmıyor: üst NAT/firewall yönlendirmesi eksik (§8). Kontrol: `tcpdump -ni ens18 tcp port 4450` dışarıdan istek sırasında boş |
 | `Address already in use` (ağ) | 172.30.0.0/24 host'ta başka ağla çakışıyor → compose `edge` alt ağını, caddy/web sabit adreslerini ve `TRUSTED_PROXY_CIDR` sabitini birlikte değiştir |
 | Müşteri resolve audit'inde IP hep `172.30.0.3` | `EDGE_PROXY_SECRET` caddy ile web arasında farklı: iki servisi birlikte yeniden yaratın (`docker compose up -d --force-recreate caddy web`). Kontrol için sırrın kendisini değil özetini karşılaştırın: `docker compose exec web sh -c 'printf %s "$EDGE_PROXY_SECRET" \| sha256sum'`, aynı komutu `caddy` için de çalıştırın |
 | Tüm müşteriler aynı IP'den (`172.30.0.x`) görünüyor / token limiti (429) ortak işliyor | web'in adresi .3 değil veya `TRUSTED_PROXY_CIDR` kapsamıyor: `docker inspect remote-web-1 -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'` |
+
+## 8. Staging (185.126.217.99:4450)
+Paylaşımlı sunucu (`/opt` altında başka projeler; 80/443 başka serviste). Yalnız `remote` compose projesinin
+konteyner/ağ/volume'larına dokunulur; `docker system prune` / `docker builder prune` (filtresiz) **yasak**.
+- Konum: `/opt/remote` (main klonu), yığın `/opt/remote/deploy`. Ağlar `remote_edge` (172.30.0.0/24; Docker 29
+  ağ geçidini `ip_range`'in ilk adresine, 172.30.0.128'e koyar, server .129 alır; caddy .2 / web .3 sabit,
+  `TRUSTED_PROXY_CIDR=172.30.0.2/31` değişmez) ve `remote_db` (internal). MySQL portu yayımlanmaz.
+- Sırlar: `deploy/.env` (600, root; sunucuda `openssl rand` ile üretildi). Giriş bilgileri: `deploy/ACCESS.txt`
+  (600, root; `.gitignore` + sunucuda `.git/info/exclude`). Okuma: `ssh root@185.126.217.99 cat /opt/remote/deploy/ACCESS.txt`.
+  Super Admin ve teknisyen hesapları ilk girişte parola değiştirir; değiştiren kişi ACCESS.txt'i günceller.
+- Repo **private**: sunucuda GitHub kimliği yok. Güncelleme yerelden bundle ile (salt okunur deploy key eklenirse `git pull`):
+```bash
+# yerel makinede (repo kökü)
+git bundle create /tmp/remote.bundle main && scp /tmp/remote.bundle root@185.126.217.99:/root/
+# sunucuda
+cd /opt/remote && git pull /root/remote.bundle main && rm /root/remote.bundle
+cd deploy && TAG=$(git rev-parse --short HEAD) && sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$TAG/" .env
+docker compose build && docker compose up -d     # migrate önce çalışır; başarısızsa server başlamaz
+docker compose ps && docker compose logs --since 5m migrate
+docker image rm remote-server:<eski> remote-web:<eski> remote-migrate:<eski>   # yalnız kendi eski imajlarımız
+```
+  Rollback: `.env`'de `IMAGE_TAG=<önceki>` → `docker compose up -d` (şema değiştiyse önce §6 geri alma).
+  Disk dar (%80+): her güncellemeden sonra yalnız iki önceki etiketi tutun.
+- Kök CA (tarayıcı uyarısı olmasın diye test makinelerine kurulur; gerçek müşteri staging'e bağlanmaz):
+```bash
+ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt /tmp/remote-staging-ca.crt' \
+  && scp root@185.126.217.99:/tmp/remote-staging-ca.crt . && ssh root@185.126.217.99 rm /tmp/remote-staging-ca.crt
+# macOS:   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain remote-staging-ca.crt
+# Windows: certutil -addstore -f Root remote-staging-ca.crt   (yönetici)
+```
+  CA `caddy_data` volume'unda kalır; volume silinirse yeni CA üretilir ve test makinelerine yeniden kurulur.
+- **Dış erişim (açık iş):** VM'in adresi 192.168.25.10 (özel); 185.126.217.99 üst NAT'tan (ağ geçidi 192.168.25.1)
+  yönlendiriliyor ve 2026-11-11 itibarıyla 4450/tcp yönlendirilmiyor (dışarıdan zaman aşımı, `tcpdump` boş).
+  Ağ yöneticisi NAT'ta `185.126.217.99:4450/tcp -> 192.168.25.10:4450` kuralını **kaynak adresi korunarak (SNAT/masquerade
+  yok)** eklemeli; yoksa audit'te tüm istemciler ağ geçidi adresinden görünür. Host UFW'si Docker yayınını engellemez.
+- S-P2-5 kontrolü (yönlendirme açılınca, dış makineden): bir giriş yapın, sonra
+  `docker compose logs caddy --since 5m | grep -o '"remote_ip":"[^"]*"' | sort | uniq -c` ve §1'deki audit sorgusu →
+  istemcinin genel IPv4'ü görünmeli; `172.30.0.x` veya `192.168.25.1` görünürse NAT SNAT yapıyordur.
+  `ssh -L` tüneli / sunucu içinden (127.0.0.1) yapılan istekler userland-proxy üzerinden gelir ve `172.30.0.128` görünür (beklenen).
+  IPv6: VM'de global IPv6 yok, `/etc/docker/daemon.json` yok (varsayılan: ipv6 kapalı, userland-proxy açık),
+  yayın yalnız `0.0.0.0:4450` → IPv6 istemci staging'e ulaşamaz; IPv6 doğrulaması prod ağında yapılır.

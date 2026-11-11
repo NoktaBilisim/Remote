@@ -34,3 +34,6 @@ deploy/turn/*.local.conf
 .DS_Store
 .idea/
 .vscode/
+
+# Staging erişim dosyası (sunucuda üretilir, asla repoya girmez)
+deploy/ACCESS.txt
