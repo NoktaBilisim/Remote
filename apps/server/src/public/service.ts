@@ -56,7 +56,7 @@ export async function joinPublicSession(
 
   let g: ReturnType<Rooms["addGuest"]>;
   try {
-    g = rooms.addGuest(row, { name: input.customerName, kind: nonce.kind, ipKey: ip, consent });
+    g = rooms.addGuest(row, { name: input.customerName, ...(input.customerEmail ? { email: input.customerEmail } : {}), kind: nonce.kind, ipKey: ip, consent });
   } catch (err) {
     if (err instanceof AppError && err.code === "SESSION_CONSUMED") throw await goneAudit(db, ctx, row, err.code);
     throw err;

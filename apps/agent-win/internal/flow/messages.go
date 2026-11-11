@@ -20,6 +20,7 @@ var (
 	msgNotFound  = Message{"Kod geçersiz", "Bu destek kodu bulunamadı. Kodu teknisyeninizden kontrol ederek yeniden girin."}
 	msgRate      = Message{"Çok fazla deneme", "Kod girişi geçici olarak engellendi. Birkaç dakika sonra tekrar deneyin."}
 	msgNetwork   = Message{"Sunucuya ulaşılamıyor", "İnternet bağlantınızı kontrol edip tekrar deneyin."}
+	msgTLS       = Message{"Sunucu sertifikası doğrulanamadı", "Bu bilgisayar sunucunun güvenlik sertifikasına güvenmiyor. Teknisyeninize bildirin; kod girmeniz sorunu çözmez."}
 	msgError     = Message{"Bağlantı bilgisi alınamadı", "Sunucuya şu anda ulaşılamıyor. Biraz sonra tekrar deneyin."}
 	msgForbidden = Message{"Katılamazsınız", "Bu oturuma katılamazsınız. Teknisyeninizle iletişime geçin."}
 	msgLobbyFull = Message{"Bekleme odası dolu", "Bekleme odası dolu. Birkaç dakika sonra tekrar deneyin."}
@@ -72,6 +73,8 @@ func classify(err error) (Message, apiOutcome) {
 		return Message{}, outRetryNonce
 	case ae.Code == "LOBBY_FULL":
 		return msgLobbyFull, outFinal
+	case ae.Status == 0 && ae.TLS:
+		return msgTLS, outFinal // kod girişi sorunu çözmez; "kod geçersiz" sanılmasın
 	case ae.Status == 0:
 		return msgNetwork, outRetryCode
 	case ae.Status == 403:

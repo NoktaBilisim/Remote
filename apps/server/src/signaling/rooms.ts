@@ -93,7 +93,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   }
 
   /** Lobiye (TICKETED) misafir ekler — join (A1). Ret listesi → 403, lobi dolu → 409 LOBBY_FULL. */
-  addGuest(row: RoomRow, g: { name: string; kind: GuestKind; ipKey: string; consent: GuestConsent }): { guestId: string; admitCode: string; wsTicket: string } {
+  addGuest(row: RoomRow, g: { name: string; email?: string; kind: GuestKind; ipKey: string; consent: GuestConsent }): { guestId: string; admitCode: string; wsTicket: string } {
     const room = this.getOrCreate(row);
     if (room.admitted) throw new AppError("SESSION_CONSUMED");
     if (room.rejectedIps.has(g.ipKey)) throw new AppError("FORBIDDEN", { message: "Bu oturuma katılımınız teknisyen tarafından reddedildi." });
@@ -103,7 +103,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     const taken = (c: string): boolean => [...room.lobby.values()].some((o) => o.admitHash === admitHash(o.id, c));
     let code = String(randomInt(0, 10_000)).padStart(4, "0");
     while (taken(code)) code = String(randomInt(0, 10_000)).padStart(4, "0");
-    const guest: Guest = { id, name: g.name, kind: g.kind, ipKey: g.ipKey, admitHash: admitHash(id, code), consent: g.consent, state: "TICKETED", since: this.clock.now() };
+    const guest: Guest = { id, name: g.name, ...(g.email ? { email: g.email } : {}), kind: g.kind, ipKey: g.ipKey, admitHash: admitHash(id, code), consent: g.consent, state: "TICKETED", since: this.clock.now() };
     guest.timer = this.clock.setTimeout(() => {
       if (guest.state === "TICKETED" && room.lobby.get(id) === guest) this.dropRoomIfIdle(room, id);
     }, this.timing.ticketMs);

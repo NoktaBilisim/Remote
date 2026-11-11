@@ -71,15 +71,102 @@ Rol kuralı: SUPER_ADMIN tümü + sistem uçları (rol kontrolü, toggle değil)
 | Uç | Girdi | Çıktı | Hatalar | Yetki / AC |
 |---|---|---|---|---|
 | POST `/sessions` | `{}` | `{ id, link, code (8 hane), techVerifyCode, expiresAt, status }` (link **yalnız bu yanıtta** — düz token DB'de yok, GET `/:id` link döndürmez; `code` PENDING iken GET `/:id`'de de döner, G-22) | 409 `OPEN_SESSION_LIMIT`, 429 (20/sa/teknisyen) | sessions.create; AC-1..4, 11, 12 |
-| GET `/sessions?status=&from=&to=&technicianId=&customer=&mode=&page=` | sorgu | sayfalı liste | 400 | sessions.view (USER yalnız kendi) / session_history.view; AC-60, 61 |
-| GET `/sessions/:id` | — | detay + consents + files + quality | 404 | AC-62; USER yalnız `technician_id = user.id` (PATCH ve export dahil, G-22) |
+| GET `/sessions?status=&from=&to=&technicianId=&tenantId=&customer=&mode=&page=&pageSize=&sort=` | sorgu (şema: aşağıda "Oturum geçmişi (P8)" §1) | `{ items: SessionListItem[], page, pageSize, total }` + `Cache-Control: no-store` | 400 `VALIDATION`, 403 `FORBIDDEN` | `sessions.view` **veya** `session_history.view` (any-of; konsol listesi ve geçmiş ekranı aynı uç); kapsam §2 (USER yalnız kendi); AC-60, 61 |
+| GET `/sessions/:id` | — | `SessionView` (konsol özeti; P2 şekli, değişmez) | 404 | sessions.view; USER yalnız `technician_id = user.id` (G-22); kapsam §2 |
+| GET `/sessions/:id/history` | — | `SessionHistoryDetail` (§3: başlangıç/bitiş/süre, müşteri, onay kayıtları, kontrol dönemleri, zaman çizelgesi, kalite, dosyalar, sonlandıran) + `Cache-Control: no-store` | 404 | session_history.view; kapsam §2; AC-61, 62 |
 | POST `/sessions/:id/cancel` | — | `{ status: "CANCELLED" }` | 404, 409 (PENDING değil) | sessions.delete; AC-8 |
 | POST `/sessions/:id/end` | — | `{ status: "ENDED" }` | 404, 409 | sessions.edit; AC-59 |
 | POST `/sessions/:id/terminate` | `{ reason?: string(≤200) }` | `{ status: "ENDED", endedBy: "ADMIN" }` | 404, 409 (ACTIVE değil) | sessions.terminate (ADMIN aynı tenant) / SUPER_ADMIN; `rooms` → `session.ended{admin}`; audit `session.terminated`; AC-114 (G-04) |
 | POST `/sessions/:id/email` | `{ to: email }` | `{ sent: true }` | 404, 429 (20/sa/teknisyen, G-23), 502 | sessions.create; AC-10 |
-| PATCH `/sessions/:id` | `{ ticketNo?: string(≤50), note?: string(≤4000) }` | detay | 400, 404 | session_history.edit; AC-63 |
-| GET `/sessions/export.csv?<liste filtreleri>` | sorgu | `text/csv` UTF-8 BOM, akış, hücreler `lib/csv.ts` ile formül kaçışlı (G-16) | 403 | session_history.export; AC-63, 124 |
+| PATCH `/sessions/:id` | `z.strictObject({ ticketNo?: string \| null, note?: string \| null })` (kurallar §4) | `SessionHistoryDetail` | 400 `VALIDATION`, 404, 403 `CSRF_INVALID` | session_history.edit + Origin + CSRF; kapsam §2 (USER yalnız kendi); audit `session.updated` (§4); AC-61, 63 |
+| GET `/sessions/export.csv?<liste filtreleri>` | liste sorgusu (`page`/`pageSize` yok sayılır) | `text/csv; charset=utf-8`, UTF-8 BOM, `;` ayraç, akış (§5) | 400 `VALIDATION` (> 50.000 satır), 403, 429 `RATE_LIMITED` (5/dk/kullanıcı) | session_history.export; kapsam §2; hücreler `lib/csv.ts` ile formül kaçışlı (G-16); audit `session.exported`; AC-61, 63, 124 |
 Not: Link plain token'ı DB'de yok (AC-2). PENDING iken tekrar göstermek için token yanıtta tek sefer verilir; konsol sayfası belleğinde tutar. Kaybolursa "Yeni link üret" = iptal + yeni oturum (basit, ADR-0006).
+
+### Oturum geçmişi (P8) — bağlayıcı ayrıntı (mimar, 2026-11-11; AC-60..63, 124)
+Şemalar `packages/contracts/src/api/sessions.ts`'e eklenir (P2 tipleri genişletilir, kırılmaz). Enum etiketleri (Türkçe) tek yerde `packages/contracts/src/labels.ts`'te durur; web ve CSV aynı eşlemeyi kullanır. Enum sütunları DB'de ikili CHECK ile kanoniktir (ADR-0014). CHECK'i olmayan `end_reason` ve audit `action` için bilinmeyen değer **ham** gösterilir; boş bırakılmaz, hata atılmaz.
+
+**1. Liste sorgusu** (`listSessionsQuerySchema`, `z.strictObject`; bilinmeyen parametre 400):
+| Parametre | Şema | Anlam |
+|---|---|---|
+| `status` | `enum(SESSION_STATUSES)?` | Tek değer |
+| `mode` | `enum(["AGENT","BROWSER"])?` | AC-60 "istemci/tarayıcı". `mode` NULL olan oturumlar (hiç admit edilmemiş) bu filtreyle eşleşmez |
+| `from`, `to` | `/^\d{4}-\d{2}-\d{2}$/?`, geçerli takvim günü | `created_at` üzerinde, **Europe/Istanbul günü** (UTC+3, DST yok): `from` 00:00 dahil, `to` ertesi gün 00:00 hariç. `from > to` → 400 `fields.to` |
+| `technicianId` | ULID? | ADMIN/SUPER_ADMIN; USER'da **yok sayılır** (kapsam ezer) |
+| `tenantId` | ULID? | Yalnız SUPER_ADMIN, firma seçilmemişken (§2). Diğer rollerde ve firma seçiliyken yok sayılır |
+| `customer` | trim, 2..100, `UNSAFE_NAME_CHARS` yok | `customer_name` içinde geçen (ci, `LIKE %x%`). `%`, `_`, `\` **literal** aranır (servis kaçışlar; test). Adı olmayan (P8 öncesi) oturumlar eşleşmez |
+| `page`, `pageSize` | mevcut (1.., 1..100, vars. 25) | Toplamı aşan sayfa → boş `items` (hata değil) |
+| `sort` | `enum(["createdAt:desc","createdAt:asc"])`, vars. `createdAt:desc` | İkincil sıra her zaman `id` aynı yön (kararlı sayfalama). Genişleme: `endedAt` eklenecekse buraya ve indekse |
+
+`SessionListItem` = mevcut `SessionView` + `{ mode: "AGENT"|"BROWSER"|null, startedAt: string|null` (= `consumed_at`, mimari §3.1 P3 kararı), `durationSec: number|null` (`startedAt` ve `endedAt` doluysa `floor((endedAt−startedAt)/1000)`, aksi halde null; ACTIVE için UI canlı süreyi kendisi hesaplar), `customerName: string|null, ticketNo: string|null, tenant: { id, name } | null` (yalnız SUPER_ADMIN firma seçmeden listelerken dolu) `}`. Listede e-posta ve not **yok** (veri en aza indirme). `count` ve `findMany` aynı `where` ile çalışır. N+1 yoktur (`technician`, `tenant` tek `select`).
+
+**2. Rol kapsamı (AC-61, G-22).** Tek fonksiyon `historyScope(auth)` (sessions/service.ts). Liste, `:id`, `:id/history`, PATCH ve export **aynı** kapsamı kullanır:
+| Rol | Kapsam (repository `where`) |
+|---|---|
+| USER | `tenant_id = etkin tenant AND technician_id = user.id` |
+| ADMIN | `tenant_id = etkin tenant` |
+| SUPER_ADMIN, firma seçili (`actingTenant`) | `tenant_id = actingTenant` |
+| SUPER_ADMIN, firma seçili değil | **tüm tenant'lar**. Açık bir `{ kind: "all" }` değeriyle ifade edilir; `tenantId` atlanarak elde edilmez. Bu değeri yalnız `historyScope` üretebilir. `tenantId` sorgu filtresi isteğe bağlıdır. Yalnız bu 5 uçta geçerlidir; diğer uçlarda `tenantScope` kuralı (firma seçimi zorunlu) değişmez |
+Kapsam dışı ya da var olmayan id her uçta **404** `NOT_FOUND` döner, varlık sızdırılmaz. AC-69 test aracı bu 5 ucu iki tenant fixture'ı ve iki USER ile gezer: başka tenant → 404, aynı tenant başka teknisyen (USER) → 404, ADMIN → 200. Export'ta kapsam dışı satır 0 olmalı.
+
+**3. `SessionHistoryDetail`** (GET `/sessions/:id/history` ve PATCH yanıtı; AC-62). Yapısı: `SessionListItem` + aşağıdaki alanlar.
+| Alan | Kaynak / kural |
+|---|---|
+| `customerEmail: string\|null` | `support_sessions.customer_email` |
+| `endedBy`, `endReason` | mevcut. UI `endReason`'ı etiketler (bilinmeyen → ham değer). `endedBy=ADMIN` ise `terminatedBy: { id, name } \| null` |
+| `note: string\|null` | AC-63 |
+| `quality: QualitySummary \| null` | `quality_summary` JSON'u contracts `qualitySummarySchema` ile ayrıştırılır. Ayrıştırılamazsa null döner ve log'a uyarı düşer (500 değil) |
+| `files: { id, direction, fileName, sizeBytes, sha256, result, createdAt }[]` | `session_files`, `created_at` artan, en çok 500. İçerik yok (AC-55) |
+| `consents: { id, at, level, decision, source, consentText: { id, version, sha256 } \| null }[]` | Tüm `session_consents` satırları ("onay kayıtları"), `created_at, id` artan, en çok 500. **`ip` ve `user_agent` API'de dönmez** (veri en aza indirme; kanıt DB'de kalır, hukuki talepte dba çıkarır) |
+| `controlPeriods: { grantedAt, revokedAt: string\|null, revokedSource: "UI"\|"HOTKEY"\|"RECONNECT"\|"SYSTEM"\|"TECH"\|null, revokedReason: string\|null, selfElevated: boolean\|null }[]` | **Sunucu türetir** ("kontrol verilme/geri alınma zamanları"): `level=CONTROL` satırları sırayla eşleştirilir; her `GRANTED`, ardından gelen ilk `REVOKED` ile kapanır. Kapanış yoksa `revokedAt/revokedSource = null` olur; UI "Kapanış kaydı yok" yazar, bitiş zamanı **tahmin edilmez** (ADR-0013 K5-d). `revokedReason`: aynı oturumun ilk `control.revoked`/`control.released` audit'inden, `created_at ≥ revokedAt − 1 sn` koşuluyla alınır (`newValue.reason`; `released` için `"tech"`). `selfElevated`: GRANTED'den sonraki ilk `control.granted` audit'inin `newValue.selfElevated` alanı (`"true"`→true, `"false"`→false, `"unknown"`/yok → null). Eşleşmeyen audit → null (tahmin yok) |
+| `timeline: TimelineEvent[]`, `timelineTruncated: boolean` | Aşağıda; `at, id` artan, en çok 500 olay |
+
+`TimelineEvent = { at, action, actor: "TECH"|"CUSTOMER"|"ADMIN"|"SYSTEM", actorName: string|null, result: "success"|"fail", details: Record<string, string|number|boolean|null> }`. Kaynak sorgu: `audit_logs WHERE tenant_id = <oturumun tenant'ı> AND entity = 'support_sessions' AND entity_id = <id> AND action IN (<izin listesi>)`. Bu sorgu yeni `IX(tenant_id, entity, entity_id, created_at)` indeksini kullanır (dba P8). `details` ham `new_value`'dan üretilmez: **eylem başına izinli alan izdüşümüdür**. Listede olmayan anahtar dönmez; IP, UA ve maskeli değer hiç dönmez. Actor şöyle belirlenir: `user_id = technician_id` → TECH; başka bir `user_id` → ADMIN; `username='customer'` → CUSTOMER; `username='system'` ya da `user_id` NULL → SYSTEM. `actorName`: TECH/ADMIN için `users.full_name`, CUSTOMER için oturumun `customerName`'i (lobi olaylarında `details.name`), SYSTEM için null.
+| `action` (izin listesi; contracts `CONTROL_AUDIT` + oturum olayları) | `details` izdüşümü | UI gösterimi (etiket `labels.ts`) |
+|---|---|---|
+| `session.created` | `ttlMin` | "Oturum oluşturuldu" |
+| `guest.pending`, `guest.rejected` | `name` | "Lobiye katıldı" / "Teknisyen reddetti" |
+| `guest.admitted` · `guest.admit` (fail) | `name`, `guestKind` · `reason` | "Kabul edildi" · "Yanlış kabul kodu" |
+| `reconnect.conflict` | — | "Yeniden bağlanma reddedildi" |
+| `control.requested` | `request` (1..5) | "Kontrol istendi (n/5)" |
+| `control.granted` | `selfElevated` (boolean\|null) | "Kontrol verildi". `true` → uyarı rozeti "Müşteri istemcisi yönetici olarak çalışıyordu"; `null` → "Yönetici durumu bilinmiyor" (düz metin, rozet yok); `false` → ek yok |
+| `control.denied` | — | "Müşteri reddetti" |
+| `control.revoked` | `source` (consent kaynağı), `reason` (`permission`\|`audit`\|`admin`\|`session_ended`\|`superseded`\|`disconnect`), `side` (`guest`\|`tech`) | `source` UI → "Müşteri kapattı (pencere)", HOTKEY → "Müşteri kapattı (kısayol)", RECONNECT → `side`'a göre "Müşteri/Teknisyen bağlantısı koptu", SYSTEM → `reason` etiketi ("Teknisyen yetkisi kaldırıldı" / "Kayıt yazılamadı — güvenlik için kapatıldı" / "Yönetici sonlandırdı" / "Oturum sona erdi" / "Açılırken kapatıldı") |
+| `control.released` | `via` (`release`\|`cancel`) | "Teknisyen kontrolü bıraktı" (consent `source=TECH`) |
+| `control.cancelled` | `by` (`tech`\|`agent`; alan yoksa `tech`), `source` | `tech` → "Teknisyen isteği geri çekti"; `agent` → "İstek müşteri tarafında bağlantı kesilince kapandı" (müşteriye ret **atfedilmez**) |
+| `monitor.requested` · `monitor.granted` · `monitor.denied` | `monitorId` | "Monitör n istendi / paylaşıldı / reddedildi" |
+| `session.caps_changed` | `oldCaps` (`old_value.caps`), `newCaps` (`new_value.caps`), virgüllü metin | "Teknisyen yetkileri daraldı" |
+| `session.cancelled` · `session.expired` · `session.terminated` · `session.ended` | — · — · `reason` (≤200, düz metin) · `reason` (→ `endReason`), `endedBy` | "İptal edildi" · "Süresi doldu" · "Yönetici sonlandırdı" · "Oturum bitti (<neden etiketi>)" |
+Kapsam dışı action'lar (`session.resolve`, `session.join`, `file.*`, `file.meta.*`) zaman çizelgesine girmez. Dosyalar `files`'ta, operasyon olayları P11 audit ekranında görünür. Consent kaynağı etiketleri (onay kayıtları tablosu): UI "Müşteri (pencere)", HOTKEY "Müşteri (kısayol)", RECONNECT "Bağlantı koptu", SYSTEM "Sistem", **TECH "Teknisyen"**. Seviye: VIEW "Ekran görüntüleme", CONTROL "Uzaktan kontrol". Karar: GRANTED "Verildi", DENIED "Reddedildi", REVOKED "Geri alındı". Tarayıcı modu (BROWSER) oturumlarda kontrol yoktur; `controlPeriods` boş döner ve UI "Tarayıcı modunda uzaktan kontrol yoktur" yazar. Tüm metinler `textContent` ile basılır; `customerName`, `note` ve `details.name` asla HTML olarak işlenmez.
+
+**4. PATCH `/sessions/:id` (AC-63).** `z.strictObject` kuralları:
+- En az bir alan gelmelidir; aksi halde 400.
+- `ticketNo`: trim, 0..50, `UNSAFE_NAME_CHARS` (Cc/Cf/Zl/Zp) yok.
+- `note`: 0..4000 (zod `.length` UTF-16 birimi sayar; bu sayı her zaman DB `CHAR_LENGTH`'ten ≥ olduğu için CHECK tetiklenmez). `\n` ve `\t` serbest; diğer Cc ile bidi/sıfır genişlik Cf karakterleri yasak.
+- Boş metin ve `null` → NULL yazılır (CHECK: boş metin saklanmaz). Alan gönderilmezse değişmez.
+- Durum kısıtı yok (her durumda düzenlenebilir). Eşzamanlılıkta son yazan kazanır (kabul).
+- UPDATE `where` içinde kapsam koşulu bulunur; `count=0` → 404.
+- Audit `session.updated` (entity `support_sessions`): `oldValue/newValue = { ticketNo, noteLength }`. **Not metni audit'e yazılmaz**, çünkü audit 730 gün tutulur ve oturum retention'ını aşar (KVKK). Uzunluk ve değişti bilgisi yeterlidir.
+
+**5. CSV (`lib/csv.ts`, AC-63, 124; P11 audit CSV aynı modülü kullanır)**
+- Biçim: UTF-8 BOM, ayraç `;` (tr-TR Excel liste ayracı), satır sonu `\r\n`.
+- Hücre işleme sırası: (1) **formül kaçışı**: ilk karakteri `=`, `+`, `-`, `@`, `\t` (U+0009) ya da `\r` (U+000D) olan hücrenin başına `'` eklenir; (2) RFC 4180 tırnaklama: `;`, `"`, `\r` veya `\n` içeren hücre `"…"` içine alınır ve `"` iki kez yazılır.
+- Kaçış **tüm** metin hücrelerine uygulanır, başlık satırı dahil. Sayısal sütunlar sunucuda üretilir ve negatif olamaz.
+- Başlık ve sütunlar (sabit sıra): `Oturum No; [Firma — yalnız SUPER_ADMIN firma seçmeden]; Oluşturma; Başlangıç; Bitiş; Süre; Durum; Mod; Teknisyen; Müşteri; Ticket No; Sonlandıran; Bitiş nedeni; Not`.
+- Değer biçimleri: zamanlar Europe/Istanbul `YYYY-MM-DD HH:mm:ss`; süre `HH:MM:SS` (boşsa boş hücre); enum'lar `labels.ts` Türkçe etiketiyle, `end_reason` bilinmiyorsa ham değerle yazılır.
+- E-posta, onay kayıtları ve zaman çizelgesi CSV'ye **girmez**. Genişleme noktası: ayrı "detay CSV" ucu.
+- Akış: önce `count`. Sonuç > 50.000 ise 400 `VALIDATION` döner, `fields.to` = "En çok 50.000 satır dışa aktarılabilir; tarih aralığını daraltın" (yarım dosya üretilmez). Değilse `id` imleciyle 1000'lik partiler `reply.raw`'a yazılır.
+- Başlıklar: `Content-Disposition: attachment; filename="oturumlar-YYYYMMDD-HHmm.csv"`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`.
+- Akış başladıktan sonra hata olursa bağlantı kesilir ve log'a ref yazılır; dosya yarım kalır, istemci indirme hatası görür.
+- Audit `session.exported` (entity `support_sessions`, `entity_id` NULL): `newValue = { status, mode, from, to, technicianId, tenantId, customerFilter: bool, rows }`. Müşteri arama metni yazılmaz.
+- Hız sınırı 5/dk/kullanıcı (`rate.ts`).
+
+**6. Performans (AC-60, 10.000 kayıtta ilk sayfa < 500 ms).** İndeks eşlemesi:
+| Kapsam | Kullanılan indeks |
+|---|---|
+| ADMIN | `(tenant_id, created_at)`; status filtresiyle `(tenant_id, status, created_at)` |
+| USER | `(technician_id, created_at)` |
+| SUPER_ADMIN, tüm tenant'lar | yeni `IX(created_at)` (dba P8; P13 retention da kullanır) |
+`mode` ve `customer` artık filtredir (residual). Ölçüm, P8 "bitti" kanıtında üç rol için ayrı ayrı alınır.
 
 ## Public müşteri uçları (`/public`) — çerezsiz, kimliksiz
 | Uç | Girdi | Çıktı | Hatalar | Koruma / AC |

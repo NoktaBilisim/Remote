@@ -1654,3 +1654,68 @@ Adım 38 gerçek Windows'ta başarısız olursa (ör. müşteri tıklaması redd
 - Go `x/net`/`x/crypto` yükseltmesi Dependabot ile yapılabilir (Tur 2'den taşınan madde).
 
 DURUM: GEÇTİ (Kritik 0 / Yüksek 0; S7-12..S7-16 ve S7-9 kapandı; Windows adım 37/38/42 elle doğrulama bekliyor)
+
+---
+
+## P8 — Tur 1 — Oturum geçmişi (2026-11-11)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4
+
+Kapsam: commit edilmemiş P8 değişiklikleri. Sunucu tarafında `src/sessions/{service,history,history-repo,routes,repo}.ts`, `lib/csv.ts`, `audit/mask.ts`, `auth/guards.ts` (`requireAnyPerm`), `signaling/admit.ts` ve `public/service.ts`. Contracts tarafında `api/sessions.ts` ve `labels.ts`. Ayrıca migration'lar `20261111060000_p8_session_history` ile `20261111070000_enum_check_binary` (ADR-0014, precheck), web `app/(panel)/history/**` ile `lib/history/*` ve Go `internal/capture/cursor.go` ile `dxgi_windows.go`.
+
+### Bulgular (öncelik sırasıyla)
+
+#### S8-1 [DÜŞÜK] CSV formül kaçışı yalnız ilk karaktere bakıyor (A03 Injection, CSV/formula injection)
+Yer: `apps/server/src/lib/csv.ts:9` (`FORMULA_START = /^[=+\-@\t\r]/`)
+Sorun: AC-124'teki = + - @ TAB CR karakterlerinin tamamı kapsanıyor. `;` ve `"` RFC 4180'e göre doğru tırnaklanıyor (`NEEDS_QUOTES`). Kapsanmayan iki durum var. Birincisi baştaki boşluk/NBSP ile başlayan değerler: `note` kırpılmıyor, örneğin `"  =HYPERLINK(...)"`. İkincisi tam genişlikli `＝ ＋ － ＠` varyantları. Ad ve ticket alanı JS `trim()` ile kırpıldığı için birincisi bu alanlarda oluşmaz, ikincisi oluşabilir. Bazı tablolama yazılımları ve içe aktarma ayarları baştaki boşluğu atıp hücreyi formül olarak değerlendirebiliyor. Excel'in varsayılan açılışında bu davranış doğrulanmadı.
+İstismar senaryosu: Müşteri katılım formunda adını `＝HYPERLINK("http://…","tıkla")` girer, ya da kötü niyetli bir teknisyen notu `" =cmd|…"` olarak yazar. Yönetici CSV'yi formül değerlendiren bir ayarla açtığında hücre çalışır. Kullanıcı etkileşimi ve özel ayar gerektiği için önem Düşük.
+Düzeltme: Kontrol baştaki boşlukları atlasın ve tam genişlikli varyantları da kapsasın: `/^[\s 　]*[=+\-@\t\r＝＋－＠]/`. Birim testine her varyant için birer örnek eklenmeli. Atanan: backend-dev
+
+#### S8-2 [DÜŞÜK] Liste yanıtı bekleyen oturumların katılım kodunu (`code`) taşıyor (A01/A04, veri en aza indirme)
+Yer: `apps/server/src/sessions/history.ts:72` (`toListItem` → `toView`) ve `apps/server/src/sessions/service.ts:47` (`code: status==="PENDING" ? activeCode : null`)
+Sorun: P8'de `GET /sessions` geçmiş ekranının da ucu oldu (`sessions.view` VEYA `session_history.view`). Firma seçmemiş SUPER_ADMIN için kapsam artık tüm tenant'lar. Bu yüzden PENDING durumdaki her oturumun 8 haneli katılım kodu, geçmiş listesi için gerekmediği halde, daha geniş bir kitleye dönüyor: ADMIN'e tenant'taki diğer teknisyenlerin kodları, SA'ya bütün tenant'ların kodları gidiyor. `techVerifyCode` zaten müşteriye gösterilen bir değer (G-01), sır sayılmaz.
+İstismar senaryosu: Geçmiş ekranını gören bir kullanıcı başka bir teknisyenin bekleyen kodunu okur ve müşteriden önce katılma isteği gönderir. Teknisyenin admit kodu kontrolü ve kod/IP sınırları devrede olduğu için etkisi düşük. Yine de gereksiz bir veri yüzeyi.
+Düzeltme: `code` yalnız oturumun kendi teknisyenine dönsün (`r.technician.id === auth.user.id`), diğer durumlarda `null` olsun. Konsol yalnız kendi kodunu kullandığı için davranış değişmez. Atanan: backend-dev
+
+#### S8-3 [DÜŞÜK] Liste ucunda hız sınırı yok; `customer` araması `%…%` ile tam tarama yapıyor (A04, kaynak tüketimi)
+Yer: `apps/server/src/sessions/routes.ts:56`, `apps/server/src/sessions/history-repo.ts:43`
+Sorun: Her istek `findMany` ve `count` çalıştırıyor. Baştaki `%` nedeniyle `customer_name` üzerinde indeks kullanılamıyor. SA "tümü" kapsamında bu tüm `support_sessions` tablosunun taranması demek. Export için 5/dk sınırı var, liste ucunda hiç yok. Uç kimlik doğrulama istediği için risk düşük.
+Düzeltme: `customer` filtresi doluyken kullanıcı başına bir `FixedWindowCounter` eklenmeli (ör. 60/dk). Alternatif olarak P13 hacmine göre FULLTEXT/n-gram araması değerlendirilebilir. Atanan: backend-dev
+
+#### S8-4 [DÜŞÜK] ADR-0014 precheck adımı runbook'ta yok (A05, işletim)
+Yer: `apps/server/prisma/migrations/20261111070000_enum_check_binary/precheck.sql:1`, `docs/runbook.md` (`precheck` geçmiyor)
+Sorun: Migration kendini koruyor: uyumsuz satır varsa 3819 hatasıyla hiçbir şey değiştirmeden duruyor. Bu yüzden veri bütünlüğü açısından fail-closed. Ancak yayın adımlarında precheck'in migrate'ten önce çalıştırılması yazılı değil. Dosyadaki "satırları elle DÜZELTMEYİN (KVKK kanıtı)" uyarısı da operatöre ulaşmıyor.
+Düzeltme: Runbook'un yayın bölümüne precheck komutu ve "0 değilse mimara bildir" adımı eklenmeli. Atanan: devops
+
+### İstenen kontrollerin sonucu
+- **IDOR / kapsam (AC-61):** Liste, `:id`, `:id/history`, PATCH ve export'un hepsi `historyScope(auth)` kullanıyor (`service.ts:38-42`). `historyWhere` kapsamı filtreden sonra yazdığı için USER'ın gönderdiği `technicianId` etkisiz kalıyor (`history-repo.ts:37-39`, `resolveFilter` `history.ts:55,61`). Tenant kapsamında `tenantId` sorgu filtresi yok sayılıyor (`history.ts:62`, `history-repo.ts:35`). `{kind:"all"}` markalı bir tür. Onu yalnız tenantId'siz SUPER_ADMIN alıyor; diğer rollerde tenantId yoksa FORBIDDEN dönüyor (`service.ts:39-40`). PATCH'te kapsam UPDATE'in `where`'inde, count 0 ise 404 (`history-repo.ts:170-172`). Alt listelerde (onay, dosya, audit) filtre oturumun kendi `tenantId`'si (`history-repo.ts:134-163`). Kapsamın yanlışlıkla genişlemesine yol açan bir durum bulunmadı. "Tümü" kapsamı yalnız mimari-api §2'de sayılan 5 uçta geçerli; diğer uçlarda `tenantScope` değişmedi.
+- **Yetki:** `GET ""` için `requireAnyPerm(sessions.view, session_history.view)`, `GET /:id` için `sessions.view`, `/:id/history` için `session_history.view`, PATCH için `session_history.edit`, export için `session_history.export` gerekiyor. `/export.csv` statik rota olduğu için `/:id`'den önce eşleşiyor, ayrıca `/:id` ULID regex'i istiyor. PATCH, `requireAuth` içinde Origin ve CSRF double-submit kontrolünden geçiyor (`guards.ts:9,48`).
+- **LIKE enjeksiyonu:** `escapeLike` `\ % _` karakterlerini kaçışlıyor (`history-repo.ts:29`). Prisma 7'nin kaçışlamadığı entegrasyon testiyle doğrulanmış (`session-history-p8.test.ts:106-132`). `customer` alanı 2–100 karakter, Cc/Cf/bidi içeremiyor, strict şema.
+- **PATCH girdisi:** `ticketNo` için `UNSAFE_NAME_CHARS`, trim ve ≤50 kontrolü var. `note` için CRLF→LF dönüşümü, tek `\r` yasağı, yalnız `\n\t` serbest, bidi/sıfır genişlikli karakter yasağı ve ≤4000 sınırı var. DB CHECK'leri zod'dan gevşek, yani zod'dan geçen bir değer CHECK'e takılmıyor. Şema strict ve en az bir alan istiyor.
+- **Not metni audit/log'a düşmüyor:** `session.updated` yalnız `ticketNo` ve `noteLength` yazıyor (`history.ts:273-274`). Pino `maskUrl` sorgu dizesini atıyor, bu yüzden `customer` arama metni loga girmiyor. Export audit'i yalnız `customerFilter:boolean` tutuyor (`history.ts:337`).
+- **`audit/mask.ts` `ticketNo`:** Anahtar tam eşleşmeyle izinli listeye alınmış. `wsTicket` ve diğer `ticket*` anahtarları maskeli kalıyor. Ticket numarası gizli bir değer değil. **Kabul edildi.**
+- **Zaman çizelgesi sızıntısı:** `auditSelect` içinde `ip_address` ve `user_agent` yok. `details` yalnız `TIMELINE_DETAIL_KEYS` izin listesindeki alanları içeriyor, `***` değerleri dönmüyor, string'ler 200 karakterle kesiliyor (`history.ts:96-126`). Ham `old/new_value` dönmüyor.
+- **KVKK / onay kayıtları:** `SessionConsentRecord` ip ve UA içermiyor. Yalnız düzey, karar, kaynak ve metin `{id, version, sha256}` dönüyor. E-posta ve not yalnız detayda var, listede yok.
+- **CSV DoS:** Sıra şöyle: önce hız sınırı (`FixedWindowCounter(6,60s,60s)`, 6. istek 429), sonra count (>50.000 ise 400, yarım dosya üretilmiyor), sonra audit, sonra 1000'lik keyset partileriyle akış (`Readable.from` backpressure uyguluyor). `written` sayacı akış sırasında artan satırlarda da 50.000'de kesiyor. Yanıt başlıklarında `nosniff` ve `no-store` var, dosya adı sunucu tarafında üretiliyor.
+- **admit:** Müşteri adı ve e-postası aynı atomik `consumeForAdmit` UPDATE'inde yazılıyor. `customerOf`, iki kod noktasından kısa adı NULL'a çeviriyor, böylece CHECK yüzünden admit düşmüyor. E-posta zod'da ≤190, kolon VARCHAR(190).
+- **XSS:** History sayfalarında `dangerouslySetInnerHTML` ve `innerHTML` yok, kullanıcı verisi `href`'e girmiyor (yalnız ULID `/history/${id}`). Not, ticket, müşteri adı, actorName ve e-posta React metin düğümü olarak render ediliyor. CSV indirme fetch, blob ve `a.download` ile yapılıyor. Not formundaki "kaydedilmemiş değişiklik" yakalayıcısı yalnız aynı origin'e yönlendiriyor.
+- **Go imleç ayrıştırma:** `PointerShape.Size()` için `W,H,Pitch ≥ 1` ve `len(Data) ≥ Pitch*H` kontrolleri var. Mono'da H çift ve `Pitch ≥ ⌈W/8⌉`, renkli türde `Pitch ≥ 4W` isteniyor, bilinmeyen tür reddediliyor. Tüm indekslerin sınırlar içinde kaldığını elle kontrol ettim: mono'da `(sy+sh)*Pitch+sx/8 < Pitch*H`, renkli türde `sy*Pitch+4sx+4 ≤ Pitch*H`. Yama `pw×ph` masaüstüne kırpılıyor (`x1=min(X+sw,dw)`), dolayısıyla büyük bir şekil büyük bellek ayırmasına yol açmıyor. `srcOffset` ve NV12 `cuv[x+1]` indeksleri, W/H çift olduğu ve `xe` çifte yuvarlandığı için sınır içinde. Tampon `PointerShapeBufferSize` kadar ayrılıyor ve yeniden kullanılıyor. Bellek taşması bulunmadı.
+
+### Otomatik tarama / test çıktıları (2026-11-11)
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- `git diff HEAD --stat -- apps/agent-win/go.mod go.sum` boş, Go bağımlılığı değişmedi. Bu yüzden govulncheck gerekmedi.
+- Gizli bilgi kalıbı (`git grep`) P8 dosyalarında eşleşme vermedi. İzlenmeyen `.env` yok.
+- `pnpm --filter @remote/server test`: **13 dosya / 255 test** yeşil. `pnpm --filter @remote/contracts test`: **49 test** yeşil. Entegrasyon testleri (MySQL) bu turda koşulmadı.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+Yok. mimari-api "Oturum geçmişi (P8)" §1–5'teki kapsam, izin listesi, PATCH audit, CSV sırası ve sınırlarının hepsi kodda karşılığını buldu.
+
+### Olumlu
+- `AllTenantsScope` markalı bir tür. Tüm-tenant kapsamını başka bir modülün kendi başına kurması derleme zamanında engelleniyor.
+- Not metni audit'e yazılmıyor. 730 günlük audit saklama süresiyle KVKK'daki "amaçla sınırlılık" ilkesi birlikte korunuyor.
+- ADR-0014 ile enum CHECK'leri ikili (büyük/küçük harf duyarlı) karşılaştırma yapıyor. Örneğin `role='admin'` gibi bir değer artık DB'de reddediliyor. Migration uyumsuz satır bulursa kendini durduruyor.
+
+### Öneri (`docs/gereksinimler.md` §9 "Sonra")
+- S8-1..S8-4 (hepsi Düşük).
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4)

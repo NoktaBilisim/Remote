@@ -64,6 +64,14 @@ export function requirePerm(key: PermissionKey) {
   };
 }
 
+/** Anahtarlardan en az biri yoksa 403 (any-of; ör. GET /sessions: sessions.view VEYA session_history.view, P8). */
+export function requireAnyPerm(...keys: readonly PermissionKey[]) {
+  return async (req: FastifyRequest): Promise<void> => {
+    const perms = authOf(req).permissions;
+    if (!keys.some((k) => perms.has(k))) throw new AppError("FORBIDDEN");
+  };
+}
+
 /**
  * Tenant verisine erişen her repository fonksiyonuna verilen zorunlu kapsam (AC-69).
  * Super Admin tenant seçmeden tenant verisine erişemez (geçiş P9).

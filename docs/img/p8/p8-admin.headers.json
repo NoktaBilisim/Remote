@@ -1,0 +1,22 @@
+{
+  "content-security-policy": "default-src 'self';script-src 'self';style-src 'self';img-src 'self' data: blob:;connect-src 'self' wss://rs.test:4450;worker-src 'self';manifest-src 'self';frame-ancestors 'none';base-uri 'none';form-action 'self';object-src 'none';upgrade-insecure-requests",
+  "cross-origin-opener-policy": "same-origin",
+  "cross-origin-resource-policy": "same-origin",
+  "origin-agent-cluster": "?1",
+  "referrer-policy": "no-referrer",
+  "strict-transport-security": "max-age=31536000",
+  "x-content-type-options": "nosniff",
+  "x-dns-prefetch-control": "off",
+  "x-download-options": "noopen",
+  "x-frame-options": "SAMEORIGIN",
+  "x-permitted-cross-domain-policies": "none",
+  "x-xss-protection": "0",
+  "x-request-id": "01M75HHP026NG6E856T3NW6QRR",
+  "permissions-policy": "camera=(), microphone=(), geolocation=(), display-capture=(self)",
+  "content-type": "text/csv; charset=utf-8",
+  "content-disposition": "attachment; filename=\"oturumlar-20261111-1752.csv\"",
+  "cache-control": "no-store",
+  "date": "Wed, 11 Nov 2026 14:52:45 GMT",
+  "connection": "keep-alive",
+  "transfer-encoding": "chunked"
+}

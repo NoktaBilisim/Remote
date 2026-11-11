@@ -17,6 +17,7 @@ const (
 	vtOutput1DuplicateOut   = 22
 	vtDuplGetDesc           = 7
 	vtDuplAcquireNextFrame  = 8
+	vtDuplGetPointerShape   = 11
 	vtDuplReleaseFrame      = 14
 	vtDeviceCreateTexture2D = 5
 	vtTexture2DGetDesc      = 10
@@ -67,6 +68,11 @@ type dxgiOutduplFrameInfo struct {
 	PointerShapeBufferSize  uint32
 }
 
+type dxgiOutduplPointerShapeInfo struct {
+	Type, Width, Height, Pitch uint32
+	HotSpotX, HotSpotY         int32
+}
+
 type d3d11Texture2DDesc struct {
 	Width, Height, MipLevels, ArraySize uint32
 	Format                              uint32
@@ -86,6 +92,8 @@ type duplicator struct {
 	device, ctx, dup, staging *comObj
 	w, h                      int // yakalanan yüzey (döndürülmemiş)
 	rot                       Rotation
+	cur                       Cursor // son bildirilen imleç (konum + şekil); kareye bindirmeyi çağıran yapar
+	shapeBuf                  []byte
 }
 
 var errNoOutput = errors.New("capture: monitör DXGI çıkışında bulunamadı")
@@ -153,9 +161,10 @@ func findOutput(factory *comObj, device string) (adapter, output *comObj, rot Ro
 	}
 }
 
-// acquire en çok timeoutMs bekler; masaüstü görüntüsü değiştiyse yüzeyi CPU'ya kopyalayıp eşlenmiş belleği fn'e verir
-// (fn dönene kadar geçerli). Yalnız fare hareketi veya zaman aşımı: false, nil. Diğer hatalar (ACCESS_LOST, masaüstü
-// değişimi, cihaz kaybı) çağırana döner; çağıran oturumu kapatıp yeniden kurar.
+// acquire en çok timeoutMs bekler; masaüstü görüntüsü veya imleç (konum, görünürlük, şekil) değiştiyse yüzeyi
+// eşleyip fn'e verir (fn dönene kadar geçerli) ve true döner. Yalnız imleç değiştiyse yeni kare kopyalanmaz; staging
+// dokusu son masaüstü görüntüsünü tuttuğundan o yeniden eşlenir. Değişiklik yoksa veya zaman aşımında false, nil.
+// Diğer hatalar (ACCESS_LOST, masaüstü değişimi, cihaz kaybı) çağırana döner; çağıran oturumu kapatıp yeniden kurar.
 func (d *duplicator) acquire(timeoutMs uint32, fn func(px []byte, w, h, pitch int) error) (bool, error) {
 	var info dxgiOutduplFrameInfo
 	var res *comObj
@@ -168,25 +177,17 @@ func (d *duplicator) acquire(timeoutMs uint32, fn func(px []byte, w, h, pitch in
 	}
 	defer d.dup.call(vtDuplReleaseFrame)
 	defer res.release()
-	if info.LastPresentTime == 0 {
-		return false, nil
-	}
-	tex, err := res.query(&iidID3D11Texture2D)
+	pointer, err := d.updatePointer(&info)
 	if err != nil {
 		return false, err
 	}
-	defer tex.release()
-	if d.staging == nil {
-		var td d3d11Texture2DDesc
-		tex.call(vtTexture2DGetDesc, uintptr(unsafe.Pointer(&td)))
-		td.MipLevels, td.ArraySize, td.SampleCount, td.SampleQuality = 1, 1, 1, 0
-		td.Usage, td.BindFlags, td.CPUAccessFlags, td.MiscFlags = d3d11UsageStaging, 0, d3d11CPUAccessRead, 0
-		if hr := d.device.call(vtDeviceCreateTexture2D, uintptr(unsafe.Pointer(&td)), 0, uintptr(unsafe.Pointer(&d.staging))); hr.failed() {
-			return false, hr.err("CreateTexture2D")
+	if info.LastPresentTime != 0 {
+		if err := d.copyFrame(res); err != nil {
+			return false, err
 		}
-		d.w, d.h = int(td.Width), int(td.Height)
+	} else if !pointer || d.staging == nil {
+		return false, nil
 	}
-	d.ctx.call(vtCtxCopyResource, uintptr(unsafe.Pointer(d.staging)), uintptr(unsafe.Pointer(tex)))
 	var m d3d11Mapped
 	if hr := d.ctx.call(vtCtxMap, uintptr(unsafe.Pointer(d.staging)), 0, d3d11MapRead, 0, uintptr(unsafe.Pointer(&m))); hr.failed() {
 		return false, hr.err("Map")
@@ -200,6 +201,56 @@ func (d *duplicator) acquire(timeoutMs uint32, fn func(px []byte, w, h, pitch in
 		return false, err
 	}
 	return true, nil
+}
+
+// updatePointer karedeki imleç bilgisini d.cur'a işler; görünen imleç değiştiyse true. Konum ve görünürlük yalnız
+// LastMouseUpdateTime ≠ 0 iken geçerlidir. İmleç başka monitördeyse bu çıktının çoğaltması Visible=false bildirir;
+// böylece imleç yalnız bulunduğu monitörün görüntüsüne çizilir.
+func (d *duplicator) updatePointer(info *dxgiOutduplFrameInfo) (bool, error) {
+	changed := false
+	if info.LastMouseUpdateTime != 0 {
+		vis := info.PointerVisible != 0
+		x, y := int(info.PointerX), int(info.PointerY)
+		changed = vis != d.cur.Visible || (vis && (x != d.cur.X || y != d.cur.Y))
+		d.cur.Visible, d.cur.X, d.cur.Y = vis, x, y
+	}
+	if info.PointerShapeBufferSize == 0 {
+		return changed, nil
+	}
+	size := int(info.PointerShapeBufferSize)
+	if cap(d.shapeBuf) < size {
+		d.shapeBuf = make([]byte, size)
+	}
+	buf := d.shapeBuf[:size]
+	var need uint32
+	var si dxgiOutduplPointerShapeInfo
+	if hr := d.dup.call(vtDuplGetPointerShape, uintptr(size), uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&need)),
+		uintptr(unsafe.Pointer(&si))); hr.failed() {
+		return false, hr.err("GetFramePointerShape")
+	}
+	d.cur.Shape = PointerShape{Type: si.Type, W: int(si.Width), H: int(si.Height), Pitch: int(si.Pitch), Data: buf}
+	return changed || d.cur.Visible, nil
+}
+
+// copyFrame yeni masaüstü yüzeyini CPU'dan okunabilir staging dokusuna kopyalar (ilk karede dokuyu oluşturur).
+func (d *duplicator) copyFrame(res *comObj) error {
+	tex, err := res.query(&iidID3D11Texture2D)
+	if err != nil {
+		return err
+	}
+	defer tex.release()
+	if d.staging == nil {
+		var td d3d11Texture2DDesc
+		tex.call(vtTexture2DGetDesc, uintptr(unsafe.Pointer(&td)))
+		td.MipLevels, td.ArraySize, td.SampleCount, td.SampleQuality = 1, 1, 1, 0
+		td.Usage, td.BindFlags, td.CPUAccessFlags, td.MiscFlags = d3d11UsageStaging, 0, d3d11CPUAccessRead, 0
+		if hr := d.device.call(vtDeviceCreateTexture2D, uintptr(unsafe.Pointer(&td)), 0, uintptr(unsafe.Pointer(&d.staging))); hr.failed() {
+			return hr.err("CreateTexture2D")
+		}
+		d.w, d.h = int(td.Width), int(td.Height)
+	}
+	d.ctx.call(vtCtxCopyResource, uintptr(unsafe.Pointer(d.staging)), uintptr(unsafe.Pointer(tex)))
+	return nil
 }
 
 func (d *duplicator) close() {

@@ -1783,3 +1783,195 @@ Yeni rota yok.
 1. Menü adı "Daha fazla" değil **"Görünüm"** (`MonitorCog`): içerik yalnız görünümle ilgili (monitör, ölçek, tam ekran) ve ikon kuralı anlamlı başlık istiyor.
 2. Kontrol yokken (işaretleme açıkken) şerit 1280 px'te iki satır kalır: işaretleme grubu tek başına 512 px; bulgu kontrol modundaki üç satırdı, o artık tek satır.
 
+
+## Agent — fare imleci (P8 öncesi) (backend-dev/Go, 2026-11-11)
+Kaynak: `docs/gereksinimler.md` "Sonra / açık — P6'dan" tablosundaki "Fare imleci" satırı. DXGI Desktop Duplication karesinde imleç yok. Şimdi konum (`DXGI_OUTDUPL_FRAME_INFO.PointerPosition`) ve şekil (`GetFramePointerShape`) okunuyor ve imleç NV12 karesine bindiriliyor. Yalnız `apps/agent-win/internal/capture` değişti. Sunucu, konsol, contracts ve protokol aynı kaldı. Yeni bağımlılık yok, CGO yok.
+
+### Değişen dosyalar
+| Dosya | Değişiklik |
+|---|---|
+| `internal/capture/cursor.go` (yeni, platformdan bağımsız) | `PointerShape` (Type/W/H/Pitch/Data) ve `Cursor` (Visible, X/Y = şeklin sol üst köşesi, masaüstü yönünde fiziksel piksel). `Size()` şekli doğrular: bilinmeyen tür, kısa tampon, yetersiz satır adımı, tek satır sayılı mono → geçersiz, çizilmez. `BlendPointer` BGRA yamasına çizer: **mono** AND/XOR (1 bpp, MSB önce; AND=1,XOR=0 saydam, 0/0 siyah, 0/1 beyaz, 1/1 ters), **renkli** düz alfa `(c·a + d·(255−a))/255`, **maskeli renkli** alfa 0 → kopya, ≠0 → XOR. `OverlayCursor` imleci masaüstü kenarında kırpar, altındaki pikselleri salt okunur yüzeyden yamaya alıp karıştırır. Yalnız imlecin örneklendiği çıkış 2×2 bloklarının Y/UV değerlerini, `ConvertBGRA` ile aynı formül ve aynı en yakın komşu eşlemesiyle yeniden hesaplar (döndürme ve kodlayıcı küçültmesi dahil) |
+| `internal/capture/dxgi_windows.go` | `vtDuplGetPointerShape = 11` (IDXGIOutputDuplication vtable: GetDesc 7, AcquireNextFrame 8, …, GetFramePointerShape 11, ReleaseFrame 14) ve `dxgiOutduplPointerShapeInfo`. `acquire` bölündü: `updatePointer` konum ve görünürlüğü yalnız `LastMouseUpdateTime ≠ 0` iken alır. `PointerShapeBufferSize > 0` ise şekli yeniden kullanılan tampona okur. `copyFrame` önceki kopyalama koduyla aynı. **Davranış değişikliği:** yalnız imleç değiştiyse (`LastPresentTime == 0`) yeni yüzey kopyalanmıyor. Staging dokusu son masaüstü görüntüsünü tuttuğu için o yeniden eşleniyor ve `changed=true` dönüyor. Önceden fare hareketi kare üretmiyordu |
+| `internal/capture/source_windows.go` | `grab` içinde `ConvertBGRA`'dan sonra `OverlayCursor(p.frame, px, …, &p.dup.cur)` çağrılıyor. Süre `convCost`'a dahil (AC-41 hız denetimi bunu görüyor) |
+| `internal/capture/cursor_test.go` (yeni) | Aşağıda |
+
+### Kararlar / sapmalar (gerekçeli)
+1. **Bindirme BGRA'da değil, NV12'de bölgesel yeniden dönüştürmeyle yapılıyor.** Eşlenmiş staging yüzeyi `D3D11_MAP_READ` ile açılıyor, yazılamaz. Tam karenin yazılabilir kopyası 4K'da kare başına yaklaşık 33 MB demek. Bunun yerine imleç alanı küçük bir BGRA yamasında karıştırılıyor ve yalnız etkilenen bloklar yeniden hesaplanıyor. Sonuç, "imleci BGRA'ya çiz, sonra tüm kareyi `ConvertBGRA`'dan geçir" yolunun çıktısıyla **bayt bayt aynı**. Test bunu 3 şekil × 3 boyut (küçültmeli/küçültmesiz) × 4 döndürme × 6 konum (kenar kırpma dahil) üzerinde doğruluyor. Testin hatayı yakaladığı mutasyonla gösterildi: blok aralığı yuvarlaması bozulunca test kırılıyor.
+2. **Yalnız imleç hareketinde kare yeniden üretiliyor.** Tam kare yeniden dönüştürülüyor. Kare hızı bütçesi (`rateCtl`) bunu zaten sınırlıyor, ek darboğaz yok. Ekran durgunken bile imleç akıcı hareket etsin diye gerekli.
+3. **Çoklu monitör:** her monitörün kendi çoğaltma oturumu var. İmleç başka monitördeyse DXGI o çıktı için `Visible=false` bildiriyor ve imleç çizilmiyor. Ek kod gerekmedi.
+4. **DPI:** süreç Per-Monitor V2. Konum da şekil de fiziksel pikselde geliyor, Windows imleci DPI'ya göre büyütülmüş veriyor. Ek ölçek yok. 1080p üstü masaüstlerinde imleç karenin geri kalanıyla aynı oranda küçülüyor. Çok küçük ölçekte 1 px'lik kenar çizgisi örnekler arasına düşüp kaybolabilir (en yakın komşu, karenin geri kalanıyla tutarlı).
+5. **Döndürülmüş monitör:** konum ve şekil masaüstü yönünde yorumlanıyor (Microsoft DesktopDuplication örneğiyle aynı). Bu varsayım Windows'ta elle doğrulanmalı (adım 46).
+6. **Sıcak nokta tutulmuyor:** DXGI `PointerPosition` zaten şeklin sol üst köşesi. Sıcak nokta yalnız bilgi amaçlı geliyor, kullanılmadığı için saklanmıyor.
+7. **Oturum yeniden kurulunca** (UAC, kilit, mod değişimi) imleç durumu sıfırlanıyor. DXGI imleç bilgisini bir sonraki imleç güncellemesinde (hareket ya da şekil) verirse imleç o ana kadar görünmeyebilir. Adım 47'de kontrol edilecek.
+
+### Testler ve son çıktı
+Komut (docker `golang:1.26.11-bookworm`, repo kökü bağlı, `apps/agent-win`): `gofmt -l .` → `go vet ./...` → `GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...` → `go test -race -count=1 ./...` → `build/build.sh https://staging.example:4450 0.7.3` iki kez.
+Son çıktı: gofmt temiz, iki vet temiz, **15/15 paket ok** (-race). İki derleme aynı SHA-256 `70f17aad…ced73055` (12,10 MB).
+Yeni testler (`internal/capture/cursor_test.go`):
+- `TestPointerMonoAndXor`: dört AND/XOR birleşimi, alfa baytı korunuyor.
+- `TestPointerMonoWideRowsUseByteBoundaries`: 10 px genişlik, bayt sınırı ve satır adımı.
+- `TestPointerColorAlpha`: alfa 0 / 255 / 128.
+- `TestPointerMaskedColor`: kopya, XOR 0 (saydam), XOR FFFFFF (ters).
+- `TestPointerShapeValidation`: 7 geçersiz şekil reddediliyor ve çizilmiyor.
+- `TestOverlayMatchesComposedConversion`: denklik testi (karar 1).
+- `TestOverlayLeavesFrameUnchanged`: görünmez, nil, geçersiz şekil, tamamen dışarıda (sol / sağ alt), saydam maske.
+- `TestOverlayChangesOnlyCursorBlocks`: tek piksellik imleç yalnız kendi Y örneğini değiştiriyor.
+- `TestOverlayRejectsBadFrame`.
+
+COM tarafı (`updatePointer`, yalnız imleç değişiminde yeniden eşleme) Win32 gerektirdiği için birim testi yok. Aşağıdaki elle doğrulama adımlarıyla kapsanıyor.
+
+### Windows'ta elle doğrulanacaklar (adım 42'ye ek)
+43. **İmleç görünüyor:** paylaşım açıkken konsolda müşterinin imleci görünmeli ve ekran durgunken de fareyle gecikmesiz hareket etmeli. Görev çubuğu köşesine götürünce yarısı kırpılarak çizilmeli, kenarda bozulma olmamalı.
+44. **Şekil değişiyor:** Not Defteri metin alanında metin imleci (I, mono XOR: koyu ve açık zeminde ters renk görünmeli), bağlantı üstünde el, pencere kenarında yeniden boyutlandırma okları, "meşgul" (dönen halka, renkli alfa) görünmeli. Ayarlar > Erişilebilirlik > Fare işaretçisi'nde "Ters" şema (maskeli renkli/XOR) ve büyük/renkli işaretçi denenmeli.
+45. **İkinci monitör:** imleç paylaşılan monitördeyken çizilmeli. Diğer monitöre geçince konsoldaki görüntüden kaybolmalı, geri gelince yine görünmeli. Konsoldan monitör değiştirince (adım 34) imleç yeni ekranda çizilmeli.
+46. **DPI ve döndürme:** monitör ölçeği %150 iken imleç doğru boyutta (yerel ekranla orantılı) ve tıklanan noktayla hizalı olmalı. Uzaktan kontrolde konsolda tıklanan nokta imlecin sıcak noktasına düşmeli. 4K (küçültülen) monitörde de denenmeli. Mümkünse dikey (90°) döndürülmüş monitörde imleç konumu ve yönü doğru olmalı.
+47. **Oturum yeniden kurulumu:** Win+L ile kilitleyip açınca veya bir UAC isteminden sonra imleç yeniden görünmeli. En geç ilk fare hareketinde görünmesi kabul edilir.
+
+### frontend-dev / backend için sözleşme notları
+Sözleşme değişmedi. İmleç video karesinin içinde geliyor. Konsolun ayrıca imleç çizmesine gerek yok, çizerse çift imleç olur. Fare hareketi artık durgun ekranda da kare üretiyor, yani video bant genişliği hareket sırasında biraz artabilir.
+
+## Backend P8 — oturum geçmişi (backend-dev, 2026-11-11)
+Sözleşme: `docs/mimari-api.md` "Oturum geçmişi (P8)" §1–6; AC-60..63, 124. Veri katmanı: dba migration'ları `20261111060000_p8_session_history` ve `20261111070000_enum_check_binary` (bu iş onlara dokunmadı).
+
+### Değişen / eklenen dosyalar
+- `packages/contracts/src/api/sessions.ts`: `listSessionsQuerySchema` (strict; status, mode, from/to, technicianId, tenantId, customer, page, pageSize, sort; from > to → `fields.to`), `exportSessionsQuerySchema` (aynı şema), `SessionListItem`, `SessionHistoryDetail`, `SessionConsentRecord`, `ControlPeriod`, `SessionFileRecord`, `TimelineEvent`, `TIMELINE_DETAIL_KEYS`/`TIMELINE_ACTIONS` (izin listesi + izinli alanlar), `storedQualitySummarySchema`, `updateSessionInputSchema` (PATCH), `SESSION_CSV_COLUMNS`, `SESSION_EXPORT_MAX_ROWS`. `SessionListResponse.items` artık `SessionListItem[]` (`SessionView`'ı genişletir, kırılma yok).
+- `packages/contracts/src/labels.ts` (yeni, `@remote/contracts/labels`): durum, mod, sonlandıran, `end_reason`, onay seviye/karar/kaynak, kontrol kapanış nedeni, dosya yön/sonuç ve zaman çizelgesi etiketleri; `labelOf` (bilinmeyen değer ham döner) ve `describeTimelineEvent` (§3 "UI gösterimi").
+- `apps/server/src/lib/csv.ts` (yeni): `csvCell` önce formül kaçışını, sonra RFC 4180 tırnaklamayı uygular. Ayrıca `csvRow`, BOM, `istanbulDateTime` ve `hms`.
+- `apps/server/src/sessions/history-repo.ts` (yeni): markalı `HistoryScope` (`{kind:"all"}` elle kurulamaz), `historyWhere` (kapsam filtreden sonra yazıldığı için filtreyi ezer), LIKE kaçışı, liste/count, keyset CSV partisi, detay alt sorguları (zaman çizelgesi `tenant_id` + entity + entity_id ile), `updateNotes` (kapsam UPDATE'in where koşulunda).
+- `apps/server/src/sessions/history.ts` (yeni): liste, detay (izdüşüm, actor/actorName, `deriveControlPeriods`, kalite ayrıştırma; ayrıştırılamazsa uyarı logu ve null), PATCH (UPDATE ve audit tek TX'te), CSV.
+- `apps/server/src/sessions/service.ts`: `historyScope(auth)` tek kaynak. `GET /:id` bu kapsamı kullanır. Eski `listSessions` ve `repo.listInScope` kaldırıldı (artık ölü koddu).
+- `apps/server/src/sessions/routes.ts`: `GET /sessions` (any-of yetki, `no-store`), `GET /sessions/export.csv`, `GET /sessions/:id/history`, `PATCH /sessions/:id`.
+- `apps/server/src/auth/guards.ts`: `requireAnyPerm(...keys)`.
+- `apps/server/src/audit/mask.ts`: `ticketNo` izinli anahtarlara eklendi. Nedeni: `ticket` kara liste kalıbı `session.updated` içindeki ticket numarasını `***` yapıyordu; ticket numarası gizli bir değer değil.
+- Admit (dba "Backend-dev için" A1): `repo.consumeForAdmit(…, customer)` tek atomik UPDATE'te `customer_name` ve `customer_email` yazar. `Guest.email` join'den gelir (`public/service.ts`, `signaling/{types,rooms,admit}.ts`).
+- Testler: `packages/contracts/test/history-p8.test.ts`, `apps/server/test/unit/history-p8.test.ts`, `apps/server/test/integration/sessions-history-api-p8.test.ts`. `test/helpers/tenant-matrix.ts` güncellendi: 3 yeni uç sınıflandırıldı, CROSS_TENANT_CASES'e `:id/history` ve PATCH eklendi, fixture USER'a `session_history.view/export` verildi; böylece export "list" sınıfında da sınanıyor. `signaling-rooms.test.ts` yeni imzaya uyarlandı.
+
+### Tasarımdan sapmalar (gerekçeli)
+1. **CSV akışı:** `reply.raw`'a yazmak yerine `reply.send(Readable.from(generator))` kullanıldı. Böylece Fastify kancaları (helmet/CSP başlıkları, istek logu) devrede kalıyor. Davranış aynı: önce count, sonra 1000'lik keyset partileri. Akış sırasındaki hata log'a ref ile yazılır ve bağlantı kesilir. Akış sırasında yeni kayıt eklenirse çıktı yine en çok 50.000 satırla sınırlanır.
+2. **PATCH notunda CRLF → LF normalize ediliyor** (zod `overwrite`; dba/koordinatör isteği). Tek başına `\r` gelirse yine 400 döner.
+3. **Admit, kısa ad:** zod `customerName` uzunluğunu UTF-16 birimiyle sayıyor, DB CHECK ise kod noktasıyla. 2 kod noktasından kısa bir ad (ör. tek emoji) CHECK'i bozup admit'i düşürmesin diye o durumda `customer_name`/`customer_email` NULL yazılır (`admit.ts customerOf`).
+4. Rate limit 5/dk: `FixedWindowCounter(6, 60 sn, 60 sn)`, yani 6. istek 429 + `Retry-After` alır (auth IP limitiyle aynı kalıp).
+5. `control.revoked` kapanış nedeni etiketlerine §3'te olmayan `reconnect`, `stale` ve `tech` de eklendi. `revokeControl` bu değerleri yazabiliyor; etiket bulunmazsa değer zaten ham gösterilirdi.
+
+Yeni bağımlılık yok. Yeni env değişkeni yok.
+
+### frontend-dev için sözleşme
+- İçe aktarma: `@remote/contracts/api/sessions` (`SessionListItem`, `SessionHistoryDetail`, `listSessionsQuerySchema`, `updateSessionInputSchema`, `TimelineEvent`, `ControlPeriod`, …) ve **`@remote/contracts/labels`** (`labelOf`, `*_LABELS`, `describeTimelineEvent` → `{label, note, warn}`; `warn=true` ise "Müşteri istemcisi yönetici olarak çalışıyordu" rozeti gösterilir).
+- `GET /sessions` bilinmeyen sorgu parametresinde 400 döner. Varsayılan sıra `createdAt:desc`. `tenant` alanı yalnız firma seçmemiş SUPER_ADMIN için dolu gelir.
+- PATCH yanıtı tam `SessionHistoryDetail`. `ticketNo` trim edilir; `""` ve `null` NULL olarak kaydedilir; notta CRLF LF'e çevrilir.
+- `GET /sessions/export.csv?<liste filtreleri>`: 400 `fields.to` (> 50.000 satır), 429 + `Retry-After`. Dosya adı `Content-Disposition`'dan alınır.
+
+### Test komutları ve son çıktı (geçici `mysql:8.4`, `rs-mysql-be-p8:33328`, 8 migration uygulandı, iş bitince silindi)
+- `pnpm -r run lint` temiz · `pnpm -r run typecheck` temiz · `pnpm -r run test`: contracts **49/49**, server **255/255**, web **128/128**.
+- `pnpm --filter @remote/server test:int`: **214/214** (25 dosya; P8 dosyası 22 test: AC-60 filtreleri ve İstanbul gün sınırı, LIKE kaçışı, sayfalama; AC-61 IDOR — USER başka teknisyen/başka tenant/var olmayan id için `:id`, `:id/history`, PATCH'te 404, ADMIN için 404/200, SUPER_ADMIN tüm tenant ve firma seçili, any-of yetki; AC-62 detay — ip/UA yok, kontrol dönemleri, izdüşüm, kırpma, bozuk kalite; AC-63 PATCH (audit'te not metni yok, çift gönderim, 400/403) ve CSV (BOM, `;`, CRLF, İstanbul saati, formül kaçışı, audit, USER kapsamı, Firma sütunu, 5/dk, 1205 satırda keyset)).
+- **AC-60 ölçümü** (10.000 oturum, `seedPerfSessions` + `ANALYZE TABLE`, ilk sayfa findMany+count, 5 tekrarın medyanı): ADMIN 2,4 ms · USER 2,5 ms · SUPER_ADMIN tüm tenant'lar (DB'de ~30 bin satır) 2,5 ms · API uçtan uca ADMIN 4,8 ms. Hepsi 500 ms sınırının çok altında.
+
+## Frontend P8 — oturum geçmişi (frontend-dev, 2026-11-11)
+
+Kapsam: AC-60, 61 (arayüz tarafı), 62, 63, 124 (indirme) + ertelenen iş "AC-39 axe kararsızlığı". Tipler ve etiketler
+`@remote/contracts/api/sessions` ve `@remote/contracts/labels`'tan gelir (geçici yerel tipler silindi; etiket tablosu çoğaltılmadı —
+`labelOf`, `*_LABELS`, `describeTimelineEvent`). Tasarım skill dosyaları okunmadı (görünüm DESIGN.md primitifleriyle; yeni hareket yok).
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/history` | Oturum + `session_history.view` (yoksa uyarı, menüde öğe yok) | Filtreli, sayfalı oturum geçmişi. Sorgu: `from`, `to` (YYYY-AA-GG, İstanbul günü), `status`, `mode` (AGENT/BROWSER), `technicianId` (ADMIN/SA), `tenantId` (yalnız firma seçmemiş SA), `customer`, `page`, `pageSize` (10/25/50/100; 1..100). Geçersiz değer API'ye gönderilmez, "yok sayıldı" uyarısı çıkar. "Dışa aktar (CSV)" yalnız `session_history.export` ile ve kayıt varken |
+| `/history/[id]` | Oturum + `session_history.view` | Özet (oluşturma/başlangıç/bitiş/süre, mod, teknisyen, [firma], müşteri adı/e-posta, sonlandıran + yönetici adı, bitiş nedeni), ticket + not formu (`session_history.edit`; yoksa salt okunur), onay kayıtları, kontrol dönemleri, zaman çizelgesi, kalite özeti, dosya meta verisi. Kapsam dışı/yok → "Oturum bulunamadı" (not-found; Next akışlı yanıtta HTTP 200 kalır, içerik 404 sayfası) |
+
+Kenar menüsü: "Oturum geçmişi" (`History`), `session_history.view` yoksa gizli. Dar ekranda yatay menü artık kaydırılabilir (`overflow-x-auto`, 3 öğe 390 px'e sığmıyordu).
+
+### Durumlar
+- Yükleniyor: `history/loading.tsx`, `history/[id]/loading.tsx` iskeletleri; filtre/sayfa boyutu geçişinde düğme `loading` (useTransition).
+- Boş: hiç kayıt → `History` + "Oturumlara git" (sessions.view varsa); filtrede boş → "Filtreleri temizle"; toplamı aşan sayfa → "İlk sayfaya dön".
+- Hata: liste/detay 5xx → `LoadError` + Tekrar dene; 403 → uyarı; 401 → giriş. CSV 400 (`fields.to`) / 429 (`Retry-After` dk) / ağ → düğme altında `Alert danger`.
+- Kısmi: yok sayılan URL filtreleri; adı olmayan müşteri ("Ad kaydı yok"); bağlanılmamış oturum ("Bağlanılmadı", "Müşteri bağlanmadı"); kapanışsız kontrol dönemi ("Kapanış kaydı yok", bitiş tahmin edilmez); `timelineTruncated` ("Yalnız ilk 500 olay"); `quality: null`; BROWSER modda "Tarayıcı modunda uzaktan kontrol yoktur".
+- Not formu: alan bazlı hata (contracts `updateSessionInputSchema`), sayaçlar (ticket x/50, not x/4.000; aşımda kırmızı), gönderimde alanlar + düğme pasif, sunucu `fields` → alana, diğer hata → `FormError`; başarı → toast "Ticket ve not kaydedildi" + `router.refresh()` (aynı sayfada kalınır — yönlendirme yok, düzenleme ayrıntı ekranının parçası); kaydedilmemiş değişiklikte `beforeunload` + uygulama içi bağlantıda onay diyaloğu (odak "Sayfada kal").
+
+### Değişen / eklenen dosyalar
+- `apps/web/app/(panel)/history/{page,loading,history-filters,history-list,pagination,export-button,live-duration}.tsx` (yeni)
+- `apps/web/app/(panel)/history/[id]/{page,loading,not-found,sections,note-form}.tsx` (yeni)
+- `apps/web/lib/history/query.ts` (URL ↔ filtre, API yolları), `lib/history/note.ts` (patch + doğrulama), `lib/history/history.test.ts` (yeni)
+- `apps/web/lib/format.ts`: `formatDuration`, `istanbulDay`
+- `apps/web/components/ui/select-field.tsx` (yeni primitif, DESIGN.md §6'da)
+- `apps/web/app/(panel)/side-nav.tsx`, `apps/web/messages/tr.json` (`nav.history`, `h.*`)
+- `apps/web/e2e/mock-history.mjs` (yeni), `e2e/mock-api.mjs` (bağlama), `e2e/p8-history.spec.ts` (yeni)
+- AC-39: `apps/web/e2e/helpers.ts` (`axeScan` legacy mod + `include`), `apps/web/e2e/p5-collab.spec.ts`
+- `DESIGN.md` (SelectField, oturum geçmişi ekranları, P8 ikonları)
+
+### AC-39 axe kararsızlığı — kök neden ve düzeltme
+Yeniden üretim: eski test `--repeat-each=14`, 7 işçi → **28/28 zaman aşımı** (tek tek ~40–48 sn). İz (trace) adım süreleri:
+1. **Tarama başına yeni sekme:** `@axe-core/playwright` varsayılan modu her `analyze()`'da axe'ı sayfaya enjekte edip `runPartial` çalıştırıyor,
+   sonra aynı context'te **boş bir sekme açıp** axe'ı oraya ikinci kez enjekte ederek `finishRun` yapıyor. Yük altında bu tarama başına 4–9 sn;
+   test 8 tam tarama yapıyordu (≈ 40 sn). Yeni sekme ayrıca taranan (WebRTC'li) sayfayı arka plana atıyor.
+2. **Misafir context kapanışı:** ekran yakalama açıkken `g.context().close()` yük altında 3–10 sn sürüyor (ölçüldü).
+Düzeltme: (a) `axeScan` legacy modda (tek enjeksiyon, aynı sayfada `axe.run`; uygulamada iframe yok, kurallar ve DOM aynı) + isteğe bağlı
+`include` — sekme değiştiğinde yalnız değişen bölge taranır; (b) test ikiye bölündü ("konsol panelleri" / "müşteri 375 px + kabul diyaloğu",
+her biri açık/koyu); (c) `closeGuest`: önce paylaşım durdurulur, sonra context kapanır (kapanış 4–8 sn → 1,5–3 sn). Zaman aşımı değiştirilmedi.
+Sonuç (7 işçi, tam paralel yük): 40/40 ve 20/20 geçti, test süresi 6–25 sn. Bir ara koşuda (makinede eşzamanlı başka ajan testleri varken,
+paylaşım durdurma eklenmeden önce) 40'ın 6'sı ~31 sn ile düştü; (c) bu koşudan sonra eklendi. Son doğrulama aşağıda.
+
+### Sapmalar
+1. **Teknisyen/firma filtre seçenekleri** o sayfadaki kayıtlardan + URL'deki seçili değerden üretilir (ipucu metni ekranda). Kullanıcı ve firma
+   listesi uçları P9'da (`GET /users`, `/admin/tenants`). **backend-dev / P9 notu:** filtre için hafif bir `GET /users?fields=id,fullName` (ADMIN/SA)
+   ve tenant listesi gelince seçenekler oradan alınacak.
+2. Liste/detay durum rozeti mevcut `StatusBadge`'i kullanır ("Aktif", "İptal"); contracts `SESSION_STATUS_LABELS` ("Etkin", "İptal edildi") CSV'de.
+   Ekranlar arası tutarlılık için oturumlar ekranıyla aynı rozet bırakıldı. Mod etiketi contracts'tan ("İstemci"/"Tarayıcı").
+3. Kaydetme sonrası yönlendirme yok (bkz. Durumlar). Ticket/not için `maxLength` konmadı: yapıştırılan uzun metin kesilmeden sayaç + hata gösterilir.
+4. Kalite bağlantı yolu P5 konsoluyla aynı etiketler (`p5.q.conn.*`).
+
+### Testler
+- Birim: `lib/history/history.test.ts` (filtre ayrıştırma/URL, geçersiz değer, from>to, export yolu, takvim günü, müşteri denetimi, süre, İstanbul günü, patch/doğrulama).
+- E2E `p8-history.spec.ts`: AC-60 liste/sayfalama/sayfa boyutu/menü, filtre URL + yenileme + temizle, istemci doğrulaması + yok sayılan URL filtresi;
+  AC-61 USER/ADMIN/SUPER_ADMIN sütun ve filtreleri, kapsam dışı id → bulunamadı; AC-62 tüm bölümler (kısayolla kapanan dönem + selfElevated rozeti,
+  kapanışsız dönem, bilinmeyen action ham, başarısız olay, kırpılmış çizelge, BROWSER); AC-63 sayaç, doğrulama, sunucu alan hatası, ayrılma uyarısı,
+  kaydet + toast + kalıcılık, salt okunur yetki; AC-63/124 CSV indirme (filtre iletimi, dosya adı, BOM, `;`, formül kaçışı) + 400/429; 5 durum;
+  yetkisiz kullanıcı; axe açık/koyu liste + detay + 390 px kart görünümü ve taşma (masaüstü + mobil proje).
+
+### Son doğrulama
+- `pnpm -r run lint` temiz · `pnpm -r run typecheck` temiz · web birim **136/136**.
+- Tam `pnpm --filter @remote/web e2e`: **174 geçti, 0 kırmızı**, 54 atlandı (gerekçeli mobil/masaüstü atlamaları; P8 akışlarının çoğu masaüstüne özel, mobilde axe/390 px + durum testleri koşar).
+- AC-39 son tekrar (`-g "AC-39: P5" --repeat-each=10`, 7 işçi): **40/40**, en uzun 16,4 sn (bütçe 30 sn). Önceki iki dizi: 40/40 ve 20/20.
+- Kalan: yok. Elle kontrol önerisi: gerçek backend ile (staging) CSV'nin tr-TR Excel'de sütunlara açılması (mimari §10.3 P8 kanıtı, test-operatoru).
+
+### Frontend P8 — test bulguları (frontend-dev, 2026-11-11)
+Rota değişmedi (`/history`, `/history/[id]`). Tasarım skill dosyaları okunmadı (yerleşim düzeltmesi; DESIGN.md primitifleriyle, yeni hareket yok).
+- **TEST-P8-1** `/history/[id]`: "Dosyalar" bölümü artık tam genişlikte; yarım sütunda 6 sütunlu tablo sığmıyordu. Onay ve dosya tabloları ortak
+  `DataTable` ile çiziliyor. xl ve üstünde tablo gösteriliyor; taşarsa odaklanabilir kaydırma kabı korunuyor. Daha dar alanda aynı veri `<dl>`
+  kartlarıyla gösteriliyor (sm+ iki sütun), iç kaydırma yok. Kart görünümü xl altında açılıyor, çünkü 1024 px'te kenar menüsüyle tablo
+  94 px taşıyordu (ölçüldü). Dosya adında `break-all` kaldırıldı; yerine `min-w-48` ve `wrap-break-word` geldi, ad artık harf harf bölünmüyor.
+  SHA-256 `abababab…abababab` biçiminde kısaltılıyor. Tam değer `title`'da ve kopyala düğmesinde (`[id]/copy-hash.tsx`, `copyText` + toast).
+- **TEST-P8-2** `/history`: hücre dolgusu `px-4` yerine `px-3`. Firma, Teknisyen, Bağlantı ve Ticket tek satırda, `truncate` + `title` ile.
+  Bu yetmedi: SA 1280'de taşma 17 px'ten 18 px'e çıktı (Süre sütunu "· sürüyor" ile geniş). Bu yüzden Firma sütunu açıkken 2xl altında en az
+  öncelikli **Bağlantı** sütunu gizleniyor. Bilgi filtrede, mobil kartta ve ayrıntı sayfasında duruyor. Ölçüm: kap 974 px, tablo 974 px.
+- **Gözlem: tarayıcı geri tuşu** (`note-form.tsx` `useLeaveGuard`): form kirlenince aynı URL'ye bir nöbetçi geçmiş kaydı ekleniyor. Bunun için
+  Next 16'nın desteklediği yerel `history.pushState(history.state, "", aynı URL)` kullanılıyor. Geri basılınca URL değişmiyor, Next aynı ağacı
+  geri yüklüyor, form değeri korunuyor ve aynı onay diyaloğu açılıyor. "Sayfada kal" nöbetçiyi yeniden ekliyor. "Kaydetmeden ayrıl" bir adım
+  daha geri gidiyor. Kayıt ya da geri alma sonrası form temizse, nöbetçiden geri basınca otomatik bir adım daha geri gidiliyor; tek basış
+  listeye döndürüyor. Nöbetçi üzerindeyken bağlantıyla ayrılınca `router.replace` kullanılıyor, böylece çift kayıt oluşmuyor.
+  Sınırlar: geçmiş menüsünden birden çok adım geri gidiş engellenemiyor (tarayıcı API'si izin vermiyor), bu durumda yalnız uyarı gösterilmiyor.
+  Form temizken bağlantıyla ayrılınca nöbetçi geçmişte kalıyor: hedeften geri dönüşte aynı sayfa iki kez geçiliyor (zararsız).
+- Değişen dosyalar: `apps/web/app/(panel)/history/history-list.tsx`, `history/[id]/{page,sections,note-form}.tsx`, `history/[id]/copy-hash.tsx` (yeni),
+  `apps/web/messages/tr.json` (`h.file.copySha`), `apps/web/e2e/p8-history.spec.ts`, `DESIGN.md`.
+- E2E (yeni): "TEST-P8-2" (SA/ADMIN/USER 1280 px, `pageSize=100`: kap taşması ≤ 0, tüm satırlar aynı yükseklikte, sayfa taşması yok);
+  "TEST-P8-1" (1440/1280: dosya ve onay kabı taşması ≤ 0, dosya adı tek satır, SHA kısa metin + `title` + panoya tam değer; 1024/390: tablo gizli,
+  kartlar görünür, kart ve sayfa taşması yok); "AC-63: … tarayıcı geri tuşu onay ister" (istemci gezinmesiyle gelinip `goBack` → diyalog,
+  değer korunuyor; kal → yeniden yakalanıyor; ayrıl → `/history`; temiz formda tek geri → `/history`).
+- Sonuç: web `lint` ve `typecheck` temiz, birim 136/136, `pnpm --filter @remote/web e2e p8-history` 22 geçti, 10 atlandı (masaüstüne özel akışlar mobilde), axe açık/koyu 0.
+
+### Backend P8 — düşük bulgular (Tur 1 sonrası, 2026-11-11)
+- **S8-1** `apps/server/src/lib/csv.ts`: formül kaçışı artık baştaki boşluk/NBSP/ideografik boşluktan (U+3000) sonra gelen tetikleyicileri ve tam genişlikli ＝＋－＠ varyantlarını da yakalıyor: `/^[\s 　]*[=+\-@\t\r＝＋－＠]/`. Her varyant için birim testi var (`test/unit/history-p8.test.ts`).
+- **S8-2** `sessions/service.ts toView(r, viewerId)`: bekleyen oturumun `code` alanı liste, `:id/history` ve `:id` uçlarında yalnız oturumun kendi teknisyenine dönüyor; ADMIN ve SUPER_ADMIN `null` görüyor. Contracts'ta `code: string | null` zaten nullable, şema değişmedi; web typecheck ve testleri yeşil. Entegrasyon testi üç rolü ve üç ucu kapsıyor.
+- **S8-3** `GET /sessions`: `customer` filtresi doluyken kullanıcı başına 60/dk sınırı var (`FixedWindowCounter(61, 60 sn, 60 sn)`); aşılınca 429 + `Retry-After`. Filtresiz liste bu sınırdan etkilenmiyor. Entegrasyon testi var.
+- **QA-P8-2** `joinSessionInputSchema.customerName`: uzunluk artık kod noktasıyla sayılıyor (2..100), DB `CHAR_LENGTH` ile tutarlı. Tek emoji reddediliyor; 100 emoji (200 UTF-16 birimi) kabul ediliyor. Admit'teki NULL'a düşme yalnız gerçekten geçersiz değerde devreye giriyor (savunma amaçlı); geçerli adla e-posta artık kaybolmuyor.
+- Sonuç: `pnpm -r run lint` ve `pnpm -r run typecheck` temiz. `pnpm -r run test`: contracts 50/50, server 256/256, web 136/136. `test:int` 216/216 (geçici mysql 8.4 `rs-mysql-be-p8`, iş bitince silindi). AC-60 ölçümü değişmedi: ADMIN 2,4 ms, USER 2,2 ms, SUPER_ADMIN 2,0 ms, API 6,7 ms.
+
+### Ajan — TLS hata mesajı (P8)
+- **Sorun:** Windows sunucu sertifikasına güvenmediğinde `api` istemcisinin TLS hatası `Status==0` olarak sınıflanıyordu. Bu yüzden ajan "Sunucuya ulaşılamıyor" mesajını gösterip kod giriş ekranına dönüyordu ve kullanıcı kodunun geçersiz olduğunu sanıyordu.
+- `apps/agent-win/internal/api/api.go`: `Error` tipine `TLS bool` alanı eklendi. `isCertError` fonksiyonu `*tls.CertificateVerificationError`, `x509.UnknownAuthorityError`, `x509.CertificateInvalidError` ve `x509.HostnameError` hatalarını ayırt ediyor. TLS hatasında `Retryable()` artık false döndüğü için resolve isteği boşuna 3 kez denenmiyor. Doğrulama gevşetilmedi, pinning eklenmedi (AC-109).
+- `apps/agent-win/internal/flow/messages.go`: yeni `msgTLS` mesajı eklendi ("Sunucu sertifikası doğrulanamadı" / "Bu bilgisayar sunucunun güvenlik sertifikasına güvenmiyor. Teknisyeninize bildirin; kod girmeniz sorunu çözmez."). `classify` bu hatayı `outFinal` ile döndürüyor, böylece kod giriş ekranına düşülmüyor. Bu metnin web tarafında karşılığı yok, çünkü tarayıcı sertifika hatasını kendisi gösteriyor.
+- **Testler:**
+  - `api_test.go` `TestAC109TLSErrorClassification`: httptest TLS sunucusuyla iki durum deneniyor: güvenilmeyen kök ve ad uyuşmazlığı. İkisinde de `TLS=true` ve yeniden deneme yok. Kapalı porta bağlanma ise `TLS=false` ve yeniden denenebilir sayılıyor.
+  - `TestAC109RejectsUntrustedCertificate` testine `TLS` ve `Retryable` kontrolleri eklendi.
+  - `flow_test.go` `TestClassifyTable` ile tüm sınıflar tablo halinde test ediliyor.
+  - `TestAC109TLSErrorShowsFinalNotCodeEntry`: son ekranın gösterildiğini, `askcode` çağrısı yapılmadığını ve tek resolve yapıldığını doğruluyor.
+- **Komut ve sonuç:** Docker `golang:1.26.11-bookworm@sha256:dc40…`, repo kökü bağlı, `GOFLAGS=-mod=readonly GOTOOLCHAIN=local`. `gofmt -l` temiz. `GOOS=windows go vet ./...` ve `go vet ./...` temiz. `go test -count=1 ./...` sonucunda 15 paketin tamamı ok.

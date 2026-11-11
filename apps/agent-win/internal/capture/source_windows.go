@@ -27,7 +27,7 @@ const rpcEChangedMode = 0x80010106
 
 var errClosed = errors.New("capture: kaynak kapalı")
 
-// source DXGI Desktop Duplication → BGRA→NV12 (CPU) → Media Foundation H.264 hattı. COM nesneleri iş parçacığına
+// source DXGI Desktop Duplication → BGRA→NV12 (CPU) + fare imleci bindirmesi → Media Foundation H.264 hattı. COM nesneleri iş parçacığına
 // bağlı olmasın diye tüm çağrılar kilitli tek bir OS iş parçacığında (worker) yapılır; NextFrame istekleri kanalla
 // gelir. Gösterge ve işaretleme pencereleri WDA_EXCLUDEFROMCAPTURE ile yakalamaya girmez (internal/ui).
 type source struct {
@@ -155,7 +155,7 @@ func (p *pipeline) start() error {
 	return nil
 }
 
-// grab yeni masaüstü karesini (varsa) NV12'ye çevirir; çözünürlük değişirse kodlayıcıyı yeniden kurar.
+// grab yeni masaüstü karesini (varsa; yalnız imleç hareketi de sayılır) NV12'ye çevirip imleci bindirir; çözünürlük değişirse kodlayıcıyı yeniden kurar.
 // Çoğaltma kaybında (ACCESS_LOST, Güvenli Masaüstü/UAC, kilit ekranı, mod değişimi) oturumu kapatır ve geri çekilmeli
 // yeniden açar; bu sürede son kare kullanılmaya devam eder. Yalnız kodlayıcı kurulamazsa hata döner.
 func (p *pipeline) grab() (bool, error) {
@@ -182,6 +182,9 @@ func (p *pipeline) grab() (bool, error) {
 		}
 		t0 := time.Now()
 		err := ConvertBGRA(p.frame, px, w, h, pitch, p.dup.rot)
+		if err == nil {
+			err = OverlayCursor(p.frame, px, w, h, pitch, p.dup.rot, &p.dup.cur)
+		}
 		p.convCost = time.Since(t0)
 		return err
 	})

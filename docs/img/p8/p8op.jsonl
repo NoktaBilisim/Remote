@@ -1,0 +1,537 @@
+{"test":"tarama: liste-superadmin-100","kind":"load","label":"liste-superadmin-100-1280-light","status":200,"ms":515,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-superadmin-100","kind":"overflow","label":"liste-superadmin-100-1280-light","doc":0,"tableScroll":0,"tableW":974}
+{"test":"tarama: detay-zengin","kind":"load","label":"detay-zengin-1280-light","status":200,"ms":602,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-zengin","kind":"overflow","label":"detay-zengin-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-user","kind":"load","label":"liste-user-1280-light","status":200,"ms":605,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-user","kind":"overflow","label":"liste-user-1280-light","doc":0,"tableScroll":0,"tableW":974}
+{"test":"tarama: liste-admin","kind":"load","label":"liste-admin-1280-light","status":200,"ms":609,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-admin","kind":"overflow","label":"liste-admin-1280-light","doc":0,"tableScroll":0,"tableW":974}
+{"test":"tarama: detay-zengin","kind":"axe","label":"detay-zengin-1280-light","violations":[]}
+{"test":"tarama: liste-user","kind":"axe","label":"liste-user-1280-light","violations":[]}
+{"test":"tarama: liste-admin","kind":"axe","label":"liste-admin-1280-light","violations":[]}
+{"test":"tarama: detay-zengin","kind":"load","label":"detay-zengin-1280-dark","status":200,"ms":64,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-zengin","kind":"overflow","label":"detay-zengin-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-superadmin-100","kind":"axe","label":"liste-superadmin-100-1280-light","violations":[]}
+{"test":"tarama: detay-zengin","kind":"axe","label":"detay-zengin-1280-dark","violations":[]}
+{"test":"tarama: detay-zengin","kind":"load","label":"detay-zengin-1440-light","status":200,"ms":48,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-zengin","kind":"overflow","label":"detay-zengin-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-user","kind":"load","label":"liste-user-1280-dark","status":200,"ms":338,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-user","kind":"overflow","label":"liste-user-1280-dark","doc":0,"tableScroll":0,"tableW":974}
+{"test":"tarama: liste-admin","kind":"load","label":"liste-admin-1280-dark","status":200,"ms":341,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-admin","kind":"overflow","label":"liste-admin-1280-dark","doc":0,"tableScroll":0,"tableW":974}
+{"test":"tarama: detay-zengin","kind":"axe","label":"detay-zengin-1440-light","violations":[]}
+{"test":"tarama: liste-user","kind":"axe","label":"liste-user-1280-dark","violations":[]}
+{"test":"tarama: liste-admin","kind":"axe","label":"liste-admin-1280-dark","violations":[]}
+{"test":"tarama: detay-zengin","kind":"load","label":"detay-zengin-1440-dark","status":200,"ms":37,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-zengin","kind":"overflow","label":"detay-zengin-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-superadmin-100","kind":"load","label":"liste-superadmin-100-1280-dark","status":200,"ms":362,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-superadmin-100","kind":"overflow","label":"liste-superadmin-100-1280-dark","doc":0,"tableScroll":0,"tableW":974}
+{"test":"tarama: detay-zengin","kind":"axe","label":"detay-zengin-1440-dark","violations":[]}
+{"test":"tarama: detay-zengin","kind":"load","label":"detay-zengin-390-light","status":200,"ms":36,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-zengin","kind":"overflow","label":"detay-zengin-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-user","kind":"load","label":"liste-user-1440-light","status":200,"ms":333,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-user","kind":"overflow","label":"liste-user-1440-light","doc":0,"tableScroll":0,"tableW":1134}
+{"test":"tarama: liste-admin","kind":"load","label":"liste-admin-1440-light","status":200,"ms":337,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-admin","kind":"overflow","label":"liste-admin-1440-light","doc":0,"tableScroll":0,"tableW":1134}
+{"test":"tarama: liste-superadmin-100","kind":"axe","label":"liste-superadmin-100-1280-dark","violations":[]}
+{"test":"tarama: detay-zengin","kind":"axe","label":"detay-zengin-390-light","violations":[]}
+{"test":"tarama: liste-user","kind":"axe","label":"liste-user-1440-light","violations":[]}
+{"test":"tarama: detay-zengin","kind":"load","label":"detay-zengin-390-dark","status":200,"ms":36,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-zengin","kind":"overflow","label":"detay-zengin-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-admin","kind":"axe","label":"liste-admin-1440-light","violations":[]}
+{"test":"tarama: liste-user","kind":"load","label":"liste-user-1440-dark","status":200,"ms":53,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-user","kind":"overflow","label":"liste-user-1440-dark","doc":0,"tableScroll":0,"tableW":1134}
+{"test":"tarama: detay-zengin","kind":"axe","label":"detay-zengin-390-dark","violations":[]}
+{"test":"tarama: detay-zengin","kind":"link","from":"detay-zengin","href":"/history/01JHXST0000000000000000000#icerik","status":200}
+{"test":"tarama: detay-zengin","kind":"link","from":"detay-zengin","href":"/","status":200}
+{"test":"tarama: detay-zengin","kind":"link","from":"detay-zengin","href":"/sessions","status":200}
+{"test":"tarama: detay-zengin","kind":"link","from":"detay-zengin","href":"/history","status":200}
+{"test":"tarama: liste-user","kind":"axe","label":"liste-user-1440-dark","violations":[]}
+{"test":"tarama: liste-superadmin-100","kind":"load","label":"liste-superadmin-100-1440-light","status":200,"ms":347,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-superadmin-100","kind":"overflow","label":"liste-superadmin-100-1440-light","doc":0,"tableScroll":0,"tableW":1134}
+{"test":"tarama: liste-admin","kind":"load","label":"liste-admin-1440-dark","status":200,"ms":353,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-admin","kind":"overflow","label":"liste-admin-1440-dark","doc":0,"tableScroll":0,"tableW":1134}
+{"test":"tarama: liste-admin","kind":"axe","label":"liste-admin-1440-dark","violations":[]}
+{"test":"tarama: detay-tarayici","kind":"load","label":"detay-tarayici-1280-light","status":200,"ms":375,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-tarayici","kind":"overflow","label":"detay-tarayici-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-user","kind":"load","label":"liste-user-390-light","status":200,"ms":326,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-user","kind":"overflow","label":"liste-user-390-light","doc":0,"tableScroll":0,"tableW":0}
+{"test":"tarama: liste-superadmin-100","kind":"axe","label":"liste-superadmin-100-1440-light","violations":[]}
+{"test":"tarama: liste-admin","kind":"load","label":"liste-admin-390-light","status":200,"ms":70,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-admin","kind":"overflow","label":"liste-admin-390-light","doc":0,"tableScroll":0,"tableW":0}
+{"test":"tarama: detay-tarayici","kind":"axe","label":"detay-tarayici-1280-light","violations":[]}
+{"test":"tarama: liste-user","kind":"axe","label":"liste-user-390-light","violations":[]}
+{"test":"tarama: liste-admin","kind":"axe","label":"liste-admin-390-light","violations":[]}
+{"test":"tarama: detay-tarayici","kind":"load","label":"detay-tarayici-1280-dark","status":200,"ms":59,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-tarayici","kind":"overflow","label":"detay-tarayici-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-admin","kind":"load","label":"liste-admin-390-dark","status":200,"ms":58,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-admin","kind":"overflow","label":"liste-admin-390-dark","doc":0,"tableScroll":0,"tableW":0}
+{"test":"tarama: liste-superadmin-100","kind":"load","label":"liste-superadmin-100-1440-dark","status":200,"ms":380,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-tarayici","kind":"axe","label":"detay-tarayici-1280-dark","violations":[]}
+{"test":"tarama: liste-user","kind":"load","label":"liste-user-390-dark","status":200,"ms":361,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-user","kind":"overflow","label":"liste-user-390-dark","doc":0,"tableScroll":0,"tableW":0}
+{"test":"tarama: liste-superadmin-100","kind":"overflow","label":"liste-superadmin-100-1440-dark","doc":0,"tableScroll":0,"tableW":1134}
+{"test":"tarama: detay-tarayici","kind":"load","label":"detay-tarayici-1440-light","status":200,"ms":97,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-tarayici","kind":"overflow","label":"detay-tarayici-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-admin","kind":"axe","label":"liste-admin-390-dark","violations":[]}
+{"test":"tarama: liste-user","kind":"axe","label":"liste-user-390-dark","violations":[]}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history#icerik","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history#icerik","status":200}
+{"test":"tarama: detay-tarayici","kind":"axe","label":"detay-tarayici-1440-light","violations":[]}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/sessions","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/sessions","status":200}
+{"test":"tarama: detay-tarayici","kind":"load","label":"detay-tarayici-1440-dark","status":200,"ms":151,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-tarayici","kind":"overflow","label":"detay-tarayici-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000000","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000000","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000001","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXSTBRWSR00000000000002","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXSTBRWSR00000000000002","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000004","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000003","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000006","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"axe","label":"liste-superadmin-100-1440-dark","violations":[]}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000004","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000008","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000005","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000010","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000012","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000006","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000007","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000014","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000008","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000016","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000009","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000018","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000010","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000020","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000022","status":200}
+{"test":"tarama: detay-tarayici","kind":"axe","label":"detay-tarayici-1440-dark","violations":[]}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000011","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000012","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000024","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000026","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000013","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000028","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000014","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000030","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000015","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000032","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000016","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000017","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000034","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000018","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000036","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000019","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000038","status":200}
+{"test":"tarama: detay-tarayici","kind":"load","label":"detay-tarayici-390-light","status":200,"ms":31,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-tarayici","kind":"overflow","label":"detay-tarayici-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000040","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000020","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000042","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000021","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000044","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000022","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000046","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000023","status":200}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history/01JHXST0000000000000000048","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history/01JHXST0000000000000000024","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"load","label":"liste-superadmin-100-390-light","status":200,"ms":56,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-user","kind":"link","from":"liste-user","href":"/history?page=2","status":200}
+{"test":"tarama: liste-admin","kind":"link","from":"liste-admin","href":"/history?page=2","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"overflow","label":"liste-superadmin-100-390-light","doc":0,"tableScroll":0,"tableW":0}
+{"test":"tarama: detay-tarayici","kind":"axe","label":"detay-tarayici-390-light","violations":[]}
+{"test":"tarama: detay-tarayici","kind":"load","label":"detay-tarayici-390-dark","status":200,"ms":46,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-tarayici","kind":"overflow","label":"detay-tarayici-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bos","kind":"load","label":"bos-1280-light","status":200,"ms":128,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: bos","kind":"overflow","label":"bos-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: detay-tarayici","kind":"axe","label":"detay-tarayici-390-dark","violations":[]}
+{"test":"tarama: detay-tarayici","kind":"link","from":"detay-tarayici","href":"/history/01JHXSTBRWSR00000000000002#icerik","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"axe","label":"liste-superadmin-100-390-light","violations":[]}
+{"test":"tarama: detay-tarayici","kind":"link","from":"detay-tarayici","href":"/","status":200}
+{"test":"tarama: detay-tarayici","kind":"link","from":"detay-tarayici","href":"/sessions","status":200}
+{"test":"tarama: detay-tarayici","kind":"link","from":"detay-tarayici","href":"/history","status":200}
+{"test":"tarama: bos","kind":"axe","label":"bos-1280-light","violations":[]}
+{"test":"tarama: bos","kind":"load","label":"bos-1280-dark","status":200,"ms":55,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: bos","kind":"overflow","label":"bos-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: detay-salt-okunur","kind":"load","label":"detay-salt-okunur-1280-light","status":200,"ms":418,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-salt-okunur","kind":"overflow","label":"detay-salt-okunur-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bos","kind":"axe","label":"bos-1280-dark","violations":[]}
+{"test":"tarama: bos","kind":"load","label":"bos-1440-light","status":200,"ms":45,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-salt-okunur","kind":"axe","label":"detay-salt-okunur-1280-light","violations":[]}
+{"test":"tarama: bos","kind":"overflow","label":"bos-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-superadmin-100","kind":"load","label":"liste-superadmin-100-390-dark","status":200,"ms":337,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: filtre-bos","kind":"load","label":"filtre-bos-1280-light","status":200,"ms":394,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-superadmin-100","kind":"overflow","label":"liste-superadmin-100-390-dark","doc":0,"tableScroll":0,"tableW":0}
+{"test":"tarama: filtre-bos","kind":"overflow","label":"filtre-bos-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bos","kind":"axe","label":"bos-1440-light","violations":[]}
+{"test":"tarama: detay-salt-okunur","kind":"load","label":"detay-salt-okunur-1280-dark","status":200,"ms":56,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-salt-okunur","kind":"overflow","label":"detay-salt-okunur-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bos","kind":"load","label":"bos-1440-dark","status":200,"ms":46,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: bos","kind":"overflow","label":"bos-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: filtre-bos","kind":"axe","label":"filtre-bos-1280-light","violations":[]}
+{"test":"tarama: detay-salt-okunur","kind":"axe","label":"detay-salt-okunur-1280-dark","violations":[]}
+{"test":"tarama: filtre-bos","kind":"load","label":"filtre-bos-1280-dark","status":200,"ms":49,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: filtre-bos","kind":"overflow","label":"filtre-bos-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bos","kind":"axe","label":"bos-1440-dark","violations":[]}
+{"test":"tarama: bos","kind":"load","label":"bos-390-light","status":200,"ms":46,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: liste-superadmin-100","kind":"axe","label":"liste-superadmin-100-390-dark","violations":[]}
+{"test":"tarama: bos","kind":"overflow","label":"bos-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: detay-salt-okunur","kind":"load","label":"detay-salt-okunur-1440-light","status":200,"ms":33,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-salt-okunur","kind":"overflow","label":"detay-salt-okunur-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: filtre-bos","kind":"axe","label":"filtre-bos-1280-dark","violations":[]}
+{"test":"tarama: filtre-bos","kind":"load","label":"filtre-bos-1440-light","status":200,"ms":31,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: filtre-bos","kind":"overflow","label":"filtre-bos-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bos","kind":"axe","label":"bos-390-light","violations":[]}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history?pageSize=100#icerik","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/sessions","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history","status":200}
+{"test":"tarama: detay-salt-okunur","kind":"axe","label":"detay-salt-okunur-1440-light","violations":[]}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000000","status":200}
+{"test":"tarama: filtre-bos","kind":"axe","label":"filtre-bos-1440-light","violations":[]}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000001","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXSTBRWSR00000000000002","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000003","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000004","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000005","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000006","status":200}
+{"test":"tarama: filtre-bos","kind":"load","label":"filtre-bos-1440-dark","status":200,"ms":43,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-salt-okunur","kind":"load","label":"detay-salt-okunur-1440-dark","status":200,"ms":39,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: filtre-bos","kind":"overflow","label":"filtre-bos-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: detay-salt-okunur","kind":"overflow","label":"detay-salt-okunur-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000007","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000008","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000009","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000010","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000011","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000012","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000013","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000014","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000015","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000016","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000017","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000018","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000019","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000020","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000021","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000022","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000023","status":200}
+{"test":"tarama: filtre-bos","kind":"axe","label":"filtre-bos-1440-dark","violations":[]}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000024","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000025","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000026","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000027","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000028","status":200}
+{"test":"tarama: detay-salt-okunur","kind":"axe","label":"detay-salt-okunur-1440-dark","violations":[]}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000029","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000030","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000031","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000032","status":200}
+{"test":"tarama: filtre-bos","kind":"load","label":"filtre-bos-390-light","status":200,"ms":32,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: bos","kind":"load","label":"bos-390-dark","status":200,"ms":340,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: bos","kind":"overflow","label":"bos-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: filtre-bos","kind":"overflow","label":"filtre-bos-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000033","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000034","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000035","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000036","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000037","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000038","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000039","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000040","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000041","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000042","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000043","status":200}
+{"test":"tarama: detay-salt-okunur","kind":"load","label":"detay-salt-okunur-390-light","status":200,"ms":44,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-salt-okunur","kind":"overflow","label":"detay-salt-okunur-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000044","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000045","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000046","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000047","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000048","status":200}
+{"test":"tarama: filtre-bos","kind":"axe","label":"filtre-bos-390-light","violations":[]}
+{"test":"tarama: bos","kind":"axe","label":"bos-390-dark","violations":[]}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000049","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000050","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000051","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000052","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000053","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000054","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000055","status":200}
+{"test":"tarama: bos","kind":"link","from":"bos","href":"/history#icerik","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000056","status":200}
+{"test":"tarama: bos","kind":"link","from":"bos","href":"/","status":200}
+{"test":"tarama: bos","kind":"link","from":"bos","href":"/sessions","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000057","status":200}
+{"test":"tarama: filtre-bos","kind":"load","label":"filtre-bos-390-dark","status":200,"ms":41,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: filtre-bos","kind":"overflow","label":"filtre-bos-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000058","status":200}
+{"test":"tarama: bos","kind":"link","from":"bos","href":"/history","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000059","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000060","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000061","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000062","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000063","status":200}
+{"test":"tarama: detay-salt-okunur","kind":"axe","label":"detay-salt-okunur-390-light","violations":[]}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000064","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000065","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000066","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000067","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000068","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000069","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000070","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000071","status":200}
+{"test":"tarama: filtre-bos","kind":"axe","label":"filtre-bos-390-dark","violations":[]}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000072","status":200}
+{"test":"tarama: detay-salt-okunur","kind":"load","label":"detay-salt-okunur-390-dark","status":200,"ms":42,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: detay-salt-okunur","kind":"overflow","label":"detay-salt-okunur-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000073","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000074","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000075","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000076","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000077","status":200}
+{"test":"tarama: filtre-bos","kind":"link","from":"filtre-bos","href":"/history?customer=yokboyle#icerik","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000078","status":200}
+{"test":"tarama: filtre-bos","kind":"link","from":"filtre-bos","href":"/","status":200}
+{"test":"tarama: liste-superadmin-100","kind":"link","from":"liste-superadmin-100","href":"/history/01JHXST0000000000000000079","status":200}
+{"test":"tarama: filtre-bos","kind":"link","from":"filtre-bos","href":"/sessions","status":200}
+{"test":"tarama: filtre-bos","kind":"link","from":"filtre-bos","href":"/history","status":200}
+{"test":"tarama: detay-salt-okunur","kind":"axe","label":"detay-salt-okunur-390-dark","violations":[]}
+{"test":"tarama: detay-salt-okunur","kind":"link","from":"detay-salt-okunur","href":"/history/01JHXST0000000000000000000#icerik","status":200}
+{"test":"tarama: detay-salt-okunur","kind":"link","from":"detay-salt-okunur","href":"/","status":200}
+{"test":"tarama: detay-salt-okunur","kind":"link","from":"detay-salt-okunur","href":"/sessions","status":200}
+{"test":"tarama: detay-salt-okunur","kind":"link","from":"detay-salt-okunur","href":"/history","status":200}
+{"test":"tarama: sayfa-disi","kind":"load","label":"sayfa-disi-1280-light","status":200,"ms":383,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: sayfa-disi","kind":"overflow","label":"sayfa-disi-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: yetkisiz","kind":"load","label":"yetkisiz-1280-light","status":200,"ms":81,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: yetkisiz","kind":"overflow","label":"yetkisiz-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: sayfa-disi","kind":"axe","label":"sayfa-disi-1280-light","violations":[]}
+{"test":"tarama: hata","kind":"load","label":"hata-1280-light","status":200,"ms":380,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: gecersiz-url","kind":"load","label":"gecersiz-url-1280-light","status":200,"ms":380,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: hata","kind":"overflow","label":"hata-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: gecersiz-url","kind":"overflow","label":"gecersiz-url-1280-light","doc":0,"tableScroll":0,"tableW":974}
+{"test":"tarama: sayfa-disi","kind":"load","label":"sayfa-disi-1280-dark","status":200,"ms":53,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: sayfa-disi","kind":"overflow","label":"sayfa-disi-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: yetkisiz","kind":"axe","label":"yetkisiz-1280-light","violations":[]}
+{"test":"tarama: yetkisiz","kind":"load","label":"yetkisiz-1280-dark","status":200,"ms":47,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: yetkisiz","kind":"overflow","label":"yetkisiz-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: hata","kind":"axe","label":"hata-1280-light","violations":[]}
+{"test":"tarama: sayfa-disi","kind":"axe","label":"sayfa-disi-1280-dark","violations":[]}
+{"test":"tarama: hata","kind":"load","label":"hata-1280-dark","status":200,"ms":51,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: hata","kind":"overflow","label":"hata-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: yetkisiz","kind":"axe","label":"yetkisiz-1280-dark","violations":[]}
+{"test":"tarama: sayfa-disi","kind":"load","label":"sayfa-disi-1440-light","status":200,"ms":34,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: sayfa-disi","kind":"overflow","label":"sayfa-disi-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: gecersiz-url","kind":"axe","label":"gecersiz-url-1280-light","violations":[]}
+{"test":"tarama: yetkisiz","kind":"load","label":"yetkisiz-1440-light","status":200,"ms":45,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: yetkisiz","kind":"overflow","label":"yetkisiz-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: hata","kind":"axe","label":"hata-1280-dark","violations":[]}
+{"test":"tarama: sayfa-disi","kind":"axe","label":"sayfa-disi-1440-light","violations":[]}
+{"test":"tarama: hata","kind":"load","label":"hata-1440-light","status":200,"ms":44,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: gecersiz-url","kind":"load","label":"gecersiz-url-1280-dark","status":200,"ms":61,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: yetkisiz","kind":"axe","label":"yetkisiz-1440-light","violations":[]}
+{"test":"tarama: hata","kind":"overflow","label":"hata-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: gecersiz-url","kind":"overflow","label":"gecersiz-url-1280-dark","doc":0,"tableScroll":0,"tableW":974}
+{"test":"tarama: sayfa-disi","kind":"load","label":"sayfa-disi-1440-dark","status":200,"ms":39,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: sayfa-disi","kind":"overflow","label":"sayfa-disi-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: yetkisiz","kind":"load","label":"yetkisiz-1440-dark","status":200,"ms":43,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: yetkisiz","kind":"overflow","label":"yetkisiz-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: hata","kind":"axe","label":"hata-1440-light","violations":[]}
+{"test":"tarama: yetkisiz","kind":"axe","label":"yetkisiz-1440-dark","violations":[]}
+{"test":"tarama: sayfa-disi","kind":"axe","label":"sayfa-disi-1440-dark","violations":[]}
+{"test":"tarama: hata","kind":"load","label":"hata-1440-dark","status":200,"ms":49,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: hata","kind":"overflow","label":"hata-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: gecersiz-url","kind":"axe","label":"gecersiz-url-1280-dark","violations":[]}
+{"test":"tarama: yetkisiz","kind":"load","label":"yetkisiz-390-light","status":200,"ms":42,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: yetkisiz","kind":"overflow","label":"yetkisiz-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: sayfa-disi","kind":"load","label":"sayfa-disi-390-light","status":200,"ms":31,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: sayfa-disi","kind":"overflow","label":"sayfa-disi-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: hata","kind":"axe","label":"hata-1440-dark","violations":[]}
+{"test":"tarama: gecersiz-url","kind":"load","label":"gecersiz-url-1440-light","status":200,"ms":65,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: gecersiz-url","kind":"overflow","label":"gecersiz-url-1440-light","doc":0,"tableScroll":0,"tableW":1134}
+{"test":"tarama: yetkisiz","kind":"axe","label":"yetkisiz-390-light","violations":[]}
+{"test":"tarama: hata","kind":"load","label":"hata-390-light","status":200,"ms":164,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: hata","kind":"overflow","label":"hata-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: yetkisiz","kind":"load","label":"yetkisiz-390-dark","status":200,"ms":479,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: yetkisiz","kind":"overflow","label":"yetkisiz-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: sayfa-disi","kind":"axe","label":"sayfa-disi-390-light","violations":[]}
+{"test":"tarama: hata","kind":"axe","label":"hata-390-light","violations":[]}
+{"test":"tarama: yetkisiz","kind":"axe","label":"yetkisiz-390-dark","violations":[]}
+{"test":"tarama: hata","kind":"load","label":"hata-390-dark","status":200,"ms":88,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: hata","kind":"overflow","label":"hata-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: gecersiz-url","kind":"axe","label":"gecersiz-url-1440-light","violations":[]}
+{"test":"tarama: yetkisiz","kind":"link","from":"yetkisiz","href":"/history#icerik","status":200}
+{"test":"tarama: yetkisiz","kind":"link","from":"yetkisiz","href":"/","status":200}
+{"test":"tarama: sayfa-disi","kind":"load","label":"sayfa-disi-390-dark","status":200,"ms":102,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: sayfa-disi","kind":"overflow","label":"sayfa-disi-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: yetkisiz","kind":"link","from":"yetkisiz","href":"/sessions","status":200}
+{"test":"tarama: hata","kind":"axe","label":"hata-390-dark","violations":[]}
+{"test":"tarama: gecersiz-url","kind":"load","label":"gecersiz-url-1440-dark","status":200,"ms":56,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: gecersiz-url","kind":"overflow","label":"gecersiz-url-1440-dark","doc":0,"tableScroll":0,"tableW":1134}
+{"test":"tarama: hata","kind":"link","from":"hata","href":"/history#icerik","status":200}
+{"test":"tarama: hata","kind":"link","from":"hata","href":"/","status":200}
+{"test":"tarama: sayfa-disi","kind":"axe","label":"sayfa-disi-390-dark","violations":[]}
+{"test":"tarama: hata","kind":"link","from":"hata","href":"/sessions","status":200}
+{"test":"tarama: hata","kind":"link","from":"hata","href":"/history","status":200}
+{"test":"tarama: bulunamadi","kind":"load","label":"bulunamadi-1280-light","status":200,"ms":133,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: sayfa-disi","kind":"link","from":"sayfa-disi","href":"/history?page=9#icerik","status":200}
+{"test":"tarama: bulunamadi","kind":"overflow","label":"bulunamadi-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: sayfa-disi","kind":"link","from":"sayfa-disi","href":"/","status":200}
+{"test":"tarama: sayfa-disi","kind":"link","from":"sayfa-disi","href":"/sessions","status":200}
+{"test":"tarama: sayfa-disi","kind":"link","from":"sayfa-disi","href":"/history","status":200}
+{"test":"tarama: sayfa-disi","kind":"link","from":"sayfa-disi","href":"/history?page=2","status":200}
+{"test":"tarama: gecersiz-url","kind":"axe","label":"gecersiz-url-1440-dark","violations":[]}
+{"test":"tarama: bulunamadi","kind":"axe","label":"bulunamadi-1280-light","violations":[]}
+{"test":"tarama: gecersiz-url","kind":"load","label":"gecersiz-url-390-light","status":200,"ms":38,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: gecersiz-url","kind":"overflow","label":"gecersiz-url-390-light","doc":0,"tableScroll":0,"tableW":0}
+{"test":"tarama: bulunamadi","kind":"load","label":"bulunamadi-1280-dark","status":200,"ms":77,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: bulunamadi","kind":"overflow","label":"bulunamadi-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bulunamadi","kind":"axe","label":"bulunamadi-1280-dark","violations":[]}
+{"test":"tarama: gecersiz-url","kind":"axe","label":"gecersiz-url-390-light","violations":[]}
+{"test":"tarama: bulunamadi","kind":"load","label":"bulunamadi-1440-light","status":200,"ms":80,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: bulunamadi","kind":"overflow","label":"bulunamadi-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: gecersiz-url","kind":"load","label":"gecersiz-url-390-dark","status":200,"ms":53,"title":"Oturum geçmişi · Nokta Uzaktan Destek"}
+{"test":"tarama: gecersiz-url","kind":"overflow","label":"gecersiz-url-390-dark","doc":0,"tableScroll":0,"tableW":0}
+{"test":"tarama: bulunamadi-bicim","kind":"load","label":"bulunamadi-bicim-1280-light","status":200,"ms":608,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: bulunamadi-bicim","kind":"overflow","label":"bulunamadi-bicim-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bulunamadi","kind":"axe","label":"bulunamadi-1440-light","violations":[]}
+{"test":"tarama: panel","kind":"load","label":"panel-1280-light","status":200,"ms":596,"title":"Ana sayfa · Nokta Uzaktan Destek"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bulunamadi","kind":"load","label":"bulunamadi-1440-dark","status":200,"ms":83,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: bulunamadi","kind":"overflow","label":"bulunamadi-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: gecersiz-url","kind":"axe","label":"gecersiz-url-390-dark","violations":[]}
+{"test":"tarama: bulunamadi-bicim","kind":"axe","label":"bulunamadi-bicim-1280-light","violations":[]}
+{"test":"tarama: bulunamadi","kind":"axe","label":"bulunamadi-1440-dark","violations":[]}
+{"test":"tarama: panel","kind":"axe","label":"panel-1280-light","violations":[]}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history?status=BOGUS&from=2026-02-30&pageSize=500&mode=X#icerik","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/sessions","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000000","status":200}
+{"test":"tarama: bulunamadi","kind":"load","label":"bulunamadi-390-light","status":200,"ms":62,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: bulunamadi","kind":"overflow","label":"bulunamadi-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXSTBRWSR00000000000002","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000004","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000006","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000008","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000010","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000012","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000014","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000016","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000018","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000020","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000022","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000024","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000026","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000028","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000030","status":200}
+{"test":"tarama: bulunamadi","kind":"axe","label":"bulunamadi-390-light","violations":[]}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000032","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000034","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000036","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000038","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000040","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000042","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000044","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000046","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history/01JHXST0000000000000000048","status":200}
+{"test":"tarama: gecersiz-url","kind":"link","from":"gecersiz-url","href":"/history?page=2","status":200}
+{"test":"tarama: bulunamadi","kind":"load","label":"bulunamadi-390-dark","status":200,"ms":51,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: bulunamadi","kind":"overflow","label":"bulunamadi-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bulunamadi","kind":"axe","label":"bulunamadi-390-dark","violations":[]}
+{"test":"tarama: bulunamadi","kind":"link","from":"bulunamadi","href":"/history/01JHXST0000000000000000001#icerik","status":200}
+{"test":"tarama: bulunamadi","kind":"link","from":"bulunamadi","href":"/","status":200}
+{"test":"tarama: bulunamadi","kind":"link","from":"bulunamadi","href":"/sessions","status":200}
+{"test":"tarama: bulunamadi","kind":"link","from":"bulunamadi","href":"/history","status":200}
+{"test":"tarama: bulunamadi-bicim","kind":"load","label":"bulunamadi-bicim-1280-dark","status":200,"ms":579,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: bulunamadi-bicim","kind":"overflow","label":"bulunamadi-bicim-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"390 px kenar menüsü: yatay kaydırma, 'Oturum geçmişi' erişilebilir, aktif","kind":"nav390","sw":412,"cw":374,"ox":"auto"}
+{"test":"tarama: panel","kind":"load","label":"panel-1280-dark","status":200,"ms":557,"title":"Ana sayfa · Nokta Uzaktan Destek"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bulunamadi-bicim","kind":"axe","label":"bulunamadi-bicim-1280-dark","violations":[]}
+{"test":"tarama: panel","kind":"axe","label":"panel-1280-dark","violations":[]}
+{"test":"390 px kenar menüsü: yatay kaydırma, 'Oturum geçmişi' erişilebilir, aktif","kind":"nav390-sessions-link","left":259,"right":420,"vw":390}
+{"test":"klavye: filtre formu Tab sırası + Enter ile uygula; sayfalama; detayda form Tab + kaydet","kind":"taborder-filters","order":["body:İçeriğe geçNokta Uzaktan Deste","a:İçeriğe geç","button:Çıkış yap (Mehmet Kaya)","a:Ana sayfa","a:Oturumlar","a:Oturum geçmişi","body:İçeriğe geçNokta Uzaktan Deste","a:İçeriğe geç","button:Çıkış yap (Mehmet Kaya)","a:Ana sayfa","a:Oturumlar","a:Oturum geçmişi"]}
+{"test":"klavye: filtre formu Tab sırası + Enter ile uygula; sayfalama; detayda form Tab + kaydet","kind":"focus-visible","tag":"BODY","outline":"none 3px","shadow":"none"}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-1280-light","status":200,"ms":881,"title":"Oturumlar · Nokta Uzaktan Destek"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-1280-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bulunamadi-bicim","kind":"load","label":"bulunamadi-bicim-1440-light","status":200,"ms":547,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: bulunamadi-bicim","kind":"overflow","label":"bulunamadi-bicim-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: panel","kind":"load","label":"panel-1440-light","status":200,"ms":536,"title":"Ana sayfa · Nokta Uzaktan Destek"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bulunamadi-bicim","kind":"axe","label":"bulunamadi-bicim-1440-light","violations":[]}
+{"test":"tarama: panel","kind":"axe","label":"panel-1440-light","violations":[]}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-1280-light","violations":[]}
+{"test":"tarama: bulunamadi-bicim","kind":"load","label":"bulunamadi-bicim-1440-dark","status":200,"ms":549,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: panel","kind":"load","label":"panel-1440-dark","status":200,"ms":541,"title":"Ana sayfa · Nokta Uzaktan Destek"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bulunamadi-bicim","kind":"overflow","label":"bulunamadi-bicim-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-1280-dark","status":200,"ms":554,"title":"Oturumlar · Nokta Uzaktan Destek"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-1280-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: panel","kind":"axe","label":"panel-1440-dark","violations":[]}
+{"test":"tarama: bulunamadi-bicim","kind":"axe","label":"bulunamadi-bicim-1440-dark","violations":[]}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-1280-dark","violations":[]}
+{"test":"tarama: panel","kind":"load","label":"panel-390-light","status":200,"ms":543,"title":"Ana sayfa · Nokta Uzaktan Destek"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bulunamadi-bicim","kind":"load","label":"bulunamadi-bicim-390-light","status":200,"ms":542,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: bulunamadi-bicim","kind":"overflow","label":"bulunamadi-bicim-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-1440-light","status":200,"ms":539,"title":"Oturumlar · Nokta Uzaktan Destek"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-1440-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bulunamadi-bicim","kind":"axe","label":"bulunamadi-bicim-390-light","violations":[]}
+{"test":"tarama: panel","kind":"axe","label":"panel-390-light","violations":[]}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-1440-light","violations":[]}
+{"test":"tarama: panel","kind":"load","label":"panel-390-dark","status":200,"ms":594,"title":"Ana sayfa · Nokta Uzaktan Destek"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: bulunamadi-bicim","kind":"load","label":"bulunamadi-bicim-390-dark","status":200,"ms":687,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek"}
+{"test":"tarama: bulunamadi-bicim","kind":"overflow","label":"bulunamadi-bicim-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-1440-dark","status":200,"ms":577,"title":"Oturumlar · Nokta Uzaktan Destek"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-1440-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: panel","kind":"axe","label":"panel-390-dark","violations":[]}
+{"test":"tarama: bulunamadi-bicim","kind":"axe","label":"bulunamadi-bicim-390-dark","violations":[]}
+{"test":"tarama: panel","kind":"link","from":"panel","href":"/#icerik","status":200}
+{"test":"tarama: panel","kind":"link","from":"panel","href":"/","status":200}
+{"test":"tarama: bulunamadi-bicim","kind":"link","from":"bulunamadi-bicim","href":"/history/abc#icerik","status":200}
+{"test":"tarama: bulunamadi-bicim","kind":"link","from":"bulunamadi-bicim","href":"/","status":200}
+{"test":"tarama: panel","kind":"link","from":"panel","href":"/sessions","status":200}
+{"test":"tarama: bulunamadi-bicim","kind":"link","from":"bulunamadi-bicim","href":"/sessions","status":200}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-1440-dark","violations":[]}
+{"test":"tarama: bulunamadi-bicim","kind":"link","from":"bulunamadi-bicim","href":"/history","status":200}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-390-light","status":200,"ms":558,"title":"Oturumlar · Nokta Uzaktan Destek"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-390-light","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-390-light","violations":[]}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-390-dark","status":200,"ms":539,"title":"Oturumlar · Nokta Uzaktan Destek"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-390-dark","doc":0,"tableScroll":null,"tableW":null}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-390-dark","violations":[]}
+{"test":"tarama: oturumlar","kind":"link","from":"oturumlar","href":"/sessions#icerik","status":200}
+{"test":"tarama: oturumlar","kind":"link","from":"oturumlar","href":"/","status":200}
+{"test":"tarama: oturumlar","kind":"link","from":"oturumlar","href":"/sessions","status":200}
+{"test":"tarama: oturumlar","kind":"link","from":"oturumlar","href":"/sessions/01J9B7251B4A3DC67212FAC6E2/console","status":200}
+{"test":"tarama: oturumlar","kind":"link","from":"oturumlar","href":"/sessions/01J31989200C609A80E6375E4E/console","status":200}
+{"test":"not formu: çift tıklama → tek PATCH; özel karakter/XSS metin olarak; 4000 sınır; ağ hatası","kind":"dblclick-patch","count":1}
+{"test":"not formu: çift tıklama → tek PATCH; özel karakter/XSS metin olarak; 4000 sınır; ağ hatası","kind":"xss-dialogs","count":0}
+{"test":"klavye: filtre formu Tab sırası + Enter ile uygula; sayfalama; detayda form Tab + kaydet","kind":"taborder-note","afterTicket":"note-input","fo":["BUTTON:note-save","BUTTON:Değişiklikleri geri ","DIV:ZamanSeviyeKararKayn"]}
+{"test":"liste: geri tuşu filtre durumu; sayfa boyutu 50/100; dışa aktar ağ hatası; çift tıklama","kind":"back-filter","url":"http://localhost:3217/history?status=ENDED","value":"ENDED"}
+{"test":"liste: geri tuşu filtre durumu; sayfa boyutu 50/100; dışa aktar ağ hatası; çift tıklama","kind":"pagesize","n":"50","rows":50,"count":"80 oturumdan 1–50 arası"}
+{"test":"liste: geri tuşu filtre durumu; sayfa boyutu 50/100; dışa aktar ağ hatası; çift tıklama","kind":"pagesize","n":"100","rows":80,"count":"80 oturumdan 1–80 arası"}
+{"test":"liste: geri tuşu filtre durumu; sayfa boyutu 50/100; dışa aktar ağ hatası; çift tıklama","kind":"overflow","label":"sa-100-1280","doc":0,"tableScroll":17,"tableW":991}
+{"test":"ayrılma uyarısı: yenileme (beforeunload), geri tuşu, menü bağlantısı","kind":"beforeunload-reload","dialogs":["beforeunload"],"value":"kaydedilmemiş"}
+{"test":"ayrılma uyarısı: yenileme (beforeunload), geri tuşu, menü bağlantısı","kind":"leave-menu","dialog":true}
+{"test":"liste: geri tuşu filtre durumu; sayfa boyutu 50/100; dışa aktar ağ hatası; çift tıklama","kind":"console","type":"error","text":"Failed to load resource: net::ERR_FAILED","url":"http://localhost:3217/history"}
+{"test":"not formu: çift tıklama → tek PATCH; özel karakter/XSS metin olarak; 4000 sınır; ağ hatası","kind":"whitespace-ticket","text":"Ticket no\n\nYardım masası kayıt numarası (en çok 50 karakter) · 0 / 50\n\nNot\n\n4.000 / 4.000\n\nKaydet"}
+{"test":"not formu: çift tıklama → tek PATCH; özel karakter/XSS metin olarak; 4000 sınır; ağ hatası","kind":"console","type":"error","text":"Failed to load resource: net::ERR_FAILED","url":"http://localhost:3217/history/01JHXST0000000000000000000"}
+{"test":"filtre doğrulama hataları ve yalnız-görüntüleme ekranları (görsel)","kind":"axe","label":"filtre-hata-1280","violations":[]}
+{"test":"filtre doğrulama hataları ve yalnız-görüntüleme ekranları (görsel)","kind":"axe","label":"not-hata-1280","violations":[]}
+{"test":"liste: geri tuşu filtre durumu; sayfa boyutu 50/100; dışa aktar ağ hatası; çift tıklama","kind":"export-abort","text":"Dışa aktarılamadı\n\nSunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin."}
+{"test":"filtre doğrulama hataları ve yalnız-görüntüleme ekranları (görsel)","kind":"axe","label":"filtre-hata-390","violations":[]}
+{"test":"not formu: çift tıklama → tek PATCH; özel karakter/XSS metin olarak; 4000 sınır; ağ hatası","kind":"patch-abort","text":"Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.\n\nTicket no\n\nYardım masası kayıt numarası (en çok 50 karakter) · 7 / 50\n\nNot\n\n4.000 / 4.000\n\nKaydet\nDeğişiklikleri geri al\n\nKaydedilmemiş değişiklik var","saveDisabled":false}
+{"test":"filtre doğrulama hataları ve yalnız-görüntüleme ekranları (görsel)","kind":"axe","label":"not-hata-390","violations":[]}
+{"test":"not formu: çift tıklama → tek PATCH; özel karakter/XSS metin olarak; 4000 sınır; ağ hatası","kind":"http","status":500,"url":"http://localhost:3217/api/v1/sessions/01JHXST0000000000000000000"}
+{"test":"not formu: çift tıklama → tek PATCH; özel karakter/XSS metin olarak; 4000 sınır; ağ hatası","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 500 (Internal Server Error)","url":"http://localhost:3217/history/01JHXST0000000000000000000"}
+{"test":"not formu: çift tıklama → tek PATCH; özel karakter/XSS metin olarak; 4000 sınır; ağ hatası","kind":"patch-500","text":"x\n\nHata kodu: 01JREQ00000000000000000000\n\nTicket no\n\nYardım masası kayıt numarası (en çok 50 karakter) · 7 / 50\n\nNot\n\n4.000 / 4.000\n\nKaydet\nDeğişiklikleri geri al\n\nKaydedilmemiş değişiklik var"}
+{"test":"liste: geri tuşu filtre durumu; sayfa boyutu 50/100; dışa aktar ağ hatası; çift tıklama","kind":"export-dblclick","requests":1,"downloads":["oturumlar-20261111-1200.csv"]}
+{"test":"ayrılma uyarısı: yenileme (beforeunload), geri tuşu, menü bağlantısı","kind":"leave-back","url":"http://localhost:3217/history/01JHXST0000000000000000000","dialogs":["beforeunload","beforeunload"],"leaveDialog":false}

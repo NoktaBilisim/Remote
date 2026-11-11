@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,7 @@ type Error struct {
 	Fields    map[string]string // VALIDATION alan hataları
 	RequestID string            // destek referansı
 	Err       error             // ağ/TLS hatası (Status 0)
+	TLS       bool              // Status 0 ve sunucu sertifikası doğrulanamadı (güvenilmeyen kök, süresi dolmuş, ad uyuşmazlığı)
 }
 
 func (e *Error) Error() string {
@@ -46,8 +48,9 @@ func (e *Error) Error() string {
 func (e *Error) Unwrap() error { return e.Err }
 
 // Retryable yalnız ağ hatası ve 502/503/504 (sunucu kararı verilmemiş) için true.
+// Sertifika doğrulama hatası yeniden denemeyle düzelmez.
 func (e *Error) Retryable() bool {
-	return e.Status == 0 || e.Status == http.StatusBadGateway || e.Status == http.StatusServiceUnavailable ||
+	return (e.Status == 0 && !e.TLS) || e.Status == http.StatusBadGateway || e.Status == http.StatusServiceUnavailable ||
 		e.Status == http.StatusGatewayTimeout
 }
 
@@ -180,7 +183,7 @@ func (c *Client) post(ctx context.Context, op string, in, out any) error {
 	req.Header.Set("User-Agent", c.userAgent)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return &Error{Err: err}
+		return &Error{Err: err, TLS: isCertError(err)}
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
@@ -206,4 +209,13 @@ func (c *Client) post(ctx context.Context, op string, in, out any) error {
 		ae.Code, ae.Message, ae.Fields, ae.RequestID = env.Error.Code, env.Error.Message, env.Error.Fields, env.Error.RequestID
 	}
 	return ae
+}
+
+// isCertError sunucu sertifikası doğrulama hatasını ağ hatasından ayırır (doğrulama gevşetilmez, AC-109).
+func isCertError(err error) bool {
+	var verr *tls.CertificateVerificationError
+	var uae x509.UnknownAuthorityError
+	var cie x509.CertificateInvalidError
+	var hne x509.HostnameError
+	return errors.As(err, &verr) || errors.As(err, &uae) || errors.As(err, &cie) || errors.As(err, &hne)
 }

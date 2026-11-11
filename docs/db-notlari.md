@@ -1,4 +1,4 @@
-# DB Notları — Remote Support (P1–P7)
+# DB Notları — Remote Support (P1–P8)
 Sahibi: dba. Tasarım kaynağı: `docs/mimari.md` §3, ADR-0003. MySQL 8.4, Prisma 7.10.1 (stabil; 8.x RC kullanılmadı).
 
 ## Dosyalar
@@ -13,7 +13,7 @@ Sahibi: dba. Tasarım kaynağı: `docs/mimari.md` §3, ADR-0003. MySQL 8.4, Pris
 | `deploy/mysql/check-app-grants.sh` | `app` yetki sınırı kontrolü (22 kontrol; geçici tenant/ayar/kullanıcı ekler, sonda siler — boş DB'de de çalışır) |
 
 ## Tablolar (P1)
-Ortak: PK ULID `CHAR(26)` (uygulama üretir), `created_at/updated_at DATETIME(3)` UTC, enum'lar `VARCHAR(20)` + **CHECK**, tüm FK `ON DELETE/UPDATE RESTRICT`, utf8mb4_unicode_ci.
+Ortak: PK ULID `CHAR(26)` (uygulama üretir), `created_at/updated_at DATETIME(3)` UTC, enum'lar `VARCHAR(20)` + **CHECK** (biçim: `` CAST(`col` AS BINARY) IN (…) `` — ADR-0014; metin biçimi `REGEXP_LIKE(…, 'c')`), tüm FK `ON DELETE/UPDATE RESTRICT`, utf8mb4_unicode_ci.
 | Tablo | Anahtar / indeks | Not |
 |---|---|---|
 | `tenants` | PK id, UQ slug | soft delete (`deleted_at`, `status`) |
@@ -192,3 +192,79 @@ Migration `apps/server/prisma/migrations/20261111050000_p7_consent_source_tech/{
 
 ### Test (2026-11-11, `scripts/test-db.sh` ayrı ad/port `rs-mysql-dba-p7:33317`, mysql 8.4, sonra silindi)
 P1→P5 üzerine P7 migrate + grants OK; `migrate diff --exit-code` 0. `check-app-grants.sh` **78/78 PASS** (P7: 2 yeni — CONTROL/REVOKED/TECH izinli; `BOGUS` kaynak `session_consents_source_chk` ile reddi). Yeni `test/integration/consent-source-p7.test.ts` 2/2 (TECH + P4 kaynakları kabul, zaman çizelgesi sorgusu; `TECHNICIAN`/`DENIED`/`ADMIN`/boş → `session_consents_source_chk`). TECH satırı varken `down.sql` → 3819, CHECK ve kayıt değişmedi; TECH satırları (yalnız geçici DB'de) silinince `down.sql` OK → P4 kümesi, P7 kaydı yok, drift 0; yeniden migrate OK, `migrate status` güncel, 78/78. `test:int` **158/158** (P7 backend testleri dahil), `test` 218/218, typecheck + lint temiz.
+
+## ADR-0014 uygulaması — enum CHECK ikili karşılaştırma (P8, dba; karar 2026-11-11)
+Gözlem P7'de yapıldı (yukarıda): `utf8mb4_unicode_ci` harf/aksan duyarsız ve PAD SPACE. **Karar (b):** enum CHECK'leri `` CAST(`col` AS BINARY) IN (…) `` biçimine çevrilir. Sütun harmanlaması ve Prisma şeması değişmez (gerekçe: ADR-0014).
+- **Migration:** ayrı klasör, `20261111070000_enum_check_binary/{migration.sql,down.sql}`, P8 `session_history`'den sonra gelir. Elle yazılır ve her tablo tek `ALTER … DROP CHECK x, ADD CONSTRAINT x CHECK (…)` ile değiştirilir. Kapsamdaki 14 CHECK: `tenants_status_chk`, `users_role_chk`, `users_theme_chk`, `users_status_chk`, `tenant_settings_smtp_security_chk`, `audit_logs_result_chk`, `support_sessions_status_chk`, `support_sessions_ended_by_chk`, `support_sessions_mode_chk`, `session_consents_level_chk`, `session_consents_decision_chk`, `session_consents_source_chk`, `session_files_direction_chk`, `session_files_result_chk`. NULL olabilen sütunlarda `IS NULL OR` korunur. Eşitlik içeren CHECK'ler (`code_pending`, `ended_at`, `role_tenant`, `text_scope` vb.) değişmez. `BINARY expr` ve `utf8mb4_bin` kullanılmaz (biri kullanımdan kalkıyor, diğeri PAD SPACE).
+- **Ön kontrol:** migration'dan önce her sütun için `SELECT COUNT(*) … WHERE CAST(col AS BINARY) NOT IN (…)` çalıştırılır; beklenen sonuç 0. Sıfır dışı bir sonuç çıkarsa durulur ve mimara bildirilir. Özellikle consent satırları **elle düzeltilmez**.
+- **Kilit:** ADD CHECK = COPY, 6 tablo yeniden yazılır. Prod açık değil ve staging küçük olduğundan kabul edildi.
+- **down.sql:** ci biçimine döner (genişletme yönünde, her zaman başarılı) ve `_prisma_migrations` kaydını siler.
+- **Test (`check-app-grants.sh`):** her CHECK için küçük harf, sondaki boşluk ve aksanlı (`É`) varyantın 3819 + beklenen kısıt adı ile reddedildiği; kanonik değerin geçtiği. `migrate diff --exit-code` 0, down → up döngüsü, `test:int` yeşil.
+- **P8 migration'ına ek (`session_history`):** `audit_logs` üzerinde `IX(tenant_id, entity, entity_id, created_at)` (detay zaman çizelgesi; INPLACE) ve `support_sessions` üzerinde `IX(created_at)` (Super Admin tüm-tenant listesi, P13 retention). Gerekçe: `mimari-api.md` "Oturum geçmişi (P8)" §3 ve §6.
+
+## P8 — oturum geçmişi alanları + liste indeksi (2026-11-11)
+Migration `apps/server/prisma/migrations/20261111060000_p8_session_history/{migration.sql,down.sql}` (expand; mimari §3.1, mimari-api GET/PATCH `/sessions`, export.csv; AC-60..63).
+| Sütun / indeks | Tanım | CHECK |
+|---|---|---|
+| `customer_name` | VARCHAR(100)? — admit edilen misafirin adı | 2..100 karakter, kırpılmış, Unicode Cc/Cf yok (join kuralıyla aynı); yalnız `consumed_at` dolu oturumda (`customer_consumed_chk`) |
+| `customer_email` | VARCHAR(190)? | tek `@`, boşluk/Cc/Cf yok; `customer_name` doluysa |
+| `ticket_no` | VARCHAR(50)? (AC-63) | 1..50, kırpılmış, Cc/Cf/Zl/Zp yok (= contracts `UNSAFE_NAME_CHARS`) |
+| `note` | TEXT? (AC-63) | 1..4000 karakter; yalnız `\n` `\t` serbest — diğer Cc (`\r` dahil, U+007F–U+009F) ve Cf yasak (mimari-api P8 §4) |
+| IX(tenant_id, status, created_at) | durum filtresi + sıralama/tarih aralığı | — |
+| `support_sessions` IX(created_at) | SUPER_ADMIN tüm-tenant listesi (mimari-api P8 §2/§6) + P13 retention | — |
+| `audit_logs` IX(tenant_id, entity, entity_id, created_at) | detay zaman çizelgesi (mimari-api P8 §3); INPLACE/LOCK=NONE | — |
+
+**Kararlar:**
+1. `anonymized_at` eklenmedi — retention ile P13'te (mimari §3.1 "kendi migration'larında").
+2. Mimari "IX(tenant_id, status)" yerine **(tenant_id, status, created_at)**: eşitlik + `created_at DESC` aynı indeksten (sapma notu mimari §3.1).
+3. P8 öncesi oturumlarda müşteri adı DB'de yok (yalnız audit `guest.admitted.newValue.name`); **geri doldurma yapılmadı** (prod açık değil, staging test verisi) → UI "—".
+4. Kilit: ADD COLUMN INSTANT, CREATE INDEX INPLACE/LOCK=NONE, ADD CHECK COPY (tablo küçük, prod kapalı → kabul).
+5. Mod ve müşteri adı için indeks yok (mod düşük seçicilik; müşteri araması `%x%`, B-tree kullanamaz) — ölçüm aşağıda yeterli.
+6. Boş metin saklanmaz: temizleme = NULL.
+7. **Sözleşme karşılaştırması (mimari-api "Oturum geçmişi (P8)"):** `startedAt` = `consumed_at` (P3), `durationSec` hesaplanır (sütun yok), `customerName/customerEmail/ticketNo/note/mode/endedBy/endReason/terminatedBy/quality_summary` DB'de mevcut; `tenant {id,name}` ilişkiden. Sapma yok. PATCH `note` kuralı (yalnız \n \t) ve `ticketNo` Zl/Zp DB CHECK'ine de işlendi; zod `.length` UTF-16 ≥ `CHAR_LENGTH` olduğundan zod'dan geçen değer CHECK'e takılmaz. Not: `\r` yasak — tarayıcı textarea değeri JS'te `\n`'dir, ama ham CRLF gönderen istemci 3819 alır; servis `\r\n`→`\n` normalleştirebilir.
+
+### Backend-dev için (P8)
+- **Kapsam:** her sorguda `tenantId` (+ USER için `technicianId = user.id`) — `repo.scopeWhere` mevcut. Sıralama **`[{createdAt:'desc'},{id:'desc'}]`** (iki alan aynı yönde; karışık yön filesort üretir). Sayfalama mimari-api'ye göre offset (`page/pageSize ≤ 100`); `findMany` + `count` aynı `where`, `Promise.all`.
+- **Hangi indeks hangi sorgu:**
+  | Filtre | İndeks |
+  |---|---|
+  | filtresiz / tarih aralığı / mod / müşteri | `(tenant_id, created_at)` geri tarama (+ filtre) |
+  | USER kapsamı veya `technicianId` | `(technician_id, created_at)`; count `(technician_id, status)` |
+  | `status` (+ tarih) | `(tenant_id, status, created_at)` (count covering) |
+- **Tarih filtresi `created_at` üzerinde** (`gte from`, `lt to+1gün`, UTC); "başlangıç" gösterimi `consumed_at` (mimar kararı P3) — `consumed_at` ile filtrelemek indeks kullanmaz.
+- **Müşteri filtresi — DİKKAT:** Prisma 7 (MySQL) `contains` LIKE jokerlerini **kaçışlamaz** (`"%"` tüm kayıtları eşledi, test edildi). `customerName: { contains: q.replace(/[\\%_]/g, "\\$&") }` kullanın. `utf8mb4_unicode_ci` → büyük/küçük harf duyarsız.
+- **Admit (A1):** tek atomik koşullu UPDATE'e `customerName` (trim'li) + `customerEmail` eklenmeli (CHECK: yalnız `consumed_at` ile birlikte); LobbyGuest'ten.
+- **PATCH (AC-63):** `ticketNo`/`note` zod (≤50/≤4000, trim; `""` → `null`); `updateMany({ where: { ...scope, id } })` count 0 → 404. ticket_no'da satır sonu/kontrol karakteri 3819 üretir — zod'da da reddedin.
+- **Liste N+1 yok:** `technician: { select: { id, fullName } }` Prisma'da tek ek `IN` sorgusu. consents/files yalnız detayda.
+- **SUPER_ADMIN tüm tenant'lar:** `where` tenant'sız → `IX(created_at)` geri tarama (10k+5k: 2,2 ms); `tenantId` filtresi verilirse `(tenant_id, created_at)`.
+- **Zaman çizelgesi:** `auditLog.findMany({ where: { tenantId, entity: 'support_sessions', entityId: id, action: { in: [...] } }, orderBy: [{createdAt:'asc'},{id:'asc'}], take: 500 })` → `IX(tenant_id, entity, entity_id, created_at)` (81k audit satırında 6 satır okur, 0,02 ms). `tenantId` **mutlaka** verilmeli (indeksin ilk sütunu; SUPER_ADMIN için oturumun tenant'ı).
+- **CSV imleci:** sözleşme "id imleciyle 1000'lik parti": sıra listeyle aynı olsun diye `(created_at, id)` keyset önerilir (`OR: [{createdAt:{lt:c}}, {createdAt:c, id:{lt:i}}]`) — `(tenant_id, created_at)` indeksini kullanır. Yalnız `id` imleci (ULID ≈ zaman) PK üzerinden tarar + tenant filtresi; 50k sınırında ikisi de yeterli.
+- **CSV:** 10k satır tek `findMany` ~100 ms, 100k ~840 ms (bellek). Akış için 1000'lik partiler, **keyset** imleç (`created_at < ? OR (created_at = ? AND id < ?)`), offset değil.
+
+### Performans seed'i (yalnız dev/test)
+`apps/server/scripts/perf-sessions.ts` — `PERF_SEED_ALLOW=1 node scripts/perf-sessions.ts seed|measure` (`DATABASE_URL` = app). NODE_ENV=production veya bayrak yoksa reddeder; `prisma/seed.ts`'e girmez. Varsayılan: `perf-p8` tenant'ına 10.000 oturum (+ `perf-p8-noise` 5.000), 10 teknisyen (giriş yapılamaz yer tutucu hash); `PERF_TENANT_SLUG=demo` ile panelden görülebilir. İdempotent (eksik kadar ekler). Test: `test/integration/session-history-p8.test.ts`.
+
+### Ölçüm (2026-11-11, geçici mysql 8.4, ANALYZE TABLE sonrası, findMany+count, 7 tekrar medyan)
+| Senaryo (pageSize 25) | 10k | 100k |
+|---|---|---|
+| filtresiz | 2,7 ms | 14,7 ms |
+| USER kapsamı | 2,2 | 18,1 |
+| durum=CANCELLED / ACTIVE(0) | 2,0 / 1,4 | 2,7 / 1,8 |
+| mod=AGENT | 10,3 | 111,8 |
+| tarih son 30 gün | 2,0 | 3,6 |
+| müşteri `Yılmaz` / eşleşmesiz | 11,1 / 15,1 | 120 / 156 |
+| tüm filtreler | 2,1 | 5,5 |
+| derin sayfa (skip 9975) | 12,6 | 15,5 |
+| SUPER_ADMIN tüm tenant'lar (15k) | 2,2 | — |
+**AC-60 (< 500 ms, 10k) karşılanıyor**; en kötü 15 ms. EXPLAIN: liste sorguları `LIMIT 25`'te 25 satır okuyup durur (reverse index lookup, filesort yok); maliyeti `count` taşır (mod/müşteri filtresinde tenant'ın tüm satırları). Doğrusal: tenant başına ~250k'da müşteri araması ~400 ms. O ölçekte öneri: UI varsayılan tarih aralığı (ör. son 90 gün) veya `(tenant_id, mode, created_at)` / ngram FULLTEXT — gerek görülürse ayrı migration.
+
+### Test (2026-11-11, `scripts/test-db.sh` `rs-mysql-dba-p8:33318`, mysql 8.4, sonra silindi)
+P1→P7 üzerine P8 + ADR-0014 migrate + grants OK; `migrate diff --exit-code` 0. `check-app-grants.sh` **148/148 PASS** (P8: 14, ADR-0014: 56; her red beklenen kısıt adıyla — `run` artık 3. parametreyle kısıt adını da doğrular). `down.sql` (ADR-0014 → P8 sırasıyla) → sütunlar, 3 indeks, 5 CHECK ve kayıtlar kalktı, satırlar korundu, diff 2 (beklenen); yeniden migrate OK, drift 0, `migrate status` güncel, 148/148. `test/integration/session-history-p8.test.ts` 6/6; DB katmanı testleri (P4/P5/P7/grants) yeşil; `test` 244/244, lint temiz. Tam `test:int` 191/192: tek kırmızı `tenant-isolation` "her uç sınıflandırılmış" — backend-dev'in paralel eklediği yeni P8 ucu (sınıflandırma onun işi); `src/sessions/*` typecheck hataları da o sırada backend'in yarım dosyalarındandı. grants.sql değişmedi (yeni tablo yok).
+
+### ADR-0014 uygulandı (2026-11-11)
+Migration `apps/server/prisma/migrations/20261111070000_enum_check_binary/{migration.sql,down.sql,precheck.sql}`. 14 enum CHECK `CAST(col AS BINARY) IN (…)` (NULL'lanabilir: `smtp_security`, `ended_by`, `mode` → `IS NULL OR …`). `information_schema.CHECK_CONSTRAINTS` bunu `cast(… as char charset binary)` olarak gösterir.
+- **Yerleşik koruma:** ALTER'lardan önce geçici tablo `adr14_guard` (`CHECK (n = 0)`) kanonik olmayan satır toplamını alır → > 0 ise migration **3819 `adr14_noncanonical_rows_chk` ile hiçbir şey değişmeden** durur (DDL transaction'sız olduğu için kısmi uygulamayı önler). Test edildi: `status='active'` tenant satırı → durdu, 14 CHECK eski hâlinde.
+- **Durursa (runbook, devops):** `precheck.sql` ile hangi sütun olduğunu görün → **satırı elle düzeltmeyin**, mimara bildirin → karar sonrası `prisma migrate resolve --rolled-back 20261111070000_enum_check_binary` → `pnpm db:migrate` (test edildi).
+- Staging/prod'da migrate'ten önce `precheck.sql` çalıştırılması önerilir (yalnız okuma).
+- `down.sql` ci biçimine döner (her zaman başarılı) + kayıt siler. ci biçimindeyken yeni testlerden 42'si (14×3 varyant) FAIL veriyor — testlerin ayırt ettiği kanıtlandı.
+- Kilit: 7 tablo COPY (`audit_logs` dahil); prod kapalı → kabul.

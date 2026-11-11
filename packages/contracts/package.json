@@ -11,7 +11,8 @@
     "./ws": "./src/ws.ts",
     "./dc": "./src/dc.ts",
     "./files": "./src/files.ts",
-    "./audit": "./src/audit.ts"
+    "./audit": "./src/audit.ts",
+    "./labels": "./src/labels.ts"
   },
   "scripts": {
     "lint": "eslint .",

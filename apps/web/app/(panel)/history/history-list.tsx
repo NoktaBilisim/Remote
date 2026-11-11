@@ -1,0 +1,105 @@
+import type { SessionListItem } from "@remote/contracts/api/sessions";
+import { labelOf, SESSION_MODE_LABELS } from "@remote/contracts/labels";
+import { ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { StatusBadge } from "@/components/ui/badge";
+import { formatDateTime, formatDuration } from "@/lib/format";
+import { t } from "@/lib/i18n";
+import { LiveDuration } from "./live-duration";
+
+interface Props {
+  items: SessionListItem[];
+  showTechnician: boolean;
+  showTenant: boolean;
+}
+
+export function DurationCell({ s }: { s: Pick<SessionListItem, "status" | "startedAt" | "durationSec"> }) {
+  if (s.durationSec !== null) return <>{formatDuration(s.durationSec)}</>;
+  if (s.status === "ACTIVE" && s.startedAt) return <LiveDuration startedAt={s.startedAt} />;
+  return <span className="text-fg-muted">—</span>;
+}
+
+const customer = (s: SessionListItem) =>
+  s.customerName ?? <span className="text-fg-muted italic">{t("h.noCustomer")}</span>;
+const mode = (s: SessionListItem) => (s.mode ? labelOf(SESSION_MODE_LABELS, s.mode) : t("h.mode.none"));
+const detailLabel = (s: SessionListItem) => t("h.open", { name: s.customerName ?? formatDateTime(s.createdAt) });
+
+/** Oturum geçmişi: ≥ md tablo, dar ekranda kart (aynı veri). Satırın tamamı değil, müşteri adı bağlantıdır (klavye/ekran okuyucu tek hedef). */
+export function HistoryList({ items, showTechnician, showTenant }: Props) {
+  // Firma sütunu da açıkken (SUPER_ADMIN) < 2xl'de en az öncelikli "Bağlantı" gizlenir; tablo kaba sığar (TEST-P8-2).
+  // Bağlantı filtresi, kart görünümü ve ayrıntı sayfası bu bilgiyi göstermeye devam eder.
+  const modeCol = showTenant ? "hidden 2xl:table-cell" : "";
+  return (
+    <>
+      <div className="hidden overflow-x-auto rounded-lg border border-border bg-surface md:block">
+        <table className="w-full text-left text-sm" data-testid="history-table">
+          <caption className="sr-only">{t("h.title")}</caption>
+          <thead className="bg-surface-muted text-xs text-fg-muted">
+            <tr>
+              <th scope="col" className="px-3 py-3 font-medium">{t("h.col.created")}</th>
+              <th scope="col" className="px-3 py-3 font-medium">{t("h.col.customer")}</th>
+              {showTenant && <th scope="col" className="px-3 py-3 font-medium">{t("h.col.tenant")}</th>}
+              {showTechnician && <th scope="col" className="px-3 py-3 font-medium">{t("h.col.tech")}</th>}
+              <th scope="col" className="px-3 py-3 font-medium">{t("h.col.status")}</th>
+              <th scope="col" className={`px-3 py-3 font-medium ${modeCol}`}>{t("h.col.mode")}</th>
+              <th scope="col" className="px-3 py-3 text-right font-medium">{t("h.col.duration")}</th>
+              <th scope="col" className="px-3 py-3 font-medium">{t("h.col.ticket")}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {items.map((s) => (
+              <tr key={s.id} data-testid="history-row" className="hover:bg-surface-muted">
+                <td className="px-3 py-2 whitespace-nowrap tabular-nums text-fg">{formatDateTime(s.createdAt)}</td>
+                <td className="max-w-56 px-3 py-2">
+                  <Link
+                    href={`/history/${s.id}`}
+                    aria-label={detailLabel(s)}
+                    className="inline-flex min-h-11 max-w-full items-center font-medium text-primary hover:underline"
+                  >
+                    <span className="truncate">{customer(s)}</span>
+                  </Link>
+                </td>
+                {showTenant && <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.tenant?.name}>{s.tenant?.name ?? "—"}</td>}
+                {showTechnician && <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.technician.name}>{s.technician.name}</td>}
+                <td className="px-3 py-2"><StatusBadge status={s.status} /></td>
+                <td className={`px-3 py-2 whitespace-nowrap text-fg ${modeCol}`}>{mode(s)}</td>
+                <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums text-fg"><DurationCell s={s} /></td>
+                <td className="max-w-32 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.ticketNo ?? undefined}>{s.ticketNo ?? <span className="text-fg-muted">—</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <ul className="flex flex-col gap-2 md:hidden" data-testid="history-cards">
+        {items.map((s) => (
+          <li key={s.id} data-testid="history-card">
+            <Link
+              href={`/history/${s.id}`}
+              aria-label={detailLabel(s)}
+              className="flex items-center gap-3 rounded-lg border border-border bg-surface p-3 hover:bg-surface-muted"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-medium text-fg">{customer(s)}</span>
+                  <StatusBadge status={s.status} />
+                </div>
+                <p className="mt-1 text-xs tabular-nums text-fg-muted">
+                  {formatDateTime(s.createdAt)} · {mode(s)} · <DurationCell s={s} />
+                </p>
+                {(showTechnician || showTenant || s.ticketNo) && (
+                  <p className="mt-1 truncate text-xs text-fg-muted">
+                    {[showTenant ? s.tenant?.name : null, showTechnician ? s.technician.name : null, s.ticketNo ? `#${s.ticketNo}` : null]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                )}
+              </div>
+              <ChevronRight aria-hidden className="size-4 shrink-0 text-fg-muted" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}

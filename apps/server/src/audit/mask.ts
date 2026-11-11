@@ -17,6 +17,8 @@ const ALLOWED_KEYS: ReadonlySet<string> = new Set([
   "direction",
   "result",
   "reason",
+  // P8 session.updated: ticket numarası gizli değildir; `ticket` kara liste kalıbı (wsTicket) yüzünden açıkça izinli.
+  "ticketNo",
 ]);
 
 const MASKED_KEY =

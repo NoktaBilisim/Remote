@@ -4,10 +4,11 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P7 tamamlandı
-İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P7 tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0).
-P7'nin gerçek Windows'ta elle doğrulaması (implementation.md "Agent P7" adım 25–42) P8 kod turundan önce yapılacak.
-Sıradaki paket P8 (oturum geçmişi).
+## Şu anki durum: P1–P8 tamamlandı
+İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P8 tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0,
+sayfa testi GEÇTİ). Gerçek Windows'ta elle doğrulama (implementation.md "Agent P7" adım 25–42 ve "fare imleci"
+adım 43–47) hâlâ açık; ayrıntı `docs/gereksinimler.md` "Sonra / açık — P8'den". Sıradaki paket P9 (kullanıcı/yetki
+yönetimi).
 
 **P1 — ince iskelet**
 - E-posta veya kullanıcı adı + şifre ile giriş, çıkış, ilk girişte zorunlu şifre değişimi.
@@ -103,7 +104,7 @@ Sıradaki paket P8 (oturum geçmişi).
   server'ın bütünlük kapısına sorar (`forward_auth`), hash `AGENT_SHA256` ile uyuşmazsa 503 (fail-closed).
   Ayrıntı: [`docs/api.md`](docs/api.md).
 - Bilinen sınırlamalar: karşılamada firma logosu yerine Nokta amblemi görünür (sunucu firma logosunu P9'a kadar `null`
-  döner); fare imleci görüntüye çizilmez (teknisyen imleci görmez); istemci arayüzü yalnız açık temadadır.
+  döner); istemci arayüzü yalnız açık temadadır. (Fare imleci P8'de görüntüye eklendi.)
 
 **P7 — uzaktan kontrol** (yalnız Hızlı Destek istemcisi; tarayıcı misafiri yalnız görüntüler)
 - Konsolda **Kontrol iste** → müşteride izin diyaloğu. "Reddet" varsayılan ve odakta; "İzin ver" 1,5 sn sonra
@@ -128,14 +129,37 @@ Sıradaki paket P8 (oturum geçmişi).
   (hata veya 800 ms) kontrol açılmaz (fail-closed).
 - Migration `20261111050000_p7_consent_source_tech` (`session_consents.source` += `TECH`); yeni ortam değişkeni yok.
   Yayında migrate server'dan önce çalışmalıdır (compose bunu kendisi yapar, bkz. "Deploy").
-- Bilinen sınırlar: Windows elle testi bekliyor; fare imleci görüntüye çizilmez; UIAccess yetkili yerel bir programın
+- Bilinen sınırlar: Windows elle testi bekliyor; UIAccess yetkili yerel bir programın
   ürettiği girdi gerçek kullanıcı girdisinden ayırt edilemez (kapsam dışı, `docs/implementation.md` Agent P7 tur 2).
 
+**P8 — oturum geçmişi** (sürüm 0.8.0)
+- Kenar menüsünde **Oturum geçmişi** (`/history`): tarih aralığı (Türkiye saatiyle gün), durum, bağlantı
+  (İstemci/Tarayıcı), teknisyen, müşteri adı ve (Super Admin) firma filtreleri; 10/25/50/100 kayıtlık sayfalar.
+  Filtreler adres çubuğunda kalır. USER yalnız kendi oturumlarını, ADMIN firmasının tümünü, Super Admin tüm firmaları
+  ("Firma" sütunuyla) görür. Kapsam dışı oturum her uçta 404'tür.
+- **Oturum ayrıntısı** (`/history/<id>`): özet, müşteri adı ve e-postası, onay kayıtları (KVKK metin sürümüyle),
+  uzaktan kontrol dönemleri (verilme/kapanma zamanı, kapatan, neden; müşteri istemcisi yönetici olarak çalışıyorsa
+  uyarı), zaman çizelgesi (en çok 500 olay), kalite özeti, dosya aktarım kayıtları.
+- **Ticket no** (≤ 50) ve **not** (≤ 4.000 karakter) ayrıntı ekranından eklenir (`session_history.edit`). Not metni
+  audit'e yazılmaz; yalnız uzunluğu yazılır.
+- **CSV dışa aktarma** (`session_history.export`): filtrelenmiş liste; UTF-8 BOM, `;` ayraç, Türkiye saati, Türkçe
+  etiketler; Excel (tr-TR) dosyayı doğrudan sütunlara açar. Formülle başlayan hücreler `'` ile metne çevrilir. En çok
+  50.000 satır, kullanıcı başına dakikada 5. Her dışa aktarma `session.exported` olarak audit'e yazılır.
+- Yetkiler: `session_history.view / edit / export` (ADMIN varsayılan açık, USER kapalı).
+- **Hızlı Destek istemcisi:** müşterinin fare imleci (şekliyle) görüntüye çizilir; ekran durgunken de imleç akıcı
+  hareket eder. Windows'ta elle doğrulama bekliyor.
+- **Veritabanı:** migration `20261111060000_p8_session_history` (müşteri adı/e-postası, ticket, not, 3 indeks) ve
+  `20261111070000_enum_check_binary` (ADR-0014: enum CHECK'leri harf/aksan/boşluk duyarlı). Yayından önce salt okunur
+  ön kontrol gerekir (`docs/runbook.md` §6.1). Yeni ortam değişkeni yok.
+- Bilinen sınırlar: teknisyen/firma filtre seçenekleri o sayfadaki kayıtlardan gelir (tam liste P9); detayda Dosyalar
+  tablosu dar ekranda sıkışık (TEST-P8-1).
+
 API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
-Müşteri için Hızlı Destek kullanımı: [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
+Kullanım (müşteri, teknisyen, yönetici): [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
+Ürün föyü: [`docs/DATASHEET.md`](docs/DATASHEET.md).
 
 **Staging'de teknisyen hesabı:** Seed yalnız Super Admin oluşturur. Super Admin tenant seçmeden destek oturumu
-açamaz (403; tenant geçişi P9). Kullanıcı yönetimi ekranı P9'da gelene kadar ADMIN/USER hesabı
+açamaz (403; tenant geçişi P9); oturum geçmişini ise firma seçmeden tüm firmalar için görür. Kullanıcı yönetimi ekranı P9'da gelene kadar ADMIN/USER hesabı
 `deploy/staging-users.sh` ile eklenir (`docs/runbook.md` §6).
 
 ## Yol haritası
@@ -147,7 +171,7 @@ açamaz (403; tenant geçişi P9). Kullanıcı yönetimi ekranı P9'da gelene ka
 | P5 ✓ | Sohbet, dosya transferi, ekran üzerine işaretleme + lazer + yüzen pencere, kalite paneli |
 | P6 ✓ | Windows istemci (Go, imzasız; SHA-256 + build attestation) |
 | P7 ✓ | Uzaktan kontrol (izin diyaloğu, klavye/fare, monitör değiştirme) |
-| P8 | Oturum geçmişi, not/ticket, CSV dışa aktarma |
+| P8 ✓ | Oturum geçmişi, not/ticket, CSV dışa aktarma, istemcide fare imleci |
 | P9 | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
 | P10 | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış |
 | P11 | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri |
@@ -285,7 +309,20 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 `e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
-### Son test sonuçları (P7, 2026-11-11)
+### Son test sonuçları (P8, 2026-11-11)
+| Takım | Sonuç |
+|---|---|
+| Birim (`pnpm -r run test`) | 442: server 256, web 136, contracts 50 |
+| Server entegrasyon (`test:int`) | 216 (25 dosya); P8 dosyası filtreler, İstanbul gün sınırı, IDOR, PATCH, CSV (BOM, formül kaçışı, 5/dk, 1205 satır keyset) |
+| AC-60 performans (10.000 oturum, ilk sayfa) | ADMIN 2,4 ms · USER 2,2 ms · Super Admin tüm firmalar 2,0 ms · API uçtan uca 6,7 ms (sınır 500 ms) |
+| Web e2e (sahte API/WS) | 174 geçti + 54 atlandı (masaüstü akışlarının mobil kopyaları); P8 spec'i `e2e/p8-history.spec.ts` |
+| DB | 8 migration, `prisma migrate diff` fark yok, `check-app-grants.sh` 148/148 |
+| Windows istemci (`go test -race`, linux) | 15/15 paket ok (yeni: `internal/capture/cursor_test.go`); iki derleme aynı SHA-256 |
+
+Sayfa testi (`docs/test-raporu.md`): 16 sayfa/durum × 6 görünüm (1280/1440/390, açık/koyu), axe 0 ihlal, kırık link 0,
+konsol hatası 0. CSV gerçek sunucu ve MySQL ile üretilip bayt düzeyinde doğrulandı.
+
+#### Önceki paketler (P7, 2026-11-11)
 | Takım | Sonuç |
 |---|---|
 | Windows istemci (`go test -race`, linux) | 15/15 paket ok (yeni: control, env, input); `GOOS=windows go vet` temiz; govulncheck 0 erişilebilir zafiyet; iki derleme aynı SHA-256 |
@@ -324,6 +361,10 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
   `source='TECH'` satırı yazar; eski CHECK bunu reddeder). Compose sırası bunu sağlar; elle yayında önce
   `docker compose run --rm migrate`, sonra `docker compose up -d server`. Geri alma: önce P7 kodu, sonra `down.sql`
   (`docs/db-notlari.md` P7; `TECH` satırı varsa `down.sql` atomik olarak başarısız olur).
+
+- **P8 yayını:** iki migration (`20261111060000_p8_session_history`, `20261111070000_enum_check_binary`). `up -d`'den
+  **önce** ADR-0014 ön kontrolü (`precheck.sql`, salt okunur) çalıştırılır; her satır 0 olmalıdır. Sıfır olmayan
+  satır elle düzeltilmez (KVKK kanıtı), mimara bildirilir. Komutlar ve geri dönüş: `docs/runbook.md` §6.1.
 
 ### Windows istemciyi derleme ve yayınlama (runbook §11)
 **Derleme** — `apps/agent-win/build/build.sh <https://alan-adı[:port]> <sürüm x.y.z> [çıktı]`. Betik go-winres ile
@@ -392,6 +433,10 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
   dosya kabulü) yalnız müşterinin gerçek fare/klavye girdisini kabul eder. İstemcide girdi hız sınırı (250 olay/sn).
   Yetki daralması 60 sn'lik teknisyen yeniden doğrulamasında `caps.update` + `control.revoke{permission}` ile kontrolü
   keser. İzin kaydı yazılamazsa kontrol açılmaz.
+- Oturum geçmişi (P8): beş uç tek kapsam fonksiyonunu kullanır, kapsam dışı kayıt 404. CSV hücreleri formül
+  enjeksiyonuna karşı kaçışlanır (AC-124). Detay API'si onay kayıtlarının IP/tarayıcı bilgisini döndürmez; not metni
+  ve müşteri arama metni audit'e yazılmaz. Bekleyen oturum kodu yalnız kendi teknisyenine döner. Enum CHECK'leri
+  ikili karşılaştırmalı (ADR-0014).
 - Konteynerler salt okunur kök dosya sistemi, `cap_drop: ALL`, root olmayan kullanıcıyla çalışır; imajlar digest ile sabitlenir.
 - CI: `pnpm audit`, lisans denetimi (GPL/AGPL yasak), gitleaks. Repoya gizli bilgi girmez.
 - Ayrıntı: `docs/guvenlik-raporu.md`, ADR'ler `docs/adr/`.

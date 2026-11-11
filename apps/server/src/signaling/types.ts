@@ -40,6 +40,8 @@ export type GuestState = "TICKETED" | "LOBBY" | "ADMITTED";
 export interface Guest {
   id: string;
   name: string;
+  /** P8: join'deki isteğe bağlı e-posta; admit UPDATE'inde customer_email'e yazılır (AC-62). */
+  email?: string;
   kind: GuestKind;
   ipKey: string;
   /** sha256(guestId:admitCode) — düz kod bellekte de tutulmaz. */

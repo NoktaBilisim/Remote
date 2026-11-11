@@ -1,4 +1,4 @@
-# Runbook — Remote Support (P1–P7)
+# Runbook — Remote Support (P1–P8)
 Sahibi: devops. Kapsam P1: kurulum, başlatma/durdurma, env, log, migrate/seed. Yedek, alarm, rollback
 provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md` §8.
 
@@ -111,6 +111,37 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
   Opsiyonel: `ADMIN_EMAIL=… USER_EMAIL=… ACCESS_FILE=… bash staging-users.sh`. Parola sıfırlama P9'a kadar yok:
   kullanıcıyı silmek yerine farklı e-postayla yeni hesap açın.
 
+### 6.1 P8 yayını — ADR-0014 ön kontrolü (migrate'ten ÖNCE)
+P8 iki migration getirir: `20261111060000_p8_session_history` (sütun + indeks) ve `20261111070000_enum_check_binary`
+(ADR-0014: 14 enum CHECK ikili karşılaştırmaya geçer). İkincisi, mevcut satırlardan biri kanonik değilse (ör. `'tech'`,
+`'TECH '`) hiçbir şey değiştirmeden **3819** (`adr14_noncanonical_rows_chk`) ile durur; migrate başarısız olunca
+server da başlamaz. Bunu yayından önce görmek için `git pull`'dan sonra, `docker compose build/up`'tan **önce**,
+çalışan MySQL'e salt okunur ön kontrolü uygulayın (`deploy/` içinde):
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql -umigrator "$MYSQL_DATABASE"' \
+  < ../apps/server/prisma/migrations/20261111070000_enum_check_binary/precheck.sql
+```
+Parola konteynerin kendi ortamından okunur, komut satırına yazılmaz. Çıktı 14 satırdır (`col`, `n`); **hepsi 0**
+olmalıdır (2026-11-11 test DB'sinde denendi). Hepsi 0 ise yayına §8'deki sırayla devam edin.
+
+**`n` > 0 ise ya da migrate 3819 ile durduysa:**
+1. Satırları **elle düzeltmeyin** (`session_consents` KVKK onay kanıtıdır). Precheck çıktısını (yalnız sütun adı ve
+   sayı; satır içeriği değil) mimara bildirin.
+2. Migration yerleşik koruma sayesinde hiçbir şey değiştirmedi; Prisma'daki başarısız kaydı kapatın:
+   `docker compose run --rm migrate pnpm --filter @remote/server exec prisma migrate resolve --rolled-back 20261111070000_enum_check_binary`
+3. Karar gelene kadar §8 "Rollback" ile önceki `IMAGE_TAG`'e dönün. Karardan sonra `docker compose up -d` (migrate
+   yeniden dener).
+
+**Geri dönüş (P8'i tamamen geri almak; önce yedek):** sıra terstir. (1) Önceki imaj (`IMAGE_TAG=<P7>`), (2) ADR-0014
+`down.sql` (CHECK'leri eski harf duyarsız biçime döndürür; genişletme yönünde, her zaman başarılı), (3) P8
+`down.sql` (**müşteri adı/e-postası, ticket ve not sütunlarını verisiyle siler**):
+```bash
+docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/20261111070000_enum_check_binary/down.sql
+docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/20261111060000_p8_session_history/down.sql
+```
+Her `down.sql` kendi `_prisma_migrations` kaydını da siler. Yalnız ADR-0014'ü geri almak P7/P8 kodunu etkilemez.
+Ayrıntı: `docs/db-notlari.md` "ADR-0014 uygulandı", ADR-0014.
+
 ## 7. Sorun giderme (P1)
 | Belirti | Kontrol / çözüm |
 |---|---|
@@ -132,6 +163,8 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
 | Yetkisi kaldırılan teknisyenin kontrolü hemen kapanmadı | P9'a kadar yetki değişikliği teknisyen soketinin 60 sn'lik yeniden doğrulamasında uygulanır (`caps.update` + `control.revoke{permission}`, metrik `caps_narrowed`, `revoke_permission`). En geç ~60 sn beklenir. Hemen kesmek için oturumu zorla sonlandırın (`POST /api/v1/sessions/:id/terminate`, Oturumlar → "Zorla sonlandır") |
 | Uzaktan kontrol olaylarını izleme | `/metrics` → `rs_control_total{event}` (komut: `docs/api.md` "GET /metrics"; olay listesi `apps/server/src/ops/metrics.ts`). Dikkat: `grant_audit_{error,timeout}` > 0 (izin kaydı yazılamıyor), `control_request_audit_failed` > 0 (istek audit'i yazılamadı, istek yine iletildi), `control_state_unexpected` sık artıyorsa (beklenmeyen izin mesajı; değiştirilmiş istemci şüphesi, log oda başına dakikada ≤ 1) |
 | Konsolda "Kontrol iste" düğmesi yok | Teknisyende `remote_control.use` yok (staging: `staging-users.sh` USER'a açar), müşteri tarayıcıdan bağlı (yalnız görüntü; "Uzaktan kontrol" pasif) veya görüntü henüz gelmedi |
+| Hızlı Destek staging'de kod soruyor / hiçbir kodu kabul etmiyor | Windows'ta Caddy `tls internal` kök sertifikası kurulu değil (§8 "Kök CA", yönetici komut isteminde `certutil -addstore -f Root remote-staging-ca.crt`). İstemci sertifikayı doğrulayamayınca bağlantı hatası kod hatası gibi görünüyor; ajan 0.8.0'da TLS hatası ayrı mesajla gösterilecek |
+| CSV dışa aktarmada 429 / "En çok 50.000 satır" | P8 sınırları: kullanıcı başına dakikada 5 dışa aktarma; 50.000 satır üstünde dosya üretilmez (tarih aralığı daraltılır). Müşteri adıyla liste araması dakikada 60. Ayar yoktur |
 | Tüm müşteriler aynı IP'den (`172.30.0.x`) görünüyor / token limiti (429) ortak işliyor | web'in adresi .3 değil veya `TRUSTED_PROXY_CIDR` kapsamıyor: `docker inspect remote-web-1 -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'` |
 
 ## 8. Staging (185.126.217.99:4450)
@@ -156,6 +189,7 @@ docker compose --profile setup run --rm seed     # her yayında zararsız; P4+ t
 docker compose ps && docker compose logs --since 5m migrate
 docker image rm remote-server:<eski> remote-web:<eski> remote-migrate:<eski>   # yalnız kendi eski imajlarımız
 ```
+  **P8 ve sonrası:** `git pull`'dan sonra, `docker compose build`'den önce §6.1 ön kontrolünü çalıştırın.
   Rollback: `.env`'de `IMAGE_TAG=<önceki>` → `docker compose up -d` (şema değiştiyse önce §6 geri alma).
   Disk dar (%80+): her güncellemeden sonra yalnız iki önceki etiketi tutun.
 - Kök CA (tarayıcı uyarısı olmasın diye test makinelerine kurulur; gerçek müşteri staging'e bağlanmaz):

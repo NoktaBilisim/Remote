@@ -38,6 +38,13 @@ async function live(page: Page, browser: Browser, scheme: "light" | "dark" = "li
   return { g, id: s.id };
 }
 
+/** Misafiri kapat: önce ekran paylaşımı durdurulur — yakalama açıkken context kapanışı yük altında 4–10 sn sürüyordu (AC-39). */
+async function closeGuest(page: Page, g: Page) {
+  await g.getByTestId("share-stop").click();
+  await expect(page.getByTestId("stage")).toHaveAttribute("data-share", "stopped");
+  await g.context().close();
+}
+
 const side = (p: Page) => p.getByTestId("collab-side");
 const guestSide = (g: Page) => g.getByTestId("guest-collab");
 
@@ -297,7 +304,10 @@ test("AC-119/G-09: file_transfer yetkisi yok → müşteride Dosyalar sekmesi yo
 });
 
 for (const scheme of ["light", "dark"] as const) {
-  test(`AC-39: P5 paneller axe (${scheme}) + müşteri 375 px`, async ({ page, context, browser }) => {
+  // AC-39 kararsızlığı (P8, kök neden docs/implementation.md "Frontend P8"): eski tek test 8 tam axe taraması (her biri yeni
+  // sekme açan finishRun) + canlı WebRTC ile 7 işçide ~48 sn sürüyordu (30 sn bütçe). Tarama legacy modda (helpers.axeScan),
+  // test ikiye bölündü, sekme değişiminden sonra yalnız değişen bölge taranır, misafir context'i paylaşım durdurulup kapatılır.
+  test(`AC-39: P5 konsol panelleri axe (${scheme})`, async ({ page, context, browser }) => {
     await signIn(context, `p5-ax${scheme}`);
     const { g } = await live(page, browser, scheme);
     await page.getByTestId("chat-input").fill("Kontrol mesajı");
@@ -320,11 +330,19 @@ for (const scheme of ["light", "dark"] as const) {
     expect(await axeScan(g)).toEqual([]);
     expect(await axeScan(page)).toEqual([]);
     await side(page).getByRole("button", { name: "Dosyalar" }).click();
-    expect(await axeScan(page)).toEqual([]);
+    expect(await axeScan(page, '[data-testid="collab-side"]')).toEqual([]);
     await side(page).getByRole("button", { name: "Kalite" }).click();
     await expect(page.getByTestId("quality-panel")).toBeVisible({ timeout: 10_000 });
-    expect(await axeScan(page)).toEqual([]);
+    expect(await axeScan(page, '[data-testid="collab-side"]')).toEqual([]);
+    await closeGuest(page, g);
+  });
 
+  test(`AC-39: P5 müşteri 375 px + dosya kabul diyaloğu axe (${scheme})`, async ({ page, context, browser }) => {
+    await signIn(context, `p5-ay${scheme}`);
+    const { g } = await live(page, browser, scheme);
+    await page.getByTestId("chat-input").fill("Ç".repeat(2000));
+    await page.keyboard.press("Enter");
+    await expect(g.getByTestId("chat-msg")).toHaveCount(1);
     await g.setViewportSize({ width: 375, height: 780 });
     expect(await axeScan(g)).toEqual([]);
     await noHorizontalOverflow(g);
@@ -336,12 +354,12 @@ for (const scheme of ["light", "dark"] as const) {
     // ARM_MS sonrası "Kabul et" opaklık geçişi (150 ms) tarama ortasına denk gelirse ara renk ölçülür → kararlı hâli tara
     await expect(g.getByTestId("file-accept")).toBeEnabled({ timeout: 10_000 });
     await expect(g.getByTestId("file-accept")).toHaveCSS("opacity", "1");
-    expect(await axeScan(g)).toEqual([]);
+    expect(await axeScan(g, '[data-testid="file-offer"]')).toEqual([]);
     await noHorizontalOverflow(g);
     await g.getByTestId("file-reject").click();
     await expect(g.getByTestId("file-offer")).toBeHidden();
-    expect(await axeScan(g)).toEqual([]);
-    await g.context().close();
+    expect(await axeScan(g, '[data-testid="guest-collab"]')).toEqual([]);
+    await closeGuest(page, g);
   });
 }
 

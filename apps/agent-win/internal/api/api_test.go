@@ -58,8 +58,8 @@ func TestAC109RejectsUntrustedCertificate(t *testing.T) {
 	_, err := New(u, "1.0.0").Resolve(context.Background(), "12345678") // sistem kökleri: httptest sertifikası güvenilmez
 	var ae *Error
 	var certErr *tls.CertificateVerificationError
-	if !errors.As(err, &ae) || ae.Status != 0 || !errors.As(err, &certErr) {
-		t.Fatalf("sertifika hatası beklenirdi: %v", err)
+	if !errors.As(err, &ae) || ae.Status != 0 || !errors.As(err, &certErr) || !ae.TLS || ae.Retryable() {
+		t.Fatalf("sertifika hatası (TLS, yeniden denenmez) beklenirdi: %v", err)
 	}
 	if hits.Load() != 0 {
 		t.Fatal("doğrulanmamış sunucuya istek ulaşmamalı")
@@ -128,5 +128,36 @@ func TestAC98JoinNoClientKindNoRetryNoRedirect(t *testing.T) {
 	_, err = c.Join(context.Background(), req)
 	if !errors.As(err, &ae) || ae.Status != http.StatusFound {
 		t.Fatalf("yönlendirme izlenmemeli: %v", err)
+	}
+}
+
+func TestAC109TLSErrorClassification(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	pool := x509.NewCertPool()
+	pool.AddCert(srv.Certificate())
+	u, _ := url.Parse(srv.URL)
+	cases := []struct {
+		name string
+		cfg  *tls.Config
+	}{
+		{"güvenilmeyen kök", &tls.Config{MinVersion: tls.VersionTLS12}},
+		{"ad uyuşmazlığı", &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool, ServerName: "baska.example"}},
+	}
+	for _, c := range cases {
+		_, err := newClient(u, "1.0.0", c.cfg).Join(context.Background(), JoinRequest{JoinNonce: "n"})
+		var ae *Error
+		if !errors.As(err, &ae) || ae.Status != 0 || !ae.TLS || ae.Retryable() {
+			t.Errorf("%s: TLS hatası beklenirdi: %#v", c.name, err)
+		}
+	}
+	// Sertifikayla ilgisiz ağ hatası TLS sayılmaz ve yeniden denenebilir.
+	closed := httptest.NewServer(http.NotFoundHandler())
+	cu, _ := url.Parse(closed.URL)
+	closed.Close()
+	_, err := New(cu, "1.0.0").Join(context.Background(), JoinRequest{JoinNonce: "n"})
+	var ae *Error
+	if !errors.As(err, &ae) || ae.Status != 0 || ae.TLS || !ae.Retryable() {
+		t.Fatalf("ağ hatası TLS sayılmamalı: %#v", err)
 	}
 }

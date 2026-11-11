@@ -5,6 +5,78 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-11-11 — P8 (oturum geçmişi)
+
+### Eklendi — P8
+- **Oturum geçmişi ekranı `/history`** (kenar menüsünde "Oturum geçmişi", yetki `session_history.view`): tarih aralığı
+  (Türkiye saatiyle gün), durum, bağlantı (İstemci/Tarayıcı), teknisyen, müşteri adı ve (yalnız Super Admin) firma
+  filtreleri; sayfa başına 10/25/50/100 kayıt; filtreler adres çubuğunda kalır, sayfa yenilense de korunur. Bağlantıdaki
+  geçersiz filtre yok sayılır ve uyarı gösterilir. 390 px'te tablo yerine kart listesi.
+- **Oturum ayrıntısı `/history/[id]`:** özet (oluşturma, başlangıç, bitiş, süre, bağlantı, teknisyen, müşteri adı ve
+  e-postası, sonlandıran, bitiş nedeni), onay kayıtları (KVKK metin sürümüyle), uzaktan kontrol dönemleri (kim, ne zaman,
+  hangi yolla kapattı; müşteri istemcisi yönetici olarak çalışıyorsa uyarı rozeti), zaman çizelgesi (en çok 500 olay),
+  kalite özeti ve dosya aktarım kayıtları (içerik değil, meta veri).
+- **Ticket no ve not** (yetki `session_history.edit`): ticket en çok 50, not en çok 4.000 karakter; sayaç, alan
+  hataları, kaydedilmemiş değişiklik uyarısı. Her oturum durumunda düzenlenebilir.
+- **CSV dışa aktarma** (yetki `session_history.export`): filtrelenmiş liste, UTF-8 BOM, `;` ayraç, Türkiye saati,
+  Türkçe etiketler; Excel (tr-TR) dosyayı çift tıklayınca sütunlara ayırır. En çok 50.000 satır, kullanıcı başına
+  dakikada 5 dışa aktarma.
+- **API:** `GET /api/v1/sessions` yeni filtreler (`mode`, `from`, `to`, `tenantId`, `customer`, `sort`) ve yeni alanlar
+  (`mode`, `startedAt`, `durationSec`, `customerName`, `ticketNo`, `tenant`); `GET /api/v1/sessions/:id/history`;
+  `PATCH /api/v1/sessions/:id`; `GET /api/v1/sessions/export.csv`. Ayrıntı `docs/api.md` "Oturum geçmişi (P8)".
+- Enum → Türkçe etiket eşlemesi tek yerde: `packages/contracts/src/labels.ts` (ekran ve CSV aynı etiketi kullanır;
+  bilinmeyen değer ham gösterilir). CSV yazıcı `apps/server/src/lib/csv.ts` (P11 audit CSV'si de kullanacak).
+- **Windows istemci — fare imleci:** müşterinin imleci (şekli dahil: ok, metin imleci, el, yeniden boyutlandırma,
+  meşgul, ters renkli şemalar) görüntüye çizilir. Ekran durgunken de fare hareketi yeni kare üretir. İmleç başka
+  monitöre geçince görüntüden kaybolur. Sunucu, konsol ve protokol değişmedi.
+- **Migration `20261111060000_p8_session_history`:** `support_sessions` += `customer_name`, `customer_email`,
+  `ticket_no`, `note` (CHECK'li) ve üç indeks (`support_sessions(tenant_id, status, created_at)`,
+  `support_sessions(created_at)`, `audit_logs(tenant_id, entity, entity_id, created_at)`). Müşteri adı ve e-postası
+  kabul anında aynı atomik UPDATE'te yazılır. P8 öncesi oturumlarda ad geri doldurulmadı ("Ad kaydı yok").
+- **Migration `20261111070000_enum_check_binary` (ADR-0014):** 14 enum CHECK `CAST(col AS BINARY) IN (…)` biçimine
+  çevrildi; harf, aksan ve sondaki boşluk farkı artık DB'de reddedilir (`'tech'`, `'TECH '`). Kanonik olmayan satır
+  varsa migration hiçbir şey değiştirmeden 3819 ile durur. Yayından önce salt okunur ön kontrol: `docs/runbook.md` §6.1.
+- Audit: `session.updated` (`{ ticketNo, noteLength }`; not metni yazılmaz), `session.exported` (filtreler, satır
+  sayısı; müşteri arama metni yazılmaz, yalnız `customerFilter: true|false`).
+
+### Değişti — P8
+- `GET /api/v1/sessions` artık `sessions.view` **veya** `session_history.view` ile çağrılabilir; bilinmeyen sorgu
+  parametresi 400 döner. Liste, `:id`, `:id/history`, PATCH ve CSV tek kapsam fonksiyonunu (`historyScope`) kullanır.
+- Super Admin firma seçmeden bu beş uçta tüm firmaların oturumlarını görür (yanıtta ve CSV'de "Firma" sütunu). Diğer
+  uçlarda firma seçimi zorunluluğu değişmedi.
+- Müşteri adı uzunluğu karakter (kod noktası) olarak sayılır (2–100): tek emoji ad olarak reddedilir, 100 emoji
+  kabul edilir (QA-P8-2).
+- Notta CRLF satır sonu LF'e çevrilerek kaydedilir.
+- Dar ekranda kenar menüsü yatay kaydırılabilir.
+- P5 AC-39 axe e2e kararsızlığı giderildi: tarama aynı sekmede tek enjeksiyonla yapılıyor, test ikiye bölündü
+  (yük altında 40/40 geçti).
+
+### Güvenlik — P8
+- **IDOR (AC-61, G-22):** kapsam dışı veya olmayan oturum her uçta 404; USER'ın gönderdiği `technicianId` ve Super Admin
+  olmayanın gönderdiği `tenantId` kapsamı genişletemez. Tüm-tenant kapsamını yalnız `historyScope` üretebilir (markalı tip).
+- **Veri en aza indirme:** liste e-posta ve not içermez; detay API'si onay kayıtlarının IP ve tarayıcı bilgisini
+  döndürmez; zaman çizelgesi ham audit değeri değil, eylem başına izinli alanları döndürür.
+- **S8-1 (CSV formül enjeksiyonu, AC-124):** `= + - @`, TAB ve CR ile başlayan hücreye `'` eklenir; baştaki boşluk,
+  NBSP, ideografik boşluk ve tam genişlikli `＝ ＋ － ＠` de yakalanır. Ardından RFC 4180 tırnaklama.
+- **S8-2:** bekleyen oturumun 8 haneli kodu (`code`) yalnız oturumun kendi teknisyenine döner; ADMIN ve Super Admin
+  `null` görür.
+- **S8-3:** `customer` filtresiyle liste isteği kullanıcı başına dakikada 60 (aşılınca 429 + `Retry-After`).
+- **S8-4:** ADR-0014 ön kontrolü runbook'a yazıldı (§6.1).
+- Müşteri arama metni log ve audit'e girmez; `ticketNo` audit maskesinden çıkarıldı (gizli değer değil; `wsTicket`
+  maskeli kalır).
+
+### Bilinen sınırlamalar — P8
+- Teknisyen ve firma filtresinin seçenekleri o sayfadaki kayıtlardan gelir; tam kullanıcı/firma listesi P9'da.
+- Detayda Dosyalar tablosu dar: uzun dosya adı satır satır kırılır, SHA-256 sütunu kesik görünür (TEST-P8-1). Super
+  Admin listesi 1280 px'te tabloyu 17 px aşar (TEST-P8-2).
+- Kaydedilmemiş not varken tarayıcının geri tuşu (uygulama içi gezinme) uyarı vermez; menü bağlantısı ve sayfa
+  yenileme uyarır.
+- CSV'nin Excel'de açılışı dosya yapısıyla doğrulandı (BOM, `;`, RFC 4180, strict ayrıştırmada sabit sütun sayısı);
+  Excel'de elle açma kontrolü kullanıcıda.
+- Fare imleci ve P6/P7 istemci özellikleri gerçek Windows'ta elle doğrulanmadı (implementation.md adım 25–47).
+
+## P2–P7 (sürüm etiketi yok; P7 istemcisi 0.7.0)
+
 ### Eklendi — P7 (uzaktan kontrol)
 - **WS sözleşmesi (`packages/contracts/src/ws.ts`, ADR-0013, mimari-protokol §3/§3.3):** teknisyen → `control.request`,
   `control.cancel`, `control.release`, `monitor.request`; misafir (yalnız Hızlı Destek) → `control.state`,
@@ -67,7 +139,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   kısayol, enjekte tıklama) henüz yapılmadı; P8 kod turundan önce yapılacak.
 - UIAccess yetkili yerel bir programın `SendInput`'u donanım girdisi gibi görünür; teknisyen bu yolu kullanamaz,
   kapsam dışı kabul edildi.
-- Fare imleci görüntüye çizilmez; teknisyen yalnız kendi imlecini görür.
+- Fare imleci görüntüye çizilmez; teknisyen yalnız kendi imlecini görür (P8 istemcisinde çizilir).
 - Yetki kaldırma ekranı P9'da gelir; bugün yetki değişikliği en geç 60 sn'lik yeniden doğrulamada kontrolü keser
   (AC-115'in 5 sn hedefi P9/P10 servislerinin doğrudan çağrısıyla sağlanacak, S7-11).
 - Monitör isteği için iptal mesajı yok; yanıtsız istek 30 sn sonra düşer.

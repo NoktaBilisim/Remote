@@ -1,7 +1,6 @@
 // support_sessions erişimi. Tenant kapsamı her teknisyen sorgusunda zorunlu (AC-69); USER kapsamı
 // (technicianId) burada uygulanır (AC-61, G-22). PENDING'den çıkan her UPDATE aynı ifadede
 // activeCode=null + endedAt yazar (CHECK, db-notlari P2) ve status='PENDING' koşuluyla yarışa güvenlidir.
-import type { SessionStatus } from "@remote/contracts/api/sessions";
 import { DEFAULT_MAX_FILE_MB } from "@remote/contracts/dc";
 import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
@@ -68,24 +67,6 @@ export function findInScope(db: DbOrTx, scope: SessionScope, id: string): Promis
   return db.supportSession.findFirst({ where: { ...scopeWhere(scope), id }, select: viewSelect });
 }
 
-export async function listInScope(
-  db: DbOrTx,
-  scope: SessionScope,
-  filter: { status?: SessionStatus; technicianId?: string },
-  page: { skip: number; take: number },
-): Promise<{ rows: SessionRow[]; total: number }> {
-  const where: Prisma.SupportSessionWhereInput = {
-    ...(filter.technicianId ? { technicianId: filter.technicianId } : {}),
-    ...scopeWhere(scope), // kapsam filtreyi ezer
-    ...(filter.status ? { status: filter.status } : {}),
-  };
-  const [rows, total] = await Promise.all([
-    db.supportSession.findMany({ where, select: viewSelect, orderBy: [{ createdAt: "desc" }, { id: "desc" }], ...page }),
-    db.supportSession.count({ where }),
-  ]);
-  return { rows, total };
-}
-
 /** PENDING ve süresi dolmamışsa iptal; count 0 → çağıran 404/409 ayırır. */
 export async function cancelPending(db: DbOrTx, scope: SessionScope, id: string, now: Date): Promise<number> {
   const r = await db.supportSession.updateMany({
@@ -148,10 +129,11 @@ export function findForDownload(db: DbOrTx, id: string) {
  * Tüketim — tek atomik koşullu UPDATE (P3 giriş şartı 2). WHERE `expiresAt > now` ile SET `consumedAt = now`
  * aynı değer (consumed_before_expiry_chk). count 0 → iptal/süre dolumu/başka admit kazandı.
  */
-export async function consumeForAdmit(db: DbOrTx, id: string, now: Date, mode: "BROWSER" | "AGENT"): Promise<number> {
+export async function consumeForAdmit(db: DbOrTx, id: string, now: Date, mode: "BROWSER" | "AGENT", customer: { name: string | null; email: string | null }): Promise<number> {
   const r = await db.supportSession.updateMany({
     where: { id, status: "PENDING", expiresAt: { gt: now }, consumedAt: null },
-    data: { status: "ACTIVE", consumedAt: now, activeCode: null, mode },
+    // P8: müşteri adı/e-postası aynı atomik UPDATE'te (customer_consumed_chk: yalnız consumed_at ile birlikte).
+    data: { status: "ACTIVE", consumedAt: now, activeCode: null, mode, customerName: customer.name, customerEmail: customer.email },
   });
   return r.count;
 }

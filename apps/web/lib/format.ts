@@ -3,6 +3,8 @@
  * Saatler Europe/Istanbul'da gösterilir (sunucu ve tarayıcı saat diliminden bağımsız).
  */
 
+import { t } from "@/lib/i18n";
+
 const TZ = "Europe/Istanbul";
 
 /** 8 haneli oturum kodu → "4829 1376" (AC-3). Biçimsiz değer olduğu gibi döner. */
@@ -79,4 +81,21 @@ export function formatBytes(b: number): string {
     i++;
   }
   return `${num(i === 0 ? 0 : 1).format(v)} ${u[i]}`;
+}
+
+/** Süre (sn) → "45 sn", "12 dk 5 sn", "1 sa 2 dk" (oturum geçmişi, P8). */
+export function formatDuration(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return t("h.dur.hm", { h, m });
+  if (m > 0) return t("h.dur.ms", { m, s: s % 60 });
+  return t("h.dur.s", { s });
+}
+
+const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** Europe/Istanbul takvim günü "YYYY-MM-DD" (tarih filtresinin üst sınırı; sunucu da bu günü kullanır). */
+export function istanbulDay(at: number | Date = Date.now()): string {
+  return dayFmt.format(at);
 }

@@ -1,0 +1,11 @@
+﻿Oturum No;Oluşturma;Başlangıç;Bitiş;Süre;Durum;Mod;Teknisyen;Müşteri;Ticket No;Sonlandıran;Bitiş nedeni;Not
+01M75HHNV9HPMM1ZP3BN6XQQ7D;2019-05-01 10:00:00;2019-05-01 10:00:05;2019-05-01 11:02:05;01:02:00;Bitti;Tarayıcı;Şule Güneş;Çağrı Işıkoğlu Şükrü İnce;INC-1;Müşteri;Müşteri bitirdi;Türkçe: ç ğ ı ö ş ü Ç Ğ İ Ö Ş Ü
+01M75HHNW7T49DRMSDWQJH6V2Q;2019-05-01 10:01:00;2019-05-01 10:01:05;2019-05-01 11:03:05;01:02:00;Bitti;İstemci;Şule Güneş;'=1+1;'=SUM(A1:A2);Müşteri;Müşteri bitirdi;"'=HYPERLINK(""http://kotu.example"";""tıkla"")"
+01M75HHNWPPA1B564JNYDHFT83;2019-05-01 10:02:00;2019-05-01 10:02:05;2019-05-01 11:04:05;01:02:00;Bitti;Tarayıcı;Şule Güneş;'+905551112233;'+90;Müşteri;Müşteri bitirdi;'+cmd|' /C calc'!A0
+01M75HHNX5MX3128FJES4S85HF;2019-05-01 10:03:00;2019-05-01 10:03:05;2019-05-01 11:05:05;01:02:00;Bitti;İstemci;Şule Güneş;'-Ali;'-42;Müşteri;Müşteri bitirdi;'-2+3
+01M75HHNXJEMZX3QH4W381PF6J;2019-05-01 10:04:00;2019-05-01 10:04:05;2019-05-01 11:06:05;01:02:00;Bitti;Tarayıcı;Şule Güneş;'@Veli;'@SUM;Müşteri;Müşteri bitirdi;'@SUM(1,2)
+01M75HHNY007YN58RNQ63Y6Z6S;2019-05-01 10:05:00;2019-05-01 10:05:05;2019-05-01 11:07:05;01:02:00;Bitti;İstemci;Şule Güneş;"Ad; Soyad";"T;1";Müşteri;Müşteri bitirdi;"a;b;c"
+01M75HHNYEZ6RBAT1XC782V7A8;2019-05-01 10:06:00;2019-05-01 10:06:05;2019-05-01 11:08:05;01:02:00;Bitti;Tarayıcı;Şule Güneş;"Ali ""Baba""";"Q""1";Müşteri;Müşteri bitirdi;"çok ""tırnak"" ve ; ayraç
+ikinci satır
+üçüncü"
+01M75HHNYVEHYTYVZ3KVD9WWKV;2019-05-01 10:07:00;2019-05-01 10:07:05;2019-05-01 11:09:05;01:02:00;Bitti;İstemci;Şule Güneş;<script>alert(1)</script>;' OR 1=1;Müşteri;Müşteri bitirdi;' OR 1=1 --

@@ -26,13 +26,22 @@ export async function signIn(context: BrowserContext, scenario = "plain") {
   ]);
 }
 
-export async function axeScan(page: Page) {
+/**
+ * WCAG 2.1 AA taraması. `include`: yalnız değişen bölge (aynı sayfanın geri kalanı önceki taramada temiz).
+ * Legacy mod (AC-39 kararsızlığı, P8): varsayılan mod her taramada axe'ı iki kez enjekte edip aynı context'te
+ * boş bir SEKME açar (finishRun). Yeni sekme taranan sayfayı arka plana atar (rAF/zamanlayıcı kısılır) ve yük
+ * altında tarama başına 4–9 sn sürer. Uygulamada iframe yok → legacy mod (tek enjeksiyon, aynı sayfada axe.run)
+ * aynı kuralları aynı DOM'da çalıştırır.
+ */
+export async function axeScan(page: Page, include?: string) {
   await page.mouse.move(0, 0);
   await page.evaluate(async () => {
     await document.fonts.ready;
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   });
-  const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  let b = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).setLegacyMode(true);
+  if (include) b = b.include(include);
+  const r = await b.analyze();
   return r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
 }
 

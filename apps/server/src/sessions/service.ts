@@ -1,13 +1,14 @@
 // Destek oturumu yaşam döngüsü — teknisyen tarafı (P2: AC-1..4, 8, 11, 12, 61 kısmi).
 // Oluşturma: teknisyen satırı FOR UPDATE → açık oturum + saatlik sayım → INSERT → audit, tek TX.
 // active_code çakışmasında (P2002, index adı) tüm TX yeni kodla en çok 5 kez denenir (ADR-0006).
-import type { CreateSessionResponse, ListSessionsQuery, SessionEndedBy, SessionListResponse, SessionStatus, SessionView } from "@remote/contracts/api/sessions";
+import type { CreateSessionResponse, SessionEndedBy, SessionStatus, SessionView } from "@remote/contracts/api/sessions";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId, sha256Hex } from "../lib/ids.ts";
 import { isActiveCodeConflict, newSessionCode, newSessionToken, newTechVerifyCode } from "./codes.ts";
+import { findHistory, type AllTenantsScope, type HistoryScope } from "./history-repo.ts";
 import * as repo from "./repo.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -28,11 +29,24 @@ function sessionScope(auth: AuthContext, tenantId: string): repo.SessionScope {
   return auth.user.role === "USER" ? { tenantId, technicianId: auth.user.id } : { tenantId };
 }
 
-function toView(r: repo.SessionRow): SessionView {
+/**
+ * Oturum geçmişi kapsamı (mimari-api "Oturum geçmişi (P8)" §2, AC-61, G-22) — liste, `:id`, `:id/history`, PATCH ve
+ * export'un TEK kaynağı. USER: etkin tenant + kendi oturumları; ADMIN: etkin tenant; SUPER_ADMIN: seçili firma ya da
+ * (firma seçilmemişse) açık `{ kind: "all" }`. Tüm-tenant değerini yalnız bu fonksiyon üretir.
+ */
+export function historyScope(auth: AuthContext): HistoryScope {
+  const { role, id } = auth.user;
+  if (role === "SUPER_ADMIN" && !auth.tenantId) return { kind: "all" } as AllTenantsScope;
+  if (!auth.tenantId) throw new AppError("FORBIDDEN");
+  return role === "USER" ? { kind: "tenant", tenantId: auth.tenantId, technicianId: id } : { kind: "tenant", tenantId: auth.tenantId };
+}
+
+/** `viewerId`: isteği yapan kullanıcı. Katılım kodu yalnız oturumun kendi teknisyenine döner (S8-2). */
+export function toView(r: repo.SessionRow, viewerId: string): SessionView {
   return {
     id: r.id,
     status: r.status as SessionStatus,
-    code: r.status === "PENDING" ? r.activeCode : null,
+    code: r.status === "PENDING" && r.technician.id === viewerId ? r.activeCode : null,
     techVerifyCode: r.techVerifyCode,
     technician: { id: r.technician.id, name: r.technician.fullName },
     createdAt: r.createdAt.toISOString(),
@@ -95,20 +109,11 @@ export async function createSupportSession(
   }
 }
 
-export async function listSessions(db: Db, auth: AuthContext, tenantId: string, q: ListSessionsQuery): Promise<SessionListResponse> {
-  const { rows, total } = await repo.listInScope(
-    db,
-    sessionScope(auth, tenantId),
-    { ...(q.status ? { status: q.status } : {}), ...(q.technicianId ? { technicianId: q.technicianId } : {}) },
-    { skip: (q.page - 1) * q.pageSize, take: q.pageSize },
-  );
-  return { items: rows.map(toView), page: q.page, pageSize: q.pageSize, total };
-}
-
-export async function getSession(db: Db, auth: AuthContext, tenantId: string, id: string): Promise<SessionView> {
-  const row = await repo.findInScope(db, sessionScope(auth, tenantId), id);
+/** GET /sessions/:id (konsol özeti, P2 şekli) — kapsam `historyScope` (§2); kapsam dışı/yok → 404. */
+export async function getSession(db: Db, auth: AuthContext, id: string): Promise<SessionView> {
+  const row = await findHistory(db, historyScope(auth), id);
   if (!row) throw new AppError("NOT_FOUND");
-  return toView(row);
+  return toView(row, auth.user.id);
 }
 
 /** İptal (AC-8): tek koşullu UPDATE → link ve kod aynı anda geçersiz. Başka tenant/sahiplik → 404, PENDING değil → 409. */

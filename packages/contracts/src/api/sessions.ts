@@ -1,6 +1,8 @@
 // /api/v1/sessions ve /api/v1/public/sessions sözleşmesi (mimari-api.md, P2 kısmı).
 // P3: resolve joinNonce/nonceExpiresAt, join, terminate. P4: resolve consentText + abuseEmail, join consentTextId zorunlu (G-24, AC-127).
+// P8: oturum geçmişi — liste filtreleri, SessionListItem, SessionHistoryDetail, PATCH, CSV (mimari-api "Oturum geçmişi (P8)").
 import { z } from "zod";
+import { FILE_DIRECTIONS, FILE_RESULTS, qualitySummarySchema, type QualitySummary } from "../ws.ts";
 
 export const SESSION_STATUSES = ["PENDING", "ACTIVE", "ENDED", "EXPIRED", "CANCELLED"] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
@@ -18,14 +20,6 @@ export const sessionCodeSchema = z.string().regex(/^\d{8}$/, "Kod 8 haneli olmal
 export const createSessionInputSchema = z.object({});
 export type CreateSessionInput = z.infer<typeof createSessionInputSchema>;
 
-export const listSessionsQuerySchema = z.object({
-  status: z.enum(SESSION_STATUSES).optional(),
-  /** USER rolünde yok sayılır (yalnız kendi oturumları, AC-61). */
-  technicianId: z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Geçersiz kimlik").optional(),
-  page: z.coerce.number().int().min(1).max(10_000).default(1),
-  pageSize: z.coerce.number().int().min(1).max(SESSION_PAGE_SIZE_MAX).default(25),
-});
-export type ListSessionsQuery = z.infer<typeof listSessionsQuerySchema>;
 
 export const resolveSessionInputSchema = z.union([
   z.object({ token: sessionTokenSchema, clientKind: z.enum(["BROWSER", "AGENT"]) }),
@@ -62,7 +56,7 @@ export interface SessionView {
 }
 
 export interface SessionListResponse {
-  items: SessionView[];
+  items: SessionListItem[];
   page: number;
   pageSize: number;
   total: number;
@@ -113,8 +107,9 @@ export const joinSessionInputSchema = z.strictObject({
     .string()
     .refine((v) => !UNSAFE_NAME_CHARS.test(v), "Ad görünmez veya kontrol karakteri içeremez")
     .trim()
-    .min(2, "Ad en az 2 karakter olmalı")
-    .max(100),
+    // Uzunluk kod noktasıyla (DB CHECK CHAR_LENGTH ile tutarlı, QA-P8-2): tek emoji 1 karakter sayılır.
+    .refine((v) => [...v].length >= 2, "Ad en az 2 karakter olmalı")
+    .refine((v) => [...v].length <= 100, "Ad en çok 100 karakter olabilir"),
   customerEmail: z.email().max(190).optional(),
   consentTextId: z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Aydınlatma metni geçersiz"),
   consentAccepted: z.literal(true, "Aydınlatma metni onaylanmalı"),
@@ -140,3 +135,226 @@ export interface TerminateSessionResponse {
 export interface PublicSessionStatusResponse {
   status: SessionStatus;
 }
+
+// --- P8: oturum geçmişi (mimari-api "Oturum geçmişi (P8)"; AC-60..63, 124) ---
+
+export const SESSION_MODES = ["AGENT", "BROWSER"] as const;
+export type SessionMode = (typeof SESSION_MODES)[number];
+
+export const SESSION_LIST_SORTS = ["createdAt:desc", "createdAt:asc"] as const;
+export type SessionListSort = (typeof SESSION_LIST_SORTS)[number];
+
+/** CSV dışa aktarma üst sınırı (§5): aşılırsa 400 VALIDATION `fields.to`, yarım dosya üretilmez. */
+export const SESSION_EXPORT_MAX_ROWS = 50_000;
+export const SESSION_EXPORT_TOO_MANY = "En çok 50.000 satır dışa aktarılabilir; tarih aralığını daraltın";
+
+const ulidSchema = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Geçersiz kimlik");
+
+/** Geçerli takvim günü (YYYY-MM-DD); Europe/Istanbul günü olarak yorumlanır (§1). */
+const isoDaySchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Tarih YYYY-AA-GG biçiminde olmalı")
+  .refine((v) => {
+    const d = new Date(`${v}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  }, "Geçersiz tarih");
+
+/**
+ * GET /sessions ve GET /sessions/export.csv sorgusu (§1). Bilinmeyen parametre 400 (strict). `technicianId` USER'da,
+ * `tenantId` firma seçili olan veya SUPER_ADMIN olmayan rollerde sunucuda yok sayılır (kapsam ezer, §2).
+ * Export'ta `page`/`pageSize` yok sayılır.
+ */
+export const listSessionsQuerySchema = z
+  .strictObject({
+    status: z.enum(SESSION_STATUSES).optional(),
+    mode: z.enum(SESSION_MODES).optional(),
+    from: isoDaySchema.optional(),
+    to: isoDaySchema.optional(),
+    technicianId: ulidSchema.optional(),
+    tenantId: ulidSchema.optional(),
+    customer: z
+      .string()
+      .refine((v) => !UNSAFE_NAME_CHARS.test(v), "Görünmez veya kontrol karakteri içeremez")
+      .trim()
+      .min(2, "En az 2 karakter girin")
+      .max(100)
+      .optional(),
+    page: z.coerce.number().int().min(1).max(10_000).default(1),
+    pageSize: z.coerce.number().int().min(1).max(SESSION_PAGE_SIZE_MAX).default(25),
+    sort: z.enum(SESSION_LIST_SORTS).default("createdAt:desc"),
+  })
+  .superRefine((q, ctx) => {
+    if (q.from && q.to && q.from > q.to) ctx.addIssue({ code: "custom", path: ["to"], message: "Bitiş tarihi başlangıçtan önce olamaz" });
+  });
+export type ListSessionsQuery = z.infer<typeof listSessionsQuerySchema>;
+/** Export aynı filtreleri kullanır (sayfalama yok sayılır). */
+export const exportSessionsQuerySchema = listSessionsQuerySchema;
+export type ExportSessionsQuery = ListSessionsQuery;
+
+/** GET /sessions öğesi (§1). E-posta ve not listede yok (veri en aza indirme). */
+export interface SessionListItem extends SessionView {
+  mode: SessionMode | null;
+  /** = consumed_at (admit = ACTIVE başlangıcı, mimari §3.1 P3 kararı). */
+  startedAt: string | null;
+  /** startedAt ve endedAt doluysa saniye (aşağı yuvarlanmış); aksi halde null (ACTIVE'de UI canlı hesaplar). */
+  durationSec: number | null;
+  customerName: string | null;
+  ticketNo: string | null;
+  /** Yalnız SUPER_ADMIN firma seçmeden listelerken dolu. */
+  tenant: { id: string; name: string } | null;
+}
+
+export const CONSENT_LEVELS = ["VIEW", "CONTROL"] as const;
+export type ConsentLevel = (typeof CONSENT_LEVELS)[number];
+export const CONSENT_DECISIONS = ["GRANTED", "DENIED", "REVOKED"] as const;
+export type ConsentDecision = (typeof CONSENT_DECISIONS)[number];
+/** session_consents.source (P7: TECH). */
+export const CONSENT_RECORD_SOURCES = ["UI", "HOTKEY", "RECONNECT", "SYSTEM", "TECH"] as const;
+export type ConsentRecordSource = (typeof CONSENT_RECORD_SOURCES)[number];
+
+/** Onay kaydı (§3). `ip` ve `user_agent` API'de dönmez (veri en aza indirme). */
+export interface SessionConsentRecord {
+  id: string;
+  at: string;
+  level: ConsentLevel;
+  decision: ConsentDecision;
+  source: ConsentRecordSource;
+  consentText: { id: string; version: number; sha256: string } | null;
+}
+
+/**
+ * Kontrol dönemi (§3): GRANTED → ilk REVOKED. Kapanış yoksa `revokedAt`/`revokedSource` null (UI "Kapanış kaydı yok";
+ * bitiş tahmin edilmez, ADR-0013 K5-d). Eşleşmeyen audit → `revokedReason`/`selfElevated` null.
+ */
+export interface ControlPeriod {
+  grantedAt: string;
+  revokedAt: string | null;
+  revokedSource: ConsentRecordSource | null;
+  revokedReason: string | null;
+  selfElevated: boolean | null;
+}
+
+export interface SessionFileRecord {
+  id: string;
+  direction: (typeof FILE_DIRECTIONS)[number];
+  fileName: string;
+  sizeBytes: number;
+  sha256: string;
+  result: (typeof FILE_RESULTS)[number];
+  createdAt: string;
+}
+
+export const TIMELINE_ACTORS = ["TECH", "CUSTOMER", "ADMIN", "SYSTEM"] as const;
+export type TimelineActor = (typeof TIMELINE_ACTORS)[number];
+
+/**
+ * Zaman çizelgesine giren audit action'ları ve her biri için izinli `details` anahtarları (§3 tablo). Listede olmayan
+ * action ya da anahtar dönmez; IP/UA/maskeli değer hiç dönmez.
+ */
+export const TIMELINE_DETAIL_KEYS = {
+  "session.created": ["ttlMin"],
+  "guest.pending": ["name"],
+  "guest.rejected": ["name"],
+  "guest.admitted": ["name", "guestKind"],
+  "guest.admit": ["reason"],
+  "reconnect.conflict": [],
+  "control.requested": ["request"],
+  "control.granted": ["selfElevated"],
+  "control.denied": [],
+  "control.revoked": ["source", "reason", "side"],
+  "control.released": ["via"],
+  "control.cancelled": ["by", "source"],
+  "monitor.requested": ["monitorId"],
+  "monitor.granted": ["monitorId"],
+  "monitor.denied": ["monitorId"],
+  "session.caps_changed": ["oldCaps", "newCaps"],
+  "session.cancelled": [],
+  "session.expired": [],
+  "session.terminated": ["reason"],
+  "session.ended": ["reason", "endedBy"],
+} as const satisfies Record<string, readonly string[]>;
+export type TimelineAction = keyof typeof TIMELINE_DETAIL_KEYS;
+export const TIMELINE_ACTIONS = Object.keys(TIMELINE_DETAIL_KEYS) as TimelineAction[];
+
+export type TimelineDetailValue = string | number | boolean | null;
+
+export interface TimelineEvent {
+  at: string;
+  /** İzin listesindeki action (bilinmeyen değer UI'da ham gösterilir). */
+  action: string;
+  actor: TimelineActor;
+  actorName: string | null;
+  result: "success" | "fail";
+  details: Record<string, TimelineDetailValue>;
+}
+
+/** Zaman çizelgesi / onay / dosya listelerinin üst sınırı (§3). */
+export const SESSION_HISTORY_LIST_MAX = 500;
+
+/** GET /sessions/:id/history ve PATCH /sessions/:id yanıtı (§3, AC-62). */
+export interface SessionHistoryDetail extends SessionListItem {
+  customerEmail: string | null;
+  note: string | null;
+  /** Yalnız endedBy=ADMIN iken dolu (sonlandıran yönetici). */
+  terminatedBy: { id: string; name: string } | null;
+  quality: QualitySummary | null;
+  files: SessionFileRecord[];
+  consents: SessionConsentRecord[];
+  controlPeriods: ControlPeriod[];
+  timeline: TimelineEvent[];
+  timelineTruncated: boolean;
+}
+
+/** DB `quality_summary` JSON'u (t/id yok). Ayrıştırılamazsa detay `quality: null` döner. */
+export const storedQualitySummarySchema = qualitySummarySchema.omit({ t: true, id: true });
+
+export const TICKET_NO_MAX = 50;
+export const NOTE_MAX = 4000;
+
+/** Not: CRLF → LF normalize edilir; `\n` ve `\t` serbest; diğer Cc ile bidi/sıfır genişlik Cf (ve Zl/Zp) yasak (§4). */
+const hasUnsafeNoteChars = (v: string): boolean => UNSAFE_NAME_CHARS.test(v.replace(/[\n\t]/g, ""));
+
+/**
+ * PATCH /sessions/:id (§4, AC-63). En az bir alan; boş metin ve null → NULL; gönderilmeyen alan değişmez.
+ * `note` uzunluğu UTF-16 birimiyle sayılır (DB CHAR_LENGTH'ten her zaman ≥; CHECK tetiklenmez).
+ */
+export const updateSessionInputSchema = z
+  .strictObject({
+    ticketNo: z
+      .string()
+      .refine((v) => !UNSAFE_NAME_CHARS.test(v), "Ticket no görünmez veya kontrol karakteri içeremez")
+      .trim()
+      .max(TICKET_NO_MAX, `Ticket no en çok ${TICKET_NO_MAX} karakter olabilir`)
+      .nullable()
+      .transform((v) => (v === "" ? null : v))
+      .optional(),
+    note: z
+      .string()
+      .overwrite((v) => v.replace(/\r\n/g, "\n")) // CRLF → LF (dba P8: DB satır sonu olarak yalnız \n saklar); tek \r yasak
+      .refine((v) => !hasUnsafeNoteChars(v), "Not görünmez veya kontrol karakteri içeremez")
+      .max(NOTE_MAX, `Not en çok ${NOTE_MAX} karakter olabilir`)
+      .nullable()
+      .transform((v) => (v === "" ? null : v))
+      .optional(),
+  })
+  .refine((o) => o.ticketNo !== undefined || o.note !== undefined, { message: "Değiştirilecek alan yok", path: ["_"] });
+export type UpdateSessionInput = z.input<typeof updateSessionInputSchema>;
+export type UpdateSessionData = z.output<typeof updateSessionInputSchema>;
+
+/** CSV sütunları (§5, sabit sıra). `Firma` yalnız SUPER_ADMIN firma seçmeden dışa aktarırken eklenir (2. sütun). */
+export const SESSION_CSV_COLUMNS = [
+  "Oturum No",
+  "Oluşturma",
+  "Başlangıç",
+  "Bitiş",
+  "Süre",
+  "Durum",
+  "Mod",
+  "Teknisyen",
+  "Müşteri",
+  "Ticket No",
+  "Sonlandıran",
+  "Bitiş nedeni",
+  "Not",
+] as const;
+export const SESSION_CSV_TENANT_COLUMN = "Firma";

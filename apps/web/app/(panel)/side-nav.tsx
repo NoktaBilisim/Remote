@@ -1,6 +1,6 @@
 "use client";
 
-import { House, MonitorSmartphone, type LucideIcon } from "lucide-react";
+import { History, House, MonitorSmartphone, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { t, type MessageKey } from "@/lib/i18n";
@@ -10,6 +10,7 @@ import { t, type MessageKey } from "@/lib/i18n";
 const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string }[] = [
   { href: "/", label: "panel.home", Icon: House },
   { href: "/sessions", label: "nav.sessions", Icon: MonitorSmartphone, perm: "sessions.view" },
+  { href: "/history", label: "nav.history", Icon: History, perm: "session_history.view" },
 ];
 
 export function SideNav({ permissions }: { permissions: readonly string[] }) {
@@ -17,7 +18,7 @@ export function SideNav({ permissions }: { permissions: readonly string[] }) {
   const visible = items.filter((i) => !i.perm || permissions.includes(i.perm));
   return (
     <nav aria-label={t("panel.nav")} className="px-2 py-2 md:py-4">
-      <ul className="flex gap-1 md:flex-col">
+      <ul className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
         {visible.map(({ href, label, Icon }) => {
           const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
           return (
@@ -25,7 +26,7 @@ export function SideNav({ permissions }: { permissions: readonly string[] }) {
               <Link
                 href={href}
                 aria-current={active ? "page" : undefined}
-                className={`flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium ${
+                className={`flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium whitespace-nowrap ${
                   active ? "bg-surface-muted text-primary" : "text-fg-muted hover:bg-surface-muted hover:text-fg"
                 }`}
               >

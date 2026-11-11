@@ -3,6 +3,7 @@
 import { createServer } from "node:http";
 // Çerez/başlık adları tek kaynaktan (Node 24 .ts tür ayıklama ile doğrudan okunur)
 import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleSessions, sessionUser } from "./mock-sessions.mjs";
 import { ageRoom, attachWs, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
 
@@ -93,6 +94,8 @@ const srv = createServer(async (req, res) => {
     if (delay > 0) await new Promise((r) => setTimeout(r, delay));
     if (session === "s-broken") return send(res, 503, err("INTERNAL", "Hazır değil"));
     const tenant = { id: "01JTENANT", name: "Demo Firma" };
+    const hu = historyUser(session);
+    if (hu) return send(res, 200, { user: hu.user, permissions: hu.permissions, tenant: hu.tenant, actingTenant: hu.actingTenant });
     const su = sessionUser(session);
     if (su) return send(res, 200, { ...su, tenant });
     const user = users[session];
@@ -116,6 +119,7 @@ const srv = createServer(async (req, res) => {
     return send(res, 204, undefined, clearCookies);
   }
 
+  if (await handleHistory(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleSessions(req, res, { url, session, csrfOk, send, err, readJson })) return;
 
   send(res, 404, err("NOT_FOUND", "Bulunamadı."));

@@ -32,6 +32,10 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /api/v1/public/agent/download": "public",
   // P6 düzeltme 1 (S6-2): Caddy forward_auth iç ucu; yalnız güvenilen proxy soketinden, tenant verisi yok
   "GET /internal/agent-ready": "public",
+  // P8 oturum geçmişi (historyScope)
+  "GET /api/v1/sessions/export.csv": "list",
+  "GET /api/v1/sessions/:id/history": "tenant",
+  "PATCH /api/v1/sessions/:id": "tenant",
 };
 
 export interface TwoTenants {
@@ -49,6 +53,8 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
   { route: "GET /api/v1/sessions/:id", request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}` }) },
   { route: "POST /api/v1/sessions/:id/cancel", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/cancel` }) },
   { route: "POST /api/v1/sessions/:id/terminate", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/terminate` }) },
+  { route: "GET /api/v1/sessions/:id/history", request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}/history` }) },
+  { route: "PATCH /api/v1/sessions/:id", request: (fx) => ({ method: "PATCH", url: `/api/v1/sessions/${fx.a.sessionId}`, payload: { note: "x" } }) },
 ];
 
 /** buildApp sonrası, ready'den ÖNCE çağrılmalı (rotalar eklentilerde ready'de yüklenir). */
@@ -64,7 +70,7 @@ export async function twoTenants(): Promise<TwoTenants> {
   const side = async () => {
     const t = await createTenant();
     const admin = await createUser({ tenantId: t.id, role: "ADMIN" });
-    const user = await createUser({ tenantId: t.id, role: "USER", perms: { "sessions.view": true } });
+    const user = await createUser({ tenantId: t.id, role: "USER", perms: { "sessions.view": true, "session_history.view": true, "session_history.export": true } });
     const session = await createSupportSessionRow({ tenantId: t.id, technicianId: user.id });
     return { tenantId: t.id, admin, user, sessionId: session.id };
   };

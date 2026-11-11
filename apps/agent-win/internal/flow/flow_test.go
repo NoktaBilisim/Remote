@@ -310,6 +310,58 @@ func TestAC97ExpiredAndConsumedShowFinalMessage(t *testing.T) {
 	}
 }
 
+func TestClassifyTable(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		msg  Message
+		out  apiOutcome
+	}{
+		{"tls", &api.Error{Err: errors.New("x509"), TLS: true}, msgTLS, outFinal},
+		{"ağ", &api.Error{Err: errors.New("dial")}, msgNetwork, outRetryCode},
+		{"404", &api.Error{Status: 404, Code: "NOT_FOUND"}, msgNotFound, outRetryCode},
+		{"400", &api.Error{Status: 400, Code: "VALIDATION"}, msgNotFound, outRetryCode},
+		{"410", &api.Error{Status: 410, Code: "SESSION_EXPIRED"}, msgExpired, outFinal},
+		{"tüketilmiş", &api.Error{Status: 410, Code: "SESSION_CONSUMED"}, msgConsumed, outFinal},
+		{"iptal", &api.Error{Status: 410, Code: "SESSION_CANCELLED"}, msgCancelled, outFinal},
+		{"lobi", &api.Error{Status: 409, Code: "LOBBY_FULL"}, msgLobbyFull, outFinal},
+		{"403", &api.Error{Status: 403, Code: "FORBIDDEN"}, msgForbidden, outFinal},
+		{"429", &api.Error{Status: 429, Code: "RATE_LIMITED"}, msgRate, outFinal},
+		{"500", &api.Error{Status: 500, Code: "INTERNAL"}, msgError, outRetryCode},
+		{"api dışı", errors.New("x"), msgError, outRetryCode},
+	}
+	for _, c := range cases {
+		m, o := classify(c.err)
+		if m != c.msg || o != c.out {
+			t.Errorf("%s: %+v %v", c.name, m, o)
+		}
+	}
+	if _, o := classify(&api.Error{Status: 400, Code: "NONCE_INVALID"}); o != outRetryNonce {
+		t.Errorf("nonce: %v", o)
+	}
+}
+
+func TestAC109TLSErrorShowsFinalNotCodeEntry(t *testing.T) {
+	h := newHarness(t)
+	h.api.resolveE = []error{&api.Error{Err: errors.New("x509: unknown authority"), TLS: true}}
+	if o := recv(t, start(h, "12345678")); o.Message != msgTLS {
+		t.Fatalf("TLS → son ekran beklenirdi: %+v", o)
+	}
+	for {
+		select {
+		case c := <-h.ui.calls:
+			if len(c) >= 7 && c[:7] == "askcode" {
+				t.Fatalf("kod giriş ekranına düşmemeli: %v", c)
+			}
+		default:
+			if n := len(h.api.resolves); n != 1 {
+				t.Fatalf("TLS hatası yeniden çözülmemeli: %d", n)
+			}
+			return
+		}
+	}
+}
+
 func TestAC98NoJoinWithoutConsent(t *testing.T) {
 	h := newHarness(t)
 	h.ui.welcome = []bool{false}

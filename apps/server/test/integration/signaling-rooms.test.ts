@@ -101,7 +101,7 @@ describe("P3 giriş şartı 2 — atomik tüketim yarışları (mimari-protokol 
     for (let i = 0; i < 50; i++) {
       const s = await createSupportSessionRow({ tenantId: t.id, technicianId: u.id });
       const now = new Date();
-      const counts = await Promise.all([repo.consumeForAdmit(testDb(), s.id, now, "BROWSER"), repo.consumeForAdmit(testDb(), s.id, now, "AGENT")]);
+      const counts = await Promise.all([repo.consumeForAdmit(testDb(), s.id, now, "BROWSER", { name: "Ayşe", email: null }), repo.consumeForAdmit(testDb(), s.id, now, "AGENT", { name: "Ali Veli", email: null })]);
       expect(counts.reduce((a, b) => a + b, 0)).toBe(1);
     }
   });

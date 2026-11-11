@@ -197,6 +197,22 @@ Kaynak: `~/.claude/checklists/tasarim-kontrol-listesi.md` bölüm 1, 5, 8, 9.
 | 9. Dokümantasyon planı | Kapsamda: README, docs/api.md, KULLANIM_KILAVUZU, DATASHEET, PDF, ADR'ler, kurumsal hash allowlist rehberi, SmartScreen rehberi | Ortak standart 1.7 |
 | Sonra | Oturum kaydı, çoklu teknisyen, ses, clipboard, macOS/Linux istemci, SSO, SMS/WhatsApp link, İngilizce, ITSM entegrasyonu, SAS (DTLS parmak izi) doğrulaması (G-14), oturum sonu müşteri özeti (G-17-6; AC-107 ile çelişir, tasarım gerekir), OpenSSF Scorecard (G-18), SignPath Foundation imzası (ADR-0010) | Unutulmasın diye |
 
+### Sonra / açık — P8'den (2026-11-11)
+Kaynak: `docs/qa-raporu.md` (P8 Tur 1), `docs/guvenlik-raporu.md` (P8, S8-x), `docs/test-raporu.md` (P8), `docs/implementation.md` (Backend/Frontend P8, Agent fare imleci).
+
+| Madde | Ne yapılacak | Sahip | Ne zaman |
+|---|---|---|---|
+| S8-1, S8-2, S8-3 | **Kapandı** (backend düşük bulgular turu): CSV formül kaçışı genişletildi, `code` yalnız kendi teknisyenine, müşteri araması 60/dk | — | Kapandı |
+| S8-4 — ADR-0014 precheck runbook'ta | **Kapandı:** `docs/runbook.md` §6.1 (migrate'ten önce salt okunur `precheck.sql`, 3819'da ne yapılacağı, `down.sql` geri dönüşü) | — | Kapandı |
+| QA-P8-1 — CSV Excel tr-TR | Dosya yapısıyla doğrulandı (BOM, `;`, CRLF, RFC 4180, strict ayrıştırmada sabit sütun sayısı, formül kaçışı). Excel'de çift tıklayıp açma ve formüllü hücrenin metin kaldığını görme elle yapılacak (`docs/img/p8/p8-superadmin.csv`) | kullanıcı | Staging yayınından sonra |
+| TEST-P8-1 (Düşük) | Detay "Dosyalar" tablosu dar: dosya adı harf harf kırılıyor, SHA-256 kesik; 390 px'te Onay kayıtları kaydırma ipucusuz. Öneri: ad `truncate` + `title`, hash kısaltma + kopyala, bölümü tam genişliğe almak | frontend-dev | P9 ilk turu |
+| TEST-P8-2 (Düşük) | Super Admin listesi 1280 px'te tablo kabını 17 px aşıyor (Ticket kesik). Öneri: Firma/Teknisyen `whitespace-nowrap` + `truncate` | frontend-dev | P9 ilk turu |
+| Gözlem — geri tuşu | Kaydedilmemiş not varken uygulama içi geri tuşu uyarı vermiyor (menü bağlantısı ve yenileme uyarıyor) | frontend-dev | P9+ (AC istemiyor; değerlendirilecek) |
+| Filtre seçenekleri | Teknisyen/firma filtre seçenekleri sayfadaki kayıtlardan geliyor; `GET /users?fields=id,fullName` ve tenant listesi gelince oradan alınacak | backend-dev + frontend-dev | P9 |
+| QA-P8-2 | **Kapandı:** müşteri adı uzunluğu kod noktasıyla sayılıyor | — | Kapandı |
+| Windows elle testi (P6/P7 + fare imleci) | `docs/implementation.md` Agent P7 adım 25–42 ve "fare imleci" adım 43–47 gerçek Windows'ta **hâlâ açık**. P6 tablosundaki Windows elle testi ve AC-41 ölçümü de aynı oturumda | kullanıcı (Windows test makinesi) (+ backend-dev/Go düzeltme) | P9 kod turundan önce |
+| Hızlı Destek staging'de kod soruyor / hiçbir kodu kabul etmiyor | Windows'ta Caddy `tls internal` kök sertifikası kurulu değil (runbook §2/§8, `certutil -addstore -f Root`); ajan 0.8.0'da TLS hatası ayrı mesajla gösterilecek | backend-dev (Go) + kullanıcı (sertifika kurulumu) | Ajan 0.8.0 |
+
 ### Sonra / açık — P7'den (2026-11-11)
 Kaynak: `docs/qa-raporu.md` (P7, Tur 2 — QA-P7-T2-1), `docs/implementation.md` Agent P7 bölümleri, `docs/guvenlik-raporu.md` (P7, S7-x), `docs/db-notlari.md` (P7).
 
@@ -206,7 +222,7 @@ Kaynak: `docs/qa-raporu.md` (P7, Tur 2 — QA-P7-T2-1), `docs/implementation.md`
 | S7-11 — commit sonrası oda çağrıları | P9/P10 servisleri oturum sonlandırma ve yetki değişikliğinde `app.rooms.endByTechnician` / `app.rooms.applyPermChange`'i DB commit'inden **sonra** çağırmalı; qa bunu kontrol eder | backend-dev (P9/P10) + qa-denetci | P9/P10 giriş şartı |
 | govulncheck — çağrılmayan kayıtlar | Bildirilen ama çağrılmayan `golang.org/x/net` v0.60.0 ve `golang.org/x/crypto` v0.57.0 kayıtları Dependabot ile yükseltilir; govulncheck yeşil kalır | backend-dev (Go) / devops (Dependabot) | Sonraki bağımlılık turu (en geç P13) |
 | Kararsız test — AC-39 axe e2e | P5 AC-39 axe e2e testi ara sıra 30 sn zaman aşımına düşüyor; kök neden giderilir (yalnız süreyi artırmak çözüm sayılmaz); CI'da 20 ardışık koşuda 0 hata | frontend-dev | P8 ilk turu |
-| DB enum CHECK harf duyarsızlığı | `utf8mb4_unicode_ci` nedeniyle enum CHECK kısıtları harf duyarsız karşılaştırıyor; binary harmanlama / `BINARY` karşılaştırma ya da risk kabulü kararı (`docs/db-notlari.md` P7) | mimar (+ dba uygulama) | P8 öncesi |
+| DB enum CHECK harf duyarsızlığı | **Karara bağlandı: ADR-0014** — 14 enum CHECK `CAST(col AS BINARY) IN (…)` (harf/aksan/sondaki boşluk duyarlı); migration `20261111070000_enum_check_binary` | dba | P8 içinde |
 
 Not: S7-9 (yönetici olarak çalışan istemci, `selfElevated`) mimar kararıyla P7 Tur 2 içinde uygulanıyor (`docs/mimari-protokol.md` K8); ertelenmedi.
 
@@ -220,7 +236,7 @@ Kaynak: `docs/implementation.md` "Agent (P6)" Aşama 1–3, "Backend P6", "DevOp
 | TEST-NAT-1 (Orta, kurulum) | Staging TURN-TLS sertifikası özel CA ile; test makinesine `deploy/turn/certs/ca.crt` kök depoya kurulmadan yalnız-TLS (AC-23) yolu çalışmaz. Prod'da genel CA'lı sertifika (P13) | kullanıcı (staging testi) / devops (P13) | Staging testinde |
 | TEST-NAT-4 (Düşük) | İlk ölçüm koşusunda 1 işaretleme çizgisi müşteriye ulaşmadı; sonraki 440 örnekte tekrarlanmadı, spec kayıpları ayrıca sayıyor | test-operatoru | İzlenecek |
 | Windows elle testi | Temiz Win10 22H2 / Win11 VM'de: AC-95 (tek dosya ≤ 40 MB, açılış ≤ 5 sn), AC-96 (SHA-256/SmartScreen "Yine de çalıştır" yolu), AC-103, AC-106 (monitör seçimi, gösterge), AC-110 (DPI/manifest), AC-118 (Procmon DLL araması 0), gerçek NTFS'te `Zone.Identifier`, AC-108 iz testi (`apps/agent-win/test/trace-check.ps1` yazılacak), gerçek yakalama FPS — AC-41 (1080p ≥ 15 fps; DXGI/MF kodu bu ortamda hiç çalıştırılamadı) | test-operatoru (+ backend-dev/Go düzeltme) | ~~P7 başlamadan~~ → **P8 kod turundan önce** (2026-11-11: yapılmadı, ortam/Windows makinesi gerekiyor; yeniden tarihlendi) |
-| Fare imleci | İmleç görüntüye çizilmiyor (DXGI kare imleci içermez): `DXGI_OUTDUPL_FRAME_INFO.PointerPosition` + `GetFramePointerShape` ile NV12 karesine bindirme | backend-dev (Go) | P8 öncesi / ayrı küçük iş — **hedef "P7 öncesi" idi, P7'de yapılmadı; 2026-11-11'de yenilendi** (uzaktan kontrol imleçsiz zor kullanılır) |
+| Fare imleci | İmleç görüntüye çizilmiyor (DXGI kare imleci içermez): `DXGI_OUTDUPL_FRAME_INFO.PointerPosition` + `GetFramePointerShape` ile NV12 karesine bindirme | backend-dev (Go) | **Kodlandı 2026-11-11** (`internal/capture/cursor.go`, NV12'ye bindirme, birim testli); Windows elle doğrulaması (implementation.md adım 43–47) P7 Windows testiyle aynı oturumda |
 | Donanım MFT yedeği | Donanım H.264 MFT oturum sırasında hata verirse/takılırsa yazılım MFT'ye otomatik geçiş (bugün yalnız açılışta seçim yapılıyor) | backend-dev (Go) | Windows elle testi sonucuna göre; en geç P13 |
 | Dirty-rect | `GetFrameDirtyRects`/`MoveRects` ile yalnız değişen bölgenin dönüştürülmesi (CPU BGRA→NV12 maliyeti); AC-41 ölçümü 15 fps altında kalırsa öne çekilir | backend-dev (Go) | Sonra (ölçüme bağlı) |
 | Koyu tema (istemci) | Windows istemci pencerelerinde sistem koyu temasına uyum (ortak standart 1.6; bugün yalnız açık) | backend-dev (Go) | P13 |

@@ -150,6 +150,7 @@ model AuditLog {
   @@index([tenantId, createdAt])
   @@index([tenantId, userId, createdAt])
   @@index([tenantId, action, createdAt])
+  @@index([tenantId, entity, entityId, createdAt]) // P8 oturum zaman çizelgesi (mimari-api "Oturum geçmişi" §3)
   @@index([createdAt]) // retention: 730 gün silme (§3.4)
   @@map("audit_logs")
 }
@@ -178,6 +179,10 @@ model SupportSession {
   consumedAt     DateTime? @map("consumed_at") @db.DateTime(3) // admit = tüketim = ACTIVE başlangıcı (AC-6/7/13)
   terminatedBy   String?   @map("terminated_by") @db.Char(26) // zorla sonlandıran Admin/Super Admin (G-04, AC-114)
   qualitySummary Json?     @map("quality_summary") // AC-46: quality.summary {fps,kbps,rttMs{avg,min,max},connType}
+  customerName   String?   @map("customer_name") @db.VarChar(100) // P8: admit edilen misafirin adı (join customerName, trim'li 2..100); admit UPDATE'inde yazılır
+  customerEmail  String?   @map("customer_email") @db.VarChar(190) // P8: misafir e-postası (opsiyonel); retention'da NULL (P13)
+  ticketNo       String?   @map("ticket_no") @db.VarChar(50) // P8 AC-63: teknisyen girer; boş metin yerine NULL
+  note           String?   @db.Text // P8 AC-63: ≤ 4000 karakter (CHECK)
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
@@ -189,6 +194,8 @@ model SupportSession {
 
   @@unique([id, tenantId]) // P4: session_consents/P5: session_files (session_id, tenant_id) bileşik FK hedefi (tenant tutarlılığı)
   @@index([tenantId, createdAt]) // tenant geneli liste (P8) + tenant FK
+  @@index([createdAt]) // P8 Super Admin tüm-tenant geçmiş listesi + P13 retention
+  @@index([tenantId, status, createdAt]) // P8 geçmiş listesi durum filtresi (AC-60): eşitlik + created_at sırası/aralığı
   @@index([technicianId, status]) // AC-11 açık oturum sayımı + technician FK
   @@index([technicianId, createdAt]) // "kendi oturumlarım" listesi, AC-12 saatlik sayım
   @@index([status, expiresAt]) // expiry işi: status='PENDING' AND expires_at <= NOW(3); açılışta ACTIVE→ENDED

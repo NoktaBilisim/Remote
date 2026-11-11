@@ -3,10 +3,11 @@
 #   APP_PW=<app parolası> CONTAINER=<mysql konteyner adı> DB=<veritabanı> ./check-app-grants.sh
 # Beklenen tüm satırlar PASS; FAIL varsa çıkış kodu 1. Geçici tenant/kullanıcı ekler ve sonunda siler; audit_logs'a kalıcı satır yazmaz.
 FAILED=0
-run() { # $1 beklenen, $2 sql
+run() { # $1 beklenen, $2 sql, $3 (ops.) DENIED'de hata mesajında beklenen metin (ör. kısıt adı)
   out=$(docker exec -e MYSQL_PWD="$APP_PW" "${CONTAINER:-rs-mysql-test}" mysql -uapp "${DB:-remote}" -N -e "$2" 2>&1)
   if [ $? -eq 0 ]; then got=OK; else got=DENIED; fi
   [ "$got" = "$1" ] && s=PASS || s=FAIL
+  [ "$s" = PASS ] && [ "$got" = DENIED ] && [ -n "${3:-}" ] && [[ "$out" != *"$3"* ]] && s=FAIL
   [ "$s" = FAIL ] && FAILED=1; printf '%s | beklenen=%-6s sonuç=%-6s | %s %s\n' "$s" "$1" "$got" "$2" "$( [ $got = DENIED ] && echo "-> ${out##*: }" )"
 }
 # Boş DB'de de anlamlı olsun diye geçici tenant/ayar/kullanıcı (app DML'iyle) eklenir, sonda silinir.
@@ -105,6 +106,49 @@ run DENIED "START TRANSACTION; $SS ('00000000000000000000GRANTS',$T,$H1,'4829137
 # P7 session_consents.source += TECH (ADR-0013: teknisyen bırakması CONTROL/REVOKED/TECH); küme dışı değer reddi.
 run OK     "START TRANSACTION; $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','CONTROL','REVOKED','TECH',NULL,NULL,NULL,NULL); ROLLBACK"
 run DENIED "START TRANSACTION; $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','CONTROL','REVOKED','BOGUS',NULL,NULL,NULL,NULL); ROLLBACK"
+# P8 oturum geçmişi alanları (customer_*, ticket_no, note) CHECK'leri; tablo düzeyi UPDATE P2'den. ASCII + CHAR()/X'' (CLI karakter setinden bağımsız).
+U8="UPDATE support_sessions SET"; W8="WHERE id='00000000000000000000GRANTS'"
+RTLO="CONVERT(X'E280AE' USING utf8mb4)"
+run OK     "START TRANSACTION; $ADM; $U8 customer_name='Ayse Yilmaz',customer_email='ayse@example.test',ticket_no='INC-123',note=CONCAT(REPEAT('n',3998),CHAR(10),'x') $W8; ROLLBACK"
+run OK     "START TRANSACTION; $SS ('00000000000000000000GRANTS',$T,$H1,'48291376','0427','PENDING',$E15,NULL,NOW(3),NOW(3)); $U8 ticket_no='INC-1',note='bekleyen' $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $ADM; $U8 note=REPEAT('n',4001) $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $ADM; $U8 note='' $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $ADM; $U8 ticket_no='' $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $ADM; $U8 ticket_no=' INC-1' $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $ADM; $U8 ticket_no=CONCAT('INC',CHAR(10),'1') $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $ADM; $U8 customer_name=CONCAT('Ali',CHAR(9),'Veli') $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $ADM; $U8 customer_name=CONCAT('Ali',$RTLO,'fdp.exe') $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $ADM; $U8 customer_name='A' $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $ADM; $U8 customer_name='Ayse ' $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $SS ('00000000000000000000GRANTS',$T,$H1,'48291376','0427','PENDING',$E15,NULL,NOW(3),NOW(3)); $U8 customer_name='Ayse Yilmaz' $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $ADM; $U8 customer_name='Ayse Yilmaz',customer_email='gecersiz' $W8; ROLLBACK"
+run DENIED "START TRANSACTION; $ADM; $U8 customer_email='ayse@example.test' $W8; ROLLBACK"
+# ADR-0014: enum CHECK'leri ikili (CAST AS BINARY, NO PAD). Her CHECK için kanonik değer kabul; harf varyantı,
+# sondaki boşluk ve aksanlı varyant (UTF-8 X'' ile, CLI karakter setinden bağımsız) beklenen kısıt adıyla 3819.
+# enum_case <kısıt> <kanonik> <harf varyantı> <aksanlı SQL ifadesi> <SQL şablonu; @V@ = değer ifadesi>
+enum_case() {
+  local canon="'$2'" casev="'$3'" pad="'$2 '"  # tırnaklar değişkende: bash 3.2/5.x ${//} farkından bağımsız
+  run OK     "${5//@V@/$canon}"
+  run DENIED "${5//@V@/$casev}" "$1"
+  run DENIED "${5//@V@/$pad}" "$1"
+  run DENIED "${5//@V@/$4}" "$1"
+}
+EA="CONVERT(X'C389' USING utf8mb4)"; AA="CONVERT(X'C381' USING utf8mb4)"; OA="CONVERT(X'C393' USING utf8mb4)"  # É Á Ó
+R="ROLLBACK"; TX="START TRANSACTION;"
+enum_case tenants_status_chk ACTIVE active "CONCAT($AA,'CTIVE')" "$TX UPDATE tenants SET status=@V@ WHERE id='00000000000000000000GRANTT'; $R"
+enum_case tenant_settings_smtp_security_chk SSL ssl "CONCAT('SS',CONVERT(X'C4B9' USING utf8mb4))" "$TX UPDATE tenant_settings SET smtp_security=@V@ WHERE tenant_id='00000000000000000000GRANTT'; $R"
+enum_case users_role_chk ADMIN admin "CONCAT($AA,'DMIN')" "$TX UPDATE users SET role=@V@ WHERE id='00000000000000000000GRANTU'; $R"
+enum_case users_theme_chk DARK dark "CONCAT('D',$AA,'RK')" "$TX UPDATE users SET theme=@V@ WHERE id='00000000000000000000GRANTU'; $R"
+enum_case users_status_chk PASSIVE passive "CONCAT('P',$AA,'SSIVE')" "$TX UPDATE users SET status=@V@ WHERE id='00000000000000000000GRANTU'; $R"
+enum_case audit_logs_result_chk success SUCCESS "CONCAT('succ',CONVERT(X'C3A9' USING utf8mb4),'ss')" "$TX INSERT INTO audit_logs (action,entity,result) VALUES ('test.grant','audit_logs',@V@); $R"
+enum_case support_sessions_status_chk PENDING pending "CONCAT('P',$EA,'NDING')" "$TX $SS ('00000000000000000000GRANTS',$T,$H1,'48291376','0427',@V@,$E15,NULL,NOW(3),NOW(3)); $R"
+enum_case support_sessions_ended_by_chk TECH tech "CONCAT('T',$EA,'CH')" "$TX $ADM; UPDATE support_sessions SET status='ENDED',ended_at=NOW(3),ended_by=@V@ WHERE id='00000000000000000000GRANTS'; $R"
+enum_case support_sessions_mode_chk AGENT agent "CONCAT('AG',$EA,'NT')" "$TX $SS ('00000000000000000000GRANTS',$T,$H1,'48291376','0427','PENDING',$E15,NULL,NOW(3),NOW(3)); UPDATE support_sessions SET status='ACTIVE',active_code=NULL,consumed_at=NOW(3),mode=@V@ WHERE id='00000000000000000000GRANTS'; $R"
+enum_case session_consents_level_chk CONTROL control "CONCAT('C',$OA,'NTROL')" "$TX $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT',@V@,'DENIED','SYSTEM',NULL,NULL,NULL,NULL); $R"
+enum_case session_consents_decision_chk DENIED denied "CONCAT('D',$EA,'NIED')" "$TX $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','CONTROL',@V@,'SYSTEM',NULL,NULL,NULL,NULL); $R"
+enum_case session_consents_source_chk TECH tech "CONCAT('T',$EA,'CH')" "$TX $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','CONTROL','REVOKED',@V@,NULL,NULL,NULL,NULL); $R"
+enum_case session_files_direction_chk TO_TECH to_tech "CONCAT('T',$OA,'_TECH')" "$TX $ADM; $SF ('00000000000000000000GRANTF','00000000000000000000GRANTS','00000000000000000000GRANTT',@V@,'rapor.pdf',1024,$H1,'OK'); $R"
+enum_case session_files_result_chk REJECTED rejected "CONCAT('R',$EA,'JECTED')" "$TX $ADM; $SF ('00000000000000000000GRANTF','00000000000000000000GRANTS','00000000000000000000GRANTT','TO_CUSTOMER','rapor.pdf',1024,$H1,@V@); $R"
 # Temizlik (FK sırasıyla)
 run OK     "DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"
 exit $FAILED

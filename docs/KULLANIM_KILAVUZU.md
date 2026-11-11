@@ -4,8 +4,9 @@ Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekr
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
 - **Müşteri için:** Hızlı Destek uygulaması (Windows), uzaktan kontrol izni
-- **Teknisyen için:** Uzaktan kontrol (konsol)
-- **Admin için:** Uzaktan kontrol yetkisi ve kayıtlar
+- **Teknisyen için:** Uzaktan kontrol (konsol), Oturum geçmişi
+- **Admin için:** Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi yetkileri
+- **Super Admin için:** Tüm firmaların oturum geçmişi
 
 Teknisyen konsolunun diğer bölümleri ve yönetim paneli, ilgili ekranlar tamamlandıkça eklenecektir.
 
@@ -32,8 +33,8 @@ yönetici şifresi sormaz, bilgisayarınızda iz bırakmaz. Program kapandığı
 - Size dosya gönderebilir. Her dosyayı siz onaylarsınız.
 
 **Bilmeniz gerekenler**
-- Teknisyen **fare imlecinizi göremez** (uzaktan kontrol sırasında da). Ekranda bir yeri göstermek istiyorsanız
-  sohbette yazın veya telefonda tarif edin.
+- Programın yeni sürümünde (0.8 ve sonrası) teknisyen **fare imlecinizi görür**; bir yeri imleçle gösterebilirsiniz.
+  Eski sürümde imleç görünmez; o zaman yeri sohbette yazın veya telefonda tarif edin.
 - Karşılama penceresinin sağ üstünde şimdilik firmanızın değil **Nokta Bilişim'in logosu** görünür. Firma adı ve
   teknisyen adı yazı olarak yine gösterilir.
 - Program sizden teknisyene dosya göndermez; yalnız teknisyenden dosya alır.
@@ -258,7 +259,8 @@ onaylasa bile kontrol açılmaz.
   başka tuşa basmadan bırakın; odak **Kontrolü bırak** düğmesine geçer.
 - Kontrol sırasında işaretleme araçları kapalıdır ("Kontrol sırasında işaretleme kapalı; önce kontrolü bırakın").
 - Müşteri kendi faresini oynatırsa sizin hareketiniz yaklaşık 1 saniye durur. Bu beklenen davranıştır.
-- Müşterinin fare imleci görüntüde görünmez; yalnız kendi imlecinizi görürsünüz.
+- Müşterinin fare imleci, Hızlı Destek'in yeni sürümünde (0.8+) görüntüde görünür; eski sürümde yalnız kendi
+  imlecinizi görürsünüz. Müşteri imleci başka monitöre götürürse görüntüden kaybolur.
 
 ### Görünüm ve monitör
 - **Sığdır:** müşteri ekranının tamamı sahneye sığar.
@@ -300,6 +302,70 @@ onaylasa bile kontrol açılmaz.
 
 ---
 
+## Teknisyen için: Oturum geçmişi
+
+Kenar menüsündeki **Oturum geçmişi** biten ve süren destek oturumlarınızı listeler. Menüde göremiyorsanız hesabınızda
+görüntüleme yetkisi yoktur; yöneticinize başvurun. Teknisyen (User) yalnız **kendi** oturumlarını görür.
+
+### Nasıl bir oturumu bulurum?
+1. **Oturum geçmişi**'ni açın. En yeni oturum en üsttedir; sayfa başına 25 kayıt gelir (alttan 10/50/100 seçilebilir).
+2. Filtrelerden ihtiyacınız olanı doldurun:
+   - **Başlangıç / Bitiş tarihi:** oturumun açıldığı gün (Türkiye saatiyle). Bitiş, başlangıçtan önce olamaz.
+   - **Durum:** Bekliyor, Aktif, Bitti, Süresi doldu, İptal.
+   - **Bağlantı:** İstemci (Hızlı Destek) veya Tarayıcı.
+   - **Müşteri adı:** adın içinde geçen en az 2 harf.
+3. **Filtrele**'ye basın. Filtreler adres çubuğuna yazılır; bağlantıyı kopyalayıp paylaşabilir, sayfayı yenileyebilirsiniz.
+4. Sıfırlamak için **Filtreleri temizle**.
+
+Listede "Ad kaydı yok" görürseniz müşteri adı kaydedilmemiştir (eski oturumlar). "Bağlanılmadı", müşterinin hiç
+bağlanmadığını gösterir. Süren oturumda süre canlı sayar.
+
+### Ayrıntı ekranında neler var?
+Satıra tıklayınca oturum ayrıntısı açılır:
+- **Özet:** oluşturma, başlangıç, bitiş, süre, bağlantı, müşteri adı ve e-postası, kim bitirdi ve neden.
+- **Ticket ve not:** aşağıya bakın.
+- **Onay kayıtları:** müşterinin ekran paylaşımı ve uzaktan kontrol için verdiği, reddettiği veya geri aldığı izinler;
+  onaylanan aydınlatma metninin sürümü.
+- **Kontrol dönemleri:** uzaktan kontrolün ne zaman verildiği ve kapandığı, kimin hangi yolla kapattığı.
+  "Kapanış kaydı yok" yazarsa kapanış zamanı bilinmiyor demektir; tahmin edilmez. Sarı "Müşteri istemcisi yönetici
+  olarak çalışıyordu" rozeti, programın yönetici olarak açıldığını gösterir. Tarayıcıyla bağlanan oturumda kontrol yoktur.
+- **Zaman çizelgesi:** oturumdaki olaylar sırasıyla (kabul, kontrol istekleri, bitiş…). Başarısız olaylar kırmızı ve
+  "(başarısız)" etiketlidir. En çok 500 olay gösterilir.
+- **Kalite özeti** ve **Dosyalar:** ortalama görüntü kalitesi, aktarılan dosyaların adı, boyutu ve sonucu (içerik saklanmaz).
+
+"Oturum bulunamadı" görürseniz oturum sizin değildir, silinmiştir ya da bağlantı hatalıdır.
+
+### Nasıl ticket numarası ve not eklerim?
+1. Oturumun ayrıntısını açın, **Ticket ve not** bölümüne gelin.
+2. **Ticket no** (yardım masası kayıt numarası, en çok 50 karakter) ve **Not** (en çok 4.000 karakter) alanlarını
+   doldurun. Sayaç sınırı aşınca kırmızı olur.
+3. **Kaydet**'e basın. "Ticket ve not kaydedildi" mesajı çıkar. Vazgeçmek için **Değişiklikleri geri al**.
+- Alanı boşaltıp kaydederseniz ticket/not silinir. Bitmiş oturumlara da not eklenebilir.
+- Kaydetmeden başka sayfaya geçmeye çalışırsanız uyarı çıkar (**Sayfada kal** / **Kaydetmeden ayrıl**). Tarayıcının
+  geri tuşu bu uyarıyı her zaman vermez; önce kaydedin.
+- Alanlar görünüyor ama düzenlenemiyorsa ("Ticket ve notu düzenleme yetkiniz yok") yöneticinizden yetki isteyin.
+
+### Nasıl CSV olarak dışa aktarırım ve Excel'de açarım?
+1. Listede istediğiniz filtreleri uygulayın.
+2. Sağ üstteki **Dışa aktar (CSV)**'ye basın. Dosya `oturumlar-YYYYAAGG-SSdd.csv` adıyla iner.
+3. Dosyaya çift tıklayın. Türkçe Excel dosyayı doğrudan sütunlara ayırır; Türkçe harfler doğru görünür, saatler
+   Türkiye saatidir.
+- Dosyada: oturum no, oluşturma/başlangıç/bitiş, süre, durum, mod, teknisyen, müşteri, ticket no, sonlandıran,
+  bitiş nedeni, not. E-posta ve onay kayıtları dosyaya girmez.
+- `=`, `+`, `-`, `@` ile başlayan değerlerin başında `'` görebilirsiniz. Bu bilerek eklenir; hücre formül olarak
+  çalışmaz, metin kalır.
+- Sütunlar tek sütunda toplanırsa Excel'in liste ayracı `;` değildir: **Veri → Metni Sütunlara Dönüştür** ile ayraç
+  olarak noktalı virgül seçin.
+- Düğme görünmüyorsa dışa aktarma yetkiniz yoktur.
+
+| Mesaj | Ne yapmalı |
+|---|---|
+| En çok 50.000 satır dışa aktarılabilir; tarih aralığını daraltın | Tarih aralığını kısaltın veya filtre ekleyin |
+| Kısa sürede çok fazla dışa aktarma yapıldı. N dakika sonra tekrar deneyin. | Dakikada en çok 5 dışa aktarma yapılabilir; bekleyin |
+| Dışa aktarılamadı · Sunucuya ulaşılamadı | Bağlantınızı kontrol edip tekrar deneyin |
+
+---
+
 ## Admin için: Uzaktan kontrol yetkisi ve kayıtlar
 
 ### Yetki
@@ -329,3 +395,22 @@ paketiyle gelecektir; kayıtlar o zamana kadar veritabanında tutulur.
 
 İzin, ret ve kapanışlar ayrıca KVKK onay kanıtı olarak saklanır. **İzin kaydı yazılamazsa kontrol hiç açılmaz**:
 müşterinin onayı kaydedilmeden teknisyen bilgisayarı kullanamaz.
+
+---
+
+## Admin için: Oturum geçmişi
+
+- Admin firmasındaki **tüm teknisyenlerin** oturumlarını görür; listede **Teknisyen** sütunu ve filtresi vardır.
+  Teknisyen filtresinin seçenekleri şimdilik o sayfadaki kayıtlardan gelir (tam liste kullanıcı yönetimiyle, P9).
+- Yetkiler üç ayrı anahtardır: **Oturum geçmişi → Görüntüle** (`session_history.view`), **Düzenle** (ticket/not,
+  `session_history.edit`), **Dışa aktar** (CSV, `session_history.export`). Admin'de varsayılan açık, User'da kapalıdır.
+  Yetki ekranı P9'da gelir; o zamana kadar staging teknisyen hesabına yalnız görüntüleme açılır.
+- Güvenlik gereği bekleyen bir oturumun 8 haneli kodu yalnız oturumu açan teknisyene gösterilir.
+- Kayıtlar: not/ticket değişikliği `session.updated` (not metni değil, yalnız uzunluğu), her dışa aktarma
+  `session.exported` (filtreler ve satır sayısı; aranan müşteri adı değil) olarak denetim kaydına yazılır.
+
+## Super Admin için: Tüm firmaların oturum geçmişi
+
+- Super Admin firma seçmeden **Oturum geçmişi**'ni açtığında tüm firmaların oturumlarını görür. Listede ve CSV'de
+  ek **Firma** sütunu, filtrelerde **Firma** seçimi bulunur.
+- Firma seçimi (firma değiştirme) P9 ile gelir; seçili firmada yalnız o firmanın oturumları görünür.

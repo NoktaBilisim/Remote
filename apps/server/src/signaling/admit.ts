@@ -5,12 +5,21 @@ import { writeAudit } from "../audit/service.ts";
 import { recordViewConsent } from "../public/consent.ts";
 import * as repo from "../sessions/repo.ts";
 import { admitHash, type Rooms } from "./rooms.ts";
-import { ADMIT_FAIL_MAX, type Room, type TechConn } from "./types.ts";
+import { ADMIT_FAIL_MAX, type Guest, type Room, type TechConn } from "./types.ts";
 import { safeEqual } from "../lib/ids.ts";
 
 export type AdmitResult = "admitted" | "invalid" | "conflict";
 
 const actor = (t: TechConn) => ({ userId: t.userId, username: t.username });
+
+/**
+ * P8 (AC-62): müşteri adı/e-postası admit UPDATE'inde yazılır. join şeması uzunluğu kod noktasıyla sayar (QA-P8-2,
+ * DB CHAR_LENGTH ile aynı); buradaki NULL'a düşme yalnız gerçekten geçersiz değerde (savunma) — CHECK admit'i düşürmesin.
+ */
+function customerOf(g: Guest): { name: string | null; email: string | null } {
+  const name = [...g.name].length >= 2 ? g.name : null;
+  return { name, email: name ? (g.email ?? null) : null };
+}
 
 export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code: string): Promise<AdmitResult> {
   const audit = (result: "success" | "fail", newValue: Record<string, string>, tx: Parameters<typeof writeAudit>[0] = rooms.db) =>
@@ -37,7 +46,7 @@ export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code:
   let ok = false;
   try {
     ok = await rooms.db.$transaction(async (tx) => {
-      if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind)) !== 1) return false; // count=0 → consent yazılmaz
+      if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest))) !== 1) return false; // count=0 → consent yazılmaz
       await recordViewConsent(tx, room.sessionId, room.tenantId, guest.consent);
       const c = guest.consent;
       await audit("success", { guestId: guest.id, name: guest.name, guestKind: guest.kind, consentTextId: c.textId, consentVersion: String(c.version), consentSha256: c.sha256 }, tx);

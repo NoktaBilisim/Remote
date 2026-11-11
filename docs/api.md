@@ -1,10 +1,11 @@
-# API Dokümanı — Remote Support (P1–P7)
+# API Dokümanı — Remote Support (P1–P8)
 
-Bu belge P1–P7'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P8'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
-`signaling/control.ts` (P7), `packages/contracts/src/{errors.ts,ws.ts,dc.ts,audit.ts,api/auth.ts,api/sessions.ts}`.
+`signaling/control.ts` (P7), `sessions/{history,history-repo}.ts` ve `lib/csv.ts` (P8),
+`packages/contracts/src/{errors.ts,ws.ts,dc.ts,audit.ts,labels.ts,api/auth.ts,api/sessions.ts}`.
 
 ## Genel kurallar
 - Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres Caddy üzerinden `https://<SITE_HOST>:4450`.
@@ -60,7 +61,7 @@ stack, SQL veya iç ayrıntı içermez.
 | `SESSION_CANCELLED` | 410 | Oturum iptal edilmiş |
 | `NONCE_INVALID` | 410 | `joinNonce` süresi dolmuş (60 sn), kullanılmış veya bilinmiyor |
 | `ACCOUNT_LOCKED` | 423 | Giriş kilidi; `Retry-After` (saniye) başlığı ile |
-| `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar); `Retry-After` ile |
+| `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma); `Retry-After` ile |
 | `INTERNAL` | 500 | Beklenmeyen hata |
 | `NOT_READY` | 503 | `/ready`: DB'ye ulaşılamıyor veya migration yok; P6: Windows istemci ikilisi yok, yapılandırılmamış veya SHA-256'sı `AGENT_SHA256` ile uyuşmuyor |
 
@@ -72,8 +73,11 @@ stack, SQL veya iç ayrıntı içermez.
 | GET | `/api/v1/auth/me` | Oturum | 200 |
 | POST | `/api/v1/auth/password/change` | Oturum + CSRF | 204 + yeni çerezler |
 | POST | `/api/v1/sessions` | Oturum + CSRF, `sessions.create` | 201 |
-| GET | `/api/v1/sessions` | Oturum, `sessions.view` | 200 |
+| GET | `/api/v1/sessions` | Oturum, `sessions.view` **veya** `session_history.view` | 200 |
+| GET | `/api/v1/sessions/export.csv` (P8) | Oturum, `session_history.export` | 200 (CSV akışı) |
 | GET | `/api/v1/sessions/:id` | Oturum, `sessions.view` | 200 |
+| GET | `/api/v1/sessions/:id/history` (P8) | Oturum, `session_history.view` | 200 |
+| PATCH | `/api/v1/sessions/:id` (P8) | Oturum + CSRF, `session_history.edit` | 200 |
 | POST | `/api/v1/sessions/:id/cancel` | Oturum + CSRF, `sessions.delete` | 200 |
 | POST | `/api/v1/sessions/:id/terminate` | Oturum + CSRF, `sessions.terminate` | 200 |
 | POST | `/api/v1/public/sessions/resolve` | Public (Origin veya AGENT) | 200 |
@@ -152,8 +156,10 @@ Hatalar: 400 `VALIDATION` (`fields.current`: "Mevcut şifre hatalı."; `fields.n
 ## Destek oturumları (P2)
 Teknisyen uçları oturum çerezi ister; `mustChangePassword` kapısı geçerlidir. Kapsam: USER yalnız kendi açtığı
 oturumları görür ve iptal eder (`technicianId` filtresi bunu ezemez); ADMIN kendi tenant'ının tümünü görür.
-Başka tenant'ın veya başka teknisyenin oturumu, biçimsiz `:id` dahil → 404. Super Admin tenant seçmeden bu uçları
-çağıramaz → 403 `FORBIDDEN` (tenant geçişi P9). Tipler: `@remote/contracts/api/sessions`.
+Başka tenant'ın veya başka teknisyenin oturumu, biçimsiz `:id` dahil → 404. Super Admin tenant seçmeden oluşturma,
+iptal ve sonlandırma uçlarını çağıramaz → 403 `FORBIDDEN` (tenant geçişi P9). P8'den beri liste, `:id`,
+`:id/history`, PATCH ve `export.csv` tek kapsam fonksiyonunu (`historyScope`) kullanır; Super Admin bu beş uçta firma
+seçmeden **tüm firmaları** görür (bkz. "Oturum geçmişi (P8)"). Tipler: `@remote/contracts/api/sessions`.
 
 Oturum durumları: `PENDING` (müşteri bekleniyor) · `ACTIVE` · `ENDED` · `EXPIRED` · `CANCELLED`.
 `endedBy`: `TECH` | `CUSTOMER` | `ADMIN` | `SYSTEM`.
@@ -181,24 +187,57 @@ varsayılan 3); 429 `RATE_LIMITED` (teknisyen başına saatte 20 oturum; `Retry-
 işlemde sayılır; yeniden başlatmada sıfırlanmaz.
 
 ### GET /api/v1/sessions
-Sorgu: `status` (isteğe bağlı, durumlardan biri), `technicianId` (ULID; USER'da yok sayılır), `page` (1–10000,
-varsayılan 1), `pageSize` (1–100, varsayılan 25). Sıra: `createdAt` azalan.
+Konsoldaki Oturumlar listesi ve P8 Oturum geçmişi ekranı aynı ucu kullanır. Yetki: `sessions.view` **veya**
+`session_history.view`. Yanıt `Cache-Control: no-store`.
+
+Sorgu (`listSessionsQuerySchema`, strict: **bilinmeyen parametre 400**):
+| Parametre | Kural | Anlam |
+|---|---|---|
+| `status` | `PENDING` · `ACTIVE` · `ENDED` · `EXPIRED` · `CANCELLED` | Tek durum |
+| `mode` | `AGENT` · `BROWSER` | İstemci / tarayıcı. Hiç bağlanılmamış oturum (`mode=null`) eşleşmez |
+| `from`, `to` | `YYYY-AA-GG`, geçerli takvim günü | `createdAt` üzerinde **Europe/Istanbul günü**: `from` 00:00 dahil, `to` ertesi gün 00:00 hariç. `from > to` → 400 `fields.to` |
+| `technicianId` | ULID | ADMIN / Super Admin. USER'da yok sayılır |
+| `tenantId` | ULID | Yalnız firma seçmemiş Super Admin. Diğer rollerde yok sayılır |
+| `customer` | 2–100 karakter, kırpılır; kontrol ve görünmez karakter yok | Müşteri adında geçen metin (büyük/küçük harf duyarsız). `%`, `_`, `\` harfiyen aranır. Adı kaydedilmemiş (P8 öncesi) oturumlar eşleşmez |
+| `page` | 1–10000, varsayılan 1 | Toplamı aşan sayfa boş `items` döner (hata değil) |
+| `pageSize` | 1–100, varsayılan 25 | |
+| `sort` | `createdAt:desc` (varsayılan) · `createdAt:asc` | İkincil sıra her zaman `id` (kararlı sayfalama) |
+
+Kapsam (sunucuda uygulanır, filtre bunu genişletemez):
+| Rol | Görür |
+|---|---|
+| USER | Kendi tenant'ında yalnız kendi oturumları |
+| ADMIN | Kendi tenant'ının tüm oturumları |
+| Super Admin, firma seçili | Seçili firmanın oturumları |
+| Super Admin, firma seçili değil | Tüm firmaların oturumları (`tenant` alanı dolu) |
+
+**Hız sınırı:** `customer` doluyken kullanıcı başına dakikada 60 istek; aşılınca 429 `RATE_LIMITED` + `Retry-After`.
+Filtresiz liste bu sınırdan etkilenmez.
 ```bash
-curl -sk 'https://localhost:4450/api/v1/sessions?status=PENDING&pageSize=25' \
+curl -sk 'https://localhost:4450/api/v1/sessions?from=2026-11-01&to=2026-11-11&status=ENDED&mode=AGENT&customer=Y%C4%B1lmaz' \
   -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF"
 ```
 ```json
-{ "items": [ { "id": "01K…", "status": "PENDING", "code": "<8-hane>", "techVerifyCode": "<doğrulama-kodu>",
+{ "items": [ { "id": "01K…", "status": "ENDED", "code": null, "techVerifyCode": "<doğrulama-kodu>",
                "technician": { "id": "01K…", "name": "Ayşe Teknisyen" },
-               "createdAt": "2026-11-11T10:00:00.000Z", "expiresAt": "2026-11-11T10:15:00.000Z",
-               "endedAt": null, "endedBy": null, "endReason": null } ],
+               "createdAt": "2026-11-10T07:00:00.000Z", "expiresAt": "2026-11-10T07:15:00.000Z",
+               "endedAt": "2026-11-10T07:42:10.000Z", "endedBy": "TECH", "endReason": "tech",
+               "mode": "AGENT", "startedAt": "2026-11-10T07:03:00.000Z", "durationSec": 2350,
+               "customerName": "Ahmet Yılmaz", "ticketNo": "INC-1002", "tenant": null } ],
   "page": 1, "pageSize": 25, "total": 1 }
 ```
-`code` yalnız PENDING iken doludur, diğer durumlarda `null`. `link` hiçbir listede/detayda dönmez.
-Hatalar: 400 `VALIDATION` (`fields` ile), 401, 403.
+- `code` yalnız PENDING iken ve **yalnız oturumun kendi teknisyenine** döner; ADMIN ve Super Admin başka teknisyenin
+  bekleyen oturumu için `null` görür (S8-2). `link` hiçbir listede/detayda dönmez.
+- `startedAt` = müşterinin kabul edildiği an. `durationSec` yalnız `startedAt` ve `endedAt` doluysa hesaplanır;
+  ACTIVE oturumda `null` (arayüz canlı süreyi kendisi hesaplar).
+- `tenant` yalnız firma seçmemiş Super Admin'de dolu (`{ id, name }`), diğerlerinde `null`.
+- Listede müşteri e-postası ve not **yoktur**; bunlar ayrıntı ucundadır.
+
+Hatalar: 400 `VALIDATION` (`fields` ile), 401, 403, 429 `RATE_LIMITED`.
 
 ### GET /api/v1/sessions/:id
-Yanıt: listedeki öğe biçiminde tek oturum. Hatalar: 401, 403, 404 (yok, başka tenant, başka teknisyen, biçimsiz id).
+Yanıt: konsol özeti (`SessionView`, P2 şekli; P8 alanları yok). Kapsam listeyle aynıdır; `code` kuralı aynıdır.
+Hatalar: 401, 403, 404 (yok, kapsam dışı, biçimsiz id).
 
 ### POST /api/v1/sessions/:id/cancel
 Girdi yok. Gerekli: oturum, `X-CSRF-Token`, `Origin`, `sessions.delete`.
@@ -222,6 +261,108 @@ curl -sk -X POST https://localhost:4450/api/v1/sessions/$ID/terminate \
 Yanıt 200: `{ "status": "ENDED", "endedBy": "ADMIN" }`. Odadaki iki tarafa `session.ended{reason:"admin"}` gider;
 DB'de `ended_by=ADMIN`, `terminated_by=<yönetici>`; audit `session.terminated`.
 Hatalar: 401, 403 (`FORBIDDEN`, `CSRF_INVALID`), 404 (yok / başka tenant), 409 `CONFLICT` (oturum ACTIVE değil).
+
+## Oturum geçmişi (P8)
+Ekranlar `/history` ve `/history/<id>`. Kapsam ve 404 kuralı "GET /api/v1/sessions" ile aynıdır: kapsam dışı ya da
+olmayan id her uçta **404** döner, kaydın varlığı sızdırılmaz. Sözleşme kaynağı: `docs/mimari-api.md`
+"Oturum geçmişi (P8)" §1–6. Türkçe etiketler: `@remote/contracts/labels` (ekran ve CSV aynı eşlemeyi kullanır;
+bilinmeyen `endReason` veya `action` ham gösterilir).
+
+### GET /api/v1/sessions/:id/history
+Yetki: `session_history.view`. Yanıt `SessionHistoryDetail`, `Cache-Control: no-store`.
+```bash
+curl -sk https://localhost:4450/api/v1/sessions/$ID/history -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF"
+```
+Yanıt = liste öğesinin tüm alanları + şunlar:
+| Alan | Açıklama |
+|---|---|
+| `customerEmail` | Müşterinin katılırken yazdığı e-posta (yoksa `null`) |
+| `note` | Teknisyen notu (`null` olabilir) |
+| `terminatedBy` | Yalnız `endedBy=ADMIN` ise `{ id, name }` (sonlandıran yönetici) |
+| `quality` | Kalite özeti `{ fps, kbps, rttMs, connType }`; kayıt yoksa veya okunamıyorsa `null` |
+| `files[]` | `{ id, direction: TO_CUSTOMER\|TO_TECH, fileName, sizeBytes, sha256, result: OK\|REJECTED\|CANCELLED\|CORRUPT, createdAt }`, en çok 500. İçerik yoktur |
+| `consents[]` | `{ id, at, level: VIEW\|CONTROL, decision: GRANTED\|DENIED\|REVOKED, source: UI\|HOTKEY\|RECONNECT\|SYSTEM\|TECH, consentText: { id, version, sha256 } \| null }`, en çok 500. **IP ve tarayıcı bilgisi dönmez** (kanıt DB'de kalır) |
+| `controlPeriods[]` | `{ grantedAt, revokedAt, revokedSource, revokedReason, selfElevated }`. Sunucu her `GRANTED`'ı ardından gelen ilk `REVOKED` ile eşleştirir. Kapanış kaydı yoksa `revokedAt`/`revokedSource` `null`; bitiş tahmin edilmez. BROWSER oturumda boş dizi |
+| `timeline[]` | `{ at, action, actor: TECH\|CUSTOMER\|ADMIN\|SYSTEM, actorName, result: success\|fail, details }`, en çok 500 olay |
+| `timelineTruncated` | 500 olay sınırı aşıldıysa `true` |
+
+Zaman çizelgesine yalnız şu eylemler girer: `session.created`, `guest.pending`, `guest.rejected`, `guest.admitted`,
+`guest.admit` (başarısız), `reconnect.conflict`, `control.requested/granted/denied/revoked/released/cancelled`,
+`monitor.requested/granted/denied`, `session.caps_changed`, `session.cancelled/expired/terminated/ended`. `details`
+ham audit değeri değildir; eylem başına izinli alanların izdüşümüdür (ör. `control.granted` → `selfElevated`,
+`control.revoked` → `source`, `reason`, `side`). IP, tarayıcı ve maskeli değer hiç dönmez; metinler 200 karakterle
+kesilir. Dosya olayları `files`'ta, diğer operasyon olayları P11 audit ekranında görünür.
+```json
+{ "id": "01K…", "status": "ENDED", "mode": "AGENT", "customerName": "Ahmet Yılmaz",
+  "customerEmail": "ahmet@example.com", "ticketNo": "INC-1002", "note": "Yazıcı sürücüsü yeniden kuruldu.",
+  "terminatedBy": null, "quality": { "fps": { "avg": 24, "min": 15, "max": 30 }, "kbps": { "avg": 2100, "min": 900, "max": 3500 },
+  "rttMs": { "avg": 38, "min": 20, "max": 90 }, "connType": "relay" },
+  "consents": [ { "id": "01K…", "at": "2026-11-10T07:03:00.000Z", "level": "VIEW", "decision": "GRANTED",
+                  "source": "UI", "consentText": { "id": "01K…", "version": 1, "sha256": "<64 hex>" } } ],
+  "controlPeriods": [ { "grantedAt": "2026-11-10T07:10:00.000Z", "revokedAt": "2026-11-10T07:25:00.000Z",
+                        "revokedSource": "HOTKEY", "revokedReason": null, "selfElevated": false } ],
+  "timeline": [ { "at": "2026-11-10T07:09:55.000Z", "action": "control.requested", "actor": "TECH",
+                  "actorName": "Ayşe Teknisyen", "result": "success", "details": { "request": 1 } } ],
+  "timelineTruncated": false, "files": [] }
+```
+(Örnek kısaltılmıştır; liste öğesinin diğer alanları da döner.)
+Hatalar: 401, 403, 404.
+
+### PATCH /api/v1/sessions/:id
+Ticket numarası ve not yazar. Yetki: `session_history.edit`; gerekli: `Origin` + `X-CSRF-Token`. Girdi
+(`updateSessionInputSchema`, strict, **en az bir alan**):
+| Alan | Kural |
+|---|---|
+| `ticketNo` | `string \| null`; kırpılır; en çok 50 karakter; kontrol, satır sonu ve görünmez karakter yok |
+| `note` | `string \| null`; en çok 4.000 karakter; `\n` ve `\t` serbest, CRLF → LF çevrilir; tek `\r` ve diğer kontrol/görünmez karakterler yasak |
+
+`""` ve `null` alanı temizler (DB'de NULL). Gönderilmeyen alan değişmez. Oturum durumu fark etmez (bitmiş oturum da
+düzenlenir); eşzamanlı yazımda son yazan kazanır.
+```bash
+curl -sk -X PATCH https://localhost:4450/api/v1/sessions/$ID \
+  -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' -H "X-CSRF-Token: $CSRF" \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF" \
+  -d '{"ticketNo":"INC-1002","note":"Yazıcı sürücüsü yeniden kuruldu."}'
+```
+Yanıt 200: güncel `SessionHistoryDetail`. Audit `session.updated`: `oldValue/newValue = { ticketNo, noteLength }`;
+**not metni audit'e yazılmaz** (audit 730 gün saklanır).
+Hatalar: 400 `VALIDATION` (`fields.ticketNo`, `fields.note`; alan yoksa `fields._`), 401, 403 (`FORBIDDEN`,
+`CSRF_INVALID`), 404.
+
+### GET /api/v1/sessions/export.csv
+Listenin filtrelerini alır (`status`, `mode`, `from`, `to`, `technicianId`, `tenantId`, `customer`, `sort`; `page` ve
+`pageSize` yok sayılır). Yetki: `session_history.export`. Kapsam listeyle aynıdır; kapsam dışı satır dosyaya girmez.
+```bash
+curl -sk -OJ 'https://localhost:4450/api/v1/sessions/export.csv?from=2026-11-01&to=2026-11-30' \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF"
+```
+`-OJ` dosyayı sunucunun verdiği adla (`oturumlar-YYYYMMDD-HHmm.csv`) kaydeder.
+
+Yanıt başlıkları: `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="oturumlar-…csv"`,
+`Cache-Control: no-store`, `X-Content-Type-Options: nosniff`.
+
+Dosya biçimi:
+- UTF-8 **BOM** (`EF BB BF`), ayraç **`;`** (tr-TR Excel liste ayracı), satır sonu CRLF. Excel çift tıklamayla sütunlara açar.
+- Sütunlar (sabit sıra): `Oturum No; [Firma]; Oluşturma; Başlangıç; Bitiş; Süre; Durum; Mod; Teknisyen; Müşteri;
+  Ticket No; Sonlandıran; Bitiş nedeni; Not`. `Firma` yalnız firma seçmemiş Super Admin'de 2. sütundur.
+- Zamanlar **Europe/Istanbul** `YYYY-AA-GG SS:dd:ss`; süre `SS:DD:ss` (yoksa boş). Durum, mod, sonlandıran ve bitiş
+  nedeni Türkçe etiketle yazılır (ör. `Bitti`, `İstemci`, `Teknisyen`, `Müşteri bitirdi`).
+- E-posta, onay kayıtları ve zaman çizelgesi CSV'ye girmez.
+- **Formül kaçışı (AC-124, S8-1):** `=`, `+`, `-`, `@`, TAB veya CR ile başlayan hücreye (başlık dahil) `'` eklenir.
+  Baştaki boşluk/NBSP/ideografik boşluktan sonra gelen tetikleyiciler ve tam genişlikli `＝ ＋ － ＠` de yakalanır.
+  Ardından RFC 4180 tırnaklama: `;`, `"`, CR veya LF içeren hücre `"…"` içine alınır, `"` iki kez yazılır.
+  Örnek: `=HYPERLINK("x";"y")` → `"'=HYPERLINK(""x"";""y"")"`.
+
+Sıra: hız sınırı → sayım → audit → akış.
+- **Hız sınırı:** kullanıcı başına dakikada 5 dışa aktarma; 6. istek 429 `RATE_LIMITED` + `Retry-After`.
+- **50.000 satır sınırı:** sonuç daha fazlaysa dosya üretilmez, 400 `VALIDATION`,
+  `fields.to = "En çok 50.000 satır dışa aktarılabilir; tarih aralığını daraltın"`.
+- **Audit `session.exported`** (entity `support_sessions`): `newValue = { status, mode, from, to, technicianId, tenantId,
+  customerFilter: true|false, rows }`. Müşteri arama metni yazılmaz.
+- Satırlar 1000'lik partilerle akar. Akış başladıktan sonra hata olursa bağlantı kesilir, log'a `ref` yazılır; istemci
+  indirme hatası görür.
+
+Hatalar: 400 `VALIDATION`, 401, 403, 429 `RATE_LIMITED`.
 
 ## Public müşteri uçları
 Çerez ve kimlik istemez. Müşteri sayfası (`/session/<token>`) resolve'u **sunucu tarafında** (web konteyneri)
@@ -718,4 +859,7 @@ P7: `control.requested`, `control.granted` (`newValue.selfElevated: "true"|"fals
 `monitor.requested`, `monitor.granted`, `monitor.denied`, `session.caps_changed`. İzin kararları ayrıca
 `session_consents` tablosuna (`level=CONTROL`, `decision=GRANTED|DENIED|REVOKED`, `source=UI|HOTKEY|RECONNECT|SYSTEM|TECH`)
 yazılır. Klavye/fare içeriği hiçbir yere yazılmaz.
+P8: `session.updated` (`{ ticketNo, noteLength }`, not metni yok), `session.exported` (filtreler, `customerFilter`,
+`rows`; müşteri arama metni yok). `ticketNo` maskelenmez (gizli değer değil); `wsTicket` ve diğer `ticket*` anahtarları
+maskeli kalır.
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Audit ekranı P11'de gelir.
