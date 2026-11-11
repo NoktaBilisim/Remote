@@ -218,6 +218,7 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
 | 2026-11-11 | P5 | `c910495` / `c910495` | `20261111040000_p5_session_files` | `app` yetkisi `session_files`'ta doğrulandı; eski `d90dd2d` imajları + build önbelleği silindi (disk %83 → %60) |
 | 2026-11-11 | P6 | `aaaf369` / `aaaf369` | — (şema değişmedi) | Caddy forward_auth + `agent_downloads` volume; istemci 0.6.0 (`https://185.126.217.99:4450` gömülü, SHA-256 `bf55defa…`) `--dir --no-attestation` + `ALLOW_UNATTESTED=staging` ile yayınlandı (private repo → attestation yok). verify-and-publish kontrolü düzeltildi: `Host: 127.0.0.1` isteği Caddy'de boş 200 döndüğü için `--resolve` ile `PUBLIC_BASE_URL` host'u + yeniden deneme |
 | 2026-11-11 | P7 | `60a7934` / `60a7934` | `20261111050000_p7_consent_source_tech` (migrate → server sırasıyla, compose `depends_on`) | Uzaktan kontrol; istemci 0.7.0 (`https://185.126.217.99:4450` gömülü, iki derleme aynı SHA-256 `e12ba3b3…`) `--dir --no-attestation` + `ALLOW_UNATTESTED=staging` ile yayınlandı. Windows elle testi bekliyor (gereksinimler "Sonra / açık — P7'den") |
+| 2026-11-11 | P8 | `1587538` / `1587538` | `20261111060000_p8_session_history`, `20261111070000_enum_check_binary` (önce `precheck.sql` salt okunur: 14 sütun 0) | Oturum geçmişi + CSV; istemci 0.8.0 (fare imleci, TLS hata ekranı; iki derleme aynı SHA-256 `f75d41c3…`) `--dir --no-attestation` + `ALLOW_UNATTESTED=staging`. Seed: değişiklik yok |
 
   Rollback hedefi: bir önceki satırdaki `IMAGE_TAG`; şema geri alması gerekiyorsa §6.
 
