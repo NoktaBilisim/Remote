@@ -4,9 +4,18 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = 3217;
 export default defineConfig({
   testDir: "e2e",
+  // Gerçek sunucu gerektiren entegrasyon testi ayrı config ile koşar (playwright.real.config.ts)
+  testIgnore: "p4-real.spec.ts",
   fullyParallel: true,
   reporter: [["list"]],
-  use: { baseURL: `http://localhost:${PORT}`, trace: "retain-on-failure" },
+  use: {
+    baseURL: `http://localhost:${PORT}`,
+    trace: "retain-on-failure",
+    // P4: getDisplayMedia/WebRTC için sahte ekran kaynağı ve otomatik izin
+    launchOptions: {
+      args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--auto-select-desktop-capture-source=Entire screen", "--auto-accept-this-tab-capture"],
+    },
+  },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
     { name: "mobile", use: { ...devices["Pixel 7"] } },

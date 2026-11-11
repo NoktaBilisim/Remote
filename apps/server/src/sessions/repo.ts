@@ -135,3 +135,60 @@ export function findByActiveCode(db: DbOrTx, activeCode: string): Promise<Public
 export function findStatus(db: DbOrTx, id: string) {
   return db.supportSession.findUnique({ where: { id }, select: { id: true, tenantId: true, status: true, expiresAt: true } });
 }
+
+// --- P3: admit tüketimi ve ACTIVE oturum bitişi (mimari-protokol §3.2, db-notlari P3) ---
+
+/**
+ * Tüketim — tek atomik koşullu UPDATE (P3 giriş şartı 2). WHERE `expiresAt > now` ile SET `consumedAt = now`
+ * aynı değer (consumed_before_expiry_chk). count 0 → iptal/süre dolumu/başka admit kazandı.
+ */
+export async function consumeForAdmit(db: DbOrTx, id: string, now: Date, mode: "BROWSER" | "AGENT"): Promise<number> {
+  const r = await db.supportSession.updateMany({
+    where: { id, status: "PENDING", expiresAt: { gt: now }, consumedAt: null },
+    data: { status: "ACTIVE", consumedAt: now, activeCode: null, mode },
+  });
+  return r.count;
+}
+
+export async function endActive(db: DbOrTx, id: string, now: Date, endedBy: "TECH" | "CUSTOMER" | "SYSTEM", endReason: string): Promise<number> {
+  const r = await db.supportSession.updateMany({ where: { id, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now, endedBy, endReason } });
+  return r.count;
+}
+
+/** Zorla sonlandırma (A5, AC-114): tenant kapsamlı; ADMIN ⇔ terminated_by (terminated_by_chk). */
+export async function terminateActive(db: DbOrTx, tenantId: string, id: string, now: Date, actorId: string): Promise<number> {
+  const r = await db.supportSession.updateMany({
+    where: { id, tenantId, status: "ACTIVE" },
+    data: { status: "ENDED", endedAt: now, endedBy: "ADMIN", endReason: "admin", terminatedBy: actorId },
+  });
+  return r.count;
+}
+
+/** Açılışta yarım kalan ACTIVE oturumlar (oda bellekte, süreç yeniden başladı — §3.5, ADR-0005). */
+export async function endAllActive(db: DbOrTx, now: Date): Promise<number> {
+  const r = await db.supportSession.updateMany({
+    where: { status: "ACTIVE" },
+    data: { status: "ENDED", endedAt: now, endedBy: "SYSTEM", endReason: "server" },
+  });
+  return r.count;
+}
+
+const signalSelect = {
+  id: true,
+  tenantId: true,
+  technicianId: true,
+  status: true,
+  expiresAt: true,
+  technician: { select: { fullName: true } },
+} as const;
+
+export type SignalSessionRow = Prisma.SupportSessionGetPayload<{ select: typeof signalSelect }>;
+
+export function findForSignal(db: DbOrTx, id: string): Promise<SignalSessionRow | null> {
+  return db.supportSession.findUnique({ where: { id }, select: signalSelect });
+}
+
+export async function maxActiveHours(db: DbOrTx, tenantId: string): Promise<number> {
+  const s = await db.tenantSettings.findUnique({ where: { tenantId }, select: { maxActiveHours: true } });
+  return s?.maxActiveHours ?? 4;
+}

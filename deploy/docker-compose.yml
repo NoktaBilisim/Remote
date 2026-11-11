@@ -87,6 +87,15 @@ services:
       TRUSTED_PROXY_CIDR: 172.30.0.2/31
       # sessionRef HMAC anahtarı; compose'da zorunlu (boşsa her restart'ta eski bağlantılar 404 olur)
       SESSION_REF_KEY: ${SESSION_REF_KEY:?SESSION_REF_KEY gerekli (openssl rand -base64 48)}
+      # TURN (ADR-0007, mimari §8.1/§8.3.1): coturn deploy/turn'de ayrı compose; secret iki tarafta aynı.
+      TURN_URLS: ${TURN_URLS:?TURN_URLS gerekli (runbook §9)}
+      TURN_SECRET: ${TURN_SECRET:?TURN_SECRET gerekli (openssl rand -hex 32; coturn ile aynı)}
+      TURN_CRED_TTL_MIN: ${TURN_CRED_TTL_MIN:-20}  # S-P3-6: env.ts ile aynı varsayılan
+      # /metrics Bearer (Caddy dışarıya kapatır; iç scrape). Boşsa server davranışı env.ts'e göre.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # AC-125/S-P4-1: misafir "Kötüye kullanımı bildir" adresi. Tanımsız veya boş olabilir: env.ts boş dizeyi tanımsız
+      # sayar (withoutBlanks) → production'da bağlantı gizlenir. Dolu ama geçersiz adres server'ı açtırmaz (runbook §3).
+      ABUSE_EMAIL:
     networks: [edge, db]
     depends_on:
       migrate: { condition: service_completed_successfully }

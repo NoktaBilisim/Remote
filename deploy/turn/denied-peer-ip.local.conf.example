@@ -1,0 +1,9 @@
+# Ortama özgü denied-peer-ip listesi (G-05). Kopyala: cp denied-peer-ip.local.conf.example denied-peer-ip.local.conf
+# Gerçek dosya git-ignore'dur (public repoya altyapı IP'si yazılmaz). Biçim: tek IP veya `a-b` aralığı.
+# Örnek değerler belgeleme aralığındandır (RFC 5737); staging/prod değerleri runbook §9'da.
+# Sağlayıcı bloğu (publish sunucusunu da kapsar)
+denied-peer-ip=198.51.100.0-198.51.100.255
+# Hipervizör (Proxmox) yönetim IP'si
+denied-peer-ip=203.0.113.10
+# TURN'ün kendi public IP'si (relay<->relay için entrypoint allowed-peer-ip ile yeniden açar)
+denied-peer-ip=203.0.113.20

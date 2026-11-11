@@ -3,7 +3,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { Db } from "../lib/db.ts";
 import { newId } from "../lib/ids.ts";
-import { expireDue } from "../sessions/service.ts";
+import { expireDue, type RoomNotifier } from "../sessions/service.ts";
 
 const EXPIRY_INTERVAL_MS = 30_000;
 
@@ -13,14 +13,14 @@ export interface Scheduler {
   stop(): void;
 }
 
-export function startScheduler(db: Db, log: FastifyBaseLogger, intervalMs = EXPIRY_INTERVAL_MS): Scheduler {
+export function startScheduler(db: Db, log: FastifyBaseLogger, rooms?: RoomNotifier, intervalMs = EXPIRY_INTERVAL_MS): Scheduler {
   let running = false;
   const runExpiry = async (): Promise<number> => {
     if (running) return 0;
     running = true;
     try {
       const ctx = { ip: "", userAgent: "scheduler", requestId: newId() };
-      const n = await expireDue(db, ctx, new Date());
+      const n = await expireDue(db, ctx, new Date(), rooms);
       if (n > 0) log.info({ job: "session-expiry", expired: n }, "oturum süresi doldu");
       return n;
     } catch (err) {

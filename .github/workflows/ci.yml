@@ -97,13 +97,38 @@ jobs:
             -e 's/^MYSQL_APP_PASSWORD=$/MYSQL_APP_PASSWORD=x/' -e 's/^MYSQL_MIGRATOR_PASSWORD=$/MYSQL_MIGRATOR_PASSWORD=x/' \
             -e 's|^PUBLIC_BASE_URL=$|PUBLIC_BASE_URL=https://localhost:4450|' \
             -e 's|^SESSION_REF_KEY=$|SESSION_REF_KEY=ci-only-0123456789abcdef0123456789abcdef|' \
-            -e 's|^EDGE_PROXY_SECRET=$|EDGE_PROXY_SECRET=ci-only-edge-0123456789abcdef0123456789|' .env
+            -e 's|^EDGE_PROXY_SECRET=$|EDGE_PROXY_SECRET=ci-only-edge-0123456789abcdef0123456789|' \
+            -e 's|^TURN_URLS=$|TURN_URLS=stun:127.0.0.1:3478|' \
+            -e 's|^TURN_SECRET=$|TURN_SECRET=ci-only-turn-0123456789abcdef0123456789|' .env
           docker compose config --quiet
           if docker compose config --format json | jq -e '.services.server.environment.MIGRATE_DATABASE_URL'; then
             echo 'server MIGRATE_DATABASE_URL görmemeli'; exit 1
           fi
           docker run --rm -e SITE_HOST=localhost -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+  turn:
+    name: coturn (yapılandırma + HMAC + denied-peer-ip)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - name: betik sözdizimi + imaj digest sabit mi
+        working-directory: deploy/turn
+        run: |
+          bash -n entrypoint.sh test-denied.sh test-local.sh gen-cert.sh host-firewall.sh
+          TURN_EXTERNAL_IP=203.0.113.20/10.0.0.2 ./host-firewall.sh print
+          grep -Eq 'image: coturn/coturn:[0-9.]+-alpine@sha256:[0-9a-f]{64}$' docker-compose.yml
+      - name: staging compose geçerli (sahte değerler)
+        working-directory: deploy/turn
+        run: |
+          cp denied-peer-ip.local.conf.example denied-peer-ip.local.conf
+          TURN_SECRET=ci-only-turn-0123456789abcdef0123456789 TURN_REALM=ci TURN_EXTERNAL_IP=203.0.113.20/10.0.0.2 \
+            docker compose --env-file /dev/null config --quiet
+      - name: coturn başlat + test-denied.sh (bridge, geçici secret/sertifika)
+        working-directory: deploy/turn
+        run: ./test-local.sh
 
   e2e:
     name: web e2e (Playwright, mock API)

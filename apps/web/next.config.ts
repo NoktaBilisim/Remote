@@ -13,7 +13,11 @@ const config: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   async rewrites() {
-    return [{ source: "/api/:path*", destination: `${apiInternal}/api/:path*` }];
+    return [
+      { source: "/api/:path*", destination: `${apiInternal}/api/:path*` },
+      // P4: WS sinyalizasyonu (prod'da Caddy /ws/* → server; bu yalnız Caddy'siz geliştirme/e2e)
+      { source: "/ws/:path*", destination: `${apiInternal}/ws/:path*` },
+    ];
   },
 };
 

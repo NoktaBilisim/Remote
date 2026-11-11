@@ -15,12 +15,16 @@ export const ERROR_STATUS = {
   CONFLICT: 409,
   /** Teknisyenin açık (PENDING/ACTIVE) oturum üst sınırı dolu (AC-11). */
   OPEN_SESSION_LIMIT: 409,
+  /** Lobide bekleyen misafir sınırı (3) dolu (AC-112). */
+  LOBBY_FULL: 409,
   /** Oturum/link/kod süresi dolmuş (AC-5). */
   SESSION_EXPIRED: 410,
   /** Token/kod tüketilmiş — oturum ACTIVE/ENDED (AC-7). */
   SESSION_CONSUMED: 410,
   /** Oturum iptal edilmiş (AC-8). */
   SESSION_CANCELLED: 410,
+  /** joinNonce süresi dolmuş/kullanılmış (P3). */
+  NONCE_INVALID: 410,
   ACCOUNT_LOCKED: 423,
   RATE_LIMITED: 429,
   INTERNAL: 500,

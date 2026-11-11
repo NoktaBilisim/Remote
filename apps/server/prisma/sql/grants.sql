@@ -18,6 +18,17 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON auth_sessions    TO 'app'@'%';
 GRANT SELECT, INSERT, UPDATE ON support_sessions TO 'app'@'%';
 REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON support_sessions FROM 'app'@'%';
 
+-- P4 consent_texts: değişmez, sürümlü (yeni sürüm = INSERT). app SELECT/INSERT (seed v1 + P11 düzenleme).
+-- is_current geçişi için sütun düzeyi UPDATE(is_current, updated_at) P11'de (düzenleme ekranıyla) verilir;
+-- body/sha256/version hiçbir zaman güncellenemez. DELETE yok (retention: tenant silinmez, metin kalır).
+GRANT SELECT, INSERT ON consent_texts TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON consent_texts FROM 'app'@'%';
+
+-- P4 session_consents: append-only onay zaman çizelgesi (AC-29/62/111). UPDATE (anonimleştirme) ve
+-- DELETE (+30 gün hard delete) retention işiyle P13'te verilir.
+GRANT SELECT, INSERT ON session_consents TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_consents FROM 'app'@'%';
+
 -- Append-only: yalnız SELECT/INSERT. DELETE yetkisi retention/tetikleyiciyle birlikte (P11/P13)
 -- verilecek; o pakette bu dosya güncellenir. UPDATE/DELETE/DDL/TRIGGER yetkisi varsa geri alınır.
 GRANT SELECT, INSERT ON audit_logs TO 'app'@'%';

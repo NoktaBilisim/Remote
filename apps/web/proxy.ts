@@ -65,5 +65,5 @@ export function proxy(req: NextRequest) {
 
 export const config = {
   // Statik dosyalar ve /api (Caddy/rewrite → server) proxy'den geçmez
-  matcher: ["/((?!api|_next/static|_next/image|img/|favicon.ico|favicon-32x32.png|apple-touch-icon.png).*)"],
+  matcher: ["/((?!api|ws/|_next/static|_next/image|img/|favicon.ico|favicon-32x32.png|apple-touch-icon.png).*)"],
 };

@@ -1,6 +1,8 @@
 "use client";
 
-/** Segment filtre (DESIGN.md §6.1). aria-pressed düğme grubu; anında geçiş (animasyonsuz). */
+import type { ReactNode } from "react";
+
+/** Segment filtre (DESIGN.md §6.1). aria-pressed düğme grubu; anında geçiş (animasyonsuz). İsteğe bağlı `icon` (aria-hidden lucide). */
 export function Segmented<T extends string>({
   label,
   value,
@@ -9,7 +11,7 @@ export function Segmented<T extends string>({
 }: {
   label: string;
   value: T;
-  options: { value: T; label: string; count?: number }[];
+  options: { value: T; label: string; count?: number; icon?: ReactNode }[];
   onChange: (v: T) => void;
 }) {
   return (
@@ -26,6 +28,7 @@ export function Segmented<T extends string>({
               active ? "bg-primary-surface text-primary" : "text-fg-muted hover:bg-surface-muted hover:text-fg"
             }`}
           >
+            {o.icon}
             {o.label}
             {o.count !== undefined && <span className="tabular-nums">{o.count}</span>}
           </button>

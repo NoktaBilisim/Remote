@@ -1,0 +1,82 @@
+{
+  "flows": [
+    {
+      "name": "TEST-P4-2 kalan süre sayı ve azalıyor",
+      "ok": true,
+      "note": "ilk=\"4:00:00\" 3 sn sonra=\"3:59:57\""
+    },
+    {
+      "name": "ilk paylaşım: video gelir",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "TEST-P4-4 1280px 'Oturumu bitir' tek satır + başlıkla aynı satır",
+      "ok": true,
+      "note": "bitir y=155 h=44 · durum y=167 · satır≈2"
+    },
+    {
+      "name": "TEST-P4-1 F5 #1: müşteri oturum ekranına döner",
+      "ok": true,
+      "note": "yeniden bağlanılıyor görüldü=false · müşteri: Şifreli bağlantı Ekranınız henüz paylaşılmıyor Ekranımı paylaş Oturumu bitir Teknisyenin gördüğü Teknisyen kabul etti. Başlamak için \"Ekranı"
+    },
+    {
+      "name": "TEST-P4-1 F5 #1: konsol misafiri tekrar görür",
+      "ok": true,
+      "note": "AD Ayşe Demir Tarayıcı · yalnız görüntü Aktif Kalan süre 3:59:54 Doğrulama kodu 0684 Uzaktan kontrol Müşteri tarayıcı modunda: yalnız görüntüleme Oturumu bitir "
+    },
+    {
+      "name": "TEST-P4-1 F5 #1: 'Paylaş' ile paylaşım yeniden başlar (video gelir)",
+      "ok": true,
+      "note": "videoWidth=1920 (10 sn bekleme)"
+    },
+    {
+      "name": "TEST-P4-1 F5 #2: müşteri oturum ekranına döner",
+      "ok": true,
+      "note": "yeniden bağlanılıyor görüldü=false · müşteri: Şifreli bağlantı Ekranınız henüz paylaşılmıyor Ekranımı paylaş Oturumu bitir Teknisyenin gördüğü Teknisyen kabul etti. Başlamak için \"Ekranı"
+    },
+    {
+      "name": "TEST-P4-1 F5 #2: konsol misafiri tekrar görür",
+      "ok": true,
+      "note": "AD Ayşe Demir Tarayıcı · yalnız görüntü Aktif Kalan süre 3:59:51 Doğrulama kodu 0684 Uzaktan kontrol Müşteri tarayıcı modunda: yalnız görüntüleme Oturumu bitir "
+    },
+    {
+      "name": "TEST-P4-1 F5 #2: 'Paylaş' ile paylaşım yeniden başlar (video gelir)",
+      "ok": true,
+      "note": "videoWidth=1920 (10 sn bekleme)"
+    },
+    {
+      "name": "TEST-P4-5 bitiş ekranında paylaşım alt bilgisi yok",
+      "ok": true,
+      "note": "Şifreli bağlantı Oturum sona erdi Ekran paylaşımı kapandı; teknisyen artık ekranınızı göremez. Bu sekmeyi kapatabilirsiniz."
+    },
+    {
+      "name": "bitiş sonrası F5 → 'kullanıldı'",
+      "ok": true,
+      "note": "Şifreli bağlantı Bu bağlantı zaten kullanıldı Destek bağlantıları yalnızca bir kez kullanılabilir. Teknisyeninizden yeni bir bağlantı isteyin."
+    },
+    {
+      "name": "TEST-P4-5 ret ekranında paylaşım alt bilgisi yok",
+      "ok": true,
+      "note": "Şifreli bağlantı Teknisyen bağlantıyı reddetti Teknisyeninizle telefonda görüşüyorsanız kodu doğru okuduğunuzdan emin olun ve onu arayın. Kimseyle görüşmüyorsan"
+    }
+  ],
+  "console": [
+    {
+      "tag": "guest",
+      "type": "error",
+      "text": "Permissions policy violation: camera is not allowed in this document."
+    },
+    {
+      "tag": "guest",
+      "type": "error",
+      "text": "Permissions policy violation: camera is not allowed in this document."
+    },
+    {
+      "tag": "guest",
+      "type": "error",
+      "text": "Permissions policy violation: camera is not allowed in this document."
+    }
+  ],
+  "net": []
+}

@@ -1,0 +1,18 @@
+# YALNIZ yerel/CI testi (test-local.sh): host network yerine sabit adresli bridge ağ. Docker Desktop
+# (macOS) host network'ü VM içinde açtığından host'tan erişilemez; testler aynı ağdaki istemci
+# konteynerinden yapılır. Prod/staging'de KULLANILMAZ.
+services:
+  coturn:
+    network_mode: !reset null
+    environment:
+      TURN_TEST_MAX_PORT: "49999"
+    networks:
+      turntest: { ipv4_address: 172.31.250.2 }
+    volumes:
+      # Test: gerçek local dosya yerine örnek liste (belgeleme IP'leri) ve geçici sertifika dizini.
+      - ./denied-peer-ip.local.conf.example:/etc/coturn/denied-peer-ip.local.conf:ro
+      - ${TURN_TEST_CERT_DIR:?TURN_TEST_CERT_DIR}:/etc/coturn/certs:ro
+networks:
+  turntest:
+    ipam:
+      config: [{ subnet: 172.31.250.0/24 }]

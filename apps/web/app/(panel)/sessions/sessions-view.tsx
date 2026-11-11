@@ -12,6 +12,7 @@ import { api, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
 import { formatTimeSeconds } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { CancelDialog } from "./cancel-dialog";
+import { TerminateDialog } from "./terminate-dialog";
 import { NewSessionDialog } from "./new-session-dialog";
 import { SessionList } from "./session-list";
 
@@ -25,6 +26,8 @@ export function SessionsView(props: {
   canCreate: boolean;
   canCancel: boolean;
   showTechnician: boolean;
+  meId: string;
+  canTerminate: boolean;
 }) {
   const router = useRouter();
   const [items, setItems] = useState(props.initial);
@@ -33,6 +36,7 @@ export function SessionsView(props: {
   const [filter, setFilter] = useState<Filter>("all");
   const [creating, setCreating] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<SessionView | null>(null);
+  const [terminateTarget, setTerminateTarget] = useState<SessionView | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -121,6 +125,9 @@ export function SessionsView(props: {
             showTechnician={props.showTechnician}
             canCancel={props.canCancel}
             onCancel={setCancelTarget}
+            meId={props.meId}
+            canTerminate={props.canTerminate}
+            onTerminate={setTerminateTarget}
           />
         )}
       </div>
@@ -135,6 +142,14 @@ export function SessionsView(props: {
           }}
         />
       )}
+      <TerminateDialog
+        session={terminateTarget}
+        onClose={() => setTerminateTarget(null)}
+        onDone={() => {
+          setTerminateTarget(null);
+          void refresh();
+        }}
+      />
       <CancelDialog
         session={cancelTarget}
         onClose={() => setCancelTarget(null)}

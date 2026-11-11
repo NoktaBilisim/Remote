@@ -1,4 +1,4 @@
-# Runbook — Remote Support (P1–P2)
+# Runbook — Remote Support (P1–P3)
 Sahibi: devops. Kapsam P1: kurulum, başlatma/durdurma, env, log, migrate/seed. Yedek, alarm, rollback
 provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md` §8.
 
@@ -56,6 +56,7 @@ Tarayıcı: `https://<SITE_HOST>:4450`. `tls internal` kök sertifikası test ma
 | `SITE_HOST` | staging `185.126.217.99`, yerel `localhost` |
 | `SEED_SUPERADMIN_EMAIL/PASSWORD/NAME` | boşluk içeren değer tırnakla yazılır (`SEED_SUPERADMIN_NAME="Super Admin"`), yoksa §6'daki `. ./.env` kabukta hata verir. |
 | ↳ | yalnız seed için; parola ≥ 12, ilk girişte değiştirilir; seed sonrası `.env`'den silinebilir |
+| `ABUSE_EMAIL` | Misafir karşılama ekranındaki "Kötüye kullanımı bildir" `mailto:` adresi (AC-125, V13, S-P4-1), ör. `abuse@<alan-adı>`. **production'da boşsa bağlantı gizlenir** (Super Admin e-postasına düşülmez). Staging/prod'da doldurulması önerilir. Değişiklik: `.env` → `docker compose up -d server`. Kullanmayacaksanız boş bırakmak (`ABUSE_EMAIL=`) veya satırı silmek güvenlidir: env.ts boş/yalnız boşluk değerleri tanımsız sayar (`withoutBlanks`), server açılır ve production'da bağlantı gizlenir. Dolu ama geçersiz bir adres (ör. `abuse@`) ise env.ts doğrulamasında server'ı açtırmaz |
 | `NODE_ENV`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `CADDY_BIND`, `IMAGE_TAG` | opsiyonel (varsayılan: production, info, PUBLIC_BASE_URL, 0.0.0.0, local) |
 `DATABASE_URL` / `MIGRATE_DATABASE_URL` compose'da parolalardan **üretilir**; `.env`'deki değerleri yalnız
 compose dışı (yerel `pnpm`) çalıştırmada kullanılır. Server konteynerine yalnız ihtiyaç duyduğu
@@ -144,13 +145,236 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
 # Windows: certutil -addstore -f Root remote-staging-ca.crt   (yönetici)
 ```
   CA `caddy_data` volume'unda kalır; volume silinirse yeni CA üretilir ve test makinelerine yeniden kurulur.
-- **Dış erişim (açık iş):** VM'in adresi 192.168.25.10 (özel); 185.126.217.99 üst NAT'tan (ağ geçidi 192.168.25.1)
-  yönlendiriliyor ve 2026-11-11 itibarıyla 4450/tcp yönlendirilmiyor (dışarıdan zaman aşımı, `tcpdump` boş).
-  Ağ yöneticisi NAT'ta `185.126.217.99:4450/tcp -> 192.168.25.10:4450` kuralını **kaynak adresi korunarak (SNAT/masquerade
-  yok)** eklemeli; yoksa audit'te tüm istemciler ağ geçidi adresinden görünür. Host UFW'si Docker yayınını engellemez.
+- **Dış erişim:** VM'in adresi 192.168.25.10 (özel); 185.126.217.99 üst NAT'tan (ağ geçidi 192.168.25.1) yönlendirilir.
+  NAT kuralı `185.126.217.99:4450/tcp -> 192.168.25.10:4450` **kaynak adresi korunarak (SNAT/masquerade yok)** açıktır
+  (2026-11-11). Kural değişir de SNAT eklenirse audit'te tüm istemciler ağ geçidi adresinden görünür. Host UFW'si Docker
+  yayınını engellemez. **S-P2-5 IPv4 sonucu (2026-11-11): GEÇTİ** — dış makineden başarısız giriş denemesinde audit
+  `ip_address` ve Caddy `remote_ip` istemcinin genel IPv4'üyle eşleşti (özel ağ adresi değil).
 - S-P2-5 kontrolü (yönlendirme açılınca, dış makineden): bir giriş yapın, sonra
   `docker compose logs caddy --since 5m | grep -o '"remote_ip":"[^"]*"' | sort | uniq -c` ve §1'deki audit sorgusu →
   istemcinin genel IPv4'ü görünmeli; `172.30.0.x` veya `192.168.25.1` görünürse NAT SNAT yapıyordur.
   `ssh -L` tüneli / sunucu içinden (127.0.0.1) yapılan istekler userland-proxy üzerinden gelir ve `172.30.0.128` görünür (beklenen).
   IPv6: VM'de global IPv6 yok, `/etc/docker/daemon.json` yok (varsayılan: ipv6 kapalı, userland-proxy açık),
   yayın yalnız `0.0.0.0:4450` → IPv6 istemci staging'e ulaşamaz; IPv6 doğrulaması prod ağında yapılır.
+
+### 8.1 Staging TURN durumu (2026-11-11)
+- **Kurulu ve sunucu içinde doğrulandı** (§9.1 adımları): `remote-turn` compose projesi `healthy`, host OUTPUT kuralı +
+  `remote-turn-fw.timer` aktif, UFW'ye 3478/udp, 3478/tcp, 5349/tcp, 49160:49199/udp eklendi (yorum `remote-turn*`; mevcut
+  22/80/443 kurallarına dokunulmadı). Kanıtlar: `docs/test-raporu.md` "P3 staging altyapı kanıtı".
+- Sırlar sunucuda: `deploy/turn/.env` (600, root; `TURN_SECRET` `deploy/.env` ile aynı), `deploy/.env`'e `TURN_URLS`,
+  `TURN_SECRET`, `TURN_CRED_TTL_MIN` (boş = 20), `METRICS_TOKEN` eklendi (önceki `.env` yedeği `/root/remote-deploy-env.bak.*`,
+  600). **Çalışan server bu değişkenleri henüz okumuyor** — P4 yayınında `docker compose up -d server` ile devreye girer.
+- Staging CA: `deploy/turn/certs/ca.crt` (test makinelerine kurulur, §9.4); `ca.key` sunucuda (600, root).
+  `denied-peer-ip.local.conf`: sağlayıcı /24 + Proxmox yönetim IP'si + TURN'ün kendi IP'si (§9.5).
+- `sudo -E ./test-denied.sh` (2026-11-11): 60 PASS / 3 FAIL — 2'si kota/kapasite (486, "Cannot complete Allocation";
+  elle yeniden denemede 403 PASS), 1'i aralık içi relay↔relay echo (genel IP VM'de yerel değil → hairpin gerekir; NAT +
+  reflection açılınca yeniden koşulur). Aralık dışı 3480/3478/53 DROP PASS. Ayrıntı test-raporu.
+- **Dış erişim: KAPALI** — üst NAT'ta TURN portları henüz yönlendirilmedi (2026-11-11 dış testte 3478/tcp, 5349/tcp zaman
+  aşımı, 3478/udp STUN yanıtı yok; 4450 açık). NAT kuralları açılana kadar istemciler yalnız host/srflx adaylarıyla bağlanır.
+- `deploy/turn/` henüz repoda değilken rsync ile kopyalandı (sunucuda `?? deploy/turn/`; sırlar `.git/info/exclude`'da).
+  **İlk `git pull`'da** "untracked working tree files would be overwritten" çıkarsa sırlar korunarak:
+  ```bash
+  cd /opt/remote/deploy/turn && mkdir -p /root/turn-keep && cp -a .env denied-peer-ip.local.conf certs /root/turn-keep/
+  cd /opt/remote && rm -rf deploy/turn && git pull /root/remote.bundle main
+  cp -a /root/turn-keep/. deploy/turn/ && rm -rf /root/turn-keep
+  cd deploy/turn && sudo ./host-firewall.sh install && docker compose up -d   # betik değiştiyse kurulu kopya güncellenir
+  ```
+  (coturn konteyneri çalışmaya devam eder; `rm -rf` yalnız bind-mount kaynaklarını kaldırır, `cp -a` ile hemen geri gelir.)
+
+### 8.2 pfSense'te açılacak TURN kuralları (ağ yöneticisi için)
+Firewall > NAT > Port Forward, her satır için "Filter rule association: Add associated filter rule".
+
+| # | Arayüz | Protokol | Kaynak | Dış hedef (WAN adresi) | Dış port | Yönlendirilen iç IP | İç port |
+|---|---|---|---|---|---|---|---|
+| 1 | WAN | UDP | any | 185.126.217.99 | 3478 | 192.168.25.10 | 3478 |
+| 2 | WAN | TCP | any | 185.126.217.99 | 3478 | 192.168.25.10 | 3478 |
+| 3 | WAN | TCP | any | 185.126.217.99 | 5349 | 192.168.25.10 | 5349 |
+| 4 | WAN | UDP | any | 185.126.217.99 | 49160–49199 (aralık) | 192.168.25.10 | 49160 (aralık 1:1, port değişmez) |
+
+- **Kaynak adres korunur:** bu kurallar için Outbound NAT / SNAT / masquerade **olmamalı** (4450 kuralı gibi). SNAT olursa
+  coturn tüm istemcileri ağ geçidi adresinden görür; denied-peer-ip ve XOR-MAPPED-ADDRESS bozulur.
+- **Port değişmez:** 4. kural aralığı 1:1 eşlemeli (pfSense'te iç port alanına yalnız başlangıç 49160 yazılır). Outbound
+  NAT'ta 192.168.25.10 kaynaklı UDP için "Static Port" işaretli olmalı (relay'in dışarı giden paketleri port değiştirmeden çıkar).
+- **NAT reflection:** 1 ve 4 numaralı kurallarda "NAT reflection: Enable (Pure NAT)" önerilir (relay↔relay, aynı
+  TURN'e bağlı iki uç). Açılamazsa staging'de relay↔relay test edilmez (P13'te prod ağında).
+- **UDP durum zaman aşımı ≥ 60 sn:** System > Advanced > Firewall & NAT > "Firewall Optimization Options" = Normal veya
+  Conservative (varsayılan Normal'de UDP multiple = 60 sn; "Aggressive" SEÇİLMEZ).
+- Doğrulama (dış makineden): `turnutils_stunclient 185.126.217.99` → XOR-MAPPED-ADDRESS = o makinenin genel IP'si;
+  `nc -vz 185.126.217.99 3478` ve `5349` bağlanır; sonra sunucuda `docker compose -f deploy/turn/docker-compose.yml logs --since 5m coturn`
+  istemcinin genel IP'sini göstermeli (192.168.25.1 görünürse SNAT var).
+
+## 9. TURN / coturn (P3; mimari §8.3.1, ADR-0007 r3/r5)
+Dosyalar `deploy/turn/`: `docker-compose.yml` (ayrı compose projesi `remote-turn`, `network_mode: host`),
+`turnserver.base.conf` (repo; sabit ayarlar + sabit denied-peer-ip listesi), `entrypoint.sh` (base + env + local
+listeyi `/tmp/turnserver.conf`'a birleştirir; eksik/hatalı girdide başlamaz), `denied-peer-ip.local.conf`
+(git-ignore; altyapı IP'leri), `gen-cert.sh` (staging CA + IP SAN'lı sertifika), `host-firewall.sh` (host OUTPUT kuralı,
+§9.2.1), `test-denied.sh`, `test-local.sh`. Entrypoint `relay-ip=<özel IPv4>` (IPv6 relay kapalı, §9.2.2) ve `TURN_LISTEN_IPS=auto` ise `listening-ip` satırlarını (özel IPv4 + 127.0.0.1) üretir.
+İmaj `coturn/coturn:4.18.0-alpine@sha256:…` (nobody, salt okunur, yalnız `NET_BIND_SERVICE`).
+
+### 9.1 Kurulum (staging, sunucuda; uygulama yığınından bağımsız)
+```bash
+cd /opt/remote/deploy/turn
+cp ../../.env.example .env && chmod 600 .env        # yalnız TURN_* doldurulur (aşağıdaki tablo)
+cp denied-peer-ip.local.conf.example denied-peer-ip.local.conf   # gerçek IP'lerle düzenle (9.5)
+./gen-cert.sh 185.126.217.99                         # root ile; certs/ca.crt test makinelerine kurulur (9.4)
+sudo ./host-firewall.sh install                      # S-P3-2 OUTPUT kuralı + systemd timer (§9.2.1) — coturn'den ÖNCE
+docker compose up -d && docker compose ps            # "healthy"
+set -a && . ./.env && set +a && ./test-denied.sh     # 0 FAIL olmalı (9.7)
+```
+Uygulama tarafı (`deploy/.env`): `TURN_URLS`, `TURN_SECRET` (coturn'dekiyle **aynı**), `TURN_CRED_TTL_MIN` → `docker compose up -d server`.
+
+| Değişken | Nerede | Değer |
+|---|---|---|
+| `TURN_SECRET` | `deploy/.env` + `deploy/turn/.env` | `openssl rand -hex 32` (≥ 32; boşluk/`#` yok). İki dosyada aynı |
+| `TURN_URLS` | `deploy/.env` | staging `stun:185.126.217.99:3478,turn:185.126.217.99:3478?transport=udp,turn:185.126.217.99:3478?transport=tcp,turns:185.126.217.99:5349?transport=tcp` |
+| `TURN_CRED_TTL_MIN` | `deploy/.env` | boş = **20** (5..60; env.ts + compose varsayılanı, S-P3-6: credential oturum bitince iptal edilemez) |
+| `METRICS_TOKEN` | `deploy/.env` | `openssl rand -hex 24`; `/metrics` Bearer (Caddy dışarıya 404) |
+| `TURN_REALM` | `deploy/turn/.env` | staging `185.126.217.99`, prod `turn.<alan-adı>` |
+| `TURN_EXTERNAL_IP` | `deploy/turn/.env` | staging `185.126.217.99/192.168.25.10` (public/özel) |
+| `TURN_SECRET_PREVIOUS` | `deploy/turn/.env` | yalnız rotasyon sırasında (9.6) |
+| `TURN_MAX_BPS` / `TURN_BPS_CAPACITY` | `deploy/turn/.env` | 8000000 / 0 (sınırsız; K3 ölçümüyle) |
+| `TURN_PROMETHEUS_ADDRESS` | `deploy/turn/.env` | 127.0.0.1 (9641 dışa açılmaz) |
+| `TURN_LISTEN_IPS` | `deploy/turn/.env` | staging/prod **`auto`** → `listening-ip=<özel relay IPv4>` + `listening-ip=127.0.0.1` (3478/5349 diğer Docker köprü ağ geçitlerinde ve IPv6'da dinlenmez). Virgüllü IPv4 listesi de verilebilir; 127.0.0.1 healthcheck (`turnutils_stunclient 127.0.0.1`) ve `test-denied.sh` (`TURN_HOST=127.0.0.1`) için her zaman eklenir. Boşsa coturn tüm arayüzlerde dinler, entrypoint UYARI yazar. Kontrol: `ss -tulnp \| grep -E ':(3478\|5349) '` |
+
+### 9.2 Sunucu güvenlik duvarı (UFW, 185.126.217.99 / VM 192.168.25.10)
+Staging'de TURN = uygulama IP'si; relay kendi IP'sine (`allowed-peer-ip`, relay↔relay) açık olduğundan bu IP'de
+dinleyen **her** port relay ile erişilebilir → yalnız aşağıdakiler açık; hiçbir servis "kaynak = 185.126.217.99" diye güvenmez.
+```bash
+ufw default deny incoming && ufw default allow outgoing
+ufw allow 22/tcp && ufw allow 4450/tcp
+ufw allow 3478/udp && ufw allow 3478/tcp && ufw allow 5349/tcp && ufw allow 49160:49199/udp
+ufw enable && ufw status numbered          # 9641, 5766 (CLI) listede OLMAMALI
+```
+Not: Docker'ın yayımladığı portlar (4450) UFW'yi DOCKER zinciriyle atlar; coturn host network'te olduğundan UFW'ye tabidir.
+Paylaşımlı sunucudaki başka projelerin portları için UFW değişikliği öncesi `ss -lntup` ile envanter alın.
+
+#### 9.2.1 Host OUTPUT kuralı — relay↔relay sızıntısı (S-P3-2, ADR-0007 r5 m.4; **P3 kapanış şartı**)
+Sorun: `allowed-peer-ip=<public IP>` (relay↔relay) coturn'de port ayırmaz → relay, host'un kendi adresindeki **her** UDP
+portuna (53 DNS, 3478 = TURN-in-TURN, SNMP, syslog…) paket gönderebilir; loopback/hairpin UFW INPUT'u atlar.
+Çözüm `deploy/turn/host-firewall.sh` (root, idempotent): filter/OUTPUT başına tek atlama → `REMOTE-TURN-OUT` zinciri:
+`-p udp --sport 49160:49199 -d <public|özel|LOCAL> ! --dport 49160:49199 -j DROP` (IPv4; `ip6tables` varsa IPv6 `LOCAL`
+kuralı). Ek: relay aralığı `net.ipv4.ip_local_reserved_ports`'a eklenir (mevcut değerle birleştirilir) → aralıktan kaynak
+port yalnız açıkça bind eden coturn'de olur; başka süreçlerin geçici portları (ör. 127.0.0.53:53 DNS sorgusu) etkilenmez.
+Docker (DOCKER-*/nat) ve UFW (ufw-*) zincirlerine dokunmaz; diğer projelere etkisi yalnız "aralıktan çıkan UDP → kendi
+adresine aralık dışı port" paketidir.
+```bash
+cd /opt/remote/deploy/turn
+./host-firewall.sh print                       # uygulanacak kurallar (TURN_EXTERNAL_IP .env'den; secret okunmaz)
+sudo ./host-firewall.sh install                # apply + systemd remote-turn-fw.service/.timer (açılış + 5 dk'da bir ensure)
+sudo ./host-firewall.sh check                  # "host-firewall: OK"
+sudo iptables -L REMOTE-TURN-OUT -vn           # DROP sayaçları (test-denied bölüm 4 bunları okur)
+ls -l /usr/local/sbin/remote-turn-fw /etc/default/remote-turn-fw   # root root 0755 / root root 0644
+journalctl -u remote-turn-fw -p err --since -1h   # boş olmalı (sapma/onarım hatası err önceliğiyle yazılır)
+```
+**Kurulu kopya (S-P3-T2-2):** `install` betiği `/usr/local/sbin/remote-turn-fw` (root:root 0755) olarak kopyalar,
+girdileri `/etc/default/remote-turn-fw`'ye (root:root 0644; yalnız `TURN_EXTERNAL_IP`, `TURN_FW_SELF_IPS`, port aralığı,
+`TURN_FW_RESERVE_PORTS` — secret yok) yazar; systemd birimi **yalnız bu kopyayı** çalıştırır, repo klonunu ve `.env`'i
+okumaz. Kurulu kopya `/etc/default` dosyası root sahibi değilse ya da group/other yazabiliyorsa çalışmaz.
+**`git pull` ile `host-firewall.sh`/`turnserver.base.conf` değiştiğinde veya `.env`'de `TURN_EXTERNAL_IP`/`TURN_FW_SELF_IPS`
+değiştiğinde `sudo ./host-firewall.sh install` YENİDEN çalıştırılır** (değişiklik incelendikten sonra); aksi halde timer
+eski kopyayı/değerleri uygulamaya devam eder. `/etc/default/remote-turn-fw` elle düzenlenmez.
+**Fail-closed uygulama (S-P3-T2-1):** kurallar önce `REMOTE-TURN-OUT-NEW`'de kurulur; tek kural bile eklenemezse geçici
+zincir silinir, mevcut `REMOTE-TURN-OUT` ve atlaması değişmeden kalır (exit 1). Başarıda yeni zincire atlama OUTPUT
+başına eklenir, eskisi silinir, yeni zincir yeniden adlandırılır (koruma kesintisiz). IP girdisi tam dize olarak
+doğrulanır (IPv4 oktet 0..255, baştaki sıfır yok; IPv6 grup/`::` kuralı); çok satırlı değer reddedilir.
+Reserved ports kontrolü "aralık bir girdi tarafından kapsanıyor mu"dur (çekirdek komşu aralıkla birleştirse de geçer);
+`remove` eklemeden önceki listeyi (`/var/lib/remote-turn-fw/reserved.before`) kullanarak yalnız bizim eklediğimiz
+portları geri alır. `ensure` sapma bulursa/onaramazsa journald'a `err` yazar; onaramazsa birim `failed` olur
+(`systemctl --failed` alarmı).
+Kalıcılık: `ufw reload|disable|enable` veya `iptables -F OUTPUT` atlamayı silerse timer en geç 5 dk'da `ensure` ile geri
+kurar (UFW değişikliğinden sonra hemen: `sudo systemctl start remote-turn-fw.service`). Prod'da ek IPv6/IP:
+`TURN_FW_SELF_IPS=<v6>,<v4>` (`deploy/turn/.env`, ardından `install`). Geri alma: `sudo ./host-firewall.sh uninstall`
+(birim + kural + reserved port + `/usr/local/sbin/remote-turn-fw` + `/etc/default/remote-turn-fw` + `/var/lib/remote-turn-fw`). Doğrulama: `sudo -E ./test-denied.sh` bölüm 4 — aralık içi port echo döner; aralık dışı 3480, `:3478`, `:53` DROP.
+
+#### 9.2.2 IPv6 relay kapalı (S-P3-3, ADR-0007 r5 m.5)
+Entrypoint `relay-ip=<TURN_EXTERNAL_IP iç kısmı>` (public-only kurulumda public IPv4) üretir → IPv6 relay allocation 440 ile
+reddedilir (`test-denied.sh` "IPv6 relay allocation reddedildi"). Staging'de host'ta global IPv6 yok (S-P2-5): test
+"IPv6 SKIP/ayırt edilemez" gerekçesiyle INFO basar, IPv6 denied satırları 403/440 ile erişilemez sayılır. Prod: host'ta
+global IPv6 varsa relay yine IPv4'tür; IPv6 relay ileride açılırsa önce host /64'ü ve sağlayıcı IPv6 bloğu local listeye
+`a-b` biçiminde eklenir + `TURN_FW_SELF_IPS` (P13/prod açılış şartı).
+
+#### 9.2.3 Yayın sonrası çalışma zamanı kontrol listesi (staging/prod, her coturn yayınında)
+```bash
+ss -tlnp | grep -E ':5766|:9641'      # 5766 (CLI) HİÇ görünmemeli; 9641 yalnız 127.0.0.1:9641
+ss -ulnp | grep -E ':3478|:49(1[6-9][0-9])'   # 3478 + relay; çıktı test-raporu'na eklenir (S-P3-2)
+sudo ./host-firewall.sh check          # OK
+docker compose run --rm -e TURN_CONFIG_CHECK=1 coturn | grep -E 'relay-ip|allowed-peer-ip|external-ip'
+systemctl is-active remote-turn-fw.timer   # active
+systemctl cat remote-turn-fw.service | grep ExecStart   # /usr/local/sbin/remote-turn-fw ensure (repo yolu DEĞİL)
+cmp /usr/local/sbin/remote-turn-fw ./host-firewall.sh && echo "kurulu kopya güncel"   # farklıysa install yeniden
+```
+CLI 4.18'de `--cli` verilmedikçe kapalıdır; `no-cli` **yazılmaz** (4.18'de "deprecated" ERROR basar, ADR-0007 r5 m.3).
+Entrypoint base.conf'ta `cli*`, `verbose`, `log-binding` satırı görürse başlamaz.
+
+### 9.3 Üst NAT (pfSense) kuralları — ağ yöneticisine talep
+| Arayüz | Proto | Dış hedef | Dış port | İç hedef | İç port | Not |
+|---|---|---|---|---|---|---|
+| WAN | UDP | 185.126.217.99 | 3478 | 192.168.25.10 | 3478 | STUN + TURN/UDP |
+| WAN | TCP | 185.126.217.99 | 3478 | 192.168.25.10 | 3478 | TURN/TCP |
+| WAN | TCP | 185.126.217.99 | 5349 | 192.168.25.10 | 5349 | TURN-TLS |
+| WAN | UDP | 185.126.217.99 | 49160–49199 | 192.168.25.10 | 49160–49199 | relay, **1:1 (port değişmez)** |
+Kurallar: kaynak adres korunur (outbound/SNAT yok — "NAT reflection" yalnız hairpin için), UDP durum zaman aşımı ≥ 60 sn,
+hairpin (NAT reflection) 3478/udp + 49160–49199/udp için tercihen açık (açılamazsa relay↔relay staging'de test edilmez, P13).
+Doğrulama (dışarıdaki bir makineden): `turnutils_stunclient 185.126.217.99` → XOR-MAPPED-ADDRESS = o makinenin public IP'si.
+
+### 9.4 TURN-TLS sertifikası
+Staging: `./gen-cert.sh 185.126.217.99` → `certs/ca.crt` (5 yıl, yeniden kullanılır), `certs/turn.crt|key` (365 gün, IP SAN).
+`ca.crt` test makinelerine güvenilen kök olarak kurulur (§8 Caddy kökü gibi; macOS `security add-trusted-cert`, Windows
+`certutil -addstore -f Root`). `ca.key` sunucuda kalır (600, root), yedeği parola kasasında; repoya girmez (`.gitignore`).
+**Yenileme** (alarm: sertifika < 14 gün; kontrol `openssl x509 -in certs/turn.crt -noout -enddate`):
+`./gen-cert.sh 185.126.217.99 && docker compose restart coturn` (açık TURN oturumları ICE restart ile yeniden bağlanır;
+test oturumu yokken yapın). Sertifika yoksa coturn TLS'siz (`no-tls`) başlar ve logda UYARI yazar.
+Prod: Let's Encrypt `turn.<alan-adı>` (ADR-0007), aynı `certs/turn.crt|key` yoluna kopyalanır + restart (P13).
+
+### 9.5 denied-peer-ip yerel listesi (G-05)
+`denied-peer-ip.local.conf` yalnız `denied-peer-ip=<ip>` veya `denied-peer-ip=<ip>-<ip>` satırları (CIDR değil). Staging içeriği:
+sağlayıcı bloğu `185.126.217.0-185.126.217.255` (publish sunucusu dahil), Proxmox yönetim IP'si, TURN'ün kendi IP'si
+`185.126.217.99` (entrypoint bunu `allowed-peer-ip` ile relay↔relay için yeniden açar). IP değişiminde yalnız bu dosya
+güncellenir → `docker compose up -d --force-recreate coturn` → `test-denied.sh`. **Tek başına `::` yazmayın**: coturn 4.18
+bunu "her adres" sayar ve tüm relay'i kapatır (test-denied kontrol peer'ı FAIL verir).
+
+### 9.6 Secret rotasyonu (kesintisiz)
+1. `deploy/turn/.env`: `TURN_SECRET_PREVIOUS=<eski>`, `TURN_SECRET=<yeni>` → `docker compose up -d coturn` (iki secret kabul).
+2. `deploy/.env`: `TURN_SECRET=<yeni>` → `cd .. && docker compose up -d server`.
+3. `TURN_CRED_TTL_MIN` dk (varsayılan 20; en çok 60 — en uzun credential ömrü) sonra `TURN_SECRET_PREVIOUS=` boşalt → `docker compose up -d coturn`.
+
+### 9.7 Doğrulama testleri
+- `./test-local.sh` (yerel/CI; Docker Desktop dahil): geçici secret/CA ile coturn'ü bridge ağda (`docker-compose.test.yml`,
+  macOS'ta host network host'tan erişilemediği için) başlatır, `test-denied.sh` çalıştırır, yığını kaldırır (~2 dk).
+- `test-local.sh` ayrıca: 5766 dinlenmiyor, `host-firewall.sh` iki kez apply → 2 kural/1 atlama (idempotent), yardımcı
+  konteynerle (NET_ADMIN, coturn ağ ad alanı) bölüm 4'ü çalıştırır. Son koşu 2026-11-11 (P4 düzeltme 1, `TURN_LISTEN_IPS=auto` + 3478 dinleme adresi kontrolü): **62 PASS, 0 FAIL**.
+- `test-denied.sh` (staging, **root**: `sudo -E`): HMAC credential (UDP/TCP/TLS) pozitif + yanlış secret/süresi geçmiş negatif + base ve local
+  listedeki **her satırın ilk ve son adresine** 403 beklentisi (IPv6 satırları 403/440) + kontrol peer'ı 1.1.1.1 izinli +
+  IPv6 relay allocation reddi (§9.2.2) + bölüm 4 host OUTPUT kuralı (§9.2.1; echo peer 3480 ve aralığın son portu
+  49199'da `turnutils_peer` geçici konteynerle açılır). Staging'de ~60 allocation açar; 40 portluk aralık dolunca (508), user-quota aşılınca (486) veya yalnız "Cannot complete Allocation" görülünce (negatif kimlik/IPv6 relay testleri hariç) 30 sn arayla en çok `TURN_TEST_WAIT_MAX` (700) sn bekleyip aynı denemeyi tekrarlar: **test oturumu yokken**
+  çalıştırın (~20–25 dk). Çıktı `docs/test-raporu.md`'ye eklenir.
+
+### 9.8 İzleme ve sorun giderme
+- Metrik: `curl -s http://127.0.0.1:9641/metrics | grep ^turn_` (sunucuda). Alarm (mimari §8.2): TURN down (healthcheck),
+  `turn_allocations > 2×rs_active_sessions + 10`, sertifika < 14 gün, `remote-turn-fw.timer` aktif değil.
+  Uygulama metrikleri (`/metrics`, Bearer `METRICS_TOKEN`): `rs_resolve_failed` (gauge; eski adı `rs_resolve_failed_total`
+  kullanılmaz), `rs_ws_connections`, `rs_active_sessions` (gauge).
+
+#### 9.8.1 coturn log saklama (S-P3-9, KVKK)
+coturn logu müşteri/teknisyen IP'si, peer IP'si ve username'i (`<expiry>:<sessionId>`) içerir (secret yok). Seviye normal
+(`verbose`/`log-binding` yok; entrypoint engeller). Saklama: **en çok 7 gün** — boyut tavanı compose'da json-file
+3×5 MB; süre tavanı host cron'u (root, `/etc/cron.d/remote-turn-log`):
+```
+15 3 * * 0 root f=$(docker inspect -f '{{.LogPath}}' remote-turn-coturn-1 2>/dev/null) && [ -n "$f" ] && rm -f "$f".[0-9]* && truncate -s 0 "$f"
+```
+(Haftalık: rotasyonla oluşan `.1/.2` silinir, aktif dosya boşaltılır → hiçbir satır 7 günden eski kalmaz; Docker json-file
+boşaltılan dosyaya yazmaya devam eder. Kontrol: `docker compose logs coturn | head -1` tarihi ≤ 7 gün.) Olay
+incelemesi için gerekli kayıt bu süre içinde dışa alınır (`docker compose logs --since 24h coturn > ...`, şifreli saklanır).
+Aydınlatma metni/VERBİS kaydında "TURN bağlantı logu, 7 gün" olarak geçer (proje-yoneticisine not).
+
+| Belirti | Kontrol / çözüm |
+|---|---|
+| coturn sürekli yeniden başlıyor | `docker compose logs coturn` → `turn-entrypoint:` satırı eksik env/local dosyayı söyler |
+| `exec: turnserver: Operation not permitted` | `cap_add: [NET_BIND_SERVICE]` silinmiş (ikili dosya yeteneği taşır) |
+| İstemciler relay adayı almıyor | `TURN_SECRET` iki .env'de farklı (log: `message integrity does not match`); `TURN_URLS`; UFW/NAT 3478 |
+| Relay adayı var, medya yok | NAT relay aralığı 1:1 değil veya eksik; `TURN_EXTERNAL_IP` yanlış; `tcpdump -ni ens18 udp portrange 49160-49199` |
+| `error 508` (kapasite) | 40 port dolu: `turn_allocations` metriği; test-denied çalışıyorsa bitmesini bekleyin |
+| Relay↔relay (aynı TURN) medya yok | `host-firewall.sh print`: aralık `min-port/max-port` ile aynı mı; DROP sayacı artıyorsa hedef port aralık dışı (beklenen) |
+| coturn logunda `ERROR no-cli option is deprecated` | base.conf'a `no-cli` eklenmiş — kaldırın (r5 m.3) |
+| Her peer 403 | local dosyada çok geniş satır (ör. `::`); `docker compose run --rm -e TURN_CONFIG_CHECK=1 coturn` ile birleşik yapılandırmayı görün (secret maskeli) |
+| TLS (5349) bağlanmıyor | `certs/turn.key` sahibi 65534 değil / dosya yok (logda `no-tls` UYARISI); test makinesinde `ca.crt` kurulu değil |

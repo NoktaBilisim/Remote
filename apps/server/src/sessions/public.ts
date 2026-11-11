@@ -6,6 +6,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { PublicSessionStatusResponse, ResolveSessionInput, ResolveSessionResponse, SessionStatus } from "@remote/contracts/api/sessions";
 import type { ErrorCode } from "@remote/contracts/errors";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
+import { abuseEmail, currentConsentText, type AbuseEmailSource } from "../public/consent.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { sha256Hex } from "../lib/ids.ts";
@@ -45,6 +46,8 @@ export class ResolveFailedAlarm {
   private windowEnds = 0;
   private failed = 0;
   private alarmed = false;
+  /** Süreç başından beri başarısız kod çözümleme sayısı (/metrics `rs_resolve_failed`). */
+  total = 0;
 
   constructor(onAlarm: (s: ResolveFailedStats) => void, opts: AlarmOptions = {}) {
     this.onAlarm = onAlarm;
@@ -63,6 +66,7 @@ export class ResolveFailedAlarm {
       this.prefixes.clear();
     }
     this.failed += 1;
+    this.total += 1;
     if (this.prefixes.size < this.maxPrefixes) this.prefixes.add(prefix);
     if (!this.alarmed && this.failed > this.threshold) {
       this.alarmed = true;
@@ -101,6 +105,8 @@ export interface PublicLimits {
   codePrefix: FixedWindowCounter;
   tokenIp: FixedWindowCounter;
   statusIp: FixedWindowCounter;
+  /** join: 20/dk/ipKey (P3). */
+  joinIp: FixedWindowCounter;
   /** Aynı oturum + 410 sebebi için 10 dk'da tek audit satırı (S-P2-6). */
   goneAudit: FixedWindowCounter;
   resolveFailed: ResolveFailedAlarm;
@@ -113,6 +119,7 @@ export const createPublicLimits = (log: FastifyBaseLogger, trustedProxyCidr?: st
   codePrefix: new FixedWindowCounter(31, MIN, 15 * MIN),
   tokenIp: new FixedWindowCounter(31, MIN, MIN),
   statusIp: new FixedWindowCounter(61, MIN, MIN),
+  joinIp: new FixedWindowCounter(21, MIN, MIN),
   goneAudit: new FixedWindowCounter(2, 10 * MIN, 10 * MIN),
   resolveFailed: new ResolveFailedAlarm((s) => log.warn({ alarm: "resolve_failed", ...s }, "global başarısız kod eşiği aşıldı")),
   clientIpIsProxy: new ClientIpIsProxyAlarm(trustedProxyCidr, () =>
@@ -121,7 +128,7 @@ export const createPublicLimits = (log: FastifyBaseLogger, trustedProxyCidr?: st
 });
 
 export const closePublicLimits = (l: PublicLimits): void =>
-  [l.codeIp, l.codePrefix, l.tokenIp, l.statusIp, l.goneAudit].forEach((c) => c.close());
+  [l.codeIp, l.codePrefix, l.tokenIp, l.statusIp, l.joinIp, l.goneAudit].forEach((c) => c.close());
 
 const rateLimited = (sec: number) => new AppError("RATE_LIMITED", { retryAfterSec: Math.max(1, sec) });
 
@@ -146,7 +153,15 @@ async function goneAudit(db: Db, limits: PublicLimits, ctx: AuditContext, s: rep
   await writeAudit(db, ctx, { tenantId: s.tenantId, action: "session.resolve", entity: "support_sessions", entityId: s.id, result: "fail", newValue: { reason: code } });
 }
 
-export async function resolvePublicSession(db: Db, limits: PublicLimits, refKey: string, ctx: AuditContext, input: ResolveSessionInput): Promise<ResolveSessionResponse> {
+export async function resolvePublicSession(
+  db: Db,
+  limits: PublicLimits,
+  refKey: string,
+  ctx: AuditContext,
+  input: ResolveSessionInput,
+  issueNonce: (sessionId: string, kind: ResolveSessionInput["clientKind"]) => { joinNonce: string; nonceExpiresAt: string },
+  abuseSrc: AbuseEmailSource,
+): Promise<ResolveSessionResponse> {
   limits.clientIpIsProxy.check(ctx.ip);
   const ip = ipKey(ctx.ip);
   let row: repo.PublicSessionRow | null;
@@ -180,12 +195,16 @@ export async function resolvePublicSession(db: Db, limits: PublicLimits, refKey:
     await goneAudit(db, limits, ctx, row, gone);
     throw new AppError(gone);
   }
+  const [consentText, abuse] = await Promise.all([currentConsentText(db, row.tenantId), abuseEmail(db, abuseSrc)]);
   return {
     sessionRef: sessionRef(refKey, row.id),
     tenant: { name: row.tenant.name, logoUrl: null }, // logo servisi P9
     technician: { name: row.technician.fullName, avatarUrl: null },
     techVerifyCode: row.techVerifyCode,
     expiresAt: row.expiresAt.toISOString(),
+    ...issueNonce(row.id, input.clientKind), // resolve tüketmez; nonce join içindir (P3)
+    consentText, // P4: karşılamada gösterilir, join'de id'si geri gelir (G-24)
+    abuseEmail: abuse,
   };
 }
 

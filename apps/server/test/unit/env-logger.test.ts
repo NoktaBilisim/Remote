@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadEnv } from "../../src/env.ts";
 import { maskUrl } from "../../src/lib/logger.ts";
+import { abuseEmail } from "../../src/public/consent.ts";
 
 const refKey = "k".repeat(32);
 const base = { PUBLIC_BASE_URL: "https://rs.test:4450", DATABASE_URL: "mysql://app:gizli@db/remote" };
@@ -20,6 +21,51 @@ describe("env", () => {
     expect(() => loadEnv({ ...prod, SESSION_REF_KEY: "kisa" })).toThrow(/SESSION_REF_KEY/);
     expect(loadEnv({ ...prod, SESSION_REF_KEY: refKey }).SESSION_REF_KEY).toBe(refKey);
     expect(loadEnv({ ...base, NODE_ENV: "development" }).SESSION_REF_KEY).toBeUndefined();
+  });
+});
+
+describe("boş env değeri = tanımsız (compose `${X:-}`)", () => {
+  it("opsiyonel alanlar boş/boşluk dizeyle hata vermez ve varsayılana düşer", () => {
+    const env = loadEnv({ ...base, METRICS_TOKEN: "", ABUSE_EMAIL: "  ", TURN_URLS: "", TURN_SECRET: "", TURN_CRED_TTL_MIN: "", ALLOWED_ORIGINS: " ", TRUSTED_PROXY_CIDR: "", SESSION_REF_KEY: "", LOG_LEVEL: "" });
+    expect(env).toMatchObject({ TURN_CRED_TTL_MIN: 20, LOG_LEVEL: "info", turnUrls: [], allowedOrigins: ["https://rs.test:4450"] });
+    for (const k of ["METRICS_TOKEN", "ABUSE_EMAIL", "TURN_SECRET", "SESSION_REF_KEY", "TRUSTED_PROXY_CIDR"] as const) expect(env[k]).toBeUndefined();
+  });
+
+  it("production'da zorunlu alanlar boşken yine hata; dolu ama geçersiz değer yine hata", () => {
+    const prod = { ...base, NODE_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/32", SESSION_REF_KEY: refKey };
+    expect(() => loadEnv({ ...prod, SESSION_REF_KEY: "" })).toThrow(/SESSION_REF_KEY/);
+    expect(() => loadEnv({ ...prod, TRUSTED_PROXY_CIDR: " " })).toThrow(/TRUSTED_PROXY_CIDR/);
+    expect(() => loadEnv({ ...base, DATABASE_URL: "" })).toThrow(/DATABASE_URL/);
+    expect(() => loadEnv({ ...base, METRICS_TOKEN: "kisa" })).toThrow(/METRICS_TOKEN/);
+  });
+});
+
+describe("ABUSE_EMAIL (S-P4-1)", () => {
+  const dbWith = (email: string | null) => {
+    const calls: unknown[] = [];
+    const db = { user: { findFirst: async (q: unknown) => (calls.push(q), email ? { email } : null) } } as unknown as Parameters<typeof abuseEmail>[0];
+    return { db, calls };
+  };
+
+  it("AC-125: ABUSE_EMAIL e-posta formatında olmalı; geçerli değer kabul edilir", () => {
+    expect(() => loadEnv({ ...base, ABUSE_EMAIL: "gecersiz" })).toThrow(/ABUSE_EMAIL/);
+    expect(() => loadEnv({ ...base, ABUSE_EMAIL: "a@b" })).toThrow(/ABUSE_EMAIL/);
+    expect(loadEnv({ ...base, ABUSE_EMAIL: "abuse@example.test" }).ABUSE_EMAIL).toBe("abuse@example.test");
+  });
+
+  it("S-P4-1: production'da ABUSE_EMAIL yoksa null — Super Admin sorgulanmaz", async () => {
+    const { db, calls } = dbWith("sa@example.test");
+    expect(await abuseEmail(db, { fromEnv: undefined, superAdminFallback: false })).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("S-P4-1: ABUSE_EMAIL verilmişse her ortamda o; dev/test'te yoksa Super Admin e-postası, o da yoksa null", async () => {
+    const { db, calls } = dbWith("sa@example.test");
+    expect(await abuseEmail(db, { fromEnv: "abuse@example.test", superAdminFallback: false })).toBe("abuse@example.test");
+    expect(await abuseEmail(db, { fromEnv: "abuse@example.test", superAdminFallback: true })).toBe("abuse@example.test");
+    expect(calls).toHaveLength(0);
+    expect(await abuseEmail(db, { fromEnv: undefined, superAdminFallback: true })).toBe("sa@example.test");
+    expect(await abuseEmail(dbWith(null).db, { fromEnv: undefined, superAdminFallback: true })).toBeNull();
   });
 });
 

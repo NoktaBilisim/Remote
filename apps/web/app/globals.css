@@ -110,6 +110,35 @@
   }
 }
 
+/* Konsol varsayılan koyu (DESIGN §8): kullanıcı tema tercihi P12'ye dek konsol sayfası koyu açılır */
+:root:has(.theme-dark) {
+  color-scheme: dark;
+  --rs-canvas: #0e1318;
+  --rs-surface: #151b22;
+  --rs-surface-muted: #1d252e;
+  --rs-border: #303a45;
+  --rs-fg: #e6ebf0;
+  --rs-fg-muted: #9ba7b3;
+  --rs-primary: #56b0ec;
+  --rs-primary-hover: #79c1f1;
+  --rs-on-primary: #08131d;
+  --rs-danger: #ff8a80;
+  --rs-danger-surface: #3b1714;
+  --rs-warning: #e9b949;
+  --rs-warning-surface: #33260a;
+  --rs-success: #4cc06a;
+  --rs-success-surface: #12301b;
+  --rs-ring: #56b0ec;
+  --rs-logo-surface: #f5f7fa;
+  --rs-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --rs-shadow-md: 0 4px 12px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.3);
+  --rs-primary-surface: #10283a;
+  --rs-overlay: rgb(0 0 0 / 0.62);
+  --rs-stage: #07090c;
+  --rs-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
+}
+
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;

@@ -112,7 +112,7 @@ export async function getSession(db: Db, auth: AuthContext, tenantId: string, id
 }
 
 /** İptal (AC-8): tek koşullu UPDATE → link ve kod aynı anda geçersiz. Başka tenant/sahiplik → 404, PENDING değil → 409. */
-export async function cancelSession(db: Db, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string): Promise<void> {
+export async function cancelSession(db: Db, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string, rooms?: RoomNotifier): Promise<void> {
   const scope = sessionScope(auth, tenantId);
   await db.$transaction(async (tx) => {
     const now = new Date();
@@ -131,6 +131,7 @@ export async function cancelSession(db: Db, ctx: AuditContext, auth: AuthContext
       newValue: { status: "CANCELLED" },
     });
   });
+  rooms?.closeSession(id, "cancelled"); // lobi/ticket misafirlerine session.ended{cancelled} (A4)
 }
 
 /** PENDING + süresi dolmuş tek oturumu EXPIRED/SYSTEM yapar ve audit yazar; başka süreç önce davrandıysa false. */
@@ -151,9 +152,50 @@ export async function expireSession(db: Db, ctx: AuditContext, s: { id: string; 
   });
 }
 
-/** Expiry işi gövdesi (jobs/scheduler.ts): bir turda en çok `batch` oturum. Dönen: EXPIRED yapılan sayı. */
-export async function expireDue(db: Db, ctx: AuditContext, now: Date, batch = 500): Promise<number> {
+/**
+ * Expiry işi gövdesi (jobs/scheduler.ts): bir turda en çok `batch` oturum. Dönen: EXPIRED yapılan sayı.
+ * Commit sonrası oda (teknisyen + lobi) `session.ended{timeout}` ile kapatılır ve bellekten silinir (S-P3-4).
+ */
+export async function expireDue(db: Db, ctx: AuditContext, now: Date, rooms?: RoomNotifier, batch = 500): Promise<number> {
   let done = 0;
-  for (const s of await repo.findExpiredPending(db, now, batch)) if (await expireSession(db, ctx, s, now)) done++;
+  for (const s of await repo.findExpiredPending(db, now, batch)) {
+    if (!(await expireSession(db, ctx, s, now))) continue;
+    done++;
+    rooms?.closeSession(s.id, "timeout");
+  }
   return done;
+}
+
+/** Oda bildirimi (signaling/rooms.ts); servis yalnız bu dar arayüzü bilir. */
+export interface RoomNotifier {
+  closeSession(sessionId: string, reason: "cancelled" | "admin" | "timeout"): void;
+}
+
+/**
+ * Zorla sonlandırma (A5, AC-114, G-04): tek koşullu UPDATE + audit aynı TX; commit sonrası iki tarafa
+ * `session.ended{admin}`. Başka tenant → 404, ACTIVE değil → 409.
+ */
+export async function terminateSession(db: Db, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string, reason: string | undefined, rooms?: RoomNotifier): Promise<void> {
+  await db.$transaction(async (tx) => {
+    const now = new Date();
+    if ((await repo.terminateActive(tx, tenantId, id, now, auth.user.id)) === 0) {
+      const exists = await repo.findInScope(tx, { tenantId }, id);
+      throw new AppError(exists ? "CONFLICT" : "NOT_FOUND", exists ? { message: "Yalnız etkin oturum sonlandırılabilir." } : {});
+    }
+    await writeAudit(tx, ctx, {
+      ...who(auth, tenantId),
+      action: "session.terminated",
+      entity: "support_sessions",
+      entityId: id,
+      result: "success",
+      oldValue: { status: "ACTIVE" },
+      newValue: { status: "ENDED", endedBy: "ADMIN", ...(reason ? { reason } : {}) },
+    });
+  });
+  rooms?.closeSession(id, "admin");
+}
+
+/** Açılış: bellekteki odası kaybolan ACTIVE oturumlar ENDED{server} (mimari §3.5). Dönen: sayı. */
+export async function endOrphanedActive(db: Db, now: Date): Promise<number> {
+  return repo.endAllActive(db, now);
 }

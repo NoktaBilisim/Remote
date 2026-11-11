@@ -1,4 +1,4 @@
-// Remote Support — P1+P2 veri modeli (docs/mimari.md §3, docs/db-notlari.md).
+// Remote Support — P1..P4 veri modeli (docs/mimari.md §3, docs/db-notlari.md).
 // Kurallar: PK ULID CHAR(26) (uygulama üretir, lib/ids.ts); zaman DATETIME(3) UTC;
 // enum'lar VARCHAR(20) + zod enum; FK'ler ON DELETE RESTRICT (cascade yok);
 // tenant/kullanıcı soft delete (deleted_at/status); audit_logs append-only.
@@ -28,6 +28,8 @@ model Tenant {
   actingSessions  AuthSession[]
   auditLogs       AuditLog[]
   supportSessions SupportSession[]
+  consentTexts    ConsentText[]
+  sessionConsents SessionConsent[]
 
   @@map("tenants")
 }
@@ -76,10 +78,12 @@ model User {
   createdAt          DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
-  tenant          Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  permissions     UserPermission[]
-  authSessions    AuthSession[]
-  supportSessions SupportSession[] @relation("SessionTechnician")
+  tenant             Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  permissions        UserPermission[]
+  authSessions       AuthSession[]
+  supportSessions    SupportSession[] @relation("SessionTechnician")
+  terminatedSessions SupportSession[] @relation("SessionTerminator")
+  consentTexts       ConsentText[]
 
   @@index([tenantId, status])
   @@map("users")
@@ -149,11 +153,13 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-// P2 (mimari §3.1, ADR-0006, G-02/G-22). Yalnız P2 alanları; P3/P4+ alanları (mode, consumed_at,
-// started_at, terminated_by, customer_*, ticket_no, note, quality_summary, anonymized_at) kendi
-// paketlerinin migration'larında eklenir (expand). Hard delete yok; retention P13.
+// P2 (mimari §3.1, ADR-0006, G-02/G-22) + P3 (admit tüketimi: mode, consumed_at; zorla sonlandırma:
+// terminated_by — A1, A5, G-04). Sonraki paket alanları (started_at, customer_*, ticket_no, note,
+// quality_summary, anonymized_at) kendi migration'larında eklenir (expand). Hard delete yok; retention P13.
 // CHECK kısıtları migration.sql'de (elle): status/ended_by enum, kod biçimleri,
-// PENDING <=> active_code dolu, bitmiş durum <=> ended_at dolu, TTL 15..30 dk (+/-1 dk tolerans).
+// PENDING <=> active_code dolu, bitmiş durum <=> ended_at dolu, TTL 15..30 dk (+/-1 dk tolerans);
+// P3: mode enum, consumed_at <=> mode, ACTIVE => consumed_at, PENDING/EXPIRED/CANCELLED => consumed_at NULL,
+// consumed_at <= expires_at, ended_by='ADMIN' <=> terminated_by dolu (docs/db-notlari.md P3).
 model SupportSession {
   id             String    @id @db.Char(26)
   tenantId       String    @map("tenant_id") @db.Char(26)
@@ -166,15 +172,73 @@ model SupportSession {
   endedAt        DateTime? @map("ended_at") @db.DateTime(3) // iptal/expiry/bitiş anı
   endedBy        String?   @map("ended_by") @db.VarChar(20) // TECH | CUSTOMER | ADMIN | SYSTEM
   endReason      String?   @map("end_reason") @db.VarChar(40) // ör. cancelled, expired
+  mode           String?   @db.VarChar(20) // AGENT | BROWSER; admit anında set (A1/A2)
+  consumedAt     DateTime? @map("consumed_at") @db.DateTime(3) // admit = tüketim = ACTIVE başlangıcı (AC-6/7/13)
+  terminatedBy   String?   @map("terminated_by") @db.Char(26) // zorla sonlandıran Admin/Super Admin (G-04, AC-114)
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
-  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  technician User   @relation("SessionTechnician", fields: [technicianId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  technician User             @relation("SessionTechnician", fields: [technicianId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  terminator User?            @relation("SessionTerminator", fields: [terminatedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  consents   SessionConsent[]
 
+  @@unique([id, tenantId]) // P4: session_consents (session_id, tenant_id) bileşik FK hedefi (tenant tutarlılığı)
   @@index([tenantId, createdAt]) // tenant geneli liste (P8) + tenant FK
   @@index([technicianId, status]) // AC-11 açık oturum sayımı + technician FK
   @@index([technicianId, createdAt]) // "kendi oturumlarım" listesi, AC-12 saatlik sayım
-  @@index([status, expiresAt]) // expiry işi: status='PENDING' AND expires_at <= NOW(3)
+  @@index([status, expiresAt]) // expiry işi: status='PENDING' AND expires_at <= NOW(3); açılışta ACTIVE→ENDED
+  @@index([terminatedBy]) // FK (RESTRICT kontrolü); MySQL'in gizli indeksi yerine adlı indeks
   @@map("support_sessions")
+}
+
+// P4 (mimari §3.1, A1, AC-29/127, G-24): tenant bazlı, sürümlü KVKK aydınlatma/onay metni.
+// Değişmez: yeni sürüm eklenir; app yalnız SELECT/INSERT (is_current geçişi için UPDATE(is_current) P11'de).
+// Elle (migration.sql): sha256 = SHA2(body,256) CHECK, version >= 1, tenant başına tek is_current
+// (fonksiyonel UQ consent_texts_one_current_uq — Prisma ifade edemez).
+model ConsentText {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  version   Int
+  body      String   @db.MediumText // API 50..20000 karakter; utf8mb4'te TEXT (64 KB) yetmeyebilir
+  sha256    String   @db.Char(64) // SHA-256(UTF-8 body) küçük harf hex; DB CHECK ile body'ye bağlı
+  isCurrent Boolean  @default(false) @map("is_current")
+  createdBy String?  @map("created_by") @db.Char(26) // NULL = sistem/seed
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  creator  User?            @relation(fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  consents SessionConsent[]
+
+  @@unique([tenantId, version]) // + tenant FK; "güncel sürüm" araması bu indeksin ön ekiyle
+  @@unique([id, tenantId, sha256]) // session_consents bileşik FK hedefi (AC-127: tenant + metin özeti tutarlı)
+  @@index([createdBy])
+  @@map("consent_texts")
+}
+
+// P4 (mimari §3.1, A1/A3/A4, AC-29/62/111): onay zaman çizelgesi. Append-only (updated_at yok, audit
+// istisnası gibi); app yalnız SELECT/INSERT. Retention anonimleştirmesi (ip/user_agent NULL) P13'te UPDATE.
+// Elle (migration.sql): level/decision/source CHECK; consent_text_id <=> consent_sha256.
+model SessionConsent {
+  id            String   @id @db.Char(26)
+  sessionId     String   @map("session_id") @db.Char(26)
+  tenantId      String   @map("tenant_id") @db.Char(26)
+  level         String   @db.VarChar(20) // VIEW | CONTROL
+  decision      String   @db.VarChar(20) // GRANTED | DENIED | REVOKED
+  source        String   @db.VarChar(20) // UI | HOTKEY | RECONNECT | SYSTEM
+  consentTextId String?  @map("consent_text_id") @db.Char(26) // join anında onaylanan metin (A1)
+  consentSha256 String?  @map("consent_sha256") @db.Char(64) // = consent_texts.sha256 (bileşik FK)
+  ip            String?  @db.VarChar(45) // SYSTEM kaynağında yok; retention'da NULL
+  userAgent     String?  @map("user_agent") @db.VarChar(300)
+  createdAt     DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  session     SupportSession @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  consentText ConsentText?   @relation(fields: [consentTextId, tenantId, consentSha256], references: [id, tenantId, sha256], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([sessionId, tenantId, createdAt]) // zaman çizelgesi (AC-62) + session FK
+  @@index([tenantId, createdAt]) // tenant FK + retention
+  @@index([consentTextId, tenantId, consentSha256]) // consent text FK
+  @@map("session_consents")
 }

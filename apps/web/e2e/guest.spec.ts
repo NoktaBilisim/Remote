@@ -4,7 +4,7 @@ import { axeScan, guardConsole, noHorizontalOverflow, rows, signIn } from "./hel
 guardConsole();
 const tok = (ch: string) => `/session/${ch.repeat(43)}`;
 
-test("karşılama: teknisyen, doğrulama kodu, dolandırıcılık uyarısı; referrer/noindex", async ({ page }) => {
+test("karşılama: teknisyen, doğrulama kodu, dolandırıcılık uyarısı; referrer/noindex", async ({ page }, info) => {
   await page.goto(tok("A"));
   await expect(page).toHaveTitle(/Uzaktan destek bağlantısı/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Uzaktan destek bağlantısı");
@@ -14,9 +14,49 @@ test("karşılama: teknisyen, doğrulama kodu, dolandırıcılık uyarısı; ref
   await expect(page.getByTestId("guest-next")).toContainText(/daha geçerli/);
   await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
-  // Oturumsuz açılır (login'e gitmez); P2'de form/indirme yok
+  // Oturumsuz açılır (login'e gitmez); P4: ad alanı + aydınlatma onayı (indirme seçeneği P6)
   await expect(page).toHaveURL(tok("A"));
-  await expect(page.getByRole("textbox")).toHaveCount(0);
+  if (info.project.name === "mobile") {
+    // AC-33: mobilde form yerine "desteklenmiyor"
+    await expect(page.getByTestId("guest-unsupported")).toBeVisible();
+    await expect(page.getByRole("textbox")).toHaveCount(0);
+    return;
+  }
+  await expect(page.getByRole("textbox")).toHaveCount(1);
+  await expect(page.getByRole("checkbox")).toHaveCount(1);
+});
+
+test("AC-33: mobil cihazda veya getDisplayMedia yoksa 'Bu cihaz desteklenmiyor'; lobiye girilemez", async ({ page }, info) => {
+  if (info.project.name === "desktop") {
+    // Masaüstünde API yoksa (eski tarayıcı) aynı ekran
+    await page.addInitScript(() => {
+      Object.defineProperty(MediaDevices.prototype, "getDisplayMedia", { value: undefined, configurable: true });
+    });
+  }
+  await page.goto(tok("A"));
+  const box = page.getByTestId("guest-unsupported");
+  await expect(box).toBeVisible();
+  await expect(box).toContainText("Bu cihaz desteklenmiyor; masaüstü Chrome, Edge veya Firefox kullanın");
+  await expect(page.getByTestId("join-browser")).toHaveCount(0);
+  await expect(page.getByTestId("join-form")).toHaveCount(0);
+  // Doğrulama kodu ve uyarı hâlâ görünür (kullanıcı teknisyeni bilgilendirebilsin)
+  await expect(page.getByTestId("guest-verify-code")).toBeVisible();
+  expect(await axeScan(page)).toEqual([]);
+});
+
+test("AC-38: /session/<token> yanıtı çerçevelenemez (CSP frame-ancestors 'none')", async ({ page }) => {
+  const res = await page.goto(tok("A"));
+  const h = res!.headers();
+  expect(h["content-security-policy"]).toMatch(/frame-ancestors 'none'/);
+  if (h["x-frame-options"]) expect(h["x-frame-options"].toUpperCase()).toBe("DENY");
+});
+
+test("AC-125: abuseEmail null gelirse 'Kötüye kullanımı bildir' gizlenir", async ({ page }) => {
+  await page.goto(tok("B"));
+  await expect(page.getByTestId("fraud-warning")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Kötüye kullanımı bildir" })).toHaveCount(0);
+  await page.goto(tok("A"));
+  await expect(page.getByRole("link", { name: "Kötüye kullanımı bildir" })).toHaveAttribute("href", "mailto:kotuye-kullanim@ornek.com");
 });
 
 const ends = [

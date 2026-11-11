@@ -1,4 +1,4 @@
-# DB Notları — Remote Support (P1)
+# DB Notları — Remote Support (P1–P4)
 Sahibi: dba. Tasarım kaynağı: `docs/mimari.md` §3, ADR-0003. MySQL 8.4, Prisma 7.10.1 (stabil; 8.x RC kullanılmadı).
 
 ## Dosyalar
@@ -100,3 +100,56 @@ Migration `apps/server/prisma/migrations/20261111010000_p2_support_sessions/{mig
 
 ### Test (2026-11-11, geçici `mysql:8.4`, port 33308, sonra silindi)
 P1 migrate → P2 migrate + grants OK; `migrate diff --exit-code` 0 (drift yok); `check-app-grants.sh` **37/37 PASS** (P2: 15 yeni — SELECT/INSERT/UPDATE izinli, iki NULL kodlu satır izinli, DELETE/ALTER reddi, active_code UQ, status/ttl alt+üst/PENDING-kod/kod biçimi/token biçimi/kod-NULL'suz iptal/ended_at'siz expiry/ended_by CHECK'leri); `down.sql` → yalnız P1 tabloları + P1 kaydı kaldı; yeniden migrate OK, `migrate status` güncel, 37/37 PASS; seed OK; `pnpm typecheck` temiz. Prisma istemcisiyle: UQ ihlali → P2002 (meta yukarıda), CHECK ihlali → hata, `updateMany` iptal count=1.
+
+## P3 — admit tüketimi + zorla sonlandırma (2026-11-11)
+Migration `apps/server/prisma/migrations/20261111020000_p3_session_admit/{migration.sql,down.sql}`. Yeni tablo **yok**; `support_sessions`'a 3 sütun (expand, NULL'lı, INSTANT) + FK + 5 CHECK.
+| Sütun | Tip | Kaynak | Not |
+|---|---|---|---|
+| `mode` | VARCHAR(20)? | §3.1, A1 (`mode=BROWSER`), A2 | CHECK `AGENT`/`BROWSER`; admit anında yazılır |
+| `consumed_at` | DATETIME(3)? | §3.1, A1, ADR-0006 adım 4, AC-6/7 | admit = tüketim = ACTIVE başlangıcı; AC-13 max süre `consumed_at + max_active_hours` (zamanlayıcı bellekte) |
+| `terminated_by` | CHAR(26)? FK users RESTRICT | §3.1, A5, G-04, AC-114 | zorla sonlandıran Admin/Super Admin; IX(terminated_by) adlı (MySQL gizli FK indeksi yerine) |
+CHECK'ler: `mode_chk`; `consumed_mode_chk` (consumed_at ⇔ mode); `consumed_status_chk` (ACTIVE ⇒ consumed_at dolu; PENDING/EXPIRED/CANCELLED ⇒ NULL; ENDED serbest — ACTIVE'den bitiş ya da bekleyen oturumun sistemce kapanması); `consumed_before_expiry_chk` (consumed_at ≤ expires_at); `terminated_by_chk` (ended_by='ADMIN' ⇔ terminated_by dolu, ve terminated_by ⇒ ENDED). P2'deki `code_pending_chk` ACTIVE'e geçişte `active_code=NULL`'u zaten zorlar.
+- **Bilerek DB'ye konmayanlar (mimari §3.5 bellek içi):** join nonce (60 sn), WS ticket, lobi misafiri + admitCode hash'i, reconnect token hash'i, oda sayaçları (admitFail, adminReject), max süre/120 sn zamanlayıcıları. TURN secret env/`system_settings` (P11) — P3'te tablo yok. Katılımcı tablosu mimaride yok (tek misafir; lobi bellekte); onay kaydı `session_consents` P4'te (§10.3).
+- **Ertelenen:** `started_at` — mimaride anlamı tanımsız (admit anı `consumed_at` ile karşılanıyor); medya/paylaşım başlangıcı ise P4'te tanımlanıp eklenmeli (mimar). `end_reason` serbest metin (CHECK yok): protokol nedenleri (`mimari-protokol.md` `session.ended`) küçük harf, §3.5/A3 metni `SERVER_RESTART`/`TIMEOUT` büyük harf yazıyor → backend tek biçim seçmeli (öneri: protokoldeki küçük harf değerler, `server`/`timeout`).
+- **Grant:** değişiklik yok (tablo düzeyi SELECT/INSERT/UPDATE yeni sütunları kapsar; DELETE hâlâ P13).
+- **İndeks:** admit UPDATE PK ile; açılışta `status='ACTIVE'` → ENDED işi IX(status, expires_at) ön ekini kullanır; yeni sorgu deseni yok.
+
+### Backend-dev için (giriş şartı 2)
+- Admit (tek atomik ifade, aynı TX'te audit + P4'te consent):
+  `updateMany({ where: { id, status: 'PENDING', expiresAt: { gt: now } }, data: { status: 'ACTIVE', activeCode: null, consumedAt: now, mode } })` → `count === 0` ise iptal/expiry/başka admit kazandı (410/409). `now` hem WHERE hem SET'te aynı değer olmalı (`consumed_before_expiry_chk`).
+- Bitiş (tech/customer/timeout/max_duration/server/auth_revoked): `updateMany({ where: { id, status: 'ACTIVE' }, data: { status: 'ENDED', endedAt, endedBy, endReason } })`.
+- Terminate (A5): aynı, ayrıca `endedBy: 'ADMIN', terminatedBy: actorUserId`; `where` içinde `tenantId` (Super Admin hariç). ADMIN'i terminated_by'sız yazmak CHECK 3819 verir.
+- Açılış (§3.5, ADR-0005): `updateMany({ where: { status: 'ACTIVE' }, data: { status: 'ENDED', endedAt: now, endedBy: 'SYSTEM', endReason: 'server' } })`.
+- **Test yardımcısı:** `test/helpers/app.ts` `createSupportSessionRow` ACTIVE (ve tüketilmiş ENDED) satırda `consumedAt` + `mode` vermeli; aksi halde `consumed_status_chk` reddeder (aşağıdaki test sonucu).
+
+### Test (2026-11-11, `apps/server/scripts/test-db.sh`, mysql 8.4)
+P1→P2→P3 migrate + grants OK; `migrate diff --exit-code` 0 (drift yok); `check-app-grants.sh` **48/48 PASS** (P3: 11 yeni — atomik admit + ADMIN terminate + SYSTEM max_duration izinli; ACTIVE'de consumed yok, kod NULL'lanmamış, mode yok, mode=VNC, consumed>expires, CANCELLED+consumed, ADMIN terminated_by'sız, TECH+terminated_by, var olmayan terminated_by FK reddi — her biri beklenen kısıt adıyla). `down.sql` → 3 sütun, 5 CHECK, FK, indeks ve P3 kaydı kalktı (P2'nin 8 CHECK'i duruyor), diff exit 2 (beklenen); yeniden migrate OK, drift 0, `migrate status` güncel. `prisma generate` + `typecheck` temiz. `test:int`: 60/62 — 2 hata `sessions-public.test.ts` (AC-7 ACTIVE/ENDED 410), sebep test yardımcısının consumed_at'siz ACTIVE satırı (yukarıda; kısıt doğru, düzeltme yardımcıda).
+
+## P4 — KVKK aydınlatma metni + onay kaydı (2026-11-11)
+Migration `apps/server/prisma/migrations/20261111030000_p4_consents/{migration.sql,down.sql}`. İki yeni tablo + `support_sessions`'a UQ(id, tenant_id) (bileşik FK hedefi; INPLACE).
+| Tablo | Sütunlar | Anahtar / kısıt |
+|---|---|---|
+| `consent_texts` | id, tenant_id FK, version INT, body **MEDIUMTEXT**, sha256 CHAR(64), is_current BOOL(0), created_by FK users? (NULL = seed/sistem), created_at, updated_at | UQ(tenant_id, version); UQ(id, tenant_id, sha256); IX(created_by); **fonksiyonel UQ `consent_texts_one_current_uq` ((IF(is_current, tenant_id, NULL)))** = tenant başına tek güncel sürüm; CHECK `version>=1`, `sha256 = SHA2(body,256)`, `CHAR_LENGTH(body) 1..20000` |
+| `session_consents` | id, session_id, tenant_id, level, decision, source, consent_text_id?, consent_sha256?, ip?, user_agent?, created_at (updated_at yok, append-only) | FK (session_id, tenant_id) → support_sessions(id, tenant_id); FK tenant_id; FK (consent_text_id, tenant_id, consent_sha256) → consent_texts(id, tenant_id, sha256); IX(session_id, tenant_id, created_at), IX(tenant_id, created_at), IX(consent_text_id, tenant_id, consent_sha256); CHECK level/decision/source enum, text_id ⇔ sha256, metin yalnız VIEW+GRANTED'de |
+
+**Kararlar (mimariden sapma/ekler — mimar §3.1'e not düşmeli):**
+1. `body` TEXT yerine MEDIUMTEXT: API 20000 karakter, utf8mb4'te 80 KB'a çıkabilir (TEXT 64 KB → 500 yerine sınır).
+2. `sha256` DB'de gövdeye bağlı (CHECK). Uygulama `createHash('sha256').update(body,'utf8').digest('hex')` yazmalı; aksi CHECK 3819. (mysql CLI'dan elle eklemede istemci karakter seti utf8mb4 olmalı.)
+3. Tenant tutarlılığı DB'de: onay kaydının oturumu ve metni aynı tenant'a ait olmak zorunda, `consent_sha256` metnin özetine eşit olmak zorunda (bileşik FK). G-24/AC-127'nin **"güncel sürüm"** kısmı uygulamada (join anında `is_current` kontrolü; admit anında metin eskimiş olsa da join anındaki onay kaydedilir — A1).
+4. `ip`/`user_agent` NULL'lı: SYSTEM kaynağında yok; retention anonimleştirmesi NULL yazar.
+5. Enum vs lookup: `level/decision/source` VARCHAR(20)+CHECK (§3 kuralı); küme küçük ve kod sabiti.
+6. Başlangıç metni **tenant bazlı v1, seed'de** (`seedConsentTexts`): metni olmayan HER tenant'a (üretimde de) v1 `is_current=1` + audit `consent_text.created`. Mimaride metin yok; kısa Türkçe aydınlatma+açık rıza metni yazıldı (veri sorumlusu = tenant adı). **Açık nokta:** tenant oluşturma servisi (ileriki paket) v1'i aynı TX'te eklemeli; o zamana dek yeni tenant için `pnpm db:seed` yeterli.
+7. Büyüme: `session_consents` oturum başına birkaç satır; partition gerekmez, retention (P13) tenant `retention_days` ile anonimleştirir/siler.
+
+**Grant (`grants.sql`):** `consent_texts` SELECT/INSERT (seed app ile çalışır; P11 düzenleme yeni sürüm INSERT eder). `is_current` geçişi için **sütun düzeyi** `UPDATE (is_current, updated_at)` P11'de verilecek — body/sha256/version hiç güncellenemez. `session_consents` SELECT/INSERT; UPDATE/DELETE retention ile P13.
+
+### Backend-dev için (P4)
+- **resolve:** `consentText.findFirst({ where: { tenantId, isCurrent: true }, select: { id, version, body, sha256 } })` (EXPLAIN: UQ(tenant_id, version) ön eki, rows=1). `null` ise tenant'ın metni yok → 503/500 değil; seed eksikliği — hata zarfıyla logla.
+- **join (G-24, AC-127):** `consentText.findFirst({ where: { id: consentTextId, tenantId: session.tenantId, isCurrent: true }, select: { id: true, sha256: true } })` → `null` ise 400. Sonucu `LobbyGuest.consent {textId, sha256, at, ip, ua}`'ye koy (bellek).
+- **admit TX (A1, P3 kalıbı + consent):** `$transaction([ supportSession.updateMany(...count=1 kontrolü...), sessionConsent.create({ data: { id: ulid(), sessionId, tenantId, level: 'VIEW', decision: 'GRANTED', source: 'UI', consentTextId, consentSha256, ip, userAgent, createdAt: guest.consent.at } }), auditLog.create(...) ])` — interaktif TX ile count=0'da consent yazmadan çık. İlişkiler bileşik olduğundan `create`'te **düz alanlar** (unchecked input) kullanın, `connect` değil.
+- **Paylaşım durdur/yeniden, kontrol (P7):** `consentTextId/consentSha256` NULL; `level`/`decision`/`source` uygun değer. Metinli satır yalnız VIEW+GRANTED (CHECK).
+- **Zaman çizelgesi (AC-62):** `sessionConsent.findMany({ where: { sessionId, tenantId }, orderBy: { createdAt: 'asc' }, select: {...} })` — IX(session_id, tenant_id, created_at).
+- **Test yardımcıları:** consent'li testlerde tenant için `consentText.create` (sha256 node crypto ile); `test/helpers` tenant oluşturuyorsa v1 eklemeli.
+
+### Test (2026-11-11, `apps/server/scripts/test-db.sh`, mysql 8.4)
+P1→P3 üzerine P4 migrate + grants OK; `migrate diff --exit-code` 0 (fonksiyonel indeks/CHECK drift üretmiyor). `check-app-grants.sh` **67/67 PASS** (P4: 19 yeni — SELECT/INSERT, UPDATE body/is_current, DELETE, ALTER reddi; ikinci güncel sürüm UQ, sürüm tekrarı UQ, yanlış sha256 ve version=0 CHECK; admit+VIEW/GRANTED/UI metinli + CONTROL/DENIED/SYSTEM metinsiz izinli; session_consents UPDATE/DELETE reddi; yanlış özet FK, özetsiz metin, CONTROL+metin, decision enum, çapraz tenant oturum FK, başka tenant metni FK — her biri beklenen kısıt adıyla). `down.sql` → iki tablo, UQ ve P4 kaydı kalktı, diff exit 2 (beklenen); yeniden migrate OK, drift 0, `migrate status` güncel, 67/67. Seed iki kez: v1 bir kez oluştu (idempotent), CHECK'ten geçti (Node SHA-256 = MySQL SHA2). Temiz DB'de `test:int` **93/93**, `test` 69/69, typecheck + lint temiz.

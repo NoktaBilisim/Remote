@@ -728,3 +728,380 @@ Yok.
 - `vitest run test/unit/{ip,resolve-alarm,env-logger}.test.ts` (server): 3 dosya, **13/13 geçti**.
 - Build çıktısı taraması (edge/static chunk'larında `startup-check` / `process.exit` / hata metni): **yok**.
 - Bağımlılık değişmediği için `pnpm audit` ve gitleaks Tur 2 sonuçları geçerli.
+
+---
+
+## P3 kod turu
+DURUM: DÜZELTİLMELİ
+Özet: Kritik 0 / Yüksek 1 / Orta 1 / Düşük 7. Tek Yüksek bulgu bağımlılık sürümünden geliyor, düzeltmesi tek satır.
+Protokol ve oda mantığında Kritik/Yüksek bulgu yok.
+
+### Bulgular (öncelik sırasıyla)
+
+#### S-P3-1 [YÜKSEK] `ws` 8.18.3: küçük parçalı çerçevelerle bellek tüketme DoS (GHSA-96hv-2xvq-fx4p) — A06 Vulnerable Components
+Yer: apps/server/package.json (`ws`), kilit `ws@8.18.3`; apps/server/src/signaling/ws.ts:54 (`maxPayload: 1024 * 1024`)
+Sorun: `pnpm audit` Yüksek: ws <8.21.0'da çok sayıda küçük fragment/veri parçası sunucu belleğini tüketiyor. Ayrıca Orta
+(GHSA-58qx-3vcg-4xpx, <8.20.1, ilklenmemiş bellek ifşası).
+Senaryo: Oturum kodunu bilen biri (müşteri tarafı ya da kodu ele geçiren kişi) resolve → join ile ticket alıyor ve
+**admit beklemeden** lobi WS'ine bağlanıyor. Ardından tek mesajı binlerce küçük fragmana bölerek gönderiyor. Mesaj
+tamamlanmadığı için 64 KB/50 msg/sn kontrolleri (handlers.ts:41-43) hiç devreye girmiyor. Tek instance (ADR-0005)
+OOM olursa tüm tenant'ların aktif oturumları düşer. Kimliği doğrulanmış her teknisyen de aynı saldırıyı yapabilir.
+Düzeltme (backend-dev): `ws` ≥ 8.21.0 sürümüne geçilmeli, `pnpm install` ile kilit güncellenmeli ve `pnpm audit`
+temiz çıkmalı. Ek önlem: `maxPayload` değeri `WS_MAX_PAYLOAD` (64 KB) ile eşitlenmeli. 64 KB üstü 1009 ile kapanır,
+AC-17 testi buna göre güncellenir (implementation.md P3 madde 6). Böylece bağlantı başına tampon 16 kat küçülür.
+
+#### S-P3-2 [ORTA] coturn `allowed-peer-ip=<public IP>` TURN host'unun tüm UDP portlarını relay'e açıyor — A05/A10 (SSRF benzeri)
+Yer: deploy/turn/entrypoint.sh:56-57; deploy/turn/docker-compose.yml:15 (`network_mode: host`)
+Sorun: relay↔relay için TURN'ün kendi public IP'si izin listesine alınmış. coturn'de `allowed-peer-ip` port ayırmıyor,
+bu yüzden yalnız 49160-49199 değil o IP'deki **her UDP portu** relay edilebiliyor. Staging'de TURN, publish
+sunucusunun (185.126.217.99, başka servisler de çalışıyor) host ağında. Relay'in kendi IP'sine gönderdiği paket
+loopback üzerinden döndüğü için UFW'nin dış kurallarını atlıyor.
+Senaryo: Admit edilen misafir (ya da credential'ı ele geçiren biri) TURN credential'ıyla allocation açıyor ve peer
+olarak `185.126.217.99:<udp port>` veriyor. Böylece host'ta 0.0.0.0'a bağlı, dışarıya kapalı UDP servislerine (DNS,
+VPN, SNMP, syslog vb.) ulaşıyor. coturn'ün kendi 3478'ine relay ederek TURN-in-TURN zinciri de kurabiliyor.
+`no-tcp-relay` riski UDP ile sınırlıyor.
+Düzeltme (devops): Host'ta OUTPUT kuralı eklenmeli: kaynak portu 49160:49199 olan ve hedefi `$PUBLIC_IP` olan UDP
+paketlerinde hedef port 49160:49199 değilse DROP (iptables/nftables, runbook §9). `test-denied.sh`'e iki negatif test
+eklenmeli: `$PUBLIC_IP:3478` ve `$PUBLIC_IP:53` relay edilememeli. Staging'de `ss -ulnp` çıktısı runbook'a
+yazılmalı. Prod'da ayrı VM planı (ADR-0007) korunmalı.
+
+#### S-P3-3 [DÜŞÜK] IPv6 relay sınırsız: `relay-ip`/`listening-ip` verilmemiş
+Yer: deploy/turn/turnserver.base.conf:4-19, 39-52; entrypoint.sh:49
+Sorun: Host'un global IPv6'sı varsa coturn IPv6 relay açabilir (REQUESTED-ADDRESS-FAMILY). Host'un kendi IPv6
+adresi ve sağlayıcının IPv6 komşuları denied listesinde yok. IPv4'teki sağlayıcı bloğu engelinin IPv6 karşılığı da yok.
+Düzeltme (devops): Entrypoint, `TURN_EXTERNAL_IP`'nin private kısmından `relay-ip=<private v4>` (gerekirse
+`listening-ip`) üretmeli. Alternatif olarak host'un IPv6 /64'ü local listeye eklenmeli. `test-denied.sh`'e IPv6
+allocation denemesi eklenmeli.
+
+#### S-P3-4 [DÜŞÜK] Süresi dolan PENDING oturum odaya bildirilmiyor; bazı odalar bellekten hiç silinmiyor
+Yer: apps/server/src/sessions/service.ts:137-145 (expire yolu `closeSession` çağırmıyor); rooms.ts:121
+(`rejectedIps.size === 0 && admitFails === 0` şartı)
+Sorun: EXPIRED olan oturumda teknisyen WS'i ve lobi misafirleri açık kalıyor (lobi en fazla 5 dk). Ret veya hatalı
+kod görmüş bir oda, teknisyen ayrıldıktan sonra süreç yeniden başlayana kadar bellekte duruyor. Oda üretmek kimlik
+doğrulaması gerektirdiği için etkisi yavaş bir sızıntı.
+Düzeltme (backend-dev): Expiry işi başarılı `expireOne` sonrası `rooms.closeSession(id, "timeout")` çağırmalı;
+`RoomNotifier` tipine `"timeout"` eklenmeli. `dropRoomIfIdle` yalnız PENDING süresi geçmiş odaları ret listesiyle
+birlikte silebilir.
+
+#### S-P3-5 [DÜŞÜK] CI gitleaks (git modu) yeni P3 test dosyalarında kırılacak
+Yer: .gitleaks.toml:8-11 (allowlist yalnız `apps/server/test/helpers/app.ts`). Yerel dir taramasında `generic-api-key`
+veren dosyalar: apps/server/test/helpers/ws.ts:56, test/integration/signaling-lifecycle.test.ts:15,
+test/unit/signaling.test.ts:12 ve :67. Değerlerin hepsi sahte TURN secret'ı.
+Düzeltme (backend-dev): Bu yollar allowlist'e eklenmeli ya da satırlara `// gitleaks:allow` yazılmalı. Commit
+öncesinde git modunda yeniden taranmalı. Not: allowlist regex'i `^apps/...` ile başladığı için dir modunda
+(`/repo/apps/...`) eşleşmiyor; yerel kontrol için `(^|/)apps/...` biçimi önerilir.
+
+#### S-P3-6 [DÜŞÜK] TURN credential oturum bittikten sonra 60 dakikaya kadar geçerli
+Yer: apps/server/src/signaling/turn.ts:29; env.ts:35 (`TURN_CRED_TTL_MIN` varsayılan 60)
+Sorun: Admin terminate, ret veya müşterinin bitirmesi credential'ı iptal etmiyor (`use-auth-secret` yapısı gereği).
+Eski misafir relay'i internete yönelik bant genişliği için kullanmaya devam edebilir (8 Mbps ve user-quota=8 ile
+sınırlı).
+Düzeltme (devops/backend-dev): Varsayılan 15-20 dk yapılmalı. Yenileme mekanizması (`ice.servers`, active.ts:48-60)
+zaten var, ek maliyeti yok.
+
+#### S-P3-7 [DÜŞÜK] `/ws/tech` upgrade'inde oran sınırı yok
+Yer: apps/server/src/signaling/ws.ts:80-91
+Sorun: Origin başlığı tarayıcı dışından taklit edilebilir. Her rastgele çerezli istek `resolveSession` ve
+`findForSignal` ile DB'ye gidiyor; misafir yolundaki `guestIp` (31/dk) sınırının teknisyen yolunda karşılığı yok.
+Düzeltme (backend-dev): Aynı `FixedWindowCounter` IP başına teknisyen yoluna da uygulanmalı.
+
+#### S-P3-8 [DÜŞÜK] WS yeniden doğrulaması yetki daraltmasını yansıtmıyor; `endByTechnician` hiç çağrılmıyor
+Yer: apps/server/src/signaling/ws.ts:176-183; rooms.ts:208-211
+Sorun: 60 sn'lik kontrol yalnız oturum/kullanıcı/tenant geçerliliğine bakıyor. `remote_control.use`/`file_transfer.use`
+geri alınsa da `room.caps` admit anındaki haliyle kalıyor. AC-115 için yazılan `endByTechnician` hiçbir yerden
+çağrılmıyor. P3'te caps henüz bir işlem açmadığı için şimdilik etkisi yok.
+Düzeltme (backend-dev): P7 giriş şartı. Yetki/rol değişikliği ve deaktivasyon servisleri `rooms.endByTechnician`
+çağırmalı ya da yeniden doğrulama sırasında `permissions` tazelenip caps daralırsa oda bitirilmeli.
+
+#### S-P3-9 [DÜŞÜK] coturn stdout logunda müşteri/peer IP'leri ve kullanıcı adı (sessionId) var
+Yer: deploy/turn/turnserver.base.conf:17-18; docker-compose.yml:45-47 (json-file 5×10 MB, saklama süresi tanımsız)
+Düzeltme (devops): Runbook'a log saklama süresi (KVKK) yazılmalı. Gerekmiyorsa log seviyesi düşürülmeli. Secret
+logda görünmüyor (yalnız `TURN_CONFIG_CHECK` çıktısı var, o da maskeli).
+
+### Doğrulanacak (çalışma zamanı, devops)
+- coturn CLI (5766/tcp) kapalı mı: staging'de `ss -tlnp | grep -E '5766|9641'` çalıştırılmalı. 9641 yalnız
+  127.0.0.1'de olmalı, 5766 hiç görünmemeli. Kod tarafında `--cli` verilmiyor; 4.18 varsayılanına güveniliyor.
+
+### Otomatik tarama çıktıları
+- `pnpm audit --audit-level=moderate`: **2 açık**. Yüksek 1: ws GHSA-96hv-2xvq-fx4p. Orta 1: ws GHSA-58qx-3vcg-4xpx.
+  Yol: `apps/server > ws@8.18.3`. → S-P3-1.
+- gitleaks v8.30.1 (docker, dir modu, `.gitleaks.toml`): 15 eşleşme, hepsi `generic-api-key`.
+  - 10'u `apps/web/.next/**` derleme çıktısı (git-ignore, repoya girmiyor; Next preview anahtarı derleme başına üretiliyor).
+  - 5'i sahte test değeri: test/helpers/app.ts:13 (allowlist'te ama dir modunda eşleşmiyor) ve S-P3-5'teki 4 satır.
+  - Gerçek gizli bilgi bulunmadı.
+- `deploy/turn/certs/` ve `*.key` git-ignore'da; repoda anahtar dosyası yok. `denied-peer-ip.local.conf` repoda yok,
+  yalnız `.example` (RFC 5737 belgeleme IP'leri) var.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+- mimari §5.1 LobbyGuest "admitCodeHash (SHA-256 + oturum tuzu)": tuz olarak guestId (ULID) kullanılıyor. Hash yalnız
+  bellekte tutulduğu ve kodu teknisyen girdiği için risk yok, yalnız kayda geçsin.
+- AC-115 `endByTechnician` bağlantısı → S-P3-8 (P7/P9).
+- P2 "P3 giriş şartları": madde 2 (atomik tüketim) karşılandı (repo.ts:145-151 koşullu `updateMany` + 5 CHECK + bellek
+  `admitting` bayrağı). Madde 3 ADR-0012 ile karşılandı (`publicClientAllowed`). Madde 1 (`/public/agent/download?ref=`
+  limiti) P6'ya kaldı.
+
+### Olumlu
+- WS kimlik: misafir yolunda sorgu dizesi 403 (ws.ts:103); credential yalnız `Sec-WebSocket-Protocol` üzerinden
+  geliyor; `rs.v1` zorunlu ve tam bir credential bekleniyor; 43 karakterlik base64url regex var. Ticket ve nonce
+  256 bit CSPRNG, depoda SHA-256 ile tutuluyor; `take` kontrolü ve silmeyi aynı senkron adımda yapıyor (yarış yok)
+  ve depo 20k kayıtla sınırlı. Teknisyen yolunda Origin allowlist + çerez + `mustChangePassword` + **yalnız oturum
+  sahibi** kontrolü var.
+- Join: istemci türü (kind) istemcinin beyanından değil nonce kaydından alınıyor; IP limiti nonce tüketiminden önce
+  uygulanıyor; durum yalnız okunuyor, tüketim admit'te.
+- Admit: koşullu `updateMany` (PENDING ∧ expires>now ∧ consumed_at NULL) ve audit aynı TX'te; `room.admitting`
+  bayrağı kontrolle aynı senkron adımda set ediliyor; 4 haneli kod `safeEqual` ile karşılaştırılıyor; lobi
+  kodları tekil; 5. hatada lobi boşaltılıyor; ret listesi ipKey ile tutuluyor.
+- Oda izolasyonu: oda upgrade anında bağlantıya bağlanıyor; relay alanları yeniden kuruluyor (gelen nesne olduğu
+  gibi aktarılmıyor); strict zod, 64 KB sınırı, 50/sn token-bucket, ikili çerçeve reddi var. Lobi misafirinden SDP/ICE
+  gelirse bağlantı 1008 ile kapanıyor. iceServers/TURN credential yalnız admit sonrası veriliyor (teknisyene de).
+- Reconnect token her hello'da yenileniyor ve eskisi siliniyor. Bağlıyken ikinci bağlantı 403 alıyor ve audit'e
+  yazılıyor. Teardown token'ı da temizliyor.
+- Terminate: `sessions.terminate` yetkisi + tenant kapsamlı `updateMany` var; başka tenant'ın oturumu 404 dönüyor;
+  audit yazılıyor.
+- TURN: secret komut satırında yok (tmpfs'de 0600 yetkili config, umask 077); `TURN_CONFIG_CHECK` çıktısı maskeli;
+  fail-closed doğrulama var (local liste zorunlu, satır biçimi denetleniyor). denied-peer-ip; 192.168.25.0/24 ve
+  172.30.0.0/24'ü (192.168/16 ve 172.16/12 içinde), 169.254.169.254'ü, loopback'i, ::ffff eşlemeli adresleri ve
+  6to4/Teredo/ULA aralıklarını kapsıyor. `no-tcp-relay`, quota ve max-bps tanımlı; Prometheus 127.0.0.1'de; imaj
+  digest ile sabit; konteyner read_only, cap_drop ALL ve nobody kullanıcısıyla çalışıyor. CI'da denied-peer-ip
+  negatif testleri var.
+- /metrics: token yoksa 404, karşılaştırma `safeEqual` ile; etiketler sabit kümeden (IP/oturum/kod yok); Caddy
+  dışarıya 404 dönüyor. Loglarda yalnız ret nedeni var; ticket/token/SDP/ICE loglanmıyor. Caddy logu sorgu dizesini,
+  çerezi ve subprotocol'ü siliyor.
+
+### Öneri: `docs/gereksinimler.md` §9 "Sonra"
+S-P3-3, S-P3-4, S-P3-6, S-P3-7, S-P3-9. S-P3-8 P7 giriş şartı olarak işlenmeli. S-P3-1 bu pakette kapanmalı.
+S-P3-2 staging'de kapanmalı (TURN publish sunucusunu paylaşıyor). S-P3-5 commit'ten önce kapanmalı.
+
+## P3 Tur 2
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 (yeni, sertleştirme) + S-P3-8 (P7 giriş şartı, açık).
+"P3 kod turu"ndaki S-P3-1..7 ve S-P3-9 doğrulandı. Yeni Kritik/Yüksek bulgu yok. P3 güvenlik kapısı açık.
+Kalan tek şart çalışma zamanı kanıtı: staging'de `host-firewall.sh install` + `test-denied.sh` bölüm 4 + runbook §9.2.3
+çıktısı test-raporuna eklenmeli (S-P3-2 kapanışı staging'de ölçülerek yapılır).
+
+### Düzeltme doğrulaması
+| Bulgu | Sonuç | Kanıt |
+|---|---|---|
+| S-P3-1 | KAPANDI | `apps/server/package.json:31` `ws: 8.21.0`, kilitte yalnız `ws@8.21.0`. `pnpm audit`: No known vulnerabilities. `signaling/ws.ts:54` `maxPayload: WS_MAX_PAYLOAD` (64 KB), `perMessageDeflate:false`. `ws.ts:80` soket `error` dinleyicisi (yalnız role+code loglanıyor), `ws.ts:160` upgrade öncesi ham soket `error` → destroy. |
+| S-P3-2 | KAPANDI (kod) / staging kanıtı bekleniyor | `deploy/turn/host-firewall.sh`: `REMOTE-TURN-OUT` zinciri; kurallar yalnız `-p udp --sport 49160:49199` ∧ (`-d public` ∨ `-d private` ∨ `addrtype LOCAL`) ∧ `! --dport 49160:49199` → DROP. `print` çıktısı staging girdisiyle doğrulandı (public 185.126.217.99, NAT arkasında yerel olmasa da `-d` kuralıyla kapsanıyor). `test-denied.sh:100-120` aralık içi echo + 3480/3478/53 DROP sayacı. |
+| S-P3-3 | KAPANDI | `entrypoint.sh` `relay-ip=$PRIVATE_IP` (is_ipv4 ile doğrulanmış), IPv6 relay 440. |
+| S-P3-4 | KAPANDI | `sessions/service.ts:164` başarılı expiry sonrası `closeSession(id,"timeout")`. `rooms.ts:129-145` ret/hata taşıyan boş oda yalnız `expiresAt`'e kadar tutuluyor; `timers.idle` teardown'da (`rooms.ts:216`) temizleniyor. |
+| S-P3-5 | KAPANDI | Sahte secret'lar `test/helpers/secrets.ts`'te; `.gitleaks.toml` `(^|/)apps/server/test/helpers/(app|secrets)\.ts$`. gitleaks dir: kaynakta 0 bulgu. |
+| S-P3-6 | KAPANDI | `env.ts:35` varsayılan 20, compose `${TURN_CRED_TTL_MIN:-20}`, runbook:183 güncel. |
+| S-P3-7 | KAPANDI | `ws.ts:59,87-88` ayrı `techIp` sayacı (31/dk, 60 sn kilit), Origin/çerez/DB kontrolünden önce. IP, güvenilen proxy zinciriyle hesaplanıyor (`clientIp`, XFF taklidi yok). |
+| S-P3-9 | KAPANDI | json-file 3×5 MB; runbook §9.8.1 haftalık root cron (girdi `docker inspect`'ten, kullanıcı girdisi yok); entrypoint `cli*/verbose/log-binding` görürse başlamıyor. |
+| S-P3-8 | AÇIK (P7 giriş şartı) | Değişmedi. `endByTechnician` testi eklendi ama çağıran uç yok. |
+
+### Paylaşımlı sunucu etkisi (host-firewall.sh) — değerlendirme
+- **Zincir kapsamı dar:** OUTPUT'a yalnız tek atlama ekleniyor. Zincirde yalnız DROP var, ACCEPT/RETURN yok. Bu yüzden
+  diğer projelerin, UFW'nin (ufw-*) ve Docker'ın (DOCKER-*, nat, FORWARD) kural sırasını ve kararını değiştirmiyor.
+  Bridge ağındaki konteyner trafiği OUTPUT'tan geçmiyor (FORWARD/INPUT). Etkilenebilecek tek paket şu: host ağ ad
+  alanında 49160-49199'dan çıkan ve host'un kendi adresine aralık dışı porta giden UDP.
+- **Reserved ports:** yalnız ephemeral (otomatik) atamayı etkiliyor. Açık `bind` serbest. ~28k'lık havuzdan 40 port
+  çıkıyor, etkisi önemsiz. Mevcut liste korunuyor, remove yalnız tam eşleşen `49160-49199` girdisini çıkarıyor.
+- **remove/uninstall:** yalnız kendi atlamasını (`-D OUTPUT -j REMOTE-TURN-OUT` döngüsü), kendi zincirini ve sabit adlı
+  systemd dosyalarını siliyor. Değişken içeren `rm` yok. Başka zincire `-F/-X` uygulanmıyor.
+- **Girdi doğrulama:** IP'ler v4/v6 regex'inden geçiyor, portlar yalnız rakam olabiliyor. `.env` `source` edilmiyor,
+  yalnız `TURN_EXTERNAL_IP` satırı sed ile okunuyor. Denendi: `TURN_EXTERNAL_IP='1.2.3.4;id'` ve
+  `TURN_FW_SELF_IPS='::1 -j ACCEPT'` → "geçersiz IP" ile durdu.
+- **Entrypoint relay-ip:** `${TURN_EXTERNAL_IP#*/}` + `is_ipv4`. Birden fazla `/` reddediliyor. Yanlış IP verilirse
+  coturn bind edemiyor ve kapalı kalıyor (fail closed).
+
+### Yeni bulgular
+#### S-P3-T2-1 [DÜŞÜK] host-firewall.sh: yarım uygulamada fail-open penceresi, satır tabanlı IP doğrulaması — A05
+Yer: deploy/turn/host-firewall.sh:44-45 (`is_v4/is_v6`: `echo | grep -Eq`), :91-99 (`do_apply`: `-F` sonra tek tek `-A`), :63-70 (`reserve_add`)
+Sorun:
+1. `do_apply` önce zinciri boşaltıyor, sonra kuralları tek tek ekliyor. Bir `-A` hata verirse (ör. regex'ten geçen
+   ama geçersiz olan `999.1.1.1` ya da `:::::`) betik `set -e` ile duruyor. OUTPUT atlaması yerinde kalıyor ama zincir
+   boş ya da eksik oluyor (fail-open). Timer her 5 dakikada aynı hatayı tekrarlıyor.
+2. `grep -Eq` satır bazında eşleştiriyor. Env'den gelen çok satırlı bir değerin yalnız ilk satırının geçerli olması
+   yetiyor. Aynı kalıp `entrypoint.sh:15` `is_ipv4`'te de var; orada sonraki satır coturn config'ine yazılıyor
+   (ör. `allow-loopback-peers`). Değeri yalnız root/.env sahibi verebildiği için güven sınırı aşılmıyor. Bu bir
+   sertleştirme bulgusu.
+3. Çekirdek, mevcut bir komşu ya da örtüşen rezervi bizim aralıkla birleştirirse `reserved_ok` (tam satır eşleşmesi)
+   kalıcı olarak yanlış dönüyor. Bu durumda `check` sürekli başarısız oluyor, `ensure` her 5 dakikada `-F` ile yeniden
+   uyguluyor, `remove` de birleşik aralığı geri alamıyor.
+İstismar senaryosu: Doğrudan dış istismar yok. Yönetici hatası ya da beklenmeyen bir çekirdek/modül hatası S-P3-2
+korumasını sessizce kaldırabilir.
+Düzeltme (devops): Kuralları geçici bir zincirde (`REMOTE-TURN-OUT-NEW`) kurun, başarılı olursa atlamayı değiştirip
+eskisini silin. Ya da tek seferde `iptables-restore --noflush` kullanın. IP doğrulamasını `case` kalıbı ve oktet
+≤255 kontrolüyle yapın, `[ "$(printf %s "$1" | wc -l)" -eq 0 ]` ile çok satırlı değeri reddedin (entrypoint dahil).
+`reserved_ok` için kapsama kontrolü yeterli olmalı (reserve_add'deki awk mantığı); `check` hatasında timer sessizce
+döngüye girmemeli, journald'a `err` yazmalı.
+
+#### S-P3-T2-2 [DÜŞÜK] systemd timer, repo klonundaki betiği 5 dakikada bir root olarak çalıştırıyor — A08
+Yer: deploy/turn/host-firewall.sh:104-113 (`ExecStart=$SELF_PATH ensure`, `/opt/remote/deploy/turn/host-firewall.sh`)
+Sorun: Root, repo çalışma kopyasındaki dosyayı ve aynı dizindeki `.env`/`turnserver.base.conf`'u periyodik olarak
+çalıştırıyor/okuyor. `/opt/remote` root dışında bir kullanıcının (deploy/CI kullanıcısı) yazabileceği bir yer
+olursa ya da `git pull` ile gelen bir değişiklik incelenmeden alınırsa, kod 5 dakika içinde root olarak çalışır.
+Repo açık kaynak olduğu için katkı yolu da bir tedarik zinciri girişi. Bugün staging'e root ile SSH yapılıyor ve
+klon root sahipli, bu yüzden risk düşük.
+Düzeltme (devops): `install`, betiği `/usr/local/sbin/remote-turn-fw` olarak (root:root 0755) kopyalasın ve gerekli
+değerleri (`TURN_EXTERNAL_IP`, aralık) `/etc/default/remote-turn-fw`'ye (root 0600) yazsın. Ya da en azından
+`install`/`ensure` betik dizininin sahibini ve yazma izinlerini denetleyip (`stat`; group/other yazabiliyorsa)
+reddetsin. Runbook §9.2.1'e "betik güncellenince `install` yeniden çalıştırılır" notu eklenmeli.
+
+### Otomatik tarama çıktıları (Tur 2)
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- gitleaks v8.30.1 (docker, dir modu, `.gitleaks.toml`): 10 eşleşme, **hepsi `apps/web/.next/**`** (`.previewinfo`,
+  `prerender-manifest.json`, `preview-props.json` ve standalone kopyaları; git-ignore'daki derleme çıktısı, Next
+  preview anahtarı). Kaynak/commit edilecek dosyalarda **0**.
+- `sh -n host-firewall.sh` temiz; `print` staging girdisiyle beklenen 3+1 kuralı üretiyor.
+- Regresyon: server unit **69/69** yeşil (bu turda koşuldu). Entegrasyon 93/93 implementation.md'den alındı, bu turda
+  koşulmadı (MySQL gerekli).
+
+### Öneri: `docs/gereksinimler.md` §9 "Sonra"
+S-P3-T2-1, S-P3-T2-2 (P13/prod açılışından önce kapanmalı). S-P3-8 → P7 giriş şartı.
+
+## P4 kod turu
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 1 / Düşük 3 (+1 bilgi)
+
+### Bulgular (öncelik sırasıyla)
+
+#### S-P4-1 [ORTA] `ABUSE_EMAIL` deploy'a bağlanmamış → public resolve her zaman Super Admin e-postasını döndürür — A01/A04 (bilgi ifşası)
+Yer: `apps/server/src/public/consent.ts:61-65`, `apps/server/src/sessions/service.ts:` resolve dönüşü (`abuseEmail: abuse`);
+`deploy/docker-compose.yml` server `environment:` (ABUSE_EMAIL yok), `.env.example` (yok), `docs/runbook.md` (yok).
+Sorun: Compose `env_file` kullanmıyor; değişken açıkça verilmediği için `env.ABUSE_EMAIL` prod/staging'de hep boş, fallback
+devreye giriyor: ilk aktif Super Admin'in e-postası (= giriş kimliği) her geçerli bağlantı/kod sahibine JSON'da ve
+karşılama sayfasında (`guest-welcome.tsx:99-100` mailto) verilir. CLAUDE.md "yeni env → .env.example + compose + runbook" kuralı da ihlal.
+İstismar senaryosu: Dolandırıcı kendi tenant'ında (veya ele geçirilmiş teknisyen hesabıyla) bir oturum açıp linki
+kendisi açar → platformun en yetkili hesabının giriş e-postasını öğrenir → hedefli oltalama / parola deneme / 2FA
+sosyal mühendisliği. V13 kullanıcı kararıdır; risk karar sahibinin bilmesi gereken düzeyde.
+Düzeltme: `ABUSE_EMAIL` → `.env.example` (boş) + compose server `environment` + runbook; production'da zorunlu
+(`env.ts` refine, SESSION_REF_KEY kalıbı) ve Super Admin fallback'i yalnız development'ta. (atanan: devops + backend-dev)
+
+#### S-P4-2 [DÜŞÜK] `apps/web` devDependency `ws@8.18.3` — GHSA-58qx-3vcg-4xpx (yüksek, DoS) + bellek ifşası (orta) — A06
+Yer: `apps/web/package.json:38`. Yalnız e2e mock (`e2e/mock-ws.mjs`) kullanıyor; standalone prod imajına girmez, server `ws@8.21.0` temiz.
+Düzeltme: `8.21.0`'a yükselt (CI `pnpm audit` kapısını da yeşillendirir). (atanan: frontend-dev)
+
+#### S-P4-3 [DÜŞÜK] Müşteri adında kontrol/bidi karakteri filtresi yok — A03/A04
+Yer: `packages/contracts/src/api/sessions.ts:104` (`trim().min(2).max(100)`).
+Sorun: XSS yok (React metin, `dangerouslySetInnerHTML` yok; audit JSON). Ancak `‮`, satır sonu, sıfır genişlikli
+karakterle teknisyen lobisinde/audit ekranında yanıltıcı ad ("Destek Ekibi — kodu okuyun") gösterilebilir.
+Düzeltme: `\p{Cc}\p{Cf}` (bidi/ZW dahil) reddi veya temizleme; gerekirse `customerEmail` kullanılmıyorsa şemadan çıkar. (atanan: backend-dev)
+
+#### S-P4-4 [DÜŞÜK] Müşteri adı teknisyen sekmesinin sessionStorage'ında çıkışta silinmiyor — A02/KVKK
+Yer: `apps/web/lib/webrtc/use-tech-session.ts:13-28,128-133`. Yalnız `phase==="ended"` olunca silinir; sekme açık
+kalıp logout yapılırsa veya konsoldan oturum bitmeden ayrılınırsa ad aynı sekmede kalır (paylaşımlı bilgisayar). Etki düşük (sekme kapanınca gider).
+Düzeltme: logout'ta `rs.guestName.*` anahtarlarını temizle. (atanan: frontend-dev)
+
+#### S-P4-5 [BİLGİ] Next `/ws` rewrite prod'da etkisiz
+`next.config.ts` rewrite yalnız web'e ulaşan istekte çalışır; Caddy `/ws/*`'ı server'a önce yönlendiriyor ve web portu
+yayımlanmıyor. Yalnız `/ws` (eğik çizgisiz) web'e düşer → server'da 404. Risk yok; istenirse rewrite `NODE_ENV!=="production"` koşuluna alınabilir.
+
+### Doğrulanan kontroller (odak listesi)
+- **KVKK onay bütünlüğü:** `acceptConsent` id + oturumun tenant'ı + `is_current` ile arar (başka tenant/eski sürüm → 400,
+  ayırt edilmez); kayıt admit TX'inde `consumeForAdmit`=1 sonrası (count=0 → yazılmaz); bileşik FK
+  `(consent_text_id, tenant_id, consent_sha256)` + `CHECK sha256 = SHA2(body,256)` + `app` için UPDATE/DELETE yok →
+  metin değişmez, onay kaydı gösterilen sürüme bağlı. Join→admit arasında yeni sürüm yayımlanırsa müşterinin gördüğü
+  sürüm kaydedilir (doğru davranış). Tek `is_current` fonksiyonel UQ ile.
+- **Konsol yetkisi:** `/ws/tech` `row.technicianId !== auth.user.id` → 403 (`signaling/ws.ts:99`). Relay yalnız
+  `room.tech.peer` ↔ `room.admitted.peer`; kabul edilmemiş misafirden SDP/ICE → 1008. SDP ≤60 KB, ICE ≤2000.
+- **Terminate:** `sessions.terminate` yetkisi + `tenantScope` + `terminateActive(tenantId,id)` + audit; aynı TX.
+- **Medya yönü:** teknisyen `addTransceiver("video",{direction:"recvonly"})`, hiç iz eklemiyor; misafir `sendonly`,
+  `getUserMedia` yok, `audio:false`; Permissions-Policy `camera=() microphone=() display-capture=(self)`.
+- **getDisplayMedia** yalnız `share-start` butonu `onClick` → `startShare`; yeniden bağlanmada otomatik paylaşım yok;
+  `ended` olayında paylaşım durur; share-strip göstergesi.
+- **Kimlik bilgisi saklama:** ticket/reconnect token yalnız bellek + `Sec-WebSocket-Protocol`; URL/depo/log yok; TURN
+  credential yalnız `RTCPeerConnection` config'i ve ref'te; token sunucuda resolve edilir, istemci JS'ine verilmez.
+- **ICE/IP ifşası:** tarayıcı varsayılanı mDNS host adayları; srflx adayı doğası gereği public IP verir (karşı taraf
+  kimliği doğrulanmış teknisyen) — kabul edilmiş risk.
+- **CSP/çerçeve:** `frame-ancestors 'none'` + `/session/*` proxy matcher içinde → ekran paylaşım sayfası çerçevelenemez;
+  `connect-src 'self' wss://host`; `media-src` gereksiz (`srcObject` URL değil); `referrer: no-referrer`, `noindex`.
+
+### Otomatik tarama çıktıları
+- `pnpm audit --audit-level=moderate`: 2 (1 high, 1 moderate) — ikisi de `apps/web > ws@8.18.3` (S-P4-2).
+- gitleaks v8.30.1 `dir` (.gitleaks.toml): 10 eşleşme, **tamamı `apps/web/.next/**`** (build çıktısı, preview-props;
+  repoya girmez) → kaynakta 0.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+- `ABUSE_EMAIL` env üçlüsü (.env.example/compose/runbook) — S-P4-1.
+
+### Olumlu
+Onay modeli DB düzeyinde değişmez ve bileşik FK'lı; tüketim + onay + audit tek TX; nonce kind'ı sunucu kaydından;
+relay sınırı sunucuda; misafir kimlik bilgileri bellekte; CSP nonce'lu, `unsafe-inline` yok.
+
+### Öneri: `docs/gereksinimler.md` §9 "Sonra"
+S-P4-1 prod açılışından (P10/P13) önce kapanmalı; S-P4-2..4 P5 içinde.
+
+## P4 kod turu 2
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 (+2 bilgi). Önceki S-P4-1..4 kapandı.
+
+### Önceki bulguların doğrulaması
+| Bulgu | Durum | Kanıt |
+|---|---|---|
+| S-P4-1 [ORTA] Super Admin e-postası ifşası | KAPANDI | `apps/server/src/public/consent.ts:68-73` — `fromEnv` yoksa ve `superAdminFallback=false` ise DB sorgusu yapılmadan `null`; `sessions/routes.ts:78-79` `superAdminFallback: NODE_ENV !== "production"`. Compose `deploy/docker-compose.yml:98` `ABUSE_EMAIL:` (değersiz geçiş), `.env.example`, runbook §3 güncel. |
+| S-P4-2 [DÜŞÜK] web `ws` açığı | KAPANDI | `apps/web/package.json:40` `ws: 8.21.0`; lockfile yalnız `ws@8.21.0`; `pnpm audit --audit-level=moderate` → "No known vulnerabilities found". |
+| S-P4-3 [DÜŞÜK] görünmez karakterli ad | KAPANDI (kalan kısım S-P4-T2-1) | `packages/contracts/src/api/sessions.ts:107,114` — `UNSAFE_NAME_CHARS` (C0/C1, U+200B-200F, bidi U+202A-202E/2066-2069, BOM) `refine` ile `.trim()` öncesi kontrol ediliyor; trim ile kenardaki kontrol karakterinin gizlenmesi engellendi. |
+| S-P4-4 [DÜŞÜK] sekmede müşteri adı kalması | KAPANDI | `apps/web/lib/session-storage.ts` `clearSessionData()` yalnız `rs.` önekli anahtarları siler, depolama kapalıysa sessiz; `app/(panel)/logout-button.tsx:29` çıkışta çağırıyor; birim testi var. |
+
+### Yeni yüzeyler
+- **hello.guestName / hello.share / peer.joined.guestName**: Yalnız `room.tech?.peer.send(...)` ile, aynı odanın teknisyenine gidiyor (`signaling/active.ts:18-28,78`, `rooms.ts:183`); misafire veya başka odaya yayın yok. `guest.name` kaynağı `joinSessionInputSchema` (max 100, kontrol/bidi filtresi) — giden şema da `max(100)` (`contracts/src/ws.ts:90,103`). Web tarafında `dangerouslySetInnerHTML`/`innerHTML` yok; ad React metni olarak basılıyor.
+- **share.state spoof**: `onGuestMessage` (`signaling/handlers.ts:83-113`) yalnız `ADMITTED` misafirden ve `guest.peer === peer` iken işliyor; kabul edilmemiş misafir 1008 ile kapatılıyor. Yazılan tek yer `room.share` (kendi odası) ve kendi odasının teknisyeni; `rooms.ts:172` misafir ayrılınca `stopped`'a sıfırlıyor. Şema sıkı: `strictObject`, `monitors ≤16`, `id 0..64`, `name ≤64`, `w/h ≤16384`; çerçeve token bucket'tan geçiyor. Misafir yalnız kendi ekran durumunu "yanlış" bildirebilir — kendi oturumunu etkiler, güvenlik sınırı değil.
+- **env.ts `withoutBlanks`** (`apps/server/src/env.ts:68-74`): boş/boşluk değerler tanımsız sayılıyor; prod zorunluları (`TRUSTED_PROXY_CIDR`, `SESSION_REF_KEY`) `refine` ile boşken yine hata veriyor, zorunlu `DATABASE_URL` boşken hata — `test/unit/env-logger.test.ts:27-38` kapsıyor. Hata mesajı yalnız anahtar adı içeriyor.
+- **scripts/e2e-real-users.ts**: `NODE_ENV=production` iken çalışmıyor (`:58`); parola/e-posta yalnız env'den (sabit sır yok), parola 12-200 karakter, argon2id hash; yalnız `demo` tenant'ında ve yalnız mevcut ADMIN'e dokunuyor (başka tenant/rol → reddediyor, `:34`); her işlem audit'e yazılıyor. Bkz. S-P4-T2-2.
+- **deploy/turn/entrypoint.sh TURN_LISTEN_IPS**: CR/LF içeren değer reddediliyor (config satır enjeksiyonu yok); her öğe `is_ipv4` (tam dize, 4 oktet, 0-255, baştaki sıfır yok) ile doğrulanıyor, aksi `die` (fail closed). Tırnaksız `for ip in $(...)` glob genişlemesi yapabilir ama genişleyen her öğe `is_ipv4`'te düşer → enjeksiyon yok. `auto` yalnız doğrulanmış `PRIVATE_IP` + 127.0.0.1.
+- **"Cihaz desteklenmiyor" ekranı** (`apps/web/lib/device-support.ts`): yalnız istemci tarafı UX kontrolü; atlatılması güvenlik etkisi taşımaz, güvenlik sınırı olarak SAYILMAZ (yetki/kabul kontrolleri sunucuda: admit kodu, ADMITTED durumu, public client kontrolü ADR-0012).
+
+### Bulgular
+#### S-P4-T2-1 [DÜŞÜK] `UNSAFE_NAME_CHARS` bazı görünmez biçim karakterlerini kapsamıyor — A03/A04 (görüntü sahteciliği)
+Yer: `packages/contracts/src/api/sessions.ts:107`
+Sorun: U+00AD (soft hyphen), U+034F, U+061C (ALM, bidi), U+180E, U+2028/2029, U+2060-2064 (word joiner, invisible operators), U+FFF9-FFFB, etiket karakterleri U+E0000-E007F listede yok. U+061C bir bidi işaretidir.
+İstismar senaryosu: Misafir "Ahmet⁠⁠" veya U+061C ile görünürde aynı/yanıltıcı ad girer; teknisyen konsolunda ve audit'te ad farklı bayt dizisiyle görünür. XSS yok (React metin); etkisi sınırlı kimlik karışıklığı.
+Düzeltme: Liste yerine Unicode kategori: `/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}͏᠎]/u` (Cf; ZWJ'li emoji desteklenmeyecekse yeterli). (atanan ajan: backend-dev)
+
+#### S-P4-T2-2 [DÜŞÜK] `e2e-real-users.ts` prod imajında ve korumanın tek kaynağı `NODE_ENV` — A05
+Yer: `apps/server/scripts/e2e-real-users.ts:58`; `apps/server/Dockerfile:56` (`COPY ... apps/server` → `scripts/` imaja giriyor)
+Sorun: Script operatör aracıdır; prod imajında bulunuyor ve koruma yalnız `NODE_ENV`. Yerel makineden `DATABASE_URL` prod'u gösterecek şekilde (NODE_ENV tanımsız) çalıştırılırsa ve prod'da `demo` tenant'ı varsa (staging-users.sh oluşturur), o tenant'taki ADMIN'lerin parolası sıfırlanır ve `mustChangePassword=false` olur.
+İstismar senaryosu: Doğrudan uzaktan istismar yok; operatör hatası / içeriden kötüye kullanım ile yetkili hesap parolası değişir (audit'te `source: e2e-real-users` kalır).
+Düzeltme: Ek koruma `E2E_REAL_ALLOW=1` + DB host'unun localhost/staging allowlist'i, veya imajdan `scripts/` hariç tutma (`.dockerignore` / prod-deps aşamasında silme). (atanan ajan: devops)
+
+#### Bilgi
+- B-1: `deploy/docker-compose.yml:97` ve runbook §3 (`ABUSE_EMAIL` satırı) "boş dize geçerse server açılmaz" diyor; `withoutBlanks` sonrası bu artık doğru değil (boş = tanımsız). Güvenlik etkisi yok, doküman güncellenmeli (devops/teknik-yazar).
+- B-2: `clearSessionData` yalnız çıkış butonunda; oturum süresi dolup 401 ile login'e yönlenmede çağrılmıyor. `sessionStorage` sekme kapanınca silindiği için risk düşük; isteğe bağlı olarak login sayfası yüklenirken de çağrılabilir.
+
+### Otomatik tarama çıktıları
+- `pnpm audit --audit-level=moderate` → `No known vulnerabilities found`
+- `gitleaks` yerelde kurulu değil (CI'da çalışıyor). Elle tarama: `git grep -nE "(api[_-]?key|secret|password|token)\s*[:=]\s*['\"][^'\"]{8,}"` (test/e2e hariç) ve izlenmeyen yeni dosyalarda (`scripts/`, `src/public`, `src/signaling`, `web/lib`, `playwright.real.config.ts`, `e2e/p4-real.spec.ts`, `deploy/turn`, `contracts/src`) aynı desen → eşleşme yok. `.env.example` diff'i yalnız boş anahtarlar içeriyor. `.gitleaks.toml` allowlist'i yalnız `test/helpers/app.ts` ve `test/helpers/secrets.ts` (sahte değerler).
+- `git log --all -- '*.env*'` → yalnız `d90dd2d` (`.env.example`; gerçek `.env` geçmişte yok).
+
+### Olumlu
+- S-P4-1 düzeltmesi fail-closed: prod'da DB'ye hiç gidilmiyor.
+- Signaling tarafında misafir girdisi her yerde sıkı şema + kabul durumu + peer eşleşmesi ile korunuyor; oda dışına sızma yolu yok.
+- entrypoint.sh tüm env değerlerinde satır sonu reddi ve IPv4 tam doğrulaması ile fail-closed.
+- Orta/Düşük öneriler `docs/gereksinimler.md` §9'a "Sonra" olarak eklenebilir (S-P4-T2-1, S-P4-T2-2, B-1, B-2).
+
+## P4 kod turu 3 (sayfa testi düzeltmesi: TEST-P4-1 F5 dönüşü, TEST-P4-2)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 (+1 bilgi). Dar kapsam: `apps/web/lib/guest-resume.ts`, `app/session/[token]/{guest-resume-gate,guest-session}.tsx`, `lib/webrtc/use-guest-session.ts`, `apps/server/src/signaling/{ws,rooms,active}.ts`.
+
+### Oturum ele geçirme analizi (backend) — yeni vektör YOK
+- **Token tek kullanımlık ve dönüyor:** `active.ts:31-46` `sendHelloGuest` her admit/yeniden bağlanmada eski `reconnectHash`'i siler, yeni token üretir; yeni token yalnız yeni misafir soketine gider. `teardown` (`rooms.ts:227`) haritadan siler.
+- **Yarış (iki eşzamanlı reconnect aynı token ile):** `ws.ts:134-147` başarılı yolda `await` yok; `wss.handleUpgrade` (`ws.ts:55`, `verifyClient` yok, `perMessageDeflate:false`) geri çağrıyı eşzamanlı çalıştırır → `bindGuest → reattachGuest → sendHelloGuest` (token rotasyonu) aynı tikte biter. İkinci istek döndürülmüş hash'i bulamaz → 403 `reconnect`. Aynı token iki kez tüketilemez.
+- **CLOSING penceresi** (`ws.ts:141` yalnız `isOpen()` çakışma): saldırganın bu pencereden faydalanması için *güncel* reconnectToken'a zaten sahip olması gerekir; bu token'la misafir soketi kapandığı anda (önceki davranış) da devralabilirdi. Sunucu kaynaklı CLOSING yalnız `teardown`'da olur ve o anda oda/hash silinmiştir. Saldırgan misafirin soketini uzaktan CLOSING'e sokamaz. Pencere yeni bir yetki kazandırmıyor.
+- `reattachGuest` (`rooms.ts:182-190`) eski peer'ı `detachGuest` ile ayırıyor (`share: stopped`, teknisyene `peer.left`); eski soketin geç `close`'u `guest.peer !== peer` (`rooms.ts:169`) ile etkisiz → durum karışması yok. Devralan taraf ekran paylaşımını otomatik almaz (paylaşım yeniden `getDisplayMedia` tıklaması ister).
+- **peer.joined.maxEndsAt:** yalnız aynı odanın teknisyenine (`active.ts sendGuestJoined`), değer sunucu hesaplı (consumedAt + max_active_hours), hassas değil.
+
+### Bulgular
+### [DÜŞÜK] S-P4-T3-1 reconnectToken artık sekme deposunda kalıcı — A07 Identification and Authentication Failures / A04
+Yer: `apps/web/lib/guest-resume.ts:10-17,58-64`; `app/session/[token]/guest-session.tsx:53-58`
+Sorun: Token önceden yalnız bellekteydi; şimdi `sessionStorage['rs.resume.<sha256(link)[:16B]>']`'de. (a) XSS durumunda bellekten de ele geçirilebilirdi, fark küçük; CSP sıkı (`apps/web/proxy.ts:20` `'nonce-…' 'strict-dynamic'`, prod'da `unsafe-inline/eval` yok), web'de `dangerouslySetInnerHTML` yok. (b) Yeni yüzey tarayıcı davranışı: sessionStorage "Sekmeyi çoğalt" ve "Kapatılan sekmeyi yeniden aç" (Ctrl+Shift+T) ile kopyalanır/geri gelir; `window.open` (noopener olmadan) da kopyalar.
+İstismar senaryosu: Paylaşılan bilgisayarda müşteri sekmeyi oturumu bitirmeden kapatır; oturum ACTIVE ve misafir soketi kapalıyken aynı makinedeki başka biri sekmeyi geri açar → lobisiz yeniden bağlanır (teknisyene "müşteri döndü" görünür). Etki sınırlı: ekran paylaşımı aynı makinenin ekranıdır ve yeniden tıklama ister; teknisyenin `peer.left/joined` görüp oturumu bitirebilmesi mevcut. Çoğaltılmış sekmede ise orijinal soket OPEN iken 403 conflict alır (devralma yok).
+Düzeltme: Kabul edilebilir risk; isteğe bağlı sertleştirme — kayda `savedAt` ekleyip `RECONNECT_WINDOW_MS` (120 sn) aşan kaydı okumamak (F5 için yeterli, sekme geri açma penceresini daraltır); `pagehide` + `persisted=false` olmadan silme gerekmez. (atanan ajan: frontend-dev)
+
+### [DÜŞÜK] S-P4-T3-2 Dönüş deneme penceresi sunucu ölü-soket süresinden kısa; her deneme audit satırı — A09 Security Logging and Monitoring Failures
+Yer: `apps/web/lib/webrtc/use-guest-session.ts:20-21,96-106`; `apps/server/src/signaling/ws.ts:141-143,176-184`
+Sorun: Sunucu ölü soketi en geç ~90 sn'de düşürür (30 sn ping, `missed >= 2` → 3. tikte `terminate`), istemci 20 × 3 sn ≈ 60 sn (+ status gecikmesi) dener → çökme/ağ kopmasında meşru dönüş `resumeFailed` olabilir (işlevsel). Ayrıca her 403 conflict `reconnect.conflict` audit satırı yazar: tek F5 için ≤ 20 satır. DoS açısından sınırlı: WS upgrade `guestIp` 31/dk/IP (`ws.ts:59`), status `statusIp` 60/dk/IP (`sessions/public.ts:121,213`); istemci 3 sn'de 1 upgrade + 1 status = 20/dk, limitlerin altında; 429 da yeniden denemeyi durdurmaz ama aralık sabit 3 sn, sınırlı (20).
+İstismar senaryosu: Geçerli token sahibi biri (yalnız müşterinin kendisi) audit tablosunu dakikada ≤ 31 satırla doldurabilir — IP limitiyle sınırlı, yetki kazancı yok.
+Düzeltme: backend-dev — `reconnect.conflict` audit'ini oda başına dakikada 1 ile tekilleştir (sayaç metrikte kalsın). frontend-dev — `RESUME_MAX_ATTEMPTS × RESUME_RETRY_MS`'i sunucu `pingMs × 3` + pay (≥ 100 sn, `RECONNECT_WINDOW_MS` 120 sn içinde) ile hizala.
+
+### [BİLGİ] G-01 / G-13 ile uyum
+- Depoya yazılan alanlar: `reconnectToken`, `technicianName`, `customerName`, `verifyCode`, `sessionRef` (zod şemalı, uzunluk sınırlı; bozuk kayıt silinir — `guest-resume.ts:45-56`). Link token'ı yazılmaz, anahtar SHA-256 önekidir (aynı origin'de başka link/oturumla karışma yok; 128 bit önek çakışması pratikte imkânsız).
+- G-01: reconnectToken yalnız admit sonrası `hello`'dan gelir ve yalnız `state.reconnectToken` doluyken yazılır → lobi/kabul öncesi depoda token yok. `verifyCode` = `techVerifyCode` (müşterinin teknisyeni teyidi; resolve'da zaten müşteriye gösterilir, müşteriyi doğrulamaz) → gizli değil. `sessionRef` opak, status ucu yalnız `{status}` döner.
+- G-13: TURN credential/iceServers depoya yazılmıyor (dönüşte `hello` yenisini verir). Çelişki yok.
+- Silme: `ended` fazında (`guest-session.tsx:54`), `consumed` dışı sonlarda (`guest-resume-gate.tsx:30`), panel çıkışında `clearSessionData` (`rs.` öneki). Token URL/log'a yazılmıyor; WS'de `Sec-WebSocket-Protocol` ile gidiyor (Caddy logunda yazılmıyor, G-10).
+
+### Öneri (`docs/gereksinimler.md` §9 "Sonra")
+S-P4-T3-1 (kayda süre damgası), S-P4-T3-2 (conflict audit tekilleştirme + deneme penceresi hizalama).

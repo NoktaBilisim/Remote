@@ -7,5 +7,8 @@ useDefault = true
 description = "Sahte test değerleri"
 paths = [
   # Entegrasyon testi sabit parolası (gerçek ortamda geçerli değil)
-  '''^apps/server/test/helpers/app\.ts$''',
+  # (|/) öneki: git modunda göreli yol, dir modunda /repo/... yolu da eşleşsin (S-P3-5).
+  '''(^|/)apps/server/test/helpers/app\.ts$''',
+  # Tüm sahte test secret'larının tek kaynağı (TURN secret, metrics token) — S-P3-5
+  '''(^|/)apps/server/test/helpers/secrets\.ts$''',
 ]

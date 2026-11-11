@@ -43,6 +43,8 @@ export default async function SessionsPage() {
           canCreate={perms.includes("sessions.create")}
           canCancel={perms.includes("sessions.delete")}
           showTechnician={me.me.user.role !== "USER"}
+          meId={me.me.user.id}
+          canTerminate={perms.includes("sessions.terminate")}
         />
       )}
     </>

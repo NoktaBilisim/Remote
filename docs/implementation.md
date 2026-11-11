@@ -372,3 +372,289 @@ Temizlik: `down -v`, geçici env/parola dosyaları ve curl imajı silindi.
 | Sır caddy, web ve server loglarında; istemcinin `X-Edge-Auth` başlığı ve token caddy logunda | 0 / 0 / 0 |
 
 Temizlik: `down -v` yapıldı, geçici env, çerez ve token dosyaları silindi. actionlint yerelde yok; CI'daki değişiklik tek bir `sed -e` satırından ibaret.
+
+## DBA (P3)
+- Migration `apps/server/prisma/migrations/20261111020000_p3_session_admit` (+ `down.sql`): `support_sessions.mode`, `consumed_at`, `terminated_by` (FK users RESTRICT, IX) + 5 CHECK (mode enum, consumed⇔mode, ACTIVE⇒consumed / PENDING·EXPIRED·CANCELLED⇒¬consumed, consumed≤expires, ADMIN⇔terminated_by⇒ENDED). Yeni tablo yok; `grants.sql` değişmedi. Nonce/ticket/lobi/admitCode/reconnect bellekte (mimari §3.5).
+- Sapma/erteleme: `started_at` eklenmedi (anlamı tanımsız; admit anı `consumed_at`); `end_reason` değer biçimi backend'e bırakıldı (protokoldeki küçük harf önerildi). Mimari §3.1'e not mimar/koordinatör tarafından düşülmeli.
+- **Backend-dev yapacak:** `apps/server/test/helpers/app.ts` `createSupportSessionRow`: ACTIVE/ENDED satırda `consumedAt: createdAt, mode: "BROWSER"` ekle — şu an `sessions-public.test.ts` 2 test `consumed_status_chk` ile düşüyor. Admit/terminate/açılış sorgu kalıpları `docs/db-notlari.md` P3.
+- Doğrulama: drift 0, up/down/up OK, `deploy/mysql/check-app-grants.sh` 48/48 PASS, typecheck temiz, test:int 60/62 (yukarıdaki yardımcı nedeniyle).
+
+## DBA (P4)
+- Migration `apps/server/prisma/migrations/20261111030000_p4_consents` (+ `down.sql`): `consent_texts` (tenant bazlı, sürümlü, değişmez; tenant başına tek `is_current` fonksiyonel UQ; `sha256 = SHA2(body,256)` CHECK) ve `session_consents` (append-only; bileşik FK'lerle oturum/metin/özet aynı tenant'ta) + `support_sessions` UQ(id, tenant_id). Ayrıntı ve sorgu kalıpları `docs/db-notlari.md` P4.
+- `grants.sql`: app `consent_texts` SELECT/INSERT, `session_consents` SELECT/INSERT (UPDATE(is_current) P11, retention UPDATE/DELETE P13). `check-app-grants.sh` +19 kontrol.
+- Seed: metni olmayan her tenant'a Türkçe KVKK metni v1 (`is_current`) + audit; idempotent, üretimde de çalışır.
+- Sapma (mimar §3.1'e not düşmeli): `body` MEDIUMTEXT; `ip/user_agent` NULL'lı; `session_consents` IX(session_id, tenant_id, created_at). Açık nokta: ileride tenant oluşturma servisi v1'i aynı TX'te eklemeli.
+- **Backend-dev yapacak:** join'de `consentTextId` zorunlu + `{id, tenantId, isCurrent:true}` kontrolü (400); admit TX'ine `sessionConsent.create` (VIEW/GRANTED/UI, join anındaki textId+sha256); test yardımcılarında tenant için consent text.
+- Doğrulama: drift 0, up/down/up OK, check-app-grants 67/67 PASS, test:int 93/93, typecheck/lint temiz.
+
+## DevOps (P3)
+**Dosyalar:** `deploy/turn/{docker-compose.yml, docker-compose.test.yml, turnserver.base.conf, entrypoint.sh, denied-peer-ip.local.conf.example, gen-cert.sh, test-denied.sh, test-local.sh}` (yeni), `deploy/docker-compose.yml` (server: `TURN_URLS`/`TURN_SECRET` `:?`, `TURN_CRED_TTL_MIN` 60, `METRICS_TOKEN` opsiyonel), `.env.example` (coturn bölümü; backend'in `TURN_URLS/TURN_SECRET/TURN_CRED_TTL_MIN/METRICS_TOKEN` satırları korundu), `.gitignore` (`deploy/turn/certs/`), `.github/workflows/ci.yml` (yeni `turn` job'ı; build job compose adımına sahte `TURN_URLS`/`TURN_SECRET`), `docs/runbook.md` §9. `Caddyfile` değişmedi: `/ws/*` → server ve `/metrics` 404 P1'de vardı; subprotocol log filtresi mevcut.
+
+**Kararlar / sapmalar**
+- coturn ayrı compose projesi (`remote-turn`, mimari §8 ağacı `deploy/turn/docker-compose.yml`); staging'de aynı sunucuda, prod VM'de aynı dosya. Uygulama yığınının `edge` ağına girmez (host network).
+- İmaj `coturn/coturn:4.18.0-alpine` digest'le; nobody, salt okunur, `cap_drop ALL` + **`NET_BIND_SERVICE`** (ikili dosya yeteneği taşıyor; olmadan `exec` EPERM — denendi).
+- coturn 4.18 farkları: `no-cli` artık hata (CLI varsayılan kapalı), `no-loopback-peers` tanınmıyor (loopback varsayılan yasak + 127/8, ::1 listede), DTLS varsayılan kapalı, TLS ≥ 1.2 varsayılan. `denied-peer-ip` CIDR değil `a-b` aralığıyla yazıldı (ADR izin veriyor).
+- **Bulgu (güvenlik ekibine bilgi):** ADR'deki `::/128` satırı (`denied-peer-ip=::`) coturn 4.18'de tüm adresleri reddediyor (1.1.1.1 dahil 403; log `denied in the range: ::`). Satır kaldırıldı; belirsiz adres coturn'ce zaten reddediliyor, `test-denied.sh` `::`'i ayrıca dener (PASS). ADR-0007 listesine not düşülmeli (mimar).
+- Secret komut satırına konmaz; `/tmp/turnserver.conf` tmpfs (700) içinde 600. Rotasyon için `TURN_SECRET_PREVIOUS` (coturn çoklu `static-auth-secret` kabul ediyor — testte doğrulandı).
+- `entrypoint.sh` her TURN VM'de relay↔relay için `allowed-peer-ip=<public IP>` ekler (mimari §8.3 G-05 notu); bu IP local listede de olsa allowed öncelikli (testte doğrulandı).
+- Prometheus 9641 varsayılan `127.0.0.1`; dış scrape yok (UFW kapalı). Server `rs_turn_allocations` için ayrı scrape P13'e kalır.
+- Test için `TURN_TEST_MAX_PORT` (yalnız `docker-compose.test.yml`): 40 portluk aralık ~60 negatif denemeye yetmiyor (allocation 600 sn yaşar → 508). Staging'de aralık değişmez; `test-denied.sh` 508'de bekleyip tekrar dener (runbook §9.7).
+- Staging'e yayın yapılmadı (paket denetimi sonrası). UFW/NAT adımları runbook §9.2/9.3'te; NAT talebi ağ yöneticisine.
+
+**Doğrulama (2026-11-11, yerel Docker 29.8 / macOS):** `./test-local.sh` → **57 PASS, 0 FAIL**: HMAC UDP/TCP/TLS(5349, IP SAN'lı staging CA) allocation, kontrol peer'ları 1.1.1.1 ve 2606:4700:4700::1111 izinli, yanlış secret ve süresi geçmiş username reddedildi, base + örnek local listedeki her satırın ilk/son adresi 403 (IPv4 14 aralık, IPv6 10 aralık + `::`). `TURN_SECRET_PREVIOUS` ile üretilen credential kabul edildi. Prometheus iç ağdan `turn_*` metrikleri döndü. Entrypoint fail-closed: kısa secret ve eksik local dosya → başlamadı (exit 1). `docker compose config` (ana + turn) sahte değerlerle geçerli, `TURN_EXTERNAL_IP` yokken `:?` hatası; `caddy validate` geçerli; ci.yml YAML geçerli (actionlint yerelde yok). Test konteyner/ağları kaldırıldı.
+
+**backend-dev ile uyuşma:** env adları `TURN_URLS`, `TURN_SECRET`, `TURN_CRED_TTL_MIN`, `METRICS_TOKEN` (env.ts ile aynı). Uyumsuzluk: env.ts `TURN_SECRET` min 16, coturn entrypoint ≥ 32 ister → env.ts min 32'ye çekilmeli (öneri). Credential algoritması test-denied.sh'ta `user=<unixExpiry>:<id>`, `pass=base64(HMAC-SHA1(secret,user))` ile doğrulandı — `signaling/turn.ts` aynı biçimi kullanmalı.
+
+### DevOps (P3) — Düzeltme turu 1 (güvenlik "P3 kod turu", ADR-0007 r5)
+**Dosyalar:** `deploy/turn/host-firewall.sh` (yeni), `deploy/turn/{entrypoint.sh, docker-compose.yml, test-denied.sh, test-local.sh}`, `deploy/docker-compose.yml`, `.github/workflows/ci.yml` (turn job: `host-firewall.sh` sözdizimi + `print`), `docs/runbook.md` §9 (9.2.1–9.2.3, 9.7, 9.8, 9.8.1).
+- **S-P3-2 (Orta):** `host-firewall.sh apply|ensure|check|remove|install|uninstall|print` — filter/OUTPUT başına tek atlama → `REMOTE-TURN-OUT`: UDP `--sport 49160:49199`, hedef public/özel IP + `addrtype LOCAL`, `! --dport 49160:49199` → DROP (IPv4; ip6tables varsa IPv6 LOCAL + `TURN_FW_SELF_IPS`). Aralık base.conf'tan okunur. Yan etkiyi daraltmak için aralık `ip_local_reserved_ports`'a eklenir (mevcut liste korunur, remove'da yalnız bizim aralık çıkar) → aralıktan kaynak port yalnız coturn'de. Kalıcılık: systemd `remote-turn-fw.service` (oneshot `ensure`) + `.timer` (açılış + 5 dk) — UFW reload/disable atlamayı silerse onarır; UFW before.rules seçilmedi (UFW yönetimine bağımlı olur, ufw disable'da kural da gider). Docker/UFW zincirlerine dokunulmaz.
+- **S-P3-3:** entrypoint `relay-ip=<TURN_EXTERNAL_IP iç kısmı>` (public-only'de public) → IPv6 relay 440. `test-denied.sh`: kontrol peer'ı IPv6 testi "IPv6 relay allocation reddedildi" negatifine çevrildi; IPv6 denied satırları 403 **veya** 440/443 kabul (ikisi de erişilemez); host'ta global IPv6 yoksa INFO gerekçesi (staging S-P2-5). Prod IPv6 doğrulaması P13.
+- **S-P3-6:** `deploy/docker-compose.yml` `TURN_CRED_TTL_MIN` varsayılanı 60 → 20 (env.ts ile aynı); runbook tablo + rotasyon adımı güncellendi.
+- **S-P3-9:** json-file 5×10 MB → 3×5 MB; süre tavanı haftalık cron (aktif log boşaltılır, döndürülmüş dosyalar silinir → ≤ 7 gün), KVKK notu runbook §9.8.1. Log seviyesi zaten normal; entrypoint base.conf'ta `cli*`/`verbose`/`log-binding` görürse başlamaz.
+- **CLI/no-cli:** güvenlik raporu `no-cli` eklenmesini öneriyordu; koordinatör/ADR-0007 r5 m.3 gereği **eklenmedi**. Yerelde doğrulandı: 4.18 `no-cli` ile `ERROR no-cli option is deprecated, see --cli` basıyor (süreç çalışıyor, CLI zaten kapalı). Kanıt çalışma zamanında: `test-local.sh` konteynerde 5766 dinlenmiyor (PASS); staging için runbook §9.2.3 kontrol listesi (`ss -tlnp`: 5766 yok, 9641 yalnız 127.0.0.1; `ss -ulnp` çıktısı test raporuna).
+- Metrik adları runbook §9.8'de backend'e uyarlandı: `rs_resolve_failed` (eski `_total` değil), `rs_ws_connections`, `rs_active_sessions`.
+
+**Doğrulama (2026-11-11, yerel Docker / macOS):** `./test-local.sh` → **62 PASS, 0 FAIL** (+ yerel ön kontroller: 5766 yok, 9641 var, `host-firewall.sh` iki kez apply → 2 kural/1 atlama). Bölüm 4 coturn ağ ad alanında yardımcı konteynerle (NET_ADMIN): kendi IP'sine aralık içi port (49990) echo döndü; aralık dışı 3480 echo yok + DROP +1; `:3478` DROP +1; `:53` DROP +1. Ayrıca ayrıcalıklı konteynerde tam yaşam döngüsü: check(önce)=1 → apply×2 → OK, IPv4 3 / IPv6 2 kural / 1 atlama, reserved `1000-1010,49160-49199` (mevcut değer korundu) → atlama elle silinince `ensure` onardı → remove sonrası reserved `1000-1010`, zincir yok. `install` (systemd) macOS'ta denenemedi — staging yayınında `systemctl is-active remote-turn-fw.timer` ile doğrulanacak (runbook §9.2.3). Staging'e yayın yapılmadı.
+
+### DevOps (P3) — Düzeltme turu 2 (güvenlik "P3 Tur 2" Düşük: S-P3-T2-1, S-P3-T2-2)
+**Dosyalar:** `deploy/turn/host-firewall.sh`, `deploy/turn/entrypoint.sh`, `docs/runbook.md` §9.2.1/§9.2.3.
+- **S-P3-T2-1:** apply kuralları `REMOTE-TURN-OUT-NEW`'de kurar; hata olursa geçici zinciri siler, eski zincir/atlama korunur (fail-closed). Başarıda yeni atlama önce eklenir, eski silinir, `-E` ile yeniden adlandırılır. IP doğrulaması `case` + oktet (0..255, baştaki sıfır yok) / IPv6 grup-`::` kuralı; çok satırlı/CR değer reddi. `entrypoint.sh`'te aynısı + config'e yazılan tüm env'ler (`TURN_REALM`, `TURN_TEST_MAX_PORT`, `TURN_PROMETHEUS_ADDRESS`…) için yeni satır reddi, `TURN_REALM` boşluk/`#` reddi. Reserved ports: kapsama kontrolü; remove eklemeden önceki listeyi saklayıp yalnız bizim portları çıkarır. `ensure` sapma/onarım hatasını journald'a `<3>` (err) ile yazar, onaramazsa exit 1. Ek düzeltme: runbook `TURN_FW_SELF_IPS`'i `.env`'de söylüyordu ama betik okumuyordu → artık okunuyor.
+- **S-P3-T2-2:** `install` → `/usr/local/sbin/remote-turn-fw` (root:root 0755, `install -o root -m 0755` + atomik mv), `/etc/default/remote-turn-fw` (root 0644, yalnız IP/port; görevdeki 0644 seçildi — secret yok). Birim yalnız kurulu kopyayı çalıştırır; kurulu kopya yalnız bu dosyayı okur, sahibi root değilse/g-o yazabiliyorsa çalışmaz. `uninstall` hepsini + `/var/lib/remote-turn-fw` siler. Runbook: betik/.env değişince `install` yeniden.
+- **Doğrulama (yerel):** `bash -n`/`sh -n` temiz; `print` (staging + CI girdisi) beklenen 3+1 kural. busybox'ta 21 doğrulama vakası + entrypoint 7 vaka (çok satırlı IP/realm/test port/prometheus → başlamadı). Ayrıcalıklı Ubuntu 24.04: apply×2 → 3 kural/1 atlama/NEW yok; enjekte `-A` hatası → exit 1, eski zincir ve atlama yerinde, check OK; ensure onarım + `<3>` öneki; onaramayınca exit 1; çekirdeğin birleştirdiği `49100-49250` üzerinde check OK, remove → `49100-49159,49200-49250`; önceden örtüşen `49150-49170` korundu; kurulu kopya `/etc/default`'tan okudu, 0664 ve root dışı sahip reddedildi. `./test-local.sh` → **62 PASS, 0 FAIL** (+3 ön kontrol). systemd `install` macOS'ta denenemedi → staging yayınında runbook §9.2.3 (`ExecStart`, `cmp`, `is-active`). Staging'e dokunulmadı.
+
+## Backend (P3) — sinyalizasyon sunucusu (2026-11-11)
+Durum: **tamam** (kod + testler yeşil). Kalanlar aşağıda "Kalan / sonraki paket".
+
+### Dosyalar
+- `packages/contracts/src/ws.ts` (yeni; `./ws` export) — WS mesaj şemaları tek kaynak (strict, discriminatedUnion), kapanış kodları, ended reason listesi, WS hata kodları. `packages/contracts/fixtures/ws-messages.json` (geçerli/geçersiz örnekler; Go P6 aynı dosyayı kullanır).
+- `packages/contracts/src/api/sessions.ts` — resolve yanıtına `joinNonce`, `nonceExpiresAt`; `joinSessionInputSchema`/`JoinSessionResponse`; `terminateSessionInputSchema`/`TerminateSessionResponse`. `errors.ts` — `LOBBY_FULL` (409), `NONCE_INVALID` (410).
+- `apps/server/src/signaling/{types,store,turn,rooms,active,admit,handlers,ws}.ts` — oda/lobi durum makinesi, tek kullanımlık nonce/ticket deposu, TURN HMAC, max süre/120 sn/ICE yenileme zamanlayıcıları, admit/reject (tek atomik UPDATE), mesaj doğrulama + relay + token-bucket, upgrade/auth/ping/60 sn yeniden doğrulama.
+- `apps/server/src/public/service.ts` — join (nonce → checkPublicClient(nonce.kind) → PENDING okuma → lobi + ticket + admitCode, audit `guest.pending`), `issueJoinNonce`.
+- `apps/server/src/ops/metrics.ts` — `/metrics` (Bearer `METRICS_TOKEN`).
+- `apps/server/src/sessions/{repo,service,routes,public}.ts` — `consumeForAdmit`, `endActive`, `terminateActive`, `endAllActive`, `findForSignal`, `maxActiveHours`; `terminateSession`, `endOrphanedActive`; cancel artık odaya `session.ended{cancelled}` bildirir; POST `/sessions/:id/terminate`, POST `/public/sessions/join`; resolve `checkOrigin` → `checkPublicClient` (ADR-0012).
+- `apps/server/src/auth/guards.ts` — `checkPublicClient(req, kind)` + saf `publicClientAllowed(headers, allowedOrigins, kind)` (WS upgrade'de de kullanılır).
+- `apps/server/src/env.ts`, kök `.env.example` — `TURN_URLS`, `TURN_SECRET` (≥ 32 karakter, devops coturn başlatıcısıyla uyumlu; turn:/turns: URL varsa zorunlu), `TURN_CRED_TTL_MIN` (5..60, vars. 60), `METRICS_TOKEN` (opsiyonel, ≥ 16). Credential biçimi devops `test-denied.sh` ile aynı: username=`<unixExpiry>:<sessionId>`, credential=base64(HMAC-SHA1(TURN_SECRET, username)).
+- `apps/server/src/app.ts` — `rooms`, `metrics` dekorasyonu, `attachSignaling`, açılışta ACTIVE → ENDED{server}.
+- Testler: `test/helpers/{ws,signal-flow}.ts`, `test/integration/signaling-{rooms,ws,lifecycle}.test.ts`, `test/unit/{signaling,ws-fixtures}.test.ts`; `test/helpers/app.ts` (createSupportSessionRow ACTIVE/ENDED için `consumedAt`+`mode`; makeApp `signaling` seçeneği), `tenant-matrix.ts` (3 yeni rota + terminate çapraz tenant).
+
+### Sözleşme (frontend-dev / P4 için)
+- Resolve: `{ ..., joinNonce, nonceExpiresAt }`; tarayıcı `clientKind: "BROWSER"` + Origin, agent `AGENT` + Origin'siz.
+- Join: `POST /api/v1/public/sessions/join { joinNonce, customerName(2..100), customerEmail?, consentTextId?, consentAccepted: true }` → `{ wsTicket, admitCode, technicianName }`. Hatalar: 400, 403 `CSRF_INVALID` (istemci türü) / `FORBIDDEN` (ret listesi), 409 `LOBBY_FULL`, 410 `NONCE_INVALID`/`SESSION_*`, 429 (20/dk/IP).
+- WS misafir: `new WebSocket(wss://host/ws/guest, ["rs.v1", "rs.ticket."+wsTicket])` → `lobby.wait` → (admit) `hello{iceServers, reconnectToken, caps, maxEndsAt}`. Yeniden bağlanma: `["rs.v1","rs.reconnect."+token]`; her hello yeni token verir.
+- WS teknisyen: `/ws/tech?sessionId=<id>` (çerez + Origin); PENDING'de `hello{iceServers: [], maxEndsAt: null}`, lobi için `peer.pending`/`peer.pending.left`; `guest.admit{admitCode}` → `peer.joined{role:"guest", guestKind}` + `ice.servers`; hatalar `error{code: ADMIT_CODE_INVALID|CONFLICT|NOT_FOUND}`.
+- Terminate: `POST /api/v1/sessions/:id/terminate { reason? }` → `{ status:"ENDED", endedBy:"ADMIN" }` (sessions.terminate; 404 başka tenant, 409 ACTIVE değil).
+- Kapanış kodları: 1000 normal, 1008 politika, 4401 auth_revoked, 4409 teknisyen başka sekmeden bağlandı.
+
+### Tasarımdan sapmalar (gerekçeli)
+1. `hello.maxEndsAt` **nullable**: PENDING oturumda teknisyen hello'sunda max süre henüz yok (başlangıç = admit). Teknisyene de iceServers PENDING'de boş; admit sonrası `ice.servers` ile gelir (TURN yalnız admit sonrası kuralının teknisyen tarafına da uygulanması).
+2. `peer.joined` ek alan `guestKind?` (A1/A2 akış diyagramlarında var, protokol tablosunda yoktu).
+3. `consentText` (resolve) ve `consentTextId` doğrulaması **P4'e** bırakıldı: `consent_texts`/`session_consents` tabloları P4'te (db-notlari P3). Join şemasında `consentTextId` şimdilik opsiyonel; P4 zorunlu yapar. Admit TX'inde consent kaydı yok (yalnız UPDATE + audit).
+4. Public uç dosya yerleşimi: rotalar P2'deki gibi `sessions/routes.ts` `publicSessionRoutes` içinde; join servisi `public/service.ts`. Mimari §6'daki `public/routes.ts` ayrı dosyası açılmadı (tek rota için kopya kayıt gereksiz).
+5. Ek dosyalar `signaling/{types,store,active,admit}.ts` (≤150 satır kuralı; rooms.ts'i bölmek için).
+6. `maxPayload`: ws kütüphanesi sınırı 1 MB (bellek tavanı, aşımda ws 1009); 64 KB üstü kendi kontrolümüzle 1008. Yani 64 KB–1 MB arası kontrollü 1008 (AC-17), 1 MB üstü 1009.
+7. `prom-client` eklenmedi; /metrics küçük elde yazılmış sayaç/gösterge (yalnız counter+gauge gerekiyor). `rs_resolve_failed` gauge olarak yayınlanır (süreç sayacı). `METRICS_TOKEN` yoksa `/metrics` 404 (env opsiyonel; devops compose'da verirse açılır).
+8. `end_reason` biçimi: protokoldeki küçük harf değerler (`tech`, `customer`, `timeout`, `max_duration`, `admin`, `auth_revoked`, `server`). §3.5/A4 metnindeki `TIMEOUT`/`SERVER_RESTART` büyük harf yazımları bu değerlere karşılık gelir (dba kararı ile uyumlu). `ended_by`: teknisyen TECH, müşteri CUSTOMER, zaman aşımı/max süre/auth_revoked/açılış SYSTEM, terminate ADMIN.
+9. Açılışta ACTIVE → ENDED{server} toplu UPDATE; oturum başına audit yazılmaz, yalnız log (sayı). `started_at` yok (consumed_at = başlangıç, dba kararı).
+10. Teknisyen `session.end` PENDING oturumda → `error{CONFLICT}` (bekleyen oturum REST iptal ile kapanır).
+11. Teknisyen yeniden bağlanması eski soketi 4409 ile kapatır (sayfa yenileme/ikinci sekme); çakışma reddi yalnız misafir reconnect'inde (G-10).
+12. join hız sınırı 20/dk/ipKey ve /ws/guest upgrade 30/dk/ipKey (mimaride sayı yoktu; resolve kovalarından bağımsız, en basit güvenli değer).
+13. Admit yarışı: aynı oda içinde ikinci admit bellek bayrağıyla (`room.admitting`) DB'ye gitmeden CONFLICT + audit fail alır; DB düzeyi tek kazanan ayrıca repo testinde (consumeForAdmit ‖ consumeForAdmit ×50) ve admit ‖ cancel ×50 ile doğrulandı.
+
+### Bağımlılıklar
+- `ws@8.18.3` (mimari §10.4 onaylı), `@types/ws@8.18.1` (dev). Başka bağımlılık yok.
+
+### Testler
+Komutlar: `pnpm -r run lint` · `pnpm -r run typecheck` · `pnpm --filter @remote/server test` · `eval "$(apps/server/scripts/test-db.sh up)" && pnpm --filter @remote/server test:int`.
+Son çıktı: lint temiz, typecheck temiz (3 paket), unit **69/69**, entegrasyon **85/85** (15 dosya; P3 yeni: signaling-rooms 9, signaling-ws 7, signaling-lifecycle 7 + tenant-matrix'e 3 rota). Kapsanan: iki sahte istemci offer/answer/ICE/share.state aktarımı, çapraz oturum sızıntısı yok, lobi (≤3, LOBBY_FULL, 5 hatalı kod, ret listesi, lobby_timeout, ticket 60 sn), admit öncesi iceServers yok, admit‖admit ve admit‖cancel 50'şer tur (tek kazanan, tek audit), süresi dolmuş admit, reconnect (çakışma 403 + audit, yeni token, eski token geçersiz), 120 sn timeout (sahte saat), max süre uyarı + bitiş (sahte saat) + ICE yenileme, terminate (403/409/200 + DB ADMIN/terminated_by + audit), auth iptali → 4401, 1008 durumları (JSON, ekstra alan, 64 KB, 50/sn, lobi misafiri SDP), upgrade retleri (sorgu dizesi, rs.v1 yok, ticket tekrar, izinsiz Origin, sahip olmayan teknisyen, çerezsiz), ADR-0012 matrisi, /metrics 404/401/200, fixture uyumu.
+
+### Kalan / sonraki paket
+- Ping/pong (30 sn, 2 kaçırma → terminate) kodda var, otomatik testi yok (ws istemcisi pong'u otomatik yanıtlar; test için soket duraklatma gerekir).
+- `rooms.endByTechnician(userId)` hazır ama henüz çağıran uç yok (logout-all/deactivate/reset-mfa P9/P10); şimdilik 60 sn yeniden doğrulama G-04'ü karşılar. `applyPermChange`/`caps.update` P7/P9.
+- Expiry işi (PENDING → EXPIRED) lobi misafirlerine anında bildirim göndermez; misafir 5 dk lobi süresiyle ya da admit denemesinde (`session.ended{timeout}`) düşer.
+- Bekleyen oturumda teknisyenin auth'u iptal edilirse oda kapanır ama DB'de oturum PENDING kalır (süre dolumu kapatır).
+- coturn tarafı (`deploy/turn/*`, `turnutils_uclient`, `test-denied.sh`) devops işi.
+
+### Düzeltme turu 1 (qa-raporu QA-P3-1..5, güvenlik S-P3-1/4/5/6/7) — 2026-11-11
+Sapma 6 ve 7 ile "Kalan" maddelerindeki ping/pong, endByTechnician testi ve expiry bildirimi aşağıdaki değişikliklerle **geçersizdir**.
+
+| Madde | Değişiklik |
+|---|---|
+| S-P3-1 | `ws` 8.18.3 → **8.21.0** (`apps/server/package.json`, `pnpm-lock.yaml`); `pnpm audit`: **No known vulnerabilities**. `signaling/ws.ts` `maxPayload = WS_MAX_PAYLOAD` (64 KB): aşan çerçeve artık ws tarafından **1009** ile kapanır (eski sapma 6 kalktı; handlers.ts'teki 1008 kontrolü savunma olarak duruyor). Sunucu soketine `error` dinleyicisi eklendi (1009 durumunda dinleyicisiz `error` olayı süreci düşürüyordu — entegrasyon testinde "Unhandled Error" olarak yakalandı); yalnız `role` + hata kodu loglanır. |
+| S-P3-4 | `expireDue(db, ctx, now, rooms?, batch)` başarılı her expiry'den sonra `rooms.closeSession(id, "timeout")` → teknisyen + lobi `session.ended{timeout}`, oda silinir. `RoomNotifier` reason'a `"timeout"` eklendi; `startScheduler(db, log, rooms?, intervalMs)` (app.ts `rooms` geçirir). `Room.expiresAt` eklendi: ret listesi / hatalı kod taşıyan boş oda yalnız PENDING bitişine kadar tutulur, `timers.idle` ile o anda yeniden kontrol edilip silinir. |
+| S-P3-5 | Tüm sahte secret'lar tek dosyada: `apps/server/test/helpers/secrets.ts` (`FAKE_TURN_SECRET*`, `FAKE_METRICS_TOKEN`); `.gitleaks.toml` allowlist `(^|/)apps/server/test/helpers/(app|secrets)\.ts$` (dir ve git modunda eşleşir). gitleaks v8.30.1 dir taraması: 10 bulgu, **hepsi `apps/web/.next/**`** (git-ignore, derleme çıktısı); commit edilecek dosyalarda **0**. |
+| S-P3-6 | `TURN_CRED_TTL_MIN` varsayılanı **20** (env.ts, `.env.example` açıklaması). Compose varsayılanı devops tarafından zaten `${TURN_CRED_TTL_MIN:-20}`. **devops:** `docs/runbook.md:181` tablosu hâlâ "60 (5..60)" diyor → 20 olmalı (bu turda runbook'a dokunulmadı). |
+| S-P3-7 | `/ws/tech` upgrade'i IP başına `FixedWindowCounter(31, 60 sn, 60 sn kilit)` — Origin/çerez/DB kontrollerinden **önce**; aşımda 429 (`rs_ws_rejected_total{role="tech",reason="rate"}`). Misafir sayacından ayrı. |
+| QA-P3-1 | Join'de 410 (`SESSION_EXPIRED/CONSUMED/CANCELLED`, `addGuest` içinden gelen `SESSION_CONSUMED` dahil) → audit `session.join` `result=fail`, `newValue {reason}` (token/kod/ad yok). Nonce tek kullanımlık + IP limitli olduğundan tekilleştirme yok. |
+| QA-P3-2 | Ping/pong testi (pingMs 50, `autoPong:false` soket → 1006 terminate, pong veren soket açık); AC-120 log tarama testi (gerçek `createLogger("trace", sink)`; joinNonce, wsTicket, iki reconnectToken, link token, auth token, admitCode (hatalı kod denemesi dahil) ve alan adları logda yok; sorguda sızmış ticket 403); `signaling.test.ts` test adı AC-18. |
+| QA-P3-3 | `/metrics`: `rs_ws_connections` (gauge, `wss.clients.size`), `rs_active_sessions` (gauge, admit edilmiş ve bitmekte olmayan oda), `rs_resolve_failed_total` → **`rs_resolve_failed`** (gauge; `_total` soneki kaldırıldı). `rs_active_rooms` ve `rs_ws_connections_total` (counter) duruyor. **devops:** alarm/panel bu adı kullanıyorsa güncellenmeli. |
+| QA-P3-4 | `guest.pending` audit testi (1 kayıt, yalnız `guestId/name/guestKind`, admitCode yok). |
+| QA-P3-5 | `rooms.endByTechnician` entegrasyon testi (aynı teknisyenin iki ACTIVE odası: 4 tarafa `session.ended{auth_revoked}`, teknisyene 4401, DB ENDED/SYSTEM/auth_revoked + 1'er audit). Çağıran uç P7/P9'da (S-P3-8). |
+
+Değişen dosyalar: `apps/server/{package.json, src/signaling/{ws,rooms,types}.ts, src/sessions/{service,public}.ts, src/public/service.ts, src/jobs/scheduler.ts, src/app.ts, src/env.ts}`, `.env.example`, `.gitleaks.toml`, `pnpm-lock.yaml`; testler `test/helpers/{secrets(yeni),ws,signal-flow}.ts`, `test/integration/signaling-fix1.test.ts` (yeni, 9 test), `test/integration/signaling-{ws,lifecycle}.test.ts`, `test/unit/{signaling,scheduler}.test.ts`. packages/contracts değişmedi.
+
+Sözleşme etkisi (frontend-dev): 64 KB üstü mesajda kapanış kodu artık **1009** (1008 değil). Bekleyen oturumun süresi dolunca teknisyen ve lobi `session.ended{reason:"timeout"}` alır (30 sn expiry turu gecikmesiyle). `/ws/tech` çok sık yeniden denemede HTTP 429.
+
+Komutlar ve son çıktı: `pnpm -r run lint` temiz · `pnpm -r run typecheck` temiz (3 paket) · unit **69/69** · entegrasyon **93/93** (16 dosya; iki kez koşuldu, ikisi de yeşil, unhandled error yok) · `pnpm audit` temiz · gitleaks (commit edilecek dosyalar) 0.
+
+## Backend (P4) — karşılama onayı, consent kaydı (2026-11-11)
+
+### Sözleşme (P4) — frontend-dev için (erken yazıldı)
+- **POST `/public/sessions/resolve`** yanıtına eklendi (`ResolveSessionResponse`, `@remote/contracts/api/sessions`):
+  - `consentText: { id, version, body, sha256 }` (`ConsentTextView`) — tenant'ın `is_current` sürümü. `body` düz metindir; `textContent`/`white-space: pre-line` ile basın (HTML değil).
+  - `abuseEmail: string | null` — "Kötüye kullanımı bildir" `mailto:` adresi (AC-125): sunucu env `ABUSE_EMAIL`, yoksa ilk aktif Super Admin e-postası (V13); ikisi de yoksa `null` → bağlantıyı gizleyin.
+  - Tenant'ın güncel metni yoksa (seed eksik) 500 `INTERNAL` (loglanır; müşteriye ayrıntı yok).
+- **POST `/public/sessions/join`** gövdesi: `consentTextId` artık **zorunlu** (ULID, 26 karakter). Resolve'daki `consentText.id` aynen gönderilir. Yanlış / eski sürüm / başka tenant'ın metni → **400 `VALIDATION`**, `fields.consentTextId` = "Aydınlatma metni güncellendi; sayfayı yenileyip tekrar onaylayın." (G-24, AC-127). Diğer alanlar ve yanıt değişmedi (`customerName` 2..100, `consentAccepted: true`, `customerEmail?`).
+- **Onay kaydı:** misafir admit edildiğinde (WS `guest.admit`) sunucu aynı TX'te `session_consents` satırı yazar (VIEW/GRANTED/UI, metin id + sha256, join anındaki zaman/IP/UA) ve audit `guest.admitted` `newValue.consent = { textId, version, sha256 }` (AC-29). İstemcinin ek bir çağrısı yok.
+- **WS (değişiklik yok, P3'teki gibi):** müşteri `share.state{state:"sharing"|"stopped"}` gönderir → teknisyene aynen (alanlar yeniden kurularak) iletilir (AC-31); `session.end` (iki taraf) → iki tarafa `session.ended{tech|customer}`; Admin `POST /sessions/:id/terminate` (`sessions.terminate` yetkisi, ADMIN aynı tenant / SUPER_ADMIN) → `session.ended{admin}` (AC-114). Lobideki misafir yalnız `session.end` gönderebilir.
+- **`@remote/contracts/dc`** (yeni): `DC_LABELS {ctl,file,input}`, `DC_CTL_MAX_BYTES` (16 KB), `dcEnvelopeSchema` (`{t, id?}`), `parseDcEnvelope(raw)` (null → düşür). Tipe özgü ctl mesajları P5.
+- **Dolandırıcılık uyarısı metni** (AC-125) sabit UI metnidir; sunucudan gelmez.
+
+### Dosyalar
+- Yeni: `apps/server/src/public/consent.ts` (güncel metin, join doğrulaması, admit TX onay kaydı, abuse adresi), `packages/contracts/src/dc.ts`, `apps/server/test/integration/consent-p4.test.ts`, `apps/server/test/unit/dc.test.ts`.
+- Değişen: `packages/contracts/src/api/sessions.ts` (ConsentTextView, resolve `consentText`/`abuseEmail`, join `consentTextId` zorunlu ULID), `packages/contracts/package.json` (yalnız `"./dc"` export satırı — web'in import edebilmesi için gerekli), `apps/server/src/env.ts` (`ABUSE_EMAIL?`), `sessions/public.ts` + `sessions/routes.ts` (resolve), `public/service.ts` (join: nonce → oturum durumu → `acceptConsent` → lobi; audit `guest.pending` + consentTextId/version), `signaling/{types,rooms,admit}.ts` (Guest.consent; admit TX: `consumeForAdmit` count=1 → `session_consents` → audit `guest.admitted` + consent özeti), test yardımcıları (`createTenant` v1 güncel metin ekler; `createConsentText`, `currentConsentId`; `techSession().consentTextId`; `roomFixture().consent`), P3 testlerinde join gövdesine `consentTextId`, admit yarış testlerine consent sayımı.
+
+### Tasarımdan sapmalar / kararlar (gerekçeli)
+1. **Resolve yanıtına `abuseEmail`** (mimari-api'de yok): AC-125 `mailto:` adresi web'e başka yoldan gelmiyordu; V13 gereği `ABUSE_EMAIL`, yoksa ilk aktif Super Admin e-postası. **devops:** `ABUSE_EMAIL` → `.env.example` (boş) + `deploy/docker-compose.yml` server servisi + runbook (env.ts eklendi; ben deploy'a dokunmadım). **mimar:** mimari-api resolve satırına `abuseEmail` notu.
+2. **Join'de 400 nonce'u yakar:** nonce tek kullanımlık ve consent kontrolü nonce alındıktan sonra yapılır; istemci 400'de yeniden resolve edip güncel metni göstermeli (zaten "sayfayı yenileyin" akışı).
+3. **Eski/başka tenant/bilinmeyen id ayırt edilmez** (hepsi aynı 400 + `fields.consentTextId`) — tenant varlığı sızmaz.
+4. **Onay zaman çizelgesi ucu (AC-62) eklenmedi:** mimari §10.2'de AC-62 P8 satırında; P4 yalnız kaydı yazar (sorgu kalıbı db-notlari'nde hazır). GET `/sessions/:id` değişmedi (konsol açılışı mevcut `SessionView` + WS `hello`/`peer.pending` ile yeterli).
+5. **Müşteri adı DB'ye yazılmaz:** `support_sessions.customer_*` sütunları P4 migration'ında yok (P8); ad lobide bellekte ve audit `guest.pending`/`guest.admitted`'da.
+6. **share.state, session.end (iki taraf), terminate** P3'te kurulmuştu; P4'te yalnız testle doğrulandı (AC-31/32/59/114 — başka tenant Admin 404, USER 403).
+7. Tenant'ın güncel metni yoksa resolve 500 (bilinmeyen hata yolu: loglanır, referans ID; müşteriye ayrıntı yok). Yeni tenant servisi gelene dek `pnpm db:seed` v1'i ekler (db-notlari P4 #6).
+8. `dc.ts` UTF-8 bayt sayımı elle (contracts tsconfig'inde DOM/Node lib yok; TextEncoder kullanılamadı).
+
+### Bağımlılıklar
+Yok.
+
+### Testler (2026-11-11, temiz `test-db.sh up` → sonra `down`)
+`pnpm typecheck` + `pnpm lint` (server, contracts) temiz; `pnpm test` 71/71 (server unit), contracts 2/2; `pnpm test:int` **99/99** (17 dosya). Yeni: AC-127 resolve metni + ABUSE_EMAIL; AC-127/G-24 consentTextId yok/eski sürüm/başka tenant/bilinmeyen → 400 VALIDATION, doğru → 200, join'de consent satırı yok; AC-29 admit → tek VIEW/GRANTED/UI satırı (metin id + sha256 + IP + UA, join anı ≤ consumed_at) + audit özeti; admit‖admit ve admit‖cancel 50 tekrarında consent sayısı = kazanan admit sayısı (kaybeden/geri alınan TX yazmaz); AC-31 share.state stopped→sharing; AC-32/59 müşteri session.end; AC-114 tenant sınırı/USER 403; dc zarfı unit.
+**Not:** `apps/web` typecheck şu an frontend'in devam eden işinden (`components/guest/share-strip.tsx` i18n anahtarları `gs.*`) kırmızı — backend sözleşmesiyle ilgisiz.
+
+### Düzeltme turu 1 (S-P4-1, S-P4-3, QA-P4-12) — 2026-11-11
+- **S-P4-1:** `abuseEmail(db, { fromEnv, superAdminFallback })` (`public/consent.ts`); `routes.ts` `superAdminFallback = NODE_ENV !== "production"`. Production'da `ABUSE_EMAIL` yoksa resolve `abuseEmail: null` (Super Admin sorgulanmaz bile). `ABUSE_EMAIL` formatı env.ts'te `z.email().max(190)` (zaten vardı; testle sabitlendi). Not: compose'da `ABUSE_EMAIL=` boş dize olarak geçilirse e-posta doğrulaması başlatmayı durdurur — devops değişkeni tanımsız bırakmalı.
+- **S-P4-3:** `joinSessionInputSchema.customerName` (contracts): trim'den **önce** `UNSAFE_NAME_CHARS` refine — C0/C1 (U+0000–001F, U+007F–009F), U+200B–200F, U+202A–202E, U+2066–2069, U+FEFF → 400 `VALIDATION` `fields.customerName`. Baştaki/sondaki `\n`/`\t` da reddedilir (kontrol karakteri). Trim sonrası < 2 → 400 (boş/boşluklu ad).
+- **QA-P4-12 (sözleşme, frontend için):** `serverOutboundSchema`:
+  - `hello` (yalnız role=tech, admit edilmiş misafir varken): `guestName?: string(≤100)`, `share?: { state, monitors?, activeMonitor? }`. PENDING oturumda ikisi de yok; `share` misafir hiç `share.state` göndermediyse yok.
+  - `peer.joined{role:"guest"}` (admit + misafir yeniden bağlanma): `guestName?`.
+  - Sunucu: ad = admit edilen lobi misafirinin adı (`room.admitted.name`, peer.pending'deki ad); `room.share` misafirin son `share.state`'i; misafir koparsa `{state:"stopped"}`; oturum bitince oda silinir. `ShareSnapshot` tipi contracts'tan export; `fixtures/ws-messages.json`'a iki örnek eklendi.
+- **Boş env (devops isteği):** `loadEnv` ayrıştırmadan önce boş/yalnız boşluk değerleri atar (tanımsız sayılır). Compose `${METRICS_TOKEN:-}`, `${ABUSE_EMAIL:-}` vb. artık sunucuyu durdurmaz; varsayılanlı alanlar (`TURN_CRED_TTL_MIN`, `LOG_LEVEL` …) varsayılana düşer. Zorunlu alanlar (prod'da `SESSION_REF_KEY`/`TRUSTED_PROXY_CIDR`, her ortamda `DATABASE_URL`) boşken yine hata verir. Birim test +2 (`env-logger.test.ts`). Yukarıdaki "`ABUSE_EMAIL=` boş dize" notu bununla geçersiz.
+- Dosyalar: `packages/contracts/src/{ws.ts,api/sessions.ts}`, `packages/contracts/fixtures/ws-messages.json`, `apps/server/src/{env.ts,public/consent.ts,sessions/public.ts,sessions/routes.ts}`, `apps/server/src/signaling/{types,active,rooms,handlers}.ts`, testler `test/unit/env-logger.test.ts` (+3), `test/integration/consent-p4.test.ts` (+4).
+- Komutlar: `pnpm -r run lint` · `pnpm -r run typecheck` temiz; `pnpm -r run test` contracts 2, server unit **76**, web 42 geçti; `eval "$(apps/server/scripts/test-db.sh up)" && pnpm --filter @remote/server test:int` → 17 dosya, **103/103**; konteyner silindi. Bağımlılık yok.
+- **Düzeltme turu 2 (S-P4-T2-1, S-P4-T2-2):** `UNSAFE_NAME_CHARS` Unicode kategori tabanlı `/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u034F\u180E]/u` (U+00AD, U+061C, U+2028/2029, U+2060–2064, U+FFF9–FFFB, etiketler U+E0000–E007F dahil; trim öncesi kontrol korunur; ZWJ'li emoji kabul edilmez) — yeni birim test `packages/contracts/test/sessions.test.ts` (+22), `consent-p4.test.ts` örnekleri genişletildi. `scripts/e2e-real-users.ts` `NODE_ENV=production` kontrolüne ek olarak `E2E_REAL_ALLOW=1` yoksa açıklayıcı hatayla çıkar; `apps/web` `e2e:real:users` bayrağı geçer, `playwright.real.config.ts` notu güncellendi (imajdan `scripts/` çıkarma devops'ta). Sonuç: lint/typecheck temiz; contracts 24, server unit 78, server int 103/103. Sözleşme değişikliği: frontend'de ek iş yok (aynı hata kodu/alan).
+- **Sayfa testi düzeltmesi (TEST-P4-2, TEST-P4-1 sunucu tarafı) — 2026-11-11:**
+  - **TEST-P4-2 (sözleşme, frontend için):** `peer.joined{role:"guest"}` → `maxEndsAt?: iso` (consumedAt + max_active_hours; guest hello'sundaki değerle aynı). Admit sonrası ve misafir yeniden bağlandığında teknisyene gider (`active.ts sendGuestJoined`, iki çağrı yeri tek fonksiyon). Konsol "Kalan süre"yi bu alandan güncellemeli. Fixture'a örnek eklendi.
+  - **TEST-P4-1 (yarış):** F5'te tarayıcı 1001 kapanış çerçevesi gönderip hemen yeni WS açıyor; sunucu soketi CLOSING iken `close` olayı henüz işlenmediğinden `guest.peer` dolu → `reconnect.conflict` 403. Düzeltme: `Peer.isOpen()` (ws `readyState === OPEN`); `/ws/guest` reconnect'te yalnız **OPEN** eski soket çakışma sayılır. `reattachGuest` eski (kapanmakta olan) peer'ı önce `detachGuest` ile ayırır (teknisyene `peer.left` + `share: stopped`), sonra yeni peer'ı bağlar; eski soketin geç `close`'u `guest.peer !== peer` korumasıyla etkisiz. Düzeltmesiz kodla yeni test 3/3 `HTTP 403`, düzeltmeyle 3/3 geçti. Kalan risk: eski TCP kapanış çerçevesi olmadan kopmuşsa (çökme/ağ) soket ping zaman aşımına (≤ 60 sn) kadar OPEN kalır → 403; frontend 403'te 120 sn pencere içinde birkaç sn aralıkla yeniden denemeli. Resolve'un ACTIVE oturumda 410 dönmesi tasarım gereği, değişmedi (dönüş yolu yalnız `rs.reconnect.<token>`).
+  - Dosyalar: `packages/contracts/src/ws.ts`, `packages/contracts/fixtures/ws-messages.json`, `apps/server/src/signaling/{types,active,rooms,ws}.ts`, `apps/server/test/helpers/ws.ts` (FakePeer `isOpen`), `test/integration/signaling-lifecycle.test.ts` (+2: AC-13/TEST-P4-2, AC-24/TEST-P4-1), `consent-p4.test.ts` (peer.joined beklentisi `maxEndsAt`).
+  - Komutlar: server+contracts lint/typecheck temiz; unit contracts 24, server 79; `test:int` 17 dosya **105/105** (iki kez); test konteyneri silindi. Bağımlılık yok. Not: `pnpm -r run lint` şu an `apps/web/app/session/[token]/guest-resume-gate.tsx:22` (frontend'in devam eden işi, setState-in-effect) nedeniyle kırmızı — backend ile ilgisiz.
+
+## Frontend (P4) — tarayıcı modu medya hattı (2026-11-11)
+Durum: **tamam** (lint/typecheck/unit/e2e yeşil). Backend P4 sözleşmesine uyarlandı (resolve `consentText` + `abuseEmail`, join `consentTextId` zorunlu).
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/session/[token]` | Hayır (token) | Karşılama (teknisyen + doğrulama kodu, dolandırıcılık uyarısı + "Kötüye kullanımı bildir", ad + aydınlatma onayı, "Yalnız ekranımı tarayıcıdan paylaş") → lobi (4 haneli kabul kodu, kalan bekleme, "Vazgeç ve çık") → oturum (paylaş/durdur/yeniden paylaş, önizleme, oturumu bitir onaylı) → bitiş/ret/bekleme doldu/bağlantı kesildi ekranları |
+| `/sessions/[id]/console` | Evet, yalnız oturumun teknisyeni | Teknisyen konsolu (varsayılan koyu): üst bar (müşteri, durum, kalan süre, doğrulama kodu, bitir/iptal onaylı), sahne (bekleniyor, lobi paneli: kod girişi + kalan hak + satır başına Reddet, bağlanıyor, video, paylaşım durdu, müşteri koptu 120 sn, kendi WS koptu) |
+| `/sessions` (değişti) | Evet | Satır eylemleri: "Konsolu aç" (PENDING/ACTIVE, yalnız kendi oturumu), "Zorla sonlandır" (ACTIVE, `sessions.terminate`, onay diyaloğu) |
+
+### Dosyalar
+- `lib/webrtc/{signal,peer,guest-machine,tech-machine,use-guest-session,use-tech-session}.ts`, `lib/webrtc/machines.test.ts`
+- `app/session/[token]/{page,guest-flow,guest-welcome,join-form,guest-session}.tsx`, `app/session/guest-ui.tsx` (yeni bitiş türleri, şifreli bağlantı notu, alt bilgi)
+- `app/(panel)/sessions/[id]/console/{page,console-view}.tsx`, `components/console/{stage,lobby-panel}.tsx`, `components/guest/share-strip.tsx`
+- `app/(panel)/sessions/{session-list,sessions-view,page,terminate-dialog}.tsx`
+- `components/ui/button.tsx` (`danger`, `danger-ghost` varyantları), `components/ui/code-display.tsx` (`xl` kabul kodu kutuları), `app/globals.css` (`:root:has(.theme-dark)` — konsol koyu), `messages/tr.json`
+- `next.config.ts` (`/ws/*` rewrite — yalnız Caddy'siz geliştirme/e2e), `proxy.ts` (matcher `/ws/` hariç)
+- e2e: `e2e/mock-ws.mjs` (sahte sinyalizasyon), `e2e/mock-sessions.mjs` (resolve nonce/consentText/abuseEmail, join, GET `/sessions/:id`, terminate), `e2e/mock-api.mjs` (upgrade), `e2e/p4-media.spec.ts`, `playwright.config.ts` (sahte ekran kaynağı bayrakları)
+
+### Kararlar / sapmalar
+1. **Medya yönü:** teknisyen recvonly video offer'ı oluşturur; misafir answer'da transceiver'ı `sendonly` yapar ve ekran izini `replaceTrack` ile bağlar. Paylaş/durdur/yeniden paylaş yeniden anlaşma gerektirmez; durum `share.state` ile gider. `getDisplayMedia` yalnız kullanıcı tıklamasıyla (tarayıcı kuralı) — bu yüzden kabul sonrası "Ekranımı paylaş" düğmesi var (taslakta doğrudan paylaşım şeridi).
+2. **Yeniden bağlanma:** misafir yalnız kabul sonrası (`reconnectToken`, 120 sn, üstel geri çekilme ≤10 sn). Lobide kopan misafir için yeniden bağlanma yok (ticket tek kullanımlık; sunucuda lobi reconnect'i yok) → "Bağlantı kesildi" + "Tekrar katıl" (sayfa yeniden resolve). Taslaktaki "lobi: koptu, yeniden deneniyor, kodunuz değişmedi" durumu bu yüzden uygulanmadı. Teknisyen WS kopması: 120 sn boyunca geri çekilmeyle yeniden dener (`/ws/tech` 429/403 tarayıcıda yalnız kapanış olarak görünür); 4401/4409/1008/1009 son.
+3. **joinNonce 60 sn:** token istemciye verilmez; nonce eskiyse veya `NONCE_INVALID`/`fields.consentTextId` gelirse `router.refresh()` ile sunucuda yeniden resolve edilir, form durumu korunur (consent hatasında onay kutusu sıfırlanır).
+4. **Kabul edilen misafirin adı:** sunucu `peer.joined`'da ad göndermez; kabul anında lobide tek kişi varsa onun adı, yoksa "Müşteri" gösterilir.
+5. **Konsol koyu:** tema tercihi P12'ye dek konsol sayfası `.theme-dark` ile koyu; panel kabuğu (üst menü/kenar) da `:root:has()` ile koyulaşır.
+6. Kalite göstergesi, sohbet, dosya, işaretleme, sağ panel **P5** — yer ayrılmadı. Konsol üst barında "Süre" yerine "Kalan süre" (`hello.maxEndsAt`'e geri sayım; oturum başlangıcı istemciye gelmiyor).
+7. **Bağımlılık:** `ws@8.18.3` + `@types/ws@8.18.1` **yalnız apps/web devDependency** (e2e sahte WS sunucusu; mimari §10.4'te server için onaylı sürüm). Üretim paketine girmez.
+8. Form hidrasyon öncesi pasif (`useSyncExternalStore`): hidrasyondan önce tıklama yerel form gönderimi yapmasın.
+9. ICE yenileme yarışı: admit anında gelen ilk `ice.servers` ICE restart tetiklemez; restart yalnız `signalingState=stable` ve uzak tanım varken (aksi hâlde ilk offer yanıtlanmadan ikinci offer üretiliyordu).
+10. `guest.spec.ts` P2 varsayımı ("formda textbox yok") P4 formuna göre güncellendi; `guest-next` test kimliği kalan süre satırına taşındı.
+11. Hata dili: 400 `fields.consentTextId` (metin güncellendi) → mesaj + onay kutusu sıfırlanır + sayfa yeniden resolve edilir (nonce yanmış).
+
+### Testler (2026-11-11)
+- `pnpm --filter @remote/web lint` temiz · `typecheck` temiz · `test` **34/34** (yeni `lib/webrtc/machines.test.ts`: misafir/teknisyen durum makineleri, kapanış kodları 1008/1009/4401/4409, yeniden bağlanma, şema dışı mesaj, URL'de kimlik bilgisi yok).
+- `pnpm --filter @remote/web e2e` **212/212** (`--repeat-each=2`, desktop + mobile). `e2e/p4-media.spec.ts`: karşılama → KVKK → lobi → hatalı kod (kalan hak) → kabul → müşteri paylaşır → teknisyen videosu `readyState≥2 && videoWidth>0` (Chromium sahte ekran kaynağı) → durdur/yeniden paylaş → müşteri bitirir (onaylı) → iki tarafta bitiş ekranı; ret akışı (AC-113); Admin zorla sonlandır (AC-114, odak "Vazgeç"te); müşteri ekranları axe açık/koyu + 375 px yatay taşma yok; konsol koyu axe + klavyeyle kabul kodu + teknisyen bitirir.
+- Varsayılan e2e sahte WS'ye karşı (gerçek sunucu e2e'si sonradan eklendi: aşağıda "Gerçek sunucu entegrasyonu", `E2E_REAL=1`) (`e2e/mock-ws.mjs`): gerçek server + test DB kurulumu bu turda ağır bulundu; sunucu davranışı backend entegrasyon testlerinde (P3/P4) doğrulanıyor. Staging NAT/TURN ölçümü (AC-23, 40–42) test-operatörü/devops işi.
+
+### devops / backend notu
+- Caddy'de `/ws/*` → server yönlendirmesi P3'ten var olmalı; `next.config.ts` `/ws` rewrite'ı yalnız Caddy'siz ortam içindir.
+- CSP değişmedi: `connect-src 'self' wss://host` (WS aynı origin), `Permissions-Policy display-capture=(self)`. Video `srcObject` (MediaStream) `media-src` gerektirmez.
+
+## Frontend (P4) — Gerçek sunucu entegrasyonu (2026-11-11)
+Amaç: sahte WS (`e2e/mock-ws.mjs`) ile geçen e2e'nin gerçek `apps/server` ile uyuşmazlık saklamadığını doğrulamak.
+
+### Kurulum (yerel, Caddy'siz)
+1. `eval "$(apps/server/scripts/test-db.sh up)"` (migrate + grants) → `DATABASE_URL=$TEST_DATABASE_URL pnpm --filter @remote/server db:seed` (Super Admin + demo tenant + KVKK v1).
+2. Demo tenant'ta iki ADMIN teknisyen (`must_change_password=0`, hash `src/auth/password.ts`) — `deploy/staging-users.sh` mantığı, yerelde küçük bir Prisma betiğiyle.
+3. Server: `PUBLIC_BASE_URL=http://localhost:3218 PORT=3302 DATABASE_URL=… node src/server.ts` (TURN yok → `iceServers` boş, yerel P2P).
+4. `cd apps/web && E2E_REAL=1 E2E_REAL_LOGIN=<admin1> E2E_REAL_LOGIN2=<admin2> E2E_REAL_PASSWORD=<parola> pnpm exec playwright test -c playwright.real.config.ts`
+   (standalone build; `next.config.ts` rewrite'ı `/api` ve `/ws`'yi `E2E_REAL_API`'ye — varsayılan `http://127.0.0.1:3302` — yollar).
+- `playwright.config.ts` (normal CI e2e) `p4-real.spec.ts`'i `testIgnore` ile dışlar; spec ayrıca `E2E_REAL` yoksa atlanır.
+- Not: saatlik oturum oluşturma sınırı (AC-12, 20/teknisyen) aynı saatte ~4 tam koşudan sonra 409 verir — beklenen davranış; yeni DB ya da bir saat bekleme.
+
+### Senaryolar (`e2e/p4-real.spec.ts`, gerçek server + MySQL) — 5/5 geçti
+1. Teknisyen UI ile giriş → yeni oturum → link → konsol; ikinci bağlamda müşteri link → ad + KVKK → lobi → teknisyen yanlış kod ("4 hatalı girişte" uyarısı) → müşteri ekranından okunan doğru kod → Aktif → paylaş (sahte ekran) → `videoWidth>0` → durdur → yeniden paylaş → video → teknisyen bitirir → iki taraf bitiş.
+2. Müşteri bitirir → konsol "Müşteri oturumu bitirdi", müşteri bitiş ekranı.
+3. **Teknisyen konsolu paylaşım sürerken yenilenir** → yeniden bağlanır, Aktif, müşteri adı, `data-share=sharing`, video geri gelir (AC-24) — sahte WS'de yoktu, iki uyuşmazlık buldu (aşağıda).
+4. Ret (AC-113) → müşteri ret ekranı, konsol tekrar "Müşteri bekleniyor".
+5. Zorla sonlandır (AC-114): admin2'nin aktif oturumunu admin1 `/sessions` listesinden onaylı sonlandırır → müşteri ve konsol bitiş.
+
+### Bulunan uyuşmazlıklar ve düzeltmeler
+| # | Bulgu | Neden mock saklıyordu | Düzeltme |
+|---|---|---|---|
+| 1 | Teknisyen yeniden bağlanınca paylaşım durumu kayboluyordu: sahne `data-share` "unknown" kalıyor, "paylaşım durdu/bekleniyor" mesajı videonun üstünde. Gerçek server teknisyen dönünce misafire `peer.joined{role:"tech"}` gönderir ama `share.state`'i saklamaz/tekrar iletmez. | Mock teknisyen bağlantısında misafire `peer.joined`/`peer.left` (tech) hiç göndermiyor. | `lib/webrtc/use-guest-session.ts`: `peer.joined{tech}` alınınca paylaşım sürüyorsa `share.state: sharing` yeniden gönderilir (hello'daki mevcut davranışın eşi). |
+| 2 | Konsol yenilenince müşteri adı "Müşteri"ye düşüyordu: protokolde ad yalnız `peer.pending`'de var; `hello`/`peer.joined` adı taşımaz. | Mock tek oturum içi akışı test ediyordu; yenileme senaryosu yoktu. | `use-tech-session.ts` + `tech-machine.ts` (`restoreName`): kabul edilen adın sekme belleğinde (`sessionStorage`, `rs.guestName.<sessionId>`) tutulması, ACTIVE `hello` sonrası geri yüklenmesi, bitişte silinmesi. Birim testi eklendi. |
+| 3 | `SessionView` (liste) müşteri adı taşımaz — Admin zorla sonlandırırken hangi satırın hangi müşteri olduğu yalnız teknisyen adı/zamanla anlaşılır. | Mock'ta da yok; bilgi notu. | Kod değişmedi (sözleşmede alan yok). |
+
+### backend-dev / mimar notu (sözleşme önerisi, bu turda değiştirilmedi)
+- `hello` (role tech, ACTIVE) ve `peer.joined{role:"guest"}` mesajlarına opsiyonel `guestName` eklenmesi önerilir: (a) farklı sekme/cihazdan açılan konsolda ad yine "Müşteri" görünür (sessionStorage sekmeye özel), (b) lobide >1 bekleyen varken kabulde ad istemcide bilinmez (kod→misafir eşlemesi sunucuda). Server ayrıca son `share.state`'i odada saklayıp teknisyen `hello`'suna koyabilir; o zaman #1'deki istemci yeniden bildirimi gereksiz kalır (zararsız).
+- Server ve contracts tarafında kod değişikliği yapılmadı; server testleri bu yüzden yeniden koşulmadı.
+- Server logu tüm koşularda temiz: WS upgrade reddi 0, beklenmeyen 4xx/5xx yok (yalnız AC-12 sınırının 409'u).
+
+### Değişen / eklenen dosyalar
+`apps/web/e2e/p4-real.spec.ts` (yeni), `apps/web/playwright.real.config.ts` (yeni), `apps/web/playwright.config.ts` (`testIgnore`), `apps/web/lib/webrtc/use-guest-session.ts`, `apps/web/lib/webrtc/use-tech-session.ts`, `apps/web/lib/webrtc/tech-machine.ts`, `apps/web/lib/webrtc/machines.test.ts`, `DESIGN.md` (§6: Button `danger`/`danger-ghost`, CodeDisplay `xl`, share-strip, stage, lobby-panel, konsol koyu teması; §6.1 "yazıldı").
+
+### Düzeltme turu 1 (Frontend P4) — 2026-11-11
+| Madde | Yapılan |
+|---|---|
+| QA-P4-1 / S-P4-2 | `apps/web` devDependency `ws` 8.18.3 → **8.21.0** (server ile aynı), lockfile güncel; `pnpm audit --audit-level high` → "No known vulnerabilities found". |
+| QA-P4-2 (AC-34) | Konsol üst barında `live` + `guestKind=BROWSER` iken pasif **Uzaktan kontrol** (`MousePointer2`, `disabled`, `aria-describedby`) + "Müşteri tarayıcı modunda: yalnız görüntüleme" (`console-control`, `console-control-hint`). Kontrol akışı P7. |
+| QA-P4-3 (AC-33) | `lib/device-support.ts` (+birim): `getDisplayMedia` yok **veya** UA-CH `mobile` **veya** yalnız kaba işaretçi (`pointer: coarse` ve `any-pointer: fine` yok) **veya** mobil UA → karşılamada form yerine `guest-unsupported` ("Bu cihaz desteklenmiyor; masaüstü Chrome, Edge veya Firefox kullanın", `MonitorX`). Teknisyen + doğrulama kodu + uyarı görünür kalır; `join-form` render edilmez → lobiye girilemez. SSR'da bilinmez (`useSyncExternalStore` sunucu anlık görüntüsü `null`) → masaüstünde form anında gelir. Mobil axe testi (AC-39) bu ekranı tarar. |
+| QA-P4-4 (AC-30) | `NotAllowedError` → danger Alert "Paylaşım başlatılmadı" + açıklama + **Tekrar dene** (`share-retry`, `RotateCw`); stub'lı e2e ilk çağrıyı reddeder, tekrar denemede paylaşım + teknisyende `data-share=sharing`. `p4-real.spec.ts` "REAL AC-30, 59" → "REAL AC-59". |
+| QA-P4-5 (AC-43) | `console/stage.tsx`: paylaşım görünürken sağ üstte `Segmented` **Sığdır** (`Expand`, `object-contain`) / **%100** (`ScanSearch`, doğal boyut, `overflow-auto` kaydırma bölgesi `tabIndex=0`, `role=region`) + **Tam ekran** düğmesi (`Maximize`/`Minimize`, `aria-pressed`, `requestFullscreen` sahne bölümüne, `fullscreenchange` dinlenir). `data-mode`, `data-fullscreen`. `ui/segmented.tsx` opsiyonel `icon` aldı (DESIGN.md §6'ya işlendi — düzeltme turu 2). |
+| QA-P4-8 (AC-38) | e2e: `/session/<token>` yanıtında `content-security-policy` `frame-ancestors 'none'`; `X-Frame-Options` varsa `DENY`. |
+| QA-P4-9 (AC-26/125) | e2e: karşılama `guest-verify-code` = konsol `console-verify-code` (yeni testId) ve `mailto:` href. Mock'a `B×43` token (resolve `abuseEmail: null`) → "Kötüye kullanımı bildir" bağlantısının gizlendiği e2e (bileşen zaten koşullu render ediyordu). |
+| QA-P4-11 | `apps/server/scripts/e2e-real-users.ts` (yeni; seed.ts kalıbı: PrismaMariaDb + argon2id aynı parametre): demo tenant'ta iki ADMIN, `must_change_password=0`, idempotent (varsa parola/kilit sıfırlanır, başka tenant/rolde ise dokunmaz), audit kaydı, `NODE_ENV=production`'da çalışmaz. Komutlar (apps/web/package.json): `pnpm --filter @remote/web e2e:real:users` (env: `DATABASE_URL`, `E2E_REAL_LOGIN`, `E2E_REAL_LOGIN2`, `E2E_REAL_PASSWORD`) → `pnpm --filter @remote/web e2e:real`. Yukarıdaki "Kurulum" 2. ve 4. adımlarının yerine geçer. apps/server'da mevcut dosya değiştirilmedi (bu yüzden script web package.json'da). |
+| S-P4-4 | `lib/session-storage.ts` `clearSessionData()` (+birim): çıkışta (`logout-button.tsx`) sekme belleğindeki tüm `rs.*` anahtarları (`rs.guestName.*`) silinir. |
+| QA-P4-12 (istemci) | `tech-machine.ts` `extras()`: `hello{tech}.guestName` / `.share.state` ve `peer.joined{guest}.guestName` varsa kullanılır (sunucu adı sekme belleğini ezer, `restoreName` yalnız ad yoksa). Yoksa: yalnız tek bekleyen varken kabul edilenin adı; >1 bekleyende tahmin yok → "Müşteri". Birim testi eklendi. |
+
+- **Yeni metinler** (`messages/tr.json`): `g.unsupportedTitle/Body`, `gs.deniedTitle`, `gs.retry`, `c.control`, `c.controlBrowser`, `cs.view/fit/actual/fullscreen/exitFullscreen/scroll`.
+- **Değişen/eklenen dosyalar:** `apps/web/package.json`, `pnpm-lock.yaml`, `apps/web/app/session/[token]/guest-welcome.tsx`, `apps/web/app/session/[token]/guest-session.tsx`, `apps/web/app/(panel)/sessions/[id]/console/console-view.tsx`, `apps/web/app/(panel)/logout-button.tsx`, `apps/web/components/console/stage.tsx`, `apps/web/components/ui/segmented.tsx`, `apps/web/lib/device-support.ts` (+test), `apps/web/lib/session-storage.ts` (+test), `apps/web/lib/webrtc/tech-machine.ts`, `apps/web/lib/webrtc/machines.test.ts`, `apps/web/messages/tr.json`, `apps/web/e2e/guest.spec.ts`, `apps/web/e2e/p4-media.spec.ts`, `apps/web/e2e/p4-real.spec.ts`, `apps/web/e2e/mock-sessions.mjs`, `apps/web/playwright.real.config.ts`, `apps/server/scripts/e2e-real-users.ts` (yeni).
+- **Doğrulama:** web lint ✓, typecheck ✓, birim 44/44 ✓, mock e2e 116 geçti / 8 atlandı (masaüstü-only akışların mobil kopyaları) / 0 hata; `pnpm audit --audit-level high` temiz. Gerçek sunucu e2e'si bu turda koşulmadı.
+- **Kapandı (düzeltme turu 2, QA-P4-13):** DESIGN.md §6'ya stage görüntü modları (Sığdır / %100 kaydırmalı / Tam ekran; `data-mode`, `data-fullscreen`), Segmented `icon` seçeneği, konsol pasif "Uzaktan kontrol" (disabled + `aria-describedby`), müşteri "Bu cihaz desteklenmiyor" ve "Paylaşım başlatılmadı / Tekrar dene" durumları işlendi; §6.1 satırları ve §8 kötüye kullanım adresi kararı (production'da boşsa bağlantı gizlenir) güncellendi. Aynı turda `ABUSE_EMAIL` boş bırakma uyarıları (runbook §3, `.env.example`, `deploy/docker-compose.yml` yorumu) env.ts `withoutBlanks` davranışına göre düzeltildi.
+
+### Sayfa testi düzeltmesi (TEST-P4-1..5) — 2026-11-11
+- **TEST-P4-1 (müşteri F5):** kabul sonrası `hello.reconnectToken` (her yenilenende tekrar) + teknisyen adı, müşteri adı, doğrulama kodu ve opak `sessionRef` yalnız bu sekmenin sessionStorage'ında `rs.resume.<SHA-256(link token) ilk 16 bayt hex>` anahtarında tutulur (link token'ı depoya yazılmaz; `rs.` öneki çıkışta `clearSessionData` ile de silinir). `/session/<token>` resolve 410/4xx döndürünce `GuestResumeGate` (yeni, `app/session/[token]/guest-resume-gate.tsx`) kaydı okur; `consumed` ise `rs.reconnect.<token>` ile doğrudan WS'ye bağlanır, lobiye girmez ("Oturumunuza yeniden bağlanılıyor…" durumu). Paylaşım otomatik başlamaz; "Paylaş" düğmesi gerekir. Dönüş reddedilirse (hello öncesi kapanış): 4401/1008/1009'da hemen; diğerlerinde `GET /public/sessions/status?ref=` ACTIVE değilse (veya 4xx) durur, ACTIVE ise 3 sn arayla en çok 20 deneme (sunucunun ≤60 sn ping zaman aşımında eski soketi OPEN sayması için — backend notu). Sonuç `resumeFailed` → "Bu bağlantı zaten kullanıldı"; kayıt silinir. Oturum bitince/müşteri ayrılınca/`consumed` dışı sonlarda kayıt silinir. Web Crypto/depo yoksa 1,5 sn sonra eski davranış.
+- **TEST-P4-2:** `tech-machine` `peer.joined{role:"guest", maxEndsAt?}` ile `maxEndsAt`'i kurar (alan yoksa önceki değer korunur, geçersiz tarih yok sayılır). Sahte WS ilk kabulde alanı yollar.
+- **TEST-P4-3:** kod kaynaklı değil — uygulamada `getUserMedia` çağrısı yok, `getDisplayMedia({ video, audio: false })`; Permissions-Policy `camera=()` bilinçli (proxy.ts, server app.ts). Uyarı yalnız sahte medya bayraklı Chromium'da paylaşım sürerken yenilemede görülüyor → Chromium fake-media yan etkisi olarak kabul edildi; gerçek tarayıcıda staging'de bir kez bakılmalı.
+- **TEST-P4-4:** konsol üst barı `xl:flex-nowrap`, `gap-x-3`; sabit öğeler `shrink-0`, "tarayıcı modunda" açıklaması daralıp satır kırar (`min-w-20 max-w-48`). 1280 px'te "Oturumu bitir" aynı satırda (e2e AC-34 içinde ölçülür).
+- **TEST-P4-5:** `GuestShell` alt bilgisi `GuestEndScreen` (`data-guest-end`) varken CSS `group-has-[[data-guest-end]]:hidden` ile gizlenir (sunucu ve istemci ekranlarında aynı kural).
+- Sahte API: ACTIVE/ENDED oturumun resolve'u gerçek sunucu gibi 410 `SESSION_CONSUMED`.
+- Değişen dosyalar (apps/web): `lib/guest-resume.ts` (+test), `lib/webrtc/{guest-machine,tech-machine,use-guest-session}.ts`, `lib/webrtc/machines.test.ts`, `app/session/[token]/{page,guest-flow,guest-session,guest-resume-gate}.tsx`, `app/session/guest-ui.tsx`, `app/(panel)/sessions/[id]/console/console-view.tsx`, `messages/tr.json` (`gs.resuming`), `e2e/{p4-media.spec.ts,mock-ws.mjs,mock-sessions.mjs}`.
+- Yeni e2e: "TEST-P4-1: müşteri aktif oturumda sayfayı yeniler…", "TEST-P4-1: oturum bittikten sonra kalan dönüş kaydı…"; AC-34 testine kalan süre + tek satır kontrolü. Rota değişikliği yok.
+- Doğrulama: `pnpm -r run lint` yeşil; web typecheck yeşil; unit 50/50; mock e2e 118 geçti / 10 atlandı (mobil projede konsol akışları). Gerçek e2e (`e2e:real`) bu turda koşulmadı.
+
+## DevOps (P4)
+### Düzeltme turu 1 (QA-P4-6, S-P4-1 + coturn sertleştirme) — 2026-11-11
+- **ABUSE_EMAIL zinciri:** `.env.example` (boş, açıklamalı), `deploy/docker-compose.yml` server `ABUSE_EMAIL:` (değersiz anahtar: tanımsızsa konteynere geçmez; `${ABUSE_EMAIL:-}` boş dize verip env.ts `z.email()`'i düşürürdü), runbook §3 tablo. Kalan risk: `.env`'de `ABUSE_EMAIL=` boş satırı hâlâ `""` geçirir → **backend-dev:** env.ts'de boş dizeyi `undefined`'a çeviren preprocess önerilir (aynı durum `METRICS_TOKEN: ${METRICS_TOKEN:-}` + `min(16)` için de var). Davranış: production'da boşsa misafir ekranındaki "Kötüye kullanımı bildir" gizlenir (Super Admin fallback yok — backend tarafında); staging/prod'da doldurulması önerilir.
+- **test-denied.sh:** bekleme/yeniden deneme döngüsü artık 508'e ek olarak 486 (user-quota) ve yalnız "Cannot complete Allocation" çıktısını da yeniden dener. Beklenen ret testleri (`wrong`, `expired`, `v6relay`) ve 401/403/437/438/44x içeren çıktılar yeniden denenmez (negatif testler 700 sn beklemesin).
+- **coturn listening-ip:** yeni `TURN_LISTEN_IPS` (`deploy/turn/docker-compose.yml`, `.env.example`, runbook §9.1). `auto` → `listening-ip=<TURN_EXTERNAL_IP özel IPv4>` + `listening-ip=127.0.0.1`; virgüllü IPv4 listesi de kabul (IPv4 doğrulaması, çok satır reddi; 127.0.0.1 healthcheck için her zaman eklenir). Boşsa eski davranış (tüm arayüzler) + entrypoint UYARI. Staging `deploy/turn/.env`'e `TURN_LISTEN_IPS=auto` eklenmeli (sunucuya bu turda dokunulmadı).
+- **Doğrulama:** `deploy/turn/test-local.sh` `TURN_LISTEN_IPS=auto` ile koşar; yeni kontrol: 3478 yalnız `127.0.0.1` + `172.31.250.2`'de dinleniyor; healthcheck (`turnutils_stunclient 127.0.0.1`) healthy. Sonuç (2026-11-11, Docker Desktop): **62 PASS, 0 FAIL**, çıkış 0.

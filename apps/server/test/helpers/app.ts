@@ -3,7 +3,7 @@
 import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import type { FastifyInstance, InjectOptions } from "fastify";
 import type { Logger } from "pino";
-import { buildApp } from "../../src/app.ts";
+import { buildApp, type AppDeps } from "../../src/app.ts";
 import { hashPassword } from "../../src/auth/password.ts";
 import { loadEnv, type Env } from "../../src/env.ts";
 import { createDb, type Db } from "../../src/lib/db.ts";
@@ -24,15 +24,29 @@ export function testDb(): Db {
   return db;
 }
 
-export function makeApp(opts: { env?: Record<string, string>; logger?: Logger } = {}): FastifyInstance {
-  return buildApp({ env: testEnv(opts.env), db: testDb(), ...(opts.logger ? { logger: opts.logger } : {}) });
+export function makeApp(opts: { env?: Record<string, string>; logger?: Logger; signaling?: AppDeps["signaling"] } = {}): FastifyInstance {
+  return buildApp({ env: testEnv(opts.env), db: testDb(), ...(opts.logger ? { logger: opts.logger } : {}), ...(opts.signaling ? { signaling: opts.signaling } : {}) });
 }
 
+/** Tenant + ayarlar + güncel KVKK metni v1 (P4: resolve/join metin ister — seed'in tenant başına v1 kuralı). */
 export async function createTenant(status = "ACTIVE") {
   const id = newId();
-  return testDb().tenant.create({
+  const tenant = await testDb().tenant.create({
     data: { id, name: `Firma ${id.slice(-6)}`, slug: `t-${id.toLowerCase()}`, status, settings: { create: {} } },
   });
+  await createConsentText(id, { version: 1, isCurrent: true });
+  return tenant;
+}
+
+/** Doğrudan DB'ye aydınlatma metni; sha256 DB CHECK'i için gövdenin UTF-8 SHA-256'sı. */
+export async function createConsentText(tenantId: string, o: { version: number; isCurrent: boolean; body?: string }) {
+  const body = o.body ?? `Test aydınlatma metni v${o.version} — çğıöşü İ.`;
+  return testDb().consentText.create({ data: { id: newId(), tenantId, version: o.version, body, sha256: sha256Hex(body), isCurrent: o.isCurrent } });
+}
+
+/** Tenant'ın güncel metninin id'si (join gövdesi için). */
+export async function currentConsentId(tenantId: string): Promise<string> {
+  return (await testDb().consentText.findFirstOrThrow({ where: { tenantId, isCurrent: true }, select: { id: true } })).id;
 }
 
 export interface TestUser {
@@ -122,6 +136,8 @@ export async function createSupportSessionRow(o: {
       createdAt,
       expiresAt: new Date(createdAt.getTime() + (o.ttlMin ?? 15) * 60_000),
       ...(ended ? { endedAt: createdAt, endedBy: "SYSTEM", endReason: status.toLowerCase() } : {}),
+      // consumed_status_chk (db-notlari P3): ACTIVE (ve tüketilmiş ENDED) satırda consumedAt + mode zorunlu.
+      ...(status === "ACTIVE" || status === "ENDED" ? { consumedAt: createdAt, mode: "BROWSER" } : {}),
     },
   });
   return { id, token, code };

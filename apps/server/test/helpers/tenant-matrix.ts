@@ -24,6 +24,10 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "POST /api/v1/sessions/:id/cancel": "tenant",
   "POST /api/v1/public/sessions/resolve": "public",
   "GET /api/v1/public/sessions/status": "public",
+  // P3
+  "GET /metrics": "public",
+  "POST /api/v1/sessions/:id/terminate": "tenant",
+  "POST /api/v1/public/sessions/join": "public",
 };
 
 export interface TwoTenants {
@@ -40,6 +44,7 @@ export interface CrossTenantCase {
 export const CROSS_TENANT_CASES: CrossTenantCase[] = [
   { route: "GET /api/v1/sessions/:id", request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}` }) },
   { route: "POST /api/v1/sessions/:id/cancel", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/cancel` }) },
+  { route: "POST /api/v1/sessions/:id/terminate", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/terminate` }) },
 ];
 
 /** buildApp sonrası, ready'den ÖNCE çağrılmalı (rotalar eklentilerde ready'de yüklenir). */

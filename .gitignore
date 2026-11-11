@@ -28,6 +28,8 @@ blob-report/
 
 # TURN ortam dosyaları (altyapı IP'leri, G-05)
 deploy/turn/*.local.conf
+# TURN-TLS staging CA + sunucu sertifikası (gen-cert.sh; özel anahtarlar asla repoya girmez)
+deploy/turn/certs/
 
 # Log / OS / editör
 *.log

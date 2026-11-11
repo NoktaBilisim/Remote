@@ -14,6 +14,11 @@ import { registerErrorHandling } from "./lib/errors.ts";
 import { newId } from "./lib/ids.ts";
 import { createLogger } from "./lib/logger.ts";
 import { healthRoutes } from "./ops/health.ts";
+import { createMetrics, metricsRoutes, type Metrics } from "./ops/metrics.ts";
+import { endOrphanedActive } from "./sessions/service.ts";
+import { Rooms } from "./signaling/rooms.ts";
+import type { Clock, Timing } from "./signaling/types.ts";
+import { attachSignaling, type SignalingOptions } from "./signaling/ws.ts";
 import { startScheduler, type Scheduler } from "./jobs/scheduler.ts";
 import { refKeyFrom } from "./sessions/codes.ts";
 import { closePublicLimits, createPublicLimits, type PublicLimits } from "./sessions/public.ts";
@@ -26,6 +31,8 @@ declare module "fastify" {
     authLimits: AuthLimits;
     publicLimits: PublicLimits;
     sessionRefKey: string;
+    rooms: Rooms;
+    metrics: Metrics;
   }
   interface FastifyRequest {
     auth: AuthContext | null;
@@ -44,6 +51,8 @@ export interface AppDeps {
   authLimits?: AuthLimits;
   /** Periyodik işler (expiry); server.ts true verir, testler işi doğrudan çağırır. */
   startJobs?: boolean;
+  /** Testler: sahte saat, kısa süreler, kısa ping/yeniden doğrulama aralıkları. */
+  signaling?: SignalingOptions & { clock?: Clock; timing?: Partial<Timing> };
 }
 
 const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), display-capture=(self)";
@@ -96,10 +105,23 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate("publicLimits", publicLimits);
   app.decorate("sessionRefKey", refKeyFrom(env.SESSION_REF_KEY));
   app.addHook("onClose", async () => closePublicLimits(publicLimits));
+  const metrics = createMetrics();
+  app.decorate("metrics", metrics);
+  const sig = deps.signaling ?? {};
+  const turn = { urls: env.turnUrls, secret: env.TURN_SECRET, ttlMin: env.TURN_CRED_TTL_MIN };
+  const rooms = new Rooms({ db: deps.db, log: app.log, turn, metrics, ...(sig.clock ? { clock: sig.clock } : {}), ...(sig.timing ? { timing: sig.timing } : {}) });
+  app.decorate("rooms", rooms);
+  metrics.gauge("rs_active_rooms", "Bellekteki oda sayısı", () => rooms.size);
+  metrics.gauge("rs_active_sessions", "Admit edilmiş (ACTIVE) oturum sayısı", () => rooms.activeCount);
+  metrics.gauge("rs_resolve_failed", "Başarısız kod çözümleme (süreç başından beri)", () => publicLimits.resolveFailed.total);
+  attachSignaling(app, rooms, sig);
   if (deps.startJobs) {
     let jobs: Scheduler | undefined;
     app.addHook("onReady", async () => {
-      jobs = startScheduler(deps.db, app.log);
+      // Bellekteki odası olmayan ACTIVE oturumlar (yeniden başlatma) → ENDED{server} (mimari §3.5).
+      const orphaned = await endOrphanedActive(deps.db, new Date());
+      if (orphaned > 0) app.log.warn({ ended: orphaned }, "yeniden başlatma: etkin oturumlar sonlandırıldı");
+      jobs = startScheduler(deps.db, app.log, rooms);
     });
     app.addHook("onClose", async () => jobs?.stop());
   }
@@ -122,6 +144,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(cookie);
   void app.register(helmet, helmetOptions(env));
   void app.register(healthRoutes);
+  void app.register(metricsRoutes);
   void app.register(authRoutes, { prefix: "/api/v1/auth" });
   void app.register(sessionRoutes, { prefix: "/api/v1/sessions" });
   void app.register(publicSessionRoutes, { prefix: "/api/v1/public/sessions" });

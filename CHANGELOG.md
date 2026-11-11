@@ -5,6 +5,137 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P4 (KVKK onayı + tarayıcıdan ekran paylaşımı)
+- **Müşteri karşılama akışı (`/session/<token>`):** teknisyen kartı + doğrulama kodu, dolandırıcılık uyarısı,
+  "Kötüye kullanımı bildir" (`mailto:`, adres yoksa gizli), ad + KVKK aydınlatma metni onayı, "Yalnız ekranımı
+  tarayıcıdan paylaş" → lobi (4 haneli kabul kodu, kalan bekleme, "Vazgeç ve çık") → oturum (paylaş / durdur /
+  yeniden paylaş, önizleme, onaylı bitirme) → bitiş, ret, bekleme doldu, bağlantı kesildi ekranları.
+- **Paylaşım izni reddedilirse** "Paylaşım başlatılmadı" + "Tekrar dene" (AC-30). Mobil veya `getDisplayMedia`
+  desteklemeyen tarayıcıda "Bu cihaz desteklenmiyor" ekranı; form gösterilmez (AC-33).
+- **Teknisyen konsolu (`/sessions/<id>/console`, koyu):** üst bar (müşteri, durum, kalan süre, doğrulama kodu,
+  onaylı bitir/iptal), lobi paneli (kabul kodu, kalan hak, satır başına Reddet), canlı video, görüntü modları
+  Sığdır / %100 (kaydırmalı) / Tam ekran (AC-43), paylaşım durdu, müşteri koptu (120 sn) ve kendi bağlantısı koptu
+  durumları. Tarayıcı modunda pasif "Uzaktan kontrol" düğmesi ve açıklaması (AC-34; kontrol P7).
+- **Oturumlar listesi:** "Konsolu aç" (PENDING/ACTIVE, yalnız kendi oturumu) ve "Zorla sonlandır" (ACTIVE,
+  `sessions.terminate`, onay diyaloğu).
+- **WebRTC medya hattı:** teknisyen `recvonly`, misafir `sendonly` ekran izi; ses/kamera/mikrofon yok. Misafir
+  kabulden sonra `reconnectToken` ile 120 sn yeniden bağlanır; teknisyen konsolu yenilense de paylaşım geri gelir.
+- **KVKK onay kaydı:** migration `20261111030000_p4_consents` — `consent_texts` (tenant bazlı, sürümlü, değişmez,
+  tenant başına tek güncel sürüm, `sha256 = SHA2(body,256)` CHECK) ve `session_consents` (yalnız ekleme; bileşik FK ile
+  oturum, metin ve özet aynı tenant'ta). Onay, teknisyen kabulünde oturum tüketimiyle aynı işlemde yazılır (AC-29).
+  Seed metni olmayan her tenant'a Türkçe KVKK metni v1 ekler.
+- **API:** resolve yanıtına `consentText {id, version, body, sha256}` ve `abuseEmail` (`string | null`); join'de
+  `consentTextId` zorunlu (AC-127). WS `hello` (teknisyen) `guestName` ve `share`, `peer.joined{guest}` `guestName`
+  alanlarını taşır. `@remote/contracts/dc` (DataChannel etiketleri ve zarf şeması; ctl mesajları P5).
+- **Audit:** `guest.pending` KVKK metin kimliği/sürümü, `guest.admitted` onay özeti (`textId`, `version`, `sha256`).
+- **Yeni ortam değişkenleri:** server `ABUSE_EMAIL`; coturn `TURN_LISTEN_IPS` (`auto` = özel relay IPv4 + 127.0.0.1).
+- **Gerçek sunucu e2e:** `e2e/p4-real.spec.ts` + `playwright.real.config.ts`; `pnpm --filter @remote/web e2e:real:users`
+  (demo tenant'ta iki ADMIN) ve `pnpm --filter @remote/web e2e:real`. CI'da koşmaz (README "Gerçek sunucu e2e").
+- **Testler:** birim 146 (server 78, web 44, contracts 24), server entegrasyon 103, TURN 62 kontrol, web e2e 116 geçti
+  + 8 atlandı, gerçek sunucu e2e 5/5.
+
+### Değişti — P4
+- Boş ortam değişkeni (`ANAHTAR=`) tanımsız sayılır; varsayılanlı alan varsayılana düşer, zorunlu alan yine hata
+  verir. Compose'da boş geçen `ABUSE_EMAIL`/`METRICS_TOKEN` server'ı durdurmaz.
+- coturn yalnız `TURN_LISTEN_IPS` adreslerinde dinler; boşsa eski davranış (tüm arayüzler) + uyarı.
+- `test-denied.sh` kota/allocation hatalarını yeniden dener; beklenen ret testleri beklemeden biter.
+- DESIGN.md: Button `danger`/`danger-ghost`, CodeDisplay `xl`, Segmented `icon`, sahne, lobi paneli, konsol koyu
+  teması, cihaz desteklenmiyor ve paylaşım reddedildi durumları.
+
+### Güvenlik — P4
+- **S-P4-1:** Production'da `ABUSE_EMAIL` yoksa resolve `abuseEmail: null` döner, Super Admin e-postası hiç
+  sorgulanmaz (önceden platformun en yetkili hesabının e-postası her bağlantı sahibine gidiyordu). `ABUSE_EMAIL`
+  `.env.example`, compose ve runbook'a eklendi.
+- **S-P4-2:** `apps/web` devDependency `ws` 8.18.3 → 8.21.0 (GHSA-58qx-3vcg-4xpx); `pnpm audit` temiz.
+- **S-P4-3 / S-P4-T2-1:** Müşteri adında Unicode `Cc`, `Cf`, `Zl`, `Zp`, U+034F ve U+180E reddedilir (bidi, sıfır
+  genişlik, soft hyphen, etiket karakterleri dahil); kontrol kırpmadan önce yapılır. Teknisyen ekranında ve audit'te
+  yanıltıcı ad gösterilemez.
+- **S-P4-4:** Çıkışta sekme belleğindeki `rs.*` anahtarları (müşteri adı) silinir.
+- **S-P4-T2-2:** `e2e-real-users.ts` `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan çalışmaz.
+- KVKK onayı yalnız oturumun tenant'ının güncel metniyle kabul edilir; eski sürüm, başka tenant ve bilinmeyen id aynı
+  400 yanıtını alır (tenant varlığı sızmaz, G-24). Onay kaydı DB'de değiştirilemez (`app` kullanıcısında UPDATE/DELETE yok).
+- `getDisplayMedia` yalnız kullanıcı tıklamasıyla çağrılır, yeniden bağlanmada otomatik paylaşım yok. Müşteri sayfası
+  çerçevelenemez (`frame-ancestors 'none'`, AC-38). Ticket ve reconnect token yalnız bellekte ve subprotocol'de.
+- coturn `TURN_LISTEN_IPS` değerleri IPv4 olarak tam doğrulanır, satır sonu reddedilir (yapılandırma enjeksiyonu yok).
+
+### Düzeltildi — P4 (QA)
+- QA-P4-2..5: pasif "Uzaktan kontrol" (AC-34), cihaz desteklenmiyor ekranı (AC-33), paylaşım reddinde tekrar dene
+  (AC-30), konsol görüntü modları ve tam ekran (AC-43).
+- QA-P4-6: `ABUSE_EMAIL` env zinciri (`.env.example`, compose, runbook).
+- QA-P4-7: `docs/mimari-api.md` resolve/join satırları koda uyarlandı.
+- QA-P4-8, QA-P4-9: `frame-ancestors 'none'`, doğrulama kodu eşliği ve `mailto:` bağlantısı (gizli hali dahil) e2e testli.
+- QA-P4-11: gerçek sunucu e2e tekrarlanabilir kurulum betiği.
+- QA-P4-12: konsol yenilenince müşteri adı ve paylaşım durumu sunucudan gelir (`hello.guestName`/`share`,
+  `peer.joined.guestName`); lobide birden fazla misafir varken ad tahmin edilmez.
+- QA-P4-13: DESIGN.md yeni bileşen ve durumlarla güncellendi.
+- Gerçek sunucu e2e'sinin bulduğu: teknisyen yeniden bağlanınca misafir paylaşım durumunu yeniden bildirir.
+
+### Bilinen sınırlamalar — P4
+- Staging NAT/TURN-TLS ölçümleri (AC-23, 40, 42) üst NAT yönlendirmesi açılınca yapılacak, en geç P6 öncesi.
+- Müşteri adı DB'ye yazılmaz (lobide bellekte ve audit'te); oturum listesinde müşteri adı yok (P8).
+- Onay zaman çizelgesi (AC-62) P8'de. KVKK metninin yeni sürümünü yayımlama ekranı henüz yok; metin seed ile gelir.
+- Kalite göstergesi, sohbet, dosya transferi, işaretleme P5'te; uzaktan kontrol P7'de.
+- Oturum süresi dolup girişe yönlenmede sekme belleği temizlenmez (sekme kapanınca silinir, B-2).
+- `e2e-real-users.ts` server imajında bulunuyor; imajdan çıkarılması devops işi olarak açık.
+
+### Eklendi — P3 (sinyalizasyon + TURN)
+- **Müşteri katılımı:** `POST /api/v1/public/sessions/join` (`joinNonce` + ad + onay → `wsTicket`, 4 haneli
+  `admitCode`, teknisyen adı). Resolve yanıtına `joinNonce` ve `nonceExpiresAt` eklendi (tek kullanımlık, 60 sn).
+- **WebSocket sinyalizasyonu:** `/ws/tech?sessionId=` (çerez + Origin, yalnız oturum sahibi) ve `/ws/guest`
+  (subprotocol `rs.v1` + `rs.ticket.<wsTicket>` / `rs.reconnect.<token>`). Lobi (≤ 3 misafir, 5 dk), teknisyen
+  kabulü (`guest.admit`) ve reddi (`guest.reject`), SDP/ICE/`share.state` aktarımı, 120 sn yeniden bağlanma,
+  en uzun süre uyarısı ve bitişi, TURN bilgisi yenileme (`ice.servers`), ping/pong.
+- **Sözleşme:** `@remote/contracts/ws` (zod şemaları, kapanış kodları, `session.ended` nedenleri, WS hata kodları)
+  ve Go istemciyle paylaşılan `packages/contracts/fixtures/ws-messages.json`.
+- **Zorla sonlandırma:** `POST /api/v1/sessions/:id/terminate` (`sessions.terminate`; odaya `session.ended{admin}`).
+- **`/metrics`** (iç ağ, `METRICS_TOKEN` Bearer): WS bağlantı/ret/1008 sayaçları, admit sonuçları, biten oturumlar,
+  `rs_ws_connections`, `rs_active_sessions`, `rs_active_rooms`, `rs_resolve_failed`.
+- **TURN (coturn 4.18):** `deploy/turn/` ayrı compose projesi; HMAC süreli credential (`<unixExpiry>:<sessionId>`),
+  TCP/UDP/TLS (5349), iç/özel adreslere relay yasağı (`denied-peer-ip`), `TURN_SECRET_PREVIOUS` ile kesintisiz
+  sır değişimi, `host-firewall.sh` (relay portlarından host'un kendi servislerine UDP'yi keser; systemd timer ile
+  onarılır), yerel test betikleri (`test-local.sh`, `test-denied.sh`). CI'da yeni `turn` işi.
+- **Veritabanı:** migration `20261111020000_p3_session_admit`: `support_sessions.mode`, `consumed_at`,
+  `terminated_by` + 5 CHECK kısıtı. Yeni tablo yok.
+- **Hata kodları:** `LOBBY_FULL` (409), `NONCE_INVALID` (410).
+- **Audit:** `guest.pending`, `guest.admitted`, `guest.admit` (başarısız), `guest.rejected`, `session.join`
+  (başarısız), `session.ended`, `session.terminated`, `reconnect.conflict`.
+- **Yeni ortam değişkenleri:** server `TURN_URLS`, `TURN_SECRET`, `TURN_CRED_TTL_MIN`, `METRICS_TOKEN`; coturn
+  `TURN_SECRET_PREVIOUS`, `TURN_REALM`, `TURN_EXTERNAL_IP`, `TURN_MAX_BPS`, `TURN_BPS_CAPACITY`,
+  `TURN_PROMETHEUS_ADDRESS` (`.env.example`, compose, runbook §9).
+- **Bağımlılık:** `ws` 8.21.0, `@types/ws` (dev).
+- **Testler:** birim 94 (server 69, web 23, contracts 2), server entegrasyon 93, TURN 62 kontrol, web e2e 97 geçti
+  + 1 atlandı.
+
+### Değişti — P3
+- Public resolve ve join ADR-0012 kuralını uygular: `Origin` varsa izinli olmalı ve tür `BROWSER`; yoksa yalnız
+  `AGENT` (Windows istemcisi). Join'de tür `joinNonce` kaydından gelir.
+- `POST /sessions/:id/cancel` artık bağlı teknisyen ve lobi misafirlerine `session.ended{cancelled}` gönderir.
+- Bekleyen oturumun süresi dolunca teknisyen ve lobi `session.ended{timeout}` alır, oda silinir.
+- Sunucu açılışında yarım kalmış ACTIVE oturumlar `ENDED` (`server`) yapılır.
+- Compose: server'a `TURN_URLS`/`TURN_SECRET` zorunlu, `TURN_CRED_TTL_MIN` (vars. 20), `METRICS_TOKEN` (isteğe bağlı).
+- Staging ADMIN/USER hesabı `deploy/staging-users.sh` ile eklenir (runbook §6).
+
+### Güvenlik — P3
+- Token'lar URL'de taşınmaz: misafir kimliği WS subprotocol'ünde; URL'de ticket görülürse bağlantı 403.
+  `joinNonce`, `wsTicket`, `reconnectToken`, `admitCode` ve TURN credential'ı log/audit'e yazılmaz (testle doğrulandı).
+- Misafir, teknisyen kabul etmeden TURN bilgisi ve `reconnectToken` almaz; kabul kodu yalnız o misafire gösterilir,
+  sunucu sabit zamanlı karşılaştırır, 5 hatada lobi boşaltılır.
+- Oturum tüketimi tek atomik koşullu UPDATE (admit ‖ admit ve admit ‖ iptal 50'şer turda tek kazanan).
+- Mesaj sınırları: şema hatası / ekstra alan / saniyede 50 mesaj aşımı → 1008, 64 KB üstü → 1009. Upgrade hız
+  sınırı (`/ws/guest` ve `/ws/tech` IP başına), join IP başına 20/dk.
+- Misafir yeniden bağlanması mevcut bağlantı varken reddedilir (403 + audit); teknisyenin oturumu 60 sn'de bir
+  yeniden doğrulanır, geçersizse 4401.
+- `ws` 8.18.3 → 8.21.0 (GHSA-96hv-2xvq-fx4p, GHSA-58qx-3vcg-4xpx); `pnpm audit` temiz.
+- TURN: kısa süreli credential (vars. 20 dk), `TURN_SECRET` ≥ 32 karakter, coturn root dışı + salt okunur,
+  secret komut satırında değil, CLI kapalı, Prometheus yalnız `127.0.0.1`, log 3×5 MB + haftalık temizlik.
+- Test sırları tek dosyada (`apps/server/test/helpers/secrets.ts`), gitleaks allowlist'i yalnız o dosya.
+
+### Bilinen sınırlamalar — P3
+- Ekran paylaşımı ve teknisyen konsolu video arayüzü P4'te; KVKK metni doğrulaması (`consentTextId`) P4'te zorunlu olur (P4'te kapandı).
+- Yetki daraltması/pasifleştirme aktif oturumu henüz sonlandırmaz (S-P3-8, P7 giriş şartı).
+- Staging'de TURN'ün dışarıdan çalışması üst NAT yönlendirmesine bağlı (runbook §9.3). Prod IPv6 relay doğrulaması P13.
+- `host-firewall.sh` sertleştirmeleri (S-P3-T2-1, S-P3-T2-2) prod açılışından önce kapanacak.
+
 ### Eklendi — P2 (destek oturumları)
 - **Oturum uçları:** `POST /api/v1/sessions` (link + 8 haneli kod + teknisyen doğrulama kodu; link yalnız bu
   yanıtta), `GET /api/v1/sessions` (sayfalı, `status`/`technicianId` filtresi, en çok 100),

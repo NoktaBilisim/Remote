@@ -1,7 +1,8 @@
 "use client";
 
 import type { SessionView } from "@remote/contracts/api/sessions";
-import { CircleX, Copy, Timer } from "lucide-react";
+import { CircleX, Copy, Monitor, Power, Timer } from "lucide-react";
+import Link from "next/link";
 import { StatusBadge } from "@/components/ui/badge";
 import { CodeDisplay } from "@/components/ui/code-display";
 import { useToast } from "@/components/ui/toast";
@@ -14,13 +15,19 @@ interface Props {
   showTechnician: boolean;
   canCancel: boolean;
   onCancel: (s: SessionView) => void;
+  /** P4: konsol yalnız oturumun teknisyenine (AC-15); zorla sonlandırma sessions.terminate (AC-114). */
+  meId: string;
+  canTerminate: boolean;
+  onTerminate: (s: SessionView) => void;
 }
 
+const dangerBtn =
+  "inline-flex size-11 cursor-pointer items-center justify-center rounded-md text-danger transition-transform duration-150 ease-out hover:bg-danger-surface active:scale-[0.97]";
 const iconBtn =
   "inline-flex size-11 cursor-pointer items-center justify-center rounded-md text-fg-muted transition-transform duration-150 ease-out hover:bg-surface-muted hover:text-fg active:scale-[0.97]";
 
 /** Oturum listesi: ≥ md tablo, dar ekranda kart listesi (aynı veri, aynı eylemler). */
-export function SessionList({ items, showTechnician, canCancel, onCancel }: Props) {
+export function SessionList({ items, showTechnician, canCancel, onCancel, meId, canTerminate, onTerminate }: Props) {
   const now = useNow();
   const toast = useToast();
 
@@ -35,18 +42,31 @@ export function SessionList({ items, showTechnician, canCancel, onCancel }: Prop
   };
   const actions = (s: SessionView) => {
     const pending = s.status === "PENDING" && (now === null || Date.parse(s.expiresAt) > now);
-    if (!pending) return null;
+    const open = pending || s.status === "ACTIVE";
+    const mine = s.technician.id === meId;
+    const terminate = s.status === "ACTIVE" && canTerminate;
+    if (!pending && !(open && mine) && !terminate) return null;
     const code = s.code ? formatSessionCode(s.code) : "";
     return (
       <div className="flex justify-end gap-1">
-        {s.code && (
+        {open && mine && (
+          <Link href={`/sessions/${s.id}/console`} className={iconBtn} aria-label={t("s.openConsole")} title={t("s.openConsole")} data-testid="open-console">
+            <Monitor aria-hidden className="size-4" />
+          </Link>
+        )}
+        {pending && s.code && (
           <button type="button" className={iconBtn} aria-label={t("s.copyCode", { code })} onClick={() => copy(s.code!)}>
             <Copy aria-hidden className="size-4" />
           </button>
         )}
-        {canCancel && (
+        {pending && canCancel && (
           <button type="button" className={iconBtn} aria-label={t("s.cancelRow", { code })} onClick={() => onCancel(s)}>
             <CircleX aria-hidden className="size-4" />
+          </button>
+        )}
+        {terminate && (
+          <button type="button" className={dangerBtn} aria-label={t("s.terminateRow", { name: s.technician.name })} title={t("st.action")} onClick={() => onTerminate(s)} data-testid="terminate">
+            <Power aria-hidden className="size-4" />
           </button>
         )}
       </div>
@@ -102,7 +122,7 @@ export function SessionList({ items, showTechnician, canCancel, onCancel }: Prop
                 {t("s.col.created")}: {formatTime(s.createdAt)}
               </span>
             </div>
-            {(s.status === "PENDING" || showTechnician) && (
+            {(s.status === "PENDING" || s.status === "ACTIVE" || showTechnician) && (
               <div className="mt-2 flex items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-col gap-1 text-sm">
                   {s.code && <CodeDisplay code={s.code} size="sm" />}

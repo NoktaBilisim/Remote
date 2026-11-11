@@ -1,0 +1,52 @@
+# coturn (STUN/TURN) — ayrı compose projesi (mimari §8.3.1, ADR-0007 r3). Staging'de publish sunucusunda
+# uygulama yığınının yanında; prod'da ayrı VM/IP'de aynı dosya kullanılır. Ayrıntı: docs/runbook.md §9.
+# Kullanım:  cd deploy/turn && cp ../../.env.example .env (yalnız TURN_* doldurulur)
+#            cp denied-peer-ip.local.conf.example denied-peer-ip.local.conf (gerçek IP'lerle)
+#            ./gen-cert.sh <public-ip> && docker compose up -d
+# network_mode: host -> relay aralığı (49160-49199/udp) tek tek yayımlanmadan dinlenir ve istemci kaynak
+# adresi NAT'sız görülür (denied-peer-ip, XOR-MAPPED-ADDRESS doğruluğu). Dışa açılan portları host UFW +
+# üst NAT belirler (runbook §9.2/9.3); 9641 (Prometheus) 127.0.0.1'e bağlanır, CLI 4.18'de varsayılan kapalı
+# (`no-cli` yazılmaz, ADR-0007 r5; doğrulama `ss -tlnp`). relay↔relay için host OUTPUT kuralı: host-firewall.sh (§9.2.1).
+name: remote-turn
+
+services:
+  coturn:
+    image: coturn/coturn:4.18.0-alpine@sha256:c29135c08565810d37053f384584392b7c24b69570fc81a721b878d6fe63e04e
+    restart: unless-stopped
+    network_mode: host
+    user: "65534:65533"  # imaj kullanıcısı nobody
+    read_only: true
+    tmpfs: ["/tmp:mode=0700,uid=65534,gid=65533", "/var/lib/coturn:uid=65534,gid=65533"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    # İmajdaki turnserver ikilisi dosya yeteneği (cap_net_bind_service) taşır; sınır kümesinde yoksa
+    # exec EPERM verir. Prod'da 443 dinlemek için de gerekir. Başka yetenek yok.
+    cap_add: [NET_BIND_SERVICE]
+    entrypoint: ["/bin/sh", "/etc/coturn/entrypoint.sh"]
+    environment:
+      TURN_SECRET: ${TURN_SECRET:?TURN_SECRET gerekli (openssl rand -hex 32; server ile aynı)}
+      TURN_SECRET_PREVIOUS: ${TURN_SECRET_PREVIOUS:-}
+      TURN_REALM: ${TURN_REALM:?TURN_REALM gerekli (staging 185.126.217.99)}
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:?TURN_EXTERNAL_IP gerekli (staging 185.126.217.99/192.168.25.10)}
+      TURN_MAX_BPS: ${TURN_MAX_BPS:-8000000}
+      TURN_BPS_CAPACITY: ${TURN_BPS_CAPACITY:-0}
+      TURN_PROMETHEUS_ADDRESS: ${TURN_PROMETHEUS_ADDRESS:-127.0.0.1}
+      # listening-ip (runbook §9.1): auto = özel relay IPv4 + 127.0.0.1; boşsa tüm arayüzler (uyarı)
+      TURN_LISTEN_IPS: ${TURN_LISTEN_IPS:-}
+    volumes:
+      - ./entrypoint.sh:/etc/coturn/entrypoint.sh:ro
+      - ./turnserver.base.conf:/etc/coturn/turnserver.base.conf:ro
+      - ./denied-peer-ip.local.conf:/etc/coturn/denied-peer-ip.local.conf:ro
+      - ./certs:/etc/coturn/certs:ro
+    healthcheck:
+      # STUN Binding (kimliksiz) yanıtı -> dinleyici ayakta. 127.0.0.1: entrypoint TURN_LISTEN_IPS'e her zaman ekler.
+      test: ["CMD", "turnutils_stunclient", "-p", "3478", "127.0.0.1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # S-P3-9 (KVKK): coturn logu müşteri/peer IP'si ve username (<expiry>:<sessionId>) içerir. Boyut tavanı
+    # 3x5 MB; staging/prod trafiğinde ~7 günü aşmaz. Süre tavanı runbook §9.8.1 (haftalık cron, ≤ 7 gün). verbose yok.
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }

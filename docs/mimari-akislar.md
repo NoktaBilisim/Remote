@@ -31,7 +31,8 @@ sequenceDiagram
   alt kod eşleşmez
     S-->>T: error ADMIT_CODE_INVALID (5. hatada lobi boşalır)
   else eşleşir
-    S->>DB: TX: consumed_at, ACTIVE, active_code=NULL, mode=BROWSER, session_consents(VIEW,GRANTED, join anındaki onay), audit guest.admitted
+    S->>DB: TX: UPDATE … SET ACTIVE, consumed_at, active_code=NULL, mode=BROWSER WHERE id AND status=PENDING AND expires_at>now (count=1?) → session_consents(VIEW,GRANTED, join anındaki onay), audit guest.admitted
+    Note over S,DB: count=0 (iptal/süre doldu/çift admit kazandı) → rollback, misafire session.ended, teknisyene error CONFLICT (mimari-protokol §3.2)
     S-->>C: hello{iceServers(HMAC, ≤60 dk), reconnectToken, caps}
     S-->>T: peer.joined{guestKind:BROWSER}
   end
@@ -43,6 +44,7 @@ sequenceDiagram
   T-->C: DTLS-SRTP medya (P2P veya TURN)
   C->>S: share.state{sharing}
 ```
+Not (P3 giriş şartı 2): tüketim **yalnız** admit'teki tek atomik koşullu UPDATE ile olur; resolve ve join okur ama yazmaz, iptal/süre dolumu ile yarışta tek kazanan InnoDB satır kilidiyle belirlenir (mimari-protokol §3.2; P2 kalıbı `sessions/repo.ts` `cancelPending`). Resolve/join Origin kuralı: tarayıcı Origin'li + `clientKind=BROWSER` (ADR-0012).
 Not: getDisplayMedia join'den önce çağrılır; müşteri seçimi iptal ederse join yapılmaz (AC-30). Ret: `guest.reject{guestId}` → misafire `session.ended{rejected}`, oturum PENDING, kod geçerli (AC-113). Admit öncesi misafirden gelen `sdp.*`/`ice` → 1008.
 
 ## A2. Go istemci modu — kodla eşleme
@@ -54,9 +56,9 @@ sequenceDiagram
   participant A as Go istemci
   participant T as Teknisyen konsolu
   C->>S: GET /public/agent/download?ref
-  S-->>C: Destek-48291376.exe (aynı jenerik binary, yalnız dosya adı farklı)
+  S-->>C: Destek-48291376.exe (aynı jenerik binary, yalnız dosya adı farklı; yalnız PENDING+süresi dolmamış, kod yolu hız sınırı — mimari-api)
   A->>A: SetDefaultDllDirectories(SYSTEM32) (G-08); os.Executable() → regex (\d{8}) ; yoksa kod giriş alanı
-  A->>S: POST /public/sessions/resolve {code, clientKind:AGENT} (TLS doğrulamalı)
+  A->>S: POST /public/sessions/resolve {code, clientKind:AGENT} (TLS doğrulamalı, Origin YOK → yalnız AGENT kabul, ADR-0012)
   alt 404/410/429
     S-->>A: hata → "Kod geçersiz/süresi doldu" (AC-97)
   else geçerli
@@ -69,7 +71,7 @@ sequenceDiagram
   S-->>A: lobby.wait → bekleme ekranı "Teknisyeninize şu kodu söyleyin: 4821"
   S-->>T: peer.pending{guestId, name, AGENT}
   T->>S: guest.admit{admitCode} (müşterinin okuduğu kod)
-  S->>S: TX tüketim + consent + audit (A1 ile aynı)
+  S->>S: TX: atomik koşullu UPDATE (count=1) + consent + audit (A1 ile aynı, mimari-protokol §3.2)
   S-->>A: hello{iceServers, reconnectToken, caps}
   S-->>T: peer.joined{guestKind:AGENT}
   T->>S: sdp.offer (video recv + ctl, file, input DC)
@@ -129,7 +131,7 @@ sequenceDiagram
   end
   S->>T: peer.joined → T yeni offer (ICE restart / yeni PC)
   alt 120 sn doldu (iki taraf da yoksa veya guest gelmedi)
-    S->>S: ENDED(end_reason=TIMEOUT) + audit (AC-25)
+    S->>S: ENDED(end_reason=timeout) + audit (AC-25)
   end
   T->>S: session.end (onay diyaloğu sonrası, AC-59)
   S->>S: ENDED(ended_by=TECH), quality_summary kaydı

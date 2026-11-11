@@ -73,7 +73,7 @@ Koyu tema P1'de işletim sistemi tercihine (`prefers-color-scheme`) göre; kulla
 ## 6. Bileşen primitifleri (`apps/web/components`)
 | Bileşen | Amaç |
 |---|---|
-| `ui/button.tsx` | `primary` / `secondary` / `ghost`; `loading` → spinner + disabled + `aria-busy` |
+| `ui/button.tsx` | `primary` / `secondary` / `ghost` / `danger` (dolu `danger` zemin, yıkıcı onay: Oturumu bitir) / `danger-ghost` (`danger` çerçeve+metin, hover `danger-surface`: Paylaşımı durdur, Ayrıl) (P4); `loading` → spinner + disabled + `aria-busy`; min 44 px, `:active scale(.97)` |
 | `ui/text-field.tsx` | Etiketli input; `error` (aria-invalid + describedby), `hint`, `revealable` şifre göster/gizle |
 | `ui/alert.tsx` | `danger` / `locked` (role=alert) · `warning` / `success` (role=status) |
 | `brand-logo.tsx` | `full` (login) / `mark` (üst menü) |
@@ -82,8 +82,15 @@ Koyu tema P1'de işletim sistemi tercihine (`prefers-color-scheme`) göre; kulla
 | `load-error.tsx` | Sayfa verisi alınamadı + "Tekrar dene" |
 | `ui/badge.tsx` (P2) | `StatusBadge`: oturum durumu rozeti (metin + nokta; "Lobide" P3) |
 | `ui/dialog.tsx` (P2) | Native `<dialog>` + `showModal`; ilk odak `data-autofocus` öğesi (React `autoFocus` kapalı diyalogda çalışmaz); kendi `ToastViewport`'unu taşır |
-| `ui/code-display.tsx` (P2) | 8 hane `4829 1376` (4+4) ve 4 haneli doğrulama kodu; `sm`/`lg` |
-| `ui/empty-state.tsx` · `ui/skeleton.tsx` · `ui/segmented.tsx` · `ui/avatar.tsx` (P2) | Boş durum · iskelet · `aria-pressed` filtre grubu · baş harf rozeti |
+| `ui/code-display.tsx` (P2) | 8 hane `4829 1376` (4+4) ve 4 haneli doğrulama kodu; `sm`/`lg`; `xl` (P4): müşteri lobisindeki 4 haneli kabul kodu — hane başına `surface-muted` kutu, mono `text-4xl`/`sm:text-5xl`, `aria-label` rakamları tek tek okutur |
+| `guest/share-strip.tsx` (P4) | Müşteri paylaşım şeridi; `data-state` = `idle` / `sharing` / `stopped` / `reconnecting` (`reconnecting` → `role=alert`, `warning` renk). İkonlar: `ScreenShare` (paylaş), `ScreenShareOff` (durdu), `CircleStop` (durdur, `danger-ghost`), `LoaderCircle` (başlıyor/yeniden bağlanıyor), `Power` (oturumu bitir) |
+| `console/stage.tsx` (P4) | Konsol sahnesi: `stage`/`on-stage` zemini (iki temada koyu), `<video>`, `data-share` = `unknown`/`sharing`/`stopped`; durum mesajları ikonla: `Hourglass` (müşteri bekleniyor), `ScreenShareOff` (paylaşım durdu), `WifiOff` (bağlantı koptu), `LoaderCircle` (bağlanıyor). **Görüntü modları (AC-43):** yalnız paylaşım görünürken sağ üstte araç grubu (`data-testid=stage-tools`): `Segmented` **Sığdır** (`Expand`; `object-contain`, varsayılan) / **%100** (`ScanSearch`; doğal boyut, `max-w-none`, kaydırma kabı `overflow-auto` + `tabIndex=0` + `role=region` + `aria-label` → klavyeyle odaklanıp ok tuşlarıyla kaydırılır, odak halkası içe) ve `secondary` **Tam ekran** düğmesi (`Maximize` / çıkışta `Minimize` + "Tam ekrandan çık", `aria-pressed`; `requestFullscreen` sahne `<section>`'ına, durum `fullscreenchange`'ten okunur, Esc ile çıkış tarayıcıda). Kök öznitelikler: `data-mode` = `fit`/`actual`, `data-fullscreen` = `true`/`false`. Mod geçişi anında (animasyonsuz) |
+| `console/lobby-panel.tsx` (P4) | Bekleyen katılımcılar (≤3, `Users`), kabul kodu girişi (4 hane, `inputmode=numeric`, Enter ile gönder, `UserCheck`), kalan hak uyarısı (`warning`), satır başına `Reddet` (`UserX`, `aria-label="Reddet: <ad>"`) |
+| Konsol koyu teması (P4) | `/sessions/[id]/console` kökünde `.theme-dark` sınıfı: kullanıcının tema tercihinden bağımsız koyu token seti (`:root:has(.theme-dark)`, §8; kullanıcı tercihi P12); üst çubuk `ArrowLeft` (oturumlara dön), `Power` (bitir, `danger`), `CircleX` (iptal) |
+| Konsol pasif "Uzaktan kontrol" (P4, AC-34) | Tarayıcı modundaki canlı oturumda üst çubukta `secondary` + `disabled` düğme (`MousePointer2`, "Uzaktan kontrol"); nedeni yanında görünür `text-xs text-fg-muted` metinle yazılır ve düğmeye `aria-describedby` ile bağlanır (yalnız `title`/tooltip değil). Etkin kontrol akışı P7 `console/control-button.tsx` |
+| `ui/empty-state.tsx` · `ui/skeleton.tsx` · `ui/segmented.tsx` · `ui/avatar.tsx` (P2) | Boş durum · iskelet · `aria-pressed` filtre grubu (min 44 px, anında geçiş; seçenek başına opsiyonel `count` ve P4'te opsiyonel `icon` — `aria-hidden` lucide `size-4`, etiketin solunda, `gap-1.5`; ikon yalnız etiketi destekler, ikon-only seçenek yok) · baş harf rozeti |
+| Müşteri: "Bu cihaz desteklenmiyor" (P4, AC-33) | `/session/[token]` karşılama ekranında, istemcide ekran paylaşımı API'si yoksa veya cihaz mobil/yalnız dokunmatikse (`lib/device-support.ts`) katılım formu **yerine** gösterilen kart: `surface` + `border` + `shadow-sm`, `MonitorX` (`text-fg-muted`), başlık + "masaüstü Chrome, Edge veya Firefox" yönlendirmesi; `role=status`, `aria-labelledby`, `data-testid=guest-unsupported`. Sunucu render'ında bilinmez → form gösterilir (hidrasyon sonrası karar). Eylem düğmesi yok (yapılabilecek tek şey başka cihaz); teknisyen kartı, dolandırıcılık uyarısı ve kalan süre görünür kalır |
+| Müşteri: "Paylaşım başlatılmadı" (P4) | Paylaşım penceresi iptal edilir/izin verilmezse share-strip altında `Alert tone=danger` (`data-testid=share-denied`): kalın başlık "Paylaşım başlatılmadı" + ne yapılacağı + `secondary` **Tekrar dene** (`RotateCw`; basınca `loading` spinner'ı ikonun yerini alır). Paylaşım başlayınca kendiliğinden kalkar. Tarayıcı API'yi hiç desteklemiyorsa düğmesiz `danger` uyarı ("güncel Chrome, Edge veya Firefox") |
 | `ui/toast.tsx` (P2) | Kendi küçük toast'ımız (Sonner değil: nonce'suz `<style>` enjekte eder → CSP). `useToast()(mesaj, "success"\|"danger")`, 4 sn, en çok 3, `aria-live=polite` |
 
 ### 6.1 Onaylı yeni primitifler (kod, ilk kullanıldığı pakette yazılır — şimdi yazılmaz)
@@ -94,13 +101,13 @@ Koyu tema P1'de işletim sistemi tercihine (`prefers-color-scheme`) göre; kulla
 | `ui/code-display.tsx` | 8 haneli kod (4+4 gruplu, mono), teknisyen doğrulama kodu, 4 haneli büyük kabul kodu kutuları | P2 (büyük kutu P3) |
 | `ui/empty-state.tsx` | İkon + başlık + açıklama + eylem | P2 |
 | `ui/skeleton.tsx` | `surface-muted` + pulse | P2 |
-| `ui/segmented.tsx` | Filtre (Tümü/Açık/Bitmiş), monitör seçimi, tema seçimi | P2 |
+| `ui/segmented.tsx` | Filtre (Tümü/Açık/Bitmiş), monitör seçimi, tema seçimi; konsol Sığdır/%100 (ikonlu, P4) | P2 |
 | `ui/avatar.tsx` | Resim yoksa baş harf rozeti; üst menüde her genişlikte görünür (ad/rol/firma mobilde `sr-only`) | P2 (yükleme P12) |
 | `ui/toast` | Kopyalandı, gönderildi, kaydedildi — **yazıldı (Sonner yerine kendi bileşen, §6)** | P2 |
-| `guest/share-strip.tsx` | Müşteri "Ekranınız paylaşılıyor / durdu / koptu" şeridi | P4 |
-| `console/stage.tsx` | `stage` zemini, video, durum mesajları, uyarı çipleri, kontrol çerçevesi | P4 |
+| `guest/share-strip.tsx` | Müşteri "Ekranınız paylaşılıyor / durdu / koptu" şeridi — **yazıldı (§6)** | P4 |
+| `console/stage.tsx` | `stage` zemini, video, durum mesajları, uyarı çipleri, görüntü modları + tam ekran, kontrol çerçevesi — **yazıldı (§6; kontrol çerçevesi P7)** | P4 |
 | `console/quality-meter.tsx` | FPS, bit hızı, RTT, kayıp, yol (P2P / "TURN · TLS 443") | P4 |
-| `console/lobby-panel.tsx` | Bekleyen katılımcılar (≤3), kabul kodu girişi, kalan hak, Reddet | P3 (UI P4) |
+| `console/lobby-panel.tsx` | Bekleyen katılımcılar (≤3), kabul kodu girişi, kalan hak, Reddet — **yazıldı (§6)** | P3 (UI P4) |
 | `ui/tabs.tsx` | Konsol sağ paneli Sohbet / Dosyalar / Bilgi (ok tuşlarıyla gezinme) | P5 |
 | `console/annotation-toolbar.tsx` + overlay | Kalem, lazer, ok, dikdörtgen, sil (`annotate` rengi) | P5 |
 | `console/control-button.tsx` | Kontrol durum makinesi: kapalı → istendi → aktif → kapatıldı/reddedildi (30 sn geri sayım, kalan istek) | P7 |
@@ -117,7 +124,7 @@ hata (`LoadError` / `FormError`, tekrar dene), kısmi, başarılı. Form gönder
 - **Konsol varsayılan koyu:** kullanıcı tema tercihi kaydedilmemişse konsol koyu açılır; tercih varsa ona uyar. Konsol ≥ 1280 px, kaydırmasız: üst bar (müşteri, durum, süre, doğrulama kodu, kalite) + araç çubuğu + sahne + 360 px sağ panel.
 - **Müşteri ekranları** (karşılama, lobi, tarayıcı modu oturumu) tarayıcı/işletim sistemi temasına uyar (Sistem); hesap yok, DB tercihi yok.
 - **Tarayıcı modunda işaretleme** yalnız müşterinin sekmesindeki önizlemede görünür; gerçek masaüstü üstüne çizim yalnız Hızlı Destek istemcisinde (overlay).
-- **Kötüye kullanım adresi** (`ABUSE_EMAIL`, K10) açık; belirtilmezse Super Admin e-postası kullanılır. Taslaktaki adres yer tutucudur.
+- **Kötüye kullanım adresi** (`ABUSE_EMAIL`, K10) açık. Güncelleme (S-P4-1): production'da `ABUSE_EMAIL` boşsa "Kötüye kullanımı bildir" bağlantısı **gizlenir** (Super Admin e-postasına düşülmez). Taslaktaki adres yer tutucudur.
 - **Bildirim:** sohbette okunmamış rozeti + toast + sekme başlığında okunmamış sayısı (`(2) Konsol: …`); ses yok.
 - **Bağlantı yolu** kalite göstergesinde protokolüyle yazılır: "Doğrudan (P2P) · UDP", "TURN · UDP 3478", "TURN · TLS 443".
 - **Kontrol çerçevesi** iki temada sabit kırmızı (`control-frame`); kontrol istendi/reddedildi durumları araç çubuğunda metinle, renge dayanmadan gösterilir.

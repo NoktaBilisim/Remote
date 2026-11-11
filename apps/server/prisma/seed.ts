@@ -1,8 +1,9 @@
-// Seed (idempotent): Super Admin + demo tenant. Gizli değer yok; parola env'den gelir.
+// Seed (idempotent): Super Admin + demo tenant + her tenant için KVKK metni v1 (P4). Gizli değer yok; parola env'den gelir.
 // Çalıştırma: pnpm db:seed  (DATABASE_URL = app kullanıcısı; DDL gerekmez)
 // Env: SEED_SUPERADMIN_EMAIL, SEED_SUPERADMIN_PASSWORD (>= 12 karakter), SEED_SUPERADMIN_NAME?
 // Demo tenant NODE_ENV=production iken oluşturulmaz.
 // Var olan Super Admin'in parolası ASLA ezilmez (yeniden çalıştırma güvenli).
+import { createHash } from "node:crypto";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import argon2 from "argon2";
 import { ulid } from "ulid";
@@ -85,12 +86,51 @@ async function seedDemoTenant(prisma: PrismaClient): Promise<"created" | "exists
   return "created";
 }
 
+// P4 (mimari §3.1 consent_texts, AC-29/127): başlangıç aydınlatma/onay metni. Tenant Admin'i P11'de
+// yeni sürüm ekler. Üretimde de çalışır (demo verisi değildir): metni olmayan her tenant'a v1 eklenir.
+function defaultConsentBody(tenantName: string): string {
+  return [
+    `Bu uzaktan destek oturumunda veri sorumlusu ${tenantName}'dır.`,
+    "Oturum sırasında adınız, e-posta adresiniz (verirseniz), IP adresiniz, tarayıcı bilgileriniz ve onay kayıtlarınız; destek hizmetinin verilmesi ve kayıt altına alınması amacıyla 6698 sayılı KVKK'ya uygun olarak işlenir.",
+    "Ekranınız yalnız siz paylaşımı başlattığınızda ve oturum süresince teknisyene canlı olarak iletilir; ekran görüntüsü veya video kaydı tutulmaz. Paylaşımı istediğiniz an durdurabilir, oturumu sonlandırabilirsiniz.",
+    "Kayıtlar firmanın belirlediği saklama süresi sonunda anonimleştirilir. KVKK'nın 11. maddesindeki haklarınız için firmayla iletişime geçebilirsiniz.",
+    "Devam ederek bu metni okuduğunuzu ve ekranınızın görüntülenmesine açık rıza verdiğinizi onaylarsınız.",
+  ].join("\n\n");
+}
+
+async function seedConsentTexts(prisma: PrismaClient): Promise<number> {
+  const tenants = await prisma.tenant.findMany({
+    where: { consentTexts: { none: {} } },
+    select: { id: true, name: true },
+  });
+  for (const tenant of tenants) {
+    const id = ulid();
+    const body = defaultConsentBody(tenant.name);
+    const sha256 = createHash("sha256").update(body, "utf8").digest("hex"); // DB CHECK: = SHA2(body,256)
+    await prisma.$transaction([
+      prisma.consentText.create({ data: { id, tenantId: tenant.id, version: 1, body, sha256, isCurrent: true } }),
+      prisma.auditLog.create({
+        data: {
+          tenantId: tenant.id,
+          action: "consent_text.created",
+          entity: "consent_texts",
+          entityId: id,
+          newValue: { version: 1, sha256, source: "seed" },
+          result: "success",
+        },
+      }),
+    ]);
+  }
+  return tenants.length;
+}
+
 async function main(): Promise<void> {
   const prisma = new PrismaClient({ adapter: new PrismaMariaDb(requireEnv("DATABASE_URL")) });
   try {
     const superAdmin = await seedSuperAdmin(prisma);
     const demo = await seedDemoTenant(prisma);
-    process.stdout.write(`seed: superAdmin=${superAdmin} demoTenant=${demo}\n`);
+    const consents = await seedConsentTexts(prisma);
+    process.stdout.write(`seed: superAdmin=${superAdmin} demoTenant=${demo} consentTextsCreated=${consents}\n`);
   } finally {
     await prisma.$disconnect();
   }

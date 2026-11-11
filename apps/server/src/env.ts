@@ -1,5 +1,5 @@
 // Ortam değişkenleri tek giriş noktası (mimari §8.1). Doğrulanmamış process.env başka yerde okunmaz.
-// P1 yalnız kullandığı anahtarları ister; diğerleri (APP_ENCRYPTION_KEYS, TURN_*, METRICS_TOKEN …)
+// Her paket yalnız kullandığı anahtarları ister; diğerleri (APP_ENCRYPTION_KEYS …)
 // ilgili pakette eklenir.
 import { isIP } from "node:net";
 import { z } from "zod";
@@ -28,6 +28,16 @@ const schema = z
     // sessionRef HMAC anahtarı (mimari-api.md "Ortak kurallar"). Production'da zorunlu (S-P2-7); geliştirme/
     // testte boşsa süreç başına rastgele üretilir (yeniden başlatmada eski ref'ler 404 olur).
     SESSION_REF_KEY: z.string().min(32, "en az 32 karakter olmalı").optional(),
+    // TURN (mimari §8.1, ADR-0007, §8.3.1): virgüllü URL listesi; boşsa iceServers boş (yalnız P2P/host).
+    TURN_URLS: z.string().optional(),
+    // coturn `static-auth-secret`; turn:/turns: URL'si varsa zorunlu. Loglanmaz.
+    TURN_SECRET: z.string().min(32, "en az 32 karakter olmalı (coturn başlatıcısı)").optional(),
+    TURN_CRED_TTL_MIN: z.coerce.number().int().min(5).max(60).default(20),
+    // /metrics Bearer (AC-89). Boşsa /metrics kapalı (404).
+    METRICS_TOKEN: z.string().min(16, "en az 16 karakter olmalı").optional(),
+    // "Kötüye kullanımı bildir" mailto: adresi (AC-125, K10). Boşsa dev/test'te ilk aktif Super Admin e-postası (V13);
+    // production'da boşsa resolve `abuseEmail: null` döner — Super Admin adresi açığa çıkmaz (S-P4-1).
+    ABUSE_EMAIL: z.email().max(190).optional(),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   })
   .refine((e) => e.NODE_ENV !== "production" || e.TRUSTED_PROXY_CIDR, {
@@ -38,17 +48,30 @@ const schema = z
     path: ["SESSION_REF_KEY"],
     message: "production'da zorunlu (aksi halde süreç başına rastgele anahtar üretilir)",
   })
+  .refine((e) => e.TURN_SECRET || !/(^|,)\s*turns?:/.test(e.TURN_URLS ?? ""), {
+    path: ["TURN_SECRET"],
+    message: "turn:/turns: URL'si varken zorunlu",
+  })
   .transform((e) => {
     const list = e.ALLOWED_ORIGINS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
     const allowedOrigins = (list.length > 0 ? list : [e.PUBLIC_BASE_URL]).map((o) => origin.parse(o));
-    return { ...e, allowedOrigins };
+    const turnUrls = e.TURN_URLS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+    return { ...e, allowedOrigins, turnUrls };
   });
 
 export type Env = z.infer<typeof schema>;
 
+/**
+ * Boş ("" / yalnız boşluk) değer = tanımsız. Compose `${X:-}` opsiyonel değişkeni boş dize geçirir; aksi halde
+ * min()/email() doğrulaması sunucuyu açtırmaz. Zorunlu alanlar (prod'da SESSION_REF_KEY …) boşken yine "eksik" hatası verir.
+ */
+function withoutBlanks(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(source).filter(([, v]) => v === undefined || v.trim() !== ""));
+}
+
 /** Hata mesajı yalnız anahtar adlarını içerir; değerler (DATABASE_URL parolası) yazılmaz. */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  const parsed = schema.safeParse(source);
+  const parsed = schema.safeParse(withoutBlanks(source));
   if (!parsed.success) {
     const keys = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
     throw new Error(`Geçersiz ortam değişkenleri — ${keys}`);

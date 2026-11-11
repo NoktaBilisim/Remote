@@ -24,7 +24,7 @@ describe("jobs/scheduler (QA-P2-8)", () => {
     let release: (v: unknown[]) => void = () => undefined;
     let hold = true;
     const { db, findMany } = fakeDb(() => (hold ? new Promise((r) => (release = r)) : Promise.resolve([])));
-    jobs = startScheduler(db, fakeLog().log, 60_000);
+    jobs = startScheduler(db, fakeLog().log, undefined, 60_000);
     const first = jobs.runExpiry();
     expect(await jobs.runExpiry()).toBe(0);
     expect(findMany).toHaveBeenCalledTimes(1);
@@ -39,7 +39,7 @@ describe("jobs/scheduler (QA-P2-8)", () => {
     let fail = true;
     const { db, findMany } = fakeDb(() => (fail ? Promise.reject(new Error("db düştü")) : Promise.resolve([])));
     const { log, error } = fakeLog();
-    jobs = startScheduler(db, log, 60_000);
+    jobs = startScheduler(db, log, undefined, 60_000);
     expect(await jobs.runExpiry()).toBe(0);
     expect(error).toHaveBeenCalledTimes(1);
     expect(error.mock.calls[0]?.[0]).toMatchObject({ job: "session-expiry", err: expect.any(Error) });
@@ -52,7 +52,7 @@ describe("jobs/scheduler (QA-P2-8)", () => {
   it("AC-5: zamanlayıcı aralıkta tetikler; stop sonrası tetiklemez", async () => {
     vi.useFakeTimers();
     const { db, findMany } = fakeDb(() => Promise.resolve([]));
-    jobs = startScheduler(db, fakeLog().log, 1_000);
+    jobs = startScheduler(db, fakeLog().log, undefined, 1_000);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(findMany).toHaveBeenCalledTimes(1);
     jobs.stop();

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
 import { t } from "@/lib/i18n";
+import { clearSessionData } from "@/lib/session-storage";
 
 /** AC-65: POST /auth/logout (CSRF başlıklı) → /login. 401 = zaten düşmüş oturum, çıkış sayılır. */
 export function LogoutButton({ userName }: { userName: string }) {
@@ -25,6 +26,7 @@ export function LogoutButton({ userName }: { userName: string }) {
         return;
       }
     }
+    clearSessionData(); // S-P4-4: paylaşımlı bilgisayarda müşteri adı sekmede kalmasın
     router.replace("/login?reason=logout");
     router.refresh();
   }

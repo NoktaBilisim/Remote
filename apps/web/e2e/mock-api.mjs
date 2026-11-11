@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 // Çerez/başlık adları tek kaynaktan (Node 24 .ts tür ayıklama ile doğrudan okunur)
 import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import { handleSessions, sessionUser } from "./mock-sessions.mjs";
+import { attachWs } from "./mock-ws.mjs";
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
 const CSRF = "csrf-test-token";
@@ -51,7 +52,7 @@ async function readJson(req) {
   }
 }
 
-createServer(async (req, res) => {
+const srv = createServer(async (req, res) => {
   const c = cookies(req);
   const session = c[SESSION_COOKIE];
   const url = req.url ?? "";
@@ -106,4 +107,6 @@ createServer(async (req, res) => {
   if (await handleSessions(req, res, { url, session, csrfOk, send, err, readJson })) return;
 
   send(res, 404, err("NOT_FOUND", "Bulunamadı."));
-}).listen(PORT, "127.0.0.1", () => console.log(`mock-api :${PORT}`));
+});
+attachWs(srv);
+srv.listen(PORT, "127.0.0.1", () => console.log(`mock-api :${PORT}`));

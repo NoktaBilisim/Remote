@@ -1,28 +1,41 @@
 "use client";
 
-import type { PublicSessionStatusResponse, ResolveSessionResponse } from "@remote/contracts/api/sessions";
-import { Info, ShieldAlert, Timer } from "lucide-react";
-import { useEffect, useState } from "react";
+import type { JoinSessionResponse, PublicSessionStatusResponse } from "@remote/contracts/api/sessions";
+import { Flag, MonitorX, ShieldAlert, Timer } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { CodeDisplay } from "@/components/ui/code-display";
 import { api, ApiError } from "@/lib/api";
+import { isScreenShareSupported, readSupportEnv } from "@/lib/device-support";
 import { formatRemaining } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { useNow } from "@/lib/use-now";
 import { GuestEndScreen, type GuestEnd } from "../guest-ui";
+import { JoinForm, type ResolveData } from "./join-form";
 
 const POLL_MS = 2000;
+const noop = () => () => undefined;
 const END: Partial<Record<PublicSessionStatusResponse["status"], GuestEnd>> = {
   CANCELLED: "cancelled",
   EXPIRED: "expired",
   ENDED: "ended",
 };
 
-/** Karşılama (P2): teknisyen + doğrulama kodu → dolandırıcılık uyarısı → yer tutucu; 2 sn durum yoklaması (AC-8). */
-export function GuestWelcome({ data }: { data: ResolveSessionResponse }) {
+/** Karşılama: teknisyen + doğrulama kodu → dolandırıcılık uyarısı → ad + aydınlatma onayı → tarayıcıdan paylaş (DESIGN §8); 2 sn durum yoklaması (AC-8). */
+export function GuestWelcome({
+  data,
+  abuseEmail,
+  onJoined,
+}: {
+  data: ResolveData;
+  abuseEmail: string | null;
+  onJoined: (r: JoinSessionResponse & { customerName: string }) => void;
+}) {
   const [end, setEnd] = useState<GuestEnd | null>(null);
   const now = useNow();
   const left = now === null ? null : Date.parse(data.expiresAt) - now;
+  // AC-33: sunucuda bilinmez (null) → form; istemcide mobil/API yoksa form yerine "desteklenmiyor"
+  const supported = useSyncExternalStore(noop, () => isScreenShareSupported(readSupportEnv()), () => null);
 
   useEffect(() => {
     if (end) return;
@@ -87,20 +100,35 @@ export function GuestWelcome({ data }: { data: ResolveSessionResponse }) {
         <div>
           <h2 className="font-semibold text-warning">{t("g.fraudTitle")}</h2>
           <p className="mt-1">{t("g.fraudBody")}</p>
+          {abuseEmail && (
+            <a href={`mailto:${abuseEmail}`} className="mt-2 inline-flex min-h-11 items-center gap-1.5 font-medium text-warning underline">
+              <Flag aria-hidden className="size-4" />
+              {t("g.abuse")}
+            </a>
+          )}
         </div>
       </section>
 
-      <section className="flex gap-3 rounded-lg border border-border bg-surface p-4 text-sm" data-testid="guest-next">
-        <Info aria-hidden className="mt-0.5 size-5 shrink-0 text-primary" />
-        <div>
-          <h2 className="font-semibold text-fg">{t("g.nextTitle")}</h2>
-          <p className="mt-1 text-fg-muted">{t("g.nextBody")}</p>
-          <p className="mt-2 inline-flex items-center gap-1.5 text-fg-muted">
-            <Timer aria-hidden className="size-4" />
-            <span className="tabular-nums">{t("g.left", { time: left === null ? "—" : formatRemaining(left) })}</span>
-          </p>
-        </div>
-      </section>
+      {supported === false ? (
+        <section
+          role="status"
+          aria-labelledby="desteklenmiyor-t"
+          data-testid="guest-unsupported"
+          className="flex gap-3 rounded-lg border border-border bg-surface p-4 shadow-sm"
+        >
+          <MonitorX aria-hidden className="mt-0.5 size-6 shrink-0 text-fg-muted" />
+          <div>
+            <h2 id="desteklenmiyor-t" className="font-semibold text-fg">{t("g.unsupportedTitle")}</h2>
+            <p className="mt-1 text-sm text-fg-muted">{t("g.unsupportedBody")}</p>
+          </div>
+        </section>
+      ) : (
+        <JoinForm data={data} onJoined={onJoined} onEnd={setEnd} />
+      )}
+      <p className="inline-flex items-center gap-1.5 text-sm text-fg-muted" data-testid="guest-next">
+        <Timer aria-hidden className="size-4" />
+        <span className="tabular-nums">{t("g.left", { time: left === null ? "—" : formatRemaining(left) })}</span>
+      </p>
     </>
   );
 }

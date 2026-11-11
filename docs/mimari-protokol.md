@@ -10,11 +10,11 @@ iki tarafta (Vitest + `go test`) doğrulanır (kod üretici yok — ADR-0004).
 | Kimlik bilgisi taşıma (G-10) | `rs_session` çerezi | `Sec-WebSocket-Protocol: rs.v1, rs.ticket.<wsTicket>` — yeniden bağlanmada `rs.reconnect.<reconnectToken>`; sunucu yanıtta yalnız `rs.v1` seçer | aynı (coder/websocket `Subprotocols`) |
 | Doğrulama (upgrade anında) | `Origin ∈ ALLOWED_ORIGINS` + çerez + `auth_sessions` geçerli + oturum sahibi (Admin dahil başkası **hayır**, AC-15) | Origin + `wsTicket` (join'den, 60 sn, tek kullanımlık) | Origin yoksa `ticket.kind === "AGENT"` (AC-14) |
 | Ret | HTTP 403 (upgrade öncesi) | 403 (URL'de `ticket`/`reconnect` sorgu parametresi varsa da 403 — sızmış biçim reddedilir) | 403 |
-Not: tarayıcı Origin başlığını gönderir ve **sahte gönderemez**; native istemci Origin'siz gelir. Kural: `Origin` varsa allowlist'te olmalı; yoksa `ticket.kind === "AGENT"` olmalı. `User-Agent` **hiçbir karara girmez**, yalnız log bilgisidir (G-20).
+Not: tarayıcı Origin başlığını gönderir ve **sahte gönderemez**; native istemci Origin'siz gelir. Kural: `Origin` varsa allowlist'te **ve** `ticket.kind === "BROWSER"` olmalı; yoksa `ticket.kind === "AGENT"` olmalı (ve `Sec-Fetch-*` yok). REST resolve/join ile aynı guard (`checkPublicClient`, ADR-0012); `ticket.kind` istemci beyanı değil, `joinNonce` kaydından gelir. `User-Agent` **hiçbir karara girmez**, yalnız log bilgisidir (G-20).
 Teknisyen soketi 60 sn'de bir `auth_sessions`'ı yeniden doğrular; geçersizse `session.ended{auth_revoked}` + 4401 kapanış (G-04).
 Yeniden bağlanma (G-10): `rs.reconnect.*` yalnız odada `guestSocket` **yokken** kabul edilir; misafir bağlıyken gelen istek 403 + audit `reconnect.conflict`. Başarılı kullanımda token yenilenir (`hello.reconnectToken`). Yeniden bağlanan misafir lobiye girmez; kontrol `VIEW` başlar.
 
-Sınırlar (AC-17..19): `maxPayload` 64 KB (aşım → 1009 yerine kontrollü 1008), zod hatası → 1008 + log, 50 mesaj/sn token-bucket aşımı → 1008 + log `ws_rate_exceeded`, sunucu ping 30 sn, 2 pong kaçarsa terminate.
+Sınırlar (AC-17..19): `maxPayload` 64 KB (aşım → ws kütüphanesi 1009 ile kapatır; S-P3-1 sonrası, implementation.md P3 düzeltme turu 1), zod hatası → 1008 + log, 50 mesaj/sn token-bucket aşımı → 1008 + log `ws_rate_exceeded`, sunucu ping 30 sn, 2 pong kaçarsa terminate.
 
 ## 2. Mesaj zarfı
 Her mesaj: `{ "t": "<tip>", "id"?: string(≤26), ...alanlar }`. Sunucu karşı tarafa iletirken alanları **yeniden kurar** (gelen nesneyi olduğu gibi aktarmaz; ekstra alan `strict()` ile reddedilir).
@@ -22,7 +22,7 @@ Her mesaj: `{ "t": "<tip>", "id"?: string(≤26), ...alanlar }`. Sunucu karşı 
 ## 3. Mesaj tipleri
 | t | Yön | Alanlar (zod) | Sunucu davranışı |
 |---|---|---|---|
-| `hello` | S→iki taraf | `role: "tech"\|"guest"`, `sessionId`, `peerPresent: bool`, `guestKind?`, `iceServers[]`, `maxEndsAt: iso`, `caps?: ("remote_control"\|"file_transfer")[]` (yalnız guest, G-09), `reconnectToken?` (yalnız guest) | Teknisyene bağlanınca; **misafire yalnız admit sonrası** (G-01). TURN credential ilk kez burada |
+| `hello` | S→iki taraf | `role: "tech"\|"guest"`, `sessionId`, `peerPresent: bool`, `guestKind?`, `iceServers[]`, `maxEndsAt: iso \| null` (PENDING'de teknisyene null, boş `iceServers`), `caps?: ("remote_control"\|"file_transfer")[]` (yalnız guest, G-09), `reconnectToken?` (yalnız guest), `guestName?: string(≤100)` (yalnız tech, ADMITTED misafir varken), `share?: { state: "sharing"\|"stopped", monitors?, activeMonitor? }` (yalnız tech; `share.state` ile aynı şema) | Teknisyene bağlanınca (yeniden bağlanan konsol `guestName` + son `share` ile durumu kurar — QA-P4-12); **misafire yalnız admit sonrası** (G-01). TURN credential ilk kez burada |
 | `lobby.wait` | S→guest | `expiresAt: iso` | Ticket ile bağlanan misafire ilk mesaj; misafir bu durumda yalnız `session.end` gönderebilir, diğer her tip → 1008 |
 | `peer.pending` | S→tech | `guestId`, `name: string(≤100)`, `guestKind`, `since: iso` | Lobiye giren her misafir (≤3); `peer.pending.left{guestId, reason: "left"\|"timeout"\|"rejected"}` ile düşer |
 | `guest.admit` | tech→S | `admitCode: /^\d{4}$/` | Sunucu kodu lobi misafirlerinin hash'leriyle `timingSafeEqual` karşılaştırır; eşleşen misafir admit edilir (TX: tüketim + consent + audit `guest.admitted`), diğer lobi misafirlerine `session.ended{rejected}`; eşleşme yoksa `error{ADMIT_CODE_INVALID}` + audit; oturum başına 5. hatada lobi boşaltılır |
@@ -30,11 +30,11 @@ Her mesaj: `{ "t": "<tip>", "id"?: string(≤26), ...alanlar }`. Sunucu karşı 
 | `ice.servers` | S→iki taraf | `iceServers[]` | Credential bitişinden 5 dk önce (G-13); alıcı `setConfiguration`, teknisyen ardından `ice.restart` akışını başlatır |
 | `control.revoke` | S→guest | `reason: "permission"\|"audit"\|"admin"` | Yetki kaldırıldı veya kontrol audit'i yazılamadı (G-04, G-15); istemci kapıyı **kapatır** (açamaz) ve `control.state{VIEW, source:"SYSTEM"}` döner |
 | `caps.update` | S→guest | `caps[]` | Teknisyen yetkisi değişince (G-09) |
-| `peer.joined` / `peer.left` | S→karşı | `role`, `reason?: "disconnect"\|"ended"` | `peer.left(disconnect)` → UI "Bağlantı koptu, yeniden bağlanılıyor" (AC-24) |
+| `peer.joined` / `peer.left` | S→karşı | `role`, `reason?: "disconnect"\|"ended"`, `guestKind?`, `guestName?: string(≤100)` (yalnız `peer.joined` role=guest, QA-P4-12) | `peer.left(disconnect)` → UI "Bağlantı koptu, yeniden bağlanılıyor" (AC-24) |
 | `sdp.offer` / `sdp.answer` | tech↔guest | `sdp: string(≤60000)` | Yalnız aynı odadaki karşı tarafa (AC-20). Offer'ı **teknisyen** oluşturur (recvonly video + DC'ler); guest answer verir |
 | `ice` | tech↔guest | `candidate: string(≤2000)`, `sdpMid?: string(≤32)`, `sdpMLineIndex?: int 0..16` | Aynı |
 | `ice.restart` | tech→guest | — | ICE yeniden başlatma isteği (ağ değişimi) |
-| `share.state` | guest→S→tech | `state: "sharing"\|"stopped"`, `monitors?: [{id:int,name:string(≤64),w,h,primary}]`, `activeMonitor?: int` | AC-31, AC-43 |
+| `share.state` | guest→S→tech | `state: "sharing"\|"stopped"`, `monitors?: [{id:int,name:string(≤64),w,h,primary}]`, `activeMonitor?: int` | AC-31, AC-43. Sunucu son `share.state`'i oda durumunda (`room.share`, bellek) saklar → teknisyen `hello.share`; misafir ayrılınca (`peer.left`/oturum sonu) temizlenir (QA-P4-12) |
 | `monitor.request` | tech→S→guest | `monitorId: int` | Yalnız AGENT; müşteri diyaloğu (AC-43); `control.request` ile aynı 30 sn / 5 istek kuralı (G-03) |
 | `control.request` | tech→S→guest | — | **Yetki** `remote_control.use` yoksa → `error{FORBIDDEN}` (AC-51); guestKind BROWSER → ret (AC-34); **ret sonrası 30 sn** ve **oturum başına 5. istekten sonra** → `error{RATE_LIMITED}`, iletilmez (G-03); `controlState=REQUESTED` |
 | `control.state` | guest→S→tech | `state: "VIEW"\|"GRANTED"`, `source: "UI"\|"HOTKEY"\|"DENIED"\|"RECONNECT"\|"SYSTEM"` | Sunucu `session_consents` + audit yazar (AC-29, 111); GRANTED audit'i yazılamazsa → `control.revoke{audit}` + teknisyene `error` (fail-closed, G-15); bilgi amaçlı — **izin kararı istemcide** |
@@ -48,6 +48,19 @@ Her mesaj: `{ "t": "<tip>", "id"?: string(≤26), ...alanlar }`. Sunucu karşı 
 
 ### 3.1 Misafir durum makinesi (G-01)
 `TICKETED` →(WS)→ `LOBBY` →(`guest.admit` doğru kod)→ `ADMITTED` (oturum ACTIVE; `hello` + `peer.joined`) ; `LOBBY` →(ret / 5 dk / 5 hatalı kod / başka misafir kabul edildi)→ kapalı. Lobi kuralları: oda başına ≤ 3 misafir (4.'süne join `409 LOBBY_FULL`), ret listesindeki ipKey join'de `403`, teknisyen bağlı değilse misafir yine bekler (5 dk). Oturumda 3 ret olunca konsol "Oturumu iptal edip yenisini açın" önerir (kod sızmış kabul edilir). `sdp.*`, `ice`, `share.state` vb. yalnız `ADMITTED` misafirden kabul edilir, aksi 1008.
+
+### 3.2 Oturum tüketimi — tek atomik koşullu UPDATE (P3 giriş şartı 2, bağlayıcı)
+`guest.admit` eşleşince tüketim **tek SQL ifadesiyle** yapılır; önce okuyup sonra yazma (read-then-write) yasaktır. P2 kalıbı: `apps/server/src/sessions/repo.ts` `cancelPending`/`expirePending` (`updateMany` + `count`).
+```sql
+UPDATE support_sessions
+   SET status='ACTIVE', consumed_at=:now, active_code=NULL, mode=:guestKind   -- consumed_at = ACTIVE başlangıcı (ayrı started_at yok, db-notlari P3)
+ WHERE id=:sessionId AND status='PENDING' AND expires_at > :now AND consumed_at IS NULL
+```
+1. Aynı TX içinde **ilk** ifade budur; `count === 1` ise TX devam eder (`session_consents` + audit `guest.admitted`), sonra commit ve ancak commit sonrası `hello`/`peer.joined` gönderilir.
+2. `count === 0` → TX geri alınır; oturum yeniden okunur ve neden eşlenir: `CANCELLED` → misafire `session.ended{cancelled}`, `PENDING` ama süresi dolmuş → `session.ended{timeout}`, `ACTIVE`/tüketilmiş → misafire `session.ended{rejected}`; teknisyene `error{CONFLICT}`; audit `guest.admit` `result=fail`. Lobi misafirleri kapatılır.
+3. Yarış garantisi: iptal (`cancelPending`), süre dolumu süpürücüsü (`expirePending`) ve admit aynı satırda `status='PENDING'` koşulu ile yarışır; InnoDB satır kilidi tek kazanan verir. İkinci admit (çift tık / iki sekme) `count=0` alır.
+4. `:now` uygulama saatidir (P2 ile aynı kaynak; tek instance, ADR-0005). `join` tüketmez; yalnız okur, PENDING değilse 410 — join ile admit arasındaki pencereyi bu UPDATE kapatır.
+5. Test (P3 entegrasyon): `Promise.all([admit, cancel])` ve `Promise.all([admit, admit])` 50 tekrar → her turda tam bir kazanan, DB'de tek `guest.admitted` audit'i; `expires_at` geçmiş oturumda admit → `count=0`.
 
 Teknisyen `control.request` yalnız **istek**tir; izin müşteri UI'ında verilir. Yeniden bağlanmada sunucu `controlState=VIEW` yapar, istemci de yeni PeerConnection'da kapıyı kapalı başlatır (AC-24).
 
