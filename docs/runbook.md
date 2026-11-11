@@ -181,6 +181,7 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
   | 2026-11-11 | P3+P4 | `0f1b89a` / `0f1b89a` | `20261111030000_p4_consents` | coturn `TURN_LISTEN_IPS=auto` (3478 yalnız 127.0.0.1 ve özel IP'de dinliyor); dış TURN erişimi pfSense NAT'ı bekliyor (§8.2) |
 | 2026-11-11 | P5 | `c910495` / `c910495` | `20261111040000_p5_session_files` | `app` yetkisi `session_files`'ta doğrulandı; eski `d90dd2d` imajları + build önbelleği silindi (disk %83 → %60) |
 | 2026-11-11 | P6 | `aaaf369` / `aaaf369` | — (şema değişmedi) | Caddy forward_auth + `agent_downloads` volume; istemci 0.6.0 (`https://185.126.217.99:4450` gömülü, SHA-256 `bf55defa…`) `--dir --no-attestation` + `ALLOW_UNATTESTED=staging` ile yayınlandı (private repo → attestation yok). verify-and-publish kontrolü düzeltildi: `Host: 127.0.0.1` isteği Caddy'de boş 200 döndüğü için `--resolve` ile `PUBLIC_BASE_URL` host'u + yeniden deneme |
+| 2026-11-11 | P7 | `60a7934` / `60a7934` | `20261111050000_p7_consent_source_tech` (migrate → server sırasıyla, compose `depends_on`) | Uzaktan kontrol; istemci 0.7.0 (`https://185.126.217.99:4450` gömülü, iki derleme aynı SHA-256 `e12ba3b3…`) `--dir --no-attestation` + `ALLOW_UNATTESTED=staging` ile yayınlandı. Windows elle testi bekliyor (gereksinimler "Sonra / açık — P7'den") |
 
   Rollback hedefi: bir önceki satırdaki `IMAGE_TAG`; şema geri alması gerekiyorsa §6.
 
