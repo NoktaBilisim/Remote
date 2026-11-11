@@ -4,6 +4,7 @@
 import { guestInboundSchema, techInboundSchema, WS_CLOSE, WS_MAX_PAYLOAD } from "@remote/contracts/ws";
 import type { z } from "zod";
 import { admitGuest, rejectGuest } from "./admit.ts";
+import { handleFileMeta, handleQualitySummary } from "./collab.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Clock, Guest, Peer, Room } from "./types.ts";
 
@@ -73,6 +74,13 @@ export async function onTechMessage(rooms: Rooms, room: Room, peer: Peer, bucket
     case "ice.restart":
       guest?.send({ t: "ice.restart" });
       return;
+    case "file.meta":
+      if (room.admitted) await handleFileMeta(rooms, room, { side: "tech", peer }, m);
+      else tech.peer.send({ t: "error", code: "CONFLICT", message: "Oturum henüz başlamadı." });
+      return;
+    case "quality.summary":
+      await handleQualitySummary(rooms, room, { fps: m.fps, kbps: m.kbps, rttMs: m.rttMs, connType: m.connType });
+      return;
     case "session.end":
       if (room.admitted) await rooms.finish(room, "tech", "TECH", tech.ctx);
       else tech.peer.send({ t: "error", code: "CONFLICT", message: "Bekleyen oturum iptal ile kapatılır." });
@@ -107,6 +115,9 @@ export async function onGuestMessage(rooms: Rooms, room: Room, guest: Guest, pee
       tech?.send({ t: "share.state", ...snap });
       return;
     }
+    case "file.meta":
+      await handleFileMeta(rooms, room, { side: "guest", peer }, m);
+      return;
     case "session.end":
       await rooms.finish(room, "customer", "CUSTOMER");
       return;

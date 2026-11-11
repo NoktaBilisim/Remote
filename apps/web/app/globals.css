@@ -42,6 +42,10 @@
   --color-control-frame: var(--rs-control-frame);
   --color-on-control: var(--rs-on-control);
   --color-annotate: var(--rs-annotate);
+  --color-annot-red: var(--rs-annot-red);
+  --color-annot-yellow: var(--rs-annot-yellow);
+  --color-annot-green: var(--rs-annot-green);
+  --color-annot-blue: var(--rs-annot-blue);
   --shadow-lg: var(--rs-shadow-lg);
   --shadow-sm: var(--rs-shadow-sm);
   --shadow-md: var(--rs-shadow-md);
@@ -77,6 +81,10 @@
   --rs-control-frame: #d92d20;
   --rs-on-control: #ffffff;
   --rs-annotate: #e0218a;
+  --rs-annot-red: #ef3b2d;
+  --rs-annot-yellow: #f5c518;
+  --rs-annot-green: #22c55e;
+  --rs-annot-blue: #3b8bf6;
   --rs-shadow-lg: 0 16px 40px rgb(16 24 40 / 0.18), 0 2px 6px rgb(16 24 40 / 0.08);
 }
 

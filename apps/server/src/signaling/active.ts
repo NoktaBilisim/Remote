@@ -23,6 +23,7 @@ export function sendHelloTech(rooms: Rooms, room: Room): void {
     ...(g ? { guestKind: g.kind } : {}),
     iceServers: g ? grant(rooms, room).iceServers : [],
     maxEndsAt: room.maxEndsAt ? iso(room.maxEndsAt) : null,
+    ...(g && room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}),
     ...(g ? { guestName: g.name } : {}), // QA-P4-12: yeniden bağlanan teknisyen misafiri tanır
     ...(g && room.share ? { share: room.share } : {}),
   });
@@ -43,13 +44,14 @@ export function sendHelloGuest(rooms: Rooms, room: Room, guest: Guest): void {
     iceServers: grant(rooms, room).iceServers,
     maxEndsAt: iso(room.maxEndsAt ?? rooms.clock.now()),
     caps: room.caps,
+    ...(room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}),
     reconnectToken: token,
   });
 }
 
 /** Teknisyene misafir katıldı (admit ve misafir yeniden bağlanması): ad + ACTIVE bitiş zamanı (TEST-P4-2). */
 export function sendGuestJoined(room: Room, guest: Guest): void {
-  room.tech?.peer.send({ t: "peer.joined", role: "guest", guestKind: guest.kind, guestName: guest.name, ...(room.maxEndsAt ? { maxEndsAt: iso(room.maxEndsAt) } : {}) });
+  room.tech?.peer.send({ t: "peer.joined", role: "guest", guestKind: guest.kind, guestName: guest.name, ...(room.maxEndsAt ? { maxEndsAt: iso(room.maxEndsAt) } : {}), ...(room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}) });
 }
 
 function scheduleIceRefresh(rooms: Rooms, room: Room): void {

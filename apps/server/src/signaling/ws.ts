@@ -20,6 +20,9 @@ import { onGuestMessage, onTechMessage, TokenBucket } from "./handlers.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Peer, Room } from "./types.ts";
 
+/** S-P4-T3-2: `reconnect.conflict` audit'i oda başına bu aralıkta en çok 1 kez. */
+export const RECONNECT_CONFLICT_AUDIT_MS = 60_000;
+
 export interface SignalingOptions {
   pingMs?: number;
   revalidateMs?: number;
@@ -139,7 +142,12 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
     if (!publicClientAllowed(req.headers, env.allowedOrigins, g.kind)) return { status: 403, reason: "client_kind" };
     // TEST-P4-1: F5'te eski soket kapanış el sıkışmasındayken (CLOSING) yeni bağlantı gelebilir; yalnız OPEN soket çakışmadır.
     if (g.peer?.isOpen()) {
-      await writeAudit(db, ctx, { tenantId: room.tenantId, username: "customer", action: "reconnect.conflict", entity: "support_sessions", entityId: room.sessionId, result: "fail" });
+      // S-P4-T3-2: tekrarlanan çakışma denemesi audit'i şişirmesin — oda başına dakikada en çok 1 kayıt.
+      const now = rooms.clock.now();
+      if (room.reconnectConflictAuditAt === undefined || now - room.reconnectConflictAuditAt >= RECONNECT_CONFLICT_AUDIT_MS) {
+        room.reconnectConflictAuditAt = now;
+        await writeAudit(db, ctx, { tenantId: room.tenantId, username: "customer", action: "reconnect.conflict", entity: "support_sessions", entityId: room.sessionId, result: "fail" });
+      }
       return { status: 403, reason: "reconnect_conflict" };
     }
     const r = room;

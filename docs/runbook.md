@@ -1,4 +1,4 @@
-# Runbook — Remote Support (P1–P3)
+# Runbook — Remote Support (P1–P5)
 Sahibi: devops. Kapsam P1: kurulum, başlatma/durdurma, env, log, migrate/seed. Yedek, alarm, rollback
 provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md` §8.
 
@@ -156,6 +156,12 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
   `ssh -L` tüneli / sunucu içinden (127.0.0.1) yapılan istekler userland-proxy üzerinden gelir ve `172.30.0.128` görünür (beklenen).
   IPv6: VM'de global IPv6 yok, `/etc/docker/daemon.json` yok (varsayılan: ipv6 kapalı, userland-proxy açık),
   yayın yalnız `0.0.0.0:4450` → IPv6 istemci staging'e ulaşamaz; IPv6 doğrulaması prod ağında yapılır.
+- **Yayın geçmişi**
+  | Tarih | Kapsam | Commit / `IMAGE_TAG` | Migration | Not |
+  |---|---|---|---|---|
+  | 2026-11-11 | P3+P4 | `0f1b89a` / `0f1b89a` | `20261111030000_p4_consents` | coturn `TURN_LISTEN_IPS=auto` (3478 yalnız 127.0.0.1 ve özel IP'de dinliyor); dış TURN erişimi pfSense NAT'ı bekliyor (§8.2) |
+
+  Rollback hedefi: bir önceki satırdaki `IMAGE_TAG`; şema geri alması gerekiyorsa §6.
 
 ### 8.1 Staging TURN durumu (2026-11-11)
 - **Kurulu ve sunucu içinde doğrulandı** (§9.1 adımları): `remote-turn` compose projesi `healthy`, host OUTPUT kuralı +
@@ -163,7 +169,8 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
   22/80/443 kurallarına dokunulmadı). Kanıtlar: `docs/test-raporu.md` "P3 staging altyapı kanıtı".
 - Sırlar sunucuda: `deploy/turn/.env` (600, root; `TURN_SECRET` `deploy/.env` ile aynı), `deploy/.env`'e `TURN_URLS`,
   `TURN_SECRET`, `TURN_CRED_TTL_MIN` (boş = 20), `METRICS_TOKEN` eklendi (önceki `.env` yedeği `/root/remote-deploy-env.bak.*`,
-  600). **Çalışan server bu değişkenleri henüz okumuyor** — P4 yayınında `docker compose up -d server` ile devreye girer.
+  600). Çalışan server bu değişkenleri **okuyor** (P3+P4 yayını 2026-11-11, `IMAGE_TAG=0f1b89a`); değiştirildiğinde
+  `docker compose up -d server` ile yeniden yüklenir.
 - Staging CA: `deploy/turn/certs/ca.crt` (test makinelerine kurulur, §9.4); `ca.key` sunucuda (600, root).
   `denied-peer-ip.local.conf`: sağlayıcı /24 + Proxmox yönetim IP'si + TURN'ün kendi IP'si (§9.5).
 - `sudo -E ./test-denied.sh` (2026-11-11): 60 PASS / 3 FAIL — 2'si kota/kapasite (486, "Cannot complete Allocation";
@@ -171,8 +178,9 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
   reflection açılınca yeniden koşulur). Aralık dışı 3480/3478/53 DROP PASS. Ayrıntı test-raporu.
 - **Dış erişim: KAPALI** — üst NAT'ta TURN portları henüz yönlendirilmedi (2026-11-11 dış testte 3478/tcp, 5349/tcp zaman
   aşımı, 3478/udp STUN yanıtı yok; 4450 açık). NAT kuralları açılana kadar istemciler yalnız host/srflx adaylarıyla bağlanır.
-- `deploy/turn/` henüz repoda değilken rsync ile kopyalandı (sunucuda `?? deploy/turn/`; sırlar `.git/info/exclude`'da).
-  **İlk `git pull`'da** "untracked working tree files would be overwritten" çıkarsa sırlar korunarak:
+- **Uygulandı (tarihçe, 2026-11-11 P3+P4 yayını):** `deploy/turn/` artık repoda; aşağıdaki prosedür yalnız kayıt içindir,
+  yeni kurulumda gerekmez. `deploy/turn/` repoya girmeden önce rsync ile kopyalanmıştı (sunucuda `?? deploy/turn/`; sırlar
+  `.git/info/exclude`'da). İlk `git pull`'da "untracked working tree files would be overwritten" çıkarsa sırlar korunarak:
   ```bash
   cd /opt/remote/deploy/turn && mkdir -p /root/turn-keep && cp -a .env denied-peer-ip.local.conf certs /root/turn-keep/
   cd /opt/remote && rm -rf deploy/turn && git pull /root/remote.bundle main
@@ -354,6 +362,12 @@ bunu "her adres" sayar ve tüm relay'i kapatır (test-denied kontrol peer'ı FAI
   `turn_allocations > 2×rs_active_sessions + 10`, sertifika < 14 gün, `remote-turn-fw.timer` aktif değil.
   Uygulama metrikleri (`/metrics`, Bearer `METRICS_TOKEN`): `rs_resolve_failed` (gauge; eski adı `rs_resolve_failed_total`
   kullanılmaz), `rs_ws_connections`, `rs_active_sessions` (gauge).
+- **Dosya meta kotası (P5, `rs_file_meta_rate_limited_total{class}`; class = `accepted` | `declined` | `sender`):**
+  | Kural | Seviye | Anlamı / ilk adım |
+  |---|---|---|
+  | `rate(rs_file_meta_rate_limited_total{class="sender"}[5m]) > 0` | **Uyarı** | Gönderen tarafın `file.meta` raporu kotayı aştı: olası audit şişirme veya değiştirilmiş istemci (normal arayüz bu hıza ulaşmaz). Server logunda `event=file_meta_rate_limited` → `sessionId`, `side`; audit `file.meta.rate_limited` (oda+sınıf başına dakikada en çok 1 satır). Oturumu ve teknisyeni inceleyin; gerekirse oturumu zorla sonlandırın (AC-114). |
+  | `increase(rs_file_meta_rate_limited_total{class="accepted"}[1h]) > 0` | Bilgi | Meşru yoğun dosya aktarımı da tetikleyebilir (dakikada 60 / oturumda 2000 OK+CORRUPT). Sürekli artıyorsa kota değerleri (`FILE_META_ACCEPTED_PER_*`) gözden geçirilir; tek oturumdan geliyorsa `sender` kuralı gibi incelenir. |
+  | `declined` sınıfı | Bilgi | Otomatik ret/iptal döngüsü (istemci tekilleştirmesi bozuk olabilir); panoda izlenir, alarm yok. |
 
 #### 9.8.1 coturn log saklama (S-P3-9, KVKK)
 coturn logu müşteri/teknisyen IP'si, peer IP'si ve username'i (`<expiry>:<sessionId>`) içerir (secret yok). Seviye normal
@@ -378,3 +392,32 @@ Aydınlatma metni/VERBİS kaydında "TURN bağlantı logu, 7 gün" olarak geçer
 | coturn logunda `ERROR no-cli option is deprecated` | base.conf'a `no-cli` eklenmiş — kaldırın (r5 m.3) |
 | Her peer 403 | local dosyada çok geniş satır (ör. `::`); `docker compose run --rm -e TURN_CONFIG_CHECK=1 coturn` ile birleşik yapılandırmayı görün (secret maskeli) |
 | TLS (5349) bağlanmıyor | `certs/turn.key` sahibi 65534 değil / dosya yok (logda `no-tls` UYARISI); test makinesinde `ca.crt` kurulu değil |
+
+## 10. Gerçek sunucu e2e (yerel; P4 regresyonu, QA-P5-6)
+Tek komut (repo kökü, Docker + `pnpm install` + Playwright chromium gerekir): `scripts/e2e-real.sh` (~2 dk).
+1. Çalışma ağacının anlık görüntüsünü `$TMPDIR/rs-e2e-real.*/repo`'ya alır (APFS klon, `.git`/`.next` hariç) — paralel
+   çalışan biri `apps/web/.next`'i veya kaynağı değiştirse de koşu tutarlı kalır.
+2. Geçici MySQL `rs-mysql-e2e-real` (127.0.0.1:33317; entegrasyon testinin `rs-mysql-test`/33307'siyle çakışmaz) →
+   migrate + grants → seed → `e2e:real:users` (iki ADMIN) → server :3302 → Playwright (web standalone build,
+   `API_INTERNAL_URL=http://127.0.0.1:3302` derlemeye gömülü, :3218) → temizlik (trap: server, web, konteyner, kopya).
+3. Seed/kullanıcı parolaları ve DB parolaları her koşuda rastgele; ekrana/dosyaya yazılmaz. Trace varsayılan kapalı
+   (`E2E_REAL_TRACE=1` açar; iz o koşunun atılan parolasını içerir).
+
+| Değişken | Varsayılan | Not |
+|---|---|---|
+| `E2E_DB_CONTAINER` / `E2E_DB_PORT` | `rs-mysql-e2e-real` / `33317` | çakışmada değiştirin |
+| `E2E_SERVER_PORT` | `3302` | web portu 3218 sabit (config) |
+| `E2E_KEEP_LOGS=1` | — | başarıda da `server.log` + `test-results/` saklanır |
+| `E2E_REAL_REF=<git ref>` | — | çalışma ağacı yerine commit'lenmiş sürüm (karşılaştırma koşusu) |
+| `TEST_DB_READY_TIMEOUT` | `180` | MySQL hazır olma bekleme süresi (sn); `test-db.sh` de okur |
+
+Çıkış kodu: 0 geçti · 1 test kırmızı · 2 ön koşul (port/konteyner dolu, Docker yok) · 3 kurulum (DB/seed/server).
+Kırmızıda loglar `$TMPDIR/rs-e2e-real.*/` altında kalır (yol son satırda yazılır).
+
+| Belirti | Neden / çözüm |
+|---|---|
+| `KURULUM HATASI: test DB / migrate`, üstünde `test-db: HATA — … hazır olmadı` + konteyner logu (çıkış 3) | MySQL `TEST_DB_READY_TIMEOUT` (varsayılan 180 sn) içinde gerçek sunucuyu (`mysqld: ready for connections … port: 3306`) açmadı veya app/migrator `SELECT 1` geçmedi. Log `Switching to dedicated user 'mysql'`'de kaldıysa Docker Desktop VM'sinde gosu asılması (test-db.sh bunu `--user mysql` ile atlar; eski bir `E2E_REAL_REF` koşturuyorsanız o sürümde bu yoktur). Yüklü makinede `TEST_DB_READY_TIMEOUT=300`; sürekli tekrarlıyorsa Docker Desktop'ı yeniden başlatın (diğer konteynerleri de durdurur) |
+| `ChunkLoadError` / `/_global-error` prerender `useContext` hatası | Ortak `.next` başka build tarafından ezildi veya `NODE_ENV=development` ile `next build` — betik ikisini de önler; elle koşuyorsanız `NODE_ENV`'i dışa aktarmayın |
+| Ön koşul: `port … dolu` / `konteyner … zaten var` | önceki yarım koşu: `docker rm -f rs-mysql-e2e-real`, `lsof -nP -iTCP:3218 -sTCP:LISTEN` |
+| 409 oturum oluşturma | AC-12 saatlik sınır; betik her koşuda yeni DB açtığı için normalde görülmez |
+| Kurulum mu ürün mü? | `E2E_REAL_REF=<son yeşil commit> scripts/e2e-real.sh`: o da aynı yerde kırmızıysa ortam/kurulum, yeşilse ürün regresyonu |

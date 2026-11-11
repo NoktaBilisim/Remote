@@ -61,3 +61,22 @@ export function initials(name: string): string {
   const letters = parts.length > 1 ? [parts[0], parts[parts.length - 1]] : parts;
   return letters.map((p) => (p ?? "").charAt(0).toLocaleUpperCase("tr-TR")).join("") || "?";
 }
+
+const num = (d: number) => new Intl.NumberFormat("tr-TR", { maximumFractionDigits: d, minimumFractionDigits: 0 });
+
+/** Sayı (tr-TR, ondalık virgül). */
+export function formatNumber(n: number, digits = 0): string {
+  return num(digits).format(n);
+}
+
+/** Bayt → "12,5 MB" (1024 tabanı; AC-53 sınır metniyle aynı birim). */
+export function formatBytes(b: number): string {
+  const u = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let v = b;
+  while (v >= 1024 && i < u.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${num(i === 0 ? 0 : 1).format(v)} ${u[i]}`;
+}

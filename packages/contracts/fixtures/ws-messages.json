@@ -2,49 +2,350 @@
   "_doc": "WS sözleşme örnekleri (mimari-protokol §3, ADR-0004). valid.* şemadan geçmeli, invalid.* reddedilmeli. Go istemci (P6) aynı dosyayı go test ile doğrular.",
   "valid": {
     "tech": [
-      { "t": "guest.admit", "admitCode": "4821" },
-      { "t": "guest.reject", "guestId": "01JC0000000000000000000000" },
-      { "t": "sdp.offer", "id": "1", "sdp": "v=0\r\n" },
-      { "t": "ice", "candidate": "candidate:1 1 udp 2122260223 192.168.1.2 54400 typ host", "sdpMid": "0", "sdpMLineIndex": 0 },
-      { "t": "ice.restart" },
-      { "t": "session.end" }
+      {
+        "t": "guest.admit",
+        "admitCode": "4821"
+      },
+      {
+        "t": "guest.reject",
+        "guestId": "01JC0000000000000000000000"
+      },
+      {
+        "t": "sdp.offer",
+        "id": "1",
+        "sdp": "v=0\r\n"
+      },
+      {
+        "t": "ice",
+        "candidate": "candidate:1 1 udp 2122260223 192.168.1.2 54400 typ host",
+        "sdpMid": "0",
+        "sdpMLineIndex": 0
+      },
+      {
+        "t": "ice.restart"
+      },
+      {
+        "t": "session.end"
+      },
+      {
+        "t": "file.meta",
+        "direction": "TO_CUSTOMER",
+        "fileName": "rapor.pdf",
+        "sizeBytes": 1024,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "result": "OK"
+      },
+      {
+        "t": "quality.summary",
+        "fps": {
+          "avg": 24.5,
+          "min": 12,
+          "max": 30
+        },
+        "kbps": {
+          "avg": 2400,
+          "min": 800,
+          "max": 5100
+        },
+        "rttMs": {
+          "avg": 45,
+          "min": 20,
+          "max": 120
+        },
+        "connType": "relay"
+      }
     ],
     "guest": [
-      { "t": "sdp.answer", "sdp": "v=0\r\n" },
-      { "t": "ice", "candidate": "" },
-      { "t": "share.state", "state": "sharing", "monitors": [{ "id": 0, "name": "DISPLAY1", "w": 1920, "h": 1080, "primary": true }], "activeMonitor": 0 },
-      { "t": "session.end" }
+      {
+        "t": "sdp.answer",
+        "sdp": "v=0\r\n"
+      },
+      {
+        "t": "ice",
+        "candidate": ""
+      },
+      {
+        "t": "share.state",
+        "state": "sharing",
+        "monitors": [
+          {
+            "id": 0,
+            "name": "DISPLAY1",
+            "w": 1920,
+            "h": 1080,
+            "primary": true
+          }
+        ],
+        "activeMonitor": 0
+      },
+      {
+        "t": "session.end"
+      },
+      {
+        "t": "file.meta",
+        "direction": "TO_CUSTOMER",
+        "fileName": "rapor.pdf",
+        "sizeBytes": 1024,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "result": "CORRUPT"
+      }
     ],
     "server": [
-      { "t": "hello", "role": "tech", "sessionId": "01JC0000000000000000000000", "peerPresent": false, "iceServers": [], "maxEndsAt": null },
-      { "t": "hello", "role": "tech", "sessionId": "01JC0000000000000000000000", "peerPresent": true, "guestKind": "BROWSER", "iceServers": [], "maxEndsAt": "2026-11-11T12:00:00.000Z", "guestName": "Ayşe Müşteri", "share": { "state": "sharing", "monitors": [{ "id": 0, "name": "Ekran 1", "w": 1920, "h": 1080, "primary": true }], "activeMonitor": 0 } },
-      { "t": "hello", "role": "guest", "sessionId": "01JC0000000000000000000000", "peerPresent": true, "guestKind": "AGENT", "iceServers": [{ "urls": ["stun:turn.example:3478"] }, { "urls": ["turn:turn.example:3478?transport=udp"], "username": "1700003600:01JC0000000000000000000000", "credential": "c2VjcmV0" }], "maxEndsAt": "2026-11-11T12:00:00.000Z", "caps": ["remote_control"], "reconnectToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
-      { "t": "lobby.wait", "expiresAt": "2026-11-11T12:05:00.000Z" },
-      { "t": "peer.pending", "guestId": "01JC0000000000000000000000", "name": "Ayşe", "guestKind": "BROWSER", "since": "2026-11-11T12:00:00.000Z" },
-      { "t": "peer.pending.left", "guestId": "01JC0000000000000000000000", "reason": "timeout" },
-      { "t": "peer.joined", "role": "guest", "guestKind": "AGENT" },
-      { "t": "peer.joined", "role": "guest", "guestKind": "BROWSER", "guestName": "Ayşe Müşteri" },
-      { "t": "peer.joined", "role": "guest", "guestKind": "BROWSER", "guestName": "Ayşe Müşteri", "maxEndsAt": "2026-11-11T14:00:00.000Z" },
-      { "t": "peer.left", "role": "tech", "reason": "disconnect" },
-      { "t": "ice.servers", "iceServers": [] },
-      { "t": "session.ended", "reason": "max_duration" },
-      { "t": "session.warning", "kind": "max_duration_5min", "endsAt": "2026-11-11T16:00:00.000Z" },
-      { "t": "error", "code": "ADMIT_CODE_INVALID", "message": "Kod eşleşmedi." }
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JC0000000000000000000000",
+        "peerPresent": false,
+        "iceServers": [],
+        "maxEndsAt": null
+      },
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JC0000000000000000000000",
+        "peerPresent": true,
+        "guestKind": "BROWSER",
+        "iceServers": [],
+        "maxEndsAt": "2026-11-11T12:00:00.000Z",
+        "guestName": "Ayşe Müşteri",
+        "share": {
+          "state": "sharing",
+          "monitors": [
+            {
+              "id": 0,
+              "name": "Ekran 1",
+              "w": 1920,
+              "h": 1080,
+              "primary": true
+            }
+          ],
+          "activeMonitor": 0
+        }
+      },
+      {
+        "t": "hello",
+        "role": "guest",
+        "sessionId": "01JC0000000000000000000000",
+        "peerPresent": true,
+        "guestKind": "AGENT",
+        "iceServers": [
+          {
+            "urls": [
+              "stun:turn.example:3478"
+            ]
+          },
+          {
+            "urls": [
+              "turn:turn.example:3478?transport=udp"
+            ],
+            "username": "1700003600:01JC0000000000000000000000",
+            "credential": "c2VjcmV0"
+          }
+        ],
+        "maxEndsAt": "2026-11-11T12:00:00.000Z",
+        "caps": [
+          "remote_control"
+        ],
+        "reconnectToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      {
+        "t": "lobby.wait",
+        "expiresAt": "2026-11-11T12:05:00.000Z"
+      },
+      {
+        "t": "peer.pending",
+        "guestId": "01JC0000000000000000000000",
+        "name": "Ayşe",
+        "guestKind": "BROWSER",
+        "since": "2026-11-11T12:00:00.000Z"
+      },
+      {
+        "t": "peer.pending.left",
+        "guestId": "01JC0000000000000000000000",
+        "reason": "timeout"
+      },
+      {
+        "t": "peer.joined",
+        "role": "guest",
+        "guestKind": "AGENT"
+      },
+      {
+        "t": "peer.joined",
+        "role": "guest",
+        "guestKind": "BROWSER",
+        "guestName": "Ayşe Müşteri"
+      },
+      {
+        "t": "peer.joined",
+        "role": "guest",
+        "guestKind": "BROWSER",
+        "guestName": "Ayşe Müşteri",
+        "maxEndsAt": "2026-11-11T14:00:00.000Z"
+      },
+      {
+        "t": "peer.left",
+        "role": "tech",
+        "reason": "disconnect"
+      },
+      {
+        "t": "ice.servers",
+        "iceServers": []
+      },
+      {
+        "t": "session.ended",
+        "reason": "max_duration"
+      },
+      {
+        "t": "session.warning",
+        "kind": "max_duration_5min",
+        "endsAt": "2026-11-11T16:00:00.000Z"
+      },
+      {
+        "t": "error",
+        "code": "ADMIT_CODE_INVALID",
+        "message": "Kod eşleşmedi."
+      }
     ]
   },
   "invalid": {
     "tech": [
-      { "t": "guest.admit", "admitCode": "48211" },
-      { "t": "sdp.offer", "sdp": "" },
-      { "t": "sdp.offer", "sdp": "x", "extra": true },
-      { "t": "sdp.answer", "sdp": "x" },
-      { "t": "control.request" }
+      {
+        "t": "guest.admit",
+        "admitCode": "48211"
+      },
+      {
+        "t": "sdp.offer",
+        "sdp": ""
+      },
+      {
+        "t": "sdp.offer",
+        "sdp": "x",
+        "extra": true
+      },
+      {
+        "t": "sdp.answer",
+        "sdp": "x"
+      },
+      {
+        "t": "control.request"
+      },
+      {
+        "t": "file.meta",
+        "direction": "TO_CUSTOMER",
+        "fileName": "rapor.pdf",
+        "sizeBytes": 1024,
+        "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "result": "OK"
+      },
+      {
+        "t": "file.meta",
+        "direction": "TO_CUSTOMER",
+        "fileName": "",
+        "sizeBytes": 1024,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "result": "OK"
+      },
+      {
+        "t": "file.meta",
+        "direction": "TO_CUSTOMER",
+        "fileName": "rapor.pdf",
+        "sizeBytes": 1024,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "result": "DONE"
+      },
+      {
+        "t": "quality.summary",
+        "fps": {
+          "avg": 24.5,
+          "min": 12,
+          "max": 30
+        },
+        "kbps": {
+          "avg": 2400,
+          "min": 800,
+          "max": 5100
+        },
+        "rttMs": {
+          "avg": 45,
+          "min": 20,
+          "max": 120
+        },
+        "connType": "tcp"
+      },
+      {
+        "t": "quality.summary",
+        "fps": {
+          "avg": 24.5,
+          "min": 12,
+          "max": 30
+        },
+        "kbps": {
+          "avg": 2400,
+          "min": 800,
+          "max": 5100
+        },
+        "rttMs": {
+          "avg": 45,
+          "min": 20,
+          "max": 120
+        },
+        "connType": "relay",
+        "extra": 1
+      },
+      {
+        "t": "quality.summary",
+        "fps": {
+          "avg": 1,
+          "min": 1,
+          "max": 1
+        }
+      }
     ],
     "guest": [
-      { "t": "sdp.offer", "sdp": "x" },
-      { "t": "guest.admit", "admitCode": "1234" },
-      { "t": "ice", "candidate": "x", "sdpMLineIndex": 17 },
-      { "t": "share.state", "state": "paused" }
+      {
+        "t": "sdp.offer",
+        "sdp": "x"
+      },
+      {
+        "t": "guest.admit",
+        "admitCode": "1234"
+      },
+      {
+        "t": "ice",
+        "candidate": "x",
+        "sdpMLineIndex": 17
+      },
+      {
+        "t": "share.state",
+        "state": "paused"
+      },
+      {
+        "t": "quality.summary",
+        "fps": {
+          "avg": 24.5,
+          "min": 12,
+          "max": 30
+        },
+        "kbps": {
+          "avg": 2400,
+          "min": 800,
+          "max": 5100
+        },
+        "rttMs": {
+          "avg": 45,
+          "min": 20,
+          "max": 120
+        },
+        "connType": "relay"
+      },
+      {
+        "t": "file.meta",
+        "direction": "TO_CUSTOMER",
+        "fileName": "rapor.pdf",
+        "sizeBytes": -1,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "result": "OK"
+      }
     ]
   }
 }

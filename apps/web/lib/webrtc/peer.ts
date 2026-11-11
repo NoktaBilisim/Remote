@@ -2,9 +2,16 @@
  * RTCPeerConnection sarmalayıcısı (mimari-protokol §3): offer'ı TEKNİSYEN oluşturur (recvonly video),
  * misafir answer verir ve ekran izini `replaceTrack` ile bağlar — paylaşım durdur/yeniden başlat yeniden
  * anlaşma gerektirmez. Uzak ICE adayları remoteDescription gelene dek kuyrukta bekler.
- * DataChannel'lar (ctl/file/input) P5/P7.
+ * DataChannel'lar (P5): teknisyen ilk teklifte `ctl` + `file` açar; misafir `ondatachannel` ile alır, `input`'u
+ * (tarayıcı modu, AC-34) kapatır. İki kanal da açılınca `onChannels` çağrılır.
  */
+import { DC_LABELS } from "@remote/contracts/dc";
 import type { IceServer } from "@remote/contracts/ws";
+
+export interface Channels {
+  ctl: RTCDataChannel;
+  file: RTCDataChannel;
+}
 
 type SignalOut =
   | { t: "sdp.offer"; sdp: string }
@@ -17,9 +24,13 @@ export const toRtcIce = (s: IceServer[]): RTCIceServer[] =>
 export class PeerLink {
   readonly pc: RTCPeerConnection;
   private queue: RTCIceCandidateInit[] = [];
+  private dc: Partial<Channels> = {};
+  /** ctl + file açıldığında (yeniden bağlanmada yeni PeerLink → yeni kanallar). */
+  onChannels: ((c: Channels) => void) | null = null;
 
   constructor(iceServers: IceServer[], private send: (m: SignalOut) => void) {
     this.pc = new RTCPeerConnection({ iceServers: toRtcIce(iceServers) });
+    this.pc.ondatachannel = (e) => this.adopt(e.channel);
     this.pc.onicecandidate = (e) => {
       const c = e.candidate;
       if (!c?.candidate) return;
@@ -32,6 +43,20 @@ export class PeerLink {
     };
   }
 
+  private adopt(ch: RTCDataChannel) {
+    if (ch.label === DC_LABELS.CTL) this.dc.ctl = ch;
+    else if (ch.label === DC_LABELS.FILE) {
+      ch.binaryType = "arraybuffer";
+      this.dc.file = ch;
+    } else return ch.close(); // input: tarayıcı modunda kabul edilmez (AC-34, G-09)
+    const ready = () => {
+      const { ctl, file } = this.dc;
+      if (ctl?.readyState === "open" && file?.readyState === "open") this.onChannels?.({ ctl, file });
+    };
+    if (ch.readyState === "open") ready();
+    else ch.addEventListener("open", ready, { once: true });
+  }
+
   private videoTransceiver(): RTCRtpTransceiver | undefined {
     return this.pc.getTransceivers().find((tr) => tr.receiver.track.kind === "video");
   }
@@ -39,6 +64,10 @@ export class PeerLink {
   /** Teknisyen: recvonly video teklifi. Dönen akış, karşı taraf izi bağladığında kare üretir. */
   async offer(iceRestart = false): Promise<MediaStream> {
     const tr = this.videoTransceiver() ?? this.pc.addTransceiver("video", { direction: "recvonly" });
+    if (!this.dc.ctl) {
+      this.adopt(this.pc.createDataChannel(DC_LABELS.CTL, { ordered: true }));
+      this.adopt(this.pc.createDataChannel(DC_LABELS.FILE, { ordered: true }));
+    }
     const o = await this.pc.createOffer({ iceRestart });
     await this.pc.setLocalDescription(o);
     this.send({ t: "sdp.offer", sdp: o.sdp ?? "" });
@@ -88,6 +117,8 @@ export class PeerLink {
 
   close(): void {
     this.pc.onicecandidate = null;
+    this.pc.ondatachannel = null;
+    this.onChannels = null;
     this.pc.close();
   }
 }

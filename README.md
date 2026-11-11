@@ -4,8 +4,8 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P4 (KVKK onayı + tarayıcıdan ekran paylaşımı)
-İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P4 tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0).
+## Şu anki durum: P5 tamamlandı, P6 (Windows istemci) geliştirmede
+İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P5 tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ). P6 (Windows istemci) geliştirmede.
 
 **P1 — ince iskelet**
 - E-posta veya kullanıcı adı + şifre ile giriş, çıkış, ilk girişte zorunlu şifre değişimi.
@@ -56,6 +56,28 @@ Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta v
   onayı, kabul anında gösterilen sürümün kimliği ve SHA-256 özetiyle `session_consents` tablosuna yazılır.
 - Görüntü tek yönlüdür: teknisyen yalnız alır, müşteri yalnız ekran gönderir; ses, kamera ve mikrofon kullanılmaz.
 
+**P5 — konsol işbirliği** (yeni rota yok; konsol ve müşteri sayfasına eklendi)
+- Teknisyen konsolunda yan panel: **Sohbet / Dosyalar / Kalite**. Müşteri sayfasında "Teknisyenle iletişim" bölümü
+  (Sohbet; teknisyenin dosya yetkisi varsa Dosyalar).
+- **Sohbet:** iki yönlü, mesaj başına en çok 2000 karakter, zaman damgası, okunmamış sayacı. Mesaj düz metin
+  basılır; HTML yorumlanmaz.
+- **Dosya transferi (iki yön):** dosya eşler arası DataChannel'dan geçer, sunucuya içerik gitmez. Alıcı her teklifi
+  onaylar (varsayılan odak "Reddet", "Kabul et" 1,5 sn sonra etkinleşir); tehlikeli ve çift uzantı (`.pdf.exe`)
+  uyarısı; dosya adı iki tarafta temizlenir. Boyut sınırı tenant ayarıdır (varsayılan 100 MB). SHA-256 tutmazsa
+  dosya atılır, "Dosya bozuk" gösterilir. İki taraf da aktarımı iptal edebilir; yanıtsız teklif 30 sn sonra
+  "Yanıt yok" ile kapanır. 256 MB üstü dosya, tarayıcı destekliyorsa doğrudan diske yazılır.
+- **Kayıt:** her transferin meta verisi (yön, temizlenmiş ad, boyut, SHA-256, sonuç) `session_files` tablosuna ve
+  audit'e yazılır. İçerik saklanmaz. Dosya gönderme yetkisi: `file_transfer.use`.
+- **İşaretleme:** teknisyen sahnede kalem, ok, dikdörtgen, lazer, 4 renk, geri al ve temizle kullanır ("Sığdır"
+  görünümünde). Çizimler ve lazer müşterinin önizlemesinde görünür; lazer 1 sn'de söner. İşaretleme uzaktan kontrol
+  izni gerektirmez ve girdi üretmez.
+- **Yüzen pencere (PiP):** müşteri önizlemeyi Document Picture-in-Picture penceresine alabilir; düğme yalnız
+  destekleyen tarayıcıda görünür.
+- **Kalite paneli:** saniyede bir FPS, kbps, RTT, kayıp, çözünürlük ve bağlantı tipi (doğrudan / STUN / TURN).
+  3 sn süren eşik aşımında sarı "zayıf" veya kırmızı "kötü" uyarısı, nedeni metinle. Oturum özeti (`quality.summary`)
+  60 sn'de bir ve bitişte sunucuya gider, `support_sessions.quality_summary`'de tutulur.
+- Migration `20261111040000_p5_session_files`; yeni ortam değişkeni yok.
+
 API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
 
 **Staging'de teknisyen hesabı:** Seed yalnız Super Admin oluşturur. Super Admin tenant seçmeden destek oturumu
@@ -68,7 +90,7 @@ açamaz (403; tenant geçişi P9). Kullanıcı yönetimi ekranı P9'da gelene ka
 | P2 ✓ | Destek oturumu oluşturma (8 haneli kod), liste, iptal, karşılama sayfası iskeleti |
 | P3 ✓ | Sinyalizasyon sunucusu (WebSocket), lobi + teknisyen kabulü, TURN (coturn), `/metrics` |
 | P4 ✓ | Tarayıcı modu ekran paylaşımı, KVKK onayı, teknisyen konsolu video |
-| P5 | Sohbet, dosya transferi, ekran üzerine işaretleme, kalite paneli |
+| P5 ✓ | Sohbet, dosya transferi, ekran üzerine işaretleme + lazer + yüzen pencere, kalite paneli |
 | P6 | Windows istemci (Go, imzasız; SHA-256 + build attestation) |
 | P7 | Uzaktan kontrol (izin diyaloğu, klavye/fare) |
 | P8 | Oturum geçmişi, not/ticket, CSV dışa aktarma |
@@ -172,33 +194,42 @@ pnpm --filter @remote/web e2e
 ```
 TURN (coturn) testleri Docker ile yerelde koşar: `cd deploy/turn && ./test-local.sh` (runbook §9.7).
 
-### Gerçek sunucu e2e (P4)
+### Gerçek sunucu e2e (P4 regresyonu)
 Varsayılan e2e sahte API/WS'ye karşı koşar. `e2e/p4-real.spec.ts` ise gerçek server + MySQL ile uçtan uca akışı
 (KVKK → lobi → kabul → ekran paylaşımı → bitiş, ret, zorla sonlandırma, konsol yenileme) dener. CI'da koşmaz.
+Tek komut (Docker gerekir; yalnız yerel, canlı DB'ye asla bağlanmaz):
 ```bash
-# 1) Geçici test DB'si + seed (Super Admin, demo tenant, KVKK v1)
-eval "$(apps/server/scripts/test-db.sh up)"
-export DATABASE_URL="$TEST_DATABASE_URL"
-SEED_SUPERADMIN_EMAIL=<e-posta> SEED_SUPERADMIN_PASSWORD=<en-az-12-karakter> pnpm db:seed
-
-# 2) demo tenant'ta iki ADMIN teknisyen (yalnız test/staging DB'si; parolaları sıfırlar)
-export E2E_REAL_LOGIN=<admin1-e-posta> E2E_REAL_LOGIN2=<admin2-e-posta> E2E_REAL_PASSWORD=<en-az-12-karakter>
-pnpm --filter @remote/web e2e:real:users
-
-# 3) Server (ayrı terminalde, aynı DATABASE_URL ile; TURN olmadan yerel P2P)
-cd apps/server && PUBLIC_BASE_URL=http://localhost:3218 PORT=3302 node src/server.ts
-
-# 4) Testler (web standalone derlemesini kendisi başlatır, :3218)
-pnpm --filter @remote/web e2e:real
-apps/server/scripts/test-db.sh down
+scripts/e2e-real.sh
 ```
-`e2e:real:users` betiği (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1`
-olmadan çalışmaz; `e2e:real:users` komutu bu bayrağı kendisi verir. Betiği doğrudan çalıştırırsanız bayrağı açıkça
-vermeniz gerekir. `DATABASE_URL` asla canlı veritabanını göstermemelidir. Teknisyen başına saatte 20 oturum sınırı
-nedeniyle aynı saatte yaklaşık 4 tam koşudan sonra 409 alınır; yeni DB ile veya bir saat sonra tekrarlayın.
+Betik sırasıyla: kodun anlık görüntüsünü geçici dizine alır → geçici MySQL (`rs-mysql-e2e-real`, 127.0.0.1:33317)
++ migrate + grants → seed (`SEED_SUPERADMIN_EMAIL` / `SEED_SUPERADMIN_PASSWORD` betikte rastgele üretilir) →
+`e2e:real:users` (demo tenant'ta iki ADMIN; parolalar rastgele) → server :3302 → `e2e:real` (web standalone
+derlemesi, :3218) → temizlik. Parolalar ekrana veya dosyaya yazılmaz; Playwright izi varsayılan kapalıdır
+(`E2E_REAL_TRACE=1` ile açılır, iz o koşunun parolasını içerir).
 
-P4 son sonuç: birim 146 (server 78, web 44, contracts 24), server entegrasyon 103, TURN 62 kontrol, web e2e 116
-geçti + 8 atlandı (masaüstüne özel akışların mobil kopyaları), gerçek sunucu e2e 5/5.
+Çıkış kodu: 0 geçti, 1 test kırmızı, 2 ön koşul eksik, 3 kurulum (DB/seed/server) hatası. Ayarlar: `E2E_DB_CONTAINER`,
+`E2E_DB_PORT`, `E2E_SERVER_PORT`, `E2E_KEEP_LOGS=1`, `E2E_REAL_REF=<git ref>` (çalışma ağacı yerine commit'lenmiş sürümü
+koşturur; kırmızıda "kurulum mu ürün mü" ayrımı için). Sorun giderme: `docs/runbook.md` §10.
+
+Müşteri tarafındaki ekran kaynağı sentetiktir (`getDisplayMedia` → canvas `captureStream`, 1280x720 @30 fps);
+fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir.
+
+`e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
+çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
+
+### Son test sonuçları (P5, 2026-11-11)
+| Takım | Sonuç |
+|---|---|
+| Birim (`pnpm -r run test`) | 275: server 160, web 83, contracts 32 |
+| Server entegrasyon (`test:int`) | 128 (20 dosya) |
+| Web e2e (sahte API/WS) | 135 geçti + 27 atlandı (masaüstü akışlarının mobil kopyaları); art arda 5 koşu yeşil |
+| Gerçek sunucu e2e (`scripts/e2e-real.sh`) | 5/5 |
+| TURN (`deploy/turn/test-local.sh`) | 62 kontrol (P4'ten değişmedi) |
+
+P5 e2e'si (`e2e/p5-collab.spec.ts`, yalnız masaüstü): sohbet + XSS, iki yön dosya, tenant sınırı, bozuk SHA, iptal,
+teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, PiP, kalite paneli, axe (açık/koyu) ve
+375 px taşma. AC-41 (1080p ≥ 15 FPS) ve AC-57 (işaretleme p95 < 200 ms) burada yerel ön kanıtla ölçülür; gerçek ağ
+ölçümü staging'de yapılacak.
 
 ## Deploy
 - Tek sunucu, Docker Compose. Dışarıya yalnız Caddy **4450/tcp** açılır; MySQL portu yayımlanmaz.
@@ -218,7 +249,7 @@ apps/web/           Next.js arayüzü (app/, components/, lib/), e2e testleri (e
 packages/contracts/ Ortak zod şemaları, yetki listesi, hata kodları
 deploy/             docker-compose.yml, Caddyfile, mysql/ (kullanıcı init + yetki kontrol betiği),
                     turn/ (coturn compose, başlatıcı, güvenlik duvarı ve test betikleri)
-scripts/            Lisans denetimi
+scripts/            Lisans denetimi, gerçek sunucu e2e betiği (e2e-real.sh)
 .github/            CI iş akışı, Dependabot
 docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim raporları
 ```
@@ -237,6 +268,10 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
   başka bir sayfaya çerçevelenemez (`frame-ancestors 'none'`). Çıkışta sekme belleğindeki müşteri adı silinir.
 - WS'de token URL'ye girmez (subprotocol); ticket ve nonce tek kullanımlık, 60 sn. TURN bilgisi müşteriye yalnız
   teknisyen kabulünden sonra verilir; credential süreli (HMAC). coturn iç/özel adreslere relay yapmaz.
+- Dosya transferinde içerik sunucudan geçmez ve saklanmaz; yalnız meta veri (temizlenmiş ad, boyut, SHA-256, sonuç)
+  kaydedilir. Alıcı her teklifi onaylar; sınır beyan edilen değil alınan bayta göre uygulanır, SHA-256 tutmazsa dosya
+  atılır. İndirme `application/octet-stream` olarak sunulur. `file.meta` kayıtları taraf ve sınıf başına kotalıdır;
+  sohbet ve işaretleme mesajları alıcıda hız sınırlıdır.
 - Konteynerler salt okunur kök dosya sistemi, `cap_drop: ALL`, root olmayan kullanıcıyla çalışır; imajlar digest ile sabitlenir.
 - CI: `pnpm audit`, lisans denetimi (GPL/AGPL yasak), gitleaks. Repoya gizli bilgi girmez.
 - Ayrıntı: `docs/guvenlik-raporu.md`, ADR'ler `docs/adr/`.

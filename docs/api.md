@@ -1,4 +1,4 @@
-# API Dokümanı — Remote Support (P1–P4)
+# API Dokümanı — Remote Support (P1–P5)
 
 Bu belge P1–P4'te **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
@@ -325,7 +325,7 @@ göstermeli ve onayı yeniden almalıdır.
 ### GET /health ve GET /ready
 `/api` dışındadır; Caddy dışarıya **404** döner. Konteyner içinden veya Docker healthcheck ile çağrılır.
 - `/health` → 200 `{ "status": "ok" }` (süreç canlı).
-- `/ready` → 200 `{ "status": "ready", "migration": "20261111030000_p4_consents" }` (son uygulanan migration); DB yoksa veya migration
+- `/ready` → 200 `{ "status": "ready", "migration": "20261111040000_p5_session_files" }` (son uygulanan migration); DB yoksa veya migration
   uygulanmamışsa 503 `NOT_READY`.
 ```bash
 cd deploy && docker compose exec server node -e "fetch('http://127.0.0.1:3001/ready').then(async r=>console.log(r.status, await r.text()))"
@@ -339,8 +339,11 @@ cd deploy && docker compose exec server node -e "fetch('http://127.0.0.1:3001/me
 ```
 Seriler (etiketlerde IP, oturum kimliği veya kod yok): sayaçlar `rs_ws_connections_total{role}`,
 `rs_ws_rejected_total{role,reason}`, `rs_ws_closed_policy_total{reason}`, `rs_admit_total{result}`,
-`rs_sessions_ended_total{reason}`; göstergeler `rs_ws_connections`, `rs_active_sessions`, `rs_active_rooms`,
-`rs_resolve_failed`. Alarm eşikleri: `docs/runbook.md` §9.8.
+`rs_sessions_ended_total{reason}`, P5: `rs_file_meta_total{result}` (`recorded`, `sender_reported`, `forbidden`,
+`too_large`, `rate_limited`, `rejected_by_db`, `error`) ve `rs_file_meta_rate_limited_total{class}` (`accepted`,
+`declined`, `sender`); göstergeler `rs_ws_connections`, `rs_active_sessions`, `rs_active_rooms`,
+`rs_resolve_failed`. Alarm eşikleri: `docs/runbook.md` §9.8 (P5: `rate(rs_file_meta_rate_limited_total{class="sender"}[5m]) > 0`
+uyarı — olası audit şişirme veya değiştirilmiş istemci).
 
 ## WebSocket sinyalizasyonu (P3)
 Sözleşme tek kaynaktan gelir: `packages/contracts/src/ws.ts` (zod, ekstra alan reddedilir); örnek mesajlar
@@ -376,22 +379,24 @@ const ws = new WebSocket("wss://<host>:4450/ws/guest", ["rs.v1", "rs.ticket." + 
 ### Mesaj türleri
 | `t` | Yön | Alanlar |
 |---|---|---|
-| `hello` | S→iki taraf | `role`, `sessionId`, `peerPresent`, `guestKind?`, `iceServers[]`, `maxEndsAt` (iso veya `null`), `caps?`, `reconnectToken?` (yalnız misafir), `guestName?` ve `share?` (P4; aşağıya bakın) |
+| `hello` | S→iki taraf | `role`, `sessionId`, `peerPresent`, `guestKind?`, `iceServers[]`, `maxEndsAt` (iso veya `null`), `caps?`, `reconnectToken?` (yalnız misafir), `guestName?` ve `share?` (P4), `maxFileMb?` (P5); aşağıya bakın |
 | `lobby.wait` | S→misafir | `expiresAt` |
 | `peer.pending` / `peer.pending.left` | S→teknisyen | `guestId`, `name`, `guestKind`, `since` / `guestId`, `reason: left\|timeout\|rejected` |
 | `guest.admit` | teknisyen→S | `admitCode` (4 rakam) |
 | `guest.reject` | teknisyen→S | `guestId` (ret edilen IP bu oturuma tekrar join olamaz) |
 | `ice.servers` | S→iki taraf | `iceServers[]` (`urls[]`, `username?`, `credential?`) |
-| `peer.joined` / `peer.left` | S→karşı taraf | `role`, `guestKind?`, `guestName?` (P4, yalnız teknisyene giden `role:"guest"`) / `role`, `reason?: disconnect\|ended` |
+| `peer.joined` / `peer.left` | S→karşı taraf | `role`, `guestKind?`, `guestName?` (P4) ve `maxFileMb?` (P5) — ikisi de yalnız teknisyene giden `role:"guest"` mesajında / `role`, `reason?: disconnect\|ended` |
 | `sdp.offer` | teknisyen→S→misafir | `sdp` (≤ 60 000) |
 | `sdp.answer` | misafir→S→teknisyen | `sdp` |
 | `ice` | iki yön | `candidate` (≤ 2000), `sdpMid?`, `sdpMLineIndex?` |
 | `ice.restart` | teknisyen→S→misafir | — |
 | `share.state` | misafir→S→teknisyen | `state: sharing\|stopped`, `monitors?`, `activeMonitor?` |
+| `file.meta` | iki taraf→S | P5: `direction`, `fileName`, `sizeBytes`, `sha256`, `result` (aşağıya bakın) |
+| `quality.summary` | teknisyen→S | P5: `fps`, `kbps`, `rttMs` (`{avg,min,max}`), `connType` (aşağıya bakın) |
 | `session.end` | iki taraf→S | — (PENDING'de teknisyenden gelirse `error{CONFLICT}`; iptal REST ile yapılır) |
 | `session.ended` | S→taraf | `reason`: `tech`, `customer`, `timeout`, `max_duration`, `cancelled`, `tenant_passive`, `server`, `admin`, `auth_revoked`, `rejected`, `lobby_timeout` |
 | `session.warning` | S→iki taraf | `kind: "max_duration_5min"`, `endsAt` |
-| `error` | S→taraf | `code: ADMIT_CODE_INVALID\|CONFLICT\|FORBIDDEN\|RATE_LIMITED\|NOT_FOUND`, `message` |
+| `error` | S→taraf | `code: ADMIT_CODE_INVALID\|CONFLICT\|FORBIDDEN\|RATE_LIMITED\|NOT_FOUND\|VALIDATION` (P5), `message` (≤ 300) |
 
 İstemci mesajlarına isteğe bağlı `id` (≤ 26) eklenebilir. Sunucu mesajı karşı tarafa yeniden kurarak iletir.
 
@@ -425,6 +430,95 @@ paylaşım sürüyorsa `share.state: sharing`'i yeniden gönderir.
 Sunucu 30 sn'de bir ping atar; iki pong kaçıran soket sonlandırılır. Bekleyen oturumun süresi dolunca teknisyen ve
 lobi `session.ended{timeout}` alır (30 sn'lik süre dolumu turu gecikmesiyle).
 
+## İşbirliği: dosya kaydı, kalite özeti ve DataChannel (P5)
+Tasarım: `docs/mimari-protokol.md` §3 ve §4. Şemalar: `packages/contracts/src/ws.ts` (WS), `src/dc.ts` (DataChannel),
+`src/files.ts` (dosya adı temizleme ve uzantı uyarısı); ad örnekleri `packages/contracts/fixtures/file-names.json`.
+Sohbet, işaretleme ve dosya içeriği **WS'den ve sunucudan geçmez**; eşler arası DataChannel'dan akar. Sunucu yalnız
+dosya meta verisini (`file.meta`) ve kalite özetini (`quality.summary`) alır.
+
+### `hello.maxFileMb` ve `peer.joined.maxFileMb`
+- Tenant'ın dosya sınırı (`tenant_settings.max_file_mb`, 1..2048, varsayılan 100) MB cinsinden. Bayt karşılığı
+  `maxFileBytes(mb)` = `mb × 1024 × 1024` (üst sınır 2048 MiB).
+- `hello.maxFileMb`: iki role, yalnız ACTIVE oturumda. `peer.joined{role:"guest"}.maxFileMb`: teknisyene, çünkü
+  teknisyen PENDING `hello`'sunda sınırı almaz. Alan yoksa istemci `DEFAULT_MAX_FILE_MB = 100` kullanır.
+- Aktarımı engelleyen alıcıdır (alınan bayt sayacıyla); sunucu sınırı yalnız `file.meta` kaydında uygular.
+
+### `file.meta` (teknisyen veya kabul edilmiş misafir → S)
+| Alan | Tür |
+|---|---|
+| `direction` | `TO_CUSTOMER` \| `TO_TECH` |
+| `fileName` | string 1..255 (sunucu `sanitizeFileName` ile yeniden temizler) |
+| `sizeBytes` | tam sayı, 0..2048 MiB |
+| `sha256` | `/^[a-f0-9]{64}$/` |
+| `result` | `OK` \| `REJECTED` \| `CANCELLED` \| `CORRUPT` |
+| `id?` | ≤ 26 |
+
+Her transferde iki taraf da birer rapor gönderir; sunucu raporu kimin gönderdiğini mesajdan değil soketten belirler.
+- **Alıcının raporu** (`TO_CUSTOMER` → misafir, `TO_TECH` → teknisyen): `session_files` satırı + audit `file.transfer`
+  (entity `session_files`; `OK` → success, diğerleri fail) **tek işlemde** yazılır. Geçmişin tek kaynağıdır.
+- **Gönderenin raporu**: `session_files`'a yazılmaz; yalnız audit `file.transfer.sender_report` (entity
+  `support_sessions`; yön, temizlenmiş ad, boyut, SHA-256, sonuç). Değiştirilmiş bir konsol `TO_TECH` raporunu
+  bastırsa da müşteri tarafının izi kalır.
+
+Sunucunun kontrol sırası ve yanıtları (başarılı kayıtta yanıt mesajı yoktur):
+| Durum | Yanıt |
+|---|---|
+| Oturumun `caps`'inde `file_transfer` yok (teknisyende `file_transfer.use` yetkisi yok) | `error{FORBIDDEN}`, kayıt yok, kota tüketmez |
+| PENDING oturumda teknisyenden | `error{CONFLICT}` (lobideki misafirden → 1008 kapanış) |
+| `result=OK` ve `sizeBytes` tenant sınırını aşıyor | `error{FORBIDDEN}` |
+| Kota aşımı (aşağıdaki tablo) | `error{RATE_LIMITED}` + audit `file.meta.rate_limited` (oda + taraf + sınıf başına dakikada en çok 1 satır) |
+| Temizlenmiş ad DB CHECK'ine takıldı (Node/MySQL Unicode sürüm farkı) | `error{VALIDATION}` + audit `file.meta.rejected_by_db` (ad yerine yer tutucu `FILE_NAME_DB_REJECTED`; boyut, yön, SHA-256, sonuç korunur) |
+| Diğer DB hatası | Yalnız log (ref ID); istemciye ayrıntı gitmez |
+
+Kotalar (raporlayan taraf × sınıf başına; bir taraf diğerinin kotasını tüketemez):
+| Sınıf | Kapsam | Dakikada | Oturum boyunca |
+|---|---|---|---|
+| `accepted` | Alıcı raporu, `OK`/`CORRUPT` | 60 | 2000 |
+| `declined` | Alıcı raporu, `REJECTED`/`CANCELLED` | 20 | 500 |
+| `sender` | Gönderen raporu, sonuçtan bağımsız | 10 | 200 |
+
+Meşru istemci transfer başına taraf başına bir rapor gönderir; kotalara takılmaz.
+```json
+{ "t": "file.meta", "direction": "TO_CUSTOMER", "fileName": "kurulum-notlari.pdf", "sizeBytes": 482113,
+  "sha256": "<64 hex>", "result": "OK" }
+```
+
+### `quality.summary` (yalnız teknisyen → S)
+`fps`, `kbps`, `rttMs` her biri `{ avg, min, max }` (üst sınırlar sırasıyla 240, 1 000 000, 60 000), `connType`:
+`host` \| `srflx` \| `relay`. Konsol ACTIVE iken 60 sn'de bir ve "Oturumu bitir"de `session.end`'den önce gönderir.
+Sunucu yalnız kabul edilmiş (ACTIVE) oturumda `support_sessions.quality_summary`'nin üzerine yazar; son yazımdan 5 sn
+içinde gelen özet yazılmaz, 4096 baytı aşan JSON yazılmaz. Hata istemciye dönmez (log + ref). Misafir gönderemez
+(şema dışı → 1008).
+```json
+{ "t": "quality.summary", "fps": { "avg": 28.4, "min": 12, "max": 30 }, "kbps": { "avg": 2100, "min": 400, "max": 3900 },
+  "rttMs": { "avg": 38, "min": 21, "max": 95 }, "connType": "host" }
+```
+
+### DataChannel'lar (teknisyen offer'da açar)
+| Etiket | Ayar | Taşıdığı |
+|---|---|---|
+| `ctl` | sıralı, güvenilir; JSON, mesaj ≤ 16 KB | sohbet, işaretleme, dosya teklif/yanıt mesajları, `ping` |
+| `file` | sıralı, güvenilir, ikili | dosya parçaları: `fidIndex` (uint16, big-endian, = `file.offer.idx`) \| `seq` (uint32, 0'dan ardışık) \| veri (≤ 16 KB) |
+| `input` | — | Yalnız Windows istemcisi (P7); tarayıcı misafiri bu kanalı kapatır |
+
+`ctl` mesajları (bilinmeyen tip ve ekstra alan reddedilir):
+| `t` | Alanlar | Kural |
+|---|---|---|
+| `chat` | `id`, `text` (1..2000), `ts` (ms) | Alıcı düz metin basar; alıcıda 5 mesaj/sn sınırı |
+| `annot.stroke` | `id`, `tool: pen\|arrow\|rect`, `color: red\|yellow\|green\|blue`, `pts: [[x,y],…]` (0..1, ≤ 500 nokta) | Koordinatlar normalize; alıcıda 30/sn |
+| `annot.laser` | `x`, `y` (0..1) | Gönderen 30/sn'ye kısar; alıcıda 1 sn'de söner |
+| `annot.undo` / `annot.clear` | `id?` | Alıcıda 30/sn |
+| `file.offer` | `fid`, `idx` (uint16), `name` (1..255), `size` (≤ 2048 MiB), `sha256` | Alıcı onay ister; ad gösterimden önce temizlenir; tehlikeli/çift uzantı uyarısı. Alıcı 10 sn'de en çok 3 teklif işler, fazlası sessizce düşer; ret sonrası 30 sn yeni teklifler otomatik reddedilir; aynı anda tek bekleyen teklif |
+| `file.accept` / `file.reject` / `file.cancel` | `fid` | Kabul gelmeden gönderen parça yollamaz. Yanıtsız teklif 30 sn sonra gönderende `file.cancel` ile kapanır |
+| `file.done` | `fid` | Gönderen son parçadan sonra yollar; alıcı alınan bayt = `size` ve SHA-256'yı doğrular |
+| `file.result` | `fid`, `ok` | Alıcı → gönderen. `ok=false` → alıcı tamponu siler, iki tarafta "Dosya bozuk"; ardından iki taraf `file.meta` gönderir |
+| `ping` | `id?` | — |
+
+Alıcı güvenliği: sınır beyan edilen `size`'a değil **alınan bayta** göre uygulanır (aşım veya sıra dışı parça →
+iptal/bozuk); `caps`'te `file_transfer` yoksa gelen teklif otomatik reddedilir; indirme `application/octet-stream`
+Blob'u olarak sunulur. Ad temizleme kuralı ve tehlikeli uzantı listesi tek kaynaktır: `packages/contracts/src/files.ts`
+(`sanitizeFileName`, `DANGEROUS_EXT`, `fileNameWarning` → `none | dangerous | double_extension`).
+
 ## Audit
 Giriş (başarılı/başarısız), kilit (`auth.locked`, kapsam `account_ip` veya `account`), çıkış ve şifre değişimi
 `audit_logs` tablosuna yazılır. P2: `session.created`, `session.cancelled`, `session.expired` (SYSTEM) ve
@@ -433,4 +527,7 @@ P3: `guest.pending`, `guest.admitted`, `guest.admit` (başarısız), `guest.reje
 nedeni), `session.ended`, `session.terminated`, `reconnect.conflict`. `joinNonce`, `wsTicket`, `reconnectToken`,
 `admitCode` ve TURN credential'ı log/audit'e yazılmaz (AC-120 testiyle doğrulandı).
 P4: `guest.pending` KVKK metin kimliği ve sürümünü, `guest.admitted` `newValue.consent = { textId, version, sha256 }`
-özetini içerir. Şifre, token ve çerez değerleri `***` olarak maskelenir. Audit ekranı P11'de gelir.
+özetini içerir.
+P5: `file.transfer` (alıcı raporu; entity `session_files`), `file.transfer.sender_report`, `file.meta.rate_limited`
+(`{sessionId, side, class}`), `file.meta.rejected_by_db`. Dosya içeriği hiçbir yere yazılmaz.
+Şifre, token ve çerez değerleri `***` olarak maskelenir. Audit ekranı P11'de gelir.

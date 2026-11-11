@@ -3,6 +3,10 @@
 import { Eye, LoaderCircle, LogOut, RotateCw, ShieldAlert, Timer } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ShareStrip } from "@/components/guest/share-strip";
+import { GuestCollab, PipButton, usePip } from "@/components/guest/guest-collab";
+import { AnnotLayer } from "@/components/collab/annot-layer";
+import { useCollab } from "@/lib/dc/use-collab";
+import { createPortal } from "react-dom";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CodeDisplay } from "@/components/ui/code-display";
@@ -38,7 +42,11 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
   cred: GuestCred;
   storeKey: string | null;
 }) {
-  const { state, preview, startShare, stopShare, end } = useGuestSession(cred, sessionRef);
+  const { state, preview, channels, caps, maxFileMb, send, startShare, stopShare, end } = useGuestSession(cred, sessionRef);
+  const [chatOpen, setChatOpen] = useState(true);
+  const filesAllowed = caps.includes("file_transfer");
+  const collab = useCollab(channels, { inbound: "TO_CUSTOMER", filesAllowed, chatVisible: chatOpen, receiveAnnot: true, sendMeta: send, maxFileMb });
+  const pip = usePip();
   const now = useNow();
   const [busy, setBusy] = useState(false);
   const [shareErr, setShareErr] = useState<ShareResult | null>(null);
@@ -47,7 +55,19 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
 
   useEffect(() => {
     if (video.current) video.current.srcObject = state.share === "sharing" ? preview : null;
-  }, [preview, state.share]);
+  }, [preview, state.share, pip.win]);
+
+  // S-P4-T3-1: dönüş kaydı 120 sn'den eskiyse okunmaz → canlı oturumda damga 30 sn'de bir ve sayfa kapanırken tazelenir
+  useEffect(() => {
+    if (!storeKey || state.phase !== "live" || !state.reconnectToken) return;
+    const save = () => writeResume(storeKey, { reconnectToken: state.reconnectToken ?? "", technicianName: join.technicianName, customerName: join.customerName, verifyCode, sessionRef });
+    const id = setInterval(save, 30_000);
+    addEventListener("pagehide", save);
+    return () => {
+      clearInterval(id);
+      removeEventListener("pagehide", save);
+    };
+  }, [storeKey, state.phase, state.reconnectToken, join.technicianName, join.customerName, verifyCode, sessionRef]);
 
   useEffect(() => {
     if (!storeKey) return;
@@ -151,11 +171,20 @@ export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKe
         )}
         <section aria-labelledby="on-t" className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 shadow-sm">
           <h1 id="on-t" className="text-lg font-semibold text-fg">{t("gs.previewTitle")}</h1>
-          <div className="flex aspect-video items-center justify-center overflow-hidden rounded-md bg-stage text-on-stage">
-            <video ref={video} autoPlay muted playsInline aria-label={t("gs.previewLabel")} className={`size-full object-contain ${state.share === "sharing" ? "" : "hidden"}`} />
-            {state.share !== "sharing" && <p className="px-4 text-center text-sm">{t(state.share === "idle" ? "gs.previewIdle" : "gs.previewStopped")}</p>}
-          </div>
+          {(() => {
+            const box = (
+              <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-md bg-stage text-on-stage" data-testid="guest-preview">
+                <video ref={video} autoPlay muted playsInline aria-label={t("gs.previewLabel")} className={`size-full object-contain ${state.share === "sharing" ? "" : "hidden"}`} />
+                {state.share === "sharing" && <AnnotLayer video={video} state={collab.annot} label={t("p5.a.layer")} />}
+                {state.share !== "sharing" && <p className="px-4 text-center text-sm">{t(state.share === "idle" ? "gs.previewIdle" : "gs.previewStopped")}</p>}
+              </div>
+            );
+            if (pip.win) return <>{createPortal(box, pip.win.document.body)}<p role="status" className="text-sm text-fg-muted">{t("p5.g.pipActive")}</p></>;
+            return box;
+          })()}
+          {state.share === "sharing" && <PipButton pip={pip} />}
         </section>
+        <GuestCollab collab={collab} filesAllowed={filesAllowed} techName={join.technicianName} onChatVisible={setChatOpen} />
         <Alert tone="success">
           <span className="inline-flex items-center gap-1.5 font-semibold"><Eye aria-hidden className="size-4" />{t("gs.viewOnlyTitle")}</span>
           <span className="block">{t("gs.viewOnlyBody")}</span>

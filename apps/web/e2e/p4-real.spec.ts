@@ -44,8 +44,39 @@ async function createSession(page: Page) {
   return link;
 }
 
+/**
+ * Müşteri bağlamında getDisplayMedia taklidi (QA-P5-6): fiziksel ekran yerine 1280x720 canvas, 30 fps captureStream.
+ * Her karede içerik değişir (kodlayıcı kare atlamasın). Ekran kilitli/CI'da da kare üretir; medya hattı (WebRTC,
+ * sinyal, gerçek server) aynen gerçek kalır — yalnız kaynak sentetiktir.
+ */
+function fakeDisplayMedia() {
+  const md = navigator.mediaDevices;
+  if (!md) return;
+  md.getDisplayMedia = async () => {
+    const c = document.createElement("canvas");
+    c.width = 1280;
+    c.height = 720;
+    const x = c.getContext("2d")!;
+    let f = 0;
+    const draw = () => {
+      f++;
+      x.fillStyle = `hsl(${(f * 7) % 360} 60% 50%)`;
+      x.fillRect(0, 0, 1280, 720);
+      x.fillStyle = "#fff";
+      x.font = "80px sans-serif";
+      x.fillText(`kare ${f}`, 100 + ((f * 13) % 600), 360);
+    };
+    draw();
+    const timer = setInterval(draw, 33);
+    const stream = c.captureStream(30);
+    for (const t of stream.getVideoTracks()) t.addEventListener("ended", () => clearInterval(timer));
+    return stream;
+  };
+}
+
 async function openGuest(browser: Browser, link: string): Promise<[BrowserContext, Page]> {
   const ctx = await browser.newContext();
+  await ctx.addInitScript(fakeDisplayMedia);
   const g = await ctx.newPage();
   await g.goto(link);
   return [ctx, g];

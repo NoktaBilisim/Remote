@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// TEK KOMUT: repo kökünden `scripts/e2e-real.sh` (DB + seed + kullanıcılar + server + bu config + temizlik; runbook §10).
+// Not (QA-P5-6): getDisplayMedia müşteri bağlamında canvas.captureStream ile taklit edilir (p4-real.spec.ts
+// fakeDisplayMedia) — fiziksel ekran yakalanmaz; ekran kilitli/CI'da da video testleri koşar.
 // P4 gerçek sunucu entegrasyonu (e2e/p4-real.spec.ts). Sahte API/WS YOK: web standalone derlemesi /api ve /ws'yi
 // gerçek apps/server'a (E2E_REAL_API, varsayılan http://127.0.0.1:3302) yönlendirir. Server + DB + kullanıcılar
 // önceden hazır olmalı (docs/implementation.md "Frontend (P4) — Gerçek sunucu entegrasyonu").
@@ -18,7 +21,9 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     trace: "retain-on-failure",
     launchOptions: {
-      args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--auto-select-desktop-capture-source=Entire screen", "--auto-accept-this-tab-capture"],
+      // Gerçek ekran yakalama bayrakları (auto-select-desktop-capture-source vb.) YOK: kaynak sentetik.
+      // Host adayları mDNS (.local) yerine gerçek IP — mDNS çözümü macOS "Yerel Ağ" iznine bağlı (playwright.config.ts ile aynı).
+      args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--disable-features=WebRtcHideLocalIpsWithMdns"],
     },
   },
   projects: [{ name: "desktop", use: { ...devices["Desktop Chrome"] } }],

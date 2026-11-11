@@ -19,6 +19,9 @@ describe("P3 reconnect + bitiş (gerçek WS)", () => {
     const proto = ["rs.v1", `rs.reconnect.${hello.reconnectToken ?? ""}`];
     await expect(connect(`${live.base}/ws/guest`, proto, { origin: ORIGIN })).rejects.toThrow("HTTP 403");
     expect(await testDb().auditLog.count({ where: { entityId: t.sessionId, action: "reconnect.conflict" } })).toBe(1);
+    // S-P4-T3-2: aynı dakikada tekrar eden çakışma yine 403 ama audit'e ikinci kayıt yazılmaz.
+    await expect(connect(`${live.base}/ws/guest`, proto, { origin: ORIGIN })).rejects.toThrow("HTTP 403");
+    expect(await testDb().auditLog.count({ where: { entityId: t.sessionId, action: "reconnect.conflict" } })).toBe(1);
     guest.ws.close();
     expect(await t.ws.waitFor("peer.left")).toMatchObject({ role: "guest", reason: "disconnect" });
     const again = await connect(`${live.base}/ws/guest`, proto, { origin: ORIGIN });

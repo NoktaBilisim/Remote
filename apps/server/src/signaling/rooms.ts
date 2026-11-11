@@ -72,7 +72,7 @@ export class Rooms implements RoomNotifier {
   private getOrCreate(row: RoomRow): Room {
     let room = this.rooms.get(row.id);
     if (!room) {
-      room = { sessionId: row.id, tenantId: row.tenantId, technicianId: row.technicianId, technicianName: row.technician.fullName, expiresAt: row.expiresAt.getTime(), lobby: new Map(), admitting: false, admitFails: 0, rejectedIps: new Set(), caps: [], timers: {}, ending: false };
+      room = { sessionId: row.id, tenantId: row.tenantId, technicianId: row.technicianId, technicianName: row.technician.fullName, expiresAt: row.expiresAt.getTime(), lobby: new Map(), admitting: false, admitFails: 0, rejectedIps: new Set(), caps: [], fileMeta: { quotas: new Map(), auditAt: new Map() }, timers: {}, ending: false };
       this.rooms.set(row.id, room);
     }
     return room;

@@ -9,6 +9,9 @@ const rooms = new Map();
 const room = (id) => rooms.get(id) ?? rooms.set(id, { tech: null, guest: null, lobby: new Map(), token: null }).get(id);
 const send = (ws, m) => ws?.readyState === 1 && ws.send(JSON.stringify(m));
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
+/** P5: sunucuya giden file.meta / quality.summary kaydı (oturum id → [{ from, m }]); test GET /__e2e/ws-log/:id ile okur. */
+export const wsLog = new Map();
+const log = (id, from, m) => (m.t === "file.meta" || m.t === "quality.summary") && (wsLog.get(id) ?? wsLog.set(id, []).get(id)).push({ from, m });
 
 export function endRoom(id, reason) {
   const r = rooms.get(id);
@@ -30,10 +33,11 @@ function admitted(r, rec, ws) {
   r.maxEndsAt ??= iso(8 * 3600_000);
   r.guest = ws;
   r.token = randomBytes(32).toString("base64url");
-  send(ws, { t: "hello", role: "guest", sessionId: rec.view.id, peerPresent: Boolean(r.tech), iceServers: [], maxEndsAt: r.maxEndsAt, reconnectToken: r.token });
-  send(r.tech, { t: "peer.joined", role: "guest", guestKind: "BROWSER", ...(first ? { maxEndsAt: r.maxEndsAt } : {}) });
+  send(ws, { t: "hello", role: "guest", sessionId: rec.view.id, peerPresent: Boolean(r.tech), iceServers: [], maxEndsAt: r.maxEndsAt, reconnectToken: r.token, caps: rec.caps, maxFileMb: rec.maxFileMb });
+  send(r.tech, { t: "peer.joined", role: "guest", guestKind: "BROWSER", ...(first ? { maxEndsAt: r.maxEndsAt } : {}), maxFileMb: rec.maxFileMb });
   ws.on("message", (raw) => {
     const m = JSON.parse(String(raw));
+    log(rec.view.id, "guest", m);
     if (m.t === "sdp.answer") send(r.tech, { t: m.t, sdp: m.sdp });
     else if (m.t === "ice") send(r.tech, { t: "ice", candidate: m.candidate, sdpMid: m.sdpMid, sdpMLineIndex: m.sdpMLineIndex });
     else if (m.t === "share.state") send(r.tech, { t: "share.state", state: m.state });
@@ -51,10 +55,11 @@ function onTech(ws, rec) {
   if (r.tech) r.tech.close(4409);
   r.tech = ws;
   const active = rec.view.status === "ACTIVE";
-  send(ws, { t: "hello", role: "tech", sessionId: rec.view.id, peerPresent: Boolean(r.guest), iceServers: [], maxEndsAt: active ? iso(8 * 3600_000) : null });
+  send(ws, { t: "hello", role: "tech", sessionId: rec.view.id, peerPresent: Boolean(r.guest), iceServers: [], maxEndsAt: active ? iso(8 * 3600_000) : null, ...(active ? { maxFileMb: rec.maxFileMb } : {}) });
   for (const [guestId, e] of r.lobby) send(ws, { t: "peer.pending", guestId, name: e.name, guestKind: "BROWSER", since: e.since });
   ws.on("message", (raw) => {
     const m = JSON.parse(String(raw));
+    log(rec.view.id, "tech", m);
     if (m.t === "guest.admit") {
       const hit = [...r.lobby.entries()].find(([, e]) => e.admitCode === m.admitCode);
       if (!hit) return send(ws, { t: "error", code: "ADMIT_CODE_INVALID", message: "Kod eşleşmedi." });

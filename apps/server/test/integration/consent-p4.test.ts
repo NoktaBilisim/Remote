@@ -143,7 +143,7 @@ describe("P4 düzeltme turu 1", () => {
     await t.ws.waitFor("peer.pending");
     t.ws.send({ t: "guest.admit", admitCode: g.admitCode });
     await g.ws.waitFor("hello");
-    expect(await t.ws.waitFor("peer.joined")).toEqual({ t: "peer.joined", role: "guest", guestKind: "BROWSER", guestName: "Ayşe Müşteri", maxEndsAt: expect.any(String) });
+    expect(await t.ws.waitFor("peer.joined")).toEqual({ t: "peer.joined", role: "guest", guestKind: "BROWSER", guestName: "Ayşe Müşteri", maxEndsAt: expect.any(String), maxFileMb: 100 });
 
     const share = { state: "sharing", monitors: [{ id: 0, name: "Ekran 1", w: 1920, h: 1080, primary: true }], activeMonitor: 0 } as const;
     g.ws.send({ t: "share.state", ...share });

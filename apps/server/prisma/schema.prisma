@@ -1,4 +1,4 @@
-// Remote Support — P1..P4 veri modeli (docs/mimari.md §3, docs/db-notlari.md).
+// Remote Support — P1..P5 veri modeli (docs/mimari.md §3, docs/db-notlari.md).
 // Kurallar: PK ULID CHAR(26) (uygulama üretir, lib/ids.ts); zaman DATETIME(3) UTC;
 // enum'lar VARCHAR(20) + zod enum; FK'ler ON DELETE RESTRICT (cascade yok);
 // tenant/kullanıcı soft delete (deleted_at/status); audit_logs append-only.
@@ -30,6 +30,7 @@ model Tenant {
   supportSessions SupportSession[]
   consentTexts    ConsentText[]
   sessionConsents SessionConsent[]
+  sessionFiles    SessionFile[]
 
   @@map("tenants")
 }
@@ -154,12 +155,13 @@ model AuditLog {
 }
 
 // P2 (mimari §3.1, ADR-0006, G-02/G-22) + P3 (admit tüketimi: mode, consumed_at; zorla sonlandırma:
-// terminated_by — A1, A5, G-04). Sonraki paket alanları (started_at, customer_*, ticket_no, note,
-// quality_summary, anonymized_at) kendi migration'larında eklenir (expand). Hard delete yok; retention P13.
+// terminated_by — A1, A5, G-04) + P5 (quality_summary — AC-46). Sonraki paket alanları (started_at,
+// customer_*, ticket_no, note, anonymized_at) kendi migration'larında eklenir (expand). Hard delete yok; retention P13.
 // CHECK kısıtları migration.sql'de (elle): status/ended_by enum, kod biçimleri,
 // PENDING <=> active_code dolu, bitmiş durum <=> ended_at dolu, TTL 15..30 dk (+/-1 dk tolerans);
 // P3: mode enum, consumed_at <=> mode, ACTIVE => consumed_at, PENDING/EXPIRED/CANCELLED => consumed_at NULL,
-// consumed_at <= expires_at, ended_by='ADMIN' <=> terminated_by dolu (docs/db-notlari.md P3).
+// consumed_at <= expires_at, ended_by='ADMIN' <=> terminated_by dolu (docs/db-notlari.md P3);
+// P5: quality_summary JSON nesne, <= 4 KB, yalnız tüketilmiş (consumed_at dolu) oturumda.
 model SupportSession {
   id             String    @id @db.Char(26)
   tenantId       String    @map("tenant_id") @db.Char(26)
@@ -175,6 +177,7 @@ model SupportSession {
   mode           String?   @db.VarChar(20) // AGENT | BROWSER; admit anında set (A1/A2)
   consumedAt     DateTime? @map("consumed_at") @db.DateTime(3) // admit = tüketim = ACTIVE başlangıcı (AC-6/7/13)
   terminatedBy   String?   @map("terminated_by") @db.Char(26) // zorla sonlandıran Admin/Super Admin (G-04, AC-114)
+  qualitySummary Json?     @map("quality_summary") // AC-46: quality.summary {fps,kbps,rttMs{avg,min,max},connType}
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
@@ -182,8 +185,9 @@ model SupportSession {
   technician User             @relation("SessionTechnician", fields: [technicianId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   terminator User?            @relation("SessionTerminator", fields: [terminatedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
   consents   SessionConsent[]
+  files      SessionFile[]
 
-  @@unique([id, tenantId]) // P4: session_consents (session_id, tenant_id) bileşik FK hedefi (tenant tutarlılığı)
+  @@unique([id, tenantId]) // P4: session_consents/P5: session_files (session_id, tenant_id) bileşik FK hedefi (tenant tutarlılığı)
   @@index([tenantId, createdAt]) // tenant geneli liste (P8) + tenant FK
   @@index([technicianId, status]) // AC-11 açık oturum sayımı + technician FK
   @@index([technicianId, createdAt]) // "kendi oturumlarım" listesi, AC-12 saatlik sayım
@@ -241,4 +245,29 @@ model SessionConsent {
   @@index([tenantId, createdAt]) // tenant FK + retention
   @@index([consentTextId, tenantId, consentSha256]) // consent text FK
   @@map("session_consents")
+}
+
+// P5 (mimari §3.1, mimari-protokol file.meta, AC-53/54/55): dosya transferi META kaydı. Dosya içeriği
+// sunucudan geçmez ve SAKLANMAZ (AC-55). Append-only (updated_at yok); app yalnız SELECT/INSERT.
+// Retention (P13): file_name anonimleştirme + hard delete — o pakette UPDATE/DELETE yetkisi ve file_name
+// CHECK'inin anonim değere uyarlanması (db-notlari P5).
+// Elle (migration.sql): direction/result enum, sha256 biçimi, size_bytes 0..2 GiB, file_name temizlenmiş
+// biçim (sanitizeFileName çıktısı: 1..255 karakter, yasak karakter/Cf yok, sonda nokta/boşluk yok).
+model SessionFile {
+  id        String   @id @db.Char(26)
+  sessionId String   @map("session_id") @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  direction String   @db.VarChar(20) // TO_CUSTOMER | TO_TECH
+  fileName  String   @map("file_name") @db.VarChar(255) // sanitizeFileName sonrası ad (G-06)
+  sizeBytes BigInt   @map("size_bytes") // beyan/alınan bayt; <= tenant max_file_mb (üst sınır 2048 MB)
+  sha256    String   @db.Char(64) // küçük harf hex (gönderenin beyanı; OK ise alıcı doğruladı)
+  result    String   @db.VarChar(20) // OK | REJECTED | CANCELLED | CORRUPT
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  session SupportSession @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([sessionId, tenantId, createdAt]) // oturum detayı dosya listesi (GET /sessions/:id) + session FK
+  @@index([tenantId, createdAt]) // tenant FK + retention (P13)
+  @@map("session_files")
 }

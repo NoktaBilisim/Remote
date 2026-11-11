@@ -5,6 +5,95 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P5 (konsol işbirliği)
+- **Teknisyen konsolu yan paneli:** Sohbet / Dosyalar / Kalite (`collab-side`); sahnede işaretleme araç çubuğu.
+  **Müşteri sayfası:** "Teknisyenle iletişim" (Sohbet; `caps.file_transfer` varsa Dosyalar). Yeni rota yok.
+- **Sohbet (AC-35, 52):** iki yön, 2000 karakter, zaman damgası, okunmamış sayacı; düz metin (HTML yorumlanmaz).
+- **Dosya transferi (AC-36, 53–55, 117, 119):** iki yön, `ctl` + `file` DataChannel'ları, içerik sunucudan geçmez.
+  Kabul diyaloğu (varsayılan odak "Reddet", "Kabul et" 1,5 sn kilitli), tehlikeli/çift uzantı uyarısı, iki tarafta ad
+  temizleme, tenant sınırı (`max_file_mb`, varsayılan 100), ilerleme, iki taraftan iptal, SHA-256 doğrulaması (tutmazsa
+  "Dosya bozuk", indirme yok). Yetki `file_transfer.use`; yetkisizde gönderim pasif, gelen teklif otomatik ret.
+  256 MB üstü dosya `showSaveFilePicker` varsa doğrudan diske yazılır.
+- **İşaretleme (AC-56–58):** kalem, ok, dikdörtgen, lazer, 4 renk (`annot-*` token'ları), geri al, temizle; müşteri
+  önizlemesinde görünür, lazer 1 sn'de söner. Girdi üretmez, kontrol izni gerektirmez.
+- **Yüzen pencere (AC-37):** müşteri önizlemesi Document Picture-in-Picture'a alınabilir; destek yoksa düğme çizilmez.
+- **Kalite paneli (AC-44–46):** 1 sn `getStats` (FPS, kbps, RTT, kayıp, çözünürlük, bağlantı tipi); 3 sn süren eşik
+  aşımında "zayıf"/"kötü" uyarısı ve nedeni. `quality.summary` 60 sn'de bir ve bitişte sunucuya gider.
+- **Migration `20261111040000_p5_session_files`:** `session_files` (yalnız ekleme; yön, temizlenmiş ad, boyut,
+  SHA-256, sonuç; içerik yok; CHECK kısıtları; `app` kullanıcısında UPDATE/DELETE yok) ve
+  `support_sessions.quality_summary` (JSON).
+- **Sözleşme:** `@remote/contracts/files` (`sanitizeFileName`, `DANGEROUS_EXT`, `fileNameWarning`) + fixture
+  `file-names.json`; `@remote/contracts/dc` (`ctl` mesajları, `file.offer.idx`, `file.result`, `encode/decodeFileChunk`,
+  `FileReceiveGuard`, `maxFileBytes`); `@remote/contracts/ws` (`file.meta`, `quality.summary`, `hello.maxFileMb`,
+  `peer.joined.maxFileMb`, hata kodu `VALIDATION`).
+- **Audit:** `file.transfer`, `file.transfer.sender_report`, `file.meta.rate_limited`, `file.meta.rejected_by_db`.
+- **Metrik:** `rs_file_meta_total{result}`, `rs_file_meta_rate_limited_total{class}`; runbook §9.8 alarmı
+  (`class="sender"` oranı > 0).
+- **Gerçek sunucu e2e tek komut:** `scripts/e2e-real.sh` (kod anlık görüntüsü, geçici MySQL, rastgele parolalar,
+  temizlik; çıkış kodları 0/1/2/3). Müşteri ekran kaynağı sentetik (canvas), fiziksel ekrana bağlı değil. Runbook §10.
+- **Testler:** birim 275 (server 160, web 83, contracts 32), server entegrasyon 128, web e2e 135 geçti + 27 atlandı
+  (art arda 5 koşu yeşil), gerçek sunucu e2e 5/5.
+
+### Değişti — P5
+- `apps/server/Dockerfile`: `apps/server/scripts/` (`e2e-real-users.ts`, `test-db.sh`) prod imajına girmez (S-P4-T2-2 kalanı).
+- `reconnect.conflict` audit'i oda başına 60 sn'de en çok 1 kayıt (S-P4-T3-2); misafir yeniden bağlanma denemesi
+  35 × 3 sn = 105 sn. Misafirin `rs.resume.*` kaydı 120 sn'den eskiyse okunmaz (S-P4-T3-1).
+- `docs/gereksinimler-kabul-kriterleri-e1-e4.md` AC-36: tehlikeli uzantı listesinin tek kaynağı `DANGEROUS_EXT`.
+- DESIGN.md: `annot-*` renkleri, P5 ikonları (`Undo2`, `PictureInPicture2`), sohbet/dosya/kalite panelleri, kabul
+  diyaloğu, işaretleme araç çubuğu, müşteri iletişim bölümü ve PiP.
+
+### Güvenlik — P5
+- **S-P5-1 (Yüksek):** Teklif seliyle `file.meta` kotası doldurulup gerçek transferin kaydı düşürülebiliyordu. Kota artık
+  raporlayan taraf × sonuç sınıfı başına (`accepted` 60/dk, 2000/oturum; `declined` 20/dk, 500/oturum); aşımda
+  `error{RATE_LIMITED}` + audit `file.meta.rate_limited`. Alıcı tarayıcı 10 sn'de en çok 3 teklif işler; karşı tarafın
+  tetiklediği raporlar tekilleştirilir (dakikada en çok 5).
+- **S-P5-2:** Aşan teklif ret, meta veya liste kaydı üretmez; transfer listesi 100, otomatik ret satırı 20 ile sınırlı.
+- **S-P5-3:** Gönderenin raporu `file.transfer.sender_report` audit'ine yazılır; değiştirilmiş konsol `TO_TECH`
+  kaydını bastırsa da müşteri tarafının izi kalır.
+- **S-P5-4:** SHA-256 parçalar gelirken artımlı hesaplanır (ikinci tam kopya yok); 256 MB üstünde diske akış, özet
+  tutmazsa dosya kaydedilmez (`abort`).
+- **S-P5-5:** İndirme `application/octet-stream`; tamamlanan satırda tehlikeli/çift uzantı uyarısı yinelenir.
+- **S-P5-6:** Alıcıda hız sınırı: sohbet 5/sn, işaretleme 30/sn, lazer 30/sn.
+- **S-P5-7:** `DANGEROUS_EXT` genişletildi (`vbe`, `jse`, `ps1xml`, `settingcontent-ms`, `xlam`, `pptm`, `html`, `svg`
+  vb.); ayrılmış adlara `CONIN$`, `CONOUT$`, `COM¹-³`, `LPT¹-³` eklendi.
+- **S-P5-8:** Node ile MySQL Unicode sürüm farkından doğan CHECK reddi sessiz kayıp olmaz: audit
+  `file.meta.rejected_by_db` (ad yerine yer tutucu) + `error{VALIDATION}`.
+- **S-P5-T2-1 (kısmi):** Disk yolunda tamamlanan satırda uzantı uyarısı gösterilir; `diskSink` birim testli.
+- **S-P5-T2-2:** `file.meta.rate_limited` seyreltmesi taraf + sınıf başına; bir tarafın aşımı diğerinin kaydını bastırmaz.
+- **S-P5-T2-3:** Gönderen raporu ayrı `sender` sınıfında (10/dk, 200/oturum); `rs_file_meta_rate_limited_total` metriği.
+- `pnpm audit` temiz; yeni bağımlılık yok (SHA-256 bağımlılıksız TS ile yazıldı).
+
+### Düzeltildi — P5 (QA ve sayfa testi)
+- **QA-P5-1:** AC-53 iptal e2e'si (alıcı ve gönderen iptali, iki tarafta "İptal edildi", meta CANCELLED).
+- **QA-P5-2:** AC-37 PiP e2e'si (destek varsa açılır/kapanır, yoksa düğme yok).
+- **QA-P5-3:** AC-57 işaretleme gecikmesi ölçümü (20 çizgi, p95 < 200 ms; yerel).
+- **QA-P5-4:** AC-41 1080p FPS ölçümü (1920x1080 sentetik kaynak, ısınma sonrası medyan ≥ 15 FPS; yerel). E2E
+  tarayıcısında mDNS host adayı kapatıldı (ICE kurulmuyordu; yalnız test).
+- **QA-P5-5:** AC-36 metni revize edildi.
+- **QA-P5-6:** Gerçek sunucu e2e tek komutla (`scripts/e2e-real.sh`) ve fiziksel ekrandan bağımsız 5/5.
+- **QA-P5-7:** Kabul düğmesinin etkinleşmesini bekleyen e2e adımı yük altında kararsızdı; bekleme süresi uzatıldı
+  (ürün kodu değişmedi).
+- **TEST-P5-1 (Yüksek):** 10 sn içinde 4. teklif sessizce düşüyor ve gönderen "onay bekleniyor"da kilitleniyordu.
+  Gönderen kendi teklifini sınırlar ("Kısa sürede en çok 3 dosya…" uyarısı); yanıtsız teklif 30 sn sonra "Yanıt yok"
+  ile kapanır, karşıya `file.cancel` gider, yeniden gönderilebilir.
+- **TEST-P5-2:** Müşteri sohbet günlüğü klavyeyle odaklanabilir (axe `scrollable-region-focusable`).
+- **TEST-P5-3:** Boşluksuz uzun mesaj balonda kırpılmaz, satır kırılır.
+- E2E'nin bulduğu hatalar: kalite paneli gerçek tarayıcıda hiç ölçüm göstermiyordu (`RTCStatsReport` okuma); `file.done`
+  son parçalardan önce gelince ~1 MB dosyalar "bozuk" işaretleniyordu; Sohbet sekmesindeyken gelen teklifin diyaloğu
+  görünmüyordu; sınır metni tenant ayarı yerine sabit "100 MB" idi.
+
+### Bilinen sınırlamalar — P5
+- AC-41 (1080p ≥ 15 FPS) ve AC-57 (işaretleme p95 < 200 ms) yalnız yerelde ölçüldü; gerçek ağ/TURN ölçümü staging'de,
+  NAT yönlendirmesi açılınca (en geç P6 başlamadan).
+- **S-P5-T2-4 (risk kabulü):** `session_files` satırı raporlayan tarafı taşımıyor, gönderen ve alıcı raporları
+  eşleştirilmiyor; değiştirilmiş müşteri istemcisi sahte `TO_CUSTOMER` satırı yazabilir (audit'te `customer` olarak
+  ayrılır). `reporter` kolonu veya `fid` eşleştirmesi P12/P13'te.
+- **Disk yolu (S-P5-T2-1 kalanı):** Chromium `showSaveFilePicker` seçim anında hedef dosyayı oluşturur; özet tutmazsa
+  0 baytlık dosya kalabilir, var olan bir dosya seçildiyse içeriği kaybolur. Kabul diyaloğuna uyarı metni P13 öncesi
+  eklenecek; yol e2e ile sınanmadı (256 MB eşiği).
+- 256 MB altı dosyalar alıcıda bellekte tutulur; büyük sınırlı tenant'larda bellek baskısı olabilir.
+- `caps.update` (teknisyen yetkisi oturum sırasında değişirse) web'de henüz işlenmiyor.
+
 ### Eklendi — P4 (KVKK onayı + tarayıcıdan ekran paylaşımı)
 - **Müşteri karşılama akışı (`/session/<token>`):** teknisyen kartı + doğrulama kodu, dolandırıcılık uyarısı,
   "Kötüye kullanımı bildir" (`mailto:`, adres yoksa gizli), ad + KVKK aydınlatma metni onayı, "Yalnız ekranımı

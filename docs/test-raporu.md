@@ -1,5 +1,5 @@
 # Test Raporu — Remote Support
-DURUM: GEÇTİ (P4 sayfa testi tur 2, 2026-11-11 — TEST-P4-1/2/4/5 kapandı; TEST-P4-3 DÜŞÜK açık; ayrıntı en altta)
+DURUM: GEÇTİ (P5 sayfa testi tur 2, 2026-11-11 — TEST-P5-1/2/3 kapandı; 1 DÜŞÜK yeni bulgu TEST-P5-4, engellemez; ayrıntı en altta)
 
 ## P3 staging altyapı kanıtı (2026-11-11, devops)
 Kapsam: staging TURN (coturn) altyapısı, runbook §9.1–9.2.3. Uygulama (server/web) bu adımda güncellenmedi (P4 ile).
@@ -176,3 +176,107 @@ Betik: `docs/test-raporu/e2e/p4-tarama-3.mjs` (apps/web dizininden; env `E2E_REA
 | Ağ ≥400 / server 5xx / pageerror | ✅ 0 / 0 / 0 | |
 
 Açık kalan: **TEST-P4-3 [DÜŞÜK]** müşteri sekmesinde "Permissions policy violation: camera is not allowed in this document." konsol hatası her koşuda 3 kez (ilk paylaşım + F5 sonrası 2 yeniden paylaşım) görüldü. Uncaught exception değil; Chromium sahte medya bayraklarının yan etkisi olabilir, gerçek tarayıcıda doğrulanmadı. Atanan: frontend-dev (bayraksız Chrome'da kontrol; gerçekse `getDisplayMedia` çağrısı/Permissions-Policy `camera=()` ilişkisi). Engelleyici değil.
+
+## P5 sayfa testi (2026-11-11, test-operatoru)
+DURUM: DÜZELTİLMELİ (1 YÜKSEK, 1 ORTA, 1 DÜŞÜK)
+Ortam: gerçek yığın (scripts/e2e-real.sh adımları, çalışma ağacı anlık görüntüsü): MySQL 8.4 `rs-mysql-p5op`:33319, server :3312, web standalone :3228; dal `main` (son commit 0f1b89a + commit'lenmemiş P5 değişiklikleri). Chromium headless, `--disable-features=WebRtcHideLocalIpsWithMdns`, müşteride canvas sahte `getDisplayMedia` (1280x720, 30 fps). Kullanıcılar: iki ADMIN (rastgele parola); ikincisinde `user_permissions` `file_transfer.use=0`.
+Spec: `docs/test-raporu/e2e/p5-op.spec.ts` + `p5op.config.ts` (geçici; ölçüm `expect.soft` + JSONL). Ekran görüntüleri: `docs/img/p5/` (01..20).
+
+### Özet
+| Ölçüt | Sonuç |
+|---|---|
+| Gezilen ekran | konsol (Sohbet/Dosyalar/Kalite, 1280 + 375, açık + koyu), müşteri oturum sayfası (1280 + 375, açık + koyu, kabul diyaloğu, PiP) |
+| Konsol hata/uyarı, pageerror | 0 (iki taraf, tüm testler) |
+| 4xx/5xx | 0; server logunda error/fatal 0 |
+| axe (wcag2a/aa, 21aa) | konsol 6 tarama 0 ihlal; müşteri koyu 3 tarama 0; müşteri açık 2 taramada `scrollable-region-focusable` (TEST-P5-2) |
+| 375 px yatay taşma | konsol 0 px, müşteri 0 px (açık/koyu, kabul diyaloğu dahil); ama uzun kelime balonda kırpılıyor (TEST-P5-3) |
+| 1280 yerleşim | düzgün; konsol sahne + yan panel, müşteri tek sütun ortalı |
+
+### Bulgular
+#### TEST-P5-1 [YÜKSEK] 10 sn içinde 4. dosya teklifi sessizce düşüyor; gönderen kalıcı "onay bekleniyor"da kilitleniyor
+Sayfa/akış: müşteri → teknisyen dosya gönderimi (teknisyen → müşteri de aynı kodu kullanıyor).
+Adımlar: 1. Oturum aktif, müşteri Dosyalar sekmesi. 2. Arka arkaya küçük dosyalar gönder, her biri teknisyende kabul edilip `ok` olsun: kur.ps1, a.js, x.msi, y.scr (hepsi ~10 sn içinde). 3. 4. dosyayı (y.scr) gözle.
+Beklenen: Teklif teknisyene ulaşır ya da gönderene açık bir ret/sınır mesajı gider; gönderen yeni dosya gönderebilir.
+Gerçekleşen: Teknisyende kabul diyaloğu hiç açılmıyor; müşteri satırı "y.scr 1 B Karşı tarafın onayı bekleniyor" olarak ≥40 sn kalıyor; sonraki her gönderimde "Devam eden bir gönderim var; bitmesini bekleyin." — oturum boyunca dosya gönderme fiilen kilitleniyor. İki ayrı koşuda aynı sonuç (4. teklif).
+Kök neden: `apps/web/lib/dc/files.ts` `OFFER_LIMIT = { max: 3, windowMs: 10_000 }`; `onOffer` sınırı aşan teklifi "hiç işlenmez (ret/meta yok)" — gönderene `file.reject` gitmiyor, gönderende teklif zaman aşımı yok (`activeOut()` "offered" durumunu aktif sayıyor).
+Öneri: sınırı aşan teklife `file.reject` (auto: "rate") gönderilmesi ve/veya gönderende teklif zaman aşımı (ör. 60 sn). "offered" satırındaki iptal düğmesinin kilidi açıp açmadığı bu turda doğrulanmadı.
+Kanıt: `docs/img/p5/20-musteri-teklif-gitmedi.png`; JSONL `offer-missing` kayıtları.
+Atanan: frontend-dev
+
+#### TEST-P5-2 [ORTA] Müşteri sohbet günlüğü kaydırılabiliyor ama klavyeyle odaklanılamıyor (axe serious)
+Sayfa/akış: müşteri oturum sayfası, açık tema, 1280 ve 375 px.
+Adımlar: 1. Sohbette birkaç mesaj ve 2000 karakterlik bir mesaj gönder (günlük `max-h-80` sınırını aşar). 2. axe çalıştır.
+Beklenen: 0 ihlal. Gerçekleşen: `scrollable-region-focusable (serious): .max-h-80` (`components/collab/chat-panel.tsx` içindeki `role="log"` div'inde `tabIndex` yok). Konsolda yan panel daha yüksek olduğu için bu turda tetiklenmedi; içerik uzarsa aynı bileşen orada da ihlal üretir.
+Öneri: kaydırılabilir `role="log"` kapsayıcıya `tabIndex={0}` ve görünür odak halkası.
+Atanan: frontend-dev
+
+#### TEST-P5-3 [DÜŞÜK] Boşluksuz uzun mesaj balonda kırpılıyor (iki tarafta)
+Adımlar: 1. Sohbete boşluksuz 2000 karakter ("ÇÇÇ…") gönder. 2. Konsolu 1280'de, müşteri sayfasını 375 px'te aç.
+Beklenen: satır kaydırılır (`overflow-wrap:anywhere`). Gerçekleşen: metin tek satırda kalıyor ve balon kenarında kesiliyor; konsolda başı, müşteride sonu görünmüyor (sayfa taşmıyor ama içerik okunamıyor).
+Kanıt: `docs/img/p5/01-konsol-sohbet-1280.png`, `docs/img/p5/03-musteri-375.png`.
+Atanan: frontend-dev
+
+### Akış sonuçları
+| Akış | Sonuç | Not |
+|---|---|---|
+| Sohbet iki yön | ✅ | Enter ve Gönder çalışıyor; boş/boşluk mesajda Gönder pasif; `maxLength=2000`, karşıya 2000 karakter ulaşıyor |
+| XSS/SQL denemesi (`<img onerror>`, `<script>`, `' OR 1=1 --`) | ✅ | düz metin olarak görünüyor; günlükte img/script 0; `__rsXss` iki tarafta tanımsız |
+| Dosya teknisyen → müşteri (3 MB, Türkçe ad) | ✅ | indirilen dosya bayt bayt ve SHA-256 olarak aynı; `rapor-ğüşiöç.bin` adı korunuyor |
+| Dosya müşteri → teknisyen | ⚠ | küçük dosyalar `ok` + SHA doğrulandı; 1 MB .zip bayt bayt karşılaştırması TEST-P5-1 kilidi nedeniyle koşturulamadı |
+| Kabul diyaloğu | ✅ | Reddet varsayılan odakta, Kabul başta pasif; görünür olduktan 1,3–1,8 sn sonra aktif oluyor |
+| Tehlikeli uzantı uyarısı | ✅ | `fatura.pdf.exe` için çift uzantı metni; .ps1/.js/.msi/.exe/.iso "çalıştırılabilir" uyarısı veriyor; .scr/.lnk/.docm/.reg TEST-P5-1 nedeniyle ölçülemedi |
+| Ret → 30 sn otomatik ret penceresi | ✅ (tasarım) | retten sonraki teklif otomatik reddediliyor; satırda "son retten sonra 30 sn otomatik ret" yazıyor |
+| İptal (100 MB, alıcı iptal ediyor) | ✅ | iki tarafta "İptal edildi", indirme sunulmuyor |
+| Sınır üstü dosya (100 MB + 1 B) | ✅ | "Dosya 100 MB sınırını aşıyor." mesajı, teklif gitmiyor |
+| Kalite paneli | ✅ | Bağlantı iyi, 30 FPS, ~640 kbps, RTT 0–1 ms, kayıp %0, 1280×720, Doğrudan |
+| İşaretleme müşteri önizlemesinde | ✅ | kalem + mavi dikdörtgen (2 çizgi) müşteride görünüyor; geri al → 1, temizle → 0 |
+| Lazer | ✅ | müşteride `data-laser=on`, kalıcı çizgi bırakmıyor (sönüm canvas alfasıyla yapılıyor) |
+| Document PiP | ✅ | "Yüzen pencere" açılıyor; kapatınca önizleme sayfaya geri dönüyor |
+| file_transfer yetkisi yok | ✅ | müşteride Dosyalar sekmesi ve file-input yok; konsolda "Bu oturumda dosya transferi yetkisi yok." yazıyor, gönder düğmesi yok |
+
+### Görsel gözlemler
+- Konsol, açık tema emüle edildiğinde de koyu görünüyor (kullanıcı teması DB'de SYSTEM). DESIGN.md'de konsol için koyu sahne kararı varsa sorun yok; yoksa ortak standart 1.6 ile çelişir. frontend-dev doğrulamalı (bulgu sayılmadı).
+- Müşteri 375 px tam sayfa görüntüsünde paylaşım şeridi önizleme kartının üstüne biniyor gibi görünüyor. Bu, sticky eleman ile tam sayfa çekimin yan etkisi; normal kaydırmada görülmüyor.
+- Koyu temada müşteri sayfası ve kabul diyaloğu okunaklı; logo açık bir kart üzerinde gösteriliyor.
+
+### Koşturulamayanlar
+- Müşteri → teknisyen yönünde büyük dosyada bayt bayt karşılaştırma ve .scr/.lnk/.docm/.reg uyarıları (TEST-P5-1 düzeltilince yeniden koşturulacak). Gönderen tarafın iptali bu turda denenmedi (mock e2e'de var).
+- AC-41 (1080p ≥15 FPS) bu turda ölçülmedi.
+
+## P5 sayfa testi — tur 2 (2026-11-11, test-operatoru, dar kapsam)
+DURUM: GEÇTİ (TEST-P5-1 YÜKSEK, TEST-P5-2 ORTA, TEST-P5-3 DÜŞÜK kapandı; yeni 1 DÜŞÜK: TEST-P5-4)
+Ortam: gerçek yığın (scripts/e2e-real.sh adımları, scratchpad'de çalışma ağacı kopyası, ayrı `.next`): MySQL 8.4 `rs-mysql-p5op`:33319, server :3312, web standalone :3228; Chromium headless, sahte `getDisplayMedia`. Web derlemesi `NEXT_PUBLIC_RS_E2E=1` ile alındı. Bu ayar yalnızca `__rsNoSelfThrottle` (alıcıda düşen teklif yolunu zorlamak için) ve `__rsSlowFileMs` (iptali aktarım sürerken yakalamak için) kancalarını açar. Zaman aşımı varsayılan 30 sn'de bırakıldı (`__rsOfferTimeoutMs` kullanılmadı).
+Spec: `docs/test-raporu/e2e/p5-op2.spec.ts` + `p5op2.config.ts`. Sonuç: 4/4 geçti (T2-4 ilk koşuda TEST-P5-4 nedeniyle kırıldı, spec'e mesaj arası 250 ms eklenip yeniden koşturuldu). Konsol hata/uyarı 0, pageerror 0, 4xx/5xx 0, server logunda error/fatal 0. Görseller: `docs/img/p5/t2-*.png`.
+
+### Doğrulama sonuçları
+| Konu | Sonuç | Kanıt (ölçüm) |
+|---|---|---|
+| TEST-P5-1a: 4 hızlı teklif, gönderende sınır | ✅ | kur.ps1/a.js/x.msi kabul edildikten sonra 6,1. sn'de y.scr gönderildi. Gönderende "Kısa sürede en çok 3 dosya teklif edilebilir; birkaç saniye sonra tekrar deneyin." uyarısı çıktı, teknisyende teklif açılmadı, satır oluşmadı. 11,5 sn sonra y.scr normal gönderildi |
+| TEST-P5-1b: alıcıda düşen teklif → "Yanıt yok" | ✅ | Gönderen öz-sınırı kapatılınca 4. teklif (d4.txt) teknisyene ulaşmıyor. Bekleme sırasında yeni gönderim "Devam eden bir gönderim var" uyarısı veriyor. **30,35 sn** sonra satır "Yanıt yok — teklif zaman aşımına uğradı, yeniden gönderebilirsiniz" oluyor; hemen ardından gelen `sonra.txt` teklif edildi, kabul edildi ve `ok` oldu. Kilit kalmıyor |
+| "offered" satırında gönderen iptali | ✅ | Düşmüş e4.txt teklifi gönderende iptal edildi, satır `cancelled` oldu. Sonraki gönderim teknisyene "Onayınız bekleniyor" olarak ulaştı |
+| Müşteri → teknisyen 1 MB (1 048 581 B .zip) | ✅ | indirilen dosya bayt bayt aynı, SHA-256 eşit, ad korunuyor |
+| .scr / .lnk / .docm / .reg uyarısı | ✅ | dördünde de "Dikkat: çalıştırılabilir dosya türü…" çıkıyor (.ps1/.js/.msi de). normal.txt ve .zip için uyarı yok |
+| Gönderen iptali (aktarım sürerken, iki yön) | ✅ | 2 MB dosya `sending` durumundayken gönderen iptal etti: müşteri→teknisyen ve teknisyen→müşteri yönünde iki tarafta da `cancelled` ("İptal edildi"), indirme düğmesi yok. Sonraki gönderim iki yönde de teklif edildi |
+| TEST-P5-2: sohbet günlüğü klavye odağı | ✅ | `chat-log` öğesinde `tabIndex=0`. Müşteride 6., konsolda 24. Tab'da odak alıyor; görünür halka var (2 px solid, açık temada `rgb(10,108,176)`). Home tuşuyla kaydırma çalışıyor (scrollTop 1812 → 0) |
+| TEST-P5-2: axe açık tema | ✅ | müşteri 1280 ve 375 px, konsol sohbet: 0 ihlal (wcag2a/aa/21aa). Günlük kaydırılabilir durumdayken ölçüldü |
+| TEST-P5-3: boşluksuz 2000 karakter | ✅ | Müşteri (1280 ve 375 px) ile konsolda kırpılan balon yok (`scrollWidth > clientWidth` = 0), günlükte yatay taşma 0 px. En geniş balon günlükten dar (375 px'te 259/309 px). Sayfada yatay taşma 0 px |
+
+### Bulgular
+#### TEST-P5-4 [DÜŞÜK] Saniyede 5'ten fazla gönderilen sohbet mesajı alıcıda sessizce düşüyor, gönderende "gönderildi" görünüyor
+Sayfa/akış: konsol → müşteri sohbeti (alıcı sınırı her iki yönde de aynı).
+Adımlar: 1. Oturum aktif. 2. Konsolda 9 kısa mesajı aralarında beklemeden Enter ile gönder (1 sn'nin altında).
+Beklenen: Ya tüm mesajlar karşı tarafa ulaşmalı ya da gönderen "mesaj gönderilemedi / yavaşlayın" uyarısı görmeli.
+Gerçekleşen: Konsolda 9 mesaj görünüyor, müşteride yalnız 5 tane var. Ulaşmayan 4 mesaj için gönderende hiçbir uyarı çıkmıyor.
+Kök neden: `apps/web/lib/dc/rate.ts` `IN_LIMITS.chat = 5` (mesaj/sn), aşan mesaj "sessizce düşer". Gönderen tarafta buna karşılık gelen bir sınır yok (TEST-P5-1'deki dosya teklifi sorununun sohbetteki karşılığı).
+Etki: Normal yazışmada bu hıza ulaşılmaz; yapıştır + Enter tekrarında veya otomasyonda ortaya çıkar. Taşmanın kapsamı DÜŞÜK.
+Öneri: Gönderende de aynı sınırla öz-sınırlama uygulanmalı ve aşımda `p5.chat` altında kısa bir uyarı gösterilmeli (dosyadaki `SELF_OFFER_LIMIT` yaklaşımı).
+Kanıt: tur 2 ilk koşu, T2-4 `expect(chat-msg).toHaveCount(9)`: müşteride 5 alındı.
+Atanan: frontend-dev
+
+### Görsel gözlemler
+- `t2-06-musteri-375-uzun-kelime.png`, `t2-07-konsol-uzun-kelime-1280.png`: odak halkası görünür. Halka içe doğru çizildiği için (`-outline-offset-2`) günlüğün en üstündeki ve soldaki satırlara biniyor: "E2E Teknisyen 1 · 07:13" etiketinin ilk harfi halkaya değiyor. Okunurluğu engellemiyor, bulgu sayılmadı. İstenirse günlük kapsayıcıya küçük bir iç boşluk (`p-1`) eklenebilir.
+- `t2-03-musteri-yanit-yok.png` 1280 px'te düzgün. Dosya satırı kaydırma alanının altında kaldığı için durum metni ekran görüntüsünde değil, ölçümde doğrulandı.
+
+### Not
+- AC-41 (1080p ≥15 FPS) bu turun kapsamı dışında kaldı.
+

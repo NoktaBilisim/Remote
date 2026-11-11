@@ -12,6 +12,7 @@ import {
   type ServerOutbound,
   type TechInbound,
 } from "@remote/contracts/ws";
+import type { P5Outbound } from "../dc/ctl";
 
 /** Misafirin yeniden bağlanma penceresi (sunucu 120 sn sonra oturumu bitirir). */
 export const RECONNECT_WINDOW_MS = 120_000;
@@ -58,7 +59,7 @@ export class Signal {
     };
     this.ws.onclose = (e: CloseEvent) => h.onClose(e.code);
   }
-  send(m: TechInbound | GuestInbound): void {
+  send(m: TechInbound | GuestInbound | P5Outbound): void {
     if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(m));
   }
   /** Kendi isteğimizle kapatma: onClose tetiklenmez (yeniden bağlanma başlamaz). */

@@ -39,3 +39,4 @@ deploy/turn/certs/
 
 # Staging erişim dosyası (sunucuda üretilir, asla repoya girmez)
 deploy/ACCESS.txt
+apps/agent-win/cmd/noktadestek/rsrc_windows_*.syso

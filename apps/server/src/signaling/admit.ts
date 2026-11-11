@@ -64,8 +64,9 @@ export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code:
     ...(tech.permissions.has("remote_control.use") ? (["remote_control"] as const) : []),
     ...(tech.permissions.has("file_transfer.use") ? (["file_transfer"] as const) : []),
   ];
-  const hours = await repo.maxActiveHours(rooms.db, room.tenantId);
-  rooms.startActive(room, guest, now.getTime(), hours);
+  const limits = await repo.activeLimits(rooms.db, room.tenantId);
+  room.maxFileMb = limits.maxFileMb;
+  rooms.startActive(room, guest, now.getTime(), limits.maxActiveHours);
   rooms.metrics.inc("rs_admit_total", { result: "admitted" });
   return "admitted";
 }

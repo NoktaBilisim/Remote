@@ -11,9 +11,16 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: "retain-on-failure",
-    // P4: getDisplayMedia/WebRTC için sahte ekran kaynağı ve otomatik izin
+    // P4: getDisplayMedia/WebRTC için sahte ekran kaynağı ve otomatik izin.
+    // P5 QA: host adayları mDNS (.local) yerine gerçek IP — mDNS çözümü macOS "Yerel Ağ" iznine/ağa bağlı, e2e'de kararsız.
     launchOptions: {
-      args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--auto-select-desktop-capture-source=Entire screen", "--auto-accept-this-tab-capture"],
+      args: [
+        "--use-fake-ui-for-media-stream",
+        "--use-fake-device-for-media-stream",
+        "--auto-select-desktop-capture-source=Entire screen",
+        "--auto-accept-this-tab-capture",
+        "--disable-features=WebRtcHideLocalIpsWithMdns",
+      ],
     },
   },
   projects: [
@@ -37,6 +44,8 @@ export default defineConfig({
         // Yalnız e2e: gerçek sır DEĞİL. Üretim derlemesi readEdgeSecret() ile >= 32 karakter ister (lib/edge-forward.ts)
         EDGE_PROXY_SECRET: "e2e-only-edge-secret-not-for-production-000",
         HOSTNAME: "0.0.0.0",
+        // P5: bozuk SHA-256 kancası (globalThis.__rsCorruptSha) yalnız bu derlemede etkin (lib/dc/use-collab.ts)
+        NEXT_PUBLIC_RS_E2E: "1",
       },
     },
   ],

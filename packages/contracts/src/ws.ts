@@ -1,7 +1,7 @@
 // WS sinyalizasyon sözleşmesi (docs/mimari-protokol.md §1–3, P3 kapsamı). Tek kaynak: sunucu gelen her
 // mesajı bu şemalarla doğrular (strict — ekstra alan reddedilir); Go istemci aynı sözleşmeyi
 // `packages/contracts/fixtures/ws-messages.json` örnekleriyle doğrular (ADR-0004).
-// P7+ tipleri (control.*, monitor.request, env.state, quality.summary, file.meta) kendi paketinde eklenir.
+// P5: quality.summary, file.meta (+ hello/peer.joined `maxFileMb`). P7+ tipleri (control.*, monitor.request, env.state) kendi paketinde.
 import { z } from "zod";
 
 export const WS_SUBPROTOCOL = "rs.v1";
@@ -22,7 +22,7 @@ export const SESSION_ENDED_REASONS = [
 ] as const;
 export type SessionEndedReason = (typeof SESSION_ENDED_REASONS)[number];
 
-export const WS_ERROR_CODES = ["ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND"] as const;
+export const WS_ERROR_CODES = ["ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND", "VALIDATION"] as const;
 export type WsErrorCode = (typeof WS_ERROR_CODES)[number];
 
 export const CAPS = ["remote_control", "file_transfer"] as const;
@@ -58,12 +58,48 @@ export const shareStateSchema = z.strictObject({
   activeMonitor: z.number().int().min(0).max(64).optional(),
 });
 
+// --- P5: dosya meta verisi + kalite özeti (mimari-protokol §3; AC-46, AC-55) ---
+export const FILE_DIRECTIONS = ["TO_CUSTOMER", "TO_TECH"] as const;
+export type FileDirection = (typeof FILE_DIRECTIONS)[number];
+export const FILE_RESULTS = ["OK", "REJECTED", "CANCELLED", "CORRUPT"] as const;
+export type FileResult = (typeof FILE_RESULTS)[number];
+/** Tenant `max_file_mb` tavanı (bayt) — DB CHECK ile aynı. */
+const FILE_SIZE_CAP = 2048 * 1024 * 1024;
+
+/**
+ * İçerik asla WS'den geçmez (AC-55). Tek kaynak **alıcı tarafın** raporudur (TO_CUSTOMER → misafir, TO_TECH →
+ * teknisyen); gönderenin raporu sunucuda yok sayılır (tek satır, implementation.md P5).
+ * `fileName` ham gelir; sunucu `sanitizeFileName` uygular.
+ */
+export const fileMetaSchema = z.strictObject({
+  t: z.literal("file.meta"),
+  id,
+  direction: z.enum(FILE_DIRECTIONS),
+  fileName: z.string().min(1).max(255),
+  sizeBytes: z.number().int().min(0).max(FILE_SIZE_CAP),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  result: z.enum(FILE_RESULTS),
+});
+export type FileMeta = z.infer<typeof fileMetaSchema>;
+
+const stat = (max: number) => z.strictObject({ avg: z.number().min(0).max(max), min: z.number().min(0).max(max), max: z.number().min(0).max(max) });
+/** AC-46: oturum kalite özeti; teknisyen 60 sn'de bir ve oturum sonunda gönderir, sunucu üzerine yazar. */
+export const qualitySummarySchema = z.strictObject({
+  t: z.literal("quality.summary"),
+  id,
+  fps: stat(240),
+  kbps: stat(1_000_000),
+  rttMs: stat(60_000),
+  connType: z.enum(["host", "srflx", "relay"]),
+});
+export type QualitySummary = Omit<z.infer<typeof qualitySummarySchema>, "t" | "id">;
+
 /** Teknisyenden kabul edilen mesajlar. */
-export const techInboundSchema = z.discriminatedUnion("t", [guestAdmitSchema, guestRejectSchema, sdpOfferSchema, iceSchema, iceRestartSchema, sessionEndSchema]);
+export const techInboundSchema = z.discriminatedUnion("t", [guestAdmitSchema, guestRejectSchema, sdpOfferSchema, iceSchema, iceRestartSchema, sessionEndSchema, fileMetaSchema, qualitySummarySchema]);
 export type TechInbound = z.infer<typeof techInboundSchema>;
 
 /** Misafirden kabul edilen mesajlar (lobideyken yalnız `session.end`, mimari-protokol §3.1). */
-export const guestInboundSchema = z.discriminatedUnion("t", [sdpAnswerSchema, iceSchema, shareStateSchema, sessionEndSchema]);
+export const guestInboundSchema = z.discriminatedUnion("t", [sdpAnswerSchema, iceSchema, shareStateSchema, sessionEndSchema, fileMetaSchema]);
 export type GuestInbound = z.infer<typeof guestInboundSchema>;
 
 // --- Sunucu → istemci ---
@@ -85,6 +121,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     /** PENDING oturumda (teknisyen hello'su) null; ACTIVE'de consumedAt + max_active_hours. */
     maxEndsAt: iso.nullable(),
     caps: z.array(z.enum(CAPS)).optional(),
+    /** P5: tenant dosya üst sınırı (MB, AC-53); ACTIVE oturumda iki tarafa (teknisyene ayrıca peer.joined'da). */
+    maxFileMb: z.number().int().min(1).max(2048).optional(),
     reconnectToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional(),
     /** Yalnız role=tech hello'sunda, ACTIVE oturumda kabul edilmiş misafirin adı (QA-P4-12, yeniden bağlanma). */
     guestName: z.string().max(100).optional(),
@@ -103,6 +141,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     guestName: z.string().max(100).optional(),
     /** role=guest (teknisyene giden) mesajda ACTIVE oturumun bitişi: consumedAt + max_active_hours (TEST-P4-2). */
     maxEndsAt: iso.optional(),
+    /** P5: role=guest (teknisyene giden) mesajda tenant dosya üst sınırı (MB). */
+    maxFileMb: z.number().int().min(1).max(2048).optional(),
   }),
   z.strictObject({ t: z.literal("peer.left"), role: z.enum(["tech", "guest"]), reason: z.enum(["disconnect", "ended"]).optional() }),
   z.strictObject({ t: z.literal("sdp.offer"), sdp }),

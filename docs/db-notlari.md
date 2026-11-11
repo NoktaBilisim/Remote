@@ -1,4 +1,4 @@
-# DB Notları — Remote Support (P1–P4)
+# DB Notları — Remote Support (P1–P5)
 Sahibi: dba. Tasarım kaynağı: `docs/mimari.md` §3, ADR-0003. MySQL 8.4, Prisma 7.10.1 (stabil; 8.x RC kullanılmadı).
 
 ## Dosyalar
@@ -153,3 +153,26 @@ Migration `apps/server/prisma/migrations/20261111030000_p4_consents/{migration.s
 
 ### Test (2026-11-11, `apps/server/scripts/test-db.sh`, mysql 8.4)
 P1→P3 üzerine P4 migrate + grants OK; `migrate diff --exit-code` 0 (fonksiyonel indeks/CHECK drift üretmiyor). `check-app-grants.sh` **67/67 PASS** (P4: 19 yeni — SELECT/INSERT, UPDATE body/is_current, DELETE, ALTER reddi; ikinci güncel sürüm UQ, sürüm tekrarı UQ, yanlış sha256 ve version=0 CHECK; admit+VIEW/GRANTED/UI metinli + CONTROL/DENIED/SYSTEM metinsiz izinli; session_consents UPDATE/DELETE reddi; yanlış özet FK, özetsiz metin, CONTROL+metin, decision enum, çapraz tenant oturum FK, başka tenant metni FK — her biri beklenen kısıt adıyla). `down.sql` → iki tablo, UQ ve P4 kaydı kalktı, diff exit 2 (beklenen); yeniden migrate OK, drift 0, `migrate status` güncel, 67/67. Seed iki kez: v1 bir kez oluştu (idempotent), CHECK'ten geçti (Node SHA-256 = MySQL SHA2). Temiz DB'de `test:int` **93/93**, `test` 69/69, typecheck + lint temiz.
+
+## P5 — session_files + quality_summary (2026-11-11)
+Migration `apps/server/prisma/migrations/20261111040000_p5_session_files/{migration.sql,down.sql}`. Yeni tablo `session_files` + `support_sessions.quality_summary JSON?` (INSTANT ADD COLUMN; CHECK eklemesi COPY, tablo küçük).
+| Tablo/Sütun | Tanım | Anahtar / kısıt |
+|---|---|---|
+| `session_files` | id, session_id, tenant_id, direction VARCHAR(20), file_name VARCHAR(255), size_bytes BIGINT, sha256 CHAR(64), result VARCHAR(20), created_at (updated_at yok, append-only). **Dosya içeriği yok** (AC-55) | FK (session_id, tenant_id) → support_sessions(id, tenant_id) (P4'ün UQ'su; tenant tutarlılığı DB'de); FK tenant_id; IX(session_id, tenant_id, created_at) [detay listesi + FK]; IX(tenant_id, created_at) [tenant FK + retention]. CHECK: direction `TO_CUSTOMER/TO_TECH`; result `OK/REJECTED/CANCELLED/CORRUPT`; sha256 `^[0-9a-f]{64}$` (büyük/küçük duyarlı); size_bytes 0..2147483648 (max_file_mb tavanı 2048 MiB; tenant sınırı serviste); **file_name temizlenmiş**: 1..255 karakter, `\ / : * ? " < > |`, U+0000–U+001F, Unicode Cf (RTLO) yok, sonda nokta/boşluk yok |
+| `support_sessions.quality_summary` | JSON? | CHECK: NULL ya da (JSON nesne ∧ JSON_STORAGE_SIZE ≤ 4096 ∧ consumed_at dolu) |
+
+**Grant:** `session_files` SELECT/INSERT; UPDATE/DELETE/DDL REVOKE (retention P13'te verilir). `quality_summary` için ek yetki yok (P2 tablo düzeyi UPDATE).
+
+**Kararlar / açık noktalar:**
+1. Mimarideki sütunlar aynen; sapma yok (mimari §3.1'e not gerekmez). `reported_by`/`fid` yok: `file.meta` iki taraftan gelebilir → **backend tek kaynak seçmeli** (öneri: alıcı tarafın raporu; OK/CORRUPT yalnız alıcı bilir, REJECTED/CANCELLED karşı taraftan gelirse tek satır) ve oturum başına hız sınırı koymalı (sahte meta ile tablo şişirme). Gerekirse sütun eklemek mimar kararı.
+2. file_name CHECK, `sanitizeFileName` (mimari-protokol §4.2/1) ile birebir; ham ad yazılırsa 3819. Ayrılmış ad (`CON` vb.) DB'de denetlenmez (temizleyici `_` önekler). **P13:** mimari §3.4 anonimleştirmesi `***` yazarsa CHECK ihlal eder (`*` yasak) — P13 ya hard delete ya da `anonim` gibi yer tutucu kullanmalı veya CHECK'i kendi migration'ında uyarlamalı.
+3. Büyüme: oturum başına birkaç satır; partition gerekmez.
+4. Seed değişmedi (kayıtlar canlı oturumdan gelir).
+
+### Backend-dev için (P5)
+- `file.meta`: zod (protokol) → `sanitizeFileName(fileName)` → `sessionFile.create({ data: { id: ulid(), sessionId, tenantId: room.tenantId, direction, fileName, sizeBytes: BigInt(n), sha256, result } })` + audit aynı TX (`$transaction([...])`). Bileşik ilişki: düz alanlar (unchecked input), `connect` değil. `sizeBytes` BigInt — JSON yanıtında `Number()`/string'e çevirin.
+- `quality.summary`: `supportSession.updateMany({ where: { id, tenantId, consumedAt: { not: null } }, data: { qualitySummary } })` (60 sn periyodik üzerine yazar). Silmek için `Prisma.DbNull`.
+- Detay (GET /sessions/:id): `select: { files: { orderBy: { createdAt: 'asc' }, select: {...} } }` — IX(session_id, tenant_id, created_at).
+
+### Test (2026-11-11, `scripts/test-db.sh`, mysql 8.4)
+P1→P4 üzerine P5 migrate + grants OK; `migrate diff --exit-code` 0. `check-app-grants.sh` **76/76 PASS** (P5: 9 yeni — SELECT/INSERT + quality UPDATE izinli; UPDATE/DELETE/ALTER reddi; çapraz tenant FK; file_name/direction CHECK; PENDING'de quality_summary). `down.sql` → tablo, sütun, CHECK ve kayıt kalktı (P4 UQ duruyor), diff exit 2 (beklenen); yeniden migrate OK, drift 0, `migrate status` güncel. Yeni `test/integration/session-files-p5.test.ts` 7/7 (meta yazma/okuma + sütun listesi, tenant izolasyonu FK, enum/sha/boyut CHECK, 17 kötü dosya adı + 6 geçerli ad, app yetki sınırı, quality_summary yazma/üzerine yazma/DbNull + PENDING/dizi/metin/>4 KB reddi). `test:int` **112/112**, `test` 79/79, typecheck + lint temiz.

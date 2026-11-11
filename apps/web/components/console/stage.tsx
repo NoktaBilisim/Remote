@@ -2,12 +2,14 @@
 
 import { Expand, Hourglass, LoaderCircle, Maximize, Minimize, ScanSearch, ScreenShareOff, WifiOff } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AnnotLayer, type DrawInput } from "@/components/collab/annot-layer";
 import { Button } from "@/components/ui/button";
 import { CodeDisplay } from "@/components/ui/code-display";
 import { Segmented } from "@/components/ui/segmented";
 import { formatRemaining } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { useNow } from "@/lib/use-now";
+import type { AnnotState } from "@/lib/dc/annot";
 import type { TechState } from "@/lib/webrtc/tech-machine";
 
 const PEER_WINDOW_MS = 120_000;
@@ -33,12 +35,17 @@ export function Stage({
   verifyCode,
   sessionCode,
   lobby,
+  annot,
+  tools,
 }: {
   state: TechState;
   stream: MediaStream | null;
   verifyCode: string;
   sessionCode: string | null;
   lobby: ReactNode;
+  /** P5 işaretleme: yalnız "Sığdır" görünümünde (koordinat = görünen içerik alanı). */
+  annot?: { state: AnnotState; input: DrawInput | null } | null;
+  tools?: ReactNode;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const box = useRef<HTMLElement>(null);
@@ -113,9 +120,11 @@ export function Stage({
           aria-label={t("cs.video", { name: state.guest?.name ?? t("c.customer") })}
           className={`${actual ? "size-auto max-w-none" : "size-full object-contain"} ${showing ? "" : "invisible"}`}
         />
+        {showing && !actual && annot && <AnnotLayer video={ref} state={annot.state} input={annot.input} label={t("p5.a.layer")} />}
       </div>
       {showing && (
         <div className="absolute top-2 right-2 z-20 flex flex-wrap items-center justify-end gap-2" data-testid="stage-tools">
+          {!actual && tools}
           <Segmented<ViewMode>
             label={t("cs.view")}
             value={mode}

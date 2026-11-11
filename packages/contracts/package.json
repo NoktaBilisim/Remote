@@ -9,7 +9,8 @@
     "./api/auth": "./src/api/auth.ts",
     "./api/sessions": "./src/api/sessions.ts",
     "./ws": "./src/ws.ts",
-    "./dc": "./src/dc.ts"
+    "./dc": "./src/dc.ts",
+    "./files": "./src/files.ts"
   },
   "scripts": {
     "lint": "eslint .",

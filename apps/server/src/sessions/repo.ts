@@ -2,6 +2,7 @@
 // (technicianId) burada uygulanır (AC-61, G-22). PENDING'den çıkan her UPDATE aynı ifadede
 // activeCode=null + endedAt yazar (CHECK, db-notlari P2) ve status='PENDING' koşuluyla yarışa güvenlidir.
 import type { SessionStatus } from "@remote/contracts/api/sessions";
+import { DEFAULT_MAX_FILE_MB } from "@remote/contracts/dc";
 import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 
@@ -188,7 +189,8 @@ export function findForSignal(db: DbOrTx, id: string): Promise<SignalSessionRow 
   return db.supportSession.findUnique({ where: { id }, select: signalSelect });
 }
 
-export async function maxActiveHours(db: DbOrTx, tenantId: string): Promise<number> {
-  const s = await db.tenantSettings.findUnique({ where: { tenantId }, select: { maxActiveHours: true } });
-  return s?.maxActiveHours ?? 4;
+/** ACTIVE oda sınırları: max süre (AC-13) + dosya üst sınırı (AC-53, P5). */
+export async function activeLimits(db: DbOrTx, tenantId: string): Promise<{ maxActiveHours: number; maxFileMb: number }> {
+  const s = await db.tenantSettings.findUnique({ where: { tenantId }, select: { maxActiveHours: true, maxFileMb: true } });
+  return { maxActiveHours: s?.maxActiveHours ?? 4, maxFileMb: s?.maxFileMb ?? DEFAULT_MAX_FILE_MB };
 }

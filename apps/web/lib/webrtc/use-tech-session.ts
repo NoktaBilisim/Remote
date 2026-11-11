@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { ServerOutbound } from "@remote/contracts/ws";
-import { PeerLink } from "./peer";
+import { PeerLink, type Channels } from "./peer";
 import { backoff, RECONNECT_WINDOW_MS, Signal, wsUrl } from "./signal";
 import { initialTech, techReducer, type TechState } from "./tech-machine";
 
@@ -31,6 +31,9 @@ function writeName(sessionId: string, name: string | null) {
 export function useTechSession(sessionId: string) {
   const [state, dispatch] = useReducer(techReducer, initialTech);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [channels, setChannels] = useState<Channels | null>(null);
+  const [pc, setPc] = useState<RTCPeerConnection | null>(null);
+  const [maxFileMb, setMaxFileMb] = useState<number | undefined>(undefined);
   const st = useRef<TechState>(state);
   const sig = useRef<Signal | null>(null);
   const peer = useRef<PeerLink | null>(null);
@@ -49,12 +52,16 @@ export function useTechSession(sessionId: string) {
     peer.current?.close();
     peer.current = null;
     setStream(null);
+    setChannels(null);
+    setPc(null);
   }, []);
 
   const startPeer = useCallback(() => {
     resetPeer();
     const p = new PeerLink(ice.current, send);
     peer.current = p;
+    setPc(p.pc);
+    p.onChannels = (c) => peer.current === p && setChannels(c);
     p.pc.oniceconnectionstatechange = () => {
       if (p.pc.iceConnectionState === "failed" && peer.current === p) void p.offer(true).catch(() => undefined);
     };
@@ -66,6 +73,7 @@ export function useTechSession(sessionId: string) {
       if (m.t === "hello") {
         retry.current.attempt = 0;
         ice.current = m.iceServers;
+        if (m.maxFileMb) setMaxFileMb(m.maxFileMb);
         if (m.maxEndsAt !== null && m.peerPresent) startPeer();
         if (m.maxEndsAt !== null) {
           dispatch({ type: "msg", m, now: Date.now() });
@@ -79,6 +87,7 @@ export function useTechSession(sessionId: string) {
         const p = peer.current;
         if (p && p.pc.signalingState === "stable" && p.pc.remoteDescription) void p.offer(true).catch(() => undefined);
       } else if (m.t === "peer.joined" && m.role === "guest") {
+        if (m.maxFileMb) setMaxFileMb(m.maxFileMb);
         startPeer();
       } else if (m.t === "peer.left" && m.role === "guest") {
         resetPeer();
@@ -152,5 +161,5 @@ export function useTechSession(sessionId: string) {
   }, [send]);
   const end = useCallback(() => send({ t: "session.end" }), [send]);
 
-  return { state, stream, admit, reject, end };
+  return { state, stream, channels, pc, send, maxFileMb, admit, reject, end };
 }

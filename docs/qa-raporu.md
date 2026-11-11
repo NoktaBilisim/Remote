@@ -1,219 +1,177 @@
-# QA Raporu — P4 (tarayıcı modu medya hattı) — Tur 3
-DURUM: GEÇTİ
+# QA Raporu — P5 (konsol işbirliği) — Tur 3
+DURUM: DÜZELTİLMELİ (ürün kodunda açık bulgu yok; tek açık madde: `bash scripts/e2e-real.sh` bu turda kurulum aşamasında düştü, 5/5 kanıtı yeniden alınamadı)
 
-## Tur 3 — Test sonucu
+## Test sonucu (2026-11-11, yerel)
 | Komut | Sonuç |
 |---|---|
-| `pnpm -r run lint` | 3/3 paket temiz (contracts, server, web) |
-| `pnpm -r run typecheck` | 3/3 paket `tsc --noEmit` temiz |
-| `pnpm -r run test` | contracts 2 dosya / 24 test, server 9 / 78, web 7 / 44 — **146 geçti, 0 kaldı, 0 skip** |
-
-Birim testlerinde `.skip/.only/.todo` yok. e2e'deki `test.skip`'ler Tur 2'deki ile aynı ve hepsi gerekçeli (proje adı `desktop`
-koşulu, `E2E_REAL`/`E2E_REAL_LOGIN2` ortam bayrağı). e2e bu turda çalıştırılmadı; kapsam yalnız doküman + iki küçük güvenlik düzeltmesi.
-
-## Tur 3 — QA-P4-13 (DESIGN.md) doğrulaması
-| DESIGN.md iddiası | Kod kanıtı | Uyum |
-|---|---|---|
-| §6 `console/stage.tsx`: `stage-tools`, Sığdır `Expand`/`object-contain`, %100 `ScanSearch`/`max-w-none`, kaydırma kabı `overflow-auto`+`tabIndex=0`+`role=region`+`aria-label`, odak halkası içe | `components/console/stage.tsx:100-125` (`focus-visible:-outline-offset-2`, `stage-scroll`) | ✅ |
-| Tam ekran `secondary`, `Maximize`/`Minimize`, `aria-pressed`, `requestFullscreen` + `fullscreenchange`; `data-mode`, `data-fullscreen` | `stage.tsx:53-58`, `:95-96`, `:128-130` | ✅ |
-| §6 Konsol pasif "Uzaktan kontrol": `secondary`+`disabled`, `MousePointer2`, görünür `text-xs text-fg-muted` neden + `aria-describedby` | `app/(panel)/sessions/[id]/console/console-view.tsx:88-96` | ✅ |
-| §6/§6.1 `Segmented` opsiyonel `icon` (aria-hidden, `size-4`, solda, `gap-1.5`), min 44 px | `components/ui/segmented.tsx` (`icon?: ReactNode`, `min-h-11`, `gap-1.5`); çağrı `stage.tsx:124-125` | ✅ |
-| §6 "Bu cihaz desteklenmiyor": form yerine kart, `surface`+`border`+`shadow-sm`, `MonitorX` `text-fg-muted`, `role=status`, `aria-labelledby`, `guest-unsupported`, eylem düğmesi yok | `app/session/[token]/guest-welcome.tsx:112-125` | ✅ |
-| §6 "Paylaşım başlatılmadı": `Alert tone=danger` `share-denied`, kalın başlık, `secondary` Tekrar dene `RotateCw`, `loading`'de ikon gizli; desteklenmiyorsa düğmesiz `danger` | `app/session/[token]/guest-session.tsx:103-112` | ✅ |
-| §6.1 `ui/segmented.tsx` ve `console/stage.tsx` satırları "yazıldı / ikonlu, P4" | DESIGN.md:104, :109 | ✅ |
-
-QA-P4-13 **kapandı**. DESIGN.md anlatımı kodla birebir; yeni token veya ham renk/px eklenmemiş.
-
-## Tur 3 — Güvenlik düşük bulgularının kapanışı (QA gözüyle)
-- `packages/contracts/src/api/sessions.ts:107` `UNSAFE_NAME_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}͏᠎]/u` — Unicode kategorili; `packages/contracts/test/sessions.test.ts` (yeni, 4 test) suite'e dahil ve yeşil.
-- `E2E_REAL_ALLOW=1` bayrağı `apps/server/scripts/e2e-real-users.ts`, `apps/web/playwright.real.config.ts`, `apps/web/package.json` ve `docs/implementation.md`'de tutarlı. Kesin kapanış kararı güvenlik raporunda.
-
-## Tur 3 — Kabul kriterleri
-Tur 2 tablosu (aşağıda) geçerli: tüm P4 AC'leri ✅. Bu turda kodda davranış değişikliği yalnız ad doğrulamasında (daha sıkı) ve testlerle kanıtlı; AC durumunu değiştiren bir şey yok.
-
-## Tur 3 — Düzeltilmeli
-Yok.
-
-## Tur 3 — Definition of Done
-| Madde | ✅/❌ | Not |
-|---|---|---|
-| Lint / typecheck / birim test yeşil | ✅ | 146/146 |
-| Tüm AC kanıtlı | ✅ | Tur 2 tablosu |
-| DESIGN.md güncel | ✅ | QA-P4-13 kapandı |
-| Diğer DoD maddeleri | ✅ | Tur 2'den değişmedi |
-
-## Tur 3 — Öneriler (zorunlu değil)
-- e2e (`pnpm --filter @remote/web e2e`) paket kapanışında test-operatoru aşamasıyla birlikte bir kez daha koşulsun; bu tur kod değişikliği UI'ya dokunmadığı için engelleyici değil.
-
----
-
-# Tur 2 (arşiv) — DURUM o turda: DÜZELTİLMELİ (QA-P4-13)
-
-Tarih: 2026-11-11 · Denetçi: qa-denetci (kod değiştirmedi). Tur 1 bulguları aşağıda "Tur 1" başlığı altında değiştirilmeden duruyor.
-
-## Tur 2 — Test sonucu
-| Komut | Sonuç |
-|---|---|
-| `pnpm -r run lint` | temiz |
+| `pnpm -r run lint` | temiz (3 workspace projesi; `apps/agent-win` workspace'te yok, kapsam dışı) |
 | `pnpm -r run typecheck` | temiz |
-| `pnpm -r run test` | contracts 2/2, web **44/44**, server **78/78** |
-| server `test:int` (test-db.sh up → test → down) | **103/103** (17 dosya); konteyner silindi |
-| `pnpm --filter @remote/web e2e` (mock) | **116 geçti, 8 atlandı, 0 hata**. Atlananların 8'i de `mobile` projesinde, masaüstüne özel akışların kopyaları (`test.skip` gerekçeli: "konsol masaüstü akışı"; mobil müşteri AC-33 gereği lobiye giremiyor). Kabul edildi |
-| `pnpm audit --audit-level high` | "No known vulnerabilities found" |
-| Gerçek sunucu e2e (`e2e:real:users` → `e2e:real`) | **İlk denemede kuruldu, 5/5 geçti** (geçici MySQL + seed + `e2e-real-users.ts` "created, created" + `node src/server.ts` :3302 + standalone web :3218). Tur 1'deki "bağımsız kanıt yok" durumu kapandı; betik tekrarlanabilir |
+| `pnpm -r run test` | contracts 32/32, server 160/160, web **83/83** (Tur 2: 79; +4 `lib/dc/p5-teklif.test.ts`); skip yok |
+| `pnpm --filter @remote/web e2e` (tam takım, 2 ardışık koşu, paralel build yok) | Koşu 1: **135 geçti**, 27 atlandı, 0 kırmızı. Koşu 2: **135 geçti**, 27 atlandı, 0 kırmızı. Atlananlar: Tur 2'deki 25 + yeni iki TEST-P5-1 testinin mobil projede `project !== "desktop"` ile atlanması; `p4-real.spec.ts` `E2E_REAL` kapısı. Gerekçeleri yazılı. |
+| `bash scripts/e2e-real.sh` | **2 deneme, ikisi de rc=3 "KURULUM HATASI: test DB / migrate"**: `prisma migrate` → `P1017: Server has closed the connection` (127.0.0.1:33317). Testler hiç çalışmadı. `test-db.sh up` farklı port ve konteyner adıyla (33399) tek başına denendi, aynı hata verdi. Konteyner logunda "ready for connections" satırı yok, yani MySQL hazır olmadan migrate başlıyor. |
 
-## Tur 2 — Tur 1 maddelerinin durumu
-| Madde | Durum | Kanıt |
+## Tur 2 açıkları ve sayfa testi bulguları
+| Bulgu | Durum | Doğrulama |
 |---|---|---|
-| QA-P4-1 `ws` high | ✅ kapandı | web `ws` 8.21.0; audit temiz |
-| QA-P4-2 AC-34 | ✅ | `p4-media.spec.ts:203` — düğme `disabled`, metin "Uzaktan kontrol", accessible description "Müşteri tarayıcı modunda: yalnız görüntüleme", ipucu görünür |
-| QA-P4-3 AC-33 | ✅ | `guest.spec.ts:29` — mobil cihazda ve masaüstünde `getDisplayMedia` yokken `guest-unsupported` + tam AC metni, `join-form`/`join-browser` yok, axe temiz; `p4-media.spec.ts:113` mobil axe; `lib/device-support.ts` birim testli |
-| QA-P4-4 AC-30 | ✅ | `p4-media.spec.ts:177` — ilk `getDisplayMedia` `NotAllowedError` ile reddedilir → "Paylaşım başlatılmadı" + `share-retry` → ikinci denemede müşteri `sharing`, teknisyen `data-share=sharing`. p4-real test adı "REAL AC-59" olarak düzeltildi |
-| QA-P4-5 AC-43 | ✅ | `p4-media.spec.ts:215` — `data-mode` fit → actual → fit, tam ekran `data-fullscreen` true/false, klavyeyle |
-| QA-P4-6 ABUSE_EMAIL env zinciri | ✅ | `.env.example`, `deploy/docker-compose.yml` (değersiz anahtar), runbook §3; env.ts boş dizeyi tanımsız sayıyor (`env-logger.test.ts` +2) |
-| QA-P4-7 mimari-api | ✅ | `mimari-api.md:87` resolve `consentText{…,sha256}`, `abuseEmail: string\|null` (prod'da fallback yok); `:88` join `consentTextId` zorunlu, 400 `fields.consentTextId`, `customerName` kontrol/bidi reddi |
-| QA-P4-8 AC-38 | ✅ | `guest.spec.ts:47` — `content-security-policy` `frame-ancestors 'none'`, varsa XFO `DENY` |
-| QA-P4-9 AC-26/125 | ✅ | `p4-media.spec.ts:163` (karşılama kodu = konsol kodu, `mailto:` href); `guest.spec.ts:54` (`abuseEmail:null` → bağlantı gizli); backend `env-logger.test.ts:58-65` (prod'da fallback yok) |
-| QA-P4-10 staging ölçümleri | ✅ ertelendi (mimar kararı, kabul) | `mimari.md:427` §10.3 P4 kararı, `gereksinimler.md:201-205` takip satırı (sahip, tetik: NAT açılınca, en geç P6 öncesi) |
-| QA-P4-11 gerçek e2e tekrarlanabilirliği | ✅ | `apps/server/scripts/e2e-real-users.ts` + `e2e:real:users`; QA ilk denemede 5/5 koşturdu |
-| QA-P4-12 sözleşme açığı | ✅ | Protokol `mimari-protokol.md:25,33`; sunucu `consent-p4.test.ts:136` (peer.joined `guestName`, yeniden bağlanan konsolda `hello.guestName` + son `share`, misafir ayrılınca `share.stopped`), `:169` (PENDING'de alan yok); istemci `machines.test.ts` (>1 bekleyende tahmin yok → "Müşteri"); gerçek e2e REAL AC-24 yenileme senaryosu geçti |
-
-## Tur 2 — Kabul kriterleri (P4)
-| AC | Durum | Kanıt |
-|---|---|---|
-| AC-23 | ✅ (ertelendi, mimar kararı) | Staging ölçümü `gereksinimler.md:205` takipte; P4 kapanışını beklemez (`mimari.md:427`) |
-| AC-26 | ✅ | `p4-media.spec.ts:163` |
-| AC-28 | ✅ | `p4-media.spec.ts:26` |
-| AC-29 | ✅ | `consent-p4.test.ts` |
-| AC-30 | ✅ | `p4-media.spec.ts:177` |
-| AC-31 | ✅ | `p4-media.spec.ts` paylaş/durdur/yeniden; REAL 1 |
-| AC-32 | ✅ | `p4-media.spec.ts`, int AC-32/59 |
-| AC-33 | ✅ | `guest.spec.ts:29`, `p4-media.spec.ts:113` |
-| AC-34 | ✅ | `p4-media.spec.ts:203` |
-| AC-38 | ✅ | `guest.spec.ts:47` |
-| AC-39 | ✅ | `p4-media.spec.ts` axe açık/koyu + 375 px, konsol koyu + klavye; `guest.spec.ts:29` desteklenmiyor ekranı axe |
-| AC-40, AC-42 | ✅ (ertelendi, mimar kararı) | AC-23 ile aynı kayıt |
-| AC-43 (kısmi) | ✅ | `p4-media.spec.ts:215` |
-| AC-59 | ✅ | mock + REAL 1/2 |
-| AC-112 | ✅ | mock + REAL 1 |
-| AC-113 | ✅ | mock + REAL 4 |
-| AC-114 | ✅ | mock + REAL 5, int |
-| AC-125 | ✅ | `guest.spec.ts:54`, `p4-media.spec.ts:163`, env zinciri |
-| AC-127 | ✅ | `consent-p4.test.ts` |
-
-## Tur 2 — Düzeltilmeli
-1. **QA-P4-13 (Düşük) [frontend-dev]** `DESIGN.md:87` ve `:105` (`console/stage.tsx`) ve §6.1 `ui/segmented.tsx` satırı (`:90`/`:101`) — bu turda eklenen görsel davranışlar DESIGN.md'de yok: sahne görüntü modları (Sığdır `Expand` / %100 `ScanSearch`, `overflow-auto` + `tabIndex=0` `role=region`, `data-mode`), Tam ekran (`Maximize`/`Minimize`, `aria-pressed`, `data-fullscreen`), `Segmented` opsiyonel `icon` prop'u, konsol üst barındaki pasif "Uzaktan kontrol" (`MousePointer2`, disabled + açıklama), müşteri "Bu cihaz desteklenmiyor" (`MonitorX`) ve "Paylaşım başlatılmadı" + "Tekrar dene" (`RotateCw`) durumları. Ortak standart §1.8 "yeni bileşen/token eklendiğinde DESIGN.md güncellenir"; implementation.md "Açık" satırı bunu kendisi kaydetmiş. Beklenen: bu satırlar DESIGN.md'ye işlensin (kod değişikliği gerekmez; QA tur 3'te yalnız doküman kontrolü yapılır).
-
-## Tur 2 — Definition of Done
-| Madde | ✅/❌ | Not |
-|---|---|---|
-| Lint / typecheck / unit / int / mock e2e yeşil | ✅ | |
-| Gerçek sunucu e2e | ✅ | QA bağımsız koşturdu, 5/5 |
-| Bağımlılık denetimi (audit high 0) | ✅ | |
-| Tüm paket AC'leri kanıtlı | ✅ | 23/40/42 mimar kararıyla ertelendi |
-| §10.3 bitti tanımı (sahte ekranla video) | ✅ | |
-| §10.3 staging NAT/TURN ölçümü | ✅ ertelendi | `mimari.md:427` kararı |
-| Tasarım-kod uyumu (mimari-api / protokol) | ✅ | QA-P4-7, QA-P4-12 işlendi |
-| Env zinciri | ✅ | ABUSE_EMAIL, TURN_LISTEN_IPS (.env.example + compose + runbook) |
-| DESIGN.md güncel | ❌ | QA-P4-13 |
-| 5 durum / a11y / mobil / ikon kuralı | ✅ | Yeni durumlar ikonlu (MonitorX, RotateCw, MousePointer2, Expand, ScanSearch, Maximize) |
-| Yeni bağımlılık | ✅ | Yok (yalnız `ws` sürüm yükseltmesi) |
-| Kullanılmayan kod | ✅ | Tur 1 notu (`dc.ts`) geçerli; P5'te izlenir |
-
-## Tur 2 — Öneriler (zorunlu değil)
-- Staging `deploy/turn/.env`'e `TURN_LISTEN_IPS=auto` eklenmesi (devops notu; sunucuya dokunulmamış) NAT açılış işiyle birlikte yapılsın.
-- Tur 1 önerileri (koyu tema axe: aktif oturum/bitiş ekranları; 400 `consentTextId` → yeniden resolve e2e; `track.onended` yolu) hâlâ açık.
-
-## Tur 2 — Olumlu
-- Tur 1'in 12 maddesinin 12'si kapandı; her biri gerçekten ilgili davranışı doğrulayan bir testle (ad etiketi değil, assertion) kanıtlandı.
-- Gerçek sunucu e2e'si artık tek komutla tekrarlanabilir; QA ilk denemede yeşil aldı.
-- `abuseEmail` prod davranışı (fallback yok) hem birimde hem UI'da (bağlantı gizlenir) test edilmiş.
-
----
-
-# Tur 1 (arşiv) — QA Raporu P4
-Tur 1 DURUM: DÜZELTİLMELİ (Tur 2 ile kapatıldı, yukarı bkz.)
-
-Tarih: 2026-11-11 · Denetçi: qa-denetci (kod değiştirmedi). P3 raporu `docs/arsiv/p3-qa-raporu.md`'ye taşındı (dosya git'te izlenmediği için `git mv` yerine `mv` kullanıldı).
-
-## Test sonucu
-| Komut | Sonuç |
-|---|---|
-| `pnpm -r run lint` | temiz |
-| `pnpm -r run typecheck` | temiz |
-| `pnpm -r run test` | contracts 2/2, web 35/35, server 71/71 |
-| server `test:int` (test-db.sh down → up → down) | **99/99** (17 dosya) |
-| `pnpm --filter @remote/web e2e` | 106 geçti, 4 atlandı (yalnız masaüstü konsol testleri `mobile` projesinde atlanıyor; `test.skip` gerekçesi yazılı, kabul edilir) |
-| `pnpm audit` | **2 açık (1 high, 1 moderate)**: `ws@8.18.3` (apps/web devDependency), GHSA-58qx-3vcg-4xpx vd.; CI `pnpm audit --audit-level high` bu yüzden **kırmızı** |
-| Gerçek sunucu e2e (`E2E_REAL=1`, `playwright.real.config.ts`) | **QA doğrulayamadı.** Kurulum denendi: test DB + seed tamam, ancak QA'nın teknisyen oluşturma betiği (repoda yok, implementation.md "küçük bir Prisma betiği" diyor) `@prisma/client` ESM import hatası verdi; 5/5 test login'de zaman aşımı. Hata QA kurulumundadır, ürünü göstermez, ama bağımsız kanıt da yoktur; frontend'in "5/5 geçti" beyanı tek kaynak. Tur sınırı nedeniyle yeniden denenmedi. |
-| Staging NAT/TURN ölçümü (AC-23, 40, 42) | `docs/test-raporu.md` yok; ölçüm yapılmamış |
+| QA-P5-7 kararsız e2e (AC-54 `acceptOffer`) | ✅ kapandı | `p5-collab.spec.ts:66` `toBeEnabled({ timeout: 10_000 })`. Ürün kodunda değişiklik yok, kök neden implementation.md'de yazılı. Tam takım 2/2 koşuda yeşil. Kesin kapanış için ikiden fazla koşu gerekir, ama Tur 2'deki 1/3 kırmızıyla karşılaştırıldığında yeterli. |
+| TEST-P5-1 teklif kilidi | ✅ kapandı | Birim: `p5-teklif.test.ts` 4 test. Kendi sınırı `'rate'` döner ve teklif çıkmaz. Alıcı teklifi düşürünce `timeout`, `file.cancel` ve `CANCELLED` gönderilir, kilit açılır. İptal edilince geç kabul yok sayılır ve `getTimerCount()==0`. Kabulde zaman aşımı tetiklenmez. e2e `:191` (4. teklif `file-error` "en çok 3 dosya", satır yok, pencere sonrası gönderim `ok`), `:209` (kanca ile alıcıda düşme yolu: satır `timeout`, "Yanıt yok", ws-log'da guest `CANCELLED`, ardından `z.txt` `ok`). Kancalar (`__rsOfferTimeoutMs`, `__rsNoSelfThrottle`) yalnız `NEXT_PUBLIC_RS_E2E === "1"` iken etkin (`use-collab.ts:36,39`). (c) seçeneğinin (alıcıda `reason`) yapılmama gerekçesi (contracts strictObject, S-P5-2) implementation.md'de yazılı ve kabul edilebilir. |
+| TEST-P5-2 günlük klavye erişimi | ✅ kapandı | AC-39 axe testi (`:306`): 2000 karakterlik mesaj, açık ve koyu temada axe temiz, `role="log"` kabı odaklanabilir. |
+| TEST-P5-3 uzun mesaj taşması | ✅ kapandı | `:314-315`: iki tarafta balon ve günlükte `scrollWidth <= clientWidth + 1`. |
 
 ## Kabul kriterleri
-| AC | Durum | Kanıt veya eksik |
-|---|---|---|
-| AC-23 TURN-TLS (UDP kapalı) | ⚠️ kanıtsız | Staging ölçümü yok (§10.3 bitti tanımı `docs/test-raporu.md`'de ister) |
-| AC-26 karşılama, doğrulama kodu (iki tarafta) | ⚠️ | Kod karşılamada (`guest.spec.ts:12`) ve konsolda (`console-view.tsx:84`) görünür; **iki tarafın aynı kodu gösterdiğini doğrulayan test yok**. Tenant logosu P9'a ertelendi (sistem logosu; gerekçeli) |
-| AC-28 ad + KVKK olmadan buton pasif | ✅ | `p4-media.spec.ts:26` (`join-browser` disabled) + join şeması |
-| AC-29 onay kaydı + audit | ✅ | `consent-p4.test.ts` (tek VIEW/GRANTED/UI satırı, metin id+sha256, IP, UA; audit `guest.admitted.consent`; yarışta kaybeden TX yazmaz) |
-| AC-30 iptal → "Paylaşım başlatılmadı" + "Tekrar dene" | ❌ | Metin farklı (`gs.denied`: "Ekran paylaşımı başlatılamadı…"), ayrı "Tekrar dene" butonu yok (şeritteki "Ekranımı paylaş" var); **iptal senaryosu hiçbir testte yok** (p4-real'deki "AC-30" adlı test müşteri bitirme testidir) |
-| AC-31 paylaşım durdur → teknisyen 2 sn'de görür, yeniden paylaşım | ✅ | `p4-media.spec.ts:65-69`, server int share.state. (2 sn süre ölçülmüyor; Playwright varsayılan 5 sn bekler — kabul edilebilir yaklaşım) Tarayıcının kendi "Paylaşmayı durdur" butonu (`track.onended`) yolu test edilmemiş |
-| AC-32 Oturumu Bitir → video 2 sn'de kesilir | ✅ | `p4-media.spec.ts:71-75`, int AC-32/59 |
-| AC-33 desteklenmeyen/mobil cihaz ekranı | ❌ | Ayrı ekran yok; mobilde müşteri karşılama → KVKK → lobi → **teknisyen kabulü** sonrasına kadar ilerliyor, yalnız "Paylaş"a basınca `gs.unsupported` uyarısı çıkıyor (`use-guest-session.ts:121`, `guest-session.tsx:102`). Metin AC'dekinden farklı; test yok |
-| AC-34 konsolda "Uzaktan kontrol" pasif + açıklama | ❌ | Konsolda buton ve "Müşteri tarayıcı modunda: yalnız görüntüleme" metni yok (`console-view.tsx` yalnız "Tarayıcı · yalnız görüntü" etiketi) |
-| AC-38 `frame-ancestors 'none'` (P4: test) | ⚠️ kanıtsız | `proxy.ts:26` başlığı üretiyor; `/session/[token]` yanıtında bu direktifi doğrulayan test yok (`auth.spec.ts:176-179` frame-ancestors'ı kontrol etmiyor) |
-| AC-39 axe iki tema + klavye | ✅ (kısmi uyarı) | `p4-media.spec.ts:103-139` karşılama+lobi açık/koyu axe, konsol koyu axe + klavyeyle kabul. Aktif oturum/paylaşım şeridi müşteri ekranı yalnız açık temada taranıyor; bitiş/ret ekranları taranmıyor (öneri) |
-| AC-40 ilk kare p95 < 5/8 sn (staging) | ⚠️ kanıtsız | Ölçüm yok |
-| AC-42 gecikme p95 < 400 ms (staging) | ⚠️ kanıtsız | Ölçüm yok |
-| AC-43 (kısmi) Sığdır / %100 / tam ekran | ❌ | Konsolda görüntü modu denetimi yok (`components/console/stage.tsx`) |
-| AC-59 konsol onay diyaloğu + müşteri "sonlandırıldı" | ✅ | `p4-media.spec.ts:135-137`, odak "Vazgeç"te (`data-autofocus`) |
-| AC-112 lobi kabul kodu (UI) | ✅ | `p4-media.spec.ts:45-55` (hatalı kod kalan hak, doğru kod Aktif); sunucu tarafı P3 int |
-| AC-113 ret (UI) | ✅ | `p4-media.spec.ts:79-90` |
-| AC-114 Zorla sonlandır (UI) | ✅ | `p4-media.spec.ts:92-101` (onay, odak Vazgeç), int tenant sınırı/USER 403 |
-| AC-125 dolandırıcılık uyarısı + "Kötüye kullanımı bildir" | ⚠️ | Uyarı testli (`fraud-warning`); `mailto:` bağlantısının varlığı/href'i test edilmiyor. Env zinciri eksik (QA-P4-6) |
-| AC-127 consentTextId doğrulaması | ✅ | `consent-p4.test.ts` (yok/eski/başka tenant/bilinmeyen → 400, doğru → 200). Web'deki 400 → onay sıfırla + yeniden resolve yolu e2e'de yok (öneri) |
-
-KVKK onay zinciri (resolve → join → admit → session_consents): resolve güncel metni + sha256 döner, join `consentTextId`'yi doğrular (nonce sonrası), admit TX'i `consumeForAdmit` → `session_consents` → audit sırasıyla yazar; yarış testleri tek satır garantisini kanıtlıyor. Zincir doğru.
+Tur 2 tablosu geçerli: tüm P5 AC'leri ✅. AC-41 ve AC-57 yerel ön kanıtla ✅, staging ölçümü mimar kararıyla takipte. Bu turda bir AC'nin durumu değişmedi. Değişen kodu (lib/dc/files.ts, chat-panel, files-panel) kapsayan e2e ve birim testleri yeşil.
 
 ## Düzeltilmeli
-1. **QA-P4-1 (Yüksek) [frontend-dev]** `apps/web/package.json:38` — `ws` 8.18.3 high (bellek tüketimi DoS) + moderate açık; CI audit kırmızı → server ile aynı `8.21.0`'a sabitle, `pnpm audit --audit-level high` temiz olsun.
-2. **QA-P4-2 (Yüksek) [frontend-dev]** AC-34 — konsol üst barına pasif "Uzaktan kontrol" butonu (`disabled` + `aria-describedby`) ve "Müşteri tarayıcı modunda: yalnız görüntüleme" açıklaması; e2e'de buton pasif + metin görünür doğrulansın.
-3. **QA-P4-3 (Yüksek) [frontend-dev]** AC-33 — karşılama yüklenirken `navigator.mediaDevices?.getDisplayMedia` yoksa veya mobil cihazsa (ör. `pointer: coarse` + UA-CH `mobile`) form yerine "Bu cihaz desteklenmiyor; masaüstü Chrome, Edge veya Firefox kullanın" ekranı; müşteri lobiye girememeli. e2e: mobil projede bu ekran + `join-browser` yok. (Mevcut mobil axe testi buna göre güncellenir.)
-4. **QA-P4-4 (Orta) [frontend-dev]** AC-30 — `getDisplayMedia` iptalinde (`NotAllowedError`) "Paylaşım başlatılmadı" mesajı ve "Tekrar dene" butonu; e2e'de `getDisplayMedia` reddedilecek şekilde stub'lanıp mesaj+buton+tekrar denemede paylaşım doğrulansın. `p4-real.spec.ts:111` test adındaki "AC-30" yanlış etiket, düzeltilsin.
-5. **QA-P4-5 (Orta) [frontend-dev]** AC-43 (kısmi) — konsol sahnesinde "Sığdır" (`object-contain`), "%100" (doğal boyut + kaydırma) ve tam ekran (`requestFullscreen`) seçenekleri, ikonlu, klavyeyle erişilebilir; e2e'de mod değişimi doğrulansın. Kapsam dışı bırakılacaksa mimar §10.2 P4 satırından AC-43'ü çıkarsın.
-6. **QA-P4-6 (Orta) [devops]** `ABUSE_EMAIL` yalnız `apps/server/src/env.ts:39`'da; `.env.example` (boş), `deploy/docker-compose.yml` server servisi ve `docs/runbook.md`'de yok (proje CLAUDE.md "yeni env" kuralı).
-7. **QA-P4-7 (Orta) [mimar]** `docs/mimari-api.md:87` resolve yanıtında `abuseEmail` ve `consentText.sha256` yok; join gövdesinde `consentTextId` zorunluluğu/400 `fields.consentTextId` belirtilsin (implementation.md sapma #1 kapatılsın).
-8. **QA-P4-8 (Orta) [frontend-dev]** AC-38 — `/session/<token>` yanıtında CSP `frame-ancestors 'none'` (ve `X-Frame-Options` varsa) doğrulayan e2e ekle.
-9. **QA-P4-9 (Orta) [frontend-dev]** AC-26/AC-125 — tek e2e'de karşılamadaki `guest-verify-code` ile konsoldaki kodun eşitliği ve `mailto:` bağlantısının `href` değeri doğrulansın.
-10. **QA-P4-10 (Orta) [devops / test-operatoru]** AC-23, 40, 42 — staging NAT + UDP kapalı ağda TURN-TLS bağlantısı, ilk kare p95 ve gecikme ölçümü `docs/test-raporu.md`'ye yazılsın (§10.3 bitti tanımı). Yapılamıyorsa ertelemenin mimar onayı gerekir.
-11. **QA-P4-11 (Düşük) [frontend-dev]** Gerçek sunucu e2e'si tekrarlanabilir değil: teknisyen oluşturma betiği repoda yok. `apps/web/e2e/` altına (veya `apps/server/scripts/`) iki ADMIN oluşturan betik + tek komutluk kurulum eklensin; CI'da opsiyonel iş olarak koşabilsin.
-12. **QA-P4-12 (Düşük) [mimar → backend-dev]** Bilinen sözleşme açığı: `hello`/`peer.joined` misafir adını taşımıyor, sunucu son `share.state`'i saklamıyor. İstemci tarafı geçici çözüm (`sessionStorage` + yeniden bildirim) çalışıyor ama başka sekme/cihazda konsol "Müşteri" gösterir ve lobide >1 bekleyen varken kabulde ad yanlış eşlenebilir (`implementation.md` Frontend P4 karar #4: "tek kişi varsa onun adı"). Mimar karar versin: `guestName` + `share` alanını `hello{tech}`/`peer.joined{guest}`'e eklemek (önerilen) veya P5'e ertelemeyi kayda geçirmek. Teknisyen yanlış müşteriyi görebileceği için ertelenecekse kabulde ad yerine "Müşteri" gösterilmesi daha güvenli.
+1. [devops] `apps/server/scripts/test-db.sh:18-21`: 90 sn'lik hazır olma döngüsü zaman aşımında hata vermeden `db:migrate`'e geçiyor, bu yüzden hata yalnız `P1017` olarak görünüyor. Beklenen: döngü bitince bağlantı hâlâ yoksa `docker logs` son satırlarıyla açık bir hata verip çıkması. Ayrıca bu makinede MySQL konteynerinin neden 90 sn içinde hazır olmadığı bulunmalı (Docker yükü ve kaynakları, `mysql:8.4` init betikleri). Ardından `bash scripts/e2e-real.sh` çalıştırılıp 5/5 sonucu implementation.md'ye yazılmalı. QA bu madde için yalnız o koşunun sonucunu doğrular.
 
 ## Definition of Done
 | Madde | ✅/❌ | Not |
 |---|---|---|
-| Lint / typecheck / unit / int / e2e yeşil | ✅ | |
-| Bağımlılık denetimi (audit high 0) | ❌ | QA-P4-1 |
-| Tüm paket AC'leri kanıtlı | ❌ | AC-30/33/34/43 ❌; 23/26/38/40/42/125 ⚠️ |
-| §10.3 bitti tanımı: sahte ekranla teknisyen video (Playwright) | ✅ | `p4-media.spec.ts:61` `videoWidth>0` |
-| §10.3 bitti tanımı: staging NAT/TURN-TLS ölçümü | ❌ | QA-P4-10 |
-| Tasarım-kod uyumu / sapmalar gerekçeli | ⚠️ | Sapmalar implementation.md'de gerekçeli; mimari-api güncel değil (QA-P4-7) |
-| Env zinciri (`.env.example`/compose/runbook) | ❌ | QA-P4-6 |
-| 5 durum (boş/yükleniyor/hata/başarılı/kısmi) | ✅ | Konsol: bekleniyor, lobi, bağlanıyor, video, durdu, koptu, bitti; müşteri: karşılama, lobi, oturum, bitiş/ret/doldu/koptu |
-| a11y (axe iki tema, klavye) | ✅ | Kısmi kapsam notu AC-39'da |
-| Mobil (375 px taşma yok) | ✅ | Ama AC-33 ❌ |
-| İkon kuralı (lucide, anlamlı) | ✅ | Power/CircleX/ArrowLeft/Eye vb.; ek bulgu yok |
-| Yeni bağımlılık gerekçeli | ✅ | `ws` + `@types/ws` web devDependency, gerekçe implementation.md #7 (sürüm açık: QA-P4-1) |
-| Kullanılmayan kod yok | ⚠️ | `packages/contracts/src/dc.ts` yalnız `apps/server/test/unit/dc.test.ts`'te kullanılıyor; P4'te DataChannel açılmıyor. Mimari §10.3 P4 dosya planında "yalnız temel" olarak var, sapma değil; P5'te tüketilmezse bulgu olur |
-| Audit (onay, kabul, ret, sonlandırma) | ✅ | int testleri |
-
-## Öneriler (zorunlu değil)
-- Aktif oturum/paylaşım ekranı ve bitiş/ret ekranları için koyu tema axe taraması.
-- Web'de 400 `fields.consentTextId` → onay sıfırlama + yeniden resolve akışına e2e (mock zaten 400 dönebiliyor).
-- Tarayıcının kendi "Paylaşmayı durdur" düğmesi (`track.onended`) yolunu e2e'de `track.stop()` ile tetikleyerek AC-31'in ikinci yarısını kanıtla.
-- `SessionView`'a müşteri adı (P8) gelene kadar "Zorla sonlandır" diyaloğunda teknisyen adı + başlangıç saati gösterilsin.
+| lint / typecheck temiz | ✅ | |
+| Birim ve entegrasyon testleri yeşil, gerekçesiz skip yok | ✅ | Birim 275/275. Entegrasyon testi bu turda koşturulmadı, değişiklik yalnız web tarafında; Tur 2 sonucu 128/128. |
+| e2e kararlı (tam takım) | ✅ | 2/2 koşu, 135/135 |
+| Gerçek sunucu e2e (QA-P5-6 kapısı) | ❌ | Bu turda kurulum hatası, kanıt yok (yukarıdaki 1. madde) |
+| Yeni bağımlılık yok veya gerekçeli | ✅ | Yok |
+| implementation.md güncel | ✅ | "P5 sayfa testi + QA Tur 2 düzeltmesi" |
 
 ## Olumlu
-- KVKK onay zinciri doğru ve yarış koşullarında test edilmiş (admit‖admit, admit‖cancel 50 tekrar; consent sayısı = kazanan admit).
-- Eski/başka tenant/bilinmeyen metin aynı 400'ü döner; tenant varlığı sızmıyor.
-- Medya yönü (recvonly offer + `replaceTrack`) paylaş/durdur/yeniden paylaşta yeniden anlaşma gerektirmiyor; sahte ekranla gerçek video karesi doğrulanıyor.
-- Frontend'in gerçek sunucu e2e'si iki gerçek uyuşmazlık (paylaşım durumu, ad kaybı) yakalamış ve kayda geçirmiş.
+- TEST-P5-1 için seçilen çözüm sözleşmeyi değiştirmiyor ve S-P5-2'yi koruyor. Hem dürüst istemci yolu (gönderen tarafta sınır) hem de kötü niyetli istemci yolu (zaman aşımı) ayrı testlerle kanıtlandı.
+- e2e kancaları derleme bayrağına bağlı, üretim derlemesinde etkisiz.
+
+---
+
+# QA Raporu — P5 (konsol işbirliği) — Tur 2
+DURUM: DÜZELTİLMELİ (tek madde: kararsız e2e testi QA-P5-7; ürün kodunda açık bulgu yok)
+
+## Test sonucu (2026-11-11, yerel)
+| Komut | Sonuç |
+|---|---|
+| `pnpm -r run lint` | temiz |
+| `pnpm -r run typecheck` | temiz |
+| `pnpm -r run test` | contracts 32/32, server unit 160/160, web 79/79 (önceki tur 73); skip yok |
+| `eval "$(test-db.sh up)"` + `test:int` + `down` | 20 dosya, 128/128 (önceki tur 126); konteyner silindi |
+| `pnpm --filter @remote/web e2e` (tam takım, 3 koşu) | Koşu 1: **132 geçti, 1 kırmızı**, 25 atlandı. Kırmızı test: `[desktop] p5-collab.spec.ts:163` "AC-54: SHA-256 uyuşmazlığı…". Hata `acceptOffer()` içinde, satır 65 `expect(file-accept).toBeEnabled()` (varsayılan 5 sn). Koşu 2 ve 3: 133/133 geçti. Yalnız P5 dosyası 3 kez koşturuldu, üçünde de 15/15 geçti. Atlanan 25 testin hepsi mobil projede `test.skip(project !== "desktop")` ile atlanıyor ve gerekçesi yazılı. |
+| `bash scripts/e2e-real.sh` (gerçek sunucu) | **5/5 geçti** (rc=0, 13 sn) |
+| `pnpm audit --audit-level high` | Bilinen açık yok |
+
+## Tur 1 bulguları
+| Bulgu | Durum | Doğrulama |
+|---|---|---|
+| QA-P5-1 AC-53 iptal | ✅ kapandı | e2e `:280`: alıcı ve gönderen iptali, iki tarafta `cancelled`, indirme yok, ws-log'da iki taraftan CANCELLED. Yavaşlatma kancası (`__rsSlowFileMs`) yalnız `NEXT_PUBLIC_RS_E2E=1` derlemesinde çalışıyor. |
+| QA-P5-2 AC-37 PiP | ✅ kapandı | e2e `:329` (API varsa buton açılıyor ve kapanıyor; API yoksa test açıkça kırmızı), `:343` (global silinince buton hiç render edilmiyor) |
+| QA-P5-3 AC-57 p95 | ✅ kapandı (yerel ön kanıt) | e2e `:354`: 20 çizgi, `pointerup` anından `data-strokes` artışına kadar ölçülüyor, `expect(p95).toBeLessThan(200)`. Mimar kararıyla staging'de tekrarlanacak (gereksinimler "Sonra / açık — P5'ten"). |
+| QA-P5-4 AC-41 | ✅ kapandı (yerel ön kanıt) | e2e `:400`: 1920x1080 `captureStream(30)` stub'ı, panelde "1920×1080" görünüyor, ısınma sonrası medyan FPS ≥ 15. Gerçek ağ ve donanım ölçümü mimar kararıyla (mimari §10.3 P5) staging'e bırakıldı ve takipte. |
+| QA-P5-5 AC-36 metni | ✅ kapandı | `gereksinimler-kabul-kriterleri-e1-e4.md:49` "(rev. …, QA-P5-5)". Tek kaynak `DANGEROUS_EXT` + fikstür. |
+| QA-P5-6 gerçek sunucu e2e | ✅ kapandı | `scripts/e2e-real.sh` tek komutla 5/5, bu turda bağımsız olarak yeniden koşturuldu. implementation.md kurulum adım 1'e `SEED_*` eklendi, sonuç kayıtlı. |
+
+## Kabul kriterleri (Tur 1'den değişenler; diğerleri ✅ olarak aynı kaldı)
+| AC | Durum | Kanıt |
+|---|---|---|
+| 36 (rev.) | ✅ | e2e AC-36/53/117 ve AC-36/117 testleri; doküman güncel |
+| 37 | ✅ | e2e "AC-37: Document PiP destekleniyorsa…" ve "…yoksa buton hiç çizilmez" |
+| 41 | ✅ (yerel) | e2e "AC-41: 1920x1080 kaynak…". Staging ölçümü takipte (mimar kararı) |
+| 53 | ✅ | e2e "AC-53: aktarım sürerken alıcı ve gönderen iptal eder…" + Tur 1 kanıtları |
+| 54 | ✅ (test kararsız) | Kriteri doğru kanıtlıyor. Ancak tam takımda 1/3 koşuda kırmızı çıktı (QA-P5-7). |
+| 57 | ✅ (yerel) | e2e "AC-57: … p95 < 200 ms (20 çizgi)"; Tur 1'deki lazer unit testi. Staging ölçümü takipte. |
+
+## Düzeltilmeli
+1. **QA-P5-7 [frontend-dev]** `apps/web/e2e/p5-collab.spec.ts:65` (`acceptOffer`): `expect(file-accept).toBeEnabled()` tam paralel takımda kararsız. 3 tam koşunun birinde AC-54 testi bu satırda düştü. Playwright config'de `retries` yok, dolayısıyla CI'da da kırmızı çıkabilir.
+   - **Beklenen:** 1,5 sn'lik `ARM_MS` kilidinden sonra butonun etkinleşmesini yük altında da güvenilir biçimde beklemek. Örnek: `toBeEnabled({ timeout: 10_000 })`.
+   - **Kök neden:** yük altında misafir sayfasında `setTimeout` gecikmesi mi, yoksa `pending.fid` değişip zamanlayıcının yeniden kurulması mı (`files-panel.tsx:67-72`)? Bunu doğrula ve implementation.md'ye bir satır yaz.
+   - **Kabul ölçütü:** tam e2e takımı art arda 5 koşuda yeşil.
+
+## Definition of Done
+| Madde | Durum | Not |
+|---|---|---|
+| Lint / typecheck temiz | ✅ | |
+| Unit + entegrasyon + mock e2e yeşil, gerekçesiz skip yok | ❌ | Skip'ler gerekçeli. Mock e2e 3 koşunun birinde kırmızı (QA-P5-7). |
+| Paketin tüm AC'leri testle kanıtlı | ✅ | AC-41 ve AC-57 yerel ön kanıtla; staging kısmı mimar kararıyla P5 kapanışından ayrıldı |
+| §10.3 P5 bitti tanımı | ✅ | |
+| P4 regresyonu (gerçek sunucu) | ✅ | `e2e-real.sh` 5/5 |
+| Tasarım-kod uyumu; sapmalar gerekçeli | ✅ | |
+| Yeni bağımlılık yok veya gerekçeli | ✅ | |
+| `pnpm audit` high yok | ✅ | |
+| Gereksinim dokümanı güncel | ✅ | AC-36 rev.; "Sonra / açık — P5'ten" tablosu var |
+| Audit tek TX | ✅ | int 128/128 |
+| a11y / iki tema / 375 px | ✅ | Tur 1 ile aynı |
+
+## Öneriler (zorunlu değil)
+- `scripts/e2e-real.sh` içindeki "ekran kilitli" uyarısı ve baş yorumu, `getDisplayMedia` stub'ı geldikten sonra geçersiz kaldı. implementation.md bunu not etmiş; devops temizleyebilir.
+- Tur 1 önerileri (`QualityAgg` bellek kullanımı ve `"host"` varsayılanı; disk yolunda `abort()` unit testi) hâlâ açık.
+
+## Olumlu
+- Tur 1'deki altı bulgunun altısı da kapandı. Yeni testler kriteri ölçüyor, yalnız varlık kontrolü yapmıyor: p95 assert ediliyor, FPS medyanı ölçülüyor, PiP yokken test açıkça başarısız oluyor.
+- Gerçek sunucu e2e'si artık tek komutla ve fiziksel ekrandan bağımsız koşuyor. Bu turda bağımsız olarak 5/5 doğrulandı.
+
+---
+
+# QA Raporu — P5 (konsol işbirliği) — Tur 1
+DURUM: DÜZELTİLMELİ
+
+P4 raporu: `docs/arsiv/p4-qa-raporu.md`.
+
+## Test sonucu (2026-11-11, yerel)
+| Komut | Sonuç |
+|---|---|
+| `pnpm -r run lint` | temiz (çıkış 0) |
+| `pnpm -r run typecheck` | temiz (çıkış 0) |
+| `pnpm -r run test` | contracts 32/32, server unit 160/160, web 73/73; skip yok |
+| `test-db.sh up` + `pnpm --filter @remote/server test:int` | 20 dosya, 126/126; konteyner silindi |
+| `pnpm --filter @remote/web e2e` | 128 geçti, 20 atlandı. Atlananlar, mobil projede çalışmayan masaüstü akışları (`test.skip(project !== "desktop", ...)`, gerekçesi yazılı). |
+| `pnpm audit --audit-level high` | Bilinen açık yok |
+| Gerçek sunucu e2e (`e2e:real:users` + `e2e:real`) | **Koşturulamadı.** Denemede 5/5 kırmızı çıktı. Sebep kurulum: `db:seed`, `SEED_SUPERADMIN_EMAIL/PASSWORD` verilmediği için çalışmadı, kullanıcı oluşmadı, girişler başarısız oldu. Bunu regresyon kanıtı saymıyorum. Tur bütçesi yüzünden ikinci deneme yapılmadı. P4 gerçek sunucu akışlarının P5 sonrasında geçtiği **kanıtsız**. |
+
+## Kabul kriterleri
+| AC | Durum | Kanıt veya eksik |
+|---|---|---|
+| 35 | ✅ | e2e "AC-35/52: … HTML/XSS denemesi düz metin" (`<img onerror>`/`<script>` DOM'a girmiyor, `__rsXss` tanımsız); unit `p5.test.ts` "sohbet": 2000 karakter sınırı |
+| 36 (rev.) | ✅ (doküman eksiği var) | e2e "AC-36/53/117" (`fatura.pdf.exe` çift uzantı, `kurulum.exe` uyarısı, kabul diyaloğu); `DANGEROUS_EXT`, AC-36 listesini kapsıyor ve genişletiyor. `gereksinimler-kabul-kriterleri-e1-e4.md` AC-36 metni güncellenmedi (bkz. QA-P5-5). |
+| 37 | ⚠️ kanıtsız | Çizim ve lazerin müşteri önizlemesinde görünmesi e2e'de kanıtlı (AC-56/57). Document PiP için test yok: destekleyen tarayıcıda butonun görünmesi ve desteklemeyende gizlenmesi doğrulanmıyor (`guest-collab.tsx` `PipButton`). |
+| 41 | ⚠️ kanıtsız | 1920x1080 kaynakta ≥ 15 FPS ölçen hiçbir test yok. implementation.md'de AC-41'den hiç söz edilmiyor. |
+| 44 | ✅ | e2e "AC-44/46: kalite paneli değerleri görünür" (FPS/kbps/"Doğrudan"); unit "RTCStatsReport values()" |
+| 45 | ✅ | unit "3 sn süren eşik aşımı uyarı, kısa sıçrama değil" (warn/bad); `quality-panel.tsx` nedeni metinle de gösteriyor |
+| 46 | ✅ | int "AC-46: ACTIVE oturuma yazılır…", "PENDING'de yazılmaz", "gerçek WS"; e2e: bitirişte `quality.summary` gidiyor; unit: ort/min/maks + bağlantı tipi |
+| 52 | ✅ | e2e AC-35/52 (iki yön, okunmamış rozeti); unit: okunmamış sayaç |
+| 53 | ⚠️ kısmi | İki yön, tenant sınırı ve ilerleme kanıtlı (e2e "AC-53: tenant sınırı (1 MB)"; int "AC-53: maxFileMb = tenant ayarı"; varsayılan 100, `consent-p4.test.ts`). **Kullanıcının başlattığı iptal (`file-cancel` → `collab.cancel`) hiçbir unit veya e2e testinde yok.** Yalnız karşı tarafın `file.cancel` seli test edilmiş. |
+| 54 | ✅ | unit "bozuk SHA-256 → tampon atılır, meta CORRUPT, indirme adresi yok"; e2e "AC-54: … 'Dosya bozuk', indirme sunulmaz". 256 MB üstü disk yolunda `abort()` için test yok (bkz. Öneriler). |
+| 55 | ✅ | int "AC-55: alıcı raporu session_files + audit (aynı TX); içerik yok", "S-P5-3", "dbcheck 3819", tenant izolasyonu |
+| 56 | ✅ | e2e "AC-56/57" (kalem, dikdörtgen, geri al, temizle); unit: normalize, ≤ 500 nokta, 4 renk token'ı |
+| 57 | ⚠️ kısmi | "Lazer 1 sn içinde söner" unit'te kanıtlı. **Müşteride görünme gecikmesi için p95 < 200 ms ölçümü yok.** |
+| 58 | ✅ | Tarayıcı modunda müşteri tarafı yapısal olarak girdi olayı üretemez. İşaretleme `ctl` DC'den gider, input DC kapalı (`peer.ts`). e2e işaretlemeyi kontrol izni olmadan çalıştırıyor. Go istemci tarafı P6'da. |
+| 117 (web) | ✅ | contracts fixture `file-names.json` (sanitize ve uyarı örnekleri); int "AC-117: kötü ad sunucuda temizlenir"; unit "sınır ALINAN bayt ile". `(1)` eki ve MOTW Go'ya ait (P6). |
+| 119 (web) | ✅ | int "AC-119: caps.file_transfer kapalı → FORBIDDEN"; unit "yetki yoksa teklif otomatik ret"; e2e "AC-119/G-09" |
+
+**§10.3 P5 "bitti" tanımı:** chat XSS düz metin ✅ (e2e). Bozuk SHA'da dosya silinir ✅ (unit + e2e, bellek yolunda). 100 MB sınırı ✅: e2e mekanizmayı 1 MB tenant sınırıyla doğruluyor, int/consent testi varsayılanın 100 olduğunu gösteriyor.
+
+## Düzeltilmeli
+1. **QA-P5-1 [frontend-dev]** `apps/web/e2e/p5-collab.spec.ts`: AC-53 iptal testi yok. Gönderim sürerken `file-cancel`'e basılacak, iki tarafta durum `cancelled` olacak, alıcıda indirme olmayacak, `file.meta` CANCELLED olacak. Testi yaz. Gerekirse küçük `maxFileMb` ile yavaşlatılmış veya parçalı bir gönderim kullan.
+2. **QA-P5-2 [frontend-dev]** `apps/web/e2e/p5-collab.spec.ts`: AC-37 PiP testi yok. `documentPictureInPicture` olan Chromium'da `pip-open` görünür olmalı. `addInitScript` ile global silindiğinde buton hiç render edilmemeli. İkisini de test et.
+3. **QA-P5-3 [frontend-dev]** AC-57 p95 < 200 ms kanıtı yok. e2e'de en az 20 çizgi için şu süre ölçülecek: teknisyen `pointerup` anından müşteri katmanında `data-strokes` artışına kadar (`performance.now()` ile iki sayfa arası; yerelde RTT < 100 ms). p95 < 200 ms assert edilecek.
+4. **QA-P5-4 [frontend-dev]** AC-41 kanıtı yok. 1920x1080 sahte kaynakla bir e2e eklenecek (`canvas.captureStream(30)` → `getDisplayMedia` stub'ı). Teknisyen tarafında `getStats` ile `inbound-rtp` FPS ≥ 15 ve `frameWidth` ≥ 1920 ölçülecek. Gerçek ağ ölçümü P6'ya bırakılacaksa bu kararın gerekçesi mimar onayıyla `implementation.md`'ye yazılacak, AC-41 bu durumda paket dışı işaretlenecek.
+5. **QA-P5-5 [proje-yoneticisi]** `docs/gereksinimler-kabul-kriterleri-e1-e4.md:49` AC-36: uzantı listesi koddaki listeyle aynı değil. Kodda S-P5-7 ile `vbe jse … svg` eklendi. Metin "Liste: `packages/contracts/src/files.ts` `DANGEROUS_EXT` (tek kaynak)" olarak revize edilecek ve "(rev.)" işareti eklenecek.
+6. **QA-P5-6 [devops]** Gerçek sunucu e2e (P4 regresyonu) P5 sonrasında koşturulup kayda geçirilecek. `implementation.md` "Frontend (P4) — Gerçek sunucu entegrasyonu / Kurulum" adım 1'e `SEED_SUPERADMIN_EMAIL` / `SEED_SUPERADMIN_PASSWORD` gereksinimi eklenecek. Ardından `e2e:real` 5/5 sonucu implementation.md'ye yazılacak.
+
+## Definition of Done
+| Madde | Durum | Not |
+|---|---|---|
+| Lint / typecheck temiz | ✅ | |
+| Unit + entegrasyon + mock e2e yeşil, gerekçesiz skip yok | ✅ | |
+| Paketin tüm AC'leri testle kanıtlı | ❌ | AC-37, 41, 53 (iptal), 57 (p95) |
+| §10.3 P5 bitti tanımı | ✅ | |
+| P4 regresyonu (gerçek sunucu) | ❌ | kanıtsız (QA-P5-6) |
+| Tasarım-kod uyumu; sapmalar gerekçeli | ✅ | `maxFileMb`, `idx`, `file.result`, `VALIDATION` ve gönderen raporu mimari-protokol §3/§4'e işlenmiş |
+| Yeni bağımlılık yok veya gerekçeli | ✅ | yok (SHA-256 saf TS) |
+| `pnpm audit` high yok | ✅ | |
+| Gereksinim dokümanı güncel | ❌ | AC-36 metni (QA-P5-5) |
+| Audit (file.transfer, sender_report, rate_limited, rejected_by_db) tek TX | ✅ | int testleri |
+| a11y / iki tema / 375 px | ✅ | e2e axe açık/koyu ve 375 px taşma testi. Görsel ekran görüntüsü kontrolü yapılmadı (test-operatoru). |
+
+## Öneriler (zorunlu değil)
+- 256 MB üstü `showSaveFilePicker` yolunda, SHA uyuşmazlığında `abort()` ile dosyanın diske hiç yazılmadığını kanıtlayan bir unit test (sahte `FileSystemWritableFileStream`) yazılabilir.
+- `QualityAgg` tüm örnekleri dizide tutuyor. Çok uzun oturumda bunun yerine sayaç ve toplam (min/maks/toplam/adet) yeterli.
+- `QualityAgg.summary()` bağlantı tipi hiç gelmediğinde `"host"` varsayıyor. Gerçek değeri yansıtması için null daha doğru olabilir (şema izin veriyorsa).
+
+## Olumlu
+- E2E gerçek hatalar buldu ve bunlar düzeltildi: `RTCStatsReport` iterasyonu, `file.done` sıra yarışı, "Reddet" odağı.
+- Sunucu tarafında kota (taraf × sınıf), DB CHECK reddi ve tenant izolasyonu entegrasyon testleriyle kapsanmış.
+- Ad temizleme için tek kaynak (contracts) ve paylaşılan fixture var; Go eşi için hazır.

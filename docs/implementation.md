@@ -592,7 +592,8 @@ Durum: **tamam** (lint/typecheck/unit/e2e yeşil). Backend P4 sözleşmesine uya
 Amaç: sahte WS (`e2e/mock-ws.mjs`) ile geçen e2e'nin gerçek `apps/server` ile uyuşmazlık saklamadığını doğrulamak.
 
 ### Kurulum (yerel, Caddy'siz)
-1. `eval "$(apps/server/scripts/test-db.sh up)"` (migrate + grants) → `DATABASE_URL=$TEST_DATABASE_URL pnpm --filter @remote/server db:seed` (Super Admin + demo tenant + KVKK v1).
+0. **Tek komut (önerilen, QA-P5-6):** `scripts/e2e-real.sh` — aşağıdaki adımların hepsi + temizlik (runbook §10).
+1. `eval "$(apps/server/scripts/test-db.sh up)"` (migrate + grants) → `DATABASE_URL=$TEST_DATABASE_URL SEED_SUPERADMIN_EMAIL=<e-posta> SEED_SUPERADMIN_PASSWORD=<≥12 karakter> pnpm --filter @remote/server db:seed` (Super Admin + demo tenant + KVKK v1; iki SEED_* değişkeni zorunlu).
 2. Demo tenant'ta iki ADMIN teknisyen (`must_change_password=0`, hash `src/auth/password.ts`) — `deploy/staging-users.sh` mantığı, yerelde küçük bir Prisma betiğiyle.
 3. Server: `PUBLIC_BASE_URL=http://localhost:3218 PORT=3302 DATABASE_URL=… node src/server.ts` (TURN yok → `iceServers` boş, yerel P2P).
 4. `cd apps/web && E2E_REAL=1 E2E_REAL_LOGIN=<admin1> E2E_REAL_LOGIN2=<admin2> E2E_REAL_PASSWORD=<parola> pnpm exec playwright test -c playwright.real.config.ts`
@@ -658,3 +659,340 @@ Amaç: sahte WS (`e2e/mock-ws.mjs`) ile geçen e2e'nin gerçek `apps/server` ile
 - **test-denied.sh:** bekleme/yeniden deneme döngüsü artık 508'e ek olarak 486 (user-quota) ve yalnız "Cannot complete Allocation" çıktısını da yeniden dener. Beklenen ret testleri (`wrong`, `expired`, `v6relay`) ve 401/403/437/438/44x içeren çıktılar yeniden denenmez (negatif testler 700 sn beklemesin).
 - **coturn listening-ip:** yeni `TURN_LISTEN_IPS` (`deploy/turn/docker-compose.yml`, `.env.example`, runbook §9.1). `auto` → `listening-ip=<TURN_EXTERNAL_IP özel IPv4>` + `listening-ip=127.0.0.1`; virgüllü IPv4 listesi de kabul (IPv4 doğrulaması, çok satır reddi; 127.0.0.1 healthcheck için her zaman eklenir). Boşsa eski davranış (tüm arayüzler) + entrypoint UYARI. Staging `deploy/turn/.env`'e `TURN_LISTEN_IPS=auto` eklenmeli (sunucuya bu turda dokunulmadı).
 - **Doğrulama:** `deploy/turn/test-local.sh` `TURN_LISTEN_IPS=auto` ile koşar; yeni kontrol: 3478 yalnız `127.0.0.1` + `172.31.250.2`'de dinleniyor; healthcheck (`turnutils_stunclient 127.0.0.1`) healthy. Sonuç (2026-11-11, Docker Desktop): **62 PASS, 0 FAIL**, çıkış 0.
+
+## DevOps (P5) — 2026-11-11
+- **S-P4-T2-2 kalan (kapandı):** `apps/server/Dockerfile` `prod-deps` aşamasına `RUN rm -rf apps/server/scripts` eklendi. `runtime` yalnız bu aşamadan kopyaladığı için `e2e-real-users.ts` / `test-db.sh` prod imajına (katmanlar dahil) girmez. `migrate` hedefi (`tooling` tabanlı; compose'da `migrate` ve `seed` servisleri `remote-migrate:${IMAGE_TAG}` imajını kullanır) değişmedi; seed `tsx prisma/seed.ts` çalıştırır, `scripts/`'e bağımlı değil.
+- **Doğrulama (yerel, Docker Desktop):** `docker build -f apps/server/Dockerfile --target runtime` ve `--target migrate` başarılı. Runtime: `ls /app/apps/server/scripts` → yok; kullanıcı `node`; `node src/server.ts` env doğrulamasına kadar açılıyor (modül eksiği yok). Migrate: `prisma/seed.ts`, `prisma/sql/grants.sql`, `node_modules/.bin/{tsx,prisma}` mevcut (`tsx v4.23.15`).
+- **Not (kapsam dışı, öneri):** runtime imajında `apps/server/test/`, `vitest.config.ts`, `eslint.config.mjs` de bulunuyor (çalıştırılabilir giriş noktası değil, gizli bilgi yok). İleride hedefli COPY (`src`, `prisma`, `package.json`, `prisma.config.ts`) ile daraltılabilir.
+- **Runbook:** §8 "Yayın geçmişi" tablosu (P3+P4 yayını 2026-11-11, `0f1b89a`, migration `20261111030000_p4_consents`, coturn `TURN_LISTEN_IPS=auto`, dış TURN pfSense NAT bekliyor); §8.1 TURN değişkenleri artık server tarafından okunuyor, `deploy/turn` ilk `git pull` prosedürü "uygulandı (tarihçe)" olarak işaretlendi.
+
+### QA-P5-6 — Gerçek sunucu e2e tek komut (`scripts/e2e-real.sh`) — 2026-11-11
+- **Betik:** `scripts/e2e-real.sh` (bash, `set -euo pipefail`, trap temizliği). Adımlar: çalışma ağacının APFS klonu
+  (`$TMPDIR/rs-e2e-real.*/repo`, `.git`/`.next` hariç) → `test-db.sh up` (`rs-mysql-e2e-real`, 127.0.0.1:33317;
+  `rs-mysql-test`/33307 ile çakışmaz) → `db:seed` (`SEED_SUPERADMIN_EMAIL`/`SEED_SUPERADMIN_PASSWORD` rastgele) →
+  `e2e:real:users` (iki ADMIN, rastgele) → server :3302 (`/ready` beklenir) → `e2e:real --trace off` (Playwright
+  webServer `next build`, `API_INTERNAL_URL=E2E_REAL_API`) → server/web/konteyner/kopya temizliği. Ön kontroller:
+  araçlar, Docker, portlar 33317/3302/3218, konteyner adı, macOS kilitli ekran uyarısı. Çıkış 0/1/2/3 (geçti / test /
+  ön koşul / kurulum). `E2E_REAL_REF=<ref>` commit'lenmiş sürümü koşturur (kurulum-ürün ayrımı). Runbook §10, README.
+- **Bu turda bulunan kurulum sorunları (betikte çözüldü):** (1) `NODE_ENV=development` dışa aktarılınca `next build`
+  `/_global-error` prerender'ında `useContext` null hatasıyla çöküyor → NODE_ENV yalnız server'a verilir. (2) Paralel
+  ajanın `next build`'i ortak `apps/web/.next`'i koşu ortasında ezdi → `ChunkLoadError`, 5/5 kırmızı → kod anlık
+  görüntüsü ile yalıtıldı. (3) Playwright trace `fill` değerini (parola) kaydeder → varsayılan kapalı.
+- **Sonuç (P5 çalışma ağacı, yalıtılmış koşu, 3 kez tekrar — son koşu dahil hepsi aynı): 2/5.** Geçen: AC-113 ret, AC-114 zorla sonlandırma.
+  Kırmızı: AC-28..33/59/112 (2. paylaşımda video), AC-59 ve AC-24 (ilk paylaşımda video) — `console-video`
+  `videoWidth>0` poll'u 20 sn'de dolmuyor; sinyalizasyon sağlam (konsol "Aktif", `data-share=sharing`), server logu
+  temiz (error/fatal 0).
+- **Ayrım: ORTAM, ürün değil.** Aynı betik `E2E_REAL_REF=0f1b89a` (P4 commit'i; P4'te 5/5 kayıtlı) ile de **aynı 3
+  testte aynı satırlarda** kırmızı. Koşu sırasında macOS ekranı kilitliydi (`CGSSessionScreenIsLocked=true`, ekran
+  03:34'ten beri kapalı); `getDisplayMedia` `--auto-select-desktop-capture-source=Entire screen` ile **gerçek ekranı**
+  yakalar, kilitli ekranda kare üretmez (ilk karenin ardından akış durur). `caffeinate -u` ile denendi, kilit
+  kalkmadığı için sonuç değişmedi. **QA-P5-6 5/5 kanıtı için:** ekran açık/kilitsizken `scripts/e2e-real.sh` tekrar koşturulup
+  sonuç buraya yazılmalı (devops; sunucu/kod değişikliği gerekmiyor).
+- **frontend-dev notu (öneri, kalıcı çözüm):** `p4-real.spec.ts`/`playwright.real.config.ts`'te `getDisplayMedia`,
+  mock e2e'deki gibi `addInitScript` ile canvas `captureStream()` (sürekli çizim) döndürecek şekilde stub'lanırsa
+  gerçek sunucu e2e'si fiziksel ekran/kilit durumuna bağımlı olmaz ve CI'da da koşabilir (medya hattı gerçek
+  RTCPeerConnection ile yine sınanır).
+- **Kalıcı çözüm uygulandı (frontend-dev, 2026-11-11):** `apps/web/e2e/p4-real.spec.ts` `openGuest()` müşteri
+  bağlamına `addInitScript(fakeDisplayMedia)` ekler: `getDisplayMedia` → 1280x720 canvas, her karede değişen çizim,
+  `captureStream(30)` (track `ended` olunca çizim zamanlayıcısı durur). Medya hattı (RTCPeerConnection, sinyal, gerçek
+  server/DB) gerçek kalır; yalnız kaynak sentetik. `apps/web/playwright.real.config.ts`: gerçek ekran yakalama bayrakları
+  (`--auto-select-desktop-capture-source`, `--auto-accept-this-tab-capture`) kaldırıldı;
+  `--disable-features=WebRtcHideLocalIpsWithMdns` eklendi (mock config ile aynı mDNS gerekçesi).
+- **QA Tur 3 açık maddesi kapandı — test DB hazır olma (devops, 2026-11-11):**
+  - **Kök neden:** MySQL konteyneri `[Entrypoint]: Switching to dedicated user 'mysql'` satırında asılı kalıyordu.
+    PID 1 `gosu` (1.19, go1.24.6) setuid adımında %100 CPU'da dönüyor, `mysqld`'ye hiç geçmiyordu. `gosu mysql id` ve
+    `gosu root id` tek başına da asılıyor, eski `mysql:8` imajında da aynı; `gosu --version` çalışıyor, ulimit/seccomp/
+    `--cpus` etkisiz. Sorun imajda değil, uzun yük sonrası Docker Desktop (29.8, arm64) VM'sinde. Eski 90 sn döngü hata
+    vermeden geçtiği için hata yalnız `P1017` olarak görünüyordu.
+  - **`apps/server/scripts/test-db.sh`:** (1) `--user mysql`: entrypoint root değilken gosu'yu atlar, init 4-6 sn.
+    (2) Hazır olma koşulu: logda gerçek sunucunun satırı (`mysqld: ready for connections ... port: 3306`) **ve** konteyner
+    içinden TCP ile `app` ve `migrator` kullanıcılarıyla `SELECT 1`. Yalnız satır saymak yetmez, çünkü geçici init
+    sunucusunda X Plugin de "ready for connections" yazar (port 0). (3) Süre `TEST_DB_READY_TIMEOUT` (varsayılan 180 sn).
+    (4) Zaman aşımında veya konteyner durursa `docker logs --tail 30` ile açık hata verir, çıkış 3 (inceleme için
+    konteyner bırakılır, `down` ile silinir).
+  - **`scripts/e2e-real.sh`:** test-db hatası `fail_setup` → rc=3 (denendi: asılı konteynerle 180 sn sonra rc=3, açık
+    log). Artık geçersiz "macOS ekranı kilitli" kontrolü, uyarısı ve ilgili yorumlar kaldırıldı (kaynak sentetik).
+    Başlığa `TEST_DB_READY_TIMEOUT` eklendi. Runbook §10: değişken tablosu + "test DB / migrate" belirti satırı (ekran
+    kilidi satırının yerine).
+  - **Sonuç (yük ~3-5):** `bash scripts/e2e-real.sh` **5/5 geçti, rc=0** (iki ardışık koşu; DB 5 sn'de hazır, server
+    logunda error/fatal 0). `eval "$(apps/server/scripts/test-db.sh up)" && pnpm --filter @remote/server test:int` →
+    **20 dosya, 128/128**; `down` ile silindi. Koşu sonunda açık konteyner/port (33307/33317/3302/3218) yok.
+  - **Not:** `E2E_REAL_REF=<eski ref>` koşuları o ref'teki eski `test-db.sh`'i kullanır (gosu düzeltmesi yok).
+    `deploy/docker-compose.yml` mysql servisi değişmedi; Linux sunucuda bu asılma görülmedi.
+  **Sonuç: `bash scripts/e2e-real.sh` → 5/5 geçti (15 sn), server logu error/fatal 0, ekran kilitli ortamda.**
+  Temizlik sonrası konteyner/port/süreç kalmadı. Not (devops): `scripts/e2e-real.sh`'teki "ekran kilitli" uyarısı ve
+  baş yorumu artık geçersiz (zararsız; betik frontend kapsamı dışında olduğu için değiştirilmedi).
+- **Değişen dosyalar:** `scripts/e2e-real.sh` (yeni), `apps/web/playwright.real.config.ts` (yalnız baş yorumu),
+  `README.md` (gerçek e2e alt bölümü), `docs/runbook.md` (§9.8 dosya meta kota alarmı, §10 yeni),
+  `docs/implementation.md`.
+- **Runbook §9.8 alarm (S-P5-T2-3 metriği):** `rate(rs_file_meta_rate_limited_total{class="sender"}[5m]) > 0` uyarı
+  (olası audit şişirme / değiştirilmiş istemci); `accepted` için `increase(...[1h]) > 0` bilgi; `declined` yalnız pano.
+
+## Backend (P5) — 2026-11-11
+- **Sözleşme hazır (frontend-dev için):** `@remote/contracts/files` (`sanitizeFileName`, `isSanitizedFileName`, `DANGEROUS_EXT`, `isDangerousExtension`, `isDoubleExtension`, `fileNameWarning`), `@remote/contracts/dc` (`ctlMessageSchema`/`parseCtlMessage`, `ctlAllowed`, `FILE_CTL_TYPES`, `encodeFileChunk`/`decodeFileChunk`, `FileReceiveGuard`, `maxFileBytes`, sabitler), `@remote/contracts/ws` (`fileMetaSchema`, `qualitySummarySchema`, `hello.maxFileMb`, `peer.joined.maxFileMb`). Fixture: `packages/contracts/fixtures/file-names.json`.
+- **Değişen dosyalar:** `packages/contracts/src/{files.ts (yeni), dc.ts, ws.ts}`, `packages/contracts/package.json` (`./files` export), `packages/contracts/fixtures/{file-names.json (yeni), ws-messages.json}`, `packages/contracts/test/dc-files.test.ts` (yeni); `apps/server/src/signaling/{collab.ts (yeni), handlers.ts, active.ts, admit.ts, types.ts, rooms.ts, ws.ts}`, `apps/server/src/sessions/repo.ts` (`maxActiveHours` → `activeLimits`), `apps/server/src/ops/metrics.ts` (`rs_file_meta_total`); testler `apps/server/test/unit/file-names.test.ts` (yeni), `test/integration/signaling-collab-p5.test.ts` (yeni), `signaling-lifecycle.test.ts` (S-P4-T3-2), `consent-p4.test.ts` (peer.joined `maxFileMb`).
+- **Sunucu davranışı:**
+  - `file.meta` (tech + ADMITTED guest): `caps` içinde `file_transfer` yoksa `error{FORBIDDEN}`, kayıt yok (AC-119). **Tek kaynak alıcı tarafın raporu** (TO_CUSTOMER → misafir, TO_TECH → teknisyen); gönderenin raporu sessizce yok sayılır (metrik `ignored`). `result=OK` ve `sizeBytes > max_file_mb` → `FORBIDDEN`. Oturum başı hız sınırı: dakikada 20, oturum boyunca 500 → `error{RATE_LIMITED}`. Ad sunucuda `sanitizeFileName` ile yeniden temizlenir; `session_files` insert + audit `file.transfer` (entity `session_files`, result OK → success, diğerleri fail) **tek TX**. DB hatası loglanır (ref ID), istemciye ayrıntı gitmez. PENDING oturumda teknisyenden `file.meta` → `error{CONFLICT}`; lobi misafirinden → 1008 (mevcut kural).
+  - `quality.summary` (yalnız teknisyen): `updateMany({ id, tenantId, consumedAt: not null })` ile üzerine yazar; 5 sn'den sık gelen özet DB'ye gitmez (son özetin kaybolmaması için aralık kısa tutuldu); JSON > 4096 bayt yazılmaz.
+  - `hello.caps` `file_transfer`: P3'ten beri teknisyenin `file_transfer.use` etkin yetkisinden (tenant + kullanıcı) üretiliyor; değişiklik gerekmedi.
+  - S-P4-T3-2 (backend): `reconnect.conflict` audit'i oda başına 60 sn'de en çok 1 kayıt (`RECONNECT_CONFLICT_AUDIT_MS`); bağlantı yine 403.
+- **Sözleşme değişiklikleri / tasarımdan sapmalar (frontend-dev bilmeli):**
+  1. `hello.maxFileMb?` (iki rol, ACTIVE iken) ve `peer.joined.maxFileMb?` (teknisyene) eklendi — mimari-protokol `maxFileBytes` sınırının istemciye nasıl ulaşacağını tanımlamıyordu. Bayt için `maxFileBytes(mb)`.
+  2. `file.offer` alanına `idx: uint16` eklendi — §4.2 `file` çerçevesindeki `fidIndex`'in teklife bağlanması için gerekli (protokolde eşleme tanımsızdı). Alıcı `decodeFileChunk(...).fidIndex === offer.idx` kontrol eder.
+  3. `file.result{fid, ok}` ctl mesajı şemaya eklendi (protokol §4.1 `file.done` satırında geçiyor, tabloda ayrı satır yoktu).
+  4. `file.meta`'yı yalnız alıcı gönderir; gönderenin göndermesi zararsızdır ama kaydedilmez.
+  5. Çift uzantı: son uzantı tehlikeli ve önceki parça 1–5 karakter, en az bir harf içeriyorsa (`v1.2.3.msi` çift değil). `fileNameWarning()` → `none | dangerous | double_extension`.
+  Mimar: 1–3 numaralı maddeler mimari-protokol §3/§4.1'e işlenmeli.
+- **Yeni bağımlılık:** yok.
+- **Test (2026-11-11, `scripts/test-db.sh up` → mysql 8.4, sonra `down`):** contracts `test` 32/32, server `test` (unit) 132/132, server `test:int` **122/122** (19 dosya; P5: 10 yeni test), lint + typecheck (server, contracts) temiz. `apps/web` typecheck'teki `p5.chat.*` i18n hataları frontend'in devam eden işine ait (bu pakete dokunulmadı).
+
+### Güvenlik düzeltmesi (S-P5-1, S-P5-3, S-P5-7, S-P5-8) — 2026-11-11
+- **S-P5-1 (Yüksek):** `collab.ts` `file.meta` kotası **raporlayan taraf × sonuç sınıfı** başına ayrı sayaç (`room.fileMeta.quotas`, anahtar `tech|guest:accepted|declined`). `declined` (REJECTED/CANCELLED) dakikada 20 / oturum 500 (eski değerler); `accepted` (OK/CORRUPT) dakikada 60 / oturum 2000 (`FILE_META_ACCEPTED_PER_*`). Taraf ayrımı tasarım kararı: aynı sınıf ortak sayılsaydı teknisyen kendi sahte gönderen raporlarıyla (S-P5-3 sonrası artık sayılıyor) müşterinin OK kotasını doldurabilirdi. Kota aşımı: `error{RATE_LIMITED}` + audit `file.meta.rate_limited` (entity `support_sessions`, `newValue {sessionId, side, class}`), oda + sınıf başına dakikada en çok 1 satır (`room.fileMeta.auditAt`). Sıra değişti: tenant sınırı (`too_large`) kontrolü kotadan önce kaldı; kota kontrolü artık alıcı/gönderen ayrımından önce.
+- **S-P5-3 (karar: risk azaltma, şema değişikliği yok):** gönderenin raporu artık yok sayılmıyor; `session_files`'a yazılmaz, audit `file.transfer.sender_report` (entity `support_sessions`, entityId oturum, `newValue {sessionId, direction, fileName (temizlenmiş), sizeBytes, sha256, result}`, OK → success) yazılır; aynı kota sınıflarına tabi. Dönüş `"sender_reported"` (eski `"ignored"` kaldırıldı; metrik etiketi `sender_reported`). mimari-protokol §3 güncellendi.
+- **S-P5-7 (contracts):** `DANGEROUS_EXT`'e eklendi: `vbe jse ws wsh msp mst inf ps1xml psc1 psd1 settingcontent-ms library-ms searchconnector-ms appref-ms gadget xbap xlam xla pptm dotm html htm mht mhtml svg` (`hta wsf scf lnk url cpl msc reg application` zaten vardı). `RESERVED`: `CONIN$`, `CONOUT$`, `COM¹-³`, `LPT¹-³` (U+00B9/B2/B3). Fixture `file-names.json`: 6 sanitize + 22 uyarı örneği. DB CHECK ayrılmış ad kuralını içermediği için migration gerekmez. **Not:** `docs/gereksinimler.md` AC-36 listesi bilerek güncellenmedi (görev talimatı); güncel liste tek kaynak olarak `packages/contracts/src/files.ts`'tedir — proje-yöneticisi AC-36 metnini "liste koddaki `DANGEROUS_EXT`" olarak revize etmeli. Go eşi (P6 `internal/files`) aynı fixture'ı geçmeli.
+- **S-P5-8:** `sessionFile` insert MySQL 3819 (CHECK ihlali; Prisma 7 + mariadb: `meta.driverAdapterError.cause.code === 3819`, `isCheckViolation`) → TX geri alınır, ardından ayrı audit `file.meta.rejected_by_db` (`fileName` yerine yer tutucu `FILE_NAME_DB_REJECTED`, sha256/boyut/yön/sonuç korunur) + istemciye `error{VALIDATION}`; metrik `rejected_by_db`. Rapordaki "FALLBACK adla yeniden yaz" yerine görev kararı uygulandı (session_files'a yer tutucu adlı satır yazılmaz).
+- **Sözleşme değişikliği (frontend-dev bilmeli):** `WS_ERROR_CODES`'a `"VALIDATION"` eklendi (`file.meta` DB reddinde gelir; kullanıcıya "dosya kaydı yapılamadı" türü uyarı yeterli). `file.meta` gönderenin de göndermesi artık **kayıt** üretir (audit); alıcı tarafın otomatik ret meta'larını tekilleştirmesi (S-P5-1 frontend kısmı) hâlâ gerekli.
+- **Değişen dosyalar:** `apps/server/src/signaling/{collab.ts, types.ts, rooms.ts}`, `packages/contracts/src/{files.ts, ws.ts}`, `packages/contracts/fixtures/file-names.json`, `apps/server/test/integration/signaling-collab-p5.test.ts` (3 yeni test + güncelleme), `apps/server/test/integration/signaling-collab-p5-dbcheck.test.ts` (yeni; `vi.mock` ile sürüm farkı benzetimi), `docs/mimari-protokol.md` (§3 `file.meta`, §4.2 madde 1/4).
+- **Yeni bağımlılık:** yok.
+- **Test:** `pnpm -r run lint` · `pnpm -r run typecheck` temiz; `pnpm -r run test` → contracts 32, server unit 160, web 65 geçti; `test-db.sh up` (ayrı konteyner adı/port) + `pnpm --filter @remote/server test:int` → **20 dosya, 126 test geçti** (iki kez), konteyner silindi.
+
+### Güvenlik turu 2 düşükleri (S-P5-T2-2, S-P5-T2-3) — 2026-11-11
+- **S-P5-T2-2:** `file.meta.rate_limited` audit seyreltmesi artık `${side}:${cls}` anahtarıyla (`room.fileMeta.auditAt: Map<string, number>`); teknisyenin aşımı müşterinin aynı dakikadaki aşım kaydını bastırmaz.
+- **S-P5-T2-3:** gönderen raporu (`file.transfer.sender_report`) sonuçtan bağımsız ayrı `sender` kota sınıfında: taraf başına dakikada 10 / oturum 200 (`FILE_META_SENDER_PER_*`); aşımda `error{RATE_LIMITED}` + seyreltilmiş `file.meta.rate_limited` audit (`class: "sender"`). Alıcı kotaları (20/500, 60/2000) değişmedi. Yeni metrik `rs_file_meta_rate_limited_total{class=accepted|declined|sender}` (runbook alarmı devops'a: `rate(rs_file_meta_rate_limited_total{class="sender"}[5m]) > 0` uyarı adayı). Sınıf, alıcı/gönderen ayrımı kotadan önce yapılarak belirleniyor.
+- **Değişen dosyalar:** `apps/server/src/signaling/{collab.ts, types.ts, rooms.ts}`, `apps/server/src/ops/metrics.ts`, `apps/server/test/integration/signaling-collab-p5.test.ts` (2 yeni test; S-P5-1 gönderen seli testi yeni kotaya uyarlandı), `docs/mimari-protokol.md` §3 `file.meta`.
+- **Sözleşme:** WS mesajları değişmedi. frontend-dev: meşru akışta gönderen transfer başına 1 rapor gönderdiği sürece etkilenmez.
+- **Yeni bağımlılık:** yok.
+- **Test:** server lint + typecheck temiz; unit 160/160; `test-db.sh up` (konteyner `rs-mysql-test-p5t2`, port 33327) + `test:int` → **20 dosya, 128 test geçti**; konteyner silindi.
+
+## Frontend (P5) — konsol işbirliği (frontend-dev, 2026-11-11)
+
+### Rotalar
+Yeni rota yok; mevcut iki rotaya P5 eklendi.
+| Yol | Auth | P5 ile gelen |
+|---|---|---|
+| `/sessions/[id]/console` | Evet (oturum teknisyeni) | Yan panel: Sohbet / Dosyalar / Kalite (`collab-side`); sahnede işaretleme araç çubuğu (kalem, ok, dikdörtgen, lazer, 4 renk, geri al, temizle — yalnız "Sığdır" görünümü) |
+| `/session/[token]` | Hayır (link + lobi) | "Teknisyenle iletişim" bölümü (Sohbet; `caps.file_transfer` varsa Dosyalar), önizleme üstünde işaretleme/lazer katmanı, "Yüzen pencere" (Document PiP, yalnız destekleyen tarayıcı) |
+
+### Dosyalar
+- Yeni: `apps/web/lib/dc/{ctl.ts, chat.ts, files.ts, annot.ts, use-collab.ts, p5.test.ts}`, `lib/webrtc/{stats.ts, use-quality.ts}`,
+  `components/collab/{chat-panel, files-panel, annot-layer}.tsx`, `components/console/{collab-side, quality-panel}.tsx`, `components/guest/guest-collab.tsx`.
+- Değişen: `lib/webrtc/{peer.ts (ctl+file DC, input DC kapatılır), signal.ts, use-tech-session.ts, use-guest-session.ts}`, `components/console/stage.tsx`,
+  `app/(panel)/sessions/[id]/console/{page,console-view}.tsx`, `app/session/[token]/guest-session.tsx`, `lib/guest-resume.ts`, `lib/format.ts` (`formatBytes`, `formatNumber`), `app/globals.css`, `messages/tr.json` (`p5.*`).
+- Sözleşme: contracts `dc.ts` (parseCtlMessage, encode/decodeFileChunk, FileReceiveGuard, maxFileBytes), `files.ts` (sanitizeFileName, fileNameWarning), `ws.ts` (file.meta, quality.summary, `maxFileMb`) doğrudan kullanılır; yerel kopya yok.
+
+### Davranış notları
+- Chat: React metin düğümü (HTML yorumlanmaz), 2000 karakter, zaman damgası, okunmamış sayaç (sekme rozetinde).
+- Dosya: teklif `idx` ile çerçeve eşlemesi; aynı fid ile ikinci teklif ret; FileReceiveGuard (alınan bayt + seq sırası; aşım → iptal + CANCELLED, sıra dışı → bozuk); SHA-256 uyuşmazlığında tampon atılır, indirme sunulmaz, `file.result{ok:false}` + meta CORRUPT; ret sonrası 30 sn otomatik ret; tek bekleyen teklif; kabul diyaloğu alertdialog, varsayılan odak "Reddet", butonlar 1,5 sn sonra etkin; tehlikeli/çift uzantı uyarısı. `file.meta` yalnız alıcı gönderir. Yetki: konsolda `file_transfer.use`, müşteride `hello.caps` — yoksa gönderim pasif/sekme gizli, gelen teklif otomatik ret, diğer file.* düşer.
+- Kalite: 1 sn getStats (FPS, kbps, RTT, kayıp, çözünürlük, bağlantı tipi); 3 sn süren RTT>300 / kayıp>%5 / FPS<5 → "zayıf" (sarı), RTT>600 / kayıp>%10 / FPS<2 → "kötü" (kırmızı), metinle neden. `quality.summary` 60 sn'de bir; "Oturumu bitir"de son özet `session.end`'den önce.
+- P4 düşükleri: S-P4-T3-1 — `rs.resume.*` kaydına `savedAt`, 120 sn'den eskisi okunmaz; canlı oturumda damga 30 sn'de bir ve `pagehide`'da tazelenir (uzun oturumda F5 bozulmasın). S-P4-T3-2 — `RESUME_MAX_ATTEMPTS` 35 × 3 sn = 105 sn.
+
+### Sapmalar / eklenenler
+- DESIGN token'ları eklendi: `annot-red/yellow/green/blue` (`--rs-annot-*`, iki temada aynı; protokol 4 renk istiyor, DESIGN'da tek `annotate` vardı → lazer rengi olarak kaldı). İkon: Geri al → `Undo2`, Yüzen pencere → `PictureInPicture2`. DESIGN.md §2/§4/§6/§6.1'e işlendi (tamamlama turu).
+- `showSaveFilePicker` akışla diske yazma yok: alıcı tarayıcıda bellek + Blob (≤ tenant sınırı). Büyük sınırlı tenant'larda bellek baskısı — P6/P12'de ele alınmalı.
+- E2E bozuk-SHA kancası: `NEXT_PUBLIC_RS_E2E=1` derlemesinde `globalThis.__rsCorruptSha` giden özeti bozar (üretim derlemesinde ölü kod). playwright.config env'ine henüz eklenmedi.
+- `caps.update` (sunucu→misafir) web'de işlenmiyor: contracts serverOutbound'da yok; eklenince `use-guest-session` hello ile aynı şekilde `setCaps` yapmalı.
+
+### Doğrulama
+- `pnpm --filter @remote/web lint` / `typecheck` / `test` yeşil (p5.test.ts: idx eşleme, aynı fid, alınan bayt sınırı, sıra dışı parça, bozuk SHA, caps/cooldown otomatik ret, sohbet XSS düz metin, normalize/simplify/undo/laser, kalite eşik/özet, resume yaşı).
+- ~~Yapılmadı: mock e2e, iki tema/375 px~~ → aşağıdaki tamamlama turunda yapıldı.
+
+### Tamamlama turu (frontend-dev, 2026-11-11)
+**E2E** `apps/web/e2e/p5-collab.spec.ts` (yalnız `desktop` projesi; mobil müşteri lobiye giremez, AC-33): sohbet iki yön + XSS (`<img onerror>`/`<script>` düz metin, DOM'da img/script yok, `__rsXss` tanımsız) + okunmamış rozeti; dosya teknisyen→müşteri (kabul diyaloğu odak "Reddet", "Kabul et" 1,5 sn kilit, alıcıda `receiving` + `<progress>` gözlendi, indirilen içerik bayt bayt aynı, file.meta OK) ve müşteri→teknisyen (çift/tek uzantı uyarısı, ret → meta REJECTED; kabul → indirme); 1 MB tenant sınırı üstü (1 MiB + 1 bayt) → "Dosya 1 MB sınırını aşıyor.", teklif çıkmaz, meta yok; bozuk SHA (`__rsCorruptSha`) → alıcıda "Dosya bozuk", indirme yok, meta CORRUPT; kalite paneli (FPS/kbps/"Doğrudan") + bitirişte `quality.summary`; kalem/dikdörtgen/geri al/temizle ve lazer müşteri katmanında (`data-strokes`, `data-laser`); `file_transfer` yetkisiz → müşteride Dosyalar sekmesi yok, konsolda uyarı; axe açık/koyu (sohbet, dosyalar, kalite, kabul diyaloğu) + müşteri 375 px taşma yok.
+**Mock:** `mock-ws.mjs` `wsLog` (file.meta, quality.summary; kimden) → `GET /__e2e/ws-log/:id` (`mock-api.mjs`); hello/peer.joined'a `caps` + `maxFileMb`. `mock-sessions.mjs`: `u-p5-*` `file_transfer.use` + caps `[file_transfer]`, `u-p5nf-*` yetkisiz; ikisinde `maxFileMb=1` (100 MB dosya üretilmez). `playwright.config.ts` webServer env `NEXT_PUBLIC_RS_E2E=1`.
+**E2E'nin bulduğu hatalar (düzeltildi):**
+- `lib/webrtc/stats.ts`: `RTCStatsReport` `Map` örneği değil → `[...report]` [anahtar, değer] çifti veriyordu; kalite paneli gerçek tarayıcıda **hiç ölçüm göstermiyordu**, `quality.summary` hiç gitmiyordu. `values()` ile okunur; birim testi eklendi.
+- `lib/dc/files.ts`: `file.done` (ctl DC) son parçalardan (file DC) önce gelebiliyor → ~1 MB dosyalar alıcıda **"bozuk"** işaretleniyordu. Eksik baytta en çok 10 sn beklenir, tamamlanınca doğrulanır; birim testi eklendi.
+- Kabul diyaloğu: "Reddet" de `disabled` başlıyordu → `data-autofocus` odak alamıyordu (AC-116 varsayılan odak "Reddet" ihlali). Reddet hep etkin; yalnız "Kabul et" 1,5 sn kilitli.
+- Teklif, alıcı Sohbet sekmesindeyken gelirse diyalog hiç görünmüyordu (FilesPanel monte değil). Yeni teklifte Dosyalar sekmesine geçilir (konsol `collab-side`, müşteri `guest-collab`; yetkisizde geçiş yok).
+- Sohbet: `<ol role="log">` axe `listitem` ihlali → `role=log` kapsayıcı `div`, içinde `<ol>`.
+- Sınır metinleri "100 MB" sabitti; tenant `maxFileMb` ile (`collab.maxMb`, `p5.files.limit/err.tooLarge/auto.tooLarge` `{mb}`).
+- `annot-layer`: `data-laser` test özniteliği.
+**DESIGN.md:** `annot-*` token'ları (§2; `annotate` artık lazer), §4 P5 ikonları (`Undo2`, `PictureInPicture2`, …), §6 chat paneli, dosyalar paneli, kabul diyaloğu davranışı, kalite paneli eşik renkleri, işaretleme araç çubuğu/katmanı, müşteri iletişim + PiP; §6.1 `ui/tabs` yerine `Segmented` kullanıldığı not edildi.
+**Doğrulama:** web lint / typecheck yeşil, unit 65/65, `pnpm --filter @remote/web e2e` 128 geçti / 20 atlandı (p5 `--repeat-each=3` 30/30). Atlanan: mobil projede masaüstü akışları (mevcut desen). Görsel (ekran görüntüsü) kontrol yapılmadı; iki tema axe + 375 px taşma testle kapsandı. Skill dosyaları okunmadı (görünüm değişmedi; yalnız test/davranış + doküman).
+
+### Güvenlik düzeltmesi (S-P5-1, S-P5-2, S-P5-3 istemci, S-P5-4, S-P5-5, S-P5-6) — frontend-dev, 2026-11-11
+Rota değişikliği yok.
+- **S-P5-1/2 (`lib/dc/files.ts`):** gelen `file.offer` alıcıda 10 sn'de en çok 3 (`OFFER_LIMIT`); aşan teklif hiç işlenmez (ctl reddi yok, listeye girmez, `file.meta` yok; `dropped` sayacı). Karşı tarafın tetiklediği raporlar (otomatik ret: caps/tooLarge/cooldown/busy + onay beklerken gelen `file.cancel`) ad+boyut+özet+sonuç anahtarıyla dakikada bir kez tekilleştirilir ve toplam dakikada en çok 5 (`PEER_META_LIMIT`). Kullanıcı kararıyla oluşan raporlar (elle ret, kabul sonrası iptal, OK/CORRUPT) sınırsız. `inc`/`out` Map'leri en çok 100 kayıt (`KEEP`; önce en eski bitmiş kayıt düşer, object URL bırakılır), listede otomatik ret satırı en çok 20 (`AUTO_KEEP`). Sapma: 100 kaydı aşınca en eski tamamlanmış gelen dosyanın indirme bağlantısı da kalkar.
+- **Gönderen raporu (mimari-protokol §3 `file.meta`):** gönderen transfer başına bir kez `file.meta` gönderir, yön = giden (müşteri `TO_TECH`, konsol `TO_CUSTOMER`). Sonuç: `file.result` → OK/CORRUPT, karşı taraf reddi → REJECTED, iki taraftan iptal → CANCELLED (yalnız teklif gittiyse). Şema değişikliği yok.
+- **S-P5-4:** `lib/dc/sha256.ts` — artımlı saf-TS SHA-256 (bağımlılık yok; WebCrypto `digest` artımlı değil). Alıcı özeti parçalar gelirken hesaplar (ikinci tam kopya ve `blob.arrayBuffer()` yok); gönderen dosyayı 4 MB dilimlerle özetler. Bellek yolu: parçalar 8 MB'lık Blob gruplarına toplanır (tek kopya). Teklif 256 MB'ı aşarsa ve `showSaveFilePicker` varsa kabulde kayıt yeri sorulur, içerik doğrudan diske akar; Chromium yazmayı `close()`'a kadar geçici dosyada tuttuğu için özet uyuşmazsa `abort()` → dosya hiç kaydedilmez. Kayıt penceresi kapatılırsa teklif beklemede kalır. Destek yoksa 512 MB üstünde kabul diyaloğunda bellek uyarısı (`p5.files.bigMem`), destek varsa disk bilgisi (`p5.files.bigDisk`) çıkar.
+- **S-P5-5:** indirme Blob'u `type: "application/octet-stream"`. Tamamlanmış satırda tehlikeli/çift uzantı uyarısı indirme bağlantısının yanında yeniden gösterilir (`file-row-danger`).
+- **S-P5-6 (`lib/dc/rate.ts`, `use-collab.ts`):** gelen ctl mesajlarında alıcı tarafı sınır var: chat 5/sn, annot (stroke/undo/clear) 30/sn, lazer 30/sn. Aşan mesaj düşer.
+- Yeni bileşen/primitif yok (`Alert tone="warning"` kullanıldı). Yeni i18n anahtarları: `p5.files.rowDanger`, `rowDouble`, `bigDisk`, `bigMem`.
+- Testler: `lib/dc/p5-guvenlik.test.ts` (SHA-256 = WebCrypto, farklı boyut ve parça sınırlarında; teklif seli; 21 sahte teklif + gerçek transfer → OK raporu var; tekilleştirme; iptal seli; liste sınırı; gönderen raporu; octet-stream; chat/annot sınırı). `e2e/p5-collab.spec.ts` beklentileri gönderen raporunu (ikinci `file.meta` satırı) içerecek şekilde güncellendi.
+- Doğrulama: web typecheck, lint, unit (73/73) ve `pnpm --filter @remote/web e2e` (128 geçti, 20 atlandı; atlananlar mevcut mobil atlamaları) temiz.
+
+### QA düzeltmesi (QA-P5-1..4) + S-P5-T2-1 kısmi — frontend-dev, 2026-11-11
+Rota değişikliği yok. Yeni bileşen/primitif, yeni bağımlılık, yeni i18n anahtarı yok.
+- **QA-P5-1 / AC-53 iptal (`e2e/p5-collab.spec.ts`):** iki senaryo tek testte. (1) teknisyen → müşteri, aktarım sürerken ALICI (müşteri) "İptal"; (2) müşteri → teknisyen, aktarım sürerken GÖNDEREN (müşteri) "İptal". Her ikisinde iki tarafta `data-status=cancelled` + "İptal edildi", alıcıda `file-download` yok, mock ws-log'da iki taraftan `file.meta` CANCELLED (doğru yönle); 1 sn sonra durum değişmiyor. Aktarımı gözlemek için e2e kancası: `FileTransfers` deps'e `chunkDelayMs` eklendi; `use-collab.ts` bunu yalnız `NEXT_PUBLIC_RS_E2E=1` derlemesinde `globalThis.__rsSlowFileMs`'ten okur (üretimde 0). 900 KB × 60 ms/parça ≈ 3,4 sn.
+- **QA-P5-2 / AC-37 PiP:** başsız Chromium'da (localhost, güvenli bağlam) `documentPictureInPicture` mevcut → `pip-open` görünür, tıklanınca `pip-close` + "Önizleme yüzen pencerede gösteriliyor." ve önizleme ana belgeden PiP penceresine taşınır, kapatınca buton geri gelir. Test, API yoksa açıkça başarısız olur (sessiz atlama yok). İkinci test: `addInitScript` ile global silinince `pip-open`/`pip-close` hiç render edilmez.
+- **QA-P5-3 / AC-57 gecikme:** 20 kalem çizgisi; teknisyende canvas `pointerup` anı, müşteride `annot-layer` `data-strokes` artışı (MutationObserver), ikisi `performance.timeOrigin + performance.now()`. p95 < 200 ms assert. Ölçülen (localhost, 4 koşu): p95 1,1–1,4 ms, en kötü 1,5 ms. Not: localhost'ta ağ gecikmesi yok; gerçek ağ RTT'si bu sayıya eklenir (AC eşiği RTT < 100 ms varsayımıyla).
+- **QA-P5-4 / AC-41 1080p FPS:** müşteri bağlamında `addInitScript` ile `getDisplayMedia` stub'ı: 1920×1080 canvas, her 33 ms'de içerik değişir, `captureStream(30)`. Teknisyen Kalite panelinde (kaynak `getStats` `inbound-rtp` `framesPerSecond` / `frameWidth`) "1920×1080" beklenir. Yöntem: ısınma (BWE düşük başlar; `contentHint="detail"` çözünürlüğü koruyup FPS'i düşürür) — ilk ≥ 15 FPS okumasına en çok 30 sn; ardından 6 sn'lik pencerenin medyanı ≥ 15 assert. Sonuçlar: ısınma 4,1–7,7 sn; medyan 30 FPS (P5 dosyası 3 koşu + tam takım 1 koşu, hepsi geçti). İlk sürüm (ısınma beklemeden 8 sn ortalama) tam paralel takımda 0–3 FPS'lik başlangıç örnekleriyle bir kez düştü; bu yüzden ısınma ayrıldı. Gerçek ağ/donanım kodlayıcı ölçümü P6/staging'e kalır (yerel ölçüm yalnız istemci hattını kanıtlar).
+- **E2E ortam düzeltmesi (`playwright.config.ts`):** `--disable-features=WebRtcHideLocalIpsWithMdns`. Bu makinede mDNS (`.local`) host adayları çözülemediği için ICE kurulmuyordu (P4 medya testi ve tüm P5 testleri DC hazır beklerken düşüyordu; uygulama hatası değil). Bayrakla host adayı gerçek IP olur; yalnız test tarayıcısı.
+- **S-P5-T2-1 (kısmi):** `files-panel.tsx` — tamamlanmış gelen satırda tehlikeli/çift uzantı uyarısı artık `x.url` koşulsuz (disk yolunda da görünür). `diskSink` ve `WritableLike` dışa açıldı; `lib/dc/disk-sink.test.ts` (6 test): özet tuttu → `close` (abort yok), tutmadı → `abort` (close yok), yazım hatası → bozuk + `abort`, `discard` → `abort` ve bitmiş sink'e dokunulmaz; `FileTransfers` kabulünde 256 MB üstü teklifte `showSaveFilePicker` çağrılır, karşı taraf iptalinde yazıcı `abort` edilir, kayıt penceresi kapatılırsa (AbortError) teklif beklemede kalır. Açık kalanlar (bu turda yapılmadı): kabul diyaloğunda "mevcut dosyanın üzerine yazmayın" metni, isteğe bağlı `handle.remove()`; disk yolunun e2e'si (256 MB eşiği e2e'de pratik değil).
+- Doğrulama: web lint + typecheck temiz; unit 79/79; tam `pnpm --filter @remote/web e2e` 133 geçti / 25 atlandı (mevcut mobil atlamaları); `p5-collab.spec.ts` desktop 3 ayrı koşu 15/15.
+
+### P5 sayfa testi + QA Tur 2 düzeltmesi (TEST-P5-1..3, QA-P5-7) — frontend-dev, 2026-11-11
+Rota değişikliği yok. Yeni bileşen/primitif, yeni bağımlılık yok. Yeni i18n anahtarı: `p5.files.err.rate`, `p5.files.st.timeout`. Contracts değişmedi.
+- **TEST-P5-1 [YÜKSEK] — seçilen çözüm: (a) gönderen zaman aşımı + (b) iptal + gönderenin kendi teklif sınırı; (c) alıcıda `file.reject{reason}` YOK.** Gerekçe: `fileRejectSchema` `strictObject` (`reason` alanı contracts değişikliği ister, kapsam dışı) ve alıcının sınır aşımında hiçbir şey göndermemesi S-P5-2'yi olduğu gibi korur (sel büyütülmez, ek ctl/meta yok). `lib/dc/files.ts`:
+  - Gönderen kendi tekliflerini `SELF_OFFER_LIMIT` (3 / 11 sn = alıcı penceresi + 1 sn ağ payı; damga teklif gerçekten gittiği an) ile sınırlar → aşınca `send()` `"rate"` döner, teklif hiç çıkmaz, panelde `Alert danger` "Kısa sürede en çok 3 dosya teklif edilebilir; birkaç saniye sonra tekrar deneyin." Dürüst istemcide kilit hiç oluşmaz.
+  - Yine de yanıtsız kalan teklif (eski/kötü istemci, kayıp): `OFFER_TIMEOUT_MS = 30 sn` sonra satır `timeout` ("Yanıt yok — teklif zaman aşımına uğradı, yeniden gönderebilirsiniz", `text-warning`), karşıya `file.cancel` (teklif ulaştıysa alıcının diyaloğu kapanır, geç kabul yok sayılır), gönderen raporu `CANCELLED`; `activeOut()` artık serbest. Zamanlayıcı kabul/ret/iptal/dispose'da temizlenir.
+  - "offered" satırındaki İptal zaten kilidi açıyordu (durum `cancelled` → aktif değil); artık zamanlayıcıyı da temizliyor; birim testle kanıtlandı.
+  - e2e kancaları (yalnız `NEXT_PUBLIC_RS_E2E=1`, `use-collab.ts`): `globalThis.__rsOfferTimeoutMs` (zaman aşımı), `__rsNoSelfThrottle` (gönderen sınırını kapatır → alıcıda düşme yolu).
+  - Testler: `lib/dc/p5-teklif.test.ts` (4 test: kendi sınırı + pencere sonrası gönderim; alıcı düşürünce 30 sn'de `timeout` + `file.cancel` + CANCELLED + yeni gönderim; iptal kilidi açar ve geç kabul yok sayılır; kabulde zaman aşımı tetiklenmez). e2e `p5-collab.spec.ts`: "TEST-P5-1: 10 sn'de 4. teklif — gönderen kendi sınırıyla hemen uyarılır…" ve "TEST-P5-1: alıcı 4. teklifi düşürürse gönderen 30 sn içinde 'Yanıt yok' ile çözülür…" (rapordaki kur.ps1/a.js/x.msi/y.scr dizisi, müşteri → teknisyen).
+- **TEST-P5-2:** `chat-panel.tsx` `role="log"` kaydırma kabına `tabIndex={0}` + `focus-visible:outline-2 -outline-offset-2 outline-ring` (halka içe, kap kenarında kesilmez). AC-39 axe testine 2000 karakterlik mesaj eklendi; müşteri günlüğü kaydırılabilir hâlde açık/koyu axe temiz ve odaklanabilir.
+- **TEST-P5-3:** balon `wrap-anywhere` (`overflow-wrap:anywhere`) + `max-w-full`, `li` `min-w-0` (eski `break-words` flex öğesinin min-content genişliğini küçültmüyordu). AC-39 testi iki tarafta balon ve günlükte yatay taşma olmadığını ölçer.
+- **QA-P5-7 kök neden:** `files-panel.tsx` ARM zamanlayıcısının bağımlılığı yalnız `pending?.fid`; ilerleme/başka render'larda yeniden KURULMUYOR (yeni teklif gelmedikçe fid sabit). Düşme yükten: tam paralel takımda misafir sayfası ayrı bağlamda arka planda çalışıyor, 1,5 sn'lik `setTimeout` + yeniden çizim varsayılan 5 sn'lik `expect` bütçesini aşabiliyor. Ürün kodu değişmedi; `acceptOffer()` → `toBeEnabled({ timeout: 10_000 })`.
+- **Konsol koyu görünümü (test raporu görsel gözlem):** bulgu değil — DESIGN.md §"Konsol koyu teması (P4)" ve §8 "Konsol varsayılan koyu" kararı: konsol kökünde `.theme-dark` ile kullanıcı tercihinden bağımsız koyu token seti (kullanıcı tema tercihi P12). Değişiklik yapılmadı.
+
+## Agent (P6) — Aşama 1: platformdan bağımsız çekirdek (backend-dev/Go, 2026-11-11)
+Kapsam: yalnız `apps/agent-win/` (server, web, contracts, .github değişmedi). Win32 UI, DXGI/MF yakalama, Pion/rtc,
+gösterge, overlay, cleanup, CI workflow'ları Aşama 2'de.
+
+### Dosyalar
+| Dosya | İçerik | AC |
+|---|---|---|
+| `go.mod` / `go.sum` | Modül `remote-support/agent-win`, `go 1.25.0`, `toolchain go1.25.14` (ADR-0010 sabit sürüm) | 94 |
+| `cmd/noktadestek/main.go` (windows) | İlk iş `dllsafe.Harden()`, sonra `config.Load()` + kendi SHA-256 parmak izi; hata kodlarıyla çıkar | 109, 118, 128 |
+| `internal/config` | `serverURL`/`version` YALNIZ `-ldflags -X`; https://host[:port] dışı (http, yol, sorgu, userinfo) red; ldflags'sız build `ErrNotConfigured`; `Fingerprint` = ilk 8 hex | 109, 128 |
+| `internal/dllsafe` (windows) | `SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32)` + `SetDllDirectory("")` | 118 |
+| `internal/pairing` | `Destek-<8 hane>.exe` (+ tarayıcının ` (1)` eki) → kod; `Normalize` elle giriş ("1234 5678", "1234-5678"); yalnız ASCII rakam | 27, 97 |
+| `internal/files` | `SanitizeFileName`, `NameWarning` (tehlikeli/çift uzantı, `DANGEROUS_EXT` ile aynı liste), `AvailableName` (` (n)`, üzerine yazma yok, 255 sınırı korunur); `motw_windows.go` `WriteMOTW` (`:Zone.Identifier` ZoneId=3) | 36, 54, 117 |
+| `internal/api` | resolve (`clientKind=AGENT`) / join (gövdede clientKind yok); Origin/Sec-Fetch/Cookie göndermez; sistem kökleriyle TLS ≥1.2, pinning yok; yönlendirme izlenmez; 15 sn timeout; resolve yalnız ağ hatası/502-504'te 3 deneme, 4xx ve join asla tekrar denenmez (nonce tek kullanımlık); hata zarfı → tipli `*api.Error{Status, Code, Message, Fields, RequestID}` | 14, 97, 98, 109 |
+| `internal/signal` | `wss://host/ws/guest` (sorgu yok) + `Sec-WebSocket-Protocol: rs.v1, rs.ticket.<t>` / `rs.reconnect.<t>`; sunucu rs.v1 seçmezse kapat; read limit 64 KB; `ParseServer` (zod strictObject eşi: harf duyarlı anahtar, bilinmeyen/eksik alan, enum, ULID, ISO, sınırlar); teknisyene özgü tipler `ErrNotForGuest`; `Encode` gönderimden önce doğrular; ihlalde 1008 | 14, 112, 119 |
+| `internal/dc` | `ParseCtl` (12 ctl tipi, strict, ≤16 KB, `control.*` yok), `Allowed` (caps filtresi), `DecodeChunk` (BE başlık), `Receiver` = `FileReceiveGuard` + artımlı SHA-256 + sabit zamanlı karşılaştırma, `FileReply`/`FileResult` | 35, 36, 53–56, 119 |
+
+### Tasarımdan sapmalar (gerekçeli)
+1. **Paket adı `pairing`** (görev metninde `internal/code`): mimari §dizin planı `internal/pairing (8 hane)` diyor; mimariye uyuldu.
+2. **Parmak izi ldflags ile gömülmedi:** ikilinin kendi SHA-256'sı kendi içine gömülemez (gömmek hash'i değiştirir).
+   AC-128'deki "SHA-256 ilk 8 hane" çalışma anında `os.Executable()` dosyasından hesaplanır; `SHA256SUMS` ile aynı değerdir.
+   ldflags'ta yalnız `serverURL` ve `version` var.
+3. **Pion henüz eklenmedi:** Aşama 1'de rtc kodu yok; kullanılmayan bağımlılık eklenmedi. Aşama 2'de `github.com/pion/webrtc/v4` (MIT) eklenecek.
+4. **`golang.org/x/sys` v0.45.0'a sabitlendi:** v0.50.0 `go >= 1.26` istiyor; toolchain 1.25.14.
+5. **Proxy:** `http.ProxyFromEnvironment` açık (kurumsal ağ). Hedef adres değişmez, TLS uçtan uca sunucu adına doğrulanır; AC-109 korunur.
+
+### Bağımlılıklar (mimari §10.4 içinde)
+| Paket | Sürüm | Lisans | Gerekçe |
+|---|---|---|---|
+| `github.com/coder/websocket` | v1.8.15 | ISC | WS istemcisi, `Subprotocols` desteği (mimari §10.4) |
+| `golang.org/x/sys` | v0.45.0 | BSD-3-Clause | `windows.SetDefaultDllDirectories` (mimari §10.4) |
+AGPL/GPL yok.
+
+### Testler (AC adlı, `go test`)
+Fixture uyumu: `files` ↔ `packages/contracts/fixtures/file-names.json` (sanitize + warning), `signal` ↔
+`fixtures/ws-messages.json` (valid.guest strict çöz + yeniden kodla birebir; invalid.guest red; valid.server misafir
+tipleri kabul, teknisyen tipleri `ErrNotForGuest`; iletilen sdp.offer/ice/ice.restart id'siz kabul). TLS: httptest
+sertifikası sistem köklerinde değil → resolve ve WS dial reddedilir, sunucuya istek ulaşmaz (AC-109). WS: gerçek TLS
+httptest sunucusunda yol `/ws/guest`, sorgu yok, Origin yok, subprotocol `[rs.v1, rs.ticket.<t>]` doğrulanır.
+
+### Komutlar (makinede Go yok → docker)
+```bash
+cd /Users/mennan/Projeler/Remote
+docker run --rm -v "$PWD":/src -v remote-gomod:/go/pkg/mod -w /src/apps/agent-win golang:1.25-bookworm sh -c '
+  export GOFLAGS=-mod=readonly; test -z "$(gofmt -l .)" && go vet ./... && go test -count=1 ./... &&
+  GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./... &&
+  GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -buildid= \
+    -X remote-support/agent-win/internal/config.serverURL=https://<alan-adı>:4450 \
+    -X remote-support/agent-win/internal/config.version=<sürüm>" -o bin/NoktaDestek.exe ./cmd/noktadestek'
+```
+Son çıktı: gofmt temiz; linux `go vet` + `go test` 6/6 paket `ok` (api, config, dc, files, pairing, signal);
+`GOOS=windows go vet` temiz; windows/amd64 exe 2,0 MB; `go clean -cache` sonrası ikinci build aynı SHA-256
+(`8dad75e5…`, tekrarlanabilir build ön kontrolü); ikilide `/src` veya kullanıcı yolu yok (`-trimpath`).
+
+### Frontend/sunucu için sözleşme notları
+Sözleşme değişikliği yok. İstemci resolve/join'i `/api/v1/public/sessions/*` yolundan çağırır, User-Agent
+`NoktaDestek/<sürüm>` (yalnız log, G-20). P7'nin `control.*` WS tipleri (`control.request`, `monitor.request`,
+`caps.update`, `control.revoke`) contracts'a eklenince `signal.ParseServer` genişletilmeli (şu an bilinmeyen tip → 1008).
+
+### Aşama 2 listesi
+- `internal/ui` Win32: karşılama (logo, teknisyen adı, techVerifyCode, sunucu adresi, dolandırıcılık uyarısı, KVKK onayı — AC-98/125), kod giriş alanı (AC-97), lobi bekleme/admitCode (AC-112), hakkında (sürüm + parmak izi + alan adı, AC-128), monitör seçimi (AC-106), Türkçe + PerMonitorV2 (AC-110); `main.go` çıkış kodlarının Türkçe diyalogları.
+- `internal/capture` (DXGI Desktop Duplication), `internal/encode` (MF H.264; K4 prototipi), `internal/rtc` (Pion v4: answer, DC'ler, caps filtresi, `file` alıcısı `dc.Receiver` + `files.AvailableName` + `.part` + `WriteMOTW`).
+- "İzleniyor" göstergesi her monitörde, 1 sn topmost (AC-103); chat/annotation overlay; `session.ended` → 3 sn çıkış (AC-107); `%TEMP%` cleanup (AC-108); `quality.summary` yok (yalnız tech gönderir).
+- `build/app.manifest` (asInvoker, PerMonitorV2), `versioninfo.json`; `test/trace-check.ps1`; `.github/workflows/agent-win.yml` (iki build hash eşitliği, SHA256SUMS, attestation, `go-licenses`), `agent-watch.yml`, `deploy/agent/verify-and-publish.sh` (devops); sunucu indirme ucu (backend).
+- Windows runner'da `go test` (dllsafe/MOTW için gerçek Windows testi: Procmon kanıtı AC-118, Zone.Identifier G-06).
+- **AC-39 axe ek düzeltmesi (yalnız test):** tam takım koşularından birinde 375 px kabul diyaloğu taramasında `color-contrast: .bg-primary` çıktı. Nedeni: "Kabul et" düğmesi ARM_MS dolunca `disabled:opacity-60` → 1 geçişini (150 ms) yapıyor, tarama bu geçişin ortasına denk geldi. Test artık taramadan önce düğmenin etkin olmasını ve `opacity: 1` olmasını bekliyor. Ürün kodunda değişiklik yok.
+- Doğrulama: web lint ve typecheck temiz; unit 83/83 (önceki 79). Tam `pnpm --filter @remote/web e2e` art arda 5 koşu: her birinde 135 geçti, 27 atlandı (mobil atlamaları gerekçeli), kırmızı yok. Önceki iki deneme dizisi tam yeşil değildi. Birinci dizideki bir kırmızı AC-39 axe kararsızlığıydı, yukarıda düzeltildi. Bir koşu, aynı anda başlattığım ikinci `next build` yüzünden bozuldu; bu benim hatamdı, aynı anda iki dizi koşturdum. İkinci dizide makine yük ortalaması yaklaşık 97 iken 2 koşu düştü: 1 ve 4 test, `live()` kurulumunda DC hazır beklerken ve 30 sn test zaman aşımında takıldı. Bu durum altyapı yüküne bağlı olabilir; yeni kodla ilişkisi görülmedi.
+
+## Agent (P6) — Aşama 2: akış, WebRTC, Win32 arayüz (backend-dev/Go, 2026-11-11)
+Kapsam: yalnız `apps/agent-win/` (+ kök `.gitignore`'a `.syso` satırı). Öncelik sırası 4 → 1 → 3 → 2 uygulandı;
+**2 (DXGI + MF H.264) bu turda yazılmadı** — aşağıda "Eksikler".
+
+### Dosyalar
+| Dosya | İçerik | AC |
+|---|---|---|
+| `internal/flow` (platformdan bağımsız) | Akış durum makinesi: kod (dosya adı/elle, `pairing.Normalize`) → resolve → karşılama/KVKK → join → WS (ticket) → lobi (admitCode) → `hello` → monitör seçimi → `share.state` → offer/answer/ice → `session.ended`. Hata eşleme web misafir metinleriyle aynı (`messages/tr.json` g.*): 404/400 → kod alanına dön, `SESSION_EXPIRED/CONSUMED/CANCELLED`, 429, `LOBBY_FULL`, 403 → son ekran; `NONCE_INVALID` → yeniden resolve + karşılama. AC-24: kabul sonrası kopuşta `rs.reconnect.<token>` ile 120 sn yeniden bağlanma, her `hello`'da **yeni PeerConnection** + `share.state` yeniden; protokol ihlali/4401'de yeniden bağlanmaz. Lobide "Vazgeç" → `session.end` | 24, 97, 98, 106, 107, 112 |
+| `internal/rtc` | Pion v4: offer'a answer; H.264 `TrackLocalStaticSample` offer'daki recvonly video transceiver'ına bağlanır (yerel sendonly); `hello.iceServers`/`ice.servers` → `SetConfiguration`; remote description'dan önce gelen ICE kuyruğa alınır; `ctl` → `dc.ParseCtl` + `dc.Allowed` (caps dışı `file.offer` → otomatik `file.reject`); `file` → `dc.DecodeChunk`; `input` ve bilinmeyen kanal kapatılır (P7). `Source` arayüzü: `NextFrame(ctx) (Frame{Annex-B, Duration})` | 52, 53, 119 |
+| `internal/transfer` | TO_CUSTOMER alımı: temizlenmiş ad + uyarı → diyalog; kabulde `İndirilenler\<ad>.part` (O_EXCL), alınan bayt sayacı (beyan/tenant sınırı aşımı → `file.cancel` + `.part` silinir), `file.done` → SHA-256 + boyut → yeniden adlandır (üzerine yazma yok, ` (n)`) → MOTW → `file.result` + WS `file.meta` (alıcı raporu). Ret sonrası 30 sn otomatik ret, tek bekleyen teklif, oturum sonunda yarım `.part` silinir | 36, 53, 54, 55, 108 |
+| `internal/win` (windows) | CGO'suz user32/gdi32/shell32 bağlamaları, yalnız `NewLazySystemDLL` (G-08) | 118 |
+| `internal/ui` (windows) | Tek UI iş parçacığı (LockOSThread) + form çatısı; 96-DPI birimli yerleşim, `GetDpiForWindow` + `WM_DPICHANGED` ile ölçek; ekranlar: kod girişi, karşılama (teknisyen, doğrulama kodu, sunucu, dolandırıcılık uyarısı, "Kötüye kullanımı bildir" → `mailto:`, KVKK metni + ad + onay kutusu; onay+ad olmadan "Bağlan" pasif), lobi (admitCode), monitör seçimi, oturum penceresi (izleniyor etiketi, durum satırı, zaman damgalı sohbet + okunmamış sayacı başlıkta, dosya ilerleme/iptal, "Oturumu bitir"), dosya kabul diyaloğu (Reddet varsayılan/odak, Kabul 1,5 sn kilitli, Enter/Space Kabul'e ulaşmaz, imleç altında açılmaz, tehlikeli/çift uzantı uyarısı), gösterge (her monitörde kırmızı kenarlık + üst-orta etiket, 1 sn'de bir `HWND_TOPMOST`), işaretleme katmanı (renk anahtarlı, tıklama geçirgen; kalem/ok/dikdörtgen/lazer 1 sn/geri al/temizle, 4 renk). Gösterge ve katman `WDA_EXCLUDEFROMCAPTURE` ile yakalamadan hariç | 36, 37, 52, 53, 56, 98, 103, 106, 110, 112, 125, 128 |
+| `internal/capture/monitors_windows.go` | `EnumDisplayMonitors` → `signal.Monitor` (kimlik = 1 tabanlı sıra, "Ekran n") + kimlik → dikdörtgen | 106 |
+| `internal/capture/source_windows.go` | `Open` şimdilik `ErrUnavailable` döner (bkz. Eksikler); akış `share.state{stopped}` + "Ekran görüntüsü alınamadı" gösterir | — |
+| `cmd/noktadestek/main.go` | dllsafe → config → parmak izi → UI → `flow.Run`; son ekran 2,5 sn sonra çıkış (AC-107 "3 sn içinde" için pay) | 107, 109, 118, 128 |
+| `build/winres.json`, `build/build.sh` | go-winres v0.3.3 (MIT, yalnız build aracı — ikiliye girmez): manifest `asInvoker`, `permonitorv2,system`, common controls v6, Win10 min; VERSIONINFO (sürüm build argümanından). `.syso` build sonunda silinir, git'e girmez | 95, 96, 110 |
+| `internal/signal/conn.go` | `ErrProtocol` + `Fatal(err)` (1008/4401 → yeniden bağlanma yok) | 24 |
+
+### Tasarımdan sapmalar (gerekçeli)
+1. **Sohbet ayrı pencere değil, oturum penceresinin bölmesi:** tek pencere, "Oturumu bitir" her an görünür (AC-100 ile uyumlu), daha az kod.
+2. **Dosya kaydetme konumu sorulmaz:** her zaman `İndirilenler` (KnownFolder), müşteri seçimi = Kabul/Reddet. Kaydet-diyaloğu (comdlg32) eklenmedi.
+3. **Kapanış 2,5 sn:** görev "3 sn sonra", AC-107 "3 sn içinde" diyor; ikisini de karşılamak için.
+4. **%TEMP% temizliği kodu yok:** istemci %TEMP%'e hiç yazmıyor (Go runtime, Pion, UI dosya oluşturmaz); tek disk yazımı İndirilenler'deki `.part`'tır ve oturum sonunda/iptalde silinir (`transfer.Close`). Kullanılmayan temizlik kodu yazılmadı; AC-108 iz testi Windows'ta elle doğrulanmalı.
+5. **Yeniden bağlanırken üretilen `file.meta` gönderilmez** (soket yok); kayıp nadir, kabul edildi.
+6. Karşılamada **firma logosu yok** (aşağıda Eksikler) — AC-98'in bu parçası açık.
+
+### Bağımlılıklar
+| Paket | Sürüm | Lisans | Gerekçe |
+|---|---|---|---|
+| `github.com/pion/webrtc/v4` (+ pion/* alt paketleri, `google/uuid`, `wlynxg/anet`, `x/net`, `x/crypto`, `x/time`) | v4.2.26 | MIT / BSD-3 / BSD-3 | mimari §10.4 (Pion). `x/sys` v0.45.0'da kaldı (go 1.25 uyumu) |
+| `github.com/tc-hib/go-winres` (yalnız `go run`, go.mod'a girmez) | v0.3.3 | MIT | manifest + VERSIONINFO `.syso` |
+AGPL/GPL yok. `go-licenses` CI adımı devops'ta (agent-win.yml).
+
+### Testler ve son çıktı
+```bash
+cd /Users/mennan/Projeler/Remote
+docker run --rm -v "$PWD":/src -v remote-gomod:/go/pkg/mod -w /src/apps/agent-win golang:1.25-bookworm sh -c '
+  export GOFLAGS=-mod=readonly; test -z "$(gofmt -l .)" && go vet ./... && go test -race -count=1 ./... &&
+  GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./... &&
+  build/build.sh https://<alan-adı>:4450 <sürüm> bin/a.exe && go clean -cache &&
+  build/build.sh https://<alan-adı>:4450 <sürüm> bin/b.exe && sha256sum bin/a.exe bin/b.exe'
+```
+Son çıktı: gofmt temiz; linux `go vet` temiz; `go test -race` 9/9 paket ok (api, config, dc, files, **flow, rtc, transfer** yeni,
+pairing, signal); `GOOS=windows go vet` temiz; iki build aynı SHA-256 (`fd2dc705…`, `go clean -cache` arasında); exe 10,9 MB
+(≤ 40 MB); manifestte `asInvoker` ve `permonitorv2` var.
+Yeni testler: `flow` (AC-97 elle kod/404 sonrası tekrar, AC-97 süresi dolmuş/tüketilmiş son ekran, AC-98 onaysız join yok +
+karşılama verisi, NONCE_INVALID yeniden resolve, AC-106/107 mutlu yol: ticket → lobi → hello → monitör seçimi → share.state →
+offer/answer → chat iki yön → annot → session.ended, AC-24 token ile yeniden bağlanma + yeni PeerConnection, protokol ihlalinde
+yeniden bağlanmama, lobide vazgeç → session.end, AC-112 lobide ret); `rtc` (gerçek iki Pion eşi: tarayıcı gibi recvonly+DC offer →
+answer, ICE `signal.Encode`/`ParseServer` ile taşınır, H.264 track teknisyene ulaşır, ctl chat iki yön, şema dışı ctl düşer;
+AC-119 caps yokken `file.offer` → otomatik `file.reject`; ICE kuyruğu); `transfer` (AC-54 doğrula+yeniden adlandır+MOTW, bozuk →
+silinir, AC-53 sınır aşımı iptal / sınır üstü teklif otomatik ret, AC-36 30 sn ret beklemesi + tek teklif + çift uzantı uyarısı,
+üzerine yazmama + ad temizleme, AC-108 kapanışta `.part` silinir).
+
+### Windows'ta elle doğrulanacaklar (sabah testi)
+Ön koşul: staging çalışıyor; exe `build/build.sh https://<staging-alan-adı>:4450 0.6.0` ile (sertifikası sistem köklerinde
+olan alan adı — IP ile TLS doğrulaması başarısız olur, AC-109). Konsolda yeni oturum aç, 8 haneli kodu not et.
+1. **Dosya adından kod:** exe'yi `Destek-<kod>.exe` olarak kaydet, çift tıkla → doğrudan karşılama açılmalı (kod sorulmaz). SmartScreen'de "Ek bilgi → Yine de çalıştır"; UAC çıkmamalı (AC-95).
+2. **Elle kod:** exe'yi `NoktaDestek.exe` adıyla çalıştır → kod penceresi; `12` → "8 rakam" uyarısı; yanlış 8 hane → "Kod geçersiz"; doğru kod → karşılama.
+3. **Karşılama:** teknisyen adı, doğrulama kodu (konsoldakiyle aynı), "Bağlanılan sunucu: <alan>", kırmızı dolandırıcılık uyarısı, (ABUSE_EMAIL tanımlıysa) "Kötüye kullanımı bildir" → e-posta istemcisi açılmalı; KVKK metni kaydırılabilir; ad boş veya kutu işaretsizken "Bağlan" pasif; alt satırda sürüm + parmak izi = `SHA256SUMS` ilk 8 hane (AC-128).
+4. **Lobi:** 4 haneli kabul kodu büyük yazı; konsolda yanlış kod → bekleme sürer; doğru kod → lobi kapanır. Ayrı denemede konsoldan "Reddet" → "Teknisyen bağlantıyı reddetti" ve ~2,5 sn sonra program kapanır.
+5. **Monitör:** iki monitörde seçim penceresi, birincil seçili; tek monitörde sorulmaz.
+6. **Gösterge (AC-103):** her monitörde kırmızı kenarlık + üstte "Ekranınız izleniyor — <ad>"; tıklamalar alttaki pencereye geçmeli; başka bir "her zaman üstte" pencere açıp ≤1 sn içinde göstergenin üste döndüğünü gözle.
+7. **Görüntü:** bu derlemede ekran yakalama yok → oturum penceresinde "Ekran görüntüsü alınamadı" beklenir, konsol "paylaşım durdu" gösterir; WebRTC bağlantısı yine kurulmalı (sohbet/dosya çalışır).
+8. **Sohbet:** iki yönlü, saatli; pencere arka plandayken gelen mesajda başlıkta "(n yeni)" ve görev çubuğu yanıp söner.
+9. **Dosya:** konsoldan `rapor.pdf` gönder → diyalog imlecin altında değil, "Reddet" odakta; Enter → reddeder; Kabul ilk 1,5 sn pasif; Tab ile Kabul'e gelip Space/Enter → tetiklememeli; fareyle Kabul → İndirilenler'e kaydedilir, PowerShell `Get-Content <yol> -Stream Zone.Identifier` → `ZoneId=3`. `.exe`/`belge.pdf.exe` → kırmızı uyarı. Reddettikten sonra 30 sn içindeki teklif sessizce reddedilmeli. Aktarım sırasında "Aktarımı iptal et" → `.part` silinmeli.
+10. **İşaretleme:** konsoldan kalem/ok/dikdörtgen/lazer/geri al/temizle → paylaşılan monitörde görünmeli, tıklamayı engellememeli, lazer 1 sn'de sönmeli.
+11. **Bitiş:** "Oturumu bitir" ve ayrı denemede konsoldan bitir → son metin + ≤3 sn içinde kapanış (AC-107). Pencere X → onay sorusu.
+12. **Yeniden bağlanma:** oturumda Wi-Fi'ı 10 sn kapat/aç → "Bağlantı koptu, yeniden bağlanılıyor…" → "Bağlantı yeniden kuruldu".
+13. **Ölçek (AC-110):** %100/%125/%150'de karşılama ve oturum penceresi taşmadan okunmalı; pencereyi farklı DPI'lı monitöre sürükle.
+14. **İz (AC-108):** kapanıştan sonra `%TEMP%`, `%APPDATA%`, `%LOCALAPPDATA%`, HKCU\Software'de istemciye ait kayıt yok (İndirilenler'deki kabul edilen dosyalar hariç). Procmon: Downloads'ta DLL araması 0 (AC-118).
+Hata görülürse ekran görüntüsü + adım numarası yeterli.
+
+### Eksikler (Aşama 3)
+1. **`internal/capture` DXGI Desktop Duplication + Media Foundation H.264 kodlayıcı yazılmadı** (en büyük parça; K4 prototipi). `Open` açıkça `ErrUnavailable` döner; arayüz (`rtc.Source`) ve akış hazır, kaynak takılınca başka değişiklik gerekmez. Plan: D3D11 cihazı + `IDXGIOutput1.DuplicateOutput` → staging texture → BGRA→NV12 → `CLSID_CMSH264EncoderMFT` (Baseline, GOP ≤ 2 sn — yeniden bağlanmada IDR için) → Annex-B; yakalanamayan karede (Secure Desktop) son kare tekrarı.
+2. **Karşılamada firma logosu** (AC-98): `logoUrl` yalnız sunucu alan adından indirilip PNG → DIB ile gösterilecek.
+3. **Koyu tema** (1.6): klasik Win32 denetimleri sistem açık temasında; koyu tema desteği yok.
+4. `caps.update` / `control.*` WS tipleri (P7) `signal.ParseServer`'da yok; `rtc.Peer.SetCaps` hazır.
+5. `peer.joined.maxFileMb` oturum ortasında gelirse alım sınırı güncellenmez (hello değeri kullanılır).
+6. CI (`agent-win.yml`, `agent-watch.yml`, `verify-and-publish.sh`, `trace-check.ps1`) devops işi; `build/build.sh` CI'dan çağrılacak biçimde.
+
+### frontend-dev / backend için sözleşme notları
+Sözleşme değişikliği yok. İstemci monitör kimliklerini 1'den başlatır ("Ekran 1"…); `share.state.activeMonitor` bu kimliktir
+(P7 `monitor.request.monitorId` aynı kimliği kullanmalı). Gösterge ve işaretleme katmanı yakalamaya girmez (konsol kendi çizimini gösterir).

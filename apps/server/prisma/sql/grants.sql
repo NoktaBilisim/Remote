@@ -29,6 +29,12 @@ REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON cons
 GRANT SELECT, INSERT ON session_consents TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_consents FROM 'app'@'%';
 
+-- P5 session_files: append-only dosya transferi meta kaydı (AC-55; içerik yok). UPDATE (file_name
+-- anonimleştirme) ve DELETE (+30 gün hard delete) retention işiyle P13'te verilir.
+-- support_sessions.quality_summary için ek yetki gerekmez (tablo düzeyi UPDATE P2'den beri var).
+GRANT SELECT, INSERT ON session_files TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_files FROM 'app'@'%';
+
 -- Append-only: yalnız SELECT/INSERT. DELETE yetkisi retention/tetikleyiciyle birlikte (P11/P13)
 -- verilecek; o pakette bu dosya güncellenir. UPDATE/DELETE/DDL/TRIGGER yetkisi varsa geri alınır.
 GRANT SELECT, INSERT ON audit_logs TO 'app'@'%';

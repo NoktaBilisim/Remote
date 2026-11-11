@@ -7,19 +7,20 @@
  * TEST-P4-1) GuestSession yazar. Dönüşte paylaşım otomatik başlamaz (getDisplayMedia yalnız kullanıcı tıklamasıyla).
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { PeerLink } from "./peer";
+import { PeerLink, type Channels } from "./peer";
 import { backoff, guestProtocols, RECONNECT_WINDOW_MS, Signal, wsUrl } from "./signal";
 import { guestReducer, initialGuest, resumingGuest, type GuestState } from "./guest-machine";
 import type { PublicSessionStatusResponse } from "@remote/contracts/api/sessions";
-import { WS_CLOSE, type ServerOutbound } from "@remote/contracts/ws";
+import { WS_CLOSE, type Cap, type ServerOutbound } from "@remote/contracts/ws";
 import { api, ApiError } from "../api";
 
 /**
  * F5 dönüşü reddedilirse (eski soket sunucuda henüz kapanmamış → 403 = tarayıcıda 1006) aralıklı yeniden dene;
- * kesin sonlarda (4401/1008, session.ended, oturum ACTIVE değil/404) dur. ≤ 20 × 3 sn ≈ sunucu ping zaman aşımı.
+ * kesin sonlarda (4401/1008, session.ended, oturum ACTIVE değil/404) dur. S-P4-T3-2: pencere sunucunun ölü soket
+ * süresini (ping 30 sn × 3 ≈ 90 sn) + pay kapsar: 35 × 3 sn = 105 sn ≥ 100 sn, 120 sn yeniden bağlanma penceresi içinde.
  */
 export const RESUME_RETRY_MS = 3_000;
-export const RESUME_MAX_ATTEMPTS = 20;
+export const RESUME_MAX_ATTEMPTS = 35;
 
 /** Oturum hâlâ aktif mi? Ağ hatasında belirsiz → true (yeniden denemeye devam). */
 async function stillActive(sessionRef: string): Promise<boolean> {
@@ -39,6 +40,10 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
   const [state, dispatch] = useReducer(guestReducer, "reconnect" in cred ? resumingGuest : initialGuest);
   const credKey = "ticket" in cred ? `t.${cred.ticket}` : `r.${cred.reconnect}`;
   const [preview, setPreview] = useState<MediaStream | null>(null);
+  const [channels, setChannels] = useState<Channels | null>(null);
+  /** G-09: teknisyenin yetenekleri (hello.caps); yoksa ilgili DC istekleri reddedilir. */
+  const [caps, setCaps] = useState<Cap[]>([]);
+  const [maxFileMb, setMaxFileMb] = useState<number | undefined>(undefined);
   const st = useRef<GuestState>(state);
   const sig = useRef<Signal | null>(null);
   const peer = useRef<PeerLink | null>(null);
@@ -58,6 +63,7 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
   const resetPeer = useCallback(() => {
     peer.current?.close();
     peer.current = null;
+    queueMicrotask(() => setChannels(null));
   }, []);
 
   const onMessage = useCallback(
@@ -65,13 +71,19 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
       if (m.t === "hello") {
         retry.current.attempt = 0;
         resetPeer(); // yeni bağlantı = yeni PeerConnection (AC-24)
+        setCaps(m.caps ?? []);
+        setMaxFileMb(m.maxFileMb);
         if (track.current) send({ t: "share.state", state: "sharing" });
       } else if (m.t === "peer.joined" || m.t === "peer.left") {
         if (m.role === "tech") resetPeer();
         // Yeniden bağlanan teknisyen paylaşım durumunu bilmez (sunucu saklamaz) → tekrar bildir
         if (m.t === "peer.joined" && m.role === "tech" && track.current) send({ t: "share.state", state: "sharing" });
       } else if (m.t === "sdp.offer") {
-        if (!peer.current) peer.current = new PeerLink(st.current.iceServers, send);
+        if (!peer.current) {
+          const p = new PeerLink(st.current.iceServers, send);
+          p.onChannels = (c) => peer.current === p && setChannels(c);
+          peer.current = p;
+        }
         void peer.current.answer(m.sdp, track.current).catch(() => resetPeer());
       } else if (m.t === "ice") {
         const { candidate, sdpMid, sdpMLineIndex } = m;
@@ -187,5 +199,5 @@ export function useGuestSession(cred: GuestCred, sessionRef: string | null = nul
     if (st.current.phase !== "live") dispatch({ type: "left" });
   }, [send]);
 
-  return { state, preview, startShare, stopShare, end };
+  return { state, preview, channels, caps, maxFileMb, send, startShare, stopShare, end };
 }

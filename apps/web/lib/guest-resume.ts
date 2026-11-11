@@ -14,8 +14,12 @@ const resumeSchema = z.object({
   verifyCode: z.string().max(10),
   /** Opak durum referansı (resolve.sessionRef): dönüş reddedilirse oturumun bitip bitmediğini sormak için. */
   sessionRef: z.string().min(1).max(200),
+  /** S-P4-T3-1: yazılma zamanı (ms); 120 sn'den eski kayıt okunmaz (sekme geri açma penceresini daraltır). */
+  savedAt: z.number().int().nonnegative(),
 });
-export type GuestResume = z.infer<typeof resumeSchema>;
+export type GuestResume = Omit<z.infer<typeof resumeSchema>, "savedAt">;
+/** Sunucunun yeniden bağlanma penceresiyle aynı (signal.ts RECONNECT_WINDOW_MS). */
+export const RESUME_MAX_AGE_MS = 120_000;
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 const store = (): Store | undefined => {
@@ -42,12 +46,16 @@ export function linkTokenFromPath(path: string = globalThis.location?.pathname ?
   return /^\/session\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] ?? null;
 }
 
-export function readResume(key: string, s: Store | undefined = store()): GuestResume | null {
+export function readResume(key: string, s: Store | undefined = store(), now = Date.now()): GuestResume | null {
   try {
     const raw = s?.getItem(key);
     if (!raw) return null;
     const r = resumeSchema.safeParse(JSON.parse(raw));
-    if (r.success) return r.data;
+    if (r.success && now - r.data.savedAt <= RESUME_MAX_AGE_MS && r.data.savedAt <= now + 5_000) {
+      const rest: Partial<typeof r.data> = { ...r.data };
+      delete rest.savedAt;
+      return rest as GuestResume;
+    }
     s?.removeItem(key);
   } catch {
     /* bozuk kayıt / depolama kapalı */
@@ -55,9 +63,9 @@ export function readResume(key: string, s: Store | undefined = store()): GuestRe
   return null;
 }
 
-export function writeResume(key: string, data: GuestResume, s: Store | undefined = store()): void {
+export function writeResume(key: string, data: GuestResume, s: Store | undefined = store(), now = Date.now()): void {
   try {
-    s?.setItem(key, JSON.stringify(data));
+    s?.setItem(key, JSON.stringify({ ...data, savedAt: now }));
   } catch {
     /* kota / gizli mod */
   }

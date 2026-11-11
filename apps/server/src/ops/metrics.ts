@@ -49,6 +49,8 @@ export function createMetrics(): Metrics {
   m.counter("rs_ws_rejected_total", "Reddedilen WS upgrade istekleri (role, reason)");
   m.counter("rs_ws_closed_policy_total", "1008 ile kapatılan bağlantılar (reason)");
   m.counter("rs_admit_total", "guest.admit sonuçları (result)");
+  m.counter("rs_file_meta_total", "file.meta sonuçları (result; P5)");
+  m.counter("rs_file_meta_rate_limited_total", "file.meta kota aşımları (class: accepted|declined|sender; S-P5-T2-3)");
   m.counter("rs_sessions_ended_total", "Sinyalizasyon üzerinden biten oturumlar (reason)");
   return m;
 }

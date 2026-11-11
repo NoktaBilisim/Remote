@@ -1105,3 +1105,145 @@ Düzeltme: backend-dev — `reconnect.conflict` audit'ini oda başına dakikada 
 
 ### Öneri (`docs/gereksinimler.md` §9 "Sonra")
 S-P4-T3-1 (kayda süre damgası), S-P4-T3-2 (conflict audit tekilleştirme + deneme penceresi hizalama).
+
+---
+
+## P5 kod turu 1 (sohbet, dosya transferi, işaretleme, kalite özeti)
+Tarih: 2026-11-11 · Kapsam: `packages/contracts/src/{files,dc,ws}.ts`, `apps/server/src/signaling/{collab,handlers}.ts`, `apps/web/lib/dc/*`, `components/collab/*`, `components/guest/guest-collab.tsx`, `use-quality`, migration `20261111040000_p5_session_files`, `grants.sql`
+DURUM: DÜZELTİLMELİ
+Özet: Kritik 0 / Yüksek 1 / Orta 2 / Düşük 5
+
+### [YÜKSEK] S-P5-1 Teklif seliyle `file.meta` kotası tüketilip gerçek transferin audit kaydı düşürülebiliyor — A09 Security Logging and Monitoring Failures
+Yer: `apps/server/src/signaling/collab.ts:25-36,59-64` (oda başına ortak 20/dk + 500/oturum sayaç); `apps/web/lib/dc/files.ts:243-259` (her otomatik ret → `file.meta REJECTED`); `apps/web/lib/dc/use-collab.ts:60` (gelen ctl'de hız sınırı yok)
+Sorun: Hız sınırı oda geneli ve sonuçtan bağımsız. Otomatik retler (busy/cooldown/tooLarge/caps) de kotadan yer. Gönderen taraf, alıcının istemcisine sınırsız `file.offer` yollayarak alıcının sunucuya `file.meta` göndermesini tetikleyebilir. Kota dolunca sonraki `OK` raporu `RATE_LIMITED` alıyor ve `session_files` ile `audit_logs`'a hiçbir şey yazılmıyor. Geride yalnız bir log uyarısı kalıyor.
+İstismar senaryosu: Kötü niyetli bir teknisyen (içeriden tehdit) müşteriye A dosyasını teklif ediyor (müşteride "pending"). Ardından DC üzerinden 20 sahte teklif daha yolluyor. Müşteri istemcisi bunları "busy" olarak otomatik reddediyor ve 20 `file.meta` gönderiyor, böylece dakikalık pencere doluyor. Müşteri 60 sn içinde A'yı kabul ediyor. Transfer bitince gelen `OK` meta kaydı reddediliyor. Sonuç: müşteriye gönderilen (zararlı olabilecek) dosyanın adı ve SHA-256'sı hiçbir kayıtta yok. AC-55 ve audit zorunluluğu delinmiş oluyor. Aynı yolla 500/oturum kotası tüketilerek oturumun geri kalanı tamamen kayıtsız kalabilir.
+Düzeltme: backend-dev: Kotayı sonuca göre ayırın. `OK`/`CORRUPT` (kabul edilmiş transferin sonucu) hiç düşürülmemeli ya da ayrı ve yüksek bir kotası olmalı. `REJECTED`/`CANCELLED` ayrı bir kotayla sınırlanmalı. Kota aşıldığında oturum başına bir kez `file.meta_rate_limited` audit satırı yazılmalı (sessiz kayıp olmamalı). frontend-dev: Alıcı istemci, otomatik retlerde `file.meta`'yı tekilleştirmeli/özetlemeli (ör. 10 sn'de en çok 1). Gelen `file.offer` için alıcı tarafında hız sınırı konmalı (ör. 5/10 sn, aşanlar sessizce düşer). Bu testle doğrulanmalı (21 teklif + 1 OK → OK kaydı var).
+
+### [ORTA] S-P5-2 Teklif seli karşı tarafın WS bağlantısını 1008 ile kopartıyor ve listeyi sınırsız büyütüyor — A04 Insecure Design (DoS)
+Yer: `apps/web/lib/dc/files.ts:230-262` (`inc` Map ve `list` sınırsız); `apps/server/src/signaling/handlers.ts:17,42` (TokenBucket 50/sn, aşımda `peer.close(POLICY)`)
+Sorun: DC `ctl` kanalında alıcı tarafta hız sınırı yok. Saniyede 50'den fazla teklif gelirse alıcı da saniyede 50'den fazla `file.meta` WS mesajı üretiyor (amplifikasyon). Sunucu, kurban tarafın soketini `ws_rate_exceeded` ile kapatıyor. Ayrıca her otomatik ret `list`'e ekleniyor (caps dışındakiler), bu da React render ve bellek yükünü sınırsız büyütüyor.
+İstismar senaryosu: Kabul edilmiş müşteri (veya teknisyen), değiştirilmiş istemciyle döngüde `file.offer` yolluyor. Karşı tarafın WS'i kopuyor ve sinyalizasyon/ICE restart çalışmıyor. Sekme, binlerce satırlık listeyle yavaşlıyor. Kalıcı yetki kazancı yok. Ancak meşru tarafı "bağlantı koptu" durumuna düşürüyor ve S-P5-1'i besliyor.
+Düzeltme: frontend-dev: S-P5-1'deki alıcı tarafı teklif sınırı. Aşımda `file.meta` gönderilmemeli ve `list`'e eklenmemeli. Otomatik ret kayıtları `list`'te en çok N (ör. 20) tutulmalı. Aynı zamanda `chat`/`annot.*` için de alıcı tarafı sınırı konmalı (bkz. S-P5-6). Sunucu tarafında değişiklik gerekmiyor (bucket doğru çalışıyor; sorun istemcinin karşı tarafın girdisini WS'e yansıtması).
+
+### [ORTA] S-P5-3 `TO_TECH` kaydının tek kaynağı teknisyen istemcisi; değiştirilmiş konsol müşteriden dosya alıp hiç raporlamayabilir — A09 / A04
+Yer: `apps/server/src/signaling/collab.ts:47-52` (gönderen raporu yok sayılıyor; tek kaynak alıcı); `packages/contracts/src/ws.ts` `fileMetaSchema` yorumu
+Sorun: İçerik P2P aktığı için sunucu transferi göremiyor. `TO_TECH` yönünde rapor yalnız teknisyenden kabul ediliyor. Müşteri tarafının (gönderen) raporu atılıyor. İçeriden kötü niyetli bir teknisyen, `file.meta` göndermeyen bir konsolla müşteriden veri çekebilir ve hiçbir iz kalmaz. Bu, A09'un "denetlenen kişinin kendi kaydını yazması" durumudur.
+İstismar senaryosu: Teknisyen tarayıcı konsolunda `sendMeta`'yı no-op yapıyor ve müşteriye "şu log dosyasını gönderin" diyor. `session_files`/`audit_logs` boş kalıyor.
+Düzeltme: mimar + backend-dev: Gönderenin raporu da ayrı bir alan/satır olarak kaydedilmeli (ör. `reporter` = `sender|receiver`). Sunucu, alıcı raporu yoksa en azından gönderenin "offer/done" iddiasını audit'e yazmalı. Müşteri istemcisi değiştirilmemiş varsayıldığından bu, teknisyene karşı güvenilir iz sağlar. Mimari §4'te tasarım sapması/risk kabulü olarak işlenmeli.
+
+### [DÜŞÜK] S-P5-4 Alınan dosya tamamen bellekte; SHA-256 için ikinci kopya — A04 (istemci DoS)
+Yer: `apps/web/lib/dc/files.ts:279,287-289` (`chunks[]` → `Blob` → `sha256Hex` içinde `blob.arrayBuffer()`); gönderen `files.ts:161` (`sha256Hex(file)` dosyanın tamamını okuyor)
+Sorun: Tenant sınırı 2048 MiB'a kadar çıkabiliyor. Bu durumda alıcıda yaklaşık 2× dosya boyutu RAM gerekiyor, `arrayBuffer()` ≥ 2 GB'ta hata verip sekmeyi çökertebilir. Gönderen de aynı şekilde etkileniyor. Kullanıcı kabulü gerektiği ve varsayılan 100 MB olduğu için düşük.
+Düzeltme: frontend-dev: Artımlı özet (ör. `hash-wasm` veya parça parça SHA-256), alıcıda `chunks` yerine OPFS/`FileSystemWritableFileStream` (destek yoksa ≤ 256 MB üst sınır). Kısa vadede UI'da tenant sınırı 512 MB üzerindeyse uyarı gösterilebilir.
+
+### [DÜŞÜK] S-P5-5 İndirme Blob'u MIME türü olmadan oluşturuluyor — A05 Security Misconfiguration
+Yer: `apps/web/lib/dc/files.ts:287,291`; `components/collab/files-panel.tsx:42`
+Sorun: `new Blob(chunks)` → `type=""`. `download` özniteliği tıklamada dosyayı indiriyor, ama kullanıcı bağlantıyı "Yeni sekmede aç" ile açarsa `blob:` URL'si uygulama origin'inde gezinir. Bu durumda tarayıcı türü koklayarak (sniffing) HTML/SVG içeriği belge olarak çizebilir. CSP (nonce + strict-dynamic, `proxy.ts:20`) blob belgelerine miras kaldığı için betik çalışması bugün engelleniyor. Ancak HTML ile oltalama/sahte form çizilebilir.
+Düzeltme: frontend-dev: `new Blob(chunks, { type: "application/octet-stream" })`. İndirme bağlantısında tehlikeli/çift uzantı uyarısı da tekrar gösterilmeli (şu an yalnız kabul diyaloğunda).
+
+### [DÜŞÜK] S-P5-6 Gelen `chat` / `annot.*` için alıcı tarafında hız sınırı yok — A04
+Yer: `apps/web/lib/dc/use-collab.ts:57,62`; `lib/dc/annot.ts:58,64`; `lib/dc/chat.ts:31-32`
+Sorun: Protokolde lazer için 30/sn tanımlı, ama yalnız gönderen uyguluyor. `MAX_STROKES` 200 × 500 nokta tavanı ve `CHAT_KEEP` 500 belleği sınırlıyor. Ancak her mesaj tam yeniden çizim/render tetikliyor ve chat yineleme kontrolü O(n). Değiştirilmiş teknisyen istemcisi müşteri sekmesini kilitleyebilir.
+Düzeltme: frontend-dev: Alıcıda token bucket uygulanmalı (chat 5/sn, stroke 20/sn, laser 30/sn), aşanlar düşürülmeli.
+
+### [DÜŞÜK] S-P5-7 Tehlikeli uzantı listesi ve Windows ayrılmış ad kapsamında boşluklar — A04
+Yer: `packages/contracts/src/files.ts:15,46-50`
+Sorun: Listede şunlar yok: `vbe, jse, ws, wsh, msp, mst, inf, ps1xml, psd1, psc1, settingcontent-ms, library-ms, searchconnector-ms, xlam, pptm, dotm, xla, gadget, html, htm, mht, svg` (son dördü tarayıcıda açılıp HTML smuggling/oltalama için kullanılır). `RESERVED` regex'i `CONIN$`, `CONOUT$` ve üst simge rakamlı `COM¹-³`/`LPT¹-³` adlarını kapsamıyor (Windows bunları da ayrılmış sayar). Yol geçişi, RTLO/Cf, sondaki nokta/boşluk, ADS `:` ve uzunluk doğru ele alınıyor. DB CHECK aynı kuralı tekrarlıyor.
+Düzeltme: frontend-dev/backend-dev (contracts + fixtures + Go eşi birlikte): listeyi genişletin, regex'i `^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])$` yapın.
+
+### [DÜŞÜK] S-P5-8 JS `\p{Cf}` ile MySQL ICU `\p{Cf}` sürüm farkı `file.meta` yazımını düşürebilir — A09
+Yer: `collab.ts:66,81-86`; migration `session_files_file_name_chk`
+Sorun: Node ve MySQL farklı Unicode sürümleri kullanıyor. Yeni eklenen bir Cf karakteri bir tarafta silinir, diğerinde silinmezse CHECK 3819 hatası verir ve TX geri alınır. Bu durumda kayıt ve audit olmuyor, yalnız log kalıyor (sessiz kayıp, S-P5-1 ile aynı sonuç).
+Düzeltme: backend-dev: CHECK hatasında adı `FILE_NAME_FALLBACK` ile değiştirip yeniden yazın (kayıt kaybolmasın) ve metrik artırın.
+
+### Doğrulanan/olumlu (P5)
+- **Sunucu `file.meta`:** caps (`file_transfer`) kontrolü `room.caps` üzerinden yapılıyor (sunucu hesaplı, admit anında). Yalnız alıcı tarafın raporu kabul ediliyor. Misafir için `ADMITTED`, teknisyen için `room.admitted` şartı var. Ad sunucuda yeniden temizleniyor. `OK` raporunda tenant sınırı kontrol ediliyor. `session_files` + `audit_logs` tek TX'te yazılıyor. `tenantId`/`sessionId` istemciden değil oda durumundan geliyor (tenant izolasyonu tamam). Hata yanıtında stack/SQL yok (ref'li log).
+- **`quality.summary`:** yalnız teknisyenden kabul ediliyor, zod ile sınırlı sayılar ve enum, 5 sn yazma aralığı, 4 KB tavan. `updateMany` `tenantId + consumedAt not null` filtreli. DB CHECK ile eşleşiyor.
+- **DC şemaları:** strict, `ctl` 16 KB, chat 2000 karakter, stroke 500 nokta, koordinatlar [0,1], `idx` uint16, sha256 regex, boyut tavanı. Çerçeve çözümlemede boyut kontrolü yapılıyor. `FileReceiveGuard` beyana güvenmiyor (`min(declared, max)`), sıra dışı parçada iptal ediyor, tamamlanma = alınan baytın beyana eşitliği, ardından SHA-256 eşleşmesi. Bozuk dosya sunulmuyor.
+- **Kabul diyaloğu:** otomatik kabul yok. 1,5 sn sonra etkinleşme fid başına ayrı. Varsayılan odak "Reddet". Esc reddediyor. Tek bekleyen teklif var, diğerleri "busy" olarak reddediliyor. 30 sn ret bekleme süresi uygulanıyor. Tehlikeli/çift uzantı uyarısı gösteriliyor. İndirme adı temizlenmiş ad (`download={x.name}`). Object URL'ler `dispose`'ta bırakılıyor.
+- **Chat XSS:** React metin düğümü kullanılıyor. `apps/web` içinde `dangerouslySetInnerHTML`/`innerHTML`/`eval` yok. Document PiP yalnız aynı origin stil düğümlerini kopyalıyor, dış içerik enjekte etmiyor.
+- **Caps yokken düşürme:** güvenlik sınırı her iki uçta değiştirilmemiş kurban istemcisinde (müşteri: sunucunun `hello.caps`'i; konsol: kendi yetkisi) ve sunucuda meta için uygulanıyor. İçerik sunucudan geçmediği için bu, mimariyle uyumlu.
+- **Kapanan P4 bulguları:** **S-P4-T3-1 kapandı.** `savedAt` + 120 sn, gelecek damga toleransı 5 sn, canlı oturumda 30 sn'de bir ve `pagehide`'da tazeleniyor (`guest-resume.ts`, `guest-session.tsx:60-70`). **S-P4-T3-2 kapandı.** 35 × 3 sn = 105 sn, `reconnect.conflict` audit'i oda başına dakikada 1 (`ws.ts:23,149`).
+- **Migration/grants:** `app` için `session_files` yalnız SELECT/INSERT (append-only, REVOKE ile). CHECK'ler yön/sonuç/sha/boyut/ad için tanımlı. FK `(session_id, tenant_id)` bileşik, bu da çapraz tenant satırını DB'de engelliyor. Dosya içeriği tabloda yok.
+
+### Otomatik tarama (P5)
+- `pnpm audit --audit-level=moderate` → "No known vulnerabilities found".
+- Sır taraması (`git diff` + izlenmeyen tüm yeni dosyalar, api_key/secret/password/token/özel anahtar/AKIA/ghp_ kalıpları) → eşleşme yok.
+- `git log --all -- '*.env*'` → yalnız `.env.example`.
+
+### Öneri (`docs/gereksinimler.md` §9 "Sonra")
+S-P5-4 (akışlı özet/OPFS), S-P5-6 (alıcı tarafı hız sınırı), S-P5-7 (uzantı listesi), S-P5-8 (CHECK geri dönüşü). S-P5-1 bu turda düzeltilmeli. S-P5-2 ve S-P5-3 tercihen bu pakette düzeltilmeli; S-P5-3 için en azından mimariye risk kabulü yazılmalı.
+
+---
+
+## P5 kod turu 2 (S-P5-1..8 kapanış doğrulaması + yeni yüzeyler)
+Tarih: 2026-11-11 · Kapsam: `apps/server/src/signaling/{collab,handlers,types,rooms}.ts`, `packages/contracts/src/{files,ws}.ts`, `apps/web/lib/dc/{files,rate,sha256,use-collab}.ts`, `components/collab/files-panel.tsx`, testler (`p5-guvenlik.test.ts`, `signaling-collab-p5*.test.ts`)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4
+
+### Tur 1 bulgularının kapanışı
+| Bulgu | Durum | Kanıt |
+|---|---|---|
+| S-P5-1 (Yüksek) | **Kapandı** | `collab.ts:29-56` kota anahtarı `taraf:sınıf`; `accepted` (OK/CORRUPT) 60/dk, 2000/oturum, `declined` 20/dk, 500/oturum. Ret seli OK kotasını tüketemiyor. Teknisyen de müşterinin kotasını tüketemiyor, çünkü taraf soketten belirleniyor (`handlers.ts:78,119`) ve mesajdan gelmiyor. Aşımda `file.meta.rate_limited` audit'i yazılıyor (`collab.ts:88,125-135`). İstemci tarafında teklif sınırı 3/10 sn ve fazlası sessizce düşüyor (`files.ts:426`). Karşı tarafın tetiklediği meta tekilleştiriliyor ve dakikada en çok 5 (`files.ts:288-295`). Test: "21 sahte teklif + gerçek transfer → OK raporu" (web) ve "21 ret + OK → kayıt" (server int). |
+| S-P5-2 (Orta) | **Kapandı** | Aşan teklif ctl reddi, meta veya liste kaydı üretmiyor. `KEEP` 100, `AUTO_KEEP` 20 (`files.ts:253-276`). Amplifikasyon yok (≤ 5 meta/dk, WS bucket 50/sn). |
+| S-P5-3 (Orta) | **Risk azaltıldı (kabul edilebilir)** | Gönderen raporu `file.transfer.sender_report` audit'ine yazılıyor (`collab.ts:97-102`). Müşteri istemcisi her gönderimde rapor veriyor (`files.ts:297-303`). Değiştirilmiş konsol `TO_TECH` raporunu bastırsa da müşteri tarafının izi kalıyor. Kalan boşluk için bkz. S-P5-T2-4. |
+| S-P5-4 (Düşük) | **Kapandı** | Özet artımlı hesaplanıyor (`sha256.ts`). Alıcı, parçalar gelirken özetliyor (`files.ts:480`). Bellekte tek kopya tutuluyor (8 MB Blob grupları). 256 MB üstünde disk akışı var. |
+| S-P5-5 (Düşük) | **Kapandı** | `files.ts:99` `application/octet-stream`. Tehlikeli uzantı uyarısı indirme satırında tekrarlanıyor (`files-panel.tsx:41`). |
+| S-P5-6 (Düşük) | **Kapandı** | `rate.ts` chat 5/sn, annot 30/sn, lazer 30/sn. `use-collab.ts:59` işlemeden önce düşürüyor. |
+| S-P5-7 (Düşük) | **Kapandı** | `files.ts:16,48-54` istenen uzantıların tamamı ve `CONIN$`/`CONOUT$`/`COM¹-³`/`LPT¹-³` eklendi. Fixture genişletildi. AC-36 metninin revizyonu proje yöneticisinde (doküman işi). |
+| S-P5-8 (Düşük) | **Kapandı** | `isCheckViolation` (`collab.ts:59-63`), adaptör kaynağıyla tutarlı (`@prisma/adapter-mariadb` varsayılan dal `{kind:"mysql", code: errno}`). CHECK reddinde `file.meta.rejected_by_db` audit'i yazılıyor, ad yerine yer tutucu kullanılıyor, sha256/boyut korunuyor, istemciye `VALIDATION` dönüyor. Gerçek MySQL ile entegrasyon testi var (`signaling-collab-p5-dbcheck.test.ts`). |
+
+### Yeni yüzeyler: inceleme
+- **Elle yazılmış SHA-256:** Doğru. Projedeki test WebCrypto ile 11 boyutta ve 37 baytlık parçalarla karşılaştırıyor. Ek olarak bu turda Node `crypto` ile karşılaştırıldı: 0–300 bayt arası tüm boyutlar rastgele 1–70 baytlık parçalarla, 1 MiB, 1 MiB+55, 5 MiB+63 ve boş girdi denendi, **0 uyuşmazlık**. 64 MB yaklaşık 260 ms sürüyor. 2^32 bit üstü uzunluk kodlaması (`hex()` hi/lo) doğru. `hex()` durumu değiştiriyor, yani ikinci çağrı farklı sonuç verir. Kodda her transferde yalnız bir kez çağrılıyor (`files.ts:46,492`). Risk yok ama sınıfa "tek kullanımlık" notu düşülmeli. Özet bütünlük amaçlı kullanılıyor, gizli anahtar içermiyor. Bu yüzden yan kanal (sabit zamanlı olmama) önemsiz.
+- **Gönderen/alıcı sahteciliği (sunucu):** Taraf (`tech`/`guest`) kimliği doğrulanmış soketten geliyor. Mesajdaki `direction` yalnız "alıcı mı gönderen mi" yolunu seçiyor. Bir taraf diğerinin adına satır yazamıyor. `session_files`'a yalnız `from.side === receiver` olan rapor giriyor. Kotalar taraf başına ayrıldığı için karşı tarafın OK kotası tüketilemiyor. Müşterinin `accepted` sınıfı yalnız kullanıcı kararlarıyla doluyor: kabul edilmiş transfer veya müşterinin başlattığı gönderim (`files.ts:415-419`, transfer başına bir kez).
+- **`sender_report` ile audit şişirme:** Sınırlı ama yüksek tavanlı (S-P5-T2-3).
+- **`showSaveFilePicker` disk yolu:** Doğrulanmamış içerik hedef adda kalıcılaşmıyor. Özet tutmazsa `abort()` çağrılıyor (`files.ts:119-131`), kayıt penceresi kullanıcı hareketi içinde açılıyor, iptalde teklif beklemede kalıyor. Kısmi dosya konusunda kalan riskler S-P5-T2-1'de.
+
+### [DÜŞÜK] S-P5-T2-1 Disk akışı yolu test edilmemiş; seçim anında hedef dosya oluşuyor/eziliyor, çökmede kısmi `.crswap` kalabiliyor — A04 Insecure Design
+Yer: `apps/web/lib/dc/files.ts:333-350` (`accept`), `files.ts:110-139` (`diskSink`); `files-panel.tsx:41,47` (uyarı ve indirme satırı `x.url` koşulunda)
+Sorun:
+1. Chromium, `showSaveFilePicker` seçimi yapıldığı anda hedef yolda dosyayı oluşturuyor. Mevcut bir dosya seçildiyse onu boşaltıyor. Tarayıcıda ayrıca doğrulanmalı. Bu durumda `abort()` sonrası içerik yazılmıyor ama hedefte 0 baytlık bir dosya kalıyor. Kullanıcı "üzerine yaz" dediyse eski dosya kaybolmuş oluyor.
+2. Yazımlar `close()`'a kadar `<ad>.crswap` geçici dosyasında tutuluyor. Sekme veya tarayıcı çökerse ya da süreç öldürülürse, doğrulanmamış ve saldırganın kontrolündeki kısmi içerik diskte kalabiliyor (ad `.crswap` olduğu için doğrudan çalıştırılamaz).
+3. Disk yolunda `url` olmadığından tamamlanan satırda tehlikeli/çift uzantı uyarısı tekrar gösterilmiyor (S-P5-5'in disk eşi).
+4. Yol için birim testi de e2e testi de yok (`grep showSaveFilePicker|diskSink` test dosyalarında eşleşmiyor).
+İstismar senaryosu: Teknisyen 300 MB'lık bir dosyayı yanlış özetle teklif ediyor. Kullanıcı kayıt yeri olarak var olan bir dosyayı seçiyor. Transfer "bozuk" bitiyor ama kullanıcının eski dosyası 0 bayta inmiş oluyor. Kod çalıştırma yok, etki veri kaybı veya kafa karışıklığı ile sınırlı.
+Düzeltme: frontend-dev:
+- `diskSink` için sahte `WritableLike` ile birim testi yazılmalı: özet tutmazsa `close` çağrılmamalı, `abort` çağrılmalı; iptalde `discard` → `abort`.
+- Kabul diyaloğundaki disk bilgisine (`p5.files.bigDisk`) "mevcut dosyanın üzerine yazmayın; doğrulama başarısız olursa boş dosya kalabilir" uyarısı eklenmeli.
+- `ok` + `dir=in` + `dangerous` satırında uyarı `url` koşulsuz gösterilmeli.
+- İsteğe bağlı: doğrulama başarısız olursa kullanıcıya "boş dosyayı silin" bildirimi gösterilmeli (FSA `remove()` destekleniyorsa `handle.remove()` çağrılabilir).
+
+### [DÜŞÜK] S-P5-T2-2 `file.meta.rate_limited` audit seyreltmesi taraf ayrımı yapmıyor; bir taraf diğerinin aşım kaydını bastırabilir — A09
+Yer: `apps/server/src/signaling/collab.ts:125-129` (`room.fileMeta.auditAt[cls]`; anahtar yalnız sınıf), `types.ts:92`
+Sorun: Kota `taraf:sınıf` başına tutuluyor, ama aşım audit'inin dakikalık seyreltmesi yalnız `sınıf` başına. Teknisyen, WS'ten doğrudan 21 adet `declined` meta göndererek her dakika kendi aşımını tetikleyebiliyor. Bu durumda aynı dakika içinde müşteri tarafında oluşan `declined` aşımı audit'e yazılmıyor, yalnız log ve metrik kalıyor.
+İstismar senaryosu: Müşterinin `declined` kotası tükenmiş olmalı. Bunun için ya müşteri tarafı sınırıyla (5/dk) 100 dakikalık uzun bir oturum gerekir ya da müşteri gerçekten çok ret üretmiş olmalı. Bu ön koşul sağlandığında müşteri elle yaptığı ret/iptal raporlarının düşürüldüğü audit'te görünmez. Etkisi dar, çünkü reddedilen dosya hiç inmemiş oluyor.
+Düzeltme: backend-dev: `auditAt` anahtarını `${side}:${cls}` yapın. Integration testine "teknisyen aşımı + misafir aşımı aynı dakikada → 2 satır" senaryosunu ekleyin.
+
+### [DÜŞÜK] S-P5-T2-3 `sender_report` ve kota tavanları ile audit tablosu şişirilebiliyor — A04 / A09
+Yer: `apps/server/src/signaling/collab.ts:14-18,97-102`
+Sorun: Gönderen raporu da kotadan yer yiyor. Ancak tavanlar yüksek: taraf başına `accepted` 60/dk + `declined` 20/dk, yani dakikada 80 ve oturum başına 2500 audit satırı. Değiştirilmiş konsol, sahte `TO_CUSTOMER` "OK" gönderen raporlarıyla hiçbir transfer yapmadan bu tavana ulaşabiliyor (sunucu gönderen raporunu herhangi bir transferle eşleştirmiyor). Kendi başlattığı N eşzamanlı oturumla (misafiri kendisi kabul ederek) bu sayı N katına çıkıyor. Satırlar teknisyenin `userId`'siyle atfedilebilir ve tenant içi, bu yüzden düşük.
+İstismar senaryosu: İçeriden kötü niyetli bir teknisyen, audit ekranını gürültüyle doldurarak gerçek bir olayı gömmeye çalışıyor (örneğin 10 oturum × 80/dk = 800 satır/dk).
+Düzeltme: backend-dev:
+- Gönderen raporu için ayrı ve düşük bir sınıf tanımlanmalı (ör. `sender` 10/dk, 200/oturum). Meşru akışta bu, transfer başına 1 rapor demek.
+- Teknisyen başına tüm odalardaki `file.meta` toplamı için bir sayaç ya da `rs_file_meta_total{result="sender_reported"}` oran alarmı eklenmeli (runbook).
+- Audit ekranında `action` filtresiyle bu gürültü ayıklanabildiği için acil değil.
+
+### [DÜŞÜK] S-P5-T2-4 `session_files` satırı raporlayanı taşımıyor; gönderen ve alıcı raporları eşleştirilmiyor — A09 (bilgi / risk kabulü)
+Yer: `collab.ts:104-110` (satırda raporlayan yok), migration `session_files`
+Sorun: Alıcı raporu tek kaynak. Değiştirilmiş müşteri istemcisi `TO_CUSTOMER` yönünde sahte bir "teknisyen `x.exe` gönderdi, OK" satırı yazabiliyor (tur 1'den beri tasarım gereği böyle). Audit satırındaki `username: "customer"` bu kaydı ayırt ediyor. Ancak yalnız `session_files`'ı okuyan bir rapor ya da ekran (P12/P13) bunu olgu olarak gösterir. Gönderen raporu ile alıcı raporu arasında `fid` bağı yok, sunucu "iki taraf da aynı sha256'yı bildirdi mi" kontrolünü yapamıyor.
+Düzeltme: mimar: Rapor ekranı tasarlanırken `session_files` audit'teki actor ile birleştirilmeli veya `reporter` kolonu eklenmeli. `file.meta`'ya `fid` eklenerek gönderen ve alıcı raporlarının eşleşmesi gösterilmeli ("doğrulanmış/tek taraflı"). P12/P13 kapsamında ele alınabilir. Şimdilik risk kabulü olarak `docs/mimari-protokol.md` §3'e not düşülmeli.
+
+### Olumlu (tur 2)
+- Kota kontrolü, gönderen/alıcı ayrımından önce ve `too_large` kontrolünden sonra yapılıyor. Yetkisiz (`caps`) meta kota tüketmiyor.
+- `rejectedByDb` ve `auditRateLimited` kendi hatalarını yakalıyor ve `ref` ile logluyor. Hata yanıtlarında stack veya SQL yok.
+- İstemcide teklif sınırı, meta tekilleştirmesi, liste sınırı ve chat/annot sınırı birim testleriyle kapsanmış. `lib/dc` testleri bu turda yeniden çalıştırıldı: **23/23 geçti**.
+- Disk yolunda kayıt penceresi `await`'ten önce ve kullanıcı hareketi içinde çağrılıyor. Seçim sürerken teklif iptal edilirse yazıcı `abort` ediliyor (`files.ts:341`).
+- `verify` tek sefer çalışıyor (durum `receiving` → `verifying` eşzamanlı geçiyor). `hex()` çift çağrılmıyor.
+
+### Otomatik tarama (P5 tur 2)
+- `pnpm audit --audit-level=moderate` → "No known vulnerabilities found".
+- Sır taraması: `git diff` eklenen satırlar, izlenmeyen tüm dosyalar ve P5 dizinleri (`signaling`, `contracts/src`, `contracts/fixtures`, `lib/dc`, `components/collab`, `e2e/p5-collab.spec.ts`) api_key/secret/password/token (≥ 8 karakter değer), AKIA, ghp_ ve özel anahtar kalıplarıyla tarandı → **eşleşme yok** (tek isabet, bu raporun önceki turdaki açıklama satırı).
+- `git log --all -- '*.env*'` → yalnız `.env.example`.
+
+### Öneri (`docs/gereksinimler.md` §9 "Sonra")
+S-P5-T2-1 (disk yolu testi ve uyarı), S-P5-T2-2 (`auditAt` taraf anahtarı, küçük düzeltme, bu pakette yapılabilir), S-P5-T2-3 (gönderen raporu için ayrı düşük kota ve alarm), S-P5-T2-4 (raporlayan ve `fid` eşleşmesi, P12/P13). P5 için güvenlik kapısı açık: Kritik/Yüksek 0.

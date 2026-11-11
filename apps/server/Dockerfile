@@ -44,6 +44,10 @@ COPY . .
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --offline --frozen-lockfile --prod --filter "@remote/server..."
 COPY --from=tooling /repo/apps/server/src/generated apps/server/src/generated
+# Geliştirme/test betikleri (e2e-real-users.ts, test-db.sh) prod imajına girmez (S-P4-T2-2).
+# Ara aşamada silinir; runtime yalnız bu aşamadan kopyaladığı için katmanda da iz kalmaz.
+# migrate/seed hedefi (`tooling`) etkilenmez: seed `prisma/seed.ts` kullanır, scripts/ değil.
+RUN rm -rf apps/server/scripts
 
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production \

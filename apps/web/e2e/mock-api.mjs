@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 // Çerez/başlık adları tek kaynaktan (Node 24 .ts tür ayıklama ile doğrudan okunur)
 import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import { handleSessions, sessionUser } from "./mock-sessions.mjs";
-import { attachWs } from "./mock-ws.mjs";
+import { attachWs, wsLog } from "./mock-ws.mjs";
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
 const CSRF = "csrf-test-token";
@@ -56,6 +56,9 @@ const srv = createServer(async (req, res) => {
   const c = cookies(req);
   const session = c[SESSION_COOKIE];
   const url = req.url ?? "";
+  // P5 e2e: sahte sunucunun aldığı file.meta / quality.summary kaydı (yalnız test)
+  const logHit = req.method === "GET" && url.match(/^\/__e2e\/ws-log\/([0-9A-Z]{26})$/);
+  if (logHit) return send(res, 200, wsLog.get(logHit[1]) ?? []);
   const csrfOk = req.headers[CSRF_HEADER.toLowerCase()] === CSRF && c[CSRF_COOKIE] === CSRF;
   // Backend gibi: durum değiştiren isteklerde Origin allowlist'te olmalı (ADR-0008)
   if (req.method !== "GET" && req.headers.origin !== (process.env.MOCK_ALLOWED_ORIGIN ?? "http://localhost:3217"))

@@ -57,6 +57,17 @@ export interface TechConn {
   ctx: AuditContext;
 }
 
+/**
+ * `file.meta` kota sınıfı (alıcı raporu): OK/CORRUPT = kabul edilmiş transferin sonucu (`accepted`); REJECTED/CANCELLED =
+ * ret/iptal (`declined`). Gönderen raporu sonuçtan bağımsız ayrı ve düşük kotalı `sender` sınıfındadır (S-P5-T2-3).
+ */
+export type FileMetaClass = "accepted" | "declined" | "sender";
+export interface FileMetaQuota {
+  windowStart: number;
+  inWindow: number;
+  total: number;
+}
+
 export interface Room {
   sessionId: string;
   tenantId: string;
@@ -74,6 +85,18 @@ export interface Room {
   reconnectHash?: string;
   maxEndsAt?: number;
   caps: Cap[];
+  /** P5: tenant dosya üst sınırı (MB), admit anında okunur; hello/peer.joined ile iki tarafa (AC-53). */
+  maxFileMb?: number;
+  /**
+   * P5 `file.meta` hız sınırı (db-notlari P5/1; S-P5-1): sayaç raporlayan taraf × sonuç sınıfı başına ayrı
+   * (`tech:accepted`, `guest:declined`, `tech:sender` …) — ret seli kabul edilmiş transferin kaydını düşüremez. `auditAt`:
+   * taraf × sınıf (`${side}:${cls}`) başına son `file.meta.rate_limited` audit anı (dakikada en çok 1; S-P5-T2-2).
+   */
+  fileMeta: { quotas: Map<string, FileMetaQuota>; auditAt: Map<string, number> };
+  /** P5 `quality.summary` son yazım anı (ms); MIN aralıktan sık gelen özet DB'ye gitmez. */
+  qualityAt?: number;
+  /** S-P4-T3-2: son `reconnect.conflict` audit anı (ms); oda başına dakikada en çok 1 kayıt. */
+  reconnectConflictAuditAt?: number;
   /** Misafirden gelen son `share.state` (QA-P4-12): teknisyen yeniden bağlanınca hello'da gönderilir; misafir ayrılınca "stopped". */
   share?: ShareSnapshot;
   timers: { disconnect?: unknown; warn?: unknown; maxEnd?: unknown; iceRefresh?: unknown; idle?: unknown };

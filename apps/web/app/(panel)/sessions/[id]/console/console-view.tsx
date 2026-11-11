@@ -4,6 +4,8 @@ import type { SessionView } from "@remote/contracts/api/sessions";
 import { ArrowLeft, CircleX, MousePointer2, Power } from "lucide-react";
 import Link from "next/link";
 import { useId, useState } from "react";
+import type { DrawTool } from "@/components/collab/annot-layer";
+import { AnnotToolbar, CollabSide, type CollabTab } from "@/components/console/collab-side";
 import { LobbyPanel } from "@/components/console/lobby-panel";
 import { Stage } from "@/components/console/stage";
 import { Alert } from "@/components/ui/alert";
@@ -17,13 +19,26 @@ import { toUiError } from "@/lib/error-message";
 import { formatRemaining, formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { useNow } from "@/lib/use-now";
+import type { AnnotColor } from "@/lib/dc/ctl";
+import { useCollab } from "@/lib/dc/use-collab";
+import { useQuality } from "@/lib/webrtc/use-quality";
 import { useTechSession } from "@/lib/webrtc/use-tech-session";
 
 const pill = "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap";
 
 /** Konsol: üst bar (müşteri, durum, süre, doğrulama kodu, bitir/iptal) + sahne. Sohbet/dosya/işaretleme/kalite P5. */
-export function ConsoleView({ session }: { session: SessionView }) {
-  const { state, stream, admit, reject, end } = useTechSession(session.id);
+export function ConsoleView({ session, canFiles }: { session: SessionView; canFiles: boolean }) {
+  const { state, stream, channels, pc, send, maxFileMb, admit, reject, end: endWs } = useTechSession(session.id);
+  const [tab, setTab] = useState<CollabTab>("chat");
+  const [tool, setTool] = useState<DrawTool | null>(null);
+  const [color, setColor] = useState<AnnotColor>("red");
+  const collab = useCollab(channels, { inbound: "TO_TECH", filesAllowed: canFiles, chatVisible: tab === "chat", receiveAnnot: false, sendMeta: send, maxFileMb });
+  const quality = useQuality(pc, send);
+  // AC-46: oturum sonunda son kalite özeti (session.end'den önce)
+  const end = () => {
+    quality.flush();
+    endWs();
+  };
   const now = useNow();
   const toast = useToast();
   const [confirm, setConfirm] = useState(false);
@@ -122,13 +137,35 @@ export function ConsoleView({ session }: { session: SessionView }) {
           </Link>
         </section>
       ) : (
-        <Stage
-          state={state}
-          stream={stream}
-          verifyCode={session.techVerifyCode}
-          sessionCode={session.code}
-          lobby={<LobbyPanel state={state} onAdmit={admit} onReject={(p) => reject(p.guestId)} />}
-        />
+        <div className="flex flex-col gap-3 xl:flex-row">
+          <Stage
+            state={state}
+            stream={stream}
+            verifyCode={session.techVerifyCode}
+            sessionCode={session.code}
+            lobby={<LobbyPanel state={state} onAdmit={admit} onReject={(p) => reject(p.guestId)} />}
+            annot={collab.ready ? {
+              state: collab.annot,
+              input: tool ? {
+                tool,
+                color,
+                onStroke: (s) => collab.sendAnnot({ t: "annot.stroke", id: s.id, tool: s.tool, color: s.color, pts: s.pts }),
+                onLaser: (x, y) => collab.sendAnnot({ t: "annot.laser", x, y }),
+              } : null,
+            } : null}
+            tools={collab.ready ? (
+              <AnnotToolbar
+                tool={tool}
+                color={color}
+                onTool={setTool}
+                onColor={setColor}
+                onUndo={() => collab.sendAnnot({ t: "annot.undo", ...(collab.annot.strokes.at(-1) ? { id: collab.annot.strokes.at(-1)?.id } : {}) })}
+                onClear={() => collab.sendAnnot({ t: "annot.clear" })}
+              />
+            ) : null}
+          />
+          {live && <CollabSide collab={collab} quality={quality} canFiles={canFiles} peerName={name} tab={tab} onTab={setTab} />}
+        </div>
       )}
 
       <Dialog

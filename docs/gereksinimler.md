@@ -197,6 +197,17 @@ Kaynak: `~/.claude/checklists/tasarim-kontrol-listesi.md` bölüm 1, 5, 8, 9.
 | 9. Dokümantasyon planı | Kapsamda: README, docs/api.md, KULLANIM_KILAVUZU, DATASHEET, PDF, ADR'ler, kurumsal hash allowlist rehberi, SmartScreen rehberi | Ortak standart 1.7 |
 | Sonra | Oturum kaydı, çoklu teknisyen, ses, clipboard, macOS/Linux istemci, SSO, SMS/WhatsApp link, İngilizce, ITSM entegrasyonu, SAS (DTLS parmak izi) doğrulaması (G-14), oturum sonu müşteri özeti (G-17-6; AC-107 ile çelişir, tasarım gerekir), OpenSSF Scorecard (G-18), SignPath Foundation imzası (ADR-0010) | Unutulmasın diye |
 
+### Sonra / açık — P5'ten (2026-11-11)
+Kaynak: `docs/guvenlik-raporu.md` (P5 turları), `docs/qa-raporu.md` (P5); mimar kararı (`docs/mimari.md` §3.1 `session_files` risk kabulü, §10.3 P5).
+
+| Madde | Ne yapılacak | Sahip | Ne zaman |
+|---|---|---|---|
+| S-P5-T2-4 (risk kabulü) | `session_files` satırı raporlayan tarafı taşımıyor; gönderen/alıcı raporları `fid` ile eşleşmiyor → değiştirilmiş müşteri istemcisi sahte `TO_CUSTOMER` satırı yazabilir (bugün yalnız audit actor ile ayrılır). Çözüm: `reporter` kolonu (`TECH\|CUSTOMER`) **veya** iki taraf raporunun `fid` ile eşleştirilmesi; geçmiş/CSV yalnız eşleşen ya da teknisyen raporlu satırı "doğrulanmış" gösterir | dba + backend-dev | P12/P13 |
+| S-P5-T2-1 kalanı | Chromium `showSaveFilePicker` seçim anında hedef dosyayı oluşturuyor/boşaltıyor: özet bozuk (CORRUPT) çıkarsa 0 baytlık dosya kalır veya üzerine yazılan mevcut dosya kaybolur. Gerçek tarayıcıda doğrulanacak; kayıt diyaloğu öncesine "Var olan bir dosyanın üzerine yazmayın; aktarım bozulursa dosya boş kalabilir" uyarı metni eklenecek | frontend-dev | P13 öncesi |
+| QA-P5-4 / AC-41 | 1080p ≥15 FPS ölçümü: frontend headless Chromium'da deniyor; headless'ta anlamlı ölçülemezse staging gerçek tarayıcı ölçümüne ertelenir (NAT ölçümleriyle birlikte, bkz. QA-P4-10), sonuç `docs/test-raporu.md` | test-operatoru (+ frontend-dev) | NAT açılınca staging ölçümü; en geç P6 başlamadan |
+| TEST-P5-4 (Düşük) | Sohbet: alıcı tarafı saniyede 5 mesaj sınırı (`apps/web/lib/dc/rate.ts` `IN_LIMITS.chat`) aşılınca fazla mesajlar sessizce düşüyor; gönderen tarafa aynı sınır + "çok hızlı yazıyorsunuz" uyarısı eklenecek (dosya teklif öz-sınırı gibi) | frontend-dev | P7 ilk turu |
+| AC-57 p95 | İşaretlemenin müşteri tarafında görünme gecikmesi (RTT < 100 ms ağda p95 < 200 ms) staging'de gerçek ağ/TURN yolu üzerinden tekrar ölçülür; yerel/headless sonuç ön kanıttır | test-operatoru | NAT açılınca staging ölçümü |
+
 ### Sonra / açık — P4 düzeltme turundan (2026-11-11)
 Kaynak: `docs/qa-raporu.md` QA-P4-10; mimar kararı (`docs/mimari.md` §10.3 P4).
 
@@ -205,7 +216,7 @@ Kaynak: `docs/qa-raporu.md` QA-P4-10; mimar kararı (`docs/mimari.md` §10.3 P4)
 | QA-P4-10 — AC-23, AC-40, AC-42 staging ölçümleri | P4 kapanışından ayrıldı. pfSense'te TURN NAT kuralları (3478/udp+tcp, 5349/tcp, 49160–49199/udp; mimari §8.3.1) açılınca: UDP kapalı/5349 açık ağda TURN-TLS bağlantısı (AC-23; 443 doğrulaması P13), medya gecikme/akıcılık (AC-40) ve encoder/çözünürlük ayarları (AC-42) staging'de ölçülüp `docs/test-raporu.md`'ye yazılır. coturn kurulu, sunucu içi testler geçti | kullanıcı (NAT) → test-operatoru (+ devops) | NAT açılınca; en geç P6 başlamadan (P6 istemci ölçümleri aynı yolu kullanır) |
 | S-P4-T3-1 (Düşük) | Misafir `rs.resume.*` kaydına zaman damgası; 120 sn'den eski kayıt okunmaz (kapatılan sekmeyi yeniden açma/çoğaltma ile paylaşılan bilgisayarda dönüş riski) | frontend-dev | P5 ilk düzeltme turu |
 | S-P4-T3-2 (Düşük) | Misafir reconnect yeniden deneme süresi ≥100 sn (sunucu ölü soketi ~90 sn'de düşürür); `reconnect.conflict` audit'i oda başına dakikada 1 | frontend-dev + backend-dev | P5 ilk düzeltme turu |
-| S-P4-T2-2 kalan | `apps/server/scripts/` prod imajına giriyor (koruma: `NODE_ENV` + `E2E_REAL_ALLOW=1`); imajdan çıkarılması | devops | P5 |
+| ~~S-P4-T2-2 kalan~~ **kapandı 2026-11-11** | `apps/server/scripts/` prod imajına giriyor (koruma: `NODE_ENV` + `E2E_REAL_ALLOW=1`); imajdan çıkarılması | devops | Kapandı (P5): `apps/server/Dockerfile` `prod-deps` aşamasında `rm -rf apps/server/scripts`; yerel `docker build --target runtime` imajında `/app/apps/server/scripts` yok, `migrate` hedefinde `prisma/seed.ts` + `tsx` mevcut (implementation.md DevOps P5) |
 | TEST-P4-3 (Düşük) | "Permissions policy violation: camera" konsol uyarısı — kod kamera istemiyor; gerçek Chrome'da doğrulanacak (Chromium fake-media yan etkisi şüphesi) | kullanıcı / test-operatoru | Staging testinde |
 
 ### Sonra / açık — P3 kod turundan (2026-11-11)
