@@ -280,3 +280,126 @@ Atanan: frontend-dev
 ### Not
 - AC-41 (1080p ≥15 FPS) bu turun kapsamı dışında kaldı.
 
+
+## NAT sonrası TURN ölçümleri (2026-11-11, test-operatoru)
+DURUM: DÜZELTİLMELİ — AC-23, AC-40, AC-42, AC-57 GEÇTİ (headless ön kanıt) · AC-41 KALDI (UDP relay yolunda kayıp) · 1 YÜKSEK, 2 ORTA, 1 DÜŞÜK bulgu
+Ortam: yerel gerçek yığın (MySQL 8.4 konteyneri `rs-mysql-e2e-turn` :33327, server :3322, standalone web :3238,
+`NEXT_PUBLIC_RS_E2E=1` derlemesi; çalışma ağacının anlık görüntüsü, `main` @ `1a63e6a`). Server'ın `TURN_URLS` ve `TURN_SECRET`
+değerleri staging'den okundu ve yalnız server sürecinin ortamına verildi. Rapora, JSONL'e ve test dosyalarına secret girmedi;
+JSONL'de `credential|secret|password` taraması 0 eşleşme verdi. Staging'e tarayıcıyla giriş yapılmadı.
+ICE sunucuları: `stun:…:3478`, `turn:…:3478?transport=udp`, `turn:…:3478?transport=tcp`, `turns:…:5349?transport=tcp` (staging coturn).
+Tarayıcı: Playwright Chromium (headless). Ekran kaynağı canvas `captureStream(30)` ile sahte `getDisplayMedia`.
+Bayraklar: `--disable-features=WebRtcHideLocalIpsWithMdns`, `--use-fake-ui-for-media-stream`.
+Spec: `docs/test-raporu/e2e/turn-olcum.spec.ts`, config: `turnop.config.ts`. Ham örnekler: `docs/test-raporu/e2e/nat-turn-olcum/olcumler.jsonl`,
+özetleyici: `analiz.mjs`.
+
+**Yöntem**
+- **Relay zorlaması:** `addInitScript` ile `RTCPeerConnection` sarmalandı. `iceTransportPolicy:"relay"` hem yapıcıda hem
+  `setConfiguration`'da eklendi. Koşu kipine göre URL süzüldü: `any` (hepsi), `udp`, `tcp`, `tls` (yalnız `turns:` = UDP kapalı ağ benzetimi).
+- **Kanıt:** seçili aday çifti `getStats().values()` ile alındı (`transport.selectedCandidatePairId` → `local-candidate` / `remote-candidate`).
+  Her koşuda iki taraf için de `local.candidateType=relay`, `remote.candidateType=relay`, `iceTransportPolicy=relay` ve `connectionState=connected` görüldü.
+- **Örnekleme:** 65 sn boyunca 1 sn'de bir. Teknisyende `inbound-rtp` (fps, framesDecoded farkı, kbps, kayıp, jitter,
+  jitter buffer), aday çifti RTT. Misafirde `outbound-rtp` (fps, çözünürlük, targetBitrate, qualityLimitationReason, codec).
+- **Ekran saati (AC-42):** kaynak canvas her karede `timeOrigin+now` değerini (düşük 32 bit) siyah/beyaz bloklarla, sağlama için iki kopya halinde basar.
+  Teknisyen her `requestVideoFrameCallback` karesinde blokları çözer. Gecikme = gösterim anı − kodlanan an (aynı makine saati).
+- **İlk kare (AC-40):** misafirin "paylaş" tıklaması (capture dinleyicisi) ile teknisyende `framesDecoded` artışı arasındaki süre (10 ms yoklama).
+  Kurulmuş bağlantıda 20 kez durdur → 2 sn bekle → başlat döngüsü.
+- **İşaretleme (AC-57):** teknisyen `pointerup` anı ile müşteride `data-strokes` artışı arası ölçüldü ("göründü"; sonraki rAF ise "boyandı").
+  220 çizgi, her 50 çizgide bir "Temizle" (MAX_STROKES=200 sınırı yüzünden).
+
+### Ölçüm sonuçları (1280×720 kaynak, 30 fps, relay)
+| Koşu (izin verilen URL) | Seçilen çift (yerel → uzak) | relayProtocol | fps p50 / min (5 sn sonrası) | Alınan kbps p50 (p5–p95) | RTT ms p50 / p95 / maks | Kayıp (paket) | Ekran saati ms p50 / p95 / maks |
+|---|---|---|---|---|---|---|---|
+| `tls` (yalnız `turns:5349`) | relay/udp → relay/udp | **tls** | 30 / 29 | 1136 (1037–1228) | 13 / 16 / 19 | 0 / 9327 | 35 / 53 / 61 |
+| `any` (tüm URL'ler) | relay/udp → relay/udp | **tcp** (Chrome tcp relay'i seçti) | 30 / 29 | 1134 (1047–1236) | 13 / 26 / 35 | 0 / 9334 | 35 / 52 / 62 (ısınma dahil maks 115) |
+| `udp` (yalnız `turn:…?transport=udp`) | relay/udp → relay/udp | **udp** | 30 / **1** | 1154 (635–2359) | 12 / 15 / 17 | **469 / 10173** (%4,6), freeze 3 | 47 / 77 / **1465** |
+| `tcp` (yalnız `turn:…?transport=tcp`) | — bağlanmadı | — | — | — | — | — | — (bkz. TEST-NAT-2) |
+
+Not: bit hızı düşük görünüyor (~1,1 Mbps) çünkü sentetik içerik düz renk alanlarından oluşuyor ve iyi sıkışıyor. Gerçek masaüstünde daha yüksek olur.
+
+**Kodlayıcı ayarları (misafir göndericisi, üç koşuda da aynı):** codec **VP8** (sıra: VP8, rtx, VP9 p0, VP9 p2 …).
+Gönderilen çözünürlük her örnekte **1280×720**: küçültme yok, `qualityLimitationReason=none` (65 örnekte 64, bir kez kısa süre `bandwidth`).
+`RTCRtpSender.getParameters().encodings=[{active:true, priority:"low", networkPriority:"low"}]`: uygulama **maxBitrate, scaleResolutionDownBy,
+maxFramerate ve degradationPreference ayarlamıyor**. `targetBitrate` Chrome varsayılanı olan 2500 kbps'ye oturuyor. SDP'de `b=AS`/`b=TIAS` yok.
+`track.contentHint="detail"`, yakalama 30 fps.
+
+**İlk kare (AC-40), 20 döngü:** `any` p50 42,5 / **p95 57,0** / maks 58,2 ms; `tls` p50 43,5 / **p95 47,4** / maks 59,8 ms.
+Yeni oturumda paylaşımdan sonra konsolda video görünene kadar geçen süre (Playwright yoklaması, üst sınır): 154–175 ms.
+
+**İşaretleme (AC-57), 2×220 örnek:**
+- `any`: göründü p50 6,6 / **p95 8,0** / maks 10,5 ms; boyandı p95 23,7 ms. 220/220 çizgi ulaştı.
+- `tls`: göründü p50 7,0 / **p95 8,9** / maks 11,3 ms; boyandı p95 14,0 ms. 220/220 çizgi ulaştı.
+
+### Kabul kriterleri
+| AC | Sonuç | Ölçüm / nasıl |
+|---|---|---|
+| AC-23 (UDP kapalı, yalnız TLS → TURN-TLS) | ✅ GEÇTİ (ön kanıt) | Yalnız `turns:5349` URL'si + relay politikası verildi. Seçili yerel aday `relay`, `relayProtocol=tls`, URL `turns:…:5349`. 65 sn boyunca 30 fps, 0 kayıp, RTT p50 13 ms. **Koşul:** staging sertifikası güvenilir olmalı (TEST-NAT-1). 443 doğrulaması P13'te yapılacak. |
+| AC-40 (ilk kare p95 < 8 sn, TURN) | ✅ GEÇTİ | p95 57 ms (`any`), 47 ms (`tls`). ICE kurulumu dahil değil: kriter "paylaşım onayından sonra" diyor ve ICE kabul anında kuruluyor. |
+| AC-41 (1080p ≥ 15 FPS) | ❌ KALDI (bu yolda; "≥ 5 Mbps" ön koşulu sağlanamadı) | Ek koşu: yalnız 1080p testi (`--grep 1920x1080`), tüm URL'ler + relay. Chrome bu kez **UDP relay** seçti (`relayProtocol=udp`, RTT p50 12 ms). 80 sn örnek; alınan çözünürlük her örnekte **1920×1080**. İlk 42 sn 29–31 fps (çoğunlukla), ardından kayıp patlamaları: toplam kayıp **2077 / 16419 paket (%12,7)**, freeze **11**, dropped 31; ~12 sn hiç kare çözülmedi (fps örneği yok). Gönderici `qualityLimitationReason=bandwidth` 20/80 örnek, targetBitrate 2500 → 71 kbps'e, availableOutgoingBitrate p5 195 kbps'e düştü. fps (getStats) p50 30, p5 4, min 2; 80 örneğin 26'sında < 15 veya kare yok (ilk 65 sn'de 12/65). Ekran saati p50 56 / p95 634 / maks 2130 ms. Kodlayıcı VP8, 1920×1080 küçültmesiz, `contentHint=detail`, maxBitrate yok. Değerlendirme: kayıpsız dönemde 1080p 30 fps taşınıyor; ancak bu UDP relay yolu ölçüm boyunca 5 Mbps'i sürdüremedi (TEST-NAT-3 ile aynı örüntü), bu yüzden kriter bu koşuda sağlanmadı. Aynı sırada bir devops ajanı TURN sunucusunda tanı yapıyordu; etkisi dışlanamadı. Tekrar: kayıpsız bir yolda (TCP/TLS relay veya sabah gerçek ağ testi). |
+| AC-42 (RTT < 50 ms ağda uçtan uca gecikme p95 < 400 ms) | ✅ GEÇTİ | Ekran saati p95: 52 ms (`any`/tcp relay), 53 ms (`tls`), 77 ms (`udp`). RTT p50 12–13 ms. Görevin istediği kodlayıcı ayarları yukarıda listelendi; uygulama açık bir kodlayıcı ayarı yapmıyor, ölçümler Chrome varsayılanlarıyla alındı. |
+| AC-57 (işaretleme p95 < 200 ms) | ✅ GEÇTİ | 440 örnek: göründü p95 8,0 / 8,9 ms, boyandı p95 ≤ 23,7 ms. |
+
+### Bulgular
+#### TEST-NAT-1 [ORTA] Chrome, staging TURN-TLS sertifikasına güvenmiyor; yalnız TLS açık ağda bağlantı kurulamıyor
+Akış: yalnız `turns:185.126.217.99:5349` URL'si + relay politikası (UDP kapalı ağ benzetimi).
+Adımlar:
+1. Yukarıdaki spec'i `TURNOP_MODES=tls` ile `TURNOP_SPKI` vermeden koştur.
+2. Kabul et.
+3. ctl DataChannel'ın açılmasını bekle.
+
+Beklenen: TURN-TLS relay ile bağlantı.
+Gerçekleşen: iki tarafta da `icecandidateerror` 701 "Failed to establish connection" (url `turns:…:5349`). Aday toplanmadı, 30 sn içinde bağlantı yok.
+Kök neden: sertifika `CN=185.126.217.99`, düzenleyen `CN=Remote Support Staging TURN CA`. Bu özel CA sistemde güvenilir kök değil ve Chrome TURN-TLS sertifikasını doğruluyor.
+Yalnız bu sertifikanın genel anahtarı `--ignore-certificate-errors-spki-list=<SPKI sha256>` ile güvenilir kılınınca AC-23 geçti.
+Runbook §9.4 zaten `ca.crt`'nin test makinelerine kurulmasını söylüyor. **Kullanıcının sabah Windows/Chrome testinde `ca.crt` Windows kök deposuna kurulmazsa AC-23 KALIR.**
+Staging'de gerçek müşteriler için TLS yedek yolu çalışmaz; prod'da Let's Encrypt sertifikası (P13) şart.
+Atanan: devops (runbook'ta sabah testi ön koşulu olarak vurgulanmalı).
+
+#### TEST-NAT-2 [ORTA] Yalnız `turn:3478?transport=tcp` verildiğinde ICE kurulamıyor (3 koşuda 3 kez tekrarlandı)
+Adımlar:
+1. `TURNOP_MODES=tcp` (yalnız `turn:…:3478?transport=tcp` + relay).
+2. Kabul et.
+
+Beklenen: TCP üzerinden TURN relay.
+Gerçekleşen: iki taraf da relay adayı alıyor (`typ relay`, öncelik 16785407 = TCP-relay sınıfı), yani tahsis başarılı.
+Ancak ICE `checking → disconnected` oluyor ve 30 sn içinde bağlanmıyor.
+Çelişki: `any` koşusunda Chrome kendiliğinden `relayProtocol=tcp` çiftini seçti ve 65 sn sorunsuz çalıştı.
+Sorun yalnız iki taraf da TCP ile tahsis yaptığında çıkıyor.
+Sunucu tarafı (salt okuma): tcp koşularının saatlerinde coturn logunda `ERROR udp send: Operation not permitted` görüldü (10:00:27Z, 10:01:37Z).
+Bu sırada `REMOTE-TURN-OUT` DROP sayaçları değişmedi (0/6/0). Yani EPERM bu zincirden gelmiyor gibi.
+Kök neden belirlenmedi.
+Etki: UDP'nin kapalı olduğu ve 5349'un da engellendiği bir ağda TCP 3478 yedeği çalışmayabilir. Yalnız TLS yolu (TEST-NAT-1 koşuluyla) kanıtlandı.
+Atanan: devops (coturn verbose log + `tcpdump` ile iki TCP tahsisli relay↔relay yolu, host firewall/conntrack).
+
+#### TEST-NAT-3 [YÜKSEK — AC-41 ek koşusu sonrası yükseltildi] UDP relay yolunda kayıp patlamaları
+`udp` koşusu: 469/10173 paket kaybı (%4,6). Teknisyende 3 freeze, fps minimum 1, ekran saati maksimum 1465 ms.
+Isınma testinde de ilk saniyede 130 paket kayboldu. Aynı dakikalarda TCP/TLS relay ile 0 kayıp ölçüldü.
+Kayıp, Mac'in ev/ofis ağı ile pfSense arasındaki UDP yolunda olabilir. Ürün hatası olduğu kanıtlanmadı; RTT 12 ms ve sabit.
+Kalite paneli/uyarı eşikleri (AC-45) bu tür kayıpları göstermeli. Sabah testinde gözlenmeli.
+AC-41 ek koşusunda (1080p, Chrome UDP relay seçti) aynı örüntü daha ağır: %12,7 kayıp, 11 freeze, ~12 sn kare yok; AC-41 bu yüzden KALDI. TCP/TLS relay koşularında 0 kayıp → kayıp UDP yoluna özgü (Mac ağı ↔ pfSense ↔ coturn UDP 3478/49160–49199). Ürün kodu hatası kanıtlanmadı.
+Atanan: devops (pfSense UDP NAT durum tablosu/rate limit, coturn UDP tamponları, yol üzerinde iperf3 UDP ölçümü).
+
+#### TEST-NAT-4 [DÜŞÜK] İlk `any` koşusunda bir işaretleme çizgisi müşteriye ulaşmadı (sonra tekrarlanmadı)
+Adımlar: `any` koşusu, 24. çizgi. Teknisyen çizdi; müşteri `data-strokes` değeri 23'te kaldı (5 sn bekleme).
+Teknisyen tarafındaki sayaç kaydedilmediği için kaybın harness'ta mı (pointer olayı) yoksa DataChannel/alıcı sınırında mı olduğu ayrılamadı.
+Spec bundan sonra kayıpları ayrıca kaydedecek şekilde değiştirildi. Sonraki 440 çizgide kayıp 0.
+Atanan: frontend-dev (yalnız bilgi; tekrar üretilirse incelenir).
+
+### Sınırlamalar
+- **Tek ağ ucu:** iki tarayıcı aynı Mac'te. Yol "Mac (78.189.180.148) → staging relay → Mac" ve gerçek internetten geçiyor, ancak ağ ucu tek.
+  İki relay aynı coturn'de; relay↔relay trafiği sunucu içinde kalıyor. Farklı ISP/NAT arkasındaki müşteri–teknisyen yolu ölçülmedi.
+- **Headless Chromium:** sentetik canvas kaynağı, VP8 yazılım kodlayıcı, ekran kartı yok. Sonuçlar ön kanıt.
+  Gerçek Windows/Chrome ve gerçek masaüstü (yüksek entropili içerik, daha yüksek bit hızı) sabah testinde.
+- **AC-23 benzetimi:** UDP tarayıcıda URL süzgeciyle kapatıldı, işletim sistemi/ağ seviyesinde değil.
+  Staging sertifikasına yalnız SPKI bayrağıyla güvenildi (TEST-NAT-1).
+- **AC-40:** ilk kare ölçümü kurulmuş bağlantıda paylaşımı durdurup yeniden başlatarak yapıldı.
+  İlk paylaşımın UI süresi (154–175 ms) ayrıca kaydedildi.
+- **AC-57:** "göründü" React durum/DOM güncellemesi anıdır. Boyama bir sonraki rAF'tır; gerçek piksel sunumu birkaç ms daha geç olabilir.
+- **AC-41:** tek 80 sn koşu; Chrome aday seçimini kendisi yaptı (UDP). TCP/TLS relay üzerinde 1080p ölçülmedi.
+
+### Görsel gözlemler
+- `docs/img/nat-turn-tls-720p-konsol.png`: kalite paneli "Bağlantı iyi · 30 FPS · 1.147 kbps · RTT 13 ms · kayıp %0 · 1280×720 · TURN (aktarma)" gösteriyor. getStats ölçümleriyle tutarlı.
+- İşaretleme araç çubuğu ve "Tam ekran" düğmesi paylaşılan görüntünün üst ~60 px'ini kapatıyor (video üstüne bindirme).
+  Müşteri ekranının üst kenarındaki (ör. pencere başlığı) içerik bu alanda okunmuyor. Tasarım kararı olabilir; DÜŞÜK gözlem, bulgu olarak açılmadı.
+- `docs/img/nat-turn-any-1080p-konsol.png`: AC-41 ek koşusunun sonunda çekildi. Kalite paneli doğru uyarı veriyor: "Bağlantı zayıf — kare hızı düşük · 4 FPS · 201 kbps · RTT 13 ms · 1920×1080 · TURN (aktarma)" (AC-45 olumlu).
+  Paneldeki "Paket kaybı %0" yalnız son saniyenin farkını gösteriyor; kümülatif kayıp %12,7'ydi.

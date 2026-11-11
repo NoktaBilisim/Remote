@@ -185,8 +185,12 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
 - `sudo -E ./test-denied.sh` (2026-11-11): 60 PASS / 3 FAIL — 2'si kota/kapasite (486, "Cannot complete Allocation";
   elle yeniden denemede 403 PASS), 1'i aralık içi relay↔relay echo (genel IP VM'de yerel değil → hairpin gerekir; NAT +
   reflection açılınca yeniden koşulur). Aralık dışı 3480/3478/53 DROP PASS. Ayrıntı test-raporu.
-- **Dış erişim: KAPALI** — üst NAT'ta TURN portları henüz yönlendirilmedi (2026-11-11 dış testte 3478/tcp, 5349/tcp zaman
-  aşımı, 3478/udp STUN yanıtı yok; 4450 açık). NAT kuralları açılana kadar istemciler yalnız host/srflx adaylarıyla bağlanır.
+- **Dış erişim: AÇIK (2026-11-11, pfSense NAT kuralları §8.2 uygulandı).** Dış makineden (genel IPv4) doğrulama:
+  3478/tcp ve 5349/tcp bağlanıyor; `turnutils_stunclient` XOR-MAPPED = istemcinin genel IP'si (SNAT yok);
+  `turnutils_uclient -y` (relay↔relay, NAT reflection) UDP / TCP / TLS-5349: 0 kayıp, RTT ort. 6–7 ms (kısa ömürlü HMAC
+  kimliği sunucuda üretildi, secret yazdırılmadı). Sunucuda `test-denied.sh`: 62 PASS / 1 FAIL — FAIL kapasite beklemesi
+  ("Cannot complete Allocation"); aynı adres (172.31.255.255) elle tekrarda 403 → fiilen 63/63. **S-P3-2 aralık içi
+  relay↔relay echo PASS** (hairpin artık çalışıyor). Log: sunucuda `/root/test-denied-nat.log`.
 - **Uygulandı (tarihçe, 2026-11-11 P3+P4 yayını):** `deploy/turn/` artık repoda; aşağıdaki prosedür yalnız kayıt içindir,
   yeni kurulumda gerekmez. `deploy/turn/` repoya girmeden önce rsync ile kopyalanmıştı (sunucuda `?? deploy/turn/`; sırlar
   `.git/info/exclude`'da). İlk `git pull`'da "untracked working tree files would be overwritten" çıkarsa sırlar korunarak:
@@ -401,6 +405,9 @@ Aydınlatma metni/VERBİS kaydında "TURN bağlantı logu, 7 gün" olarak geçer
 | coturn logunda `ERROR no-cli option is deprecated` | base.conf'a `no-cli` eklenmiş — kaldırın (r5 m.3) |
 | Her peer 403 | local dosyada çok geniş satır (ör. `::`); `docker compose run --rm -e TURN_CONFIG_CHECK=1 coturn` ile birleşik yapılandırmayı görün (secret maskeli) |
 | TLS (5349) bağlanmıyor | `certs/turn.key` sahibi 65534 değil / dosya yok (logda `no-tls` UYARISI); test makinesinde `ca.crt` kurulu değil |
+| Yalnız `turn:…?transport=tcp` ile ICE kurulmuyor (TEST-NAT-2) | Altyapı değil (2026-11-11 tanısı, implementation.md): `turnutils_uclient -t -y -n 50 -m 1 <özel IP>` 0 kayıp olmalı; minimal iki-PC Chrome testi bağlanıyorsa sorun uygulama/harness'ta (`ice.servers` → `setConfiguration`) |
+| coturn logunda `udp send: Operation not permitted` | Çoğunlukla `REMOTE-TURN-OUT` DROP'u (relay → kendi adresi, aralık dışı port; test-denied'de beklenir): `iptables -L REMOTE-TURN-OUT -vnx` sayacı aynı anda artar. Tek satır bağlantıyı kesmez; sürekli artıyorsa `nf_conntrack_count/max` |
+| UDP relay'de kayıp patlaması, TCP/TLS temiz (TEST-NAT-3) | Sunucu: `ip -s link show ens18` drop, `nstat -az UdpRcvbufErrors UdpSndbufErrors` 0 ise kayıp sunucu öncesinde (istemci uplink / pfSense UDP state-kuyruk); koşu sırasında `tcpdump -ni ens18 udp portrange 49160-49199` paket sayısını istemci kaybıyla karşılaştırın |
 
 ## 10. Gerçek sunucu e2e (yerel; P4 regresyonu, QA-P5-6)
 Tek komut (repo kökü, Docker + `pnpm install` + Playwright chromium gerekir): `scripts/e2e-real.sh` (~2 dk).

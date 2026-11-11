@@ -1322,3 +1322,28 @@ macOS/Linux/mobilde indirme ve rehber hiç render edilmez (eski metin "Yalnız e
 (yeni spec: indirme + `Destek-\d{8}.exe` dosya adı, 503 → tarayıcı önerisi + odak, 410 → iptal ekranı, macOS'ta yok, mobilde
 yok, 375 px taşma yok, açık/koyu axe 0). Tasarım skill'i (`ui-ux-pro-max`) mevcut; DESIGN.md §8 kararı esas alındı.
 Windows'ta gerçek SmartScreen yolu elle testte (DoD) doğrulanacak.
+
+## DevOps — TEST-NAT-2 / TEST-NAT-3 tanısı (devops, 2026-11-11; değişiklik YOK)
+**TEST-NAT-2 (yalnız `turn:…:3478?transport=tcp`, ICE kurulmuyor):** altyapı kaynaklı değil. Kanıt (staging, 10:06–10:10Z):
+- `turnutils_uclient` iki TCP istemci relay↔relay (`-t -y`, `-t -y -c` Send/Data, `-y -c` UDP): 0 kayıp, RTT < 1 ms.
+- coturn `external-ip=public/özel` eşlemesiyle peer = kendi public IP'si → özel IP'ye çevrilir; paket pfSense hairpin'e
+  hiç çıkmaz (`-e 185.126.217.99` testinde DROP sayacı `192.168.25.10` kuralında artıyor). Hairpin/conntrack/`allowed-peer-ip` dışı.
+- Uygulamasız minimal Chrome (tek sayfa, iki `RTCPeerConnection`, yalnız tcp URL + `relay`, sunucuda üretilen 600 sn HMAC):
+  4/4 koşu `connected` (~100 ms), aday çifti `succeeded`.
+- `udp send: Operation not permitted`: EPERM = `REMOTE-TURN-OUT` DROP'u (tetiklendiğinde sayaç +1 artıyor; relay → kendi adresi,
+  aralık dışı port: test-denied bölüm 1/4'te beklenen). tcp koşularındaki 3 satır (koşu başına 1, kabul anında) sayaç artmadan
+  görüldü; kaynağı ayrıştırılamadı ama tek paket ve bağlantıyı kesmez (aynı yol uclient/minimal Chrome'da çalışıyor).
+  `nf_conntrack_count` 209/262144, UFW OUTPUT'ta drop/limit yok.
+Sonuç: fark uygulama/harness katmanında (ör. `ice.servers` → `setConfiguration` ile toplama sırasında tek TCP TURN sunucusunun
+yeniden kurulması, harness sarmalayıcısının `setConfiguration` süzgeci). `host-firewall.sh`/`turnserver.base.conf` değiştirilmedi;
+bu nedenle test-denied yeniden koşulmadı. Devir: frontend-dev + test-operatoru — app akışında `chrome://webrtc-internals` dökümü
+ve `ice.servers` geliş zamanı ile `TURNOP_MODES=tcp` tekrarı.
+
+**TEST-NAT-3 (UDP relay'de kayıp patlaması, 1080p'de %12,7, BWE 2500→71 kbps):** sunucu tarafında iz yok: ens18 RX/TX
+errors/dropped 0, `UdpRcvbufErrors/UdpSndbufErrors/UdpInErrors` 0, yük ~1,7, conntrack dolu değil, EPERM sayısı günde 9 (tek paket,
+kayıpla ilişkisiz). Aynı dakikalarda TCP/TLS relay 0 kayıp. En olası neden: iki tarayıcı aynı Mac'te → Mac uplink'i hem medya
+gönderimini hem relay'e çıkışı taşıyor + ev ağı/pfSense UDP kuyruğu; TCP tıkanıklık denetimi bunu maskeliyor. Tanı trafiğim
+(10:06–10:10Z) yalnız loopback, ~24 KB + 4 kısa Chrome allocation; kayıpla ilişkilendirilemez. Öneri: ölçümü iki ayrı ağdan
+(farklı uplink) tekrarla; pfSense'te UDP state/limiter ve WAN kuyruk istatistiklerini (`pfctl -si`, Status › Queues) koşu
+sırasında oku; sunucuda koşu sırasında `nstat` + `tcpdump -ni ens18 udp portrange 49160-49199 -w` ile sunucuya giren/çıkan
+paket sayısını istemci kaybıyla karşılaştır (kayıp sunucuya varmadan mı oluyor).
