@@ -73,7 +73,22 @@ apply() {
     done
     [ "$(cd "$dir" && docker compose ps server --format '{{.Health}}')" = healthy ] || die "server healthy olmadı (docker compose logs server)"
     # Caddy üzerinden dış yol (127.0.0.1:4450; tls internal → -k, bütünlük hash ile karşılaştırılır)
-    local got; got=$(curl -fsSk --max-time 60 https://127.0.0.1:4450/downloads/$EXE | sha256sum | cut -d' ' -f1) || die "Caddy'den indirilemedi"
+    # Server yeniden yaratıldıktan hemen sonra Caddy forward_auth birkaç saniye 502 verebilir → yeniden dene.
+    # Boru (curl | sha256sum) curl hatasını yutar ve boş gövdenin hash'ini üretir; bu yüzden geçici dosyaya indirilir.
+    # Caddy siteyi PUBLIC_BASE_URL host'uyla eşler; Host: 127.0.0.1 isteği boş 200 döner → --resolve ile doğru Host.
+    local base hp; base=$(sed -n 's/^PUBLIC_BASE_URL=//p' "$dir/.env" | tr -d '"' | tail -n1); base=${base%/}
+    [ -n "$base" ] || die "$dir/.env içinde PUBLIC_BASE_URL yok"
+    hp=${base#https://}; hp=${hp%%/*}; case "$hp" in *:*) ;; *) hp="$hp:443" ;; esac
+    local got="" tmp; tmp=$(mktemp)
+    for _i in $(seq 1 10); do
+      if curl -fsSk --max-time 60 --resolve "$hp:127.0.0.1" -o "$tmp" "$base/downloads/$EXE"; then
+        [ -s "$tmp" ] || { sleep 3; continue; }
+        got=$(sha256sum "$tmp" | cut -d' ' -f1); [ "$got" = "$want" ] && break
+      fi
+      sleep 3
+    done
+    rm -f "$tmp"
+    [ -n "$got" ] || die "Caddy'den indirilemedi (10 deneme)"
     [ "$got" = "$want" ] || die "Caddy'nin sunduğu dosya farklı ($got)"
     echo "kontrol: https://<host>:4450/downloads/$EXE SHA-256 = $want"
   fi
