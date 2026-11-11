@@ -12,3 +12,7 @@ paths = [
   # Tüm sahte test secret'larının tek kaynağı (TURN secret, metrics token) — S-P3-5
   '''(^|/)apps/server/test/helpers/secrets\.ts$''',
 ]
+# Tek değer: RFC 6455 §1.3 örnek Sec-WebSocket-Key ("the sample nonce"), ce6fd91 runbook'unda geçti; gizli değil.
+regexes = [
+  '''dGhlIHNhbXBsZSBub25jZQ==''',
+]

@@ -316,7 +316,7 @@ curl -sI https://remote.noktabilisim.net/ | head -1                      # -k YO
 curl -s -o /dev/null -w '%{http_code}\n' https://remote.noktabilisim.net/login      # 200
 # wss el sıkışması: ticket'sız 101 beklenmez; Caddy'nin server'a ilettiğini gösterir (401/403 JSON, 502 değil)
 curl -s -o /dev/null -w '%{http_code}\n' --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
-  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Origin: https://remote.noktabilisim.net' \
+  -H 'Sec-WebSocket-Version: 13' -H "Sec-WebSocket-Key: $(openssl rand -base64 16)" -H 'Origin: https://remote.noktabilisim.net' \
   https://remote.noktabilisim.net/ws/tech
 # gerçek IP + sahte XFF: dış makineden yanlış parolayla giriş dene (X-Forwarded-For: 1.2.3.4 ekleyerek), sonra sunucuda:
 docker compose logs caddy --since 5m | grep -o '"client_ip":"[^"]*"' | sort | uniq -c   # dış IP; 1.2.3.4 / 172.30.0.128 YOK
