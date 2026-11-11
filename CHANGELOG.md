@@ -5,6 +5,14 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-11-12 — Windows istemci
+
+### Değişti
+- **Windows istemci — izin diyalogları (kontrol, ekran değiştirme, dosya kabulü):** uzak bağlantı veya yazılım
+  üzerinden gelen (enjekte) tıklama artık sessizce yok sayılmıyor; diyalogda bir kez kırmızı uyarı satırı gösterilir
+  ("Bu tıklama uzak bağlantı veya yazılım üzerinden geldiği için kabul edilmedi…"). Diyalog açık kalır, izin yine
+  verilmez; düğmeler aşağı kaydığı için 1,5 sn kilit yeniden başlar. Güvenlik kuralı değişmedi.
+
 ## [0.8.0] — 2026-11-11 — P8 (oturum geçmişi)
 
 ### Eklendi — P8

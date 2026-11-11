@@ -153,7 +153,9 @@ teknisyenin adı ve kontrolü nasıl kapatacağınız yazar. Siz izin vermeden t
 
 Güvenliğiniz için:
 - Pencere fare imlecinizin hemen altında açılmaz; istemeden tıklamazsınız.
-- Teknisyenin uzaktan yaptığı tıklama bu pencerede **sayılmaz**. İzni yalnız siz verebilirsiniz.
+- Teknisyenin uzaktan yaptığı tıklama bu pencerede **sayılmaz**. İzni yalnız siz verebilirsiniz. Uzak bağlantı
+  (TeamViewer, Uzak Masaüstü vb.) üzerinden de izin verilemez; böyle bir tıklamada pencerede kırmızı bir uyarı çıkar,
+  pencere açık kalır ve izni bu bilgisayarın kendi faresi veya klavyesiyle vermeniz gerekir.
 - Pencereyi kaçırdıysanız **Nokta Destek — Oturum** penceresindeki **Erişime izin ver** düğmesi isteği yeniden öne
   getirir. Bu düğme tek başına izin vermez.
 - Reddettikten sonraki 30 saniye içinde yeni istek gelmez. Teknisyen bir oturumda en çok 5 kez istek gönderebilir.
@@ -216,7 +218,7 @@ yeniden izin istemesi gerekir.
 | Bağlantı kesildi | İnternetinizi kontrol edin. Kod hâlâ geçerliyse programı yeniden açın. |
 | Bu program hatalı derlenmiş (sunucu adresi yok). | Dosya bozuk veya yanlış. Teknisyeninizden yeni bir indirme bağlantısı isteyin. |
 | Program dosyası okunamadı. | Dosyayı yeniden indirip tekrar deneyin. |
-| İzin ver düğmesi çalışmıyor | İlk 1,5 saniye beklenir; sonra kendi farenizle tıklayın. Kırmızı "kısayol kaydedilemedi" uyarısı varsa izin verilemez. |
+| İzin ver düğmesi çalışmıyor | İlk 1,5 saniye beklenir; sonra kendi farenizle tıklayın. Kırmızı "kısayol kaydedilemedi" uyarısı varsa izin verilemez. "Bu tıklama uzak bağlantı … kabul edilmedi" uyarısı çıktıysa bilgisayarın başındaki kişi kendi faresiyle tıklamalıdır. |
 | Teknisyen tıklıyor ama bir pencerede hiçbir şey olmuyor | O pencere yönetici yetkisiyle açılmış olabilir (ör. yönetici komut istemi). Teknisyen bunu konsolda görür; gerekirse işlemi siz yapın. |
 | Windows onay ekranı (UAC) açıkken teknisyen ekranı göremiyor | Bu ekran güvenlik gereği paylaşılmaz. Onayı siz verin; görüntü kendiliğinden geri gelir. |
 

@@ -113,6 +113,37 @@ func TestAC116ConsentTimingFocusAndInjection(t *testing.T) {
 	}
 }
 
+func TestConsentCheckReasonInjectedWarning(t *testing.T) {
+	armed := t0.Add(2 * time.Second)
+	cases := []struct {
+		name     string
+		c        Consent
+		at       time.Time
+		trig     Trigger
+		injected bool
+		want     Reason
+	}{
+		{"yerel tıklama", Consent{ShownAt: t0, HotkeyOK: true}, armed, TrigClick, false, ReasonOK},
+		{"enjekte tıklama", Consent{ShownAt: t0, HotkeyOK: true}, armed, TrigClick, true, ReasonInjected},
+		{"enjekte Alt+İ", Consent{ShownAt: t0, HotkeyOK: true}, armed, TrigAccessKey, true, ReasonInjected},
+		{"kilitliyken enjekte: uyarı yok", Consent{ShownAt: t0, HotkeyOK: true}, t0.Add(time.Second), TrigClick, true, ReasonTooEarly},
+		{"kısayolsuz enjekte: uyarı yok", Consent{ShownAt: t0, HotkeyOK: false}, armed, TrigClick, true, ReasonNoHotkey},
+		{"Enter/Space enjekte: uyarı yok", Consent{ShownAt: t0, HotkeyOK: true}, armed, TrigEnterSpace, true, ReasonEnterSpace},
+	}
+	for _, tc := range cases {
+		got := tc.c.Check(tc.at, tc.trig, tc.injected)
+		if got != tc.want {
+			t.Errorf("%s: %v, beklenen %v", tc.name, got, tc.want)
+		}
+		if tc.c.CanGrant(tc.at, tc.trig, tc.injected) != (got == ReasonOK) {
+			t.Errorf("%s: CanGrant Check ile tutarsız", tc.name)
+		}
+	}
+	if InjectedWarning == "" {
+		t.Fatal("uyarı metni boş olmamalı")
+	}
+}
+
 func TestAC102NoHotkeyNoGrant(t *testing.T) {
 	c := Consent{ShownAt: t0, HotkeyOK: false}
 	if c.CanGrant(t0.Add(time.Minute), TrigClick, false) {

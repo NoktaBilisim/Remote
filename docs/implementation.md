@@ -1975,3 +1975,11 @@ Rota değişmedi (`/history`, `/history/[id]`). Tasarım skill dosyaları okunma
   - `flow_test.go` `TestClassifyTable` ile tüm sınıflar tablo halinde test ediliyor.
   - `TestAC109TLSErrorShowsFinalNotCodeEntry`: son ekranın gösterildiğini, `askcode` çağrısı yapılmadığını ve tek resolve yapıldığını doğruluyor.
 - **Komut ve sonuç:** Docker `golang:1.26.11-bookworm@sha256:dc40…`, repo kökü bağlı, `GOFLAGS=-mod=readonly GOTOOLCHAIN=local`. `gofmt -l` temiz. `GOOS=windows go vet ./...` ve `go vet ./...` temiz. `go test -count=1 ./...` sonucunda 15 paketin tamamı ok.
+
+### Ajan — enjekte tıklama uyarısı (0.8.1)
+- **Sorun:** İzin diyaloglarında (kontrol, monitör, dosya kabulü; hepsi ortak `consentDlg`) IMO_HARDWARE dışı tıklama (TeamViewer/RDP/VNC/SendInput) sessizce yok sayılıyordu; kullanıcı "İzin ver çalışmıyor" sanıyordu.
+- `apps/agent-win/internal/control/consent.go`: `Reason` (`ReasonOK`, `ReasonNoHotkey`, `ReasonEnterSpace`, `ReasonTooEarly`, `ReasonInjected`) ve `Consent.Check`; `CanGrant` artık `Check(...) == ReasonOK` (kural aynı). Kısayol/tetikleyici/zaman enjeksiyondan önce denetlenir, böylece kilitli veya kısayolsuz diyalogda uyarı çıkmaz. Uyarı metni `InjectedWarning` sabitinde.
+- `apps/agent-win/internal/ui/control_windows.go`: `tryGrant` `Check` sonucuna göre ayrılır; `ReasonInjected` → `warnInjected`: bir kez (`warned`) danger satırı eski düğme satırına eklenir, düğmeler `consentWarn` kadar aşağı kayar, istemci yüksekliği büyür, pencere konumu korunarak (`SWP_NOMOVE`) yeniden boyutlanır. Diyalog açık kalır, karar verilmez.
+- **Sapma (gerekçeli):** Düğme yeri değiştiği için 1,5 sn kilit yeniden başlatılır ve odak "Reddet"e döner (kayan düğmeye kaza tıklaması olmasın; G-03 yalnız sıkılaşır). Diyalog yeniden konumlandırılmaz.
+- **Testler:** `control_test.go` `TestConsentCheckReasonInjectedWarning` (yerel → OK, enjekte tık/Alt+İ → Injected, kilitliyken/kısayolsuz/Enter enjekte → uyarısız neden, `CanGrant` ile tutarlılık). Mevcut AC-116/AC-102 testleri değişmeden geçer.
+- **Komut ve sonuç:** Docker `golang:1.26.11-bookworm@sha256:dc40…`, `GOFLAGS=-mod=readonly GOTOOLCHAIN=local`: `go test ./...` 15 paket ok; `GOOS=windows go vet ./...` temiz; `gofmt -l` temiz. Web/sunucu sözleşmesi değişmedi.

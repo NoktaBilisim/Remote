@@ -55,6 +55,8 @@ type consentDlg struct {
 	slot    **consentDlg
 	onGrant func()
 	onDeny  func()
+	// warned 0.8.1: enjekte tıklama uyarısı eklendi mi (tek kez).
+	warned bool
 }
 
 const (
@@ -122,14 +124,42 @@ func (d *consentDlg) arm() {
 }
 
 // tryGrant yalnız control.Consent kuralları sağlanırsa ve tıklamayı üreten olay bu diyaloğa gelen yerel (enjekte
-// olmayan) girdi ise izin verir. Enter/Space noKey ile buraya hiç ulaşmaz.
+// olmayan) girdi ise izin verir. Enter/Space noKey ile buraya hiç ulaşmaz. Enjekte tıklama uyarı gösterir (0.8.1);
+// kilit/kısayol nedenli retlerde (düğme zaten devre dışı) hiçbir şey yapılmaz.
 func (d *consentDlg) tryGrant() {
-	injected := !d.u.t.userInput(d.f)
-	if d.decided || !d.rule.CanGrant(time.Now(), control.TrigClick, injected) {
+	if d.decided {
 		return
 	}
-	d.finish()
-	d.onGrant()
+	switch d.rule.Check(time.Now(), control.TrigClick, !d.u.t.userInput(d.f)) {
+	case control.ReasonOK:
+		d.finish()
+		d.onGrant()
+	case control.ReasonInjected:
+		d.warnInjected()
+	}
+}
+
+// warnInjected 0.8.1: enjekte tıklama sessizce yok sayılmaz; diyaloğa bir kez kırmızı uyarı satırı eklenir, düğmeler
+// aşağı kayar ve pencere uzar (konumu korunur). Diyalog açık kalır, karar verilmez. Düğme yeri değiştiği için 1,5 sn
+// kilit yeniden başlar (yer değiştiren düğmeye kaza tıklaması olmasın) ve odak "Reddet"e döner.
+func (d *consentDlg) warnInjected() {
+	if d.warned {
+		return
+	}
+	d.warned = true
+	f := d.f
+	f.danger(control.InjectedWarning, 16, d.reject.y, 408, consentWarn-4, fontNormal)
+	d.reject.y += consentWarn
+	d.grant.y += consentWarn
+	f.ch += consentWarn
+	f.layout()
+	w, h := f.size()
+	win.SetWindowPos(f.h, 0, 0, 0, w, h, win.SWP_NOMOVE|win.SWP_NOZORDER|win.SWP_NOACTIVATE)
+	win.KillTimer(f.h, timerArm)
+	win.EnableWindow(d.grant.h, false)
+	win.SetFocus(d.reject.h)
+	d.rule.ShownAt = time.Now()
+	win.SetTimer(f.h, timerArm, uint32(control.ArmDelay/time.Millisecond))
 }
 
 func (d *consentDlg) deny() {
