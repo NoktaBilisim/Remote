@@ -5,7 +5,7 @@ provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md`
 ## 1. Bileşenler
 | Servis | İmaj | Ağ | Dış port | Not |
 |---|---|---|---|---|
-| caddy | `caddy:2.11.9-alpine` | edge (sabit 172.30.0.2) | **4450/tcp** | TLS (`tls internal`), yönlendirme, log filtresi |
+| caddy | `caddy:2.11.9-alpine` | edge (sabit 172.30.0.2) | **4450/tcp**, `127.0.0.1:4451` | 4450: TLS (`tls internal`, IP girişi); 4451: host nginx arkası düz HTTP (§8.3); yönlendirme, log filtresi |
 | web | `remote-web` (apps/web/Dockerfile) | edge (sabit 172.30.0.3) | — | Next.js :3000 |
 | server | `remote-server` (apps/server/Dockerfile `runtime`) | edge + db | — | Fastify :3001, `/health` `/ready` |
 | migrate | `remote-migrate` (`migrate` hedefi) | db | — | tek seferlik; `migrator` kullanıcısı |
@@ -163,7 +163,10 @@ Ayrıntı: `docs/db-notlari.md` "ADR-0014 uygulandı", ADR-0014.
 | Yetkisi kaldırılan teknisyenin kontrolü hemen kapanmadı | P9'a kadar yetki değişikliği teknisyen soketinin 60 sn'lik yeniden doğrulamasında uygulanır (`caps.update` + `control.revoke{permission}`, metrik `caps_narrowed`, `revoke_permission`). En geç ~60 sn beklenir. Hemen kesmek için oturumu zorla sonlandırın (`POST /api/v1/sessions/:id/terminate`, Oturumlar → "Zorla sonlandır") |
 | Uzaktan kontrol olaylarını izleme | `/metrics` → `rs_control_total{event}` (komut: `docs/api.md` "GET /metrics"; olay listesi `apps/server/src/ops/metrics.ts`). Dikkat: `grant_audit_{error,timeout}` > 0 (izin kaydı yazılamıyor), `control_request_audit_failed` > 0 (istek audit'i yazılamadı, istek yine iletildi), `control_state_unexpected` sık artıyorsa (beklenmeyen izin mesajı; değiştirilmiş istemci şüphesi, log oda başına dakikada ≤ 1) |
 | Konsolda "Kontrol iste" düğmesi yok | Teknisyende `remote_control.use` yok (staging: `staging-users.sh` USER'a açar), müşteri tarayıcıdan bağlı (yalnız görüntü; "Uzaktan kontrol" pasif) veya görüntü henüz gelmedi |
-| Hızlı Destek staging'de kod soruyor / hiçbir kodu kabul etmiyor | Windows'ta Caddy `tls internal` kök sertifikası kurulu değil (§8 "Kök CA", yönetici komut isteminde `certutil -addstore -f Root remote-staging-ca.crt`). İstemci sertifikayı doğrulayamayınca bağlantı hatası kod hatası gibi görünüyor; ajan 0.8.0'da TLS hatası ayrı mesajla gösterilecek |
+| `https://remote.noktabilisim.net` 502 | Caddy 4451 dinlemiyor: `ss -ltn \| grep 4451` boş → repo'daki Caddyfile/compose (ADR-0015) yayında değil veya caddy yeniden yaratılmadı (`docker compose up -d caddy`). `tail /var/log/nginx/remote.access.log` → `upstream_status` |
+| Alan adında tüm istemciler `172.30.0.128` görünüyor | edge ağ geçidi değişti: `docker network inspect remote_edge -f '{{json .IPAM.Config}}'` → Gateway, Caddyfile `servers :4451 trusted_proxies` ile aynı olmalı. Cloudflare kaydı "proxied" (turuncu) yapıldıysa istemci Cloudflare IP'si görünür → "DNS only" |
+| Sertifika süresi doldu / yenilenmedi (alan adı) | `certbot certificates --cert-name remote.noktabilisim.net`; `certbot renew --cert-name remote.noktabilisim.net` (webroot `/var/www/remote-acme`, HTTP 80 vhost'u açık olmalı); `journalctl -u certbot --since -2d` |
+| Hızlı Destek staging'de kod soruyor / hiçbir kodu kabul etmiyor | (Alan adıyla gömülü istemcide geçerli değil — LE sertifikası, kök kurulumu gerekmez.) IP:4450 gömülü istemcide: Windows'ta Caddy `tls internal` kök sertifikası kurulu değil (§8 "Kök CA", yönetici komut isteminde `certutil -addstore -f Root remote-staging-ca.crt`). İstemci sertifikayı doğrulayamayınca bağlantı hatası kod hatası gibi görünüyor; ajan 0.8.0'da TLS hatası ayrı mesajla gösterilecek |
 | CSV dışa aktarmada 429 / "En çok 50.000 satır" | P8 sınırları: kullanıcı başına dakikada 5 dışa aktarma; 50.000 satır üstünde dosya üretilmez (tarih aralığı daraltılır). Müşteri adıyla liste araması dakikada 60. Ayar yoktur |
 | Tüm müşteriler aynı IP'den (`172.30.0.x`) görünüyor / token limiti (429) ortak işliyor | web'in adresi .3 değil veya `TRUSTED_PROXY_CIDR` kapsamıyor: `docker inspect remote-web-1 -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'` |
 
@@ -220,6 +223,7 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
 | 2026-11-11 | P7 | `60a7934` / `60a7934` | `20261111050000_p7_consent_source_tech` (migrate → server sırasıyla, compose `depends_on`) | Uzaktan kontrol; istemci 0.7.0 (`https://185.126.217.99:4450` gömülü, iki derleme aynı SHA-256 `e12ba3b3…`) `--dir --no-attestation` + `ALLOW_UNATTESTED=staging` ile yayınlandı. Windows elle testi bekliyor (gereksinimler "Sonra / açık — P7'den") |
 | 2026-11-11 | P8 | `1587538` / `1587538` | `20261111060000_p8_session_history`, `20261111070000_enum_check_binary` (önce `precheck.sql` salt okunur: 14 sütun 0) | Oturum geçmişi + CSV; istemci 0.8.0 (fare imleci, TLS hata ekranı; iki derleme aynı SHA-256 `f75d41c3…`) `--dir --no-attestation` + `ALLOW_UNATTESTED=staging`. Seed: değişiklik yok |
 | 2026-11-12 | P8 ek | `20cabfd` (yalnız istemci) | — | İstemci 0.8.1: enjekte tıklama reddinde uyarı; iki derleme aynı SHA-256 `6aeed3dd…`, `--dir --no-attestation` + `ALLOW_UNATTESTED=staging` |
+| 2026-11-12 | Alan adı (sunucu tarafı) | — (repo değişikliği yayın bekliyor) | — | nginx vhost + LE sertifikası (`certonly --webroot`, renew dry-run GEÇTİ), `.env` `PUBLIC_BASE_URL`/`ALLOWED_ORIGINS` güncellendi (konteynerler yeniden yaratılmadı). Caddy 4451 (ADR-0015) yayınlanınca §8.3 doğrulaması |
 
   Rollback hedefi: bir önceki satırdaki `IMAGE_TAG`; şema geri alması gerekiyorsa §6.
 
@@ -274,6 +278,55 @@ Firewall > NAT > Port Forward, her satır için "Filter rule association: Add as
 - Doğrulama (dış makineden): `turnutils_stunclient 185.126.217.99` → XOR-MAPPED-ADDRESS = o makinenin genel IP'si;
   `nc -vz 185.126.217.99 3478` ve `5349` bağlanır; sonra sunucuda `docker compose -f deploy/turn/docker-compose.yml logs --since 5m coturn`
   istemcinin genel IP'sini göstermeli (192.168.25.1 görünürse SNAT var).
+
+### 8.3 Alan adı: `https://remote.noktabilisim.net` (host nginx + Let's Encrypt; ADR-0015)
+DNS: Cloudflare A `remote` → 185.126.217.99, **DNS only (gri)** — proxied yapılırsa ACME ve gerçek IP bozulur.
+Akış: istemci → host nginx :443 (LE, `remote.noktabilisim.net` vhost'u) → `http://127.0.0.1:4451` (Caddy, yalnız loopback)
+→ web/server. IP girişi `https://185.126.217.99:4450` geçiş süresince aynen çalışır (`SITE_HOST` IP olarak kalır).
+- **vhost:** repo `deploy/nginx/remote.noktabilisim.net.conf` = sunucu `/etc/nginx/sites-available/remote.noktabilisim.net`
+  (+ `sites-enabled` linki). Yalnız `remote_` önekli map/log_format tanımlar; diğer sitelerin dosyalarına dokunulmaz.
+  İçerik: 80 → ACME webroot + 301; 443 → `X-Forwarded-For $remote_addr` (istemci XFF'i ezilir), WS upgrade,
+  `proxy_read_timeout 3700s`, `client_max_body_size 2m`, `gzip off`, `proxy_buffering off`; güvenlik başlığı EKLEMEZ
+  (CSP/HSTS uygulama + Caddy). Log: `/var/log/nginx/remote.access.log` JSON, `uri` maskeli (`/session/***`,
+  `/downloads/Destek-***`), sorgu dizesi/çerez/Authorization/Referer/Sec-WebSocket-Protocol yok; hata logu `crit`.
+- **vhost güncelleme** (her seferinde `nginx -t`; başarısızsa eski dosyaya dön):
+```bash
+scp deploy/nginx/remote.noktabilisim.net.conf root@185.126.217.99:/root/remote.conf.new
+ssh root@185.126.217.99 'cp /etc/nginx/sites-available/remote.noktabilisim.net /root/remote.conf.prev \
+  && cp /root/remote.conf.new /etc/nginx/sites-available/remote.noktabilisim.net \
+  && { nginx -t && systemctl reload nginx || { cp /root/remote.conf.prev /etc/nginx/sites-available/remote.noktabilisim.net; nginx -t && systemctl reload nginx; echo GERI ALINDI; }; }'
+```
+- **Sertifika (ilk kurulum, 2026-11-12 yapıldı):** önce yalnız 80 bloğu olan vhost (443 bloğu yokken nginx -t sertifika
+  dosyasını arar), sonra:
+  `install -d /var/www/remote-acme && certbot certonly --webroot -w /var/www/remote-acme -d remote.noktabilisim.net --non-interactive --deploy-hook "nginx -t && systemctl reload nginx"`
+  ardından tam vhost. Yenileme: sistem `certbot.timer` (günde 2), renewal dosyası `authenticator = webroot`,
+  `renew_hook` reload eder. Prova: `certbot renew --dry-run --cert-name remote.noktabilisim.net` → "all simulated renewals succeeded" (2026-11-12 GEÇTİ).
+  Bitiş: `certbot certificates --cert-name remote.noktabilisim.net`.
+- **Uygulama `.env`:** `PUBLIC_BASE_URL=https://remote.noktabilisim.net` (oturum linkleri, CSP wss host'u, web→server
+  Origin), `ALLOWED_ORIGINS=https://remote.noktabilisim.net,https://185.126.217.99:4450` (IP girişi kapatılınca
+  ikincisi silinir), `SITE_HOST=185.126.217.99` (değişmez). Yedek: `deploy/.env.bak.domain.<UTC>`. Etkisi
+  `docker compose up -d` ile (server/web yeniden yaratılınca) — Caddy 4451 yayında olmadan uygulanırsa linkler 502'ye gider.
+- **Windows istemci:** alan adı gömülü istemci (`AGENT_SERVER_URL=https://remote.noktabilisim.net`, GitHub repo
+  değişkeni, §11.1; ardından yeni derleme + `verify-and-publish`) için **kök sertifika kurulumu gerekmez**.
+  IP:4450 gömülü eski istemciler (≤ 0.8.1) aynı DB'ye bağlanır, onlar için §8 "Kök CA" geçerliliğini korur.
+  `AGENT_WATCH_URL` → `https://remote.noktabilisim.net/downloads/NoktaDestek.exe`, `AGENT_WATCH_CA_PEM` boşaltılır.
+- **Doğrulama (yayından sonra):**
+```bash
+curl -sI https://remote.noktabilisim.net/ | head -1                      # -k YOK; 307/200
+curl -s -o /dev/null -w '%{http_code}\n' https://remote.noktabilisim.net/login      # 200
+# wss el sıkışması: ticket'sız 101 beklenmez; Caddy'nin server'a ilettiğini gösterir (401/403 JSON, 502 değil)
+curl -s -o /dev/null -w '%{http_code}\n' --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Origin: https://remote.noktabilisim.net' \
+  https://remote.noktabilisim.net/ws/tech
+# gerçek IP + sahte XFF: dış makineden yanlış parolayla giriş dene (X-Forwarded-For: 1.2.3.4 ekleyerek), sonra sunucuda:
+docker compose logs caddy --since 5m | grep -o '"client_ip":"[^"]*"' | sort | uniq -c   # dış IP; 1.2.3.4 / 172.30.0.128 YOK
+# + §1 audit sorgusu → ip_address = dış IP
+ss -ltn | grep 4451                                                        # yalnız 127.0.0.1:4451
+curl -s -o /dev/null -w '%{http_code}\n' https://support.noktabilisim.net/  # diğer siteler etkilenmedi
+```
+- **Geri dönüş (alan adını kapat):** `rm /etc/nginx/sites-enabled/remote.noktabilisim.net && nginx -t && systemctl reload nginx`;
+  `.env`'de `PUBLIC_BASE_URL=https://185.126.217.99:4450` (yedekten) → `docker compose up -d server web`. Caddy 4451
+  zararsız kalabilir (yalnız loopback). Sertifikayı tamamen silmek: `certbot delete --cert-name remote.noktabilisim.net`.
 
 ## 9. TURN / coturn (P3; mimari §8.3.1, ADR-0007 r3/r5)
 Dosyalar `deploy/turn/`: `docker-compose.yml` (ayrı compose projesi `remote-turn`, `network_mode: host`),

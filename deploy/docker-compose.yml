@@ -142,6 +142,9 @@ services:
       EDGE_PROXY_SECRET: ${EDGE_PROXY_SECRET:?EDGE_PROXY_SECRET gerekli (openssl rand -base64 32)}
     ports:
       - "${CADDY_BIND:-0.0.0.0}:4450:4450/tcp"
+      # Host nginx (TLS, remote.noktabilisim.net) -> düz HTTP; YALNIZ loopback (ADR-0015). Caddy bu dinleyicide
+      # yalnız edge ağ geçidinden (172.30.0.128, userland-proxy) gelen XFF'e güvenir. 0.0.0.0'a AÇILMAZ.
+      - "127.0.0.1:4451:4451/tcp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

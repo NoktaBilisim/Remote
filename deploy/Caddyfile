@@ -5,10 +5,12 @@
 # Güvenlik başlıklarının sahibi uygulamadır (Next middleware + @fastify/helmet). Caddy yalnız
 # `Server` başlığını siler ve uygulama koymadıysa temel başlıkları "?" (yoksa ekle) ile tamamlar;
 # böylece başlıklar çift yazılmaz / çakışmaz.
-# TLS: staging'de alan adı yok (K1) -> `tls internal` (Caddy'nin yerel CA'sı; kök sertifika test
-# makinelerine kurulur, runbook). 80/443 başka serviste olduğundan ACME HTTP/TLS-ALPN çalışmaz;
-# prod sertifika yöntemi P13'te.
-# X-Forwarded-For: `trusted_proxies` bilinçli olarak YOK -> istemcinin gönderdiği XFF ezilir (G-11).
+# İki giriş, aynı yönlendirme (snippet `remote_app`):
+#   1) https://{$SITE_HOST}:4450 — `tls internal` (Caddy'nin yerel CA'sı; IP ile erişim, geçiş dönemi). Bu dinleyicide
+#      `trusted_proxies` YOK -> istemcinin gönderdiği XFF ezilir (G-11).
+#   2) http://:4451 — host nginx'in arkası (ADR-0015, runbook §8.3): nginx 443'te Let's Encrypt ile TLS sonlandırır,
+#      127.0.0.1:4451'e iletir (compose yalnız loopback'e yayımlar). Bu dinleyici yalnız docker ağ geçidinden
+#      (userland-proxy, 172.30.0.128) gelen XFF'e güvenir; istemci IP'si {client_ip} ile tek değere indirgenir.
 # X-Edge-Auth (S-P2-1): web'e giden her isteğe paylaşılan sır yazılır (istemcinin gönderdiği aynı ad
 # başlık önce silinir). Web, XFF'i server'a yalnız bu başlık eşleşirse iletir; edge ağından web:3000'e
 # doğrudan gelen istek IP taklit edemez. Sır loglanmaz (aşağıdaki filtre istemcinin gönderdiğini de siler).
@@ -37,6 +39,21 @@
 	# Staging'e IP ile bağlanılır; istemci IP adresi için SNI göndermez (RFC 6066) -> SNI'sız
 	# el sıkışmada SITE_HOST sertifikası seçilir. Yoksa TLS "internal error" alert'i döner.
 	default_sni {$SITE_HOST}
+	# 4451 (nginx arkası): ilk eşleşen `servers` bloğu uygulanır -> adresli blok genelden ÖNCE gelir.
+	# 172.30.0.128 = remote_edge ağ geçidi (Docker 29 ip_range'in ilk adresi; runbook §8). Host'tan 127.0.0.1:4451'e
+	# gelen bağlantı userland-proxy üzerinden bu adresten görünür. Başka adres (edge konteynerleri) güvenilmez.
+	# strict: XFF sağdan okunur, ilk güvenilmeyen adres istemcidir (nginx XFF'i zaten $remote_addr ile yeniden yazar).
+	servers :4451 {
+		trusted_proxies static 172.30.0.128/32
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For
+		protocols h1
+		timeouts {
+			read_header 10s
+			read_body 30s
+			idle 2m
+		}
+	}
 	servers {
 		protocols h1 h2
 		timeouts {
@@ -47,8 +64,9 @@
 	}
 }
 
-https://{$SITE_HOST}:4450 {
-	tls internal
+# Ortak site gövdesi. XFF: `header_up X-Forwarded-For {client_ip}` -> server/web tek değer görür (G-11).
+# 4450'de {client_ip} = bağlantı adresi (önceki davranışla aynı); 4451'de nginx'in yazdığı gerçek istemci adresi.
+(remote_app) {
 
 	log {
 		output stdout
@@ -123,12 +141,14 @@ https://{$SITE_HOST}:4450 {
 		}
 		reverse_proxy server:3001 {
 			header_up -X-Edge-Auth
+			header_up X-Forwarded-For {client_ip}
 		}
 	}
 
 	handle /ws/* {
 		reverse_proxy server:3001 {
 			header_up -X-Edge-Auth
+			header_up X-Forwarded-For {client_ip}
 		}
 	}
 
@@ -139,6 +159,19 @@ https://{$SITE_HOST}:4450 {
 		reverse_proxy web:3000 {
 			# Değer atamak (set) istemcinin gönderdiği aynı ad başlığı ezer; ayrıca silmek gerekmez.
 			header_up X-Edge-Auth {env.EDGE_PROXY_SECRET}
+			header_up X-Forwarded-For {client_ip}
 		}
 	}
+}
+
+https://{$SITE_HOST}:4450 {
+	tls internal
+	import remote_app
+}
+
+# Host nginx arkası (remote.noktabilisim.net). TLS nginx'te; Host eşleşmesi nginx server_name'de yapılır.
+# Dinleyiciye yalnız host loopback'inden (compose 127.0.0.1:4451) ulaşılır. X-Forwarded-Proto/Host trusted
+# proxy'den geldiği için korunur (web CSP `upgrade-insecure-requests`, wss:// host'u).
+http://:4451 {
+	import remote_app
 }
