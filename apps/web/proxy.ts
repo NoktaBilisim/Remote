@@ -8,7 +8,8 @@ import { NextResponse, type NextRequest } from "next/server";
  *    geçerliliğini server doğrular (panel layout /auth/me); burası yalnız ön eleme.
  */
 // Oturumsuz erişilen yollar (önek eşleşmesi). /session/ = müşteri karşılama sayfası (P4; o zamana dek 404)
-const PUBLIC_PATHS = ["/login", "/session/"];
+// P10: /forgot-password, /reset-password (AC-66; token URL parçasında — sunucuya/loga gitmez)
+const PUBLIC_PATHS = ["/login", "/session/", "/forgot-password", "/reset-password"];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => (p.endsWith("/") ? pathname.startsWith(p) : pathname === p || pathname.startsWith(`${p}/`)));

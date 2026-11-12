@@ -60,7 +60,7 @@ describe("QA-P8b-1 yük altında talep oluşturma", () => {
     url.searchParams.set("connectionLimit", "1");
     url.searchParams.set("acquireTimeout", "500");
     const db = createDb(url.toString());
-    const app = buildApp({ env: testEnv(PROXY), db });
+    const app = buildApp({ mfaSetupEnforcement: false, env: testEnv(PROXY), db });
     await app.ready();
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
@@ -88,7 +88,7 @@ describe("QA-P8b-1 yük altında talep oluşturma", () => {
       await db.$disconnect();
     }
     // havuz serbest kalınca aynı istek başarılı (yeniden deneme güvenli)
-    const again = buildApp({ env: testEnv(PROXY), db: testDb() });
+    const again = buildApp({ mfaSetupEnforcement: false, env: testEnv(PROXY), db: testDb() });
     const ok = await again.inject({ method: "GET", url: `/api/v1/public/requests/tenant?ref=${ref}`, headers: { "x-forwarded-for": "198.51.100.78" } });
     expect(ok.statusCode).toBe(200);
     await again.close();

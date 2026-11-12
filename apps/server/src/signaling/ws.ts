@@ -60,6 +60,7 @@ const peerOf = (ws: WebSocket): Peer => ({
 
 export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: SignalingOptions = {}, channels?: RequestChannels, panelCount?: () => { request: number; panel: number }): void {
   const { env, db } = app;
+  const policy = { setupEnforced: app.mfaSetupEnforced };
   const wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD, perMessageDeflate: false, handleProtocols: (p) => (p.has(WS_SUBPROTOCOL) ? WS_SUBPROTOCOL : false) });
   const trusted = cidrMatcher(env.TRUSTED_PROXY_CIDR);
   // S-P2/S-P3-7: upgrade IP limiti (31/dk, 60 sn kilit) DB'ye gitmeden önce; teknisyen ve misafir ayrı sayılır.
@@ -101,7 +102,7 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
     const sessionId = url.searchParams.get("sessionId") ?? "";
     const token = cookieValue(req.headers.cookie, SESSION_COOKIE);
     if (!ULID.test(sessionId) || !token) return { status: 403, reason: "credentials" };
-    const auth = await resolveSession(db, token, new Date());
+    const auth = await resolveSession(db, token, new Date(), policy);
     if (!auth || auth.user.mustChangePassword) return { status: 403, reason: "auth" };
     const row = await repo.findForSignal(db, sessionId);
     // AC-15: yalnız oturum sahibi (Admin dahil başkası hayır); PENDING (süresi dolmamış) ya da odası canlı ACTIVE.
@@ -229,7 +230,7 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
    * teknisyenin TÜM odaları biter; aksi halde güncel yetkiler `applyPermChange` ile caps'e yansır.
    */
   async function revalidateTech(room: Room, t: NonNullable<Room["tech"]>): Promise<void> {
-    const a = await resolveSession(db, t.authToken, new Date());
+    const a = await resolveSession(db, t.authToken, new Date(), policy);
     if (a && a.user.role === t.role) return rooms.applyPermChange(t.userId, a.permissions);
     const user = a ? null : await findUserById(db, t.userId);
     if (a || !user || !canSignIn(user)) return rooms.endByTechnician(t.userId);

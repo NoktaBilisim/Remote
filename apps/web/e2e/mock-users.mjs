@@ -49,7 +49,7 @@ function ustore(cookie, kind) {
       ? []
       : [
           user({ id: US.SELF, email: "zeynep@ornek.com", fullName: "Zeynep Koç", role: "ADMIN", totpEnabled: true, permissions: kind === "usadm" ? { ...all(true), "audit.export": false } : all(true) }),
-          user({ id: US.CAN, email: "can.aydin@ornek.com", fullName: "Can Aydın", role: "USER", lastLoginAt: null, permissions: { ...all(false), "sessions.view": true, "sessions.create": true, "remote_control.use": true, "file_transfer.use": true, "session_history.view": true } }),
+          user({ id: US.CAN, email: "can.aydin@ornek.com", fullName: "Can Aydın", role: "USER", lastLoginAt: null, totpEnabled: true, permissions: { ...all(false), "sessions.view": true, "sessions.create": true, "remote_control.use": true, "file_transfer.use": true, "session_history.view": true } }),
           user({ id: US.ELIF, email: "elif@ornek.com", fullName: "Elif Yönetici", role: "ADMIN", permissions: all(true) }),
           user({ id: US.OLD, email: "eski@ornek.com", fullName: "Eski Teknisyen", role: "USER", status: "PASSIVE", permissions: all(false) }),
         ];
@@ -172,7 +172,7 @@ export async function handleUsers(req, res, { url, session, csrfOk, send, err, r
     // B-P9-1: sahte e2e geçici şifresi (gerçek ortamda geçerli değil, p9-users.spec doğrular) — gitleaks satır istisnası.
     return send(res, 201, { user: detail(u), temporaryPassword: "Gx7-kP2m-Qw9r-Lt4z" }), true; // gitleaks:allow
   }
-  const um = path.match(/^\/api\/v1\/users\/([0-9A-Z]{26})(?:\/(deactivate|reactivate))?$/);
+  const um = path.match(/^\/api\/v1\/users\/([0-9A-Z]{26})(?:\/(deactivate|reactivate|reset-mfa))?$/);
   if (!um) return false;
   if (!can("users.view")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
   const u = s.users.find((y) => y.id === um[1]);
@@ -198,6 +198,13 @@ export async function handleUsers(req, res, { url, session, csrfOk, send, err, r
     u.role = role;
     u.permissions = after;
     return send(res, 200, detail(u)), true;
+  }
+  // P10 (AC-115): 2FA sıfırlama
+  if (um[2] === "reset-mfa" && req.method === "POST") {
+    if (u.id === US.SELF) return send(res, 403, err("FORBIDDEN", "Kendi 2FA'nızı buradan sıfırlayamazsınız.")), true;
+    if (!u.totpEnabled) return send(res, 409, err("CONFLICT", "2FA zaten kapalı.")), true;
+    u.totpEnabled = false;
+    return send(res, 204, undefined), true;
   }
   if (um[2] && req.method === "POST") {
     if (u.id === US.SELF) return send(res, 403, err("FORBIDDEN", "Kendinizi pasife alamazsınız.")), true;

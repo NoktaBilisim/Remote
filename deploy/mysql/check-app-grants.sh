@@ -138,7 +138,8 @@ enum_case() {
 EA="CONVERT(X'C389' USING utf8mb4)"; AA="CONVERT(X'C381' USING utf8mb4)"; OA="CONVERT(X'C393' USING utf8mb4)"  # É Á Ó
 R="ROLLBACK"; TX="START TRANSACTION;"
 enum_case tenants_status_chk ACTIVE active "CONCAT($AA,'CTIVE')" "$TX UPDATE tenants SET status=@V@ WHERE id='00000000000000000000GRANTT'; $R"
-enum_case tenant_settings_smtp_security_chk SSL ssl "CONCAT('SS',CONVERT(X'C4B9' USING utf8mb4))" "$TX UPDATE tenant_settings SET smtp_security=@V@ WHERE tenant_id='00000000000000000000GRANTT'; $R"
+# P10: tenant_settings_smtp_complete_chk tek başına smtp_security'yi reddeder → değer tam SMTP yapılandırmasıyla denenir.
+enum_case tenant_settings_smtp_security_chk SSL ssl "CONCAT('SS',CONVERT(X'C4B9' USING utf8mb4))" "$TX UPDATE tenant_settings SET smtp_security=@V@,smtp_host='smtp.example.com',smtp_port=465,smtp_from_email='destek@example.com' WHERE tenant_id='00000000000000000000GRANTT'; $R"
 enum_case users_role_chk ADMIN admin "CONCAT($AA,'DMIN')" "$TX UPDATE users SET role=@V@ WHERE id='00000000000000000000GRANTU'; $R"
 enum_case users_theme_chk DARK dark "CONCAT('D',$AA,'RK')" "$TX UPDATE users SET theme=@V@ WHERE id='00000000000000000000GRANTU'; $R"
 enum_case users_status_chk PASSIVE passive "CONCAT('P',$AA,'SSIVE')" "$TX UPDATE users SET status=@V@ WHERE id='00000000000000000000GRANTU'; $R"
@@ -294,6 +295,58 @@ run DENIED "$TX $RQ; $UR status='CANCELLED',cancel_reason='customer_passive',clo
 run DENIED "$TX $GX; $CU ('00000000000000000000GRANTL','00000000000000000000GRANTX','Grant Musteri','grant musteri','grant musteri','GrantMusteri','eeeeeeeeeeeeeeee',NOW(3)); $RQ; $UR customer_id='00000000000000000000GRANTL' $WR; $R" support_requests_tenant_id_customer_id_fkey
 run DENIED "$TX $RQ; $UR binding_id='00000000000000000000NOBIND' $WR; $R" support_requests_binding_id_tenant_id_fkey
 run DENIED "$TX $GX; $CU ('00000000000000000000GRANTL','00000000000000000000GRANTX','Grant Musteri','grant musteri','grant musteri','GrantMusteri','eeeeeeeeeeeeeeee',NOW(3)); $ADM; UPDATE support_sessions SET customer_id='00000000000000000000GRANTL' WHERE id='00000000000000000000GRANTS'; $R" support_sessions_tenant_id_customer_id_fkey
+# P10 recovery_codes (SELECT/INSERT/DELETE + UPDATE(used_at, updated_at)), password_reset_tokens (SELECT/INSERT +
+# UPDATE(used_at, updated_at); DELETE P13), users TOTP CHECK'leri, tenant_settings SMTP CHECK'leri. Tümü geri alınan TX'te.
+RC="INSERT INTO recovery_codes (id,user_id,code_hash,updated_at) VALUES"
+RC1="$RC ('00000000000000000000GRANTQ','00000000000000000000GRANTU',$H1,NOW(3))"
+PR="INSERT INTO password_reset_tokens (id,user_id,token_hash,expires_at,updated_at) VALUES"
+PR1="$PR ('00000000000000000000GRANTP','00000000000000000000GRANTU',$H1,NOW(3)+INTERVAL 30 MINUTE,NOW(3))"
+UU="UPDATE users SET"; WU="WHERE id='00000000000000000000GRANTU'"
+US="UPDATE tenant_settings SET"; WT="WHERE tenant_id='00000000000000000000GRANTT'"
+SMTP_OK="smtp_host='smtp.example.com',smtp_port=587,smtp_security='STARTTLS',smtp_user='destek@example.com',smtp_pass_enc=RANDOM_BYTES(45),smtp_from_name='Nokta Destek',smtp_from_email='destek@example.com'"
+run OK     "SELECT COUNT(*) FROM recovery_codes; SELECT COUNT(*) FROM password_reset_tokens"
+run OK     "$TX $RC1,('00000000000000000000GRANTO','00000000000000000000GRANTU',$H2,NOW(3)); UPDATE recovery_codes SET used_at=NOW(3) WHERE user_id='00000000000000000000GRANTU' AND code_hash=$H1 AND used_at IS NULL; DELETE FROM recovery_codes WHERE user_id='00000000000000000000GRANTU'; $R"
+run DENIED "UPDATE recovery_codes SET code_hash=$H2 WHERE id='00000000000000000000GRANTQ'"
+run DENIED "UPDATE recovery_codes SET user_id='00000000000000000000GRANTU' WHERE id='00000000000000000000GRANTQ'"
+run DENIED "ALTER TABLE recovery_codes ADD COLUMN x INT"
+run DENIED "$TX $RC1; $RC1; $R" PRIMARY
+run DENIED "$TX $RC1; $RC ('00000000000000000000GRANTO','00000000000000000000GRANTU',$H1,NOW(3)); $R" recovery_codes_user_id_code_hash_key
+run DENIED "$TX $RC ('00000000000000000000GRANTQ','00000000000000000000GRANTU',UPPER($H2),NOW(3)); $R" recovery_codes_code_hash_fmt_chk
+run DENIED "$TX $RC ('00000000000000000000GRANTQ','00000000000000000000GRANTU','ABCD-EFGH-12',NOW(3)); $R" recovery_codes_code_hash_fmt_chk
+run DENIED "$TX $RC ('00000000000000000000GRANTQ','0000000000000000000NOUSER',$H1,NOW(3)); $R" recovery_codes_user_id_fkey
+run OK     "$TX $PR1; UPDATE password_reset_tokens SET used_at=NOW(3) WHERE token_hash=$H1 AND used_at IS NULL AND expires_at > NOW(3); $R"
+run DENIED "DELETE FROM password_reset_tokens WHERE id='00000000000000000000GRANTP'"
+run DENIED "UPDATE password_reset_tokens SET expires_at=NOW(3)+INTERVAL 1 DAY WHERE id='00000000000000000000GRANTP'"
+run DENIED "UPDATE password_reset_tokens SET token_hash=$H2 WHERE id='00000000000000000000GRANTP'"
+run DENIED "ALTER TABLE password_reset_tokens ADD COLUMN x INT"
+run DENIED "$TX $PR1; $PR ('00000000000000000000GRANTO','00000000000000000000GRANTU',$H1,NOW(3)+INTERVAL 30 MINUTE,NOW(3)); $R" password_reset_tokens_token_hash_key
+run DENIED "$TX $PR ('00000000000000000000GRANTP','00000000000000000000GRANTU',$H1,NOW(3)+INTERVAL 45 MINUTE,NOW(3)); $R" password_reset_tokens_ttl_chk
+run DENIED "$TX $PR ('00000000000000000000GRANTP','00000000000000000000GRANTU',$H1,NOW(3)-INTERVAL 1 SECOND,NOW(3)); $R" password_reset_tokens_ttl_chk
+run DENIED "$TX $PR ('00000000000000000000GRANTP','00000000000000000000GRANTU','plain-reset-token',NOW(3)+INTERVAL 30 MINUTE,NOW(3)); $R" password_reset_tokens_token_hash_fmt_chk
+# users TOTP: setup (sır, etkin değil) → enable → adım ilerler → MFA sıfırlama (tek UPDATE).
+run OK     "$TX $UU totp_secret_enc=RANDOM_BYTES(61) $WU; $UU totp_enabled=1,totp_last_step=59000000 $WU; $UU totp_last_step=59000001 $WU; $UU totp_secret_enc=NULL,totp_enabled=0,totp_last_step=NULL $WU; $R"
+run DENIED "$TX $UU totp_enabled=1 $WU; $R" users_totp_enabled_chk
+run DENIED "$TX $UU totp_secret_enc=RANDOM_BYTES(61),totp_enabled=1 $WU; $UU totp_secret_enc=NULL $WU; $R" users_totp_enabled_chk
+run DENIED "$TX $UU totp_secret_enc=X'01020304' $WU; $R" users_totp_secret_enc_chk
+run DENIED "$TX $UU totp_last_step=59000000 $WU; $R" users_totp_last_step_chk
+run DENIED "$TX $UU totp_secret_enc=RANDOM_BYTES(61),totp_last_step=0 $WU; $R" users_totp_last_step_chk
+# tenant_settings SMTP: tam yapılandırma; kimliksiz (NONE, 25); IPv6/IPv4 literal; tamamen temizleme.
+run OK     "$TX $US $SMTP_OK $WT; $US smtp_user=NULL,smtp_pass_enc=NULL,smtp_security='NONE',smtp_port=25,smtp_host='[2001:db8::25]',smtp_from_name=NULL $WT; $US smtp_host='203.0.113.25' $WT; $US smtp_host=NULL,smtp_port=NULL,smtp_security=NULL,smtp_from_email=NULL $WT; $R"
+run DENIED "$TX $US smtp_host='smtp.example.com' $WT; $R" tenant_settings_smtp_complete_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_from_email=NULL $WT; $R" tenant_settings_smtp_complete_chk
+run DENIED "$TX $US smtp_from_name='Nokta' $WT; $R" tenant_settings_smtp_complete_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_user=NULL $WT; $R" tenant_settings_smtp_auth_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_pass_enc=X'00' $WT; $R" tenant_settings_smtp_pass_enc_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_port=0 $WT; $R" tenant_settings_smtp_port_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_port=65536 $WT; $R" tenant_settings_smtp_port_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_host=CONCAT('smtp.example.com',CHAR(13),CHAR(10)) $WT; $R" tenant_settings_smtp_host_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_host=CONCAT('smtp.example.com',CHAR(10)) $WT; $R" tenant_settings_smtp_host_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_host='smtp example.com' $WT; $R" tenant_settings_smtp_host_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_user=CONCAT('destek',CHAR(10)) $WT; $R" tenant_settings_smtp_user_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_from_name=CONCAT('Nokta',CHAR(13),CHAR(10),'Bcc: x@example.com') $WT; $R" tenant_settings_smtp_from_name_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_from_name=' Nokta' $WT; $R" tenant_settings_smtp_from_name_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_from_email='destek-example.com' $WT; $R" tenant_settings_smtp_from_email_chk
+run DENIED "$TX $US $SMTP_OK $WT; $US smtp_security='starttls' $WT; $R" tenant_settings_smtp_security_chk
 # Temizlik (FK sırasıyla)
 run OK     "DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"
 exit $FAILED

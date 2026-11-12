@@ -52,6 +52,31 @@ export const USER_AUDIT = {
   PERMISSION_CHANGED: "user.permission_changed",
   DEACTIVATED: "user.deactivated",
   REACTIVATED: "user.reactivated",
+  /** P10 (AC-115): Admin kullanıcının 2FA'sını sıfırladı (oturumlar iptal, canlı odalar biter). */
+  MFA_RESET: "user.mfa_reset",
+} as const;
+
+/**
+ * P10 hesap güvenliği audit eylemleri (AC-65..68; ortak standart 1.1). Entity `users` / `auth_sessions`.
+ * Kod, sır, token, kurtarma kodu ASLA yazılmaz (mask.ts ayrıca `code|totp|recovery|token` anahtarlarını maskeler).
+ */
+export const AUTH_AUDIT = {
+  MFA_SETUP: "auth.mfa_setup",
+  MFA_ENABLED: "auth.mfa_enabled",
+  /** Giriş sonrası 2FA doğrulaması (`method`: totp | recovery; başarısızda `reason`). */
+  MFA_VERIFY: "auth.mfa_verify",
+  LOGOUT_ALL: "auth.logout_all",
+  PASSWORD_RESET_REQUESTED: "auth.password_reset_requested",
+  PASSWORD_RESET: "auth.password_reset",
+} as const;
+
+/** P10: gönderilen her e-posta (ortak standart 2.1: alıcı (maskeli), konu, sonuç). `kind` şablon türü. */
+export const MAIL_AUDIT = {
+  SENT: "mail.sent",
+  /** AC-10: oturum bağlantısı e-postası isteği (20/sa sayımı bu satırlardan, yeniden başlatmaya dayanıklı). */
+  SESSION_EMAIL: "session.email",
+  SMTP_TEST: "settings.smtp.test",
+  EMAIL_TEST: "settings.email.test",
 } as const;
 export const TENANT_AUDIT = {
   CREATED: "tenant.created",

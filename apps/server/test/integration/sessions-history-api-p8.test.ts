@@ -468,7 +468,7 @@ describe("AC-60 performans: 10.000 kayıtta ilk sayfa < 500 ms (ADMIN, USER, SUP
     const mkAuth = (role: "ADMIN" | "USER" | "SUPER_ADMIN", userId: string, tenantId: string | null): AuthContext => ({
       sessionId: "perf", expiresAt: new Date(Date.now() + 60_000),
       user: { id: userId, email: "perf@example.test", username: null, fullName: "Perf", role, tenantId, theme: "SYSTEM", mustChangePassword: false },
-      tenantId, tenant: null, actingTenant: null, permissions: new Set(),
+      tenantId, tenant: null, actingTenant: null, mfaStage: "ok" as const, mfaRequired: false, totpEnabled: false, permissions: new Set(),
     });
     const q = listSessionsQuerySchema.parse({});
     const cases: [string, AuthContext][] = [

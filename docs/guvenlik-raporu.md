@@ -1,3 +1,197 @@
+# Güvenlik Raporu — P10 — Kod turu 3 (2026-11-12, dar kapsam)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (+ Bilgi 2). Tur 2'deki B-P10-10 ve B-P10-11 kapandı.
+
+Kapsam: implementation.md "P10 — Backend → Düzeltme turu 2". İncelenen dosyalar: `lib/netguard.ts`, `mail/service.ts`, `auth/{session,guards,routes,service}.ts`, `signaling/ws.ts`, `requests/ws.ts` ve `app.ts`. nodemailer 10.5.0'ın `smtp-transport` ve `smtp-connection` kaynakları da okundu. Testler koşulmadı.
+
+| Bulgu | Durum | Doğrulama |
+|---|---|---|
+| B-P10-10 (Düşük) DNS hatasında fail-open; IPv6 normalize edilmiyor | KAPANDI | `netguard.ts:117-133`: kendi adı çözülemezse son başarılı çözüm kullanılıyor. Önbellek de yoksa `null` dönüyor ve `resolve` her hedefi reddediyor (`:138`, fail-closed). `canonicalIp` (`:70-75`) IPv6'yı RFC 5952 biçimine, IPv4-mapped adresi IPv4'e çeviriyor. Kanonikleştirme kümeye eklerken (`:121`) ve sorgularken (`:138`) uygulanıyor. `formatIpv6` yalnız ≥2 sıfır grubunu `::` yapıyor; eşitlikte ilk grubu seçiyor. Alarm logu `app.ts` içinde. |
+| B-P10-11 (Düşük) Tavanda soket kapanmıyor | KAPANDI | `mail/service.ts:64-77,124,148`: ham TCP soketi serviste açılıp listeye ekleniyor. Hata ya da tavan aşımında `destroy()` çağrılıyor; bu, üstteki TLS soketini de kapatıyor. TCP bağlantısı daha kurulmadan (SYN askıda) tavan dolarsa da soket listede olduğu için yok ediliyor. Başarılı gönderimde nodemailer `finish` içinde `connection.close()` çağırıyor. Her deneme kendi soket dizisini kullanıyor. Ek `error` dinleyicisi kalıcı olduğu için geç gelen hatalar süreci düşürmüyor. |
+
+## Ek kontroller (bulgu yok)
+- **Çözüm ile bağlanma arasında boşluk / rebinding:** `netguard.resolve` tüm adresleri denetliyor ve `ips[0]` adresini döndürüyor. `getSocket`, `netConnect({host: ip})` ile bu IP literaline bağlanıyor; ikinci bir DNS çözümü yapılmıyor. Port bağlanmadan önce allowlist'ten geçiyor (`service.ts:117`). `getSocket` taşıyıcı seçeneklerindeki `host`/`port` değerlerini kullanıyor ve bu değerler yalnız serviste set ediliyor. IPv6 literali `netConnect` ile doğrudan açılıyor.
+- **TLS doğrulaması:** Örtük TLS (SSL/465) için `options.connection` ve `secure` birlikteyken nodemailer `_upgradeConnection` çağırıyor (`smtp-connection/index.js:268-281`). STARTTLS'te de aynı fonksiyon çalışıyor (`:1655`). İki yolda da `tls.connect` seçenekleri `this.options.tls` değerinden geliyor; yani `servername` ve `rejectUnauthorized: true` her yolda geçerli (`:1111-1118`). `secured` seçeneği hiçbir yerde verilmiyor, bu yüzden TLS atlanamıyor. `mail-tls-p10` testi örtük TLS'te yanlış ad için reddi doğruluyor.
+- **STARTTLS downgrade:** `requireTLS` STARTTLS'i zorunlu kılıyor. Sunucu STARTTLS ilan etmese de komut gönderiliyor (`:1538`); başarısızlık ETLS hatasıyla sonuçlanıyor. EHLO başarısız olursa HELO'ya düşülmüyor (`:1528`). STARTTLS'ten önce gelen açık metin baytları atılıyor (RFC 3207 enjeksiyonu). Güvenlik "Yok" seçiliyken kimlik bilgisi gönderilmiyor (`service.ts:118`).
+- **setupEnforced:** Modül global'i kaldırılmış. `app.decorate("mfaSetupEnforced", deps.mfaSetupEnforcement ?? true)` çağrısı (`app.ts:145`) WS eklentileri kaydedilmeden önce yapılıyor. Production'da `false` verilirse hata fırlatılıyor (`:135`). `server.ts:11` bayrağı vermiyor, yani `true` kullanılıyor. `mfaStageOf`, `SessionPolicy.setupEnforced` ve `login` parametreleri zorunlu `boolean`. Bütün çağıranlar `app.mfaSetupEnforced` geçiyor: `guards.ts:46`, `routes.ts:50`, `requests/ws.ts:54`, `signaling/ws.ts:63`. WS yollarında `allowPartial` yok, dolayısıyla yarım oturum `null` dönüyor (`session.ts:116`). `src` altında `false` geçen tek kayıt testlerde var.
+
+## Bilgi (bulgu değil)
+- **I-1:** TCP bağlantısı kurulmadan tavan dolup soket yok edilirse nodemailer'ın `getSocket` geri çağrısı hiç çağrılmıyor ve `sending` promise'i sonsuza kadar bekliyor. Promise'e referans kalmadığı için GC topluyor; soket ya da zamanlayıcı sızıntısı yok.
+- **I-2:** `mail-tls-p10` testi yalnız örtük TLS'i (465) kapsıyor. `getSocket` ile birlikte STARTTLS (587) üzerinde yanlış sertifika adı ve STARTTLS ilan etmeyen sunucu için birer test eklenmesi önerilir (atanan: backend-dev, "Sonra").
+
+## Otomatik tarama
+`gitleaks v8.30.1 dir apps/server/src --config .gitleaks.toml` → `GITLEAKS_EXIT=0`.
+
+---
+
+# Güvenlik Raporu — P10 (hesap güvenliği + SMTP) — Kod turu 2 (2026-11-12)
+DURUM: GEÇTİ (Kritik/Yüksek 0; Tur 1'in 2 Orta bulgusu kapandı)
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 (+ Bilgi 3)
+
+Kapsam: Tur 1 düzeltmeleri (implementation.md "P10 — Backend/Frontend → Düzeltme turu 1", mimari-api.md P10 sapma (9)–(13)) ve Tur 1'de incelenmeyen maddeler. Kod okundu. netguard'a gerçek girdilerle deneme yapıldı (node, 34 adres + sahte DNS). Testler koşulmadı.
+
+## Tur 1 bulgularının durumu
+| Bulgu | Durum | Doğrulama |
+|---|---|---|
+| B-P10-1 (Orta) SMTP port / kendi IP / kâhin | KAPANDI | Port allowlist {25,465,587,2525} zod'da (`contracts/api/tenants.ts:145,197`) ve gönderimde de var (`mail/service.ts:93`). `denyHosts` = `PUBLIC_BASE_URL` hostu (`app.ts:164`). Denemede `185.126.217.99`, `[::ffff:185.126.217.99]`, `[::ffff:b97e:d963]` → HOST_NOT_ALLOWED. Kullanıcıya tek mesaj gidiyor. Etkileşimli başarısızlık en az 12 sn sürüyor (`service.ts:148`); hız sınırı 12 sn'lik beklemeden önce sayılıyor (`smtp-routes.ts:20-21`). Kalan iki ayrıntı B-P10-10 ve B-P10-11'de. |
+| B-P10-2 (Orta) gitleaks | KAPANDI | 7 dizinin hepsinde GITLEAKS_EXIT=0 (aşağıda). |
+| B-P10-3 | KAPANDI | `app.ts:133` production'da hata fırlatıyor; `security-p10.test.ts:192-195` testi var. |
+| B-P10-4 | KAPANDI | `::127.0.0.1`, `::7f00:1`, `2002:7f00:1::`, `64:ff9b::/96`, `64:ff9b:1::/48`, `fec0::1`, `::ffff:0:7f00:1` (SIIT), Teredo `2001:0:…`, `2001:db8::`, `3fff::`, `100::1`, `ff02::1`, `fe80::1%eth0`, `::`, `::1` engellendi. `::ffff:169.254.169.254` gömülü IPv4 kuralıyla engellendi. Genel adresler (`2a01:4f8::1`, `2001:4860:4860::8888`, `::ffff:8.8.8.8`) geçti. `parseIpv6` geçersiz ve fazla uzun girdide null dönüyor; sonuç fail-closed (`isBlockedIp` → true). |
+| B-P10-5 | KAPANDI | Sözleşmede ret var (`tenants.ts:206`). DB'de kalmış eski ayarda gönderim yapılmıyor (`service.ts:94`). UI'da alanlar pasif. |
+| B-P10-6 | KAPANDI | `account.ts:117` `totpSecretEnc: { equals: enc }` koşullu ve `enc` doğrulanan sırrın ham baytı. Bildirim e-postası commit'ten sonra gidiyor. |
+| B-P10-7 | KAPANDI | HMAC-SHA-256 kullanılıyor. Anahtar HKDF ile türetiliyor (`info remote-support/recovery-code/v1`, `crypto.ts:65`); şifreleme anahtarı doğrudan kullanılmıyor. Doğrulama tüm sürümlerle yapılıyor (`codeHash IN`). |
+| B-P10-8 | KAPANDI | AAD zorunlu (`tablo.sütun:<ULID>`). ULID'de `:` olmadığı için bağlam belirsizliği yok. Yanlış AAD veya sürüm baytı → GCM tag hatası → güvenli ret. |
+| B-P10-9 | KAPANDI | 2FA sınırı ikiye ayrıldı: hesap+IP 5/5 dk ve hesap geneli 15/15 dk (`account.ts:38-39,67-74`). İkisi de beklemeden önce eşzamanlı sayılıyor. Kilit e-postası kullanıcı başına saatte 1 (`account.ts:40,250`). Çok IP'li saldırganın hesap kilidi G-23'te kabul edilmiş risk. |
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] B-P10-10 netguard kendi-IP engeli DNS hatasında açık kalıyor (fail-open); karşılaştırma IPv6 metnini normalize etmiyor — A10 SSRF
+Yer: `apps/server/src/lib/netguard.ts:79-95`
+Sorun: (a) `selfIps()` hatayı `ipsOf` içinde yutup `[]` döndürüyor. `PUBLIC_BASE_URL` hostu çözülemezse (geçici DNS hatası) kendi-IP kuralı sessizce devre dışı kalıyor. Bu davranış yorumda da yazılı: "Çözülemezse yalnız diğer kurallar geçerli". Denemede `selfdns-fail` → hedef `185.126.217.99` İZİN verildi. (b) Küme karşılaştırması metin üzerinden yapılıyor ve `canonicalIp` IPv6'yı normalize etmiyor. `[2a01:04f8:0c0c:0001:0000::1]` gibi sıfır dolgulu bir yazım, kendi adresimiz olduğu halde İZİN aldı. Bugün API'den gelen host sözleşmedeki `new URL` ile RFC 5952 biçimine getirildiği için (b)'ye API'den ulaşılamıyor. Bu yalnız derinlemesine savunma açığı.
+İstismar senaryosu: Saldırganın sunucunun DNS çözümünü düşürmesi gerekir. Başarırsa hedef yalnız 4 SMTP portuyla sınırlı kalıyor. Olasılık ve etki düşük.
+Düzeltme: denyHosts çözümü hata verirse fail-closed olun (HOST_NOT_ALLOWED ya da son başarılı çözümü önbellekte tutun). Kümeye eklerken ve sorgularken IPv6'yı `parseIpv6` baytlarından üretilen kanonik metinle karşılaştırın ya da `BlockList.addAddress` kullanın. Sunucunun IP'si sabitse isteğe bağlı statik bir liste de eklenebilir. (atanan: backend-dev)
+
+### [DÜŞÜK] B-P10-11 12 sn tavanı yanıtı kesiyor ama SMTP soketini kapatmıyor — A04 (kaynak tüketimi)
+Yer: `apps/server/src/mail/service.ts:113-126`
+Sorun: `Promise.race` 12 sn'de reddediyor ve `finally` içinde `t.close()` çağrılıyor. Ancak nodemailer 10.5.0'da havuzsuz `SMTPTransport.close()` yalnız `emit('close')` yapıyor (`dist/cjs/smtp-transport/index.js:391-396`). Süren bağlantı kapatılmıyor. Selamlamadan sonra yalnız boşta kalma süresi (`socketTimeout` 10 sn) geçerli. Kötü niyetli bir SMTP sunucusu her 9 sn'de bir satır gönderirse (çok satırlı yanıt) soket süresiz açık kalıyor. Bu durum hem etkileşimli hem arka plan (talep bildirimi, kilit/2FA e-postası) gönderimleri için geçerli.
+İstismar senaryosu: `settings.edit` yetkili bir tenant Admin'i SMTP olarak kendi damlatan sunucusunu girer. Test ucuyla 5/dk (saatte 300) ve oturum e-postası ile her teknisyen için 20/sa ek bağlantı açar. Bağlantılar birikir; fd/bellek baskısı oluşur ve rs_mail metrikleri yanıltıcı olur. 5/dk sınırı tenant başına; birden çok tenant ile çarpılır.
+Düzeltme: Tavan aşılınca soketi gerçekten kapatın. Seçenekler: (1) `getSocket` seçeneğiyle soketi kendiniz açın (netguard IP'sine `net.connect`), tavanda `socket.destroy()` çağırın; (2) `SMTPConnection`'ı doğrudan kullanıp `.close()` ile kapatın. En azından `rs_mail_open_connections` benzeri bir gösterge ekleyin. (atanan: backend-dev)
+
+### [BİLGİ] Anahtar emekliye ayırma kurtarma kodlarını ve TOTP sırlarını geri dönüşsüz bozar
+Yer: `apps/server/src/lib/crypto.ts:59-79`
+Kurtarma kodu HMAC'i düz kod bilinmeden yeni anahtarla yeniden hesaplanamaz. TOTP/SMTP için yeniden şifreleme işi de yok. Bir sürüm `APP_ENCRYPTION_KEYS`'ten çıkarılırsa o sürümle yazılmış kodlar ve sırlar okunamaz. Runbook'a şu yazılmalı: "Eski sürüm, ona bağlı veri kalmayana kadar listede tutulur." Kodda değişiklik gerekmez. (devops: runbook)
+
+### [BİLGİ] TLS ad doğrulaması testi yalnız örtük TLS'i (465) kapsıyor
+`mail-tls-p10.test.ts` yalnız SSL yolunu test ediyor. STARTTLS yolu nodemailer'da aynı mantıkla çalışıyor (`smtp-connection/index.js:1115-1117`: `tls.servername` → `opts.servername`) ve Node `checkServerIdentity` `servername`'i kullanıyor; bu yüzden risk yok. İsteğe bağlı olarak 587 + STARTTLS için de bir test eklenebilir. (backend-dev)
+
+### [BİLGİ] Ayar kaydı ve test öncesi netguard anında 400 dönüyor
+`smtp-routes.ts:24`: Bu hata yolu 12 sn tabanının dışında. Yalnız "bu ad şu an özel bir IP'ye çözülüyor mu" bilgisini veriyor; bunu saldırgan kendi DNS sorgusuyla da öğrenebilir. Kabul edilebilir.
+
+## Koordinatör kararı — SMTP hata sınıfı audit'te kalıyor: KABUL
+Gerekçe: Port allowlist sonrası sınıf (connect/tls/auth/rejected) yalnız 4 SMTP portunda ve yalnız tenant'ın kendi audit kaydında görülüyor. Bu bilgi internetteki herkesin aynı portlara doğrudan bağlanarak öğrenebileceğinden fazla değil. Yanıt süresi 12 sn'ye eşitlendi, kendi IP ve iç ağ engelli. Platform bu bilgiyle anlamlı bir tarayıcıya dönüşmüyor. Koşul: P11 audit ekranı `reason` dışında ham hata metni, yanıt kodu veya karşı sunucunun banner'ını göstermemeli. Bugün `newValue`'da yalnız `reason` var (`service.ts:159`, `smtp-routes.ts:28`); `responseCode` yalnız sunucu logunda.
+
+## Tur 1'de incelenmeyen maddeler — tamamlandı
+- **nodemailer `tls.servername`:** Kaynakta doğrulandı (`smtp-connection/index.js:176,320-322,1115-1117`). `mail-tls-p10.test.ts:69-77` IP'ye bağlanıyor; doğru adla başarılı, yanlış adla `tls` hatası alınıyor ve ileti gitmiyor. Sorun yok.
+- **Web `session-watch.tsx` boşta yoklama:** `shouldProbe` bir boşta kalma döneminde yalnız bir yoklama yapıyor (31,5 dk > sunucunun 30 dk sınırı). Yoklama oturumu canlı tutan bir döngü kurmuyor. Görünürlük yoklaması etkinlikten en az 60 sn sonra yapılıyor ve oturumu yalnız zaten geçerliyse uzatıyor. Sorun yok.
+- **Kurtarma kodu indirme:** Kodlar istemcide Blob + `createObjectURL` ile indiriliyor, URL 1 sn sonra iptal ediliyor. Kodlar ağa ya da kalıcı depoya (localStorage/sessionStorage) yazılmıyor. Sorun yok.
+- **CSP (`apps/web/proxy.ts:18-33`):** nonce + `strict-dynamic` kullanılıyor; production'da `unsafe-inline`/`unsafe-eval` yok. `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`, `form-action 'self'` var. `connect-src` self + wss. Sorun yok.
+- **AC-151 `/settings/support-requests/email/test` yetkisi:** Plugin seviyesinde `requireAuth` (CSRF dahil) + `requirePerm("settings.edit")` hook'u var (`requests/routes.ts:89-90`), `tenantScope` ile tenant kapsamı uygulanıyor, SMTP testiyle ortak 5/dk/tenant kovası kullanılıyor. Sorun yok.
+
+## Otomatik tarama çıktıları
+- `pnpm audit --prod --audit-level=moderate`: **No known vulnerabilities found**
+- gitleaks v8.30.1 `dir` (`.gitleaks.toml`, pipe yok):
+  - `apps/server/src` → GITLEAKS_EXIT=0
+  - `apps/server/test` → GITLEAKS_EXIT=0
+  - `packages` → GITLEAKS_EXIT=0
+  - `docs` → GITLEAKS_EXIT=0
+  - `apps/web/app` → GITLEAKS_EXIT=0
+  - `apps/web/lib` → GITLEAKS_EXIT=0
+  - `apps/web/e2e` → GITLEAKS_EXIT=0
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- `netguard.ts:6` yorumu "sunucunun kendi genel IP'si de hedef olamaz" diyor; DNS hatasında bu garanti tutmuyor (B-P10-10).
+- `mail/service.ts:4` yorumu "deneme başına mutlak tavan" diyor; tavan yanıta uygulanıyor ama sokete uygulanmıyor (B-P10-11).
+
+## Olumlu
+2000::/3 allowlist yaklaşımı, kara liste yamalarından çok daha sağlam; denenen tüm özel/geçiş aralıkları kapandı. AAD, HKDF ile anahtar ayrımı ve koşullu `mfaEnable` UPDATE'i doğru kuruldu. Hata mesajının tekleştirilmesi ve süre tabanı, Tur 1'deki kâhini fiilen ortadan kaldırdı.
+
+## Sonra listesine öneri
+B-P10-10, B-P10-11 ve anahtar emekliye ayırma runbook notu `docs/gereksinimler.md` §9'a "Sonra" olarak eklensin. B-P10-11 prod açılışından önce kapatılmalı (öneri).
+
+---
+
+# Güvenlik Raporu — P10 (hesap güvenliği + SMTP) — Kod turu 1 (2026-11-12)
+DURUM: GEÇTİ (Kritik/Yüksek 0). Prod açılışından önce Orta bulgular kapatılmalı (öneri).
+Özet: Kritik 0 / Yüksek 0 / Orta 2 / Düşük 7
+
+Kapsam: çalışma ağacı (son commit beb97ea üstü diff + izlenmeyen dosyalar). `apps/agent-win` kapsam dışı. Testler koşulmadı. Kod okundu; netguard'a gerçek girdi denemesi yapıldı.
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] B-P10-1 SMTP hedefinde port kısıtı yok, sunucunun kendi genel IP'si engellenmiyor — A10 SSRF
+Yer: `packages/contracts/src/api/tenants.ts` (`smtpSettingsInputSchema.port` 1–65535), `apps/server/src/lib/netguard.ts:7-12`, `apps/server/src/mail/service.ts:44-50, 79-109`, `apps/server/src/tenants/smtp-routes.ts:18-29`
+Sorun: Özel, loopback, CGNAT ve link-local aralıkları doğru engelleniyor. Ama port serbest. Yayın sunucusunun kendi genel IP'si (ve aynı makinedeki diğer servisler) da engellenmiyor. Hata sınıfları (`connect`/`tls`/`auth`/`rejected`) ve yanıt süresi (anında ret ile 10 sn zaman aşımı arasındaki fark) bir kâhin (oracle) oluşturuyor.
+İstismar senaryosu: `settings.edit` yetkisi olan bir tenant Admin'i host olarak sunucunun genel adını/IP'sini ya da herhangi bir internet hostunu, port olarak 22/3306/4444 gibi değerleri girer. "SSL" ile 443'e bağlanınca `tls` hatası, kapalı portta anında `connect`, açık ama SMTP olmayan portta 10 sn sonra `connect` alır. 5/dk/tenant sınırıyla yavaş ama sürekli bir port taraması yapılabilir. Platform başka hedeflere karşı tarayıcı olarak kullanılır; sunucu IP'si kara listeye girebilir. Ayrıca SMTP komutları SMTP olmayan servislere gönderilebilir (protokoller arası saldırı).
+Düzeltme: Port allowlist'i koyun: 25, 465, 587, 2525 (sözleşme zod + sunucu). `PUBLIC_BASE_URL` hostunun çözüldüğü IP'leri ve isteğe bağlı bir `NETGUARD_EXTRA_DENY` listesini netguard'a ekleyin. Kullanıcıya dönen hata metnini tek bir genel mesaja indirin (sınıf yalnız logda kalsın) ya da en azından `connect` ile zaman aşımını aynı süreye eşitleyin. (atanan: backend-dev)
+
+### [ORTA] B-P10-2 Yeni test dosyası gitleaks'e takılıyor, CI gizli bilgi kapısı kırmızı — A05 / G-18
+Yer: `apps/server/test/integration/account-p10.test.ts:199` (`generic-api-key`, sahte SMTP şifresi `password: "..."`)
+Sorun: `gitleaks dir apps/server/test` çıkış kodu 1 verdi. Değer sahte ama CI gitleaks adımı başarısız olacak ve gerçek sızıntıları gürültüde saklayacak.
+İstismar senaryosu: Doğrudan istismar yok. Kapı kırmızıyken "geçici" yol istisnası eklenmesi alışkanlığı oluşur (G-18'in amacı bozulur).
+Düzeltme: Sahte değeri `apps/server/test/helpers/secrets.ts`'e taşıyın (allowlist'teki tek kaynak) ya da satır içi `// gitleaks:allow` + gerekçe ekleyin (B-P9-1 kalıbı). `.gitleaks.toml`'a yeni yol istisnası eklemeyin. (atanan: backend-dev)
+
+### [DÜŞÜK] B-P10-3 `mfaSetupEnforcement:false` production'da reddedilmiyor (yorumdaki vaat kodda yok) — A04
+Yer: `apps/server/src/app.ts:132`, `apps/server/src/auth/session.ts:36-43` (yorum "production'da buildApp reddeder")
+Sorun: `buildApp` değeri env'e bakmadan doğrudan modül genelindeki değişkene yazıyor. Bugün `server.ts:11` bu değeri vermiyor, bu yüzden prod güvende. Ancak tek bir yanlış çağrı zorunlu 2FA kurulumunu sessizce kapatır. Değişken modül seviyesinde global olduğu için aynı süreçteki son `buildApp` çağrısı hepsini etkiler.
+Düzeltme: `if (deps.mfaSetupEnforcement === false && env.NODE_ENV === "production") throw ...` ekleyin ve bunu bir birim testiyle sabitleyin. (atanan: backend-dev)
+
+### [DÜŞÜK] B-P10-4 netguard IPv6 boşlukları — A10
+Yer: `apps/server/src/lib/netguard.ts:12`
+Sorun: Deneme sonucu: `::127.0.0.1` / `::7f00:1` (IPv4-compatible), `2002:7f00:1::` (6to4), `64:ff9b:1::/48` (yerel NAT64), `fec0::/10` ve `::ffff:0:0:0/96` (SIIT) engellenmiyor. IPv4-mapped (`::ffff:7f00:1`), onluk/sekizlik/onaltılık IPv4 biçimleri, CGNAT ve 169.254.169.254 doğru engelleniyor. Onluk ve sekizlik biçimler zod `new URL` normalizasyonu ve çözümlenen IP kontrolü ile yakalanıyor.
+İstismar senaryosu: Konteynerde IPv6 ya da NAT64 açıksa iç hedefe yol açılabilir. Bugünkü dağıtımda (Docker, IPv6 kapalı) olasılık düşük.
+Düzeltme: V6 listesine `::/96`, `::ffff:0:0:0/96`, `2002::/16`, `64:ff9b:1::/48`, `fec0::/10`, `2001::/32` (Teredo) eklenmeli. Daha basit yol: IPv6'yı yalnız global unicast `2000::/3` ile sınırlayın. (atanan: backend-dev)
+
+### [DÜŞÜK] B-P10-5 Güvenlik "Yok" + kimlik bilgisi → SMTP şifresi düz metin gider — A02
+Yer: `apps/server/src/mail/service.ts:89-91` (`ignoreTLS: true` + `auth`)
+Sorun: `security: "NONE"` ile kullanıcı adı/şifre birlikte kaydedilebiliyor. Nodemailer AUTH'u şifresiz kanaldan gönderir.
+Düzeltme: Sözleşmede `security === "NONE"` iken `user/password` alanlarını reddedin ya da UI'da açık bir uyarı gösterin. Tercih edilen: ret. (atanan: backend-dev, frontend-dev)
+
+### [DÜŞÜK] B-P10-6 Şifresi ele geçmiş, 2FA'yı henüz kurmamış hesapta saldırgan kendi TOTP'sini bağlayabilir — A07
+Yer: `apps/server/src/auth/account.ts:62-100`, `apps/server/src/auth/routes.ts:64-76`
+Sorun: Zorunlu 2FA kurulum aşaması yalnız şifreyle açılıyor. İlk kurulumda ikinci bir doğrulama yok. Bu, tasarımın doğal sonucu. Etkinleştirme diğer oturumları iptal ettiği için gerçek kullanıcı oturumdan atılır ve hesap fiilen saldırgana geçer. Ayrıca `mfaEnable` doğrulanan sırrı UPDATE koşuluna bağlamıyor (`account.ts:90`). Aynı kullanıcı paralel `setup` çağırırsa doğrulanmamış bir sırla etkinleşebilir. Etkisi düşük: yalnız kullanıcının kendisini etkiler.
+Düzeltme: Etkinleştirmede kullanıcıya bildirim e-postası gönderin ("2FA etkinleştirildi, siz değilseniz yöneticinize başvurun"). UPDATE'e `totpSecretEnc: <yüklenen değer>` koşulunu ekleyin. (atanan: backend-dev)
+
+### [DÜŞÜK] B-P10-7 Kurtarma kodu hash'i tuzsuz SHA-256 (50 bit) — A02
+Yer: `apps/server/src/auth/mfa.ts:56-62`
+Sorun: Çevrimiçi saldırı 5/5 dk sınırıyla pratik değil. Ancak DB dökümü sızarsa tuzsuz ve hızlı hash, 50 bit uzayda GPU ile çevrimdışı kırılabilir. Kodlar çok hedefli: tüm kullanıcıların kodları aynı anda denenebilir.
+Düzeltme: Sunucu tarafı gizli bir anahtarla HMAC-SHA256 kullanın (ör. `SESSION_REF_KEY` türevi) ya da entropiyi 80 bite çıkarın (16 karakter). (atanan: backend-dev)
+
+### [DÜŞÜK] B-P10-8 AES-GCM'de AAD bağlaması yok — A02
+Yer: `apps/server/src/lib/crypto.ts:18-41`
+Sorun: Şifreli değer satıra/sütuna bağlı değil. DB'ye yazma yetkisi olan biri bir tenant'ın `smtp_pass_enc` değerini başka satıra ya da `totp_secret_enc` sütununa taşıyabilir. IV her şifrelemede rastgele 12 bayt; GCM'in anahtar başına ~2^32 sınırı bu hacimde sorun değil. Sürüm baytı ve rotasyon doğru. Env doğrulaması 32 bayt, tekil sürüm ve prod'da zorunluluk kontrol ediyor.
+Düzeltme: `setAAD(Buffer.from("tenant_settings.smtp_pass_enc:" + tenantId))` biçiminde tablo/sütun/satır bağlaması ekleyin. Mevcut veri için sürüm baytında yeni bir biçim tanımlayın. (atanan: backend-dev)
+
+### [DÜŞÜK] B-P10-9 2FA deneme sınırı ve kilit e-postası kötüye kullanılarak gerçek kullanıcı rahatsız edilebilir — A04
+Yer: `apps/server/src/auth/account.ts:30, 78, 107` (sınır anahtarı `userId`, bellek içi), `apps/server/src/auth/service.ts` `recordFailure` → `onLock`
+Sorun: (a) Şifreyi bilen saldırgan yarım oturumla 5 hatalı kod girerek gerçek kullanıcının 2FA doğrulamasını 5'er dakika kilitli tutabilir. (b) Hesap geneli kilit (20/sa) her tetiklendiğinde bildirim e-postası gidiyor. Birkaç IP ile saatte ~4 kilit e-postası gönderilebilir. Bu, tasarımdaki (G-23) kabul edilmiş DoS'un e-posta boyutu. Sayaç bellek içi olduğu için yeniden başlatmada sıfırlanıyor (tek instance, ADR-0005 ile tutarlı).
+Düzeltme: Kilit e-postasına kullanıcı başına bir soğuma süresi koyun (ör. 1 saatte 1). 2FA sınırını `userId+ipKey` ve `userId` (daha gevşek) olarak ikiye ayırmayı değerlendirin. (atanan: backend-dev)
+
+## Odak maddeleri — doğrulanan (sorun yok)
+- **TOTP:** RFC 6238 (HMAC-SHA1, dinamik kesme, 6 hane, 30 sn), ±1 adım. `safeEqual` SHA-256 + `timingSafeEqual` kullanıyor, uzunluktan bağımsız (`lib/ids.ts:50`). Sır 160 bit CSPRNG. Tekrar kullanım koruması: TX içinde `totpLastStep < step` koşullu `updateMany`; aynı ya da daha eski adım ikinci kez kabul edilmiyor, yarışta tek satır kazanır (`account.ts:121`). Kurtarma kodu koşullu `usedAt: null` UPDATE ile tek kullanımlık (`account.ts:124`).
+- **Oturum sabitleme (session fixation):** verify başarılı olunca eski oturum iptal ediliyor, yeni token ve CSRF üretiliyor, mutlak bitiş süresi taşınıyor, süre uzamıyor (`account.ts:127-128`).
+- **Yarım oturum:** `requireAuth` `verify`/`setup` aşamasında yalnız izinli uçlara izin veriyor (`guards.ts:51-52`). `/auth/me` yetki ve acting tenant döndürmüyor. WS (`requests/ws.ts:129,149`, `signaling/ws.ts:104,232`) `allowPartial=false` kullanıyor, yarım oturum reddediliyor. Etkinleştirmede diğer oturumlar iptal ediliyor ve panel soketleri kapatılıyor.
+- **Şifre sıfırlama:** 256 bit token, DB'de SHA-256 tutuluyor, 30 dk TTL. Koşullu tek kullanım var (`account.ts:200`); diğer açık token'lar ve tüm oturumlar aynı TX'te iptal ediliyor, `endLive` çağrılıyor. Bağlantı `env.PUBLIC_BASE_URL`'den üretiliyor, Host başlığı kullanılmıyor (link zehirleme yok). Token URL parçasında (`#token=`), sayfa açılınca `history.replaceState` ile temizleniyor (`reset-form.tsx`). Global `Referrer-Policy: no-referrer` var. forgot her durumda 202 dönüyor, iş `setImmediate` ile yanıttan sonra yapılıyor (zamanlama sızıntısı yok); IP 10/sa, hesap 3/sa. Şifre değişiminde açık sıfırlama token'ları da iptal ediliyor.
+- **SMTP:** Şifre AES-GCM ile saklanıyor, GET yanıtı yalnız `hasPassword` döndürüyor, audit'te `"***"` görünüyor. Kayıt ve test öncesi netguard çalışıyor. Bağlantı çözümlenen IP'ye yapılıyor (`servername` = ad, `rejectUnauthorized: true`), DNS rebinding yok. STARTTLS'te `requireTLS` olduğu için düşürme (downgrade) yok. Başlık enjeksiyonu: `to` zod e-posta ile doğrulanıyor (virgül/CRLF kabul edilmiyor), gönderen adı kontrol karakteri reddiyle ve nesne olarak geçiyor, konu `oneLine` ile temizleniyor. Şablonlardaki tüm değişken HTML `esc` ile kaçışlı. Tenant izolasyonu `tenantScope` + `settings.edit` ile sağlanıyor.
+- **`/sessions/:id/email`:** Yalnız oturumun kendi teknisyeni ve PENDING durumundaki oturum için çalışıyor. Link öneki `PUBLIC_BASE_URL/session/` olmalı ve `sha256(token) == tokenHash` sabit zamanlı karşılaştırılıyor, yani başka bir adres gönderilemez. 20/sa sayımı `users FOR UPDATE` ile TX içinde yapılıyor, yarış yok. Alıcı serbest (tasarım gereği) ve gönderim tenant'ın kendi SMTP'si üzerinden yapılıyor.
+- **logout-all / reset-mfa:** logout-all yalnız kendi oturumlarını kapatıyor. reset-mfa tenant kapsamında; kendi hesabına 403, daha geniş yetkili hesaba 403 dönüyor. Kurtarma kodları siliniyor, oturumlar iptal ediliyor. Super Admin hesabı tenant kapsamı dışında kaldığı için ulaşılamıyor.
+- **Bağımlılık lisansları:** nodemailer 10.5.0 MIT-0, qrcode 1.5.4 MIT, smtp-server 3.21.4 (dev) MIT-0. AGPL/GPL yok.
+
+## Otomatik tarama çıktıları
+- `pnpm audit --prod --audit-level=moderate`: **No known vulnerabilities found**.
+- gitleaks v8.30.1 `dir` (`.gitleaks.toml`):
+  - `apps/server/src` → GITLEAKS_EXIT=0
+  - `apps/server/test` → GITLEAKS_EXIT=1 (1 bulgu, `account-p10.test.ts:199`, B-P10-2)
+  - `apps/web` → GITLEAKS_EXIT=1; 13 bulgunun **13'ü de `.next/` derleme çıktısında**, kaynakta 0 (sayılmadı)
+  - `packages` → GITLEAKS_EXIT=0
+  - `docs` → GITLEAKS_EXIT=0
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- `session.ts:38` yorumu "production'da buildApp reddeder" diyor; kodda bu kontrol yok (B-P10-3).
+- Mimari T22'de "Docker ağı" engeli 172.16/12 ile karşılanıyor. Port kısıtı ise tasarımda açıkça yazmıyor; öneri B-P10-1.
+
+## İncelenmeyen veya kısmen incelenen
+- Nodemailer 10.x `dist` paketinde `tls.servername` değerinin IP host ile sertifika doğrulamasına gerçekten geçtiği kaynak kodda doğrulanamadı (paket derlenmiş). Entegrasyon testinde, IP'ye bağlanıp yanlış adlı sertifikanın reddedildiğini gösteren bir test olup olmadığına bakılmalı (backend-dev).
+- Web: `session-watch.tsx` (boşta yoklama), kurtarma kodu indirme bileşeni ve 2FA sayfalarına yalnız yüzeysel bakıldı. `proxy.ts`'teki CSP ve Referrer-Policy başlıklarının mevcut olduğu görüldü, CSP içeriği yeniden denetlenmedi.
+- `requests/service.ts` AC-151 e-posta kanalı test ucu: `sendTenantTest` ile ortak gövde ve aynı 5/dk sınırı paylaşıldığı görüldü; rota yetkisi ayrıca okunmadı.
+
+## Olumlu
+Ortak `safeEqual`, koşullu UPDATE kalıbı ile tek kullanım ve tekrar kullanım koruması, verify'da token yenileme, yarım oturumun WS'den dışlanması, URL parçasında token ve geçmişten silinmesi, `PUBLIC_BASE_URL`'den link üretimi ve netguard'ın çözümlenen IP'ye bağlanması P10'un çekirdek kontrollerini sağlam kılıyor.
+
+## Sonra listesine öneri
+B-P10-3..9 (Düşük) `docs/gereksinimler.md` §9'a "Sonra" olarak eklensin. B-P10-1 ve B-P10-2 prod açılışından önce kapatılmalı (öneri).
+
+---
+
 # Güvenlik Raporu — P9 (kullanıcı/yetki/tenant yönetimi) — Kod turu 2 (2026-11-12)
 DURUM: GEÇTİ (Kritik/Yüksek 0)
 Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 5 (B-P9-2..6 taşınan, Sonra listesinde) — yeni bulgu yok

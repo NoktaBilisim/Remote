@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArchiveRestore, ShieldCheck, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, KeyRound, ShieldCheck, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { PermissionMatrix } from "@/components/admin/permission-matrix";
@@ -41,7 +41,7 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
   const [errors, setErrors] = useState<Errors<UserField>>({});
   const [formError, setFormError] = useState<UiError | null>(null);
   const [busy, setBusy] = useState(false);
-  const [action, setAction] = useState<"deactivate" | "reactivate" | null>(null);
+  const [action, setAction] = useState<"deactivate" | "reactivate" | "reset-mfa" | null>(null);
   const [focusErr, setFocusErr] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
   const locked = useMemo(() => lockedKeys(actor), [actor]);
@@ -173,7 +173,16 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
                 {t("us.e.twofa")}
                 <span className="block text-xs font-normal text-fg-muted">{t("us.e.twofaHint")}</span>
               </dt>
-              <dd className={`text-sm ${saved.totpEnabled ? "text-success" : "text-fg-muted"}`}>{saved.totpEnabled ? t("us.e.twofaOn") : t("us.e.twofaOff")}</dd>
+              <dd className="flex flex-col items-end gap-2">
+                <span className={`text-sm ${saved.totpEnabled ? "text-success" : "text-fg-muted"}`} data-testid="user-2fa">{saved.totpEnabled ? t("us.e.twofaOn") : t("us.e.twofaOff")}</span>
+                {/* P10 (AC-115): yönetici 2FA sıfırlaması — kendi hesabı hariç, yönetebildiği etkin hesapta */}
+                {saved.totpEnabled && canEdit && saved.canManage && !saved.isSelf && active && (
+                  <Button type="button" variant="secondary" onClick={() => setAction("reset-mfa")} disabled={busy} data-testid="user-reset-mfa">
+                    <KeyRound aria-hidden className="size-4" />
+                    {t("us.m.open")}
+                  </Button>
+                )}
+              </dd>
             </div>
           </dl>
         </section>
@@ -214,12 +223,14 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
  * Pasife al / yeniden etkinleştir onayı (`alertdialog`, varsayılan odak "Vazgeç"). Pasife alma metni etkisini söyler:
  * tüm oturumlar kapanır, açık destek oturumları sonlanır (AC-115). Başarıda güncel kayıt GET ile alınır.
  */
-function StatusDialog({ action, user, onClose, onDone }: { action: "deactivate" | "reactivate" | null; user: UserDetail; onClose: () => void; onDone: (u: UserDetail) => void }) {
+function StatusDialog({ action, user, onClose, onDone }: { action: "deactivate" | "reactivate" | "reset-mfa" | null; user: UserDetail; onClose: () => void; onDone: (u: UserDetail) => void }) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
   const deact = action === "deactivate";
+  const mfa = action === "reset-mfa";
+  const k = mfa ? "us.m" : deact ? "us.d" : "us.r";
 
   const run = async () => {
     if (!action) return;
@@ -228,12 +239,12 @@ function StatusDialog({ action, user, onClose, onDone }: { action: "deactivate" 
     try {
       await api<unknown>("POST", `/users/${user.id}/${action}`, {});
       const next = await api<UserDetail>("GET", `/users/${user.id}`);
-      toast(t(deact ? "us.d.done" : "us.r.done", { name: user.fullName }));
+      toast(t(`${k}.done` as "us.d.done", { name: user.fullName }));
       onDone(next);
     } catch (e) {
       if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
       if (e instanceof ApiError && e.status === 409) {
-        toast(t(deact ? "us.d.already" : "us.r.already"), "danger");
+        toast(t(mfa ? "us.m.already" : deact ? "us.d.already" : "us.r.already"), "danger");
         onClose();
         router.refresh();
       } else setError(toUiError(e, { 404: t("us.nf.body") }));
@@ -254,15 +265,15 @@ function StatusDialog({ action, user, onClose, onDone }: { action: "deactivate" 
       role="alertdialog"
       size="sm"
       testId={action ? `user-${action}-dialog` : undefined}
-      title={action ? t(deact ? "us.d.title" : "us.r.title", { name: user.fullName }) : ""}
-      description={action ? t(deact ? "us.d.body" : "us.r.body") : undefined}
+      title={action ? t(`${k}.title` as "us.d.title", { name: user.fullName }) : ""}
+      description={action ? t(`${k}.body` as "us.d.body") : undefined}
       footer={
         action && (
           <>
             <Button variant="secondary" data-autofocus onClick={onClose} disabled={busy} className="sm:ml-auto">{t("rq.rj.cancel")}</Button>
-            <Button variant={deact ? "danger" : "primary"} loading={busy} onClick={() => void run()} data-testid="user-action-confirm">
-              {!busy && (deact ? <Archive aria-hidden className="size-4" /> : <ArchiveRestore aria-hidden className="size-4" />)}
-              {t(deact ? "us.d.confirm" : "us.r.confirm")}
+            <Button variant={deact || mfa ? "danger" : "primary"} loading={busy} onClick={() => void run()} data-testid="user-action-confirm">
+              {!busy && (mfa ? <KeyRound aria-hidden className="size-4" /> : deact ? <Archive aria-hidden className="size-4" /> : <ArchiveRestore aria-hidden className="size-4" />)}
+              {t(`${k}.confirm` as "us.d.confirm")}
             </Button>
           </>
         )

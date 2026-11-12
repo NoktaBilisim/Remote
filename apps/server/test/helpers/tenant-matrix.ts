@@ -21,6 +21,17 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "POST /api/v1/auth/logout": "self",
   "POST /api/v1/auth/password/change": "self",
   "GET /api/v1/auth/me": "self",
+  // P10 (AC-66..68): kendi hesabı / public sıfırlama; SMTP testi ve e-posta kanal testi tenantScope'lu
+  "POST /api/v1/auth/mfa/verify": "self",
+  "POST /api/v1/auth/mfa/setup": "self",
+  "POST /api/v1/auth/mfa/enable": "self",
+  "POST /api/v1/auth/logout-all": "self",
+  "POST /api/v1/auth/password/forgot": "public",
+  "POST /api/v1/auth/password/reset": "public",
+  "POST /api/v1/settings/smtp/test": "scoped",
+  "POST /api/v1/settings/support-requests/email/test": "scoped",
+  "POST /api/v1/sessions/:id/email": "tenant",
+  "POST /api/v1/users/:id/reset-mfa": "tenant",
   // P2
   "POST /api/v1/sessions": "self",
   "GET /api/v1/sessions": "list",
@@ -119,7 +130,9 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
   // P9: A tenant'ının kullanıcısını B Admin'i hedefler → 404
   { route: "GET /api/v1/users/:id", request: (fx) => ({ method: "GET", url: `/api/v1/users/${fx.a.user.id}` }) },
   { route: "PATCH /api/v1/users/:id", request: (fx) => ({ method: "PATCH", url: `/api/v1/users/${fx.a.user.id}`, payload: { fullName: "Başka Firma" } }) },
-  ...(["deactivate", "reactivate"] as const).map((a) => ({
+  // P10: başka tenant'ın oturumu / kullanıcısı → 404
+  { route: "POST /api/v1/sessions/:id/email", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/email`, payload: { to: "x@example.test", link: "https://x.test/session/y" } }) },
+  ...(["deactivate", "reactivate", "reset-mfa"] as const).map((a) => ({
     route: `POST /api/v1/users/:id/${a}`,
     request: (fx: TwoTenants): InjectOptions => ({ method: "POST", url: `/api/v1/users/${fx.a.user.id}/${a}`, payload: {} }),
   })),

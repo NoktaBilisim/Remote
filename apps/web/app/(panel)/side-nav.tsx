@@ -9,14 +9,14 @@ import { t, type MessageKey } from "@/lib/i18n";
 // Yalnız mevcut sayfalar; yeni modül eklendiğinde buraya ikonuyla eklenir (std. 1.8)
 // `perm`: öğe yalnız bu yetki varsa görünür (arka uç da her uçta denetler).
 // `superAdmin`: yalnız SUPER_ADMIN rolü (toggle değil; arka uç da rol denetler).
-const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string; superAdmin?: boolean }[] = [
+const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string; superAdmin?: boolean; match?: string }[] = [
   { href: "/", label: "panel.home", Icon: House },
   { href: "/sessions", label: "nav.sessions", Icon: MonitorSmartphone, perm: "sessions.view" },
   { href: "/requests", label: "nav.requests", Icon: Inbox, perm: "support_requests.view" },
   { href: "/customers", label: "nav.customers", Icon: Building2, perm: "customers.view" },
   { href: "/history", label: "nav.history", Icon: History, perm: "session_history.view" },
   { href: "/users", label: "nav.users", Icon: Users, perm: "users.view" },
-  { href: "/settings/support-requests", label: "nav.settings", Icon: Settings, perm: "settings.edit" },
+  { href: "/settings/support-requests", label: "nav.settings", Icon: Settings, perm: "settings.edit", match: "/settings" },
   { href: "/admin/tenants", label: "nav.tenants", Icon: Building, superAdmin: true },
 ];
 
@@ -26,8 +26,8 @@ export function SideNav({ permissions, role }: { permissions: readonly string[];
   return (
     <nav aria-label={t("panel.nav")} className="px-2 py-2 md:py-4">
       <ul className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
-        {visible.map(({ href, label, Icon }) => {
-          const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+        {visible.map(({ href, label, Icon, match }) => {
+          const active = href === "/" ? pathname === "/" : pathname.startsWith(match ?? href);
           return (
             <li key={href}>
               <Link

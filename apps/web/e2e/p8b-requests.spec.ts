@@ -209,7 +209,7 @@ test("AC-129/131/152: ayarlar — bağlantı kopyala, onaylı yenile, alan hatal
   await dlg.getByRole("button", { name: "Yenile" }).click();
   await expect(page.getByTestId("download-url")).toContainText("ref=zyxwvutsrqponmlk");
 
-  // E-posta pasif (P10)
+  // E-posta kanalı pasif: bu firmada SMTP yok (AC-151, P10)
   await expect(page.getByTestId("mail-switch")).toBeDisabled();
 
   await page.getByLabel("Talep bekleme süresi (dakika)").fill("5");

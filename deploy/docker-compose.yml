@@ -107,6 +107,9 @@ services:
       # P8b G-E9-4 (mimari-e9 §13.4): asgari Windows istemci sürümü (x.y.z). Boş = kontrol yok; düşük sürüm 426
       # CLIENT_OUTDATED. Güvenlik yamasında yamalı sürüme yükseltilir (runbook §12).
       MIN_AGENT_VERSION:
+      # P10 (mimari §3.2/§8.1): *_enc alanlarının AES-256-GCM anahtarları `v1:<base64 32B>[,v2:...]`. production'da
+      # zorunlu (env.ts); kaybolursa kayıtlı SMTP şifreleri ve TOTP sırları çözülemez (runbook §3, §14).
+      APP_ENCRYPTION_KEYS: ${APP_ENCRYPTION_KEYS:?APP_ENCRYPTION_KEYS gerekli (openssl rand -base64 32 → v1:<deger>)}
     volumes:
       - agent_downloads:/data/downloads:ro
     networks: [edge, db]

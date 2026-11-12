@@ -8,11 +8,96 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   bilgisayarda ne kalır (iz ve gizlilik)
 - **Teknisyen için:** Uzaktan kontrol (konsol), Oturum geçmişi, Destek talepleri, müşterinin ekranı gelmiyorsa
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, kayıtlı bilgisayarlar)
-- **Admin için:** Kullanıcılar ve yetkiler, Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi yetkileri,
-  Ayarlar > Destek talepleri
-- **Super Admin için:** Firmalar ve firma geçişi, tüm firmaların oturum geçmişi, destek talepleri
+- **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
+  kodları, şifremi unuttum, Hesap güvenliği sayfası, tüm cihazlardan çıkış
+- **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
+  yetkileri, Ayarlar > Destek talepleri (e-posta bildirimi dahil), Ayarlar > E-posta (SMTP), Ayarlar > Güvenlik
+- **Super Admin için:** Firmalar ve firma geçişi, tüm firmaların oturum geçmişi, destek talepleri, şifre/2FA kaybı
 
-Audit log ekranı, SMTP/2FA ayarları, logo ve avatar ilgili paketlerle (P10–P12) eklenecektir.
+Audit log ekranı, logo ve avatar ilgili paketlerle (P11–P12) eklenecektir.
+
+---
+
+## Herkes için: Giriş ve hesap güvenliği
+
+Bu bölüm panele giren herkes içindir: teknisyen (User), Admin ve Super Admin. Müşteriler panele girmez.
+
+### İki adımlı doğrulama (2FA) nedir, kimde zorunlu?
+Şifrenize ek olarak telefonunuzdaki bir doğrulama uygulamasının ürettiği 6 haneli kodla giriş yaparsınız. Şifreniz
+çalınsa bile telefonunuz olmadan hesabınıza girilemez.
+- **Super Admin ve Admin:** her zaman zorunlu.
+- **Teknisyen:** firmanızın Admin'i "Teknisyenler için zorunlu" ayarını açtıysa zorunlu (varsayılan açık).
+- Zorunluysa ve henüz kurmadıysanız panel sizi kurulum ekranına götürür; kurulumu bitirmeden başka sayfa açılmaz
+  (yalnız "Çıkış yap" kullanılabilir).
+
+Uygulama olarak Google Authenticator, Microsoft Authenticator veya standart TOTP kodu üreten herhangi bir uygulama
+kullanılabilir.
+
+### Nasıl 2FA kurarım?
+1. Telefonunuza bir doğrulama uygulaması kurun.
+2. İlk girişte (veya **Hesap güvenliği** sayfasındaki kurulum bağlantısından) "İki adımlı doğrulamayı kurun" ekranı açılır.
+   İlk girişte şifre değiştirmeniz gerekiyorsa önce o ekran gelir.
+3. Uygulamada "hesap ekle / QR tara" seçin ve ekrandaki QR kodu okutun. Okutamıyorsanız "QR okutamıyorsanız bu anahtarı
+   elle girin" altındaki anahtarı uygulamaya yazın ("Anahtarı kopyala" ile kopyalayabilirsiniz).
+4. Uygulamanın gösterdiği 6 haneli kodu yazın ve **Doğrula ve etkinleştir**'e basın.
+5. Ekranda **10 kurtarma kodu** görünür. Bunları kopyalayın veya `.txt` olarak indirin ve güvenli bir yere (parola
+   kasası, kilitli dolap) kaydedin. Kodlar **bir daha gösterilmez**.
+6. "Kaydettim" kutusunu işaretleyip **Devam et**'e basın.
+
+2FA'yı kurduğunuzda diğer cihazlarda açık oturumlarınız kapanır. Firmanızın e-posta ayarı varsa "İki adımlı doğrulama
+etkinleştirildi" e-postası alırsınız; bu işlemi siz yapmadıysanız hemen Admin'inize haber verin.
+
+### Girişte kod nasıl girilir?
+1. E-posta ve şifrenizle giriş yapın.
+2. Kod ekranı açılır: uygulamadaki **güncel** 6 haneli kodu yazın. Kod 30 saniyede bir değişir.
+3. Telefonunuz yanınızda değilse **Kurtarma kodu kullan**'a basın ve kurtarma kodlarınızdan birini yazın (büyük/küçük
+   harf, tire ve boşluk fark etmez). Her kurtarma kodu **yalnız bir kez** kullanılır.
+
+Aynı kodu iki kez kullanamazsınız; yeni kodun gelmesini bekleyin. Çok sayıda hatalı denemede kısa süreli bekleme gelir
+(aynı yerden 5 hata → 5 dk; toplam 15 hata → 15 dk).
+
+### Kurtarma kodlarım biterse ya da telefonumu kaybedersem?
+- **Hesap güvenliği** sayfası kalan kurtarma kodu sayısını gösterir; 3 veya daha azsa uyarı çıkar.
+- Kodları kendiniz yenileyemezsiniz. Admin'inizden **2FA sıfırlaması** isteyin; sonraki girişte 2FA'yı yeniden kurar ve
+  yeni kodlar alırsınız.
+- Admin iseniz aynı firmadaki başka bir Admin sıfırlar. Super Admin için bkz. "Super Admin için: Şifre veya 2FA kaybı".
+
+### Şifremi unuttum
+1. Giriş ekranında **Şifremi unuttum**'a basın.
+2. E-posta adresinizi yazıp gönderin. Ekranda her zaman aynı mesaj çıkar ("kayıtlı bir hesap varsa…"); güvenlik
+   gereği hesabın var olup olmadığı söylenmez.
+3. Gelen e-postadaki bağlantıyı açın. Bağlantı **30 dakika** geçerlidir ve **bir kez** kullanılır.
+4. Yeni şifrenizi (en az 12 karakter) iki kez yazın. Başarılı olunca giriş ekranına dönersiniz; tüm cihazlardaki
+   oturumlarınız kapanır. 2FA etkinse girişte yine kod istenir.
+
+E-posta gelmiyorsa: istenmeyen (spam) klasörüne bakın; firmanızın e-posta (SMTP) ayarı yapılmamış olabilir — Admin'inize
+sorun. Bağlantı "geçersiz veya süresi dolmuş" diyorsa **Yeni bağlantı iste** ile tekrar isteyin.
+
+### Hesap güvenliği sayfası
+Üst menüde adınıza/avatarınıza basınca açılır. Burada:
+- Profil özeti,
+- **Şifre değiştir** (mevcut şifre + yeni şifre iki kez),
+- 2FA durumu ("Etkin" / kurulum bağlantısı) ve kullanılmamış kurtarma kodu sayısı,
+- **Tüm cihazlardan çıkış**.
+
+### Tüm cihazlardan çıkış
+Başka bir bilgisayarda oturumunuzu açık unuttuysanız veya şüpheli bir durum varsa kullanın.
+1. Hesap güvenliği → **Tüm cihazlardan çıkış** → onaylayın.
+2. Kaç oturumun kapatıldığı gösterilir. Şu an kullandığınız oturum açık kalır; diğer cihazlar birkaç saniye içinde
+   giriş ekranına düşer ve o cihazlardaki açık destek oturumları sonlanır.
+
+### Oturum süreleri
+- 30 dakika hiçbir işlem yapmazsanız oturum kapanır; sayfa "Oturumunuz sona erdi" diyerek giriş ekranına döner.
+- İşlem yapsanız bile girişten **8 saat** sonra yeniden giriş istenir.
+
+### Sık karşılaşılan mesajlar (giriş ve hesap)
+| Mesaj | Anlamı / ne yapmalı |
+|---|---|
+| "Doğrulama kodu hatalı." | Telefonun saati doğru mu kontrol edin; yeni kodun gelmesini bekleyip tekrar deneyin |
+| "Çok fazla istek…" | Kısa süreli bekleme; birkaç dakika sonra tekrar deneyin |
+| "Bu şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş." | Yeni bağlantı isteyin; yalnız son gelen e-postadaki bağlantı çalışır |
+| "Oturumunuz sona erdi" | 30 dk boşta kaldınız, 8 saat doldu veya başka bir cihazdan "Tüm cihazlardan çıkış" yapıldı |
+| "Devam etmeden önce iki adımlı doğrulamayı kurmanız gerekiyor." | Hesabınızda 2FA zorunlu; kurulum adımlarını izleyin |
 
 ---
 
@@ -790,7 +875,8 @@ teknisyenleri ve yöneticileri eklersiniz, rollerini ve yetkilerini düzenlersin
 5. Kullanıcı ilk girişte kendi şifresini belirler. Teknisyen eklediyseniz **Yetkileri düzenle** ile ihtiyaç duyduğu
    yetkileri açın; aksi hâlde menüde yalnız Ana sayfa görür.
 
-Şifre sıfırlama bu sürümde yoktur; şifre sıfırlama e-postası P10 ile gelecektir.
+Şifresini unutan kullanıcı giriş ekranındaki **Şifremi unuttum** ile kendisi sıfırlar (firmanın SMTP ayarı gerekir;
+bkz. "Herkes için: Giriş ve hesap güvenliği"). 2FA sorunu için bkz. "Admin için: Kullanıcının 2FA'sını sıfırlama".
 
 ### Yetkileri nasıl açar/kapatırım?
 1. Listeden kullanıcıya tıklayın. Sağda **Yetkiler** tablosu açılır: her satır bir modül (Oturumlar, Uzaktan kontrol,
@@ -918,7 +1004,7 @@ doldu" olur ve müşteri yeniden talep oluşturabilir. Değişiklik yalnız yeni
 
 Mesaj müşteri adı, telefonu veya açıklaması **içermez**; yalnız firma adı, talep kodu ve panel bağlantısı gider.
 Ekranda "WhatsApp servisi güvenli yapılandırılmamış…" uyarısı görünürse kanal canlı ortamda kapalı kalır; sistem
-yöneticinize bildirin. **E-posta bildirimi** SMTP ayarlarıyla birlikte (P10) gelecek; şimdilik pasiftir.
+yöneticinize bildirin. **E-posta bildirimi** için bkz. "Admin için: Destek talebi e-posta bildirimi".
 
 ### Güvenilen IP / ağlar
 Kurumsal ofis gibi bilinen ağlardan gelen talepler "Güvenilen ağ" işaretiyle gelir ve IP sınırlarından muaftır
@@ -934,6 +1020,73 @@ Firma başına toplam bekleyen talep sınırı (50) güvenilen ağlar için de g
   reddi açar. Admin'de varsayılan açık, User'da kapalıdır; **Kullanıcılar** ekranındaki yetki tablosundan açılır.
 - Kabul, ret, iptal, süre dolumu, ayar değişikliği (eski → yeni), bağlantı yenileme, WhatsApp gönderimi ve testi
   denetim kaydına yazılır. Müşteri adı, telefonu ve açıklaması denetim kaydına yazılmaz.
+
+## Admin için: Ayarlar > E-posta (SMTP)
+
+Firmanızın e-posta gönderebilmesi için gerekir: şifre sıfırlama, hesap kilidi ve 2FA bildirimleri, yeni destek talebi
+e-postası ve oturum bağlantısının müşteriye e-postayla gönderilmesi. Ayar yoksa bu özellikler e-posta göndermez.
+Görmek için `settings.view`, değiştirmek için `settings.edit` yetkisi gerekir.
+
+### Nasıl SMTP ayarı yaparım?
+1. Kenar menüsünde **Ayarlar** → üstteki alt menüden **E-posta (SMTP)**.
+2. Alanları doldurun:
+   | Alan | Açıklama |
+   |---|---|
+   | Sunucu | E-posta sağlayıcınızın SMTP adresi (ör. `smtp.sirketiniz.com`) |
+   | Güvenlik | **SSL** (port 465), **TLS** (STARTTLS, port 587) veya **Yok** (port 25). Seçince port önerilir |
+   | Port | Yalnız 25, 465, 587 veya 2525 seçilebilir |
+   | Kullanıcı adı / Şifre | Sağlayıcınızın verdiği bilgiler. Şifre maskelidir, kaydedildikten sonra forma geri gelmez; boş bırakırsanız kayıtlı şifre korunur |
+   | Gönderen adı / Gönderen e-posta | Alıcının göreceği ad ve adres |
+3. **Kaydet**'e basın.
+
+**Güvenlik "Yok" seçilirse** kullanıcı adı ve şifre alanları kapanır: şifresiz bağlantıda kimlik bilgisi gönderilmez.
+Sağlayıcınız kimlik doğrulaması istiyorsa SSL veya TLS seçin.
+
+**İç ağ adresleri kabul edilmez:** sunucu adresi şirket içi/özel bir IP'ye (ör. 192.168.x.x, 10.x.x.x) çıkıyorsa
+"Bu sunucu adresi kullanılamaz." uyarısı çıkar. İnternetten erişilen bir SMTP sunucusu kullanın.
+
+### Test maili nasıl gönderilir?
+1. Ayarı **kaydedin** (kaydedilmemiş değişiklik varken test düğmesi pasiftir; test kayıtlı ayarla yapılır).
+2. **Test Maili Gönder** → alıcı adresini yazın → gönderin.
+3. Sonuç pencerede görünür. Başarısız bir test **12 saniyeye kadar** sürebilir; bu sırada pencerede "Sunucuya bağlanılıyor…" yazar ve
+   pencere sonuç gelene kadar kapanmaz.
+4. Hata mesajı tek ve geneldir ("E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.");
+   sunucu adı, port–güvenlik eşleşmesi (465↔SSL, 587↔TLS) ve kullanıcı/şifreyi kontrol edin. Firma başına dakikada en çok
+   5 test yapılabilir.
+
+**SMTP ayarını kaldırmak:** sayfadaki "SMTP ayarlarını kaldır" düğmesi (onay ister). Kaldırınca e-posta bildirimleri durur.
+
+## Admin için: Ayarlar > Güvenlik (teknisyenler için 2FA)
+1. **Ayarlar** → **Güvenlik**.
+2. **Teknisyenler için zorunlu** anahtarını açın veya kapatın; değişiklik hemen kaydedilir.
+- Açıkken 2FA kurmamış teknisyenler sonraki girişte kurulum ekranına yönlendirilir.
+- Admin ve Super Admin için 2FA bu ayardan bağımsız olarak her zaman zorunludur.
+
+## Admin için: Kullanıcının 2FA'sını sıfırlama
+Telefonunu kaybeden veya kurtarma kodları biten kullanıcı için:
+1. **Kullanıcılar** → kullanıcıya tıklayın.
+2. **2FA'yı sıfırla** → onaylayın (varsayılan seçim "Vazgeç"tir).
+3. Kullanıcının tüm oturumları ve açık destek oturumları kapanır. Kullanıcı sonraki girişte 2FA'yı yeniden kurar.
+
+Düğme yalnız 2FA'sı etkin, yönetebildiğiniz (sizden geniş yetkili olmayan) ve kendiniz olmayan kullanıcıda görünür.
+Kendi 2FA'nızı başka bir Admin sıfırlar.
+
+## Admin için: Destek talebi e-posta bildirimi
+1. Önce SMTP ayarını yapın (yoksa anahtar pasiftir ve "Önce SMTP ayarlarını yapın" yazar).
+2. **Ayarlar > Destek talepleri** → e-posta kanalını açın, en çok 5 alıcı ekleyin, **Kaydet**.
+3. **Test maili gönder** ile deneyin.
+
+Her yeni talepte alıcılara firma adı, talep kodu ve panel bağlantısı gider. Müşterinin adı, telefonu ve açıklaması
+e-postaya yazılmaz; ayrıntı paneldedir. Firma başına saatte en çok 30 bildirim e-postası gönderilir.
+
+## Teknisyen için: Oturum bağlantısını e-postayla gönderme
+1. **Oturumlar** → **Yeni destek oturumu** → oturumu oluşturun.
+2. Bağlantının gösterildiği pencerede **Linki e-postayla gönder** → müşterinin e-posta adresini yazın → gönderin.
+3. "Bağlantı … adresine gönderildi." mesajını görürsünüz. E-postada adınız, firma, bağlantı, 8 haneli kod ve son
+   geçerlilik saati bulunur.
+- Yalnız bu pencere açıkken gönderilebilir (bağlantı güvenlik gereği sonradan gösterilmez).
+- Yalnız bekleyen (müşteri henüz katılmamış) oturum gönderilebilir. Saatte en çok 20 e-posta.
+- Firmanın SMTP ayarı yoksa veya gönderim başarısızsa satırda hata görünür; bağlantıyı kopyalayıp başka yolla iletin.
 
 ## Super Admin için: Firmalar ve firma geçişi
 Menüde **Firmalar** (bina simgesi) yalnız Süper Yönetici'ye görünür. Diğer roller bu adresi açarsa "Bu sayfa yalnız
@@ -978,3 +1131,10 @@ Süper Yönetici içindir" uyarısı çıkar.
 - **Destek talepleri:** Super Admin firma seçmeden **Talepler** ve **Ayarlar** ekranlarında "Önce firma seçin" uyarısını
   görür. Firma seçiliyken o firmanın kuyruğunu görür ve ayarlarını düzenleyebilir; talep **kabul edemez ve
   reddedemez** (oturum teknisyenin kendi firmasında açılır).
+
+## Super Admin için: Şifre veya 2FA kaybı
+Super Admin'in bir firması olmadığı için SMTP ayarı da yoktur: "Şifremi unuttum" e-posta göndermez ve kimse panelden
+Super Admin'in 2FA'sını sıfırlayamaz. Bu yüzden:
+- İlk girişte 2FA'yı kurarken 10 kurtarma kodunu **mutlaka** parola kasasına kaydedin.
+- Hem telefon hem kurtarma kodları kaybolduysa veya şifre unutulduysa sistem yöneticisi sunucuda kurtarma yapar
+  (`docs/runbook.md` §14 P10 "Super Admin 2FA/şifre kaybı"). Ardından girişte 2FA yeniden kurulur.

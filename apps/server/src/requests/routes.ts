@@ -1,5 +1,10 @@
 // /api/v1/support-requests (kuyruk/geçmiş/kabul/ret) ve /api/v1/settings/support-requests (ayarlar). Sıra:
 // requireAuth (CSRF durum değiştirenlerde) → requirePerm → tenantScope (Super Admin firma seçmeli, AC-148) → zod → servis.
+import { emailTestInputSchema, type EmailTestResponse } from "@remote/contracts/api/requests";
+import { SMTP_SEND_FAILED_MESSAGE } from "@remote/contracts/api/tenants";
+import { MAIL_AUDIT } from "@remote/contracts/audit";
+import { newRequestMail } from "../mail/templates.ts";
+import { sendTenantTest } from "../tenants/smtp-routes.ts";
 import {
   acceptRequestInputSchema,
   listRequestsQuerySchema,
@@ -98,6 +103,14 @@ export async function requestSettingsRoutes(app: FastifyInstance): Promise<void>
     const { tenantId } = tenantScope(req);
     parseInput(rotateRefInputSchema, req.body);
     return rotateRef(app.requests, auditContext(req), authOf(req), tenantId);
+  });
+
+  // P10 (AC-151): e-posta kanalı testi — SMTP testiyle ortak 5/dk/tenant kovası; gönderim hatası 200 {ok:false}.
+  app.post("/email/test", async (req): Promise<EmailTestResponse> => {
+    const { tenantId } = tenantScope(req);
+    const { to } = parseInput(emailTestInputSchema, req.body);
+    const out = await sendTenantTest({ mail: app.mail, limit: app.smtpTestLimit, ctx: auditContext(req), auth: authOf(req), tenantId, to, action: MAIL_AUDIT.EMAIL_TEST, entity: "tenant_request_settings", content: (firm) => newRequestMail({ publicBaseUrl: app.env.PUBLIC_BASE_URL, firm, requestCode: "123456" }) });
+    return out.ok ? { ok: true, message: "Test e-postası gönderildi." } : { ok: false, message: SMTP_SEND_FAILED_MESSAGE };
   });
 
   app.post("/whatsapp/test", async (req): Promise<WhatsappTestResponse> => {

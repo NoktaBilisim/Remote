@@ -56,7 +56,7 @@ describe("POST /sessions", () => {
   it("AC-3: active_code çakışmasında yeni kodla yeniden denenir; 5 çakışmada vazgeçilir", async () => {
     const { s, tenantId, admin } = await adminSession();
     const other = await createSupportSessionRow({ tenantId, technicianId: admin.id });
-    const auth = await resolveSession(testDb(), s.token, new Date());
+    const auth = await resolveSession(testDb(), s.token, new Date(), { setupEnforced: false });
     if (!auth || !other.code) throw new Error("kurulum");
     const fresh = uniqueCode();
     const codes = [other.code, other.code, fresh];

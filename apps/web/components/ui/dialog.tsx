@@ -39,6 +39,10 @@ export function Dialog({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   useEffect(() => {
     const el = ref.current;
@@ -61,7 +65,14 @@ export function Dialog({
       aria-describedby={description ? `${id}-d` : undefined}
       // "close" olayı kuyruktan (asenkron) gelir: kapandıktan hemen sonra yeniden açılan diyaloğa eski olay ulaşırsa yok say
       onClose={(e) => {
-        if (!e.currentTarget.open) onClose();
+        const el = e.currentTarget;
+        if (el.open) return;
+        onClose();
+        // Tarayıcı Esc'yi iptal ettirmeden kapattıysa (art arda Esc) ve sahibi kapanmayı reddettiyse (ör. gönderim
+        // sürüyor) `open` true kalır → effect yeniden koşmaz; DOM'u duruma geri eşitle ki diyalog kaybolmasın.
+        setTimeout(() => {
+          if (openRef.current && !el.open && el.isConnected) el.showModal();
+        }, 0);
       }}
       onCancel={(e) => {
         if (!onDismiss) return;

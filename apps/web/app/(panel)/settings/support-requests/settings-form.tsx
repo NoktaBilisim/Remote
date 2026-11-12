@@ -1,7 +1,9 @@
 "use client";
 
 import { Copy, Link2, Mail, MessageSquare, Plus, RefreshCw, RotateCcw, Save, Send, ShieldCheck, Timer, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { MailTestDialog } from "@/components/account/mail-test-dialog";
 import { useId, useState, type ReactNode } from "react";
 import { FormError } from "@/components/form-error";
 import { LeaveDialog } from "@/components/leave-dialog";
@@ -129,6 +131,7 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
   const [testError, setTestError] = useState<string>();
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [mailTestOpen, setMailTestOpen] = useState(false);
   const dirty = isDirty(st, toState(saved));
 
   // TEST-P8b-1: menü bağlantısı, geri tuşu ve yenileme/kapama — oturum geçmişi notuyla aynı koruma.
@@ -299,21 +302,41 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
                 {testResult.message}
               </Alert>
             )}
-            <div className="border-t border-border pt-4">
+            <div className="flex flex-col gap-4 border-t border-border pt-4" data-testid="mail-channel">
               <Switch
                 label={t("srs.mail.label")}
-                checked={saved.email.enabled}
-                onChange={() => {}}
-                disabled
-                description={t("srs.mail.p10")}
+                checked={st.mailEnabled}
+                onChange={(v) => set({ mailEnabled: v })}
+                disabled={!saved.email.smtpConfigured && !st.mailEnabled}
+                description={saved.email.smtpConfigured ? t("srs.mail.desc") : t("srs.mail.needSmtp")}
                 onText={t("rq.on")}
                 offText={t("rq.off")}
                 testId="mail-switch"
               />
-              <p className="mt-2 flex items-center gap-2 text-xs text-fg-muted">
-                <Mail aria-hidden className="size-4" />
-                {t("srs.mail.note")}
-              </p>
+              {errText(errors["email.enabled"]) && <p className="text-xs font-medium text-danger">{errText(errors["email.enabled"])}</p>}
+              {!saved.email.smtpConfigured && (
+                <Link href="/settings/smtp" className="inline-flex min-h-11 items-center gap-2 self-start rounded-md px-1 text-sm font-medium text-primary hover:underline" data-testid="mail-smtp-link">
+                  <Mail aria-hidden className="size-4" />
+                  {t("srs.mail.goSmtp")}
+                </Link>
+              )}
+              <ListEditor
+                label={t("srs.mail.recipients")}
+                values={st.mailRecipients}
+                onChange={(v) => set({ mailRecipients: v })}
+                max={MAX_RECIPIENTS}
+                errors={errors}
+                errorKey="email.recipients"
+                placeholder="destek@ornek.com"
+                addLabel={t("srs.mail.add")}
+                removeLabel={(v, i) => t("srs.mail.remove", { v: v || String(i + 1) })}
+                disabled={saving}
+                testId="mail-recipients"
+              />
+              <Button type="button" variant="secondary" className="self-start" disabled={!saved.email.smtpConfigured} onClick={() => setMailTestOpen(true)} data-testid="mail-test-open">
+                <Send aria-hidden className="size-4" />
+                {t("srs.mail.test")}
+              </Button>
             </div>
           </Section>
 
@@ -384,6 +407,7 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
         {rotateError && <FormError error={rotateError} />}
       </Dialog>
       <LeaveDialog guard={guard} body={t("srs.leaveBody")} />
+      <MailTestDialog open={mailTestOpen} onClose={() => setMailTestOpen(false)} path="/settings/support-requests/email/test" title={t("srs.mail.test")} body={t("srs.mail.testBody")} testId="mail-test-dialog" />
     </div>
   );
 }

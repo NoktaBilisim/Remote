@@ -1,7 +1,7 @@
 import "server-only";
 import { cookies, headers as requestHeaders } from "next/headers";
 import { cache } from "react";
-import type { MeResult } from "@/lib/auth-schema";
+import type { MeResponse } from "@/lib/account/contract";
 import { forwardHeaders, readEdgeSecret } from "@/lib/edge-forward";
 
 /*
@@ -11,9 +11,25 @@ import { forwardHeaders, readEdgeSecret } from "@/lib/edge-forward";
 const API_INTERNAL_URL = process.env.API_INTERNAL_URL ?? "http://server:3001";
 
 export type MeState =
-  | { kind: "ok"; me: MeResult }
+  | { kind: "ok"; me: MeResponse }
   | { kind: "unauthenticated" }
+  /** P10: yarı oturum — 2FA kodu bekleniyor (`verify`) ya da zorunlu 2FA kurulmamış (`setup`). */
+  | { kind: "mfa"; step: "verify" | "setup" }
   | { kind: "error"; status: number };
+
+/**
+ * P10 yönlendirme kararı (sayfalar ve panel kabuğu ortak): 2FA adımı → kod ekranı; şifre değişimi zorunlu → şifre;
+ * zorunlu 2FA kurulmamış → kurulum kapısı. `null` = panel açılabilir. Sunucu da aynı kuralı uçlarda uygular.
+ */
+export function gateOf(state: MeState): "/login/2fa" | "/change-password" | "/2fa/setup" | null {
+  if (state.kind === "mfa") return state.step === "verify" ? "/login/2fa" : "/2fa/setup";
+  if (state.kind !== "ok") return null;
+  const { user, mfa } = state.me;
+  if (mfa?.stage === "verify") return "/login/2fa";
+  if (user.mustChangePassword) return "/change-password";
+  if (mfa?.stage === "setup") return "/2fa/setup";
+  return null;
+}
 
 /** İstek başına tek /auth/me (layout + sayfa aynı sonucu paylaşır). */
 export const getMe = cache(async (): Promise<MeState> => {
@@ -33,8 +49,14 @@ export const getMe = cache(async (): Promise<MeState> => {
     return { kind: "error", status: 0 };
   }
   if (res.status === 401) return { kind: "unauthenticated" };
+  if (res.status === 403) {
+    const code = ((await res.json().catch(() => null)) as { error?: { code?: unknown } } | null)?.error?.code;
+    // Sözleşmede /auth/me yarı oturumda da 200 + `mfa.stage` döner; 403 kodları yalnız savunma amaçlı
+    if (code === "MFA_REQUIRED") return { kind: "mfa", step: "verify" };
+    if (code === "MFA_SETUP_REQUIRED") return { kind: "mfa", step: "setup" };
+  }
   if (!res.ok) return { kind: "error", status: res.status };
-  return { kind: "ok", me: (await res.json()) as MeResult };
+  return { kind: "ok", me: (await res.json()) as MeResponse };
 });
 
 export type ServerResult<T> =

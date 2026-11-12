@@ -19,6 +19,8 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - **Müşteri firma yönetimi** — her müşteriye ayrı kalıcı indirme bağlantısı; talep ve oturumlar firmaya göre süzülür.
 - **Kullanıcı ve yetki yönetimi** — teknisyen ekleme, modül bazlı aç/kapa yetkileri, pasife alma; değişiklik açık
   oturumlara anında yansır.
+- **İki adımlı doğrulama ve e-posta** — yöneticilerde zorunlu, teknisyenlerde firma ayarıyla 2FA; şifremi unuttum,
+  tüm cihazlardan çıkış; firmanın kendi SMTP'siyle bildirimler.
 - **Oturum geçmişi ve CSV** — filtreli liste, onay ve kontrol kayıtları, ticket/not, Excel uyumlu dışa aktarma.
 
 ## Kimler için
@@ -37,7 +39,8 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 | Oturum geçmişi | Filtreli liste, ayrıntı, ticket/not, CSV |
 | Kullanıcılar | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme |
 | Firmalar (Süper Yönetici) | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş |
-| Ayarlar | Destek talebi bağlantısı, bekleme süresi, WhatsApp bildirimi + test, güvenilen ağlar |
+| Hesap güvenliği | 2FA kurulumu ve kurtarma kodları, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış |
+| Ayarlar | Destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, teknisyen 2FA zorunluluğu |
 
 ## Güvenlik ve yönetim
 - Roller (Teknisyen / Yönetici / Süper Yönetici) ve modül bazlı yetki anahtarları; kimse sahip olmadığı yetkiyi veremez.
@@ -48,7 +51,11 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   değişiklikleri (eski → yeni). Şifre ve anahtarlar maskelenir; müşteri kişisel verisi yazılmaz.
 - KVKK: aydınlatma metni firma bazında ve sürümlü; onay, metin sürümüyle saklanır. Talep verisi saklama süresi sonunda
   anonimleştirilir.
-- Şifreler argon2id ile saklanır; hatalı girişte kilit, ilk girişte şifre değişimi, CSRF koruması, süreli oturum.
+- Şifreler argon2id ile saklanır; hatalı girişte kilit (ve kullanıcıya e-posta), ilk girişte şifre değişimi, CSRF
+  koruması, süreli oturum (30 dk boşta / 8 sa).
+- İki adımlı doğrulama (TOTP; Google/Microsoft Authenticator vb.) ve tek kullanımlık kurtarma kodları; yönetici
+  hesaplarında zorunlu. SMTP şifresi ve 2FA sırları şifreli saklanır; e-posta yalnız internetteki SMTP sunucularına,
+  sertifika doğrulamalı gönderilir.
 - Müşteri programı yalnız kendi sunucusuna bağlanır; bütünlüğü SHA-256 ve tekrarlanabilir derlemeyle doğrulanır.
   Hatırlanan bilgiler Windows hesabına bağlı şifreyle (DPAPI) saklanır, tek tıkla silinir. Tanılama dosyası kişisel
   veri içermez.
@@ -56,7 +63,9 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 ## Entegrasyonlar
 - TURN sunucusu (coturn): güvenlik duvarı arkasındaki müşteriler için görüntü aktarımı.
 - WhatsApp (Nokta Bilişim whatsapp-bildirim servisi): yeni talepte kişisel veri içermeyen bildirim; test butonu.
-- E-posta ve SMS bildirimleri bu sürümde yoktur.
+- E-posta (firmanın kendi SMTP sunucusu): şifre sıfırlama, güvenlik bildirimleri, yeni talep bildirimi, oturum
+  bağlantısını müşteriye gönderme; test butonu.
+- SMS bildirimi bu sürümde yoktur.
 
 ## Teknik özellikler
 | Başlık | Değer |

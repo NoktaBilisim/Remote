@@ -72,7 +72,21 @@ export async function setActingTenant(db: DbOrTx, sessionId: string, tenantId: s
 
 // --- tenant ayarları (AC-4) ---
 
-const settingsSelect = { sessionTtlMin: true, maxOpenSessions: true, maxActiveHours: true, maxFileMb: true, retentionDays: true } as const;
+const settingsSelect = {
+  sessionTtlMin: true,
+  maxOpenSessions: true,
+  maxActiveHours: true,
+  maxFileMb: true,
+  retentionDays: true,
+  requireTech2fa: true,
+  smtpHost: true,
+  smtpPort: true,
+  smtpSecurity: true,
+  smtpUser: true,
+  smtpPassEnc: true,
+  smtpFromName: true,
+  smtpFromEmail: true,
+} as const;
 export type SettingsRow = Prisma.TenantSettingsGetPayload<{ select: typeof settingsSelect }>;
 
 /** Satır yoksa varsayılanlarla oluşturur (eski kurulum güvenliği; firma oluşturma zaten ekler). */
@@ -87,6 +101,6 @@ export async function lockSettings(tx: Prisma.TransactionClient, tenantId: strin
   return tx.tenantSettings.findUniqueOrThrow({ where: { tenantId }, select: settingsSelect });
 }
 
-export async function updateSettings(tx: Prisma.TransactionClient, tenantId: string, data: Partial<SettingsRow>): Promise<SettingsRow> {
+export async function updateSettings(tx: Prisma.TransactionClient, tenantId: string, data: Prisma.TenantSettingsUpdateInput): Promise<SettingsRow> {
   return tx.tenantSettings.update({ where: { tenantId }, data, select: settingsSelect });
 }

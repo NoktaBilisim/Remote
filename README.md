@@ -4,12 +4,13 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P9 tamamlandı (Windows elle testleri bekliyor)
-İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P8, P8b-1, P8c-1 ve **P9** (kullanıcı, yetki ve firma
-yönetimi) tamamlandı: qa GEÇTİ, güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ (`docs/arsiv/p9-qa-raporu.md`,
-`docs/arsiv/p9-test-raporu.md`). Windows istemci **0.10.2** (ekran yakalama yedekleri ve neden kodu) qa ve güvenlik
-denetiminden geçti. Gerçek Windows'ta elle testler (P7, P8b-2, P8c-2, 0.10.2) ve AC-192 staging ölçümü bekliyor.
-Sıradaki paket P10 (2FA, SMTP); açık maddeler `docs/gereksinimler-sonra-acik.md`.
+## Şu anki durum: P1–P10 tamamlandı (Windows elle testleri bekliyor)
+İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P9 ve **P10** (hesap güvenliği: 2FA, şifre sıfırlama,
+tüm cihazlardan çıkış; firma SMTP ayarı ve e-posta bildirimleri) tamamlandı: qa GEÇTİ, güvenlik 3 turda Kritik/Yüksek 0,
+sayfa testi GEÇTİ (`docs/arsiv/p10-qa-raporu.md`, `docs/arsiv/p10-test-raporu.md`, `docs/guvenlik-raporu.md`). Windows
+istemci **0.10.2** qa ve güvenlik denetiminden geçti. Gerçek Windows'ta elle testler (P7, P8b-2, P8c-2, 0.10.2) ve AC-192
+staging ölçümü bekliyor. Sıradaki paket **P11** (MySQL/TURN ayarları, audit log ekranı); açık maddeler
+`docs/gereksinimler-sonra-acik.md`.
 
 Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.126.217.99:4450` geçiş süresince açık).
 
@@ -165,7 +166,7 @@ Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.
   aldı", "İlk kez görülen kaynak"), **Kabul et** (doğrudan konsol) ve **Reddet** (müşteriye mesaj). "Geçmiş" sekmesi
   son 30 gün. Kabul/ret için `support_requests.accept`.
 - **Ayarlar > Destek talepleri** (`/settings/support-requests`, `settings.edit`): indirme bağlantısı + kopyala +
-  yenile, bekleme süresi 10–120 dk, WhatsApp alıcıları (≤ 5) + test mesajı, güvenilen IP/ağlar (≤ 10). E-posta P10.
+  yenile, bekleme süresi 10–120 dk, WhatsApp alıcıları (≤ 5) + test mesajı, güvenilen IP/ağlar (≤ 10). E-posta kanalı P10'da eklendi.
 - Oturum geçmişinde "Kaynak" filtresi, talep bölümü ve CSV'de `Kaynak`/`Bekleme` sütunları.
 - Hız sınırları, bekleyen talep tavanları (IP 3, ağ 10, firma 50), aşırı yükte 503 + `Retry-After`.
 - **Veritabanı:** migration `20261112000000_p8b_support_requests`; seed yeni aydınlatma sürümü ekler. Yeni ortam
@@ -241,8 +242,31 @@ Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.
   oturumlara anında uygulanır.
 - **Firmalar** (`/admin/tenants`, Super Admin): oluştur, düzenle, pasife al (kısa adı yazarak onay), yeniden etkinleştir.
   Üst menüdeki **firma seçici** ile firmaya geçilir veya bağlamdan çıkılır.
-- `GET/PUT /settings/tenant` (oturum süresi, sınırlar, saklama süresi) yalnız API'de; ekranı P10'da.
+- `GET/PUT /settings/tenant` (oturum süresi, sınırlar, saklama süresi) yalnız API'de.
 - Şema, migration, yeni env yok. Firma oluşturma öncesi doğrulama: runbook §14.1.
+
+**P10 — hesap güvenliği ve e-posta (SMTP)**
+- **İki adımlı doğrulama (2FA, TOTP):** Google Authenticator, Microsoft Authenticator gibi uygulamalarla. Kurulum
+  (`/2fa/setup`): QR veya elle anahtar → 6 haneli kod → 10 tek kullanımlık kurtarma kodu (yalnız bir kez gösterilir;
+  kopyala / `.txt` indir; "Kaydettim" işaretlenmeden devam yok). Super Admin ve Admin için **zorunlu**; teknisyenler
+  (User) için firma ayarı "Teknisyenler için zorunlu" (varsayılan açık). Kurulmamışsa panel kurulum ekranına yönlendirir.
+- Girişte 2FA etkinse `/login/2fa`: uygulamadaki kod veya kurtarma kodu. Kod girilmeden panel, API ve WebSocket kapalı.
+  Deneme sınırı: hesap+IP 5 / 5 dk, hesap geneli 15 / 15 dk.
+- **Şifremi unuttum** (`/forgot-password`): firma SMTP'si üzerinden 30 dk geçerli, tek kullanımlık bağlantı
+  (`/reset-password#token=…`). Yanıt hesabın var olup olmadığını söylemez. Sıfırlama tüm oturumları kapatır.
+- **Hesap güvenliği** (`/account`, üst menüde avatar): şifre değiştir, 2FA durumu ve kalan kurtarma kodu, **Tüm
+  cihazlardan çıkış** (diğer oturumlar ve açık destek oturumları 5 sn içinde kapanır). Oturum boşta 30 dk, mutlak 8 sa.
+- **Ayarlar > E-posta (SMTP)** (`/settings/smtp`): sunucu, port (25/465/587/2525), güvenlik Yok/SSL/TLS, kullanıcı,
+  şifre (maskeli, şifreli saklanır, forma geri yazılmaz), gönderen adı/adresi, **Test Maili Gönder**, ayarı kaldırma.
+  İç ağ / özel IP adresleri ve sunucunun kendi adresi reddedilir. **Ayarlar > Güvenlik** (`/settings/security`):
+  teknisyen 2FA zorunluluğu.
+- E-posta kullanan özellikler: şifre sıfırlama, hesap kilidi bildirimi (saatte en çok 1), 2FA etkinleştirildi bildirimi,
+  yeni destek talebi bildirimi (Ayarlar > Destek talepleri, ≤ 5 alıcı + test), oturum bağlantısını müşteriye
+  e-postayla gönderme (teknisyen başına saatte 20).
+- Admin kullanıcı detayında **2FA'yı sıfırla** (kullanıcının oturumları ve açık destek oturumları kapanır).
+- Super Admin'in firması olmadığından SMTP'si yoktur: şifre/2FA kurtarma sunucuda yapılır (runbook §14 P10).
+- Migration `20261112180000_p10_account_security`; yeni ortam değişkeni **`APP_ENCRYPTION_KEYS`** (zorunlu); yeni
+  bağımlılıklar `nodemailer` 10.5.0 (MIT-0), `qrcode` 1.5.4 (MIT); geliştirme: `smtp-server` (MIT-0, testte sahte SMTP).
 
 **Düzeltme — talepten doğan oturumda siyah ekran:** sunucu teknisyene ICE (TURN) listesini `peer.joined`'dan önce
 gönderir, konsol liste gelmeden teklif üretmez (`6701567`).
@@ -253,7 +277,8 @@ Kullanım (müşteri, teknisyen, yönetici): [`docs/KULLANIM_KILAVUZU.md`](docs/
 
 **İlk hesaplar:** Seed yalnız Super Admin oluşturur (ilk girişte şifre değişimi zorunlu). Super Admin "Firmalar"
 ekranından firma oluşturur, üst menüden o firmaya geçer ve **Kullanıcılar > Yeni kullanıcı** ile firmanın ilk Admin'ini
-ekler (runbook §14.1). Super Admin firma seçmeden destek oturumu açamaz; oturum geçmişini firma seçmeden tüm firmalar için
+ekler (runbook §14.1). P10'dan itibaren Super Admin ve Admin ilk girişte (şifre değişiminden sonra) **2FA kurar**:
+telefonda bir doğrulama uygulaması hazır olmalı, 10 kurtarma kodu parola kasasına kaydedilmeli. Super Admin firma seçmeden destek oturumu açamaz; oturum geçmişini firma seçmeden tüm firmalar için
 görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanılabilir (`docs/runbook.md` §6).
 
 ## Yol haritası
@@ -271,17 +296,18 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P8c-1 ✓ | Müşteri firmalar (Müşteriler modülü), müşteri başına kalıcı bağlantı, bilgisayar kaydı (sunucu + panel) |
 | P8c-2 (kod ✓, Windows elle test bekliyor) | Windows istemci 0.10.0: kalıcı "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut" |
 | P9 ✓ | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
-| P10 | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış |
+| P10 ✓ | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış, e-posta bildirimleri |
 | P11 | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri |
 | P12 | Logo/avatar yükleme, kullanıcı tema tercihi |
 | P13 | Prod deploy, yedek/geri yükleme, retention, kullanım kılavuzu, datasheet, PDF'ler |
 
-Prod açılışı P10 (2FA) sonrasıdır; o zamana kadar yalnız staging kullanılır.
+Prod açılışı P10 (2FA) sonrası mümkündür; ön koşullar runbook §14 P10 "Prod açılış kontrol listesi". O zamana kadar
+yalnız staging kullanılır.
 
 ## Teknoloji yığını
 | Katman | Teknoloji |
 |---|---|
-| Server | Node.js ≥ 22.18 (yerleşik TypeScript type stripping, derleme adımı yok), Fastify 5, Prisma 7, zod, pino, argon2id |
+| Server | Node.js ≥ 22.18 (yerleşik TypeScript type stripping, derleme adımı yok), Fastify 5, Prisma 7, zod, pino, argon2id, nodemailer (SMTP), qrcode (2FA QR) |
 | Web | Next.js 16 (App Router), React 19, Tailwind 4, lucide-react |
 | Ortak | `packages/contracts` (zod şemaları, yetki listesi, hata kodları) |
 | DB | MySQL 8.4 |
@@ -343,6 +369,7 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 | `AGENT_BINARY_PATH` | Compose dışı | İkilinin mutlak yolu. Compose `/data/downloads/NoktaDestek.exe` verir; yalnız yerel `pnpm` çalıştırmada gerekir |
 | `ABUSE_EMAIL` | Önerilir | Müşteri ekranındaki "Kötüye kullanımı bildir" adresi (ör. `abuse@<alan-adı>`). Production'da boşsa bağlantı gizlenir; Super Admin e-postası kullanılmaz. Boş bırakmak güvenlidir; dolu ama geçersiz adres server'ı açtırmaz |
 | `WHATSAPP_SERVICE_URL` | Hayır | P8b: whatsapp-bildirim servis adresi (sistem düzeyi). Boşsa varsayılan servis; production'da şifresiz + genel adres → kanal kapalı başlar (runbook §12.3) |
+| `APP_ENCRYPTION_KEYS` | Evet | P10: SMTP şifresi ve 2FA sırlarının AES-256-GCM anahtarı, `v1:<base64 32 bayt>`. Üretim: `echo "v1:$(openssl rand -base64 32)"`. Production'da yoksa server açılmaz. **Parola kasasında yedeklenmeli**: kaybolursa SMTP şifreleri yeniden girilir, tüm kullanıcıların 2FA'sı sıfırlanır. Rotasyonda eski sürüm silinmez (`v1:…,v2:…`); runbook §3 ve §14 P10 |
 | `MIN_AGENT_VERSION` | Hayır | P8b: asgari Windows istemci sürümü `x.y.z`; boş = kontrol yok. Müşterilerin tamamı 0.9.0 firma dosyasına geçene kadar boş bırakın (runbook §12.4) |
 | `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `TRUSTED_PROXY_CIDR`, `API_INTERNAL_URL` | Compose dışı | Compose bunları kendisi üretir; yalnız yerel `pnpm` çalıştırmada gerekir |
 
@@ -409,17 +436,23 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 `e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
-### Son test sonuçları (P9, 2026-11-12)
+### Son test sonuçları (P10, 2026-11-12)
+| Takım | Sonuç |
+|---|---|
+| Birim (`pnpm -r run test`) | 586: server 310, web 205, contracts 71 |
+| Server entegrasyon (`test:int`) | 409 (43 dosya); P10: `account-p10`, `mail-tls-p10` (openssl ister), `mail-cap-p10`, süreç içi sahte SMTP |
+| Web e2e (sahte API/WS) | 243 geçti + 84 atlandı (masaüstü/mobil proje filtreleri, `p4-real`); P10 spec'i `e2e/p10-account.spec.ts` |
+| gitleaks | `apps/server/src`, `apps/server/test`, `apps/web`, `packages`, `docs`: çıkış 0 |
+
+Sayfa testi (`docs/arsiv/p10-test-raporu.md`): gerçek sunucu + MySQL + sahte SMTP ile 13 rota × açık/koyu × 1366/375,
+26 akış adımı, axe 0 ihlal, JS hatası 0.
+
+#### Önceki paket (P9, 2026-11-12)
 | Takım | Sonuç |
 |---|---|
 | Birim (`pnpm -r run test`) | 546: server 285, web 193, contracts 68 |
-| Server entegrasyon (`test:int`) | 384 (40 dosya); P9: `users-p9`, `tenants-p9`, `permissions-ac72-p9`, tenant izolasyon matrisi |
-| Web e2e (sahte API/WS) | 221 geçti + 78 atlandı (masaüstü akışlarının mobil kopyaları); P9 spec'i `e2e/p9-users.spec.ts` |
-| Windows istemci 0.10.2 (`go test`, linux docker) | 19/19 paket ok, race temiz; govulncheck "No vulnerabilities found" |
-| gitleaks | `apps/server/src`, `apps/web`, `packages`, `docs`: çıkış 0 |
-
-Sayfa testi (`docs/arsiv/p9-test-raporu.md`): gerçek sunucu + MySQL ile 33 sayfa (Admin 24, Super Admin 9), masaüstü ve
-mobil, açık/koyu; axe 0 ihlal, JS hatası 0, 24 akış adımı.
+| Server entegrasyon (`test:int`) | 384 (40 dosya) |
+| Web e2e (sahte API/WS) | 221 geçti + 78 atlandı |
 
 #### Önceki paket (P8, 2026-11-11)
 | Takım | Sonuç |
@@ -553,6 +586,10 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 - Kullanıcı ve yetki yönetimi (P9): yetki kontrolü her uçta sunucuda; sahip olunmayan yetki verilemez, kendinden geniş
   yetkili hesap yönetilemez, Super Admin hesapları firma uçlarında görünmez. Geçici şifre yalnız oluşturma yanıtında döner
   ve loga yazılmaz. Her yetki değişikliği anahtar başına audit'e yazılır.
+- Hesap güvenliği (P10): 2FA (TOTP, tekrar oynatma korumalı); kurtarma kodları HMAC-SHA-256, sıfırlama token'ı
+  SHA-256 olarak saklanır. SMTP şifresi ve TOTP sırrı AES-256-GCM (`APP_ENCRYPTION_KEYS`, kayda bağlı AAD). SMTP hedefi
+  yalnız 4 portta ve genel internet adresinde olabilir (iç ağ, loopback, sunucunun kendi adresi reddedilir); TLS'te
+  sertifika adı doğrulanır. Gönderim hatasında kullanıcıya tek genel mesaj; ayrıntı yalnız log/audit'te.
 - Konteynerler salt okunur kök dosya sistemi, `cap_drop: ALL`, root olmayan kullanıcıyla çalışır; imajlar digest ile sabitlenir.
 - CI: `pnpm audit`, lisans denetimi (GPL/AGPL yasak), gitleaks. Repoya gizli bilgi girmez.
 - Ayrıntı: `docs/guvenlik-raporu.md`, ADR'ler `docs/adr/`.

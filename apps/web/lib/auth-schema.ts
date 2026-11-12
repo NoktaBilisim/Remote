@@ -49,3 +49,18 @@ export function parsePasswordChange(
   if (!parsed.success || Object.keys(errors).length) return { ok: false, errors };
   return { ok: true, value: parsed.data };
 }
+
+/** Şifre sıfırlama (P10, AC-66): yalnız yeni şifre + tekrar; kural sözleşmeyle aynı (12..200). */
+export function parseNewPassword(
+  data: Record<string, unknown>,
+): { ok: true; value: string } | { ok: false; errors: Record<string, string> } {
+  const next = typeof data.next === "string" ? data.next : "";
+  const confirm = typeof data.confirm === "string" ? data.confirm : "";
+  const errors: Record<string, string> = {};
+  if (!next) errors.next = t("v.required");
+  else if (next.length < PASSWORD_MIN) errors.next = t("v.passwordMin");
+  else if (next.length > 200) errors.next = t("v.passwordMax");
+  if (!confirm) errors.confirm = t("v.required");
+  else if (confirm !== next && !errors.next) errors.confirm = t("v.passwordMismatch");
+  return Object.keys(errors).length ? { ok: false, errors } : { ok: true, value: next };
+}

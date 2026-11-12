@@ -25,8 +25,11 @@ export function testDb(): Db {
   return db;
 }
 
-export function makeApp(opts: { env?: Record<string, string>; logger?: Logger; signaling?: AppDeps["signaling"] } = {}): FastifyInstance {
-  return buildApp({ env: testEnv(opts.env), db: testDb(), ...(opts.logger ? { logger: opts.logger } : {}), ...(opts.signaling ? { signaling: opts.signaling } : {}) });
+/** P10: zorunlu 2FA kurulum aşaması varsayılan KAPALI (P1–P9 testleri); P10 testleri `p10: { ... }` ile açar. */
+export function makeApp(opts: { env?: Record<string, string>; logger?: Logger; signaling?: AppDeps["signaling"]; p10?: Pick<AppDeps, "netguard" | "mailTransport" | "mfaSetupEnforcement"> } = {}): FastifyInstance {
+  const env = testEnv(opts.env);
+  // B-P10-3: production modlu testlerde zorunlu 2FA kurulumu kapatılamaz (buildApp reddeder) → gerçek kural uygulanır.
+  return buildApp({ env, db: testDb(), mfaSetupEnforcement: env.NODE_ENV === "production", ...opts.p10, ...(opts.logger ? { logger: opts.logger } : {}), ...(opts.signaling ? { signaling: opts.signaling } : {}) });
 }
 
 /** Tenant + ayarlar + güncel KVKK metni v1 (P4: resolve/join metin ister — seed'in tenant başına v1 kuralı). */

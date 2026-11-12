@@ -501,3 +501,14 @@ export interface WhatsappTestResponse {
   ok: boolean;
   message: string;
 }
+
+/**
+ * P10 (AC-151): POST /settings/support-requests/email/test — bildirim e-postası örneğini tenant SMTP'siyle gönderir.
+ * 5/dk/tenant (SMTP testiyle ortak kova); SMTP yok → 502 `UPSTREAM` "Önce SMTP ayarlarını yapın"; gönderim hatası
+ * 200 `{ ok: false, message }` (WhatsApp testiyle aynı biçim; mesaj genel).
+ */
+export const emailTestInputSchema = z.strictObject({
+  to: z.string().trim().max(254, "E-posta en çok 254 karakter olabilir").pipe(z.email("E-posta adresi geçersiz")),
+});
+export type EmailTestInput = z.input<typeof emailTestInputSchema>;
+export type EmailTestResponse = WhatsappTestResponse;

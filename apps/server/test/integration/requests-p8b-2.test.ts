@@ -1,6 +1,7 @@
 // P8b-1 test turu 2 — WhatsApp bildirimi ve talep ayarları (mimari-e9 §6, §13.5, §13.6; AC-131, AC-150, AC-152).
 // WhatsApp için yalnız yerel sahte HTTP sunucusu (helpers/requests.ts) kullanılır; gerçek servise istek gitmez.
 // Deneme beklemeleri ve 8 sn zaman aşımı sahte saatle (FakeClock) ilerletilir.
+import { FAKE_APP_ENCRYPTION_KEYS } from "../helpers/secrets.ts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WhatsappNotifier, isInsecureServiceUrl, isPrivateHost, type FetchLike } from "../../src/notify/whatsapp.ts";
 import { createMetrics } from "../../src/ops/metrics.ts";
@@ -369,8 +370,9 @@ describe("P8b-1 talep ayarları (AC-131, AC-152)", () => {
 
 describe("P8b-1 WhatsApp fail-closed (production)", () => {
   it("AC-152 / §13.5: production + http + genel adres → ayarlarda insecure=true, test ucu 502 UPSTREAM, servise istek yok", async () => {
-    live = await startLive({ env: { ...PROXY, NODE_ENV: "production", SESSION_REF_KEY: "k".repeat(40), WHATSAPP_SERVICE_URL: "http://203.0.113.10:3000" } });
+    live = await startLive({ env: { ...PROXY, NODE_ENV: "production", SESSION_REF_KEY: "k".repeat(40), APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS, WHATSAPP_SERVICE_URL: "http://203.0.113.10:3000" } });
     const t = await createTenant();
+    await testDb().tenantSettings.update({ where: { tenantId: t.id }, data: { requireTech2fa: false } }); // prod'da 2FA kurulum kapısı açık (B-P10-3)
     const s = await settingsAdmin(t.id);
     const g = await live.app.inject({ method: "GET", url: S, headers: s.headers });
     expect(g.statusCode).toBe(200);

@@ -1,6 +1,20 @@
 # Gereksinimler — "Sonra / açık" takip tabloları
 Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (bölüm 9'un devamıdır, ayrılmaz parçasıdır). Boyut nedeniyle 2026-11-12'de ana dosyadan taşındı; P2..P8 tabloları içerik değiştirilmeden taşındı, yeni paketlerin tabloları en üste eklenir.
 
+### Sonra / açık — P10'dan (2026-11-12)
+Kaynak: `docs/guvenlik-raporu.md` (P10 Kod turu 1–3), `docs/arsiv/p10-qa-raporu.md` (Tur 2 Öneriler),
+`docs/arsiv/p10-test-raporu.md` (sayfa testi), `docs/implementation.md` ("P10 — Backend" düzeltme turları 1–2, "P10 — Frontend").
+
+| Madde | Ne yapılacak | Sahip | Ne zaman |
+|---|---|---|---|
+| Kurtarma kodlarını kullanıcının kendisinin yenilemesi (QA önerisi; gereksinim değişikliği) | Bugün uç yok; kodlar bitince Admin "2FA'yı sıfırla" gerekir. Öneri: `POST /auth/mfa/recovery-codes { code }` → `{ recoveryCodes }` (geçerli TOTP ile), hesap sayfasında "Kodları yenile". Önce AC eklenmeli | proje-yöneticisi → mimar → backend-dev + frontend-dev | Sonra |
+| Super Admin şifre kurtarma aracı (runbook §14 P10) | Super Admin'in SMTP'si yok; 2FA kurtarması SQL ile yapılabiliyor ama şifre için hazır araç yok (seed var olan şifreyi ezmez). Sunucuda çalışan, audit'e yazan bir CLI (`reset-superadmin`) | mimar → backend-dev + devops | Prod açılışından önce (öneri) |
+| STARTTLS (587) TLS testleri (güvenlik I-2) | `mail-tls-p10` yalnız örtük TLS'i (465) kapsıyor. 587 + STARTTLS için iki test: yanlış sertifika adı → `tls` hatası, ileti gitmez; STARTTLS ilan etmeyen sunucu → gönderim yok | backend-dev | Sonra |
+| P11 audit ekranında SMTP hatası (güvenlik koordinatör kararı koşulu) | Audit ekranı `mail.sent` / `settings.*.test` kayıtlarında yalnız `reason` sınıfını göstermeli; ham hata metni, SMTP yanıt kodu veya karşı sunucunun banner'ı gösterilmemeli (bugün `newValue`'da yalnız `reason` var; `responseCode` yalnız server logunda) | frontend-dev + backend-dev | P11 |
+| MySQL CHECK regex'lerinde `$` → `\z` (dba) | `$` satır sonundaki `\n`'den önce de eşleşir. 6 eski CHECK: `customers_file_label_chk`, `customers_phone_fmt_chk`, `support_requests_phone_fmt_chk`, `support_requests_client_version_fmt_chk`, `device_bindings_client_version_fmt_chk`, `tenant_request_settings_file_label_chk`. Uygulama katmanı zaten reddediyor (savunma derinliği); migration + down + ön kontrol | dba | Sonra |
+| B-P10-6 yarış testi deterministik değil | `mfaEnable` koşullu UPDATE (paralel `setup` → 409) kodda var, yarış durumu testte deterministik üretilemedi; enjekte edilebilir gecikme kancasıyla test | backend-dev | Sonra |
+| Sayfa testinde denenmeyenler | 8 sa mutlak oturum sınırı, sıfırlama bağlantısının 30 dk sonra geçersizleşmesi, oturum linki e-postasının 20/sa sınırı (gerçek sunucuda), SSL/TLS ile gerçek başarılı gönderim, hesap kilidi bildirim e-postası, canlı destek oturumunun logout-all/2FA sıfırlamada 5 sn'de kapanması, Super Admin firma seçmeli SMTP ekranı. Entegrasyon testleri kapsıyor; staging'de gerçek SMTP ile elle denenmeli | test-operatoru | Staging'de, prod açılışından önce |
+
 ### Sonra / açık — P9'dan (2026-11-12)
 Kaynak: `docs/guvenlik-raporu.md` (P9 — Kod turu 1; B-P9-1 düzeltme turu 1'de kapatıldı), `docs/arsiv/p9-qa-raporu.md`
 (Tur 2 Öneriler), `docs/arsiv/p9-test-raporu.md` (sayfa testi), `docs/guvenlik-raporu-0.10.2.md` (Tur 2),
@@ -21,7 +35,7 @@ Kaynak: `docs/guvenlik-raporu.md` (P9 — Kod turu 1; B-P9-1 düzeltme turu 1'de
 | `/users/<olmayan id>` HTTP 200 + h1 yok (sayfa testi, Düşük) | Ekran "Kullanıcı bulunamadı" gösteriyor ama yanıt 200 (`loading.tsx` akış sınırı; P8c müşteri sayfasıyla aynı neden); `not-found.tsx` başlığı h1 olmalı. API 404 veriyor, veri sızmıyor | frontend-dev | Sonra |
 | Açık temada kapalı/kilitli toggle kontrastı (sayfa testi, Düşük, WCAG 1.4.11) | Kapalı anahtarın izi ve kilitli anahtar beyaz zeminde çok açık; ≥ 3:1 olacak şekilde `switch.tsx` token'ı (DESIGN.md) güncellensin, iki temada ölçülsün | frontend-dev | Sonra |
 | Mobilde etkin menü öğesi görünmüyor (sayfa testi, Düşük) | 375–390 px yatay menüde "Kullanıcılar"/"Firmalar" ekran dışında kalıyor; `side-nav.tsx`'te `aria-current` öğeye `scrollIntoView({ inline: "nearest" })` | frontend-dev | Sonra |
-| `/settings/tenant` web ekranı yok (sayfa testi, Bilgi) | AC-4 yalnız API düzeyinde (`GET/PUT /settings/tenant`). Oturum süresi, açık oturum sınırı, dosya sınırı ve saklama süresi ekranı SMTP/2FA ayarlarıyla birlikte gelecek | frontend-dev | P10 |
+| `/settings/tenant` web ekranı yok (sayfa testi, Bilgi) | P10'da SMTP ve 2FA ekranları geldi; oturum süresi, açık oturum sınırı, dosya sınırı ve saklama süresi hâlâ yalnız API'de (`GET/PUT /settings/tenant`) | frontend-dev | Sonra |
 | İstemci: yükseltilmiş süreçte `remember` deposu reparse/TOCTOU (güvenlik 0.10.2 Tur 2, Düşük, CWE-59/CWE-367) | Yönetici olarak çalışan istemcide `hatirla.bin` yazma/silme (ve `forgetAll`'un log silmesi) junction'a karşı korumasız; tanılama logunda da `Lstat` ile açma arasında pencere var. `SelfElevated` iken depo salt okunur/kapalı veya `diag.safe` eşdeğeri; tam çözüm `CreateFile(FILE_FLAG_OPEN_REPARSE_POINT)` + handle üzerinden silme | backend-dev (Go) | Sonra (bir sonraki istemci sürümü) |
 | Windows elle testleri — istemci 0.10.2 | `docs/implementation.md` "Düzeltme — istemci 0.10.2 ekran yakalama" adım 1–7: normal masaüstü regresyonu (log oluşmamalı), HDR → DXGI1, hibrit GPU → GDI ~10 fps, log içeriğinde kişisel veri yok, GDI'da kontrol pencereleri görünmez, "Bu bilgisayarı unut" logu siler, Windows N kodları. Tekrarlanabilir derleme SHA'sı bu turda yeniden üretilmedi | test-operatoru / kullanıcı (Windows notebook) | Staging'de, prod açılışından önce (zorunlu) |
 | Neden kodunun teknisyen paneline iletilmesi (0.10.2) | Bugün neden kodu yalnız müşterinin durum satırında ve yerel logda; teknisyen telefonda sormak zorunda. `share.state`'e `reason` ve `method` alanları (contracts + sunucu şeması + konsol gösterimi) | mimar → backend-dev + frontend-dev | Sonra |

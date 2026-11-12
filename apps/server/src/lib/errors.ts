@@ -36,6 +36,10 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   QUEUE_FULL: "Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.",
   CLIENT_OUTDATED: "Bu Hızlı Destek dosyası eski. Güvenliğiniz için yeni sürümü indirin.",
   UPSTREAM: "Servise ulaşılamadı.",
+  HOST_NOT_ALLOWED: "Bu sunucu adresi kullanılamaz.",
+  MFA_REQUIRED: "Devam etmek için iki adımlı doğrulama kodunu girin.",
+  MFA_SETUP_REQUIRED: "Devam etmeden önce iki adımlı doğrulamayı kurmanız gerekiyor.",
+  RESET_TOKEN_INVALID: "Bu şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş. Yeni bağlantı isteyin.",
 };
 
 export class AppError extends Error {

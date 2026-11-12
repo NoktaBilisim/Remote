@@ -1,6 +1,6 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10)
 
-Bu belge P1–P8, P8b-1, P8c-1 ve P9'da **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P8, P8b-1, P8c-1, P9 ve P10'da **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
@@ -12,6 +12,8 @@ P8c-1: `customers/{routes,service}.ts`, `bindings/{public-routes,service}.ts`, `
 `packages/contracts/src/api/{customers,bindings}.ts`.
 P9: `users/{routes,service}.ts`, `tenants/{routes,service}.ts`, `auth/guards.ts` (`requireSuperAdmin`),
 `packages/contracts/src/api/{users,tenants}.ts`, `permissions.ts`.
+P10: `auth/{routes,account,mfa,session,guards}.ts`, `tenants/smtp-routes.ts`, `sessions/email.ts`, `mail/{service,templates}.ts`,
+`lib/{crypto,netguard}.ts`, `users/{routes,service}.ts` (`reset-mfa`), `packages/contracts/src/api/{auth,tenants,sessions,requests}.ts`.
 
 ## Genel kurallar
 - Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres `PUBLIC_BASE_URL` (staging `https://remote.noktabilisim.net`;
@@ -44,6 +46,16 @@ Oturum mutlak **8 saat**, boşta **30 dakika** sonra düşer; sonraki istek 401 
 Kullanıcıda `mustChangePassword=true` iken yalnız `GET /auth/me`, `POST /auth/logout` ve
 `POST /auth/password/change` çalışır; diğer oturumlu uçlar 403 `PASSWORD_CHANGE_REQUIRED` döner.
 
+### 2FA aşaması (P10)
+Oturumun `mfa.stage` değeri (`GET /auth/me`) üç durumdan biridir:
+| Aşama | Ne zaman | İzinli uçlar | Diğer uçlar |
+|---|---|---|---|
+| `ok` | Tam oturum | Hepsi (yetkiye göre) | — |
+| `verify` | 2FA etkin, bu oturumda kod girilmedi | `GET /auth/me` (yetkiler boş), `POST /auth/logout`, `POST /auth/mfa/verify` | 403 `MFA_REQUIRED`; WS bağlantıları reddedilir |
+| `setup` | 2FA zorunlu (Super Admin, Admin; User için firma ayarı `requireTech2fa`) ama kurulmamış | Yukarıdakiler + `POST /auth/mfa/setup`, `/auth/mfa/enable`, `/auth/password/change` | 403 `MFA_SETUP_REQUIRED` |
+
+Sıra: önce zorunlu şifre değişimi (`mustChangePassword` iken setup/enable 403 `PASSWORD_CHANGE_REQUIRED`), sonra 2FA kurulumu.
+
 ### Hata zarfı
 ```json
 { "error": { "code": "VALIDATION", "message": "Gönderilen bilgiler geçersiz.",
@@ -59,6 +71,10 @@ stack, SQL veya iç ayrıntı içermez.
 | `FORBIDDEN` | 403 | Yetki anahtarı yok; join'de teknisyenin reddettiği IP; P9: Super Admin firma seçmedi, `/admin/*` SUPER_ADMIN değil, sahip olunmayan yetki (`fields["permissions.<anahtar>"]`), daha geniş yetkili hesap, kendi hesabı |
 | `CSRF_INVALID` | 403 | Origin eksik/izinsiz veya `X-CSRF-Token` eşleşmiyor |
 | `PASSWORD_CHANGE_REQUIRED` | 403 | İlk giriş şifre değişimi yapılmadan başka uç çağrıldı |
+| `MFA_REQUIRED` | 403 | P10: oturum 2FA kodu bekliyor ("Devam etmek için iki adımlı doğrulama kodunu girin.") |
+| `MFA_SETUP_REQUIRED` | 403 | P10: 2FA zorunlu ama kurulmamış ("Devam etmeden önce iki adımlı doğrulamayı kurmanız gerekiyor.") |
+| `HOST_NOT_ALLOWED` | 400 | P10: SMTP sunucusu özel/iç ağ/loopback/link-local/CGNAT adresine veya sunucunun kendi adresine çözülüyor ("Bu sunucu adresi kullanılamaz.") |
+| `RESET_TOKEN_INVALID` | 410 | P10: şifre sıfırlama bağlantısı geçersiz, kullanılmış veya süresi dolmuş |
 | `NOT_FOUND` | 404 | Yol veya kayıt yok (başka tenant'ın / başka teknisyenin kaydı da 404) |
 | `REQUEST_REF_INVALID` | 404 | P8b: firma ref'i geçersiz, yenilenmiş, firma pasif veya ayarı yok (hepsi aynı yanıt) |
 | `CONFLICT` | 409 | Kayıt işleme uygun durumda değil (ör. PENDING olmayan oturumu iptal, ACTIVE olmayanı sonlandırma); P9: e-posta/kısa ad çakışması (`fields.email` / `fields.slug`), zaten pasif/aktif |
@@ -76,7 +92,7 @@ stack, SQL veya iç ayrıntı içermez.
 | `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma); `Retry-After` ile |
 | `QUEUE_FULL` | 429 | P8b: firmada 50 bekleyen talep, ya da ≥ 40 iken bilinmeyen kaynak ("Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.") |
 | `INTERNAL` | 500 | Beklenmeyen hata |
-| `UPSTREAM` | 502 | P8b: WhatsApp test ucu — servis yapılandırılmamış veya production'da güvensiz adres |
+| `UPSTREAM` | 502 | P8b: WhatsApp test ucu — servis yapılandırılmamış veya production'da güvensiz adres. P10: SMTP yok ("Önce SMTP ayarlarını yapın") veya gönderim başarısız (tek genel mesaj "E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.") |
 | `NOT_READY` | 503 | `/ready`: DB'ye ulaşılamıyor veya migration yok; P6: Windows istemci ikilisi yok, yapılandırılmamış veya SHA-256'sı `AGENT_SHA256` ile uyuşmuyor. **P8b-1:** herhangi bir uçta geçici DB çekişmesi (Prisma P2028/P2034, MySQL 1205/1213/45028) veya talep kapısı dolu → `Retry-After: 5`, mesaj "Sunucu şu an yoğun…"; yazma geri alındığından yeniden deneme güvenlidir |
 
 ## Uçlar
@@ -86,6 +102,16 @@ stack, SQL veya iç ayrıntı içermez.
 | POST | `/api/v1/auth/logout` | Oturum + CSRF | 204, çerezler silinir |
 | GET | `/api/v1/auth/me` | Oturum | 200 |
 | POST | `/api/v1/auth/password/change` | Oturum + CSRF | 204 + yeni çerezler |
+| POST | `/api/v1/auth/mfa/setup` (P10) | Oturum + CSRF, aşama `setup` veya `ok` | 200 |
+| POST | `/api/v1/auth/mfa/enable` (P10) | Oturum + CSRF, aşama `setup` veya `ok` | 200 |
+| POST | `/api/v1/auth/mfa/verify` (P10) | Oturum (aşama `verify`) + CSRF | 200 + yeni çerezler |
+| POST | `/api/v1/auth/logout-all` (P10) | Oturum + CSRF | 200 |
+| POST | `/api/v1/auth/password/forgot` (P10) | Public (Origin) | 202 |
+| POST | `/api/v1/auth/password/reset` (P10) | Public (Origin) | 204 |
+| POST | `/api/v1/settings/smtp/test` (P10) | Oturum + CSRF, `settings.edit`, firma bağlamı | 200 |
+| POST | `/api/v1/settings/support-requests/email/test` (P10) | Oturum + CSRF, `settings.edit` | 200 |
+| POST | `/api/v1/sessions/:id/email` (P10) | Oturum + CSRF, `sessions.create`, oturumun teknisyeni | 200 |
+| POST | `/api/v1/users/:id/reset-mfa` (P10) | Oturum + CSRF, `users.edit` | 204 |
 | POST | `/api/v1/sessions` | Oturum + CSRF, `sessions.create` | 201 |
 | GET | `/api/v1/sessions` | Oturum, `sessions.view` **veya** `session_history.view` | 200 |
 | GET | `/api/v1/sessions/export.csv` (P8) | Oturum, `session_history.export` | 200 (CSV akışı) |
@@ -145,8 +171,9 @@ curl -sk -i -X POST https://localhost:4450/api/v1/auth/login \
             "role": "SUPER_ADMIN", "tenantId": null, "theme": "SYSTEM", "mustChangePassword": true },
   "mfaRequired": false, "mustChangePassword": true }
 ```
-Yanıtta `Set-Cookie: __Host-rs_session=…` ve `Set-Cookie: __Host-rs_csrf=…` gelir. `mfaRequired` P1'de daima
-`false` (2FA P10). Aynı tarayıcının eski oturum çerezi varsa o oturum sunucuda iptal edilir.
+Yanıtta `Set-Cookie: __Host-rs_session=…` ve `Set-Cookie: __Host-rs_csrf=…` gelir. P10: yanıtta ayrıca
+`mfaSetupRequired` vardır. `mfaRequired: true` → oturum `verify` aşamasında, `POST /auth/mfa/verify` gerekir;
+`mfaSetupRequired: true` → kurulum gerekir (bkz. "2FA aşaması"). Aynı tarayıcının eski oturum çerezi varsa o oturum sunucuda iptal edilir.
 
 Hatalar: 400 `VALIDATION`; 401 `UNAUTHENTICATED` ("E-posta/kullanıcı adı veya şifre hatalı." — hesap var/yok,
 pasif kullanıcı veya pasif tenant için aynı mesaj); 403 `CSRF_INVALID`; 423 `ACCOUNT_LOCKED`; 429 `RATE_LIMITED`.
@@ -156,6 +183,8 @@ Kilit kuralları:
 - Hesap geneli: IP'den bağımsız 1 saatte 20 hata → 15 dk kilit. Var olmayan hesapta da aynı davranış (varlık sızmaz).
 - Kilitliyken doğru şifre de 423 alır. `Retry-After` kalan süreyi saniye olarak verir.
 - IP başına dakikada 20 deneme; 21. deneme 429.
+- P10: hesap geneli kilit konduğunda kullanıcıya "Hesabınız geçici olarak kilitlendi" e-postası gider (firma SMTP'si
+  varsa; kullanıcı başına saatte en çok 1). Super Admin'e gönderilmez.
 
 ### POST /api/v1/auth/logout
 Girdi yok (gövdesiz istek kabul edilir, `Content-Type: application/json` ile boş gövde de). Gerekli: oturum
@@ -178,7 +207,8 @@ Gerekli: oturum çerezi. `mustChangePassword=true` iken de çalışır.
 ```
 `role`: `SUPER_ADMIN` | `ADMIN` | `USER`. `tenant`: `{ id, name, slug }` veya Super Admin için `null`.
 `actingTenant` P1'de daima `null` (tenant geçişi P9). `permissions` etkin yetki anahtarlarıdır
-(`packages/contracts/src/permissions.ts`). Hata: 401.
+(`packages/contracts/src/permissions.ts`). P10: `mfa: { enabled, required, stage: "ok"|"verify"|"setup",
+recoveryCodesLeft }`; `verify` aşamasında `permissions` boş ve `actingTenant` `null`. Hata: 401.
 
 ### POST /api/v1/auth/password/change
 Girdi: `current` (1–200), `next` (12–200, `current`'tan farklı). Gerekli: oturum, `X-CSRF-Token`, `Origin`.
@@ -193,6 +223,60 @@ yanıtta yeni `__Host-rs_session` + `__Host-rs_csrf` gelir (eski çerez artık 4
 
 Hatalar: 400 `VALIDATION` (`fields.current`: "Mevcut şifre hatalı."; `fields.next`: uzunluk veya aynı şifre);
 401 (oturum yok; ya da aynı oturumda 5 hatalı mevcut şifre → oturum iptal, yeniden giriş gerekir); 403 `CSRF_INVALID`.
+P10: şifre değişimi açık şifre sıfırlama bağlantılarını da geçersiz kılar.
+
+### POST /api/v1/auth/mfa/setup (P10)
+Gövde `{}` veya boş. Yeni TOTP sırrı üretir (henüz etkin değil; sır AES-256-GCM ile saklanır). `Cache-Control: no-store`.
+```json
+{ "otpauthUrl": "otpauth://totp/…", "qrDataUrl": "data:image/png;base64,…", "secret": "<base32>" }
+```
+TOTP: RFC 6238, SHA-1, 6 hane, 30 sn, ±1 adım. Hatalar: 403 `PASSWORD_CHANGE_REQUIRED`, 409 "İki adımlı doğrulama zaten
+etkin." (önce Admin sıfırlaması gerekir).
+
+### POST /api/v1/auth/mfa/enable (P10)
+Gövde `{ "code": "123456" }`. Doğrulanınca 2FA etkinleşir, eski kurtarma kodları silinir ve 10 yeni kod **yalnız bu
+yanıtta** döner; kullanıcının **diğer** oturumları iptal edilir; firma SMTP'si varsa "İki adımlı doğrulama
+etkinleştirildi" e-postası gider.
+```json
+{ "recoveryCodes": ["ABCDE-FGHIJ", "…"] }
+```
+Hatalar: 400 `fields.code` "Kod hatalı veya süresi geçmiş.", 409 "Önce kurulumu başlatın." / "Kurulum değişti veya iki
+adımlı doğrulama zaten etkin; sayfayı yenileyin." (paralel ikinci kurulum), 429 (deneme sınırı, aşağıda).
+
+### POST /api/v1/auth/mfa/verify (P10)
+Gövde `{ "code": "123456" }` **veya** `{ "recoveryCode": "ABCDE-FGHIJ" }` (ikisi birden değil; kurtarma kodunda boşluk,
+tire ve büyük/küçük harf önemsiz). Başarıda oturum token'ı yenilenir (yeni çerezler):
+```json
+{ "user": { "id": "01K…", "…": "…" }, "recoveryCodesLeft": 9 }
+```
+Aynı TOTP kodu (aynı veya eski zaman adımı) ikinci kez kabul edilmez; kurtarma kodu tek kullanımlıktır.
+Hatalar: 401 `UNAUTHENTICATED` "Doğrulama kodu hatalı.", 409 "Bu oturum için doğrulama gerekmiyor.", 429.
+
+**2FA deneme sınırı** (verify ve enable ortak): aynı hesap + IP 5 deneme / 5 dk; hesap geneli (IP'den bağımsız) 15 deneme /
+15 dk; aşımda 429 `RATE_LIMITED` + `Retry-After`. Başarılı doğrulama sayaçları sıfırlar.
+
+### POST /api/v1/auth/logout-all (P10)
+Gövde `{}` veya boş. Bu oturum açık kalır; kullanıcının diğer tüm oturumları iptal edilir, açık destek oturumları
+5 sn içinde `session.ended{auth_revoked}` ile sonlanır.
+```json
+{ "revokedSessions": 2 }
+```
+
+### POST /api/v1/auth/password/forgot (P10)
+Public; `Origin` zorunlu, CSRF çerezi gerekmez. Gövde `{ "email": "ayse@example.com" }`. **Her durumda 202** (hesap var/yok,
+pasif, Super Admin); e-posta yanıt döndükten sonra gönderilir, süre de hesabın varlığını sızdırmaz. Firma SMTP'si varsa
+kullanıcıya `${PUBLIC_BASE_URL}/reset-password#token=<43 karakter>` bağlantısı gider (30 dk, tek kullanım; token URL
+parçasında olduğu için sunucu/proxy loguna girmez). Yeni istek önceki açık bağlantıları geçersiz kılar.
+Sınırlar: IP başına saatte 10 (11. → 429); hesap başına saatte 3 (aşım sessiz, yine 202).
+```bash
+curl -sk -i -X POST https://localhost:4450/api/v1/auth/password/forgot \
+  -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' -d '{"email":"ayse@example.com"}'
+```
+
+### POST /api/v1/auth/password/reset (P10)
+Public; `Origin` zorunlu. Gövde `{ "token": "<43 karakter>", "next": "<en az 12 karakter>" }` → 204. Şifre değişir,
+`mustChangePassword` kalkar, giriş kilit sayaçları sıfırlanır ve kullanıcının **tüm** oturumları kapanır.
+Hatalar: 400 `VALIDATION`, 410 `RESET_TOKEN_INVALID`, 429 (IP başına 15 dk'da 10).
 
 ## Destek oturumları (P2)
 Teknisyen uçları oturum çerezi ister; `mustChangePassword` kapısı geçerlidir. Kapsam: USER yalnız kendi açtığı
@@ -976,7 +1060,7 @@ Yetki `settings.edit`; yanıt `no-store`. Satır yoksa ilk okumada oluşturulur 
 ```
 PUT gövdesi: `{ waitMinutes: 10..120, trustedCidrs: ≤ 10 tekil (IPv4 en geniş /16, IPv6 /32; özel/loopback yok),
 whatsapp: { enabled, recipients: ≤ 5 tekil telefon }, email: { enabled, recipients: ≤ 5 } }`. WhatsApp açıkken en az
-bir alıcı; `email.enabled=true` → 400 "Önce SMTP ayarlarını yapın" (P10). Bekleme süresi yalnız yeni taleplere
+bir alıcı; SMTP yokken `email.enabled=true` → 400 "Önce SMTP ayarlarını yapın" (P10; `email.smtpConfigured` bunu gösterir). Bekleme süresi yalnız yeni taleplere
 uygulanır. Hata alanları `fields["whatsapp.recipients.1"]`, `fields["trustedCidrs.0"]` biçimindedir.
 
 ### POST /api/v1/settings/support-requests/rotate-ref
@@ -984,7 +1068,18 @@ Gövde `{}` → yeni ayarlar. Eski bağlantı ve indirilmiş eski dosyalar anın
 
 ### POST /api/v1/settings/support-requests/whatsapp/test
 Gövde `{ "phone": "0532 000 00 00" }` → `{ "ok": true, "message": "…" }` (servis hata verirse `ok:false`, genel metin).
-Hatalar: 400, 429 (firma başına 5/dk), 502 `UPSTREAM`. E-posta testi P10'da gelir (uç henüz yok).
+Hatalar: 400, 429 (firma başına 5/dk), 502 `UPSTREAM`.
+
+### POST /api/v1/settings/support-requests/email/test (P10, AC-151)
+Gövde `{ "to": "destek@example.com" }`. Kayıtlı firma SMTP'siyle örnek "Yeni destek talebi" e-postası gönderir.
+Başarı `{ "ok": true, "message": "Test e-postası gönderildi." }`; gönderim hatası **200** `{ "ok": false, "message":
+"E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin." }`. Hatalar: 400 (`fields.to`,
+`HOST_NOT_ALLOWED`), 429 (SMTP testiyle **ortak** firma başına 5/dk), 502 "Önce SMTP ayarlarını yapın".
+
+**E-posta kanalı (P10).** `email.enabled=true` iken her yeni talepte ayarlı her alıcıya (≤ 5) e-posta gider: firma adı,
+talep kodu, panel bağlantısı. Müşterinin adı, telefonu, e-postası ve açıklaması e-postaya yazılmaz. Firma başına saatte
+en çok 30 ileti; aşım bastırılır (metrik `rs_request_notify_total{channel="email",result="suppressed"}`). Gönderim hatası
+talebi engellemez.
 
 ### WebSocket `/ws/request` (müşteri istemcisi)
 `wss://<host>/ws/request`, sorgu dizesi yok. `Sec-WebSocket-Protocol: rs.v1, rs.req.<requestSecret>`; `Origin` yok.
@@ -1231,10 +1326,13 @@ Yetki `users.edit`, gövde `{}` veya boş → 204. Pasif kullanıcı giriş yapa
 önceki gibi kalır. Hatalar: 403 (kendi hesabı, daha geniş yetkili hesap), 404, 409 ("Kullanıcı zaten pasif." / "…aktif.").
 
 ### GET / PUT /api/v1/settings/tenant
-GET `settings.view`, PUT `settings.edit`. Etkin firmanın genel ayarları (SMTP ve 2FA alanları P10'da eklenecek; bu uç için
-henüz web ekranı yok):
+GET `settings.view`, PUT `settings.edit`. Etkin firmanın genel ayarları. Web ekranları: Ayarlar > E-posta (SMTP), Ayarlar > Güvenlik
+(diğer alanların ekranı henüz yok):
 ```json
-{ "sessionTtlMin": 15, "maxOpenSessions": 3, "maxActiveHours": 4, "maxFileMb": 100, "retentionDays": 365 }
+{ "sessionTtlMin": 15, "maxOpenSessions": 3, "maxActiveHours": 4, "maxFileMb": 100, "retentionDays": 365,
+  "requireTech2fa": true,
+  "smtp": { "host": "smtp.example.com", "port": 587, "security": "STARTTLS", "user": "bildirim@example.com",
+            "fromName": "Örnek Destek", "fromEmail": "bildirim@example.com", "hasPassword": true } }
 ```
 | Alan | Anlamı | Aralık |
 |---|---|---|
@@ -1243,8 +1341,23 @@ henüz web ekranı yok):
 | `maxActiveHours` | Etkin oturumun en uzun süresi (saat) | 1–8 |
 | `maxFileMb` | Dosya transferi üst sınırı (MB) | 1–2048 |
 | `retentionDays` | Oturum kayıtlarının saklama süresi (gün) | 90–730 |
+| `requireTech2fa` (P10) | User rolü için 2FA zorunlu mu (Admin/Super Admin her zaman zorunlu) | `true`/`false`, varsayılan `true` |
+| `smtp` (P10) | Firma SMTP ayarı; yoksa `null` | aşağıda |
 
-PUT gövdesi kısmidir (en az bir alan). Aralık dışı → 400 `fields.<alan>` "… arası olmalı" (AC-4). Yanıt güncel ayarlar;
+**`smtp` nesnesi (PUT).** `{ host, port, security, user?, password?, fromName?, fromEmail }`; `smtp: null` ayarı tamamen
+kaldırır.
+- `host`: ad, IPv4 veya köşeli parantezli IPv6 (IDN punycode'a çevrilir), ≤ 253. Kayıtta ve her gönderimde çözülür;
+  özel/iç ağ/loopback/link-local/CGNAT/Docker, IPv6'da 2000::/3 dışı (ve Teredo, 6to4, belgeleme aralıkları) veya
+  `PUBLIC_BASE_URL`'in kendi adresi → 400 `HOST_NOT_ALLOWED`.
+- `port`: yalnız 25, 465, 587, 2525 (aksi 400 `fields["smtp.port"]` "Port 25, 465, 587 veya 2525 olmalı"). Önerilen:
+  `NONE` 25, `SSL` 465, `STARTTLS` 587.
+- `security`: `NONE` | `SSL` | `STARTTLS`. `NONE` iken `user`/`password` verilirse 400 `fields["smtp.security"]` "Kullanıcı
+  adı/şifre için SSL veya STARTTLS seçin (şifresiz bağlantıda kimlik bilgisi açık gider)". TLS'te sertifika adı doğrulanır.
+- `password` (≤ 200): boş veya verilmemiş → kayıtlı şifre korunur; `user` boşsa şifre de silinir; şifre `user` olmadan
+  verilemez (`fields["smtp.user"]`). AES-256-GCM ile saklanır, GET'te asla dönmez (yalnız `hasPassword`); audit'te `***`.
+- `fromEmail` zorunlu (≤ 190), `fromName` ≤ 100, kontrol karakteri yok.
+
+PUT gövdesi kısmidir (en az bir alan; ör. `{ "requireTech2fa": false }`). Aralık dışı → 400 `fields.<alan>` "… arası olmalı" (AC-4). Yanıt güncel ayarlar;
 yalnız değişen alanlar audit'e eski → yeni yazılır. Hatalar: 400, 403.
 
 ### GET /api/v1/admin/tenants?q=&status=active|passive|all&page=&pageSize= · POST /api/v1/admin/tenants
@@ -1274,6 +1387,43 @@ Gövde `{ "tenantId": "01K…" }` (firmaya geç) veya `{ "tenantId": null }` (ba
 Bağlam mevcut oturuma yazılır; değişiklik varsa audit `tenant.switched` ve bu oturumun `/ws/panel` soketleri 4401 ile
 kapanır (istemci yeni bağlamla yeniden bağlanır, `/auth/me` yeniden okunur). Aynı firmaya tekrar geçiş yazma yapmaz.
 Hatalar: 400, 403 (SUPER_ADMIN değil), 404 (firma yok veya pasif).
+
+## E-posta (SMTP) ve hesap yönetimi uçları (P10)
+
+### POST /api/v1/settings/smtp/test
+Yetki `settings.edit`, firma bağlamı (Super Admin firma seçmeli). Gövde `{ "to": "admin@example.com" }`. **Kayıtlı** ayarla
+test e-postası gönderir (formdaki kaydedilmemiş değerle değil).
+```bash
+curl -sk -X POST https://localhost:4450/api/v1/settings/smtp/test \
+  -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' -H "X-CSRF-Token: $CSRF" \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF" -d '{"to":"admin@example.com"}'
+```
+```json
+{ "ok": true, "message": "Test e-postası gönderildi." }
+```
+Hatalar: 400 (`fields.to`, `HOST_NOT_ALLOWED`), 403, 429 (firma başına 5/dk, e-posta kanal testiyle ortak), 502 `UPSTREAM`
+("Önce SMTP ayarlarını yapın" veya tek genel gönderim mesajı).
+
+**Gönderim kuralları (tüm e-postalar).** Bağlantı netguard'ın onayladığı IP'ye yapılır, TLS'te SNI ve sertifika adı
+asıl sunucu adıyla doğrulanır; port gönderimde de denetlenir. Etkileşimli gönderimler (SMTP testi, e-posta kanal testi,
+oturum linki) tek deneme yapar, deneme başına en çok 12 sn; başarısızlık yanıtı da **en az 12 sn** sonra döner (hata türü
+süreden anlaşılmasın). Arka plan gönderimleri (bildirimler) 10 sn zaman aşımı + 1 yeniden deneme. Hata sınıfı (`connect`,
+`tls`, `auth`, `rejected`, `port_not_allowed`, `insecure_auth`) yalnız server logu (`event:"smtp_send_failed"`) ve audit
+`reason` alanındadır; metrik `rs_mail_total{kind,result}`.
+
+### POST /api/v1/sessions/:id/email (AC-10)
+Yetki `sessions.create`; yalnız oturumun kendi teknisyeni. Gövde `{ "to": "musteri@example.com", "link": "<oluşturma
+yanıtındaki link>" }` → `{ "sent": true }`. Düz token sunucuda tutulmadığı için bağlantı istemciden gelir; sunucu
+`${PUBLIC_BASE_URL}/session/<token>` biçimini ve token'ın bu oturuma ait olduğunu doğrular (başka adres gönderilemez).
+E-posta: teknisyen adı, firma, bağlantı, 8 haneli kod, son geçerlilik (Türkiye saati), logo.
+Hatalar: 400 (`fields.to`; `fields.link` "Bağlantı bu oturuma ait değil."), 404 (başkasının oturumu), 409 "Yalnız bekleyen
+oturumun bağlantısı gönderilebilir.", 429 (teknisyen başına saatte 20; `Retry-After`), 502 (SMTP yok / gönderim hatası).
+
+### POST /api/v1/users/:id/reset-mfa
+Yetki `users.edit`. Gövde `{}` → 204. Tek işlemde kullanıcının 2FA sırrı ve kurtarma kodları silinir, oturumları iptal
+edilir; ardından açık destek oturumları 5 sn içinde sonlanır. Kullanıcı sonraki girişte (2FA zorunluysa) yeniden kurar.
+Hatalar: 403 "Kendi iki adımlı doğrulamanızı sıfırlayamazsınız." / "Sizden daha geniş yetkili bir hesabı yönetemezsiniz.",
+404, 409 "Bu kullanıcıda iki adımlı doğrulama kurulu değil.".
 
 ## Audit
 Giriş (başarılı/başarısız), kilit (`auth.locked`, kapsam `account_ip` veya `account`), çıkış ve şifre değişimi
@@ -1314,4 +1464,12 @@ eski → yeni; aynı işlemde), `user.deactivated`, `user.reactivated`, `tenant.
 `tenant.deactivated` (`revokedSessions`, `cancelledSessions`), `tenant.reactivated`, `tenant.switched`
 (`actingTenantId` eski → yeni), `tenant_settings.updated` (değişen alanlar). Reddedilen (403) yetki işlemleri henüz audit'e
 yazılmaz (B-P9-5, Sonra).
+P10: `auth.mfa_setup`, `auth.mfa_enabled`, `auth.mfa_verify` (`method`: totp | recovery; başarısızda `reason`),
+`auth.logout_all` (`revokedSessions`), `auth.password_reset_requested` (Super Admin veya SMTP'siz firmada
+`fail{reason:no_smtp}`), `auth.password_reset`, `auth.locked` (+ kilit e-postası), `user.mfa_reset` (`deletedCodes`,
+`revokedSessions`), `mail.sent` (her e-posta: `kind` = password_reset | account_locked | mfa_enabled | session_link |
+request_notify | settings.smtp.test | settings.email.test; alıcı maskeli `a***@example.com`, konu, sonuç, hatada `reason`),
+`session.email` (konu + maskeli alıcı; saatlik 20 sayımı bu satırlardan), `settings.smtp.test`, `settings.email.test`,
+`request.notify{channel:"email"}`, `tenant_settings.updated` (SMTP şifresi `***`). TOTP kodu, sırrı, kurtarma kodu ve
+sıfırlama token'ı hiçbir yere yazılmaz.
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Audit ekranı P11'de gelir.

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ToastProvider } from "@/components/ui/toast";
 import { BrandLogo } from "@/components/brand-logo";
@@ -6,8 +7,9 @@ import { LoadError } from "@/components/load-error";
 import { RequestNotifier } from "@/components/request-notifier";
 import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { t } from "@/lib/i18n";
-import { getMe } from "@/lib/server-api";
+import { gateOf, getMe } from "@/lib/server-api";
 import { LogoutButton } from "./logout-button";
+import { SessionWatch } from "./session-watch";
 import { SideNav } from "./side-nav";
 import { TenantSwitcher } from "./tenant-switcher";
 
@@ -22,9 +24,11 @@ export default async function PanelLayout({ children }: { children: React.ReactN
       </main>
     );
   }
+  // AC-66/67: 2FA kodu, zorunlu şifre değişimi ve zorunlu 2FA kurulumu tamamlanmadan panel açılmaz (sunucu da uçları kapatır)
+  const gate = gateOf(state);
+  if (gate) redirect(gate);
+  if (state.kind !== "ok") redirect(EXPIRED_LOGIN_PATH);
   const { user, tenant, permissions, actingTenant } = state.me;
-  // AC-66: şifre değiştirilmeden panel açılmaz (sunucu guard'ı da uçları kapatır)
-  if (user.mustChangePassword) redirect("/change-password");
   // P8b-1: /ws/panel yalnız `support_requests.view` + tenant bağlamı varken (Super Admin firma seçmeli; sunucu da 403)
   const isSa = user.role === "SUPER_ADMIN";
   const notify = (permissions as readonly string[]).includes("support_requests.view") && (!isSa || Boolean(actingTenant));
@@ -55,9 +59,15 @@ export default async function PanelLayout({ children }: { children: React.ReactN
               {tenant ? ` · ${tenant.name}` : ""}
             </p>
           </div>
-          <span className="shrink-0">
+          {/* P10: avatar → Hesap güvenliği (şifre, 2FA, tüm cihazlardan çıkış) */}
+          <Link
+            href="/account"
+            aria-label={t("acc.navLabel", { name: user.fullName })}
+            className="inline-flex size-11 shrink-0 items-center justify-center rounded-full hover:bg-surface-muted"
+            data-testid="account-link"
+          >
             <Avatar name={user.fullName} testId="current-user-avatar" />
-          </span>
+          </Link>
           <LogoutButton userName={user.fullName} />
         </div>
       </header>
@@ -67,6 +77,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
         </aside>
         <main id="icerik" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 focus:outline-none sm:px-6 lg:px-8">
           {notify && <RequestNotifier enabled />}
+          <SessionWatch />
           {children}
         </main>
       </div>

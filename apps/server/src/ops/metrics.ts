@@ -54,6 +54,7 @@ export function createMetrics(): Metrics {
   m.counter("rs_ws_connections_total", "Kabul edilen WS bağlantıları (role)");
   m.counter("rs_ws_rejected_total", "Reddedilen WS upgrade istekleri (role, reason)");
   m.counter("rs_ws_closed_policy_total", "1008 ile kapatılan bağlantılar (reason)");
+  m.counter("rs_mail_total", "Gönderilen e-postalar (P10; kind, result: ok|connect|auth|tls|rejected|not_configured)");
   m.counter("rs_admit_total", "guest.admit sonuçları (result)");
   m.counter("rs_file_meta_total", "file.meta sonuçları (result; P5)");
   m.counter("rs_file_meta_rate_limited_total", "file.meta kota aşımları (class: accepted|declined|sender; S-P5-T2-3)");

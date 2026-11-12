@@ -6,22 +6,29 @@
 import { MAX_RECIPIENTS, MAX_TRUSTED_CIDRS, WAIT_MAX, WAIT_MIN, type SupportRequestSettings, type SupportRequestSettingsInput } from "./contract";
 import { checkCidr, normalizePhone } from "./validate";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export interface SettingsState {
   waitMinutes: string;
   trustedCidrs: string[];
   waEnabled: boolean;
   waRecipients: string[];
+  /** P10 (AC-151): e-posta kanalı. */
+  mailEnabled: boolean;
+  mailRecipients: string[];
 }
 
 /** Hata anahtarları sunucu `fields` yolu biçiminde: "waitMinutes", "whatsapp.recipients.1", "trustedCidrs.0" … */
 /** Hata değeri: i18n anahtarı (`st.err.*`) ya da sözleşmenin hazır Türkçe mesajı (`msg:` önekli). */
-export type SettingsErrorKey = "wait" | "phone" | "phoneDup" | "recipientsRequired" | "recipientsMax" | "cidrDup" | "cidrMax" | `msg:${string}`;
+export type SettingsErrorKey = "wait" | "phone" | "phoneDup" | "recipientsRequired" | "recipientsMax" | "cidrDup" | "cidrMax" | "email" | "emailDup" | "smtpRequired" | `msg:${string}`;
 
 export const toState = (s: SupportRequestSettings): SettingsState => ({
   waitMinutes: String(s.waitMinutes),
   trustedCidrs: [...s.trustedCidrs],
   waEnabled: s.whatsapp.enabled,
   waRecipients: [...s.whatsapp.recipients],
+  mailEnabled: s.email.enabled,
+  mailRecipients: [...s.email.recipients],
 });
 
 const norm = (st: SettingsState) =>
@@ -30,6 +37,8 @@ const norm = (st: SettingsState) =>
     c: st.trustedCidrs.map((x) => x.trim()).filter(Boolean),
     e: st.waEnabled,
     r: st.waRecipients.map((x) => x.trim()).filter(Boolean),
+    me: st.mailEnabled,
+    mr: st.mailRecipients.map((x) => x.trim().toLowerCase()).filter(Boolean),
   });
 
 export const isDirty = (a: SettingsState, b: SettingsState): boolean => norm(a) !== norm(b);
@@ -55,6 +64,20 @@ export function buildInput(
   if (st.waEnabled && recipients.length === 0 && !Object.keys(errors).some((k) => k.startsWith("whatsapp.recipients.")))
     errors["whatsapp.recipients"] = "recipientsRequired";
 
+  // P10 (AC-151): e-posta alıcıları ≤ 5, tekil (büyük/küçük harf duyarsız), açıkken ≥ 1; SMTP yoksa açılamaz
+  const mails: string[] = [];
+  st.mailRecipients.forEach((raw, i) => {
+    const v = raw.trim().toLowerCase();
+    if (!v) return;
+    if (v.length > 254 || !EMAIL_RE.test(v)) errors[`email.recipients.${i}`] = "email";
+    else if (mails.includes(v)) errors[`email.recipients.${i}`] = "emailDup";
+    else mails.push(v);
+  });
+  if (st.mailRecipients.filter((r) => r.trim()).length > MAX_RECIPIENTS) errors["email.recipients"] = "recipientsMax";
+  if (st.mailEnabled && !email.smtpConfigured) errors["email.enabled"] = "smtpRequired";
+  else if (st.mailEnabled && mails.length === 0 && !Object.keys(errors).some((k) => k.startsWith("email.recipients.")))
+    errors["email.recipients"] = "recipientsRequired";
+
   const cidrs: string[] = [];
   st.trustedCidrs.forEach((raw, i) => {
     if (!raw.trim()) return;
@@ -72,8 +95,7 @@ export function buildInput(
       waitMinutes: wait,
       trustedCidrs: cidrs,
       whatsapp: { enabled: st.waEnabled, recipients },
-      // E-posta kanalı P10'da (SMTP); mevcut değer olduğu gibi geri gönderilir
-      email: { enabled: email.enabled, recipients: [...email.recipients] },
+      email: { enabled: st.mailEnabled, recipients: mails },
     },
   };
 }

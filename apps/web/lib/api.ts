@@ -80,6 +80,11 @@ export async function api<T>(
   if (res.ok) return data as T;
 
   const err = (data as { error?: Partial<Record<string, unknown>> } | null)?.error ?? {};
+  // P10 (AC-67): yarı oturumda (2FA kodu / zorunlu kurulum bekleniyor) her uç 403 verir → ilgili ekrana
+  if (res.status === 403 && typeof window !== "undefined" && (err.code === "MFA_REQUIRED" || err.code === "MFA_SETUP_REQUIRED")) {
+    const gate = err.code === "MFA_REQUIRED" ? "/login/2fa" : "/2fa/setup";
+    if (window.location.pathname !== gate) window.location.assign(gate);
+  }
   const retry = Number(res.headers.get("Retry-After"));
   throw new ApiError(
     res.status,

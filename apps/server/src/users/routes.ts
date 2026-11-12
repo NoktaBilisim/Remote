@@ -1,5 +1,5 @@
 // /api/v1/users (P9; mimari-api "Yönetim"). Sıra: requireAuth (CSRF durum değiştirenlerde) → requirePerm → tenantScope
-// (Super Admin firma seçmeli) → zod → servis. /users/:id/reset-mfa P10'dadır (2FA).
+// (Super Admin firma seçmeli) → zod → servis. P10: /users/:id/reset-mfa (2FA sıfırlama).
 import {
   createUserInputSchema,
   listUsersQuerySchema,
@@ -14,7 +14,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
 import { authOf, requireAuth, requirePerm, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
-import { createUser, deactivateUser, getUser, listUsers, reactivateUser, updateUser, type UserLiveEffects } from "./service.ts";
+import { createUser, deactivateUser, getUser, listUsers, reactivateUser, resetUserMfa, updateUser, type UserLiveEffects } from "./service.ts";
 
 function idParam(req: FastifyRequest): string {
   const r = userIdSchema.safeParse((req.params as { id?: string }).id);
@@ -57,6 +57,15 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     const id = idParam(req);
     parseInput(userActionInputSchema, req.body);
     await deactivateUser(app.db, fx(), auditContext(req), authOf(req), tenantId, id);
+    return reply.status(204).send();
+  });
+
+  // P10 (AC-67, 115): Admin kullanıcının 2FA'sını sıfırlar.
+  app.post("/:id/reset-mfa", edit, async (req, reply) => {
+    const { tenantId } = tenantScope(req);
+    const id = idParam(req);
+    parseInput(userActionInputSchema, req.body);
+    await resetUserMfa(app.db, fx(), auditContext(req), authOf(req), tenantId, id);
     return reply.status(204).send();
   });
 

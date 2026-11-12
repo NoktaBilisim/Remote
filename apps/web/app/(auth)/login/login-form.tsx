@@ -1,13 +1,15 @@
 "use client";
 
-import { LogIn } from "lucide-react";
+import { KeyRound, LogIn } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import { FormError } from "@/components/form-error";
 import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/text-field";
 import { api, ApiError, safeNext } from "@/lib/api";
-import { fieldErrors, loginInput, type LoginResult } from "@/lib/auth-schema";
+import type { LoginResponse } from "@/lib/account/contract";
+import { fieldErrors, loginInput } from "@/lib/auth-schema";
 import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
 
@@ -35,14 +37,14 @@ export function LoginForm({ next }: { next: string | null }) {
     setErrors({});
     setSubmitting(true);
     try {
-      const res = await api<LoginResult>("POST", "/auth/login", parsed.data);
-      if (res.mfaRequired) {
-        // 2FA adımı P10'da eklenecek; P1'de backend mfaRequired=false döner
-        setServerError({ message: t("login.error.mfa"), tone: "danger" });
-        setSubmitting(false);
-        return;
-      }
-      router.replace(res.mustChangePassword ? "/change-password" : safeNext(next, window.location.origin));
+      const res = await api<LoginResponse>("POST", "/auth/login", parsed.data);
+      const target = safeNext(next, window.location.origin);
+      // P10 (AC-67): 2FA kodu adımı → zorunlu şifre değişimi → zorunlu 2FA kurulumu → hedef (panel kabuğu da aynı sırayı uygular)
+      const keepNext = target === "/" ? "" : `?next=${encodeURIComponent(target)}`;
+      if (res.mfaRequired && !res.mfaSetupRequired) router.replace(`/login/2fa${keepNext}`);
+      else if (res.mustChangePassword) router.replace("/change-password");
+      else if (res.mfaSetupRequired) router.replace("/2fa/setup");
+      else router.replace(target);
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError && err.status === 400 && err.fields) setErrors(err.fields);
@@ -78,6 +80,15 @@ export function LoginForm({ next }: { next: string | null }) {
         {!submitting && <LogIn aria-hidden className="size-4" />}
         {submitting ? t("login.submitting") : t("login.submit")}
       </Button>
+      {/* AC-66: e-posta ile şifre sıfırlama */}
+      <Link
+        href="/forgot-password"
+        className="inline-flex min-h-11 items-center justify-center gap-2 self-center rounded-md px-3 text-sm font-medium text-primary hover:underline"
+        data-testid="forgot-link"
+      >
+        <KeyRound aria-hidden className="size-4" />
+        {t("login.forgot")}
+      </Link>
     </form>
   );
 }

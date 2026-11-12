@@ -59,6 +59,18 @@ REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON requ
 GRANT SELECT, INSERT, UPDATE ON device_bindings TO 'app'@'%';
 REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON device_bindings FROM 'app'@'%';
 
+-- P10 recovery_codes (mimari §3.1, AC-67): üretim INSERT; kullanım yalnız used_at (sütun düzeyi UPDATE); yeniden üretim
+-- ve MFA sıfırlama DELETE (kod gizlidir, geçmiş değeri yok; iz audit'te). code_hash/user_id hiçbir zaman güncellenemez.
+-- Sütun GRANT'ı tablo düzeyi REVOKE'tan SONRA gelmeli (sıra korunursa dosya idempotent; consent_texts kalıbı).
+GRANT SELECT, INSERT, DELETE ON recovery_codes TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON recovery_codes FROM 'app'@'%';
+GRANT UPDATE (used_at, updated_at) ON recovery_codes TO 'app'@'%';
+-- P10 password_reset_tokens (mimari §3.1, AC-66): istek INSERT; kullanım/geçersizleştirme yalnız used_at. token_hash,
+-- expires_at, user_id güncellenemez (süre uzatılamaz). DELETE (expires_at + 7 gün hard delete) retention işiyle P13'te.
+GRANT SELECT, INSERT ON password_reset_tokens TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON password_reset_tokens FROM 'app'@'%';
+GRANT UPDATE (used_at, updated_at) ON password_reset_tokens TO 'app'@'%';
+
 -- Append-only: yalnız SELECT/INSERT. DELETE yetkisi retention/tetikleyiciyle birlikte (P11/P13)
 -- verilecek; o pakette bu dosya güncellenir. UPDATE/DELETE/DDL/TRIGGER yetkisi varsa geri alınır.
 GRANT SELECT, INSERT ON audit_logs TO 'app'@'%';

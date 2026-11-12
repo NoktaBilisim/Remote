@@ -19,7 +19,10 @@ import {
   type SessionView,
   type SessionHistoryDetail,
   updateSessionInputSchema,
+  sessionEmailInputSchema,
+  type SessionEmailResponse,
 } from "@remote/contracts/api/sessions";
+import { emailSessionLink } from "./email.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
 import { authOf, checkPublicClient, requireAnyPerm, requireAuth, requirePerm, tenantScope } from "../auth/guards.ts";
@@ -94,6 +97,15 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
     const data = parseInput(updateSessionInputSchema, req.body);
     void reply.header("Cache-Control", "no-store");
     return updateHistory(app.db, req.log, auditContext(req), authOf(req), id, data);
+  });
+
+  // P10 (AC-10): oturum bağlantısı e-postası — 20/sa/teknisyen (audit sayımı).
+  app.post("/:id/email", { preHandler: requirePerm("sessions.create") }, async (req): Promise<SessionEmailResponse> => {
+    const { tenantId } = tenantScope(req);
+    const id = idParam(req);
+    const input = parseInput(sessionEmailInputSchema, req.body);
+    await emailSessionLink(app.mail, app.env.PUBLIC_BASE_URL, auditContext(req), authOf(req), tenantId, id, input);
+    return { sent: true };
   });
 
   app.post("/:id/cancel", { preHandler: requirePerm("sessions.delete") }, async (req): Promise<CancelSessionResponse> => {

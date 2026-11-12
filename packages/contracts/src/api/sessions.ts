@@ -405,3 +405,21 @@ export const SESSION_CSV_COLUMNS = [
   "Not",
 ] as const;
 export const SESSION_CSV_TENANT_COLUMN = "Firma";
+
+/**
+ * P10 (AC-10): POST /sessions/:id/email — oturum bağlantısını müşteriye e-postayla gönder (sessions.create; yalnız
+ * oturumun kendi teknisyeni, PENDING ve süresi dolmamış). `link`: POST /sessions yanıtındaki bağlantı — düz token DB'de
+ * olmadığı için sunucu bağlantıyı yeniden üretemez; gelen bağlantının `${PUBLIC_BASE_URL}/session/<token>` biçiminde ve
+ * token'ın bu oturuma ait olduğu doğrulanır (başka adres gönderilemez). Teknisyen başına 20/sa → 429 (+Retry-After).
+ * Gönderim hatası 502 `UPSTREAM`; SMTP ayarı yoksa 502 (mesaj "Önce SMTP ayarlarını yapın").
+ */
+export const sessionEmailInputSchema = z.strictObject({
+  to: z.string().trim().max(254, "E-posta en çok 254 karakter olabilir").pipe(z.email("E-posta adresi geçersiz")),
+  link: z.string().max(300, "Bağlantı geçersiz"),
+});
+export type SessionEmailInput = z.infer<typeof sessionEmailInputSchema>;
+export interface SessionEmailResponse {
+  sent: true;
+}
+/** AC-10: teknisyen başına saatlik oturum bağlantısı e-postası üst sınırı (G-23). */
+export const SESSION_EMAIL_PER_HOUR = 20;

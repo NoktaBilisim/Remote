@@ -218,7 +218,7 @@ export async function ensureSettings(svc: RequestService, tenantId: string): Pro
   }
 }
 
-function settingsView(svc: RequestService, s: repo.SettingsRow): SupportRequestSettings {
+function settingsView(svc: RequestService, s: repo.SettingsRow, smtpConfigured: boolean): SupportRequestSettings {
   const n = svc.d.notifier;
   return {
     downloadUrl: requestDownloadUrl(svc.d.env.PUBLIC_BASE_URL, s.requestRef),
@@ -228,12 +228,13 @@ function settingsView(svc: RequestService, s: repo.SettingsRow): SupportRequestS
     waitMinutes: s.waitMinutes,
     trustedCidrs: repo.jsonStrings(s.trustedCidrs),
     whatsapp: { enabled: s.waEnabled, recipients: repo.jsonStrings(s.waRecipients), serviceConfigured: n.configured, insecure: n.insecure },
-    email: { enabled: s.emailEnabled, recipients: repo.jsonStrings(s.emailRecipients), smtpConfigured: false },
+    email: { enabled: s.emailEnabled, recipients: repo.jsonStrings(s.emailRecipients), smtpConfigured },
   };
 }
 
 export async function getSettings(svc: RequestService, tenantId: string): Promise<SupportRequestSettings> {
-  return settingsView(svc, await ensureSettings(svc, tenantId));
+  const row = await ensureSettings(svc, tenantId);
+  return settingsView(svc, row, (await svc.d.mail.configFor(tenantId)) !== null);
 }
 
 const auditShape = (s: { waitMinutes: number; trustedCidrs: string[]; waEnabled: boolean; waRecipients: string[]; emailEnabled: boolean; emailRecipients: string[] }) => ({
@@ -245,9 +246,9 @@ const auditShape = (s: { waitMinutes: number; trustedCidrs: string[]; waEnabled:
   emailRecipients: s.emailRecipients,
 });
 
-/** PUT /settings/support-requests (AC-142, 152): SMTP P10'a kadar yok → e-posta açılamaz. Audit eski→yeni (alıcılar maskeli). */
+/** PUT /settings/support-requests (AC-142, 151, 152): SMTP ayarlı değilse e-posta kanalı açılamaz. Audit eski→yeni (alıcılar maskeli). */
 export async function updateSettings(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string, input: UpdateRequestSettingsData): Promise<SupportRequestSettings> {
-  if (input.email.enabled) throw new AppError("VALIDATION", { fields: { "email.enabled": SMTP_REQUIRED_MESSAGE } });
+  if (input.email.enabled && (await svc.d.mail.configFor(tenantId)) === null) throw new AppError("VALIDATION", { fields: { "email.enabled": SMTP_REQUIRED_MESSAGE } });
   await ensureSettings(svc, tenantId);
   await svc.d.db.$transaction(async (tx) => {
     const before = await repo.settingsByTenant(tx, tenantId);

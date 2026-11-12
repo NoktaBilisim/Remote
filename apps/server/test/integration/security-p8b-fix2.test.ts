@@ -168,7 +168,7 @@ const wrongFrom = (a: FastifyInstance, u: TestUser, i: number) => a.inject(login
 describe("S8b-6 geçici DB hatasında hesap kilidi", () => {
   it("AC-65/S8b-6: sayaç ve audit yazılamazken 20 hatalı deneme (çok IP) → hesap yine kilitlenir (423), doğru şifre de 423; alarm logu PII'siz", async () => {
     const { logger, lines } = captureLogs();
-    app = buildApp({ env: testEnv(), db: faultyDb({ counter: true, tx: true }), logger });
+    app = buildApp({ mfaSetupEnforcement: false, env: testEnv(), db: faultyDb({ counter: true, tx: true }), logger });
     const user = await createUser({ tenantId: (await createTenant()).id });
     const codes: number[] = [];
     for (let i = 0; i < 20; i++) codes.push((await wrongFrom(app, user, i)).statusCode);
@@ -186,7 +186,7 @@ describe("S8b-6 geçici DB hatasında hesap kilidi", () => {
   it("AC-65/S8b-6: DB'de 15 hata varken sayaç yazılamazsa 5. yedek hatada kilit (DB + bellek birlikte sayılır)", async () => {
     const user = await createUser({ tenantId: (await createTenant()).id });
     await testDb().user.update({ where: { id: user.id }, data: { failedLoginCount: 15, failedWindowAt: new Date() } });
-    app = buildApp({ env: testEnv({ LOG_LEVEL: "silent" }), db: faultyDb({ counter: true, tx: false }) });
+    app = buildApp({ mfaSetupEnforcement: false, env: testEnv({ LOG_LEVEL: "silent" }), db: faultyDb({ counter: true, tx: false }) });
     const codes: number[] = [];
     for (let i = 0; i < 5; i++) codes.push((await wrongFrom(app, user, i)).statusCode);
     expect(codes).toEqual([401, 401, 401, 401, 423]);
@@ -197,7 +197,7 @@ describe("S8b-6 geçici DB hatasında hesap kilidi", () => {
   });
 
   it("AC-65/S8b-6: yalnız audit TX'i düşerse sayaç TX dışında artar ve DB kilidi yazılır; yanıt 503 değil 401/423", async () => {
-    app = buildApp({ env: testEnv({ LOG_LEVEL: "silent" }), db: faultyDb({ counter: false, tx: true }) });
+    app = buildApp({ mfaSetupEnforcement: false, env: testEnv({ LOG_LEVEL: "silent" }), db: faultyDb({ counter: false, tx: true }) });
     const user = await createUser({ tenantId: (await createTenant()).id });
     const codes: number[] = [];
     for (let i = 0; i < 20; i++) codes.push((await wrongFrom(app, user, i)).statusCode);
@@ -209,7 +209,7 @@ describe("S8b-6 geçici DB hatasında hesap kilidi", () => {
 
   it("AC-65: başarılı giriş yedek kovayı sıfırlar", async () => {
     const user = await createUser({ tenantId: (await createTenant()).id });
-    const faulty = buildApp({ env: testEnv({ LOG_LEVEL: "silent" }), db: faultyDb({ counter: true, tx: false }) });
+    const faulty = buildApp({ mfaSetupEnforcement: false, env: testEnv({ LOG_LEVEL: "silent" }), db: faultyDb({ counter: true, tx: false }) });
     for (let i = 0; i < 3; i++) await wrongFrom(faulty, user, i);
     expect(faulty.authLimits.accountFallback.count(user.id)).toBe(3);
     await loginAs(faulty, user);
@@ -221,7 +221,7 @@ describe("S8b-6 geçici DB hatasında hesap kilidi", () => {
 describe("S8b-7 kilitli hesap dalında audit yazılamazsa", () => {
   it("AC-65/S8b-7: DB yazmaları düşerken kilitli hesap 423 (doğru/yanlış şifre), kilitsiz hesap 401, hiç 5xx yok; alarm logu PII'siz", async () => {
     const { logger, lines } = captureLogs();
-    app = buildApp({ env: testEnv(), db: faultyDb({ counter: true, tx: true, audit: true }), logger });
+    app = buildApp({ mfaSetupEnforcement: false, env: testEnv(), db: faultyDb({ counter: true, tx: true, audit: true }), logger });
     const tenantId = (await createTenant()).id;
     const lockedUser = await createUser({ tenantId });
     const openUser = await createUser({ tenantId });

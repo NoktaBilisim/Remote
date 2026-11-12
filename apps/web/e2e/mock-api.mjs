@@ -3,6 +3,7 @@
 import { createServer } from "node:http";
 // Çerez/başlık adları tek kaynaktan (Node 24 .ts tür ayıklama ile doğrudan okunur)
 import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { handleAccount } from "./mock-account.mjs";
 import { handleCustomers } from "./mock-customers.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleRequests, requestUser } from "./mock-requests.mjs";
@@ -77,8 +78,11 @@ const srv = createServer(async (req, res) => {
   if (req.method !== "GET" && req.headers.origin !== (process.env.MOCK_ALLOWED_ORIGIN ?? "http://localhost:3217"))
     return send(res, 403, err("FORBIDDEN", "Origin reddedildi."));
 
+  // P10: hesap güvenliği / SMTP (girişte yalnız kendi hesaplarını işler, diğerlerini aşağıya bırakır)
+  if (await handleAccount(req, res, { url, session, csrfOk, send, err, readJson, sessionCookies })) return;
+
   if (req.method === "POST" && url === "/api/v1/auth/login") {
-    const { login = "", password = "" } = await readJson(req);
+    const { login = "", password = "" } = req.__body ?? (await readJson(req));
     if (login === "kilitli@ornek.com")
       return send(res, 423, err("ACCOUNT_LOCKED", "Çok fazla hatalı deneme. Hesap geçici olarak kilitlendi."), [], {
         "Retry-After": "878",

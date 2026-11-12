@@ -2,11 +2,19 @@ import { describe, expect, it } from "vitest";
 import { loadEnv } from "../../src/env.ts";
 import { maskUrl } from "../../src/lib/logger.ts";
 import { abuseEmail } from "../../src/public/consent.ts";
+import { FAKE_APP_ENCRYPTION_KEYS } from "../helpers/secrets.ts";
 
 const refKey = "k".repeat(32);
-const base = { PUBLIC_BASE_URL: "https://rs.test:4450", DATABASE_URL: "mysql://app:gizli@db/remote" };
+const base = { PUBLIC_BASE_URL: "https://rs.test:4450", DATABASE_URL: "mysql://app:gizli@db/remote", APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS };
 
 describe("env", () => {
+  it("AC-78: production'da APP_ENCRYPTION_KEYS zorunlu; hatalı biçim reddedilir, değer mesajda yok", () => {
+    const prod = { ...base, NODE_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/32", SESSION_REF_KEY: refKey };
+    expect(() => loadEnv({ ...prod, APP_ENCRYPTION_KEYS: undefined })).toThrow(/APP_ENCRYPTION_KEYS/);
+    expect(() => loadEnv({ ...prod, APP_ENCRYPTION_KEYS: "v1:gizlideger" })).toThrow(/^(?!.*gizlideger).*APP_ENCRYPTION_KEYS/);
+    expect(loadEnv(prod).encryptionKeys?.get(1)).toHaveLength(32);
+  });
+
   it("AC-121: production'da TRUSTED_PROXY_CIDR zorunlu; hata mesajı değer sızdırmaz", () => {
     expect(() => loadEnv({ ...base, NODE_ENV: "production" })).toThrow(/TRUSTED_PROXY_CIDR/);
     expect(() => loadEnv({ ...base, NODE_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/33" })).toThrow(/CIDR/);

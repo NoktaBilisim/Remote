@@ -3067,3 +3067,182 @@ Menü: "Kullanıcılar" (`Users`, `users.view`), "Firmalar" (`Building`, yalnız
 - **Bulgu 1 + 6 (Super Admin üst menüsü 375 px'te 6 px taşıyordu):** Kök neden: sağ grup `min-w-0` ile daralıyordu ama içindeki öğeler daralmıyordu. Bu yüzden "Çıkış yap" kırpılıyordu. `layout.tsx`: Super Admin'de uygulama adı < sm gizli, sağ grup boşluğu `gap-2 sm:gap-3`, avatar sarmalayıcısı `shrink-0`. `logout-button.tsx`: kap `shrink-0`. `tenant-switcher.tsx`: kap `min-w-0`. Etkin firma adı (veya "Firma seçilmedi") artık her genişlikte görünüyor ve yer kalmazsa kısaltılıyor (`min-w-0 max-w-48 truncate`, tam ad `title`'da ve erişilebilir adda). `ui/menu.tsx`: `title` prop'u, tetikleyici `max-w-full`, ok `shrink-0`. DESIGN.md menü satırı güncellendi.
 - **Paket kodu metni:** `srs.mail.p10` → "SMTP ayarlarıyla birlikte sonraki sürümde gelecek.", `us.e.twofaHint` → "İki adımlı doğrulamayı sıfırlama ve zorunlu kılma sonraki sürümde gelecek." (anahtar adları değişmedi). `tr.json`'da kullanıcıya görünen başka paket kodu yok.
 - Test: `e2e/p9-users.spec.ts` "TO-P9-1/6" (SA, 375 px, desktop + mobile projeleri): firma seçilmeden ve seçildikten sonra yatay taşma yok, çıkış düğmesi tam görünür ve ≥ 44 px, seçicide firma adı görünür, açık menüde de taşma yok.
+
+## P10 — Veri katmanı (dba, 2026-11-12)
+Migration `apps/server/prisma/migrations/20261112180000_p10_account_security/` (+ `down.sql`), `prisma/sql/grants.sql`, `deploy/mysql/check-app-grants.sh`. Ayrıntı ve gerekçe: `docs/db-notlari.md` "P10". `pnpm db:generate` sonrası Prisma modelleri: `RecoveryCode`, `PasswordResetToken`, `User.totpLastStep (bigint | null)`.
+
+### Backend için alan adları ve kullanım
+- **TOTP setup** (`/auth/mfa/setup`): `users.totpSecretEnc = encrypt(secret)` (lib/crypto.ts, §3.2), `totpEnabled` false kalır, `totpLastStep: null`. 2FA zaten etkinse setup reddedilmeli (önce sıfırlama), aksi halde etkin sır ezilir.
+- **TOTP enable** (`/auth/mfa/enable`): tek TX'te `totpEnabled: true`, `totpLastStep: <doğrulanan adım>`, eski kodlar `recoveryCode.deleteMany({ userId })` + 10 yeni `createMany` (`codeHash = sha256hex(normalize(code))`, küçük harf hex; düz kod yalnız yanıtta).
+- **TOTP verify (tekrar oynatma koruması):** kod doğrulanınca adım `s` ile `updateMany({ where: { id, totpLastStep: null } | { id, totpLastStep: { lt: s } }, data: { totpLastStep: s } })` → `count === 0` ise 401 (aynı/eski kod). Tek koşullu UPDATE yarışsızdır.
+- **Kurtarma kodu:** `recoveryCode.updateMany({ where: { userId, codeHash, usedAt: null }, data: { usedAt: now } })` → `count === 1` başarı. Kalan sayı: `count({ where: { userId, usedAt: null } })`. app yalnız `used_at/updated_at` güncelleyebilir; DELETE izinli.
+- **MFA sıfırlama** (`/users/:id/reset-mfa`): tek TX'te `users` `{ totpSecretEnc: null, totpEnabled: false, totpLastStep: null }` (üçü birlikte, yoksa CHECK 3819) + `recoveryCode.deleteMany` + `authSession.updateMany` revoke; commit **sonrası** `rooms.endByTechnician` (S7-11).
+- **2FA zorunluluğu:** `role ∈ {SUPER_ADMIN, ADMIN}` veya (`USER` ve `tenant_settings.requireTech2fa`) ve `!totpEnabled` → oturum yalnız setup/enable uçları. Mevcut P1–P9 oturumları `mfa_passed=true` taşır; guard her istekte `totpEnabled`'ı kontrol ettiği sürece veri taşıma gerekmez.
+- **Şifre sıfırlama:** forgot → hesap başına sayım `passwordResetToken.count({ where: { userId, createdAt: { gte: now-1sa } } })` (IX(user_id, created_at)); önce açıkları kapat `updateMany({ where: { userId, usedAt: null }, data: { usedAt: now } })`, sonra INSERT (`tokenHash`, `expiresAt = now + 30 dk`; CHECK ≤ 31 dk). reset → `updateMany({ where: { tokenHash, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } })` `count===1` değilse 410 `RESET_TOKEN_INVALID`; aynı TX'te şifre + `mustChangePassword:false` + tüm `auth_sessions` revoke. Şifre değişiminde de açık tokenlar `usedAt` ile kapatılmalı. app DELETE yapamaz (retention P13).
+- **Hesap geneli kilit e-postası:** alanlar mevcut (`lockedUntil`); e-posta yalnız kilidin **konduğu** UPDATE'te (count 20'ye ulaştığında) gönderilir. Super Admin'in SMTP'si yok → yalnız audit (db-notlari P10 açık nokta 1).
+- **SMTP kaydı** (`PUT /settings/tenant`): yapılandırılmamış = yedi `smtp*` alanının hepsi `null`; yapılandırılmış = `smtpHost, smtpPort, smtpSecurity, smtpFromEmail` zorunlu. `smtpPassEnc` yalnız `smtpUser` doluyken. Şifre boş gelirse mevcut `smtpPassEnc` korunur; kullanıcı silinirse şifre de `null` yazılmalı (auth CHECK). Host: ASCII (IDN → `domainToASCII`), IPv6 köşeli parantezli; `smtpFromName` kırpılmış, kontrol karakteri yok. CHECK ihlali 3819 → servis zod ile önceden 400 vermeli; 3819 gelirse 500 değil hata kodu eşlemesi kontrol edilmeli.
+- **AC-151:** `tenant_request_settings.emailEnabled/emailRecipients` mevcut; "SMTP yapılandırılmış" = `tenantSettings.smtpHost != null`.
+- **Oturum linki 20/sa (AC-10):** tablo yok; bellek ya da audit sayımı (db-notlari P10 açık nokta 2).
+
+### Frontend için
+Yeni API alanı DB'den doğrudan gelmez; `hasPassword` = `smtpPassEnc != null`, "2FA etkin" = `totpEnabled`. Kalan kurtarma kodu sayısı gösterilecekse backend ayrı alan döndürmeli.
+
+## P10 — Backend (backend-dev, 2026-11-12)
+Kapsam: AC-10 (rev.), 65 (e-posta), 66, 67, 68, 78 (SMTP), 79, 80, 115 (logout-all, MFA sıfırlama), 122, 151.
+Sözleşme sapmaları (frontend için bağlayıcı): `docs/mimari-api.md` "backend-dev sapma notu (P10)".
+
+### Değişen / eklenen dosyalar
+- **contracts:** `errors.ts` (`HOST_NOT_ALLOWED`, `MFA_REQUIRED`, `MFA_SETUP_REQUIRED`, `RESET_TOKEN_INVALID`), `api/auth.ts` (MFA aşaması/`MfaStatus`, verify/setup/enable, logout-all, forgot/reset şemaları, `RESET_PASSWORD_PATH`), `api/tenants.ts` (SMTP şemaları, `SMTP_DEFAULT_PORTS`, `SMTP_ERROR_MESSAGES`, `requireTech2fa`, `smtp` görünümü), `api/sessions.ts` (`sessionEmailInputSchema`), `api/requests.ts` (`emailTestInputSchema`), `audit.ts` (`AUTH_AUDIT`, `MAIL_AUDIT`, `USER_AUDIT.MFA_RESET`).
+- **server yeni:** `lib/crypto.ts` (AES-256-GCM `SecretBox`, sürümlü anahtar), `lib/netguard.ts` (G-12), `auth/mfa.ts` (TOTP + kurtarma kodu), `auth/account.ts` (2FA, logout-all, forgot/reset, kilit bildirimi), `mail/service.ts` (nodemailer, IP'ye bağlanma + SNI, 10 sn, 1 yeniden deneme, hata sınıfı, audit `mail.sent`), `mail/templates.ts`, `tenants/smtp-routes.ts` (`POST /settings/smtp/test` + ortak test gövdesi), `sessions/email.ts` (`POST /sessions/:id/email`).
+- **server değişen:** `env.ts` (`APP_ENCRYPTION_KEYS`), `app.ts` (secrets/netguard/mail/account dekorasyonu, `AppDeps.netguard|mailTransport|mfaSetupEnforcement`), `auth/{session,guards,repo,service,routes}.ts` (2FA aşaması, yarım oturum WS'de geçersiz, girişte `mfa_passed=!totpEnabled`, kilit bildirimi, şifre değişiminde açık sıfırlama bağlantıları kapanır), `tenants/{repo,service,routes}.ts` (SMTP + `requireTech2fa`), `users/{service,routes}.ts` (`reset-mfa`), `requests/{service,panel,routes}.ts` (AC-151 e-posta kanalı, `smtpConfigured`, `email/test`), `sessions/routes.ts`, `ops/metrics.ts` (`rs_mail_total`), `lib/errors.ts` (mesajlar).
+- **env/deploy:** `.env.example`, `deploy/docker-compose.yml` (`APP_ENCRYPTION_KEYS` `:?` zorunlu), `docs/runbook.md` (§3 satırı + §14 P10 notları: Super Admin kurtarma).
+- **testler:** `test/unit/security-p10.test.ts` (9), `test/integration/account-p10.test.ts` (16, süreç içi `smtp-server`), mevcut testlere küçük uyarlamalar (`tenant-matrix.ts` yeni uçlar + çapraz tenant vakaları, `tenants-p9` görünüm alanları, `env-logger` + `requests-p8b-2` prod anahtarı, `AuthContext` fixture alanları, doğrudan `buildApp` çağrılarında `mfaSetupEnforcement:false`).
+
+### Tasarımdan sapmalar (gerekçeli)
+1. **TOTP `otplib` yerine `node:crypto`** (mimari §5.1/§10.4 otplib diyor): otplib 13 dört geçişli paket (noble/scure eklentileri) getiriyor; ihtiyaç 25 satırlık HMAC + tekrar koruması için **eşleşen adım numarası**. RFC 6238 Ek B vektörleriyle test edildi (`security-p10.test.ts`). Karşılaştırma sabit süreli.
+2. **`/sessions/:id/email` gövdesine `link`**: düz token DB'de yok (G-22), sunucu bağlantıyı üretemez; gelen bağlantı biçim + token hash'iyle doğrulanır → başka adres gönderilemez.
+3. **20/sa sınırı audit sayımıyla** (koordinatör kararı 2): TX + `users FOR UPDATE` + `session.email` satırı gönderimden önce yazılır (rezervasyon); sonuç ayrıca `mail.sent`.
+4. **Super Admin** (koordinatör kararı 1): forgot/kilit bildirimi gönderilmez, istek 202, audit `fail{reason:no_smtp}`; kurtarma runbook §14.
+5. **MFA hata kodları** `MFA_REQUIRED` / `MFA_SETUP_REQUIRED` eklendi (mimaride kod yoktu). `verify` başarısında oturum token'ı yenilenir; `enable` diğer oturumları iptal eder (yalnız şifreyle açılmış oturum 2FA'yı atlamasın).
+6. **Test anahtarı `mfaSetupEnforcement`** (yalnız `AppDeps`, env ile değiştirilemez, `server.ts` vermez): P1–P9 entegrasyon testlerindeki Admin hesapları 2FA kurulum aşamasına düşmesin diye testte kapalı; P10 testleri açık çalışır. Etkin 2FA'nın doğrulama aşaması her zaman uygulanır.
+7. **netguard enjeksiyonu** (`AppDeps.netguard`): testte yalnız `127.0.0.1` sahte SMTP'ye izin verilir; üretim yolu her zaman `createNetGuard()`.
+8. E-posta logosu: tenant logo yükleme henüz yok (P12) → sistem logosu `${PUBLIC_BASE_URL}/img/logo.png`. Logo gelince `mail/templates.ts` `wrap()` güncellenir.
+9. E-posta kanalı (AC-151) tenant başına saatlik 30 ileti tavanı (WhatsApp tenant sınırıyla aynı), aşım bastırılır + metrik `rs_request_notify_total{channel:"email",result:"suppressed"}`.
+
+### Eklenen bağımlılıklar
+`nodemailer` 10.5.0 (MIT-0, §10.4'te onaylı), `qrcode` 1.5.4 (MIT, onaylı); dev: `smtp-server` 3.21.4 (MIT-0, yerel sahte SMTP — mimari §10.3 "MailHog/mailpit ile test" yerine süreç içi; konteyner gerekmez), `@types/qrcode`, `@types/smtp-server` (MIT). AGPL/GPL yok.
+
+### Güvenlik kontrol listesi
+Sırlar (SMTP şifresi, TOTP sırrı) AES-256-GCM; kurtarma kodu/sıfırlama token'ı yalnız SHA-256; şifre/kod/token audit ve loga yazılmaz (alıcılar `maskEmail`); SMTP hatası istemciye genel mesaj, ayrıntı `smtp_send_failed` logunda; forgot zamanlama sızdırmaz (iş yanıt sonrası); tek kullanım ve tekrar koruması koşullu UPDATE; çoklu yazmalar tek TX; dış çağrı 10 sn + 1 yeniden deneme + sınıflandırma; `any`/`console.log` yok.
+
+### Komutlar ve son çıktı (2026-11-12, test DB `rs-mysql-p10be:33331`)
+`pnpm -r run lint` temiz · `pnpm -r run typecheck` temiz · contracts `test` 68/68 · server `test` 295/295 · server `test:int` 400 testin 399'u ilk koşuda geçti; tek hata `signaling-lifecycle` AC-13 (zamanlama, P10 dışı) tek başına tekrar koşuda 9/9 geçti; P10 dosyası 16/16.
+
+### frontend-dev'in bilmesi gerekenler
+- Giriş sonrası `mfaRequired` → kod ekranı (`POST /auth/mfa/verify`, yeni çerezler gelir); `mfaSetupRequired` → kurulum (`setup` → QR/`secret` → `enable` → 10 kodu bir kez göster). Her 403 `MFA_REQUIRED`/`MFA_SETUP_REQUIRED` ilgili ekrana yönlendirir; `GET /auth/me` `mfa.stage` kaynak.
+- Şifre sıfırlama sayfası `/reset-password`, token `location.hash` içindeki `token=`; 410 `RESET_TOKEN_INVALID`.
+- `/settings/tenant` `smtp` iç içe nesne; şifre alanı boş gönderilirse korunur, `hasPassword` ile "kayıtlı" gösterilir. `requireTech2fa` anahtarı.
+- Oturum e-postası gövdesi `{ to, link }` (oluşturma yanıtındaki `link`; sayfa yenilenip link kaybolduysa gönderim yapılamaz).
+- Kullanıcı detayında "2FA'yı sıfırla" → `POST /users/:id/reset-mfa` (P9 ipucu metni güncellenebilir).
+- Destek talepleri ayarında e-posta kanalı `smtpConfigured` doğruysa açılabilir; "Test maili gönder" → `POST /settings/support-requests/email/test`.
+
+### Düzeltme turu 1 (backend-dev, 2026-11-12) — güvenlik B-P10-1..9 + QA 1–5
+**Güvenlik**
+- B-P10-1: `contracts/api/tenants.ts` `SMTP_ALLOWED_PORTS` {25,465,587,2525} (zod) + `mail/service.ts` `deliver` gönderimde de denetler (`port_not_allowed`). DB CHECK değişmedi (yalnız uygulama katmanı). `lib/netguard.ts` `denyHosts`: `app.ts` `PUBLIC_BASE_URL` hostunu verir, her denetimde çözülür (kendi genel IP'miz hedef olamaz). Kullanıcıya tek mesaj `SMTP_SEND_FAILED_MESSAGE`; sınıf (connect/tls/auth/rejected/port_not_allowed/insecure_auth) yalnız log + `mail.sent` audit'inde. Etkileşimli gönderim (`sendForTenant(..., {interactive:true})`: SMTP testi, e-posta kanal testi, oturum linki) tek deneme, deneme başına mutlak tavan `MAIL_ATTEMPT_CAP_MS` = 12 sn ve başarısızlıkta yanıt bu tabana çekilir → kapalı port / zaman aşımı / TLS ayrımı süreden okunamaz. `NETGUARD_EXTRA_DENY` env'i eklenmedi (yeni env → compose/runbook işi; port allowlist + kendi IP reddi bulguyu kapatıyor). Not: audit ekranı tenant Admin'e açık olduğundan sınıf audit'te görünür; port allowlist sonrası tarama yüzeyi 4 SMTP portuyla sınırlı (koordinatör talimatı: sınıf audit'te kalsın).
+- B-P10-2: sahte SMTP şifresi `test/helpers/secrets.ts` `FAKE_SMTP_PASSWORD`. gitleaks v8.30.1 `apps/server/test` 0, `apps/server/src` 0, `packages` 0.
+- B-P10-3: `buildApp` — `NODE_ENV=production` + `mfaSetupEnforcement:false` → hata. `test/helpers/app.ts` `makeApp` varsayılanı production env'de `true` (requests-p8b-2 prod testi tenant `requireTech2fa=false` ile gerçek kapıdan geçer).
+- B-P10-4: netguard IPv6 yalnız global unicast 2000::/3, içinden 2001::/23 (Teredo dahil), 2001:db8::/32, 2002::/16 (6to4 tamamen), 3fff::/20 engelli; IPv4-mapped her yazımıyla gömülü IPv4 kuralıyla (`canonicalIp`); ::/96, SIIT, NAT64 (/96 ve /48), fec0::/10, ULA, link-local, multicast, `::` ve bölge kimlikli adres engelli.
+- B-P10-5: güvenlik "Yok" + kullanıcı/şifre → 400 `fields["smtp.security"]`; DB'de kalmış böyle ayar → gönderim yok (`insecure_auth`).
+- B-P10-6: `mfaEnable` UPDATE `totpSecretEnc: { equals: <doğrulanan şifreli sır> }` koşullu (paralel `setup` → 409); commit sonrası `mfaEnabledMail` (SMTP yoksa `mail.sent{not_configured}` audit). `mfaVerify` sırrı TX içinde `tx` ile okur. Yarış durumu deterministik test edilemedi (koşul kodda; bildirim ve not_configured yolu testli).
+- B-P10-7: kurtarma kodu `SecretBox.mac("recovery-code")` = HMAC-SHA-256, anahtar HKDF(APP_ENCRYPTION_KEYS sürümü, info `remote-support/recovery-code/v1`); doğrulama tüm anahtar sürümleriyle (`codeHash IN`). **Eski biçim (düz SHA-256) okunmaz**: bu kod öncesi üretilmiş kurtarma kodları geçersizdir; P10 henüz yayınlanmadığı için prod/staging verisi yok. Etkilenen kullanıcı için yol: Admin "2FA sıfırla". `schema.prisma` `code_hash` yorumu ("SHA-256 hex") dba'ya: "HMAC-SHA-256 hex" olarak güncellenmeli (migration gerekmez, CHAR(64) aynı).
+- B-P10-8: `SecretBox.encrypt/decrypt(plain, aad)` zorunlu AAD; bağlamlar `lib/crypto.ts` `aadFor` (`users.totp_secret_enc:<userId>`, `tenant_settings.smtp_pass_enc:<tenantId>`). Sürüm baytı değişmedi; AAD'siz yazılmış eski değer çözülemez (SMTP: "ayar okunamadı" alarmı → şifre yeniden girilir; TOTP: Admin sıfırlaması). P10 yayınlanmadığı için geçiş gerekmedi.
+- B-P10-9: kilit e-postası kullanıcı başına saatte 1 (`limits.lockMail`). 2FA sınırı hesap+IP 5/5 dk + hesap geneli 15/15 dk (G-23 kalıbı): tek IP'den gerçek kullanıcının doğrulaması kilitlenemez; hesap başına deneme hızı önceki tavanla aynı (60/sa) → kaba kuvvet direnci düşmez. Birden çok IP'li saldırgan hesap geneli kilidi yine tetikleyebilir (G-23'te kabul edilmiş DoS).
+
+**QA**
+1. AC-151: "yeni talep → ayarlı her alıcıya e-posta…" (iki alıcı, gövdede ad/telefon/e-posta/açıklama yok, `request.notify{email}` ×2 + `mail.sent{request_notify}` ×2; SMTP kapalı portta talep yine 201, `request.notify` fail ×2).
+2. AC-115: "logout-all sonrası… 5 sn içinde biter" ve "Admin 2FA sıfırlayınca…" (misafire `session.ended{auth_revoked}` ≤ 5 sn, DB ENDED).
+3. AC-10: e-postada teknisyen adı, link, `Intl` Europe/Istanbul son geçerlilik, logo `img src`; `session.email` audit'inde konu + maskeli alıcı.
+4. "yarım oturum WS'te (panel + teknisyen sinyal) reddedilir, veri ucu 403 MFA_REQUIRED" (test dosyası artık gerçek dinleyen sunucu kullanır).
+5. = B-P10-3 (`security-p10.test.ts` "B-P10-3 …").
+- Ek: `test/integration/mail-tls-p10.test.ts` — TLS'li sahte SMTP (openssl ile anlık sertifika, SAN `smtp.test`), bağlantı 127.0.0.1'e, `tls.servername=smtp.test` ile başarılı; aynı IP + başka ad → `tls` hatası, ileti gitmez. (CI'da `openssl` gerekir — ubuntu runner'da var.)
+- Test altyapısı: sahte SMTP sözleşme gereği 2525'te kayıtlı; test taşıyıcısı 2525'i süreç içi sunucuya, diğer portları kapalı port 9'a yönlendirir (üretim seçenekleri değişmez).
+
+**Değişen dosyalar:** `packages/contracts/src/api/tenants.ts`; `apps/server/src/{app.ts, lib/crypto.ts, lib/netguard.ts, auth/mfa.ts, auth/account.ts, mail/service.ts, mail/templates.ts, tenants/service.ts, tenants/smtp-routes.ts, requests/routes.ts, sessions/email.ts}`; testler `test/unit/security-p10.test.ts`, `test/integration/{account-p10,mail-tls-p10(yeni),requests-p8b-2}.test.ts`, `test/helpers/{app,secrets}.ts`. Yeni bağımlılık yok.
+
+**Komutlar ve sonuç:** `pnpm -r run lint` temiz · `pnpm -r run typecheck` temiz (web dahil) · contracts 68/68 · web 205/205 · server unit 304/304 · `test:int` (rs-mysql-p10fix:33333, sonra `down`) 42 dosya 408/408, skip 0.
+
+**frontend-dev için:** `SMTP_ERROR_MESSAGES` kaldırıldı; hata metni `SMTP_SEND_FAILED_MESSAGE`. Port alan hatası `SMTP_PORT_MESSAGE`, güvenlik alan hatası `fields["smtp.security"]` = `SMTP_INSECURE_AUTH_MESSAGE`. SMTP testi başarısızlıkta ~12 sn sürer (yükleniyor durumu buna göre). 2FA doğrulamada 429 eşiği hesap+IP 5 / hesap geneli 15.
+
+### Düzeltme turu 2 (backend-dev, 2026-11-12) — prod öncesi (güvenlik Kod turu 2 B-P10-10/11, QA Tur 2 önerisi, runbook)
+- **B-P10-10** `lib/netguard.ts`: kendi-ad (`denyHosts`) çözümü başarısızsa **son başarılı çözüm** (süreç içi, ad başına,
+  kanonik) kullanılır; hiç başarılı çözüm yoksa her hedef `HOST_NOT_ALLOWED` (fail-closed). Gerekçe: G-12/T22 "yasak hedefe
+  bağlanılmaz" garantisi DNS hatasında da korunur (önbellek yoksa ret); salt fail-closed yerine önbellek, geçici DNS
+  kesintisinde tüm e-posta gönderimini (talep bildirimi, kilit/2FA e-postası) durdurmamak için — kendi IP'miz değişmeden
+  önbellek doğru kalır, değiştiyse bir sonraki başarılı çözümde güncellenir. Alarm logu `netguard_self_unresolved
+  {host, cached}` (`createNetGuard({ onSelfUnresolved })`, `app.ts`). `canonicalIp` artık IPv6'yı RFC 5952 metnine çevirir
+  (küçük harf, sıfır dolgusuz, en uzun sıfır grubu `::`); küme hem eklemede hem sorguda kanonik → sıfır dolgulu/uzun yazım
+  kuralı atlatamaz. `isBlockedIp` davranışı değişmedi.
+- **B-P10-11** `mail/service.ts`: taşıyıcıya `getSocket` verilir; düz TCP soketi (`node:net`, hedef = taşıyıcı `host` =
+  netguard IP'si) serviste açılır, TLS yükseltmesini (465 örtük / STARTTLS) nodemailer `tls.servername` ile yapar (SNI ve
+  sertifika adı değişmedi; `mail-tls-p10` geçiyor). Tavan aşımı veya herhangi bir başarısızlıkta denemenin soketleri
+  `destroy()` edilir (üstteki TLS soketi de kapanır). Başarılı gönderimde nodemailer QUIT ile kendisi kapatır.
+- **QA önerisi** `auth/session.ts`: modül global'i `setupEnforced` ve `setMfaSetupEnforcement` kaldırıldı. Bayrak uygulama
+  örneğinde `app.mfaSetupEnforced` (buildApp `mfaSetupEnforcement ?? true`; production'da `false` yine hata — B-P10-3).
+  `mfaStageOf(u, mfaPassed, setupEnforced)` ve `resolveSession(db, token, now, { setupEnforced, allowPartial? })` bayrağı
+  açıkça alır (zorunlu parametre — unutulan çağıran tip hatası verir); `login(..., input, setupEnforced, ...)`. Çağıranlar:
+  `auth/guards.ts`, `auth/routes.ts`, `signaling/ws.ts`, `requests/ws.ts` (`app.mfaSetupEnforced`). Bir test örneğinin
+  `false` ile kurulması (ör. `startLive({mfaSetupEnforcement:false})`) artık diğer örnekleri etkilemez.
+- **Dokümantasyon:** `docs/runbook.md` §14 P10 "Anahtar rotasyonu / emekliye ayırma" (eski sürüm verisi kalmayana kadar
+  listede; erken çıkarma TOTP/SMTP/kurtarma kodu HMAC'lerini geri dönüşsüz bozar; anahtar yedeği zorunlu) + alarm
+  `netguard_self_unresolved` + 12 sn bağlantı tavanı notu; §3 `APP_ENCRYPTION_KEYS` satırından bağlantı. `docs/mimari-api.md`
+  P10 sapma notu (7)'ye "(11) ile geçersiz" eklendi.
+- **Testler:** `test/unit/security-p10.test.ts` — "B-P10-10 …" (kanonik IPv6, sıfır dolgulu hedef ve kendi-ad, DNS hatası +
+  önbellek yok → ret, geçici DNS hatasında önbellek), "QA-P10: … uygulama örneğine ait", "AC-67: mfaStageOf …";
+  `test/integration/mail-cap-p10.test.ts` (yeni) — EHLO yanıtını her 9 sn'de bir satır damlatan süreç içi sahte SMTP: gerçek
+  tavanla `deliver` 12 sn'de `{ok:false, reason:"connect"}` döner ve sunucu tarafında soket ≤ 1 sn içinde kapanır. Negatif
+  kontrol: `destroy()` satırı devre dışıyken test kırmızı (soket açık kalıyor) — düzeltme olmadan bulgu yeniden üretildi.
+  `test/integration/sessions.test.ts` doğrudan `resolveSession` çağrısı yeni imzaya uyarlandı.
+- **Değişen dosyalar:** `apps/server/src/{app.ts, lib/netguard.ts, mail/service.ts, auth/session.ts, auth/service.ts,
+  auth/routes.ts, auth/guards.ts, signaling/ws.ts, requests/ws.ts}`; testler `test/unit/security-p10.test.ts`,
+  `test/integration/{mail-cap-p10 (yeni), sessions}.test.ts`; `docs/{runbook.md, mimari-api.md}`. Yeni bağımlılık, env,
+  migration yok. Sapma yok.
+- **Komutlar ve sonuç:** `pnpm -r run lint` temiz · `pnpm -r run typecheck` temiz · server unit 18 dosya 310/310 ·
+  `test:int` (rs-mysql-p10fix2:33335, sonra `down`) 43 dosya 409/409 · gitleaks v8.30.1 `apps/server/src` 0,
+  `apps/server/test` 0.
+- **frontend-dev için:** sözleşme değişikliği yok.
+
+## P10 — Frontend (Rotalar) (frontend-dev, 2026-11-12)
+Kapsam: AC-10, 66, 67, 68, 79, 80, 115 (logout-all, 2FA sıfırlama), 122 (UI yüzü), 151. Tipler `@remote/contracts`
+(api/auth, api/tenants, api/sessions, api/requests); web yüzü `apps/web/lib/account/contract.ts` yalnız yeniden dışa aktarım.
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/login` | Hayır | "Şifremi unuttum" bağlantısı eklendi; `?reason=reset` başarı mesajı. Girişten sonra sıra: 2FA kodu → zorunlu şifre → zorunlu 2FA kurulumu → hedef |
+| `/login/2fa` | Yarı oturum | 6 haneli TOTP ya da kurtarma kodu (geçiş düğmesi); 401 alan hatası + alan temizlenir; 429 kilit tonu; "Çıkış yap" |
+| `/2fa/setup` | Oturum | 2FA kurulumu: QR (`logo-surface` kartı) + elle anahtar (4'lü grup, kopyala) → kod → 10 kurtarma kodu (bir kez; kopyala / .txt indir; "Kaydettim" işaretlenmeden devam yok). Zorunlu ve kurulmamışsa panel buraya yönlendirir (kapı; kaçış yalnız çıkış) |
+| `/forgot-password` | Hayır | E-posta → 202; mesaj hesabın varlığını söylemez ("kayıtlı bir hesap varsa…") |
+| `/reset-password#token=…` | Hayır | Token yalnız URL parçasından okunur, adres çubuğundan silinir; yeni şifre + tekrar; 410 → "bağlantı geçersiz/süresi dolmuş" + "Yeni bağlantı iste" |
+| `/account` | Evet (herkes) | Hesap güvenliği: profil özeti, şifre değiştir (sayfada kalır, toast), 2FA durumu + kalan kurtarma kodu (≤ 3 uyarı) / kur bağlantısı, "Tüm cihazlardan çıkış" (onay diyaloğu, `revokedSessions` toast). Üst menüde avatar bu sayfaya bağlantıdır |
+| `/settings/smtp` | `settings.view` (düzenleme `settings.edit`) | SMTP Ayarları: sunucu, port, güvenlik Yok/SSL/TLS (port önerisi 25/465/587; özel port korunur; "Yok"ta uyarı), kullanıcı, şifre (maskeli, geri yazılmaz, boş = korunur), gönderen adı/adresi; kaydet çubuğu + ayrılma uyarısı; `HOST_NOT_ALLOWED` sunucu alanına; "SMTP ayarlarını kaldır" (onaylı `smtp: null`); "Test Maili Gönder" (kayıtlı ayarla, kirliyken pasif; diyalog alıcı sorar, sonucu gösterir; 502/429 genel mesaj) |
+| `/settings/security` | `settings.view` (düzenleme `settings.edit`) | "Teknisyenler için 2FA zorunlu" anahtarı (`requireTech2fa`; anında kayıt, hata olursa geri döner) |
+| `/settings/support-requests` | `settings.edit` | AC-151: e-posta kanalı anahtarı (SMTP yoksa pasif + "Önce SMTP ayarlarını yapın" + SMTP bağlantısı), e-posta alıcıları (≤ 5, küçük harf, tekil), "Test maili gönder" |
+| `/sessions` (yeni oturum diyaloğu) | `sessions.create` | AC-10: "Linki e-postayla gönder" → alıcı → `{ to, link }`; sonuç satır içinde (başarı / 429 saatlik sınır / 502 / oturum artık beklemede değil) |
+| `/users/[id]` | `users.edit` | "2FA'yı sıfırla" (yalnız 2FA etkin, yönetilebilir, kendi hesabı olmayan etkin kullanıcıda; `alertdialog`, odak Vazgeç); P9 ipucu metni güncellendi |
+
+Ayarlar bölümüne alt menü eklendi (`settings/layout.tsx`): Destek talepleri (`Inbox`) · E-posta (SMTP) (`Mail`) · Güvenlik (`ShieldCheck`); kenar çubuğundaki "Ayarlar" tüm `/settings/*` altında etkin.
+
+### Davranış notları
+- Panel kabuğu ve oturumlu sayfalar `lib/server-api.ts` `gateOf()` ile yönlendirir (`mfa.stage` verify → `/login/2fa`; `mustChangePassword` → `/change-password`; stage setup → `/2fa/setup`). `/auth/me` 403 `MFA_REQUIRED`/`MFA_SETUP_REQUIRED` dönerse de aynı karar. İstemci `lib/api.ts`: bu iki 403 kodunda ilgili ekrana gider.
+- AC-68 istemci yüzü `app/(panel)/session-watch.tsx` + `lib/account/idle.ts`: istemci kendi başına oturum düşürmez; 31,5 dk kullanıcı etkinliği yoksa ve sekmeye dönüldüğünde (≥ 60 sn arayla) tek `GET /auth/me`; 401 → `/login?reason=expired`.
+- Kurtarma kodu "yenile" işlevi **yok**: sözleşmede uç yok (mimari-api'de yalnız setup/enable/verify). Hesap sayfası kalan kod ≤ 3'te "yöneticinizden 2FA sıfırlamasını isteyin" der. Kendi 2FA'sını kapatma da sözleşmede yok. İhtiyaç olursa backend-dev + mimar: `POST /auth/mfa/recovery-codes { code }` → `{ recoveryCodes }` önerisi.
+
+### Değişen / eklenen dosyalar (apps/web)
+- Yeni: `app/(auth)/login/2fa/{page,mfa-verify-form}.tsx`, `app/(auth)/2fa/setup/page.tsx`, `app/(auth)/forgot-password/{page,forgot-form}.tsx`, `app/(auth)/reset-password/{page,reset-form}.tsx`, `app/(panel)/account/{page,account-security}.tsx`, `app/(panel)/session-watch.tsx`, `app/(panel)/settings/{layout,settings-tabs,tenant-settings-page}.tsx`, `app/(panel)/settings/smtp/{page,smtp-form}.tsx`, `app/(panel)/settings/security/{page,security-form}.tsx`, `app/(panel)/sessions/session-email.tsx`, `components/auth-exit.tsx`, `components/account/{mfa-setup,recovery-codes,mail-test-dialog}.tsx`, `lib/account/{contract,smtp-form,idle,recovery,reset-token}.ts`, `lib/account/account.test.ts`, `e2e/mock-account.mjs`, `e2e/p10-account.spec.ts`.
+- Değişen: `proxy.ts` (public `/forgot-password`, `/reset-password`), `lib/server-api.ts` (`gateOf`, `mfa` durumu), `lib/api.ts`, `lib/auth-schema.ts` (`parseNewPassword`), `app/(auth)/login/{page,login-form}.tsx`, `app/(auth)/change-password/{page,change-password-form}.tsx` (`onDone`), `app/(panel)/layout.tsx` (kapı, avatar → `/account`, SessionWatch), `app/(panel)/side-nav.tsx`, `app/(panel)/settings/support-requests/settings-form.tsx`, `lib/requests/settings-form.ts` (+test), `app/(panel)/sessions/created-session.tsx`, `app/(panel)/users/[id]/user-editor.tsx`, `messages/tr.json`, `e2e/mock-api.mjs`, `e2e/mock-requests.mjs` (`u-rqmail-*` SMTP'li firma, e-posta testi), `e2e/mock-users.mjs` (reset-mfa; Can Aydın 2FA etkin), `e2e/p8b-requests.spec.ts` (yorum).
+
+### Sapmalar
+- Ayarlar alt menüsü breadcrumb'ın üstünde (ortak `settings/layout.tsx`); sayfa başlıkları sayfalarda kalır.
+- `mfa.v.*` doğrulamada 400 de "kod hatalı" sayılır (enable 400 `fields.code`, verify 401).
+- Tasarım skill dosyaları okunmadı (tur sınırı); DESIGN.md token/primitifleri kullanıldı, yeni token yok.
+
+### Testler
+- Vitest: `lib/account/account.test.ts` (SMTP formu, port önerisi, şifre korunur, kaldırma, sunucu alan eşleme, token okuma, anahtar gruplama, kod dosyası, boşta yoklama), `lib/requests/requests.test.ts` (e-posta kanalı).
+- Playwright `e2e/p10-account.spec.ts` (desktop + mobile): giriş+2FA, kurtarma kodu + yarı oturumda panel kapalı, zorunlu kurulum kapısı (QR/anahtar/kodlar/indir), şifremi unuttum + sıfırlama + geçersiz bağlantı, SMTP (port önerisi, maskeli şifre, iç ağ reddi, test maili başarı/hata, 375 px taşma, axe), SMTP yok / salt okunur, 2FA zorunluluk anahtarı, hesap güvenliği (logout-all onaylı, şifre değiştir), AC-151 e-posta kanalı (SMTP var/yok), AC-10 oturum linki e-postası (başarı/429), AC-115 2FA sıfırlama.
+- Sonuç: `lint` ✓ · `typecheck` ✓ · `test` 203/203 ✓ · `e2e` 243 geçti / 84 atlandı (proje filtreleri) / 0 hata.
+
+### Düzeltme turu 1 (frontend-dev, 2026-11-12) — B-P10-1, B-P10-5 arayüz tarafı
+- **Port (B-P10-1):** `/settings/smtp` port alanı serbest metin yerine `SelectField`; seçenekler sözleşmedeki `SMTP_ALLOWED_PORTS` (25/465/587/2525). Güvenlik önerisi korunur (SSL→465, TLS→587, Yok→25; 2525 seçiliyse değişmez). Kayıtlı değer listede değilse (kısıt öncesi kayıt) seçim kutusu onu sessizce değiştirmez, "`<port>` (artık desteklenmiyor)" seçeneği olarak gösterir; kaydetmede `SMTP_PORT_MESSAGE` alan altında. Sunucu 400 `fields["smtp.port"]` port alanının altında.
+- **Yok + kimlik (B-P10-5):** "Yok" seçilince kullanıcı adı/şifre alanları pasif ve boş görünür, "Şifresiz bağlantıda kimlik bilgisi gönderilmez; SSL veya TLS seçin." açıklaması (kayıtlı kullanıcı varsa "kaydederseniz silinir" eki) çıkar. Gövdede `user: ""`, `password` yok. Yazılmış değer durumda kalır, SSL/TLS'e dönülünce geri gelir. Sunucu 400 `fields["smtp.security"]` (`SMTP_INSECURE_AUTH_MESSAGE`) güvenlik seçiminin altında (`smtp-security-error`, port ipucunun yerine). `smtp.insecure` uyarı metninden "şifre" ifadesi çıkarıldı.
+- **Tek genel hata (B-P10-1):** `MailTestDialog` 502/`ok:false` mesajını olduğu gibi gösterir, mesaj yoksa `SMTP_SEND_FAILED_MESSAGE`. "Test maili gönderilemedi." öneki ve `smtp.testFail` anahtarı kaldırıldı. Web'deki `SMTP_ERROR_MESSAGES` yeniden dışa aktarımı kaldırıldı (contracts'ta `@deprecated`; backend-dev silebilir).
+- Dosyalar: `lib/account/contract.ts`, `lib/account/smtp-form.ts` (`smtpCredsAllowed`, `effectiveCreds`, `smtpPortOptions`), `app/(panel)/settings/smtp/smtp-form.tsx`, `components/account/mail-test-dialog.tsx`, `messages/tr.json`, `e2e/mock-account.mjs` (genel mesaj; `red.ornek.com` → sunucu port/güvenlik alan hataları), `e2e/mock-requests.mjs` (kanal testi `ok:false` genel mesaj), `lib/account/account.test.ts`, `e2e/p10-account.spec.ts`.
+- Sonuç: `lint` ✓ · `typecheck` ✓ · `test` 205/205 ✓ · `e2e` 243 geçti / 84 atlandı / 0 hata.
+
+### Düzeltme turu 2 (frontend-dev, 2026-11-12) — P10 sayfa testi bulguları 1–4 (`docs/test-raporu.md`)
+- **1 [ORTA] Test maili diyaloğu:** `MailTestDialog` artık `onDismiss={close}` veriyor; gönderim sürerken Esc / X / Kapat no-op. Bekleme sırasında `role=status` satırı (`mail-test-waiting`, `LoaderCircle` + "Sunucuya bağlanılıyor… Bu işlem 15 saniyeye kadar sürebilir"). `ui/dialog.tsx`: Chrome art arda Esc'de `cancel`'ı iptal ettirmeden kapatıyor (doğrulandı — koruma kaldırılınca e2e kırmızı); sahibi kapanmayı reddedip `open` true bırakırsa diyalog `showModal()` ile geri açılır → React durumu ile DOM eşit kalır, sonraki "Test Maili Gönder" diyaloğu yeniden açar. Tüm `Dialog` kullanıcıları için geçerli; davranış değişikliği yalnız `open`'ı true bırakan sahiplerde.
+- **2 [DÜŞÜK] Ayarlar sekmeleri 375 px:** `settings-tabs.tsx` < sm'de üç eşit sütun (ikon üstte, `text-xs` etiket sarar), sm+ önceki gibi yatay tek satır → kırpma/kaydırma yok, etkin sekme her genişlikte görünür. DESIGN.md "Ayarlar alt menüsü" satırı güncellendi.
+- **3 [DÜŞÜK] `/login/2fa` ziyaretçi:** `/auth/me` 401'de oturum çerezi yoksa `/login` (mesajsız), çerez var ama geçersizse `/login?reason=expired` (yol proxy'de herkese açık olduğundan ayrım sayfada).
+- **4 [DÜŞÜK] Kurtarma kodu şeması (contracts):** `recoveryCodeSchema` önce tüm boşlukları siler + büyük harfe çevirir, sonra `^[A-Z2-7]{5}-?[A-Z2-7]{5}$` (`ABCDE - 23456` → `ABCDE-23456`). Sunucu `normalizeRecoveryCode` (`mfa.ts`, tire+boşluk silip küçük harf) aynı değere indirgiyor → sunucu değişmedi. Base32 dışı karakter (0/1/8/9) artık istemcide reddedilir (gerçek kodlarda yok); e2e sahte kurtarma kodu `abcde-12345` → `abcde-23456`, sahte API karşılaştırması sunucu normalizasyonuna eşitlendi.
+- Testler: `packages/contracts/test/auth-p10.test.ts` (yeni: normalize vakaları, biçim/uzunluk, verify gövdesi); `e2e/p10-account.spec.ts` (+3: Esc gönderim sırasında kapatmaz + bekleme metni + kapat/yeniden aç; 375 px sekme taşması; `/login/2fa` ziyaretçi vs geçersiz çerez; kurtarma kodu `" ABCDE - 23456 "` ile giriş).
+- Dosyalar: `components/account/mail-test-dialog.tsx`, `components/ui/dialog.tsx`, `app/(panel)/settings/settings-tabs.tsx`, `app/(auth)/login/2fa/page.tsx`, `messages/tr.json` (`smtp.testWaiting`), `packages/contracts/src/api/auth.ts`, `e2e/mock-account.mjs`, `DESIGN.md`.
+- Sonuç: `lint` ✓ · `typecheck` ✓ · contracts 71/71 ✓ · server unit 310/310 ✓ · web 205/205 ✓ · `e2e` 247 geçti / 86 atlandı / 0 hata.

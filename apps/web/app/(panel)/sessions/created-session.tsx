@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { formatRemaining, formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { copyText, useNow } from "@/lib/use-now";
+import { SessionEmail } from "./session-email";
 
 /** Oluşturulan oturumun link + kod + doğrulama kodu + geçerlilik geri sayımı (AC-1, 3, 9). */
 export function CreatedSession({ data, cancelled }: { data: CreateSessionResponse; cancelled: boolean }) {
@@ -59,6 +60,8 @@ export function CreatedSession({ data, cancelled }: { data: CreateSessionRespons
         <p id={`${id}-note`} className="text-xs text-fg-muted">
           {t("d.linkNote")}
         </p>
+        {/* P10 (AC-10) */}
+        <SessionEmail sessionId={data.id} link={data.link} disabled={invalid} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

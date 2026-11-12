@@ -15,7 +15,7 @@ describe("health / ready", () => {
 
   it("AC-89: DB'ye ulaşılamazsa /ready 503 NOT_READY (ayrıntı sızmaz)", async () => {
     const db = createDb("mysql://app:yanlis@127.0.0.1:1/remote?connectTimeout=300&acquireTimeout=800");
-    const app = buildApp({ env: testEnv(), db });
+    const app = buildApp({ mfaSetupEnforcement: false, env: testEnv(), db });
     const res = await app.inject("/ready");
     expect(res.statusCode).toBe(503);
     expect(res.json().error.code).toBe("NOT_READY");

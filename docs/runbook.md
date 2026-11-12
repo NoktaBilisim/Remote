@@ -59,6 +59,7 @@ Tarayıcı: `https://<SITE_HOST>:4450`. `tls internal` kök sertifikası test ma
 | `ABUSE_EMAIL` | Misafir karşılama ekranındaki "Kötüye kullanımı bildir" `mailto:` adresi (AC-125, V13, S-P4-1), ör. `abuse@<alan-adı>`. **production'da boşsa bağlantı gizlenir** (Super Admin e-postasına düşülmez). Staging/prod'da doldurulması önerilir. Değişiklik: `.env` → `docker compose up -d server`. Kullanmayacaksanız boş bırakmak (`ABUSE_EMAIL=`) veya satırı silmek güvenlidir: env.ts boş/yalnız boşluk değerleri tanımsız sayar (`withoutBlanks`), server açılır ve production'da bağlantı gizlenir. Dolu ama geçersiz bir adres (ör. `abuse@`) ise env.ts doğrulamasında server'ı açtırmaz |
 | `AGENT_SHA256` | P6 (G-07): `agent_downloads` volume'undaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). **Elle yazılmaz**: `deploy/agent/verify-and-publish.sh` attestation + `SHA256SUMS` doğrulamasından sonra yazar, ardından `docker compose up -d server`. Boşsa, dosya yoksa veya hash uyuşmazsa `GET /api/v1/public/agent/download` **503** döner (fail-closed) ve server logunda bir kez `alarm: "agent_binary"` uyarısı çıkar. `AGENT_BINARY_PATH` compose'da sabittir (`/data/downloads/NoktaDestek.exe`); `.env`'deki değer yalnız compose dışı çalıştırmada kullanılır |
 | `WHATSAPP_SERVICE_URL` | P8b: whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). Boş/tanımsız → `env.ts` varsayılanı `http://89.252.189.211:3000` (staging). **production'da `http://` + özel olmayan adres → kanal kapalı başlar** (gönderim yok, test 502, log `alarm:"whatsapp_insecure"`); prod değeri K13'e göre `https://…` veya özel ağ adresi (§12.3). Değişiklik: `.env` → `docker compose up -d server` |
+| `APP_ENCRYPTION_KEYS` | P10 (mimari §3.2): `v1:<base64 32 bayt>` (`openssl rand -base64 32`). SMTP şifresi ve TOTP sırları bununla AES-256-GCM şifrelenir. **production'da zorunlu** (yoksa server açılmaz; compose da `:?` ile durur). **Kaybedilirse** kayıtlı SMTP şifreleri ve tüm 2FA sırları çözülemez → SMTP şifreleri yeniden girilir, kullanıcıların 2FA'sı sıfırlanır (§14). Rotasyon: `v1:...,v2:...` (eski silinmez; yeni yazımlar v2 — emekliye ayırma kuralı §14 P10 "Anahtar rotasyonu"). Yedeği parola kasasında; loga/dokümana yazılmaz. Değişiklik: `.env` → `docker compose up -d server` |
 | `MIN_AGENT_VERSION` | P8b G-E9-4: asgari Windows istemci sürümü `x.y.z`. Boş = kontrol yok. Düşük sürüm talep/resolve/join/`/ws/guest`'te 426 `CLIENT_OUTDATED`; istemci "Yeni sürümü indir" gösterir. Güvenlik yamasında yükseltilir (§12.4) |
 | `NODE_ENV`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `CADDY_BIND`, `IMAGE_TAG` | opsiyonel (varsayılan: production, info, PUBLIC_BASE_URL, 0.0.0.0, local) |
 `DATABASE_URL` / `MIGRATE_DATABASE_URL` compose'da parolalardan **üretilir**; `.env`'deki değerleri yalnız
@@ -944,3 +945,52 @@ adımlardan biri düşerse log alarmı `tenant_passive_effect` (step = rooms|pan
 ### 14.3 Alarm
 `user_live_effect`: yetki/rol/pasif değişikliği canlı oturuma anında yansıtılamadı; 60 sn yeniden doğrulama devralır.
 Tekrarlıyorsa sunucu logunda `err` incelenir.
+
+## 14. P10 — hesap güvenliği + SMTP
+- **Yayın ön koşulu:** `.env`'e `APP_ENCRYPTION_KEYS=v1:<openssl rand -base64 32>` (§3). Migration `20261112180000_p10_account_security`.
+- **2FA zorunluluğu (AC-67):** yayından sonra her Super Admin/Admin ilk girişte 2FA kurar (QR + 10 kurtarma kodu). USER için
+  firma ayarı `requireTech2fa` (varsayılan açık).
+- **Admin 2FA kaybı:** aynı firmadaki başka Admin Kullanıcılar → kullanıcı → "2FA'yı sıfırla" (`POST /users/:id/reset-mfa`).
+- **Super Admin 2FA/şifre kaybı (SMTP yok — koordinatör kararı 1):** Super Admin'in firması olmadığı için sıfırlama/kilit
+  e-postası gönderilmez (istek yine 202, audit `auth.password_reset_requested fail{reason:no_smtp}`). Kurtarma sunucuda,
+  DB üzerinden (audit dışı işlem olduğundan kim/ne zaman ayrıca kayda geçirilir):
+  `UPDATE users SET totp_enabled=0, totp_secret_enc=NULL, totp_last_step=NULL WHERE email='<sa>' AND role='SUPER_ADMIN';`
+  `DELETE FROM recovery_codes WHERE user_id=(SELECT id FROM users WHERE email='<sa>');`. Ardından Super Admin girişte
+  2FA'yı yeniden kurar. **Şifre kaybı** için hazır araç yoktur (seed var olan hesabın şifresini ezmez); sunucu tarafı
+  şifre sıfırlama aracı `docs/gereksinimler-sonra-acik.md` "P10'dan" listesindedir. Bu nedenle Super Admin şifresi ve
+  kurtarma kodları parola kasasında tutulur.
+- **Prod açılış kontrol listesi (P10 ön koşulları):**
+  1. `APP_ENCRYPTION_KEYS` üretildi: `echo "v1:$(openssl rand -base64 32)"` çıktısı `deploy/.env`'e yazıldı (ekrana/loga
+     kopyalanmadan; dosya `chmod 600`).
+  2. Anahtar **parola kasasında yedeklendi** (DB yedeğinden ayrı yerde). Anahtarsız DB yedeği SMTP şifrelerini ve 2FA'yı
+     geri getirmez.
+  3. `docker compose up -d` sonrası server açıldı (`APP_ENCRYPTION_KEYS` yoksa compose `:?` ile durur).
+  4. Super Admin ilk girişte şifresini değiştirdi, **2FA'yı kurdu** ve 10 kurtarma kodunu parola kasasına kaydetti;
+     çıkış → giriş → kod ekranı ile doğrulandı.
+  5. Her firmanın ilk Admin'i ilk girişte 2FA kurdu; firma SMTP'si girildi ve **Test Maili Gönder** başarılı.
+  6. "Şifremi unuttum" bir test hesabıyla denendi (e-posta geldi, bağlantı tek kullanımlık).
+- **SMTP testi "Bu sunucu adresi kullanılamaz":** host özel/loopback/link-local/CGNAT/Docker IP'sine çözümleniyor (G-12) —
+  bilinçli; iç ağ SMTP'si desteklenmez. Gönderim hatasının ayrıntısı server logunda `event:"smtp_send_failed"` (`reason`,
+  `code`, `responseCode`; alıcı/şifre yok).
+- **Metrik:** `rs_mail_total{kind,result}` (`result`: ok|connect|auth|tls|rejected|not_configured).
+- **Alarm `netguard_self_unresolved` (B-P10-10):** `PUBLIC_BASE_URL` hostu çözülemedi. `cached:true` → son başarılı çözüm
+  kullanılıyor (gönderim sürer); `cached:false` → (süreç açıldığından beri hiç çözülemedi) tüm SMTP hedefleri
+  "Bu sunucu adresi kullanılamaz" ile reddedilir (fail-closed). Sunucunun DNS çözücüsü (`/etc/resolv.conf`, konteyner DNS'i)
+  kontrol edilir.
+- **SMTP bağlantı tavanı (B-P10-11):** her gönderim denemesi en çok 12 sn; sürede bitmeyen bağlantı (yavaş/damlatan sunucu)
+  sunucu tarafında kapatılır (`reason: connect`).
+- **Anahtar rotasyonu / emekliye ayırma (`APP_ENCRYPTION_KEYS`):**
+  1. Daha yüksek numaralı yeni sürüm eklenir (`v1:...,v2:...`); yeni yazımlar en yüksek numaralı sürümle yapılır, okuma
+     kaydın sürüm baytına göre (kurtarma kodu doğrulaması tüm sürümlerle).
+  2. Eski sürüm, onunla yazılmış veri kalmayana kadar listeden **çıkarılmaz**: TOTP sırları (`users.totp_secret_enc`), SMTP
+     şifreleri (`tenant_settings.smtp_pass_enc`) ve kurtarma kodu HMAC'leri (`recovery_codes.code_hash`, HKDF ile anahtardan
+     türetilir). Yeniden şifreleme işi **yoktur**; kurtarma kodu HMAC'i düz kod bilinmeden yeni anahtarla yeniden
+     hesaplanamaz.
+  3. Bir sürüm erken çıkarılırsa o sürümle yazılmış veriler **geri dönüşsüz bozulur**: SMTP şifreleri çözülemez (log alarmı
+     `smtp_secret_unreadable`, e-posta gönderilmez → şifre panelden yeniden girilir), 2FA sırları ve kurtarma kodları
+     doğrulanamaz (etkilenen kullanıcıların 2FA'sı sıfırlanır, §14 P10 "Admin/Super Admin 2FA kaybı").
+  4. Çıkarmadan önce eski veri kalmadığı doğrulanmalıdır (SMTP şifresi panelden yeniden kaydedilir; kullanıcılar 2FA'yı
+     yeniden kurar ve yeni kurtarma kodu üretir). Şüphede sürüm listede tutulur — fazladan sürümün maliyeti yoktur.
+  5. **Anahtar yedeği zorunludur:** tüm sürümler (emekliye ayrılanlar dahil, en az son DB yedeğinin saklama süresi boyunca)
+     parola kasasında tutulur; DB yedeğinden geri dönüşte o yedeğin yazıldığı sürümler gerekir. Anahtar loga, dokümana,
+     repoya yazılmaz.

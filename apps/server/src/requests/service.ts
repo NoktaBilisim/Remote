@@ -26,6 +26,12 @@ import * as brepo from "../bindings/repo.ts";
 import * as crepo from "../customers/repo.ts";
 import { parseFirmDownloadUri, requestDownloadLocation } from "./ref.ts";
 import * as repo from "./repo.ts";
+import { maskEmail } from "../audit/mask.ts";
+import type { MailService } from "../mail/service.ts";
+import { newRequestMail } from "../mail/templates.ts";
+import { HourCounter } from "./limits.ts";
+
+const EMAIL_TENANT_PER_HOUR = 30;
 
 export const CUSTOMER = { username: "customer" } as const;
 export const SYSTEM = { username: "system" } as const;
@@ -49,6 +55,8 @@ export interface RequestServiceDeps {
   hub: RequestHub;
   limits: RequestLimits;
   notifier: WhatsappNotifier;
+  /** P10 (AC-151): e-posta bildirim kanalı (tenant SMTP). */
+  mail: MailService;
   metrics: Metrics;
   clock: Clock;
   timing: Timing;
@@ -73,6 +81,7 @@ const refInvalidError = (): AppError => new AppError("REQUEST_REF_INVALID");
 export class RequestService {
   readonly d: RequestServiceDeps;
   private readonly connectTimers = new Map<string, unknown>();
+  private readonly emailHour = new HourCounter();
   /** Tenant kovası uyarısı pencere başına bir kez (§13.6 `queue.alert`). */
   private readonly alerted = new Map<string, number>();
   private readonly gate: ConcurrencyGate;
@@ -381,7 +390,31 @@ export class RequestService {
     // İstemci /ws/request'e hiç bağlanmazsa 120 sn sonra DISCONNECTED (AC-141); bağlanınca iptal edilir.
     this.d.hub.setDisconnect(id, () => void this.cancelSystem(id, "DISCONNECTED").catch((e: unknown) => this.logErr(e, "request_disconnect")), this.d.timing.requestDisconnectMs);
     if (s.waEnabled) this.d.notifier.notifyNewRequest(tenantId, s.tenant.name, repo.jsonStrings(s.waRecipients), created.code);
+    if (s.emailEnabled) this.notifyEmail(tenantId, s.tenant.name, repo.jsonStrings(s.emailRecipients), created.code);
     return { requestId: id, requestSecret: secret, requestCode: created.code, expiresAt: expiresAt.toISOString(), position: created.position };
+  }
+
+  /**
+   * AC-151: e-posta kanalı — WhatsApp ile aynı kişisel verisiz içerik, alıcı başına ayrı ileti, beklenmez (10 sn zaman
+   * aşımı + 1 yeniden deneme mail/service.ts'de; ≤ 60 sn). Tenant saatlik 30 ileti sınırı (WhatsApp tenant sınırıyla aynı);
+   * aşım bastırılır + metrik. Sonuç alıcı başına audit `mail.sent` + `request.notify{channel:"email"}`.
+   */
+  private notifyEmail(tenantId: string, firm: string, recipients: readonly string[], requestCode: string): void {
+    const content = newRequestMail({ publicBaseUrl: this.d.env.PUBLIC_BASE_URL, firm, requestCode });
+    const ctx = { ip: "", userAgent: "notify", requestId: "" };
+    void (async () => {
+      const cfg = await this.d.mail.configFor(tenantId);
+      if (!cfg) return;
+      for (const to of recipients) {
+        if (this.emailHour.add(tenantId) > EMAIL_TENANT_PER_HOUR) {
+          this.d.metrics.inc("rs_request_notify_total", { channel: "email", result: "suppressed" });
+          continue;
+        }
+        const out = await this.d.mail.sendForTenant(ctx, { tenantId, kind: "request_notify", entity: "support_requests" }, to, content, cfg);
+        this.d.metrics.inc("rs_request_notify_total", { channel: "email", result: out.ok ? "ok" : "failed" });
+        await writeAudit(this.d.db, ctx, { tenantId, username: "system", action: "request.notify", entity: "support_requests", result: out.ok ? "success" : "fail", newValue: { channel: "email", recipient: maskEmail(to), result: out.ok ? "success" : "fail", attempts: 1 } });
+      }
+    })().catch((e: unknown) => this.logErr(e, "request_notify_email"));
   }
 
   /** POST /public/requests/cancel (AC-141): her durumda 204 — sır oracle'ı yok. */

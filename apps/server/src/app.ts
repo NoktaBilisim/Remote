@@ -12,6 +12,7 @@ import type { Env } from "./env.ts";
 import type { Db } from "./lib/db.ts";
 import { registerErrorHandling } from "./lib/errors.ts";
 import { newId } from "./lib/ids.ts";
+import { FixedWindowCounter } from "./lib/rate.ts";
 import { createLogger } from "./lib/logger.ts";
 import { healthRoutes } from "./ops/health.ts";
 import { createMetrics, metricsRoutes, type Metrics } from "./ops/metrics.ts";
@@ -36,6 +37,11 @@ import { requestChannels } from "./requests/ws.ts";
 import { customerRoutes } from "./customers/routes.ts";
 import { publicBindingRoutes } from "./bindings/public-routes.ts";
 import { userRoutes } from "./users/routes.ts";
+import { closeAccountLimits, createAccountLimits, type AccountDeps } from "./auth/account.ts";
+import { SecretBox } from "./lib/crypto.ts";
+import { createNetGuard, type NetGuard } from "./lib/netguard.ts";
+import { MailService, type TransportFactory } from "./mail/service.ts";
+import { smtpSettingsRoutes } from "./tenants/smtp-routes.ts";
 import { adminTenantRoutes, tenantSettingsRoutes } from "./tenants/routes.ts";
 
 declare module "fastify" {
@@ -51,12 +57,24 @@ declare module "fastify" {
     /** P8b: destek talebi servisi + bildirim merkezi. */
     requests: RequestService;
     requestHub: RequestHub;
+    /** P10: gizli alan şifreleme, e-posta, hesap güvenliği. */
+    secrets: SecretBox;
+    netguard: NetGuard;
+    mail: MailService;
+    account: AccountDeps;
+    smtpTestLimit: FixedWindowCounter;
+    /** P10 (AC-67): zorunlu 2FA kurulum aşaması uygulanıyor mu (production'da her zaman true, B-P10-3). */
+    mfaSetupEnforced: boolean;
   }
   interface FastifyRequest {
     auth: AuthContext | null;
   }
   interface FastifyContextConfig {
     allowPasswordChangePending?: boolean;
+    /** P10: 2FA doğrulaması bekleyen oturumda serbest (/auth/me, /auth/logout, /auth/mfa/verify). */
+    mfaVerifyStage?: boolean;
+    /** P10: 2FA kurulumu zorunlu oturumda serbest (/auth/me, /auth/logout, /auth/mfa/setup|enable, /auth/password/change). */
+    mfaSetupStage?: boolean;
   }
 }
 
@@ -73,6 +91,11 @@ export interface AppDeps {
   signaling?: SignalingOptions & { clock?: Clock; timing?: Partial<Timing> };
   /** Testler: sahte WhatsApp servisi. */
   whatsappFetch?: FetchLike;
+  /** Testler: yerel sahte SMTP'ye izin veren netguard ve/veya taşıyıcı. Production yolu her zaman varsayılan. */
+  netguard?: NetGuard;
+  mailTransport?: TransportFactory;
+  /** Yalnız testler (env ile değiştirilemez; server.ts vermez): false → zorunlu 2FA kurulum aşaması uygulanmaz. */
+  mfaSetupEnforcement?: boolean;
 }
 
 const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), display-capture=(self)";
@@ -108,6 +131,8 @@ function helmetOptions(env: Env) {
 
 export function buildApp(deps: AppDeps): FastifyInstance {
   const { env } = deps;
+  // B-P10-3: zorunlu 2FA kurulumu production'da kapatılamaz (savunma derinliği; server.ts zaten vermez).
+  if (deps.mfaSetupEnforcement === false && env.NODE_ENV === "production") throw new Error("mfaSetupEnforcement:false production'da kullanılamaz");
   const app = Fastify({
     loggerInstance: deps.logger ?? createLogger(env.LOG_LEVEL),
     trustProxy: env.TRUSTED_PROXY_CIDR ?? false, // G-11: yalnız Caddy
@@ -117,6 +142,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   }) as unknown as FastifyInstance;
 
   app.decorate("db", deps.db);
+  app.decorate("mfaSetupEnforced", deps.mfaSetupEnforcement ?? true); // örnek başına (modül global'i yok)
   app.decorate("env", env);
   const authLimits = deps.authLimits ?? createAuthLimits();
   app.decorate("authLimits", authLimits);
@@ -135,6 +161,25 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
   const metrics = createMetrics();
   app.decorate("metrics", metrics);
+  // P10: gizli alanlar, netguard (G-12), e-posta.
+  const secrets = new SecretBox(env.encryptionKeys);
+  const netguard =
+    deps.netguard ??
+    createNetGuard({
+      denyHosts: [new URL(env.PUBLIC_BASE_URL).hostname], // B-P10-1: kendi adresimiz de yasak
+      onSelfUnresolved: (host, cached) => app.log.warn({ alarm: "netguard_self_unresolved", host, cached }, cached ? "kendi adımız çözülemedi; son başarılı çözüm kullanıldı" : "kendi adımız çözülemedi; SMTP hedefi reddedildi (fail-closed)"),
+    });
+  const mail = new MailService({ db: deps.db, secrets, netguard, metrics, log: app.log, ...(deps.mailTransport ? { transport: deps.mailTransport } : {}) });
+  app.decorate("secrets", secrets);
+  app.decorate("netguard", netguard);
+  app.decorate("mail", mail);
+  const smtpTestLimit = new FixedWindowCounter(6, 60_000, 60_000); // AC-122: 5/dk/tenant (SMTP + e-posta kanal testi ortak)
+  app.decorate("smtpTestLimit", smtpTestLimit);
+  const accountLimits = createAccountLimits();
+  app.addHook("onClose", async () => {
+    closeAccountLimits(accountLimits);
+    smtpTestLimit.close();
+  });
   const sig = deps.signaling ?? {};
   const turn = { urls: env.turnUrls, secret: env.TURN_SECRET, ttlMin: env.TURN_CRED_TTL_MIN };
   const rooms = new Rooms({ db: deps.db, log: app.log, turn, metrics, ...(sig.clock ? { clock: sig.clock } : {}), ...(sig.timing ? { timing: sig.timing } : {}) });
@@ -146,9 +191,21 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const hub: RequestHub = new RequestHub(rooms.clock, (tenantId: string) => requests.statesOf(tenantId), (err) => app.log.error({ err }, "talep sıra yayını hatası"));
   const requestLimits = createRequestLimits();
   const notifier = new WhatsappNotifier({ url: env.WHATSAPP_SERVICE_URL, production: env.NODE_ENV === "production", publicBaseUrl: env.PUBLIC_BASE_URL, db: deps.db, log: app.log, metrics, clock: rooms.clock, ...(deps.whatsappFetch ? { fetch: deps.whatsappFetch } : {}) });
-  const requests: RequestService = new RequestService({ db: deps.db, env, log: app.log, rooms, hub, limits: requestLimits, notifier, metrics, clock: rooms.clock, timing: rooms.timing });
+  const requests: RequestService = new RequestService({ db: deps.db, env, log: app.log, rooms, hub, limits: requestLimits, notifier, mail, metrics, clock: rooms.clock, timing: rooms.timing });
   app.decorate("requests", requests);
   app.decorate("requestHub", hub);
+  app.decorate("account", {
+    db: deps.db,
+    secrets,
+    mail,
+    limits: accountLimits,
+    publicBaseUrl: env.PUBLIC_BASE_URL,
+    log: app.log,
+    endLive: async (userId: string) => {
+      await rooms.endByTechnician(userId);
+      hub.closeByUser(userId);
+    },
+  } satisfies AccountDeps);
   metrics.gauge("rs_customers_active", "Aktif müşteri firmalar (P8c; açılış, günlük iş, durum değişimi)", () => requests.customersActive);
   metrics.gauge("rs_requests_pending", "Bekleyen destek talepleri (süpürücü turunda tazelenir)", () => pendingGauge.value);
   app.addHook("onClose", async () => {
@@ -205,5 +262,6 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(userRoutes, { prefix: "/api/v1/users" });
   void app.register(adminTenantRoutes, { prefix: "/api/v1/admin" });
   void app.register(tenantSettingsRoutes, { prefix: "/api/v1/settings/tenant" });
+  void app.register(smtpSettingsRoutes, { prefix: "/api/v1/settings/smtp" });
   return app;
 }

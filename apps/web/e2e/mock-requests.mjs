@@ -5,7 +5,8 @@
 // (newfirm: müşteri firmalı request.new — AC-176).
 // GET /__e2e/rq/sockets/<çerez> → { open } açık soket sayısı (olay öncesi senkron noktası, QA-P8b-12).
 import { WebSocketServer } from "ws";
-import { rejectMessageSchema, updateRequestSettingsInputSchema, whatsappTestInputSchema } from "@remote/contracts/api/requests";
+import { emailTestInputSchema, rejectMessageSchema, updateRequestSettingsInputSchema, whatsappTestInputSchema } from "@remote/contracts/api/requests";
+import { SMTP_SEND_FAILED_MESSAGE } from "@remote/contracts/api/tenants";
 
 const ADMIN_P = ["sessions.view", "sessions.create", "session_history.view", "support_requests.view", "support_requests.accept", "settings.view", "settings.edit"];
 const TENANT = { id: "01JTENA0000000000000000001", name: "Demo Firma" };
@@ -15,7 +16,7 @@ export const RQ = { A: "01JRQ00000000000000000000A", B: "01JRQ000000000000000000
 export const RQ_SESSION = "01JRQSES000000000000000001";
 
 export function requestUser(cookie) {
-  const m = cookie?.match(/^u-(rqadm|rqro|rqsa|rqempty|rqbroken|rqcu|rqcuro|rqcuempty|rqcubroken|rqcuslow)-/);
+  const m = cookie?.match(/^u-(rqadm|rqmail|rqro|rqsa|rqempty|rqbroken|rqcu|rqcuro|rqcuempty|rqcubroken|rqcuslow)-/);
   if (!m) return null;
   const role = m[1] === "rqsa" ? "SUPER_ADMIN" : m[1] === "rqro" ? "USER" : "ADMIN";
   return {
@@ -70,7 +71,7 @@ function seed(kind) {
   };
 }
 
-const settingsSeed = () => ({
+const settingsSeed = (kind) => ({
   downloadUrl: "http://localhost:3217/api/v1/public/agent/request-download?ref=abcdefghijklmnop",
   fileName: "NoktaDestek-DemoFirma-abcdefghijklmnop.exe",
   refPrefix: "abcd",
@@ -78,11 +79,12 @@ const settingsSeed = () => ({
   waitMinutes: 30,
   trustedCidrs: ["203.0.113.0/24"],
   whatsapp: { enabled: false, recipients: [], serviceConfigured: true, insecure: false },
-  email: { enabled: false, recipients: [], smtpConfigured: false },
+  // P10: rqmail = SMTP ayarlı firma (AC-151)
+  email: { enabled: false, recipients: [], smtpConfigured: kind === "rqmail" },
 });
 
 const stores = new Map();
-export const store = (cookie, kind) => stores.get(cookie) ?? stores.set(cookie, { ...seed(kind), settings: settingsSeed() }).get(cookie);
+export const store = (cookie, kind) => stores.get(cookie) ?? stores.set(cookie, { ...seed(kind), settings: settingsSeed(kind) }).get(cookie);
 const sockets = new Map(); // çerez → Set<ws>
 const pushTo = (cookie, m) => {
   for (const ws of sockets.get(cookie) ?? []) if (ws.readyState === 1) ws.send(JSON.stringify(m));
@@ -199,7 +201,7 @@ export async function handleRequests(req, res, { url, session, csrfOk, send, err
       const parsed = updateRequestSettingsInputSchema.safeParse(await readJson(req));
       if (!parsed.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(parsed.error) })), true;
       if (parsed.data.waitMinutes === 99) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { waitMinutes: "Sunucu bu süreyi reddetti" } })), true;
-      Object.assign(s.settings, { waitMinutes: parsed.data.waitMinutes, trustedCidrs: parsed.data.trustedCidrs, whatsapp: { ...s.settings.whatsapp, ...parsed.data.whatsapp } });
+      Object.assign(s.settings, { waitMinutes: parsed.data.waitMinutes, trustedCidrs: parsed.data.trustedCidrs, whatsapp: { ...s.settings.whatsapp, ...parsed.data.whatsapp }, email: { ...s.settings.email, ...parsed.data.email } });
       return send(res, 200, s.settings), true;
     }
     if (path === "/api/v1/settings/support-requests/rotate-ref" && req.method === "POST") {
@@ -216,6 +218,13 @@ export async function handleRequests(req, res, { url, session, csrfOk, send, err
       if (!parsed.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(parsed.error) })), true;
       if (parsed.data.phone === "+905009999999") return send(res, 502, err("UPSTREAM", "WhatsApp servisine ulaşılamadı.")), true;
       return send(res, 200, { ok: true, message: "Test mesajı gönderildi." }), true;
+    }
+    if (path === "/api/v1/settings/support-requests/email/test" && req.method === "POST") {
+      const parsed = emailTestInputSchema.safeParse(await readJson(req));
+      if (!parsed.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(parsed.error) })), true;
+      if (!s.settings.email.smtpConfigured) return send(res, 502, err("UPSTREAM", "Önce SMTP ayarlarını yapın")), true;
+      if (parsed.data.to === "fail@ornek.com") return send(res, 200, { ok: false, message: SMTP_SEND_FAILED_MESSAGE }), true;
+      return send(res, 200, { ok: true, message: "Test maili gönderildi." }), true;
     }
   }
   return false;

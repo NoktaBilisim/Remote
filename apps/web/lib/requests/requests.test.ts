@@ -85,7 +85,7 @@ describe("ayar formu", () => {
     email: { enabled: false, recipients: [], smtpConfigured: false },
   };
   it("geçerli durum → PUT gövdesi (telefon E.164, CIDR kanonik, boş satır atlanır)", () => {
-    const st = { waitMinutes: "45", trustedCidrs: ["203.0.113.9/24", ""], waEnabled: true, waRecipients: ["0532 111 22 33"] };
+    const st = { waitMinutes: "45", trustedCidrs: ["203.0.113.9/24", ""], waEnabled: true, waRecipients: ["0532 111 22 33"], mailEnabled: false, mailRecipients: [] };
     expect(buildInput(st, base.email).input).toEqual({
       waitMinutes: 45,
       trustedCidrs: ["203.0.113.0/24"],
@@ -94,7 +94,7 @@ describe("ayar formu", () => {
     });
   });
   it("alan bazlı hatalar", () => {
-    const st = { waitMinutes: "5", trustedCidrs: ["1.0.0.0/8", "203.0.113.0/24", "203.0.113.1/24"], waEnabled: true, waRecipients: ["12", "05321112233", "+905321112233"] };
+    const st = { waitMinutes: "5", trustedCidrs: ["1.0.0.0/8", "203.0.113.0/24", "203.0.113.1/24"], waEnabled: true, waRecipients: ["12", "05321112233", "+905321112233"], mailEnabled: false, mailRecipients: [] };
     const { input, errors } = buildInput(st, base.email);
     expect(input).toBeUndefined();
     expect(errors.waitMinutes).toBe("wait");
@@ -102,6 +102,15 @@ describe("ayar formu", () => {
     expect(errors["whatsapp.recipients.2"]).toBe("phoneDup");
     expect(errors["trustedCidrs.0"]).toMatch(/^msg:/);
     expect(errors["trustedCidrs.2"]).toBe("cidrDup");
+  });
+  it("P10 AC-151: e-posta kanalı — SMTP yoksa açılamaz; alıcılar küçük harf, tekil, geçerli", () => {
+    expect(buildInput({ ...toState(base), mailEnabled: true, mailRecipients: ["a@ornek.com"] }, base.email).errors["email.enabled"]).toBe("smtpRequired");
+    const smtp = { ...base.email, smtpConfigured: true };
+    expect(buildInput({ ...toState(base), mailEnabled: true }, smtp).errors["email.recipients"]).toBe("recipientsRequired");
+    const bad = buildInput({ ...toState(base), mailEnabled: true, mailRecipients: ["x", "A@ornek.com", "a@ornek.com"] }, smtp).errors;
+    expect(bad["email.recipients.0"]).toBe("email");
+    expect(bad["email.recipients.2"]).toBe("emailDup");
+    expect(buildInput({ ...toState(base), mailEnabled: true, mailRecipients: [" Destek@Ornek.com ", ""] }, smtp).input?.email).toEqual({ enabled: true, recipients: ["destek@ornek.com"] });
   });
   it("WhatsApp açık ve alıcı yok → hata", () => {
     expect(buildInput({ ...toState(base), waEnabled: true }, base.email).errors["whatsapp.recipients"]).toBe("recipientsRequired");

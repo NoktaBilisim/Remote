@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { t } from "@/lib/i18n";
-import { getMe } from "@/lib/server-api";
+import { gateOf, getMe } from "@/lib/server-api";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: t("login.title") };
@@ -16,7 +16,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
   // T-3: geçerli oturumla /login → panel. Yalnız /auth/me 200 ise; 401/hata → form (döngü yok)
   if ((await cookies()).has(SESSION_COOKIE)) {
     const state = await getMe();
-    if (state.kind === "ok") redirect(state.me.user.mustChangePassword ? "/change-password" : "/");
+    // P10: yarı oturum (2FA bekleniyor / zorunlu kurulum) → ilgili adım
+    if (state.kind === "ok" || state.kind === "mfa") redirect(gateOf(state) ?? "/");
   }
   return (
     <>
@@ -25,6 +26,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
       {reason === "expired" && (
         <div className="mb-4">
           <Alert tone="warning">{t("login.sessionExpired")}</Alert>
+        </div>
+      )}
+      {reason === "reset" && (
+        <div className="mb-4">
+          <Alert tone="success">{t("login.passwordReset")}</Alert>
         </div>
       )}
       {reason === "logout" && (

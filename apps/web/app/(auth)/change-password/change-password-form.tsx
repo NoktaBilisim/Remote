@@ -12,8 +12,11 @@ import { parsePasswordChange } from "@/lib/auth-schema";
 import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
 
-/** AC-66: POST /auth/password/change { current, next } → 204. */
-export function ChangePasswordForm() {
+/**
+ * AC-66: POST /auth/password/change { current, next } → 204 (+ yeni oturum çerezi; diğer oturumlar kapanır).
+ * `onDone` verilirse (P10 Hesap güvenliği sayfası) yönlendirme yerine form temizlenir ve çağıran bildirim gösterir.
+ */
+export function ChangePasswordForm({ onDone }: { onDone?: () => void } = {}) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -37,6 +40,12 @@ export function ChangePasswordForm() {
     setSubmitting(true);
     try {
       await api<void>("POST", "/auth/password/change", parsed.value);
+      if (onDone) {
+        formRef.current?.reset();
+        setSubmitting(false);
+        onDone();
+        return;
+      }
       setDone(true);
       router.replace("/");
       router.refresh();

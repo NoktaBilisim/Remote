@@ -96,6 +96,6 @@ export async function tenantSettingsRoutes(app: FastifyInstance): Promise<void> 
 
   app.put("", { preHandler: requirePerm("settings.edit") }, async (req): Promise<TenantSettingsView> => {
     const { tenantId } = tenantScope(req);
-    return updateTenantSettings(app.db, auditContext(req), authOf(req), tenantId, parseInput(updateTenantSettingsInputSchema, req.body));
+    return updateTenantSettings(app.db, app, auditContext(req), authOf(req), tenantId, parseInput(updateTenantSettingsInputSchema, req.body));
   });
 }

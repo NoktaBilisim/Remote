@@ -4,12 +4,18 @@
 
 export const ERROR_STATUS = {
   VALIDATION: 400,
+  /** P10 (G-12, AC-122): SMTP sunucu adresi özel/loopback/link-local/CGNAT/Docker ağına çözümlendi (genel mesaj). */
+  HOST_NOT_ALLOWED: 400,
   UNAUTHENTICATED: 401,
   FORBIDDEN: 403,
   /** CSRF başlığı/çerezi eksik ya da eşleşmiyor veya Origin izinli değil. */
   CSRF_INVALID: 403,
   /** must_change_password: yalnız /auth/me, /auth/logout, /auth/password/change serbest. */
   PASSWORD_CHANGE_REQUIRED: 403,
+  /** P10 (AC-67): oturum 2FA doğrulaması bekliyor; yalnız /auth/mfa/verify, /auth/me, /auth/logout serbest. */
+  MFA_REQUIRED: 403,
+  /** P10 (AC-67): 2FA zorunlu ama kurulmamış; yalnız /auth/mfa/setup|enable, /auth/me, /auth/logout, /auth/password/change serbest. */
+  MFA_SETUP_REQUIRED: 403,
   NOT_FOUND: 404,
   /** Durum uygun değil (ör. iptal edilecek oturum PENDING değil). */
   CONFLICT: 409,
@@ -25,6 +31,8 @@ export const ERROR_STATUS = {
   SESSION_CANCELLED: 410,
   /** joinNonce süresi dolmuş/kullanılmış (P3). */
   NONCE_INVALID: 410,
+  /** P10 (AC-66): şifre sıfırlama bağlantısı geçersiz, kullanılmış veya süresi dolmuş (tek yanıt). */
+  RESET_TOKEN_INVALID: 410,
   /** P8b: firma dosyası ref'i geçersiz/yenilenmiş/pasif tenant/ayarı yok — tek gövde (AC-131, 132, 145). */
   REQUEST_REF_INVALID: 404,
   /** P8b: bu istemci örneğinin zaten bekleyen talebi var (AC-143). */
@@ -42,7 +50,7 @@ export const ERROR_STATUS = {
   /** P8b: tenant'ta 50 bekleyen talep ya da ≥ 40 iken bilinmeyen kaynak (AC-143, §13.6). */
   QUEUE_FULL: 429,
   INTERNAL: 500,
-  /** Dış servis (WhatsApp) yapılandırılmamış/güvensiz ya da ulaşılamadı (P8b, AC-152). */
+  /** Dış servis (WhatsApp, P10: SMTP) yapılandırılmamış/güvensiz ya da ulaşılamadı (P8b AC-152, P10 AC-10/80/151). */
   UPSTREAM: 502,
   /** /ready: DB'ye ulaşılamıyor veya migration uygulanmamış. */
   NOT_READY: 503,

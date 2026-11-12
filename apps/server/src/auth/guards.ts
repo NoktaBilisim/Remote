@@ -43,10 +43,14 @@ function checkCsrf(req: FastifyRequest): void {
  */
 export async function requireAuth(req: FastifyRequest): Promise<void> {
   const token = req.cookies[SESSION_COOKIE];
-  const auth = token ? await resolveSession(req.server.db, token, new Date()) : null;
+  const auth = token ? await resolveSession(req.server.db, token, new Date(), { setupEnforced: req.server.mfaSetupEnforced, allowPartial: true }) : null;
   if (!auth) throw new AppError("UNAUTHENTICATED");
   if (UNSAFE_METHODS.has(req.method)) checkCsrf(req);
-  if (auth.user.mustChangePassword && !req.routeOptions.config.allowPasswordChangePending) {
+  const cfg = req.routeOptions.config;
+  // P10 (AC-67): 2FA aşaması önce (yarım oturum şifre değiştiremez), sonra ilk giriş şifre kapısı.
+  if (auth.mfaStage === "verify" && !cfg.mfaVerifyStage) throw new AppError("MFA_REQUIRED");
+  if (auth.mfaStage === "setup" && !cfg.mfaSetupStage) throw new AppError("MFA_SETUP_REQUIRED");
+  if (auth.user.mustChangePassword && !cfg.allowPasswordChangePending) {
     throw new AppError("PASSWORD_CHANGE_REQUIRED");
   }
   req.auth = auth;

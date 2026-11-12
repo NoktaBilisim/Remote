@@ -251,3 +251,31 @@ export async function deactivateUser(db: Db, fx: UserLiveEffects, ctx: AuditCont
 export async function reactivateUser(db: Db, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string): Promise<void> {
   await setStatus(db, ctx, auth, tenantId, id, "ACTIVE");
 }
+
+/**
+ * POST /users/:id/reset-mfa (P10; AC-67, AC-115, G-04): tek TX'te sır/etkinlik/son adım NULL (üçü birlikte — CHECK),
+ * kurtarma kodları silinir, oturumlar iptal; commit sonrası canlı odalar biter. Kendi hesabı / daha geniş yetkili hesap
+ * 403; 2FA hiç kurulmamışsa 409. Kullanıcı bir sonraki girişte (zorunluysa) yeniden kurar.
+ */
+export async function resetUserMfa(db: Db, fx: UserLiveEffects, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string): Promise<void> {
+  const scope = { tenantId };
+  await db.$transaction(async (tx) => {
+    if (!(await repo.lockUser(tx, scope, id))) throw new AppError("NOT_FOUND");
+    const cur = asManaged((await repo.findUser(tx, scope, id)) as repo.UserRow);
+    if (cur.id === auth.user.id) throw new AppError("FORBIDDEN", { message: "Kendi iki adımlı doğrulamanızı sıfırlayamazsınız." });
+    if (!canManage(auth, effectiveOf(cur.role, cur.permissions))) throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı yönetemezsiniz." });
+    const row = await tx.user.findUniqueOrThrow({ where: { id }, select: { totpEnabled: true, totpSecretEnc: true } });
+    if (!row.totpEnabled && row.totpSecretEnc === null) throw new AppError("CONFLICT", { message: "Bu kullanıcıda iki adımlı doğrulama kurulu değil." });
+    const now = new Date();
+    await tx.user.update({ where: { id }, data: { totpSecretEnc: null, totpEnabled: false, totpLastStep: null } });
+    const codes = await tx.recoveryCode.deleteMany({ where: { userId: id } });
+    const revokedSessions = await repo.revokeUserSessions(tx, id, now);
+    await writeAudit(tx, ctx, { ...who(auth, tenantId), action: USER_AUDIT.MFA_RESET, entity: ENTITY, entityId: id, result: "success", oldValue: { mfaEnabled: row.totpEnabled }, newValue: { mfaEnabled: false, deletedCodes: codes.count, revokedSessions } });
+  });
+  try {
+    await fx.rooms.endByTechnician(id);
+    fx.hub.closeByUser(id);
+  } catch (err) {
+    fx.log.error({ err, alarm: "user_live_effect" }, "2FA sıfırlama canlı oturuma yansıtılamadı (yedek: 60 sn doğrulama)");
+  }
+}

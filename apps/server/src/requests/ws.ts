@@ -51,6 +51,7 @@ export interface RequestChannels {
 
 export function requestChannels(app: FastifyInstance, svc: RequestService, revalidateMs = 60_000): RequestChannels {
   const { env, db } = app;
+  const policy = { setupEnforced: app.mfaSetupEnforced };
   const { hub, limits, rooms } = svc.d;
 
   async function request(req: IncomingMessage, url: URL, ctx: AuditContext, accept: Accept): Promise<UpgradeReject | null> {
@@ -126,7 +127,7 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
     const origin = req.headers.origin;
     if (!origin || !env.allowedOrigins.includes(origin)) return { status: 403, reason: "origin" };
     const token = cookieValue(req.headers.cookie, SESSION_COOKIE);
-    const auth = token ? await resolveSession(db, token, new Date()) : null;
+    const auth = token ? await resolveSession(db, token, new Date(), policy) : null;
     if (!token || !auth || auth.user.mustChangePassword) return { status: 403, reason: "auth" };
     if (!auth.permissions.has("support_requests.view") || !auth.tenantId) return { status: 403, reason: "permission" };
     const tenantId = auth.tenantId;
@@ -146,7 +147,7 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
   /** Yedek yol (G-E9-14): 60 sn'de bir oturum + yetki + acting tenant; değiştiyse 4401. */
   const revalidate = setInterval(() => {
     for (const c of hub.panelConns()) {
-      void resolveSession(db, c.token, new Date())
+      void resolveSession(db, c.token, new Date(), policy)
         .then((a) => {
           if (!a || a.user.mustChangePassword || !a.permissions.has("support_requests.view") || a.tenantId !== c.tenantId) hub.closePanel(c);
         })

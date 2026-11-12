@@ -354,3 +354,42 @@ SELECT (SELECT COUNT(*) FROM tenant_request_settings s WHERE NOT EXISTS (SELECT 
 
 ### Test (2026-11-12, geçici `mysql:8.4` `rs-mysql-p8c:33319`, sonra silindi)
 P8b durumundaki DB'ye (önceden eklenmiş bir `tenant_request_settings` satırıyla) migrate + grants OK. Geri doldurma satırı yazdı, üretilmiş sütun ve `utf8mb4_bin` doğrulandı, `migrate diff --exit-code` **0**. down → up → drift 0. `CUSTOMER_PASSIVE` satırı varken down.sql `p8c_down_guard_chk` ile durdu, tablolar ve kayıt korundu. Seed 2 kez çalıştı: ilkinde `consentTextsCreated=2 demoRequestSettings=created demoCustomer=created`, ikincisinde hepsi `exists`/0. Demo ref'leri `request_refs`'te; kayıtsız ref 0. `check-app-grants.sh` **261/261 PASS** (P8c: 50 yeni). `test/integration/customers-p8c-db.test.ts` 12/12. `session-history-p8` ikili CHECK sayısı 17 → 19 güncellendi. `test` 281/281, `test:int` **312/312**, typecheck/lint temiz.
+
+## P10 — hesap güvenliği + SMTP (2026-11-12)
+Migration `20261112180000_p10_account_security` (expand-only, veri taşıma yok) + `down.sql` (guard'lı).
+
+### Mevcut olan, eklenmeyen (mimari §3.1 P1'de zaten kurulmuş)
+| İhtiyaç | Alan |
+|---|---|
+| TOTP sırrı (şifreli) / etkinlik | `users.totp_secret_enc VARBINARY(255)`, `users.totp_enabled` |
+| Hesap geneli kilit (G-23) | `users.failed_login_count`, `failed_window_at`, `locked_until` |
+| Boşta 30 dk / mutlak 8 sa / logout-all / MFA yarı oturum | `auth_sessions.last_seen_at`, `expires_at`, `revoked_at`, `mfa_passed`; IX(user_id, revoked_at) |
+| USER için 2FA zorunluluğu | `tenant_settings.require_tech_2fa` (vars. true) |
+| SMTP (şifre şifreli) | `tenant_settings.smtp_host/port/security/user/pass_enc/from_name/from_email` |
+| E9 e-posta kanalı (AC-151) | `tenant_request_settings.email_enabled`, `email_recipients` (+ P8b CHECK'leri) |
+
+`enrolled_at`/`mfa_enabled` gibi ek alan **eklenmedi** (mimaride yok; `totp_enabled` + audit yeterli).
+
+### Yeni
+- `recovery_codes` (id, user_id FK RESTRICT, code_hash CHAR(64), used_at?, created/updated_at) — **UQ(user_id, code_hash)** (doğrulama araması ve kullanıcı başına sayım bu indeksle). CHECK: hash biçimi `^[0-9a-f]{64}$`.
+- `password_reset_tokens` (id, user_id FK RESTRICT, token_hash CHAR(64) UQ, expires_at, used_at?, created/updated_at) — IX(user_id, created_at) (hesap başına istek sayımı, açıkları kapatma), IX(expires_at) (retention, §3.4). CHECK: hash biçimi; `expires_at > created_at AND ≤ created_at + 31 dk` (30 dk + P2 toleransı).
+- **Sapma:** `users.totp_last_step BIGINT?` — son kabul edilen TOTP adımı (floor(unix/30)). Mimaride yok; RFC 6238 §5.2 (aynı OTP ikinci kez kabul edilmez) ve yarışsız tek kullanım için gerekli (koşullu UPDATE). INSTANT ADD COLUMN, NULL. mimari §3'e dba notu düşüldü.
+- CHECK'ler (zod'a ek): `users_totp_enabled_chk` (etkin ⇒ sır var), `users_totp_secret_enc_chk` (≥ 30 bayt: ver+iv+tag+≥1), `users_totp_last_step_chk` (> 0 ve yalnız sır varken); `tenant_settings_smtp_complete_chk` (ya hepsi NULL ya host+port+security+from_email dolu), `_smtp_auth_chk` (şifre ⇒ kullanıcı), `_smtp_pass_enc_chk` (≥ 30 bayt), `_smtp_port_chk` (1..65535), `_smtp_host_chk` (ASCII ad / IPv4 / `[IPv6]`, ≤ 253; IDN punycode'a çevrilmeli), `_smtp_user_chk` ve `_smtp_from_name_chk` (Cc/Cf/Zl/Zp yok → CRLF başlık enjeksiyonu savunması; from_name kırpılmış), `_smtp_from_email_chk` (P8 e-posta iskeleti).
+- Up guard: P10 öncesi kod smtp_*/totp_* yazmadığı için bu alanlarda dolu satır varsa migration `p10_up_guard_chk` (3819) ile hiçbir şey değişmeden durur (MySQL DDL transaction'sız).
+
+### Yetkiler (`grants.sql`)
+| Tablo | app |
+|---|---|
+| recovery_codes | SELECT, INSERT, DELETE (yeniden üretim / MFA sıfırlama) + **sütun** UPDATE(used_at, updated_at); code_hash/user_id güncellenemez |
+| password_reset_tokens | SELECT, INSERT + **sütun** UPDATE(used_at, updated_at); token_hash/expires_at güncellenemez (süre uzatılamaz); DELETE yok → P13 retention ile verilir |
+
+### Geri alma
+`down.sql`: kurtarma kodu veya `totp_enabled=1` kullanıcı varsa `p10_down_guard_chk` ile durur (kodlar geri getirilemez; P9 kodu TOTP'yi yok sayar). Gerekirse önce MFA'lar uygulamadan (audit'li) sıfırlanır. smtp_*/totp_secret_enc (P1 sütunları) korunur.
+
+### Açık noktalar (mimar/backend kararı)
+1. **Super Admin e-postası:** Super Admin'in tenant'ı yok → tenant SMTP'si yok; sıfırlama/kilit bildirimi e-postası gönderilemez. Sistem SMTP alanı **eklenmedi** (mimaride yok). Öneri: Super Admin için `forgot` 202 döner ama gönderim yapılmaz (audit `fail, reason: no_smtp`); kurtarma runbook (seed/CLI) ile. Sistem SMTP istenirse `system_settings` (P11) anahtarı olarak eklenir.
+2. **Oturum linki e-postası 20/sa/teknisyen (AC-10):** tablo eklenmedi. Seçenek A: bellek `rate.ts` (yeniden başlatmada sıfırlanır); B: P2 kalıbı (TX + `users FOR UPDATE` + `audit_logs` sayımı `action='session.email'`, IX(tenant_id, user_id, created_at) kapsar). Backend seçer.
+3. **ICU `$` bulgusu (P10 dışı, Düşük):** MySQL REGEXP'te `$` sondaki `\n`'yi kabul ediyor (test: `REGEXP_LIKE('abc\n','^[a-z]+$')=1`). Yeni host CHECK'inde `\z` kullanıldı. Sabit uzunluklu CHAR(n) + `{n}` desenleri etkilenmez (uzunluk taşar); değişken uzunluklu olanlar etkilenir: `customers_file_label_chk`, `customers_phone_fmt_chk`, `support_requests_phone_fmt_chk`, `support_requests_client_version_fmt_chk`, `device_bindings_client_version_fmt_chk`, `tenant_request_settings_file_label_chk`. zod birincil savunma olduğu için risk düşük; bir sonraki dba paketinde `\z`'ye çevrilmeli (DROP+ADD CHECK, COPY).
+
+### Test (2026-11-12, geçici `mysql:8.4` `rs-mysql-p10dba:33330`, sonra silindi)
+P8c durumundaki DB'den `migrate diff` ile Prisma kısmı üretildi. up → `check-app-grants.sh` **302/302 PASS** (P10: 41 yeni; ADR-0014 `smtp_security` enum_case satırı complete_chk nedeniyle tam yapılandırmayla denenecek şekilde güncellendi). down (boş) → tablolar, sütun, yetkiler (table/column_privileges 0) ve `_prisma_migrations` satırı silindi → up tekrar OK. Kurtarma kodu varken down `p10_down_guard_chk` ile durdu, hiçbir şey değişmedi. `typecheck` temiz, `test` 285/285, `test:int` **384/384**. Seed değişmedi (2FA kayıt akışı kodları kendisi üretir; SMTP seed'lenmez — netguard loopback'i reddeder).

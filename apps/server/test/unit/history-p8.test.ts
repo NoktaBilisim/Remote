@@ -21,7 +21,7 @@ function auth(role: "USER" | "ADMIN" | "SUPER_ADMIN", tenantId: string | null): 
     user: { id: "01HUSER0000000000000000000", email: "u@example.test", username: null, fullName: "U", role, tenantId, theme: "SYSTEM", mustChangePassword: false },
     tenantId,
     tenant: null,
-    actingTenant: null,
+    actingTenant: null, mfaStage: "ok" as const, mfaRequired: false, totpEnabled: false,
     permissions: new Set<PermissionKey>(),
   };
 }

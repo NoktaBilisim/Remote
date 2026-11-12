@@ -5,6 +5,64 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P10 (hesap güvenliği + SMTP)
+- **İki adımlı doğrulama (2FA, TOTP):** Google Authenticator, Microsoft Authenticator vb. ile. Kurulum ekranı
+  (`/2fa/setup`): QR + elle anahtar (kopyala) → 6 haneli kod → 10 tek kullanımlık kurtarma kodu (bir kez gösterilir;
+  kopyala / `.txt` indir; "Kaydettim" işaretlenmeden devam yok). Super Admin ve Admin için zorunlu; teknisyenler (User)
+  için firma ayarı **Ayarlar > Güvenlik > Teknisyenler için zorunlu** (varsayılan açık). Kurulmamış zorunlu hesap panele
+  geçemez.
+- **Girişte 2FA kodu** (`/login/2fa`): uygulama kodu veya kurtarma kodu; kod girilmeden panel, API (403 `MFA_REQUIRED`)
+  ve WebSocket kapalı.
+- **Şifremi unuttum** (`/forgot-password`, `/reset-password`): firma SMTP'siyle 30 dk geçerli, tek kullanımlık bağlantı;
+  yanıt hesabın varlığını söylemez; sıfırlama tüm oturumları kapatır.
+- **Hesap güvenliği** (`/account`, üst menüde avatar): şifre değiştir, 2FA durumu ve kalan kurtarma kodu (≤ 3'te uyarı),
+  **Tüm cihazlardan çıkış**. Panel 30 dk boşta kalınca oturum düşer ve giriş ekranına döner.
+- **Ayarlar > E-posta (SMTP)** (`/settings/smtp`): sunucu, port (25/465/587/2525), güvenlik Yok/SSL/TLS (port önerisi),
+  kullanıcı, maskeli şifre (boş = korunur), gönderen adı/adresi, **Test Maili Gönder**, ayarı kaldırma. Ayarlar sayfasına
+  alt menü: Destek talepleri · E-posta (SMTP) · Güvenlik.
+- **E-posta bildirimleri:** şifre sıfırlama, hesap kilidi (saatte en çok 1), 2FA etkinleştirildi, yeni destek talebi
+  (Ayarlar > Destek talepleri e-posta kanalı, ≤ 5 alıcı + test maili; kişisel veri içermez), oturum bağlantısını
+  müşteriye e-postayla gönderme (Yeni oturum diyaloğu, teknisyen başına saatte 20).
+- Admin için kullanıcı detayında **2FA'yı sıfırla**.
+- API: `/auth/mfa/setup|enable|verify`, `/auth/logout-all`, `/auth/password/forgot|reset`, `/settings/smtp/test`,
+  `/settings/support-requests/email/test`, `/sessions/:id/email`, `/users/:id/reset-mfa`; `/settings/tenant` += `smtp`,
+  `requireTech2fa`; `/auth/me` += `mfa`; `/auth/login` += `mfaSetupRequired`. Yeni hata kodları `MFA_REQUIRED`,
+  `MFA_SETUP_REQUIRED`, `HOST_NOT_ALLOWED`, `RESET_TOKEN_INVALID`. Ayrıntı `docs/api.md`.
+- Audit: `auth.mfa_setup/mfa_enabled/mfa_verify/logout_all/password_reset_requested/password_reset`, `user.mfa_reset`,
+  `mail.sent`, `session.email`, `settings.smtp.test`, `settings.email.test`. Metrik `rs_mail_total{kind,result}`.
+- Migration `20261112180000_p10_account_security` (`recovery_codes`, `password_reset_tokens`, `users.totp_last_step`).
+  Yeni ortam değişkeni **`APP_ENCRYPTION_KEYS`** (production'da zorunlu; runbook §3, §14 P10). Yeni bağımlılıklar
+  `nodemailer` 10.5.0 (MIT-0), `qrcode` 1.5.4 (MIT); geliştirme `smtp-server` 3.21.4 (MIT-0).
+
+### Güvenlik — P10
+- SMTP şifresi ve TOTP sırrı AES-256-GCM, sürümlü anahtar (`APP_ENCRYPTION_KEYS`) ve kayda bağlı AAD ile saklanır.
+  Kurtarma kodları HMAC-SHA-256 (HKDF ile türetilmiş anahtar), sıfırlama token'ı SHA-256; düz değerler loga/audit'e girmez.
+- TOTP tekrar oynatma koruması (aynı/eski zaman adımı reddedilir), kurtarma kodu tek kullanım (koşullu UPDATE).
+  2FA deneme sınırı hesap+IP 5/5 dk ve hesap geneli 15/15 dk. Etkinleştirmede ve doğrulamada oturum token'ı yenilenir /
+  diğer oturumlar kapanır; paralel kurulum yarışı koşullu UPDATE ile engellenir (B-P10-6).
+- SMTP hedef kısıtı (SSRF, G-12): yalnız 25/465/587/2525; iç ağ, loopback, link-local, CGNAT, Docker, IPv6'da 2000::/3 dışı
+  ve geçiş aralıkları, sunucunun kendi adresi reddedilir; DNS hatasında son başarılı çözüm, hiç yoksa ret (fail-closed).
+  Bağlantı doğrulanan IP'ye, TLS sertifika adı asıl ada göre. "Yok" güvenlikte kimlik bilgisi gönderilmez.
+- Gönderim hatasında kullanıcıya tek genel mesaj; etkileşimli gönderimde yanıt en az 12 sn ve soket 12 sn'de kapatılır
+  (port/TLS taraması için kâhin yok). Hata sınıfı yalnız log ve audit `reason`'da.
+- Şifremi unuttum her durumda 202 ve e-posta yanıt sonrası gönderilir (hesap varlığı sızmaz); token URL parçasında.
+- Production'da 2FA zorunluluğunu kapatan test anahtarı reddedilir (B-P10-3). Güvenlik denetimi 3 tur; B-P10-1..11
+  kapandı, Kritik/Yüksek 0.
+
+### Bilinen sınırlamalar — P10
+- Kurtarma kodlarını kullanıcı kendisi yenileyemez, 2FA'sını kendisi kapatamaz; kodlar biterse Admin "2FA'yı sıfırla"
+  yapar.
+- Super Admin'in firması ve SMTP'si yoktur: şifre sıfırlama/kilit e-postası gönderilmez, kurtarma sunucuda yapılır
+  (runbook §14 P10).
+- İç ağdaki SMTP sunucuları desteklenmez (bilinçli). Başarısız test maili ~12 sn sürer.
+- Firma logosu henüz yok (P12); e-postalarda sistem logosu kullanılır. Audit ekranı P11'de.
+- Sayfa testi bulguları (frontend-dev düzeltiyor): test maili beklerken Esc diyaloğu kapatıp sonucu kaybettiriyor;
+  375 px'te Ayarlar alt menüsünde "Güvenlik" kırpık; hiç giriş yapmamış ziyaretçi `/login/2fa`'da "Oturumunuz sona erdi"
+  görüyor. Açık maddeler: `docs/gereksinimler-sonra-acik.md` "P10'dan".
+
+### Düzeltildi — P10
+- Kurtarma kodu tire çevresinde boşlukla yazıldığında istemcide reddediliyordu; artık boşluklar silinip doğrulanıyor.
+
 ### Eklendi — P9 (kullanıcı, yetki ve firma yönetimi)
 - **Kullanıcılar** ekranı (`/users`, menüde kişi ikonu; `users.view`): arama (ad/e-posta), rol ve durum filtresi,
   sayfalama. **Yeni kullanıcı** (`users.create`): ad soyad, e-posta, rol (Teknisyen / Yönetici). 16 karakterlik geçici

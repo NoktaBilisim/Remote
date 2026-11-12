@@ -13,6 +13,20 @@ const cidr = z.string().refine((v) => {
 
 const origin = z.url().transform((v) => new URL(v).origin);
 
+/** `v1:<base64 32 bayt>[,v2:...]` (mimari §3.2, §8.1). Sürüm 1..255 tekil; her anahtar tam 32 bayt. */
+export function parseEncryptionKeys(raw: string): Map<number, Buffer> | null {
+  const keys = new Map<number, Buffer>();
+  for (const part of raw.split(",").map((p) => p.trim()).filter(Boolean)) {
+    const m = /^v(\d{1,3}):([A-Za-z0-9+/]+={0,2})$/.exec(part);
+    if (!m?.[1] || !m[2]) return null;
+    const ver = Number(m[1]);
+    const key = Buffer.from(m[2], "base64");
+    if (ver < 1 || ver > 255 || keys.has(ver) || key.length !== 32) return null;
+    keys.set(ver, key);
+  }
+  return keys.size > 0 ? keys : null;
+}
+
 const schema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -51,6 +65,10 @@ const schema = z
     WHATSAPP_SERVICE_URL: z.url().refine((v) => /^https?:\/\//.test(v), "http(s) URL olmalı").default("http://89.252.189.211:3000"),
     // P8b r2 (§13.4, G-E9-4): asgari Windows istemci sürümü; boş = kontrol yok. Düşük sürüm → 426 CLIENT_OUTDATED.
     MIN_AGENT_VERSION: z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/, "x.y.z biçiminde olmalı").optional(),
+    // P10 (mimari §3.2, §8.1): `*_enc` alanlarının AES-256-GCM anahtarları; yeni yazım en yüksek sürümle, okuma `ver`
+    // baytına göre (rotasyon: yeni sürüm eklenir, eski okunabilir kalır). Production'da zorunlu; geliştirme/testte boşsa
+    // süreç başına rastgele (yeniden başlatmada kayıtlı SMTP şifresi/TOTP sırrı çözülemez). Loglanmaz.
+    APP_ENCRYPTION_KEYS: z.string().refine((v) => parseEncryptionKeys(v) !== null, "v1:<base64 32 bayt>[,v2:...] biçiminde olmalı").optional(),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   })
   .refine((e) => e.NODE_ENV !== "production" || e.TRUSTED_PROXY_CIDR, {
@@ -61,6 +79,10 @@ const schema = z
     path: ["SESSION_REF_KEY"],
     message: "production'da zorunlu (aksi halde süreç başına rastgele anahtar üretilir)",
   })
+  .refine((e) => e.NODE_ENV !== "production" || e.APP_ENCRYPTION_KEYS, {
+    path: ["APP_ENCRYPTION_KEYS"],
+    message: "production'da zorunlu (aksi halde şifreli ayarlar yeniden başlatmada okunamaz)",
+  })
   .refine((e) => e.TURN_SECRET || !/(^|,)\s*turns?:/.test(e.TURN_URLS ?? ""), {
     path: ["TURN_SECRET"],
     message: "turn:/turns: URL'si varken zorunlu",
@@ -69,7 +91,8 @@ const schema = z
     const list = e.ALLOWED_ORIGINS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
     const allowedOrigins = (list.length > 0 ? list : [e.PUBLIC_BASE_URL]).map((o) => origin.parse(o));
     const turnUrls = e.TURN_URLS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
-    return { ...e, allowedOrigins, turnUrls };
+    const encryptionKeys = e.APP_ENCRYPTION_KEYS ? parseEncryptionKeys(e.APP_ENCRYPTION_KEYS) : null;
+    return { ...e, allowedOrigins, turnUrls, encryptionKeys };
   });
 
 export type Env = z.infer<typeof schema>;
