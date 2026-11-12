@@ -42,8 +42,10 @@ type UI struct {
 	events chan flow.Event
 	footer string
 
-	lobby    *form
-	sess     *sessionWin
+	lobby *form
+	sess  *sessionWin
+	// endNote AC-187: oturum sonu ekranında gösterilecek kayıt değişikliği bilgisi (EndedNote).
+	endNote  string
 	offer    *consentDlg // dosya teklifi (ortak izin diyaloğu, S7-5)
 	offerFID string
 	ind      *indicator
@@ -170,7 +172,7 @@ func (u *UI) Welcome(ctx context.Context, w flow.Welcome) (string, bool) {
 	}
 	ch := make(chan res, 1)
 	u.t.Do(func() {
-		f := u.t.newForm(appTitle+" — Karşılama", 520, 612, false)
+		f := u.t.newForm(appTitle+" — Karşılama", 520, 652, false)
 		f.label("Uzaktan destek bağlantısı", 16, 14, 488, 30, fontBig)
 		f.label(w.Tenant+" teknisyeni sizinle uzaktan destek oturumu başlatmak istiyor.", 16, 50, 488, 20, fontNormal)
 		f.label("Teknisyen: "+w.TechName, 16, 74, 352, 20, fontBold)
@@ -193,14 +195,15 @@ func (u *UI) Welcome(ctx context.Context, w flow.Welcome) (string, bool) {
 		f.label(fmt.Sprintf("Aydınlatma metni (sürüm %d)", w.ConsentVersion), 16, 272, 488, 20, fontBold)
 		consent := f.edit(0, 16, 294, 488, 120, win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
 		win.SetText(consent.h, crlf(w.ConsentBody))
-		f.label("Adınız ve soyadınız (teknisyeniniz sizi bu adla görür)", 16, 422, 488, 20, fontNormal)
-		name := f.edit(idName, 16, 444, 300, 28, win.ES_AUTOHSCROLL, 100)
+		f.label(w.RememberNote, 16, 420, 488, 36, fontNormal) // AC-188 (kayıt kapalıysa boş)
+		f.label("Adınız ve soyadınız (teknisyeniniz sizi bu adla görür)", 16, 462, 488, 20, fontNormal)
+		name := f.edit(idName, 16, 484, 300, 28, win.ES_AUTOHSCROLL, 100)
 		chk := f.add("BUTTON", "Aydınlatma metnini okudum; ekran görüntümün bu oturum boyunca teknisyenle "+
 			"paylaşılmasını kabul ediyorum. Uzaktan kontrol için ayrıca onay istenir.",
-			win.WS_TABSTOP|win.BS_AUTOCHECKBOX|win.BS_MULTILINE, 0, idConsent, 16, 480, 488, 52, fontNormal)
-		connect := f.button("Bağlan", idOK, 318, 544, 90, true)
-		f.button("Vazgeç", idCancel, 414, 544, 90, false)
-		f.label(u.footer, 16, 586, 488, 20, fontNormal)
+			win.WS_TABSTOP|win.BS_AUTOCHECKBOX|win.BS_MULTILINE, 0, idConsent, 16, 520, 488, 52, fontNormal)
+		connect := f.button("Bağlan", idOK, 318, 584, 90, true)
+		f.button("Vazgeç", idCancel, 414, 584, 90, false)
+		f.label(u.footer, 16, 626, 488, 20, fontNormal)
 		win.EnableWindow(connect.h, false)
 		valid := func() bool {
 			return win.SendMessage(chk.h, win.BM_GETCHECK, 0, 0) == 1 && strings.TrimSpace(win.GetText(name.h)) != ""
@@ -548,6 +551,11 @@ func (u *UI) FileResult(r transfer.Result) {
 	})
 }
 
+// EndedNote AC-187: Ended'dan önce çağrılır; "Bu bilgisayar artık … için kayıtlı" son ekrana eklenir.
+func (u *UI) EndedNote(note string) {
+	u.t.Do(func() { u.endNote = note })
+}
+
 // Ended son ekran; göstergeler ve işaretleme katmanı hemen kalkar (AC-107: çağıran 3 sn içinde kapatır).
 func (u *UI) Ended(m flow.Message) {
 	u.t.Do(func() {
@@ -556,14 +564,24 @@ func (u *UI) Ended(m flow.Message) {
 			s.finished = true
 			win.SetText(s.watch.h, m.Title)
 			win.SetText(s.status.h, m.Body)
+			if u.endNote != "" {
+				appendLine(s.history, "Sistem", u.endNote)
+			}
 			for _, c := range []*ctrl{s.input, s.sendBtn, s.endBtn, s.fileBtn, s.grantBtn, s.closeBtn} {
 				win.EnableWindow(c.h, false)
 			}
 			return
 		}
-		f := u.t.newForm(appTitle, 420, 120, true)
+		h := int32(120)
+		if u.endNote != "" {
+			h = 164
+		}
+		f := u.t.newForm(appTitle, 420, h, true)
 		f.label(m.Title, 16, 16, 388, 24, fontBold)
 		f.label(m.Body, 16, 48, 388, 56, fontNormal)
+		if u.endNote != "" {
+			f.label(u.endNote, 16, 108, 388, 40, fontBold)
+		}
 		f.close = func() {}
 		f.show(win.WorkAreaAt(win.CursorPos()), true, nil)
 		u.ended = f

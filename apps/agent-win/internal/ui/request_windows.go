@@ -112,7 +112,7 @@ func (u *UI) RequestProblem(ctx context.Context, p request.Problem) request.Prob
 			add("Tekrar dene", idOK, 110)
 		}
 		if p.CodeMode {
-			add("Teknisyenden kod aldım", idReqCode, 180)
+			add("Bağlantı kodum var", idReqCode, 180)
 		}
 		f.button("Kapat", idCancel, 374, 132, 90, focus == nil)
 		f.label(u.footer, 16, 184, 448, 20, fontNormal)
@@ -141,7 +141,8 @@ func (u *UI) RequestProblem(ctx context.Context, p request.Problem) request.Prob
 }
 
 // RequestForm AC-133..137, 164: firma penceresi + form. Tab sırası oluşturma sırasıdır ((varsa) kötüye kullanımı
-// bildir → ad → telefon → e-posta → açıklama → aydınlatma metni → onay → hatırla → unut → Destek iste → kod → kapat);
+// bildir → ad → telefon → e-posta → açıklama → aydınlatma metni → onay → hatırla → unut → Destek iste → Bağlantı kodum
+// var → kapat);
 // pencere ad alanında odakla açılır. Enter "Destek iste"yi tetikler (açıklama alanı ES_WANTRETURN'süz çok satırlı:
 // Enter varsayılan düğmeye gider). S8b2-1: müşteri kutuya dokunmadıysa ad/telefon değişince (EN_CHANGE) "hatırla"
 // işaretsize çekilir; hatırlanan başka kişinin kutusu yeni kişinin verisini onaysız diske yazdırmaz.
@@ -162,7 +163,7 @@ func (u *UI) RequestForm(ctx context.Context, v request.FormView) (request.FormA
 }
 
 func (u *UI) newReqForm(v request.FormView) *reqForm {
-	f := u.t.newForm(appTitle+" — "+v.Tenant, 540, 690, false)
+	f := u.t.newForm(appTitle+" — "+v.Tenant, 540, 730, false)
 	r := &reqForm{f: f, errs: map[string]*ctrl{}}
 	logo := v.Logo
 	if logo == nil {
@@ -190,19 +191,20 @@ func (u *UI) newReqForm(v request.FormView) *reqForm {
 	f.label(fmt.Sprintf("Aydınlatma metni (sürüm %d)", v.ConsentVersion), 16, 360, 508, 20, fontBold)
 	text := f.edit(0, 16, 382, 508, 80, win.ES_MULTILINE|win.ES_READONLY|win.ES_AUTOVSCROLL|win.WS_VSCROLL, 0)
 	win.SetText(text.h, crlf(v.ConsentBody))
+	f.label(v.RememberNote, 16, 466, 508, 36, fontNormal) // AC-188: KVKK onayının üstünde
 	r.consent = f.add("BUTTON", "Aydınlatma metnini okudum; bilgilerimin destek talebi için işlenmesini kabul ediyorum. "+
 		"Ekran paylaşımı için teknisyen bağlanırken ayrıca onay istenir.",
-		win.WS_TABSTOP|win.BS_AUTOCHECKBOX|win.BS_MULTILINE, 0, idReqConsent, 16, 466, 508, 36, fontNormal)
-	r.errs[request.FieldConsent] = f.danger("", 16, 502, 508, 18, fontNormal)
+		win.WS_TABSTOP|win.BS_AUTOCHECKBOX|win.BS_MULTILINE, 0, idReqConsent, 16, 506, 508, 36, fontNormal)
+	r.errs[request.FieldConsent] = f.danger("", 16, 542, 508, 18, fontNormal)
 	r.remember = f.add("BUTTON", "Bilgilerimi bu bilgisayarda hatırla", win.WS_TABSTOP|win.BS_AUTOCHECKBOX, 0,
-		idReqRemember, 16, 526, 300, 22, fontNormal)
-	r.forget = f.button("Bilgilerimi unut", idReqForget, 374, 523, 150, false)
-	r.hint = f.label("Bu bilgiler size ait değilse: Bilgilerimi unut", 16, 552, 508, 18, fontNormal)
-	r.notice = f.danger("", 16, 574, 508, 36, fontNormal)
-	r.submit = f.button("Destek iste", idOK, 16, 616, 140, true)
-	r.code = f.button("Teknisyenden kod aldım", idReqCode, 164, 616, 190, false)
-	r.closeB = f.button("Kapat", idCancel, 434, 616, 90, false)
-	f.label(u.footer, 16, 660, 508, 20, fontNormal) // sunucu + sürüm + SHA-256 ilk 8 (AC-133)
+		idReqRemember, 16, 566, 300, 22, fontNormal)
+	r.forget = f.button("Bilgilerimi unut", idReqForget, 374, 563, 150, false)
+	r.hint = f.label("Bu bilgiler size ait değilse: Bilgilerimi unut", 16, 592, 508, 18, fontNormal)
+	r.notice = f.danger("", 16, 614, 508, 36, fontNormal)
+	r.submit = f.button("Destek iste", idOK, 16, 656, 140, true)
+	r.code = f.button("Bağlantı kodum var", idReqCode, 164, 656, 190, false)
+	r.closeB = f.button("Kapat", idCancel, 434, 656, 90, false)
+	f.label(u.footer, 16, 700, 508, 20, fontNormal) // sunucu + sürüm + SHA-256 ilk 8 (AC-133)
 	reply := func(act request.FormAction) {
 		if r.pending == nil {
 			return // gönderim sürüyor

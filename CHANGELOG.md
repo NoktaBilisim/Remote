@@ -5,6 +5,20 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P8c-2 (Windows istemci 0.10.0: kalıcı istemci / bilgisayar kaydı; ADR-0017, mimari-e10 §8)
+- **Bilgisayar kaydı:** başarılı bir oturumda (müşteri ekran paylaşımına onay verdikten sonra) istemci sunucudan bu
+  bilgisayar için bir kayıt alır ve mevcut DPAPI dosyasına (`hatirla.bin`, format v2; v1 dosyalar otomatik okunur)
+  yazar. Kayıt yalnız talep açar; oturum veya uzaktan erişim yetkisi vermez. Anahtar yalnız kaydı veren sunucuya
+  gönderilir.
+- **Ana ekran:** "Destek iste" (birincil) + "Bağlantı kodum var" (8 haneli kod; eski "Teknisyenden kod aldım"ın
+  yerine) + "Bu bilgisayarı unut" + "Kötüye kullanımı bildir". Kayıtlıysa "Bu bilgisayar <firma>[ – <müşteri>] için
+  kayıtlı". Süresi dolmuş `Destek-<kod>.exe` ya da geçersiz firma dosyası kayıt varsa ana ekrana düşer; adında kaynak
+  olmayan dosyada kayıt yoksa "Destek iste" pasiftir.
+- **Geçersiz kayıt:** açılışta ya da talep gönderirken kayıt geçersizse kayıt silinir (kişisel bilgiler kalır) ve
+  "Bu bilgisayarın destek kaydı artık geçerli değil…" gösterilir. "Bu bilgisayarı unut" dosyayı ve boşsa klasörü siler,
+  sunucuda kaydı iptal eder. Karşılama ve talep formunda aydınlatma bilgi satırı; oturum sonunda kayıt başka firmaya
+  geçtiyse bilgi verilir. Müşteri pasife alındı / kayıt iptal edildi kapanışları genel metinle gösterilir.
+
 ### Düzeltildi — istemci 0.9.1
 - Windows istemcisi GUI alt sistemiyle derlenir (`-H=windowsgui`): açılışta çıkan boş siyah konsol penceresi kalktı
   (0.6.0'dan beri vardı).

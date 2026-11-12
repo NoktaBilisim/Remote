@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"slices"
 	"time"
 
 	"remote-support/agent-win/internal/api"
@@ -56,6 +57,17 @@ type Welcome struct {
 	Notice                           string
 	// Logo firma logosu (QA-P6-1); nil ise arayüz gömülü sistem logosunu (Nokta) gösterir.
 	Logo image.Image
+	// RememberNote AC-188 bilgi satırı ("Oturumdan sonra bu bilgisayar … için hatırlanır"); kayıt kapalıysa boş.
+	RememberNote string
+}
+
+// BindingHandler P8c (ADR-0017, mimari-e10 §8.4): bilgisayar kaydının alınması. Uygulaması internal/launch'tadır.
+type BindingHandler interface {
+	// PreviousKey dosyadaki kaydın anahtarı; YALNIZ kaydın kanonik kökeni gömülü sunucununkiyle aynıysa (T43), yoksa "".
+	PreviousKey() string
+	// Issued anahtarı DPAPI dosyasına yazar (hata sessiz; oturum etkilenmez). Kayıt başka firma/müşteriye geçtiyse
+	// oturum sonu bilgisi için "<firma>[ – <müşteri>]" döner, değilse "".
+	Issued(m signal.BindingIssued) string
 }
 
 // UI akışın arayüzden beklediği işlemler. Engelleyen çağrılar (AskCode, Welcome, ChooseMonitor) yalnız oturum
@@ -142,6 +154,8 @@ type Deps struct {
 	ReconnectWindow time.Duration
 	// ReconnectEvery deneme aralığı (varsayılan 2 sn).
 	ReconnectEvery time.Duration
+	// Binding P8c: nil ise `binding.offer` yok sayılır (kayıt istenmez) ve AC-188 satırı gösterilmez.
+	Binding BindingHandler
 	// Admitted P8b-2: ilk `hello` geldiğinde bir kez çağrılır (talep modu `/ws/request`'i 1000 ile ancak bundan sonra
 	// kapatır; öncesindeki 1000 sunucuda "vazgeçme" sayılır). nil olabilir.
 	Admitted func()
@@ -153,6 +167,8 @@ type Outcome struct {
 	// Failed oturum bağlantı/protokol hatasıyla bitti (kullanıcı kararı veya sunucu son durumu değil). Talep modu bunu
 	// hello'dan önce `/ws/request`'i 1001 ile bırakmak için kullanır (CONNECT_FAILED, "vazgeçti" değil).
 	Failed bool
+	// BindingChanged AC-187: bu oturumda kayıt başka firma/müşteriye geçti ("<firma>[ – <müşteri>]"); yoksa boş.
+	BindingChanged string
 }
 
 // Run akışı baştan sona yürütür. initial dosya adından okunan koddur (boşsa elle giriş istenir, AC-97).
@@ -163,7 +179,7 @@ func Run(ctx context.Context, d Deps, initial string) Outcome {
 		return out
 	}
 	s := &session{d: d, techName: res.Technician.Name, gate: newGate(d.Gate), pendingMon: -1}
-	return s.run(ctx, jr)
+	return s.finish(s.run(ctx, jr))
 }
 
 // RunTicket P8b-2 (mimari-protokol §5.2): talepten doğan oturum. Kod/karşılama/join/lobi yoktur — müşteri onayı
@@ -172,7 +188,7 @@ func Run(ctx context.Context, d Deps, initial string) Outcome {
 func RunTicket(ctx context.Context, d Deps, ticket, techName string) Outcome {
 	d = withDefaults(d)
 	s := &session{d: d, techName: techName, gate: newGate(d.Gate), pendingMon: -1, preAdmitted: true}
-	return s.run(ctx, &api.JoinResult{WsTicket: ticket, TechnicianName: techName})
+	return s.finish(s.run(ctx, &api.JoinResult{WsTicket: ticket, TechnicianName: techName}))
 }
 
 func withDefaults(d Deps) Deps {
@@ -222,7 +238,7 @@ func admitStage(ctx context.Context, d Deps, initial string) (*api.JoinResult, *
 			Host: d.Host, Version: d.Version, Fingerprint: d.Fingerprint,
 			Tenant: res.Tenant.Name, TechName: res.Technician.Name, TechVerifyCode: res.TechVerifyCode,
 			ConsentVersion: res.ConsentText.Version, ConsentBody: res.ConsentText.Body, AbuseEmail: abuse,
-			Notice: welcomeNotice, Logo: tenantLogo(ctx, d, res.Tenant.LogoURL),
+			Notice: welcomeNotice, Logo: tenantLogo(ctx, d, res.Tenant.LogoURL), RememberNote: rememberNote(d, res.Tenant.Name),
 		})
 		if !ok {
 			return nil, nil, Outcome{}, false
@@ -321,6 +337,9 @@ type session struct {
 	envCh      chan env.State
 	// preAdmitted talepten doğan oturum: lobi ekranı yerine "Teknisyen bağlanıyor…".
 	preAdmitted bool
+	// P8c kayıt: bindingPending istek gönderildi, yanıt (issued/error) bekleniyor; bindingDone kayıt alındı.
+	bindingPending, bindingDone bool
+	bindingChanged              string
 	// techLost bir önceki sunucu mesajı control.revoke{reconnect} idi ve kontrol/diyalog kapattı (yalnız bir mesaj yaşar).
 	techLost bool
 }
@@ -484,7 +503,13 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 	case signal.ControlRequest, signal.MonitorRequest, signal.ControlRevoke, signal.ControlRelease, signal.ControlCancel,
 		signal.CapsUpdate:
 		s.onControlServer(ctx, m)
+	case signal.BindingOffer, signal.BindingIssued:
+		s.onBinding(ctx, m)
 	case signal.ErrorMsg:
+		if s.bindingPending && slices.Contains(bindingErrorCodes, m.Code) { // kayıt reddi: oturum sürer, gösterilmez
+			s.bindingPending = false
+			return Outcome{}, false
+		}
 		s.d.UI.Status(m.Message)
 	}
 	return Outcome{}, false

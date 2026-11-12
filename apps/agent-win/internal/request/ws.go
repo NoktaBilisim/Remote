@@ -35,7 +35,7 @@ var (
 	verifyRe = regexp.MustCompile(`^[0-9]{4}$`)
 
 	closedStatuses = []string{"CANCELLED", "EXPIRED", "REJECTED", "CONNECT_FAILED"}
-	cancelReasons  = []string{"CUSTOMER", "DISCONNECTED", "TENANT_PASSIVE"}
+	cancelReasons  = []string{"CUSTOMER", "DISCONNECTED", "TENANT_PASSIVE", "CUSTOMER_PASSIVE", "BINDING_REVOKED"} // P8c: ≥ 0.10.0 gerçek neden alır (mimari-e10 §5.4)
 	wsErrorCodes   = []string{"RATE_LIMITED", "VALIDATION", "INTERNAL"}
 )
 

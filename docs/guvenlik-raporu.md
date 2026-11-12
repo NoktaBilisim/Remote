@@ -1,3 +1,100 @@
+# Güvenlik Raporu — E10/P8c-2 — Kod turu 2 (2026-11-12)
+DURUM: GEÇTİ (Kritik/Yüksek 0)
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (+1 bilgi)
+
+Kapsam: Bu tur dar kapsamlı. "Kod turu 1" bulgularının (B-P8c2-1, B-P8c2-2, B-P8c2-3) kapanışını ve `docs/implementation.md` "P8c-2 — düzeltme turu 1" notunu doğruluyor. Ayrıca S5 daraltmasının güvenlik etkisini değerlendiriyor. İncelenen dosyalar: `apps/agent-win/internal/request/run.go`, `flow/{flow,binding}.go`, `launch/run.go` ve sunucu tarafında karşılaştırma için `apps/server/src/signaling/binding.ts`. Testler tekrar koşulmadı. backend-dev notundaki sonuç esas alındı (18 paket ok, Windows vet temiz, yeniden üretilebilir derleme SHA-256 `5255edc8…`). Test fonksiyonlarının varlığı doğrulandı.
+
+## Tur 1 bulgularının durumu
+| Bulgu | Durum | Kanıt |
+|---|---|---|
+| B-P8c2-1 (Düşük) her 404 kaydı siliyor | **Kapandı** | `request/run.go:239`: status yolunda `bindingInvalid()` yalnız `ae.Code == "BINDING_INVALID"` iken çağrılıyor. `ae.Status == 404` koşulu kaldırıldı. Kodsuz veya başka kodlu 404 genel `infoProblem` yoluna düşüyor; kayıt korunuyor ve "Tekrar dene" gösteriliyor. Oluşturma yolu (`run.go:420`) zaten yalnız kodla çalışıyordu. Silme yalnız `launch/run.go:117` `OnBindingInvalid` üzerinden yapılıyor ve başka çağıran yok. Test: `request/home_test.go:109` `TestBP8c21Status404WithoutCodeKeepsBinding` (`NOT_FOUND`, `UNKNOWN`). |
+| B-P8c2-2 (Düşük) teklif aşama kontrolü yok | **Kapandı** | `flow/binding.go:24`: `BindingOffer` yalnız `s.phase == phActive` iken işleniyor (ayrıca `!bindingDone && !bindingPending && conn != nil`). `phActive` yalnız `onHello` sonunda atanıyor (`flow.go:574`). Lobide (`phLobby`) ve yeniden bağlanırken (`phReconnecting`) gelen teklif yok sayılıyor. `BindingIssued` yalnız `bindingPending` iken yazılıyor; bu bayrak da yalnız aktif aşamadaki bir istekten sonra açılıyor. Böylece istenmemiş ya da lobi kaydı yazılamıyor. Test: `flow/binding_test.go:130` `TestBP8c22OfferInLobbyIgnored`. |
+| B-P8c2-3 (Bilgi) `customerFirmName` varlığı | **Kapandı (kod gerekmedi)** | `decodeStrict` zorunlu alanın varlığını şart koşuyor. Alanın olmadığı fixture `signal.TestAC181BindingServerMessagesStrict` içinde reddediliyor (implementation notu, madde 5). |
+
+## S5 daraltmasının değerlendirmesi — güvenlik etkisi yok
+- **Kapsam doğru:** `flow/binding.go` `bindingErrorCodes = {FORBIDDEN, CONFLICT, RATE_LIMITED, INTERNAL}`. Bu küme, sunucunun `binding.request` yolunda gönderdiği kodlarla birebir aynı (`server/src/signaling/binding.ts:24,29,35,41,44`). Sunucu bu yolda başka bir kod göndermiyor. Biçim hatası protokol düzeyinde (1008) ele alınıyor.
+- **Yutma yalnız istek bekliyorken ve tek seferlik:** `flow.go:509`, yalnız `s.bindingPending` iken ve küme içindeki kod geldiğinde çalışıyor. İlk eşleşmede bayrak kapanıyor. Diğer tüm `error` mesajları (`ADMIT_CODE_INVALID`, `NOT_FOUND`, `VALIDATION` ve beklemede olmayan dönemde gelen her kod) durum satırında gösteriliyor. Tur 1'deki "her error yutulur" geniş davranışına göre görünürlük arttı.
+- **Güvenlik kontrolü atlatılamıyor:** Yutulan şey yalnız bir durum satırı metni. Oturumu sonlandıran ya da yetki iptal eden olaylar `error` mesajıyla değil, kapanış kodlarıyla (`ClosePolicy`, `CloseAuthRevoked` → `signal.Fatal`, `flow.go:382`) ve `session.ended` ile geliyor. Bunlar yutma yolundan geçmiyor. Kontrol isteği, izin kapısı (`gate`) ve kayıt yazma kararları `error` mesajına bağlı değil. Kayıt reddi sonrasında istemci yeni istek göndermiyor (`bindingPending=false` olsa da `bindingDone` yok; sunucu oturum başına en çok 3 istek kabul ediyor). Ret sonrası istek seli oluşmuyor çünkü yeni istek yalnız yeni bir `binding.offer` ile tetikleniyor.
+- **Yanlış eşleşme etkisi:** İstek beklerken bağımsız bir yoldan aynı kümeden bir kod gelirse (şu an misafire bu kodları gönderen başka akış pratikte yok), yalnız o tek mesaj gösterilmez. Sonuç UX düzeyinde kalıyor, güvenlik etkisi yok.
+
+### [BİLGİ] B-P8c2-4 `bindingPending` yeniden bağlanmada sıfırlanmıyor
+Yer: `apps/agent-win/internal/flow/flow.go:388-395` (kopuş → `phReconnecting`), `flow/binding.go:24`.
+Sorun: İstek gönderilip yanıt gelmeden soket koparsa `bindingPending` true kalıyor. Yeniden bağlanınca sunucunun yeni soketten gönderdiği teklif yok sayılıyor ve bu oturumda kayıt alınamıyor. Ayrıca sonraki ilk küme-içi `error` mesajı yutulabiliyor. Davranış fail-safe: kayıt yazılmıyor, anahtar sızmıyor. Sunucu eski isteğin sonucunu kapanmış sokete yazdığı için yeni sokette istenmemiş `issued` riski de yok.
+Düzeltme (isteğe bağlı, backend-dev Go): Kopuşta (`s.phase = phReconnecting` satırında) `s.bindingPending = false` yapılmalı. "İstek → kopuş → yeniden bağlanma → yeni teklif → tek istek" testi eklenmeli. `docs/gereksinimler.md` §9'a "Sonra" olarak eklenebilir.
+
+## Otomatik tarama çıktıları
+Bu turda go.mod/go.sum ve JS bağımlılıkları değişmedi (implementation notu). Tarama tekrarlanmadı. Geçerli sonuçlar "Kod turu 1" ve "P8c-1 Kod turu 2" bölümlerinde.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+Yok. G-E10-5/6/9 ve "yalnız admitted oturumda istek" şartı artık hem sunucuda hem istemcide uygulanıyor.
+
+## Olumlu
+- Her iki düzeltme dar ve hedefli. Her biri adıyla izlenebilen bir regresyon testiyle kapatılmış.
+- S5 kümesi sunucu koduyla birebir eşleşiyor ve tasarım belgesine referans veriyor.
+- Kayıt silme kararı artık tek bir koda (`BINDING_INVALID`) bağlı. Altyapı kaynaklı 404'ler kullanıcının cihaz kaydını yok edemiyor.
+
+---
+
+# Güvenlik Raporu — E10/P8c-2 — Kod turu 1 (2026-11-12)
+DURUM: GEÇTİ (Kritik/Yüksek 0)
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 (+1 bilgi)
+
+Kapsam: Windows Go istemcisi 0.10.0 (`apps/agent-win`, commit edilmemiş değişiklikler): `internal/remember/{origin,data,remember,dpapi_windows}.go`, `internal/api/{bindings,requests,api}.go`, `internal/signal/messages.go`, `internal/flow/{flow,binding}.go`, `internal/launch/{decide,run,keeper}.go`, `internal/request/{run,home,types,wait,ws,validate}.go`, `internal/ui/home_windows.go`, `internal/win/win_windows.go` (OpenURL/OpenMailto). Tasarım şartları: G-E10-5, G-E10-6, G-E10-9 (aşağıdaki "E10/P8c — Tasarım turu"), mimari-e10 §8, §15, ADR-0017, ADR-0004 r4. Testler tekrar koşulmadı; backend-dev notundaki sonuç esas alındı (18 paket ok, Windows vet temiz).
+
+## Karar: S1 sapması (IDNA kullanılmadı) — KABUL
+`remember.CanonicalOrigin` (`internal/remember/origin.go:20-43`) Unicode host'u reddediyor; punycode (`xn--`) ve IP kabul ediliyor. Bu sapma kabul edilebilir:
+- Anahtarın gideceği yer kökene göre seçilmiyor. Tüm istekler gömülü `cfg.ServerURL` tabanlı tek `api.Client`'tan (`api/api.go:187-188`) ve `signal.Dial(cfg.ServerURL)` üzerinden gidiyor. Köken karşılaştırması yalnız "dosyadaki kayıt bu sunucunun mu?" sorusunu yanıtlıyor (`launch/run.go:49,99`; `keeper.go:31`). Yanlış "eşit değil" sonucu fail-closed olur: anahtar gönderilmez, dosya da silinmez. Yanlış "eşit" sonucu ise imkânsız, çünkü iki taraf da aynı fonksiyondan geçen dizeler ve karşılaştırma dize eşitliği.
+- Gömülü adres ASCII (`config.go:50`, yalnız `Host`), dolayısıyla bugünkü dağıtımda (remote.noktabilisim.net, staging IP:port) işlev kaybı yok. IDN alan adına geçilirse build.sh punycode adresle çağrılmalı. Bu satır runbook'a/`build.sh` yorumuna eklenmeli (devops, isteğe bağlı).
+- `golang.org/x/text` için yeni modül eklemekten kaçınılması tedarik zinciri açısından olumlu.
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] B-P8c2-1 `bindings/status` yanıtındaki her 404, kodu ne olursa olsun yerel kaydı siliyor — A04 (erişilebilirlik)
+Yer: `apps/agent-win/internal/request/run.go` `loadInfo`: `case r.d.BindingKey != "" && errors.As(err, &ae) && (ae.Code == "BINDING_INVALID" || ae.Status == 404): r.bindingInvalid()` → `launch/run.go` `OnBindingInvalid` → `Store.ClearBinding()`.
+Sorun: Sunucu P8c öncesine geri alınırsa (mimari "geri alma güvenli" diyor), Fastify'ın rota yok yanıtı veya ara katmandaki bir proxy/Caddy 404'ü `BINDING_INVALID` gibi işleniyor. Sonuçta DB'de hâlâ geçerli olan kayıt istemcide kalıcı olarak siliniyor. Talep oluşturma yolu doğru yazılmış (yalnız `ae.Code == "BINDING_INVALID"`, `run.go` form switch). Güvenlik açığı değil. Etkisi, geri almadan sonra müşterinin yeniden kod oturumu yapması gerekmesi.
+İstismar senaryosu: Saldırı yok. Sunucu geri alındığında veya yanlış yapılandırılmış bir proxy araya girdiğinde, kayıtlı tüm 0.10.0 istemciler ilk açılışta kaydını kaybeder.
+Düzeltme (backend-dev Go): Status yolunda da yalnız `ae.Code == "BINDING_INVALID"` ile silinmeli. Başka bir 404 (kodsuz/`NOT_FOUND`) genel ağ/sunucu hatası sayılmalı ve kayıt korunmalı. `run_test.go`'ya "404 + code NOT_FOUND → ClearBinding çağrılmaz" testi eklenmeli.
+
+### [DÜŞÜK] B-P8c2-2 `binding.offer` istemcide admit/aktif aşama kontrolü olmadan işleniyor — A04 (derinlemesine savunma)
+Yer: `apps/agent-win/internal/flow/binding.go:15-24` (`onBinding`), `flow/flow.go` `onServer` (`case signal.BindingOffer, signal.BindingIssued`). Lobi aşamasındaki mesajlar da aynı `onServer`'dan geçiyor (`case signal.LobbyWait`).
+Sorun: İstemci, teklifi oturumun `hello` almış olup olmadığına (`s.phase`) bakmadan yanıtlıyor. Bugün sunucu teklifi yalnız hello'dan sonra gönderiyor. Ayrıca ADMITTED olmayan sokette gelen `binding.request` 1008 ile kapatılıyor. Bu nedenle sömürülebilir bir yol yok. Görevdeki "yalnız admitted oturumda istek" şartı şu anda yalnız sunucuda uygulanıyor. Sunucu tarafında bir regresyon olursa lobideki istemci isteği gönderir ve 1008 ile oturumu kaybeder.
+İstismar senaryosu: Doğrudan istismar yok. Bu kontrol yalnız tek katmanlı.
+Düzeltme (backend-dev Go): `onBinding`'de `BindingOffer` yalnız hello sonrası (`s.phase == phActive` veya eşdeğer bayrak) işlenmeli, öncesi yok sayılmalı. `binding_test.go`'ya "lobide teklif → istek yok" testi eklenmeli.
+
+### [BİLGİ] B-P8c2-3 `binding.issued.customerFirmName` alanı yokken de kabul ediliyor
+Yer: `apps/agent-win/internal/signal/messages.go` `BindingIssued.CustomerFirmName *string` + `decodeValid`. Alan hiç gönderilmediğinde de `null` gibi işleniyor. Sözleşmede alan zorunlu ve nullable (`packages/contracts/src/ws.ts:231`). implementation.md "zorunlu/null" diyor, kod ise yalnız null kontrolü yapıyor. Güvenlik etkisi yok (sonuç "Genel" kayıt). Not olarak düşüldü. İstenirse `json.RawMessage` ile alanın varlığı denetlenebilir (backend-dev Go).
+
+## Denetlenen kontroller (sorun yok)
+- **Anahtar yalnız kanonik kökene:** `api.Client` yönlendirme takip etmiyor (`api/api.go:87-89` `CheckRedirect → ErrUseLastResponse`). 3xx yanıtı hata zarfı olarak döner ve gövde yeniden gönderilmez. Şema yalnız `https` (`config.go:50`). HTTP→HTTPS düşürme yolu yok. TLS ≥ 1.2, sistem kökleri, doğrulama gevşetilmiyor. `PreviousKey` (`keeper.go:28-34`), `BindingKey` talep modu (`launch/run.go:91-98`) ve "unut" sonrası revoke (`run.go:109`, `usable`) üçü de `local.Server == server` dize eşitliğine bağlı. Eşleşmeyen kayıt kullanılmıyor ve silinmiyor (T43). Anahtar URL'de değil, yalnız JSON gövdede taşınıyor (`api/bindings.go`).
+- **CanonicalOrigin:** `https` dışı, userinfo, opaque, yol (`/` dışı), sorgu, `?` (ForceQuery), parça ve `#` reddediliyor. Boş port (`host:`) red, port 1..65535 aralığında, baştaki sıfırlar atılıyor. Host küçük harfe çevriliyor ve sondaki nokta siliniyor. LDH etiket kuralları ve ≤ 253 sınırı uygulanıyor. IP'ler `net.IP.String()` ile kanonik yazılıyor, IPv6 köşeli parantez içinde. `Binding.valid()` dosyadaki `Server`'ın zaten kanonik olmasını şart koşuyor (`data.go:96-99`).
+- **DPAPI v2 dosyası:** CurrentUser, `CRYPTPROTECT_UI_FORBIDDEN`. Entropi ADR-0004 r4'e uygun olarak değişmedi (`dpapi_windows.go:13`). Konum `%LOCALAPPDATA%` (dolaşımsız). Şifreli boyut ≤ 16 KB, düz boyut ≤ 4 KB. `DisallowUnknownFields` ile katı ayrıştırma yapılıyor. Bilinmeyen sürüm, `deviceKey`↔`personal` tutarsızlığı, regex/uzunluk/kontrol karakteri ihlali ya da DPAPI hatası olursa dosya silinip "yok" sayılıyor (`remember.go:50-68`, `data.go:113-153`). v1 bellekte yükseltiliyor ve ilk yazım v2 oluyor. Yazma atomik: `.tmp` O_EXCL → Sync → Rename (Windows'ta MoveFileEx REPLACE_EXISTING), artık tmp temizleniyor. Oku-değiştir-yaz tek mutex altında. Dosya izni 0600/0700 Windows'ta etkisiz, ancak klasör `%LOCALAPPDATA%` kullanıcı ACL'sini miras alıyor. Bu yeterli.
+- **G-E10-5:** `ClearPersonal` `deviceKey`'i de siliyor (S4). Kayıtla açılan talepte `deviceKey` gönderilmiyor (`run.go` `if keep && r.d.BindingKey == ""`). `Ref`/`BindingKey` `omitempty`.
+- **Sızıntı:** Yeni paketlerde log çağrısı yok. `api.Error`/`net/http` hata metinlerinde yalnız URL var, anahtar yok. UI'da anahtar hiç gösterilmiyor. Test sabitleri sahte (`rsb_AAAA…`), gerçek anahtar yok.
+- **"Bu bilgisayarı unut":** Önce `ForgetAll` (dosya + tmp, klasör boşsa o da) çalışıyor. Ardından yalnız aynı kökenli anahtar için 2 sn'lik tek denemeli revoke gidiyor. Son olarak `keeper.forget()` aynı süreçte `previousKey` gönderimini engelliyor (`launch/run.go:103-115`). Ağ hatası yerel silmeyi etkilemiyor.
+- **binding.\* ayrıştırma:** `decodeStrict` + şema kontrolü (`bindingKeyRe`, tenant ≤ 120, müşteri ≤ 100 UTF-16) yapılıyor. Giden `BindingRequest.previousKey` regex ile doğrulanıyor. İstenmemiş `issued` yazılmıyor. Her teklife ≤ 1 istek gidiyor, kayıt alındıktan sonra gelen teklifler yok sayılıyor. İstekten sonraki `error` yutuluyor, oturum sürüyor (S5; bu sırada gelen ilgisiz bir hata da yalnız durum satırında gösterilmez, etkisi önemsiz).
+- **BINDING_INVALID:** Oluşturma yolunda form kapanıyor, `ClearBinding` çalışıyor (kişisel bilgiler kalıyor) ve AC-185 ana ekranı açılıyor. Status yolu için B-P8c2-1'e bakın.
+- **Sunucu metinleri:** Tenant ve müşteri adları dosyaya yazılmadan önce `request.Display` ile temizleniyor (`keeper.go:41-45`), ekranda da yine aynı fonksiyondan geçiyor (`run.go applyInfo`, `launch/run.go:99`). Kontrol, biçim ve bidi karakterleri atılıyor, satır sonları boşluğa çevriliyor. Dosyadan okunan değer `validText` ile ayrıca denetleniyor. `CUSTOMER_PASSIVE`/`BINDING_REVOKED` için neden gösterilmiyor, genel metin kullanılıyor.
+- **OpenURL https-only korunuyor:** `win.OpenURL` `https://` öneki istiyor ve boşluk, tırnak ve CR/LF/TAB içeren adresi reddediyor. Tek çağıran `DownloadURL`, kayıt modunda `Ref` olmadığı için indirme düğmesi çıkmıyor. `OpenMailto` yalnız `ValidAbuseEmail` ile doğrulanmış adresi açıyor (değişmedi).
+- **0.9.x uyumu:** 0.9.x istemci teklif almıyor (sunucuda sürüm kapısı var). 0.10.0 istemci eski sunucuya bağlanırsa teklif gelmiyor, kayıt istenmiyor ve `cancelReasons` genişlemesi zararsız kalıyor. Tek istisna B-P8c2-1 (status 404).
+
+## Otomatik tarama çıktıları
+- `govulncheck@v1.9.0` (docker `golang:1.26-bookworm`, `apps/agent-win`, `GOOS=windows` ve linux): **"Your code is affected by 0 vulnerabilities."** Gerekli modüllerde 3 bilinen zafiyet var, ancak bunları içeren kod yollarına çağrı yok (sembol düzeyinde 0).
+- Gizli bilgi taraması (`git grep` kalıbı, `apps/agent-win`): eşleşme yok. Diff'te `rsb_` biçimli yalnız iki sahte test anahtarı var (`rsb_AAAA…`, `rsb_BBBB…`).
+- go.mod/go.sum değişmedi, yeni bağımlılık yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- IDNA normalleştirmesi (G-E10-6): S1 olarak kabul edildi (yukarıda). Unicode host'ta fail-closed davranıyor.
+- "Yalnız admitted oturumda istek": yalnız sunucuda uygulanıyor (B-P8c2-2).
+
+## Olumlu
+- Köken kontrolü fail-closed tasarlanmış. Eşleşmeyen kayıt kullanılmıyor ama silinmiyor (staging/prod ikilileri aynı profilde birbirini bozmuyor).
+- Redirect takibinin kapalı olması, anahtarın başka bir hosta gövdeyle yeniden gönderilmesini yapısal olarak engelliyor.
+- Bozuk veya başka sürümden kalmış dosya kesin olarak reddediliyor. Atomik yazma kullanılıyor ve kişisel bölümle kayıt bölümü ayrı ayrı yönetiliyor.
+- Saf `Decide` tablosu ve tablo testleri karar mantığını denetlenebilir kılıyor.
+- Orta/Düşük bulguların (B-P8c2-1, B-P8c2-2) `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmesi önerilir. B-P8c2-1 tek satırlık bir düzeltme olduğu için P8c-2 düzeltme turunda kapatılması tercih edilir.
+
+---
+
 # Güvenlik Raporu — E10/P8c-1 — Kod turu 2 (2026-11-12)
 DURUM: GEÇTİ (Kritik/Yüksek 0)
 Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2

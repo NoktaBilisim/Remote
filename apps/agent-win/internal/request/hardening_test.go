@@ -11,7 +11,7 @@ import (
 	"remote-support/agent-win/internal/remember"
 )
 
-var personA = remember.Data{V: 1, Name: "Ayşe Yılmaz", Phone: "+905321234567", DeviceKey: "AAAAAAAAAAAAAAAAAAAAAA"}
+var personA = remember.Personal{Name: "Ayşe Yılmaz", Phone: "+905321234567", DeviceKey: "AAAAAAAAAAAAAAAAAAAAAA"}
 
 // S8b2-1 saf karar tablosu.
 func TestAC136RememberPlan(t *testing.T) {
@@ -22,7 +22,7 @@ func TestAC136RememberPlan(t *testing.T) {
 		name             string
 		f                Form
 		v                Valid
-		rem              remember.Data
+		rem              remember.Personal
 		remembered       bool
 		wantKeep, wantNK bool
 	}{
@@ -31,7 +31,7 @@ func TestAC136RememberPlan(t *testing.T) {
 		{"ad değişti, kutuya dokunulmadı", Form{Remember: true}, other, personA, true, false, false},
 		{"telefon değişti, kutuya dokunulmadı", Form{Remember: true}, otherPhone, personA, true, false, false},
 		{"ad değişti, müşteri kendisi işaretledi", Form{Remember: true, RememberChosen: true}, other, personA, true, true, true},
-		{"ilk kez işaretlendi", Form{Remember: true, RememberChosen: true}, same, remember.Data{}, false, true, true},
+		{"ilk kez işaretlendi", Form{Remember: true, RememberChosen: true}, same, remember.Personal{}, false, true, true},
 	}
 	for _, c := range cases {
 		keep, nk := rememberPlan(c.f, c.v, c.rem, c.remembered)

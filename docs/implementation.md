@@ -2613,3 +2613,118 @@ Gözlem (bulgu değil, sonra): boş durumda `CustomersActions` iki kez çizildi�
 **Değişen dosyalar:** `apps/web/e2e/customers.spec.ts`, `e2e/p8b-requests.spec.ts`, `e2e/p5-collab.spec.ts`, `e2e/mock-customers.mjs`, `e2e/mock-requests.mjs`, `apps/web/playwright.config.ts`.
 
 **Doğrulama:** web `typecheck` / `lint` temiz, `test` 172/172. Tam `pnpm --filter @remote/web e2e` art arda 3 koşu: **206 geçti / 0 kaldı / 67 skip** (×3; skip = mevcut desktop/mobile ayrımı; p5 dosyası artık mobil projede listelenmediği için 85 → 67). AC-41 medyan 30 FPS.
+
+
+## P8c-2 — İstemci 0.10.0 (backend-dev/Go, 2026-11-12)
+
+Kaynak: `docs/mimari-e10.md` §8, §12.2, §15 (r2; G-E10-5, G-E10-6, G-E10-9), `docs/mimari-protokol.md` §6, `docs/mimari-api.md` P8c Public; AC-181..190, 191 (istemci), 193. Sözleşme sunucu kodundan doğrulandı (`apps/server/src/bindings/*`, `signaling/binding.ts`, `packages/contracts/src/{ws.ts,api/bindings.ts,api/requests.ts}`, `fixtures/bindings.json`).
+
+**İlerleme (çalışma notu):**
+- [x] `internal/remember` format v2 + v1 geçişi + `CanonicalOrigin` (`origin.go`) — testler yeşil.
+- [x] `internal/api/bindings.go` (status ≤ 3 deneme yalnız ağ/502–504; revoke 2 sn tek deneme), `CreateRequestBody` `ref`/`bindingKey` `omitempty` — testler yeşil.
+- **Sapma S1 (G-E10-6):** `golang.org/x/net/idna` kullanılamadı: paket `golang.org/x/text`'i içe aktarır, o modül go.sum'da yok → "yeni modül yok" kısıtını bozar (docker'da `missing go.sum entry … x/text` ile doğrulandı). `CanonicalOrigin` aynı kanonik biçimi (`https://host:port`, küçük harf, sondaki nokta yok, port 443 varsayılan, yol/sorgu/parça/kullanıcı red) üretir; host yalnız ASCII LDH (punycode `xn--` dahil) veya IP. Unicode (IDN) host **reddedilir** → anahtar hiç kullanılmaz/gönderilmez (fail-closed). go.mod/go.sum **değişmedi**. mimar/güvenlik onayına: IDN sunucu adresiyle derlenen ikilide kayıt özelliği kapalı kalır (gömülü adres ASCII).
+- [x] `internal/signal`: `BindingOffer`, `BindingIssued` (sıkı; `customerFirmName` zorunlu/null), `BindingRequest` (giden, `previousKey` biçim denetimi) — `fixtures/bindings.json` ile test. Testler artık repo kökü salt okunur bağlanarak koşar (fixture yolu `../../../../packages/...`).
+- [x] `internal/flow`: `Deps.Binding` (`BindingHandler`), teklif başına ≤ 1 istek, kayıt alındıktan sonra teklif yok sayılır, istenmemiş `issued` yazılmaz, istek sonrası `error` yutulur (oturum sürer), `Outcome.BindingChanged` (AC-187), `Welcome.RememberNote` (AC-188).
+- [x] `internal/request`: `Deps.BindingKey/Registered/Notice/Info/InfoErr/OnBindingInvalid/ForgetComputer`, ana ekran döngüsü (`home.go`), kayıt modunda status + `BINDING_INVALID` (status ve oluşturma) → kaynaksız ana ekran + AC-185, kayıtla talepte `deviceKey` yok, `CUSTOMER_PASSIVE`/`BINDING_REVOKED` genel metin, "Teknisyenden kod aldım" → "Bağlantı kodum var", `Remember` arayüzü v2 kişisel bölüm.
+- [x] `internal/launch` (yeni): `Decide` (tablo), `Run` (ağ + depo + akış), `keeper` (`flow.BindingHandler`, DPAPI'ye yazar, AC-187 etiketi) — testler yeşil.
+- [x] `internal/ui`: `home_windows.go` (yeni ana ekran), `home.go` (saf Tab sırası + test), form/karşılamada AC-188 satırı, "Bağlantı kodum var", `EndedNote` (AC-187). `cmd/noktadestek/main.go` mod seçimi `launch.Run`'a taşındı. `test/trace-check.ps1 -Binding on|off`. `CHANGELOG.md` 0.10.0.
+- [x] Testler + Windows vet/derleme + iki tekrarlanabilir derleme (aşağıda).
+
+### Değişen / yeni dosyalar (`apps/agent-win/`)
+| Dosya | Değişiklik |
+|---|---|
+| `internal/launch/{decide.go, run.go, keeper.go}` (yeni) + `decide_test.go`, `run_test.go` | §8.1 karar tablosu (`Decide`, saf), açılış yürütme (resolve/firma bilgisi bir kez; `onceResolve` ile kod akışına aktarılır), `keeper` = `flow.BindingHandler` (DPAPI'ye yazar, AC-187 etiketi), "Bu bilgisayarı unut" (önce yerel silme, sonra yalnız aynı kökenli anahtarla revoke) |
+| `internal/remember/{data.go (yeni), origin.go (yeni), remember.go, dpapi_windows.go, remember_test.go}` | Format v2 (`personal`, `binding`, `deviceKey`), v1 bellekte yükseltme, ilk yazımda v2; `SavePersonal/ClearPersonal/SaveBinding/ClearBinding/ForgetAll`, oku-değiştir-yaz tek kilit; `CanonicalOrigin`; `NoticeText` (AC-188). Entropi değişmedi |
+| `internal/api/{bindings.go (yeni), requests.go}` + `bindings_test.go` | `BindingStatus`, `RevokeBinding`; `CreateRequestBody.Ref/BindingKey` `omitempty` |
+| `internal/signal/messages.go` + `binding_test.go` | `binding.offer`, `binding.issued` sıkı ayrıştırma; `BindingRequest` |
+| `internal/flow/{flow.go, binding.go (yeni), messages.go}` + `binding_test.go` | `Deps.Binding`, `Outcome.BindingChanged`, `Welcome.RememberNote`, `ResolveMessage` |
+| `internal/request/{types.go, run.go, home.go (yeni), wait.go, ws.go}` + `home_test.go`, mevcut testler | Ana ekran, kayıt modu, AC-185 yolu, `CUSTOMER_PASSIVE`/`BINDING_REVOKED`, `Remember` v2 arayüzü |
+| `internal/ui/{home.go, home_windows.go (yeni), request_windows.go, screens_windows.go}` + `home_test.go` | Ana ekran, AC-188 satırları, düğme metni, oturum sonu notu |
+| `cmd/noktadestek/main.go` | Mod seçimi `launch.Run` (161 satır; ≤ 100 hedefi tutmadı: UI/girdi/kısayol kurulumu main'de kaldı, davranış değişmesin diye taşınmadı) |
+| `test/trace-check.ps1` | `-Binding on|off` |
+Repo kökü: `CHANGELOG.md` (0.10.0), `docs/mimari-e10.md` (S1 uygulama notu). **go.mod / go.sum değişmedi.** Yeni bağımlılık yok.
+
+### Tasarımdan sapmalar (gerekçeli)
+- **S1 — G-E10-6 IDNA:** yukarıda. Güvenlik özelliği korunur (anahtar yalnız dize-eşit kanonik kökene); IDN sunucuyla derlenen ikilide kayıt kapalı kalır. mimar/güvenlik onayına sunuldu.
+- **S2 — Ana ekran her kaynakta gösterilir** (satır 4 dahil): E9'da firma dosyası doğrudan formu açıyordu; AC-189 "iki yolu tek yerde" gereği önce ana ekran, "Destek iste" ile form (E9 formu aynen). "Yeniden talep oluştur" ana ekrana değil doğrudan forma döner (E9 davranışı).
+- **S3 — Satır 3 metni:** kayıt yoksa süresi dolmuş/kullanılmış/iptal/bulunamayan kodda bugünkü mesaj (flow `classify` metni) ana ekranın bilgi satırında, "Destek iste" pasif + "Bağlantı kodum var" etkin. 404 (kod bulunamadı) de bu satıra girer (tablo "404 / 410"); önceki "kod giriş alanına dön" davranışı yerine ana ekran → "Bağlantı kodum var" ile aynı giriş alanı.
+- **S4 — `deviceKey` (G-E10-5) "yeniler" uygulaması:** `ClearPersonal` anahtarı siler; bir sonraki hatırlamada `rememberPlan` (değişmedi) yenisini üretir. v2'de `deviceKey` yalnız `personal` ile birlikte bulunabilir (aksi dosya bozuk sayılır).
+- **S5 — Kayıt reddi:** istekten sonra gelen ilk `error` (kod ne olursa olsun) kayıt yanıtı sayılır ve yutulur; kayıt alınmadıysa sonraki teklifte (yeniden bağlanma) yeniden istenir (sunucu oturum başına ≤ 3 sınırı korur). İstenmemiş `binding.issued` yazılmaz.
+- **S6 — `customerName`** Genel kayıtta dosyaya hiç yazılmaz (`omitempty`), şemadaki `null` yerine.
+
+### Sözleşme (frontend-dev / backend için)
+Değişiklik yok. İstemci yalnız mevcut uçları kullanır: `POST /public/bindings/status {bindingKey, clientVersion}`, `POST /public/bindings/revoke {bindingKey}`, `POST /public/requests {bindingKey, …}` (ref'siz, `deviceKey`'siz), `/ws/guest` `binding.request{previousKey?}`. Metinler `fixtures/bindings.json` `messages` ile test edilir.
+
+### Test komutu ve son çıktı
+```
+docker run --rm -v "$PWD:/repo:ro" -v "$PWD/apps/agent-win:/repo/apps/agent-win" -w /repo/apps/agent-win \
+  -e GOFLAGS=-mod=readonly -e GOTOOLCHAIN=local golang:1.26.11-bookworm@sha256:dc40a13b… \
+  sh -c 'gofmt -l .; GOOS=windows go vet ./... && go vet ./... && go test -count=1 ./... && for p in $(GOOS=windows go list ./...); do GOOS=windows go test -c -o /dev/null $p; done; go mod verify'
+```
+(Repo kökü salt okunur bağlanır: signal/request/pairing testleri `packages/contracts/fixtures`'ı okur; yalnız `apps/agent-win` bağlanırsa fixture testleri "no such file" ile düşer.)
+Sonuç: gofmt temiz; `GOOS=windows go vet` ve linux `go vet` temiz; 18 paket `ok` (api, capture, config, control, dc, env, files, flow, input, launch, pairing, remember, request, rtc, signal, transfer, ui, win); tüm paketlerin Windows test ikilileri derlendi; `all modules verified`.
+Yeni testler: `launch` (karar tablosu 12 satır + 9 akış testi), `remember` (v2, v1 geçişi, ClearPersonal/ClearBinding/ForgetAll, bozuk v2 biçimleri, `CanonicalOrigin` tablo), `signal` (bindings.json fixture), `api` (status/revoke/gövde), `flow` (teklif/istek/issued, teklifsiz, hata yutma, lobide kapanış), `request` (AC-190/182/185/186, ön yüklü bilgi, eski sürüm, kapanış nedenleri, fixture metinleri), `ui` (Tab sırası).
+
+### Derleme (yayınlanmadı)
+`apps/agent-win/build/build.sh https://remote.noktabilisim.net 0.10.0 <çıkış>` iki ayrı docker koşusu:
+`716e9f983add278e8f6f4049839fb3238f29ebdd6818cefba3838a4edfe62d01` (iki derleme aynı, 12.375.552 bayt). Dosyalar: `/private/tmp/claude-501/-Users-mennan-Projeler-Remote/fa15848a-dcdd-4f1b-abf9-1c72703d5eac/scratchpad/agent-0.10.0/{1,2}/NoktaDestek.exe`. Yayın devops'ta (`v0.10.0` etiketi, SHA256SUMS + attestation; workflow değişikliği gerekmiyor — sürüm etiketten okunur).
+
+### Windows elle test adımları (test-operatoru, staging / prod adresine göre derlenmiş 0.10.0)
+1. Temiz profil: `%LOCALAPPDATA%\NoktaDestek` yok. `trace-check.ps1 -Mode Snapshot -SnapshotPath D:\once.json`.
+2. **Satır 8 / AC-190:** dosyayı `NoktaDestek.exe` adıyla çalıştır → ana ekran: "Destek iste" pasif, altında "Destek istemek için firmanızın gönderdiği dosyayı kullanın veya teknisyeninizin verdiği kodu girin"; odak "Bağlantı kodum var". Tab: Destek iste (atlanır, pasif) → Bağlantı kodum var → Bu bilgisayarı unut → Kapat. Alt satırda sunucu · sürüm · parmak izi, üstte dolandırıcılık uyarısı.
+3. **Satır 1 + AC-181/188:** panelde müşteri seçerek oturum oluştur, `Destek-<kod>.exe` ile aç → karşılamada "Oturumdan sonra bu bilgisayar <firma> için hatırlanır…" satırı. Lobi → kabul → paylaşım başlar. Oturumu bitir. `hatirla.bin` oluştu; `trace-check.ps1 -Mode Compare -SnapshotPath D:\once.json -Binding on` → 0.
+4. **Lobide vazgeç (AC-181 negatif):** yeni profilde (veya "Bu bilgisayarı unut" sonrası) kod oturumunda lobide "Vazgeç ve çık" → `hatirla.bin` yok.
+5. **Satır 7 / AC-182:** `NoktaDestek.exe` yeniden çalıştır → ≤ 5 sn'de ana ekran, "Bu bilgisayar <firma> – <müşteri> için kayıtlı", "Destek iste" etkin ve odakta; Enter → E9 formu (KVKK onayının üstünde AC-188 satırı). Talep gönder → panelde kart müşteriye düşer, "Kayıtlı bilgisayar — <müşteri>" rozeti. Kabul → "Ekranımı paylaş" → oturum.
+6. **Satır 2 / AC-183:** kullanılmış `Destek-<kod>.exe`'yi tekrar çalıştır → kayıt ana ekranı, bilgi "Bu destek bağlantısının süresi doldu."; "Destek iste" ile talep panele düşer.
+7. **Satır 5 (K22):** kaydın bağlı **olmadığı** başka bir müşterinin bağlantısını panelden yenile ve o müşterinin eski dosyasını çalıştır (kaydın müşterisini yenilemek kaydı da geçersiz kılar, bu yüzden başka müşteri) → kayıt ana ekranı + "Bu dosya artık geçerli değil; bu bilgisayarın kaydıyla destek isteyebilirsiniz."
+8. **Satır 4:** geçerli müşteri dosyası `NoktaDestek-<etiket>-<ref>.exe` → ref ana ekranı (firma adı), talep o ref'in müşterisine düşer.
+9. **AC-187:** farklı bir müşteriyle (veya başka tenant'ın koduyla) oturum yap → oturum sonu ekranında sohbet geçmişinde "Bu bilgisayar artık <yeni firma> için kayıtlı."; sonraki açılışta ana ekran yeni firmayı gösterir.
+10. **AC-185:** panelde ilgili müşteri için "Bağlantıyı yenile" (veya talep kartından "Bu bilgisayarın kaydını iptal et") → `NoktaDestek.exe` çalıştır → "Bu bilgisayarın destek kaydı artık geçerli değil. Firmanızdan yeni dosya isteyin ya da teknisyeninizin verdiği kodla bağlanın.", "Destek iste" pasif, "Bağlantı kodum var" etkin; hatırlanan ad/telefon sonraki formda hâlâ dolu.
+11. **AC-185 (gönderimde):** kayıt ana ekranı açıkken panelden kaydı iptal et, sonra formu gönder → form kapanır, ana ekran AC-185 metniyle.
+12. **AC-186:** kayıt + hatırlanan bilgilerle "Bu bilgisayarı unut" → ≤ 1 sn'de "Bu bilgisayar unutuldu"; `%LOCALAPPDATA%\NoktaDestek` klasörü silinmiş; panelde kayıt FORGOTTEN (audit `binding.revoked`). Ağ kapalıyken tekrarla → yerel silme yine olur. Programı kapat, `trace-check.ps1 -Mode Compare -SnapshotPath D:\once.json -Binding off -Remember off` → 0.
+13. **"Bilgilerimi unut" (AC-186/137):** formda "Bilgilerimi unut" → kayıt kalır (sonraki açılışta kayıt ana ekranı), ad/telefon silinmiş.
+14. **İptal metinleri:** kayıtla açılmış bekleyen talepte panelden müşteriyi pasife al → istemci "Talebiniz kapatıldı / Firmanız bu talebi şu an kabul edemiyor…" (yeniden talep düğmesi yok). Aynısı "Bu bilgisayarın kaydını iptal et" ile (`BINDING_REVOKED`).
+15. **AC-193 regresyon:** tarayıcı modu, `Destek-<kod>.exe` ilk açılış (kayıt yok), Genel dosyadan talep, lobi kabul kodu, dosya aktarımı ve uzaktan kontrol 0.9.1 ile aynı davranır; ağ kapalıyken `Destek-<kod>.exe` → bugünkü "Sunucuya ulaşılamıyor" + kod girişi.
+16. **AC-192 ölçümü (staging):** müşteri dosyasından ve kayıttan açılan taleplerde farklı NAT'larda 10/10 görüntü, kabulden ilk kareye p95 ≤ 8 sn.
+
+
+## P8c-2 — düzeltme turu 1 (backend-dev/Go, 2026-11-12)
+
+Kaynak: `docs/qa-raporu.md` P8c-2 Tur 1 "Düzeltilmeli" 1–2 + Öneri 1 (S5); `docs/guvenlik-raporu.md` "E10/P8c-2 — Kod turu 1" B-P8c2-1, B-P8c2-2.
+
+1. **QA-1, AC-188 form satırı koşulu:** `request.Deps.BindingEnabled` eklendi. launch bu alanı `d.Flow.Binding != nil` ile dolduruyor (depo var ve kanonik köken var). Alan kapalıyken `FormView.RememberNote` boş; karşılama ekranındaki kuralla aynı (`request/home.go rememberNote`). Testler: `request.TestAC188FormNoteOnlyWhenBindingEnabled`, `launch.TestNoStoreDisablesBinding`. Bu test genişletildi: depo yok → boş, depo var → dolu, IDN gömülü adres → boş.
+2. **B-P8c2-1:** Status yolunda kayıt artık yalnız `ae.Code == "BINDING_INVALID"` ise siliniyor. Kodsuz ya da başka kodlu 404 (geri alınmış sunucu, proxy) kaydı korur ve bugünkü engel ekranını gösterir (`msgNetwork` + "Tekrar dene"). Test: `request.TestBP8c21Status404WithoutCodeKeepsBinding` (`NOT_FOUND`, `UNKNOWN`).
+3. **B-P8c2-2:** `flow.onBinding` teklifi yalnız `s.phase == phActive` iken (hello sonrası) işliyor. Lobide ya da yeniden bağlanırken gelen teklif yok sayılıyor. Test: `flow.TestBP8c22OfferInLobbyIgnored`.
+4. **Öneri 1 (S5 daraltma):** İstek beklerken yalnız sunucunun kayıt yolunda gönderdiği kodlar yutuluyor: `FORBIDDEN`, `CONFLICT`, `RATE_LIMITED`, `INTERNAL` (`signaling/binding.ts`). Diğer `error` mesajları durum satırında gösterilir. Test: `flow.TestS5OnlyBindingErrorCodesSwallowed`.
+5. **B-P8c2-3 (bilgi):** Ek kod gerekmedi. `decodeStrict`, `omitempty` olmayan her alanın JSON'da **bulunmasını** zaten şart koşuyor; `customerFirmName` alanı hiç gelmezse mesaj reddediliyor. Fixture'ın `invalid.serverOutbound[2]` örneği (`customerFirmName` yok) `signal.TestAC181BindingServerMessagesStrict` içinde reddediliyor.
+
+### AC-193 izlenebilirlik — değişen eski testler (QA-2)
+Gerekçe: AC-186 ve AC-188, AC-137 ve AC-138'i açıkça değiştiriyor. "Bilgilerimi unut" artık yalnız kişisel bilgiyi siliyor ve kayıt varsa dosya kalıyor. Hatırlama dosyası kişisel bilgi **veya** kayıt nedeniyle bulunabiliyor. Bu yüzden `remember` API'si ikiye ayrıldı: `Forget` → `ClearPersonal` / `ForgetAll`, `Save` → `SavePersonal` / `SaveBinding`. Ayrıca dosya biçimi v2'ye geçti (ADR-0004 r4).
+
+**Assert'i değişen AC-1..164 testi:** Yalnız `TestAC136SaveLoadOnlyAllowedFields`. Değişiklikler:
+- Yasak alan araması `"`+anahtar (JSON anahtar adı) biçimine daraltıldı. Nedeni: v2 dosyasında değerler (ör. kayıt sunucusu URL'si) "ref" gibi alt dizeleri içerebilir; arama değer yerine anahtar adına bakmalı. Bu testteki dosyada kayıt olmadığı için iki biçim aynı sonucu verir. Yasak anahtar listesi aynı kaldı.
+- `v` beklentisi 1'den 2'ye çıktı.
+
+Diğer testlerde assert'ler aynı ya da daha sıkı.
+
+| Eski test | Yeni test | Değişiklik türü | Assert değişti mi |
+|---|---|---|---|
+| `remember.TestAC136SaveLoadOnlyAllowedFields` | aynı ad | API uyarlaması (`Save` → `SavePersonal`, `Load` → `LoadPersonal`) + v2 biçim beklentisi | **Evet:** sürüm 1 → 2, yasak anahtar araması tırnaklı |
+| `remember.TestAC137ForgetRemovesFileAndEmptyDir` | **geri getirildi** (aynı ad, `ClearPersonal` ile; kayıt yokken dosya + tmp + boş klasör silinir, ikinci çağrı hatasız) + yeni `TestAC186ForgetAllRemovesFileTmpAndEmptyDir` | API uyarlaması | Hayır (aynı üç iddia) |
+| `remember.TestAC137ForgetKeepsNonEmptyDir` | aynı ad | API uyarlaması (`Forget` → `ClearPersonal`) | Hayır + ek iddia (dosya silinmiş) |
+| `remember.TestGE913StaleTmpRetriedOnce` | aynı ad | API uyarlaması | Hayır |
+| `remember.TestAC136CorruptOrForeignFileDeletedSilently` | aynı ad | Tablo genişledi (v2 bozuk biçimleri). `"yanlış sürüm"` vakası **aynı adla geri getirildi** (v1 alanlarıyla `v:2` → reddedilir). İlk turda yalnız adı değişmişti ("v1 biçimi v2 etiketiyle"); içerik aynıydı | Hayır (aynı vakalar + yeni vakalar) |
+| `remember.TestSaveRejectsInvalidData` | aynı ad | API uyarlaması + kayıt vakaları | Hayır + ek iddialar |
+| `request.TestAC136RememberPlan` (`hardening_test.go`) | aynı ad | Tip uyarlaması (`remember.Data{V:1,…}` → `remember.Personal{…}`) | Hayır |
+| `hardening_test.go` diğerleri, `run_test.go` (`memRemember`) | aynı adlar | Sahte depo yöntemleri `Load/Save/Forget` → `LoadPersonal/SavePersonal/ClearPersonal`; tip `remember.Personal` | Hayır (`forgot` sayacı `ClearPersonal`'da artar, iddialar aynı) |
+| `request` testlerinin sahte UI'ı (`fakeUI`) | — | `RequestHome` eklendi. Varsayılan dönüş `HomeSupport` (kaynak yoksa `HomeClose`); böylece E9 testleri ana ekrandan doğrudan forma geçiyor (S2) | Hayır |
+| `request` sahte API (`fakeAPI`) | — | `BindingStatus` eklendi (arayüz genişledi) | Hayır |
+| `flow`, `signal`, `api`, `pairing` eski testleri | — | Değişmedi | — |
+
+### Doğrulama
+`gofmt -l .` temiz. `GOOS=windows go vet ./...` ve linux `go vet ./...` temiz. `go test -count=1 ./...`: 18 paketin hepsi geçti. Tüm Windows test ikilileri derlendi. go.mod ve go.sum değişmedi.
+Derleme: `build.sh https://remote.noktabilisim.net 0.10.0` iki ayrı docker koşusunda çalıştırıldı, ikisi aynı çıktı:
+**SHA-256 `5255edc87840f18b28eb608c705bf2c16230a3a7cb0da49145a46e5ecbf721f3`** (12.376.576 bayt). Dosyalar `/private/tmp/claude-501/-Users-mennan-Projeler-Remote/fa15848a-dcdd-4f1b-abf9-1c72703d5eac/scratchpad/agent-0.10.0-r2/{1,2}/NoktaDestek.exe`. İlk turdaki `716e9f98…` geçersiz.
+Elle test adımları değişmedi. Adım 10'a ek olarak: sunucu ya da proxy kodsuz 404 dönerse kayıt korunur ve "Sunucuya ulaşılamıyor" + "Tekrar dene" görünür.
+
+**Değişen dosyalar (bu tur):** `internal/request/{run.go, home.go, home_test.go}`, `internal/flow/{flow.go, binding.go, binding_test.go}`, `internal/launch/{run.go, run_test.go}`, `internal/remember/remember_test.go`, `docs/implementation.md`.

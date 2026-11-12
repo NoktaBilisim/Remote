@@ -28,6 +28,8 @@ const (
 	errMsgMax    = 300
 	iceURLMax    = 300
 	iceCredMax   = 200
+	tenantMax    = 120
+	custFirmMax  = 100
 )
 
 var (
@@ -35,6 +37,8 @@ var (
 	isoRe    = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$`)
 	sha256Re = regexp.MustCompile(`^[a-f0-9]{64}$`)
 	tokenRe  = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+	// bindingKeyRe contracts `bindingKeySchema` (`rsb_` + base64url 32 bayt).
+	bindingKeyRe = regexp.MustCompile(`^rsb_[A-Za-z0-9_-]{43}$`)
 )
 
 // ErrNotForGuest sözleşmede geçerli ama misafire hiç gönderilmeyen tip (ör. peer.pending); alınırsa protokol ihlali.
@@ -271,6 +275,24 @@ func (m EnvState) validate() error {
 	return checkID(m.T, m.ID)
 }
 
+// BindingRequest P8c (mimari-protokol §6): guest(AGENT) → S, yalnız `binding.offer` alındıktan sonra. PreviousKey
+// yalnız dosyadaki kaydın kanonik kökeni gömülü sunucu kökeniyle aynıysa doldurulur (T43, G-E10-6).
+type BindingRequest struct {
+	T           string `json:"t"`
+	ID          string `json:"id,omitempty"`
+	PreviousKey string `json:"previousKey,omitempty"`
+}
+
+func (m BindingRequest) validate() error {
+	if m.T != "binding.request" {
+		return fail(m.T, "tip")
+	}
+	if m.PreviousKey != "" && !bindingKeyRe.MatchString(m.PreviousKey) {
+		return fail(m.T, "previousKey")
+	}
+	return checkID(m.T, m.ID)
+}
+
 // Encode doğrulanmış mesajı JSON'a çevirir; geçersiz mesaj gönderilmez (sunucu 1008 ile kapatırdı).
 func Encode(m Outbound) ([]byte, error) {
 	if err := m.validate(); err != nil {
@@ -405,6 +427,24 @@ type CapsUpdate struct {
 	Caps []string `json:"caps"`
 }
 
+// BindingOffer P8c: sunucu bu misafire kayıt verebilir (yalnız ≥ 0.10.0 AGENT; admit/yeniden bağlanma hello'sundan
+// hemen sonra). Alan yok.
+type BindingOffer struct {
+	T string `json:"t"`
+}
+
+// BindingIssued P8c: kayıt anahtarı yalnız isteyen sokete. CustomerFirmName null = Genel (alan zorunlu).
+type BindingIssued struct {
+	T                string  `json:"t"`
+	BindingKey       string  `json:"bindingKey"`
+	TenantName       string  `json:"tenantName"`
+	CustomerFirmName *string `json:"customerFirmName"`
+	Renewed          bool    `json:"renewed"`
+}
+
+func (m BindingOffer) Type() string  { return m.T }
+func (m BindingIssued) Type() string { return m.T }
+
 func (m ControlRequest) Type() string { return m.T }
 func (m MonitorRequest) Type() string { return m.T }
 func (m ControlRevoke) Type() string  { return m.T }
@@ -532,6 +572,13 @@ func ParseServer(raw []byte) (Inbound, error) {
 		return decodeValid(raw, func(*ControlCancel) bool { return true })
 	case "caps.update":
 		return decodeValid(raw, func(m *CapsUpdate) bool { return validCaps(m.Caps) })
+	case "binding.offer":
+		return decodeValid(raw, func(*BindingOffer) bool { return true })
+	case "binding.issued":
+		return decodeValid(raw, func(m *BindingIssued) bool {
+			return bindingKeyRe.MatchString(m.BindingKey) && utf16Len(m.TenantName) <= tenantMax &&
+				(m.CustomerFirmName == nil || utf16Len(*m.CustomerFirmName) <= custFirmMax)
+		})
 	case "error":
 		return decodeValid(raw, func(m *ErrorMsg) bool {
 			return slices.Contains(wsErrorCodes, m.Code) && utf16Len(m.Message) <= errMsgMax

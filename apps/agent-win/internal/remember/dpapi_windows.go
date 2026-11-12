@@ -10,7 +10,7 @@ import (
 )
 
 // entropy ADR-0004 r3: sabit ek entropi (gizli değil; başka uygulamanın DPAPI çıktısıyla karışmayı önler).
-var entropy = []byte("NoktaDestek.remember.v1")
+var entropy = []byte("NoktaDestek.remember.v1") // v2 dosyada da aynı (ADR-0004 r4: entropi değişmez)
 
 func blob(b []byte) *windows.DataBlob {
 	if len(b) == 0 {

@@ -24,8 +24,25 @@ type Deps struct {
 	Events    <-chan UserAction
 	Remember  Remember
 	ServerURL *url.URL
-	Ref       string
-	Version   string
+	// Ref ve BindingKey karşılıklı dışlayandır (P8c, mimari-e10 §8.1): Ref → firma/müşteri dosyası; BindingKey →
+	// bilgisayar kaydı; ikisi de boşsa kaynaksız ana ekran ("Destek iste" pasif, AC-190).
+	Ref        string
+	BindingKey string
+	Version    string
+	// Registered yerel kaydın etiketi ("<firma>[ – <müşteri>]"); Ref/kaynaksız modda ana ekranda bilgi olarak.
+	Registered string
+	// Notice ana ekranın ilk bilgi satırı (launch kararı: süre doldu, dosya geçersiz, AC-185).
+	Notice string
+	// Info / InfoErr launch'ın Ref için aldığı ilk yanıt (aynı isteği tekrarlamamak için); ilk turda bir kez kullanılır.
+	Info    *api.TenantRequestInfo
+	InfoErr error
+	// BindingEnabled bilgisayar kaydı bu çalıştırmada alınabilir (depo var + kanonik köken; launch). Kapalıyken AC-188
+	// satırı gösterilmez (kayıt yazılmayacak).
+	BindingEnabled bool
+	// OnBindingInvalid BINDING_INVALID (status/oluşturma): kayıt silinir, kişisel bilgiler kalır (AC-185).
+	OnBindingInvalid func()
+	// ForgetComputer "Bu bilgisayarı unut" (AC-186): yerel silme + en iyi çaba sunucu iptali. Hata yalnız yerel silme.
+	ForgetComputer func(ctx context.Context) error
 	// Logo `tenant.logoUrl`'i indirir (api.Client.Logo); nil olabilir.
 	Logo func(ctx context.Context, logoURL string) (image.Image, error)
 	// Test kancaları (varsayılan: time.Now, time.After, crypto/rand jitter, 120 sn / 2 sn).
@@ -43,7 +60,7 @@ var (
 	msgNetwork  = Message{"Sunucuya ulaşılamıyor", "İnternet bağlantınızı kontrol edip tekrar deneyin."}
 	msgTLS      = Message{"Sunucu sertifikası doğrulanamadı", "Bu bilgisayar sunucunun güvenlik sertifikasına güvenmiyor. Ağınızda araya giren bir cihaz olabilir; firmanızı telefonla arayın."}
 	msgRate     = Message{"Çok fazla deneme", "Birkaç dakika sonra tekrar deneyin."}
-	msgRefGone  = Message{"Bu dosya artık geçerli değil", "Firmanızdan yenisini isteyin. Teknisyen size kod verdiyse \"Teknisyenden kod aldım\" ile devam edebilirsiniz."}
+	msgRefGone  = Message{"Bu dosya artık geçerli değil", "Firmanızdan yenisini isteyin. Teknisyen size kod verdiyse \"Bağlantı kodum var\" ile devam edebilirsiniz."}
 	msgOutdated = Message{"Bu Hızlı Destek dosyası eski", "Güvenliğiniz için yeni sürümü indirin. Yeni sürüm aynı firma bağlantısından iner; indirdikten sonra bu pencereyi kapatıp yeni dosyayı açın."}
 	msgLost     = Message{"Sunucuyla bağlantı kesildi", "İnternet bağlantınızı kontrol edin. Bilgileriniz formda duruyor; yeniden talep oluşturabilirsiniz."}
 	msgProtocol = Message{"Bağlantı güvenlik nedeniyle kapatıldı", "Sunucudan beklenmeyen bir yanıt alındı. Firmanızı telefonla arayın."}
@@ -71,12 +88,17 @@ const (
 type runner struct {
 	d          Deps
 	instance   string
-	info       *api.TenantRequestInfo
+	info       *api.TenantRequestInfo // nil → "Destek iste" pasif (kaynaksız)
+	preUsed    bool                   // Deps.Info/InfoErr tüketildi
 	logo       image.Image
 	abuse      string
 	vals       Form
-	rem        remember.Data
+	rem        remember.Personal
 	remembered bool
+	// P8c ana ekran durumu (home.go).
+	registered string
+	homeNotice string
+	homeDone   bool
 	notice     string
 	// forgetWarn QA-P8b2-2: dosya silinemedi (diskte kişisel veri kaldı) uyarısı; başarılı bir silmeye kadar
 	// formda ve bekleme ekranında görünür kalır.
@@ -106,9 +128,9 @@ func Run(ctx context.Context, d Deps) Outcome {
 	if d.CancelWait == 0 {
 		d.CancelWait = 4 * time.Second // AC-141: 5 sn içinde İPTAL
 	}
-	r := &runner{d: d, instance: newKey()}
+	r := &runner{d: d, instance: newKey(), registered: d.Registered, homeNotice: d.Notice}
 	if d.Remember != nil {
-		if rem, ok := d.Remember.Load(); ok {
+		if rem, ok := d.Remember.LoadPersonal(); ok {
 			r.rem, r.remembered = rem, true
 			r.vals = Form{Name: rem.Name, Phone: rem.Phone, Email: rem.Email, Remember: true}
 		}
@@ -116,6 +138,11 @@ func Run(ctx context.Context, d Deps) Outcome {
 	for {
 		if out := r.loadInfo(ctx); out != nil {
 			return *out
+		}
+		if !r.homeDone || r.info == nil {
+			if out := r.home(ctx); out != nil {
+				return *out
+			}
 		}
 		created, reload, out := r.form(ctx)
 		if out != nil {
@@ -163,7 +190,7 @@ func (r *runner) problem(ctx context.Context, p Problem) (bool, *Outcome) {
 				return false, &Outcome{Kind: OutCodeMode}
 			}
 		case ProblemDownload:
-			if u, ok := DownloadURL(r.d.ServerURL, r.d.Ref); ok && p.Download {
+			if u, ok := DownloadURL(r.d.ServerURL, r.d.Ref); ok && p.Download { // kayıt modunda Ref yok → düğme yok
 				r.d.UI.OpenURL(u)
 			}
 			continue
@@ -172,7 +199,10 @@ func (r *runner) problem(ctx context.Context, p Problem) (bool, *Outcome) {
 	}
 }
 
-func outdatedProblem() Problem { return Problem{Message: msgOutdated, Download: true} }
+// outdatedProblem G-E9-4; indirme yalnız Ref'li dosyada (kayıt modunda sabit indirme adresi yok).
+func (r *runner) outdatedProblem() Problem {
+	return Problem{Message: msgOutdated, Download: r.d.Ref != ""}
+}
 
 // infoProblem AC-133: ağ hatası ile TLS hatası ayrı mesaj + "Tekrar dene"; geçersiz dosya yalnız kod yolu.
 func infoProblem(err error) Problem {
@@ -189,35 +219,75 @@ func infoProblem(err error) Problem {
 }
 
 func (r *runner) loadInfo(ctx context.Context) *Outcome {
+	if r.d.Ref == "" && r.d.BindingKey == "" {
+		r.info = nil // kaynaksız ana ekran (AC-190)
+		return nil
+	}
 	for {
-		info, err := r.d.API.TenantInfo(ctx, r.d.Ref)
+		info, customer, err := r.fetchInfo(ctx)
 		if ctx.Err() != nil {
 			return &Outcome{Kind: OutClose}
 		}
-		if err == nil {
-			if Outdated(r.d.Version, info.MinAgentVersion) { // G-E9-4: form gösterilmez
-				_, out := r.problem(ctx, outdatedProblem())
-				return out
-			}
-			info.Tenant.Name = Display(info.Tenant.Name, "") // S8b2-3
-			r.info, r.abuse = info, ""
-			if info.AbuseEmail != nil && api.ValidAbuseEmail(*info.AbuseEmail) {
-				r.abuse = *info.AbuseEmail
-			}
-			r.logo = nil
-			if info.Tenant.LogoURL != nil && *info.Tenant.LogoURL != "" && r.d.Logo != nil {
-				lctx, cancel := context.WithTimeout(ctx, logoTimeout)
-				if img, err := r.d.Logo(lctx, *info.Tenant.LogoURL); err == nil {
-					r.logo = img
-				}
-				cancel()
-			}
+		var ae *api.Error
+		switch {
+		case err == nil && Outdated(r.d.Version, info.MinAgentVersion): // G-E9-4: form gösterilmez
+			_, out := r.problem(ctx, r.outdatedProblem())
+			return out
+		case err == nil:
+			r.applyInfo(ctx, info, customer)
 			return nil
+		case r.d.BindingKey != "" && errors.As(err, &ae) && ae.Code == "BINDING_INVALID": // B-P8c2-1: kodsuz 404 kaydı silmez
+			r.bindingInvalid()
+			return nil
+		case errors.As(err, &ae) && (ae.Code == "CLIENT_OUTDATED" || ae.Status == 426):
+			_, out := r.problem(ctx, r.outdatedProblem())
+			return out
 		}
 		retry, out := r.problem(ctx, infoProblem(err))
 		if !retry {
 			return out
 		}
+	}
+}
+
+// fetchInfo Ref → firma bilgisi (ilk turda launch'ın yanıtı), BindingKey → POST /public/bindings/status.
+func (r *runner) fetchInfo(ctx context.Context) (*api.TenantRequestInfo, string, error) {
+	if r.d.BindingKey != "" {
+		b, err := r.d.API.BindingStatus(ctx, r.d.BindingKey)
+		if err != nil {
+			return nil, "", err
+		}
+		customer := ""
+		if b.Customer != nil {
+			customer = Display(b.Customer.Name, "")
+		}
+		return &b.TenantRequestInfo, customer, nil
+	}
+	if !r.preUsed && (r.d.Info != nil || r.d.InfoErr != nil) {
+		r.preUsed = true
+		return r.d.Info, "", r.d.InfoErr
+	}
+	r.preUsed = true
+	info, err := r.d.API.TenantInfo(ctx, r.d.Ref)
+	return info, "", err
+}
+
+func (r *runner) applyInfo(ctx context.Context, info *api.TenantRequestInfo, customer string) {
+	info.Tenant.Name = Display(info.Tenant.Name, "") // S8b2-3
+	r.info, r.abuse = info, ""
+	if r.d.BindingKey != "" {
+		r.registered = Label(info.Tenant.Name, customer)
+	}
+	if info.AbuseEmail != nil && api.ValidAbuseEmail(*info.AbuseEmail) {
+		r.abuse = *info.AbuseEmail
+	}
+	r.logo = nil
+	if info.Tenant.LogoURL != nil && *info.Tenant.LogoURL != "" && r.d.Logo != nil {
+		lctx, cancel := context.WithTimeout(ctx, logoTimeout)
+		if img, err := r.d.Logo(lctx, *info.Tenant.LogoURL); err == nil {
+			r.logo = img
+		}
+		cancel()
 	}
 }
 
@@ -233,7 +303,8 @@ func firstError(errs map[string]string) string {
 func (r *runner) formView(errs map[string]string) FormView {
 	return FormView{Tenant: r.info.Tenant.Name, Logo: r.logo, ConsentVersion: r.info.ConsentText.Version,
 		ConsentBody: r.info.ConsentText.Body, AbuseEmail: r.abuse, WaitMinutes: r.info.WaitMinutes, Values: r.vals,
-		Errors: errs, Focus: firstError(errs), Notice: joinNotice(r.forgetWarn, r.notice), Remembered: r.remembered}
+		Errors: errs, Focus: firstError(errs), Notice: joinNotice(r.forgetWarn, r.notice), Remembered: r.remembered,
+		RememberNote: r.rememberNote()}
 }
 
 func joinNotice(a, b string) string {
@@ -243,10 +314,11 @@ func joinNotice(a, b string) string {
 	return a + " " + b
 }
 
-// forget AC-137: dosyayı siler. Başarısızlık yutulmaz (QA-P8b2-2): forgetWarn başarılı bir silmeye kadar görünür.
+// forget AC-137: kişisel bilgileri siler (kayıt kalır, AC-186). Başarısızlık yutulmaz (QA-P8b2-2): forgetWarn
+// başarılı bir silmeye kadar görünür.
 func (r *runner) forget() bool {
-	r.rem, r.remembered = remember.Data{}, false
-	ok := r.d.Remember == nil || r.d.Remember.Forget() == nil
+	r.rem, r.remembered = remember.Personal{}, false
+	ok := r.d.Remember == nil || r.d.Remember.ClearPersonal() == nil
 	r.forgetWarn = ""
 	if !ok {
 		r.forgetWarn = noticeForgetFail
@@ -259,7 +331,7 @@ func (r *runner) forget() bool {
 //   - kutu hatırlanan veriyle işaretli açıldı ve ad VEYA telefon hatırlanandan farklı, ama müşteri kutuyu bu oturumda
 //     kendisi işaretlemedi (RememberChosen=false) → kişi değişmiş sayılır: kayıt yok, eski dosya silinir, deviceKey yok;
 //   - aksi halde kayıt; kişi değiştiyse veya anahtar yoksa yeni deviceKey (başka kişinin cihaz anahtarı taşınmaz).
-func rememberPlan(f Form, v Valid, rem remember.Data, remembered bool) (keep, newDeviceKey bool) {
+func rememberPlan(f Form, v Valid, rem remember.Personal, remembered bool) (keep, newDeviceKey bool) {
 	if !f.Remember {
 		return false, false
 	}
@@ -304,18 +376,18 @@ func (r *runner) form(ctx context.Context) (*api.CreateRequestResult, bool, *Out
 		} else if fresh {
 			r.rem.DeviceKey = newKey()
 		}
-		body := api.CreateRequestBody{Ref: r.d.Ref, ClientInstanceID: r.instance, ClientVersion: r.d.Version,
-			CustomerName: v.Name, Phone: v.Phone, Email: v.Email, Description: v.Description,
+		body := api.CreateRequestBody{Ref: r.d.Ref, BindingKey: r.d.BindingKey, ClientInstanceID: r.instance,
+			ClientVersion: r.d.Version, CustomerName: v.Name, Phone: v.Phone, Email: v.Email, Description: v.Description,
 			ConsentTextID: r.info.ConsentText.ID, ConsentAccepted: true}
-		if keep {
+		if keep && r.d.BindingKey == "" { // G-E10-5: kayıtla açılan talepte deviceKey gönderilmez
 			body.DeviceKey = r.rem.DeviceKey
 		}
 		r.d.UI.RequestFormBusy(noticeSending)
 		res, err := r.create(ctx, body)
 		if err == nil {
 			if keep && r.d.Remember != nil {
-				d := remember.Data{Name: v.Name, Phone: v.Phone, Email: v.Email, DeviceKey: r.rem.DeviceKey}
-				if r.d.Remember.Save(d) == nil {
+				d := remember.Personal{Name: v.Name, Phone: v.Phone, Email: v.Email, DeviceKey: r.rem.DeviceKey}
+				if r.d.Remember.SavePersonal(d) == nil {
 					r.rem, r.remembered = d, true
 				}
 			}
@@ -345,11 +417,15 @@ func (r *runner) form(ctx context.Context) (*api.CreateRequestResult, bool, *Out
 				}
 			}
 			r.notice = noticeCheck
+		case ae.Code == "BINDING_INVALID":
+			r.d.UI.RequestFormClose()
+			r.bindingInvalid() // AC-185: ana ekrana, "Bağlantı kodum var" etkin
+			return nil, true, nil
 		case ae.Code == "REQUEST_REF_INVALID" || ae.Code == "CLIENT_OUTDATED":
 			r.d.UI.RequestFormClose()
 			p := Problem{Message: msgRefGone, CodeMode: true}
 			if ae.Code == "CLIENT_OUTDATED" {
-				p = outdatedProblem()
+				p = r.outdatedProblem()
 			}
 			_, out := r.problem(ctx, p)
 			return nil, false, out

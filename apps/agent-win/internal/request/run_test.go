@@ -23,6 +23,10 @@ type fakeAPI struct {
 	createErrs []error
 	bodies     []api.CreateRequestBody
 	cancels    int
+	// P8c
+	statusErr  []error
+	statusKeys []string
+	customer   string
 }
 
 func (f *fakeAPI) TenantInfo(context.Context, string) (*api.TenantRequestInfo, error) {
@@ -54,6 +58,27 @@ func (f *fakeAPI) CreateRequest(_ context.Context, b api.CreateRequestBody) (*ap
 		}
 	}
 	return &api.CreateRequestResult{RequestID: "01JC0000000000000000000009", RequestSecret: testSecret, RequestCode: "042917", Position: 2}, nil
+}
+
+func (f *fakeAPI) BindingStatus(_ context.Context, key string) (*api.BindingInfo, error) {
+	f.mu.Lock()
+	f.statusKeys = append(f.statusKeys, key)
+	var e error
+	if len(f.statusErr) > 0 {
+		e, f.statusErr = f.statusErr[0], f.statusErr[1:]
+	}
+	f.mu.Unlock()
+	if e != nil {
+		return nil, e
+	}
+	info, _ := f.TenantInfo(context.Background(), "")
+	b := &api.BindingInfo{TenantRequestInfo: *info}
+	if f.customer != "" {
+		b.Customer = &struct {
+			Name string `json:"name"`
+		}{f.customer}
+	}
+	return b, nil
 }
 
 func (f *fakeAPI) CancelRequest(context.Context, string) error {
@@ -91,6 +116,8 @@ func (c *fakeConn) Close(normal bool) error {
 // fakeUI form kararlarını sırayla verir; bekleme ekranı çağrılarını kaydeder.
 type fakeUI struct {
 	mu       sync.Mutex
+	homes    []HomeAction // boşsa HomeSupport (mevcut testler doğrudan forma geçer)
+	hviews   []HomeView
 	forms    []func(FormView) (FormAction, Form)
 	views    []FormView
 	problems []ProblemAction
@@ -104,6 +131,21 @@ type fakeUI struct {
 
 func newUI() *fakeUI {
 	return &fakeUI{accepted: make(chan AcceptView, 8), waiting: make(chan WaitView, 64)}
+}
+
+func (u *fakeUI) RequestHome(_ context.Context, v HomeView) HomeAction {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.hviews = append(u.hviews, v)
+	if len(u.homes) == 0 {
+		if !v.Support {
+			return HomeClose
+		}
+		return HomeSupport
+	}
+	a := u.homes[0]
+	u.homes = u.homes[1:]
+	return a
 }
 
 func (u *fakeUI) RequestProblem(_ context.Context, p Problem) ProblemAction {
@@ -153,19 +195,19 @@ func (u *fakeUI) RequestClosed(_ context.Context, v ClosedView) ClosedAction {
 }
 
 type memRemember struct {
-	d         *remember.Data
+	d         *remember.Personal
 	forgot    int
 	forgetErr error // silme başarısız (QA-P8b2-2): dosya diskte kalır
 }
 
-func (m *memRemember) Load() (remember.Data, bool) {
+func (m *memRemember) LoadPersonal() (remember.Personal, bool) {
 	if m.d == nil {
-		return remember.Data{}, false
+		return remember.Personal{}, false
 	}
 	return *m.d, true
 }
-func (m *memRemember) Save(d remember.Data) error { m.d = &d; return nil }
-func (m *memRemember) Forget() error {
+func (m *memRemember) SavePersonal(d remember.Personal) error { m.d = &d; return nil }
+func (m *memRemember) ClearPersonal() error {
 	m.forgot++
 	if m.forgetErr != nil {
 		return m.forgetErr
@@ -260,7 +302,7 @@ func TestAC139AC154HappyPathRememberAndShare(t *testing.T) {
 
 func TestAC136UncheckedSubmitForgetsAndSendsNoDeviceKey(t *testing.T) {
 	a, u, conn, ev := &fakeAPI{}, newUI(), newConn(), make(chan UserAction, 4)
-	rem := &memRemember{d: &remember.Data{V: 1, Name: "Eski Ad", Phone: "+905321234567", DeviceKey: "AAAAAAAAAAAAAAAAAAAAAA"}}
+	rem := &memRemember{d: &remember.Personal{Name: "Eski Ad", Phone: "+905321234567", DeviceKey: "AAAAAAAAAAAAAAAAAAAAAA"}}
 	u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
 	out := runAsync(deps(a, u, conn, ev, rem))
 	connected(t, u, conn)
@@ -284,7 +326,7 @@ func TestAC136UncheckedSubmitForgetsAndSendsNoDeviceKey(t *testing.T) {
 
 func TestAC137ForgetClearsForm(t *testing.T) {
 	a, u, ev := &fakeAPI{}, newUI(), make(chan UserAction)
-	rem := &memRemember{d: &remember.Data{V: 1, Name: "Eski Ad", Phone: "+905321234567", DeviceKey: "AAAAAAAAAAAAAAAAAAAAAA"}}
+	rem := &memRemember{d: &remember.Personal{Name: "Eski Ad", Phone: "+905321234567", DeviceKey: "AAAAAAAAAAAAAAAAAAAAAA"}}
 	u.forms = []func(FormView) (FormAction, Form){func(FormView) (FormAction, Form) { return FormForget, Form{} }}
 	o := Run(context.Background(), deps(a, u, newConn(), ev, rem))
 	if o.Kind != OutClose || rem.d != nil || len(u.views) != 2 {

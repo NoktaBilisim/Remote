@@ -1,8 +1,9 @@
 //go:build windows
 
 // Command noktadestek müşteri bilgisayarında çalışan Hızlı Destek istemcisidir (P6): güvenli açılış (DLL arama sırası,
-// gömülü yapılandırma, kimlik) → kod (dosya adı veya elle) → resolve → karşılama/KVKK → join → lobi → admit → paylaşım →
-// session.ended → en geç 3 sn içinde çıkış (AC-107). Akış internal/flow, arayüz internal/ui.
+// gömülü yapılandırma, kimlik) → açılış kararı (internal/launch: kod / firma dosyası / bilgisayar kaydı, P8c) → kod akışı
+// (internal/flow) veya ana ekran + talep (internal/request) → paylaşım → en geç 3 sn içinde çıkış (AC-107). Arayüz
+// internal/ui.
 package main
 
 import (
@@ -22,7 +23,7 @@ import (
 	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/input"
-	"remote-support/agent-win/internal/pairing"
+	"remote-support/agent-win/internal/launch"
 	"remote-support/agent-win/internal/remember"
 	"remote-support/agent-win/internal/request"
 	"remote-support/agent-win/internal/rtc"
@@ -111,46 +112,29 @@ func run() int {
 		EnvProbe:     env.Probe,
 		SelfElevated: selfElevated, // K8: env.state.selfElevated (GRANTED audit'i, konsol rozeti)
 	}
-	ctx := context.Background()
-	var out flow.Outcome
-	// ADR-0006 r4: önce firma dosyası adı (talep modu), değilse 8 hane (AC-97), hiçbiri yoksa elle kod.
-	if ref, ok := pairing.RefFromFileName(exe); ok {
-		res := request.Run(ctx, request.Deps{
-			API: client, UI: u, Events: u.RequestEvents(), Remember: rememberStore(),
-			ServerURL: cfg.ServerURL, Ref: ref, Version: cfg.Version, Logo: client.Logo,
+	store := rememberStore()
+	ld := launch.Deps{Exe: exe, ServerURL: cfg.ServerURL, API: client, Flow: deps,
+		Request: request.Deps{UI: u, Events: u.RequestEvents(), Version: cfg.Version, Logo: client.Logo,
 			Dial: func(ctx context.Context, secret string) (request.Conn, error) {
 				return request.Dial(ctx, client.HTTPClient(), cfg.ServerURL, secret)
-			},
-		})
-		switch res.Kind {
-		case request.OutClose:
-			return exitOK // AC-163: pencere kapatılınca süreç sonlanır
-		case request.OutCodeMode:
-			out = flow.Run(ctx, deps, "") // AC-162: "Teknisyenden kod aldım" → bugünkü akış
-		case request.OutShare:
-			deps.Admitted = func() { res.Release(request.ReleaseAdmitted) }
-			out = flow.RunTicket(ctx, deps, res.Ticket, res.TechName)
-			// hello geldiyse no-op (bir kez çalışır). Gelmediyse: ağ/protokol hatası → 1001 (sunucu CONNECT_FAILED
-			// "Müşteri bağlanamadı"); müşteri vazgeçti/sunucu bitirdi → 1000/REST (mimari-protokol §5.1, mimari-e9 §13.3).
-			kind := request.ReleaseAbandoned
-			if out.Failed {
-				kind = request.ReleaseFailed
-			}
-			res.Release(kind)
-		}
-	} else {
-		code, _ := pairing.FromFileName(exe) // AC-97: okunamazsa flow elle giriş ister
-		out = flow.Run(ctx, deps, code)
+			}}}
+	if store != nil {
+		ld.Store = store
 	}
+	// mimari-e10 §8.1: dosya adı + ağ yanıtı + bilgisayar kaydı → kod akışı / ana ekran (internal/launch).
+	out := launch.Run(context.Background(), ld)
 	if out.Message != (flow.Message{}) {
+		if out.BindingChanged != "" {
+			u.EndedNote(launch.ChangedText(out.BindingChanged)) // AC-187
+		}
 		u.Ended(out.Message)
 		time.Sleep(closeDelay)
 	}
 	return exitOK
 }
 
-// rememberStore hatırlama dosyası deposu; LocalAppData bulunamazsa nil (kutucuk işaretlense de yazılmaz).
-func rememberStore() request.Remember {
+// rememberStore hatırlama dosyası deposu; LocalAppData bulunamazsa nil (kayıt ve hatırlama kapalı).
+func rememberStore() *remember.Store {
 	s, err := remember.DefaultStore()
 	if err != nil {
 		return nil

@@ -112,3 +112,9 @@ func endedMessage(reason string) Message {
 	}
 	return msgEnded
 }
+
+// ResolveMessage resolve hatasının kullanıcı metni (launch: süresi dolmuş/kullanılmış kodun ana ekran bilgisi, AC-183).
+func ResolveMessage(err error) Message {
+	m, _ := classify(err)
+	return m
+}

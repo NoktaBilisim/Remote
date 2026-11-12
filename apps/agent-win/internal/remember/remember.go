@@ -1,69 +1,51 @@
-// Package remember "Bilgilerimi bu bilgisayarda hatırla" dosyasıdır (ADR-0004 r3 + eki; AC-136..138). İstemcinin kendi
-// adına diske yazdığı TEK dosya: `%LOCALAPPDATA%\NoktaDestek\hatirla.bin`, içerik `{v:1, name, phone, email?, deviceKey}`
-// JSON (≤ 4 KB) DPAPI CurrentUser ile korunur. Açıklama, onay, talep kimliği/sırrı ve ref YAZILMAZ. Depo mantığı
-// platformdan bağımsızdır (koruma fonksiyonları enjekte edilir); Windows eşi dpapi_windows.go.
+// Package remember istemcinin kendi adına diske yazdığı TEK dosyadır (ADR-0004 r4; AC-136..138, AC-181, AC-186):
+// `%LOCALAPPDATA%\NoktaDestek\hatirla.bin`, DPAPI CurrentUser + sabit entropi ile korunan JSON (≤ 4 KB). İçerik
+// format v2: kişisel bilgiler ("Bilgilerimi hatırla") ve/veya bilgisayar kaydı (sunucu kökeni, kayıt anahtarı, firma
+// ve müşteri adı). Açıklama, onay, talep kimliği/sırrı ve ref YAZILMAZ. Depo mantığı platformdan bağımsızdır (koruma
+// fonksiyonları enjekte edilir); Windows eşi dpapi_windows.go.
 package remember
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
-	"unicode"
-	"unicode/utf8"
+	"sync"
 )
 
 const (
-	fileName    = "hatirla.bin"
-	tmpName     = fileName + ".tmp"
-	plainMax    = 4096
-	sealedMax   = 16 * 1024
-	formatV1    = 1
-	nameMaxRune = 80
-	emailMax    = 254
+	fileName  = "hatirla.bin"
+	tmpName   = fileName + ".tmp"
+	plainMax  = 4096
+	sealedMax = 16 * 1024
 )
 
-var (
-	phoneRe     = regexp.MustCompile(`^\+[1-9][0-9]{7,14}$`)
-	deviceKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{22}$`)
-)
-
-// Data hatırlanan bilgiler.
-type Data struct {
-	V         int    `json:"v"`
-	Name      string `json:"name"`
-	Phone     string `json:"phone"` // E.164
-	Email     string `json:"email,omitempty"`
-	DeviceKey string `json:"deviceKey"`
-}
-
-// Store dosya deposu. Dir istemcinin oluşturduğu klasördür (yalnız boşsa silinir).
+// Store dosya deposu. Dir istemcinin oluşturduğu klasördür (yalnız boşsa silinir). Tüm yazımlar oku-değiştir-yaz
+// olarak tek kilit altında yapılır (talep akışı ve oturum aynı depoyu paylaşır).
 type Store struct {
 	Dir       string
 	Protect   func([]byte) ([]byte, error)
 	Unprotect func([]byte) ([]byte, error)
+	mu        sync.Mutex
 }
 
-func (d Data) valid() bool {
-	n := utf8.RuneCountInString(d.Name)
-	return d.V == formatV1 && n >= 1 && n <= nameMaxRune && phoneRe.MatchString(d.Phone) && len(d.Email) <= emailMax &&
-		deviceKeyRe.MatchString(d.DeviceKey) && !hasControl(d.Name) && !hasControl(d.Email)
-}
-
-func hasControl(s string) bool {
-	for _, r := range s {
-		if unicode.In(r, unicode.Cc, unicode.Cf) {
-			return true
-		}
-	}
-	return false
-}
-
-// Load açılışta bir kez okunur. Dosya yoksa false; çözülemiyor/bozuk/başka kullanıcının ise sessizce silinir, false.
+// Load dosyayı okur. Dosya yoksa false; çözülemiyor/bozuk/başka kullanıcının ise sessizce silinir, false.
 func (s *Store) Load() (Data, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.load()
+}
+
+// LoadPersonal yalnız kişisel bilgiler (talep formu).
+func (s *Store) LoadPersonal() (Personal, bool) {
+	d, ok := s.Load()
+	if !ok || d.Personal == nil {
+		return Personal{}, false
+	}
+	return *d.Personal, true
+}
+
+func (s *Store) load() (Data, bool) {
 	f, err := os.Open(filepath.Join(s.Dir, fileName))
 	if err != nil {
 		return Data{}, false
@@ -71,33 +53,76 @@ func (s *Store) Load() (Data, bool) {
 	sealed, err := io.ReadAll(io.LimitReader(f, sealedMax+1))
 	_ = f.Close()
 	if err != nil || len(sealed) > sealedMax {
-		_ = s.Forget()
+		_ = s.forgetAll()
 		return Data{}, false
 	}
 	plain, err := s.Unprotect(sealed)
 	if err != nil || len(plain) > plainMax {
-		_ = s.Forget()
+		_ = s.forgetAll()
 		return Data{}, false
 	}
-	var d Data
-	dec := json.NewDecoder(bytes.NewReader(plain))
-	dec.DisallowUnknownFields()
-	if dec.Decode(&d) != nil || !d.valid() {
-		_ = s.Forget()
+	d, err := decode(plain)
+	if err != nil {
+		_ = s.forgetAll()
 		return Data{}, false
 	}
 	return d, true
 }
 
-// Save talep 201 aldıktan sonra yazar: aynı klasörde `.tmp` (O_EXCL) → yeniden adlandırma (Windows'ta
-// MoveFileEx(MOVEFILE_REPLACE_EXISTING)). Önceki çalışmadan kalan tmp → silinir ve bir kez yeniden denenir (G-E9-13).
-func (s *Store) Save(d Data) error {
-	d.V = formatV1
-	if !d.valid() {
-		return errors.New("remember: geçersiz veri")
+// update mevcut içeriği değiştirip yazar; iki alan da boşaldıysa dosya (ve boşsa klasör) silinir.
+func (s *Store) update(fn func(*Data)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, _ := s.load()
+	fn(&d)
+	if d.Personal == nil && d.Binding == nil {
+		return s.forgetAll()
 	}
-	plain, err := json.Marshal(d)
-	if err != nil || len(plain) > plainMax {
+	return s.write(d)
+}
+
+// SavePersonal talep 201 aldıktan sonra kişisel bilgileri yazar; varsa kaydı korur.
+func (s *Store) SavePersonal(p Personal) error {
+	if !p.valid() {
+		return errors.New("remember: geçersiz kişisel bilgi")
+	}
+	return s.update(func(d *Data) { d.Personal = &p })
+}
+
+// ClearPersonal "Bilgilerimi unut" (AC-137, AC-186): yalnız ad/telefon/e-posta ve cihaz anahtarı silinir (G-E10-5:
+// sonraki hatırlamada yeni anahtar üretilir); kayıt varsa dosya kalır, yoksa dosya silinir.
+func (s *Store) ClearPersonal() error {
+	return s.update(func(d *Data) { d.Personal = nil })
+}
+
+// SaveBinding `binding.issued` sonrası (AC-181, AC-187): tek kayıt — öncekinin üzerine yazar; kişisel alan korunur.
+func (s *Store) SaveBinding(b Binding) error {
+	if !b.valid() {
+		return errors.New("remember: geçersiz kayıt")
+	}
+	return s.update(func(d *Data) { d.Binding = &b })
+}
+
+// ClearBinding geçersiz kayıt (AC-185): kayıt silinir, kişisel bilgiler kalır.
+func (s *Store) ClearBinding() error {
+	return s.update(func(d *Data) { d.Binding = nil })
+}
+
+// ForgetAll "Bu bilgisayarı unut" (AC-186): dosya, varsa tmp, ardından YALNIZ boşsa klasör.
+func (s *Store) ForgetAll() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.forgetAll()
+}
+
+// write aynı klasörde `.tmp` (O_EXCL) → yeniden adlandırma (Windows'ta MoveFileEx(MOVEFILE_REPLACE_EXISTING)).
+// Önceki çalışmadan kalan tmp → silinir ve bir kez yeniden denenir (G-E9-13).
+func (s *Store) write(d Data) error {
+	plain, err := encode(d)
+	if err != nil {
+		return err
+	}
+	if len(plain) > plainMax {
 		return errors.New("remember: veri çok büyük")
 	}
 	sealed, err := s.Protect(plain)
@@ -130,8 +155,7 @@ func (s *Store) Save(d Data) error {
 	return nil
 }
 
-// Forget "Bilgilerimi unut" / kutucuk işaretsiz gönderim (AC-137): dosya, varsa tmp, ardından YALNIZ boşsa klasör.
-func (s *Store) Forget() error {
+func (s *Store) forgetAll() error {
 	var errs []error
 	for _, n := range []string{fileName, tmpName} {
 		if err := os.Remove(filepath.Join(s.Dir, n)); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -144,4 +168,9 @@ func (s *Store) Forget() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// NoticeText AC-188 bilgi satırı (P6 karşılama ve talep formu; kayıt yalnız başarılı oturumdan sonra yazılır).
+func NoticeText(firm string) string {
+	return "Oturumdan sonra bu bilgisayar " + firm + " için hatırlanır; istediğinizde 'Bu bilgisayarı unut' ile silebilirsiniz."
 }

@@ -24,10 +24,12 @@ type TenantRequestInfo struct {
 	MinAgentVersion *string     `json:"minAgentVersion"`
 }
 
-// CreateRequestBody POST /public/requests gövdesi (contracts `createRequestInputSchema`). `email` ve `deviceKey`
-// boşsa gönderilmez (deviceKey yalnız "hatırla" açıkken, ADR-0004 r3 eki).
+// CreateRequestBody POST /public/requests gövdesi (contracts `createRequestInputSchema`). `ref` ya da `bindingKey`
+// (P8c): tam biri dolu. `email` ve `deviceKey` boşsa gönderilmez (deviceKey yalnız "hatırla" açıkken, ADR-0004 r3
+// eki; kayıtla açılan talepte hiç gönderilmez, G-E10-5).
 type CreateRequestBody struct {
-	Ref              string `json:"ref"`
+	Ref              string `json:"ref,omitempty"`
+	BindingKey       string `json:"bindingKey,omitempty"`
 	ClientInstanceID string `json:"clientInstanceId"`
 	ClientVersion    string `json:"clientVersion"`
 	CustomerName     string `json:"customerName"`

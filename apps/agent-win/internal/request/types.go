@@ -12,6 +12,8 @@ import (
 // API public talep uçları (internal/api.Client).
 type API interface {
 	TenantInfo(ctx context.Context, ref string) (*api.TenantRequestInfo, error)
+	// BindingStatus P8c (AC-182, 185): kayıt modunda firma bilgisi; 404 BINDING_INVALID tek tip yanıt.
+	BindingStatus(ctx context.Context, key string) (*api.BindingInfo, error)
 	CreateRequest(ctx context.Context, body api.CreateRequestBody) (*api.CreateRequestResult, error)
 	CancelRequest(ctx context.Context, secret string) error
 }
@@ -23,11 +25,12 @@ type Conn interface {
 	Close(normal bool) error
 }
 
-// Remember hatırlama dosyası (remember.Store); nil olabilir (dosya klasörü bulunamadı → kutucuk yine çalışır, yazmaz).
+// Remember hatırlama dosyasının kişisel bölümü (remember.Store, format v2); nil olabilir (dosya klasörü bulunamadı →
+// kutucuk yine çalışır, yazmaz). "Bilgilerimi unut" yalnız kişisel bilgileri siler, kaydı korur (AC-186).
 type Remember interface {
-	Load() (remember.Data, bool)
-	Save(d remember.Data) error
-	Forget() error
+	LoadPersonal() (remember.Personal, bool)
+	SavePersonal(p remember.Personal) error
+	ClearPersonal() error
 }
 
 // Message başlık + açıklama.
@@ -37,7 +40,7 @@ type Message struct{ Title, Body string }
 type Problem struct {
 	Message
 	Retry    bool // "Tekrar dene"
-	CodeMode bool // "Teknisyenden kod aldım"
+	CodeMode bool // "Bağlantı kodum var" (AC-189)
 	Download bool // "Yeni sürümü indir" (yalnız DownloadURL)
 }
 
@@ -64,7 +67,31 @@ type FormView struct {
 	Focus          string            // odaklanacak alan (hata varsa ilk hatalı alan)
 	Notice         string
 	Remembered     bool // "Bu bilgiler size ait değilse: Bilgilerimi unut" ipucu
+	// RememberNote AC-188 bilgi satırı (KVKK onayının üstünde).
+	RememberNote string
 }
+
+// HomeView ana ekran (AC-182, 183, 189, 190; mimari-e10 §8.2). Tenant boşsa kaynaksız ekrandır (satır 3/8).
+type HomeView struct {
+	Tenant     string
+	Logo       image.Image // nil → sistem logosu
+	Registered string      // "<firma>[ – <müşteri>]"; doluysa "Bu bilgisayar … için kayıtlı"
+	Support    bool        // "Destek iste" etkin; değilse pasif + Hint (AC-190)
+	Hint       string
+	Notice     string // bilgi satırı: süre doldu / dosya geçersiz / kayıt geçersiz (AC-185) / unutuldu (AC-186)
+	AbuseEmail string // boşsa "Kötüye kullanımı bildir" gizli
+}
+
+// HomeAction ana ekran kararı. Tab sırası: Destek iste → Bağlantı kodum var → Bu bilgisayarı unut → Kötüye kullanımı
+// bildir (AC-189).
+type HomeAction int
+
+const (
+	HomeClose HomeAction = iota
+	HomeSupport
+	HomeCode
+	HomeForget
+)
 
 // FormAction form kararı.
 type FormAction int
@@ -116,6 +143,8 @@ const (
 // UI talep modunun arayüzü (Win32: internal/ui). Engelleyen çağrılar karar dönene kadar bekler; diğerleri hemen döner.
 // Bekleme/onay ekranındaki kullanıcı eylemleri Deps.Events'ten gelir.
 type UI interface {
+	// RequestHome ana ekranı gösterir ve bir karar bekler (pencere karar verilince kapanır).
+	RequestHome(ctx context.Context, v HomeView) HomeAction
 	RequestProblem(ctx context.Context, p Problem) ProblemAction
 	// RequestForm pencere yoksa açar, varsa günceller (girilen değerler korunur) ve bir karar bekler.
 	RequestForm(ctx context.Context, v FormView) (FormAction, Form)
@@ -134,7 +163,7 @@ type OutcomeKind int
 
 const (
 	OutClose    OutcomeKind = iota // pencere kapatıldı / bitti → süreç sonlanır (AC-163)
-	OutCodeMode                    // "Teknisyenden kod aldım" → 8 hane akışı (AC-162)
+	OutCodeMode                    // "Bağlantı kodum var" → 8 hane akışı (AC-162, AC-189)
 	OutShare                       // "Ekranımı paylaş" → flow.RunTicket
 )
 

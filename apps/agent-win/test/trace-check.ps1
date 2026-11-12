@@ -50,6 +50,11 @@
     %LOCALAPPDATA%\NoktaDestek klasörü ve içindeki hatirla.bin'dir; dosya YOKSA da hata (1) verilir, klasörde başka
     dosya (ör. hatirla.bin.tmp) iz sayılır.
 
+.PARAMETER Binding
+    P8c (AC-181, 186, 188, ADR-0004 r4). on: bilgisayar kaydı alınmış oturumdan sonra — -Remember on ile aynı kural
+    (tek izin verilen iz %LOCALAPPDATA%\NoktaDestek\hatirla.bin; dosya yoksa hata). off (varsayılan): "Bu bilgisayarı
+    unut" sonrası hiçbir iz olmamalı (-Remember off ile birlikte).
+
 .PARAMETER Strict
     Desene uymayan yeni girdileri de iz say (sessiz, temiz bir VM'de kullanın).
 
@@ -61,6 +66,7 @@
     # Elle test (Windows VM, runbook §11.8):
     pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Snapshot -SnapshotPath D:\iz-once.json
     # ... istemciyi çalıştır, oturumu bitir, kapanmasını bekle ...
+    # Kayıt alınmış oturum sonrası: -Binding on; "Bu bilgisayarı unut" sonrası: -Binding off -Remember off
     # Firma dosyası + "hatırla" açık: -Remember on -ExePath "$env:USERPROFILE\Downloads\NoktaDestek-Firma-<ref>.exe"
     pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Compare -SnapshotPath D:\iz-once.json -ExePath "$env:USERPROFILE\Downloads\Destek-12345678.exe"
 
@@ -76,6 +82,8 @@ param(
     [string[]]$ExtraPattern = @(),
     [ValidateSet('on', 'off')]
     [string]$Remember = 'off',
+    [ValidateSet('on', 'off')]
+    [string]$Binding = 'off',
     [switch]$Strict
 )
 
@@ -253,7 +261,7 @@ $rememberDir = Join-Path $env:LOCALAPPDATA 'NoktaDestek'
 $rememberFile = Join-Path $rememberDir 'hatirla.bin'
 $allowed = @()
 $missing = @()
-if ($Remember -eq 'on') {
+if ($Remember -eq 'on' -or $Binding -eq 'on') {
     $allowed = @("LocalAppData`t$rememberDir", "LocalAppData`t$rememberFile")
     if (-not (Test-Path -LiteralPath $rememberFile -PathType Leaf)) { $missing = @("Beklenen hatırlama dosyası yok: $rememberFile") }
 }
@@ -269,7 +277,7 @@ if ($Mode -eq 'Check') {
     if ($Strict) { $traces += $review; $review = @() }
 }
 
-Write-Output "trace-check ($Mode, Remember=$Remember) — desen: $pattern"
+Write-Output "trace-check ($Mode, Remember=$Remember, Binding=$Binding) — desen: $pattern"
 foreach ($p in $r.Preexisting) { Write-Output "UYARI (çalıştırmadan önce de vardı): $p" }
 if ($review.Count -gt 0) {
     Write-Output "İNCELEYİN — desene uymayan yeni girdiler ($($review.Count)); istemciye ait değilse yok sayılabilir:"

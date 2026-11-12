@@ -186,7 +186,7 @@ func (w *waiter) dialed(ctx context.Context, dr dialRes) (bool, bool, *Outcome) 
 	w.r.d.UI.RequestWaitClose()
 	var de *DialError
 	if errors.As(dr.err, &de) && de.Status == 426 {
-		_, out := w.r.problem(ctx, outdatedProblem())
+		_, out := w.r.problem(ctx, w.r.outdatedProblem())
 		return true, false, out
 	}
 	if errors.As(dr.err, &de) && de.Status == 403 {
@@ -372,6 +372,8 @@ func closedView(c Closed) ClosedView {
 		return ClosedView{Message: Message{"Bağlantı kurulamadı", "Teknisyen kabul ettikten sonra bağlantı süresi doldu. İsterseniz yeniden talep oluşturabilirsiniz."}, Recreate: true}
 	case reason == "TENANT_PASSIVE":
 		return ClosedView{Message: Message{"Talebiniz iptal edildi", "Firmanız şu an talep kabul etmiyor. Lütfen firmanızı telefonla arayın."}}
+	case reason == "CUSTOMER_PASSIVE" || reason == "BINDING_REVOKED": // P8c (AC-171, §15.2): genel metin, neden gösterilmez
+		return ClosedView{Message: msgFirmClosed}
 	case reason == "DISCONNECTED":
 		return ClosedView{Message: Message{"Talebiniz iptal edildi", "Bağlantı uzun süre koptuğu için talebiniz iptal edildi. İsterseniz yeniden talep oluşturabilirsiniz."}, Recreate: true}
 	}

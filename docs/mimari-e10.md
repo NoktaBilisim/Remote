@@ -514,3 +514,5 @@ Güncellenen satırın `customer_id`'si: oturumun `customer_id`'si doluysa o de�
 - P8c-1 ek dosyalar: `apps/server/src/audit/mask.ts` (`customerAuditView`), `requests/routes.ts` + `bindings/service.ts` (`revoke-binding`), `apps/web/app/(panel)/requests/{request-card,revoke-binding-dialog}.tsx`, runbook.
 - P8c-2 ek dosyalar: `apps/agent-win/internal/remember/origin.go` (+ test), `go.mod` (`golang.org/x/net` dolaylı → doğrudan).
 - AC eşlemesi ekleri: 168 (şerh), 173 (K19), 176 (rozet kapsamı, `bindingRevoked`), 181 (bayat kaynak, tek etkin kayıt), 184 (K20 kovaları), 185 (`ADMIN_REVOKED`), 187 (müşteri bağı korunur). AC sayısı değişmez (31).
+
+> **Uygulama notu (P8c-2, backend-dev, 2026-11-12) — G-E10-6 sapması (onay bekliyor):** `golang.org/x/net/idna`, go.sum'da olmayan `golang.org/x/text` modülünü gerektirir ("yeni modül yok" kısıtı). `CanonicalOrigin` IDNA dönüşümü yapmadan aynı kanonik biçimi üretir; Unicode (IDN) host **reddedilir** (kayıt kullanılmaz/gönderilmez, fail-closed), punycode `xn--` ve IP kabul. go.mod değişmedi. Ayrıntı: `docs/implementation.md` "P8c-2 — İstemci 0.10.0" S1.
