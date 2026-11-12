@@ -76,7 +76,7 @@ INSERT INTO audit_logs (tenant_id, action, entity, entity_id, new_value, result)
 COMMIT;
 SQL
     fi
-    echo "$role: exists ($email) - parola değiştirilmedi, eksik yetkiler eklendi"; return
+    echo "$role: exists ($email) - parola değiştirilmedi${perms:+, eksik yetkiler eklendi}"; return
   fi
   id="$(new_id)"
   pw="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-20)"

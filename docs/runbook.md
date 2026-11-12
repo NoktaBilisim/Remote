@@ -227,6 +227,7 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
 | 2026-11-12 | P8 ek | `20cabfd` (yalnız istemci) | — | İstemci 0.8.1: enjekte tıklama reddinde uyarı; iki derleme aynı SHA-256 `6aeed3dd…`, `--dir --no-attestation` + `ALLOW_UNATTESTED=staging` |
 | 2026-11-12 | Alan adı | `3d1278c` | — | `https://remote.noktabilisim.net` (host nginx + Let's Encrypt → Caddy 4451, ADR-0015); IP:4450 geçiş için açık. İstemci 0.8.2 yeni adres gömülü (kök sertifika gerekmez), iki derleme aynı SHA-256 `52dcc1d3…` |
 | 2026-11-12 | Alan adı (sunucu tarafı) | — (repo değişikliği yayın bekliyor) | — | nginx vhost + LE sertifikası (`certonly --webroot`, renew dry-run GEÇTİ), `.env` `PUBLIC_BASE_URL`/`ALLOWED_ORIGINS` güncellendi (konteynerler yeniden yaratılmadı). Caddy 4451 (ADR-0015) yayınlanınca §8.3 doğrulaması |
+| 2026-11-12 | P8b-1 | `b07aa76` | `20261112000000_p8b_support_requests` | Yedek `/root/remote-pre-p8b-20261112T001545Z.sql.gz`; seed `consentTextsCreated=1`; grants 211 PASS; nginx vhost güncellendi (`nginx -t` OK); Caddy yeniden başlatıldı (admin API kapalı, `reload` yerine `restart`). `WHATSAPP_SERVICE_URL`/`MIN_AGENT_VERSION` boş (prod modunda http WhatsApp kapalı — K13). **Ders:** aynı ssh komutunda `umask 077` sonrası `git pull` yeni dosyaları 600 yaptı → migrate EACCES, server/web birkaç dakika durdu; düzeltme `chmod go+rX` + yeniden build. Yedek/umask'i ayrı ssh çağrısında yapın |
 
   Rollback hedefi: bir önceki satırdaki `IMAGE_TAG`; şema geri alması gerekiyorsa §6.
 
