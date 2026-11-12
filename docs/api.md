@@ -1,13 +1,15 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c)
 
-Bu belge P1–P8 ve P8b-1'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P8, P8b-1 ve P8c-1'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
 `signaling/control.ts` (P7), `sessions/{history,history-repo}.ts` ve `lib/csv.ts` (P8),
 `packages/contracts/src/{errors.ts,ws.ts,dc.ts,audit.ts,labels.ts,api/auth.ts,api/sessions.ts}`;
 P8b-1: `requests/{public-routes,routes,service,panel,limits,ws}.ts`, `lib/{gate,db,errors}.ts`,
-`packages/contracts/src/{api/requests.ts,ws-request.ts}`.
+`packages/contracts/src/{api/requests.ts,ws-request.ts}`;
+P8c-1: `customers/{routes,service}.ts`, `bindings/{public-routes,service}.ts`, `signaling/binding.ts`,
+`packages/contracts/src/api/{customers,bindings}.ts`.
 
 ## Genel kurallar
 - Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres `PUBLIC_BASE_URL` (staging `https://remote.noktabilisim.net`;
@@ -191,7 +193,7 @@ Oturum durumları: `PENDING` (müşteri bekleniyor) · `ACTIVE` · `ENDED` · `E
 `endedBy`: `TECH` | `CUSTOMER` | `ADMIN` | `SYSTEM`.
 
 ### POST /api/v1/sessions
-Girdi: boş nesne `{}`. Gerekli: oturum, `X-CSRF-Token`, `Origin`.
+Girdi: boş nesne `{}` veya (P8c) `{ "customerId": "<aktif müşteri ULID>" }` — bkz. "Müşteriler ve bilgisayar kaydı". Gerekli: oturum, `X-CSRF-Token`, `Origin`.
 ```bash
 curl -sk -i -X POST https://localhost:4450/api/v1/sessions \
   -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' -H "X-CSRF-Token: $CSRF" \
@@ -1000,6 +1002,150 @@ Kaçırılan olayın kaynağı REST'tir; panel yeniden bağlanınca listeyi yeni
 | WS el sıkışma | IP | 30/dk (1 dk blok) | `/ws/request`, `/ws/panel` |
 | Talep kapısı | Firma / toplam | 2 / 4 eşzamanlı, kuyruk 16 / 64, bekleme 5 sn | Dolunca 503 `NOT_READY` + `Retry-After: 5` |
 
+## Müşteriler ve bilgisayar kaydı (P8c)
+Tenant kendi müşteri firmalarını kaydeder; her müşteri Genel bağlantıyla aynı biçimde (`[a-z2-7]{16}`) kalıcı bir ref ve
+`NoktaDestek-<etiket>-<ref>.exe` dosyası alır. Başarılı bir istemci oturumundan sonra 0.10.0+ istemci bilgisayar kaydı
+alır ve sonraki açılışta bu kayıtla talep açar. Bağlayıcı sözleşme: `docs/mimari-api.md` "Müşteriler ve bilgisayar kaydı
+(P8c)", `docs/mimari-protokol.md` §6, `docs/mimari-e10.md` §15. Kaynak: `apps/server/src/customers/{routes,service}.ts`,
+`bindings/{public-routes,service}.ts`, `requests/routes.ts`, `signaling/binding.ts`; şemalar
+`packages/contracts/src/api/{customers,bindings,requests,sessions}.ts`, `ws.ts` (tümü `strictObject`).
+
+Panel uçları oturum çerezi ister; durum değiştirenler `Origin` + `X-CSRF-Token` ister. Hepsi `tenantScope` kullanır:
+Super Admin firma seçmeden 403; başka tenant'ın kaydı veya biçimsiz `:id` → 404. Müşteri yazma uçları (POST, PATCH,
+rotate, deactivate, reactivate, revoke-binding) kullanıcı başına 30/dk (aşımda 429).
+
+**Tipler.** `CustomerFirmRef = { id, name, status }`.
+`CustomerListItem = { id, name, status: "ACTIVE"|"PASSIVE", downloadUrl|null, fileName|null, createdAt, lastRequestAt|null, requestCount }`
+(pasif müşteride `downloadUrl`/`fileName` `null`). `CustomerDetail = CustomerListItem + { fileLabel, contactName|null,
+phone|null, email|null, note|null, refRotatedAt|null, passiveAt|null, anonymizedAt|null, sessionCount }`.
+
+**Alan kuralları.** `name` 2–100 karakter, kontrol/görünmez karakter yok, tenant içinde tekil (büyük/küçük harf ve Türkçe
+karakter duyarsız). `fileLabel` `^[A-Za-z0-9]{1,20}$` (verilmezse addan önerilir). `contactName` ≤ 80. `phone` `05xx…` /
+`+90…` / uluslararası `+`. `email` ≤ 254. `note` ≤ 1000, düz metin (sekme yok). Kişisel alanlarda `""` veya `null` alanı
+boşaltır.
+
+### GET /api/v1/customers?q=&status=active|passive|all&page=&pageSize=&sort=
+Yetki `customers.view`. `q` 2–100 karakter (ad, yetkili kişi, telefon içinde arar), `status` varsayılan `active`,
+`pageSize` varsayılan 50 (en çok 100), `sort` `name:asc` (varsayılan) | `createdAt:desc`. Yanıt `no-store`:
+```json
+{ "items": [ { "id": "01K…", "name": "Örnek Muhasebe Ltd.", "status": "ACTIVE",
+  "downloadUrl": "https://remote.noktabilisim.net/api/v1/public/agent/request-download?ref=…",
+  "fileName": "NoktaDestek-OrnekMuhasebe-….exe", "createdAt": "…", "lastRequestAt": null, "requestCount": 0 } ],
+  "page": 1, "pageSize": 50, "total": 1 }
+```
+Hatalar: 400 `VALIDATION`, 403.
+
+### GET /api/v1/customers/general-link · GET /api/v1/customers/options?q=&status=active|all
+`general-link` (`customers.view`): `{ "downloadUrl": "…", "fileName": "NoktaDestek-<firma>-….exe" }` — Genel bağlantının
+salt okunur kopyası (yenileme yalnız Ayarlar'dan). `options`: `{ "items": [CustomerFirmRef] }`, en çok 20, ada göre;
+yetki `customers.view` **veya** `support_requests.view` **veya** `session_history.view` (filtre ve seçim kutuları).
+
+### POST /api/v1/customers
+Yetki `customers.create`. Gövde:
+```json
+{ "name": "Örnek Muhasebe Ltd.", "fileLabel": "OrnekMuhasebe", "contactName": "Ayşe Yılmaz",
+  "phone": "0532 000 00 00", "email": "ayse@example.com", "note": "Muhasebe ofisi, 3 bilgisayar" }
+```
+201 `CustomerDetail`. Hatalar: 400 `VALIDATION` (`fields.*`), 403, 409 `CONFLICT` (`fields.name` "Bu adla bir müşteri
+zaten var"), 429.
+
+### GET /api/v1/customers/:id · PATCH /api/v1/customers/:id
+GET (`customers.view`) → `CustomerDetail`; yok/başka tenant → 404. PATCH (`customers.edit`): POST alanlarının en az biri;
+ad ve etiket boşaltılamaz. Pasif müşteride de çalışır (kişisel veriyi silmek için). Hatalar: 400, 404, 409, 429.
+
+### POST /api/v1/customers/:id/rotate-ref · /deactivate · /reactivate
+Gövde `{}` → güncel `CustomerDetail`.
+| Uç | Yetki | Etkisi | Hatalar |
+|---|---|---|---|
+| `rotate-ref` | `customers.edit` | Yeni ref; eski bağlantı ve dosyalar anında 404; müşterinin kayıtlı bilgisayarları geçersiz (`CUSTOMER_ROTATED`). Bekleyen talepler etkilenmez | 404, 409 `CONFLICT` (pasif), 429 |
+| `deactivate` | `customers.delete` | `ACTIVE → PASSIVE`; bağlantı 404, kayıtlar geçersiz (`CUSTOMER_PASSIVE`), bekleyen talepler `CANCELLED(CUSTOMER_PASSIVE)`. Kalıcı silme yoktur | 404, 409 (zaten pasif), 429 |
+| `reactivate` | `customers.edit` | **Yeni** ref üretilir; eski ref ve kayıtlar geçersiz kalır | 404, 409 (zaten aktif), 429 |
+
+### GET /api/v1/customers/:id/requests · GET /api/v1/customers/:id/sessions
+`?page=&pageSize=` (varsayılan 25, en çok 100), yeniden eskiye. `requests` → `{ items: SupportRequestItem[], page,
+pageSize, total }`, yetki `customers.view` + `support_requests.view`. `sessions` → `{ items: SessionListItem[], … }`,
+yetki `customers.view` + `session_history.view` (USER yalnız kendi oturumlarını görür). Hatalar: 403, 404.
+
+### Mevcut uçlara eklenenler
+- `GET /support-requests?customer=general|<müşteri id>` (kuyruk ve geçmiş). `SupportRequestItem` += `customerFirm:
+  CustomerFirmRef|null`, `viaBinding` (kayıtla açıldı ve kayıt hâlâ etkin → "Kayıtlı bilgisayar — <firma|Genel>"),
+  `bindingRevoked` (kayıtla açıldı, kayıt artık geçersiz → "Kaydı iptal edilmiş bilgisayar"), `staleSource` ("Bu talep
+  bağlantı yenilenmeden önce açıldı"; kabul edilse de kayıt verilmez).
+- İptal nedenleri += `CUSTOMER_PASSIVE` ("Müşteri pasife alındı"), `BINDING_REVOKED` ("Bilgisayar kaydı iptal edildi").
+  `/ws/request` bu iki nedeni 0.10.0 altındaki istemciye `TENANT_PASSIVE` olarak iletir.
+- `/ws/panel` `request.new` += `customerFirm: {id, name}|null`, `viaBinding`, `bindingRevoked`; toast "Yeni destek
+  talebi: <ad> — <firma | Genel>".
+- `POST /sessions` gövdesi `{ "customerId": "01K…" }` (isteğe bağlı, ULID). Verilirse `customers.view` gerekir (yoksa
+  403) ve müşteri aynı tenant'ta **aktif** olmalı (yoksa 404). Oturum yanıtları ve geçmiş += `customerFirm`. Talep kabulü
+  talebin müşterisini oturuma kopyalar.
+- `GET /sessions` ve `export.csv` += `customer=none|<id>`; CSV'de `Kaynak`'tan sonra "Müşteri firma" sütunu.
+- `GET/PUT /settings/support-requests`: bağlantı arayüzde "Genel bağlantı" adını aldı; `rotate-ref` artık Genel kayıtlı
+  bilgisayarları da geçersiz kılar (`GENERAL_ROTATED`).
+
+### POST /api/v1/support-requests/:id/revoke-binding
+Talebi açan bilgisayarın kaydını iptal eder. Yetki `support_requests.view` **ve** `customers.edit`, `Origin` + CSRF.
+Kayıt talebin kendisinden bulunur (istemciden kayıt kimliği alınmaz). Gövde `{}` → 204. Aynı kaydın bekleyen talepleri
+`CANCELLED(BINDING_REVOKED)` olur; müşterinin diğer bilgisayarları ve dosyası etkilenmez. Hatalar: 403, 404 (talep yok,
+başka tenant, kayıtla açılmamış), 409 `CONFLICT` (kayıt zaten geçersiz), 429.
+
+### Public uçlarda değişenler (istemci; çerezsiz, `Origin`/`Sec-Fetch-*` olmamalı)
+- `GET /public/requests/tenant?ref=` ve `GET /public/agent/request-download?ref=` müşteri ref'ini de kabul eder. Yanıt
+  şekli aynıdır (müşteri bilgisi dönmez); indirme `NoktaDestek-<müşteri etiketi>-<ref>.exe`'ye yönlendirir. Yok,
+  yenilenmiş, pasif müşteri, pasif tenant → aynı 404 `REQUEST_REF_INVALID`.
+- `POST /public/requests`: `ref` artık isteğe bağlıdır; **`ref` veya `bindingKey`'den tam biri** dolu olmalı (ikisi
+  birden ya da hiçbiri → 400). Kayıtla talep:
+```json
+{ "bindingKey": "rsb_<43 karakter>", "clientInstanceId": "AbCdEfGhIjKlMnOpQrStUv", "clientVersion": "0.10.0",
+  "customerName": "Ayşe Yılmaz", "phone": "0532 000 00 00", "description": "Yazıcı çıktı vermiyor",
+  "consentTextId": "01K…", "consentAccepted": true }
+```
+  Ek hatalar: 404 `BINDING_INVALID` (biçim dışı, yok, unutulmuş, değiştirilmiş, müşteri yenilendi/pasif, Genel
+  yenilendi, tenant pasif, süresi doldu — tek gövde), 409 `REQUEST_PENDING` (kayıt başına 1 bekleyen), 429 (kayıt başına
+  saatte 6; E9 IP/ağ/firma sınırlarına ek).
+
+### POST /api/v1/public/bindings/status
+Gövde `{ "bindingKey": "rsb_…", "clientVersion": "0.10.0" }` (ikisi de zorunlu; `clientVersion` yoksa 400
+`VALIDATION`). 200 (`no-store`): `TenantRequestInfo` + `customer`:
+```json
+{ "tenant": { "name": "Örnek Destek Ltd", "logoUrl": null },
+  "consentText": { "id": "01K…", "version": 4, "body": "…", "sha256": "…" },
+  "waitMinutes": 30, "abuseEmail": null, "minAgentVersion": null,
+  "customer": { "name": "Örnek Muhasebe Ltd." } }
+```
+`customer` Genel kayıtta `null`. Kaydın son kullanım zamanını değiştirmez. Hatalar: 404 `BINDING_INVALID`, 426
+`CLIENT_OUTDATED`, 429.
+```bash
+curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"bindingKey":"rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","clientVersion":"0.10.0"}' \
+  https://remote.noktabilisim.net/api/v1/public/bindings/status      # 404 BINDING_INVALID
+```
+
+### POST /api/v1/public/bindings/revoke
+Gövde `{ "bindingKey": "rsb_…" }` → **her durumda** 204 (anahtarın geçerli olup olmadığı sızdırılmaz). İstemcinin
+"Bu bilgisayarı unut" düğmesi çağırır (`FORGOTTEN`). Hatalar: 403 `CSRF_INVALID`, 429.
+
+`bindingKey` yalnız istek gövdesinde taşınır (URL'de asla) ve yalnız talep açar: resolve, join, `/ws/guest`,
+`/ws/request` ve TURN uçlarında kimlik olarak kabul edilmez.
+
+### WebSocket `/ws/guest` — kayıt mesajları
+Yeni WS ucu yok; mevcut misafir soketi kullanılır, `hello` şeması değişmedi.
+| `t` | Yön | Alanlar | Davranış |
+|---|---|---|---|
+| `binding.offer` | S → misafir | — | Misafir kabul edilip `hello` gönderildikten hemen sonra; yalnız Windows istemcisine ve ticket'taki `clientVersion ≥ 0.10.0` ise. Yeniden bağlanmada tekrar gönderilir. 0.9.x hiç almaz |
+| `binding.request` | misafir → S | `id?`, `previousKey?` (`rsb_…`, yalnız kayıt aynı sunucudansa) | Teklif alındıktan sonra bir kez. Ret: kabul edilmemiş misafir → kapanış 1008; tarayıcı → `error{FORBIDDEN}`; teklifsiz, oturum aktif değil, tenant/müşteri pasif veya bayat kaynak → `error{CONFLICT}`; oturum başına 3. istekten sonra → `error{RATE_LIMITED}` |
+| `binding.issued` | S → misafir | `bindingKey`, `tenantName` (≤ 120), `customerFirmName` (≤ 100 veya `null`), `renewed` | Yalnız isteyen sokete. `previousKey` geçerliyse eski anahtar ölür (rotasyon). Anahtar başka mesaj, log veya audit'te yer almaz |
+İstemci `error` yanıtında oturuma devam eder, kayıt yazmaz.
+
+### Hız sınırları (P8c ekleri)
+| Kova | Anahtar | Sınır | Uç |
+|---|---|---|---|
+| Geçersiz ref (mevcut) | IP | 10/dk | + geçersiz kayıt (`bindings/status`, kayıtla talep) |
+| Kayıt durumu | IP | 60/dk | `POST /public/bindings/status` |
+| Kayıt iptali | IP | 30/dk | `POST /public/bindings/revoke` |
+| Kayıtla talep | Kayıt | 6/sa + 1 bekleyen | `POST /public/requests` (`bindingKey`) |
+| Kayıt verme | Oturum | 3 istek | WS `binding.request` |
+| Müşteri yazma | Kullanıcı | 30/dk | Müşteri POST/PATCH/rotate/deactivate/reactivate, `revoke-binding` |
+
 ## Audit
 Giriş (başarılı/başarısız), kilit (`auth.locked`, kapsam `account_ip` veya `account`), çıkış ve şifre değişimi
 `audit_logs` tablosuna yazılır. P2: `session.created`, `session.cancelled`, `session.expired` (SYSTEM) ve
@@ -1028,4 +1174,9 @@ P8b-1: `request.created` (yalnız `clientVersion`; IP `ip_address` sütununda), 
 `request.notify` (alıcı başına; numara maskeli), `settings.support_requests.updated` (eski → yeni),
 `settings.support_requests.ref_rotated`, `settings.whatsapp.test`. Ad, telefon, e-posta, açıklama, talep sırrı ve ref
 audit'e yazılmaz.
+P8c-1: `customer.created`, `customer.updated` (yalnız değişen alanlar; yetkili kişi/telefon/e-posta/not maskeli),
+`customer.ref_rotated`, `customer.deactivated` (`revokedBindings`, `cancelledRequests`), `customer.reactivated`,
+`customer.anonymized` (sistem), `binding.issued`, `binding.revoked` (`reason`), `binding.denied` (bayat kaynak / pasif);
+`request.created` += `{via: "ref"|"binding", customerId}`. Kayıt anahtarı ve ref'in tamamı hiçbir olayda yoktur (ref
+yalnız ilk 4 karakter). Geçersiz kayıt denemesi audit'e değil metriğe yazılır.
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Audit ekranı P11'de gelir.

@@ -3,8 +3,10 @@
 Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekranlarını anlatır. Platform paketler hâlinde
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
-- **Müşteri için:** Hızlı Destek uygulaması (Windows), "Destek iste" ile talep gönderme, uzaktan kontrol izni
+- **Müşteri için:** Hızlı Destek uygulaması (Windows), "Destek iste" ile talep gönderme, bilgisayarın hatırlanması
+  ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni
 - **Teknisyen için:** Uzaktan kontrol (konsol), Oturum geçmişi, Destek talepleri
+- **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, kayıtlı bilgisayarlar)
 - **Admin için:** Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi yetkileri, Ayarlar > Destek talepleri
 - **Super Admin için:** Tüm firmaların oturum geçmişi, destek talepleri
 
@@ -292,14 +294,16 @@ paylaşılmaz. **Vazgeç** derseniz "Ekranınız paylaşılmadı" yazar ve talep
 hesabını başkalarının da kullandığı her durum) kutuyu işaretlemeyin. Daha önce işaretlediyseniz işiniz bitince
 **Bilgilerimi unut**'a tıklayın. Form başka birinin bilgileriyle dolu açılırsa da önce **Bilgilerimi unut**'a tıklayın.
 
-**Teknisyen bana zaten kod verdiyse?** Formdaki **Teknisyenden kod aldım** düğmesine tıklayın. Program 8 haneli kodu
+**Teknisyen bana zaten kod verdiyse?** Formdaki **Bağlantı kodum var** düğmesine (0.9 sürümünde **Teknisyenden kod
+aldım**) tıklayın. Program 8 haneli kodu
 sorar ve olağan akışla devam eder (bkz. "KVKK onayı ve bağlanma").
 
 **"Destek iste" ekranında sık karşılaşılan mesajlar**
 | Mesaj | Ne yapmalı |
 |---|---|
 | Bu Hızlı Destek dosyası eski | **Yeni sürümü indir**'e tıklayın. Yeni dosya aynı firma bağlantısından iner; bu pencereyi kapatıp yeni dosyayı açın. (8 haneli kod dosyasında "Teknisyeninizden yeni bağlantı isteyin" yazar.) |
-| Bu dosya artık geçerli değil | Firmanız bağlantıyı yenilemiş. Firmanızdan yenisini isteyin. Teknisyen size kod verdiyse **Teknisyenden kod aldım** ile devam edin. |
+| Bu dosya artık geçerli değil | Firmanız bağlantıyı yenilemiş. Firmanızdan yenisini isteyin. Teknisyen size kod verdiyse **Bağlantı kodum var** ile devam edin. Bilgisayarınız kayıtlıysa ana ekrandan **Destek iste** ile yine talep gönderebilirsiniz. |
+| Talebiniz kapatıldı — Firmanız bu talebi şu an kabul edemiyor. | Firmanız müşteri kaydınızı pasife almış veya bu bilgisayarın kaydını iptal etmiş olabilir. Firmanızı telefonla arayın. |
 | Sunucuya ulaşılamıyor | İnternet bağlantınızı kontrol edip **Tekrar dene**'ye tıklayın. |
 | Sunucu sertifikası doğrulanamadı | Ağınızda araya giren bir cihaz olabilir. Devam etmeyin; firmanızı telefonla arayın. |
 | Sunucu şu an yoğun, birkaç saniye içinde yeniden deneniyor… | Bekleyin; program bir kez kendiliğinden yeniden dener. |
@@ -315,6 +319,63 @@ sorar ve olağan akışla devam eder (bkz. "KVKK onayı ve bağlanma").
 | Bağlantı süresi doldu | Bağlantı isteğine 1 dakika içinde yanıt verilmedi. Gerekirse yeniden talep oluşturun. |
 | Bağlantı kurulamadı | Teknisyen kabul etti ama bağlantı kurulamadı. Yeniden talep oluşturun veya firmanızı arayın. |
 | Talep başka bir pencerede açıldı | Aynı talep başka bir pencerede izleniyor; bu pencereyi kapatabilirsiniz. |
+
+### Bilgisayarım hatırlanır mı? (Hızlı Destek 0.10.0 ve sonrası)
+Evet. Teknisyenle **bir kez** başarılı bir oturum yaptığınızda (ekranınızı paylaşmayı kabul ettiğinizde) bu bilgisayar
+destek aldığınız firmayı hatırlar. Bir dahaki sefere teknisyenden yeni bağlantı beklemeniz gerekmez: elinizdeki
+NoktaDestek dosyasını (hangisi olursa olsun) açıp **Destek iste**'ye basmanız yeterlidir.
+
+- Karşılama ekranında ve talep formunda bunu anlatan bir satır görürsünüz: "Oturumdan sonra bu bilgisayar <firma> için
+  hatırlanır; istediğinizde 'Bu bilgisayarı unut' ile silebilirsiniz."
+- Hatırlanan şey yalnız firmanın adı ve bilgisayara özel bir anahtardır. Adınız, telefonunuz veya ekranınız
+  hatırlanmaz (ad/telefon için ayrıca "Bilgilerimi bu bilgisayarda hatırla" kutusu vardır).
+- Bu kayıt **yalnız destek isteği göndermenizi** sağlar. Teknisyen bu kayıtla bilgisayarınıza kendiliğinden bağlanamaz;
+  her seferinde talebinizi kabul etmesi ve sizin **Ekranımı paylaş**'a basmanız gerekir.
+- Oturumu lobide **Vazgeç** ile bırakırsanız ya da ekranınızı paylaşmazsanız bilgisayar hatırlanmaz.
+
+**Programı yeniden açtığımda ne görürüm?**
+Ana ekran açılır. Üstte firma adı, kırmızı dolandırıcılık uyarısı ve (kayıtlıysa) "Bu bilgisayar <firma>[ – <müşteri
+firma>] için kayıtlı" satırı bulunur. Altında dört düğme vardır:
+
+| Düğme | Ne yapar |
+|---|---|
+| **Destek iste** | Talep formunu açar (bkz. "Teknisyeni beklemeden destek isteyebilir miyim?"). Talep doğrudan firmanıza düşer |
+| **Bağlantı kodum var** | Teknisyen size 8 haneli bir kod verdiyse kodu yazıp bağlanırsınız (eski "Teknisyenden kod aldım") |
+| **Bu bilgisayarı unut** | Bu bilgisayarın kaydını ve hatırlanan bilgilerinizi siler |
+| **Kötüye kullanımı bildir** | Firmanız bir adres tanımladıysa görünür |
+
+Tab tuşu düğmeler arasında bu sırayla gezer; Enter seçili düğmeyi çalıştırır.
+
+**Hangi durumda hangi ekran açılır?**
+- Teknisyenin gönderdiği geçerli `Destek-<kod>.exe` → her zamanki karşılama ekranı (kod akışı).
+- Süresi dolmuş veya kullanılmış `Destek-<kod>.exe` ve bilgisayar kayıtlıysa → ana ekran, üstte "Bu destek bağlantısının
+  süresi doldu." **Destek iste** ile yine talep gönderebilirsiniz.
+- Firmanızın verdiği `NoktaDestek-<ad>-….exe` geçerliyse → ana ekran; talep o dosyanın firmasına gider.
+- O dosya artık geçerli değilse ve bilgisayar kayıtlıysa → ana ekran, üstte "Bu dosya artık geçerli değil; bu
+  bilgisayarın kaydıyla destek isteyebilirsiniz."
+- Adı değiştirilmiş dosya (ör. `NoktaDestek.exe`) ve bilgisayar kayıtlı değilse → **Destek iste** pasiftir; altında
+  "Destek istemek için firmanızın gönderdiği dosyayı kullanın veya teknisyeninizin verdiği kodu girin" yazar.
+  **Bağlantı kodum var** ile devam edin.
+
+**"Bu bilgisayarı unut" ne yapar?**
+1. Ana ekranda **Bu bilgisayarı unut**'a tıklayın.
+2. "Bu bilgisayar unutuldu" yazar. Kayıt ve hatırlanan ad/telefon/e-posta bu bilgisayardan silinir; sunucudaki kayıt da
+   iptal edilir. İnternet yoksa yerel silme yine yapılır.
+3. Bundan sonra destek için firmanızın dosyasını veya teknisyenin kodunu kullanırsınız.
+
+Formdaki **Bilgilerimi unut** ise yalnız ad/telefon/e-postayı siler; bilgisayar kaydı kalır.
+
+**"Bu bilgisayarın destek kaydı artık geçerli değil" yazıyor**
+Tam mesaj: "Bu bilgisayarın destek kaydı artık geçerli değil. Firmanızdan yeni dosya isteyin ya da teknisyeninizin
+verdiği kodla bağlanın." Firmanız bağlantınızı yenilemiş, sizi pasife almış ya da bu bilgisayarın kaydını iptal etmiş
+olabilir; uzun süre kullanılmayan kayıtlar da kendiliğinden düşer. Program kaydı siler (hatırlanan adınız ve telefonunuz
+kalır). **Bağlantı kodum var** ile teknisyenin kodunu girin veya firmanızdan yeni dosya isteyin. Bir sonraki başarılı
+oturumdan sonra bilgisayar yeniden hatırlanır.
+
+**Başka bir firmadan destek alırsam?** Bir bilgisayar aynı anda tek firmaya kayıtlıdır. Başka bir firmayla oturum
+yaparsanız oturum sonunda "Bu bilgisayar artık <yeni firma> için kayıtlı." yazar.
+
+**Paylaşılan bilgisayardaysanız** işiniz bitince **Bu bilgisayarı unut**'a tıklayın.
 
 ---
 
@@ -531,6 +592,115 @@ oturumları listeleyebilir, ayrıntıda "Destek talebi" bölümünde talep zaman
 
 ---
 
+## Admin ve teknisyen için: Müşteriler
+
+**Müşteriler** ekranı, destek verdiğiniz firmaları (müşteri firmaları) tutar. Her müşterinin kendine ait, kalıcı bir
+indirme bağlantısı vardır. Müşteri bu bağlantıdan indirdiği dosyayı saklar ve her destek gerektiğinde açar; talep
+**Talepler** ekranına o müşterinin adıyla düşer.
+
+**Kim ne yapabilir?** Kenar menüsünde **Müşteriler** (bina simgesi) görünmüyorsa "Müşteriler → Görüntüle" yetkiniz
+yoktur. Ekleme için "Ekle", düzenleme / bağlantı yenileme / yeniden aktif etme / kayıt iptali için "Düzenle", pasife alma
+için "Sil" yetkisi gerekir. Admin'de hepsi varsayılan açık, teknisyende (User) kapalıdır; yöneticiniz açar.
+Super Admin müşterileri bir firma seçtikten sonra görür.
+
+### Nasıl müşteri eklerim?
+1. Kenar menüsünden **Müşteriler**'i açın, **Yeni müşteri**'ye tıklayın.
+2. Formu doldurun:
+   - **Firma adı** (zorunlu): 2–100 karakter. Aynı adla ikinci müşteri eklenemez ("Bu adla bir müşteri zaten var";
+     büyük/küçük harf ve Türkçe karakter farkı sayılmaz).
+   - **Dosya etiketi:** dosya adında görünen kısa ad (`NoktaDestek-<etiket>-….exe`). Adı yazarken kendiliğinden
+     önerilir; yalnız harf ve rakam, en çok 20 karakter.
+   - **Yetkili kişi, Telefon, E-posta, Not** (isteğe bağlı): kişisel veridir. Not düz metindir.
+3. **Müşteriyi ekle**'ye tıklayın. Müşterinin detay sayfası açılır ve "<ad> eklendi" bildirimi çıkar.
+
+### Bağlantıyı müşteriye nasıl gönderirim?
+1. Listede müşterinin satırındaki (veya detay sayfasındaki) **Kopyala**'ya tıklayın. 2 saniye "Kopyalandı" yazar.
+   Tarayıcı panoya izin vermezse bağlantı seçili hâlde gösterilir; Ctrl+C ile kopyalayın.
+2. Bağlantıyı e-posta veya mesajla müşteriye gönderin. Sistem müşteriye kendisi göndermez.
+3. Müşteri dosyayı bir kez indirip masaüstüne kaydetsin. Destek gerektiğinde dosyayı açıp **Destek iste**'ye bassın.
+4. Windows "Bilgisayarınız korundu" uyarısı gösterirse müşteri **Ek bilgi** → **Yine de çalıştır**'a basmalıdır.
+
+Aynı adımlar ekrandaki **Müşteriye nasıl gönderilir?** düğmesinde de yazar. Tek seferlik destek için müşteri kaydı
+gerekmez: **Oturumlar > Yeni Destek Oturumu** ile link veya kod gönderin.
+
+Listenin üstündeki **Genel bağlantı** şeridi müşteri firmaya atanmamış talepler içindir; bu dosyadan gelen talepler
+"Genel" görünür. Genel bağlantı burada yalnız kopyalanır; yenilemesi **Ayarlar > Destek talepleri**'ndedir.
+
+### Listede arama ve filtre
+- **Ara:** ad, yetkili kişi veya telefon içinde arar. En az 2 karakter yazın; büyük/küçük harf ve Türkçe karakter
+  fark etmez.
+- **Durum filtresi:** Aktif (varsayılan) / Pasif / Tümü.
+- Sütunlar: Ad, İndirme bağlantısı, Oluşturulma, Son talep, Talep (toplam talep sayısı), Durum. Liste 50'şerli sayfalanır.
+- Pasif müşteride bağlantı yerine "Pasif — bağlantı geçersiz" yazar.
+
+### Müşteri detayında neler var?
+Müşterinin adına tıklayın. Sayfada:
+- **Bilgiler:** etiket, yetkili kişi, telefon, e-posta, not, oturum sayısı. Saklama süresi dolduğu için silinen bilgiler
+  "Anonimleştirildi" olarak görünür.
+- **İndirme bağlantısı:** Kopyala ve **Bağlantıyı yenile**.
+- **Durum:** **Pasife al** veya **Yeniden aktif et**; **Düzenle**.
+- **Talepler** sekmesi: bu müşteriden gelen talepler (durum, zaman, ad, bekleme). "Destek talepleri" yetkisi gerekir.
+- **Oturumlar** sekmesi: bu müşteriyle yapılan oturumlar (teknisyen, başlangıç, süre, kaynak); satıra tıklayınca oturum
+  ayrıntısı açılır. "Oturum geçmişi" yetkisi gerekir; teknisyen yalnız kendi oturumlarını görür.
+Yetkiniz olmayan sekmede "Bu sekmeyi görme yetkiniz yok" yazar. Kayıtlar alınamazsa **Tekrar dene** çıkar.
+
+### Bağlantıyı ne zaman yenilerim?
+Bağlantı istemediğiniz yerlere yayıldıysa veya bu müşteri adına tanımadığınız talepler geliyorsa:
+1. Detay sayfasında **Bağlantıyı yenile**'ye tıklayın.
+2. Uyarıyı okuyun: "Bu müşteriye daha önce gönderilen tüm dosyalar ve bu müşteri için hatırlanan bilgisayarlar
+   çalışmayı durduracak…" Odak **Vazgeç**'tedir; emin olunca **Yenile**'ye basın.
+3. Yeni bağlantıyı kopyalayıp müşteriye gönderin. Bekleyen talepler etkilenmez.
+
+### Müşteriyi pasife alma ve yeniden aktif etme
+- **Pasife al:** müşteri silinmez, geçmişi korunur. Bağlantısı, dosyaları ve hatırlanan bilgisayarları çalışmaz,
+  bekleyen talepleri iptal edilir ve yeni oturumda seçilemez. Onay diyaloğunda **Pasife al**'a basın.
+- **Yeniden aktif et:** yeni bir bağlantı üretilir; eski dosyalar ve kayıtlar geçersiz kalır. Yeni bağlantıyı müşteriye
+  gönderin.
+- Pasif müşterinin yetkili kişi, telefon, e-posta ve notu firmanızın saklama süresi sonunda kendiliğinden silinir.
+  Hemen silmek için **Düzenle**'de alanları boşaltıp kaydedin.
+
+### Talepte "Kayıtlı bilgisayar" rozeti ve kayıt iptali
+Müşteri bir kez başarılı oturum yaptıktan sonra bilgisayarı hatırlanır (Hızlı Destek 0.10.0+); sonraki talepleri bu
+kayıtla gelir. Talep kartında:
+| Kartta görünen | Anlamı |
+|---|---|
+| **Müşteri firma: <ad>** veya **Genel** | Talebin geldiği müşteri; müşterisiz dosyadan geldiyse "Genel" |
+| **Kayıtlı bilgisayar — <firma \| Genel>** | Talep, daha önce destek almış ve kaydı geçerli bir bilgisayardan geldi. Bu bir kimlik doğrulaması **değildir**; talep kodunu yine telefonla doğrulayın |
+| **Kaydı iptal edilmiş bilgisayar** | Talep bir kayıtla açılmış ama kayıt artık geçersiz |
+| **Bu talep bağlantı yenilenmeden önce açıldı** | Talep eski bağlantı/kayıtla açıldı; kabul edebilirsiniz ama bilgisayar yeniden kaydedilmez |
+
+**Tek bir bilgisayarın kaydını iptal etmek** (ör. aynı bilgisayardan istenmeyen talepler geliyorsa):
+1. Talep kartında **Diğer** (⋯) menüsünü açın, **Bu bilgisayarın kaydını iptal et**'e tıklayın. Menü öğesi
+   "Destek talepleri → Görüntüle" ve "Müşteriler → Düzenle" yetkisi ister ve yalnız kaydı geçerli taleplerde görünür.
+2. "Bilgisayar kaydı iptal edilsin mi?" diyaloğunda **Kaydı iptal et**'e basın.
+3. "Bilgisayar kaydı iptal edildi." yazar. O bilgisayarın bekleyen talebi iptal edilir; müşterinin diğer bilgisayarları
+   ve dosyası etkilenmez. "Bu bilgisayarın kaydı zaten geçersiz." mesajı zararsızdır.
+
+### Talepleri ve oturumları müşteriye göre süzme
+- **Talepler:** kuyrukta ve Geçmiş sekmesinde **Müşteri firma** filtresi: Tümü / Genel / **Müşteri seç…** (adını yazıp
+  listeden seçin).
+- **Oturum geçmişi:** "Müşteri firma" sütunu ve **Kayıtlı müşteri** filtresi (müşteri seçimi veya "Müşterisiz"). CSV
+  dosyasında da "Müşteri firma" sütunu bulunur.
+- Yeni talep bildirimi firmayı da yazar: "Yeni destek talebi: <ad> — <firma | Genel>".
+
+### Oturum açarken müşteri seçme
+**Oturumlar > Yeni Destek Oturumu** penceresinde **Müşteri firma (isteğe bağlı)** alanına adın birkaç harfini yazıp
+listeden seçin (yalnız aktif müşteriler). Boş bırakabilirsiniz. Müşteri seçerek açılan oturum başarılı olursa müşterinin
+bilgisayarı o müşteri için kaydedilir; müşteri bir sonraki seferde doğrudan size talep gönderebilir. Alan görünmüyorsa
+"Müşteriler → Görüntüle" yetkiniz yoktur.
+
+### Sık karşılaşılan mesajlar (Müşteriler)
+| Mesaj | Ne yapmalı |
+|---|---|
+| Bu adla bir müşteri zaten var | Farklı bir ad yazın veya Pasif filtresinde aynı adlı müşteriyi bulup yeniden aktif edin |
+| Müşteri pasif; bağlantı yenilenemez. | Önce **Yeniden aktif et** (zaten yeni bağlantı üretir) |
+| Seçilen müşteri artık aktif değil… | Yeni oturumda başka müşteri seçin veya alanı boşaltın |
+| Müşteri bulunamadı | Müşteri yok ya da görme yetkiniz yok; **Müşterilere dön** |
+| Müşterileri görme yetkiniz yok… | Yöneticinizden "Müşteriler" yetkisini isteyin |
+| Kayıtlar alınamadı. | **Tekrar dene**'ye basın |
+
+---
+
 ## Admin için: Uzaktan kontrol yetkisi ve kayıtlar
 
 ### Yetki
@@ -579,14 +749,16 @@ müşterinin onayı kaydedilmeden teknisyen bilgisayarı kullanamaz.
 Kenar menüsünde **Ayarlar** (yetki "Ayarlar → Düzenle") açılır. Bu ekran firmanızın destek talebi ayarlarını tutar.
 Değişiklikler sayfanın altındaki **Kaydet** ile kaydedilir; kaydetmeden çıkmak isterseniz tarayıcı uyarır.
 
-### Firma indirme bağlantısı nasıl paylaşılır?
-1. **Firma indirme bağlantısı** bölümünde bağlantı ve dosya adı (`NoktaDestek-<firma>-….exe`) görünür.
+### Genel bağlantı nasıl paylaşılır?
+Bu bağlantı müşteri firmaya atanmamış talepler içindir; bu dosyadan gelen talepler "Genel" görünür. Müşteriye özel
+bağlantılar **Müşteriler** ekranındadır (bkz. "Admin ve teknisyen için: Müşteriler").
+1. **Genel bağlantı** bölümünde bağlantı ve dosya adı (`NoktaDestek-<firma>-….exe`) görünür.
 2. **Kopyala** ile bağlantıyı alın. Müşterilerinize e-posta imzası, web siteniz, sözleşme veya karşılama yazısıyla iletin.
 3. Müşteri bağlantıdan dosyayı indirir ve ihtiyaç olduğunda talep gönderir. Dosya her müşteri için aynıdır; kurulum gerekmez.
 
 ### Bağlantıyı ne zaman yenilemeliyim?
-**Bağlantıyı yenile** eski bağlantıyı ve daha önce indirilmiş dosyaları **hemen geçersiz** kılar; bekleyen talepler
-etkilenmez. Şu durumlarda yenileyin:
+**Bağlantıyı yenile** eski Genel bağlantıyı, daha önce indirilmiş Genel dosyaları ve Genel olarak kayıtlı bilgisayarları
+**hemen geçersiz** kılar; müşteri firmalara ait bağlantılar ve bekleyen talepler etkilenmez. Şu durumlarda yenileyin:
 - Bağlantı istemediğiniz yerlere yayıldıysa veya sahte talepler geliyorsa,
 - Panelde "Olağan dışı talep yoğunluğu" bandı sık görünüyorsa,
 - Firmanızın adı değiştiyse (eski adlı dosyalar zaten çalışmaz).

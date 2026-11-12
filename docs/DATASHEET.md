@@ -21,6 +21,13 @@ oturum bilgisi, onaylar ve denetim kayıtları kalır.
   sorununu yazıp tek tuşla talep gönderir; sırasını ve bekleme süresini ekranda görür. Teknisyen kabul edince
   müşteri "Ekranımı paylaş" der ve kod girmeden bağlanır. İsteğe bağlı olarak bilgiler bilgisayarda şifreli
   hatırlanır, tek tuşla silinir.
+- **Müşteri firma yönetimi** — destek verdiğiniz firmaları kaydedin; her firmaya kalıcı, ayrı bir indirme bağlantısı
+  verilir. Talepler ve oturumlar firmaya göre listelenir, süzülür ve dışa aktarılır. Sızan bağlantı tek tıkla
+  yenilenir; hizmet verilmeyen firma pasife alınır, geçmişi korunur.
+- **Bilgisayarı hatırlayan müşteri programı** — müşteri bir kez destek aldıktan sonra programı yeniden açtığında
+  teknisyenden yeni link beklemeden "Destek iste" ile talep gönderir. Teknisyenin verdiği kod da aynı programdan
+  girilir ("Bağlantı kodum var"). Kayıt yalnız talep açar, kendiliğinden bağlantı kurmaz; müşteri "Bu bilgisayarı
+  unut" ile her an siler.
 - **Sohbet, dosya aktarımı, ekran üzerine işaretleme** — dosya içeriği sunucudan geçmez, her dosyayı alıcı onaylar.
 - **Kalite paneli** — kare hızı, gecikme, kayıp ve bağlantı yolu anlık izlenir.
 - **Oturum geçmişi** — tarih, durum, teknisyen, müşteri ve bağlantı türüne göre filtre; her oturumun onay kayıtları,
@@ -39,10 +46,11 @@ oturum bilgisi, onaylar ve denetim kayıtları kalır.
 | Destek oturumları | Tek kullanımlık link ve 8 haneli kodla oturum açma, bekleme odası, teknisyen kabulü, iptal ve zorla sonlandırma |
 | Teknisyen konsolu | Canlı ekran (Sığdır / %100 / tam ekran), sohbet, dosya, işaretleme, kalite paneli |
 | Uzaktan kontrol | Fare ve klavye (Türkçe karakter dahil), özel tuşlar, monitör değiştirme; müşteri onaylı |
-| Hızlı Destek (Windows) | Müşteri programı: "Destek iste" formu ve bekleme ekranı, onay, ekran seçimi, sohbet, dosya alma, izin diyaloğu |
-| Oturum geçmişi | Filtreli liste, ayrıntı, ticket/not, CSV dışa aktarma; talepten doğan oturumlar ayrı işaretli |
-| Destek talepleri | Canlı kuyruk, anlık bildirim ve ses, kabul/ret (müşteriye mesajla), son 30 gün geçmişi |
-| Destek talebi ayarları | Firma indirme bağlantısı ve yenileme, bekleme süresi, WhatsApp bildirimi + test, güvenilen ağlar |
+| Hızlı Destek (Windows) | Müşteri programı: ana ekran ("Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut"), talep formu ve bekleme ekranı, onay, ekran seçimi, sohbet, dosya alma, izin diyaloğu |
+| Müşteriler | Müşteri firma kaydı, arama ve durum filtresi, müşteri başına indirme bağlantısı (kopyala, yenile), pasife alma, müşteri detayında talep ve oturum geçmişi |
+| Oturum geçmişi | Filtreli liste (müşteri firmaya göre dahil), ayrıntı, ticket/not, CSV dışa aktarma; talepten doğan oturumlar ayrı işaretli |
+| Destek talepleri | Canlı kuyruk, anlık bildirim ve ses, kabul/ret (müşteriye mesajla), müşteri firma filtresi, "Kayıtlı bilgisayar" işareti ve tek bilgisayar kaydını iptal, son 30 gün geçmişi |
+| Destek talebi ayarları | Genel indirme bağlantısı ve yenileme, bekleme süresi, WhatsApp bildirimi + test, güvenilen ağlar |
 
 ## Güvenlik ve yönetim
 - Rol bazlı yetki (User / Admin / Super Admin) ve modül bazlı yetki anahtarları (görüntüle, düzenle, dışa aktar vb.).
@@ -58,6 +66,9 @@ oturum bilgisi, onaylar ve denetim kayıtları kalır.
 - Müşteri programı yalnız kendi sunucusuna bağlanır; bütünlüğü SHA-256 ve tekrarlanabilir derlemeyle doğrulanır.
   Hatırlanan müşteri bilgisi Windows kullanıcı hesabına bağlı şifreyle (DPAPI) saklanır; eski sürüm programlar
   sunucu ayarıyla durdurulup yeni sürüme yönlendirilebilir.
+- Bilgisayar kaydı: sunucuda yalnız anahtarın özeti tutulur; kayıt oturum açamaz, yalnız talep gönderir ve yalnız
+  kaydı veren sunucuya iletilir. Firma bağlantısı yenilenince veya firma pasife alınınca ilgili kayıtlar geçersiz olur.
+- Müşteri firma yetkili kişi bilgileri denetim kaydında maskelenir; pasif firmada saklama süresi sonunda anonimleştirilir.
 
 ## Entegrasyonlar
 - TURN sunucusu (coturn) — güvenlik duvarı arkasındaki müşteriler için görüntü aktarımı.

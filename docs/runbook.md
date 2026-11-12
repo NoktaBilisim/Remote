@@ -231,7 +231,10 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
 | 2026-11-12 | Alan adı (sunucu tarafı) | — (repo değişikliği yayın bekliyor) | — | nginx vhost + LE sertifikası (`certonly --webroot`, renew dry-run GEÇTİ), `.env` `PUBLIC_BASE_URL`/`ALLOWED_ORIGINS` güncellendi (konteynerler yeniden yaratılmadı). Caddy 4451 (ADR-0015) yayınlanınca §8.3 doğrulaması |
 | 2026-11-12 | P8b-1 | `b07aa76` | `20261112000000_p8b_support_requests` | Yedek `/root/remote-pre-p8b-20261112T001545Z.sql.gz`; seed `consentTextsCreated=1`; grants 211 PASS; nginx vhost güncellendi (`nginx -t` OK); Caddy yeniden başlatıldı (admin API kapalı, `reload` yerine `restart`). `WHATSAPP_SERVICE_URL`/`MIN_AGENT_VERSION` boş (prod modunda http WhatsApp kapalı — K13). **Ders:** aynı ssh komutunda `umask 077` sonrası `git pull` yeni dosyaları 600 yaptı → migrate EACCES, server/web birkaç dakika durdu; düzeltme `chmod go+rX` + yeniden build. Yedek/umask'i ayrı ssh çağrısında yapın |
 | 2026-11-12 | P8b-2 | `11f9e34` (yalnız istemci) | — | İstemci 0.9.0 ("Destek iste", `https://remote.noktabilisim.net` gömülü); iki derleme aynı SHA-256 `eab23622…`, `--dir --no-attestation` + `ALLOW_UNATTESTED=staging`; yalnız server yeniden yaratıldı. `MIN_AGENT_VERSION` boş kaldı (eski istemciler çalışmaya devam eder). Windows elle testleri bekliyor |
-| 2026-11-12 | P8b-2 ek | (bu commit, yalnız istemci) | — | İstemci 0.9.1: `-H=windowsgui` (siyah konsol penceresi kalktı); iki derleme aynı SHA-256 `183911a2…`, `--dir --no-attestation` + `ALLOW_UNATTESTED=staging` |
+| 2026-11-12 | P8b-2 ek | `81fbdc0` (yalnız istemci) | — | İstemci 0.9.1: `-H=windowsgui` (siyah konsol penceresi kalktı); iki derleme aynı SHA-256 `183911a2…`, `--dir --no-attestation` + `ALLOW_UNATTESTED=staging` |
+| 2026-11-12 | Düzeltme (siyah ekran) | `6701567` (server + web) | — | TURN'süz ilk teklif düzeltmesi: admit sonrası teknisyene `ice.servers` `peer.joined`'dan önce gider, konsol ICE listesini bekler. Server ve web imajı yeniden yaratıldı; env/Caddy değişmedi |
+| 2026-11-12 | P8c-1 | `1748d10` | `20261112120000_p8c_customers` | Yedek `/root/remote-pre-p8c-20261112T121000Z.sql.gz`; grants **261/261 PASS**; seed `consentTextsCreated=1`; ref ad alanı tutarlılığı `0`; `/metrics`'te 6 P8c metriği. Müşteriler modülü + bilgisayar kaydı (sunucu). Sayfa testi: `docs/arsiv/p8c1-test-raporu.md` |
+| 2026-11-12 | P8c-2 | `2edfa9c` (yalnız istemci) | — | İstemci 0.10.0 (kalıcı "Destek iste", bilgisayar kaydı; `https://remote.noktabilisim.net` gömülü); SHA-256 `5255edc87840f18b28eb608c705bf2c16230a3a7cb0da49145a46e5ecbf721f3`, `--dir --no-attestation` + `ALLOW_UNATTESTED=staging` (attestation'sız staging yayını). `MIN_AGENT_VERSION` değişmedi. Windows elle testleri ve AC-192 ölçümü bekliyor |
 
   Rollback hedefi: bir önceki satırdaki `IMAGE_TAG`; şema geri alması gerekiyorsa §6.
 
@@ -783,7 +786,7 @@ curl -s -o /dev/null -w '%{http_code}\n' "$B/downloads/NoktaDestek-<etiket>-<mü
 curl -s -o /dev/null -w '%{http_code}\n' "$B/downloads/NoktaDestek-<etiket>-<GENEL ref>.exe"   # 200 (Genel bağlantı bozulmadı)
 curl -s "$B/api/v1/public/requests/tenant?ref=aaaaaaaaaaaaaaaa" | head -c 200; echo            # 404 REQUEST_REF_INVALID
 curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
-  -d '{"bindingKey":"rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}' "$B/api/v1/public/bindings/status"   # 404 (BINDING_INVALID)
+  -d '{"bindingKey":"rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","clientVersion":"0.10.0"}' "$B/api/v1/public/bindings/status"   # 404 (BINDING_INVALID); clientVersion yoksa 400 VALIDATION
 docker compose logs caddy --since 10m | grep -c '<müşteri ref>'; grep -c '<müşteri ref>' /var/log/nginx/remote.access.log   # 0 / 0
 docker compose exec -T server node -e 'fetch("http://127.0.0.1:3001/metrics",{headers:{authorization:"Bearer "+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>process.stdout.write(t))' \
   | grep -E '^# TYPE rs_(customers_active|bindings_issued_total|binding_invalid_total|bindings_revoked_total|requests_created_total)'

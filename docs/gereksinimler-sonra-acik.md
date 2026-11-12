@@ -1,6 +1,25 @@
 # Gereksinimler — "Sonra / açık" takip tabloları
 Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (bölüm 9'un devamıdır, ayrılmaz parçasıdır). Boyut nedeniyle 2026-11-12'de ana dosyadan taşındı; P2..P8 tabloları içerik değiştirilmeden taşındı, yeni paketlerin tabloları en üste eklenir.
 
+### Sonra / açık — P8c'den (2026-11-12)
+Kaynak: `docs/guvenlik-raporu.md` (E10/P8c-2 Kod turu 1–2), `docs/qa-raporu.md` (P8c-2 Tur 1–2; P8c-1 raporu
+`docs/arsiv/p8c1-qa-raporu.md`), `docs/arsiv/p8c1-test-raporu.md`, `docs/implementation.md` (P8c-1 düzeltme turu 2, P8c-2).
+
+| Madde | Ne yapılacak | Sahip | Ne zaman |
+|---|---|---|---|
+| B-P8c2-4 (Bilgi) `bindingPending` kopuşta sıfırlanmıyor | Kayıt isteği gönderilip yanıt gelmeden soket koparsa `bindingPending` true kalıyor; yeniden bağlanınca yeni teklif yok sayılıyor ve o oturumda kayıt alınamıyor (güvenli taraf: kayıt yazılmaz, anahtar sızmaz). Kopuşta (`flow.go` `phReconnecting`) `bindingPending = false` + "istek → kopuş → yeni teklif → tek istek" testi | backend-dev (Go) | Sonra (bir sonraki istemci sürümü) |
+| Olmayan müşteri detayı HTTP 200 (test-operatoru, Düşük) | `/customers/<olmayan id>` ekranda "Müşteri bulunamadı" gösteriyor ama belge yanıtı 200 (Suspense akışı `notFound()` kodunu değiştiremiyor; P2 `/session/[token]` ile aynı neden). Düzeltilecek veya implementation.md'ye sapma olarak yazılacak | frontend-dev | Sonra |
+| "Tümü" filtresinde boş durum (test-operatoru, Düşük) | Müşterisi olmayan firmada `/customers?status=all` gövde metni "Durum filtresini değiştirerek…" diyor (filtre zaten Tümü); boş durumda "Yeni müşteri" ve yardım düğmesi yok. Varsayılan boş durumla aynı olmalı (AC-166) | frontend-dev | Sonra |
+| `/ws/panel` 429 (test-operatoru, Düşük, gözlem) | Hızlı sayfa geçişinde (~12 sayfa/dk) `/ws/panel` el sıkışması 429 alıyor, konsola hata düşüyor. 429 sonrası `Retry-After`'a göre sessiz yeniden bağlanma doğrulanmalı; gerekirse kova eşiği gözden geçirilmeli | backend-dev + frontend-dev | Sonra |
+| Çift `customers-help` diyaloğu (QA önerisi) | Boş durumda `CustomersActions` iki kez çiziliyor; sayfada iki "Müşteriye nasıl gönderilir?" diyaloğu var. Tek diyaloğa indirilebilir | frontend-dev | Sonra |
+| AC-187 aynı adlı tenant geçişi (QA önerisi) | `keeper.Issued` değişikliği görünen adlarla karşılaştırıyor; aynı adlı iki farklı tenant arasında geçişte "Bu bilgisayar artık … için kayıtlı" gösterilmiyor. Önceki kaydın kökeni/kimliği farklıysa da bilgi gösterilmeli | backend-dev (Go) | Sonra |
+| Ortak kod biçimlendirici kararı (QA önerisi) | Projede biçimlendirici yapılandırması yok; ortak bir yapılandırma (ör. `.prettierrc` printWidth 200 + `format:check`) ya da "biçimlendirici yok, elle biçim" kararı yazılmalı ki ajanlar aynı dosyayı farklı biçimle yeniden yazmasın (`docs/arsiv/p8c1-qa-raporu.md` Öneri 2) | devops | Sonra |
+| implementation.md sayı düzeltmesi (QA önerisi) | "P8c-1 — düzeltme turu 2 (frontend)" doğrulama satırındaki "85 → 67" skip açıklamasında önceki sayı 81 olmalı | frontend-dev | Bir sonraki implementation.md güncellemesinde |
+| K18 / AC-192 staging ölçümü | Müşteri dosyasından ve kayıttan açılan taleplerde farklı NAT'larda 10/10 görüntü, kabulden ilk kareye p95 ≤ 8 sn (implementation.md "P8c-2" Windows adım 16) | test-operatoru / kullanıcı | 0.10.0 staging yayınından sonra, P9'dan önce |
+| Windows elle testleri P8c-2 | implementation.md "P8c-2" adım 1–16 + düzeltme turu 1 ekleri (kodsuz 404 → kayıt korunur; IDN adreste form satırı yok); QA önerisi: adım 5'e kayıtlı ana ekranda dört düğmeli Tab sırası + Enter kontrolü | test-operatoru (Windows test makinesi) | 0.10.0 staging yayınından sonra |
+| Ayarlar "Genel bağlantı" başlığı (AC-175) | P8c-1 sayfa testinde staging Admin hesabıyla giriş yapılamadığı için (ACCESS.txt parolası uyuşmadı) Ayarlar > Destek talepleri ekranındaki "Genel bağlantı" başlığı doğrulanamadı. ACCESS.txt düzeltilip yeniden bakılacak | devops (parola) → test-operatoru | Sonraki sayfa testinde |
+| Pencere bazlı paylaşım | Windows istemcide yalnız seçili pencereyi paylaşma (E10 kapsam dışı 1) | proje-yoneticisi → mimar | Sonra |
+
 ### Sonra / açık — P8b-2'den (2026-11-12)
 Kaynak: `docs/qa-raporu.md` (P8b-2 Tur 1–2), `docs/guvenlik-raporu.md` (P8b-2 Tur 1–2, S8b2-x),
 `docs/implementation.md` (Backend (Go) P8b-2 + düzeltme turu 1).

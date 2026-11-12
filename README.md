@@ -4,13 +4,13 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P8 ve P8b-1 tamamlandı; P8b-2 kodu tamam
-İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P8 ve P8b-1 (müşteri destek talebi — sunucu + panel)
-tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ). **P8b-2** (Windows istemci **0.9.0**: Hızlı
-Destek'te müşterinin "Destek iste" formu ve bekleme ekranı) kod olarak tamam: qa GEÇTİ, güvenlik Kritik/Yüksek 0.
-Gerçek Windows'ta elle testleri (implementation.md "Backend (Go) P8b-2" adım 1–20 + düzeltme turu a–c) ve 0.9.0
-staging yayını bekliyor. Sıradaki paket P9 (kullanıcı/yetki yönetimi). P7 elle doğrulaması (adım 25–47) da hâlâ
-açık; ayrıntı `docs/gereksinimler-sonra-acik.md`.
+## Şu anki durum: P1–P8, P8b ve P8c tamamlandı (Windows elle testleri bekliyor)
+İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P8 ve P8b-1 tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0,
+sayfa testi GEÇTİ). **P8b-2** (istemci 0.9.x "Destek iste") kod olarak tamam ve staging'de. **P8c-1** (Müşteriler modülü
++ bilgisayar kaydı, sunucu + panel) staging'de: qa GEÇTİ, güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ
+(`docs/arsiv/p8c1-test-raporu.md`). **P8c-2** (Windows istemci **0.10.0**: kalıcı "Destek iste") qa GEÇTİ, güvenlik
+Kritik/Yüksek 0; staging'de attestation'sız yayında. Gerçek Windows'ta elle testler (P7, P8b-2, P8c-2) ve AC-192 staging
+ölçümü bekliyor. Sıradaki paket P9 (kullanıcı/yetki yönetimi); açık maddeler `docs/gereksinimler-sonra-acik.md`.
 
 Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.126.217.99:4450` geçiş süresince açık).
 
@@ -193,6 +193,38 @@ Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.
   503 `NOT_READY` bir kez otomatik denenir (`Retry-After`, 1–15 sn + rastgele); diğer hatalarda müşteri yeniden basar.
 - Sunucu ve panelde değişiklik yok; yeni bağımlılık yok. Yayın: runbook §11 (`build.sh … 0.9.0`).
 
+**P8c-1 — müşteri firmalar ve bilgisayar kaydı (sunucu + panel; ADR-0017, `docs/mimari-e10.md`)**
+- **Müşteriler** ekranı (`/customers`, menüde Talepler'den sonra): müşteri firma ekle/düzenle, arama (ad, yetkili kişi,
+  telefon), Aktif/Pasif/Tümü filtresi. Silme yok; **Pasife al** ve **Yeniden aktif et** var. Ad firma içinde tekildir.
+- Her müşteriye kalıcı indirme bağlantısı ve `NoktaDestek-<etiket>-<ref>.exe` dosyası ("Kopyala"). Bu dosyadan gelen
+  talepler kuyruğa müşteri firmanın adıyla düşer. **Bağlantıyı yenile** eski dosyaları ve o müşterinin kayıtlı
+  bilgisayarlarını geçersiz kılar. "Müşteriye nasıl gönderilir?" yardımı.
+- Müşteri detayı: bilgiler, bağlantı, durum işlemleri, **Talepler** ve **Oturumlar** sekmeleri.
+- Firma bağlantısı artık **Genel bağlantı**; müşterisiz talepler "Genel" görünür.
+- Talepler: "Müşteri firma" satırı, Tümü/Genel/müşteri filtresi, toast'ta firma adı; kayıtlı bilgisayardan gelen talepte
+  "Kayıtlı bilgisayar — <firma>" rozeti ve **Bu bilgisayarın kaydını iptal et**. Oturum geçmişinde "Müşteri firma"
+  sütunu, filtresi ve CSV sütunu. Yeni Destek Oturumu'nda isteğe bağlı müşteri seçimi.
+- **Bilgisayar kaydı:** başarılı oturumdan sonra 0.10.0+ istemciye `/ws/guest` üzerinden kayıt anahtarı verilir
+  (sunucuda yalnız SHA-256). Anahtar yalnız talep açar; oturum veya uzaktan erişim yetkisi vermez.
+- Yetkiler: `customers.view`, `customers.create`, `customers.edit` (düzenle, bağlantıyı yenile, yeniden aktif et, tek
+  kayıt iptali), `customers.delete` (pasife alma). Admin'de varsayılan açık, User'da kapalı.
+- Migration `20261112120000_p8c_customers`, yeni aydınlatma metni sürümü (seed). Yeni env yok. Yayın: runbook §13.
+
+**P8c-2 — Windows istemci 0.10.0: kalıcı "Destek iste" (bilgisayar kaydı)**
+- Bir kez başarılı oturum yapılan bilgisayar firmayı hatırlar: kayıt `%LOCALAPPDATA%\NoktaDestek\hatirla.bin`'e (DPAPI,
+  format v2) yazılır. Sonraki açılışta hangi NoktaDestek dosyası olursa olsun ana ekran açılır.
+- Ana ekran: **Destek iste** (birincil) · **Bağlantı kodum var** (8 haneli kod) · **Bu bilgisayarı unut** · **Kötüye
+  kullanımı bildir**. Kayıtlıysa "Bu bilgisayar <firma>[ – <müşteri>] için kayıtlı" yazar.
+- Süresi dolmuş `Destek-<kod>.exe` veya geçersiz firma dosyası, kayıt varsa ana ekrana düşer. Kayıt geçersizse silinir
+  ve "Bu bilgisayarın destek kaydı artık geçerli değil…" gösterilir (kişisel bilgiler kalır).
+- Karşılama ve talep formunda bilgi satırı: "Oturumdan sonra bu bilgisayar <firma> için hatırlanır…".
+- 0.9.x istemciler müşteri dosyasıyla talep açmaya devam eder; `MIN_AGENT_VERSION` değişmedi.
+- Tekrarlanabilir derleme SHA-256 `5255edc87840f18b28eb608c705bf2c16230a3a7cb0da49145a46e5ecbf721f3`. Yayın: runbook
+  §11 (`build.sh … 0.10.0`), §13.7.
+
+**Düzeltme — talepten doğan oturumda siyah ekran:** sunucu teknisyene ICE (TURN) listesini `peer.joined`'dan önce
+gönderir, konsol liste gelmeden teklif üretmez (`6701567`).
+
 API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
 Kullanım (müşteri, teknisyen, yönetici): [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
 Ürün föyü: [`docs/DATASHEET.md`](docs/DATASHEET.md).
@@ -213,6 +245,8 @@ açamaz (403; tenant geçişi P9); oturum geçmişini ise firma seçmeden tüm f
 | P8 ✓ | Oturum geçmişi, not/ticket, CSV dışa aktarma, istemcide fare imleci |
 | P8b-1 ✓ | Müşteri destek talebi: sunucu uçları, panel kuyruğu, ayarlar, WhatsApp bildirimi |
 | P8b-2 (kod ✓, Windows elle test bekliyor) | Windows istemci 0.9.0: "Destek iste" formu, bekleme ekranı, 503 yeniden deneme |
+| P8c-1 ✓ | Müşteri firmalar (Müşteriler modülü), müşteri başına kalıcı bağlantı, bilgisayar kaydı (sunucu + panel) |
+| P8c-2 (kod ✓, Windows elle test bekliyor) | Windows istemci 0.10.0: kalıcı "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut" |
 | P9 | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
 | P10 | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış |
 | P11 | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri |
@@ -483,6 +517,9 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
   enjeksiyonuna karşı kaçışlanır (AC-124). Detay API'si onay kayıtlarının IP/tarayıcı bilgisini döndürmez; not metni
   ve müşteri arama metni audit'e yazılmaz. Bekleyen oturum kodu yalnız kendi teknisyenine döner. Enum CHECK'leri
   ikili karşılaştırmalı (ADR-0014).
+- Müşteriler ve bilgisayar kaydı (P8c): kayıt anahtarı 256 bit, sunucuda yalnız SHA-256, log/audit'te yok; yalnız talep
+  açar (resolve/join/WS/TURN uçlarında kabul edilmez). Geçersiz ref ve kayıt tek tip 404 döner. Kayıt başına 1 bekleyen
+  ve saatte 6 talep. İstemci anahtarı yalnız kaydı veren sunucuya gönderir. Audit'te müşteri yetkili kişi verisi maskeli.
 - Konteynerler salt okunur kök dosya sistemi, `cap_drop: ALL`, root olmayan kullanıcıyla çalışır; imajlar digest ile sabitlenir.
 - CI: `pnpm audit`, lisans denetimi (GPL/AGPL yasak), gitleaks. Repoya gizli bilgi girmez.
 - Ayrıntı: `docs/guvenlik-raporu.md`, ADR'ler `docs/adr/`.

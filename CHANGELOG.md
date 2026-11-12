@@ -19,6 +19,70 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   sunucuda kaydı iptal eder. Karşılama ve talep formunda aydınlatma bilgi satırı; oturum sonunda kayıt başka firmaya
   geçtiyse bilgi verilir. Müşteri pasife alındı / kayıt iptal edildi kapanışları genel metinle gösterilir.
 
+### Güvenlik — P8c-2
+- Kayıt anahtarı yalnız kaydı veren sunucunun kanonik kökenine (`https://host:port`) gönderilir; farklı kökenli kayıt
+  kullanılmaz ve silinmez. Unicode (IDN) sunucu adresiyle derlenen ikilide kayıt özelliği kapalıdır (fail-closed).
+- Kayıt yalnız sunucu `BINDING_INVALID` döndüğünde silinir; kodsuz 404 (proxy, geri alınmış sunucu) kaydı korur ve
+  "Sunucuya ulaşılamıyor" + "Tekrar dene" gösterir (B-P8c2-1).
+- `binding.offer` yalnız oturum aktifken (hello sonrası) işlenir; lobide veya yeniden bağlanırken gelen teklif yok
+  sayılır (B-P8c2-2). Kayıt isteği bekleniyorken yalnız kayıt yolunun hata kodları yutulur.
+- Tekrarlanabilir derleme SHA-256: `5255edc87840f18b28eb608c705bf2c16230a3a7cb0da49145a46e5ecbf721f3`.
+
+### Bilinen sınırlamalar — P8c-2
+- Kayıt isteği gönderilip yanıt gelmeden bağlantı koparsa o oturumda kayıt alınamaz (B-P8c2-4, güvenli taraf; sonraki
+  başarılı oturumda alınır).
+- Gerçek Windows'ta elle testler (implementation.md "P8c-2" adım 1–16) ve AC-192 staging ölçümü bekliyor.
+
+### Eklendi — P8c-1 (müşteri firmalar ve bilgisayar kaydı: sunucu + panel; ADR-0017, mimari-e10)
+- **Müşteriler modülü** (`/customers`, menüde Talepler'den sonra): müşteri firma ekleme/düzenleme, arama (ad, yetkili
+  kişi, telefon; büyük/küçük harf ve Türkçe karakter duyarsız), Aktif/Pasif/Tümü filtresi, 50'lik sayfalama. Silme yok;
+  **pasife alma** ve **yeniden aktif etme** var. Ad tenant içinde tekildir (409 "Bu adla bir müşteri zaten var").
+- Her müşteriye kalıcı indirme bağlantısı ve `NoktaDestek-<etiket>-<ref>.exe` dosyası; "Kopyala" düğmesi. Bu dosyadan
+  gelen talepler kuyruğa müşteri firmanın adıyla düşer. **Bağlantıyı yenile** eski dosyaları ve o müşterinin kayıtlı
+  bilgisayarlarını geçersiz kılar. "Müşteriye nasıl gönderilir?" yardım penceresi.
+- Müşteri detayı: bilgiler, bağlantı, durum işlemleri ve **Talepler / Oturumlar** sekmeleri (25'lik sayfa).
+- Firma bağlantısının adı **"Genel bağlantı"** oldu; müşteri atanmamış talepler "Genel" görünür. Müşteriler sayfasında
+  Genel bağlantı salt okunur gösterilir.
+- **Talepler:** kartta "Müşteri firma" satırı, Tümü / Genel / müşteri filtresi (kuyruk ve Geçmiş), toast metninde firma
+  adı. Kayıtlı bilgisayardan gelen talepte "Kayıtlı bilgisayar — <firma | Genel>" rozeti; kart menüsünde
+  **"Bu bilgisayarın kaydını iptal et"** (`POST /support-requests/:id/revoke-binding`).
+- **Oturum geçmişi:** "Müşteri firma" sütunu, filtresi (müşteri / Müşterisiz) ve CSV sütunu.
+- **Yeni Destek Oturumu:** isteğe bağlı "Müşteri firma" seçimi (yalnız aktif müşteriler); talepten doğan oturum talebin
+  müşterisini taşır.
+- **Bilgisayar kaydı (sunucu):** başarılı oturumda 0.10.0+ istemciye `/ws/guest` üzerinden kayıt verilir
+  (`binding.offer` → `binding.request` → `binding.issued`). Public uçlar `POST /public/bindings/status` ve
+  `/public/bindings/revoke`; `POST /public/requests` artık `ref` **veya** `bindingKey` kabul eder.
+- Yetkiler `customers.view/create/edit/delete` (Admin varsayılan açık, User kapalı; `delete` = pasife alma).
+- Audit: `customer.created/updated/ref_rotated/deactivated/reactivated/anonymized`, `binding.issued/revoked/denied`;
+  `request.created` += `via`, `customerId`. Metrikler `rs_customers_active`, `rs_bindings_issued_total`,
+  `rs_binding_invalid_total`, `rs_bindings_revoked_total`, `rs_binding_denied_total`, `rs_requests_created_total{via}`.
+- Migration `20261112120000_p8c_customers` (`customers`, `request_refs`, `device_bindings`; talep ve oturumda
+  `customer_id`), yeni aydınlatma metni sürümü (seed).
+
+### Değişti — P8c-1
+- İptal nedenlerine `CUSTOMER_PASSIVE` ("Müşteri pasife alındı") ve `BINDING_REVOKED` ("Bilgisayar kaydı iptal
+  edildi") eklendi; 0.9.x istemciye `TENANT_PASSIVE` olarak iletilir.
+- `POST /sessions` gövdesi isteğe bağlı `customerId` alır.
+- Genel bağlantıyı yenilemek tenant'ın Genel kayıtlı bilgisayarlarını da geçersiz kılar.
+
+### Güvenlik — P8c-1
+- Kayıt anahtarı (`rsb_…`, 256 bit) sunucuda yalnız SHA-256 özetiyle tutulur; log ve audit'e yazılmaz; yalnız talep açar
+  (oturum, TURN, ticket yetkisi vermez). Her başarılı oturumda döndürülür.
+- Geçersiz ref ve geçersiz kayıt tek tip 404 döner (`REQUEST_REF_INVALID` / `BINDING_INVALID`), aynı hız kovasına sayılır.
+- Kayıt başına 1 bekleyen talep ve saatte 6 talep; bayat kaynaktan (yenilemeden önce açılmış talep, iptal edilmiş kayıt)
+  doğan oturuma kayıt verilmez.
+- Audit'te yetkili kişi, telefon, e-posta ve not maskelenir. Pasif müşterinin kişisel alanları saklama süresi sonunda
+  anonimleştirilir.
+
+### Bilinen sınırlamalar — P8c-1
+- Var olmayan müşteri detayı ekranda "Müşteri bulunamadı" gösterir ama HTTP durumu 200'dür.
+- "Tümü" filtresinde müşteri yokken boş durum metni filtre değiştirmeyi önerir; boş durumda "Yeni müşteri" düğmesi yok.
+
+### Düzeltildi — talepten doğan oturumda siyah ekran (TURN'süz ilk teklif)
+- Sunucu, misafir kabul edildikten sonra teknisyene `ice.servers`'ı `peer.joined`'dan **önce** gönderir; konsol, ICE
+  listesi gelmeden teklif üretmez. Farklı NAT'lardaki müşterilerde görüntünün uzun süre siyah kalması giderildi.
+  Sözleşme değişmedi.
+
 ### Düzeltildi — istemci 0.9.1
 - Windows istemcisi GUI alt sistemiyle derlenir (`-H=windowsgui`): açılışta çıkan boş siyah konsol penceresi kalktı
   (0.6.0'dan beri vardı).
