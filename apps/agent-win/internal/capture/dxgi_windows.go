@@ -3,18 +3,20 @@
 package capture
 
 import (
-	"errors"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-// vtable dizinleri (SDK başlıklarından).
+// vtable dizinleri (SDK başlıklarından; mingw-w64 dxgi.h, dxgi1_2.h, dxgi1_5.h, dxgi1_6.h, d3d11.h).
 const (
 	vtFactory1EnumAdapters1 = 12
 	vtAdapterEnumOutputs    = 7
+	vtAdapter1GetDesc1      = 10
 	vtOutputGetDesc         = 7
 	vtOutput1DuplicateOut   = 22
+	vtOutput5DuplicateOut1  = 26
+	vtOutput6GetDesc1       = 27
 	vtDuplGetDesc           = 7
 	vtDuplAcquireNextFrame  = 8
 	vtDuplGetPointerShape   = 11
@@ -35,6 +37,9 @@ const (
 	d3d11UsageStaging    = 3
 	d3d11CPUAccessRead   = 0x20000
 	d3d11MapRead         = 1
+
+	dxgiFormatB8G8R8A8     = 87 // DXGI_FORMAT_B8G8R8A8_UNORM
+	dxgiFormatB8G8R8A8SRGB = 91 // DXGI_FORMAT_B8G8R8A8_UNORM_SRGB (aynı bayt düzeni)
 )
 
 type dxgiOutputDesc struct {
@@ -96,37 +101,33 @@ type duplicator struct {
 	shapeBuf                  []byte
 }
 
-var errNoOutput = errors.New("capture: monitör DXGI çıkışında bulunamadı")
-
 // openDuplicator GDI aygıt adı (\\.\DISPLAYn) eşleşen DXGI çıkışı için D3D11 cihazı ve çoğaltma oturumu açar.
-// Süreç manifestte Per-Monitor V2 DPI farkındadır; yüzey fiziksel piksel boyutundadır.
-func openDuplicator(device string) (*duplicator, error) {
+// dup1=false: IDXGIOutput1::DuplicateOutput (yalnız BGRA masaüstü; HDR/gelişmiş renkte ve bazı hibrit GPU
+// yapılandırmalarında DXGI_ERROR_UNSUPPORTED). dup1=true: IDXGIOutput5::DuplicateOutput1 yalnız
+// DXGI_FORMAT_B8G8R8A8_UNORM'u destekleyen format listesiyle (Windows 10 1703+); HDR masaüstü sisteme BGRA'ya
+// çevrilerek verilir, mevcut BGRA→NV12 hattı değişmez. Süreç manifestte Per-Monitor V2 DPI farkındadır (DuplicateOutput1
+// bunu ister); yüzey fiziksel piksel boyutundadır. Hatalar adımına göre sınıflandırılır (reason.go).
+func openDuplicator(device string, dup1 bool) (*duplicator, error) {
 	var factory *comObj
 	if err := procHR(pCreateDXGIFactory1, "CreateDXGIFactory1", uintptr(unsafe.Pointer(&iidIDXGIFactory1)),
 		uintptr(unsafe.Pointer(&factory))); err != nil {
-		return nil, err
+		return nil, tag(err, stageDevice, "CreateDXGIFactory1")
 	}
 	defer factory.release()
-	adapter, output, rot := findOutput(factory, device)
+	_, adapter, output, rot := findOutput(factory, device)
 	if output == nil {
-		return nil, errNoOutput
+		return nil, &Error{Reason: ReasonNoOutput, Op: "FindOutput"}
 	}
 	defer adapter.release()
 	defer output.release()
 	d := &duplicator{rot: rot}
 	if err := procHR(pD3D11CreateDevice, "D3D11CreateDevice", uintptr(unsafe.Pointer(adapter)), d3dDriverTypeUnknown, 0, 0,
 		0, 0, d3d11SDKVersion, uintptr(unsafe.Pointer(&d.device)), 0, uintptr(unsafe.Pointer(&d.ctx))); err != nil {
-		return nil, err
+		return nil, tag(err, stageDevice, "D3D11CreateDevice")
 	}
-	out1, err := output.query(&iidIDXGIOutput1)
-	if err != nil {
+	if err := d.duplicate(output, dup1); err != nil {
 		d.close()
-		return nil, err
-	}
-	defer out1.release()
-	if hr := out1.call(vtOutput1DuplicateOut, uintptr(unsafe.Pointer(d.device)), uintptr(unsafe.Pointer(&d.dup))); hr.failed() {
-		d.close()
-		return nil, hr.err("DuplicateOutput")
+		return nil, tag(err, stageDuplicate, "DuplicateOutput")
 	}
 	var dd dxgiOutduplDesc
 	d.dup.call(vtDuplGetDesc, uintptr(unsafe.Pointer(&dd)))
@@ -136,11 +137,41 @@ func openDuplicator(device string) (*duplicator, error) {
 	return d, nil
 }
 
-func findOutput(factory *comObj, device string) (adapter, output *comObj, rot Rotation) {
-	for ai := uintptr(0); ; ai++ {
+func (d *duplicator) duplicate(output *comObj, dup1 bool) error {
+	if !dup1 {
+		out1, err := output.query(&iidIDXGIOutput1)
+		if err != nil {
+			return err
+		}
+		defer out1.release()
+		if hr := out1.call(vtOutput1DuplicateOut, uintptr(unsafe.Pointer(d.device)), uintptr(unsafe.Pointer(&d.dup))); hr.failed() {
+			return hr.err("DuplicateOutput")
+		}
+		return nil
+	}
+	out5, err := output.query(&iidIDXGIOutput5)
+	if err != nil {
+		return err
+	}
+	defer out5.release()
+	formats := [1]uint32{dxgiFormatB8G8R8A8}
+	if hr := out5.call(vtOutput5DuplicateOut1, uintptr(unsafe.Pointer(d.device)), 0, uintptr(len(formats)),
+		uintptr(unsafe.Pointer(&formats[0])), uintptr(unsafe.Pointer(&d.dup))); hr.failed() {
+		return hr.err("DuplicateOutput1")
+	}
+	return nil
+}
+
+func (d *duplicator) rotation() Rotation { return d.rot }
+
+func (d *duplicator) cursor() *Cursor { return &d.cur }
+
+// findOutput aygıt adı eşleşen çıkışı ve adaptörünü (sırası ai) döner; bulunamazsa output nil.
+func findOutput(factory *comObj, device string) (ai int, adapter, output *comObj, rot Rotation) {
+	for ; ; ai++ {
 		var a *comObj
-		if hr := factory.call(vtFactory1EnumAdapters1, ai, uintptr(unsafe.Pointer(&a))); hr.failed() {
-			return nil, nil, RotNone
+		if hr := factory.call(vtFactory1EnumAdapters1, uintptr(ai), uintptr(unsafe.Pointer(&a))); hr.failed() {
+			return -1, nil, nil, RotNone
 		}
 		for oi := uintptr(0); ; oi++ {
 			var o *comObj
@@ -153,7 +184,7 @@ func findOutput(factory *comObj, device string) (adapter, output *comObj, rot Ro
 				if desc.Rotation >= 2 && desc.Rotation <= 4 {
 					rot = Rotation(desc.Rotation - 1)
 				}
-				return a, o, rot
+				return ai, a, o, rot
 			}
 			o.release()
 		}
@@ -242,6 +273,9 @@ func (d *duplicator) copyFrame(res *comObj) error {
 	if d.staging == nil {
 		var td d3d11Texture2DDesc
 		tex.call(vtTexture2DGetDesc, uintptr(unsafe.Pointer(&td)))
+		if td.Format != dxgiFormatB8G8R8A8 && td.Format != dxgiFormatB8G8R8A8SRGB {
+			return &Error{Reason: ReasonDXGIUnsupported, Op: "SurfaceFormat"} // BGRA dışı yüzey (ör. FP16) işlenmez
+		}
 		td.MipLevels, td.ArraySize, td.SampleCount, td.SampleQuality = 1, 1, 1, 0
 		td.Usage, td.BindFlags, td.CPUAccessFlags, td.MiscFlags = d3d11UsageStaging, 0, d3d11CPUAccessRead, 0
 		if hr := d.device.call(vtDeviceCreateTexture2D, uintptr(unsafe.Pointer(&td)), 0, uintptr(unsafe.Pointer(&d.staging))); hr.failed() {

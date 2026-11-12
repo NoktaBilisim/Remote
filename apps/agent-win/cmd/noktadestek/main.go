@@ -18,6 +18,7 @@ import (
 	"remote-support/agent-win/internal/capture"
 	"remote-support/agent-win/internal/config"
 	"remote-support/agent-win/internal/control"
+	"remote-support/agent-win/internal/diag"
 	"remote-support/agent-win/internal/dllsafe"
 	"remote-support/agent-win/internal/env"
 	"remote-support/agent-win/internal/files"
@@ -85,6 +86,13 @@ func run() int {
 	u.SetHotkey(hotkey)
 
 	client := api.New(cfg.ServerURL, cfg.Version)
+	store := rememberStore()
+	// 0.10.2: tanılama logu yalnız yakalama sorununda ve yalnız kalıcı modda (kayıt veya "hatırla" var) yazılır; kod
+	// modunda, LocalAppData yoksa veya süreç yükseltilmişse (CWE-59) kapalı. Neden kodu her durumda ekranda görünür.
+	var diagLog *diag.Log
+	if store != nil {
+		diagLog = diag.NewLog(store.Dir, selfElevated, store.Persistent)
+	}
 	deps := flow.Deps{
 		Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: fp,
 		API: client,
@@ -95,7 +103,7 @@ func run() int {
 			return rtc.New(ice, caps, h)
 		},
 		Monitors:    capture.Monitors,
-		Capture:     capture.Open,
+		Capture:     capture.Opener{Version: cfg.Version, Log: diagLog}.Open,
 		DownloadDir: func() (string, error) { return windows.KnownFolderPath(windows.FOLDERID_Downloads, 0) },
 		MOTW:        files.WriteMOTW,
 		Logo:        client.Logo, // AC-98: yalnız gömülü sunucu kökeni, PNG/JPG ≤ 2 MB
@@ -112,7 +120,6 @@ func run() int {
 		EnvProbe:     env.Probe,
 		SelfElevated: selfElevated, // K8: env.state.selfElevated (GRANTED audit'i, konsol rozeti)
 	}
-	store := rememberStore()
 	ld := launch.Deps{Exe: exe, ServerURL: cfg.ServerURL, API: client, Flow: deps,
 		Request: request.Deps{UI: u, Events: u.RequestEvents(), Version: cfg.Version, Logo: client.Logo,
 			Dial: func(ctx context.Context, secret string) (request.Conn, error) {

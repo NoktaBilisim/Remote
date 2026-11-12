@@ -1,5 +1,5 @@
 # ADR-0004 — Windows Hızlı Destek istemcisi: Go + Pion + Win32
-Durum: Kabul (kullanıcı kararı S1), r2 2026-11-11 (P6 uygulamasıyla eşitlendi: Dosyalar, Proxy), **r3 2026-11-12 (E9 hatırlama dosyası — aşağıda "Revizyon r3")** · Tarih: 2026-11-10
+Durum: Kabul (kullanıcı kararı S1), r2 2026-11-11 (P6 uygulamasıyla eşitlendi: Dosyalar, Proxy), **r3 2026-11-12 (E9 hatırlama dosyası — aşağıda "Revizyon r3")**, r4 2026-11-12 (E10 bilgisayar kaydı), **r5 2026-11-12 (istemci 0.10.2 tanılama logu — aşağıda "Revizyon r5")** · Tarih: 2026-11-10
 ## Bağlam
 Admin'siz, kurulumsuz, tek dosya ≤ 40 MB, açılış ≤ 5 sn, kalıcı iz yok (AC-95..110). RustDesk (AGPL, R8) kullanılmaz.
 ## Karar
@@ -62,3 +62,6 @@ Win32 UI kodu elle yazılır (birkaç pencere — kabul). macOS/Linux için `cap
 | Test | Go birim (v2, v1 yükseltme, üç silme yolu) + `trace-check.ps1 -Binding on` (yalnız `hatirla.bin`) / unut sonrası temiz |
 **Alternatifler:** Ayrı `kayit.bin` dosyası. İki iz ve iki silme yolu getirir, gereksinim "yeni dosya açılmaz" diyor. Reddedildi. Kayıt için onay kutusu: S18 varsayılanı "hayır". Bilgi satırı + unut yeterli görüldü.
 **Sonuçlar:** "Kapanınca iz bırakmaz" ilkesi şöyle olur: "yalnız ayar dosyası kalabilir, o da tek tıkla silinir". Aynı Windows kullanıcısındaki zararlı yazılım anahtarı çözebilir (T17/T39 kapsam sınırı). Etkisi talep açmakla sınırlıdır.
+
+## Revizyon r5 (2026-11-12, istemci 0.10.2 — AC-108/AC-138/AC-188 notu)
+r4 "Yasaklar" satırındaki "log dosyası yok" kuralına tek istisna: kalıcı modda (kayıt var veya "hatırla" açık), yalnız ekran yakalama sorununda ve yükseltilmemiş süreçte `%LOCALAPPDATA%\NoktaDestek\tanilama.log` (+`.1`, toplam ≤ 256 KB, kişisel veri yok; bağlantı/junction ise yazılmaz) bulunabilir; ayar dosyasıyla aynı silme yollarında silinir. Kod modunda yazılmaz. İz testi: `trace-check.ps1 -Diagnostics auto`.

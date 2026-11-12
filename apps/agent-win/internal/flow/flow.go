@@ -321,6 +321,8 @@ type session struct {
 	streamCx context.CancelFunc
 	streamDn chan struct{}
 	shareErr chan error
+	// captureErr son kaynak açma hatası (0.10.2: durum satırında neden kodu).
+	captureErr error
 
 	files   *transfer.Manager
 	lastPct int64
@@ -409,10 +411,10 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 			s.onPeer(ctx, e)
 		case st := <-s.envCh:
 			s.onEnv(ctx, st)
-		case <-s.shareErr:
+		case err := <-s.shareErr:
 			s.stopStream()
 			s.sendShare(ctx, "stopped")
-			s.d.UI.Status(statusCaptureFail)
+			s.d.UI.Status(captureStatus(err))
 		}
 	}
 }
@@ -566,9 +568,11 @@ func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 		}
 		s.d.UI.Active(s.techName, s.activeMonitor())
 		if s.monitor != nil {
-			if src, err := s.d.Capture(*s.monitor); err == nil {
+			src, err := s.d.Capture(*s.monitor)
+			if err == nil {
 				s.src = src
 			}
+			s.captureErr = err
 		}
 	} else {
 		s.d.UI.Status(statusReconnected)
@@ -578,7 +582,7 @@ func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 	s.startEnv(ctx)
 	if s.src == nil {
 		s.sendShare(ctx, "stopped")
-		s.d.UI.Status(statusCaptureFail)
+		s.d.UI.Status(captureStatus(s.captureErr))
 		return Outcome{}, false
 	}
 	s.startStream(ctx)

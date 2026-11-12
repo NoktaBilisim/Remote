@@ -12,24 +12,25 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"remote-support/agent-win/internal/diag"
 	"remote-support/agent-win/internal/rtc"
 	"remote-support/agent-win/internal/win"
 )
 
 const (
-	acquireTimeoutMs = 100 // NextFrame içinde ctx iptali en geç bu süre + kodlama kadar gecikir
-	openFirstFrame   = 2 * time.Second
-	reopenMin        = 250 * time.Millisecond
-	reopenMax        = 2 * time.Second
+	openFirstFrame = 2 * time.Second
+	reopenMin      = 250 * time.Millisecond
+	reopenMax      = 2 * time.Second
 )
 
 const rpcEChangedMode = 0x80010106
 
 var errClosed = errors.New("capture: kaynak kapalı")
 
-// source DXGI Desktop Duplication → BGRA→NV12 (CPU) + fare imleci bindirmesi → Media Foundation H.264 hattı. COM nesneleri iş parçacığına
-// bağlı olmasın diye tüm çağrılar kilitli tek bir OS iş parçacığında (worker) yapılır; NextFrame istekleri kanalla
-// gelir. Gösterge ve işaretleme pencereleri WDA_EXCLUDEFROMCAPTURE ile yakalamaya girmez (internal/ui).
+// source BGRA kaynağı (DXGI Desktop Duplication; açılamazsa DuplicateOutput1, o da olmazsa GDI) → BGRA→NV12 (CPU) +
+// fare imleci bindirmesi → Media Foundation H.264 hattı. COM nesneleri iş parçacığına bağlı olmasın diye tüm çağrılar
+// kilitli tek bir OS iş parçacığında (worker) yapılır; NextFrame istekleri kanalla gelir. Gösterge ve işaretleme
+// pencereleri WDA_EXCLUDEFROMCAPTURE ile yakalamaya girmez (internal/ui).
 type source struct {
 	reqs   chan frameReq
 	done   chan struct{}
@@ -48,20 +49,42 @@ type frameResp struct {
 	err error
 }
 
-// Open seçilen monitör için H.264 kaynağı açar: masaüstü çoğaltması kurulup ilk kare alınabilmeli ve kodlayıcı
-// oluşturulabilmelidir; aksi hâlde hata döner (akış "Ekran görüntüsü alınamadı" yolunu izler).
-func Open(monitorID int) (rtc.Source, error) {
+// Opener kaynak açıcı. Log nil değilse yakalama sorunu (açılamama, yedek yönteme geçiş, yayın hatası) yerel tanılama
+// loguna yazılır (internal/diag); sorunsuz açılışta dosyaya dokunulmaz.
+type Opener struct {
+	Version string
+	Log     *diag.Log
+}
+
+// Open seçilen monitör için H.264 kaynağı açar: bir yakalama yöntemiyle ilk kare alınabilmeli ve kodlayıcı
+// oluşturulabilmelidir; aksi hâlde tipli hata (*Error, neden kodu) döner (akış "Ekran görüntüsü alınamadı (KOD)"
+// yolunu izler).
+func (o Opener) Open(monitorID int) (rtc.Source, error) {
 	ms := win.Monitors()
 	if monitorID < 1 || monitorID > len(ms) {
-		return nil, errors.New("capture: monitör yok")
+		err := &Error{Reason: ReasonNoOutput, Op: "MonitorID"}
+		o.write(diag.Report{Event: diag.EventOpenFail, Reason: string(err.Reason), Op: err.Op}, true)
+		return nil, err
 	}
 	s := &source{reqs: make(chan frameReq), done: make(chan struct{}), exited: make(chan struct{})}
 	initErr := make(chan error, 1)
-	go s.run(ms[monitorID-1].Device, initErr)
+	go s.run(o, ms[monitorID-1].Device, initErr)
 	if err := <-initErr; err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+// write sistem bilgisini (probe) ekleyip kaydı yazar; yazım hatası akışı etkilemez.
+func (o Opener) write(r diag.Report, probe bool) {
+	if o.Log == nil {
+		return
+	}
+	r.Time, r.Version = time.Now(), o.Version
+	if probe {
+		probeSystem(&r)
+	}
+	_ = o.Log.Write(r)
 }
 
 // RequestKeyframe rtc.KeyframeRequester: yayın başı ve PLI/FIR.
@@ -86,9 +109,15 @@ func (s *source) Close() error {
 	return nil
 }
 
-func (s *source) run(device string, initErr chan<- error) {
+func (s *source) run(o Opener, device string, initErr chan<- error) {
 	defer close(s.exited)
 	runtime.LockOSThread() // bilerek açılmaz: goroutine bitince iş parçacığı COM durumuyla birlikte sonlanır
+	rep := diag.Report{Event: diag.EventOpenFail, Target: device}
+	fail := func(err *Error) {
+		rep.Reason, rep.Op, rep.HR = string(err.Reason), err.Op, err.HR
+		o.write(rep, true)
+		initErr <- err
+	}
 	// S_FALSE: iş parçacığında COM zaten MTA (yine dengelenir); RPC_E_CHANGED_MODE: başka kod STA açmış — tek iş
 	// parçacığından kullanım STA'da da geçerli, ama Uninitialize bizim değil.
 	switch err := windows.CoInitializeEx(0, windows.COINIT_MULTITHREADED); {
@@ -96,25 +125,49 @@ func (s *source) run(device string, initErr chan<- error) {
 		defer windows.CoUninitialize()
 	case errors.Is(err, syscall.Errno(rpcEChangedMode)):
 	default:
-		initErr <- err
+		var hr uint32
+		var en syscall.Errno
+		if errors.As(err, &en) {
+			hr = uint32(en)
+		}
+		fail(&Error{Reason: ReasonOther, Op: "CoInitializeEx", HR: hr})
 		return
 	}
 	if err := procHR(pMFStartup, "MFStartup", mfVersion, mfStartupLite); err != nil {
-		initErr <- err // ör. Media Feature Pack'siz Windows N
+		fail(tag(err, stageMF, "MFStartup")) // ör. Media Feature Pack'siz Windows N
 		return
 	}
 	defer func() { _, _, _ = pMFShutdown.Call() }()
-	p := &pipeline{device: device, kc: &s.kc, rc: newRateCtl()}
+	p := &pipeline{device: device, kc: &s.kc, rc: newRateCtl(), fps: targetFPS}
 	defer p.close()
-	if err := p.start(); err != nil {
-		initErr <- err
+	err := p.start()
+	rep.Attempts, rep.Method = p.attemptLog(), string(p.method)
+	if p.enc != nil {
+		rep.Encoder, rep.HWReason = encoderKind(p.enc), string(p.enc.hwReason)
+	}
+	if err != nil {
+		e, ok := AsError(err)
+		if !ok {
+			e = &Error{Reason: ReasonOther, Op: "Start"}
+		}
+		fail(e)
 		return
 	}
+	if p.method != MethodDXGI || len(p.attempts) > 1 {
+		rep.Event = diag.EventOpenFallbk
+		o.write(rep, true)
+	}
 	initErr <- nil
+	logged := false
 	for {
 		select {
 		case r := <-s.reqs:
 			f, err := p.next(r.ctx)
+			if e, ok := AsError(err); ok && !logged {
+				logged = true
+				rep.Event, rep.Reason, rep.Op, rep.HR = diag.EventStreamFail, string(e.Reason), e.Op, e.HR
+				o.write(rep, true)
+			}
 			r.resp <- frameResp{f: f, err: err}
 		case <-s.done:
 			return
@@ -122,14 +175,26 @@ func (s *source) run(device string, initErr chan<- error) {
 	}
 }
 
+func encoderKind(e *encoder) string {
+	if e.hw {
+		return "HW"
+	}
+	return "SW"
+}
+
 // pipeline worker iş parçacığının durumu.
 type pipeline struct {
 	device   string
 	kc       *keyClock
 	rc       *rateCtl
-	dup      *duplicator
+	fps      int // kodlayıcının hedef kare hızı (GDI'da gdiFPS)
+	g        grabber
+	method   Method
+	reopen   func() (grabber, error)
+	attempts []attempt
 	enc      *encoder
 	frame    *NV12
+	resized  bool
 	retryAt  time.Time
 	backoff  time.Duration
 	lastEmit time.Time
@@ -137,74 +202,123 @@ type pipeline struct {
 	convCost time.Duration // son BGRA→NV12 dönüşüm süresi
 }
 
+// start yöntem zincirini (DXGI → DXGI1 → GDI) dener, ilk kareyi alır ve kodlayıcıyı kurar. Kodlayıcı hatası yöntem
+// değiştirmeyi gerektirmez (GDI de aynı kodlayıcıyı kullanır); doğrudan döner.
 func (p *pipeline) start() error {
-	d, err := openDuplicator(p.device)
+	chain := []methodOpener{
+		{MethodDXGI, func() (grabber, error) { return wrapDup(openDuplicator(p.device, false)) }},
+		{MethodDXGI1, func() (grabber, error) { return wrapDup(openDuplicator(p.device, true)) }},
+		{MethodGDI, func() (grabber, error) { return wrapGDI(openGDI(p.device)) }},
+	}
+	first := func(c methodOpener, g grabber) (grabber, error) {
+		p.frame = nil
+		return awaitFirst(g, c.open, p.convert, time.Now().Add(openFirstFrame), time.Now, time.Sleep)
+	}
+	g, i, tried, err := selectMethod(chain, first)
+	p.attempts = tried
 	if err != nil {
 		return err
 	}
-	p.dup = d
-	deadline := time.Now().Add(openFirstFrame)
-	for p.frame == nil {
-		if _, err := p.grab(); err != nil {
-			return err
-		}
-		if p.frame == nil && time.Now().After(deadline) {
-			return errors.New("capture: ilk kare alınamadı")
-		}
+	p.g, p.method, p.reopen = g, chain[i].m, chain[i].open
+	if p.method == MethodGDI {
+		p.fps, p.rc = gdiFPS, newRateCtlCap(gdiFPS)
 	}
+	return p.ensureEncoder()
+}
+
+// wrapDup / wrapGDI nil işaretçinin dolu arayüz olarak dönmesini önler.
+func wrapDup(d *duplicator, err error) (grabber, error) {
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+func wrapGDI(g *gdiGrabber, err error) (grabber, error) {
+	if err != nil {
+		return nil, err
+	}
+	return g, nil
+}
+
+// attemptLog denemeleri tanılama kaydına çevirir.
+func (p *pipeline) attemptLog() []diag.Attempt {
+	out := make([]diag.Attempt, 0, len(p.attempts))
+	for _, a := range p.attempts {
+		d := diag.Attempt{Method: string(a.m)}
+		if a.err != nil {
+			d.Reason, d.Op, d.HR = string(a.err.Reason), a.err.Op, a.err.HR
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// convert g'nin karesini NV12'ye çevirip (DXGI'da) imleci bindiren işlev.
+func (p *pipeline) convert(g grabber) func(px []byte, w, h, pitch int) error {
+	return func(px []byte, w, h, pitch int) error {
+		rot := g.rotation()
+		ow, oh := OutputSize(DesktopSize(w, h, rot))
+		if p.frame == nil || p.frame.W != ow || p.frame.H != oh {
+			p.frame, p.resized = NewNV12(ow, oh), true
+		}
+		t0 := time.Now()
+		err := ConvertBGRA(p.frame, px, w, h, pitch, rot)
+		if err == nil {
+			err = OverlayCursor(p.frame, px, w, h, pitch, rot, g.cursor())
+		}
+		p.convCost = time.Since(t0)
+		return err
+	}
+}
+
+// ensureEncoder kare boyutu değiştiyse veya kodlayıcı yoksa kurar.
+func (p *pipeline) ensureEncoder() error {
+	if p.frame == nil || (!p.resized && p.enc != nil) {
+		return nil
+	}
+	p.resized = false
+	if p.enc != nil {
+		p.enc.close()
+		p.enc = nil
+	}
+	enc, err := newEncoder(p.frame.W, p.frame.H, p.fps)
+	if err != nil {
+		return err
+	}
+	p.enc = enc
+	p.kc.Request()
 	return nil
 }
 
 // grab yeni masaüstü karesini (varsa; yalnız imleç hareketi de sayılır) NV12'ye çevirip imleci bindirir; çözünürlük değişirse kodlayıcıyı yeniden kurar.
-// Çoğaltma kaybında (ACCESS_LOST, Güvenli Masaüstü/UAC, kilit ekranı, mod değişimi) oturumu kapatır ve geri çekilmeli
-// yeniden açar; bu sürede son kare kullanılmaya devam eder. Yalnız kodlayıcı kurulamazsa hata döner.
+// Kaynak kaybında (ACCESS_LOST, Güvenli Masaüstü/UAC, kilit ekranı, mod değişimi) kaynağı kapatır ve aynı yöntemle
+// geri çekilmeli yeniden açar; bu sürede son kare kullanılmaya devam eder. Yalnız kodlayıcı kurulamazsa hata döner.
 func (p *pipeline) grab() (bool, error) {
-	if p.dup == nil {
+	if p.g == nil {
 		wait := time.Until(p.retryAt)
 		if wait > 0 {
-			time.Sleep(min(wait, acquireTimeoutMs*time.Millisecond))
+			time.Sleep(min(wait, acquireWaitMs*time.Millisecond))
 			return false, nil
 		}
-		d, err := openDuplicator(p.device)
+		g, err := p.reopen()
 		if err != nil {
 			p.backoff = min(reopenMax, max(reopenMin, p.backoff*2))
 			p.retryAt = time.Now().Add(p.backoff)
 			return false, nil
 		}
-		p.dup, p.backoff = d, 0
+		p.g, p.backoff = g, 0
 		p.kc.Request()
 	}
-	var resized bool
-	changed, err := p.dup.acquire(acquireTimeoutMs, func(px []byte, w, h, pitch int) error {
-		ow, oh := OutputSize(DesktopSize(w, h, p.dup.rot))
-		if p.frame == nil || p.frame.W != ow || p.frame.H != oh {
-			p.frame, resized = NewNV12(ow, oh), true
-		}
-		t0 := time.Now()
-		err := ConvertBGRA(p.frame, px, w, h, pitch, p.dup.rot)
-		if err == nil {
-			err = OverlayCursor(p.frame, px, w, h, pitch, p.dup.rot, &p.dup.cur)
-		}
-		p.convCost = time.Since(t0)
-		return err
-	})
+	changed, err := p.g.acquire(acquireWaitMs, p.convert(p.g))
 	if err != nil {
-		p.dup.close()
-		p.dup = nil
+		p.g.close()
+		p.g = nil
 		p.retryAt = time.Now().Add(reopenMin)
 		return false, nil
 	}
-	if p.frame != nil && (resized || p.enc == nil) {
-		if p.enc != nil {
-			p.enc.close()
-			p.enc = nil
-		}
-		enc, err := newEncoder(p.frame.W, p.frame.H, targetFPS)
-		if err != nil {
-			return false, err
-		}
-		p.enc = enc
-		p.kc.Request()
+	if err := p.ensureEncoder(); err != nil {
+		return false, err
 	}
 	return changed, nil
 }
@@ -239,7 +353,7 @@ func (p *pipeline) next(ctx context.Context) (rtc.Frame, error) {
 		}
 		data, key, err := p.enc.Encode(p.frame, dur, p.kc.Due(now))
 		if err != nil {
-			return rtc.Frame{}, err
+			return rtc.Frame{}, tag(err, stageEncode, "Encode")
 		}
 		cost := time.Since(now) // kodlama (+ yeni karede dönüşüm): AC-41 kare hızı denetimi
 		if changed {
@@ -264,7 +378,7 @@ func (p *pipeline) close() {
 	if p.enc != nil {
 		p.enc.close()
 	}
-	if p.dup != nil {
-		p.dup.close()
+	if p.g != nil {
+		p.g.close()
 	}
 }

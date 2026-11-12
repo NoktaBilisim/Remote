@@ -1,4 +1,5 @@
-// Package remember istemcinin kendi adına diske yazdığı TEK dosyadır (ADR-0004 r4; AC-136..138, AC-181, AC-186):
+// Package remember istemcinin kendi adına diske yazdığı kalıcı veri dosyasıdır (yanında yalnız yakalama sorununda
+// yazılan tanılama logu bulunabilir, internal/diag) (ADR-0004 r4; AC-136..138, AC-181, AC-186):
 // `%LOCALAPPDATA%\NoktaDestek\hatirla.bin`, DPAPI CurrentUser + sabit entropi ile korunan JSON (≤ 4 KB). İçerik
 // format v2: kişisel bilgiler ("Bilgilerimi hatırla") ve/veya bilgisayar kaydı (sunucu kökeni, kayıt anahtarı, firma
 // ve müşteri adı). Açıklama, onay, talep kimliği/sırrı ve ref YAZILMAZ. Depo mantığı platformdan bağımsızdır (koruma
@@ -11,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"remote-support/agent-win/internal/diag"
 )
 
 const (
@@ -34,6 +37,13 @@ func (s *Store) Load() (Data, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.load()
+}
+
+// Persistent kalıcı mod etkin mi: dosyada bilgisayar kaydı veya hatırlanan kişisel bilgi var (0.10.2: tanılama logu
+// yalnız bu durumda yazılır; kod modunda/kayıtsızken AC-108/AC-138 gereği iz bırakılmaz).
+func (s *Store) Persistent() bool {
+	d, ok := s.Load()
+	return ok && (d.Personal != nil || d.Binding != nil)
 }
 
 // LoadPersonal yalnız kişisel bilgiler (talep formu).
@@ -108,7 +118,8 @@ func (s *Store) ClearBinding() error {
 	return s.update(func(d *Data) { d.Binding = nil })
 }
 
-// ForgetAll "Bu bilgisayarı unut" (AC-186): dosya, varsa tmp, ardından YALNIZ boşsa klasör.
+// ForgetAll "Bu bilgisayarı unut" (AC-186): dosya, varsa tmp, tanılama logu (internal/diag, 0.10.2), ardından YALNIZ
+// boşsa klasör.
 func (s *Store) ForgetAll() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -157,7 +168,7 @@ func (s *Store) write(d Data) error {
 
 func (s *Store) forgetAll() error {
 	var errs []error
-	for _, n := range []string{fileName, tmpName} {
+	for _, n := range []string{fileName, tmpName, diag.FileName, diag.OldName} {
 		if err := os.Remove(filepath.Join(s.Dir, n)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, err)
 		}

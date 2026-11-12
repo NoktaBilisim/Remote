@@ -134,23 +134,35 @@ type encoder struct {
 	pts                     int64 // 100 ns
 	needInput               int   // asenkron: bekleyen METransformNeedInput sayısı
 	ps                      paramSets
+	hw                      bool   // donanım MFT'si (tanılama)
+	hwReason                Reason // yazılıma düşüldüyse donanım kodlayıcının nedeni (tanılama)
 }
 
+// newEncoder önce donanım, olmazsa yazılım kodlayıcı kurar. Hata tiplidir: NO_H264_ENCODER (MFT yok, ör. Windows N)
+// veya ENCODER_CONFIG (türler/parametreler kabul edilmedi).
 func newEncoder(w, h, fps int) (*encoder, error) {
-	if e, err := createEncoder(w, h, fps, true); err == nil {
+	e, hwErr := createEncoder(w, h, fps, true)
+	if hwErr == nil {
 		return e, nil
 	}
-	return createEncoder(w, h, fps, false)
+	e, err := createEncoder(w, h, fps, false)
+	if err != nil {
+		return nil, err
+	}
+	if he, ok := AsError(hwErr); ok {
+		e.hwReason = he.Reason
+	}
+	return e, nil
 }
 
 func createEncoder(w, h, fps int, hw bool) (*encoder, error) {
-	e := &encoder{w: w, h: h}
+	e := &encoder{w: w, h: h, hw: hw}
 	if err := e.activate(hw); err != nil {
-		return nil, err
+		return nil, tag(err, stageEncoderCreate, "MFTEnumEx")
 	}
 	if err := e.configure(w, h, fps); err != nil {
 		e.close()
-		return nil, err
+		return nil, tag(err, stageEncoderConfig, "Configure")
 	}
 	return e, nil
 }
@@ -186,7 +198,7 @@ func (e *encoder) activate(hw bool) error {
 		windows.CoTaskMemFree(unsafe.Pointer(arr))
 	}
 	if hw {
-		return errors.New("capture: donanım H.264 kodlayıcı yok")
+		return &Error{Reason: ReasonNoH264Encoder, Op: "MFTEnumEx(HW)"}
 	}
 	return procHR(pCoCreateInstance, "CoCreateInstance(H264 Encoder MFT)", uintptr(unsafe.Pointer(&clsidMSH264Encoder)), 0,
 		clsctxInproc, uintptr(unsafe.Pointer(&iidIMFTransform)), uintptr(unsafe.Pointer(&e.mft)))

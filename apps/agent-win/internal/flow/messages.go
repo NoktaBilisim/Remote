@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"remote-support/agent-win/internal/api"
+	"remote-support/agent-win/internal/capture"
 )
 
 // Message kullanıcıya gösterilen başlık + açıklama. Metinler web misafir sayfasıyla aynıdır
@@ -43,10 +44,42 @@ const (
 	statusTechLeft     = "Teknisyenin bağlantısı koptu; geri dönmesi bekleniyor."
 	statusTechBack     = "Teknisyen yeniden bağlandı."
 	statusWarn5min     = "Oturum 5 dakika içinde sona erecek."
-	statusCaptureFail  = "Ekran görüntüsü alınamadı; teknisyen ekranınızı göremiyor."
+	statusCaptureFail  = "Ekran görüntüsü alınamadı; teknisyen ekranınızı göremiyor." // neden kodu yoksa
 	statusChatFail     = "Mesaj gönderilemedi."
 	statusNonce        = "Sayfanın süresi doldu; bilgiler yenilendi. Lütfen yeniden onaylayın."
 )
+
+// captureHints neden kodu → müşteriye kısa yönlendirme (0.10.2). Kod, teknisyene telefonda okunabilsin diye
+// metinde aynen gösterilir; ayrıntı yerel tanılama logundadır (internal/diag).
+var captureHints = map[capture.Reason]string{
+	capture.ReasonDXGIUnsupported:   "Ekran kartı ayarını kontrol edin.",
+	capture.ReasonDXGIAccessDenied:  "Kilit ekranı veya onay penceresi açıksa kapatın.",
+	capture.ReasonDXGINotAvailable:  "Tam ekran uygulamayı kapatıp tekrar deneyin.",
+	capture.ReasonNoOutput:          "Ekran bağlantısını kontrol edin.",
+	capture.ReasonD3DDevice:         "Ekran kartı sürücüsünü kontrol edin.",
+	capture.ReasonFirstFrameTimeout: "Ekran yanıt vermedi; tekrar deneyin.",
+	capture.ReasonGDI:               "Ekran okunamadı; teknisyeninize bu kodu bildirin.",
+	capture.ReasonMFStartup:         "Windows Medya Özellik Paketi gerekli.",
+	capture.ReasonNoH264Encoder:     "Windows Medya Özellik Paketi gerekli.",
+	capture.ReasonEncoderConfig:     "Görüntü kodlayıcı başlatılamadı; teknisyeninize bu kodu bildirin.",
+	capture.ReasonEncodeFailed:      "Görüntü kodlanamadı; teknisyeninize bu kodu bildirin.",
+}
+
+const captureHintOther = "Teknisyeninize bu kodu bildirin."
+
+// captureStatus yakalama hatasının durum satırı metni: "Ekran görüntüsü alınamadı (KOD). <yönlendirme>". Tipli hata
+// değilse (ör. kaynak kapandı) eski genel metin.
+func captureStatus(err error) string {
+	e, ok := capture.AsError(err)
+	if !ok {
+		return statusCaptureFail
+	}
+	hint, ok := captureHints[e.Reason]
+	if !ok {
+		hint = captureHintOther
+	}
+	return "Ekran görüntüsü alınamadı (" + e.Code() + "). " + hint
+}
 
 // apiOutcome sunucu hatasının akıştaki karşılığı.
 type apiOutcome int

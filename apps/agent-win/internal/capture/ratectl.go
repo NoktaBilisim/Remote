@@ -8,6 +8,7 @@ import (
 // Kare hızı ve anahtar kare hedefleri (AC-41; mimari §Aşama 2 eksikleri: GOP ≤ 2 sn).
 const (
 	targetFPS     = 30
+	gdiFPS        = 10 // GDI yedeği: BitBlt + tam kare kopyası CPU'da; düşük hız yeterli ve hafif
 	minFPS        = 15
 	fpsStep       = 5
 	gopDuration   = 2 * time.Second
@@ -17,13 +18,18 @@ const (
 
 // rateCtl yakalama+dönüştürme+kodlama süresine göre kare hızını hedef (30) ile alt sınır (15) arasında ayarlar.
 // Ortalama maliyet karenin bütçesinin %90'ını aşarsa hız düşer; 2 sn boyunca bütçenin yarısının altında kalırsa artar.
+// GDI yedeğinde üst sınır gdiFPS'tir (alt sınır da ona iner; hız sabit kalır).
 type rateCtl struct {
-	fps  int
-	avg  time.Duration
-	good int
+	fps        int
+	top, floor int
+	avg        time.Duration
+	good       int
 }
 
-func newRateCtl() *rateCtl { return &rateCtl{fps: targetFPS} }
+func newRateCtl() *rateCtl { return newRateCtlCap(targetFPS) }
+
+// newRateCtlCap üst sınırı top olan denetleyici.
+func newRateCtlCap(top int) *rateCtl { return &rateCtl{fps: top, top: top, floor: min(minFPS, top)} }
 
 // Interval iki kare arasındaki hedef süre.
 func (r *rateCtl) Interval() time.Duration { return time.Second / time.Duration(r.fps) }
@@ -40,14 +46,14 @@ func (r *rateCtl) Observe(cost time.Duration) bool {
 	}
 	budget := r.Interval()
 	switch {
-	case r.avg > budget*9/10 && r.fps > minFPS:
-		r.fps = max(minFPS, r.fps-fpsStep)
+	case r.avg > budget*9/10 && r.fps > r.floor:
+		r.fps = max(r.floor, r.fps-fpsStep)
 		r.good = 0
 		return true
-	case r.avg < budget/2 && r.fps < targetFPS:
+	case r.avg < budget/2 && r.fps < r.top:
 		r.good++
 		if r.good >= 2*r.fps {
-			r.fps = min(targetFPS, r.fps+fpsStep)
+			r.fps = min(r.top, r.fps+fpsStep)
 			r.good = 0
 			return true
 		}

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"remote-support/agent-win/internal/diag"
 )
 
 // xorSeal sahte koruma: düz metnin diskte görünmediğini sınamaya yeter.
@@ -200,6 +202,87 @@ func TestAC186ForgetAllRemovesFileTmpAndEmptyDir(t *testing.T) {
 	}
 	if err := s.ForgetAll(); err != nil {
 		t.Fatal("dosya yokken unut hata vermemeli (idempotent)")
+	}
+}
+
+// TestAC186ForgetAllRemovesDiagnosticsLog 0.10.2: "Bu bilgisayarı unut" tanılama logunu (ve dönen kopyasını) da siler;
+// yalnız log varken (hatırlama yok) de klasör boşalıp silinir.
+func TestAC186ForgetAllRemovesDiagnosticsLog(t *testing.T) {
+	for _, withData := range []bool{true, false} {
+		s := store(t)
+		if withData {
+			_ = s.SaveBinding(sampleBinding())
+		}
+		l := &diag.Log{Dir: s.Dir, Max: 200}
+		for i := 0; i < 4; i++ { // dönmeye zorlar: tanilama.log + tanilama.log.1
+			if err := l.Write(diag.Report{Event: diag.EventOpenFail, Reason: "DXGI_UNSUPPORTED"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(s.Dir, diag.OldName)); err != nil {
+			t.Fatal("dönen log oluşmalı:", err)
+		}
+		if err := s.ForgetAll(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(s.Dir); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("withData=%v: log ve kayıt silinip boş klasör kaldırılmalı", withData)
+		}
+	}
+}
+
+// QA#2 (kabul edilen davranış): veri boşaltan her yol (forgetAll) — "Bilgilerimi unut" kayıt yokken (ClearPersonal)
+// ve geçersiz kayıt (ClearBinding, AC-185) kişisel bilgi yokken — tanılama logunu da siler. Veri kalıyorsa log kalır.
+func TestAC185AC137ClearPathsRemoveDiagnosticsLog(t *testing.T) {
+	writeLog := func(s *Store) {
+		if err := (&diag.Log{Dir: s.Dir}).Write(diag.Report{Event: diag.EventOpenFail}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gone := func(s *Store) bool {
+		_, err := os.Stat(filepath.Join(s.Dir, diag.FileName))
+		return errors.Is(err, os.ErrNotExist)
+	}
+
+	s := store(t)
+	_ = s.SavePersonal(samplePersonal())
+	writeLog(s)
+	if err := s.ClearPersonal(); err != nil || !gone(s) {
+		t.Fatal("ClearPersonal (kayıt yok) logu silmeli")
+	}
+	s = store(t)
+	_ = s.SaveBinding(sampleBinding())
+	writeLog(s)
+	if err := s.ClearBinding(); err != nil || !gone(s) {
+		t.Fatal("ClearBinding (kişisel bilgi yok) logu silmeli")
+	}
+	s = store(t)
+	_ = s.SavePersonal(samplePersonal())
+	_ = s.SaveBinding(sampleBinding())
+	writeLog(s)
+	if err := s.ClearBinding(); err != nil || gone(s) {
+		t.Fatal("kişisel bilgi kalıyorsa log kalmalı")
+	}
+}
+
+// 0.10.2: kalıcı mod = kayıt veya hatırlanan kişisel bilgi var (tanılama logu yalnız bu durumda yazılır).
+func TestPersistentMode(t *testing.T) {
+	s := store(t)
+	if s.Persistent() {
+		t.Fatal("dosya yokken kalıcı değil")
+	}
+	_ = s.SavePersonal(samplePersonal())
+	if !s.Persistent() {
+		t.Fatal("hatırla açıkken kalıcı")
+	}
+	_ = s.ClearPersonal()
+	_ = s.SaveBinding(sampleBinding())
+	if !s.Persistent() {
+		t.Fatal("kayıt varken kalıcı")
+	}
+	_ = s.ForgetAll()
+	if s.Persistent() {
+		t.Fatal("unut sonrası kalıcı değil")
 	}
 }
 
