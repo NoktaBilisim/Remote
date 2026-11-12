@@ -1719,3 +1719,385 @@ Yok. mimari-api "Oturum geçmişi (P8)" §1–5'teki kapsam, izin listesi, PATCH
 - S8-1..S8-4 (hepsi Düşük).
 
 DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4)
+
+---
+
+## Tasarım turu — E9 (P8b) — Müşteri destek talebi (2026-11-12)
+DURUM: DÜZELTİLMELİ
+Özet: Kritik 0 / Yüksek 1 / Orta 6 / Düşük 7
+
+Kapsam: `docs/mimari-e9.md` (§2–§8, T28–T38, §5.4), ADR-0016, ADR-0004 r3, ADR-0006 r4, `docs/mimari-api.md` "Destek talepleri (P8b)", `docs/mimari-protokol.md` §5, `docs/tasarim-kontrol.md` E9, `docs/gereksinimler-e9.md`, AC-129..164. Tasarımın "mevcut" dediği kontroller koddan doğrulandı (`signaling/ws.ts`, `admit.ts`, `store.ts`, `lib/{ip,logger}.ts`, `audit/mask.ts`, `auth/guards.ts`, `deploy/Caddyfile`, `deploy/nginx/remote.noktabilisim.net.conf`, `agent-win/internal/{config,pairing}`).
+
+### Bulgular (öncelik sırasıyla)
+
+#### G-E9-1 [YÜKSEK] Talep, makine ve kişi arasında bağ yok; "telefonla doğrulayın" önlemi tasarlandığı haliyle işlemiyor (A07/A04)
+Yer: mimari-e9 §5.1, T29; ADR-0016 Karar 3; gereksinimler V16, R11
+Sorun: Lobi ve admitCode kaldırıldı (V16). Bunun yerine konan tek önlem kılavuzdaki "tanımadığınız talebi telefonla doğrulayın" cümlesi. Ancak teknisyen ile müşteri arasında karşılaştırabilecekleri ortak bir değer yok. Telefon numarası da talebi açan kişiden geliyor. Talep sırrı yalnızca istemciyle sunucu arasında bir bağ kuruyor; ekran başındaki kişiyle istemci arasında bir bağ kurmuyor.
+İstismar senaryosu: Firma bağlantısı müşteri firmanın bütün çalışanlarına dağıtılan, gizli olmayan bir bağlantı. Saldırgan dosyayı ele geçirir ve gerçek bir çalışanın adını, kendi telefon numarasını yazıp "Outlook açılmıyor" diye talep açar. Teknisyen formdaki numarayı arar ve saldırganla konuşur, ya da gerçek çalışanı arar ve "evet talep açtım" cevabını alır. İki durumda da hangi makineye bağlanacağını ayırt edemez. Saldırganın sanal makinesine bağlanır, kontrol sırasında yönetici veya domain şifresi yazar. Bu tuş vuruşları saldırganın makinesinde kaydedilir. Teknisyen müşteriden gelen dosyayı açarsa (AC-117) zararlı yazılım da alabilir.
+Öneri (S12 kararını değiştirmez, akışa kapı eklemez):
+(a) Sunucu talep oluştururken gösterim amaçlı 4–6 haneli bir `requestCode` üretir. Kod 201 yanıtında döner, istemcinin bekleme ekranında büyük puntoyla görünür ve panelde talep kartında yer alır. WhatsApp mesajına ve audit'e yazılmaz.
+(b) Kılavuz ve panel ipucu şöyle düzeltilir: "Müşteriyi **firmanın kayıtlı numarasından** arayın (talepteki numaradan değil) ve ekrandaki talep kodunu sorun."
+(c) Panel kartında "bu IP öneki/telefon bu tenant'ta daha önce oturum yaptı mı" bayrağı gösterilir.
+(d) S12 tenant ayarı (admitCode) genişlemesi Sonra listesinde öne alınır.
+Atanan: mimar (sözleşme: 201 + `SupportRequestItem.requestCode`), backend, frontend, istemci, teknik-yazar
+
+#### G-E9-2 [ORTA] Teknisyen bağlanmadan ACTIVE olan talep odasında caps kaynağı ve "teknisyen yok" zamanlayıcısı tanımsız (A01)
+Yer: protokol §5.2 adım 4–5; mevcut `signaling/admit.ts:76-80` (caps `tech.permissions`'tan, `TechConn` gerektirir)
+Sorun: Talep akışında misafir, teknisyenden önce kabul edilip oturum ACTIVE olabiliyor. Mevcut kod caps değerini bağlı teknisyenin yetkilerinden hesaplıyor. Tasarım bu durumda caps'in nereden geleceğini ve teknisyen hiç bağlanmazsa odanın ne zaman kapanacağını belirtmiyor. Yanlış bir varsayılan (boş `tech` ya da tüm caps açık) `remote_control.use` veya `file_transfer.use` yetkisi olmayan bir kabulcüye bu yetenekleri verebilir. Ya da müşteri göstergesi açık halde, karşısında kimse olmadan max süre boyunca bekleyebilir.
+Öneri:
+- Admit anında caps, `technician_id` için DB'deki etkin yetkilerden hesaplanır (pasif kullanıcı ve rol kontrolü dahil).
+- Mevcut 120 sn teknisyen kopma zamanlayıcısı admit anında başlatılır.
+- Regresyon testi: `remote_control.use` yetkisi olmayan bir kabulcüde caps boş olmalı.
+- `accept` yetkisinin `sessions.create` yetkisini kapsadığı bilgisi toggle ekranında açıklanır.
+Atanan: mimar, backend
+
+#### G-E9-3 [ORTA] Onayın tazeliği: ekran paylaşımı onaydan 120 dk sonra müşteri etkileşimi olmadan başlayabiliyor; iptalden sonra gelen kabul tanımsız (A04, KVKK)
+Yer: AC-154, protokol §5.1 (`request.cancel` ACCEPTED iken yok sayılır), §5.2 adım 2 (`session_consents` talepteki IP ile yazılır)
+Sorun: Onay talep anında alınıyor; paylaşım ise kabul anında kendiliğinden başlıyor. Müşteri bu arada masadan kalkmış ya da ekranında başka içerik açmış olabilir. Ayrıca müşteri "İptal"e bastıktan veya pencereyi kapattıktan sonra gelen `request.accepted` için istemcinin ne yapacağı tanımlı değil. `session_consents` kaydı da karışık kaynaklı: IP talepten, user-agent bağlantıdan geliyor.
+Öneri:
+- İstemci kabul geldiğinde teknisyen adı ve doğrulama koduyla 5 sn geri sayım ve odaklı "Vazgeç" butonu gösterir. Bekleme belirli bir eşiği (ör. 10 dk) aştıysa tek tık "Bağlan" ister. Bu kararı kullanıcı/mimar verir.
+- İptal veya kapatma sonrasında gelen kabul yok sayılır ve `/ws/guest`'e bağlanılmaz.
+- Onay kaydına `request_id` (ya da ayrı bir kaynak değeri) eklenir; `decided_at` talep zamanı olarak yazılır.
+Atanan: mimar, istemci, backend
+
+#### G-E9-4 [ORTA] Uzun ömürlü firma dosyası: eski ve açıklı istemci sürümleri sahada süresiz çalışır; asgari sürüm kapısı yok (A06/A08)
+Yer: ADR-0006 r4, US-29 ("bir kez indirip saklamak"), mimari-api POST `/public/requests` (`clientVersion` yalnız kaydediliyor)
+Sorun: Eski akışta her oturumda taze ikili indiriliyordu; firma dosyası ise aylarca masaüstünde kalır. "Teknisyenden kod aldım" yolu (AC-162) da aynı eski ikiliyle çalışır. Bir güvenlik yaması yayınlandığında eski ikilileri durdurmanın yolu yok.
+Öneri:
+- `MIN_AGENT_VERSION` tanımlanır (env veya contracts sabiti).
+- POST `/public/requests`, `/public/sessions/resolve|join` (AGENT) ve `/ws/guest` (AGENT) için sürüm daha düşükse `CLIENT_OUTDATED` döner.
+- İstemci bu durumda "Yeni sürümü indirin" der ve aynı `request-download` bağlantısını tarayıcıda açar.
+- Runbook'a "güvenlik yamasında min sürümü yükselt" adımı eklenir.
+Not: değer istemcinin kendi beyanı; zararlı istemciye karşı değil, dürüst kullanıcıyı eski ikiliden korumaya yönelik.
+Atanan: mimar, backend, istemci, devops
+
+#### G-E9-5 [ORTA] WhatsApp mesajına giden müşteri metni, güvenilen göndericiden teknisyene oltalama kanalı oluyor (A03, içerik enjeksiyonu)
+Yer: mimari-e9 §6 şablonu; mimari-api `descriptionSchema` (`\n` serbest)
+Sorun: Açıklamanın ilk 100 karakteri satır sonu ve URL içerebiliyor. WhatsApp URL'leri otomatik bağlantıya çevirir. Mesaj, teknisyenlerin güvendiği Nokta bildirim numarasından gelir. Saldırgan "Yazıcı çalışmıyor\nPanel: https://remote-noktabilisim.net/login" gibi bir açıklamayla sahte bir panel bağlantısı satırı üretebilir.
+Öneri:
+- WhatsApp'a giden ad ve açıklama tek satıra indirilir (`\s+` → boşluk).
+- URL ve alan adı kalıpları etkisizleştirilir (`.`→`[.]`, `://`→`[:]//`) ya da açıklama hiç gönderilmez (bkz. G-E9-6).
+- WhatsApp biçim karakterleri (`* _ ~ \``) kaçışlanır.
+- Gerçek panel bağlantısı sabit bir etiketle ilk satıra konur.
+- Panelde açıklama otomatik bağlantıya çevrilmez.
+Atanan: backend, frontend
+
+#### G-E9-6 [ORTA] whatsapp-bildirim servisi kimliksiz ve internete açık; kişisel veri düz HTTP ile ve yurt dışına gidiyor; K13 yalnız TLS'i kapsıyor (A02/A05, KVKK)
+Yer: T33/T34, K13, §8 (`WHATSAPP_SERVICE_URL` vars. `http://89.252.189.211:3000`)
+Sorun:
+1. Servis kimlik doğrulaması istemiyor ve herkese açık. Herkes aynı numaradan teknisyenlere sahte "Yeni destek talebi + bağlantı" mesajı gönderebilir; gönderici numarasına duyulan güven boşa çıkar.
+2. Mesajdaki ad, telefon ve açıklama Meta altyapısına, yani yurt dışına aktarılıyor (KVKK md. 9). Bu aktarım aydınlatma metninde yok.
+3. Teknisyen telefonlarındaki kopyalar saklama ve anonimleştirme işinin (AC-159) dışında kalıyor.
+4. Prod'da `http://` kullanımı yalnız bir uyarı logu üretiyor.
+Öneri:
+- K13 prod ön koşulu genişletilir: servis API anahtarı, güvenlik duvarında yalnız Remote sunucusuna izin, TLS ya da özel ağ. Prod'da `http://` ve özel olmayan adres verilirse kanal kapalı başlar (fail-closed).
+- Varsayılan mesaj kişisel veri içermez: "[Firma] Yeni destek talebi — panelde görüntüleyin". Kişisel veri içeren şablon tenant seçeneği olur ve aydınlatma seed metnine WhatsApp/yurt dışı aktarım maddesi eklenir. Bu, AC-150 metninde değişiklik gerektirir.
+- Gövde strict tutulur; `attachments` alanı hiç gönderilmez.
+Atanan: mimar, devops, proje-yoneticisi (AC-150), kullanıcı (K13)
+
+#### G-E9-7 [ORTA] IPv6 /56 önek kovası atlatılabiliyor; tenant kovası, 50 bekleyen sınırı ve WhatsApp çoğaltmasıyla tenant kalıcı olarak kapatılabiliyor, paylaşılan WhatsApp numarası engellenebiliyor (A04)
+Yer: §5.4, K15, AC-143/144; `lib/ip.ts:26-33` (`prefixKey` IPv6 → /56, `ipKey` → /64)
+Sorun:
+- Ücretsiz bir /48 (ör. tünel sağlayıcısı) 256 adet /56 ve 65.536 adet /64 öneki verir. Bu, saatte 20 talep sınırını 256 katına çıkarır. Örnek başına 3 bekleyen sınırı ise /64 başına uygulandığı için pratikte işlevsiz kalır.
+- 50 bekleyen talep, açık tutulan 50 `/ws/request` soketiyle 30–120 dk dolu kalır (QUEUE_FULL). Tenant kovası her 15 dk'da yeniden tetiklenebilir.
+- Her talep 5 alıcıya gider: tenant başına saatte 300 WhatsApp mesajı. Bu, tüm Nokta projelerinin kullandığı numaranın spam nedeniyle engellenmesi riskini doğurur (R13).
+- Ters yönde: kurumsal NAT arkasındaki bir ofis (US-29'un asıl kullanıcısı) IPv4 /32 başına saatte 5 talep ve 3 bekleyen sınırına kendi kendine takılır.
+Öneri:
+- IPv6 için ek /48 kovası eklenir.
+- Tenant kovası aşıldığında bütün tenant kilitlenmez: yalnız son N günde bu tenant'ta görülmemiş kaynaklar reddedilir. Tenant Admin'e panel uyarısı ve tenant etiketli alarm gider.
+- WhatsApp'a alıcı başına saatte 10 mesaj sınırı konur; fazlası "son 1 saatte N yeni talep" özeti olarak birleştirilir. Global WhatsApp hız sınırı da eklenir.
+- NAT ölçüsü proje-yoneticisi ile gözden geçirilir.
+Atanan: mimar, backend, proje-yoneticisi
+
+#### G-E9-8 [DÜŞÜK] nginx erişim logu firma dosyası yolunu maskelemiyor (A09, G-10)
+Yer: `deploy/nginx/remote.noktabilisim.net.conf:13-16` (yalnız `/downloads/Destek-`); mimari-e9 §8 yalnız Caddy filtresinden söz ediyor
+Öneri: `remote_log_uri` map zincirine `/downloads/NoktaDestek-[^/]+` → `/downloads/NoktaDestek-***` eklenir; runbook §8.3 güncellenir. Atanan: devops
+
+#### G-E9-9 [DÜŞÜK] Tasarımın "mevcut" dediği iki kontrol kodda yok
+Yer: T31 "pino redaksiyon `*.requestSecret` (mevcut)": `lib/logger.ts:10-25` yalnız `*.secret` içeriyor; pino yolları tam anahtar adıyla eşleşir. T30 "IP başına eşzamanlı WS sınırı (mevcut 20)": `signaling/ws.ts:63-64` yalnız dakikada 31 upgrade sayıyor.
+Öneri: `REDACT_PATHS`'e `*.requestSecret` ve `*.wsTicket` eklenir. Eşzamanlı WS sınırı ya eklenir ya da T30 metni düzeltilir (soket sayısını bekleyen sınırları zaten bağlıyor). Atanan: backend, mimar
+
+#### G-E9-10 [DÜŞÜK] POST `/public/requests` adım sırası tutarsız; FOR UPDATE ilk okuma olmalı
+Yer: mimari-api POST `/public/requests` ("hız (ip/önek/tenant) → zod → ref")
+Sorun: Tenant kovası tenantId'yi gerektiriyor ama sırada ref çözümlemesinden önce geliyor. Ayrıca TX içinde FOR UPDATE'ten önce kilitsiz bir okuma yapılırsa InnoDB anlık görüntüsü erken oluşur ve bekleyen sayımı yarışla aşılabilir.
+Öneri: Sıra şöyle olmalı: Origin → ip/önek → zod → ref (geçersizse `ref_invalid`) → tenant kovası → TX. TX'in ilk ifadesi `FOR UPDATE` olur. AC-143 "60 paralel → 50" testi bu sırayı korur. Atanan: backend
+
+#### G-E9-11 [DÜŞÜK] Statik `/downloads/NoktaDestek-<label>-<ref>.exe` yolu label ve ref'i doğrulamıyor; firma penceresinde alan adı/sürüm satırı yok (A04)
+Yer: ADR-0006 r4, §8 `@agentExe`, AC-133
+Sorun: Resmi alan adında keyfi adlı bir dosya bağlantısı üretilebiliyor (ör. `NoktaDestek-Fatura2026-…`). İkili gerçek ve zararsız, ama bağlantı sosyal mühendislik için kullanılabilir.
+Öneri: `forward_auth` ref ve label eşleşmesini iç uçta doğrular, ya da bu durum kabul edilen risk olarak runbook'a yazılır. Firma penceresi dosya adındaki label'ı değil, yalnız sunucudan gelen firma adını gösterir. P6 karşılamasıyla eşit olacak şekilde alan adı + sürüm satırı eklenir. Atanan: devops, istemci
+
+#### G-E9-12 [DÜŞÜK] Ret mesajı URL ve telefon taşıyabiliyor (T38)
+Öneri: `rejectMessageSchema` `://`, `www.` ve alan adı kalıplarını reddeder. UI'da hazır seçenekler varsayılan olur. Win32 statik metin `SS_NOPREFIX` ile çizilir (`&` önek sayılmasın). Atanan: backend, istemci
+
+#### G-E9-13 [DÜŞÜK] Hatırlama: varsayılan işaretli kutucuk ve paylaşılan Windows hesabında başkasının bilgileriyle dolu gelen form (T36, V15)
+Öneri: Form dolu açıldığında "Bu bilgiler size ait değilse: Bilgilerimi unut" ipucu gösterilir. Varsayılan işaretli kutucuğun KVKK açısından uygunluğu kullanıcı onayıyla kayda geçer. Önceki çalışmadan kalan `hatirla.bin.tmp` O_EXCL'i bozmasın diye dosya silinip bir kez yeniden denenir. Atanan: istemci, kullanıcı
+
+#### G-E9-14 [DÜŞÜK] `/ws/panel` çıkış ve yetki kaldırmadan sonra 60 sn'ye kadar kişisel veri içeren bildirim almaya devam ediyor (T35)
+Öneri: Logout, logout-all ve yetki toggle servisleri `hub.closeByUser/AuthToken` fonksiyonunu doğrudan çağırır (S-P3-8 kalıbı); 60 sn döngüsü yalnız yedek yol olarak kalır. Atanan: backend
+
+### İstenen kontrollerin sonucu (bulgu yok)
+- **Ref başka sunucuya yönlendirebilir mi:** Hayır. Sunucu URL'si yalnız ldflags ile gömülüyor (`internal/config/config.go:2`). Ref `[a-z2-7]{16}` biçiminde ve yalnız sorgu değeri olarak kullanılıyor. TLS doğrulaması mevcut.
+- **Ticket ve sır:** Ticket yalnız sır sahibinin soketine itiliyor; tüketim tek kullanımlık (`store.ts` `take`). `/ws/guest` UPDATE'inde `AND request_id` koşulu var. Talep oturumunda `active_code` NULL; `token_hash` hiç döndürülmüyor; indirme yolunda `!row.activeCode` → 404 (`public/agent.ts`). Kod ve link yoluyla talep oturumuna katılınamıyor.
+- **T28:** 80 bit ref ve ipKey başına 10/dk sınırıyla numaralandırma pratik değil. Tek 404 yolu yeterli. Önbellek geçersiz kılma, tenant pasife alındığında da çalışmalı (P9).
+- **T33 SSRF:** URL yalnız env'den; alıcı E.164; şablon sunucuda. Ek bulgu yok (bkz. G-E9-6).
+- **XSS/CSV:** React metin, Sonner düz metin, Cc/Cf/bidi reddi. CSV'de S8-1 düzeltmesi var (`lib/csv.ts:12`); telefon ve açıklama CSV'ye girmiyor.
+- **P7 kapıları:** Protokol §5.2 adım 5'e göre değişmiyor. Kontrol izni ve kapı istemcide (ADR-0009). Caps konusu için bkz. G-E9-2.
+- **Super Admin / tenant:** Firma seçimi zorunlu, `historyScope` istisnası yok, hub anahtarı soket bağlamından geliyor.
+- **Audit kapsamı:** AC-160 olaylarının tamamı listede. Mask regex'i `keyType`'ı maskeler; tasarım bunu izinli listeye ekliyor, doğru. Tek not: `guest.admitted{via:"request"}` actor'ı `customer`/SYSTEM olmalı ve `acceptedBy` taşımalı.
+
+### Otomatik tarama
+Tasarım turu, yeni kod yok. Yeni ve değişen belgelerde gizli bilgi kalıbı (`git grep` regex'i) eşleşme vermedi. İzlenmeyen `.env` yok.
+
+### Olumlu
+- Talep sırrı 256 bit, hash'le saklanıyor, subprotocol'de taşınıyor; Caddy log filtresi `Sec-Websocket-Protocol`'ü siliyor.
+- Kabul TX'i koşullu UPDATE ile tasarlanmış; yarış ve açık oturum sınırı testleri tanımlı.
+- Tenant'a özel dosya aynı ikili; hash eşitliği CI testine bağlı (ADR-0010 korunuyor).
+- DPAPI CurrentUser + LocalAppData; sır, açıklama ve ref dosyaya yazılmıyor.
+- `/ws/panel` tek yönlü; kabul ve ret CSRF'li REST üzerinden.
+
+### Öneri (`docs/gereksinimler.md` §9 "Sonra")
+G-E9-8..14 (Düşük). G-E9-2..7 (Orta) P8b-1/P8b-2 içinde ele alınmalı veya gerekçesiyle "Sonra"ya yazılmalı. G-E9-1 (Yüksek) P8b-1 kodlamasından önce mimar revizyonuyla kapatılmalı.
+
+DURUM: DÜZELTİLMELİ (Kritik 0 / Yüksek 1 / Orta 6 / Düşük 7)
+
+---
+
+## Tasarım turu 2 — E9 (P8b) — r2 doğrulaması (2026-11-12)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 1 / Düşük 2 (yeni: G-E9-15..17). Tur 1'deki 14 bulgunun 14'ü KAPANDI.
+
+Kapsam: `docs/mimari-e9.md` §13 (r2, bağlayıcı), ADR-0016 "Revizyon r2", `docs/mimari-api.md` "Destek talepleri (P8b)" (r2 satırları), `docs/mimari-protokol.md` §5, `docs/gereksinimler-kabul-kriterleri-e9.md` AC-146/150/154. Kodda henüz P8b yok. G-E9-14 için P9 çağıranlarının kodda olmadığı doğrulandı (`apps/server/src` içinde `switch-tenant` veya yetki PATCH ucu yok).
+
+### Tur 1 bulgularının durumu
+| ID | Durum | Dayanak / not |
+|---|---|---|
+| G-E9-1 [Y] | KAPANDI | §13.1: 6 haneli `requestCode` istemcide, panelde ve onay ekranında görünür. Kalıcı ipucu "firmanın kayıtlı numarasından arayın" AC-146'da. `knownSource` rozeti ve "İlk kez görülen kaynak" uyarısı var. S12 Sonra listesinin başına alındı. Kodun WhatsApp'a da yazılması tur 1 önerisinden sapma, ama zararsız: saldırgan kendi talebinin kodunu zaten görüyor, başka talebin kodu ona bir şey kazandırmıyor. Kalan risk usule bağlı: teknisyenin gerçekten kayıtlı numarayı araması. Kılavuzda ve eğitimde vurgulanmalı. "Bilinen ağ" sinyalinin zayıflığı için bkz. G-E9-15. |
+| G-E9-2 [O] | KAPANDI | §13.2 ve protokol §5.2 adım 2/4: caps DB'deki etkin yetkiden hesaplanır, `TechConn` aranmaz. Pasif kullanıcı veya tenant → `auth_revoked`. Teknisyen yokken admit anında 120 sn zamanlayıcı başlar. `caps=[]` regresyon testi tanımlı. |
+| G-E9-3 [O] | KAPANDI | §13.3 ve AC-154: onay her kabulde istenir, odak Vazgeç'te, butonlar 1,5 sn sonra etkinleşir, geri sayım yok. Yerel `CANCELLING` durumunda gelen kabul yok sayılır. ACCEPTED→CANCELLED tek decline yoluna bağlandı (WS, REST cancel ve close 1000). Onay kaydı bağlantı IP/UA'sı ve `request_id` ile yazılır. |
+| G-E9-4 [O] | KAPANDI | §13.4: `MIN_AGENT_VERSION` → 426 `CLIENT_OUTDATED`. Kontrol talep, resolve, join ve `/ws/guest` yollarında; sürüm ticket'a taşınır. İstemci sabit biçimli URL'yi açar. Runbook adımı var. |
+| G-E9-5 [O] | KAPANDI | §13.5: şablonda müşteri metni yok, firma adı temizleniyor, açıklama tek satır, panelde linkify yok. |
+| G-E9-6 [O] | KAPANDI (tasarım) | Mesajda kişisel veri yok, `attachments` gönderilmiyor (strictObject), prod'da `http://` + açık adres → fail-closed. K13 prod ön koşulu (TLS veya özel ağ, güvenlik duvarında yalnız Remote) **usule bağlı**: P13 prod kontrol listesinde doğrulanmalı. Servis API anahtarı Sonra'da. |
+| G-E9-7 [O] | KAPANDI | §13.6: /48 kovası; `net_key` başına 10 bekleyen; ≥ 40'ta yalnız bilinen kaynak kabul edilir; tenant kilitlenmez; güvenilen CIDR ile NAT ofisi muaf tutulur. Yeni doğan risk G-E9-15/16'da. |
+| G-E9-8 [D] | KAPANDI | §13.7, nginx map + runbook §8.3 (devops P8b-1). |
+| G-E9-9 [D] | KAPANDI | `REDACT_PATHS` += `requestSecret`, `wsTicket`, `deviceKey`. ipKey başına ≤ 5 `/ws/request`. T30 düzeltildi. |
+| G-E9-10 [D] | KAPANDI | mimari-api sırası doğru: ref tenant kovasından önce, TX'in ilk ifadesi `FOR UPDATE`. |
+| G-E9-11 [D] | KAPANDI | `agent-ready` label+ref doğruluyor. Pencere label'ı göstermiyor; sunucu/sürüm/SHA satırı var. |
+| G-E9-12 [D] | KAPANDI | `rejectMessageSchema` URL, e-posta ve telefon kalıplarını reddediyor. Hazır seçenekler varsayılan. `SS_NOPREFIX` var. |
+| G-E9-13 [D] | KAPANDI | Kutucuk varsayılan işaretsiz, "Bilgilerimi unut" ipucu var, tmp yeniden deneme var. |
+| G-E9-14 [D] | KAPANDI | `closeByUser`/`closeByAuthToken` var. Logout, logout-all ve şifre değişimi P8b-1'de bağlanıyor. P9 çağıranları P9 giriş şartı (bu uçlar kodda henüz yok). |
+| Audit notu | KAPANDI | `guest.admitted` actor `customer`, `{requestId, acceptedBy}`. |
+
+### Yeni bulgular
+
+#### G-E9-15 [ORTA] "Bilinen ağ" sinyali /24 ve /48 ile çok kaba; uyarıyı susturuyor ve hız ayrıcalığı veriyor (A04/A07)
+Yer: mimari-e9 §13.1 (`network` sinyali: `netKey()` IPv4 /24, IPv6 /48, son 90 gün); §13.6 ("≥ 40 iken yalnız bilinen", "bilinen kaynak tavanı 120/sa"); mimari-api POST `/public/requests` sırası.
+Sorun: Mobil operatörlerin CGNAT'ı ve ev ISS'lerinin havuzları IPv4 /24'ü binlerce aboneyle paylaşır. ISS'ler müşteriye genelde /56 verdiği için IPv6 /48 de ~256 aboneyi kapsar. Tenant'ın tek bir müşterisi 90 gün içinde bu havuzdan oturum yaptıysa, aynı havuzdaki herkes "bilinen ağ" sayılır. Bunun iki etkisi var:
+(1) "İlk kez görülen kaynak" uyarı rozeti kalkar ve yerine güven veren "Bu ağdan daha önce oturum yapıldı" yazısı gelir. Bu, G-E9-1 önleminin teknisyen üzerindeki etkisini zayıflatır.
+(2) G-E9-7 için konan "yeni kaynak eşiği" (≥ 40) ve tenant kovası muafiyeti (120/sa) böyle bir havuzdaki saldırgana da açılır.
+İstismar senaryosu: Saldırgan, tenant müşterilerinin yaygın kullandığı bir mobil operatörden bağlanır ve IP yenileyerek bilinen bir /24'e düşer. Talebi "bilinen ağ" rozetiyle gelir; teknisyen kodu sormadan kabul etmeye daha yatkın olur. Saldırgan birkaç bilinen önekten kuyruğu 50'ye doldurup gerçek yeni müşterileri `QUEUE_FULL` ile dışarıda bırakır.
+Düzeltme (mimar → backend/frontend, P8b-1):
+- Panelde güven veren `network` rozeti yalnız şu iki durumda gösterilir: güvenilen CIDR eşleşmesi, ya da **tam ipKey** (IPv4 /32, IPv6 /64) eşleşmesi. /24 ve /48 eşleşmesi gösterilecekse nötr metinle gösterilir ("Benzer ağdan önceki oturum var"), "İlk kez görülen kaynak" uyarısını kaldırmaz.
+- Hız ve kuyruk ayrıcalıkları (≥ 40 eşiği, 120/sa) yalnız güvenilen CIDR'ye ve `known_device`'a verilir; `net_key` eşleşmesi tek başına yetmez.
+- Kılavuzda şu açıkça yazılır: "Rozet ne olursa olsun kayıtlı numaradan arayıp kodu sorun."
+- AC-143 ve AC-146 metinleri buna göre güncellenir.
+
+#### G-E9-16 [DÜŞÜK] Güvenilen CIDR muafiyeti eşzamanlı `/ws/request` sınırını (ipKey ≤ 5) kapsamıyor
+Yer: mimari-e9 §13.6 (muaf listesi) ile §13.7 G-E9-9 / protokol §5 "ipKey başına eşzamanlı ≤ 5"
+Sorun: Güvenilen CIDR'deki NAT ofisi bekleyen sınırından muaf, ama bekleyen 6. talebin soketi upgrade'de 429 alır. Talep oluşur, istemci ise kuyruğa bağlanamaz ve 120 sn sonra DISCONNECTED olur. Bu bir istismar değil; G-E9-7'nin NAT ofisi hedefini sessizce bozuyor.
+Düzeltme: Güvenilen CIDR kaynakları eşzamanlı soket sınırından da muaf tutulur (tenant 50 tavanı sınırlamayı zaten yapıyor), ya da sınır ipKey başına bekleyen sınırıyla hizalanır. Atanan: mimar, backend.
+
+#### G-E9-17 [DÜŞÜK] `known_device` bir kez kazanılınca kalıcı; geri alma yolu yok
+Yer: mimari-e9 §13.1 `device` sinyali
+Sorun: Saldırganın kendi makinesi tek bir kabul edilmiş oturumdan sonra (sosyal mühendislik ya da işten ayrılmış bir çalışan) süresiz olarak "Bu bilgisayar daha önce destek aldı" rozeti ve G-E9-15 düzeltmesiyle hız ayrıcalığı alır.
+Düzeltme: Sinyal de 90 günlük pencereyle sınırlanır. Panelde talep veya oturum detayından "Bu cihazı güvenilir sayma" (device_hash kara listesi, audit'li) eklenir, ya da bu iş Sonra listesine yazılır. Atanan: mimar, backend.
+
+### Otomatik tarama
+Tasarım turu, yeni kod yok. Tur 1'den sonra değişen belgelerde gizli bilgi kalıbı yok.
+
+### Olumlu
+- r2 bütün maddeleri P8b-1 ve P8b-2'ye bağladı; "Sonra"ya kaçırılan Orta veya Yüksek madde yok.
+- Onay akışı P7 diyalog kurallarıyla aynı. İptal ve kabul yarışı tek sonuca (CANCELLED) indirgendi.
+- WhatsApp kanalında kişisel veri yok ve kanal fail-closed. Gönderim sınırları alıcı, tenant ve sistem genelinde üç katmanlı.
+- Değişiklikler ADR, API, protokol ve AC belgelerinin hepsine tutarlı biçimde işlendi.
+
+### Öneri (`docs/gereksinimler.md` §9 "Sonra")
+G-E9-15 P8b-1 kodlamasıyla birlikte ele alınmalı (yalnız rozet ve muafiyet kuralı değişiyor, şema aynı kalıyor). G-E9-16 ve G-E9-17 P8b-1 içinde ya da "Sonra" olarak eklenebilir. K13 doğrulaması P13 prod kontrol listesine yazılmalı.
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 1 / Düşük 2) — P8b-1 kodlamasına geçilebilir.
+
+---
+
+## P8b-1 — Tur 1 — Müşteri destek talebi (E9) kod denetimi (2026-11-12)
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4 (S8b-1..4)
+
+Kapsam: `apps/server/src/requests/*`, `notify/whatsapp.ts`, `lib/version.ts`, `lib/ip.ts`, `signaling/{rooms,admit,ws,handlers}.ts` (ön-kabullü /ws/guest),
+`sessions/history.ts` (talep bloğu ve CSV), `packages/contracts/src/{api/requests.ts,ws-request.ts}`, `deploy/Caddyfile`, `deploy/nginx/*`.
+
+### Bulgular
+
+#### S8b-1 [DÜŞÜK] WhatsApp istemcisi yönlendirmeleri izliyor (A10 SSRF, fail-closed delinmesi)
+Yer: `apps/server/src/notify/whatsapp.ts:243`
+Sorun: `fetch` çağrısında `redirect` belirtilmemiş; varsayılan `follow`. Servis kimliksiz ve düz HTTP. Ele geçirilmiş servis ya da yoldaki bir MITM 307/308 döndürürse aynı POST gövdesi (alıcı numarası, şablon) yönlendirilen adrese tekrar gönderilir. Bu adres iç ağ (`server`/`mysql` docker ağı, metadata) veya `https`'ten `http`'ye düşen bir adres olabilir. URL env'den geldiği için tenant bu adresi değiştiremez (T33 sağlam). Fakat §13.5'teki fail-closed kuralı yalnız ilk URL'yi denetliyor.
+Senaryo: Staging'deki varsayılan `http://89.252.189.211:3000` yolunda bir saldırgan `307 Location: http://mysql:3306/` ya da başka bir iç adres döndürür. Sunucu, iç ağa saldırgan seçimi bir hedefe istek atan bir aracıya dönüşür (kör SSRF).
+Öneri: `fetch(..., { redirect: "error" })` (veya `"manual"` ve 3xx'i hata say). Birim testi: 307 → `fail`, ikinci istek atılmıyor.
+Atanan: backend-dev
+
+#### S8b-2 [DÜŞÜK] Ön-kabullü misafirde eşzamanlı iki /ws/guest bağlantısı ortak `guest.peer`'ı eziyor (A04, kendi oturumunu bozma)
+Yer: `apps/server/src/signaling/ws.ts:145-148`, `apps/server/src/signaling/admit.ts:107-125`
+Sorun: `room.admitting = true` ancak `await rooms.db.user.findUnique(...)` sonrasında set ediliyor (admit.ts:107 kontrolü ile 124 ataması arasında await var). Ayrıca her bağlantı `g.peer = peer` ile aynı misafir nesnesini eziyor. Sıra şöyle: A ticket'ı (gen1) ile bağlanır → /ws/request yeniden bağlanır, gen2 verilir → B, gen2 ile bağlanır. İkisi de admit'e girer. A TX'i kazanır, B kaybeder. Kaybedenin `endGuest` adımı `guest.peer`'ı, yani B'yi kapatır. Sonrasında `room.admitted = guest` ölü peer'a işaret eder, A'nın soketi ise yetim kalır. Tenant sınırı veya yetki aşılmıyor. Bunu yalnız talep sırrının sahibi (müşterinin kendisi) tetikleyebilir. Sonuç: oturum bağlanmış görünür ama medya/kontrol akmaz, teknisyen-yok/aktif zamanlayıcıları belirsiz duruma girer.
+Öneri: `admitting` bayrağını ilk `await`'ten önce set edin (veya ön-kabullü misafirde tek uçuşlu kilit kullanın). `g.peer` yalnız admit kazanılınca atansın. Kaybeden bağlantı yalnız kendi peer'ını kapatsın (`endGuest`'e peer parametresi geçin).
+Atanan: backend-dev
+
+#### S8b-3 [DÜŞÜK] `request.created` audit'i müşteri IP'sini JSON'a ikinci kez yazıyor; talep anonimleştirmesi audit'i kapsamıyor (A09/KVKK)
+Yer: `apps/server/src/requests/service.ts:243`
+Sorun: `newValue: { ip: ctx.ip, ... }`. IP zaten audit'in `ip_address` sütununda var. Talep anonimleştirmesi (AC-159, `repo.ts:264-271`) `support_requests.ip/ip_key/net_key` alanlarını boşaltıyor. Audit ise 730 gün tutuluyor, dolayısıyla IP orada kalıyor. Bu tek başına bir ihlal değil (audit IP'si ortak standart), ama alan gereksiz yere çiftleniyor.
+Öneri: `newValue`'dan `ip` çıkarılsın; `clientVersion` kalsın.
+Atanan: backend-dev
+
+### Doğrulanan kontroller (bulgu yok)
+- **Public uçlar:** girdi şemaları `strictObject` ve hepsinde uzunluk sınırı var. Ad/açıklama için Cc/Cf (bidi, sıfır genişlik) yasak, açıklama tek satıra indiriliyor, telefon E.164'e normalize ediliyor. bodyLimit 8 KB / 1 KB. AGENT kuralı `checkPublicClient` ile POST/cancel'da ve `/ws/request` upgrade'inde uygulanıyor.
+- **Ref oracle:** biçim dışı, yok, yenilenmiş, pasif tenant ve ayarı olmayan tenant durumlarının hepsi tek `REQUEST_REF_INVALID` yanıtına düşüyor (`service.ts:60,96-100`). Geçersiz ref, ipKey başına 10/dk sayılıyor, ardından 15 dk kilit; ortak kova `/ws/request`'te geçersiz sırrı da sayıyor. Tek zamanlama farkı biçim kontrolünde (DB sorgusu yok); bu da bir bilgi sızdırmıyor. Firma dosyası forward_auth yolu ref + label'ı doğruluyor ve tek 404 dönüyor.
+- **XFF (ADR-0015):** nginx XFF'i `$remote_addr` ile yeniden yazıyor. Caddy 4451 yalnız 172.30.0.128'e güveniyor (strict) ve yalnız loopback'e yayımlanıyor. 4450 dinleyicisinde güvenilen proxy yok. server `trustProxy = TRUSTED_PROXY_CIDR` (prod'da zorunlu). WS `clientIp` aynı kuralı izliyor.
+- **Talep sırrı ve ticket:** 256 bit; DB'de yalnız SHA-256 tutuluyor; sır yalnız 201 yanıtında ve subprotocol'de taşınıyor, `url.search` doluysa 403. Ticket tek kullanımlık (`take`) ve `requestId`'ye bağlı misafire ait; kuşak (`ticketGen`) yeniden bağlanmada eskisini geçersiz kılıyor. Ticket yalnız sır sahibinin soketine gidiyor; başka talebin sırrı başka satıra çözülüyor. Cancel her durumda 204 dönüyor (oracle yok).
+- **Kabul yarışı:** teknisyen `FOR UPDATE` → açık oturum sınırı → `updateMany(id, tenantId, PENDING, expiresAt>now)` tek koşullu; kaybeden `lostRace` sınıflandırmasına düşüyor. İptal ve decline tek TX'te ve koşullu. Oluşturma TX'inin ilk ifadesi ayar satırı kilidi (G-E9-10).
+- **Tenant/yetki:** her panel ucunda `requireAuth` (CSRF double-submit + Origin) → `requirePerm` → `tenantScope` (firma seçmemiş Super Admin 403). Sorgular `tenantId` filtreli; başka tenant'ın id'si 404 alıyor. Kabul yalnız kendi tenant'ında (Super Admin kabul edemiyor). `/ws/panel` için Origin allowlist, çerez, `support_requests.view` ve acting tenant şartı var; hub anahtarı soket bağlamından geliyor; 60 sn'de bir yeniden doğrulama yapılıyor; istemciden gelen mesaj 1008 ile kapanıyor.
+- **Caps / P7:** caps admit anında DB'deki etkin yetkiden hesaplanıyor (`admit.ts:121,151`). Pasif teknisyen/tenant → `auth_revoked`. Talep oturumunda lobi/admit mesajı reddediliyor. P7 kapıları değişmedi.
+- **XSS/CSV:** panel bileşenlerinde `dangerouslySetInnerHTML`/linkify yok. Tek `href`'ler sabit iç rotalar. CSV formül kaçışı (S8-1 kalıbı) ad ve not hücrelerine uygulanıyor. Ret mesajı URL/e-posta/telefon süzgecinden geçiyor ve WS'de düz metin.
+- **WhatsApp:** URL yalnız env'den geliyor. Şablon firma adı + 6 haneli kod + sabit panel bağlantısından oluşuyor (müşteri verisi yok). `attachments` gönderilmiyor. Prod'da http + genel adres → kanal kapalı, test 502. Sınırlar tenant 30, alıcı 10, global 300/sa. Audit'te numara maskeli (S8b-1 hariç).
+- **Log maskeleri:** pino `*.requestSecret`, `*.wsTicket`, `*.deviceKey`, `*.ref`, `sec-websocket-protocol` redakte ediliyor; URL sorgu dizesi yazılmıyor. Caddy (erişim + varsayılan logger) ve nginx `NoktaDestek-***` maskesini uyguluyor, subprotocol/çerez siliniyor. Audit `MASKED_KEY` `code|ticket|key` kalıplarını kapsıyor.
+- **MIN_AGENT_VERSION:** oluşturma, `/ws/request` ve `/ws/guest` (ticket'taki sürüm) yollarında 426 dönüyor.
+
+#### S8b-4 [DÜŞÜK] Yeni test dosyası CI gitleaks'ini kıracak (süreç)
+Yer: `apps/server/test/integration/requests-p8b-4.test.ts:147,176`
+Sorun: `deviceKey` (iki sabit, alıntı gitleaks nedeniyle redakte edildi) test sabitleri `generic-api-key` kuralına takılıyor (`dir` taraması 2 eşleşme). Gerçek sır değil, ama dosya commit edilince CI gitleaks adımı kırmızıya düşer.
+Öneri: Sabitleri kuralın yakalamayacağı bir biçimde üretin (ör. `"d".repeat(22)` ya da yardımcı bir `fakeDeviceKey()`) veya `.gitleaks.toml`'a yalnız bu yol ve satır için dar bir allowlist ekleyin.
+Atanan: backend-dev
+
+### Otomatik tarama çıktıları
+- `pnpm audit --audit-level high`: **No known vulnerabilities found**.
+- gitleaks v8.30.1 `git` modu (18 commit): **no leaks found**.
+- gitleaks `dir` modu (çalışma ağacı): 15 eşleşme. Bunların 13'ü `apps/web/.next/**` derleme çıktısı (preview/prerender anahtarları; repoda yok, `.gitignore`'da) ve gürültü olarak yok sayıldı. Kalan 2 eşleşme S8b-4.
+- `.env` geçmişi: git geçmişinde yalnız `.env.example` var.
+- Grants: `support_requests` ve `tenant_request_settings` için `app` kullanıcısına SELECT/INSERT/UPDATE veriliyor; DELETE/ALTER/DROP/INDEX/TRIGGER/REFERENCES REVOKE ediliyor. Anonimleştirme UPDATE ile yapıldığı için en az yetkiyle tutarlı.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+Yok. G-E9-1..17 kararlarının kod karşılıkları doğrulandı: kod/rozet, caps DB'den, onay tazeliği (istemci), MIN_AGENT_VERSION, kişisel verisiz şablon, /48 + `net_key` bekleyen sınırı, nginx/Caddy maskeleri, REDACT_PATHS, TX sırası, label+ref doğrulaması, ret süzgeci, `closeByUser`/`closeByAuthToken`, known_device ayrıcalığı, güvenilen CIDR'in soket sınırından muafiyeti.
+
+### Olumlu
+Kodda tek 404 yolu, tek kullanımlık ve kuşaklı ticket, koşullu UPDATE durum makinesi, commit sonrası bellek yan etkileri, sabit kalıplı strict şemalar ve log ile audit maskesinin birlikte uygulanması dikkat çekiyor. Tenant izolasyonu her sorguda arka uçta sağlanıyor.
+
+Karar: Kritik/Yüksek bulgu yok → **GEÇTİ**. S8b-1..4 (Düşük) P8b-1 düzeltme turunda kapatılabilir. Aksi halde `docs/gereksinimler.md` §9'a "Sonra" olarak yazılmalı. S8b-4 commit öncesi yapılmalı (CI).
+
+---
+
+## P8b-1 — Tur 2 — Düzeltme doğrulaması (2026-11-12)
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 (S8b-5, S8b-6, ikisi de yeni). S8b-1..4 KAPANDI.
+
+Kapsam: `docs/implementation.md` "Backend P8b-1 — düzeltme turu 1": `notify/whatsapp.ts`, `signaling/{admit,ws}.ts`, `requests/{service,routes,panel}.ts`, `lib/{db,errors}.ts`, `test/integration/requests-p8b-4.test.ts`, `auth/service.ts` (503 dönüşümünün giriş akışına etkisi).
+
+### Tur 1 bulgularının durumu
+| Bulgu | Durum | Kanıt |
+|---|---|---|
+| S8b-1 SSRF / redirect | KAPANDI | `notify/whatsapp.ts:243` `redirect: "error"`. `FetchLike` tipi (`:24`) alanı zorunlu tutuyor, dolayısıyla enjekte edilen fetch de bu seçeneği alıyor. `security-p8b-fix1.test.ts`: 307 → başarısız, hedefe ikinci istek gitmiyor. |
+| S8b-2 admitting/peer yarışı | KAPANDI | `admit.ts:111-120`: `room.admitting` ilk `await`'ten önce kuruluyor; yinelenen bağlantı yalnız kendi soketini 1008 `conflict` ile kapatıyor. `admit.ts:168`: `guest.peer` yalnız kazanınca atanıyor. `ws.ts:146-148`: upgrade'de peer atanmıyor. `admit.ts:177`: admit sırasında kapanan soket `detachGuest` ile ayrılıyor. Ret ve zaman aşımı (`endGuest`) yalnız kendi peer'ına gidiyor. `finally` bayrağı her yolda sıfırlıyor. |
+| S8b-3 audit'te IP | KAPANDI | `requests/service.ts:254`: `newValue = { clientVersion }`; IP yalnız `ip_address` sütununda. |
+| S8b-4 gitleaks | KAPANDI | `requests-p8b-4.test.ts:15` `fakeDeviceKey()` çalışma anında `randomBytes` ile üretiliyor. `dir` taramasında bu dosyadan eşleşme yok. |
+
+### Ek değişikliklerin incelemesi (bulgu yok)
+- **503 NOT_READY + Retry-After (`lib/errors.ts`):** Gövde sabit (`code/message/requestId`); SQL, stack ve Prisma mesajı yok. Log'a yalnız `alarm` ve `code` yazılıyor. `isTransientDbError` (`db.ts:37-44`) yalnız `PrismaClient*` adlı hataları ve sabit kod kümesini (P2028/P2034, 1205/1213/45028) kabul ediyor; diğer hatalar 500 `INTERNAL` olarak kalıyor. **Oracle:** ref geçersiz, biçim ve consent yolları TX'ten önce 4xx dönüyor; 503 yalnız ref geçerliyken ve TX'te oluşuyor, yani Tur 1'de kabul edilenin ötesinde ayrım sağlamıyor. Girişte başarı TX'i ile başarısızlık TX'i aynı çekişmeden etkileniyor. Bu yüzden 503, "şifre doğru" ile "şifre yanlış" arasında deterministik bir ayrım vermiyor. Talepte TX geri alındığı için yeniden deneme güvenli. Tenant kovası TX'ten önce sayıldığından 503 limit atlatmaya yol açmıyor.
+- **AC-147 (`requests/routes.ts:38,55,62`):** accept ve reject `[view, accept]` preHandler dizisini kullanıyor.
+- **AC-148 (`requests/panel.ts:147`):** `rejectRequest` içinde `auth.user.tenantId !== tenantId` → 403, kontrol `acceptLimit`'ten ve TX'ten önce yapılıyor.
+- **`guest.admitted` (`admit.ts:149`):** `{via, requestId, acceptedBy, guestKind, consentTextId, consentSha256}`. Ad, telefon ve IP içermiyor; IP yalnız sütunda.
+- **`request.rate_limited`:** kova ve anahtar türü ayrıştı (`pending.ip` / `pending.prefix` / `pending.tenant`); değer olarak anahtarın kendisi yazılmıyor.
+
+### Bulgular
+
+#### S8b-5 [DÜŞÜK] Seri talep TX'leri ortak bağlantı havuzunu 20 sn'ye kadar tutabiliyor (A04, kaynak tükenmesi)
+Yer: `apps/server/src/lib/db.ts:20-27`, `apps/server/src/requests/service.ts:210-256`
+Sorun: `SERIAL_TX_OPTIONS` (maxWait 20 sn, timeout 30 sn) ve `acquireTimeout` 20 sn ile her eşzamanlı `POST /public/requests` bir havuz bağlantısı alıyor, ardından `tenant_request_settings … FOR UPDATE` kilidinde bekliyor. Havuz 10 bağlantılık ve panel, giriş ve WS admit ile ortak. Uygulama içinde tenant başına bir eşzamanlılık sınırı yok.
+İstismar senaryosu: Geçerli ref'e sahip (firma dosyasını indirmiş) bir saldırgan, IP başına kovaları aşmamak için çok sayıda IP'den aynı anda onlarca talep gönderir. Tenant kovası saatte 60 bilinmeyen kaynakla sınırlı. Ref'ler birden çok firmadan toplanırsa bu sayı katlanır. DB yavaşken havuzun tamamı kilit kuyruğunda bekler ve tüm firmaların panel/giriş istekleri 8–20 sn bekleyip 503 alır. Etki geçici, veri bütünlüğü bozulmuyor. Eski 2 sn varsayılanında da aynı açlık vardı ama daha kısa sürüyordu.
+Düzeltme: TX'ten önce süreç içi tenant başına tek uçuşlu kuyruk/semafor (ör. tenant başına en çok 1–2 bekleyen TX, fazlası kısa `maxWait` ile 503) veya talep oluşturma için ayrı küçük bir havuz. `rs_db_busy_total` metriğine alarm eşiği. (atanan ajan: backend-dev; metrik/alarm devops)
+
+#### S8b-6 [DÜŞÜK] Geçici DB hatasında başarısız giriş sayacı artmıyor (A07, hesap kilidi fail-open) — önceden vardı, 503 dönüşümüyle görünür oldu
+Yer: `apps/server/src/auth/service.ts:50-61` (`recordFailure`), `:88-92`
+Sorun: Hesap düzeyindeki kilit (`bumpAccountFailures`) ve `auth.login fail` audit'i aynı TX'te yapılıyor. TX P2028/1205 ile düşerse sayaç artmıyor, audit yazılmıyor ve istemci 503 alıyor. Bellek içi IP ve (login, IP) kovaları ayakta, ama dağıtık denemeye karşı tek koruma olan hesap kilidi bu anlarda sayılmıyor.
+İstismar senaryosu: Saldırgan DB'yi meşgul tutar (ör. S8b-5) ve aynı anda çok IP'den tek bir hesaba şifre dener. Çekişmeye denk gelen yanlış denemeler sayılmaz ve audit'te iz bırakmaz. Doğru şifre çekişme olmayan bir anda 200 döner. Etki düşük: IP başına kova yine geçerli ve çekişme penceresi dar.
+Düzeltme: Başarısızlıkta geçici DB hatası alınırsa kayıtlı kullanıcı için de bellek içi bir hesap kovası (`ghostAccount` kalıbı) artırılsın, `auth.login fail` en az log'a yazılsın (`alarm:"auth_fail_unrecorded"`). Ya da sayaç artışı TX dışında, tek bir atomik `UPDATE` olarak yapılsın. (atanan ajan: backend-dev)
+
+### Otomatik tarama çıktıları
+- `pnpm audit --audit-level high`: **No known vulnerabilities found**.
+- gitleaks v8.30.1 `git` modu: 18 commit tarandı, **no leaks found**.
+- gitleaks `dir` modu: 13 eşleşme, hepsi `apps/web/.next/**` (`generic-api-key`, derleme çıktısı, `.gitignore`'da). Gürültü olarak yok sayıldı. Kaynak/test dosyalarında eşleşme yok (Tur 1'deki 2 eşleşme kapandı).
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+Yok. `mimari-api.md` hata tablosuna `NOT_READY` (503 + Retry-After) eklendi; kod ile sözleşme uyumlu.
+
+### Olumlu
+Yarış düzeltmesi bayrağı ilk await'ten önce kuruyor ve peer sahipliğini kazanana bağlıyor; kaybeden bağlantı oturuma dokunmuyor. Geçici DB hataları 500'den ayrıştırıldı ve bunu yaparken yanıt gövdesine ayrıntı sızdırılmadı. Yeni deterministik güvenlik testleri (`security-p8b-fix1.test.ts`, `db-busy-p8b.test.ts`) eklendi.
+
+Karar: Kritik/Yüksek 0 → **GEÇTİ**. S8b-5 ve S8b-6 (Düşük) `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmeli; S8b-5'in P13 prod öncesinde ele alınması önerilir.
+
+---
+
+# Güvenlik Raporu — P8b-1 — Tur 3
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 (yeni) — S8b-5 ve S8b-6 KAPANDI
+
+Kapsam: "Backend P8b-1 — düzeltme turu 2" (`docs/implementation.md`): `lib/gate.ts`, `requests/service.ts`, `auth/service.ts`, `auth/repo.ts`, `lib/rate.ts`, `apps/web/lib/control/machine.ts`.
+
+## Önceki bulguların doğrulaması
+- **S8b-5 KAPANDI.** `lib/gate.ts` incelendi.
+  - Sınırlar: anahtar başına 2, toplam 4 eşzamanlı; kuyruk anahtar başına 16, toplam 64; bekleme süresi 5 sn (`requests/service.ts:39`).
+  - Kuyruk dolunca istek hemen `full` ile reddediliyor (`gate.ts:77`). Bekleyen iş DB bağlantısı tutmuyor.
+  - `run` her durumda `finally` ile kapıyı bırakıyor (`gate.ts:55-59`). Zaman aşımı bekleyeni kuyruktan çıkarıyor (`gate.ts:82-85`). Başlatılan bekleyenin zamanlayıcısı temizleniyor (`gate.ts:109`).
+  - Sayaç Map'leri sıfıra inince siliniyor (`gate.ts:95-97`, `102-104`). Bellek 64 bekleyen + 4 çalışan ile sınırlı; sızıntı yok.
+  - Anahtar sunucuda çözülen `tenantId`. İstemci bunu seçemiyor; kapıya ulaşmadan önce ref ve IP/önek kovaları uygulanıyor.
+  - Tenant saatlik kovası (`count`/`add`) kapının içinde sayılıyor (`service.ts:222-233`). Kapıda reddedilen istek kovayı tüketmiyor.
+  - Havuzun en az 6 bağlantısı panel, giriş ve WS admit için kalıyor.
+  - Kalan risk (kabul): Bütün tenant'lar 64'lük ortak kuyruğu paylaşıyor. Bu kuyruğu dolduracak kadar yavaş TX üretmek için ayar kilidi tutmak gerekir. Bu da IP/önek kovalarıyla (6/sa/IP, 21/sa/önek) sınırlı.
+- **S8b-6 KAPANDI.**
+  - `auth/repo.ts:42-52`: Sayaç TX dışında tek atomik `UPDATE` ile artıyor. Kilit koşullu `UPDATE … failed_window_at IS NOT NULL AND count >= limit` ile yazılıyor ve `failed_window_at = NULL` yapıyor. Eşzamanlı isteklerde satırı yalnız biri değiştirebiliyor, bu yüzden tek `auth.locked` yazılıyor.
+  - İki UPDATE arasında araya giren artış sorun çıkarmıyor. Kilitten sonra pencere NULL olduğu için sayaç 1'den yeniden başlıyor; hesap zaten kilitli.
+  - Sayaç yazılamazsa `fallbackFailure` (`auth/service.ts:57-64`) devreye giriyor. Kovanın kendi eşiği veya "DB sayımı + kova sayımı ≥ 20" koşulu kilitliyor. Kova senkron çalışıyor (yarış yok) ve fail-closed. Birinci UPDATE yazılıp ikincisi düşerse en fazla 1 fazla sayıyor; bu da güvenli yönde.
+  - `accountWait` yedek kilidi de hesaba katıyor (`:93-97`). Başarılı girişte kova sıfırlanıyor (`:125`).
+  - Kova anahtarı yalnız var olan kullanıcının id'si; saldırgan bu anahtarı seçemiyor. `rate.ts` 50.000 kayıt tavanı ve `block()` içindeki S3-1 kuralı (`rate.ts:95-105`) korunuyor. Sınırsız büyüme yok.
+  - Alarm loglarında yalnız userId, kod ve bayraklar var. Login, IP ve şifre yazılmıyor (`:75`, `:88`). Audit hatası artık 503 değil, 401/423 dönüyor.
+- **Frontend `machine.ts:224-227`:** `requested` fazında gelen `{VIEW, TECH}` artık yok sayılıyor. Bu yalnız konsolun görünüm durumunu etkiliyor. `requested` fazında giriş olayı gönderilmiyor. Sunucu tarafındaki kontrol kapıları (`signaling/control.ts`) bu turda değişmedi; diff'te yok. Kontrol yine yalnız müşterinin `CONTROL` onayıyla açılıyor. **P7 izin modeli zayıflamadı.** En kötü durumda konsol "bekliyor" göstermeye devam eder (UX), yetki genişlemez.
+
+## Bulgular (öncelik sırasıyla)
+### [DÜŞÜK] S8b-7 Kilitli hesap dalında audit yazımı korumasız: DB yazma kesintisinde 401/423 ayrımı yerine 5xx — A09/A04
+Yer: `apps/server/src/auth/service.ts:115`
+Sorun: Kilitli daldaki `writeAudit(db, …)` çağrısı `recordFailure`'daki gibi try/catch ile sarılmamış. DB yazmaları düşerken kilitli bir hesap 5xx alıyor, kilitli olmayan hesap 401 alıyor. S8b-6 notundaki "durum kodundan sinyal çıkmıyor" iddiası bu dalda geçerli değil.
+İstismar senaryosu: Kesinti sırasında saldırgan, hedef hesabın kilitli olup olmadığını (dolayısıyla başkasının saldırı altında olduğunu) yanıt kodundan ayırt eder. Etkisi ve penceresi dar; var olan/olmayan hesap ayrımı bu yolla sızmıyor, çünkü ghost hesap da aynı dalı izliyor.
+Düzeltme: Kilitli daldaki audit yazımını da `auth_fail_unrecorded` alarmıyla aynı biçimde try/catch'e alın; yanıt her durumda 423 olsun. Bir test ekleyin. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] S8b-8 IP/önek kovaları kapıdan önce tüketiliyor: kapı 503'ünde yeniden deneyen meşru müşteri saatlik kotasını harcıyor — A04
+Yer: `apps/server/src/requests/service.ts:194-196` (kova), `:220` (kapı)
+Sorun: `createIp` (6/sa/IP) kapıdan önce sayılıyor. Kapı doluyken dönen 503 + `Retry-After: 5`'e uyan istemci her denemede bu kotayı harcıyor. Kapı birkaç kez dolu kalırsa müşteri bir saatlik 429 bloğuna düşüyor. Benzer şekilde tenant kovası kapı içinde `add` edildikten sonra TX P2024 ile düşerse kova kabul edilmeyen talep için de tüketilmiş oluyor.
+İstismar senaryosu: Saldırgan kapıyı yavaş TX'lerle doldurur. Aynı NAT arkasındaki meşru müşteriler otomatik yeniden denemelerle kendi IP kotalarını bitirir ve 1 saat talep açamaz. Bu bir kullanılabilirlik etkisi, yetki ihlali değil.
+Düzeltme (P8b-2 istemci yeniden denemesiyle birlikte):
+- Kapı reddinde (`GateBusyError`) IP kovasından 1 düşün veya kapı 503'ünü IP kovasında saymayın.
+- Ya da istemcide yeniden deneme sayısını 503 başına en çok 2 ile sınırlayın.
+- Tenant kovası `add`'ini TX commit sonrasına taşıyın veya hata dalında geri alın.
+(atanan ajan: backend-dev; istemci kısmı frontend-dev/agent)
+
+Bilgi (bulgu değil): `gate.ts:72` hızlı yolu kuyruğu kontrol etmiyor; yeni gelen iş bekleyenin önüne geçebiliyor. Bekleyen en geç 5 sn'de zaman aşımına uğrar ve sınırlar korunur, güvenlik etkisi yok. Adillik isteniyorsa `canRun` kuyrukta aynı anahtarın bekleyeni olmamasını da şart koşabilir.
+
+## Otomatik tarama çıktıları
+- `gitleaks git` (docker `zricethezav/gitleaks:latest`, `--redact`): **18 commit tarandı, no leaks found**. Yerel `gitleaks` ikili dosyası kurulu değil. Not: git modu commit edilmemiş/izlenmeyen dosyaları (ör. `lib/gate.ts`, `security-p8b-fix2.test.ts`) taramaz.
+- Bu dosyalar için şablondaki gizli bilgi regex'i (`api_key|secret|password|token` = 8+ karakter literal) çalıştırıldı: **0 eşleşme**.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+Yok. Kapı ve fail-closed hesap kilidi, implementation notlarında anlatıldığı gibi kodda mevcut.
+
+## Olumlu
+- Kapı küçük, bağımlılıksız ve sınırlı belleklidir. Ayrım kanıtı var: kapı 100/100'e açılınca test kırmızıya dönüyor.
+- Hesap kilidi DB kesintisinde fail-closed çalışıyor; audit, sayaç yazımından ayrıldı.
+- Alarm logları PII içermiyor. 503 yanıtında Retry-After var, SQL/stack yok.
+
+Karar: Kritik/Yüksek 0 → **GEÇTİ**. S8b-7 ve S8b-8 (Düşük) `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmeli. S8b-8 en geç P8b-2'deki istemci yeniden deneme işiyle birlikte ele alınmalı.

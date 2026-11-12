@@ -4,11 +4,13 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P8 tamamlandı
-İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P8 tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0,
-sayfa testi GEÇTİ). Gerçek Windows'ta elle doğrulama (implementation.md "Agent P7" adım 25–42 ve "fare imleci"
-adım 43–47) hâlâ açık; ayrıntı `docs/gereksinimler.md` "Sonra / açık — P8'den". Sıradaki paket P9 (kullanıcı/yetki
-yönetimi).
+## Şu anki durum: P1–P8 ve P8b-1 tamamlandı
+İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P8 ve P8b-1 (müşteri destek talebi — sunucu + panel)
+tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ). Sıradaki paket **P8b-2** (Hızlı Destek'te
+müşterinin "Destek iste" formu ve bekleme ekranı), ardından P9 (kullanıcı/yetki yönetimi). Gerçek Windows'ta elle
+doğrulama (implementation.md "Agent P7" adım 25–47) hâlâ açık; ayrıntı `docs/gereksinimler-sonra-acik.md`.
+
+Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.126.217.99:4450` geçiş süresince açık).
 
 **P1 — ince iskelet**
 - E-posta veya kullanıcı adı + şifre ile giriş, çıkış, ilk girişte zorunlu şifre değişimi.
@@ -154,6 +156,20 @@ yönetimi).
 - Bilinen sınırlar: teknisyen/firma filtre seçenekleri o sayfadaki kayıtlardan gelir (tam liste P9); detayda Dosyalar
   tablosu dar ekranda sıkışık (TEST-P8-1).
 
+**P8b-1 — müşteri destek talebi (sunucu + panel; ADR-0016)**
+- Her firmaya özel indirme bağlantısı ve dosya (`NoktaDestek-<firma>-<ref>.exe`, aynı imzasız ikili). Müşteri bu
+  dosyadan ad, telefon, açıklama ve KVKK onayıyla talep gönderir (müşteri ekranı P8b-2'de; sunucu uçları hazır).
+- Kenar menüsünde **Talepler** (`/requests`, `support_requests.view`): canlı kuyruk, bekleyen sayısı rozeti, yeni
+  talepte bildirim ve ses, 6 haneli talep kodu, kaynak işaretleri ("Güvenilen ağ", "Bu bilgisayar daha önce destek
+  aldı", "İlk kez görülen kaynak"), **Kabul et** (doğrudan konsol) ve **Reddet** (müşteriye mesaj). "Geçmiş" sekmesi
+  son 30 gün. Kabul/ret için `support_requests.accept`.
+- **Ayarlar > Destek talepleri** (`/settings/support-requests`, `settings.edit`): indirme bağlantısı + kopyala +
+  yenile, bekleme süresi 10–120 dk, WhatsApp alıcıları (≤ 5) + test mesajı, güvenilen IP/ağlar (≤ 10). E-posta P10.
+- Oturum geçmişinde "Kaynak" filtresi, talep bölümü ve CSV'de `Kaynak`/`Bekleme` sütunları.
+- Hız sınırları, bekleyen talep tavanları (IP 3, ağ 10, firma 50), aşırı yükte 503 + `Retry-After`.
+- **Veritabanı:** migration `20261112000000_p8b_support_requests`; seed yeni aydınlatma sürümü ekler. Yeni ortam
+  değişkenleri `WHATSAPP_SERVICE_URL`, `MIN_AGENT_VERSION`. Yayın ve geri alma: `docs/runbook.md` §12.
+
 API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
 Kullanım (müşteri, teknisyen, yönetici): [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
 Ürün föyü: [`docs/DATASHEET.md`](docs/DATASHEET.md).
@@ -172,6 +188,8 @@ açamaz (403; tenant geçişi P9); oturum geçmişini ise firma seçmeden tüm f
 | P6 ✓ | Windows istemci (Go, imzasız; SHA-256 + build attestation) |
 | P7 ✓ | Uzaktan kontrol (izin diyaloğu, klavye/fare, monitör değiştirme) |
 | P8 ✓ | Oturum geçmişi, not/ticket, CSV dışa aktarma, istemcide fare imleci |
+| P8b-1 ✓ | Müşteri destek talebi: sunucu uçları, panel kuyruğu, ayarlar, WhatsApp bildirimi |
+| P8b-2 | Hızlı Destek "Destek iste" formu, bekleme ekranı, 503 yeniden deneme |
 | P9 | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
 | P10 | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış |
 | P11 | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri |
@@ -244,6 +262,8 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 | `AGENT_SHA256` | İndirme için | Yayındaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). Elle yazılmaz; `deploy/agent/verify-and-publish.sh` doğrulamadan sonra yazar. Boşsa istemci indirmesi 503 döner, server yine açılır |
 | `AGENT_BINARY_PATH` | Compose dışı | İkilinin mutlak yolu. Compose `/data/downloads/NoktaDestek.exe` verir; yalnız yerel `pnpm` çalıştırmada gerekir |
 | `ABUSE_EMAIL` | Önerilir | Müşteri ekranındaki "Kötüye kullanımı bildir" adresi (ör. `abuse@<alan-adı>`). Production'da boşsa bağlantı gizlenir; Super Admin e-postası kullanılmaz. Boş bırakmak güvenlidir; dolu ama geçersiz adres server'ı açtırmaz |
+| `WHATSAPP_SERVICE_URL` | Hayır | P8b: whatsapp-bildirim servis adresi (sistem düzeyi). Boşsa varsayılan servis; production'da şifresiz + genel adres → kanal kapalı başlar (runbook §12.3) |
+| `MIN_AGENT_VERSION` | Hayır | P8b: asgari Windows istemci sürümü `x.y.z`; boş = kontrol yok. P8b-2 istemcisi yayınlanana kadar boş bırakın (runbook §12.4) |
 | `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `TRUSTED_PROXY_CIDR`, `API_INTERNAL_URL` | Compose dışı | Compose bunları kendisi üretir; yalnız yerel `pnpm` çalıştırmada gerekir |
 
 TURN sunucusu (`deploy/turn`, ayrı compose projesi) şu değişkenleri okur:
@@ -349,7 +369,10 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
 
 ## Deploy
 - Tek sunucu, Docker Compose. Dışarıya yalnız Caddy **4450/tcp** açılır; MySQL portu yayımlanmaz.
-- Staging: `185.126.217.99:4450` (`PUBLIC_BASE_URL=https://185.126.217.99:4450`, `SITE_HOST=185.126.217.99`).
+- Staging: **`https://remote.noktabilisim.net`** — host nginx (Let's Encrypt) → Caddy `127.0.0.1:4451` (ADR-0015,
+  runbook §8.3). Geçiş süresince `https://185.126.217.99:4450` de açık (`SITE_HOST=185.126.217.99`).
+- **P8b-1 yayını:** yedek → `.env`'e `WHATSAPP_SERVICE_URL=`, `MIN_AGENT_VERSION=` (boş) → `up -d` → seed → nginx vhost
+  güncellemesi → doğrulama; adımlar ve geri alma `docs/runbook.md` §12.
 - Yeni sürüm: `git pull && IMAGE_TAG=<sürüm> docker compose build && IMAGE_TAG=<sürüm> docker compose up -d`.
 - Sağlık: `/health` ve `/ready` yalnız konteyner içinden erişilir (Caddy dışarıya 404 döner).
 - TURN: `deploy/turn` ayrı compose projesidir (host ağı); kurulum, güvenlik duvarı ve doğrulama `docs/runbook.md` §9.

@@ -7,8 +7,11 @@
 // Yeni paket uç eklediğinde ROUTE_CLASSES + (tenant ise) CROSS_TENANT_CASES'e satır ekler.
 import type { FastifyInstance, InjectOptions } from "fastify";
 import { createSupportSessionRow, createTenant, createUser, type TestUser } from "./app.ts";
+import { createRequestRow } from "./requests.ts";
 
-export type RouteClass = "public" | "self" | "tenant" | "list";
+// P8b: "scoped" = tenantScope'lu koleksiyon/ayar ucu (id'siz); izolasyonu requests-p8b.test.ts ("AC-147/148") ve
+// requests-p8b-5.test.ts ("AC-147", "AC-148: Super Admin", "AC-129") test eder.
+export type RouteClass = "public" | "self" | "tenant" | "list" | "scoped";
 
 export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /health": "public",
@@ -36,11 +39,25 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /api/v1/sessions/export.csv": "list",
   "GET /api/v1/sessions/:id/history": "tenant",
   "PATCH /api/v1/sessions/:id": "tenant",
+  // P8b-1 destek talepleri
+  "GET /api/v1/public/requests/tenant": "public",
+  "POST /api/v1/public/requests": "public",
+  "POST /api/v1/public/requests/cancel": "public",
+  "GET /api/v1/public/agent/request-download": "public",
+  "GET /api/v1/support-requests": "scoped",
+  "GET /api/v1/support-requests/count": "scoped",
+  "GET /api/v1/support-requests/:id": "tenant",
+  "POST /api/v1/support-requests/:id/accept": "tenant",
+  "POST /api/v1/support-requests/:id/reject": "tenant",
+  "GET /api/v1/settings/support-requests": "scoped",
+  "PUT /api/v1/settings/support-requests": "scoped",
+  "POST /api/v1/settings/support-requests/rotate-ref": "scoped",
+  "POST /api/v1/settings/support-requests/whatsapp/test": "scoped",
 };
 
 export interface TwoTenants {
-  a: { tenantId: string; admin: TestUser; user: TestUser; sessionId: string };
-  b: { tenantId: string; admin: TestUser; user: TestUser; sessionId: string };
+  a: { tenantId: string; admin: TestUser; user: TestUser; sessionId: string; requestId: string };
+  b: { tenantId: string; admin: TestUser; user: TestUser; sessionId: string; requestId: string };
 }
 
 export interface CrossTenantCase {
@@ -55,6 +72,9 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
   { route: "POST /api/v1/sessions/:id/terminate", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/terminate` }) },
   { route: "GET /api/v1/sessions/:id/history", request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}/history` }) },
   { route: "PATCH /api/v1/sessions/:id", request: (fx) => ({ method: "PATCH", url: `/api/v1/sessions/${fx.a.sessionId}`, payload: { note: "x" } }) },
+  { route: "GET /api/v1/support-requests/:id", request: (fx) => ({ method: "GET", url: `/api/v1/support-requests/${fx.a.requestId}` }) },
+  { route: "POST /api/v1/support-requests/:id/accept", request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/accept`, payload: {} }) },
+  { route: "POST /api/v1/support-requests/:id/reject", request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/reject`, payload: { message: "Şu an müsait değiliz" } }) },
 ];
 
 /** buildApp sonrası, ready'den ÖNCE çağrılmalı (rotalar eklentilerde ready'de yüklenir). */
@@ -72,7 +92,8 @@ export async function twoTenants(): Promise<TwoTenants> {
     const admin = await createUser({ tenantId: t.id, role: "ADMIN" });
     const user = await createUser({ tenantId: t.id, role: "USER", perms: { "sessions.view": true, "session_history.view": true, "session_history.export": true } });
     const session = await createSupportSessionRow({ tenantId: t.id, technicianId: user.id });
-    return { tenantId: t.id, admin, user, sessionId: session.id };
+    const request = await createRequestRow(t.id); // P8b
+    return { tenantId: t.id, admin, user, sessionId: session.id, requestId: request.id };
   };
   return { a: await side(), b: await side() };
 }

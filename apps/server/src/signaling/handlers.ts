@@ -60,6 +60,11 @@ export async function onTechMessage(rooms: Rooms, room: Room, peer: Peer, bucket
   const m = parseFrame(rooms, peer, bucket, techInboundSchema, data, isBinary);
   if (!m) return;
   const guest = room.admitted?.peer;
+  if ((m.t === "guest.admit" || m.t === "guest.reject") && room.requestId) {
+    // P8b §5.2 adım 5: talep oturumunda lobi yok.
+    tech.peer.send({ t: "error", code: "CONFLICT", message: "Talep oturumunda lobi yok; müşteri onayıyla otomatik bağlanır." });
+    return;
+  }
   switch (m.t) {
     case "guest.admit":
       await admitGuest(rooms, room, tech, m.admitCode);

@@ -165,6 +165,17 @@ describe("P7 kontrol makinesi", () => {
     expect(controlReducer(base, msg({ t: "control.state", state: "VIEW", source: "TECH" })).endedBy).toBe("tech");
   });
 
+  it("QA-P8b-13/K2: Vazgeç → hemen yeniden iste; önceki iptalin geç gelen {VIEW, TECH} onayı yeni isteği kapatmaz", () => {
+    let s = run([req(1000), { type: "cancel", now: 1100 }, req(1200)]);
+    expect(s.phase).toBe("requested");
+    s = controlReducer(s, msg({ t: "control.state", state: "VIEW", source: "TECH" }, 1250));
+    expect(s.phase).toBe("requested");
+    expect(s.requests).toBe(2);
+    expect(canCancel(s)).toBe(true);
+    // Yeni isteğe izin yine işlenir
+    expect(controlReducer(s, granted).phase).toBe("granted");
+  });
+
   it("AC-105: env.state uyarıları", () => {
     const s = run([msg({ t: "env.state", elevatedForeground: true, secureDesktop: false, selfElevated: false })]);
     expect(s.env).toEqual({ elevated: true, secure: false, self: false });

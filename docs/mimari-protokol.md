@@ -167,3 +167,52 @@ backend-dev'in altı sapma notu (`docs/implementation.md` "Backend P7") ve agent
 11. PeerConnection kopmasında bekleyen kontrol diyaloğu → **düzeltildi**: istemci `control.state{VIEW, SYSTEM}` gönderir; sunucu REQUESTED'de iptal gibi işler, consent yok, audit `control.cancelled{by:"agent"}` (§3.3 K6).
 12. Monitör/kontrol CONFLICT ve RATE_LIMITED yansıtması → **protokol değişmez**, konsol yerel sayaç + 1 sn pay (§3.3 K7).
 13. S7-9 → **karar: ekle + audit**, P7 Tur 2 içinde: `env.state.selfElevated` (zorunlu), GRANTED audit'inde `selfElevated`, konsol rozeti (§3.3 K8; ADR-0013 Ek).
+
+## 5. Destek talebi kanalları (P8b — mimar, 2026-11-12, **r2**: güvenlik tasarım turu G-E9-1..14; ADR-0016, `docs/mimari-e9.md` §13)
+Şemalar `packages/contracts/src/ws-request.ts` (`z.discriminatedUnion("t")`, `strictObject`); Go eşi `internal/request/ws.go`, ortak fixture `fixtures/ws-request.json`. Zarf, ping (30 sn, 2 pong kaçarsa terminate), 64 KB `maxPayload`, 1008 kuralları §1–2 ile aynı. Upgrade aynı `signaling/ws.ts` içinde yol ayrımıyla yapılır (kopyalanmaz).
+
+### 5.1 `/ws/request` (müşteri istemcisi, talep beklerken)
+| | Kural |
+|---|---|
+| URL | `wss://<host>/ws/request` (sorgu dizesi yok; varsa 403) |
+| Kimlik | `Sec-WebSocket-Protocol: rs.v1, rs.req.<requestSecret>`; yanıt yalnız `rs.v1` |
+| Upgrade doğrulama | `Origin` **yok** ve `Sec-Fetch-*` yok (yalnız AGENT, ADR-0012); sır hash'i `support_requests.secret_hash` ile eşleşir ve talep `PENDING` ya da (`ACCEPTED` + oturum `PENDING` + süresi dolmamış); aksi 403. Geçersiz sır denemesi `req.ref_invalid` kovasına sayılır (ipKey 10/dk) |
+| Tekillik | Talep başına tek soket; yeni bağlantı gelince eski 4409 ile kapanır (aynı sırrın sahibi yeniden bağlanıyor). ipKey başına eşzamanlı ≤ 5 `/ws/request` soketi (r2, G-E9-9; aşımda upgrade 429) |
+| Sürüm | Upgrade'de sır kaydındaki `client_version` < `MIN_AGENT_VERSION` → 426 (r2, G-E9-4) |
+| Gelen mesaj sınırı | 5 msg/sn token-bucket |
+
+| t | Yön | Alanlar | Davranış |
+|---|---|---|---|
+| `request.state` | S→C | `status: "PENDING"`, `requestCode: /^\d{6}$/` (r2, gösterim), `position: int ≥ 1`, `createdAt`, `expiresAt`, `serverTime` | Bağlanınca hemen; tenant kuyruğu değişince (soket başına ≤ 1/sn birleştirilir) ve 10 sn'de bir (AC-139). İstemci bekleme süresini `serverTime − createdAt` + yerel saatle gösterir. Başka talep bilgisi **yok** |
+| `request.accepted` | S→C | `wsTicket: string(43)`, `technicianName: string(≤100)`, `techVerifyCode: /^\d{4}$/`, `ticketExpiresAt` | Kabul commit'i sonrası. **r2 (G-E9-3):** istemci kendiliğinden bağlanmaz; "<Teknisyen> bağlanmak istiyor" onay ekranını gösterir (odak Vazgeç, 1,5 sn, otomatik onay yok). "Ekranımı paylaş" → `/ws/guest`'e `rs.ticket.<wsTicket>` ile bağlanır (lobi yok); `hello` gelince bu soketi 1000 ile kapatır. "Vazgeç" → `request.decline`. İstemci yerel olarak `CANCELLING` durumundaysa (İptal/pencere kapatma) bu mesajı **yok sayar** ve `request.decline` gönderir. Kabul sonrası yeniden bağlanan soket (oturum hâlâ PENDING) yeni ticket'lı `request.accepted` alır; eski ticket geçersizleşir |
+| `request.closed` | S→C | `status: "CANCELLED"\|"EXPIRED"\|"REJECTED"\|"CONNECT_FAILED"`, `reason?: cancelReason`, `message?: string(≤200)` (yalnız REJECTED) | Ardından sunucu 1000 ile kapatır. İstemci metinleri: EXPIRED "Talebiniz zaman aşımına uğradı" + "Yeniden talep oluştur" (form dolu, AC-142); REJECTED "Firmanızın mesajı: …" (düz metin, AC-157); TENANT_PASSIVE genel mesaj (AC-145) |
+| `request.cancel` | C→S | — | PENDING → CANCELLED(CUSTOMER) (AC-141); sunucu `request.closed` + 1000. **r2:** ACCEPTED iken (oturum PENDING) `request.decline` ile aynı işlenir |
+| `request.decline` | C→S | — | **r2 (G-E9-3).** ACCEPTED + oturum PENDING → tek TX: talep CANCELLED(CUSTOMER), oturum CANCELLED(`customer_declined`); kabul edene `/ws/panel` `request.declined`; müşteriye `request.closed{CANCELLED, CUSTOMER}` + 1000. PENDING iken `request.cancel` ile aynı. Oturum ACTIVE olmuşsa yok sayılır |
+| `error` | S→C | `code: "RATE_LIMITED"\|"VALIDATION"\|"INTERNAL"`, `message` | — |
+**Kapanış semantiği (AC-141):** istemciden close **1000** (pencere kapatma: önce `request.cancel`, sonra 1000) → PENDING ise anında CANCELLED(CUSTOMER); **r2:** ACCEPTED + oturum PENDING ise decline yolu. Diğer kapanış kodları/TCP kopması → `disconnectTimer` 120 sn; süre içinde aynı sırla yeniden bağlanırsa iptal edilir ve `request.state` gönderilir; dolarsa CANCELLED(DISCONNECTED). ACCEPTED talepte kopma talebi değiştirmez (60 sn bağlanma penceresi geçerli, AC-155).
+
+### 5.2 `/ws/guest` — talepten doğan oturum (ön-kabul)
+Ticket kaydı `{ sessionId, guestId, requestId }`; `Guest.requestId` doluysa:
+1. Upgrade kuralları §1 ile aynı (`kind=AGENT` ticket'ı; Origin yok).
+2. `lobby.wait` **gönderilmez**; sunucu doğrudan §3.2 tüketim UPDATE'ini çalıştırır, `WHERE` koşuluna `AND request_id = :requestId` eklenir; aynı UPDATE `guest_net_key`'i yazar. **r2 (G-E9-2):** önce `technician_id` kullanıcısının DB'deki etkin yetkileri okunur (pasif kullanıcı/tenant → UPDATE yok, `CANCELLED(auth_revoked)`); caps bundan hesaplanır, `TechConn` aranmaz. `count=1` → aynı TX'te `session_consents(level VIEW, decision GRANTED, source UI, consent_text_id/consent_sha256 = talebin, ip/user_agent = **bu bağlantının** (onay tıklaması anı), request_id)` + audit `guest.admitted{via:"request", requestId, acceptedBy, guestKind:"AGENT"}` (actor `customer`); commit → misafire `hello` (caps, iceServers, reconnectToken — §3 tablo), teknisyen bağlıysa `peer.joined{role:"guest", guestName}`; panel(ler)e etkisi yok (talep zaten listeden kalktı).
+3. `count=0` (oturum iptal/süre doldu) → misafire `session.ended{timeout}` ve kapanış; talep süpürücüde CONNECT_FAILED.
+4. Teknisyen `/ws/tech`'e misafirden **sonra** bağlanabilir: oda misafir bağlantısında `ensureRoom(sessionId)` ile kurulur; teknisyen `hello{peerPresent:true, guestName}` alır ve offer'ı başlatır. **r2:** admit anında teknisyen soketi yoksa odanın teknisyen kopma zamanlayıcısı (120 sn) hemen başlar; dolarsa mevcut teknisyen-kopma sonlanma yolu işler. Teknisyen 60 sn bekleme penceresi yalnız müşteri bağlantısı içindir; ACTIVE sonrası mevcut kurallar (120 sn kopma, max süre) geçerlidir.
+5. Sonrası (kontrol izni §3.3, DC §4, oturum sonu AC-107) **değişmez** (AC-156). `guest.admit`/`guest.reject` tech mesajları talep oturumunda gelirse `error{CONFLICT}`.
+
+### 5.3 `/ws/panel` (teknisyen paneli, tek yönlü)
+| | Kural |
+|---|---|
+| URL | `wss://<host>/ws/panel` (sorgu dizesi yok) |
+| Upgrade doğrulama | `Origin ∈ ALLOWED_ORIGINS` + `__Host-rs_session` çerezi + `auth_sessions` geçerli + `mfa_passed` kuralı + `mustChangePassword=false` + etkin yetkilerde `support_requests.view` + tenant bağlamı (Super Admin için `actingTenantId` dolu); aksi 403. Kullanıcı başına ≤ 5 soket (6. → 4429) |
+| Yeniden doğrulama | **Birincil (r2, G-E9-14):** logout, logout-all, şifre değişimi, yetki PATCH (`view` kalktı), deaktivasyon, `switch-tenant` servisleri commit sonrası `hub.closeByUser`/`closeByAuthToken` çağırır → anında 4401. **Yedek:** 60 sn'de bir `auth_sessions` + yetki + acting tenant. İstemci 4401 sonrası yeniden bağlanmayı dener, 403'te durur |
+| İstemciden mesaj | **Yok**; her mesaj 1008 |
+
+| t | Alanlar | Ne zaman |
+|---|---|---|
+| `queue.count` | `pending: int` | Bağlanınca ve sayı değişince (rozet + sekme başlığı) |
+| `request.new` | `id`, `requestCode`, `customerName: string(≤80)`, `preview: string(≤100)` (açıklamanın ilk 100 kod noktası, düz metin), `networkMatch` (`NONE\|PREFIX\|IP\|TRUSTED`, G-E9-15), `knownDevice`, `createdAt` | Talep commit'i sonrası (p95 ≤ 3 sn, AC-149) → toast + ses |
+| `request.removed` | `id`, `status: requestStatus` (ACCEPTED dahil) | Kabul/ret/iptal/süre dolumu (≤ 3 sn, AC-141, 149) |
+| `request.connect_failed` | `id`, `sessionId` | Yalnız kabul eden kullanıcının soketlerine (AC-155) |
+| `request.declined` | `id`, `sessionId` | **r2.** Yalnız kabul edene: müşteri "Vazgeç" dedi / pencereyi kapattı (toast "Müşteri bağlantıyı kabul etmedi") |
+| `queue.alert` | `kind: "rate_limited"`, `until` | **r2 (G-E9-7).** Tenant kovası aşıldı; panelde kalıcı uyarı bandı |
+Sıralama garantisi: aynı tenant olayları üretim sırasıyla gönderilir; istemci `request.removed`'ı bilmediği id için yok sayar. Kaçırılan olay için kaynak REST'tir (yeniden bağlanınca liste yeniden çekilir).

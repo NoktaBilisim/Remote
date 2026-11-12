@@ -1,5 +1,5 @@
 import type { SessionListItem } from "@remote/contracts/api/sessions";
-import { labelOf, SESSION_MODE_LABELS } from "@remote/contracts/labels";
+import { labelOf, SESSION_MODE_LABELS, SESSION_SOURCE_LABELS } from "@remote/contracts/labels";
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/ui/badge";
@@ -22,6 +22,18 @@ export function DurationCell({ s }: { s: Pick<SessionListItem, "status" | "start
 const customer = (s: SessionListItem) =>
   s.customerName ?? <span className="text-fg-muted italic">{t("h.noCustomer")}</span>;
 const mode = (s: SessionListItem) => (s.mode ? labelOf(SESSION_MODE_LABELS, s.mode) : t("h.mode.none"));
+/** P8b (AC-158): talepten doğan oturumda kaynak + bekleme süresi (TECH'te gösterilmez — varsayılan yol). */
+export function SourceNote({ s, compact = false }: { s: Pick<SessionListItem, "source" | "waitSec">; compact?: boolean }) {
+  if (s.source !== "REQUEST") return null;
+  const wait = s.waitSec !== null ? t("h.waitShort", { d: formatDuration(s.waitSec) }) : null;
+  return (
+    <span data-testid="history-source" title={wait ?? undefined} className="inline-flex items-center gap-1 rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium whitespace-nowrap text-primary">
+      {labelOf(SESSION_SOURCE_LABELS, s.source)}
+      {wait && <span className={compact ? "sr-only" : "font-normal"}>· {wait}</span>}
+    </span>
+  );
+}
+
 const detailLabel = (s: SessionListItem) => t("h.open", { name: s.customerName ?? formatDateTime(s.createdAt) });
 
 /** Oturum geçmişi: ≥ md tablo, dar ekranda kart (aynı veri). Satırın tamamı değil, müşteri adı bağlantıdır (klavye/ekran okuyucu tek hedef). */
@@ -62,7 +74,9 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
                 {showTenant && <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.tenant?.name}>{s.tenant?.name ?? "—"}</td>}
                 {showTechnician && <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.technician.name}>{s.technician.name}</td>}
                 <td className="px-3 py-2"><StatusBadge status={s.status} /></td>
-                <td className={`px-3 py-2 whitespace-nowrap text-fg ${modeCol}`}>{mode(s)}</td>
+                <td className={`px-3 py-2 whitespace-nowrap text-fg ${modeCol}`}>
+                  <div className="flex flex-col items-start gap-1">{mode(s)}<SourceNote s={s} compact /></div>
+                </td>
                 <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums text-fg"><DurationCell s={s} /></td>
                 <td className="max-w-32 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.ticketNo ?? undefined}>{s.ticketNo ?? <span className="text-fg-muted">—</span>}</td>
               </tr>
@@ -84,6 +98,7 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
                   <span className="truncate font-medium text-fg">{customer(s)}</span>
                   <StatusBadge status={s.status} />
                 </div>
+                {s.source === "REQUEST" && <div className="mt-1"><SourceNote s={s} /></div>}
                 <p className="mt-1 text-xs tabular-nums text-fg-muted">
                   {formatDateTime(s.createdAt)} · {mode(s)} · <DurationCell s={s} />
                 </p>

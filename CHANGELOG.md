@@ -5,6 +5,85 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P8b-1 (müşteri destek talebi: sunucu + panel; ADR-0016)
+- **Müşteri başlatmalı destek talebi (sunucu):** müşteri, firmaya özel Hızlı Destek dosyasından ad, telefon, isteğe
+  bağlı e-posta ve açıklamayla talep gönderir; talep o firmanın kuyruğuna düşer. Public uçlar
+  `GET /api/v1/public/requests/tenant`, `POST /api/v1/public/requests`, `POST /api/v1/public/requests/cancel`,
+  `GET /api/v1/public/agent/request-download`; bekleme kanalı `/ws/request`. Talep durumları: Bekliyor, Kabul edildi,
+  İptal, Süresi doldu, Reddedildi, Bağlanamadı. Her talep KVKK onayını (metin sürümü + SHA-256) ayrı kaydeder.
+- **Talep kodu (6 hane) ve kaynak işaretleri:** kartta müşterinin ekranındakiyle aynı kod; "Güvenilen ağ",
+  "Bu ağdan daha önce oturum yapıldı", "Bu bilgisayar daha önce destek aldı" rozetleri; hiçbiri yoksa "İlk kez görülen
+  kaynak" uyarısı. Kartta kalıcı ipucu: müşteriyi firmanın kayıtlı numarasından arayıp talep kodunu sorun.
+- **Panel — "Talepler" (`/requests`, yetki `support_requests.view`):** canlı kuyruk (`/ws/panel`), menüde bekleyen
+  sayısı rozeti, yeni talepte bildirim ("Görüntüle") ve ses (aç/kapa, tarayıcıda saklanır), "Kabul et" → doğrudan
+  konsola geçiş, "Reddet" → hazır veya kendi mesajı (bağlantı/e-posta/telefon içeremez). "Geçmiş" sekmesi son 30 günün
+  kapanan taleplerini durum filtresiyle gösterir. Kabul/ret için `support_requests.accept` + `view` gerekir; Super Admin
+  seçili firmada kuyruğu görür, kabul/ret yapamaz.
+- **Panel — "Ayarlar > Destek talepleri" (`/settings/support-requests`, `settings.edit`):** firma indirme bağlantısı
+  (kopyala, onaylı "Bağlantıyı yenile"), bekleme süresi 10–120 dk (varsayılan 30), WhatsApp bildirimi (≤ 5 alıcı,
+  "Test mesajı gönder"), güvenilen IP/ağlar (≤ 10; IPv4 en geniş /16, IPv6 en geniş /32). E-posta bildirimi pasif (P10).
+- **Firma dosyası:** `NoktaDestek-<firma kısa adı>-<ref>.exe` (Caddy `@agentExeFirm`, aynı imzasız ikili, aynı SHA-256);
+  ref ve firma adı Caddy/nginx loglarında maskelenir.
+- **WhatsApp bildirimi:** kişisel veri içermeyen şablon ("Yeni destek talebi – <firma> – panelde görüntüleyin. Talep
+  kodu: …" + panel bağlantısı); 3 deneme, 8 sn zaman aşımı; tenant 30/sa, alıcı 10/sa, sistem 300/sa (aşımda özet).
+  Production'da şifresiz ve genel adresli servis kanalı kapalı başlatılır (`alarm:"whatsapp_insecure"`).
+- **Oturum geçmişi ekleri:** "Kaynak" filtresi (Talep/Teknisyen), listede "Talep" hapı ve bekleme süresi, ayrıntıda
+  "Destek talebi" bölümü; CSV'ye `Kaynak` ve `Bekleme` sütunları (telefon ve açıklama CSV'ye girmez).
+- **Hız sınırları ve kuyruk koruması:** IP, ağ öneki, IPv6 /48 ve firma kovaları; IP başına 3, ağ başına 10, firma
+  başına 50 bekleyen talep; 40 bekleyenden sonra bilinmeyen kaynak reddi (`QUEUE_FULL`). Olağan dışı yoğunlukta panelde
+  uyarı bandı (`queue.alert`).
+- **Asgari istemci sürümü:** `MIN_AGENT_VERSION` doluysa eski istemci 426 `CLIENT_OUTDATED` alır (talep, resolve,
+  join, `/ws/guest`, `/ws/request`).
+- **Yeni ortam değişkenleri:** `WHATSAPP_SERVICE_URL`, `MIN_AGENT_VERSION` (ikisi de boş bırakılabilir).
+- **Veritabanı:** migration `20261112000000_p8b_support_requests` (`tenant_request_settings`, `support_requests`,
+  `support_sessions`/`session_consents` ekleri); seed yeni sistem aydınlatma sürümü ekler. Talep kişisel verisi
+  saklama süresi sonunda anonimleştirilir (gece 00:30 UTC işi).
+- **Metrik ve alarmlar:** `rs_request_ref_invalid_total`, `rs_request_notify_total`, `rs_request_rate_limited_total`,
+  `rs_requests_pending`, `rs_ws_connections{role}`, `rs_request_gate_rejected_total{reason}`; log alarmları
+  `db_busy`, `request_gate_busy`, `auth_fail_counter_fallback`, `auth_fail_unrecorded` (runbook §12.5).
+
+### Değişti — P8b-1
+- **Aşırı yükte 500 yerine 503:** geçici DB çekişmesi (TX başlatılamadı, deadlock, kilit bekleme, havuz zaman aşımı)
+  artık her uçta 503 `NOT_READY` + `Retry-After: 5` döner; yazma geri alındığından yeniden deneme güvenlidir.
+- **Talep oluşturma kapısı:** eşzamanlı talep işlemleri anahtar başına 2, toplam 4 ile sınırlı; DB havuzunun en az 6
+  bağlantısı giriş, panel ve WS için kalır. Kapı dolunca 503 + `Retry-After`.
+- **Hesap kilidi:** başarısız giriş sayacı DB'ye yazılamazsa bellek içi yedek kova kullanılır (kilit yine uygulanır);
+  audit yazılamazsa yanıt 401/423 kalır, `auth_fail_unrecorded` alarmı düşer.
+- CSV başlığı genişledi (`Mod`'dan sonra `Kaynak`, `Bekleme`).
+- Çıkış ve şifre değişimi açık `/ws/panel` soketlerini anında kapatır (4401).
+
+### Güvenlik — P8b-1
+- WhatsApp istemcisi yönlendirme izlemez (`redirect: "error"`, S8b-1).
+- Talepten doğan oturumda eşzamanlı iki misafir bağlantısı yarışı kapatıldı (S8b-2); `request.created` audit'inde
+  yalnız istemci sürümü, `guest.admitted`'da ad yok (S8b-3, QA-P8b-11).
+- Kabul/ret uçları `view` + `accept` ister (AC-147); Super Admin ret 403 (AC-148).
+- Caddy logunda `Sec-WebSocket-Protocol` başlığının 101 yanıtındaki yazımı da siliniyor (önceden etkisizdi; sızıntı
+  yoktu).
+
+### Düzeltildi
+- **P7 kontrol konsolu (QA-P8b-13):** "Vazgeç"ten hemen sonra yeniden "Kontrol iste" denince geç gelen eski onay yeni
+  isteği yerelde bitiriyor, "Vazgeç" düğmesi kayboluyordu. İstek bekleme fazında eski onay artık yok sayılır.
+- **Diyalog yarışı:** kapanan diyaloğun gecikmiş "close" olayı hemen yeniden açılan diyaloğu kapatıyordu (geçmiş
+  ayrıntısında "Sayfada kal" + ikinci geri tuşu). `onClose` yalnız diyalog gerçekten kapalıyken çağrılır.
+
+### Bilinen sınırlamalar — P8b-1
+- Müşteri tarafı (Hızlı Destek'te "Destek iste" formu ve bekleme ekranı) P8b-2 ile gelir; o sürüme kadar
+  `MIN_AGENT_VERSION` boş kalmalıdır.
+- AC-149 (talep → panel bildirimi ≤ 3 sn) yalnız yerelde ölçüldü; staging ölçümü yayın sonrası.
+- E-posta bildirimi P10'da. Kara liste (G-E9-17) "Sonra".
+- 503 sonrası yeniden deneyen müşteri IP kovasını tüketir (S8b-8); P8b-2 istemci yeniden denemesiyle ele alınır.
+
+## [0.8.2] — 2026-11-12 — Staging alan adı + Windows istemci
+
+### Eklendi
+- **Staging alan adı `https://remote.noktabilisim.net`** (ADR-0015): host nginx (Let's Encrypt) TLS'i sonlandırır,
+  Caddy yalnız `127.0.0.1:4451`'de dinler. `https://185.126.217.99:4450` geçiş süresince çalışmaya devam eder.
+
+### Değişti
+- **Windows istemci 0.8.2:** yeni adres gömülü; kök sertifika kurulumu gerekmez. IP:4450 gömülü eski istemciler
+  (≤ 0.8.1) çalışmaya devam eder, onlar için kök sertifika gerekir.
+- gitleaks: RFC 6455 örnek WebSocket anahtarı istisnası; runbook rastgele anahtar kullanır.
+
 ## [0.8.1] — 2026-11-12 — Windows istemci
 
 ### Değişti

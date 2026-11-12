@@ -3,6 +3,11 @@
 import { ERROR_STATUS, type ErrorCode, type ErrorEnvelope } from "@remote/contracts/errors";
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { isTransientDbError } from "./db.ts";
+
+/** Geçici DB çekişmesinde (QA-P8b-1) istemciye önerilen bekleme; TX geri alındığı için yeniden deneme güvenli. */
+export const DB_BUSY_RETRY_SEC = 5;
+export const DB_BUSY_MESSAGE = "Sunucu şu an yoğun. Lütfen birkaç saniye sonra tekrar deneyin.";
 
 const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   VALIDATION: "Gönderilen bilgiler geçersiz.",
@@ -22,6 +27,13 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   RATE_LIMITED: "Çok fazla istek. Lütfen biraz sonra tekrar deneyin.",
   INTERNAL: "Beklenmeyen bir hata oluştu.",
   NOT_READY: "Servis hazır değil.",
+  REQUEST_REF_INVALID: "Bu dosya artık geçerli değil; firmanızdan yenisini isteyin.",
+  REQUEST_PENDING: "Bu pencereden gönderilmiş, bekleyen bir talebiniz zaten var.",
+  REQUEST_TAKEN: "Talep başka bir teknisyen tarafından alındı.",
+  REQUEST_CLOSED: "Talep artık açık değil (iptal, süre dolumu veya ret).",
+  QUEUE_FULL: "Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.",
+  CLIENT_OUTDATED: "Bu Hızlı Destek dosyası eski. Güvenliğiniz için yeni sürümü indirin.",
+  UPSTREAM: "Servise ulaşılamadı.",
 };
 
 export class AppError extends Error {
@@ -65,6 +77,11 @@ export function registerErrorHandling(app: FastifyInstance): void {
       // Fastify istemci hataları (bozuk JSON, içerik türü, gövde boyutu) → genel doğrulama hatası.
       req.log.info({ code: (error as FastifyError).code }, "istemci hatası");
       return send(reply, req, new AppError("VALIDATION"));
+    }
+    if (isTransientDbError(error)) {
+      // Kilit/havuz/TX bekleme aşımı: yazma geri alındı, karar verilmedi → 503 + Retry-After (5xx-500 değil).
+      req.log.warn({ alarm: "db_busy", code: (error as { code?: unknown }).code }, "geçici DB çekişmesi");
+      return send(reply, req, new AppError("NOT_READY", { message: DB_BUSY_MESSAGE, retryAfterSec: DB_BUSY_RETRY_SEC }));
     }
     req.log.error({ err: error }, "beklenmeyen hata");
     return send(reply, req, new AppError("INTERNAL"));

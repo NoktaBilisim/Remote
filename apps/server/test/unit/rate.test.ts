@@ -83,3 +83,20 @@ describe("FixedWindowCounter", () => {
     expect(() => c.close()).not.toThrow();
   });
 });
+
+describe("FixedWindowCounter count/block (S8b-6)", () => {
+  it("AC-65: count penceredeki olay sayısını verir; block hemen kilitler", () => {
+    const t = { v: 0 };
+    const c = counter(20, 3_600_000, 900_000, t);
+    c.hit("u");
+    c.hit("u");
+    expect(c.count("u")).toBe(2);
+    expect(c.count("yok")).toBe(0);
+    c.block("u");
+    expect(c.blockedFor("u")).toBe(900);
+    c.block("yeni");
+    expect(c.blockedFor("yeni")).toBe(900);
+    t.v = 3_600_001;
+    expect(c.count("u")).toBe(0);
+  });
+});

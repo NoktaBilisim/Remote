@@ -51,8 +51,10 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   readonly metrics: Metrics;
   readonly clock: Clock;
   readonly timing: Timing;
-  readonly nonces: OneTimeStore<{ sessionId: string; kind: GuestKind }>;
-  readonly tickets: OneTimeStore<{ sessionId: string; guestId: string }>;
+  readonly nonces: OneTimeStore<{ sessionId: string; kind: GuestKind; clientVersion?: string }>;
+  readonly tickets: OneTimeStore<{ sessionId: string; guestId: string; gen?: number }>;
+  /** P8b: talep servisine geri çağrılar (admit sonrası bağlanma zamanlayıcısı iptali; yetki kaybında bağlanamadı). */
+  requestHooks?: { admitted(requestId: string): void; failed(requestId: string): void };
   private readonly rooms = new Map<string, Room>();
   readonly reconnect = new Map<string, string>(); // sha256(reconnectToken) → sessionId
 
@@ -93,7 +95,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   }
 
   /** Lobiye (TICKETED) misafir ekler — join (A1). Ret listesi → 403, lobi dolu → 409 LOBBY_FULL. */
-  addGuest(row: RoomRow, g: { name: string; email?: string; kind: GuestKind; ipKey: string; consent: GuestConsent }): { guestId: string; admitCode: string; wsTicket: string } {
+  addGuest(row: RoomRow, g: { name: string; email?: string; kind: GuestKind; ipKey: string; netKey?: string; clientVersion?: string; consent: GuestConsent }): { guestId: string; admitCode: string; wsTicket: string } {
     const room = this.getOrCreate(row);
     if (room.admitted) throw new AppError("SESSION_CONSUMED");
     if (room.rejectedIps.has(g.ipKey)) throw new AppError("FORBIDDEN", { message: "Bu oturuma katılımınız teknisyen tarafından reddedildi." });
@@ -103,13 +105,41 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     const taken = (c: string): boolean => [...room.lobby.values()].some((o) => o.admitHash === admitHash(o.id, c));
     let code = String(randomInt(0, 10_000)).padStart(4, "0");
     while (taken(code)) code = String(randomInt(0, 10_000)).padStart(4, "0");
-    const guest: Guest = { id, name: g.name, ...(g.email ? { email: g.email } : {}), kind: g.kind, ipKey: g.ipKey, admitHash: admitHash(id, code), consent: g.consent, state: "TICKETED", since: this.clock.now() };
+    const guest: Guest = { id, name: g.name, ...(g.email ? { email: g.email } : {}), kind: g.kind, ipKey: g.ipKey, ...(g.netKey ? { netKey: g.netKey } : {}), ...(g.clientVersion ? { clientVersion: g.clientVersion } : {}), admitHash: admitHash(id, code), consent: g.consent, state: "TICKETED", since: this.clock.now() };
     guest.timer = this.clock.setTimeout(() => {
       if (guest.state === "TICKETED" && room.lobby.get(id) === guest) this.dropRoomIfIdle(room, id);
     }, this.timing.ticketMs);
     room.lobby.set(id, guest);
     const { token } = this.tickets.issue({ sessionId: row.id, guestId: id });
     return { guestId: id, admitCode: code, wsTicket: token };
+  }
+
+  /**
+   * P8b ön-kabul (mimari-e9 §3.4 commit sonrası, mimari-protokol §5.2): kabul edilen talebin istemcisi için TICKETED misafir +
+   * ticket. Lobi/admitCode yok; bağlama talep sırrıyla (ticket yalnız sır sahibinin /ws/request soketine iletilir). Ömür
+   * talep servisinin 60 sn bağlanma zamanlayıcısına bağlıdır (oturum iptalinde oda kapanır).
+   */
+  preAdmitGuest(row: RoomRow, g: { requestId: string; name: string; email?: string; clientVersion: string; consent: GuestConsent }): { wsTicket: string; expiresAt: number } {
+    const room = this.getOrCreate(row);
+    room.requestId = g.requestId;
+    let guest = [...room.lobby.values()].find((x) => x.requestId === g.requestId);
+    if (!guest) {
+      guest = { id: newId(), name: g.name, ...(g.email ? { email: g.email } : {}), kind: "AGENT", ipKey: "", admitHash: "", consent: g.consent, state: "TICKETED", since: this.clock.now(), requestId: g.requestId, clientVersion: g.clientVersion, ticketGen: 0 };
+      room.lobby.set(guest.id, guest);
+    }
+    guest.ticketGen = (guest.ticketGen ?? 0) + 1; // önceki ticket geçersiz (yeniden bağlanan /ws/request)
+    const { token, expiresAt } = this.tickets.issue({ sessionId: row.id, guestId: guest.id, gen: guest.ticketGen });
+    return { wsTicket: token, expiresAt };
+  }
+
+  /** Talep oturumu için yeniden ticket (oturum hâlâ PENDING; /ws/request yeniden bağlandı). Misafir yoksa null. */
+  reissueRequestTicket(sessionId: string, requestId: string): { wsTicket: string; expiresAt: number } | null {
+    const room = this.rooms.get(sessionId);
+    const guest = room ? [...room.lobby.values()].find((x) => x.requestId === requestId && x.state === "TICKETED") : undefined;
+    if (!room || !guest) return null;
+    guest.ticketGen = (guest.ticketGen ?? 0) + 1;
+    const { token, expiresAt } = this.tickets.issue({ sessionId, guestId: guest.id, gen: guest.ticketGen });
+    return { wsTicket: token, expiresAt };
   }
 
   /** Ticket ile gelen misafir → LOBBY (lobby.wait + teknisyene peer.pending). */

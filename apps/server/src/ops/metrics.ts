@@ -9,7 +9,8 @@ type Labels = Record<string, string>;
 
 export class Metrics {
   private readonly counters = new Map<string, Map<string, number>>();
-  private readonly gauges = new Map<string, () => number>();
+  /** Sayı ya da etiket değeri → sayı (`""` anahtarı etiketsiz seri; P8b `rs_ws_connections{role}`). */
+  private readonly gauges = new Map<string, () => number | Record<string, number>>();
   private readonly help = new Map<string, string>();
 
   counter(name: string, help: string): void {
@@ -17,7 +18,7 @@ export class Metrics {
     if (!this.counters.has(name)) this.counters.set(name, new Map());
   }
 
-  gauge(name: string, help: string, read: () => number): void {
+  gauge(name: string, help: string, read: () => number | Record<string, number>): void {
     this.help.set(name, help);
     this.gauges.set(name, read);
   }
@@ -38,7 +39,12 @@ export class Metrics {
       if (series.size === 0) out.push(`${name} 0`);
       for (const [key, v] of series) out.push(`${name}${key ? `{${key}}` : ""} ${v}`);
     }
-    for (const [name, read] of this.gauges) out.push(`# HELP ${name} ${this.help.get(name) ?? ""}`, `# TYPE ${name} gauge`, `${name} ${read()}`);
+    for (const [name, read] of this.gauges) {
+      out.push(`# HELP ${name} ${this.help.get(name) ?? ""}`, `# TYPE ${name} gauge`);
+      const v = read();
+      if (typeof v === "number") out.push(`${name} ${v}`);
+      else for (const [role, n] of Object.entries(v)) out.push(role === "" ? `${name} ${n}` : `${name}{role="${role}"} ${n}`);
+    }
     return `${out.join("\n")}\n`;
   }
 }
@@ -51,6 +57,11 @@ export function createMetrics(): Metrics {
   m.counter("rs_admit_total", "guest.admit sonuçları (result)");
   m.counter("rs_file_meta_total", "file.meta sonuçları (result; P5)");
   m.counter("rs_file_meta_rate_limited_total", "file.meta kota aşımları (class: accepted|declined|sender; S-P5-T2-3)");
+  m.counter("rs_requests_created_total", "Oluşturulan destek talepleri (P8b)");
+  m.counter("rs_request_ref_invalid_total", "Geçersiz firma ref'i denemeleri (P8b; alarm > 100/dk)");
+  m.counter("rs_request_rate_limited_total", "Talep hız/bekleyen sınırı aşımları (bucket)");
+  m.counter("rs_request_gate_rejected_total", "Talep oluşturma kapısı dolu → 503 (reason: full|timeout; S8b-5)");
+  m.counter("rs_request_notify_total", "Talep bildirimleri (channel, result: ok|failed|suppressed)");
   m.counter("rs_sessions_ended_total", "Sinyalizasyon üzerinden biten oturumlar (reason)");
   m.counter(
     "rs_control_total",

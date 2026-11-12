@@ -14,6 +14,9 @@ oturum bilgisi, onaylar ve denetim kayıtları kalır.
 - **İzinli uzaktan kontrol** — müşteri her kontrol isteğini onaylar, tek tuşla (Ctrl+Shift+F12) geri alır.
 - **Dolandırıcılığa karşı korumalar** — teknisyen doğrulama kodu, kabul kodu, kötüye kullanım bildirimi; uzaktan
   tıklama izin sayılmaz.
+- **Müşteri başlatmalı destek talebi** — firmaya özel indirme bağlantısıyla müşteri talep gönderir; talep canlı
+  kuyruğa düşer, teknisyen tek tıkla kabul edip doğrudan bağlanır. 6 haneli talep kodu ve "bilinen kaynak"
+  işaretleri sahte talebe karşı telefonla doğrulamayı kolaylaştırır.
 - **Sohbet, dosya aktarımı, ekran üzerine işaretleme** — dosya içeriği sunucudan geçmez, her dosyayı alıcı onaylar.
 - **Kalite paneli** — kare hızı, gecikme, kayıp ve bağlantı yolu anlık izlenir.
 - **Oturum geçmişi** — tarih, durum, teknisyen, müşteri ve bağlantı türüne göre filtre; her oturumun onay kayıtları,
@@ -33,7 +36,9 @@ oturum bilgisi, onaylar ve denetim kayıtları kalır.
 | Teknisyen konsolu | Canlı ekran (Sığdır / %100 / tam ekran), sohbet, dosya, işaretleme, kalite paneli |
 | Uzaktan kontrol | Fare ve klavye (Türkçe karakter dahil), özel tuşlar, monitör değiştirme; müşteri onaylı |
 | Hızlı Destek (Windows) | Müşteri programı: onay, ekran seçimi, sohbet, dosya alma, izin diyaloğu |
-| Oturum geçmişi | Filtreli liste, ayrıntı, ticket/not, CSV dışa aktarma |
+| Oturum geçmişi | Filtreli liste, ayrıntı, ticket/not, CSV dışa aktarma; talepten doğan oturumlar ayrı işaretli |
+| Destek talepleri | Canlı kuyruk, anlık bildirim ve ses, kabul/ret (müşteriye mesajla), son 30 gün geçmişi |
+| Destek talebi ayarları | Firma indirme bağlantısı ve yenileme, bekleme süresi, WhatsApp bildirimi + test, güvenilen ağlar |
 
 ## Güvenlik ve yönetim
 - Rol bazlı yetki (User / Admin / Super Admin) ve modül bazlı yetki anahtarları (görüntüle, düzenle, dışa aktar vb.).
@@ -43,11 +48,16 @@ oturum bilgisi, onaylar ve denetim kayıtları kalır.
 - KVKK: aydınlatma metni firma bazında ve sürümlü; müşterinin onayı metin sürümü ve özetiyle saklanır. Not metni ve
   müşteri araması denetim kaydına yazılmaz.
 - Şifreler argon2id ile saklanır; hatalı girişte hesap kilidi; CSRF koruması; oturum süresi sınırlı.
+- Destek taleplerinde kötüye kullanıma karşı IP, ağ ve firma bazlı hız sınırları ile bekleyen talep tavanları;
+  talep bildirimlerinde ve denetim kaydında müşteri kişisel verisi yer almaz; talep verisi saklama süresi sonunda
+  anonimleştirilir.
 - Müşteri programı yalnız kendi sunucusuna bağlanır; bütünlüğü SHA-256 ve tekrarlanabilir derlemeyle doğrulanır.
 
 ## Entegrasyonlar
 - TURN sunucusu (coturn) — güvenlik duvarı arkasındaki müşteriler için görüntü aktarımı.
-- E-posta, SMS ve WhatsApp bildirimleri bu sürümde yoktur.
+- WhatsApp (Nokta Bilişim whatsapp-bildirim servisi) — yeni destek talebinde seçili numaralara kişisel veri içermeyen
+  bildirim; yönetim ekranında test mesajı.
+- E-posta ve SMS bildirimleri bu sürümde yoktur.
 
 ## Teknik özellikler
 | Başlık | Değer |

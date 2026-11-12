@@ -19,12 +19,22 @@ const ALLOWED_KEYS: ReadonlySet<string> = new Set([
   "reason",
   // P8 session.updated: ticket numarası gizli değildir; `ticket` kara liste kalıbı (wsTicket) yüzünden açıkça izinli.
   "ticketNo",
+  // P8b (mimari-e9 §12): bildirim kanalı, hız kovası ve anahtar türü (`key` kalıbına takılmasın).
+  "channel",
+  "bucket",
+  "keyType",
 ]);
 
 const MASKED_KEY =
   /pass|secret|token|key|nonce|totp|code|ticket|credential|recovery|cookie|authorization|sdp|candidate|admit/i;
 
 export const MASK = "***";
+
+/** Telefon maskesi (§5.3): `+905321234567` → `+90*******4567` (ilk 3 + son 4). */
+export function maskPhone(phone: string): string {
+  if (phone.length <= 7) return MASK;
+  return `${phone.slice(0, 3)}${"*".repeat(phone.length - 7)}${phone.slice(-4)}`;
+}
 
 export function maskValue(value: JsonValue): JsonValue {
   if (Array.isArray(value)) return value.map(maskValue);

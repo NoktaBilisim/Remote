@@ -1,5 +1,5 @@
 # ADR-0004 — Windows Hızlı Destek istemcisi: Go + Pion + Win32
-Durum: Kabul (kullanıcı kararı S1), r2 2026-11-11 (P6 uygulamasıyla eşitlendi: Dosyalar, Proxy) · Tarih: 2026-11-10
+Durum: Kabul (kullanıcı kararı S1), r2 2026-11-11 (P6 uygulamasıyla eşitlendi: Dosyalar, Proxy), **r3 2026-11-12 (E9 hatırlama dosyası — aşağıda "Revizyon r3")** · Tarih: 2026-11-10
 ## Bağlam
 Admin'siz, kurulumsuz, tek dosya ≤ 40 MB, açılış ≤ 5 sn, kalıcı iz yok (AC-95..110). RustDesk (AGPL, R8) kullanılmaz.
 ## Karar
@@ -22,3 +22,25 @@ Admin'siz, kurulumsuz, tek dosya ≤ 40 MB, açılış ≤ 5 sn, kalıcı iz yok
 Rust (webrtc-rs daha az olgun), Tauri/Electron (boyut, WebView2 iz), RustDesk (AGPL).
 ## Sonuçlar
 Win32 UI kodu elle yazılır (birkaç pencere — kabul). macOS/Linux için `capture`, `input`, `ui` paketleri platform dosyalarıyla (`_darwin.go`) genişler; protokol aynıdır.
+
+## Revizyon r3 (2026-11-12, E9 — AC-136..138, R14, R16; ADR-0016)
+**Bağlam:** E9'da müşteri adı/telefon/e-postasının "bu bilgisayarda hatırlanması" istendi. r2'deki "istemci kendi adına diske hiç yazmaz" ilkesine **tek istisna** tanımlanır; AC-108 metni AC-138 ile değişir.
+**Karar:**
+| Konu | Seçim |
+|---|---|
+| Ne | Yalnız `{ "v":1, "name", "phone" (E.164), "email"? }` JSON (≤ 4 KB). Açıklama, onay, talep kimliği, talep sırrı, ref **yazılmaz** |
+| Nerede | `%LOCALAPPDATA%\NoktaDestek\hatirla.bin` (`SHGetKnownFolderPath(FOLDERID_LocalAppData)`); Roaming değil — "bu bilgisayarda" anlamı ve dolaşım profilinde sunucuya kopyalanmaması için |
+| Koruma | `CryptProtectData` (DPAPI, CurrentUser kapsamı — `CRYPTPROTECT_LOCAL_MACHINE` yok), `CRYPTPROTECT_UI_FORBIDDEN`, sabit ek entropi `NoktaDestek.remember.v1`; `crypt32.dll` `NewLazySystemDLL` (G-08 kuralı) |
+| Ne zaman yazılır | Yalnız "Bilgilerimi bu bilgisayarda hatırla" işaretliyken **talep 201 aldıktan sonra** (geçersiz form diske gitmez). Atomik: aynı klasörde `hatirla.bin.tmp` (O_EXCL) → `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` |
+| Ne zaman silinir | "Bilgilerimi unut" (≤ 1 sn, AC-137); kutucuk işaretsiz gönderim; çözme/parse hatası (bozuk dosya veya başka kullanıcı) → sessizce sil, form boş. Silmede `hatirla.bin`, varsa `.tmp`, ardından **yalnız boşsa** `NoktaDestek` klasörü (`RemoveDirectoryW`) |
+| Okuma | Açılışta bir kez; değerler forma doldurulur; bellekte düz tutulur, süreç sonunda bırakılır |
+| Yasaklar (değişmez) | Kayıt defteri, servis, zamanlanmış görev, başlangıç kısayolu, tepsi simgesi, `%TEMP%`, log dosyası yok |
+| Test | Go birim (`internal/remember`: yaz/oku/sil, bozuk dosya, klasör boş değilse silinmez) + `trace-check.ps1 -Remember off` (iz yok) ve `-Remember on` (yalnız bu dosya) Windows elle |
+**Alternatifler:** Kayıt defteri `HKCU\Software\NoktaDestek` (AC-136 "kayıt defteri kullanılmaz"; iz testi daha zor) — reddedildi. Şifresiz JSON — R14 nedeniyle reddedildi. `%APPDATA%` (Roaming) — profille dolaşır; reddedildi. Exe yanına yazmak — İndirilenler'e yazma ve paylaşılan klasör riski; reddedildi.
+**Sonuçlar:** Aynı Windows kullanıcısındaki zararlı yazılım dosyayı çözebilir (T17 kapsam sınırı; kabul). Aydınlatma metni yerel saklamayı açıklar (seed). `internal/remember` tek dosya, arayüz yok.
+**r3 eki (2026-11-12, güvenlik tasarım turu E9 — G-E9-13, G-E9-1, G-E9-4; mimari-e9 §13):**
+- "Hatırla" kutucuğu **varsayılan işaretsizdir** (kullanıcı kararı; V15 güncellendi). Form hatırlanan bilgilerle açılırsa altında "Bu bilgiler size ait değilse **Bilgilerimi unut**" ipucu çıkar.
+- Dosya içeriği `{ "v":1, "name", "phone", "email"?, "deviceKey" }` olur. `deviceKey` 128 bit `crypto/rand` base64url (22 karakter) değerdir, yalnız hatırlama ilk kez açıldığında üretilir ve talepte gönderilir ("bilinen cihaz" bayrağı). "Bilgilerimi unut" ile birlikte silinir. Hatırlama kapalıysa üretilmez ve gönderilmez.
+- `hatirla.bin.tmp` O_EXCL `ERROR_FILE_EXISTS` verirse (önceki çalışmadan kalmışsa) tmp silinir ve bir kez yeniden denenir.
+- Sürüm: istemci `minAgentVersion`/426 `CLIENT_OUTDATED` alırsa yalnız sabit biçimli `<serverURL>/api/v1/public/agent/request-download?ref=<ref>` URL'sini `ShellExecuteW` ile varsayılan tarayıcıda açar. Başka URL açılmaz.
+- Ret mesajı ve sunucudan gelen metinler `SS_NOPREFIX` statik metinle gösterilir.

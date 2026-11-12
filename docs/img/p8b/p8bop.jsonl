@@ -1,0 +1,513 @@
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"load","label":"talepler-gecmis-reddedildi-1280-light","status":200,"ms":194,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history&status=REJECTED"}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"overflow","label":"talepler-gecmis-reddedildi-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"axe","label":"talepler-gecmis-reddedildi-1280-light","violations":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"load","label":"talepler-gecmis-reddedildi-1280-dark","status":200,"ms":55,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history&status=REJECTED"}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"overflow","label":"talepler-gecmis-reddedildi-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler","kind":"load","label":"talepler-1280-light","status":200,"ms":465,"title":"(3) Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler","kind":"overflow","label":"talepler-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis","kind":"load","label":"talepler-gecmis-1280-light","status":200,"ms":475,"title":"(3) Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler-bos","kind":"load","label":"talepler-bos-1280-light","status":200,"ms":477,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-gecmis","kind":"overflow","label":"talepler-gecmis-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-bos","kind":"overflow","label":"talepler-bos-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"axe","label":"talepler-gecmis-reddedildi-1280-dark","violations":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"load","label":"talepler-gecmis-reddedildi-1440-light","status":200,"ms":49,"title":"(3) Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history&status=REJECTED"}
+{"test":"tarama: talepler-bos","kind":"axe","label":"talepler-bos-1280-light","violations":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"overflow","label":"talepler-gecmis-reddedildi-1440-light","doc":0,"inner":[]}
+{"test":"tarama: talepler","kind":"axe","label":"talepler-1280-light","violations":[]}
+{"test":"tarama: talepler-gecmis","kind":"axe","label":"talepler-gecmis-1280-light","violations":[]}
+{"test":"tarama: talepler-bos","kind":"load","label":"talepler-bos-1280-dark","status":200,"ms":49,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-bos","kind":"overflow","label":"talepler-bos-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"axe","label":"talepler-gecmis-reddedildi-1440-light","violations":[]}
+{"test":"tarama: talepler","kind":"load","label":"talepler-1280-dark","status":200,"ms":55,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler","kind":"overflow","label":"talepler-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis","kind":"load","label":"talepler-gecmis-1280-dark","status":200,"ms":49,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler-gecmis","kind":"overflow","label":"talepler-gecmis-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-bos","kind":"axe","label":"talepler-bos-1280-dark","violations":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"load","label":"talepler-gecmis-reddedildi-1440-dark","status":200,"ms":54,"title":"(3) Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history&status=REJECTED"}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"overflow","label":"talepler-gecmis-reddedildi-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-bos","kind":"load","label":"talepler-bos-1440-light","status":200,"ms":51,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-bos","kind":"overflow","label":"talepler-bos-1440-light","doc":0,"inner":[]}
+{"test":"tarama: talepler","kind":"axe","label":"talepler-1280-dark","violations":[]}
+{"test":"tarama: talepler-gecmis","kind":"axe","label":"talepler-gecmis-1280-dark","violations":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"axe","label":"talepler-gecmis-reddedildi-1440-dark","violations":[]}
+{"test":"tarama: talepler-bos","kind":"axe","label":"talepler-bos-1440-light","violations":[]}
+{"test":"tarama: talepler-gecmis","kind":"load","label":"talepler-gecmis-1440-light","status":200,"ms":38,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler","kind":"load","label":"talepler-1440-light","status":200,"ms":37,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-gecmis","kind":"overflow","label":"talepler-gecmis-1440-light","doc":0,"inner":[]}
+{"test":"tarama: talepler","kind":"overflow","label":"talepler-1440-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"load","label":"talepler-gecmis-reddedildi-390-light","status":200,"ms":47,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history&status=REJECTED"}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"overflow","label":"talepler-gecmis-reddedildi-390-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-bos","kind":"load","label":"talepler-bos-1440-dark","status":200,"ms":58,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-bos","kind":"overflow","label":"talepler-bos-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler","kind":"axe","label":"talepler-1440-light","violations":[]}
+{"test":"tarama: talepler-gecmis","kind":"axe","label":"talepler-gecmis-1440-light","violations":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"axe","label":"talepler-gecmis-reddedildi-390-light","violations":[]}
+{"test":"tarama: talepler-bos","kind":"axe","label":"talepler-bos-1440-dark","violations":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"load","label":"talepler-gecmis-reddedildi-390-dark","status":200,"ms":47,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history&status=REJECTED"}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"overflow","label":"talepler-gecmis-reddedildi-390-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis","kind":"load","label":"talepler-gecmis-1440-dark","status":200,"ms":39,"title":"(3) Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler-gecmis","kind":"overflow","label":"talepler-gecmis-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler","kind":"load","label":"talepler-1440-dark","status":200,"ms":39,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler","kind":"overflow","label":"talepler-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-bos","kind":"load","label":"talepler-bos-390-light","status":200,"ms":48,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-bos","kind":"overflow","label":"talepler-bos-390-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"axe","label":"talepler-gecmis-reddedildi-390-dark","violations":[]}
+{"test":"tarama: talepler-gecmis","kind":"axe","label":"talepler-gecmis-1440-dark","violations":[]}
+{"test":"tarama: talepler","kind":"axe","label":"talepler-1440-dark","violations":[]}
+{"test":"tarama: talepler-bos","kind":"axe","label":"talepler-bos-390-light","violations":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/requests?tab=history&status=REJECTED#icerik","status":200}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/","status":200}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/sessions","status":200}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/requests","status":200}
+{"test":"tarama: talepler-bos","kind":"load","label":"talepler-bos-390-dark","status":200,"ms":47,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-bos","kind":"overflow","label":"talepler-bos-390-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/history","status":200}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/settings/support-requests","status":200}
+{"test":"tarama: talepler-gecmis","kind":"load","label":"talepler-gecmis-390-light","status":200,"ms":56,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler-gecmis","kind":"overflow","label":"talepler-gecmis-390-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/requests?tab=history","status":200}
+{"test":"tarama: talepler","kind":"load","label":"talepler-390-light","status":200,"ms":52,"title":"(3) Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler","kind":"overflow","label":"talepler-390-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/requests?tab=history&status=ACCEPTED","status":200}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/requests?tab=history&status=CANCELLED","status":200}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/requests?tab=history&status=EXPIRED","status":200}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/requests?tab=history&status=REJECTED","status":200}
+{"test":"tarama: talepler-gecmis-reddedildi","kind":"link","from":"talepler-gecmis-reddedildi","href":"/requests?tab=history&status=CONNECT_FAILED","status":200}
+{"test":"tarama: talepler-bos","kind":"axe","label":"talepler-bos-390-dark","violations":[]}
+{"test":"tarama: talepler-bos","kind":"link","from":"talepler-bos","href":"/requests#icerik","status":200}
+{"test":"tarama: talepler-bos","kind":"link","from":"talepler-bos","href":"/","status":200}
+{"test":"tarama: talepler-bos","kind":"link","from":"talepler-bos","href":"/sessions","status":200}
+{"test":"tarama: talepler-bos","kind":"link","from":"talepler-bos","href":"/requests","status":200}
+{"test":"tarama: talepler-bos","kind":"link","from":"talepler-bos","href":"/history","status":200}
+{"test":"tarama: talepler-bos","kind":"link","from":"talepler-bos","href":"/settings/support-requests","status":200}
+{"test":"tarama: talepler-bos","kind":"link","from":"talepler-bos","href":"/requests?tab=history","status":200}
+{"test":"tarama: talepler-gecmis","kind":"axe","label":"talepler-gecmis-390-light","violations":[]}
+{"test":"tarama: talepler","kind":"axe","label":"talepler-390-light","violations":[]}
+{"test":"tarama: talepler-gecmis","kind":"load","label":"talepler-gecmis-390-dark","status":200,"ms":38,"title":"(3) Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler-gecmis","kind":"overflow","label":"talepler-gecmis-390-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler","kind":"load","label":"talepler-390-dark","status":200,"ms":35,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler","kind":"overflow","label":"talepler-390-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis","kind":"axe","label":"talepler-gecmis-390-dark","violations":[]}
+{"test":"tarama: talepler","kind":"axe","label":"talepler-390-dark","violations":[]}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/requests?tab=history#icerik","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/","status":200}
+{"test":"tarama: talepler","kind":"link","from":"talepler","href":"/requests#icerik","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/sessions","status":200}
+{"test":"tarama: talepler","kind":"link","from":"talepler","href":"/","status":200}
+{"test":"tarama: talepler","kind":"link","from":"talepler","href":"/sessions","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/requests","status":200}
+{"test":"tarama: talepler","kind":"link","from":"talepler","href":"/requests","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/history","status":200}
+{"test":"tarama: talepler","kind":"link","from":"talepler","href":"/history","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/settings/support-requests","status":200}
+{"test":"tarama: talepler","kind":"link","from":"talepler","href":"/settings/support-requests","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/requests?tab=history","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/requests?tab=history&status=ACCEPTED","status":200}
+{"test":"tarama: talepler","kind":"link","from":"talepler","href":"/requests?tab=history","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/requests?tab=history&status=CANCELLED","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/requests?tab=history&status=EXPIRED","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/requests?tab=history&status=REJECTED","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/requests?tab=history&status=CONNECT_FAILED","status":200}
+{"test":"tarama: talepler-gecmis","kind":"link","from":"talepler-gecmis","href":"/history/01JHXST0000000000000000000","status":200}
+{"test":"tarama: talepler-hata","kind":"load","label":"talepler-hata-1280-light","status":200,"ms":384,"title":"(3) Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-hata","kind":"overflow","label":"talepler-hata-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-superadmin","kind":"load","label":"talepler-superadmin-1280-light","status":200,"ms":90,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-superadmin","kind":"overflow","label":"talepler-superadmin-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-hata","kind":"axe","label":"talepler-hata-1280-light","violations":[]}
+{"test":"tarama: talepler-hata","kind":"load","label":"talepler-hata-1280-dark","status":200,"ms":50,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-hata","kind":"overflow","label":"talepler-hata-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-superadmin","kind":"axe","label":"talepler-superadmin-1280-light","violations":[]}
+{"test":"tarama: talepler-superadmin","kind":"load","label":"talepler-superadmin-1280-dark","status":200,"ms":49,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-superadmin","kind":"overflow","label":"talepler-superadmin-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-hata","kind":"axe","label":"talepler-hata-1280-dark","violations":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"load","label":"talepler-salt-okunur-1280-light","status":200,"ms":386,"title":"(3) Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-salt-okunur","kind":"overflow","label":"talepler-salt-okunur-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-bos","kind":"load","label":"talepler-gecmis-bos-1280-light","status":200,"ms":884,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler-gecmis-bos","kind":"overflow","label":"talepler-gecmis-bos-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-hata","kind":"load","label":"talepler-hata-1440-light","status":200,"ms":45,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-hata","kind":"overflow","label":"talepler-hata-1440-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-superadmin","kind":"axe","label":"talepler-superadmin-1280-dark","violations":[]}
+{"test":"tarama: talepler-superadmin","kind":"load","label":"talepler-superadmin-1440-light","status":200,"ms":48,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-superadmin","kind":"overflow","label":"talepler-superadmin-1440-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-hata","kind":"axe","label":"talepler-hata-1440-light","violations":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"axe","label":"talepler-salt-okunur-1280-light","violations":[]}
+{"test":"tarama: talepler-gecmis-bos","kind":"axe","label":"talepler-gecmis-bos-1280-light","violations":[]}
+{"test":"tarama: talepler-hata","kind":"load","label":"talepler-hata-1440-dark","status":200,"ms":45,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-hata","kind":"overflow","label":"talepler-hata-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-superadmin","kind":"axe","label":"talepler-superadmin-1440-light","violations":[]}
+{"test":"tarama: talepler-superadmin","kind":"load","label":"talepler-superadmin-1440-dark","status":200,"ms":42,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-superadmin","kind":"overflow","label":"talepler-superadmin-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"load","label":"talepler-salt-okunur-1280-dark","status":200,"ms":48,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-salt-okunur","kind":"overflow","label":"talepler-salt-okunur-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-hata","kind":"axe","label":"talepler-hata-1440-dark","violations":[]}
+{"test":"tarama: talepler-hata","kind":"load","label":"talepler-hata-390-light","status":200,"ms":44,"title":"(3) Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-hata","kind":"overflow","label":"talepler-hata-390-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-superadmin","kind":"axe","label":"talepler-superadmin-1440-dark","violations":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"axe","label":"talepler-salt-okunur-1280-dark","violations":[]}
+{"test":"tarama: talepler-superadmin","kind":"load","label":"talepler-superadmin-390-light","status":200,"ms":43,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-superadmin","kind":"overflow","label":"talepler-superadmin-390-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-hata","kind":"axe","label":"talepler-hata-390-light","violations":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"load","label":"talepler-salt-okunur-1440-light","status":200,"ms":32,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-salt-okunur","kind":"overflow","label":"talepler-salt-okunur-1440-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-hata","kind":"load","label":"talepler-hata-390-dark","status":200,"ms":51,"title":"(3) Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-hata","kind":"overflow","label":"talepler-hata-390-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-superadmin","kind":"axe","label":"talepler-superadmin-390-light","violations":[]}
+{"test":"tarama: talepler-superadmin","kind":"load","label":"talepler-superadmin-390-dark","status":200,"ms":43,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-superadmin","kind":"overflow","label":"talepler-superadmin-390-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"axe","label":"talepler-salt-okunur-1440-light","violations":[]}
+{"test":"tarama: talepler-hata","kind":"axe","label":"talepler-hata-390-dark","violations":[]}
+{"test":"tarama: talepler-hata","kind":"link","from":"talepler-hata","href":"/requests#icerik","status":200}
+{"test":"tarama: talepler-hata","kind":"link","from":"talepler-hata","href":"/","status":200}
+{"test":"tarama: talepler-hata","kind":"link","from":"talepler-hata","href":"/sessions","status":200}
+{"test":"tarama: talepler-hata","kind":"link","from":"talepler-hata","href":"/requests","status":200}
+{"test":"tarama: talepler-hata","kind":"link","from":"talepler-hata","href":"/history","status":200}
+{"test":"tarama: talepler-hata","kind":"link","from":"talepler-hata","href":"/settings/support-requests","status":200}
+{"test":"tarama: talepler-hata","kind":"link","from":"talepler-hata","href":"/requests?tab=history","status":200}
+{"test":"tarama: talepler-superadmin","kind":"axe","label":"talepler-superadmin-390-dark","violations":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"load","label":"talepler-salt-okunur-1440-dark","status":200,"ms":35,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-salt-okunur","kind":"overflow","label":"talepler-salt-okunur-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-superadmin","kind":"link","from":"talepler-superadmin","href":"/requests#icerik","status":200}
+{"test":"tarama: talepler-superadmin","kind":"link","from":"talepler-superadmin","href":"/","status":200}
+{"test":"tarama: talepler-superadmin","kind":"link","from":"talepler-superadmin","href":"/sessions","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"load","label":"talepler-gecmis-bos-1280-dark","status":200,"ms":581,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler-gecmis-bos","kind":"overflow","label":"talepler-gecmis-bos-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-superadmin","kind":"link","from":"talepler-superadmin","href":"/requests","status":200}
+{"test":"tarama: talepler-superadmin","kind":"link","from":"talepler-superadmin","href":"/history","status":200}
+{"test":"tarama: talepler-superadmin","kind":"link","from":"talepler-superadmin","href":"/settings/support-requests","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"axe","label":"talepler-gecmis-bos-1280-dark","violations":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"axe","label":"talepler-salt-okunur-1440-dark","violations":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"load","label":"talepler-salt-okunur-390-light","status":200,"ms":31,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-salt-okunur","kind":"overflow","label":"talepler-salt-okunur-390-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"axe","label":"talepler-salt-okunur-390-light","violations":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"load","label":"talepler-salt-okunur-390-dark","status":200,"ms":33,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-salt-okunur","kind":"overflow","label":"talepler-salt-okunur-390-dark","doc":0,"inner":[]}
+{"test":"tarama: ayarlar","kind":"load","label":"ayarlar-1280-light","status":200,"ms":391,"title":"(3) Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar","kind":"overflow","label":"ayarlar-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"axe","label":"talepler-salt-okunur-390-dark","violations":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"load","label":"talepler-yetkisiz-1280-light","status":200,"ms":604,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-yetkisiz","kind":"overflow","label":"talepler-yetkisiz-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"link","from":"talepler-salt-okunur","href":"/requests#icerik","status":200}
+{"test":"tarama: talepler-salt-okunur","kind":"link","from":"talepler-salt-okunur","href":"/","status":200}
+{"test":"tarama: talepler-salt-okunur","kind":"link","from":"talepler-salt-okunur","href":"/sessions","status":200}
+{"test":"tarama: ayarlar","kind":"axe","label":"ayarlar-1280-light","violations":[]}
+{"test":"tarama: talepler-salt-okunur","kind":"link","from":"talepler-salt-okunur","href":"/requests","status":200}
+{"test":"tarama: talepler-salt-okunur","kind":"link","from":"talepler-salt-okunur","href":"/requests?tab=history","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"load","label":"talepler-gecmis-bos-1440-light","status":200,"ms":551,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler-gecmis-bos","kind":"overflow","label":"talepler-gecmis-bos-1440-light","doc":0,"inner":[]}
+{"test":"tarama: ayarlar","kind":"load","label":"ayarlar-1280-dark","status":200,"ms":50,"title":"Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar","kind":"overflow","label":"ayarlar-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"axe","label":"talepler-yetkisiz-1280-light","violations":[]}
+{"test":"tarama: talepler-gecmis-bos","kind":"axe","label":"talepler-gecmis-bos-1440-light","violations":[]}
+{"test":"tarama: ayarlar","kind":"axe","label":"ayarlar-1280-dark","violations":[]}
+{"test":"tarama: ayarlar","kind":"load","label":"ayarlar-1440-light","status":200,"ms":35,"title":"Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar","kind":"overflow","label":"ayarlar-1440-light","doc":0,"inner":[]}
+{"test":"tarama: ayarlar","kind":"axe","label":"ayarlar-1440-light","violations":[]}
+{"test":"tarama: ayarlar","kind":"load","label":"ayarlar-1440-dark","status":200,"ms":32,"title":"(3) Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar","kind":"overflow","label":"ayarlar-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: ayarlar-yetkisiz","kind":"load","label":"ayarlar-yetkisiz-1280-light","status":200,"ms":599,"title":"(3) Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar-yetkisiz","kind":"overflow","label":"ayarlar-yetkisiz-1280-light","doc":0,"inner":[]}
+{"test":"tarama: ayarlar","kind":"axe","label":"ayarlar-1440-dark","violations":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"load","label":"talepler-yetkisiz-1280-dark","status":200,"ms":551,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-yetkisiz","kind":"overflow","label":"talepler-yetkisiz-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-bos","kind":"load","label":"talepler-gecmis-bos-1440-dark","status":200,"ms":544,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler-gecmis-bos","kind":"overflow","label":"talepler-gecmis-bos-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: ayarlar-yetkisiz","kind":"axe","label":"ayarlar-yetkisiz-1280-light","violations":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"axe","label":"talepler-yetkisiz-1280-dark","violations":[]}
+{"test":"tarama: talepler-gecmis-bos","kind":"axe","label":"talepler-gecmis-bos-1440-dark","violations":[]}
+{"test":"tarama: ayarlar","kind":"load","label":"ayarlar-390-light","status":200,"ms":328,"title":"(3) Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar","kind":"overflow","label":"ayarlar-390-light","doc":0,"inner":["div[mt-6 flex max-w-3xl flex-col gap-6] +16","form[settings-form] +16"]}
+{"test":"tarama: ayarlar","kind":"axe","label":"ayarlar-390-light","violations":[]}
+{"test":"tarama: ayarlar","kind":"load","label":"ayarlar-390-dark","status":200,"ms":30,"title":"Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar","kind":"overflow","label":"ayarlar-390-dark","doc":0,"inner":["div[mt-6 flex max-w-3xl flex-col gap-6] +16","form[settings-form] +16"]}
+{"test":"tarama: ayarlar-yetkisiz","kind":"load","label":"ayarlar-yetkisiz-1280-dark","status":200,"ms":560,"title":"(3) Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: talepler-yetkisiz","kind":"load","label":"talepler-yetkisiz-1440-light","status":200,"ms":539,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: ayarlar-yetkisiz","kind":"overflow","label":"ayarlar-yetkisiz-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"overflow","label":"talepler-yetkisiz-1440-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-bos","kind":"load","label":"talepler-gecmis-bos-390-light","status":200,"ms":544,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler-gecmis-bos","kind":"overflow","label":"talepler-gecmis-bos-390-light","doc":0,"inner":[]}
+{"test":"tarama: ayarlar","kind":"axe","label":"ayarlar-390-dark","violations":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"axe","label":"talepler-yetkisiz-1440-light","violations":[]}
+{"test":"tarama: ayarlar-yetkisiz","kind":"axe","label":"ayarlar-yetkisiz-1280-dark","violations":[]}
+{"test":"tarama: ayarlar","kind":"link","from":"ayarlar","href":"/settings/support-requests#icerik","status":200}
+{"test":"tarama: ayarlar","kind":"link","from":"ayarlar","href":"/","status":200}
+{"test":"tarama: ayarlar","kind":"link","from":"ayarlar","href":"/sessions","status":200}
+{"test":"tarama: ayarlar","kind":"link","from":"ayarlar","href":"/requests","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"axe","label":"talepler-gecmis-bos-390-light","violations":[]}
+{"test":"tarama: ayarlar","kind":"link","from":"ayarlar","href":"/history","status":200}
+{"test":"tarama: ayarlar","kind":"link","from":"ayarlar","href":"/settings/support-requests","status":200}
+{"test":"tarama: ayarlar-yetkisiz","kind":"load","label":"ayarlar-yetkisiz-1440-light","status":200,"ms":545,"title":"(3) Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: talepler-yetkisiz","kind":"load","label":"talepler-yetkisiz-1440-dark","status":200,"ms":543,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-yetkisiz","kind":"overflow","label":"talepler-yetkisiz-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: ayarlar-yetkisiz","kind":"overflow","label":"ayarlar-yetkisiz-1440-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-gecmis-bos","kind":"load","label":"talepler-gecmis-bos-390-dark","status":200,"ms":552,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests?tab=history"}
+{"test":"tarama: talepler-gecmis-bos","kind":"overflow","label":"talepler-gecmis-bos-390-dark","doc":0,"inner":[]}
+{"test":"tarama: ayarlar-superadmin","kind":"load","label":"ayarlar-superadmin-1280-light","status":200,"ms":592,"title":"Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar-superadmin","kind":"overflow","label":"ayarlar-superadmin-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"axe","label":"talepler-yetkisiz-1440-dark","violations":[]}
+{"test":"tarama: ayarlar-yetkisiz","kind":"axe","label":"ayarlar-yetkisiz-1440-light","violations":[]}
+{"test":"tarama: talepler-gecmis-bos","kind":"axe","label":"talepler-gecmis-bos-390-dark","violations":[]}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/requests?tab=history#icerik","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/sessions","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/requests","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/history","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/settings/support-requests","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/requests?tab=history","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/requests?tab=history&status=ACCEPTED","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/requests?tab=history&status=CANCELLED","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/requests?tab=history&status=EXPIRED","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/requests?tab=history&status=REJECTED","status":200}
+{"test":"tarama: talepler-gecmis-bos","kind":"link","from":"talepler-gecmis-bos","href":"/requests?tab=history&status=CONNECT_FAILED","status":200}
+{"test":"tarama: ayarlar-superadmin","kind":"axe","label":"ayarlar-superadmin-1280-light","violations":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"load","label":"gecmis-kaynak-talep-1280-light","status":200,"ms":381,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history?source=REQUEST"}
+{"test":"tarama: gecmis-kaynak-talep","kind":"overflow","label":"gecmis-kaynak-talep-1280-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"load","label":"talepler-yetkisiz-390-light","status":200,"ms":543,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: ayarlar-yetkisiz","kind":"load","label":"ayarlar-yetkisiz-1440-dark","status":200,"ms":544,"title":"(3) Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar-yetkisiz","kind":"overflow","label":"ayarlar-yetkisiz-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"overflow","label":"talepler-yetkisiz-390-light","doc":0,"inner":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"axe","label":"talepler-yetkisiz-390-light","violations":[]}
+{"test":"tarama: ayarlar-yetkisiz","kind":"axe","label":"ayarlar-yetkisiz-1440-dark","violations":[]}
+{"test":"tarama: ayarlar-superadmin","kind":"load","label":"ayarlar-superadmin-1280-dark","status":200,"ms":556,"title":"Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar-superadmin","kind":"overflow","label":"ayarlar-superadmin-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"axe","label":"gecmis-kaynak-talep-1280-light","violations":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"load","label":"gecmis-kaynak-talep-1280-dark","status":200,"ms":46,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history?source=REQUEST"}
+{"test":"tarama: gecmis-kaynak-talep","kind":"overflow","label":"gecmis-kaynak-talep-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: ayarlar-superadmin","kind":"axe","label":"ayarlar-superadmin-1280-dark","violations":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"axe","label":"gecmis-kaynak-talep-1280-dark","violations":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"load","label":"gecmis-kaynak-talep-1440-light","status":200,"ms":31,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history?source=REQUEST"}
+{"test":"tarama: gecmis-kaynak-talep","kind":"overflow","label":"gecmis-kaynak-talep-1440-light","doc":0,"inner":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"axe","label":"gecmis-kaynak-talep-1440-light","violations":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"load","label":"talepler-yetkisiz-390-dark","status":200,"ms":532,"title":"Talepler · Nokta Uzaktan Destek","url":"/requests"}
+{"test":"tarama: talepler-yetkisiz","kind":"overflow","label":"talepler-yetkisiz-390-dark","doc":0,"inner":[]}
+{"test":"tarama: ayarlar-yetkisiz","kind":"load","label":"ayarlar-yetkisiz-390-light","status":200,"ms":538,"title":"(3) Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar-yetkisiz","kind":"overflow","label":"ayarlar-yetkisiz-390-light","doc":0,"inner":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"load","label":"gecmis-kaynak-talep-1440-dark","status":200,"ms":32,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history?source=REQUEST"}
+{"test":"tarama: gecmis-kaynak-talep","kind":"overflow","label":"gecmis-kaynak-talep-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"axe","label":"talepler-yetkisiz-390-dark","violations":[]}
+{"test":"tarama: ayarlar-yetkisiz","kind":"axe","label":"ayarlar-yetkisiz-390-light","violations":[]}
+{"test":"tarama: talepler-yetkisiz","kind":"link","from":"talepler-yetkisiz","href":"/requests#icerik","status":200}
+{"test":"tarama: talepler-yetkisiz","kind":"link","from":"talepler-yetkisiz","href":"/","status":200}
+{"test":"tarama: talepler-yetkisiz","kind":"link","from":"talepler-yetkisiz","href":"/sessions","status":200}
+{"test":"tarama: gecmis-kaynak-talep","kind":"axe","label":"gecmis-kaynak-talep-1440-dark","violations":[]}
+{"test":"tarama: ayarlar-superadmin","kind":"load","label":"ayarlar-superadmin-1440-light","status":200,"ms":540,"title":"Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar-superadmin","kind":"overflow","label":"ayarlar-superadmin-1440-light","doc":0,"inner":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"load","label":"gecmis-kaynak-talep-390-light","status":200,"ms":42,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history?source=REQUEST"}
+{"test":"tarama: gecmis-kaynak-talep","kind":"overflow","label":"gecmis-kaynak-talep-390-light","doc":0,"inner":[]}
+{"test":"tarama: ayarlar-superadmin","kind":"axe","label":"ayarlar-superadmin-1440-light","violations":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"axe","label":"gecmis-kaynak-talep-390-light","violations":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"load","label":"gecmis-kaynak-talep-390-dark","status":200,"ms":32,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history?source=REQUEST"}
+{"test":"tarama: gecmis-kaynak-talep","kind":"overflow","label":"gecmis-kaynak-talep-390-dark","doc":0,"inner":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"load","label":"gecmis-talep-detay-1280-light","status":200,"ms":378,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek","url":"/history/01JHXST0000000000000000020"}
+{"test":"tarama: gecmis-talep-detay","kind":"overflow","label":"gecmis-talep-detay-1280-light","doc":0,"inner":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"axe","label":"gecmis-kaynak-talep-390-dark","violations":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"link","from":"gecmis-kaynak-talep","href":"/history?source=REQUEST#icerik","status":200}
+{"test":"tarama: gecmis-kaynak-talep","kind":"link","from":"gecmis-kaynak-talep","href":"/","status":200}
+{"test":"tarama: gecmis-kaynak-talep","kind":"link","from":"gecmis-kaynak-talep","href":"/sessions","status":200}
+{"test":"tarama: gecmis-kaynak-talep","kind":"link","from":"gecmis-kaynak-talep","href":"/history","status":200}
+{"test":"tarama: gecmis-kaynak-talep","kind":"link","from":"gecmis-kaynak-talep","href":"/history/01JHXST0000000000000000020","status":200}
+{"test":"tarama: gecmis-kaynak-talep","kind":"link","from":"gecmis-kaynak-talep","href":"/history/01JHXST0000000000000000030","status":200}
+{"test":"tarama: ayarlar-yetkisiz","kind":"load","label":"ayarlar-yetkisiz-390-dark","status":200,"ms":538,"title":"(3) Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar-yetkisiz","kind":"overflow","label":"ayarlar-yetkisiz-390-dark","doc":0,"inner":[]}
+{"test":"tarama: gecmis-kaynak-talep","kind":"link","from":"gecmis-kaynak-talep","href":"/history/01JHXST0000000000000000050","status":200}
+{"test":"tarama: ayarlar-yetkisiz","kind":"axe","label":"ayarlar-yetkisiz-390-dark","violations":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"axe","label":"gecmis-talep-detay-1280-light","violations":[]}
+{"test":"tarama: ayarlar-yetkisiz","kind":"link","from":"ayarlar-yetkisiz","href":"/settings/support-requests#icerik","status":200}
+{"test":"tarama: ayarlar-yetkisiz","kind":"link","from":"ayarlar-yetkisiz","href":"/","status":200}
+{"test":"tarama: ayarlar-yetkisiz","kind":"link","from":"ayarlar-yetkisiz","href":"/sessions","status":200}
+{"test":"tarama: ayarlar-yetkisiz","kind":"link","from":"ayarlar-yetkisiz","href":"/requests","status":200}
+{"test":"tarama: ayarlar-superadmin","kind":"load","label":"ayarlar-superadmin-1440-dark","status":200,"ms":538,"title":"Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar-superadmin","kind":"overflow","label":"ayarlar-superadmin-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"load","label":"gecmis-talep-detay-1280-dark","status":200,"ms":48,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek","url":"/history/01JHXST0000000000000000020"}
+{"test":"tarama: gecmis-talep-detay","kind":"overflow","label":"gecmis-talep-detay-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: ayarlar-superadmin","kind":"axe","label":"ayarlar-superadmin-1440-dark","violations":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"axe","label":"gecmis-talep-detay-1280-dark","violations":[]}
+{"test":"tarama: gecmis-liste","kind":"load","label":"gecmis-liste-1280-light","status":200,"ms":383,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history"}
+{"test":"tarama: gecmis-liste","kind":"overflow","label":"gecmis-liste-1280-light","doc":0,"inner":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"load","label":"gecmis-talep-detay-1440-light","status":200,"ms":29,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek","url":"/history/01JHXST0000000000000000020"}
+{"test":"tarama: gecmis-talep-detay","kind":"overflow","label":"gecmis-talep-detay-1440-light","doc":0,"inner":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"axe","label":"gecmis-talep-detay-1440-light","violations":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"load","label":"gecmis-talep-detay-1440-dark","status":200,"ms":30,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek","url":"/history/01JHXST0000000000000000020"}
+{"test":"tarama: gecmis-talep-detay","kind":"overflow","label":"gecmis-talep-detay-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: gecmis-liste","kind":"axe","label":"gecmis-liste-1280-light","violations":[]}
+{"test":"tarama: panel","kind":"load","label":"panel-1280-light","status":200,"ms":591,"title":"Ana sayfa · Nokta Uzaktan Destek","url":"/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1280-light","doc":0,"inner":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"axe","label":"gecmis-talep-detay-1440-dark","violations":[]}
+{"test":"tarama: gecmis-liste","kind":"load","label":"gecmis-liste-1280-dark","status":200,"ms":53,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history"}
+{"test":"tarama: gecmis-liste","kind":"overflow","label":"gecmis-liste-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: ayarlar-superadmin","kind":"load","label":"ayarlar-superadmin-390-light","status":200,"ms":537,"title":"Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar-superadmin","kind":"overflow","label":"ayarlar-superadmin-390-light","doc":0,"inner":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"load","label":"gecmis-talep-detay-390-light","status":200,"ms":31,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek","url":"/history/01JHXST0000000000000000020"}
+{"test":"tarama: gecmis-talep-detay","kind":"overflow","label":"gecmis-talep-detay-390-light","doc":0,"inner":[]}
+{"test":"tarama: panel","kind":"axe","label":"panel-1280-light","violations":[]}
+{"test":"tarama: ayarlar-superadmin","kind":"axe","label":"ayarlar-superadmin-390-light","violations":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"axe","label":"gecmis-talep-detay-390-light","violations":[]}
+{"test":"tarama: gecmis-liste","kind":"axe","label":"gecmis-liste-1280-dark","violations":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"load","label":"gecmis-talep-detay-390-dark","status":200,"ms":31,"title":"Oturum ayrıntısı · Nokta Uzaktan Destek","url":"/history/01JHXST0000000000000000020"}
+{"test":"tarama: gecmis-talep-detay","kind":"overflow","label":"gecmis-talep-detay-390-dark","doc":0,"inner":[]}
+{"test":"tarama: gecmis-liste","kind":"load","label":"gecmis-liste-1440-light","status":200,"ms":38,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history"}
+{"test":"tarama: gecmis-liste","kind":"overflow","label":"gecmis-liste-1440-light","doc":0,"inner":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"axe","label":"gecmis-talep-detay-390-dark","violations":[]}
+{"test":"tarama: gecmis-talep-detay","kind":"link","from":"gecmis-talep-detay","href":"/history/01JHXST0000000000000000020#icerik","status":200}
+{"test":"tarama: gecmis-talep-detay","kind":"link","from":"gecmis-talep-detay","href":"/","status":200}
+{"test":"tarama: gecmis-talep-detay","kind":"link","from":"gecmis-talep-detay","href":"/sessions","status":200}
+{"test":"tarama: gecmis-talep-detay","kind":"link","from":"gecmis-talep-detay","href":"/history","status":200}
+{"test":"tarama: gecmis-liste","kind":"axe","label":"gecmis-liste-1440-light","violations":[]}
+{"test":"tarama: panel","kind":"load","label":"panel-1280-dark","status":200,"ms":550,"title":"Ana sayfa · Nokta Uzaktan Destek","url":"/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: ayarlar-superadmin","kind":"load","label":"ayarlar-superadmin-390-dark","status":200,"ms":536,"title":"Destek talepleri ayarları · Nokta Uzaktan Destek","url":"/settings/support-requests"}
+{"test":"tarama: ayarlar-superadmin","kind":"overflow","label":"ayarlar-superadmin-390-dark","doc":0,"inner":[]}
+{"test":"tarama: panel","kind":"axe","label":"panel-1280-dark","violations":[]}
+{"test":"tarama: ayarlar-superadmin","kind":"axe","label":"ayarlar-superadmin-390-dark","violations":[]}
+{"test":"tarama: ayarlar-superadmin","kind":"link","from":"ayarlar-superadmin","href":"/settings/support-requests#icerik","status":200}
+{"test":"tarama: ayarlar-superadmin","kind":"link","from":"ayarlar-superadmin","href":"/","status":200}
+{"test":"tarama: ayarlar-superadmin","kind":"link","from":"ayarlar-superadmin","href":"/sessions","status":200}
+{"test":"tarama: ayarlar-superadmin","kind":"link","from":"ayarlar-superadmin","href":"/requests","status":200}
+{"test":"tarama: ayarlar-superadmin","kind":"link","from":"ayarlar-superadmin","href":"/history","status":200}
+{"test":"tarama: ayarlar-superadmin","kind":"link","from":"ayarlar-superadmin","href":"/settings/support-requests","status":200}
+{"test":"tarama: panel","kind":"load","label":"panel-1440-light","status":200,"ms":534,"title":"Ana sayfa · Nokta Uzaktan Destek","url":"/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1440-light","doc":0,"inner":[]}
+{"test":"tarama: panel","kind":"axe","label":"panel-1440-light","violations":[]}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-1280-light","status":200,"ms":877,"title":"Oturumlar · Nokta Uzaktan Destek","url":"/sessions"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-1280-light","doc":0,"inner":[]}
+{"test":"tarama: misafir","kind":"load","label":"misafir-1280-light","status":200,"ms":560,"title":"Uzaktan destek bağlantısı · Nokta Uzaktan Destek","url":"/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir","kind":"overflow","label":"misafir-1280-light","doc":0,"inner":[]}
+{"test":"tarama: gecmis-liste","kind":"load","label":"gecmis-liste-1440-dark","status":200,"ms":832,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history"}
+{"test":"tarama: gecmis-liste","kind":"overflow","label":"gecmis-liste-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-1280-light","violations":[]}
+{"test":"tarama: misafir","kind":"axe","label":"misafir-1280-light","violations":[]}
+{"test":"tarama: gecmis-liste","kind":"axe","label":"gecmis-liste-1440-dark","violations":[]}
+{"test":"tarama: gecmis-liste","kind":"load","label":"gecmis-liste-390-light","status":200,"ms":37,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history"}
+{"test":"tarama: gecmis-liste","kind":"overflow","label":"gecmis-liste-390-light","doc":0,"inner":[]}
+{"test":"tarama: gecmis-liste","kind":"axe","label":"gecmis-liste-390-light","violations":[]}
+{"test":"tarama: panel","kind":"load","label":"panel-1440-dark","status":200,"ms":533,"title":"Ana sayfa · Nokta Uzaktan Destek","url":"/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: gecmis-liste","kind":"load","label":"gecmis-liste-390-dark","status":200,"ms":36,"title":"Oturum geçmişi · Nokta Uzaktan Destek","url":"/history"}
+{"test":"tarama: gecmis-liste","kind":"overflow","label":"gecmis-liste-390-dark","doc":0,"inner":[]}
+{"test":"tarama: panel","kind":"axe","label":"panel-1440-dark","violations":[]}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-1280-dark","status":200,"ms":555,"title":"Oturumlar · Nokta Uzaktan Destek","url":"/sessions"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: misafir","kind":"load","label":"misafir-1280-dark","status":200,"ms":510,"title":"Uzaktan destek bağlantısı · Nokta Uzaktan Destek","url":"/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir","kind":"overflow","label":"misafir-1280-dark","doc":0,"inner":[]}
+{"test":"tarama: gecmis-liste","kind":"axe","label":"gecmis-liste-390-dark","violations":[]}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-1280-dark","violations":[]}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history#icerik","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/sessions","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history","status":200}
+{"test":"tarama: misafir","kind":"axe","label":"misafir-1280-dark","violations":[]}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000000","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000001","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXSTBRWSR00000000000002","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000003","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000004","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000005","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000006","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000007","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000008","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000009","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000010","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000011","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000012","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000013","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000014","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000015","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000016","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000017","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000018","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000019","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000020","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000021","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000022","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000023","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history/01JHXST0000000000000000024","status":200}
+{"test":"tarama: gecmis-liste","kind":"link","from":"gecmis-liste","href":"/history?page=2","status":200}
+{"test":"tarama: panel","kind":"load","label":"panel-390-light","status":200,"ms":533,"title":"Ana sayfa · Nokta Uzaktan Destek","url":"/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-390-light","doc":0,"inner":[]}
+{"test":"tarama: panel","kind":"axe","label":"panel-390-light","violations":[]}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-1440-light","status":200,"ms":540,"title":"Oturumlar · Nokta Uzaktan Destek","url":"/sessions"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-1440-light","doc":0,"inner":[]}
+{"test":"tarama: misafir","kind":"load","label":"misafir-1440-light","status":200,"ms":510,"title":"Uzaktan destek bağlantısı · Nokta Uzaktan Destek","url":"/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir","kind":"overflow","label":"misafir-1440-light","doc":0,"inner":[]}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"http","status":409,"url":"http://localhost:3217/api/v1/support-requests/01JRQ00000000000000000000A/accept"}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 409 (Conflict)","url":"http://localhost:3217/requests"}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-1440-light","violations":[]}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"accept-error","code":"QUEUE_FULL","status":409,"toasts":["Şu an çok yoğunuz, lütfen firmanızı telefonla arayın."],"cardStays":true,"btnEnabled":true,"url":"http://localhost:3217/requests"}
+{"test":"tarama: misafir","kind":"axe","label":"misafir-1440-light","violations":[]}
+{"test":"tarama: panel","kind":"load","label":"panel-390-dark","status":200,"ms":532,"title":"Ana sayfa · Nokta Uzaktan Destek","url":"/"}
+{"test":"tarama: panel","kind":"overflow","label":"panel-390-dark","doc":0,"inner":[]}
+{"test":"tarama: panel","kind":"axe","label":"panel-390-dark","violations":[]}
+{"test":"tarama: panel","kind":"link","from":"panel","href":"/#icerik","status":200}
+{"test":"tarama: panel","kind":"link","from":"panel","href":"/","status":200}
+{"test":"tarama: panel","kind":"link","from":"panel","href":"/sessions","status":200}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"http","status":426,"url":"http://localhost:3217/api/v1/support-requests/01JRQ00000000000000000000A/accept"}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 426 (Upgrade Required)","url":"http://localhost:3217/requests"}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"accept-error","code":"CLIENT_OUTDATED","status":426,"toasts":["Müşterinin Hızlı Destek dosyası eski; yeni sürümü aynı bağlantıdan indirmesi gerekiyor."],"cardStays":true,"btnEnabled":true,"url":"http://localhost:3217/requests"}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-1440-dark","status":200,"ms":542,"title":"Oturumlar · Nokta Uzaktan Destek","url":"/sessions"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: misafir","kind":"load","label":"misafir-1440-dark","status":200,"ms":512,"title":"Uzaktan destek bağlantısı · Nokta Uzaktan Destek","url":"/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir","kind":"overflow","label":"misafir-1440-dark","doc":0,"inner":[]}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-1440-dark","violations":[]}
+{"test":"tarama: misafir","kind":"axe","label":"misafir-1440-dark","violations":[]}
+{"test":"ret diyaloğu: 'Diğer' doğrulama girdileri, Escape/odak dönüşü, 503, çift tıklama","kind":"reject-presets","radios":["Şu an müsait değiliz, sizi arayacağız","Mesai saatleri dışındayız, sizi arayacağız","Lütfen firmanızı telefonla arayın","Diğer (kendi mesajım)"]}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"http","status":503,"url":"http://localhost:3217/api/v1/support-requests/01JRQ00000000000000000000A/accept"}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 503 (Service Unavailable)","url":"http://localhost:3217/requests"}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"accept-error","code":"UNAVAILABLE","status":503,"toasts":["Hizmet geçici olarak kullanılamıyor."],"cardStays":true,"btnEnabled":true,"url":"http://localhost:3217/requests"}
+{"test":"ret diyaloğu: 'Diğer' doğrulama girdileri, Escape/odak dönüşü, 503, çift tıklama","kind":"reject-esc-focus","focused":"Reddet: Can Öz"}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-390-light","status":200,"ms":537,"title":"Oturumlar · Nokta Uzaktan Destek","url":"/sessions"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-390-light","doc":0,"inner":[]}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"http","status":409,"url":"http://localhost:3217/api/v1/support-requests/01JRQ00000000000000000000A/accept"}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 409 (Conflict)","url":"http://localhost:3217/requests"}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"accept-error","code":"OPEN_SESSION_LIMIT","status":409,"toasts":["Açık oturum sınırına ulaştınız (3)."],"cardStays":true,"btnEnabled":true,"url":"http://localhost:3217/requests"}
+{"test":"tarama: misafir","kind":"load","label":"misafir-390-light","status":200,"ms":512,"title":"Uzaktan destek bağlantısı · Nokta Uzaktan Destek","url":"/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir","kind":"overflow","label":"misafir-390-light","doc":0,"inner":[]}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-390-light","violations":[]}
+{"test":"ret diyaloğu: 'Diğer' doğrulama girdileri, Escape/odak dönüşü, 503, çift tıklama","kind":"reject-input","input":"","len":0,"value":"","sent":0,"invalid":"true","dialogText":"Mesaj en az 5 karakter olmalı"}
+{"test":"tarama: misafir","kind":"axe","label":"misafir-390-light","violations":[]}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"http","status":409,"url":"http://localhost:3217/api/v1/support-requests/01JRQ00000000000000000000A/accept"}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 409 (Conflict)","url":"http://localhost:3217/requests"}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"accept-error","code":"REQUEST_CLOSED","status":409,"toasts":["Talep artık açık değil (iptal edildi, süresi doldu veya reddedildi)."],"cardStays":false,"btnEnabled":null,"url":"http://localhost:3217/requests"}
+{"test":"ret diyaloğu: 'Diğer' doğrulama girdileri, Escape/odak dönüşü, 503, çift tıklama","kind":"reject-input","input":"abcd","len":4,"value":"abcd","sent":0,"invalid":"true","dialogText":"Mesaj en az 5 karakter olmalı"}
+{"test":"tarama: oturumlar","kind":"load","label":"oturumlar-390-dark","status":200,"ms":536,"title":"Oturumlar · Nokta Uzaktan Destek","url":"/sessions"}
+{"test":"tarama: oturumlar","kind":"overflow","label":"oturumlar-390-dark","doc":0,"inner":[]}
+{"test":"tarama: misafir","kind":"load","label":"misafir-390-dark","status":200,"ms":507,"title":"Uzaktan destek bağlantısı · Nokta Uzaktan Destek","url":"/session/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+{"test":"tarama: misafir","kind":"overflow","label":"misafir-390-dark","doc":0,"inner":[]}
+{"test":"tarama: oturumlar","kind":"axe","label":"oturumlar-390-dark","violations":[]}
+{"test":"tarama: oturumlar","kind":"link","from":"oturumlar","href":"/sessions#icerik","status":200}
+{"test":"tarama: oturumlar","kind":"link","from":"oturumlar","href":"/","status":200}
+{"test":"tarama: oturumlar","kind":"link","from":"oturumlar","href":"/sessions","status":200}
+{"test":"tarama: oturumlar","kind":"link","from":"oturumlar","href":"/sessions/01JFBA775DB87F1143576FF642/console","status":200}
+{"test":"tarama: oturumlar","kind":"link","from":"oturumlar","href":"/sessions/01JD72AE3E6EB801979541ACB2/console","status":200}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"console","type":"error","text":"Failed to load resource: net::ERR_FAILED","url":"http://localhost:3217/requests"}
+{"test":"tarama: misafir","kind":"axe","label":"misafir-390-dark","violations":[]}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"accept-error","code":"ABORT","status":0,"toasts":["Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin."],"cardStays":true,"btnEnabled":true,"url":"http://localhost:3217/requests"}
+{"test":"tarama: misafir","kind":"link","from":"misafir","href":"/api/v1/public/agent/download?ref=l6fV8ibgpJQfzy16NbzvscgveFNV7XgNlGdhLlBvJjo01J9A9A200CBB8F48F0B79A6D9","status":302}
+{"test":"kaldırma gecikmesi (request.removed → kart düşer) 10 örnek; ikinci sekme","kind":"console","type":"warning","text":"The AudioContext was not allowed to start. It must be resumed (or created) after a user gesture on the page. https://developer.chrome.com/blog/autoplay/#web_audio","url":"http://localhost:3217/requests"}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"accept-dblclick","requests":1,"url":"http://localhost:3217/sessions/01JRQSES000000000000000001/console"}
+{"test":"kabul: hata durumları (QUEUE_FULL, CLIENT_OUTDATED, 503, OPEN_SESSION_LIMIT, REQUEST_CLOSED, ağ) + çift tıklama","kind":"accept-back","url":"http://localhost:3217/requests","cards":["Ayşe Yılmaz","Ali Demir","Can Öz"],"canStillSee":1}
+{"test":"ayarlar: sınırlar, alıcı ≤5, CIDR ≤10 + doğrulama, kaydedilmemiş değişiklik, çift tıklama, 500","kind":"rotate-cancel","url":"http://localhost:3217/api/v1/public/agent/request-download?ref=abcdefghijklmnop"}
+{"test":"ayarlar: sınırlar, alıcı ≤5, CIDR ≤10 + doğrulama, kaydedilmemiş değişiklik, çift tıklama, 500","kind":"wait","input":"9","value":"9","errors":[": 10 ile 120 arasında bir tam sayı girin."],"toasts":[]}
+{"test":"ayarlar: sınırlar, alıcı ≤5, CIDR ≤10 + doğrulama, kaydedilmemiş değişiklik, çift tıklama, 500","kind":"wait","input":"121","value":"121","errors":[": 10 ile 120 arasında bir tam sayı girin."],"toasts":[]}
+{"test":"ayarlar: sınırlar, alıcı ≤5, CIDR ≤10 + doğrulama, kaydedilmemiş değişiklik, çift tıklama, 500","kind":"wait","input":"-5","value":"-5","errors":[": 10 ile 120 arasında bir tam sayı girin."],"toasts":[]}
+{"test":"AC-149: request.new → toast gecikmesi (25 örnek), sekme başlığı, Görüntüle, ses, 4401 yeniden bağlanma","kind":"latency","samples":[121,2,2,3,2,2,5,1,1,2,2,1,2,2,2,5,2,5,4,3,5,3,2,1,1],"min":1,"median":2,"p95":5,"max":121}
+{"test":"AC-149: request.new → toast gecikmesi (25 örnek), sekme başlığı, Görüntüle, ses, 4401 yeniden bağlanma","kind":"after-new","title":"(28) Oturumlar · Nokta Uzaktan Destek","badge":"28\n28 bekleyen talep","audioCtx":1,"toastsVisible":3}
+{"test":"klavye: kuyruk Tab sırası, Enter ile Reddet diyaloğu, ayarlar Tab sırası","kind":"tab-requests","order":["a:İçeriğe geç","button:Çıkış yap (Selin Teknik)","a:Ana sayfa","a:Oturumlar","a:Talepler33 bekleyen talep","a:Oturum geçmişi","a:Ayarlar","a:Ana sayfa","button:Bildirim sesiAçık","a:Bekleyenler","a:Geçmiş","button:Reddet: Ayşe Yılmaz","button:Kabul et: Ayşe Yılmaz","button:Reddet: Ali Demir","button:Kabul et: Ali Demir","button:Reddet: Can Öz","button:Kabul et: Can Öz","body:İçeriğe geçNokta Uzaktan DestekSelin Tek [halka yok]"]}
+{"test":"klavye: kuyruk Tab sırası, Enter ile Reddet diyaloğu, ayarlar Tab sırası","kind":"tab-reject-dialog","order":["input:","button:Vazgeç","button:Reddet","body:İçeriğe geçNokta Uzaktan DestekSelin Tek [halka yok]","button:Diyaloğu kapat","input:","button:Vazgeç","button:Reddet"]}
+{"test":"klavye: kuyruk Tab sırası, Enter ile Reddet diyaloğu, ayarlar Tab sırası","kind":"esc-return","focused":"button:Reddet: Ayşe Yılmaz"}
+{"test":"AC-149: request.new → toast gecikmesi (25 örnek), sekme başlığı, Görüntüle, ses, 4401 yeniden bağlanma","kind":"sound-off","audioDelta":0,"toast":["Yeni destek talebi: Yeni Müşteri Görüntüle"]}
+{"test":"AC-149: request.new → toast gecikmesi (25 örnek), sekme başlığı, Görüntüle, ses, 4401 yeniden bağlanma","kind":"view-link","url":"/requests#talep-01JRQ0000000000000000000NW","focused":"BODY","targetInView":true}
+{"test":"AC-149: request.new → toast gecikmesi (25 örnek), sekme başlığı, Görüntüle, ses, 4401 yeniden bağlanma","kind":"title","title":"(29) Talepler · Nokta Uzaktan Destek"}
+{"test":"klavye: kuyruk Tab sırası, Enter ile Reddet diyaloğu, ayarlar Tab sırası","kind":"tab-settings","order":["button:Kopyala","button:Bağlantıyı yenile","input:","button:","button:Alıcı ekle","input:","button:Test mesajı gönder","input:","button:Ağı kaldır: 203.0.113.0/24","button:Ağ ekle","body:İçeriğe geçNokta Uzaktan DestekSelin Tek [halka yok]","a:İçeriğe geç","button:Çıkış yap (Selin Teknik)","a:Ana sayfa"]}
+{"test":"yetkisiz/oturumsuz, menü ikonları, 390 menü, başlık","kind":"anon","from":"/requests","to":"/login?next=%2Frequests","status":200}
+{"test":"yetkisiz/oturumsuz, menü ikonları, 390 menü, başlık","kind":"anon","from":"/settings/support-requests","to":"/login?next=%2Fsettings%2Fsupport-requests","status":200}
+{"test":"yetkisiz/oturumsuz, menü ikonları, 390 menü, başlık","kind":"anon","from":"/requests?tab=history","to":"/login?next=%2Frequests","status":200}
+{"test":"yetkisiz/oturumsuz, menü ikonları, 390 menü, başlık","kind":"nav-icons","items":[{"text":"Ana sayfa","svg":1,"cls":"lucide lucide-house lucide-home size-5 shrink-0"},{"text":"Oturumlar","svg":1,"cls":"lucide lucide-monitor-smartphone size-5 shrink-0"},{"text":"Talepler","svg":1,"cls":"lucide lucide-inbox size-5 shrink-0"},{"text":"Oturum geçmişi","svg":1,"cls":"lucide lucide-rotate-ccw-clock lucide-history size-5 shrink-0"},{"text":"Ayarlar","svg":1,"cls":"lucide lucide-settings size-5 shrink-0"}]}
+{"test":"yetkisiz/oturumsuz, menü ikonları, 390 menü, başlık","kind":"nav390","sw":667,"cw":374,"ox":"auto"}
+{"test":"yetkisiz/oturumsuz, menü ikonları, 390 menü, başlık","kind":"nav390-link","name":"/Talepler/","l":259,"r":404}
+{"test":"yetkisiz/oturumsuz, menü ikonları, 390 menü, başlık","kind":"nav390-link","name":"/Ayarlar/","l":573,"r":675}
+{"test":"AC-149: request.new → toast gecikmesi (25 örnek), sekme başlığı, Görüntüle, ses, 4401 yeniden bağlanma","kind":"reconnect","ms":1021}
+{"test":"AC-149: request.new → toast gecikmesi (25 örnek), sekme başlığı, Görüntüle, ses, 4401 yeniden bağlanma","kind":"alert","text":"Olağan dışı talep yoğunluğu. Bilinmeyen kaynaklardan gelen talepler 03:13 saatine kadar geri çevriliyor. Bağlantıyı yenilemeyi düşünün."}
+{"test":"geçmiş sekmesi: filtre URL'de, yenileme ve geri tuşu sonrası korunur","kind":"history-filter","afterReload":1,"backUrl":"/requests?tab=history&status=REJECTED","afterBack":1,"current":"Reddedildi"}
+{"test":"yetkisiz/oturumsuz, menü ikonları, 390 menü, başlık","kind":"title-empty","title":"Talepler · Nokta Uzaktan Destek","badge":0}
+{"test":"yetkisiz/oturumsuz, menü ikonları, 390 menü, başlık","kind":"rqro-api","accept":403,"settings":403}
+{"test":"AC-149: request.new → toast gecikmesi (25 örnek), sekme başlığı, Görüntüle, ses, 4401 yeniden bağlanma","kind":"axe","label":"queue-alert+toast","violations":[]}
+{"test":"geçmiş sekmesi: filtre URL'de, yenileme ve geri tuşu sonrası korunur","kind":"client-500","stale":0}

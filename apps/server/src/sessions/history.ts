@@ -28,7 +28,7 @@ import {
   type UpdateSessionData,
 } from "@remote/contracts/api/sessions";
 import { CONTROL_AUDIT } from "@remote/contracts/audit";
-import { END_REASON_LABELS, SESSION_ENDED_BY_LABELS, SESSION_MODE_LABELS, SESSION_STATUS_LABELS, labelOf } from "@remote/contracts/labels";
+import { END_REASON_LABELS, SESSION_ENDED_BY_LABELS, SESSION_MODE_LABELS, SESSION_SOURCE_LABELS, SESSION_STATUS_LABELS, labelOf } from "@remote/contracts/labels";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import { CSV_BOM, csvRow, hms, istanbulDateTime } from "../lib/csv.ts";
@@ -56,6 +56,7 @@ export function resolveFilter(scope: hrepo.HistoryScope, q: ListSessionsQuery): 
   return {
     ...(q.status ? { status: q.status } : {}),
     ...(q.mode ? { mode: q.mode } : {}),
+    ...(q.source ? { source: q.source } : {}),
     ...(q.from ? { from: istanbulDayStart(q.from) } : {}),
     ...(q.to ? { to: new Date(istanbulDayStart(q.to).getTime() + DAY_MS) } : {}),
     ...(q.technicianId && !ownOnly ? { technicianId: q.technicianId } : {}),
@@ -67,6 +68,10 @@ export function resolveFilter(scope: hrepo.HistoryScope, q: ListSessionsQuery): 
 const durationSec = (r: { consumedAt: Date | null; endedAt: Date | null }): number | null =>
   r.consumedAt && r.endedAt ? Math.max(0, Math.floor((r.endedAt.getTime() - r.consumedAt.getTime()) / 1000)) : null;
 
+/** Talep→kabul saniyesi (AC-158); TECH kaynağında null. */
+const waitSecOf = (r: { request: { createdAt: Date; acceptedAt: Date | null } | null }): number | null =>
+  r.request?.acceptedAt ? Math.max(0, Math.floor((r.request.acceptedAt.getTime() - r.request.createdAt.getTime()) / 1000)) : null;
+
 function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, viewerId: string): SessionListItem {
   return {
     ...toView(r, viewerId),
@@ -76,6 +81,8 @@ function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, viewerId
     customerName: r.customerName,
     ticketNo: r.ticketNo,
     tenant: scope.kind === "all" ? { id: r.tenant.id, name: r.tenant.name } : null,
+    source: r.requestId ? "REQUEST" : "TECH",
+    waitSec: waitSecOf(r),
   };
 }
 
@@ -242,6 +249,18 @@ async function buildDetail(db: Db, log: HistoryLog, scope: hrepo.HistoryScope, r
     controlPeriods: deriveControlPeriods(consents, controlAudits),
     timeline,
     timelineTruncated,
+    request: row.request
+      ? {
+          id: row.request.id,
+          createdAt: row.request.createdAt.toISOString(),
+          acceptedAt: row.request.acceptedAt?.toISOString() ?? null,
+          waitSec: waitSecOf(row),
+          customerName: row.request.customerName,
+          customerPhone: row.request.customerPhone,
+          customerEmail: row.request.customerEmail,
+          description: row.request.description,
+        }
+      : null,
   };
 }
 
@@ -298,6 +317,8 @@ function csvCells(r: hrepo.HistoryExportRow, withTenant: boolean): string[] {
     hms(durationSec(r)),
     labelOf(SESSION_STATUS_LABELS, r.status),
     labelOf(SESSION_MODE_LABELS, r.mode),
+    labelOf(SESSION_SOURCE_LABELS, r.requestId ? "REQUEST" : "TECH"),
+    hms(waitSecOf(r)),
     r.technician.fullName,
     r.customerName ?? "",
     r.ticketNo ?? "",

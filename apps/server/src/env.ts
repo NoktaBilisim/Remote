@@ -46,6 +46,11 @@ const schema = z
       .regex(/^[0-9a-fA-F]{64}$/, "64 haneli onaltılık SHA-256 olmalı")
       .transform((v) => v.toLowerCase())
       .optional(),
+    // P8b (mimari-e9 §6, §13.5, AC-150/152): whatsapp-bildirim servisi; sistem düzeyi, tenant değiştiremez. Prod'da http:// +
+    // özel olmayan adres → kanal kapalı (fail-closed, notify/whatsapp.ts). Boş → varsayılan canlı servis.
+    WHATSAPP_SERVICE_URL: z.url().refine((v) => /^https?:\/\//.test(v), "http(s) URL olmalı").default("http://89.252.189.211:3000"),
+    // P8b r2 (§13.4, G-E9-4): asgari Windows istemci sürümü; boş = kontrol yok. Düşük sürüm → 426 CLIENT_OUTDATED.
+    MIN_AGENT_VERSION: z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/, "x.y.z biçiminde olmalı").optional(),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   })
   .refine((e) => e.NODE_ENV !== "production" || e.TRUSTED_PROXY_CIDR, {

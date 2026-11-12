@@ -22,6 +22,10 @@ const REDACT_PATHS = [
   "*.secret",
   // sessionRef (P6 indirme ucu dosya adına kodu yazar → ref kodla eşdeğer gizli; G-10)
   "*.ref",
+  // P8b (G-E9-9): talep sırrı, kabulde iletilen ticket ve cihaz anahtarı (yollar tam anahtar adıyla eşleşir).
+  "*.requestSecret",
+  "*.wsTicket",
+  "*.deviceKey",
 ];
 
 interface LoggableRequest {

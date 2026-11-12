@@ -25,9 +25,23 @@ export const ERROR_STATUS = {
   SESSION_CANCELLED: 410,
   /** joinNonce süresi dolmuş/kullanılmış (P3). */
   NONCE_INVALID: 410,
+  /** P8b: firma dosyası ref'i geçersiz/yenilenmiş/pasif tenant/ayarı yok — tek gövde (AC-131, 132, 145). */
+  REQUEST_REF_INVALID: 404,
+  /** P8b: bu istemci örneğinin zaten bekleyen talebi var (AC-143). */
+  REQUEST_PENDING: 409,
+  /** P8b: talep başka teknisyen tarafından kabul edildi (AC-153). */
+  REQUEST_TAKEN: 409,
+  /** P8b: talep iptal/süre dolumu/ret/bağlanamadı ile kapanmış (AC-153). */
+  REQUEST_CLOSED: 409,
   ACCOUNT_LOCKED: 423,
+  /** P8b r2 (§13.4): AGENT sürümü MIN_AGENT_VERSION'dan düşük; `fields.minVersion`. */
+  CLIENT_OUTDATED: 426,
   RATE_LIMITED: 429,
+  /** P8b: tenant'ta 50 bekleyen talep ya da ≥ 40 iken bilinmeyen kaynak (AC-143, §13.6). */
+  QUEUE_FULL: 429,
   INTERNAL: 500,
+  /** Dış servis (WhatsApp) yapılandırılmamış/güvensiz ya da ulaşılamadı (P8b, AC-152). */
+  UPSTREAM: 502,
   /** /ready: DB'ye ulaşılamıyor veya migration uygulanmamış. */
   NOT_READY: 503,
 } as const;

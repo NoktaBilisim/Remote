@@ -12,11 +12,15 @@ import { AppError } from "../lib/errors.ts";
 import { sha256Hex } from "../lib/ids.ts";
 import { cidrMatcher, ipKey, prefixKey } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
+import { isOutdated } from "../lib/version.ts";
 import { parseSessionRef, sessionRef } from "./codes.ts";
 import * as repo from "./repo.ts";
 import { expireSession } from "./service.ts";
 
 const MIN = 60_000;
+
+/** 426 CLIENT_OUTDATED (`fields.minVersion`). */
+export const outdated = (min: string | undefined): AppError => new AppError("CLIENT_OUTDATED", { fields: { minVersion: min ?? "" } });
 
 interface ResolveFailedStats {
   failed: number;
@@ -176,15 +180,19 @@ export async function resolvePublicSession(
   refKey: string,
   ctx: AuditContext,
   input: ResolveSessionInput,
-  issueNonce: (sessionId: string, kind: ResolveSessionInput["clientKind"]) => { joinNonce: string; nonceExpiresAt: string },
+  issueNonce: (sessionId: string, kind: ResolveSessionInput["clientKind"], clientVersion?: string) => { joinNonce: string; nonceExpiresAt: string },
   abuseSrc: AbuseEmailSource,
+  minAgentVersion?: string,
 ): Promise<ResolveSessionResponse> {
   limits.clientIpIsProxy.check(ctx.ip);
+  // P8b r2 (§13.4): AGENT sürümü düşükse 426 (yoksa 0.0.0 sayılır — 0.8.x MIN tanımlanınca güncellemeye zorlanır).
+  if (input.clientKind === "AGENT" && isOutdated(input.clientVersion, minAgentVersion)) throw outdated(minAgentVersion);
   const ip = ipKey(ctx.ip);
   let row: repo.PublicSessionRow | null;
   if ("token" in input) {
     consume(limits.tokenIp, ip, 60);
     row = await repo.findByTokenHash(db, sha256Hex(input.token));
+    if (row?.requestId) row = null; // P8b §3.3: talep oturumunun token'ı hiç dönmez; bu yol 404
     if (!row) throw new AppError("NOT_FOUND", { message: "Bağlantı geçersiz." });
   } else {
     const prefix = prefixKey(ctx.ip);
@@ -215,7 +223,7 @@ export async function resolvePublicSession(
     technician: { name: row.technician.fullName, avatarUrl: null },
     techVerifyCode: row.techVerifyCode,
     expiresAt: row.expiresAt.toISOString(),
-    ...issueNonce(row.id, input.clientKind), // resolve tüketmez; nonce join içindir (P3)
+    ...issueNonce(row.id, input.clientKind, input.clientKind === "AGENT" ? (input.clientVersion ?? "0.0.0") : undefined), // resolve tüketmez; nonce join içindir (P3)
     consentText, // P4: karşılamada gösterilir, join'de id'si geri gelir (G-24)
     abuseEmail: abuse,
   };

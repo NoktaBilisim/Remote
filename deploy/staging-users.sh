@@ -16,7 +16,7 @@ ACCESS_FILE="${ACCESS_FILE:-./ACCESS.txt}"
 TENANT_SLUG="demo"
 TENANT_NAME="Demo Firma"
 # USER varsayılanı tüm yetkiler kapalı; teknisyen testi için açılan yetkiler (toggle karşılığı).
-USER_PERMS="sessions.view sessions.create sessions.edit sessions.delete sessions.terminate remote_control.use file_transfer.use session_history.view"
+USER_PERMS="sessions.view sessions.create sessions.edit sessions.delete sessions.terminate remote_control.use file_transfer.use session_history.view support_requests.view support_requests.accept"
 
 email_re='^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$'
 for e in "$ADMIN_EMAIL" "$USER_EMAIL"; do
@@ -60,8 +60,23 @@ fi
 # 2) Kullanıcılar
 create_user() { # $1 rol, $2 e-posta, $3 ad
   local role="$1" email="$2" name="$3" id pw hash perms=""
-  if [ -n "$(echo "SELECT id FROM users WHERE email='$email';" | sql)" ]; then
-    echo "$role: exists ($email) - parola değiştirilmedi"; return
+  id="$(echo "SELECT id FROM users WHERE email='$email';" | sql)"
+  if [ -n "$id" ]; then
+    # Yeni pakette eklenen USER_PERMS anahtarlarını mevcut hesaba ekle (INSERT IGNORE: elle kapatılan satıra dokunmaz).
+    if [ "$role" = USER ]; then
+      for p in $USER_PERMS; do
+        perms+="INSERT IGNORE INTO user_permissions (user_id, perm_key, granted, created_at, updated_at) VALUES ('$id', '$p', 1, NOW(3), NOW(3));"$'\n'
+      done
+      sql <<SQL
+START TRANSACTION;
+$perms
+INSERT INTO audit_logs (tenant_id, action, entity, entity_id, new_value, result)
+  VALUES ('$TENANT_ID', 'permission.changed', 'users', '$id',
+          JSON_OBJECT('added_missing','$USER_PERMS','source','staging-users.sh'), 'success');
+COMMIT;
+SQL
+    fi
+    echo "$role: exists ($email) - parola değiştirilmedi, eksik yetkiler eklendi"; return
   fi
   id="$(new_id)"
   pw="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-20)"

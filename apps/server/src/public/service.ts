@@ -7,7 +7,9 @@ import type { ErrorCode } from "@remote/contracts/errors";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
-import { ipKey } from "../lib/ip.ts";
+import { ipKey, netKey } from "../lib/ip.ts";
+import { isOutdated } from "../lib/version.ts";
+import { outdated } from "../sessions/public.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
 import * as repo from "../sessions/repo.ts";
 import { acceptConsent } from "./consent.ts";
@@ -21,8 +23,8 @@ const GONE: Partial<Record<string, ErrorCode>> = {
 };
 
 /** Resolve başarılıysa çağrılır: 60 sn'lik, istemci türüne bağlı nonce (ADR-0012). */
-export function issueJoinNonce(rooms: Rooms, sessionId: string, kind: GuestKind): { joinNonce: string; nonceExpiresAt: string } {
-  const { token, expiresAt } = rooms.nonces.issue({ sessionId, kind });
+export function issueJoinNonce(rooms: Rooms, sessionId: string, kind: GuestKind, clientVersion?: string): { joinNonce: string; nonceExpiresAt: string } {
+  const { token, expiresAt } = rooms.nonces.issue({ sessionId, kind, ...(clientVersion ? { clientVersion } : {}) });
   return { joinNonce: token, nonceExpiresAt: new Date(expiresAt).toISOString() };
 }
 
@@ -39,6 +41,7 @@ export async function joinPublicSession(
   ctx: AuditContext,
   checkClient: (kind: GuestKind) => void,
   input: JoinSessionInput,
+  minAgentVersion?: string,
 ): Promise<JoinSessionResponse> {
   const ip = ipKey(ctx.ip);
   const wait = joinIp.blockedFor(ip);
@@ -46,6 +49,8 @@ export async function joinPublicSession(
   const nonce = rooms.nonces.take(input.joinNonce);
   if (!nonce) throw new AppError("NONCE_INVALID");
   checkClient(nonce.kind); // kind istemci beyanı değil, nonce kaydından
+  // P8b r2 (§13.4): sürüm nonce kaydından (yeniden beyan alınmaz).
+  if (nonce.kind === "AGENT" && isOutdated(nonce.clientVersion, minAgentVersion)) throw outdated(minAgentVersion);
 
   const row = await repo.findForSignal(db, nonce.sessionId);
   if (!row) throw new AppError("NONCE_INVALID");
@@ -56,7 +61,7 @@ export async function joinPublicSession(
 
   let g: ReturnType<Rooms["addGuest"]>;
   try {
-    g = rooms.addGuest(row, { name: input.customerName, ...(input.customerEmail ? { email: input.customerEmail } : {}), kind: nonce.kind, ipKey: ip, consent });
+    g = rooms.addGuest(row, { name: input.customerName, ...(input.customerEmail ? { email: input.customerEmail } : {}), kind: nonce.kind, ipKey: ip, netKey: netKey(ctx.ip), ...(nonce.clientVersion ? { clientVersion: nonce.clientVersion } : {}), consent });
   } catch (err) {
     if (err instanceof AppError && err.code === "SESSION_CONSUMED") throw await goneAudit(db, ctx, row, err.code);
     throw err;

@@ -3,12 +3,13 @@ Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (bölüm 5).
 Her AC için adı AC numarasını içeren en az bir otomatik test yazılır (kalite standardı). "Staging testi" ibareli AC'ler gerçek ağda ölçülür ve sonuç `docs/test-raporu.md`'ye yazılır.
 
 ## Dosya yapısı
-Boyut nedeniyle AC'ler iki parçadadır; bu dosya ile birlikte tek doküman sayılır. AC numaraları `docs/mimari.md` §11 ile birebir aynıdır; numara değiştirilmez, silinen AC numarası yeniden kullanılmaz.
+Boyut nedeniyle AC'ler üç parçadadır; bu dosya ile birlikte tek doküman sayılır. AC numaraları `docs/mimari.md` §11 ile birebir aynıdır; numara değiştirilmez, silinen AC numarası yeniden kullanılmaz.
 
 | Parça | Epikler | AC |
 |---|---|---|
 | `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e1-e4.md` | E1 Oturum yaşam döngüsü, E2 Sinyalizasyon, E3 Tarayıcı modu + karşılama, E4 Teknisyen konsolu | AC-1..AC-59, AC-112, 113, 114, 117, 119, 120, 125, 127 |
 | `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e5-e8.md` | E5 Oturum geçmişi, E6 Ortak platform, E7 Operasyon, E8 Windows istemcisi | AC-60..AC-111, AC-115, 116, 118, 121, 122, 123, 124, 126, 128 |
+| `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e9.md` | E9 Müşteri destek talebi (2026-11-12) | AC-129..AC-164 |
 
 ## Epik bazında sayım
 | Epik | AC sayısı | Yeni AC'ler (2026-11-11) |
@@ -21,7 +22,8 @@ Boyut nedeniyle AC'ler iki parçadadır; bu dosya ile birlikte tek doküman say�
 | E6 | 29 | AC-115, AC-121, AC-122, AC-123, AC-126 |
 | E7 | 7 | — |
 | E8 | 20 | AC-116, AC-118, AC-128 |
-| **Toplam** | **128** | **17** |
+| E9 | 36 | AC-129..AC-164 (2026-11-12) |
+| **Toplam** | **164** | **17 (2026-11-11) + 36 (2026-11-12)** |
 
 ## Değişiklik kaydı
 - 2026-11-10: İlk sürüm, AC-1..AC-111.
@@ -30,3 +32,5 @@ Boyut nedeniyle AC'ler iki parçadadır; bu dosya ile birlikte tek doküman say�
   - 17 yeni AC: AC-112..AC-128.
   - K8: kod imzalama sertifikası yok; istemci imzasız dağıtılır, güven tekrarlanabilir build + SHA-256 + GitHub build attestation ile sağlanır (ADR-0010). Bu nedenle AC-27, AC-92, AC-94, AC-96 metinlerinde imza ifadesi kaldırıldı.
   - Her revize/yeni AC'nin sonunda kaynak notu vardır (örn. "(G-01)").
+- 2026-11-12: E9 Müşteri destek talebi eklendi (kullanıcı kararı, model A): 36 yeni AC (AC-129..AC-164), ayrı dosya `gereksinimler-kabul-kriterleri-e9.md`. AC-108 metni AC-138 ile değişti (hatırlama dosyası tek istisna; ADR-0004 r3). Mimari eşleme `docs/mimari-e9.md` §11.
+- 2026-11-12 (r2): Güvenlik tasarım turu E9 (`docs/guvenlik-raporu.md` "Tasarım turu — E9 (P8b)", G-E9-1..14) ve koordinatör kararları işlendi; 11 AC revize edildi: AC-133 (sunucu/sürüm satırı, asgari sürüm), AC-134 (açıklama tek satır), AC-136 (hatırla kutucuğu varsayılan **işaretsiz** — kullanıcı kararı; cihaz anahtarı), AC-139 (6 haneli talep kodu), AC-143 (ağ öneki bekleyen sınırı, 40 sonrası yalnız bilinen kaynak, güvenilen CIDR), AC-144 (IPv6 /48, tenant kilitlenmez), AC-146 (talep kodu, bilinen kaynak, arama ipucu), AC-150 (WhatsApp'ta kişisel veri yok, 30/sa + özet, güvensiz adreste kapalı), AC-152 (güvenilen CIDR ayarı), AC-154 (her kabulde "Ekranımı paylaş" onayı, Vazgeç, iptal yarışı), AC-157 (ret mesajında bağlantı/telefon yasak). AC sayısı değişmedi (164).

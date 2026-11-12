@@ -3,6 +3,7 @@ import { ToastProvider } from "@/components/ui/toast";
 import { BrandLogo } from "@/components/brand-logo";
 import { Avatar } from "@/components/ui/avatar";
 import { LoadError } from "@/components/load-error";
+import { RequestNotifier } from "@/components/request-notifier";
 import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { getMe } from "@/lib/server-api";
@@ -20,9 +21,11 @@ export default async function PanelLayout({ children }: { children: React.ReactN
       </main>
     );
   }
-  const { user, tenant, permissions } = state.me;
+  const { user, tenant, permissions, actingTenant } = state.me;
   // AC-66: şifre değiştirilmeden panel açılmaz (sunucu guard'ı da uçları kapatır)
   if (user.mustChangePassword) redirect("/change-password");
+  // P8b-1: /ws/panel yalnız `support_requests.view` + tenant bağlamı varken (Super Admin firma seçmeli; sunucu da 403)
+  const notify = (permissions as readonly string[]).includes("support_requests.view") && (user.role !== "SUPER_ADMIN" || Boolean(actingTenant));
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -53,7 +56,10 @@ export default async function PanelLayout({ children }: { children: React.ReactN
           <SideNav permissions={permissions} />
         </aside>
         <main id="icerik" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 focus:outline-none sm:px-6 lg:px-8">
-          <ToastProvider>{children}</ToastProvider>
+          <ToastProvider>
+            {notify && <RequestNotifier enabled />}
+            {children}
+          </ToastProvider>
         </main>
       </div>
     </div>

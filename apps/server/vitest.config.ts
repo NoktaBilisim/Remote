@@ -5,7 +5,10 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],
-    testTimeout: 20_000,
+    testTimeout: 60_000, // QA-P8b-1: yük altında (eşzamanlı e2e) DB yoğun testler 20 sn tavanını aşabiliyor
     hookTimeout: 60_000,
+    // QA-P8b-1: koşullu bekleme (expect.poll) yük altında (eşzamanlı e2e) 1 sn varsayılanı aşabiliyor; koşul
+    // sağlanınca hemen döner, yalnız tavan uzar.
+    expect: { poll: { timeout: 10_000 } },
   },
 });

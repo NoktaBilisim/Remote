@@ -24,6 +24,14 @@ export class FakeClock implements Clock {
   clearTimeout = (h: unknown): void => {
     this.timers.delete(h as number);
   };
+  /** Bekleyen zamanlayıcı sayısı. */
+  get pending(): number {
+    return this.timers.size;
+  }
+  /** Şu andan `ms` sonra tam vadeli zamanlayıcı var mı (async kurulan zamanlayıcıyı beklemek için). */
+  hasTimerIn(ms: number): boolean {
+    return [...this.timers.values()].some((v) => v.at === this.t + ms);
+  }
   /** Saati ilerletir; aradaki zamanlayıcıları sırayla çalıştırır. */
   advance(ms: number): void {
     const target = this.t + ms;
@@ -114,7 +122,7 @@ export function connect(url: string, protocols: string[], headers: Record<string
         msgs,
         closed,
         send: (o) => ws.send(JSON.stringify(o)),
-        waitFor: (t, ms = 3000) =>
+        waitFor: (t, ms = 10_000) => // QA-P8b-1: yük altında 3 sn tavanı yetmiyor; mesaj gelince hemen döner
           new Promise((res, rej) => {
             const timer = setTimeout(() => rej(new Error(`beklenen mesaj gelmedi: ${t}`)), ms);
             const check = () => {

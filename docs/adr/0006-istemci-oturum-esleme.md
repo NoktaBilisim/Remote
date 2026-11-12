@@ -1,5 +1,5 @@
 # ADR-0006 — İstemci–oturum eşleme: dosya adındaki 8 haneli kod + lobi ve teknisyen kabulü
-Durum: Kabul, r3 (r2: güvenlik raporu Tur 0: G-01, G-02, G-22; K6 kapandı · r3 2026-11-11: indirme 302 hedefi, QA-P6-5) · Tarih: 2026-11-10
+Durum: Kabul, r4 (r2: güvenlik raporu Tur 0: G-01, G-02, G-22; K6 kapandı · r3 2026-11-11: indirme 302 hedefi, QA-P6-5 · **r4 2026-11-12: firma dosyası adı ve tenantRef — aşağıda "Revizyon r4"**) · Tarih: 2026-11-10
 ## Bağlam
 Binary jeneriktir ve tekrarlanabilir build hash'i (ADR-0010) bozulmamalıdır; oturum verisi gömülmez. Müşteri dosyayı yeniden adlandırabilir; tarayıcı `(1)` ekleyebilir.
 r1'de iki zayıflık bulundu (G-01, G-02): `verifyCode` resolve yanıtında herkese dönüyordu, yani kodu tahmin eden saldırgan da aynı 4 haneyi görüyor ve müşteriyi doğrulamıyordu; join oturumu tüketiyordu, bu yüzden saldırgan gerçek müşteriyi kilitliyordu; global başarısız-kod limiti de tek saldırgana tüm tenant'ları kapatma imkânı veriyordu.
@@ -28,3 +28,17 @@ r1'de iki zayıflık bulundu (G-01, G-02): `verifyCode` resolve yanıtında herk
 - Olasılık (8 hane): P adet /24'ten 30 dk'da 900·P·N/10⁸ lobi girişi (P=10, N=50 → %0,45); başarı yine kabul adımına takılır.
 - Müşteri akışına bir telefon adımı ekleniyor (zaten telefondalar). UI maliyeti P4 (konsol lobi paneli + bekleme ekranı) ve P6'da (istemci bekleme ekranı).
 - Sunucu yeniden başlarsa lobi düşer; PENDING oturum korunur, misafir yeniden katılır.
+
+## Revizyon r4 (2026-11-12, E9 — AC-129..133, 162; V14; ADR-0016)
+**Bağlam:** Müşteri başlatmalı talep için istemcinin hangi tenant'a talep açacağını bilmesi gerekir; ikili yine jenerik kalmalıdır (AC-130).
+**Karar:**
+- İkinci dosya adı biçimi: `NoktaDestek-<file_label>-<tenantRef>.exe`. `file_label` = firma adının ASCII'ye indirgenmiş, `[A-Za-z0-9]{1,20}` hali (boşsa `Firma`); `tenantRef` = `[a-z2-7]{16}` (80 bit). İkili aynıdır, SHA-256 değişmez.
+- İndirme: `GET /public/agent/request-download?ref=<ref>` → 302 `/downloads/NoktaDestek-<label>-<ref>.exe`; Caddy `@agentExe` matcher'ı bu biçimi de aynı volume ikilisine bağlar (r3 kalıbı; `forward_auth` ikili kapısı aynen). Statik yol ref doğrulamaz; ref'in geçerliliği yalnız uçta ve talep oluşturmada denetlenir. Log filtresi yolu `/downloads/NoktaDestek-***` yapar.
+- İstemcinin ayrıştırma sırası (`internal/pairing`): `name = filepath.Base(os.Executable())`; (1) `(?i)^NoktaDestek-[A-Za-z0-9]{1,20}-([a-z2-7]{16})(?: ?\(\d+\))?\.exe$` eşleşirse **talep modu** (ref küçük harfe indirilir; tarayıcının eklediği ` (1)` kabul); (2) değilse mevcut 8 hane kuralı `(?:^|\D)(\d{8})(?:\D|$)` → oturum kodu modu; (3) hiçbiri → kod giriş alanı. Talep modunda da "Teknisyenden kod aldım" ile 8 hane girilebilir (AC-162). Ad değiştirilmişse talep modu açılmaz; mesaj "Destek iste için firmanızın dosyasını yeniden indirin" (V14).
+- Ref yenilenince eski dosya `REQUEST_REF_INVALID` alır: "Bu dosya artık geçerli değil; firmanızdan yenisini isteyin" (AC-131); pasif tenant aynı yanıtı alır (AC-132/145).
+**Alternatifler:** Ref'i ikiliye gömmek (ADR-0010'u bozar); ref'i ADS/yan dosyada taşımak (tarayıcı indirmesinde korunmaz, iz bırakır); yalnız ref (firma adı yok) — S16 varsayılanı firma adını ister.
+**Sonuçlar:** Dosya adı müşteri–destek firması ilişkisini görünür kılar (S16 kabulü). Ref gizli değildir; sızarsa etkisi "talep açabilmek"tir (R11, ADR-0016 sınırları). 8 haneli kod yolu ve lobi kuralları değişmez.
+**r4 eki (2026-11-12, güvenlik tasarım turu E9 — G-E9-11, G-E9-8):**
+- Statik firma yolu artık doğrulanır. `forward_auth` iç ucu `/internal/agent-ready`, `X-Forwarded-Uri` içindeki `NoktaDestek-<label>-<ref>.exe` değerini ayrıştırır. Ref aktif ve label güncel `file_label` ise 204, değilse 404 döner (ikili kapısı ayrıca 503). Böylece resmi alan adında keyfi adlı bağlantı üretilemez.
+- İstemci firma penceresinde dosya adındaki label'ı göstermez, yalnız sunucudan gelen firma adını gösterir. Pencerede P6 karşılamasındaki gibi bağlanılan sunucu, sürüm ve SHA-256 ilk 8 hane satırı bulunur.
+- Firma dosyası yolu yalnız Caddy filtresinde değil, host nginx erişim logunda da `/downloads/NoktaDestek-***` olarak maskelenir.

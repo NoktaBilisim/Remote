@@ -1,6 +1,6 @@
 // Oturum geçmişi veri erişimi (P8; mimari-api "Oturum geçmişi (P8)", db-notlari P8 "Backend-dev için").
 // Kapsam (`HistoryScope`) her sorguda zorunlu; tüm-tenant değeri (`kind: "all"`) yalnız service.historyScope üretir.
-import type { SessionListSort, SessionMode, SessionStatus } from "@remote/contracts/api/sessions";
+import type { SessionListSort, SessionMode, SessionSource, SessionStatus } from "@remote/contracts/api/sessions";
 import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 
@@ -16,6 +16,8 @@ export type HistoryScope = TenantHistoryScope | AllTenantsScope;
 export interface HistoryFilter {
   status?: SessionStatus;
   mode?: SessionMode;
+  /** P8b (AC-158): TECH = request_id IS NULL, REQUEST = IS NOT NULL. */
+  source?: SessionSource;
   /** created_at >= from (UTC anı) */
   from?: Date;
   /** created_at < to (UTC anı) */
@@ -39,6 +41,7 @@ export function historyWhere(scope: HistoryScope, f: HistoryFilter = {}): Prisma
     ...scoped,
     ...(f.status ? { status: f.status } : {}),
     ...(f.mode ? { mode: f.mode } : {}),
+    ...(f.source ? { requestId: f.source === "REQUEST" ? { not: null } : null } : {}),
     ...(f.from || f.to ? { createdAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lt: f.to } : {}) } } : {}),
     ...(f.customer ? { customerName: { contains: escapeLike(f.customer) } } : {}),
   };
@@ -61,6 +64,9 @@ const listSelect = {
   ticketNo: true,
   technician: { select: { id: true, fullName: true } },
   tenant: { select: { id: true, name: true } },
+  // P8b (AC-158): kaynak + bekleme (talep→kabul)
+  requestId: true,
+  request: { select: { createdAt: true, acceptedAt: true } },
 } as const;
 
 export type HistoryListRow = Prisma.SupportSessionGetPayload<{ select: typeof listSelect }>;
@@ -122,6 +128,7 @@ const detailSelect = {
   note: true,
   terminatedBy: true,
   qualitySummary: true,
+  request: { select: { id: true, createdAt: true, acceptedAt: true, customerName: true, customerPhone: true, customerEmail: true, description: true } },
 } as const;
 
 export type HistoryDetailRow = Prisma.SupportSessionGetPayload<{ select: typeof detailSelect }>;

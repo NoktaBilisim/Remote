@@ -1,4 +1,4 @@
-# DB Notları — Remote Support (P1–P8)
+# DB Notları — Remote Support (P1–P8b)
 Sahibi: dba. Tasarım kaynağı: `docs/mimari.md` §3, ADR-0003. MySQL 8.4, Prisma 7.10.1 (stabil; 8.x RC kullanılmadı).
 
 ## Dosyalar
@@ -268,3 +268,39 @@ Migration `apps/server/prisma/migrations/20261111070000_enum_check_binary/{migra
 - Staging/prod'da migrate'ten önce `precheck.sql` çalıştırılması önerilir (yalnız okuma).
 - `down.sql` ci biçimine döner (her zaman başarılı) + kayıt siler. ci biçimindeyken yeni testlerden 42'si (14×3 varyant) FAIL veriyor — testlerin ayırt ettiği kanıtlandı.
 - Kilit: 7 tablo COPY (`audit_logs` dahil); prod kapalı → kabul.
+
+## P8b-1 — müşteri destek talepleri (2026-11-12)
+Migration `apps/server/prisma/migrations/20261112000000_p8b_support_requests/{migration.sql,down.sql}` (mimari-e9 §3, §13 bağlayıcı; ADR-0014/0016). Expand-only; precheck gerekmez (değişen P2/P8 CHECK'leri yalnız genişler, mevcut satırların hepsi `request_id` NULL).
+| Tablo / sütun | Tanım | Kısıtlar |
+|---|---|---|
+| `tenant_request_settings` (yeni, 1-1 tenants, tembel) | tenant_id PK/FK, request_ref CHAR(16) UQ, ref_rotated_at?, file_label VARCHAR(20), wait_minutes (30), wa_enabled, wa_recipients JSON, email_enabled, email_recipients JSON, trusted_cidrs JSON | ref `^[a-z2-7]{16}$`, label `^[A-Za-z0-9]{1,20}$`, wait 10..120; JSON dizileri **JSON_SCHEMA_VALID** (wa ≤ 5 E.164, email ≤ 5, cidr ≤ 10; tekil, öğe biçimi); kanal açık ⇒ ≥ 1 alıcı. JSON sütunlarının DB varsayılanı yok (Prisma MySQL'de ifade edemez) → servis `[]` yazar |
+| `support_requests` (yeni) | mimari-e9 §3.2 + §13.8 sütunları; `network_match` (aşağıda), `known_device`, `request_code`, `net_key`, `device_hash`, `anonymized_at` | ikili enum: status, cancel_reason, network_match; biçim: request_code, secret_hash/device_hash hex, client_instance, client_version, telefon E.164, e-posta iskeleti; metin: ad 2..80, açıklama 10..500 tek satır (Cc/Cf/Zl/Zp ve çift boşluk yok), ret mesajı 5..200 (kırpılmış); tutarlılık: CANCELLED ⇔ cancel_reason, PENDING ⇔ closed_at NULL, kabul alanları (ACCEPTED/CONNECT_FAILED dolu; PENDING/EXPIRED/REJECTED boş; CANCELLED+kabulcü yalnız CUSTOMER), REJECTED ⇔ rejected_by ⇔ reject_message; zaman: expires 9..121 dk, accepted_at ≤ expires_at, consented_at = created_at ±1 dk; **PII ↔ anonimleştirme**: anonim değilse ad/telefon/açıklama/ip/ip_key/net_key dolu, anonimse e-posta ve device_hash dahil hepsi NULL (yarım anonimleştirme reddedilir); known_device ⇒ device_hash (veya anonim). Fonksiyonel UQ `support_requests_pending_code_uq` = tenant içinde bekleyenlerde tekil kod |
+| `support_sessions` | += request_id CHAR(26)? (bileşik FK (request_id, tenant_id) → support_requests, UQ(request_id, tenant_id)), guest_net_key?, **guest_ip_key?** (G-E9-15); customer_email 190→**254** (INPLACE) | `code_pending_chk`: talep oturumu kodsuz, kod yolunda P2 aynen; `ttl_chk`: kod yolu 15..30 dk, talep 55..65 sn; `customer_consumed_chk`: talep oturumunda PENDING iken ad yazılabilir (kabul INSERT'i); yeni `request_mode_chk` (talep oturumu yalnız AGENT), `guest_keys_chk` (iki anahtar birlikte, yalnız admit edilmişte) |
+| `session_consents` | += request_id? (bileşik FK) | `request_scope_chk`: yalnız VIEW/GRANTED |
+
+**İndeksler (`support_requests`):** IX(tenant_id, status, created_at) kuyruk/sıra/pasif tenant; **IX(tenant_id, closed_at)** geçmiş sekmesi (dba ek); IX(status, expires_at) süpürücü; IX(tenant_id, ip_key, status), IX(tenant_id, net_key, status), IX(tenant_id, client_instance, status) bekleyen sınırları; IX(tenant_id, device_hash) known_device; **IX(tenant_id, anonymized_at, created_at)** anonimleştirme (mimarideki IX(created_at) yerine — retention tenant bazlı); FK indeksleri; UQ(secret_hash), UQ(id, tenant_id). `support_sessions`: IX(tenant_id, guest_net_key, consumed_at), IX(tenant_id, guest_ip_key, consumed_at).
+
+**Sapmalar (mimari §3'e not düşüldü):**
+1. **G-E9-15:** `known_network BOOL` yerine `network_match VARCHAR(20)` `NONE|PREFIX|IP|TRUSTED` (talep anında bir kez hesaplanır). Rozet = `IP|TRUSTED`; PREFIX nötr metin ("Benzer ağdan önceki oturum var"), uyarıyı kaldırmaz; hız/kuyruk ayrıcalığı (≥ 40 eşiği, 120/sa) yalnız `TRUSTED` veya `known_device`. Tam IP için `support_sessions.guest_ip_key` + indeks eklendi. API `knownNetwork` = `network_match IN ('IP','TRUSTED')` türetilebilir; ayrı alan gerekip gerekmediği mimar/backend kararı.
+2. **G-E9-17:** şema değişikliği yok; `known_device` hesabı 90 gün penceresiyle yapılmalı (aşağıdaki sorgu). "Bu cihazı güvenilir sayma" kara listesi tablosu **eklenmedi** (spekülatif) — mimar P8b-1'e alırsa ayrı migration.
+3. `customer_email` talepte VARCHAR(254) (AC-134) → oturum sütunu da 254'e genişletildi (kabulde kopyalanır).
+4. `support_sessions` UQ(request_id) yerine UQ(request_id, tenant_id): request_id global tekil ULID olduğundan eşdeğer; Prisma 1-1 bileşik ilişki için gerekli.
+5. Fonksiyonel UQ tek parçalı (`CONCAT(tenant_id, request_code)`): iki parçalı biçimi Prisma 7.10 içgözlemi yanlış okuyup sahte drift üretti.
+6. `consent_texts` sütun düzeyi `UPDATE(is_current, updated_at)` P11'den **öne alındı** (seed yeni sürüm). body/sha256/version hâlâ güncellenemez.
+
+**Grant:** `tenant_request_settings`, `support_requests` → SELECT/INSERT/UPDATE (DELETE/DDL REVOKE; hard delete P13). `consent_texts` += UPDATE(is_current, updated_at). `session_consents` değişmedi (SELECT/INSERT).
+
+**Seed:** aydınlatma metni yeni sistem sürümü (talep verisi, telefon/açıklama, "Bilgilerimi hatırla" yerel şifreli dosya — ne/nerede/nasıl silinir, saklama + anonimleştirme). Kural: güncel sürüm sistem metniyse (created_by NULL) ve gövdesi farklıysa max+1 sürüm eklenir, eskisi is_current=0 (tek TX + audit); Admin'in yazdığı metne dokunulmaz; metni olmayan tenant'a doğrudan güncel metin. Geliştirmede demo tenant'a `tenant_request_settings` (rastgele ref, `DemoFirma`). **Yayın notu (runbook, devops):** yeni sürüm, eski sürümle açık karşılama sayfalarını join'de 400'e düşürür (AC-127).
+
+### Backend-dev için (P8b-1)
+- **Oluşturma TX'i** (G-E9-10): ilk ifade `SELECT … FROM tenant_request_settings WHERE tenant_id=? FOR UPDATE`; sayımlar `count({where:{tenantId, status:'PENDING', clientInstance|ipKey|netKey}})` (ilgili IX); INSERT'te `createdAt`, `consentedAt`, `expiresAt = createdAt + wait` aynı `now`'dan. `requestCode` çakışması: P2002 + `constraint.index === 'support_requests_pending_code_uq'` → yeni kod (5 deneme).
+- **known_device (90 gün, G-E9-17):** `SELECT 1 FROM support_requests r JOIN support_sessions s ON s.request_id=r.id AND s.tenant_id=r.tenant_id WHERE r.tenant_id=? AND r.device_hash=? AND s.consumed_at >= now-90g LIMIT 1`.
+- **network_match:** güvenilen CIDR → TRUSTED; yoksa `support_sessions WHERE tenant_id=? AND guest_ip_key=? AND consumed_at >= now-90g` → IP; yoksa aynı sorgu `guest_net_key` → PREFIX; değilse NONE. Admit UPDATE'i `guest_net_key` + `guest_ip_key`'i birlikte yazar (her iki yol).
+- **Kabul TX'i:** talep `updateMany({where:{id,tenantId,status:'PENDING',expiresAt:{gt:now}}, data:{status:'ACCEPTED',acceptedBy,acceptedAt:now,closedAt:now}})`; oturum INSERT `requestId`, `activeCode:null`, `createdAt:now`, `expiresAt:now+60sn`, `customerName/Email` talepten. Talep oturumu admit'inde `mode:'AGENT'`.
+- Durum geçişlerinde aynı UPDATE'te: CANCELLED → `cancelReason`+`closedAt`; REJECTED → `rejectedBy`+`rejectMessage`+`closedAt`; EXPIRED → `closedAt`; ACCEPTED→CONNECT_FAILED/CANCELLED(CUSTOMER) mevcut kabul alanları kalır. Eksik alan 3819.
+- **Anonimleştirme:** tenant başına `updateMany({where:{tenantId, anonymizedAt:null, createdAt:{lt:cutoff}}, data:{customerName:null,customerPhone:null,customerEmail:null,description:null,ip:null,ipKey:null,netKey:null,deviceHash:null,anonymizedAt:now}})` 1000'lik partiler (IX(tenant_id, anonymized_at, created_at)); alanlardan biri unutulursa `support_requests_pii_chk` reddeder.
+- **Metin kuralları:** DB açıklamada da `UNSAFE_NAME_CHARS` (tüm Cf) reddeder; `descriptionSchema` aynı kümeyi kullanmalı.
+- Geçmiş sekmesi: `where:{tenantId, closedAt:{gte}}`, `orderBy:[{closedAt:'desc'},{id:'desc'}]` → IX(tenant_id, closed_at).
+
+### Test (2026-11-12, geçici `mysql:8.4` `rs-mysql-dba-p8b:33328`, sonra silindi)
+Boş DB'de P1→P8b migrate + grants OK; `migrate diff --exit-code` **0**; seed 2 kez (`consentTextsCreated=1/0`, `demoRequestSettings=created/exists`); eski sistem v1'li tenant → seed v2 ekledi, v1 `is_current=0`, ikinci çalıştırma 0 (idempotent). `check-app-grants.sh` **211/211 PASS** (P8b: 63 yeni — yetkiler, JSON şema CHECK'leri, talep yaşam döngüsü izinli yollar, her CHECK negatifi beklenen kısıt adıyla, bekleyen kod UQ, çapraz tenant FK, talep oturumu kod/TTL/mod/ağ anahtarı, onay kapsamı). `down.sql`: talep oturumu varken `p8b_down_guard_chk` ile hiçbir şey değişmeden durdu; temizken tablolar/sütunlar/yetkiler/kayıt kalktı → yeniden migrate OK, 211/211, drift 0. `test` 256/256; `test:int` 216/216 (P8 şema testinde iki beklenen değer güncellendi: e-posta 254, ikili CHECK sayısı 17). typecheck/lint temiz.

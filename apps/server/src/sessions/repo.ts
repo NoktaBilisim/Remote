@@ -79,7 +79,7 @@ export async function cancelPending(db: DbOrTx, scope: SessionScope, id: string,
 /** Tek oturumu süresi dolmuşsa EXPIRED yapar (iş ve resolve yolu, AC-5). */
 export async function expireOne(db: DbOrTx, id: string, now: Date): Promise<number> {
   const r = await db.supportSession.updateMany({
-    where: { id, status: "PENDING", expiresAt: { lte: now } },
+    where: { id, status: "PENDING", expiresAt: { lte: now }, requestId: null },
     data: { status: "EXPIRED", activeCode: null, endedAt: now, endedBy: "SYSTEM", endReason: "expired" },
   });
   return r.count;
@@ -87,7 +87,7 @@ export async function expireOne(db: DbOrTx, id: string, now: Date): Promise<numb
 
 export function findExpiredPending(db: DbOrTx, now: Date, take: number) {
   return db.supportSession.findMany({
-    where: { status: "PENDING", expiresAt: { lte: now } },
+    where: { status: "PENDING", expiresAt: { lte: now }, requestId: null }, // P8b: talep oturumu → talep süpürücüsü (connect_timeout)
     select: { id: true, tenantId: true },
     orderBy: { expiresAt: "asc" },
     take,
@@ -97,6 +97,7 @@ export function findExpiredPending(db: DbOrTx, now: Date, take: number) {
 const publicSelect = {
   id: true,
   tenantId: true,
+  requestId: true,
   status: true,
   expiresAt: true,
   techVerifyCode: true,
@@ -129,11 +130,20 @@ export function findForDownload(db: DbOrTx, id: string) {
  * Tüketim — tek atomik koşullu UPDATE (P3 giriş şartı 2). WHERE `expiresAt > now` ile SET `consumedAt = now`
  * aynı değer (consumed_before_expiry_chk). count 0 → iptal/süre dolumu/başka admit kazandı.
  */
-export async function consumeForAdmit(db: DbOrTx, id: string, now: Date, mode: "BROWSER" | "AGENT", customer: { name: string | null; email: string | null }): Promise<number> {
+export async function consumeForAdmit(
+  db: DbOrTx,
+  id: string,
+  now: Date,
+  mode: "BROWSER" | "AGENT",
+  customer: { name: string | null; email: string | null },
+  /** P8b: misafir ağ anahtarları (ikisi birlikte; §13.1, G-E9-15) ve talep oturumunda `AND request_id = :rid` (§5.2). */
+  extra: { guestIpKey?: string; guestNetKey?: string; requestId?: string } = {},
+): Promise<number> {
+  const keys = extra.guestIpKey && extra.guestNetKey ? { guestIpKey: extra.guestIpKey, guestNetKey: extra.guestNetKey } : {};
   const r = await db.supportSession.updateMany({
-    where: { id, status: "PENDING", expiresAt: { gt: now }, consumedAt: null },
+    where: { id, status: "PENDING", expiresAt: { gt: now }, consumedAt: null, requestId: extra.requestId ?? null },
     // P8: müşteri adı/e-postası aynı atomik UPDATE'te (customer_consumed_chk: yalnız consumed_at ile birlikte).
-    data: { status: "ACTIVE", consumedAt: now, activeCode: null, mode, customerName: customer.name, customerEmail: customer.email },
+    data: { status: "ACTIVE", consumedAt: now, activeCode: null, mode, customerName: customer.name, customerEmail: customer.email, ...keys },
   });
   return r.count;
 }

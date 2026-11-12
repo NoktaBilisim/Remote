@@ -1,4 +1,4 @@
-# Runbook — Remote Support (P1–P8)
+# Runbook — Remote Support (P1–P8b)
 Sahibi: devops. Kapsam P1: kurulum, başlatma/durdurma, env, log, migrate/seed. Yedek, alarm, rollback
 provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md` §8.
 
@@ -58,6 +58,8 @@ Tarayıcı: `https://<SITE_HOST>:4450`. `tls internal` kök sertifikası test ma
 | ↳ | yalnız seed için; parola ≥ 12, ilk girişte değiştirilir; seed sonrası `.env`'den silinebilir |
 | `ABUSE_EMAIL` | Misafir karşılama ekranındaki "Kötüye kullanımı bildir" `mailto:` adresi (AC-125, V13, S-P4-1), ör. `abuse@<alan-adı>`. **production'da boşsa bağlantı gizlenir** (Super Admin e-postasına düşülmez). Staging/prod'da doldurulması önerilir. Değişiklik: `.env` → `docker compose up -d server`. Kullanmayacaksanız boş bırakmak (`ABUSE_EMAIL=`) veya satırı silmek güvenlidir: env.ts boş/yalnız boşluk değerleri tanımsız sayar (`withoutBlanks`), server açılır ve production'da bağlantı gizlenir. Dolu ama geçersiz bir adres (ör. `abuse@`) ise env.ts doğrulamasında server'ı açtırmaz |
 | `AGENT_SHA256` | P6 (G-07): `agent_downloads` volume'undaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). **Elle yazılmaz**: `deploy/agent/verify-and-publish.sh` attestation + `SHA256SUMS` doğrulamasından sonra yazar, ardından `docker compose up -d server`. Boşsa, dosya yoksa veya hash uyuşmazsa `GET /api/v1/public/agent/download` **503** döner (fail-closed) ve server logunda bir kez `alarm: "agent_binary"` uyarısı çıkar. `AGENT_BINARY_PATH` compose'da sabittir (`/data/downloads/NoktaDestek.exe`); `.env`'deki değer yalnız compose dışı çalıştırmada kullanılır |
+| `WHATSAPP_SERVICE_URL` | P8b: whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). Boş/tanımsız → `env.ts` varsayılanı `http://89.252.189.211:3000` (staging). **production'da `http://` + özel olmayan adres → kanal kapalı başlar** (gönderim yok, test 502, log `alarm:"whatsapp_insecure"`); prod değeri K13'e göre `https://…` veya özel ağ adresi (§12.3). Değişiklik: `.env` → `docker compose up -d server` |
+| `MIN_AGENT_VERSION` | P8b G-E9-4: asgari Windows istemci sürümü `x.y.z`. Boş = kontrol yok. Düşük sürüm talep/resolve/join/`/ws/guest`'te 426 `CLIENT_OUTDATED`; istemci "Yeni sürümü indir" gösterir. Güvenlik yamasında yükseltilir (§12.4) |
 | `NODE_ENV`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `CADDY_BIND`, `IMAGE_TAG` | opsiyonel (varsayılan: production, info, PUBLIC_BASE_URL, 0.0.0.0, local) |
 `DATABASE_URL` / `MIGRATE_DATABASE_URL` compose'da parolalardan **üretilir**; `.env`'deki değerleri yalnız
 compose dışı (yerel `pnpm`) çalıştırmada kullanılır. Server konteynerine yalnız ihtiyaç duyduğu
@@ -82,7 +84,7 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
 - Loglar JSON (pino; `reqId` korelasyon kimliği, yanıtta `X-Request-Id`): `docker compose logs -f --since 10m server`.
   Kullanıcının bildirdiği `requestId` ile arama: `docker compose logs server | grep <requestId>`.
 - Caddy erişim logu: `docker compose logs caddy | grep handled`. Sorgu dizesi, `/session/<token>`,
-  `/downloads/Destek-<kod>.exe` (→ `Destek-***`), `Cookie`, `Authorization`, `X-Csrf-Token`, `Sec-WebSocket-Protocol`,
+  `/downloads/Destek-<kod>.exe` (→ `Destek-***`), firma dosyası `NoktaDestek-<label>-<ref>.exe` (→ `NoktaDestek-***`, P8b), `Cookie`, `Authorization`, `X-Csrf-Token`, `Sec-WebSocket-Protocol`,
   `Set-Cookie`, `Location`, `Content-Disposition` **yazılmaz** (G-10).
   Caddy **hata logu** (`http.log.error.*`, ör. upstream 502) global `log default` filtresiyle aynı maskelemeyi alır (P6
   düzeltme 1); Caddyfile'da iki filtre listesi birlikte güncellenir.
@@ -652,3 +654,73 @@ koşar. Oturum, dosya aktarımı ve ekran yakalama CI'da yoktur; bunlar için a�
    gözden geçirin (Defender/Windows Update kaynaklı olabilir). Sonucu ve çıktının ekran görüntüsünü `docs/test-raporu.md`'ye ekleyin.
 6. Ayrıca görev yöneticisiyle sonlandırma (zorla kapatma) senaryosunda adım 2-4'ü tekrarlayın: yarım `.part` kalırsa iz olarak raporlanır.
 
+## 12. P8b-1 yayını — müşteri destek talebi (E9; mimari-e9 §8/§13, ADR-0016)
+Ön koşul: P8 yayında. Yeni bileşen yok; yeni env (`WHATSAPP_SERVICE_URL`, `MIN_AGENT_VERSION`), migration
+`20261112000000_p8b_support_requests`, seed yeni aydınlatma sürümü, Caddyfile + nginx vhost güncellemesi.
+
+### 12.1 Yayın sırası (staging, §8 akışı)
+1. **Yedek** (migration expand-only olsa da): `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump -uroot --single-transaction "$MYSQL_DATABASE"' | gzip > /root/remote-pre-p8b-$(date -u +%Y%m%dT%H%M%SZ).sql.gz` (600).
+2. Repo güncelle (§8 bundle). `.env`'e iki satır: `WHATSAPP_SERVICE_URL=` (boş = staging servisi) ve `MIN_AGENT_VERSION=` (P8b-2 istemcisi yayınlanana kadar **boş**; eski istemciler 426 almasın).
+3. `docker compose build && docker compose up -d` → migrate önce çalışır (precheck gerekmez; değişen CHECK'ler yalnız genişler). `docker compose logs --since 5m migrate` → `20261112000000_p8b_support_requests` applied. Caddyfile değiştiği için caddy de yeniden yaratılır (açık WS'ler bir kez kopar; istemciler yeniden bağlanır).
+4. Seed: `docker compose --profile setup run --rm seed` → yeni sistem aydınlatma sürümü (`consentTextsCreated=1`; ikinci çalıştırma 0). **AC-127 etkisi:** eski sürümle açılmış müşteri karşılama sayfaları join'de 400 alır (sayfa yenilenince yeni metin gelir). Açık müşteri oturumu yokken çalıştırın; staging'de kabul.
+5. Yetki kontrolü: §6 `check-app-grants.sh` (P8b dahil hepsi PASS).
+6. nginx vhost (§8.3 "vhost güncelleme" komutu aynen; `nginx -t` başarısızsa otomatik geri alır). Bu sürümde değişen: firma dosyası log maskesi (G-E9-8).
+7. Doğrulama:
+```bash
+# firma dosyası: Admin "Ayarlar > Destek talepleri"nden bağlantıyı kopyala (ref oluşur), sonra:
+curl -sI "https://remote.noktabilisim.net/api/v1/public/agent/request-download?ref=<ref>" | grep -i '^location'   # /downloads/NoktaDestek-<label>-<ref>.exe
+curl -s -o /dev/null -w '%{http_code}\n' "https://remote.noktabilisim.net/downloads/NoktaDestek-<label>-<ref>.exe"  # 200
+curl -s -o /dev/null -w '%{http_code}\n' "https://remote.noktabilisim.net/downloads/NoktaDestek-Baska-<ref>.exe"    # 404 (label uyuşmaz, G-E9-11)
+# loglarda ref yok:
+docker compose logs caddy --since 10m | grep -c '<ref>'; grep -c '<ref>' /var/log/nginx/remote.access.log          # 0 / 0
+# /ws/request ve /ws/panel: ticket'sız el sıkışma 101 değil 4xx (502 değil) — §8.3'teki curl, yol /ws/panel
+```
+8. Yayın geçmişi tablosuna (§8) satır ekleyin.
+
+### 12.2 Geri alma
+Sıra terstir: (1) önceki `IMAGE_TAG` + önceki Caddyfile (git) → `docker compose up -d`; (2) gerekirse `down.sql`:
+`docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/20261112000000_p8b_support_requests/down.sql`.
+**Koruma:** talepten doğan oturum/onay satırı (`request_id` dolu) veya 190 karakteri aşan oturum e-postası varsa `down.sql`
+3819 `p8b_down_guard_chk` ile **hiçbir şey değiştirmeden** durur. Bu satırlar KVKK kanıtıdır: silmeyin, mimara bildirin;
+o durumda yalnız (1) uygulanır (eski kod yeni sütunları okumaz, şema ileri uyumlu). `down.sql` talepleri ve firma ref'lerini
+siler (dağıtılmış firma dosyaları 404 olur). Seed'in eklediği aydınlatma sürümü kalır (zararsız). nginx için §8.3 `remote.conf.prev`.
+Prova: dba 2026-11-12 geçici DB'de guard + temiz geri alma + yeniden migrate denedi (`docs/db-notlari.md` P8b-1).
+
+### 12.3 WhatsApp servisi — K13 prod ön koşulu
+- Staging: `WHATSAPP_SERVICE_URL` boş (varsayılan `http://89.252.189.211:3000`, kimliksiz, internete açık). Mesajda kişisel veri yok (§13.5 şablonu).
+- **Prod açılışından önce (P13 kontrol listesi):** servis TLS arkasında (`https://…`) **veya** özel ağda; servis host güvenlik duvarında 3000 yalnız Remote sunucusunun çıkış IP'sine açık. Doğrulama: başka bir dış makineden `curl -m 5 http://<servis>:3000/` zaman aşımı; Remote sunucusundan Ayarlar > Destek talepleri > "Test Mesajı Gönder" başarılı. Aksi halde server kanalı zaten kapalı başlatır (log `alarm:"whatsapp_insecure"`, ayar ekranında uyarı) — bu bir arıza değil, ön koşul eksikliğidir.
+- Servis API anahtarı desteği "Sonra" (servis destekleyince env eklenir).
+
+### 12.4 `MIN_AGENT_VERSION` — güvenlik yamasında yükseltme
+1. Yamalı istemciyi §11.3 ile yayınlayın (`verify-and-publish.sh`; firma dosyaları ve `NoktaDestek.exe` aynı ikilidir, bağlantılar değişmez).
+2. `.env`'de `MIN_AGENT_VERSION=<yamalı sürüm>` → `docker compose up -d server`.
+3. Eski istemci açan müşteri "Bu Hızlı Destek dosyası eski" + "Yeni sürümü indir" görür (talep modunda aynı firma bağlantısından yenisini indirir); kod modunda teknisyenden yeni bağlantı ister.
+4. Doğrulama: server logunda `CLIENT_OUTDATED` (426) sayısı; geri almak için değeri önceki sürüme çekip `up -d server`.
+
+### 12.5 Metrikler ve alarmlar (`/metrics`, Bearer `METRICS_TOKEN`; adlar mimari-e9 §8, server tarafı backend)
+| Kural (PromQL) | Seviye | Anlamı / ilk adım |
+|---|---|---|
+| `increase(rs_request_ref_invalid_total[1m]) > 100` | **Uyarı** | Ref numaralandırma denemesi (T28). Engelleme değil alarm (IP kovası zaten 15 dk 429). Caddy logunda kaynak IP dağılımı: `docker compose logs caddy --since 15m \| grep -o '"client_ip":"[^"]*"' \| sort \| uniq -c \| sort -rn \| head` |
+| `sum(increase(rs_request_notify_total{channel="whatsapp",result="failed"}[15m])) / sum(increase(rs_request_notify_total{channel="whatsapp",result=~"ok\|failed"}[15m])) > 0.5` | **Uyarı** | WhatsApp servisi ulaşılamıyor/hata dönüyor. `docker compose logs server --since 15m \| grep -i whatsapp`; servis sahibine bildirin. Panel bildirimi (birincil kanal) etkilenmez |
+| `increase(rs_request_rate_limited_total{bucket="tenant"}[10m]) > 0` | **Uyarı** | Tenant'a olağan dışı talep yoğunluğu (G-E9-7); panelde uyarı bandı çıkar. Admin'e "bağlantıyı yenile" önerin (ref yenileme) |
+| `sum(rs_requests_pending) > 400` | Uyarı | Sistem geneli hedef ≤ 500 bekleyen; teknisyen yokluğu veya spam. Tenant dağılımı için SQL: `SELECT tenant_id, COUNT(*) FROM support_requests WHERE status='PENDING' GROUP BY tenant_id` |
+| `rs_ws_connections{role="request"}` / `{role="panel"}` | Pano | Bekleyen müşteri ve açık panel sayısı; `request` ≈ `rs_requests_pending` olmalı (fark büyükse kopan istemciler) |
+| server log `alarm:"whatsapp_global_cap"` | Bilgi | Saatlik 300 global WhatsApp sınırı aşıldı, özet mesajlara düşüldü |
+| server log `alarm:"db_busy"` (metrik yok; log sayımı: `docker compose logs server --since 5m \| grep -c '"alarm":"db_busy"'`) — 5 dk'da > 20 **veya** 15 dk boyunca her 5 dk'da > 0 | **Uyarı** | Geçici DB çekişmesi → istemciye 503 `NOT_READY` + `Retry-After` (errors.ts; kod alanı: `P2028` TX/havuz bekleme, `P2034`/`1213` deadlock, `1205` kilit bekleme, `45028` havuzdan bağlantı alınamadı). Bağlam: talep oluşturma TX'i tenant ayar satırını kilitler; talep kapısı (S8b-5, düzeltildi) talepleri havuzun (10 bağlantı) en çok 4'üyle sınırlar, giriş/panel/WS için en az 6 kalır. Başarısız giriş sayacı DB'ye yazılamazsa bellek içi yedek kova kilidi yine uygular (S8b-6, düzeltildi; `auth_fail_counter_fallback` satırı). İlk adım: (1) kod dağılımı `docker compose logs server --since 15m \| grep '"alarm":"db_busy"' \| grep -o '"code":[^,}]*' \| sort \| uniq -c`; (2) eşzamanlı `rs_requests_created_total` / `rs_request_rate_limited_total` artışı → talep yığılması (tenant dağılımı §12.5 SQL); (3) MySQL tarafı `docker compose exec mysql mysql -uroot -p -e "SHOW PROCESSLIST; SHOW ENGINE INNODB STATUS\G" \| grep -A20 "LATEST DETECTED DEADLOCK"`; (4) uzun süren sorgu veya yedek alma çakışması varsa bitmesini bekleyin. Sürekli ise `docker compose restart server` havuzu boşaltır (geçici); kalıcıysa DB kaynakları/sorgu planı incelenir |
+| `increase(rs_request_gate_rejected_total[5m]) > 0` (`reason="full"` veya `"timeout"`) | **Uyarı** | Talep oluşturma kapısı doldu (S8b-5: firma başına 2, toplam 4 eşzamanlı; kuyruk 16/64, bekleme 5 sn) → müşteriye 503 `NOT_READY` + `Retry-After: 5`. Ani talep yığılması veya yavaş DB. `db_busy` satırıyla birlikte değerlendirin; sürekli artış havuz/DB kaynak yetersizliğidir. Firma dağılımı: `docker compose logs server --since 15m \| grep '"alarm":"request_gate_busy"' \| grep -o '"tenantId":"[^"]*"' \| sort \| uniq -c` |
+| server log `alarm:"request_gate_busy"` (10 sn'de en çok 1; `reason`, `tenantId`; PII yok) | Uyarı | Yukarıdaki metriğin log karşılığı; metrik toplanmıyorsa log sayımı: `docker compose logs server --since 5m \| grep -c '"alarm":"request_gate_busy"'` > 0 |
+| server log `alarm:"auth_fail_counter_fallback"` (`userId`, `code`, `lockedNow`) | **Uyarı** | Başarısız giriş sayacı DB'ye yazılamadı; hesap kilidi bellek içi yedek kovayla uygulandı (S8b-6, fail-closed). Tekil olay: DB çekişmesi (`db_busy` ile aynı pencere). Aynı `userId` için tekrar ediyorsa kaba kuvvet denemesi + DB sorunu birlikte: §7 DB kontrolleri, kullanıcı audit kaydı. Server yeniden başlarsa yedek kova sıfırlanır |
+| server log `alarm:"auth_fail_unrecorded"` (`userId`, `pairLocked`/`locked`, `lockedNow`, `code`) | **Uyarı** | Başarısız giriş veya kilit audit'e yazılamadı (yanıt yine 401/423; S8b-6/S8b-7). Audit eksikliği demektir: olay zamanını ve `userId`'yi not edin, DB sorunu giderilince güvenlik ekibine bildirin. 5 dk'da > 5 ise DB'yi kontrol edin (§7, `db_busy`) |
+Kabul süresi (ayrı metrik yok): `SELECT DATE(created_at) g, COUNT(*), AVG(TIMESTAMPDIFF(SECOND, created_at, accepted_at)) ort_sn FROM support_requests WHERE accepted_at IS NOT NULL AND created_at > NOW() - INTERVAL 7 DAY GROUP BY g`.
+
+### 12.6 Sorun giderme (P8b)
+| Belirti | Kontrol / çözüm |
+|---|---|
+| Firma bağlantısı / dosyası 404 | Ref yenilenmiş, tenant pasif veya Admin ayar ekranını hiç açmamış (ref tembel oluşur, K14). Firma kısa adı değiştiyse eski adlı dosya 404 (label uyuşmaz, G-E9-11) → Admin bağlantıyı yeniler. İç uç elle: `docker compose exec caddy wget -S -O- --header 'X-Forwarded-Method: GET' --header 'X-Forwarded-Uri: /downloads/NoktaDestek-<label>-<ref>.exe' http://server:3001/internal/agent-ready` → 204 |
+| Firma dosyası 503 | P6 ikili kapısı (§7 `agent_binary` satırı) |
+| Firma dosyası 404 ama ad doğru görünüyor | Caddy biçimi: label `[A-Za-z0-9]{1,20}`, ref `[a-z2-7]{16}`, büyük/küçük harf duyarlı; biçim dışı ad server'a hiç gitmez. `deploy/test-caddy.sh` |
+| WhatsApp gelmiyor | Tenant ayarında kanal açık + alıcı var mı; Ayarlar > "Test Mesajı Gönder"; prod'da `alarm:"whatsapp_insecure"` (§12.3); saatlik sınırlar (tenant 30, alıcı 10, global 300 → özet); audit `request.notify` |
+| Müşteri "dosya eski" görüyor | `MIN_AGENT_VERSION` > istemci sürümü (§12.4); yanlışlıkla yükseltildiyse geri çekin |
+| `/ws/request` veya `/ws/panel` 502 | server ayakta değil (§7); nginx/Caddy WS ayarı değişmedi (`/ws/*` aynı kural) |
+| Seed sonrası müşteri karşılamada 400 | AC-127: yeni aydınlatma sürümü; müşteri sayfayı yenilesin (§12.1/4) |
+| Talep 429 `QUEUE_FULL` / `RATE_LIMITED` | Tenant 50 bekleyen, IP/önek kovaları (mimari-e9 §5.4, §13.6); NAT'lı ofis için Admin "güvenilen IP/CIDR" ekleyebilir |

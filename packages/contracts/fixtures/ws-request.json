@@ -1,0 +1,48 @@
+{
+  "_doc": "/ws/request ve /ws/panel sözleşme örnekleri (mimari-protokol §5, P8b r2). valid.* şemadan geçmeli, invalid.* reddedilmeli. Go istemci (P8b-2) request.* örneklerini go test ile doğrular.",
+  "valid": {
+    "requestInbound": [
+      { "t": "request.cancel" },
+      { "t": "request.decline" }
+    ],
+    "requestOutbound": [
+      { "t": "request.state", "status": "PENDING", "requestCode": "042917", "position": 2, "createdAt": "2026-11-12T10:00:00.000Z", "expiresAt": "2026-11-12T10:30:00.000Z", "serverTime": "2026-11-12T10:01:05.000Z" },
+      { "t": "request.accepted", "wsTicket": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "technicianName": "Mehmet Teknisyen", "techVerifyCode": "4821", "ticketExpiresAt": "2026-11-12T10:02:05.000Z" },
+      { "t": "request.closed", "status": "EXPIRED" },
+      { "t": "request.closed", "status": "CANCELLED", "reason": "TENANT_PASSIVE" },
+      { "t": "request.closed", "status": "REJECTED", "message": "Şu an müsait değiliz, sizi arayacağız" },
+      { "t": "request.closed", "status": "CONNECT_FAILED" },
+      { "t": "error", "code": "RATE_LIMITED", "message": "Çok fazla istek." }
+    ],
+    "panelOutbound": [
+      { "t": "queue.count", "pending": 0 },
+      { "t": "request.new", "id": "01JC0000000000000000000000", "requestCode": "123456", "customerName": "Ayşe Yılmaz", "preview": "Yazıcı çalışmıyor", "networkMatch": "NONE", "knownDevice": false, "createdAt": "2026-11-12T10:00:00.000Z" },
+      { "t": "request.removed", "id": "01JC0000000000000000000000", "status": "ACCEPTED" },
+      { "t": "request.connect_failed", "id": "01JC0000000000000000000000", "sessionId": "01JC0000000000000000000001" },
+      { "t": "request.declined", "id": "01JC0000000000000000000000", "sessionId": "01JC0000000000000000000001" },
+      { "t": "queue.alert", "kind": "rate_limited", "until": "2026-11-12T11:00:00.000Z" }
+    ]
+  },
+  "invalid": {
+    "requestInbound": [
+      { "t": "request.cancel", "extra": 1 },
+      { "t": "request.accept" },
+      { "t": "sdp.offer", "sdp": "v=0" },
+      {}
+    ],
+    "requestOutbound": [
+      { "t": "request.state", "status": "ACCEPTED", "requestCode": "042917", "position": 1, "createdAt": "2026-11-12T10:00:00.000Z", "expiresAt": "2026-11-12T10:30:00.000Z", "serverTime": "2026-11-12T10:01:05.000Z" },
+      { "t": "request.state", "status": "PENDING", "requestCode": "42917", "position": 1, "createdAt": "2026-11-12T10:00:00.000Z", "expiresAt": "2026-11-12T10:30:00.000Z", "serverTime": "2026-11-12T10:01:05.000Z" },
+      { "t": "request.state", "status": "PENDING", "requestCode": "042917", "position": 0, "createdAt": "2026-11-12T10:00:00.000Z", "expiresAt": "2026-11-12T10:30:00.000Z", "serverTime": "2026-11-12T10:01:05.000Z" },
+      { "t": "request.accepted", "wsTicket": "kisa", "technicianName": "X", "techVerifyCode": "4821", "ticketExpiresAt": "2026-11-12T10:02:05.000Z" },
+      { "t": "request.closed", "status": "EXPIRED", "message": "mesaj yalnız ret" },
+      { "t": "request.closed", "status": "PENDING" },
+      { "t": "request.closed", "status": "REJECTED", "reason": "CUSTOMER", "message": "Şu an müsait değiliz" }
+    ],
+    "panelOutbound": [
+      { "t": "request.new", "id": "01JC0000000000000000000000", "requestCode": "123456", "customerName": "Ayşe", "preview": "x", "knownNetwork": true, "knownDevice": false, "createdAt": "2026-11-12T10:00:00.000Z" },
+      { "t": "queue.count", "pending": -1 },
+      { "t": "queue.alert", "kind": "other", "until": "2026-11-12T11:00:00.000Z" }
+    ]
+  }
+}

@@ -221,8 +221,10 @@ function onMsg(s: ControlState, m: ServerOutbound, now: number): ControlState {
       }
       if (m.source === "DENIED") return { ...s, phase: "denied", deniedAt: now };
       if (m.source === "RECONNECT") return stop(s, "reconnect", now, "idle");
-      // {VIEW, TECH}: bırakma/iptalin sunucu onayı — konsol zaten kapattı, sessiz geçer
-      if (m.source === "TECH") return stop(s, "tech", now);
+      // {VIEW, TECH}: bırakma/iptalin sunucu onayı — konsol zaten kapattı, sessiz geçer.
+      // `requested`'de gelen TECH onayı her zaman ÖNCEKİ Vazgeç/Bırak'a aittir (sunucu sırayla işler: iptal onayı
+      // yeni isteğin iletilmesinden önce gönderilir); yeni bekleyen isteği kapatmaz (QA-P8b-13, hızlı Vazgeç → yeniden iste).
+      if (m.source === "TECH") return s.phase === "requested" ? s : stop(s, "tech", now);
       // K6: bekleyen istek müşteri tarafında kapandı (PeerConnection koptu) — ret değil, bekleme yok, hemen yeniden istenebilir
       if (m.source === "SYSTEM" && s.phase === "requested") return { ...stop(s, "agent", now), lastSent: null };
       return stop(s, m.source === "HOTKEY" ? "hotkey" : m.source === "SYSTEM" ? "system" : "customer", now);

@@ -1,6 +1,7 @@
 "use client";
 
-import { CircleAlert, CircleCheck, X } from "lucide-react";
+import { Bell, CircleAlert, CircleCheck, X } from "lucide-react";
+import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { t } from "@/lib/i18n";
 
@@ -10,14 +11,20 @@ import { t } from "@/lib/i18n";
  * Modal <dialog> üst katmanda olduğundan ve dışını inert yaptığından, açık diyalog kendi
  * <ToastViewport>'unu taşır; o anda yalnız en son bağlanan görünüm çizilir.
  */
-type Tone = "success" | "danger";
+type Tone = "success" | "danger" | "info";
+/** P8b-1: isteğe bağlı eylem bağlantısı (ör. yeni talep → "Görüntüle") ve süre (vars. 4 sn). */
+export interface ToastOptions {
+  action?: { label: string; href: string };
+  durationMs?: number;
+}
 interface Item {
   id: number;
   message: string;
   tone: Tone;
+  action?: ToastOptions["action"];
 }
 interface Ctx {
-  push: (message: string, tone?: Tone) => void;
+  push: (message: string, tone?: Tone, opts?: ToastOptions) => void;
   dismiss: (id: number) => void;
   items: Item[];
   hosts: string[];
@@ -37,10 +44,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const dismiss = useCallback((id: number) => setItems((xs) => xs.filter((x) => x.id !== id)), []);
   const push = useCallback(
-    (message: string, tone: Tone = "success") => {
+    (message: string, tone: Tone = "success", opts: ToastOptions = {}) => {
       const id = ++seq.current;
-      setItems((xs) => [...xs.slice(-2), { id, message, tone }]);
-      setTimeout(() => dismiss(id), 4000);
+      setItems((xs) => [...xs.slice(-2), { id, message, tone, action: opts.action }]);
+      setTimeout(() => dismiss(id), opts.durationMs ?? 4000);
     },
     [dismiss],
   );
@@ -72,15 +79,25 @@ export function ToastViewport({ root = false }: { root?: boolean }) {
       className="pointer-events-none fixed inset-x-4 bottom-4 z-[60] flex flex-col items-center gap-2 sm:inset-x-auto sm:right-6 sm:items-end"
     >
       {items.map((it) => {
-        const Icon = it.tone === "success" ? CircleCheck : CircleAlert;
+        const Icon = it.tone === "success" ? CircleCheck : it.tone === "info" ? Bell : CircleAlert;
+        const color = it.tone === "success" ? "text-success" : it.tone === "info" ? "text-primary" : "text-danger";
         return (
           <div
             key={it.id}
             data-testid="toast"
             className="pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded-md border border-border bg-surface py-1 pr-1 pl-3 text-sm text-fg shadow-lg transition-[opacity,transform] duration-200 ease-out starting:translate-y-2 starting:opacity-0 motion-reduce:starting:translate-y-0"
           >
-            <Icon aria-hidden className={`size-4 shrink-0 ${it.tone === "success" ? "text-success" : "text-danger"}`} />
-            <p className="min-w-0 flex-1">{it.message}</p>
+            <Icon aria-hidden className={`size-4 shrink-0 ${color}`} />
+            <p className="min-w-0 flex-1 wrap-anywhere">{it.message}</p>
+            {it.action && (
+              <Link
+                href={it.action.href}
+                onClick={() => dismiss(it.id)}
+                className="inline-flex min-h-11 shrink-0 items-center rounded-md px-2 font-medium text-primary hover:bg-surface-muted"
+              >
+                {it.action.label}
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => dismiss(it.id)}

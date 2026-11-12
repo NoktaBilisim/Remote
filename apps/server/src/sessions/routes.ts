@@ -114,17 +114,17 @@ export async function publicSessionRoutes(app: FastifyInstance): Promise<void> {
   app.post("/resolve", async (req, reply): Promise<ResolveSessionResponse> => {
     const input = parseInput(resolveSessionInputSchema, req.body);
     checkPublicClient(req, input.clientKind); // ADR-0012
-    const out = await resolvePublicSession(app.db, app.publicLimits, app.sessionRefKey, auditContext(req), input, (id, kind) => issueJoinNonce(app.rooms, id, kind), {
+    const out = await resolvePublicSession(app.db, app.publicLimits, app.sessionRefKey, auditContext(req), input, (id, kind, version) => issueJoinNonce(app.rooms, id, kind, version), {
       fromEnv: app.env.ABUSE_EMAIL,
       superAdminFallback: app.env.NODE_ENV !== "production", // S-P4-1
-    });
+    }, app.env.MIN_AGENT_VERSION);
     void reply.header("Cache-Control", "no-store");
     return out;
   });
 
   app.post("/join", async (req, reply): Promise<JoinSessionResponse> => {
     const input = parseInput(joinSessionInputSchema, req.body);
-    const out = await joinPublicSession(app.db, app.rooms, app.publicLimits.joinIp, auditContext(req), (kind) => checkPublicClient(req, kind), input);
+    const out = await joinPublicSession(app.db, app.rooms, app.publicLimits.joinIp, auditContext(req), (kind) => checkPublicClient(req, kind), input, app.env.MIN_AGENT_VERSION);
     void reply.header("Cache-Control", "no-store");
     return out;
   });

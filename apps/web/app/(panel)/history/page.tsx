@@ -21,6 +21,7 @@ export const metadata: Metadata = { title: t("nav.history") };
 const FIELD_LABEL: Record<string, MessageKey> = {
   status: "h.f.status",
   mode: "h.f.mode",
+  source: "h.f.source",
   from: "h.f.from",
   to: "h.f.to",
   technicianId: "h.f.tech",

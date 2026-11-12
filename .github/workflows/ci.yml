@@ -106,6 +106,10 @@ jobs:
           fi
           docker run --rm -e SITE_HOST=localhost -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Caddy yönlendirme + log maskesi (P6/P8b firma dosyası, forward_auth, /ws/request|panel)
+        run: deploy/test-caddy.sh
+      - name: host nginx vhost (nginx -t + erişim logu maskesi, G-E9-8)
+        run: deploy/nginx/test-nginx.sh
 
   turn:
     name: coturn (yapılandırma + HMAC + denied-peer-ip)

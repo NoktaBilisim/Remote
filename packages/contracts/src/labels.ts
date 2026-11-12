@@ -1,6 +1,7 @@
 // Enum → Türkçe etiket eşlemesinin TEK yeri (mimari-api "Oturum geçmişi (P8)"). Web ve sunucu CSV'si aynı eşlemeyi kullanır.
 // CHECK'i olmayan değerler (`end_reason`, audit `action`) bilinmiyorsa ham gösterilir: `labelOf` boş bırakmaz, hata atmaz.
-import type { ConsentDecision, ConsentLevel, ConsentRecordSource, SessionEndedBy, SessionMode, SessionStatus, TimelineEvent } from "./api/sessions.ts";
+import type { CancelReason, NetworkMatch, RequestStatus } from "./api/requests.ts";
+import type { ConsentDecision, ConsentLevel, ConsentRecordSource, SessionEndedBy, SessionMode, SessionSource, SessionStatus, TimelineEvent } from "./api/sessions.ts";
 
 /** Bilinen değer → etiket; bilinmeyen → ham değer; null/undefined → "". */
 export function labelOf(map: Readonly<Record<string, string>>, value: string | null | undefined): string {
@@ -40,7 +41,46 @@ export const END_REASON_LABELS: Readonly<Record<string, string>> = {
   admin: "Yönetici sonlandırdı",
   auth_revoked: "Teknisyen oturumu kapandı",
   expired: "Süresi doldu",
+  // P8b (mimari-e9 §3.3, §13.3): talep oturumu kabul sonrası 60 sn'de bağlanmadı / müşteri onay ekranında vazgeçti.
+  connect_timeout: "Müşteri bağlanamadı",
+  customer_declined: "Müşteri vazgeçti",
 };
+
+/** P8b (AC-158): geçmiş listesi/CSV "Kaynak". */
+export const SESSION_SOURCE_LABELS: Readonly<Record<SessionSource, string>> = {
+  TECH: "Teknisyen",
+  REQUEST: "Talep",
+};
+
+/** P8b (AC-140): talep durumları. */
+export const REQUEST_STATUS_LABELS: Readonly<Record<RequestStatus, string>> = {
+  PENDING: "Bekliyor",
+  ACCEPTED: "Kabul edildi",
+  CANCELLED: "İptal",
+  EXPIRED: "Süresi doldu",
+  REJECTED: "Reddedildi",
+  CONNECT_FAILED: "Bağlanamadı",
+};
+
+/** P8b (AC-140): İPTAL nedeni. */
+export const CANCEL_REASON_LABELS: Readonly<Record<CancelReason, string>> = {
+  CUSTOMER: "Müşteri iptal etti",
+  DISCONNECTED: "Bağlantı koptu",
+  TENANT_PASSIVE: "Firma pasif",
+};
+
+/**
+ * P8b (AC-146, G-E9-15): bilinen ağ metni. IP/TRUSTED güven veren rozet; PREFIX nötr (uyarıyı kaldırmaz); NONE metinsiz.
+ * Cihaz: `KNOWN_DEVICE_LABEL`; ikisi de yoksa `FIRST_SEEN_SOURCE_LABEL` uyarı rozeti (`isFirstSeenSource`).
+ */
+export const NETWORK_MATCH_LABELS: Readonly<Record<NetworkMatch, string>> = {
+  NONE: "",
+  PREFIX: "Benzer ağdan önceki oturum var",
+  IP: "Bu ağdan daha önce oturum yapıldı",
+  TRUSTED: "Güvenilen ağ",
+};
+export const KNOWN_DEVICE_LABEL = "Bu bilgisayar daha önce destek aldı";
+export const FIRST_SEEN_SOURCE_LABEL = "İlk kez görülen kaynak — firmanın kayıtlı numarasından arayıp talep kodunu doğrulayın";
 
 export const CONSENT_LEVEL_LABELS: Readonly<Record<ConsentLevel, string>> = {
   VIEW: "Ekran görüntüleme",

@@ -1,4 +1,4 @@
-// Remote Support — P1..P5 veri modeli (docs/mimari.md §3, docs/db-notlari.md).
+// Remote Support — P1..P8b veri modeli (docs/mimari.md §3, docs/db-notlari.md).
 // Kurallar: PK ULID CHAR(26) (uygulama üretir, lib/ids.ts); zaman DATETIME(3) UTC;
 // enum'lar VARCHAR(20) + zod enum; FK'ler ON DELETE RESTRICT (cascade yok);
 // tenant/kullanıcı soft delete (deleted_at/status); audit_logs append-only.
@@ -31,6 +31,8 @@ model Tenant {
   consentTexts    ConsentText[]
   sessionConsents SessionConsent[]
   sessionFiles    SessionFile[]
+  requestSettings TenantRequestSettings?
+  supportRequests SupportRequest[]
 
   @@map("tenants")
 }
@@ -85,6 +87,8 @@ model User {
   supportSessions    SupportSession[] @relation("SessionTechnician")
   terminatedSessions SupportSession[] @relation("SessionTerminator")
   consentTexts       ConsentText[]
+  acceptedRequests   SupportRequest[] @relation("RequestAcceptor")
+  rejectedRequests   SupportRequest[] @relation("RequestRejector")
 
   @@index([tenantId, status])
   @@map("users")
@@ -180,19 +184,24 @@ model SupportSession {
   terminatedBy   String?   @map("terminated_by") @db.Char(26) // zorla sonlandıran Admin/Super Admin (G-04, AC-114)
   qualitySummary Json?     @map("quality_summary") // AC-46: quality.summary {fps,kbps,rttMs{avg,min,max},connType}
   customerName   String?   @map("customer_name") @db.VarChar(100) // P8: admit edilen misafirin adı (join customerName, trim'li 2..100); admit UPDATE'inde yazılır
-  customerEmail  String?   @map("customer_email") @db.VarChar(190) // P8: misafir e-postası (opsiyonel); retention'da NULL (P13)
+  customerEmail  String?   @map("customer_email") @db.VarChar(254) // P8: misafir e-postası (opsiyonel); retention'da NULL (P13). P8b: 190→254 (talep e-postası AC-134 ≤ 254)
   ticketNo       String?   @map("ticket_no") @db.VarChar(50) // P8 AC-63: teknisyen girer; boş metin yerine NULL
   note           String?   @db.Text // P8 AC-63: ≤ 4000 karakter (CHECK)
+  requestId      String?   @map("request_id") @db.Char(26) // P8b AC-158: talepten doğan oturum (NULL = teknisyen/kod yolu). Kaynak bundan türetilir
+  guestNetKey    String?   @map("guest_net_key") @db.VarChar(64) // P8b §13.1: admit edilen misafirin ağ öneki (netKey: IPv4 /24, IPv6 /48); retention'da NULL
+  guestIpKey     String?   @map("guest_ip_key") @db.VarChar(64) // P8b G-E9-15: misafirin tam ipKey'i (IPv4 /32, IPv6 /64) — "bilinen ağ" rozeti yalnız tam eşleşmede; retention'da NULL
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
   tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   technician User             @relation("SessionTechnician", fields: [technicianId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   terminator User?            @relation("SessionTerminator", fields: [terminatedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  request    SupportRequest?  @relation(fields: [requestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   consents   SessionConsent[]
   files      SessionFile[]
 
   @@unique([id, tenantId]) // P4: session_consents/P5: session_files (session_id, tenant_id) bileşik FK hedefi (tenant tutarlılığı)
+  @@unique([requestId, tenantId]) // P8b: talep başına en çok 1 oturum (request_id global tekil ULID → UQ(request_id) ile eşdeğer) + bileşik FK
   @@index([tenantId, createdAt]) // tenant geneli liste (P8) + tenant FK
   @@index([createdAt]) // P8 Super Admin tüm-tenant geçmiş listesi + P13 retention
   @@index([tenantId, status, createdAt]) // P8 geçmiş listesi durum filtresi (AC-60): eşitlik + created_at sırası/aralığı
@@ -200,6 +209,8 @@ model SupportSession {
   @@index([technicianId, createdAt]) // "kendi oturumlarım" listesi, AC-12 saatlik sayım
   @@index([status, expiresAt]) // expiry işi: status='PENDING' AND expires_at <= NOW(3); açılışta ACTIVE→ENDED
   @@index([terminatedBy]) // FK (RESTRICT kontrolü); MySQL'in gizli indeksi yerine adlı indeks
+  @@index([tenantId, guestNetKey, consumedAt]) // P8b §13.1 bilinen ağ öneki (son 90 gün admit)
+  @@index([tenantId, guestIpKey, consumedAt]) // P8b G-E9-15 tam IP eşleşmesi (son 90 gün admit)
   @@map("support_sessions")
 }
 
@@ -221,6 +232,7 @@ model ConsentText {
   tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   creator  User?            @relation(fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
   consents SessionConsent[]
+  requests SupportRequest[]
 
   @@unique([tenantId, version]) // + tenant FK; "güncel sürüm" araması bu indeksin ön ekiyle
   @@unique([id, tenantId, sha256]) // session_consents bileşik FK hedefi (AC-127: tenant + metin özeti tutarlı)
@@ -242,15 +254,18 @@ model SessionConsent {
   consentSha256 String?  @map("consent_sha256") @db.Char(64) // = consent_texts.sha256 (bileşik FK)
   ip            String?  @db.VarChar(45) // SYSTEM kaynağında yok; retention'da NULL
   userAgent     String?  @map("user_agent") @db.VarChar(300)
+  requestId     String?  @map("request_id") @db.Char(26) // P8b §13.3: talep oturumunun "Ekranımı paylaş" onayı → talep formundaki onaya bağ (kod yolunda NULL)
   createdAt     DateTime @default(now()) @map("created_at") @db.DateTime(3)
 
-  session     SupportSession @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  consentText ConsentText?   @relation(fields: [consentTextId, tenantId, consentSha256], references: [id, tenantId, sha256], onDelete: Restrict, onUpdate: Restrict)
+  session     SupportSession  @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  consentText ConsentText?    @relation(fields: [consentTextId, tenantId, consentSha256], references: [id, tenantId, sha256], onDelete: Restrict, onUpdate: Restrict)
+  request     SupportRequest? @relation(fields: [requestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([sessionId, tenantId, createdAt]) // zaman çizelgesi (AC-62) + session FK
   @@index([tenantId, createdAt]) // tenant FK + retention
   @@index([consentTextId, tenantId, consentSha256]) // consent text FK
+  @@index([requestId, tenantId]) // P8b request FK
   @@map("session_consents")
 }
 
@@ -277,4 +292,86 @@ model SessionFile {
   @@index([sessionId, tenantId, createdAt]) // oturum detayı dosya listesi (GET /sessions/:id) + session FK
   @@index([tenantId, createdAt]) // tenant FK + retention (P13)
   @@map("session_files")
+}
+
+// P8b-1 (mimari-e9 §3.1 + §13.6/13.8, AC-129..131, 142, 152): tenant başına talep ayarları (1-1, tembel oluşturulur).
+// app SELECT/INSERT/UPDATE (DELETE yok). Elle (migration.sql): request_ref/file_label biçimi, wait_minutes 10..120,
+// JSON dizileri JSON_SCHEMA_VALID (wa ≤ 5 E.164, email ≤ 5, trusted_cidrs ≤ 10; tekil), kanal açık ⇒ ≥ 1 alıcı.
+model TenantRequestSettings {
+  tenantId        String    @id @map("tenant_id") @db.Char(26)
+  requestRef      String    @unique @map("request_ref") @db.Char(16) // [a-z2-7]{16} (80 bit); gizli değil, tahmin edilemez
+  refRotatedAt    DateTime? @map("ref_rotated_at") @db.DateTime(3)
+  fileLabel       String    @map("file_label") @db.VarChar(20) // [A-Za-z0-9]{1,20} — dosya adındaki firma kısa adı (AC-130)
+  waitMinutes     Int       @default(30) @map("wait_minutes") // 10..120 (AC-142)
+  waEnabled       Boolean   @default(false) @map("wa_enabled")
+  waRecipients    Json      @map("wa_recipients") // string[] E.164, ≤ 5 (uygulama `[]` yazar; MySQL JSON varsayılanı Prisma'da yok)
+  emailEnabled    Boolean   @default(false) @map("email_enabled") // P10'a kadar sunucu true'yu reddeder
+  emailRecipients Json      @map("email_recipients") // string[] e-posta, ≤ 5 (P10)
+  trustedCidrs    Json      @map("trusted_cidrs") // string[] CIDR, ≤ 10 (§13.6; genişlik/özel aralık kuralı zod'da)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("tenant_request_settings")
+}
+
+// P8b-1 (mimari-e9 §3.2, §3.4, §13.1/13.3/13.8, G-E9-15; AC-134..160): müşteri destek talebi. Hard delete yok (P13).
+// app SELECT/INSERT/UPDATE (anonimleştirme = UPDATE). Kişisel veri: customer_*, description, ip, ip_key, net_key,
+// device_hash → anonimleştirmede NULL (anonymized_at). Elle (migration.sql) CHECK'ler: status/cancel_reason/network_match
+// ikili enum (ADR-0014), biçimler (request_code, secret_hash, client_*, telefon, e-posta, device_hash), metin kuralları
+// (ad/açıklama/ret mesajı), durum ↔ alan tutarlılığı (cancel_reason, closed_at, accepted_*, rejected_*, reject_message),
+// PII ↔ anonymized_at, expires_at aralığı; fonksiyonel UQ: tenant içinde bekleyenlerde tekil request_code.
+model SupportRequest {
+  id             String    @id @db.Char(26)
+  tenantId       String    @map("tenant_id") @db.Char(26)
+  status         String    @default("PENDING") @db.VarChar(20) // PENDING | ACCEPTED | CANCELLED | EXPIRED | REJECTED | CONNECT_FAILED
+  cancelReason   String?   @map("cancel_reason") @db.VarChar(20) // CUSTOMER | DISCONNECTED | TENANT_PASSIVE (yalnız CANCELLED)
+  requestCode    String    @map("request_code") @db.Char(6) // §13.1 gösterim kodu; tenant'ın bekleyenleri arasında tekil (fonksiyonel UQ)
+  secretHash     String    @unique @map("secret_hash") @db.Char(64) // SHA-256(talep sırrı) hex; düz sır DB'de yok
+  clientInstance String    @map("client_instance") @db.Char(22) // AC-143 örnek başına 1 bekleyen
+  clientVersion  String    @map("client_version") @db.VarChar(20)
+  customerName   String?   @map("customer_name") @db.VarChar(80)
+  customerPhone  String?   @map("customer_phone") @db.VarChar(16) // E.164
+  customerEmail  String?   @map("customer_email") @db.VarChar(254)
+  description    String?   @db.VarChar(500) // tek satır (r2); audit'e yazılmaz
+  consentTextId  String    @map("consent_text_id") @db.Char(26) // AC-135 onay kaydı: sürüm
+  consentSha256  String    @map("consent_sha256") @db.Char(64)
+  consentedAt    DateTime  @map("consented_at") @db.DateTime(3)
+  ip             String?   @db.VarChar(45)
+  ipKey          String?   @map("ip_key") @db.VarChar(64) // ipKey(): IPv4 /32, IPv6 /64 — IP başına bekleyen + tam IP eşleşmesi
+  netKey         String?   @map("net_key") @db.VarChar(64) // netKey(): IPv4 /24, IPv6 /48 — önek başına bekleyen
+  deviceHash     String?   @map("device_hash") @db.Char(64) // SHA-256(tenant_id ‖ deviceKey) hex
+  networkMatch   String    @default("NONE") @map("network_match") @db.VarChar(20) // G-E9-15: NONE | PREFIX | IP | TRUSTED (dba sapma: known_network BOOL yerine)
+  knownDevice    Boolean   @default(false) @map("known_device") // aynı device_hash son 90 günde oturuma bağlanmış (G-E9-17)
+  expiresAt      DateTime  @map("expires_at") @db.DateTime(3) // created_at + wait_minutes
+  acceptedBy     String?   @map("accepted_by") @db.Char(26)
+  acceptedAt     DateTime? @map("accepted_at") @db.DateTime(3)
+  rejectedBy     String?   @map("rejected_by") @db.Char(26)
+  rejectMessage  String?   @map("reject_message") @db.VarChar(200)
+  closedAt       DateTime? @map("closed_at") @db.DateTime(3) // PENDING dışındaki her durumda dolu
+  anonymizedAt   DateTime? @map("anonymized_at") @db.DateTime(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  consentText ConsentText      @relation(fields: [consentTextId, tenantId, consentSha256], references: [id, tenantId, sha256], onDelete: Restrict, onUpdate: Restrict)
+  acceptor    User?            @relation("RequestAcceptor", fields: [acceptedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  rejector    User?            @relation("RequestRejector", fields: [rejectedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  session     SupportSession?
+  consents    SessionConsent[]
+
+  @@unique([id, tenantId]) // support_sessions/session_consents (request_id, tenant_id) bileşik FK hedefi
+  @@index([tenantId, status, createdAt]) // kuyruk (asc) + sıra hesabı + pasif tenant süpürücüsü + tenant FK
+  @@index([tenantId, closedAt]) // geçmiş sekmesi: son 30 gün closed_at DESC (dba ek)
+  @@index([status, expiresAt]) // süpürücü: PENDING süre dolumu, ACCEPTED 60 sn
+  @@index([tenantId, ipKey, status]) // IP başına bekleyen (≤ 3)
+  @@index([tenantId, netKey, status]) // önek başına bekleyen (≤ 10)
+  @@index([tenantId, clientInstance, status]) // örnek başına bekleyen (1)
+  @@index([tenantId, deviceHash]) // known_device hesabı
+  @@index([tenantId, anonymizedAt, createdAt]) // anonimleştirme işi (tenant retention_days) — IX(created_at) yerine (dba sapma)
+  @@index([consentTextId, tenantId, consentSha256]) // consent text FK
+  @@index([acceptedBy]) // FK
+  @@index([rejectedBy]) // FK
+  @@map("support_requests")
 }

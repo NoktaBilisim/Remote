@@ -25,6 +25,14 @@ import { internalAgentRoutes, publicAgentRoutes } from "./public/routes.ts";
 import { refKeyFrom } from "./sessions/codes.ts";
 import { closePublicLimits, createPublicLimits, type PublicLimits } from "./sessions/public.ts";
 import { publicSessionRoutes, sessionRoutes } from "./sessions/routes.ts";
+import { WhatsappNotifier, type FetchLike } from "./notify/whatsapp.ts";
+import { RequestHub } from "./requests/hub.ts";
+import { armOrphanedPending, pendingGauge } from "./requests/jobs.ts";
+import { closeRequestLimits, createRequestLimits } from "./requests/limits.ts";
+import { publicRequestDownloadRoutes, publicRequestRoutes } from "./requests/public-routes.ts";
+import { requestSettingsRoutes, supportRequestRoutes } from "./requests/routes.ts";
+import { RequestService } from "./requests/service.ts";
+import { requestChannels } from "./requests/ws.ts";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -36,6 +44,9 @@ declare module "fastify" {
     rooms: Rooms;
     metrics: Metrics;
     agentBinary: AgentBinary;
+    /** P8b: destek talebi servisi + bildirim merkezi. */
+    requests: RequestService;
+    requestHub: RequestHub;
   }
   interface FastifyRequest {
     auth: AuthContext | null;
@@ -56,6 +67,8 @@ export interface AppDeps {
   startJobs?: boolean;
   /** Testler: sahte saat, kısa süreler, kısa ping/yeniden doğrulama aralıkları. */
   signaling?: SignalingOptions & { clock?: Clock; timing?: Partial<Timing> };
+  /** Testler: sahte WhatsApp servisi. */
+  whatsappFetch?: FetchLike;
 }
 
 const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), display-capture=(self)";
@@ -125,14 +138,30 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   metrics.gauge("rs_active_rooms", "Bellekteki oda sayısı", () => rooms.size);
   metrics.gauge("rs_active_sessions", "Admit edilmiş (ACTIVE) oturum sayısı", () => rooms.activeCount);
   metrics.gauge("rs_resolve_failed", "Başarısız kod çözümleme (süreç başından beri)", () => publicLimits.resolveFailed.total);
-  attachSignaling(app, rooms, sig);
+  // P8b (mimari-e9 §2): bildirim merkezi, hız sınırları, WhatsApp istemcisi, talep servisi.
+  const hub: RequestHub = new RequestHub(rooms.clock, (tenantId: string) => requests.statesOf(tenantId), (err) => app.log.error({ err }, "talep sıra yayını hatası"));
+  const requestLimits = createRequestLimits();
+  const notifier = new WhatsappNotifier({ url: env.WHATSAPP_SERVICE_URL, production: env.NODE_ENV === "production", publicBaseUrl: env.PUBLIC_BASE_URL, db: deps.db, log: app.log, metrics, clock: rooms.clock, ...(deps.whatsappFetch ? { fetch: deps.whatsappFetch } : {}) });
+  const requests: RequestService = new RequestService({ db: deps.db, env, log: app.log, rooms, hub, limits: requestLimits, notifier, metrics, clock: rooms.clock, timing: rooms.timing });
+  app.decorate("requests", requests);
+  app.decorate("requestHub", hub);
+  metrics.gauge("rs_requests_pending", "Bekleyen destek talepleri (süpürücü turunda tazelenir)", () => pendingGauge.value);
+  app.addHook("onClose", async () => {
+    requests.shutdown();
+    hub.shutdown();
+    notifier.close();
+    closeRequestLimits(requestLimits);
+  });
+  attachSignaling(app, rooms, sig, requestChannels(app, requests, sig.revalidateMs), () => ({ request: hub.requestCount, panel: hub.panelCount }));
   if (deps.startJobs) {
     let jobs: Scheduler | undefined;
     app.addHook("onReady", async () => {
       // Bellekteki odası olmayan ACTIVE oturumlar (yeniden başlatma) → ENDED{server} (mimari §3.5).
       const orphaned = await endOrphanedActive(deps.db, new Date());
       if (orphaned > 0) app.log.warn({ ended: orphaned }, "yeniden başlatma: etkin oturumlar sonlandırıldı");
-      jobs = startScheduler(deps.db, app.log, rooms);
+      const armed = await armOrphanedPending(requests); // §3.5: 120 sn tolerans
+      if (armed > 0) app.log.info({ pending: armed }, "yeniden başlatma: bekleyen talepler için kopma toleransı başlatıldı");
+      jobs = startScheduler(deps.db, app.log, rooms, undefined, requests);
     });
     app.addHook("onClose", async () => jobs?.stop());
   }
@@ -161,5 +190,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(publicSessionRoutes, { prefix: "/api/v1/public/sessions" });
   void app.register(publicAgentRoutes, { prefix: "/api/v1/public/agent" });
   void app.register(internalAgentRoutes, { prefix: "/internal" });
+  void app.register(publicRequestRoutes, { prefix: "/api/v1/public/requests" });
+  void app.register(publicRequestDownloadRoutes, { prefix: "/api/v1/public/agent" });
+  void app.register(supportRequestRoutes, { prefix: "/api/v1/support-requests" });
+  void app.register(requestSettingsRoutes, { prefix: "/api/v1/settings/support-requests" });
   return app;
 }

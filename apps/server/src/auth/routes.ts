@@ -11,6 +11,7 @@ import type { CookieSerializeOptions } from "@fastify/cookie";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
 import { parseInput } from "../lib/errors.ts";
+import { sha256Hex } from "../lib/ids.ts";
 import { authOf, checkOrigin, requireAuth } from "./guards.ts";
 import { changePassword, login, logout } from "./service.ts";
 
@@ -31,7 +32,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post("/login", async (req, reply): Promise<LoginResponse> => {
     checkOrigin(req);
     const input = parseInput(loginInputSchema, req.body);
-    const result = await login(app.db, app.authLimits, auditContext(req), input, req.cookies[SESSION_COOKIE]);
+    const result = await login(app.db, app.authLimits, auditContext(req), req.log, input, req.cookies[SESSION_COOKIE]);
     setSessionCookies(reply, result);
     return { user: result.user, mfaRequired: false, mustChangePassword: result.user.mustChangePassword };
   });
@@ -48,6 +49,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/logout", { ...pendingOk, preHandler: logoutGuard }, async (req, reply) => {
     await logout(app.db, auditContext(req), authOf(req));
+    // G-E9-14: bu oturumun /ws/panel soketleri anında 4401 (commit sonrası).
+    const token = req.cookies[SESSION_COOKIE];
+    if (token) app.requestHub.closeByAuthToken(sha256Hex(token));
     clearSessionCookies(reply);
     return reply.status(204).send();
   });
@@ -55,6 +59,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post("/password/change", pendingOk, async (req, reply) => {
     const input = parseInput(passwordChangeInputSchema, req.body);
     setSessionCookies(reply, await changePassword(app.db, app.authLimits, auditContext(req), authOf(req), input));
+    app.requestHub.closeByUser(authOf(req).user.id); // G-E9-14: eski oturumların panel soketleri 4401 (yeni çerezle yeniden bağlanır)
     return reply.status(204).send();
   });
 

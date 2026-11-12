@@ -38,7 +38,7 @@ export async function acceptConsent(db: DbOrTx, tenantId: string, consentTextId:
 }
 
 /** Admit TX'inde (P3 atomik UPDATE'ten sonra) görüntüleme onayı: VIEW / GRANTED / UI + metin özeti (AC-29). */
-export async function recordViewConsent(tx: DbOrTx, sessionId: string, tenantId: string, c: GuestConsent): Promise<void> {
+export async function recordViewConsent(tx: DbOrTx, sessionId: string, tenantId: string, c: GuestConsent, requestId?: string): Promise<void> {
   // Bileşik FK'lar nedeniyle düz alanlar (unchecked input), `connect` değil (db-notlari P4).
   await tx.sessionConsent.create({
     data: {
@@ -53,6 +53,7 @@ export async function recordViewConsent(tx: DbOrTx, sessionId: string, tenantId:
       ip: c.ip.slice(0, 45),
       userAgent: c.userAgent,
       createdAt: c.at,
+      ...(requestId ? { requestId } : {}), // P8b §13.3: "Ekranımı paylaş" onayı → talep formundaki onaya bağ
     },
   });
 }

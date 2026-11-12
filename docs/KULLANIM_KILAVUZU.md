@@ -4,9 +4,9 @@ Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekr
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
 - **Müşteri için:** Hızlı Destek uygulaması (Windows), uzaktan kontrol izni
-- **Teknisyen için:** Uzaktan kontrol (konsol), Oturum geçmişi
-- **Admin için:** Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi yetkileri
-- **Super Admin için:** Tüm firmaların oturum geçmişi
+- **Teknisyen için:** Uzaktan kontrol (konsol), Oturum geçmişi, Destek talepleri
+- **Admin için:** Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi yetkileri, Ayarlar > Destek talepleri
+- **Super Admin için:** Tüm firmaların oturum geçmişi, destek talepleri
 
 Teknisyen konsolunun diğer bölümleri ve yönetim paneli, ilgili ekranlar tamamlandıkça eklenecektir.
 
@@ -222,6 +222,11 @@ yeniden izin istemesi gerekir.
 | Teknisyen tıklıyor ama bir pencerede hiçbir şey olmuyor | O pencere yönetici yetkisiyle açılmış olabilir (ör. yönetici komut istemi). Teknisyen bunu konsolda görür; gerekirse işlemi siz yapın. |
 | Windows onay ekranı (UAC) açıkken teknisyen ekranı göremiyor | Bu ekran güvenlik gereği paylaşılmaz. Onayı siz verin; görüntü kendiliğinden geri gelir. |
 
+### Teknisyeni beklemeden destek isteyebilir miyim? ("Destek iste")
+Firmanızın size verdiği özel bağlantıdan indirdiğiniz Hızlı Destek ile, teknisyenden kod beklemeden **Destek iste**
+diyerek talep gönderebileceksiniz. Bu ekran **P8b-2 ile gelecek**; şu an destek için teknisyeninizin gönderdiği bağlantı
+veya kod kullanılır.
+
 ---
 
 ## Teknisyen için: Uzaktan kontrol (konsol)
@@ -368,6 +373,75 @@ Satıra tıklayınca oturum ayrıntısı açılır:
 
 ---
 
+## Teknisyen için: Destek talepleri
+
+Müşteriler, firmalarına özel Hızlı Destek dosyasından **destek talebi** gönderebilir. Talep, firmanızın kuyruğuna düşer;
+müsait olan teknisyen kabul eder ve oturum doğrudan açılır. Müşteriye link veya kod okumanız gerekmez.
+
+Kenar menüsündeki **Talepler** bağlantısını görmüyorsanız "Destek talepleri → Görüntüle" yetkiniz yoktur; yöneticinizden
+isteyin. Kabul ve ret için ayrıca "Destek talepleri → Kabul et" yetkisi gerekir.
+
+> **Önemli — her talepte:** Müşteriyi **firmanın kayıtlı numarasından** arayın (talepte yazan numaradan değil) ve
+> müşterinin ekranındaki **6 haneli talep kodunu** sorun. Kod, karttaki kodla aynı değilse talebi kabul etmeyin.
+> Talep formunu herkes doldurabilir; ad ve telefon müşterinin beyanıdır, doğrulanmış bilgi değildir.
+
+### Kuyruk nasıl çalışır?
+1. Kenar menüsünden **Talepler**'i açın. **Bekleyenler** sekmesi en eski talep en üstte olacak şekilde sıralanır.
+2. Menüdeki rozet bekleyen talep sayısını gösterir. Sekme arka plandaysa tarayıcı sekmesinin başlığında da sayı görünür.
+3. Liste kendiliğinden güncellenir. Bağlantı koparsa sayfanın üstünde "Liste güncellenemedi; gösterilen bilgiler eski
+   olabilir." yazar; liste 15 saniyede bir yeniden yoklanır.
+4. Talep kartında şunlar bulunur: müşterinin adı, telefonu, e-postası (verdiyse), sorun açıklaması, ne kadar süredir
+   beklediği, istemci sürümü ve **Talep kodu**.
+
+### Kaynak işaretleri ne anlama gelir?
+| Kartta görünen | Anlamı |
+|---|---|
+| **Bilinen kaynak** · "Güvenilen ağ" | Talep, yöneticinizin güvenilen olarak eklediği bir ağdan (ör. müşterinin ofisi) geldi |
+| **Bilinen kaynak** · "Bu ağdan daha önce oturum yapıldı" | Aynı internet adresinden daha önce destek oturumu yapıldı |
+| **Bilinen kaynak** · "Bu bilgisayar daha önce destek aldı" | Aynı bilgisayar daha önce destek aldı |
+| "Benzer ağdan önceki oturum var" | Yakın bir adresten önceki oturum var; tek başına güven vermez |
+| **"İlk kez görülen kaynak — firmanın kayıtlı numarasından arayıp talep kodunu doğrulayın"** | Bu kaynak ilk kez görülüyor; aramayı mutlaka yapın |
+
+"Bilinen kaynak" bile olsa telefonla talep kodunu doğrulama adımı atlanmaz.
+
+### Talebi nasıl kabul ederim?
+1. Müşteriyi firmanın kayıtlı numarasından arayın, ekranındaki talep kodunu sorun.
+2. Kod eşleşiyorsa kartta **Kabul et**'e basın. Teknisyen konsolu açılır.
+3. Müşterinin ekranında adınız ve 4 haneli doğrulama kodunuz görünür; müşteri **Ekranımı paylaş**'a basınca bağlantı kurulur.
+   Sonrası normal oturumdur (uzaktan kontrol, sohbet, dosya aynı kurallarla).
+
+Olası mesajlar:
+- "Talep başka bir teknisyen tarafından alındı." — Bir iş arkadaşınız sizden önce kabul etti.
+- "Talep artık açık değil (iptal edildi, süresi doldu veya reddedildi)."
+- "Açık oturum sınırına ulaştınız. Bir oturumu bitirip tekrar deneyin; talep beklemede kalır."
+- "Müşteri bağlantıyı kabul etmedi." — Müşteri onay ekranında Vazgeç dedi veya programı kapattı.
+- "Müşteri 60 sn içinde bağlanamadı; talep kapandı."
+
+### Talebi nasıl reddederim?
+1. Kartta **Reddet**'e basın.
+2. Hazır mesajlardan birini seçin: "Şu an müsait değiliz, sizi arayacağız", "Mesai saatleri dışındayız, sizi
+   arayacağız", "Lütfen firmanızı telefonla arayın" — veya **Diğer (kendi mesajım)** ile kendiniz yazın.
+3. Kendi mesajınız 5–200 karakter, tek satır olmalı; bağlantı, e-posta veya telefon numarası yazılamaz.
+4. **Reddet** ile onaylayın. Müşteri mesajı ekranında görür.
+
+### Bildirimler ve ses
+- Yeni talep geldiğinde, hangi sayfada olursanız olun "Yeni destek talebi: <ad>" bildirimi çıkar. **Görüntüle** sizi
+  ilgili karta götürür.
+- **Bildirim sesi** düğmesiyle sesi açıp kapatırsınız. Tercih bu tarayıcıda saklanır. Tarayıcı sesi engellerse
+  (sayfaya hiç tıklanmadıysa) yalnız görsel bildirim gelir.
+- "Olağan dışı talep yoğunluğu." bandı çıkarsa bilinmeyen kaynaklardan gelen talepler bir süre geri çevriliyordur.
+  Yöneticinize haber verin; gerekirse indirme bağlantısını yeniler.
+- Firmanız WhatsApp bildirimini açtıysa kayıtlı numaralara da kısa mesaj gider (müşteri bilgisi içermez; talep kodu
+  ve panel bağlantısı).
+
+### Geçmiş sekmesi
+**Geçmiş** sekmesi son 30 günde kapanan talepleri gösterir: kabul edilen, reddedilen, iptal olan, süresi dolan,
+bağlanamayan. Üstteki durum filtresiyle daraltın. Kabul edilmiş talepte **Oturum ayrıntısını aç** ile oturum
+geçmişine geçersiniz. **Oturum geçmişi** ekranında **Kaynak** filtresiyle (Talep / Teknisyen) yalnız talepten doğan
+oturumları listeleyebilir, ayrıntıda "Destek talebi" bölümünde talep zamanı, kabul zamanı ve bekleme süresini görürsünüz.
+
+---
+
 ## Admin için: Uzaktan kontrol yetkisi ve kayıtlar
 
 ### Yetki
@@ -411,8 +485,60 @@ müşterinin onayı kaydedilmeden teknisyen bilgisayarı kullanamaz.
 - Kayıtlar: not/ticket değişikliği `session.updated` (not metni değil, yalnız uzunluğu), her dışa aktarma
   `session.exported` (filtreler ve satır sayısı; aranan müşteri adı değil) olarak denetim kaydına yazılır.
 
+## Admin için: Ayarlar > Destek talepleri
+
+Kenar menüsünde **Ayarlar** (yetki "Ayarlar → Düzenle") açılır. Bu ekran firmanızın destek talebi ayarlarını tutar.
+Değişiklikler sayfanın altındaki **Kaydet** ile kaydedilir; kaydetmeden çıkmak isterseniz tarayıcı uyarır.
+
+### Firma indirme bağlantısı nasıl paylaşılır?
+1. **Firma indirme bağlantısı** bölümünde bağlantı ve dosya adı (`NoktaDestek-<firma>-….exe`) görünür.
+2. **Kopyala** ile bağlantıyı alın. Müşterilerinize e-posta imzası, web siteniz, sözleşme veya karşılama yazısıyla iletin.
+3. Müşteri bağlantıdan dosyayı indirir ve ihtiyaç olduğunda talep gönderir. Dosya her müşteri için aynıdır; kurulum gerekmez.
+
+### Bağlantıyı ne zaman yenilemeliyim?
+**Bağlantıyı yenile** eski bağlantıyı ve daha önce indirilmiş dosyaları **hemen geçersiz** kılar; bekleyen talepler
+etkilenmez. Şu durumlarda yenileyin:
+- Bağlantı istemediğiniz yerlere yayıldıysa veya sahte talepler geliyorsa,
+- Panelde "Olağan dışı talep yoğunluğu" bandı sık görünüyorsa,
+- Firmanızın adı değiştiyse (eski adlı dosyalar zaten çalışmaz).
+
+Yeniledikten sonra yeni bağlantıyı tüm müşterilerinize göndermeniz gerekir. "Son yenileme" alanı tarihi gösterir.
+
+### Bekleme süresi
+Bir talebin kuyrukta en çok ne kadar bekleyeceğidir: **10–120 dakika** (varsayılan 30). Süre dolunca talep "Süresi
+doldu" olur ve müşteri yeniden talep oluşturabilir. Değişiklik yalnız yeni talepler için geçerlidir.
+
+### WhatsApp bildirimi
+1. **WhatsApp bildirimi** anahtarını açın.
+2. **Alıcı ekle** ile en çok 5 telefon numarası girin (ör. 0532 000 00 00). Kanal açıkken en az bir alıcı gerekir.
+3. **Test numarası** girip **Test mesajı gönder**'e basın; sonuç ekranda görünür. Dakikada en çok 5 test yapılabilir.
+4. **Kaydet**'e basın.
+
+Mesaj müşteri adı, telefonu veya açıklaması **içermez**; yalnız firma adı, talep kodu ve panel bağlantısı gider.
+Ekranda "WhatsApp servisi güvenli yapılandırılmamış…" uyarısı görünürse kanal canlı ortamda kapalı kalır; sistem
+yöneticinize bildirin. **E-posta bildirimi** SMTP ayarlarıyla birlikte (P10) gelecek; şimdilik pasiftir.
+
+### Güvenilen IP / ağlar
+Kurumsal ofis gibi bilinen ağlardan gelen talepler "Güvenilen ağ" işaretiyle gelir ve IP sınırlarından muaftır
+(ör. aynı ofisten çok sayıda çalışan aynı anda talep gönderebilir).
+1. **Ağ ekle** ile müşterinin sabit dış IP'sini (`203.0.113.10/32`) veya ağını (`203.0.113.0/24`) girin.
+2. En çok 10 ağ; IPv4 en geniş /16, IPv6 en geniş /32. Özel (192.168.x.x gibi) adresler kabul edilmez.
+3. **Kaydet**.
+
+Firma başına toplam bekleyen talep sınırı (50) güvenilen ağlar için de geçerlidir.
+
+### Yetkiler ve kayıtlar
+- **Destek talepleri → Görüntüle** (`support_requests.view`) kuyruğu, **Kabul et** (`support_requests.accept`) kabul ve
+  reddi açar. Admin'de varsayılan açık, User'da kapalıdır; yetki ekranı P9'da gelir. Staging'de teknisyen (User)
+  hesabına bu yetkiler varsayılan olarak verilmez.
+- Kabul, ret, iptal, süre dolumu, ayar değişikliği (eski → yeni), bağlantı yenileme, WhatsApp gönderimi ve testi
+  denetim kaydına yazılır. Müşteri adı, telefonu ve açıklaması denetim kaydına yazılmaz.
+
 ## Super Admin için: Tüm firmaların oturum geçmişi
 
 - Super Admin firma seçmeden **Oturum geçmişi**'ni açtığında tüm firmaların oturumlarını görür. Listede ve CSV'de
   ek **Firma** sütunu, filtrelerde **Firma** seçimi bulunur.
 - Firma seçimi (firma değiştirme) P9 ile gelir; seçili firmada yalnız o firmanın oturumları görünür.
+- **Destek talepleri:** Super Admin firma seçmeden **Talepler** ve **Ayarlar** ekranlarında "Önce firma seçin" uyarısını
+  görür. Firma seçiliyken o firmanın kuyruğunu görür ve ayarlarını düzenleyebilir; talep **kabul edemez ve
+  reddedemez** (oturum teknisyenin kendi firmasında açılır).

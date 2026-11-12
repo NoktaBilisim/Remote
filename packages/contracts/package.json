@@ -8,6 +8,8 @@
     "./errors": "./src/errors.ts",
     "./api/auth": "./src/api/auth.ts",
     "./api/sessions": "./src/api/sessions.ts",
+    "./api/requests": "./src/api/requests.ts",
+    "./ws-request": "./src/ws-request.ts",
     "./ws": "./src/ws.ts",
     "./dc": "./src/dc.ts",
     "./files": "./src/files.ts",

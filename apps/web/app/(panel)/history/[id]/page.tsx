@@ -9,7 +9,7 @@ import { formatDateTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 import { NoteForm } from "./note-form";
-import { ConsentsList, ControlPeriods, Files, Quality, Section, Summary, Timeline } from "./sections";
+import { ConsentsList, ControlPeriods, Files, Quality, RequestInfo, Section, Summary, Timeline } from "./sections";
 
 export const metadata: Metadata = { title: t("h.d.title") };
 
@@ -79,6 +79,11 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
             )}
           </Section>
         </div>
+        {s.request && (
+          <Section id="request" title={t("h.r.title")}>
+            <RequestInfo r={s.request} />
+          </Section>
+        )}
         <Section id="consents" title={t("h.c.title")}>
           <ConsentsList s={s} />
         </Section>

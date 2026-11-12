@@ -18,7 +18,8 @@
 	admin off
 	# G-10 (S6 bilinen 3): hata logu (http.log.error, reverse_proxy/forward_auth 502/503 vb.) varsayılan logger'a
 	# `request` nesnesiyle tam URI ve başlıkları yazar. Site `log` bloğu yalnız erişim logunu kapsar; aynı filtre
-	# burada da uygulanır (sorgu dizesi, /session/<token>, /downloads/Destek-<kod>.exe, kimlik başlıkları).
+	# burada da uygulanır (sorgu dizesi, /session/<token>, /downloads/Destek-<kod>.exe, firma dosyası
+	# /downloads/NoktaDestek-<label>-<ref>.exe (P8b, G-E9-8), kimlik başlıkları).
 	log default {
 		output stderr
 		format filter {
@@ -27,6 +28,7 @@
 				request>uri regexp "\?.*$" ""
 				request>uri regexp "/session/[^/?]+" "/session/***"
 				request>uri regexp "/downloads/Destek-[^/?]+" "/downloads/Destek-***"
+				request>uri regexp "NoktaDestek-[^/?]+" "NoktaDestek-***"
 				request>headers>Sec-Websocket-Protocol delete
 				request>headers>Cookie delete
 				request>headers>Authorization delete
@@ -64,19 +66,35 @@
 	}
 }
 
+# P6/P8b indirme: forward_auth kapısı geçtikten sonra volume'daki tek jenerik ikiliyi istenen adla sunar.
+# {args[0]} = indirme adı (uzantısız). `route` içinde import edilir; sıra kapı → rewrite → başlık → dosya.
+(agent_exe_file) {
+	root * /srv/downloads
+	rewrite * /NoktaDestek.exe
+	header {
+		Content-Disposition "attachment; filename=\"{args[0]}.exe\""
+		Content-Type "application/octet-stream"
+		Cache-Control "no-store"
+		X-Content-Type-Options "nosniff"
+	}
+	file_server
+}
+
 # Ortak site gövdesi. XFF: `header_up X-Forwarded-For {client_ip}` -> server/web tek değer görür (G-11).
 # 4450'de {client_ip} = bağlantı adresi (önceki davranışla aynı); 4451'de nginx'in yazdığı gerçek istemci adresi.
 (remote_app) {
 
 	log {
 		output stdout
-		# G-10 / AC-90: sorgu dizesi, oturum token'ı, çerez ve WS subprotocol (ticket) loglanmaz.
+		# G-10 / AC-90: sorgu dizesi, oturum token'ı, firma dosyası ref'i (P8b), çerez ve WS subprotocol loglanmaz.
+		# Subprotocol silme /ws/request'teki talep sırrını (`rs.req.*`) ve /ws/guest ticket'ını da kapsar (T31).
 		format filter {
 			wrap json
 			fields {
 				request>uri regexp "\?.*$" ""
 				request>uri regexp "/session/[^/?]+" "/session/***"
 				request>uri regexp "/downloads/Destek-[^/?]+" "/downloads/Destek-***"
+				request>uri regexp "NoktaDestek-[^/?]+" "NoktaDestek-***"
 				request>headers>Sec-Websocket-Protocol delete
 				request>headers>Cookie delete
 				request>headers>Authorization delete
@@ -87,6 +105,8 @@
 				resp_headers>Location delete
 				resp_headers>Content-Disposition delete
 				resp_headers>Sec-Websocket-Protocol delete
+				# 101 yanıt başlığı logda kanonik olmayan yazımla (WebSocket) görünür; iki yazım da silinir (server zaten yalnız rs.v1 seçer).
+				resp_headers>Sec-WebSocket-Protocol delete
 			}
 		}
 	}
@@ -120,15 +140,22 @@
 				uri /internal/agent-ready
 				header_up X-Forwarded-Uri "/downloads/***"
 			}
-			root * /srv/downloads
-			rewrite * /NoktaDestek.exe
-			header {
-				Content-Disposition "attachment; filename=\"{re.agentExe.1}.exe\""
-				Content-Type "application/octet-stream"
-				Cache-Control "no-store"
-				X-Content-Type-Options "nosniff"
+			import agent_exe_file {re.agentExe.1}
+		}
+	}
+	# P8b (AC-130, ADR-0006 r4, G-E9-11): firma dosyası NoktaDestek-<file_label>-<tenantRef>.exe — AYNI jenerik ikili.
+	# label [A-Za-z0-9]{1,20}, ref [a-z2-7]{16} (mimari-e9 §1/§3.1). Yukarıdaki P6 yolundan farkı: forward_auth'a
+	# ad olduğu gibi (yalnız yol, sorgu dizesi yok) gider; server ref aktif ve label güncel file_label ise 204, değilse
+	# 404 döner (keyfi adlı resmi bağlantı üretilemez), ikili kapısı ayrıca 503. Ref gizli değildir (tahmin edilemez);
+	# server onu loglamaz, Caddy/nginx erişim logu /downloads/NoktaDestek-*** yazar.
+	@agentExeFirm path_regexp agentExeFirm ^/downloads/(NoktaDestek-[A-Za-z0-9]{1,20}-[a-z2-7]{16})\.exe$
+	handle @agentExeFirm {
+		route {
+			forward_auth server:3001 {
+				uri /internal/agent-ready
+				header_up X-Forwarded-Uri "/downloads/{re.agentExeFirm.1}.exe"
 			}
-			file_server
+			import agent_exe_file {re.agentExeFirm.1}
 		}
 	}
 	handle /downloads/* {
@@ -145,6 +172,9 @@
 		}
 	}
 
+	# /ws/tech, /ws/guest, P8b /ws/request (müşteri bekleme; talep sırrı subprotocol'de) ve /ws/panel (panel bildirimi,
+	# çerez + Origin). Ek ayar gerekmez: Caddy yükseltilmiş (hijacked) bağlantıya okuma/boşta zaman aşımı uygulamaz
+	# (`servers` timeouts yalnız HTTP aşamasında), server 30 sn'de ping atar; nginx katmanında proxy_read_timeout 3700s.
 	handle /ws/* {
 		reverse_proxy server:3001 {
 			header_up -X-Edge-Auth

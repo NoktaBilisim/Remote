@@ -6,9 +6,11 @@
 import {
   SESSION_MODES,
   SESSION_PAGE_SIZE_MAX,
+  SESSION_SOURCES,
   SESSION_STATUSES,
   UNSAFE_NAME_CHARS,
   type SessionMode,
+  type SessionSource,
   type SessionStatus,
 } from "@remote/contracts/api/sessions";
 
@@ -20,6 +22,8 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 export interface HistoryFilters {
   status?: SessionStatus;
   mode?: SessionMode;
+  /** P8b (AC-158): Talep / Teknisyen */
+  source?: SessionSource;
   from?: string;
   to?: string;
   technicianId?: string;
@@ -65,6 +69,7 @@ export function parseFilters(sp: SearchParams): { filters: HistoryFilters; ignor
   };
   take("status", (v) => (SESSION_STATUSES as readonly string[]).includes(v), (v) => (f.status = v as SessionStatus));
   take("mode", (v) => (SESSION_MODES as readonly string[]).includes(v), (v) => (f.mode = v as SessionMode));
+  take("source", (v) => (SESSION_SOURCES as readonly string[]).includes(v), (v) => (f.source = v as SessionSource));
   take("from", isCalendarDay, (v) => (f.from = v));
   take("to", isCalendarDay, (v) => (f.to = v));
   take("technicianId", (v) => ULID.test(v), (v) => (f.technicianId = v));
@@ -90,6 +95,7 @@ export function toQuery(f: Partial<HistoryFilters>, opts: { paging?: boolean } =
   put("to", f.to);
   put("status", f.status);
   put("mode", f.mode);
+  put("source", f.source);
   put("technicianId", f.technicianId);
   put("tenantId", f.tenantId);
   put("customer", f.customer);
@@ -121,7 +127,7 @@ export function exportApiPath(f: Partial<HistoryFilters>): string {
 }
 
 export const hasFilters = (f: HistoryFilters) =>
-  Boolean(f.status || f.mode || f.from || f.to || f.technicianId || f.tenantId || f.customer);
+  Boolean(f.status || f.mode || f.source || f.from || f.to || f.technicianId || f.tenantId || f.customer);
 
 /** Sayfa düğmeleri için toplam sayfa (en az 1). */
 export const pageCount = (total: number, pageSize: number) => Math.max(1, Math.ceil(total / pageSize));

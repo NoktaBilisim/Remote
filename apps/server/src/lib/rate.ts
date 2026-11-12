@@ -85,6 +85,25 @@ export class FixedWindowCounter {
     return true;
   }
 
+  /** Geçerli penceredeki olay sayısı (pencere bittiyse 0). */
+  count(key: string): number {
+    const entry = this.entries.get(key);
+    return entry && entry.windowEnds > this.now() ? entry.count : 0;
+  }
+
+  /** Anahtarı hemen kilitler (dış eşik hesabı aşıldığında; S8b-6). Kayıt yoksa ve tablo kilitli kayıtlarla doluysa eklenmez. */
+  block(key: string): void {
+    const t = this.now();
+    let entry = this.entries.get(key);
+    if (!entry) {
+      if (!this.makeRoom(t)) return;
+      entry = { count: 0, windowEnds: t + this.windowMs, blockedUntil: 0 };
+      this.entries.set(key, entry);
+    }
+    entry.blockedUntil = t + this.blockMs;
+    entry.count = 0;
+  }
+
   reset(key: string): void {
     this.entries.delete(key);
   }

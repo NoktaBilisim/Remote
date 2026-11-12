@@ -4,6 +4,8 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Db } from "../lib/db.ts";
 import { newId } from "../lib/ids.ts";
 import { expireDue, type RoomNotifier } from "../sessions/service.ts";
+import { anonymizeRequests, nextRetentionAt, sweepRequests } from "../requests/jobs.ts";
+import type { RequestService } from "../requests/service.ts";
 
 const EXPIRY_INTERVAL_MS = 30_000;
 
@@ -13,8 +15,37 @@ export interface Scheduler {
   stop(): void;
 }
 
-export function startScheduler(db: Db, log: FastifyBaseLogger, rooms?: RoomNotifier, intervalMs = EXPIRY_INTERVAL_MS): Scheduler {
+/**
+ * P8b: `requests` verilirse aynı 30 sn turunda talep süpürücüsü (süre dolumu, 60 sn bağlanma, pasif tenant) ve günlük
+ * 03:30 Europe/Istanbul talep anonimleştirmesi (AC-159) çalışır.
+ */
+export function startScheduler(db: Db, log: FastifyBaseLogger, rooms?: RoomNotifier, intervalMs = EXPIRY_INTERVAL_MS, requests?: RequestService): Scheduler {
   let running = false;
+  let sweeping = false;
+  const runRequestSweep = async (): Promise<void> => {
+    if (!requests || sweeping) return;
+    sweeping = true;
+    try {
+      const r = await sweepRequests(requests);
+      if (r.expired + r.connectFailed + r.tenantPassive > 0) log.info({ job: "request-sweep", ...r }, "talep durumları güncellendi");
+    } catch (err) {
+      log.error({ err, job: "request-sweep" }, "zamanlanmış iş hatası");
+    } finally {
+      sweeping = false;
+    }
+  };
+  let retentionTimer: NodeJS.Timeout | undefined;
+  const armRetention = (): void => {
+    if (!requests) return;
+    retentionTimer = setTimeout(() => {
+      void anonymizeRequests(requests)
+        .then((n) => log.info({ job: "request-retention", anonymized: n }, "talep anonimleştirme"))
+        .catch((err: unknown) => log.error({ err, job: "request-retention" }, "zamanlanmış iş hatası"))
+        .finally(armRetention);
+    }, nextRetentionAt(Date.now()) - Date.now());
+    retentionTimer.unref();
+  };
+  armRetention();
   const runExpiry = async (): Promise<number> => {
     if (running) return 0;
     running = true;
@@ -30,7 +61,16 @@ export function startScheduler(db: Db, log: FastifyBaseLogger, rooms?: RoomNotif
       running = false;
     }
   };
-  const timer = setInterval(() => void runExpiry(), intervalMs);
+  const timer = setInterval(() => {
+    void runExpiry();
+    void runRequestSweep();
+  }, intervalMs);
   timer.unref();
-  return { runExpiry, stop: () => clearInterval(timer) };
+  return {
+    runExpiry,
+    stop: () => {
+      clearInterval(timer);
+      if (retentionTimer) clearTimeout(retentionTimer);
+    },
+  };
 }

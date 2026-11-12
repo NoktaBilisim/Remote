@@ -1,14 +1,17 @@
-# API Dokümanı — Remote Support (P1–P8)
+# API Dokümanı — Remote Support (P1–P8, P8b-1)
 
-Bu belge P1–P8'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P8 ve P8b-1'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
 `signaling/control.ts` (P7), `sessions/{history,history-repo}.ts` ve `lib/csv.ts` (P8),
-`packages/contracts/src/{errors.ts,ws.ts,dc.ts,audit.ts,labels.ts,api/auth.ts,api/sessions.ts}`.
+`packages/contracts/src/{errors.ts,ws.ts,dc.ts,audit.ts,labels.ts,api/auth.ts,api/sessions.ts}`;
+P8b-1: `requests/{public-routes,routes,service,panel,limits,ws}.ts`, `lib/{gate,db,errors}.ts`,
+`packages/contracts/src/{api/requests.ts,ws-request.ts}`.
 
 ## Genel kurallar
-- Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres Caddy üzerinden `https://<SITE_HOST>:4450`.
+- Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres `PUBLIC_BASE_URL` (staging `https://remote.noktabilisim.net`;
+  geçiş süresince `https://185.126.217.99:4450`).
 - İstek gövdesi en çok 64 KB (Caddy sınırı 2 MB); aşım, bozuk JSON veya yanlış içerik türü → 400 `VALIDATION`.
 - Her yanıtta `X-Request-Id` başlığı bulunur; hata gövdesindeki `requestId` ile aynıdır. Kullanıcı "Hata kodu"
   olarak bunu görür; log araması bu değerle yapılır (`docs/runbook.md` §5).
@@ -53,17 +56,24 @@ stack, SQL veya iç ayrıntı içermez.
 | `CSRF_INVALID` | 403 | Origin eksik/izinsiz veya `X-CSRF-Token` eşleşmiyor |
 | `PASSWORD_CHANGE_REQUIRED` | 403 | İlk giriş şifre değişimi yapılmadan başka uç çağrıldı |
 | `NOT_FOUND` | 404 | Yol veya kayıt yok (başka tenant'ın / başka teknisyenin kaydı da 404) |
+| `REQUEST_REF_INVALID` | 404 | P8b: firma ref'i geçersiz, yenilenmiş, firma pasif veya ayarı yok (hepsi aynı yanıt) |
 | `CONFLICT` | 409 | Kayıt işleme uygun durumda değil (ör. PENDING olmayan oturumu iptal, ACTIVE olmayanı sonlandırma) |
 | `LOBBY_FULL` | 409 | Bekleme odasında 3 misafir var (join) |
-| `OPEN_SESSION_LIMIT` | 409 | Teknisyenin açık oturum sınırı dolu |
+| `OPEN_SESSION_LIMIT` | 409 | Teknisyenin açık oturum sınırı dolu (P8b: talep kabulünde talep beklemede kalır) |
+| `REQUEST_PENDING` | 409 | P8b: bu istemci örneğinin zaten bekleyen talebi var |
+| `REQUEST_TAKEN` | 409 | P8b: talebi başka teknisyen kabul etti |
+| `REQUEST_CLOSED` | 409 | P8b: talep iptal, süre dolumu veya ret ile kapandı |
 | `SESSION_EXPIRED` | 410 | Oturum linkinin/kodunun süresi dolmuş |
 | `SESSION_CONSUMED` | 410 | Link/kod kullanılmış (müşteri kabul edilmiş) |
 | `SESSION_CANCELLED` | 410 | Oturum iptal edilmiş |
 | `NONCE_INVALID` | 410 | `joinNonce` süresi dolmuş (60 sn), kullanılmış veya bilinmiyor |
+| `CLIENT_OUTDATED` | 426 | P8b: Windows istemci sürümü `MIN_AGENT_VERSION`'dan düşük; `fields.minVersion` |
 | `ACCOUNT_LOCKED` | 423 | Giriş kilidi; `Retry-After` (saniye) başlığı ile |
 | `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma); `Retry-After` ile |
+| `QUEUE_FULL` | 429 | P8b: firmada 50 bekleyen talep, ya da ≥ 40 iken bilinmeyen kaynak ("Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.") |
 | `INTERNAL` | 500 | Beklenmeyen hata |
-| `NOT_READY` | 503 | `/ready`: DB'ye ulaşılamıyor veya migration yok; P6: Windows istemci ikilisi yok, yapılandırılmamış veya SHA-256'sı `AGENT_SHA256` ile uyuşmuyor |
+| `UPSTREAM` | 502 | P8b: WhatsApp test ucu — servis yapılandırılmamış veya production'da güvensiz adres |
+| `NOT_READY` | 503 | `/ready`: DB'ye ulaşılamıyor veya migration yok; P6: Windows istemci ikilisi yok, yapılandırılmamış veya SHA-256'sı `AGENT_SHA256` ile uyuşmuyor. **P8b-1:** herhangi bir uçta geçici DB çekişmesi (Prisma P2028/P2034, MySQL 1205/1213/45028) veya talep kapısı dolu → `Retry-After: 5`, mesaj "Sunucu şu an yoğun…"; yazma geri alındığından yeniden deneme güvenlidir |
 
 ## Uçlar
 | Metot | Yol | Yetki | Başarı |
@@ -90,6 +100,22 @@ stack, SQL veya iç ayrıntı içermez.
 | GET | `/internal/agent-ready` (P6) | Yalnız Caddy `forward_auth`; dışarıya kapalı | 204 |
 | WS | `/ws/tech?sessionId=<id>` | Oturum çerezi + Origin, oturumun teknisyeni | 101 |
 | WS | `/ws/guest` | Subprotocol'de `wsTicket` veya `reconnectToken` | 101 |
+| GET | `/api/v1/public/requests/tenant?ref=` (P8b) | Public | 200 |
+| POST | `/api/v1/public/requests` (P8b) | Public (yalnız AGENT: Origin ve `Sec-Fetch-*` yok) | 201 |
+| POST | `/api/v1/public/requests/cancel` (P8b) | Public (yalnız AGENT) | 204 |
+| GET | `/api/v1/public/agent/request-download?ref=` (P8b) | Public | 302 |
+| GET | `/downloads/NoktaDestek-<firma>-<ref>.exe` (P8b, Caddy statik) | Public, server ref + bütünlük kapısı | 200 |
+| GET | `/api/v1/support-requests` (P8b) | Oturum, `support_requests.view` | 200 |
+| GET | `/api/v1/support-requests/count` (P8b) | Oturum, `support_requests.view` | 200 |
+| GET | `/api/v1/support-requests/:id` (P8b) | Oturum, `support_requests.view` | 200 |
+| POST | `/api/v1/support-requests/:id/accept` (P8b) | Oturum + CSRF, `support_requests.view` + `accept` | 200 |
+| POST | `/api/v1/support-requests/:id/reject` (P8b) | Oturum + CSRF, `support_requests.view` + `accept` | 204 |
+| GET | `/api/v1/settings/support-requests` (P8b) | Oturum, `settings.edit` | 200 |
+| PUT | `/api/v1/settings/support-requests` (P8b) | Oturum + CSRF, `settings.edit` | 200 |
+| POST | `/api/v1/settings/support-requests/rotate-ref` (P8b) | Oturum + CSRF, `settings.edit` | 200 |
+| POST | `/api/v1/settings/support-requests/whatsapp/test` (P8b) | Oturum + CSRF, `settings.edit` | 200 |
+| WS | `/ws/request` (P8b) | Subprotocol `rs.v1, rs.req.<requestSecret>`; Origin yok | 101 |
+| WS | `/ws/panel` (P8b) | Oturum çerezi + Origin, `support_requests.view`, tenant bağlamı | 101 |
 
 ### POST /api/v1/auth/login
 Girdi: `login` (e-posta veya kullanıcı adı, 3–190; `@` içeriyorsa e-posta olarak aranır), `password` (1–200),
@@ -840,6 +866,140 @@ Olay değerleri `apps/server/src/ops/metrics.ts` yardım metninde listelidir. S�
 (fail-closed tetiklendi), `control_request_audit_failed`, `control_state_unexpected`,
 `monitor_request_{forwarded,conflict,cooldown,already_active}`, `monitor_{granted,denied}`, `caps_narrowed`.
 
+## Destek talepleri (P8b-1)
+Müşteri, firmaya özel Hızlı Destek dosyasından talep gönderir; talep firmanın kuyruğuna düşer, teknisyen panelden
+kabul eder ve oturum doğrudan açılır. Bağlayıcı sözleşme: `docs/mimari-api.md` "Destek talepleri (P8b)",
+`docs/mimari-protokol.md` §5, `docs/mimari-e9.md` §13; şemalar `packages/contracts/src/api/requests.ts`
+(tümü `strictObject`, bilinmeyen alan → 400). Müşteri ekranı (istemci) P8b-2'de gelir; uçlar P8b-1'de hazırdır.
+
+Talep durumları: `PENDING` (Bekliyor) → `ACCEPTED` (Kabul edildi) | `REJECTED` (Reddedildi) | `CANCELLED` (İptal;
+neden `CUSTOMER`, `DISCONNECTED`, `TENANT_PASSIVE`) | `EXPIRED` (Süresi doldu); `ACCEPTED` → `CONNECT_FAILED`
+(müşteri 60 sn içinde bağlanmadı). Müşteri WS bağlantısı koparsa 120 sn içinde dönmezse talep `CANCELLED(DISCONNECTED)`.
+
+### Alan kuralları (özet)
+| Alan | Kural |
+|---|---|
+| `ref` | `^[a-z2-7]{16}$` (firma bağlantısındaki 80 bit değer) |
+| `customerName` | 2–80 karakter, kontrol/biçim karakteri yok |
+| `phone` | `05xx…`, `5xx…`, `+905xx…` → `+90…`; uluslararası `+` 8–15 hane. Geçersiz → `fields.phone` |
+| `email` | İsteğe bağlı, ≤ 254 |
+| `description` | Tek satıra indirilir; 10–500 karakter |
+| `clientInstanceId` | `^[A-Za-z0-9_-]{22}$`; `deviceKey` (isteğe bağlı) aynı biçim |
+| `clientVersion` | `x.y.z` |
+| Ret mesajı | Tek satır, 5–200; bağlantı, e-posta, 7+ haneli numara içeremez |
+
+### GET /api/v1/public/requests/tenant?ref=
+Firma bilgisi ve güncel KVKK metni. Yanıt `Cache-Control: no-store`.
+```json
+{ "tenant": { "name": "Örnek Ltd", "logoUrl": null },
+  "consentText": { "id": "01K…", "version": 3, "body": "…", "sha256": "…" },
+  "waitMinutes": 30, "abuseEmail": null, "minAgentVersion": null }
+```
+Hatalar: 404 `REQUEST_REF_INVALID` (biçim dışı, yok, yenilenmiş, pasif — hepsi aynı), 429 `RATE_LIMITED`.
+
+### POST /api/v1/public/requests
+Yalnız Windows istemcisi: `Origin` ve `Sec-Fetch-*` başlıkları **olmamalı** (yoksa 403 `CSRF_INVALID`). Gövde ≤ 8 KB.
+```json
+{ "ref": "abcdefghijk2345m", "clientInstanceId": "AbCdEfGhIjKlMnOpQrStUv", "clientVersion": "0.9.0",
+  "customerName": "Ayşe Yılmaz", "phone": "0532 000 00 00", "email": "ayse@example.com",
+  "description": "Yazıcı çıktı vermiyor", "consentTextId": "01K…", "consentAccepted": true }
+```
+201:
+```json
+{ "requestId": "01K…", "requestSecret": "<43 karakter; yalnız bu yanıtta>", "requestCode": "482913",
+  "expiresAt": "2026-11-12T10:30:00.000Z", "position": 2 }
+```
+Hatalar: 400 `VALIDATION` (`fields.*`; KVKK metni güncel değilse `fields.consentTextId`), 403 `CSRF_INVALID`,
+404 `REQUEST_REF_INVALID`, 409 `REQUEST_PENDING`, 426 `CLIENT_OUTDATED`, 429 `RATE_LIMITED` (+`Retry-After`) veya
+`QUEUE_FULL`, 503 `NOT_READY` (+`Retry-After: 5`; talep kapısı dolu veya DB yoğun — aynı gövdeyle yeniden denenebilir).
+
+### POST /api/v1/public/requests/cancel
+Gövde `{ "requestSecret": "<43>" }` → her durumda 204 (sır doğruluğu sızdırılmaz). Bekleyen talep `CANCELLED(CUSTOMER)`;
+kabul edilmiş ama müşteri bağlanmamışsa oturum da iptal olur ve teknisyene "Müşteri bağlantıyı kabul etmedi" gider.
+Hatalar: 403 `CSRF_INVALID`, 429.
+
+### GET /api/v1/public/agent/request-download?ref=
+302 → `/downloads/NoktaDestek-<firma kısa adı>-<ref>.exe` (`no-store`). Dosyayı Caddy sunar; server
+`/internal/agent-ready` ile ref'in geçerliliğini ve ikili bütünlüğünü onaylar (geçersiz → 404, ikili yok → 503).
+Firma kısa adı değişmişse eski adlı dosya 404 olur. Ref log ve audit'e yazılmaz. Hatalar: 404 `REQUEST_REF_INVALID`,
+429, 503 `NOT_READY`.
+
+### GET /api/v1/support-requests?tab=pending|history&status=&page=&pageSize=
+Tümü oturum + `tenantScope`: Super Admin firma seçmemişse 403 "Önce bir firma seçin.". `pending` en eski önce, en çok
+50, sayfalama yok; `history` son 30 günde kapanan talepler, `status` filtresi, sayfalı.
+```json
+{ "items": [ { "id": "01K…", "requestCode": "482913", "networkMatch": "NONE", "knownDevice": false,
+  "status": "PENDING", "cancelReason": null, "createdAt": "…", "closedAt": null, "waitSec": 75,
+  "customerName": "Ayşe Yılmaz", "customerPhone": "+905320000000", "customerEmail": "ayse@example.com",
+  "description": "Yazıcı çıktı vermiyor", "clientVersion": "0.9.0", "acceptedBy": null,
+  "rejectMessage": null, "sessionId": null } ], "page": 1, "pageSize": 25, "total": 1 }
+```
+`networkMatch`: `NONE` | `PREFIX` (benzer ağdan önceki oturum) | `IP` (aynı ağdan önceki oturum) | `TRUSTED` (güvenilen
+ağ). Anonimleştirilmiş kayıtta kişisel alanlar `null`. Hatalar: 400, 403.
+
+### GET /api/v1/support-requests/count · GET /api/v1/support-requests/:id
+`{ "pending": 3 }` · tek `SupportRequestItem`. Başka firmanın talebi 404.
+
+### POST /api/v1/support-requests/:id/accept
+Gövde `{}`. 200 `{ "sessionId": "01K…", "consoleUrl": "/sessions/01K…/console" }`; müşteriye teknisyen adı ve doğrulama
+kodu gider. Hatalar: 403 (yetki yok; Super Admin kabul edemez — oturum teknisyenin kendi firmasında açılır), 404,
+409 `REQUEST_TAKEN` / `REQUEST_CLOSED` / `OPEN_SESSION_LIMIT` (talep beklemede kalır), 429.
+
+### POST /api/v1/support-requests/:id/reject
+Gövde `{ "message": "Şu an müsait değiliz, sizi arayacağız" }` → 204; müşteri mesajı düz metin görür. Hazır metinler:
+"Şu an müsait değiliz, sizi arayacağız", "Mesai saatleri dışındayız, sizi arayacağız", "Lütfen firmanızı telefonla
+arayın". Hatalar: 400, 403 (Super Admin dahil), 404, 409 `REQUEST_TAKEN` / `REQUEST_CLOSED`, 429.
+
+### GET / PUT /api/v1/settings/support-requests
+Yetki `settings.edit`; yanıt `no-store`. Satır yoksa ilk okumada oluşturulur (ref o an üretilir).
+```json
+{ "downloadUrl": "https://remote.noktabilisim.net/api/v1/public/agent/request-download?ref=…",
+  "fileName": "NoktaDestek-OrnekLtd-….exe", "refPrefix": "abcd", "refRotatedAt": null, "waitMinutes": 30,
+  "trustedCidrs": ["203.0.113.0/24"],
+  "whatsapp": { "enabled": true, "recipients": ["+905320000000"], "serviceConfigured": true, "insecure": false },
+  "email": { "enabled": false, "recipients": [], "smtpConfigured": false } }
+```
+PUT gövdesi: `{ waitMinutes: 10..120, trustedCidrs: ≤ 10 tekil (IPv4 en geniş /16, IPv6 /32; özel/loopback yok),
+whatsapp: { enabled, recipients: ≤ 5 tekil telefon }, email: { enabled, recipients: ≤ 5 } }`. WhatsApp açıkken en az
+bir alıcı; `email.enabled=true` → 400 "Önce SMTP ayarlarını yapın" (P10). Bekleme süresi yalnız yeni taleplere
+uygulanır. Hata alanları `fields["whatsapp.recipients.1"]`, `fields["trustedCidrs.0"]` biçimindedir.
+
+### POST /api/v1/settings/support-requests/rotate-ref
+Gövde `{}` → yeni ayarlar. Eski bağlantı ve indirilmiş eski dosyalar anında 404; bekleyen talepler etkilenmez.
+
+### POST /api/v1/settings/support-requests/whatsapp/test
+Gövde `{ "phone": "0532 000 00 00" }` → `{ "ok": true, "message": "…" }` (servis hata verirse `ok:false`, genel metin).
+Hatalar: 400, 429 (firma başına 5/dk), 502 `UPSTREAM`. E-posta testi P10'da gelir (uç henüz yok).
+
+### WebSocket `/ws/request` (müşteri istemcisi)
+`wss://<host>/ws/request`, sorgu dizesi yok. `Sec-WebSocket-Protocol: rs.v1, rs.req.<requestSecret>`; `Origin` yok.
+Talep başına tek soket (yenisi gelince eski 4409), IP başına ≤ 5 soket (güvenilen ağ muaf), sürüm düşükse 426.
+Sunucu → istemci: `request.state` (sıra, talep kodu, süreler; 10 sn'de bir ve kuyruk değişince), `request.accepted`
+(`wsTicket`, `technicianName`, `techVerifyCode`; istemci müşteri onayından sonra `/ws/guest`'e bağlanır),
+`request.closed` (`status`, `reason?`, ret mesajı). İstemci → sunucu: `request.cancel`, `request.decline`.
+
+### WebSocket `/ws/panel` (teknisyen paneli, tek yönlü)
+Oturum çerezi + izinli `Origin` + `support_requests.view` + firma bağlamı; kullanıcı başına ≤ 5 soket (6. → 4429).
+İstemciden gelen her mesaj 1008. Çıkış, şifre değişimi veya yetki kaybında 4401. Mesajlar: `queue.count`,
+`request.new` (ad + açıklamanın ilk 100 karakteri; telefon/e-posta yok), `request.removed`,
+`request.connect_failed` ve `request.declined` (yalnız kabul edene), `queue.alert` (olağan dışı yoğunluk).
+Kaçırılan olayın kaynağı REST'tir; panel yeniden bağlanınca listeyi yeniden çeker.
+
+### Hız sınırları (bellek içi; aşımda o anahtar 15 dk 429 + `Retry-After`, aksi belirtilmedikçe)
+| Kova | Anahtar | Sınır | Uç |
+|---|---|---|---|
+| Geçersiz ref | IP | 10/dk | tenant bilgisi, talep oluşturma, indirme, geçersiz `/ws/request` sırrı |
+| Talep oluşturma | IP / ağ öneki (IPv4 /24) / IPv6 /48 | 5/sa / 20/sa / 40/sa | POST `/public/requests` (güvenilen ağ muaf) |
+| Talep oluşturma | Firma | 60/sa bilinmeyen kaynak, 120/sa bilinen kaynak | Firma kilitlenmez; yalnız bilinmeyen kaynak reddedilir, panele `queue.alert` |
+| Bekleyen talep (DB) | İstemci örneği / IP / ağ / firma | 1 / 3 / 10 / 50 | 409 `REQUEST_PENDING` / 429 `RATE_LIMITED` / 429 / 429 `QUEUE_FULL` (≥ 40 iken bilinmeyen kaynak da `QUEUE_FULL`) |
+| İndirme | IP | 30/sa | `request-download` |
+| Tenant bilgisi | IP | 60/dk | GET `/public/requests/tenant` |
+| İptal | IP | 30/dk | POST `/public/requests/cancel` |
+| WhatsApp testi | Firma | 5/dk (1 dk blok) | `whatsapp/test` |
+| Kabul/ret | Kullanıcı | 30/dk (1 dk blok) | accept, reject |
+| WS el sıkışma | IP | 30/dk (1 dk blok) | `/ws/request`, `/ws/panel` |
+| Talep kapısı | Firma / toplam | 2 / 4 eşzamanlı, kuyruk 16 / 64, bekleme 5 sn | Dolunca 503 `NOT_READY` + `Retry-After: 5` |
+
 ## Audit
 Giriş (başarılı/başarısız), kilit (`auth.locked`, kapsam `account_ip` veya `account`), çıkış ve şifre değişimi
 `audit_logs` tablosuna yazılır. P2: `session.created`, `session.cancelled`, `session.expired` (SYSTEM) ve
@@ -862,4 +1022,10 @@ yazılır. Klavye/fare içeriği hiçbir yere yazılmaz.
 P8: `session.updated` (`{ ticketNo, noteLength }`, not metni yok), `session.exported` (filtreler, `customerFilter`,
 `rows`; müşteri arama metni yok). `ticketNo` maskelenmez (gizli değer değil); `wsTicket` ve diğer `ticket*` anahtarları
 maskeli kalır.
+P8b-1: `request.created` (yalnız `clientVersion`; IP `ip_address` sütununda), `request.accepted`
+(`status`, `sessionId`, `waitSec`), `request.rejected` (ret mesajı), `request.cancelled`, `request.expired`,
+`request.connect_failed`, `request.rate_limited` (kova + anahtar türü; kaynak başına dakikada en çok 1),
+`request.notify` (alıcı başına; numara maskeli), `settings.support_requests.updated` (eski → yeni),
+`settings.support_requests.ref_rotated`, `settings.whatsapp.test`. Ad, telefon, e-posta, açıklama, talep sırrı ve ref
+audit'e yazılmaz.
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Audit ekranı P11'de gelir.

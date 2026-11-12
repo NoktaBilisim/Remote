@@ -35,9 +35,15 @@ Ana belge: `docs/mimari.md` §4. Şemalar `packages/contracts/src/api/*.ts` içi
 | `PAYLOAD_TOO_LARGE` | 413 | Yükleme > 2 MB | P9 |
 | `ACCOUNT_LOCKED` | 423 | Giriş kilidi (hesap+IP veya hesap geneli); `Retry-After` (sn) | P1 ✓ |
 | `RATE_LIMITED` | 429 | Hız sınırı; `Retry-After` | P1 ✓ |
+| `REQUEST_REF_INVALID` | 404 | Firma dosyası ref'i geçersiz/yenilenmiş/pasif tenant (tek yanıt, AC-131/132/145) | P8b-1 |
+| `REQUEST_PENDING` | 409 | Bu istemci örneğinin zaten bekleyen talebi var (AC-143) | P8b-1 |
+| `REQUEST_TAKEN` | 409 | Talep başka teknisyen tarafından kabul edildi (AC-153) | P8b-1 |
+| `REQUEST_CLOSED` | 409 | Talep iptal/süre dolumu/ret ile kapanmış | P8b-1 |
+| `QUEUE_FULL` | 429 | Tenant'ta 50 bekleyen talep veya ≥ 40 iken bilinmeyen kaynak (AC-143, mimari-e9 §13.6) | P8b-1 |
+| `CLIENT_OUTDATED` | 426 | AGENT sürümü `MIN_AGENT_VERSION`'dan düşük (`fields.minVersion`; mimari-e9 §13.4) | P8b-1 |
 | `INTERNAL` | 500 | Beklenmeyen hata (ayrıntı yalnız log, `requestId`) | P1 ✓ |
 | `UPSTREAM` | 502 | SMTP/MySQL/dış servis testi başarısız | P10 |
-| `NOT_READY` | 503 | `/ready`: DB'ye ulaşılamıyor veya migration uygulanmamış | P1 ✓ |
+| `NOT_READY` | 503 | `/ready`: DB'ye ulaşılamıyor veya migration uygulanmamış ; **P8b-1 düzeltme (QA-P8b-1):** herhangi bir uçta geçici DB çekişmesi — etkileşimli TX başlatılamadı/zaman aşımı (Prisma P2028), deadlock (P2034/1213), kilit bekleme (1205), havuz bağlantı zaman aşımı (45028) → 503 `NOT_READY` + `Retry-After: 5`, mesaj "Sunucu şu an yoğun…". Yazma geri alındığından yeniden deneme güvenlidir; 500 dönmez. TX varsayılanları `maxWait` 8 sn / `timeout` 15 sn (`src/lib/db.ts` `TX_OPTIONS`) | P1 ✓ |
 
 ✓ = `errors.ts`'te mevcut. Diğerleri ilgili paket `errors.ts`'e ekler; 410 için genel `GONE` kodu **kullanılmaz**, nedeni belirten kod döner.
 
@@ -51,6 +57,7 @@ Ana belge: `docs/mimari.md` §4. Şemalar `packages/contracts/src/api/*.ts` içi
 | Kullanıcılar | `users` | view, create, edit, delete |
 | Ayarlar | `settings` | view, edit |
 | Audit log | `audit` | view, export |
+| Destek talepleri (P8b) | `support_requests` | view (kuyruk, geçmiş, panel bildirimi), accept (kabul **ve** ret) |
 Rol kuralı: SUPER_ADMIN tümü + sistem uçları (rol kontrolü, toggle değil). ADMIN varsayılan tümü açık; USER tümü kapalı (AC-73).
 
 ## Auth (`/auth`)
@@ -209,3 +216,51 @@ Kapsam dışı action'lar (`session.resolve`, `session.join`, `file.*`, `file.me
 ## Operasyon (proxy dışına kapalı)
 `GET /health` → 200 `{ status: "ok" }` (süreç canlı), `GET /ready` → 200 `{ status: "ready", migration }` / 503 `NOT_READY` (DB ping + migration sürümü); ikisi `/api` dışında, Caddy dışarıya 404, `GET /metrics` (Prometheus metin; `METRICS_TOKEN` Bearer zorunlu ve Caddy'de yalnız iç ağ) — AC-88, 89.
 `GET /internal/agent-ready` (P6 düzeltme 1, S6-2/G-07): Caddy `forward_auth` iç ucu — `/downloads/*` sunulmadan önce ikili `AGENT_SHA256` ile eşleşirse 204, değilse 503 `NOT_READY` (Caddy yanıtı istemciye döner, dosya sunulmaz). Yalnız güvenilen proxy soketinden (`TRUSTED_PROXY_CIDR`; tanımsızsa loopback) + `X-Forwarded-Method` başlıklı GET; aksi 404. Caddy `/internal/*`'ı dışarıya 404'ler.
+
+## Destek talepleri (P8b) — bağlayıcı (mimar, 2026-11-12, **r2** güvenlik tasarım turu G-E9-1..14 işlendi; AC-129..164, ADR-0016)
+Mimari: `docs/mimari-e9.md`. Şemalar `packages/contracts/src/api/requests.ts` (tümü `z.strictObject`). Hata zarfı ve ortak kurallar yukarıdaki gibidir. Zamanlar ISO-8601 UTC.
+
+**Ortak alan şemaları** (contracts; Go eşi `internal/request/validate.go`, ortak fixture `fixtures/request-form.json`):
+| Ad | Şema |
+|---|---|
+| `tenantRefSchema` | `/^[a-z2-7]{16}$/` |
+| `customerNameSchema` | trim, 2..80 **kod noktası** (`[...s].length`), `UNSAFE_NAME_CHARS` (Cc/Cf/Zl/Zp) yok |
+| `phoneSchema` | trim, boşluk/`-`/`(`/`)` silinir → `^(?:\+90\|0)?(5\d{9})$` → `+90…`; değilse `^\+?([1-9]\d{7,14})$` → `+…`; diğer → 400 `fields.phone` "Telefon numarası geçersiz". Çıktı E.164 |
+| `optionalEmailSchema` | boş → undefined; ≤ 254, `z.email()` |
+| `descriptionSchema` | **tek satır (r2, G-E9-5):** CR/LF/TAB → boşluk, `\s+` → tek boşluk, trim; sonra 10..500 kod noktası; Cc ve bidi/sıfır genişlik Cf yasak |
+| `rejectMessageSchema` | trim, tek satır, 5..200, Cc/Cf yasak; **r2 (G-E9-12):** `://`, `www.`, `/[a-z0-9-]+\.[a-z]{2,}/i`, `@`, boşluk/tire yok sayılarak 7+ ardışık rakam → 400 "Mesaj bağlantı, e-posta veya telefon içeremez" |
+| `requestCodeSchema` | `/^\d{6}$/` (gösterim; kapı değil — mimari-e9 §13.1) |
+| `deviceKeySchema` | `/^[A-Za-z0-9_-]{22}$/` (128 bit; yalnız hatırlama açıkken istemcide üretilir) |
+| `trustedCidrSchema` | CIDR; IPv4 önek ≥ /16, IPv6 ≥ /32; özel/loopback/link-local reddi |
+| `requestStatusSchema` | `enum(["PENDING","ACCEPTED","CANCELLED","EXPIRED","REJECTED","CONNECT_FAILED"])` |
+| `cancelReasonSchema` | `enum(["CUSTOMER","DISCONNECTED","TENANT_PASSIVE"])` |
+
+### Public (çerezsiz, kimliksiz)
+| Uç | Girdi | Çıktı | Hatalar | Koruma / AC |
+|---|---|---|---|---|
+| GET `/public/requests/tenant?ref=` | `ref: tenantRefSchema` | `TenantRequestInfo = { tenant: { name, logoUrl }, consentText: { id, version, body, sha256 }, waitMinutes, abuseEmail: string\|null, minAgentVersion: string\|null }` + `Cache-Control: no-store` | 404 `REQUEST_REF_INVALID` (biçim dışı, yok, yenilenmiş, pasif, ayarı yok — aynı gövde), 429 | `req.ref_invalid` (404'ler) + `req.info` 60/dk; AC-133, 145 |
+| POST `/public/requests` | `CreateRequestBody = { ref, clientInstanceId: /^[A-Za-z0-9_-]{22}$/, clientVersion: /^\d{1,3}\.\d{1,3}\.\d{1,3}$/, customerName, phone, email?, description, consentTextId: ulid, consentAccepted: z.literal(true), deviceKey?: deviceKeySchema }` | 201 `{ requestId, requestSecret (43, yalnız burada), requestCode (6 hane), expiresAt, position: int ≥ 1 }` | 400 `VALIDATION` (`fields.*`; `consentTextId` güncel sürüm değilse `fields.consentTextId`), 403 `CSRF_INVALID` (Origin veya `Sec-Fetch-*` var), 404 `REQUEST_REF_INVALID`, 409 `REQUEST_PENDING`, 429 `RATE_LIMITED` (+`Retry-After`; hız kovası veya IP başına 3 bekleyen), 429 `QUEUE_FULL` ("Şu an çok yoğunuz, lütfen firmanızı telefonla arayın"), 426 `CLIENT_OUTDATED` | `checkPublicClient(req,"AGENT")`; bodyLimit 8 KB; **sıra (r2, G-E9-10):** Origin → ipKey/önek/net48 kovaları (güvenilen CIDR muaf, §13.6) → zod → sürüm (`MIN_AGENT_VERSION`) → ref (geçersiz → `req.ref_invalid`) → bilinen kaynak hesabı (`known_network`, `known_device`) → tenant kovası (bilinmeyen kaynak 60/sa, bilinen 120/sa) → TX [**ilk ifade** `tenant_request_settings … FOR UPDATE` → bekleyen sayımları (örnek 1, ipKey 3, net_key 10, tenant 50; ≥ 40 iken bilinmeyen kaynak `QUEUE_FULL`) → `requestCode` (bekleyenlerde tekil) → INSERT → audit `request.created`] → commit → `hub`/WhatsApp; AC-134, 135, 139, 143, 144, 145 |
+| POST `/public/requests/cancel` | `{ requestSecret: string(43) }` | 204 (talep yoksa/kapalıysa da 204 — sır oracle'ı yok). PENDING → CANCELLED(CUSTOMER); **ACCEPTED (oturum PENDING) → decline yolu** (talep CANCELLED(CUSTOMER), oturum CANCELLED `customer_declined`, mimari-e9 §13.3) | 403 `CSRF_INVALID`, 429 | `checkPublicClient(req,"AGENT")`; `req.cancel` 30/dk; WS kopukken istemcinin en iyi çaba yolu; AC-141 |
+| GET `/public/agent/request-download?ref=` | `ref` | 302 → `/downloads/NoktaDestek-<file_label>-<ref>.exe` (`no-store`, çerez yok); son yanıtı Caddy verir (P6 `@agentExe` kuralı genişler; aynı ikili, `Content-Disposition` son yanıtta) | 404 `REQUEST_REF_INVALID`, 429, 503 `NOT_READY` (ikili kapısı, P6 ile aynı) | `req.download` 30/sa + `req.ref_invalid`; `ref` loga/audit'e yazılmaz; AC-130, 132 |
+
+### Panel (çerez; durum değiştirenlerde Origin + CSRF; tümü `tenantScope` — Super Admin firma seçmeli)
+| Uç | Girdi | Çıktı | Hatalar | Yetki / AC |
+|---|---|---|---|---|
+| GET `/support-requests?tab=pending\|history&status=&page=&pageSize=` | `tab` vars. `pending`; `status` yalnız history'de (kapalı durumlardan biri); history = son 30 gün `closed_at`, `closed_at desc, id desc`; pending = `created_at asc, id asc`, sayfalama yok sayılır (≤ 50) | `{ items: SupportRequestItem[], page, pageSize, total }` + `no-store`. `SupportRequestItem = { id, requestCode, networkMatch: "NONE"\|"PREFIX"\|"IP"\|"TRUSTED", knownDevice: bool (G-E9-15: rozet yalnız IP/TRUSTED; ayrıcalık yalnız TRUSTED/knownDevice), status, cancelReason\|null, createdAt, closedAt\|null, waitSec (kapalıysa closed/accepted−created, açıksa now−created), customerName\|null, customerPhone\|null, customerEmail\|null, description\|null, clientVersion, acceptedBy: {id,name}\|null, rejectMessage\|null, sessionId\|null }` (anonimleştirilmiş kayıtta PII null) | 400, 403 | `support_requests.view`; AC-146, 148 |
+| GET `/support-requests/count` | — | `{ pending: int }` | 403 | view; rozet ilk yükleme (sonra `/ws/panel`) |
+| GET `/support-requests/:id` | — | `SupportRequestItem` | 404 | view; AC-148 |
+| POST `/support-requests/:id/accept` | `{}` | 200 `{ sessionId, consoleUrl: "/sessions/<id>/console" }` | 404, 409 `REQUEST_TAKEN` / `REQUEST_CLOSED` / `OPEN_SESSION_LIMIT` (talep beklemede kalır), 429 | `support_requests.accept`; kabul TX'i `mimari-e9.md` §3.4; audit `request.accepted`; AC-153 |
+| POST `/support-requests/:id/reject` | `{ message: rejectMessageSchema }` | 204 | 400, 404, 409 `REQUEST_TAKEN`/`REQUEST_CLOSED` | accept; müşteriye `request.closed{REJECTED, message}`; audit `request.rejected{message}`; AC-157. Hazır metinler (web sabiti): "Şu an müsait değiliz, sizi arayacağız", "Mesai saatleri dışındayız, sizi arayacağız", "Lütfen firmanızı telefonla arayın" |
+| GET `/settings/support-requests` | — | `SupportRequestSettings = { downloadUrl, fileName, refPrefix (4), refRotatedAt\|null, waitMinutes, trustedCidrs: string[], whatsapp: { enabled, recipients: string[], serviceConfigured: bool, insecure: bool (prod'da fail-closed, §13.5) }, email: { enabled, recipients: string[], smtpConfigured: bool } }` (satır yoksa tembel oluşturulur) | 403 | `settings.edit`; AC-129 |
+| PUT `/settings/support-requests` | `{ waitMinutes: int 10..120, trustedCidrs: trustedCidrSchema[] ≤ 10 (tekil), whatsapp: { enabled, recipients: phoneSchema[] ≤ 5, tekil }, email: { enabled, recipients: email[] ≤ 5, tekil } }` — `whatsapp.enabled=true` iken ≥ 1 alıcı; `email.enabled=true` ve SMTP yok → 400 `fields["email.enabled"]` "Önce SMTP ayarlarını yapın" | `SupportRequestSettings` | 400, 403 | settings.edit; audit eski→yeni; mevcut bekleyenlerin `expires_at`'i **değişmez**; AC-142, 152 |
+| POST `/settings/support-requests/rotate-ref` | `{}` (UI onay diyaloğu) | `SupportRequestSettings` | 403 | settings.edit; eski ref anında geçersiz; mevcut bekleyen talepler etkilenmez; audit `ref_rotated`; AC-131 |
+| POST `/settings/support-requests/whatsapp/test` | `{ phone: phoneSchema }` | `{ ok: bool, message }` | 400, 429 (5/dk/tenant), 502 `UPSTREAM` (servis yapılandırılmamış) | settings.edit; `POST {URL}/test-send`; audit `settings.whatsapp.test`; AC-152 |
+| POST `/settings/support-requests/email/test` | `{ to: email }` | `{ ok, message }` | P10 | P10; AC-151, 152 |
+
+### Oturum geçmişine ekler (P8 sözleşmesi genişler, kırılmaz; AC-158)
+- Liste sorgusu: `source: enum(["TECH","REQUEST"])?` (`request_id IS NULL / IS NOT NULL`).
+- `SessionListItem` + `{ source: "TECH"|"REQUEST", waitSec: number|null }` (REQUEST: `accepted_at − request.created_at`).
+- `SessionHistoryDetail` + `request: { id, createdAt, acceptedAt, waitSec, customerName, customerPhone, customerEmail, description } | null` (anonimse PII null). USER kapsamı değişmez (kendi oturumu).
+- CSV: `Mod` sütunundan sonra `Kaynak` ("Talep"/"Teknisyen") ve `Bekleme` (`HH:MM:SS`); hücreler formül kaçışlı (AC-124). Telefon ve açıklama CSV'ye **girmez** (veri en aza indirme).
+- **r2 eki — resolve sürümü (G-E9-4):** POST `/public/sessions/resolve` gövdesine `clientVersion?: /^\d{1,3}\.\d{1,3}\.\d{1,3}$/` eklenir (yalnız `clientKind=AGENT`'ta anlamlı; yoksa `0.0.0`). `MIN_AGENT_VERSION` doluysa ve sürüm düşükse 426 `CLIENT_OUTDATED`; sürüm `joinNonce` → ticket kaydına taşınır, join ve `/ws/guest` (AGENT) aynı kontrolü yeniden beyan almadan yapar. 0.9.0 istemcisi alanı gönderir.
+- **r2 eki — panel:** talep kartında `requestCode` ve bilinen kaynak rozetleri + kalıcı ipucu "Müşteriyi firmanın kayıtlı numarasından arayın ve ekrandaki talep kodunu sorun" (mimari-e9 §13.1). Açıklama, ad ve ret mesajı düz metin; otomatik bağlantı yok.

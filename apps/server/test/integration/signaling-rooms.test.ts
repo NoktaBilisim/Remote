@@ -94,6 +94,9 @@ describe("P3 lobi + admit (oda katmanı)", () => {
   });
 });
 
+/** QA-P8b-1: 50 turlu DB yarışları yük altında (eşzamanlı e2e) 20 sn varsayılanı aşabiliyor; tur başı ~1 sn pay. */
+const LOOP_TIMEOUT = 60_000;
+
 describe("P3 giriş şartı 2 — atomik tüketim yarışları (mimari-protokol §3.2)", () => {
   it("AC-7: repo admit‖admit 50 kez → her turda tam bir kazanan", async () => {
     const t = await createTenant();
@@ -104,7 +107,7 @@ describe("P3 giriş şartı 2 — atomik tüketim yarışları (mimari-protokol 
       const counts = await Promise.all([repo.consumeForAdmit(testDb(), s.id, now, "BROWSER", { name: "Ayşe", email: null }), repo.consumeForAdmit(testDb(), s.id, now, "AGENT", { name: "Ali Veli", email: null })]);
       expect(counts.reduce((a, b) => a + b, 0)).toBe(1);
     }
-  });
+  }, LOOP_TIMEOUT);
 
   it("AC-7: oda admit‖admit 50 kez → tek admitted, tek guest.admitted audit'i, kaybedene CONFLICT", async () => {
     for (let i = 0; i < 50; i++) {
@@ -118,7 +121,7 @@ describe("P3 giriş şartı 2 — atomik tüketim yarışları (mimari-protokol 
       expect(fx.techPeer.of("error").map((e) => e.code)).toEqual(["CONFLICT"]);
       expect(await consents(fx.session.id)).toBe(1); // P4 AC-29: kaybeden admit consent yazmaz
     }
-  });
+  }, LOOP_TIMEOUT);
 
   it("AC-6/AC-8: admit‖cancel 50 kez → tek kazanan; iptal kazanırsa misafire cancelled, admit audit'i yok", async () => {
     for (let i = 0; i < 50; i++) {
@@ -135,7 +138,7 @@ describe("P3 giriş şartı 2 — atomik tüketim yarışları (mimari-protokol 
       expect(await consents(fx.session.id)).toBe(adm ? 1 : 0); // P4: TX geri alınınca onay kaydı yok
       if (!adm) expect(g.peer.of("session.ended")[0]?.reason).toBe("cancelled");
     }
-  });
+  }, LOOP_TIMEOUT);
 
   it("AC-5/7: süresi dolmuş oturumda admit count=0 → misafire timeout, teknisyene CONFLICT", async () => {
     const rooms = makeRooms();

@@ -31,6 +31,26 @@ export function prefixKey(ip: string): string {
 }
 
 /**
+ * Ağ öneki (P8b §13.1/§13.6): IPv4 → /24, IPv6 → /48. Talep bekleyen sınırı (≤ 10), bilinen ağ (PREFIX) ve
+ * `req.create.net48` kovası (yalnız IPv6) bunu kullanır.
+ */
+export function netKey(ip: string): string {
+  const key = ipKey(ip);
+  if (isIPv4(key)) return `${key.split(".").slice(0, 3).join(".")}.0/24`;
+  const addr = ip.split("%")[0] ?? ip;
+  if (!isIPv6(addr)) return key;
+  return `${expandIPv6(addr).slice(0, 3).join(":")}::/48`;
+}
+
+export const isIPv6Key = (key: string): boolean => key.includes(":");
+
+/** Birden çok CIDR (tenant güvenilen listesi, §13.6); boş liste → her zaman false. */
+export function cidrListMatcher(cidrs: readonly string[]): (ip: string) => boolean {
+  const matchers = cidrs.map((c) => cidrMatcher(c));
+  return (ip) => matchers.some((m) => m(ip));
+}
+
+/**
  * CIDR üyelik denetleyicisi (S-P2-T2-1). `cidr` boşsa her zaman false. Zone id atılır, IPv4-mapped IPv6
  * IPv4 olarak denetlenir. CIDR biçimi env.ts'de doğrulanır.
  */

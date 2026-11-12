@@ -37,6 +37,10 @@ export async function internalAgentRoutes(app: FastifyInstance): Promise<void> {
   app.get("/agent-ready", async (req, reply) => {
     void reply.header("Cache-Control", "no-store");
     if (!fromEdge(req)) throw new AppError("NOT_FOUND");
+    // P8b G-E9-11: firma yolu (`/downloads/NoktaDestek-<label>-<ref>.exe`) → ref aktif ve label güncel değilse 404
+    // (aynı yol, oracle yok). `/downloads/Destek-*` (P6) yalnız ikili kapısı. URI/ref loglanmaz.
+    const uri = req.headers["x-forwarded-uri"];
+    if (typeof uri === "string" && /^\/downloads\/NoktaDestek-/i.test(uri) && !(await app.requests.firmPathValid(uri))) throw new AppError("NOT_FOUND");
     await assertAgentReady(app.agentBinary);
     return reply.code(204).send();
   });

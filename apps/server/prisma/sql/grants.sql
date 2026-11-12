@@ -19,10 +19,15 @@ GRANT SELECT, INSERT, UPDATE ON support_sessions TO 'app'@'%';
 REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON support_sessions FROM 'app'@'%';
 
 -- P4 consent_texts: değişmez, sürümlü (yeni sürüm = INSERT). app SELECT/INSERT (seed v1 + P11 düzenleme).
--- is_current geçişi için sütun düzeyi UPDATE(is_current, updated_at) P11'de (düzenleme ekranıyla) verilir;
+-- is_current geçişi için sütun düzeyi UPDATE(is_current, updated_at) aşağıda (P8b-1'de öne alındı);
 -- body/sha256/version hiçbir zaman güncellenemez. DELETE yok (retention: tenant silinmez, metin kalır).
 GRANT SELECT, INSERT ON consent_texts TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON consent_texts FROM 'app'@'%';
+-- P8b-1 (mimari-e9 §3.6): seed yeni aydınlatma sürümü ekler → eski sürümün is_current'ı 0 yapılmalı. Sütun düzeyi
+-- UPDATE(is_current, updated_at) P11'den P8b-1'e ÖNE ALINDI (yalnız bu iki sütun; body/sha256/version güncellenemez).
+-- Tenant başına tek güncel sürüm fonksiyonel UQ (consent_texts_one_current_uq) ile korunur. Bu GRANT yukarıdaki
+-- tablo düzeyi REVOKE'tan SONRA gelmeli (sıra korunursa dosya idempotent).
+GRANT UPDATE (is_current, updated_at) ON consent_texts TO 'app'@'%';
 
 -- P4 session_consents: append-only onay zaman çizelgesi (AC-29/62/111). UPDATE (anonimleştirme) ve
 -- DELETE (+30 gün hard delete) retention işiyle P13'te verilir.
@@ -34,6 +39,15 @@ REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON sess
 -- support_sessions.quality_summary için ek yetki gerekmez (tablo düzeyi UPDATE P2'den beri var).
 GRANT SELECT, INSERT ON session_files TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_files FROM 'app'@'%';
+
+-- P8b-1 tenant_request_settings (mimari-e9 §3.1): tembel INSERT, ayar/ref yenileme UPDATE. Silme yok (tenant silinmez).
+GRANT SELECT, INSERT, UPDATE ON tenant_request_settings TO 'app'@'%';
+REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON tenant_request_settings FROM 'app'@'%';
+
+-- P8b-1 support_requests (mimari-e9 §3.2/§3.6): durum geçişleri ve anonimleştirme UPDATE'tir. DELETE (hard delete)
+-- retention işiyle P13'te verilir (önce oturum, sonra talep — FK RESTRICT).
+GRANT SELECT, INSERT, UPDATE ON support_requests TO 'app'@'%';
+REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON support_requests FROM 'app'@'%';
 
 -- Append-only: yalnız SELECT/INSERT. DELETE yetkisi retention/tetikleyiciyle birlikte (P11/P13)
 -- verilecek; o pakette bu dosya güncellenir. UPDATE/DELETE/DDL/TRIGGER yetkisi varsa geri alınır.

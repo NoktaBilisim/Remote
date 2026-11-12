@@ -12,6 +12,8 @@
 // yanıtsız monitör isteği 30 sn sonra düşer, bekleme `at + 30 sn`den başlar (control.ts). Test zamanı `ageRoom` ile ilerletir.
 import { randomBytes } from "node:crypto";
 import { WebSocketServer } from "ws";
+import { SESSION_COOKIE as SESSION_COOKIE_NAME } from "@remote/contracts/api/auth";
+import { panelUpgrade } from "./mock-requests.mjs";
 import { byId, tickets, ulid } from "./mock-sessions.mjs";
 
 const wss = new WebSocketServer({ noServer: true, handleProtocols: (p) => (p.has("rs.v1") ? "rs.v1" : false) });
@@ -225,6 +227,10 @@ export function attachWs(srv) {
   srv.on("upgrade", (req, sock, head) => {
     const url = new URL(req.url ?? "/", "http://mock");
     const protos = String(req.headers["sec-websocket-protocol"] ?? "").split(",").map((s) => s.trim());
+    if (url.pathname === "/ws/panel") {
+      const cookie = String(req.headers.cookie ?? "").split(";").map((p) => p.trim().split("=")).find(([k]) => k === SESSION_COOKIE_NAME)?.[1];
+      return panelUpgrade(req, sock, head, cookie ? decodeURIComponent(cookie) : undefined);
+    }
     if (url.pathname === "/ws/tech") {
       const rec = byId.get(url.searchParams.get("sessionId"));
       if (!rec) return sock.destroy();

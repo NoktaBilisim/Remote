@@ -15,7 +15,8 @@ export const PASSWORD = "Dogru-Sifre-123";
 export function testEnv(extra: Record<string, string> = {}): Env {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) throw new Error("TEST_DATABASE_URL tanımlı değil (scripts/test-db.sh up)");
-  return loadEnv({ NODE_ENV: "test", PUBLIC_BASE_URL: ORIGIN, DATABASE_URL: url, LOG_LEVEL: "silent", ...extra });
+  // WHATSAPP_SERVICE_URL varsayılanı canlı servis; testler ASLA ona gitmemeli → kapalı yerel port (discard, 9).
+  return loadEnv({ NODE_ENV: "test", PUBLIC_BASE_URL: ORIGIN, DATABASE_URL: url, LOG_LEVEL: "silent", WHATSAPP_SERVICE_URL: "http://127.0.0.1:9", ...extra });
 }
 
 let db: Db | undefined;

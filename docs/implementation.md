@@ -1983,3 +1983,220 @@ Rota değişmedi (`/history`, `/history/[id]`). Tasarım skill dosyaları okunma
 - **Sapma (gerekçeli):** Düğme yeri değiştiği için 1,5 sn kilit yeniden başlatılır ve odak "Reddet"e döner (kayan düğmeye kaza tıklaması olmasın; G-03 yalnız sıkılaşır). Diyalog yeniden konumlandırılmaz.
 - **Testler:** `control_test.go` `TestConsentCheckReasonInjectedWarning` (yerel → OK, enjekte tık/Alt+İ → Injected, kilitliyken/kısayolsuz/Enter enjekte → uyarısız neden, `CanGrant` ile tutarlılık). Mevcut AC-116/AC-102 testleri değişmeden geçer.
 - **Komut ve sonuç:** Docker `golang:1.26.11-bookworm@sha256:dc40…`, `GOFLAGS=-mod=readonly GOTOOLCHAIN=local`: `go test ./...` 15 paket ok; `GOOS=windows go vet ./...` temiz; `gofmt -l` temiz. Web/sunucu sözleşmesi değişmedi.
+
+## Devops P8b-1 — müşteri destek talebi altyapısı (devops, 2026-11-12)
+**Değişen dosyalar:** `.env.example`, `deploy/docker-compose.yml` (server: `WHATSAPP_SERVICE_URL`, `MIN_AGENT_VERSION` — çıplak anahtar, `ABUSE_EMAIL` kalıbı), `deploy/Caddyfile`, `deploy/nginx/remote.noktabilisim.net.conf`, yeni `deploy/test-caddy.sh`, yeni `deploy/nginx/test-nginx.sh`, `.github/workflows/ci.yml` (build job'a iki adım; yeni Action yok, izinler değişmedi), `docs/runbook.md` §3/§5/§12.
+- **Caddy:** yeni `@agentExeFirm` = `^/downloads/(NoktaDestek-[A-Za-z0-9]{1,20}-[a-z2-7]{16})\.exe$` → aynı volume ikilisi; `forward_auth server:3001` uri **`/internal/agent-ready`** (mimari-api'deki ad, değişmedi), `X-Forwarded-Uri: /downloads/NoktaDestek-<label>-<ref>.exe` (yalnız yol, sorgu dizesi yok). P6 yolları eskisi gibi `X-Forwarded-Uri: /downloads/***` gönderir (server ad görmez). Dosya sunma bloğu `(agent_exe_file)` snippet'inde ortak. Biçim dışı adlar server'a gitmez (404).
+- **Log:** iki Caddy filtresine `request>uri regexp "NoktaDestek-[^/?]+" "NoktaDestek-***"`; nginx'e üçüncü map (ilk `NoktaDestek-`ten sonrası silinir). **Bulgu (mevcut, düzeltildi):** `resp_headers>Sec-Websocket-Protocol delete` 101 yanıtında etkisizdi — Caddy başlığı `Sec-WebSocket-Protocol` yazımıyla logluyor. İkinci yazım eklendi. Gerçek sızıntı yoktu (server yanıtta yalnız `rs.v1` seçer); test, sırrı geri yazan sahte upstream'le en kötü durumu sınar.
+- **WS:** `/ws/request`, `/ws/panel` mevcut `/ws/*` kuralıyla gider; ek ayar gerekmez — 40 sn açık tutulan WS'e Caddy `read_body 30s`/`read_header 10s` uygulanmadı (test-caddy `CADDY_TEST_WS_HOLD=1`).
+- **Metrik/alarm:** runbook §12.5 PromQL tabloları (Prometheus sunucusu yığında yok; mevcut uygulama gibi kurallar runbook'ta).
+
+### Backend-dev için
+1. `/internal/agent-ready`: `X-Forwarded-Uri` `^/downloads/NoktaDestek-([A-Za-z0-9]{1,20})-([a-z2-7]{16})\.exe$` ise ref aktif + label güncel `file_label` → 204, değilse 404 (aynı gövde/süre); diğer değerler (`/downloads/***`) yalnız ikili kapısı. Ref loglanmaz.
+2. `env.ts`: boş dize = tanımsız (mevcut `withoutBlanks`) — `WHATSAPP_SERVICE_URL=""` → varsayılan, `MIN_AGENT_VERSION=""` → kontrol yok. Compose boş değeri `""` olarak geçirir (doğrulandı).
+3. Metrik etiketleri runbook'taki kurallarla aynı olmalı: `rs_request_notify_total{channel="whatsapp", result="ok"|"failed"|"suppressed"}`, `rs_request_rate_limited_total{bucket="tenant",…}`, `rs_ws_connections{role="request"|"panel"}`. Farklı ad/etiket seçilirse runbook §12.5 güncellenmeli (devops'a not).
+
+### Doğrulama (yerel, 2026-11-12)
+- `deploy/test-caddy.sh` (+`CADDY_TEST_WS_HOLD=1`): GEÇTİ — firma adı 200 + doğru `Content-Disposition`; kapı 404/503/502'de dosya sunulmuyor; 10 biçim dışı ad 404 ve server'a gitmiyor; P6 regresyonu; `/internal`,`/metrics`,`/ready` 404; erişim + hata logunda ref, firma adı, sorgu dizesi, talep sırrı yok.
+- `deploy/nginx/test-nginx.sh` (nginx 1.24.0 = sunucu sürümü): `nginx -t` + maske GEÇTİ.
+- `caddy validate`, `docker compose config` (boş ve dolu env), ci.yml YAML ayrıştırma: temiz. gitleaks `dir`: repo dosyalarında 0 bulgu (13 bulgu yalnız git-ignore `apps/web/.next/` derleme çıktısında; CI `git` modu bunu taramaz).
+- Sunucuya dokunulmadı; nginx/Caddy/env yayını runbook §12.1 adımlarıyla yapılır.
+- **QA/güvenlik düzeltmesi (2026-11-12):** `deploy/test-caddy.sh`e ikinci firma adı (`NoktaDestek-IkinciFirma2-<ref2>.exe`) indirmesi + iki indirmenin ve volume ikilisinin aynı SHA-256 kontrolü (AC-130) ve logda ikinci ad/ref yok kontrolü; runbook §12.5'e server log `alarm:"db_busy"` eşik satırı (5 dk > 20 veya 15 dk süren; kod dağılımı, S8b-5 havuz/S8b-6 giriş sayacı bağlamı, ilk adımlar — metrik yok, log sayımı; backend `rs_db_busy_total` gibi bir sayaç eklerse satır PromQL'e çevrilir). `bash deploy/test-caddy.sh`: GEÇTİ (41 PASS, 0 FAIL).
+
+## Frontend P8b-1 — müşteri destek talebi (panel) (frontend-dev, 2026-11-12)
+Kaynak: `docs/mimari-e9.md` §13, `docs/mimari-api.md` "Destek talepleri (P8b)", `docs/mimari-protokol.md` §5.3, AC-146..149, 152, 153, 157, 158, 164.
+Sözleşme: `@remote/contracts/api/requests` + `ws-request` (backend-dev) — web yalnız yeniden dışa aktarır (`lib/requests/contract.ts`), alan/şema tanımı yok.
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/requests` | Oturum + `support_requests.view` (Super Admin firma seçmiş olmalı; seçmemişse "Önce firma seçin") | Bekleyen talepler kuyruğu (canlı, `/ws/panel`); Kabul et (`accept` → `/sessions/<id>/console`) / Reddet (diyalog); ses aç/kapa |
+| `/requests?tab=history[&status=][&page=]` | Aynı | Son 30 günün kapanan talepleri, durum filtresi (link), sayfalama (25) |
+| `/requests#talep-<id>` | Aynı | Toast "Görüntüle" hedefi (kart vurgulanır) |
+| `/settings/support-requests` | Oturum + `settings.edit` (Super Admin firma seçmeli) | İndirme bağlantısı + kopyala + onaylı "Bağlantıyı yenile", bekleme süresi 10–120, WhatsApp aç/kapa + ≤5 alıcı + test, e-posta pasif (P10), güvenilen IP/CIDR ≤10 |
+| `/history?source=REQUEST\|TECH` | Mevcut | P8 listesi + "Kaynak" filtresi; talepten doğan satırda "Talep" hapı (bekleme `title`/kartta görünür) |
+| `/history/<id>` | Mevcut | Özet'te "Kaynak"; talepten doğan oturumda "Destek talebi" bölümü (talep/kabul zamanı, bekleme, ad, telefon, e-posta, açıklama düz metin) |
+Ws: `/ws/panel` (çerez; sorgu dizesi yok) — panel kabuğu `support_requests.view` + tenant bağlamı varken açar.
+
+### Değişen / eklenen dosyalar (apps/web)
+- Yeni: `app/(panel)/requests/{page,loading,request-card,request-queue,reject-dialog,sound-toggle}.tsx`, `app/(panel)/settings/support-requests/{page,loading,settings-form}.tsx`, `components/request-notifier.tsx`, `components/ui/switch.tsx`, `lib/requests/{contract,validate,source,sound,panel-socket,settings-form,errors}.ts`, `lib/requests/requests.test.ts` (22 test), `e2e/mock-requests.mjs`, `e2e/p8b-requests.spec.ts` (10 senaryo).
+- Değişen: `app/(panel)/layout.tsx` (notifier), `side-nav.tsx` (Talepler `Inbox` + rozet, Ayarlar `Settings`), `components/ui/toast.tsx` (`info` tonu, `action`, `durationMs`), `history/{page,history-filters,history-list}.tsx`, `history/[id]/{page,sections}.tsx`, `lib/history/query.ts` (`source`), `messages/tr.json` (`rq.*`, `srs.*`, `h.r.*`), `e2e/{mock-api,mock-ws,mock-history,helpers}.mjs|ts` (502 beklenen ağ hatası listesine eklendi — WhatsApp testi `UPSTREAM`).
+
+### Kararlar / sapmalar
+- Bilinen kaynak: koordinatör kararı + contracts `networkBadge`: IP/TRUSTED veya `knownDevice` → "Bilinen kaynak" (nedenleri contracts etiketleriyle); PREFIX nötr satır, uyarıyı kaldırmaz; aksi `FIRST_SEEN_SOURCE_LABEL` uyarısı. PREFIX metni brifteki "Aynı ağ bloğu" yerine contracts `NETWORK_MATCH_LABELS.PREFIX` ("Benzer ağdan önceki oturum var") — tek kaynak ilkesi; değişecekse contracts'ta değişir.
+- Toast Sonner değil, mevcut CSP uyumlu `ui/toast` genişletildi (DESIGN §6). Ses: WebAudio iki ton, yeni bağımlılık yok; tercih `localStorage` `rs.requests.sound` (sunucu tercihi P12).
+- `RequestNotifier` sayfa içeriğini **sarmaz**: istemci sağlayıcıyla sarıldığında `loading.tsx` akışında içerik geçici olarak çift (gizli `S:0` + görünür) çiziliyor, katı e2e konumlandırıcıları bozuluyordu. Durum küçük modül deposunda (`useSyncExternalStore`).
+- `/ws/panel` yeniden bağlanma: 4401 → dene; 4429/1008 → dur; hiç açılamayan 3 denemeden sonra dur (upgrade 403 tarayıcıda 1006 görünür). Bağlanınca sayı `/support-requests/count`'tan, liste REST'ten tazelenir; soket yokken kuyruk 15 sn'de bir yoklar (kısmi durum uyarısı).
+- `request.new` liste kaydını değil yalnız önizlemeyi taşır → kuyruk REST'ten yeniden çekilir (telefon/e-posta WS'te yok).
+- Kabul yanıtındaki `consoleUrl` yalnız `/sessions/<ULID>/console` biçimindeyse kullanılır (açık yönlendirme savunması).
+- Ayar formu: CIDR/telefon/ret mesajı kuralları contracts'tan (`checkTrustedCidr`, `normalizePhone`, `rejectMessageSchema`); sunucu 400 `fields` yolları ("whatsapp.recipients.1", "trustedCidrs.0") alanlara yansır. Kaydedilmemiş değişiklikte `beforeunload` uyarısı (uygulama içi bağlantı yakalama P9 `ui/save-bar` ile).
+- Tasarım skill'i `~/.claude/skills/ui-ux-pro-max/SKILL.md` tur sınırı nedeniyle okunmadı; DESIGN.md token/primitifleri esas alındı.
+
+### Test durumu
+`pnpm -r lint` ✓ · `typecheck` ✓ · web `test` 158/158 ✓ · `e2e` 188/188 ✓ (68 atlandı).
+- **AC-63 geri tuşu düzeltmesi:** `p8-history.spec.ts:314` yarış nedeniyle kalıyordu (notifier'dan bağımsız; yük arttıkça sıklaşıyordu): `dialog.close()` "close" olayını kuyruğa koyar; "Sayfada kal"ın hemen ardından ikinci geri basışta diyalog yeniden `showModal` ile açılıyor, ilk kapanışın gecikmiş "close" olayı gelip `onClose` (stay) ile onu kapatıyordu. `components/ui/dialog.tsx`: `onClose` yalnız öğe gerçekten kapalıyken (`!e.currentTarget.open`) çağrılır; test değişmedi.
+
+### Düzeltme turu 2 (qa-raporu Tur 2) (frontend-dev, 2026-11-12)
+- **QA-P8b-12 (AC-149) kök neden:** test, `/ws/panel` soketi açılmadan `request.new` kancasını tetikleyebiliyordu; mock olayı yalnız açık soketlere ittiği için olay kayboluyordu (rozet `3` REST'ten geldiği için senkron noktası değildi). Düzeltme yalnız test tarafında: `e2e/mock-requests.mjs`'e `GET /__e2e/rq/sockets/<çerez>` → `{ open }` (yalnız `readyState=1` soketler) eklendi; `p8b-requests.spec.ts` olaydan önce, "Görüntüle" geçişinden sonra ve 4401 kapanışından sonra `expect.poll(open) ≥ 1` bekler (önceki sabit `waitForTimeout(2500)` kaldırıldı). Ürün kodu değişmedi.
+- **QA-P8b-13 (AC-161) kök neden — ürün hatası, notifier/layout değil:** `lib/control/machine.ts` `{VIEW, TECH}` onayını her fazda kapatma olarak işliyordu. Vazgeç → hemen "Kontrol iste" sırasında sunucu önce iptali işleyip `{VIEW, TECH}` yollar, sonra yeni isteği misafire iletir; onay konsola yeni istekten **sonra** varınca bekleyen istek yerelde `ended` oluyor, "Vazgeç" düğmesi kayboluyordu (sunucu ve müşteri `REQUESTED`'de kalırken konsol "bıraktınız" gösteriyordu — gerçek sunucuda da aynı sıralama, `control.ts:170/177`). P8b-1 ile tam koşudaki ek yük (panel soketi, `standalone` sunucu) yalnız gecikmeyi büyütüp yarışı görünür yaptı. Düzeltme: `requested` fazında gelen `{VIEW, TECH}` yok sayılır (o fazda teknisyenin son eylemi istektir; TECH onayı ancak önceki Vazgeç/Bırak'a aittir). Birim testi `machine.test.ts` "QA-P8b-13/K2". `TEST-P7-3` döngüsü artık "Vazgeç" görünürlüğünü açıkça bekler, tıklama sonrası `data-phase="ended"` doğrular (gevşetilmedi).
+- Aynı ailede tam koşuda görülen ikinci yarış (`AC-115/G-04`, `stage` `on` olmadı): test `grant(a)`'yı müşteri isteği almadan yollayabiliyordu → sunucu `stale` sayıyordu. Gerçek müşteri istek görmeden izin veremez; test hatası. `e2e/fake-agent.ts`'e `asked` (yanıtlanmamış istek ulaştı) eklendi, `grant()` önce `asked=true` bekler. Bilerek geç izin senaryosu (K2/S7-2) doğrudan `agentSend` kullanır.
+- Kanıt: web lint ✓ · typecheck ✓ · test 159/159 ✓ · tam e2e üst üste 3 koşu 188/188 (68 atlandı) · `p7-control` + `p8b-requests` `--repeat-each=5` 105/105.
+
+### Düzeltme turu 3 (test-raporu P8b-1 Tur 1) (frontend-dev, 2026-11-12)
+- **TEST-P8b-1:** `useLeaveGuard` `history/[id]/note-form.tsx`'ten `lib/use-leave-guard.ts`'e taşındı (davranış aynı: bağlantı yakalama + geri tuşu nöbetçisi + `beforeunload`); onay diyaloğu `components/leave-dialog.tsx` (bileşim, yeni primitif değil). `settings-form.tsx` kendi `beforeunload`'ı yerine bunu kullanır; metin `srs.leaveBody`. e2e "TEST-P8b-1" (menü bağlantısı + geri tuşu, Sayfada kal / Kaydetmeden ayrıl).
+- **TEST-P8b-2:** `request-queue.tsx` sekme ömürlü `acceptedHere` kümesi: kabul edilen id önbellekten gelen `initial`'dan ve sonraki tazelemelerden düşülür; bfcache dönüşünde (`pageshow.persisted`) liste tazelenir. e2e "TEST-P8b-2".
+- **TEST-P8b-3:** kaydet çubuğu yalnız `dirty || saving` iken çizilir; tek satır (durum metni + geri al + Kaydet), mobilde "geri al" yalnız ikon (`sr-only` etiket, ad korunur), `-mx-4` kaldırıldı (iç taşma). `srs.clean` metni kullanılmadığı için silindi. e2e "TEST-P8b-3" (390: yükseklik ≤ 72 px, taşma yok).
+- **TEST-P8b-4:** "Bilinen kaynak" rozeti `whitespace-nowrap`, nedenler altında liste (`request-source-reasons`). AC-146 e2e'ye tek satır yükseklik denetimi.
+- **Ek (tam koşuda yakalandı, AC-149 aralıklı):** `request-notifier.tsx` soket açılışında başlatılan REST `/support-requests/count` yanıtı, daha sonra gelen WS `queue.count`'un üzerine eski değeri yazabiliyordu (rozet 4 yerine 3). Sıra sayacı `countSeq`: REST yanıtı yalnız arada WS sayısı gelmediyse uygulanır.
+- Kanıt: web lint ✓ · typecheck ✓ · test 159/159 ✓ · `p8b-requests --repeat-each=3` 42/42 ✓ · tam e2e 191/191 (71 atlandı). Server/deploy dosyalarına dokunulmadı.
+
+## Backend P8b-1 — müşteri destek talebi (sunucu) (backend-dev, 2026-11-12)
+
+### Değişen / eklenen dosyalar
+- **contracts:** `src/api/requests.ts` (yeni: durum makinesi, alan şemaları, CIDR doğrulayıcı, uç şemaları/tipleri), `src/ws-request.ts` (yeni: `/ws/request` + `/ws/panel` mesajları, kapanış kodları 4409/4429/4401), `permissions.ts` (`support_requests.view|accept`), `errors.ts` (REQUEST_REF_INVALID 404, REQUEST_PENDING/TAKEN/CLOSED 409, CLIENT_OUTDATED 426, QUEUE_FULL 429, UPSTREAM 502), `labels.ts`, `api/sessions.ts` (`source`, `waitSec`, `request`, CSV Kaynak/Bekleme, resolve `clientVersion`), `package.json` exports, `fixtures/ws-request.json`, `fixtures/request-form.json`.
+- **server (yeni):** `src/requests/{ref,limits,hub,repo,service,panel,jobs,ws,public-routes,routes}.ts`, `src/notify/whatsapp.ts`, `src/lib/version.ts`.
+- **server (değişen):** `app.ts` (hub/limits/notifier/RequestService, rotalar, işler), `env.ts` (`WHATSAPP_SERVICE_URL`, `MIN_AGENT_VERSION`; boş → tanımsız), `lib/{logger,errors,ids,ip}.ts`, `audit/mask.ts` (`maskPhone`), `ops/metrics.ts` (etiketli gösterge), `signaling/{types,rooms,admit,handlers,ws}.ts` (ön-kabullü talep misafiri, ticket kuşağı, `/ws/request`/`/ws/panel` yönlendirme, 426), `sessions/{repo,public,routes,history,history-repo}.ts`, `public/{service,consent,routes}.ts` (forward_auth firma yolu), `auth/routes.ts` (logout → `closeByAuthToken`, şifre değişimi → `closeByUser`), `jobs/scheduler.ts` (30 sn süpürücü + 00:30 UTC anonimleştirme).
+- **testler:** `test/unit/requests-contract-p8b.test.ts`, `test/integration/requests-p8b.test.ts` (17 test), `test/helpers/requests.ts`, `test/helpers/tenant-matrix.ts` (yeni uçlar + `requestId` fikstürü), `test/integration/sessions-history-api-p8.test.ts` (CSV sütunları).
+- **docs:** `mimari-api.md`, `mimari-protokol.md` — `knownNetwork` → `networkMatch` + `knownDevice` (koordinatör kararı a / G-E9-15).
+
+### Tasarımdan sapmalar (gerekçeli)
+1. **CSV başlığı değişti (P8 testi güncellendi):** AC-158 "Mod"dan sonra "Kaynak", "Bekleme" sütunlarını istiyor; P8 testinin sabit başlık beklentisi buna göre güncellendi (AC-61 regresyonu değil, bilinçli sözleşme genişlemesi).
+2. **Super Admin talep kabul edemez (403):** oturum teknisyenin kendi tenant'ında açılır (P2 kuralı); Super Admin seçili firmada kuyruğu görür, kabul/ret yapamaz.
+3. **Talep oturumu genel oturum-expiry işinden hariç** (`requestId: null` filtresi); 60 sn bağlanma penceresi ve CONNECT_FAILED talep süpürücüsünde/zamanlayıcısında.
+4. **G-E9-17 kara liste:** koordinatör kararı c ile "Sonra" listesinde; kodlanmadı.
+5. **G-E9-16:** güvenilen CIDR kaynakları `/ws/request` IP başına soket sınırından ve IP/prefix/net hız + bekleyen sınırlarından muaf; tenant bekleyen sınırı (50) geçerli.
+6. **Matris sınıfı `scoped`:** tenantScope'lu id'siz koleksiyon/ayar uçları (liste, count, ayarlar) mevcut `list`/`self` sınıflarına uymadığı için `tenant-matrix.ts`'e `scoped` sınıfı eklendi; izolasyonu `requests-p8b.test.ts` (AC-148/149) test eder. `:id` uçları CROSS_TENANT_CASES'te (404).
+7. **Metrik:** `rs_ws_connections{role="request|panel"}` etiketli gösterge (devops adlarıyla aynı); `rs_request_notify_total{result=ok|failed|suppressed}`.
+8. İstemci talep oluşturup hiç bağlanmazsa da 120 sn kopma kuralı uygulanır (açılışta `armOrphanedPending` dahil).
+
+### Bağımlılık
+Yeni bağımlılık yok (CIDR ayrıştırıcı saf TS; WhatsApp istemcisi yerleşik `fetch`).
+
+### frontend-dev için sözleşme notları
+- `SupportRequestItem` ve `request.new`: `knownNetwork` YOK → `networkMatch: "NONE"|"PREFIX"|"IP"|"TRUSTED"` + `knownDevice`. Rozet: `networkBadge(networkMatch)` (yalnız IP/TRUSTED).
+- `/ws/panel`: alt protokol `rs.v1`, çerez + Origin; tek yönlü (gelen mesaj → 1008); kullanıcı başına 5 soket (fazlası 4429); logout/şifre değişimi/yetki kaybı → 4401. Mesajlar: `queue.count`, `request.new`, `request.removed`, `request.connect_failed`, `request.declined`, `queue.alert`.
+- Kabul yanıtı `{ sessionId, consoleUrl }`; yarış kaybı 409 `REQUEST_TAKEN`, kapalı 409 `REQUEST_CLOSED`, açık oturum sınırı 409 `OPEN_SESSION_LIMIT` (talep PENDING kalır).
+- Ayarlar `email.enabled=true` iken SMTP yoksa 400 (`SMTP_REQUIRED_MESSAGE`).
+- Geçmiş: liste öğesinde `source`, `waitSec`; detayda `request` (anonimleştirilmişse PII null); `?source=REQUEST|TECH` filtresi.
+
+### Test komutları ve son çıktı
+- `pnpm -r run lint` → 3 paket temiz. `pnpm -r run typecheck` → hatasız.
+- `pnpm -r run test` → contracts 50/50, server 270/270, web 158/158.
+- `cd apps/server && pnpm test:int` (geçici MySQL 8.4) → **26 dosya, 233/233** (AC-1..128 regresyonu dahil).
+
+### Kapsanmayan / eksik test (açık)
+Kod yazıldı, otomatik entegrasyon testi henüz yok:
+- WhatsApp: 3 deneme/zaman aşımı, tenant/alıcı/global sınırları, saatlik özet, fail-closed (`http://` + genel host), `request.notify` audit (sahte fetch ile test edilmeli).
+- Ayarlar PUT / `rotate-ref` (eski ref 404) / WhatsApp test ucu (502).
+- 120 sn kopma → DISCONNECTED, 60 sn CONNECT_FAILED, pasif tenant → TENANT_PASSIVE (süpürücü), müşteri `request.decline` (ACCEPTED).
+- Hız kovaları ayrıntısı (ref_invalid 15 dk blok, create IP/prefix/net48, tenant 60/120 + `queue.alert`), `/ws/request` IP başına 5 soket ve güvenilen CIDR muafiyeti, panel kullanıcı başına 5 soket.
+- forward_auth firma yolu (`/internal/agent-ready` + `NoktaDestek-<label>-<ref>.exe`), `request-download` 302 başarılı yolu.
+- `MIN_AGENT_VERSION` 426: yalnız talep oluşturma test edildi; resolve/join/`/ws/guest`/`/ws/request` yolları test edilmedi.
+- Talep oturumunda teknisyen pasifse `auth_revoked`; caps'in DB'deki etkin yetkilerden hesaplanması ayrı testle doğrulanmadı.
+
+### Test turu (backend-dev, 2026-11-12)
+Yukarıdaki "Kapsanmayan / eksik test" listesinin tamamı entegrasyon testine bağlandı (gerçek MySQL 8.4 + dinleyen sunucu; zamanlayıcılar `FakeClock`, WhatsApp yalnız yerel sahte HTTP sunucusu).
+- **Yeni dosyalar (35 test):** `test/integration/requests-p8b-2.test.ts` (13: WhatsApp şablonu/PII yok/alıcı başına maskeli audit, 3 deneme +5/+20 sn, 8 sn zaman aşımı, alıcı 10/sa + tenant 30/sa + sistem 300/sa ve saatlik özet, fail-closed; ayarlar PUT doğrulama sınırları, `rotate-ref`, WhatsApp test ucu + 5/dk; production'da 502), `requests-p8b-3.test.ts` (12: 120 sn kopma + tolerans içi yeniden bağlanma, 60 sn CONNECT_FAILED + yalnız kabul edene `request.connect_failed`, süpürücü CONNECT_FAILED yedek yolu, TENANT_PASSIVE, `request.decline`, süre dolumu; ön-kabullü misafirde teknisyen pasif → `auth_revoked`, caps'in admit anındaki DB yetkilerinden hesaplanması; 426 resolve/join/`/ws/guest`/`/ws/request`), `requests-p8b-4.test.ts` (10: create ip/prefix/net48 kovaları, ref_invalid 15 dk kilidi, tenant 60/120 + `queue.alert`, bilinen kaynak ayrıcalığı yalnız TRUSTED/known_device, `/ws/request` IP başına 5 soket + güvenilen CIDR muafiyeti, panel kullanıcı başına 5 soket, forward_auth firma yolu, request-download 302/503/30 sa).
+- **Kod değişikliği (1):** `notify/whatsapp.ts` 8 sn çağrı zaman aşımı global `setTimeout` yerine enjekte `clock` ile kuruluyor (deneme beklemeleriyle aynı saat; `realClock` unref'li olduğundan üretim davranışı aynı). Gerekçe: zaman aşımı yolu gerçek 8 sn beklemeden test edilebilsin.
+- **Test altyapısı:** `test/helpers/app.ts` `testEnv` varsayılan `WHATSAPP_SERVICE_URL=http://127.0.0.1:9` (env varsayılanı canlı servis; bir test yanlışlıkla `wa_enabled`/test ucu çağırırsa dışarı istek gitmesin). `helpers/requests.ts`: `startFakeWhatsapp`, `requestClient`, `waitMsg/hasMsg`. `helpers/ws.ts` `FakeClock.pending`, `hasTimerIn(ms)`.
+- **Bulunan hata:** sözleşmeyi bozan hata bulunmadı. Notlar (değişiklik yapılmadı): (1) `WHATSAPP_SERVICE_URL` env'de varsayılanlı olduğundan `serviceConfigured` her zaman true; "Servis yapılandırılmamış" 502 dalı ulaşılamaz (ölü değil, savunma). (2) `/ws/guest`'te ticket sürüm kontrolünden önce tüketiliyor; 426 alan eski istemcinin ticket'ı yanar (yeni ticket `/ws/request` yeniden bağlanmasıyla alınır — sözleşmeyle çelişmiyor). (3) Tenant 120/sa bilinen tavanı testinde sayaç doğrudan dolduruldu (120 gerçek talep bekleyen sınırları nedeniyle kurulamıyor).
+- **Komutlar:** `pnpm -r run lint` temiz · `typecheck` hatasız · `test` contracts 50, server 270, web 158 · `pnpm test:int` (geçici MySQL 8.4, sonra silindi) **29 dosya, 268/268**.
+
+### Backend P8b-1 — düzeltme turu 1 (testler) (backend-dev, 2026-11-12)
+Kapsam: `docs/qa-raporu.md` P8b-1 Tur 1 eksik test maddeleri QA-P8b-2..10 + AC-129. Üretim kodu **değiştirilmedi** (paralel ajan kod düzeltmelerini yürütüyor); bulunan hatalar aşağıda, `it.fails` ile kayıtlı.
+- **Yeni dosyalar:**
+  - `test/integration/requests-p8b-5.test.ts` (13): AC-135 eski `consentTextId` → 400 `fields.consentTextId` (başka tenant'ın metni ve `consentAccepted:false` da 400, satır yazılmaz) + talep satırında metin/sha/`consentedAt`/IP, her talep ayrı onay; AC-135/§13.3 `session_consents.request_id` + metin/sha (VIEW/GRANTED/UI); AC-147 yalnız `view` → liste/sayaç/detay 200, kabul/ret 403, audit yok; AC-148 Super Admin firma seçmeden 7 uçta 403 "Önce bir firma seçin.", seçili tenant'ta yalnız o tenant'ın talepleri, başka tenant 404, kabul 403 (sapma 2); AC-160/157 `request.accepted{status,sessionId,waitSec}` + `request.rejected{status,message}` (kullanıcı, tenant, sonuç) ve tüm `request.*` audit'lerinde ad/telefon/e-posta/açıklama/sır taraması, müşteri IP'si yalnız `request.created`'da (AC-160 gereği orada bulunur); AC-143 IP başına 3 bekleyen (4. → 429 + genel mesaj, iptal sonrası yer açılır), /24 başına 10 (11. → 429, komşu /24 serbest), IPv6 /64 tek IP, güvenilen CIDR muafiyeti + örnek sınırı yine 409; AC-129 Admin ayarlarından ref `^[a-z2-7]{16}$` (80 bit), tenant'lar arası farklı, `settings.edit`'siz kullanıcı 4 ayar ucunda 403 (gövdede ref yok), oturumsuz 401; AC-158 geçmiş detayı talep bölümü (zaman, `acceptedAt`, `waitSec`, ad, telefon, e-posta, açıklama) + CSV `Kaynak=Talep`, `Bekleme`, talepten gelen `=HYPERLINK(...)` adı kaçışlı; AC-159 ad/telefon/e-posta/açıklama/ip/`ip_key`/`net_key`/`device_hash` boşaltılır, `retention_days` 90 ve 730 sınırları.
+  - `test/integration/requests-p8b-6.test.ts` (4): AC-156 talep oturumunda P7 akışı (gerçek WS + `FakeClock`): `hello.caps`, ilk seviye VIEW (istenmemiş GRANTED → `revoke{stale}`, kayıt yok), `control.request` → DENIED + 30 sn bekleme → GRANTED yalnız `source=UI` → HOTKEY ile REVOKED, GRANTED/HOTKEY şema reddi 1008; yetki kaldırılınca `revoke{permission}` + `caps.update`, `session.end` sonrası istemci < 3 sn kapanır (AC-107). AC-130 iki tenant (`Çağrı Özel Bilişim Ticaret A.Ş.`, `Güneş İnşaat Ltd`) → farklı ad, forward_auth 204, `deploy/Caddyfile` `@agentExeFirm` eşleşmesi + `agent_exe_file` root/rewrite → aynı dosya, SHA-256 = `AGENT_SHA256`. AC-146 performans.
+  - `test/unit/requests-ref-p8b.test.ts` (6): `newTenantRef` biçim/benzersizlik/konum dağılımı, `base32Lower` RFC 4648 vektörleri; `fileLabelOf` Türkçe → ASCII, ≤ 20, boş/indirgenemeyen → `Firma`, ayrıştırıcıyla tutarlılık.
+- **Değişen:** `requests-p8b.test.ts` 9 test adı (QA-P8b-10; yalnız adlar), `test/helpers/tenant-matrix.ts` yorumu (var olmayan `requests-isolation-p8b.test.ts` atfı → gerçek dosyalar), `test/helpers/requests.ts` (`createRequestRow` isteğe bağlı ad/e-posta/açıklama/`deviceHash`; `createReq` `extra` gövde alanları).
+- **AC-146 ölçümü (QA-P8b-8):** hedef tenant 1.000 talep (40 bekleyen + 960 geçmiş) + 1.000 kayıtlı gürültü tenant'ı, `createMany` 500'lük partiler; 5 ölçümün medyanı (yerel MySQL 8.4, inject): `tab=pending` **6,1 ms**, `tab=history&pageSize=100` **6,6 ms**, 10. sayfa **7,1 ms** (eşik 500 ms).
+- **AC-130 sınırı:** gerçek Caddy kanıtı devops `deploy/test-caddy.sh`'tedir (şu an tek firma adı). Sunucu testi Caddyfile'daki eşleştirici + rewrite hedefini okuyup çözümler. **devops önerisi:** test-caddy.sh'e ikinci firma adı ve iki indirmenin SHA-256 eşitliği satırı.
+- **Bulunan üretim hataları (düzeltilmedi, `it.fails` ile kayıtlı — düzeltilince test kırmızıya döner, `it` yapılmalı):**
+  1. **AC-147 (Orta):** `src/requests/routes.ts` accept/reject yalnız `support_requests.accept` ister; `view` yok + `accept` var kullanıcı kabul/ret yapabilir. AC-147 "view yoksa tüm talep uçları 403". Öneri: iki uçta `requirePerm("support_requests.view")` + `accept` (veya `preHandler` dizisi).
+  2. **AC-148 / sapma 2 (Orta):** `src/requests/panel.ts rejectRequest` Super Admin (`auth.user.tenantId !== tenantId`) kontrolü yok → seçili tenant'ta ret 204 + REJECTED. `acceptRequest`'teki kontrol ret için de uygulanmalı.
+  3. **Düşük:** `service.ts:249` IP ve önek bekleyen sınırı aşımında audit kovası ikisi için de `pending.ip`/`keyType:"ip"` (önek aşımı ayırt edilemiyor). Öneri: `pending.net`/`net`.
+- **Komutlar:** `pnpm -r run lint` temiz · `pnpm -r run typecheck` hatasız · `pnpm -r run test` contracts 50, server 276, web 158 · `pnpm test:int` (geçici MySQL 8.4 `rs-mysql-test-p8btests:33357`, sonra silindi) **33 dosya, 289 geçti + 2 beklenen başarısız (it.fails), 0 kırmızı**; yeni dosyalar + `requests-p8b.test.ts` 2 ek koşuda 32/32 + 2.
+
+### Backend P8b-1 — düzeltme turu 1 (backend-dev, 2026-11-12)
+Kapsam: QA-P8b-1, QA-P8b-11, S8b-1..4 ve koordinatörün ek maddeleri (AC-147 view şartı, AC-148 Super Admin reti, bekleyen sınır audit'i).
+
+**Kök neden (QA-P8b-1), ölçüldü:** Yük altında 60 eşzamanlı talepte 201/429 dışı yanıtların hepsi **500 = Prisma P2028** ("Unable to start a transaction in the given time"). Talep TX'inin ilk ifadesi `tenant_request_settings … FOR UPDATE` (G-E9-10) TX'leri seri kuyruğa sokuyor; havuzdaki 10 bağlantının 9'u kilitte beklerken diğer istekler Prisma'nın varsayılan `maxWait` 2 sn'sini aşıyor. Kanıt: MySQL CPU'su kısılınca (`docker update --cpus 0.03`) 3 turda 17/21/21 × 201, 43/39/39 × 500, logda 121 × P2028; ayar kilidi 3 sn tutulunca eski varsayılanla deterministik kırmızı (yeni testte doğrulandı).
+
+**Düzeltmeler**
+- `src/lib/db.ts`: `transactionOptions` = `TX_OPTIONS {maxWait 8 sn, timeout 15 sn}`; seri kuyruklu talep oluşturma TX'i için `SERIAL_TX_OPTIONS {20 sn, 30 sn}`; havuz `acquireTimeout` varsayılanı 20 sn (URL'de verilmişse ona uyulur). `isTransientDbError`: P2028, P2034, MySQL 1205/1213/45028.
+- `src/lib/errors.ts`: geçici DB çekişmesi → **503 `NOT_READY` + `Retry-After: 5`**, mesaj "Sunucu şu an yoğun…", `warn` log `alarm:"db_busy"` (stack/SQL yok). 429 yerine 503 seçildi: istemci hatası değil, karar verilmedi ve TX geri alındı; Go istemcisi 503'ü zaten `Retryable()` sayıyor. `mimari-api.md` hata tablosuna (`NOT_READY` satırı) işlendi. **Sözleşme değişikliği:** tüm uçlar aşırı yükte 500 yerine 503 + `Retry-After` dönebilir.
+- `src/requests/repo.ts` + `service.ts`: kilit altındaki 4 sayım + kod listesi (5 sorgu) tek `pendingSnapshot` sorgusuna indirildi (≤ 50 satır, `(tenant_id,status)` indeksi). Davranış aynı; TX gidiş-dönüşü 10 → 6.
+- S8b-1 `notify/whatsapp.ts`: `fetch(..., { redirect: "error" })`; `FetchLike` tipine `redirect` eklendi.
+- S8b-2 `signaling/admit.ts` + `ws.ts`: `admitRequestGuest(rooms, room, guest, peer, ctx)`. `room.admitting` ilk await'ten (teknisyen sorgusu) önce kurulur; `guest.peer` yalnız admit kazanılınca atanır. Admitting/admitted iken gelen ikinci bağlantı yalnız kendi soketini `1008 conflict` ile kapatır (`session.ended` gönderilmez, oturum diğer bağlantıda sürüyor). Ret/zaman aşımı kendi soketine gider. Soket admit sürerken kapanmışsa kazanıldıktan sonra `detachGuest` uygulanır. Yan etki: admit öncesi talep misafirinin mesajları artık policy-close yerine yok sayılır (`guest.peer !== peer`).
+- S8b-3 `requests/service.ts`: `request.created` newValue = `{ clientVersion }`. IP yalnız audit `ip_address` sütununda.
+- QA-P8b-11 `admit.ts`: talep yolunda `guest.admitted` newValue = `{via, requestId, acceptedBy, guestKind, consentTextId, consentSha256}`, ad yok. Kod yolu (P3/P4) değişmedi. Geçmiş zaman çizelgesi adı `support_sessions.customer_name`'den alıyor (`history.ts` geri dönüşü).
+- S8b-4 `requests-p8b-4.test.ts`: deviceKey sabitleri `fakeDeviceKey()` ile (randomBytes, base64url 22) üretiliyor.
+- AC-147 `requests/routes.ts`: accept/reject `support_requests.view` + `.accept` ister. AC-148 `requests/panel.ts` `rejectRequest`: `auth.user.tenantId !== tenantId` → 403 ("Talep yalnız kendi firmanızda reddedilebilir."). `requests-p8b-5.test.ts`'teki iki `it.fails` testi `it` yapıldı (AC-147 testine accept 403 + PENDING assert'i eklendi).
+- Bekleyen sınır audit'i: `request.rate_limited` kovası/anahtarı ayrıştı. IP başına 3 → `{bucket:"pending.ip", keyType:"ip"}`, önek başına 10 → `{bucket:"pending.prefix", keyType:"prefix"}`, tenant → `pending.tenant/tenant`.
+- Test kararlılığı: `vitest.config.ts` `testTimeout` 60 sn ve `expect.poll` tavanı 10 sn; `helpers/ws.ts` `waitFor` varsayılanı 10 sn. Bunlar yalnız tavan, koşul sağlanınca hemen dönüyor. `signaling-rooms.test.ts` 50 turlu üç yarış testi 60 sn; `requests-p8b-2.test.ts` 300/sa testi 60 sn ve poll'ları 30 sn.
+
+**Yeni testler:** `test/integration/db-busy-p8b.test.ts` (kilit 3 sn tutulurken 60 eşzamanlı → 50×201 + 10×429, 5xx yok; havuz dolu → 503 + Retry-After, gövdede SQL/stack yok). `test/integration/security-p8b-fix1.test.ts` (S8b-1 307 → başarısız ve hedefe istek yok; S8b-3; QA-P8b-11; S8b-2 eşzamanlı iki /ws/guest, admit TX'i oturum satırı kilidinde bekletilerek deterministik; pending.ip/pending.prefix audit'i).
+
+**Bağımlılık:** yok.
+
+**Test (geçici MySQL `rs-mysql-test-p8bfix`/33347):** `pnpm -r run lint` temiz · `typecheck` temiz · unit contracts 50, web 158, server 276 · `test:int` (yük yokken) **33 dosya, 292/292**.
+**Kararlılık (test:int ‖ e2e, 3 tur, son seri):** e2e 188/187/187. Kırmızılar p7-control ve p5-collab zamanlama testleri; bunlar bu turun kapsamı dışında. test:int sonuçları 290/289/**292** oldu. Kalan kırmızılar iki AC-143 ani yığılma testi (60 talep) ve bir kez 300/sa. Bu koşularda host yük ortalaması **45–53** idi (14 çekirdek; makinede başka ajanların koşuları da vardı). Yanıtların bir kısmı artık **kontrollü 503 + Retry-After** dönüyor (9–17 adet), **500 hiç yok**. QA'nın "3 koşuda yeşil" şartı bu yük düzeyinde **karşılanmadı**. Yük yokken ve orta yükte (yalnız e2e ‖ AC-143) 3/3 yeşil. Daha uzun beklemeyle zorlamak müşteriyi 20 sn'den fazla bekletir, bu yüzden tercih edilmedi.
+
+**frontend-dev için:** 503 `NOT_READY` (+`Retry-After`) artık "yoğunluk" anlamına da gelebilir. Talep reddinde Super Admin 403 alır (accept ile aynı mesaj kalıbı).
+
+### Backend P8b-1 — düzeltme turu 2 (backend-dev, 2026-11-12)
+Kapsam: güvenlik "P8b-1 — Tur 2" S8b-5, S8b-6; QA Tur 2 Öneri 1. Yeni iş açılmadı.
+
+**S8b-5 — talep oluşturma havuzu tüketmesin**
+- Yeni `src/lib/gate.ts` `ConcurrencyGate`: süreç içi kapı (tek instance, ADR-0005). Anahtar başına ve toplamda eşzamanlı iş sınırı, FIFO kuyruk (başka anahtarın sınırına takılan bekleyen atlanır), kuyruk üst sınırı (dolunca hemen `GateBusyError("full")`), bekleme süresi (aşılınca `"timeout"`). Bekleyen iş DB bağlantısı tutmaz.
+- `src/requests/service.ts`: `REQUEST_GATE = { perKey 2, global 4, maxWaitingPerKey 16, maxWaiting 64, waitMs 5 sn }`. **Tenant kovası + TX döngüsü** kapının içinde. Böylece talepler 10'luk havuzun en çok 4 bağlantısını tutar; panel, giriş ve WS admit için en az 6 bağlantı kalır. Kapı dolunca **503 `NOT_READY` + `Retry-After: 5`** döner (mevcut `DB_BUSY_MESSAGE`). Tenant saatlik kovası tüketilmez, çünkü sayım kapının içinde yapılıyor. Metrik `rs_request_gate_rejected_total{reason=full|timeout}` artar. Log `alarm:"request_gate_busy"` (tenantId + reason; PII yok; 10 sn'de en çok 1). `RequestServiceDeps.gate?` yalnız test içindir.
+- `src/lib/db.ts`: `SERIAL_TX_OPTIONS {20 sn, 30 sn}` kaldırıldı. Yerine talebe özel **`REQUEST_TX_OPTIONS {maxWait 3 sn, timeout 10 sn}`** geldi; genel `TX_OPTIONS {8 sn, 15 sn}` değişmedi. Kapı sayesinde kilit kuyruğu en çok 2 TX uzunluğunda olduğundan uzun maxWait'e gerek kalmadı.
+- Tasarımdan sapma: yok. Güvenlik raporunun önerdiği "tenant başına tek uçuşlu kuyruk/semafor" seçeneği uygulandı.
+
+**S8b-6 — hesap kilidi geçici DB hatasında fail-closed**
+- `src/auth/repo.ts` `bumpAccountFailures(db, …)` artık **TX dışında** çalışıyor. (1) Sayaç artışı tek atomik `UPDATE`. (2) Kilit ayrı bir koşullu `UPDATE … WHERE failed_window_at IS NOT NULL AND failed_login_count >= limit` ile yazılıyor; etkilenen satır > 0 ise kilidi bu istek başlatmış demektir. Eşzamanlı isteklerden yalnız biri satırı değiştirir, bu yüzden kilit audit'i yine bir kez yazılır (S2-3 değişmezi; `auth-fix1` 25 paralel testi yeşil).
+- `src/auth/service.ts` `recordFailure`: sayaç yazılamazsa (hangi hata olursa olsun) **bellek içi yedek kova** `AuthLimits.accountFallback` (kullanıcı id anahtarlı, 20/sa, 15 dk) kullanılır. Kilit kararı = kovanın kendi eşiği **veya** girişte okunan DB sayımı (pencere açıksa) + kova sayımı ≥ 20 (`FixedWindowCounter.block`). `accountWait` yedek kilidi de hesaba katar. Başarılı giriş kovayı sıfırlar. Log `alarm:"auth_fail_counter_fallback"` (userId, code, lockedNow).
+- Audit (`auth.login fail`, `auth.locked`) sayaçtan ayrı tek TX'te yazılır. Yazılamazsa `alarm:"auth_fail_unrecorded"` logu düşülür (userId, pairLocked, lockedNow, code; login/IP/şifre yok) ve yanıt yine 401/423 olur. Bu dalda artık 503 dönmüyor, dolayısıyla durum kodundan bir sinyal de çıkmıyor.
+- `src/lib/rate.ts`: `count(key)` ve `block(key)` eklendi. `block`, tablo kilitli kayıtlarla doluysa kayıt eklemez (S3-1 kuralı).
+- İmza değişikliği (yalnız sunucu içi): `login(db, limits, ctx, log, input, previousToken?)`; `auth/routes.ts` `req.log` geçiyor.
+
+**QA Öneri 1:** `test/helpers/requests.ts` `retryNotReady()` 503'ü `Retry-After` × 40 ms (+ jitter) bekleyerek en çok 30 kez yeniden deniyor; Retry-After başlığı yoksa testi düşürüyor. `requests-p8b.test.ts` AC-143 (60 eşzamanlı) ve `db-busy-p8b.test.ts` AC-143 (kilit 3 sn) testleri bu yardımcıyı kullanıyor. Doğrulanan değişmez: **tam 50×201 + 10×429 QUEUE_FULL, hiç 500 yok**. db-busy testi kapının gerçekten devreye girdiğini de (`retries > 0`) kontrol ediyor.
+
+**Yeni testler**
+- `test/unit/gate.test.ts` (4): anahtar/toplam sınırı + FIFO atlama, kuyruk dolu → `full`, bekleme aşımı → `timeout` (sahte saat), hata atan iş yeri serbest bırakır.
+- `test/unit/rate.test.ts` (+1): `count`/`block`.
+- `test/integration/security-p8b-fix2.test.ts` (6):
+  - S8b-5: iki tenant'ta ayar kilidi 4 sn tutulurken 60 eşzamanlı talep sürerken giriş + `/auth/me` **< 2 sn**. Sonunda tümü 201 (30+30 PENDING), hiç 500 yok. **Ayrım kanıtı:** kapı geçici olarak 100/100'e açıldığında aynı test 3,9 sn ile kırmızı oldu.
+  - S8b-5: kapı 503'ü `Retry-After: 5` + `NOT_READY` ile dönüyor, gövdede SQL/stack yok, tenant kovası yalnız kabul edilen talepler kadar sayılmış.
+  - S8b-6: sayaç ve audit TX'i P2028 ile düşerken 20 hatalı deneme (20 ayrı IP) → 20.'de 423, doğru şifre de 423. Alarm logunda e-posta/şifre/IP yok.
+  - S8b-6: DB'de 15 hata + sayaç yazılamıyor → 5. denemede 423. Audit'te tek `auth.locked{scope:account}`.
+  - S8b-6: yalnız audit TX'i düşerse sayaç yine artıyor, DB `locked_until` yazılıyor, hiç 503 yok.
+  - Başarılı giriş yedek kovayı sıfırlıyor.
+
+**Bağımlılık:** yok.
+
+**Komutlar:** `pnpm -r run lint` temiz · `pnpm -r run typecheck` hatasız · `pnpm -r run test`: contracts 50/50, server 281/281, web 159/159 · `cd apps/server && pnpm test:int` (geçici MySQL 8.4 `rs-mysql-be-p8b1t2:33341`, 9 migration + grants, sonra silindi; yük ort. ~9–13) **34 dosya, 298/298 yeşil**.
+
+**frontend-dev / devops için:**
+- Sözleşme değişmedi. `POST /public/requests` aşırı yükte artık daha erken **503 `NOT_READY` + `Retry-After`** dönebilir (eskiden 20 sn'ye kadar bekleyip 503 dönüyordu). İstemci tarafında 503'ün Retry-After'a uyarak yeniden denenmesi P8b-2'nin işi (QA Öneri 2).
+- devops: yeni metrik `rs_request_gate_rejected_total{reason}` ve log alarmları `request_gate_busy`, `auth_fail_counter_fallback`, `auth_fail_unrecorded` runbook'un alarm tablosuna eklenebilir. `db_busy` satırı ile birlikte değerlendirilmeli; sürekli artış havuz ya da DB kaynak yetersizliği demektir.
+
+### Backend P8b-1 — düzeltme turu 3 (backend-dev, 2026-11-12)
+**QA-P8b-14** (`test/integration/security-p8b-fix2.test.ts`, AC-143/S8b-5): mutlak `elapsed < 2_000` eşiği kaldırıldı. Kapının etkisi artık doğrudan kanıtlanıyor:
+- Sabit `sleep(300)` yerine `expect.poll`: kapı dolu (`running === REQUEST_GATE.global`) ve kuyrukta bekleyen var.
+- Flood boyunca 5 ms'de bir örnekleme: `max(running) ≤ global`.
+- Havuzda boş bağlantı: kilitsiz `SELECT 1` ayar kilitleri **bitmeden** dönüyor (sıra kanıtı). Kapı olmasaydı 10 bağlantının hepsi kilit kuyruğunda kalırdı.
+- Giriş + `/auth/me` de kilit bitmeden dönüyor. Zaman eşiği kilit süresine göreli: `elapsed < HOLD_MS - 1000`. Kilit 6 sn olduğu için ayrım korunuyor; kapı olmasaydı ölçülen süre ~6 sn olurdu.
+- Ölçümler try/finally içinde. `flood` ve `holds` her durumda `Promise.allSettled` ile bekleniyor. Hata durumunda `AbortController` yeniden denemeleri durduruyor. `retryNotReady` (`test/helpers/requests.ts`) yeni `signal` seçeneğini alıyor: iptal edilince send'den sonra ve beklemeden sonra son yanıtla dönüyor, bu yüzden kapalı app'e istek atılmıyor. Kilit 6 sn olduğundan flood için `attempts: 200` verildi.
+- Yeni okunur sayaç: `RequestService.gateLoad` (`{running, waiting}`, `src/requests/service.ts`). Salt okunur ve davranışı değiştirmiyor.
+- QA Öneri (`ConcurrencyGate` birim testi): `test/unit/gate.test.ts` önceki turdan beri var (FIFO, full/timeout, kuyruk boşalması; 4 test). Değişiklik yapılmadı.
+
+**S8b-7** (`src/auth/service.ts` kilitli dal): `writeAudit` try/catch içine alındı. Hata durumunda `alarm:"auth_fail_unrecorded"` (userId, `locked:true`, code; login/IP/şifre yok) loglanıyor ve yanıt her durumda 423 dönüyor. Test (`security-p8b-fix2`, "AC-65/S8b-7"): sayaç, TX ve `auditLog.create` düşerken kilitli hesap yanlış/doğru şifreyle 423 (+Retry-After), kilitsiz hesap 401, ghost 401 dönüyor. Hiç 5xx yok, audit gerçekten yazılmamış ve alarm logunda PII yok.
+
+**Bağımlılık:** yok. **Sözleşme değişikliği:** yok.
+
+**Komutlar:**
+- `pnpm -r run lint` temiz.
+- `pnpm -r run test`: contracts 50/50, server 281/281, web 159/159.
+- server ve contracts typecheck hatasız. `apps/web` typecheck, başka bir ajanın şu an yazdığı izlenmeyen `e2e/p8b-op.spec.ts` dosyasında 3 TS hatası veriyor (bu turun kapsamı dışında).
+- `test:int` (geçici MySQL 8.4 `rs-mysql-p8b3:33331`, sonra silindi) 4 tam koşu yaptı, hepsi **34 dosya, 299/299 yeşil**, unhandled rejection yok. 3. ve 4. koşular art arda ve `pnpm --filter @remote/web e2e` ile eşzamanlı koştu (yük ort. 13–19). Aynı e2e koşusu: **188 geçti, 68 atlandı, 0 kırmızı**.

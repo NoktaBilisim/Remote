@@ -19,6 +19,9 @@ import { cidrMatcher, ipKey } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import * as repo from "../sessions/repo.ts";
 import { onGuestMessage, onTechMessage, TokenBucket } from "./handlers.ts";
+import { admitRequestGuest } from "./admit.ts";
+import { isOutdated } from "../lib/version.ts";
+import type { RequestChannels } from "../requests/ws.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Peer, Room } from "./types.ts";
 
@@ -32,7 +35,7 @@ export interface SignalingOptions {
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
-type Reject = { status: 403 | 404 | 429; reason: string };
+type Reject = { status: 403 | 404 | 426 | 429; reason: string };
 
 function reject(socket: Duplex, status: number): void {
   socket.end(`HTTP/1.1 ${status} ${STATUS_CODES[status] ?? ""}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
@@ -55,7 +58,7 @@ const peerOf = (ws: WebSocket): Peer => ({
   isOpen: () => ws.readyState === WebSocket.OPEN,
 });
 
-export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: SignalingOptions = {}): void {
+export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: SignalingOptions = {}, channels?: RequestChannels, panelCount?: () => { request: number; panel: number }): void {
   const { env, db } = app;
   const wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD, perMessageDeflate: false, handleProtocols: (p) => (p.has(WS_SUBPROTOCOL) ? WS_SUBPROTOCOL : false) });
   const trusted = cidrMatcher(env.TRUSTED_PROXY_CIDR);
@@ -63,7 +66,8 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
   // Aşan çerçeve (> WS_MAX_PAYLOAD) ws kütüphanesince 1009 ile kapatılır (S-P3-1).
   const guestIp = new FixedWindowCounter(31, 60_000, 60_000);
   const techIp = new FixedWindowCounter(31, 60_000, 60_000);
-  rooms.metrics.gauge("rs_ws_connections", "Açık WS bağlantıları (anlık)", () => wss.clients.size);
+  // Etiketsiz seri: toplam; P8b `role="request"|"panel"` serileri (devops metrik adı).
+  rooms.metrics.gauge("rs_ws_connections", "Açık WS bağlantıları (anlık)", () => ({ "": wss.clients.size, ...(panelCount ? panelCount() : {}) }));
   const missed = new WeakMap<WebSocket, number>();
 
   /** Fastify trustProxy ile aynı kural: güvenilen proxy zincirinden ilk güvenilmeyen adres (G-11). */
@@ -78,7 +82,7 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
   };
   const ctxOf = (req: IncomingMessage): AuditContext => ({ ip: clientIp(req), userAgent: String(req.headers["user-agent"] ?? ""), requestId: newId() });
 
-  const accept = (req: IncomingMessage, socket: Duplex, head: Buffer, role: "tech" | "guest", onOpen: (ws: WebSocket, peer: Peer) => void): void => {
+  const accept = (req: IncomingMessage, socket: Duplex, head: Buffer, role: "tech" | "guest" | "request" | "panel", onOpen: (ws: WebSocket, peer: Peer) => void): void => {
     wss.handleUpgrade(req, socket, head, (ws) => {
       missed.set(ws, 0);
       ws.on("pong", () => missed.set(ws, 0));
@@ -133,7 +137,18 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
       const g = t && room ? room.lobby.get(t.guestId) : undefined;
       if (!room || !g || g.state !== "TICKETED") return { status: 403, reason: "ticket" };
       if (!publicClientAllowed(req.headers, env.allowedOrigins, g.kind)) return { status: 403, reason: "client_kind" };
+      // P8b r2 (§13.4): AGENT sürümü nonce/talep kaydından (yeniden beyan yok).
+      if (g.kind === "AGENT" && isOutdated(g.clientVersion, env.MIN_AGENT_VERSION)) return { status: 426, reason: "outdated" };
       const r = room;
+      if (g.requestId) {
+        // P8b §5.2: ön-kabullü misafir — ticket kuşağı güncel olmalı (yeniden bağlanan /ws/request eskisini geçersiz kılar).
+        if (t?.gen !== g.ticketGen) return { status: 403, reason: "ticket" };
+        // S8b-2: g.peer burada atanmaz (eşzamanlı ikinci bağlantı ezmesin); admitRequestGuest kazanınca atar.
+        accept(req, socket, head, "guest", (ws, peer) =>
+          bindGuest(ws, peer, r, g, ctx, () => void admitRequestGuest(rooms, r, g, peer, ctx).catch((err: unknown) => app.log.error({ err }, "talep misafiri kabul edilemedi"))),
+        );
+        return null;
+      }
       accept(req, socket, head, "guest", (ws, peer) => bindGuest(ws, peer, r, g, ctx, () => rooms.attachGuest(r, g, peer)));
       return null;
     }
@@ -168,10 +183,17 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
 
   app.server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(req.url ?? "/", "http://x");
-    const role = url.pathname === "/ws/tech" ? "tech" : url.pathname === "/ws/guest" ? "guest" : null;
+    const role = url.pathname === "/ws/tech" ? "tech" : url.pathname === "/ws/guest" ? "guest" : url.pathname === "/ws/request" && channels ? "request" : url.pathname === "/ws/panel" && channels ? "panel" : null;
     if (!role) return reject(socket, 404);
     socket.on("error", () => socket.destroy());
-    (role === "tech" ? tech(req, url, socket, head) : guest(req, url, socket, head))
+    const channelAccept = (r: "request" | "panel", onOpen: (ws: WebSocket) => void): void => accept(req, socket, head, r, (ws) => onOpen(ws));
+    const run = (): Promise<Reject | null> => {
+      if (role === "tech") return tech(req, url, socket, head);
+      if (role === "guest") return guest(req, url, socket, head);
+      if (!channels) return Promise.resolve({ status: 404, reason: "path" });
+      return role === "request" ? channels.request(req, url, ctxOf(req), channelAccept) : channels.panel(req, url, ctxOf(req), channelAccept);
+    };
+    run()
       .then((r) => {
         if (!r) return;
         rooms.metrics.inc("rs_ws_rejected_total", { role, reason: r.reason });
@@ -219,6 +241,7 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
   app.addHook("preClose", async () => {
     clearInterval(ping);
     clearInterval(revalidate);
+    channels?.stop();
     guestIp.close();
     techIp.close();
     rooms.shutdown();

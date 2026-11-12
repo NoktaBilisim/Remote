@@ -13,6 +13,7 @@ import {
   SELF_ELEVATED_WARNING,
   SESSION_ENDED_BY_LABELS,
   SESSION_MODE_LABELS,
+  SESSION_SOURCE_LABELS,
 } from "@remote/contracts/labels";
 import { Download, ShieldUser, Upload } from "lucide-react";
 import type { ReactNode } from "react";
@@ -68,12 +69,27 @@ export function Summary({ s, showTenant }: { s: D; showTenant: boolean }) {
     ["h.d.ended", s.endedAt ? formatDateTime(s.endedAt) : s.status === "ACTIVE" ? t("h.d.ongoing") : none],
     ["h.d.duration", <DurationCell key="du" s={s} />],
     ["h.d.mode", s.mode ? labelOf(SESSION_MODE_LABELS, s.mode) : t("h.mode.none")],
+    ["h.d.source", labelOf(SESSION_SOURCE_LABELS, s.source)],
     ["h.d.tech", s.technician.name],
     ...(showTenant && s.tenant ? ([["h.d.tenant", s.tenant.name]] as [MessageKey, ReactNode][]) : []),
     ["h.d.customer", s.customerName ?? <span className="text-fg-muted italic">{t("h.noCustomer")}</span>],
     ["h.d.email", s.customerEmail ?? none],
     ["h.d.endedBy", endedBy ?? none],
     ["h.d.endReason", s.endReason ? labelOf(END_REASON_LABELS, s.endReason) : none],
+  ];
+  return <Rows rows={rows} />;
+}
+
+/** P8b (AC-158): "Destek talebi" bölümü — talep zamanı, bekleme (talep→kabul), ad, telefon, e-posta, açıklama (düz metin). */
+export function RequestInfo({ r }: { r: NonNullable<D["request"]> }) {
+  const rows: [MessageKey, ReactNode][] = [
+    ["h.r.created", formatDateTime(r.createdAt)],
+    ["h.r.accepted", r.acceptedAt ? formatDateTime(r.acceptedAt) : none],
+    ["h.r.wait", r.waitSec !== null ? formatDuration(r.waitSec) : none],
+    ["h.r.name", r.customerName ?? none],
+    ["h.r.phone", r.customerPhone ?? none],
+    ["h.r.email", r.customerEmail ?? none],
+    ["h.r.description", r.description ? <span className="whitespace-pre-wrap" data-testid="history-request-description">{r.description}</span> : none],
   ];
   return <Rows rows={rows} />;
 }

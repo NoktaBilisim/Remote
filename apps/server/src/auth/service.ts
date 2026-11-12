@@ -4,7 +4,9 @@
 //  - hesap geneli: IP'den bağımsız 1 saatte 20 hatalı → 15 dk kilit. Var olan hesapta DB (atomik, S1-2),
 //    olmayan hesapta aynı kural bellekte (login anahtarlı) → yanıtlar hesap varlığını sızdırmaz (S1-5).
 // Kilitli dalda da argon2 doğrulaması yapılır (sabit maliyet).
+// S8b-6: hesap sayacı TX dışında atomik UPDATE; DB o an yazamazsa bellek içi yedek kovaya düşülür (aynı eşik, fail-closed).
 import type { LoginInput, PasswordChangeInput } from "@remote/contracts/api/auth";
+import type { FastifyBaseLogger } from "fastify";
 import { writeAudit, type AuditContext, type AuditEntry } from "../audit/service.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
@@ -16,6 +18,7 @@ import * as repo from "./repo.ts";
 import { canSignIn, openSession, toAuthUser, type AuthContext } from "./session.ts";
 
 const MIN = 60 * 1000;
+const HOUR = 60 * MIN;
 const ACCOUNT_LIMIT = 20;
 const LOCK_MIN = 15;
 const LOCK_MS = LOCK_MIN * MIN;
@@ -26,6 +29,8 @@ export interface AuthLimits {
   pair: FixedWindowCounter;
   /** Yalnız var olmayan hesaplar için (var olanlar DB'de). */
   ghostAccount: FixedWindowCounter;
+  /** Var olan hesap için yedek kova: DB sayacı yazılamadığında (S8b-6); anahtar kullanıcı id'si. */
+  accountFallback: FixedWindowCounter;
   /** Oturum başına hatalı mevcut şifre (S1-3). */
   passwordChange: FixedWindowCounter;
 }
@@ -33,7 +38,8 @@ export interface AuthLimits {
 export const createAuthLimits = (): AuthLimits => ({
   ip: new FixedWindowCounter(21, MIN, MIN), // 21. deneme reddedilir → 20/dk
   pair: new FixedWindowCounter(5, LOCK_MS, LOCK_MS),
-  ghostAccount: new FixedWindowCounter(ACCOUNT_LIMIT, 60 * MIN, LOCK_MS),
+  ghostAccount: new FixedWindowCounter(ACCOUNT_LIMIT, HOUR, LOCK_MS),
+  accountFallback: new FixedWindowCounter(ACCOUNT_LIMIT, HOUR, LOCK_MS),
   passwordChange: new FixedWindowCounter(5, LOCK_MS, LOCK_MS),
 });
 
@@ -47,26 +53,51 @@ const who = (user: repo.LoginUser | null, login: string): Pick<AuditEntry, "tena
   username: user?.email ?? login,
 });
 
-async function recordFailure(db: Db, limits: AuthLimits, ctx: AuditContext, user: repo.LoginUser | null, login: string, pairLocked: boolean) {
-  const accountLocked = user ? null : limits.ghostAccount.hit(sha256Hex(login));
-  return db.$transaction(async (tx) => {
-    const lockedNow = accountLocked ?? (await repo.bumpAccountFailures(tx, user?.id ?? "", ACCOUNT_LIMIT, LOCK_MIN));
-    const base = { ...who(user, login), entity: "users", entityId: user?.id ?? null };
-    await writeAudit(tx, ctx, { ...base, action: "auth.login", result: "fail", newValue: { reason: "invalid_credentials" } });
-    if (pairLocked) await writeAudit(tx, ctx, { ...base, action: "auth.locked", result: "success", newValue: { scope: "account_ip", minutes: LOCK_MIN } });
-    // Hesap sahibine bildirim e-postası P10'da (SMTP); şimdilik yalnız audit (mimari §5.1).
-    if (lockedNow) await writeAudit(tx, ctx, { ...base, action: "auth.locked", result: "success", newValue: { scope: "account", minutes: LOCK_MIN } });
-    return lockedNow;
-  });
+/** DB sayacı yazılamadı: bellek kovası + login başında okunan DB sayımı birlikte eşiğe vurursa kilit (fail-closed). */
+function fallbackFailure(limits: AuthLimits, user: repo.LoginUser, now: Date): boolean {
+  if (limits.accountFallback.hit(user.id)) return true;
+  const dbCount = user.failedWindowAt && user.failedWindowAt.getTime() > now.getTime() - HOUR ? user.failedLoginCount : 0;
+  if (dbCount + limits.accountFallback.count(user.id) < ACCOUNT_LIMIT) return false;
+  limits.accountFallback.block(user.id);
+  return true;
+}
+
+const errCode = (err: unknown): unknown => (typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined);
+
+async function recordFailure(db: Db, limits: AuthLimits, ctx: AuditContext, log: FastifyBaseLogger, user: repo.LoginUser | null, login: string, pairLocked: boolean, now: Date) {
+  let lockedNow: boolean;
+  if (!user) lockedNow = limits.ghostAccount.hit(sha256Hex(login));
+  else {
+    try {
+      lockedNow = await repo.bumpAccountFailures(db, user.id, ACCOUNT_LIMIT, LOCK_MIN);
+    } catch (err) {
+      lockedNow = fallbackFailure(limits, user, now);
+      log.warn({ alarm: "auth_fail_counter_fallback", userId: user.id, code: errCode(err), lockedNow }, "hesap sayacı DB'ye yazılamadı; bellek kovası kullanıldı");
+    }
+  }
+  const base = { ...who(user, login), entity: "users", entityId: user?.id ?? null };
+  try {
+    await db.$transaction(async (tx) => {
+      await writeAudit(tx, ctx, { ...base, action: "auth.login", result: "fail", newValue: { reason: "invalid_credentials" } });
+      if (pairLocked) await writeAudit(tx, ctx, { ...base, action: "auth.locked", result: "success", newValue: { scope: "account_ip", minutes: LOCK_MIN } });
+      // Hesap sahibine bildirim e-postası P10'da (SMTP); şimdilik yalnız audit (mimari §5.1).
+      if (lockedNow) await writeAudit(tx, ctx, { ...base, action: "auth.locked", result: "success", newValue: { scope: "account", minutes: LOCK_MIN } });
+    });
+  } catch (err) {
+    // Audit yazılamadı: karar (401/423) yine verilir; olay en az log'a düşer (login/IP/şifre yok).
+    log.warn({ alarm: "auth_fail_unrecorded", userId: user?.id ?? null, pairLocked, lockedNow, code: errCode(err) }, "başarısız giriş audit'e yazılamadı");
+  }
+  return lockedNow;
 }
 
 function accountWait(limits: AuthLimits, user: repo.LoginUser | null, login: string, now: Date): number {
   if (!user) return limits.ghostAccount.blockedFor(sha256Hex(login));
-  return user.lockedUntil && user.lockedUntil > now ? Math.ceil((user.lockedUntil.getTime() - now.getTime()) / 1000) : 0;
+  const db = user.lockedUntil && user.lockedUntil > now ? Math.ceil((user.lockedUntil.getTime() - now.getTime()) / 1000) : 0;
+  return Math.max(db, limits.accountFallback.blockedFor(user.id));
 }
 
 /** `previousToken`: aynı tarayıcıdan gelen eski oturum çerezi; başarılı girişte iptal edilir (S1-10). */
-export async function login(db: Db, limits: AuthLimits, ctx: AuditContext, input: LoginInput, previousToken?: string) {
+export async function login(db: Db, limits: AuthLimits, ctx: AuditContext, log: FastifyBaseLogger, input: LoginInput, previousToken?: string) {
   const ip = ipKey(ctx.ip);
   const ipWait = limits.ip.blockedFor(ip);
   if (ipWait > 0 || limits.ip.hit(ip)) throw new AppError("RATE_LIMITED", { retryAfterSec: ipWait || 60 });
@@ -81,16 +112,22 @@ export async function login(db: Db, limits: AuthLimits, ctx: AuditContext, input
   const passwordOk = await verifyPassword(user?.passwordHash ?? null, input.password);
 
   if (pairWait > 0 || accWait > 0) {
-    await writeAudit(db, ctx, { ...who(user, login), action: "auth.login", entity: "users", entityId: user?.id ?? null, result: "fail", newValue: { reason: "locked" } });
+    try {
+      await writeAudit(db, ctx, { ...who(user, login), action: "auth.login", entity: "users", entityId: user?.id ?? null, result: "fail", newValue: { reason: "locked" } });
+    } catch (err) {
+      // S8b-7: audit düşse de yanıt 423 (kilit durumu 5xx ile sızmaz); olay en az log'a düşer (login/IP/şifre yok).
+      log.warn({ alarm: "auth_fail_unrecorded", userId: user?.id ?? null, locked: true, code: errCode(err) }, "kilitli hesap girişi audit'e yazılamadı");
+    }
     throw locked(Math.max(pairWait, accWait));
   }
   if (!user || !passwordOk || !canSignIn(user)) {
-    const accountLocked = await recordFailure(db, limits, ctx, user, login, pairLocked);
+    const accountLocked = await recordFailure(db, limits, ctx, log, user, login, pairLocked, now);
     if (pairLocked || accountLocked) throw locked(LOCK_MS / 1000);
     throw new AppError("UNAUTHENTICATED", { message: BAD_CREDENTIALS });
   }
 
   limits.pair.reset(pairKey);
+  limits.accountFallback.reset(user.id);
   const session = await db.$transaction(async (tx) => {
     if (user.failedLoginCount > 0 || user.lockedUntil) await repo.clearFailures(tx, user.id);
     if (previousToken) await repo.revokeSessionByHash(tx, sha256Hex(previousToken), now);

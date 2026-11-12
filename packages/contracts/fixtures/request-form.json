@@ -1,0 +1,49 @@
+{
+  "_doc": "Talep formu doğrulama örnekleri (AC-134, mimari-api 'Ortak alan şemaları'). Sunucu zod şemaları ve Go istemci (internal/request/validate.go, P8b-2) aynı sonucu vermeli. phone: in → out (null = geçersiz). description: in → out (null = geçersiz; normalize sonrası tek satır). fileName: ad → ref (null = firma dosyası değil).",
+  "phone": [
+    { "in": "0532 123 45 67", "out": "+905321234567" },
+    { "in": "+90 (532) 123-45-67", "out": "+905321234567" },
+    { "in": "5321234567", "out": "+905321234567" },
+    { "in": "905321234567", "out": "+905321234567" },
+    { "in": "+4915112345678", "out": "+4915112345678" },
+    { "in": "12345678", "out": "+12345678" },
+    { "in": "0212 123 45 67", "out": null },
+    { "in": "+90 212 123 45 67", "out": "+902121234567" },
+    { "in": "1234567", "out": null },
+    { "in": "+0123456789", "out": null },
+    { "in": "05321234567x", "out": null },
+    { "in": "", "out": null },
+    { "in": "+1234567890123456", "out": null }
+  ],
+  "customerName": [
+    { "in": "  Ayşe Yılmaz ", "out": "Ayşe Yılmaz" },
+    { "in": "Ali", "out": "Ali" },
+    { "in": "A", "out": null },
+    { "in": "Ay‮şe", "out": null },
+    { "in": "Ay\u0000şe", "out": null },
+    { "in": "ççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççççç", "out": null }
+  ],
+  "description": [
+    { "in": "Yazıcı\r\nçalışmıyor\tacil", "out": "Yazıcı çalışmıyor acil" },
+    { "in": "  E-posta   açılmıyor  ", "out": "E-posta açılmıyor" },
+    { "in": "kısa", "out": null },
+    { "in": "Görünmez​karakter var", "out": null },
+    { "in": "Kontrol\u0007karakteri var", "out": null }
+  ],
+  "email": [
+    { "in": "", "out": null, "valid": true },
+    { "in": "ayse@example.com", "out": "ayse@example.com", "valid": true },
+    { "in": "ayse@", "out": null, "valid": false }
+  ],
+  "fileName": [
+    { "in": "NoktaDestek-DemoFirma-abcdefghijklmnop.exe", "out": "abcdefghijklmnop" },
+    { "in": "noktadestek-Firma-ABCDEFGHIJKLMNOP.EXE", "out": "abcdefghijklmnop" },
+    { "in": "NoktaDestek-Firma-abcdefghijk23456 (1).exe", "out": "abcdefghijk23456" },
+    { "in": "NoktaDestek-Firma-abcdefghijk23456(2).exe", "out": "abcdefghijk23456" },
+    { "in": "NoktaDestek-Firma-abcdefghijk2345.exe", "out": null },
+    { "in": "NoktaDestek-Firma-abcdefghijk23451.exe", "out": null },
+    { "in": "NoktaDestek-Firma Adı-abcdefghijk23456.exe", "out": null },
+    { "in": "NoktaDestek-ABCDEFGHIJKLMNOPQRSTU-abcdefghijk23456.exe", "out": null },
+    { "in": "Destek-48291376.exe", "out": null }
+  ]
+}

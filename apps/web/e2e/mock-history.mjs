@@ -57,6 +57,9 @@ function seed() {
       customerName: started || status === "CANCELLED" ? NAMES[i % NAMES.length] : null,
       ticketNo: i === 2 ? "INC-1002" : null,
       tenant: TENANTS[i < 60 ? 0 : 1],
+      // P8b (AC-158): her 5. oturum talepten doğar
+      source: i % 5 === 0 && i > 0 && started ? "REQUEST" : "TECH",
+      waitSec: i % 5 === 0 && i > 0 && started ? 125 + i : null,
       customerEmail: null,
       note: null,
     });
@@ -80,6 +83,7 @@ function filter(items, q, who) {
   return items
     .filter((s) => !q.status || s.status === q.status)
     .filter((s) => !q.mode || s.mode === q.mode)
+    .filter((s) => !q.source || s.source === q.source)
     .filter((s) => !q.from || istDay(s.createdAt) >= q.from)
     .filter((s) => !q.to || istDay(s.createdAt) <= q.to)
     .filter((s) => who.user.role === "USER" || !q.technicianId || s.technician.id === q.technicianId)
@@ -130,6 +134,10 @@ function detail(s, who) {
         ]
       : [],
     timelineTruncated: rich,
+    request:
+      s.source === "REQUEST"
+        ? { id: "01JREQH0000000000000000001", createdAt: s.createdAt, acceptedAt: at(2), waitSec: s.waitSec, customerName: s.customerName, customerPhone: "+905321112233", customerEmail: null, description: "Yazıcı çalışmıyor https://kotu.example bağlantısı tıklanmamalı" }
+        : null,
   };
 }
 

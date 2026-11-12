@@ -52,6 +52,14 @@ export interface Guest {
   ctx?: AuditContext;
   state: GuestState;
   since: number;
+  /** P8b: ağ öneki (netKey) — admit UPDATE'inde guest_ip_key ile birlikte yazılır (§13.1, G-E9-15). */
+  netKey?: string;
+  /** P8b r2 (§13.4): AGENT sürümü (resolve/talep kaydından; /ws/guest MIN_AGENT_VERSION kontrolü). */
+  clientVersion?: string;
+  /** P8b: ön-kabullü misafir (talepten doğan oturum) — lobi/admitCode atlanır (mimari-protokol §5.2). */
+  requestId?: string;
+  /** P8b: geçerli ticket kuşağı; yeniden bağlanan /ws/request yeni ticket alınca eskisi geçersiz. */
+  ticketGen?: number;
   peer?: Peer;
   timer?: unknown;
 }
@@ -120,6 +128,8 @@ export interface FileMetaQuota {
 
 export interface Room {
   sessionId: string;
+  /** P8b: talepten doğan oturum (guest.admit/guest.reject → CONFLICT). */
+  requestId?: string;
   tenantId: string;
   technicianId: string;
   technicianName: string;
@@ -165,6 +175,10 @@ export interface Timing {
   nonceMs: number;
   warnBeforeMs: number;
   iceRefreshBeforeMs: number;
+  /** P8b: kabulden sonra müşterinin bağlanma (onay dahil) penceresi (AC-155). */
+  requestConnectMs: number;
+  /** P8b: /ws/request kopma toleransı (AC-141). */
+  requestDisconnectMs: number;
 }
 
 export const DEFAULT_TIMING: Timing = {
@@ -174,6 +188,8 @@ export const DEFAULT_TIMING: Timing = {
   nonceMs: 60_000,
   warnBeforeMs: 5 * 60_000,
   iceRefreshBeforeMs: 5 * 60_000,
+  requestConnectMs: 60_000,
+  requestDisconnectMs: 120_000,
 };
 
 export const LOBBY_MAX = 3;

@@ -81,7 +81,7 @@ describe("P8 support_sessions geçmiş alanları", () => {
       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_sessions'
         AND COLUMN_NAME IN ('customer_name','customer_email','ticket_no','note') ORDER BY COLUMN_NAME`;
     expect(cols).toEqual([
-      { c: "customer_email", t: "varchar(190)" },
+      { c: "customer_email", t: "varchar(254)" }, // P8b-1: 190→254 (talep e-postası AC-134)
       { c: "customer_name", t: "varchar(100)" },
       { c: "note", t: "text" },
       { c: "ticket_no", t: "varchar(50)" },
@@ -158,6 +158,6 @@ describe("ADR-0014 enum CHECK ikili karşılaştırma", () => {
     const clauses = await testDb().$queryRaw<{ n: bigint }[]>`
       SELECT COUNT(*) AS n FROM information_schema.CHECK_CONSTRAINTS
       WHERE CONSTRAINT_SCHEMA = DATABASE() AND CHECK_CLAUSE LIKE '%charset binary%'`; // MySQL CAST(x AS BINARY)'yi böyle saklar
-    expect(Number(clauses[0]?.n)).toBe(14);
+    expect(Number(clauses[0]?.n)).toBe(17); // ADR-0014 14 + P8b-1 support_requests status/cancel_reason/network_match
   });
 });

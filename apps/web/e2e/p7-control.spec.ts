@@ -31,7 +31,11 @@ async function openViewMenu(p: Page) {
   if (!(await m.evaluate((d: HTMLDetailsElement) => d.open))) await m.locator("summary").click();
 }
 const note = (p: Page) => p.getByTestId("control-note");
-const grant = (a: Page) => agentSend(a, { t: "control.state", state: "GRANTED", source: "UI" });
+/** Müşteri "İzin ver"e basar — ancak istek ona ulaştıktan sonra (gerçek kullanıcı gibi; QA-P8b-13 yarışı). */
+const grant = async (a: Page) => {
+  await expect.poll(async () => (await agentLog(a)).asked).toBe(true);
+  await agentSend(a, { t: "control.state", state: "GRANTED", source: "UI" });
+};
 const inputs = async (a: Page) => (await agentLog(a)).inputs;
 /** Teknisyenin sahte sunucuya gönderdiği kontrol mesajları (sırayla). */
 const techSent = async (p: Page, id: string) =>
@@ -170,8 +174,8 @@ test("K2/S7-2: Vazgeç → control.cancel; geç izin ve istenmemiş izin yakalam
   await expect(req(page)).toBeEnabled(); // iptal ret beklemesi başlatmaz
   await expect(req(page)).toBeFocused();
 
-  // Müşteri vazgeçilmiş isteği geç onaylar → sunucu stale ile kapatır, konsola izin gelmez
-  await grant(a);
+  // Müşteri vazgeçilmiş isteği geç onaylar → sunucu stale ile kapatır, konsola izin gelmez (bilerek bekleme yok)
+  await agentSend(a, { t: "control.state", state: "GRANTED", source: "UI" });
   await expect.poll(async () => (await agentLog(a)).closes).toEqual(["cancel", "revoke:stale"]);
   expect((await agentLog(a)).gate).toBe(false);
 
@@ -279,8 +283,11 @@ test("TEST-P7-3: yenileme sonrası hak sayacı korunur (sunucuyla aynı 5 sını
   const { a } = await liveAgent(page, browser);
   for (let i = 1; i <= 2; i++) {
     await req(page).click();
+    // QA-P8b-13: önce "Kontrol bekleniyor" + Vazgeç görünür olsun, sonra istemciye ulaştığı doğrulanır
+    await expect(page.getByTestId("control-cancel")).toBeVisible();
     await expect.poll(async () => (await agentLog(a)).controlRequests).toBe(i);
     await page.getByTestId("control-cancel").click();
+    await expect(page.getByTestId("control-bar")).toHaveAttribute("data-phase", "ended");
   }
   await page.reload();
   // Gerçek sunucu gibi hello guestKind taşır → Hızlı Destek misafiri, kontrol düğmesi kalır
@@ -289,8 +296,11 @@ test("TEST-P7-3: yenileme sonrası hak sayacı korunur (sunucuyla aynı 5 sını
   await expect(note(page)).toContainText("bu oturumda 3 istek hakkı kaldı");
   for (let i = 3; i <= 5; i++) {
     await req(page).click();
+    // QA-P8b-13: önce "Kontrol bekleniyor" + Vazgeç görünür olsun, sonra istemciye ulaştığı doğrulanır
+    await expect(page.getByTestId("control-cancel")).toBeVisible();
     await expect.poll(async () => (await agentLog(a)).controlRequests).toBe(i);
     await page.getByTestId("control-cancel").click();
+    await expect(page.getByTestId("control-bar")).toHaveAttribute("data-phase", "ended");
   }
   await expect(req(page)).toBeDisabled();
   await expect(note(page)).toContainText("Bu oturumda kontrol isteği hakkı doldu (5/5)");

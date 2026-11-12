@@ -1,22 +1,26 @@
 # Gereksinimler — Remote Support (Uzaktan Destek) Platformu
-Tarih: 2026-11-11   Durum: TASLAK (2026-11-10: tam erişim MVP'de; 2026-11-11: `docs/mimari.md` §13 AC değişiklik talebi ve K8 işlendi)
+Tarih: 2026-11-12   Durum: TASLAK (2026-11-10: tam erişim MVP'de; 2026-11-11: `docs/mimari.md` §13 AC değişiklik talebi ve K8 işlendi; 2026-11-12: E9 Müşteri destek talebi eklendi — kullanıcı kararı, model A)
 
 > Kabul kriterleri (AC-n) boyut nedeniyle ayrı dosyadadır (bu dokümanın 5. bölümüdür, ayrılmaz parçasıdır):
 > `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri.md` (dizin) →
-> `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e1-e4.md` ve
-> `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e5-e8.md`.
-> Toplam: **28 kullanıcı hikâyesi, 128 kabul kriteri** (AC-1..AC-128).
+> `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e1-e4.md`,
+> `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e5-e8.md` ve
+> `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e9.md` (E9, AC-129..AC-164).
+> E9'un kapsamı, NFR'leri, varsayımları, riskleri, açık soruları ve paket önerisi: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e9.md`.
+> Bölüm 9'un "Sonra / açık" tabloları (P2..P8b-1): `/Users/mennan/Projeler/Remote/docs/gereksinimler-sonra-acik.md` (2026-11-12'de içerik değiştirilmeden taşındı).
+> Toplam: **37 kullanıcı hikâyesi, 164 kabul kriteri** (AC-1..AC-164).
 
 ## 1. Amaç ve iş değeri
 Kurumsal müşterilere teknik destek verirken AnyDesk/TeamViewer gibi üçüncü taraf SaaS'a bağımlılığı kaldırmak. Tamamen self-hosted, uçtan uca şifreli (DTLS-SRTP), **tam erişimli** (uzaktan klavye/fare) bir destek platformu: teknisyen web panelinden çalışır; müşteri **kurulum ve admin yetkisi gerektirmeyen** taşınabilir "Hızlı Destek" uygulamasıyla tam erişim verir veya bu uygulama çalıştırılamıyorsa tarayıcıdan yalnızca görüntü paylaşır. Medya ve veri firmanın kendi sunucusundan çıkmaz; tüm oturumlar audit log ile denetlenir. Proje açık kaynaktır (Apache-2.0).
+E9 (2026-11-12): Sık destek alan kurumsal müşteri, firmasına ait Hızlı Destek dosyasından teknisyene **destek talebi** açabilir. Talep kabul edildiğinde link veya kod gerekmeden bağlantı kurulur.
 
 ## 2. Kullanıcılar / roller
 | Rol | Açıklama |
 |---|---|
 | Super Admin | Nokta Bilişim. Tenant yönetimi, sistem ayarları (MySQL, sistem logosu, TURN), tüm oturum ve audit kayıtları, aktif oturumu zorla sonlandırma. |
-| Admin | Destek veren firmanın (tenant) yöneticisi. Teknisyenler, yetki toggle'ları, tenant ayarları (SMTP, logo, TTL, aydınlatma metni), tenant oturum geçmişi, `sessions.terminate` yetkisiyle tenant'taki aktif oturumu zorla sonlandırma. |
-| User (Teknisyen) | Oturum açar, bekleyen katılımcıyı kabul/ret eder, müşteri ekranını izler/kontrol eder (müşteri izin verirse), chat/dosya/işaretleme. Yalnızca kendi oturumlarını görür. |
-| Müşteri (Misafir) | Hesabı yok; standart (admin olmayan) Windows kullanıcısı varsayılır. Yalnızca geçerli oturum linki/kodu ile ve teknisyen kabulünden sonra o oturuma erişir. |
+| Admin | Destek veren firmanın (tenant) yöneticisi. Teknisyenler, yetki toggle'ları, tenant ayarları (SMTP, logo, TTL, aydınlatma metni), tenant oturum geçmişi, `sessions.terminate` yetkisiyle tenant'taki aktif oturumu zorla sonlandırma. E9: sabit indirme bağlantısı ve yenileme, talep bildirim kanalları ve alıcıları. |
+| User (Teknisyen) | Oturum açar, bekleyen katılımcıyı kabul/ret eder, müşteri ekranını izler/kontrol eder (müşteri izin verirse), chat/dosya/işaretleme. Yalnızca kendi oturumlarını görür. E9: yetkisi varsa tenant'ın talep kuyruğunu görür ve talepleri kabul/ret eder. |
+| Müşteri (Misafir) | Hesabı yok; standart (admin olmayan) Windows kullanıcısı varsayılır. Yalnızca geçerli oturum linki/kodu ile ve teknisyen kabulünden sonra o oturuma erişir. E9: firma dosyasıyla kimliksiz destek talebi açar; talebi kabul edilince o oturuma bağlanır. |
 
 ## 3. Kapsam
 ### Kapsamda (MVP)
@@ -30,11 +34,12 @@ Kurumsal müşterilere teknik destek verirken AnyDesk/TeamViewer gibi üçüncü
 - **Oturum geçmişi:** filtre, detay, not/ticket no, CSV dışa aktarma.
 - **Ortak Nokta standartları (Epik E6, /Users/mennan/Projeler/CLAUDE.md):** login + 2FA (TOTP), tenant, rol, yetki toggle'ları, audit log + salt okunur ekran, MySQL ayar + test, SMTP ayar + test maili, logo/avatar, açık/koyu/sistem tema, favicon, UI standardı.
 - **Yetki listesi eki:** Oturumlar modülüne `sessions.terminate` ("Oturumu zorla sonlandır") alt yetkisi eklenir; Admin varsayılan açık, User varsayılan kapalı (AC-71, AC-114; G-04).
+- **Müşteri destek talebi (Epik E9, 2026-11-12):** tenant başına sabit indirme bağlantısı ve firma dosyası; istemcide "Destek iste" formu (KVKK onayı aynı formda, bilgiler bu bilgisayarda hatırlanır ve "Bilgilerimi unut" ile silinir); tenant talep kuyruğu; panel (ses + toast), WhatsApp ve e-posta bildirimi; kabulle otomatik bağlanma; `support_requests.view/accept` yetkileri; hız sınırları; audit; oturum geçmişine bağlantı. Ayrıntı `docs/gereksinimler-e9.md`, AC-129..AC-164.
 - **Operasyon:** Docker Compose (uygulama + coturn + MySQL), publish sunucusuna deploy, health/metrics, yedekleme, runbook; istemci için imzasız, tekrarlanabilir build + SHA-256 + GitHub build attestation hattı (K8, ADR-0010).
 - **Dokümantasyon:** README, KULLANIM_KILAVUZU, DATASHEET, PDF'ler.
 
 ### Kapsam DIŞI (açıkça)
-1. **Gözetimsiz erişim (unattended access)** ve yeniden başlatma sonrası otomatik yeniden bağlanma. Kalıcı servis gerektirir; açık soru S7.
+1. **Gözetimsiz erişim (unattended access)** ve yeniden başlatma sonrası otomatik yeniden bağlanma. Kalıcı servis gerektirir; açık soru S7. E9 bunu değiştirmez (Sonra; kullanıcı ileride ayrı paket isteyebilir).
 2. **UAC yükseltilmiş pencereler ve Secure Desktop** (UAC onay penceresi, Ctrl+Alt+Del ekranı, kilit/login ekranı) üzerinde kontrol. Admin'siz süreç Windows UIPI nedeniyle bunlara girdi gönderemez. Ekranda görünür olabilir ama kontrol edilemez; konsolda "Yükseltilmiş pencere — kontrol edilemiyor" uyarısı gösterilir (AC-105).
 3. **macOS ve Linux istemcisi** MVP'de yok. Sıra: Faz 8 macOS (Ekran Kaydı + Erişilebilirlik izni, Developer ID + notarization), Faz 9 Linux (Wayland portal onayı). Bu platformlarda MVP'de tarayıcı-yalnız mod kullanılır.
 4. **Oturum kaydı (video recording).** KVKK rızası, şifreli depolama, saklama politikası gerektirir. Sonra; açık soru S6.
@@ -43,8 +48,9 @@ Kurumsal müşterilere teknik destek verirken AnyDesk/TeamViewer gibi üçüncü
 7. **Mobil cihazlar** (müşteri ve teknisyen konsolu). Mobil müşteri "desteklenmiyor" ekranı görür; yönetim ekranları responsive'dir.
 8. **Pano (clipboard) senkronizasyonu**, uzaktan yazdırma, ses aktarımı, ters yön (teknisyen ekranını paylaşma). Sonra.
 9. **Sunucuda dosya saklama / virüs taraması.** Dosyalar P2P DataChannel ile aktarılır.
-10. **Chat içeriğinin sunucuda saklanması** (açık soru S5), SSO/LDAP, faturalama/lisanslama, public API, ITSM entegrasyonu, SMS/WhatsApp ile link gönderimi, İngilizce arayüz (altyapı i18n uyumlu; sonra), Windows ARM64.
+10. **Chat içeriğinin sunucuda saklanması** (açık soru S5), SSO/LDAP, faturalama/lisanslama, public API, ITSM entegrasyonu, SMS/WhatsApp ile link gönderimi, İngilizce arayüz (altyapı i18n uyumlu; sonra), Windows ARM64. (Not 2026-11-12: E9'da WhatsApp yalnız **teknisyene talep bildirimi** için kullanılır; müşteriye link/durum gönderimi kapsam dışı kalır.)
 11. **Ekran karartma / gizli mod** (müşteriden gizli işlem yapma) — kötüye kullanım riski; hiçbir fazda planlanmaz (G-17).
+12. **E9'a özgü kapsam dışı maddeler:** tepsi simgesi/otomatik başlatma, web formundan talep, talep atama/SLA/mesai saatleri, kabul öncesi mesajlaşma. Tam liste `docs/gereksinimler-e9.md` §3.
 
 ## 4. Fazlar (MVP yol haritası)
 | Faz | İçerik | Çıkış kriteri |
@@ -59,6 +65,8 @@ Kurumsal müşterilere teknik destek verirken AnyDesk/TeamViewer gibi üçüncü
 | 8+ | macOS istemcisi, Linux istemcisi, kayıt, çoklu teknisyen, ses (ayrı dokümanlar) | — |
 
 Not: Audit log ve tenant izolasyonu Faz 1'de kurulur ("en baştan" kuralı). Faz 4'ün kritik yolu SmartScreen/AV davranışıdır: kod imzalama sertifikası yoktur (K8, ADR-0010); tekrarlanabilir build, SHA-256 yayını, GitHub build attestation ve SmartScreen "Ek bilgi → Yine de çalıştır" rehberi ile yönetilir. SignPath Foundation başvurusu Faz 4 ile paralel başlatılır (R1).
+
+**Paket önerisi (2026-11-12):** E9, P9'dan **önce** yeni paket olarak yürür ve iki alt pakete bölünür: **P8b-1** (sunucu + panel: dba → backend ‖ frontend ‖ devops) ve **P8b-2** (Go istemci 0.9.0). E-posta bildirim kanalı (AC-151) SMTP ile birlikte P10'da kapanır. Ayrıntı ve AC dağılımı `docs/gereksinimler-e9.md` §9. `docs/mimari.md` §10 tablosunun güncellenmesi mimarındır.
 
 ## 5. Kullanıcı hikâyeleri
 Kabul kriterleri: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri.md`
@@ -107,16 +115,28 @@ Kabul kriterleri: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriter
 - US-25: Müşteri olarak uzaktan kontrol aktifken bunu her an görmek istiyorum.
 - US-26: Müşteri olarak oturum bitince uygulamanın kapanmasını ve sistemde kalıcı iz bırakmamasını istiyorum.
 
+**E9 — Müşteri destek talebi (2026-11-12)** — metinleri `docs/gereksinimler-e9.md` §4
+- US-29: Firma dosyasını bir kez indirip saklama.
+- US-30: "Destek iste" formuyla talep açma.
+- US-31: Bilgilerin hatırlanması ve "Bilgilerimi unut".
+- US-32: Durum, sıra ve bekleme bilgisi; iptal.
+- US-33: Teknisyene panel, WhatsApp ve e-posta bildirimi.
+- US-34: Talebi kabul edip linksiz bağlanma veya mesajla reddetme.
+- US-35: Sabit bağlantı ve bildirim ayarlarının yönetimi (Admin).
+- US-36: Talep kaynaklı oturumların geçmişte görünmesi.
+- US-37: Kimliksiz talep ucunun kötüye kullanıma karşı korunması ve audit kaydı.
+
 Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre değil eklenme sırasına göre verilir (mevcut numaralar değişmez).
 
 ## 6. Fonksiyonel olmayan gereksinimler
 - **Performans:** ilk kare p95 < 5 sn (doğrudan) / < 8 sn (TURN); uçtan uca görüntü gecikmesi p95 < 400 ms (RTT < 50 ms); uzaktan girdi gecikmesi p95 < 150 ms (RTT < 50 ms); işaretleme p95 < 200 ms. Tek sunucuda (4 vCPU / 8 GB) 50 eşzamanlı aktif oturum sinyalizasyonu; liste uçları 10.000 kayıtta < 500 ms.
 - **Güvenlik:** TLS zorunlu (getDisplayMedia güvenli bağlam ister); DTLS-SRTP; medya uygulama sunucusundan geçmez (TURN yalnızca şifreli paket görür); strict CORS ve nonce tabanlı CSP, HSTS, `frame-ancestors 'none'`; rate limiting; WS Origin + kimlik doğrulama; tüm girdiler zod ile; uzaktan kontrol izni **istemci tarafında** uygulanır (sunucu P2P input'u engelleyemez, istemci izin yokken gelen her input olayını düşürür); teknisyen kabulü olmadan SDP/ICE ve TURN kimlik bilgisi verilmez (AC-112).
-- **İstemci:** Windows 10 22H2+ ve Windows 11, x64; tek dosya ≤ 40 MB; çift tıktan karşılama ekranına ≤ 5 sn; istemci kendi dosyası yazmaz (`%TEMP%` dahil); tek disk yazımı müşterinin Kabul ettiği dosyadır (İndirilenler, `.part` → doğrulama → MOTW; yarım kalan `.part` silinir — ADR-0004 r2, 2026-11-11); kayıt defteri, servis, zamanlanmış görev, başlangıç kısayolu yok; imzasız, tekrarlanabilir build, SHA-256 `SHA256SUMS` ile ve GitHub build attestation ile doğrulanabilir (K8, AC-96).
+- **İstemci:** Windows 10 22H2+ ve Windows 11, x64; tek dosya ≤ 40 MB; çift tıktan karşılama ekranına ≤ 5 sn; istemci kendi dosyası yazmaz (`%TEMP%` dahil); tek disk yazımı müşterinin Kabul ettiği dosyadır (İndirilenler, `.part` → doğrulama → MOTW; yarım kalan `.part` silinir — ADR-0004 r2, 2026-11-11); kayıt defteri, servis, zamanlanmış görev, başlangıç kısayolu yok; imzasız, tekrarlanabilir build, SHA-256 `SHA256SUMS` ile ve GitHub build attestation ile doğrulanabilir (K8, AC-96). **Değişiklik talebi (E9, 2026-11-12):** tek istisna, müşterinin "Bu bilgisayarda hatırla" seçimiyle yazılan DPAPI korumalı ayar dosyasıdır (AC-136..AC-138); ADR-0004 revizyonu mimarındır.
+- **E9 ekleri:** talepten panel bildirimine p95 ≤ 3 sn, kabulden bağlantı ekranına p95 ≤ 3 sn, WhatsApp/e-posta gönderimi ≤ 60 sn; kimliksiz talep ucu hız sınırları (AC-143/AC-144). Ayrıntı `docs/gereksinimler-e9.md` §5.
 - **Tarayıcı desteği:** teknisyen ve müşteri: Chrome/Edge son 2 sürüm (tam), Firefox son 2 sürüm (Document PiP yok), Safari macOS son 2 sürüm (müşteri, best-effort).
 - **Erişilebilirlik:** WCAG 2.1 AA; klavye ile tam kullanım; durumlar yalnız renkle anlatılmaz.
 - **Yerelleştirme:** arayüz Türkçe; tarihler UTC saklanır, Europe/Istanbul gösterilir; metinler i18n anahtarlarından.
-- **Veri saklama:** oturum meta verisi ve onay kayıtları tenant ayarı (90–730 gün, varsayılan 365); audit log 730 gün; süresi dolan kayıtlar günlük işle anonimleştirilir/silinir.
+- **Veri saklama:** oturum meta verisi ve onay kayıtları tenant ayarı (90–730 gün, varsayılan 365); audit log 730 gün; süresi dolan kayıtlar günlük işle anonimleştirilir/silinir. E9 talep kayıtları oturum meta verisiyle aynı süreye tabidir (AC-159).
 - **Gözlemlenebilirlik:** JSON log + korelasyon ID; `/health`, `/ready`, `/metrics` (aktif oturum, WS bağlantı, TURN tahsis sayısı).
 - **Yedekleme:** MySQL günlük döküm, 14 gün saklama, geri yükleme testi runbook'ta.
 - **Lisans:** proje Apache-2.0; bağımlılıklar izinli lisanslı (MIT/BSD/Apache), AGPL yasak; CI lisans taraması (AC-94).
@@ -135,6 +155,7 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 - V11: Platform önceliği: Windows (MVP) → macOS → Linux.
 - V12: 2FA (TOTP) Super Admin ve Admin için zorunlu, teknisyen için tenant ayarıyla zorunlu kılınabilir (varsayılan açık).
 - V13: "Kötüye kullanımı bildir" bağlantısı `ABUSE_EMAIL` ortam değişkenine gider; değer verilmezse Super Admin e-postası kullanılır (S11).
+- V14–V20 (E9): tenantRef yalnız dosya adında; "hatırla" kutucuğu varsayılan işaretsiz (2026-11-12 r2); talep kabulünde lobi kodu yok; kuyruk tenant genelinde; WhatsApp URL sistem düzeyinde; bekleme 30 dk / en çok 50 bekleyen; talep saklama süresi oturumla aynı. Metinler `docs/gereksinimler-e9.md` §6.
 
 ## 8. Riskler ve açık sorular
 ### Riskler
@@ -150,6 +171,7 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 | R8 | **Karar:** RustDesk kodu kullanılmaz (yalnız ilham); proje lisansı **Apache-2.0** (K7, ADR-0011). — AGPL kod kullanımı kaynak açma yükümlülüğü doğurabilirdi | Kapandı | CI lisans taraması, AGPL yasağı (AC-94) | mimar |
 | R9 | Müşterinin destek sekmesini/önizlemeyi de paylaşması "sonsuz ayna" etkisi | Düşük | Kılavuzda uyarı, istemcide kendi penceresini yakalamadan hariç tutma | frontend-dev |
 | R10 | Gecikme hedefleri istemci teknolojisine bağlıdır (donanım encoder) | Orta | Faz 4 başında prototip ölçümü (K4) | mimar |
+| R11–R18 | E9: firma dosyasının sızması (başkası o firma adına talep açar), değiştirilmiş firma dosyası, WhatsApp servisinin tek nokta olması, hatırlanan kişisel veri, kimliksiz uçta DoS, AC-108 ilke değişimi, P9/P10 bağımlılığı, uzun WS bağlantısı | Orta–Yüksek | `docs/gereksinimler-e9.md` §7 | guvenlik, mimar, devops |
 
 ### Açık sorular
 | # | Soru | Varsayılan (cevap gelmezse) | Sahibi |
@@ -160,11 +182,12 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 | S4 | Beklenen eşzamanlı oturum sayısı ve sunucu bant genişliği? | 50 eşzamanlı, 1 Gbps | Kullanıcı |
 | S5 | Chat geçmişi oturum kaydına saklansın mı? | Hayır (V9) | Kullanıcı |
 | S6 | Oturum kaydı (video) ileride istenecek mi; hangi fazda? | Sonra, ayrı doküman | Kullanıcı |
-| S7 | Gözetimsiz erişim (unattended) ileride istenecek mi? Bu admin kurulumlu servis demektir | Kapsam dışı | Kullanıcı |
+| S7 | Gözetimsiz erişim (unattended) ileride istenecek mi? Bu admin kurulumlu servis demektir | Kapsam dışı (2026-11-12: E9'da da kapsam dışı; kullanıcı ileride ayrı paket isteyebilir) | Kullanıcı |
 | S8 | **Karar:** ikisi birden — dosya adındaki kod (`Destek-48291376.exe`) otomatik + ad değişirse 8 haneli kodun elle girişi; kod kısa ömürlü (yalnız PENDING), deneme sınırlı (ADR-0006, AC-3, AC-97). | — | Kapandı |
 | S9 | **Karar (K8):** sertifika ALINMAYACAK; istemci imzasız + tekrarlanabilir build + SHA-256 + GitHub build attestation; SignPath Foundation başvurusu Faz 4 ile paralel (ADR-0010). AC-27, AC-92, AC-94, AC-96 2026-11-11'de revize edildi. | — | Kapandı |
 | S10 | Platform önceliği Windows → macOS → Linux doğru mu? | Evet (V11) | Kullanıcı |
 | S11 | Kötüye kullanım bildirim adresi (`ABUSE_EMAIL`, mimari K10) nedir? | Super Admin e-postası (V13) | Kullanıcı |
+| S12–S17 | E9: talep kabulünde kabul kodu, "hatırla" varsayılanı, mesai dışı talep, WhatsApp alıcı tipi, dosya adında firma adı, SMTP'nin öne çekilmesi | `docs/gereksinimler-e9.md` §8 | Kullanıcı + mimar |
 
 ## 9. Kontrol listesi kararları
 Kaynak: `~/.claude/checklists/tasarim-kontrol-listesi.md` bölüm 1, 5, 8, 9.
@@ -173,121 +196,29 @@ Kaynak: `~/.claude/checklists/tasarim-kontrol-listesi.md` bölüm 1, 5, 8, 9.
 |---|---|---|
 | 1. Kimlik doğrulama yöntemi | Kapsamda: e-posta+şifre (argon2/bcrypt) + TOTP 2FA; SSO/LDAP Sonra | Güvenlik ürünü; ortak standart 1.3 |
 | 1. Şifre politikası, sıfırlama, kilit | Kapsamda: min 12 karakter, e-posta ile sıfırlama (SMTP), hesap+IP 5 hatalı → 15 dk, hesap geneli 20/saat → 15 dk + bildirim (AC-65) | Ortak standart 1.3, G-23 |
-| 1. Yetkilendirme / IDOR | Kapsamda: rol + yetki toggle; her uçta tenant + sahiplik kontrolü; `sessions.terminate` alt yetkisi (Admin açık, User kapalı) | Ortak standart 1.3, G-04 |
+| 1. Yetkilendirme / IDOR | Kapsamda: rol + yetki toggle; her uçta tenant + sahiplik kontrolü; `sessions.terminate` alt yetkisi (Admin açık, User kapalı); E9: `support_requests.view/accept` | Ortak standart 1.3, G-04 |
 | 1. Oturum yönetimi | Kapsamda: oturum süresi 8 saat, boşta 30 dk; "tüm cihazlardan çıkış"; hesap/yetki değişiminde aktif destek oturumunun sonlanması (AC-115) | Teknisyen hesabı yüksek ayrıcalıklı |
-| 1. Davet / hesap silme (KVKK) | Kapsamda: Admin kullanıcı oluşturur (ilk girişte şifre değişimi); müşteri verisi anonimleştirme; self-servis kayıt Kapsam dışı | Kurumsal ürün |
-| 1. Servis hesapları / API anahtarları | Kapsam dışı (public API yok); TURN secret rotasyonu Kapsamda (runbook) | — |
-| 5. 5 durum | Kapsamda: her ekran; ayrıca bağlantı durumları (bekliyor/lobide/bağlanıyor/aktif/koptu/bitti) | Kalite standardı |
+| 1. Davet / hesap silme (KVKK) | Kapsamda: Admin kullanıcı oluşturur (ilk girişte şifre değişimi); müşteri verisi anonimleştirme; self-servis kayıt Kapsam dışı; E9: "Bilgilerimi unut" | Kurumsal ürün |
+| 1. Servis hesapları / API anahtarları | Kapsam dışı (public API yok); TURN secret rotasyonu Kapsamda (runbook); E9: tenantRef yenileme (AC-131) | — |
+| 5. 5 durum | Kapsamda: her ekran; ayrıca bağlantı durumları (bekliyor/lobide/bağlanıyor/aktif/koptu/bitti) ve E9 talep durumları | Kalite standardı |
 | 5. Form doğrulama | Kapsamda: alan bazlı hata, sunucu hatası forma yansır | Kalite standardı |
 | 5. Yıkıcı işlem onayı | Kapsamda: oturum sonlandırma/iptal/zorla sonlandırma, kullanıcı pasife alma onaylı; müşterinin "Kontrolü kapat" butonu onaysız ve anlık (güvenlik gereği) | — |
 | 5. Responsive | Kısmen: yönetim ekranları responsive; canlı konsol ≥ 1280 px masaüstü; mobil müşteri Kapsam dışı | Teknik kısıt |
 | 5. Erişilebilirlik | Kapsamda: WCAG 2.1 AA | — |
 | 5. Yerelleştirme | Türkçe Kapsamda; İngilizce Sonra; RTL Kapsam dışı | — |
-| 5. Bildirim stratejisi | Kapsamda: toast (Sonner) anlık olaylar, e-posta yalnız link gönderimi, şifre sıfırlama ve hesap kilidi bildirimi; push Kapsam dışı | — |
+| 5. Bildirim stratejisi | Kapsamda: toast (Sonner) anlık olaylar, e-posta yalnız link gönderimi, şifre sıfırlama ve hesap kilidi bildirimi; push Kapsam dışı. **Revize (E9):** yeni talep için panel toast + ses, isteğe bağlı WhatsApp ve e-posta (tenant ayarı) | Kullanıcı kararı 2026-11-12 |
 | 5. Yavaş ağ | Kapsamda: adaptif bitrate, kalite göstergesi, 120 sn reconnect | WebRTC doğası |
 | 5. Başlıklar, 404/500 | Kapsamda; müşteri için özel 410 (süresi dolmuş/kullanılmış) ekranları | — |
 | 5. Tasarım token'ları | Kapsamda: tek token seti, DESIGN.md | Ortak standart 1.8 |
-| 8. KVKK | Kapsamda: müşteri aydınlatma metni (tenant düzenler, sürümlü, AC-127), açık onay kaydı (görüntüleme ve kontrol için ayrı), saklama süresi, anonimleştirme | Ekran içeriği kişisel veri içerebilir |
+| 8. KVKK | Kapsamda: müşteri aydınlatma metni (tenant düzenler, sürümlü, AC-127), açık onay kaydı (görüntüleme ve kontrol için ayrı), saklama süresi, anonimleştirme; E9: talep formunda her talepte onay, yerel saklama aydınlatmada | Ekran içeriği kişisel veri içerebilir |
 | 8. Çerez / lisanslar | Kapsamda: yalnız zorunlu çerezler (bilgi notu); proje Apache-2.0; 3. parti lisans taraması, AGPL yasağı | K7, R8 |
 | 8. Finansal veri | Kapsam dışı | Ürün finansal işlem içermez |
-| 9. Kapsam dışı listesi | Yazıldı (11 madde) | — |
-| 9. Ölçülebilir AC | Yazıldı (ayrı dosya, 128 AC) | — |
-| 9. Riskler / açık sorular | Yazıldı (R1–R10, S1–S11) | — |
+| 9. Kapsam dışı listesi | Yazıldı (12 madde + E9 için 8 madde) | — |
+| 9. Ölçülebilir AC | Yazıldı (ayrı dosyalar, 164 AC) | — |
+| 9. Riskler / açık sorular | Yazıldı (R1–R18, S1–S17) | — |
 | 9. Definition of Done | `~/.claude/checklists/kalite-standartlari.md` geçerli; ek: istemci imzasız, tekrarlanabilir build + SHA-256 + attestation doğrulaması ve temiz-makine iz testi | K8 |
-| 9. Dokümantasyon planı | Kapsamda: README, docs/api.md, KULLANIM_KILAVUZU, DATASHEET, PDF, ADR'ler, kurumsal hash allowlist rehberi, SmartScreen rehberi | Ortak standart 1.7 |
-| Sonra | Oturum kaydı, çoklu teknisyen, ses, clipboard, macOS/Linux istemci, SSO, SMS/WhatsApp link, İngilizce, ITSM entegrasyonu, SAS (DTLS parmak izi) doğrulaması (G-14), oturum sonu müşteri özeti (G-17-6; AC-107 ile çelişir, tasarım gerekir), OpenSSF Scorecard (G-18), SignPath Foundation imzası (ADR-0010) | Unutulmasın diye |
+| 9. Dokümantasyon planı | Kapsamda: README, docs/api.md, KULLANIM_KILAVUZU, DATASHEET, PDF, ADR'ler, kurumsal hash allowlist rehberi, SmartScreen rehberi; E9: kılavuzda "Destek iste" ve "Talepler" bölümleri | Ortak standart 1.7 |
+| Sonra | Oturum kaydı, çoklu teknisyen, ses, clipboard, macOS/Linux istemci, SSO, SMS/WhatsApp link, İngilizce, ITSM entegrasyonu, SAS (DTLS parmak izi) doğrulaması (G-14), oturum sonu müşteri özeti (G-17-6; AC-107 ile çelişir, tasarım gerekir), OpenSSF Scorecard (G-18), SignPath Foundation imzası (ADR-0010); E9'dan: gözetimsiz erişim (S7), web talep formu, atama/SLA/mesai saatleri, kabul öncesi mesajlaşma, talepte kabul kodu (S12) | Unutulmasın diye |
 
-### Sonra / açık — P8'den (2026-11-11)
-Kaynak: `docs/qa-raporu.md` (P8 Tur 1), `docs/guvenlik-raporu.md` (P8, S8-x), `docs/test-raporu.md` (P8), `docs/implementation.md` (Backend/Frontend P8, Agent fare imleci).
-
-| Madde | Ne yapılacak | Sahip | Ne zaman |
-|---|---|---|---|
-| S8-1, S8-2, S8-3 | **Kapandı** (backend düşük bulgular turu): CSV formül kaçışı genişletildi, `code` yalnız kendi teknisyenine, müşteri araması 60/dk | — | Kapandı |
-| S8-4 — ADR-0014 precheck runbook'ta | **Kapandı:** `docs/runbook.md` §6.1 (migrate'ten önce salt okunur `precheck.sql`, 3819'da ne yapılacağı, `down.sql` geri dönüşü) | — | Kapandı |
-| QA-P8-1 — CSV Excel tr-TR | Dosya yapısıyla doğrulandı (BOM, `;`, CRLF, RFC 4180, strict ayrıştırmada sabit sütun sayısı, formül kaçışı). Excel'de çift tıklayıp açma ve formüllü hücrenin metin kaldığını görme elle yapılacak (`docs/img/p8/p8-superadmin.csv`) | kullanıcı | Staging yayınından sonra |
-| TEST-P8-1 (Düşük) | Detay "Dosyalar" tablosu dar: dosya adı harf harf kırılıyor, SHA-256 kesik; 390 px'te Onay kayıtları kaydırma ipucusuz. Öneri: ad `truncate` + `title`, hash kısaltma + kopyala, bölümü tam genişliğe almak | frontend-dev | P9 ilk turu |
-| TEST-P8-2 (Düşük) | Super Admin listesi 1280 px'te tablo kabını 17 px aşıyor (Ticket kesik). Öneri: Firma/Teknisyen `whitespace-nowrap` + `truncate` | frontend-dev | P9 ilk turu |
-| Gözlem — geri tuşu | Kaydedilmemiş not varken uygulama içi geri tuşu uyarı vermiyor (menü bağlantısı ve yenileme uyarıyor) | frontend-dev | P9+ (AC istemiyor; değerlendirilecek) |
-| Filtre seçenekleri | Teknisyen/firma filtre seçenekleri sayfadaki kayıtlardan geliyor; `GET /users?fields=id,fullName` ve tenant listesi gelince oradan alınacak | backend-dev + frontend-dev | P9 |
-| QA-P8-2 | **Kapandı:** müşteri adı uzunluğu kod noktasıyla sayılıyor | — | Kapandı |
-| Windows elle testi (P6/P7 + fare imleci) | `docs/implementation.md` Agent P7 adım 25–42 ve "fare imleci" adım 43–47 gerçek Windows'ta **hâlâ açık**. P6 tablosundaki Windows elle testi ve AC-41 ölçümü de aynı oturumda | kullanıcı (Windows test makinesi) (+ backend-dev/Go düzeltme) | P9 kod turundan önce |
-| Hızlı Destek staging'de kod soruyor / hiçbir kodu kabul etmiyor | Windows'ta Caddy `tls internal` kök sertifikası kurulu değil (runbook §2/§8, `certutil -addstore -f Root`); ajan 0.8.0'da TLS hatası ayrı mesajla gösterilecek | backend-dev (Go) + kullanıcı (sertifika kurulumu) | Ajan 0.8.0 |
-
-### Sonra / açık — P7'den (2026-11-11)
-Kaynak: `docs/qa-raporu.md` (P7, Tur 2 — QA-P7-T2-1), `docs/implementation.md` Agent P7 bölümleri, `docs/guvenlik-raporu.md` (P7, S7-x), `docs/db-notlari.md` (P7).
-
-| Madde | Ne yapılacak | Sahip | Ne zaman |
-|---|---|---|---|
-| Windows elle testi (P7) | `docs/implementation.md` Agent P7 bölümlerindeki adım 25–42 gerçek Windows makinesinde koşulur; her adımın sonucu (geçti/kaldı + kanıt) implementation.md'ye yazılır. Kapsar: AC-48, AC-49, AC-100, AC-102, AC-103, AC-104, AC-105 ve AC-116 Win32 bağlaması; S7-3, S7-5, S7-6, S7-7, S7-12 bulgularının gerçek ortam doğrulaması | kullanıcı (Windows test makinesi) (+ backend-dev/Go düzeltme) | **P8 kod turundan önce** (S7-12 düzeltildi — P7 Tur 3; P6 Windows elle testiyle aynı oturumda) |
-| S7-11 — commit sonrası oda çağrıları | P9/P10 servisleri oturum sonlandırma ve yetki değişikliğinde `app.rooms.endByTechnician` / `app.rooms.applyPermChange`'i DB commit'inden **sonra** çağırmalı; qa bunu kontrol eder | backend-dev (P9/P10) + qa-denetci | P9/P10 giriş şartı |
-| govulncheck — çağrılmayan kayıtlar | Bildirilen ama çağrılmayan `golang.org/x/net` v0.60.0 ve `golang.org/x/crypto` v0.57.0 kayıtları Dependabot ile yükseltilir; govulncheck yeşil kalır | backend-dev (Go) / devops (Dependabot) | Sonraki bağımlılık turu (en geç P13) |
-| Kararsız test — AC-39 axe e2e | P5 AC-39 axe e2e testi ara sıra 30 sn zaman aşımına düşüyor; kök neden giderilir (yalnız süreyi artırmak çözüm sayılmaz); CI'da 20 ardışık koşuda 0 hata | frontend-dev | P8 ilk turu |
-| DB enum CHECK harf duyarsızlığı | **Karara bağlandı: ADR-0014** — 14 enum CHECK `CAST(col AS BINARY) IN (…)` (harf/aksan/sondaki boşluk duyarlı); migration `20261111070000_enum_check_binary` | dba | P8 içinde |
-
-Not: S7-9 (yönetici olarak çalışan istemci, `selfElevated`) mimar kararıyla P7 Tur 2 içinde uygulanıyor (`docs/mimari-protokol.md` K8); ertelenmedi.
-
-### Sonra / açık — P6'dan (2026-11-11)
-Kaynak: `docs/implementation.md` "Agent (P6)" Aşama 1–3, "Backend P6", "DevOps (P6)"; `docs/guvenlik-raporu.md` "P6 kod turu 1"; `docs/qa-raporu.md` (P6); mimar kararı (ADR-0004 r2, ADR-0006 r3, ADR-0010 r3). TEST-P5-4 P5 tablosunda, burada tekrarlanmaz.
-
-| Madde | Ne yapılacak | Sahip | Ne zaman |
-|---|---|---|---|
-| TEST-NAT-3 (Yüksek, ortam şüphesi) / AC-41 | NAT sonrası 1080p ölçümünde UDP relay yolunda ~42. sn'den sonra kayıp patlaması (%12,7, BWE 2500→71 kbps); TCP/TLS relay'de kayıp 0; sunucuda kayıp izi yok (NIC/UDP buffer/conntrack temiz). İki tarayıcı aynı Mac'te (tek upload hattı) → ölçüm iki ayrı ağdan tekrarlanır; eşzamanlı sunucu `tcpdump`/`nstat` + pfSense `pfctl -si` ile kaybın yeri ayrılır. AC-41 (1080p ≥15 FPS) bu tekrar ve gerçek Windows/Chrome testiyle kapanır | test-operatoru + devops (+ kullanıcı: ikinci ağ) | ~~P7 başlamadan~~ → **P8 kod turundan önce** (2026-11-11: yapılmadı, ortam/Windows makinesi gerekiyor; yeniden tarihlendi) |
-| TEST-NAT-2 (Orta) | Uygulama akışında yalnız `turn:…:3478?transport=tcp` verilince ICE `checking→disconnected`; minimal Chrome ve `turnutils_uclient` ile aynı yol çalışıyor (altyapı temiz, devops tanısı implementation.md). `chrome://webrtc-internals` dökümüyle `ice.servers`/`setConfiguration` zamanlaması incelenecek | frontend-dev + test-operatoru | P7 ilk turu |
-| TEST-NAT-1 (Orta, kurulum) | Staging TURN-TLS sertifikası özel CA ile; test makinesine `deploy/turn/certs/ca.crt` kök depoya kurulmadan yalnız-TLS (AC-23) yolu çalışmaz. Prod'da genel CA'lı sertifika (P13) | kullanıcı (staging testi) / devops (P13) | Staging testinde |
-| TEST-NAT-4 (Düşük) | İlk ölçüm koşusunda 1 işaretleme çizgisi müşteriye ulaşmadı; sonraki 440 örnekte tekrarlanmadı, spec kayıpları ayrıca sayıyor | test-operatoru | İzlenecek |
-| Windows elle testi | Temiz Win10 22H2 / Win11 VM'de: AC-95 (tek dosya ≤ 40 MB, açılış ≤ 5 sn), AC-96 (SHA-256/SmartScreen "Yine de çalıştır" yolu), AC-103, AC-106 (monitör seçimi, gösterge), AC-110 (DPI/manifest), AC-118 (Procmon DLL araması 0), gerçek NTFS'te `Zone.Identifier`, AC-108 iz testi (`apps/agent-win/test/trace-check.ps1` yazılacak), gerçek yakalama FPS — AC-41 (1080p ≥ 15 fps; DXGI/MF kodu bu ortamda hiç çalıştırılamadı) | test-operatoru (+ backend-dev/Go düzeltme) | ~~P7 başlamadan~~ → **P8 kod turundan önce** (2026-11-11: yapılmadı, ortam/Windows makinesi gerekiyor; yeniden tarihlendi) |
-| Fare imleci | İmleç görüntüye çizilmiyor (DXGI kare imleci içermez): `DXGI_OUTDUPL_FRAME_INFO.PointerPosition` + `GetFramePointerShape` ile NV12 karesine bindirme | backend-dev (Go) | **Kodlandı 2026-11-11** (`internal/capture/cursor.go`, NV12'ye bindirme, birim testli); Windows elle doğrulaması (implementation.md adım 43–47) P7 Windows testiyle aynı oturumda |
-| Donanım MFT yedeği | Donanım H.264 MFT oturum sırasında hata verirse/takılırsa yazılım MFT'ye otomatik geçiş (bugün yalnız açılışta seçim yapılıyor) | backend-dev (Go) | Windows elle testi sonucuna göre; en geç P13 |
-| Dirty-rect | `GetFrameDirtyRects`/`MoveRects` ile yalnız değişen bölgenin dönüştürülmesi (CPU BGRA→NV12 maliyeti); AC-41 ölçümü 15 fps altında kalırsa öne çekilir | backend-dev (Go) | Sonra (ölçüme bağlı) |
-| Koyu tema (istemci) | Windows istemci pencerelerinde sistem koyu temasına uyum (ortak standart 1.6; bugün yalnız açık) | backend-dev (Go) | P13 |
-| Repo görünürlüğü + attestation | Repo private iken GitHub build provenance attestation üretilemiyor/doğrulanamıyor (T13, G-07); repo public yapılacak (veya Enterprise), environment onayı + `v*` tag ruleset etkinleştirilecek, `verify-and-publish.sh` `--no-attestation` olmadan çalıştırılacak | kullanıcı + devops | Prod açılışı öncesi (P10) |
-| Staging istemci testi | Staging (185.126.217.99:4450) Caddy iç CA kullanıyor; istemci sistem kökleriyle doğruladığı için (AC-109) test makinesine Caddy kök CA'sı kurulmalı **veya** staging'e gerçek alan adı + genel sertifika verilmeli. Karar ve adımlar runbook'a | devops (+ kullanıcı: alan adı) | Windows elle testinden önce |
-| SignPath | SignPath Foundation başvurusu (ADR-0010; kod yok, süreç). Kabul edilirse `agent-win.yml`'e imza adımı | kullanıcı (+ devops) | P6 ile paralel başladı; sonuç gelince |
-| x/net v0.62 | `golang.org/x/net` v0.60.0 → v0.62.0: GO-2026-6866 / GO-2026-6860 (`x/net/html`) ve GO-2026-5932 (`x/crypto/openpgp`) istemciden erişilemiyor, yalnız modül düzeyinde (govulncheck 0 erişilebilir); bir sonraki Dependabot/sürüm yükseltmesinde güncellenecek, govulncheck yeşil kalmalı | backend-dev (Go) | Sonraki bağımlılık turu (en geç P13) |
-
-### Sonra / açık — P5'ten (2026-11-11)
-Kaynak: `docs/guvenlik-raporu.md` (P5 turları), `docs/qa-raporu.md` (P5); mimar kararı (`docs/mimari.md` §3.1 `session_files` risk kabulü, §10.3 P5).
-
-| Madde | Ne yapılacak | Sahip | Ne zaman |
-|---|---|---|---|
-| S-P5-T2-4 (risk kabulü) | `session_files` satırı raporlayan tarafı taşımıyor; gönderen/alıcı raporları `fid` ile eşleşmiyor → değiştirilmiş müşteri istemcisi sahte `TO_CUSTOMER` satırı yazabilir (bugün yalnız audit actor ile ayrılır). Çözüm: `reporter` kolonu (`TECH\|CUSTOMER`) **veya** iki taraf raporunun `fid` ile eşleştirilmesi; geçmiş/CSV yalnız eşleşen ya da teknisyen raporlu satırı "doğrulanmış" gösterir | dba + backend-dev | P12/P13 |
-| S-P5-T2-1 kalanı | Chromium `showSaveFilePicker` seçim anında hedef dosyayı oluşturuyor/boşaltıyor: özet bozuk (CORRUPT) çıkarsa 0 baytlık dosya kalır veya üzerine yazılan mevcut dosya kaybolur. Gerçek tarayıcıda doğrulanacak; kayıt diyaloğu öncesine "Var olan bir dosyanın üzerine yazmayın; aktarım bozulursa dosya boş kalabilir" uyarı metni eklenecek | frontend-dev | P13 öncesi |
-| QA-P5-4 / AC-41 | 1080p ≥15 FPS ölçümü: frontend headless Chromium'da deniyor; headless'ta anlamlı ölçülemezse staging gerçek tarayıcı ölçümüne ertelenir (NAT ölçümleriyle birlikte, bkz. QA-P4-10), sonuç `docs/test-raporu.md` | test-operatoru (+ frontend-dev) | NAT açılınca staging ölçümü; en geç P6 başlamadan |
-| TEST-P5-4 (Düşük) | Sohbet: alıcı tarafı saniyede 5 mesaj sınırı (`apps/web/lib/dc/rate.ts` `IN_LIMITS.chat`) aşılınca fazla mesajlar sessizce düşüyor; gönderen tarafa aynı sınır + "çok hızlı yazıyorsunuz" uyarısı eklenecek (dosya teklif öz-sınırı gibi) | frontend-dev | P7 ilk turu |
-| AC-57 p95 | İşaretlemenin müşteri tarafında görünme gecikmesi (RTT < 100 ms ağda p95 < 200 ms) staging'de gerçek ağ/TURN yolu üzerinden tekrar ölçülür; yerel/headless sonuç ön kanıttır | test-operatoru | NAT açılınca staging ölçümü |
-
-### Sonra / açık — P4 düzeltme turundan (2026-11-11)
-Kaynak: `docs/qa-raporu.md` QA-P4-10; mimar kararı (`docs/mimari.md` §10.3 P4).
-
-| Madde | Ne yapılacak | Sahip | Ne zaman |
-|---|---|---|---|
-| QA-P4-10 — AC-23, AC-40, AC-42 staging ölçümleri | P4 kapanışından ayrıldı. pfSense'te TURN NAT kuralları (3478/udp+tcp, 5349/tcp, 49160–49199/udp; mimari §8.3.1) açılınca: UDP kapalı/5349 açık ağda TURN-TLS bağlantısı (AC-23; 443 doğrulaması P13), medya gecikme/akıcılık (AC-40) ve encoder/çözünürlük ayarları (AC-42) staging'de ölçülüp `docs/test-raporu.md`'ye yazılır. coturn kurulu, sunucu içi testler geçti | kullanıcı (NAT) → test-operatoru (+ devops) | NAT açılınca; en geç P6 başlamadan (P6 istemci ölçümleri aynı yolu kullanır) |
-| S-P4-T3-1 (Düşük) | Misafir `rs.resume.*` kaydına zaman damgası; 120 sn'den eski kayıt okunmaz (kapatılan sekmeyi yeniden açma/çoğaltma ile paylaşılan bilgisayarda dönüş riski) | frontend-dev | P5 ilk düzeltme turu |
-| S-P4-T3-2 (Düşük) | Misafir reconnect yeniden deneme süresi ≥100 sn (sunucu ölü soketi ~90 sn'de düşürür); `reconnect.conflict` audit'i oda başına dakikada 1 | frontend-dev + backend-dev | P5 ilk düzeltme turu |
-| ~~S-P4-T2-2 kalan~~ **kapandı 2026-11-11** | `apps/server/scripts/` prod imajına giriyor (koruma: `NODE_ENV` + `E2E_REAL_ALLOW=1`); imajdan çıkarılması | devops | Kapandı (P5): `apps/server/Dockerfile` `prod-deps` aşamasında `rm -rf apps/server/scripts`; yerel `docker build --target runtime` imajında `/app/apps/server/scripts` yok, `migrate` hedefinde `prisma/seed.ts` + `tsx` mevcut (implementation.md DevOps P5) |
-| TEST-P4-3 (Düşük) | "Permissions policy violation: camera" konsol uyarısı — kod kamera istemiyor; gerçek Chrome'da doğrulanacak (Chromium fake-media yan etkisi şüphesi) | kullanıcı / test-operatoru | Staging testinde |
-
-### Sonra / açık — P3 kod turundan (2026-11-11)
-Kaynak: `docs/guvenlik-raporu.md` "P3 kod turu", `docs/qa-raporu.md` P3. S-P3-1/2/4/5/6/7/9 P3 düzeltme turunda kapatılır (buraya yazılmaz).
-
-| Madde | Ne yapılacak | Sahip | Ne zaman |
-|---|---|---|---|
-| S-P3-8 (Düşük, **P7 giriş şartı**) | WS 60 sn yeniden doğrulaması yetki daraltmasını yansıtmıyor; `rooms.endByTechnician` çağıransız (AC-115). P7'de: yeniden doğrulamada `user_permissions` tazelenir, caps daralırsa `caps.update`/`control.revoke`; pasifleştirme/rol değişimi/logout-all servisleri `endByTechnician`'ı çağırır; entegrasyon testi (mimari §10.2/§10.3 P7) | backend-dev | P7 (P7 başlamadan şart) |
-| ~~S-P3-T2-1 (Düşük)~~ **kapandı 2026-11-11** | `deploy/turn/host-firewall.sh`: kurallar geçici zincirde kurulup atomik değiştirilecek (yarım uygulamada fail-open olmasın); IP doğrulaması oktet ≤ 255 + çok satırlı değer reddi (entrypoint dahil); `reserved_ok` kapsama kontrolü; `check` hatası journald'a `err` | devops | Kapandı: staging `install` geçici zincir + atomik değiştirme ile uygulandı, `check` OK, `journalctl -u remote-turn-fw -p err` boş (test-raporu "P3 staging altyapı kanıtı") |
-| ~~S-P3-T2-2 (Düşük)~~ **kapandı 2026-11-11** | systemd timer repo klonundaki betiği root olarak çalıştırıyor: `install` betiği `/usr/local/sbin/remote-turn-fw` (root 0755) olarak kopyalasın, değerler `/etc/default/remote-turn-fw` (0600); runbook §9.2.1'e "betik güncellenince `install` yeniden çalıştırılır" notu | devops | Kapandı: staging'de `ExecStart=/usr/local/sbin/remote-turn-fw ensure`, `cmp` kurulu kopya = repo, `/etc/default/remote-turn-fw` root 0644 (secret içermez; runbook §9.2.1 gerekçesi), runbook notu var |
-| S-P3-2 staging kanıtı — **güvenlik kısmı kapandı 2026-11-11, pozitif relay↔relay açık** | Staging yayınında `systemctl is-active remote-turn-fw.timer`, `ss -tlnp` (5766 yok, 9641 yalnız 127.0.0.1) ve `ss -ulnp` çıktısı test raporuna eklenecek (runbook §9.2.3) | devops + test-operatoru | Kapandı (güvenlik): §9.2.3 çıktıları + `test-denied.sh` bölüm 4 DROP satırları (3480/3478/53) PASS, test-raporu "P3 staging altyapı kanıtı". **Açık:** aralık içi relay↔relay echo (49199) staging'de hairpin gerektirir — pfSense NAT + NAT reflection açılınca `sudo -E ./test-denied.sh` yeniden koşulur (runbook §8.2) |
-| S-P3-3 (Düşük) — prod IPv6 | TURN host'unda global IPv6 varsa relay'in IPv6 peer'lara açılmadığı (relay-ip/listening-ip yalnız IPv4 ya da host /64 + sağlayıcı IPv6 bloğu denied listede) prod ağında doğrulanacak; `test-denied.sh` IPv6 allocation denemesi PASS, sonuç runbook'a (ADR-0007 r5 madde 5). Staging'de global IPv6 yok | devops | P13 / prod açılışı öncesi |
-
-### Sonra / açık — P2 kapanışından (2026-11-11)
-Kaynak: `docs/guvenlik-raporu.md` (P2 turları), `docs/qa-raporu.md` (P2 tur 3). Kritik/Yüksek açık yok.
-
-| Madde | Ne yapılacak | Sahip | Ne zaman |
-|---|---|---|---|
-| S-P2-4 (Düşük, kabul edilen kalan risk) | CGNAT arkasında aynı /24'ü paylaşan müşteriler, birinin hatalı kod denemeleriyle birlikte 15 dk kilitlenebilir (link yolu etkilenmez). 429 ekranı linke yönlendiriyor (metin düzeltildi); önek bazında 429 sayısı alarm sayacına eklenecek | backend-dev | P3 |
-| S-P2-5 (Düşük) | Staging'de Caddy'nin gerçek istemci IP'sini gördüğü IPv4 ve IPv6 ile ayrı ayrı doğrulanacak (`request.remote_ip`); `172.30.0.1` görünürse userland-proxy kapatılıp IPv6 açılacak ya da yayın yalnız IPv4'e bağlanacak; sonuç runbook'a | devops | P3 öncesi **Durum (2026-11-11): IPv4 GEÇTİ.** NAT 4450 açıldı (kaynak adres korunuyor); dış makineden audit IP ve Caddy `remote_ip` istemcinin genel IPv4'üyle eşleşti. IPv6: staging VM'de global IPv6 yok, yayın yalnız IPv4 → prod ağında ayrıca doğrulanacak (açık) |
-| P3 giriş şartı 1 | `GET /public/agent/download?ref=` kod yolu gibi hız sınırlı olacak ve yalnız PENDING oturumda yanıt verecek (`sessionRef` süresiz geçerli, dosya adı kodu taşır) | backend-dev | **P6'ya bağlandı (2026-11-11):** bağlayıcı gereksinim mimari-api public tablosu (download satırı) + mimari §10.2/§10.3 P6 satırı (test: 302/410/404/429) |
-| P3 giriş şartı 2 | join/admit tüketimi tek atomik `UPDATE … WHERE status='PENDING' AND expires_at > now` ile; iptal/süre dolumu ile yarışta tek kazanan (P2 iptal kalıbı örnek) | backend-dev | P3 — **Karara bağlandı (2026-11-11):** mimari-protokol §3.2 (SQL, count=0 eşlemesi, yarış testi), mimari-akislar A1/A2 |
-| P3 giriş şartı 3 | Public resolve `Origin` zorunlu tutuyor (routes.ts), Agent (P6) tarayıcı değil: ayrı, belgelenmiş bir Origin değeri ya da `clientKind=AGENT` için Origin muafiyeti kararı (mimari/ADR) | mimar | **Kapandı (2026-11-11): ADR-0012** — Origin varsa allowlist + BROWSER, yoksa yalnız AGENT (+`Sec-Fetch-*` yok); join'de kind nonce'tan; mimari-api "Public istemci türü", T27. Guard P3'te (backend-dev) |
-| P3 coturn staging NAT | Üst NAT'ta 185.126.217.99 → 192.168.25.10: 3478/udp, 3478/tcp, 5349/tcp, 49160–49199/udp (1:1, kaynak adres korunarak; tercihen hairpin) — mimari §8.3.1 | Kullanıcı (ağ yöneticisi) + devops (runbook) | P3 coturn testinden önce |
-| QA önerisi | `apps/web/lib/startup-check.ts` için birim testi: `process.exit` taklit edilerek sır yokken `exit(1)`, sır varken çağrılmadığı doğrulanacak | frontend-dev | Sonra |
-| Staging teknisyen hesabı | Seed teknisyen oluşturmuyor; P9 kullanıcı yönetimine kadar ADMIN/USER hesabı SQL ile eklenir. Prosedür runbook §6'ya yazılacak | devops | P3 öncesi **Durum: tamam (2026-11-11)** — `deploy/staging-users.sh`, runbook §6; staging'de demo tenant + ADMIN + USER oluşturuldu, parolalar `/opt/remote/deploy/ACCESS.txt` |
+### Sonra / açık — P2..P8b-1 (2026-11-12)
+Tablolar içerik değiştirilmeden taşındı: `/Users/mennan/Projeler/Remote/docs/gereksinimler-sonra-acik.md`.

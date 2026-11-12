@@ -21,9 +21,11 @@ export const createSessionInputSchema = z.object({});
 export type CreateSessionInput = z.infer<typeof createSessionInputSchema>;
 
 
+/** P8b r2 (§13.4, G-E9-4): AGENT istemci sürümü; yoksa sunucu `0.0.0` sayar (MIN_AGENT_VERSION doluysa 426). */
+const resolveClientVersion = z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/, "Geçersiz istemci sürümü").optional();
 export const resolveSessionInputSchema = z.union([
-  z.object({ token: sessionTokenSchema, clientKind: z.enum(["BROWSER", "AGENT"]) }),
-  z.object({ code: sessionCodeSchema, clientKind: z.enum(["BROWSER", "AGENT"]) }),
+  z.object({ token: sessionTokenSchema, clientKind: z.enum(["BROWSER", "AGENT"]), clientVersion: resolveClientVersion }),
+  z.object({ code: sessionCodeSchema, clientKind: z.enum(["BROWSER", "AGENT"]), clientVersion: resolveClientVersion }),
 ]);
 export type ResolveSessionInput = z.infer<typeof resolveSessionInputSchema>;
 
@@ -141,6 +143,10 @@ export interface PublicSessionStatusResponse {
 export const SESSION_MODES = ["AGENT", "BROWSER"] as const;
 export type SessionMode = (typeof SESSION_MODES)[number];
 
+/** P8b (AC-158): oturum kaynağı — `request_id IS NULL` → TECH (link/kod), değilse REQUEST (müşteri talebi). */
+export const SESSION_SOURCES = ["TECH", "REQUEST"] as const;
+export type SessionSource = (typeof SESSION_SOURCES)[number];
+
 export const SESSION_LIST_SORTS = ["createdAt:desc", "createdAt:asc"] as const;
 export type SessionListSort = (typeof SESSION_LIST_SORTS)[number];
 
@@ -168,6 +174,7 @@ export const listSessionsQuerySchema = z
   .strictObject({
     status: z.enum(SESSION_STATUSES).optional(),
     mode: z.enum(SESSION_MODES).optional(),
+    source: z.enum(SESSION_SOURCES).optional(),
     from: isoDaySchema.optional(),
     to: isoDaySchema.optional(),
     technicianId: ulidSchema.optional(),
@@ -202,6 +209,22 @@ export interface SessionListItem extends SessionView {
   ticketNo: string | null;
   /** Yalnız SUPER_ADMIN firma seçmeden listelerken dolu. */
   tenant: { id: string; name: string } | null;
+  /** P8b (AC-158). */
+  source: SessionSource;
+  /** REQUEST: talep→kabul saniyesi (accepted_at − request.created_at); TECH: null. */
+  waitSec: number | null;
+}
+
+/** P8b (AC-158): geçmiş detayında "Destek talebi" bölümü. Anonimleştirilmiş talepte PII null. */
+export interface SessionRequestInfo {
+  id: string;
+  createdAt: string;
+  acceptedAt: string | null;
+  waitSec: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  description: string | null;
 }
 
 export const CONSENT_LEVELS = ["VIEW", "CONTROL"] as const;
@@ -303,6 +326,8 @@ export interface SessionHistoryDetail extends SessionListItem {
   controlPeriods: ControlPeriod[];
   timeline: TimelineEvent[];
   timelineTruncated: boolean;
+  /** P8b (AC-158): talepten doğan oturumda dolu; TECH kaynağında null. */
+  request: SessionRequestInfo | null;
 }
 
 /** DB `quality_summary` JSON'u (t/id yok). Ayrıştırılamazsa detay `quality: null` döner. */
@@ -350,6 +375,9 @@ export const SESSION_CSV_COLUMNS = [
   "Süre",
   "Durum",
   "Mod",
+  // P8b (AC-158): kaynak + bekleme (HH:MM:SS). Telefon ve açıklama CSV'ye girmez (veri en aza indirme).
+  "Kaynak",
+  "Bekleme",
   "Teknisyen",
   "Müşteri",
   "Ticket No",

@@ -53,7 +53,10 @@ export function Dialog({
       data-testid={testId}
       aria-labelledby={`${id}-t`}
       aria-describedby={description ? `${id}-d` : undefined}
-      onClose={onClose}
+      // "close" olayı kuyruktan (asenkron) gelir: kapandıktan hemen sonra yeniden açılan diyaloğa eski olay ulaşırsa yok say
+      onClose={(e) => {
+        if (!e.currentTarget.open) onClose();
+      }}
       className={`m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto rounded-lg border border-border bg-surface p-0 text-fg shadow-lg transition-[opacity,transform] duration-200 ease-out backdrop:bg-overlay starting:scale-95 starting:opacity-0 motion-reduce:starting:scale-100 ${width}`}
     >
       {open && (

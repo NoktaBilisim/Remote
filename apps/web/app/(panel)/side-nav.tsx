@@ -1,8 +1,9 @@
 "use client";
 
-import { History, House, MonitorSmartphone, type LucideIcon } from "lucide-react";
+import { History, House, Inbox, MonitorSmartphone, Settings, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { RequestCountBadge } from "@/components/request-notifier";
 import { t, type MessageKey } from "@/lib/i18n";
 
 // Yalnız mevcut sayfalar; yeni modül eklendiğinde buraya ikonuyla eklenir (std. 1.8)
@@ -10,7 +11,9 @@ import { t, type MessageKey } from "@/lib/i18n";
 const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string }[] = [
   { href: "/", label: "panel.home", Icon: House },
   { href: "/sessions", label: "nav.sessions", Icon: MonitorSmartphone, perm: "sessions.view" },
+  { href: "/requests", label: "nav.requests", Icon: Inbox, perm: "support_requests.view" },
   { href: "/history", label: "nav.history", Icon: History, perm: "session_history.view" },
+  { href: "/settings/support-requests", label: "nav.settings", Icon: Settings, perm: "settings.edit" },
 ];
 
 export function SideNav({ permissions }: { permissions: readonly string[] }) {
@@ -32,6 +35,7 @@ export function SideNav({ permissions }: { permissions: readonly string[] }) {
               >
                 <Icon aria-hidden className="size-5 shrink-0" />
                 {t(label)}
+                {href === "/requests" && <RequestCountBadge />}
               </Link>
             </li>
           );

@@ -1,7 +1,7 @@
 "use client";
 
 import { SESSION_STATUSES } from "@remote/contracts/api/sessions";
-import { SESSION_MODE_LABELS } from "@remote/contracts/labels";
+import { SESSION_MODE_LABELS, SESSION_SOURCE_LABELS } from "@remote/contracts/labels";
 import { Filter, FilterX } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
@@ -22,7 +22,7 @@ interface Props {
   tenants: Opt[] | null;
 }
 
-type Draft = Record<"from" | "to" | "status" | "mode" | "technicianId" | "tenantId" | "customer", string>;
+type Draft = Record<"from" | "to" | "status" | "mode" | "source" | "technicianId" | "tenantId" | "customer", string>;
 type Errors = Partial<Record<keyof Draft, string>>;
 
 const CUSTOMER_ERR = { short: "h.v.customerShort", long: "h.v.customerLong", chars: "h.v.customerChars" } as const;
@@ -43,6 +43,7 @@ const toDraft = (f: HistoryFilters): Draft => ({
   to: f.to ?? "",
   status: f.status ?? "",
   mode: f.mode ?? "",
+  source: f.source ?? "",
   technicianId: f.technicianId ?? "",
   tenantId: f.tenantId ?? "",
   customer: f.customer ?? "",
@@ -104,6 +105,13 @@ export function HistoryFiltersForm({ filters, technicians, tenants }: Props) {
         value={draft.mode}
         onChange={set("mode")}
         options={[all, ...Object.entries(SESSION_MODE_LABELS).map(([value, label]) => ({ value, label }))]}
+      />
+      <SelectField
+        label={t("h.f.source")}
+        name="source"
+        value={draft.source}
+        onChange={set("source")}
+        options={[all, ...Object.entries(SESSION_SOURCE_LABELS).map(([value, label]) => ({ value, label }))]}
       />
       {technicians && (
         <SelectField label={t("h.f.tech")} name="technicianId" value={draft.technicianId} onChange={set("technicianId")} options={[all, ...technicians]} hint={t("h.f.optionsHint")} />

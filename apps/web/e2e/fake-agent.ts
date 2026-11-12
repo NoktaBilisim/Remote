@@ -8,6 +8,8 @@ import type { Browser, Page } from "@playwright/test";
  * P7 düzeltme 1: Go `gate` taklidi — test `control.state{GRANTED}` yollayınca açılır; `VIEW`, `control.release`,
  * `control.cancel`, her `control.revoke` (reconnect/stale dahil), `caps.update` kapatır (§3.3 K1–K3).
  * `closes` gelen kapatma mesajlarını sırayla tutar (`release`, `cancel`, `revoke:<neden>`).
+ * `asked`: yanıtlanmamış bir `control.request` müşteriye ulaştı (Go izin diyaloğu açık) — testler karar mesajını
+ * ancak bundan sonra yollar; aksi halde GRANTED sunucuya istekten önce varıp `stale` sayılır (QA-P8b-13).
  */
 export interface AgentLog {
   inputs: { t: string; [k: string]: unknown }[];
@@ -17,6 +19,7 @@ export interface AgentLog {
   caps: string[][];
   closes: string[];
   gate: boolean;
+  asked: boolean;
 }
 
 export async function startFakeAgent(browser: Browser, sessionId: string): Promise<Page> {
@@ -26,19 +29,23 @@ export async function startFakeAgent(browser: Browser, sessionId: string): Promi
   await a.goto(`http://127.0.0.1:4217/__e2e/ws-log/${sessionId}`);
   await a.evaluate(async ({ url, sessionId }) => {
     type W = Window & { __agent: AgentLogLike & { send: (m: unknown) => void } };
-    interface AgentLogLike { inputs: unknown[]; controlRequests: number; monitorRequests: number[]; revokes: string[]; caps: string[][]; closes: string[]; gate: boolean }
+    interface AgentLogLike { inputs: unknown[]; controlRequests: number; monitorRequests: number[]; revokes: string[]; caps: string[][]; closes: string[]; gate: boolean; asked: boolean }
     const w = window as unknown as W;
     const ws = new WebSocket(url, ["rs.v1", `rs.e2eagent.${sessionId}`]);
     const send = (m: unknown) => {
       const x = m as { t?: string; state?: string };
-      if (x.t === "control.state") w.__agent.gate = x.state === "GRANTED";
+      if (x.t === "control.state") {
+        w.__agent.gate = x.state === "GRANTED";
+        w.__agent.asked = false;
+      }
       return ws.readyState === 1 && ws.send(JSON.stringify(m));
     };
     const close = (why: string) => {
       w.__agent.gate = false;
+      w.__agent.asked = false;
       w.__agent.closes.push(why);
     };
-    w.__agent = { inputs: [], controlRequests: 0, monitorRequests: [], revokes: [], caps: [], closes: [], gate: false, send };
+    w.__agent = { inputs: [], controlRequests: 0, monitorRequests: [], revokes: [], caps: [], closes: [], gate: false, asked: false, send };
     const cv = document.createElement("canvas");
     cv.width = 1280;
     cv.height = 720;
@@ -77,7 +84,10 @@ export async function startFakeAgent(browser: Browser, sessionId: string): Promi
         const c = { candidate: m.candidate, sdpMid: m.sdpMid, sdpMLineIndex: m.sdpMLineIndex };
         if (pc?.remoteDescription) await pc.addIceCandidate(c).catch(() => undefined);
         else queue.push(c);
-      } else if (m.t === "control.request") w.__agent.controlRequests++;
+      } else if (m.t === "control.request") {
+        w.__agent.controlRequests++;
+        w.__agent.asked = true;
+      }
       else if (m.t === "monitor.request") w.__agent.monitorRequests.push(m.monitorId);
       else if (m.t === "control.revoke") {
         w.__agent.revokes.push(m.reason);
@@ -99,6 +109,6 @@ export async function startFakeAgent(browser: Browser, sessionId: string): Promi
 
 export const agentSend = (a: Page, m: unknown) => a.evaluate((x) => (window as unknown as { __agent: { send: (m: unknown) => void } }).__agent.send(x), m);
 export const agentLog = (a: Page) => a.evaluate(() => {
-  const { inputs, controlRequests, monitorRequests, revokes, caps, closes, gate } = (window as unknown as { __agent: AgentLog }).__agent;
-  return { inputs, controlRequests, monitorRequests, revokes, caps, closes, gate } as AgentLog;
+  const { inputs, controlRequests, monitorRequests, revokes, caps, closes, gate, asked } = (window as unknown as { __agent: AgentLog }).__agent;
+  return { inputs, controlRequests, monitorRequests, revokes, caps, closes, gate, asked } as AgentLog;
 });

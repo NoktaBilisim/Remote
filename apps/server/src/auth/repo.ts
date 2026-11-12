@@ -34,20 +34,21 @@ export function findUserByLogin(db: DbOrTx, login: string): Promise<LoginUser | 
 }
 
 /**
- * Hesap geneli hatalı deneme sayacını tek UPDATE ile atomik artırır (S1-2, S2-3). MySQL atamaları soldan
- * sağa ve güncellenmiş değerle değerlendirir: sayaç artar → eşikte kilit yazılır → eşikte pencere NULL'lanır
- * (sonraki hata sayacı 1'den başlatır). Dönen değer: bu artışla kilit başladı mı (aynı TX'te tek okuma).
+ * Hesap geneli hatalı deneme sayacı — TX DIŞINDA (S8b-6: başka yazmaların TX'i düşse de sayaç artar).
+ * 1) Artış tek atomik UPDATE (pencere 1 sa; dolmuşsa 1'den başlar). 2) Kilit ayrı koşullu UPDATE: eşik aşılmışsa ve
+ * pencere açıksa `locked_until` yazılır, pencere NULL'lanır (sonraki hata 1'den başlar). Eşzamanlı isteklerden yalnız
+ * biri 2. ifadede satır değiştirir → dönen `true` kilidi BU isteğin başlattığını gösterir (kilit audit'i bir kez, S2-3).
  */
-export async function bumpAccountFailures(tx: Prisma.TransactionClient, userId: string, limit: number, lockMinutes: number): Promise<boolean> {
-  await tx.$executeRaw`
+export async function bumpAccountFailures(db: DbOrTx, userId: string, limit: number, lockMinutes: number): Promise<boolean> {
+  await db.$executeRaw`
     UPDATE users SET
       failed_login_count = IF(failed_window_at > UTC_TIMESTAMP(3) - INTERVAL 1 HOUR, failed_login_count + 1, 1),
-      locked_until = IF(failed_login_count >= ${limit}, UTC_TIMESTAMP(3) + INTERVAL ${lockMinutes} MINUTE, locked_until),
-      failed_window_at = IF(failed_login_count >= ${limit}, NULL,
-        IF(failed_window_at > UTC_TIMESTAMP(3) - INTERVAL 1 HOUR, failed_window_at, UTC_TIMESTAMP(3)))
+      failed_window_at = IF(failed_window_at > UTC_TIMESTAMP(3) - INTERVAL 1 HOUR, failed_window_at, UTC_TIMESTAMP(3))
     WHERE id = ${userId}`;
-  const rows = await tx.$queryRaw<{ c: number }[]>`SELECT failed_login_count AS c FROM users WHERE id = ${userId}`;
-  return Number(rows[0]?.c ?? 0) >= limit;
+  const locked = await db.$executeRaw`
+    UPDATE users SET locked_until = UTC_TIMESTAMP(3) + INTERVAL ${lockMinutes} MINUTE, failed_window_at = NULL
+    WHERE id = ${userId} AND failed_window_at IS NOT NULL AND failed_login_count >= ${limit}`;
+  return locked > 0;
 }
 
 export function findUserById(db: DbOrTx, id: string): Promise<LoginUser | null> {

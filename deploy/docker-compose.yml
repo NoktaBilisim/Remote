@@ -100,6 +100,13 @@ services:
       # SHA256SUMS doğrulamasından sonra yazar; boşsa veya dosya hash'i uyuşmazsa indirme ucu 503 (fail-closed).
       AGENT_BINARY_PATH: /data/downloads/NoktaDestek.exe
       AGENT_SHA256: ${AGENT_SHA256:-}
+      # P8b (mimari-e9 §6/§8/§13.5): whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). Tanımsız/boş → env.ts
+      # varsayılanı (staging servisi http://89.252.189.211:3000). production'da http:// + özel olmayan adres → kanal
+      # KAPALI başlar (fail-closed, log `alarm:"whatsapp_insecure"`); prod ön koşulu K13: TLS veya özel ağ (runbook §12).
+      WHATSAPP_SERVICE_URL:
+      # P8b G-E9-4 (mimari-e9 §13.4): asgari Windows istemci sürümü (x.y.z). Boş = kontrol yok; düşük sürüm 426
+      # CLIENT_OUTDATED. Güvenlik yamasında yamalı sürüme yükseltilir (runbook §12).
+      MIN_AGENT_VERSION:
     volumes:
       - agent_downloads:/data/downloads:ro
     networks: [edge, db]

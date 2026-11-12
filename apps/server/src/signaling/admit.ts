@@ -1,11 +1,14 @@
 // guest.admit / guest.reject (mimari-protokol §3, §3.1, §3.2; A1). Tüketim yalnız burada: tek atomik koşullu
 // UPDATE (repo.consumeForAdmit) + audit aynı TX; hello/peer.joined ancak commit sonrası (P3 giriş şartı 2).
 import type { SessionEndedReason } from "@remote/contracts/ws";
-import { writeAudit } from "../audit/service.ts";
+import { effectivePermissions, type Role } from "@remote/contracts/permissions";
+import { writeAudit, type AuditContext } from "../audit/service.ts";
+import { ipKey, netKey } from "../lib/ip.ts";
+import { syncDisconnect } from "./active.ts";
 import { recordViewConsent } from "../public/consent.ts";
 import * as repo from "../sessions/repo.ts";
 import { admitHash, type Rooms } from "./rooms.ts";
-import { ADMIT_FAIL_MAX, type Guest, type Room, type TechConn } from "./types.ts";
+import { ADMIT_FAIL_MAX, type Guest, type Peer, type Room, type TechConn } from "./types.ts";
 import { safeEqual } from "../lib/ids.ts";
 
 export type AdmitResult = "admitted" | "invalid" | "conflict";
@@ -46,7 +49,8 @@ export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code:
   let ok = false;
   try {
     ok = await rooms.db.$transaction(async (tx) => {
-      if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest))) !== 1) return false; // count=0 → consent yazılmaz
+      const keys = guest.netKey && guest.ipKey ? { guestIpKey: guest.ipKey, guestNetKey: guest.netKey } : {};
+      if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest), keys)) !== 1) return false; // count=0 → consent yazılmaz
       await recordViewConsent(tx, room.sessionId, room.tenantId, guest.consent);
       const c = guest.consent;
       await audit("success", { guestId: guest.id, name: guest.name, guestKind: guest.kind, consentTextId: c.textId, consentVersion: String(c.version), consentSha256: c.sha256 }, tx);
@@ -90,4 +94,86 @@ export async function rejectGuest(rooms: Rooms, room: Room, tech: TechConn, gues
   room.rejectedIps.add(guest.ipKey);
   rooms.leaveLobby(room, guest, "rejected", "rejected");
   await writeAudit(rooms.db, tech.ctx, { tenantId: room.tenantId, ...actor(tech), action: "guest.rejected", entity: "support_sessions", entityId: room.sessionId, result: "success", newValue: { guestId, name: guest.name } });
+}
+
+/**
+ * P8b ön-kabullü misafir (mimari-protokol §5.2, mimari-e9 §13.2): lobi/admitCode yok. Caps teknisyenin DB'deki etkin
+ * yetkilerinden (TechConn aranmaz); kullanıcı/tenant pasifse UPDATE yok → oturum CANCELLED(auth_revoked) + talep
+ * CONNECT_FAILED (talep servisi). Tüketim `AND request_id = :rid` ile; aynı TX'te onay kaydı (bu bağlantının IP/UA'sı,
+ * request_id) + audit `guest.admitted{via:"request", requestId, acceptedBy}` (actor customer; müşteri adı yok —
+ * mimari-e9 §13.7, QA-P8b-11). Teknisyen yoksa kopma zamanlayıcısı hemen başlar.
+ *
+ * S8b-2: aynı misafire eşzamanlı iki /ws/guest (eski + yeni kuşak ticket) gelebilir. `room.admitting` ilk await'ten
+ * önce kurulur; `guest.peer` yalnız admit kazanılınca bu bağlantıya atanır; kaybeden yalnız kendi soketini kapatır.
+ */
+export async function admitRequestGuest(rooms: Rooms, room: Room, guest: Guest, peer: Peer, ctx: AuditContext): Promise<AdmitResult> {
+  const requestId = guest.requestId;
+  if (!requestId || room.admitted || room.admitting) {
+    peer.close(1008, "conflict"); // oturum sürüyor (diğer bağlantı); yalnız bu yinelenen soket kapanır
+    rooms.metrics.inc("rs_admit_total", { result: "conflict" });
+    return "conflict";
+  }
+  const endGuest = (reason: SessionEndedReason): void => {
+    peer.send({ t: "session.ended", reason });
+    peer.close(1000, reason);
+  };
+  room.admitting = true; // ilk await'ten önce: ikinci bağlantı DB'ye gitmeden yukarıda reddedilir
+  const now = new Date(rooms.clock.now());
+  let ok = false;
+  let perms: Set<string>;
+  try {
+    const tech = await rooms.db.user.findUnique({
+      where: { id: room.technicianId },
+      select: { role: true, status: true, deletedAt: true, tenantId: true, tenant: { select: { status: true, deletedAt: true } }, permissions: { select: { permKey: true, granted: true } } },
+    });
+    const active = tech && tech.status === "ACTIVE" && tech.deletedAt === null && (tech.tenantId === null || (tech.tenant?.status === "ACTIVE" && tech.tenant.deletedAt === null));
+    if (!tech || !active) {
+      endGuest("auth_revoked");
+      rooms.requestHooks?.failed(requestId);
+      rooms.metrics.inc("rs_admit_total", { result: "request_auth_revoked" });
+      return "conflict";
+    }
+    perms = new Set(effectivePermissions(tech.role as Role, tech.permissions));
+    ok = await rooms.db.$transaction(async (tx) => {
+      const keys = { guestIpKey: ipKey(ctx.ip), guestNetKey: netKey(ctx.ip) };
+      if ((await repo.consumeForAdmit(tx, room.sessionId, now, "AGENT", customerOf(guest), { ...keys, requestId })) !== 1) return false;
+      const consent = { ...guest.consent, at: now, ip: ctx.ip, userAgent: ctx.userAgent.slice(0, 300) };
+      await recordViewConsent(tx, room.sessionId, room.tenantId, consent, requestId);
+      await writeAudit(tx, ctx, {
+        tenantId: room.tenantId,
+        username: "customer",
+        action: "guest.admitted",
+        entity: "support_sessions",
+        entityId: room.sessionId,
+        result: "success",
+        newValue: { via: "request", requestId, acceptedBy: room.technicianId, guestKind: "AGENT", consentTextId: consent.textId, consentSha256: consent.sha256 },
+      });
+      return true;
+    });
+  } finally {
+    room.admitting = false;
+  }
+  if (!ok) {
+    endGuest("timeout"); // §5.2 adım 3: talep süpürücüde CONNECT_FAILED
+    rooms.metrics.inc("rs_admit_total", { result: "conflict" });
+    return "conflict";
+  }
+  if (!rooms.live(room)) {
+    peer.close(1000, "ended");
+    return "conflict";
+  }
+  rooms.requestHooks?.admitted(requestId);
+  room.lobby.delete(guest.id);
+  guest.state = "ADMITTED";
+  guest.peer = peer; // S8b-2: yalnız kazanan bağlantı
+  room.admitted = guest;
+  room.caps = [...(perms.has("remote_control.use") ? (["remote_control"] as const) : []), ...(perms.has("file_transfer.use") ? (["file_transfer"] as const) : [])];
+  const limits = await repo.activeLimits(rooms.db, room.tenantId);
+  room.maxFileMb = limits.maxFileMb;
+  rooms.startActive(room, guest, now.getTime(), limits.maxActiveHours);
+  syncDisconnect(rooms, room); // §13.2 teknisyen-yok zamanlayıcısı
+  rooms.metrics.inc("rs_admit_total", { result: "admitted" });
+  // Soket admit sürerken kapandıysa `close` olayı (guest.peer henüz atanmamışken) etkisiz kaldı; ayrılmayı şimdi uygula.
+  if (!peer.isOpen()) rooms.detachGuest(room, guest, peer);
+  return "admitted";
 }
