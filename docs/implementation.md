@@ -2760,3 +2760,310 @@ Elle test adımları değişmedi. Adım 10'a ek olarak: sunucu ya da proxy kodsu
 - `build/build.sh https://remote.noktabilisim.net 0.10.1` iki ayrı docker koşusunda çalıştırıldı, iki ikili eşit: **SHA-256 `81acc316c58c751eaca3e0bce4536a490aaee5d8ee4313dbcbb2226f573f0284`** (12.380.672 bayt).
 
 **Sözleşme:** protokol ve ctl mesajları değişmedi. Web tarafında değişiklik yok.
+
+## Düzeltme — istemci 0.10.2 ekran yakalama (backend-dev/Go, 2026-11-12)
+
+**Hata:** Fiziksel bir notebook'ta 0.10.1 "Ekran görüntüsü alınamadı; teknisyen ekranınızı göremiyor." diyordu.
+Talep, dosya ve mesaj çalışıyordu, ama hatanın nedeni hiçbir yere yazılmıyordu. Olası nedenler: hibrit GPU'da
+`DuplicateOutput` → `DXGI_ERROR_UNSUPPORTED`, HDR/gelişmiş renk (`DuplicateOutput` desteklemiyor), Windows N (MF/H.264
+yok), ilk karenin zaman aşımına uğraması.
+
+**Değişiklik (yalnız `apps/agent-win`; protokol yok):**
+- `internal/capture/reason.go` (yeni, platformdan bağımsız):
+  - `Reason` neden kodları ve tipli `*capture.Error{Reason, Op, HR}`.
+  - `classify(adım, HRESULT)` tablosu. `tag` ise sabit `Op` ve `HR`'yi korur; yabancı hata metni (DLL yükleme iletisi vb.) kayda girmez.
+  - `hresult.err` ve `procHR` artık `*Error` döndürüyor.
+- `internal/capture/select.go` (yeni, platformdan bağımsız): `grabber` arayüzü, `selectMethod` (DXGI → DXGI1 → GDI) ve `awaitFirst`.
+  - `awaitFirst` ilk kareyi en çok 2 sn bekler. Kayıpta kaynağı kapatıp yeniden açar. Süre dolunca son HRESULT ile `FIRST_FRAME_TIMEOUT` döner.
+- `dxgi_windows.go`:
+  - `openDuplicator(device, dup1)`. `dup1` true ise `IDXGIOutput5::DuplicateOutput1` çağrılır (vtable 26), formatlar `[DXGI_FORMAT_B8G8R8A8_UNORM]`.
+  - Kopyalanan yüzey BGRA (87/91) değilse reddedilir; mevcut BGRA→NV12 hattı değişmedi.
+  - Adımlar sınıflandırılıyor: D3D cihazı, çıkış bulunamadı, Duplicate.
+- `gdi_windows.go` (yeni): GDI yedek yakalama.
+  - `BitBlt(SRCCOPY|CAPTUREBLT)` ile 32 bit, yukarıdan aşağı DIB section'a kopyalanır (BGRA).
+  - İmleç `GetCursorInfo`, `GetIconInfo` ve `DrawIconEx` ile sıcak noktaya göre kareye çizilir.
+  - Hız `gdiFPS = 10`. Kare bir öncekiyle aynıysa "değişmedi" sayılır. Monitör dikdörtgeni saniyede bir yeniden denetlenir.
+  - Aynı NV12 dönüşümü ve aynı H.264 kodlayıcı kullanılır (fps 10 ile).
+- `sysinfo_windows.go` (yeni): tanılama için sistem bilgisi.
+  - Windows sürümü: `RtlGetVersion` + UBR, DisplayVersion ve EditionID (`x/sys/windows/registry`, aynı modül).
+  - Monitörler, DXGI adaptörleri (`GetDesc1`: ad, vendor/aygıt id, yazılım bayrağı) ve çıkışlar.
+  - `IDXGIOutput6::GetDesc1` ile BitsPerColor ve ColorSpace; 12 değeri HDR demek.
+- `mf_windows.go`: kodlayıcı hataları sınıflandırılıyor (`NO_H264_ENCODER` / `ENCODER_CONFIG`). Donanım ya da yazılım bilgisi ve donanım kodlayıcının başarısızlık nedeni tutuluyor.
+- `ratectl.go`: `newRateCtlCap(top)` eklendi; GDI'da hız 10'da sabit.
+- `source_windows.go`:
+  - `capture.Opener{Version, Log}.Open`. `pipeline` artık `grabber` üzerinden çalışıyor; yeniden açma seçilen yöntemle yapılıyor.
+  - Kodlama hatası `ENCODE_FAILED` olarak dönüyor.
+  - Log yalnız şu durumlarda yazılıyor: açılış hatası, yedek yönteme geçiş, ilk yayın hatası.
+- `internal/diag` (yeni): `Report.Format` sabit anahtarlar kullanıyor. Serbest alanlar yazdırılabilir ASCII'ye indiriliyor; `=`, `"` ve satır sonu `?` oluyor; alanlar 64 karakterle sınırlı.
+  - `Log.Write` dosya başına 128 KB sınırı uyguluyor ve `.1` olarak dönüyor (toplam ≤ 256 KB).
+- `internal/remember`: `forgetAll` `tanilama.log` ve `tanilama.log.1` dosyalarını da siliyor, ardından klasör boşsa onu da kaldırıyor. Tur 1'de bu kapsam kabul edildi: veri boşaltan her yol logu da siler (ayrıntı aşağıda).
+- `internal/flow`: `captureStatus(err)` "Ekran görüntüsü alınamadı (KOD). <yönlendirme>" metnini üretiyor. Hem açılış hatasında (`s.captureErr`) hem yayın hatasında (`shareErr`) kullanılıyor. Tipsiz hatada eski metin gösteriliyor.
+- `cmd/noktadestek/main.go`: `diag.NewLog(dir, selfElevated, store.Persistent)`. Log yalnız kalıcı modda açık (tur 1).
+- `test/trace-check.ps1`: `-Diagnostics on|off` eklendi. Varsayılan `off`, yani log da iz sayılıyor.
+
+**Neden kodları**
+
+| Kod | Ne zaman | Müşteri yönlendirmesi |
+|---|---|---|
+| DXGI_UNSUPPORTED | Duplicate adımında 0x887A0004 veya E_NOINTERFACE; ilk kare beklenirken BGRA dışı yüzey (`SurfaceFormat`, hemen döner, DXGI1 denenir) | Ekran kartı ayarını kontrol edin. |
+| DXGI_ACCESS_DENIED | E_ACCESSDENIED (güvenli masaüstü, kilit) | Kilit ekranı veya onay penceresi açıksa kapatın. |
+| DXGI_NOT_AVAILABLE | 0x887A0022 NOT_CURRENTLY_AVAILABLE, 0x887A0028 SESSION_DISCONNECTED | Tam ekran uygulamayı kapatıp tekrar deneyin. |
+| NO_OUTPUT | Monitör DXGI çıkışında/GDI'da yok, geçersiz monitör no | Ekran bağlantısını kontrol edin. |
+| D3D_DEVICE | CreateDXGIFactory1 / D3D11CreateDevice | Ekran kartı sürücüsünü kontrol edin. |
+| FIRST_FRAME_TIMEOUT | Açıldı ama 2 sn içinde kare gelmedi (son HR korunur) | Ekran yanıt vermedi; tekrar deneyin. |
+| GDI_FAILED | GDI yedeği de başarısız (yalnız logda; ekranda ilk denemenin kodu) | Ekran okunamadı; teknisyeninize bu kodu bildirin. |
+| MF_STARTUP | MFStartup veya mfplat.dll yok (Windows N) | Windows Medya Özellik Paketi gerekli. |
+| NO_H264_ENCODER | H.264 MFT yok (donanım + yazılım) | Windows Medya Özellik Paketi gerekli. |
+| ENCODER_CONFIG | SetInput/OutputType vb. reddedildi | Görüntü kodlayıcı başlatılamadı; … |
+| ENCODE_FAILED | Yayın sırasında kodlama hatası | Görüntü kodlanamadı; … |
+| OTHER | Diğer (ekranda `OTHER 0xHHHHHHHH`) | Teknisyeninize bu kodu bildirin. |
+
+**Yöntem sırası:**
+1. DXGI `DuplicateOutput`.
+2. DXGI1 `DuplicateOutput1`. Yalnız 1. adım hiç açılamadıysa veya yüzeyi BGRA dışıysa (DXGI_UNSUPPORTED) denenir; açılıp kare vermediyse atlanır.
+3. GDI.
+
+Kodlayıcı hatası yöntem değiştirmez. Hepsi başarısızsa ekranda ilk denemenin kodu görünür.
+
+**Tasarım kararları ve sapmalar:**
+- **Log yalnız sorun olduğunda ve yalnız kalıcı modda yazılıyor** (tur 1 kararı; AC-108/AC-138 değişmedi). Ayrıntı: tur 1 bölümü.
+- **GetDIBits yerine DIB section kullanıldı.** Bayt düzeni aynı (BGRA). Kare başına bir kopya az, bitmap'i DC'den ayırma gerekmiyor.
+- **WDA_EXCLUDEFROMCAPTURE:** DWM uygular; Windows 10 2004+ sürümünde ekran DC'sinden yapılan BitBlt'te de pencere görünmez. Daha eski sürümlerde bayrak zaten reddediliyor (DXGI ile aynı sınır). Gerçek Windows'ta elle doğrulanmalı (adım 5).
+- Yeni Go modülü yok. go.mod ve go.sum değişmedi. `golang.org/x/sys/windows/registry` mevcut modülün paketi.
+- vtable dizinleri ve IID'ler mingw-w64 başlıklarından doğrulandı: `dxgi1_5.h` DuplicateOutput1 = 26, `dxgi1_6.h` GetDesc1 = 27, IDXGIAdapter1::GetDesc1 = 10. IDXGIOutput5 ve IDXGIOutput6 GUID'leri de buradan alındı.
+
+**Örnek log kaydı** (`Report.Format`, birim testi örneği). İçinde ad, telefon, e-posta, kullanıcı/bilgisayar adı, yol, URL, kod veya anahtar yok:
+```
+--- 2026-11-12T09:30:00Z olay=acilis_hata
+istemci=0.10.2 windows=10.0.22631.4317 surum=23H2 edisyon=ProfessionalN
+hedef=\\.\DISPLAY1 monitor_sayisi=1
+monitor=1 aygit=\\.\DISPLAY1 boyut=2880x1800 birincil=1
+adaptor=0 ad="Intel(R) Iris(R) Xe Graphics" vendor=0x00008086 aygit_id=0x00009A49 yazilim=0
+adaptor=1 ad="NVIDIA GeForce RTX 3050 Laptop GPU" vendor=0x000010DE aygit_id=0x000025A2 yazilim=0
+cikis=\\.\DISPLAY1 adaptor=0 boyut=2880x1800 dondurme=1 masaustu=1 renk_bit=10 renk_uzayi=12 hdr=1
+deneme=DXGI sonuc=DXGI_UNSUPPORTED islem=DuplicateOutput hr=0x887A0004
+deneme=DXGI1 sonuc=FIRST_FRAME_TIMEOUT islem=AcquireNextFrame hr=0x887A0026
+deneme=GDI sonuc=GDI_FAILED islem=BitBlt hr=0x00000000
+yontem=- kodlayici=-
+neden=DXGI_UNSUPPORTED islem=DuplicateOutput hr=0x887A0004
+```
+
+**Testler:**
+- `internal/capture/select_test.go`:
+  - `TestClassifyReasonTable`
+  - `TestTagKeepsOpAndHRAndHidesForeignText`
+  - `TestAwaitFirst*`: ilk kare; tekrar tekrar kayıp → yeniden açma → zaman aşımı; kaynaklar kapatılıyor.
+  - `TestSelectMethodChain`: 6 senaryo (normal, HDR→DXGI1, hibrit→GDI, kare yok→DXGI1 atlanır, hepsi başarısız, çıkış yok).
+  - `TestGDIRateCapped`
+- `internal/diag/diag_test.go`:
+  - Yalnız izinli anahtarlar var.
+  - PII ve enjeksiyon yok: satır sonu, `=`, Unicode ve uzun değer temizleniyor; hostname, home ve USER kayda girmiyor.
+  - Başarılı yedek kaydı doğru biçimde.
+  - Dönme ve boyut sınırı; büyük kayıt kısaltılıyor.
+  - Log kapalıyken yazım yapılmıyor.
+  - Toplam 256 KB.
+- `internal/remember`: `TestAC186ForgetAllRemovesDiagnosticsLog` (kayıtla ve kayıtsız).
+- `internal/flow/capture_status_test.go`:
+  - Durum metni tablosu, her kod için yönlendirme var ve uzunluk ≤ 110.
+  - Açılış hatasında `share.state stopped` gidiyor ve durum satırında kod görünüyor.
+
+**Doğrulama** (docker `golang:1.26.11-bookworm@sha256:dc40a1…`, `-mod=readonly`, `GOTOOLCHAIN=local`):
+- `gofmt -l .` boş.
+- `go vet ./...` ve `GOOS=windows go vet ./...` temiz.
+- `go test -count=1 ./...`: 19 paketin hepsi ok.
+- `GOOS=windows go test -c ./internal/capture` derleniyor.
+- `build/build.sh https://remote.noktabilisim.net 0.10.2` iki ayrı docker koşusunda çalıştırıldı, iki ikili eşit: SHA-256 `158e2cb1…` (tur 1 öncesi, geçersiz; güncel SHA tur 1 bölümünde).
+
+**Windows elle test adımları (bekliyor):**
+1. Normal masaüstü regresyonu: tek ve çift monitör; imleç, döndürülmüş ekran, UAC/kilit ekranı dönüşü.
+   - Görüntü 0.10.1 ile aynı olmalı.
+   - `%LOCALAPPDATA%\NoktaDestek\tanilama.log` OLUŞMAMALI.
+   - Ek: kod modunda (kayıt ve "hatırla" yok) HDR açıkken bile log OLUŞMAMALI; durum satırı/yedek yöntem yine çalışmalı. Yönetici olarak çalıştırılınca da log yok.
+   - `trace-check.ps1 -Mode Compare` temiz çıkmalı.
+2. HDR açık (Ayarlar › Ekran › HDR): paylaşım çalışmalı.
+   - Log `olay=acilis_yedek` içermeli.
+   - `deneme=DXGI sonuc=DXGI_UNSUPPORTED`, ardından `deneme=DXGI1 sonuc=OK` görünmeli.
+   - `hdr=1` görünmeli.
+   - HDR'yi kapatıp yeni oturum açınca DXGI kullanılmalı ve yeni kayıt eklenmemeli.
+3. Hibrit GPU (ör. Sekuro notebook): Windows Grafik ayarlarında NoktaDestek.exe "Yüksek performans" (harici GPU) olarak ayarlanır.
+   - Paylaşım çalışmalı; büyük olasılıkla GDI ile, ~10 fps.
+   - Log `yontem=GDI` ve iki adaptörü göstermeli.
+   - Ardından "Güç tasarrufu" / "Windows karar versin" ile DXGI kullanılmalı.
+4. Log içeriği kontrolü: dosyada müşteri adı, telefon, e-posta, kullanıcı adı, bilgisayar adı, sunucu adresi ve kod OLMAMALI. Yalnız tablodaki anahtarlar bulunmalı.
+5. GDI yolunda kontrol ve işaretleme göstergesi pencereleri teknisyen görüntüsünde görünmemeli (WDA_EXCLUDEFROMCAPTURE). İmleç doğru konumda olmalı.
+6. "Bu bilgisayarı unut" sonrasında `tanilama.log`, `.1` ve boş klasör silinmeli. `trace-check.ps1 -Binding off -Remember off` (Diagnostics varsayılanı `auto`) temiz çıkmalı.
+7. Windows N (Media Feature Pack yok): durum satırında `(MF_STARTUP)` veya `(NO_H264_ENCODER)` görünmeli ve log yazılmalı.
+
+**Sözleşme:** protokol, ctl mesajları ve web değişmedi; frontend-dev için değişiklik yok.
+
+**Sonra (sonraki paket):** neden kodunun ve yöntemin teknisyen paneline iletilmesi. Örnek: `share.state` içinde `reason` ve `method` alanları. Bu, contracts ve sunucu şeması değişikliği gerektiriyor. Bu tur kapsam dışı.
+
+### Düzeltme turu 1 (qa-raporu-0.10.2, guvenlik-raporu-0.10.2)
+
+1. **QA#1 / Güvenlik ORTA (AC-108/AC-138 değişmedi).** Log yalnız kalıcı modda yazılıyor: bilgisayar kaydı varsa veya "hatırla" açıksa.
+   - `diag.NewLog(dir, elevated, persistent)` ekledim. `Log.Enabled` her yazımda soruluyor; oturum içinde kayıt alınırsa log oradan sonra açılıyor.
+   - `remember.Store.Persistent()` ekledim.
+   - Kod modunda klasör bile oluşmuyor. Neden kodu ekranda yine görünüyor.
+   - `trace-check.ps1 -Diagnostics` artık `auto|on|off`, varsayılan `auto`. `auto`'da log yalnız `-Remember on` veya `-Binding on` iken izinli; aksi hâlde iz sayılıyor.
+   - Testler: `TestNewLogOnlyPersistentAndNotElevated`, `TestPersistentMode`.
+2. **Güvenlik DÜŞÜK (CWE-59).**
+   - Süreç yükseltilmişse (`env.SelfElevated`) `NewLog` nil döndürüyor, log kapalı.
+   - Yazmadan önce klasör, `tanilama.log` ve `.1` `Lstat` ile denetleniyor. Symlink, `ModeIrregular` (Windows junction) veya `FILE_ATTRIBUTE_REPARSE_POINT` görülürse hiçbir şey yazılmıyor ve taşınmıyor (`reparse_windows.go` / `reparse.go`).
+   - Açılan dosya da `Stat` ile düzenli dosya mı diye doğrulanıyor.
+   - Test: `TestLogRefusesReparsePoints` (bağlantı klasör, bağlantı log, bağlantı `.1`; hedef dosya ve mevcut log değişmiyor).
+   - `hatirla.bin` için aynı değerlendirme bu turun kapsamı dışında; ayrı iş olarak öneriliyor.
+3. **QA#2 (kabul edilen davranış).** Veri boşaltan her `forgetAll` yolu logu da siliyor: "Bu bilgisayarı unut", kayıt yokken "Bilgilerimi unut" ya da işaretsiz talep, kişisel bilgi yokken geçersiz kayıt (AC-185), bozuk dosya.
+   - Kişisel bilgi veya kayıt kalıyorsa log da kalıyor.
+   - CHANGELOG buna göre düzeltildi.
+   - Test: `TestAC185AC137ClearPathsRemoveDiagnosticsLog`.
+4. **QA#3.** `awaitFirst`, `DXGI_UNSUPPORTED` tipli hatada (BGRA dışı yüzey, `SurfaceFormat`) kaynağı yeniden açmıyor, hemen dönüyor. `selectMethod` bunu "açılamadı" sayıp DXGI1'i deniyor.
+   - Neden tablosu düzeltildi.
+   - Testler: `TestAwaitFirstNonBGRASurfaceReturnsUnsupported`, `TestSelectMethodChain` (+2 senaryo: BGRA dışı → DXGI1; DXGI1'de de → GDI).
+5. **QA#4.** `TestCaptureStreamFailureStatusHasReason`: yayın `ENCODE_FAILED` ile bitince önce `share.state sharing`, sonra `stopped` gidiyor ve durum satırında "(ENCODE_FAILED) Görüntü kodlanamadı…" görünüyor.
+6. **govulncheck.** `go get golang.org/x/net@v0.62.0 golang.org/x/crypto@v0.59.0 && go mod tidy`.
+   - GO-2026-5932'nin düzeltmesi yalnız bir pseudo-version'da (`v0.58.1-0.20261009…`). v0.59.0 bu düzeltmeyi içeren ilk etiketli sürüm.
+   - x/net bunu gerektirdiği için `golang.org/x/sys` v0.48.0 → v0.50.0 oldu.
+   - Yeni modül yok. `govulncheck` v1.9.0 (`GOOS=windows`) çıktısı: "No vulnerabilities found".
+
+**Doğrulama (tur 1)** (docker `golang:1.26.11-bookworm@sha256:dc40a1…`, `-mod=readonly`):
+- `gofmt -l .` boş.
+- `go vet ./...` ve `GOOS=windows go vet ./...` temiz.
+- `go test -count=1 ./...`: 19/19 ok.
+- `GOOS=windows go test -c ./internal/capture` derleniyor.
+- govulncheck temiz.
+- `build/build.sh https://remote.noktabilisim.net 0.10.2` iki ayrı docker koşusunda çalıştırıldı, iki ikili eşit: **SHA-256 `85142c14bf6941c2d5c3803b2818f0b1645c95b77704e640c8ff49d4059687bc`** (12.457.472 bayt).
+
+**Açık:** Windows elle testleri 1–7 (test-operatoru) yapılmadı. QA Tur 2 üzerine kalıcı moddaki tanılama logu AC-138/AC-188 notu, ADR-0004 revizyonu ve kılavuz gizlilik bölümüne işlendi (teknik-yazar).
+
+## P9 — Backend (backend-dev, 2026-11-12)
+
+Durum: **tamamlandı** (commit yok). Şema değişikliği, yeni env, yeni bağımlılık, yeni grant **yok**.
+
+### Uçlar (`/api/v1`)
+| Uç | Yetki | Not |
+|---|---|---|
+| GET `/users` | users.view + tenantScope | sayfalı (vars. 25, üst 100), `q/role/status/sort`; SUPER_ADMIN hesapları hiç dönmez |
+| POST `/users` | users.create | 201 `{ user, temporaryPassword }`; must_change_password=1; argon2id; 409 `fields.email` |
+| GET `/users/:id` | users.view | `UserDetail` (tüm anahtarlar, `isSelf`, `canManage`); başka tenant/SA → 404 |
+| PATCH `/users/:id` | users.edit | email/fullName/role/permissions (en az biri); 403 sahip olunmayan yetki / üstün hesap / kendi rol-yetkisi |
+| POST `/users/:id/deactivate` · `/reactivate` | users.edit | 204; 409 zaten o durumda; kendisi 403 |
+| GET/PUT `/settings/tenant` | settings.view / settings.edit | AC-4 aralıkları → 400 `fields.<alan>`; audit eski → yeni |
+| GET/POST `/admin/tenants`, GET/PATCH `/admin/tenants/:id`, POST `/admin/tenants/:id/deactivate` · `/reactivate` | SUPER_ADMIN | 409 `fields.slug`; pasif/aktif 409 tekrar |
+| POST `/admin/switch-tenant` `{ tenantId \| null }` | SUPER_ADMIN | `{ actingTenant }`; pasif/yok firma 404; audit `tenant.switched` |
+`/users/:id/reset-mfa` **P10** (kapsam dışı). Avatar/logo uçları P9 tablosunda değil (AC-81..84 başka pakette).
+
+### Kurallar (uygulanan)
+- AC-73: etkin kümede değişen her anahtar işlemi yapanda olmalı (Super Admin tümüne sahip); ADMIN rolü varsayılanı
+  "verme" sayılır. Ezme satırları normalize: yalnız rol varsayılanından farklı anahtar saklanır (yeni anahtar ADMIN'de
+  açık, USER'da kapalı başlar).
+- Üstünlük: Admin, etkin yetkileri kendi kümesini aşan hesabı yönetemez. Kendi rol/yetkisi değişmez, kendini pasife alamaz.
+- AC-74: anahtar başına `user.permission_changed` (user_id = kim, entity_id = kime, `{permKey, granted}` eski → yeni), aynı TX.
+- AC-115 / G-04 (commit sonrası): pasif ve rol değişimi → `rooms.endByTechnician` + `requestHub.closeByUser`; yalnız
+  yetki → `rooms.applyPermChange` (+ `support_requests.view` kalktıysa panel 4401). Hata → log `user_live_effect`, 60 sn yedek.
+- AC-70: firma pasif TX'i: durum + kullanıcı oturumları iptal + bekleyen kod oturumları `CANCELLED(tenant_passive)` +
+  audit; sonra `rooms.endByTenant` (yeni), `requestHub.closeByTenant` (yeni), `requests.cancelAllForTenant` (AC-145),
+  `bindings.revokeForTenant` (mimari-e10 §3.4). Firma oluşturma aynı TX'te ayar satırı + sistem aydınlatma metni v1.
+
+### Değişen / eklenen dosyalar
+- contracts: `src/api/users.ts` (yeni), `src/api/tenants.ts` (yeni), `src/permissions.ts` (`PERMISSION_DESCRIPTIONS`,
+  `roleDefaultGranted`, `permissionKeysOf`, `effectivePermissionsFrom`; davranış aynı), `src/audit.ts` (`USER_AUDIT`,
+  `TENANT_AUDIT`), `package.json` (exports), `test/users-tenants-p9.test.ts`.
+- server: `src/users/{repo,service,routes}.ts`, `src/tenants/{repo,service,routes}.ts` (yeni); `src/app.ts` (kayıt);
+  `src/auth/guards.ts` (`requireSuperAdmin`); `src/lib/ids.ts` (`newTemporaryPassword`, G-20 tek yer);
+  `src/signaling/rooms.ts` (`endByTenant`); `src/requests/hub.ts` (`closeByTenant`); `src/public/consent.ts`
+  (`defaultConsentBody` `prisma/seed-consent.ts`'ten taşındı — metin aynı, seed yeniden dışa aktarır; `createInitialConsent`).
+- testler: `test/integration/{users-p9,tenants-p9,permissions-ac72-p9}.test.ts`, `test/helpers/tenant-matrix.ts`
+  (P9 uçları; yeni sınıf `system`), `test/integration/tenant-isolation.test.ts` (sistem uçları ADMIN/USER → 403).
+- dokümanlar: `docs/mimari-api.md` (sapma notu), `docs/runbook.md` §14 (firma doğrulaması, pasif alarmları).
+
+### Tasarımdan sapmalar (gerekçe mimari-api "backend-dev sapma notu (P9)")
+reactivate uçları (pasifi geri alma ihtiyacı), `GET /admin/tenants/:id`, rol üstünlük kuralı (mimaride tanımsızdı;
+yetki yükseltme/devralma önlemi), `/settings/tenant` P9 alt kümesi (SMTP/2FA P10), bekleyen kod oturumlarının da iptali
+(resolve teknisyen/tenant durumuna bakmıyordu — pasif hesabın kodu açık kalmasın).
+
+### Testler (geçici DB `rs-mysql-p9:33325`)
+`pnpm -r run typecheck` ✓ · `pnpm -r run lint` ✓ · contracts `test` 7 dosya / 68 ✓ · server `test` (unit) 17 / 285 ✓ ·
+server `test:int` 40 dosya / 384 ✓ (P9: users-p9 16, tenants-p9 7, permissions-ac72-p9 1, tenant-isolation +1).
+AC eşlemesi: AC-4, AC-69 (matris + liste izolasyonu), AC-70, AC-71, AC-72 (`vi.mock` ile geçici `p9_gecici` modülü →
+/auth/me, detay, PATCH, audit'te görünür), AC-73, AC-74, AC-115 (pasif, yetki daraltma caps.update, rol değişimi,
+tenant pasif — gerçek WS), AC-145 servis yolu.
+
+### frontend-dev'in bilmesi gerekenler
+- `lib/users/contract.ts` geçici tipleri contracts'a taşınmalı; farklar: `UserListItem` ek alanlar `username`,
+  `mustChangePassword`, `totpEnabled`, `createdAt`; `UserDetail.permissions` tam `Record<PermissionKey, boolean>` +
+  `isSelf`, `canManage`; `TenantListResponse` sayfalı (`page/pageSize/total`), `TenantItem.activeUserCount/updatedAt`.
+- `lastLoginAt: null` "hiç giriş yapmadı" demek değildir (eski oturum kayıtları silinebilir) — "—" gösterin.
+- Liste sorgusu: `q/role/status/page/pageSize` + `sort` (fullName:asc vars.); frontend'in `usersApiPath`'i uyumlu.
+- 403 `fields["permissions.<anahtar>"]` hangi anahtarın verilemediğini söyler; `canManage=false` → düzenle/pasif butonları kapalı.
+- `POST /users` ve deactivate/reactivate gövdesi `{}` veya boş; deactivate/reactivate 204 döner (tenant uçları `TenantItem`).
+- switch-tenant sonrası `/ws/panel` 4401 ile kapanır, yeni bağlamla yeniden bağlanın; `/auth/me` yeniden okunmalı.
+- `/settings/tenant` PUT kısmi gövde (en az bir alan); aralıklar `TENANT_SETTINGS_LIMITS`.
+- Toggle açıklamaları `PERMISSION_DESCRIPTIONS` (yalnız bazı anahtarlar).
+
+### Düzeltme turu 1 (backend-dev, 2026-11-12)
+- B-P9-1 (Orta): `apps/server/src/lib/ids.ts` `TEMP_PASSWORD_ALPHABET` satırına gerekçeli satır içi `// gitleaks:allow`
+  eklendi (davranış aynı, dosya istisnası yok). `gitleaks v8.30.1 dir apps/server/src --config .gitleaks.toml` → çıkış 0.
+  `apps/web/e2e/mock-users.mjs` yarısı frontend-dev'de.
+- B-P9-2..6 (Düşük): kodlanmadı; `docs/gereksinimler-sonra-acik.md` "Sonra / açık — P9'dan" tablosuna eklendi
+  (`docs/gereksinimler.md` §9 yönlendirme satırı güncellendi).
+- Doğrulama: server `lint` ✓ · `typecheck` ✓ · `test` (unit) 17 / 285 ✓ · `test:int` (geçici DB `rs-mysql-p9fix:33326`,
+  `scripts/test-db.sh`) 40 / 384 ✓. Sözleşme değişikliği yok.
+
+## P9 — Frontend (Rotalar) (frontend-dev, 2026-11-12)
+
+Durum: **tamam**. tsc + eslint temiz, vitest 191/191, e2e 220 geçti / 77 atlandı (`pnpm --filter @remote/web e2e`).
+Sözleşme: `@remote/contracts/api/{users,tenants}` + `permissions` (`PERMISSION_MODULES`, `PERMISSION_DESCRIPTIONS`). `lib/users/contract.ts` yalnız yeniden dışa aktarım yapar.
+Tasarım skill dosyaları okunmadı; esas alınanlar DESIGN.md ve onaylı taslak `docs/tasarim/07-kullanici-yetki.html`.
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/users` | Oturum + `users.view`. Super Admin için firma bağlamı gerekir; yoksa "Firma seçin" boş durumu çıkar | Kullanıcı listesi: arama (ad/e-posta, en az 2 karakter), rol ve durum filtresi (URL'de), sayfalama. "Yeni kullanıcı" (`users.create`) geçici şifreyi bir kez gösterir |
+| `/users/[id]` | Oturum + `users.view`. Düzenleme için `users.edit` + `canManage` | Profil (ad, e-posta, rol), hesap durumu, 2FA durumu, yetki toggle matrisi + kaydet çubuğu, pasife al / yeniden etkinleştir. Kapsam dışı veya olmayan id → "Kullanıcı bulunamadı" |
+| `/admin/tenants` | Oturum + SUPER_ADMIN (diğer rollere uyarı gösterilir; arka uç 403 verir) | Firma listesi (arama, durum), oluştur/düzenle (kısa ad önerisi), pasife al (etkiler + kısa adı yazarak onay), yeniden etkinleştir, satırdan firmaya geçiş |
+| Üst menü firma seçici | SUPER_ADMIN | Etkin firma göstergesi + `POST /admin/switch-tenant` (firma seç / bağlamdan çık). Ardından `router.refresh()`; /auth/me sunucuda yeniden okunur |
+
+Menü: "Kullanıcılar" (`Users`, `users.view`), "Firmalar" (`Building`, yalnız SUPER_ADMIN).
+
+### Davranış kuralları (sunucuyla aynı)
+- Yetki matrisi `PERMISSION_MODULES`'tan üretilir. Sözlükte etiketi olmayan yeni modül veya eylem, anahtar adıyla görünür (AC-72, birim testi).
+- İşlemi yapanın sahip olmadığı anahtar kilitlidir: `aria-disabled` + `Lock` + açıklama. Grup "Tümünü aç/kapat" kilitli anahtara dokunmaz. Rol değişince kilitsiz anahtarlar rol varsayılanına döner.
+- PATCH yalnız değişen alanları ve **değişen** yetki anahtarlarını gönderir. Oluşturmada tam harita gider; kilitli anahtarlar açıkça `false` olur.
+- `isSelf` iken rol ve yetkiler pasiftir, pasife alma yoktur. `canManage=false` veya pasif kullanıcı salt okunurdur. 403 yanıtında `fields["permissions.<anahtar>"]` varsa mesaj yetkiyi adıyla söyler; form korunur.
+- Geçici şifre yalnız oluşturma yanıtından gelir ve bileşen state'inde tutulur; diyalog kapanınca düşer. Kopyalanmadan kapatılırsa uyarı çıkar (odak "Şifreye dön"de).
+
+### Dosyalar (apps/web)
+- Yeni: `lib/users/{contract,permissions,form,query,tenant-query}.ts`, `lib/users/users.test.ts`, `components/ui/save-bar.tsx`, `components/admin/permission-matrix.tsx`,
+  `app/(panel)/tenant-switcher.tsx`, `app/(panel)/users/{page,loading,user-list,user-filters,users-actions,new-user-dialog}.tsx`,
+  `app/(panel)/users/[id]/{page,loading,not-found,user-editor}.tsx`, `app/(panel)/admin/tenants/{page,loading,tenant-list,tenant-filters,tenant-form-dialog}.tsx`,
+  `e2e/mock-users.mjs`, `e2e/p9-users.spec.ts`.
+- Değişen: `components/ui/switch.tsx` (`ToggleSwitch`: mixed/kilitli), `components/ui/menu.tsx` (`ariaLabel`, `labelClassName`, `onOpen`),
+  `app/(panel)/layout.tsx` (`ToastProvider` artık tüm kabuğu sarıyor; Super Admin'de firma seçici), `app/(panel)/side-nav.tsx`, `messages/tr.json`,
+  `e2e/mock-api.mjs`, `e2e/mock-requests.mjs` (u-us* kullanıcıları için /ws/panel kabulü), `DESIGN.md` (§4 ikonlar, §6 primitifler).
+
+### Testler
+- Birim (`lib/users/users.test.ts`, 19 test): matris üretimi, AC-72 geçici modül, rol varsayılanı, kilit, grup aç/kapat (mixed, kilitli), rol değişimi, PATCH farkı, sunucu alan hatası, 403 etiketi, kısa ad önerisi, sorgu.
+- E2E `p9-users.spec.ts` (desktop + mobile, 14 test): kullanıcı oluştur → 409 → geçici şifre bir kez + kopyala; kopyalamadan kapatma uyarısı; grup aç/kapat + mixed + klavye + ayrılma uyarısı + PATCH gövdesi; kilitli yetki / salt okunur / kendi hesabı; pasife alma (odak Vazgeç) + yeniden etkinleştirme; filtreler, eşleşme yok, bulunamadı; 5 durum (boş, 500 + tekrar dene, iskelet, salt okunur); Super Admin firma seç → kullanıcılar, firma oluştur (slug önerisi, 409), pasife al (etkiler + kısa ad onayı), satırdan geçiş, bağlamdan çık; firma düzenle; Admin'e kapalı; açık/koyu axe + taşma + 44 px.
+
+### Sapmalar
+1. 2FA "Sıfırla" düğmesi yok (P10'a ait); avatar yükleme yok (P12'ye ait).
+2. Firma pasife almaya kısa adı yazarak onay eklendi (taslakta yoktu).
+3. Firma geçişinden sonra yönlendirme yapılmıyor; `router.refresh()` kullanılıyor.
+
+### Backend entegrasyonunda kontrol edilecekler
+- `GET /users` sorgusu (`q, role, status, page, pageSize`) ve seçicinin kullandığı `GET /admin/tenants?status=active&pageSize=100` gerçek sunucuda denenmeli.
+- deactivate/reactivate çağrıları gövde `{}` ile gidiyor; 409 bir toast'a çevriliyor.
+- PATCH `/users/:id` ve `/admin/tenants/:id` yanıtının güncel `UserDetail` / `TenantItem` döndüğü varsayılıyor.
+- AC-73: 403 yanıtında `fields["permissions.<anahtar>"]` olmalı (yoksa genel metin gösterilir).
+- switch-tenant sonrası `/ws/panel` 4401 → `RequestNotifier`'ın yeniden bağlandığı gerçek sunucuda doğrulanmalı.
+
+### Düzeltme turu 1 (QA P9 Tur1 #1, güvenlik B-P9-1)
+- **QA #1 (rol değişiminde AC-73 403'ü):** `lib/users/form.ts` `buildUpdateUser` rol değiştiğinde yetki anahtarlarının TÜMÜNÜ ekrandaki değerleriyle gönderiyor (rol aynıysa eskisi gibi yalnız değişenler). Sebep: sunucu (`users/service.ts` `normalizeRows`) gövdede olmayan, ezmesi de olmayan anahtarı yeni rolün varsayılanıyla (`roleDefaultGranted`) hesaplıyor. Kilitli anahtar USER→ADMIN'de ekranda kapalı kalıyor, gönderilmezse sunucuda açılıyor ve 403 dönüyordu. Yalnız kilitli anahtarları değil tümünü göndermemizin nedeni şu: rol değişiminden sonra elle eski değerine çekilen kilitsiz bir anahtar da aynı biçimde sapıyordu. Etkin değeri değişmeyen anahtarı göndermek sunucunun küme kontrolünü tetiklemiyor. `user-editor.tsx` değişmedi.
+- `e2e/mock-users.mjs` PATCH kuralı sunucunun mantığına göre yeniden yazıldı: anahtar başına önce gövde, sonra mevcut ezme, en son yeni rolün varsayılanı. Etkin kümede değişen anahtar aktörde yoksa 403 ve `fields["permissions.<k>"]` dönüyor. Kendi hesabında yalnız gerçek rol/yetki değişikliği 403 alıyor.
+- **B-P9-1:** `mock-users.mjs` sahte `temporaryPassword` satırına gerekçeli `// gitleaks:allow` eklendi. `gitleaks dir apps/web/e2e` çıkış kodu 0. Kontrol olarak yorumsuz kopya taratıldı, çıkış kodu 1.
+- Testler: `lib/users/users.test.ts` dosyasına 2 birim testi eklendi. Biri sunucu kuralının kopyasıyla etkin kümenin ekranla aynı olduğunu ve 403 olmadığını gösteriyor. Diğeri tüm anahtarların gönderildiğini doğruluyor. `e2e/p9-users.spec.ts` dosyasına "AC-73 rol yükseltme: …" testi eklendi. Bu test önce yalnız rol içeren gövdenin mock'ta 403 aldığını gösteriyor, ardından UI kaydının 200 döndüğünü ve yeniden yüklemede kalıcı olduğunu doğruluyor. Mevcut AC-73 testindeki `"audit.export" in body.permissions === false` beklentisi hatalı davranışı kodluyordu; `false` değerine çevrildi.
+
+### Düzeltme turu 2 (sayfa testi P9: Bulgu 1 ORTA, Bulgu 6 DÜŞÜK, paket kodu metni)
+- **Bulgu 1 + 6 (Super Admin üst menüsü 375 px'te 6 px taşıyordu):** Kök neden: sağ grup `min-w-0` ile daralıyordu ama içindeki öğeler daralmıyordu. Bu yüzden "Çıkış yap" kırpılıyordu. `layout.tsx`: Super Admin'de uygulama adı < sm gizli, sağ grup boşluğu `gap-2 sm:gap-3`, avatar sarmalayıcısı `shrink-0`. `logout-button.tsx`: kap `shrink-0`. `tenant-switcher.tsx`: kap `min-w-0`. Etkin firma adı (veya "Firma seçilmedi") artık her genişlikte görünüyor ve yer kalmazsa kısaltılıyor (`min-w-0 max-w-48 truncate`, tam ad `title`'da ve erişilebilir adda). `ui/menu.tsx`: `title` prop'u, tetikleyici `max-w-full`, ok `shrink-0`. DESIGN.md menü satırı güncellendi.
+- **Paket kodu metni:** `srs.mail.p10` → "SMTP ayarlarıyla birlikte sonraki sürümde gelecek.", `us.e.twofaHint` → "İki adımlı doğrulamayı sıfırlama ve zorunlu kılma sonraki sürümde gelecek." (anahtar adları değişmedi). `tr.json`'da kullanıcıya görünen başka paket kodu yok.
+- Test: `e2e/p9-users.spec.ts` "TO-P9-1/6" (SA, 375 px, desktop + mobile projeleri): firma seçilmeden ve seçildikten sonra yatay taşma yok, çıkış düğmesi tam görünür ve ≥ 44 px, seçicide firma adı görünür, açık menüde de taşma yok.

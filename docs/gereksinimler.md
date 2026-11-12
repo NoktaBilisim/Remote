@@ -8,7 +8,7 @@ Tarih: 2026-11-12   Durum: TASLAK (2026-11-10: tam erişim MVP'de; 2026-11-11: `
 > `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e9.md` (E9, AC-129..AC-164).
 > E9'un kapsamı, NFR'leri, varsayımları, riskleri, açık soruları ve paket önerisi: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e9.md`.
 > E10 (Müşteri firmalar ve kalıcı istemci) kabul kriterleri: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e10.md` (AC-165..AC-195). Kapsamı, NFR'leri, varsayımları (V21–V28), riskleri (R19–R24), açık soruları (S18–S21) ve paket önerisi: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e10.md`.
-> Bölüm 9'un "Sonra / açık" tabloları (P2..P8b-1): `/Users/mennan/Projeler/Remote/docs/gereksinimler-sonra-acik.md` (2026-11-12'de içerik değiştirilmeden taşındı).
+> Bölüm 9'un "Sonra / açık" tabloları (P2..P8b-1): `/Users/mennan/Projeler/Remote/docs/gereksinimler-sonra-acik.md` (2026-11-12'de içerik değiştirilmeden taşındı). Yeni paketlerin tabloları (P8b-2, P8c, P9) aynı dosyanın en üstündedir.
 > Toplam: **45 kullanıcı hikâyesi, 195 kabul kriteri** (AC-1..AC-195).
 
 ## 1. Amaç ve iş değeri

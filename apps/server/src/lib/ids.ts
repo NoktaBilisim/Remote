@@ -36,6 +36,16 @@ export const newBindingKey = (): string => `rsb_${randomBytes(32).toString("base
 /** Talep kodu (§13.1): 6 hane, gösterim amaçlı (kapı değil). */
 export const newRequestCode = (): string => String(randomInt(0, 1_000_000)).padStart(6, "0");
 
+/** Geçici şifre alfabesi: karışan karakterler (0/O, 1/l/I) yok; 56 sembol × 16 ≈ 93 bit. */
+const TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"; // gitleaks:allow — gizli değil: herkese açık karakter kümesi (generic-api-key yanlış pozitifi, B-P9-1)
+
+/** P9: yeni kullanıcının geçici şifresi (yalnız oluşturma yanıtında döner; ilk girişte değiştirilir). */
+export function newTemporaryPassword(length = 16): string {
+  let out = "";
+  for (let i = 0; i < length; i++) out += TEMP_PASSWORD_ALPHABET[randomInt(0, TEMP_PASSWORD_ALPHABET.length)];
+  return out;
+}
+
 /** Sabit süreli eşitlik; uzunluk farkı da sızdırılmaz (önce özetlenir). */
 export function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());

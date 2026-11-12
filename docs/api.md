@@ -1,6 +1,6 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9)
 
-Bu belge P1–P8, P8b-1 ve P8c-1'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P8, P8b-1, P8c-1 ve P9'da **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
@@ -10,6 +10,8 @@ P8b-1: `requests/{public-routes,routes,service,panel,limits,ws}.ts`, `lib/{gate,
 `packages/contracts/src/{api/requests.ts,ws-request.ts}`;
 P8c-1: `customers/{routes,service}.ts`, `bindings/{public-routes,service}.ts`, `signaling/binding.ts`,
 `packages/contracts/src/api/{customers,bindings}.ts`.
+P9: `users/{routes,service}.ts`, `tenants/{routes,service}.ts`, `auth/guards.ts` (`requireSuperAdmin`),
+`packages/contracts/src/api/{users,tenants}.ts`, `permissions.ts`.
 
 ## Genel kurallar
 - Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres `PUBLIC_BASE_URL` (staging `https://remote.noktabilisim.net`;
@@ -54,12 +56,12 @@ stack, SQL veya iç ayrıntı içermez.
 |---|---|---|
 | `VALIDATION` | 400 | Şema hatası (`fields` ile), bozuk/büyük gövde, yanlış mevcut şifre (`fields.current`), güncel olmayan KVKK metni (`fields.consentTextId`) |
 | `UNAUTHENTICATED` | 401 | Oturum yok/düşmüş; hatalı kimlik bilgisi (genel mesaj) |
-| `FORBIDDEN` | 403 | Yetki anahtarı yok; join'de teknisyenin reddettiği IP |
+| `FORBIDDEN` | 403 | Yetki anahtarı yok; join'de teknisyenin reddettiği IP; P9: Super Admin firma seçmedi, `/admin/*` SUPER_ADMIN değil, sahip olunmayan yetki (`fields["permissions.<anahtar>"]`), daha geniş yetkili hesap, kendi hesabı |
 | `CSRF_INVALID` | 403 | Origin eksik/izinsiz veya `X-CSRF-Token` eşleşmiyor |
 | `PASSWORD_CHANGE_REQUIRED` | 403 | İlk giriş şifre değişimi yapılmadan başka uç çağrıldı |
 | `NOT_FOUND` | 404 | Yol veya kayıt yok (başka tenant'ın / başka teknisyenin kaydı da 404) |
 | `REQUEST_REF_INVALID` | 404 | P8b: firma ref'i geçersiz, yenilenmiş, firma pasif veya ayarı yok (hepsi aynı yanıt) |
-| `CONFLICT` | 409 | Kayıt işleme uygun durumda değil (ör. PENDING olmayan oturumu iptal, ACTIVE olmayanı sonlandırma) |
+| `CONFLICT` | 409 | Kayıt işleme uygun durumda değil (ör. PENDING olmayan oturumu iptal, ACTIVE olmayanı sonlandırma); P9: e-posta/kısa ad çakışması (`fields.email` / `fields.slug`), zaten pasif/aktif |
 | `LOBBY_FULL` | 409 | Bekleme odasında 3 misafir var (join) |
 | `OPEN_SESSION_LIMIT` | 409 | Teknisyenin açık oturum sınırı dolu (P8b: talep kabulünde talep beklemede kalır) |
 | `REQUEST_PENDING` | 409 | P8b: bu istemci örneğinin zaten bekleyen talebi var |
@@ -118,6 +120,17 @@ stack, SQL veya iç ayrıntı içermez.
 | POST | `/api/v1/settings/support-requests/whatsapp/test` (P8b) | Oturum + CSRF, `settings.edit` | 200 |
 | WS | `/ws/request` (P8b) | Subprotocol `rs.v1, rs.req.<requestSecret>`; Origin yok | 101 |
 | WS | `/ws/panel` (P8b) | Oturum çerezi + Origin, `support_requests.view`, tenant bağlamı | 101 |
+| GET | `/api/v1/users` (P9) | Oturum, `users.view`, firma bağlamı | 200 |
+| POST | `/api/v1/users` (P9) | Oturum + CSRF, `users.create`, firma bağlamı | 201 |
+| GET | `/api/v1/users/:id` (P9) | Oturum, `users.view` | 200 |
+| PATCH | `/api/v1/users/:id` (P9) | Oturum + CSRF, `users.edit` | 200 |
+| POST | `/api/v1/users/:id/deactivate` · `/reactivate` (P9) | Oturum + CSRF, `users.edit` | 204 |
+| GET | `/api/v1/settings/tenant` (P9) | Oturum, `settings.view`, firma bağlamı | 200 |
+| PUT | `/api/v1/settings/tenant` (P9) | Oturum + CSRF, `settings.edit`, firma bağlamı | 200 |
+| GET · POST | `/api/v1/admin/tenants` (P9) | Oturum (+ CSRF), yalnız SUPER_ADMIN | 200 · 201 |
+| GET · PATCH | `/api/v1/admin/tenants/:id` (P9) | Oturum (+ CSRF), yalnız SUPER_ADMIN | 200 |
+| POST | `/api/v1/admin/tenants/:id/deactivate` · `/reactivate` (P9) | Oturum + CSRF, yalnız SUPER_ADMIN | 200 |
+| POST | `/api/v1/admin/switch-tenant` (P9) | Oturum + CSRF, yalnız SUPER_ADMIN | 200 |
 
 ### POST /api/v1/auth/login
 Girdi: `login` (e-posta veya kullanıcı adı, 3–190; `@` içeriyorsa e-posta olarak aranır), `password` (1–200),
@@ -1146,6 +1159,122 @@ Yeni WS ucu yok; mevcut misafir soketi kullanılır, `hello` şeması değişmed
 | Kayıt verme | Oturum | 3 istek | WS `binding.request` |
 | Müşteri yazma | Kullanıcı | 30/dk | Müşteri POST/PATCH/rotate/deactivate/reactivate, `revoke-binding` |
 
+## Kullanıcılar, firmalar ve tenant ayarları (P9)
+Bağlayıcı sözleşme: `docs/mimari-api.md` "Yönetim" ve "backend-dev sapma notu (P9)". Kaynak: `apps/server/src/users/*`,
+`tenants/*`; şemalar `packages/contracts/src/api/{users,tenants}.ts` (tümü `strictObject`, bilinmeyen alan → 400).
+Tüm yanıtlar `Cache-Control: no-store`. Biçimsiz `:id` (ULID değil) → 404.
+
+**Kapsam kuralları**
+- `/users` ve `/settings/tenant` etkin firmada çalışır (`tenantScope`). Super Admin firma seçmeden çağırırsa 403 "Önce bir
+  firma seçin." Başka firmanın kullanıcısı → 404.
+- Super Admin hesapları `/users` listesinde hiç dönmez, `/users/:id` ile 404 alır; bu uçlarla oluşturulamaz, düzenlenemez.
+- `/admin/*` rol kontrolüdür (toggle değil): SUPER_ADMIN dışı her rol → 403.
+- Kalıcı silme yoktur. `users.delete` anahtarı tanımda var ama hiçbir ucu korumaz; pasife alma `users.edit` ile yapılır.
+
+**Yetki kuralları (AC-73)**
+- Etkin yetki = rol varsayılanı (ADMIN tümü açık, USER tümü kapalı; SUPER_ADMIN tümü, rolüyle) + kullanıcı bazlı ezmeler.
+- Etkin kümede değişen her anahtar işlemi yapanda olmalıdır. Yoksa 403, `fields["permissions.<anahtar>"]` = "Bu yetkiye
+  sahip değilsiniz". ADMIN rolü varsayılanı da "verme" sayılır: Admin'de olmayan anahtar oluşturmada açıkça `false` gönderilir.
+- Admin, etkin yetkileri kendi kümesini aşan hesabı yönetemez (`canManage=false` → PATCH/deactivate/reactivate 403).
+- Kimse kendi rolünü/yetkilerini değiştiremez ve kendini pasife alamaz (403).
+- Rol değiştiren PATCH'te gövdede olmayan ve ezmesi olmayan anahtar **yeni rolün** varsayılanını alır. Kilitli anahtarın
+  değeri korunsun diye istemci rol değişiminde tüm anahtarları gönderir.
+
+**Canlı etkiler (AC-115, commit sonrası)**
+- Pasife alma veya rol değişimi → kullanıcının tüm destek oturumları sonlanır, panel bildirim soketleri kapanır,
+  pasif kullanıcının oturum çerezleri iptal edilir.
+- Yalnız yetki değişimi → açık oturumlara `caps.update`; `support_requests.view` kalktıysa panel soketi 4401.
+- Bu adım hata verirse log `user_live_effect`; 60 sn'lik yeniden doğrulama devralır (runbook §14.3).
+
+**Tipler.** `UserListItem = { id, email, username|null, fullName, role: "ADMIN"|"USER", status: "ACTIVE"|"PASSIVE",
+mustChangePassword, totpEnabled, lastLoginAt|null, createdAt }` (`lastLoginAt: null` "hiç giriş yapmadı" demek değildir).
+`UserDetail = UserListItem + { permissions: { "<modül>.<eylem>": bool } (tanımdaki her anahtar), isSelf, canManage }`.
+`TenantItem = { id, name, slug, status, activeUserCount, createdAt, updatedAt }`.
+
+### GET /api/v1/users?q=&role=all|ADMIN|USER&status=active|passive|all&sort=&page=&pageSize=
+Yetki `users.view`. `q` 2–100 karakter (ad soyad veya e-postada arar), `status` varsayılan `active`, `sort`
+`fullName:asc` (varsayılan) | `createdAt:desc`, `pageSize` varsayılan 25 (en çok 100).
+```json
+{ "items": [ { "id": "01K…", "email": "ayse@example.com", "username": null, "fullName": "Ayşe Yılmaz", "role": "USER",
+  "status": "ACTIVE", "mustChangePassword": true, "totpEnabled": false, "lastLoginAt": null, "createdAt": "…" } ],
+  "page": 1, "pageSize": 25, "total": 1 }
+```
+Hatalar: 400 `VALIDATION`, 403.
+
+### POST /api/v1/users
+Yetki `users.create`. Kullanıcı etkin firmada oluşur.
+```json
+{ "email": "ayse@example.com", "fullName": "Ayşe Yılmaz", "role": "USER",
+  "permissions": { "sessions.view": true, "sessions.create": true } }
+```
+`email` küçük harfe çevrilir, ≤ 190 ve tüm sistemde tekil. `fullName` 2–100 karakter, kontrol/görünmez karakter yok.
+`permissions` verilmezse rol varsayılanı. 201:
+```json
+{ "user": { "id": "01K…", "role": "USER", "mustChangePassword": true, "permissions": { "sessions.view": true, "…": false },
+  "isSelf": false, "canManage": true, "…": "…" }, "temporaryPassword": "<16 karakter>" }
+```
+Geçici şifre (16 karakter, argon2id ile saklanır) **yalnız bu yanıtta** döner; ilk girişte değiştirilmesi zorunludur.
+Hatalar: 400 (`fields.*`, tanımsız anahtar `fields["permissions.<anahtar>"]`), 403 (yetki yok / AC-73), 409 `CONFLICT`
+`fields.email` "Bu e-posta adresi başka bir hesapta kullanılıyor".
+
+### GET /api/v1/users/:id · PATCH /api/v1/users/:id
+GET (`users.view`) → `UserDetail`. PATCH (`users.edit`): `email`, `fullName`, `role`, `permissions` alanlarından en az biri;
+`permissions` kısmi olabilir (verilmeyen anahtar değişmez). Yanıt güncel `UserDetail`.
+```json
+{ "role": "ADMIN", "permissions": { "audit.export": false } }
+```
+Hatalar: 400, 403 ("Sizden daha geniş yetkili bir hesabı düzenleyemezsiniz.", "Kendi rolünüzü veya yetkilerinizi
+değiştiremezsiniz.", AC-73 `fields["permissions.<anahtar>"]`), 404, 409 `fields.email`.
+
+### POST /api/v1/users/:id/deactivate · /reactivate
+Yetki `users.edit`, gövde `{}` veya boş → 204. Pasif kullanıcı giriş yapamaz; yeniden etkinleştirmede rolü ve yetkileri
+önceki gibi kalır. Hatalar: 403 (kendi hesabı, daha geniş yetkili hesap), 404, 409 ("Kullanıcı zaten pasif." / "…aktif.").
+
+### GET / PUT /api/v1/settings/tenant
+GET `settings.view`, PUT `settings.edit`. Etkin firmanın genel ayarları (SMTP ve 2FA alanları P10'da eklenecek; bu uç için
+henüz web ekranı yok):
+```json
+{ "sessionTtlMin": 15, "maxOpenSessions": 3, "maxActiveHours": 4, "maxFileMb": 100, "retentionDays": 365 }
+```
+| Alan | Anlamı | Aralık |
+|---|---|---|
+| `sessionTtlMin` | Oturum linki/kodu geçerlilik süresi (dk) | 15–30 |
+| `maxOpenSessions` | Teknisyen başına bekleyen oturum sınırı | 1–10 |
+| `maxActiveHours` | Etkin oturumun en uzun süresi (saat) | 1–8 |
+| `maxFileMb` | Dosya transferi üst sınırı (MB) | 1–2048 |
+| `retentionDays` | Oturum kayıtlarının saklama süresi (gün) | 90–730 |
+
+PUT gövdesi kısmidir (en az bir alan). Aralık dışı → 400 `fields.<alan>` "… arası olmalı" (AC-4). Yanıt güncel ayarlar;
+yalnız değişen alanlar audit'e eski → yeni yazılır. Hatalar: 400, 403.
+
+### GET /api/v1/admin/tenants?q=&status=active|passive|all&page=&pageSize= · POST /api/v1/admin/tenants
+GET: `q` ad veya kısa adda arar, `status` varsayılan `all`, ada göre, `pageSize` varsayılan 25 (en çok 100) →
+`{ items: TenantItem[], page, pageSize, total }`.
+POST gövdesi `{ "name": "Örnek Bilişim Ltd.", "slug": "ornek-bilisim" }`. `name` 2–120 karakter; `slug` 2–60, yalnız küçük
+harf, rakam ve tek tire. 201 `TenantItem`. Firma ayarları ve sistem aydınlatma metni v1 aynı işlemde oluşur; ilk Admin,
+Super Admin firmaya geçip `POST /users` ile ekler. Oluşturmadan önce firma doğrulaması: runbook §14.1.
+Hatalar: 400, 403, 409 `fields.slug` "Bu kısa ad başka bir firmada kullanılıyor".
+
+### GET /api/v1/admin/tenants/:id · PATCH /api/v1/admin/tenants/:id
+GET → `TenantItem`. PATCH `{ name?, slug? }` (en az biri) → `TenantItem`. Kısa ad değişirse eski giriş bağlantıları
+çalışmaz. Hatalar: 400, 403, 404, 409 `fields.slug`.
+
+### POST /api/v1/admin/tenants/:id/deactivate · /reactivate
+Gövde `{}` → güncel `TenantItem`.
+| Uç | Etkisi | Hatalar |
+|---|---|---|
+| `deactivate` | Tek işlemde: durum PASSIVE, firmanın kullanıcı oturumları iptal, bekleyen kod oturumları `CANCELLED(tenant_passive)`, audit. Sonra etkin oturumlar `session.ended{tenant_passive}`, panel soketleri kapanır, bekleyen talepler `TENANT_PASSIVE`, bilgisayar kayıtları geçersiz | 404, 409 "Firma zaten pasif." |
+| `reactivate` | Durum ACTIVE; kullanıcılar yeniden giriş yapabilir. İptal edilen talep ve kayıtlar geri gelmez | 404, 409 "Firma zaten aktif." |
+
+### POST /api/v1/admin/switch-tenant
+Gövde `{ "tenantId": "01K…" }` (firmaya geç) veya `{ "tenantId": null }` (bağlamdan çık). Yanıt:
+```json
+{ "actingTenant": { "id": "01K…", "name": "Örnek Bilişim Ltd.", "slug": "ornek-bilisim" } }
+```
+Bağlam mevcut oturuma yazılır; değişiklik varsa audit `tenant.switched` ve bu oturumun `/ws/panel` soketleri 4401 ile
+kapanır (istemci yeni bağlamla yeniden bağlanır, `/auth/me` yeniden okunur). Aynı firmaya tekrar geçiş yazma yapmaz.
+Hatalar: 400, 403 (SUPER_ADMIN değil), 404 (firma yok veya pasif).
+
 ## Audit
 Giriş (başarılı/başarısız), kilit (`auth.locked`, kapsam `account_ip` veya `account`), çıkış ve şifre değişimi
 `audit_logs` tablosuna yazılır. P2: `session.created`, `session.cancelled`, `session.expired` (SYSTEM) ve
@@ -1179,4 +1308,10 @@ P8c-1: `customer.created`, `customer.updated` (yalnız değişen alanlar; yetkil
 `customer.anonymized` (sistem), `binding.issued`, `binding.revoked` (`reason`), `binding.denied` (bayat kaynak / pasif);
 `request.created` += `{via: "ref"|"binding", customerId}`. Kayıt anahtarı ve ref'in tamamı hiçbir olayda yoktur (ref
 yalnız ilk 4 karakter). Geçersiz kayıt denemesi audit'e değil metriğe yazılır.
+P9: `user.created` (e-posta, ad, rol, durum; geçici şifre yok), `user.updated` (değişen alanlar eski → yeni),
+`user.permission_changed` (anahtar başına bir satır; `user_id` = işlemi yapan, `entity_id` = hedef, `{permKey, granted}`
+eski → yeni; aynı işlemde), `user.deactivated`, `user.reactivated`, `tenant.created`, `tenant.updated`,
+`tenant.deactivated` (`revokedSessions`, `cancelledSessions`), `tenant.reactivated`, `tenant.switched`
+(`actingTenantId` eski → yeni), `tenant_settings.updated` (değişen alanlar). Reddedilen (403) yetki işlemleri henüz audit'e
+yazılmaz (B-P9-5, Sonra).
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Audit ekranı P11'de gelir.

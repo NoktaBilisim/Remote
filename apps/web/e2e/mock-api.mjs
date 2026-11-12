@@ -7,6 +7,7 @@ import { handleCustomers } from "./mock-customers.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleRequests, requestUser } from "./mock-requests.mjs";
 import { handleSessions, sessionUser } from "./mock-sessions.mjs";
+import { handleUsers, usersUser } from "./mock-users.mjs";
 import { ageRoom, attachWs, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
 
 const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
@@ -96,6 +97,8 @@ const srv = createServer(async (req, res) => {
     if (delay > 0) await new Promise((r) => setTimeout(r, delay));
     if (session === "s-broken") return send(res, 503, err("INTERNAL", "Hazır değil"));
     const tenant = { id: "01JTENANT", name: "Demo Firma" };
+    const uu = usersUser(session);
+    if (uu) return send(res, 200, { user: uu.user, permissions: uu.permissions, tenant: uu.tenant, actingTenant: uu.actingTenant });
     const ru = requestUser(session);
     if (ru) return send(res, 200, { user: ru.user, permissions: ru.permissions, tenant: ru.tenant, actingTenant: ru.actingTenant });
     const hu = historyUser(session);
@@ -123,6 +126,7 @@ const srv = createServer(async (req, res) => {
     return send(res, 204, undefined, clearCookies);
   }
 
+  if (await handleUsers(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleCustomers(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleRequests(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleHistory(req, res, { url, session, csrfOk, send, err, readJson })) return;

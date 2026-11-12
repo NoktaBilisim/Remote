@@ -24,9 +24,25 @@ export type PermissionKey = PermissionModule extends infer M
     : never
   : never;
 
-export const PERMISSION_KEYS: readonly PermissionKey[] = PERMISSION_MODULES.flatMap((m) =>
-  m.actions.map((a) => `${m.key}.${a}` as PermissionKey),
-);
+/** Modül tanımından anahtar listesi (`modül.eylem`). AC-72 testi geçici modülle aynı üretimi kullanır. */
+export function permissionKeysOf(modules: readonly { key: string; actions: readonly string[] }[]): PermissionKey[] {
+  return modules.flatMap((m) => m.actions.map((a) => `${m.key}.${a}` as PermissionKey));
+}
+
+export const PERMISSION_KEYS: readonly PermissionKey[] = permissionKeysOf(PERMISSION_MODULES);
+
+/**
+ * P9 (mimari-e9 §13.2): toggle ekranında alt yetki açıklaması — yalnız davranışı adından anlaşılmayan anahtarlar.
+ * Etiketler web sözlüğündedir; açıklama yoksa ekran yalnız etiketi gösterir.
+ */
+export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, string>>> = {
+  "sessions.terminate": "Etkin bir destek oturumunu yönetici olarak zorla sonlandırır.",
+  "support_requests.accept":
+    "Talep kabul et — kabul edilen talep için oturum açar (Oturum oluşturma yetkisi gerekmez; açık oturum sınırı geçerlidir). Reddetme de bu yetkiyle yapılır.",
+  "customers.delete": "Müşteriyi pasife alır (kalıcı silme yoktur).",
+  "users.edit": "Kullanıcı bilgilerini, rolünü ve yetkilerini değiştirir; kullanıcıyı pasife alır veya yeniden etkinleştirir.",
+  "users.delete": "Kullanıcı kalıcı olarak silinmez; pasife alma \"Düzenle\" yetkisiyle yapılır.",
+};
 
 export const ROLES = ["SUPER_ADMIN", "ADMIN", "USER"] as const;
 export type Role = (typeof ROLES)[number];
@@ -42,8 +58,16 @@ export interface PermissionOverride {
  * Tanımda olmayan (eski) anahtarlar yok sayılır.
  */
 export function effectivePermissions(role: Role, overrides: readonly PermissionOverride[]): PermissionKey[] {
-  if (role === "SUPER_ADMIN") return [...PERMISSION_KEYS];
+  return effectivePermissionsFrom(PERMISSION_KEYS, role, overrides);
+}
+
+/** `effectivePermissions`'ın verilen anahtar listesiyle çalışan hâli (AC-72 testi geçici anahtarla aynı kuralı kullanır). */
+export function effectivePermissionsFrom(keys: readonly PermissionKey[], role: Role, overrides: readonly PermissionOverride[]): PermissionKey[] {
+  if (role === "SUPER_ADMIN") return [...keys];
   const byKey = new Map(overrides.map((o) => [o.permKey, o.granted]));
   const defaultGranted = role === "ADMIN";
-  return PERMISSION_KEYS.filter((key) => byKey.get(key) ?? defaultGranted);
+  return keys.filter((key) => byKey.get(key) ?? defaultGranted);
 }
+
+/** Rol varsayılanı (AC-73): ADMIN açık, USER kapalı (SUPER_ADMIN toggle'a tabi değil, tümü açık). */
+export const roleDefaultGranted = (role: Role): boolean => role !== "USER";

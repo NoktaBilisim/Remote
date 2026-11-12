@@ -23,6 +23,10 @@ export function Menu({
   align = "start",
   busy,
   panelLabel,
+  ariaLabel,
+  labelClassName,
+  title,
+  onOpen,
   children,
 }: {
   label: string;
@@ -33,6 +37,14 @@ export function Menu({
   busy?: ReactNode;
   /** Panel `role=group` etiketi; verilmezse `label`. */
   panelLabel?: string;
+  /** P9: tetikleyicinin erişilebilir adı görünür etiketten farklıysa (ör. "Etkin firma: X. Firma değiştir"). */
+  ariaLabel?: string;
+  /** P9: görünür etiketin sınıfı (ör. dar ekranda `sr-only`, uzun adda `truncate`). */
+  labelClassName?: string;
+  /** P9: tetikleyicinin ipucu (ör. dar ekranda kısaltılan etkin firma adının tamamı). */
+  title?: string;
+  /** P9: menü her açıldığında (ör. listeyi tembel yükleme). */
+  onOpen?: () => void;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDetailsElement>(null);
@@ -45,12 +57,20 @@ export function Menu({
     return () => document.removeEventListener("pointerdown", out);
   }, []);
   return (
-    <details ref={ref} className="relative" data-testid={testId} onKeyDown={(e) => e.key === "Escape" && closeMenu(e.currentTarget)}>
-      <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm font-medium whitespace-nowrap text-fg hover:bg-surface-muted [&::-webkit-details-marker]:hidden">
+    <details
+      ref={ref}
+      className="relative"
+      data-testid={testId}
+      onKeyDown={(e) => e.key === "Escape" && closeMenu(e.currentTarget)}
+      onToggle={(e) => {
+        if (e.currentTarget.open) onOpen?.();
+      }}
+    >
+      <summary title={title} className="inline-flex min-h-11 max-w-full cursor-pointer list-none items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm font-medium whitespace-nowrap text-fg hover:bg-surface-muted [&::-webkit-details-marker]:hidden" aria-label={ariaLabel}>
         {icon}
-        {label}
+        {labelClassName ? <span className={labelClassName}>{label}</span> : label}
         {busy}
-        <ChevronDown aria-hidden className="size-4" />
+        <ChevronDown aria-hidden className="size-4 shrink-0" />
       </summary>
       <div
         role="group"

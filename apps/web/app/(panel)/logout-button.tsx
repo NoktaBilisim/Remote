@@ -32,7 +32,7 @@ export function LogoutButton({ userName }: { userName: string }) {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2">
       {failed && (
         <span role="alert" className="text-xs font-medium text-danger">
           {t("panel.logoutFailed")}

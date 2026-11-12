@@ -94,6 +94,10 @@ const wss = new WebSocketServer({ noServer: true });
 /** /ws/panel upgrade: çerez + view yetkisi + tenant bağlamı; aksi 403 (soket yok edilir). */
 export function panelUpgrade(req, sock, head, session) {
   const who = requestUser(session);
+  // P9 (mock-users.mjs): u-us* kullanıcıları da support_requests.view taşır → bildirim soketi açık kalır, olay itilmez
+  if (!who && /^u-us(adm|empty|broken|slow|sa)-/.test(session ?? "") && !new URL(req.url ?? "/", "http://m").search) {
+    return wss.handleUpgrade(req, sock, head, (ws) => ws.on("message", () => ws.close(1008)));
+  }
   if (!who || who.user.role === "SUPER_ADMIN" || new URL(req.url ?? "/", "http://m").search) {
     sock.write("HTTP/1.1 403 Forbidden\r\n\r\n");
     return sock.destroy();

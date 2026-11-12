@@ -103,7 +103,7 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
 - Elle: `docker compose run --rm migrate` · seed: `docker compose --profile setup run --rm seed`.
 - Geri alma (veri kaybı olur, önce yedek): `docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/<ad>/down.sql`, sonra önceki imaj etiketiyle `up -d` (ayrıntı `docs/db-notlari.md`).
 - `app` yetki sınırı kontrolü: `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD CONTAINER=remote-mysql-1 DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh`.
-- **Staging teknisyen hesapları** (gereksinimler §9; P9 kullanıcı yönetimine kadar): `bash staging-users.sh`
+- **Staging teknisyen hesapları** (gereksinimler §9; P9'dan sonra kullanıcılar panelden eklenir — §14.1, betik yalnız staging test hesapları için): `bash staging-users.sh`
   (`deploy/` içinde, yığın ayakta). Demo tenant'ı (seed `NODE_ENV=production`'da oluşturmaz) ve bir ADMIN + bir
   USER oluşturur. Hash server konteynerinde `src/auth/password.ts` (`ARGON2_OPTIONS`, argon2id) ile, SQL
   mysql konteynerinde `app` kullanıcısıyla (utf8mb4) çalışır; `must_change_password=1`. USER'a test için
@@ -111,8 +111,8 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
   `support_requests.view/accept` (P8b), `customers.view/create/edit/delete` (P8c) açılır. Yeni pakette eklenen anahtarlar
   betik tekrar çalıştırılınca mevcut USER hesabına `INSERT IGNORE` ile eklenir (Admin'in elle kapattığı satıra dokunmaz). Tekrar çalıştırmak güvenli: var olan tenant/kullanıcıya dokunmaz, parola ezmez. Parolalar yalnız
   `ACCESS.txt`'e (600) eklenir, ekrana yazılmaz. Oluşturma/yetki olayları audit'e `source: staging-users.sh` ile yazılır.
-  Opsiyonel: `ADMIN_EMAIL=… USER_EMAIL=… ACCESS_FILE=… bash staging-users.sh`. Parola sıfırlama P9'a kadar yok:
-  kullanıcıyı silmek yerine farklı e-postayla yeni hesap açın.
+  Opsiyonel: `ADMIN_EMAIL=… USER_EMAIL=… ACCESS_FILE=… bash staging-users.sh`. Parola sıfırlama P10'a kadar yok:
+  kullanıcıyı pasife alıp (Kullanıcılar ekranı) farklı e-postayla yeni hesap açın.
 
 ### 6.1 P8 yayını — ADR-0014 ön kontrolü (migrate'ten ÖNCE)
 P8 iki migration getirir: `20261111060000_p8_session_history` (sütun + indeks) ve `20261111070000_enum_check_binary`
@@ -918,3 +918,27 @@ P8c-1 staging'de GEÇTİ olduktan sonra §11.3/§11.5 akışıyla (`v0.10.0`, ik
 `--dir --no-attestation` + `ALLOW_UNATTESTED=staging`). Sunucu tarafında ek adım yok (env/Caddy aynı). `MIN_AGENT_VERSION`
 **yükseltilmez** (0.9.x müşteri bağlantısıyla talep açabilir, R21). Geri alma: §11.4; eski istemciye dönüş sunucuyu etkilemez,
 kayıtlar istemcide yeni sürüme kadar kullanılmaz. §8 yayın geçmişine satır.
+
+## 14. P9 — firma (tenant) ve kullanıcı yönetimi (backend-dev, 2026-11-12)
+Yeni env değişkeni, migration veya grant **yok** (tablolar P1'den; `app` kullanıcısının `tenants`, `tenant_settings`,
+`users`, `user_permissions`, `auth_sessions` yetkileri yeterli).
+
+### 14.1 Firma oluşturma — firma doğrulaması (mimari §10.2 P9)
+Super Admin "Firmalar > Yeni firma" (veya `POST /api/v1/admin/tenants`) **öncesinde**:
+1. Talep eden firmanın ticari unvanı ve vergi no'su sözleşme/sipariş kaydıyla eşleşiyor mu (unvan aynen "Firma adı" olur;
+   aydınlatma metninde veri sorumlusu olarak görünür).
+2. İlk Admin olacak kişinin e-postası firmanın kurumsal alan adında mı ve firmanın kayıtlı telefonundan geri aranarak teyit
+   edildi mi (dolandırıcıya firma açılmasın — G-17).
+3. Kısa ad (`slug`) firmayı açıkça tanımlıyor mu; başka firmayı taklit etmiyor mu.
+Sonra: firmaya geç (`switch-tenant`) → Kullanıcılar > Yeni kullanıcı (rol Admin). Geçici şifre **yalnız bir kez**
+gösterilir; Admin'e telefonda veya ayrı kanaldan iletilir (e-postayla aynı mesajda gönderilmez). İlk girişte değiştirilir.
+
+### 14.2 Firma pasife alma (AC-70)
+Tek işlem: kullanıcı oturumları iptal, bekleyen kod oturumları `CANCELLED(tenant_passive)`, etkin oturumlar
+`session.ended{tenant_passive}`, bekleyen talepler `TENANT_PASSIVE`, bilgisayar kayıtları geçersiz. Commit sonrası
+adımlardan biri düşerse log alarmı `tenant_passive_effect` (step = rooms|panels|requests|bindings); yedek yollar
+30 sn talep/kayıt süpürücüsü ve /ws/tech 60 sn yeniden doğrulaması. Yeniden etkinleştirme iptal edilenleri geri getirmez.
+
+### 14.3 Alarm
+`user_live_effect`: yetki/rol/pasif değişikliği canlı oturuma anında yansıtılamadı; 60 sn yeniden doğrulama devralır.
+Tekrarlıyorsa sunucu logunda `err` incelenir.

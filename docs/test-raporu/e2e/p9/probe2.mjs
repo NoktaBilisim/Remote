@@ -1,0 +1,14 @@
+import { chromium, B, WORK, csrfFetch } from "./common.mjs";
+const br = await chromium.launch();
+const a = await (await br.newContext({ storageState: `${WORK}/state-admin.json` })).newPage();
+await a.goto(B + "/users");
+const l = await csrfFetch(a, "GET", "/api/v1/users?q=op-&pageSize=100"); const id = l.body.items[0].id; const em = l.body.items[0].email;
+console.log("deact", (await csrfFetch(a, "POST", `/api/v1/users/${id}/deactivate`, {})).status);
+await a.goto(B + "/users?status=passive"); await a.getByText(em).first().waitFor({ timeout: 8000 }).then(() => console.log("pasif listede: evet"), () => console.log("pasif listede: HAYIR"));
+await a.goto(B + "/users"); await a.waitForLoadState("networkidle"); console.log("aktif listede:", await a.getByText(em).count());
+console.log("react", (await csrfFetch(a, "POST", `/api/v1/users/${id}/reactivate`, {})).status);
+const sa = await (await br.newContext({ storageState: `${WORK}/state-sa.json` })).newPage();
+await sa.goto(B + "/users"); await sa.getByText("E2E Teknisyen 1").first().waitFor({ timeout: 8000 }).catch(() => {});
+const t = await sa.locator("main").innerText(); console.log("SA Demo listesi: Teknisyen1=", t.includes("E2E Teknisyen 1"), "DiğerFirma=", t.includes("Diğer Firma Kişi"));
+await csrfFetch(sa, "POST", "/api/v1/admin/switch-tenant", { tenantId: null });
+await br.close();

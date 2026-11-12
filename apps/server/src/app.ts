@@ -35,6 +35,8 @@ import { RequestService } from "./requests/service.ts";
 import { requestChannels } from "./requests/ws.ts";
 import { customerRoutes } from "./customers/routes.ts";
 import { publicBindingRoutes } from "./bindings/public-routes.ts";
+import { userRoutes } from "./users/routes.ts";
+import { adminTenantRoutes, tenantSettingsRoutes } from "./tenants/routes.ts";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -200,5 +202,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(requestSettingsRoutes, { prefix: "/api/v1/settings/support-requests" });
   void app.register(customerRoutes, { prefix: "/api/v1/customers" });
   void app.register(publicBindingRoutes, { prefix: "/api/v1/public/bindings" });
+  void app.register(userRoutes, { prefix: "/api/v1/users" });
+  void app.register(adminTenantRoutes, { prefix: "/api/v1/admin" });
+  void app.register(tenantSettingsRoutes, { prefix: "/api/v1/settings/tenant" });
   return app;
 }

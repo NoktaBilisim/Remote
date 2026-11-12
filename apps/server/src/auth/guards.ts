@@ -72,9 +72,14 @@ export function requireAnyPerm(...keys: readonly PermissionKey[]) {
   };
 }
 
+/** P9: sistem uçları (`/admin/*`) yalnız SUPER_ADMIN — rol kontrolü, toggle değil (mimari-api "Yetki anahtarları"). */
+export async function requireSuperAdmin(req: FastifyRequest): Promise<void> {
+  if (authOf(req).user.role !== "SUPER_ADMIN") throw new AppError("FORBIDDEN");
+}
+
 /**
  * Tenant verisine erişen her repository fonksiyonuna verilen zorunlu kapsam (AC-69).
- * Super Admin tenant seçmeden tenant verisine erişemez (geçiş P9).
+ * Super Admin tenant seçmeden tenant verisine erişemez (geçiş: POST /admin/switch-tenant).
  */
 export function tenantScope(req: FastifyRequest): { tenantId: string } {
   const { tenantId } = authOf(req);

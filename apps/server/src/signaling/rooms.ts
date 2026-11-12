@@ -295,6 +295,12 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     await Promise.all(mine.map((r) => this.finish(r, "auth_revoked", "SYSTEM")));
   }
 
+  /** P9 (AC-70, AC-115): tenant pasife alındı — o tenant'ın tüm odaları (lobi dahil) `tenant_passive` ile biter. */
+  async endByTenant(tenantId: string): Promise<void> {
+    const mine = [...this.rooms.values()].filter((r) => r.tenantId === tenantId);
+    await Promise.all(mine.map((r) => this.finish(r, "tenant_passive", "SYSTEM")));
+  }
+
   /** Yetki değişimi (S-P3-8): bağlı teknisyenin yetki kümesi tazelenir (sonraki admit caps'i buradan), caps yalnız daralır. */
   async applyPermChange(userId: string, permissions: Iterable<PermissionKey>): Promise<void> {
     const perms: ReadonlySet<PermissionKey> = new Set(permissions);

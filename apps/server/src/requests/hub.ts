@@ -224,6 +224,11 @@ export class RequestHub {
     return this.closePanels((c) => c.userId === userId);
   }
 
+  /** P9: tenant pasife alındı — o tenant bağlamındaki tüm panel soketleri (Super Admin geçişi dahil) 4401. */
+  closeByTenant(tenantId: string): number {
+    return this.closePanels((c) => c.tenantId === tenantId);
+  }
+
   /** G-E9-14: logout (o token). `tokenHash` = SHA-256(çerez). */
   closeByAuthToken(tokenHash: string): number {
     return this.closePanels((c) => c.tokenHash === tokenHash);

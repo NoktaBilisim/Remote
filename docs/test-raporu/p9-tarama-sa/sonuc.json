@@ -1,0 +1,132 @@
+{
+  "ozet": {
+    "kirikLinkler": [],
+    "base": "http://localhost:3228",
+    "tarih": "2026-11-12T13:56:20.956Z",
+    "sayfa": 9,
+    "hataliSayfa": 0,
+    "konsolHatasiOlan": 0,
+    "erisilebilirlikSorunu": 0,
+    "yatayKaydirmaOlan": 0,
+    "yavasSayfa": 0
+  },
+  "sayfalar": [
+    {
+      "route": "/",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 712,
+      "bulunduguSayfa": null,
+      "sonUrl": "/",
+      "baslik": "Ana sayfa · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/users",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 623,
+      "bulunduguSayfa": null,
+      "sonUrl": "/users",
+      "baslik": "Kullanıcılar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/admin/tenants",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 620,
+      "bulunduguSayfa": null,
+      "sonUrl": "/admin/tenants",
+      "baslik": "Firmalar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/admin/tenants?status=passive",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 618,
+      "bulunduguSayfa": null,
+      "sonUrl": "/admin/tenants?status=passive",
+      "baslik": "Firmalar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/sessions",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 614,
+      "bulunduguSayfa": null,
+      "sonUrl": "/sessions",
+      "baslik": "Oturumlar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/requests",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 611,
+      "bulunduguSayfa": null,
+      "sonUrl": "/requests",
+      "baslik": "Talepler · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/customers",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 615,
+      "bulunduguSayfa": null,
+      "sonUrl": "/customers",
+      "baslik": "Müşteriler · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/history",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 616,
+      "bulunduguSayfa": null,
+      "sonUrl": "/history",
+      "baslik": "Oturum geçmişi · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/settings/support-requests",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 614,
+      "bulunduguSayfa": null,
+      "sonUrl": "/settings/support-requests",
+      "baslik": "Destek talepleri ayarları · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    }
+  ]
+}

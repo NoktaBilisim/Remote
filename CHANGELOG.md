@@ -5,6 +5,66 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P9 (kullanıcı, yetki ve firma yönetimi)
+- **Kullanıcılar** ekranı (`/users`, menüde kişi ikonu; `users.view`): arama (ad/e-posta), rol ve durum filtresi,
+  sayfalama. **Yeni kullanıcı** (`users.create`): ad soyad, e-posta, rol (Teknisyen / Yönetici). 16 karakterlik geçici
+  şifre yalnız bir kez gösterilir; kopyalanmadan kapatılırsa uyarı çıkar. Kullanıcı ilk girişte şifresini değiştirir.
+- Kullanıcı detayı (`/users/<id>`): profil, rol, hesap durumu, 2FA durumu (salt okunur) ve **yetki toggle'ları**. Tüm
+  modüller ve alt yetkiler (Görüntüle / Ekle / Düzenle / Sil / Dışa aktar, Kullan, Kabul / ret, Zorla sonlandır) tek
+  tanımdan (`packages/contracts/src/permissions.ts`) üretilir; her modülde "Tümünü aç/kapat". Yalnız değişen alanlar
+  kaydedilir.
+- **Kilitli yetkiler:** işlemi yapanda olmayan yetki kilit simgesiyle gösterilir, verilemez ve değiştirilemez (sunucu
+  da 403 verir). Admin kendisinden geniş yetkili hesabı yönetemez; kimse kendi rolünü/yetkisini değiştiremez ve
+  kendini pasife alamaz. Super Admin hesapları listede görünmez.
+- **Pasife al / Yeniden etkinleştir** (kalıcı silme yok). Pasife alınan kullanıcının oturumları hemen kapanır, açık
+  destek oturumları sonlanır. Rol değişimi de açık oturumları sonlandırır; yalnız yetki değişimi açık oturumlara anında
+  uygulanır.
+- **Firmalar** ekranı (`/admin/tenants`, yalnız Super Admin): firma oluşturma (kısa ad önerisi), düzenleme, arama, durum
+  filtresi, pasife alma (etkiler listelenir, kısa adı yazarak onay), yeniden etkinleştirme, satırdan firmaya geçiş.
+- Üst menüde Super Admin için **firma seçici**: etkin firmayı gösterir, firmaya geçer veya bağlamdan çıkar.
+- API: `/users`, `/users/:id`, `/users/:id/deactivate|reactivate`, `/admin/tenants[/:id[/deactivate|reactivate]]`,
+  `/admin/switch-tenant`, `GET/PUT /settings/tenant` (oturum süresi, açık oturum sınırı, etkin oturum süresi, dosya
+  sınırı, saklama süresi; bu ayarın web ekranı henüz yok). Ayrıntı `docs/api.md`.
+- Audit: `user.created/updated/permission_changed/deactivated/reactivated`, `tenant.created/updated/deactivated/
+  reactivated/switched`, `tenant_settings.updated`. Yetki değişikliği anahtar başına ayrı satırdır (kim, kime, eski → yeni).
+- Firma pasife alınınca tek işlemde kullanıcı oturumları ve bekleyen kod oturumları iptal edilir; ardından açık destek
+  oturumları sonlanır, bekleyen talepler iptal olur ve kayıtlı bilgisayarlar geçersizleşir. Firma oluşturma öncesi
+  doğrulama adımları: runbook §14.1.
+- Şema, migration, yeni ortam değişkeni ve yeni bağımlılık yok.
+
+### Bilinen sınırlamalar — P9
+- Olmayan veya başka firmaya ait kullanıcı sayfası "Kullanıcı bulunamadı" gösterir ama HTTP durumu 200'dür.
+- Açık temada kapalı ve kilitli anahtarların kontrastı zayıf; mobilde etkin menü öğesi görünür alana kaydırılmıyor.
+- Firma seçici ilk 100 aktif firmayı listeler, arama yok.
+- 2FA sıfırlama (P10), avatar (P12) ve audit log ekranı (P11) bu pakette yok. Açık maddeler:
+  `docs/gereksinimler-sonra-acik.md` "P9'dan".
+
+### Düzeltildi — istemci 0.10.2 (Windows; ekran yakalama)
+- Bazı bilgisayarlarda (özellikle hibrit ekran kartlı veya HDR/gelişmiş renk açık notebook'larda) istemci "Ekran
+  görüntüsü alınamadı" diyordu ve hatanın nedeni hiçbir yerde görünmüyordu. İstemci artık sırayla üç yöntemi
+  deniyor: DXGI masaüstü çoğaltma, açılamazsa HDR uyumlu DXGI `DuplicateOutput1` (BGRA), o da olmazsa GDI yedek
+  yakalama (saniyede 10 kare, imleç dahil). Kodlayıcı ve görüntü işleme hattı aynı kalıyor.
+- Hiçbir yöntem çalışmazsa müşterinin durum satırında neden kodu ve kısa bir yönlendirme gösteriliyor. Örnek:
+  "Ekran görüntüsü alınamadı (DXGI_UNSUPPORTED). Ekran kartı ayarını kontrol edin." Kodlar: DXGI_UNSUPPORTED,
+  DXGI_ACCESS_DENIED, DXGI_NOT_AVAILABLE, NO_OUTPUT, D3D_DEVICE, FIRST_FRAME_TIMEOUT, GDI_FAILED, MF_STARTUP,
+  NO_H264_ENCODER, ENCODER_CONFIG, ENCODE_FAILED ve OTHER (HRESULT ile).
+- Yakalamada sorun çıktığında (açılamama, yedek yönteme geçiş, yayın sırasında kodlayıcı hatası) yerel tanılama
+  kaydı yazılıyor: `%LOCALAPPDATA%\NoktaDestek\tanilama.log`. Bu yalnız **kalıcı modda** oluyor, yani bilgisayar kaydı
+  varsa ya da "Bilgilerimi hatırla" açıksa. Kod ile tek seferlik oturumda, süreç yönetici olarak çalışırken veya bir
+  sorun yoksa dosya yazılmıyor; iz bırakmama kuralı (AC-108/AC-138) değişmedi. Neden kodu her durumda ekranda görünüyor.
+- Kayıtta Windows sürümü, monitör, ekran kartı ve HDR bilgisi, denenen yöntemler, neden kodu ve HRESULT var. Kişisel
+  veri, adres, kod ya da anahtar yazılmıyor. Dosya en çok 2 × 128 KB olabiliyor, dolunca dönüyor. Klasör ya da dosya
+  bir bağlantı (symlink/junction) ise hiçbir şey yazılmıyor.
+- Kayıtlı veri silindiğinde log da siliniyor: "Bu bilgisayarı unut", kayıt yokken "Bilgilerimi unut" ve geçersiz
+  kayıt temizliği (kişisel bilgi yoksa).
+- BGRA dışı (ör. HDR FP16) yüzeyde DXGI_UNSUPPORTED ile hemen HDR uyumlu yönteme geçiliyor.
+- Bağımlılık güvenlik güncellemesi: `golang.org/x/net` v0.62.0 (GO-2026-6866, GO-2026-6860), `golang.org/x/crypto`
+  v0.59.0 (GO-2026-5932). Buna bağlı olarak `golang.org/x/sys` v0.50.0 oldu. Yeni modül yok.
+- Neden kodunun teknisyen paneline iletilmesi sonraki pakete kaldı (protokol değişikliği gerekiyor).
+- Gerçek Windows'ta elle testler (implementation.md "Düzeltme — istemci 0.10.2" adım 1–7) bekliyor; prod öncesi zorunlu.
+- Yükseltilmiş (yönetici olarak çalışan) istemcide ayar dosyasının bağlantı/junction denetimi henüz yok (güvenlik Düşük, Sonra).
+- Tekrarlanabilir derleme SHA-256: `85142c14bf6941c2d5c3803b2818f0b1645c95b77704e640c8ff49d4059687bc`.
+
 ### Düzeltildi — istemci 0.10.1 (Windows; teknisyenden müşteriye dosya alımı)
 - Teknisyenin müşteriye gönderdiği dosyalar Windows istemcisinde zaman zaman "Dosya bozuk" sonucuyla
   reddediliyordu (staging'de 270 KB ve 989 KB PNG). Nedeni şuydu: "gönderim bitti" bildirimi, özellikle TURN/relay

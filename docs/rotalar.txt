@@ -1,0 +1,19 @@
+# Remote Support — panel rotaları (apps/web/app/**/page.tsx'ten; P9 tur sayfa testi, 2026-11-12)
+# Dinamik id'ler tarama anında yerel test DB'sinden doldurulur.
+/login
+/change-password
+/
+/sessions
+/requests
+/customers
+/history
+/settings/support-requests
+/users
+/users?status=passive
+/users?role=ADMIN
+/users/01M780K15Q61T2G0VASPHS215X
+/users/01M780K158DPZEQZP6G8RY58S7
+/users/00000000000000000000000000
+/admin/tenants
+/settings/tenant
+/yok-boyle-sayfa

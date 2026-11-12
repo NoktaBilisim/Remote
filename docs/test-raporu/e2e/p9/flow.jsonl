@@ -1,0 +1,77 @@
+{"t":"2026-11-12T13:58:05.092Z","step":"Admin: kullanıcı formu boş/geçersiz/<script> doğrulaması","ok":false,"err":"uzun ad mesajı yok: Yeni kullanıcı\nKullanıcıya geçici bir şifre üretilir; ilk girişte kendi şifresini belirler.\nAd soyad\nE-posta\n\nE-posta adresi geçersiz\n\nRol\nTeknisyen (kullanıcı)\nYönetici (admin)\n\nTeknisyen tüm yetkile"}
+{"t":"2026-11-12T13:58:05.880Z","kind":"axe","label":"temp-password dialog","violations":[]}
+{"t":"2026-11-12T13:58:05.997Z","step":"Admin: kullanıcı oluştur (USER) → geçici şifre bir kez, çift tıklamada tek kayıt","ok":true,"note":"POST isteği=1, kayıt=1, şifre uzunluğu=16, axe=0"}
+{"t":"2026-11-12T13:58:06.086Z","tag":"admin","kind":"http","status":409,"method":"POST","url":"http://localhost:3228/api/v1/users"}
+{"t":"2026-11-12T13:58:06.086Z","tag":"admin","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 409 (Conflict)","url":"http://localhost:3228/users"}
+{"t":"2026-11-12T13:58:06.140Z","step":"Admin: aynı e-posta tekrar → 409 alan hatası","ok":true}
+{"t":"2026-11-12T13:58:07.304Z","step":"Arama: SQL/özel karakter, URL'de kalıcı, yenileme sonrası korunur","ok":true}
+{"t":"2026-11-12T13:58:08.239Z","tag":"op","kind":"http","status":403,"method":"GET","url":"http://localhost:3228/api/v1/users"}
+{"t":"2026-11-12T13:58:08.239Z","tag":"op","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3228/users"}
+{"t":"2026-11-12T13:58:08.245Z","step":"Yeni USER ilk girişte şifre değişimine yönlenir; yetkisiz menü/sayfa","ok":true,"note":"menü: Ana sayfa"}
+{"t":"2026-11-12T13:58:08.417Z","step":"Admin: Admin2'den audit.export kaldır → kaydet → kalıcı","ok":true,"note":"PATCH gövdesi {\"permissions\":{\"audit.export\":false}}"}
+{"t":"2026-11-12T13:58:08.893Z","tag":"admin2","kind":"http","status":403,"method":"PATCH","url":"http://localhost:3228/api/v1/users/01M780TA10VTRDWR6DWWWDYNDF"}
+{"t":"2026-11-12T13:58:08.893Z","tag":"admin2","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3228/users/01M780TA10VTRDWR6DWWWDYNDF"}
+{"t":"2026-11-12T13:58:08.893Z","step":"Admin2: kendinde olmayan audit.export kilitli; API ile verme 403","ok":true,"note":"403 fields=permissions.audit.export"}
+{"t":"2026-11-12T13:58:08.963Z","step":"Admin2: daha geniş yetkili Admin1 salt okunur","ok":true,"note":"Bu kullanıcıyı düzenleme yetkiniz yok; bilgiler salt okunur."}
+{"t":"2026-11-12T13:58:09.954Z","step":"Admin2: USER→ADMIN rol değişimi kaydedilir, kilitli yetki kapalı kalır","ok":true}
+{"t":"2026-11-12T13:58:10.010Z","tag":"admin2","kind":"console","type":"error","text":"Failed to load resource: net::ERR_FAILED","url":"http://localhost:3228/users/01M780TA10VTRDWR6DWWWDYNDF"}
+{"t":"2026-11-12T13:58:11.572Z","step":"Ağ hatası: kaydet isteği abort → hata gösterilir, form korunur","ok":true,"note":"Değişiklikler kaydedilemedi. Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin."}
+{"t":"2026-11-12T13:58:33.045Z","step":"Admin: kullanıcıyı pasife al → açık oturumu düşer, giriş yapamaz → yeniden etkinleştir","ok":false,"err":"eskiOturum=/login girişEngel=true aktifListe=0 pasifListe=0 tekrarGiriş=true"}
+{"t":"2026-11-12T13:58:33.108Z","tag":"admin","kind":"http","status":403,"method":"GET","url":"http://localhost:3228/api/v1/admin/tenants"}
+{"t":"2026-11-12T13:58:33.109Z","tag":"admin","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3228/admin/tenants"}
+{"t":"2026-11-12T13:58:33.109Z","step":"Admin: /admin/tenants uyarı + API 403","ok":true}
+{"t":"2026-11-12T13:58:33.116Z","tag":"admin","kind":"http","status":400,"method":"PUT","url":"http://localhost:3228/api/v1/settings/tenant"}
+{"t":"2026-11-12T13:58:33.116Z","tag":"admin","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 400 (Bad Request)","url":"http://localhost:3228/admin/tenants"}
+{"t":"2026-11-12T13:58:33.131Z","step":"AC-4: PUT /settings/tenant aralık dışı 400, geçerli 200","ok":true,"note":"400 fields=sessionTtlMin"}
+{"t":"2026-11-12T13:58:33.730Z","tag":"sa","kind":"http","status":409,"method":"POST","url":"http://localhost:3228/api/v1/admin/tenants"}
+{"t":"2026-11-12T13:58:33.730Z","tag":"sa","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 409 (Conflict)","url":"http://localhost:3228/admin/tenants"}
+{"t":"2026-11-12T13:58:33.872Z","step":"SA: firma oluştur (boş, demo çakışması 409, <script> ad)","ok":true}
+{"t":"2026-11-12T13:58:34.393Z","step":"SA: yeni firmaya geç → boş kullanıcı listesi → kullanıcı ekle","ok":true}
+{"t":"2026-11-12T13:58:34.400Z","tag":"admin","kind":"http","status":404,"method":"GET","url":"http://localhost:3228/api/v1/users/01M780V60KDV6ZJ8XTB5FFH4PA"}
+{"t":"2026-11-12T13:58:34.400Z","tag":"admin","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 404 (Not Found)","url":"http://localhost:3228/admin/tenants"}
+{"t":"2026-11-12T13:58:34.410Z","tag":"admin","kind":"http","status":404,"method":"PATCH","url":"http://localhost:3228/api/v1/users/01M780V60KDV6ZJ8XTB5FFH4PA"}
+{"t":"2026-11-12T13:58:34.410Z","tag":"admin","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 404 (Not Found)","url":"http://localhost:3228/admin/tenants"}
+{"t":"2026-11-12T13:58:34.445Z","step":"Tenant izolasyonu: Demo Admin başka firmanın kullanıcısına → API 404 + bulunamadı ekranı","ok":false,"err":"GET 404 PATCH 404 ekran 0"}
+{"t":"2026-11-12T13:58:36.076Z","step":"SA: Demo'ya geç → yalnız Demo kullanıcıları; bağlamdan çık","ok":false,"err":"liste karışık"}
+{"t":"2026-11-12T13:58:36.621Z","tag":"sa","kind":"http","status":404,"method":"POST","url":"http://localhost:3228/api/v1/admin/switch-tenant"}
+{"t":"2026-11-12T13:58:36.621Z","tag":"sa","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 404 (Not Found)","url":"http://localhost:3228/admin/tenants"}
+{"t":"2026-11-12T13:58:37.097Z","step":"SA: firmayı pasife al (kısa ad onayı) → switcher'da yok → yeniden etkinleştir","ok":true}
+{"t":"2026-11-12T13:58:37.259Z","step":"Çıkış yapılmış: korumalı URL'ler login'e","ok":true,"note":"/login?next=%2Fusers | /login?next=%2Fusers%2F01M780TA10VTRDWR6DWWWDYNDF | /login?next=%2Fadmin%2Ftenants"}
+{"t":"2026-11-12T13:58:37.345Z","step":"Geri tuşu: kayıt sonrası geri/ileri tutarlı","ok":true}
+{"t":"2026-11-12T13:58:38.509Z","kind":"axe","label":"users light desk","violations":[]}
+{"t":"2026-11-12T13:58:38.511Z","kind":"overflow","label":"users light desk","doc":0,"inner":[]}
+{"t":"2026-11-12T13:58:39.527Z","kind":"axe","label":"user-detail light desk","violations":[]}
+{"t":"2026-11-12T13:58:39.528Z","kind":"overflow","label":"user-detail light desk","doc":0,"inner":[]}
+{"t":"2026-11-12T13:58:40.446Z","kind":"axe","label":"tenants light desk","violations":[]}
+{"t":"2026-11-12T13:58:40.448Z","kind":"overflow","label":"tenants light desk","doc":0,"inner":[]}
+{"t":"2026-11-12T13:58:40.940Z","kind":"axe","label":"tenant-form light desk","violations":[]}
+{"t":"2026-11-12T13:58:40.942Z","step":"Görsel/axe light desk","ok":true}
+{"t":"2026-11-12T13:58:42.133Z","kind":"axe","label":"users light m375","violations":[]}
+{"t":"2026-11-12T13:58:42.135Z","kind":"overflow","label":"users light m375","doc":0,"inner":[]}
+{"t":"2026-11-12T13:58:43.416Z","kind":"axe","label":"user-detail light m375","violations":[]}
+{"t":"2026-11-12T13:58:43.417Z","kind":"overflow","label":"user-detail light m375","doc":0,"inner":[]}
+{"t":"2026-11-12T13:58:44.346Z","kind":"axe","label":"tenants light m375","violations":[]}
+{"t":"2026-11-12T13:58:44.347Z","kind":"overflow","label":"tenants light m375","doc":6,"inner":["div[flex items-center gap-2] right=381","button[inline-flex min-h-11 cursor-pointer items-center j] right=381"]}
+{"t":"2026-11-12T13:58:44.829Z","kind":"axe","label":"tenant-form light m375","violations":[]}
+{"t":"2026-11-12T13:58:44.831Z","step":"Görsel/axe light m375","ok":false,"err":"tenants: axe= taşma=6 div[flex items-center gap-2] right=381,button[inline-flex min-h-11 cursor-pointer items-center j] right=381"}
+{"t":"2026-11-12T13:58:45.996Z","kind":"axe","label":"users dark desk","violations":[]}
+{"t":"2026-11-12T13:58:45.998Z","kind":"overflow","label":"users dark desk","doc":0,"inner":[]}
+{"t":"2026-11-12T13:58:46.118Z","tag":"dark-desk","kind":"console","type":"error","text":"WebSocket connection to 'ws://localhost:3228/ws/panel' failed: Error during WebSocket handshake: Unexpected response code: 429","url":"http://localhost:3228/users/01M780TA10VTRDWR6DWWWDYNDF"}
+{"t":"2026-11-12T13:58:46.959Z","kind":"axe","label":"user-detail dark desk","violations":[]}
+{"t":"2026-11-12T13:58:46.961Z","kind":"overflow","label":"user-detail dark desk","doc":0,"inner":[]}
+{"t":"2026-11-12T13:58:47.887Z","kind":"axe","label":"tenants dark desk","violations":[]}
+{"t":"2026-11-12T13:58:47.895Z","kind":"overflow","label":"tenants dark desk","doc":0,"inner":[]}
+{"t":"2026-11-12T13:58:48.392Z","kind":"axe","label":"tenant-form dark desk","violations":[]}
+{"t":"2026-11-12T13:58:48.394Z","step":"Görsel/axe dark desk","ok":true}
+{"t":"2026-11-12T13:58:48.518Z","tag":"dark-m375","kind":"console","type":"error","text":"WebSocket connection to 'ws://localhost:3228/ws/panel' failed: Error during WebSocket handshake: Unexpected response code: 429","url":"http://localhost:3228/users"}
+{"t":"2026-11-12T13:58:49.538Z","tag":"dark-m375","kind":"console","type":"error","text":"WebSocket connection to 'ws://localhost:3228/ws/panel' failed: Error during WebSocket handshake: Unexpected response code: 429","url":"http://localhost:3228/users"}
+{"t":"2026-11-12T13:58:49.598Z","kind":"axe","label":"users dark m375","violations":[]}
+{"t":"2026-11-12T13:58:49.599Z","kind":"overflow","label":"users dark m375","doc":0,"inner":[]}
+{"t":"2026-11-12T13:58:49.731Z","tag":"dark-m375","kind":"console","type":"error","text":"WebSocket connection to 'ws://localhost:3228/ws/panel' failed: Error during WebSocket handshake: Unexpected response code: 429","url":"http://localhost:3228/users/01M780TA10VTRDWR6DWWWDYNDF"}
+{"t":"2026-11-12T13:58:50.748Z","tag":"dark-m375","kind":"console","type":"error","text":"WebSocket connection to 'ws://localhost:3228/ws/panel' failed: Error during WebSocket handshake: Unexpected response code: 429","url":"http://localhost:3228/users/01M780TA10VTRDWR6DWWWDYNDF"}
+{"t":"2026-11-12T13:58:50.873Z","kind":"axe","label":"user-detail dark m375","violations":[]}
+{"t":"2026-11-12T13:58:50.875Z","kind":"overflow","label":"user-detail dark m375","doc":0,"inner":[]}
+{"t":"2026-11-12T13:58:51.783Z","kind":"axe","label":"tenants dark m375","violations":[]}
+{"t":"2026-11-12T13:58:51.784Z","kind":"overflow","label":"tenants dark m375","doc":6,"inner":["div[flex items-center gap-2] right=381","button[inline-flex min-h-11 cursor-pointer items-center j] right=381"]}
+{"t":"2026-11-12T13:58:52.273Z","kind":"axe","label":"tenant-form dark m375","violations":[]}
+{"t":"2026-11-12T13:58:52.275Z","step":"Görsel/axe dark m375","ok":false,"err":"tenants: axe= taşma=6 div[flex items-center gap-2] right=381,button[inline-flex min-h-11 cursor-pointer items-center j] right=381"}

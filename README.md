@@ -4,13 +4,12 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P8, P8b ve P8c tamamlandı (Windows elle testleri bekliyor)
-İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P8 ve P8b-1 tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0,
-sayfa testi GEÇTİ). **P8b-2** (istemci 0.9.x "Destek iste") kod olarak tamam ve staging'de. **P8c-1** (Müşteriler modülü
-+ bilgisayar kaydı, sunucu + panel) staging'de: qa GEÇTİ, güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ
-(`docs/arsiv/p8c1-test-raporu.md`). **P8c-2** (Windows istemci **0.10.0**: kalıcı "Destek iste") qa GEÇTİ, güvenlik
-Kritik/Yüksek 0; staging'de attestation'sız yayında. Gerçek Windows'ta elle testler (P7, P8b-2, P8c-2) ve AC-192 staging
-ölçümü bekliyor. Sıradaki paket P9 (kullanıcı/yetki yönetimi); açık maddeler `docs/gereksinimler-sonra-acik.md`.
+## Şu anki durum: P1–P9 tamamlandı (Windows elle testleri bekliyor)
+İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P8, P8b-1, P8c-1 ve **P9** (kullanıcı, yetki ve firma
+yönetimi) tamamlandı: qa GEÇTİ, güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ (`docs/arsiv/p9-qa-raporu.md`,
+`docs/arsiv/p9-test-raporu.md`). Windows istemci **0.10.2** (ekran yakalama yedekleri ve neden kodu) qa ve güvenlik
+denetiminden geçti. Gerçek Windows'ta elle testler (P7, P8b-2, P8c-2, 0.10.2) ve AC-192 staging ölçümü bekliyor.
+Sıradaki paket P10 (2FA, SMTP); açık maddeler `docs/gereksinimler-sonra-acik.md`.
 
 Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.126.217.99:4450` geçiş süresince açık).
 
@@ -222,6 +221,29 @@ Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.
 - Tekrarlanabilir derleme SHA-256 `5255edc87840f18b28eb608c705bf2c16230a3a7cb0da49145a46e5ecbf721f3`. Yayın: runbook
   §11 (`build.sh … 0.10.0`), §13.7.
 
+**İstemci 0.10.1 / 0.10.2 (düzeltmeler)**
+- 0.10.1: teknisyenin gönderdiği dosyalar geç gelen son parçalar yüzünden "Dosya bozuk" olabiliyordu; istemci son
+  parçaları en çok 10 sn bekler.
+- 0.10.2: ekran yakalama sırayla DXGI → DXGI `DuplicateOutput1` (HDR) → GDI (10 fps) dener. Hepsi başarısız olursa
+  müşterinin durum satırında neden kodu görünür (ör. "Ekran görüntüsü alınamadı (DXGI_UNSUPPORTED). Ekran kartı ayarını
+  kontrol edin."). Kalıcı modda ve yalnız sorun olduğunda `%LOCALAPPDATA%\NoktaDestek\tanilama.log` yazılır (≤ 256 KB,
+  kişisel veri yok; kod modunda ve yönetici olarak çalışırken yazılmaz). SHA-256
+  `85142c14bf6941c2d5c3803b2818f0b1645c95b77704e640c8ff49d4059687bc`.
+
+**P9 — kullanıcı, yetki ve firma yönetimi**
+- **Kullanıcılar** (`/users`): arama, rol/durum filtresi; **Yeni kullanıcı** geçici şifreyi yalnız bir kez gösterir,
+  kullanıcı ilk girişte şifresini değiştirir. Detayda profil, rol, hesap durumu ve modül bazlı **yetki toggle'ları**
+  ("Tümünü aç/kapat"). Yetki listesi tek tanımdan gelir (`packages/contracts/src/permissions.ts`); yeni modül eklenince
+  ekrana kendiliğinden düşer.
+- İşlemi yapanda olmayan yetki **kilitli** görünür ve verilemez (sunucu da 403). Admin kendinden geniş yetkili hesabı
+  yönetemez; kimse kendi rolünü/yetkisini değiştiremez. **Pasife al / Yeniden etkinleştir**; kalıcı silme yok.
+- Pasife alma ve rol değişimi kullanıcının açık destek oturumlarını hemen sonlandırır; yalnız yetki değişimi açık
+  oturumlara anında uygulanır.
+- **Firmalar** (`/admin/tenants`, Super Admin): oluştur, düzenle, pasife al (kısa adı yazarak onay), yeniden etkinleştir.
+  Üst menüdeki **firma seçici** ile firmaya geçilir veya bağlamdan çıkılır.
+- `GET/PUT /settings/tenant` (oturum süresi, sınırlar, saklama süresi) yalnız API'de; ekranı P10'da.
+- Şema, migration, yeni env yok. Firma oluşturma öncesi doğrulama: runbook §14.1.
+
 **Düzeltme — talepten doğan oturumda siyah ekran:** sunucu teknisyene ICE (TURN) listesini `peer.joined`'dan önce
 gönderir, konsol liste gelmeden teklif üretmez (`6701567`).
 
@@ -229,9 +251,10 @@ API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.m
 Kullanım (müşteri, teknisyen, yönetici): [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
 Ürün föyü: [`docs/DATASHEET.md`](docs/DATASHEET.md).
 
-**Staging'de teknisyen hesabı:** Seed yalnız Super Admin oluşturur. Super Admin tenant seçmeden destek oturumu
-açamaz (403; tenant geçişi P9); oturum geçmişini ise firma seçmeden tüm firmalar için görür. Kullanıcı yönetimi ekranı P9'da gelene kadar ADMIN/USER hesabı
-`deploy/staging-users.sh` ile eklenir (`docs/runbook.md` §6).
+**İlk hesaplar:** Seed yalnız Super Admin oluşturur (ilk girişte şifre değişimi zorunlu). Super Admin "Firmalar"
+ekranından firma oluşturur, üst menüden o firmaya geçer ve **Kullanıcılar > Yeni kullanıcı** ile firmanın ilk Admin'ini
+ekler (runbook §14.1). Super Admin firma seçmeden destek oturumu açamaz; oturum geçmişini firma seçmeden tüm firmalar için
+görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanılabilir (`docs/runbook.md` §6).
 
 ## Yol haritası
 | Paket | Kapsam |
@@ -247,7 +270,7 @@ açamaz (403; tenant geçişi P9); oturum geçmişini ise firma seçmeden tüm f
 | P8b-2 (kod ✓, Windows elle test bekliyor) | Windows istemci 0.9.0: "Destek iste" formu, bekleme ekranı, 503 yeniden deneme |
 | P8c-1 ✓ | Müşteri firmalar (Müşteriler modülü), müşteri başına kalıcı bağlantı, bilgisayar kaydı (sunucu + panel) |
 | P8c-2 (kod ✓, Windows elle test bekliyor) | Windows istemci 0.10.0: kalıcı "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut" |
-| P9 | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
+| P9 ✓ | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
 | P10 | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış |
 | P11 | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri |
 | P12 | Logo/avatar yükleme, kullanıcı tema tercihi |
@@ -386,18 +409,25 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 `e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
-### Son test sonuçları (P8, 2026-11-11)
+### Son test sonuçları (P9, 2026-11-12)
+| Takım | Sonuç |
+|---|---|
+| Birim (`pnpm -r run test`) | 546: server 285, web 193, contracts 68 |
+| Server entegrasyon (`test:int`) | 384 (40 dosya); P9: `users-p9`, `tenants-p9`, `permissions-ac72-p9`, tenant izolasyon matrisi |
+| Web e2e (sahte API/WS) | 221 geçti + 78 atlandı (masaüstü akışlarının mobil kopyaları); P9 spec'i `e2e/p9-users.spec.ts` |
+| Windows istemci 0.10.2 (`go test`, linux docker) | 19/19 paket ok, race temiz; govulncheck "No vulnerabilities found" |
+| gitleaks | `apps/server/src`, `apps/web`, `packages`, `docs`: çıkış 0 |
+
+Sayfa testi (`docs/arsiv/p9-test-raporu.md`): gerçek sunucu + MySQL ile 33 sayfa (Admin 24, Super Admin 9), masaüstü ve
+mobil, açık/koyu; axe 0 ihlal, JS hatası 0, 24 akış adımı.
+
+#### Önceki paket (P8, 2026-11-11)
 | Takım | Sonuç |
 |---|---|
 | Birim (`pnpm -r run test`) | 442: server 256, web 136, contracts 50 |
-| Server entegrasyon (`test:int`) | 216 (25 dosya); P8 dosyası filtreler, İstanbul gün sınırı, IDOR, PATCH, CSV (BOM, formül kaçışı, 5/dk, 1205 satır keyset) |
-| AC-60 performans (10.000 oturum, ilk sayfa) | ADMIN 2,4 ms · USER 2,2 ms · Super Admin tüm firmalar 2,0 ms · API uçtan uca 6,7 ms (sınır 500 ms) |
-| Web e2e (sahte API/WS) | 174 geçti + 54 atlandı (masaüstü akışlarının mobil kopyaları); P8 spec'i `e2e/p8-history.spec.ts` |
-| DB | 8 migration, `prisma migrate diff` fark yok, `check-app-grants.sh` 148/148 |
-| Windows istemci (`go test -race`, linux) | 15/15 paket ok (yeni: `internal/capture/cursor_test.go`); iki derleme aynı SHA-256 |
-
-Sayfa testi (`docs/test-raporu.md`): 16 sayfa/durum × 6 görünüm (1280/1440/390, açık/koyu), axe 0 ihlal, kırık link 0,
-konsol hatası 0. CSV gerçek sunucu ve MySQL ile üretilip bayt düzeyinde doğrulandı.
+| Server entegrasyon (`test:int`) | 216 (25 dosya) |
+| Web e2e (sahte API/WS) | 174 geçti + 54 atlandı |
+| AC-60 performans (10.000 oturum, ilk sayfa) | ADMIN 2,4 ms · USER 2,2 ms · Super Admin 2,0 ms · API 6,7 ms (sınır 500 ms) |
 
 #### Önceki paketler (P7, 2026-11-11)
 | Takım | Sonuç |
@@ -520,6 +550,9 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 - Müşteriler ve bilgisayar kaydı (P8c): kayıt anahtarı 256 bit, sunucuda yalnız SHA-256, log/audit'te yok; yalnız talep
   açar (resolve/join/WS/TURN uçlarında kabul edilmez). Geçersiz ref ve kayıt tek tip 404 döner. Kayıt başına 1 bekleyen
   ve saatte 6 talep. İstemci anahtarı yalnız kaydı veren sunucuya gönderir. Audit'te müşteri yetkili kişi verisi maskeli.
+- Kullanıcı ve yetki yönetimi (P9): yetki kontrolü her uçta sunucuda; sahip olunmayan yetki verilemez, kendinden geniş
+  yetkili hesap yönetilemez, Super Admin hesapları firma uçlarında görünmez. Geçici şifre yalnız oluşturma yanıtında döner
+  ve loga yazılmaz. Her yetki değişikliği anahtar başına audit'e yazılır.
 - Konteynerler salt okunur kök dosya sistemi, `cap_drop: ALL`, root olmayan kullanıcıyla çalışır; imajlar digest ile sabitlenir.
 - CI: `pnpm audit`, lisans denetimi (GPL/AGPL yasak), gitleaks. Repoya gizli bilgi girmez.
 - Ayrıntı: `docs/guvenlik-raporu.md`, ADR'ler `docs/adr/`.

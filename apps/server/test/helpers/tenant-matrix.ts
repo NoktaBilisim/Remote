@@ -11,7 +11,8 @@ import { createCustomerRow, createRequestRow } from "./requests.ts";
 
 // P8b: "scoped" = tenantScope'lu koleksiyon/ayar ucu (id'siz); izolasyonu requests-p8b.test.ts ("AC-147/148") ve
 // requests-p8b-5.test.ts ("AC-147", "AC-148: Super Admin", "AC-129") test eder.
-export type RouteClass = "public" | "self" | "tenant" | "list" | "scoped";
+// P9: "system" = yalnız SUPER_ADMIN (/admin/*); tenant kullanıcısı (ADMIN dahil) → 403 (tenant-isolation.test.ts).
+export type RouteClass = "public" | "self" | "tenant" | "list" | "scoped" | "system";
 
 export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /health": "public",
@@ -68,6 +69,22 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /api/v1/customers/:id/sessions": "tenant",
   "POST /api/v1/public/bindings/status": "public",
   "POST /api/v1/public/bindings/revoke": "public",
+  // P9 kullanıcı/yetki/firma yönetimi (koleksiyon izolasyonu: users-p9.test.ts "AC-69")
+  "GET /api/v1/users": "scoped",
+  "POST /api/v1/users": "scoped",
+  "GET /api/v1/users/:id": "tenant",
+  "PATCH /api/v1/users/:id": "tenant",
+  "POST /api/v1/users/:id/deactivate": "tenant",
+  "POST /api/v1/users/:id/reactivate": "tenant",
+  "GET /api/v1/settings/tenant": "scoped",
+  "PUT /api/v1/settings/tenant": "scoped",
+  "GET /api/v1/admin/tenants": "system",
+  "POST /api/v1/admin/tenants": "system",
+  "GET /api/v1/admin/tenants/:id": "system",
+  "PATCH /api/v1/admin/tenants/:id": "system",
+  "POST /api/v1/admin/tenants/:id/deactivate": "system",
+  "POST /api/v1/admin/tenants/:id/reactivate": "system",
+  "POST /api/v1/admin/switch-tenant": "system",
 };
 
 export interface TwoTenants {
@@ -98,6 +115,13 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
   ...(["rotate-ref", "deactivate", "reactivate"] as const).map((a) => ({
     route: `POST /api/v1/customers/:id/${a}`,
     request: (fx: TwoTenants): InjectOptions => ({ method: "POST", url: `/api/v1/customers/${fx.a.customerId}/${a}`, payload: {} }),
+  })),
+  // P9: A tenant'ının kullanıcısını B Admin'i hedefler → 404
+  { route: "GET /api/v1/users/:id", request: (fx) => ({ method: "GET", url: `/api/v1/users/${fx.a.user.id}` }) },
+  { route: "PATCH /api/v1/users/:id", request: (fx) => ({ method: "PATCH", url: `/api/v1/users/${fx.a.user.id}`, payload: { fullName: "Başka Firma" } }) },
+  ...(["deactivate", "reactivate"] as const).map((a) => ({
+    route: `POST /api/v1/users/:id/${a}`,
+    request: (fx: TwoTenants): InjectOptions => ({ method: "POST", url: `/api/v1/users/${fx.a.user.id}/${a}`, payload: {} }),
   })),
   { route: "POST /api/v1/support-requests/:id/reject", request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/reject`, payload: { message: "Şu an müsait değiliz" } }) },
 ];

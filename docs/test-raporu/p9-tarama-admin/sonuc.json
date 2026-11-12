@@ -1,0 +1,351 @@
+{
+  "ozet": {
+    "kirikLinkler": [
+      {
+        "rota": "/settings/tenant",
+        "durum": 404,
+        "bulunduguSayfa": null
+      },
+      {
+        "rota": "/yok-boyle-sayfa",
+        "durum": 404,
+        "bulunduguSayfa": null
+      }
+    ],
+    "base": "http://localhost:3228",
+    "tarih": "2026-11-12T13:55:54.000Z",
+    "sayfa": 24,
+    "hataliSayfa": 2,
+    "konsolHatasiOlan": 2,
+    "erisilebilirlikSorunu": 3,
+    "yatayKaydirmaOlan": 0,
+    "yavasSayfa": 0
+  },
+  "sayfalar": [
+    {
+      "route": "/login",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 640,
+      "bulunduguSayfa": null,
+      "sonUrl": "/",
+      "baslik": "Ana sayfa · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/change-password",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 559,
+      "bulunduguSayfa": null,
+      "sonUrl": "/change-password",
+      "baslik": "Şifrenizi değiştirin · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 619,
+      "bulunduguSayfa": null,
+      "sonUrl": "/",
+      "baslik": "Ana sayfa · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/sessions",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 618,
+      "bulunduguSayfa": null,
+      "sonUrl": "/sessions",
+      "baslik": "Oturumlar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/requests",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 625,
+      "bulunduguSayfa": null,
+      "sonUrl": "/requests",
+      "baslik": "Talepler · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/customers",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 632,
+      "bulunduguSayfa": null,
+      "sonUrl": "/customers",
+      "baslik": "Müşteriler · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/history",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 617,
+      "bulunduguSayfa": null,
+      "sonUrl": "/history",
+      "baslik": "Oturum geçmişi · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/settings/support-requests",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [
+        "erişilebilir adı olmayan buton: <button id=\"_R_7aaav5ubtdivb_\" type=\"button\" role=\"switch\" aria-checked=\"false\" aria-labelledby=\"_R_",
+        "erişilebilir adı olmayan buton: <button id=\"_R_vaaav5ubtdivb_\" type=\"button\" role=\"switch\" aria-checked=\"false\" aria-labelledby=\"_R_"
+      ],
+      "sure": 613,
+      "bulunduguSayfa": null,
+      "sonUrl": "/settings/support-requests",
+      "baslik": "Destek talepleri ayarları · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/users",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 626,
+      "bulunduguSayfa": null,
+      "sonUrl": "/users",
+      "baslik": "Kullanıcılar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/users?status=passive",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 624,
+      "bulunduguSayfa": null,
+      "sonUrl": "/users?status=passive",
+      "baslik": "Kullanıcılar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/users?role=ADMIN",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 623,
+      "bulunduguSayfa": null,
+      "sonUrl": "/users?role=ADMIN",
+      "baslik": "Kullanıcılar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/users/01M780K15Q61T2G0VASPHS215X",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 623,
+      "bulunduguSayfa": null,
+      "sonUrl": "/users/01M780K15Q61T2G0VASPHS215X",
+      "baslik": "E2E Teknisyen 2 · Kullanıcılar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/users/01M780K158DPZEQZP6G8RY58S7",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 626,
+      "bulunduguSayfa": null,
+      "sonUrl": "/users/01M780K158DPZEQZP6G8RY58S7",
+      "baslik": "E2E Teknisyen 1 · Kullanıcılar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/users/00000000000000000000000000",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [
+        "sayfada h1 yok"
+      ],
+      "sure": 629,
+      "bulunduguSayfa": null,
+      "sonUrl": "/users/00000000000000000000000000",
+      "baslik": "Kullanıcılar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/admin/tenants",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 611,
+      "bulunduguSayfa": null,
+      "sonUrl": "/admin/tenants",
+      "baslik": "Firmalar · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/settings/tenant",
+      "status": 404,
+      "konsolHatalari": [
+        "[error] Failed to load resource: the server responded with a status of 404 (Not Found)"
+      ],
+      "jsHatalari": [],
+      "basarisizIstekler": [
+        "404 GET http://localhost:3228/settings/tenant"
+      ],
+      "erisilebilirlik": [],
+      "sure": 588,
+      "bulunduguSayfa": null,
+      "sonUrl": "/settings/tenant",
+      "baslik": "Sayfa bulunamadı · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/yok-boyle-sayfa",
+      "status": 404,
+      "konsolHatalari": [
+        "[error] Failed to load resource: the server responded with a status of 404 (Not Found)"
+      ],
+      "jsHatalari": [],
+      "basarisizIstekler": [
+        "404 GET http://localhost:3228/yok-boyle-sayfa"
+      ],
+      "erisilebilirlik": [],
+      "sure": 590,
+      "bulunduguSayfa": null,
+      "sonUrl": "/yok-boyle-sayfa",
+      "baslik": "Sayfa bulunamadı · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/requests?tab=history",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 626,
+      "bulunduguSayfa": "/requests",
+      "sonUrl": "/requests?tab=history",
+      "baslik": "Talepler · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/customers/01M780K0K4QJ00SJ2ZQKKXWX75",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 622,
+      "bulunduguSayfa": "/customers",
+      "sonUrl": "/customers/01M780K0K4QJ00SJ2ZQKKXWX75",
+      "baslik": "Müşteri detayı · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/requests?tab=history&status=ACCEPTED",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 618,
+      "bulunduguSayfa": "/requests?tab=history",
+      "sonUrl": "/requests?tab=history&status=ACCEPTED",
+      "baslik": "Talepler · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/requests?tab=history&status=CANCELLED",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 620,
+      "bulunduguSayfa": "/requests?tab=history",
+      "sonUrl": "/requests?tab=history&status=CANCELLED",
+      "baslik": "Talepler · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/requests?tab=history&status=EXPIRED",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 621,
+      "bulunduguSayfa": "/requests?tab=history",
+      "sonUrl": "/requests?tab=history&status=EXPIRED",
+      "baslik": "Talepler · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/requests?tab=history&status=REJECTED",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 613,
+      "bulunduguSayfa": "/requests?tab=history",
+      "sonUrl": "/requests?tab=history&status=REJECTED",
+      "baslik": "Talepler · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    },
+    {
+      "route": "/requests?tab=history&status=CONNECT_FAILED",
+      "status": 200,
+      "konsolHatalari": [],
+      "jsHatalari": [],
+      "basarisizIstekler": [],
+      "erisilebilirlik": [],
+      "sure": 621,
+      "bulunduguSayfa": "/requests?tab=history",
+      "sonUrl": "/requests?tab=history&status=CONNECT_FAILED",
+      "baslik": "Talepler · Nokta Uzaktan Destek",
+      "yatayKaydirma": false
+    }
+  ]
+}

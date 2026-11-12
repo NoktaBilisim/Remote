@@ -60,4 +60,18 @@ describe("tenant izolasyonu (AC-69 test aracı)", () => {
       expect(res.statusCode, c.route).toBe(404);
     }
   });
+
+  it("AC-70/AC-69: sistem uçları (/admin/*) yalnız SUPER_ADMIN — tenant Admin'i ve User 403", async () => {
+    const system = routes.filter((r) => ROUTE_CLASSES[r] === "system");
+    expect(system.length).toBeGreaterThanOrEqual(7);
+    for (const who of [fx.b.admin, fx.b.user]) {
+      const s = await loginAs(app, who);
+      for (const route of system) {
+        const [method, path] = route.split(" ") as [string, string];
+        const url = path.replace(":id", fx.a.tenantId);
+        const res = await app.inject({ method: method as "GET", url, headers: s.headers, ...(method === "GET" ? {} : { payload: {} }) });
+        expect(res.statusCode, route).toBe(403);
+      }
+    }
+  });
 });

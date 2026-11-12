@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, History, House, Inbox, MonitorSmartphone, Settings, type LucideIcon } from "lucide-react";
+import { Building, Building2, History, House, Inbox, MonitorSmartphone, Settings, Users, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { RequestCountBadge } from "@/components/request-notifier";
@@ -8,18 +8,21 @@ import { t, type MessageKey } from "@/lib/i18n";
 
 // Yalnız mevcut sayfalar; yeni modül eklendiğinde buraya ikonuyla eklenir (std. 1.8)
 // `perm`: öğe yalnız bu yetki varsa görünür (arka uç da her uçta denetler).
-const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string }[] = [
+// `superAdmin`: yalnız SUPER_ADMIN rolü (toggle değil; arka uç da rol denetler).
+const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string; superAdmin?: boolean }[] = [
   { href: "/", label: "panel.home", Icon: House },
   { href: "/sessions", label: "nav.sessions", Icon: MonitorSmartphone, perm: "sessions.view" },
   { href: "/requests", label: "nav.requests", Icon: Inbox, perm: "support_requests.view" },
   { href: "/customers", label: "nav.customers", Icon: Building2, perm: "customers.view" },
   { href: "/history", label: "nav.history", Icon: History, perm: "session_history.view" },
+  { href: "/users", label: "nav.users", Icon: Users, perm: "users.view" },
   { href: "/settings/support-requests", label: "nav.settings", Icon: Settings, perm: "settings.edit" },
+  { href: "/admin/tenants", label: "nav.tenants", Icon: Building, superAdmin: true },
 ];
 
-export function SideNav({ permissions }: { permissions: readonly string[] }) {
+export function SideNav({ permissions, role }: { permissions: readonly string[]; role: string }) {
   const pathname = usePathname();
-  const visible = items.filter((i) => !i.perm || permissions.includes(i.perm));
+  const visible = items.filter((i) => (!i.perm || permissions.includes(i.perm)) && (!i.superAdmin || role === "SUPER_ADMIN"));
   return (
     <nav aria-label={t("panel.nav")} className="px-2 py-2 md:py-4">
       <ul className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">

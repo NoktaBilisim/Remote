@@ -40,3 +40,24 @@ export const BINDING_AUDIT = {
   /** r2 §15.1: bayat kaynaktan kayıt istendi (actor customer, entity_id NULL). */
   DENIED: "binding.denied",
 } as const;
+
+/**
+ * P9 kullanıcı/yetki/firma yönetimi audit eylemleri (AC-70, AC-74; ortak standart 1.3). Entity `users` / `tenants` /
+ * `tenant_settings`. `user.permission_changed`: anahtar başına bir satır — kim (user_id), kime (entity_id),
+ * hangi yetki (`permKey`), eski → yeni (`granted`).
+ */
+export const USER_AUDIT = {
+  CREATED: "user.created",
+  UPDATED: "user.updated",
+  PERMISSION_CHANGED: "user.permission_changed",
+  DEACTIVATED: "user.deactivated",
+  REACTIVATED: "user.reactivated",
+} as const;
+export const TENANT_AUDIT = {
+  CREATED: "tenant.created",
+  UPDATED: "tenant.updated",
+  DEACTIVATED: "tenant.deactivated",
+  REACTIVATED: "tenant.reactivated",
+  SWITCHED: "tenant.switched",
+  SETTINGS_UPDATED: "tenant_settings.updated",
+} as const;

@@ -1,8 +1,33 @@
 # Gereksinimler — "Sonra / açık" takip tabloları
 Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (bölüm 9'un devamıdır, ayrılmaz parçasıdır). Boyut nedeniyle 2026-11-12'de ana dosyadan taşındı; P2..P8 tabloları içerik değiştirilmeden taşındı, yeni paketlerin tabloları en üste eklenir.
 
+### Sonra / açık — P9'dan (2026-11-12)
+Kaynak: `docs/guvenlik-raporu.md` (P9 — Kod turu 1; B-P9-1 düzeltme turu 1'de kapatıldı), `docs/arsiv/p9-qa-raporu.md`
+(Tur 2 Öneriler), `docs/arsiv/p9-test-raporu.md` (sayfa testi), `docs/guvenlik-raporu-0.10.2.md` (Tur 2),
+`docs/arsiv/0.10.2-qa-raporu.md`, `docs/implementation.md` ("Düzeltme — istemci 0.10.2 ekran yakalama").
+
+| Madde | Ne yapılacak | Sahip | Ne zaman |
+|---|---|---|---|
+| B-P9-2 (Düşük) aktör yetkisi TX dışında (TOCTOU) | `users/service.ts`: TX içinde aktör + hedef satırları id sırasıyla `FOR UPDATE`; aktörün durum/rol/etkin yetkisi TX içinde yeniden okunup `canManage`/`assertGrantable` buna göre çalışsın | backend-dev | Sonra |
+| B-P9-3 (Düşük) 409 e-posta çakışması tenant'lar arası hesap varlığını sızdırır | Tekil giriş kimliği korunur; yönetim uçlarına kullanıcı başı hız sınırı (B-P9-4) + 409'ların `result: "fail"` ile audit'e yazılması | backend-dev | Sonra |
+| B-P9-4 (Düşük) `/users` ve `/admin/*` yazma uçlarında hız sınırı yok | `FixedWindowCounter` deseniyle kullanıcı başı ~30 yazma/dk, `POST /users` 10/dk; aşımda `RATE_LIMITED` | backend-dev | Sonra |
+| B-P9-5 (Düşük) reddedilen yetki işlemleri audit'e düşmüyor | `assertGrantable`/`canManage`/kendi hesabı 403 dallarında TX dışında `result: "fail"` audit (`newValue: { denied: [...anahtarlar] }`, PII yok) | backend-dev | Sonra |
+| B-P9-6 (Düşük) tenant pasif sonrası adım düşer + 30 sn içinde yeniden aktifleşme | `revokeForTenant` ve `cancelAllForTenant` pasif TX'ine taşınsın (commit sonrası yalnız bellek/soket adımları) ya da `reactivateTenant` TX'inde pasif anından önceki kayıt/talepler iptal edilsin (mimari-e10 §3.4) | backend-dev | Sonra |
+| Rol değişiminde kayıp güncelleme (QA önerisi 1) | Rol değişince istemci tüm yetki anahtarlarını gönderir; sayfa açıkken başka yöneticinin yaptığı kilitsiz anahtar değişikliği eski değerle ezilir (yetki yükseltmesi yok). `UserDetail`'e `updatedAt`/ETag, PATCH'te `If-Match` → 409; B-P9-2 ile birlikte ele alınabilir | backend-dev + frontend-dev | Sonra |
+| Rol geri alınınca ezmeler kayboluyor (QA önerisi 2) | `user-editor.tsx`: rol değiştirilip kaydetmeden eski role dönülünce kilitsiz anahtarlar rol varsayılanına iner, kayıtlı ezmeler ekranda kaybolur. Rol `base.role`'a dönünce `basePerms` geri yüklensin | frontend-dev | Sonra |
+| Rol değişimi + tam yetki haritası entegrasyon testi (QA önerisi 3) | `users-p9`'a: ADMIN aktör, kilitli anahtar, rol değişimi + tam harita PATCH → 200 ve fazladan audit satırı yok | backend-dev | Sonra |
+| `users.delete` anahtarı hiçbir ucu korumuyor (QA önerisi) | Kalıcı kullanıcı silme yok; pasife alma `users.edit` ile. Anahtar toggle listesinde açıklamasıyla duruyor. Ya bir uca bağlanacak ya da mimar kararıyla tanımdan çıkarılacak | mimar → backend-dev | Sonra |
+| Firma seçici yalnız ilk 100 firma, arama yok (QA önerisi) | Üst menü seçicisi `GET /admin/tenants?status=active&pageSize=100` kullanıyor; 100'den fazla firmada arama kutusu (sunucu `q` destekliyor) eklenmeli | frontend-dev | Sonra |
+| `/users/<olmayan id>` HTTP 200 + h1 yok (sayfa testi, Düşük) | Ekran "Kullanıcı bulunamadı" gösteriyor ama yanıt 200 (`loading.tsx` akış sınırı; P8c müşteri sayfasıyla aynı neden); `not-found.tsx` başlığı h1 olmalı. API 404 veriyor, veri sızmıyor | frontend-dev | Sonra |
+| Açık temada kapalı/kilitli toggle kontrastı (sayfa testi, Düşük, WCAG 1.4.11) | Kapalı anahtarın izi ve kilitli anahtar beyaz zeminde çok açık; ≥ 3:1 olacak şekilde `switch.tsx` token'ı (DESIGN.md) güncellensin, iki temada ölçülsün | frontend-dev | Sonra |
+| Mobilde etkin menü öğesi görünmüyor (sayfa testi, Düşük) | 375–390 px yatay menüde "Kullanıcılar"/"Firmalar" ekran dışında kalıyor; `side-nav.tsx`'te `aria-current` öğeye `scrollIntoView({ inline: "nearest" })` | frontend-dev | Sonra |
+| `/settings/tenant` web ekranı yok (sayfa testi, Bilgi) | AC-4 yalnız API düzeyinde (`GET/PUT /settings/tenant`). Oturum süresi, açık oturum sınırı, dosya sınırı ve saklama süresi ekranı SMTP/2FA ayarlarıyla birlikte gelecek | frontend-dev | P10 |
+| İstemci: yükseltilmiş süreçte `remember` deposu reparse/TOCTOU (güvenlik 0.10.2 Tur 2, Düşük, CWE-59/CWE-367) | Yönetici olarak çalışan istemcide `hatirla.bin` yazma/silme (ve `forgetAll`'un log silmesi) junction'a karşı korumasız; tanılama logunda da `Lstat` ile açma arasında pencere var. `SelfElevated` iken depo salt okunur/kapalı veya `diag.safe` eşdeğeri; tam çözüm `CreateFile(FILE_FLAG_OPEN_REPARSE_POINT)` + handle üzerinden silme | backend-dev (Go) | Sonra (bir sonraki istemci sürümü) |
+| Windows elle testleri — istemci 0.10.2 | `docs/implementation.md` "Düzeltme — istemci 0.10.2 ekran yakalama" adım 1–7: normal masaüstü regresyonu (log oluşmamalı), HDR → DXGI1, hibrit GPU → GDI ~10 fps, log içeriğinde kişisel veri yok, GDI'da kontrol pencereleri görünmez, "Bu bilgisayarı unut" logu siler, Windows N kodları. Tekrarlanabilir derleme SHA'sı bu turda yeniden üretilmedi | test-operatoru / kullanıcı (Windows notebook) | Staging'de, prod açılışından önce (zorunlu) |
+| Neden kodunun teknisyen paneline iletilmesi (0.10.2) | Bugün neden kodu yalnız müşterinin durum satırında ve yerel logda; teknisyen telefonda sormak zorunda. `share.state`'e `reason` ve `method` alanları (contracts + sunucu şeması + konsol gösterimi) | mimar → backend-dev + frontend-dev | Sonra |
+
 ### Sonra / açık — P8c'den (2026-11-12)
-Kaynak: `docs/guvenlik-raporu.md` (E10/P8c-2 Kod turu 1–2), `docs/qa-raporu.md` (P8c-2 Tur 1–2; P8c-1 raporu
+Kaynak: `docs/guvenlik-raporu.md` (E10/P8c-2 Kod turu 1–2), `docs/arsiv/p8c2-qa-raporu.md` (P8c-2 Tur 1–2; P8c-1 raporu
 `docs/arsiv/p8c1-qa-raporu.md`), `docs/arsiv/p8c1-test-raporu.md`, `docs/implementation.md` (P8c-1 düzeltme turu 2, P8c-2).
 
 | Madde | Ne yapılacak | Sahip | Ne zaman |

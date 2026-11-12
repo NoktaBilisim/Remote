@@ -4,20 +4,23 @@ Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekr
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
 - **Müşteri için:** Hızlı Destek uygulaması (Windows), "Destek iste" ile talep gönderme, bilgisayarın hatırlanması
-  ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni
-- **Teknisyen için:** Uzaktan kontrol (konsol), Oturum geçmişi, Destek talepleri
+  ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, ekran görüntüsü alınamazsa ne yapılır,
+  bilgisayarda ne kalır (iz ve gizlilik)
+- **Teknisyen için:** Uzaktan kontrol (konsol), Oturum geçmişi, Destek talepleri, müşterinin ekranı gelmiyorsa
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, kayıtlı bilgisayarlar)
-- **Admin için:** Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi yetkileri, Ayarlar > Destek talepleri
-- **Super Admin için:** Tüm firmaların oturum geçmişi, destek talepleri
+- **Admin için:** Kullanıcılar ve yetkiler, Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi yetkileri,
+  Ayarlar > Destek talepleri
+- **Super Admin için:** Firmalar ve firma geçişi, tüm firmaların oturum geçmişi, destek talepleri
 
-Teknisyen konsolunun diğer bölümleri ve yönetim paneli, ilgili ekranlar tamamlandıkça eklenecektir.
+Audit log ekranı, SMTP/2FA ayarları, logo ve avatar ilgili paketlerle (P10–P12) eklenecektir.
 
 ---
 
 ## Müşteri için: Hızlı Destek uygulaması (Windows)
 
 Hızlı Destek, teknisyenin ekranınızı görmesini sağlayan küçük bir Windows programıdır. Kurulum gerektirmez,
-yönetici şifresi sormaz, bilgisayarınızda iz bırakmaz. Program kapandığında hiçbir parçası çalışmaya devam etmez.
+yönetici şifresi sormaz, bilgisayarınızda iz bırakmaz (istisnalar: bkz. "Bilgisayarımda ne kalır?"). Program
+kapandığında hiçbir parçası çalışmaya devam etmez.
 
 **Ne gerekir?**
 - Windows 10 veya Windows 11 yüklü bir bilgisayar.
@@ -217,7 +220,8 @@ yeniden izin istemesi gerekir.
 | Sunucuya ulaşılamıyor | İnternet bağlantınızı kontrol edip tekrar deneyin. |
 | Bekleme odası dolu | Birkaç dakika sonra tekrar deneyin. |
 | Sayfanın süresi doldu; bilgiler yenilendi. Lütfen yeniden onaylayın. | Adınızı ve onay kutusunu yeniden kontrol edip **Bağlan**'a tıklayın. |
-| Ekran görüntüsü alınamadı; teknisyen ekranınızı göremiyor. | Teknisyeninize söyleyin. Windows "N" sürümlerinde Media Feature Pack gerekir. Sohbet ve dosya yine çalışır. |
+| Ekran görüntüsü alınamadı (KOD). … | Parantez içindeki kodu teknisyeninize okuyun; bkz. "Ekran görüntüsü alınamadı yazıyor". Sohbet ve dosya yine çalışır. |
+| Ekran görüntüsü alınamadı; teknisyen ekranınızı göremiyor. | Eski sürüm (0.10.1 ve öncesi) bu metni kodsuz gösterir. Teknisyeninize söyleyin; Windows "N" sürümlerinde Media Feature Pack gerekir. |
 | Bağlantı kesildi | İnternetinizi kontrol edin. Kod hâlâ geçerliyse programı yeniden açın. |
 | Bu program hatalı derlenmiş (sunucu adresi yok). | Dosya bozuk veya yanlış. Teknisyeninizden yeni bir indirme bağlantısı isteyin. |
 | Program dosyası okunamadı. | Dosyayı yeniden indirip tekrar deneyin. |
@@ -376,6 +380,62 @@ oturumdan sonra bilgisayar yeniden hatırlanır.
 yaparsanız oturum sonunda "Bu bilgisayar artık <yeni firma> için kayıtlı." yazar.
 
 **Paylaşılan bilgisayardaysanız** işiniz bitince **Bu bilgisayarı unut**'a tıklayın.
+
+### "Ekran görüntüsü alınamadı" yazıyor (Hızlı Destek 0.10.2 ve sonrası)
+Program ekranınızı üç farklı yolla okumayı dener; biri çalışırsa teknisyen ekranınızı görür (eski bilgisayarlarda ve
+bazı dizüstülerde görüntü biraz daha yavaş akabilir). Hiçbiri çalışmazsa pencerenin alt satırında şuna benzer bir mesaj
+çıkar:
+
+> Ekran görüntüsü alınamadı (DXGI_UNSUPPORTED). Ekran kartı ayarını kontrol edin.
+
+Parantez içindeki **kodu teknisyeninize telefonda okuyun**. Mesajın devamı ilk yapmanız gerekeni söyler:
+
+| Kod | Ne yapmalı |
+|---|---|
+| DXGI_UNSUPPORTED | Ekran kartı ayarını kontrol edin (ör. HDR açıksa kapatıp yeniden deneyin). |
+| DXGI_ACCESS_DENIED | Kilit ekranı veya Windows onay penceresi açıksa kapatın. |
+| DXGI_NOT_AVAILABLE | Tam ekran çalışan uygulamayı (oyun, sunum) kapatıp tekrar deneyin. |
+| NO_OUTPUT | Ekran kablosunu / monitör bağlantısını kontrol edin. |
+| D3D_DEVICE | Ekran kartı sürücüsünü kontrol edin (teknisyeniniz yardımcı olur). |
+| FIRST_FRAME_TIMEOUT | Ekran yanıt vermedi; tekrar deneyin. |
+| MF_STARTUP, NO_H264_ENCODER | Windows'un "N" sürümünde Windows Medya Özellik Paketi gerekir. |
+| GDI_FAILED, ENCODER_CONFIG, ENCODE_FAILED, OTHER 0x… | Kodu teknisyeninize bildirin. |
+
+Teknisyeniniz isterse bilgisayarınızdaki tanılama dosyasını da gönderebilirsiniz (bkz. aşağıdaki bölüm). Sohbet, dosya
+ve destek talebi bu sırada çalışmaya devam eder.
+
+### Bilgisayarımda ne kalır? (iz ve gizlilik)
+- **Kodla bir kez bağlandıysanız** (bilgisayar kaydı yok, "Bilgilerimi hatırla" işaretsiz): program kapandıktan sonra
+  bilgisayarınızda hiçbir şey kalmaz. Ekran sorunu yaşansa bile dosya yazılmaz.
+- **Bilgisayarınız hatırlanıyorsa** veya **"Bilgilerimi hatırla"** açıksa: `%LOCALAPPDATA%\NoktaDestek` klasöründe
+  şifreli ayar dosyası `hatirla.bin` bulunur.
+- Aynı klasörde, **yalnız ekran görüntüsü alınamadığında** ve program yönetici olarak çalıştırılmadıysa, bir de
+  **tanılama dosyası** oluşur: `tanilama.log` (dolunca eskisi `tanilama.log.1` olur; ikisi birlikte en çok 256 KB).
+  - İçinde yalnız teknik bilgi vardır: tarih, program sürümü, Windows sürümü, monitör sayısı ve çözünürlüğü, ekran
+    kartının adı, HDR açık mı, hangi yöntemin denendiği ve neden kodu.
+  - **Adınız, telefonunuz, e-postanız, kullanıcı veya bilgisayar adınız, dosya yollarınız, sunucu adresi, kodlar ve
+    anahtarlar yazılmaz.** Ekran görüntüsü de yazılmaz.
+  - Dosya otomatik olarak hiçbir yere gönderilmez. Teknisyeniniz isterse dosyayı kendiniz (ör. e-postayla) iletirsiniz.
+    Klasörü açmak için Windows tuşu + R'ye basın, `%LOCALAPPDATA%\NoktaDestek` yazıp Enter'a basın.
+- **Silmek için:** ana ekranda **Bu bilgisayarı unut**'a tıklayın; ayar dosyası, tanılama dosyası ve boş kalan klasör
+  silinir. Kayıt yokken **Bilgilerimi unut** da aynı şekilde her şeyi siler.
+
+---
+
+## Teknisyen için: Müşterinin ekranı gelmiyorsa
+Hızlı Destek 0.10.2 ve sonrası ekranı okuyamazsa bunu yalnız **müşterinin penceresinde** gösterir; konsolunuzda ekran
+siyah kalır veya "paylaşılmıyor" görünür. Neden kodu henüz konsola gelmez.
+
+1. Müşteriden pencerenin alt satırındaki mesajı ve **parantez içindeki kodu** okumasını isteyin (ör. `DXGI_UNSUPPORTED`).
+   Kod tablosu: müşteri bölümündeki "Ekran görüntüsü alınamadı yazıyor".
+2. Mesajdaki yönlendirmeyi birlikte uygulayın (HDR'yi kapatma, kilit/onay penceresini kapatma, tam ekran uygulamayı
+   kapatma vb.), sonra müşteri paylaşımı yeniden başlatır.
+3. Sorun sürüyorsa ve müşterinin bilgisayarı kayıtlıysa veya "Bilgilerimi hatırla" açıksa, müşteriden
+   `%LOCALAPPDATA%\NoktaDestek\tanilama.log` dosyasını göndermesini isteyin (Windows + R → yolu yazıp Enter).
+   Dosyada kişisel veri yoktur; ekran kartı, Windows sürümü, HDR ve denenen yöntemler görünür. Kod ile tek seferlik
+   bağlanan müşteride bu dosya oluşmaz; o durumda kod ve Windows sürümü yeterlidir.
+4. `MF_STARTUP` veya `NO_H264_ENCODER` görürseniz müşterinin Windows'u "N" sürümüdür: Windows Medya Özellik Paketi
+   kurulmalıdır.
 
 ---
 
@@ -701,13 +761,94 @@ bilgisayarı o müşteri için kaydedilir; müşteri bir sonraki seferde doğrud
 
 ---
 
+## Admin için: Kullanıcılar ve yetkiler
+Menüde **Kullanıcılar** (kişi simgesi) yalnız "Kullanıcılar → Görüntüle" yetkisi olanlara görünür. Burada firmanızdaki
+teknisyenleri ve yöneticileri eklersiniz, rollerini ve yetkilerini düzenlersiniz.
+
+**Roller**
+| Rol | Başlangıç yetkileri |
+|---|---|
+| Teknisyen (kullanıcı) | Tüm yetkiler **kapalı** başlar; ihtiyaç duyduklarını siz açarsınız |
+| Yönetici (admin) | Tüm yetkiler **açık** başlar (sizde olmayanlar hariç) |
+| Süper Yönetici | Tüm yetkilere rolüyle sahiptir; bu listede görünmez, buradan değiştirilmez |
+
+### Kullanıcı listesi
+- Arama kutusuna ad soyadın veya e-postanın bir kısmını yazın (en az 2 karakter).
+- **Rol** (Tüm roller / Yönetici / Teknisyen) ve **Durum** (Aktif / Pasif / Tümü) filtreleri adres satırında saklanır;
+  sayfayı yenileseniz de kalır.
+- Kendi satırınızda "(siz)" yazar. "Son giriş" boşsa "Henüz giriş yapmadı" görünür; eski oturum kayıtları zamanla silindiği
+  için bu her zaman "hiç girmedi" anlamına gelmez.
+
+### Nasıl kullanıcı eklerim?
+1. **Yeni kullanıcı**'ya tıklayın.
+2. **Ad soyad**, **E-posta** ve **Rol** girin. E-posta tüm sistemde tekildir; kullanılıyorsa "Bu e-posta ile bir kullanıcı
+   zaten var" yazar.
+3. **Kullanıcıyı oluştur**'a tıklayın. Ekranda 16 karakterlik **geçici şifre** görünür.
+4. **Şifreyi kopyala** ile alın ve kullanıcıya yüz yüze veya telefonla iletin; e-postayla aynı mesajda göndermeyin.
+   **Bu şifre yalnız şimdi gösterilir**; kapattıktan sonra kimse tekrar göremez. Kopyalamadan kapatmaya çalışırsanız
+   uyarı çıkar (**Şifreye dön** / **Yine de kapat**).
+5. Kullanıcı ilk girişte kendi şifresini belirler. Teknisyen eklediyseniz **Yetkileri düzenle** ile ihtiyaç duyduğu
+   yetkileri açın; aksi hâlde menüde yalnız Ana sayfa görür.
+
+Şifre sıfırlama bu sürümde yoktur; şifre sıfırlama e-postası P10 ile gelecektir.
+
+### Yetkileri nasıl açar/kapatırım?
+1. Listeden kullanıcıya tıklayın. Sağda **Yetkiler** tablosu açılır: her satır bir modül (Oturumlar, Uzaktan kontrol,
+   Dosya transferi, Oturum geçmişi, Destek talepleri, Müşteriler, Kullanıcılar, Ayarlar, Audit log), sütunlar alt
+   yetkiler (Görüntüle, Ekle, Düzenle, Sil, Dışa aktar; "Diğer" sütununda Zorla sonlandır, Kullan, Kabul / ret).
+2. Anahtarları açıp kapatın. **Tümü** sütunundaki anahtar o modülün tüm alt yetkilerini birlikte açar veya kapatır;
+   bir kısmı açıksa yarım görünür. Anlamı adından anlaşılmayan yetkilerin açıklaması ekrandaki "Yetki
+   açıklamaları" bölümündedir. "Uygulanmaz" yazan hücrede o modülün böyle bir yetkisi yoktur.
+3. Altta "Kaydedilmemiş değişiklikler" çubuğu çıkar. **Kaydet** ile kaydedin, **Vazgeç** ile geri alın. Kaydetmeden
+   sayfadan çıkmaya çalışırsanız uyarı alırsınız.
+4. Kaydedince yeni yetkiler kullanıcının **açık destek oturumlarına hemen** uygulanır; kaldırılan yetkiye bağlı işlem
+   (ör. uzaktan kontrol) kapanır. Her değişiklik denetim kaydına "kim, kime, hangi yetki, eski → yeni" olarak yazılır.
+
+Not: "Kullanıcılar → Sil" anahtarı şu an hiçbir işlemi açmaz; kullanıcı kalıcı silinmez, pasife alma "Düzenle" yetkisiyle
+yapılır.
+
+### Kilitli yetkiler
+- Sizde olmayan bir yetki tabloda **kilit simgesiyle** ve soluk görünür. Bunu başkasına veremez, açık olanı da
+  kapatamazsınız. "Tümü" anahtarı kilitli yetkilere dokunmaz.
+- Denerseniz (ör. başka sekmede sizin yetkiniz azaldıysa) "… yetkisine sizin sahip olmadığınız için bu yetkiyi
+  veremezsiniz" yazar; diğer değişiklikleriniz formda kalır.
+- Sizden **daha geniş yetkili** bir hesabı (sizde olmayan bir yetkisi açık olanı) düzenleyemez ve pasife alamazsınız;
+  ekran salt okunur açılır.
+- **Kendi hesabınızda** rolünüzü ve yetkilerinizi değiştiremez, kendinizi pasife alamazsınız. Bunu başka bir yönetici
+  veya Süper Yönetici yapar.
+
+### Rolü değiştirmek
+- Rol değişince kilitsiz yetkiler yeni rolün başlangıç değerine döner (Yönetici → hepsi açık, Teknisyen → hepsi kapalı);
+  kilitli yetkiler olduğu gibi kalır. Kaydetmeden önce tabloyu kontrol edin.
+- **Önemli:** Rol değişikliği kaydedilince kullanıcının **açık destek oturumları sonlanır**; müşteriyle bağlantısı kesilir.
+  Teknisyeni Yönetici'ye yükseltmeden (veya geri almadan) önce açık oturumu olmadığından emin olun.
+
+### Pasife alma ve yeniden etkinleştirme
+1. Kullanıcı detayında **Kullanıcıyı pasife al**'a tıklayın. Onay penceresinde odak güvenli seçenek olan **Vazgeç**'tedir.
+2. **Pasife al** ile onaylayın. Kullanıcı **hemen tüm cihazlarda** oturumdan çıkar, giriş yapamaz, açık destek oturumları
+   sonlanır.
+3. Pasif kullanıcıyı listede **Durum: Pasif** filtresiyle bulursunuz. **Yeniden etkinleştir** ile geri açarsınız; rolü ve
+   yetkileri önceki gibi kalır.
+
+### Sık karşılaşılan mesajlar (Kullanıcılar)
+| Mesaj | Ne yapmalı |
+|---|---|
+| Kullanıcıları görüntüleme yetkiniz yok. | "Kullanıcılar → Görüntüle" yetkisini yöneticinizden isteyin. |
+| Bu e-posta ile bir kullanıcı zaten var | Başka bir e-posta girin (e-posta tüm firmalarda tekildir). |
+| Bu kullanıcıyı düzenleme yetkiniz yok; bilgiler salt okunur. | Kullanıcı sizden geniş yetkili veya sizde "Düzenle" yetkisi yok. |
+| Bu kullanıcı pasif; giriş yapamaz ve düzenlenemez. | Önce **Yeniden etkinleştir**. |
+| Kullanıcı bulunamadı | Kullanıcı başka firmaya ait veya adres yanlış; **Kullanıcılara dön**. |
+| Değişiklikler kaydedilemedi | İnternet bağlantınızı kontrol edip tekrar **Kaydet**'e basın; değerleriniz formda durur. |
+
+---
+
 ## Admin için: Uzaktan kontrol yetkisi ve kayıtlar
 
 ### Yetki
 - Uzaktan kontrol **Uzaktan kontrol → Kullan** (`remote_control.use`) yetkisine bağlıdır. Yetkisi olmayan teknisyen
   konsolda kontrol düğmesini görmez; sunucu da isteği reddeder.
-- Kullanıcı yetki ekranı (aç/kapa anahtarları) P9 paketiyle gelecektir. O zamana kadar staging hesapları
-  `deploy/staging-users.sh` ile oluşturulur ve teknisyen hesabına bu yetki açık gelir (`docs/runbook.md` §6).
+- Bu yetki **Kullanıcılar** ekranındaki yetki anahtarlarından açılıp kapatılır (bkz. "Admin için: Kullanıcılar ve
+  yetkiler").
 - **Yetki kaldırılınca:** teknisyenin bağlantısı her 60 saniyede bir yeniden denetlenir. Yetki kaldırıldıysa açık
   kontrol kapanır, müşteri tarafında "Uzaktan kontrol sunucu tarafından kapatıldı." yazar ve teknisyen yeni istek
   gönderemez. Hesap pasife alınır veya rolü değişirse teknisyenin tüm oturumları sonlanır. Oturum sırasında yetki
@@ -736,10 +877,10 @@ müşterinin onayı kaydedilmeden teknisyen bilgisayarı kullanamaz.
 ## Admin için: Oturum geçmişi
 
 - Admin firmasındaki **tüm teknisyenlerin** oturumlarını görür; listede **Teknisyen** sütunu ve filtresi vardır.
-  Teknisyen filtresinin seçenekleri şimdilik o sayfadaki kayıtlardan gelir (tam liste kullanıcı yönetimiyle, P9).
+  Teknisyen filtresinin seçenekleri şimdilik o sayfadaki kayıtlardan gelir.
 - Yetkiler üç ayrı anahtardır: **Oturum geçmişi → Görüntüle** (`session_history.view`), **Düzenle** (ticket/not,
   `session_history.edit`), **Dışa aktar** (CSV, `session_history.export`). Admin'de varsayılan açık, User'da kapalıdır.
-  Yetki ekranı P9'da gelir; o zamana kadar staging teknisyen hesabına yalnız görüntüleme açılır.
+  Bu anahtarlar **Kullanıcılar** ekranındaki yetki tablosundan açılıp kapatılır.
 - Güvenlik gereği bekleyen bir oturumun 8 haneli kodu yalnız oturumu açan teknisyene gösterilir.
 - Kayıtlar: not/ticket değişikliği `session.updated` (not metni değil, yalnız uzunluğu), her dışa aktarma
   `session.exported` (filtreler ve satır sayısı; aranan müşteri adı değil) olarak denetim kaydına yazılır.
@@ -790,16 +931,50 @@ Firma başına toplam bekleyen talep sınırı (50) güvenilen ağlar için de g
 
 ### Yetkiler ve kayıtlar
 - **Destek talepleri → Görüntüle** (`support_requests.view`) kuyruğu, **Kabul et** (`support_requests.accept`) kabul ve
-  reddi açar. Admin'de varsayılan açık, User'da kapalıdır; yetki ekranı P9'da gelir. Staging'de teknisyen (User)
-  hesabına bu yetkiler varsayılan olarak verilmez.
+  reddi açar. Admin'de varsayılan açık, User'da kapalıdır; **Kullanıcılar** ekranındaki yetki tablosundan açılır.
 - Kabul, ret, iptal, süre dolumu, ayar değişikliği (eski → yeni), bağlantı yenileme, WhatsApp gönderimi ve testi
   denetim kaydına yazılır. Müşteri adı, telefonu ve açıklaması denetim kaydına yazılmaz.
+
+## Super Admin için: Firmalar ve firma geçişi
+Menüde **Firmalar** (bina simgesi) yalnız Süper Yönetici'ye görünür. Diğer roller bu adresi açarsa "Bu sayfa yalnız
+Süper Yönetici içindir" uyarısı çıkar.
+
+### Firma seçici (üst menü)
+- Üst menüde bina simgesiyle **etkin firma** görünür ("Firma seçilmedi" veya firma adı). Tıklayınca aktif firmalar listelenir
+  (ilk 100; arama henüz yok). Bir firmaya tıklayınca o firmaya geçersiniz; **Firma bağlamından çık** ile çıkarsınız.
+- Firma seçiliyken Kullanıcılar, Talepler, Müşteriler ve Ayarlar o firmanın verisini gösterir. Seçili değilken bu
+  ekranlar "Firma seçin" der; Oturum geçmişi ise tüm firmaları gösterir.
+- Her geçiş denetim kaydına yazılır. Mobilde seçici yalnız simge olarak görünür; işlem yapmadan önce doğru firmada
+  olduğunuzu firma listesinden kontrol edin.
+
+### Nasıl firma oluştururum?
+1. Önce firmayı doğrulayın: ticari unvan ve vergi no sözleşmeyle eşleşmeli, ilk yöneticinin e-postası firmanın
+   alan adında olmalı ve firmanın kayıtlı telefonundan teyit edilmeli (`docs/runbook.md` §14.1).
+2. **Firmalar > Yeni firma**'ya tıklayın. **Firma adı**'nı yazın (müşterinin aydınlatma metninde görünür).
+3. **Kısa ad** addan önerilir; yalnız küçük harf, rakam ve tire içerir ve giriş adresinde kullanılır. Kullanılıyorsa
+   "Bu kısa ad başka bir firmada kullanılıyor" yazar.
+4. **Firmayı oluştur**. Firma varsayılan ayarlar ve aydınlatma metniyle açılır.
+5. Satırdaki **Bu firmaya geç**'e tıklayın, sonra **Kullanıcılar > Yeni kullanıcı** ile rolü **Yönetici** olan ilk
+   kullanıcıyı ekleyin. Geçici şifreyi ayrı bir kanaldan iletin.
+
+### Firmayı düzenleme
+**Düzenle** ile adı ve kısa adı değiştirebilirsiniz. Kısa ad değişirse firmanın eski giriş bağlantıları çalışmaz.
+
+### Firmayı pasife alma ve yeniden etkinleştirme
+1. Satırdaki **Pasife al**'a tıklayın. Pencere etkileri listeler: firmanın tüm kullanıcılarının oturumu kapanır ve giriş
+   yapamazlar; açık destek oturumları sonlanır; bekleyen destek talepleri iptal edilir; kayıtlı bilgisayarların kayıtları
+   geçersiz olur.
+2. Onaylamak için firmanın **kısa adını** yazın ve **Firmayı pasife al**'a tıklayın.
+3. Pasif firma seçicide görünmez. **Yeniden etkinleştir** ile kullanıcılar tekrar giriş yapabilir; iptal edilen talepler
+   ve bilgisayar kayıtları geri gelmez, müşteriler bir sonraki başarılı oturumda yeniden kaydolur.
+
+---
 
 ## Super Admin için: Tüm firmaların oturum geçmişi
 
 - Super Admin firma seçmeden **Oturum geçmişi**'ni açtığında tüm firmaların oturumlarını görür. Listede ve CSV'de
   ek **Firma** sütunu, filtrelerde **Firma** seçimi bulunur.
-- Firma seçimi (firma değiştirme) P9 ile gelir; seçili firmada yalnız o firmanın oturumları görünür.
+- Üst menüdeki firma seçiciyle bir firmaya geçtiğinizde yalnız o firmanın oturumları görünür.
 - **Destek talepleri:** Super Admin firma seçmeden **Talepler** ve **Ayarlar** ekranlarında "Önce firma seçin" uyarısını
   görür. Firma seçiliyken o firmanın kuyruğunu görür ve ayarlarını düzenleyebilir; talep **kabul edemez ve
   reddedemez** (oturum teknisyenin kendi firmasında açılır).

@@ -1,3 +1,137 @@
+# Güvenlik Raporu — P9 (kullanıcı/yetki/tenant yönetimi) — Kod turu 2 (2026-11-12)
+DURUM: GEÇTİ (Kritik/Yüksek 0)
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 5 (B-P9-2..6 taşınan, Sonra listesinde) — yeni bulgu yok
+
+Kapsam: Bu tur dar kapsamlı. Üç konuya bakıldı:
+- Tur 1 B-P9-1'in kapanışı.
+- B-P9-2..6'nın Sonra listesine yazılması.
+- Frontend `apps/web/lib/users/form.ts` `buildUpdateUser` değişikliği: rol değişince tüm anahtarlar ekrandaki değerleriyle gönderiliyor. Bunun AC-73 ve yetki yükseltme açısından etkisi, sunucu tarafında (`apps/server/src/users/service.ts`) doğrulandı.
+
+`apps/agent-win` kapsam dışı (ayrı rapor: `docs/guvenlik-raporu-0.10.2.md`). Testler tekrar koşulmadı.
+
+## Tur 1 bulgularının durumu
+| Bulgu | Durum | Kanıt |
+|---|---|---|
+| B-P9-1 (Orta) gitleaks yanlış pozitifleri | **Kapandı** | `apps/server/src/lib/ids.ts:40`: satır içi `// gitleaks:allow`, aynı satırda gerekçeli. `apps/web/e2e/mock-users.mjs:173`: `// gitleaks:allow`, gerekçe bir üst satırda (`:172`). İstisnalar satır düzeyinde; `.gitleaks.toml`'a yol ya da kural istisnası eklenmedi. `gitleaks dir` sonucu: `apps/server/src` ve `apps/web/e2e` çıkış kodu 0. |
+| B-P9-2..6 (Düşük) | **Sonra** (kabul) | `docs/gereksinimler-sonra-acik.md:9-13` "P9'dan" tablosu. Her satırda düzeltme yönü ve atanan ajan (backend-dev) yazılı. |
+
+## `buildUpdateUser` rol değişimi — sunucu doğrulaması: GÜVENLİ
+Yer: `apps/web/lib/users/form.ts:81-95` (istemci), `apps/server/src/users/service.ts:83-104, 157-189` (sunucu).
+
+Yetki kararı istemcinin gönderdiği gövdeye değil, sunucunun hesapladığı **etkin küme farkına** dayanıyor. Bu yüzden gövdede fazladan anahtar göndermek tek başına hiçbir yetki vermiyor:
+1. `normalizeRows(role, cur.permissions, input.permissions)`, yeni rolün varsayılanına göre ezme satırlarını üretiyor. `after = effectiveOf(role, rows)` (`service.ts:166-167`).
+2. `changed = diffKeys(before, after)` yalnız etkin değeri DEĞİŞEN anahtarları veriyor. `assertGrantable(auth, changed)` bu anahtarların her birini aktörün kümesinde arıyor (`:168, :171`). Açıkça gönderilen ama etkin değeri değişmeyen anahtar kontrolden muaf; bu da zararsız, çünkü kimseye yetki kazandırmıyor.
+3. Rol geçişinin kendisi kapsamda. USER→ADMIN'de gövdede olmayan anahtar ADMIN varsayılanıyla açık hesaplanıyor ve "verme" sayılıyor. Kilitli (aktörde olmayan) bir anahtar `false` gelirse farkta yer almıyor, 200 dönüyor. `true` gelirse farkta yer alıyor, 403 dönüyor. Sunucu testi tam bu üç durumu kapsıyor: `apps/server/test/integration/users-p9.test.ts:191-193`.
+4. ADMIN→USER'da hedefin açık her anahtarı aktörde de var, çünkü önce `canManage(auth, before)` çalışıyor (`:165`). Bu yüzden ekrandaki değerlerle gönderilen hiçbir anahtar aktörün dışına taşamıyor. UI rol değişiminde `applyRoleDefaults` ile kilitli olmayan anahtarları yeni rolün varsayılanına çekiyor (`user-editor.tsx:64`). Kullanıcı açık bıraktığı anahtarları bilinçli olarak "ezme" satırı yapmış oluyor ve bunların hepsi aktörün sahip olduğu yetkiler.
+5. Kendi hesabı: rol değişirse `roleChanged` 403 döner (`:170`). Super Admin hedefi `lockUser`/`scoped` ile 404 döner. Tanım dışı anahtar zod'da 400 döner.
+6. Bayat ekran durumu, yani başka bir Admin'in arada yaptığı değişikliğin üzerine yazılması (lost update), yalnız aktörün zaten verebileceği anahtarlarla sınırlı. Her etkin değişiklik yine `assertGrantable`'dan geçiyor. Bu durum yetki yükseltme değil; B-P9-2 (TOCTOU, Sonra) ile aynı sınıfta kalıyor ve yeni bulgu açılmadı.
+7. Audit (AC-74): `permissionAudits` yalnız etkin farkı yazıyor. Değişmeyen anahtarları açıkça göndermek sahte audit satırı üretmiyor.
+
+İstemci birim testi sunucu kuralını birebir modelliyor: `apps/web/lib/users/users.test.ts:144-165`, USER→ADMIN, kilitli `audit.export` → `false`, sunucu kümesi ekranla aynı.
+
+## Otomatik tarama çıktıları
+gitleaks v8.30.1, `dir` modu, `--config .gitleaks.toml --redact`, çalışma ağacı (staged değil):
+| Dizin | Çıkış kodu |
+|---|---|
+| `apps/server/src` | 0 |
+| `apps/web/e2e` | 0 |
+| `apps/web/lib` | 0 |
+| `apps/web/app` | 0 |
+| `packages` | 0 |
+| `docs` | 1 → 0 (aşağıdaki not) |
+
+Not (`docs`): Tek bulgu `generic-api-key`, yeri `docs/guvenlik-raporu.md` "P9 — Kod turu 1" B-P9-1 "Yer" satırı. Sebep, bu raporun mock dosyasındaki sahte e2e değerini düz alıntılamasıydı (kodda değil, raporun kendisinde). Değer bu turda rapordan maskelendi (`"<sahte e2e değeri>"`); kod tarafında değişiklik yok. Maskelemeden sonra `docs` taraması tekrar koşuldu: `GITLEAKS_EXIT=0`.
+
+Bağımlılıklar bu turda değişmedi, `pnpm audit` tekrarlanmadı. Geçerli sonuç tur 1'deki: "No known vulnerabilities found".
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+Yeni bir şey yok. Mimari-e10 §3.4 kesişimi (B-P9-6) Sonra listesinde.
+
+## Olumlu
+- İstisnalar satır düzeyinde ve gerekçeli. Toplu yol istisnası eklenmediği için CI kapısı gerçek sızıntılara karşı açık kalıyor.
+- Yetki kararı sunucuda etkin küme farkıyla veriliyor. İstemci gövde biçimini değiştirse bile AC-73 korunuyor; istemci yalnız UX'i (gereksiz 403'ü) düzeltti.
+- Sunucu kuralı istemci testinde modellenmiş, sunucu entegrasyon testi de aynı üç durumu doğruluyor.
+
+Öneri: B-P9-2..6 Sonra listesinde. P9 için güvenlik kapısı açık (Kritik/Yüksek 0).
+
+---
+
+# Güvenlik Raporu — P9 (kullanıcı/yetki/tenant yönetimi) — Kod turu 1 (2026-11-12)
+DURUM: GEÇTİ (Kritik/Yüksek 0)
+Özet: Kritik 0 / Yüksek 0 / Orta 1 / Düşük 5
+
+Kapsam: commit edilmemiş P9 değişiklikleri — `apps/server/src/{users,tenants}/*`, `auth/guards.ts` (`requireSuperAdmin`), `lib/ids.ts` (`newTemporaryPassword`), `signaling/rooms.ts` (`endByTenant`), `requests/hub.ts` (`closeByTenant`), `public/consent.ts`, `packages/contracts/src/{api/users,api/tenants,permissions,audit}.ts`, `apps/web/app/(panel)/{users,admin,tenant-switcher.tsx}`, `components/admin/permission-matrix.tsx`. `apps/agent-win` (0.10.2) kapsam dışı. Testler koşulmadı.
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] B-P9-1 gitleaks CI kapısını kıracak iki yanlış pozitif — A05 Güvenlik yapılandırması
+Yer: `apps/server/src/lib/ids.ts:40` (`TEMP_PASSWORD_ALPHABET`), `apps/web/e2e/mock-users.mjs:172` (sahte `temporaryPassword: "<sahte e2e değeri>"`)
+Sorun: İkisi de gizli bilgi değil (alfabe sabiti / e2e sahte değeri). Ancak `generic-api-key` kuralına takılıyorlar. Commit edildiğinde CI gitleaks adımı kırmızı olur ve gerçek bir sızıntıyı gizleyecek "toplu istisna" baskısı doğar.
+İstismar senaryosu: Doğrudan istismar yok. Risk, CI kapısının devre dışı bırakılması veya geniş istisna eklenmesi.
+Düzeltme: Satır içi `// gitleaks:allow` (her iki satıra, gerekçe yorumuyla) ya da `.gitleaks.toml`'a TEK dosya yolu istisnası (`mock-users.mjs`). Alfabe sabitine dosya istisnası eklenmez, satır içi istisna yeterli. (atanan: backend-dev — ids.ts; frontend-dev — mock-users.mjs)
+
+### [DÜŞÜK] B-P9-2 Aktörün yetkisi TX dışında okunuyor; eşzamanlı karşılıklı düşürme — A01 Bozuk erişim kontrolü (TOCTOU)
+Yer: `apps/server/src/users/service.ts:162-173`, `:214-218` (yalnız hedef satır `FOR UPDATE`; `auth.permissions` istek başında `resolveSession`'dan gelir)
+Sorun: Eşit yetkili iki Admin aynı anda birbirini USER'a düşürür veya pasife alırsa ikisi de başarılı olur. Benzer şekilde, yetkisi o anda daraltılan bir Admin'in uçuştaki isteği eski kümeyle `assertGrantable`'dan geçer. Pencere milisaniyeler.
+İstismar senaryosu: Yetkisi kaldırılmak üzere olan Admin, yarış penceresinde bir USER'a kendi (artık kaybettiği) yetkisini verebilir.
+Düzeltme: TX içinde aktör ve hedef satırlarını id sırasıyla `FOR UPDATE` kilitleyin. Aktörün durumunu, rolünü ve etkin yetkisini TX içinde yeniden okuyun. `canManage` ve `assertGrantable` bu tazeye karşı çalışsın. (atanan: backend-dev)
+
+### [DÜŞÜK] B-P9-3 409 e-posta çakışması tenant'lar arası hesap varlığını sızdırır — A01/A07 Enumeration
+Yer: `apps/server/src/users/service.ts:44, 152, 189`
+Sorun: E-posta sistem genelinde tekil olduğundan, `users.create`/`users.edit` sahibi tenant Admin'i başka firmadaki (ve Super Admin) e-postaların varlığını 409 ile yoklayabilir. Uçta hız sınırı yok (B-P9-4).
+İstismar senaryosu: Kötü niyetli tenant Admin, aday listesini PATCH e-posta alanıyla tarar ve Super Admin giriş kimliğini doğrular. Bu bilgi, oltalama veya parola püskürtme için hedef çıkarır.
+Düzeltme: Tasarım kararı (giriş kimliği tekil) korunabilir. Ancak (a) yönetim uçlarına kullanıcı başı hız sınırı uygulanmalı, (b) 409'lar `result: "fail"` ile audit'e yazılmalı. Sonra listesine aday. (atanan: backend-dev)
+
+### [DÜŞÜK] B-P9-4 /users ve /admin/* yazma uçlarında hız sınırı yok — A04 Güvensiz tasarım
+Yer: `apps/server/src/users/routes.ts:40-69`, `apps/server/src/tenants/routes.ts:60-88`
+Sorun: `POST /users` her çağrıda şifre hash'i (CPU-pahalı) üretir. Sınır yok; yetkili bir hesap (veya ele geçirilmiş oturum) CPU tüketebilir ve toplu hesap açabilir.
+Düzeltme: Mevcut `FixedWindowCounter` deseniyle kullanıcı başı ör. 30 yazma/dk, `POST /users` için 10/dk; aşımda `RATE_LIMITED`. (atanan: backend-dev)
+
+### [DÜŞÜK] B-P9-5 Reddedilen yetki işlemleri audit'e düşmüyor — A09 Loglama eksikliği
+Yer: `apps/server/src/users/service.ts:97-104` (`assertGrantable`), `:166`, `:172`, `:218` (`canManage`/kendi hesabı 403)
+Sorun: AC-73 reddi ve "daha geniş yetkili hesabı düzenleme" denemeleri iz bırakmıyor. Bunlar yetki yükseltme denemesinin ana sinyali.
+Düzeltme: 403 dalında TX dışında `result: "fail"` audit satırı yazılsın (`action: user.permission_changed|user.updated`, `newValue: { denied: [...anahtarlar] }`; PII yok). (atanan: backend-dev)
+
+### [DÜŞÜK] B-P9-6 Tenant pasif sonrası adım düşer ve tenant 30 sn içinde yeniden aktifleşirse kayıtlar/talepler yaşar — A04
+Yer: `apps/server/src/tenants/service.ts:120-123` (commit sonrası `cancelRequests`/`revokeBindings`), `:127-135` (`reactivateTenant`); yedek süpürücü yalnız pasif tenant'a bakar (`apps/server/src/bindings/repo.ts:109`)
+Sorun: Commit sonrası `revokeBindings` veya `cancelRequests` hata verirse yedek 30 sn süpürücüdür. Super Admin bu süre dolmadan firmayı yeniden aktif ederse süpürücü tenant'ı aktif görür. Pasif öncesi kayıtlar (device_bindings) ve bekleyen talepler geçerli kalır. Bu, mimari-e10 §3.4 vaadiyle ("pasif → kayıtlar geçersiz") çelişir. Odalar ve oturumlar etkilenmez (auth_sessions TX içinde iptal; `/ws/tech` 60 sn doğrulaması tenant pasifliğini yakalar).
+Düzeltme: `reactivateTenant` TX'inde, tenant'ın son pasife alınma anından önce oluşturulmuş ve iptal edilmemiş kayıt/talepleri iptal edin. Daha basit seçenek: `revokeForTenant` ve `cancelAllForTenant`'ı pasif TX'ine taşıyın, commit sonrası yalnız bellek/soket adımları kalsın. (atanan: backend-dev)
+
+## Doğrulanan kontroller (istek listesi)
+- **Yetki yükseltme (AC-73):** `assertGrantable` etkin kümedeki DEĞİŞEN her anahtarı aktörde arıyor. Rol geçişinin varsayılanları (USER→ADMIN = tüm anahtarlar "verilir") ve kaldırma da kapsamda (`service.ts:97-104, 167-173`). Oluşturmada hedefin tüm etkin kümesi aranıyor (`:140`). Bilinmeyen anahtar zod'da 400 (`contracts/api/users.ts:66-71`), dolayısıyla gelecekte eklenecek bir anahtara önceden "tohum" atılamaz. `normalizeRows` tanım dışı anahtarları düşürüyor.
+- **canManage:** Admin, etkin kümesi kendisini aşan hesabı PATCH/pasif/aktif edemiyor (`:51-55, 166, 218`). Eşit yetkili Admin'lerin birbirini yönetebilmesi tasarım gereği.
+- **Kendi hesabı:** rol ve yetki değişimi 403, durum değişimi 403. Ad ve e-posta serbest (`:172, 217`).
+- **Super Admin gizliliği:** `scoped()` ve `lockUser` `tenant_id = ? AND role IN ('ADMIN','USER')` kullanıyor (`users/repo.ts:30, 58`). Liste, doğrudan id ve PATCH SA hesabına 404 dönüyor. `MANAGED_ROLES` SUPER_ADMIN atamayı şemada engelliyor.
+- **IDOR/tenant:** Tüm `/users` uçları `tenantScope(req)` kullanıyor. SA firma seçmeden erişemiyor. `resolveSession` acting tenant'ı yalnız ACTIVE ise kabul ediyor (`auth/session.ts:87`). `/admin/*` eklenti düzeyinde `requireAuth` → `requireSuperAdmin` hook'u ile korunuyor (`tenants/routes.ts:47-48`). Switch sonrası eski bağlamın panel soketleri `closeByAuthToken` ile kapanıyor.
+- **Geçici şifre:** `crypto.randomInt`, 56 sembol × 16 ≈ 93 bit, yanlılık yok (`lib/ids.ts:40-47`). Yalnız 201 yanıtında dönüyor. Audit `newValue`'da yok, loglanmıyor (`Cache-Control: no-store`). `mustChangePassword: true` ve `requireAuth` kapısı devrede. Web'de yalnız bileşen durumunda; storage ya da URL'ye yazılmıyor. Dialog kapandıktan sonra yeniden gösterim yok. Pano yalnız kullanıcı tıklamasıyla kullanılıyor.
+- **Oturum iptali (AC-115):** Pasife alma aynı TX'te `auth_sessions` iptali ve bekleyen KOD oturumlarını iptal ediyor. Commit sonrası `endByTechnician` + panel 4401 çalışıyor. Rol değişimi ve yetki daralmasında yetkiler her istekte DB'den yeniden hesaplanıyor (önbellek yok). Yedek `/ws/tech` 60 sn doğrulaması rol değişimini de yakalıyor (`signaling/ws.ts:231-236`). Talep oturumları admit kontrolünde pasif teknisyeni reddediyor (`signaling/admit.ts:127`).
+- **Tenant pasif:** Aynı TX'te durum, tenant kullanıcılarının oturumları, bekleyen kod oturumları ve audit. Commit sonrası odalar, paneller, talepler ve kayıtlar ayrı ayrı try/catch içinde işleniyor. Biri düşse de diğerleri çalışıyor. Yedek yol süpürücüler (istisna B-P9-6).
+- **Audit (AC-74):** Anahtar başına satır (kim/kime/permKey/eski→yeni), aynı TX. Şifre ve hash içermiyor. E-posta/ad PII'si standart gereği old/new içinde.
+- **CSRF:** Tüm yazma uçları `requireAuth` → Origin allowlist + double-submit. Gövdesiz eylemler `z.strictObject({})`.
+- **XSS:** P9 web dosyalarında `dangerouslySetInnerHTML`/`innerHTML` yok. Ad ve e-posta React metin düğümü olarak basılıyor. Ad şemasında kontrol ve görünmez karakter reddi var.
+- **Enjeksiyon:** Ham SQL yalnız `$queryRaw` etiketli şablonla parametreli (`users/repo.ts:57`, `tenants/repo.ts:41, 85`).
+
+## Otomatik tarama çıktıları
+- `pnpm audit --prod`: **No known vulnerabilities found**.
+- gitleaks v8.30.1 `dir` (`--config .gitleaks.toml --redact`):
+  - `apps/server`: 1 bulgu → `src/lib/ids.ts:40` (yanlış pozitif, B-P9-1).
+  - `apps/web`: 14 bulgu → 13'ü `.next/` derleme çıktısında (git-ignored, repoya girmez; Next preview anahtarları yerel derlemeye ait), 1'i `e2e/mock-users.mjs:172` (sahte değer, B-P9-1).
+  - `packages`: bulgu yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- mimari-e10 §3.4 "tenant pasif → kayıtlar geçersiz": hızlı yeniden aktifleştirme + adım hatası kesişiminde garanti yok (B-P9-6).
+- Diğer P9 vaatleri (AC-70/71/72/73/74/115, G-04, `requireSuperAdmin`, SA gizliliği) kodda mevcut.
+
+## Olumlu
+- Yetki kuralı tek kaynaktan (`permissions.ts` → `effectivePermissions`/`roleDefaultGranted`). Normalize ezme satırları sayesinde yeni anahtar varsayılanı doğru akıyor.
+- Hedef satır kilidi (`FOR UPDATE`) ve tüm yan etkilerin tek TX'te audit'le birlikte yazılması.
+- Commit sonrası adımların bağımsız try/catch'i ve alarm etiketli loglar (`user_live_effect`, `tenant_passive_effect`).
+- Geçici şifre UX'i: tek gösterim, kopyalanmadan kapatma uyarısı, güvenli varsayılan odak.
+
+Öneri: B-P9-2..6, `docs/gereksinimler.md` §9'a "Sonra" olarak eklensin. B-P9-1 commit öncesi kapatılmalı (CI kapısı).
+
+---
+
 # Güvenlik Raporu — E10/P8c-2 — Kod turu 2 (2026-11-12)
 DURUM: GEÇTİ (Kritik/Yüksek 0)
 Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (+1 bilgi)
