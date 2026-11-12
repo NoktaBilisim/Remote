@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ServerOutbound } from "@remote/contracts/ws";
 import { guestReducer, initialGuest, resumingGuest, type GuestState } from "./guest-machine";
 import { backoff, guestProtocols, parseServerMessage, wsUrl } from "./signal";
-import { initialTech, techReducer, type TechState } from "./tech-machine";
+import { iceGate, initialIceGate, initialTech, techReducer, type IceGate, type TechState } from "./tech-machine";
 
 const SID = "01JABCDEFGHJKMNPQRSTVWXYZ0";
 const GID = "01JABCDEFGHJKMNPQRSTVWXYZ1";
@@ -131,6 +131,40 @@ describe("teknisyen durum makinesi", () => {
     expect(l.admitName).toBeNull(); // >1 bekleyen: tahmin yok
     expect(tm(l, { t: "peer.joined", role: "guest", guestKind: "BROWSER" }).guest?.name).toBeNull(); // → "Müşteri"
     expect(tm(l, { t: "peer.joined", role: "guest", guestKind: "BROWSER", guestName: "Ali" } as ServerOutbound).guest?.name).toBe("Ali");
+  });
+});
+
+describe("teknisyen ilk teklif kapısı (TURN'süz ilk teklif düzeltmesi)", () => {
+  const TURN = [{ urls: ["turn:turn.example:3478"], username: "1:x", credential: "c" }];
+  const run = (ms: ServerOutbound[], g: IceGate = initialIceGate) =>
+    ms.reduce<{ gate: IceGate; starts: number }>((a, m) => {
+      const r = iceGate(a.gate, m);
+      return { gate: r.gate, starts: a.starts + (r.start ? 1 : 0) };
+    }, { gate: g, starts: 0 });
+  const pendingHello = hello({ role: "tech", peerPresent: false, maxEndsAt: null, reconnectToken: undefined });
+  const joined: ServerOutbound = { t: "peer.joined", role: "guest", guestKind: "AGENT" };
+
+  it("PENDING hello sonrası peer.joined ICE gelmeden teklif başlatmaz; ilk ice.servers ile tek kez başlatır", () => {
+    const a = run([pendingHello, joined]);
+    expect(a).toEqual({ gate: { ready: false, pending: true }, starts: 0 });
+    const b = run([{ t: "ice.servers", iceServers: TURN }], a.gate);
+    expect(b).toEqual({ gate: { ready: true, pending: false }, starts: 1 });
+    expect(run([{ t: "ice.servers", iceServers: TURN }], b.gate).starts).toBe(0); // yenileme yeni peer kurmaz
+  });
+  it("sunucu sırası (ice.servers → peer.joined): peer.joined anında başlatır; TURN yoksa boş liste de hazır sayılır", () => {
+    expect(run([pendingHello, { t: "ice.servers", iceServers: TURN }, joined]).starts).toBe(1);
+    expect(run([pendingHello, { t: "ice.servers", iceServers: [] }, joined]).starts).toBe(1);
+  });
+  it("ACTIVE hello (yeniden bağlanma) misafir varsa hemen başlatır; misafir dönüşünde peer.joined yeniden başlatır", () => {
+    const a = run([hello({ role: "tech", peerPresent: true, iceServers: TURN, reconnectToken: undefined })]);
+    expect(a).toEqual({ gate: { ready: true, pending: false }, starts: 1 });
+    expect(run([{ t: "peer.left", role: "guest" }, joined], a.gate).starts).toBe(1);
+  });
+  it("bekleyen teklif misafir ayrılınca düşer; teknisyen peer.joined'ı kapıyı etkilemez", () => {
+    const a = run([pendingHello, joined, { t: "peer.left", role: "guest" }]);
+    expect(a.gate.pending).toBe(false);
+    expect(run([{ t: "ice.servers", iceServers: TURN }], a.gate).starts).toBe(0);
+    expect(run([pendingHello, { t: "peer.joined", role: "tech" }]).gate.pending).toBe(false);
   });
 });
 

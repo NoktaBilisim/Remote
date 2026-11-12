@@ -68,7 +68,11 @@ function scheduleIceRefresh(rooms: Rooms, room: Room): void {
   }, Math.max(0, at - rooms.clock.now()));
 }
 
-/** Admit commit'i sonrası: max süre, uyarı, TURN yenileme; misafire hello, teknisyene peer.joined + ice.servers. */
+/**
+ * Admit commit'i sonrası: max süre, uyarı, TURN yenileme; misafire hello, teknisyene ice.servers + peer.joined.
+ * Sıra bağlayıcı: teknisyen `peer.joined` ile hemen offer üretir; PENDING hello'su boş ICE taşıdığından (G-01)
+ * `ice.servers` ondan ÖNCE gitmezse ilk teklif TURN/STUN'suz toplanır (farklı NAT'ta siyah ekran).
+ */
 export function scheduleActive(rooms: Rooms, room: Room, guest: Guest, consumedAt: number, maxHours: number): void {
   room.maxEndsAt = consumedAt + maxHours * HOUR_MS;
   const now = rooms.clock.now();
@@ -82,8 +86,8 @@ export function scheduleActive(rooms: Rooms, room: Room, guest: Guest, consumedA
   room.timers.maxEnd = rooms.clock.setTimeout(() => void rooms.finish(room, "max_duration", "SYSTEM"), Math.max(0, room.maxEndsAt - now));
   scheduleIceRefresh(rooms, room);
   sendHelloGuest(rooms, room, guest);
-  sendGuestJoined(room, guest);
   room.tech?.peer.send({ t: "ice.servers", iceServers: grant(rooms, room).iceServers });
+  sendGuestJoined(room, guest);
 }
 
 /** İki taraf da bağlıysa kopma sayacı iptal; biri yoksa 120 sn sonra oturum `timeout` ile biter (AC-25). */

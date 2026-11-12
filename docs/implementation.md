@@ -2322,3 +2322,17 @@ Kaynak: `docs/guvenlik-raporu.md` S8b2-4 [Düşük] ve `docs/qa-raporu.md` öner
 | QA öneri (sürü etkisi) | Kopmadan sonra (`lost`) ilk `/ws/request` denemesi de `Deps.Jitter(retryJitter)` = 0..1 sn `crypto/rand` jitter bekler (`startDial(start, first)`); ilk bağlantı beklemez; bekleme `wctx` iptaliyle kesilir. Sonraki denemeler mevcut `dialRetryDelay` | `request/wait.go` | `TestAC141ReconnectAfterDropAnd403Ends` güncellendi (ilk bağlantıda `After` çağrılmaz; kopma sonrası tek bekleme = jitter, jitter üst sınırı 1 sn) |
 
 **Doğrulama** (docker `golang:1.26.11-bookworm@sha256:dc40a1…`, `-mod=readonly`, `GOTOOLCHAIN=local`): `gofmt -l .` boş; `go test -count=1 ./...` 17 paket ok (187 üst düzey PASS, 0 FAIL); `go test -race -count=3` (request, ui) ok; `go vet ./...` ve `GOOS=windows GOARCH=amd64 go vet ./...` temiz. `build/build.sh https://remote.noktabilisim.net 0.9.0` iki kez (arada `go clean -cache`) → SHA-256 `eab236227aad20747847cf64999160cafa83e7a56a9b5cbe2d7daf0416b127c8` (iki ikili eşit, 12 305 920 bayt). Windows elle test adımı (c) aynı adlı teknisyen senaryosuyla genişletildi (yukarıda).
+
+## Düzeltme — TURN'süz ilk teklif (siyah ekran) (backend-dev, 2026-11-12)
+Küçük hata düzeltmesi (AC gerekmez); kaynak `docs/gereksinimler-sonra-acik.md` "İlk teklifte TURN yok". Yeni bağımlılık yok; contracts/WS şeması değişmedi.
+
+**Neden:** Teknisyen odaya önce girip PENDING bekliyorsa (talepten doğan oturumlar dahil) `hello{tech}` boş ICE listesi taşır (G-01). Admit'te `scheduleActive` teknisyene önce `peer.joined`, sonra `ice.servers` gönderiyordu; konsol `peer.joined` ile hemen `new PeerLink([])` + offer üretiyor, ardından gelen liste `have-local-offer` durumunda restart tetiklemediği için ICE toplama TURN/STUN'suz bitiyordu → farklı NAT'larda siyah ekran.
+
+| Katman | Düzeltme | Dosya | Test |
+|---|---|---|---|
+| Sunucu | Admit sonrası teknisyene `ice.servers` artık `peer.joined`'dan **önce** gider (G-01 korunur: yine yalnız admit sonrası). `peer.joined`'a iceServers eklenmedi (sözleşme değişmesin) | `apps/server/src/signaling/active.ts` (`scheduleActive`) | `signaling-rooms.test.ts` "AC-112/G-01: teknisyen admit sonrası ice.servers'ı (TURN'lü) peer.joined'dan ÖNCE alır" |
+| Web (savunma derinliği) | Saf kapı `iceGate` (`tech-machine.ts`): bu WS bağlantısında admit sonrası ICE listesi (ACTIVE hello veya `ice.servers`) alınmadan gelen `peer.joined` teklifi **erteler**; ilk `ice.servers` ile `startPeer()` bir kez çağrılır. Misafir ayrılırsa bekleyen teklif düşer; WS kopunca kapı sıfırlanır. TURN yapılandırılmamışsa boş liste de "hazır" sayılır (sonsuz bekleme yok). Peer'i teklif sonrası yeniden kurmak yerine erteleme seçildi: eski teklifin `sdp.answer`'ı yeni peer'e düşüp yarış yaratamaz | `apps/web/lib/webrtc/tech-machine.ts`, `apps/web/lib/webrtc/use-tech-session.ts` | `machines.test.ts` "teknisyen ilk teklif kapısı" (4 test: erteleme + tek başlatma, sunucu sırası/boş TURN, ACTIVE hello + misafir dönüşü, bekleyen teklifin düşmesi) |
+
+**frontend-dev için:** sözleşme değişmedi; yalnız admit sonrası mesaj sırası `ice.servers → peer.joined` oldu.
+
+**Doğrulama:** `pnpm --filter @remote/server test` 281/281; `vitest run test/integration` (geçici `mysql:8.4`, `scripts/test-db.sh up`, sonra silindi) 300/300; `pnpm --filter @remote/web test` 163/163; `pnpm -r run typecheck` ve `pnpm -r run lint` temiz.

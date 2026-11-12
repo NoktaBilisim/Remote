@@ -155,3 +155,34 @@ function onMsg(s: TechState, m: ServerOutbound, now: number): TechState {
       return s;
   }
 }
+
+/**
+ * İlk teklif kapısı (TURN'süz ilk teklif düzeltmesi): teknisyen PENDING hello'sunda ICE listesi boştur (G-01),
+ * TURN/STUN admit sonrası `ice.servers` ile gelir. `peer.joined` bundan önce gelirse teklif ertelenir ve ilk
+ * `ice.servers` ile başlatılır. Teklif sonrası peer'i yeniden kurmak yerine ertelemek seçildi: eski teklifin
+ * yanıtı (`sdp.answer`) yeni peer'e düşüp yarış yaratamaz. `ready`: bu WS bağlantısında admit sonrası ICE alındı
+ * (ACTIVE hello veya `ice.servers`); TURN yapılandırılmamışsa liste boş olsa da hazır sayılır.
+ */
+export interface IceGate {
+  ready: boolean;
+  pending: boolean;
+}
+export const initialIceGate: IceGate = { ready: false, pending: false };
+
+export function iceGate(g: IceGate, m: ServerOutbound): { gate: IceGate; start: boolean } {
+  switch (m.t) {
+    case "hello": {
+      const ready = m.maxEndsAt !== null;
+      return { gate: { ready, pending: false }, start: ready && m.peerPresent };
+    }
+    case "ice.servers":
+      return { gate: { ready: true, pending: false }, start: g.pending };
+    case "peer.joined":
+      if (m.role !== "guest") return { gate: g, start: false };
+      return g.ready ? { gate: g, start: true } : { gate: { ready: false, pending: true }, start: false };
+    case "peer.left":
+      return m.role === "guest" ? { gate: { ...g, pending: false }, start: false } : { gate: g, start: false };
+    default:
+      return { gate: g, start: false };
+  }
+}

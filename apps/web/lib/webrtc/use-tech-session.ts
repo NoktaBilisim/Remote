@@ -14,7 +14,7 @@ import { canCancel, canRelease, canRequest, canRequestMonitor, controlReducer, i
 import { sendInput } from "../control/use-remote-input";
 import { PeerLink, type Channels } from "./peer";
 import { backoff, RECONNECT_WINDOW_MS, Signal, wsUrl } from "./signal";
-import { initialTech, techReducer, type TechState } from "./tech-machine";
+import { iceGate, initialIceGate, initialTech, techReducer, type IceGate, type TechState } from "./tech-machine";
 
 const nameKey = (sessionId: string) => `rs.guestName.${sessionId}`;
 function readName(sessionId: string): string | null {
@@ -73,6 +73,8 @@ export function useTechSession(sessionId: string) {
   const sig = useRef<Signal | null>(null);
   const peer = useRef<PeerLink | null>(null);
   const ice = useRef<Parameters<PeerLink["setIceServers"]>[0]>([]);
+  /** İlk teklif admit sonrası ICE listesi gelene kadar ertelenir (TURN'süz ilk teklif düzeltmesi, tech-machine `iceGate`). */
+  const gate = useRef<IceGate>(initialIceGate);
   const retry = useRef<{ timer?: ReturnType<typeof setTimeout>; attempt: number }>({ attempt: 0 });
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const reconnect = useRef<() => void>(() => undefined);
@@ -113,18 +115,21 @@ export function useTechSession(sessionId: string) {
 
   const onMessage = useCallback(
     (m: ServerOutbound) => {
+      const g = iceGate(gate.current, m);
+      gate.current = g.gate;
       if (m.t === "hello") {
         retry.current.attempt = 0;
         kind.current = m.guestKind ?? kind.current;
         ice.current = m.iceServers;
         if (m.maxFileMb) setMaxFileMb(m.maxFileMb);
-        if (m.maxEndsAt !== null && m.peerPresent) startPeer();
+        if (g.start) startPeer();
         if (m.maxEndsAt !== null) {
           dispatch({ type: "msg", m, now: Date.now() });
           return dispatch({ type: "restoreName", name: readName(sessionId) });
         }
       } else if (m.t === "ice.servers") {
         ice.current = m.iceServers;
+        if (g.start) startPeer(); // peer.joined bu listeden önce geldiyse ertelenen ilk teklif şimdi
         peer.current?.setIceServers(m.iceServers);
         // G-13: credential yenilemesinden sonra ICE restart — yalnız kurulmuş bağlantıda (admit anındaki
         // ilk ice.servers, ilk teklif yanıtlanmadan ikinci teklif üretip yarış yaratmasın)
@@ -133,7 +138,7 @@ export function useTechSession(sessionId: string) {
       } else if (m.t === "peer.joined" && m.role === "guest") {
         kind.current = m.guestKind ?? kind.current;
         if (m.maxFileMb) setMaxFileMb(m.maxFileMb);
-        startPeer();
+        if (g.start) startPeer();
       } else if (m.t === "peer.left" && m.role === "guest") {
         resetPeer();
       } else if (m.t === "sdp.answer") {
@@ -155,6 +160,7 @@ export function useTechSession(sessionId: string) {
       onMessage,
       onClose: (code) => {
         sig.current = null;
+        gate.current = initialIceGate;
         resetPeer();
         dispatchCtl({ type: "closed", now: Date.now() });
         const now = Date.now();

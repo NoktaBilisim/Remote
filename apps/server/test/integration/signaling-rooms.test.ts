@@ -40,6 +40,19 @@ describe("P3 lobi + admit (oda katmanı)", () => {
     expect(await audits(fx.session.id, "guest.admitted")).toBe(1);
   });
 
+  it("AC-112/G-01: teknisyen admit sonrası ice.servers'ı (TURN'lü) peer.joined'dan ÖNCE alır — ilk teklif TURN'süz üretilmez", async () => {
+    const rooms = makeRooms();
+    const fx = await roomFixture(rooms);
+    const g = fx.guest();
+    expect(fx.techPeer.of("ice.servers")).toHaveLength(0); // G-01: admit öncesi ICE yok
+    expect(await admitGuest(rooms, fx.room, fx.tech, g.admitCode)).toBe("admitted");
+    const order = fx.techPeer.sent.map((m) => m.t);
+    const iceAt = order.indexOf("ice.servers");
+    expect(iceAt).toBeGreaterThanOrEqual(0);
+    expect(iceAt).toBeLessThan(order.indexOf("peer.joined"));
+    expect(fx.techPeer.of("ice.servers")[0]?.iceServers.some((s) => s.username && s.credential)).toBe(true);
+  });
+
   it("AC-112: yanlış kod ADMIT_CODE_INVALID + audit; 5. hatada lobi boşalır", async () => {
     const rooms = makeRooms();
     const fx = await roomFixture(rooms);
