@@ -86,3 +86,20 @@ export const TENANT_AUDIT = {
   SWITCHED: "tenant.switched",
   SETTINGS_UPDATED: "tenant_settings.updated",
 } as const;
+
+/**
+ * P11 sistem ayarları, aydınlatma metni ve audit dışa aktarımı (AC-76, 77, 78, 124; AC-29). Entity `system_settings`
+ * (entity_id `mysql` | `turn`), `consent_texts`, `audit_logs`. Şifre / TURN secret / metin gövdesi ASLA yazılmaz:
+ * değişiklik yalnız `password: "***"` / `secret: "***"` anahtarının varlığıyla görünür (mask.ts), metin için
+ * `{ version, sha256 }`. Test sonucu yalnız `reason` sınıfını taşır (ham sürücü hatası yalnız server logunda).
+ */
+export const SYSTEM_AUDIT = {
+  MYSQL_UPDATED: "settings.mysql.updated",
+  MYSQL_TEST: "settings.mysql.test",
+  TURN_UPDATED: "settings.turn.updated",
+  /** Panel kaydı silindi; TURN yeniden env'den (`TURN_URLS`/`TURN_SECRET`). */
+  TURN_DELETED: "settings.turn.deleted",
+  CONSENT_TEXT_UPDATED: "settings.consent_text.updated",
+  /** Audit CSV dışa aktarımı: filtre özeti + satır sayısı. */
+  AUDIT_EXPORTED: "audit.exported",
+} as const;

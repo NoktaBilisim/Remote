@@ -1,6 +1,6 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11)
 
-Bu belge P1–P8, P8b-1, P8c-1, P9 ve P10'da **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P8, P8b-1, P8c-1, P9, P10 ve P11'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
@@ -14,6 +14,8 @@ P9: `users/{routes,service}.ts`, `tenants/{routes,service}.ts`, `auth/guards.ts`
 `packages/contracts/src/api/{users,tenants}.ts`, `permissions.ts`.
 P10: `auth/{routes,account,mfa,session,guards}.ts`, `tenants/smtp-routes.ts`, `sessions/email.ts`, `mail/{service,templates}.ts`,
 `lib/{crypto,netguard}.ts`, `users/{routes,service}.ts` (`reset-mfa`), `packages/contracts/src/api/{auth,tenants,sessions,requests}.ts`.
+P11: `audit/{routes,read,repo,view}.ts`, `settings/{routes,system,consent,mysql-probe}.ts`, `public/consent.ts`,
+`packages/contracts/src/api/{audit,system-settings}.ts`.
 
 ## Genel kurallar
 - Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres `PUBLIC_BASE_URL` (staging `https://remote.noktabilisim.net`;
@@ -89,7 +91,8 @@ stack, SQL veya iç ayrıntı içermez.
 | `NONCE_INVALID` | 410 | `joinNonce` süresi dolmuş (60 sn), kullanılmış veya bilinmiyor |
 | `CLIENT_OUTDATED` | 426 | P8b: Windows istemci sürümü `MIN_AGENT_VERSION`'dan düşük; `fields.minVersion` |
 | `ACCOUNT_LOCKED` | 423 | Giriş kilidi; `Retry-After` (saniye) başlığı ile |
-| `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma); `Retry-After` ile |
+| `METHOD_NOT_ALLOWED` | 405 | P11: audit uçlarına POST/PUT/PATCH/DELETE (`Allow` başlığıyla); audit kayıtları salt okunurdur |
+| `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma; P11 audit CSV, MySQL testi, aydınlatma metni kaydı); `Retry-After` ile |
 | `QUEUE_FULL` | 429 | P8b: firmada 50 bekleyen talep, ya da ≥ 40 iken bilinmeyen kaynak ("Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.") |
 | `INTERNAL` | 500 | Beklenmeyen hata |
 | `UPSTREAM` | 502 | P8b: WhatsApp test ucu — servis yapılandırılmamış veya production'da güvensiz adres. P10: SMTP yok ("Önce SMTP ayarlarını yapın") veya gönderim başarısız (tek genel mesaj "E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.") |
@@ -157,6 +160,12 @@ stack, SQL veya iç ayrıntı içermez.
 | GET · PATCH | `/api/v1/admin/tenants/:id` (P9) | Oturum (+ CSRF), yalnız SUPER_ADMIN | 200 |
 | POST | `/api/v1/admin/tenants/:id/deactivate` · `/reactivate` (P9) | Oturum + CSRF, yalnız SUPER_ADMIN | 200 |
 | POST | `/api/v1/admin/switch-tenant` (P9) | Oturum + CSRF, yalnız SUPER_ADMIN | 200 |
+| GET | `/api/v1/audit` · `/api/v1/audit/export.csv` (P11) | Oturum, `audit.view` · `audit.export` | 200 |
+| POST · PUT · PATCH · DELETE | `/api/v1/audit`, `/audit/export.csv`, `/audit/:id` (P11) | — | 405 |
+| GET · PUT | `/api/v1/admin/settings/mysql` (P11) | Oturum (+ CSRF), yalnız SUPER_ADMIN | 200 |
+| POST | `/api/v1/admin/settings/mysql/test` (P11) | Oturum + CSRF, yalnız SUPER_ADMIN | 200 |
+| GET · PUT · DELETE | `/api/v1/admin/settings/turn` (P11) | Oturum (+ CSRF), yalnız SUPER_ADMIN | 200 |
+| GET · PUT | `/api/v1/settings/consent-text` (P11) | Oturum (+ CSRF), `settings.view` · `settings.edit`, firma bağlamı | 200 |
 
 ### POST /api/v1/auth/login
 Girdi: `login` (e-posta veya kullanıcı adı, 3–190; `@` içeriyorsa e-posta olarak aranır), `password` (1–200),
@@ -1425,6 +1434,177 @@ edilir; ardından açık destek oturumları 5 sn içinde sonlanır. Kullanıcı 
 Hatalar: 403 "Kendi iki adımlı doğrulamanızı sıfırlayamazsınız." / "Sizden daha geniş yetkili bir hesabı yönetemezsiniz.",
 404, 409 "Bu kullanıcıda iki adımlı doğrulama kurulu değil.".
 
+## Audit ekranı, sistem ayarları ve aydınlatma metni (P11)
+Bağlayıcı sözleşme: `docs/mimari-api.md` "Yönetim" ve "backend-dev sapma notu (P11)". Kaynak: `apps/server/src/audit/{routes,read,repo,view}.ts`,
+`settings/{routes,system,consent,mysql-probe}.ts`, `public/consent.ts`; şemalar `packages/contracts/src/api/{audit,system-settings}.ts`
+(tümü `strictObject`, bilinmeyen alan → 400). Tüm yanıtlar `Cache-Control: no-store`. Yeni hata kodu `METHOD_NOT_ALLOWED` (405).
+
+| Metot | Yol | Yetki | Başarı |
+|---|---|---|---|
+| GET | `/api/v1/audit` | Oturum, `audit.view` | 200 |
+| GET | `/api/v1/audit/export.csv` | Oturum, `audit.export` | 200 (`text/csv`) |
+| POST · PUT · PATCH · DELETE | `/api/v1/audit`, `/api/v1/audit/export.csv`, `/api/v1/audit/:id` | — (her zaman ret) | 405 |
+| GET · PUT | `/api/v1/admin/settings/mysql` | Oturum (+ CSRF), yalnız SUPER_ADMIN | 200 |
+| POST | `/api/v1/admin/settings/mysql/test` | Oturum + CSRF, yalnız SUPER_ADMIN | 200 |
+| GET · PUT · DELETE | `/api/v1/admin/settings/turn` | Oturum (+ CSRF), yalnız SUPER_ADMIN | 200 |
+| GET | `/api/v1/settings/consent-text` | Oturum, `settings.view`, firma bağlamı | 200 |
+| PUT | `/api/v1/settings/consent-text` | Oturum + CSRF, `settings.edit`, firma bağlamı | 200 |
+
+### GET /api/v1/audit?from=&to=&tenantId=&userId=&action=&result=&cursor=
+Yetki `audit.view` (Admin'de varsayılan açık, User'da kapalı). Salt okunur liste; sıralama `created_at desc, id desc`,
+sayfa 50 kayıt, **keyset** imleçle (toplam sayı dönmez).
+
+| Parametre | Kural |
+|---|---|
+| `from`, `to` | `YYYY-MM-DD`, Türkiye günü (`to` dahil). `from` yoksa `to`'dan (yoksa bugünden) geriye 30 gün. `from > to` → 400 `fields.to`; aralık > 731 gün → 400 `fields.from` |
+| `userId` | ULID |
+| `action` | Tam ad (`auth.login`) veya grup öneki (`auth.*`); küçük harf, rakam, `_`, nokta; ≤ 60 |
+| `result` | `success` \| `fail` |
+| `tenantId` | Yalnız **firma seçmemiş Super Admin**'de uygulanır; diğerlerinde yok sayılır |
+| `cursor` | Önceki yanıtın `nextCursor`'ı (opak). Biçim dışı veya taşan değer → 400 `fields.cursor` |
+
+**Kapsam:** Admin/User ve firmaya geçmiş Super Admin yalnız etkin firmanın kayıtlarını görür. Firma seçmemiş Super Admin
+tüm firmaları ve sistem kayıtlarını (`tenantId: null`; ör. sistem ayarı değişiklikleri) görür.
+
+**Okuma maskesi:** `oldValue`/`newValue` okunurken yeniden maskelenir (şifre, token, anahtar → `***`). Dış gönderim ve test
+kayıtlarında (`mail.*`, `session.email`, `settings.*.test`, adında `smtp` geçenler) yalnız izinli alanlar döner (`kind,
+recipient, subject, result, reason, channel, latencyMs, host, port, database, user`); `reason` yalnız `[a-z_]{1,40}`
+biçiminde bir sınıfsa gösterilir, değilse `"other"`. Ham hata metni, SMTP yanıt kodu ve sunucu banner'ı hiç dönmez.
+```bash
+curl -sk "https://localhost:4450/api/v1/audit?from=2026-11-01&to=2026-11-13&action=auth.*&result=fail" \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF"
+```
+```json
+{ "items": [ { "id": "1842", "createdAt": "2026-11-12T08:14:03.120Z", "tenantId": "01K…", "tenantName": "Örnek Bilişim Ltd.",
+    "userId": "01K…", "username": "ayse@example.com", "userFullName": "Ayşe Yılmaz", "avatarUrl": null,
+    "action": "auth.login", "entity": "users", "entityId": "01K…", "oldValue": null, "newValue": null,
+    "ipAddress": "203.0.113.10", "userAgent": "Mozilla/5.0 …", "result": "fail" } ],
+  "nextCursor": "MTg0Mi0xNzYy…" }
+```
+`id` BIGINT olduğu için dizedir. `avatarUrl` P12'ye kadar `null`. Son sayfada `nextCursor: null`.
+Hatalar: 400 `VALIDATION`, 401, 403 (yetki yok).
+
+### GET /api/v1/audit/export.csv
+Yetki `audit.export`. Aynı filtreler (`cursor` yok sayılır). Kullanıcı başına dakikada 5 (6. istek 429 + `Retry-After`).
+Filtreye uyan kayıt 50.000'i aşarsa 400 `fields.to` "En çok 50.000 satır dışa aktarılabilir; tarih aralığını daraltın"
+(dosya hiç başlamaz, yarım dosya oluşmaz).
+- Yanıt: `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="audit-YYYYMMDD-HHMM.csv"`
+  (Türkiye saati), UTF-8 BOM, ayraç `;`, Excel'de doğrudan açılır.
+- Sütunlar: Tarih, (firma seçmemiş Super Admin'de) Firma, Kullanıcı, Ad Soyad, İşlem, Varlık, Kayıt, Sonuç, IP adresi,
+  Tarayıcı, Eski değer, Yeni değer (JSON). `= + - @` TAB/CR ile başlayan hücrelerin önüne `'` eklenir (AC-124).
+- Her dışa aktarma `audit.exported` olarak yazılır (filtre özeti ve satır sayısı).
+```bash
+curl -sk -OJ "https://localhost:4450/api/v1/audit/export.csv?from=2026-11-01&to=2026-11-13" \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF"
+```
+Hatalar: 400, 401, 403, 429.
+
+### POST / PUT / PATCH / DELETE /api/v1/audit… → 405
+Audit kayıtları değiştirilemez ve silinemez (AC-76). `/audit` ve `/audit/export.csv` için yazma metotları
+`405 METHOD_NOT_ALLOWED` + `Allow: GET, HEAD`; `/audit/:id` için `Allow` boştur (tekil okuma ucu yok). Bu yanıt kimlik
+doğrulama ve CSRF denetiminden önce, her durumda aynı döner; veri içermez.
+```bash
+curl -sk -i -X DELETE https://localhost:4450/api/v1/audit/1842
+```
+```json
+{ "error": { "code": "METHOD_NOT_ALLOWED", "message": "Audit kayıtları salt okunurdur; değiştirilemez veya silinemez.", "requestId": "01K…" } }
+```
+Veritabanı düzeyinde de koruma vardır: `app` kullanıcısının `audit_logs` üzerinde UPDATE/DELETE yetkisi yoktur; tetikleyiciler
+UPDATE'i ve 730 günden yeni kaydın silinmesini reddeder (`docs/db-notlari.md` "P11").
+
+### GET / PUT /api/v1/admin/settings/mysql
+Yalnız SUPER_ADMIN (rol; diğer roller 403). Sistem seviyesindeki MySQL bağlantı bilgisi (tek veritabanı, tüm firmalar).
+**Kayıt çalışan bağlantıyı değiştirmez** (ADR-0003): uygulamak için sunucudaki `.env` (`DATABASE_URL`) güncellenip servis
+yeniden başlatılır (runbook §15).
+
+GET yanıtı (`MysqlSettingsView`); şifre hiçbir zaman dönmez:
+```json
+{ "host": "mysql", "port": 3306, "database": "remote", "user": "app", "hasPassword": true,
+  "updatedAt": "2026-11-13T09:00:00.000Z", "source": "panel", "matchesRunning": true }
+```
+`source: "env"` → panelde kayıt yok; değerler çalışan `DATABASE_URL`'den türetilir. `matchesRunning: false` → kayıtlı
+değerler çalışan bağlantıdan farklı.
+
+PUT gövdesi `{ host, port, database, user, password? }`:
+| Alan | Kural |
+|---|---|
+| `host` | Ad, IPv4 veya köşeli parantezli IPv6 (SMTP host kuralı; iç ağ adresi **serbest**, DB iç ağda olabilir) |
+| `port` | 1–65535, varsayılan 3306 |
+| `database` | `[A-Za-z0-9_$-]{1,64}` |
+| `user` | 1–32, kontrol karakteri yok |
+| `password` | ≤ 200. Boş/verilmemiş → kayıtlı şifre korunur. AES-256-GCM ile, hedefe (host + port + kullanıcı) bağlı AAD altında saklanır |
+
+Kayıtlı şifre varken host, port veya kullanıcı değişip `password` boşsa → 400 `fields.password` "Farklı sunucu veya
+kullanıcı için şifreyi girin" (kayıtlı şifre yeni hedefe taşınmaz). Yanıt: GET görünümü + `{ "restartRequired": true,
+"message": "Ayar kaydedildi. Uygulamak için sunucudaki .env (DATABASE_URL) güncellenip servis yeniden başlatılmalıdır." }`.
+Audit `settings.mysql.updated` (eski → yeni; şifre yalnız `"changed"` işareti). Hatalar: 400, 401, 403.
+
+### POST /api/v1/admin/settings/mysql/test
+Yalnız SUPER_ADMIN. Gövde PUT ile aynı; **formdaki değerlerle** bağlanmayı dener, kaydetmez. En çok 10 sn (kesin zaman
+aşımı). Şifre boşsa kayıtlı (panel ya da env) şifre **yalnız hedef host + port + kullanıcı o kaynakla aynıysa** kullanılır;
+değilse 400 `fields.password`.
+```bash
+curl -sk -X POST https://localhost:4450/api/v1/admin/settings/mysql/test \
+  -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' -H "X-CSRF-Token: $CSRF" \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF" \
+  -d '{"host":"mysql","port":3306,"database":"remote","user":"app"}'
+```
+```json
+{ "ok": true, "message": "Bağlantı başarılı.", "latencyMs": 42 }
+```
+Bağlantı denendi ama başarısızsa yine **200** döner, `ok: false` ve `latencyMs: null` (süre zamanlama sinyali vermesin diye
+yalnız başarıda döner). Mesajlar sınıflıdır:
+| Sınıf | `message` |
+|---|---|
+| `connect` | Sunucuya bağlanılamadı. |
+| `auth` | Kimlik reddedildi (kullanıcı adı veya şifre hatalı). |
+| `database` | Veritabanı bulunamadı veya bu kullanıcının erişimi yok. |
+| `timeout` | Bağlantı 10 saniye içinde kurulamadı (zaman aşımı). |
+| `secret_unreadable` | Kayıtlı şifre okunamadı; şifreyi yeniden girin. |
+
+Ham sürücü hatası yalnız server logunda (`event:"mysql_test_failed"` + `ref`). Her deneme audit `settings.mysql.test`
+(hedef + sonuç + sınıf). Hız: kullanıcı başına 5/dk **ve** tüm Super Admin'ler için ortak 20/dk; aşımda 429 + `Retry-After`.
+Test bağlantısı TLS kullanmaz (bkz. `docs/gereksinimler-sonra-acik.md` "P11'den"). Hatalar: 400, 401, 403, 429.
+
+### GET / PUT / DELETE /api/v1/admin/settings/turn
+Yalnız SUPER_ADMIN. Destek oturumlarında istemcilere verilen TURN/STUN sunucuları. GET:
+```json
+{ "urls": ["turns:turn.example.com:5349?transport=tcp", "stun:turn.example.com:3478"], "hasSecret": true,
+  "source": "panel", "updatedAt": "2026-11-13T09:05:00.000Z" }
+```
+`source: "env"` → panel kaydı yok, ortamdaki `TURN_URLS` / `TURN_SECRET` kullanılıyor.
+
+PUT gövdesi `{ urls: string[], secret? }`:
+- `urls`: 1–10 adres, her biri `stun:` / `turn:` / `turns:` ile başlar, boşluksuz yazdırılabilir ASCII, 6–255; tekrar yok.
+- `secret`: coturn `static-auth-secret` ile **aynı** olmalı; 32–256 karakter, boşluk ve `#` içermeyen ASCII. Boş → kayıtlı
+  korunur. `turn:`/`turns:` adresi varken kayıtlı veya yeni secret yoksa 400 `fields.secret` "turn:/turns: adresi için
+  gizli anahtar gerekli". AES-256-GCM ile saklanır, hiç dönmez.
+
+DELETE ("Ortam değerlerine dön"): panel kaydı kaldırılır, `.env` değerleri geri gelir; yanıt GET görünümü (`source: "env"`).
+İdempotent (zaten env ise değişiklik ve audit yok). Değişiklik açık odalara bir sonraki kimlik yenilemesinde yansır.
+Panel secret'ı çözülemezse istemcilere yalnız STUN verilir ve `system_secret_unreadable` alarmı loglanır (çözüm: secret'ı
+yeniden girin veya DELETE). Audit `settings.turn.updated` / `settings.turn.deleted` (secret yalnız `"changed"`). Hatalar: 400, 401, 403.
+
+### GET / PUT /api/v1/settings/consent-text
+Etkin firmanın müşteriye gösterilen aydınlatma (KVKK) metni. GET `settings.view`, PUT `settings.edit`; Super Admin firma
+seçmeden çağırırsa 403 "Önce bir firma seçin.".
+```json
+{ "current": { "id": "01K…", "version": 3, "sha256": "9f2c…", "createdAt": "2026-11-13T10:00:00.000Z",
+               "createdByName": "Ayşe Yılmaz", "body": "…" },
+  "versions": [ { "id": "01K…", "version": 3, "sha256": "9f2c…", "createdAt": "…", "createdByName": "Ayşe Yılmaz" },
+                { "id": "01K…", "version": 1, "sha256": "41ab…", "createdAt": "…", "createdByName": null } ] }
+```
+`versions` yeniden eskiye, en çok 100; `createdByName: null` = sistem metni (seed / firma oluşturma).
+
+PUT `{ "body": "…" }`: CRLF → LF, uçlar kırpılır; 50–20.000 karakter (kod noktası); satır sonu/sekme dışı kontrol
+karakteri, yön (bidi) ve sıfır genişlikli karakter → 400 `fields.body`. Her kayıt **yeni sürüm** oluşturur, eski sürüm
+değişmez; verilmiş onaylar kendi sürümüne bağlı kalır, yeni oturumlar yeni sürümü gösterir. Yanıt GET + `changed`:
+- `changed: false` → metin güncel sürümle aynı; sürüm ve audit oluşmaz (çift gönderim güvenli).
+- 409 `CONFLICT` "Metin aynı anda başka biri tarafından değiştirildi. Sayfayı yenileyin." (eşzamanlı iki kayıt).
+- 429: firma başına saatte 10 geçerli kayıt (`changed:false` dahil); `Retry-After`.
+
+Audit `settings.consent_text.updated` (eski → yeni `{ version, sha256 }`; metin gövdesi yazılmaz). Hatalar: 400, 401, 403, 409, 429.
+
 ## Audit
 Giriş (başarılı/başarısız), kilit (`auth.locked`, kapsam `account_ip` veya `account`), çıkış ve şifre değişimi
 `audit_logs` tablosuna yazılır. P2: `session.created`, `session.cancelled`, `session.expired` (SYSTEM) ve
@@ -1472,4 +1652,8 @@ request_notify | settings.smtp.test | settings.email.test; alıcı maskeli `a***
 `session.email` (konu + maskeli alıcı; saatlik 20 sayımı bu satırlardan), `settings.smtp.test`, `settings.email.test`,
 `request.notify{channel:"email"}`, `tenant_settings.updated` (SMTP şifresi `***`). TOTP kodu, sırrı, kurtarma kodu ve
 sıfırlama token'ı hiçbir yere yazılmaz.
-Şifre, token ve çerez değerleri `***` olarak maskelenir. Audit ekranı P11'de gelir.
+P11: `settings.mysql.updated`, `settings.mysql.test` (hedef + sonuç + sınıf; süre yalnız başarıda), `settings.turn.updated`,
+`settings.turn.deleted`, `settings.consent_text.updated`, `audit.exported` (filtre özeti + satır sayısı). Sistem ayarı
+kayıtlarında `tenantId` boştur. Şifre/secret yalnız `"changed"` işaretiyle görünür.
+Şifre, token ve çerez değerleri `***` olarak maskelenir. Kayıtlar Audit log ekranında (`/audit`) ve
+`GET /api/v1/audit` ile okunur; değiştirilemez.

@@ -187,7 +187,7 @@ test("AC-79/80/122 SMTP ayarları: port önerisi, maskeli şifre, iç ağ reddi,
   await expect(page.getByTestId("smtp-host")).toBeFocused();
   await page.getByTestId("smtp-host").fill("mail.ornek.com");
   await page.getByTestId("save-bar").getByRole("button", { name: "Kaydet" }).click();
-  await expect(page.getByTestId("toast")).toContainText("SMTP ayarları kaydedildi");
+  await expect(page.getByTestId("toast").filter({ hasText: "SMTP ayarları kaydedildi" }).last()).toBeVisible(); // iki toast varken strict mode
 
   await page.getByTestId("smtp-test-open").click();
   const dlg = page.getByTestId("smtp-test-dialog");

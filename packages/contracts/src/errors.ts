@@ -17,6 +17,8 @@ export const ERROR_STATUS = {
   /** P10 (AC-67): 2FA zorunlu ama kurulmamış; yalnız /auth/mfa/setup|enable, /auth/me, /auth/logout, /auth/password/change serbest. */
   MFA_SETUP_REQUIRED: 403,
   NOT_FOUND: 404,
+  /** P11 (AC-76): audit kayıtları salt okunur — `/audit*` için POST/PUT/PATCH/DELETE; yanıtta `Allow` başlığı. */
+  METHOD_NOT_ALLOWED: 405,
   /** Durum uygun değil (ör. iptal edilecek oturum PENDING değil). */
   CONFLICT: 409,
   /** Teknisyenin açık (PENDING/ACTIVE) oturum üst sınırı dolu (AC-11). */

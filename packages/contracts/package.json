@@ -13,6 +13,8 @@
     "./api/bindings": "./src/api/bindings.ts",
     "./api/users": "./src/api/users.ts",
     "./api/tenants": "./src/api/tenants.ts",
+    "./api/audit": "./src/api/audit.ts",
+    "./api/system-settings": "./src/api/system-settings.ts",
     "./ws-request": "./src/ws-request.ts",
     "./ws": "./src/ws.ts",
     "./dc": "./src/dc.ts",

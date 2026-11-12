@@ -1,6 +1,6 @@
 "use client";
 
-import { Building, Building2, History, House, Inbox, MonitorSmartphone, Settings, Users, type LucideIcon } from "lucide-react";
+import { Building, Building2, History, House, Inbox, MonitorSmartphone, ScrollText, ServerCog, Settings, Users, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { RequestCountBadge } from "@/components/request-notifier";
@@ -17,7 +17,9 @@ const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string;
   { href: "/history", label: "nav.history", Icon: History, perm: "session_history.view" },
   { href: "/users", label: "nav.users", Icon: Users, perm: "users.view" },
   { href: "/settings/support-requests", label: "nav.settings", Icon: Settings, perm: "settings.edit", match: "/settings" },
+  { href: "/audit", label: "nav.audit", Icon: ScrollText, perm: "audit.view" },
   { href: "/admin/tenants", label: "nav.tenants", Icon: Building, superAdmin: true },
+  { href: "/admin/settings/mysql", label: "nav.system", Icon: ServerCog, superAdmin: true, match: "/admin/settings" },
 ];
 
 export function SideNav({ permissions, role }: { permissions: readonly string[]; role: string }) {

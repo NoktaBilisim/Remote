@@ -11,10 +11,21 @@ import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 
 /**
- * /settings/smtp ve /settings/security ortak sunucu kabuğu: GET /settings/tenant (settings.view). Yetki yok → uyarı;
+ * /settings/smtp, /settings/security ve /settings/consent-text ortak sunucu kabuğu: GET `path` (settings.view). Yetki yok → uyarı;
  * Super Admin firma seçmemiş → boş durum; hata → Tekrar dene. `render(data, canEdit)` başarı durumunu çizer.
  */
-export async function TenantSettingsPage({ title, subtitle, render }: { title: string; subtitle: string; render: (data: TenantSettingsView, canEdit: boolean) => ReactNode }) {
+export async function TenantSettingsPage<T = TenantSettingsView>({
+  title,
+  subtitle,
+  render,
+  path = "/settings/tenant",
+}: {
+  title: string;
+  subtitle: string;
+  render: (data: T, canEdit: boolean) => ReactNode;
+  /** P11: veri ucu (vars. GET /settings/tenant; aydınlatma metni GET /settings/consent-text). */
+  path?: string;
+}) {
   const me = await getMe();
   if (me.kind !== "ok") redirect(EXPIRED_LOGIN_PATH);
   const perms = me.me.permissions as readonly string[];
@@ -41,7 +52,7 @@ export async function TenantSettingsPage({ title, subtitle, render }: { title: s
       </>
     );
   }
-  const res = await serverGet<TenantSettingsView>("/settings/tenant");
+  const res = await serverGet<T>(path);
   if (res.kind === "error" && res.status === 401) redirect(EXPIRED_LOGIN_PATH);
   if (res.kind === "error") {
     return (

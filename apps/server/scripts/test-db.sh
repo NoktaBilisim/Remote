@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Entegrasyon testi için geçici MySQL 8.4 (docs/db-notlari.md "Test" adımları).
-#   eval "$(apps/server/scripts/test-db.sh up)"   → konteyner + migrate + grants, TEST_DATABASE_URL export eder
+#   eval "$(apps/server/scripts/test-db.sh up)"   → konteyner + migrate + grants, TEST_DATABASE_URL (app) ve
+#                                                  TEST_MIGRATE_DATABASE_URL (migrator; P11 tetikleyici testleri) export eder
 #   apps/server/scripts/test-db.sh down          → konteyneri siler
 # Parolalar her çalıştırmada rastgele üretilir; yalnız bu geçici konteyner içindir.
 # Ayarlanabilir: TEST_DB_CONTAINER (rs-mysql-test), TEST_DB_PORT (33307),
@@ -12,6 +13,9 @@ NAME="${TEST_DB_CONTAINER:-rs-mysql-test}"
 PORT="${TEST_DB_PORT:-33307}"
 READY_TIMEOUT="${TEST_DB_READY_TIMEOUT:-180}"
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+# İmaj compose/CI ile aynı sabit sürüm+digest (deploy/docker-compose.yml mysql `image`); orada güncellenince burası da.
+# P11 bayrağı 8.4'te deprecated — yüzen `mysql:8.4` etiketi bayrağı kaldıran bir alt sürüme sessizce geçmesin.
+MYSQL_IMAGE="mysql:8.4.13@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902"
 
 die_ready() {
   echo "test-db: HATA — $NAME $1 (TEST_DB_READY_TIMEOUT=${READY_TIMEOUT}s). Konteyner logu (son 30):" >&2
@@ -53,13 +57,16 @@ case "${1:-}" in
       -e MYSQL_ROOT_PASSWORD="root$(openssl rand -hex 12)" -e MYSQL_DATABASE=remote \
       -e MYSQL_APP_PASSWORD="$APP_PW" -e MYSQL_MIGRATOR_PASSWORD="$MIG_PW" \
       -v "$ROOT/deploy/mysql/init:/docker-entrypoint-initdb.d:ro" \
-      mysql:8.4 --default-time-zone=+00:00 >/dev/null
+      "$MYSQL_IMAGE" --default-time-zone=+00:00 --log-bin-trust-function-creators=1 >/dev/null
+    # P11: binlog (8.4 varsayılanı AÇIK) korunur; migrator'ın audit_logs tetikleyicilerini SUPER'siz oluşturabilmesi için
+    # deploy/docker-compose.yml mysql `command` ile aynı bayrak (ERROR 1419 — docs/db-notlari.md "P11").
     t0=$SECONDS
     wait_ready
     echo "test-db: $NAME hazır ($((SECONDS - t0)) sn), migrate başlıyor" >&2
     (cd "$ROOT/apps/server" && MIGRATE_DATABASE_URL="mysql://migrator:$MIG_PW@127.0.0.1:$PORT/remote" \
       pnpm --silent db:migrate >&2)
     echo "export TEST_DATABASE_URL='mysql://app:$APP_PW@127.0.0.1:$PORT/remote?allowPublicKeyRetrieval=true'"
+    echo "export TEST_MIGRATE_DATABASE_URL='mysql://migrator:$MIG_PW@127.0.0.1:$PORT/remote?allowPublicKeyRetrieval=true'"
     ;;
   down)
     docker rm -f "$NAME" >/dev/null && echo "silindi: $NAME" >&2

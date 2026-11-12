@@ -20,6 +20,7 @@ export function SaveBar({
   message,
   leaveBody,
   testId = "save-bar",
+  saveLabel,
 }: {
   dirty: boolean;
   busy: boolean;
@@ -28,6 +29,8 @@ export function SaveBar({
   message: string;
   leaveBody: string;
   testId?: string;
+  /** P11: Kaydet düğmesinin metni (vars. "Kaydet"; ör. "Yeni sürüm olarak kaydet"). */
+  saveLabel?: string;
 }) {
   const guard = useLeaveGuard(dirty && !busy);
   return (
@@ -50,7 +53,7 @@ export function SaveBar({
             </Button>
             <Button type="submit" form={formId} loading={busy} data-testid={`${testId}-save`}>
               {!busy && <Save aria-hidden className="size-4" />}
-              {t("sb.save")}
+              {saveLabel ?? t("sb.save")}
             </Button>
           </div>
         </div>

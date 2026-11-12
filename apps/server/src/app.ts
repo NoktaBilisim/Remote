@@ -43,6 +43,9 @@ import { createNetGuard, type NetGuard } from "./lib/netguard.ts";
 import { MailService, type TransportFactory } from "./mail/service.ts";
 import { smtpSettingsRoutes } from "./tenants/smtp-routes.ts";
 import { adminTenantRoutes, tenantSettingsRoutes } from "./tenants/routes.ts";
+import { auditReadOnlyRoutes, auditRoutes } from "./audit/routes.ts";
+import { adminSettingsRoutes, applyTurn, consentTextRoutes } from "./settings/routes.ts";
+import type { ProbeResult, ProbeTarget } from "./settings/mysql-probe.ts";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -96,6 +99,8 @@ export interface AppDeps {
   mailTransport?: TransportFactory;
   /** Yalnız testler (env ile değiştirilemez; server.ts vermez): false → zorunlu 2FA kurulum aşaması uygulanmaz. */
   mfaSetupEnforcement?: boolean;
+  /** Yalnız testler: MySQL bağlantı testi yerine sahte yoklama (P11). */
+  mysqlProbe?: (t: ProbeTarget) => Promise<ProbeResult>;
 }
 
 const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), display-capture=(self)";
@@ -184,6 +189,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const turn = { urls: env.turnUrls, secret: env.TURN_SECRET, ttlMin: env.TURN_CRED_TTL_MIN };
   const rooms = new Rooms({ db: deps.db, log: app.log, turn, metrics, ...(sig.clock ? { clock: sig.clock } : {}), ...(sig.timing ? { timing: sig.timing } : {}) });
   app.decorate("rooms", rooms);
+  // P11 (G-13): panel TURN kaydı varsa env yerine o; okunamazsa env ile devam (alarm logu).
+  app.addHook("onReady", async () => {
+    try {
+      await applyTurn(app);
+    } catch (err) {
+      app.log.error({ err, alarm: "turn_settings_load" }, "TURN panel ayarı okunamadı; env kullanılıyor");
+    }
+  });
   metrics.gauge("rs_active_rooms", "Bellekteki oda sayısı", () => rooms.size);
   metrics.gauge("rs_active_sessions", "Admit edilmiş (ACTIVE) oturum sayısı", () => rooms.activeCount);
   metrics.gauge("rs_resolve_failed", "Başarısız kod çözümleme (süreç başından beri)", () => publicLimits.resolveFailed.total);
@@ -263,5 +276,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(adminTenantRoutes, { prefix: "/api/v1/admin" });
   void app.register(tenantSettingsRoutes, { prefix: "/api/v1/settings/tenant" });
   void app.register(smtpSettingsRoutes, { prefix: "/api/v1/settings/smtp" });
+  void app.register(auditRoutes, { prefix: "/api/v1/audit" });
+  void app.register(auditReadOnlyRoutes, { prefix: "/api/v1/audit" });
+  void app.register(adminSettingsRoutes, { prefix: "/api/v1/admin/settings", ...(deps.mysqlProbe ? { mysqlProbe: deps.mysqlProbe } : {}) });
+  void app.register(consentTextRoutes, { prefix: "/api/v1/settings/consent-text" });
   return app;
 }

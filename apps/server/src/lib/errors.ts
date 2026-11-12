@@ -17,6 +17,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   CSRF_INVALID: "İstek doğrulanamadı. Sayfayı yenileyip tekrar deneyin.",
   PASSWORD_CHANGE_REQUIRED: "Devam etmeden önce şifrenizi değiştirmeniz gerekiyor.",
   NOT_FOUND: "Kayıt bulunamadı.",
+  METHOD_NOT_ALLOWED: "Bu işlem bu kaynakta desteklenmiyor.",
   CONFLICT: "Kayıt bu işlem için uygun durumda değil.",
   OPEN_SESSION_LIMIT: "Açık oturum sınırına ulaştınız. Yeni oturum için bekleyen bir oturumu iptal edin.",
   LOBBY_FULL: "Bu oturumda bekleyen katılımcı sınırı doldu. Lütfen teknisyeninizle görüşün.",

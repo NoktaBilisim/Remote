@@ -4,6 +4,8 @@ import { useId, type SelectHTMLAttributes } from "react";
 interface Props extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "id"> {
   label: string;
   options: readonly { value: string; label: string }[];
+  /** P11: seçeneklerden SONRA `<optgroup>` grupları (ör. audit işlem grupları). */
+  groups?: readonly { label: string; options: readonly { value: string; label: string }[] }[];
   hint?: string;
   error?: string;
   /** Etiket görünmez (yalnız ekran okuyucu) — ör. sayfalama çubuğundaki "Sayfa başına". */
@@ -11,7 +13,7 @@ interface Props extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "id"> {
 }
 
 /** Etiketli yerel <select> (P8): TextField ile aynı çerçeve/odak/44 px; klavye ve mobil seçici tarayıcıdan gelir. */
-export function SelectField({ label, options, hint, error, hideLabel, className = "", ...rest }: Props) {
+export function SelectField({ label, options, groups, hint, error, hideLabel, className = "", ...rest }: Props) {
   const id = useId();
   const showHint = Boolean(hint) && !error;
   const describedBy = [showHint && `${id}-hint`, error && `${id}-err`].filter(Boolean).join(" ") || undefined;
@@ -34,6 +36,15 @@ export function SelectField({ label, options, hint, error, hideLabel, className 
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
+          ))}
+          {groups?.map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
         <ChevronDown aria-hidden className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-fg-muted" />

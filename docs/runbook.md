@@ -1,4 +1,4 @@
-# Runbook — Remote Support (P1–P8c)
+# Runbook — Remote Support (P1–P11)
 Sahibi: devops. Kapsam P1: kurulum, başlatma/durdurma, env, log, migrate/seed. Yedek, alarm, rollback
 provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md` §8.
 
@@ -970,6 +970,15 @@ Tekrarlıyorsa sunucu logunda `err` incelenir.
      çıkış → giriş → kod ekranı ile doğrulandı.
   5. Her firmanın ilk Admin'i ilk girişte 2FA kurdu; firma SMTP'si girildi ve **Test Maili Gönder** başarılı.
   6. "Şifremi unuttum" bir test hesabıyla denendi (e-posta geldi, bağlantı tek kullanımlık).
+  7. **(P11)** MySQL bayrağı açık: `SELECT @@log_bin, @@log_bin_trust_function_creators` → `1	1` (§15.1/3); audit
+     tetikleyicileri 2 ve `check-app-grants.sh` **320/320 PASS** (§15.1/5).
+  8. **(P11)** Panel MySQL ayarı (Sistem ayarları > MySQL (`/admin/settings/mysql`; kaynak "panel" ve çalışan bağlantıyla eşleşiyor göstergesi)) yalnız **`app`** kullanıcısıyla girildi (root/migrator değil),
+     "Bağlantıyı Test Et" başarılı; değer `.env` ile aynı (§15.4). Panelde farklı değer kayıtlıysa bilinçli olarak
+     `.env`'e aktarıldı ve server yeniden başlatıldı — aksi halde panel "kayıtlı" görünür ama uygulama `.env`'i kullanır.
+  9. **(P11)** Panel TURN ayarı boş (env `TURN_URLS`/`TURN_SECRET` kullanılıyor) **veya** panel secret'ı coturn
+     `static-auth-secret` ile aynı; her iki durumda "Bağlantı testi" ile TURN relay adayı alındı (§15.5, §9.7).
+     `deploy/.env` `TURN_SECRET` coturn ile aynı tutuluyor (panel kaydı silinince geri dönülen değer budur).
+  10. **(P11)** Audit Log ekranı salt okunur: `PUT/DELETE /api/v1/audit` → 405; DB'de `UPDATE audit_logs` → `SIGNAL 45000`.
 - **SMTP testi "Bu sunucu adresi kullanılamaz":** host özel/loopback/link-local/CGNAT/Docker IP'sine çözümleniyor (G-12) —
   bilinçli; iç ağ SMTP'si desteklenmez. Gönderim hatasının ayrıntısı server logunda `event:"smtp_send_failed"` (`reason`,
   `code`, `responseCode`; alıcı/şifre yok).
@@ -995,3 +1004,136 @@ Tekrarlıyorsa sunucu logunda `err` incelenir.
   5. **Anahtar yedeği zorunludur:** tüm sürümler (emekliye ayrılanlar dahil, en az son DB yedeğinin saklama süresi boyunca)
      parola kasasında tutulur; DB yedeğinden geri dönüşte o yedeğin yazıldığı sürümler gerekir. Anahtar loga, dokümana,
      repoya yazılmaz.
+## 15. P11 — sistem ayarları (MySQL/TURN) + audit değiştirilemezliği (devops, 2026-11-13)
+Migration `20261113090000_p11_system_settings_audit` (`system_settings` tablosu, `audit_logs` BEFORE UPDATE/DELETE
+tetikleyicileri, audit indeksleri). **Yeni env değişkeni yok.** Değişen altyapı: `deploy/docker-compose.yml` mysql
+`command`'a `--log-bin-trust-function-creators=1` eklendi. Neden: MySQL 8.4'te binlog açık; SUPER'siz `migrator`
+tetikleyici oluşturamaz (**ERROR 1419**). SUPER verilmedi, binlog kapatılmadı (PITR/replika kalır) — gerekçe
+`docs/db-notlari.md` "P11". **`--sysdate-is-now` eklenmez** (audit DELETE tetikleyicisi `SYSDATE()`'e dayanır).
+
+### 15.1 Yayın sırası (staging, §8 akışı; prod'da aynı)
+MySQL konteyneri yeniden oluşturulur → **10–30 sn DB kesintisi** (server `/ready` kısa süre 503; etkin oturumlar
+DB'ye yazamaz). Düşük trafik saatinde yapın.
+1. **Yedek** (ayrı ssh çağrısı, §13.1/1 ile aynı komut; dosya adı `remote-pre-p11-…`):
+```bash
+ssh root@185.126.217.99 'cd /opt/remote/deploy && F=/root/remote-pre-p11-$(date -u +%Y%m%dT%H%M%SZ).sql.gz \
+  && docker compose exec -T mysql sh -c '\''MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump -uroot --single-transaction --triggers --routines "$MYSQL_DATABASE"'\'' | gzip > "$F" \
+  && chmod 600 "$F" && ls -l "$F" && gzip -t "$F" && echo yedek-ok'
+```
+2. **Repo güncelle** (§8 bundle + pull, yeni ssh çağrısı, `umask` yok; §13.1/2 izin kontrolü). Ardından **yalnız mysql**:
+```bash
+cd /opt/remote/deploy && docker compose up -d mysql      # command değişti → konteyner yeniden oluşturulur;
+                                                         # mysql_data volume'u ve veri KORUNUR (down -v YAPMAYIN)
+docker compose ps mysql                                  # (healthy) görünene kadar bekleyin
+```
+3. **Doğrula** (parola konteynerin env'inden okunur, komut satırına yazılmaz):
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -NBe "SELECT @@log_bin, @@log_bin_trust_function_creators"'
+# beklenen:  1	1      (ilk 0 ise binlog kapalı — beklenmez, durun ve dba'ya sorun; ikinci 0 ise bayrak gelmedi:
+#                       `docker compose config | grep -A3 'mysql:' | grep command` yeni satırı göstermeli)
+```
+   Yeniden başlatma istenmiyorsa (alternatif, kalıcı): root ile `SET PERSIST log_bin_trust_function_creators = 1`
+   (volume'daki `mysqld-auto.cnf`'e yazılır; 1287 "deprecated" uyarısı normal). Compose bayrağı yine kaynak gerçeklik
+   olarak kalır; bir sonraki `up -d mysql`'de zaten uygulanır.
+4. **Build + migrate + server:** `docker compose build && docker compose up -d` → `docker compose logs --since 5m migrate`
+   ("All migrations have been successfully applied"). Ardından `docker compose --profile setup run --rm seed` (zararsız).
+5. **Yetki sınırı:** `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD CONTAINER=remote-mysql-1 DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh | tail -3; echo rc=$?`
+   → **320/320 PASS**, `rc=0` (302 + 18 P11: tetikleyici sayısı 2, `app`'te TRIGGER/ALTER/DROP/CREATE/INDEX yok, audit_logs
+   yalnız SELECT/INSERT, system_settings izin + 4 CHECK). Betik root kontrollerini konteynerin `MYSQL_ROOT_PASSWORD`
+   env'iyle yapar; parola çıktıya düşmez. Kontrol: `... check-app-grants.sh | grep -c PASS` = 320, `grep -c FAIL` = 0.
+6. **Duman testi:** Super Admin → Audit Log ekranı açılır, filtreler çalışır, düzenleme/silme düğmesi yok; Sistem ayarları > MySQL "Bağlantıyı Test Et" (app kullanıcısı) başarılı; TURN ayarı boş bırakılır (env kullanılır) veya §15.5.
+7. §8 yayın geçmişine satır (yedek yolu, grants 320, `1 1` doğrulaması).
+
+**Yerel prova (devops, 2026-11-13, geçici `mysql:8.4.13` digest-sabit, `rs-mysql-p11ops:33351` ve compose projesi
+`p11volprova`; hepsi silindi):** (a) bayraksız açılmış named volume'lu konteyner → `command`'a bayrak eklenip
+`docker compose up -d mysql` → konteyner yeniden oluştu, `1 1`, önceki tablo verisi korundu (42); (b) P1→P11 migrate,
+CI adımının birebir komutu `1 1` ve rc 0; `check-app-grants.sh` 320 PASS / 0 FAIL, çıktıda parola yok; (c) §15.2 guard,
+1419 ve kurtarma akışı aşağıdaki gibi denendi. Not: Docker Desktop (macOS arm64) üzerinde `user:` verilmeden açılan
+compose mysql'i gosu adımında takılıp unhealthy kaldı (bilinen QA-P5-6 sorunu, `test-db.sh` `--user mysql` kullanır);
+Linux staging/prod'u etkilemez.
+
+### 15.2 Migrate 1419 ile durursa (bayrak unutulduysa)
+Belirti: `docker compose logs migrate` → `P3018` + `ERROR 1419 ... You do not have the SUPER privilege and binary
+logging is enabled`; server başlamaz (eski server konteyneri çalışıyorsa çalışmaya devam eder). Migration **ilk
+ifadede** (tetikleyici) durur, **hiçbir şey değişmez** (tablo/tetikleyici/indeks yok — prova: tetikleyici 0, tablo 0).
+1. §15.1/2–3: `docker compose up -d mysql` → `1	1` doğrulaması.
+2. Prisma'daki başarısız kaydı kapat:
+   `docker compose run --rm migrate pnpm --filter @remote/server exec prisma migrate resolve --rolled-back 20261113090000_p11_system_settings_audit`
+3. `docker compose up -d` (migrate yeniden dener) → §15.1/4–5.
+Karar verilemiyorsa bu arada §8 Rollback ile önceki `IMAGE_TAG`'e dönün (şema P10'da kaldığı için eski server çalışır).
+
+### 15.3 Geri alma (denendi: devops 2026-11-13 yerel; dba aynı akışı drift 0 ile doğruladı)
+Tercih: **ileri düzeltme > yalnız imaj geri alma > imaj + `down.sql`**. P10 server'ı `system_settings`'i okumaz ve
+tetikleyiciler P10 kodunu etkilemez (audit'e yalnız INSERT yapar) → çoğu durumda yalnız imaj geri alma yeter.
+1. **Önceki imaj:** `.env`'de `IMAGE_TAG=<P10 etiketi>` → `docker compose up -d`.
+2. **`down.sql`** (yalnız şemanın kendisi sorunluysa; önce §15.1/1 yedeği ve 1. adım):
+```bash
+docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute \
+  --file prisma/migrations/20261113090000_p11_system_settings_audit/down.sql
+```
+   **Koruma — `p11_down_guard_chk`:** `system_settings`'te kayıt varsa (Super Admin MySQL/TURN ayarı kaydetmişse)
+   **3819 `Check constraint 'p11_down_guard_chk' is violated`** ile durur ve hiçbir şey değişmez (prova: tetikleyici 2,
+   satır 1 yerinde). Bilinçli karar verilirse: ayarlar not edilir, TURN için `.env` `TURN_URLS`/`TURN_SECRET` coturn ile
+   uyumlu olduğu doğrulanır (panel kaydı silinince bu değerlere dönülür), migrator ile `DELETE FROM system_settings;` (panelde "varsayılana dön" de satır bırakır; guard'ı o da tetikler)
+   ve komut tekrar. Guard geçerse: yetkiler REVOKE, tetikleyiciler + tablo düşer, audit indeksleri P10'a döner,
+   `_prisma_migrations` kaydı silinir (prova: tetikleyici 0, tablo 0, son migration `20261112180000_p10_account_security`).
+   Ardından `check-app-grants.sh`: P11 satırları FAIL/"tablo yok" verir (beklenen), P10 ve öncesi PASS.
+   **Etkisi:** DB düzeyinde audit UPDATE/DELETE koruması kalkar (yalnız `app` yetki sınırı kalır) — güvenlik ekibine bildirin.
+3. **Yeniden ileri:** yeni `IMAGE_TAG` → `docker compose up -d` (bayrak açık olduğundan migrate doğrudan geçer; prova OK).
+- Bayrağın kendisini geri almaya gerek yoktur (P10 şemasında etkisi yok); geri alınırsa P11 bir daha uygulanamaz (§15.2).
+
+### 15.4 Panel MySQL ayarı → `.env` aktarımı (ADR-0003: canlı geçiş YOK)
+Panel ekranı bağlantıyı **test eder ve şifreli saklar**; uygulama açılışta yine `.env`'den kurulan `DATABASE_URL`'i
+kullanır (`DATABASE_URL` yoksa `system_settings` zaten okunamaz). Kaydetmek hiçbir şeyi değiştirmez; geçiş yeniden
+başlatma ister. Panel kayıtlı şifreyi geri göstermez → şifre **parola kasasından** alınır.
+- **Panelde girilecek kullanıcı yalnız `app`'tir** (en az yetki; root/`migrator` girilmez — migrator şifresi server'a
+  hiçbir yoldan verilmez, G-15).
+- **Aynı (compose içi) MySQL, yalnız `app` şifresi değişiyor:**
+  1. Yedek (§15.1/1). Yeni şifre: `openssl rand -hex 24` (URL'de kaçış gerektirmeyen karakterler).
+  2. Etkileşimli root oturumu (şifre komut satırına/geçmişe düşmez):
+     `docker compose exec mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot'` → `ALTER USER 'app'@'%' IDENTIFIED BY '<yeni>';`
+  3. `deploy/.env` `MYSQL_APP_PASSWORD=<yeni>` (compose `DATABASE_URL`'i bundan üretir) → `docker compose up -d server`
+     (seed/staging-users da aynı değişkeni okur).
+  4. Panelde aynı şifreyi girip "Bağlantıyı Test Et" → başarılı → Kaydet. `curl -fsS https://<alan>/ready` 200.
+- **Farklı (harici) MySQL sunucusu:** compose `DATABASE_URL`'i `mysql` servis adına sabittir; harici DB için
+  sunucuya özel `deploy/docker-compose.override.yml` (repoya girmez; sunucuda `.git/info/exclude`) ile
+  `server`, `seed` ve `migrate` servislerinin `DATABASE_URL`/`MIGRATE_DATABASE_URL` değerleri ayrı `.env` anahtarlarından
+  verilir; harici DB'de `app`/`migrator` kullanıcıları `deploy/mysql/init/01-users.sh` ve `grants.sql` ile kurulur, veri
+  yedekten taşınır (§ "yedekten dön"). Bu bir **planlı göç**tür, panelden yapılamaz; mimar/dba onayıyla yürütülür.
+- Rollback: `.env`'deki eski değer (`.env.bak.<tarih>` alınarak değiştirilir) → `docker compose up -d server`.
+
+### 15.5 Panel TURN ayarı ↔ coturn `static-auth-secret` uyumu
+Server TURN kimlik bilgisini (HMAC) **panelde kayıt varsa panelden**, yoksa `.env` `TURN_URLS`/`TURN_SECRET`'tan üretir
+(G-13). coturn ise secret'ı yalnız kendi `deploy/turn/.env`'inden okur (`static-auth-secret`). **İkisi aynı değilse TURN
+aktarımı sessizce kırılır**: istemciler 401 alır, yalnız doğrudan/STUN bağlantısı kalır, NAT arkası oturumlar siyah ekran.
+- **Panelden secret değiştirmek = rotasyon** (§9.6 sırası, server adımı panel olur):
+  1. `deploy/turn/.env`: `TURN_SECRET_PREVIOUS=<eski>`, `TURN_SECRET=<yeni>` (≥ 32 karakter, boşluk/`#` yok; `openssl rand -hex 32`)
+     → `cd deploy/turn && docker compose up -d coturn` (iki secret kabul).
+  2. Sistem ayarları > TURN (`/admin/settings/turn`): aynı `<yeni>` secret + URL'ler → Kaydet.
+  3. **`deploy/.env` `TURN_SECRET=<yeni>`** de yapılır (panel kaydı silinirse/okunamazsa server env'e döner; env eski kalırsa
+     o an TURN kırılır) → `docker compose up -d server`.
+  4. `TURN_CRED_TTL_MIN` dk sonra `TURN_SECRET_PREVIOUS=` boşalt → `docker compose up -d coturn`.
+  5. Doğrulama §9.7 (relay adayı alınır) + coturn logunda `401` artışı yok.
+- **Panel URL'leri** yalnız bu coturn'ü göstermelidir (başka TURN sunucusu = başka secret).
+- **Panel kaydı silinince** ("varsayılana dön"; satır `{urls: []}` olarak kalır) server env'e döner. Ayar canlıdır
+  (her kimlik üretiminde okunur, yeniden başlatma gerekmez). Silmeden önce iki secret'ın aynı olduğunu **değeri
+  göstermeden** doğrulayın — iki satır aynı özeti vermeli:
+  `for f in deploy/.env deploy/turn/.env; do grep '^TURN_SECRET=' "$f" | sha256sum; done`
+- `APP_ENCRYPTION_KEYS` sürümü erken çıkarılırsa panel TURN secret'ı çözülemez → server env'e **dönmez**, yalnız STUN
+  verir (log `alarm:"system_secret_unreadable"`, `key:"turn"`); secret panelden yeniden girilir. Anahtar kuralı §14 P10.
+
+### 15.6 Yedek ve geri yükleme notu (P11 sonrası)
+- `mysqldump` tetikleyicileri `DEFINER=migrator@%` ile döker (`--triggers` varsayılan). Geri yükleme **root ile** yapılır ve
+  bayrak açık olmalıdır (aksi halde 1419). Ayrı bir `backup` kullanıcısı tanımlanırsa `TRIGGER` yetkisi gerekir.
+- `migrator` kullanıcısı silinir/yeniden adlandırılırsa audit UPDATE/DELETE "definer does not exist" ile reddedilir
+  (fail-closed); INSERT etkilenmez.
+- Geri yükleme provasından sonra: `SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE()` = 2.
+
+### 15.7 Sorun giderme (P11)
+| Belirti | Neden / Yapılacak |
+|---|---|
+| migrate `P3018` + `1419` | Bayrak yok → §15.2 |
+| server logu `audit_logs is append-only` (SIGNAL 45000) | Kodda audit UPDATE denemesi — hata, backend'e bildir; DB koruması doğru çalışıyor |
+| `down.sql` 3819 `p11_down_guard_chk` | `system_settings`'te kayıt var → §15.3/2 |
+| Panel MySQL "kaydedildi" ama davranış değişmedi | Beklenen (ADR-0003) → §15.4 |
+| Panel TURN kaydından sonra NAT arkası oturum siyah ekran | Panel secret ≠ coturn → §15.5 |

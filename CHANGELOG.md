@@ -5,6 +5,52 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P11 (audit log ekranı, sistem ayarları, aydınlatma metni)
+- **Audit log** (`/audit`, menüde "Audit log"; `audit.view`): salt okunur liste, 50'şer kayıt + "Daha fazla yükle",
+  filtreler URL'de (başlangıç/bitiş günü — boşsa son 30 gün, en çok 731 gün —, kullanıcı, işlem veya işlem grubu, sonuç;
+  firma seçmemiş Super Admin için firma). Ayrıntı penceresi: eski/yeni değer düz metin, e-posta ve test kayıtlarında yalnız
+  neden sınıfı. Dar ekranda kart görünümü. **CSV indir** (`audit.export`): ≤ 50.000 satır, BOM + `;`, formül kaçışı,
+  dakikada 5.
+- **Sistem ayarları** (`/admin/settings`, yalnız Super Admin; sekmeler MySQL / TURN):
+  - **MySQL:** host, port (3306), veritabanı, kullanıcı, maskeli şifre (forma geri yazılmaz, boş = korunur);
+    **Bağlantıyı Test Et** formdaki değerlerle, ≤ 10 sn, sınıflı sonuç. Kayıt çalışan bağlantıyı değiştirmez; `.env`
+    (`DATABASE_URL`) + yeniden başlatma gerekir (ADR-0003, runbook §15). Çalışan bağlantıyla uyuşmazlık uyarısı.
+  - **TURN:** 1–10 adres (`stun:`/`turn:`/`turns:`), coturn `static-auth-secret` ile aynı gizli anahtar (32–256, boşluk/`#`
+    yok), **Ortam değerlerine dön**. Değişiklik yeniden başlatmadan uygulanır.
+- **Ayarlar > Aydınlatma metni** (`/settings/consent-text`): firma KVKK metnini düzenleme (50–20.000 karakter, sayaç,
+  onay); her kayıt yeni sürüm, sürüm geçmişi (SHA-256).
+- API: `GET /audit`, `GET /audit/export.csv`, `/audit*` yazma metotlarına 405 `METHOD_NOT_ALLOWED`;
+  `GET/PUT /admin/settings/mysql`, `POST /admin/settings/mysql/test`, `GET/PUT/DELETE /admin/settings/turn`,
+  `GET/PUT /settings/consent-text`. Ayrıntı `docs/api.md`.
+- Audit: `settings.mysql.updated`, `settings.mysql.test`, `settings.turn.updated`, `settings.turn.deleted`,
+  `settings.consent_text.updated`, `audit.exported`.
+- Migration `20261113090000_p11_system_settings_audit` (`system_settings` tablosu, audit tetikleyicileri, indeks
+  düzenlemesi). MySQL `--log-bin-trust-function-creators=1` bayrağıyla çalışmalı (compose ve CI'da; yoksa migration
+  1419 ile durur, kurtarma runbook §15). Yeni ortam değişkeni ve bağımlılık yok.
+
+### Güvenlik — P11
+- Audit değiştirilemezliği: API'de yazma 405 (kimlik doğrulamadan önce); `app` kullanıcısında `audit_logs` UPDATE/DELETE/
+  TRIGGER/DDL yok; tetikleyiciler UPDATE'i ve 730 günden yeni satırın silinmesini reddeder (`SYSDATE` + UTC; `SET
+  TIMESTAMP` ile atlatılamaz).
+- Okumada maske yeniden uygulanır; dış gönderim kayıtlarında ham hata, SMTP yanıt kodu ve banner dönmez (P10 koşulu).
+- MySQL şifresi ve TURN secret'ı AES-256-GCM; MySQL şifresi hedefe (host + port + kullanıcı) bağlı AAD ile saklanır ve
+  başka sunucuya gönderilmez — hedef değişirse şifre zorunlu (B-P11-1). Çözülemeyen kayıt "şifre yok" sayılır.
+- MySQL testi: kişi başı 5/dk + global 20/dk, başarısızlıkta süre dönmez, her deneme audit'te (B-P11-4, risk kabulü
+  `docs/implementation.md` P11). Aydınlatma metni firma başına saatte 10 kayıt (B-P11-6). Audit imlecinde taşma 400
+  (B-P11-5). Güvenlik denetimi: Kritik/Yüksek 0.
+
+### Düzeltildi — P11
+- 375–390 px'te Ayarlar alt menüsü "Güvenlik"i kırpıyordu (P10 sayfa testi); alt menü artık dört sekmeyi eşit
+  sütunlarda tam gösteriyor.
+
+### Bilinen sınırlamalar — P11
+- MySQL bağlantı testi TLS kullanmaz (arayüzde kalıcı uyarı); sunucu tarafı TLS seçeneği "Sonra".
+- Panel MySQL ayarı canlı geçiş yapmaz; `.env` güncellenip servis yeniden başlatılmalı.
+- Avatar resmi P12'ye kadar yok (baş harf rozeti). Firma seçmemiş Super Admin'de kullanıcı filtresi yalnız yüklü
+  kayıtlardan dolar.
+- Sayfa testi bulguları (frontend-dev): Super Admin `/audit` 1280 px'te sayfa 45 px yatay kayıyor (Ayrıntı sütunu kesik);
+  ≥ 1366 px'te sorun yok. Açık maddeler: `docs/gereksinimler-sonra-acik.md` "P11'den".
+
 ### Eklendi — P10 (hesap güvenliği + SMTP)
 - **İki adımlı doğrulama (2FA, TOTP):** Google Authenticator, Microsoft Authenticator vb. ile. Kurulum ekranı
   (`/2fa/setup`): QR + elle anahtar (kopyala) → 6 haneli kod → 10 tek kullanımlık kurtarma kodu (bir kez gösterilir;

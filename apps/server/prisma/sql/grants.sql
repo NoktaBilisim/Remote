@@ -71,8 +71,15 @@ GRANT SELECT, INSERT ON password_reset_tokens TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON password_reset_tokens FROM 'app'@'%';
 GRANT UPDATE (used_at, updated_at) ON password_reset_tokens TO 'app'@'%';
 
--- Append-only: yalnız SELECT/INSERT. DELETE yetkisi retention/tetikleyiciyle birlikte (P11/P13)
--- verilecek; o pakette bu dosya güncellenir. UPDATE/DELETE/DDL/TRIGGER yetkisi varsa geri alınır.
+-- P11 system_settings (mimari §3.1; AC-77, 78): yalnız Super Admin ucu yazar; kayıt yoksa ilk kayıt INSERT, sonra UPDATE.
+-- DELETE yok (ayar "kaldırma" = alanları boşaltan UPDATE ya da varsayılana dönüş; satır kalır, iz audit'te).
+GRANT SELECT, INSERT, UPDATE ON system_settings TO 'app'@'%';
+REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON system_settings FROM 'app'@'%';
+
+-- Append-only: yalnız SELECT/INSERT. P11'de DB tetikleyicileri kuruldu (audit_logs_no_update: her UPDATE → SIGNAL;
+-- audit_logs_retention_only_delete: 730 günden yeni satır DELETE → SIGNAL) ama DELETE yetkisi BİLEREK verilmedi:
+-- en az yetki — silen tek iş retention (P13); yetki o pakette bu dosyaya eklenir (tetikleyici yine sınırlar).
+-- UPDATE/DELETE/DDL/TRIGGER yetkisi varsa geri alınır.
 GRANT SELECT, INSERT ON audit_logs TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON audit_logs FROM 'app'@'%';
 

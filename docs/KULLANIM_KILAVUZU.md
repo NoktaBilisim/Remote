@@ -11,10 +11,12 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
   kodları, şifremi unuttum, Hesap güvenliği sayfası, tüm cihazlardan çıkış
 - **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
-  yetkileri, Ayarlar > Destek talepleri (e-posta bildirimi dahil), Ayarlar > E-posta (SMTP), Ayarlar > Güvenlik
-- **Super Admin için:** Firmalar ve firma geçişi, tüm firmaların oturum geçmişi, destek talepleri, şifre/2FA kaybı
+  yetkileri, Ayarlar > Destek talepleri (e-posta bildirimi dahil), Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
+  Aydınlatma metni, Ayarlar > Güvenlik
+- **Super Admin için:** Firmalar ve firma geçişi, tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
+  (MySQL ve TURN), şifre/2FA kaybı
 
-Audit log ekranı, logo ve avatar ilgili paketlerle (P11–P12) eklenecektir.
+Logo, avatar ve tema tercihi P12 paketiyle eklenecektir.
 
 ---
 
@@ -941,8 +943,8 @@ yapılır.
   **verilirse** bu yalnız yeni oturumlarda geçerli olur.
 
 ### Kayıtlar (audit)
-Her uzaktan kontrol adımı denetim kaydına yazılır; klavye ve fare içeriği hiçbir yere yazılmaz. Audit log ekranı P11
-paketiyle gelecektir; kayıtlar o zamana kadar veritabanında tutulur.
+Her uzaktan kontrol adımı denetim kaydına yazılır; klavye ve fare içeriği hiçbir yere yazılmaz. Kayıtları **Audit log**
+ekranında "Uzaktan kontrol" ve "Monitör" işlem gruplarıyla süzebilirsiniz (bkz. "Admin için: Audit log").
 
 | Kayıt | Ne zaman |
 |---|---|
@@ -1056,6 +1058,95 @@ Sağlayıcınız kimlik doğrulaması istiyorsa SSL veya TLS seçin.
 
 **SMTP ayarını kaldırmak:** sayfadaki "SMTP ayarlarını kaldır" düğmesi (onay ister). Kaldırınca e-posta bildirimleri durur.
 
+## Admin için: Audit log (denetim kaydı)
+Kim, ne zaman, ne yaptı sorusunun cevabıdır: girişler, başarısız denemeler, kayıt ekleme/değiştirme, yetki ve ayar
+değişiklikleri, e-posta/WhatsApp gönderimleri, oturum ve uzaktan kontrol olayları. Kayıtlar **salt okunurdur**: ekranda
+düzenleme veya silme düğmesi yoktur, sunucu ve veritabanı da buna izin vermez. Son 730 güne ait kayıtlar hiçbir
+şekilde silinemez.
+
+**Kim görür?**
+| Rol | Ne görür |
+|---|---|
+| User (teknisyen) | Varsayılan olarak hiç; Admin **Audit log → Görüntüle** yetkisini açarsa kendi firmasının kayıtlarını |
+| Admin | Kendi firmasının tüm kayıtlarını (yetkiler varsayılan açık) |
+| Super Admin | Firma seçmeden: tüm firmalar + sistem kayıtları (ör. MySQL/TURN ayarı). Firma seçiliyken: yalnız o firma |
+
+CSV indirmek için ayrıca **Audit log → Dışa aktar** yetkisi gerekir. Yetkisi olmayan kullanıcı menüde "Audit log"u görmez;
+adresi elle açarsa "Audit log'u görüntüleme yetkiniz yok." yazar.
+
+### Nasıl bir kaydı bulurum?
+1. Kenar menüsünde **Audit log** (kaydırma kâğıdı simgesi).
+2. Liste en yeni kayıt üstte olacak şekilde gelir. Tarih seçmezseniz **son 30 gün** gösterilir.
+3. Filtreleri doldurun ve **Filtrele**'ye basın:
+   | Filtre | Anlamı |
+   |---|---|
+   | Başlangıç / Bitiş tarihi | Türkiye saatiyle gün; bitiş günü dahil. Aralık en çok 731 gün |
+   | Kullanıcı | İşlemi yapan kişi |
+   | İşlem | Tek bir işlem veya bir grup (ör. "Giriş ve hesap güvenliği", "Kullanıcı ve yetki", "Ayarlar ve testler", "E-posta") |
+   | Sonuç | Başarılı / Başarısız |
+   | Firma | Yalnız firma seçmemiş Super Admin'de |
+4. İlk 50 kayıt görünür; devamı için listenin altındaki **Daha fazla yükle**. Hepsi geldiyse "Tüm kayıtlar gösterildi" yazar.
+5. **Filtreleri temizle** ile başa dönün. Filtreler adres çubuğunda durur; bağlantıyı kopyalayıp aynı görünümü
+   paylaşabilirsiniz (karşı tarafın da yetkisi olmalı).
+
+Listede: zaman, kullanıcı (resmi veya baş harfleri), firma (Super Admin), işlem (Türkçe ad + teknik ad), varlık, sonuç
+rozeti, IP adresi. Dar ekranda (telefon) tablo yerine kartlar gösterilir.
+
+### Kaydın ayrıntısını nasıl görürüm?
+Satırdaki **Ayrıntı** (göz simgesi) düğmesine, telefonda karta dokunun. Pencerede kayıt no, tarih, kullanıcı, işlem,
+varlık ve kayıt kimliği, IP, tarayıcı, **Eski değer** ve **Yeni değer** görünür. Şifre, token ve anahtarlar `***` ya da
+yalnız "changed" (değişti) olarak görünür; asıl değer hiçbir yerde tutulmaz. E-posta gönderimi ve test kayıtlarında yalnız
+sonuç **nedeni** gösterilir (ör. `auth`, `connect`); alıcı içeriği ve sunucunun ham hata metni gösterilmez. Esc veya
+**Kapat** ile çıkın.
+
+### Nasıl CSV indiririm?
+1. Önce filtreleri ayarlayın; CSV yalnız filtreye uyan kayıtları içerir.
+2. **CSV indir**'e basın. Dosya adı `audit-YYYYAAGG-SSDD.csv` biçimindedir; Excel'de çift tıklayınca Türkçe karakterler
+   doğru açılır (ayraç noktalı virgül).
+3. Eski/yeni değer sütunları JSON metnidir. `=`, `+`, `-`, `@` ile başlayan hücrelerin önüne `'` eklenir (Excel formül
+   olarak çalıştırmasın diye).
+- En çok **50.000 satır**: aşarsa "En çok 50.000 satır dışa aktarılabilir; tarih aralığını daraltın" yazar.
+- Dakikada en çok 5 indirme. Her indirme de audit'e yazılır.
+
+### Sık karşılaşılan mesajlar (Audit log)
+| Mesaj | Ne yapmalı |
+|---|---|
+| Tarih aralığı en çok 731 gün olabilir | Başlangıç tarihini ileri alın |
+| Bitiş tarihi başlangıçtan önce olamaz | Tarihleri düzeltin |
+| Bu aralıkta kayıt yok / Filtreye uyan kayıt yok | Başlangıç tarihini geri alın veya filtreleri temizleyin |
+| Sonraki kayıtlar alınamadı | **Daha fazla yükle**'ye yeniden basın; sürerse sayfayı yenileyin |
+| Kullanıcı listesi alınamadı; seçenekler bu sayfadaki kayıtlardan geliyor | Bilgi amaçlı; Super Admin firma seçmeden bakarken normaldir |
+| CSV düğmesi yok | **Audit log → Dışa aktar** yetkiniz kapalı; Admin'inizden isteyin |
+
+## Admin için: Ayarlar > Aydınlatma metni
+Müşterinin ekranını paylaşmadan (veya Hızlı Destek'ten destek istemeden) önce okuyup onayladığı KVKK aydınlatma metnidir.
+Her firmanın kendi metni vardır; firma oluşturulurken sistem metniyle başlar. Görmek için **Ayarlar → Görüntüle**,
+değiştirmek için **Ayarlar → Düzenle** yetkisi gerekir. Yalnız görüntüleme yetkisi olan kişi sayfayı salt okunur görür
+(menüdeki **Ayarlar** öğesi Düzenle yetkisi ister; bu kişi sayfayı `/settings/consent-text` adresinden açar).
+Super Admin önce üst menüden firma seçer.
+
+### Nasıl metni değiştiririm?
+1. **Ayarlar** → üstteki alt menüden **Aydınlatma metni**.
+2. Üstte güncel sürüm numarası, tarihi ve hazırlayan kişi ("Sistem" = hazır metin) görünür.
+3. Metni kutuda düzenleyin. Sayaç **en az 50, en çok 20.000** karakter ister. Metin düz yazıdır; kalın yazı, bağlantı gibi
+   biçimler yorumlanmaz.
+4. **Yeni sürüm olarak kaydet** → onay penceresinde "Yeni oturumlar bu metni gösterecek; eski onaylar eski sürüme bağlı
+   kalır." yazar → onaylayın.
+5. "Sürüm N kaydedildi" mesajı çıkar ve **Sürüm geçmişi** listesine eklenir.
+
+**Sürümleme nasıl işler?** Eski sürümler silinmez ve değiştirilemez. Daha önce verilmiş her onay, onaylandığı sürüme (ve
+metnin parmak izi olan SHA-256 özetine) bağlı kalır; böylece "müşteri hangi metni onayladı" sorusu her zaman
+cevaplanabilir. Kaydettiğiniz andan sonra açılan oturumlar yeni metni gösterir. Bekleme ekranında eski metni görmüş müşteri
+yeniden onay vermek zorunda kalır.
+
+### Sık karşılaşılan mesajlar (Aydınlatma metni)
+| Mesaj | Anlamı / ne yapmalı |
+|---|---|
+| Metin güncel sürümle aynı; yeni sürüm oluşturulmadı. | Değişiklik yoktu; bir şey yapmanız gerekmez |
+| Metin bu sırada başka biri tarafından güncellendi… | Yazdığınız metin kutuda korunur. Kopyalayın, sayfayı yenileyin, güncel sürümü kontrol edip yeniden kaydedin |
+| Metin görünmez veya kontrol karakteri içeremez | Word/PDF'ten yapıştırılan görünmez karakterler var; metni düz metin editörüne yapıştırıp oradan kopyalayın |
+| Çok fazla istek (hız sınırı) | Firma başına saatte en çok 10 kayıt yapılabilir; bir süre sonra deneyin |
+
 ## Admin için: Ayarlar > Güvenlik (teknisyenler için 2FA)
 1. **Ayarlar** → **Güvenlik**.
 2. **Teknisyenler için zorunlu** anahtarını açın veya kapatın; değişiklik hemen kaydedilir.
@@ -1131,6 +1222,73 @@ Süper Yönetici içindir" uyarısı çıkar.
 - **Destek talepleri:** Super Admin firma seçmeden **Talepler** ve **Ayarlar** ekranlarında "Önce firma seçin" uyarısını
   görür. Firma seçiliyken o firmanın kuyruğunu görür ve ayarlarını düzenleyebilir; talep **kabul edemez ve
   reddedemez** (oturum teknisyenin kendi firmasında açılır).
+
+## Super Admin için: Sistem ayarları (MySQL ve TURN)
+Kenar menüsünde **Sistem ayarları** (sunucu-dişli simgesi) yalnız Super Admin'e görünür; Admin bu adresi açarsa "Sistem
+ayarları yalnız Super Admin içindir." yazar. Bu ayarlar **tüm firmalar için** geçerlidir. Sayfada iki sekme vardır:
+**MySQL** ve **TURN**. Her değişiklik audit log'a yazılır (firma alanı boş, "Sistem" kaydı olarak).
+
+Kaynak rozeti: **Ortam değişkenleri (.env)** = panelde kayıt yok, sunucudaki `.env` kullanılıyor; **Panelde kayıtlı** =
+bu ekrandan kaydedilmiş değer.
+
+### MySQL: alanlar
+| Alan | Açıklama |
+|---|---|
+| Sunucu (host) | Veritabanı sunucusunun adı veya IP'si (Docker'da genelde `mysql`) |
+| Port | Varsayılan 3306 |
+| Veritabanı adı | Harf, rakam, `_ $ -`; en çok 64 karakter |
+| Kullanıcı adı | Uygulamanın kullandığı **`app`** kullanıcısı (root veya migrator değil) |
+| Şifre | Maskelidir. Kaydedilen şifre forma geri yazılmaz ("Kayıtlı — değiştirmek için yazın"); boş bırakırsanız korunur. Sunucuda şifrelenmiş saklanır |
+
+### MySQL: bağlantıyı nasıl test ederim?
+1. Alanları doldurun (kaydetmeniz gerekmez; test **formdaki değerlerle** yapılır).
+2. **Bağlantıyı Test Et**'e basın. "Test 10 saniyeye kadar sürebilir…" yazar.
+3. Sonuç: **Bağlantı başarılı** (süre ms ile) veya **Bağlantı kurulamadı** ve nedeni (sunucuya bağlanılamadı, kimlik
+   reddedildi, veritabanı yok, zaman aşımı, kayıtlı şifre okunamadı). Başarısız testte süre gösterilmez.
+- **Şifre kuralı:** Şifre alanı boşsa kayıtlı şifre **yalnız aynı sunucu, port ve kullanıcı için** kullanılır. Başka bir
+  sunucu veya kullanıcı deniyorsanız şifreyi yazın; yazmazsanız şifre alanının altında "Farklı sunucu veya kullanıcı için
+  şifreyi girin" çıkar. Kayıtlı şifre başka bir sunucuya hiçbir zaman gönderilmez.
+- **TLS uyarısı:** Test bağlantısı şifreleme (TLS) kullanmaz; şifre ağda açık gider. Sarı uyarı kutusu bunu her zaman
+  hatırlatır. Yalnız aynı sunucudaki veya güvenilir iç ağdaki MySQL'i test edin.
+- Kişi başına dakikada 5, tüm Super Admin'ler için toplam dakikada 20 test yapılabilir.
+
+### MySQL: kaydetmek neyi değiştirir?
+**Kaydet**'e basmak çalışan bağlantıyı **değiştirmez**; değer bilgi ve kontrol amacıyla saklanır. Kayıttan sonra şu uyarı
+kalıcı olarak görünür: "Uygulamak için .env güncellenip uygulama yeniden başlatılmalı." Gerçek geçiş sunucuda yapılır:
+sistem yöneticisi `deploy/.env` içindeki `DATABASE_URL`'i günceller ve servisi yeniden başlatır (`docs/runbook.md` §15).
+Kayıtlı değerler çalışan bağlantıdan farklıysa ekranda "Kayıtlı değerler çalışan bağlantıdan farklı…" uyarısı çıkar; bu,
+`.env` güncellenmeden kaldıysa hatırlatıcıdır.
+- Kayıtlı şifre varken sunucu, port veya kullanıcıyı değiştirip şifreyi boş bırakırsanız kayıt reddedilir; yeni şifreyi
+  yazın.
+
+### TURN: nedir, nasıl ayarlanır?
+TURN sunucusu, güvenlik duvarı arkasındaki müşterilerde görüntünün aktarılmasını sağlar (coturn). Varsayılan olarak
+sunucudaki `.env` değerleri (`TURN_URLS`, `TURN_SECRET`) kullanılır; bu ekran onları panelden değiştirmek içindir.
+1. **Sistem ayarları** → **TURN** sekmesi.
+2. **Sunucu adresleri**: her satıra bir adres (ör. `turns:turn.ornek.com:443?transport=tcp`, `stun:turn.ornek.com:3478`).
+   **Adres ekle** ile satır ekleyin, satır sonundaki düğmeyle kaldırın. En az 1, en çok 10 adres; `stun:`, `turn:` veya
+   `turns:` ile başlamalı, boşluk içermemeli.
+3. **Gizli anahtar (static-auth-secret)**: coturn sunucusundaki `static-auth-secret` ile **birebir aynı** olmalı. 32–256
+   karakter, boşluk ve `#` içermez. Kayıtlıysa boş bırakın, korunur. `turn:`/`turns:` adresi varken anahtar zorunludur.
+4. **Kaydet**. Yeni ayar yeni oturumlara hemen, açık oturumlara bir sonraki kimlik yenilemesinde uygulanır.
+
+**Uyarı:** Anahtar coturn'deki ile uyuşmazsa TURN aktarımı çalışmaz ve güvenlik duvarı arkasındaki müşterilerde ekran
+gelmez. coturn'deki anahtarı değiştirdiyseniz bu ekranı da aynı anda güncelleyin (runbook §15).
+
+**Ortam değerlerine dön:** Yalnız panel kaydı varken görünür. Basınca onay sorulur (varsayılan seçim "Vazgeç");
+onaylarsanız paneldeki adresler ve anahtar silinir, uygulama yeniden `.env` değerlerini kullanır.
+
+### Sık karşılaşılan mesajlar (Sistem ayarları)
+| Mesaj | Ne yapmalı |
+|---|---|
+| Farklı sunucu veya kullanıcı için şifreyi girin | Şifre alanını doldurun |
+| Kimlik reddedildi (kullanıcı adı veya şifre hatalı) | Kullanıcı adı/şifreyi kontrol edin |
+| Veritabanı bulunamadı veya bu kullanıcının erişimi yok | Veritabanı adını ve kullanıcının yetkisini kontrol edin |
+| Sunucuya bağlanılamadı / zaman aşımı | Sunucu adı, port ve ağ erişimini kontrol edin |
+| Kayıtlı şifre okunamadı; şifreyi yeniden girin | Sunucunun şifreleme anahtarı değişmiş olabilir; şifreyi yazıp kaydedin |
+| Gizli anahtar en az 32 karakter olmalı / boşluk ve # içermeyen ASCII olmalı | coturn'deki anahtarı kurallara uygun üretin ve iki yerde aynı yapın |
+| En az bir adres gerekli | `.env` değerlerine dönmek için **Ortam değerlerine dön**'ü kullanın |
+| Çok fazla istek | Dakikalık test sınırı doldu; bir dakika bekleyin |
 
 ## Super Admin için: Şifre veya 2FA kaybı
 Super Admin'in bir firması olmadığı için SMTP ayarı da yoktur: "Şifremi unuttum" e-posta göndermez ve kimse panelden

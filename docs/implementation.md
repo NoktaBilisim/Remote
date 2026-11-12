@@ -3246,3 +3246,158 @@ Ayarlar bölümüne alt menü eklendi (`settings/layout.tsx`): Destek talepleri 
 - Testler: `packages/contracts/test/auth-p10.test.ts` (yeni: normalize vakaları, biçim/uzunluk, verify gövdesi); `e2e/p10-account.spec.ts` (+3: Esc gönderim sırasında kapatmaz + bekleme metni + kapat/yeniden aç; 375 px sekme taşması; `/login/2fa` ziyaretçi vs geçersiz çerez; kurtarma kodu `" ABCDE - 23456 "` ile giriş).
 - Dosyalar: `components/account/mail-test-dialog.tsx`, `components/ui/dialog.tsx`, `app/(panel)/settings/settings-tabs.tsx`, `app/(auth)/login/2fa/page.tsx`, `messages/tr.json` (`smtp.testWaiting`), `packages/contracts/src/api/auth.ts`, `e2e/mock-account.mjs`, `DESIGN.md`.
 - Sonuç: `lint` ✓ · `typecheck` ✓ · contracts 71/71 ✓ · server unit 310/310 ✓ · web 205/205 ✓ · `e2e` 247 geçti / 86 atlandı / 0 hata.
+
+## P11 — DevOps (devops, 2026-11-13)
+- **dba değişiklikleri gözden geçirildi** (compose `--log-bin-trust-function-creators=1`, CI `SET GLOBAL`, `test-db.sh`,
+  `check-app-grants.sh` root kontrolleri): SHA sabitleme ve `permissions: contents: read` korunuyor, yeni Action yok;
+  `app` yetkisi genişlemedi, SUPER verilmedi. İki düzeltme:
+  1. `ci.yml`: root parolası `docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD"` ile docker CLI argümanına konuyordu →
+     konteynerin kendi env'inden okunuyor (`sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" …'`, check-app-grants ile aynı desen).
+     Adım ayrıca `SELECT @@log_bin, @@log_bin_trust_function_creators` = `1 1` doğrular; değilse migrate'ten önce düşer.
+  2. `test-db.sh`: `mysql:8.4` yüzen etiketi compose/CI ile aynı `mysql:8.4.13@sha256:a81d…` digest'ine sabitlendi
+     (`MYSQL_IMAGE`; bayrak 8.4'te deprecated, sessiz alt sürüm geçişi davranışı değiştirmesin). Compose güncellenince birlikte.
+- Yeni env değişkeni yok (`.env.example`/`env.ts`/compose değişmedi).
+- Runbook §15 (yayın, 1419 kurtarma, geri alma, panel MySQL → `.env`, panel TURN ↔ coturn secret, yedek notu, sorun
+  giderme) ve §14 P10 prod kontrol listesine 7–10. maddeler.
+- **Yerel prova (2026-11-13):** named volume'lu bayraksız mysql → bayrakla `compose up -d mysql` → `1 1`, veri korundu;
+  P1→P11 migrate + CI adım komutu rc 0; `check-app-grants.sh` 320 PASS / 0 FAIL, çıktıda parola yok; down guard 3819
+  (hiçbir şey değişmedi) → satır silinip down OK (son migration P10); bayrak 0 → migrate P3018/1419, şema değişmedi →
+  bayrak 1 + `resolve --rolled-back` + migrate → `up to date`, 320 PASS; sabitlenmiş `test-db.sh up` → 8.4.13, `1 1`.
+  Geçici konteyner/volume'lar silindi. Staging'e bağlanılmadı.
+- backend-dev'e not: TURN secret çözülemezse env'e değil yalnız STUN'a düşülüyor (runbook §15.5'te belgelendi; bilinçli
+  ise sorun yok). Panel TURN secret'ı için coturn kuralı (≥ 32 karakter, boşluk/`#` yok) zod'da yoksa eklenmeli; aksi halde
+  panelde kabul edilen secret coturn'e yazılamaz.
+
+## P11 — Backend (backend-dev, 2026-11-13)
+Kapsam: mimari §3.3, §10 P11; mimari-api "Yönetim"; ADR-0003; AC-76, 77, 78, 123, 124 (+ AC-29 aydınlatma metni düzenleme). Yeni bağımlılık yok, yeni env değişkeni yok.
+
+### Değişen / eklenen dosyalar
+- **contracts:** `src/api/audit.ts` (yeni: sorgu şeması, `AuditItem`, CSV sütunları, işlem grupları), `src/api/system-settings.ts` (yeni: MySQL/TURN/aydınlatma metni şemaları ve görünümleri, sınıflı mesajlar), `src/audit.ts` (`SYSTEM_AUDIT`: `settings.mysql.updated|test`, `settings.turn.updated|deleted`, `settings.consent_text.updated`, `audit.exported`), `src/errors.ts` (`METHOD_NOT_ALLOWED` 405), `package.json` export yolları.
+- **server:** `src/audit/{routes,read,repo,view}.ts` (yeni), `src/settings/{routes,system,consent,mysql-probe}.ts` (yeni), `src/public/consent.ts` (`publishConsentText` — sürüm geçişinin tek yeri), `prisma/seed-consent.ts` (aynı fonksiyonu kullanır, davranış aynı), `src/lib/crypto.ts` (`aadFor.systemSecret`), `src/lib/errors.ts` (405 mesajı), `src/signaling/rooms.ts` (`turn` artık değiştirilebilir alan), `src/app.ts` (rota kaydı, açılışta panel TURN yükleme, test için `mysqlProbe` enjeksiyonu).
+- **testler:** `test/unit/p11.test.ts` (13), `test/integration/audit-p11.test.ts` (10), `test/integration/settings-p11.test.ts` (11), `test/helpers/text-sql.ts` (yeni: metin protokolü yardımcısı), `test/integration/db-grants.test.ts` (madde 7 düzeltmesi), `test/integration/audit-immutability-p11.test.ts` (dba testi ortak yardımcıya bağlandı, 3 lint hatası giderildi; test içeriği aynı), `test/helpers/{app,tenant-matrix}.ts` (`p11` seçeneği; 24 yeni uç sınıflandırıldı).
+
+### Uçlar (özet)
+- `GET /audit`: `audit.view`. Sayfa 50, sıralama `created_at desc, id desc`, keyset imleç (opak base64url), COUNT yok. `from` verilmezse son 30 gün; aralık > 731 gün ise 400 `fields.from`. Tarihler Europe/Istanbul günü (`YYYY-MM-DD`, `to` dahil; P8 ile aynı). `action` tam değer ya da `x.*` önek (LIKE jokerleri kaçışlı). Kapsam: tenant kullanıcısında ve firmaya geçmiş Super Admin'de yalnız etkin tenant (`tenantId` yok sayılır); firma seçmemiş Super Admin'de tüm tenant'lar + sistem kayıtları (NULL) + isteğe bağlı `tenantId`. `userFullName` ayrı sorguyla gelir (user_id FK değil), `avatarUrl` P12'ye kadar null.
+- **Okuma süzgeci (`audit/view.ts`, güvenlik koşulu B-P10):** `maskValue` okumada yeniden uygulanır. `mail.*`, `session.email`, `settings.*.test` ve adında `smtp` geçen eylemlerde yalnız izinli ilkel alanlar döner (`kind, recipient, subject, result, reason, channel, latencyMs, host, port, database, user`). `reason` yalnız `[a-z_]{1,40}` biçiminde bir sınıfsa geçer, değilse `"other"` döner. Ham hata metni, yanıt kodu ve banner hiçbir anahtar üzerinden dönmez.
+- `GET /audit/export.csv`: `audit.export`, 5/dk/kullanıcı. Sayım üst sınırlı yapılır (`count take 50001`); 50.000'i aşarsa 400 `fields.to` döner ve yarım dosya oluşmaz. Akış P8 deseniyle, 1000'lik keyset partileriyle ilerler; hücrelere `lib/csv.ts` formül kaçışı uygulanır. Firma seçmemiş Super Admin için "Firma" sütunu eklenir. `audit.exported` kaydı filtre özeti ve satır sayısını tutar.
+- `/audit`, `/audit/export.csv`, `/audit/:id` için POST/PUT/PATCH/DELETE → 405 `METHOD_NOT_ALLOWED`. `Allow: GET, HEAD` döner; `/audit/:id` için okunabilir tekil kaynak olmadığından `Allow` boştur. Bu uçlar kimlik doğrulamadan önce çalışır (deterministik, veri dönmez).
+- `GET/PUT /admin/settings/mysql`, `POST /admin/settings/mysql/test`, `GET/PUT/DELETE /admin/settings/turn`: yalnız SUPER_ADMIN. `GET/PUT /settings/consent-text`: `settings.view` / `settings.edit`, etkin tenant.
+
+### Tasarımdan sapmalar (gerekçeli)
+1. **MySQL sürücüsü `mysql2` yerine `mariadb` (3.5.4):** Prisma adaptörünün zaten getirdiği paket. pnpm katı yapısında doğrudan import edilemediği için `@prisma/adapter-mariadb` üzerinden `createRequire` ile çözülüyor (`settings/mysql-probe.ts`). Yeni bağımlılık eklenmedi.
+2. **MySQL testi hata durumunda 502 değil, 200 `{ ok:false, message, latencyMs }` döner:** Bağlantı denendi ve başarısız oldu; ekran sonucu ve süreyi gösterir (AC-77). 429 (5/dk/kullanıcı) ve 400 aynen geçerli. Mesajlar sınıflıdır: bağlanılamadı / kimlik reddedildi / veritabanı yok / zaman aşımı / kayıtlı şifre okunamadı. Ham sürücü hatası yalnız server logunda (`mysql_test_failed` + ref). Zaman aşımı 10 sn ve kesindir: sürücü süreleri artı yarış zamanlayıcısı; geç kurulan bağlantı hemen kapatılır.
+3. **Güvenlik kararı — şifre geri düşüşü:** Test ucunda şifre boşsa kayıtlı (ya da env) şifre **yalnız hedef host + port + kullanıcı o kaynakla aynıysa** kullanılır. Aksi halde 400 `fields.password` (`MYSQL_PASSWORD_REQUIRED_MESSAGE`) döner. Gerekçe: caching_sha2 açık anahtar akışında karşı sunucu düz şifreyi alabilir; kayıtlı DB şifresi başka bir sunucuya gönderilemez.
+4. **MySQL görünümüne ek alan:** `matchesRunning` (panel kaydı çalışan DATABASE_URL ile aynı mı). PUT yanıtında ayrıca `restartRequired: true` ve `message` (`MYSQL_APPLY_NOTE`) var. Canlı geçiş yok (ADR-0003).
+5. **TURN DELETE satır silmez:** dba, `system_settings` için app kullanıcısına DELETE yetkisini bilerek vermedi ("kaldırma = varsayılana dönüş, satır kalır", grants.sql + check-app-grants.sh + dba testi). DELETE satırı `{urls: []}` ve secret NULL yapar; okuyucular bunu "panel yok → env" sayar. Bu yüzden PUT en az 1 URL ister. DELETE idempotenttir: zaten env ise değişiklik ve audit yazılmaz. Grants değiştirilmedi.
+6. **TURN secret çözülemezse yalnız STUN (devops notu 1 — bilinçli):** Panel kaydı varken env'in URL/secret'ı kullanılmaz. Super Admin env sunucularını panelle değiştirmiştir; sessizce eski sunuculara dönmek hem beklenmedik olur hem de anahtar rotasyonu hatasını gizler. Bu durumda `system_secret_unreadable` alarmı loglanır; çözüm secret'ı panelde yeniden girmek ya da DELETE ile env'e dönmektir. Açılışta DB'ye hiç ulaşılamazsa env ile devam edilir (`turn_settings_load` alarmı).
+7. **TURN secret kuralı (devops notu 2):** 32..256 karakter, yazdırılabilir ASCII, boşluk ve `#` yok (coturn yapılandırma satırında kesilirler).
+8. **Aydınlatma metni, gövde değişmediyse:** 409 yerine 200 `{ changed: false }` döner. Yeni sürüm ve audit oluşmaz, böylece çift gönderim güvenlidir. Eşzamanlı iki farklı kayıtta kaybeden tarafa 409 `CONFLICT` döner (koşullu `is_current` geçişi 0 satır etkiler); tek güncel sürüm DB UQ'larıyla da korunur. Gövde CRLF → LF normalize edilir ve kırpılır; satır sonu/sekme dışı kontrol karakterleri, bidi ve sıfır genişlikli karakterler reddedilir. `versions` en çok 100 kayıt döner (yeniden eskiye). GET yanıtına `createdByName` eklendi (null = sistem metni).
+9. **Audit tarih filtresi gün biçiminde** (`YYYY-MM-DD`, P8 ile aynı). Sözleşmede yalnız `from/to` adı vardı.
+10. **Panel TURN etkisi:** `rooms.turn` PUT/DELETE sonrası ve açılışta güncellenir (tek instance, ADR-0005). Açık odalar yeni ayarı bir sonraki credential yenilemesinde alır.
+
+### Madde 7 (dba bulgusu) — db-grants yanlış pozitifi
+`db-grants.test.ts` artık tüm ifadeleri metin protokolüyle çalıştırıyor (`test/helpers/text-sql.ts`). Hata metninde 1295 / "not supported in the prepared statement" **olmamalı** ve yetki reddi (`command denied`/1142…) **olmalı**. `DROP TRIGGER audit_logs_retention_only_delete` satırı eklendi. dba'nın testi aynı yardımcıya bağlandı (kod kopyası kaldırıldı).
+
+### frontend-dev için sözleşme notları
+- Tipler: `@remote/contracts/api/audit`, `@remote/contracts/api/system-settings`.
+- `AuditListResponse = { items, nextCursor }`, toplam sayı yok ("Daha fazla yükle" ya da imleç yığını kullanın). `AUDIT_ACTION_GROUPS` filtre listesi için, `AUDIT_RESULT_LABELS` sonuç etiketleri için.
+- 405 hata kodu `METHOD_NOT_ALLOWED` eklendi.
+- MySQL test yanıtı başarısızlıkta 200 `{ ok:false }`; 400 `fields.password` = "Farklı sunucu veya kullanıcı için şifreyi girin".
+- TURN PUT en az 1 URL ister; "Varsayılana dön" düğmesi = DELETE.
+- Aydınlatma metni PUT yanıtındaki `changed:false` → "Metin değişmedi" bildirimi. 409 → "Başka biri değiştirdi, yenileyin".
+
+### Komutlar ve son çıktı (2026-11-13, geçici `rs-mysql-p11be:33361`, mysql:8.4 + binlog bayrağı; sonra silindi)
+- `pnpm -r run typecheck` → 3/3 Done. `pnpm -r run lint` → hata yok (web'de önceden var olan 1 uyarı).
+- `apps/server`: `vitest run test/unit` → **19 dosya, 323 test geçti** (P11: 13). `vitest run test/integration` → **46 dosya, 442 test geçti** (P11: audit 10 + ayarlar 11 + db-grants 1; tenant izolasyonu yeni uçlarla yeşil).
+- `packages/contracts`: 8 dosya, 71 test geçti.
+
+### Düzeltme turu 1 (backend-dev, 2026-11-12) — qa-raporu madde 1, guvenlik-raporu "P11 turu"
+Yalnız atanan maddeler: B-P11-1 (= QA-1), B-P11-2, B-P11-4 (kısmi), B-P11-5, B-P11-6. B-P11-3 (TLS) backend'de "Sonra", bu turda yalnız frontend uyarısı.
+
+**Değişen dosyalar**
+- `apps/server/src/settings/system.ts`: (B-P11-1) PUT `/admin/settings/mysql`'de kayıtlı şifre varken host/port/kullanıcı değişip `password` gelmezse 400 `fields.password` dönüyor; kayıtlı şifre yeni hedefe taşınmıyor. Şifre artık hedefe bağlı AAD ile saklanıyor (`openMysqlSecret`). Çözülemeyen şifre "kayıtlı şifre yok" sayılıyor: GET `hasPassword:false`, test `secret_unreadable` dönüyor ve probe çağrılmıyor. Alarm logu `system_secret_unreadable` olarak düşülüyor, değer yazılmıyor. (B-P11-4) `testMysql` iki kova alıyor (`MysqlTestLimits { perUser, global }`). Başarısızlıkta `latencyMs: null` dönüyor ve audit `newValue`'ya süre yazılmıyor.
+- `apps/server/src/lib/crypto.ts`: `aadFor.mysqlSecret({host,port,user})` → `system_settings.secret_enc:mysql:<host küçük harf>:<port>:<user>`. `aadFor.systemSecret` artık yalnız `"turn"` kabul ediyor.
+- `apps/server/src/settings/routes.ts`: MySQL testinde kişi başı 5/dk sınırına ek olarak global 20/dk kova (21. istek → 429 + `Retry-After`). (B-P11-6) PUT `/settings/consent-text` için tenant başına 10/saat sınırı (`CONSENT_SAVE_PER_HOUR`; 11. istek → 429). Sayaca yalnız doğrulamayı geçen PUT'lar giriyor; `changed:false` dönenler de sayılıyor.
+- `apps/server/src/audit/read.ts`: (B-P11-5) `decodeCursor`, id > 9223372036854775807 ise 400 `VALIDATION fields.cursor` dönüyor (önceden Prisma'da 500 verebiliyordu).
+- `packages/contracts/src/api/system-settings.ts`: `MysqlTestResponse.latencyMs: number | null`.
+- `apps/server/test/helpers/secrets.ts`: (B-P11-2) `FAKE_P11_TURN_SECRET` eklendi; `settings-p11.test.ts` bunu import ediyor. `.gitleaks.toml` allowlist'i genişletilmedi.
+- Testler: `test/integration/settings-p11.test.ts` (B-P11-1 iki adımlı akış, global kova, consent 10/saat, AAD hedef bağı, başarısızlıkta `latencyMs:null`), `test/integration/audit-p11.test.ts` (taşan imleç → 400), `test/unit/p11.test.ts` (BIGINT sınırı).
+
+**Sapmalar / kararlar (gerekçeli)**
+- B-P11-1: Panelde kayıtlı şifre **yokken** (secret NULL ya da env kaynağı) hedef değişen şifresiz PUT reddedilmiyor, çünkü taşınacak bir şifre yok. Kayıt şifresiz oluşuyor, test sırasında şifre isteniyor (env şifresi yalnız env hedefiyle kullanılıyor; bu kural değişmedi).
+- AAD geçişi: P11 henüz prod'da ve staging'de yayınlanmadı (P10 sonrası staging kaydında `system_settings.mysql` satırı yok), dolayısıyla eski biçimle şifrelenmiş kayıt beklenmiyor. Olursa da fail-closed davranıyor: kayıt "kayıtlı şifre yok" sayılıyor ve alarm logu düşülüyor. Şifre panelden yeniden girilince düzeliyor.
+- **B-P11-4 bilinçli risk kabulü (port tarama / parola deneme oracle'ı):** MySQL testi bilerek host kısıtı olmadan çalışıyor, çünkü hedef DB iç ağda ya da compose servis adında olabilir (mimari-api: "host kısıtı yok"). Bu yüzden `connect / timeout / auth / database` sınıfları sunucunun eriştiği ağda port durumu ve MySQL varlığı hakkında sinyal veriyor. Riski sınırlayan önlemler şunlar: uç yalnız SUPER_ADMIN'e açık (P10 sonrası 2FA zorunlu), sınır 5/dk/kullanıcı ve global 20/dk (en çok ~1200 deneme/saat, tüm Super Admin'ler toplamı), her deneme audit'e yazılıyor (`settings.mysql.test`, hedef + sınıf), başarısızlıkta süre dönmüyor (zamanlama sinyali yok), ham hata yalnız logda. Kalan risk: ele geçirilmiş bir Super Admin hesabıyla yavaş iç ağ taraması yapılabilir. Bu risk kabul edildi. `rs_mysql_test_failed_total` alarm metriği "Sonra" (devops) olarak kaldı.
+- B-P11-6: Sınır kullanıcı başına değil **tenant başına** uygulanıyor. Amaç kalıcı tablo büyümesini sınırlamak; sürümler tenant'a ait olduğu için kova da tenant'ta. Bellek içi sayaç kullanılıyor (tek instance, ADR-0005), yeniden başlatmada sıfırlanıyor.
+
+**Eklenen bağımlılık:** yok. **Yeni env değişkeni:** yok.
+
+**frontend-dev için sözleşme değişiklikleri**
+- `POST /admin/settings/mysql/test` → başarısızlıkta `latencyMs: null` dönüyor. `mysql-form.tsx` zaten yalnız `r.ok && typeof r.latencyMs === "number"` olduğunda süre gösteriyor; kod değişikliği gerekmiyor. `e2e/mock-audit.mjs` başarısız yanıt mock'u eklenirse `latencyMs: null` kullanılmalı.
+- `PUT /admin/settings/mysql` → kayıtlı şifre varken host/port/kullanıcı değişip şifre boşsa yeni **400 `fields.password`** dönüyor (mesaj `MYSQL_PASSWORD_REQUIRED_MESSAGE`). Form bu hatayı şifre alanının altında göstermeli; ortak alan hatası eşlemesi bunu karşılıyor olmalı.
+- `GET /admin/settings/mysql` → kayıtlı şifre çözülemiyorsa `hasPassword:false` dönüyor.
+- `POST /admin/settings/mysql/test` → global sınır nedeniyle 429 başka Super Admin'lerin denemelerinden de gelebilir (aynı `Retry-After`).
+- `PUT /settings/consent-text` → tenant başına 10/saat aşılınca **429** + `Retry-After` dönüyor. Formda genel hız sınırı mesajı gösterilmeli.
+
+**Komutlar ve son çıktı (2026-11-12, geçici `rs-mysql-p11fix1:33461`; sonra `down` ile silindi)**
+- `pnpm -r run typecheck` → 3/3 Done. `pnpm -r run lint` → hata yok.
+- `pnpm -r run test` → server birim **19 dosya, 324 test**; web 22 dosya, 218 test; contracts geçti.
+- `apps/server` `vitest run test/integration` → **46 dosya, 445 test geçti** (yeni: B-P11-1, global kova, consent 10/saat).
+- gitleaks v8.30.1 (`dir apps packages docs deploy`, `--redact`, JSON rapor yalnız dosya/satır/kural olarak okundu, değer yazdırılmadı) → exit 1, 13 eşleşme. **13'ünün tamamı `apps/web/.next/**`** içinde (git-ignored derleme çıktısı). `.next` dışında **0** eşleşme var; `settings-p11.test.ts` artık eşleşmiyor.
+
+## P11 — Frontend (Rotalar) (frontend-dev, 2026-11-13)
+AC-76, 77, 78, 124 (audit CSV düğmesi); AC-29 (aydınlatma metni düzenleme). Sözleşme: `@remote/contracts/api/{audit,system-settings}`
+(web yüzü `lib/audit/contract.ts`, `lib/admin-settings/contract.ts` yalnız yeniden dışa aktarır). Tasarım skill'i
+(`~/.claude/skills/ui-ux-pro-max`) okundu; proje DESIGN.md'si esas alındı. Audit/sistem ayarı için onaylı taslak yok →
+mevcut panel desenleri (Oturum geçmişi, SMTP formu) birebir izlendi.
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/audit` | Oturum + `audit.view` (yoksa menüde yok, sayfada 403 durumu `audit-forbidden`) | Salt okunur audit log. Filtreler URL'de: `from`/`to` (YYYY-MM-DD, boşsa son 30 gün, aralık ≤ 731 gün istemcide de denetlenir), `userId` (Admin: `/users`; Super Admin firma seçmemişse sayfadaki kayıtlardan), `action` (tam ad veya `grup.*`, `<optgroup>` ile `AUDIT_ACTION_GROUPS`), `result`, `tenantId` (yalnız firma seçmemiş Super Admin; `/admin/tenants`). İlk 50 kayıt SSR, "Daha fazla yükle" `nextCursor` ile ekler. ≥ lg tablo (zaman, avatar + ad, firma, işlem Türkçe etiket + ham ad, varlık, sonuç rozeti, IP, Ayrıntı), dar ekranda kart. Ayrıntı diyaloğu: tüm alanlar `<dl>`, eski/yeni değer `JSON.stringify` metni `<pre>` metin düğümünde (HTML yorumlanmaz); `mail.*`, `session.email`, `settings.*.test` kayıtlarında yalnız `reason`. Düzenle/sil yok. "CSV indir" yalnız `audit.export` |
+| `/admin/settings` | Super Admin | `/admin/settings/mysql`'e yönlendirir (Super Admin değilse yetkisiz durumu) |
+| `/admin/settings/mysql` | Super Admin (rol; değilse `system-forbidden`, veri istenmez) | MySQL host/port (3306)/veritabanı/kullanıcı/şifre. Şifre forma yazılmaz (yer tutucu "Kayıtlı — değiştirmek için yazın"), boş = korunur; farklı sunucu/kullanıcıda 400 `fields.password` şifre alanına düşer. "Bağlantıyı Test Et" formdaki değerlerle (kaydetmeden): bekleme satırı "10 saniyeye kadar", sonuç başarı/hata + ms, 429 kilit tonu. `source: env` → bilgi notu; `matchesRunning:false` → uyarı; kayıttan sonra sunucunun `message`'ı (yeniden başlatma) kalıcı uyarı. Kaydet çubuğu + ayrılma uyarısı |
+| `/admin/settings/turn` | Super Admin | TURN adres listesi (satır ekle/kaldır, ≤ 10, en az 1; satır hatası ilgili satırda), secret maskeli aynı kurallar (32–256, boşluk/`#` yok; turn:/turns: varken secret yoksa engel). Kalıcı uyarı: secret coturn static-auth-secret ile aynı olmalı. "Ortam değerlerine dön" (yalnız `source: panel`) → `alertdialog` (odak Vazgeç) → DELETE → GET ile env görünümü |
+| `/settings/consent-text` | `settings.view` (düzenleme `settings.edit`; yoksa salt okunur); Super Admin firma seçmeli | Güncel sürüm no/tarih/hazırlayan, textarea + sayaç (kod noktası, 50–20.000; sınır dışı `danger`), "Yeni sürüm olarak kaydet" → onay ("Yeni oturumlar bu metni gösterecek; eski onaylar eski sürüme bağlı kalır") → PUT. `changed:false` → bilgi toast'ı "Metin güncel sürümle aynı"; 409 → form üstü hata (metin korunur). Sürüm geçmişi listesi (güncel rozeti, SHA-256 kısaltılmış + `title`) |
+
+Menü: "Audit log" (`ScrollText`, `audit.view`), "Sistem ayarları" (`ServerCog`, yalnız Super Admin). Ayarlar alt menüsüne "Aydınlatma metni" (`FileText`); sistem ayarları sekmeleri MySQL (`Database`) / TURN (`Waypoints`).
+
+### Değişen / eklenen dosyalar
+- Yeni: `apps/web/app/(panel)/audit/{page,loading,audit-filters,audit-log}.tsx`, `app/(panel)/admin/settings/{layout,page,loading,section,system-tabs}.tsx`, `admin/settings/mysql/{page,mysql-form}.tsx`, `admin/settings/turn/{page,turn-form}.tsx`, `app/(panel)/settings/consent-text/{page,consent-form}.tsx`, `components/csv-export-button.tsx`, `components/ui/tab-nav.tsx`, `lib/audit/{contract,actions,query}.ts` (+ `audit.test.ts`), `lib/admin-settings/{contract,forms}.ts` (+ `admin-settings.test.ts`), `e2e/mock-audit.mjs`, `e2e/p11-admin.spec.ts`.
+- Değişen: `side-nav.tsx` (2 öğe), `settings/settings-tabs.tsx` (TabNav'a taşındı + 4. sekme), `settings/tenant-settings-page.tsx` (genel `path` + tip parametresi), `history/export-button.tsx` (ortak `CsvExportButton` sarmalayıcısı; görünüm/testId aynı), `components/ui/{alert (info tonu), avatar (src + hata yedeği, "use client"), select-field (groups → optgroup), save-bar (saveLabel)}.tsx`, `messages/tr.json`, `e2e/mock-api.mjs` (audit modülü bağlandı), `DESIGN.md`.
+
+### Sapmalar / notlar
+- Audit işlem etiketleri web'de `lib/audit/actions.ts` (contracts sabitleri + `AUDIT_ACTION_GROUPS`); bilinmeyen ad ham gösterilir. backend-dev'e öneri: etiket sözlüğü CSV ile ortak kullanılacaksa `contracts/labels.ts`'e taşınabilir.
+- Audit kullanıcı filtresi firma seçmemiş Super Admin'de `/users` çağrılamadığından (tenantScope 403) yüklenen kayıtlardan üretilir (ipucu metniyle — kısmi durum).
+- `/admin/settings` kökü yönlendirme; Super Admin değilse yönlendirmeden önce layout yetkisiz durumunu çizer.
+- "Ayarlar" menü öğesi hâlâ `settings.edit` ister (P8b kararı); yalnız `settings.view` olan kullanıcı aydınlatma metnine doğrudan URL ile salt okunur erişir.
+- Avatar `avatarUrl` (P12'ye kadar null) varsa `<img alt="">`, yüklenemezse baş harf.
+
+### Testler
+- Vitest: 218 (yeni 2 dosya: `lib/audit/audit.test.ts` 7, `lib/admin-settings/admin-settings.test.ts` 6).
+- Playwright `e2e/p11-admin.spec.ts`: 11 test (desktop + mobile; 15 koşu geçti): audit filtre/sayfalama/detay (XSS metin)/mail reason/CSV/düzenle-sil yok, yalnız-görüntüleme ve yetkisiz (menü + 403), boş/hata/daha-fazla-yükle hatası, mobil kart, Super Admin MySQL test başarı/hata/429 + şifre geri yazılmıyor + fields.password, TURN satır/secret/env'e dön, Admin'de sistem ayarları yok, Super Admin firma filtresi, aydınlatma metni yeni sürüm + salt okunur. Tam takım: 262 geçti, 0 hata.
+- lint / typecheck temiz.
+
+### Düzeltme turu 1 (frontend-dev, 2026-11-13)
+Kaynak: `docs/qa-raporu.md` Düzeltilmeli 2, `docs/guvenlik-raporu.md` P11 turu B-P11-3 (arayüz) + B-P11-4 (süre).
+- **QA-2:** `e2e/p11-admin.spec.ts` sonuna P8 deseninde `for (const scheme of ["light","dark"])` + `page.emulateMedia({ colorScheme })` testi eklendi. Her temada 1280 ve 390 px genişlikte `/audit`, audit ayrıntı penceresi (masaüstünde satır düğmesi, 390 px'te kart), `/settings/consent-text`, `/admin/settings/mysql` (hata sonucu Alert'i açıkken) ve `/admin/settings/turn` için axe 0 ihlal ve yatay taşma yok. Testte temanın gerçekten uygulandığı da (`color-scheme`) doğrulanıyor. Koyu temada da, iki genişlikte de **gerçek ihlal çıkmadı**; kodda bunun için değişiklik gerekmedi.
+- **B-P11-3:** MySQL ekranındaki "Bağlantı testi" bölümüne kalıcı `Alert tone="warning"` (`data-testid="mysql-tls-note"`, `my.tlsNote`) eklendi: "Bağlantı testi TLS kullanmaz; şifre ağda şifrelenmeden gider. Yalnız güvenilir iç ağdaki … MySQL sunucularını test edin." Not, test sonucundan bağımsız olarak her zaman görünür.
+- **B-P11-4 (arayüz):** Başarısız testte süre artık gösterilmiyor. Süre yalnız `ok:true` ve `latencyMs` sayı olduğunda çiziliyor (`mysql-test-latency`). Böylece backend alanı kaldırsa da `null` yapsa da arayüz doğru davranıyor. Mock (`e2e/mock-audit.mjs`) başarısız yanıtta `latencyMs` dönmüyor. Not: `packages/contracts/src/api/system-settings.ts` `MysqlTestResponse.latencyMs` şu an hâlâ `number` (zorunlu). Sözleşmeyi backend-dev güncelleyecek (`latencyMs?: number` veya `number | null`); web kodu iki biçimle de tip hatası vermez.
+- **QA-1 kanıtı (arayüz):** MySQL e2e'sine şu adımlar eklendi: port (3306→3307) veya kullanıcı (app→app2) değişip şifre boşken PUT → 400. Hata şifre alanına düşüyor (`aria-invalid`, odak şifrede, "şifreyi girin"). Host değişikliği zaten kapsanıyordu. Mock bu kuralı host/port/kullanıcı için uyguluyor.
+- Değişen dosyalar: `app/(panel)/admin/settings/mysql/mysql-form.tsx`, `messages/tr.json` (`my.tlsNote`), `e2e/mock-audit.mjs`, `e2e/p11-admin.spec.ts`.
+- Sonuç: lint ve typecheck temiz; Vitest 218 geçti; Playwright tam takım 264 geçti, 0 hata (p11-admin: 13 test).
+
+### Sayfa testi düzeltmeleri (frontend-dev, 2026-11-13)
+Kaynak: `docs/test-raporu.md` ve QA önerisi.
+- **[ORTA] Super Admin `/audit` 1280 px'te 45 px yatay taşma:** Firma sütunlu tablo kaba sığmıyordu. Son sütundaki "Ayrıntı" `th` öğesinin `sr-only` (absolute) metni konumlu bir ataya bağlı olmadığı için kaptan kaçıp sayfayı genişletiyordu. `audit-log.tsx` içinde şunlar değişti:
+  - Tablo kabı `relative` yapıldı (`data-testid="audit-table-box"`).
+  - Ayrıntı sütunu `sticky right-0` ile sağa sabitlendi; satır hover rengi `group-hover` ile korunuyor.
+  - Ayrıntı düğmesi 2xl altında yalnız ikon gösteriyor; `aria-label` aynı kaldı.
+  - Kullanıcı ve varlık sütunları biraz daraltıldı.
+  - Firma sütunu varken (Super Admin) IP sütunu 2xl altında gizleniyor. IP ayrıntı penceresinde ve mobil kartta görünmeye devam ediyor (sapma: yer kazanmak için).
+  
+  Ölçüm: önce sayfa +45 px, kap 974 / tablo 1064. Sonra sayfa 0, kap 974 / tablo 974. İki temalı P11 testi artık Super Admin `/audit` görünümünü de tarıyor: 1280 px'te hem sayfa hem tablo kabı taşmıyor, Firma sütunu var, axe 0 ihlal. Admin görünümünde de kap taşma kontrolü eklendi.
+- **[DÜŞÜK]** `app/(panel)/settings/layout.tsx` yorumu 4 sekmeye güncellendi (Aydınlatma metni dahil).
+- **QA önerisi:** `e2e/p10-account.spec.ts:190`'daki toast seçicisi toast metnine göre daraltıldı (`filter({ hasText }).last()`). İki toast açıkken strict mode hatası artık oluşmuyor.
+- **Aydınlatma metni PUT 429 (10/saat, B-P11-6):** `consent-form.tsx` 429'u ayrı ele alıyor. Kilit tonunda `FormError` gösteriliyor: "Saatte en çok 10 yeni sürüm kaydedilebilir. {dk} dakika sonra tekrar deneyin; yazdığınız metin korunuyor." Süre `Retry-After`'dan hesaplanıyor; başlık yoksa süresiz metin (`ct.rateLimited`, `ct.rateLimitedNoTime`). Onay penceresi kapanıyor, metin ve kaydet çubuğu korunuyor. Mock'ta gövdede `[hiz-siniri]` geçerse 429 + `Retry-After: 1500` dönüyor. Yeni e2e testi şunları doğruluyor: 429 durumunda "25 dakika sonra" mesajı ve `role=alert`, metin korunuyor, sürüm değişmiyor; ardından yeniden kayıt başarılı oluyor ve hata kalkıyor.
+- Değişen dosyalar: `app/(panel)/audit/audit-log.tsx`, `app/(panel)/settings/layout.tsx`, `app/(panel)/settings/consent-text/consent-form.tsx`, `messages/tr.json`, `e2e/mock-audit.mjs`, `e2e/p11-admin.spec.ts`, `e2e/p10-account.spec.ts`.
+- Sonuç: lint ve typecheck temiz; Vitest 218 geçti; Playwright tam takım 265 geçti, 0 hata.

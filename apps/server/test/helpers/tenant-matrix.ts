@@ -96,6 +96,30 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "POST /api/v1/admin/tenants/:id/deactivate": "system",
   "POST /api/v1/admin/tenants/:id/reactivate": "system",
   "POST /api/v1/admin/switch-tenant": "system",
+  // P11 audit ekranı (kapsam izolasyonu: audit-p11.test.ts "AC-76/AC-69"); 405 uçları kimliksiz, veri dönmez
+  "GET /api/v1/audit": "scoped",
+  "GET /api/v1/audit/export.csv": "scoped",
+  "POST /api/v1/audit": "public",
+  "PUT /api/v1/audit": "public",
+  "PATCH /api/v1/audit": "public",
+  "DELETE /api/v1/audit": "public",
+  "POST /api/v1/audit/export.csv": "public",
+  "PUT /api/v1/audit/export.csv": "public",
+  "PATCH /api/v1/audit/export.csv": "public",
+  "DELETE /api/v1/audit/export.csv": "public",
+  "POST /api/v1/audit/:id": "public",
+  "PUT /api/v1/audit/:id": "public",
+  "PATCH /api/v1/audit/:id": "public",
+  "DELETE /api/v1/audit/:id": "public",
+  // P11 sistem ayarları (SUPER_ADMIN) ve aydınlatma metni (tenantScope)
+  "GET /api/v1/admin/settings/mysql": "system",
+  "PUT /api/v1/admin/settings/mysql": "system",
+  "POST /api/v1/admin/settings/mysql/test": "system",
+  "GET /api/v1/admin/settings/turn": "system",
+  "PUT /api/v1/admin/settings/turn": "system",
+  "DELETE /api/v1/admin/settings/turn": "system",
+  "GET /api/v1/settings/consent-text": "scoped",
+  "PUT /api/v1/settings/consent-text": "scoped",
 };
 
 export interface TwoTenants {

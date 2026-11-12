@@ -347,6 +347,34 @@ run DENIED "$TX $US $SMTP_OK $WT; $US smtp_from_name=CONCAT('Nokta',CHAR(13),CHA
 run DENIED "$TX $US $SMTP_OK $WT; $US smtp_from_name=' Nokta' $WT; $R" tenant_settings_smtp_from_name_chk
 run DENIED "$TX $US $SMTP_OK $WT; $US smtp_from_email='destek-example.com' $WT; $R" tenant_settings_smtp_from_email_chk
 run DENIED "$TX $US $SMTP_OK $WT; $US smtp_security='starttls' $WT; $R" tenant_settings_smtp_security_chk
+# P11 (mimari §3.3, AC-123): audit_logs tetikleyicileri + app'in onlara dokunamaması; system_settings yetki ve CHECK'leri.
+# Tetikleyici varlığı ve app'in global/DB/tablo düzeyi DDL yetkisi app'e görünmez (TRIGGER yetkisi yok) → root ile
+# (konteyner env MYSQL_ROOT_PASSWORD; compose, test-db.sh ve CI servisinde tanımlı).
+run_root() { # $1 beklenen tek değer, $2 sql, $3 açıklama
+  out=$(docker exec "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -e "$0" "$1"' "$2" "${DB:-remote}" 2>&1)
+  [ "$out" = "$1" ] && s=PASS || { s=FAIL; FAILED=1; }
+  printf '%s | beklenen=%-6s sonuç=%-6s | (root) %s\n' "$s" "$1" "$out" "$3"
+}
+run_root 2 "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE() AND EVENT_OBJECT_TABLE='audit_logs' AND ((TRIGGER_NAME='audit_logs_no_update' AND EVENT_MANIPULATION='UPDATE') OR (TRIGGER_NAME='audit_logs_retention_only_delete' AND EVENT_MANIPULATION='DELETE')) AND ACTION_TIMING='BEFORE'" "audit_logs tetikleyicileri var (BEFORE UPDATE + BEFORE DELETE)"
+run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\") + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE IN ('TRIGGER','ALTER','DROP','CREATE','INDEX','REFERENCES','GRANT OPTION'))" "app: global/DB yetkisi yok, hiçbir tabloda TRIGGER/ALTER/DROP/CREATE/INDEX yok"
+run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT')" "app: audit_logs yalnız SELECT/INSERT (DELETE P13)"
+run_root 0 "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs'" "app: audit_logs sütun düzeyi UPDATE yok"
+run DENIED "UPDATE audit_logs SET action='x' WHERE id=-1"
+run DENIED "DROP TRIGGER audit_logs_no_update" "denied"
+run DENIED "DROP TRIGGER audit_logs_retention_only_delete" "denied"
+run DENIED "CREATE TRIGGER audit_logs_x BEFORE UPDATE ON audit_logs FOR EACH ROW SET @a=1" "denied"
+run DENIED "RENAME TABLE audit_logs TO audit_logs_x" "denied"
+run DENIED "ALTER TABLE audit_logs DROP INDEX audit_logs_created_at_idx" "denied"
+SSI="INSERT INTO system_settings (\`key\`,value_json,secret_enc,updated_at) VALUES"
+MY_OK="'{\"host\":\"db.internal\",\"port\":3306,\"database\":\"remote\",\"user\":\"rapor\"}'"
+run OK     "SELECT COUNT(*) FROM system_settings"
+run OK     "$TX $SSI ('mysql',$MY_OK,RANDOM_BYTES(45),NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=VALUES(secret_enc),updated_at=NOW(3); UPDATE system_settings SET secret_enc=NULL WHERE \`key\`='mysql'; $R"
+run DENIED "DELETE FROM system_settings WHERE \`key\`='mysql'" "denied"
+run DENIED "ALTER TABLE system_settings ADD COLUMN x INT" "denied"
+run DENIED "$TX $SSI ('MYSQL',$MY_OK,NULL,NOW(3)); $R" system_settings_key_chk
+run DENIED "$TX $SSI ('mysql','{\"host\":\"db\",\"port\":3306,\"database\":\"remote\",\"user\":\"rapor\",\"password\":\"x\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json); $R" system_settings_mysql_chk
+run DENIED "$TX $SSI ('mysql',$MY_OK,X'00',NOW(3)) ON DUPLICATE KEY UPDATE secret_enc=VALUES(secret_enc); $R" system_settings_secret_enc_chk
+run DENIED "$TX $SSI ('turn','{\"urls\":[\"turn:turn.example.com:3478\"]}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_turn_chk
 # Temizlik (FK sırasıyla)
 run OK     "DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"
 exit $FAILED

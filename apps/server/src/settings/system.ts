@@ -1,0 +1,250 @@
+// Sistem ayarları servisi (P11; ADR-0003, G-13; AC-77, AC-78). Tablo `system_settings` (anahtar `mysql` | `turn`).
+// Gizliler AES-256-GCM (`aadFor.systemSecret`), asla dönmez ve loga/audit'e yazılmaz. Yazım upsert (eşzamanlı ilk
+// yazım P2002 yarışı yok), eski değer + yazım + audit tek TX.
+import {
+  MYSQL_APPLY_NOTE,
+  MYSQL_DEFAULT_PORT,
+  MYSQL_PASSWORD_REQUIRED_MESSAGE,
+  MYSQL_TEST_MESSAGES,
+  TURN_SECRET_REQUIRED_MESSAGE,
+  type MysqlSettingsData,
+  type MysqlSettingsSaveResponse,
+  type MysqlSettingsView,
+  type MysqlTestResponse,
+  type TurnSettingsData,
+  type TurnSettingsView,
+} from "@remote/contracts/api/system-settings";
+import { SYSTEM_AUDIT } from "@remote/contracts/audit";
+import type { JsonObject } from "../audit/mask.ts";
+import { writeAudit, type AuditContext } from "../audit/service.ts";
+import type { AuthContext } from "../auth/session.ts";
+import { aadFor, type SecretBox } from "../lib/crypto.ts";
+import type { Db } from "../lib/db.ts";
+import { AppError } from "../lib/errors.ts";
+import { newId } from "../lib/ids.ts";
+import type { FixedWindowCounter } from "../lib/rate.ts";
+import type { TurnConfig } from "../signaling/turn.ts";
+import { probeMysql, type ProbeResult, type ProbeTarget } from "./mysql-probe.ts";
+
+export interface SystemDeps {
+  db: Db;
+  secrets: SecretBox;
+  log: { warn(o: object, m: string): void; error(o: object, m: string): void };
+  /** Çalışan bağlantı (env). */
+  databaseUrl: string;
+  turnEnv: { urls: readonly string[]; secret: string | undefined; ttlMin: number };
+}
+
+const who = (auth: AuthContext) => ({ tenantId: null, userId: auth.user.id, username: auth.user.email });
+
+// ---- MySQL ----
+
+interface MysqlCore {
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+}
+
+export function mysqlFromUrl(databaseUrl: string): MysqlCore & { password: string } {
+  const u = new URL(databaseUrl);
+  return {
+    host: u.hostname,
+    port: u.port ? Number(u.port) : MYSQL_DEFAULT_PORT,
+    database: decodeURIComponent(u.pathname.replace(/^\//, "")),
+    user: decodeURIComponent(u.username),
+    password: decodeURIComponent(u.password),
+  };
+}
+
+function asMysqlCore(v: unknown): MysqlCore | null {
+  const o = v as Partial<MysqlCore> | null;
+  if (!o || typeof o.host !== "string" || typeof o.port !== "number" || typeof o.database !== "string" || typeof o.user !== "string") return null;
+  return { host: o.host, port: o.port, database: o.database, user: o.user };
+}
+
+/** Şifrenin bağlı olduğu hedef: host + port + kullanıcı (veritabanı adı değil). */
+const sameTarget = (a: MysqlCore, b: MysqlCore): boolean => a.host.toLowerCase() === b.host.toLowerCase() && a.port === b.port && a.user === b.user;
+const sameCore = (a: MysqlCore, b: MysqlCore): boolean => sameTarget(a, b) && a.database === b.database;
+
+/**
+ * Kayıtlı şifreyi kaydedildiği hedefin AAD'siyle çözer (B-P11-1). Çözülemezse (anahtar rotasyonu, eski AAD biçimi, hedefi
+ * DB'de değiştirilmiş satır) null + alarm logu — değer basılmaz; çağıran "kayıtlı şifre yok" sayar.
+ */
+function openMysqlSecret(d: SystemDeps, core: MysqlCore, secretEnc: Uint8Array): string | null {
+  try {
+    return d.secrets.decrypt(secretEnc, aadFor.mysqlSecret(core));
+  } catch (err) {
+    d.log.error({ err, alarm: "system_secret_unreadable", key: "mysql" }, "kayıtlı MySQL şifresi çözülemedi");
+    return null;
+  }
+}
+
+async function readMysql(db: Db) {
+  const row = await db.systemSetting.findUnique({ where: { key: "mysql" }, select: { valueJson: true, secretEnc: true, updatedAt: true } });
+  const core = row ? asMysqlCore(row.valueJson) : null;
+  return row && core ? { core, secretEnc: row.secretEnc, updatedAt: row.updatedAt } : null;
+}
+
+export async function getMysqlSettings(d: SystemDeps): Promise<MysqlSettingsView> {
+  const running = mysqlFromUrl(d.databaseUrl);
+  const rec = await readMysql(d.db);
+  if (!rec) {
+    const { password, ...core } = running;
+    return { ...core, hasPassword: password !== "", updatedAt: null, source: "env", matchesRunning: true };
+  }
+  const hasPassword = rec.secretEnc !== null && openMysqlSecret(d, rec.core, rec.secretEnc) !== null;
+  return { ...rec.core, hasPassword, updatedAt: rec.updatedAt.toISOString(), source: "panel", matchesRunning: sameCore(rec.core, running) };
+}
+
+/**
+ * PUT. B-P11-1: kayıtlı şifre varken host/port/kullanıcı değişiyorsa şifre zorunlu (400 `fields.password`) — kayıtlı şifre
+ * yeni hedefe taşınmaz. Şifre hedefe bağlı AAD ile saklanır (`aadFor.mysqlSecret`).
+ */
+export async function saveMysqlSettings(d: SystemDeps, ctx: AuditContext, auth: AuthContext, input: MysqlSettingsData): Promise<MysqlSettingsSaveResponse> {
+  const core: MysqlCore = { host: input.host, port: input.port, database: input.database, user: input.user };
+  await d.db.$transaction(async (tx) => {
+    const before = await tx.systemSetting.findUnique({ where: { key: "mysql" }, select: { valueJson: true, secretEnc: true } });
+    const old = before ? asMysqlCore(before.valueJson) : null;
+    if (input.password === undefined && before?.secretEnc && !(old && sameTarget(old, core))) throw new AppError("VALIDATION", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } });
+    const secretEnc = input.password !== undefined ? d.secrets.encrypt(input.password, aadFor.mysqlSecret(core)) : undefined;
+    await tx.systemSetting.upsert({
+      where: { key: "mysql" },
+      create: { key: "mysql", valueJson: { ...core }, secretEnc: secretEnc ?? null, updatedBy: auth.user.id },
+      update: { valueJson: { ...core }, ...(secretEnc ? { secretEnc } : {}), updatedBy: auth.user.id },
+    });
+    await writeAudit(tx, ctx, {
+      ...who(auth),
+      action: SYSTEM_AUDIT.MYSQL_UPDATED,
+      entity: "system_settings",
+      entityId: "mysql",
+      result: "success",
+      ...(old ? { oldValue: { ...old } as JsonObject } : {}),
+      newValue: { ...core, ...(input.password !== undefined ? { password: "changed" } : {}) },
+    });
+  });
+  return { ...(await getMysqlSettings(d)), restartRequired: true, message: MYSQL_APPLY_NOTE };
+}
+
+/** Test hız kovaları: kişi başı (AC-77, 5/dk) + tüm Super Admin'ler için ortak (B-P11-4, 20/dk). */
+export interface MysqlTestLimits {
+  perUser: FixedWindowCounter;
+  global: FixedWindowCounter;
+}
+const GLOBAL_KEY = "all";
+
+/**
+ * POST /admin/settings/mysql/test. Şifre boşsa kayıtlı (panel) ya da env şifresi — YALNIZ hedef host/port/kullanıcı o
+ * kaynağınkiyle aynıysa (şifre başka sunucuya gönderilmez; caching_sha2 açık anahtar akışında karşı taraf düz şifreyi
+ * alabilir). Aksi 400 `fields.password`. Panel şifresi ayrıca hedefe bağlı AAD ile çözülür (B-P11-1); çözülemezse
+ * `secret_unreadable`. Hız: 5/dk/kullanıcı + 20/dk global. Başarısızlıkta süre dönmez (B-P11-4: port tarama sinyali).
+ * Sonuç ve sınıf audit'e, ham hata yalnız loga.
+ */
+export async function testMysql(d: SystemDeps, ctx: AuditContext, auth: AuthContext, input: MysqlSettingsData, limits: MysqlTestLimits, probe: (t: ProbeTarget) => Promise<ProbeResult> = probeMysql): Promise<MysqlTestResponse> {
+  const wait = Math.max(limits.perUser.blockedFor(auth.user.id), limits.global.blockedFor(GLOBAL_KEY));
+  if (wait > 0 || limits.perUser.hit(auth.user.id) || limits.global.hit(GLOBAL_KEY)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
+  const core: MysqlCore = { host: input.host, port: input.port, database: input.database, user: input.user };
+  let password = input.password;
+  let unreadable = false;
+  if (password === undefined) {
+    const rec = await readMysql(d.db);
+    if (rec?.secretEnc) {
+      if (sameTarget(rec.core, core)) {
+        const stored = openMysqlSecret(d, rec.core, rec.secretEnc);
+        if (stored === null) unreadable = true;
+        else password = stored;
+      }
+    } else {
+      const running = mysqlFromUrl(d.databaseUrl);
+      if (sameTarget(running, core)) password = running.password;
+    }
+    if (password === undefined && !unreadable) throw new AppError("VALIDATION", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } });
+  }
+  const out: ProbeResult = unreadable || password === undefined ? { ok: false, reason: "secret_unreadable", latencyMs: 0, err: null } : await probe({ ...core, password });
+  if (!out.ok && out.err) {
+    const e = out.err as { errno?: unknown; code?: unknown; message?: unknown };
+    d.log.warn({ event: "mysql_test_failed", ref: newId(), reason: out.reason, errno: e.errno, code: e.code, msg: typeof e.message === "string" ? e.message.slice(0, 300) : undefined }, "MySQL bağlantı testi başarısız");
+  }
+  await writeAudit(d.db, ctx, {
+    ...who(auth),
+    action: SYSTEM_AUDIT.MYSQL_TEST,
+    entity: "system_settings",
+    entityId: "mysql",
+    result: out.ok ? "success" : "fail",
+    newValue: { ...core, result: out.ok ? "success" : "fail", ...(out.ok ? { latencyMs: out.latencyMs } : { reason: out.reason }) },
+  });
+  return { ok: out.ok, message: MYSQL_TEST_MESSAGES[out.ok ? "ok" : out.reason], latencyMs: out.ok ? out.latencyMs : null };
+}
+
+// ---- TURN ----
+
+const hasTurnUrl = (urls: readonly string[]): boolean => urls.some((u) => /^turns?:/.test(u));
+
+/** Panel URL listesi; `{urls: []}` (DELETE sonrası "varsayılana dön" satırı) veya bozuk kayıt → null (env). */
+function asUrls(v: unknown): string[] | null {
+  const o = v as { urls?: unknown } | null;
+  return o && Array.isArray(o.urls) && o.urls.length > 0 && o.urls.every((u) => typeof u === "string") ? (o.urls as string[]) : null;
+}
+
+export async function getTurnSettings(d: SystemDeps): Promise<TurnSettingsView> {
+  const row = await d.db.systemSetting.findUnique({ where: { key: "turn" }, select: { valueJson: true, secretEnc: true, updatedAt: true } });
+  const urls = row ? asUrls(row.valueJson) : null;
+  if (!row || !urls) return { urls: [...d.turnEnv.urls], hasSecret: Boolean(d.turnEnv.secret), source: "env", updatedAt: null };
+  return { urls, hasSecret: row.secretEnc !== null, source: "panel", updatedAt: row.updatedAt.toISOString() };
+}
+
+/** Etkin TURN yapılandırması: panel kaydı varsa o (secret çözülemezse yalnız STUN + alarm), yoksa env. */
+export async function effectiveTurn(d: SystemDeps): Promise<TurnConfig> {
+  const row = await d.db.systemSetting.findUnique({ where: { key: "turn" }, select: { valueJson: true, secretEnc: true } });
+  const urls = row ? asUrls(row.valueJson) : null;
+  if (!row || !urls) return { urls: [...d.turnEnv.urls], secret: d.turnEnv.secret, ttlMin: d.turnEnv.ttlMin };
+  let secret: string | undefined;
+  if (row.secretEnc) {
+    try {
+      secret = d.secrets.decrypt(row.secretEnc, aadFor.systemSecret("turn"));
+    } catch (err) {
+      d.log.error({ err, alarm: "system_secret_unreadable", key: "turn" }, "TURN secret çözülemedi; yalnız STUN verilecek");
+    }
+  }
+  return { urls, secret, ttlMin: d.turnEnv.ttlMin };
+}
+
+export async function saveTurnSettings(d: SystemDeps, ctx: AuditContext, auth: AuthContext, input: TurnSettingsData): Promise<TurnSettingsView> {
+  await d.db.$transaction(async (tx) => {
+    const before = await tx.systemSetting.findUnique({ where: { key: "turn" }, select: { valueJson: true, secretEnc: true } });
+    if (hasTurnUrl(input.urls) && input.secret === undefined && !before?.secretEnc) throw new AppError("VALIDATION", { fields: { secret: TURN_SECRET_REQUIRED_MESSAGE } });
+    const secretEnc = input.secret !== undefined ? d.secrets.encrypt(input.secret, aadFor.systemSecret("turn")) : undefined;
+    await tx.systemSetting.upsert({
+      where: { key: "turn" },
+      create: { key: "turn", valueJson: { urls: input.urls }, secretEnc: secretEnc ?? null, updatedBy: auth.user.id },
+      update: { valueJson: { urls: input.urls }, ...(secretEnc ? { secretEnc } : {}), updatedBy: auth.user.id },
+    });
+    const oldUrls = before ? asUrls(before.valueJson) : null;
+    await writeAudit(tx, ctx, {
+      ...who(auth),
+      action: SYSTEM_AUDIT.TURN_UPDATED,
+      entity: "system_settings",
+      entityId: "turn",
+      result: "success",
+      ...(oldUrls ? { oldValue: { urls: oldUrls } } : {}),
+      newValue: { urls: input.urls, ...(input.secret !== undefined ? { secret: "changed" } : {}) },
+    });
+  });
+  return getTurnSettings(d);
+}
+
+/**
+ * DELETE: panel kaydı kaldırılır → env. app'te system_settings DELETE yetkisi yok (db-notlari P11: "kaldırma = varsayılana
+ * dönüş, satır kalır") → satır `{urls: []}` + secret NULL'a çekilir; okuyucular bunu "panel yok" sayar. İdempotent:
+ * zaten env ise değişiklik/audit yok.
+ */
+export async function deleteTurnSettings(d: SystemDeps, ctx: AuditContext, auth: AuthContext): Promise<TurnSettingsView> {
+  await d.db.$transaction(async (tx) => {
+    const before = await tx.systemSetting.findUnique({ where: { key: "turn" }, select: { valueJson: true, secretEnc: true } });
+    const oldUrls = before ? asUrls(before.valueJson) : null;
+    if (!before || (!oldUrls && !before.secretEnc)) return;
+    await tx.systemSetting.update({ where: { key: "turn" }, data: { valueJson: { urls: [] }, secretEnc: null, updatedBy: auth.user.id } });
+    await writeAudit(tx, ctx, { ...who(auth), action: SYSTEM_AUDIT.TURN_DELETED, entity: "system_settings", entityId: "turn", result: "success", ...(oldUrls ? { oldValue: { urls: oldUrls } } : {}), newValue: { source: "env" } });
+  });
+  return getTurnSettings(d);
+}

@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 // Çerez/başlık adları tek kaynaktan (Node 24 .ts tür ayıklama ile doğrudan okunur)
 import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import { handleAccount } from "./mock-account.mjs";
+import { auditUser, handleAudit } from "./mock-audit.mjs";
 import { handleCustomers } from "./mock-customers.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleRequests, requestUser } from "./mock-requests.mjs";
@@ -101,6 +102,8 @@ const srv = createServer(async (req, res) => {
     if (delay > 0) await new Promise((r) => setTimeout(r, delay));
     if (session === "s-broken") return send(res, 503, err("INTERNAL", "Hazır değil"));
     const tenant = { id: "01JTENANT", name: "Demo Firma" };
+    const au = auditUser(session);
+    if (au) return send(res, 200, { user: au.user, permissions: au.permissions, tenant: au.tenant, actingTenant: au.actingTenant });
     const uu = usersUser(session);
     if (uu) return send(res, 200, { user: uu.user, permissions: uu.permissions, tenant: uu.tenant, actingTenant: uu.actingTenant });
     const ru = requestUser(session);
@@ -130,6 +133,7 @@ const srv = createServer(async (req, res) => {
     return send(res, 204, undefined, clearCookies);
   }
 
+  if (await handleAudit(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleUsers(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleCustomers(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleRequests(req, res, { url, session, csrfOk, send, err, readJson })) return;

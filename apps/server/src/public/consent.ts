@@ -103,3 +103,30 @@ export async function abuseEmail(db: DbOrTx, src: AbuseEmailSource): Promise<str
   const u = await db.user.findFirst({ where: { role: "SUPER_ADMIN", status: "ACTIVE" }, orderBy: { createdAt: "asc" }, select: { email: true } });
   return u?.email ?? null;
 }
+
+export interface PublishedConsent {
+  id: string;
+  version: number;
+  sha256: string;
+  previous: { id: string; version: number; sha256: string } | null;
+}
+
+/**
+ * Yeni aydınlatma metni sürümü (P11 düzenleme + seed ortak; çağıranın TX'inde). Sıra: güncel sürüm → `is_current=0`
+ * (koşullu; 0 satır = eşzamanlı başka yayın → 409 CONFLICT) → max+1 INSERT. Eşzamanlı aynı sürüm numarası UQ(tenant,
+ * version) ile reddedilir. Gövde ile sha256 DB CHECK'iyle bağlı. `null` = gövde güncel sürümle aynı (yeni sürüm yok).
+ */
+export async function publishConsentText(tx: Prisma.TransactionClient, tenantId: string, body: string, createdBy: string | null): Promise<PublishedConsent | null> {
+  const sha256 = createHash("sha256").update(body, "utf8").digest("hex");
+  const current = await tx.consentText.findFirst({ where: { tenantId, isCurrent: true }, select: { id: true, version: true, sha256: true } });
+  if (current?.sha256 === sha256) return null;
+  const last = await tx.consentText.findFirst({ where: { tenantId }, orderBy: { version: "desc" }, select: { version: true } });
+  if (current) {
+    const { count } = await tx.consentText.updateMany({ where: { id: current.id, isCurrent: true }, data: { isCurrent: false } });
+    if (count !== 1) throw new AppError("CONFLICT", { message: "Metin aynı anda başka biri tarafından değiştirildi. Sayfayı yenileyin." });
+  }
+  const id = newId();
+  const version = (last?.version ?? 0) + 1;
+  await tx.consentText.create({ data: { id, tenantId, version, body, sha256, isCurrent: true, createdBy }, select: { id: true } });
+  return { id, version, sha256, previous: current };
+}

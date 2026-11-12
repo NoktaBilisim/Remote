@@ -33,7 +33,7 @@ Enum vs lookup: değer kümeleri sabit ve kodla birlikte değişir → VARCHAR +
 - `01-users.sh` env: `MYSQL_ROOT_PASSWORD`, `MYSQL_DATABASE`, `MYSQL_APP_PASSWORD`, `MYSQL_MIGRATOR_PASSWORD` (tırnak/ters bölü içeremez). Yalnız boş veri dizininde çalışır; parola değişimi runbook'ta `ALTER USER` ile.
 - **Kural:** yeni tablo ekleyen her migration `grants.sql`'e GRANT satırı ekler (DB düzeyi `app` yetkisi yok, çünkü audit_logs UPDATE'i tablo düzeyinde düşürülemez).
 - MySQL 8.4 `caching_sha2_password` + TLS'siz iç ağ: `DATABASE_URL`'e `?allowPublicKeyRetrieval=true` gerekir (mariadb sürücüsü; yoksa `ER_CANNOT_RETRIEVE_RSA_KEY`). MySQL portu dışa açılmamalı.
-- **P11 için:** binlog açıkken migrator `CREATE TRIGGER` → ERROR 1419. Seçenek: mysqld `--log-bin-trust-function-creators=1` (8.4'te deprecated uyarısı) veya `--disable-log-bin` (PITR yok, yedek mysqldump). Test edildi: bayrak açıkken migrator tetikleyici oluşturur, `app` 1142 "TRIGGER command denied" alır.
+- **P11 için (ÇÖZÜLDÜ — bkz. "P11" bölümü: `--log-bin-trust-function-creators=1`):** binlog açıkken migrator `CREATE TRIGGER` → ERROR 1419. Seçenek: mysqld `--log-bin-trust-function-creators=1` (8.4'te deprecated uyarısı) veya `--disable-log-bin` (PITR yok, yedek mysqldump). Test edildi: bayrak açıkken migrator tetikleyici oluşturur, `app` 1142 "TRIGGER command denied" alır.
 
 ## Compose (devops için)
 - mysql: `mysql:8.4`, `--default-time-zone=+00:00`, `./mysql/init:/docker-entrypoint-initdb.d:ro`, healthcheck.
@@ -393,3 +393,82 @@ Migration `20261112180000_p10_account_security` (expand-only, veri taşıma yok)
 
 ### Test (2026-11-12, geçici `mysql:8.4` `rs-mysql-p10dba:33330`, sonra silindi)
 P8c durumundaki DB'den `migrate diff` ile Prisma kısmı üretildi. up → `check-app-grants.sh` **302/302 PASS** (P10: 41 yeni; ADR-0014 `smtp_security` enum_case satırı complete_chk nedeniyle tam yapılandırmayla denenecek şekilde güncellendi). down (boş) → tablolar, sütun, yetkiler (table/column_privileges 0) ve `_prisma_migrations` satırı silindi → up tekrar OK. Kurtarma kodu varken down `p10_down_guard_chk` ile durdu, hiçbir şey değişmedi. `typecheck` temiz, `test` 285/285, `test:int` **384/384**. Seed değişmedi (2FA kayıt akışı kodları kendisi üretir; SMTP seed'lenmez — netguard loopback'i reddeder).
+
+## P11 — system_settings + audit değiştirilemezliği (2026-11-13)
+Migration `apps/server/prisma/migrations/20261113090000_p11_system_settings_audit/{migration.sql,down.sql}`. Mimari §3.1 `system_settings`, §3.3, §10 P11; ADR-0003 r2; AC-76/77/78/123. Veri taşıma yok.
+
+### Binlog ve ERROR 1419 (karar)
+MySQL 8.4'te binlog varsayılan açık. Bu durumda SUPER yetkisi olmayan `migrator` `CREATE TRIGGER` çalıştıramaz (1419). Deney (8.4.13): migrator'a tek tek `SET_ANY_DEFINER`, `SET_USER_ID`, `SYSTEM_VARIABLES_ADMIN`, `BINLOG_ADMIN`, `SYSTEM_USER`, `ALLOW_NONEXISTENT_DEFINER`, `SESSION_VARIABLES_ADMIN` verildi, ayrıca `SET sql_log_bin=0` denendi; **hiçbiri yetmedi, yalnız SUPER yetiyor**. SUPER geniş bir yetki (KILL, SET GLOBAL, read_only aşma), üstelik deprecated → reddedildi. `--disable-log-bin` de reddedildi: PITR ve replika imkânı kalıcı olarak kapanırdı.
+**Karar:** mysqld `--log-bin-trust-function-creators=1`, binlog açık kalır. Etkisi yalnız CREATE TRIGGER/ROUTINE yetkisi olan kullanıcılarla sınırlı; bu da yalnız migrator (`app`'te yok). 8.4.13'te değişken **deprecated**: `SET GLOBAL` 1287 uyarısı veriyor, komut satırı bayrağı açılışta uyarı vermiyor. MySQL bu değişkeni kaldırırsa yedek yol `--disable-log-bin` olur (yedek zaten mysqldump, §8.3).
+- `deploy/docker-compose.yml` mysql `command` satırı güncellendi: `["--default-time-zone=+00:00", "--log-bin-trust-function-creators=1"]`.
+- `apps/server/scripts/test-db.sh`: aynı bayrak eklendi; ayrıca `TEST_MIGRATE_DATABASE_URL` (migrator) export ediliyor.
+- `.github/workflows/ci.yml`: servis konteynerine argüman verilemediği için 01-users.sh'tan sonra root ile `SET GLOBAL log_bin_trust_function_creators = 1` çalıştırılıyor; env'e `TEST_MIGRATE_DATABASE_URL` eklendi.
+- Bayrak yoksa migration **ilk ifadede** (tetikleyici) 1419 ile durur ve hiçbir şey değişmez (doğrulandı: tablo, tetikleyici ve indeks değişmedi). Kurtarma: bayrağı aç → `prisma migrate resolve --rolled-back 20261113090000_p11_system_settings_audit` → `pnpm db:migrate`.
+- **`--sysdate-is-now` eklenmemeli** (DELETE tetikleyicisi SYSDATE'e dayanır).
+
+### Runbook'a eklenecek adım (devops — staging/prod, P11 deploy'undan ÖNCE)
+1. Yedek al (mysqldump, runbook).
+2. Yeni compose dosyasıyla `cd deploy && docker compose up -d mysql`. `command` değiştiği için konteyner yeniden oluşturulur; `mysql_data` volume'u ve veri korunur. Healthy olmasını bekle.
+3. Doğrula: `docker compose exec mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -Ne "SELECT @@log_bin, @@log_bin_trust_function_creators"'` → `1	1`.
+4. `docker compose up -d` (migrate servisi P11'i uygular, sonra server başlar).
+5. `APP_PW=… CONTAINER=<mysql konteyneri> DB=… deploy/mysql/check-app-grants.sh` → tümü PASS (P11 satırları: tetikleyici sayısı 2, app DDL/TRIGGER yetkisi 0).
+- Restart istenmezse alternatif: root ile `SET PERSIST log_bin_trust_function_creators = 1` (volume'daki `mysqld-auto.cnf`'e yazılır). Yine de compose bayrağı kaynak gerçeklik olarak kalmalı.
+
+### system_settings
+| Sütun | Tip | Not |
+|---|---|---|
+| `key` | VARCHAR(60) PK | CHECK ikili kümede (ADR-0014): `mysql`, `turn`. Yeni anahtar (P12 sistem logosu vb.) gelirse CHECK'i genişleten bir migration gerekir |
+| `value_json` | JSON? | nesne, ≤ 4 KB (`JSON_STORAGE_SIZE`); anahtar başına `JSON_SCHEMA_VALID`, `additionalProperties:false` → gizli değer buraya yazılamaz |
+| `secret_enc` | VARBINARY(512)? | AES-256-GCM (§3.2), ≥ 30 bayt |
+| `updated_by` | CHAR(26)? FK users RESTRICT | IX(updated_by); kullanıcılar soft delete edildiği için RESTRICT sorun çıkarmaz |
+| `created_at`, `updated_at` | DATETIME(3) | dba kuralı (mimaride yalnız updated_at vardı) |
+- **mysql** (`system_settings_mysql_chk`): `{host, port, database, user}` dördü de zorunlu, başka alan yok. host: ASCII ad / IPv4 / `[IPv6]`, 1..253 (SMTP host kuralıyla aynı); port: tamsayı 1..65535 (`"3306"` dizesi reddedilir); database `^[A-Za-z0-9_$-]{1,64}$`; user 1..32, Cc/Cf/Zl/Zp yok. Şifre `secret_enc`'te ve opsiyonel. **zod aynı kuralları uygulamalı** (backend).
+- **turn** (`system_settings_turn_chk`): `{urls}`; 0..10 tekil URL, `^(stun|turn|turns):[!-~]+$`, her biri ≤ 255. `turn:`/`turns:` URL'si varsa `secret_enc` zorunlu (env.ts TURN_SECRET kuralıyla aynı). Satır yoksa env `TURN_URLS`/`TURN_SECRET` kullanılır (öneri; backend karar verir).
+- Tek satıra eşzamanlı ilk yazımda iki INSERT yarışırsa biri P2002 alır. Öneri: `upsert` (INSERT … ON DUPLICATE KEY UPDATE).
+- Seed değişmedi: satır yoksa varsayılan/env kullanılır, geliştirme ortamı boş kalmaz.
+
+### audit_logs tetikleyicileri (mimari §3.3)
+- `audit_logs_no_update` BEFORE UPDATE → `SIGNAL 45000 'audit_logs is append-only: UPDATE denied'`. Migrator ve root dahil herkes için geçerli; `INSERT … ON DUPLICATE KEY UPDATE` de reddedilir.
+- `audit_logs_retention_only_delete` BEFORE DELETE → `IF NOT COALESCE(OLD.created_at <= CONVERT_TZ(SYSDATE(3), @@session.time_zone, '+00:00') - INTERVAL 730 DAY, FALSE) THEN SIGNAL`.
+  - **Sapma (NOW → SYSDATE):** `SET TIMESTAMP` yetki gerektirmez ve `NOW()`/`UTC_TIMESTAMP()`'ı ileri alır. Deneyle doğrulandı: app oturumunda `SET TIMESTAMP=2030` sonrası `NOW()` 2030 dönüyor. Mimari metnindeki `NOW()` kullanılsaydı, P13'te DELETE yetkisi alan app yeni satırları silebilirdi. `SYSDATE()` gerçek saati döner. `CONVERT_TZ` ise oturumun `time_zone`'u değiştirilse de (+14:00 denendi) değeri UTC'ye çevirir. Karşılaştırma NULL çıkarsa silme reddedilir (fail-closed).
+  - TRUNCATE tetikleyiciyi atlar ama DROP yetkisi ister; app'te bu yetki yok. FK'ler RESTRICT, cascade yok.
+- DEFINER = `migrator@%`. Migrator kullanıcısı silinir veya yeniden adlandırılırsa UPDATE/DELETE "definer does not exist" ile reddedilir (fail-closed). INSERT etkilenmez. mysqldump tetikleyicileri DEFINER ile birlikte döker; ayrı `backup` kullanıcısı TRIGGER yetkisi ister (Yedek bölümü).
+- **audit_logs DELETE yetkisi app'e VERİLMEDİ** (en az yetki). Bugün audit silen hiçbir kod yok; yetki P13 retention ile `grants.sql`'e eklenecek, tetikleyici o gün de 730 gün sınırını uygulayacak. P1 notundaki "P11/P13" ifadesi: P11 = tetikleyici, P13 = yetki.
+
+### Audit ekranı indeksleri (AC-76; filtreler tarih/kullanıcı/işlem/sonuç; sıralama `created_at DESC, id DESC`)
+| Kapsam + filtre | İndeks |
+|---|---|
+| Admin (tenant) + tarih / + sonuç | IX(tenant_id, created_at) — sonuç indeks üstünde filtrelenir |
+| Admin + kullanıcı | **IX(user_id, created_at)** (yeni) |
+| Admin + işlem | IX(tenant_id, action, created_at) |
+| Super Admin tüm tenant'lar + tarih / + sonuç | IX(created_at) |
+| Super Admin + kullanıcı | **IX(user_id, created_at)** |
+| Super Admin + işlem | **IX(action, created_at)** (yeni) |
+- **Sapma:** IX(tenant_id, user_id, created_at) kaldırıldı, yerine IX(user_id, created_at) geldi. user_id ULID ve tek tenant'a ait (P2 technician_id gerekçesi). `sessions/email.ts` sayımı (tenant+user+action+tarih) da bu indeksi kullanır. Net değişim +1 indeks. `id DESC`: InnoDB ikincil indeksi PK'yi sonda taşır, sıralama indeksten gelir.
+- `result` için indeks eklenmedi. Değer kümesi iki elemanlı; mevcut indeksin üstünde filtrelenir.
+- Backend uyarısı: 730 günlük aralıkta `COUNT(*)` ile toplam sayfa hesabı tüm aralığı tarar. Öneri: keyset (`(created_at, id) <` imleç) veya üst sınırlı sayım; varsayılan tarih aralığı (ör. son 30 gün).
+- İndeks DDL'i `ALGORITHM=INPLACE, LOCK=NONE` (çevrimiçi).
+- Prisma 7.10.1 `migrate diff` bir hata üretti: indeksi düşürürken `audit_logs` FK'sini düşürüp **yanlış tabloya** (`tenant_settings_tenant_id_fkey`) geri ekleyen satırlar. Bu satırlar elle çıkarıldı (gerekçe migration.sql'de). Sonrasında `migrate diff --exit-code` = 0.
+
+### Yetkiler (`grants.sql`, `check-app-grants.sh`)
+| Tablo | app |
+|---|---|
+| system_settings | SELECT, INSERT, UPDATE; DELETE/ALTER/DROP/INDEX/TRIGGER/REFERENCES REVOKE |
+| audit_logs | değişmedi: SELECT, INSERT (DELETE → P13) |
+`check-app-grants.sh` +18 kontrol:
+- root ile: tetikleyici sayısı = 2; app'in global/DB yetkisi ve tablo düzeyi TRIGGER/ALTER/DROP/CREATE/INDEX yetkisi = 0; audit_logs'ta yalnız SELECT/INSERT; sütun yetkisi yok. Betik artık konteyner env'indeki `MYSQL_ROOT_PASSWORD`'ü kullanıyor (compose, test-db ve CI'da tanımlı).
+- app ile: UPDATE, DROP/CREATE TRIGGER, RENAME ve ALTER INDEX reddediliyor; system_settings izinleri ve 4 CHECK doğru çalışıyor.
+
+### Test bulgusu (diğer testler için)
+`CREATE/DROP TRIGGER` ve `RENAME TABLE` prepared statement protokolünde **1295** ("not supported") döner. Prisma `$executeRawUnsafe` ile "reddedildi" görünür ama yetki sınanmamış olur. `db-grants.test.ts`'teki CREATE/DROP TRIGGER satırları bu yüzden **yanlış pozitif**. Yeni test, metin protokolüyle (`mariadb` sürücüsü, Prisma adaptörünün bağımlılığından çözülür; yeni bağımlılık yok) ve hata metninde "command denied" arayarak sınıyor.
+
+### Geri alma
+`down.sql`: `system_settings`'te satır varsa `p11_down_guard_chk` ile durur (hiçbir şey değişmez). Satır yoksa: yetkileri REVOKE eder, tetikleyicileri ve tabloyu düşürür, IX(tenant_id, user_id, created_at)'i geri ekler, P11 indekslerini düşürür, `_prisma_migrations` kaydını siler.
+
+### Test (2026-11-12/13, geçici `mysql:8.4` 8.4.13, binlog AÇIK + bayrak; `rs-mysql-p11dba:33341`, `rs-mysql-p11fresh:33342`; ikisi de silindi)
+- **P10 durumundaki DB** (staging senaryosu): up OK, drift 0. `check-app-grants.sh` **320/320 PASS** (önceki 302 + 18 P11).
+  - down guard (satır varken) → 3819, hiçbir şey değişmedi. Satır silinip down çalıştırılınca: tetikleyici 0, tablo 0, yetki 0, son migration P10; HEAD (P10) şemasına göre drift 0. Yeniden up → drift 0, `migrate status` güncel.
+  - Bayrak 0 iken migrate → P3018/1419; tablo, tetikleyici ve eski indeks değişmedi. Bayrak açılıp `resolve --rolled-back` + migrate → OK.
+- **Temiz DB:** `test-db.sh up` (P1→P11) OK, 320/320 PASS. `test:int` 421 testten 420'si geçti. Kalan 1 test `session-history-p8` ikili CHECK sayımıydı: 19 → 22 olarak güncellendi (P11 key/mysql/turn), sonra geçti. down → up → drift 0.
+- `audit-immutability-p11.test.ts` **12/12**: migrator UPDATE → SIGNAL; 0/365/729 gün DELETE → SIGNAL; `SET TIMESTAMP=2035` ve `time_zone=+14:00` ile de SIGNAL (730 güne 10 saat kalan satır dahil); 731 gün DELETE OK; app UPDATE/DELETE/DROP·CREATE TRIGGER/ALTER/TRUNCATE/DROP/RENAME/GRANT → yetki hatası; system_settings geçerli/geçersiz kayıtlar (anahtar, nesne/boyut, secret, mysql ve turn şemaları); app DELETE/DDL yok.
+- `pnpm db:generate` + server `typecheck` temiz; birim testleri 310/310.

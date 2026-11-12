@@ -1,9 +1,8 @@
 // Seed aydınlatma metni (seed.ts'ten ayrıldı — P8c-1 düzeltme turu 1, QA AC-188: entegrasyon testi seed'i bütün DB'ye
 // koşmadan tek tenant üzerinde doğrulayabilsin). seed.ts bu modülü çağırır; davranış değişmedi.
 import { createHash } from "node:crypto";
-import { ulid } from "ulid";
 import type { PrismaClient } from "../src/generated/prisma/client.ts";
-import { defaultConsentBody } from "../src/public/consent.ts";
+import { defaultConsentBody, publishConsentText } from "../src/public/consent.ts";
 
 export { defaultConsentBody };
 
@@ -24,27 +23,21 @@ export async function seedTenantConsent(prisma: PrismaClient, tenant: { id: stri
     select: { id: true, sha256: true, createdBy: true },
   });
   if (current && (current.createdBy !== null || current.sha256 === sha256)) return false;
-  const last = await prisma.consentText.findFirst({
-    where: { tenantId: tenant.id },
-    orderBy: { version: "desc" },
-    select: { version: true },
-  });
-  const id = ulid();
-  const version = (last?.version ?? 0) + 1;
-  await prisma.$transaction([
-    ...(current ? [prisma.consentText.update({ where: { id: current.id }, data: { isCurrent: false } })] : []),
-    prisma.consentText.create({ data: { id, tenantId: tenant.id, version, body, sha256, isCurrent: true } }),
-    prisma.auditLog.create({
+  // P11: sürüm geçişi tek yerde (publishConsentText — panel düzenlemesiyle aynı TX mantığı).
+  await prisma.$transaction(async (tx) => {
+    const out = await publishConsentText(tx, tenant.id, body, null);
+    if (!out) return;
+    await tx.auditLog.create({
       data: {
         tenantId: tenant.id,
         action: "consent_text.created",
         entity: "consent_texts",
-        entityId: id,
-        newValue: { version, sha256, source: "seed" },
+        entityId: out.id,
+        newValue: { version: out.version, sha256: out.sha256, source: "seed" },
         result: "success",
       },
-    }),
-  ]);
+    });
+  });
   return true;
 }
 

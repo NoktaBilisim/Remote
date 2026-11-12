@@ -22,6 +22,8 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - **İki adımlı doğrulama ve e-posta** — yöneticilerde zorunlu, teknisyenlerde firma ayarıyla 2FA; şifremi unuttum,
   tüm cihazlardan çıkış; firmanın kendi SMTP'siyle bildirimler.
 - **Oturum geçmişi ve CSV** — filtreli liste, onay ve kontrol kayıtları, ticket/not, Excel uyumlu dışa aktarma.
+- **Değiştirilemez denetim kaydı** — kim, ne zaman, ne yaptı: filtreli ekran ve CSV; kayıtlar uygulamadan da
+  veritabanından da düzenlenemez, silinemez.
 
 ## Kimler için
 - Kurum içi BT destek ekipleri ve yardım masaları
@@ -39,8 +41,10 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 | Oturum geçmişi | Filtreli liste, ayrıntı, ticket/not, CSV |
 | Kullanıcılar | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme |
 | Firmalar (Süper Yönetici) | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş |
+| Audit log | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV |
+| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi, TURN sunucuları ve gizli anahtar |
 | Hesap güvenliği | 2FA kurulumu ve kurtarma kodları, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış |
-| Ayarlar | Destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, teknisyen 2FA zorunluluğu |
+| Ayarlar | Destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni |
 
 ## Güvenlik ve yönetim
 - Roller (Teknisyen / Yönetici / Süper Yönetici) ve modül bazlı yetki anahtarları; kimse sahip olmadığı yetkiyi veremez.
@@ -48,23 +52,27 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - Çoklu firma: bir firmanın kullanıcısı başka firmanın kaydını göremez; firma pasife alınınca oturumları, talepleri
   ve kayıtlı bilgisayarları hemen kapanır.
 - Denetim kaydı: giriş/çıkış, oturum olayları, kontrol izinleri, dosya aktarımı, dışa aktarma, kullanıcı/yetki/firma
-  değişiklikleri (eski → yeni). Şifre ve anahtarlar maskelenir; müşteri kişisel verisi yazılmaz.
-- KVKK: aydınlatma metni firma bazında ve sürümlü; onay, metin sürümüyle saklanır. Talep verisi saklama süresi sonunda
+  ve ayar değişiklikleri (eski → yeni), e-posta/WhatsApp gönderimleri. Şifre ve anahtarlar maskelenir; müşteri kişisel
+  verisi yazılmaz. Kayıtlar ekranda salt okunurdur; veritabanı kuralları son 730 günün kaydının değiştirilmesini ve
+  silinmesini engeller.
+- KVKK: aydınlatma metni firma bazında ve sürümlü, yönetici panelden düzenler; her onay, onaylanan sürümle saklanır. Talep verisi saklama süresi sonunda
   anonimleştirilir.
 - Şifreler argon2id ile saklanır; hatalı girişte kilit (ve kullanıcıya e-posta), ilk girişte şifre değişimi, CSRF
   koruması, süreli oturum (30 dk boşta / 8 sa).
 - İki adımlı doğrulama (TOTP; Google/Microsoft Authenticator vb.) ve tek kullanımlık kurtarma kodları; yönetici
-  hesaplarında zorunlu. SMTP şifresi ve 2FA sırları şifreli saklanır; e-posta yalnız internetteki SMTP sunucularına,
+  hesaplarında zorunlu. SMTP ve veritabanı şifreleri, TURN anahtarı ve 2FA sırları şifreli saklanır; e-posta yalnız internetteki SMTP sunucularına,
   sertifika doğrulamalı gönderilir.
 - Müşteri programı yalnız kendi sunucusuna bağlanır; bütünlüğü SHA-256 ve tekrarlanabilir derlemeyle doğrulanır.
   Hatırlanan bilgiler Windows hesabına bağlı şifreyle (DPAPI) saklanır, tek tıkla silinir. Tanılama dosyası kişisel
   veri içermez.
 
 ## Entegrasyonlar
-- TURN sunucusu (coturn): güvenlik duvarı arkasındaki müşteriler için görüntü aktarımı.
+- TURN sunucusu (coturn): güvenlik duvarı arkasındaki müşteriler için görüntü aktarımı; adres ve anahtar panelden
+  yönetilebilir.
 - WhatsApp (Nokta Bilişim whatsapp-bildirim servisi): yeni talepte kişisel veri içermeyen bildirim; test butonu.
 - E-posta (firmanın kendi SMTP sunucusu): şifre sıfırlama, güvenlik bildirimleri, yeni talep bildirimi, oturum
   bağlantısını müşteriye gönderme; test butonu.
+- MySQL: bağlantı bilgisi yönetim panelinde, "Bağlantıyı Test Et" ile; geçiş sunucu yapılandırmasıyla yapılır.
 - SMS bildirimi bu sürümde yoktur.
 
 ## Teknik özellikler

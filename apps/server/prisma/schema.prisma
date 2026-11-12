@@ -96,6 +96,7 @@ model User {
   createdCustomers   Customer[]
   recoveryCodes      RecoveryCode[]
   passwordResets     PasswordResetToken[]
+  systemSettings     SystemSetting[]
 
   @@index([tenantId, status])
   @@map("users")
@@ -172,8 +173,9 @@ model AuthSession {
   @@map("auth_sessions")
 }
 
-// Append-only (G-15): app DB kullanıcısının bu tabloda UPDATE yetkisi yok (prisma/sql/grants.sql).
-// BEFORE UPDATE/DELETE tetikleyicileri P11 migration'ında eklenir (mimari §3.3, §10.3).
+// Append-only (G-15): app DB kullanıcısının bu tabloda UPDATE/DELETE yetkisi yok (prisma/sql/grants.sql; DELETE P13).
+// P11 tetikleyicileri (migration.sql'de elle, migrator): audit_logs_no_update (her UPDATE → SIGNAL 45000) ve
+// audit_logs_retention_only_delete (730 günden yeni satır DELETE → SIGNAL 45000; saat SYSDATE, SET TIMESTAMP etkilemez).
 // user_id bilinçli olarak FK değil: başarısız girişte NULL/var olmayan kullanıcı olabilir,
 // kayıt kullanıcıdan bağımsız kalıcıdır (username denormalize).
 model AuditLog {
@@ -195,8 +197,9 @@ model AuditLog {
   tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId, createdAt])
-  @@index([tenantId, userId, createdAt])
+  @@index([userId, createdAt]) // P11: (tenant_id, user_id, created_at) yerine — user_id ULID tenant'a özgü; Super Admin tüm-tenant kullanıcı filtresi
   @@index([tenantId, action, createdAt])
+  @@index([action, createdAt]) // P11: Super Admin tüm-tenant işlem filtresi (audit ekranı, AC-76)
   @@index([tenantId, entity, entityId, createdAt]) // P8 oturum zaman çizelgesi (mimari-api "Oturum geçmişi" §3)
   @@index([createdAt]) // retention: 730 gün silme (§3.4)
   @@map("audit_logs")
@@ -524,4 +527,22 @@ model DeviceBinding {
   @@index([lastSessionId, tenantId]) // FK
   @@index([firstSessionId, tenantId]) // FK
   @@map("device_bindings")
+}
+
+// P11 (mimari §3.1, §3.2; AC-77, 78): sistem düzeyi ayarlar (yalnız Super Admin). Anahtar başına tek satır; satır yoksa
+// varsayılan/env kullanılır. Gizli değer yalnız secret_enc'te (AES-256-GCM, lib/crypto.ts) — value_json'a ASLA yazılmaz.
+// Elle CHECK'ler (migration.sql): key kümesi (ikili, ADR-0014) `mysql` | `turn`; value_json nesne ≤ 4 KB + anahtar başına
+// JSON şeması; secret_enc 30..512 bayt; turn: turn:/turns: URL'si varken secret zorunlu. app SELECT/INSERT/UPDATE (DELETE yok).
+model SystemSetting {
+  key       String   @id @db.VarChar(60) // mysql | turn
+  valueJson Json?    @map("value_json") // mysql: {host, port, database, user}; turn: {urls: string[]}
+  secretEnc Bytes?   @map("secret_enc") @db.VarBinary(512) // mysql: şifre; turn: static-auth-secret
+  updatedBy String?  @map("updated_by") @db.Char(26) // son değiştiren Super Admin (iz audit'te)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  updater User? @relation(fields: [updatedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([updatedBy]) // FK
+  @@map("system_settings")
 }

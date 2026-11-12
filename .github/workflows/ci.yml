@@ -54,6 +54,8 @@ jobs:
       MIGRATE_DATABASE_URL: mysql://migrator:cimigrator@127.0.0.1:3306/remote
       DATABASE_URL: mysql://app:ciapp@127.0.0.1:3306/remote?allowPublicKeyRetrieval=true
       TEST_DATABASE_URL: mysql://app:ciapp@127.0.0.1:3306/remote?allowPublicKeyRetrieval=true
+      # P11 tetikleyici testleri (audit-immutability-p11.test.ts) migrator kimliğiyle de dener.
+      TEST_MIGRATE_DATABASE_URL: mysql://migrator:cimigrator@127.0.0.1:3306/remote?allowPublicKeyRetrieval=true
       NODE_ENV: test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,6 +69,13 @@ jobs:
         run: |
           docker exec -i -e MYSQL_ROOT_PASSWORD -e MYSQL_DATABASE -e MYSQL_APP_PASSWORD \
             -e MYSQL_MIGRATOR_PASSWORD ${{ job.services.mysql.id }} bash < deploy/mysql/init/01-users.sh
+          # P11: servis konteynerine komut argümanı verilemez → compose'daki --log-bin-trust-function-creators=1 eşleniği
+          # (migrator'ın audit_logs tetikleyicilerini oluşturabilmesi; ERROR 1419, docs/db-notlari.md "P11").
+          # Root parolası docker CLI argümanına konmaz; konteynerin kendi env'inden okunur (check-app-grants.sh ile aynı).
+          # Doğrulama `1 1` değilse adım düşer (migrate'in 1419 ile belirsiz düşmesini beklemeden).
+          docker exec ${{ job.services.mysql.id }} sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -NBe \
+            "SET GLOBAL log_bin_trust_function_creators = 1; SELECT @@log_bin, @@log_bin_trust_function_creators"' \
+            | tee /dev/stderr | grep -qx $'1\t1'
       - run: pnpm db:migrate
       - name: app kullanıcısı yetki sınırı (G-15)
         run: APP_PW=ciapp CONTAINER=${{ job.services.mysql.id }} DB=remote bash deploy/mysql/check-app-grants.sh

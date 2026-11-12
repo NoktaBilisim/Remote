@@ -48,7 +48,8 @@ export interface TechnicianLiveControl {
 export class Rooms implements RoomNotifier, TechnicianLiveControl {
   readonly db: Db;
   readonly log: FastifyBaseLogger;
-  readonly turn: TurnConfig;
+  /** P11 (G-13): panel kaydı (system_settings `turn`) değişince `settings/system.ts` günceller; yoksa env. */
+  turn: TurnConfig;
   readonly metrics: Metrics;
   readonly clock: Clock;
   readonly timing: Timing;

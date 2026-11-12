@@ -13,6 +13,10 @@ let processKeys: Map<number, Buffer> | undefined;
 export const aadFor = {
   totpSecret: (userId: string): string => `users.totp_secret_enc:${userId}`,
   smtpPassword: (tenantId: string): string => `tenant_settings.smtp_pass_enc:${tenantId}`,
+  /** P11: `system_settings.secret_enc` — `turn` satırı. */
+  systemSecret: (key: "turn"): string => `system_settings.secret_enc:${key}`,
+  /** P11 (B-P11-1): `mysql` satırı hedefe (host:port:user) bağlı — hedef değişince kayıtlı şifre çözülemez. */
+  mysqlSecret: (t: { host: string; port: number; user: string }): string => `system_settings.secret_enc:mysql:${t.host.toLowerCase()}:${t.port}:${t.user}`,
 } as const;
 
 /** HKDF amaç etiketleri (anahtar ayrımı). */

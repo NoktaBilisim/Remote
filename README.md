@@ -4,13 +4,13 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P10 tamamlandı (Windows elle testleri bekliyor)
-İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P9 ve **P10** (hesap güvenliği: 2FA, şifre sıfırlama,
-tüm cihazlardan çıkış; firma SMTP ayarı ve e-posta bildirimleri) tamamlandı: qa GEÇTİ, güvenlik 3 turda Kritik/Yüksek 0,
-sayfa testi GEÇTİ (`docs/arsiv/p10-qa-raporu.md`, `docs/arsiv/p10-test-raporu.md`, `docs/guvenlik-raporu.md`). Windows
-istemci **0.10.2** qa ve güvenlik denetiminden geçti. Gerçek Windows'ta elle testler (P7, P8b-2, P8c-2, 0.10.2) ve AC-192
-staging ölçümü bekliyor. Sıradaki paket **P11** (MySQL/TURN ayarları, audit log ekranı); açık maddeler
-`docs/gereksinimler-sonra-acik.md`.
+## Şu anki durum: P1–P11 tamamlandı (Windows elle testleri bekliyor)
+İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P10 ve **P11** (audit log ekranı, Super Admin sistem
+ayarları MySQL/TURN, aydınlatma metni düzenleme, audit değiştirilemezlik tetikleyicileri) tamamlandı: P11 qa GEÇTİ,
+güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ (`docs/arsiv/p11-qa-raporu.md`, `docs/arsiv/p11-test-raporu.md`,
+`docs/guvenlik-raporu.md`). P11 henüz staging'e yayınlanmadı (yayın adımları runbook §15). Windows istemci **0.10.2**
+qa ve güvenlik denetiminden geçti. Gerçek Windows'ta elle testler (P7, P8b-2, P8c-2, 0.10.2) ve AC-192 staging ölçümü
+bekliyor. Sıradaki paket **P12** (logo/avatar, tema tercihi); açık maddeler `docs/gereksinimler-sonra-acik.md`.
 
 Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.126.217.99:4450` geçiş süresince açık).
 
@@ -268,6 +268,22 @@ Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.
 - Migration `20261112180000_p10_account_security`; yeni ortam değişkeni **`APP_ENCRYPTION_KEYS`** (zorunlu); yeni
   bağımlılıklar `nodemailer` 10.5.0 (MIT-0), `qrcode` 1.5.4 (MIT); geliştirme: `smtp-server` (MIT-0, testte sahte SMTP).
 
+**P11 — audit log ekranı, sistem ayarları, aydınlatma metni**
+- **Audit log** (`/audit`, menüde kaydırma kâğıdı simgesi; `audit.view`): salt okunur liste, filtreler (tarih aralığı —
+  varsayılan son 30 gün, en çok 731 gün —, kullanıcı, işlem/işlem grubu, sonuç; firma seçmemiş Super Admin için firma),
+  "Daha fazla yükle" ile 50'şer kayıt, ayrıntı penceresi (eski → yeni değer; gizli değerler maskeli, e-posta/test
+  kayıtlarında yalnız neden sınıfı), **CSV indir** (`audit.export`; ≤ 50.000 satır, formül kaçışlı). Düzenleme/silme yok:
+  API yazma metotlarına 405, veritabanında UPDATE ve 730 günden yeni kaydı silme tetikleyiciyle reddedilir.
+- **Sistem ayarları** (`/admin/settings`, yalnız Super Admin): **MySQL** (host, port 3306, veritabanı, kullanıcı, maskeli
+  şifre; **Bağlantıyı Test Et** ≤ 10 sn; kayıtlı şifre yalnız aynı hedefe kullanılır; kayıt çalışan bağlantıyı
+  değiştirmez — `.env` + yeniden başlatma, ADR-0003) ve **TURN** (adres listesi, coturn `static-auth-secret` ile aynı
+  gizli anahtar, "Ortam değerlerine dön").
+- **Ayarlar > Aydınlatma metni** (`/settings/consent-text`): firma KVKK metnini düzenleme; her kayıt yeni sürüm, verilmiş
+  onaylar kendi sürümüne bağlı kalır; sürüm geçmişi (SHA-256).
+- Migration `20261113090000_p11_system_settings_audit` (`system_settings`, audit tetikleyicileri). MySQL'de
+  `--log-bin-trust-function-creators=1` bayrağı gerekir (compose'da var; runbook §15). Yeni ortam değişkeni ve yeni
+  bağımlılık yok.
+
 **Düzeltme — talepten doğan oturumda siyah ekran:** sunucu teknisyene ICE (TURN) listesini `peer.joined`'dan önce
 gönderir, konsol liste gelmeden teklif üretmez (`6701567`).
 
@@ -297,7 +313,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P8c-2 (kod ✓, Windows elle test bekliyor) | Windows istemci 0.10.0: kalıcı "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut" |
 | P9 ✓ | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
 | P10 ✓ | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış, e-posta bildirimleri |
-| P11 | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri |
+| P11 ✓ | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri, aydınlatma metni düzenleme |
 | P12 | Logo/avatar yükleme, kullanıcı tema tercihi |
 | P13 | Prod deploy, yedek/geri yükleme, retention, kullanım kılavuzu, datasheet, PDF'ler |
 
@@ -436,7 +452,17 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 `e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
-### Son test sonuçları (P10, 2026-11-12)
+### Son test sonuçları (P11, 2026-11-13)
+| Takım | Sonuç |
+|---|---|
+| Birim (`pnpm -r run test`) | 613: server 324, web 218, contracts 71 |
+| Server entegrasyon (`test:int`) | 445 (46 dosya); P11: `audit-p11`, `settings-p11`, `audit-immutability-p11`, `db-grants`. MySQL'de binlog bayrağı gerekir |
+| Web e2e (sahte API/WS) | 264 geçti + 95 atlandı (masaüstü/mobil proje filtreleri); P11 spec'i `e2e/p11-admin.spec.ts` (iki tema, 1280/390 px) |
+
+Sayfa testi (`docs/arsiv/p11-test-raporu.md`): 6 senaryo × 22 rota × açık/koyu × 1280/390 = 88 görünüm, axe 0 ihlal, JS
+hatası 0; gerçek server ile akışlar staging'de elle doğrulanacak.
+
+#### Önceki paket (P10, 2026-11-12)
 | Takım | Sonuç |
 |---|---|
 | Birim (`pnpm -r run test`) | 586: server 310, web 205, contracts 71 |
@@ -590,6 +616,10 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
   SHA-256 olarak saklanır. SMTP şifresi ve TOTP sırrı AES-256-GCM (`APP_ENCRYPTION_KEYS`, kayda bağlı AAD). SMTP hedefi
   yalnız 4 portta ve genel internet adresinde olabilir (iç ağ, loopback, sunucunun kendi adresi reddedilir); TLS'te
   sertifika adı doğrulanır. Gönderim hatasında kullanıcıya tek genel mesaj; ayrıntı yalnız log/audit'te.
+- Audit ve sistem ayarları (P11): audit kayıtları API'de salt okunur (405), DB'de `app` kullanıcısının UPDATE/DELETE/
+  TRIGGER/DDL yetkisi yok, tetikleyiciler UPDATE'i ve 730 günden yeni kaydın silinmesini reddeder. Okumada maske yeniden
+  uygulanır. MySQL şifresi ve TURN secret'ı AES-256-GCM ile saklanır, forma geri yazılmaz; MySQL şifresi hedefe bağlı
+  AAD ile saklanır ve başka sunucuya gönderilmez. MySQL testi yalnız Super Admin'e açık, 5/dk/kişi + 20/dk toplam.
 - Konteynerler salt okunur kök dosya sistemi, `cap_drop: ALL`, root olmayan kullanıcıyla çalışır; imajlar digest ile sabitlenir.
 - CI: `pnpm audit`, lisans denetimi (GPL/AGPL yasak), gitleaks. Repoya gizli bilgi girmez.
 - Ayrıntı: `docs/guvenlik-raporu.md`, ADR'ler `docs/adr/`.

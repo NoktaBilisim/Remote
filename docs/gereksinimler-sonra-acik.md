@@ -1,6 +1,19 @@
 # Gereksinimler — "Sonra / açık" takip tabloları
 Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (bölüm 9'un devamıdır, ayrılmaz parçasıdır). Boyut nedeniyle 2026-11-12'de ana dosyadan taşındı; P2..P8 tabloları içerik değiştirilmeden taşındı, yeni paketlerin tabloları en üste eklenir.
 
+### Sonra / açık — P11'den (2026-11-13)
+Kaynak: `docs/guvenlik-raporu.md` (P11 turu, Kod turu 1 + Doğrulama turu 1), `docs/arsiv/p11-qa-raporu.md` (Tur 1–2
+Öneriler), `docs/arsiv/p11-test-raporu.md` (sayfa testi), `docs/implementation.md` ("P11 — Backend" düzeltme turu 1).
+
+| Madde | Ne yapılacak | Sahip | Ne zaman |
+|---|---|---|---|
+| B-P11-3 (Düşük) MySQL testinde TLS yok | Bugün yalnız arayüz uyarısı var (`my.tlsNote`). Sunucuda "TLS gerekli" seçeneği (`ssl.rejectUnauthorized`, servername); TLS kapalıyken `allowPublicKeyRetrieval` yalnız loopback, özel ağ veya compose servis adında açık olmalı | backend-dev | Sonra |
+| B-P11-4 (Düşük, risk kabulü) MySQL testi port tarama / parola deneme sinyali | Kişi başı 5/dk + global 20/dk ve süre gizleme yapıldı. Kalan: `rs_mysql_test_failed_total` metriği ve alarm eşiği (runbook'a) | devops | Sonra |
+| I-P11-1 audit'in harici append-only kopyası | Tetikleyiciler `migrator`'a karşı koruma sağlamaz (DROP TRIGGER / TRUNCATE yapabilir). Audit'in WORM yedek veya log gönderimiyle harici, eklenebilir-yalnız kopyası | dba + devops | P13 |
+| I-P11-3 `created_at`'in DB saatine zorlanması | `app` `created_at`'i kendisi yazabiliyor; P13'te DELETE yetkisi verilince geri tarihli sahte satır ekleyip silebilir. `BEFORE INSERT` tetikleyicisiyle `NEW.created_at = SYSDATE(3)` (UTC) zorlanmalı; retention DELETE yetkisiyle aynı migration'da | dba + devops | P13 |
+| Sayfa testinde gerçek server ile koşulamayan akışlar | Super Admin girişi + 2FA, MySQL testinin gerçek DB'ye karşı başarı / yanlış şifre / zaman aşımı sonuçları, `PUT/DELETE /api/v1/audit` → 405, gerçek audit kayıtlarının listelenmesi ve CSV formül kaçışı, TURN panel ayarının coturn ile gerçek oturumda çalışması. Entegrasyon testleri kapsıyor; ortam betiği `docs/test-raporu/e2e/p11/setup.sh` | test-operatoru | Staging'de, P11 yayınından sonra |
+| `SYSTEM_AUDIT` JSDoc ve `_` önek testi (QA önerisi) | JSDoc `password: "***"` diyor, kod `"changed"` yazıyor; `tenant_settings.*` gibi `_` içeren önekle entegrasyon testi | backend-dev | Sonra |
+
 ### Sonra / açık — P10'dan (2026-11-12)
 Kaynak: `docs/guvenlik-raporu.md` (P10 Kod turu 1–3), `docs/arsiv/p10-qa-raporu.md` (Tur 2 Öneriler),
 `docs/arsiv/p10-test-raporu.md` (sayfa testi), `docs/implementation.md` ("P10 — Backend" düzeltme turları 1–2, "P10 — Frontend").
@@ -10,7 +23,7 @@ Kaynak: `docs/guvenlik-raporu.md` (P10 Kod turu 1–3), `docs/arsiv/p10-qa-rapor
 | Kurtarma kodlarını kullanıcının kendisinin yenilemesi (QA önerisi; gereksinim değişikliği) | Bugün uç yok; kodlar bitince Admin "2FA'yı sıfırla" gerekir. Öneri: `POST /auth/mfa/recovery-codes { code }` → `{ recoveryCodes }` (geçerli TOTP ile), hesap sayfasında "Kodları yenile". Önce AC eklenmeli | proje-yöneticisi → mimar → backend-dev + frontend-dev | Sonra |
 | Super Admin şifre kurtarma aracı (runbook §14 P10) | Super Admin'in SMTP'si yok; 2FA kurtarması SQL ile yapılabiliyor ama şifre için hazır araç yok (seed var olan şifreyi ezmez). Sunucuda çalışan, audit'e yazan bir CLI (`reset-superadmin`) | mimar → backend-dev + devops | Prod açılışından önce (öneri) |
 | STARTTLS (587) TLS testleri (güvenlik I-2) | `mail-tls-p10` yalnız örtük TLS'i (465) kapsıyor. 587 + STARTTLS için iki test: yanlış sertifika adı → `tls` hatası, ileti gitmez; STARTTLS ilan etmeyen sunucu → gönderim yok | backend-dev | Sonra |
-| P11 audit ekranında SMTP hatası (güvenlik koordinatör kararı koşulu) | Audit ekranı `mail.sent` / `settings.*.test` kayıtlarında yalnız `reason` sınıfını göstermeli; ham hata metni, SMTP yanıt kodu veya karşı sunucunun banner'ı gösterilmemeli (bugün `newValue`'da yalnız `reason` var; `responseCode` yalnız server logunda) | frontend-dev + backend-dev | P11 |
+| ~~P11 audit ekranında SMTP hatası (güvenlik koordinatör kararı koşulu)~~ | **KAPANDI (P11, 2026-11-13):** `audit/view.ts` okumada izinli alan izdüşümü uygular; `mail.*`, `session.email`, `settings.*.test` ve SMTP kayıtlarında yalnız `reason` sınıfı döner (biçim dışı → `other`), ham hata/yanıt kodu/banner dönmez. Kanıt: `audit-p11` entegrasyon testi, `docs/arsiv/p11-qa-raporu.md` | frontend-dev + backend-dev | P11 ✓ |
 | MySQL CHECK regex'lerinde `$` → `\z` (dba) | `$` satır sonundaki `\n`'den önce de eşleşir. 6 eski CHECK: `customers_file_label_chk`, `customers_phone_fmt_chk`, `support_requests_phone_fmt_chk`, `support_requests_client_version_fmt_chk`, `device_bindings_client_version_fmt_chk`, `tenant_request_settings_file_label_chk`. Uygulama katmanı zaten reddediyor (savunma derinliği); migration + down + ön kontrol | dba | Sonra |
 | B-P10-6 yarış testi deterministik değil | `mfaEnable` koşullu UPDATE (paralel `setup` → 409) kodda var, yarış durumu testte deterministik üretilemedi; enjekte edilebilir gecikme kancasıyla test | backend-dev | Sonra |
 | Sayfa testinde denenmeyenler | 8 sa mutlak oturum sınırı, sıfırlama bağlantısının 30 dk sonra geçersizleşmesi, oturum linki e-postasının 20/sa sınırı (gerçek sunucuda), SSL/TLS ile gerçek başarılı gönderim, hesap kilidi bildirim e-postası, canlı destek oturumunun logout-all/2FA sıfırlamada 5 sn'de kapanması, Super Admin firma seçmeli SMTP ekranı. Entegrasyon testleri kapsıyor; staging'de gerçek SMTP ile elle denenmeli | test-operatoru | Staging'de, prod açılışından önce |
