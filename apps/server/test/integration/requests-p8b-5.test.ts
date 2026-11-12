@@ -329,10 +329,10 @@ describe("AC-158 / AC-159 geçmiş ve anonimleştirme", () => {
     const csv = await api(l.app, admin.s, "GET", "/api/v1/sessions/export.csv?source=REQUEST");
     expect(csv.statusCode, csv.body).toBe(200);
     const lines = csv.rawPayload.toString("utf8").slice(1).split("\r\n").filter(Boolean);
-    expect(lines[0]).toContain(";Mod;Kaynak;Bekleme;");
+    expect(lines[0]).toContain(";Mod;Kaynak;Müşteri firma;Bekleme;") // P8c AC-179: Kaynak'tan sonra "Müşteri firma";
     const row = lines.find((ln) => ln.startsWith(sessionId));
     expect(row).toBeDefined();
-    expect(row).toMatch(/;Talep;00:01:(29|3\d);/);
+    expect(row).toMatch(/;Talep;;00:01:(29|3\d);/);
     expect(row).toContain(';"\'=HYPERLINK(""http://x"")";');
     expect(row).not.toMatch(/;=HYPERLINK/);
   });

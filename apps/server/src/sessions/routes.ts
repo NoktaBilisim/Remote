@@ -46,8 +46,10 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("", { preHandler: requirePerm("sessions.create") }, async (req, reply): Promise<CreateSessionResponse> => {
     const { tenantId } = tenantScope(req);
-    parseInput(createSessionInputSchema, req.body);
-    const created = await createSupportSession(app.db, auditContext(req), authOf(req), tenantId, app.env.PUBLIC_BASE_URL);
+    const { customerId } = parseInput(createSessionInputSchema, req.body);
+    // P8c (AC-180): müşteri seçimi customers.view ister (yoksa 403; UI alanı gizler).
+    if (customerId && !authOf(req).permissions.has("customers.view")) throw new AppError("FORBIDDEN");
+    const created = await createSupportSession(app.db, auditContext(req), authOf(req), tenantId, app.env.PUBLIC_BASE_URL, undefined, customerId);
     void reply.status(201).header("Cache-Control", "no-store");
     return created;
   });

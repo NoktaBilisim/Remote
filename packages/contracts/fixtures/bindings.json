@@ -1,0 +1,51 @@
+{
+  "_doc": "Bilgisayar kaydı örnekleri (mimari-protokol §6, mimari-api P8c Public, ADR-0017). Go istemci (P8c-2) internal/signal ve internal/api ile aynı örnekleri doğrular. validKeys/invalidKeys: bindingKeySchema; guestInbound/serverOutbound: ws.ts şemaları; statusInput/revokeInput: api/bindings.ts. messages: istemci metinleri (AC-185, 186, 190).",
+  "validKeys": [
+    "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "rsb_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+    "rsb_0123456789-_0123456789-_0123456789-_0123456"
+  ],
+  "invalidKeys": [
+    "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "RSB_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "abcdefghijklmnop"
+  ],
+  "valid": {
+    "guestInbound": [
+      { "t": "binding.request" },
+      { "t": "binding.request", "previousKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }
+    ],
+    "serverOutbound": [
+      { "t": "binding.offer" },
+      { "t": "binding.issued", "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "tenantName": "Nokta Bilişim", "customerFirmName": "Örnek Müşteri A.Ş.", "renewed": false },
+      { "t": "binding.issued", "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "tenantName": "Nokta Bilişim", "customerFirmName": null, "renewed": true }
+    ],
+    "statusInput": [{ "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "clientVersion": "0.10.0" }],
+    "revokeInput": [{ "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }]
+  },
+  "invalid": {
+    "guestInbound": [
+      { "t": "binding.request", "previousKey": "abc" },
+      { "t": "binding.request", "customerId": "01JC0000000000000000000000" },
+      { "t": "binding.request", "previousKey": null }
+    ],
+    "serverOutbound": [
+      { "t": "binding.offer", "extra": true },
+      { "t": "binding.issued", "bindingKey": "rsb_short", "tenantName": "X", "customerFirmName": null, "renewed": false },
+      { "t": "binding.issued", "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "tenantName": "X", "renewed": false }
+    ],
+    "statusInput": [
+      { "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+      { "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "clientVersion": "0.10" }
+    ],
+    "revokeInput": [{}, { "bindingKey": "x" }]
+  },
+  "messages": {
+    "invalid": "Bu bilgisayarın destek kaydı artık geçerli değil. Firmanızdan yeni dosya isteyin ya da teknisyeninizin verdiği kodla bağlanın.",
+    "forgotten": "Bu bilgisayar unutuldu",
+    "noSource": "Destek istemek için firmanızın gönderdiği dosyayı kullanın veya teknisyeninizin verdiği kodu girin"
+  }
+}

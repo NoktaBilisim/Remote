@@ -2,7 +2,10 @@
 // Tek kaynak: sunucu girdileri bu şemalarla doğrular; web aynı tipleri kullanır; Go istemci `fixtures/request-form.json`
 // örnekleriyle aynı kuralları uygular (AC-134). Durum makinesi (AC-140) `REQUEST_TRANSITIONS`'ta.
 // G-E9-15 (koordinatör kararı a, dba sapması): `knownNetwork: bool` yerine `networkMatch` + `knownDevice` döner.
+// P8c (mimari-api "Müşteriler ve bilgisayar kaydı", mimari-e10 §15): `ref` | `bindingKey`, iptal nedenleri, müşteri filtresi,
+// `customerFirm`/`viaBinding`/`bindingRevoked`/`staleSource`, tek kayıt iptali.
 import { z } from "zod";
+import type { CustomerFirmRef } from "./customers.ts";
 import { UNSAFE_NAME_CHARS } from "./sessions.ts";
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -15,7 +18,8 @@ export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 export const CLOSED_REQUEST_STATUSES = ["ACCEPTED", "CANCELLED", "EXPIRED", "REJECTED", "CONNECT_FAILED"] as const;
 export type ClosedRequestStatus = (typeof CLOSED_REQUEST_STATUSES)[number];
 
-export const CANCEL_REASONS = ["CUSTOMER", "DISCONNECTED", "TENANT_PASSIVE"] as const;
+/** P8c: `CUSTOMER_PASSIVE` (müşteri pasife alındı), `BINDING_REVOKED` (r2 §15.2: panelden tek kayıt iptali). */
+export const CANCEL_REASONS = ["CUSTOMER", "DISCONNECTED", "TENANT_PASSIVE", "CUSTOMER_PASSIVE", "BINDING_REVOKED"] as const;
 export type CancelReason = (typeof CANCEL_REASONS)[number];
 
 /**
@@ -108,6 +112,11 @@ export const requestSecretSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/, "Geç
 export const requestStatusSchema = z.enum(REQUEST_STATUSES);
 export const cancelReasonSchema = z.enum(CANCEL_REASONS);
 export const networkMatchSchema = z.enum(NETWORK_MATCHES);
+/** P8c bilgisayar kaydı anahtarı: `rsb_` + base64url(32 bayt) = 47 karakter (ADR-0017). Asıl dışa aktarım `api/bindings.ts`. */
+export const bindingKeySchema = z.string().regex(/^rsb_[A-Za-z0-9_-]{43}$/, "Geçersiz kayıt");
+/** P8c talepler filtresi (AC-176): `general` (müşterisiz) ya da müşteri kimliği. */
+export const customerFilterSchema = z.union([z.literal("general"), z.string().regex(ULID, "Geçersiz müşteri")]);
+export type CustomerFilter = z.infer<typeof customerFilterSchema>;
 
 /** Ad soyad (AC-134): trim, 2..80 kod noktası, Cc/Cf/Zl/Zp yok. */
 export const customerNameSchema = z
@@ -335,19 +344,27 @@ export interface TenantRequestInfo {
   minAgentVersion: string | null;
 }
 
-/** POST /public/requests (AC-134, 135, 139). */
-export const createRequestInputSchema = z.strictObject({
-  ref: tenantRefSchema,
-  clientInstanceId: clientInstanceSchema,
-  clientVersion: clientVersionSchema,
-  customerName: customerNameSchema,
-  phone: phoneSchema,
-  email: optionalEmailSchema,
-  description: descriptionSchema,
-  consentTextId: z.string().regex(ULID, "Aydınlatma metni geçersiz"),
-  consentAccepted: z.literal(true, "Aydınlatma metni onaylanmalı"),
-  deviceKey: deviceKeySchema.optional(),
-});
+/**
+ * POST /public/requests (AC-134, 135, 139; P8c AC-176, 182, 191): `ref` (Genel ya da müşteri ref'i) **ya da** `bindingKey`
+ * — tam biri. 0.9.x istemci yalnız `ref` gönderir (gövde aynen geçer).
+ */
+export const createRequestInputSchema = z
+  .strictObject({
+    ref: tenantRefSchema.optional(),
+    bindingKey: bindingKeySchema.optional(),
+    clientInstanceId: clientInstanceSchema,
+    clientVersion: clientVersionSchema,
+    customerName: customerNameSchema,
+    phone: phoneSchema,
+    email: optionalEmailSchema,
+    description: descriptionSchema,
+    consentTextId: z.string().regex(ULID, "Aydınlatma metni geçersiz"),
+    consentAccepted: z.literal(true, "Aydınlatma metni onaylanmalı"),
+    deviceKey: deviceKeySchema.optional(),
+  })
+  .superRefine((b, ctx) => {
+    if ((b.ref === undefined) === (b.bindingKey === undefined)) ctx.addIssue({ code: "custom", path: ["ref"], message: "Firma bağlantısı ya da bilgisayar kaydından tam biri gerekli" });
+  });
 export type CreateRequestInput = z.input<typeof createRequestInputSchema>;
 export type CreateRequestData = z.output<typeof createRequestInputSchema>;
 
@@ -376,6 +393,8 @@ export const listRequestsQuerySchema = z
   .strictObject({
     tab: z.enum(REQUEST_TABS).default("pending"),
     status: z.enum(CLOSED_REQUEST_STATUSES).optional(),
+    /** P8c (AC-176): `general` | müşteri kimliği; kuyruk ve geçmişte. */
+    customer: customerFilterSchema.optional(),
     page: z.coerce.number().int().min(1).max(10_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(REQUEST_PAGE_SIZE_MAX).default(25),
   })
@@ -405,6 +424,14 @@ export interface SupportRequestItem {
   acceptedBy: { id: string; name: string } | null;
   rejectMessage: string | null;
   sessionId: string | null;
+  /** P8c (AC-175, 176): müşteri firma; null = Genel. */
+  customerFirm: CustomerFirmRef | null;
+  /** r2 (§15.1): kayıtla açıldı **ve** kayıt hâlâ etkin → "Kayıtlı bilgisayar — <firma | Genel>" rozeti. */
+  viaBinding: boolean;
+  /** r2 (§15.1): kayıtla açıldı, kayıt artık geçersiz → uyarı rozeti "Kaydı iptal edilmiş bilgisayar". */
+  bindingRevoked: boolean;
+  /** r2 (§15.1): ref yenilemesinden önce açıldı ya da kaydı iptal edildi → "Bu talep bağlantı yenilenmeden önce açıldı". */
+  staleSource: boolean;
 }
 
 export interface SupportRequestListResponse {
@@ -423,6 +450,9 @@ export interface AcceptRequestResponse {
   sessionId: string;
   consoleUrl: string;
 }
+
+/** POST /support-requests/:id/revoke-binding (r2 §15.2, G-E10-2): gövde `{}`; kayıt talebin `binding_id`'sinden bulunur. */
+export const revokeBindingInputSchema = z.strictObject({});
 
 export const rejectRequestInputSchema = z.strictObject({ message: rejectMessageSchema });
 export type RejectRequestInput = z.infer<typeof rejectRequestInputSchema>;

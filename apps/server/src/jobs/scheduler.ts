@@ -4,7 +4,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Db } from "../lib/db.ts";
 import { newId } from "../lib/ids.ts";
 import { expireDue, type RoomNotifier } from "../sessions/service.ts";
-import { anonymizeRequests, nextRetentionAt, sweepRequests } from "../requests/jobs.ts";
+import { dailyRetention, nextRetentionAt, sweepRequests } from "../requests/jobs.ts";
 import type { RequestService } from "../requests/service.ts";
 
 const EXPIRY_INTERVAL_MS = 30_000;
@@ -27,7 +27,7 @@ export function startScheduler(db: Db, log: FastifyBaseLogger, rooms?: RoomNotif
     sweeping = true;
     try {
       const r = await sweepRequests(requests);
-      if (r.expired + r.connectFailed + r.tenantPassive > 0) log.info({ job: "request-sweep", ...r }, "talep durumları güncellendi");
+      if (r.expired + r.connectFailed + r.tenantPassive + r.customerPassive + r.bindingsRevoked > 0) log.info({ job: "request-sweep", ...r }, "talep durumları güncellendi");
     } catch (err) {
       log.error({ err, job: "request-sweep" }, "zamanlanmış iş hatası");
     } finally {
@@ -38,8 +38,8 @@ export function startScheduler(db: Db, log: FastifyBaseLogger, rooms?: RoomNotif
   const armRetention = (): void => {
     if (!requests) return;
     retentionTimer = setTimeout(() => {
-      void anonymizeRequests(requests)
-        .then((n) => log.info({ job: "request-retention", anonymized: n }, "talep anonimleştirme"))
+      void dailyRetention(requests)
+        .then((n) => log.info({ job: "request-retention", ...n }, "talep/müşteri anonimleştirme, boşta kayıtlar"))
         .catch((err: unknown) => log.error({ err, job: "request-retention" }, "zamanlanmış iş hatası"))
         .finally(armRetention);
     }, nextRetentionAt(Date.now()) - Date.now());

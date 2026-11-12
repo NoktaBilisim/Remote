@@ -1,17 +1,7 @@
-// Firma dosyası adı ve indirme bağlantısı (AC-129..131, mimari-e9 §3.1, ADR-0006 r4).
-const TR_MAP: Record<string, string> = { ı: "i", İ: "I", ş: "s", Ş: "S", ğ: "g", Ğ: "G", ç: "c", Ç: "C", ö: "o", Ö: "O", ü: "u", Ü: "U" };
-
-/** Firma kısa adı (AC-130): Türkçe harfler ASCII'ye, NFKD + birleşik işaretler silinir, `[^A-Za-z0-9]` silinir, ilk 20; boşsa `Firma`. */
-export function fileLabelOf(tenantName: string): string {
-  const ascii = [...tenantName]
-    .map((c) => TR_MAP[c] ?? c)
-    .join("")
-    .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
-    .replace(/[^A-Za-z0-9]/g, "")
-    .slice(0, 20);
-  return ascii || "Firma";
-}
+// Firma dosyası adı ve indirme bağlantısı (AC-129..131, mimari-e9 §3.1, ADR-0006 r4; P8c müşteri dosyası aynı biçim).
+import { suggestFileLabel } from "@remote/contracts/api/customers";
+/** Firma kısa adı (AC-130): P8c'de contracts `suggestFileLabel`'a taşındı (davranış aynı; web form önerisi de onu kullanır). */
+export const fileLabelOf = suggestFileLabel;
 
 export const requestFileName = (label: string, ref: string): string => `NoktaDestek-${label}-${ref}.exe`;
 

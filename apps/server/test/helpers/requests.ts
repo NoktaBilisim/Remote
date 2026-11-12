@@ -1,16 +1,32 @@
 // P8b test yardımcıları: talep ayarı + doğrudan DB'ye talep satırı (API dışı kurulum), sahte WhatsApp servisi.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { FastifyInstance } from "fastify";
+import { customerKeys, suggestFileLabel } from "@remote/contracts/api/customers";
 import { newId, newRequestCode, newSecretToken, newTenantRef, sha256Hex } from "../../src/lib/ids.ts";
 import { ORIGIN, testDb } from "./app.ts";
 import { connect, techHeaders, type WsClient } from "./ws.ts";
 
 export async function createRequestSettings(tenantId: string, o: { trustedCidrs?: string[]; waEnabled?: boolean; waRecipients?: string[]; waitMinutes?: number } = {}) {
   const ref = newTenantRef();
+  // P8c (db-notlari P8c-1): her Genel ref tek ad alanına da kayıtlı (ADR-0006 r5).
+  await testDb().requestRef.create({ data: { ref, tenantId, customerId: null } });
   await testDb().tenantRequestSettings.create({
     data: { tenantId, requestRef: ref, fileLabel: "TestFirma", waitMinutes: o.waitMinutes ?? 30, waEnabled: o.waEnabled ?? false, waRecipients: o.waRecipients ?? [], emailRecipients: [], trustedCidrs: o.trustedCidrs ?? [] },
   });
   return ref;
+}
+
+/** P8c: müşteri satırı + ref ad alanı kaydı (API dışı kurulum). */
+export async function createCustomerRow(tenantId: string, o: { name?: string; phone?: string | null; status?: "ACTIVE" | "PASSIVE" } = {}) {
+  const id = newId();
+  const name = o.name ?? `Musteri ${id.slice(-8)}`;
+  const ref = newTenantRef();
+  const { nameKey, searchKey } = customerKeys(name, null, o.phone ?? null);
+  const c = await testDb().customer.create({
+    data: { id, tenantId, name, nameKey, searchKey, fileLabel: suggestFileLabel(name), requestRef: ref, phone: o.phone ?? null, status: o.status ?? "ACTIVE" },
+  });
+  await testDb().requestRef.create({ data: { ref, tenantId, customerId: id } }); // FK sırası: önce customers
+  return c;
 }
 
 let seq = 0;

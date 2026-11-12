@@ -21,6 +21,9 @@ import type { Rooms } from "../signaling/rooms.ts";
 import type { Clock, Timing } from "../signaling/types.ts";
 import type { RequestHub, RequestStatePayload } from "./hub.ts";
 import { blocked, hitBlocked, rateLimited, RATE_BLOCK_SEC, TENANT_KNOWN_PER_HOUR, TENANT_UNKNOWN_PER_HOUR, type RequestLimits } from "./limits.ts";
+import { bindingInvalid, issueBinding, resolveUsable } from "../bindings/service.ts";
+import * as brepo from "../bindings/repo.ts";
+import * as crepo from "../customers/repo.ts";
 import { parseFirmDownloadUri, requestDownloadLocation } from "./ref.ts";
 import * as repo from "./repo.ts";
 
@@ -82,6 +85,20 @@ export class RequestService {
       admitted: (requestId) => this.clearConnectTimer(requestId),
       failed: (requestId) => void this.connectTimeout(requestId, "auth_revoked").catch((err: unknown) => this.logErr(err, "request_auth_revoked")),
     };
+    // P8c (ADR-0017): admit edilmiş AGENT misafirin `binding.request`'i → verme TX'i (müşteri istemciden değil oturumdan).
+    d.rooms.bindingIssuer = (room, guest, previousKey) =>
+      issueBinding(this, guest.ctx ?? { ...SYSTEM_CTX, userAgent: "signaling" }, { sessionId: room.sessionId, clientVersion: guest.clientVersion ?? "0.0.0", previousKey });
+  }
+
+  /** P8c `rs_customers_active` (gauge, açılış + günlük iş + durum değişimi). */
+  customersActive = 0;
+  refreshCustomersGauge(): void {
+    void this.d.db.customer
+      .count({ where: { status: "ACTIVE" } })
+      .then((n) => {
+        this.customersActive = n;
+      })
+      .catch((err: unknown) => this.logErr(err, "customers_gauge"));
   }
 
   /** Kapı doluluğu (salt okunur; metrik/test gözlemi — QA-P8b-14). */
@@ -124,11 +141,26 @@ export class RequestService {
     return wait > 0 ? rateLimited(wait) : refInvalidError();
   }
 
-  /** Ref → aktif tenant'ın ayarı; değilse null. */
-  async activeSettings(ref: unknown): Promise<repo.SettingsRow | null> {
+  /**
+   * Ref → aktif tenant'ın ayarı + (müşteri ref'iyse) aktif müşteri; değilse null (AC-131, 168, 191). Genel ve müşteri
+   * sorguları PARALEL (mimari-e10 §5.2): biri boş döner, süre farkı yok. Yanıt şekli iki türde aynıdır.
+   */
+  async resolveRef(ref: unknown): Promise<{ s: repo.SettingsRow; customer: { id: string; name: string; fileLabel: string } | null } | null> {
     if (typeof ref !== "string" || !/^[a-z2-7]{16}$/.test(ref)) return null;
-    const s = await repo.settingsByRef(this.d.db, ref);
-    return s && tenantActive(s.tenant) ? s : null;
+    const [general, c] = await Promise.all([repo.settingsByRef(this.d.db, ref), repo.customerByRef(this.d.db, ref)]);
+    if (general) return tenantActive(general.tenant) ? { s: general, customer: null } : null;
+    const s = c?.tenant.requestSettings;
+    if (!c || c.status !== "ACTIVE" || !s || !tenantActive(s.tenant)) return null;
+    return { s, customer: { id: c.id, name: c.name, fileLabel: c.fileLabel } };
+  }
+
+  /** Public bilgi gövdesi (`TenantRequestInfo`; P8c `bindings/status` aynı şekli genişletir). */
+  async requestInfo(tenantId: string, tenantName: string, waitMinutes: number): Promise<TenantRequestInfo> {
+    const [consentText, abuse] = await Promise.all([
+      currentConsentText(this.d.db, tenantId),
+      abuseEmail(this.d.db, { fromEnv: this.d.env.ABUSE_EMAIL, superAdminFallback: this.d.env.NODE_ENV !== "production" }),
+    ]);
+    return { tenant: { name: tenantName, logoUrl: null }, consentText, waitMinutes, abuseEmail: abuse, minAgentVersion: this.d.env.MIN_AGENT_VERSION ?? null };
   }
 
   /** Aşım audit'i `request.rate_limited{bucket, keyType}` kaynak başına dakikada en çok 1 (AC-144) + metrik. */
@@ -150,8 +182,8 @@ export class RequestService {
     this.d.hub.publish(tenantId, { t: "queue.count", pending: await repo.countPending(this.d.db, tenantId) });
   }
 
-  /** Kapanış sonrası ortak bellek adımları (commit sonrası). */
-  private async afterClosed(tenantId: string, requestId: string, status: "CANCELLED" | "EXPIRED" | "REJECTED", extra: { reason?: CancelReason; message?: string } = {}): Promise<void> {
+  /** Kapanış sonrası ortak bellek adımları (commit sonrası). P8c tek kayıt iptali de kullanır. */
+  async closedAfterCommit(tenantId: string, requestId: string, status: "CANCELLED" | "EXPIRED" | "REJECTED", extra: { reason?: CancelReason; message?: string } = {}): Promise<void> {
     this.d.hub.closeRequest(requestId, { t: "request.closed", status, ...extra });
     this.d.hub.publish(tenantId, { t: "request.removed", id: requestId, status });
     this.d.hub.queueChanged(tenantId);
@@ -172,14 +204,10 @@ export class RequestService {
   async tenantInfo(ctx: AuditContext, ref: unknown): Promise<TenantRequestInfo> {
     const ip = ipKey(ctx.ip);
     this.assertRefNotBlocked(ip);
-    const s = await this.activeSettings(ref);
-    if (!s) throw this.refInvalid(ip);
-    await this.limit(ctx, s.tenantId, "info", "req.info", "ip", ip);
-    const [consentText, abuse] = await Promise.all([
-      currentConsentText(this.d.db, s.tenantId),
-      abuseEmail(this.d.db, { fromEnv: this.d.env.ABUSE_EMAIL, superAdminFallback: this.d.env.NODE_ENV !== "production" }),
-    ]);
-    return { tenant: { name: s.tenant.name, logoUrl: null }, consentText, waitMinutes: s.waitMinutes, abuseEmail: abuse, minAgentVersion: this.d.env.MIN_AGENT_VERSION ?? null };
+    const r = await this.resolveRef(ref);
+    if (!r) throw this.refInvalid(ip);
+    await this.limit(ctx, r.s.tenantId, "info", "req.info", "ip", ip);
+    return this.requestInfo(r.s.tenantId, r.s.tenant.name, r.s.waitMinutes); // şekil müşteri ref'inde de aynı (AC-168)
   }
 
   /**
@@ -191,8 +219,12 @@ export class RequestService {
     const prefix = prefixKey(ctx.ip);
     const net = netKey(ctx.ip);
     this.assertRefNotBlocked(ip);
-    const peekRef = typeof body === "object" && body !== null ? (body as { ref?: unknown }).ref : undefined;
-    const peeked = await this.activeSettings(peekRef);
+    // P8c: `ref` (Genel/müşteri) ya da `bindingKey` (kayıt). Çözümleme kovalardan önce yalnız güvenilen CIDR için bakılır.
+    const peekObj = typeof body === "object" && body !== null ? (body as { ref?: unknown; bindingKey?: unknown }) : {};
+    const peekedRef = peekObj.bindingKey === undefined ? await this.resolveRef(peekObj.ref) : null;
+    const peekedBinding = peekObj.bindingKey !== undefined ? await resolveUsable(this, peekObj.bindingKey) : null;
+    const bs = peekedBinding ? await repo.settingsByTenant(this.d.db, peekedBinding.row.tenantId) : null;
+    const peeked = peekedRef?.s ?? (bs && tenantActive(bs.tenant) ? bs : null);
     const trusted = peeked ? cidrListMatcher(repo.jsonStrings(peeked.trustedCidrs))(ctx.ip) : false;
     if (!trusted) {
       const tid = peeked?.tenantId ?? null;
@@ -200,11 +232,27 @@ export class RequestService {
       await this.limit(ctx, tid, "createPrefix", "req.create.prefix", "prefix", prefix);
       if (isIPv6Key(net)) await this.limit(ctx, tid, "createNet48", "req.create.net48", "net48", net);
     }
+    // B-P8c-5 (§5.2): biçim dışı / yok / geçersiz anahtar aynı 404 BINDING_INVALID + `req.ref_invalid` kovası (400 değil).
+    if (peekObj.bindingKey !== undefined && !peekedBinding) throw bindingInvalid(this, ip);
     const input = parse(body);
     if (isOutdated(input.clientVersion, this.d.env.MIN_AGENT_VERSION)) throw outdated(this.d.env.MIN_AGENT_VERSION);
-    const s = peeked && peeked.requestRef === input.ref ? peeked : null;
-    if (!s) throw this.refInvalid(ip);
+    let s: repo.SettingsRow | null = null;
+    let customerId: string | null = null;
+    let binding: { id: string; keyHash: string } | null = null;
+    if (input.bindingKey !== undefined) {
+      if (!peekedBinding || !peeked || peekedBinding.keyHash !== sha256Hex(input.bindingKey)) throw bindingInvalid(this, ip);
+      s = peeked;
+      customerId = peekedBinding.row.customerId;
+      binding = { id: peekedBinding.row.id, keyHash: peekedBinding.keyHash };
+      // §5.3: kayıt başına 6/sa (E9 ip/önek/net48 ve tenant kovalarına EK — K20, muaf değil).
+      await this.limit(ctx, s.tenantId, "createBinding", "req.create.binding", "binding", binding.id);
+    } else {
+      if (!peekedRef) throw this.refInvalid(ip); // peek aynı gövdenin ref'iyle yapıldı
+      s = peekedRef.s;
+      customerId = peekedRef.customer?.id ?? null;
+    }
     const tenantId = s.tenantId;
+    const via = binding ? "binding" : "ref";
 
     const consent = await this.d.db.consentText.findFirst({ where: { id: input.consentTextId, tenantId, isCurrent: true }, select: { id: true, sha256: true } });
     if (!consent) {
@@ -215,7 +263,9 @@ export class RequestService {
     const networkMatch = trusted ? "TRUSTED" : await repo.networkSeen(this.d.db, tenantId, ip, net, now);
     const deviceHash = input.deviceKey ? sha256Hex(`${tenantId}${input.deviceKey}`) : null;
     const knownDevice = deviceHash ? await repo.deviceSeen(this.d.db, tenantId, deviceHash, now) : false;
-    const privileged = trusted || knownDevice; // G-E9-15: ayrıcalık yalnız TRUSTED veya known_device
+    // G-E9-15: ayrıcalık yalnız TRUSTED veya known_device; P8c K20: etkin kayıt da "bilinen" (yalnız kuyruk ≥ 40 eşiği ve
+    // bilinen tavanı 120/sa için — ip/önek/net48/tenant kovalarından muaf DEĞİL).
+    const privileged = trusted || knownDevice || binding !== null;
 
     // S8b-5: kova + TX süreç içi kapıdan geçer (tenant başına 2, toplam 4); bekleyen bağlantı tutmaz. Kapı doluysa 503
     // NOT_READY + Retry-After ve tenant kovası tüketilmez (kova sayımı kapının içinde).
@@ -245,6 +295,14 @@ export class RequestService {
         try {
           created = await this.d.db.$transaction(async (tx) => {
             await repo.lockSettings(tx, tenantId); // ilk ifade (G-E9-10)
+            // B-P8c-1: müşteri TX içinde FOR SHARE ile yeniden doğrulanır; peek ile INSERT arasında pasife alma commit
+            // olduysa talep yazılmaz (tek 404). Pasife alma bu TX'i beklerse bekleyeni kendi TX'inde iptal eder.
+            if (customerId && (await crepo.shareStatus(tx, tenantId, customerId)) !== "ACTIVE") throw binding ? bindingInvalid(this, ip) : this.refInvalid(ip);
+            if (binding) {
+              // §3.4 Kullanım: koşullu UPDATE (count 0 → BINDING_INVALID, ROLLBACK); kayıt başına 1 bekleyen.
+              if ((await brepo.touchForRequest(tx, binding.id, binding.keyHash, now)) === 0) throw new AppError("BINDING_INVALID");
+              if ((await brepo.countPendingOfBinding(tx, tenantId, binding.id)) >= 1) throw new AppError("REQUEST_PENDING");
+            }
             const c = await repo.pendingSnapshot(tx, tenantId, { clientInstance: input.clientInstanceId, ipKey: ip, netKey: net });
             if (c.instance >= 1) throw new AppError("REQUEST_PENDING");
             if (!trusted && c.ip >= PENDING_PER_IP) {
@@ -285,8 +343,11 @@ export class RequestService {
               knownDevice,
               expiresAt,
               createdAt: now,
+              customerId,
+              bindingId: binding?.id ?? null,
             });
-            await writeAudit(tx, ctx, { tenantId, ...CUSTOMER, action: "request.created", entity: "support_requests", entityId: id, result: "success", newValue: { clientVersion: input.clientVersion } }); // S8b-3: IP yalnız audit `ip_address` sütununda
+            // S8b-3: IP yalnız audit `ip_address` sütununda. P8c §5.7: via + customerId (ref/anahtar değeri asla).
+            await writeAudit(tx, ctx, { tenantId, ...CUSTOMER, action: "request.created", entity: "support_requests", entityId: id, result: "success", newValue: { clientVersion: input.clientVersion, via, customerId } });
             return { code, position: c.tenant + 1 };
           }, REQUEST_TX_OPTIONS);
         } catch (err) {
@@ -299,7 +360,8 @@ export class RequestService {
     });
 
     // commit sonrası
-    this.d.metrics.inc("rs_requests_created_total");
+    this.d.metrics.inc("rs_requests_created_total", { via });
+    const firm = customerId ? await this.d.db.customer.findUnique({ where: { id: customerId }, select: { id: true, name: true } }) : null;
     this.d.hub.publish(tenantId, {
       t: "request.new",
       id,
@@ -309,6 +371,10 @@ export class RequestService {
       networkMatch,
       knownDevice,
       createdAt: now.toISOString(),
+      customerFirm: firm,
+      viaBinding: binding !== null,
+      bindingRevoked: false,
+      staleSource: false,
     });
     this.d.hub.queueChanged(tenantId);
     await this.publishCount(tenantId);
@@ -338,7 +404,7 @@ export class RequestService {
         await writeAudit(tx, ctx, { tenantId: row.tenantId, ...CUSTOMER, action: "request.cancelled", entity: "support_requests", entityId: row.id, result: "success", oldValue: { status: "PENDING" }, newValue: { status: "CANCELLED", reason: "CUSTOMER" } });
         return true;
       });
-      if (ok) await this.afterClosed(row.tenantId, row.id, "CANCELLED", { reason: "CUSTOMER" });
+      if (ok) await this.closedAfterCommit(row.tenantId, row.id, "CANCELLED", { reason: "CUSTOMER" });
       else await this.resendFinal(row.id);
       return;
     }
@@ -364,7 +430,7 @@ export class RequestService {
   }
 
   /** Sistem iptali: DISCONNECTED (120 sn kopma) / TENANT_PASSIVE (AC-141, 145). */
-  async cancelSystem(requestId: string, reason: "DISCONNECTED" | "TENANT_PASSIVE"): Promise<boolean> {
+  async cancelSystem(requestId: string, reason: repo.SystemCancelReason): Promise<boolean> {
     const now = new Date(this.d.clock.now());
     const row = await this.d.db.$transaction(async (tx) => {
       const r = await repo.findById(tx, requestId);
@@ -373,7 +439,7 @@ export class RequestService {
       return r;
     });
     if (!row) return false;
-    await this.afterClosed(row.tenantId, requestId, "CANCELLED", { reason });
+    await this.closedAfterCommit(row.tenantId, requestId, "CANCELLED", { reason });
     return true;
   }
 
@@ -389,18 +455,20 @@ export class RequestService {
     const ip = ipKey(ctx.ip);
     this.assertRefNotBlocked(ip);
     await this.limit(ctx, null, "download", "req.download", "ip", ip);
-    const s = await this.activeSettings(ref);
-    if (!s) throw this.refInvalid(ip);
+    const r = await this.resolveRef(ref);
+    if (!r) throw this.refInvalid(ip);
     await assertReady();
-    return requestDownloadLocation(s.fileLabel, s.requestRef);
+    // AC-168: dosya adı sahibin etiketi + ref (G-E10-8 şerhi: yalnız ref'i bilen görür).
+    return r.customer ? requestDownloadLocation(r.customer.fileLabel, ref as string) : requestDownloadLocation(r.s.fileLabel, r.s.requestRef);
   }
 
   /** forward_auth firma yolu (G-E9-11): ref aktif ve label güncel file_label → true; aksi false (tek 404). */
   async firmPathValid(uri: string): Promise<boolean> {
     const p = parseFirmDownloadUri(uri);
     if (!p) return false;
-    const s = await this.activeSettings(p.ref);
-    return s !== null && s.fileLabel === p.label;
+    const r = await this.resolveRef(p.ref);
+    if (!r) return false;
+    return (r.customer ? r.customer.fileLabel : r.s.fileLabel) === p.label;
   }
 
   // ------------------------------------------------------------------ bağlanma penceresi (AC-155)

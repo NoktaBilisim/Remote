@@ -57,7 +57,11 @@ export function createMetrics(): Metrics {
   m.counter("rs_admit_total", "guest.admit sonuçları (result)");
   m.counter("rs_file_meta_total", "file.meta sonuçları (result; P5)");
   m.counter("rs_file_meta_rate_limited_total", "file.meta kota aşımları (class: accepted|declined|sender; S-P5-T2-3)");
-  m.counter("rs_requests_created_total", "Oluşturulan destek talepleri (P8b)");
+  m.counter("rs_requests_created_total", "Oluşturulan destek talepleri (P8b; P8c via: ref|binding)");
+  m.counter("rs_bindings_issued_total", "Verilen/yenilenen bilgisayar kayıtları (P8c; renewed: true|false)");
+  m.counter("rs_binding_invalid_total", "Geçersiz bilgisayar kaydı denemeleri (P8c; rs_request_ref_invalid_total'a da sayılır)");
+  m.counter("rs_binding_denied_total", "Verilmeyen bilgisayar kayıtları (P8c B-P8c-4; reason: stale_source|inactive|rate|no_offer|browser)");
+  m.counter("rs_bindings_revoked_total", "Geçersizleştirilen bilgisayar kayıtları (P8c; reason)");
   m.counter("rs_request_ref_invalid_total", "Geçersiz firma ref'i denemeleri (P8b; alarm > 100/dk)");
   m.counter("rs_request_rate_limited_total", "Talep hız/bekleyen sınırı aşımları (bucket)");
   m.counter("rs_request_gate_rejected_total", "Talep oluşturma kapısı dolu → 503 (reason: full|timeout; S8b-5)");

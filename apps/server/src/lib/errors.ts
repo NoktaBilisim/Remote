@@ -1,5 +1,6 @@
 // Tipli uygulama hataları ve standart hata zarfı (mimari-api.md "Ortak kurallar").
 // Bilinmeyen hatalar loglanır, kullanıcıya yalnız 500 + requestId döner (stack/SQL sızmaz).
+import { BINDING_INVALID_MESSAGE } from "@remote/contracts/api/bindings";
 import { ERROR_STATUS, type ErrorCode, type ErrorEnvelope } from "@remote/contracts/errors";
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -27,6 +28,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   RATE_LIMITED: "Çok fazla istek. Lütfen biraz sonra tekrar deneyin.",
   INTERNAL: "Beklenmeyen bir hata oluştu.",
   NOT_READY: "Servis hazır değil.",
+  BINDING_INVALID: BINDING_INVALID_MESSAGE,
   REQUEST_REF_INVALID: "Bu dosya artık geçerli değil; firmanızdan yenisini isteyin.",
   REQUEST_PENDING: "Bu pencereden gönderilmiş, bekleyen bir talebiniz zaten var.",
   REQUEST_TAKEN: "Talep başka bir teknisyen tarafından alındı.",

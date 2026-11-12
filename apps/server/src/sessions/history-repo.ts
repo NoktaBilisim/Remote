@@ -25,6 +25,8 @@ export interface HistoryFilter {
   technicianId?: string;
   tenantId?: string;
   customer?: string;
+  /** P8c (AC-179): "none" = customer_id IS NULL; aksi müşteri kimliği. */
+  customerFirm?: string;
 }
 
 /** Prisma 7 (MySQL) `contains` LIKE jokerlerini kaçışlamaz (db-notlari P8): `%`, `_`, `\` literal aranır. */
@@ -44,6 +46,7 @@ export function historyWhere(scope: HistoryScope, f: HistoryFilter = {}): Prisma
     ...(f.source ? { requestId: f.source === "REQUEST" ? { not: null } : null } : {}),
     ...(f.from || f.to ? { createdAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lt: f.to } : {}) } } : {}),
     ...(f.customer ? { customerName: { contains: escapeLike(f.customer) } } : {}),
+    ...(f.customerFirm ? { customerId: f.customerFirm === "none" ? null : f.customerFirm } : {}),
   };
 }
 
@@ -67,6 +70,8 @@ const listSelect = {
   // P8b (AC-158): kaynak + bekleme (talep→kabul)
   requestId: true,
   request: { select: { createdAt: true, acceptedAt: true } },
+  // P8c (AC-179): müşteri firma (tek ek IN sorgusu, N+1 yok)
+  customer: { select: { id: true, name: true, status: true } },
 } as const;
 
 export type HistoryListRow = Prisma.SupportSessionGetPayload<{ select: typeof listSelect }>;

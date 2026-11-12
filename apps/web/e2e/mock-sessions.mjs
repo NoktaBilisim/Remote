@@ -1,6 +1,7 @@
 // E2E sahte API — oturum uçları (docs/implementation.md "## Backend (P2)" sözleşmesi). Yalnız test.
 // Test izolasyonu: her test kendi oturum çerezini üretir ("u-<senaryo>-<rastgele>"); durum çerez başına tutulur.
 import { randomBytes } from "node:crypto";
+import { customerRef } from "./mock-customers.mjs";
 import { endRoom } from "./mock-ws.mjs";
 
 const BASE = process.env.MOCK_PUBLIC_BASE_URL ?? "http://localhost:3217";
@@ -185,13 +186,17 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
     if (session.startsWith("u-rate-"))
       return send(res, 429, err("RATE_LIMITED", "Çok fazla istek."), [], { "Retry-After": "600" }), true;
     if (session.startsWith("u-slow-")) await sleep(SLOW_MS);
+    // P8c (AC-180): customerId → aynı kullanıcının aktif müşterisi; yoksa 404
+    const { customerId } = await readJson(req);
+    const firm = customerId ? customerRef(session, customerId) : null;
+    if (customerId && !firm) return send(res, 404, err("NOT_FOUND", "Müşteri bulunamadı.")), true;
     const rec = newSession();
     // P5: sunucu hello/peer.joined'a caps + maxFileMb koyar (küçük sınır: 100 MB'lık dosya üretmeden sınır testi)
     if (session.startsWith("u-p5")) Object.assign(rec, { caps: session.startsWith("u-p5-") ? ["file_transfer"] : [], maxFileMb: 1 });
     if (session.startsWith("u-p7")) Object.assign(rec, { caps: session.startsWith("u-p7-") ? ["remote_control"] : [], canControl: session.startsWith("u-p7-") });
     list.push(rec);
     const v = rec.view;
-    const body = { id: v.id, link: `${BASE}/session/${rec.token}`, code: v.code, techVerifyCode: v.techVerifyCode, expiresAt: v.expiresAt, status: "PENDING" };
+    const body = { id: v.id, link: `${BASE}/session/${rec.token}`, code: v.code, techVerifyCode: v.techVerifyCode, expiresAt: v.expiresAt, status: "PENDING", customerFirm: firm };
     return send(res, 201, body), true;
   }
   const term = path.match(/^\/api\/v1\/sessions\/([^/]+)\/terminate$/);

@@ -45,6 +45,7 @@ export default async function SessionsPage() {
           showTechnician={me.me.user.role !== "USER"}
           meId={me.me.user.id}
           canTerminate={perms.includes("sessions.terminate")}
+          canPickCustomer={perms.includes("customers.view")}
         />
       )}
     </>

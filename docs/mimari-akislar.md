@@ -171,3 +171,69 @@ sequenceDiagram
   G->>G: gate=CLOSED → control.state{VIEW, SYSTEM}
   Note over S,T: Ek emniyet: /ws/tech 60 sn'de bir auth_sessions doğrular
 ```
+
+## A7. Bilgisayar kaydı (P8c; mimari-e10 §2.1, §3.4, §15.1–15.4; ADR-0017)
+### A7a. Kayıt verilmesi (her başarılı istemci oturumu)
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Go istemci (≥ 0.10.0, AGENT)
+  participant S as apps/server (/ws/guest + bindings/service)
+  participant DB as MySQL
+  C->>S: /ws/guest (ticket) → admit (kod yolunda lobi kabulü / talep yolunda ön-kabul)
+  S->>C: hello{iceServers, reconnectToken, caps}
+  S->>C: binding.offer{} (yalnız AGENT + clientVersion ≥ 0.10.0; teklif bu bağlantıya işlenir)
+  C->>S: binding.request{previousKey?} (previousKey yalnız dosyadaki köken bu sunucuysa)
+  S->>S: kapılar: ADMITTED değil → 1008 · BROWSER → FORBIDDEN · teklifsiz → CONFLICT · oturum başına > 3 → RATE_LIMITED
+  S->>DB: TX: oturum ACTIVE+AGENT, tenant aktif, müşteri FOR SHARE ACTIVE
+  S->>DB: §15.1 bayat kaynak: ref yenilemeden önce açılmış / iptal edilmiş kayıttan açılmış talep → ret
+  S->>DB: §15.3: cur = active_session_id FOR UPDATE · prev = key_hash FOR UPDATE
+  alt cur var
+    S->>DB: cur yerinde yenilenir (previousKey yok sayılır)
+  else prev aynı tenant
+    S->>DB: prev yerinde yenilenir (müşteri bağı §15.4 korunur)
+  else prev başka tenant
+    S->>DB: prev REPLACED (hash NULL) + audit kaybeden tenant'a → INSERT
+  else
+    S->>DB: INSERT (key_hash = SHA-256)
+  end
+  S->>DB: audit binding.issued → COMMIT (UQ ihlali / kilitlenme → bir kez yeniden dene)
+  S->>C: binding.issued{bindingKey, tenantName, customerFirmName, renewed} (yalnız isteyen sokete)
+  Note over S,C: Ret: error{CONFLICT,"Kayıt verilemedi"} + audit binding.denied{reason} + rs_binding_denied_total; oturum sürer
+  C->>C: DPAPI dosyasına yazar (hata sessiz)
+```
+
+### A7b. Kayıtla talep
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Go istemci
+  participant S as apps/server
+  participant DB as MySQL
+  participant P as Panel (teknisyen)
+  C->>S: POST /public/bindings/status {bindingKey, clientVersion}
+  S-->>C: 200 TenantRequestInfo + customer{name} · biçim dışı/yok/geçersiz → tek 404 BINDING_INVALID (req.ref_invalid kovası)
+  C->>S: POST /public/requests {bindingKey, …}
+  S->>S: ip/önek/net48 kovaları (muaf değil, K20) → req.create.binding 6/sa
+  S->>DB: TX: ayar FOR UPDATE → müşteri FOR SHARE ACTIVE → device_bindings koşullu UPDATE last_used_at (0 → BINDING_INVALID) → kayıt başına 1 bekleyen → INSERT (customer_id, binding_id) → audit
+  S->>P: request.new{customerFirm, viaBinding:true}
+  Note over C,P: Sonrası E9 akışı (/ws/request, kabul, "Ekranımı paylaş"); A7a ile kayıt yenilenir
+  P->>S: (kötüye kullanım) POST /support-requests/:id/revoke-binding (customers.edit + support_requests.view)
+  S->>DB: TX: kayıt ADMIN_REVOKED + bekleyenleri BINDING_REVOKED + audit
+  S->>C: request.closed{CANCELLED, BINDING_REVOKED}
+  Note over C: 404 BINDING_INVALID herhangi bir adımda → istemci kaydı siler, AC-185 metni, "Bağlantı kodum var"
+```
+
+### A7c. "Bu bilgisayarı unut"
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as Müşteri
+  participant C as Go istemci
+  participant S as apps/server
+  U->>C: "Bu bilgisayarı unut"
+  C->>C: yerel dosya + tmp + boşsa klasör ≤ 1 sn silinir (anahtar bellekte kalır)
+  C->>S: POST /public/bindings/revoke {bindingKey} (2 sn zaman aşımı, en iyi çaba)
+  S-->>C: 204 (her durumda; etkin satır → FORGOTTEN + hash NULL + audit)
+  C->>U: "Bu bilgisayar unutuldu"
+```

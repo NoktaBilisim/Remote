@@ -228,6 +228,72 @@ run DENIED "$TX $ADM; UPDATE support_sessions SET guest_net_key='203.0.113.0/24'
 run OK     "$TX $ADM; UPDATE support_sessions SET customer_name='Ayse Yilmaz',customer_email=CONCAT(REPEAT('a',240),'@example.test') WHERE id='00000000000000000000GRANTS'; $R"
 run DENIED "$TX $RQ; $ACC; $RSR; INSERT INTO session_consents (id,session_id,tenant_id,level,decision,source,request_id) VALUES ('00000000000000000000GRANTW','00000000000000000000GRANTS','00000000000000000000GRANTT','CONTROL','DENIED','SYSTEM','00000000000000000000GRANTR'); $R" session_consents_request_scope_chk
 run DENIED "UPDATE session_consents SET request_id=NULL WHERE id='00000000000000000000GRANTV'"
+# P8c-1 customers (SELECT/INSERT/UPDATE), request_refs (append-only: SELECT/INSERT), device_bindings (SELECT/INSERT/UPDATE)
+# ve CHECK/UQ/FK kısıtları; support_requests/support_sessions müşteri/kayıt bağı ve yeni iptal nedenleri. Tümü geri alınan TX'te.
+CU="INSERT INTO customers (id,tenant_id,name,name_key,search_key,file_label,request_ref,updated_at) VALUES"
+CUV="'00000000000000000000GRANTK','00000000000000000000GRANTT','Grant Musteri','grant musteri','grant musteri 905301112233','GrantMusteri','cccccccccccccccc',NOW(3)"
+CU1="$CU ($CUV)"
+cu() { echo "$CU (${CUV/$1/$2})"; }  # $1 → $2 değiştir
+UC="UPDATE customers SET"; WC="WHERE id='00000000000000000000GRANTK'"
+RR="INSERT INTO request_refs (ref,tenant_id,customer_id) VALUES"
+DBI="INSERT INTO device_bindings (id,tenant_id,customer_id,key_hash,client_version,first_session_id,last_session_id,last_used_at,updated_at) VALUES"
+DB1="$DBI ('00000000000000000000GRANTB','00000000000000000000GRANTT','00000000000000000000GRANTK',$H1,'0.10.0','00000000000000000000GRANTS','00000000000000000000GRANTS',NOW(3),NOW(3))"
+DB2="$DBI ('00000000000000000000GRANTA','00000000000000000000GRANTT',NULL,$H2,'0.10.0','00000000000000000000GRANTS','00000000000000000000GRANTS',NOW(3),NOW(3))"
+UB="UPDATE device_bindings SET"; WB="WHERE id='00000000000000000000GRANTB'"
+REV="$UB revoked_at=NOW(3),revoke_reason='FORGOTTEN',key_hash=NULL $WB"
+run OK     "SELECT COUNT(*) FROM customers; SELECT COUNT(*) FROM request_refs; SELECT COUNT(*) FROM device_bindings"
+run OK     "$TX $CU1; $RR ('cccccccccccccccc','00000000000000000000GRANTT','00000000000000000000GRANTK'),('dddddddddddddddd','00000000000000000000GRANTT',NULL); $UC contact_name='Ayse Yilmaz',phone='+905301112233',email='ayse@example.test',note=CONCAT('satir 1',CHAR(10),'satir 2') $WC; $UC status='PASSIVE',passive_at=NOW(3) $WC; $UC contact_name=NULL,phone=NULL,email=NULL,note=NULL,anonymized_at=NOW(3) $WC; $R"
+run DENIED "DELETE FROM customers WHERE id='00000000000000000000GRANTK'"
+run DENIED "ALTER TABLE customers ADD COLUMN x INT"
+run DENIED "UPDATE request_refs SET customer_id=NULL WHERE ref='cccccccccccccccc'"
+run DENIED "DELETE FROM request_refs WHERE ref='cccccccccccccccc'"
+run DENIED "ALTER TABLE request_refs ADD COLUMN x INT"
+run DENIED "$TX $RR ('cccccccccccccccc','00000000000000000000GRANTT',NULL); $RR ('cccccccccccccccc','00000000000000000000GRANTT',NULL); $R" PRIMARY
+run DENIED "$TX $RR ('CCCCCCCCCCCCCCCC','00000000000000000000GRANTT',NULL); $R" request_refs_ref_fmt_chk
+run DENIED "$TX $CU1; $GX; $RR ('cccccccccccccccc','00000000000000000000GRANTX','00000000000000000000GRANTK'); $R" request_refs_tenant_id_customer_id_fkey
+run DENIED "$TX $(cu "'Grant Musteri'" "'A'"); $R" customers_name_chk
+run DENIED "$TX $(cu "'Grant Musteri'" "CONCAT('Grant',$RTLO,'exe')"); $R" customers_name_chk
+run DENIED "$TX $(cu "'GrantMusteri'" "'Grant-Musteri'"); $R" customers_file_label_chk
+run DENIED "$TX $(cu "'cccccccccccccccc'" "'cccccccccccccc01'"); $R" customers_ref_fmt_chk
+run DENIED "$TX $(cu "'grant musteri 905301112233'" "'baska 905301112233'"); $R" customers_search_key_chk
+run DENIED "$TX $(cu "'grant musteri','grant musteri 9" "' grant musteri',' grant musteri 9"); $R" customers_name_key_chk
+run DENIED "$TX $CU1; $UC status='passive',passive_at=NOW(3) $WC; $R" customers_status_chk
+run DENIED "$TX $CU1; $UC status='PASSIVE' $WC; $R" customers_passive_chk
+run DENIED "$TX $CU1; $UC passive_at=NOW(3) $WC; $R" customers_passive_chk
+run DENIED "$TX $CU1; $UC phone='05301112233' $WC; $R" customers_phone_fmt_chk
+run DENIED "$TX $CU1; $UC email='gecersiz' $WC; $R" customers_email_fmt_chk
+run DENIED "$TX $CU1; $UC contact_name='' $WC; $R" customers_contact_name_chk
+run DENIED "$TX $CU1; $UC note=CONCAT('a',CHAR(9),'b') $WC; $R" customers_note_chk
+run DENIED "$TX $CU1; $UC note=REPEAT('n',1001) $WC; $R" "Data too long for column 'note'"
+run DENIED "$TX $CU1; $UC phone='+905301112233',anonymized_at=NOW(3) $WC; $R" customers_anonymized_chk
+# Ad tekilliği tenant içinde (pasifler dahil); başka tenant'ta aynı ad serbest; ref global tekil.
+run DENIED "$TX $CU1; $UC status='PASSIVE',passive_at=NOW(3) $WC; $CU ('00000000000000000000GRANTL','00000000000000000000GRANTT','Grant Musteri','grant musteri','grant musteri','GrantMusteri','eeeeeeeeeeeeeeee',NOW(3)); $R" customers_tenant_id_name_key_key
+run OK     "$TX $CU1; $GX; $CU ('00000000000000000000GRANTL','00000000000000000000GRANTX','Grant Musteri','grant musteri','grant musteri','GrantMusteri','eeeeeeeeeeeeeeee',NOW(3)); $R"
+run DENIED "$TX $CU1; $CU ('00000000000000000000GRANTL','00000000000000000000GRANTT','Diger','diger','diger','Diger','cccccccccccccccc',NOW(3)); $R" customers_request_ref_key
+# device_bindings: verme → yerinde yenileme → geçersizleştirme; geçersiz satır oturumu serbest bırakır (active_session_id UQ).
+run OK     "$TX $CU1; $ADM; $DB1; $UB key_hash=$H2,issue_count=issue_count+1,last_used_at=NOW(3),client_version='0.10.1' $WB; $REV; $DB2; $R"
+run OK     "$TX $CU1; $ADM; $DB1; $UB revoked_at=NOW(3),revoke_reason='ADMIN_REVOKED',key_hash=NULL $WB; $R"
+run DENIED "$TX $CU1; $ADM; $DB1; $DB2; $R" device_bindings_active_session_id_key
+run DENIED "$TX $CU1; $ADM; $DB1; $DB1; $R" PRIMARY
+run DENIED "$TX $CU1; $ADM; $DB1; $DBI ('00000000000000000000GRANTA','00000000000000000000GRANTT',NULL,$H1,'0.10.0','00000000000000000000GRANTS','00000000000000000000GRANTS',NOW(3),NOW(3)); $R" device_bindings_key_hash_key
+run DENIED "$TX $CU1; $ADM; $DB1; $UB revoked_at=NOW(3),revoke_reason='FORGOTTEN' $WB; $R" device_bindings_revoked_chk
+run DENIED "$TX $CU1; $ADM; $DB1; $UB key_hash=NULL $WB; $R" device_bindings_revoked_chk
+run DENIED "$TX $CU1; $ADM; $DB1; $UB revoked_at=NOW(3),key_hash=NULL $WB; $R" device_bindings_revoked_chk
+run DENIED "$TX $CU1; $ADM; $DB1; $UB revoked_at=NOW(3),revoke_reason='forgotten',key_hash=NULL $WB; $R" device_bindings_revoke_reason_chk
+run DENIED "$TX $CU1; $ADM; $DB1; $UB key_hash=UPPER($H2) $WB; $R" device_bindings_key_hash_fmt_chk
+run DENIED "$TX $CU1; $ADM; $DB1; $UB client_version='0.10' $WB; $R" device_bindings_client_version_fmt_chk
+run DENIED "$TX $CU1; $ADM; $DB1; $UB issue_count=0 $WB; $R" device_bindings_issue_count_chk
+run DENIED "$TX $CU1; $ADM; $DB1; $UB active_session_id=NULL $WB; $R" "generated column"
+run DENIED "DELETE FROM device_bindings WHERE id='00000000000000000000GRANTB'"
+run DENIED "ALTER TABLE device_bindings ADD COLUMN x INT"
+run DENIED "$TX $CU1; $GX; $ADM; $DBI ('00000000000000000000GRANTB','00000000000000000000GRANTX',NULL,$H1,'0.10.0','00000000000000000000GRANTS','00000000000000000000GRANTS',NOW(3),NOW(3)); $R" session_id_tenant_id_fkey
+# support_requests / support_sessions müşteri + kayıt bağı (bileşik FK) ve yeni iptal nedenleri.
+run OK     "$TX $CU1; $ADM; $DB1; $RQ; $UR customer_id='00000000000000000000GRANTK',binding_id='00000000000000000000GRANTB' $WR; $UR status='CANCELLED',cancel_reason='CUSTOMER_PASSIVE',closed_at=NOW(3) $WR; UPDATE support_sessions SET customer_id='00000000000000000000GRANTK' WHERE id='00000000000000000000GRANTS'; $R"
+run OK     "$TX $RQ; $UR status='CANCELLED',cancel_reason='BINDING_REVOKED',closed_at=NOW(3) $WR; $R"
+run DENIED "$TX $RQ; $UR status='CANCELLED',cancel_reason='customer_passive',closed_at=NOW(3) $WR; $R" support_requests_cancel_reason_chk
+run DENIED "$TX $GX; $CU ('00000000000000000000GRANTL','00000000000000000000GRANTX','Grant Musteri','grant musteri','grant musteri','GrantMusteri','eeeeeeeeeeeeeeee',NOW(3)); $RQ; $UR customer_id='00000000000000000000GRANTL' $WR; $R" support_requests_tenant_id_customer_id_fkey
+run DENIED "$TX $RQ; $UR binding_id='00000000000000000000NOBIND' $WR; $R" support_requests_binding_id_tenant_id_fkey
+run DENIED "$TX $GX; $CU ('00000000000000000000GRANTL','00000000000000000000GRANTX','Grant Musteri','grant musteri','grant musteri','GrantMusteri','eeeeeeeeeeeeeeee',NOW(3)); $ADM; UPDATE support_sessions SET customer_id='00000000000000000000GRANTL' WHERE id='00000000000000000000GRANTS'; $R" support_sessions_tenant_id_customer_id_fkey
 # Temizlik (FK sırasıyla)
 run OK     "DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"
 exit $FAILED

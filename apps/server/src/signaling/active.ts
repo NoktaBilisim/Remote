@@ -1,6 +1,7 @@
 // ACTIVE oda zamanlayıcıları ve hello mesajları: max süre (AC-13), 120 sn kopma (AC-24/25),
 // TURN credential yenileme (`ice.servers`, G-13). iceServers yalnız admit sonrası (G-01).
 import { newSecretToken, sha256Hex } from "../lib/ids.ts";
+import { offerBinding } from "./binding.ts";
 import type { Rooms } from "./rooms.ts";
 import { iceServersFor } from "./turn.ts";
 import type { Guest, Room } from "./types.ts";
@@ -47,6 +48,7 @@ export function sendHelloGuest(rooms: Rooms, room: Room, guest: Guest): void {
     ...(room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}),
     reconnectToken: token,
   });
+  offerBinding(rooms, guest);
 }
 
 /** Teknisyene misafir katıldı (admit ve misafir yeniden bağlanması): ad + ACTIVE bitiş zamanı (TEST-P4-2). */

@@ -4,7 +4,7 @@
 //  - `/ws/panel`: tenant → kullanıcı soketleri (kullanıcı başına ≤ 5), olay yayını, `closeByUser`/`closeByAuthToken` (G-E9-14).
 // Çok instance genişlemesi: dışa yalnız publish/sendToUser/sendToRequest açılır (Redis pub/sub bu dosyanın arkasına).
 import type { PanelOutbound, RequestOutbound } from "@remote/contracts/ws-request";
-import { WS_REQUEST_CLOSE } from "@remote/contracts/ws-request";
+import { LEGACY_CANCEL_REASONS, WS_REQUEST_CLOSE } from "@remote/contracts/ws-request";
 import type { Clock } from "../signaling/types.ts";
 
 export interface JsonPeer<T> {
@@ -20,6 +20,14 @@ export interface RequestConn {
   ipKey: string;
   /** Güvenilen CIDR kaynağı: ipKey başına eşzamanlı soket sınırından muaf (G-E9-16, koordinatör kararı b). */
   trusted: boolean;
+  /** P8c (mimari-e10 §5.4): 0.9.x istemci — `request.closed.reason` yalnız eski küme; yeni nedenler TENANT_PASSIVE'e eşlenir. */
+  legacy?: boolean;
+}
+
+/** 0.9.x'e giden `request.closed`: bilinmeyen neden → TENANT_PASSIVE (DB'de gerçek neden kalır). */
+export function legacyClosed(msg: RequestOutbound): RequestOutbound {
+  if (msg.t !== "request.closed" || msg.reason === undefined || (LEGACY_CANCEL_REASONS as readonly string[]).includes(msg.reason)) return msg;
+  return { ...msg, reason: "TENANT_PASSIVE" };
 }
 
 export interface PanelConn {
@@ -120,7 +128,7 @@ export class RequestHub {
     if (!c) return;
     this.requests.delete(requestId);
     this.release(c);
-    c.peer.send(msg);
+    c.peer.send(c.legacy ? legacyClosed(msg) : msg);
     c.peer.close(code, "closed");
   }
 

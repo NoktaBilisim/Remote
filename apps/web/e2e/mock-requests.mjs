@@ -1,7 +1,8 @@
 // E2E sahte API — destek talepleri (P8b-1; mimari-api "Destek talepleri (P8b)", mimari-protokol §5.3). Yalnız test.
 // Çerez: u-rq<senaryo>-<rastgele>. Senaryolar: rqadm (ADMIN, tüm yetkiler), rqro (USER, yalnız view),
 // rqsa (SUPER_ADMIN, firma seçmemiş), rqempty (bekleyen yok), rqbroken (liste 500).
-// Test kancası: GET /__e2e/rq/<olay>/<çerez>[?id=] → o kullanıcının /ws/panel soketlerine olay iter.
+// Test kancası: GET /__e2e/rq/<olay>/<çerez>[?id=] → o kullanıcının /ws/panel soketlerine olay iter
+// (newfirm: müşteri firmalı request.new — AC-176).
 // GET /__e2e/rq/sockets/<çerez> → { open } açık soket sayısı (olay öncesi senkron noktası, QA-P8b-12).
 import { WebSocketServer } from "ws";
 import { rejectMessageSchema, updateRequestSettingsInputSchema, whatsappTestInputSchema } from "@remote/contracts/api/requests";
@@ -10,16 +11,25 @@ const ADMIN_P = ["sessions.view", "sessions.create", "session_history.view", "su
 const TENANT = { id: "01JTENA0000000000000000001", name: "Demo Firma" };
 const now = () => Date.now();
 const iso = (ms) => new Date(ms).toISOString();
-export const RQ = { A: "01JRQ00000000000000000000A", B: "01JRQ00000000000000000000B", C: "01JRQ00000000000000000000C", NEW: "01JRQ0000000000000000000NW" };
+export const RQ = { A: "01JRQ00000000000000000000A", B: "01JRQ00000000000000000000B", C: "01JRQ00000000000000000000C", NEW: "01JRQ0000000000000000000NW", NEWFIRM: "01JRQ0000000000000000000NF" };
 export const RQ_SESSION = "01JRQSES000000000000000001";
 
 export function requestUser(cookie) {
-  const m = cookie?.match(/^u-(rqadm|rqro|rqsa|rqempty|rqbroken)-/);
+  const m = cookie?.match(/^u-(rqadm|rqro|rqsa|rqempty|rqbroken|rqcu|rqcuro|rqcuempty|rqcubroken|rqcuslow)-/);
   if (!m) return null;
   const role = m[1] === "rqsa" ? "SUPER_ADMIN" : m[1] === "rqro" ? "USER" : "ADMIN";
   return {
     user: { id: "01JUSRQ0000000000000000001", email: "rq@ornek.com", fullName: "Selin Teknik", role, mustChangePassword: false },
-    permissions: m[1] === "rqro" ? ["sessions.view", "support_requests.view"] : ADMIN_P,
+    // P8c: rqcu = ADMIN + customers.*; rqcuro = USER yalnız customers.view (+ talepler, geçmiş yok).
+    // rqcuempty / rqcubroken / rqcuslow: rqcu yetkileri, müşteri durum senaryoları (mock-customers.mjs)
+    permissions:
+      m[1] === "rqro"
+        ? ["sessions.view", "support_requests.view"]
+        : /^rqcu(empty|broken|slow)?$/.test(m[1])
+          ? [...ADMIN_P, "customers.view", "customers.create", "customers.edit", "customers.delete"]
+          : m[1] === "rqcuro"
+            ? ["sessions.view", "sessions.create", "support_requests.view", "customers.view"]
+            : ADMIN_P,
     tenant: role === "SUPER_ADMIN" ? null : TENANT,
     actingTenant: null,
     kind: m[1],
@@ -36,6 +46,10 @@ const item = (o) => ({
   rejectMessage: null,
   sessionId: null,
   knownDevice: false,
+  customerFirm: null,
+  viaBinding: false,
+  bindingRevoked: false,
+  staleSource: false,
   ...o,
 });
 
@@ -68,7 +82,7 @@ const settingsSeed = () => ({
 });
 
 const stores = new Map();
-const store = (cookie, kind) => stores.get(cookie) ?? stores.set(cookie, { ...seed(kind), settings: settingsSeed() }).get(cookie);
+export const store = (cookie, kind) => stores.get(cookie) ?? stores.set(cookie, { ...seed(kind), settings: settingsSeed() }).get(cookie);
 const sockets = new Map(); // çerez → Set<ws>
 const pushTo = (cookie, m) => {
   for (const ws of sockets.get(cookie) ?? []) if (ws.readyState === 1) ws.send(JSON.stringify(m));
@@ -98,7 +112,7 @@ function e2eHook(url, send, res) {
   // QA-P8b-12: senkron noktası — o çerezin AÇIK /ws/panel soket sayısı (olay itmeden önce testte beklenir)
   const sk = url.match(/^\/__e2e\/rq\/sockets\/([^?]+)$/);
   if (sk) return send(res, 200, { open: [...(sockets.get(sk[1]) ?? [])].filter((ws) => ws.readyState === 1).length }), true;
-  const m = url.match(/^\/__e2e\/rq\/(new|removed|alert|declined|close4401)\/([^?]+)(?:\?id=([0-9A-Z]{26}))?$/);
+  const m = url.match(/^\/__e2e\/rq\/(new|newfirm|removed|alert|declined|close4401)\/([^?]+)(?:\?id=([0-9A-Z]{26}))?$/);
   if (!m) return false;
   const [, ev, cookie, id] = m;
   const s = stores.get(cookie);
@@ -106,7 +120,15 @@ function e2eHook(url, send, res) {
   if (ev === "new") {
     const it = item({ id: RQ.NEW, requestCode: "777888", networkMatch: "NONE", createdAt: iso(now()), waitSec: 0, customerName: "Yeni Müşteri", customerPhone: "+905551112233", description: "Bilgisayar çok yavaş" });
     s.pending.push(it);
-    pushTo(cookie, { t: "request.new", id: it.id, requestCode: it.requestCode, customerName: it.customerName, preview: it.description, networkMatch: "NONE", knownDevice: false, createdAt: it.createdAt });
+    pushTo(cookie, { t: "request.new", id: it.id, requestCode: it.requestCode, customerName: it.customerName, preview: it.description, networkMatch: "NONE", knownDevice: false, createdAt: it.createdAt, customerFirm: null, viaBinding: false, bindingRevoked: false, staleSource: false });
+    count(cookie);
+  } else if (ev === "newfirm") {
+    // AC-176: müşteri ref'iyle açılmış talep — toast'ta firma adı
+    const firm = { id: "01JC5ST0000000000000000001", name: "Şişli Bilişim Ltd.", status: "ACTIVE" };
+    const it = item({ id: RQ.NEWFIRM, requestCode: "999000", networkMatch: "NONE", createdAt: iso(now()), waitSec: 0, customerName: "Firma Müşterisi", customerPhone: "+905551112244", description: "Sunucuya erişilemiyor", customerFirm: firm });
+    s.pending.push(it);
+    pushTo(cookie, { t: "request.new", id: it.id, requestCode: it.requestCode, customerName: it.customerName, preview: it.description, networkMatch: "NONE", knownDevice: false, createdAt: it.createdAt, customerFirm: { id: firm.id, name: firm.name }, // ws-request: strictObject {id,name}
+      viaBinding: false, bindingRevoked: false, staleSource: false });
     count(cookie);
   } else if (ev === "removed") {
     s.pending = s.pending.filter((x) => x.id !== id);
@@ -137,11 +159,14 @@ export async function handleRequests(req, res, { url, session, csrfOk, send, err
   if (path === "/api/v1/support-requests" && req.method === "GET") {
     if (!can("support_requests.view")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
     if (who.kind === "rqbroken") return send(res, 500, err("INTERNAL", "Sunucu hatası.")), true;
+    const cf = q.get("customer");
+    const byFirm = (x) => !cf || (cf === "general" ? x.customerFirm === null : x.customerFirm?.id === cf);
     if (q.get("tab") === "history") {
-      const items = s.history.filter((x) => !q.get("status") || x.status === q.get("status"));
+      const items = s.history.filter((x) => (!q.get("status") || x.status === q.get("status")) && byFirm(x));
       return send(res, 200, { items, page: 1, pageSize: 25, total: items.length }, [], { "Cache-Control": "no-store" }), true;
     }
-    return send(res, 200, { items: s.pending, page: 1, pageSize: 50, total: s.pending.length }, [], { "Cache-Control": "no-store" }), true;
+    const pend = s.pending.filter(byFirm);
+    return send(res, 200, { items: pend, page: 1, pageSize: 50, total: pend.length }, [], { "Cache-Control": "no-store" }), true;
   }
   const am = path.match(/^\/api\/v1\/support-requests\/([0-9A-Z]{26})\/(accept|reject)$/);
   if (am && req.method === "POST") {

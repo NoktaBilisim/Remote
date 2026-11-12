@@ -42,3 +42,14 @@ r1'de iki zayıflık bulundu (G-01, G-02): `verifyCode` resolve yanıtında herk
 - Statik firma yolu artık doğrulanır. `forward_auth` iç ucu `/internal/agent-ready`, `X-Forwarded-Uri` içindeki `NoktaDestek-<label>-<ref>.exe` değerini ayrıştırır. Ref aktif ve label güncel `file_label` ise 204, değilse 404 döner (ikili kapısı ayrıca 503). Böylece resmi alan adında keyfi adlı bağlantı üretilemez.
 - İstemci firma penceresinde dosya adındaki label'ı göstermez, yalnız sunucudan gelen firma adını gösterir. Pencerede P6 karşılamasındaki gibi bağlanılan sunucu, sürüm ve SHA-256 ilk 8 hane satırı bulunur.
 - Firma dosyası yolu yalnız Caddy filtresinde değil, host nginx erişim logunda da `/downloads/NoktaDestek-***` olarak maskelenir.
+
+## Revizyon r5 (2026-11-12, E10 — AC-168, 170, 171, 182, 183, 190, 191; V27; ADR-0017; `docs/mimari-e10.md` §3.2, §8.1)
+**Bağlam:** Tenant müşteri firmalarına ayrı kalıcı dosya vermek istiyor. 0.9.x istemci bu dosyayla çalışmalı. Ayrıca bilgisayar kaydı üçüncü bir eşleme girdisi olur.
+**Karar:**
+- **Müşteri ref'i** Genel (tenant) ref'iyle aynı biçimdedir (`[a-z2-7]{16}`, 80 bit). Dosya adı da aynıdır: `NoktaDestek-<müşteri file_label>-<ref>.exe`. İstemcinin ayrıştırıcısı değişmez. 0.9.x müşteri dosyasıyla talep açar ve sunucu ref'i müşteriye çözer.
+- **Tek ad alanı:** her ref, sahibine yazılmadan önce aynı TX'te append-only `request_refs` tablosuna (PK `ref`) eklenir. Böylece Genel ve müşteri ref'leri DB kısıtıyla tekildir ve emekli bir ref asla yeniden verilmez (eski dosya başka sahibe geçemez). Geri doldurma mevcut tenant ref'lerini kapsar.
+- **Çözümleme:** tenant ve müşteri sorguları paralel çalışır. Geçersiz, yenilenmiş, pasif müşteri ve pasif tenant aynı 404'ü alır. Yanıt ref'in Genel'e mi müşteriye mi ait olduğunu göstermez.
+- **Yenileme / pasif:** müşteri ref'i yenilenebilir. Pasif müşterinin ref'i 404 döner. Yeniden aktif etmede yeni ref üretilir (V23).
+- **İstemci mod önceliği (0.10.0, `internal/launch`):** (1) adında geçerli PENDING kod → kod akışı; (2) adında ref → talep o ref'e; (3) aksi halde bilgisayar kaydı. Süresi geçmiş kod veya geçersiz ref + geçerli kayıt → kayıt ana ekranı. Hiçbiri yoksa ana ekranda "Destek iste" pasif, "Bağlantı kodum var" etkin olur. Mevcut "Teknisyenden kod aldım" metni "Bağlantı kodum var" olur.
+**Alternatifler:** Müşteri ref'ini farklı biçimde/önekte vermek: 0.9.x uyumu bozulur ve dosya türü dosya adından anlaşılır (AC-168). Reddedildi. Tekilliği yalnız uygulama koduyla sağlamak: yarışta çakışma olur, AC-168 DB kısıtı ister. Reddedildi. `request_refs`'i tek çözümleme kaynağı yapmak: sahibin sütunuyla iki kopya senkron tutulmalı. Reddedildi; tablo yalnız tekillik ve iz içindir.
+**Sonuçlar:** `MIN_AGENT_VERSION` değişmez. 8 hane ve lobi kuralları değişmez. `request_refs` büyür (her yenilemede bir satır; ihmal edilebilir).

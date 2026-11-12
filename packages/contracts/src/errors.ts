@@ -33,6 +33,8 @@ export const ERROR_STATUS = {
   REQUEST_TAKEN: 409,
   /** P8b: talep iptal/süre dolumu/ret/bağlanamadı ile kapanmış (AC-153). */
   REQUEST_CLOSED: 409,
+  /** P8c: bilgisayar kaydı geçersiz (yok/unutulmuş/değiştirilmiş/müşteri yenilendi-pasif/Genel yenilendi/tenant pasif/süresi doldu) — tek gövde (AC-185). */
+  BINDING_INVALID: 404,
   ACCOUNT_LOCKED: 423,
   /** P8b r2 (§13.4): AGENT sürümü MIN_AGENT_VERSION'dan düşük; `fields.minVersion`. */
   CLIENT_OUTDATED: 426,

@@ -2336,3 +2336,280 @@ Küçük hata düzeltmesi (AC gerekmez); kaynak `docs/gereksinimler-sonra-acik.m
 **frontend-dev için:** sözleşme değişmedi; yalnız admit sonrası mesaj sırası `ice.servers → peer.joined` oldu.
 
 **Doğrulama:** `pnpm --filter @remote/server test` 281/281; `vitest run test/integration` (geçici `mysql:8.4`, `scripts/test-db.sh up`, sonra silindi) 300/300; `pnpm --filter @remote/web test` 163/163; `pnpm -r run typecheck` ve `pnpm -r run lint` temiz.
+
+**E2E mock uyumu (frontend-dev, 2026-11-12):** p7-control.spec.ts masaüstünde 11 hata (`data-share="unknown"`) bu
+düzeltmeden kaynaklanıyordu; sorun uygulamada değil, mock'taydı. `e2e/mock-ws.mjs`'te `admitted()` teknisyene önce
+`peer.joined` gönderiyordu, `ice.servers`'ı da yalnız lobi admit'inde ve sonra gönderiyordu. P7'nin sahte AGENT yolunda
+(`rs.e2eagent.*`) hiç `ice.servers` gitmiyordu, bu yüzden `iceGate` teklifi hiç başlatmıyordu. Mock artık gerçek sunucu
+sırasını (`scheduleActive`) izliyor: ilk kabulde (`first`) teknisyene `ice.servers` → `peer.joined`; yeniden bağlanmada
+`ice.servers` gönderilmiyor (sunucu da göndermiyor, kapı aynı WS'te açık). Uygulama kodu değişmedi.
+Doğrulama: `pnpm --filter @remote/web e2e` (masaüstü + mobil) art arda üç koşuda 201 geçti / 81 atlandı / 0 hata.
+Ayrıca makine yükünün yüksek olduğu bir ara koşuda p5/p7/p8-history'de 7 zamanlama kaynaklı hata görüldü; sonraki
+üç koşuda tekrarlanmadı.
+
+## DBA (P8c-1) — müşteri firmalar, ref ad alanı, bilgisayar kaydı (dba, 2026-11-12)
+- Migration `apps/server/prisma/migrations/20261112120000_p8c_customers` (+ `down.sql`): `customers`, `request_refs` (append-only, Genel ref geri doldurma idempotent), `device_bindings` (`active_session_id` STORED + UQ, revoke CHECK'leri, `ADMIN_REVOKED`), `support_requests.customer_id/binding_id`, `support_sessions.customer_id`, `cancel_reason` += `CUSTOMER_PASSIVE`, `BINDING_REVOKED`. Ayrıntı, sorgu kalıpları ve "Backend-dev için" maddeleri: `docs/db-notlari.md` P8c-1.
+- Şema: `apps/server/prisma/schema.prisma` (`Customer`, `RequestRef`, `DeviceBinding`, ilişkiler). `grants.sql`: customers/device_bindings SELECT/INSERT/UPDATE, request_refs SELECT/INSERT. `deploy/mysql/check-app-grants.sh` +50 kontrol. Seed: aydınlatma yeni sürüm, demo Genel ref kaydı, dev örnek müşteri.
+- **Sapmalar (mimari-e10 §3'e not düşülmeli — mimar):** (1) bileşik müşteri FK sırası `(tenant_id, customer_id) → customers(tenant_id, id)`, hedef `UQ(tenant_id, id)`. Gerekçe indeks ekonomisi: mevcut `IX(tenant_id, customer_id, …)` FK'yi taşır. (2) Müşteri oluşturmada INSERT sırası `customers` → `request_refs`: FK yüzünden "önce request_refs" uygulanamaz. (3) search_key/name_key için ek CHECK'ler. (4) not CHECK'i `\t`'yi reddeder.
+- **Backend-dev yapacak:** PII yazan UPDATE'te `anonymizedAt: null`; `activeSessionId` asla yazılmaz; geçersizleştirmede üç alan birlikte; P2002 hedef adları (`PRIMARY`, `customers_request_ref_key`, `customers_tenant_id_name_key_key`, `device_bindings_active_session_id_key`); seed'deki demo müşteri katlanmış anahtarları contracts `foldKey` gelince ondan üretilmeli.
+- Doğrulama: drift 0, up/down/up OK, down koruması test edildi, check-app-grants 261/261, `customers-p8c-db.test.ts` 12/12, test 281/281, test:int 312/312, typecheck/lint temiz.
+
+## P8c-1 — Devops (devops, 2026-11-12)
+Kaynak: mimari-e10 §10, §12.1 devops satırı, §15.2 (r2). Env, `docker-compose.yml`, Caddyfile, nginx vhost **değişmedi** (mimariyle uyumlu).
+### Değişen dosyalar
+- `docs/runbook.md` §13 (yeni): P8c-1 yayın sırası (yedek ve `git pull` ayrı ssh çağrısında, `umask 077` yok + izin kontrolü — P8b-1 dersi), seed/aydınlatma yayın notu (eski sürümle açık karşılama sayfaları join'de 400), `check-app-grants.sh`, ref ad alanı tutarlılık sorgusu, doğrulama curl'leri; geri alma (imaj → `down.sql`, `p8c_down_guard_chk` 3819 davranışı); tek kayıt iptali (`POST /support-requests/:id/revoke-binding`) ve müşteri bağlantısı yenileme/pasif/aktif etki tablosu; sızan dosya/kayıt olay müdahalesi + inceleme SQL'leri; P8c metrik/alarm tablosu; sorun giderme; istemci 0.10.0 yayın satırı. §6 teknisyen yetki listesi ve §8'e umask notu güncellendi; başlık P1–P8c.
+- `deploy/staging-users.sh`: `USER_PERMS` += `customers.view customers.create customers.edit customers.delete` (mevcut USER hesabına `INSERT IGNORE`; `perm_key` serbest VARCHAR, sunucu sürümünden bağımsız yazılabilir ama P8c server'ı yayındayken çalıştırılmalı).
+### Kararlar
+- **CI değişikliği yok:** `ci.yml` zaten `pnpm db:migrate` (yeni migration dahil) → `check-app-grants.sh` (P8c 50 yeni denetim) → `test:int` koşuyor; yeni action/SHA eklenmedi.
+- **Metrik panosu:** repoda Prometheus/Grafana yok (P13). Pano/alarm kuralları runbook §13.5'te PromQL olarak; yayında `/metrics` elle okunur. `/metrics` okuma komutu `node fetch` ile (runtime imajı `bookworm-slim`'de `wget`/`curl` yok).
+- Mimaride olmayan iki "Bilgi" seviyesi kural eklendi: saatte > 10 `ADMIN_REVOKED` (kötüye kullanım dalgası) ve boşta kalma işinin haftalık SQL kontrolü (730 gün + 1).
+### backend-dev için
+- mimari-e10 §10 metrikleri `apps/server/src/ops/metrics.ts`'te henüz kayıtlı değil (2026-11-12 bu bölüm yazılırken): `rs_customers_active`, `rs_bindings_issued_total{renewed}`, `rs_binding_invalid_total`, `rs_bindings_revoked_total{reason}`, `rs_requests_created_total{via}` (mevcut sayaç etiketsiz). Runbook §13.1/8 doğrulaması bu beş `# TYPE` satırını bekler. Ayrıca mevcut `Metrics.render()` gauge etiketini yalnız `role` olarak yazıyor; `rs_customers_active` etiketsiz olduğu için sorun yok.
+### Doğrulama
+- `bash -n deploy/staging-users.sh` OK; sahte `docker` ile kuru çalıştırma: mevcut USER için 14 `INSERT IGNORE` (4 yeni `customers.*` dahil), çıkış 0. Gerçek yığına karşı çalıştırma staging yayınında (§13.1/7).
+- Runbook komutları: yedek tek satırı (iç içe tırnak, `chmod 600`, `gzip -t`) ve `/metrics` `node fetch` komutu yerelde sahte hedefle denendi. `down.sql` guard + geri alma provası dba'nın 2026-11-12 geçici DB provasına dayanır (`docs/db-notlari.md` P8c-1 Test); staging'de yayın yapılmadı (istenmedi).
+
+## P8c-1 — Backend (backend-dev, 2026-11-12)
+
+Kapsam: E10 müşteri firmalar + bilgisayar kaydı sunucu tarafı (mimari-e10 §15 r2, mimari-api "Müşteriler ve bilgisayar
+kaydı (P8c)", mimari-protokol §6, ADR-0017). Yeni bağımlılık **yok**, yeni env **yok**.
+
+### Uçlar
+| Uç | Yetki | Not |
+|---|---|---|
+| `GET /api/v1/customers` | customers.view | `q` (≥2; ad/yetkili/telefon, Türkçe katlama), `status=active\|passive\|all`, `page`, `pageSize≤100` (vars. 50), `sort=name:asc\|createdAt:desc`; sayaçlar tek `groupBy` |
+| `GET /customers/general-link` | customers.view | salt okunur Genel bağlantı |
+| `GET /customers/options` | customers.view ∨ support_requests.view ∨ session_history.view | ≤20, `status=active\|all` |
+| `POST /customers` | customers.create | 201; ad çakışması 409 `fields.name` |
+| `GET/PATCH /customers/:id` | view / edit | PATCH yalnız değişen alanlar; boşaltma (`null`/`""`) |
+| `POST /customers/:id/rotate-ref` | edit | yeni ref + müşteri kayıtları CUSTOMER_ROTATED |
+| `POST /customers/:id/deactivate` | **delete** | 409 zaten pasif; kayıtlar CUSTOMER_PASSIVE; bekleyenler CANCELLED/CUSTOMER_PASSIVE |
+| `POST /customers/:id/reactivate` | edit | **yeni** ref |
+| `GET /customers/:id/requests` · `/sessions` | view + support_requests.view · view + session_history.view | vars. 25, yeniden eskiye; oturumlar `historyScope` |
+| `POST /support-requests/:id/revoke-binding` | customers.edit | 204; kayıt zaten geçersiz 409; kayıtsız talep 404; bekleyenler BINDING_REVOKED |
+| `POST /public/bindings/status` | AGENT (çerezsiz) | `{bindingKey, clientVersion}` → `TenantRequestInfo + customer{name}\|null`; geçersiz/hiç yok → tek 404 `BINDING_INVALID` |
+| `POST /public/bindings/revoke` | AGENT | her durumda 204 (oracle yok); etkin satır → FORGOTTEN |
+| `POST /public/requests` | — | `ref` (Genel **veya** müşteri ref'i) **ya da** `bindingKey` (tam biri) |
+| `POST /sessions` | sessions.create (+ customers.view `customerId` varsa) | `{}` veya `{customerId}`; pasif/başka tenant 404 |
+| WS `/ws/guest` | — | ≥0.10.0 AGENT'a hello sonrası `binding.offer`; `binding.request{previousKey?}` → `binding.issued` (yalnız isteyen sokete); oturum başına 3 |
+
+Filtreler: `GET /support-requests?customer=general|<id>` (pending **ve** history sekmesi); `GET /sessions` ve
+`/sessions/export.csv` `?customerFirm=none|<id>`.
+
+### Değişen / eklenen dosyalar
+- contracts: `src/permissions.ts`, `src/errors.ts`, `src/api/customers.ts` (yeni), `src/api/bindings.ts` (yeni),
+  `src/api/requests.ts`, `src/api/sessions.ts`, `src/ws.ts`, `src/ws-request.ts`, `src/labels.ts`, `src/audit.ts`,
+  `package.json` (exports), `fixtures/customers.json`, `fixtures/bindings.json` (yeni), `fixtures/ws-request.json`,
+  `test/customers-p8c.test.ts` (yeni).
+- server yeni: `src/customers/{repo,service,routes}.ts`, `src/bindings/{repo,service,public-routes}.ts`, `src/signaling/binding.ts`.
+- server değişen: `src/app.ts`, `src/audit/mask.ts` (customerAuditView, maskEmail), `src/lib/{db,errors,ids,logger}.ts`,
+  `src/ops/metrics.ts`, `src/jobs/scheduler.ts`, `src/requests/{hub,jobs,limits,panel,ref,repo,routes,service,ws}.ts`,
+  `src/sessions/{history-repo,history,routes,service}.ts`, `src/signaling/{active,handlers,rooms,types}.ts`, `prisma/seed.ts` (yorum).
+- testler: `test/integration/customers-p8c-api.test.ts` (yeni, 19), `test/integration/bindings-p8c.test.ts` (yeni, 11),
+  `test/unit/customers-p8c.test.ts` (yeni, 4), `test/helpers/{requests,tenant-matrix}.ts`; beklenti güncellemeleri
+  aşağıda.
+
+### Metrikler (mimari-e10 §10, devops notu)
+`rs_customers_active` (gauge; açılışta + her müşteri yazımı/günlük işte tazelenir), `rs_bindings_issued_total{renewed}`,
+`rs_binding_invalid_total`, `rs_bindings_revoked_total{reason}`, `rs_requests_created_total{via=ref|binding}` (mevcut
+sayaca etiket eklendi; ad değişmedi → panolar geriye uyumlu, toplam `sum()` ile aynı). Test: bindings-p8c "AC-181".
+
+### Tasarımdan sapmalar / yorumlar (gerekçeli)
+1. **Oturum geçmişi müşteri firma filtresi `customerFirm`** (mimari-api `customer` der): P8'deki `customer` parametresi
+   misafir adı araması; ad çakışması P8 istemcisini kırardı. Değerler `none|<ULID>`.
+2. **`foldKey` noktalamayı korur** ("ŞİŞLİ Ltd." → "sisli ltd."): tekillik ad üzerinde; noktalama atmak "A.Ş." ile "AŞ"
+   gibi farklı kayıtları çakıştırırdı. Fixture'da sabit.
+3. **`customer.updated` audit şekli** `oldValue = view(eski)`, `newValue = {changed:[...], ...view(yeni)}` — yalnız değişen
+   alanlar, K19 izinli liste (kişi/not `<dolu>`, telefon/e-posta maskeli).
+4. **Pasife alma audit'indeki `cancelledRequests`** pasife alma TX'inde sayılan bekleyenlerdir; TX sonrası yarışta kalanlar
+   60 sn süpürücüde (`sweepCustomerPassive`) CUSTOMER_PASSIVE ile düşer (AC-171 "60 sn içinde").
+5. **`ensureSettings` her kayıt verme / müşteri oluşturmada çağrılır** (Genel ayar satırı yoksa oluşturur): §3.4 (2) kilit
+   sırası ayar satırını varsayar; Genel ref'i hiç açılmamış tenant'ta da kayıt verilebilsin.
+6. **Seed müşteri sabitleri contracts'tan import edilmez** (migrate imajı contracts'a bağımlı olmasın); tutarlılık birim
+   testle (`test/unit/customers-p8c.test.ts` "AC-168") doğrulanır.
+7. **AC-1..164 test beklentisi güncellemeleri** (AC-193 "değiştirilmeden" maddesine karşı, spesifikasyon gereği):
+   - `requests-p8b-5` ve `sessions-history-api-p8` CSV başlığı/satırı: "Kaynak"tan sonra "Müşteri firma" sütunu (AC-179).
+   - `security-p8b-fix1` `request.created` newValue: `{clientVersion, via, customerId}` (mimari-e10 §8 audit alanları; IP yine yok).
+   - `customers-p8c-db` (dba testi) geri doldurma: `createRequestSettings` yardımcısı artık ad alanına yazdığı için test
+     P8b şeklini (ad alanına yazılmamış ref) doğrudan kurar.
+   - `tenant-matrix` (AC-69 aracı): 14 yeni uç sınıflandırıldı; 9 `tenant` uç için çapraz-tenant 404 durumu eklendi.
+   - `session-history-p8` "ADR-0014 enum CHECK ikili karşılaştırma" sayısı **17 → 19** (düzeltme turu 1'de eklendi, QA 9):
+     test şemadaki `CAST(x AS BINARY)` enum CHECK'lerini sayıyor; P8c migration'ı ADR-0014 kuralıyla iki yeni enum CHECK
+     getiriyor — `customers_status_chk` ve `device_bindings.revoke_reason` CHECK'i (mimari-e10 §3.1/§3.3, §15.8). Yeni
+     şemanın zorunlu sonucu; iddia zayıflamadı (her enum CHECK'in ikili olması şartı aynen, yalnız sayı arttı).
+8. **`revoke-binding` yetkisi `customers.edit`** (düzeltme turu 1'de `+ support_requests.view`, B-P8c-3) (talep ekranından; kayıt müşteri varlığı sayıldı) ve hız kovası
+   `customersWrite` (kullanıcı başına 30/dk).
+
+### dba notları üzerine (db-notlari "P8c-1")
+FK sırası (müşteri ref'inde önce `customers`, sonra `request_refs`), geçersizleştirmede `revoked_at + revoke_reason +
+key_hash=NULL` birlikte, PII yazan UPDATE'te `anonymized_at=NULL`, `search_key` `name_key` ile başlar, not alanında `\t`
+yasak (CHECK) — servis ve test yardımcısı (`createCustomerRow`) bu sıraya uyar. `active_session_id` hiç yazılmaz
+(STORED); eşzamanlı verme `device_bindings_active_session_id_key` P2002'sinde bir kez yeniden denenir.
+
+### Testler (geçici DB `rs-mysql-p8c-be`, port 33320)
+| Komut | Sonuç |
+|---|---|
+| `pnpm -r run typecheck` | contracts, web, server: temiz |
+| `pnpm -r run lint` | temiz |
+| `pnpm -r run test` | contracts 64/64, web 172/172, server unit 285/285 |
+| `apps/server: vitest run test/integration` | **342/342** (iki ardışık koşu). Bir koşuda `requests-p8b-5` AC-159 bir kez düştü, tek başına ve sonraki iki tam koşuda yeşil — paralel dosya yükü kaynaklı kararsızlık, P8c kodu dokunmuyor |
+
+AC-166/176 performans (1.000 müşteri + 10.000 talep, medyan): liste 8 ms, arama 8 ms, `createdAt:desc` 7 ms, talep
+müşteri filtresi 6 ms, Genel filtresi 7 ms (tam koşu altında ≤ 34 ms) — sınır 500 ms.
+
+### frontend-dev için (sözleşme)
+- Frontend'in "Backend entegrasyonunda kontrol edilecekler" listesindeki maddelerin tümü sağlandı ve testli:
+  `request.new`/`SupportRequestItem` her yanıtta `customerFirm`, `viaBinding`, `bindingRevoked`, `staleSource`;
+  `?customer=` pending + history; options `status=all|active`; 409 `fields.name`; `POST /sessions` `{}`/`{customerId}`;
+  geçmiş ve CSV `customerFirm=none|<id>`; sekme öğeleri `SupportRequestItem` / `SessionListItem`.
+- **p7-control.spec.ts masaüstü 11 hata P8c kaynaklı değil**: `packages/contracts/src/ws.ts` geçici olarak HEAD sürümüne
+  alınıp spec yeniden koşuldu — aynı 11 test yine düştü (`data-share="unknown"`). P8c ws.ts değişikliği `hello` /
+  `share.state` şemalarına dokunmuyor (yalnız `binding.*` eklendi). Muhtemel kaynak: son commit (6701567 "TURN'süz ilk
+  teklif") sonrası e2e mock'un (`e2e/mock-ws.mjs`) teknisyene `ice.servers`/TURN akışını sağlamaması; frontend/e2e
+  tarafında ayrıca bakılmalı. **Çözüldü:** mock sırası düzeltildi, bkz. "Düzeltme — TURN'süz ilk teklif" / E2E mock uyumu.
+
+## P8c-1 — Frontend (Rotalar) (frontend-dev, 2026-11-12)
+Kaynak: `docs/mimari-e10.md` §9 + §15 (r2), `docs/mimari-api.md` "Müşteriler ve bilgisayar kaydı (P8c)", AC-165..180, 194, 195 (panel kısmı). Tipler/şemalar yalnız `@remote/contracts` (`api/customers`, `api/requests`, `api/sessions`, `labels`); web'de alan tanımı yok (`lib/customers/contract.ts` yalnız yeniden dışa aktarım).
+
+### Rotalar
+| Yol | Auth | Yetki | Ne yapar |
+|---|---|---|---|
+| `/customers` | Evet | `customers.view` (menü öğesi de bununla) | Müşteri listesi: Genel bağlantı şeridi (salt okunur, Kopyala), arama (`?q=`, ≥ 2 karakter, 300 ms), durum (`?status=active\|passive\|all`), `?page=` (50/sayfa), Yeni müşteri (`customers.create`), "Müşteriye nasıl gönderilir?" yardım diyaloğu. Super Admin firma seçmeden → "Önce firma seçin" |
+| `/customers/[id]` | Evet | `customers.view`; düzenle/yenile/aktif et `customers.edit`, pasife al `customers.delete` | Müşteri detayı: bağlantı (Kopyala, Bağlantıyı yenile), bilgiler, durum eylemleri, sekmeler Talepler (`support_requests.view`) / Oturumlar (`session_history.view`; yoksa kilitli durum). Yok/başka tenant → 404 sayfası |
+| `/requests?customer=general\|<id>` | Evet | `support_requests.view` | Kuyruk ve Geçmiş sekmesinde müşteri filtresi (Tümü / Genel / müşteri seç + combobox); kartta firma satırı, kayıtlı bilgisayar rozetleri, "Diğer" menüsünde kayıt iptali (`customers.edit`) |
+| `/history?customerFirm=none\|<id>` | Evet | `session_history.view` | Oturum geçmişi müşteri firma filtresi (sorgu adı backend'in `customerFirm`'ü; P8 `customer` misafir adı araması olarak kalır), "Müşteri firma" sütunu; detayda firma (bağlantı `customers.view` ile) |
+| `/sessions` → Yeni destek oturumu | Evet | `sessions.create` (+ `customers.view` → müşteri seçimi) | Yetki varsa önce isteğe bağlı "Müşteri firma" combobox'ı (yalnız aktif) + "Oturum oluştur"; yetki yoksa bugünkü gibi anında oluşturur. Oluşan kartta firma adı |
+| `/settings/support-requests` | Evet | `settings.edit` | Bağlantı bölümünün adı "Genel bağlantı" (davranış aynı, AC-175) |
+
+### Değişen / eklenen dosyalar (apps/web)
+- Yeni: `app/(panel)/customers/{page,loading,customer-list,customer-filters,customer-form-dialog,customers-actions,help-dialog}.tsx`, `app/(panel)/customers/[id]/{page,loading,not-found,customer-actions,customer-tabs}.tsx`, `app/(panel)/requests/{revoke-binding-dialog,request-history,customer-filter}.tsx`, `components/ui/combobox.tsx` (yeni primitif), `components/customer-combobox.tsx`, `components/copy-link.tsx`, `lib/combobox.ts`, `lib/customers/{contract,query,form}.ts`, `lib/customers/customers.test.ts`, `e2e/customers.spec.ts`, `e2e/mock-customers.mjs`.
+- Değişen: `app/(panel)/side-nav.tsx` (Müşteriler, `Building2`, Talepler'den sonra), `requests/{page,request-card,request-queue}.tsx`, `sessions/{page,sessions-view,new-session-dialog,created-session}.tsx`, `history/{page,history-filters,history-list}.tsx`, `history/[id]/{page,sections}.tsx`, `components/request-notifier.tsx` (toast "Yeni destek talebi: <ad> — <firma\|Genel>"), `components/ui/dialog.tsx` (`onDismiss`), `lib/history/query.ts` (`customerFirm`), `lib/requests/requests.test.ts` (request.new fixture'ına P8c alanları — sözleşme gereği), `messages/tr.json`, `e2e/{mock-api,mock-requests,mock-sessions}.mjs`, `DESIGN.md` (§4 ikonlar, §6 bileşenler).
+
+### Yetki toggle ekranı (AC-165)
+Panelde kullanıcı/yetki toggle ekranı henüz yok (P9). `customers.*` yalnız `packages/contracts/src/permissions.ts` `PERMISSION_MODULES`'a eklendi (backend); P9 ekranı listeyi bu sabitten ürettiğinde elle ekleme gerekmez. Web'de elle tutulan yetki listesi yok (`grep PERMISSION_MODULES apps/web` → yalnız contracts).
+
+### Sapmalar / kararlar
+1. **Bileşen testleri:** web'de jsdom/testing-library yok (yeni bağımlılık eklenmedi). Saf mantık (`lib/combobox.ts` klavye, `lib/customers/form.ts` doğrulama/PATCH, `lib/customers/query.ts` URL) Vitest'te; bileşen davranışı Playwright'ta (`e2e/customers.spec.ts`).
+2. **Onay diyalogları** mimarideki ayrı `rotate-dialog.tsx`/`status-dialog.tsx` yerine `customers/[id]/customer-actions.tsx` içinde tek `ConfirmDialog` (aynı davranış: `alertdialog`, odak Vazgeç, AC-170/171 metinleri).
+3. **Geçmiş "Müşteri firma" sütunu** yalnız sayfada müşterili oturum varsa görünür; filtre etiketi "Kayıtlı müşteri". Neden: AC-193 — P8 testi (`p8-history.spec.ts` AC-61) `columnheader`/`getByLabel("Firma")`'yı alt dize eşleşmesiyle arıyor; değiştirilmeden yeşil kalması için. Kart/detay/CSV firmayı her zaman taşır.
+4. **Talepler combobox etiketi** "Müşteri ara" (seçim kutusu "Müşteri firma" ile erişilebilir ad çakışmasın).
+5. **Kayıtlı bilgisayar rozeti** §15.7'ye göre nötr (`surface-muted` + `fg`); mevcut P8b "Bilinen kaynak" rozeti yeşil kalır (P8b kapsamı, değiştirilmedi). Kayıtla gelen talepte "İlk kez görülen kaynak" uyarısı gösterilmez (bilinen kaynak sayılır); iptal edilmiş kayıtta uyarı rozeti onun yerini alır.
+6. Yeni Destek Oturumu: `customers.view` varken bir adım eklenir (seç → Oluştur); yetki yoksa akış birebir aynı (AC-1..14 testleri değişmedi).
+7. Tasarım skill'i (`ui-ux-pro-max`) mevcut; proje DESIGN.md token/primitifleri esas alındı, yeni token eklenmedi.
+
+### Testler
+- `pnpm --filter @remote/web typecheck` ✓, `lint` ✓ (0 uyarı), `test` ✓ 172/172 (yeni: `lib/customers/customers.test.ts` — AC-166, 167, 176, 195, combobox klavyesi).
+- Playwright: `customers.spec.ts` (kritik akış: müşteri oluştur → bağlantıyı kopyala → talep listesinde müşteri filtresi; form 409/sekme/kaydedilmemiş değişiklik; yenile/pasif/aktif onayları; pano reddi → seçili metin; arama; yardım klavye/Esc + axe açık/koyu (liste, form, detay, yardım); K23 sekme yetkisi; kart menüsünden kayıt iptali; Yeni oturumda müşteri seçimi; 390 px taşma yok) + `p8b-requests`, `sessions`, `p8-history` → 79 geçti, 0 hata.
+- **Not:** `p7-control.spec.ts` masaüstünde 11 test `stage data-share` "unknown" ile düşüyor; e2e sahte oturum mock'u eski hâline alınınca da aynı (bu paketin web değişikliğinden bağımsız görünüyor; konsol/sahne dosyalarına dokunulmadı). Backend'in eşzamanlı `contracts/ws.ts` değişikliğiyle birlikte qa'da yeniden koşulmalı.
+
+### Backend entegrasyonunda kontrol edilecekler
+- `GET /customers/options` `status=all` filtrede (pasifler dahil), yeni oturumda `status=active`; `q` boşken ilk 20.
+- `POST /sessions` gövdesi `{}` veya `{ customerId }`; 404/403 → panel seçime döner.
+- `SupportRequestItem`/`request.new` P8c alanları (`customerFirm`, `viaBinding`, `bindingRevoked`, `staleSource`) her yanıtta dolu olmalı — `panelOutboundSchema` strict; eksikse toast/kuyruk tazelemesi sessizce düşer.
+- `GET /support-requests?customer=` kuyruk (pending) sekmesinde de uygulanmalı.
+- 409 ad çakışması `fields.name` ile dönmeli (yoksa panel `message`'ı ad alanına yazar).
+- `GET /customers/:id/requests` öğeleri `SupportRequestItem`; `/sessions` öğeleri `SessionListItem` (teknisyen, `startedAt`, `durationSec`, `source`).
+- Geçmiş filtresi parametre adı `customerFirm` (contracts), CSV aynı parametreyi almalı (`exportApiPath` filtreyi taşır).
+
+## P8c-1 — düzeltme turu 1 (backend-dev, 2026-11-12)
+
+Kaynak: `docs/qa-raporu.md` P8c-1 Tur 1 [backend-dev] 1–9, `docs/guvenlik-raporu.md` "E10/P8c-1 — Kod turu 1" B-P8c-1..6.
+Durum: **tamam**. Yeni bağımlılık yok, yeni env yok, şema/migration değişikliği yok.
+
+### Madde → yapılan
+| Madde | Yapılan |
+|---|---|
+| B-P8c-1 (Orta) | Talep TX'inde `lockSettings`'ten sonra müşteri `SELECT status … FOR SHARE` (`customers/repo.shareStatus`); ACTIVE değilse ref yolunda tek 404 `REQUEST_REF_INVALID`, kayıt yolunda `BINDING_INVALID` (ikisi de `req.ref_invalid` kovası). Kabul TX'inde müşteri, talep satırından **önce** FOR SHARE ile okunur (pasife alma ile aynı kilit sırası customers → support_requests; bu **kabul yolunda** döngü yok — §15.4 kayıt verme yolu ters sıralı, bkz. düzeltme turu 2 / B-P8c2-2); pasifse kabul yok → talep commit sonrası `CANCELLED(CUSTOMER_PASSIVE)` + 409 `REQUEST_CLOSED`. Pasife alma bekleyenleri artık **kendi TX'inde** iptal eder (kullanıcı aktörlü `request.cancelled` audit), commit sonrası `closedAfterCommit`; süpürücü yalnız yedek |
+| B-P8c-2 (Orta) | QA 1–5 testleriyle kapandı (aşağıda) |
+| B-P8c-3 | `revoke-binding` = `support_requests.view` + `customers.edit`; web `requests/page.tsx` `canRevoke` ikisini birden arar; mimari-e10 §15.2'ye not |
+| B-P8c-4 | `rs_binding_denied_total{reason: stale_source\|inactive\|rate\|no_offer\|browser}`; `stale_source` ve `inactive` için `binding.denied{reason}` audit (oturum başına ≤ 3 istek → sel yok); runbook metrik satırı |
+| B-P8c-5 | Biçim dışı `bindingKey`: `/public/bindings/status` ve `/public/requests` → 404 `BINDING_INVALID` + `req.ref_invalid` kovası (yalnız `clientVersion` hatası 400) |
+| B-P8c-6 | `cancelledRequests` = aynı TX'te gerçekten iptal edilen sayı (B-P8c-1 ile) |
+| QA 8 | `docs/mimari-akislar.md` A7a/A7b/A7c sequence diyagramları |
+| QA 9 | P8c-1 Backend "sapmalar" madde 7'ye `session-history-p8` CHECK 17→19 gerekçesi |
+
+### Testlerin yakaladığı gerçek hata (§15.3 eşzamanlı istek)
+Eşzamanlı iki `binding.request` testinde ikinci istek `INTERNAL` alıyordu. Nedenler: (1) iki TX aynı boş
+`active_session_id` aralığını FOR UPDATE ile kilitleyip INSERT ettiğinden InnoDB kilitlenmesi (1213) — yeniden deneme yalnız
+P2002'yi kapsıyordu; (2) yeniden denemede `lockActiveOfSession` kilitli okumadan sonra satırı `findUnique` ile REPEATABLE READ
+anlık görüntüsünden okuyordu, kazananın commit'ini görmüyordu (→ P2002); (3) `renew` Prisma `update` kullanıyordu (MySQL'de önce
+anlık görüntüden SELECT → P2025). Düzeltme: yeniden deneme `isTransientDbError`'ı da kapsar; `lockActiveOfSession` /
+`lockActiveByHash` sütunları kilitli sorgunun kendisinden döndürür; `renew` tek `updateMany` (count≠1 → hata); müşteri durum
+okumaları (`issueTx` §15.4 dahil) kilitli okumadan. Aynı anlık görüntü sorunu `issueTx`'teki eski müşteri durumu kontrolünde de
+vardı (FOR SHARE alınıyor ama durum ilk okumanın anlık görüntüsünden bakılıyordu) — `shareStatus` ile kapandı.
+
+### Değişen dosyalar
+- server: `src/customers/{repo,service}.ts` (`shareStatus`; ölü `pendingCount` silindi; pasife alma TX içi iptal),
+  `src/requests/{service,panel,repo,routes}.ts`, `src/bindings/{service,repo}.ts`, `src/signaling/binding.ts`,
+  `src/ops/metrics.ts`, `prisma/seed.ts` + **yeni** `prisma/seed-consent.ts` (aydınlatma seed'i test edilebilir modüle
+  taşındı; davranış aynı, migrate imajı `COPY . .` ile alır).
+- web: `app/(panel)/requests/{page,request-queue,request-card}.tsx` (görünürlük koşulu + yorumlar). `apps/web/e2e`'ye dokunulmadı
+  (mock `revoke-binding` yalnız `customers.edit` bakıyor; e2e kullanıcılarında iki yetki birlikte olduğundan etkisiz).
+- docs: `mimari-akislar.md` (A7), `mimari-e10.md` §15.2 notu, `runbook.md` (metrik), bu bölüm.
+- test: `test/integration/bindings-p8c.test.ts` (+13 test).
+
+### Eklenen testler (`bindings-p8c.test.ts`)
+AC-181 lobi(admit öncesi)/BROWSER/teklifsiz → kayıt yok; AC-181/B-P8c-1 pasif müşteride `inactive` ret; §15.1 (2)(3);
+§15.3 sıralı (iki farklı previousKey + anahtarsız) ve eşzamanlı; AC-184 `/ws/request`, `/ws/guest` reconnect/ticket,
+`/ws/tech` (TURN kimlik bilgisi yalnız WS `hello`/`ice.servers` ile verildiğinden ayrı REST TURN ucu yok — "TURN ucu" bu WS
+yollarıyla sınandı); K20 `req.create.ip` (aynı IP 6. istek 429 + audit) ve `req.create.binding` 6/sa; B-P8c-5; B-P8c-1
+kabul yarışı + pasife alma `cancelledRequests` = 2; B-P8c-3 403; AC-192 müşteri ref'li talepten doğan oturumda teknisyenin
+`ice.servers`'ı TURN'lü ve `peer.joined`'dan önce; AC-188 seed yeni sürüm (tek tenant üzerinde `seedTenantConsent`; bütün DB'ye
+seed koşmak paralel test dosyalarının aydınlatma kimliklerini değiştirirdi). "Reddedilen misafir" ayrı sınanmadı: ret soketi
+kapatır, kapalı soketten istek gelemez; admit öncesi yol lobi testiyle kapsanıyor.
+
+### Doğrulama (geçici DB `rs-mysql-p8c-fix`, port 33322 — iş sonunda silindi)
+| Komut | Sonuç |
+|---|---|
+| `pnpm -r run typecheck` | contracts / web / server temiz |
+| `pnpm -r run lint` | temiz |
+| `pnpm -r run test` | contracts 64/64, web 172/172, server unit 285/285 |
+| `apps/server: pnpm run test:int` | **37 dosya, 355/355** (342 + 13); eşzamanlı test ayrıca 3 kez art arda yeşil |
+
+### frontend-dev için
+- `revoke-binding` artık `support_requests.view` da istiyor (403 aksi); panel koşulu güncellendi. İsterseniz e2e mock'u
+  (`e2e/mock-customers.mjs`) aynı koşula getirin — bu turda e2e'ye dokunulmadı.
+- Kabulde müşteri pasifse yanıt 409 `REQUEST_CLOSED` (mevcut kod; yeni kod yok) ve talep `CANCELLED/CUSTOMER_PASSIVE` olarak
+  kuyruktan düşer (`request.removed`).
+
+## P8c-1 — düzeltme turu 2 (backend) (backend-dev, 2026-11-12)
+Kaynak: `docs/guvenlik-raporu.md` "E10/P8c-1 — Kod turu 2" (B-P8c2-1, B-P8c2-2, gözlem). Sözleşme değişikliği yok.
+
+| Madde | Değişiklik |
+|---|---|
+| B-P8c2-1 | `test/integration/bindings-p8c.test.ts`: düz metin TURN secret → `FAKE_TURN_SECRET` (`test/helpers/secrets.ts`). Allowlist genişletilmedi. gitleaks v8.30.1 `dir /repo/apps/server --redact --config .gitleaks.toml` → **no leaks found, çıkış 0**. |
+| B-P8c2-2 | `customers/service.ts`: `withRefRetry` → `withTxRetry`; ref çakışması (en çok 5) korunur, ek olarak `isTransientDbError` (P2028/P2034, 1205/1213, 45028) için **tek** yeniden deneme. `deactivateCustomer` artık da bu sarmalayıcıdan geçer; `rotateCustomerRef`, `reactivateCustomer`, `createCustomer` aynı sarmalayıcıyı zaten kullanıyordu (geçici hata denemesi onlara da uygulanır — geri alınan TX audit/revoke'u da geri aldığı için çift yazım yok). İkinci geçici hata mevcut davranışla 503 `NOT_READY` + `Retry-After`. Düzeltme turu 1'deki "kilitlenme yok" ifadesi kabul yoluyla sınırlandırıldı: §15.4 yolu (`device_bindings X → customers S`) ile pasife alma/yenileme (`customers X → device_bindings`) arasında 1213 mümkün; iki taraf da artık tek kez yeniden dener. |
+| Gözlem (B-P8c-1) | Talep TX'indeki `shareStatus` dalını doğrudan sınayan regresyon testi: `RequestService.prototype.resolveRef` sarılıp peek ACTIVE döndükten sonra müşteri pasife çekilir → 404 `REQUEST_REF_INVALID`, talep satırı yok. |
+
+Sapma: `customers/service.ts` biçimlendirmesi düzenleme sırasında prettier ile (printWidth 200) yeniden yazıldı; davranış farkı yok, yalnız birkaç nesne literali çok satırlı oldu (projede prettier yapılandırması yok, eslint temiz).
+
+Yeni testler (`bindings-p8c.test.ts`, +4): B-P8c-1 TX içi kilitli kontrol; B-P8c2-2 pasife alma ve ref yenileme ilk denemede P2034/1213 → 200 + tek audit; iki ardışık geçici hata → 503 `NOT_READY`, müşteri ACTIVE. Geçici hata, `testDb().$transaction` üzerine `vi.spyOn(...).mockRejectedValueOnce` ile Prisma 7 bağdaştırıcı şeklinde (`P2034`, `meta.driverAdapterError.cause.code = 1213`) enjekte edilir. Mutasyon kontrolü: TX içi `shareStatus` kontrolü ve `TRANSIENT_RETRIES` kapatılınca ilgili 3 test kırmızı.
+
+### Doğrulama (geçici DB `rs-mysql-p8c-fix2`, port 33324 — iş sonunda silindi)
+| Komut | Sonuç |
+|---|---|
+| `apps/server: pnpm typecheck` / `pnpm lint` | temiz |
+| `apps/server: pnpm test` | 285/285 |
+| `apps/server: pnpm test:int` | **37 dosya, 359/359** (355 + 4) |
+| gitleaks `dir /repo/apps/server` | no leaks found, çıkış 0 |
+
+### frontend-dev için
+- Değişiklik yok. Pasife alma/yenileme 503 `NOT_READY` artık yalnız iki ardışık geçici DB hatasında döner.
+
+
+## P8c-1 — düzeltme turu 2 (frontend) (frontend-dev, 2026-11-12)
+
+Kaynak: `docs/qa-raporu.md` Tur 2 "Düzeltilmeli" 1–4 + öneri (mock revoke-binding). Uygulama kodu değişmedi; yalnız e2e, sahte API ve Playwright yapılandırması. Yeni rota yok.
+
+1. **`customers.spec` AC-174/194 kararsızlığı — kök neden: test yarışı (uygulama hatası değil).** Trace + tanılama: `page.goto` `load` olayında döner, ama React 19 Suspense açılışı (`$RC`) ~300 ms kısılır; sayfa içeriği o anda hâlâ `<div hidden id="S:0">` içinde, ekranda `loading.tsx` iskeleti var. `trigger.focus()` gizli düğmede etkisiz, Enter `body`'ye gidiyordu (hata görüntüsünde odak `body`). Açılış sonrası düğme 8/8 ölçümde hidrasyonluydu; kullanıcı gizli düğmeye zaten ulaşamaz. Düzeltme: önce `toBeVisible()`, sonra `toPass` içinde odak doğrulanıp Enter (diyalog açıksa yeniden basılmaz; yalnız yük altında hidrasyon öncesi basılan Enter'ı yineler). `--repeat-each=10 --project=desktop`: **140/140** (AC-174/194 10/10).
+2. **AC-166 / AC-178 durum testleri.** `mock-customers.mjs` senaryoları (rqcu yetkileriyle; `mock-requests.mjs` `requestUser`'a eklendi): `rqcuempty` (müşteri yok), `rqcubroken` (liste ve detay Talepler sekmesi ilk istekte 500, sonra 200), `rqcuslow` (aynı uçlar 1,5 sn gecikmeli). Yeni testler: "AC-166: müşterisiz firma — boş durum" (`customers-empty`, yardım + Esc + odak dönüşü, `customer-new-empty` → form), "AC-166/178: hata durumları … Tekrar dene ile toparlanır" (`load-error` + Genel bağlantı şeridi kısmi durum; `customer-tab-error` → yeniden deneme → satır sayısı = detay sayacı), "AC-178: detay sekmeleri boş durumu" (`customer-requests-empty`, `customer-sessions-empty`), "AC-166/178: yükleniyor" (`customers-loading` `aria-busy`, `customer-tab-loading`, ardından içerik).
+3. **p5-collab zamanlaması.** (a) `acceptOffer` (:71, TEST-P5-1 ve tüm dosya kabulleri): anlık `toBeDisabled` yerine `watchArm` gözlemcisi (`live()` iki sayfaya kurar) her yeni "Kabul et" düğmesinin DOM'a **kilitli girdiğini** ve kilidin **≥ 1,4 sn** sürdüğünü sayfa saatiyle kaydeder → iddia daha güçlü, yükten bağımsız. (b) AC-41 (:491): `@perf` etiketi + `desktop-perf` projesi — eşik (FPS ≥ 15, 1920 genişlik) aynı; diğer projeler bittikten sonra tek başına koşar. (c) Tam koşularda p5'in diğer testleri de aynı nedenle düşüyordu (AC-39 light: misafir DC 15 sn'de açılmadı; AC-44/46: FPS "—"): `p5-collab.spec.ts` ayrı `desktop-rtc` projesinde, `workers: 3` (proje bazlı sınır), iddialar değişmedi. Toplam süre değişmedi (~1,0 dk).
+   - Sapma/not: `desktop-perf` bağımlı projelerden (desktop, mobile, desktop-rtc) biri kırmızıysa "did not run" olur — önce o hata düzeltilir.
+4. **AC-176 toast tam metni.** `p8b-requests` AC-149: `toast p` = "Yeni destek talebi: Yeni Müşteri — Genel". Yeni `customers.spec` "AC-176: … toast'ında firma adı (tam metin)": mock kancası `GET /__e2e/rq/newfirm/<çerez>` (firmalı `request.new`) → "Yeni destek talebi: Firma Müşterisi — Şişli Bilişim Ltd." + Görüntüle → kartta firma. Mock notu: `ws-request` `customerFirm` `strictObject {id,name}` — mock önce `status` ekleyince istemci iletiyi (doğru olarak) reddetti; mock sözleşmeye uyduruldu.
+5. **Öneri uygulandı:** mock `revoke-binding` sunucu gibi `customers.edit && support_requests.view` ister.
+
+Gözlem (bulgu değil, sonra): boş durumda `CustomersActions` iki kez çizildiği için sayfada iki `customers-help` diyaloğu (başlık + boş durum) var; test boş durum kapsamına daraltıldı. İstenirse tek diyaloğa indirilebilir.
+
+**Değişen dosyalar:** `apps/web/e2e/customers.spec.ts`, `e2e/p8b-requests.spec.ts`, `e2e/p5-collab.spec.ts`, `e2e/mock-customers.mjs`, `e2e/mock-requests.mjs`, `apps/web/playwright.config.ts`.
+
+**Doğrulama:** web `typecheck` / `lint` temiz, `test` 172/172. Tam `pnpm --filter @remote/web e2e` art arda 3 koşu: **206 geçti / 0 kaldı / 67 skip** (×3; skip = mevcut desktop/mobile ayrımı; p5 dosyası artık mobil projede listelenmediği için 85 → 67). AC-41 medyan 30 FPS.

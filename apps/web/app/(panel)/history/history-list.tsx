@@ -38,6 +38,8 @@ const detailLabel = (s: SessionListItem) => t("h.open", { name: s.customerName ?
 
 /** Oturum geçmişi: ≥ md tablo, dar ekranda kart (aynı veri). Satırın tamamı değil, müşteri adı bağlantıdır (klavye/ekran okuyucu tek hedef). */
 export function HistoryList({ items, showTechnician, showTenant }: Props) {
+  // P8c (AC-179): "Müşteri firma" sütunu sayfada müşterili oturum varsa görünür (müşterisiz satırda boş); kart/detay/CSV her zaman taşır.
+  const showFirm = items.some((s) => s.customerFirm);
   // Firma sütunu da açıkken (SUPER_ADMIN) < 2xl'de en az öncelikli "Bağlantı" gizlenir; tablo kaba sığar (TEST-P8-2).
   // Bağlantı filtresi, kart görünümü ve ayrıntı sayfası bu bilgiyi göstermeye devam eder.
   const modeCol = showTenant ? "hidden 2xl:table-cell" : "";
@@ -50,6 +52,7 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
             <tr>
               <th scope="col" className="px-3 py-3 font-medium">{t("h.col.created")}</th>
               <th scope="col" className="px-3 py-3 font-medium">{t("h.col.customer")}</th>
+              {showFirm && <th scope="col" className="px-3 py-3 font-medium">{t("h.col.firm")}</th>}
               {showTenant && <th scope="col" className="px-3 py-3 font-medium">{t("h.col.tenant")}</th>}
               {showTechnician && <th scope="col" className="px-3 py-3 font-medium">{t("h.col.tech")}</th>}
               <th scope="col" className="px-3 py-3 font-medium">{t("h.col.status")}</th>
@@ -71,6 +74,7 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
                     <span className="truncate">{customer(s)}</span>
                   </Link>
                 </td>
+                {showFirm && <td className="max-w-40 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.customerFirm?.name} data-testid="history-firm">{s.customerFirm?.name ?? ""}</td>}
                 {showTenant && <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.tenant?.name}>{s.tenant?.name ?? "—"}</td>}
                 {showTechnician && <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.technician.name}>{s.technician.name}</td>}
                 <td className="px-3 py-2"><StatusBadge status={s.status} /></td>
@@ -102,9 +106,9 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
                 <p className="mt-1 text-xs tabular-nums text-fg-muted">
                   {formatDateTime(s.createdAt)} · {mode(s)} · <DurationCell s={s} />
                 </p>
-                {(showTechnician || showTenant || s.ticketNo) && (
+                {(showTechnician || showTenant || s.ticketNo || s.customerFirm) && (
                   <p className="mt-1 truncate text-xs text-fg-muted">
-                    {[showTenant ? s.tenant?.name : null, showTechnician ? s.technician.name : null, s.ticketNo ? `#${s.ticketNo}` : null]
+                    {[s.customerFirm?.name ?? null, showTenant ? s.tenant?.name : null, showTechnician ? s.technician.name : null, s.ticketNo ? `#${s.ticketNo}` : null]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>

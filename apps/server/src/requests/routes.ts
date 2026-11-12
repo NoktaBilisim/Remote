@@ -4,6 +4,7 @@ import {
   acceptRequestInputSchema,
   listRequestsQuerySchema,
   rejectRequestInputSchema,
+  revokeBindingInputSchema,
   rotateRefInputSchema,
   updateRequestSettingsInputSchema,
   whatsappTestInputSchema,
@@ -19,6 +20,7 @@ import { auditContext } from "../audit/service.ts";
 import { authOf, requireAuth, requirePerm, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
 import { acceptRequest, getRequest, getSettings, listRequests, rejectRequest, rotateRef, updateSettings, whatsappTest } from "./panel.ts";
+import { revokeRequestBinding } from "../bindings/service.ts";
 import * as repo from "./repo.ts";
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -57,6 +59,16 @@ export async function supportRequestRoutes(app: FastifyInstance): Promise<void> 
     const id = idParam(req);
     parseInput(acceptRequestInputSchema, req.body);
     return acceptRequest(app.requests, auditContext(req), authOf(req), tenantId, id);
+  });
+
+  // r2 (§15.2, G-E10-2): tek kayıt iptali — customers.edit + (B-P8c-3) support_requests.view; kayıt talebin
+  // binding_id'sinden (istemciden kimlik alınmaz).
+  app.post("/:id/revoke-binding", { preHandler: [requirePerm("support_requests.view"), requirePerm("customers.edit")] }, async (req, reply) => {
+    const { tenantId } = tenantScope(req);
+    const id = idParam(req);
+    parseInput(revokeBindingInputSchema, req.body);
+    await revokeRequestBinding(app.requests, auditContext(req), authOf(req), tenantId, id);
+    return reply.status(204).send();
   });
 
   app.post("/:id/reject", acceptPerm, async (req, reply) => {

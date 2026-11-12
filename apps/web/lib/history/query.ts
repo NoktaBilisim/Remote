@@ -29,6 +29,8 @@ export interface HistoryFilters {
   technicianId?: string;
   tenantId?: string;
   customer?: string;
+  /** P8c (AC-179): müşteri FİRMA filtresi — `none` (müşterisiz) | ULID (sorgu adı `customerFirm`). */
+  customerFirm?: string;
   page: number;
   pageSize: number;
 }
@@ -75,6 +77,7 @@ export function parseFilters(sp: SearchParams): { filters: HistoryFilters; ignor
   take("technicianId", (v) => ULID.test(v), (v) => (f.technicianId = v));
   take("tenantId", (v) => ULID.test(v), (v) => (f.tenantId = v));
   take("customer", (v) => checkCustomer(v).value !== undefined, (v) => (f.customer = checkCustomer(v).value));
+  take("customerFirm", (v) => v === "none" || ULID.test(v), (v) => (f.customerFirm = v));
   take("page", (v) => int(v) >= 1 && int(v) <= 10_000, (v) => (f.page = int(v)));
   take("pageSize", (v) => int(v) >= 1 && int(v) <= SESSION_PAGE_SIZE_MAX, (v) => (f.pageSize = int(v)));
   // from > to → sunucu 400 verir; bitişi yok say (başlangıç korunur)
@@ -99,6 +102,7 @@ export function toQuery(f: Partial<HistoryFilters>, opts: { paging?: boolean } =
   put("technicianId", f.technicianId);
   put("tenantId", f.tenantId);
   put("customer", f.customer);
+  put("customerFirm", f.customerFirm);
   if (opts.paging !== false) {
     if (f.page && f.page > 1) put("page", f.page);
     if (f.pageSize && f.pageSize !== DEFAULT_PAGE_SIZE) put("pageSize", f.pageSize);
@@ -127,7 +131,7 @@ export function exportApiPath(f: Partial<HistoryFilters>): string {
 }
 
 export const hasFilters = (f: HistoryFilters) =>
-  Boolean(f.status || f.mode || f.source || f.from || f.to || f.technicianId || f.tenantId || f.customer);
+  Boolean(f.status || f.mode || f.source || f.from || f.to || f.technicianId || f.tenantId || f.customer || f.customerFirm);
 
 /** Sayfa düğmeleri için toplam sayfa (en az 1). */
 export const pageCount = (total: number, pageSize: number) => Math.max(1, Math.ceil(total / pageSize));

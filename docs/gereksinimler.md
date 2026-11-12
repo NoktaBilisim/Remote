@@ -7,8 +7,9 @@ Tarih: 2026-11-12   Durum: TASLAK (2026-11-10: tam erişim MVP'de; 2026-11-11: `
 > `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e5-e8.md` ve
 > `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e9.md` (E9, AC-129..AC-164).
 > E9'un kapsamı, NFR'leri, varsayımları, riskleri, açık soruları ve paket önerisi: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e9.md`.
+> E10 (Müşteri firmalar ve kalıcı istemci) kabul kriterleri: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e10.md` (AC-165..AC-195). Kapsamı, NFR'leri, varsayımları (V21–V28), riskleri (R19–R24), açık soruları (S18–S21) ve paket önerisi: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e10.md`.
 > Bölüm 9'un "Sonra / açık" tabloları (P2..P8b-1): `/Users/mennan/Projeler/Remote/docs/gereksinimler-sonra-acik.md` (2026-11-12'de içerik değiştirilmeden taşındı).
-> Toplam: **37 kullanıcı hikâyesi, 164 kabul kriteri** (AC-1..AC-164).
+> Toplam: **45 kullanıcı hikâyesi, 195 kabul kriteri** (AC-1..AC-195).
 
 ## 1. Amaç ve iş değeri
 Kurumsal müşterilere teknik destek verirken AnyDesk/TeamViewer gibi üçüncü taraf SaaS'a bağımlılığı kaldırmak. Tamamen self-hosted, uçtan uca şifreli (DTLS-SRTP), **tam erişimli** (uzaktan klavye/fare) bir destek platformu: teknisyen web panelinden çalışır; müşteri **kurulum ve admin yetkisi gerektirmeyen** taşınabilir "Hızlı Destek" uygulamasıyla tam erişim verir veya bu uygulama çalıştırılamıyorsa tarayıcıdan yalnızca görüntü paylaşır. Medya ve veri firmanın kendi sunucusundan çıkmaz; tüm oturumlar audit log ile denetlenir. Proje açık kaynaktır (Apache-2.0).
@@ -35,6 +36,7 @@ E9 (2026-11-12): Sık destek alan kurumsal müşteri, firmasına ait Hızlı Des
 - **Ortak Nokta standartları (Epik E6, /Users/mennan/Projeler/CLAUDE.md):** login + 2FA (TOTP), tenant, rol, yetki toggle'ları, audit log + salt okunur ekran, MySQL ayar + test, SMTP ayar + test maili, logo/avatar, açık/koyu/sistem tema, favicon, UI standardı.
 - **Yetki listesi eki:** Oturumlar modülüne `sessions.terminate` ("Oturumu zorla sonlandır") alt yetkisi eklenir; Admin varsayılan açık, User varsayılan kapalı (AC-71, AC-114; G-04).
 - **Müşteri destek talebi (Epik E9, 2026-11-12):** tenant başına sabit indirme bağlantısı ve firma dosyası; istemcide "Destek iste" formu (KVKK onayı aynı formda, bilgiler bu bilgisayarda hatırlanır ve "Bilgilerimi unut" ile silinir); tenant talep kuyruğu; panel (ses + toast), WhatsApp ve e-posta bildirimi; kabulle otomatik bağlanma; `support_requests.view/accept` yetkileri; hız sınırları; audit; oturum geçmişine bağlantı. Ayrıntı `docs/gereksinimler-e9.md`, AC-129..AC-164.
+- **Müşteri firmalar ve kalıcı istemci (Epik E10, 2026-11-12):** "Müşteriler" modülü (CRUD, pasife alma, arama/filtre, müşteri başına kalıcı indirme bağlantısı ve `NoktaDestek-<etiket>-<ref>.exe`, bağlantı yenileme, `customers.view/create/edit/delete`, audit); Genel bağlantı adlandırması; talep/oturum → müşteri ilişkisi, Talepler ve geçmişte sütun/filtre/CSV, müşteri detayında talep/oturum geçmişi; Yeni Destek Oturumu'nda müşteri seçimi; başarılı oturumdan sonra bilgisayar kaydı (DPAPI), "Destek iste" + "Bağlantı kodum var" ana ekranı, "Bu bilgisayarı unut"; "Müşteriye nasıl gönderilir?" yardımı; istemci 0.10.0, 0.9.x uyumu. Ayrıntı `docs/gereksinimler-e10.md`, AC-165..AC-195.
 - **Operasyon:** Docker Compose (uygulama + coturn + MySQL), publish sunucusuna deploy, health/metrics, yedekleme, runbook; istemci için imzasız, tekrarlanabilir build + SHA-256 + GitHub build attestation hattı (K8, ADR-0010).
 - **Dokümantasyon:** README, KULLANIM_KILAVUZU, DATASHEET, PDF'ler.
 
@@ -51,6 +53,7 @@ E9 (2026-11-12): Sık destek alan kurumsal müşteri, firmasına ait Hızlı Des
 10. **Chat içeriğinin sunucuda saklanması** (açık soru S5), SSO/LDAP, faturalama/lisanslama, public API, ITSM entegrasyonu, SMS/WhatsApp ile link gönderimi, İngilizce arayüz (altyapı i18n uyumlu; sonra), Windows ARM64. (Not 2026-11-12: E9'da WhatsApp yalnız **teknisyene talep bildirimi** için kullanılır; müşteriye link/durum gönderimi kapsam dışı kalır.)
 11. **Ekran karartma / gizli mod** (müşteriden gizli işlem yapma) — kötüye kullanım riski; hiçbir fazda planlanmaz (G-17).
 12. **E9'a özgü kapsam dışı maddeler:** tepsi simgesi/otomatik başlatma, web formundan talep, talep atama/SLA/mesai saatleri, kabul öncesi mesajlaşma. Tam liste `docs/gereksinimler-e9.md` §3.
+13. **E10'a özgü kapsam dışı maddeler:** pencere bazlı paylaşım, müşteri portalı/girişi, müşteriye sistemden bağlantı gönderimi ve WhatsApp'ta müşteri firma bilgisi, müşteri başına SLA/fatura/Paraşüt eşlemesi, kalıcı silme ve CSV içe/dışa aktarma, bir bilgisayarda birden çok firma kaydı, tarayıcı modunda kayıt, kod alanına link yapıştırma; gözetimsiz erişim yine kapsam dışı (kayıt yalnız talep açar). Tam liste `docs/gereksinimler-e10.md` §3.
 
 ## 4. Fazlar (MVP yol haritası)
 | Faz | İçerik | Çıkış kriteri |
@@ -67,6 +70,8 @@ E9 (2026-11-12): Sık destek alan kurumsal müşteri, firmasına ait Hızlı Des
 Not: Audit log ve tenant izolasyonu Faz 1'de kurulur ("en baştan" kuralı). Faz 4'ün kritik yolu SmartScreen/AV davranışıdır: kod imzalama sertifikası yoktur (K8, ADR-0010); tekrarlanabilir build, SHA-256 yayını, GitHub build attestation ve SmartScreen "Ek bilgi → Yine de çalıştır" rehberi ile yönetilir. SignPath Foundation başvurusu Faz 4 ile paralel başlatılır (R1).
 
 **Paket önerisi (2026-11-12):** E9, P9'dan **önce** yeni paket olarak yürür ve iki alt pakete bölünür: **P8b-1** (sunucu + panel: dba → backend ‖ frontend ‖ devops) ve **P8b-2** (Go istemci 0.9.0). E-posta bildirim kanalı (AC-151) SMTP ile birlikte P10'da kapanır. Ayrıntı ve AC dağılımı `docs/gereksinimler-e9.md` §9. `docs/mimari.md` §10 tablosunun güncellenmesi mimarındır.
+
+**Paket önerisi P8c (2026-11-12, E10):** siyah ekran bug fix (yapıldı, 6701567) → **P8c-1** (sunucu + panel) → **P8c-2** (istemci 0.10.0) → P9. Ayrıntı ve AC dağılımı `docs/gereksinimler-e10.md` §9; mimari karşılığı `docs/mimari-e10.md` §12 ve `docs/mimari.md` §10.2.
 
 ## 5. Kullanıcı hikâyeleri
 Kabul kriterleri: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri.md`
@@ -126,6 +131,16 @@ Kabul kriterleri: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriter
 - US-36: Talep kaynaklı oturumların geçmişte görünmesi.
 - US-37: Kimliksiz talep ucunun kötüye kullanıma karşı korunması ve audit kaydı.
 
+**E10 — Müşteri firmalar ve kalıcı istemci (2026-11-12)** — metinleri `docs/gereksinimler-e10.md` §4
+- US-38: Müşteri firmaları kaydetme ve her birine ayrı, kalıcı indirme bağlantısı verme (Admin).
+- US-39: Müşterinin bağlantısını yenileme veya müşteriyi pasife alma (Admin).
+- US-40: Talepleri ve oturumları müşteri firmaya göre görme ve süzme (Teknisyen).
+- US-41: Yeni destek oturumu açarken müşteri firmayı seçme (Teknisyen).
+- US-42: Daha önce destek alınan dosyayı yeniden açınca "Destek iste" diyebilme (Müşteri).
+- US-43: Aynı programda teknisyenin verdiği kodu girebilme — "Bağlantı kodum var" (Müşteri).
+- US-44: Bilgisayarın hatırlandığını görme ve "Bu bilgisayarı unut" ile silme (Müşteri).
+- US-45: Müşteriye dosyanın nasıl gönderileceğini panelde görme (Admin).
+
 Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre değil eklenme sırasına göre verilir (mevcut numaralar değişmez).
 
 ## 6. Fonksiyonel olmayan gereksinimler
@@ -133,6 +148,7 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 - **Güvenlik:** TLS zorunlu (getDisplayMedia güvenli bağlam ister); DTLS-SRTP; medya uygulama sunucusundan geçmez (TURN yalnızca şifreli paket görür); strict CORS ve nonce tabanlı CSP, HSTS, `frame-ancestors 'none'`; rate limiting; WS Origin + kimlik doğrulama; tüm girdiler zod ile; uzaktan kontrol izni **istemci tarafında** uygulanır (sunucu P2P input'u engelleyemez, istemci izin yokken gelen her input olayını düşürür); teknisyen kabulü olmadan SDP/ICE ve TURN kimlik bilgisi verilmez (AC-112).
 - **İstemci:** Windows 10 22H2+ ve Windows 11, x64; tek dosya ≤ 40 MB; çift tıktan karşılama ekranına ≤ 5 sn; istemci kendi dosyası yazmaz (`%TEMP%` dahil); tek disk yazımı müşterinin Kabul ettiği dosyadır (İndirilenler, `.part` → doğrulama → MOTW; yarım kalan `.part` silinir — ADR-0004 r2, 2026-11-11); kayıt defteri, servis, zamanlanmış görev, başlangıç kısayolu yok; imzasız, tekrarlanabilir build, SHA-256 `SHA256SUMS` ile ve GitHub build attestation ile doğrulanabilir (K8, AC-96). **Değişiklik talebi (E9, 2026-11-12):** tek istisna, müşterinin "Bu bilgisayarda hatırla" seçimiyle yazılan DPAPI korumalı ayar dosyasıdır (AC-136..AC-138); ADR-0004 revizyonu mimarındır.
 - **E9 ekleri:** talepten panel bildirimine p95 ≤ 3 sn, kabulden bağlantı ekranına p95 ≤ 3 sn, WhatsApp/e-posta gönderimi ≤ 60 sn; kimliksiz talep ucu hız sınırları (AC-143/AC-144). Ayrıntı `docs/gereksinimler-e9.md` §5.
+- **E10 ekleri:** müşteri listesi 1.000 müşteri / 10.000 talepte < 500 ms; kayıtlı bilgisayarda açılıştan ana ekrana ≤ 5 sn; talep oturumunda kabulden ilk kareye p95 ≤ 8 sn; kayıt anahtarı ≥ 128 bit, sunucuda yalnız özet; ref/kayıt geçersizlik yanıtları tek tip. İstemcinin tek iz istisnası (ayar dosyası) bilgisayar kaydını da kapsar (ADR-0004 eki). Ayrıntı `docs/gereksinimler-e10.md` §5.
 - **Tarayıcı desteği:** teknisyen ve müşteri: Chrome/Edge son 2 sürüm (tam), Firefox son 2 sürüm (Document PiP yok), Safari macOS son 2 sürüm (müşteri, best-effort).
 - **Erişilebilirlik:** WCAG 2.1 AA; klavye ile tam kullanım; durumlar yalnız renkle anlatılmaz.
 - **Yerelleştirme:** arayüz Türkçe; tarihler UTC saklanır, Europe/Istanbul gösterilir; metinler i18n anahtarlarından.
@@ -156,6 +172,7 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 - V12: 2FA (TOTP) Super Admin ve Admin için zorunlu, teknisyen için tenant ayarıyla zorunlu kılınabilir (varsayılan açık).
 - V13: "Kötüye kullanımı bildir" bağlantısı `ABUSE_EMAIL` ortam değişkenine gider; değer verilmezse Super Admin e-postası kullanılır (S11).
 - V14–V20 (E9): tenantRef yalnız dosya adında; "hatırla" kutucuğu varsayılan işaretsiz (2026-11-12 r2); talep kabulünde lobi kodu yok; kuyruk tenant genelinde; WhatsApp URL sistem düzeyinde; bekleme 30 dk / en çok 50 bekleyen; talep saklama süresi oturumla aynı. Metinler `docs/gereksinimler-e9.md` §6.
+- V21–V28 (E10): bilgisayar kaydı başarılı oturumla kendiliğinden yazılır (kişisel veri yok); kayıt anahtarı bilgisayar başına sunucu üretimli; pasife alma `customers.delete` ile, kalıcı silme yok; toplam talep sayısı tüm durumları sayar; müşteri adı tenant içinde tekil; talep kabulünde lobi kodu yok; müşteri dosyası adı E9 biçimiyle aynı; kayıt tenant saklama süresi kadar kullanılmazsa geçersizleşir. Metinler `docs/gereksinimler-e10.md` §6.
 
 ## 8. Riskler ve açık sorular
 ### Riskler
@@ -172,6 +189,7 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 | R9 | Müşterinin destek sekmesini/önizlemeyi de paylaşması "sonsuz ayna" etkisi | Düşük | Kılavuzda uyarı, istemcide kendi penceresini yakalamadan hariç tutma | frontend-dev |
 | R10 | Gecikme hedefleri istemci teknolojisine bağlıdır (donanım encoder) | Orta | Faz 4 başında prototip ölçümü (K4) | mimar |
 | R11–R18 | E9: firma dosyasının sızması (başkası o firma adına talep açar), değiştirilmiş firma dosyası, WhatsApp servisinin tek nokta olması, hatırlanan kişisel veri, kimliksiz uçta DoS, AC-108 ilke değişimi, P9/P10 bağımlılığı, uzun WS bağlantısı | Orta–Yüksek | `docs/gereksinimler-e9.md` §7 | guvenlik, mimar, devops |
+| R19–R24 | E10: müşteri ref'i/bilgisayar kaydının sızması, kendiliğinden yazılan kaydın "iz bırakmaz" ilkesini zorlaması, 0.9.x uyumsuzluğu, müşteri yetkili kişi verisinin süresiz kalması, paylaşılan bilgisayar, siyah ekran düzeltmesinin gecikmesi | Düşük–Yüksek | `docs/gereksinimler-e10.md` §7; tehdit modeli `docs/mimari-e10.md` §5.5 | guvenlik, mimar, dba, backend-dev |
 
 ### Açık sorular
 | # | Soru | Varsayılan (cevap gelmezse) | Sahibi |
@@ -188,6 +206,7 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 | S10 | Platform önceliği Windows → macOS → Linux doğru mu? | Evet (V11) | Kullanıcı |
 | S11 | Kötüye kullanım bildirim adresi (`ABUSE_EMAIL`, mimari K10) nedir? | Super Admin e-postası (V13) | Kullanıcı |
 | S12–S17 | E9: talep kabulünde kabul kodu, "hatırla" varsayılanı, mesai dışı talep, WhatsApp alıcı tipi, dosya adında firma adı, SMTP'nin öne çekilmesi | `docs/gereksinimler-e9.md` §8 | Kullanıcı + mimar |
+| S18–S21 | E10: kayıt için ayrı "hatırla" onayı, birden çok firma kaydı, WhatsApp'ta müşteri firma adı, müşteri başına logo/aydınlatma | **Varsayılanlarla kabul edildi (2026-11-12):** onay yok (bilgi satırı + unut), tek kayıt, WhatsApp değişmez, tenant logosu/metni. `docs/gereksinimler-e10.md` §8, `docs/mimari-e10.md` §14 K16 | Kapandı |
 
 ## 9. Kontrol listesi kararları
 Kaynak: `~/.claude/checklists/tasarim-kontrol-listesi.md` bölüm 1, 5, 8, 9.
@@ -214,8 +233,8 @@ Kaynak: `~/.claude/checklists/tasarim-kontrol-listesi.md` bölüm 1, 5, 8, 9.
 | 8. Çerez / lisanslar | Kapsamda: yalnız zorunlu çerezler (bilgi notu); proje Apache-2.0; 3. parti lisans taraması, AGPL yasağı | K7, R8 |
 | 8. Finansal veri | Kapsam dışı | Ürün finansal işlem içermez |
 | 9. Kapsam dışı listesi | Yazıldı (12 madde + E9 için 8 madde) | — |
-| 9. Ölçülebilir AC | Yazıldı (ayrı dosyalar, 164 AC) | — |
-| 9. Riskler / açık sorular | Yazıldı (R1–R18, S1–S17) | — |
+| 9. Ölçülebilir AC | Yazıldı (ayrı dosyalar, 195 AC) | — |
+| 9. Riskler / açık sorular | Yazıldı (R1–R24, S1–S21) | — |
 | 9. Definition of Done | `~/.claude/checklists/kalite-standartlari.md` geçerli; ek: istemci imzasız, tekrarlanabilir build + SHA-256 + attestation doğrulaması ve temiz-makine iz testi | K8 |
 | 9. Dokümantasyon planı | Kapsamda: README, docs/api.md, KULLANIM_KILAVUZU, DATASHEET, PDF, ADR'ler, kurumsal hash allowlist rehberi, SmartScreen rehberi; E9: kılavuzda "Destek iste" ve "Talepler" bölümleri | Ortak standart 1.7 |
 | Sonra | Oturum kaydı, çoklu teknisyen, ses, clipboard, macOS/Linux istemci, SSO, SMS/WhatsApp link, İngilizce, ITSM entegrasyonu, SAS (DTLS parmak izi) doğrulaması (G-14), oturum sonu müşteri özeti (G-17-6; AC-107 ile çelişir, tasarım gerekir), OpenSSF Scorecard (G-18), SignPath Foundation imzası (ADR-0010); E9'dan: gözetimsiz erişim (S7), web talep formu, atama/SLA/mesai saatleri, kabul öncesi mesajlaşma, talepte kabul kodu (S12) | Unutulmasın diye |

@@ -1,4 +1,4 @@
-# DB Notları — Remote Support (P1–P8b)
+# DB Notları — Remote Support (P1–P8c)
 Sahibi: dba. Tasarım kaynağı: `docs/mimari.md` §3, ADR-0003. MySQL 8.4, Prisma 7.10.1 (stabil; 8.x RC kullanılmadı).
 
 ## Dosyalar
@@ -304,3 +304,53 @@ Migration `apps/server/prisma/migrations/20261112000000_p8b_support_requests/{mi
 
 ### Test (2026-11-12, geçici `mysql:8.4` `rs-mysql-dba-p8b:33328`, sonra silindi)
 Boş DB'de P1→P8b migrate + grants OK; `migrate diff --exit-code` **0**; seed 2 kez (`consentTextsCreated=1/0`, `demoRequestSettings=created/exists`); eski sistem v1'li tenant → seed v2 ekledi, v1 `is_current=0`, ikinci çalıştırma 0 (idempotent). `check-app-grants.sh` **211/211 PASS** (P8b: 63 yeni — yetkiler, JSON şema CHECK'leri, talep yaşam döngüsü izinli yollar, her CHECK negatifi beklenen kısıt adıyla, bekleyen kod UQ, çapraz tenant FK, talep oturumu kod/TTL/mod/ağ anahtarı, onay kapsamı). `down.sql`: talep oturumu varken `p8b_down_guard_chk` ile hiçbir şey değişmeden durdu; temizken tablolar/sütunlar/yetkiler/kayıt kalktı → yeniden migrate OK, 211/211, drift 0. `test` 256/256; `test:int` 216/216 (P8 şema testinde iki beklenen değer güncellendi: e-posta 254, ikili CHECK sayısı 17). typecheck/lint temiz.
+
+## P8c-1 — müşteri firmalar, tek ref ad alanı, bilgisayar kaydı (2026-11-12)
+Migration `apps/server/prisma/migrations/20261112120000_p8c_customers/{migration.sql,down.sql}` (mimari-e10 §3 + **§15 r2 bağlayıcı**, ADR-0017, ADR-0006 r5, ADR-0014). Expand-only; precheck gerekmez (`cancel_reason` CHECK yalnız genişler, diğer CHECK'ler yeni tablolara/NULL sütunlara bakar).
+| Tablo / sütun | Tanım | Kısıtlar |
+|---|---|---|
+| `customers` (yeni) | id, tenant_id, name(100), **name_key(200)/search_key(400) `utf8mb4_bin`**, file_label, request_ref CHAR(16) UQ, ref_rotated_at?, contact_name?(80), phone?(16), email?(254), note?(1000), status, passive_at?, anonymized_at?, created_by? FK users | ikili enum status; ad 2..100 kırpılmış Cc/Cf/Zl/Zp yok; name_key boş değil + kırpılmış; **search_key name_key ile başlar**; etiket/ref/telefon/e-posta biçimi; kişi 1..80; not 1..1000 yalnız `\n` serbest (`\t` `\r` dahil diğer Cc, Cf, Zl/Zp yasak); `PASSIVE ⇔ passive_at`; `anonymized_at ⇒ PII NULL` |
+| `request_refs` (yeni, append-only) | ref CHAR(16) PK, tenant_id, customer_id? (NULL = Genel), created_at (updated_at yok) | ref biçimi; FK (tenant_id, customer_id) → customers |
+| `device_bindings` (yeni) | id, tenant_id, customer_id?, key_hash CHAR(64)? UQ, client_version, first/last_session_id (bileşik FK → support_sessions), issue_count, last_used_at, revoked_at?, revoke_reason?, **active_session_id STORED** `IF(revoked_at IS NULL, last_session_id, NULL)` UQ | ikili enum revoke_reason (8 değer, `ADMIN_REVOKED` dahil); `revoked_at NULL ⇔ key_hash dolu ⇔ revoke_reason NULL`; key_hash `^[0-9a-f]{64}$`; client_version x.y.z; issue_count ≥ 1 |
+| `support_requests` | += customer_id?, binding_id? (bileşik FK'ler) | `cancel_reason` += `CUSTOMER_PASSIVE`, `BINDING_REVOKED` |
+| `support_sessions` | += customer_id? (bileşik FK) | — |
+
+**İndeksler:** customers UQ(request_ref), UQ(tenant_id, name_key), UQ(tenant_id, id), IX(tenant_id, status, name_key), IX(tenant_id, created_at), IX(status, passive_at), IX(created_by); request_refs IX(tenant_id, customer_id); device_bindings UQ(key_hash), UQ(active_session_id), UQ(id, tenant_id), IX(tenant_id, customer_id, revoked_at), IX(revoked_at, last_used_at), IX(last_session_id, tenant_id), IX(first_session_id, tenant_id); support_requests IX(tenant_id, customer_id, created_at), IX(binding_id, tenant_id, status); support_sessions IX(tenant_id, customer_id, created_at).
+
+**Kararlar / sapmalar (mimari-e10 §3'e not):**
+1. **Bileşik müşteri FK sırası `(tenant_id, customer_id) → customers(tenant_id, id)`**, hedef `UQ(tenant_id, id)` (mimaride `(customer_id, tenant_id) → (id, tenant_id)`). Anlam aynı. InnoDB FK indeksinin sütun sırası eşleşmeli; bu sırayla mimarinin zaten istediği `IX(tenant_id, customer_id, …)` indeksleri FK'yi de taşır. 4 tabloda (ikisi büyük) ayrı `(customer_id, tenant_id)` indeksi gerekmez. request_refs'te mimarinin `IX(customer_id, tenant_id)` + `IX(tenant_id)` ikilisi tek `IX(tenant_id, customer_id)` oldu.
+2. `request_refs`'ten sahibe ters FK (customers.request_ref → request_refs) **yok**: döngüsel FK olur ve müşteri oluşturma INSERT sırası çözülemez. Ad alanı tekilliği PK + servis TX'iyle sağlanır. Tutarlılık sorgusu aşağıda.
+3. `active_session_id` Prisma'da `String? @unique` (normal alan) olarak duruyor. Migration onu `MODIFY … AS (…) STORED` ile üretilmiş yapar. `migrate diff` üretilmiş ifadeyi ve harmanlamayı karşılaştırmadığından drift 0. **Yazılırsa MySQL 3105 verir.**
+4. `customers` için mimarideki CHECK'lere iki ek: `customers_search_key_chk` (ad değişip arama anahtarı yeniden hesaplanmazsa 3819) ve `customers_name_key_chk`.
+5. Not CHECK'i mimariye göre `\t`'yi de reddeder ("yalnız `\n` serbest"). contracts `customerNoteSchema` `\t`'ye izin verirse 3819 olur, zod'da da reddedilmeli.
+6. `device_bindings`'e zaman CHECK'i konmadı (sahte saatli testlerle çakışır, değer katmaz).
+
+**Geri doldurma (idempotent):** `INSERT INTO request_refs … SELECT request_ref, tenant_id, NULL, COALESCE(ref_rotated_at, created_at) FROM tenant_request_settings WHERE NOT EXISTS (…)`. Migration içindedir. Eski sunucu imajı yeni şemada çalıştıysa (o pencerede yapılan Genel ref yenilemesi kayda girmemişse), migrator ile aynı ifade yeniden çalıştırılır. Pre-P8c emekli Genel ref'ler hiçbir yerde saklanmadığı için kayda alınamaz (audit'te yalnız ilk 4 karakter var). 80 bitte yeniden üretilme olasılığı ihmal edilebilir. Tutarlılık kontrolü (beklenen 0):
+```sql
+SELECT (SELECT COUNT(*) FROM tenant_request_settings s WHERE NOT EXISTS (SELECT 1 FROM request_refs r WHERE r.ref=s.request_ref AND r.tenant_id=s.tenant_id AND r.customer_id IS NULL))
+     + (SELECT COUNT(*) FROM customers c WHERE NOT EXISTS (SELECT 1 FROM request_refs r WHERE r.ref=c.request_ref AND r.tenant_id=c.tenant_id AND r.customer_id=c.id)) AS kayitsiz;
+```
+
+**Kilit:** yeni tablolar boş. `ADD COLUMN` INSTANT, `CREATE INDEX` INPLACE. support_requests/support_sessions FK ekleme ve cancel_reason CHECK değişimi COPY ile yapılır. Prod kapalı, staging küçük olduğu için kabul.
+
+**down.sql:** `CUSTOMER_PASSIVE`/`BINDING_REVOKED` nedenli talep varken `p8c_down_guard_chk` (3819) ile hiçbir şey değişmeden durur. Bu satırları silmeyin, mimara bildirin. Temizken yetkileri geri alır, sütun/FK/indeksleri ve üç tabloyu **verisiyle** düşürür, `_prisma_migrations` kaydını siler. Önce yedek alınmalı.
+
+**Grant:** `customers`, `device_bindings` → SELECT/INSERT/UPDATE. `request_refs` → SELECT/INSERT (append-only). DELETE/DDL REVOKE edilir. device_bindings DELETE P13 retention ile verilecek.
+
+**Seed:** aydınlatma metni yeni sistem sürümü eklendi (bilgisayar kaydı: ne, nerede, ne kadar, nasıl silinir; müşteri yetkili kişi verisi). Mevcut kural geçerli: sistem metni farklıysa max+1, Admin metnine dokunulmaz. Geliştirmede demo tenant'ın Genel ref'i artık `request_refs`'e de yazılıyor; ayrıca örnek müşteri `Örnek Müşteri A.Ş.` (ref + kayıt + audit `customer.created`) ekleniyor. Bu müşterinin katlanmış anahtarları elle hesaplandı; contracts `foldKey` gelince ondan üretilmeli. Yayın notu P8b ile aynı: yeni metin sürümü, eski sürümle açık karşılama sayfalarını join'de 400'e düşürür.
+
+### Backend-dev için (P8c-1)
+- **Ref üretimi (5 deneme, P2002):** Genel için `request_refs` INSERT → `tenant_request_settings` INSERT/UPDATE. Müşteri **oluşturmada sıra: önce `customers` INSERT, sonra `request_refs` INSERT** (FK anında denetlenir; mimaride "önce buraya" yazıyor ama FK buna izin vermez). `request_refs` PK çakışırsa (`constraint` PRIMARY) tüm TX geri alınıp yeniden denenir. Yenileme/yeniden aktif etmede önce `request_refs` INSERT, sonra `customers` UPDATE. Çakışma tespiti: `P2002` + hedef `PRIMARY` (request_refs) veya `customers_request_ref_key`.
+- **Ad çakışması:** `P2002` + `customers_tenant_id_name_key_key` → 409 `fields.name`.
+- **search_key** her ad/kişi/telefon yazımında yeniden hesaplanmalı, `name_key` ile başlamalı (CHECK). Arama `searchKey: { contains: esc(foldKey(q)) }` — Prisma `contains` jokerleri kaçışlamaz (P8 notu), `%`, `_`, `\` kaçışlanmalı. İkili harmanlama nedeniyle `q` da katlanmış olmalı.
+- **Anonimleştirme:** `updateMany({ where: { status:'PASSIVE', passiveAt:{ lt: cutoff }, anonymizedAt: null, tenantId }, data: { contactName:null, phone:null, email:null, note:null, searchKey: <yeniden>, anonymizedAt: now } })`. Bu sorgu IX(status, passive_at) kullanır; retention tenant bazlı olduğu için tenant döngüsünde çalıştırın. **Anonimleşmiş müşteriye PII yazan her UPDATE (PATCH, yeniden aktif sonrası) aynı UPDATE'te `anonymizedAt: null` yazmalı**, aksi halde `customers_anonymized_chk` 3819 verir.
+- **Pasif/aktif:** `status` ve `passiveAt` aynı UPDATE'te birlikte yazılmalı (aktif etmede `passiveAt: null`).
+- **device_bindings verme TX'i (§15.3):** adım 1 `findFirst({ where: { activeSessionId: sid } })` + `FOR UPDATE` (raw) veya eşdeğeri `lastSessionId: sid, revokedAt: null`. Eşzamanlı iki istekte UQ ihlali `P2002` + `device_bindings_active_session_id_key` → TX bir kez yeniden denenir (test edildi: iki eşzamanlı INSERT'ten biri düşer). `activeSessionId` **asla** `data`'ya yazılmaz.
+- **Geçersizleştirme:** her yolda `revokedAt`, `revokeReason`, `keyHash: null` üçü birlikte yazılır; biri eksikse `device_bindings_revoked_chk` 3819 verir. Toplu müşteri/Genel: `updateMany({ where: { tenantId, customerId: x | null, revokedAt: null } })` → IX(tenant_id, customer_id, revoked_at). Boşta kalma: `revokedAt: null, lastUsedAt: { lte }` → IX(revoked_at, last_used_at), 1000'lik partiler.
+- **Kayıtla talep:** kayıt başına bekleyen sayımı `count({ where: { bindingId, tenantId, status:'PENDING' } })` → IX(binding_id, tenant_id, status). `viaBinding`/`bindingRevoked` için liste sorgusunda `binding: { select: { revokedAt: true } }` (tek ek IN sorgusu, N+1 yok).
+- **Türetilmiş sayaçlar (AC-166):** sayfadaki id'ler için `groupBy({ by:['customerId'], where:{ tenantId, customerId:{ in: ids } }, _count:true, _max:{ createdAt:true } })` → IX(tenant_id, customer_id, created_at) kapsar.
+- **Kabul TX'i:** oturum INSERT'ine `customerId: request.customerId` kopyalanır (AC-177; eşitlik DB'de değil, testte). `POST /sessions` `customerId` → `customers WHERE id AND tenantId AND status='ACTIVE'`; başka tenant'ın müşterisi zaten FK ile 1452 verir, ama 404 servis kontrolünden dönmeli.
+- Test yardımcısı `test/helpers/requests.ts` `createRequestSettings` ad alanına yazmıyor. Backend P8c ref çözümlemesi bunu gerektirirse yardımcıya `requestRef.create` eklenmeli.
+
+### Test (2026-11-12, geçici `mysql:8.4` `rs-mysql-p8c:33319`, sonra silindi)
+P8b durumundaki DB'ye (önceden eklenmiş bir `tenant_request_settings` satırıyla) migrate + grants OK. Geri doldurma satırı yazdı, üretilmiş sütun ve `utf8mb4_bin` doğrulandı, `migrate diff --exit-code` **0**. down → up → drift 0. `CUSTOMER_PASSIVE` satırı varken down.sql `p8c_down_guard_chk` ile durdu, tablolar ve kayıt korundu. Seed 2 kez çalıştı: ilkinde `consentTextsCreated=2 demoRequestSettings=created demoCustomer=created`, ikincisinde hepsi `exists`/0. Demo ref'leri `request_refs`'te; kayıtsız ref 0. `check-app-grants.sh` **261/261 PASS** (P8c: 50 yeni). `test/integration/customers-p8c-db.test.ts` 12/12. `session-history-p8` ikili CHECK sayısı 17 → 19 güncellendi. `test` 281/281, `test:int` **312/312**, typecheck/lint temiz.

@@ -1,0 +1,29 @@
+{
+  "_doc": "Müşteri firma katlama ve dosya etiketi örnekleri (mimari-e10 §3.6; contracts foldKey/suggestFileLabel, web + server ortak). fold: [girdi, beklenen foldKey]; sameKey: aynı anahtara katlanan gruplar (AC-167 ad tekilliği); label: [ad, beklenen suggestFileLabel]. Noktalama korunur (\"Ltd.\" ≠ \"Ltd\").",
+  "fold": [
+    ["ŞİŞLİ Ltd.", "sisli ltd."],
+    ["şişli ltd.", "sisli ltd."],
+    ["SISLI LTD.", "sisli ltd."],
+    ["  Çağrı   Öztürk  Ünal  ", "cagri ozturk unal"],
+    ["IĞDIR", "igdir"],
+    ["ıslak İnek", "islak inek"],
+    ["Café Müller", "cafe muller"],
+    ["Ｆｕｌｌｗｉｄｔｈ", "fullwidth"],
+    ["A\tB\nC", "a b c"]
+  ],
+  "sameKey": [
+    ["ŞİŞLİ Ltd.", "şişli ltd.", "SISLI LTD.", "Şişli  Ltd."],
+    ["Örnek Müşteri A.Ş.", "ORNEK MUSTERI A.S.", "örnek müşteri a.ş."]
+  ],
+  "label": [
+    ["Örnek Müşteri A.Ş.", "OrnekMusteriAS"],
+    ["ŞİŞLİ Ltd.", "SISLILtd"],
+    ["Nokta Bilişim Danışmanlık ve Elektronik", "NoktaBilisimDanisman"],
+    ["!!!", "Firma"],
+    ["Ιωάννης", "Firma"]
+  ],
+  "validNames": ["AB", "Örnek Müşteri A.Ş.", "  Boşluklu Ad  "],
+  "invalidNames": ["A", "", "   ", "Ad‮ters", "Ad​gizli", "Satır\nsonu"],
+  "validNotes": ["Satır 1\nSatır 2", "Windows\r\nsatır sonu", ""],
+  "invalidNotes": ["Sekme\tvar", "Tek\rCR", "Bidi‮yok", "Sıfır​genişlik"]
+}

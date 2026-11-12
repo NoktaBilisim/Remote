@@ -1,7 +1,7 @@
 "use client";
 
 import type { CreateSessionResponse } from "@remote/contracts/api/sessions";
-import { Copy, Timer } from "lucide-react";
+import { Building2, Copy, Timer } from "lucide-react";
 import { useId } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,13 @@ export function CreatedSession({ data, cancelled }: { data: CreateSessionRespons
     <div className="flex flex-col gap-4">
       {cancelled && <Alert tone="danger" testId="dialog-cancelled">{t("d.cancelled")}</Alert>}
       {!cancelled && expired && <Alert tone="warning" testId="dialog-expired">{t("d.expired")}</Alert>}
+      {data.customerFirm && (
+        <p className="flex items-center gap-2 text-sm text-fg" data-testid="session-customer-firm">
+          <Building2 aria-hidden className="size-4 text-fg-muted" />
+          <span className="text-fg-muted">{t("d.customerFirm")}</span>
+          <span className="font-medium wrap-anywhere">{data.customerFirm.name}</span>
+        </p>
+      )}
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor={`${id}-link`} className="text-sm font-medium text-fg">

@@ -6,7 +6,7 @@ import { axeScan, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 // P5 konsol işbirliği (AC-35..37, 44..46, 52..57, 117, 119). Sahte API + sahte WS; DC'ler gerçek P2P (localhost).
 // Senaryo çerezleri (e2e/mock-sessions.mjs): u-p5-* file_transfer yetkili, u-p5nf-* yetkisiz; ikisinde maxFileMb = 1.
 guardConsole();
-test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop", "konsol + müşteri masaüstü akışı"));
+test.beforeEach(({}, info) => test.skip(!info.project.name.startsWith("desktop"), "konsol + müşteri masaüstü akışı"));
 
 const MOCK = "http://127.0.0.1:4217";
 type LogEntry = { from: "tech" | "guest"; m: { t: string; result?: string; direction?: string; fileName?: string; sizeBytes?: number; sha256?: string; fps?: { avg: number } } };
@@ -35,8 +35,37 @@ async function live(page: Page, browser: Browser, scheme: "light" | "dark" = "li
   await expect(page.getByTestId("stage")).toHaveAttribute("data-share", "sharing");
   await expect(page.getByTestId("chat-input")).toBeEnabled({ timeout: 15_000 });
   await expect(g.getByTestId("chat-input")).toBeEnabled({ timeout: 15_000 });
+  await watchArm(page);
+  await watchArm(g);
   return { g, id: s.id };
 }
+
+/**
+ * G-03 kilidini zamanlamadan bağımsız kaydeder (QA P8c-1 Tur 2 #3): her yeni "Kabul et" düğmesinin DOM'a girdiği an
+ * devre dışı olup olmadığı ve etkinleşene kadar geçen süre (sayfa saatiyle). Yük altında test, 1,5 sn'lik pencereyi
+ * kaçırsa da iddia aynı kalır: düğme kilitli doğar ve kilit en az ~1,5 sn sürer.
+ */
+async function watchArm(p: Page) {
+  await p.evaluate(() => {
+    const w = window as unknown as { __rsArm: { disabledAtStart: boolean; armMs: number | null }[] };
+    w.__rsArm = [];
+    const known = new WeakMap<Element, { t0: number; rec: { disabledAtStart: boolean; armMs: number | null } }>();
+    const scan = () => {
+      for (const el of document.querySelectorAll<HTMLButtonElement>('[data-testid="file-accept"]')) {
+        let k = known.get(el);
+        if (!k) {
+          k = { t0: performance.now(), rec: { disabledAtStart: el.disabled, armMs: el.disabled ? null : 0 } };
+          known.set(el, k);
+          w.__rsArm.push(k.rec);
+        }
+        if (k.rec.armMs === null && !el.disabled) k.rec.armMs = performance.now() - k.t0;
+      }
+    };
+    new MutationObserver(scan).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["disabled"] });
+  });
+}
+const lastArm = (p: Page) =>
+  p.evaluate(() => (window as unknown as { __rsArm: { disabledAtStart: boolean; armMs: number | null }[] }).__rsArm.at(-1) ?? null);
 
 /** Misafiri kapat: önce ekran paylaşımı durdurulur — yakalama açıkken context kapanışı yük altında 4–10 sn sürüyordu (AC-39). */
 async function closeGuest(page: Page, g: Page) {
@@ -68,9 +97,12 @@ async function acceptOffer(p: Page) {
   const dlg = p.getByTestId("file-offer");
   await expect(dlg).toBeVisible();
   await expect(p.getByTestId("file-reject")).toBeFocused(); // varsayılan odak "Reddet"
-  await expect(p.getByTestId("file-accept")).toBeDisabled(); // G-03: 1,5 sn kilit
   // QA-P5-7: ARM_MS (1,5 sn) zamanlayıcısı tam paralel takımda arka plan sekmesi/yük nedeniyle gecikebilir
   await expect(p.getByTestId("file-accept")).toBeEnabled({ timeout: 10_000 });
+  // G-03: 1,5 sn kilit — düğme kilitli doğdu ve kilit ≥ 1,4 sn sürdü (gözlemci kaydı; anlık toBeDisabled yük altında kararsızdı)
+  const arm = await lastArm(p);
+  expect(arm?.disabledAtStart, "Kabul et düğmesi kilitli açılmalı").toBe(true);
+  expect(arm?.armMs ?? 0).toBeGreaterThanOrEqual(1400);
   await p.getByTestId("file-accept").click();
 }
 
@@ -488,7 +520,7 @@ test("AC-57: teknisyen→müşteri çizim gecikmesi p95 < 200 ms (20 çizgi)", a
   await g.context().close();
 });
 
-test("AC-41: 1920x1080 kaynak → teknisyende 1920 genişlik ve FPS ≥ 15 (getStats/kalite paneli)", async ({ page, context, browser }) => {
+test("AC-41: 1920x1080 kaynak → teknisyende 1920 genişlik ve FPS ≥ 15 (getStats/kalite paneli)", { tag: "@perf" }, async ({ page, context, browser }) => {
   test.setTimeout(90_000);
   await signIn(context, "p5");
   // getDisplayMedia stub: 1080p canvas, 30 fps captureStream; her karede içerik değişir (kodlayıcı kare atlamasın)

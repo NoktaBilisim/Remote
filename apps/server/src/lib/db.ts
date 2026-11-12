@@ -43,3 +43,14 @@ export function isTransientDbError(err: unknown): boolean {
   const mysqlCode = e.meta?.driverAdapterError?.cause?.code;
   return typeof mysqlCode === "number" && TRANSIENT_MYSQL.has(mysqlCode);
 }
+
+/**
+ * Tekil kısıt ihlalinde (P2002) ihlal edilen indeks adı (ör. `PRIMARY`, `customers_request_ref_key`); değilse null.
+ * Prisma 7 sürücü bağdaştırıcısı adı `meta.driverAdapterError.cause.constraint.index`'te taşır.
+ */
+export function conflictIndex(err: unknown): string | null {
+  const e = err as { code?: unknown; meta?: { driverAdapterError?: { cause?: { constraint?: { index?: unknown } } } } } | null;
+  if (typeof e !== "object" || e === null || e.code !== "P2002") return null;
+  const idx = e.meta?.driverAdapterError?.cause?.constraint?.index;
+  return typeof idx === "string" ? idx : "";
+}

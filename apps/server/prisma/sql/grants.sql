@@ -49,6 +49,16 @@ REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON tenant_reque
 GRANT SELECT, INSERT, UPDATE ON support_requests TO 'app'@'%';
 REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON support_requests FROM 'app'@'%';
 
+-- P8c-1 customers (mimari-e10 §3.1, §3.8): oluşturma/düzenleme/pasif/anonimleştirme UPDATE'tir; hard delete yok (V23).
+GRANT SELECT, INSERT, UPDATE ON customers TO 'app'@'%';
+REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON customers FROM 'app'@'%';
+-- P8c-1 request_refs: append-only ref ad alanı (ADR-0006 r5) — emekli ref asla silinmez/güncellenmez.
+GRANT SELECT, INSERT ON request_refs TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON request_refs FROM 'app'@'%';
+-- P8c-1 device_bindings: verme/yenileme/geçersizleştirme UPDATE'tir; DELETE (hard delete) P13 retention ile.
+GRANT SELECT, INSERT, UPDATE ON device_bindings TO 'app'@'%';
+REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON device_bindings FROM 'app'@'%';
+
 -- Append-only: yalnız SELECT/INSERT. DELETE yetkisi retention/tetikleyiciyle birlikte (P11/P13)
 -- verilecek; o pakette bu dosya güncellenir. UPDATE/DELETE/DDL/TRIGGER yetkisi varsa geri alınır.
 GRANT SELECT, INSERT ON audit_logs TO 'app'@'%';

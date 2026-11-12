@@ -16,7 +16,8 @@
     ],
     "panelOutbound": [
       { "t": "queue.count", "pending": 0 },
-      { "t": "request.new", "id": "01JC0000000000000000000000", "requestCode": "123456", "customerName": "Ayşe Yılmaz", "preview": "Yazıcı çalışmıyor", "networkMatch": "NONE", "knownDevice": false, "createdAt": "2026-11-12T10:00:00.000Z" },
+      { "t": "request.new", "id": "01JC0000000000000000000000", "requestCode": "123456", "customerName": "Ayşe Yılmaz", "preview": "Yazıcı çalışmıyor", "networkMatch": "NONE", "knownDevice": false, "createdAt": "2026-11-12T10:00:00.000Z", "customerFirm": null, "viaBinding": false, "bindingRevoked": false, "staleSource": false },
+      { "t": "request.new", "id": "01JC0000000000000000000001", "requestCode": "654321", "customerName": "Ali Veli", "preview": "Ekran donuyor", "networkMatch": "IP", "knownDevice": true, "createdAt": "2026-11-12T10:00:00.000Z", "customerFirm": { "id": "01JC0000000000000000000002", "name": "Örnek Müşteri A.Ş." }, "viaBinding": true, "bindingRevoked": false, "staleSource": false },
       { "t": "request.removed", "id": "01JC0000000000000000000000", "status": "ACCEPTED" },
       { "t": "request.connect_failed", "id": "01JC0000000000000000000000", "sessionId": "01JC0000000000000000000001" },
       { "t": "request.declined", "id": "01JC0000000000000000000000", "sessionId": "01JC0000000000000000000001" },

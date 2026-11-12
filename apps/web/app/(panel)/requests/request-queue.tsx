@@ -16,6 +16,7 @@ import { consolePath, requestErrorMessage } from "@/lib/requests/errors";
 import { useNow } from "@/lib/use-now";
 import { RejectDialog } from "./reject-dialog";
 import { RequestCard } from "./request-card";
+import { RevokeBindingDialog } from "./revoke-binding-dialog";
 
 const POLL_MS = 15_000;
 
@@ -30,7 +31,21 @@ const acceptedHere = new Set<string>();
  * request.new → liste REST'ten tazelenir (WS önizlemesi telefon/e-posta taşımaz); request.removed → kart düşer;
  * soket yokken 15 sn'de bir yoklama (kısmi durum: son başarılı liste korunur, üstte uyarı).
  */
-export function RequestQueue({ initial, canAccept, canSettings }: { initial: SupportRequestItem[]; canAccept: boolean; canSettings: boolean }) {
+export function RequestQueue({
+  initial,
+  canAccept,
+  canSettings,
+  canRevoke = false,
+  customer,
+}: {
+  initial: SupportRequestItem[];
+  canAccept: boolean;
+  canSettings: boolean;
+  /** P8c r2 (§15.2) + B-P8c-3: `customers.edit` ve `support_requests.view`. */
+  canRevoke?: boolean;
+  /** P8c (AC-176): müşteri filtresi (`general` | ULID); yenilemelerde de uygulanır. */
+  customer?: string;
+}) {
   const router = useRouter();
   const toast = useToast();
   const now = useNow(1000);
@@ -40,13 +55,14 @@ export function RequestQueue({ initial, canAccept, canSettings }: { initial: Sup
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<SupportRequestItem | null>(null);
+  const [revoking, setRevoking] = useState<SupportRequestItem | null>(null);
   const seq = useRef(0);
 
   const refresh = useCallback(async () => {
     const my = ++seq.current;
     setRefreshing(true);
     try {
-      const r = await api<SupportRequestList>("GET", "/support-requests?tab=pending");
+      const r = await api<SupportRequestList>("GET", `/support-requests?tab=pending${customer ? `&customer=${encodeURIComponent(customer)}` : ""}`);
       if (my !== seq.current) return;
       setItems(r.items.filter((x) => !acceptedHere.has(x.id)));
       setStale(false);
@@ -56,7 +72,7 @@ export function RequestQueue({ initial, canAccept, canSettings }: { initial: Sup
     } finally {
       if (my === seq.current) setRefreshing(false);
     }
-  }, [router]);
+  }, [router, customer]);
 
   const drop = useCallback((id: string) => setItems((xs) => xs.filter((x) => x.id !== id)), []);
 
@@ -135,6 +151,7 @@ export function RequestQueue({ initial, canAccept, canSettings }: { initial: Sup
                 busy={busyId === it.id}
                 onAccept={() => void accept(it)}
                 onReject={() => setRejecting(it)}
+                onRevokeBinding={canRevoke ? () => setRevoking(it) : undefined}
               />
             </li>
           ))}
@@ -152,6 +169,21 @@ export function RequestQueue({ initial, canAccept, canSettings }: { initial: Sup
           setRejecting(null);
           drop(id);
           toast(code === "REQUEST_TAKEN" ? t("rq.err.taken") : t("rq.err.closed"), "danger");
+        }}
+      />
+      <RevokeBindingDialog
+        item={revoking}
+        onClose={() => setRevoking(null)}
+        onDone={(id) => {
+          setRevoking(null);
+          drop(id);
+          toast(t("rq.revoke.done"));
+          void refresh();
+        }}
+        onGone={(_id, message) => {
+          setRevoking(null);
+          toast(message, "danger");
+          void refresh();
         }}
       />
     </>

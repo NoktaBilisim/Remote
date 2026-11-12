@@ -30,7 +30,7 @@ describe("/ws/panel", () => {
     expect(parsePanelMessage(JSON.stringify({ t: "queue.count", pending: 3 }))).toEqual({ t: "queue.count", pending: 3 });
     expect(
       parsePanelMessage(
-        JSON.stringify({ t: "request.new", id: ID, requestCode: "123456", customerName: "Ayşe", preview: "Yazıcı", networkMatch: "PREFIX", knownDevice: false, createdAt: "2026-11-12T10:00:00.000Z" }),
+        JSON.stringify({ t: "request.new", id: ID, requestCode: "123456", customerName: "Ayşe", preview: "Yazıcı", networkMatch: "PREFIX", knownDevice: false, createdAt: "2026-11-12T10:00:00.000Z", customerFirm: null, viaBinding: false, bindingRevoked: false, staleSource: false }),
       )?.t,
     ).toBe("request.new");
     expect(parsePanelMessage(JSON.stringify({ t: "request.removed", id: ID, status: "ACCEPTED" }))?.t).toBe("request.removed");

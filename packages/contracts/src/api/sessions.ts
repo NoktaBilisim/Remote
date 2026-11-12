@@ -1,7 +1,9 @@
 // /api/v1/sessions ve /api/v1/public/sessions sözleşmesi (mimari-api.md, P2 kısmı).
 // P3: resolve joinNonce/nonceExpiresAt, join, terminate. P4: resolve consentText + abuseEmail, join consentTextId zorunlu (G-24, AC-127).
 // P8: oturum geçmişi — liste filtreleri, SessionListItem, SessionHistoryDetail, PATCH, CSV (mimari-api "Oturum geçmişi (P8)").
+// P8c (mimari-api "Mevcut uçlara ekler"): POST /sessions `customerId`, `customerFirm` alanları, geçmiş müşteri firma filtresi + CSV.
 import { z } from "zod";
+import type { CustomerFirmRef } from "./customers.ts";
 import { FILE_DIRECTIONS, FILE_RESULTS, qualitySummarySchema, type QualitySummary } from "../ws.ts";
 
 export const SESSION_STATUSES = ["PENDING", "ACTIVE", "ENDED", "EXPIRED", "CANCELLED"] as const;
@@ -17,7 +19,10 @@ export const SESSION_PAGE_SIZE_MAX = 100;
 export const sessionTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/, "Geçersiz bağlantı");
 export const sessionCodeSchema = z.string().regex(/^\d{8}$/, "Kod 8 haneli olmalı");
 
-export const createSessionInputSchema = z.object({});
+/** P8c (AC-180): `customerId` verilirse `customers.view` + aynı tenant'ın AKTİF müşterisi olmalı (yoksa 404). */
+export const createSessionInputSchema = z.strictObject({
+  customerId: z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Geçersiz müşteri").optional(),
+});
 export type CreateSessionInput = z.infer<typeof createSessionInputSchema>;
 
 
@@ -41,6 +46,8 @@ export interface CreateSessionResponse {
   techVerifyCode: string;
   expiresAt: string;
   status: "PENDING";
+  /** P8c (AC-180): seçilen müşteri firma; yoksa null. */
+  customerFirm: CustomerFirmRef | null;
 }
 
 /** GET /sessions öğesi ve GET /sessions/:id gövdesi. `code` yalnız PENDING iken dolu; link hiç yok. */
@@ -156,6 +163,13 @@ export const SESSION_EXPORT_TOO_MANY = "En çok 50.000 satır dışa aktarılabi
 
 const ulidSchema = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Geçersiz kimlik");
 
+/**
+ * P8c (AC-179) geçmiş müşteri FİRMA filtresi: `none` (müşterisiz) ya da müşteri kimliği. Sorgu parametresi adı
+ * `customerFirm`'dür — P8 `customer` parametresi misafir adı aramasıdır ve kırılmaz (sapma, implementation.md P8c-1).
+ */
+export const sessionCustomerFilterSchema = z.union([z.literal("none"), ulidSchema]);
+export type SessionCustomerFilter = z.infer<typeof sessionCustomerFilterSchema>;
+
 /** Geçerli takvim günü (YYYY-MM-DD); Europe/Istanbul günü olarak yorumlanır (§1). */
 const isoDaySchema = z
   .string()
@@ -186,6 +200,7 @@ export const listSessionsQuerySchema = z
       .min(2, "En az 2 karakter girin")
       .max(100)
       .optional(),
+    customerFirm: sessionCustomerFilterSchema.optional(),
     page: z.coerce.number().int().min(1).max(10_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(SESSION_PAGE_SIZE_MAX).default(25),
     sort: z.enum(SESSION_LIST_SORTS).default("createdAt:desc"),
@@ -213,6 +228,8 @@ export interface SessionListItem extends SessionView {
   source: SessionSource;
   /** REQUEST: talep→kabul saniyesi (accepted_at − request.created_at); TECH: null. */
   waitSec: number | null;
+  /** P8c (AC-179): müşteri firma; müşterisiz oturumda null (UI boş gösterir, "Genel" değil). */
+  customerFirm: CustomerFirmRef | null;
 }
 
 /** P8b (AC-158): geçmiş detayında "Destek talebi" bölümü. Anonimleştirilmiş talepte PII null. */
@@ -377,6 +394,8 @@ export const SESSION_CSV_COLUMNS = [
   "Mod",
   // P8b (AC-158): kaynak + bekleme (HH:MM:SS). Telefon ve açıklama CSV'ye girmez (veri en aza indirme).
   "Kaynak",
+  // P8c (AC-179): müşterisiz oturumda boş hücre.
+  "Müşteri firma",
   "Bekleme",
   "Teknisyen",
   "Müşteri",

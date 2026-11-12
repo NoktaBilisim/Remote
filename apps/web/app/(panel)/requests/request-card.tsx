@@ -1,16 +1,21 @@
 "use client";
 
-import { Hourglass, Info, Mail, MonitorSmartphone, Phone, ShieldAlert, ShieldCheck, UserCheck, UserX } from "lucide-react";
+import { Building2, Ellipsis, Hourglass, Info, Mail, MonitorSmartphone, Phone, ShieldAlert, ShieldCheck, ShieldOff, TriangleAlert, UserCheck, UserX } from "lucide-react";
 import {
+  BINDING_REVOKED_LABEL,
   CANCEL_REASON_LABELS,
   FIRST_SEEN_SOURCE_LABEL,
+  GENERAL_CUSTOMER_LABEL,
   KNOWN_DEVICE_LABEL,
   labelOf,
   NETWORK_MATCH_LABELS,
   REQUEST_STATUS_LABELS,
+  STALE_SOURCE_LABEL,
+  viaBindingLabel,
 } from "@remote/contracts/labels";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { closeMenu, Menu } from "@/components/ui/menu";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { REQUEST_VERIFY_HINT, type RequestStatus, type SupportRequestItem } from "@/lib/requests/contract";
@@ -35,10 +40,36 @@ export function RequestStatusBadge({ status }: { status: RequestStatus }) {
 }
 
 /** Bilinen kaynak göstergesi (mimari-e9 §13.1): renk tek başına anlam taşımaz, her durumda metin var. */
-export function SourceIndicator({ item }: { item: Pick<SupportRequestItem, "networkMatch" | "knownDevice"> }) {
+export function SourceIndicator({
+  item,
+}: {
+  item: Pick<SupportRequestItem, "networkMatch" | "knownDevice"> & Partial<Pick<SupportRequestItem, "viaBinding" | "bindingRevoked" | "staleSource" | "customerFirm">>;
+}) {
   const v = sourceView(item.networkMatch, item.knownDevice);
+  // P8c r2 (§15.1, §15.7 K20): kayıtlı bilgisayar = bilinen kaynak, NÖTR rozet (doğrulama değildir); yalnız kayıt etkinken.
+  // İptal edilmiş kayıt → "İlk kez görülen kaynak" gibi uyarı rozeti.
+  const binding = Boolean(item.viaBinding);
+  const revoked = !binding && Boolean(item.bindingRevoked);
   return (
-    <div className="flex flex-col gap-1.5" data-testid="request-source" data-known={v.known}>
+    <div className="flex flex-col gap-1.5" data-testid="request-source" data-known={v.known || binding}>
+      {binding && (
+        <span data-testid="request-via-binding" className="inline-flex w-fit items-start gap-1.5 rounded-md bg-surface-muted px-2.5 py-1 text-xs font-medium text-fg">
+          <ShieldCheck aria-hidden className="mt-px size-4 shrink-0" />
+          {viaBindingLabel(item.customerFirm?.name ?? null)}
+        </span>
+      )}
+      {revoked && (
+        <span data-testid="request-binding-revoked" className="inline-flex w-fit items-start gap-1.5 rounded-md bg-warning-surface px-2.5 py-1 text-xs font-medium text-warning">
+          <ShieldAlert aria-hidden className="mt-px size-4 shrink-0" />
+          {BINDING_REVOKED_LABEL}
+        </span>
+      )}
+      {item.staleSource && (
+        <span data-testid="request-stale-source" className="inline-flex w-fit items-start gap-1.5 text-xs font-medium text-warning">
+          <TriangleAlert aria-hidden className="mt-px size-4 shrink-0" />
+          {STALE_SOURCE_LABEL}
+        </span>
+      )}
       {v.known ? (
         <>
           {/* TEST-P8b-4: rozet tek satır; nedenler altında hizalı liste. */}
@@ -52,7 +83,7 @@ export function SourceIndicator({ item }: { item: Pick<SupportRequestItem, "netw
             ))}
           </ul>
         </>
-      ) : (
+      ) : binding || revoked ? null : (
         <span data-testid="request-first-seen" className="inline-flex w-fit items-start gap-1.5 rounded-md bg-warning-surface px-2.5 py-1 text-xs font-medium text-warning">
           <ShieldAlert aria-hidden className="mt-px size-4 shrink-0" />
           {FIRST_SEEN_SOURCE_LABEL}
@@ -82,6 +113,7 @@ export function RequestCard({
   busy = false,
   onAccept,
   onReject,
+  onRevokeBinding,
 }: {
   item: SupportRequestItem;
   now?: number | null;
@@ -89,11 +121,29 @@ export function RequestCard({
   busy?: boolean;
   onAccept?: () => void;
   onReject?: () => void;
+  /** P8c r2 (§15.2): verilirse ve kayıt etkinse kart menüsünde "Bu bilgisayarın kaydını iptal et" (`customers.edit` + `support_requests.view`). */
+  onRevokeBinding?: () => void;
 }) {
   const pending = item.status === "PENDING";
   const waitSec = pending && now ? Math.max(item.waitSec, Math.floor((now - Date.parse(item.createdAt)) / 1000)) : item.waitSec;
   const name = item.customerName ?? t("rq.anon");
   const titleId = `talep-${item.id}-t`;
+  const revokeMenu = onRevokeBinding && item.viaBinding ? (
+    <Menu label={t("rq.more")} icon={<Ellipsis aria-hidden className="size-4" />} align="end" testId="request-menu" panelLabel={t("rq.moreFor", { name })}>
+      <button
+        type="button"
+        onClick={(e) => {
+          closeMenu(e.currentTarget);
+          onRevokeBinding();
+        }}
+        data-testid="request-revoke-binding"
+        className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-sm px-3 text-left text-sm text-danger hover:bg-danger-surface"
+      >
+        <ShieldOff aria-hidden className="size-4 shrink-0" />
+        {t("rq.revoke.open")}
+      </button>
+    </Menu>
+  ) : null;
   return (
     <article
       id={`talep-${item.id}`}
@@ -109,6 +159,10 @@ export function RequestCard({
             {!pending && <RequestStatusBadge status={item.status} />}
           </div>
           <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+            <div className="flex min-w-0 items-center gap-2 sm:col-span-2">
+              <dt><Building2 aria-hidden className="size-4 text-fg-muted" /><span className="sr-only">{t("rq.firm")}</span></dt>
+              <dd className="font-medium text-fg wrap-anywhere" data-testid="request-firm">{item.customerFirm?.name ?? GENERAL_CUSTOMER_LABEL}</dd>
+            </div>
             <div className="flex min-w-0 items-center gap-2">
               <dt><Phone aria-hidden className="size-4 text-fg-muted" /><span className="sr-only">{t("rq.phone")}</span></dt>
               <dd className="text-fg tabular-nums wrap-anywhere">{item.customerPhone ?? "—"}</dd>
@@ -144,6 +198,7 @@ export function RequestCard({
             <Info aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
             {REQUEST_VERIFY_HINT}
           </p>
+          {revokeMenu}
           {canAccept && (
             <div className="flex flex-col-reverse gap-2 sm:flex-row">
               <Button variant="secondary" onClick={onReject} disabled={busy} aria-label={t("rq.rejectFor", { name })}>
@@ -158,6 +213,7 @@ export function RequestCard({
           )}
         </div>
       )}
+      {!pending && revokeMenu && <div className="mt-4 flex justify-end border-t border-border pt-4">{revokeMenu}</div>}
     </article>
   );
 }

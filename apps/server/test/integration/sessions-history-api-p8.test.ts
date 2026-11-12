@@ -401,9 +401,9 @@ describe("AC-63/124 CSV dışa aktarma", () => {
     const raw = r.rawPayload.toString("utf8");
     expect(raw.startsWith("﻿")).toBe(true);
     const lines = raw.slice(1).split("\r\n");
-    expect(lines[0]).toBe("Oturum No;Oluşturma;Başlangıç;Bitiş;Süre;Durum;Mod;Kaynak;Bekleme;Teknisyen;Müşteri;Ticket No;Sonlandıran;Bitiş nedeni;Not");
+    expect(lines[0]).toBe("Oturum No;Oluşturma;Başlangıç;Bitiş;Süre;Durum;Mod;Kaynak;Müşteri firma;Bekleme;Teknisyen;Müşteri;Ticket No;Sonlandıran;Bitiş nedeni;Not");
     expect(raw.slice(1)).toContain(
-      `;2026-01-11 00:00:00;2026-01-11 00:00:05;2026-01-11 01:02:05;01:02:00;Bitti;İstemci;Teknisyen;;'@Teknisyen;"'=HYPERLINK(""http://x"")";'+905551112233;Müşteri;Müşteri bitirdi;"'-2+3;""alıntı""\nikinci satır"\r\n`,
+      `;2026-01-11 00:00:00;2026-01-11 00:00:05;2026-01-11 01:02:05;01:02:00;Bitti;İstemci;Teknisyen;;;'@Teknisyen;"'=HYPERLINK(""http://x"")";'+905551112233;Müşteri;Müşteri bitirdi;"'-2+3;""alıntı""\nikinci satır"\r\n`,
     );
     expect(raw.slice(1).split("\r\n").filter(Boolean)).toHaveLength(2); // başlık + 1 satır (müşteri filtresi)
     const a = await testDb().auditLog.findFirstOrThrow({ where: { tenantId: T, action: "session.exported" }, orderBy: { id: "desc" } });

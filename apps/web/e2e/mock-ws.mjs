@@ -95,6 +95,10 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName) {
   r.guest = ws;
   r.token = randomBytes(32).toString("base64url");
   send(ws, { t: "hello", role: "guest", sessionId: rec.view.id, peerPresent: Boolean(r.tech), iceServers: [], maxEndsAt: r.maxEndsAt, reconnectToken: r.token, caps: rec.caps, maxFileMb: rec.maxFileMb });
+  // Gerçek sunucu sırası (active.ts scheduleActive): admit'te teknisyene ice.servers, peer.joined'dan ÖNCE.
+  // Teknisyen ilk teklifi admit sonrası ICE listesi gelene kadar erteler (tech-machine iceGate); yeniden
+  // bağlanmada (first=false) sunucu ice.servers göndermez, kapı aynı WS'te zaten açıktır.
+  if (first) send(r.tech, { t: "ice.servers", iceServers: [] });
   send(r.tech, { t: "peer.joined", role: "guest", guestKind: kind, ...(guestName ? { guestName } : {}), ...(first ? { maxEndsAt: r.maxEndsAt } : {}), maxFileMb: rec.maxFileMb });
   ws.on("message", (raw) => {
     const m = JSON.parse(String(raw));
@@ -161,7 +165,6 @@ function onTech(ws, rec) {
       }
       r.lobby.clear();
       admitted(r, rec, hit[1].ws);
-      send(ws, { t: "ice.servers", iceServers: [] });
     } else if (m.t === "guest.reject") {
       const e = r.lobby.get(m.guestId);
       if (!e) return;

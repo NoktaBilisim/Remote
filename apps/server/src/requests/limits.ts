@@ -55,6 +55,14 @@ export interface RequestLimits {
   wsUpgrade: FixedWindowCounter;
   /** `/ws/panel` upgrade 31/dk/ipKey. */
   panelUpgrade: FixedWindowCounter;
+  /** P8c (mimari-e10 §5.3): geçerli kayıt durum sorgusu 60/dk/ipKey. */
+  bindingStatus: FixedWindowCounter;
+  /** P8c: kayıt iptali ("Bu bilgisayarı unut") 30/dk/ipKey. */
+  bindingRevoke: FixedWindowCounter;
+  /** P8c: kayıtla talep 6/sa/kayıt (E9 ip/önek/net48/tenant kovalarına EK — K20). */
+  createBinding: FixedWindowCounter;
+  /** P8c: müşteri yazma uçları + tek kayıt iptali 30/dk/kullanıcı. */
+  customersWrite: FixedWindowCounter;
 }
 
 export const TENANT_UNKNOWN_PER_HOUR = 60;
@@ -76,6 +84,10 @@ export function createRequestLimits(): RequestLimits {
     rateAudit: new FixedWindowCounter(2, MIN, MIN),
     wsUpgrade: new FixedWindowCounter(31, MIN, MIN),
     panelUpgrade: new FixedWindowCounter(31, MIN, MIN),
+    bindingStatus: new FixedWindowCounter(61, MIN, BLOCK),
+    bindingRevoke: new FixedWindowCounter(31, MIN, BLOCK),
+    createBinding: new FixedWindowCounter(7, HOUR, BLOCK),
+    customersWrite: new FixedWindowCounter(31, MIN, MIN),
   };
 }
 

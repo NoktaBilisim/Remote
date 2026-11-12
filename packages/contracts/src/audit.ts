@@ -24,3 +24,19 @@ export const CONTROL_AUDIT = {
   CAPS_CHANGED: "session.caps_changed",
 } as const;
 export type ControlAuditAction = (typeof CONTROL_AUDIT)[keyof typeof CONTROL_AUDIT];
+
+/** P8c müşteri ve bilgisayar kaydı audit eylemleri (mimari-e10 §5.7, §15). Entity `customer` / `device_bindings`. */
+export const CUSTOMER_AUDIT = {
+  CREATED: "customer.created",
+  UPDATED: "customer.updated",
+  REF_ROTATED: "customer.ref_rotated",
+  DEACTIVATED: "customer.deactivated",
+  REACTIVATED: "customer.reactivated",
+  ANONYMIZED: "customer.anonymized",
+} as const;
+export const BINDING_AUDIT = {
+  ISSUED: "binding.issued",
+  REVOKED: "binding.revoked",
+  /** r2 §15.1: bayat kaynaktan kayıt istendi (actor customer, entity_id NULL). */
+  DENIED: "binding.denied",
+} as const;

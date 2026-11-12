@@ -9,6 +9,9 @@ export const PERMISSION_MODULES = [
   { key: "session_history", actions: ["view", "edit", "export"] },
   // P8b (AC-147): view = kuyruk, geçmiş, panel bildirimi; accept = kabul VE ret (sessions.create gerekmez, mimari-e9 §4).
   { key: "support_requests", actions: ["view", "accept"] },
+  // P8c (AC-165): view = liste, detay, Genel bağlantı, oturumda seçim; edit = düzenle, bağlantıyı yenile, yeniden aktif et,
+  // tek kayıt iptali; delete = PASİFE ALMA (kalıcı silme yok — V23).
+  { key: "customers", actions: ["view", "create", "edit", "delete"] },
   { key: "users", actions: ["view", "create", "edit", "delete"] },
   { key: "settings", actions: ["view", "edit"] },
   { key: "audit", actions: ["view", "export"] },

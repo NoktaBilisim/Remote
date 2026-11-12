@@ -7,6 +7,7 @@ import type { z } from "zod";
 import { admitGuest, rejectGuest } from "./admit.ts";
 import { handleFileMeta, handleQualitySummary } from "./collab.ts";
 import { handleControlClose, handleControlRequest, handleControlState, handleEnvState, handleMonitorDenied, handleMonitorRequest, onShareMonitor } from "./control.ts";
+import { handleBindingRequest } from "./binding.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Clock, Guest, Peer, Room } from "./types.ts";
 
@@ -149,6 +150,9 @@ export async function onGuestMessage(rooms: Rooms, room: Room, guest: Guest, pee
       return;
     case "session.end":
       await rooms.finish(room, "customer", "CUSTOMER");
+      return;
+    case "binding.request":
+      await handleBindingRequest(rooms, room, guest, peer, m.previousKey);
       return;
   }
 }

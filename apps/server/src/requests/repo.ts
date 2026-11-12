@@ -33,6 +33,30 @@ export function settingsByRef(db: DbOrTx, requestRef: string): Promise<SettingsR
   return db.tenantRequestSettings.findUnique({ where: { requestRef }, select: settingsSelect });
 }
 
+/**
+ * P8c müşteri ref'i çözümlemesi (mimari-e10 §3.6, §5.2): Genel sorgu (`settingsByRef`) ile **paralel** çalışır; tenant ve
+ * ayar aynı sorguda gelir (ek gidiş-dönüş yok → Genel/müşteri ayrımı süreden sızmaz).
+ */
+const customerRefSelect = {
+  id: true,
+  tenantId: true,
+  name: true,
+  status: true,
+  fileLabel: true,
+  requestRef: true,
+  tenant: { select: { requestSettings: { select: settingsSelect } } },
+} as const;
+export type CustomerRefRow = Prisma.CustomerGetPayload<{ select: typeof customerRefSelect }>;
+
+export function customerByRef(db: DbOrTx, requestRef: string): Promise<CustomerRefRow | null> {
+  return db.customer.findUnique({ where: { requestRef }, select: customerRefSelect });
+}
+
+/** P8c tek ref ad alanı (ADR-0006 r5): append-only; PK çakışması (P2002 `PRIMARY`) → çağıran yeni ref ile yeniden dener. */
+export async function insertRequestRef(db: DbOrTx, data: { ref: string; tenantId: string; customerId: string | null; createdAt: Date }): Promise<void> {
+  await db.requestRef.create({ data, select: { ref: true } });
+}
+
 export async function insertSettings(db: DbOrTx, tenantId: string, requestRef: string, fileLabel: string): Promise<void> {
   await db.tenantRequestSettings.create({ data: { tenantId, requestRef, fileLabel, waRecipients: [], emailRecipients: [], trustedCidrs: [] }, select: { tenantId: true } });
 }
@@ -98,6 +122,8 @@ const secretSelect = {
   acceptedBy: true,
   customerName: true,
   customerEmail: true,
+  customerId: true,
+  bindingId: true,
   consentTextId: true,
   consentSha256: true,
   consentText: { select: { version: true } },
@@ -145,11 +171,19 @@ const itemSelect = {
   rejectMessage: true,
   acceptor: { select: { id: true, fullName: true } },
   session: { select: { id: true } },
+  // P8c (AC-176, §15.1): müşteri firma + kayıt durumu (tek ek IN sorgusu; N+1 yok)
+  bindingId: true,
+  binding: { select: { revokedAt: true } },
+  customer: { select: { id: true, name: true, status: true, refRotatedAt: true } },
 } as const;
 export type ItemRow = Prisma.SupportRequestGetPayload<{ select: typeof itemSelect }>;
 
-export async function listPending(db: DbOrTx, tenantId: string): Promise<{ rows: ItemRow[]; total: number }> {
-  const where = { tenantId, status: "PENDING" };
+/** P8c müşteri filtresi: `general` → customer_id IS NULL; ULID → o müşteri (tenant ile birlikte → IX(tenant_id, customer_id, …)). */
+const customerWhere = (customer: string | undefined): Prisma.SupportRequestWhereInput =>
+  customer === undefined ? {} : { customerId: customer === "general" ? null : customer };
+
+export async function listPending(db: DbOrTx, tenantId: string, customer?: string): Promise<{ rows: ItemRow[]; total: number }> {
+  const where: Prisma.SupportRequestWhereInput = { tenantId, status: "PENDING", ...customerWhere(customer) };
   const [rows, total] = await Promise.all([
     db.supportRequest.findMany({ where, select: itemSelect, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 200 }),
     db.supportRequest.count({ where }),
@@ -157,10 +191,20 @@ export async function listPending(db: DbOrTx, tenantId: string): Promise<{ rows:
   return { rows, total };
 }
 
-export async function listHistory(db: DbOrTx, tenantId: string, since: Date, status: string | undefined, page: { skip: number; take: number }) {
-  const where: Prisma.SupportRequestWhereInput = { tenantId, closedAt: { gte: since }, ...(status ? { status } : {}) };
+export async function listHistory(db: DbOrTx, tenantId: string, since: Date, status: string | undefined, page: { skip: number; take: number }, customer?: string) {
+  const where: Prisma.SupportRequestWhereInput = { tenantId, closedAt: { gte: since }, ...(status ? { status } : {}), ...customerWhere(customer) };
   const [rows, total] = await Promise.all([
     db.supportRequest.findMany({ where, select: itemSelect, orderBy: [{ closedAt: "desc" }, { id: "desc" }], ...page }),
+    db.supportRequest.count({ where }),
+  ]);
+  return { rows, total };
+}
+
+/** P8c müşteri detayı "Talepler" sekmesi (AC-178): tüm durumlar, yeniden eskiye; IX(tenant_id, customer_id, created_at). */
+export async function listByCustomer(db: DbOrTx, tenantId: string, customerId: string, page: { skip: number; take: number }) {
+  const where: Prisma.SupportRequestWhereInput = { tenantId, customerId };
+  const [rows, total] = await Promise.all([
+    db.supportRequest.findMany({ where, select: itemSelect, orderBy: [{ createdAt: "desc" }, { id: "desc" }], ...page }),
     db.supportRequest.count({ where }),
   ]);
   return { rows, total };
@@ -171,7 +215,7 @@ export function findItem(db: DbOrTx, tenantId: string, id: string): Promise<Item
 }
 
 export function findStatusInTenant(db: DbOrTx, tenantId: string, id: string) {
-  return db.supportRequest.findFirst({ where: { id, tenantId }, select: { status: true, acceptedBy: true } });
+  return db.supportRequest.findFirst({ where: { id, tenantId }, select: { status: true, acceptedBy: true, customerId: true } });
 }
 
 // ---------------- Geçişler (§3.4) ----------------
@@ -192,7 +236,9 @@ export async function rejectPending(tx: DbOrTx, tenantId: string, id: string, us
   return r.count;
 }
 
-export async function cancelPending(tx: DbOrTx, id: string, reason: "CUSTOMER" | "DISCONNECTED" | "TENANT_PASSIVE", now: Date): Promise<number> {
+export type SystemCancelReason = "DISCONNECTED" | "TENANT_PASSIVE" | "CUSTOMER_PASSIVE" | "BINDING_REVOKED";
+
+export async function cancelPending(tx: DbOrTx, id: string, reason: "CUSTOMER" | SystemCancelReason, now: Date): Promise<number> {
   const r = await tx.supportRequest.updateMany({ where: { id, status: "PENDING" }, data: { status: "CANCELLED", cancelReason: reason, closedAt: now } });
   return r.count;
 }
@@ -245,6 +291,15 @@ export function findPassivePending(db: DbOrTx, take: number) {
     select: { id: true, tenantId: true },
     take,
   });
+}
+
+/** P8c (AC-171): pasif müşterinin bekleyenleri (süpürücü yedek yolu; servis yolu deactivate sonrası). */
+export function findCustomerPassivePending(db: DbOrTx, take: number) {
+  return db.supportRequest.findMany({ where: { status: "PENDING", customer: { is: { status: "PASSIVE" } } }, select: { id: true, tenantId: true }, take });
+}
+
+export function findPendingOfCustomer(db: DbOrTx, tenantId: string, customerId: string) {
+  return db.supportRequest.findMany({ where: { tenantId, customerId, status: "PENDING" }, select: { id: true, tenantId: true } });
 }
 
 export function findPendingOfTenant(db: DbOrTx, tenantId: string) {

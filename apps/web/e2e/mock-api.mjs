@@ -3,6 +3,7 @@
 import { createServer } from "node:http";
 // Çerez/başlık adları tek kaynaktan (Node 24 .ts tür ayıklama ile doğrudan okunur)
 import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { handleCustomers } from "./mock-customers.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleRequests, requestUser } from "./mock-requests.mjs";
 import { handleSessions, sessionUser } from "./mock-sessions.mjs";
@@ -122,6 +123,7 @@ const srv = createServer(async (req, res) => {
     return send(res, 204, undefined, clearCookies);
   }
 
+  if (await handleCustomers(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleRequests(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleHistory(req, res, { url, session, csrfOk, send, err, readJson })) return;
   if (await handleSessions(req, res, { url, session, csrfOk, send, err, readJson })) return;

@@ -11,7 +11,9 @@ import { labelOf, REQUEST_STATUS_LABELS } from "@remote/contracts/labels";
 import { t } from "@/lib/i18n";
 import { CLOSED_STATUSES, type RequestStatus, type SupportRequestList } from "@/lib/requests/contract";
 import { getMe, serverGet } from "@/lib/server-api";
-import { RequestCard } from "./request-card";
+import { parseRequestCustomer } from "@/lib/customers/query";
+import { RequestCustomerFilter } from "./customer-filter";
+import { RequestHistory } from "./request-history";
 import { RequestQueue } from "./request-queue";
 import { SoundToggle } from "./sound-toggle";
 
@@ -21,10 +23,11 @@ type SP = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const PAGE_SIZE = 25;
 
-function href(tab: "pending" | "history", status?: string, page = 1) {
+function href(tab: "pending" | "history", status?: string, page = 1, customer?: string) {
   const q = new URLSearchParams();
   if (tab === "history") q.set("tab", "history");
   if (status) q.set("status", status);
+  if (customer) q.set("customer", customer);
   if (page > 1) q.set("page", String(page));
   const s = q.toString();
   return s ? `/requests?${s}` : "/requests";
@@ -49,6 +52,8 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
   const status = (CLOSED_STATUSES as readonly string[]).includes(rawStatus ?? "") ? (rawStatus as RequestStatus) : undefined;
   const pageRaw = Number(one(sp.page));
   const page = Number.isInteger(pageRaw) && pageRaw >= 1 && pageRaw <= 10_000 ? pageRaw : 1;
+  const customer = parseRequestCustomer(sp.customer);
+  const cq = customer ? `&customer=${encodeURIComponent(customer)}` : "";
 
   const header = (
     <>
@@ -84,29 +89,39 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
 
   const path =
     tab === "pending"
-      ? "/support-requests?tab=pending"
-      : `/support-requests?tab=history${status ? `&status=${status}` : ""}&page=${page}&pageSize=${PAGE_SIZE}`;
+      ? `/support-requests?tab=pending${cq}`
+      : `/support-requests?tab=history${status ? `&status=${status}` : ""}${cq}&page=${page}&pageSize=${PAGE_SIZE}`;
   const res = await serverGet<SupportRequestList>(path);
   if (res.kind === "error" && res.status === 401) redirect(EXPIRED_LOGIN_PATH);
 
   const tabs = (
     <nav aria-label={t("rq.tabs")} className="mt-6 inline-flex rounded-md border border-border bg-surface p-1 shadow-sm">
-      <Link href={href("pending")} aria-current={tab === "pending" ? "page" : undefined} className={tabCls(tab === "pending")}>
+      <Link href={href("pending", undefined, 1, customer)} aria-current={tab === "pending" ? "page" : undefined} className={tabCls(tab === "pending")}>
         <Inbox aria-hidden className="size-4" />
         {t("rq.tab.pending")}
       </Link>
-      <Link href={href("history")} aria-current={tab === "history" ? "page" : undefined} className={tabCls(tab === "history")}>
+      <Link href={href("history", undefined, 1, customer)} aria-current={tab === "history" ? "page" : undefined} className={tabCls(tab === "history")}>
         <History aria-hidden className="size-4" />
         {t("rq.tab.history")}
       </Link>
     </nav>
   );
 
+  const selectedName = customer && customer !== "general" ? res.kind === "ok" ? res.data.items.find((i) => i.customerFirm?.id === customer)?.customerFirm?.name : undefined : undefined;
+  const filter = (
+    <div className="mt-4">
+      <RequestCustomerFilter value={customer} selectedName={selectedName} basePath={href(tab, tab === "history" ? status : undefined)} />
+    </div>
+  );
+  // B-P8c-3: sunucu revoke-binding için customers.edit + support_requests.view ister; menü de ikisini birden arar.
+  const canRevoke = perms.includes("customers.edit") && perms.includes("support_requests.view");
+
   if (res.kind === "error") {
     return (
       <>
         {header}
         {tabs}
+        {filter}
         <div className="mt-6 max-w-xl">
           {res.status === 403 ? <Alert tone="warning" testId="requests-forbidden">{t("rq.forbidden")}</Alert> : <LoadError />}
         </div>
@@ -119,8 +134,16 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
       <>
         {header}
         {tabs}
+        {filter}
         <section className="mt-6" aria-label={t("rq.tab.pending")}>
-          <RequestQueue initial={res.data.items} canAccept={perms.includes("support_requests.accept")} canSettings={perms.includes("settings.edit")} />
+          <RequestQueue
+            key={customer ?? "all"}
+            initial={res.data.items}
+            canAccept={perms.includes("support_requests.accept")}
+            canSettings={perms.includes("settings.edit")}
+            canRevoke={canRevoke}
+            customer={customer}
+          />
         </section>
       </>
     );
@@ -132,12 +155,13 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
     <>
       {header}
       {tabs}
+      {filter}
       <section className="mt-6" aria-label={t("rq.tab.history")}>
         <nav aria-label={t("rq.h.filter")} className="flex flex-wrap gap-1" data-testid="history-status-filter">
           {[undefined, ...CLOSED_STATUSES].map((s) => (
             <Link
               key={s ?? "all"}
-              href={href("history", s)}
+              href={href("history", s, 1, customer)}
               aria-current={status === s ? "page" : undefined}
               className={`${tabCls(status === s)} border border-border`}
             >
@@ -149,11 +173,11 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
           {items.length === 0 ? (
             <EmptyState
               Icon={History}
-              title={status ? t("rq.h.emptyFilterTitle") : t("rq.h.emptyTitle")}
+              title={status || customer ? t("rq.h.emptyFilterTitle") : t("rq.h.emptyTitle")}
               body={t("rq.h.emptyBody")}
               testId="requests-history-empty"
               action={
-                status && (
+                (status || customer) && (
                   <Link href={href("history")} className="inline-flex min-h-11 items-center text-sm font-medium text-primary hover:underline">
                     {t("rq.h.all")}
                   </Link>
@@ -161,26 +185,20 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
               }
             />
           ) : (
-            <ol className="flex flex-col gap-4" aria-label={t("rq.tab.history")}>
-              {items.map((it) => (
-                <li key={it.id}>
-                  <RequestCard item={it} />
-                </li>
-              ))}
-            </ol>
+            <RequestHistory items={items} canRevoke={canRevoke} />
           )}
         </div>
         {total > PAGE_SIZE && (
           <nav aria-label={t("rq.h.pages")} className="mt-4 flex items-center justify-between gap-2 text-sm text-fg-muted">
             {page > 1 ? (
-              <Link href={href("history", status, page - 1)} className="inline-flex min-h-11 items-center gap-1 font-medium text-primary">
+              <Link href={href("history", status, page - 1, customer)} className="inline-flex min-h-11 items-center gap-1 font-medium text-primary">
                 <ChevronLeft aria-hidden className="size-4" />
                 {t("h.prev")}
               </Link>
             ) : <span />}
             <span className="tabular-nums">{t("rq.h.page", { page, pages })}</span>
             {page < pages ? (
-              <Link href={href("history", status, page + 1)} className="inline-flex min-h-11 items-center gap-1 font-medium text-primary">
+              <Link href={href("history", status, page + 1, customer)} className="inline-flex min-h-11 items-center gap-1 font-medium text-primary">
                 {t("h.next")}
                 <ChevronRight aria-hidden className="size-4" />
               </Link>

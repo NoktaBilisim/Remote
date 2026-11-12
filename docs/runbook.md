@@ -1,4 +1,4 @@
-# Runbook — Remote Support (P1–P8b)
+# Runbook — Remote Support (P1–P8c)
 Sahibi: devops. Kapsam P1: kurulum, başlatma/durdurma, env, log, migrate/seed. Yedek, alarm, rollback
 provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md` §8.
 
@@ -107,8 +107,9 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
   (`deploy/` içinde, yığın ayakta). Demo tenant'ı (seed `NODE_ENV=production`'da oluşturmaz) ve bir ADMIN + bir
   USER oluşturur. Hash server konteynerinde `src/auth/password.ts` (`ARGON2_OPTIONS`, argon2id) ile, SQL
   mysql konteynerinde `app` kullanıcısıyla (utf8mb4) çalışır; `must_change_password=1`. USER'a test için
-  `sessions.view/create/edit/delete/terminate`, `remote_control.use`, `file_transfer.use`, `session_history.view`
-  açılır. Tekrar çalıştırmak güvenli: var olan tenant/kullanıcıya dokunmaz, parola ezmez. Parolalar yalnız
+  `sessions.view/create/edit/delete/terminate`, `remote_control.use`, `file_transfer.use`, `session_history.view`,
+  `support_requests.view/accept` (P8b), `customers.view/create/edit/delete` (P8c) açılır. Yeni pakette eklenen anahtarlar
+  betik tekrar çalıştırılınca mevcut USER hesabına `INSERT IGNORE` ile eklenir (Admin'in elle kapattığı satıra dokunmaz). Tekrar çalıştırmak güvenli: var olan tenant/kullanıcıya dokunmaz, parola ezmez. Parolalar yalnız
   `ACCESS.txt`'e (600) eklenir, ekrana yazılmaz. Oluşturma/yetki olayları audit'e `source: staging-users.sh` ile yazılır.
   Opsiyonel: `ADMIN_EMAIL=… USER_EMAIL=… ACCESS_FILE=… bash staging-users.sh`. Parola sıfırlama P9'a kadar yok:
   kullanıcıyı silmek yerine farklı e-postayla yeni hesap açın.
@@ -195,6 +196,7 @@ docker compose ps && docker compose logs --since 5m migrate
 docker image rm remote-server:<eski> remote-web:<eski> remote-migrate:<eski>   # yalnız kendi eski imajlarımız
 ```
   **P8 ve sonrası:** `git pull`'dan sonra, `docker compose build`'den önce §6.1 ön kontrolünü çalıştırın.
+  **Yedek ve `git pull` ayrı ssh çağrılarında; `umask 077` pull ile aynı oturumda kullanılmaz** (P8b-1 dersi, §13.1).
   Rollback: `.env`'de `IMAGE_TAG=<önceki>` → `docker compose up -d` (şema değiştiyse önce §6 geri alma).
   Disk dar (%80+): her güncellemeden sonra yalnız iki önceki etiketi tutun.
 - Kök CA (tarayıcı uyarısı olmasın diye test makinelerine kurulur; gerçek müşteri staging'e bağlanmaz):
@@ -727,3 +729,189 @@ Kabul süresi (ayrı metrik yok): `SELECT DATE(created_at) g, COUNT(*), AVG(TIME
 | `/ws/request` veya `/ws/panel` 502 | server ayakta değil (§7); nginx/Caddy WS ayarı değişmedi (`/ws/*` aynı kural) |
 | Seed sonrası müşteri karşılamada 400 | AC-127: yeni aydınlatma sürümü; müşteri sayfayı yenilesin (§12.1/4) |
 | Talep 429 `QUEUE_FULL` / `RATE_LIMITED` | Tenant 50 bekleyen, IP/önek kovaları (mimari-e9 §5.4, §13.6); NAT'lı ofis için Admin "güvenilen IP/CIDR" ekleyebilir |
+
+## 13. P8c-1 yayını — müşteri firmalar ve bilgisayar kaydı (E10; mimari-e10 §10 + §15 r2, ADR-0017)
+Ön koşul: P8b-1/P8b-2 yayında. **Değişmeyenler:** env (yeni değişken yok; `PUBLIC_BASE_URL` müşteri indirme
+bağlantısını da üretir), `docker-compose.yml`, Caddyfile, nginx vhost (dosya adı biçimi `NoktaDestek-<etiket>-<ref>.exe`
+aynı; log maskesi `NoktaDestek-***` mevcut). **Değişenler:** migration `20261112120000_p8c_customers` (expand-only,
+precheck gerekmez), `grants.sql` (3 yeni tablo), seed yeni aydınlatma sürümü, server + web imajı, yeni yetki anahtarları
+`customers.view/create/edit/delete` (Admin varsayılan açık, User kapalı).
+
+### 13.1 Yayın sırası (staging, §8 akışı)
+**Ders (P8b-1):** `umask 077` ile `git pull` **aynı ssh oturumunda/komutunda kullanılmaz**; çekilen dosyalar 600 olur,
+`migrate`/`server` imajında `EACCES` ile durur. Yedeği ve repo güncellemesini **ayrı** ssh çağrılarında yapın; yedek
+dosyasının iznini `umask` yerine `chmod 600` ile verin.
+1. **Yedek** (ayrı ssh çağrısı):
+```bash
+ssh root@185.126.217.99 'cd /opt/remote/deploy && F=/root/remote-pre-p8c-$(date -u +%Y%m%dT%H%M%SZ).sql.gz \
+  && docker compose exec -T mysql sh -c '\''MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump -uroot --single-transaction "$MYSQL_DATABASE"'\'' | gzip > "$F" \
+  && chmod 600 "$F" && ls -l "$F" && gzip -t "$F" && echo yedek-ok'
+```
+2. **Repo güncelle** (yerelde bundle, sunucuda pull; §8). Pull **yeni** bir ssh çağrısında, `umask` vermeden. Ardından izin kontrolü:
+```bash
+ssh root@185.126.217.99 'find /opt/remote/apps /opt/remote/packages /opt/remote/deploy -type f ! -perm -o+r \
+  ! -name .env ! -name ACCESS.txt | head'      # beklenen: boş. Değilse: chmod -R go+rX /opt/remote/{apps,packages}
+```
+3. `IMAGE_TAG` güncelle → `docker compose build && docker compose up -d`. `docker compose logs --since 5m migrate` →
+   `20261112120000_p8c_customers` applied + grants uygulandı. Server `ready` olmadan önce migrate bitmiş olmalı
+   (compose `depends_on`). Caddy/nginx yeniden başlatılmaz (değişmedi).
+4. **Seed + aydınlatma yayın notu** (aşağıdaki kutu): önce açık müşteri/misafir oturumu var mı bakın, yoksa çalıştırın:
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql -uapp -N "$MYSQL_DATABASE"' \
+  <<< "SELECT status, COUNT(*) FROM support_sessions WHERE status IN ('PENDING','ACTIVE') GROUP BY status; SELECT COUNT(*) FROM support_requests WHERE status='PENDING';"
+docker compose --profile setup run --rm seed     # ilk çalıştırma consentTextsCreated >= 1, ikincisi 0
+```
+5. **Yetki sınırı:** §6 `check-app-grants.sh` → hepsi PASS, `FAILED=0` (P8c ile 50 yeni denetim; 2026-11-12 test DB'sinde 261/261).
+   Özellikle: `customers` / `device_bindings` için DELETE ve DDL **DENIED**, `request_refs` için UPDATE/DELETE **DENIED** (append-only).
+6. **Ref ad alanı tutarlılığı** (beklenen `0`; `docs/db-notlari.md` P8c-1):
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql -uapp -N "$MYSQL_DATABASE"' <<'SQL'
+SELECT (SELECT COUNT(*) FROM tenant_request_settings s WHERE NOT EXISTS (SELECT 1 FROM request_refs r WHERE r.ref=s.request_ref AND r.tenant_id=s.tenant_id AND r.customer_id IS NULL))
+     + (SELECT COUNT(*) FROM customers c WHERE NOT EXISTS (SELECT 1 FROM request_refs r WHERE r.ref=c.request_ref AND r.tenant_id=c.tenant_id AND r.customer_id=c.id)) AS kayitsiz;
+SQL
+```
+   `> 0` ise: eski imaj yeni şemada çalışırken Genel ref yenilenmiş demektir; migration'daki geri doldurma ifadesini migrator
+   ile yeniden çalıştırın (`docs/db-notlari.md` "Geri doldurma (idempotent)").
+7. **Teknisyen hesabı:** `bash staging-users.sh` → USER'a `customers.view/create/edit/delete` eklenir (mevcut hesaba
+   `INSERT IGNORE`; Admin'in elle kapattığı satıra dokunmaz). Çıktı: `USER: exists (...) - ..., eksik yetkiler eklendi`.
+   Kullanıcı yeniden giriş yapınca "Müşteriler" menüsü görünür.
+8. **Doğrulama** (panelde Admin ile "Müşteriler > Yeni müşteri", ardından satırdaki "Kopyala"):
+```bash
+B=https://remote.noktabilisim.net
+curl -sI "$B/api/v1/public/agent/request-download?ref=<müşteri ref>" | grep -i '^location'   # /downloads/NoktaDestek-<etiket>-<ref>.exe
+curl -s -o /dev/null -w '%{http_code}\n' "$B/downloads/NoktaDestek-<etiket>-<müşteri ref>.exe" # 200
+curl -s -o /dev/null -w '%{http_code}\n' "$B/downloads/NoktaDestek-<etiket>-<GENEL ref>.exe"   # 200 (Genel bağlantı bozulmadı)
+curl -s "$B/api/v1/public/requests/tenant?ref=aaaaaaaaaaaaaaaa" | head -c 200; echo            # 404 REQUEST_REF_INVALID
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
+  -d '{"bindingKey":"rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}' "$B/api/v1/public/bindings/status"   # 404 (BINDING_INVALID)
+docker compose logs caddy --since 10m | grep -c '<müşteri ref>'; grep -c '<müşteri ref>' /var/log/nginx/remote.access.log   # 0 / 0
+docker compose exec -T server node -e 'fetch("http://127.0.0.1:3001/metrics",{headers:{authorization:"Bearer "+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>process.stdout.write(t))' \
+  | grep -E '^# TYPE rs_(customers_active|bindings_issued_total|binding_invalid_total|bindings_revoked_total|requests_created_total)'
+```
+   Son komutta beş `# TYPE` satırı beklenir (§13.5). Eksikse server kodu bu sürümde metriği kaydetmiyor → backend-dev'e bildirin
+   (yayını durdurmaz). Panelde müşteriyi **pasife alın** → kopyaladığınız bağlantı 404 olmalı (ilk curl `location` yerine 404).
+9. §8 yayın geçmişi tablosuna satır ekleyin (commit, migration, yedek dosya adı, grants sonucu, seed çıktısı).
+
+> **Yayın notu — aydınlatma metni yeni sürüm (AC-188; P8b AC-127 kalıbı).** Seed, bilgisayar kaydı ve müşteri yetkili
+> kişi verisini anlatan yeni sistem aydınlatma sürümünü ekler ve `is_current`'ı ona geçirir. **Etkisi:** seed'den önce
+> açılmış müşteri karşılama sayfaları (tarayıcı veya istemci, eski sürümü göstermiş olan) join'de **400** alır;
+> müşteri sayfayı yenileyince (istemcide yeniden açınca) yeni metin gelir ve onay yeniden istenir. Devam eden
+> (onayı alınmış, bağlı) oturumlar etkilenmez. Bu yüzden seed'i adım 4'teki sorguda bekleyen/açık oturum yokken çalıştırın;
+> varsa teknisyene haber verin veya bitmesini bekleyin. Admin'in kendi yazdığı tenant metnine dokunulmaz.
+> Geri almada bu sürüm **kalır** (consent_texts değişmez kayıttır; zararsız).
+
+### 13.2 Geri alma (denendi: dba 2026-11-12, geçici `mysql:8.4` üzerinde down → up → drift 0 ve guard durdurması)
+Tercih sırası: **ileri düzeltme > yalnız imaj geri alma > imaj + `down.sql`**. Şema expand-only olduğundan eski imaj yeni
+şemada çalışır; `down.sql` yalnız şemanın kendisi sorunluysa gerekir.
+1. **Önceki imaj:** `.env`'de `IMAGE_TAG=<P8b-2 etiketi>` → `docker compose up -d`. Eski server `customer_id`/`binding_id`'yi
+   NULL bırakır, yeni tabloları okumaz. Etkisi: müşteri bağlantıları 404, 0.10.0 istemci `binding.offer` almadığı için kayıt
+   istemez (oturum etkilenmez). Bu pencerede Genel ref yenilendiyse ileri dönüşte §13.1/6 tutarlılık sorgusunu çalıştırın.
+2. **`down.sql`** (yalnız gerekirse; **verisiyle** `customers`, `request_refs`, `device_bindings` ve talep/oturum müşteri bağını
+   siler — önce §13.1/1 yedeği). Önce 1. adım uygulanmış olmalı.
+```bash
+docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute \
+  --file prisma/migrations/20261112120000_p8c_customers/down.sql
+```
+   **Koruma — `p8c_down_guard_chk`:** dosyanın ilk ifadesi geçici bir tabloya `cancel_reason IN ('CUSTOMER_PASSIVE','BINDING_REVOKED')`
+   olan talep sayısını yazar; CHECK `n = 0`. Böyle bir talep varsa (müşteri pasife alınmış veya bir kayıt panelden iptal edilmiş
+   ve bekleyen talebi kapanmışsa) komut **3819 `Check constraint 'p8c_down_guard_chk' is violated`** ile durur ve **hiçbir şey
+   değişmez** (yetki, sütun, tablo, `_prisma_migrations` kaydı yerinde). Ne yapılır:
+   - Bu satırları **silmeyin/düzenlemeyin** (talep geçmişidir). Sayıyı mimara bildirin:
+     `SELECT cancel_reason, COUNT(*) FROM support_requests WHERE cancel_reason IN ('CUSTOMER_PASSIVE','BINDING_REVOKED') GROUP BY cancel_reason;`
+   - O durumda yalnız 1. adımda kalın (eski kod yeni sütunlarla sorunsuz çalışır).
+   Guard geçerse dosya sırasıyla: yetkileri `REVOKE`, `support_sessions`/`support_requests` FK-indeks-sütunlarını düşürür,
+   `cancel_reason` CHECK'ini P8b listesine döndürür, üç tabloyu düşürür, `_prisma_migrations` kaydını siler. Ardından
+   §6 `check-app-grants.sh` (P8c satırları "tablo yok" hatası verir; P8b ve öncesi PASS olmalı).
+3. **Yeniden ileri:** yeni `IMAGE_TAG` → `docker compose up -d` (migrate migration'ı yeniden uygular; müşteri ref'leri **yeni**
+   üretilir, eski dağıtılmış müşteri dosyaları 404 kalır → Admin bağlantıları yeniden gönderir).
+4. Geri dönüşten sonra 0.10.0 istemcilerin mevcut kayıtları `bindings/status` 404 alır ve istemci kaydı siler (kabul;
+   ileri sürümde bir sonraki başarılı oturumda yeniden verilir).
+
+### 13.3 Operasyon adımları — bilgisayar kaydı ve müşteri bağlantısı
+Hepsi panelden yapılır (sunucuya girmek gerekmez); her işlem audit'e düşer. Etki tablosu:
+| İşlem (panel) | Yetki | Etkilenen kayıtlar (`device_bindings`) | Bekleyen talepler | Müşteri dosyası / bağlantı |
+|---|---|---|---|---|
+| Talep kartı ⋯ > **"Bu bilgisayarın kaydını iptal et"** (`POST /support-requests/:id/revoke-binding`) | `customers.edit` | Yalnız o talebi açan kayıt → `ADMIN_REVOKED` | Aynı kaydın bekleyenleri `CANCELLED(BINDING_REVOKED)` | Değişmez |
+| Müşteri detayı > **"Bağlantıyı yenile"** (`POST /customers/:id/rotate-ref`) | `customers.edit` | O müşterinin tüm etkin kayıtları → `CUSTOMER_ROTATED` | Etkilenmez (kartta "bağlantı yenilenmeden önce açıldı" uyarısı; kabul edilirse kayıt **verilmez**) | Eski ref anında 404; yeni bağlantı müşteriye gönderilir |
+| Müşteri > **"Pasife al"** (`POST /customers/:id/deactivate`) | `customers.delete` | O müşterinin tüm kayıtları → `CUSTOMER_PASSIVE` | `CANCELLED(CUSTOMER_PASSIVE)` (≤ 60 sn, süpürücü yedek) | 404; seçim listesinden çıkar |
+| Müşteri > **"Aktif et"** (`POST /customers/:id/reactivate`) | `customers.edit` | (zaten geçersiz) | — | **Yeni** ref; eski ref asla dirilmez (`request_refs`) |
+| Ayarlar > Destek talepleri > **Genel bağlantıyı yenile** | `settings.edit` | Tenant'ın tüm Genel (müşterisiz) kayıtları → `GENERAL_ROTATED` | Etkilenmez | Genel ref 404 |
+**Tek kayıt iptali (adım adım):**
+1. Talepler (kuyruk) veya Geçmiş'te ilgili talep kartını açın; kartta "Kayıtlı bilgisayar — <firma|Genel>" rozeti olmalı.
+   Menü öğesi yoksa: kayıt zaten geçersiz ("Kaydı iptal edilmiş bilgisayar" rozeti) ya da kullanıcıda `customers.edit` yok.
+2. ⋯ > "Bu bilgisayarın kaydını iptal et" → onay diyaloğunda "İptal et". Başarı toast'ı; 409 "zaten geçersiz" zararsızdır.
+3. Doğrulama (salt okunur, `app` kullanıcısı):
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_APP_PASSWORD" mysql -uapp "$MYSQL_DATABASE"' <<'SQL'
+SELECT b.id, b.revoke_reason, b.revoked_at, b.key_hash IS NULL AS hash_silindi
+  FROM support_requests r JOIN device_bindings b ON b.id=r.binding_id AND b.tenant_id=r.tenant_id WHERE r.id='<talep id>';
+SELECT action, created_at, JSON_EXTRACT(new_value,'$.reason') reason, JSON_EXTRACT(new_value,'$.cancelledRequests') iptal
+  FROM audit_logs WHERE action='binding.revoked' AND JSON_EXTRACT(new_value,'$.requestId')='<talep id>';
+SQL
+```
+   Beklenen: `ADMIN_REVOKED`, `hash_silindi=1`, bir audit satırı. Müşterinin diğer bilgisayarları ve dosyası etkilenmez;
+   o bilgisayar bundan sonra açılışta "Bu bilgisayarın destek kaydı artık geçerli değil." görür ve bağlantı kodu veya dosya
+   ile devam eder.
+**Müşteri bağlantısını yenileme / pasife alma:** Müşteriler > ilgili müşteri > işlem; onay diyaloğu etkilenecek kayıtları
+anlatır. Sonrasında audit `customer.ref_rotated` / `customer.deactivated` satırında `revokedBindings` (ve pasifte
+`cancelledRequests`) sayısı görünür. Yeni bağlantıyı müşteriye **sistem dışı** kanaldan (telefon/e-posta) teknisyen iletir
+(sistem göndermez). Kişisel veri: pasif müşterinin yetkili kişi/telefon/e-posta/notu tenant saklama süresi sonunda günlük
+03:30 işiyle anonimleşir (`customer.anonymized`); hemen silmek için Admin düzenle ekranında alanları boşaltır.
+
+### 13.4 Olay müdahalesi — sızan dosya / kayıt
+Kayıt anahtarı **yalnız talep açar**; oturum, ekran, TURN vermez. Her oturum yine teknisyen kabulü + müşterinin "Ekranımı
+paylaş" onayı ister. Bu yüzden olaylar **Orta** önceliklidir; hedef müdahale süresi mesai içinde 1 saat.
+| Olay | Belirti | Sınırlama (ilk 15 dk) | Not |
+|---|---|---|---|
+| **Müşteri dosyası / bağlantısı sızdı** (ör. herkese açık paylaşıldı) | O müşteriden tanımadığınız kişi adına talepler, `rs_request_rate_limited_total` artışı | Müşteri > **Bağlantıyı yenile** (o müşterinin kayıtları da düşer) | Yeni bağlantıyı yetkili kişiye kayıtlı numaradan teyitle gönderin |
+| **Tek kayıtlı bilgisayar kötüye kullanılıyor** (aynı bilgisayardan istenmeyen talepler) | Kartlarda aynı "Kayıtlı bilgisayar" kaynağı, `req.create.binding` 6/sa sınırına takılma | Talep kartı > **"Bu bilgisayarın kaydını iptal et"** (§13.3) | Bağlantıyı yenilemek **yalnız** dosya da sızdıysa; aksi halde müşterinin diğer bilgisayarlarını gereksiz düşürür |
+| **Genel dosya sızdı** | Genel'e düşen beklenmedik talepler | Ayarlar > **Genel bağlantıyı yenile** (tüm Genel kayıtlar düşer) | Müşteri firmaya ait dosyalar etkilenmez |
+| **`hatirla.bin` / kayıt anahtarı sızdı** (yedek, zararlı yazılım) | Aynı kayıttan farklı IP'lerden talep | Önce tek kayıt iptali; müşteri bilgisayarında istemciden **"Bu bilgisayarı unut"** | Anahtar her başarılı oturumda döndürülür; sızan eski anahtar bir sonraki oturumdan sonra zaten ölür |
+| **Kayıt anahtarı/ref tahmini** (numaralandırma) | `rs_request_ref_invalid_total` / `rs_binding_invalid_total` sıçraması | Kendiliğinden: IP kovası 10/dk → 15 dk blok. §12.5 Caddy IP dağılımı | Kalıcıysa üst güvenlik duvarında IP/önek engeli |
+**İnceleme sorguları** (salt okunur, `app`; tenant'ı daraltın):
+```sql
+-- Kayıtla açılan son talepler ve kaynakları (ham IP yalnız audit'te)
+SELECT r.id, r.created_at, r.status, r.customer_id, r.binding_id FROM support_requests r
+ WHERE r.tenant_id='<tenant>' AND r.binding_id IS NOT NULL AND r.created_at > NOW() - INTERVAL 1 DAY ORDER BY r.created_at DESC LIMIT 50;
+-- Kayıt yaşam döngüsü (verme, yenileme, reddedilen bayat kaynak, iptal)
+SELECT created_at, action, entity_id, ip_address, new_value FROM audit_logs
+ WHERE tenant_id='<tenant>' AND action IN ('binding.issued','binding.denied','binding.revoked','customer.ref_rotated','customer.deactivated')
+   AND created_at > NOW() - INTERVAL 7 DAY ORDER BY created_at DESC LIMIT 100;
+-- Bir kaydın durumu
+SELECT id, customer_id, issue_count, last_used_at, revoked_at, revoke_reason FROM device_bindings WHERE id='<binding id>';
+```
+Anahtar ve tam ref hiçbir log/audit satırında yoktur (yalnız ref'in ilk 4 karakteri); müdahale notuna da yazmayın.
+**Kapanış:** olay zamanı, alınan aksiyon, `revokedBindings`/`cancelledRequests` sayıları ve müşteriye bildirim bilgisini
+olay kaydına yazın; aynı müşteri 30 gün içinde tekrar ederse dosya dağıtım yöntemini müşteriyle gözden geçirin.
+
+### 13.5 Metrikler ve alarmlar (P8c; adlar mimari-e10 §10, server tarafı backend)
+| Seri | Tür | Pano / kural | Anlamı / ilk adım |
+|---|---|---|---|
+| `rs_customers_active` | gauge (günlük) | Pano | Tenant'lar toplamı aktif müşteri; tasarım tavanı ~1.000/tenant (mimari-e10 §7) |
+| `rs_bindings_issued_total{renewed}` | counter | Pano: `sum by (renewed)(increase(...[1d]))` | `renewed="false"` yeni bilgisayar, `"true"` rotasyon. 0.10.0 yayınından sonra artmıyorsa `binding.offer` gitmiyor (istemci sürümü / ticket `clientVersion`) |
+| `rs_binding_denied_total{reason}` | counter | Pano | P8c-1 B-P8c-4: verilmeyen kayıtlar. `stale_source` (yenileme/iptal öncesi açılmış talep) ve `inactive` (oturum/tenant/müşteri pasif) audit `binding.denied` ile de görünür; `rate` (oturum başına > 3), `no_offer`, `browser` yalnız metrik. `rate`/`no_offer` sürekli artışı → bozuk ya da sahte istemci |
+| `rs_binding_invalid_total` | counter | Pano; `rs_request_ref_invalid_total` alarmına zaten dahil | Bağlantı yenileme/pasif sonrası geçici sıçrama **beklenir** (eski kayıtlı bilgisayarlar açılışta 404 alır). Yenileme olmadan sürekli artış → §13.4 numaralandırma satırı |
+| `rs_bindings_revoked_total{reason}` | counter | Pano: `sum by (reason)(increase(...[1d]))` | `FORGOTTEN` müşteri "unut", `ADMIN_REVOKED` panel iptali, `CUSTOMER_*`/`GENERAL_ROTATED` toplu, `REPLACED` başka tenant'a geçiş, `EXPIRED` günlük 03:30 iş, `TENANT_PASSIVE` |
+| `rs_requests_created_total{via}` | counter | Pano: `sum by (via)(rate(...[1h]))` | `via="ref"` dosya/bağlantı, `"binding"` kayıtlı bilgisayar |
+| Alarm `increase(rs_request_ref_invalid_total[1m]) > 100` | **Uyarı** (mevcut, §12.5) | — | Kayıt geçersizleri de bu kovaya sayılır |
+| Alarm `increase(rs_bindings_revoked_total{reason="ADMIN_REVOKED"}[1h]) > 10` | Bilgi | — | Bir saatte çok sayıda tek kayıt iptali: kötüye kullanım dalgası olabilir; §13.4 inceleme sorgusu |
+| Haftalık bakış: günlük 03:30 boşta kalma işi | Bilgi | SQL (beklenen 0): `SELECT COUNT(*) FROM device_bindings WHERE revoked_at IS NULL AND last_used_at < NOW() - INTERVAL 731 DAY` | 730 gün en uzun saklama süresidir; `> 0` ise iş çalışmıyor → `docker compose logs server --since 26h` içinde iş hatası, backend-dev |
+Etiket değerleri sabit kümedir (IP, tenant, müşteri kimliği etiket olmaz). Metrik toplayıcı (Prometheus) bu projede henüz
+kurulu değil (P13); o zamana kadar §13.1/8'deki `/metrics` komutuyla elle okunur.
+
+### 13.6 Sorun giderme (P8c)
+| Belirti | Kontrol / çözüm |
+|---|---|
+| Müşteri bağlantısı 404 | Müşteri pasif veya bağlantı yenilenmiş (detayda ref/durum); tenant pasif. Etiket değiştiyse dosya adı değişir → yeni bağlantıyı kopyalayın. İç uç: §12.6 `agent-ready` komutu, müşteri ref + müşterinin güncel `file_label`'ı ile 204 |
+| Müşteri "Bu bilgisayarın destek kaydı artık geçerli değil." görüyor | Beklenen durumlar: unutuldu, panelden iptal, müşteri yenilendi/pasif, Genel yenilendi, tenant pasif, saklama süresi kadar kullanılmadı. Müşteri bağlantı kodu veya güncel dosya ile devam eder; başarılı oturumdan sonra yeni kayıt alır. Nedeni: `device_bindings.revoke_reason` (§13.4 sorgu) |
+| Kayıt hiç verilmiyor (`rs_bindings_issued_total` düz) | İstemci < 0.10.0 (teklif gönderilmez, tasarım gereği); oturum talepten bayat kaynakla doğdu (audit `binding.denied{reason:"stale_source"}`); müşteri pasif (`CONFLICT`) |
+| "Müşteriler" menüsü yok | Kullanıcıda `customers.view` yok (User varsayılan kapalı) → Admin toggle'dan açar; staging teknisyeni için `staging-users.sh` (§13.1/7) |
+| Migrate 3819 / 1452 ile durdu | Migration expand-only; beklenmez. `docker compose logs migrate` → kısıt adını dba'ya bildirin, §13.2/1 ile önceki imaja dönün, Prisma kaydını `migrate resolve --rolled-back 20261112120000_p8c_customers` ile kapatın |
+| `down.sql` 3819 `p8c_down_guard_chk` | §13.2/2 — tasarım gereği; satırlara dokunmayın |
+| Seed sonrası müşteri karşılamada 400 | §13.1 yayın notu; müşteri sayfayı yeniler |
+
+### 13.7 İstemci 0.10.0 (P8c-2) yayın satırı
+P8c-1 staging'de GEÇTİ olduktan sonra §11.3/§11.5 akışıyla (`v0.10.0`, iki derleme aynı SHA-256, staging'de
+`--dir --no-attestation` + `ALLOW_UNATTESTED=staging`). Sunucu tarafında ek adım yok (env/Caddy aynı). `MIN_AGENT_VERSION`
+**yükseltilmez** (0.9.x müşteri bağlantısıyla talep açabilir, R21). Geri alma: §11.4; eski istemciye dönüş sunucuyu etkilemez,
+kayıtlar istemcide yeni sürüme kadar kullanılmaz. §8 yayın geçmişine satır.

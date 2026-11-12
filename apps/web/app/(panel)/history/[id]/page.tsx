@@ -61,7 +61,7 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
       <div className="mt-6 flex flex-col gap-8">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
           <Section id="summary" title={t("h.d.summary")}>
-            <Summary s={s} showTenant={showTenant} />
+            <Summary s={s} showTenant={showTenant} canCustomers={perms.includes("customers.view")} />
           </Section>
           <Section id="note" title={t("h.n.title")}>
             {canEdit ? (

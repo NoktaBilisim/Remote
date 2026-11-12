@@ -60,6 +60,8 @@ export interface Guest {
   requestId?: string;
   /** P8b: geçerli ticket kuşağı; yeniden bağlanan /ws/request yeni ticket alınca eskisi geçersiz. */
   ticketGen?: number;
+  /** P8c: `binding.offer` gönderilen bağlantı — `binding.request` yalnız bu soketten kabul edilir (protokol §6). */
+  bindingOfferPeer?: Peer;
   peer?: Peer;
   timer?: unknown;
 }
@@ -163,6 +165,8 @@ export interface Room {
   guestEnv?: GuestEnv;
   /** P7 uzaktan kontrol durumu. */
   control: ControlRoom;
+  /** P8c: oturum başına iletilen `binding.request` sayısı (≤ 3, mimari-e10 §5.3). */
+  bindingRequests?: number;
   timers: { disconnect?: unknown; warn?: unknown; maxEnd?: unknown; iceRefresh?: unknown; idle?: unknown };
   ending: boolean;
 }

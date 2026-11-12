@@ -33,6 +33,8 @@ import { publicRequestDownloadRoutes, publicRequestRoutes } from "./requests/pub
 import { requestSettingsRoutes, supportRequestRoutes } from "./requests/routes.ts";
 import { RequestService } from "./requests/service.ts";
 import { requestChannels } from "./requests/ws.ts";
+import { customerRoutes } from "./customers/routes.ts";
+import { publicBindingRoutes } from "./bindings/public-routes.ts";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -145,6 +147,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const requests: RequestService = new RequestService({ db: deps.db, env, log: app.log, rooms, hub, limits: requestLimits, notifier, metrics, clock: rooms.clock, timing: rooms.timing });
   app.decorate("requests", requests);
   app.decorate("requestHub", hub);
+  metrics.gauge("rs_customers_active", "Aktif müşteri firmalar (P8c; açılış, günlük iş, durum değişimi)", () => requests.customersActive);
   metrics.gauge("rs_requests_pending", "Bekleyen destek talepleri (süpürücü turunda tazelenir)", () => pendingGauge.value);
   app.addHook("onClose", async () => {
     requests.shutdown();
@@ -161,6 +164,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       if (orphaned > 0) app.log.warn({ ended: orphaned }, "yeniden başlatma: etkin oturumlar sonlandırıldı");
       const armed = await armOrphanedPending(requests); // §3.5: 120 sn tolerans
       if (armed > 0) app.log.info({ pending: armed }, "yeniden başlatma: bekleyen talepler için kopma toleransı başlatıldı");
+      requests.refreshCustomersGauge();
       jobs = startScheduler(deps.db, app.log, rooms, undefined, requests);
     });
     app.addHook("onClose", async () => jobs?.stop());
@@ -194,5 +198,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(publicRequestDownloadRoutes, { prefix: "/api/v1/public/agent" });
   void app.register(supportRequestRoutes, { prefix: "/api/v1/support-requests" });
   void app.register(requestSettingsRoutes, { prefix: "/api/v1/settings/support-requests" });
+  void app.register(customerRoutes, { prefix: "/api/v1/customers" });
+  void app.register(publicBindingRoutes, { prefix: "/api/v1/public/bindings" });
   return app;
 }

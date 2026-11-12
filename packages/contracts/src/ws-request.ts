@@ -1,6 +1,8 @@
 // /ws/request (müşteri istemcisi, talep beklerken) ve /ws/panel (teknisyen paneli, tek yönlü) sözleşmesi —
 // mimari-protokol §5 (r2), mimari-e9 §2.1–2.3, §13. Zarf/ping/maxPayload/1008 kuralları ws.ts ile aynı.
 // Go eşi `internal/request/ws.go`; ortak örnekler `fixtures/ws-request.json` (valid.* geçer, invalid.* reddedilir).
+// P8c (mimari-e10 §5.4): 0.9.x istemci `request.closed.reason`'ı sıkı doğrular → sunucu yeni nedenleri `TENANT_PASSIVE`'e eşler
+// (`LEGACY_CANCEL_REASONS`). `request.new` += `customerFirm`, `viaBinding`, `bindingRevoked`, `staleSource`.
 // G-E9-15 (koordinatör kararı a): `request.new` `knownNetwork` yerine `networkMatch` + `knownDevice` taşır.
 import { z } from "zod";
 import { CANCEL_REASONS, NETWORK_MATCHES, REQUEST_STATUSES } from "./api/requests.ts";
@@ -32,6 +34,8 @@ export type RequestInbound = z.infer<typeof requestInboundSchema>;
 
 /** `request.closed` durumları (PENDING/ACCEPTED dışındaki son durumlar). */
 export const REQUEST_CLOSED_STATUSES = ["CANCELLED", "EXPIRED", "REJECTED", "CONNECT_FAILED"] as const;
+/** 0.9.x istemcinin bildiği nedenler; diğerleri ona `TENANT_PASSIVE` olarak gider (aynı genel mesaj). */
+export const LEGACY_CANCEL_REASONS = ["CUSTOMER", "DISCONNECTED", "TENANT_PASSIVE"] as const;
 export const REQUEST_WS_ERROR_CODES = ["RATE_LIMITED", "VALIDATION", "INTERNAL"] as const;
 
 // --- /ws/request: sunucu → istemci ---
@@ -79,6 +83,12 @@ export const panelOutboundSchema = z.discriminatedUnion("t", [
     networkMatch: z.enum(NETWORK_MATCHES),
     knownDevice: z.boolean(),
     createdAt: iso,
+    /** P8c (AC-176): toast "Yeni destek talebi — <müşteri firma | Genel>". */
+    customerFirm: z.strictObject({ id: ulid, name: z.string().max(100) }).nullable(),
+    /** r2 (§15.1, §15.7): kayıtla açıldı ve kayıt etkin (oluşturma anında). */
+    viaBinding: z.boolean(),
+    bindingRevoked: z.boolean(),
+    staleSource: z.boolean(),
   }),
   z.strictObject({ t: z.literal("request.removed"), id: ulid, status: z.enum(REQUEST_STATUSES) }),
   /** Yalnız kabul eden kullanıcının soketlerine (AC-155). */

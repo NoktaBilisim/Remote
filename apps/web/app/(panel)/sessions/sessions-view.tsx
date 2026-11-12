@@ -28,6 +28,8 @@ export function SessionsView(props: {
   showTechnician: boolean;
   meId: string;
   canTerminate: boolean;
+  /** P8c (AC-180) */
+  canPickCustomer?: boolean;
 }) {
   const router = useRouter();
   const [items, setItems] = useState(props.initial);
@@ -135,6 +137,7 @@ export function SessionsView(props: {
       {creating && (
         <NewSessionDialog
           canCancel={props.canCancel}
+          canPickCustomer={props.canPickCustomer}
           onChanged={refresh}
           onClose={() => {
             setCreating(false);

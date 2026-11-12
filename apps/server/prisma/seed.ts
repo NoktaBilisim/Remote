@@ -1,13 +1,15 @@
-// Seed (idempotent): Super Admin + demo tenant + her tenant için KVKK metni (P4; P8b-1 yeni sürüm) + demo talep ayarı. Gizli değer yok; parola env'den gelir.
+// Seed (idempotent): Super Admin + demo tenant + her tenant için KVKK metni (P4; P8b-1, P8c-1 yeni sürüm) + demo talep
+// ayarı + (P8c-1) demo örnek müşteri. Gizli değer yok; parola env'den gelir.
 // Çalıştırma: pnpm db:seed  (DATABASE_URL = app kullanıcısı; DDL gerekmez)
 // Env: SEED_SUPERADMIN_EMAIL, SEED_SUPERADMIN_PASSWORD (>= 12 karakter), SEED_SUPERADMIN_NAME?
 // Demo tenant NODE_ENV=production iken oluşturulmaz.
 // Var olan Super Admin'in parolası ASLA ezilmez (yeniden çalıştırma güvenli).
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import argon2 from "argon2";
 import { ulid } from "ulid";
 import { PrismaClient } from "../src/generated/prisma/client.js";
+import { seedConsentTexts } from "./seed-consent.ts";
 
 // mimari §5.1: argon2id, m=19 MiB, t=2, p=1 (OWASP). Uygulamadaki auth/password.ts ile aynı olmalı.
 const ARGON2_OPTIONS = { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 } as const;
@@ -86,64 +88,6 @@ async function seedDemoTenant(prisma: PrismaClient): Promise<"created" | "exists
   return "created";
 }
 
-// P4 (mimari §3.1 consent_texts, AC-29/127) + P8b-1 (mimari-e9 §3.6, AC-135): sistem aydınlatma metni. Tenant Admin'i
-// P11'de kendi sürümünü ekler. Üretimde de çalışır (demo verisi değildir). Kural (idempotent):
-//  - metni olmayan tenant → güncel sistem metni v1;
-//  - güncel sürüm SİSTEM metniyse (created_by NULL) ve gövde güncel sistem metninden farklıysa → yeni sürüm (max+1),
-//    eskisi is_current=0 (aynı TX; app'te sütun düzeyi UPDATE(is_current, updated_at) — grants.sql P8b-1);
-//  - Admin'in yazdığı güncel metne (created_by dolu) DOKUNULMAZ.
-// Not: yeni sürüm, eski sürümle açık karşılama sayfalarını join'de 400'e düşürür (AC-127) — runbook yayın notu.
-function defaultConsentBody(tenantName: string): string {
-  return [
-    `Bu uzaktan destek hizmetinde veri sorumlusu ${tenantName}'dır.`,
-    "Destek talebi ve oturum sırasında adınız, telefon numaranız, e-posta adresiniz (verirseniz), sorun açıklamanız, IP adresiniz, cihaz/tarayıcı bilgileriniz ve onay kayıtlarınız; destek hizmetinin verilmesi ve kayıt altına alınması amacıyla 6698 sayılı KVKK'ya uygun olarak işlenir.",
-    "Ekranınız yalnız siz paylaşımı başlattığınızda (\"Ekranımı paylaş\") ve oturum süresince teknisyene canlı olarak iletilir; ekran görüntüsü veya video kaydı tutulmaz. Paylaşımı istediğiniz an durdurabilir, oturumu sonlandırabilirsiniz.",
-    "\"Bilgilerimi hatırla\" kutucuğunu işaretlerseniz adınız, telefonunuz, e-postanız ve bu bilgisayarı tanımaya yarayan rastgele bir cihaz anahtarı yalnız bu bilgisayarda, Windows kullanıcı profilinizde şifreli bir dosyada (%LOCALAPPDATA%\\NoktaDestek\\hatirla.bin) saklanır; sorun açıklamanız saklanmaz. Bu bilgileri istediğiniz an \"Bilgilerimi unut\" ile ya da kutucuğu boş bırakarak gönderim yaparak silebilirsiniz.",
-    "Talep ve oturum kayıtları firmanın belirlediği saklama süresi kadar tutulur, süre sonunda kişisel veriler anonimleştirilir. KVKK'nın 11. maddesindeki haklarınız için firmayla iletişime geçebilirsiniz.",
-    "Devam ederek bu metni okuduğunuzu ve ekranınızın görüntülenmesine açık rıza verdiğinizi onaylarsınız.",
-  ].join("\n\n");
-}
-
-const sha256Hex = (body: string): string => createHash("sha256").update(body, "utf8").digest("hex"); // DB CHECK: = SHA2(body,256)
-
-async function seedTenantConsent(prisma: PrismaClient, tenant: { id: string; name: string }): Promise<boolean> {
-  const body = defaultConsentBody(tenant.name);
-  const sha256 = sha256Hex(body);
-  const current = await prisma.consentText.findFirst({
-    where: { tenantId: tenant.id, isCurrent: true },
-    select: { id: true, sha256: true, createdBy: true },
-  });
-  if (current && (current.createdBy !== null || current.sha256 === sha256)) return false;
-  const last = await prisma.consentText.findFirst({
-    where: { tenantId: tenant.id },
-    orderBy: { version: "desc" },
-    select: { version: true },
-  });
-  const id = ulid();
-  const version = (last?.version ?? 0) + 1;
-  await prisma.$transaction([
-    ...(current ? [prisma.consentText.update({ where: { id: current.id }, data: { isCurrent: false } })] : []),
-    prisma.consentText.create({ data: { id, tenantId: tenant.id, version, body, sha256, isCurrent: true } }),
-    prisma.auditLog.create({
-      data: {
-        tenantId: tenant.id,
-        action: "consent_text.created",
-        entity: "consent_texts",
-        entityId: id,
-        newValue: { version, sha256, source: "seed" },
-        result: "success",
-      },
-    }),
-  ]);
-  return true;
-}
-
-async function seedConsentTexts(prisma: PrismaClient): Promise<number> {
-  const tenants = await prisma.tenant.findMany({ select: { id: true, name: true }, orderBy: { id: "asc" } });
-  let created = 0;
-  for (const tenant of tenants) if (await seedTenantConsent(prisma, tenant)) created += 1;
-  return created;
-}
 
 // P8b-1 (mimari-e9 §3.1): yalnız geliştirmede demo tenant'ın talep ayarı (indirme bağlantısı hazır olsun). Üretimde
 // satır tembel oluşturulur (Admin ayar ekranı). Ref = 10 rastgele bayt → RFC 4648 base32 küçük harf (16 karakter, 80 bit).
@@ -170,16 +114,71 @@ async function seedDemoRequestSettings(prisma: PrismaClient): Promise<"created" 
   if (!tenant) return "skipped";
   const existing = await prisma.tenantRequestSettings.findUnique({ where: { tenantId: tenant.id }, select: { tenantId: true } });
   if (existing) return "exists";
-  await prisma.tenantRequestSettings.create({
-    data: {
-      tenantId: tenant.id,
-      requestRef: randomTenantRef(),
-      fileLabel: "DemoFirma",
-      waRecipients: [],
-      emailRecipients: [],
-      trustedCidrs: [],
-    },
+  const requestRef = randomTenantRef();
+  // P8c-1 (ADR-0006 r5): her ref üretimi aynı TX'te tek ad alanına (request_refs) yazılır.
+  await prisma.$transaction([
+    prisma.requestRef.create({ data: { ref: requestRef, tenantId: tenant.id, customerId: null } }),
+    prisma.tenantRequestSettings.create({
+      data: { tenantId: tenant.id, requestRef, fileLabel: "DemoFirma", waRecipients: [], emailRecipients: [], trustedCidrs: [] },
+    }),
+  ]);
+  return "created";
+}
+
+// P8c-1 (mimari-e10 §3.1): yalnız geliştirmede demo tenant'a örnek müşteri (Müşteriler sayfası boş kalmasın). Katlanmış
+// anahtarlar contracts `foldKey` çıktısının elle hesaplanmış karşılığıdır (ad ASCII dışı harf içeriyor: Ö, ü, ş, Ş →
+// "ornek musteri a.s."); DB CHECK `customers_search_key_chk` search_key'in name_key ile başladığını doğrular.
+// Seed migrate imajında contracts'a bağımlı olmasın diye sabit kalır; `test/unit/customers-p8c.test.ts` (metin okuması) bu sabitlerin
+// contracts `customerKeys` / `suggestFileLabel` çıktısıyla aynı olduğunu doğrular (backend P8c-1).
+const DEMO_CUSTOMER = {
+  name: "Örnek Müşteri A.Ş.",
+  nameKey: "ornek musteri a.s.",
+  fileLabel: "OrnekMusteri",
+  contactName: "Deneme Yetkili",
+  phone: "+905550000000",
+};
+
+const demoSearchKey = (): string => `${DEMO_CUSTOMER.nameKey} deneme yetkili ${DEMO_CUSTOMER.phone.replace(/\D/g, "")}`;
+
+async function seedDemoCustomer(prisma: PrismaClient): Promise<"created" | "exists" | "skipped"> {
+  if (process.env.NODE_ENV === "production") return "skipped";
+  const tenant = await prisma.tenant.findUnique({ where: { slug: DEMO_TENANT.slug }, select: { id: true } });
+  if (!tenant) return "skipped";
+  const existing = await prisma.customer.findUnique({
+    where: { tenantId_nameKey: { tenantId: tenant.id, nameKey: DEMO_CUSTOMER.nameKey } },
+    select: { id: true },
   });
+  if (existing) return "exists";
+  const id = ulid();
+  const requestRef = randomTenantRef();
+  const searchKey = demoSearchKey();
+  // FK sırası: önce customers, sonra request_refs (FK (tenant_id, customer_id) anında denetlenir).
+  await prisma.$transaction([
+    prisma.customer.create({
+      data: {
+        id,
+        tenantId: tenant.id,
+        name: DEMO_CUSTOMER.name,
+        nameKey: DEMO_CUSTOMER.nameKey,
+        searchKey,
+        fileLabel: DEMO_CUSTOMER.fileLabel,
+        requestRef,
+        contactName: DEMO_CUSTOMER.contactName,
+        phone: DEMO_CUSTOMER.phone,
+      },
+    }),
+    prisma.requestRef.create({ data: { ref: requestRef, tenantId: tenant.id, customerId: id } }),
+    prisma.auditLog.create({
+      data: {
+        tenantId: tenant.id,
+        action: "customer.created",
+        entity: "customer",
+        entityId: id,
+        newValue: { name: DEMO_CUSTOMER.name, fileLabel: DEMO_CUSTOMER.fileLabel, refPrefix: requestRef.slice(0, 4), source: "seed" },
+        result: "success",
+      },
+    }),
+  ]);
   return "created";
 }
 
@@ -190,8 +189,9 @@ async function main(): Promise<void> {
     const demo = await seedDemoTenant(prisma);
     const consents = await seedConsentTexts(prisma);
     const requestSettings = await seedDemoRequestSettings(prisma);
+    const customer = await seedDemoCustomer(prisma);
     process.stdout.write(
-      `seed: superAdmin=${superAdmin} demoTenant=${demo} consentTextsCreated=${consents} demoRequestSettings=${requestSettings}\n`,
+      `seed: superAdmin=${superAdmin} demoTenant=${demo} consentTextsCreated=${consents} demoRequestSettings=${requestSettings} demoCustomer=${customer}\n`,
     );
   } finally {
     await prisma.$disconnect();

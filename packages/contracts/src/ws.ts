@@ -147,8 +147,17 @@ export const envStateSchema = z.strictObject({ t: z.literal("env.state"), id, el
 export const techInboundSchema = z.discriminatedUnion("t", [guestAdmitSchema, guestRejectSchema, sdpOfferSchema, iceSchema, iceRestartSchema, sessionEndSchema, fileMetaSchema, qualitySummarySchema, controlRequestSchema, monitorRequestSchema, controlReleaseSchema, controlCancelSchema]);
 export type TechInbound = z.infer<typeof techInboundSchema>;
 
+// --- P8c: bilgisayar kaydı (mimari-protokol §6, ADR-0017) ---
+/** Kayıt anahtarı `rsb_` + base64url(32 bayt) (api/bindings.ts `bindingKeySchema` ile aynı ifade). */
+const bindingKey = z.string().regex(/^rsb_[A-Za-z0-9_-]{43}$/);
+/**
+ * guest(AGENT) → S: yalnız `binding.offer` alındıktan sonra, bir kez. `previousKey` yalnız dosyadaki kaydın sunucu kökeni
+ * bu sunucuysa. Kaydın müşterisi istemciden ALINMAZ (oturumdan gelir).
+ */
+export const bindingRequestSchema = z.strictObject({ t: z.literal("binding.request"), id, previousKey: bindingKey.optional() });
+
 /** Misafirden kabul edilen mesajlar (lobideyken yalnız `session.end`, mimari-protokol §3.1). */
-export const guestInboundSchema = z.discriminatedUnion("t", [sdpAnswerSchema, iceSchema, shareStateSchema, sessionEndSchema, fileMetaSchema, controlStateSchema, envStateSchema, monitorDeniedSchema]);
+export const guestInboundSchema = z.discriminatedUnion("t", [sdpAnswerSchema, iceSchema, shareStateSchema, sessionEndSchema, fileMetaSchema, controlStateSchema, envStateSchema, monitorDeniedSchema, bindingRequestSchema]);
 export type GuestInbound = z.infer<typeof guestInboundSchema>;
 
 // --- Sunucu → istemci ---
@@ -213,6 +222,15 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
   z.strictObject({ t: z.literal("caps.update"), caps: z.array(z.enum(CAPS)) }),
   z.strictObject({ t: z.literal("control.state"), state: z.enum(CONTROL_STATES), source: z.enum(CONTROL_SOURCES) }),
   envStateSchema.omit({ id: true }),
+  // P8c (protokol §6): yalnız ≥ 0.10.0 AGENT misafire; `hello` şeması değişmez (0.9.x sıkı ayrıştırıcı).
+  z.strictObject({ t: z.literal("binding.offer") }),
+  z.strictObject({
+    t: z.literal("binding.issued"),
+    bindingKey,
+    tenantName: z.string().max(120),
+    customerFirmName: z.string().max(100).nullable(),
+    renewed: z.boolean(),
+  }),
 ]);
 export type ServerOutbound = z.infer<typeof serverOutboundSchema>;
 /** Odada saklanan son paylaşım durumu (teknisyen hello `share` alanı). */

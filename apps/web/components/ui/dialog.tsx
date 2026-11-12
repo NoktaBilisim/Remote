@@ -20,6 +20,7 @@ export function Dialog({
   size = "md",
   testId,
   role,
+  onDismiss,
 }: {
   open: boolean;
   onClose: () => void;
@@ -30,6 +31,11 @@ export function Dialog({
   size?: "sm" | "md";
   testId?: string;
   role?: "alertdialog";
+  /**
+   * P8c: Esc ve kapat (X) düğmesi bunu çağırır, diyalog kendiliğinden kapanmaz (ör. kaydedilmemiş değişiklik onayı).
+   * Verilmezse ikisi de `onClose`. Tarayıcı Esc'yi iptal ettirmezse (art arda Esc) diyalog kapanır → `onClose`.
+   */
+  onDismiss?: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -57,6 +63,11 @@ export function Dialog({
       onClose={(e) => {
         if (!e.currentTarget.open) onClose();
       }}
+      onCancel={(e) => {
+        if (!onDismiss) return;
+        e.preventDefault();
+        onDismiss();
+      }}
       className={`m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto rounded-lg border border-border bg-surface p-0 text-fg shadow-lg transition-[opacity,transform] duration-200 ease-out backdrop:bg-overlay starting:scale-95 starting:opacity-0 motion-reduce:starting:scale-100 ${width}`}
     >
       {open && (
@@ -74,7 +85,7 @@ export function Dialog({
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={onDismiss ?? onClose}
               aria-label={t("d.closeIcon")}
               className="-mt-1 -mr-2 inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-muted hover:bg-surface-muted hover:text-fg"
             >

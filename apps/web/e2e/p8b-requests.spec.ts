@@ -71,6 +71,8 @@ test("AC-149: /ws/panel — yeni talep toast + Görüntüle, rozet, liste; kald�
   await hook(page, "new", cookie);
   const toast = page.getByTestId("toast").filter({ hasText: "Yeni destek talebi: Yeni Müşteri" });
   await expect(toast).toBeVisible({ timeout: 3000 });
+  // AC-176: Genel talepte firma yerine "Genel" (tam metin)
+  await expect(toast.locator("p")).toHaveText("Yeni destek talebi: Yeni Müşteri — Genel");
   await expect(page.getByTestId("requests-badge")).toContainText("4");
   await toast.getByRole("link", { name: "Görüntüle" }).click();
   await expect(page).toHaveURL(/\/requests#talep-/);

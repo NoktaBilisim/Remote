@@ -41,6 +41,7 @@ Ana belge: `docs/mimari.md` §4. Şemalar `packages/contracts/src/api/*.ts` içi
 | `REQUEST_CLOSED` | 409 | Talep iptal/süre dolumu/ret ile kapanmış | P8b-1 |
 | `QUEUE_FULL` | 429 | Tenant'ta 50 bekleyen talep veya ≥ 40 iken bilinmeyen kaynak (AC-143, mimari-e9 §13.6) | P8b-1 |
 | `CLIENT_OUTDATED` | 426 | AGENT sürümü `MIN_AGENT_VERSION`'dan düşük (`fields.minVersion`; mimari-e9 §13.4) | P8b-1 |
+| `BINDING_INVALID` | 404 | Bilgisayar kaydı geçersiz (yok, unutulmuş, değiştirilmiş, müşteri yenilendi/pasif, Genel yenilendi, tenant pasif, süresi doldu — tek gövde; AC-185, mimari-e10 §5.2) | P8c-1 |
 | `INTERNAL` | 500 | Beklenmeyen hata (ayrıntı yalnız log, `requestId`) | P1 ✓ |
 | `UPSTREAM` | 502 | SMTP/MySQL/dış servis testi başarısız | P10 |
 | `NOT_READY` | 503 | `/ready`: DB'ye ulaşılamıyor veya migration uygulanmamış ; **P8b-1 düzeltme (QA-P8b-1):** herhangi bir uçta geçici DB çekişmesi — etkileşimli TX başlatılamadı/zaman aşımı (Prisma P2028), deadlock (P2034/1213), kilit bekleme (1205), havuz bağlantı zaman aşımı (45028) → 503 `NOT_READY` + `Retry-After: 5`, mesaj "Sunucu şu an yoğun…". Yazma geri alındığından yeniden deneme güvenlidir; 500 dönmez. TX varsayılanları `maxWait` 8 sn / `timeout` 15 sn (`src/lib/db.ts` `TX_OPTIONS`) | P1 ✓ |
@@ -58,6 +59,7 @@ Ana belge: `docs/mimari.md` §4. Şemalar `packages/contracts/src/api/*.ts` içi
 | Ayarlar | `settings` | view, edit |
 | Audit log | `audit` | view, export |
 | Destek talepleri (P8b) | `support_requests` | view (kuyruk, geçmiş, panel bildirimi), accept (kabul **ve** ret) |
+| Müşteriler (P8c) | `customers` | view (liste, detay, Genel bağlantı, oturumda seçim), create, edit (düzenle, bağlantıyı yenile, yeniden aktif et), delete (**pasife alma**; kalıcı silme yok — V23) |
 Rol kuralı: SUPER_ADMIN tümü + sistem uçları (rol kontrolü, toggle değil). ADMIN varsayılan tümü açık; USER tümü kapalı (AC-73).
 
 ## Auth (`/auth`)
@@ -264,3 +266,57 @@ Mimari: `docs/mimari-e9.md`. Şemalar `packages/contracts/src/api/requests.ts` (
 - CSV: `Mod` sütunundan sonra `Kaynak` ("Talep"/"Teknisyen") ve `Bekleme` (`HH:MM:SS`); hücreler formül kaçışlı (AC-124). Telefon ve açıklama CSV'ye **girmez** (veri en aza indirme).
 - **r2 eki — resolve sürümü (G-E9-4):** POST `/public/sessions/resolve` gövdesine `clientVersion?: /^\d{1,3}\.\d{1,3}\.\d{1,3}$/` eklenir (yalnız `clientKind=AGENT`'ta anlamlı; yoksa `0.0.0`). `MIN_AGENT_VERSION` doluysa ve sürüm düşükse 426 `CLIENT_OUTDATED`; sürüm `joinNonce` → ticket kaydına taşınır, join ve `/ws/guest` (AGENT) aynı kontrolü yeniden beyan almadan yapar. 0.9.0 istemcisi alanı gönderir.
 - **r2 eki — panel:** talep kartında `requestCode` ve bilinen kaynak rozetleri + kalıcı ipucu "Müşteriyi firmanın kayıtlı numarasından arayın ve ekrandaki talep kodunu sorun" (mimari-e9 §13.1). Açıklama, ad ve ret mesajı düz metin; otomatik bağlantı yok.
+
+## Müşteriler ve bilgisayar kaydı (P8c) — bağlayıcı (mimar, 2026-11-12, **r2** güvenlik tasarım turu G-E10-1..9 işlendi — `docs/mimari-e10.md` §15; AC-165..195, ADR-0017, ADR-0006 r5)
+Mimari: `docs/mimari-e10.md`. Şemalar `packages/contracts/src/api/customers.ts` ve `api/bindings.ts` (tümü `z.strictObject`). Ortak kurallar ve hata zarfı yukarıdaki gibidir. Tüm panel uçları `tenantScope` (Super Admin firma seçmeli), başka tenant/pasif kaydı gerektiren işlem → 404.
+
+**Alan şemaları:**
+| Ad | Şema |
+|---|---|
+| `customerFirmNameSchema` | trim, 2..100 kod noktası, `UNSAFE_NAME_CHARS` yok |
+| `fileLabelSchema` | `/^[A-Za-z0-9]{1,20}$/` (yoksa `suggestFileLabel(name)`) |
+| `contactNameSchema` | trim, 0..80, `UNSAFE_NAME_CHARS` yok; `""` → `null` |
+| `optionalPhoneSchema` | `""`/`null` → `null`; aksi `phoneSchema` (E.164) |
+| `optionalEmailNullable` | `""`/`null` → `null`; ≤ 254, `z.email()` |
+| `customerNoteSchema` | CRLF→LF, trim, 0..1000 kod noktası; `\n` dışı Cc ve bidi/sıfır genişlik Cf yasak; `""` → `null` |
+| `customerStatusSchema` | `enum(["ACTIVE","PASSIVE"])` |
+| `customerFilterSchema` (talepler) | `"general"` \| ULID |
+| `sessionCustomerFilterSchema` (geçmiş) | `"none"` \| ULID |
+| `bindingKeySchema` | `/^rsb_[A-Za-z0-9_-]{43}$/` |
+| `foldKey`, `suggestFileLabel` | Fonksiyon (mimari-e10 §3.6), fixture `fixtures/customers.json` |
+
+**Ortak tipler:** `CustomerFirmRef = { id, name, status }`. `CustomerListItem = { id, name, status, downloadUrl: string|null (pasifte null), fileName: string|null, createdAt, lastRequestAt: string|null, requestCount: int }`. `CustomerDetail = CustomerListItem + { fileLabel, contactName|null, phone|null, email|null, note|null, refRotatedAt|null, passiveAt|null, anonymizedAt|null, sessionCount: int }` (`sessionCount` = tenant geneli; USER için Oturumlar sekmesi yine `historyScope`).
+
+### Panel (çerez; durum değiştirenlerde Origin + CSRF)
+| Uç | Girdi | Çıktı | Hatalar | Yetki / AC |
+|---|---|---|---|---|
+| GET `/customers?q=&status=active\|passive\|all&page=&pageSize=&sort=name:asc\|createdAt:desc` | `q` trim 2..100 (verilirse), `status` vars. `active`, `pageSize` vars. 50 üst 100 | `{ items: CustomerListItem[], page, pageSize, total }` + `no-store` | 400, 403 | `customers.view`; AC-166 |
+| GET `/customers/general-link` | — | `{ downloadUrl, fileName }` (tenant ayarı yoksa tembel oluşturulur) | 403 | `customers.view`; AC-175 |
+| GET `/customers/options?q=&status=active\|all` | `q` 0..100 | `{ items: CustomerFirmRef[] }` (≤ 20, `name_key` sırası) | 403 | `customers.view` \| `support_requests.view` \| `session_history.view`; Yeni oturum yalnız `active` ister |
+| POST `/customers` | `{ name, fileLabel?, contactName?, phone?, email?, note? }` | 201 `CustomerDetail` | 400 `VALIDATION`, 409 `CONFLICT` (`fields.name` "Bu adla bir müşteri zaten var"), 429 | `customers.create`; TX: `tenant_request_settings` tembel → `request_refs` INSERT (5 deneme) → INSERT → audit `customer.created`; AC-167, 168 |
+| GET `/customers/:id` | — | `CustomerDetail` | 404 | `customers.view`; AC-178 |
+| PATCH `/customers/:id` | Aynı alanlar, hepsi opsiyonel, en az biri; `null`/`""` alanı boşaltır (ad ve etiket boşaltılamaz) | `CustomerDetail` | 400, 404, 409 | `customers.edit`; audit `customer.updated` (PII maskeli); pasif müşteride de serbest (AC-195 boşaltma) |
+| POST `/customers/:id/rotate-ref` | `{}` | `CustomerDetail` | 404, 409 `CONFLICT` (pasif) | `customers.edit`; TX: kilit → yeni ref (`request_refs`) → kayıtlar `CUSTOMER_ROTATED` → audit `customer.ref_rotated`; bekleyen talepler etkilenmez; AC-170 |
+| POST `/customers/:id/deactivate` | `{}` | `CustomerDetail` | 404, 409 (zaten pasif) | `customers.delete`; TX: `ACTIVE→PASSIVE` koşullu → kayıtlar `CUSTOMER_PASSIVE` → audit; commit sonrası bekleyen talepler `CANCELLED(CUSTOMER_PASSIVE)` (süpürücü yedek, ≤ 60 sn); AC-171 |
+| POST `/customers/:id/reactivate` | `{}` | `CustomerDetail` | 404, 409 (zaten aktif) | `customers.edit`; **yeni** ref; audit `customer.reactivated`; AC-171 |
+| GET `/customers/:id/requests?page=&pageSize=` | vars. 25, üst 100 | `{ items: SupportRequestItem[], page, pageSize, total }` (`created_at desc`) | 403, 404 | `customers.view` + `support_requests.view`; AC-178 |
+| GET `/customers/:id/sessions?page=&pageSize=` | vars. 25 | `{ items: SessionListItem[], … }` | 403, 404 | `customers.view` + `session_history.view` (+ `historyScope`); AC-178 |
+Hız: `customers.write` userId 30/dk (POST/PATCH/rotate/deactivate/reactivate) → 429.
+
+### Mevcut uçlara ekler (kırılmaz)
+- GET `/support-requests` sorgusuna `customer?: customerFilterSchema` (kuyruk ve geçmiş). `SupportRequestItem` += `customerFirm: CustomerFirmRef | null`, `viaBinding: boolean` (**r2:** `binding_id` dolu **ve** kayıt etkin), `bindingRevoked: boolean` (kayıtla açıldı, kayıt artık geçersiz), `staleSource: boolean` (ref yenilemesinden önce açıldı ya da kaydı iptal edildi — mimari-e10 §15.1). `/ws/panel` `request.new` += `customerFirm: {id,name}|null`, `viaBinding`, `bindingRevoked` (AC-176).
+- **r2 (G-E10-2) yeni uç:** POST `/support-requests/:id/revoke-binding` `{}` → 204. Yetki `customers.edit`, Origin + CSRF, `tenantScope`; kayıt talebin `binding_id`'sinden bulunur (istemciden kayıt kimliği alınmaz). Hatalar: 404 (talep yok/başka tenant/`binding_id` yok), 409 `CONFLICT` (kayıt zaten geçersiz), 429 (`customers.write`). TX: kayıt `ADMIN_REVOKED` (hash NULL) → aynı kaydın bekleyen talepleri `CANCELLED(BINDING_REVOKED)` → audit `binding.revoked{reason:"ADMIN_REVOKED", requestId, cancelledRequests}`; AC-185.
+- `CANCEL_REASONS` += `CUSTOMER_PASSIVE` (panel etiketi "Müşteri pasife alındı"), `BINDING_REVOKED` (r2; "Bilgisayar kaydı iptal edildi"); `/ws/request` `request.closed.reason` 0.9.x istemciye `TENANT_PASSIVE` olarak eşlenir (mimari-e10 §5.4).
+- POST `/sessions` gövdesi `z.strictObject({ customerId: ULID.optional() })`: verilirse `customers.view` (yoksa 403) ve `customers WHERE id AND tenant_id AND status='ACTIVE'` (yoksa 404) — AC-180. `SessionListItem`/`SessionHistoryDetail`/oluşturma yanıtı += `customerFirm: CustomerFirmRef | null`. Kabul TX'i talebin `customer_id`'sini oturuma kopyalar (AC-177).
+- GET `/sessions` ve CSV sorgusuna `customer?: sessionCustomerFilterSchema`; CSV'de `Kaynak` sütunundan sonra **"Müşteri firma"** (müşterisizde boş; formül kaçışlı — AC-179).
+- Ayarlar > Destek talepleri ekranında bağlantının adı "Genel bağlantı" olur (davranış aynı, AC-175). P8b `rotate-ref` TX'ine Genel kayıtların `GENERAL_ROTATED` ile geçersizleştirilmesi ve `request_refs` INSERT eklenir.
+
+### Public (çerezsiz; `checkPublicClient(req,"AGENT")`; `bindingKey` yalnız gövdede, URL'de asla)
+| Uç | Girdi | Çıktı | Hatalar | Koruma / AC |
+|---|---|---|---|---|
+| GET `/public/requests/tenant?ref=` | Genel **veya müşteri** ref'i | `TenantRequestInfo` (şekil **değişmez**; müşteri bilgisi yok) | 404 `REQUEST_REF_INVALID` (pasif müşteri dahil tek gövde) | Mevcut; AC-168, 191 |
+| GET `/public/agent/request-download?ref=` | Genel veya müşteri ref'i | 302 `/downloads/NoktaDestek-<sahibin file_label>-<ref>.exe` | Mevcut | Mevcut; `agent-ready` müşteri yolunu da doğrular; AC-168 |
+| POST `/public/requests` | E9 gövdesi; `ref` **opsiyonel** + `bindingKey?: bindingKeySchema`; superRefine: **tam biri** dolu | Mevcut 201 | Mevcut + 404 `BINDING_INVALID`; 409 `REQUEST_PENDING` (kayıt başına 1 bekleyen) | Sıra (G-E9-10 genişler): Origin → ip/önek/net48 kovaları → zod → sürüm → **ref çözümleme (tenant ‖ müşteri paralel) veya kayıt çözümleme** (geçersiz → `req.ref_invalid`) → `req.create.binding` 6/sa → bilinen kaynak (`viaBinding` = bilinen) → tenant kovası → TX [settings `FOR UPDATE` → kayıt `last_used_at` koşullu UPDATE (count 0 → `BINDING_INVALID`) → bekleyen sayımları (+ kayıt başına 1) → INSERT `customer_id`, `binding_id` → audit `request.created{via, customerId}`]; AC-176, 182, 184 |
+| POST `/public/bindings/status` | `{ bindingKey, clientVersion }` | `BindingInfo = TenantRequestInfo + { customer: { name } \| null }` + `no-store` | 404 `BINDING_INVALID`, 426 `CLIENT_OUTDATED`, 429 | `req.ref_invalid` (404'ler) + `binding.status` 60/dk/ipKey; `last_used_at`'i değiştirmez; AC-182, 185 |
+| POST `/public/bindings/revoke` | `{ bindingKey }` | 204 (her durumda) | 403 `CSRF_INVALID`, 429 | `binding.revoke` 30/dk/ipKey; `FORGOTTEN`; AC-186 |
+Kayıt anahtarı resolve, join, `/ws/guest` ve `/ws/request` kimliği olarak **kabul edilmez** (biçim uyumsuz; bu uçlar `device_bindings`'e bakmaz) — AC-184. WS kayıt mesajları: `docs/mimari-protokol.md` §6.

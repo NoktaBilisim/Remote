@@ -28,6 +28,7 @@ import {
   type UpdateSessionData,
 } from "@remote/contracts/api/sessions";
 import { CONTROL_AUDIT } from "@remote/contracts/audit";
+import type { CustomerFirmRef, CustomerStatus } from "@remote/contracts/api/customers";
 import { END_REASON_LABELS, SESSION_ENDED_BY_LABELS, SESSION_MODE_LABELS, SESSION_SOURCE_LABELS, SESSION_STATUS_LABELS, labelOf } from "@remote/contracts/labels";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
@@ -62,6 +63,7 @@ export function resolveFilter(scope: hrepo.HistoryScope, q: ListSessionsQuery): 
     ...(q.technicianId && !ownOnly ? { technicianId: q.technicianId } : {}),
     ...(q.tenantId && scope.kind === "all" ? { tenantId: q.tenantId } : {}),
     ...(q.customer ? { customer: q.customer } : {}),
+    ...(q.customerFirm ? { customerFirm: q.customerFirm } : {}),
   };
 }
 
@@ -72,7 +74,11 @@ const durationSec = (r: { consumedAt: Date | null; endedAt: Date | null }): numb
 const waitSecOf = (r: { request: { createdAt: Date; acceptedAt: Date | null } | null }): number | null =>
   r.request?.acceptedAt ? Math.max(0, Math.floor((r.request.acceptedAt.getTime() - r.request.createdAt.getTime()) / 1000)) : null;
 
-function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, viewerId: string): SessionListItem {
+/** P8c müşteri firma özeti (talep ve oturum listeleri aynı biçim). */
+export const firmOf = (c: { id: string; name: string; status: string } | null): CustomerFirmRef | null =>
+  c ? { id: c.id, name: c.name, status: c.status as CustomerStatus } : null;
+
+export function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, viewerId: string): SessionListItem {
   return {
     ...toView(r, viewerId),
     mode: (r.mode as SessionMode | null) ?? null,
@@ -83,6 +89,7 @@ function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, viewerId
     tenant: scope.kind === "all" ? { id: r.tenant.id, name: r.tenant.name } : null,
     source: r.requestId ? "REQUEST" : "TECH",
     waitSec: waitSecOf(r),
+    customerFirm: firmOf(r.customer),
   };
 }
 
@@ -318,6 +325,7 @@ function csvCells(r: hrepo.HistoryExportRow, withTenant: boolean): string[] {
     labelOf(SESSION_STATUS_LABELS, r.status),
     labelOf(SESSION_MODE_LABELS, r.mode),
     labelOf(SESSION_SOURCE_LABELS, r.requestId ? "REQUEST" : "TECH"),
+    r.customer?.name ?? "", // P8c AC-179: müşterisizde boş ("Genel" değil)
     hms(waitSecOf(r)),
     r.technician.fullName,
     r.customerName ?? "",
@@ -360,6 +368,7 @@ export async function exportHistoryCsv(db: Db, log: HistoryLog, ctx: AuditContex
       technicianId: filter.technicianId ?? null,
       tenantId: filter.tenantId ?? null,
       customerFilter: filter.customer !== undefined,
+      customerFirm: filter.customerFirm ?? null,
       rows,
     },
   });

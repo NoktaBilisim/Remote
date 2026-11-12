@@ -5,7 +5,9 @@ import { SESSION_MODE_LABELS, SESSION_SOURCE_LABELS } from "@remote/contracts/la
 import { Filter, FilterX } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
+import { CustomerCombobox } from "@/components/customer-combobox";
 import { Button } from "@/components/ui/button";
+import type { ComboOption } from "@/components/ui/combobox";
 import { SelectField } from "@/components/ui/select-field";
 import { TextField } from "@/components/ui/text-field";
 import { istanbulDay } from "@/lib/format";
@@ -20,9 +22,11 @@ interface Props {
   technicians: Opt[] | null;
   /** Yalnız SUPER_ADMIN firma seçmemişken. */
   tenants: Opt[] | null;
+  /** P8c (AC-179): seçili müşteri firmanın adı (sayfadaki kayıtlardan; yoksa genel etiket). */
+  customerFirmName?: string;
 }
 
-type Draft = Record<"from" | "to" | "status" | "mode" | "source" | "technicianId" | "tenantId" | "customer", string>;
+type Draft = Record<"from" | "to" | "status" | "mode" | "source" | "technicianId" | "tenantId" | "customer" | "customerFirm", string>;
 type Errors = Partial<Record<keyof Draft, string>>;
 
 const CUSTOMER_ERR = { short: "h.v.customerShort", long: "h.v.customerLong", chars: "h.v.customerChars" } as const;
@@ -47,10 +51,15 @@ const toDraft = (f: HistoryFilters): Draft => ({
   technicianId: f.technicianId ?? "",
   tenantId: f.tenantId ?? "",
   customer: f.customer ?? "",
+  customerFirm: f.customerFirm ?? "",
 });
 
 /** /history filtre formu: durum URL'de (AC-60); Enter/Filtrele ile uygulanır, sayfa 1'e döner. */
-export function HistoryFiltersForm({ filters, technicians, tenants }: Props) {
+export function HistoryFiltersForm({ filters, technicians, tenants, customerFirmName }: Props) {
+  const [firmMode, setFirmMode] = useState<"" | "none" | "customer">(filters.customerFirm === "none" ? "none" : filters.customerFirm ? "customer" : "");
+  const [firm, setFirm] = useState<ComboOption | null>(
+    filters.customerFirm && filters.customerFirm !== "none" ? { id: filters.customerFirm, label: customerFirmName ?? t("rq.cf.selected") } : null,
+  );
   const router = useRouter();
   const [draft, setDraft] = useState<Draft>(() => toDraft(filters));
   const [errors, setErrors] = useState<Errors>({});
@@ -78,6 +87,8 @@ export function HistoryFiltersForm({ filters, technicians, tenants }: Props) {
   };
   const clear = () => {
     setDraft(toDraft({ page: 1, pageSize: filters.pageSize }));
+    setFirmMode("");
+    setFirm(null);
     setErrors({});
     start(() => router.push(historyHref({ pageSize: filters.pageSize })));
   };
@@ -129,6 +140,30 @@ export function HistoryFiltersForm({ filters, technicians, tenants }: Props) {
         error={errors.customer}
         autoComplete="off"
       />
+      <SelectField
+        label={t("h.f.firm")}
+        name="customerFirmMode"
+        value={firmMode}
+        onChange={(e) => {
+          const m = e.target.value as "" | "none" | "customer";
+          setFirmMode(m);
+          setDraft((d) => ({ ...d, customerFirm: m === "none" ? "none" : m === "customer" ? (firm?.id ?? "") : "" }));
+        }}
+        options={[all, { value: "none", label: t("h.f.firmNone") }, { value: "customer", label: t("h.f.firmPick") }]}
+        data-testid="history-firm-mode"
+      />
+      {firmMode === "customer" && (
+        <CustomerCombobox
+          label={t("rq.cf.pick")}
+          status="all"
+          value={firm}
+          onChange={(o) => {
+            setFirm(o);
+            setDraft((d) => ({ ...d, customerFirm: o?.id ?? "" }));
+          }}
+          testId="history-firm-combobox"
+        />
+      )}
       <div className="flex flex-wrap items-end gap-2 sm:col-span-2 lg:col-span-1 lg:col-start-4">
         <Button type="submit" loading={pending} data-testid="filter-apply">
           {!pending && <Filter aria-hidden className="size-4" />}

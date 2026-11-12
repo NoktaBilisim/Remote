@@ -216,3 +216,12 @@ Ticket kaydı `{ sessionId, guestId, requestId }`; `Guest.requestId` doluysa:
 | `request.declined` | `id`, `sessionId` | **r2.** Yalnız kabul edene: müşteri "Vazgeç" dedi / pencereyi kapattı (toast "Müşteri bağlantıyı kabul etmedi") |
 | `queue.alert` | `kind: "rate_limited"`, `until` | **r2 (G-E9-7).** Tenant kovası aşıldı; panelde kalıcı uyarı bandı |
 Sıralama garantisi: aynı tenant olayları üretim sırasıyla gönderilir; istemci `request.removed`'ı bilmediği id için yok sayar. Kaçırılan olay için kaynak REST'tir (yeniden bağlanınca liste yeniden çekilir).
+
+## 6. Bilgisayar kaydı mesajları (P8c — mimar, 2026-11-12; ADR-0017, `docs/mimari-e10.md` §3.4)
+Şemalar `packages/contracts/src/ws.ts` (`binding.*`, `strictObject`); Go eşi `internal/signal/messages.go`, ortak fixture `fixtures/bindings.json`. Kanal mevcut `/ws/guest` soketidir; yeni WS ucu yok. `hello` şeması **değişmez** (0.9.x istemci sıkı ayrıştırır).
+| t | Yön | Alanlar | Davranış |
+|---|---|---|---|
+| `binding.offer` | S→guest | — | Admit TX commit'i ve `hello` gönderiminden hemen sonra, **yalnız** `guestKind=AGENT` ve ticket kaydındaki `clientVersion ≥ 0.10.0` ise (yoksa `0.0.0` sayılır). Yeniden bağlanmada (`rs.reconnect`) yeniden gönderilir. 0.9.x'e asla gönderilmez |
+| `binding.request` | guest(AGENT)→S | `previousKey?: /^rsb_[A-Za-z0-9_-]{43}$/` | Kabul koşulları bu sırayla, ilk tutan döner: misafir ADMITTED değil → 1008 (lobi kuralı); `guestKind=BROWSER` → `error{FORBIDDEN}`; bu bağlantıya teklif gönderilmemiş → `error{CONFLICT}`; oturum başına 3. istekten sonra → `error{RATE_LIMITED}`; oturum ACTIVE değil, tenant pasif ya da oturumun müşterisi pasif → `error{CONFLICT}` ("Kayıt verilemedi"). **r2:** talepten doğan oturumda bayat kaynak (ref yenilemesinden önce açılmış talep veya iptal edilmiş kayıttan açılmış talep) → `error{CONFLICT}` + audit `binding.denied` (mimari-e10 §15.1). Geçerse mimari-e10 §3.4 "Verme" TX'i, adım sırası §15.3 (oturum başına tek etkin kayıt), müşteri ataması §15.4 |
+| `binding.issued` | S→guest | `bindingKey: /^rsb_[A-Za-z0-9_-]{43}$/`, `tenantName: string(≤120)`, `customerFirmName: string(≤100) \| null`, `renewed: bool` | TX commit'i sonrası, yalnız isteyen sokete. Anahtar başka hiçbir mesajda, logda, audit'te yer almaz (pino `REDACT_PATHS` `*.bindingKey`, `*.previousKey`) |
+Kayıt **oturum yetkisi vermez**: `bindingKey` subprotocol'de (`rs.ticket.*`, `rs.reconnect.*`, `rs.req.*`) kimlik olarak kabul edilmez. İstemci `error` yanıtında oturuma devam eder (kayıt yazmaz). Gelen mesaj token-bucket ve 64 KB sınırları §1 ile aynı.

@@ -1,6 +1,7 @@
 // Destek oturumu yaşam döngüsü — teknisyen tarafı (P2: AC-1..4, 8, 11, 12, 61 kısmi).
 // Oluşturma: teknisyen satırı FOR UPDATE → açık oturum + saatlik sayım → INSERT → audit, tek TX.
 // active_code çakışmasında (P2002, index adı) tüm TX yeni kodla en çok 5 kez denenir (ADR-0006).
+import type { CustomerStatus } from "@remote/contracts/api/customers";
 import type { CreateSessionResponse, SessionEndedBy, SessionStatus, SessionView } from "@remote/contracts/api/sessions";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
@@ -67,6 +68,7 @@ export async function createSupportSession(
   tenantId: string,
   publicBaseUrl: string,
   gen: CodeGenerators = defaultGen,
+  customerId?: string,
 ): Promise<CreateSessionResponse> {
   // Teknisyen-tenant eşleşmesi servis katmanında (db-notlari P2): oturum yalnız kendi tenant'ında açılır.
   if (auth.user.tenantId !== tenantId) throw new AppError("FORBIDDEN", { message: "Oturum yalnız kendi firmanızda açılabilir." });
@@ -88,19 +90,22 @@ export async function createSupportSession(
           const waitMs = (recent.oldest?.getTime() ?? now.getTime()) + HOUR_MS - now.getTime();
           throw new AppError("RATE_LIMITED", { retryAfterSec: Math.max(1, Math.ceil(waitMs / 1000)) });
         }
+        // P8c (AC-180): müşteri aynı tenant'ın AKTİF müşterisi olmalı (pasif/başka tenant/yok → 404, varlık sızmaz).
+        const firm = customerId ? await tx.customer.findFirst({ where: { id: customerId, tenantId, status: "ACTIVE" }, select: { id: true, name: true, status: true } }) : null;
+        if (customerId && !firm) throw new AppError("NOT_FOUND", { message: "Müşteri bulunamadı." });
         const id = newId();
         const expiresAt = new Date(now.getTime() + settings.sessionTtlMin * 60_000); // createdAt ile aynı now (CHECK)
         const techVerifyCode = gen.verify();
-        await repo.insertSession(tx, { id, tenantId, technicianId, tokenHash: sha256Hex(token), activeCode: code, techVerifyCode, status: "PENDING", expiresAt, createdAt: now });
+        await repo.insertSession(tx, { id, tenantId, technicianId, tokenHash: sha256Hex(token), activeCode: code, techVerifyCode, status: "PENDING", expiresAt, createdAt: now, customerId: firm?.id ?? null });
         await writeAudit(tx, ctx, {
           ...who(auth, tenantId),
           action: "session.created",
           entity: "support_sessions",
           entityId: id,
           result: "success",
-          newValue: { status: "PENDING", expiresAt: expiresAt.toISOString(), ttlMin: settings.sessionTtlMin },
+          newValue: { status: "PENDING", expiresAt: expiresAt.toISOString(), ttlMin: settings.sessionTtlMin, customerId: firm?.id ?? null },
         });
-        return { id, link: sessionLink(publicBaseUrl, token), code, techVerifyCode, expiresAt: expiresAt.toISOString(), status: "PENDING" as const };
+        return { id, link: sessionLink(publicBaseUrl, token), code, techVerifyCode, expiresAt: expiresAt.toISOString(), status: "PENDING" as const, customerFirm: firm ? { id: firm.id, name: firm.name, status: firm.status as CustomerStatus } : null };
       });
     } catch (err) {
       if (attempt < CODE_ATTEMPTS && isActiveCodeConflict(err)) continue;

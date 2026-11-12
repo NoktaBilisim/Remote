@@ -231,3 +231,108 @@ Tarih: 2026-11-12 (r2: güvenlik tasarım turu E9 G-E9-1..14 işlendi) · Ayrın
 
 ## E9 "Sonra" listesi
 **Talepte zorunlu kabul kodu (S12 — r2'de öne alındı, G-E9-1)**, WhatsApp servis API anahtarı (servis destekleyince), gözetimsiz erişim (S7), web talep formu (`checkPublicClient(BROWSER)` genişleme noktası), talep atama/öncelik/SLA/mesai saatleri, kabul öncesi mesajlaşma, talepte kabul kodu (S12), müşteriye durum bildirimi, talep için KVKK silme ekranı, WhatsApp grup alıcısı, talep CSV'si, çok instance hub (Redis).
+
+# E10 — Müşteri firmalar ve kalıcı istemci (P8c) kontrol listesi kararları
+Tarih: 2026-11-12 (r2: güvenlik tasarım turu E10 GEÇTİ; G-E10-1..9, K19, K20 → `docs/mimari-e10.md` §15) · Ayrıntı: `docs/mimari-e10.md` (§ numaraları), ADR-0017, ADR-0004 r4, ADR-0006 r5. Genel ve E9 kararları geçerlidir. Burada kontrol listesinin tüm maddeleri E10 açısından karara bağlanmıştır; "etkisi yok" diyen maddelerde önceki karar aynen geçerlidir.
+
+## 1. Kimlik ve Erişim
+| Madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| Kimlik doğrulama yöntemi | Kapsamda: müşteri hesapsız. Talep bağlamı müşteri ref'i (gizli değil) **veya** bilgisayar kaydı anahtarıyla (`rsb_`, 256 bit, yalnız talep yetkisi) kurulur. Panel kimliği değişmez | §5.1, ADR-0017 | P8c-1, P8c-2 |
+| Şifre / brute-force | Kapsamda: geçersiz ref ve geçersiz kayıt ortak `req.ref_invalid` kovası (ipKey 10/dk, 15 dk); tek tip 404 | §5.2, §5.3 | P8c-1 |
+| Yetkilendirme / IDOR | Kapsamda: `customers.view/create/edit/delete` tek tanımdan (pasife alma = delete, yeniden aktif = edit). Her uçta `tenantScope`, başka tenant 404, bileşik FK'ler. Detay sekmeleri ek modül yetkisi ister (K23). Kaydın müşterisi istemciden alınmaz | §4, §5.5 T41 | P8c-1 |
+| Oturum yönetimi | Etkisi yok: panel oturumu değişmez. Müşteri tarafında oturum yok; kayıt oturum kimliği değildir | §5.1 | — |
+| Davet / hesap silme (KVKK) | Kapsamda: müşteri firma kalıcı silinmez; pasif + saklama sonunda PII anonimleştirme, Admin alanları her an boşaltabilir. İstemcide "Bu bilgisayarı unut" (yerel + sunucu iptali). Müşteri portalı/davet Kapsam dışı (kapsam dışı 3) | §3.7, §8.3 | P8c-1, P8c-2 |
+| Servis hesapları / API anahtarları | Kapsamda: müşteri ref'i yenilenebilir; kayıt anahtarı her oturumda döner, tek tek (cihazdan unut **ve r2: panelden `ADMIN_REVOKED`**) ve toplu (yenile/pasif/Genel/tenant) geçersizleşir, boşta kalınca süresi dolar; bayat kaynaktan kayıt verilmez (r2) | §3.4, §15.1–15.2, ADR-0017 | P8c-1 |
+
+## 2. Veri Modeli
+| Madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| created/updated/deleted/created_by | Kapsamda: `customers` created/updated + `created_by`, soft delete yerine `status` + `passive_at`; `device_bindings` created/updated + `revoked_at`; `request_refs` yalnız created (append-only) | §3.1–3.3 | P8c-1 (dba) |
+| Silme stratejisi | Kapsamda: hard delete yok (customers, request_refs). Kayıtlarda geçersizleştirme + özet NULL; hard delete P13. FK RESTRICT | §3.7 | P8c-1, P13 |
+| Para | Kapsam dışı: finansal veri yok (müşteri başına fatura/kontör kapsam dışı 5) | — | — |
+| Tarih/saat | Kapsamda: UTC `DATETIME(3)`; saklama hesapları sunucu saatiyle; gösterim Europe/Istanbul | §3 | P8c-1 |
+| Benzersizlik / indeks / partition | Kapsamda: UQ(tenant_id, name_key), UQ(request_ref), `request_refs` PK (tek ad alanı), UQ(key_hash), **r2: UQ(active_session_id) STORED — oturum başına tek etkin kayıt**; liste/filtre/detay indeksleri §3.1–3.5. Partition Kapsam dışı (tenant başına ~1.000 müşteri) | §3, §7 | P8c-1 |
+| Enum / CHECK | Kapsamda: ADR-0014 ikili CHECK (`customers.status`, `revoke_reason`, genişleyen `cancel_reason`), durum ↔ alan tutarlılığı, biçim REGEXP `'c'` | §3 | P8c-1 |
+| Migration / geri alma / seed | Kapsamda: tek expand-only migration (sıra §3.8), `request_refs` geri doldurma, `down.sql` (`CUSTOMER_PASSIVE` satırı yoksa), seed aydınlatma yeni sürüm | §3.8 | P8c-1 |
+| Audit izi | Kapsamda: müşteri 6 olay + kayıt 3 olay (`issued`, `revoked`, r2 `denied`) + talep eki; PII `customerAuditView` izinli listesi (K19 şartları §15.6, dize araması testi); başka tenant'ın kaydını değiştirmek iki tenant'ta da görünür (G-E10-4); anahtar/ref tam değeri yok | §5.7, §15 | P8c-1 |
+| Multi-tenant izolasyon | Kapsamda: her yeni tabloda `tenant_id`, bileşik FK `(x_id, tenant_id)`; AC-69 aracı yeni uçlarla | §3, AC-172 | P8c-1 |
+| Dosya/ek | Kapsam dışı: müşteri başına logo yok (S21); müşteri dosyası aynı ikili, yükleme yok | ADR-0006 r5 | — |
+
+## 3. API ve Entegrasyon
+| Madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| Sözleşme önce / versiyon | Kapsamda: mimari-api "Müşteriler ve bilgisayar kaydı (P8c)", protokol §6, zod `api/customers.ts`, `api/bindings.ts`, Go ortak fixture; `/api/v1`, `rs.v1` | §4 | P8c-1 |
+| Hata formatı / kodlar | Kapsamda: mevcut zarf + 1 yeni kod `BINDING_INVALID` (404, tek tip); ad çakışması `CONFLICT` + `fields.name` | mimari-api | P8c-1 |
+| Sayfalama / filtre | Kapsamda: müşteri listesi 50/sayfa (üst 100), arama + durum; detay sekmeleri 25; talep ve geçmişte müşteri filtresi; `options` ≤ 20 | §4, §7 | P8c-1 |
+| Rate limit / idempotency | Kapsamda: §5.3 (kayıt başına 1 bekleyen + 6/sa, status 60/dk, revoke 30/dk, oturum başına 3 kayıt isteği, müşteri yazma 30/dk/kullanıcı). Idempotency key Kapsam dışı: durum değişiklikleri koşullu UPDATE, revoke her durumda 204, kayıt verme yeniden istekte aynı satırı günceller | §3.4, §5.3 | P8c-1 |
+| Timeout / retry / circuit breaker | Kapsamda: istemci `bindings/status` ≤ 3 deneme (ağ/502–504), `revoke` 2 sn tek deneme (en iyi çaba). Dış servis yok → circuit breaker Kapsam dışı | §8.5 | P8c-2 |
+| Webhook | Kapsam dışı: yok | — | — |
+| CORS | Etkisi yok: public uçlar yalnız Origin'siz AGENT (ADR-0012); panel aynı köken | §4 | — |
+
+## 4. Güvenlik
+| Madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| Tehdit modeli | Kapsamda: T39–T50 (r2: T49 kayıt yanıtı kaybı = kabul edilen risk G-E10-9, T50 bayat kaynak G-E10-1); güvenlik tasarım turu E10 **GEÇTİ** (Kritik/Yüksek 0); önceki liste (anahtar sızması, anahtarın oturum için kullanımı, IDOR, enumeration, başka sunucuya anahtar, emekli ref, XSS, audit'te PII, paylaşılan profil, kendiliğinden kayıt algısı). Tasarım güvenlik turu P8c-1 öncesi önerilir | §5.5 | P8c-1, P8c-2 |
+| Girdi doğrulama / çıktı kodlama | Kapsamda: zod strict (ad, etiket, yetkili kişi, telefon, e-posta, not, anahtar biçimi), Cc/Cf/bidi reddi; React metin, linkify yok; istemcide `SS_NOPREFIX` | T45 | P8c-1, P8c-2 |
+| Gizli bilgi yönetimi | Kapsamda: yeni env/gizli yok; kayıt anahtarı yalnız SHA-256 (sunucu) ve DPAPI (istemci); `rsb_` öneki gizli tarama kalıbı olarak gitleaks yapılandırmasına eklenir (devops) | §5.6 | P8c-1 |
+| Hassas veri / şifreleme | Kapsamda: müşteri yetkili kişi verisi kişisel → liste yanıtında yok, saklama + anonim; kayıtta PII yok; TLS taşıma (mevcut) | §5.6, §3.7 | P8c-1 |
+| Log maskeleme | Kapsamda: `REDACT_PATHS` += `*.bindingKey`, `*.previousKey`; ref audit'te ilk 4; indirme yolu maskesi mevcut | §5.6 | P8c-1 |
+| Bağımlılık / SBOM | Etkisi yok: yeni bağımlılık yok (combobox kendi primitifimiz) | §1 | — |
+| Başlıklar / CSRF | Kapsamda: müşteri durum değiştiren uçlar Origin + CSRF; public uçlar `checkPublicClient(AGENT)`; anahtar yalnız gövdede | mimari-api | P8c-1 |
+| Yönetici paneli ayrı yetki + 2FA/IP | Etkisi yok: genel karar (2FA P10, prod ön koşulu); müşteri yönetimi modül yetkileriyle | — | P10 |
+
+## 5. Kullanıcı Deneyimi ve Arayüz
+| Madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| 5 durum | Kapsamda: Müşteriler listesi (iskelet, boş + yardım, aramada sonuç yok, hata, kısmi = anonimleştirilmiş), detay sekmeleri (+ yetkisiz sekme durumu), combobox (yükleniyor/sonuç yok), istemci ana ekranı (kayıtlı / kayıtsız-pasif / geçersiz kayıt / ağ hatası) | §8.2, §9 | P8c-1, P8c-2 |
+| Form doğrulama | Kapsamda: alan bazlı, sunucu `fields` forma; 409 ad altında; etiket önerisi | §9 | P8c-1 |
+| Yıkıcı işlem onayı / undo | Kapsamda: bağlantıyı yenile, pasife al, yeniden aktif et, **r2: "Bu bilgisayarın kaydını iptal et"** onaylı (odak Vazgeç, AC-170/171 metinleri). Müşterinin "Bu bilgisayarı unut" anlık (müşteri kontrolü). Undo Kapsam dışı: soft delete (pasif) zaten geri alınabilir | §9 | P8c-1, P8c-2 |
+| Responsive | Kapsamda: 390 px'te yatay taşma yok, tablo kendi kabında kayar, dar ekranda kart; dokunma hedefi ≥ 44 px | AC-194 | P8c-1 |
+| Erişilebilirlik | Kapsamda: WCAG 2.1 AA, axe iki tema 0, combobox WAI-ARIA 1.2, yardım diyaloğu klavye/Esc; istemcide Tab sırası AC-189 | §8.2, §9 | P8c-1, P8c-2 |
+| Yerelleştirme | Kapsamda: Türkçe; Türkçe harf duyarsız arama/tekillik (`foldKey`); tarih Europe/Istanbul. RTL Kapsam dışı | §3.6 | P8c-1 |
+| Bildirim stratejisi | Kapsamda: toast'ta müşteri firma adı. WhatsApp değişmez (S20). Müşteriye sistemden bağlantı gönderimi Kapsam dışı (kapsam dışı 4) | §6 | P8c-1 |
+| Çevrimdışı / yavaş ağ | Kapsamda: "Bu bilgisayarı unut" ağ yoksa yerelde çalışır; status yeniden deneme; panelde optimistic update yok | §8.5 | P8c-2 |
+| Başlıklar / breadcrumb | Kapsamda: "Müşteriler", "Müşteriler › <ad>"; menü `Building2`, diğer ikonlar §9 | §9 | P8c-1 |
+| Tasarım token'ları | Kapsamda: DESIGN.md tokenları; yeni primitif `ui/combobox.tsx` ve `copy-link.tsx` DESIGN.md'ye işlenir | §9 | P8c-1 |
+
+## 6. Performans ve Ölçek
+| Madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| Beklenen yük | Kapsamda: tenant başına ≤ 1.000 müşteri, 10.000 talep; kayıt satırı ≈ müşteri bilgisayarı sayısı (tenant başına binler) | §7 | — |
+| N+1 / indeks | Kapsamda: liste 2 sorgu (sayfa + 50 id için grup), N+1 yok; indeks planı §3; ölçümler bitti kanıtı | §7 | P8c-1 |
+| Önbellek | Kapsam dışı: ref/kayıt geçersizleşmesi anında olmalı; sorgular indeksli | §7 | — |
+| Arka plan işleri | Kapsamda: 30 sn süpürücüye 2 iş (pasif müşteri talepleri, pasif tenant kayıtları), günlük 03:30'a 2 iş (kayıt süresi, müşteri anonimleştirme); 1000'lik partiler | §2, §3.4 | P8c-1 |
+| Büyük liste / export | Kapsamda: geçmiş CSV'sine 1 sütun (mevcut akış). Müşteri CSV içe/dışa aktarma Kapsam dışı (kapsam dışı 7) | mimari-api | P8c-1 |
+| Performans bütçesi | Kapsamda: müşteri listesi < 500 ms, talep filtresi < 500 ms, istemci açılış ≤ 5 sn, talepten panele p95 ≤ 3 sn, kabulden ilk kareye p95 ≤ 8 sn | NFR E10 | P8c-1, P8c-2 |
+
+## 7. Operasyon ve Gözlemlenebilirlik
+| Madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| Log / korelasyon | Kapsamda: mevcut JSON log + `requestId`; log alanı `customerId`, `bindingId` (gizli değil); anahtar yok | §5.6 | P8c-1 |
+| Metrik / alarm | Kapsamda: 5 yeni metrik; mevcut ref_invalid alarmı kayıt geçersizlerini de sayar | §10 | P8c-1 |
+| Hata izleme | Sonra (genel karar) | — | — |
+| Yedekleme | Etkisi yok: mevcut günlük dump yeni tabloları kapsar; geri yükleme testi P13 | §10 | — |
+| Ortamlar / feature flag | Kapsamda: staging önce. Feature flag Kapsam dışı: modül yetkileri ve sürüm kapılı `binding.offer` yeterli | §10 | — |
+| CI/CD / rollback | Kapsamda: mevcut hat; `v0.10.0` + attestation; sunucu geri alınabilir (teklifsiz sunucuda istemci kayıt istemez, K24) | §10 | P8c-1, P8c-2 |
+| Sıfır kesinti | Kapsam dışı (genel karar); migration expand-only | §3.8 | — |
+| Runbook | Kapsamda: yayın notu, `down.sql` koşulu, "kayıt/müşteri dosyası sızdı", "tüm Genel kayıtları düşür", istemci yayın satırı | §10 | P8c-1 (devops) |
+
+## 8. Uyumluluk ve Hukuk
+| Madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| KVKK | Kapsamda: yetkili kişi/telefon/e-posta/not kişisel; saklama + anonimleştirme + elle boşaltma; audit'te maskeli (K19 ONAY şartlı); r2: `deviceKey` `rememberPlan` kuralıyla, kayıtla açılan talepte gönderilmez (G-E10-5). Bilgisayar kaydında PII yok, bilgi satırı + aydınlatma seed yeni sürüm + "Bu bilgisayarı unut" (S18) | §3.7, §5.5 T46/T48 | P8c-1, P8c-2 |
+| Çerez / lisans | Etkisi yok: yeni çerez yok, yeni bağımlılık yok | — | — |
+| Finansal | Kapsam dışı | — | — |
+
+## 9. Proje Yönetimi
+| Madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| Kapsam dışı listesi | Kapsamda: gereksinimler-e10 §3 (10 madde) | — | — |
+| Ölçülebilir AC | Kapsamda: AC-165..195 tamamı mimari-e10 §13'te eşlendi; karşılıksız AC yok | §13 | — |
+| Riskler / açık sorular | Kapsamda: R19–R24 → T39–T48 ve K16–K24; S18–S21 varsayılanlarla kapandı | §5.5, §14 | — |
+| DoD | Kapsamda: genel DoD + mimari §10.3 P8c satırları | mimari §10.3 | — |
+| Dokümantasyon | Kapsamda: README (yeni env yok; istemci 0.10.0), docs/api.md (müşteri ve kayıt uçları), kılavuzda "Müşteriler", "Destek iste / Bağlantı kodum var / Bu bilgisayarı unut", DATASHEET'e müşteri firma özelliği, akış A7, CHANGELOG 0.10.0, ADR-0017 | §12 | P8c-1, P8c-2 (teknik-yazar) |
+
+## E10 "Sonra" listesi
+**Kabul edilen risk (G-E10-9):** kayıt yanıtı kaybolursa istemci bir sonraki açılışta kaydı kaybeder (AC-185 ile kurtarılır); `prev_key_hash` 24 sa toleransı Sonra. Pencere bazlı paylaşım, bir bilgisayarda birden çok firma kaydı (S19 — genişleme noktası `binding` → `bindings[]`), müşteri portalı, müşteri başına SLA/sözleşme/fatura/Paraşüt cari, müşteriye bağlantıyı WhatsApp/e-posta ile sistemden gönderme, müşteri CSV içe/dışa aktarma, müşteri başına logo/aydınlatma (S21), "Bağlantı kodum var" alanına link yapıştırma, müşteri listesinde son talebe göre sıralama (sayaç sütunlarıyla), panelde müşterinin kayıtlı bilgisayar listesi/tek tek iptal ekranı.

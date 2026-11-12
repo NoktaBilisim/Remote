@@ -1,3 +1,247 @@
+# Güvenlik Raporu — E10/P8c-1 — Kod turu 2 (2026-11-12)
+DURUM: GEÇTİ (Kritik/Yüksek 0)
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2
+
+Kapsam: Bu tur, "Kod turu 1" bulgularının (B-P8c-1..6) kapanışını ve `docs/implementation.md` "P8c-1 — düzeltme turu 1" notundaki değişiklikleri doğruluyor. İncelenen dosyalar: `bindings/{service,repo}.ts`, `customers/{repo,service}.ts`, `requests/{service,panel,routes}.ts`, `signaling/binding.ts`, `ops/metrics.ts`, `lib/db.ts` ve `test/integration/bindings-p8c.test.ts` (+13 test). Tur 1'de çalıştırılamayan `pnpm audit` ve gitleaks taramaları bu turda çalıştırıldı. Test koşusu tekrarlanmadı; backend-dev notundaki sonuç esas alındı (int 355/355, eşzamanlılık testi art arda 3 kez yeşil).
+
+## Tur 1 bulgularının durumu
+| Bulgu | Durum | Kanıt |
+|---|---|---|
+| B-P8c-1 (Orta) pasife alma yarışı | **Kapandı** | Talep TX'inde `lockSettings` sonrasında `crepo.shareStatus` (FOR SHARE) çalışıyor; ACTIVE değilse ref yolunda `REQUEST_REF_INVALID`, kayıt yolunda `BINDING_INVALID` dönüyor (`requests/service.ts:300`). Kabul TX'inde müşteri, talep UPDATE'inden önce FOR SHARE ile okunuyor; pasifse `customer_passive` → `cancelSystem(CUSTOMER_PASSIVE)` + 409 `REQUEST_CLOSED` (`requests/panel.ts:123,148-150`). Pasife alma, bekleyen talepleri kendi TX'inde iptal ediyor (`customers/service.ts:267-281`). `shareStatus` durumu kilitli okumanın kendisinden döndürüyor (son commit), REPEATABLE READ anlık görüntüsü tuzağı yok. `repo.lock` FOR UPDATE'ten sonra `findUnique` yapıyor; pasife almanın anlık görüntüsü kilit alındıktan sonra kuruluyor ve beklediği talep TX'inin INSERT'ünü görüyor. Pencere kapandı. |
+| B-P8c-2 (Orta) eksik r2 testleri | **Kapandı** | `bindings-p8c.test.ts:356-432`: §15.3 sıralı ve `Promise.all` ile eşzamanlı istek; K20 `req.create.ip` 6. istekte 429 + audit; `req.create.binding` 6/sa; §15.1 (2)(3); AC-181 negatif yollar. |
+| B-P8c-3 (Düşük) revoke-binding yetkisi | **Kapandı** | `requests/routes.ts:66` artık `support_requests.view` + `customers.edit` istiyor; 403 testi var (`:482`). |
+| B-P8c-4 (Düşük) ret görünürlüğü | **Kapandı** | `rs_binding_denied_total{reason}` sabit küme `stale_source\|inactive\|rate\|no_offer\|browser` (`ops/metrics.ts:63`, `signaling/binding.ts`). `stale_source` ve `inactive` ayrıca `binding.denied{reason}` audit'ine yazılıyor; audit seli oluşmuyor çünkü oturum başına en çok 3 istek var. Etiketlerde PII yok. |
+| B-P8c-5 (Düşük) biçim dışı anahtar | **Kapandı** | `bindings/service.ts:55-58` ve `requests/service.ts:235-236`: biçim dışı anahtar → 404 `BINDING_INVALID` + `req.ref_invalid` kovası. Test, 11. denemede 429 dönüyor (`:436`). |
+| B-P8c-6 (Düşük) `cancelledRequests` | **Kapandı** | Değer artık aynı TX'te gerçekten iptal edilen sayı (`ids.length`). Test `cancelledRequests: 2` doğruluyor. |
+
+## Eşzamanlılık düzeltmesinin değerlendirmesi (kilit sırası, yeniden deneme)
+- **Yeniden denemenin güvenliği: sorun yok.** `issueBinding` en çok 2 deneme yapıyor (`bindings/service.ts:134`), yalnız UQ(`active_session_id`) ihlalinde ve geçici hatalarda (P2028/P2034, 1205/1213). `Denied` yeniden denenmiyor. Her denemede yeni anahtar üretiliyor ve ilk denemenin anahtarı hiç gönderilmiyor. Geri alınan TX'teki REPLACED/ISSUED audit'leri ve `revokeById` de birlikte geri alınıyor; metrikler commit sonrasında sayılıyor, yani çift sayım olmuyor. WS düzeyinde 3 istek/oturum sınırı denemeden önce sayılıyor (`signaling/binding.ts:31`). Bu yüzden yeniden deneme bir çoğaltma (amplification) aracı olarak kullanılamıyor. Hata yolunda istemciye yalnız `INTERNAL` gidiyor. Logdaki `err` ham anahtarı taşımıyor (DB'ye yalnız SHA-256 gidiyor).
+- **`lockActiveOfSession` / `lockActiveByHash` / `renew`:** Sütunlar kilitli okumadan, `renew` ise tek bir `updateMany` ile yazılıyor ve count≠1 olursa hata veriyor. Doğru. `prev` başka tenant'a aitse `target` olarak kullanılmıyor (G-E10-4 korunuyor).
+- **Kilit sırası:** Talep oluşturma (`settings X → customers S → device_bindings/support_requests`), kabul (`users → customers S → support_requests`), oturum müşterili kayıt verme (`customers S → device_bindings X`) ve pasife alma/yenileme (`customers X → device_bindings/support_requests`) aynı yönde ilerliyor. Bu yollarda döngü yok. **İstisna §15.4 yolu:** bkz. B-P8c2-2.
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] B-P8c2-1 Yeni test dosyasında sahte TURN secret'i literal olarak yazılmış; CI gitleaks işi kırmızıya düşer — A05 (yapılandırma / süreç)
+Yer: `apps/server/test/integration/bindings-p8c.test.ts:36` (`TURN_SECRET: "test-turn-secret-…"`).
+Sorun: Değer, `test/helpers/secrets.ts:3`'teki `FAKE_TURN_SECRET` ile aynı ve gerçek bir secret değil. Ancak `.gitleaks.toml` allowlist'i yalnız `helpers/{app,secrets}.ts` yollarını kapsıyor (S-P3-5 "tek kaynak" kuralı). Dir taraması bu satırı `generic-api-key` olarak yakaladı. Dosya commit edildiğinde CI'daki `gitleaks git … --exit-code 1` adımı başarısız olur. Ayrıca "sahte secret tek kaynakta" kuralı deliniyor; ileride gerçek bir değerin aynı kalıpla test dosyasına girmesi gürültü içinde gözden kaçabilir.
+İstismar senaryosu: Doğrudan bir istismar yok. Risk süreçle ilgili: CI kırılır, kırmızıyı geçmek için allowlist'in gevşetilmesi cazip hale gelir.
+Düzeltme (backend-dev): `import { FAKE_TURN_SECRET } from "../helpers/secrets.ts"` eklenip `TURN_SECRET: FAKE_TURN_SECRET` kullanılmalı. Allowlist genişletilmemeli.
+
+### [DÜŞÜK] B-P8c2-2 §15.4 yolunda kilit sırası ters (device_bindings → customers); pasife alma/yenileme ile kilitlenme mümkün, admin tarafında yeniden deneme yok — A04 (kullanılabilirlik)
+Yer: `apps/server/src/bindings/service.ts:160,169` (önce `lockActiveOfSession` FOR UPDATE, ardından müşterisiz oturumda `target.customerId` için `shareStatus` FOR SHARE); karşı taraf `customers/service.ts:268,273` (pasife alma) ve `:245,252` (ref yenileme): `customers` FOR UPDATE → `revokeForOwner` (device_bindings UPDATE).
+Sorun: Müşterisiz (Genel ref ya da kod) oturumda, müşteri bağlı bir kaydın yenilenmesi, aynı müşterinin pasife alınması veya ref'inin yenilenmesiyle aynı anda olursa döngü oluşur: issue `binding X → customer S` bekler, pasife alma `customer X → binding` bekler. InnoDB 1213 ile taraflardan birini geri alır. Bütünlük korunuyor: issue kurban olursa bir kez yeniden deneniyor; kayıt revoke edilmiş göründüğü için yeni Genel kayıt açılıyor, pasif müşteriye bağ kurulmuyor. Pasife alma veya yenileme kurban olursa hiçbir şey yazılmıyor, ancak admin 503 `NOT_READY` alıyor ve işlemi tekrarlaması gerekiyor. implementation.md'deki "kilitlenme yok" ifadesi yalnız kabul yolu için doğru.
+İstismar senaryosu: Sızan dosya nedeniyle müşteriyi pasife almak isteyen admin, saldırganın aynı müşteri kaydıyla zamanlanmış `binding.request` göndermesi sonucunda nadiren 503 alır. Saldırganın elinde bunun için admit edilmiş bir oturum olmalı (teknisyen onayı gerekir) ve oturum başına yalnız 3 deneme hakkı var. Pratikte istismar edilemez; pasife almayı kalıcı olarak engelleyemez.
+Düzeltme (backend-dev): Tercih edilen yol: `deactivateCustomer`/`rotateCustomerRef` TX'lerinde `isTransientDbError` için tek bir yeniden deneme yapılması (rotate için `withRefRetry` genişletilebilir). Alternatif: §15.4 yolunda aday kaydın `customer_id`'si kilitsiz okunup önce müşteri FOR SHARE ile kilitlenmeli, sonra kayıt kilitlenip `customer_id` yeniden doğrulanmalı. implementation.md'deki "kilitlenme yok" notu düzeltilmeli.
+
+## Gözlem (bulgu değil)
+- B-P8c-1 testindeki "pasif müşteriye yeni talep → 404" adımı, ret kararını TX dışındaki `resolveRef` peek'inde alıyor. TX içindeki `shareStatus` dalı (peek ile TX arasındaki pencere) doğrudan sınanmıyor. Kod doğru; ileride regresyon riskini azaltmak için, `resolveRef` ACTIVE dönerken TX öncesinde müşteriyi pasife çeken bir test (hook veya sahte saat) eklenebilir.
+
+## Otomatik tarama çıktıları
+- `pnpm audit --prod --audit-level high`: **No known vulnerabilities found** (çıkış 0).
+- gitleaks v8.30.1 `dir /repo --redact --config .gitleaks.toml`: 14 eşleşme, hepsi `generic-api-key`.
+  - 13 tanesi `apps/web/.next/**` altında (Next.js `previewModeSigningKey/EncryptionKey`, `encryptionKey`). Klasör `.gitignore:14` ile hariç tutulmuş, git'te izlenen dosya yok, yerel build gürültüsü. (Staging/prod imajı kendi build'inde yeni anahtar üretiyor.)
+  - 1 tanesi `apps/server/test/integration/bindings-p8c.test.ts:36` → B-P8c2-1.
+  - Taramanın `apps/ packages/ docs/ deploy/` ile sınırlı haline (`.next` hariç) düşen tek eşleşme B-P8c2-1.
+- Gizli bilgi regex'i (değişen dosyalar): gerçek secret yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- Yok. Tur 1'de eksik olan §15.7(1), §15.1 (2)(3), §15.3 servis/eşzamanlılık testleri ve AC-171 "bekleyenler anında düşer" garantisi artık kodda ve testte var.
+
+## Olumlu
+- Pasife alma iptali aynı TX'e alındı; süpürücü artık yalnız yedek görevi görüyor. Audit kullanıcı aktörlü ve sayı doğru.
+- Anlık görüntü (REPEATABLE READ) tuzakları üç ayrı yerde (`lockActive*`, `renew`, `issueTx` müşteri durumu) bilinçli olarak giderildi. Gerçek hatayı yakalayan eşzamanlılık testi eklendi.
+- Kayıt verme retlerinin tamamı metrikli. İstemciye tek tip mesaj gidiyor, ret nedeni yalnız sunucuda kalıyor.
+- `revoke-binding` çift yetki istiyor ve paneldeki görünürlük koşulu da aynı.
+
+Karar: Kritik/Yüksek 0 → **GEÇTİ**. B-P8c2-1, commit'ten önce düzeltilmeli; düzeltme tek satır, düzeltilmezse CI kırılır. B-P8c2-2 düzeltilmezse `docs/gereksinimler.md` §9'a "Sonra" olarak yazılmalı.
+
+---
+
+# Güvenlik Raporu — E10/P8c-1 — Kod turu 1 (2026-11-12)
+DURUM: GEÇTİ (Kritik/Yüksek 0). Orta bulgular P8c-1 düzeltme turunda kapatılmalı; açık kalırsa gereksinimler §9 "Sonra".
+Özet: Kritik 0 / Yüksek 0 / Orta 2 / Düşük 4
+
+Kapsam: commit edilmemiş çalışma ağacı (sunucu + panel). İncelenenler: `apps/server/src/{bindings,customers}/*`, `signaling/{binding,handlers,active}.ts`, `requests/{service,panel,repo,routes,ws,hub,jobs}.ts`, `sessions/{routes,service,history,history-repo}.ts`, `audit/mask.ts`, `lib/{logger,ids,csv}.ts`, `auth/guards.ts`, migration `20261112120000_p8c_customers`, `prisma/sql/grants.sql`, `packages/contracts/src/{ws,api/requests,api/bindings}.ts`, panel `customers/`, `requests/request-card.tsx`, `request-notifier.tsx` ve P8c testleri. Tur sınırı nedeniyle panelin tamamı satır satır okunmadı; XSS kontrolü sink taramasıyla yapıldı.
+
+## Tasarım şartlarının kodda doğrulanması
+| Şart | Durum | Kanıt |
+|---|---|---|
+| IDOR / tenant (T41, AC-172) | Var | `customers/routes.ts`: her uçta `requireAuth` → `requirePerm` → `tenantScope`. Repo sorgularının hepsi `{id, tenantId}` ile çalışıyor (`customers/repo.ts:72,77,86`). Detay sekmeleri `assertExists` + çift yetki istiyor, oturum sekmesi `historyScope` kullanıyor (`service.ts:140-159`). `options` tenant kapsamlı ve ≤ 20 sonuç döndürüyor. `revoke-binding` talebi `{id, tenantId}` ile buluyor ve istemciden kayıt kimliği almıyor (`bindings/service.ts:197`). `POST /sessions customerId` için `customers.view` + aynı tenant + ACTIVE aranıyor, aksi 404 (`sessions/service.ts:93-94`, `routes.ts:51`). `?customer=` filtresi her zaman `tenantId` ile birlikte uygulanıyor (`requests/repo.ts:183`). Bileşik FK'ler migration'da var. |
+| bindingKey üretimi ve saklama | Var | `rsb_` + 32 bayt CSPRNG (`lib/ids.ts:34`). DB'de yalnız SHA-256 tutuluyor; geçersizleşmede `key_hash=NULL` ve CHECK var. Anahtar yalnız isteyen sokete gidiyor (`signaling/binding.ts:37`). `REDACT_PATHS` += `bindingKey`, `previousKey` ve PII alanları. |
+| Tek tip `BINDING_INVALID` | Büyük ölçüde var | Yok, unutulmuş ve geçersiz durumlarının hepsi aynı sorguya düşüyor (`key_hash` NULL). Aynı 404 dönüyor ve aynı `req.ref_invalid` kovası sayıyor (`bindings/service.ts:45-49`). Biçim dışı anahtarda ayrılık var (B-P8c-5). Geçerli anahtar ek bir sorgu yapıyor; 256 bitte istismar edilemez. |
+| `/public/bindings/*` hız sınırı | Var | status 60/dk (geçerliler) + geçersizler ref kovasında; revoke 30/dk ve sınır doğrulamadan önce uygulanıyor; her durumda 204. `bodyLimit` 1 KB, AGENT kuralı, `no-store`. |
+| K20 (kovalardan muaf değil) | Kodda var, testte yok | `requests/service.ts:227-232`: ip/önek/net48 kovaları `trusted` dışında herkese uygulanıyor. `privileged` yalnız tenant tavanı seçiminde kullanılıyor (`:286`). Kayıt başına 6/sa ve 1 bekleyen sınırı TX içinde. **Test eksik**: B-P8c-2. |
+| WS binding.offer/request | Var | Teklif yalnız `sendHelloGuest` (admit sonrası) içinde, AGENT ve ≥ 0.10.0 için gidiyor (`binding.ts:14-19`). İstek yalnız ADMITTED misafirden kabul ediliyor, aksi 1008 (`handlers.ts:115`). Ayrıca teklif alan peer ile aynı peer olması gerekiyor, oturum başına en çok 3 istek (`binding.ts:26-34`). Müşteri oturumdan alınıyor. |
+| G-E10-1 bayat kaynak | Var | `bindings/service.ts:139-145` + `binding.denied` audit. `toItem` içinde `viaBinding`, `bindingRevoked` ve `staleSource` (`panel.ts:42-45`). Test (1) var. Test (2) ve (3) bulunamadı: B-P8c-2. |
+| G-E10-3 tek etkin kayıt | Var | STORED `active_session_id` + UQ, §15.3 adım sırası (`service.ts:148-171`), UQ ihlalinde bir yeniden deneme. DB testi var; servis düzeyi test (aynı oturumda iki farklı `previousKey`, eşzamanlı iki istek) yok: B-P8c-2. |
+| G-E10-4 REPLACED audit | Var | `service.ts:165-166`: kaybeden tenant'a yazılıyor, karşı tenant kimliği yok. |
+| G-E10-7 müşteri bağı | Var | `service.ts:156-159`. |
+| Pasife alma / ref yenileme | Var | Kayıtlar aynı TX'te düşürülüyor (`customers/service.ts:252,273`, `panel.ts` Genel rotate). Bekleyen talepler commit sonrasında iptal ediliyor, ayrıca süpürücü var. Yeniden aktif etme yeni ref + `ref_rotated_at` yazıyor. |
+| K19 audit maskesi | Var | `customerAuditView` izinli liste (`mask.ts`). `updated` yalnız değişen alanları ve `changed[]` içeriyor, `created`/`anonymized` PII taşımıyor. Dize araması testi var (`customers-p8c-api.test.ts:404`). Gövde loglanmıyor. |
+| CSV injection | Var | Yeni "Müşteri firma" sütunu ortak `csvCell` formül kaçışından geçiyor; test var (`:495`). |
+| Panel XSS (T45) | Sorun yok | Yeni dosyalarda `dangerouslySetInnerHTML`/`innerHTML` yok. Ad ve not React metni olarak bağlanıyor, `href` yalnız ULID kimliklerden üretiliyor, toast düz metin. |
+| CSRF/Origin | Var | Tüm POST/PATCH uçları `requireAuth` hook'u üzerinden Origin + double-submit kontrolünden geçiyor (`guards.ts:44-48`). Public uçlarda `checkPublicClient("AGENT")` var. |
+| grants.sql | En az yetki | customers/device_bindings: SELECT/INSERT/UPDATE. request_refs append-only (SELECT/INSERT). DELETE/DDL REVOKE ediliyor. |
+| Metrik etiketleri | PII yok | `via`, `renewed`, `reason` yalnız sabit kümeler; `rs_customers_active` etiketsiz. |
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] B-P8c-1 Pasife alma ile eşzamanlı ref talebi PENDING kalıp kabul edilebiliyor — A04 (iş mantığı yarışı)
+Yer: `apps/server/src/requests/service.ts:223,246-249` (müşteri durumu peek'te okunuyor, talep TX'inde müşteri satırı yeniden doğrulanmıyor), `customers/service.ts:279` (iptal commit sonrasında).
+Sorun: Ref yolunda müşterinin ACTIVE olduğu yalnız TX dışındaki `resolveRef` ile kontrol ediliyor. Pasife alma TX'i bu peek ile INSERT arasında commit olursa, pasif müşteriye bağlı yeni bir PENDING talep oluşur. `findPendingOfCustomer` bu talebi göremezse talep 30 sn süpürücüye kalır. Bu arada teknisyen talebi kabul edebilir; kabul TX'i müşteri durumuna bakmıyor (`panel.ts` accept). Kayıt verilmez (`issueTx` müşteriyi ACTIVE ister), ancak "pasife alma bekleyenleri anında düşürür" sözü (AC-171) dar bir pencerede delinir ve pasif müşteriye oturum açılır.
+İstismar senaryosu: Dosyası sızdığı için pasife alınan müşterinin dosyasıyla saldırgan, pasife alma anında talep gönderir (ya da talepleri sürekli tekrar eder). Talep kuyrukta birkaç saniye "Müşteri firma: X" etiketiyle görünür. Teknisyen bunu meşru sanıp kabul eder. Teknisyen kabulü ve müşteri onayı yine gerektiği için etki sınırlı.
+Düzeltme (backend-dev): Talep TX'inde `lockSettings`'ten sonra müşteri ref'iyse `SELECT status FROM customers WHERE id=? AND tenant_id=? FOR SHARE` çalıştırılmalı; ACTIVE değilse `REQUEST_REF_INVALID` + ROLLBACK. Kabul TX'inde de talebin `customer_id`'si doluysa müşteri ACTIVE değilse `REQUEST_CLOSED` dönmeli (veya talep CUSTOMER_PASSIVE ile iptal edilmeli). Entegrasyon testi eklenmeli.
+
+### [ORTA] B-P8c-2 Bağlayıcı r2 testlerinin bir kısmı yok (K20 kovaları, G-E10-1 (2)(3), G-E10-3 servis) — A04/A09 (doğrulanmamış kontrol)
+Yer: `apps/server/test/integration/bindings-p8c.test.ts` (yalnız `binding.status 60/dk` K20 testi var, `:275`). G-E10-3 için yalnız DB UQ testi var (`customers-p8c-db.test.ts:170`).
+Sorun: §15.7(1) "testle sabitlenir" diyor; kayıtla açılan talebin `req.create.ip`/`prefix`/`net48` kovalarına ve tenant tavanına takıldığını gösteren test yok. §15.1'in (2) "kayıtla açılan talep, kayıt iptalinden sonra kabul → CONFLICT + `binding.denied`" ve (3) "`viaBinding=false`, `bindingRevoked=true`" testleri ayrı olarak bulunamadı. §15.3'ün "aynı oturumda iki farklı `previousKey` + anahtarsız istek → tek etkin satır" ve "eşzamanlı iki `binding.request`" testleri de yok. Kod bugün doğru, ancak gelecekte biri `privileged`'ı kova muafiyetine bağlarsa ya da `cur` önceliğini bozarsa bunu yakalayacak test yok.
+Düzeltme (backend-dev): Dört entegrasyon testi eklenmeli: (a) aynı IP'den kayıtla 4. talep → `req.create.ip` 429 (trusted değil); (b) G-E10-1 (2) ve (3); (c) G-E10-3 sıralı ve `Promise.all` ile eşzamanlı istek → `SELECT COUNT(*) … WHERE active_session_id=sid` = 1.
+
+### [DÜŞÜK] B-P8c-3 `revoke-binding` yalnız `customers.edit` istiyor; talebi görme yetkisi aranmıyor — A01
+Yer: `apps/server/src/requests/routes.ts:65`.
+Sorun: Tasarıma uygun (§15.2), ama `support_requests.view` olmadan talep kimliğiyle işlem yapılabiliyor. Tenant içinde kaldığı ve ULID tahmin edilemediği için etki düşük.
+Düzeltme (mimar → backend-dev, isteğe bağlı): `requirePerm("support_requests.view")` eklenmeli ya da kabul edilen risk olarak §15.2'ye not düşülmeli.
+
+### [DÜŞÜK] B-P8c-4 `binding.denied` audit'i kod dışı her ret nedeninde yazılmıyor; ret nedeni görünmüyor — A09
+Yer: `bindings/service.ts:114-118`.
+Sorun: Yalnız bayat kaynak audit'e yazılıyor. Oturum ACTIVE değil, tenant ya da müşteri pasif gibi retler sessiz kalıyor ve metrik yok. 3 istek sınırı aşımı da (`binding.ts:31`) metriksiz.
+Düzeltme (backend-dev): `rs_binding_denied_total{reason: stale|inactive|rate}` sayacı eklenmeli (sabit etiketler).
+
+### [DÜŞÜK] B-P8c-5 Biçim dışı `bindingKey` 400 VALIDATION alıyor, `BINDING_INVALID` ve `req.ref_invalid` kovasına düşmüyor — A07
+Yer: `bindings/service.ts:55` (`parseInput` → 400), `requests/service.ts:233` (`parse(body)` biçim dışı anahtarda 400).
+Sorun: §5.2'ye göre "biçim dışı" da aynı 404 olmalı. Biçim kamuya açık olduğu için ayrım bir oracle oluşturmuyor. Ancak biçim dışı denemeler geçersiz kovasını doldurmuyor (yalnız E9 ip kovası `create`'te sayılıyor; `status`'te hiçbir kova yok, çünkü `binding.status` kovası yalnız geçerli anahtarda sayılıyor). Sonuç: `/public/bindings/status`'a sınırsız 400 isteği atılabiliyor (Fastify bodyLimit 1 KB, DB'ye dokunmuyor).
+Düzeltme (backend-dev): `bindingStatus` içinde `bindingKey` biçimi `safeParse` ile ayrı kontrol edilmeli; biçim dışıysa `bindingInvalid(svc, ip)` dönmeli (`resolveUsable` zaten null veriyor). `clientVersion` hatası 400 kalabilir.
+
+### [DÜŞÜK] B-P8c-6 Pasife alma audit'indeki `cancelledRequests`, gerçekte iptal edilen sayı değil TX içindeki bekleyen sayısı — A09
+Yer: `customers/service.ts:274-275`.
+Sorun: İptal commit sonrasında ayrı yapılıyor. Sayı yarışta farklı olabilir (B-P8c-1 ile ilişkili). Audit'in doğruluğu ile ilgili küçük bir sorun.
+Düzeltme (backend-dev): Alan `pendingAtDeactivate` olarak adlandırılmalı ya da B-P8c-1 düzeltmesiyle iptal TX içine alınmalı.
+
+## Otomatik tarama çıktıları
+- Gizli bilgi regex'i (`git diff` + yeni izlenmeyen P8c dosyaları: `bindings/`, `customers/`, `signaling/binding.ts`, `contracts/api/{bindings,customers}.ts`, panel `customers/`): **0 eşleşme**.
+- `pnpm audit`, gitleaks dir taraması ve test koşusu bu turda **çalıştırılmadı** (tur sınırı). Yeni bağımlılık eklenmedi (`package.json` değişikliği yalnız contracts export'u). Düzeltme turunda koşulmalı.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- §15.7(1) K20 kova testi, §15.1 test (2)/(3), §15.3 servis/eşzamanlılık testleri → B-P8c-2.
+- AC-171 "bekleyenler anında düşer" yarış penceresinde garanti değil → B-P8c-1.
+- Geri kalan G-E10-1..4, G-E10-7, K19 ve K20 şartları kodda var.
+
+## Olumlu
+- Kayıt verme yolu dar: teklif ile isteğin aynı soketten gelmesi, ADMITTED kapısı ve müşterinin oturumdan alınması. İstemci müşteri seçemiyor.
+- Revoke edilen anahtarın özetinin NULL'lanması ve CHECK ile `revoked ⇔ hash NULL ⇔ neden` değişmezi.
+- Ref ad alanı append-only; grant düzeyinde UPDATE/DELETE yok. Genel ve müşteri ref çözümlemesi paralel yapılıyor.
+- K19 izinli liste tek fonksiyonda; dize araması testi var.
+- `revoke-binding` istemciden kayıt kimliği almıyor; IDOR yüzeyi yok.
+
+Karar: Kritik/Yüksek 0 → **GEÇTİ**. B-P8c-1/2 (Orta) P8c-1 düzeltme turunda kapatılmalı. B-P8c-3..6 (Düşük) kapatılmazsa `docs/gereksinimler.md` §9'a "Sonra" olarak yazılmalı.
+
+---
+
+# Güvenlik Raporu — E10/P8c — Tasarım turu (2026-11-12)
+DURUM: GEÇTİ (tasarım). Orta bulgular mimari-e10 r2'ye işlenmeden dba P8c-1'e başlamamalı.
+Özet: Kritik 0 / Yüksek 0 / Orta 3 / Düşük 6
+
+Kapsam: `docs/mimari-e10.md` (§3.3–3.4, §5, §8.3–8.4, §14), `docs/adr/0017-bilgisayar-kaydi.md`, `docs/mimari-api.md` "Müşteriler ve bilgisayar kaydı (P8c)", `docs/mimari-protokol.md` §6. Karşılaştırma için `docs/mimari-e9.md` §13 (G-E9-1, bilinen kaynak eşikleri), `apps/server/src/audit/mask.ts` ve önceki S8b2-1 kararı da okundu. P8c'nin kodu henüz yok. Bu nedenle bulgular tasarım düzeyinde; her biri için mimariye işlenecek değişiklik yazıldı.
+
+## Kararlar
+### K19 — Müşteri yetkili kişi PII'si audit'te: **ONAY (maskeli), şartlı**
+Audit 730 gün tutuluyor. PII açık yazılırsa §3.7'deki anonimleştirme audit üzerinden boşa çıkar (KVKK saklama sınırlaması). Bu yüzden maskeli tutulmalı. Maskeli "eski→yeni" biçimi AC-173'ü karşılar. Şartlar (backend-dev, P8c-1):
+1. Maske tek fonksiyonda olmalı: `audit/mask.ts` → `customerAuditView(c)`. Bu bir **izinli liste**. Açık kalanlar: `name`, `fileLabel`, `status`, `refPrefix`. `phone` → mevcut `maskPhone` (ilk 3 + son 4). `email` → `<ilk harf>***@<alan adı>`. `contactName` ve `note` → `"<dolu>"` veya `null`. Bilinmeyen alan audit'e **girmez**. Mevcut `maskValue` kara listesi bu alanları yakalamıyor (`phone`, `email`, `contactName`, `note` regex'te yok). Maskeyi çağıran tarafa bırakmak yeni alan eklendiğinde sızıntıya yol açar.
+2. `customer.updated` yalnız değişen alanları içerir. Maskeli değer aynı kalsa bile (ör. son 4 hanesi aynı telefon) alan `changed:[…]` listesinde görünür.
+3. `customer.anonymized` hiçbir eski değer taşımaz. `customer.created` PII taşımaz (§5.7'de olduğu gibi).
+4. Test: fixture müşterinin ham ad/telefon/e-posta/not değerleri, oluşturma/güncelleme/pasif/anonimleştirme sonrası hiçbir `audit_logs.old_value/new_value` JSON'unda geçmemeli (dize araması).
+5. Pino: `/customers` POST/PATCH gövdeleri loglanmamalı. Gövde loglanan bir yol varsa `REDACT_PATHS` += `*.contactName`, `*.phone`, `*.email`, `*.note` (yalnız bu uçların bağlamında).
+
+### K20 — Kayıtla gelen talep "bilinen kaynak": **ONAY, şartlı**
+Bilinen kaynak sayılması kuyruk eşiği (≥ 40) ve tenant bilinen tavanı (120/sa) için kabul edilebilir. Kayıt yalnız teknisyenin kabul ettiği ve admit edilmiş bir oturumdan doğuyor. Sızıntının etkisi kayıt başına 1 bekleyen talep ve saatte 6 talep ile sınırlı. Ancak kayıt bir **kimlik doğrulaması değildir**: Genel dosyayla bir kez kabul edilmiş herhangi biri (sosyal mühendislik) kalıcı bir "kayıtlı bilgisayar" elde eder. Bu yüzden şartlar şunlar:
+1. `viaBinding` ip/önek/net48 kovalarından ve E9'un tenant kovasından muaf **değildir** (mimari zaten böyle; testle sabitlenmeli).
+2. Panel rozeti uyarıyı kaldırabilir, ancak **kalıcı ipucu** ("Müşteriyi firmanın kayıtlı numarasından arayın ve talep kodunu sorun") ve talep kodu kartta kalmalı. Rozet metni kaydın kapsamını göstermeli: "Kayıtlı bilgisayar — <müşteri firma>" ya da "Kayıtlı bilgisayar — Genel". Yeşil `ShieldCheck` "doğrulandı" anlamı taşımamalı; bilinen kaynak rozetleriyle aynı nötr stil kullanılmalı.
+3. Rozet, kayıt **hâlâ etkinse** gösterilir (bkz. G-E10-1). Talep sonradan geçersizleşmiş bir kayıttan geliyorsa rozet yerine "Kaydı iptal edilmiş bilgisayar" (uyarı) gösterilir.
+
+## Bulgular (öncelik sırasıyla)
+### [ORTA] G-E10-1 Bağlantı yenileme, pasife alma ve kayıt iptali uçuştaki talepleri kapsamıyor; sızan dosyadan açılmış bekleyen talep kabul edilince yeni kayıt üretiliyor — A01/A04
+Yer: mimari-e10 §3.4 "Verme" (2), mimari-api `rotate-ref` ("bekleyen talepler etkilenmez"), §9 talep kartı `viaBinding`.
+Sorun: Verme koşulu yalnız "müşteri ACTIVE" şartına bakıyor. `rotate-ref` sonrasında müşteri hâlâ ACTIVE. Eski ref'ten ya da sonradan iptal edilen bir kayıttan açılmış bekleyen talep kabul edilirse oturum `binding.issued` alır. Saldırgan bu yolla, yenilemenin kapatmak istediği erişimi **taze bir kayıtla** geri kazanır. Ayrıca `viaBinding` yalnız `binding_id IS NOT NULL` koşulundan türetiliyor, bu yüzden iptal edilmiş kayıttan gelen talep "Kayıtlı bilgisayar" rozetiyle görünür.
+İstismar senaryosu: Müşteri dosyası sızar. Saldırgan talep açar. Admin "Bağlantıyı yenile" der ve iş bitti sanır. Teknisyen kartta "Müşteri firma: X" görür ve talebi kabul eder. Saldırgan "Ekranımı paylaş" der ve 0.10.0 istemciyle X'e bağlı yeni bir kayıt alır. Bundan sonra her talebi "Kayıtlı bilgisayar" olarak düşer.
+Düzeltme (mimar → backend-dev): §3.4 Verme (2)'ye talepten doğan oturum için ek koşul eklenmeli: `support_requests.created_at >= COALESCE(customers.ref_rotated_at, 0)` (Genel ise `tenant_request_settings.ref_rotated_at`). `support_requests.binding_id` doluysa o kaydın `revoked_at IS NULL` olması da gerekir. Koşul tutmazsa `error{CONFLICT}` döner ve kayıt verilmez; audit `binding.denied{reason:"stale_source"}`. Teknisyenin kod yolunda seçtiği müşteri bu kontrolden muaftır. `viaBinding` türetimi `binding_id IS NOT NULL AND b.revoked_at IS NULL` olmalı. `SupportRequestItem` += `bindingRevoked: boolean` (K20 şart 3). Entegrasyon testi: yenileme öncesi açılan talep kabul edildiğinde `binding.issued` gelmez.
+
+### [ORTA] G-E10-2 Tek bir kaydı panelden iptal etme yolu yok; kötüye kullanılan kayda verilebilecek tek yanıt bütün müşteriyi ya da bütün Genel'i yenilemek — A04 (olay müdahalesi)
+Yer: mimari-e10 §3.4 (geçersizleşme nedenleri), §10 runbook "kayıt anahtarı sızdı → müşteri bağlantısını yenile".
+Sorun: V22 tek bilgisayarın tek başına geçersizleşmesini istiyor. Tasarımda bunu yalnız cihazın kendisi yapabiliyor ("Bu bilgisayarı unut"). Spam yapan ya da şüpheli bir kayıtta Admin'in elindeki tek araç müşterinin tüm dosyalarını ve kayıtlarını, Genel kayıtta ise tenant'ın **tüm** Genel dosyalarını ve kayıtlarını öldürmek. Bu orantısız bir müdahale. Pratikte ya hiç uygulanmaz ya da meşru müşterileri keser.
+İstismar senaryosu: Genel kaydı ele geçiren saldırgan saatte 6 talep açar ve her biri "Kayıtlı bilgisayar" rozetiyle görünür. Admin'in tek seçeneği Genel bağlantıyı yenilemek. Bu durumda bütün müşterilere yeni dosya dağıtmak gerekir.
+Düzeltme (mimar → backend-dev + frontend-dev, P8c-1): `POST /support-requests/:id/revoke-binding` eklenmeli (`customers.edit`, CSRF, tenantScope, talep `binding_id`'si üzerinden). İstemciden kayıt id'si alınmaz; böylece IDOR yüzeyi oluşmaz. `revoke_reason` += `ADMIN_REVOKED` (ikili CHECK). Bu kayda bağlı bekleyen talep varsa `CANCELLED` olur. Audit `binding.revoked{reason:"ADMIN_REVOKED", requestId}`. Talep kartı (ve geçmiş sekmesi) menüsüne "Bu bilgisayarın kaydını iptal et" eklenmeli; onay diyaloğunda varsayılan odak Vazgeç olmalı. Runbook'taki "sızdı" adımı bu uca göre güncellenmeli.
+
+### [ORTA] G-E10-3 Oturum başına etkin kayıt tekilliği garanti edilmiyor; "yanıtı kaybolan istek" adımı birden fazla satır bulabilir — A04 (bütünlük)
+Yer: mimari-e10 §3.4 Verme (3)–(4), §3.3 indeksler.
+Sorun: (3)'te `previousKey` ile yerinde güncellenen satıra `last_session_id = sid` yazılıyor. Aynı oturumda ikinci bir `binding.request` (≤ 3 serbest) farklı bir `previousKey` getirirse (sızmış başka bir anahtar) ya da `previousKey` olmadan gelirse, (4)'teki `WHERE last_session_id=:sid AND revoked_at IS NULL` **birden çok** satır döndürebilir. Davranış tanımsız kalır: hangisi güncellenecek, öteki etkin mi kalacak? Tek oturum birden fazla etkin kayda "sahip" olabilir. Kayıt başına 6/sa ve 1 bekleyen sınırı da bu yolla çoğaltılabilir.
+Düzeltme (dba + backend-dev): Değişmez kural "oturum başına en çok bir etkin kayıt" olmalı. DB'de üretilmiş sütun eklenebilir: `active_session_id CHAR(26) AS (IF(revoked_at IS NULL, last_session_id, NULL)) STORED` + `UQ(active_session_id)`. Servis (3)'te `previousKey` satırını güncellemeden önce aynı oturumun diğer etkin satırını `REPLACED` yapmalı. Oturumda zaten verilmiş bir kayıt varsa ikinci `previousKey` farklıysa yok sayılmalı (4'e düşülür). Entegrasyon testi: aynı oturumda iki farklı `previousKey` → tek etkin satır.
+
+### [DÜŞÜK] G-E10-4 Başka tenant'ın kaydını `REPLACED` yapan olay, kaydı kaybeden tenant'ın audit'inde görünmüyor — A09
+Yer: mimari-e10 §5.7 (`binding.issued{replacedOtherTenant}` yalnız veren tenant'ta).
+Düzeltme (backend-dev): Aynı TX'te kaybeden tenant'a `binding.revoked{reason:"REPLACED"}` satırı yazılmalı (`tenant_id` = eski kaydın tenant'ı, actor `customer`). Karşı tenant'ın kimliği iki tarafta da yazılmamalı (tenant'lar arası bilgi sızıntısı olmasın).
+
+### [DÜŞÜK] G-E10-5 `deviceKey`'in "her talepte gönderilir" kuralı S8b2-1 düzeltmesiyle çelişiyor — KVKK / A04
+Yer: mimari-e10 §8.3 ("deviceKey dosya ilk yazıldığında üretilir, dosya durdukça kalır ve her talepte gönderilir").
+Sorun: S8b2-1'de kişi değişip kutu işaretlenmediğinde `deviceKey` gönderilmiyor; kişi değişince yeni anahtar üretiliyor (`rememberPlan`). v2 metni bu kuralı ezerse paylaşılan profilde B'nin talebi A'nın cihaz izine bağlanır.
+Düzeltme (mimar → backend-dev Go): `rememberPlan` kuralı v2'de aynen korunmalı. "Bilgilerimi unut" (`ClearPersonal`) `deviceKey`'i de yenilemeli. Kayıtla açılan talepte cihaz bayrağı zaten gereksiz, bu yüzden `bindingKey` kullanıldığında `deviceKey` gönderilmemeli (veri en aza indirme).
+
+### [DÜŞÜK] G-E10-6 T43 köken karşılaştırması kanonik olarak tanımlanmamış — A07
+Yer: mimari-e10 §8.3 (`server` yalnız `https://` kökeni), §8.4.
+Düzeltme (backend-dev Go): `url.Parse` sonrası şema `https`, host küçük harfe çevrilip IDNA ile normalleştirilmiş, port açıkça yazılmış (443 varsayılan), yol/sorgu/kullanıcı bilgisi yok. Karşılaştırma `scheme://host:port` dizesi üzerinden yapılmalı. Tablo testi: büyük harf, sonda nokta, `:443`, `user@host` ve yol içeren varyantlar.
+
+### [DÜŞÜK] G-E10-7 Müşterisiz kod oturumu kaydın müşteri bağını sessizce Genel'e düşürüyor — A04
+Yer: mimari-e10 §3.4 Verme (3) `customer_id=:oturumun`.
+Sorun: Aynı tenant'ta müşterisiz bir kod oturumu (teknisyen seçim yapmazsa) kaydı müşteri X'ten Genel'e taşır. Bu bir güvenlik açığı değil, yanlış atama riski. Ancak bundan sonra açılan talepler yanlış kapsamla ve rozetle düşer.
+Düzeltme (mimar): Oturumun müşterisi NULL ve satır aynı tenant'ınsa mevcut `customer_id` korunmalı (müşteri hâlâ ACTIVE ise). Davranış §3.4'e ve AC-187 notuna yazılmalı.
+
+### [DÜŞÜK] G-E10-8 İndirme 302'sindeki dosya etiketi ref'in müşteri mi Genel mi olduğunu ele veriyor (AC-168 metni)
+Yer: mimari-api public `request-download` (302 `NoktaDestek-<sahibin file_label>-<ref>.exe`).
+Sorun: Etiketi yalnız ref'i zaten bilen görür; 80 bitlik ref'te tahmin yoluyla öğrenme mümkün değil. Etki ihmal edilebilir, ancak AC-168'deki "anlaşılamaz" ifadesiyle birebir uyuşmuyor.
+Düzeltme (proje-yoneticisi/mimar): AC-168'e "ref'i bilmeyen biri için" şerhi eklenmeli. Kod değişikliği gerekmez.
+
+### [DÜŞÜK] G-E10-9 Kayıt yanıtı kaybolursa eski anahtar zaten döndürülmüş oluyor; istemci bir sonraki açılışta kaydı kaybediyor (erişilebilirlik)
+Yer: §3.4 Verme (3) yerinde güncelleme. Yanıt kaybolur ve oturum biterse cihazda ölü bir anahtar kalır.
+Düzeltme (mimar, isteğe bağlı): Kabul edilen risk olarak §5.5'e not düşülmeli (AC-185 metniyle kurtarılıyor). Sonraki sürümde `prev_key_hash` için 24 saatlik tolerans düşünülebilir. Şimdi gerekmez (basitlik).
+
+## Kontrol edilen ve sorun bulunmayan konular
+- **`bindingKey` sızması/çalınması (T39):** 256 bit, sunucuda SHA-256 (rastgele anahtar için yeterli), DPAPI CurrentUser (`%LOCALAPPDATA%`, dolaşımsız). Her oturumda döndürülüyor, `REDACT_PATHS` += `*.bindingKey`, `*.previousKey`. `mask.ts` kara listesindeki `key` kalıbı audit'te ikinci savunma katmanı. URL'de taşınmıyor. Aynı Windows kullanıcısındaki zararlı yazılım riski kabul edilen risk (T39/T47). Etkisi talep açmakla sınırlı.
+- **Oturum yetkisi yok (T40, AC-184):** `rs_` ↔ `rsb_` biçim ayrımı. Oturum uçları tabloya bakmıyor; uç başına negatif test planlanmış.
+- **`binding.request` koşulları:** ADMITTED (değilse 1008), AGENT, teklif gönderilmiş soket, ACTIVE oturum, aktif tenant/müşteri; oturum başına 3 istek. Müşteri istemciden **alınmıyor**, oturumun `customer_id`'sinden geliyor. Lobi/ret/Vazgeç → `hello` yok → kayıt yok. Tutarlı (G-E10-1 eki hariç).
+- **Ref ad alanı / enumeration (T42, T44):** `request_refs` append-only (grant'ta UPDATE/DELETE yok), emekli ref'ler yeniden verilmiyor. Tek 404 ve paralel sorgu, geçersiz ref ile geçersiz kayıt aynı kovada (10/dk/ipKey). 80/256 bitte tahmin mümkün değil.
+- **`BINDING_INVALID` tek tip:** Tüm nedenler aynı gövdeyi döndürüyor, neden yalnız metrikte. `revoke` her durumda 204. Geçerli ve geçersiz anahtarların farklı kovalara düşmesi ayırt edicidir, ancak 256 bitte sömürülemez.
+- **IDOR (T41):** Tüm panel uçlarında `tenantScope`, Super Admin için `all` yok, bileşik FK `(customer_id, tenant_id)` üç tabloda, `POST /sessions customerId` için tenant+ACTIVE doğrulaması. Detay sekmeleri çift yetki ve `historyScope` istiyor. Liste yanıtında PII yok. Not (backend-dev): `?customer=<id>` filtresi her sorguda `tenant_id` ile birlikte uygulanmalı (AC-69 aracı kapsamalı).
+- **Pasife alma / yenileme:** Kayıtlar aynı TX'te `key_hash=NULL` ile düşürülüyor. Kullanım anında da durum kontrolü var. Tenant pasif için servis çağrısı ve 30 sn süpürücü, boşta kalma için günlük iş var.
+- **0.9.x uyumu:** `hello` değişmiyor. `binding.offer` sürüm kapılı (beyan edilen sürüm, ama sahte beyan yalnız teklif almayı sağlar, yetki vermez). `CUSTOMER_PASSIVE` → `TENANT_PASSIVE` eşlemesi var. Sunucu geri alındığında istemci kayıt istemiyor.
+- **DPAPI v2:** ≤ 4 KB, `DisallowUnknownFields`, anahtar regex, atomik yazma. `ForgetAll` önce yereli siliyor, sonra en iyi çabayla revoke gönderiyor (doğru sıra).
+- **KVKK:** Kayıtta PII yok. Müşteri PII'si liste yanıtında yok; pasif + saklama sonunda anonimleştiriliyor; elle boşaltma ve aydınlatma metninin yeni sürümü var. Audit maskesi K19'a bağlı.
+
+## Mimariye işlenecekler (özet)
+| # | Belge / bölüm | Değişiklik | Sahibi |
+|---|---|---|---|
+| G-E10-1 | mimari-e10 §3.4 Verme (2), mimari-api `SupportRequestItem` | Bayat kaynak koşulu, `viaBinding` = etkin kayıt, `bindingRevoked` | mimar → backend, frontend |
+| G-E10-2 | mimari-api (yeni uç), §3.3 `revoke_reason`, §9, runbook | `POST /support-requests/:id/revoke-binding`, `ADMIN_REVOKED` | mimar → dba, backend, frontend, devops |
+| G-E10-3 | mimari-e10 §3.3, §3.4 | `active_session_id` üretilmiş sütun + UQ, tek etkin kayıt kuralı | mimar → dba, backend |
+| K19 | §5.7, `audit/mask.ts` | `customerAuditView` izinli liste + `changed` + dize araması testi | backend |
+| K20 | §5.3, §9 | Kalıcı ipucu kalır, rozet kapsamı (firma/Genel), etkin kayıt şartı | frontend |
+| G-E10-4..7 | §5.7, §8.3, §8.4, §3.4 | REPLACED audit, deviceKey/rememberPlan, kanonik köken, müşteriyi koruma | backend (Go dahil) |
+
+## Otomatik tarama çıktıları
+Tasarım turu, kod yok; tarama çalıştırılmadı. P8c-1 kod turunda `pnpm audit`, gitleaks/`git grep` ve log yakalama testi (anahtar ve PII yok) yapılacak.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+Uygulanamaz (kod yok). Kod turunda doğrulanacaklar: AC-184 uç başına negatif testler, `REDACT_PATHS` ekleri, K19 dize araması testi, G-E10-1/3 entegrasyon testleri.
+
+## Olumlu
+- Kayıt yetkisi dar tutulmuş: yalnız talep açıyor, oturum açamıyor. Teknisyen kabulü ve müşterinin her seferki onayı şart; gözetimsiz erişime yol yok.
+- Sunucu üretimli ve her oturumda döndürülen anahtar, yalnız özetin saklanması ve geçersizleşmede özetin silinmesi.
+- Kayıt verme kanalı mevcut admit edilmiş sokette; yeni bir REST kimlik yolu açılmamış. Teklif adımı geri almayı güvenli kılıyor.
+- Append-only ref ad alanı ile "dosyanın yeni sahibe dirilmesi" sınıfı kapanmış.
+- Müşterinin istemciden asla alınmaması ve tenant tutarlılığının bileşik FK ile sağlanması.
+
+Karar: Kritik/Yüksek 0 → **GEÇTİ**. G-E10-1..3 (Orta) mimari-e10 r2'ye işlenmeli. G-E10-4..9 (Düşük) ya P8c-1'de kapatılmalı ya da `docs/gereksinimler.md` §9'a "Sonra" olarak yazılmalı.
+
+---
+
 # Güvenlik Raporu — P8b-2 — Tur 2 — Windows Go istemci 0.9.0 düzeltme doğrulaması (2026-11-12)
 DURUM: GEÇTİ
 Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1

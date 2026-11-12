@@ -3,6 +3,7 @@
 // Talep sırrı yalnız subprotocol'de; ret upgrade öncesi HTTP (403/426/429). Sır, çerez ve ticket loglanmaz.
 import type { IncomingMessage } from "node:http";
 import { SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { BINDING_MIN_CLIENT_VERSION } from "@remote/contracts/api/bindings";
 import { WS_SUBPROTOCOL } from "@remote/contracts/ws";
 import { requestInboundSchema, WS_REQUEST_CLOSE, WS_REQUEST_PREFIX, WS_REQUEST_RATE_PER_SEC, type PanelOutbound, type RequestOutbound } from "@remote/contracts/ws-request";
 import type { FastifyInstance } from "fastify";
@@ -12,7 +13,7 @@ import { publicClientAllowed } from "../auth/guards.ts";
 import { resolveSession } from "../auth/session.ts";
 import { sha256Hex } from "../lib/ids.ts";
 import { cidrListMatcher, ipKey } from "../lib/ip.ts";
-import { isOutdated } from "../lib/version.ts";
+import { compareVersions, isOutdated } from "../lib/version.ts";
 import { TokenBucket } from "../signaling/handlers.ts";
 import type { JsonPeer, PanelConn, RequestConn } from "./hub.ts";
 import { blocked, hitBlocked } from "./limits.ts";
@@ -78,7 +79,7 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
 
     accept("request", (ws) => {
       const peer = jsonPeer<RequestOutbound>(ws);
-      const conn: RequestConn = { peer, requestId: row.id, tenantId: row.tenantId, ipKey: ip, trusted };
+      const conn: RequestConn = { peer, requestId: row.id, tenantId: row.tenantId, ipKey: ip, trusted, legacy: compareVersions(row.clientVersion, BINDING_MIN_CLIENT_VERSION) < 0 };
       hub.attachRequest(conn);
       if (row.status === "PENDING") void hub.pushStates(row.tenantId);
       else if (sess) {

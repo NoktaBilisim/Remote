@@ -1,6 +1,6 @@
 "use client";
 
-import { History, House, Inbox, MonitorSmartphone, Settings, type LucideIcon } from "lucide-react";
+import { Building2, History, House, Inbox, MonitorSmartphone, Settings, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { RequestCountBadge } from "@/components/request-notifier";
@@ -12,6 +12,7 @@ const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string 
   { href: "/", label: "panel.home", Icon: House },
   { href: "/sessions", label: "nav.sessions", Icon: MonitorSmartphone, perm: "sessions.view" },
   { href: "/requests", label: "nav.requests", Icon: Inbox, perm: "support_requests.view" },
+  { href: "/customers", label: "nav.customers", Icon: Building2, perm: "customers.view" },
   { href: "/history", label: "nav.history", Icon: History, perm: "session_history.view" },
   { href: "/settings/support-requests", label: "nav.settings", Icon: Settings, perm: "settings.edit" },
 ];

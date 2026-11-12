@@ -1,5 +1,6 @@
 // Enum → Türkçe etiket eşlemesinin TEK yeri (mimari-api "Oturum geçmişi (P8)"). Web ve sunucu CSV'si aynı eşlemeyi kullanır.
 // CHECK'i olmayan değerler (`end_reason`, audit `action`) bilinmiyorsa ham gösterilir: `labelOf` boş bırakmaz, hata atmaz.
+import type { CustomerStatus } from "./api/customers.ts";
 import type { CancelReason, NetworkMatch, RequestStatus } from "./api/requests.ts";
 import type { ConsentDecision, ConsentLevel, ConsentRecordSource, SessionEndedBy, SessionMode, SessionSource, SessionStatus, TimelineEvent } from "./api/sessions.ts";
 
@@ -67,7 +68,24 @@ export const CANCEL_REASON_LABELS: Readonly<Record<CancelReason, string>> = {
   CUSTOMER: "Müşteri iptal etti",
   DISCONNECTED: "Bağlantı koptu",
   TENANT_PASSIVE: "Firma pasif",
+  CUSTOMER_PASSIVE: "Müşteri pasife alındı",
+  BINDING_REVOKED: "Bilgisayar kaydı iptal edildi",
 };
+
+/** P8c (AC-166): müşteri durumu (yalnız renkle değil metinle). */
+export const CUSTOMER_STATUS_LABELS: Readonly<Record<CustomerStatus, string>> = {
+  ACTIVE: "Aktif",
+  PASSIVE: "Pasif",
+};
+
+/** P8c (AC-175): müşterisiz talep "Genel"; müşterisiz OTURUM boş gösterilir (AC-179). */
+export const GENERAL_CUSTOMER_LABEL = "Genel";
+/** r2 (§15.1, §15.7 K20): rozetler — kayıtlı bilgisayar kimlik doğrulaması değildir (nötr stil). */
+export const VIA_BINDING_LABEL = "Kayıtlı bilgisayar";
+export const BINDING_REVOKED_LABEL = "Kaydı iptal edilmiş bilgisayar";
+export const STALE_SOURCE_LABEL = "Bu talep bağlantı yenilenmeden önce açıldı";
+/** "Kayıtlı bilgisayar — <müşteri firma | Genel>" (kapsamlı rozet metni). */
+export const viaBindingLabel = (customerFirmName: string | null): string => `${VIA_BINDING_LABEL} — ${customerFirmName ?? GENERAL_CUSTOMER_LABEL}`;
 
 /**
  * P8b (AC-146, G-E9-15): bilinen ağ metni. IP/TRUSTED güven veren rozet; PREFIX nötr (uyarıyı kaldırmaz); NONE metinsiz.

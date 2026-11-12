@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api";
 import { formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { GENERAL_CUSTOMER_LABEL } from "@remote/contracts/labels";
 import { parsePanelMessage, type PanelMessage } from "@/lib/requests/contract";
 import { panelBackoff, panelCloseAction, titleWithCount } from "@/lib/requests/panel-socket";
 import { playChime, readSoundPref, writeSoundPref } from "@/lib/requests/sound";
@@ -85,7 +86,7 @@ export function RequestNotifier({ enabled }: { enabled: boolean }) {
           setCount(m.pending);
           break;
         case "request.new":
-          toast(t("rq.toast.new", { name: m.customerName || t("rq.noName") }), "info", {
+          toast(t("rq.toast.new", { name: m.customerName || t("rq.noName"), firm: m.customerFirm?.name ?? GENERAL_CUSTOMER_LABEL }), "info", {
             action: { label: t("rq.toast.view"), href: `/requests#talep-${m.id}` },
             durationMs: 8000,
           });

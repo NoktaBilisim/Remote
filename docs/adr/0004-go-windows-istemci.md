@@ -44,3 +44,21 @@ Win32 UI kodu elle yazılır (birkaç pencere — kabul). macOS/Linux için `cap
 - `hatirla.bin.tmp` O_EXCL `ERROR_FILE_EXISTS` verirse (önceki çalışmadan kalmışsa) tmp silinir ve bir kez yeniden denenir.
 - Sürüm: istemci `minAgentVersion`/426 `CLIENT_OUTDATED` alırsa yalnız sabit biçimli `<serverURL>/api/v1/public/agent/request-download?ref=<ref>` URL'sini `ShellExecuteW` ile varsayılan tarayıcıda açar. Başka URL açılmaz.
 - Ret mesajı ve sunucudan gelen metinler `SS_NOPREFIX` statik metinle gösterilir.
+
+## Revizyon r4 (2026-11-12, E10 — AC-181, 186, 187, 188; V21; ADR-0017; `docs/mimari-e10.md` §8.3)
+**Bağlam:** E10'da başarılı oturumdan sonra bilgisayar kaydı **kendiliğinden** (onay kutusu olmadan; S18 varsayılanı) saklanır. r3'teki tek istisna dosyası genişler. Dosya artık kişisel bilgi olmadan da, yalnız kayıt nedeniyle bulunabilir. AC-138 metni AC-188 ile değişir.
+**Karar:**
+| Konu | Seçim |
+|---|---|
+| Dosya | Aynı dosya `%LOCALAPPDATA%\NoktaDestek\hatirla.bin`; DPAPI CurrentUser + aynı sabit entropi. **Yeni dosya yok** |
+| İçerik (v2) | `{ v:2, personal?: {name, phone, email?}, binding?: {server, key, tenantName, customerName?, issuedAt}, deviceKey }`; en az biri dolu, ≤ 4 KB, bilinmeyen alan reddi. v1 okunur, ilk yazımda v2 yazılır |
+| Ne zaman yazılır | `binding`: `binding.issued` alınınca (yalnız admit sonrası, AGENT). `personal`: r3 kuralı (kutucuk işaretli + talep 201) |
+| deviceKey | **r2 (G-E10-5):** üretim ve gönderim P8b-2 `rememberPlan` (S8b2-1) kuralıyla aynen kalır. "Bilgilerimi unut" deviceKey'i de yeniler. Kayıtla açılan talepte deviceKey gönderilmez |
+| Köken bağı | `binding.server` = kaydı veren sunucunun kanonik kökeni `https://host:port` (r2, G-E10-6: küçük harf, sondaki nokta silinir, IDNA ASCII, port açık; kullanıcı bilgisi, yol veya sorgu varsa red). İstemci anahtarı yalnız gömülü `ServerURL`'ün kanonik kökeni dize olarak eşitse kullanır/gönderir (T43) |
+| Silme | "Bilgilerimi unut" → yalnız `personal` (kayıt yoksa dosya silinir). Geçersiz kayıt (`BINDING_INVALID`) → yalnız `binding`. "Bu bilgisayarı unut" → dosya + tmp + **boşsa** klasör ≤ 1 sn, ardından sunucuya en iyi çaba iptal |
+| Tek kayıt | Yeni firmayla başarılı oturum üzerine yazar; oturum sonunda "Bu bilgisayar artık <firma> için kayıtlı" |
+| Bilgi | Karşılama/form ekranında bilgi satırı; aydınlatma seed metni yeni sürüm |
+| Yasaklar | Değişmez: kayıt defteri, servis, zamanlanmış görev, başlangıç, tepsi, `%TEMP%`, log dosyası yok |
+| Test | Go birim (v2, v1 yükseltme, üç silme yolu) + `trace-check.ps1 -Binding on` (yalnız `hatirla.bin`) / unut sonrası temiz |
+**Alternatifler:** Ayrı `kayit.bin` dosyası. İki iz ve iki silme yolu getirir, gereksinim "yeni dosya açılmaz" diyor. Reddedildi. Kayıt için onay kutusu: S18 varsayılanı "hayır". Bilgi satırı + unut yeterli görüldü.
+**Sonuçlar:** "Kapanınca iz bırakmaz" ilkesi şöyle olur: "yalnız ayar dosyası kalabilir, o da tek tıkla silinir". Aynı Windows kullanıcısındaki zararlı yazılım anahtarı çözebilir (T17/T39 kapsam sınırı). Etkisi talep açmakla sınırlıdır.

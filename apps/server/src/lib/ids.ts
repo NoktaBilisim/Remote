@@ -30,6 +30,9 @@ export function base32Lower(bytes: Uint8Array): string {
 /** tenantRef (AC-129, mimari-e9 §3.1): 10 bayt CSPRNG → 16 karakter `[a-z2-7]` (80 bit). Gizli değil, tahmin edilemez. */
 export const newTenantRef = (): string => base32Lower(randomBytes(10));
 
+/** P8c bilgisayar kaydı anahtarı (ADR-0017): `rsb_` + base64url(32 bayt) = 47 karakter, 256 bit. Yalnız SHA-256'sı saklanır. */
+export const newBindingKey = (): string => `rsb_${randomBytes(32).toString("base64url")}`;
+
 /** Talep kodu (§13.1): 6 hane, gösterim amaçlı (kapı değil). */
 export const newRequestCode = (): string => String(randomInt(0, 1_000_000)).padStart(6, "0");
 

@@ -1,5 +1,7 @@
 // Talep süpürücüsü ve anonimleştirme (mimari-e9 §2 Zamanlayıcı, §3.6; AC-141, 142, 145, 155, 159). jobs/scheduler.ts çağırır.
 import { writeAudit } from "../audit/service.ts";
+import { expireIdleBindings, sweepPassiveTenantBindings } from "../bindings/service.ts";
+import { anonymizeCustomers, sweepCustomerPassive } from "../customers/service.ts";
 import * as repo from "./repo.ts";
 import { SYSTEM, SYSTEM_CTX, type RequestService } from "./service.ts";
 
@@ -11,11 +13,15 @@ export interface SweepResult {
   expired: number;
   connectFailed: number;
   tenantPassive: number;
+  /** P8c (AC-171): pasif müşterinin bekleyenleri → CANCELLED(CUSTOMER_PASSIVE) (servis yolunun yedeği). */
+  customerPassive: number;
+  /** P8c (§3.4): pasif tenant'ın etkin kayıtları → TENANT_PASSIVE. */
+  bindingsRevoked: number;
 }
 
 /** Süre dolumu (EXPIRED), kabul sonrası bağlanmama (CONNECT_FAILED), pasif tenant (CANCELLED/TENANT_PASSIVE). */
 export async function sweepRequests(svc: RequestService, now = new Date(svc.d.clock.now())): Promise<SweepResult> {
-  const out: SweepResult = { expired: 0, connectFailed: 0, tenantPassive: 0 };
+  const out: SweepResult = { expired: 0, connectFailed: 0, tenantPassive: 0, customerPassive: 0, bindingsRevoked: 0 };
   for (const r of await repo.findExpired(svc.d.db, now, BATCH)) {
     const ok = await svc.d.db.$transaction(async (tx) => {
       if ((await repo.expireOne(tx, r.id, now)) === 0) return false;
@@ -31,6 +37,8 @@ export async function sweepRequests(svc: RequestService, now = new Date(svc.d.cl
   }
   for (const r of await repo.findConnectDue(svc.d.db, now, BATCH)) if (await svc.connectTimeout(r.id, "connect_timeout")) out.connectFailed++;
   for (const r of await repo.findPassivePending(svc.d.db, BATCH)) if (await svc.cancelSystem(r.id, "TENANT_PASSIVE")) out.tenantPassive++;
+  out.customerPassive = await sweepCustomerPassive(svc, BATCH);
+  out.bindingsRevoked = await sweepPassiveTenantBindings(svc);
   pendingGauge.value = await repo.countAllPending(svc.d.db);
   return out;
 }
@@ -43,6 +51,15 @@ export async function armOrphanedPending(svc: RequestService): Promise<number> {
   const rows = await repo.findAllPending(svc.d.db, 10_000);
   for (const r of rows) svc.d.hub.setDisconnect(r.id, () => void svc.cancelSystem(r.id, "DISCONNECTED").catch((e: unknown) => svc.logErr(e, "request_disconnect")), svc.d.timing.requestDisconnectMs);
   return rows.length;
+}
+
+/** Günlük 03:30 iş gövdesi: talep anonimleştirme (AC-159) + P8c müşteri anonimleştirme (AC-195) + boşta kayıtlar (V28). */
+export async function dailyRetention(svc: RequestService): Promise<{ requests: number; customers: number; bindings: number }> {
+  const requests = await anonymizeRequests(svc);
+  const customers = await anonymizeCustomers(svc);
+  const bindings = await expireIdleBindings(svc);
+  svc.refreshCustomersGauge();
+  return { requests, customers, bindings };
 }
 
 /** AC-159: tenant `retention_days`'ten eski talepler anonimleştirilir (1000'lik partiler). Dönen: satır sayısı. */

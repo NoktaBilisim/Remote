@@ -27,6 +27,7 @@ const FIELD_LABEL: Record<string, MessageKey> = {
   technicianId: "h.f.tech",
   tenantId: "h.f.tenant",
   customer: "h.f.customer",
+  customerFirm: "h.f.firm",
   page: "h.f.page",
   pageSize: "h.pageSize",
 };
@@ -97,6 +98,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
           filters={filters}
           technicians={role === "USER" ? null : options(items, (s) => s.technician, filters.technicianId)}
           tenants={allTenants ? options(items, (s) => s.tenant, filters.tenantId) : null}
+          customerFirmName={items.find((s) => s.customerFirm?.id === filters.customerFirm)?.customerFirm?.name}
         />
       </div>
 

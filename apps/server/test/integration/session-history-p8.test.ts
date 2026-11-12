@@ -158,6 +158,6 @@ describe("ADR-0014 enum CHECK ikili karşılaştırma", () => {
     const clauses = await testDb().$queryRaw<{ n: bigint }[]>`
       SELECT COUNT(*) AS n FROM information_schema.CHECK_CONSTRAINTS
       WHERE CONSTRAINT_SCHEMA = DATABASE() AND CHECK_CLAUSE LIKE '%charset binary%'`; // MySQL CAST(x AS BINARY)'yi böyle saklar
-    expect(Number(clauses[0]?.n)).toBe(17); // ADR-0014 14 + P8b-1 support_requests status/cancel_reason/network_match
+    expect(Number(clauses[0]?.n)).toBe(19); // ADR-0014 14 + P8b-1 support_requests status/cancel_reason/network_match + P8c-1 customers.status, device_bindings.revoke_reason
   });
 });

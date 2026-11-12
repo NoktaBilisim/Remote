@@ -18,6 +18,11 @@ import { maskPhone } from "../audit/mask.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import { AppError } from "../lib/errors.ts";
+import type { CustomerStatus } from "@remote/contracts/api/customers";
+import { countRevoked } from "../bindings/service.ts";
+import * as brepo from "../bindings/repo.ts";
+import * as crepo from "../customers/repo.ts";
+import { conflictIndex } from "../lib/db.ts";
 import { newId, newSecretToken, newTenantRef, sha256Hex } from "../lib/ids.ts";
 import { newTechVerifyCode } from "../sessions/codes.ts";
 import * as srepo from "../sessions/repo.ts";
@@ -31,7 +36,14 @@ const REF_ATTEMPTS = 5;
 const who = (auth: AuthContext, tenantId: string) => ({ tenantId, userId: auth.user.id, username: auth.user.email });
 const sec = (ms: number): number => Math.max(0, Math.floor(ms / 1000));
 
-export function toItem(r: repo.ItemRow, now: number): SupportRequestItem {
+/**
+ * `generalRotatedAt`: tenant Genel ref'inin son yenilenmesi (staleSource, §15.1). Müşteri ref'inde müşterinin
+ * `refRotatedAt`'i; kayıtla açılanda kayıt geçersizse bayat.
+ */
+export function toItem(r: repo.ItemRow, now: number, generalRotatedAt: Date | null): SupportRequestItem {
+  const bindingActive = r.bindingId !== null && r.binding?.revokedAt === null;
+  const rotatedAt = r.customer ? r.customer.refRotatedAt : generalRotatedAt;
+  const staleSource = r.bindingId !== null ? !bindingActive : rotatedAt !== null && r.createdAt.getTime() < rotatedAt.getTime();
   const end = r.status === "PENDING" ? now : (r.acceptedAt ?? r.closedAt ?? r.createdAt).getTime();
   return {
     id: r.id,
@@ -51,24 +63,34 @@ export function toItem(r: repo.ItemRow, now: number): SupportRequestItem {
     acceptedBy: r.acceptor ? { id: r.acceptor.id, name: r.acceptor.fullName } : null,
     rejectMessage: r.rejectMessage,
     sessionId: r.session?.id ?? null,
+    customerFirm: r.customer ? { id: r.customer.id, name: r.customer.name, status: r.customer.status as CustomerStatus } : null,
+    viaBinding: bindingActive,
+    bindingRevoked: r.bindingId !== null && !bindingActive,
+    staleSource,
   };
+}
+
+/** Tenant Genel ref'inin son yenileme anı (staleSource); ayar yoksa null. */
+export async function generalRotatedAt(svc: RequestService, tenantId: string): Promise<Date | null> {
+  return (await repo.settingsByTenant(svc.d.db, tenantId))?.refRotatedAt ?? null;
 }
 
 export async function listRequests(svc: RequestService, tenantId: string, q: ListRequestsQuery): Promise<SupportRequestListResponse> {
   const now = svc.d.clock.now();
+  const rotated = await generalRotatedAt(svc, tenantId);
   if (q.tab === "pending") {
-    const { rows, total } = await repo.listPending(svc.d.db, tenantId);
-    return { items: rows.map((r) => toItem(r, now)), page: 1, pageSize: rows.length, total };
+    const { rows, total } = await repo.listPending(svc.d.db, tenantId, q.customer);
+    return { items: rows.map((r) => toItem(r, now, rotated)), page: 1, pageSize: rows.length, total };
   }
   const since = new Date(now - REQUEST_HISTORY_DAYS * DAY_MS);
-  const { rows, total } = await repo.listHistory(svc.d.db, tenantId, since, q.status, { skip: (q.page - 1) * q.pageSize, take: q.pageSize });
-  return { items: rows.map((r) => toItem(r, now)), page: q.page, pageSize: q.pageSize, total };
+  const { rows, total } = await repo.listHistory(svc.d.db, tenantId, since, q.status, { skip: (q.page - 1) * q.pageSize, take: q.pageSize }, q.customer);
+  return { items: rows.map((r) => toItem(r, now, rotated)), page: q.page, pageSize: q.pageSize, total };
 }
 
 export async function getRequest(svc: RequestService, tenantId: string, id: string): Promise<SupportRequestItem> {
   const r = await repo.findItem(svc.d.db, tenantId, id);
   if (!r) throw new AppError("NOT_FOUND");
-  return toItem(r, svc.d.clock.now());
+  return toItem(r, svc.d.clock.now(), await generalRotatedAt(svc, tenantId));
 }
 
 /** count=0 sonrası sınıflandırma (AC-153): yok → 404; kabul edilmiş → REQUEST_TAKEN; diğer kapalı → REQUEST_CLOSED. */
@@ -95,6 +117,10 @@ export async function acceptRequest(svc: RequestService, ctx: AuditContext, auth
     if (!settings) throw new Error("tenant_settings satırı yok");
     const now = new Date(svc.d.clock.now());
     if ((await srepo.countOpen(tx, auth.user.id, now)) >= settings.maxOpenSessions) throw new AppError("OPEN_SESSION_LIMIT");
+    // B-P8c-1: müşterili talepte müşteri, talep satırından ÖNCE paylaşımlı kilitlenir (pasife alma ile aynı sıra:
+    // customers → support_requests; kilitlenme yok). Pasifse kabul edilmez; talep commit sonrası CUSTOMER_PASSIVE iptal.
+    const head = await repo.findStatusInTenant(tx, tenantId, id);
+    if (head?.status === "PENDING" && head.customerId && (await crepo.shareStatus(tx, tenantId, head.customerId)) !== "ACTIVE") return "customer_passive" as const;
     if ((await repo.acceptPending(tx, tenantId, id, auth.user.id, now)) === 0) return null;
     const r = await repo.findById(tx, id);
     if (!r) throw new Error("request_missing_after_accept");
@@ -113,11 +139,16 @@ export async function acceptRequest(svc: RequestService, ctx: AuditContext, auth
       requestId: id,
       customerName: r.customerName,
       customerEmail: r.customerEmail,
+      customerId: r.customerId, // P8c AC-177: talebin müşterisi oturuma kopyalanır (aynı tenant — bileşik FK)
     });
     const waitSec = sec(now.getTime() - r.createdAt.getTime());
     await writeAudit(tx, ctx, { ...who(auth, tenantId), action: "request.accepted", entity: "support_requests", entityId: id, result: "success", oldValue: { status: "PENDING" }, newValue: { status: "ACCEPTED", sessionId, waitSec } });
     return { r, sessionId, techVerifyCode, now };
   });
+  if (res === "customer_passive") {
+    await svc.cancelSystem(id, "CUSTOMER_PASSIVE");
+    throw new AppError("REQUEST_CLOSED");
+  }
   if (!res) throw await lostRace(svc, tenantId, id);
 
   // commit sonrası (§3.4): ön-kabullü misafir + ticket → bekleyen istemciye; panellere kaldırma; 60 sn penceresi.
@@ -161,12 +192,12 @@ export async function rejectRequest(svc: RequestService, ctx: AuditContext, auth
 
 // ------------------------------------------------------------------ ayarlar (settings.edit)
 
-const isRefConflict = (err: unknown): boolean => {
-  const e = err as { code?: unknown } | null;
-  return typeof e === "object" && e !== null && e.code === "P2002";
-};
+const isRefConflict = (err: unknown): boolean => conflictIndex(err) !== null;
 
-/** Tembel oluşturma (mimari-e9 §3.1): satır yoksa yeni ref (çakışmada 5 deneme). Eşzamanlı oluşturmada mevcut satır okunur. */
+/**
+ * Tembel oluşturma (mimari-e9 §3.1): satır yoksa yeni ref (çakışmada 5 deneme). Eşzamanlı oluşturmada mevcut satır okunur.
+ * P8c (ADR-0006 r5): ref önce tek ad alanına (`request_refs`), aynı TX'te ayar satırı.
+ */
 export async function ensureSettings(svc: RequestService, tenantId: string): Promise<repo.SettingsRow> {
   const { db } = svc.d;
   for (let attempt = 1; ; attempt++) {
@@ -175,7 +206,11 @@ export async function ensureSettings(svc: RequestService, tenantId: string): Pro
     const tenant = await db.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
     if (!tenant) throw new AppError("NOT_FOUND");
     try {
-      await repo.insertSettings(db, tenantId, newTenantRef(), fileLabelOf(tenant.name));
+      const ref = newTenantRef();
+      await db.$transaction(async (tx) => {
+        await repo.insertRequestRef(tx, { ref, tenantId, customerId: null, createdAt: new Date(svc.d.clock.now()) });
+        await repo.insertSettings(tx, tenantId, ref, fileLabelOf(tenant.name));
+      });
     } catch (err) {
       if (attempt < REF_ATTEMPTS && isRefConflict(err)) continue;
       throw err;
@@ -232,18 +267,26 @@ export async function updateSettings(svc: RequestService, ctx: AuditContext, aut
   return getSettings(svc, tenantId);
 }
 
-/** POST /settings/support-requests/rotate-ref (AC-131): eski ref anında geçersiz; bekleyen talepler etkilenmez. */
+/**
+ * POST /settings/support-requests/rotate-ref (AC-131): eski ref anında geçersiz; bekleyen talepler etkilenmez.
+ * P8c (AC-185, mimari-e10 §3.4): aynı TX'te yeni ref ad alanına yazılır ve Genel kayıtlar `GENERAL_ROTATED` olur.
+ */
 export async function rotateRef(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string): Promise<SupportRequestSettings> {
   await ensureSettings(svc, tenantId);
+  let revoked = 0;
   for (let attempt = 1; ; attempt++) {
     try {
       await svc.d.db.$transaction(async (tx) => {
         const before = await repo.settingsByTenant(tx, tenantId);
         if (!before) throw new Error("settings_missing");
         const ref = newTenantRef();
-        await repo.updateSettings(tx, tenantId, { requestRef: ref, fileLabel: fileLabelOf(before.tenant.name), refRotatedAt: new Date(svc.d.clock.now()) });
-        await writeAudit(tx, ctx, { ...who(auth, tenantId), action: "settings.support_requests.ref_rotated", entity: "tenant_request_settings", entityId: tenantId, result: "success", oldValue: { refPrefix: before.requestRef.slice(0, 4) }, newValue: { refPrefix: ref.slice(0, 4) } });
+        const now = new Date(svc.d.clock.now());
+        await repo.insertRequestRef(tx, { ref, tenantId, customerId: null, createdAt: now });
+        await repo.updateSettings(tx, tenantId, { requestRef: ref, fileLabel: fileLabelOf(before.tenant.name), refRotatedAt: now });
+        revoked = await brepo.revokeForOwner(tx, tenantId, null, "GENERAL_ROTATED", now);
+        await writeAudit(tx, ctx, { ...who(auth, tenantId), action: "settings.support_requests.ref_rotated", entity: "tenant_request_settings", entityId: tenantId, result: "success", oldValue: { refPrefix: before.requestRef.slice(0, 4) }, newValue: { refPrefix: ref.slice(0, 4), revokedBindings: revoked } });
       });
+      countRevoked(svc, "GENERAL_ROTATED", revoked);
       break;
     } catch (err) {
       if (attempt < REF_ATTEMPTS && isRefConflict(err)) continue;

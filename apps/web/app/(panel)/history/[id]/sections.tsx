@@ -16,6 +16,7 @@ import {
   SESSION_SOURCE_LABELS,
 } from "@remote/contracts/labels";
 import { Download, ShieldUser, Upload } from "lucide-react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { StatusBadge } from "@/components/ui/badge";
 import { formatBytes, formatDateTime, formatDuration, formatNumber, formatTimeSeconds } from "@/lib/format";
@@ -58,7 +59,7 @@ function Rows({ rows }: { rows: [MessageKey, ReactNode][] }) {
 const none = <span className="text-fg-muted">{t("h.d.none")}</span>;
 
 /** Özet: başlangıç/bitiş/süre, müşteri, sonlandıran (AC-62). */
-export function Summary({ s, showTenant }: { s: D; showTenant: boolean }) {
+export function Summary({ s, showTenant, canCustomers = false }: { s: D; showTenant: boolean; canCustomers?: boolean }) {
   const endedBy = s.endedBy
     ? `${labelOf(SESSION_ENDED_BY_LABELS, s.endedBy)}${s.endedBy === "ADMIN" && s.terminatedBy ? ` — ${s.terminatedBy.name}` : ""}`
     : null;
@@ -72,6 +73,19 @@ export function Summary({ s, showTenant }: { s: D; showTenant: boolean }) {
     ["h.d.source", labelOf(SESSION_SOURCE_LABELS, s.source)],
     ["h.d.tech", s.technician.name],
     ...(showTenant && s.tenant ? ([["h.d.tenant", s.tenant.name]] as [MessageKey, ReactNode][]) : []),
+    // P8c (AC-179, AC-180): müşteri firma; detaya bağlantı yalnız `customers.view` ile. Müşterisizde boş ("—").
+    [
+      "h.d.firm",
+      s.customerFirm ? (
+        canCustomers ? (
+          <Link key="cf" href={`/customers/${s.customerFirm.id}`} className="font-medium text-primary hover:underline" data-testid="history-detail-firm">{s.customerFirm.name}</Link>
+        ) : (
+          <span key="cf" data-testid="history-detail-firm">{s.customerFirm.name}</span>
+        )
+      ) : (
+        none
+      ),
+    ],
     ["h.d.customer", s.customerName ?? <span className="text-fg-muted italic">{t("h.noCustomer")}</span>],
     ["h.d.email", s.customerEmail ?? none],
     ["h.d.endedBy", endedBy ?? none],

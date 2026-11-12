@@ -16,7 +16,7 @@ ACCESS_FILE="${ACCESS_FILE:-./ACCESS.txt}"
 TENANT_SLUG="demo"
 TENANT_NAME="Demo Firma"
 # USER varsayılanı tüm yetkiler kapalı; teknisyen testi için açılan yetkiler (toggle karşılığı).
-USER_PERMS="sessions.view sessions.create sessions.edit sessions.delete sessions.terminate remote_control.use file_transfer.use session_history.view support_requests.view support_requests.accept"
+USER_PERMS="sessions.view sessions.create sessions.edit sessions.delete sessions.terminate remote_control.use file_transfer.use session_history.view support_requests.view support_requests.accept customers.view customers.create customers.edit customers.delete"
 
 email_re='^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$'
 for e in "$ADMIN_EMAIL" "$USER_EMAIL"; do

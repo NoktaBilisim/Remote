@@ -2,10 +2,12 @@ import { defineConfig, devices } from "@playwright/test";
 
 // E2E: üretim derlemesi (gerçek CSP) + sahte API (e2e/mock-api.mjs). Komut: pnpm --filter @remote/web e2e
 const PORT = 3217;
+const REAL = "p4-real.spec.ts";
+const RTC = "p5-collab.spec.ts";
 export default defineConfig({
   testDir: "e2e",
   // Gerçek sunucu gerektiren entegrasyon testi ayrı config ile koşar (playwright.real.config.ts)
-  testIgnore: "p4-real.spec.ts",
+  testIgnore: REAL,
   fullyParallel: true,
   reporter: [["list"]],
   use: {
@@ -24,8 +26,14 @@ export default defineConfig({
     },
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile", use: { ...devices["Pixel 7"] } },
+    { name: "desktop", use: { ...devices["Desktop Chrome"] }, testIgnore: [REAL, RTC], grepInvert: /@perf/ },
+    { name: "mobile", use: { ...devices["Pixel 7"] }, testIgnore: [REAL, RTC], grepInvert: /@perf/ },
+    // QA P8c-1 Tur 2 #3: P5 işbirliği testleri (iki tarayıcı bağlamı + 1080p sahte yakalama + gerçek P2P DC) tam paralel
+    // takımda birbirinin kodlayıcı/CPU payını yiyordu (DC 15 sn'de açılmadı, FPS "—"). Aynı iddialar, en çok 3 eşzamanlı işçi.
+    { name: "desktop-rtc", use: { ...devices["Desktop Chrome"] }, testMatch: RTC, grepInvert: /@perf/, workers: 3 },
+    // Ölçüm testleri (@perf, ör. AC-41 FPS ≥ 15): eşiği gevşetmeden, diğer projeler BİTTİKTEN sonra tek başına koşar.
+    // Not: bağımlı projelerden biri kırmızıysa bu proje "did not run" olur (önce o hata düzeltilir).
+    { name: "desktop-perf", use: { ...devices["Desktop Chrome"] }, grep: /@perf/, dependencies: ["desktop", "mobile", "desktop-rtc"] },
   ],
   webServer: [
     { command: "node e2e/mock-api.mjs", port: 4217, reuseExistingServer: false, env: { MOCK_API_PORT: "4217" } },
