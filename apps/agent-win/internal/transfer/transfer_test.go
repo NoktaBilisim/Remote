@@ -19,6 +19,14 @@ type rec struct {
 	meta []signal.FileMeta
 	motw []string
 	now  time.Time
+	// timers kurulan bekleme zamanlayıcıları (süre + fid), stopped durdurulanların sayısı.
+	timers  []timer
+	stopped int
+}
+
+type timer struct {
+	d   time.Duration
+	fid string
 }
 
 func setup(t *testing.T, max int64) (*Manager, *rec, string) {
@@ -30,6 +38,10 @@ func setup(t *testing.T, max int64) (*Manager, *rec, string) {
 		Meta:    func(f signal.FileMeta) { r.meta = append(r.meta, f) },
 		MOTW:    func(p string) error { r.motw = append(r.motw, p); return nil },
 		Now:     func() time.Time { return r.now },
+		After: func(d time.Duration, fid string) func() bool {
+			r.timers = append(r.timers, timer{d, fid})
+			return func() bool { r.stopped++; return true }
+		},
 	})
 	return m, r, dir
 }
@@ -40,7 +52,7 @@ func offerCtl(fid, name string, data []byte) dc.Ctl {
 	return dc.Ctl{T: "file.offer", FID: fid, Idx: &idx, Name: name, Size: &size, SHA: hex.EncodeToString(sum[:])}
 }
 
-func TestAC54ReceiveVerifyRenameMOTW(t *testing.T) {
+func TestAC54ReceiveVerifyRenameMOTW(t *testing.T) { // normal sıra (regresyon): parçalar sonra done
 	m, r, dir := setup(t, 1<<20)
 	data := []byte("merhaba dünya")
 	p := m.Offer(offerCtl("f1", "rapor.pdf", data))
@@ -232,5 +244,126 @@ func TestAC108CloseRemovesPart(t *testing.T) {
 	m.Close()
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Fatal("yarım dosya kaldı")
+	}
+}
+
+// Hata düzeltmesi 0.10.1: file.done (ctl) son parçalardan (file kanalı) önce gelebilir; doğrulama ertelenir.
+func TestAC54DoneBeforeLastChunksOK(t *testing.T) {
+	m, r, dir := setup(t, 1<<20)
+	data := []byte("merhaba dünya")
+	m.Offer(offerCtl("f1", "a.png", data))
+	_, _ = m.Decide("f1", true)
+	if res := m.Chunk(dc.Chunk{FIDIndex: 7, Seq: 0, Payload: data[:4]}, true); res != nil {
+		t.Fatalf("parça: %+v", res)
+	}
+	if res := m.Done("f1"); res != nil {
+		t.Fatalf("eksik baytta done beklemeli: %+v", res)
+	}
+	if len(r.timers) != 1 || r.timers[0] != (timer{DoneWait, "f1"}) || DoneWait != 10*time.Second {
+		t.Fatalf("zamanlayıcı: %+v", r.timers)
+	}
+	if res := m.Done("f1"); res != nil || len(r.timers) != 1 {
+		t.Fatal("tekrarlanan done ikinci zamanlayıcı kurmamalı")
+	}
+	if res := m.Chunk(dc.Chunk{FIDIndex: 7, Seq: 1, Payload: data[4:8]}, true); res != nil {
+		t.Fatalf("ara parça: %+v", res)
+	}
+	res := m.Chunk(dc.Chunk{FIDIndex: 7, Seq: 2, Payload: data[8:]}, true)
+	if res == nil || res.Status != "OK" {
+		t.Fatalf("son parça: %+v", res)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "a.png")); err != nil || string(got) != string(data) {
+		t.Fatalf("içerik: %q %v", got, err)
+	}
+	if r.stopped != 1 || r.ctl[len(r.ctl)-1] != `{"t":"file.result","fid":"f1","ok":true}` || r.meta[0].Result != "OK" {
+		t.Fatalf("stop %d ctl %v meta %+v", r.stopped, r.ctl, r.meta)
+	}
+	if res := m.DoneTimeout("f1"); res != nil {
+		t.Fatalf("geç zamanlayıcı etkisiz olmalı: %+v", res)
+	}
+}
+
+func TestAC54DoneWaitTimeoutCorrupt(t *testing.T) {
+	m, r, dir := setup(t, 1<<20)
+	data := []byte("abcdef")
+	m.Offer(offerCtl("f1", "a.png", data))
+	_, _ = m.Decide("f1", true)
+	m.Chunk(dc.Chunk{FIDIndex: 7, Seq: 0, Payload: data[:3]}, true)
+	if res := m.Done("f1"); res != nil {
+		t.Fatalf("%+v", res)
+	}
+	if res := m.DoneTimeout("başka"); res != nil {
+		t.Fatal("başka fid etkisiz olmalı")
+	}
+	res := m.DoneTimeout("f1")
+	if res == nil || res.Status != "CORRUPT" {
+		t.Fatalf("%+v", res)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf(".part silinmeli: %v", entries)
+	}
+	if r.ctl[len(r.ctl)-1] != `{"t":"file.result","fid":"f1","ok":false}` || len(r.meta) != 1 || r.meta[0].Result != "CORRUPT" {
+		t.Fatalf("ctl %v meta %+v", r.ctl, r.meta)
+	}
+	if res := m.Chunk(dc.Chunk{FIDIndex: 7, Seq: 1, Payload: data[3:]}, true); res != nil {
+		t.Fatalf("zaman aşımı sonrası parça düşmeli: %+v", res)
+	}
+}
+
+func TestAC53DoneWaitCancelled(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		stop func(m *Manager) *Result
+	}{
+		{"gönderen", func(m *Manager) *Result { return m.Cancel("f1") }},
+		{"müşteri", func(m *Manager) *Result { return m.CancelLocal() }},
+	} {
+		m, r, dir := setup(t, 1<<20)
+		data := []byte("abcdef")
+		m.Offer(offerCtl("f1", "a.png", data))
+		_, _ = m.Decide("f1", true)
+		m.Chunk(dc.Chunk{FIDIndex: 7, Seq: 0, Payload: data[:3]}, true)
+		_ = m.Done("f1")
+		if res := c.stop(m); res == nil || res.Status != "CANCELLED" {
+			t.Fatalf("%s: %+v", c.name, res)
+		}
+		if r.stopped != 1 {
+			t.Fatalf("%s: zamanlayıcı durdurulmalı", c.name)
+		}
+		if res := m.DoneTimeout("f1"); res != nil {
+			t.Fatalf("%s: iptal sonrası zamanlayıcı etkisiz olmalı: %+v", c.name, res)
+		}
+		if entries, _ := os.ReadDir(dir); len(entries) != 0 || len(r.meta) != 1 || r.meta[0].Result != "CANCELLED" {
+			t.Fatalf("%s: klasör %v meta %+v", c.name, entries, r.meta)
+		}
+	}
+}
+
+func TestAC108DoneWaitCloseStopsTimer(t *testing.T) {
+	m, r, dir := setup(t, 1<<20)
+	data := []byte("abcdef")
+	m.Offer(offerCtl("f1", "a.png", data))
+	_, _ = m.Decide("f1", true)
+	m.Chunk(dc.Chunk{FIDIndex: 7, Seq: 0, Payload: data[:3]}, true)
+	_ = m.Done("f1")
+	m.Close()
+	if r.stopped != 1 || m.DoneTimeout("f1") != nil {
+		t.Fatal("Close zamanlayıcıyı durdurmalı")
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatal("yarım dosya kaldı")
+	}
+}
+
+func TestAC54FullBytesWrongSHAImmediateCorrupt(t *testing.T) {
+	m, r, _ := setup(t, 1<<20)
+	m.Offer(offerCtl("f1", "a.txt", []byte("abc")))
+	_, _ = m.Decide("f1", true)
+	m.Chunk(dc.Chunk{FIDIndex: 7, Seq: 0, Payload: []byte("abd")}, true)
+	if res := m.Done("f1"); res == nil || res.Status != "CORRUPT" {
+		t.Fatalf("%+v", res)
+	}
+	if len(r.timers) != 0 {
+		t.Fatal("bayt tamken bekleme olmamalı")
 	}
 }

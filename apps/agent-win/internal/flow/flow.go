@@ -299,6 +299,8 @@ type peerEvent struct {
 	chunk *dc.Chunk
 	ok    bool
 	state string
+	// doneTimeout transfer.DoneWait doldu (fid); zamanlayıcı goroutine'inden döngüye döner.
+	doneTimeout string
 }
 
 type session struct {
@@ -617,6 +619,14 @@ func (s *session) initFiles(ctx context.Context) (Outcome, bool) {
 		Meta: func(m signal.FileMeta) { s.send(ctx, m) },
 		MOTW: s.d.MOTW,
 		Now:  s.d.Now,
+		After: func(d time.Duration, fid string) func() bool {
+			return time.AfterFunc(d, func() {
+				select {
+				case s.peerEv <- peerEvent{doneTimeout: fid}:
+				case <-ctx.Done():
+				}
+			}).Stop
+		},
 	})
 	return Outcome{}, false
 }
@@ -712,6 +722,13 @@ func (s *session) onPeer(ctx context.Context, e peerEvent) {
 		}
 	case e.ctl != nil:
 		s.onCtl(*e.ctl)
+	case e.doneTimeout != "":
+		if s.files == nil {
+			return
+		}
+		if r := s.files.DoneTimeout(e.doneTimeout); r != nil {
+			s.d.UI.FileResult(*r)
+		}
 	}
 }
 

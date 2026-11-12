@@ -5,6 +5,14 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Düzeltildi — istemci 0.10.1 (Windows; teknisyenden müşteriye dosya alımı)
+- Teknisyenin müşteriye gönderdiği dosyalar Windows istemcisinde zaman zaman "Dosya bozuk" sonucuyla
+  reddediliyordu (staging'de 270 KB ve 989 KB PNG). Nedeni şuydu: "gönderim bitti" bildirimi, özellikle TURN/relay
+  gecikmesinde, son dosya parçalarından önce ulaşıyordu. İstemci artık web alıcısında olduğu gibi son parçaları en çok
+  10 sn bekliyor ve parçalar tamamlanınca doğrulamayı yapıyor. Süre dolarsa sonuç yine "Dosya bozuk" olur. Beklerken
+  yapılan iptal "İptal edildi" olarak sonuçlanır.
+- Tekrarlanabilir derleme SHA-256: `81acc316c58c751eaca3e0bce4536a490aaee5d8ee4313dbcbb2226f573f0284`.
+
 ### Eklendi — P8c-2 (Windows istemci 0.10.0: kalıcı istemci / bilgisayar kaydı; ADR-0017, mimari-e10 §8)
 - **Bilgisayar kaydı:** başarılı bir oturumda (müşteri ekran paylaşımına onay verdikten sonra) istemci sunucudan bu
   bilgisayar için bir kayıt alır ve mevcut DPAPI dosyasına (`hatirla.bin`, format v2; v1 dosyalar otomatik okunur)

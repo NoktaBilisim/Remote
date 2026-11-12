@@ -2728,3 +2728,35 @@ Derleme: `build.sh https://remote.noktabilisim.net 0.10.0` iki ayrı docker koş
 Elle test adımları değişmedi. Adım 10'a ek olarak: sunucu ya da proxy kodsuz 404 dönerse kayıt korunur ve "Sunucuya ulaşılamıyor" + "Tekrar dene" görünür.
 
 **Değişen dosyalar (bu tur):** `internal/request/{run.go, home.go, home_test.go}`, `internal/flow/{flow.go, binding.go, binding_test.go}`, `internal/launch/{run.go, run_test.go}`, `internal/remember/remember_test.go`, `docs/implementation.md`.
+
+## Düzeltme — istemci 0.10.1 dosya alımı (backend-dev/Go, 2026-11-12)
+
+**Hata:** TO_CUSTOMER alımında `file.done` (ctl DataChannel) ile parçalar (`file` DataChannel) arasında sıra garantisi yok. TURN/relay gecikmesinde done son parçalardan önce geliyordu. `transfer.Manager.Done` hemen `rx.Verify` çağırıyordu, alınan < beyan olduğu için sonuç CORRUPT oluyordu (staging audit: 270 KB ve 989 KB PNG). Web alıcısı aynı durumu `DONE_WAIT_MS = 10_000` ile çözüyor (`apps/web/lib/dc/files.ts`). İstemci bu davranışa getirildi.
+
+**Değişiklik:**
+- `internal/transfer/transfer.go`:
+  - `DoneWait = 10 sn`.
+  - `Deps.After(d, fid) (stop)` zamanlayıcı enjeksiyonu eklendi.
+  - Done geldiğinde alınan < beyan ise transfer `doneWait` durumuna alınır, zamanlayıcı kurulur ve nil döner. Tekrarlanan done etkisizdir.
+  - `Chunk` bekleme sırasında alınan == beyan olunca zamanlayıcıyı durdurur ve doğrulama + yerleştirmeyi yapar. Eski Done gövdesi ortak `finish` fonksiyonuna taşındı, davranışı aynı.
+  - `DoneTimeout(fid)`: done hâlâ bekliyorsa `file.result{ok:false}` + `file.meta CORRUPT` + `.part` silinir. Aksi halde (iptal edilmiş, tamamlanmış ya da başka fid) etkisizdir.
+  - `abort` (Cancel, CancelLocal, dropPeer, sınır aşımı) ve `Close` zamanlayıcıyı durdurur.
+  - Alınan > beyan durumu zaten `Receiver` sınırıyla CANCELLED.
+- `internal/flow/flow.go`: `peerEvent.doneTimeout` alanı eklendi. `After`, `time.AfterFunc` ile kuruluyor ve olayı `s.peerEv` üzerinden oturum döngüsüne gönderiyor. Böylece Manager yine tek goroutine'den kullanılıyor. Döngü olayı `files.DoneTimeout` ile işliyor ve sonucu `UI.FileResult` ile gösteriyor.
+
+**Testler** (`internal/transfer/transfer_test.go`):
+- `TestAC54DoneBeforeLastChunksOK`: done önce, parçalar sonra → OK. Zamanlayıcı durdurulur, geç tetiklenmesi etkisizdir.
+- `TestAC54DoneWaitTimeoutCorrupt`: parçalar gelmez, süre dolar → CORRUPT, `.part` silinir.
+- `TestAC53DoneWaitCancelled`: gönderen ve müşteri iptali → CANCELLED, zamanlayıcı etkisiz.
+- `TestAC108DoneWaitCloseStopsTimer`.
+- `TestAC54FullBytesWrongSHAImmediateCorrupt`: bayt sayısı tam ama SHA yanlış → hemen CORRUPT, bekleme yok.
+- Normal sıra regresyonu: mevcut `TestAC54ReceiveVerifyRenameMOTW`.
+
+**Doğrulama** (docker `golang:1.26.11-bookworm@sha256:dc40a1…`, `-mod=readonly`, `GOTOOLCHAIN=local`):
+- `gofmt -l .` boş.
+- `go vet ./...` ve `GOOS=windows go vet ./...` temiz.
+- `go test -count=1 ./...`: 18 paketin hepsi ok.
+- go.mod ve go.sum değişmedi, yeni bağımlılık yok.
+- `build/build.sh https://remote.noktabilisim.net 0.10.1` iki ayrı docker koşusunda çalıştırıldı, iki ikili eşit: **SHA-256 `81acc316c58c751eaca3e0bce4536a490aaee5d8ee4313dbcbb2226f573f0284`** (12.380.672 bayt).
+
+**Sözleşme:** protokol ve ctl mesajları değişmedi. Web tarafında değişiklik yok.

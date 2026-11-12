@@ -2,7 +2,10 @@
 // Kurallar: müşteri "Kabul et" demeden diske yazılmaz; ad gösterimden önce temizlenir; dosya önce `<ad>.part` olarak
 // yazılır, alınan bayt sayacı beyan edilen boyutu veya tenant sınırını aşarsa iptal edilir; SHA-256 doğrulanınca
 // `.part`'a MOTW yazılır, sonra üzerine yazmadan yeniden adlandırılır (S6-3). Ret sonrası 30 sn yeni teklif otomatik reddedilir; aynı anda tek teklif/transfer.
-// Manager tek goroutine'den (flow döngüsü) kullanılır; kilit yoktur.
+// `file.done` ctl kanalından, parçalar file kanalından gelir ve iki kanal arasında sıra garantisi yoktur: done geldiğinde
+// alınan < beyan ise doğrulama DoneWait boyunca son parçalar için ertelenir (web alıcısı DONE_WAIT_MS eşi).
+// Manager tek goroutine'den (flow döngüsü) kullanılır; kilit yoktur. Bekleme zamanlayıcısı Deps.After ile kurulur ve
+// süre dolunca çağıran DoneTimeout'u aynı döngüden çağırır.
 package transfer
 
 import (
@@ -19,6 +22,9 @@ import (
 // RejectCooldown ret sonrası otomatik ret süresi (G-03).
 const RejectCooldown = 30 * time.Second
 
+// DoneWait `file.done` son parçalardan önce geldiğinde parçaların beklendiği süre (web DONE_WAIT_MS ile aynı).
+const DoneWait = 10 * time.Second
+
 // Prompt kabul diyaloğunda gösterilecek teklif.
 type Prompt struct {
 	FID     string
@@ -27,7 +33,7 @@ type Prompt struct {
 	Warning files.Warning
 }
 
-// Deps dış dünya: ctl gönderimi, WS file.meta, MOTW ve saat (testte sahte).
+// Deps dış dünya: ctl gönderimi, WS file.meta, MOTW, saat ve zamanlayıcı (testte sahte).
 type Deps struct {
 	Dir      string // %USERPROFILE%\Downloads
 	MaxBytes int64
@@ -35,6 +41,9 @@ type Deps struct {
 	Meta     func(signal.FileMeta)
 	MOTW     func(path string) error
 	Now      func() time.Time
+	// After d sonra fid için DoneTimeout'un Manager'ı kullanan döngüden çağrılmasını planlar; dönen fonksiyon
+	// zamanlayıcıyı durdurur. Geç tetiklenen zamanlayıcı etkisizdir (DoneTimeout bekleyen done yoksa nil döner).
+	After func(d time.Duration, fid string) (stop func() bool)
 }
 
 type offer struct {
@@ -50,6 +59,9 @@ type active struct {
 	part string
 	f    *os.File
 	rx   *dc.Receiver
+	// doneWait file.done geldi, son parçalar bekleniyor; stopWait bekleme zamanlayıcısını durdurur.
+	doneWait bool
+	stopWait func() bool
 }
 
 // Manager alım durumu.
@@ -161,6 +173,10 @@ func (m *Manager) Chunk(c dc.Chunk, ok bool) *Result {
 		m.reply("file.cancel", m.cur.fid)
 		return m.abort("CANCELLED")
 	}
+	if a := m.cur; a.doneWait && a.rx.Bytes() == a.size {
+		a.stopTimer()
+		return m.finish(a)
+	}
 	return nil
 }
 
@@ -172,12 +188,43 @@ func (m *Manager) Progress() (int64, int64, bool) {
 	return m.cur.rx.Bytes(), m.cur.size, true
 }
 
-// Done gönderenin `file.done`'u: SHA-256 + boyut doğrulaması (AC-54).
+// Done gönderenin `file.done`'u: SHA-256 + boyut doğrulaması (AC-54). Son parçalar henüz yoldaysa (alınan < beyan)
+// doğrulama DoneWait boyunca ertelenir ve nil döner; sonuç tamamlayan Chunk'tan veya DoneTimeout'tan gelir.
 func (m *Manager) Done(fid string) *Result {
 	a := m.cur
-	if a == nil || a.fid != fid {
+	if a == nil || a.fid != fid || a.doneWait {
 		return nil
 	}
+	if a.rx.Bytes() < a.size {
+		a.doneWait = true
+		a.stopWait = m.d.After(DoneWait, fid)
+		return nil
+	}
+	return m.finish(a)
+}
+
+// DoneTimeout bekleme süresi doldu ve parçalar tamamlanmadı → CORRUPT. Bekleyen done yoksa (iptal, tamamlandı,
+// başka transfer) etkisizdir.
+func (m *Manager) DoneTimeout(fid string) *Result {
+	a := m.cur
+	if a == nil || a.fid != fid || !a.doneWait {
+		return nil
+	}
+	a.stopWait = nil
+	m.sendResult(fid, false)
+	return m.abort("CORRUPT")
+}
+
+func (a *active) stopTimer() {
+	if a.stopWait != nil {
+		a.stopWait()
+		a.stopWait = nil
+	}
+}
+
+// finish alım tamamlandığında SHA-256 + boyut doğrulaması, MOTW ve üzerine yazmadan yerleştirme.
+func (m *Manager) finish(a *active) *Result {
+	fid := a.fid
 	if !a.rx.Verify(a.sha) {
 		m.sendResult(fid, false)
 		return m.abort("CORRUPT")
@@ -273,6 +320,7 @@ func (m *Manager) Pending() string {
 func (m *Manager) abort(status string) *Result {
 	a := m.cur
 	m.cur = nil
+	a.stopTimer()
 	_ = a.f.Close()
 	_ = os.Remove(a.part)
 	m.meta(a.offer, status)
@@ -284,6 +332,7 @@ func (m *Manager) Close() {
 	if m.cur != nil {
 		a := m.cur
 		m.cur = nil
+		a.stopTimer()
 		_ = a.f.Close()
 		_ = os.Remove(a.part)
 	}
