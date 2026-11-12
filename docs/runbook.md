@@ -235,6 +235,8 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
 | 2026-11-12 | Düzeltme (siyah ekran) | `6701567` (server + web) | — | TURN'süz ilk teklif düzeltmesi: admit sonrası teknisyene `ice.servers` `peer.joined`'dan önce gider, konsol ICE listesini bekler. Server ve web imajı yeniden yaratıldı; env/Caddy değişmedi |
 | 2026-11-12 | P8c-1 | `1748d10` | `20261112120000_p8c_customers` | Yedek `/root/remote-pre-p8c-20261112T121000Z.sql.gz`; grants **261/261 PASS**; seed `consentTextsCreated=1`; ref ad alanı tutarlılığı `0`; `/metrics`'te 6 P8c metriği. Müşteriler modülü + bilgisayar kaydı (sunucu). Sayfa testi: `docs/arsiv/p8c1-test-raporu.md` |
 | 2026-11-12 | P8c-2 | `2edfa9c` (yalnız istemci) | — | İstemci 0.10.0 (kalıcı "Destek iste", bilgisayar kaydı; `https://remote.noktabilisim.net` gömülü); SHA-256 `5255edc87840f18b28eb608c705bf2c16230a3a7cb0da49145a46e5ecbf721f3`, `--dir --no-attestation` + `ALLOW_UNATTESTED=staging` (attestation'sız staging yayını). `MIN_AGENT_VERSION` değişmedi. Windows elle testleri ve AC-192 ölçümü bekliyor |
+| 2026-11-12 | İstemci 0.10.1 | `916e845` (yalnız istemci) | — | Dosya alımında "Dosya bozuk" düzeltmesi (DoneWait). SHA-256 `81acc316…` |
+| 2026-11-12 | P9 + istemci 0.10.2 | `5e35d79` (server + web), `e53323e` (istemci) | — (şema değişmedi) | Yedek `/root/remote-pre-p9-20261112T140950Z.sql.gz`; grants **261/261 PASS**; seed `consentTextsCreated=0`. Kullanıcı/yetki/firma yönetimi. İstemci 0.10.2 (yakalama DXGI→DXGI1→GDI, neden kodu, kalıcı modda tanılama logu) SHA-256 `85142c14bf6941c2d5c3803b2818f0b1645c95b77704e640c8ff49d4059687bc`, attestation'sız staging yayını. Windows elle testleri bekliyor |
 
   Rollback hedefi: bir önceki satırdaki `IMAGE_TAG`; şema geri alması gerekiyorsa §6.
 
