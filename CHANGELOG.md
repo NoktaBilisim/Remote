@@ -5,6 +5,10 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Düzeltildi — istemci 0.9.1
+- Windows istemcisi GUI alt sistemiyle derlenir (`-H=windowsgui`): açılışta çıkan boş siyah konsol penceresi kalktı
+  (0.6.0'dan beri vardı).
+
 ### Eklendi — P8b-2 (Windows istemci 0.9.0: müşteri "Destek iste"; ADR-0016, mimari-e9 §13)
 - **Firma dosyasıyla açılış:** `NoktaDestek-<firma>-<ref>.exe` açılınca istemci firma bilgisini sunucudan alır
   (`GET /public/requests/tenant`). Pencerede firma adı (yalnız sunucudan), bekleme süresi, dolandırıcılık uyarısı,
