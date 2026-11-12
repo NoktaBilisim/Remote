@@ -3,7 +3,7 @@
 Bu kılavuz Nokta Bilişim uzaktan destek platformunun kullanıcıya dönük ekranlarını anlatır. Platform paketler hâlinde
 geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlikte büyür. Bu sürümde yer alan bölümler:
 
-- **Müşteri için:** Hızlı Destek uygulaması (Windows), uzaktan kontrol izni
+- **Müşteri için:** Hızlı Destek uygulaması (Windows), "Destek iste" ile talep gönderme, uzaktan kontrol izni
 - **Teknisyen için:** Uzaktan kontrol (konsol), Oturum geçmişi, Destek talepleri
 - **Admin için:** Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi yetkileri, Ayarlar > Destek talepleri
 - **Super Admin için:** Tüm firmaların oturum geçmişi, destek talepleri
@@ -20,7 +20,8 @@ yönetici şifresi sormaz, bilgisayarınızda iz bırakmaz. Program kapandığı
 **Ne gerekir?**
 - Windows 10 veya Windows 11 yüklü bir bilgisayar.
 - İnternet bağlantısı.
-- Teknisyeninizin size gönderdiği **destek bağlantısı** veya **8 haneli destek kodu**.
+- Teknisyeninizin size gönderdiği **destek bağlantısı** veya **8 haneli destek kodu**; ya da firmanızın verdiği
+  **firma bağlantısı** (bkz. "Teknisyeni beklemeden destek isteyebilir miyim?").
 - Telefonda teknisyeninizle görüşüyor olmanız (kodları birbirinize okuyacaksınız).
 
 **Teknisyen neler yapabilir?**
@@ -223,9 +224,97 @@ yeniden izin istemesi gerekir.
 | Windows onay ekranı (UAC) açıkken teknisyen ekranı göremiyor | Bu ekran güvenlik gereği paylaşılmaz. Onayı siz verin; görüntü kendiliğinden geri gelir. |
 
 ### Teknisyeni beklemeden destek isteyebilir miyim? ("Destek iste")
-Firmanızın size verdiği özel bağlantıdan indirdiğiniz Hızlı Destek ile, teknisyenden kod beklemeden **Destek iste**
-diyerek talep gönderebileceksiniz. Bu ekran **P8b-2 ile gelecek**; şu an destek için teknisyeninizin gönderdiği bağlantı
-veya kod kullanılır.
+Evet. Firmanız size kendi **firma bağlantısını** verdiyse, teknisyenden kod beklemeden talep gönderebilirsiniz.
+Bu bağlantıdan inen dosyanın adı `NoktaDestek-<firma adı>-…exe` biçimindedir (ör. `NoktaDestek-Acme-k3pqxr2mab4cde7f.exe`).
+Bu özellik Hızlı Destek **0.9.0** ve sonrasında vardır.
+
+**Nasıl destek isterim?**
+1. Firma dosyasını çift tıklayarak açın. Windows uyarı verirse "Windows uyarı verirse ne yapmalıyım?" bölümündeki
+   adımları izleyin. Birkaç saniye içinde **Nokta Destek — <firma adı>** penceresi açılır.
+2. Pencerenin üstünde firmanızın adını kontrol edin. Ad, firmanızın sunucusundan gelir. Tanımadığınız bir ad
+   görürseniz pencereyi kapatın. Kırmızı uyarıyı okuyun: sizi kendiliğinden arayan biri bu programı açmanızı
+   istediyse kapatın; teknisyenlerimiz şifrenizi hiçbir zaman sormaz.
+3. Formu doldurun:
+   - **Ad soyad:** en az 2 karakter.
+   - **Telefon:** sizi arayabilecekleri numara (ör. `0532 123 45 67` veya `+90 532 123 45 67`). Yurt dışı numarası da
+     yazılabilir.
+   - **E-posta (isteğe bağlı):** boş bırakabilirsiniz.
+   - **Sorununuz:** en az 10, en çok 500 karakter. Ne olduğunu kısaca yazın.
+4. **Aydınlatma metni** kutusunu okuyun (kaydırılabilir). Altındaki "Aydınlatma metnini okudum; bilgilerimin destek
+   talebi için işlenmesini kabul ediyorum. Ekran paylaşımı için teknisyen bağlanırken ayrıca onay istenir." kutusunu
+   işaretleyin.
+5. **Destek iste**'ye tıklayın veya Enter'a basın. Eksik ya da hatalı bir alan varsa alanın altında kırmızı bir yazı
+   çıkar ve imleç o alana gider; düzeltip yeniden gönderin.
+6. **Talebiniz iletildi** ekranı açılır. Ekranda büyük harflerle 6 haneli bir **talep kodu** (ör. `123 456`),
+   "Sırada 2. talepsiniz" gibi sıranız ve bekleme süreniz görünür.
+7. Teknisyen sizi telefonla arar ve talep kodunu sorar. **Kodu yalnız sizi arayan teknisyene söyleyin.** Bu kod
+   teknisyenin doğru talebi açtığını gösterir.
+8. Teknisyen talebi kabul edince **Bağlantı isteği** penceresi öne gelir ve görev çubuğundaki simge yanıp söner.
+   Pencerede teknisyenin adı, **teknisyen doğrulama kodu**, talep kodunuz ve kalan süre yazar.
+   - Telefondaki teknisyen aynı doğrulama kodunu size söylemeli. Söyleyemiyorsa veya kod farklıysa **Vazgeç**'e
+     tıklayın.
+   - Her şey doğruysa **kendi farenizle** **Ekranımı paylaş**'a tıklayın. Bu düğme yanlışlıkla basılmasın diye ilk
+     1,5 saniye çalışmaz. Enter veya boşluk tuşu paylaşmaz; uzak bağlantı (TeamViewer, Uzak Masaüstü vb.) üzerinden
+     yapılan tıklama sayılmaz.
+9. "Teknisyen bağlanıyor…" yazar ve bağlantı kendiliğinden kurulur. Kabul kodu sorulmaz. Sonrası normal oturumla
+   aynıdır: ekran seçimi, kırmızı çerçeve, sohbet ve dosya (bkz. "Ekran seçimi ve oturum"). Teknisyen fare ve
+   klavyenizi kullanmak isterse ayrıca izin istenir.
+
+Bağlantı isteği penceresinde **1 dakika** içinde karar vermezseniz "Bağlantı süresi doldu" yazar ve ekranınız
+paylaşılmaz. **Vazgeç** derseniz "Ekranınız paylaşılmadı" yazar ve talep iptal olur.
+
+**Beklerken neler yapabilirim?**
+- **Talebi iptal et:** talep firmanızın listesinden kalkar ve forma dönersiniz ("Talebiniz iptal edildi").
+- Pencereyi sağ üstteki **X** ile kapatmak da talebi iptal eder ve programı kapatır.
+- İnternet kısa süre koparsa "Bağlantı koptu, yeniden bağlanılıyor…" yazar. Program yaklaşık 2 dakika boyunca
+  kendiliğinden yeniden bağlanmayı dener; bir şey yapmanız gerekmez.
+- Firmanız bekleme süresi içinde yanıt veremezse "Talebiniz zaman aşımına uğradı" yazar. Pencerenin üstündeki
+  "yanıt bekleme süresi en çok … dk" satırı bu süreyi gösterir. **Yeniden talep oluştur** formu bilgileriniz dolu
+  olarak açar.
+- Firmanız talebi reddederse "Firmanızın mesajı:" başlığı altında firmanın kısa mesajını okursunuz. Gerekirse
+  firmanızı telefonla arayın.
+
+**Bilgilerimi hatırlasın mı?**
+- Formdaki **Bilgilerimi bu bilgisayarda hatırla** kutusu ilk açılışta **işaretsizdir**. İşaretlerseniz ad, telefon ve
+  e-postanız talep gönderilince bu bilgisayarda şifreli olarak saklanır. Sorun açıklaması saklanmaz.
+- Bir sonraki açılışta form dolu, kutu işaretli gelir. Altında "Bu bilgiler size ait değilse: Bilgilerimi unut"
+  yazar.
+- Hatırlanan bilgilerden ad veya telefonu değiştirirseniz "Bilgilerimi bu bilgisayarda hatırla" kutusu kendiliğinden
+  kaldırılır. Yeni bilgileri hatırlatmak için kutuyu yeniden işaretleyin.
+- Kutu işaretsizken talep gönderirseniz daha önce hatırlanan bilgiler silinir.
+- **Bilgilerimi unut:** saklanan bilgileri hemen siler ve formu boşaltır; "Bilgileriniz silindi." yazar.
+  "Bilgileriniz silinemedi. Pencereyi kapatıp yeniden deneyin." yazarsa pencereyi kapatıp programı yeniden açın ve
+  tekrar deneyin.
+- Bilgiler yalnız sizin Windows hesabınızla okunabilir. Aynı bilgisayarda başka bir Windows kullanıcısı bunları
+  göremez.
+
+**Paylaşılan bir bilgisayardaysanız** (ortak ofis bilgisayarı, internet kafe, aile bilgisayarı ve aynı Windows
+hesabını başkalarının da kullandığı her durum) kutuyu işaretlemeyin. Daha önce işaretlediyseniz işiniz bitince
+**Bilgilerimi unut**'a tıklayın. Form başka birinin bilgileriyle dolu açılırsa da önce **Bilgilerimi unut**'a tıklayın.
+
+**Teknisyen bana zaten kod verdiyse?** Formdaki **Teknisyenden kod aldım** düğmesine tıklayın. Program 8 haneli kodu
+sorar ve olağan akışla devam eder (bkz. "KVKK onayı ve bağlanma").
+
+**"Destek iste" ekranında sık karşılaşılan mesajlar**
+| Mesaj | Ne yapmalı |
+|---|---|
+| Bu Hızlı Destek dosyası eski | **Yeni sürümü indir**'e tıklayın. Yeni dosya aynı firma bağlantısından iner; bu pencereyi kapatıp yeni dosyayı açın. (8 haneli kod dosyasında "Teknisyeninizden yeni bağlantı isteyin" yazar.) |
+| Bu dosya artık geçerli değil | Firmanız bağlantıyı yenilemiş. Firmanızdan yenisini isteyin. Teknisyen size kod verdiyse **Teknisyenden kod aldım** ile devam edin. |
+| Sunucuya ulaşılamıyor | İnternet bağlantınızı kontrol edip **Tekrar dene**'ye tıklayın. |
+| Sunucu sertifikası doğrulanamadı | Ağınızda araya giren bir cihaz olabilir. Devam etmeyin; firmanızı telefonla arayın. |
+| Sunucu şu an yoğun, birkaç saniye içinde yeniden deneniyor… | Bekleyin; program bir kez kendiliğinden yeniden dener. |
+| Sunucu şu an yoğun. Lütfen biraz sonra tekrar deneyin. | Biraz bekleyip **Destek iste**'ye yeniden basın. |
+| Çok fazla deneme | Birkaç dakika sonra tekrar deneyin. |
+| Talep gönderilemedi. Lütfen tekrar deneyin. | **Destek iste**'ye yeniden basın. Sürerse firmanızı telefonla arayın. |
+| Bu pencereden gönderilmiş bekleyen bir talebiniz var. | Programı kapatıp yeniden açın. |
+| Aydınlatma metni güncellendi; lütfen yeniden okuyup onaylayın. | Metni okuyup kutuyu yeniden işaretleyin, sonra **Destek iste**'ye basın. |
+| Sunucuyla bağlantı kesildi | İnternet uzun süre kopmuş. Bağlantınızı kontrol edip **Yeniden talep oluştur**'a tıklayın; bilgileriniz formda durur. |
+| Talebiniz zaman aşımına uğradı | Firmanız bekleme süresinde yanıt veremedi. **Yeniden talep oluştur** veya firmanızı arayın. |
+| Firmanız talebinizi yanıtladı / Firmanızın mesajı: … | Talep reddedildi; ekranınız paylaşılmadı. Mesajdaki yönlendirmeyi izleyin. |
+| Talebiniz iptal edildi — Firmanız şu an talep kabul etmiyor. | Firmanızı telefonla arayın. |
+| Bağlantı süresi doldu | Bağlantı isteğine 1 dakika içinde yanıt verilmedi. Gerekirse yeniden talep oluşturun. |
+| Bağlantı kurulamadı | Teknisyen kabul etti ama bağlantı kurulamadı. Yeniden talep oluşturun veya firmanızı arayın. |
+| Talep başka bir pencerede açıldı | Aynı talep başka bir pencerede izleniyor; bu pencereyi kapatabilirsiniz. |
 
 ---
 

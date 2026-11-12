@@ -59,3 +59,7 @@ func specOf(t reflect.Type) fieldSpec {
 	specCache.Store(t, s)
 	return s
 }
+
+// DecodeStrict decodeStrict'in dışa açık hâli: `/ws/request` mesajları (internal/request) aynı zod `strictObject`
+// kuralıyla çözülür (kural tek yerde kalır).
+func DecodeStrict(raw []byte, dst any) error { return decodeStrict(raw, dst) }

@@ -13,6 +13,7 @@ import (
 	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/flow"
+	"remote-support/agent-win/internal/request"
 	"remote-support/agent-win/internal/signal"
 	"remote-support/agent-win/internal/transfer"
 	"remote-support/agent-win/internal/win"
@@ -59,6 +60,14 @@ type UI struct {
 	hotkeyLabel string
 	// elevated istemci yönetici olarak çalışıyor (S7-9): oturum penceresinde ve kontrol diyaloğunda uyarı.
 	elevated bool
+
+	// P8b-2 talep modu (request_windows.go)
+	reqEvents chan request.UserAction
+	reqForm   *reqForm
+	reqWait   *reqWait
+	reqAccept *consentDlg
+	// reqAcceptKey açık onay diyaloğunun teknisyen adı + doğrulama kodu (S8b2-3, S8b2-4).
+	reqAcceptKey acceptKey
 }
 
 type sessionWin struct {
@@ -86,7 +95,7 @@ func New(host, version, fingerprint string, gate *control.Gate) (*UI, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &UI{t: t, events: make(chan flow.Event, 16), gate: gate,
+	return &UI{t: t, events: make(chan flow.Event, 16), gate: gate, reqEvents: make(chan request.UserAction, 8),
 		footer: fmt.Sprintf("Sunucu: %s  ·  Sürüm %s  ·  Parmak izi %s", host, version, fingerprint)}, nil
 }
 
@@ -235,6 +244,25 @@ func (u *UI) Lobby(admitCode, techName string) {
 		f.danger("Kodu yalnız sizi aradığını bildiğiniz teknisyene söyleyin.", 16, 166, 388, 36, fontNormal)
 		f.label("Teknisyen: "+techName, 16, 206, 388, 20, fontNormal)
 		f.button("Vazgeç ve çık", idCancel, 16, 242, 150, false)
+		f.command = func(id, _ int) {
+			if id == idCancel {
+				u.emit(flow.Event{Kind: flow.EvEnd})
+			}
+		}
+		f.close = func() { u.emit(flow.Event{Kind: flow.EvEnd}) }
+		f.show(win.WorkAreaAt(win.CursorPos()), true, nil)
+		u.lobby = f
+	})
+}
+
+// Connecting P8b-2 (mimari-e9 §13.2): talepten doğan oturumda lobi yok; teknisyenin bağlanması beklenir.
+func (u *UI) Connecting(techName string) {
+	u.t.Do(func() {
+		f := u.t.newForm(appTitle+" — Bağlanıyor", 420, 170, false)
+		f.label("Teknisyen bağlanıyor…", 16, 16, 388, 24, fontBold)
+		f.label("Teknisyen: "+techName, 16, 48, 388, 20, fontNormal)
+		f.label("Ekranınız teknisyen bağlandığında paylaşılmaya başlar.", 16, 74, 388, 40, fontNormal)
+		f.button("Vazgeç ve çık", idCancel, 16, 122, 150, false)
 		f.command = func(id, _ int) {
 			if id == idCancel {
 				u.emit(flow.Event{Kind: flow.EvEnd})

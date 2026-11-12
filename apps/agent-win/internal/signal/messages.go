@@ -550,3 +550,6 @@ func decodeValid[M Inbound](raw []byte, ok func(*M) bool) (Inbound, error) {
 	}
 	return m, nil
 }
+
+// IsISO zod `z.iso.datetime()` eşi (UTC, `Z` sonekli); internal/request de kullanır.
+func IsISO(s string) bool { return isISO(s) }

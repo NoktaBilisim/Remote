@@ -33,7 +33,7 @@ func TestAC14ResolveSendsAgentKindWithoutOrigin(t *testing.T) {
 		}
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["clientKind"] != "AGENT" || body["code"] != "12345678" || len(body) != 2 {
+		if body["clientKind"] != "AGENT" || body["code"] != "12345678" || body["clientVersion"] != "1.0.0" || len(body) != 3 {
 			t.Errorf("gövde %v", body)
 		}
 		_, _ = w.Write([]byte(`{"sessionRef":"r","tenant":{"name":"Nokta","logoUrl":"/l.png"},"technician":{"name":"Ali"},
@@ -159,5 +159,61 @@ func TestAC109TLSErrorClassification(t *testing.T) {
 	var ae *Error
 	if !errors.As(err, &ae) || ae.Status != 0 || ae.TLS || !ae.Retryable() {
 		t.Fatalf("ağ hatası TLS sayılmamalı: %#v", err)
+	}
+}
+
+func TestAC133TenantInfoGetWithRefNoOrigin(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/public/requests/tenant" || r.URL.Query().Get("ref") != "abcdefghijk23456" {
+			t.Errorf("beklenmeyen istek %s %s", r.Method, r.URL)
+		}
+		if r.Header.Get("Origin") != "" || r.Header.Get("Content-Type") != "" {
+			t.Error("Origin/Content-Type gönderilmemeli")
+		}
+		_, _ = w.Write([]byte(`{"tenant":{"name":"Demo","logoUrl":null},"consentText":{"id":"01JC0000000000000000000000","version":3,"body":"m","sha256":"ab"},"waitMinutes":30,"abuseEmail":null,"minAgentVersion":"0.9.0"}`))
+	}))
+	defer srv.Close()
+	info, err := trusted(t, srv).TenantInfo(context.Background(), "abcdefghijk23456")
+	if err != nil || info.Tenant.Name != "Demo" || info.MinAgentVersion == nil || *info.MinAgentVersion != "0.9.0" || info.Tenant.LogoURL != nil {
+		t.Fatalf("%+v %v", info, err)
+	}
+}
+
+func TestS8b8CreateNotRetriedAndRetryAfterParsed(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if _, ok := body["deviceKey"]; ok {
+			t.Error("boş deviceKey gönderilmemeli")
+		}
+		if _, ok := body["email"]; ok {
+			t.Error("boş email gönderilmemeli")
+		}
+		w.Header().Set("Retry-After", "5")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":{"code":"NOT_READY","message":"Sunucu şu an yoğun.","requestId":"r1"}}`))
+	}))
+	defer srv.Close()
+	_, err := trusted(t, srv).CreateRequest(context.Background(), CreateRequestBody{Ref: "abcdefghijk23456", ConsentAccepted: true})
+	var ae *Error
+	if !errors.As(err, &ae) || ae.Code != "NOT_READY" || ae.RetryAfter.Seconds() != 5 || calls.Load() != 1 {
+		t.Fatalf("err=%v calls=%d", err, calls.Load())
+	}
+}
+
+func TestAC141CancelRequest204(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if r.URL.Path != "/api/v1/public/requests/cancel" || body["requestSecret"] != "s" || len(body) != 1 {
+			t.Errorf("%s %v", r.URL.Path, body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	if err := trusted(t, srv).CancelRequest(context.Background(), "s"); err != nil {
+		t.Fatal(err)
 	}
 }

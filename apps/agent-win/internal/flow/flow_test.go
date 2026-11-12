@@ -171,6 +171,7 @@ func (u *fakeUI) Welcome(_ context.Context, w Welcome) (string, bool) {
 }
 
 func (u *fakeUI) Lobby(code, tech string) { u.log("lobby:" + code + ":" + tech) }
+func (u *fakeUI) Connecting(tech string)  { u.log("connecting:" + tech) }
 func (u *fakeUI) ChooseMonitor(_ context.Context, m []signal.Monitor, def int) (int, bool) {
 	u.log("choose")
 	return u.monitor, true
@@ -535,7 +536,7 @@ func TestProtocolViolationDoesNotReconnect(t *testing.T) {
 	c.toClient <- hello(token)
 	recv(t, c.sent)
 	c.toClient <- errors.Join(signal.ErrProtocol, errors.New("x"))
-	if o := recv(t, out); o.Message != msgProtocol {
+	if o := recv(t, out); o.Message != msgProtocol || !o.Failed {
 		t.Fatalf("%+v", o)
 	}
 }
@@ -550,8 +551,8 @@ func TestLobbyCancelSendsSessionEnd(t *testing.T) {
 	if m := recv(t, c.sent); m.(signal.SessionEnd).T != "session.end" {
 		t.Fatalf("%+v", m)
 	}
-	if o := recv(t, out); o.Message != msgLeft {
-		t.Fatalf("%+v", o)
+	if o := recv(t, out); o.Message != msgLeft || o.Failed {
+		t.Fatalf("kullanıcı kararı Failed sayılmaz: %+v", o)
 	}
 }
 
@@ -560,7 +561,60 @@ func TestAC112LobbyRejected(t *testing.T) {
 	out := start(h, "12345678")
 	c := recv(t, h.conns)
 	c.toClient <- signal.SessionEnded{T: "session.ended", Reason: "rejected"}
-	if o := recv(t, out); o.Message != msgRejected {
+	if o := recv(t, out); o.Message != msgRejected || o.Failed {
+		t.Fatalf("sunucu son durumu Failed sayılmaz: %+v", o)
+	}
+}
+
+// TestRunTicketDialFailureIsFailed hello'dan önce /ws/guest kurulamazsa Outcome.Failed: talep modu /ws/request'i 1001
+// ile bırakır (sunucu CONNECT_FAILED "Müşteri bağlanamadı" yazar, "vazgeçti" değil).
+func TestRunTicketDialFailureIsFailed(t *testing.T) {
+	h := newHarness(t)
+	h.deps.Dial = func(context.Context, signal.Credential) (Conn, error) { return nil, errors.New("ağ") }
+	if o := RunTicket(context.Background(), h.deps, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "Mehmet"); !o.Failed || o.Message != msgLost {
 		t.Fatalf("%+v", o)
+	}
+}
+
+// TestAC154AC156RunTicketSkipsLobbyAndSignalsAdmitted talepten doğan oturum: kod/karşılama/join/lobi yok; ticket ile
+// /ws/guest; ilk hello'da Admitted bir kez; sonrası normal oturum yolu (AC-156).
+func TestAC154AC156RunTicketSkipsLobbyAndSignalsAdmitted(t *testing.T) {
+	h := newHarness(t)
+	admitted := make(chan struct{}, 2)
+	h.deps.Admitted = func() { admitted <- struct{}{} }
+	out := make(chan Outcome, 1)
+	go func() {
+		out <- RunTicket(context.Background(), h.deps, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "Mehmet")
+	}()
+	if cred := recv(t, h.creds); cred.Ticket != "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" || cred.Reconnect != "" {
+		t.Fatalf("%+v", cred)
+	}
+	c := recv(t, h.conns)
+	expectCall(t, h.ui, "connecting:Mehmet")
+	select {
+	case <-admitted:
+		t.Fatal("hello'dan önce Admitted çağrılmamalı")
+	default:
+	}
+	c.toClient <- hello(token)
+	recv(t, admitted)
+	expectCall(t, h.ui, "active:Mehmet:Ekran 2")
+	c.toClient <- signal.SessionEnded{T: "session.ended", Reason: "customer"}
+	if o := recv(t, out); o.Message != msgSelfEnd {
+		t.Fatalf("%+v", o)
+	}
+	if len(h.api.resolves) != 0 {
+		t.Fatal("talep yolunda resolve/join olmamalı")
+	}
+	select {
+	case <-admitted:
+		t.Fatal("Admitted bir kez")
+	default:
+	}
+}
+
+func TestAC133ResolveOutdatedIsFinal(t *testing.T) {
+	if m, o := classify(&api.Error{Status: 426, Code: "CLIENT_OUTDATED"}); o != outFinal || m != msgOutdated {
+		t.Fatalf("%v %v", m, o)
 	}
 }

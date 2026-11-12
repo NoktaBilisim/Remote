@@ -17,6 +17,10 @@ oturum bilgisi, onaylar ve denetim kayıtları kalır.
 - **Müşteri başlatmalı destek talebi** — firmaya özel indirme bağlantısıyla müşteri talep gönderir; talep canlı
   kuyruğa düşer, teknisyen tek tıkla kabul edip doğrudan bağlanır. 6 haneli talep kodu ve "bilinen kaynak"
   işaretleri sahte talebe karşı telefonla doğrulamayı kolaylaştırır.
+- **Windows programından "Destek iste"** — müşteri firmaya özel Hızlı Destek dosyasını açar, adını, telefonunu ve
+  sorununu yazıp tek tuşla talep gönderir; sırasını ve bekleme süresini ekranda görür. Teknisyen kabul edince
+  müşteri "Ekranımı paylaş" der ve kod girmeden bağlanır. İsteğe bağlı olarak bilgiler bilgisayarda şifreli
+  hatırlanır, tek tuşla silinir.
 - **Sohbet, dosya aktarımı, ekran üzerine işaretleme** — dosya içeriği sunucudan geçmez, her dosyayı alıcı onaylar.
 - **Kalite paneli** — kare hızı, gecikme, kayıp ve bağlantı yolu anlık izlenir.
 - **Oturum geçmişi** — tarih, durum, teknisyen, müşteri ve bağlantı türüne göre filtre; her oturumun onay kayıtları,
@@ -35,7 +39,7 @@ oturum bilgisi, onaylar ve denetim kayıtları kalır.
 | Destek oturumları | Tek kullanımlık link ve 8 haneli kodla oturum açma, bekleme odası, teknisyen kabulü, iptal ve zorla sonlandırma |
 | Teknisyen konsolu | Canlı ekran (Sığdır / %100 / tam ekran), sohbet, dosya, işaretleme, kalite paneli |
 | Uzaktan kontrol | Fare ve klavye (Türkçe karakter dahil), özel tuşlar, monitör değiştirme; müşteri onaylı |
-| Hızlı Destek (Windows) | Müşteri programı: onay, ekran seçimi, sohbet, dosya alma, izin diyaloğu |
+| Hızlı Destek (Windows) | Müşteri programı: "Destek iste" formu ve bekleme ekranı, onay, ekran seçimi, sohbet, dosya alma, izin diyaloğu |
 | Oturum geçmişi | Filtreli liste, ayrıntı, ticket/not, CSV dışa aktarma; talepten doğan oturumlar ayrı işaretli |
 | Destek talepleri | Canlı kuyruk, anlık bildirim ve ses, kabul/ret (müşteriye mesajla), son 30 gün geçmişi |
 | Destek talebi ayarları | Firma indirme bağlantısı ve yenileme, bekleme süresi, WhatsApp bildirimi + test, güvenilen ağlar |
@@ -52,6 +56,8 @@ oturum bilgisi, onaylar ve denetim kayıtları kalır.
   talep bildirimlerinde ve denetim kaydında müşteri kişisel verisi yer almaz; talep verisi saklama süresi sonunda
   anonimleştirilir.
 - Müşteri programı yalnız kendi sunucusuna bağlanır; bütünlüğü SHA-256 ve tekrarlanabilir derlemeyle doğrulanır.
+  Hatırlanan müşteri bilgisi Windows kullanıcı hesabına bağlı şifreyle (DPAPI) saklanır; eski sürüm programlar
+  sunucu ayarıyla durdurulup yeni sürüme yönlendirilebilir.
 
 ## Entegrasyonlar
 - TURN sunucusu (coturn) — güvenlik duvarı arkasındaki müşteriler için görüntü aktarımı.

@@ -2200,3 +2200,125 @@ Kapsam: güvenlik "P8b-1 — Tur 2" S8b-5, S8b-6; QA Tur 2 Öneri 1. Yeni iş a�
 - `pnpm -r run test`: contracts 50/50, server 281/281, web 159/159.
 - server ve contracts typecheck hatasız. `apps/web` typecheck, başka bir ajanın şu an yazdığı izlenmeyen `e2e/p8b-op.spec.ts` dosyasında 3 TS hatası veriyor (bu turun kapsamı dışında).
 - `test:int` (geçici MySQL 8.4 `rs-mysql-p8b3:33331`, sonra silindi) 4 tam koşu yaptı, hepsi **34 dosya, 299/299 yeşil**, unhandled rejection yok. 3. ve 4. koşular art arda ve `pnpm --filter @remote/web e2e` ile eşzamanlı koştu (yük ort. 13–19). Aynı e2e koşusu: **188 geçti, 68 atlandı, 0 kırmızı**.
+
+## Backend (Go) P8b-2 — Windows istemci 0.9.0: müşteri başlatmalı destek talebi (backend-dev, 2026-11-12)
+Kaynak: mimari.md §10 P8b-2, mimari-e9 §13 (r2, bağlayıcı), ADR-0016, ADR-0004 r3 (+ek), ADR-0006 r4 (+ek), mimari-protokol §5.1–5.2,
+mimari-api "Destek talepleri". Sunucu/web dosyalarına **dokunulmadı**; sözleşme uyuşmazlığı bulunmadı.
+
+### Değişen / yeni dosyalar (`apps/agent-win`)
+| Dosya | Değişiklik |
+|---|---|
+| `internal/pairing/pairing.go` | `RefFromFileName` (ADR-0006 r4 ifadesi, contracts `REQUEST_FILE_NAME_RE` ile aynı); 8 hane yolu aynen |
+| `internal/api/api.go`, `requests.go` | `do()` (GET/POST ortak), `Error.RetryAfter`, resolve gövdesine `clientVersion` (G-E9-4); `TenantInfo` (GET, en çok 3 deneme), `CreateRequest` (yeniden denemesiz), `CancelRequest` |
+| `internal/request/` (yeni) | `validate.go` (AC-134, zod eşi), `ws.go` (`/ws/request` strict şema + `Dial` `rs.v1, rs.req.<sır>`), `machine.go` (bekleme durum makinesi, `CANCELLING` yarışı), `policy.go` (503 yeniden deneme, sürüm karşılaştırma, indirme URL'si), `types.go`, `run.go` (firma bilgisi → form → talep), `wait.go` (bekleme, yeniden bağlanma, onay, kapanış ekranları) |
+| `internal/remember/` (yeni) | `remember.go` (platformsuz depo: v1 JSON ≤ 4 KB, tmp O_EXCL + bir kez yeniden deneme, rename, unut + boşsa klasör), `dpapi_windows.go` (`CryptProtectData` CurrentUser + `UI_FORBIDDEN` + sabit entropi, `FOLDERID_LocalAppData\NoktaDestek`) |
+| `internal/flow/flow.go`, `messages.go` | `RunTicket` (ön-kabul: kod/karşılama/join/lobi yok), `Deps.Admitted` (ilk `hello`'da bir kez), `UI.Connecting`, 426 `CLIENT_OUTDATED` → son ekran (kod modu) |
+| `internal/ui/request_windows.go` (yeni), `control_windows.go`, `screens_windows.go` | Firma penceresi + form, engel ekranı, bekleme, onay (ortak `consentDlg`: `denyText`, `logo`), kapanış, `Connecting` |
+| `internal/win/win_windows.go` | `OpenURL` (yalnız `https://`), `BM_SETCHECK` |
+| `internal/signal/strict.go`, `messages.go` | `DecodeStrict`, `IsISO` dışa açıldı (strict kural tek yerde) |
+| `cmd/noktadestek/main.go` | Mod seçimi: firma dosyası → `request.Run`; `OutCodeMode` → `flow.Run`; `OutShare` → `flow.RunTicket` + `Release` |
+| `test/trace-check.ps1` | `-Remember on\|off` |
+
+### AC eşlemesi (istemci tarafı)
+| AC | Karşılık | Test |
+|---|---|---|
+| 133 | `pairing.RefFromFileName`; `request.loadInfo` (firma adı/logo yalnız sunucudan, footer sunucu+sürüm+SHA ilk 8, dolandırıcılık uyarısı, "Kötüye kullanımı bildir"); ağ/TLS ayrı mesaj + "Tekrar dene"; `minAgentVersion` → form yok, "Yeni sürümü indir" (`DownloadURL` sabit biçim, `win.OpenURL` yalnız https); 404 → "Bu dosya artık geçerli değil" + yalnız kod yolu | `TestAC133RefFromFileNameMatchesContractsFixture`, `TestAC133InfoProblemsAndCodeMode`, `TestAC133OutdatedBlocksFormAndOpensFixedURL`, `TestAC133OutdatedAndDownloadURL`, `TestAC133TenantInfoGetWithRefNoOrigin`, `TestAC133ResolveOutdatedIsFinal` + Windows elle (≤ 5 sn) |
+| 134 | `request.Validate` (ortak fixture `request-form.json`: telefon, ad, açıklama, e-posta); alan bazında hata + sunucu 400 `fields` aynı alanlara | `TestAC134FormMatchesContractsFixture`, `TestAC134ValidateFieldErrorsAndOrder`, `TestAC134BoundaryLengths`, `TestAC134AC164ValidationErrorsFocusFirstField` |
+| 135 (form) | KVKK metni + onay kutusu aynı formda; `consentTextId` 400 → firma bilgisi yeniden alınır, "Aydınlatma metni güncellendi" | (run.go `VALIDATION consentTextId` dalı) |
+| 136 | Kutucuk varsayılan işaretsiz; yalnız 201 sonrası yazım; `deviceKey` yalnız hatırla açıkken üretilir/gönderilir; hatırlanan bilgiyle açılışta ipucu | `TestAC136SaveLoadOnlyAllowedFields`, `TestAC136CorruptOrForeignFileDeletedSilently`, `TestAC139AC154HappyPathRememberAndShare`, `TestAC136UncheckedSubmitForgetsAndSendsNoDeviceKey` |
+| 137 | "Bilgilerimi unut": dosya + tmp + boşsa klasör, form boşalır, "Bilgileriniz silindi"; işaretsiz gönderimde silme | `TestAC137ForgetRemovesFileAndEmptyDir`, `TestAC137ForgetKeepsNonEmptyDir`, `TestAC137ForgetClearsForm` + `trace-check.ps1 -Remember off` |
+| 138 | Tek iz `hatirla.bin` | `trace-check.ps1 -Remember on` (Windows elle) |
+| 139 | Bekleme ekranı: talep kodu `123 456` büyük punto, "Sırada n. talepsiniz", geçen süre (serverTime−createdAt + yerel), 1 sn yenileme | `TestAC139StateOnlyWhileWaiting`, mutlu yol testi |
+| 141 | "Talebi iptal et" → `request.cancel` (+ 4 sn yanıt beklemesi, sonra 1000); pencere kapatma → `request.cancel` + 1000; soket yoksa REST iptal; kopmada 110 sn içinde aynı sırla yeniden bağlanma | `TestAC141WindowCloseSendsCancelThenClose`, `TestAC141CancelTimeoutEndsWithIntent`, `TestAC141ReconnectAfterDropAnd403Ends`, `TestAC141CancelRequest204` |
+| 142 | EXPIRED → "Talebiniz zaman aşımına uğradı" + "Yeniden talep oluştur" (form dolu) | `TestAC142ExpiredRecreateKeepsForm`, `TestAC142AC157ClosedViews` |
+| 154 | `request.accepted` → onay diyaloğu (ortak `consentDlg`: odak "Vazgeç", 1,5 sn kilit, Enter/Space paylaşmaz, yalnız donanım tıklaması + enjekte uyarısı, imleç dışında, `FlashWindow`); teknisyen adı, doğrulama kodu, talep kodu, kalan süre; "Ekranımı paylaş" → `/ws/guest` ticket; `/ws/request` **hello gelene kadar açık** kalır (öncesinde 1000 sunucuda vazgeçme sayılır); `CANCELLING`'de gelen kabul yok sayılır + `request.decline` | `TestAC154AcceptedThenShare`, `TestAC154ShareIgnoredBeforeAccept`, `TestAC154CancellingIgnoresLateAccept`, `TestAC154DeclineAndWindowCloseWhenAccepted`, `TestAC154CancelRaceDeclinesLateAccept`, `TestAC154WsRequestMatchesContractsFixture`, `TestAC154AC156RunTicketSkipsLobbyAndSignalsAdmitted` |
+| 155 (istemci) | Kalan süre 0 → "Bağlantı süresi doldu", soket **1001** ile kapanır (sunucu CONNECT_FAILED yazar, "müşteri vazgeçti" değil) | `TestAC155TicketExpiry` |
+| 156 | `RunTicket` sonrası P7 yolu değişmeden (`session.run`) | `TestAC154AC156RunTicketSkipsLobbyAndSignalsAdmitted` + mevcut P7 testleri |
+| 157 | REJECTED → "Firmanızın mesajı:" + düz statik metin (`SS_NOPREFIX`, bağlantı değil) | `TestAC142AC157ClosedViews` |
+| 161 | Ad eşleşmezse 8 hane / elle kod akışı aynen; mevcut tüm Go testleri değişmeden yeşil (yalnız resolve gövde testi `clientVersion` için güncellendi) | `TestAC161FileNameModesAreDisjoint`, tüm `go test ./...` |
+| 162 | "Teknisyenden kod aldım" (form, engel ekranları) → `flow.Run(ctx, deps, "")` | main.go + Windows elle |
+| 163 | Kurulum/servis/tepsi yok; bekleme penceresi kapatma → iptal + süreç sonu (`OutClose` → `exitOK`) | `TestAC136UncheckedSubmitForgetsAndSendsNoDeviceKey` (kapatma yolu) + Windows elle |
+| 164 | Tab sırası = oluşturma sırası ((varsa) kötüye kullanımı bildir → ad → telefon → e-posta → açıklama → metin → onay → hatırla → unut → Destek iste → kod → kapat); Enter = "Destek iste" (`BS_DEFPUSHBUTTON`, açıklama `ES_WANTRETURN`'süz); hatada ilk hatalı alana odak | `TestAC134AC164ValidationErrorsFocusFirstField` + Windows elle |
+
+### S8b-8 — 503 NOT_READY yeniden deneme mantığı (`internal/request/policy.go`)
+Sunucu IP/önek kovalarını (5/sa/IP) talep kapısından **önce** tüketir; her otomatik deneme müşterinin saatlik kotasını yer.
+- Yalnız **503 + `NOT_READY`** (yazma geri alınmış, karar yok) otomatik denenir. Ağ hatası, 502/504 ve diğer her yanıt **denenmez**: talep oluşmuş olabilir; ikinci deneme 409 `REQUEST_PENDING`/kota tüketir. Müşteri "Destek iste"ye yeniden basabilir.
+- En çok **2 deneme** (1 otomatik tekrar) → kotanın en çok 2/5'i.
+- Bekleme `Retry-After` (yoksa 5 sn), 1..15 sn'ye kırpılır, + 0..1 sn `crypto/rand` jitter (eşzamanlı istemciler aynı anda dönmesin). Beklerken formda "Sunucu şu an yoğun, birkaç saniye içinde yeniden deneniyor…".
+- GET `/public/requests/tenant` (yan etkisiz, `req.info` 60/dk) resolve gibi ağ/502–504'te en çok 3 deneme.
+- Sunucu tarafı düzeltmesi (kapı 503'ünde kova iadesi, tenant kovası `add`'inin commit sonrasına alınması) **yapılmadı** — `docs/gereksinimler-sonra-acik.md` S8b-8 satırında backend için açık kalır.
+
+### Tasarımdan sapmalar / yorumlar (gerekçeli)
+1. **Hatırlanan bilgiyle açılışta kutucuk işaretli gelir.** AC-136 "varsayılan işaretsiz" = önceki tercih yokken. Dosya varsa müşteri daha önce kendisi işaretlemiştir; işaretsiz gelseydi her gönderim (AC-137 kuralıyla) dosyayı silerdi ve hatırlama hiç çalışmazdı. İlk açılışta ve "unut" sonrası işaretsiz. qa/güvenlik aksini isterse tek satır (`run.go` `Run` içinde `Remember: true`).
+2. **Firma penceresi ile form tek pencere.** AC-133'teki birincil "Destek iste" formun gönder düğmesidir; ayrı ara pencere tıklama sayısını artırırdı.
+3. **"Bilgilerimi unut" düğmesi her zaman görünür** (dosya yoksa da zararsız); ipucu satırı yalnız hatırlanan veriyle açılışta.
+4. **Yeniden bağlanma penceresi 110 sn** (sunucunun 120 sn kopma süresinin altında), 2 sn aralık; upgrade 403 → "Talebiniz artık geçerli değil", 426 → eski sürüm ekranı, 4409/1008 → kesin son.
+5. **Onay süresi dolumunda 1001** ile kapanış (yukarıda AC-155). Pencere kapatma/Vazgeç 1000 + `request.decline` (§13.3).
+6. **Görev çubuğu yanıp sönmesi** mevcut `win.FlashWindow` (FlashWindow) ile; `FlashWindowEx` için yeni bağlama eklenmedi (aynı etki, tek çağrı).
+7. Sunucu `tenant.logoUrl`'i şu an hep `null` döndürür → sistem logosu (Nokta) gösterilir; logo gelirse mevcut `api.Client.Logo` kuralları (köken, PNG/JPG, ≤ 2 MB, 3 sn) uygulanır.
+8. `signal.DecodeStrict` / `signal.IsISO` dışa açıldı: `/ws/request` aynı strictObject kuralını kopyalamadan kullanır.
+9. `remember` yazımında `MoveFileExW` yerine `os.Rename` — Go'nun Windows uygulaması zaten `MoveFileEx(MOVEFILE_REPLACE_EXISTING)`; depo böylece macOS/Linux'ta birim testlenir. DPAPI `x/sys/windows` (`crypt32.dll` `NewLazySystemDLL`, G-08).
+
+**Bağımlılık:** yeni bağımlılık **yok** (go.mod/go.sum değişmedi). Lisans değişikliği yok.
+
+**frontend-dev / sunucu için sözleşme notu:** değişiklik yok. İstemci resolve gövdesine `clientVersion` gönderir (sözleşmede zaten opsiyonel). İstemci `request.cancel`'ı yalnız PENDING'de, ACCEPTED'de `request.decline` gönderir.
+
+### Doğrulama (docker `golang:1.26.11-bookworm@sha256:dc40a1…`, `GOFLAGS=-mod=readonly`)
+- `go test -count=1 ./...` → 17 paket **ok**; `go test -race ./internal/request/` ok.
+- `go vet ./...` ve `GOOS=windows GOARCH=amd64 go vet ./...` → temiz; `GOOS=windows go test -c` tüm paketler derlenir; `gofmt -l .` boş.
+- `build/build.sh https://remote.noktabilisim.net 0.9.0` iki ayrı derleme: SHA-256 **eşit** `94f167d5a7692f28780b2d75d58e07ee6cef17b437b1bd8bbc8cf487c1f59e2e` (12 298 240 bayt).
+- `trace-check.ps1` pwsh ile ayrıştırma 0 hata; `Compare-TraceSnapshot -Allowed` birim denemesi: on → yalnız `hatirla.bin.tmp` iz, off → `hatirla.bin` iz.
+
+### Windows elle test adımları (kullanıcı / test-operatoru koşacak; Win10 ve Win11 standart kullanıcı)
+Hazırlık: staging panelinde Ayarlar → Destek talepleri'nden indirme bağlantısını al; dosya `NoktaDestek-<Firma>-<ref>.exe` adıyla iner. `D:\` gibi taranmayan bir yere snapshot.
+1. **İz testi, hatırla kapalı:** `pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Snapshot -SnapshotPath D:\once.json` → dosyayı çift tıkla (UAC çıkmamalı, pencere ≤ 5 sn) → kutucuk **işaretsiz** gönder → panelden kabul → "Ekranımı paylaş" → oturumu bitir → `-Mode Compare -SnapshotPath D:\once.json -ExePath "$env:USERPROFILE\Downloads\NoktaDestek-…exe" -Remember off` → **TEMİZ**.
+2. **İz testi, hatırla açık:** aynı akış, kutucuk **işaretli** → `-Remember on` → TEMİZ (tek iz `%LOCALAPPDATA%\NoktaDestek\hatirla.bin`). Dosyayı Not Defteri ile aç: ad/telefon düz metin **görünmemeli**.
+3. **Yeniden açılış:** form ad/telefon/e-posta dolu, kutucuk işaretli, "Bu bilgiler size ait değilse: Bilgilerimi unut" ipucu var; açıklama boş.
+4. **Bilgilerimi unut:** tıkla → form boşalır, "Bilgileriniz silindi", ≤ 1 sn; `-Remember off` Compare → TEMİZ (klasör de silinmiş).
+5. **Başka Windows kullanıcısı:** 2'deki `hatirla.bin`'i başka kullanıcının aynı yoluna kopyala → istemci formu boş açar ve dosyayı siler.
+6. **Klavye (AC-164):** fareye dokunmadan Tab ile alanlar sırayla; boş formda Enter → ilk hatalı alana (Ad) odak + alan altında kırmızı hata; doldurup Enter → gönderilir. Kaydı (ekran videosu) test-raporuna ekle.
+7. **Firma penceresi (AC-133):** firma adı sunucudaki ad (dosya adındaki etiket değil); alt satırda "Sunucu: remote.noktabilisim.net · Sürüm 0.9.0 · Parmak izi 94f167d5"; dolandırıcılık uyarısı; abuse e-postası tanımlıysa "Kötüye kullanımı bildir".
+8. **Ağ / TLS:** ağ kablosunu çek → "Sunucuya ulaşılamıyor" + "Tekrar dene"; (mümkünse) TLS kesen proxy → "Sunucu sertifikası doğrulanamadı".
+9. **Bekleme (AC-139/141):** kod `123 456` büyük, "Sırada n. talepsiniz", süre her saniye artar; ikinci bir talep aç-kapat ile sıra ≤ 10 sn'de güncellenir. "Talebi iptal et" → panelden ≤ 3 sn'de kalkar, forma "Talebiniz iptal edildi" ile dönülür. Bekleme penceresini X ile kapat → süreç biter (Görev Yöneticisi), talep ≤ 5 sn'de İPTAL.
+10. **Kopma:** beklerken ağı 30 sn kes → "Bağlantı koptu, yeniden bağlanılıyor…" → geri gelince sıra yeniden görünür; 2 dk+ kes → "Sunucuyla bağlantı kesildi" + "Yeniden talep oluştur".
+11. **Kabul/onay (AC-154):** panelden kabul → ≤ 3 sn'de onay diyaloğu öne gelir, görev çubuğu yanıp söner; teknisyen adı, 4 haneli doğrulama kodu, talep kodu, kalan süre; odak "Vazgeç"; Enter → **Vazgeç** (paylaşmaz); ilk 1,5 sn "Ekranımı paylaş" devre dışı; uzak masaüstünden (RDP/başka uzak araç) tıklama → kırmızı enjekte uyarısı, paylaşım başlamaz. Yerel tıklama → "Teknisyen bağlanıyor…" → ekran paylaşımı; kontrol için ayrıca izin diyaloğu (AC-156).
+12. **Vazgeç:** onayda "Vazgeç" → "Ekranınız paylaşılmadı" + panelde toast "Müşteri bağlantıyı kabul etmedi".
+13. **İptal–kabul yarışı:** "Talebi iptal et"e basıp hemen panelden kabul → onay ekranı **çıkmamalı**, talep İPTAL.
+14. **Onay süresi:** kabul edip 60 sn bekle → "Bağlantı süresi doldu"; panelde "Müşteri bağlanamadı".
+15. **Ret (AC-157):** panelden hazır mesajla reddet → ≤ 3 sn'de "Firmanızın mesajı:" altında düz metin; `&` içeren ret mesajı alt çizgiye dönüşmemeli.
+16. **Süre dolumu (AC-142):** tenant bekleme süresini 10 dk yap → süre dolunca "Talebiniz zaman aşımına uğradı" + "Yeniden talep oluştur" → form dolu açılır.
+17. **Eski sürüm:** sunucuda `MIN_AGENT_VERSION=0.9.1` → firma dosyası açılınca form yok, "Bu Hızlı Destek dosyası eski" + "Yeni sürümü indir" tarayıcıda `…/request-download?ref=…` açar. Kod modunda (`Destek-<8>.exe`) aynı ayarla "Teknisyeninizden yeni bağlantı isteyin". Sonra ayarı boşalt.
+18. **Ref yenileme:** panelde "Bağlantıyı yenile" → eski dosya "Bu dosya artık geçerli değil" + yalnız "Teknisyenden kod aldım".
+19. **Kod yolu (AC-161/162):** `NoktaDestek.exe` ve `Destek-12345678.exe` eski akışla (kod → karşılama → lobi kabul kodu) çalışır; firma dosyasında "Teknisyenden kod aldım" → 8 hane girişi → karşılamada firma adı.
+20. **İki tenant dosyası** SHA-256 eşit (`certutil -hashfile … SHA256`), `SHA256SUMS` ile aynı.
+
+**Açık kalanlar:** `v0.9.0` etiketi/attestation ve staging ikili yayını (devops), yukarıdaki Windows elle testleri, S8b-8 sunucu tarafı (kova iadesi) — "Sonra" listesinde.
+
+### Backend (Go) P8b-2 — düzeltme turu 1 (backend-dev, 2026-11-12)
+Kaynak: `docs/qa-raporu.md` (P8b-2 Tur 1) ve `docs/guvenlik-raporu.md` (P8b-2 Tur 1). Yeni bağımlılık yok; go.mod/go.sum değişmedi.
+
+| Madde | Düzeltme | Dosya | Test |
+|---|---|---|---|
+| S8b2-1 [Orta] | Saf karar `rememberPlan`: ad **veya** telefon hatırlanandan farklıysa ve müşteri kutuya bu oturumda dokunmadıysa (`Form.RememberChosen=false`) kayıt yok, eski dosya silinir, `deviceKey` gönderilmez. Müşteri kutuyu kendisi işaretlediyse kişi değişince **yeni** `deviceKey`. Arayüz: ad/telefon `EN_CHANGE` (programatik `SetText` hariç) kutuyu, müşteri dokunmadıysa, işaretsize çeker; `BN_CLICKED` → `chosen` | `request/run.go`, `request/validate.go` (`Form.RememberChosen`), `ui/request_windows.go` | `TestAC136RememberPlan`, `TestAC136ChangedIdentityNotSavedWithoutOptIn` |
+| QA-P8b2-1 | `remember.NewDeviceKey` (ve test kullanımı) kaldırıldı; tek üretim yolu `request.newKey()` (`clientInstanceId` + `deviceKey`) | `remember/remember.go`, `remember_test.go`, `request/run.go` | mevcut testler |
+| QA-P8b2-2 | `forget()` başarısızlığı yutulmuyor: `forgetWarn`, başarılı bir silmeye kadar formda (`Notice` başına) ve bekleme ekranında (`WaitView.Warning`; yeniden bağlanma bildirimiyle silinmez) görünür. "Bilgilerimi unut" başarısızsa "silindi" denmez | `request/run.go`, `request/wait.go`, `request/types.go`, `ui/request_windows.go` | `TestAC137ForgetFailureVisible`, `TestAC137ForgetButtonFailureVisible` |
+| S8b2-2 | `/ws/request` dial: her başarısız denemeden sonra (429, ağ hatası dahil) `dialRetryDelay`: 2→4→8→15 sn + 0..1 sn `crypto/rand` jitter; `Retry-After` (upgrade yanıtı, `DialError.RetryAfter`) en az o kadar, ≤ 60 sn; bekleme kalan kopma bütçesini (110 sn < sunucu 120 sn) aşmaz. `api.retryAfter` → `api.ParseRetryAfter` (REST ve WS aynı kural) | `request/policy.go`, `request/wait.go`, `request/ws.go`, `api/api.go` | `TestS8b22DialRetryDelay`, `TestS8b22DialBackoffInWaitLoop` |
+| S8b2-3 | Tek süzgeç `request.Display`: satır/paragraf ayırıcı ve sekme → boşluk, diğer Cc/Cf (bidi dahil), U+034F, U+180E çıkarılır. Uygulandığı yerler: `tenant.name` (loadInfo), `technicianName` (boşsa "Teknisyen"), `request.closed.message`, WS `error.message`, REST hata `message`/`fields`. Reddetmek yerine süzme seçildi (kaynak TLS doğrulamalı gömülü sunucu; müşteri engellenmez). Açık onay diyaloğuna **farklı** teknisyen adıyla yeni `request.accepted` gelirse diyalog kapatılıp yeniden açılır (başlık doğru, 1,5 sn kilit yeniden başlar); aynı adla gelirse yalnız gövde güncellenir | `request/validate.go`, `request/ws.go`, `request/run.go`, `ui/request_windows.go`, `ui/screens_windows.go` (`reqAcceptTech`) | `TestS8b23Display`, `TestS8b23ServerTextsSanitized`; başlık yenileme Windows elle |
+| QA öneri 2 | `Outcome.Release(ReleaseKind)`: `ReleaseAdmitted` (hello → 1000), `ReleaseAbandoned` (müşteri vazgeçti/sunucu bitirdi → 1000, kopuksa REST iptal), `ReleaseFailed` (hello'dan önce ağ/protokol hatası → **1001**, REST iptal yok). `flow.Outcome.Failed` yalnız `/ws/guest` kurulamadı/koptu/protokol ihlali yollarında true. mimari-protokol §5.1 kapanış semantiğiyle tutarlı: 1001 ACCEPTED talebi değiştirmez, 60 sn sonra CONNECT_FAILED / `connect_timeout` ("Müşteri bağlanamadı") | `request/types.go`, `request/wait.go`, `flow/flow.go`, `cmd/noktadestek/main.go` | `TestAC154ReleaseKinds`, `TestRunTicketDialFailureIsFailed`, flow testlerinde `Failed` iddiaları |
+| QA öneri 3 | "Kötüye kullanımı bildir" dolandırıcılık uyarısının hemen ardından oluşturuluyor; Tab sırası belgesi (kod yorumu + AC-164 satırı) güncellendi; açılış odağı yine ad alanı | `ui/request_windows.go` | Windows elle (madde 5 klavye kaydı) |
+
+**Sözleşme:** Sunucu/contracts değişmedi; frontend-dev için değişiklik yok.
+**teknik-yazar için:** Kılavuza (S8b2-1) "Hatırlanan bilgilerden ad veya telefonu değiştirirseniz 'Bilgilerimi bu bilgisayarda hatırla' kutusu kendiliğinden kaldırılır; yeni bilgileri hatırlatmak için kutuyu yeniden işaretleyin." cümlesi eklenmeli.
+**Windows elle ek adımlar:** (a) hatırlanan veriyle açılan formda adı değiştir → kutu işaretsize düşmeli; yeniden işaretleyip gönder → yeniden açılışta yeni ad; (b) `hatirla.bin`'i başka süreçte kilitli tutup işaretsiz gönder → bekleme ekranında "Bilgileriniz silinemedi…" görünmeli; (c) onay diyaloğu açıkken teknisyen değişimi (ikinci teknisyen yeniden kabul) → başlık yeni adla, kilit yeniden; **aynı adlı teknisyen senaryosu (S8b2-4):** panelde aynı görünen adla iki teknisyen hesabı aç; biri kabul etsin, diyalog açıkken diğeri yeniden kabul etsin → başlık aynı kalsa da diyalog kapanıp yeniden açılmalı, gövdede **yeni** doğrulama kodu görünmeli ve "Ekranımı paylaş" 1,5 sn yeniden devre dışı olmalı; aynı teknisyen ağ kopması sonrası yeniden kabul ederse (aynı ad + aynı kod) diyalog yerinde kalır, kilit yeniden başlamaz.
+
+**Doğrulama** (docker `golang:1.26.11-bookworm@sha256:dc40a1…`, `-mod=readonly`, `GOTOOLCHAIN=local`): `gofmt -l .` boş; `go test -count=1 ./...` 17 paket ok (186 üst düzey PASS, 0 FAIL); `go test -race` (request, remember, flow) ok; `go vet ./...` ve `GOOS=windows GOARCH=amd64 go vet ./...` temiz. `build/build.sh https://remote.noktabilisim.net 0.9.0` iki kez (arada `go clean -cache`) → iki ikili SHA-256 `f3df8585837ca578b26653d6f76277bbdaad30d755ba401ebab6fc699ff49a78` (eşit, 12 304 384 bayt).
+
+### Backend (Go) P8b-2 — düzeltme turu 2 (backend-dev, 2026-11-12)
+Kaynak: `docs/guvenlik-raporu.md` S8b2-4 [Düşük] ve `docs/qa-raporu.md` önerisi. Yeni bağımlılık yok; go.mod/go.sum, sunucu/contracts değişmedi — frontend-dev için değişiklik yok.
+
+| Madde | Düzeltme | Dosya | Test |
+|---|---|---|---|
+| S8b2-4 [Düşük] | Açık onay diyaloğu `TechName + TechVerifyCode` ile eşleştirilir. Saf, platformdan bağımsız karar `acceptDecision(open, cur, next acceptKey)`: diyalog yok/karar verilmiş → aç; aynı ad + aynı kod → gövde yerinde güncellenir; ad **veya** kod farklı → kapat, yeniden aç (1,5 sn kilit yeniden başlar). `reqAcceptTech string` → `reqAcceptKey acceptKey` | `ui/accept.go` (yeni), `ui/accept_test.go` (yeni), `ui/request_windows.go`, `ui/screens_windows.go` | `TestS8b24AcceptDecision`; diyalog davranışı Windows elle (c) |
+| QA öneri (sürü etkisi) | Kopmadan sonra (`lost`) ilk `/ws/request` denemesi de `Deps.Jitter(retryJitter)` = 0..1 sn `crypto/rand` jitter bekler (`startDial(start, first)`); ilk bağlantı beklemez; bekleme `wctx` iptaliyle kesilir. Sonraki denemeler mevcut `dialRetryDelay` | `request/wait.go` | `TestAC141ReconnectAfterDropAnd403Ends` güncellendi (ilk bağlantıda `After` çağrılmaz; kopma sonrası tek bekleme = jitter, jitter üst sınırı 1 sn) |
+
+**Doğrulama** (docker `golang:1.26.11-bookworm@sha256:dc40a1…`, `-mod=readonly`, `GOTOOLCHAIN=local`): `gofmt -l .` boş; `go test -count=1 ./...` 17 paket ok (187 üst düzey PASS, 0 FAIL); `go test -race -count=3` (request, ui) ok; `go vet ./...` ve `GOOS=windows GOARCH=amd64 go vet ./...` temiz. `build/build.sh https://remote.noktabilisim.net 0.9.0` iki kez (arada `go clean -cache`) → SHA-256 `eab236227aad20747847cf64999160cafa83e7a56a9b5cbe2d7daf0416b127c8` (iki ikili eşit, 12 305 920 bayt). Windows elle test adımı (c) aynı adlı teknisyen senaryosuyla genişletildi (yukarıda).

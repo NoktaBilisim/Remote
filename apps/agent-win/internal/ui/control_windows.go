@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"image"
 	"time"
 
 	"remote-support/agent-win/internal/capture"
@@ -36,8 +37,10 @@ const elevatedText = "Dikkat: Bu program yönetici olarak çalışıyor. Uzaktan
 // consentSpec ortak izin diyaloğunun içeriği.
 type consentSpec struct {
 	title, heading, body, grantText string
-	warns                           []string // kırmızı uyarı satırları (kısayol yok, yönetici, tehlikeli dosya)
-	hotkeyOK                        bool     // false ise "İzin ver" hiç etkinleşmez (G-21; yalnız kontrol diyaloğu)
+	denyText                        string      // boşsa "Reddet" (P8b-2 onay ekranı: "Vazgeç")
+	logo                            image.Image // nil değilse sağ üstte (P8b-2 onay ekranı: firma logosu)
+	warns                           []string    // kırmızı uyarı satırları (kısayol yok, yönetici, tehlikeli dosya)
+	hotkeyOK                        bool        // false ise "İzin ver" hiç etkinleşmez (G-21; yalnız kontrol diyaloğu)
 	slot                            **consentDlg
 	onGrant, onDeny                 func()
 }
@@ -50,6 +53,7 @@ type consentDlg struct {
 	f       *form
 	grant   *ctrl
 	reject  *ctrl
+	body    *ctrl // P8b-2: kalan süre güncellemesi
 	rule    control.Consent
 	decided bool
 	slot    **consentDlg
@@ -73,14 +77,26 @@ func (u *UI) newConsent(sp consentSpec) *consentDlg {
 		btnY = y + int32(len(sp.warns))*consentWarn + 8
 	}
 	f := u.t.newForm(appTitle+" — "+sp.title, consentW, btnY+44, true)
-	f.label(sp.heading, 16, 14, 408, 24, fontBold)
-	f.label(sp.body, 16, 44, 408, 96, fontNormal)
+	headW := int32(408)
+	if sp.logo != nil {
+		headW = 280
+		f.picture(sp.logo, 304, 8, 120, 32)
+	}
+	f.label(sp.heading, 16, 14, headW, 24, fontBold)
+	d.body = f.label(sp.body, 16, 44, 408, 96, fontNormal)
 	for _, w := range sp.warns {
 		f.danger(w, 16, y, 408, consentWarn-4, fontNormal)
 		y += consentWarn
 	}
-	d.reject = f.button("Reddet", idOK, 228, btnY, 96, true)
-	d.grant = f.button(sp.grantText, idGrant, 330, btnY, 94, false)
+	denyText, grantW := "Reddet", int32(94)
+	if sp.denyText != "" {
+		denyText = sp.denyText
+	}
+	if len([]rune(sp.grantText)) > 12 {
+		grantW = 150 // "Ekranımı paylaş"
+	}
+	d.reject = f.button(denyText, idOK, 424-grantW-102, btnY, 96, true)
+	d.grant = f.button(sp.grantText, idGrant, 424-grantW, btnY, grantW, false)
 	win.EnableWindow(d.grant.h, false)
 	f.noKey = d.grant.h
 	f.command = func(id, _ int) {

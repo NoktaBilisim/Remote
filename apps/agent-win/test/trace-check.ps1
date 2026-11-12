@@ -44,6 +44,12 @@
 .PARAMETER ExtraPattern
     Ek düzenli ifade(ler) (büyük/küçük harf duyarsız).
 
+.PARAMETER Remember
+    P8b-2 (AC-137/138, ADR-0004 r3). off (varsayılan): "Bilgilerimi hatırla" kapalı veya "Bilgilerimi unut" sonrası —
+    %LOCALAPPDATA%\NoktaDestek dahil hiçbir iz olmamalı. on: hatırla açıkken tek izin verilen iz
+    %LOCALAPPDATA%\NoktaDestek klasörü ve içindeki hatirla.bin'dir; dosya YOKSA da hata (1) verilir, klasörde başka
+    dosya (ör. hatirla.bin.tmp) iz sayılır.
+
 .PARAMETER Strict
     Desene uymayan yeni girdileri de iz say (sessiz, temiz bir VM'de kullanın).
 
@@ -55,6 +61,7 @@
     # Elle test (Windows VM, runbook §11.8):
     pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Snapshot -SnapshotPath D:\iz-once.json
     # ... istemciyi çalıştır, oturumu bitir, kapanmasını bekle ...
+    # Firma dosyası + "hatırla" açık: -Remember on -ExePath "$env:USERPROFILE\Downloads\NoktaDestek-Firma-<ref>.exe"
     pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Compare -SnapshotPath D:\iz-once.json -ExePath "$env:USERPROFILE\Downloads\Destek-12345678.exe"
 
 .EXAMPLE
@@ -67,6 +74,8 @@ param(
     [string]$SnapshotPath,
     [string]$ExePath,
     [string[]]$ExtraPattern = @(),
+    [ValidateSet('on', 'off')]
+    [string]$Remember = 'off',
     [switch]$Strict
 )
 
@@ -102,13 +111,15 @@ function Test-TraceEntry {
 
 function Compare-TraceSnapshot {
     # Saf fonksiyon: önce/sonra listelerinden { Trace; Review; Preexisting } üretir.
-    param([string[]]$Before, [string[]]$After, [string]$Pattern, [string]$ExeFull, [string[]]$Exclude = @())
+    param([string[]]$Before, [string[]]$After, [string]$Pattern, [string]$ExeFull, [string[]]$Exclude = @(),
+        [string[]]$Allowed = @())
     $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($b in $Before) { [void]$set.Add($b) }
     $trace = @(); $review = @(); $pre = @()
     foreach ($a in $After) {
         $item = ($a -split "`t", 2)[-1]
         if ($Exclude -contains $item -or ($ExeFull -and $item -ieq $ExeFull)) { continue }   # snapshot dosyası, exe'nin kendisi
+        if ($Allowed -contains $a) { continue }   # -Remember on: izin verilen tek iz (AC-138)
         $isTrace = Test-TraceEntry -Entry $a -Pattern $Pattern -ExeFull $ExeFull
         if ($set.Contains($a)) {
             if ($isTrace) { $pre += $a }
@@ -238,10 +249,18 @@ if ($Mode -eq 'Compare') {
 }
 
 $after = Get-TraceSnapshot
-$r = Compare-TraceSnapshot -Before $before -After $after -Pattern $pattern -ExeFull $exeFull -Exclude $exclude
+$rememberDir = Join-Path $env:LOCALAPPDATA 'NoktaDestek'
+$rememberFile = Join-Path $rememberDir 'hatirla.bin'
+$allowed = @()
+$missing = @()
+if ($Remember -eq 'on') {
+    $allowed = @("LocalAppData`t$rememberDir", "LocalAppData`t$rememberFile")
+    if (-not (Test-Path -LiteralPath $rememberFile -PathType Leaf)) { $missing = @("Beklenen hatırlama dosyası yok: $rememberFile") }
+}
+$r = Compare-TraceSnapshot -Before $before -After $after -Pattern $pattern -ExeFull $exeFull -Exclude $exclude -Allowed $allowed
 $procs = Get-TraceProcess -Pattern $pattern -ExeFull $exeFull
 
-$traces = @($r.Trace) + @($procs)
+$traces = @($r.Trace) + @($procs) + @($missing)
 if ($Mode -eq 'Check') {
     # Önceki durum yok: desene uyan her girdi iz sayılır (Compare-TraceSnapshot hepsini "yeni" görür).
     $review = @()
@@ -250,7 +269,7 @@ if ($Mode -eq 'Check') {
     if ($Strict) { $traces += $review; $review = @() }
 }
 
-Write-Output "trace-check ($Mode) — desen: $pattern"
+Write-Output "trace-check ($Mode, Remember=$Remember) — desen: $pattern"
 foreach ($p in $r.Preexisting) { Write-Output "UYARI (çalıştırmadan önce de vardı): $p" }
 if ($review.Count -gt 0) {
     Write-Output "İNCELEYİN — desene uymayan yeni girdiler ($($review.Count)); istemciye ait değilse yok sayılabilir:"

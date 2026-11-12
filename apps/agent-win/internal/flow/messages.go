@@ -32,6 +32,7 @@ var (
 	msgLobbyTO   = Message{"Bekleme süresi doldu", "5 dakika içinde kabul edilmediniz. Destek kodu hâlâ geçerliyse programı yeniden çalıştırabilirsiniz."}
 	msgLeft      = Message{"Bekleme odasından çıktınız", "Ekranınız paylaşılmadı."}
 	msgLost      = Message{"Bağlantı kesildi", "Sunucuyla bağlantı kurulamadı. İnternet bağlantınızı kontrol edin; kod geçerliyse programı yeniden çalıştırın."}
+	msgOutdated  = Message{"Bu Hızlı Destek dosyası eski", "Güvenliğiniz için yeni sürüm gerekiyor. Teknisyeninizden yeni bağlantı isteyin."}
 	msgProtocol  = Message{"Bağlantı güvenlik nedeniyle kapatıldı", "Sunucudan beklenmeyen bir yanıt alındı. Teknisyeninizle iletişime geçin."}
 )
 
@@ -71,6 +72,8 @@ func classify(err error) (Message, apiOutcome) {
 		return msgConsumed, outFinal
 	case ae.Code == "NONCE_INVALID":
 		return Message{}, outRetryNonce
+	case ae.Code == "CLIENT_OUTDATED" || ae.Status == 426: // G-E9-4 (kod modu: indirme yok, yeni bağlantı)
+		return msgOutdated, outFinal
 	case ae.Code == "LOBBY_FULL":
 		return msgLobbyFull, outFinal
 	case ae.Status == 0 && ae.TLS:

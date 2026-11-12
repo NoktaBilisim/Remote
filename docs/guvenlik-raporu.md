@@ -1,3 +1,126 @@
+# Güvenlik Raporu — P8b-2 — Tur 2 — Windows Go istemci 0.9.0 düzeltme doğrulaması (2026-11-12)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1
+
+Kapsam: `docs/implementation.md` "Backend (Go) P8b-2 — düzeltme turu 1" maddeleri (S8b2-1..3, QA-P8b2-1/2, QA öneri 2/3). Değişen dosyalar incelendi: `request/{run,policy,wait,ws,validate,types}.go`, `api/api.go`, `ui/{request,control,screens}_windows.go`, `flow/flow.go`, `cmd/noktadestek/main.go`. Ek olarak sunucuda `request.accepted` üretimine bakıldı (`apps/server/src/requests/panel.ts:102-136`, `ws.ts:86`).
+
+## Tur 1 bulgularının durumu
+| # | Durum | Kanıt |
+|---|---|---|
+| S8b2-1 [Orta] | **Kapandı** | Koruma iki katmanlı. (1) Saf karar `rememberPlan` (`request/run.go:262-271`): kutu hatırlanan veriyle işaretli açılmışsa ve normalize ad **veya** telefon farklıysa, müşteri kutuya kendisi dokunmadıkça (`RememberChosen=false`) kayıt yapılmaz. Bu durumda dosya silinir (`run.go:301-303`) ve `deviceKey` gönderilmez (`:309-311`). Müşteri kutuyu kendisi işaretlerse kişi değişince yeni anahtar üretilir (`:304-306`, tek üretim yolu `newKey()`). Başka kişinin cihaz anahtarı taşınmaz. (2) Arayüzde ad/telefon `EN_CHANGE` olunca, müşteri kutuya dokunmamışsa kutu işaretsize çekilir (`ui/request_windows.go:220-227`). Programatik `SetText`, `filling` bayrağıyla müşteri düzenlemesi sayılmaz (`:252-257`). `chosen` yalnız `BN_CLICKED` ile true olur. UI katmanı atlansa bile saf karar korur. Testler: `TestAC136RememberPlan`, `TestAC136ChangedIdentityNotSavedWithoutOptIn`. |
+| S8b2-2 [Düşük] | **Kapandı** | `dialRetryDelay` (`request/policy.go:99-110`) bekleme aralıklarını 2→4→8→15 sn tavanına kadar artırıyor ve üzerine `crypto/rand` jitter ekliyor. `Retry-After` en az o kadar bekletiyor, en çok 60 sn'ye kırpılıyor. Sonuç kalan bütçeyle sınırlı (`min(d,left)`, negatif değilse). `startDial` (`wait.go:121-156`) her başarısız denemede (429, 503, ağ) bu gecikmeyi uyguluyor. 403/426 kesin hata olarak kalıyor. Bütçe dolunca `errReconnectTimeout` dönüyor (110 sn, sunucunun 120 sn'sinin altında). Tek istemcinin upgrade sayısı 110 sn'de ~30'dan ~10'a indi. Upgrade `Retry-After` değeri `ws.go:196` ile okunuyor. REST ve WS aynı `api.ParseRetryAfter`'ı kullanıyor. Not: Çok büyük bir `Retry-After` değerinde `time.Duration` taşabilir, ama sonuç iki çağıranda da kırpılıyor (`>0` denetimi + 60 sn / 1..15 sn). Kaynak TLS doğrulamalı gömülü sunucu olduğu için bulgu sayılmadı. Sunucu tarafı (güvenilen CIDR'ın `wsUpgrade`'den muaf tutulması) "Sonra"da kalıyor. |
+| S8b2-3 [Düşük] | **Kapandı, bir artık var → S8b2-4** | Tek süzgeç `request.Display` (`validate.go:112-125`) kullanılıyor. Satır/paragraf ayırıcıları, CR/LF ve sekme boşluğa çevriliyor. Cc/Cf (bidi U+202A–E, U+2066–9, ZW*), U+034F ve U+180E çıkarılıyor. Süzgeç, doğrulamadan **sonra** ve arayüzden **önce** her yerde uygulanıyor: `tenant.name` (`run.go:202`), `technicianName` (`ws.go:115`, boşsa "Teknisyen"), `request.closed.message` (`ws.go:128`), WS `error.message` (`:140`), REST `fields`/`message` (`run.go:343,359`). Uzunluk denetimi ham değerde yapılıyor, süzme yalnız kısaltıyor. Reddetme yerine süzme seçildi; kaynak güvenilir olduğu için kabul edildi. Farklı teknisyen adıyla gelen yeniden kabulde diyalog `closeDlg` ile kapatılıyor (`finish` geri çağrı yapmıyor, yani istem dışı decline/share yok) ve yeni `consentDlg` açılıyor. Böylece P7 kuralları baştan uygulanıyor: odak "Vazgeç"te, `present` içinde 1,5 sn kilit yeniden başlıyor (`control_windows.go:124-133`), `noKey` var, `userInput` kontrolü var, diyalog imleç dışında açılıyor, `FlashWindow` çalışıyor. P7 onay kuralları korunuyor. |
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] S8b2-4 Yeniden kabulde diyalog kimliği yalnız teknisyen adıyla karşılaştırılıyor; aynı adlı başka teknisyen doğrulama kodunu kilit yeniden başlamadan değiştirebiliyor — A04 (savunma derinliği)
+Yer: `apps/agent-win/internal/ui/request_windows.go:356-360`; sunucu `apps/server/src/requests/panel.ts:102,136` (her kabulde yeni `techVerifyCode`), `ws.ts:86` (yeniden bağlanmada aynı oturumun kodu).
+Sorun: Açık onay diyaloğuna aynı `technicianName` ile yeni `request.accepted` gelirse yalnız gövde güncelleniyor. Gövdede **teknisyen doğrulama kodu** da var. Bu durumda 1,5 sn kilit yeniden başlamıyor. Aynı tenant'ta aynı ada sahip iki teknisyen olabilir (ad benzersiz değil; S8b2-3 süzgecinden sonra görsel olarak aynı görünen adlar da buna dahil). İkinci teknisyen talebi yeniden kabul ederse doğrulama kodu müşterinin gözü önünde değişir ve onay düğmesi etkin kalır.
+İstismar senaryosu: Müşteri telefondaki teknisyenle kodu karşılaştırmış ve "Ekranımı paylaş"a uzanıyor. Aynı firmada aynı adı taşıyan kötü niyetli ikinci bir teknisyen o sırada talebi yeniden kabul eder. Kod sessizce değişir ve müşteri tıklayınca ekranı ikinci teknisyenle paylaşır. Bunun için tenant içinde yetkili bir iç kişi ve dar bir zamanlama gerekiyor; yeniden kabulün sunucuda yetki ve audit kuralları var. Bu yüzden etki düşük.
+Düzeltme (backend-dev, istemci): Diyalog anahtarı `TechName + TechVerifyCode` olmalı. Aynı oturumun yeniden bağlanması aynı kodu getirdiği için (`ws.ts:86`) gövdeyi yerinde güncelleme yolu yalnız gerçek yeniden bağlanmada çalışır. Kod farklıysa diyalog kapatılıp yeniden açılmalı (`reqAcceptTech` → `reqAcceptKey`). Bu davranış Windows elle adımı (c)'ye eklenmeli.
+
+## QA kaynaklı değişikliklerin güvenlik değerlendirmesi (bulgu yok)
+- **`ReleaseKind` / 1001** (`wait.go:238-252`, `main.go:131-139`, `flow.go:337-384`): Yalnız `/ws/guest` ağ/protokol hatasında 1001 gönderiliyor, REST iptali yapılmıyor. Müşterinin kararı ve sunucunun son durumu 1000 (decline) olarak gidiyor. 1001 talebi ACCEPTED bırakıyor ve 60 sn sonra sunucu CONNECT_FAILED yazıyor. Oturum açılmadığı için ekran paylaşımı yok, kötüye kullanım yüzeyi de yok. `sync.Once` sayesinde tek sefer çalışıyor. `Failed` yalnız hata yollarında true; kullanıcı vazgeçmesi hata olarak gösterilmiyor. mimari-protokol §5.1 ile tutarlı.
+- **`remember` silme hatası** (`run.go:247-255`): `forget()` başarısızlığı artık yutulmuyor. `forgetWarn` başarılı bir silmeye kadar formda ve bekleme ekranında kalıyor; "silindi" yanıltıcı mesajı gösterilmiyor. Silme başarısız olsa da bellekteki `r.rem` temizlendiği için bu gönderimde eski `deviceKey` gönderilmiyor. Uyarı sabit metin; yol veya hata ayrıntısı sızdırmıyor.
+- **`remember.NewDeviceKey` kaldırıldı**: Tek rastgelelik yolu `newKey()` (`crypto/rand`, 128 bit).
+- **Tab sırası / "Kötüye kullanımı bildir"**: Güvenlik etkisi yok. `OpenMailto` hâlâ yalnız `ValidAbuseEmail`'den geçmiş adresle çağrılıyor.
+
+## Otomatik tarama çıktıları
+- `go test ./...` (docker `golang:1.26.11-bookworm@sha256:dc40a1…`, `-mod=readonly`, `GOTOOLCHAIN=local`): **17 paket ok**. `go vet ./...` ve `GOOS=windows go vet ./...`: çıktı yok (temiz).
+- Gizli bilgi regex'i: `git grep` (`apps/agent-win`) 0 eşleşme. İzlenmeyen yeni dosyalar (`internal/request`, `internal/remember`, `api/requests.go`, `ui/request_windows.go`) `grep` ile tarandı: 0 eşleşme.
+- `go.mod`/`go.sum` değişmedi. Yeni bağımlılık yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- G-E9-13 "kutucuk varsayılan işaretsiz": Kişi değişikliği için açık rıza artık sağlanıyor. Aynı kişi için işaretli açılış Tur 1'de kabul edildi. Ek eksik yok.
+- Windows'a özgü doğrulamalar (EN_CHANGE ile kutu düşmesi, kilitli `hatirla.bin`, teknisyen değişiminde diyaloğun yeniden açılması) kodda var ama yalnız elle doğrulanabilir. implementation.md Windows ek adımları (a)–(c) test-operatoru tarafından koşulmalı.
+
+## Olumlu
+- S8b2-1 iki katmanlı çözüldü (UI + saf karar). Arayüz atlansa bile başka kişinin verisi rızasız yazılmıyor ve cihaz anahtarı kişiye bağlı.
+- Yeniden bağlanma politikası sunucu kovasını koruyor ve bütçeyi aşmıyor. Saf fonksiyon olduğu için testli.
+- Sunucu metinleri tek süzgeçten geçiyor. Doğrulama ham değerde, süzme gösterimde yapılıyor.
+- Diyalog yeniden açılırken mevcut P7 `consentDlg` yeniden kullanılıyor; yeni bir onay yolu eklenmedi.
+
+Karar: Kritik/Yüksek 0 → **GEÇTİ**. S8b2-4 (Düşük) 0.9.0'da tek satırlık bir düzeltmeyle kapatılabilir. Kapatılmazsa `docs/gereksinimler.md` §9'a "Sonra" olarak yazılmalı.
+
+---
+
+# Güvenlik Raporu — P8b-2 — Tur 1 — Windows Go istemci 0.9.0 (2026-11-12)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 1 / Düşük 2
+
+Kapsam: `apps/agent-win` çalışma ağacı diff'i (commit edilmemiş): `internal/request/*` (yeni), `internal/remember/*` (yeni), `internal/api/{api,requests}.go`, `internal/pairing`, `internal/flow`, `internal/signal/{strict,messages}.go`, `internal/ui/{request,control,screens}_windows.go`, `internal/win/win_windows.go`, `cmd/noktadestek/main.go`. Bu kod mimari-e9 §13 (G-E9-1..14), ADR-0004 r3, ADR-0006 r4, ADR-0016, mimari-protokol §5 ve P7 onay kurallarıyla karşılaştırıldı. Sunucu tarafına yalnız `/ws/request` upgrade sınırlarını görmek için bakıldı (`apps/server/src/requests/ws.ts`, `limits.ts`).
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] S8b2-1 Hatırlanan veriyle açılışta "hatırla" kutusu işaretli geliyor; başka kişinin verisi onaysız diske yazılabilir (implementation sapma #1) — A04 / KVKK açık rıza
+Yer: `apps/agent-win/internal/request/run.go:110` (`Remember: true`), `:266-285` (gönderimde kayıt), `internal/ui/request_windows.go:243`
+Sorun: G-E9-13 / AC-136 kutunun varsayılan olarak işaretsiz olmasını istiyor (kullanıcı kararı). Ancak `hatirla.bin` varsa form kutu işaretli açılıyor. Kod, gönderilen ad ve telefonun hatırlanan kişiye ait olup olmadığına bakmıyor. Kayıt (`Save`) her durumda yapılıyor ve önceki kişinin `deviceKey`'i yeniden kullanılıyor.
+İstismar senaryosu: Paylaşılan bir Windows hesabında (aile bilgisayarı, ofiste ortak hesap, internet kafe) A daha önce "hatırla" demiş olsun. B formu açar, alanları kendi ad/telefon/e-postasıyla değiştirir ve işaretli kutuyu fark etmez. B'nin kişisel verisi, B hiç seçmeden kalıcı olarak diske yazılır. Sonraki kullanıcı da bu veriyi görür. Sunucu B'nin taleplerini A'nın cihaz anahtarıyla `known_device=true` olarak işaretler. Bu bir yetki ihlali değil, ancak rıza ilkesine ve kullanıcının açık kararına aykırı.
+Gerekçenin değerlendirmesi: "İşaretsiz gelseydi her gönderim dosyayı silerdi" itirazı doğru. Bu yüzden düz geri alma yerine aşağıdaki orta yol öneriliyor.
+Düzeltme (backend-dev, istemci): Kutu hatırlanan veriyle işaretli açılabilir. Ancak gönderimde normalize edilmiş ad **veya** telefon `r.rem` ile farklıysa ve kullanıcı kutuyu bu oturumda kendisi işaretlememişse, kişi değişmiş sayılmalı:
+- kayıt yapılmaz, dosya silinir (AC-137 yolu) ve `deviceKey` gönderilmez;
+- ya da kişi değişikliği algılanınca kutu işaretsize çekilir ve "Bu bilgisayarda hatırlansın mı?" yeniden sorulur. Alternatif: ad/telefon alanında `EN_CHANGE` olunca kutu işaretsize çekilir.
+Ayrıca: Kişi değiştiğinde yeni `deviceKey` üretilmesi tercih edilir. Test: `TestAC136ChangedIdentityNotSavedWithoutOptIn`. Kılavuza da bir cümle eklenmeli.
+
+### [DÜŞÜK] S8b2-2 `/ws/request` yeniden bağlanma döngüsü 429'u kalıcı saymıyor ve sabit 2 sn aralıkla deniyor; NAT arkasında ortak IP kovası tükeniyor — A04 (S8b-8 istemci tarafı)
+Yer: `apps/agent-win/internal/request/wait.go:118-151` (`startDial`; yalnız 403/426 kesin hata), `run.go:97-98` (`ReconnectEvery` 2 sn). Sunucu: `apps/server/src/requests/limits.ts:77` (`wsUpgrade` 31/dk/ipKey, blok 1 dk), `ws.ts:59,76` (güvenilen CIDR yalnız `ip_sockets`'ten muaf, `wsUpgrade`'den değil).
+Sorun: Tek istemci 110 sn boyunca dakikada yaklaşık 30 upgrade deniyor. Bu sayı tek başına sınırın (31) hemen altında. Aynı genel IP arkasında iki veya daha fazla bekleyen müşteri varsa (kurumsal NAT, US-29) sunucu yeniden başladıktan sonra hepsi birlikte 429 bloğuna girer. İstemciler blok sırasında da 2 sn'de bir denemeye devam eder. 110 sn dolunca "Sunucuyla bağlantı kesildi" görünür ve talep sunucuda 120 sn'de `DISCONNECTED` ile iptal olur. `Retry-After` ve jitter yalnız POST create'te kullanılıyor; WS dial'de kullanılmıyor.
+İstismar senaryosu: Saldırgan, hedef ofisle aynı NAT'tan (ör. misafir Wi-Fi) dakikada 31 upgrade göndererek ofisin bekleyen taleplerinin yeniden bağlanmasını 1 dk engeller. Kopma süresi 120 sn olduğu için iki blok penceresi talepleri iptal ettirebilir. Etki yalnız kullanılabilirlik.
+Düzeltme (backend-dev, istemci): Dial 429'da üstel geri çekilme uygulanmalı: 2→4→8→15 sn, artı 0..1 sn `crypto/rand` jitter. Upgrade yanıtında `Retry-After` varsa ona uyulmalı. Normal yeniden bağlanma aralığına da jitter eklenmeli. Sunucu tarafında güvenilen CIDR'ın `wsUpgrade` kovasından da muaf tutulması değerlendirilmeli (backend-dev, "Sonra").
+
+### [DÜŞÜK] S8b2-3 Sunucudan gelen görünen metinlerde Unicode biçim/bidi karakterleri istemcide süzülmüyor; yeniden kabulde başlık güncellenmiyor — A03 (savunma derinliği)
+Yer: `apps/agent-win/internal/request/ws.go:109` (`technicianName` yalnız uzunluk denetimi), `run.go:197-228` (`tenant.name` denetimsiz; pencere başlığı ve büyük etiket), `ui/request_windows.go:335-338` (açık diyalogda yeni `request.accepted` gelirse yalnız gövde güncelleniyor, `<Teknisyen> bağlanmak istiyor` başlığı güncellenmiyor).
+Sorun: Firma adı ve teknisyen adı, kullanıcının "kime bağlanıyorum" kararının temelidir. U+202E (RLO) ve benzeri `Cf` karakterleri statik metinde görünümü değiştirebilir. Kaynak TLS doğrulamalı gömülü sunucudur ve yazan kişi tenant yöneticisidir. Bu nedenle risk düşük. Yine de istemcinin hatırlama dosyası için uyguladığı `hasControl` kuralı bu alanlara uygulanmıyor.
+Düzeltme (backend-dev, istemci): `tenant.name`, `technicianName`, `request.closed.message` ve hata `fields`/`message` metinleri için `Cc/Cf` içeren değer reddedilmeli (ws: 1008, REST: `BAD_RESPONSE` → ağ hatası ekranı) veya bu karakterler çıkarılmalı. Ayrıca `RequestAccepted` yeniden çağrıldığında teknisyen adı farklıysa diyalog kapatılıp yeniden açılmalı (1,5 sn kilit yeniden başlar). Sunucu şemalarında aynı kural yoksa backend'e de eklenmeli.
+
+## Odak maddelerinin doğrulaması (bulgu yok)
+- **OpenURL / 426 indirme bağlantısı:** URL, sunucu yanıtından gelmiyor. `DownloadURL` (`policy.go:78-84`) yalnız gömülü `cfg.ServerURL`'in https kökü, sabit yol ve `^[a-z2-7]{16}$` ile doğrulanmış ref'ten oluşuyor. `win.OpenURL` (`win_windows.go:568`) ikinci kez yalnız `https://` kabul ediyor ve boşluk, tırnak, CR/LF içeren değeri reddediyor. 426 yanıtı (REST `CLIENT_OUTDATED` veya WS upgrade) yalnız yerel engel ekranını tetikliyor. Kod modunda indirme düğmesi yok (`flow/messages.go` msgOutdated). `minAgentVersion` biçim dışıysa yanlış alarm verilmiyor.
+- **"Kötüye kullanımı bildir":** `OpenMailto` yalnız `api.ValidAbuseEmail` kuralından geçmiş adresle çağrılıyor (`run.go:198`).
+- **Sunucu metinleri UI'da:** Tüm metinler `STATIC` + `SS_NOPREFIX` (`form_windows.go:310`) ile gösteriliyor. Aydınlatma metni salt okunur EDIT içinde. Ret mesajı ≤ 200 UTF-16 ve yalnız `REJECTED` ile birlikte kabul ediliyor, bağlantıya çevrilmiyor (G-E9-12 istemci tarafı tamam). Logo şu an `null`. Gelirse P6 `LogoURL`/`DecodeLogo` kuralları (aynı köken, PNG/JPG sihirli bayt, ≤ 2 MB, yönlendirme yok) uygulanıyor.
+- **`/ws/request` sırrı (protokol §5):** Sır yalnız `Sec-WebSocket-Protocol` (`rs.req.<sır>`) ile gidiyor. URL'de sorgu dizesi ve Origin yok (`ws.go:179-183`). Dial öncesi `^[A-Za-z0-9_-]{43}$` ile doğrulanıyor. Hata metinleri sır içermiyor ("upgrade reddedildi"). Ajan kodunda log çağrısı yok (`log`/`slog`/`Printf` 0). Sır diske yazılmıyor (`remember.Data` alanlarında yok). Yönlendirme ile sır sızıntısı da yok: `coder/websocket` `CheckRedirect`'i zincirliyor ve istemcinin `http.ErrUseLastResponse`'u (`api.go:87`) korunuyor (modül kaynağı `dial.go:88-102` ile doğrulandı).
+- **TLS:** Sistem kökleri ve `MinVersion` TLS 1.2 kullanılıyor; `InsecureSkipVerify` 0. Talep, WS ve logo aynı `http.Client`'ı paylaşıyor. Sertifika hatası ayrı mesajla gösteriliyor ve doğrulama gevşetilmiyor.
+- **DPAPI / dosya:** `CryptProtectData` CurrentUser kapsamında (LOCAL_MACHINE bayrağı yok), `UI_FORBIDDEN` ve sabit entropi ile çağrılıyor. `FOLDERID_LocalAppData\NoktaDestek\hatirla.bin` kullanılıyor (Roaming değil). Düz metin ≤ 4 KB, mühürlü ≤ 16 KB. `DisallowUnknownFields` ve alan doğrulaması var; bozuk veya başka kullanıcıya ait dosya sessizce siliniyor. tmp dosyası `O_EXCL` ile açılıyor; varsa bir kez silinip yeniden deneniyor (G-E9-13), ardından rename ediliyor. "Unut" işlemi dosyayı, tmp'yi ve klasörü (yalnız boşsa) siliyor. ACL `%LOCALAPPDATA%`'dan miras kalıyor (kullanıcı + SYSTEM + Administrators); `0o600` Windows'ta etkisiz ama gereksiz de değil. Açıklama, onay, sır ve ref yazılmıyor.
+- **Rastgelelik:** `deviceKey`, `clientInstanceId` ve jitter `crypto/rand` ile üretiliyor (128 bit). `deviceKey` yalnız kutu işaretliyken üretiliyor ve gönderiliyor; işaretsiz gönderimde dosya ile birlikte siliniyor (G-E9-1 / ADR-0004 r3 eki).
+- **Yeniden deneme (S8b-8 istemci tarafı):** Create isteği yalnız 503 + `NOT_READY` durumunda tekrarlanıyor: en çok 2 deneme, `Retry-After` 1..15 sn'ye kırpılıyor, üzerine jitter ekleniyor. Ağ hatası ve 502/504 tekrarlanmıyor (çift talep veya kota tüketimi olmasın diye; doğru karar). GET tenant en çok 3 deneme yapıyor. S8b-8'in istemci yarısı karşılandı; sunucu yarısı (kova iadesi) "Sonra"da açık.
+- **Kapanış kodları ve durum makinesi:** `CANCELLING` durumunda geç gelen `request.accepted` yok sayılıyor ve `request.decline` gönderiliyor (§13.3 yarışı). Pencere kapatma önce mesaj, sonra 1000 gönderiyor. Bilet süresi dolunca 1001 ile kapanıyor (vazgeçme değil, CONNECT_FAILED). `/ws/request` `/ws/guest` `hello`'su gelene kadar açık kalıyor; `Release` bir kez çalışıyor. Sözleşme dışı mesajda 1008 gönderiliyor ve yeniden bağlanılmıyor; 4409'da da yeniden bağlanılmıyor. Giden mesajlar yalnız iki sabit tipten oluşuyor (`Encode`). Sunucu durumunu kötüye kullanacak bir istemci davranışı bulunmadı.
+- **Onay ("Ekranımı paylaş / Vazgeç") ve P7 kuralları:** Ortak `consentDlg` kullanılıyor. Odak "Vazgeç"te. Enter/Space `noKey` ile engelleniyor. 1,5 sn kilit var ve `present` ile yeniden başlıyor. `tryGrant` yalnız yerel donanım girdisini kabul ediyor (`userInput`); enjekte tıklamada kırmızı uyarı çıkıyor ve kilit yeniden başlıyor. Diyalog imleç dışında açılıyor ve `FlashWindow` kullanılıyor. Otomatik onay veya geri sayımla onay yok. Erişim tuşu (`&E`) P7 "&İzin ver" ile aynı model (TrigAccessKey kuralları geçerli). Yeniden bağlanmada gelen yeni ticket kilidi atlatmıyor. Kontrol izni `RunTicket` sonrası P7 yolundan değişmeden alınıyor (AC-156).
+- **Dosya adı (ADR-0006 r4):** `RefFromFileName` anchored ifade kullanıyor: label `[A-Za-z0-9]{1,20}`, ref base32 16. Yol ayırıcıları `\` ve `/`'den kesiliyor. Label hiçbir yerde gösterilmiyor (G-E9-11); pencere yalnız sunucudan gelen firma adını gösteriyor. Firma ve kod biçimleri ayrık (`TestAC161FileNameModesAreDisjoint`).
+- **DLL arama sırası:** Yeni kod yalnız `x/sys/windows` (crypt32, shell32 → `NewLazySystemDLL`) ve mevcut `shell32` (`NewLazySystemDLL`) kullanıyor. `NewLazyDLL`/`LoadLibrary` eklenmedi. `dllsafe.Harden()` hâlâ `main.go:51`'de, ilk iş olarak çağrılıyor.
+
+## implementation.md "Backend (Go) P8b-2" sapmalarının değerlendirmesi
+| # | Karar |
+|---|---|
+| 1 | Kısmen kabul → **S8b2-1** (Orta): işaretli açılış kalabilir, ancak kişi değişikliğinde açık rıza gerekiyor. |
+| 2 | Kabul (tek pencere; güvenlik etkisi yok). |
+| 3 | Kabul ("Unut" her zaman görünür; zararsız ve hatta iyi). |
+| 4 | Güvenlik açısından kabul (110 sn < 120 sn; 403/426/4409/1008 kesin). Yeniden deneme aralığı → S8b2-2. |
+| 5 | Kabul (1001 = bağlanamadı; tasarıma uygun). |
+| 6 | Kabul (`FlashWindow` eşdeğer). |
+| 7 | Kabul (logo kuralları P6'dan aynen). |
+| 8 | Kabul (strict kural tek yerde). |
+| 9 | Kabul (`os.Rename` Windows'ta `MoveFileEx(REPLACE_EXISTING)`; crypt32 sistem DLL'i). |
+
+## Otomatik tarama çıktıları
+- `go test ./...` (docker `golang:1.26.11-bookworm@sha256:dc40a1…`, `-mod=readonly`): **17 paket ok** (`request`, `remember`, `api`, `flow`, `pairing` dahil). `go vet ./...` ve `GOOS=windows go vet ./...`: çıktı yok (temiz).
+- Gizli bilgi regex'i (`git grep -nE "(api[_-]?key|secret|password|token)\s*[:=]\s*['\"][^'\"]{8,}"` → `apps/agent-win`): **0 eşleşme**. Not: yeni dosyalar izlenmediği (untracked) için git grep onları taramaz; `internal/request`, `internal/remember` ve `ui/request_windows.go` elle incelendi, gerçek gizli değer yok. Test sabitleri `AAAA…` biçiminde.
+- `.env` geçmişi: Yalnız `.env.example` git geçmişinde.
+- Bağımlılık: `go.mod`/`go.sum` değişmedi. Yeni bağımlılık yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- G-E9-13 "kutucuk varsayılan işaretsiz": Hatırlanan veri varken uygulanmıyor → S8b2-1.
+- Windows'a özgü maddeler (iz testi, gerçek DPAPI başka kullanıcı testi, RDP enjekte tıklama, gerçek ağda yeniden bağlanma) kodda var ama yalnız elle doğrulanabilir. `implementation.md` Windows adımları 2, 5, 11 ve 13 test-operatoru tarafından koşulmalı. Bu tur kod okumasıyla sınırlı.
+
+## Olumlu
+- Talep modu platformdan bağımsız ve arayüzlerle sahte bileşenlere bağlanıyor. Durum makinesi saf ve yarışlar testli (`CANCELLING` / geç kabul).
+- Sunucu girdisi strictObject ve alan kurallarıyla tek yerde (`signal.DecodeStrict`) doğrulanıyor; ihlalde 1008 gönderiliyor.
+- Açılabilecek tek URL yerel olarak kuruluyor ve iki katmanda denetleniyor. Sır yalnız subprotocol'de taşınıyor, loglama hiç yok.
+- Yeniden deneme politikası kotayı bilinçli olarak koruyor (create'te ağ hatası tekrarlanmıyor).
+- Hatırlama dosyası, rıza ve kişi değişikliği sorunu (S8b2-1) dışında ADR-0004 r3'e eksiksiz uyuyor.
+
+Karar: Kritik/Yüksek 0 → **GEÇTİ**. S8b2-1 (Orta) 0.9.0 yayınından önce düzeltilmesi önerilir; tek fonksiyonluk bir değişiklik. Düzeltilmezse `docs/gereksinimler.md` §9'a "Sonra" olarak yazılmalı. S8b2-2 ve S8b2-3 (Düşük) "Sonra" listesine eklenmeli.
+
+---
+
 # Güvenlik Raporu — Tasarım turu (Tur 0, kod yok)
 Tarih: 2026-11-10 · Kapsam: `docs/mimari.md` §5, `docs/tasarim-kontrol.md` §4, mimari-protokol/akislar/api, ADR-0006/0007/0009/0010
 DURUM: DÜZELTİLMELİ (tasarım; ilgili paket başlamadan mimari/AC güncellenmeli)

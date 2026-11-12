@@ -4,11 +4,13 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P8 ve P8b-1 tamamlandı
+## Şu anki durum: P1–P8 ve P8b-1 tamamlandı; P8b-2 kodu tamam
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P8 ve P8b-1 (müşteri destek talebi — sunucu + panel)
-tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ). Sıradaki paket **P8b-2** (Hızlı Destek'te
-müşterinin "Destek iste" formu ve bekleme ekranı), ardından P9 (kullanıcı/yetki yönetimi). Gerçek Windows'ta elle
-doğrulama (implementation.md "Agent P7" adım 25–47) hâlâ açık; ayrıntı `docs/gereksinimler-sonra-acik.md`.
+tamamlandı (qa GEÇTİ, güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ). **P8b-2** (Windows istemci **0.9.0**: Hızlı
+Destek'te müşterinin "Destek iste" formu ve bekleme ekranı) kod olarak tamam: qa GEÇTİ, güvenlik Kritik/Yüksek 0.
+Gerçek Windows'ta elle testleri (implementation.md "Backend (Go) P8b-2" adım 1–20 + düzeltme turu a–c) ve 0.9.0
+staging yayını bekliyor. Sıradaki paket P9 (kullanıcı/yetki yönetimi). P7 elle doğrulaması (adım 25–47) da hâlâ
+açık; ayrıntı `docs/gereksinimler-sonra-acik.md`.
 
 Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.126.217.99:4450` geçiş süresince açık).
 
@@ -158,7 +160,7 @@ Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.
 
 **P8b-1 — müşteri destek talebi (sunucu + panel; ADR-0016)**
 - Her firmaya özel indirme bağlantısı ve dosya (`NoktaDestek-<firma>-<ref>.exe`, aynı imzasız ikili). Müşteri bu
-  dosyadan ad, telefon, açıklama ve KVKK onayıyla talep gönderir (müşteri ekranı P8b-2'de; sunucu uçları hazır).
+  dosyadan ad, telefon, açıklama ve KVKK onayıyla talep gönderir (müşteri ekranı istemci 0.9.0'da, aşağıda P8b-2).
 - Kenar menüsünde **Talepler** (`/requests`, `support_requests.view`): canlı kuyruk, bekleyen sayısı rozeti, yeni
   talepte bildirim ve ses, 6 haneli talep kodu, kaynak işaretleri ("Güvenilen ağ", "Bu bilgisayar daha önce destek
   aldı", "İlk kez görülen kaynak"), **Kabul et** (doğrudan konsol) ve **Reddet** (müşteriye mesaj). "Geçmiş" sekmesi
@@ -169,6 +171,27 @@ Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.
 - Hız sınırları, bekleyen talep tavanları (IP 3, ağ 10, firma 50), aşırı yükte 503 + `Retry-After`.
 - **Veritabanı:** migration `20261112000000_p8b_support_requests`; seed yeni aydınlatma sürümü ekler. Yeni ortam
   değişkenleri `WHATSAPP_SERVICE_URL`, `MIN_AGENT_VERSION`. Yayın ve geri alma: `docs/runbook.md` §12.
+
+**P8b-2 — Windows istemci 0.9.0: "Destek iste" (ADR-0016, mimari-e9 §13)**
+- Firma dosyası (`NoktaDestek-<firma>-<ref>.exe`) açılınca firma penceresi gelir: firma adı yalnız sunucudan, alt
+  satırda sunucu · sürüm · parmak izi, dolandırıcılık uyarısı, (tanımlıysa) "Kötüye kullanımı bildir". Form: ad soyad,
+  telefon, e-posta (isteğe bağlı), sorun, aydınlatma metni + onay kutusu; Enter = **Destek iste**, hatada ilk hatalı
+  alana odak.
+- **Hatırla:** "Bilgilerimi bu bilgisayarda hatırla" ilk açılışta işaretsiz; işaretlenirse ad/telefon/e-posta
+  yalnız talep oluşunca `%LOCALAPPDATA%\NoktaDestek\hatirla.bin`'e DPAPI (CurrentUser) ile şifreli yazılır.
+  Hatırlanan ad veya telefon değişirse kutu kendiliğinden kalkar. **Bilgilerimi unut** dosyayı ve boşsa klasörü siler.
+- Bekleme ekranı: 6 haneli talep kodu, "Sırada n. talepsiniz", geçen süre; **Talebi iptal et** veya pencereyi
+  kapatma talebi iptal eder. Kopmada 110 sn içinde artan aralıklarla yeniden bağlanır.
+- Kapanış ekranları: iptal, zaman aşımı ("Yeniden talep oluştur" form dolu açılır), ret ("Firmanızın mesajı:"),
+  bağlantı kurulamadı.
+- Teknisyen kabul edince onay diyaloğu (P7 izin kuralları: odak "Vazgeç", 1,5 sn kilit, uzaktan tıklama sayılmaz):
+  **Ekranımı paylaş** → lobi ve kabul kodu olmadan doğrudan oturum; **Vazgeç** → paylaşım yok. Onay 60 sn içinde
+  verilmezse "Bağlantı süresi doldu".
+- **Teknisyenden kod aldım** eski 8 haneli kod akışına geçer; `Destek-<8 hane>.exe` ve `NoktaDestek.exe` eskisi gibi
+  çalışır.
+- `MIN_AGENT_VERSION` altındaki firma dosyası form göstermez, "Yeni sürümü indir" sunar. Talep oluşturmada yalnız
+  503 `NOT_READY` bir kez otomatik denenir (`Retry-After`, 1–15 sn + rastgele); diğer hatalarda müşteri yeniden basar.
+- Sunucu ve panelde değişiklik yok; yeni bağımlılık yok. Yayın: runbook §11 (`build.sh … 0.9.0`).
 
 API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
 Kullanım (müşteri, teknisyen, yönetici): [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
@@ -189,7 +212,7 @@ açamaz (403; tenant geçişi P9); oturum geçmişini ise firma seçmeden tüm f
 | P7 ✓ | Uzaktan kontrol (izin diyaloğu, klavye/fare, monitör değiştirme) |
 | P8 ✓ | Oturum geçmişi, not/ticket, CSV dışa aktarma, istemcide fare imleci |
 | P8b-1 ✓ | Müşteri destek talebi: sunucu uçları, panel kuyruğu, ayarlar, WhatsApp bildirimi |
-| P8b-2 | Hızlı Destek "Destek iste" formu, bekleme ekranı, 503 yeniden deneme |
+| P8b-2 (kod ✓, Windows elle test bekliyor) | Windows istemci 0.9.0: "Destek iste" formu, bekleme ekranı, 503 yeniden deneme |
 | P9 | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
 | P10 | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış |
 | P11 | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri |
@@ -263,7 +286,7 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 | `AGENT_BINARY_PATH` | Compose dışı | İkilinin mutlak yolu. Compose `/data/downloads/NoktaDestek.exe` verir; yalnız yerel `pnpm` çalıştırmada gerekir |
 | `ABUSE_EMAIL` | Önerilir | Müşteri ekranındaki "Kötüye kullanımı bildir" adresi (ör. `abuse@<alan-adı>`). Production'da boşsa bağlantı gizlenir; Super Admin e-postası kullanılmaz. Boş bırakmak güvenlidir; dolu ama geçersiz adres server'ı açtırmaz |
 | `WHATSAPP_SERVICE_URL` | Hayır | P8b: whatsapp-bildirim servis adresi (sistem düzeyi). Boşsa varsayılan servis; production'da şifresiz + genel adres → kanal kapalı başlar (runbook §12.3) |
-| `MIN_AGENT_VERSION` | Hayır | P8b: asgari Windows istemci sürümü `x.y.z`; boş = kontrol yok. P8b-2 istemcisi yayınlanana kadar boş bırakın (runbook §12.4) |
+| `MIN_AGENT_VERSION` | Hayır | P8b: asgari Windows istemci sürümü `x.y.z`; boş = kontrol yok. Müşterilerin tamamı 0.9.0 firma dosyasına geçene kadar boş bırakın (runbook §12.4) |
 | `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `TRUSTED_PROXY_CIDR`, `API_INTERNAL_URL` | Compose dışı | Compose bunları kendisi üretir; yalnız yerel `pnpm` çalıştırmada gerekir |
 
 TURN sunucusu (`deploy/turn`, ayrı compose projesi) şu değişkenleri okur:

@@ -3,6 +3,7 @@
 package win
 
 import (
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -108,6 +109,7 @@ const (
 	EM_REPLACESEL       = 0x00C2
 	EM_LIMITTEXT        = 0x00C5
 	BM_GETCHECK         = 0x00F0
+	BM_SETCHECK         = 0x00F1
 	LB_ADDSTRING        = 0x0180
 	LB_SETCURSEL        = 0x0186
 	LB_GETCURSEL        = 0x0188
@@ -558,6 +560,16 @@ func BitBlt(dst uintptr, x, y, w, h int32, src uintptr) {
 // api.ValidAbuseEmail ile doğrulanmış olmalı (S6-7).
 func OpenMailto(addr string) {
 	verb, target := Str("open"), Str("mailto:"+addr)
+	_, _, _ = pShellExecuteW.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(target)), 0, 0, SW_SHOWNORMAL)
+}
+
+// OpenURL yalnız `https://` adresini varsayılan tarayıcıda açar (ADR-0004 r3 eki: çağıran yalnız
+// request.DownloadURL'in sabit biçimli adresini verir).
+func OpenURL(u string) {
+	if !strings.HasPrefix(u, "https://") || strings.ContainsAny(u, " \"\r\n\t") {
+		return
+	}
+	verb, target := Str("open"), Str(u)
 	_, _, _ = pShellExecuteW.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(target)), 0, 0, SW_SHOWNORMAL)
 }
 

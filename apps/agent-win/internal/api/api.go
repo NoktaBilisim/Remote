@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -36,6 +37,8 @@ type Error struct {
 	RequestID string            // destek referansı
 	Err       error             // ağ/TLS hatası (Status 0)
 	TLS       bool              // Status 0 ve sunucu sertifikası doğrulanamadı (güvenilmeyen kök, süresi dolmuş, ad uyuşmazlığı)
+	// RetryAfter `Retry-After` başlığı (saniye); yoksa 0. 429/503 yeniden deneme kararı çağırandadır (P8b-2, S8b-8).
+	RetryAfter time.Duration
 }
 
 func (e *Error) Error() string {
@@ -58,6 +61,7 @@ func (e *Error) Retryable() bool {
 type Client struct {
 	base      *url.URL
 	userAgent string
+	version   string
 	http      *http.Client
 }
 
@@ -76,6 +80,7 @@ func newClient(serverURL *url.URL, version string, tlsCfg *tls.Config) *Client {
 	return &Client{
 		base:      serverURL,
 		userAgent: "NoktaDestek/" + version,
+		version:   version,
 		http: &http.Client{
 			Transport: tr,
 			Timeout:   requestTimeout,
@@ -133,12 +138,14 @@ type JoinResult struct {
 }
 
 // Resolve 8 haneli kodla oturumu çözer. Yalnız ağ hatası / 502-504'te yeniden dener (resolve tüketmez);
-// 4xx sunucu kararıdır, tekrar denenmez (başarısız deneme hız kovasını doldurur).
+// 4xx sunucu kararıdır, tekrar denenmez (başarısız deneme hız kovasını doldurur). r2 (G-E9-4): `clientVersion`
+// gönderilir; sunucu `MIN_AGENT_VERSION`'dan düşükse 426 CLIENT_OUTDATED döner.
 func (c *Client) Resolve(ctx context.Context, code string) (*ResolveResult, error) {
 	body := struct {
-		Code       string `json:"code"`
-		ClientKind string `json:"clientKind"`
-	}{code, clientKindAgent}
+		Code          string `json:"code"`
+		ClientKind    string `json:"clientKind"`
+		ClientVersion string `json:"clientVersion"`
+	}{code, clientKindAgent, c.version}
 	var out ResolveResult
 	var err error
 	for attempt := 1; attempt <= resolveAttempts; attempt++ {
@@ -173,12 +180,23 @@ func (c *Client) post(ctx context.Context, op string, in, out any) error {
 	if err != nil {
 		return err
 	}
-	u := c.base.ResolveReference(&url.URL{Path: basePath + op})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(b))
+	return c.do(ctx, http.MethodPost, &url.URL{Path: basePath + op}, b, out)
+}
+
+// do tek istek: gövde (POST) veya sorgu (GET) ile; 2xx gövdesi out'a (nil ise atlanır), aksi hata zarfı.
+func (c *Client) do(ctx context.Context, method string, ref *url.URL, body []byte, out any) error {
+	u := c.base.ResolveReference(ref)
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), rd)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.userAgent)
 	resp, err := c.http.Do(req)
@@ -191,6 +209,9 @@ func (c *Client) post(ctx context.Context, op string, in, out any) error {
 		return &Error{Err: err}
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if out == nil {
+			return nil
+		}
 		if err := json.Unmarshal(data, out); err != nil {
 			return &Error{Status: resp.StatusCode, Code: "BAD_RESPONSE", Err: err}
 		}
@@ -204,11 +225,21 @@ func (c *Client) post(ctx context.Context, op string, in, out any) error {
 			RequestID string            `json:"requestId"`
 		} `json:"error"`
 	}
-	ae := &Error{Status: resp.StatusCode, Code: "UNKNOWN"}
+	ae := &Error{Status: resp.StatusCode, Code: "UNKNOWN", RetryAfter: ParseRetryAfter(resp.Header.Get("Retry-After"))}
 	if json.Unmarshal(data, &env) == nil && env.Error.Code != "" {
 		ae.Code, ae.Message, ae.Fields, ae.RequestID = env.Error.Code, env.Error.Message, env.Error.Fields, env.Error.RequestID
 	}
 	return ae
+}
+
+// ParseRetryAfter yalnız saniye biçimini kabul eder (sunucu HTTP tarihi göndermez); geçersiz/negatif → 0. REST
+// hataları ve `/ws/request` upgrade reddi (request.DialError) aynı kuralı kullanır.
+func ParseRetryAfter(v string) time.Duration {
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return time.Duration(n) * time.Second
 }
 
 // isCertError sunucu sertifikası doğrulama hatasını ağ hatasından ayırır (doğrulama gevşetilmez, AC-109).

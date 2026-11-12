@@ -1,20 +1,31 @@
 # Gereksinimler — "Sonra / açık" takip tabloları
 Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (bölüm 9'un devamıdır, ayrılmaz parçasıdır). Boyut nedeniyle 2026-11-12'de ana dosyadan taşındı; P2..P8 tabloları içerik değiştirilmeden taşındı, yeni paketlerin tabloları en üste eklenir.
 
+### Sonra / açık — P8b-2'den (2026-11-12)
+Kaynak: `docs/qa-raporu.md` (P8b-2 Tur 1–2), `docs/guvenlik-raporu.md` (P8b-2 Tur 1–2, S8b2-x),
+`docs/implementation.md` (Backend (Go) P8b-2 + düzeltme turu 1).
+
+| Madde | Ne yapılacak | Sahip | Ne zaman |
+|---|---|---|---|
+| Windows elle testleri P8b-2 | `docs/implementation.md` "Backend (Go) P8b-2" adım 1–20 ve düzeltme turu 1 adımları a–c, Win10 ve Win11 standart kullanıcıyla; sonuç `docs/test-raporu.md`'ye | kullanıcı / test-operatoru (Windows test makinesi) | 0.9.0 staging yayınından sonra, P9'dan önce |
+| S8b2-2 sunucu tarafı | Güvenilen CIDR'dan gelen `/ws/request` upgrade'lerini `wsUpgrade` hız kovasından muaf tutmak (istemci geri çekilmesi tamam) | backend-dev | Sonra |
+| S8b2-4 (Düşük) | Onay diyaloğu anahtarı `teknisyen adı + doğrulama kodu` olmalı; aynı adlı ikinci teknisyenin yeniden kabulünde diyalog kapatılıp yeniden açılmalı (1,5 sn kilit) | backend-dev (Go) | **Durum: tamam (2026-11-12, düzeltme turu 2)** |
+| `MIN_AGENT_VERSION=0.9.0` | Tüm müşteriler 0.9.0 firma dosyasına geçince açılacak; öncesinde eski istemciler (0.8.x) 426 alır. Açınca 0.8.x kod dosyaları da durur | devops + kullanıcı | Tüm müşteriler 0.9.0'a geçince (runbook §12.4) |
+
 ### Sonra / açık — P8b-1'den (2026-11-12)
 Kaynak: `docs/qa-raporu.md` (P8b-1 Tur 1–3), `docs/guvenlik-raporu.md` (P8b-1, S8b-x), `docs/test-raporu.md` (P8b-1),
 `docs/implementation.md` (Backend/Frontend/Devops P8b-1).
 
 | Madde | Ne yapılacak | Sahip | Ne zaman |
 |---|---|---|---|
-| S8b-8 (Düşük) — 503'te IP kovası | IP/önek kovaları talep kapısından önce tüketiliyor; kapı 503'ünde `Retry-After`'a uyarak yeniden deneyen meşru müşteri saatlik kotasını harcıyor. İstemci yeniden denemesi tasarlanırken kova tüketimi kapı sonrasına alınmalı veya 503'te iade edilmeli | backend-dev + backend-dev (Go) | P8b-2 (istemci 503 yeniden deneme işiyle birlikte) |
+| S8b-8 (Düşük) — 503'te IP kovası | **İstemci yarısı tamam (0.9.0):** yalnız 503 `NOT_READY` en çok bir kez yeniden denenir (kotanın en çok 2/5'i). **Sunucu yarısı açık:** kapı 503'ünde IP/önek kovası iadesi veya tüketimin kapı sonrasına alınması, tenant kovası `add`'inin commit sonrasına alınması | backend-dev | Sonra |
 | G-E9-17 — kara liste | Belirli IP/cihazdan talepleri engelleme listesi; koordinatör kararı c ile kodlanmadı | mimar → backend-dev + frontend-dev | Sonra |
 | AC-149 — uçtan uca ölçüm | Yalnız panel tarafı (WS → toast, yerel p95 5 ms) ölçüldü. İstemci `POST /public/requests` → sunucu → `/ws/panel` → toast süresi (≤ 3 sn) staging'de gerçek sunucuda ölçülüp `docs/test-raporu.md`'ye eklenecek | test-operatoru | P8b-1 staging yayınından sonra |
 | CSV yeni sütunlar — uçtan uca indirme | `Kaynak` ve `Bekleme` sütunları entegrasyon testinde doğrulandı; gerçek sunucudan indirip Excel'de (tr-TR) açma kontrolü yapılmadı | test-operatoru / kullanıcı | Staging yayınından sonra |
 | AC-151 — e-posta bildirimi | Ayar alanları var, UI pasif ("P10'da gelecek"); SMTP ayarı ve e-posta test ucu ile tamamlanacak | backend-dev + frontend-dev | P10 |
-| Windows elle testi (P6/P7 + fare imleci) | `docs/implementation.md` Agent P7 adım 25–42 ve "fare imleci" adım 43–47 gerçek Windows'ta **hâlâ açık** (P8 tablosundaki madde) | kullanıcı (Windows test makinesi) | P8b-2 istemci testiyle aynı oturumda |
+| Windows elle testi (P6/P7 + fare imleci) | `docs/implementation.md` Agent P7 adım 25–42 ve "fare imleci" adım 43–47 gerçek Windows'ta **hâlâ açık** (P8 tablosundaki madde) | kullanıcı (Windows test makinesi) | P8b-2 Windows elle testiyle aynı oturumda |
 | GitHub `AGENT_SERVER_URL` | Repo değişkeni `https://remote.noktabilisim.net` yapılmalı (runbook §8.3, §11.1); aksi halde CI'nin derlediği istemci IP:4450 gömülü kalır ve kök sertifika ister | kullanıcı (repo sahibi) | P8b-2 istemci yayınından önce |
-| `MIN_AGENT_VERSION` | P8b-2 istemcisi yayınlanana kadar boş kalmalı (eski istemciler 426 almasın); sonra runbook §12.4 | devops | P8b-2 yayını |
+| `MIN_AGENT_VERSION` | Boş kalmalı; açılış zamanı P8b-2 tablosunda (`MIN_AGENT_VERSION=0.9.0`) | devops | P8b-2 tablosuna taşındı |
 
 ### Sonra / açık — P8'den (2026-11-11)
 Kaynak: `docs/qa-raporu.md` (P8 Tur 1), `docs/guvenlik-raporu.md` (P8, S8-x), `docs/test-raporu.md` (P8), `docs/implementation.md` (Backend/Frontend P8, Agent fare imleci).

@@ -64,6 +64,8 @@ type UI interface {
 	AskCode(ctx context.Context, notice string) (code string, ok bool)
 	Welcome(ctx context.Context, w Welcome) (customerName string, ok bool)
 	Lobby(admitCode, techName string)
+	// Connecting P8b-2: talepten doğan oturumda lobi yok (ön-kabul); "Teknisyen bağlanıyor…" gösterilir.
+	Connecting(techName string)
 	ChooseMonitor(ctx context.Context, mons []signal.Monitor, def int) (id int, ok bool)
 	Active(techName string, mon signal.Monitor)
 	Status(msg string)
@@ -140,15 +142,40 @@ type Deps struct {
 	ReconnectWindow time.Duration
 	// ReconnectEvery deneme aralığı (varsayılan 2 sn).
 	ReconnectEvery time.Duration
+	// Admitted P8b-2: ilk `hello` geldiğinde bir kez çağrılır (talep modu `/ws/request`'i 1000 ile ancak bundan sonra
+	// kapatır; öncesindeki 1000 sunucuda "vazgeçme" sayılır). nil olabilir.
+	Admitted func()
 }
 
 // Outcome akışın sonu; Message boşsa kullanıcı pencereyi kapattı (son ekran yok).
 type Outcome struct {
 	Message Message
+	// Failed oturum bağlantı/protokol hatasıyla bitti (kullanıcı kararı veya sunucu son durumu değil). Talep modu bunu
+	// hello'dan önce `/ws/request`'i 1001 ile bırakmak için kullanır (CONNECT_FAILED, "vazgeçti" değil).
+	Failed bool
 }
 
 // Run akışı baştan sona yürütür. initial dosya adından okunan koddur (boşsa elle giriş istenir, AC-97).
 func Run(ctx context.Context, d Deps, initial string) Outcome {
+	d = withDefaults(d)
+	jr, res, out, ok := admitStage(ctx, d, initial)
+	if !ok {
+		return out
+	}
+	s := &session{d: d, techName: res.Technician.Name, gate: newGate(d.Gate), pendingMon: -1}
+	return s.run(ctx, jr)
+}
+
+// RunTicket P8b-2 (mimari-protokol §5.2): talepten doğan oturum. Kod/karşılama/join/lobi yoktur — müşteri onayı
+// ("Ekranımı paylaş") internal/request'te alındı; `/ws/guest`'e talebin ticket'ıyla bağlanılır, sunucu doğrudan `hello`
+// gönderir. Sonrası (kontrol izni, dosya, oturum sonu) Run ile aynı yoldur (AC-156).
+func RunTicket(ctx context.Context, d Deps, ticket, techName string) Outcome {
+	d = withDefaults(d)
+	s := &session{d: d, techName: techName, gate: newGate(d.Gate), pendingMon: -1, preAdmitted: true}
+	return s.run(ctx, &api.JoinResult{WsTicket: ticket, TechnicianName: techName})
+}
+
+func withDefaults(d Deps) Deps {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
@@ -158,12 +185,7 @@ func Run(ctx context.Context, d Deps, initial string) Outcome {
 	if d.ReconnectEvery == 0 {
 		d.ReconnectEvery = 2 * time.Second
 	}
-	jr, res, out, ok := admitStage(ctx, d, initial)
-	if !ok {
-		return out
-	}
-	s := &session{d: d, techName: res.Technician.Name, gate: newGate(d.Gate), pendingMon: -1}
-	return s.run(ctx, jr)
+	return d
 }
 
 // admitStage kod → resolve → karşılama → join. ok=false ise out son ekrandır.
@@ -297,6 +319,8 @@ type session struct {
 	pendingMon int
 	env        env.State
 	envCh      chan env.State
+	// preAdmitted talepten doğan oturum: lobi ekranı yerine "Teknisyen bağlanıyor…".
+	preAdmitted bool
 	// techLost bir önceki sunucu mesajı control.revoke{reconnect} idi ve kontrol/diyalog kapattı (yalnız bir mesaj yaşar).
 	techLost bool
 }
@@ -310,13 +334,17 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 
 	conn, err := s.d.Dial(ctx, signal.Credential{Ticket: jr.WsTicket})
 	if err != nil {
-		return Outcome{Message: msgLost}
+		return Outcome{Message: msgLost, Failed: true}
 	}
 	s.attach(ctx, conn)
 	if jr.TechnicianName != "" {
 		s.techName = jr.TechnicianName
 	}
-	s.d.UI.Lobby(jr.AdmitCode, s.techName)
+	if s.preAdmitted {
+		s.d.UI.Connecting(s.techName)
+	} else {
+		s.d.UI.Lobby(jr.AdmitCode, s.techName)
+	}
 
 	var reconnectDeadline time.Time
 	for {
@@ -334,9 +362,9 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 			if r.err != nil {
 				if s.phase != phActive || s.token == "" || signal.Fatal(r.err) {
 					if signal.Fatal(r.err) {
-						return Outcome{Message: msgProtocol}
+						return Outcome{Message: msgProtocol, Failed: true}
 					}
-					return Outcome{Message: msgLost}
+					return Outcome{Message: msgLost, Failed: true}
 				}
 				// AC-24: kabul edilmiş misafir reconnectToken ile 120 sn içinde döner; yeni PeerConnection kurulur.
 				s.closeControl(ctx, "", true) // kopuşta kapı kapanır; sunucu durumu VIEW yapar (AC-24)
@@ -353,7 +381,7 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 			}
 		case c := <-s.redial:
 			if c == nil {
-				return Outcome{Message: msgLost}
+				return Outcome{Message: msgLost, Failed: true}
 			}
 			s.attach(ctx, c)
 		case e := <-s.peerEv:
@@ -465,6 +493,9 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 // onHello admit (ilk) veya yeniden bağlanma (sonraki) — her ikisinde yeni PeerConnection (AC-24).
 func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 	first := s.phase == phLobby
+	if first && s.d.Admitted != nil {
+		s.d.Admitted()
+	}
 	s.closeControl(ctx, "", true) // AC-24: her yeni PeerConnection kapı kapalı başlar
 	s.helloEnv(ctx)               // K8: hello'dan hemen sonra tek env.state (monitör seçimi beklenmez)
 	if h.ReconnectToken != "" {

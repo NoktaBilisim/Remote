@@ -1,6 +1,11 @@
 package pairing
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestAC97FromFileName(t *testing.T) {
 	cases := []struct {
@@ -43,5 +48,41 @@ func TestAC97NormalizeManualEntry(t *testing.T) {
 		if _, valid := Normalize(in); valid {
 			t.Errorf("%q geçerli sayılmamalı", in)
 		}
+	}
+}
+
+// TestAC133RefFromFileNameMatchesContractsFixture ortak fixture `request-form.json` fileName örnekleri (ADR-0006 r4).
+func TestAC133RefFromFileNameMatchesContractsFixture(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packages", "contracts", "fixtures", "request-form.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fx struct {
+		FileName []struct {
+			In  string  `json:"in"`
+			Out *string `json:"out"`
+		} `json:"fileName"`
+	}
+	if err := json.Unmarshal(b, &fx); err != nil || len(fx.FileName) == 0 {
+		t.Fatalf("fixture: %v", err)
+	}
+	for _, c := range fx.FileName {
+		ref, ok := RefFromFileName(`C:\Users\ayse\Downloads\` + c.In)
+		if (c.Out == nil) == ok || (c.Out != nil && ref != *c.Out) {
+			t.Errorf("%q: got (%q,%v) want %v", c.In, ref, ok, c.Out)
+		}
+	}
+}
+
+// TestAC161FileNameModesAreDisjoint firma dosyası 8 hane yoluna, kod dosyası talep yoluna düşmez (geriye uyum).
+func TestAC161FileNameModesAreDisjoint(t *testing.T) {
+	if _, ok := FromFileName("NoktaDestek-Firma12345678-abcdefghijk23456.exe"); ok {
+		t.Error("firma dosyası kod modu sayılmamalı")
+	}
+	if _, ok := RefFromFileName("Destek-12345678.exe"); ok {
+		t.Error("kod dosyası talep modu sayılmamalı")
+	}
+	if _, ok := RefFromFileName("NoktaDestek.exe"); ok {
+		t.Error("genel dosya talep modu sayılmamalı")
 	}
 }

@@ -5,6 +5,57 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P8b-2 (Windows istemci 0.9.0: müşteri "Destek iste"; ADR-0016, mimari-e9 §13)
+- **Firma dosyasıyla açılış:** `NoktaDestek-<firma>-<ref>.exe` açılınca istemci firma bilgisini sunucudan alır
+  (`GET /public/requests/tenant`). Pencerede firma adı (yalnız sunucudan), bekleme süresi, dolandırıcılık uyarısı,
+  (tanımlıysa) "Kötüye kullanımı bildir" ve alt satırda sunucu · sürüm · parmak izi görünür. Ağ ve sertifika hatası
+  ayrı mesaj + "Tekrar dene"; yenilenmiş bağlantının eski dosyası "Bu dosya artık geçerli değil" gösterir.
+- **"Destek iste" formu + KVKK:** ad soyad, telefon (TR veya uluslararası), e-posta (isteğe bağlı), sorun; aydınlatma
+  metni ve onay kutusu aynı formda. Alan bazında hata, ilk hatalı alana odak, Enter = "Destek iste". Aydınlatma metni
+  arada güncellenirse yeniden onay istenir.
+- **Hatırla / Bilgilerimi unut:** "Bilgilerimi bu bilgisayarda hatırla" ilk açılışta işaretsiz. İşaretliyse ad,
+  telefon ve e-posta yalnız talep oluşunca `%LOCALAPPDATA%\NoktaDestek\hatirla.bin`'e DPAPI ile şifreli yazılır;
+  sonraki açılışta form dolu ve kutu işaretli gelir. Hatırlanan ad veya telefon değiştirilirse kutu kendiliğinden
+  kalkar (yeni kişinin bilgisi onaysız yazılmaz). "Bilgilerimi unut" dosyayı ve boşsa klasörü siler; silinemezse
+  uyarı formda ve bekleme ekranında kalır.
+- **Bekleme ekranı:** 6 haneli talep kodu, "Sırada n. talepsiniz", geçen süre (1 sn'de bir). "Talebi iptal et" veya
+  pencereyi kapatma talebi iptal eder. Kopmada 110 sn boyunca yeniden bağlanır.
+- **Kapanış ekranları:** iptal, zaman aşımı ("Yeniden talep oluştur" formu dolu açar), ret ("Firmanızın mesajı:" +
+  düz metin), bağlantı kurulamadı, talep geçersiz.
+- **Kabulde "Ekranımı paylaş / Vazgeç":** teknisyen kabul edince onay diyaloğu öne gelir, görev çubuğu yanıp söner;
+  teknisyen adı, doğrulama kodu, talep kodu, kalan süre (60 sn). P7 izin kuralları: odak "Vazgeç", 1,5 sn kilit,
+  Enter/Space paylaşmaz, uzaktan tıklama sayılmaz.
+- **Otomatik bağlanma:** "Ekranımı paylaş" sonrası lobi ve kabul kodu olmadan doğrudan oturuma girilir; sonrası P7
+  akışıyla aynıdır (uzaktan kontrol için ayrıca izin).
+- **"Teknisyenden kod aldım":** formdan ve engel ekranlarından 8 haneli kod akışına geçiş. `Destek-<8 hane>.exe` ve
+  `NoktaDestek.exe` eskisi gibi çalışır.
+- **Eski sürüm uyarısı:** `MIN_AGENT_VERSION` altındaki firma dosyası form göstermez; "Bu Hızlı Destek dosyası eski" +
+  "Yeni sürümü indir" (`…/request-download?ref=…`, yalnız https). Kod modunda "Teknisyeninizden yeni bağlantı isteyin".
+- **503/429 yeniden deneme:** talep oluşturmada yalnız 503 `NOT_READY` en çok bir kez otomatik denenir
+  (`Retry-After`, 1–15 sn + 0–1 sn rastgele); ağ hatası ve 502/504 denenmez (talep oluşmuş olabilir). `/ws/request`
+  yeniden bağlanması 2→4→8→15 sn artan aralıkla, `Retry-After`'a uyarak (≤ 60 sn) yapılır.
+
+### Güvenlik — P8b-2
+- Hatırlanan bilgi DPAPI (CurrentUser) ile şifreli; başka Windows kullanıcısına kopyalanan dosya okunmaz ve silinir.
+  `deviceKey` yalnız hatırla açıkken üretilir ve gönderilir; kişi değişince yeni anahtar (S8b2-1).
+- Sunucudan gelen metinler (firma adı, teknisyen adı, ret ve hata mesajları) tek süzgeçten geçer: satır sonu, sekme,
+  görünmez ve yön değiştiren (bidi) karakterler temizlenir (S8b2-3). Ret mesajı bağlantı değil, düz metindir.
+- Açık onay diyaloğuna farklı teknisyen adıyla yeni kabul gelirse diyalog kapatılıp yeniden açılır, 1,5 sn kilit
+  yeniden başlar.
+- "Yeni sürümü indir" yalnız `https://` adres açar. Onay süresi dolunca soket 1001 ile kapanır (sunucu "Müşteri
+  bağlanamadı" yazar, "vazgeçti" değil).
+
+### Güvenlik — P8b-2 (düzeltme turu 2)
+- S8b2-4: onay diyaloğu teknisyen adı + doğrulama koduyla eşleşir; kod değişirse diyalog yeniden açılır ve 1,5 sn kilit
+  yeniden başlar. Kopmadan sonraki ilk yeniden bağlanmaya 0–1 sn rastgele bekleme eklendi.
+
+### Bilinen sınırlamalar — P8b-2
+- Gerçek Windows'ta elle testler (Win10/Win11, implementation.md "Backend (Go) P8b-2" adım 1–20 + a–c) yapılmadı.
+- Firma logosu henüz sunucudan gelmez; pencerelerde Nokta Bilişim logosu görünür.
+- S8b-8'in sunucu yarısı (503'te IP kovası iadesi) ve S8b2-2'nin sunucu yarısı (güvenilen ağı `/ws/request` hız
+  kovasından muaf tutma) açık.
+- `MIN_AGENT_VERSION=0.9.0` müşterilerin tamamı 0.9.0 firma dosyasına geçene kadar açılmamalıdır.
+
 ### Eklendi — P8b-1 (müşteri destek talebi: sunucu + panel; ADR-0016)
 - **Müşteri başlatmalı destek talebi (sunucu):** müşteri, firmaya özel Hızlı Destek dosyasından ad, telefon, isteğe
   bağlı e-posta ve açıklamayla talep gönderir; talep o firmanın kuyruğuna düşer. Public uçlar
@@ -67,11 +118,11 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   ayrıntısında "Sayfada kal" + ikinci geri tuşu). `onClose` yalnız diyalog gerçekten kapalıyken çağrılır.
 
 ### Bilinen sınırlamalar — P8b-1
-- Müşteri tarafı (Hızlı Destek'te "Destek iste" formu ve bekleme ekranı) P8b-2 ile gelir; o sürüme kadar
-  `MIN_AGENT_VERSION` boş kalmalıdır.
+- Müşteri tarafı (Hızlı Destek'te "Destek iste" formu ve bekleme ekranı) istemci 0.9.0 (P8b-2) ile geldi;
+  `MIN_AGENT_VERSION` müşterilerin tamamı 0.9.0'a geçene kadar boş kalmalıdır.
 - AC-149 (talep → panel bildirimi ≤ 3 sn) yalnız yerelde ölçüldü; staging ölçümü yayın sonrası.
 - E-posta bildirimi P10'da. Kara liste (G-E9-17) "Sonra".
-- 503 sonrası yeniden deneyen müşteri IP kovasını tüketir (S8b-8); P8b-2 istemci yeniden denemesiyle ele alınır.
+- 503 sonrası yeniden deneyen müşteri IP kovasını tüketir (S8b-8); istemci yarısı 0.9.0'da sınırlandı, sunucu yarısı açık.
 
 ## [0.8.2] — 2026-11-12 — Staging alan adı + Windows istemci
 
