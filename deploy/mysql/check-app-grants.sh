@@ -375,6 +375,19 @@ run DENIED "$TX $SSI ('MYSQL',$MY_OK,NULL,NOW(3)); $R" system_settings_key_chk
 run DENIED "$TX $SSI ('mysql','{\"host\":\"db\",\"port\":3306,\"database\":\"remote\",\"user\":\"rapor\",\"password\":\"x\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json); $R" system_settings_mysql_chk
 run DENIED "$TX $SSI ('mysql',$MY_OK,X'00',NOW(3)) ON DUPLICATE KEY UPDATE secret_enc=VALUES(secret_enc); $R" system_settings_secret_enc_chk
 run DENIED "$TX $SSI ('turn','{\"urls\":[\"turn:turn.example.com:3478\"]}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_turn_chk
+# P12 (AC-81..85): yetki değişmedi (app tenants/users tablo düzeyi UPDATE, system_settings SELECT/INSERT/UPDATE).
+# Yol biçimi `{tenant_id|system}/{[A-Za-z0-9_-]16..100}.{png|jpg|webp}`, öndek satırın tenant'ına bağlı; system_logo anahtarı.
+GT="00000000000000000000GRANTT"; RND="Ab_-0123456789xyz"
+run OK     "$TX UPDATE tenants SET logo_path='$GT/$RND.png' WHERE id='$GT'; UPDATE tenants SET logo_path=NULL WHERE id='$GT'; $R"
+run OK     "$TX UPDATE users SET avatar_path='$GT/$RND.webp', theme='LIGHT' WHERE id='00000000000000000000GRANTU'; $R"
+run DENIED "UPDATE tenants SET logo_path='$GT/../$RND.png' WHERE id='$GT'" tenants_logo_path_chk
+run DENIED "UPDATE tenants SET logo_path='00000000000000000000OTHERT/$RND.png' WHERE id='$GT'" tenants_logo_path_chk
+run DENIED "UPDATE tenants SET logo_path='$GT/$RND.svg' WHERE id='$GT'" tenants_logo_path_chk
+run DENIED "UPDATE users SET avatar_path='system/$RND.jpg' WHERE id='00000000000000000000GRANTU'" users_avatar_path_chk
+run DENIED "UPDATE users SET avatar_path=CONCAT('$GT/$RND.png',CHAR(10)) WHERE id='00000000000000000000GRANTU'" users_avatar_path_chk
+run OK     "$TX $SSI ('system_logo','{\"path\":\"system/$RND.webp\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL,updated_at=NOW(3); $R"
+run DENIED "$TX $SSI ('system_logo','{\"path\":\"$GT/$RND.webp\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_system_logo_chk
+run DENIED "$TX $SSI ('System_Logo','{\"path\":\"system/$RND.webp\"}',NULL,NOW(3)); $R" system_settings_key_chk
 # Temizlik (FK sırasıyla)
 run OK     "DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"
 exit $FAILED

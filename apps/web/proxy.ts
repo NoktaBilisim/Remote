@@ -1,4 +1,6 @@
 import { SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { tenantSlugSchema } from "@remote/contracts/api/tenants";
+import { TENANT_HEADER } from "@/lib/branding/constants";
 import { NextResponse, type NextRequest } from "next/server";
 
 /*
@@ -10,6 +12,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // Oturumsuz erişilen yollar (önek eşleşmesi). /session/ = müşteri karşılama sayfası (P4; o zamana dek 404)
 // P10: /forgot-password, /reset-password (AC-66; token URL parçasında — sunucuya/loga gitmez)
 const PUBLIC_PATHS = ["/login", "/session/", "/forgot-password", "/reset-password"];
+
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => (p.endsWith("/") ? pathname.startsWith(p) : pathname === p || pathname.startsWith(`${p}/`)));
@@ -52,6 +55,11 @@ export function proxy(req: NextRequest) {
 
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set("x-nonce", nonce);
+  // P12 (AC-82): giriş ekranı logosu için firma kısa adı (?tenant=<slug>) sunucu layout'una iletilir (layout sorgu
+  // dizesini göremez). Dışarıdan gelen aynı adlı başlık her zaman silinir; yalnız biçime uyan slug yazılır.
+  requestHeaders.delete(TENANT_HEADER);
+  const slug = req.nextUrl.searchParams.get("tenant");
+  if (slug && tenantSlugSchema.safeParse(slug).success) requestHeaders.set(TENANT_HEADER, slug.trim());
   requestHeaders.set("Content-Security-Policy", csp);
 
   const res = NextResponse.next({ request: { headers: requestHeaders } });

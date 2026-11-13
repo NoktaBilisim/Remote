@@ -42,3 +42,6 @@ deploy/ACCESS.txt
 apps/agent-win/cmd/noktadestek/rsrc_windows_*.syso
 # İstemci yayın kaydı (sunucuda verify-and-publish.sh yazar)
 deploy/agent/PUBLISHED.log
+
+# P12 yerel (compose dışı) yükleme kökü: UPLOADS_DIR=./.data/uploads — kullanıcı dosyaları repoya girmez
+.data/

@@ -472,3 +472,51 @@ MySQL 8.4'te binlog varsayılan açık. Bu durumda SUPER yetkisi olmayan `migrat
 - **Temiz DB:** `test-db.sh up` (P1→P11) OK, 320/320 PASS. `test:int` 421 testten 420'si geçti. Kalan 1 test `session-history-p8` ikili CHECK sayımıydı: 19 → 22 olarak güncellendi (P11 key/mysql/turn), sonra geçti. down → up → drift 0.
 - `audit-immutability-p11.test.ts` **12/12**: migrator UPDATE → SIGNAL; 0/365/729 gün DELETE → SIGNAL; `SET TIMESTAMP=2035` ve `time_zone=+14:00` ile de SIGNAL (730 güne 10 saat kalan satır dahil); 731 gün DELETE OK; app UPDATE/DELETE/DROP·CREATE TRIGGER/ALTER/TRUNCATE/DROP/RENAME/GRANT → yetki hatası; system_settings geçerli/geçersiz kayıtlar (anahtar, nesne/boyut, secret, mysql ve turn şemaları); app DELETE/DDL yok.
 - `pnpm db:generate` + server `typecheck` temiz; birim testleri 310/310.
+
+## P12 — marka ve kişiselleştirme (2026-11-13)
+Migration `apps/server/prisma/migrations/20261113120000_p12_branding/{migration.sql,down.sql}`. Mimari §3.1, §10 P12; AC-81..85; T16. **Yalnız CHECK**: yeni tablo/sütun, veri taşıma, Prisma şema değişikliği yok (drift 0). Seed değişmedi (satır/yol yoksa varsayılan Nokta logosu ve baş harf avatarı — geliştirme ortamı boş kalmaz).
+
+### Mevcut olan, eklenmeyen
+| İhtiyaç | Alan |
+|---|---|
+| Tenant logosu | `tenants.logo_path VARCHAR(200)?` |
+| Avatar | `users.avatar_path VARCHAR(200)?` |
+| Tema (AC-85) | `users.theme VARCHAR(20)` vars. `SYSTEM`; `users_theme_chk` ADR-0014 migration'ında zaten ikili (`LIGHT|DARK|SYSTEM`) → dokunulmadı |
+| Sistem logosu (AC-82) | `system_settings` anahtarı `system_logo` (yeni değer, tablo P11) |
+
+### Yol biçimi (karar)
+Backend'in yazacağı biçim: **`{öndek}/{rastgele}.{uzantı}`**, yükleme köküne göre göreli (`uploads/` öneki DB'ye yazılmaz).
+- öndek: `tenants` → satırın **kendi `id`'si**; `users` → satırın **`tenant_id`'si**, Super Admin (tenant_id NULL) → `system`; sistem logosu → `system`.
+- rastgele: `[A-Za-z0-9_-]{16,100}` (base64url ≥ 12 bayt, ULID veya hex uygun). Nokta ve `/` yok → `..`, gizli dosya, alt dizin, mutlak yol imkânsız.
+- uzantı: `png|jpg|webp`, küçük harf (`jpeg`, `PNG`, `svg` ret; sharp yeniden kodlar, uzantıyı sunucu seçer).
+- Harf duyarlı (`'c'`; sütunlar `_ci`), son `\z` (ICU `$` sondaki `\n`'yi kabul ediyor — P10 madde 3). Öndek eşitliği `CAST(... AS BINARY)`.
+- **Öndek satırın tenant'ına bağlı:** başka tenant klasörünü gösteren yol DB'ye yazılamaz (AC-84 izolasyonunun DB savunması). Yan etki: avatarı olan kullanıcının `tenant_id`'si değiştirilemez (önce avatar kaldırılır) — bugün böyle bir akış yok.
+- DB savunma derinliğidir; birincil kontrol backend `uploads/*` (magic bytes, sharp, rastgele ad). Dosyayı sunarken yolu yine sunucu kurmalı ve tenant'ı oturumdan doğrulamalı (CHECK yalnız yazılan değeri sınar).
+
+| CHECK | Kural |
+|---|---|
+| `tenants_logo_path_chk` | NULL veya `^[0-9A-Z]{26}/[A-Za-z0-9_-]{16,100}[.](png\|jpg\|webp)\z` + öndek = `id` |
+| `users_avatar_path_chk` | NULL veya `^([0-9A-Z]{26}\|system)/…\z` + öndek = `COALESCE(tenant_id,'system')` |
+| `system_settings_key_chk` | ikili `mysql\|turn\|system_logo` (DROP+ADD aynı ALTER) |
+| `system_settings_system_logo_chk` | key ≠ system_logo veya (value_json dolu, secret_enc NULL, JSON şema `{path}` zorunlu tek alan, `^system/[A-Za-z0-9_-]{16,100}[.](png\|jpg\|webp)$`) — rapidjson `$` sondaki `\n`'yi reddediyor (test edildi) |
+Backend notu: zod aynı deseni uygulamalı. Sistem logosu kaldırma için bkz. açık nokta 1.
+
+### Kilit / guard
+- ADD CHECK = ALGORITHM=COPY → `tenants`, `users`, `system_settings` yeniden yazılır (küçük tablolar; prod kapalı).
+- Up guard `p12_up_guard_chk` (3819): biçime uymayan logo/avatar satırı varsa migration hiçbir şey değişmeden durur (P12 öncesi kod bu sütunları yazmıyordu). Kurtarma: satırı NULL'a çek (dosya yeniden yüklenir) → `prisma migrate resolve --rolled-back 20261113120000_p12_branding` → `pnpm db:migrate`.
+- `down.sql`: `system_logo` satırı varsa `p12_down_guard_chk` ile durur; yoksa 3 CHECK'i düşürür, key CHECK'ini `mysql|turn`'e döndürür, `_prisma_migrations` kaydını siler. Yol değerleri korunur.
+
+### Yetkiler
+Değişiklik yok: app'in `tenants`/`users` tablo düzeyi UPDATE'i (logo_path, avatar_path, theme dahil) ve `system_settings` SELECT/INSERT/UPDATE'i P1/P11'den var. `grants.sql` değişmedi; `check-app-grants.sh` +10 P12 satırı.
+
+### Açık noktalar (backend/mimar)
+1. **Sistem logosunu kaldırma:** app'te `system_settings` DELETE yok ve şema `value_json` NULL'a izin vermiyor. Seçenek A (öneri, en az yetki): kaldırma yok, yalnız "değiştir" (AC-82 sistem logosunu yalnız değiştirmeyi ister); B: grants'e `system_settings` DELETE eklenir (mysql/turn satırlarını da silebilir hale gelir — P11'de bilinçli verilmedi). Karar backend/mimar; DELETE istenirse dba migration+grant günceller.
+2. ICU `$` bulgusundaki 6 eski CHECK (P10 madde 3) bu pakette **çevrilmedi** (kapsam küçük tutuldu); açık kalıyor.
+
+### Test (2026-11-13, geçici `mysql:8.4` 8.4.13 binlog açık + bayrak, `rs-mysql-p12dba:33351`, silindi)
+- **Temiz DB** P1→P12 OK. `check-app-grants.sh` **330/330 PASS** (320 + 10 P12).
+- **down**: system_logo satırı varken `p12_down_guard_chk` 3819, hiçbir şey değişmedi; satır silinince OK → P11 durumu, drift 0.
+- **P11 durumundaki DB → up**: geçersiz `logo_path` (`../etc/passwd`) varken `p12_up_guard_chk` 3819 (P3018), CHECK'ler ve key CHECK'i değişmedi; satır düzeltilip `resolve --rolled-back` + migrate → OK, `migrate status` güncel, drift 0.
+- `branding-p12.test.ts` (yeni, app kullanıcısı): logo/avatar geçerli/geçersiz yollar (başka tenant, `..`, alt dizin, mutlak, `uploads/`, svg/PNG/jpeg, `\n`, kısa/uzun/ASCII dışı ad), Super Admin `system/`, tenant değişimi engeli, tema ikili, system_logo şema/secret/anahtar.
+- Güncellenen: `audit-immutability-p11` (system_logo artık geçerli anahtar → ret listesinde `SYSTEM_LOGO`), `session-history-p8` ikili CHECK sayısı 22 → 25.
+- `test:int` **455/455**, birim 324/324, typecheck + lint temiz.

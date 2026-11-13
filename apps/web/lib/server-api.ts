@@ -82,6 +82,22 @@ export async function serverGet<T>(path: string): Promise<ServerResult<T>> {
   );
 }
 
+/**
+ * Herkese açık GET (B-P12-1): çerez gönderilmez; istemci IP'si (XFF) yalnız istek Caddy'den geldiyse
+ * (X-Edge-Auth doğru) iletilir — `resolveSessionToken` ile aynı kural (lib/edge-forward.ts). Böylece server'ın
+ * IP başına limiti (ör. /public/branding 60/dk) gerçek ziyaretçiye uygulanır; tüm ziyaretçiler web konteynerinin
+ * IP kovasını paylaşmaz.
+ */
+export async function publicGet<T>(path: string): Promise<ServerResult<T>> {
+  const fwd = forwardHeaders(await requestHeaders(), readEdgeSecret());
+  return toResult<T>(() =>
+    fetch(`${API_INTERNAL_URL}/api/v1${path}`, {
+      headers: { ...fwd, accept: "application/json" },
+      cache: "no-store",
+    }),
+  );
+}
+
 async function toResult<T>(call: () => Promise<Response>): Promise<ServerResult<T>> {
   let res: Response;
   try {

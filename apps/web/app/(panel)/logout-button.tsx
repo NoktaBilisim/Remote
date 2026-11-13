@@ -8,8 +8,8 @@ import { api, ApiError } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { clearSessionData } from "@/lib/session-storage";
 
-/** AC-65: POST /auth/logout (CSRF başlıklı) → /login. 401 = zaten düşmüş oturum, çıkış sayılır. */
-export function LogoutButton({ userName }: { userName: string }) {
+/** AC-65: POST /auth/logout (CSRF başlıklı) → /login. 401 = zaten düşmüş oturum, çıkış sayılır. Üst menü düğmesi ve hesap menüsü ortak. */
+export function useLogout() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -30,6 +30,11 @@ export function LogoutButton({ userName }: { userName: string }) {
     router.replace("/login?reason=logout");
     router.refresh();
   }
+  return { logout, pending, failed };
+}
+
+export function LogoutButton({ userName }: { userName: string }) {
+  const { logout, pending, failed } = useLogout();
 
   return (
     <div className="flex shrink-0 items-center gap-2">

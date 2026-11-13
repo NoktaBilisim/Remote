@@ -324,7 +324,11 @@ describe("AC-168 / AC-170 / AC-171 ref, yenileme, pasif/aktif", () => {
     expect(ci.statusCode).toBe(200);
     expect(Object.keys(ci.json<object>()).sort()).toEqual(Object.keys(gi.json<object>()).sort());
     expect(ci.body).not.toContain("Gizli Müşteri");
-    expect(ci.json()).toEqual(gi.json()); // ref'in müşteriye mi Genel'e mi ait olduğu anlaşılmaz
+    // ref'in müşteriye mi Genel'e mi ait olduğu anlaşılmaz. `tenant.logoUrl` hariç: firma logosu yokken sistem logosudur
+    // ve paralel `branding-api-p12` (AC-82) iki istek arasında değiştirebilir; logo zinciri orada sınanıyor (QA-1).
+    type Info = { tenant: { logoUrl?: string } };
+    const noLogo = (b: Info) => ({ ...b, tenant: { ...b.tenant, logoUrl: undefined } });
+    expect(noLogo(ci.json<Info>())).toEqual(noLogo(gi.json<Info>()));
     const unknown = await info(l, "abcdefghijklmnop");
     await api(l, a.s, "POST", `${C}/${c.id}/deactivate`, {});
     const passive = await info(l, ref);

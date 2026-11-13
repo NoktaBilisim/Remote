@@ -1,6 +1,22 @@
 # Gereksinimler — "Sonra / açık" takip tabloları
 Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (bölüm 9'un devamıdır, ayrılmaz parçasıdır). Boyut nedeniyle 2026-11-12'de ana dosyadan taşındı; P2..P8 tabloları içerik değiştirilmeden taşındı, yeni paketlerin tabloları en üste eklenir.
 
+### Sonra / açık — P12'den (2026-11-13)
+Kaynak: `docs/guvenlik-raporu.md` (P12 turu, Kod turu 1 + Doğrulama turu 1), `docs/arsiv/p12-qa-raporu.md` (Tur 1–2
+Öneriler), `docs/arsiv/p12-test-raporu.md` (sayfa testi), `docs/implementation.md` ("P12 — Backend" sapmalar ve düzeltme turu 1,
+"P12 — Frontend" notlar), `docs/db-notlari.md` P12.
+
+| Madde | Ne yapılacak | Sahip | Ne zaman |
+|---|---|---|---|
+| Sistem logosunu kaldırma (AC-82 genişletmesi) | Bugün yalnız yükle/değiştir var. `app` kullanıcısının `system_settings` üzerinde DELETE yetkisi yok ve CHECK `value_json` NULL'a izin vermiyor (db-notlari P12 açık nokta 1, seçenek A). Karar: `app`'e `system_logo` satırı için DELETE yetkisi mi (grants.sql + `check-app-grants.sh`), yoksa "boş" değer biçimi mi; sonra `DELETE /admin/settings/system-logo` + "Kaldır" düğmesi | mimar → dba → backend-dev + frontend-dev | Sonra |
+| B-P12-3 (Düşük) silinen kullanıcı/firmanın dosyaları | Bugün kalıcı silme yok, yalnız pasife alma (dosya bilinçli korunuyor). P13 retention/silme: kullanıcı silinince/anonimleşince `avatar_path = NULL` + dosya silme + audit `user.avatar_removed{reason:user_deleted}`; firma silinince logo, `uploads/{tenantId}/` klasörü ve avatarlar; yetim dosya taraması; runbook §16.5'e yedekten düşme süresi notu (ayrıntı `implementation.md` "P12 — Backend" B-P12-3) | backend-dev + devops | P13 |
+| Müşteri ekranında teknisyen avatarı (AC-26/R8) | `technician.avatarUrl` bugün her zaman `null` (KVKK: çalışan fotoğrafı herkese açık URL olmasın); müşteri baş harf görür. Açılacaksa oturuma bağlı, kısa ömürlü imzalı URL tasarımı | mimar → backend-dev | Sonra |
+| MySQL CHECK regex'lerinde `$` → `\z` (P10'dan) | P10 tablosundaki 6 eski CHECK hâlâ `$` kullanıyor (P12 CHECK'leri `\z` ile yazıldı). Migration + down + ön kontrol | dba | Sonra |
+| `rs_theme` çerezinin `Secure` bayrağı | Kod `Secure`'u yalnız `NODE_ENV=production` iken koyar; yerel testte `Secure=false` görüldü (test raporu B-2). Staging/prod yayınında yanıt başlığında `Secure` doğrulanmalı | test-operatoru + devops | P12 staging yayınında |
+| Talep sayfalarında logo | Web uygulamasında "talep sayfası" yok (talep Windows istemcisinde); `/public/requests/tenant` ve `/public/bindings/status` `tenant.logoUrl`'i dolu döner, testli. İstemcide görünüm gerçek Windows'ta denenmeli | test-operatoru | Windows elle testleriyle |
+| Üst menüde çift "Çıkış" | Hesap menüsünde "Çıkış" ve üst menüde tek dokunuş "Çıkış yap" birlikte var: **bilinçli** (std. §1.3 görünür çıkış, 375 px testi). Değişiklik gerekmez | — | Karar kaydı |
+| QA önerileri (zorunlu değil) | `globals.css` koyu token setinin iki kopyası için eşitlik testi; `file.type` boş gelen `.webp` için istemci ön kontrolünü sunucuya bırakma | frontend-dev | Sonra |
+
 ### Sonra / açık — P11'den (2026-11-13)
 Kaynak: `docs/guvenlik-raporu.md` (P11 turu, Kod turu 1 + Doğrulama turu 1), `docs/arsiv/p11-qa-raporu.md` (Tur 1–2
 Öneriler), `docs/arsiv/p11-test-raporu.md` (sayfa testi), `docs/implementation.md` ("P11 — Backend" düzeltme turu 1).
@@ -11,7 +27,7 @@ Kaynak: `docs/guvenlik-raporu.md` (P11 turu, Kod turu 1 + Doğrulama turu 1), `d
 | B-P11-4 (Düşük, risk kabulü) MySQL testi port tarama / parola deneme sinyali | Kişi başı 5/dk + global 20/dk ve süre gizleme yapıldı. Kalan: `rs_mysql_test_failed_total` metriği ve alarm eşiği (runbook'a) | devops | Sonra |
 | I-P11-1 audit'in harici append-only kopyası | Tetikleyiciler `migrator`'a karşı koruma sağlamaz (DROP TRIGGER / TRUNCATE yapabilir). Audit'in WORM yedek veya log gönderimiyle harici, eklenebilir-yalnız kopyası | dba + devops | P13 |
 | I-P11-3 `created_at`'in DB saatine zorlanması | `app` `created_at`'i kendisi yazabiliyor; P13'te DELETE yetkisi verilince geri tarihli sahte satır ekleyip silebilir. `BEFORE INSERT` tetikleyicisiyle `NEW.created_at = SYSDATE(3)` (UTC) zorlanmalı; retention DELETE yetkisiyle aynı migration'da | dba + devops | P13 |
-| Sayfa testinde gerçek server ile koşulamayan akışlar | Super Admin girişi + 2FA, MySQL testinin gerçek DB'ye karşı başarı / yanlış şifre / zaman aşımı sonuçları, `PUT/DELETE /api/v1/audit` → 405, gerçek audit kayıtlarının listelenmesi ve CSV formül kaçışı, TURN panel ayarının coturn ile gerçek oturumda çalışması. Entegrasyon testleri kapsıyor; ortam betiği `docs/test-raporu/e2e/p11/setup.sh` | test-operatoru | Staging'de, P11 yayınından sonra |
+| ~~Sayfa testinde gerçek server ile koşulamayan akışlar~~ | **KAPANDI (P12 sayfa testi, 2026-11-13):** gerçek server + MySQL ile Super Admin ilk giriş + 2FA, `PUT/DELETE/PATCH/POST /api/v1/audit` → 405, gerçek audit kayıtlarının listelenmesi ve CSV formül kaçışı doğrulandı (`docs/arsiv/p12-test-raporu.md` R1–R4). Kalan: MySQL testinin gerçek DB'ye karşı başarı / yanlış şifre / zaman aşımı sonuçları ve TURN panel ayarının coturn ile gerçek oturumda çalışması staging'de elle denenmeli | test-operatoru | P12 ✓ (kalan kısım staging'de) |
 | `SYSTEM_AUDIT` JSDoc ve `_` önek testi (QA önerisi) | JSDoc `password: "***"` diyor, kod `"changed"` yazıyor; `tenant_settings.*` gibi `_` içeren önekle entegrasyon testi | backend-dev | Sonra |
 
 ### Sonra / açık — P10'dan (2026-11-12)

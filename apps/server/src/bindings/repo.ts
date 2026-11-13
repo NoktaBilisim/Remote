@@ -15,7 +15,7 @@ const useSelect = {
   tenantId: true,
   customerId: true,
   lastUsedAt: true,
-  tenant: { select: { name: true, status: true, deletedAt: true, settings: { select: { retentionDays: true } }, requestSettings: { select: { waitMinutes: true, trustedCidrs: true, waEnabled: true, waRecipients: true } } } },
+  tenant: { select: { name: true, logoPath: true, status: true, deletedAt: true, settings: { select: { retentionDays: true } }, requestSettings: { select: { waitMinutes: true, trustedCidrs: true, waEnabled: true, waRecipients: true } } } },
   customer: { select: { id: true, name: true, status: true } },
 } as const;
 export type BindingUseRow = Prisma.DeviceBindingGetPayload<{ select: typeof useSelect }>;

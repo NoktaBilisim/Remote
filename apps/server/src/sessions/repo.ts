@@ -101,7 +101,7 @@ const publicSelect = {
   status: true,
   expiresAt: true,
   techVerifyCode: true,
-  tenant: { select: { name: true } },
+  tenant: { select: { name: true, logoPath: true } },
   technician: { select: { fullName: true } },
 } as const;
 

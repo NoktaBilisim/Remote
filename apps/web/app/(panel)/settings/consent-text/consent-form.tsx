@@ -14,6 +14,7 @@ import { api, ApiError, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api"
 import { toUiError, type UiError } from "@/lib/error-message";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { useHydrated } from "@/lib/use-hydrated";
 
 const FORM_ID = "consent-form";
 /** Sunucuyla aynı sayım: CRLF → LF, uçlar kırpılmış, kod noktası. */
@@ -37,6 +38,7 @@ function VersionMeta({ v }: { v: ConsentTextVersion }) {
  */
 export function ConsentForm({ initial, canEdit }: { initial: ConsentTextSettings; canEdit: boolean }) {
   const router = useRouter();
+  const ready = useHydrated(); // data-ready: e2e hidrasyondan önce yazmasın (QA P12 Tur 2)
   const toast = useToast();
   const id = useId();
   const [data, setData] = useState(initial);
@@ -121,7 +123,7 @@ export function ConsentForm({ initial, canEdit }: { initial: ConsentTextSettings
             </div>
           </dl>
         )}
-        <form id={FORM_ID} onSubmit={submit} noValidate className="mt-4 flex flex-col gap-1.5" data-testid="consent-form">
+        <form id={FORM_ID} onSubmit={submit} noValidate className="mt-4 flex flex-col gap-1.5" data-testid="consent-form" data-ready={ready ? "true" : "false"}>
           <label htmlFor={`${id}-body`} className="text-sm font-medium text-fg">{t("ct.body")}</label>
           <textarea
             ref={areaRef}

@@ -1,14 +1,17 @@
 import { CircleAlert, CircleCheck, CircleX, Hourglass, Link2Off, Lock, LogOut, SearchX, ShieldCheck, Timer, UserX, WifiOff, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { BrandLogo } from "@/components/brand-logo";
+import { LogoImage } from "@/components/brand-logo";
 import { t, type MessageKey } from "@/lib/i18n";
 
-/** Müşteri ekranlarının çerçevesi: sistem logosu (tenant logosu P9) + tek sütun içerik. Tema: sistem. */
-export function GuestShell({ children }: { children: ReactNode }) {
+/**
+ * Müşteri ekranlarının çerçevesi: firmanın logosu (resolve `tenant.logoUrl`, P12 AC-81), yoksa / firma bilinmiyorsa
+ * Nokta sistem logosu + tek sütun içerik. Tema: sistem (DESIGN §8).
+ */
+export function GuestShell({ children, tenant }: { children: ReactNode; tenant?: { name: string; logoUrl: string | null } }) {
   return (
     <div className="group mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-6 px-4 py-6 sm:py-8">
       <header className="flex flex-wrap items-center gap-3">
-        <BrandLogo variant="full" />
+        <LogoImage variant="full" url={tenant?.logoUrl} alt={tenant ? t("lg.alt", { name: tenant.name }) : t("app.systemLogoAlt")} testId="guest-logo" />
         <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-fg-muted">
           <Lock aria-hidden className="size-4" />
           {t("g.secure")}

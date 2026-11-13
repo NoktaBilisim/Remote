@@ -39,6 +39,11 @@ get443 "/x/NoktaDestek-Ikinci-$REF/y" >/dev/null
 get443 "/downloads/NoktaDestek.exe" >/dev/null
 get443 "/downloads/Destek-12345678.exe" >/dev/null
 get443 "/session/TOKENGIZLI123/x" >/dev/null
+# P12 gövde sınırı: 2 MiB dosyalı multipart geçer (upstream yok → 502), 3,2 MB → 413 (nginx kendisi keser)
+head -c 2097152 /dev/urandom >"$TMP/img2m"; head -c 3200000 /dev/urandom >"$TMP/img3m"
+post443() { curl -sk $R -o /dev/null -w '%{http_code}' -X POST -F "file=@$1;type=image/png" "https://remote.noktabilisim.net:$H443$2"; }
+[ "$(post443 "$TMP/img2m" /api/v1/users/me/avatar)" = 502 ] && pass "2 MiB yükleme nginx'ten geçer" || fail "2 MiB yükleme nginx'te kesildi"
+[ "$(post443 "$TMP/img3m" /api/v1/users/me/avatar)" = 413 ] && pass "3,2 MB → 413" || fail "3,2 MB 413 değil"
 sleep 0.5
 docker exec "$C" cat /var/log/nginx/remote.access.log >"$TMP/access.log"
 U="$(grep -o '"uri":"[^"]*"' "$TMP/access.log" | sort | uniq -c)"

@@ -1,6 +1,6 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12)
 
-Bu belge P1–P8, P8b-1, P8c-1, P9, P10 ve P11'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11 ve P12'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
@@ -16,11 +16,15 @@ P10: `auth/{routes,account,mfa,session,guards}.ts`, `tenants/smtp-routes.ts`, `s
 `lib/{crypto,netguard}.ts`, `users/{routes,service}.ts` (`reset-mfa`), `packages/contracts/src/api/{auth,tenants,sessions,requests}.ts`.
 P11: `audit/{routes,read,repo,view}.ts`, `settings/{routes,system,consent,mysql-probe}.ts`, `public/consent.ts`,
 `packages/contracts/src/api/{audit,system-settings}.ts`.
+P12: `uploads/{routes,files,service,image,multipart,store,urls}.ts`, `auth/routes.ts` (`/auth/me/preferences`, `rs_theme`),
+`packages/contracts/src/api/branding.ts`, `errors.ts` (`INVALID_IMAGE`, `PAYLOAD_TOO_LARGE`), `audit.ts` (`BRANDING_AUDIT`).
 
 ## Genel kurallar
 - Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres `PUBLIC_BASE_URL` (staging `https://remote.noktabilisim.net`;
   geçiş süresince `https://185.126.217.99:4450`).
 - İstek gövdesi en çok 64 KB (Caddy sınırı 2 MB); aşım, bozuk JSON veya yanlış içerik türü → 400 `VALIDATION`.
+  İstisna (P12): üç resim yükleme ucu `multipart/form-data` alır, dosya en çok 2 MB (Caddy bu uçlarda 3 MiB'a izin verir).
+  Diğer uçlara multipart gövde gönderilirse 400.
 - Her yanıtta `X-Request-Id` başlığı bulunur; hata gövdesindeki `requestId` ile aynıdır. Kullanıcı "Hata kodu"
   olarak bunu görür; log araması bu değerle yapılır (`docs/runbook.md` §5).
 - Tanımsız yol → 404 `NOT_FOUND`.
@@ -30,6 +34,7 @@ P11: `audit/{routes,read,repo,view}.ts`, `settings/{routes,system,consent,mysql-
 |---|---|---|
 | `__Host-rs_session` | HttpOnly, Secure, SameSite=Strict, Path=/, Domain yok | Opak oturum token'ı (DB'de yalnız SHA-256) |
 | `__Host-rs_csrf` | Secure, SameSite=Strict, Path=/, Domain yok, **HttpOnly değil** | CSRF double-submit değeri; JS okur |
+| `rs_theme` (P12) | SameSite=Lax, Path=/, Max-Age 1 yıl, **HttpOnly değil**, Secure yalnız `NODE_ENV=production` | Tema tercihi `light`/`dark`/`system`; web ilk HTML'i doğru temayla çizer. Login, `GET /auth/me` ve `PATCH /auth/me/preferences` yazar; çıkışta silinmez. Gizli değer değildir |
 
 Oturum mutlak **8 saat**, boşta **30 dakika** sonra düşer; sonraki istek 401 alır. Çerez adları
 `@remote/contracts/api/auth` sabitlerinden (`SESSION_COOKIE`, `CSRF_COOKIE`, `CSRF_HEADER`) gelir.
@@ -91,8 +96,10 @@ stack, SQL veya iç ayrıntı içermez.
 | `NONCE_INVALID` | 410 | `joinNonce` süresi dolmuş (60 sn), kullanılmış veya bilinmiyor |
 | `CLIENT_OUTDATED` | 426 | P8b: Windows istemci sürümü `MIN_AGENT_VERSION`'dan düşük; `fields.minVersion` |
 | `ACCOUNT_LOCKED` | 423 | Giriş kilidi; `Retry-After` (saniye) başlığı ile |
+| `INVALID_IMAGE` | 400 | P12: yüklenen dosya PNG/JPEG/WEBP değil (tür içerikten okunur; SVG, GIF, sahte uzantı reddedilir), bozuk, 24 MP'den büyük ("Yalnız PNG, JPG veya WEBP resim yükleyebilirsiniz.") ya da boyut/oran dışı ("Resim boyutları uygun değil: her kenar en az 16 px, en-boy oranı logoda en çok 20:1, profil resminde en çok 4:1 olmalı.") |
+| `PAYLOAD_TOO_LARGE` | 413 | P12: yüklenen dosya 2 MB'tan büyük ("Dosya en çok 2 MB olabilir.") |
 | `METHOD_NOT_ALLOWED` | 405 | P11: audit uçlarına POST/PUT/PATCH/DELETE (`Allow` başlığıyla); audit kayıtları salt okunurdur |
-| `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma; P11 audit CSV, MySQL testi, aydınlatma metni kaydı); `Retry-After` ile |
+| `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma; P11 audit CSV, MySQL testi, aydınlatma metni kaydı; P12 resim yükleme 20/sa/kullanıcı, resim işleme kuyruğu dolu, `/public/branding` 60/dk/IP); `Retry-After` ile |
 | `QUEUE_FULL` | 429 | P8b: firmada 50 bekleyen talep, ya da ≥ 40 iken bilinmeyen kaynak ("Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.") |
 | `INTERNAL` | 500 | Beklenmeyen hata |
 | `UPSTREAM` | 502 | P8b: WhatsApp test ucu — servis yapılandırılmamış veya production'da güvensiz adres. P10: SMTP yok ("Önce SMTP ayarlarını yapın") veya gönderim başarısız (tek genel mesaj "E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.") |
@@ -166,6 +173,13 @@ stack, SQL veya iç ayrıntı içermez.
 | POST | `/api/v1/admin/settings/mysql/test` (P11) | Oturum + CSRF, yalnız SUPER_ADMIN | 200 |
 | GET · PUT · DELETE | `/api/v1/admin/settings/turn` (P11) | Oturum (+ CSRF), yalnız SUPER_ADMIN | 200 |
 | GET · PUT | `/api/v1/settings/consent-text` (P11) | Oturum (+ CSRF), `settings.view` · `settings.edit`, firma bağlamı | 200 |
+| PATCH | `/api/v1/auth/me/preferences` (P12) | Oturum + CSRF (şifre değişimi / 2FA kurulumu aşamasında da) | 200 + `rs_theme` |
+| POST · DELETE | `/api/v1/settings/logo` (P12) | Oturum + CSRF, `settings.edit`, firma bağlamı | 200 |
+| POST · DELETE | `/api/v1/users/:id/avatar` (P12; `:id` = `me` olabilir) | Oturum + CSRF; kendi hesabı serbest, başkası `users.edit` | 200 |
+| POST | `/api/v1/admin/settings/system-logo` (P12) | Oturum + CSRF, yalnız SUPER_ADMIN | 200 |
+| GET | `/api/v1/files/logo/:tenantId/:file`, `/api/v1/files/system-logo/:file` (P12) | Public | 200 (PNG) |
+| GET | `/api/v1/files/avatar/:tenantId/:file` (P12) | Oturum (aynı firma veya Super Admin) | 200 (WEBP) |
+| GET | `/api/v1/public/branding?tenant=<slug>` (P12) | Public | 200 |
 
 ### POST /api/v1/auth/login
 Girdi: `login` (e-posta veya kullanıcı adı, 3–190; `@` içeriyorsa e-posta olarak aranır), `password` (1–200),
@@ -177,12 +191,13 @@ curl -sk -i -X POST https://localhost:4450/api/v1/auth/login \
 ```
 ```json
 { "user": { "id": "01K…", "email": "admin@example.com", "username": null, "fullName": "Super Admin",
-            "role": "SUPER_ADMIN", "tenantId": null, "theme": "SYSTEM", "mustChangePassword": true },
+            "role": "SUPER_ADMIN", "tenantId": null, "theme": "SYSTEM", "avatarUrl": null, "mustChangePassword": true },
   "mfaRequired": false, "mustChangePassword": true }
 ```
 Yanıtta `Set-Cookie: __Host-rs_session=…` ve `Set-Cookie: __Host-rs_csrf=…` gelir. P10: yanıtta ayrıca
 `mfaSetupRequired` vardır. `mfaRequired: true` → oturum `verify` aşamasında, `POST /auth/mfa/verify` gerekir;
 `mfaSetupRequired: true` → kurulum gerekir (bkz. "2FA aşaması"). Aynı tarayıcının eski oturum çerezi varsa o oturum sunucuda iptal edilir.
+P12: yanıt ayrıca kullanıcının tema tercihini `rs_theme` çerezine yazar.
 
 Hatalar: 400 `VALIDATION`; 401 `UNAUTHENTICATED` ("E-posta/kullanıcı adı veya şifre hatalı." — hesap var/yok,
 pasif kullanıcı veya pasif tenant için aynı mesaj); 403 `CSRF_INVALID`; 423 `ACCOUNT_LOCKED`; 429 `RATE_LIMITED`.
@@ -210,14 +225,17 @@ temizler, ancak sunucu oturumu yalnız geçerli CSRF ile iptal edilir.
 Gerekli: oturum çerezi. `mustChangePassword=true` iken de çalışır.
 ```json
 { "user": { "id": "01K…", "email": "admin@example.com", "username": null, "fullName": "Super Admin",
-            "role": "SUPER_ADMIN", "tenantId": null, "theme": "SYSTEM", "mustChangePassword": false },
+            "role": "SUPER_ADMIN", "tenantId": null, "theme": "SYSTEM", "avatarUrl": null, "mustChangePassword": false },
   "permissions": ["sessions.view", "sessions.create", "…"],
-  "tenant": null, "actingTenant": null }
+  "tenant": null, "actingTenant": null, "logoUrl": "/img/logo.png" }
 ```
 `role`: `SUPER_ADMIN` | `ADMIN` | `USER`. `tenant`: `{ id, name, slug }` veya Super Admin için `null`.
 `actingTenant` P1'de daima `null` (tenant geçişi P9). `permissions` etkin yetki anahtarlarıdır
 (`packages/contracts/src/permissions.ts`). P10: `mfa: { enabled, required, stage: "ok"|"verify"|"setup",
-recoveryCodesLeft }`; `verify` aşamasında `permissions` boş ve `actingTenant` `null`. Hata: 401.
+recoveryCodesLeft }`; `verify` aşamasında `permissions` boş ve `actingTenant` `null`.
+P12: `user.theme` (`LIGHT` | `DARK` | `SYSTEM`), `user.avatarUrl` (`/api/v1/files/avatar/…` veya `null` → baş harf rozeti),
+`logoUrl` (üst menü logosu; her zaman dolu: etkin firmanın logosu → sistem logosu → `/img/logo.png`; 2FA bekleyen oturumda
+seçili firma yerine kullanıcının kendi firması). Yanıt `rs_theme` çerezini yeniler. Hata: 401.
 
 ### POST /api/v1/auth/password/change
 Girdi: `current` (1–200), `next` (12–200, `current`'tan farklı). Gerekli: oturum, `X-CSRF-Token`, `Origin`.
@@ -520,7 +538,10 @@ Yanıt 200 (`Cache-Control: no-store`):
   "abuseEmail": "abuse@example.com" }
 ```
 - `sessionRef`: HMAC (`SESSION_REF_KEY`) + oturum id; tahmin edilemez, token değildir, yalnız durum yoklamasında
-  kullanılır. `logoUrl`/`avatarUrl` P9/P12'ye kadar `null`.
+  kullanılır.
+- `tenant.logoUrl` (P12): firma logosu → sistem logosu → `/img/logo.png`; kod artık her zaman dolu döner (tip `string | null`).
+  `technician.avatarUrl` **her zaman `null`**: avatar oturumlu uçtan sunulur, kimliksiz müşteriye açılmaz (KVKK);
+  müşteri ekranı baş harf rozeti gösterir.
 - `consentText` (P4): tenant'ın güncel (`is_current`) KVKK aydınlatma metni. `body` düz metindir (HTML değil);
   istemci metin olarak basar. `sha256` gövdenin UTF-8 SHA-256 özetidir. `id` join'de `consentTextId` olarak geri
   gönderilir.
@@ -999,10 +1020,11 @@ neden `CUSTOMER`, `DISCONNECTED`, `TENANT_PASSIVE`) | `EXPIRED` (Süresi doldu);
 ### GET /api/v1/public/requests/tenant?ref=
 Firma bilgisi ve güncel KVKK metni. Yanıt `Cache-Control: no-store`.
 ```json
-{ "tenant": { "name": "Örnek Ltd", "logoUrl": null },
+{ "tenant": { "name": "Örnek Ltd", "logoUrl": "/api/v1/files/logo/01K…/<24-karakter>.png" },
   "consentText": { "id": "01K…", "version": 3, "body": "…", "sha256": "…" },
   "waitMinutes": 30, "abuseEmail": null, "minAgentVersion": null }
 ```
+`tenant.logoUrl` (P12): firma logosu → sistem logosu → `/img/logo.png` (istemci ekranındaki logo).
 Hatalar: 404 `REQUEST_REF_INVALID` (biçim dışı, yok, yenilenmiş, pasif — hepsi aynı), 429 `RATE_LIMITED`.
 
 ### POST /api/v1/public/requests
@@ -1224,12 +1246,13 @@ başka tenant, kayıtla açılmamış), 409 `CONFLICT` (kayıt zaten geçersiz),
 Gövde `{ "bindingKey": "rsb_…", "clientVersion": "0.10.0" }` (ikisi de zorunlu; `clientVersion` yoksa 400
 `VALIDATION`). 200 (`no-store`): `TenantRequestInfo` + `customer`:
 ```json
-{ "tenant": { "name": "Örnek Destek Ltd", "logoUrl": null },
+{ "tenant": { "name": "Örnek Destek Ltd", "logoUrl": "/img/logo.png" },
   "consentText": { "id": "01K…", "version": 4, "body": "…", "sha256": "…" },
   "waitMinutes": 30, "abuseEmail": null, "minAgentVersion": null,
   "customer": { "name": "Örnek Muhasebe Ltd." } }
 ```
-`customer` Genel kayıtta `null`. Kaydın son kullanım zamanını değiştirmez. Hatalar: 404 `BINDING_INVALID`, 426
+`customer` Genel kayıtta `null`. `tenant.logoUrl` P12 logo zincirini izler (yukarıdaki örnekte firma ve sistem logosu yok).
+Kaydın son kullanım zamanını değiştirmez. Hatalar: 404 `BINDING_INVALID`, 426
 `CLIENT_OUTDATED`, 429.
 ```bash
 curl -s -X POST -H 'Content-Type: application/json' \
@@ -1291,7 +1314,8 @@ Tüm yanıtlar `Cache-Control: no-store`. Biçimsiz `:id` (ULID değil) → 404.
 - Bu adım hata verirse log `user_live_effect`; 60 sn'lik yeniden doğrulama devralır (runbook §14.3).
 
 **Tipler.** `UserListItem = { id, email, username|null, fullName, role: "ADMIN"|"USER", status: "ACTIVE"|"PASSIVE",
-mustChangePassword, totpEnabled, lastLoginAt|null, createdAt }` (`lastLoginAt: null` "hiç giriş yapmadı" demek değildir).
+mustChangePassword, totpEnabled, lastLoginAt|null, createdAt, avatarUrl|null }` (`lastLoginAt: null` "hiç giriş yapmadı"
+demek değildir; `avatarUrl` P12, yoksa baş harf rozeti).
 `UserDetail = UserListItem + { permissions: { "<modül>.<eylem>": bool } (tanımdaki her anahtar), isSelf, canManage }`.
 `TenantItem = { id, name, slug, status, activeUserCount, createdAt, updatedAt }`.
 
@@ -1341,8 +1365,11 @@ GET `settings.view`, PUT `settings.edit`. Etkin firmanın genel ayarları. Web e
 { "sessionTtlMin": 15, "maxOpenSessions": 3, "maxActiveHours": 4, "maxFileMb": 100, "retentionDays": 365,
   "requireTech2fa": true,
   "smtp": { "host": "smtp.example.com", "port": 587, "security": "STARTTLS", "user": "bildirim@example.com",
-            "fromName": "Örnek Destek", "fromEmail": "bildirim@example.com", "hasPassword": true } }
+            "fromName": "Örnek Destek", "fromEmail": "bildirim@example.com", "hasPassword": true },
+  "logoUrl": null }
 ```
+`logoUrl` (P12, salt okunur): yalnız firmanın **kendi** yüklediği logo; yoksa `null` (sistem logosuna düşüş burada yapılmaz).
+Değiştirmek için `POST/DELETE /settings/logo`.
 | Alan | Anlamı | Aralık |
 |---|---|---|
 | `sessionTtlMin` | Oturum linki/kodu geçerlilik süresi (dk) | 15–30 |
@@ -1605,6 +1632,116 @@ değişmez; verilmiş onaylar kendi sürümüne bağlı kalır, yeni oturumlar y
 
 Audit `settings.consent_text.updated` (eski → yeni `{ version, sha256 }`; metin gövdesi yazılmaz). Hatalar: 400, 401, 403, 409, 429.
 
+## Marka ve kişiselleştirme: logo, avatar, tema (P12)
+Bağlayıcı sözleşme: `docs/mimari-api.md` "backend-dev sapma notu (P12)". Kaynak: `apps/server/src/uploads/*`,
+`auth/routes.ts`; sabitler ve tipler `packages/contracts/src/api/branding.ts`.
+
+| Metot | Yol | Yetki | Başarı |
+|---|---|---|---|
+| PATCH | `/api/v1/auth/me/preferences` | Oturum + CSRF; şifre değişimi ve 2FA kurulumu aşamasında da çalışır (`verify` aşamasında 403 `MFA_REQUIRED`) | 200 `{ theme }` + `rs_theme` |
+| POST · DELETE | `/api/v1/settings/logo` | Oturum + CSRF, `settings.edit`, firma bağlamı (Super Admin firma seçmeli) | 200 `{ logoUrl }` |
+| POST · DELETE | `/api/v1/users/:id/avatar` | Oturum + CSRF. `:id` = `me` veya kendi id'si → herkes; başka kullanıcı → `users.edit` + aynı firma + yönetilebilir hesap | 200 `{ avatarUrl }` |
+| POST | `/api/v1/admin/settings/system-logo` | Oturum + CSRF, yalnız SUPER_ADMIN | 200 `{ logoUrl }` |
+| GET | `/api/v1/files/logo/:tenantId/:file` | Public | 200 `image/png` |
+| GET | `/api/v1/files/system-logo/:file` | Public | 200 `image/png` |
+| GET | `/api/v1/files/avatar/:tenantId/:file` | Oturum; kendi firması (Super Admin tümü) | 200 `image/webp` |
+| GET | `/api/v1/public/branding?tenant=<slug>` | Public | 200 |
+
+Sistem logosunu **kaldıran uç yoktur** (yalnız yükle/değiştir); karar ve takip `docs/gereksinimler-sonra-acik.md` "P12'den".
+
+### Logo zinciri
+Her yerde aynı kural uygulanır (`uploads/urls.ts`): **firma logosu → sistem logosu → `/img/logo.png`** (Nokta Bilişim).
+Kullanıldığı yerler: `GET /auth/me` `logoUrl` (üst menü), `/public/branding` (giriş ekranı), müşteri uçlarındaki
+`tenant.logoUrl` (`/public/sessions/resolve`, `/public/requests/tenant`, `/public/bindings/status`) ve e-posta şablonları
+(mutlak adres `PUBLIC_BASE_URL` + dosya yolu; çözülemezse `/img/logo.png`, gönderim logoya takılmaz).
+`GET /settings/tenant` `logoUrl` ise yalnız firmanın kendi logosudur (yoksa `null`).
+
+### Yükleme kuralları (üç POST ucu için ortak)
+- İstek `multipart/form-data`, **tek dosya alanı `file`**, başka alan yok. Alan yok/yanlış veya boş dosya → 400 `VALIDATION`
+  `fields.file` "Bir resim dosyası seçin.".
+- Dosya en çok **2 MB** (2.097.152 bayt). Aşan istek okunmadan 413 `PAYLOAD_TOO_LARGE`.
+- Tür, dosya adına veya tarayıcının bildirdiği MIME'a değil **içeriğe** (magic bytes) bakılarak belirlenir; yalnız PNG, JPEG,
+  WEBP. SVG, GIF, HTML, uzantısı değiştirilmiş dosya, bozuk dosya veya 24 megapikselden büyük resim → 400 `INVALID_IMAGE`.
+  Animasyonlu resimde yalnız ilk kare kullanılır.
+- Boyut/oran: her kenar en az **16 px**; uzun kenar / kısa kenar oranı **logoda ≤ 20:1, avatarda ≤ 4:1**. Aşım → 400
+  `INVALID_IMAGE` (ayrıntılı mesaj; bkz. hata tablosu).
+- Sunucu resmi yeniden kodlar ve EXIF/ICC/XMP bilgisini siler. **Logo** ve **sistem logosu** → PNG, oran korunarak en çok
+  512 px (küçük resim büyütülmez). **Avatar** → WEBP 256×256, ortadan kare kırpılır.
+- Dosya `UPLOADS_DIR/{tenantId|system}/` altına rastgele adla (24 karakter) yazılır. Değiştirme/kaldırmada eski dosya silinir.
+- Hız: kullanıcı başına **saatte 20 yükleme** (üç uç ortak kova) → 429 `RATE_LIMITED` + `Retry-After`. Sunucu aynı anda en çok
+  2 resim işler, 4 iş bekletir; kuyruk dolu veya 10 sn içinde sıra gelmezse 429 `RATE_LIMITED` + `Retry-After: 5`
+  ("Sunucu şu an başka resimleri işliyor…"). Saatlik sayaç ve kuyruk birbirinden bağımsızdır.
+- Sıra: oturum + CSRF → yetki/kapsam → hedef kullanıcı (404/403) → hız sınırı → gövde okuma. Gövde, yetki ve hedef
+  doğrulanmadan okunmaz.
+- Yanıtlar `Cache-Control: no-store`.
+
+Örnek (kendi avatarı):
+```bash
+curl -sk -X POST https://localhost:4450/api/v1/users/me/avatar \
+  -H 'Origin: https://localhost:4450' -H "X-CSRF-Token: $CSRF" \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF" \
+  -F 'file=@profil.jpg'
+```
+```json
+{ "avatarUrl": "/api/v1/files/avatar/01K…/<24-karakter>.webp" }
+```
+
+### PATCH /api/v1/auth/me/preferences
+Gövde `{ "theme": "LIGHT" | "DARK" | "SYSTEM" }` (bilinmeyen alan veya başka değer → 400 `VALIDATION` "Tema Açık, Koyu veya
+Sistem olmalı"). Yalnız kendi hesabını değiştirir. Yanıt:
+```json
+{ "theme": "DARK" }
+```
+ve `Set-Cookie: rs_theme=dark`. Değer gerçekten değiştiyse DB'ye yazılır ve audit `user.theme_changed` (eski → yeni) oluşur;
+aynı değer tekrarında yazım ve audit yoktur. Hatalar: 400, 401, 403 (`CSRF_INVALID`, `MFA_REQUIRED`).
+
+### POST · DELETE /api/v1/settings/logo
+Etkin firmanın logosu. POST yükler veya değiştirir → `{ "logoUrl": "/api/v1/files/logo/<tenantId>/<ad>.png" }`.
+DELETE kaldırır → `{ "logoUrl": null }` (ekranlar sistem logosuna düşer). Logo yoksa DELETE yine 200 `null` döner, audit yazmaz.
+Super Admin seçili firma için çalışır; firma seçmemişse 403 "Önce bir firma seçin.". Hatalar: 400, 401, 403, 413, 429.
+
+### POST · DELETE /api/v1/users/:id/avatar
+`:id` `me`, kendi id'si veya aynı firmadaki bir kullanıcının id'si. POST → `{ "avatarUrl": "/api/v1/files/avatar/…webp" }`,
+DELETE → `{ "avatarUrl": null }` (yoksa da 200 `null`, audit yok).
+- Kendi avatarı: her rol (Super Admin dahil; Super Admin dosyası `system/` altında tutulur).
+- Başka kullanıcı: `users.edit` yoksa 403; başka firmanın kullanıcısı veya Super Admin hesabı 404; kendinden geniş yetkili
+  hesap 403 "Sizden daha geniş yetkili bir hesabı yönetemezsiniz."; biçimsiz id 404.
+Hatalar: 400, 401, 403, 404, 413, 429.
+
+### POST /api/v1/admin/settings/system-logo
+Yalnız SUPER_ADMIN. Firma belli olmadığında giriş ekranında ve logosu olmayan firmalarda görünen sistem logosunu yükler
+veya değiştirir → `{ "logoUrl": "/api/v1/files/system-logo/<ad>.png" }`. **DELETE yoktur.** Mevcut sistem logosu
+`GET /public/branding` (slug'sız) ile okunur. Hatalar: 400, 401, 403, 413, 429.
+
+### GET /api/v1/files/logo/:tenantId/:file · /files/system-logo/:file · /files/avatar/:tenantId/:file
+Dosya **yalnız DB'de o anda kayıtlı yolsa** sunulur: eski (değiştirilmiş/kaldırılmış) dosya, elle konmuş dosya, yanlış
+uzantı, biçim dışı ad veya `..` içeren yol → 404. Logo ucu avatarı, avatar ucu logoyu vermez.
+
+| Uç | Kim | Önbellek | Not |
+|---|---|---|---|
+| `files/logo`, `files/system-logo` | Herkes (giriş ekranı, müşteri sayfası, e-posta) | `public, max-age=300` + ETag | `Cross-Origin-Resource-Policy: cross-origin` (e-posta istemcileri yükler). Silinmiş firmanın logosu 404 |
+| `files/avatar` | Oturum; görüntüleyenin kendi firması değilse 404 (Super Admin tümü); `system/` avatarı yalnız Super Admin | `private, no-cache` + ETag (her gösterimde yetki yeniden denetlenir) | Oturumsuz 401. Şifre değişimi / 2FA kurulumu bekleyen oturum da kendi menüsü için çağırabilir |
+
+Tüm dosya yanıtlarında `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`,
+`Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; sandbox`; `Content-Type` sunucu belirler.
+`If-None-Match` eşleşirse 304 (yetki ve DB denetiminden sonra).
+
+### GET /api/v1/public/branding?tenant=<slug>
+Giriş ekranı logosu. Çerez istemez. Yanıt `Cache-Control: no-store`:
+```json
+{ "name": "Örnek Bilişim Ltd.", "logoUrl": "/api/v1/files/logo/01K…/<24-karakter>.png" }
+```
+- `tenant` geçerli ve firma aktifse: firma adı + firma logosu (yoksa sistem logosu → `/img/logo.png`).
+- `tenant` yok, biçim dışı, bilinmeyen veya pasif firma: **aynı biçimde** `{ "name": null, "logoUrl": <sistem logosu> }`
+  (404 dönmez; firma varlığı bu yoldan ayırt edilemez).
+- IP başına dakikada 60 istek; 61. → 429 `RATE_LIMITED` (`Retry-After`). Web giriş ekranı bu ucu sunucu tarafında çağırır ve
+  ziyaretçinin IP'sini yalnız Caddy → web paylaşılan sırrı (`X-Edge-Auth`) doğrulanınca iletir; böylece sınır ziyaretçi
+  başına işler.
+
+```bash
+curl -sk 'https://localhost:4450/api/v1/public/branding?tenant=demo'
+```
+
 ## Audit
 Giriş (başarılı/başarısız), kilit (`auth.locked`, kapsam `account_ip` veya `account`), çıkış ve şifre değişimi
 `audit_logs` tablosuna yazılır. P2: `session.created`, `session.cancelled`, `session.expired` (SYSTEM) ve
@@ -1655,5 +1792,10 @@ sıfırlama token'ı hiçbir yere yazılmaz.
 P11: `settings.mysql.updated`, `settings.mysql.test` (hedef + sonuç + sınıf; süre yalnız başarıda), `settings.turn.updated`,
 `settings.turn.deleted`, `settings.consent_text.updated`, `audit.exported` (filtre özeti + satır sayısı). Sistem ayarı
 kayıtlarında `tenantId` boştur. Şifre/secret yalnız `"changed"` işaretiyle görünür.
+P12: `tenant.logo_updated` / `tenant.logo_removed`, `user.avatar_updated` / `user.avatar_removed`, `settings.system_logo.updated`
+(eski → yeni `{ path }`, yüklemede `width`/`height`), `upload.rejected` (`result: fail`, `{ kind: logo|avatar|system_logo,
+reason: invalid_image|too_large }`), `user.theme_changed` (eski → yeni tema; yalnız değer değiştiğinde). Kuyruk dolu (429)
+reddi audit'e yazılmaz. Dosya içeriği hiçbir yere yazılmaz. Audit ekranında satırın avatarı yalnız görüntüleyenin erişebildiği
+dosyaysa döner, değilse baş harf.
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Kayıtlar Audit log ekranında (`/audit`) ve
 `GET /api/v1/audit` ile okunur; değiştirilemez.

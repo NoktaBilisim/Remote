@@ -13,7 +13,7 @@ import { canonicalIp, createNetGuard, isBlockedIp } from "../../src/lib/netguard
 import { MailService, type SmtpConfig, type TransportFactory } from "../../src/mail/service.ts";
 import { createMetrics } from "../../src/ops/metrics.ts";
 import { FAKE_APP_ENCRYPTION_KEYS } from "../helpers/secrets.ts";
-import { sessionLinkMail } from "../../src/mail/templates.ts";
+import { renderMailHtml, sessionLinkMail } from "../../src/mail/templates.ts";
 
 describe("AC-67 TOTP (RFC 6238)", () => {
   const key = Buffer.from("12345678901234567890", "ascii");
@@ -208,10 +208,11 @@ describe("AC-79 SMTP şeması", () => {
 
 describe("B-P10-1/5 gönderim katmanı", () => {
   const log = { warn: () => undefined, error: () => undefined };
+  const logo = { logoUrlFor: async () => "https://rs.test/img/logo.png", fallbackLogoUrl: "https://rs.test/img/logo.png" };
   const netguard = createNetGuard({ lookupAll: async () => ["8.8.4.4"] });
   const cfg: SmtpConfig = { host: "smtp.ok.test", port: 587, security: "STARTTLS", user: null, pass: null, fromName: null, fromEmail: "a@b.test" };
-  const content = { subject: "s", text: "t", html: "<p>t</p>" };
-  const mk = (transport: TransportFactory, attemptCapMs?: number) => new MailService({ db: {} as Db, secrets: new SecretBox(null), netguard, metrics: createMetrics(), log, transport, ...(attemptCapMs ? { attemptCapMs } : {}) });
+  const content = { subject: "s", text: "t", bodyHtml: "<p>t</p>" };
+  const mk = (transport: TransportFactory, attemptCapMs?: number) => new MailService({ db: {} as Db, secrets: new SecretBox(null), netguard, metrics: createMetrics(), log, ...logo, transport, ...(attemptCapMs ? { attemptCapMs } : {}) });
 
   it("B-P10-1/5: izinsiz port (DB'de eski değer) ve Yok+kimlik bilgisi bağlantı kurulmadan reddedilir", async () => {
     let opened = 0;
@@ -232,8 +233,8 @@ describe("B-P10-1/5 gönderim katmanı", () => {
       await send();
       return Date.now() - t0;
     };
-    const refused = new MailService({ db: audit, secrets: new SecretBox(null), netguard, metrics: createMetrics(), log, attemptCapMs: 400, transport: () => ({ sendMail: async () => Promise.reject(Object.assign(new Error("x"), { code: "ECONNECTION" })), close: () => undefined }) });
-    const hanging = new MailService({ db: audit, secrets: new SecretBox(null), netguard, metrics: createMetrics(), log, attemptCapMs: 400, transport: () => ({ sendMail: () => new Promise(() => undefined), close: () => undefined }) });
+    const refused = new MailService({ db: audit, secrets: new SecretBox(null), netguard, metrics: createMetrics(), log, ...logo, attemptCapMs: 400, transport: () => ({ sendMail: async () => Promise.reject(Object.assign(new Error("x"), { code: "ECONNECTION" })), close: () => undefined }) });
+    const hanging = new MailService({ db: audit, secrets: new SecretBox(null), netguard, metrics: createMetrics(), log, ...logo, attemptCapMs: 400, transport: () => ({ sendMail: () => new Promise(() => undefined), close: () => undefined }) });
     const tr = await time(() => refused.sendForTenant(ctx, a, "x@y.test", content, cfg, { interactive: true }));
     const th = await time(() => hanging.sendForTenant(ctx, a, "x@y.test", content, cfg, { interactive: true }));
     expect(tr).toBeGreaterThanOrEqual(390);
@@ -271,10 +272,11 @@ describe("B-P10-3 test kanalı production'da kapalı", () => {
 
 describe("AC-10 şablon", () => {
   it("AC-10: logo, teknisyen, link, kod, Europe/Istanbul son geçerlilik; HTML kaçışlı; konu tek satır", () => {
-    const m = sessionLinkMail({ publicBaseUrl: "https://rs.test", firm: "A<b>\r\nX", technician: "Ayşe <x>", link: "https://rs.test/session/abc", code: "12345678", expiresAt: new Date("2026-11-12T10:00:00Z") });
+    const m = sessionLinkMail({ firm: "A<b>\r\nX", technician: "Ayşe <x>", link: "https://rs.test/session/abc", code: "12345678", expiresAt: new Date("2026-11-12T10:00:00Z") });
     expect(m.subject).not.toMatch(/[\r\n]/);
-    expect(m.html).toContain("https://rs.test/img/logo.png");
-    expect(m.html).toContain("Ayşe &#60;x&#62;");
+    const html = renderMailHtml("https://rs.test/img/logo.png", m.bodyHtml);
+    expect(html).toContain('<img src="https://rs.test/img/logo.png"');
+    expect(m.bodyHtml).toContain("Ayşe &#60;x&#62;");
     expect(m.text).toContain("1234 5678");
     expect(m.text).toContain("13:00");
     expect(m.text).toContain("https://rs.test/session/abc");

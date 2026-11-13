@@ -3401,3 +3401,219 @@ Kaynak: `docs/test-raporu.md` ve QA önerisi.
 - **Aydınlatma metni PUT 429 (10/saat, B-P11-6):** `consent-form.tsx` 429'u ayrı ele alıyor. Kilit tonunda `FormError` gösteriliyor: "Saatte en çok 10 yeni sürüm kaydedilebilir. {dk} dakika sonra tekrar deneyin; yazdığınız metin korunuyor." Süre `Retry-After`'dan hesaplanıyor; başlık yoksa süresiz metin (`ct.rateLimited`, `ct.rateLimitedNoTime`). Onay penceresi kapanıyor, metin ve kaydet çubuğu korunuyor. Mock'ta gövdede `[hiz-siniri]` geçerse 429 + `Retry-After: 1500` dönüyor. Yeni e2e testi şunları doğruluyor: 429 durumunda "25 dakika sonra" mesajı ve `role=alert`, metin korunuyor, sürüm değişmiyor; ardından yeniden kayıt başarılı oluyor ve hata kalkıyor.
 - Değişen dosyalar: `app/(panel)/audit/audit-log.tsx`, `app/(panel)/settings/layout.tsx`, `app/(panel)/settings/consent-text/consent-form.tsx`, `messages/tr.json`, `e2e/mock-audit.mjs`, `e2e/p11-admin.spec.ts`, `e2e/p10-account.spec.ts`.
 - Sonuç: lint ve typecheck temiz; Vitest 218 geçti; Playwright tam takım 265 geçti, 0 hata.
+
+## P12 — DevOps (devops, 2026-11-13)
+- **Env `UPLOADS_DIR`:** adı backend `env.ts` ile teyit edildi (`UPLOADS_DIR`, mutlak yol, varsayılan `/data/uploads`; env.ts'e
+  dokunulmadı). `.env.example` (boş, açıklamalı), compose `server` (`UPLOADS_DIR: /data/uploads`), runbook §3 + §16.
+  Not (mimar): `docs/mimari.md` §8.1 tablosu hâlâ `UPLOAD_DIR` yazıyor → `UPLOADS_DIR` olarak düzeltilmeli.
+- **Compose:** named volume `uploads` (`remote_uploads`) → server `/data/uploads` (rw); Caddy'ye bağlanmaz. Kök fs salt okunur kalır.
+- **Dockerfile (`runtime`):** `/data/uploads` `node:node 0700` oluşturulur; Docker boş named volume'u bu sahiplikle doldurur
+  (chown/init konteyneri yok). Taban imaj değişmedi: bookworm-slim (glibc 2.36) + npm `@img/sharp-linux-{x64,arm64}` →
+  apt/libvips paketi gerekmez.
+- **Caddy:** `/api/*` `request_body 2MB` (= 2.000.000 bayt, SI) tam 2 MiB'lık dosyayı + multipart zarfını kesiyordu. Yükleme
+  uçlarına (POST `settings/logo`, `admin/settings/system-logo`, `users/<id>/avatar`) birbirini dışlayan `@upload`/`@notUpload`
+  matcher'larıyla 3 MiB; diğer `/api` 2MB'ta kaldı. Host nginx `client_max_body_size 2m → 3m` (yayında vhost güncellenir, §16.1/3).
+  CSP değişmedi (`img-src 'self' data: blob:`, `/api/v1/files/*` aynı köken). Log: `/api/v1/files/...` yolu yazılır, sorgu dizesi yazılmaz.
+- **Lisans:** `@img/sharp-libvips-*` LGPL-3.0-or-later; `scripts/check-licenses.mjs` LGPL'i izinli sayıyor → istisna gerekmedi.
+- **backend-dev'e not:** (1) Yeni yükleme ucu eklenirse (ör. Super Admin'in başka firma logosu için `/admin/tenants/:id/logo`)
+  Caddyfile `@upload` + `@notUpload` + `test-caddy.sh` listesine eklenmeli, yoksa 2 MB dosya Caddy'de 413 alır.
+  (2) ~~multipart geçici dosyası~~ — kapandı: backend gövdeyi bellekte okuyor (`multipart.ts` `toBuffer`, ≤ 2 MB), geçici dosya yok.
+- **Düzeltme turu 1 (devops, 2026-11-13; QA-3 / B-P12-5):** runbook §16 kod gerçeğine göre düzeltildi: dosya uçları
+  `/api/v1/files/logo/:tenantId/:file`, `/api/v1/files/system-logo/:file`, `/api/v1/files/avatar/:tenantId/:file`
+  (`/api/v1/public/files/...` yok — compose `UPLOADS_DIR` yorumu da düzeltildi); multipart bellekte, `/tmp`'ye yazılmaz;
+  yükleme ucu **3** (Caddyfile `@upload`/`@notUpload` ve `test-caddy.sh` ile tutarlı; test avatar ucunu `me` ve `<id>` ile
+  iki kez dener); dosya izni **0640**, dizin 0750 (`store.ts`) — gerçek `UploadStore.save()` ile yedek/geri yükleme yeniden
+  prova edildi, modlar ve SHA-256 korunuyor. Caddyfile yorumları zaten doğruydu, değişmedi.
+  **mimar'a not:** `docs/mimari.md` §(güvenlik başlıkları) CORP istisnası ve `docs/mimari-api.md` tablosu hâlâ
+  `/public/files/logo/*` yazıyor; gerçek yol `/files/logo/*` + `/files/system-logo/*` (mimari-api sapma notunda kayıtlı).
+- **Doğrulama (yerel, 2026-11-13):**
+  - Gerçek server imajı (`runtime`, backend lockfile'ıyla, arm64): `--read-only --cap-drop ALL --tmpfs /tmp` + named volume →
+    sharp yüklendi (vips 8.18.7), PNG(EXIF'li) → `file-type` `image/png` → 256×256 webp, EXIF yok, volume'a yazıldı (uid 1000);
+    kök fs `EROFS`; volume `node:node 700`.
+  - linux/amd64 (staging mimarisi): gerçek imajın emülasyonlu derlemesi Docker Desktop'ta `pnpm fetch` adımında 133 (SIGTRAP,
+    emülasyon) ile düştü; aynı taban imaj + aynı sharp 0.35.5 + pnpm 9.15.9 ile kurulan ayrı imajda amd64 duman testi GEÇTİ
+    (x64, glibc 2.36, vips 8.18.7). **Staging'de ilk derlemede §16.1/0 (CPU x86-64-v2) ve §16.1/5 (`require('sharp')`) zorunlu.**
+  - `deploy/test-caddy.sh` GEÇTİ (yeni "gövde sınırı" bölümü + log kontrolü), `deploy/nginx/test-nginx.sh` GEÇTİ (2 MiB geçer, 3,2 MB 413).
+  - `docker compose config` volume/env'i doğru üretiyor. Lisans: gerçek `pnpm licenses list --prod` (sharp dahil) → temiz.
+  - Yedek/geri yükleme provası (§16.3): tar (600, `gzip -t`) → boş volume'a geri yükleme → sahiplik `node:node`, SHA-256 listeleri aynı.
+  - Geçici imaj/volume'lar silindi. Staging'e bağlanılmadı; commit yapılmadı.
+
+## P12 — Backend (backend-dev, 2026-11-13)
+AC-81..85, T16. Sözleşme `packages/contracts/src/api/branding.ts` (yeni; `exports` `./api/branding`).
+
+### Değişen / yeni dosyalar
+- contracts: `api/branding.ts` (tema şeması + `rs_theme` çerez sabitleri, yükleme sabitleri, DB CHECK ile birebir yol şemaları, URL kurucular, yanıt tipleri), `errors.ts` (+`INVALID_IMAGE` 400, +`PAYLOAD_TOO_LARGE` 413), `audit.ts` (+`BRANDING_AUDIT`), `api/auth.ts` (`AuthUser.avatarUrl`, `MeResponse.logoUrl`), `api/users.ts` (`UserListItem.avatarUrl`), `api/tenants.ts` (`TenantSettingsView.logoUrl`).
+- server: `src/uploads/{image,store,multipart,urls,service,routes,files}.ts` (yeni); `app.ts` (depo + 3 eklenti, mail logo çözümleyici, açılışta `uploads_not_writable` alarmı); `env.ts` (`UPLOADS_DIR`, vars. `/data/uploads`; `.env.example` satırını devops eklemişti); `auth/{repo,session,routes}.ts` (avatar/logo yolu, `PATCH /auth/me/preferences`, `rs_theme` çerezi login + /auth/me + tema PATCH'te); `users/{repo,service}.ts` (`avatarUrl`, `manageableUser`); `tenants/{repo,service}.ts` (`logoUrl`); `audit/{repo,read}.ts` (avatar); `sessions/{repo,public}.ts`, `requests/{repo,service}.ts`, `bindings/{repo,service}.ts` (tenant logosu); `mail/{templates,service}.ts`, `auth/account.ts`, `tenants/smtp-routes.ts`, `sessions/email.ts` (e-posta logosu).
+- testler: `test/unit/image-p12.test.ts` (11), `test/integration/branding-api-p12.test.ts` (14), `helpers/tenant-matrix.ts` (+10 uç, +3 çapraz tenant vakası), `helpers/app.ts` (`TEST_UPLOADS_DIR` geçici dizin); P12'nin beklenen sonucu olarak güncellenen: `auth-login` (rs_theme çerezi), `tenants-p9` (`logoUrl`), `account-p10` (e-posta logosu), `mail-*`/`security-p10` (`bodyHtml`, logo bağımlılığı), `signaling-rooms`/`sessions-history-api-p8`/`history-p8` (yeni AuthUser/AuthContext alanları).
+
+### Uçlar (frontend-dev için sözleşme)
+| Uç | Yetki | Yanıt |
+|---|---|---|
+| POST/DELETE `/api/v1/settings/logo` | `settings.edit`, tenantScope (Super Admin seçili firma) | `{ logoUrl: string\|null }` |
+| POST/DELETE `/api/v1/users/:id/avatar` | `me`/kendi id serbest; başkası `users.edit` + aynı tenant (404) + canManage (403) | `{ avatarUrl: string\|null }` |
+| POST `/api/v1/admin/settings/system-logo` | SUPER_ADMIN | `{ logoUrl: string }` |
+| GET `/api/v1/files/logo/:tenantId/:file`, `/api/v1/files/system-logo/:file` | herkese açık | PNG, `public, max-age=300` + ETag/304, CORP cross-origin |
+| GET `/api/v1/files/avatar/:tenantId/:file` | oturumlu; kendi tenant'ı değilse 404 (Super Admin hepsi); `system/` avatarı yalnız Super Admin | WEBP, `private, max-age=300` |
+| GET `/api/v1/public/branding?tenant=<slug>` | herkese açık, 60/dk/IP | `{ name: string\|null, logoUrl: string }` |
+| PATCH `/api/v1/auth/me/preferences` `{ theme }` | oturum (şifre değişimi/2FA kurulumu aşamasında da) | `{ theme }` + `rs_theme` |
+- Yükleme: `multipart/form-data`, tek alan `file`; 2 MB+ → 413 `PAYLOAD_TOO_LARGE`; tür/bozuk/piksel bombası → 400 `INVALID_IMAGE` (mesaj `INVALID_IMAGE_MESSAGE`); alan yok/yanlış → 400 `fields.file`; 20/sa/kullanıcı (üç yükleme ucu ortak kova) → 429. Gövde, hedef/yetki doğrulanmadan okunmaz.
+- Logo zinciri (her yerde aynı, `uploads/urls.ts`): firma logosu → sistem logosu → `/img/logo.png`. `MeResponse.logoUrl` ve müşteri uçlarındaki `tenant.logoUrl` her zaman doludur; `TenantSettingsView.logoUrl` yalnız firmanın kendi logosu (null → "Kaldır" gizlenir).
+- `rs_theme`: `light|dark|system`, HttpOnly değil, SameSite=Lax, Secure yalnız `NODE_ENV=production`, Max-Age 1 yıl, Path=/; çıkışta silinmez.
+
+### Güvenlik (T16)
+Tür yalnız içerikten (`file-type`) PNG/JPEG/WEBP; ayrıca sharp'ın algıladığı biçim aynı kümede olmalı (sharp librsvg/heif ile SVG/AVIF de açabildiği için çift kontrol). `limitInputPixels` 24 MP, `failOn: "error"`, `pages: 1`. Logo → PNG ≤512 px (fit inside, büyütülmez), avatar → WEBP 256×256 (cover, orta). `rotate()` sonrası tüm metadata atılır (EXIF/ICC/XMP — testle). Dosya adı `randomBytes(18)` base64url (24 karakter), `UPLOADS_DIR/{tenantId|system}/`; geçici dosya (`wx`, 0640) + fsync + rename; öndek/ad regex + kök altı kontrolü → traversal imkânsız. Dosya yalnız DB'de **o anda kayıtlı** yolsa sunulur (logo ucu avatarı, avatar ucu logoyu, eski dosyayı vermez). Değiştirme/kaldırmada eski dosya commit sonrası silinir; TX düşerse yeni dosya silinir. Yanıt başlıkları: Content-Type sunucudan, `nosniff`, `inline`, CSP `default-src 'none'; frame-ancestors 'none'; sandbox`. multipart ayrıştırıcısı yalnız yükleme eklentisinin bağlamında; diğer uçlar multipart'ı 400 ile reddeder (testli). İşleme tamamen bellekte (`toBuffer`, 2 MB sınırı) — server `/tmp` tmpfs'e hiçbir şey yazılmaz.
+
+### Audit kararları
+`tenant.logo_updated|logo_removed`, `user.avatar_updated|avatar_removed`, `settings.system_logo.updated` (değer `{ path }` + boyut), reddedilen yüklemeler `upload.rejected` (fail, `{ kind, reason: invalid_image|too_large }`). **Tema: `user.theme_changed` yazılır** (ortak standart 1.1 "kayıt güncelleme"); yalnız değer gerçekten değiştiğinde, aynı değer tekrarında yazım ve audit yok → gürültü sınırlı. Kaldırma idempotent: logo/avatar yoksa 200 null, audit yok.
+
+### Tasarımdan sapmalar (gerekçeli)
+1. **Yollar**: mimari-api'deki `/public/tenants/:slug/branding` → `GET /public/branding?tenant=` ve `/public/files/logo/*` → `/files/logo/*` (+ `/files/system-logo/*`); koordinatörün sözleşmesi. CORP istisnası (mimari §5.4) yeni yollara uygulandı. `mimari-api.md`'ye sapma notu yazıldı.
+2. **Sistem logosu kaldırma yok** (yalnız yükle/değiştir): app'in `system_settings` DELETE yetkisi yok ve CHECK `value_json` NULL'a izin vermiyor (db-notlari P12 açık nokta 1, seçenek A). AC-82 değiştirmeyi ister; "Kaldır" → Sonra. Mevcut sistem logosu `GET /public/branding` (slug'sız) ile okunur.
+3. **Teknisyen avatarı müşteriye verilmez** (`/public/sessions/resolve` `technician.avatarUrl: null`): avatar oturumlu uçtan sunulur; kimliksiz müşteriye açmak çalışan fotoğrafını herkese açık URL'ye çevirir (KVKK). AC-26/R8 "teknisyen adı/avatarı" → müşteri ekranı baş harf rozeti gösterir. Açılması istenirse oturuma bağlı kısa ömürlü imzalı URL gerekir (mimar kararı).
+4. **Tema ucu** `PATCH /auth/me` yerine `PATCH /auth/me/preferences { theme }` → `{ theme }` (koordinatör sözleşmesi; `fullName` düzenlemesi bu pakette yok).
+5. **E-posta**: şablonlar artık `bodyHtml` üretir; logo `MailService.sendForTenant` içinde tenant'a göre (mutlak `PUBLIC_BASE_URL` + public URL) eklenir; çözülemezse `/img/logo.png` (gönderim logoya takılmaz).
+6. Audit ekranında avatar yalnız görüntüleyenin erişebildiği dosyaysa döner (başka tenant / Super Admin avatarı → null); kırık resim yerine baş harf.
+
+### Bağımlılıklar (mimari §10.4 listesinde)
+`sharp@0.35.5` (Apache-2.0; libvips `@img/sharp-libvips-*` LGPL-3.0-or-later, **ayrı paylaşımlı kütüphane olarak dinamik bağlı**, değiştirilmeden dağıtılır → LGPL koşulları karşılanır; GPL/AGPL yok; install betiği yok, ön derlenmiş ikili), `file-type@22.3.0` (MIT), `@fastify/multipart@10.1.8` (MIT). Lockfile güncellendi; kilitte `@img/sharp-linux-x64` + `@img/sharp-libvips-linux-x64` (glibc, bookworm-slim imajına uygun) var. İmaj doğrulaması devops bölümünde (`require('sharp')`, x86-64-v2).
+
+### devops'a not
+Caddy `@upload`/`@notUpload` matcher'ları uçlarla birebir (settings/logo, admin/settings/system-logo, users/:id/avatar — POST); yeni yükleme ucu eklenmedi. Uygulama Content-Length > 2 MiB + 16 KiB'ı okumadan 413'ler (Caddy 3 MiB tavanının altında). `UPLOADS_DIR` yazılamazsa açılışta `alarm: uploads_not_writable` logu.
+
+### Test
+`eval "$(TEST_DB_CONTAINER=rs-mysql-p12be TEST_DB_PORT=33361 apps/server/scripts/test-db.sh up)"` → `pnpm --filter @remote/server test` **335/335**, `test:int` **469/469** (48 dosya; P12: 14 + matris), `pnpm -r run typecheck` temiz (contracts, server, web), `pnpm -r run lint` temiz. Konteyner silindi. Commit yapılmadı, staging'e bağlanılmadı.
+
+### Düzeltme turu 1 (backend-dev, 2026-11-13) — qa-raporu madde 1, guvenlik-raporu "P12 turu"
+Yalnız atanan maddeler: QA-1, B-P12-2, B-P12-4 (kod + test), B-P12-3 (yalnız P13'e devir notu; kod değişikliği yok).
+
+**Değişen dosyalar**
+- `packages/contracts/src/api/branding.ts`: `IMAGE_MIN_EDGE_PX = 16`, `LOGO_MAX_ASPECT = 20`, `AVATAR_MAX_ASPECT = 4`, `IMAGE_DIMENSIONS_MESSAGE`, `IMAGE_BUSY_MESSAGE`.
+- `apps/server/src/uploads/image.ts` (B-P12-2): `metadata()` sonrasında, kod çözmeden önce boyut/oran kontrolü yapılıyor (`dimensionsOk`); ihlal `INVALID_IMAGE` (400) döner, mesaj `IMAGE_DIMENSIONS_MESSAGE`. Kod çözme ve kodlama adımı süreç genelinde tek bir `ConcurrencyGate`'ten geçiyor (`imageGate`, mevcut `lib/gate.ts`, yeni kod yok): en çok 2 iş çalışır, en çok 4 iş bekler, bekleme sınırı 10 sn. Kuyruk dolarsa ya da süre aşılırsa 429 `RATE_LIMITED`, `Retry-After: 5`. Reddedilen dosya kapıya hiç girmez. Kapı reddi `upload.rejected` audit'i yazmaz (dosya geçersiz değil, sunucu meşgul).
+- `apps/server/src/uploads/files.ts` (B-P12-4): avatar yanıtı `Cache-Control: private, no-cache` (önceden `private, max-age=300`). ETag/304 korunuyor; 304 yolu yetki denetiminden (oturum, tenant, DB'de kayıtlı yol) sonra geliyor. Logo ve sistem logosu `public, max-age=300` olarak kaldı.
+- `apps/server/test/integration/branding-api-p12.test.ts`: QA-1 için 2 yeni test (aşağıda), avatar `Cache-Control` için tam eşitlik + 304/401 iddiaları. Yükleme hız sınırı testindeki 8×8 PNG, yeni alt sınır nedeniyle 16×16 yapıldı.
+- `apps/server/test/unit/image-p12.test.ts`: 4 yeni test (aşağıda).
+
+**Kararlar (B-P12-2)**
+- **Alt sınır her kenar ≥ 16 px.** Daha küçük bir logo ya da avatar ekranda anlamlı görünmez. 1×N ve N×1 şerit saldırısını da kapatır.
+- **Oran sınırı logoda 20:1, avatarda 4:1 (sınır dahil).** Yatay firma logoları 6–10:1 civarındadır, 20:1 bunlara pay bırakır. Avatar ortadan kare kırpılıyor (`cover`), 4:1'in ötesinde görüntünün %25'inden azı kalır, ayrıca web kare kırpıp gönderiyor. En kötü kabul edilen girdi artık 24 MP / 20:1 (~21.900×1.095); güvenlik raporundaki 1×23,9M (4,4 sn) sınıfı reddediliyor.
+- **Eşzamanlılık: 2 çalışan + 4 bekleyen, 10 sn, sonra 429 (503 değil).** Bekleme, kısa süreli ani yüklerde kullanıcıya hata göstermez. Kuyruk ise belleği sınırlar: bekleyen her iş en çok 2 MB tampon tutar. 429'u seçtim çünkü web `uploadError` 429'u zaten "biraz sonra tekrar deneyin" (`br.rateLimited`) olarak gösteriyor; yeni bir istemci yolu gerekmiyor. Tek instance (ADR-0005) olduğu için süreç içi kapı yeterli.
+
+**B-P12-3 — P13'e devir (bu turda kod değişikliği yok)**
+Bugün kullanıcı ve firma için kalıcı silme yok, yalnız pasife alma var (`deletedAt` set eden bir akış yok). Pasif kullanıcının avatarı ve pasif firmanın logosu bilinçli olarak korunuyor, çünkü yeniden etkinleştirmede geri gelmeleri gerekiyor. P13 retention/silme işi aşağıdakileri yapmalı:
+1. Kullanıcı kalıcı silinir ya da anonimleştirilirse (soft-delete `deletedAt` dahil): aynı TX'te `users.avatar_path = NULL` yapılır, commit sonrasında dosya `uploads/service.ts` `dropFile` kalıbıyla silinir (hata olursa `alarm: upload_cleanup` logu). Audit `user.avatar_removed` yazılır, `reason: "user_deleted"`.
+2. Firma kalıcı silinirse: firmanın logosu ve `uploads/{tenantId}/` altındaki tüm avatarlar silinir. Klasör de kaldırılır (`UploadStore` içinde klasör silme yardımcısı, kök kontrolüyle). `logo_path` ve kullanıcıların `avatar_path` alanları null'lanır.
+3. Pasif kayıtlar için saklama süresi tanımlanırsa (ör. pasif kullanıcının avatarı N gün sonra silinir), bu iş P13 retention job'ına eklenir, tetikleyici `deletedAt`/pasife alma zamanıdır.
+4. Yedek döngüsü: `uploads` volume yedeklerinde silinen dosyalar yedek saklama süresi dolana kadar kalır. Runbook §16.5'e "silinen avatar/logo en geç yedek saklama süresi (N gün) sonunda yedeklerden de düşer" notu (devops) eklenmeli. Geri yükleme sonrasında DB'de karşılığı olmayan dosyalar için yetim dosya temizliği (DB'deki yollarla karşılaştırma) P13'te tanımlanmalı.
+5. Yetim dosya taraması (DB'de yolu olmayan `uploads/**` dosyaları) P13 job'ına eklenmeli. Bu tarama TX düşüp temizlik de başarısız olduğunda kalan dosyaları da kapsar.
+
+**frontend-dev için sözleşme notları**
+- Boyut/oran ihlali de `INVALID_IMAGE` (400) döner, ama mesaj farklıdır (`IMAGE_DIMENSIONS_MESSAGE`, contracts'ta). Web `uploadError` bugün `INVALID_IMAGE` için sabit tür mesajını gösteriyor. Ayrıntılı mesaj istenirse sunucu mesajı (`e.message`) gösterilebilir; bu frontend'in kararı, sözleşme bozulmadı.
+- Resim işleme kuyruğu doluysa 429 `RATE_LIMITED` + `Retry-After: 5` döner (saatlik 20 sınırından ayrı); mevcut 429 eşlemesi yeterli.
+- Avatar artık her görüntülemede ETag ile yeniden doğrulanıyor (304, gövde yok). UI değişikliği gerekmiyor.
+
+**Testler**
+- int `branding-api-p12`: "AC-81: firma logosu yüklüyse resolve, talep bilgisi ve bilgisayar kaydı uçları firma logosu URL'sini döner; teknisyenin avatarı olsa da resolve'da avatarUrl null; kaldırınca (sistem logosu yok) `/img/logo.png`" ve "AC-81: firma logosu yokken üç uç sistem logosuna düşer; firma logosu yüklenince firma, kaldırılınca yine sistem logosu". Üç uç: `POST /public/sessions/resolve`, `GET /public/requests/tenant`, `POST /public/bindings/status`. Sistem logosu süreç genelinde tek bir değer olduğu için bu testler onu kendileri değiştirmiyor. "Sistem logosu yok" vakası AC-82'den önce, "sistem logosu var" vakası sonra koşuyor; boş DB ön koşulu açık mesajla doğrulanıyor.
+- int avatar: `Cache-Control` tam olarak `private, no-cache`; ETag ile 304 dönüyor, oturumsuz istekte aynı ETag 401 alıyor.
+- unit `image-p12`: "1×N ve N×1 PNG (logo ve avatar) kod çözülmeden INVALID_IMAGE" (1×100.000, 100.000×1, 2×50.000, 15×15). "oran sınırı logo 20:1, avatar 4:1" (sınır değerleri + gerçek işleme). "en çok 2 resim işi aynı anda" (6 iş, tepe = 2). "kuyruk doluyken geçerli resim 429; geçersiz resim yine 400; boşalınca işlenir".
+- Komutlar: `pnpm -r run typecheck` temiz, `pnpm -r run lint` temiz. `pnpm --filter @remote/server test` **339/339**. `test:int` (geçici `rs-mysql-p12fix1be:33381`, sonra `down`) **471/471**, 48 dosya.
+- Kararsızlık giderildi: `customers-p8c-api.test.ts` "ref ayırt edilemez" iddiası `ci.json()`/`gi.json()` eşitliğini artık `tenant.logoUrl` hariç karşılaştırıyor. Firma logosu yokken bu alan sistem logosudur ve paralel koşan `branding-api-p12` AC-82 testi iki istek arasında değiştirebiliyordu (ilk koşuda bir kez düştü). Logo zinciri `branding-api-p12` QA-1 testlerinde sınanıyor. Dosya tek başına 19/19; server typecheck/lint temiz.
+
+## P12 — Frontend (Rotalar) (frontend-dev, 2026-11-13)
+AC-81, 82, 83, 85, 87 (AC-84'ün istemci ön kontrolü). Sözleşme: `@remote/contracts/api/branding` (backend'in yazdığı gerçek tipler;
+`AuthUser.avatarUrl`, `MeResponse.logoUrl`, `UserListItem.avatarUrl`, `TenantSettingsView.logoUrl`). Tasarım skill'i
+`~/.claude/skills/ui-ux-pro-max/SKILL.md` mevcut; proje DESIGN.md'si esas alındı, mevcut panel desenleri (ayar sekmeleri,
+`Section`, `Dialog`, `Menu`) izlendi.
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/account` (değişti) | Oturum (herkes, kendi hesabı) | Profil kartında profil resmi yükle (kare kırp) / değiştir / kaldır (onaylı); yeni **Görünüm** bölümü: tema Açık/Koyu/Sistem (anında, DB'ye kaydedilir) |
+| `/settings/logo` (yeni) | `settings.view` (değiştirme `settings.edit`, yoksa salt okunur uyarı); Super Admin firma seçmeli | Firma logosu: geçerli logo, dosya seç → önizleme → kaydet, değiştir, kaldır (onaylı → sistem logosu). Ayarlar alt menüsünde 5. sekme "Logo" (`Image`) |
+| `/admin/settings/system-logo` (yeni) | Super Admin (layout rol denetimi) | Sistem logosu yükle/değiştir (kaldırma bu pakette yok). Sistem ayarları 3. sekme "Sistem logosu" (`Image`) |
+| `/users/[id]` (değişti) | `users.view`; resim değişikliği `users.edit` + yönetilebilir + etkin hesap | Profil kartında aynı avatar yükleyici (`/users/:id/avatar`) |
+| `/users` (değişti) | `users.view` | Liste/kartta `avatarUrl` varsa resim, yoksa baş harf |
+| `/login?tenant=<slug>` (değişti; tüm `(auth)` ekranları) | Herkes | Logo her zaman: slug geçerli ve firma varsa firma logosu, yoksa Super Admin'in sistem logosu, o da yoksa/API yoksa Nokta logosu (sunucuda çözülür, flaş yok) |
+| `/session/[token]` (değişti) | Herkes (token) | Üstte resolve `tenant.logoUrl` (yoksa sistem logosu) |
+| Üst menü (tüm panel) | Oturum | Sol: firma logosu (`me.logoUrl`; varsayılan URL'de Nokta amblemi). Sağ: **hesap menüsü** (avatar) → Hesabım, Şifre değiştir, Tema, Çıkış; ayrıca tek dokunuş "Çıkış yap" düğmesi |
+
+### Tema (AC-85) — nasıl çalışır
+- `lib/theme.ts`: `resolveTheme` (oturum varsa DB, yoksa `rs_theme` çerezi, yoksa Sistem), `htmlThemeClass`, `applyThemeToDocument`.
+- `app/layout.tsx` (sunucu): oturum çerezi varsa `getMe()` (istek başına önbellekli, panel layout'uyla ortak) → `<html class="light|dark" data-theme>`.
+  Satır içi betik yok, CSP değişmedi. Başka cihaz (yalnız oturum çerezi) ilk HTML'de doğru sınıfı alır.
+- `globals.css`: koyu token'lar `:root.dark`, `:root:not(.light):has(.theme-dark)` (konsol: Sistem → koyu, Açık seçildiyse açık),
+  `@media (prefers-color-scheme: dark) :root:not(.light)`.
+- `ThemeProvider` iyimser değişim + hata geri alma + toast; çerez DB'den farklıysa açılışta eşitlenir (çıkıştan sonra giriş ekranı son tercihe uyar).
+
+### AC-87
+- ESLint kuralı `apps/web/eslint-rules/design-tokens.mjs` (`remote/design-tokens`, `eslint.config.mjs`'te `error`). Tek ihlal
+  düzeltildi: `agent-download.tsx` `align-[-3px]` → `align-[-0.1875em]`. İstisna gerekmedi. Kural testi `lib/design-tokens-rule.test.ts`.
+- İkonlar: yeni tüm menü/sekme/bağlantı öğeleri ikonlu; e2e ana menü + ayar sekmeleri + hesap menüsündeki her öğede `svg` olduğunu doğrular.
+- `prefers-reduced-motion`: mevcut global kural (yalnız `opacity` geçişi, animasyon yok) korundu, belgelendi ve e2e ile doğrulandı.
+
+### Değişen / eklenen dosyalar
+- Yeni: `lib/theme.ts`, `lib/branding/{image,constants}.ts`, `lib/branding/branding.test.ts`, `lib/design-tokens-rule.test.ts`,
+  `components/branding/{theme-provider,avatar-uploader,logo-uploader}.tsx`, `app/(panel)/user-menu.tsx`,
+  `app/(panel)/settings/logo/page.tsx`, `app/(panel)/admin/settings/system-logo/page.tsx`, `eslint-rules/design-tokens.{mjs,d.mts}`,
+  `e2e/mock-branding.mjs`, `e2e/p12-branding.spec.ts`.
+- Değişen: `app/layout.tsx`, `app/globals.css`, `proxy.ts` (`?tenant=` → `x-rs-tenant`, dışarıdan gelen başlık silinir),
+  `app/(auth)/layout.tsx`, `app/(panel)/{layout,logout-button}.tsx` (`useLogout`), `account/page.tsx`, `users/[id]/user-editor.tsx`,
+  `users/user-list.tsx`, `settings/settings-tabs.tsx`, `admin/settings/system-tabs.tsx`, `session/guest-ui.tsx`, `session/[token]/page.tsx`,
+  `session/[token]/agent-download.tsx`, `components/brand-logo.tsx` (`LogoImage`), `components/ui/{menu,tab-nav}.tsx`, `lib/api.ts`
+  (FormData gövdesi), `messages/tr.json`, `eslint.config.mjs`, `package.json` (`react-easy-crop` 6.2.5, MIT — mimari §10.4 listesinde),
+  `e2e/mock-api.mjs`, `e2e/p10-account.spec.ts` (Hesabım artık avatar menüsünde).
+
+### Sapmalar / notlar
+- Hesap menüsünde "Çıkış" var; üst menüdeki tek dokunuş "Çıkış yap" düğmesi de korundu (std. §1.3 görünür çıkış, P9 375 px testi).
+- Avatar istemcide 256×256 WEBP'e kırpılıp yüklenir; sunucu yine magic bytes + yeniden boyut uygular. Önizleme/kırpma kaynağı
+  `data:` URL: `blob:` kullanıldığında Playwright izi kaynağı fetch ediyor ve CSP `connect-src` ihlali konsola düşüyordu.
+- `react-easy-crop` kendi `<style>` etiketini enjekte etmesin diye `disableAutomaticStylesInjection`; CSS'i `globals.css`'te içe aktarılır.
+  Kütüphanenin satır içi `style` değerleri istemcide CSSOM ile yazılır (SSR'da çizilmez) → CSP ihlali yok.
+- "Talep sayfaları" (`/public/requests/tenant`) web uygulamasında yok (talep istemcide); web'de müşteri tarafı yalnız `/session/[token]`.
+- Müşteri ekranında `technician.avatarUrl` null (backend) → baş harf rozeti; kod değişmedi.
+- Sistem logosu yüklendiğinde üst menü amblemi firma logosu yoksa `me.logoUrl` (sistem logosu) olur; tam genişlik logo `mark` kutusuna `object-contain` ile sığar.
+- Eski e2e mock'ları `theme`/`logoUrl`/`avatarUrl` döndürmediği için panel layout tema değerini `resolveTheme` ile savunmacı okur.
+
+### Testler
+- Vitest: 237 (yeni: `lib/branding/branding.test.ts` 9 — tema çözümleme, çerez, ön kontrol, kare kırpma, hata eşleme, multipart;
+  `lib/design-tokens-rule.test.ts` 10).
+- Playwright `e2e/p12-branding.spec.ts` (13 test): tema seç → anında → yenile/ilk HTML sınıfı (flaş yok) → başka cihaz aynı tema →
+  profilde değiştir; kayıt hatasında geri alma; oturumsuz login çerez/sistem; avatar SVG/2 MB+/sahte uzantı reddi, kırp/kaydet
+  (multipart, 256 px), üst menüde, onaylı kaldır; logo sunucu reddi (400), önizleme/kaydet/üst menü/kaldır; login firma/sistem
+  logosu ve biçim dışı slug; Super Admin sistem logosu; iki temada axe + 1280/390 px taşma (hesabım + menü, logo, sistem logosu);
+  ikon denetimi; reduced-motion.
+- Sonuç: lint ve typecheck temiz; Vitest 237 geçti; Playwright tam takım 278 geçti, 0 hata (105 atlandı: proje bazlı desktopOnly/mobil eşlemeleri).
+
+### Düzeltme turu 1 (frontend-dev, 2026-11-13)
+Kaynak: `docs/guvenlik-raporu.md` B-P12-1 (Orta), `docs/qa-raporu.md` madde 2 (QA-2).
+
+| Bulgu | Çözüm | Test |
+|---|---|---|
+| **B-P12-1** login marka çağrısı istemci IP'sini iletmiyordu (tüm ziyaretçiler web konteynerinin 60/dk kovasını paylaşıyordu) | `lib/server-api.ts`'e `publicGet<T>()` eklendi: çerez göndermez, `forwardHeaders(headers(), readEdgeSecret())` ile XFF'i **yalnız `X-Edge-Auth` doğruysa** iletir (`resolveSessionToken` ile aynı desen, S-P2-1). `app/(auth)/layout.tsx` `serverGet` yerine bunu kullanır. Server tarafı değişmedi: `trustProxy = TRUSTED_PROXY_CIDR` (web konteyneri bu aralıkta) olduğundan `req.ip` iletilen XFF olur ve `/public/branding` limiti (`ipKey(req.ip)`) ziyaretçi başına işler. | `e2e/p12-branding.spec.ts` "B-P12-1": sahte API sunucu gibi XFF başına 60/dk sayar; A IP'si 61. istekte yedek logoyu görür, B IP'si firma logosunu görmeye devam eder; `X-Edge-Auth` yok/yanlışken gelen XFF iletilmez (taklit IP sayılmaz). Eski kodla bu test kırmızı olmalı (XFF hiç gelmez → sayaç işlemez → 61. istekte de firma logosu); eski kodla ayrıca koşturulmadı. |
+| **QA-2** `/session/[token]` dolu `tenant.logoUrl` senaryosu yoktu | `e2e/mock-sessions.mjs`: sabit `L` token'ı (`"L".repeat(43)`) resolve'da `tenant.logoUrl = /api/v1/files/logo/demo/public-demo-logo-0001.png` döner (dosya `mock-branding.mjs`'den sunulur). | `e2e/p12-branding.spec.ts` "AC-81 (QA-2)": `L` → `guest-logo` `data-logo="custom"`, resim `alt="Demo Firma logosu"`, `src` firma URL'si ve gerçekten yüklenmiş; `A` (null) → `data-logo="system"`, Nokta logosu. Masaüstü + mobil. |
+
+Değişen dosyalar: `apps/web/lib/server-api.ts`, `apps/web/app/(auth)/layout.tsx`, `apps/web/e2e/mock-branding.mjs` (XFF başına sayaç; XFF'siz istekler sayılmaz — aksi hâlde paralel e2e'lerin `/login` açılışları ortak kovayı doldururdu), `apps/web/e2e/mock-sessions.mjs`, `apps/web/e2e/p12-branding.spec.ts`.
+
+Sapmalar / notlar:
+- Sunucu tarafı önbellek **eklenmedi**: IP iletimiyle kova ziyaretçi başına ayrıldığından gerek kalmadı; önbellek logo değişikliğinin login'e geç yansımasına (≤ TTL) yol açardı. Saldırgan yalnız kendi IP'sinde yedek logoyu görür.
+- Geliştirmede (`EDGE_PROXY_SECRET` yok, Caddy yok) XFF iletilmez → tüm istekler yine tek kova; yalnız yerel ortamı etkiler. Üretimde `readEdgeSecret()` sır yoksa açılışta hata verir.
+- Backend'e iş yok.
+
+Doğrulama: `pnpm --filter @remote/web lint` · `typecheck` · `test` (237) yeşil; `playwright test e2e/p12-branding.spec.ts e2e/guest.spec.ts e2e/auth.spec.ts` 86 geçti / 10 atlandı (masaüstü-yalnız testlerin mobil kopyaları).
+
+### QA Tur 2 düzeltmesi — hidrasyon hazır işareti (frontend-dev, 2026-11-13)
+Bulgu: `e2e/p11-admin.spec.ts` aydınlatma metni testleri textarea'yı hidrasyon bitmeden dolduruyordu; yük altında yazılan metin ile yüklü metin birleşip değer kontrolü düşüyordu (kararsız test).
+- `apps/web/lib/use-hydrated.ts` (yeni, `useSyncExternalStore` — `join-form` / P12 yükleyicileriyle aynı yöntem, ortak kancaya alındı).
+- `data-ready="true|false"` eklendi: `settings/consent-text/consent-form.tsx` (`consent-form`), `admin/settings/mysql/mysql-form.tsx` (`mysql-form`), `admin/settings/turn/turn-form.tsx` (`turn-form`) — aynı desen (sayfa açılır açılmaz yazma/tıklama) bu P11 formlarında da vardı. P12 yükleyicileri zaten işaretliydi.
+- `e2e/p11-admin.spec.ts`: bu formlara yazmadan/tıklamadan önce `data-ready="true"` beklenir (aydınlatma 4 yer, MySQL 2, TURN 1).
+- Davranış değişmedi (yalnız işaret özniteliği). Kabul: tam e2e takımı (`pnpm --filter @remote/web e2e`) art arda 3 koşu: her biri 281 geçti, 0 hata, 0 flaky (106 atlandı: proje bazlı desktopOnly/mobil). lint, typecheck, Vitest 237 yeşil.
+
+### Sayfa testi düzeltmesi (frontend-dev, 2026-11-13)
+Kaynak: `docs/test-raporu.md` (P12).
+- **[ORTA] Boyut/oran reddi yanlış mesajla gösteriliyordu.** Sunucu, tür ve boyut/oran reddinin ikisinde de 400 `INVALID_IMAGE` döndürüyor; arayüz ise her durumda sabit "Yalnız PNG, JPG veya WEBP" metnini gösteriyordu.
+  - `lib/branding/image.ts` `uploadError`: `INVALID_IMAGE` gelince **sunucunun mesajı** gösteriliyor; mesaj boşsa tür mesajı kullanılıyor.
+  - Yeni `precheckDimensions(w, h, "logo"|"avatar")` ön kontrolü, contracts sabitlerini kullanıyor (`IMAGE_MIN_EDGE_PX` 16, `LOGO_MAX_ASPECT` 20, `AVATAR_MAX_ASPECT` 4; kural sunucudaki `hi <= lo * oran` ile aynı) ve ihlalde `IMAGE_DIMENSIONS_MESSAGE` dönüyor.
+  - `logo-uploader.tsx` ön kontrolü önizlemeden önce, `avatar-uploader.tsx` kırpma diyaloğundan önce, seçilen kaynak resme uyguluyor. Sunucu, kırpılmış 256×256 avatarı her zaman kabul ettiğinden avatar kuralı istemcide kaynak resme uygulanıyor; kural ve mesaj sunucuyla aynı.
+  - Testler: Vitest `branding.test.ts` (sınır değerleri: 20:1 / 4:1 tam sınır, 16 px, 0). Sahte API (`mock-branding.mjs`) PNG IHDR'den boyut/oran denetimi yapıyor; adı `srvdims` içeren dosyada sunucu reddi yolu çalışıyor. e2e `p12-branding.spec.ts` "boyut/oran reddi" testi: logo ve avatarda 3000×40 ile 8×8 (avatarda ayrıca 500×100) doğru mesajı gösteriyor, önizleme ya da kırpma diyaloğu açılmıyor; ön kontrolü geçen resmin sunucu reddinde sunucunun mesajı görünüyor.
+- **[DÜŞÜK] `/account` başlığı ve breadcrumb.** `acc.title` artık "Hesabım"; sayfa başlığı (`<title>`), breadcrumb ve h1 bu anahtardan geliyor. Alt başlık profil resmi ve temayı da kapsayacak şekilde güncellendi. `p10-account.spec.ts` başlığı ve breadcrumb'ı ("Konum" navigasyonu) doğruluyor.
+- Değişen dosyalar: `apps/web/lib/branding/image.ts`, `components/branding/{logo,avatar}-uploader.tsx`, `messages/tr.json`, `app/(panel)/account/page.tsx` (yorum), `lib/branding/branding.test.ts`, `e2e/{mock-branding.mjs,p12-branding.spec.ts,p10-account.spec.ts}`.
+- Doğrulama: lint, typecheck temiz; Vitest 238 test geçti. Tam e2e takımında 282 test geçti, 0 hata (107 atlandı).

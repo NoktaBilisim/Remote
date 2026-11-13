@@ -25,7 +25,7 @@ export default async function GuestSessionPage({ params }: { params: Promise<{ t
   const res = await resolveSessionToken<ResolveData>(token);
   if (res.kind === "ok") {
     return (
-      <GuestShell>
+      <GuestShell tenant={res.data.tenant}>
         <GuestFlow data={res.data} abuseEmail={res.data.abuseEmail} />
       </GuestShell>
     );

@@ -166,6 +166,7 @@ test("AC-77/78 Super Admin MySQL: test başarı/hata/429, şifre forma yazılmaz
   await expect(page).toHaveTitle(/MySQL/);
   await expect(page.getByTestId("system-tabs").getByRole("link", { name: "MySQL" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByTestId("mysql-env-source")).toContainText(".env");
+  await expect(page.getByTestId("mysql-form")).toHaveAttribute("data-ready", "true"); // hidrasyon bitmeden yazma (QA P12 Tur 2)
   await expect(page.getByTestId("mysql-port")).toHaveValue("3306");
   const pw = page.getByTestId("mysql-password");
   await expect(pw).toHaveValue("");
@@ -238,6 +239,7 @@ test("AC-78 TURN: satır ekle/kaldır, satır hatası, secret maskeli, ortam de�
   desktopOnly(info.project.name);
   await signInAu(context, "ausa");
   await page.goto("/admin/settings/turn");
+  await expect(page.getByTestId("turn-form")).toHaveAttribute("data-ready", "true");
   await expect(page.getByTestId("turn-secret-warning")).toContainText("static-auth-secret ile aynı olmalı");
   const urls = page.getByTestId("turn-url");
   await expect(urls).toHaveCount(2);
@@ -300,6 +302,7 @@ test("aydınlatma metni: sayaç, doğrulama, onaylı yeni sürüm, sürüm geçm
   desktopOnly(info.project.name);
   await signInAu(context, "auadm");
   await page.goto("/settings/consent-text");
+  await expect(page.getByTestId("consent-form")).toHaveAttribute("data-ready", "true"); // hidrasyon bitmeden yazma (QA P12 Tur 2)
   await expect(page).toHaveTitle(/Aydınlatma metni/);
   await expect(page.getByTestId("settings-tabs").getByRole("link", { name: "Aydınlatma metni" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByTestId("consent-version")).toHaveText("Sürüm 2");
@@ -334,6 +337,7 @@ test("aydınlatma metni: PUT 429 (10 sürüm/saat) → kilit uyarısı süreyle,
   desktopOnly(info.project.name);
   await signInAu(context, "auadm");
   await page.goto("/settings/consent-text");
+  await expect(page.getByTestId("consent-form")).toHaveAttribute("data-ready", "true"); // hidrasyon bitmeden yazma (QA P12 Tur 2)
   const area = page.getByTestId("consent-body");
   const text = "Hız sınırı denemesi [hiz-siniri]: teknisyen yalnız onayınızla ekranınızı görür ve kontrol eder.";
   await area.fill(text);
@@ -360,6 +364,7 @@ test("aydınlatma metni: PUT 429 (10 sürüm/saat) → kilit uyarısı süreyle,
 test("aydınlatma metni: settings.edit yoksa salt okunur", async ({ page, context }) => {
   await signInAu(context, "auview");
   await page.goto("/settings/consent-text");
+  await expect(page.getByTestId("consent-form")).toHaveAttribute("data-ready", "true"); // hidrasyon bitmeden yazma (QA P12 Tur 2)
   await expect(page.getByTestId("settings-readonly")).toBeVisible();
   await expect(page.getByTestId("consent-body")).toHaveAttribute("readonly", "");
   await page.getByTestId("consent-body").press("End");
@@ -397,6 +402,7 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(dlg).toHaveJSProperty("open", false);
 
       await page.goto("/settings/consent-text");
+      await expect(page.getByTestId("consent-form")).toHaveAttribute("data-ready", "true");
       await expect(page.getByTestId("consent-body")).toBeVisible();
       await noHorizontalOverflow(page);
       expect(await axeScan(page), `aydınlatma ${width}`).toEqual([]);
@@ -414,7 +420,7 @@ for (const scheme of ["light", "dark"] as const) {
       expect(await axeScan(page), `audit Super Admin ${width}`).toEqual([]);
 
       await page.goto("/admin/settings/mysql");
-      await expect(page.getByTestId("mysql-form")).toBeVisible();
+      await expect(page.getByTestId("mysql-form")).toHaveAttribute("data-ready", "true");
       await page.getByTestId("mysql-host").fill("bad.example");
       await page.getByTestId("mysql-test").click();
       await expect(page.getByTestId("mysql-test-result")).toBeVisible();

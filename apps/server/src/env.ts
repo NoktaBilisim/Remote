@@ -69,6 +69,9 @@ const schema = z
     // baytına göre (rotasyon: yeni sürüm eklenir, eski okunabilir kalır). Production'da zorunlu; geliştirme/testte boşsa
     // süreç başına rastgele (yeniden başlatmada kayıtlı SMTP şifresi/TOTP sırrı çözülemez). Loglanmaz.
     APP_ENCRYPTION_KEYS: z.string().refine((v) => parseEncryptionKeys(v) !== null, "v1:<base64 32 bayt>[,v2:...] biçiminde olmalı").optional(),
+    // P12 (AC-84, T16): logo/avatar yükleme kökü; `{tenantId|system}/{rastgele}.{png|jpg|webp}` altında. Kalıcı volume,
+    // `node` kullanıcısı yazabilmeli (compose/runbook: devops). Mutlak yol.
+    UPLOADS_DIR: z.string().startsWith("/", "mutlak yol olmalı").default("/data/uploads"),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   })
   .refine((e) => e.NODE_ENV !== "production" || e.TRUSTED_PROXY_CIDR, {

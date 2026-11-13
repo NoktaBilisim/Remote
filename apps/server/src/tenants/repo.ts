@@ -73,6 +73,7 @@ export async function setActingTenant(db: DbOrTx, sessionId: string, tenantId: s
 // --- tenant ayarları (AC-4) ---
 
 const settingsSelect = {
+  tenant: { select: { logoPath: true } }, // P12 (AC-81)
   sessionTtlMin: true,
   maxOpenSessions: true,
   maxActiveHours: true,

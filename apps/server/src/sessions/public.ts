@@ -14,6 +14,7 @@ import { cidrMatcher, ipKey, prefixKey } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import { isOutdated } from "../lib/version.ts";
 import { parseSessionRef, sessionRef } from "./codes.ts";
+import { effectiveLogoUrl } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 import { expireSession } from "./service.ts";
 
@@ -216,10 +217,11 @@ export async function resolvePublicSession(
     await goneAudit(db, limits, ctx, row, gone);
     throw new AppError(gone);
   }
-  const [consentText, abuse] = await Promise.all([currentConsentText(db, row.tenantId), abuseEmail(db, abuseSrc)]);
+  const [consentText, abuse, logoUrl] = await Promise.all([currentConsentText(db, row.tenantId), abuseEmail(db, abuseSrc), effectiveLogoUrl(db, row.tenant.logoPath)]);
   return {
     sessionRef: sessionRef(refKey, row.id),
-    tenant: { name: row.tenant.name, logoUrl: null }, // logo servisi P9
+    tenant: { name: row.tenant.name, logoUrl }, // P12: firma → sistem → Nokta logosu (public URL)
+    // P12: teknisyen avatarı oturumlu uçtan sunulur; müşteriye (kimliksiz) açılmaz → baş harf rozeti (implementation.md).
     technician: { name: row.technician.fullName, avatarUrl: null },
     techVerifyCode: row.techVerifyCode,
     expiresAt: row.expiresAt.toISOString(),

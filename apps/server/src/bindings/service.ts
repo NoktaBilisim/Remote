@@ -61,7 +61,7 @@ export async function bindingStatus(svc: RequestService, ctx: AuditContext, body
   const b = await resolveUsable(svc, input.bindingKey);
   if (!b) throw bindingInvalid(svc, ip);
   await svc.limit(ctx, b.row.tenantId, "bindingStatus", "binding.status", "ip", ip);
-  const info = await svc.requestInfo(b.row.tenantId, b.row.tenant.name, b.row.tenant.requestSettings?.waitMinutes ?? 30);
+  const info = await svc.requestInfo(b.row.tenantId, b.row.tenant, b.row.tenant.requestSettings?.waitMinutes ?? 30);
   return { ...info, customer: b.row.customer ? { name: b.row.customer.name } : null };
 }
 

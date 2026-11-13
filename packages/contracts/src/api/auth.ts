@@ -30,6 +30,8 @@ export interface AuthUser {
   role: Role;
   tenantId: string | null;
   theme: Theme;
+  /** P12 (AC-83): `/api/v1/files/avatar/...` (oturumlu) veya null → baş harf rozeti. */
+  avatarUrl: string | null;
   mustChangePassword: boolean;
 }
 
@@ -77,6 +79,11 @@ export interface MeResponse {
   actingTenant: TenantRef | null;
   /** P10 (AC-67). */
   mfa: MfaStatus;
+  /**
+   * P12 (AC-81, 82): üst menü logosu — etkin firmanın (Super Admin'de seçili firma) logosu, yoksa sistem logosu, o da
+   * yoksa `/img/logo.png`. Her zaman dolu.
+   */
+  logoUrl: string;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

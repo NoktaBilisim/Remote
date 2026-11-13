@@ -5,6 +5,7 @@ import type { AuthUser, MfaStage, TenantRef, Theme } from "@remote/contracts/api
 import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 import { newId, newSecretToken, sha256Hex } from "../lib/ids.ts";
+import { avatarUrlFor } from "../uploads/urls.ts";
 import { createSession, findSessionByHash, touchSession, type LoginUser } from "./repo.ts";
 
 export const SESSION_ABSOLUTE_MS = 8 * 60 * 60 * 1000;
@@ -25,6 +26,8 @@ export interface AuthContext {
   mfaStage: MfaStage;
   mfaRequired: boolean;
   totpEnabled: boolean;
+  /** P12 (AC-81): etkin tenant'ın (Super Admin'de seçili firma) logo yolu; null → sistem logosu. */
+  logoPath: string | null;
 }
 
 /** AC-67: SUPER_ADMIN/ADMIN her zaman; USER tenant `require_tech_2fa` ile (ayar satırı yoksa varsayılan true). */
@@ -49,7 +52,7 @@ export interface SessionPolicy {
   allowPartial?: boolean;
 }
 
-type TenantRow = { id: string; name: string; slug: string; status: string; deletedAt: Date | null };
+type TenantRow = { id: string; name: string; slug: string; status: string; deletedAt: Date | null; logoPath: string | null };
 
 function asRole(value: string): Role {
   const role = ROLES.find((r) => r === value);
@@ -70,6 +73,7 @@ export function toAuthUser(u: LoginUser): AuthUser {
     role: asRole(u.role),
     tenantId: u.tenantId,
     theme: u.theme as Theme,
+    avatarUrl: avatarUrlFor(u.avatarPath),
     mustChangePassword: u.mustChangePassword,
   };
 }
@@ -129,5 +133,6 @@ export async function resolveSession(db: Db, token: string, now: Date, policy: S
     mfaStage,
     mfaRequired: mfaRequiredFor(s.user),
     totpEnabled: s.user.totpEnabled,
+    logoPath: (acting ?? s.user.tenant)?.logoPath ?? null,
   };
 }

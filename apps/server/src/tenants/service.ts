@@ -15,6 +15,7 @@ import { conflictIndex, type Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { createInitialConsent } from "../public/consent.ts";
+import { tenantLogoUrl } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 
 const ENTITY = "tenants";
@@ -161,12 +162,13 @@ export async function switchTenant(db: Db, fx: TenantLiveEffects, ctx: AuditCont
 // --- tenant ayarları (AC-4; P10: AC-67 requireTech2fa, AC-78/79/122 SMTP) ---
 
 function settingsView(r: repo.SettingsRow): TenantSettingsView {
+  const logoUrl = tenantLogoUrl(r.tenant.logoPath);
   const { sessionTtlMin, maxOpenSessions, maxActiveHours, maxFileMb, retentionDays, requireTech2fa } = r;
   const smtp =
     r.smtpHost && r.smtpPort && r.smtpSecurity && r.smtpFromEmail
       ? { host: r.smtpHost, port: r.smtpPort, security: r.smtpSecurity as SmtpSecurity, user: r.smtpUser, fromName: r.smtpFromName, fromEmail: r.smtpFromEmail, hasPassword: r.smtpPassEnc !== null }
       : null;
-  return { sessionTtlMin, maxOpenSessions, maxActiveHours, maxFileMb, retentionDays, requireTech2fa, smtp };
+  return { logoUrl, sessionTtlMin, maxOpenSessions, maxActiveHours, maxFileMb, retentionDays, requireTech2fa, smtp };
 }
 
 export async function getTenantSettings(db: Db, tenantId: string): Promise<TenantSettingsView> {

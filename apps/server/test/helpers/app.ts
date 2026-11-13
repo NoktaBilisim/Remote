@@ -2,6 +2,8 @@
 // Her test kendi benzersiz verisini üretir (ULID'li slug/e-posta); testler sırasız ve bağımsızdır.
 import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import type { FastifyInstance, InjectOptions } from "fastify";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Logger } from "pino";
 import { buildApp, type AppDeps } from "../../src/app.ts";
 import { hashPassword } from "../../src/auth/password.ts";
@@ -12,11 +14,14 @@ import { newId, newSecretToken, sha256Hex } from "../../src/lib/ids.ts";
 export const ORIGIN = "https://rs.test:4450";
 export const PASSWORD = "Dogru-Sifre-123";
 
+/** P12: yüklemeler süreç başına geçici dizine (testler /data'ya yazmaz). */
+export const TEST_UPLOADS_DIR = join(tmpdir(), `rs-uploads-test-${process.pid}`);
+
 export function testEnv(extra: Record<string, string> = {}): Env {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) throw new Error("TEST_DATABASE_URL tanımlı değil (scripts/test-db.sh up)");
   // WHATSAPP_SERVICE_URL varsayılanı canlı servis; testler ASLA ona gitmemeli → kapalı yerel port (discard, 9).
-  return loadEnv({ NODE_ENV: "test", PUBLIC_BASE_URL: ORIGIN, DATABASE_URL: url, LOG_LEVEL: "silent", WHATSAPP_SERVICE_URL: "http://127.0.0.1:9", ...extra });
+  return loadEnv({ NODE_ENV: "test", PUBLIC_BASE_URL: ORIGIN, DATABASE_URL: url, LOG_LEVEL: "silent", WHATSAPP_SERVICE_URL: "http://127.0.0.1:9", UPLOADS_DIR: TEST_UPLOADS_DIR, ...extra });
 }
 
 let db: Db | undefined;

@@ -18,10 +18,10 @@ function auth(role: "USER" | "ADMIN" | "SUPER_ADMIN", tenantId: string | null): 
   return {
     sessionId: "s",
     expiresAt: new Date(),
-    user: { id: "01HUSER0000000000000000000", email: "u@example.test", username: null, fullName: "U", role, tenantId, theme: "SYSTEM", mustChangePassword: false },
+    user: { id: "01HUSER0000000000000000000", email: "u@example.test", username: null, fullName: "U", role, tenantId, theme: "SYSTEM", avatarUrl: null, mustChangePassword: false },
     tenantId,
     tenant: null,
-    actingTenant: null, mfaStage: "ok" as const, mfaRequired: false, totpEnabled: false,
+    actingTenant: null, mfaStage: "ok" as const, mfaRequired: false, totpEnabled: false, logoPath: null,
     permissions: new Set<PermissionKey>(),
   };
 }

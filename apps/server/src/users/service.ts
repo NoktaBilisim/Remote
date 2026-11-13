@@ -20,6 +20,7 @@ import type { AuthContext } from "../auth/session.ts";
 import { conflictIndex, type Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId, newTemporaryPassword } from "../lib/ids.ts";
+import { avatarUrlFor } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 
 const ENTITY = "users";
@@ -64,6 +65,7 @@ function toItem(r: repo.UserRow): UserListItem {
     status: r.status as UserStatus,
     mustChangePassword: r.mustChangePassword,
     totpEnabled: r.totpEnabled,
+    avatarUrl: avatarUrlFor(r.avatarPath),
     lastLoginAt: r.authSessions[0]?.createdAt.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
   };
@@ -128,6 +130,16 @@ async function loadOrThrow(db: Db, scope: repo.TenantScope, id: string): Promise
 export async function listUsers(db: Db, tenantId: string, q: ListUsersQuery): Promise<UserListResponse> {
   const { rows, total } = await repo.listUsers(db, { tenantId }, q);
   return { items: rows.map(toItem), page: q.page, pageSize: q.pageSize, total };
+}
+
+/**
+ * P12 (AC-83): başka kullanıcının avatarını değiştirme hedefi — kapsam içinde (yoksa 404) ve `canManage` (aksi 403).
+ * `users.edit` kontrolü uçta.
+ */
+export async function manageableUser(db: Db, auth: AuthContext, tenantId: string, id: string): Promise<{ id: string; tenantId: string }> {
+  const row = await loadOrThrow(db, { tenantId }, id);
+  if (!canManage(auth, effectiveOf(row.role as Role, row.permissions))) throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı yönetemezsiniz." });
+  return { id: row.id, tenantId };
 }
 
 export async function getUser(db: Db, auth: AuthContext, tenantId: string, id: string): Promise<UserDetail> {

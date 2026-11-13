@@ -1,6 +1,7 @@
 // Tipli uygulama hataları ve standart hata zarfı (mimari-api.md "Ortak kurallar").
 // Bilinmeyen hatalar loglanır, kullanıcıya yalnız 500 + requestId döner (stack/SQL sızmaz).
 import { BINDING_INVALID_MESSAGE } from "@remote/contracts/api/bindings";
+import { INVALID_IMAGE_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from "@remote/contracts/api/branding";
 import { ERROR_STATUS, type ErrorCode, type ErrorEnvelope } from "@remote/contracts/errors";
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -12,6 +13,8 @@ export const DB_BUSY_MESSAGE = "Sunucu şu an yoğun. Lütfen birkaç saniye son
 
 const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   VALIDATION: "Gönderilen bilgiler geçersiz.",
+  INVALID_IMAGE: INVALID_IMAGE_MESSAGE,
+  PAYLOAD_TOO_LARGE: PAYLOAD_TOO_LARGE_MESSAGE,
   UNAUTHENTICATED: "Oturum bulunamadı. Lütfen giriş yapın.",
   FORBIDDEN: "Bu işlem için yetkiniz yok.",
   CSRF_INVALID: "İstek doğrulanamadı. Sayfayı yenileyip tekrar deneyin.",

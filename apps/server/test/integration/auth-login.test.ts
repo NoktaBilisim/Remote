@@ -24,6 +24,7 @@ describe("login", () => {
     expect(cookies).toEqual([
       { name: "__Host-rs_session", httpOnly: true, sameSite: "Strict", secure: true },
       { name: "__Host-rs_csrf", httpOnly: false, sameSite: "Strict", secure: true },
+      { name: "rs_theme", httpOnly: false, sameSite: "Lax", secure: undefined }, // P12 (AC-85): flaşsız tema çerezi; Secure yalnız production
     ]);
     expect((await app.inject(loginRequest(user.username, user.password))).statusCode).toBe(200);
     const row = await testDb().user.findUniqueOrThrow({ where: { id: user.id } });

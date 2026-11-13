@@ -150,7 +150,7 @@ describe("P11 system_settings CHECK'leri ve yetki (AC-77, 78)", () => {
   });
 
   it("anahtar kümesi ikili (ADR-0014)", async () => {
-    for (const k of ["MYSQL", "mysql ", "Turn", "smtp", "system_logo"]) await bad(k, MYSQL_OK, "system_settings_key_chk");
+    for (const k of ["MYSQL", "mysql ", "Turn", "smtp", "SYSTEM_LOGO"]) await bad(k, MYSQL_OK, "system_settings_key_chk");
   });
 
   it("value_json nesne ≤ 4 KB, secret_enc ≥ 30 bayt", async () => {

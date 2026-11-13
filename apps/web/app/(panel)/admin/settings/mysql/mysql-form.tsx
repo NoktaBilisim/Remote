@@ -15,6 +15,7 @@ import { api, ApiError, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api"
 import { toUiError, withoutLeadingTitle, type UiError } from "@/lib/error-message";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { useHydrated } from "@/lib/use-hydrated";
 import { Section, SourceBadge } from "../section";
 
 const FORM_ID = "mysql-form";
@@ -27,6 +28,7 @@ type TestResult = { tone: "success" | "danger" | "locked"; title: string; messag
  */
 export function MysqlForm({ initial }: { initial: MysqlSettingsView }) {
   const router = useRouter();
+  const ready = useHydrated(); // data-ready: e2e hidrasyondan önce yazmasın (QA P12 Tur 2)
   const toast = useToast();
   const [saved, setSaved] = useState(initial);
   const base = useMemo(() => toMysqlState(saved), [saved]);
@@ -130,7 +132,7 @@ export function MysqlForm({ initial }: { initial: MysqlSettingsView }) {
       )}
       {applyNote && <Alert tone="warning" testId="mysql-restart">{applyNote}</Alert>}
       {formError && <FormError error={formError} />}
-      <form id={FORM_ID} ref={formRef} onSubmit={submit} noValidate className="flex flex-col gap-6" data-testid="mysql-form">
+      <form id={FORM_ID} ref={formRef} onSubmit={submit} noValidate className="flex flex-col gap-6" data-testid="mysql-form" data-ready={ready ? "true" : "false"}>
         <fieldset disabled={busy} className="flex flex-col gap-6">
           <Section
             id="my-srv"

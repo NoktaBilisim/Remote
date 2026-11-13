@@ -21,14 +21,17 @@
   "dependencies": {
     "@fastify/cookie": "11.1.5",
     "@fastify/helmet": "13.2.0",
+    "@fastify/multipart": "10.1.8",
     "@prisma/adapter-mariadb": "7.10.1",
     "@prisma/client": "7.10.1",
     "@remote/contracts": "workspace:*",
     "argon2": "0.45.2",
     "fastify": "5.12.8",
+    "file-type": "22.3.0",
     "nodemailer": "10.5.0",
     "pino": "10.4.0",
     "qrcode": "1.5.4",
+    "sharp": "0.35.5",
     "ulid": "3.0.2",
     "ws": "8.21.0",
     "zod": "4.6.7"

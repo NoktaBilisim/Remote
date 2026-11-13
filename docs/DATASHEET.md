@@ -24,6 +24,8 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - **Oturum geçmişi ve CSV** — filtreli liste, onay ve kontrol kayıtları, ticket/not, Excel uyumlu dışa aktarma.
 - **Değiştirilemez denetim kaydı** — kim, ne zaman, ne yaptı: filtreli ekran ve CSV; kayıtlar uygulamadan da
   veritabanından da düzenlenemez, silinemez.
+- **Kendi markanızla** — firma logosu giriş ekranında, panelde, müşteri sayfasında ve e-postalarda; her kullanıcı kendi
+  profil resmini ve açık/koyu temasını seçer.
 
 ## Kimler için
 - Kurum içi BT destek ekipleri ve yardım masaları
@@ -42,9 +44,9 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 | Kullanıcılar | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme |
 | Firmalar (Süper Yönetici) | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş |
 | Audit log | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV |
-| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi, TURN sunucuları ve gizli anahtar |
-| Hesap güvenliği | 2FA kurulumu ve kurtarma kodları, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış |
-| Ayarlar | Destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni |
+| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi, TURN sunucuları ve gizli anahtar, sistem logosu |
+| Hesabım | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu ve kurtarma kodları, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış |
+| Ayarlar | Destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni, firma logosu |
 
 ## Güvenlik ve yönetim
 - Roller (Teknisyen / Yönetici / Süper Yönetici) ve modül bazlı yetki anahtarları; kimse sahip olmadığı yetkiyi veremez.
@@ -65,6 +67,9 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - Müşteri programı yalnız kendi sunucusuna bağlanır; bütünlüğü SHA-256 ve tekrarlanabilir derlemeyle doğrulanır.
   Hatırlanan bilgiler Windows hesabına bağlı şifreyle (DPAPI) saklanır, tek tıkla silinir. Tanılama dosyası kişisel
   veri içermez.
+- Logo ve profil resimleri: yalnız PNG/JPG/WEBP (dosya içeriğinden denetlenir, SVG kabul edilmez), en çok 2 MB; sunucuda
+  yeniden boyutlandırılır, konum gibi gizli bilgiler (EXIF) silinir. Profil resimleri yalnız aynı firmanın kullanıcılarına
+  görünür, müşteriye gösterilmez.
 
 ## Entegrasyonlar
 - TURN sunucusu (coturn): güvenlik duvarı arkasındaki müşteriler için görüntü aktarımı; adres ve anahtar panelden
@@ -84,7 +89,7 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 | Görüntü | WebRTC, eşler arası; H.264, en çok 1920×1080, hedef 30 fps |
 | Müşteri işletim sistemi | Windows 10 / 11 (64 bit); tarayıcı modu için ekran paylaşımı destekleyen masaüstü tarayıcı |
 | Teknisyen tarayıcısı | Chrome, Edge (güncel) |
-| Dil / tema | Türkçe / açık ve koyu |
+| Dil / tema | Türkçe / kullanıcı başına Açık, Koyu veya Sistem |
 
 ## Sistem gereksinimleri (öneri)
 | | Minimum | Önerilen |

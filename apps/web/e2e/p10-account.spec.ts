@@ -232,9 +232,12 @@ test("AC-67 teknisyen 2FA zorunluluğu anahtarı anında kaydedilir", async ({ p
 test("AC-68/115 Hesap güvenliği: tüm cihazlardan çıkış onaylı; şifre değiştir", async ({ page, context }) => {
   await signIn(context, "acc");
   await page.goto("/");
+  // P12: "Hesabım" avatar menüsünde
+  await page.getByTestId("user-menu").locator("summary").click();
   await page.getByTestId("account-link").click();
   await expect(page).toHaveURL(/\/account$/);
-  await expect(page).toHaveTitle(/Hesap güvenliği/);
+  await expect(page).toHaveTitle(/Hesabım/);
+  await expect(page.getByRole("navigation", { name: "Konum" })).toContainText("Hesabım");
   await expect(page.getByTestId("acc-mfa-on")).toBeVisible();
   await expect(page.getByTestId("acc-rc-low")).toBeVisible();
   await noHorizontalOverflow(page);

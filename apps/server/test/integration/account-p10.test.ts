@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { base32Decode, hotp, stepOf } from "../../src/auth/mfa.ts";
 import { createNetGuard, isBlockedIp } from "../../src/lib/netguard.ts";
 import { MAIL_ATTEMPT_CAP_MS, type TransportFactory } from "../../src/mail/service.ts";
+import { mailLogoUrl } from "../../src/uploads/urls.ts";
 import { createSupportSessionRow, createTenant, createUser, loginAs, loginRequest, makeApp, ORIGIN, testDb, type Session, type TestUser } from "../helpers/app.ts";
 import { createRequestSettings, requestClient } from "../helpers/requests.ts";
 import { FAKE_SMTP_PASSWORD } from "../helpers/secrets.ts";
@@ -432,7 +433,8 @@ describe("AC-10 oturum bağlantısı e-postası", () => {
     const row = await db().supportSession.findUniqueOrThrow({ where: { id: sess.id }, select: { expiresAt: true } });
     const until = new Intl.DateTimeFormat("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(row.expiresAt);
     expect(m).toContain(`Son geçerlilik: ${until} (Türkiye saati)`);
-    expect(m).toContain(`<img src="${ORIGIN}/img/logo.png"`);
+    // P12 (AC-81): firma logosu → sistem logosu → Nokta; paylaşılan test DB'sinde sistem logosu yüklenmiş olabilir.
+    expect(m).toContain(`<img src="${await mailLogoUrl(db(), ORIGIN, t.id)}"`);
     const sa = await db().auditLog.findFirstOrThrow({ where: { action: "session.email", entityId: sess.id, userId: tech.id } });
     expect(sa.newValue).toMatchObject({ subject: expect.stringContaining("uzak destek bağlantınız"), recipient: expect.stringMatching(/^m\*\*\*@example\.test$/) });
     expect((await call(ts, "POST", `/sessions/${sess.id}/email`, { to, link: `${ORIGIN}/session/${"b".repeat(43)}` })).statusCode).toBe(400);

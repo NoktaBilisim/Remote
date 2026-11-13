@@ -13,8 +13,8 @@ const consents = (sessionId: string) => testDb().sessionConsent.count({ where: {
 
 function authOf(u: { id: string; email: string; username: string }, tenantId: string): AuthContext {
   return {
-    sessionId: "s", expiresAt: new Date(Date.now() + 3_600_000), tenantId, tenant: null, actingTenant: null, mfaStage: "ok" as const, mfaRequired: false, totpEnabled: false, permissions: new Set(["sessions.delete"]),
-    user: { id: u.id, email: u.email, username: u.username, fullName: "T", role: "USER", tenantId, theme: "SYSTEM", mustChangePassword: false },
+    sessionId: "s", expiresAt: new Date(Date.now() + 3_600_000), tenantId, tenant: null, actingTenant: null, mfaStage: "ok" as const, mfaRequired: false, totpEnabled: false, logoPath: null, permissions: new Set(["sessions.delete"]),
+    user: { id: u.id, email: u.email, username: u.username, fullName: "T", role: "USER", tenantId, theme: "SYSTEM", avatarUrl: null, mustChangePassword: false },
   };
 }
 

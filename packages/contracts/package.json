@@ -15,6 +15,7 @@
     "./api/tenants": "./src/api/tenants.ts",
     "./api/audit": "./src/api/audit.ts",
     "./api/system-settings": "./src/api/system-settings.ts",
+    "./api/branding": "./src/api/branding.ts",
     "./ws-request": "./src/ws-request.ts",
     "./ws": "./src/ws.ts",
     "./dc": "./src/dc.ts",

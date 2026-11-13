@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { PermissionMatrix } from "@/components/admin/permission-matrix";
 import { FormError } from "@/components/form-error";
 import { Alert } from "@/components/ui/alert";
-import { Avatar } from "@/components/ui/avatar";
+import { AvatarUploader } from "@/components/branding/avatar-uploader";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { SaveBar } from "@/components/ui/save-bar";
@@ -142,7 +142,8 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
             <UserRound aria-hidden className="size-5 text-fg-muted" />
             {t("us.e.profile")}
           </h2>
-          <Avatar name={saved.fullName} size="lg" />
+          {/* P12 (AC-83): yönetici, yönetebildiği etkin kullanıcının profil resmini değiştirir/kaldırır (kendi hesabı dahil) */}
+          <AvatarUploader userId={saved.id} name={saved.fullName} avatarUrl={saved.avatarUrl ?? null} canEdit={canEdit && saved.canManage && active} />
           <fieldset disabled={!editable || busy} className="flex flex-col gap-4">
             <TextField label={t("us.f.fullName")} value={d.fullName} onChange={set("fullName")} error={errors.fullName} maxLength={USER_FULL_NAME_MAX} autoComplete="off" data-testid="ue-name" />
             <TextField label={t("us.f.email")} type="email" value={d.email} onChange={set("email")} error={errors.email} maxLength={USER_EMAIL_MAX} autoComplete="off" spellCheck={false} data-testid="ue-email" />

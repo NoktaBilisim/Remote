@@ -252,6 +252,8 @@ export type UpdateTenantSettingsInput = z.input<typeof updateTenantSettingsInput
 export type UpdateTenantSettingsData = z.output<typeof updateTenantSettingsInputSchema>;
 
 export interface TenantSettingsView {
+  /** P12 (AC-81): firmanın kendi logosu (public URL); null → sistem logosu gösterilir. Değişiklik /settings/logo ile. */
+  logoUrl: string | null;
   /** Oturum linki/kodu geçerlilik süresi (dk). */
   sessionTtlMin: number;
   /** Teknisyen başına açık (bekleyen) oturum üst sınırı. */

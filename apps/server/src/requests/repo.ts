@@ -21,7 +21,7 @@ const settingsSelect = {
   emailEnabled: true,
   emailRecipients: true,
   trustedCidrs: true,
-  tenant: { select: { id: true, name: true, status: true, deletedAt: true } },
+  tenant: { select: { id: true, name: true, status: true, deletedAt: true, logoPath: true } },
 } as const;
 export type SettingsRow = Prisma.TenantRequestSettingsGetPayload<{ select: typeof settingsSelect }>;
 

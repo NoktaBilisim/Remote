@@ -5,6 +5,56 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P12 (marka ve kişiselleştirme)
+- **Hesap menüsü** (üst menüde avatar): Hesabım, Şifre değiştir, Tema (Açık / Koyu / Sistem), Çıkış; klavyeyle kullanılabilir
+  (Esc kapatır). `/account` sayfasına **Profil** (profil resmi) ve **Görünüm** (tema) bölümleri eklendi.
+- **Profil resmi (avatar):** yükle (tarayıcıda kare kırpma + önizleme) / değiştir / kaldır (onaylı). Admin, kullanıcı
+  detayında kendi firmasındaki yönetebildiği aktif kullanıcının resmini yönetir. Resim yoksa baş harf rozeti. Üst menü,
+  kullanıcı listesi ve audit log'da görünür.
+- **Ayarlar > Logo** (`/settings/logo`, `settings.view` / `settings.edit`): firma logosu önizlemeli yükle / değiştir / kaldır.
+  Logo üst menüde, müşteri karşılama sayfasında ve e-postalarda; kaldırılınca sistem logosu.
+- **Sistem ayarları > Sistem logosu** (`/admin/settings/system-logo`, yalnız Super Admin): yükle / değiştir.
+- **Giriş ekranında logo:** `/login?tenant=<kısa ad>` firma logosu, aksi hâlde sistem logosu, o da yoksa Nokta Bilişim logosu
+  (giriş, şifremi unuttum, şifre sıfırlama ekranları).
+- **Tema tercihi kullanıcı başına:** DB'de saklanır, başka cihazda aynı gelir; `rs_theme` çereziyle ilk HTML doğru temayla
+  çizilir (yanıp sönme yok). Kayıt hatasında önceki seçime dönülür.
+- API: `PATCH /auth/me/preferences`, `POST/DELETE /settings/logo`, `POST/DELETE /users/:id/avatar` (`me` dahil),
+  `POST /admin/settings/system-logo`, `GET /files/logo/*`, `/files/system-logo/*`, `/files/avatar/*`, `GET /public/branding`.
+  Yeni alanlar `AuthUser.avatarUrl`, `MeResponse.logoUrl`, `UserListItem.avatarUrl`, `TenantSettingsView.logoUrl`; müşteri
+  uçlarında `tenant.logoUrl` artık dolu. Yeni hata kodları `INVALID_IMAGE` (400), `PAYLOAD_TOO_LARGE` (413). Ayrıntı `docs/api.md`.
+- Audit: `tenant.logo_updated`, `tenant.logo_removed`, `user.avatar_updated`, `user.avatar_removed`,
+  `settings.system_logo.updated`, `upload.rejected`, `user.theme_changed`.
+- Tasarım: ESLint `remote/design-tokens` kuralı (`error`; sabit renk/px yasak), tüm menü/sekme/hesap menüsü öğelerinde ikon
+  (e2e denetimli), `prefers-reduced-motion` (yalnız opaklık) e2e ile doğrulandı.
+- Migration `20261113120000_p12_branding` (yalnız CHECK: `logo_path`/`avatar_path` biçimi, `system_settings` += `system_logo`).
+  Yeni ortam değişkeni `UPLOADS_DIR`, yeni volume `uploads` (`remote_uploads`), yükleme uçlarında Caddy 3 MiB ve host nginx
+  `client_max_body_size 3m`. Yeni bağımlılıklar: `sharp` 0.35.5, `file-type` 22.3.0, `@fastify/multipart` 10.1.8,
+  `react-easy-crop` 6.2.5. Sunucu CPU'su x86-64-v2 olmalı (runbook §16).
+
+### Güvenlik — P12
+- Resim türü yalnız içerikten (magic bytes + sharp çift kontrol; SVG/HTML/GIF ret), 2 MB, 24 MP, kenar ≥ 16 px, oran logo
+  ≤ 20:1 / avatar ≤ 4:1 (kod çözmeden önce; B-P12-2). Yeniden kodlama, EXIF/ICC/XMP silme, rastgele ad, atomik yazım.
+- Dosya yalnız DB'de o anda kayıtlı yolsa sunulur; avatar oturumlu, başka firma 404, `private, no-cache` (B-P12-4); logolar
+  `public, max-age=300`. `nosniff` + `sandbox` CSP.
+- Yükleme kişi başı 20/sa; resim işleme süreç genelinde 2 eşzamanlı + 4 bekleyen, dolunca 429. Gövde yetki ve hedef
+  doğrulanmadan okunmaz.
+- `/public/branding` 60/dk/IP; giriş ekranı ziyaretçi IP'sini yalnız doğrulanmış edge sırrıyla iletir (B-P12-1).
+- Teknisyen avatarı müşteriye açılmaz (KVKK); müşteri ekranında baş harf. Güvenlik denetimi: Kritik/Yüksek 0.
+
+### Düzeltildi — P12
+- Super Admin `/audit` 1280 px'te yatay kayma (P11 sayfa testi bulgusu) giderildi.
+- Logo/profil resmi yüklemede boyut/oran reddi artık sunucunun gerçek nedenini gösteriyor ("Resim boyutları uygun değil…");
+  önceden geçerli PNG'ye "Yalnız PNG, JPG veya WEBP" deniyordu.
+- `/account` başlığı hesap menüsüyle tutarlı olarak "Hesabım".
+- P11 aydınlatma metni, MySQL ve TURN formlarına hidrasyon işareti (`data-ready`); yük altında kararsız e2e giderildi.
+
+### Bilinen sınırlamalar — P12
+- Sistem logosu kaldırılamaz, yalnız değiştirilir.
+- Pasife alınan kullanıcı/firmanın resim dosyaları korunur; kalıcı silmede dosya temizliği P13 retention işinde (B-P12-3).
+- Hızlı Destek (Windows) istemcisi P6'dan beri sunucunun verdiği firma logosunu gösterir; P12 ile bu alan dolu gelir.
+  Gerçek Windows'ta görünüm henüz denenmedi (Windows elle testleriyle birlikte).
+- Açık maddeler: `docs/gereksinimler-sonra-acik.md` "P12'den".
+
 ### Eklendi — P11 (audit log ekranı, sistem ayarları, aydınlatma metni)
 - **Audit log** (`/audit`, menüde "Audit log"; `audit.view`): salt okunur liste, 50'şer kayıt + "Daha fazla yükle",
   filtreler URL'de (başlangıç/bitiş günü — boşsa son 30 gün, en çok 731 gün —, kullanıcı, işlem veya işlem grubu, sonuç;
@@ -46,7 +96,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 ### Bilinen sınırlamalar — P11
 - MySQL bağlantı testi TLS kullanmaz (arayüzde kalıcı uyarı); sunucu tarafı TLS seçeneği "Sonra".
 - Panel MySQL ayarı canlı geçiş yapmaz; `.env` güncellenip servis yeniden başlatılmalı.
-- Avatar resmi P12'ye kadar yok (baş harf rozeti). Firma seçmemiş Super Admin'de kullanıcı filtresi yalnız yüklü
+- Avatar resmi P12'ye kadar yok (baş harf rozeti; P12'de eklendi). Firma seçmemiş Super Admin'de kullanıcı filtresi yalnız yüklü
   kayıtlardan dolar.
 - Sayfa testi bulguları (frontend-dev): Super Admin `/audit` 1280 px'te sayfa 45 px yatay kayıyor (Ayrıntı sütunu kesik);
   ≥ 1366 px'te sorun yok. Açık maddeler: `docs/gereksinimler-sonra-acik.md` "P11'den".

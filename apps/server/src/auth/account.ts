@@ -124,7 +124,7 @@ export async function mfaEnable(d: AccountDeps, ctx: AuditContext, auth: AuthCon
   });
   resetMfaLimit(d, auth.user.id, ctx.ip);
   void d.mail
-    .sendForTenant(ctx, { ...who(auth), kind: "mfa_enabled", entity: "users", entityId: auth.user.id }, auth.user.email, mfaEnabledMail({ publicBaseUrl: d.publicBaseUrl }))
+    .sendForTenant(ctx, { ...who(auth), kind: "mfa_enabled", entity: "users", entityId: auth.user.id }, auth.user.email, mfaEnabledMail())
     .catch((err: unknown) => d.log.error({ err, event: "mfa_enabled_notify_failed" }, "2FA etkinleştirme bildirimi gönderilemedi"));
   return { recoveryCodes: codes };
 }
@@ -214,7 +214,7 @@ async function processForgot(d: AccountDeps, ctx: AuditContext, email: string): 
     await writeAudit(tx, ctx, { ...base, result: "success" });
   });
   const link = `${d.publicBaseUrl.replace(/\/+$/, "")}${RESET_PASSWORD_PATH}#token=${token}`;
-  await d.mail.sendForTenant(ctx, { tenantId: user.tenantId, userId: user.id, username: user.email, kind: "password_reset", entity: "users", entityId: user.id }, user.email, passwordResetMail({ publicBaseUrl: d.publicBaseUrl, link, ttlMin: RESET_TOKEN_TTL_MIN }), cfg);
+  await d.mail.sendForTenant(ctx, { tenantId: user.tenantId, userId: user.id, username: user.email, kind: "password_reset", entity: "users", entityId: user.id }, user.email, passwordResetMail({ link, ttlMin: RESET_TOKEN_TTL_MIN }), cfg);
 }
 
 /** POST /auth/password/reset (AC-66): tek kullanım koşullu UPDATE; şifre + kilit sayaçları + tüm oturumlar aynı TX'te. */
@@ -249,7 +249,7 @@ export function lockNotifier(d: AccountDeps, ctx: AuditContext) {
   return (u: { id: string; tenantId: string | null; email: string }): void => {
     if (d.limits.lockMail.blockedFor(u.id) > 0 || d.limits.lockMail.hit(u.id)) return;
     void d.mail
-      .sendForTenant(ctx, { tenantId: u.tenantId, userId: u.id, username: u.email, kind: "account_locked", entity: "users", entityId: u.id }, u.email, accountLockedMail({ publicBaseUrl: d.publicBaseUrl, minutes: 15 }))
+      .sendForTenant(ctx, { tenantId: u.tenantId, userId: u.id, username: u.email, kind: "account_locked", entity: "users", entityId: u.id }, u.email, accountLockedMail({ minutes: 15 }))
       .catch((err: unknown) => d.log.error({ err, event: "lock_notify_failed" }, "kilit bildirimi gönderilemedi"));
   };
 }

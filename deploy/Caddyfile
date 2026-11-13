@@ -162,8 +162,24 @@
 		respond 404
 	}
 
+	# P12 (AC-81..84): logo/avatar yükleme uçları. Dosya sınırı 2 MB (server/@fastify/multipart uygular, 413) +
+	# multipart zarfı; Caddy `2MB` = 2.000.000 bayt (SI) olduğundan tam 2 MiB'lık dosya burada kesilirdi. Bu uçlara
+	# 3 MiB tavan (nginx `client_max_body_size 3m` ile aynı), diğer /api/* 2MB'ta kalır. İki matcher birbirini dışlar
+	# (iki `request_body` aynı isteğe uygulanırsa küçük olan kazanır). Uç listesi mimari-api "Yönetim"; yeni yükleme
+	# ucu eklenirse buraya da eklenir (test: deploy/test-caddy.sh "gövde sınırı").
+	@upload {
+		method POST
+		path_regexp ^/api/v1/(settings/logo|admin/settings/system-logo|users/[^/]+/avatar)$
+	}
+	@notUpload not {
+		method POST
+		path_regexp ^/api/v1/(settings/logo|admin/settings/system-logo|users/[^/]+/avatar)$
+	}
 	handle /api/* {
-		request_body {
+		request_body @upload {
+			max_size 3MiB
+		}
+		request_body @notUpload {
 			max_size 2MB
 		}
 		reverse_proxy server:3001 {

@@ -50,11 +50,13 @@ describe("B-P10-11 SMTP deneme tavanı soketi kapatır", () => {
       netguard: createNetGuard({ lookupAll: async (h) => (h === "drip.test" ? ["127.0.0.1"] : []), isBlocked: () => false }),
       metrics: createMetrics(),
       log: { warn: () => undefined, error: () => undefined },
+      logoUrlFor: async () => "https://rs.test/img/logo.png",
+      fallbackLogoUrl: "https://rs.test/img/logo.png",
       transport: (o) => nodemailer.createTransport({ ...o, port } as Parameters<typeof nodemailer.createTransport>[0]),
     });
     const cfg: SmtpConfig = { host: "drip.test", port: 25, security: "NONE", user: null, pass: null, fromName: null, fromEmail: "destek@firma.test" };
     const t0 = Date.now();
-    const out = await svc.deliver(cfg, "a@alici.test", { subject: "s", text: "t", html: "<p>t</p>" }, 1);
+    const out = await svc.deliver(cfg, "a@alici.test", { subject: "s", text: "t", bodyHtml: "<p>t</p>" }, 1);
     const returnedAt = Date.now();
     expect(out).toEqual({ ok: false, reason: "connect" });
     expect(returnedAt - t0).toBeGreaterThanOrEqual(MAIL_ATTEMPT_CAP_MS - 100);

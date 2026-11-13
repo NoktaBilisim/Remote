@@ -46,6 +46,11 @@ import { adminTenantRoutes, tenantSettingsRoutes } from "./tenants/routes.ts";
 import { auditReadOnlyRoutes, auditRoutes } from "./audit/routes.ts";
 import { adminSettingsRoutes, applyTurn, consentTextRoutes } from "./settings/routes.ts";
 import type { ProbeResult, ProbeTarget } from "./settings/mysql-probe.ts";
+import { DEFAULT_LOGO_URL } from "@remote/contracts/api/branding";
+import { fileRoutes, publicBrandingRoutes } from "./uploads/files.ts";
+import { uploadRoutes } from "./uploads/routes.ts";
+import { UploadStore } from "./uploads/store.ts";
+import { mailLogoUrl } from "./uploads/urls.ts";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -66,6 +71,8 @@ declare module "fastify" {
     mail: MailService;
     account: AccountDeps;
     smtpTestLimit: FixedWindowCounter;
+    /** P12: logo/avatar deposu (UPLOADS_DIR). */
+    uploads: UploadStore;
     /** P10 (AC-67): zorunlu 2FA kurulum aşaması uygulanıyor mu (production'da her zaman true, B-P10-3). */
     mfaSetupEnforced: boolean;
   }
@@ -174,7 +181,22 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       denyHosts: [new URL(env.PUBLIC_BASE_URL).hostname], // B-P10-1: kendi adresimiz de yasak
       onSelfUnresolved: (host, cached) => app.log.warn({ alarm: "netguard_self_unresolved", host, cached }, cached ? "kendi adımız çözülemedi; son başarılı çözüm kullanıldı" : "kendi adımız çözülemedi; SMTP hedefi reddedildi (fail-closed)"),
     });
-  const mail = new MailService({ db: deps.db, secrets, netguard, metrics, log: app.log, ...(deps.mailTransport ? { transport: deps.mailTransport } : {}) });
+  const mail = new MailService({
+    db: deps.db,
+    secrets,
+    netguard,
+    metrics,
+    log: app.log,
+    logoUrlFor: (tenantId) => mailLogoUrl(deps.db, env.PUBLIC_BASE_URL, tenantId), // P12 (AC-81)
+    fallbackLogoUrl: `${env.PUBLIC_BASE_URL.replace(/\/+$/, "")}${DEFAULT_LOGO_URL}`,
+    ...(deps.mailTransport ? { transport: deps.mailTransport } : {}),
+  });
+  // P12 (AC-84): yükleme deposu; yazılamıyorsa alarm (yüklemeler 500 verir, sunucu yine açılır).
+  const uploads = new UploadStore(env.UPLOADS_DIR);
+  app.decorate("uploads", uploads);
+  app.addHook("onReady", async () => {
+    if (!(await uploads.writable())) app.log.error({ alarm: "uploads_not_writable" }, "UPLOADS_DIR yazılamıyor; logo/avatar yüklemesi çalışmaz");
+  });
   app.decorate("secrets", secrets);
   app.decorate("netguard", netguard);
   app.decorate("mail", mail);
@@ -280,5 +302,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(auditReadOnlyRoutes, { prefix: "/api/v1/audit" });
   void app.register(adminSettingsRoutes, { prefix: "/api/v1/admin/settings", ...(deps.mysqlProbe ? { mysqlProbe: deps.mysqlProbe } : {}) });
   void app.register(consentTextRoutes, { prefix: "/api/v1/settings/consent-text" });
+  // P12 marka: yükleme (multipart yalnız bu bağlamda), dosya sunumu, public marka.
+  void app.register(uploadRoutes, { prefix: "/api/v1", deps: { db: deps.db, store: uploads, log: app.log } });
+  void app.register(fileRoutes, { prefix: "/api/v1", store: uploads });
+  void app.register(publicBrandingRoutes, { prefix: "/api/v1/public" });
   return app;
 }

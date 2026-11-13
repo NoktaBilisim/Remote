@@ -58,6 +58,12 @@ COPY --from=prod-deps /repo/package.json /repo/pnpm-workspace.yaml ./
 COPY --from=prod-deps /repo/node_modules ./node_modules
 COPY --from=prod-deps /repo/packages ./packages
 COPY --from=prod-deps /repo/apps/server ./apps/server
+# P12 yükleme kökü (UPLOADS_DIR). Kök dosya sistemi salt okunur (compose read_only); yazılabilir tek kalıcı yer
+# `uploads` named volume'u. Docker boş named volume'u ilk bağlamada imajdaki bu dizinden doldurur ve sahiplik/izni
+# (node:node 0700) kopyalar → ayrı chown/init adımı gerekmez. sharp (libvips) bu taban imajda (Debian bookworm, glibc
+# 2.36) npm'deki hazır @img/sharp-linux-{x64,arm64} ikilileriyle çalışır; apt paketi gerekmez (alpine/musl'a geçilirse
+# lockfile'daki linuxmusl paketleri kullanılır, yeniden doğrulayın: runbook §16.4).
+RUN mkdir -p /data/uploads && chown node:node /data/uploads && chmod 0700 /data/uploads
 WORKDIR /app/apps/server
 USER node
 EXPOSE 3001

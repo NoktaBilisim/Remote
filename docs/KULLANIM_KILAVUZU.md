@@ -9,14 +9,13 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Teknisyen için:** Uzaktan kontrol (konsol), Oturum geçmişi, Destek talepleri, müşterinin ekranı gelmiyorsa
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, kayıtlı bilgisayarlar)
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
-  kodları, şifremi unuttum, Hesap güvenliği sayfası, tüm cihazlardan çıkış
+  kodları, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış; hesap menüsü, profil resmi ve tema; giriş
+  ekranında firma logosu
 - **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
   yetkileri, Ayarlar > Destek talepleri (e-posta bildirimi dahil), Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
-  Aydınlatma metni, Ayarlar > Güvenlik
+  Aydınlatma metni, Ayarlar > Güvenlik, Ayarlar > Logo, kullanıcının profil resmi
 - **Super Admin için:** Firmalar ve firma geçişi, tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
-  (MySQL ve TURN), şifre/2FA kaybı
-
-Logo, avatar ve tema tercihi P12 paketiyle eklenecektir.
+  (MySQL, TURN ve sistem logosu), şifre/2FA kaybı
 
 ---
 
@@ -37,7 +36,7 @@ kullanılabilir.
 
 ### Nasıl 2FA kurarım?
 1. Telefonunuza bir doğrulama uygulaması kurun.
-2. İlk girişte (veya **Hesap güvenliği** sayfasındaki kurulum bağlantısından) "İki adımlı doğrulamayı kurun" ekranı açılır.
+2. İlk girişte (veya **Hesabım** sayfasındaki kurulum bağlantısından) "İki adımlı doğrulamayı kurun" ekranı açılır.
    İlk girişte şifre değiştirmeniz gerekiyorsa önce o ekran gelir.
 3. Uygulamada "hesap ekle / QR tara" seçin ve ekrandaki QR kodu okutun. Okutamıyorsanız "QR okutamıyorsanız bu anahtarı
    elle girin" altındaki anahtarı uygulamaya yazın ("Anahtarı kopyala" ile kopyalayabilirsiniz).
@@ -59,7 +58,7 @@ Aynı kodu iki kez kullanamazsınız; yeni kodun gelmesini bekleyin. Çok sayıd
 (aynı yerden 5 hata → 5 dk; toplam 15 hata → 15 dk).
 
 ### Kurtarma kodlarım biterse ya da telefonumu kaybedersem?
-- **Hesap güvenliği** sayfası kalan kurtarma kodu sayısını gösterir; 3 veya daha azsa uyarı çıkar.
+- **Hesabım** sayfası kalan kurtarma kodu sayısını gösterir; 3 veya daha azsa uyarı çıkar.
 - Kodları kendiniz yenileyemezsiniz. Admin'inizden **2FA sıfırlaması** isteyin; sonraki girişte 2FA'yı yeniden kurar ve
   yeni kodlar alırsınız.
 - Admin iseniz aynı firmadaki başka bir Admin sıfırlar. Super Admin için bkz. "Super Admin için: Şifre veya 2FA kaybı".
@@ -75,16 +74,17 @@ Aynı kodu iki kez kullanamazsınız; yeni kodun gelmesini bekleyin. Çok sayıd
 E-posta gelmiyorsa: istenmeyen (spam) klasörüne bakın; firmanızın e-posta (SMTP) ayarı yapılmamış olabilir — Admin'inize
 sorun. Bağlantı "geçersiz veya süresi dolmuş" diyorsa **Yeni bağlantı iste** ile tekrar isteyin.
 
-### Hesap güvenliği sayfası
-Üst menüde adınıza/avatarınıza basınca açılır. Burada:
-- Profil özeti,
+### Hesabım sayfası
+Üst menünün sağındaki yuvarlak resminize (avatar) basın, açılan **hesap menüsünden** **Hesabım**'ı seçin. Sayfada:
+- **Profil:** ad soyad, e-posta, rol ve profil resmi (bkz. "Profil resmimi nasıl yüklerim?"),
+- **Görünüm:** tema seçimi (Açık / Koyu / Sistem),
 - **Şifre değiştir** (mevcut şifre + yeni şifre iki kez),
 - 2FA durumu ("Etkin" / kurulum bağlantısı) ve kullanılmamış kurtarma kodu sayısı,
 - **Tüm cihazlardan çıkış**.
 
 ### Tüm cihazlardan çıkış
 Başka bir bilgisayarda oturumunuzu açık unuttuysanız veya şüpheli bir durum varsa kullanın.
-1. Hesap güvenliği → **Tüm cihazlardan çıkış** → onaylayın.
+1. Hesabım → **Tüm cihazlardan çıkış** → onaylayın.
 2. Kaç oturumun kapatıldığı gösterilir. Şu an kullandığınız oturum açık kalır; diğer cihazlar birkaç saniye içinde
    giriş ekranına düşer ve o cihazlardaki açık destek oturumları sonlanır.
 
@@ -100,6 +100,81 @@ Başka bir bilgisayarda oturumunuzu açık unuttuysanız veya şüpheli bir duru
 | "Bu şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş." | Yeni bağlantı isteyin; yalnız son gelen e-postadaki bağlantı çalışır |
 | "Oturumunuz sona erdi" | 30 dk boşta kaldınız, 8 saat doldu veya başka bir cihazdan "Tüm cihazlardan çıkış" yapıldı |
 | "Devam etmeden önce iki adımlı doğrulamayı kurmanız gerekiyor." | Hesabınızda 2FA zorunlu; kurulum adımlarını izleyin |
+
+
+## Herkes için: Hesap menüsü, profil resmi ve tema
+
+### Hesap menüsü
+Üst menünün sağındaki yuvarlak resim sizin **avatarınızdır**. Profil resminiz yoksa ad soyadınızın baş harfleri renkli bir
+daire içinde görünür. Avatara basınca hesap menüsü açılır:
+- Adınız ve e-posta adresiniz,
+- **Hesabım** (kişi simgesi): Hesabım sayfasını açar,
+- **Şifre değiştir** (anahtar simgesi): Hesabım sayfasının şifre bölümüne gider,
+- **Tema**: Açık / Koyu / Sistem düğmeleri,
+- **Çıkış** (kapı simgesi).
+
+Menüyü klavyeyle de kullanabilirsiniz; **Esc** menüyü kapatır. Üst menüde ayrıca tek dokunuşla çalışan **Çıkış yap**
+düğmesi de vardır; ikisi aynı işi yapar.
+
+### Profil resmimi nasıl yüklerim?
+1. Hesap menüsü → **Hesabım**.
+2. **Profil** bölümünde **Resim yükle**'ye basın (resminiz varsa düğmenin adı **Resmi değiştir**'dir).
+3. Bilgisayarınızdan bir PNG, JPG veya WEBP dosyası seçin (en çok 2 MB).
+4. **Profil resmini kırp** penceresi açılır. Resmi sürükleyerek (klavyede ok tuşlarıyla) konumlandırın, yakınlaştırmayı
+   kaydırıcıyla ayarlayın. Önizleme kare olarak gösterilir.
+5. **Kaydet**'e basın. "Profil resmi güncellendi" mesajı çıkar; resim üst menüde hemen görünür. **Vazgeç** hiçbir şeyi
+   değiştirmez.
+
+Resim kare olarak kırpılır ve sunucuda 256×256 piksele küçültülür. Fotoğraftaki konum, cihaz gibi gizli bilgiler (EXIF)
+silinir.
+
+### Profil resmimi nasıl kaldırırım?
+1. Hesabım → **Profil** → **Resmi kaldır**.
+2. "Profil resmi kaldırılsın mı?" penceresinde onaylayın. Resim yerine baş harfleriniz görünür.
+
+### Profil resmim kimlere görünür?
+Profil resminiz üst menüde, kullanıcı listesinde ve audit log ekranında görünür. Yalnız **kendi firmanızdaki** oturum açmış
+kullanıcılar (ve Süper Yönetici) görebilir. Müşteriler sizin resminizi **görmez**; müşteri ekranında teknisyenin baş harfleri
+gösterilir.
+
+### Temayı nasıl değiştiririm?
+- **Hızlı yol:** hesap menüsü → **Tema** → **Açık**, **Koyu** veya **Sistem**. Seçim anında uygulanır, menü açık kalır.
+- **Hesabım** → **Görünüm** bölümünden de aynı seçimi yapabilirsiniz.
+- **Sistem** (varsayılan): bilgisayarınızın açık/koyu ayarını izler.
+
+Tema yalnız **sizin** hesabınız için geçerlidir; başka kullanıcıları etkilemez. Tercihiniz hesabınıza kaydedilir, başka bir
+bilgisayardan girdiğinizde de aynı tema gelir. Çıkış yaptıktan sonra giriş ekranı bu tarayıcıdaki son seçiminize uyar.
+Kayıt başarısız olursa "Tema kaydedilemedi; önceki seçim geri yüklendi." yazar; biraz sonra tekrar deneyin.
+
+### Giriş ekranında firmamın logosu nasıl görünür?
+Giriş ekranında her zaman bir logo vardır:
+- Giriş bağlantısı firmanızın kısa adını içeriyorsa (ör. `https://remote.noktabilisim.net/login?tenant=ornek-bilisim`)
+  **firmanızın logosu** görünür. Kısa adı Süper Yönetici'den öğrenebilirsiniz.
+- Bağlantıda kısa ad yoksa ya da kısa ad yanlış veya firma pasifse **sistem logosu** görünür.
+- Sistem logosu yüklenmemişse Nokta Bilişim logosu görünür.
+
+Yöneticiler ekip için bu bağlantıyı tarayıcıda yer imi olarak kaydedebilir. Şifremi unuttum ve şifre sıfırlama ekranları
+da aynı kuralla logo gösterir.
+
+### Resim dosyası kuralları (profil resmi ve logolar)
+| Kural | Değer |
+|---|---|
+| Dosya türü | PNG, JPG veya WEBP. SVG, GIF, PDF kabul edilmez; dosyanın içeriği kontrol edilir, uzantıyı değiştirmek işe yaramaz |
+| En büyük dosya | 2 MB |
+| En küçük boyut | Her kenar en az 16 piksel |
+| En-boy oranı | Logoda en çok 20:1, profil resminde en çok 4:1 |
+| Sunucudaki sonuç | Profil resmi 256×256 kare; logo en çok 512 piksel (oran korunur) |
+| Saatlik sınır | Bir kişi saatte en çok 20 resim yükleyebilir |
+
+### Sık karşılaşılan mesajlar (resim yükleme ve tema)
+| Mesaj | Anlamı / ne yapmalı |
+|---|---|
+| "Yalnız PNG, JPG veya WEBP resim yükleyebilirsiniz." | Dosya bu türlerden değil veya bozuk. Resmi PNG ya da JPG olarak yeniden kaydedin |
+| "Resim boyutları uygun değil: her kenar en az 16 px, en-boy oranı logoda en çok 20:1, profil resminde en çok 4:1 olmalı." | Resim çok küçük ya da çok ince uzun. Daha büyük veya daha dengeli oranlı bir resim seçin |
+| "Dosya en çok 2 MB olabilir." | Resmi küçültün veya JPG olarak sıkıştırıp tekrar deneyin |
+| "Çok fazla resim yüklendi. Biraz sonra tekrar deneyin." | Saatlik sınır doldu ya da sunucu o anda başka resimleri işliyor; biraz bekleyin |
+| "Bu kullanıcının profil resmini değiştirme yetkiniz yok." | Bkz. "Admin için: Kullanıcının profil resmi" |
+| "Tema kaydedilemedi; önceki seçim geri yüklendi." | Bağlantı veya sunucu sorunu; sayfayı yenileyip tekrar deneyin |
 
 ---
 
@@ -128,8 +203,8 @@ kapandığında hiçbir parçası çalışmaya devam etmez.
 **Bilmeniz gerekenler**
 - Programın yeni sürümünde (0.8 ve sonrası) teknisyen **fare imlecinizi görür**; bir yeri imleçle gösterebilirsiniz.
   Eski sürümde imleç görünmez; o zaman yeri sohbette yazın veya telefonda tarif edin.
-- Karşılama penceresinin sağ üstünde şimdilik firmanızın değil **Nokta Bilişim'in logosu** görünür. Firma adı ve
-  teknisyen adı yazı olarak yine gösterilir.
+- Karşılama penceresinin sağ üstünde destek veren firmanın logosu görünür; firma logo yüklemediyse sistem logosu (Nokta
+  Bilişim) görünür. Firma adı ve teknisyen adı yazı olarak da gösterilir.
 - Program sizden teknisyene dosya göndermez; yalnız teknisyenden dosya alır.
 
 ### Nasıl indiririm?
@@ -918,6 +993,16 @@ yapılır.
 3. Pasif kullanıcıyı listede **Durum: Pasif** filtresiyle bulursunuz. **Yeniden etkinleştir** ile geri açarsınız; rolü ve
    yetkileri önceki gibi kalır.
 
+### Kullanıcının profil resmi
+Bir kullanıcının profil resmini onun yerine yükleyebilir, değiştirebilir veya kaldırabilirsiniz (ör. ekip fotoğrafları).
+1. **Kullanıcılar** → kullanıcıya tıklayın.
+2. Profil kartında **Resim yükle** / **Resmi değiştir** / **Resmi kaldır** düğmelerini kullanın. Kırpma ve onay adımları
+   "Profil resmimi nasıl yüklerim?" bölümündekiyle aynıdır.
+
+Düğmeler yalnız şu durumda görünür: "Kullanıcılar → Düzenle" yetkiniz var, kullanıcı sizinle aynı firmada ve sizden geniş
+yetkili değil, hesap **aktif**. Aksi hâlde "Bu kullanıcının profil resmini değiştirme yetkiniz yok." yazar. Her değişiklik
+audit log'a yazılır. Kullanıcı listesinde resmi olanların resmi, olmayanların baş harfleri görünür.
+
 ### Sık karşılaşılan mesajlar (Kullanıcılar)
 | Mesaj | Ne yapmalı |
 |---|---|
@@ -1147,6 +1232,32 @@ yeniden onay vermek zorunda kalır.
 | Metin görünmez veya kontrol karakteri içeremez | Word/PDF'ten yapıştırılan görünmez karakterler var; metni düz metin editörüne yapıştırıp oradan kopyalayın |
 | Çok fazla istek (hız sınırı) | Firma başına saatte en çok 10 kayıt yapılabilir; bir süre sonra deneyin |
 
+## Admin için: Ayarlar > Logo
+Firmanızın logosu üst menüde, müşterinin karşılama sayfasında (`/session/...`) ve e-postalarda
+görünür. Logo yoksa sistem logosu kullanılır. Ekran: **Ayarlar** → **Logo** sekmesi (resim
+simgesi). Görmek için "Ayarlar → Görüntüle", değiştirmek için "Ayarlar → Düzenle" yetkisi gerekir; yalnız görüntüleme
+yetkiniz varsa sayfa salt okunur uyarısıyla açılır. Süper Yönetici önce üst menüden firmayı seçer.
+
+### Nasıl logo yüklerim veya değiştiririm?
+1. **Ayarlar > Logo**'yu açın. **Geçerli logo** alanında şu anki logo görünür ("Firma logosu yüklenmedi; sistem logosu
+   gösteriliyor" yazıyorsa henüz logonuz yoktur).
+2. **Logo seç** (logonuz varsa **Logoyu değiştir**) ile dosyayı seçin.
+3. **Önizleme (henüz kaydedilmedi)** alanında logoyu kontrol edin. Beğenmezseniz **Vazgeç**.
+4. **Logoyu kaydet**'e basın. "Logo kaydedildi" mesajından sonra logo üst menüde görünür.
+
+Yatay logolar uygundur. Sunucu logoyu en çok 512 piksele küçültür ve PNG olarak saklar. Koyu temada logo açık renkli bir
+zemin üzerinde gösterilir, böylece siyah yazılar okunur. Dosya kuralları: "Resim dosyası kuralları".
+
+### Logoyu nasıl kaldırırım?
+1. **Logoyu kaldır**'a basın.
+2. "Firma logosu kaldırılsın mı?" penceresinde onaylayın. Üst menüde ve müşteri sayfalarında sistem logosu görünür.
+
+Yükleme, değiştirme ve kaldırma audit log'a yazılır. Reddedilen dosyalar da "başarısız" olarak kaydedilir.
+
+### Giriş bağlantısını ekibe nasıl veririm?
+Firmanızın giriş ekranında kendi logonuzun görünmesi için ekibe `…/login?tenant=<firmanızın kısa adı>` bağlantısını verin
+(bkz. "Giriş ekranında firmamın logosu nasıl görünür?").
+
 ## Admin için: Ayarlar > Güvenlik (teknisyenler için 2FA)
 1. **Ayarlar** → **Güvenlik**.
 2. **Teknisyenler için zorunlu** anahtarını açın veya kapatın; değişiklik hemen kaydedilir.
@@ -1226,7 +1337,7 @@ Süper Yönetici içindir" uyarısı çıkar.
 ## Super Admin için: Sistem ayarları (MySQL ve TURN)
 Kenar menüsünde **Sistem ayarları** (sunucu-dişli simgesi) yalnız Super Admin'e görünür; Admin bu adresi açarsa "Sistem
 ayarları yalnız Super Admin içindir." yazar. Bu ayarlar **tüm firmalar için** geçerlidir. Sayfada iki sekme vardır:
-**MySQL** ve **TURN**. Her değişiklik audit log'a yazılır (firma alanı boş, "Sistem" kaydı olarak).
+**MySQL**, **TURN** ve **Sistem logosu** (bkz. "Super Admin için: Sistem logosu"). Her değişiklik audit log'a yazılır (firma alanı boş, "Sistem" kaydı olarak).
 
 Kaynak rozeti: **Ortam değişkenleri (.env)** = panelde kayıt yok, sunucudaki `.env` kullanılıyor; **Panelde kayıtlı** =
 bu ekrandan kaydedilmiş değer.
@@ -1289,6 +1400,18 @@ onaylarsanız paneldeki adresler ve anahtar silinir, uygulama yeniden `.env` de�
 | Gizli anahtar en az 32 karakter olmalı / boşluk ve # içermeyen ASCII olmalı | coturn'deki anahtarı kurallara uygun üretin ve iki yerde aynı yapın |
 | En az bir adres gerekli | `.env` değerlerine dönmek için **Ortam değerlerine dön**'ü kullanın |
 | Çok fazla istek | Dakikalık test sınırı doldu; bir dakika bekleyin |
+
+## Super Admin için: Sistem logosu
+Sistem logosu, giriş ekranında firma belli değilken ve logosu olmayan firmaların ekranlarında, müşteri sayfalarında ve
+e-postalarında görünür. Yüklenmemişse Nokta Bilişim logosu kullanılır. Ekran: **Sistem ayarları** → **Sistem logosu**
+sekmesi (resim simgesi). Admin bu adresi açarsa yetki uyarısı görür.
+
+1. **Logo seç** (varsa **Logoyu değiştir**) ile dosyayı seçin, önizlemeyi kontrol edin.
+2. **Logoyu kaydet**'e basın. "Sistem logosu kaydedildi" mesajından sonra giriş ekranında yeni logo görünür.
+
+Sistem logosu bu sürümde **kaldırılamaz**, yalnız değiştirilebilir. Nokta Bilişim logosuna dönmek isterseniz o logoyu
+yeniden yükleyin. Değişiklik audit log'a "Sistem" kaydı olarak yazılır. Dosya kuralları ve hata mesajları için bkz.
+"Resim dosyası kuralları". Süper Yönetici kendi profil resmini Hesabım sayfasından yönetir.
 
 ## Super Admin için: Şifre veya 2FA kaybı
 Super Admin'in bir firması olmadığı için SMTP ayarı da yoktur: "Şifremi unuttum" e-posta göndermez ve kimse panelden

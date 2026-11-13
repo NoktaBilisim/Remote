@@ -4,13 +4,14 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P11 tamamlandı (Windows elle testleri bekliyor)
-İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P10 ve **P11** (audit log ekranı, Super Admin sistem
-ayarları MySQL/TURN, aydınlatma metni düzenleme, audit değiştirilemezlik tetikleyicileri) tamamlandı: P11 qa GEÇTİ,
-güvenlik Kritik/Yüksek 0, sayfa testi GEÇTİ (`docs/arsiv/p11-qa-raporu.md`, `docs/arsiv/p11-test-raporu.md`,
-`docs/guvenlik-raporu.md`). P11 henüz staging'e yayınlanmadı (yayın adımları runbook §15). Windows istemci **0.10.2**
-qa ve güvenlik denetiminden geçti. Gerçek Windows'ta elle testler (P7, P8b-2, P8c-2, 0.10.2) ve AC-192 staging ölçümü
-bekliyor. Sıradaki paket **P12** (logo/avatar, tema tercihi); açık maddeler `docs/gereksinimler-sonra-acik.md`.
+## Şu anki durum: P1–P12 tamamlandı (Windows elle testleri bekliyor)
+İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
+resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
+turu GEÇTİ), sayfa testi gerçek server ile GEÇTİ, QA Tur 2'nin tek maddesi (P11'e ait kararsız e2e testi) düzeltildi
+(`docs/arsiv/p12-qa-raporu.md`, `docs/arsiv/p12-test-raporu.md`, `docs/guvenlik-raporu.md`). P11 ve P12 henüz staging'e
+yayınlanmadı (yayın adımları runbook §15, §16). Windows istemci **0.10.2** qa ve güvenlik denetiminden geçti. Gerçek
+Windows'ta elle testler (P7, P8b-2, P8c-2, 0.10.2) ve AC-192 staging ölçümü bekliyor. Sıradaki paket **P13** (prod deploy,
+yedek, retention); açık maddeler `docs/gereksinimler-sonra-acik.md`.
 
 Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.126.217.99:4450` geçiş süresince açık).
 
@@ -254,7 +255,7 @@ Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.
   Deneme sınırı: hesap+IP 5 / 5 dk, hesap geneli 15 / 15 dk.
 - **Şifremi unuttum** (`/forgot-password`): firma SMTP'si üzerinden 30 dk geçerli, tek kullanımlık bağlantı
   (`/reset-password#token=…`). Yanıt hesabın var olup olmadığını söylemez. Sıfırlama tüm oturumları kapatır.
-- **Hesap güvenliği** (`/account`, üst menüde avatar): şifre değiştir, 2FA durumu ve kalan kurtarma kodu, **Tüm
+- **Hesap güvenliği** (`/account`, P12'den beri adı "Hesabım"; üst menüde avatar): şifre değiştir, 2FA durumu ve kalan kurtarma kodu, **Tüm
   cihazlardan çıkış** (diğer oturumlar ve açık destek oturumları 5 sn içinde kapanır). Oturum boşta 30 dk, mutlak 8 sa.
 - **Ayarlar > E-posta (SMTP)** (`/settings/smtp`): sunucu, port (25/465/587/2525), güvenlik Yok/SSL/TLS, kullanıcı,
   şifre (maskeli, şifreli saklanır, forma geri yazılmaz), gönderen adı/adresi, **Test Maili Gönder**, ayarı kaldırma.
@@ -283,6 +284,27 @@ Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.
 - Migration `20261113090000_p11_system_settings_audit` (`system_settings`, audit tetikleyicileri). MySQL'de
   `--log-bin-trust-function-creators=1` bayrağı gerekir (compose'da var; runbook §15). Yeni ortam değişkeni ve yeni
   bağımlılık yok.
+
+**P12 — marka ve kişiselleştirme**
+- **Hesap menüsü** (üst menüde avatar): Hesabım, Şifre değiştir, Tema (Açık / Koyu / Sistem), Çıkış. `/account` sayfasının
+  adı **Hesabım**; Profil (profil resmi) ve Görünüm (tema) bölümleri eklendi.
+- **Profil resmi (avatar):** kullanıcı kendi resmini yükler (tarayıcıda kare kırpma + önizleme), değiştirir, kaldırır (onaylı).
+  Admin aynı işlemi kendi firmasındaki yönetebildiği aktif kullanıcılar için kullanıcı detayında yapar. Resim yoksa baş harf
+  rozeti. Avatar üst menüde, kullanıcı listesinde ve audit log'da görünür; müşteriye gösterilmez.
+- **Firma logosu** (Ayarlar > Logo, `/settings/logo`): önizlemeli yükle / değiştir / kaldır; üst menüde, müşteri karşılama
+  sayfasında ve e-postalarda. **Sistem logosu** (Sistem ayarları > Sistem logosu, yalnız Super Admin): yükle / değiştir
+  (kaldırma yok). Zincir: firma logosu → sistem logosu → Nokta Bilişim logosu.
+- **Giriş ekranında logo:** `/login?tenant=<firma kısa adı>` firmanın logosunu, kısa adsız bağlantı sistem logosunu gösterir.
+- **Tema:** kullanıcı başına, DB'de saklanır; başka cihazda da aynı gelir. İlk HTML doğru temayla çizilir (yanıp sönme yok,
+  satır içi betik yok).
+- Dosya güvenliği: yalnız PNG/JPEG/WEBP (içerikten), 2 MB, kenar ≥ 16 px, oran logo ≤ 20:1 / avatar ≤ 4:1; sunucuda yeniden
+  kodlama (logo PNG ≤ 512 px, avatar WEBP 256×256), EXIF silme, rastgele ad, firma klasörü; avatar yalnız aynı firmaya.
+- Tasarım: ESLint `remote/design-tokens` kuralı (sabit renk/px yasak, `error`), tüm menü/sekme öğelerinde ikon,
+  `prefers-reduced-motion` desteği.
+- Migration `20261113120000_p12_branding` (yalnız CHECK). Yeni ortam değişkeni **`UPLOADS_DIR`**, yeni volume `uploads`;
+  Caddy ve host nginx'te yükleme uçlarına 3 MiB gövde sınırı (runbook §16). Yeni bağımlılıklar `sharp` 0.35.5
+  (Apache-2.0; libvips LGPL, dinamik), `file-type` 22.3.0 (MIT), `@fastify/multipart` 10.1.8 (MIT), `react-easy-crop` 6.2.5 (MIT).
+  Sunucu CPU'su x86-64-v2 olmalı (runbook §16.1/0).
 
 **Düzeltme — talepten doğan oturumda siyah ekran:** sunucu teknisyene ICE (TURN) listesini `peer.joined`'dan önce
 gönderir, konsol liste gelmeden teklif üretmez (`6701567`).
@@ -314,7 +336,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P9 ✓ | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
 | P10 ✓ | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış, e-posta bildirimleri |
 | P11 ✓ | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri, aydınlatma metni düzenleme |
-| P12 | Logo/avatar yükleme, kullanıcı tema tercihi |
+| P12 ✓ | Firma/sistem logosu, avatar yükleme, kullanıcı tema tercihi, hesap menüsü, token lint kuralı |
 | P13 | Prod deploy, yedek/geri yükleme, retention, kullanım kılavuzu, datasheet, PDF'ler |
 
 Prod açılışı P10 (2FA) sonrası mümkündür; ön koşullar runbook §14 P10 "Prod açılış kontrol listesi". O zamana kadar
@@ -387,6 +409,7 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 | `WHATSAPP_SERVICE_URL` | Hayır | P8b: whatsapp-bildirim servis adresi (sistem düzeyi). Boşsa varsayılan servis; production'da şifresiz + genel adres → kanal kapalı başlar (runbook §12.3) |
 | `APP_ENCRYPTION_KEYS` | Evet | P10: SMTP şifresi ve 2FA sırlarının AES-256-GCM anahtarı, `v1:<base64 32 bayt>`. Üretim: `echo "v1:$(openssl rand -base64 32)"`. Production'da yoksa server açılmaz. **Parola kasasında yedeklenmeli**: kaybolursa SMTP şifreleri yeniden girilir, tüm kullanıcıların 2FA'sı sıfırlanır. Rotasyonda eski sürüm silinmez (`v1:…,v2:…`); runbook §3 ve §14 P10 |
 | `MIN_AGENT_VERSION` | Hayır | P8b: asgari Windows istemci sürümü `x.y.z`; boş = kontrol yok. Müşterilerin tamamı 0.9.0 firma dosyasına geçene kadar boş bırakın (runbook §12.4) |
+| `UPLOADS_DIR` | Compose dışı | P12: logo/avatar dosyalarının kökü, **mutlak yol**. Compose sabit `/data/uploads` verir (volume `remote_uploads`); boşsa `/data/uploads`. Yedeği DB ile aynı pencerede alınır (runbook §16.3) |
 | `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `TRUSTED_PROXY_CIDR`, `API_INTERNAL_URL` | Compose dışı | Compose bunları kendisi üretir; yalnız yerel `pnpm` çalıştırmada gerekir |
 
 TURN sunucusu (`deploy/turn`, ayrı compose projesi) şu değişkenleri okur:
@@ -452,7 +475,18 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 `e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
-### Son test sonuçları (P11, 2026-11-13)
+### Son test sonuçları (P12, 2026-11-13)
+| Takım | Sonuç |
+|---|---|
+| Birim (`pnpm -r run test`) | 648: server 339, web 238, contracts 71 |
+| Server entegrasyon (`test:int`) | 471 (48 dosya); P12: `branding-api-p12`, `branding-p12` (DB CHECK), tenant matrisi +10 uç |
+| Web e2e (sahte API/WS) | 281 geçti + 106 atlandı (masaüstü/mobil proje filtreleri), art arda 3 koşuda 0 hata; P12 spec'i `e2e/p12-branding.spec.ts` |
+
+Sayfa testi (`docs/arsiv/p12-test-raporu.md`): gerçek server + MySQL ile 20 akış adımının 20'si geçti; 136 görünüm (açık/koyu,
+1280/390 px), axe 0 ihlal, JS hatası 0, kırık iç bağlantı 0. P11'den kalan gerçek-server akışları (Super Admin girişi + 2FA,
+audit 405, CSV formül kaçışı) da doğrulandı.
+
+#### Önceki paket (P11, 2026-11-13)
 | Takım | Sonuç |
 |---|---|
 | Birim (`pnpm -r run test`) | 613: server 324, web 218, contracts 71 |
@@ -620,6 +654,9 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
   TRIGGER/DDL yetkisi yok, tetikleyiciler UPDATE'i ve 730 günden yeni kaydın silinmesini reddeder. Okumada maske yeniden
   uygulanır. MySQL şifresi ve TURN secret'ı AES-256-GCM ile saklanır, forma geri yazılmaz; MySQL şifresi hedefe bağlı
   AAD ile saklanır ve başka sunucuya gönderilmez. MySQL testi yalnız Super Admin'e açık, 5/dk/kişi + 20/dk toplam.
+- Logo ve avatar (P12): tür yalnız içerikten (PNG/JPEG/WEBP; SVG asla), 2 MB, 24 MP, kenar/oran sınırı, sunucuda yeniden
+  kodlama ve metadata silme, rastgele ad, firma klasörü. Dosya yalnız DB'de kayıtlı yolsa sunulur; avatar oturumlu ve
+  yalnız aynı firmaya (başka firma 404), logolar herkese açık. Yükleme kişi başı 20/sa, işleme 2 eşzamanlı.
 - Konteynerler salt okunur kök dosya sistemi, `cap_drop: ALL`, root olmayan kullanıcıyla çalışır; imajlar digest ile sabitlenir.
 - CI: `pnpm audit`, lisans denetimi (GPL/AGPL yasak), gitleaks. Repoya gizli bilgi girmez.
 - Ayrıntı: `docs/guvenlik-raporu.md`, ADR'ler `docs/adr/`.

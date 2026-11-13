@@ -27,6 +27,7 @@ export function Menu({
   labelClassName,
   title,
   onOpen,
+  variant = "default",
   children,
 }: {
   label: string;
@@ -45,6 +46,8 @@ export function Menu({
   title?: string;
   /** P9: menü her açıldığında (ör. listeyi tembel yükleme). */
   onOpen?: () => void;
+  /** P12: `avatar` = çerçevesiz yuvarlak tetikleyici (yalnız `icon`; etiket `sr-only`, ok yok) — hesap menüsü. */
+  variant?: "default" | "avatar";
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDetailsElement>(null);
@@ -66,12 +69,19 @@ export function Menu({
         if (e.currentTarget.open) onOpen?.();
       }}
     >
-      <summary title={title} className="inline-flex min-h-11 max-w-full cursor-pointer list-none items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm font-medium whitespace-nowrap text-fg hover:bg-surface-muted [&::-webkit-details-marker]:hidden" aria-label={ariaLabel}>
-        {icon}
-        {labelClassName ? <span className={labelClassName}>{label}</span> : label}
-        {busy}
-        <ChevronDown aria-hidden className="size-4 shrink-0" />
-      </summary>
+      {variant === "avatar" ? (
+        <summary title={title} className="inline-flex size-11 cursor-pointer list-none items-center justify-center rounded-full hover:bg-surface-muted [&::-webkit-details-marker]:hidden" aria-label={ariaLabel}>
+          {icon}
+          <span className="sr-only">{label}</span>
+        </summary>
+      ) : (
+        <summary title={title} className="inline-flex min-h-11 max-w-full cursor-pointer list-none items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm font-medium whitespace-nowrap text-fg hover:bg-surface-muted [&::-webkit-details-marker]:hidden" aria-label={ariaLabel}>
+          {icon}
+          {labelClassName ? <span className={labelClassName}>{label}</span> : label}
+          {busy}
+          <ChevronDown aria-hidden className="size-4 shrink-0" />
+        </summary>
+      )}
       <div
         role="group"
         aria-label={panelLabel ?? label}

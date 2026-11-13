@@ -25,6 +25,7 @@ import { bindingInvalid, issueBinding, resolveUsable } from "../bindings/service
 import * as brepo from "../bindings/repo.ts";
 import * as crepo from "../customers/repo.ts";
 import { parseFirmDownloadUri, requestDownloadLocation } from "./ref.ts";
+import { effectiveLogoUrl } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 import { maskEmail } from "../audit/mask.ts";
 import type { MailService } from "../mail/service.ts";
@@ -164,12 +165,13 @@ export class RequestService {
   }
 
   /** Public bilgi gövdesi (`TenantRequestInfo`; P8c `bindings/status` aynı şekli genişletir). */
-  async requestInfo(tenantId: string, tenantName: string, waitMinutes: number): Promise<TenantRequestInfo> {
-    const [consentText, abuse] = await Promise.all([
+  async requestInfo(tenantId: string, tenant: { name: string; logoPath: string | null }, waitMinutes: number): Promise<TenantRequestInfo> {
+    const [consentText, abuse, logoUrl] = await Promise.all([
       currentConsentText(this.d.db, tenantId),
       abuseEmail(this.d.db, { fromEnv: this.d.env.ABUSE_EMAIL, superAdminFallback: this.d.env.NODE_ENV !== "production" }),
+      effectiveLogoUrl(this.d.db, tenant.logoPath), // P12 (AC-81)
     ]);
-    return { tenant: { name: tenantName, logoUrl: null }, consentText, waitMinutes, abuseEmail: abuse, minAgentVersion: this.d.env.MIN_AGENT_VERSION ?? null };
+    return { tenant: { name: tenant.name, logoUrl }, consentText, waitMinutes, abuseEmail: abuse, minAgentVersion: this.d.env.MIN_AGENT_VERSION ?? null };
   }
 
   /** Aşım audit'i `request.rate_limited{bucket, keyType}` kaynak başına dakikada en çok 1 (AC-144) + metrik. */
@@ -216,7 +218,7 @@ export class RequestService {
     const r = await this.resolveRef(ref);
     if (!r) throw this.refInvalid(ip);
     await this.limit(ctx, r.s.tenantId, "info", "req.info", "ip", ip);
-    return this.requestInfo(r.s.tenantId, r.s.tenant.name, r.s.waitMinutes); // şekil müşteri ref'inde de aynı (AC-168)
+    return this.requestInfo(r.s.tenantId, r.s.tenant, r.s.waitMinutes); // şekil müşteri ref'inde de aynı (AC-168)
   }
 
   /**

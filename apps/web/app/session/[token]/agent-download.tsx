@@ -150,7 +150,7 @@ export function AgentDownload({
         </ol>
         <details className="mt-3 rounded-md border border-border bg-canvas px-3 py-2" data-testid="agent-verify">
           <summary className="min-h-11 cursor-pointer py-2 font-medium text-primary">
-            <FileCheck2 aria-hidden className="mr-1.5 inline size-4 align-[-3px]" />
+            <FileCheck2 aria-hidden className="mr-1.5 inline size-4 align-[-0.1875em]" />
             {t("ga.verifyTitle")}
           </summary>
           <p className="pb-2 text-fg-muted">{t("ga.verifyBody")}</p>

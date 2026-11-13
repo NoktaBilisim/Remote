@@ -56,7 +56,9 @@ export async function api<T>(
   },
 ): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  // P12: multipart yükleme — FormData olduğu gibi gider, sınır (boundary) başlığını tarayıcı yazar
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
+  if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
   if (method !== "GET") {
     const csrf = readCookie(CSRF_COOKIE, deps.cookie());
     if (csrf) headers[CSRF_HEADER] = csrf;
@@ -67,7 +69,7 @@ export async function api<T>(
     res = await deps.fetch(API_BASE + path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
       credentials: "same-origin",
       cache: "no-store",
     });

@@ -57,6 +57,8 @@ describe("SMTP TLS sertifika adı doğrulaması (servername)", () => {
       netguard: createNetGuard({ lookupAll: async (h) => (h === "smtp.test" || h === "baska-ad.test" ? ["127.0.0.1"] : []), isBlocked: () => false }),
       metrics: createMetrics(),
       log: { warn: () => undefined, error: () => undefined },
+      logoUrlFor: async () => "https://rs.test/img/logo.png",
+      fallbackLogoUrl: "https://rs.test/img/logo.png",
       attemptCapMs: 5_000,
       transport: (o) => {
         seen.push(o);
@@ -64,7 +66,7 @@ describe("SMTP TLS sertifika adı doğrulaması (servername)", () => {
       },
     });
   const cfg: SmtpConfig = { host: "smtp.test", port: 465, security: "SSL", user: null, pass: null, fromName: null, fromEmail: "destek@firma.test" };
-  const content = { subject: "s", text: "t", html: "<p>t</p>" };
+  const content = { subject: "s", text: "t", bodyHtml: "<p>t</p>" };
 
   it("AC-122: IP'ye bağlanır, sertifika ayar adına (smtp.test) göre doğrulanır → gönderim başarılı", async () => {
     expect(await svc().deliver(cfg, "a@alici.test", content, 1)).toEqual({ ok: true });

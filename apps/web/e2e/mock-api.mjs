@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 // Çerez/başlık adları tek kaynaktan (Node 24 .ts tür ayıklama ile doğrudan okunur)
 import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import { handleAccount } from "./mock-account.mjs";
+import { handleBranding } from "./mock-branding.mjs";
 import { auditUser, handleAudit } from "./mock-audit.mjs";
 import { handleCustomers } from "./mock-customers.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
@@ -81,6 +82,8 @@ const srv = createServer(async (req, res) => {
 
   // P10: hesap güvenliği / SMTP (girişte yalnız kendi hesaplarını işler, diğerlerini aşağıya bırakır)
   if (await handleAccount(req, res, { url, session, csrfOk, send, err, readJson, sessionCookies })) return;
+  // P12: tema, avatar, logo, herkese açık marka (u-br*, u-brsa-*; /public/branding herkes)
+  if (await handleBranding(req, res, { url, session, csrfOk, send, err })) return;
 
   if (req.method === "POST" && url === "/api/v1/auth/login") {
     const { login = "", password = "" } = req.__body ?? (await readJson(req));

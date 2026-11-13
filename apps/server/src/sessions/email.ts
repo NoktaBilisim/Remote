@@ -36,7 +36,7 @@ export async function emailSessionLink(mail: MailService, publicBaseUrl: string,
   if (!token || !safeEqual(sha256Hex(token), s.tokenHash)) throw new AppError("VALIDATION", { fields: { link: "Bağlantı bu oturuma ait değil." } });
   const cfg = await mail.configFor(tenantId);
   if (!cfg) throw new AppError("UPSTREAM", { message: SMTP_REQUIRED_MESSAGE });
-  const content = sessionLinkMail({ publicBaseUrl, firm: s.tenant.name, technician: auth.user.fullName, link: input.link, code: s.activeCode, expiresAt: s.expiresAt });
+  const content = sessionLinkMail({ firm: s.tenant.name, technician: auth.user.fullName, link: input.link, code: s.activeCode, expiresAt: s.expiresAt });
   const who = { tenantId, userId: auth.user.id, username: auth.user.email };
 
   await db.$transaction(async (tx) => {

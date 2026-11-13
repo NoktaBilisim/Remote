@@ -103,3 +103,19 @@ export const SYSTEM_AUDIT = {
   /** Audit CSV dışa aktarımı: filtre özeti + satır sayısı. */
   AUDIT_EXPORTED: "audit.exported",
 } as const;
+
+/**
+ * P12 marka/kişiselleştirme (AC-81..85; ortak standart 1.5 "Logo ve avatar değişiklikleri audit log'a yazılır").
+ * Entity `tenants` / `users` / `system_settings` (entity_id `system_logo`). Değer: `{ path }` (rastgele dosya adı, gizli
+ * değil); reddedilen yüklemede `reason` (invalid_image | too_large). Tema: yalnız gerçekten değiştiğinde `{ theme }`.
+ */
+export const BRANDING_AUDIT = {
+  LOGO_UPDATED: "tenant.logo_updated",
+  LOGO_REMOVED: "tenant.logo_removed",
+  AVATAR_UPDATED: "user.avatar_updated",
+  AVATAR_REMOVED: "user.avatar_removed",
+  SYSTEM_LOGO_UPDATED: "settings.system_logo.updated",
+  /** Reddedilen yükleme (tür/boyut); `kind`: logo | avatar | system_logo. */
+  UPLOAD_REJECTED: "upload.rejected",
+  THEME_CHANGED: "user.theme_changed",
+} as const;

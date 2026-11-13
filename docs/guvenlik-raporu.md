@@ -1,3 +1,104 @@
+# Güvenlik Raporu — P12 turu — Doğrulama turu 1 (2026-11-13)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 açık. B-P12-1, -2, -4 ve -5 kapandı. B-P12-3 P13'e devredildi; şu an kalıcı silme yok, yalnız pasife alma var, bu yüzden açık değil. Gereksinimler §9'a "Sonra (P13)" olarak eklenmeli.
+
+Kapsam: implementation.md "P12 — Düzeltme turu 1". Okunan dosyalar: `uploads/{image,files}.ts`, `lib/gate.ts`, contracts `branding.ts`, web `(auth)/layout.tsx` ve `lib/server-api.ts` (`publicGet`), runbook §16. `test/unit/image-p12.test.ts` koşuldu: **15/15** geçti. Resim hattı sınırları sharp ile yeniden denendi.
+
+## Kapanan bulgular
+- **B-P12-1 (Orta) → KAPANDI.** `(auth)/layout.tsx:16` artık `publicGet` ile çağırıyor (`server-api.ts:91-99`) ve `forwardHeaders(headers(), readEdgeSecret())` iletiyor. XFF yalnız `X-Edge-Auth` sabit zamanlı karşılaştırmayla doğrulandığında gidiyor. Caddy dışarıdan gelen `X-Edge-Auth` başlığını siliyor (`Caddyfile:37,103,186,196`). Çerez iletilmiyor; public uç için doğru. Sonuç: 60/dk sınırı ziyaretçi başına işliyor. Edge sırrı yoksa (geliştirme ortamı) XFF gitmez ve sahte IP hiçbir yere yazılmaz.
+- **B-P12-2 (Düşük) → KAPANDI.** `image.ts:52-57,82`: kod çözmeden önce, metadata üzerinde kenar ≥ 16 px, oran logo ≤ 20:1, avatar ≤ 4:1 kontrolü var. Kod çözme/kodlama adımı `imageGate` (2 çalışan / 4 bekleyen / 10 sn) içinde; dolu kapı 429 + `Retry-After: 5`. Yeniden ölçüm:
+
+  | Girdi | Önce | Şimdi |
+  |---|---|---|
+  | 1×23.900.000 PNG (logo) | 4.439 ms | 3 ms, reddedildi |
+  | 16×1.499.999 | — | reddedildi |
+  | 1095×21900 (sınırdaki 20:1, ~24 MP) logo | — | 26 ms; aralıklı (interlaced) 168 ms |
+  | 2449×9796 (4:1) avatar | — | 18 ms |
+
+  Sınır içindeki en kötü durum yaklaşık 170 ms; kapıyla birlikte en çok 2 eşzamanlı iş. Kapı mantığı (`lib/gate.ts`) mevcut ve testli kod. Zaman aşımında bekleyen kuyruktan çıkarılıyor, `finally` içinde slot bırakılıyor; sızıntı yok.
+- **B-P12-4 (Düşük) → KAPANDI.** `files.ts:33-35`: avatar `private, no-cache`, logo `public, max-age=300`. Rotalarda tenant/yetki/DB eşleşmesi `sendFile`'dan önce yapılıyor; 304 yalnız bunlardan sonra dönüyor (oturum kapalıysa 401, kaldırılmış avatar için 404).
+- **B-P12-5 (Düşük) → KAPANDI.** Runbook'ta `/api/v1/public/files` yolu kalmadı. İzinler doğru yazılmış: dizinler 0750, dosyalar 0640 (`runbook.md:1152,1241,1245`).
+- **B-P12-3 (Düşük) → P13'e DEVİR.** `implementation.md:3501-3505`: bugün `deletedAt` set eden bir silme akışı yok. Pasife alınan kaydın dosyası bilinçli olarak korunuyor, çünkü yeniden etkinleştirmede geri gelmesi gerekiyor. P13'te yapılacaklar: avatar_path/logo_path null'lanacak, dosya ve tenant klasörü silinecek, audit yazılacak, saklama süresi tanımlanacak. Gerekçe kabul edildi; gereksinimler §9'a "Sonra (P13)" olarak eklenmeli.
+
+## Yeni bulgu
+- Yok.
+
+## Otomatik tarama
+- gitleaks v8.30.1, `.next` hariç: `apps/agent-win`, `apps/server`, `apps/web/*` (`.next` dışındaki 23 öğe), `packages`, `docs`, `deploy` → toplam 28 yol, yol başına ayrı koşu. **Toplam bulgu 0, tüm koşularda exit 0.**
+  - Not: Görevdeki tek komutluk biçim (`dir /repo/apps /repo/packages …`) ilk yolu tarıyor gibi görünüyor ve `.next` dahil 13 bulgu, exit 1 veriyor. Bu 13 bulgunun hepsi `apps/web/.next/**` altında (build çıktısı; git-ignore'da, repoda 0 dosya). CI'da `.next` hariç tutulmalı ya da gitleaks yol başına çalıştırılmalı (devops notu).
+- Bağımlılık değişikliği yok; `pnpm audit` sonucu kod turu 1'deki gibi temiz.
+
+---
+
+# Güvenlik Raporu — P12 turu (marka: logo/avatar/tema) — Kod turu 1 (2026-11-13)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 1 / Düşük 4. Önerilen "Sonra" maddeleri gereksinimler §9'a: B-P12-1..5.
+
+Kapsam: `git diff HEAD` (commit edilmemiş P12). Okunan dosyalar: `apps/server/src/uploads/{image,multipart,files,routes,service,store,urls}.ts`, `auth/{routes,session,guards}.ts`, `mail/{service,templates}.ts`, `sessions/public.ts`, `requests/service.ts`, `audit/read.ts`, `users/service.ts`; contracts `api/branding.ts`; web `proxy.ts`, `app/layout.tsx`, `app/(auth)/layout.tsx`, `lib/theme.ts`, `lib/server-api.ts`, `lib/edge-forward.ts`; `deploy/{Caddyfile,docker-compose.yml,nginx/*.conf}`, `apps/server/Dockerfile`, runbook §16. Resim hattı, sunucudaki sharp/file-type sürümleriyle ayrıca denendi (aşağıda). Staging'e bağlanılmadı.
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] B-P12-1 Giriş ekranı marka çağrısı tüm ziyaretçiler için tek IP kovasında: kimliksiz kişi logoyu herkes için düşürebilir (A04 Insecure Design / kullanılabilirlik)
+Yer: `apps/web/app/(auth)/layout.tsx:15` (`serverGet`), `apps/web/lib/server-api.ts:75-82` (XFF iletilmiyor), `apps/server/src/uploads/files.ts:75-80` (60/dk/IP).
+Sorun: `/login`, `/forgot-password` ve `/reset-password` sunucuda `GET /public/branding` çağırıyor. `serverGet`, `forwardHeaders` kullanmıyor, yani istemci IP'si iletilmiyor. Server isteği web konteynerinin IP'sinden görüyor (güvenilen proxy, XFF yok). Bu yüzden tüm ziyaretçiler aynı 60/dk kovasını paylaşıyor.
+İstismar: Kimliksiz bir saldırgan dakikada 61 kez `GET /login?tenant=x` gönderir. Kova 60 sn bloklanır ve o süre içinde tüm kullanıcıların giriş ekranında firma/sistem logosu yerine yedek Nokta logosu çıkar. Saldırgan bunu sürekli tekrarlayabilir. AC-82 işlevi bozulur. Kimlik doğrulama ya da veri etkilenmez. Ayrıca sahte bir giriş sayfasını gerçeğinden ayırmayı zorlaştıran bir marka karmaşası oluşur.
+Düzeltme: Marka çağrısında `resolveSessionToken` gibi `forwardHeaders(await headers(), readEdgeSecret())` iletilmeli; XFF yalnız `X-Edge-Auth` doğruysa gider. Alternatif olarak web IP'si bu kovadan muaf tutulup web tarafında kısa süreli bir önbellek kullanılabilir. Test: aynı web IP'sinden 61 render geldiğinde başka bir istemcinin logosu bozulmamalı. (atanan ajan: frontend-dev; server tarafında muafiyet seçilirse backend-dev)
+
+### [DÜŞÜK] B-P12-2 Aşırı en-boy oranlı PNG logo, istek başına ~4,4 sn CPU harcıyor; eşzamanlı işleme sınırı yok (A04 / DoS)
+Yer: `apps/server/src/uploads/image.ts:31-46`, `apps/server/src/uploads/routes.ts:27-31` (kullanıcı başına 20/sa, eşzamanlılık sınırı yok).
+Sorun: `limitInputPixels` 24 MP toplam pikseli sınırlıyor ama boyut oranını sınırlamıyor. Ölçülen değerler (sharp 0.35.5, yerel): 93 KB'lık 1×23.900.000 PNG logo yolunda 4.439 ms; 2×11.900.000 PNG 2.269 ms; 24.000.000×1 PNG logo yolunda RSS +225 MB. Avatar yolunda (`cover`) bu dosyalar 1 ms'de `affine: output coordinates out of range` hatasıyla reddediliyor. Normal 4800×4800 PNG/JPEG/WEBP 6–30 ms, aralıklı (interlaced) PNG ise ~160 ms sürüyor.
+İstismar: `settings.edit` yetkili bir Admin (ya da ele geçirilmiş Admin hesabı), 20 isteği eşzamanlı gönderir (sınır sayaç bazlı, eşzamanlılık bazlı değil). Sonuç yaklaşık 90 sn libvips CPU'su olur ve libuv/libvips iş parçacığı havuzu dolar. Aynı havuzu kullanan argon2 doğrulaması (giriş) gecikir. Saldırı yetkiyle ve saatlik sınırla kısıtlı olduğu için Düşük.
+Düzeltme: (1) `metadata()` sonrasında `width`/`height` için alt sınır (ör. ≥ 16 px) ve oran sınırı (ör. max/min ≤ 32) konmalı, aşan `INVALID_IMAGE` almalı. (2) Süreç genelinde 2 eşzamanlı resim işi için semafor eklenmeli, kuyruk dolarsa 429/503 dönmeli. (3) Testler: 1×N ve N×1 PNG → 400. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] B-P12-3 Silinen kullanıcı/firmanın avatar ve logo dosyaları diskte kalıyor (A04 / KVKK veri saklama)
+Yer: `apps/server/src/users/service.ts` silme akışı ve `tenants/service.ts` firma silme akışı. `avatarPath`/`logoPath` temizliği yalnız `uploads/service.ts` içinde var.
+Sorun: Soft-delete sonrasında dosya sunulmuyor, çünkü `files.ts:51,67` `deletedAt: null` şartını arıyor; ama dosya `uploads` volume'unda ve yedeklerde süresiz duruyor. Avatar kişisel veridir.
+İstismar: Doğrudan bir istismar yolu yok. Saklama süresi/silme hakkı yükümlülüğü karşılanmıyor.
+Düzeltme: Kullanıcı ve firma silmede, commit sonrasında `dropFile` çağrılmalı (ya da yolun null'lanması P13 retention işine bağlanmalı). Runbook §16.5'e de not düşülmeli. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] B-P12-4 Avatar yanıtı tarayıcıda 5 dk `private` önbellekte kalıyor (A01 / A04)
+Yer: `apps/server/src/uploads/files.ts:32`.
+Sorun: Avatar kaldırıldığında, kullanıcı silindiğinde ya da görüntüleyenin oturumu kapandığında, aynı tarayıcı profili dosyayı ≤ 300 sn daha önbellekten gösterebilir. Paylaşımlı bilgisayarda çıkıştan sonra da görünebilir. Adlar rastgele olduğu için tahmin edilemez; risk düşük.
+Düzeltme: Avatar için `Cache-Control: private, no-cache` kullanılmalı (ETag/304 korunur, her seferinde yetki yeniden doğrulanır). Logo `public, max-age=300` olarak kalabilir. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] B-P12-5 Runbook'ta var olmayan `/api/v1/public/files/...` yolu geçiyor (A05 yapılandırma/dokümantasyon)
+Yer: `docs/runbook.md:1150`, `deploy/docker-compose.yml` (UPLOADS_DIR yorum satırı).
+Sorun: Kodda yalnız `/api/v1/files/{logo,system-logo,avatar}` var. Yanlış yol, ileride Caddy'de yanlış bir istisna ya da kural yazılmasına yol açabilir.
+Düzeltme: Metin `/api/v1/files/...` olarak düzeltilmeli. Ayrıca runbook §16.3'teki "dosyalar node:node 644" ifadesi gerçekte 0640 (`store.ts:40`); bu da düzeltilmeli. (atanan ajan: devops)
+
+## Odak maddeleri — doğrulama sonuçları (bulgu yok)
+- **Tür kontrolü:** `file-type` (magic bytes) ile sharp `metadata().format` ikisi de {png, jpeg, webp} olmalı (`image.ts:26-41`). Denendi: SVG, HTML, GIF, TIFF ve AVIF 400; kesilmiş PNG 400 (`failOn:"error"`). İstemcinin bildirdiği MIME türü ve dosya adı kullanılmıyor (`multipart.ts`).
+- **Polyglot:** PNG'nin sonuna HTML/script eklenmiş dosya kabul ediliyor ama **yeniden kodlanmış** yeni bir PNG yazılıyor (sona eklenen bayt atılıyor; denendi). Sunulan dosya her zaman sunucu çıktısı.
+- **Piksel bombası:** 24 MP üstü (4899² ve 5000²) metadata aşamasında 1 ms'de reddediliyor. Animasyonlu WEBP (100 ve 200 kare) `pages:1` ile yalnız ilk kare işleniyor, çıktı `pages=1`. APNG'de libvips yalnız varsayılan görüntüyü çözüyor.
+- **Metadata:** EXIF (GPS benzeri alan), ICC (p3) ve XMP içeren JPEG'in çıktısında exif/icc/xmp = false (denendi). `rotate()` yönlendirmeyi piksellere uyguluyor.
+- **Gövde sınırı:** Content-Length > 2 MiB+16 KiB okunmadan 413. Chunked gövdede busboy `fileSize` + `throwFileSizeLimit` → 413. `files:1, fields:0, parts:1`. multipart ayrıştırıcısı yalnız upload eklenti bağlamında kayıtlı. Gövde, auth/CSRF → yetki → hedef → hız sınırı sırası tamamlanmadan okunmuyor (`routes.ts`; Fastify'da rota düzeyi preHandler, eklenti hook'undan sonra çalışıyor).
+- **Ad / yol:** 18 bayt `randomBytes` base64url. Yol sunucuda kuruluyor; ön ek ve ad için regex + `resolve` kök kontrolü (`store.ts:26-31`). DB CHECK'leri aynı kuralı ve ön ek = satırın tenant'ı eşleşmesini zorluyor (`check-app-grants.sh` P12 satırları). Path traversal yolu bulunamadı.
+- **Atomik yazım ve yarışlar:** `wx` + fsync + rename. TX içinde `SELECT … FOR UPDATE`. Eski dosya commit sonrasında siliniyor, TX düşerse yeni dosya siliniyor. İki eşzamanlı yükleme ya da yükleme+kaldırma senaryosunda yetim dosya veya kayıp referans çıkmıyor (akış incelendi).
+- **Sunumda izolasyon:** Logo yalnız `tenants.logo_path` ile tam eşleşirse, sistem logosu yalnız `system_settings` ile eşleşirse, avatar yalnız oturum + (Super Admin veya kendi tenant'ı) + aktif bir kullanıcının `avatar_path` değeriyle eşleşirse sunuluyor. Sunumda kendi tenant'ı esas (`auth.user.tenantId`), seçili firma değil. Liste/audit yanıtlarındaki `avatarUrl`, `canViewAvatar` ile süzülüyor. Müşteri sayfasında teknisyen avatarı yok.
+- **Avatar IDOR:** Başka bir kullanıcının avatarı için `users.edit` + `loadOrThrow({tenantId})` (kapsam dışı → 404) + `canManage` (geniş yetkili hedef → 403) şartı var. Super Admin (tenantId null) bir tenant kapsamından yüklenemiyor.
+- **Başlıklar:** `nosniff`, `default-src 'none'; frame-ancestors 'none'; sandbox`, Content-Type uzantıdan sunucu tarafında belirleniyor (yalnız png/webp yazılıyor), `inline`, public dosyalarda CORP cross-origin. ETag adın özeti; ad zaten rastgele ve URL'de açık olduğu için yeni bir sızıntı yok. 304 dönmeden önce DB eşleşmesi yapılıyor (oracle yok).
+- **Public branding:** Bilinmeyen, geçersiz ve pasif slug aynı biçimde `{name:null, sistem logosu}` dönüyor. Aktif slug firma adını veriyor; bu tasarım gereği (giriş ekranı). Pasif firmanın logo dosyası, adı bilinirse sunulmaya devam ediyor (`files.ts:51` yalnız `deletedAt`); logo zaten herkese açık bilgi, bulgu değil.
+- **`x-rs-tenant`:** proxy dışarıdan gelen başlığı her istekte siliyor ve yalnız `tenantSlugSchema`'ya uyan değeri yazıyor. Layout `encodeURIComponent` ile yalnız iç API'ye (`API_INTERNAL_URL`, sabit) gönderiyor; server değeri yeniden doğruluyor. CR/LF `Headers.set`'te reddediliyor. SSRF veya başlık enjeksiyonu yolu yok. Matcher dışındaki yollar (`/api`, statik) bu layout'u render etmiyor.
+- **Tema:** `rs_theme` değeri `cookieToTheme` → sabit küme → `htmlThemeClass` ile yalnız `"light"|"dark"|undefined` olarak HTML'e yansıyor. Ham değer hiçbir yerde HTML'e yazılmıyor, XSS yolu yok. HttpOnly olmaması bilinçli bir seçim ve değer gizli değil. PATCH `/auth/me/preferences`: `requireAuth` (CSRF double-submit + Origin), `strictObject` + enum, yalnız kendi kaydı; değişiklik audit'e yazılıyor.
+- **E-posta logosu:** URL = `PUBLIC_BASE_URL` + sunucuda kurulan yol (regex'ten geçmiş). `renderMailHtml` içinde `esc()` uygulanıyor. Konu satırına girmiyor; header/HTML enjeksiyonu yok. Logo çözülemezse sabit yedeğe düşülüyor.
+- **Altyapı:** Caddy `@upload` / `@notUpload` birbirini dışlıyor; 3 MiB yalnız 4 POST ucunda (test-caddy.sh kapsıyor). nginx 3m. Volume `node:node 0700`, dizinler 0750, dosyalar 0640; kök fs salt okunur; volume Caddy'ye bağlanmıyor. Yedek `umask 077` + `chmod 600`, `--network none`, `:ro`.
+
+## Otomatik tarama çıktıları
+- `pnpm audit --audit-level=moderate` → "No known vulnerabilities found" (exit 0). Yeni bağımlılıklar: `sharp@0.35.5`, `file-type@22.3.0`, `@fastify/multipart@10.1.8`, `react-easy-crop@6.2.5`.
+- Lisans: sharp Apache-2.0; `@img/sharp-libvips-*` LGPL-3.0-or-later (dinamik bağlı, AGPL/GPL değil; runbook §16.4 ve `check-licenses.mjs` izinli sayıyor); file-type MIT; @fastify/multipart MIT; react-easy-crop MIT. Yasak lisans yok.
+- gitleaks v8.30.1 (`dir apps packages docs deploy`, `--redact`) → **exit 1, 13 bulgu, hepsi `apps/web/.next/**`** (build çıktısı: `prerender-manifest.json`, `preview-props.json`, `server-reference-manifest.json`, `.next/cache/*`; Next'in her derlemede ürettiği preview/encryption anahtarları). `.next/` git-ignore'da (`.gitignore:14`) ve `git ls-files apps/web/.next` = 0. **`.next` hariç kaynakta bulgu 0.** Değerler yazdırılmadı.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- Yok. (Sistem logosunu kaldırma bu pakette bilinçli olarak yok; db-notlari P12 açık nokta 1.)
+
+## Olumlu
+- Tür kontrolü ve yeniden kodlama iki katmanlı; sunulan bayt her zaman sunucu çıktısı. SVG/HTML hiçbir yolla geçmiyor.
+- Gövde, yetki/hedef/hız sınırı geçilmeden okunmuyor; ret durumları `upload.rejected` (fail) olarak audit'e yazılıyor.
+- Dosya yalnız DB'deki güncel yolla sunuluyor; eski ve yetim dosyalar 404. DB CHECK'leri yol kuralını şemada da zorluyor.
+- Proxy'nin iç başlığı silip yeniden yazması doğru desen.
+
+---
+
 # Güvenlik Raporu — P11 turu — Doğrulama turu 1 (2026-11-12)
 DURUM: GEÇTİ
 Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 açık (+ 2 madde "Sonra"). Kod turu 1'deki B-P11-1, -2, -5 ve -6 kapandı. B-P11-3 ve B-P11-4 kısmen kapandı; kalan kısımları "Sonra".

@@ -35,6 +35,13 @@ cat >"$TMP/mock.js" <<'JS'
 // en kötü durumu sınar: gerçek server yalnız rs.v1 seçer, burada sırlı ilk öğe geri yazılır → log filtresi silmeli.
 const http = require("node:http"), crypto = require("node:crypto"), fs = require("node:fs");
 const s = http.createServer((req, res) => {
+  if (req.url.startsWith("/api/")) {   // P12: gövdeyi sonuna kadar oku, kaç bayt geldiğini döndür
+    let n = 0;
+    req.on("data", (c) => { n += c.length; });
+    req.on("end", () => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ n })); });
+    req.on("error", () => {});
+    return;
+  }
   if (req.url.startsWith("/internal/agent-ready")) {
     const uri = req.headers["x-forwarded-uri"] ?? "";
     fs.appendFileSync("/tmp/fa.log", JSON.stringify({ uri, method: req.headers["x-forwarded-method"] ?? "" }) + "\n");
@@ -122,6 +129,26 @@ if [ "${CADDY_TEST_WS_HOLD:-0}" = 1 ]; then
   [ "$DT" -ge 39 ] && pass "WS $DT sn açık kaldı (read_body 30s / read_header 10s uygulanmadı)" || fail "WS $DT sn'de kapandı"
 fi
 
+echo "== gövde sınırı (P12: yükleme uçları 3 MiB, diğer /api 2MB)"
+head -c 2097152 /dev/urandom >"$TMP/img2m"                     # tam 2 MiB "dosya" (sınırın kendisi)
+head -c 3200000 /dev/urandom >"$TMP/img3m"                     # 3 MiB tavanı aşar
+up() { curl -s -o "$TMP/out" -w '%{http_code}' -X POST -F "file=@$1;type=image/png" "$B$2"; }
+# Üç yükleme ucu (Caddyfile @upload); avatar ucu `me` ve <id> biçimiyle iki kez denenir.
+for u in /api/v1/users/me/avatar /api/v1/users/01HXYZ/avatar /api/v1/settings/logo /api/v1/admin/settings/system-logo; do
+  CODE="$(up "$TMP/img2m" "$u")"
+  [ "$CODE" = 200 ] && grep -q '"n":' "$TMP/out" && pass "2 MiB multipart → $u geçer" || fail "2 MiB $u → $CODE"
+  CODE="$(up "$TMP/img3m" "$u")"
+  [ "$CODE" = 413 ] && pass "3,2 MB → $u 413" || fail "3,2 MB $u → $CODE"
+done
+for u in /api/v1/auth/login /api/v1/users/me/avatar/x /api/v1/settings/logox; do
+  CODE="$(up "$TMP/img2m" "$u")"
+  [ "$CODE" = 413 ] && pass "2 MiB → $u 413 (2MB sınırı korunur)" || fail "2 MiB $u → $CODE"
+done
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data-binary "@$TMP/img2m" "$B/api/v1/settings/logo")"
+[ "$CODE" = 413 ] && pass "PUT /api/v1/settings/logo 2 MiB → 413 (yalnız POST genişler)" || fail "PUT logo → $CODE"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$B/api/v1/files/avatar/T1/abcdefghijklmnop.webp?v=gizlisorgu")"
+[ "$CODE" = 200 ] && pass "/api/v1/files/* server'a gider" || fail "/api/v1/files → $CODE"
+
 echo "== ops uçları dışarıya kapalı"
 for u in /internal/agent-ready /metrics /ready; do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Forwarded-Method: GET' "$B$u")"
@@ -139,7 +166,8 @@ docker logs "$P-caddy" 2>&1 | grep -q '"logger":"http.log.error' && pass "hata l
 docker logs "$P-caddy" >"$TMP/caddy.log" 2>&1
 grep -q '"uri":"/downloads/NoktaDestek-\*\*\*"' "$TMP/caddy.log" && pass "erişim logu /downloads/NoktaDestek-***" || fail "maskeli firma yolu logda yok"
 grep -q '"uri":"/downloads/NoktaDestek.exe"' "$TMP/caddy.log" && pass "kodsuz ad maskelenmez (NoktaDestek.exe)" || fail "NoktaDestek.exe logda yok"
-for s in "$REF" "$REF2" "TESTSIRRI" "utm=" "x=1" "12345678" "DemoFirma" "IkinciFirma2" "test-only-edge-secret"; do
+grep -q '"uri":"/api/v1/files/avatar/T1/abcdefghijklmnop.webp"' "$TMP/caddy.log" && pass "erişim logu /api/v1/files yolu sorgu dizesiz" || fail "/api/v1/files log satırı"
+for s in "$REF" "$REF2" "TESTSIRRI" "utm=" "x=1" "gizlisorgu" "12345678" "DemoFirma" "IkinciFirma2" "test-only-edge-secret"; do
   if grep -q -- "$s" "$TMP/caddy.log"; then fail "logda '$s' var"; else pass "logda '$s' yok"; fi
 done
 

@@ -5,7 +5,7 @@ import type { Db } from "../lib/db.ts";
 
 type DbOrTx = Db | Prisma.TransactionClient;
 
-const tenantRef = { select: { id: true, name: true, slug: true, status: true, deletedAt: true } } as const;
+const tenantRef = { select: { id: true, name: true, slug: true, status: true, deletedAt: true, logoPath: true } } as const;
 
 const userSelect = {
   id: true,
@@ -20,10 +20,11 @@ const userSelect = {
   failedWindowAt: true,
   lockedUntil: true,
   theme: true,
+  avatarPath: true,
   status: true,
   deletedAt: true,
   totpEnabled: true,
-  tenant: { select: { id: true, name: true, slug: true, status: true, deletedAt: true, settings: { select: { requireTech2fa: true } } } },
+  tenant: { select: { id: true, name: true, slug: true, status: true, deletedAt: true, logoPath: true, settings: { select: { requireTech2fa: true } } } },
 } as const;
 
 export type LoginUser = Prisma.UserGetPayload<{ select: typeof userSelect }>;

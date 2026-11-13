@@ -1,17 +1,18 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ThemeProvider } from "@/components/branding/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
-import { BrandLogo } from "@/components/brand-logo";
-import { Avatar } from "@/components/ui/avatar";
+import { LogoImage } from "@/components/brand-logo";
 import { LoadError } from "@/components/load-error";
 import { RequestNotifier } from "@/components/request-notifier";
 import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { gateOf, getMe } from "@/lib/server-api";
+import { resolveTheme } from "@/lib/theme";
 import { LogoutButton } from "./logout-button";
 import { SessionWatch } from "./session-watch";
 import { SideNav } from "./side-nav";
 import { TenantSwitcher } from "./tenant-switcher";
+import { UserMenu } from "./user-menu";
 
 /** Panel kabuğu (P1): üst menü (logo, kullanıcı, çıkış) + yalnız mevcut öğelerle kenar çubuğu. */
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
@@ -28,7 +29,8 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   const gate = gateOf(state);
   if (gate) redirect(gate);
   if (state.kind !== "ok") redirect(EXPIRED_LOGIN_PATH);
-  const { user, tenant, permissions, actingTenant } = state.me;
+  const { user, tenant, permissions, actingTenant, logoUrl } = state.me;
+  const logoOwner = actingTenant ?? tenant;
   // P8b-1: /ws/panel yalnız `support_requests.view` + tenant bağlamı varken (Super Admin firma seçmeli; sunucu da 403)
   const isSa = user.role === "SUPER_ADMIN";
   const notify = (permissions as readonly string[]).includes("support_requests.view") && (!isSa || Boolean(actingTenant));
@@ -36,6 +38,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   return (
     // P9: sağlayıcı tüm kabuğu sarar (üst menüdeki firma geçişi de toast gösterir)
     <ToastProvider>
+    <ThemeProvider initial={resolveTheme({ user: user.theme })}>
     <div className="flex min-h-dvh flex-col">
       <a
         href="#icerik"
@@ -44,7 +47,8 @@ export default async function PanelLayout({ children }: { children: React.ReactN
         {t("panel.skip")}
       </a>
       <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-border bg-surface px-4 sm:px-6">
-        <BrandLogo variant="mark" />
+        {/* P12 (AC-81): etkin firmanın logosu, yoksa sistem logosu (sunucu çözer, `me.logoUrl` her zaman dolu) */}
+        <LogoImage variant="mark" url={logoUrl} alt={logoOwner ? t("lg.alt", { name: logoOwner.name }) : t("app.systemLogoAlt")} testId="header-logo" />
         {/* TO-P9-1: Super Admin'de dar ekranda yer etkin firma adına ayrılır (uygulama adı sm+); sağ grupta yalnız seçici
             daralır (ad kısaltılır), avatar ve çıkış sabit genişlikte kalır → 375 px'te taşma yok */}
         <span className={`truncate text-sm font-semibold text-fg sm:inline sm:text-base ${isSa ? "hidden" : ""}`}>{t("app.name")}</span>
@@ -59,15 +63,8 @@ export default async function PanelLayout({ children }: { children: React.ReactN
               {tenant ? ` · ${tenant.name}` : ""}
             </p>
           </div>
-          {/* P10: avatar → Hesap güvenliği (şifre, 2FA, tüm cihazlardan çıkış) */}
-          <Link
-            href="/account"
-            aria-label={t("acc.navLabel", { name: user.fullName })}
-            className="inline-flex size-11 shrink-0 items-center justify-center rounded-full hover:bg-surface-muted"
-            data-testid="account-link"
-          >
-            <Avatar name={user.fullName} testId="current-user-avatar" />
-          </Link>
+          {/* P12: avatar → hesap menüsü (Hesabım, Şifre değiştir, Tema, Çıkış); tek dokunuşla çıkış düğmesi yanında kalır */}
+          <UserMenu name={user.fullName} email={user.email} avatarUrl={user.avatarUrl ?? null} />
           <LogoutButton userName={user.fullName} />
         </div>
       </header>
@@ -82,6 +79,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
         </main>
       </div>
     </div>
+    </ThemeProvider>
     </ToastProvider>
   );
 }

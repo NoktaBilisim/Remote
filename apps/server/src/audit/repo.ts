@@ -61,8 +61,13 @@ export function countAuditUpTo(db: Db, scope: AuditScope, f: AuditFilter, limit:
 }
 
 /** Satırlardaki kullanıcıların güncel adı (user_id FK değil — ayrı sorgu). */
-export async function userNames(db: Db, ids: readonly string[]): Promise<Map<string, string>> {
+export interface AuditUserInfo {
+  fullName: string;
+  avatarPath: string | null;
+}
+
+export async function userNames(db: Db, ids: readonly string[]): Promise<Map<string, AuditUserInfo>> {
   if (ids.length === 0) return new Map();
-  const users = await db.user.findMany({ where: { id: { in: [...new Set(ids)] } }, select: { id: true, fullName: true } });
-  return new Map(users.map((u) => [u.id, u.fullName]));
+  const users = await db.user.findMany({ where: { id: { in: [...new Set(ids)] } }, select: { id: true, fullName: true, avatarPath: true } });
+  return new Map(users.map((u) => [u.id, { fullName: u.fullName, avatarPath: u.avatarPath }]));
 }

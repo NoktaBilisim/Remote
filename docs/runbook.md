@@ -1,4 +1,4 @@
-# Runbook — Remote Support (P1–P11)
+# Runbook — Remote Support (P1–P12)
 Sahibi: devops. Kapsam P1: kurulum, başlatma/durdurma, env, log, migrate/seed. Yedek, alarm, rollback
 provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md` §8.
 
@@ -7,7 +7,7 @@ provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md`
 |---|---|---|---|---|
 | caddy | `caddy:2.11.9-alpine` | edge (sabit 172.30.0.2) | **4450/tcp**, `127.0.0.1:4451` | 4450: TLS (`tls internal`, IP girişi); 4451: host nginx arkası düz HTTP (§8.3); yönlendirme, log filtresi |
 | web | `remote-web` (apps/web/Dockerfile) | edge (sabit 172.30.0.3) | — | Next.js :3000 |
-| server | `remote-server` (apps/server/Dockerfile `runtime`) | edge + db | — | Fastify :3001, `/health` `/ready` |
+| server | `remote-server` (apps/server/Dockerfile `runtime`) | edge + db | — | Fastify :3001, `/health` `/ready`; volume `uploads` → `/data/uploads` (P12, rw) |
 | migrate | `remote-migrate` (`migrate` hedefi) | db | — | tek seferlik; `migrator` kullanıcısı |
 | seed | `remote-migrate` | db | — | profil `setup`, elle |
 | mysql | `mysql:8.4.13` | db (internal, internet yok) | — | volume `mysql_data`, UTC |
@@ -60,6 +60,7 @@ Tarayıcı: `https://<SITE_HOST>:4450`. `tls internal` kök sertifikası test ma
 | `AGENT_SHA256` | P6 (G-07): `agent_downloads` volume'undaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). **Elle yazılmaz**: `deploy/agent/verify-and-publish.sh` attestation + `SHA256SUMS` doğrulamasından sonra yazar, ardından `docker compose up -d server`. Boşsa, dosya yoksa veya hash uyuşmazsa `GET /api/v1/public/agent/download` **503** döner (fail-closed) ve server logunda bir kez `alarm: "agent_binary"` uyarısı çıkar. `AGENT_BINARY_PATH` compose'da sabittir (`/data/downloads/NoktaDestek.exe`); `.env`'deki değer yalnız compose dışı çalıştırmada kullanılır |
 | `WHATSAPP_SERVICE_URL` | P8b: whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). Boş/tanımsız → `env.ts` varsayılanı `http://89.252.189.211:3000` (staging). **production'da `http://` + özel olmayan adres → kanal kapalı başlar** (gönderim yok, test 502, log `alarm:"whatsapp_insecure"`); prod değeri K13'e göre `https://…` veya özel ağ adresi (§12.3). Değişiklik: `.env` → `docker compose up -d server` |
 | `APP_ENCRYPTION_KEYS` | P10 (mimari §3.2): `v1:<base64 32 bayt>` (`openssl rand -base64 32`). SMTP şifresi ve TOTP sırları bununla AES-256-GCM şifrelenir. **production'da zorunlu** (yoksa server açılmaz; compose da `:?` ile durur). **Kaybedilirse** kayıtlı SMTP şifreleri ve tüm 2FA sırları çözülemez → SMTP şifreleri yeniden girilir, kullanıcıların 2FA'sı sıfırlanır (§14). Rotasyon: `v1:...,v2:...` (eski silinmez; yeni yazımlar v2 — emekliye ayırma kuralı §14 P10 "Anahtar rotasyonu"). Yedeği parola kasasında; loga/dokümana yazılmaz. Değişiklik: `.env` → `docker compose up -d server` |
+| `UPLOADS_DIR` | P12: logo/avatar yükleme kökü. **Compose sabit verir** (`/data/uploads`, named volume `uploads` → `remote_uploads`); `.env`'deki değer yalnız compose dışı çalıştırmada kullanılır — **mutlak yol** (env.ts göreli yolu reddeder), ör. `<repo>/.data/uploads` (`.data/` git-ignore). Boşsa `/data/uploads`. Yedek/geri yükleme §16.3 |
 | `MIN_AGENT_VERSION` | P8b G-E9-4: asgari Windows istemci sürümü `x.y.z`. Boş = kontrol yok. Düşük sürüm talep/resolve/join/`/ws/guest`'te 426 `CLIENT_OUTDATED`; istemci "Yeni sürümü indir" gösterir. Güvenlik yamasında yükseltilir (§12.4) |
 | `NODE_ENV`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `CADDY_BIND`, `IMAGE_TAG` | opsiyonel (varsayılan: production, info, PUBLIC_BASE_URL, 0.0.0.0, local) |
 `DATABASE_URL` / `MIGRATE_DATABASE_URL` compose'da parolalardan **üretilir**; `.env`'deki değerleri yalnız
@@ -1138,3 +1139,128 @@ aktarımı sessizce kırılır**: istemciler 401 alır, yalnız doğrudan/STUN b
 | `down.sql` 3819 `p11_down_guard_chk` | `system_settings`'te kayıt var → §15.3/2 |
 | Panel MySQL "kaydedildi" ama davranış değişmedi | Beklenen (ADR-0003) → §15.4 |
 | Panel TURN kaydından sonra NAT arkası oturum siyah ekran | Panel secret ≠ coturn → §15.5 |
+
+## 16. P12 — logo/avatar yükleme ve tema (devops, 2026-11-13)
+Migration `20261113120000_p12_branding` (yalnız CHECK; `system_settings` += `system_logo`, `logo_path`/`avatar_path`
+biçimi; ayrıntı `docs/db-notlari.md` P12). Altyapı değişiklikleri:
+- **Yeni env `UPLOADS_DIR`** (compose `server`: `/data/uploads`; §3).
+- **Yeni named volume `uploads`** (`remote_uploads`) → server `/data/uploads` (okuma-yazma). Kök fs salt okunur kalır;
+  kalıcı yazılabilir tek yer bu volume (`/tmp` tmpfs önceden de vardı; yükleme onu kullanmaz). Multipart gövde
+  **tamamen bellekte** işlenir (`@fastify/multipart` `toBuffer`, ≤ 2 MB) → diske geçici dosya yazılmaz; volume'a yalnız
+  sharp'ın yeniden kodladığı son dosya, aynı dizinde `.tmp` + `rename` ile atomik yazılır.
+  İzinler: kök `/data/uploads` `node:node 0700` (Dockerfile; Docker **boş** volume'u ilk bağlamada bu sahiplikle
+  doldurur), alt dizinler `{tenantId|system}/` **0750**, dosyalar **0640** (`apps/server/src/uploads/store.ts`).
+  Caddy'ye bağlanmaz; dosyaları yalnız server sunar:
+  - `GET /api/v1/files/logo/:tenantId/:file` — firma logosu, herkese açık (login, müşteri sayfası, e-posta)
+  - `GET /api/v1/files/system-logo/:file` — sistem logosu, herkese açık
+  - `GET /api/v1/files/avatar/:tenantId/:file` — avatar, **oturumlu** (başka tenant → 404; Super Admin hepsi)
+  Dosya yalnız DB'de kayıtlı yolsa sunulur (volume'a elle konan dosya 404).
+- **sharp (libvips)**: taban imaj `node:22-bookworm-slim` (glibc 2.36) + npm hazır ikilisi `@img/sharp-linux-x64`; apt paketi
+  gerekmez. **sharp linux-x64 ikilisi x86-64-v2 CPU ister (SSE4.2)** → yayından önce §16.1/0.
+- **Gövde sınırı:** Caddy `@upload` — **üç** yükleme ucu, yalnız POST: `/api/v1/settings/logo`,
+  `/api/v1/admin/settings/system-logo`, `/api/v1/users/<id|me>/avatar` → 3 MiB, diğer `/api/*` 2MB (= 2.000.000 bayt), web 1MB. Host nginx `client_max_body_size 3m`.
+  2 MB dosya sınırını server uygular (413). Yeni yükleme ucu eklenirse Caddyfile `@upload`/`@notUpload` ikisi birlikte.
+- **CSP:** uygulamanın (`apps/web/proxy.ts`) `img-src 'self' data: blob:` — `/api/v1/files/*` aynı köken, değişiklik yok.
+  Caddy logu `/api/v1/files/...` yolunu yazar (ad rastgele, gizli değil), sorgu dizesini yazmaz (`test-caddy.sh` sınar).
+
+### 16.1 Yayın sırası (staging, §8 akışı; prod'da aynı)
+Kesinti: yalnız server/web/caddy yeniden yaratılırken birkaç saniye. MySQL yeniden yaratılmaz.
+0. **CPU ön kontrolü (bir kez, sunucuda):** `grep -qw sse4_2 /proc/cpuinfo && echo x86-64-v2-ok` → `x86-64-v2-ok`
+   görünmezse **yayını durdurun** (sharp yüklenemez → server açılmaz). Hipervizörde CPU modeli `host`/`x86-64-v2+` yapılır.
+1. **Yedek** (ayrı ssh çağrısı; DB §15.1/1 komutu, dosya adı `remote-pre-p12-…`). P12 öncesi `uploads` volume'u yoktur,
+   dosya yedeği gerekmez. Sonraki yayınlarda DB + uploads birlikte (§16.3).
+2. **Repo güncelle** (§8 bundle + pull, yeni ssh çağrısı, `umask` yok).
+3. **nginx vhost** (gövde sınırı 2m → 3m; host'ta, repo dosyasından):
+```bash
+V=/etc/nginx/sites-available/remote.noktabilisim.net
+cp "$V" /root/remote.conf.prev && cp /opt/remote/deploy/nginx/remote.noktabilisim.net.conf "$V" \
+  && { nginx -t && systemctl reload nginx || { cp /root/remote.conf.prev "$V"; nginx -t && systemctl reload nginx; echo GERI ALINDI; }; }
+```
+   (§8.3 ile aynı desen.) Atlanırsa 2 MB'a yakın dosyalar nginx'te 413 alır.
+4. **Build + up:** `docker compose build && docker compose up -d` → migrate önce çalışır
+   (`docker compose logs --since 5m migrate` → "All migrations have been successfully applied"). Caddyfile değiştiği için
+   `docker compose restart caddy` (admin API kapalı, `reload` yok). Seed: `docker compose --profile setup run --rm seed`.
+5. **Volume ve sharp kontrolü:**
+```bash
+docker volume inspect remote_uploads --format '{{.Name}} {{.Mountpoint}}'
+docker compose exec server node -e "const s=require('sharp');console.log('vips',s.versions.vips)"
+docker compose exec server sh -c 'stat -c "%U:%G %a" /data/uploads && touch /data/uploads/.w && rm /data/uploads/.w && echo yazilabilir'
+# beklenen: vips 8.x · node:node 700 · yazilabilir
+```
+6. **Yetki sınırı:** §15.1/5 komutu → **330/330 PASS**, `rc=0` (`grep -c FAIL` = 0).
+7. **Duman testi (tarayıcı):** Admin → tenant ayarları → logo yükle (PNG ~1,9 MB) → önizleme → kaydet → üst menüde görünür;
+   SVG ve uzantısı `.png` yapılmış metin dosyası reddedilir (400 `INVALID_IMAGE`); 2,5 MB dosya 413. Profil → avatar
+   yükle/kırp/kaldır → baş harf avatarı. Super Admin → sistem logosu → login ekranında görünür. Tema Açık/Koyu/Sistem →
+   çıkış/giriş ve başka tarayıcıda aynı tema; sayfa yenilemede yanıp sönme yok. Sunucuda:
+   `docker compose exec server find /data/uploads -type f | head` → `<tenantId>/<rastgele>.webp|png|jpg`, `system/...`.
+   `docker compose logs caddy --since 10m | grep -c '/api/v1/files/.*?'` → `0`.
+8. §8 yayın geçmişine satır (yedek yolu, grants 330, CPU kontrolü).
+
+### 16.2 Geri alma
+Tercih: **ileri düzeltme > yalnız imaj geri alma > imaj + `down.sql`**. P11 server'ı yeni CHECK'lerden etkilenmez →
+çoğu durumda 1. adım yeter.
+1. **Önceki imaj:** `.env` `IMAGE_TAG=<P11 etiketi>` → `docker compose up -d`. `uploads` volume'u kalır (P11 kullanmaz,
+   silmeyin: ileri dönüşte dosyalar gerekir). Logo/avatar yolu DB'de kalır; P11 arayüzü göstermez.
+2. **`down.sql`** (yalnız şemanın kendisi sorunluysa; önce §16.1/1 yedeği ve 1. adım):
+```bash
+docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute \
+  --file prisma/migrations/20261113120000_p12_branding/down.sql
+```
+   **Koruma — `p12_down_guard_chk`:** `system_settings`'te `system_logo` satırı varsa (Super Admin sistem logosu yüklemişse)
+   **3819** ile durur, hiçbir şey değişmez. Bilinçli karar verilirse: migrator ile
+   ``DELETE FROM system_settings WHERE `key` = 'system_logo';`` → komut tekrar. Dosya `system/` altında kalır;
+   gerekirse `docker compose exec server sh -c 'ls /data/uploads/system'` ile bulunup elle silinir. Ardından
+   `check-app-grants.sh`: P12 satırları FAIL verir (beklenen), P11 ve öncesi PASS.
+3. **nginx** sınırını geri almaya gerek yok (3m daha geniş; Caddy yolları yine sınırlar). Gerekirse `/root/remote.conf.prev`.
+4. **Yeniden ileri:** yeni `IMAGE_TAG` → `docker compose up -d`.
+
+### 16.3 Yedek ve geri yükleme — `uploads` volume'u (denendi: devops 2026-11-13 yerel, aşağıda)
+DB dökümü ile **aynı pencerede** alınır (DB'deki `logo_path`/`avatar_path` dosyayı gösterir; farklı anlarda alınırsa
+yetim dosya veya kırık resim olur — kırık resim baş harf avatarına/sistem logosuna düşer, veri kaybı değildir).
+Konteyner geçici olarak server imajıyla, **ağsız** ve salt okunur bağlanır; tar arşivi host'ta 600.
+```bash
+cd /opt/remote/deploy && set -a && . ./.env && set +a
+T=$(date -u +%Y%m%dT%H%M%SZ); F=/root/remote-uploads-$T.tar.gz
+( umask 077 && docker run --rm --network none -v remote_uploads:/u:ro remote-server:$IMAGE_TAG tar -C /u -czf - . > "$F" ) \
+  && chmod 600 "$F" && gzip -t "$F" && tar -tzf "$F" | wc -l && ls -l "$F" && echo uploads-yedek-ok
+```
+- **Zamanlama/saklama:** DB yedeği ile aynı (P13 retention işiyle birlikte cron'a bağlanır; o zamana kadar her yayından önce elle).
+  Şifreleme: dosyalar kişisel veri (avatar) içerir — sunucu dışına çıkarılırken DB yedeğiyle aynı şifreleme uygulanır.
+- **Geri yükleme** (server durdurulur; volume boş veya üzerine yazılacak):
+```bash
+docker compose stop server
+docker run --rm --network none -i -v remote_uploads:/data/uploads remote-server:$IMAGE_TAG \
+  tar -C /data/uploads --no-same-owner -xzf - < /root/remote-uploads-<T>.tar.gz
+docker run --rm --user 0 -v remote_uploads:/u remote-server:$IMAGE_TAG stat -c '%U:%G %a' /u   # node:node 700
+docker compose start server
+```
+  Komut imajın varsayılan kullanıcısıyla (node, uid 1000) çalışır → dosyalar node'a ait olur, chown gerekmez.
+- **Volume yanlış sahiplikle oluştuysa** (ör. imaj güncellenmeden önce elle `docker volume create` yapıldı → `root 755`,
+  server logunda `EACCES`): `docker run --rm --user 0 --network none -v remote_uploads:/u remote-server:$IMAGE_TAG sh -c 'chown -R 1000:1000 /u && chmod 0700 /u'`.
+- **Prova (2026-11-13, yerel):** gerçek server imajı, geçici volume'a 2 dizin + 2 dosya → yukarıdaki yedek komutu (600, `gzip -t`
+  OK) → yeni boş volume'a geri yükleme → `node:node 700`, dosyalar `node:node 644` (elle oluşturulan deneme dosyaları; uygulama 640 yazar), iki volume'un SHA-256 listesi aynı.
+  **Düzeltme turu provası (2026-11-13, yerel):** güncel Dockerfile'dan derlenen server imajında gerçek
+  `UploadStore.save()` ile (`--read-only --cap-drop ALL --network none`) `system/` ve `<tenantId>/` altına dosya yazıldı →
+  kök `node:node 700`, dizinler `750`, dosyalar **`640`** → yukarıdaki yedek (arşiv 600, `gzip -t` OK) → boş volume'a geri
+  yükleme → sahiplik/modlar (700/750/640) ve SHA-256 listesi **aynı** (tar, node kullanıcısı umask 022 altında 0640'ı korur).
+  Not: eski bir `remote-server` imajıyla (P12 öncesi, `/data/uploads` satırı yok) yaratılan volume `root 755` olur →
+  yükleme `EACCES`; aşağıdaki "yanlış sahiplik" adımı.
+
+### 16.4 Doğrulama komutları (yerel / CI)
+- `deploy/test-caddy.sh` → "gövde sınırı" bölümü: 2 MiB multipart üç yükleme ucundan geçer (avatar hem `me` hem `<id>` biçimiyle denenir → 4 istek), 3,2 MB 413; diğer `/api` 2 MiB 413;
+  PUT 413; `/api/v1/files/*` logunda sorgu dizesi yok. CI'da çalışır.
+- `deploy/nginx/test-nginx.sh` → 2 MiB yükleme geçer, 3,2 MB 413. CI'da çalışır.
+- sharp duman testi (imaj değişince; taban imaj alpine/musl'a geçerse **zorunlu**):
+  `docker run --rm --read-only --tmpfs /tmp --cap-drop ALL remote-server:<tag> node -e "require('sharp')({create:{width:8,height:8,channels:3,background:'#fff'}}).webp().toBuffer().then(b=>console.log('ok',b.length))"`.
+- Lisans: sharp Apache-2.0, `@img/sharp-libvips-*` **LGPL-3.0-or-later** (dinamik bağlı paylaşımlı kütüphane) → `scripts/check-licenses.mjs`
+  LGPL'i izinli sayar, istisna gerekmez (prova: gerçek `pnpm licenses list --prod` çıktısı "temiz").
+
+### 16.5 Sorun giderme (P12)
+| Belirti | Neden / Yapılacak |
+|---|---|
+| server açılmıyor, log `Could not load the "sharp" module` / `Illegal instruction` | CPU x86-64-v2 değil (§16.1/0) veya imaj başka platformda derlendi (Mac'te `--platform` olmadan derleyip taşımayın; sunucuda derleyin) |
+| Yüklemede `EACCES` / 500, log `/data/uploads` | Volume sahipliği → §16.3 "yanlış sahiplik" |
+| 2 MB'a yakın dosyada 413 ve yanıt HTML (nginx sayfası) | Host nginx 2m kalmış → §16.1/3 |
+| 413 JSON değil, boş gövde (Caddy) | Uç `@upload` listesinde yok → Caddyfile + `test-caddy.sh` |
+| Logo/avatar kırık resim | DB yolu var, dosya yok (yedek/geri yükleme farklı anlardan) → kullanıcı yeniden yükler; toplu ise §16.3 ile eşleşen yedek |
+| Disk doluyor | `docker system df -v | grep remote_uploads`; dosyalar ≤ 512 px yeniden kodlanır (tipik < 100 KB). Eski dosya silme backend'in işi (değiştirmede eski dosya silinir); artış anormalse backend'e bildir |

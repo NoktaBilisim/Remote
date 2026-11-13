@@ -150,7 +150,7 @@ describe("AC-4 tenant ayarları", () => {
     const t = await createTenant();
     const admin = await createUser({ tenantId: t.id, role: "ADMIN" });
     const s = await signIn(admin);
-    expect((await call(s, "GET", "/settings/tenant")).json<TenantSettingsView>()).toEqual({ sessionTtlMin: 15, maxOpenSessions: 3, maxActiveHours: 4, maxFileMb: 100, retentionDays: 365, requireTech2fa: true, smtp: null });
+    expect((await call(s, "GET", "/settings/tenant")).json<TenantSettingsView>()).toEqual({ logoUrl: null, sessionTtlMin: 15, maxOpenSessions: 3, maxActiveHours: 4, maxFileMb: 100, retentionDays: 365, requireTech2fa: true, smtp: null });
     for (const v of [14, 31, 20.5, "20"]) {
       const r = await call(s, "PUT", "/settings/tenant", { sessionTtlMin: v });
       expect(r.statusCode, String(v)).toBe(400);

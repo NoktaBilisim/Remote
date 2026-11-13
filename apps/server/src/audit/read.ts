@@ -24,6 +24,7 @@ import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
+import { avatarUrlFor, type AvatarViewer } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 import { writeAudit, type AuditContext } from "./service.ts";
 import { auditValueView } from "./view.ts";
@@ -66,7 +67,9 @@ export function decodeCursor(s: string): repo.AuditCursor {
   return { createdAt: new Date(Number(m[1])), id };
 }
 
-function toItem(r: repo.AuditRow, names: Map<string, string>): AuditItem {
+/** `viewer` verilirse avatar yalnız görüntüleyenin erişebildiği dosyaysa döner (başka tenant/sistem avatarı → null). */
+function toItem(r: repo.AuditRow, names: Map<string, repo.AuditUserInfo>, viewer?: AvatarViewer): AuditItem {
+  const u = r.userId ? names.get(r.userId) : undefined;
   return {
     id: r.id.toString(),
     createdAt: r.createdAt.toISOString(),
@@ -74,8 +77,8 @@ function toItem(r: repo.AuditRow, names: Map<string, string>): AuditItem {
     tenantName: r.tenant?.name ?? null,
     userId: r.userId,
     username: r.username,
-    userFullName: r.userId ? (names.get(r.userId) ?? null) : null,
-    avatarUrl: null, // P12
+    userFullName: u?.fullName ?? null,
+    avatarUrl: viewer ? avatarUrlFor(u?.avatarPath, viewer) : null,
     action: r.action,
     entity: r.entity,
     entityId: r.entityId,
@@ -94,7 +97,8 @@ export async function listAuditItems(db: Db, auth: AuthContext, q: ListAuditQuer
   const page = rows.slice(0, AUDIT_PAGE_SIZE);
   const names = await repo.userNames(db, page.flatMap((r) => (r.userId ? [r.userId] : [])));
   const last = page[page.length - 1];
-  return { items: page.map((r) => toItem(r, names)), nextCursor: rows.length > AUDIT_PAGE_SIZE && last ? encodeCursor(last) : null };
+  const viewer: AvatarViewer = { role: auth.user.role, tenantId: auth.user.tenantId };
+  return { items: page.map((r) => toItem(r, names, viewer)), nextCursor: rows.length > AUDIT_PAGE_SIZE && last ? encodeCursor(last) : null };
 }
 
 // ---- CSV (AC-124) ----

@@ -23,7 +23,7 @@ const lastLogin = (u: UserListItem) => (u.lastLoginAt ? formatDateTime(u.lastLog
 export function UserList({ items, selfId }: { items: UserListItem[]; selfId: string }) {
   const nameCell = (u: UserListItem, card = false) => (
     <Link href={`/users/${u.id}`} className="flex min-h-11 min-w-0 flex-1 items-center gap-3 font-medium text-primary hover:underline">
-      <Avatar name={u.fullName} />
+      <Avatar name={u.fullName} src={u.avatarUrl ?? null} testId="user-avatar" />
       <span className="min-w-0">
         <span className="block truncate" title={u.fullName}>
           {u.fullName}

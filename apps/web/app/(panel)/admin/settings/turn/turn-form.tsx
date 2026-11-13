@@ -16,6 +16,7 @@ import { api, ApiError, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api"
 import { toUiError, type UiError } from "@/lib/error-message";
 import { formatDateTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { useHydrated } from "@/lib/use-hydrated";
 import { Section, SourceBadge } from "../section";
 
 const FORM_ID = "turn-form";
@@ -41,6 +42,7 @@ function serverErrors(fields: Record<string, string>, sentRows: number[]): { err
  */
 export function TurnForm({ initial }: { initial: TurnSettingsView }) {
   const router = useRouter();
+  const ready = useHydrated(); // data-ready: e2e hidrasyondan önce yazmasın (QA P12 Tur 2)
   const toast = useToast();
   const [saved, setSaved] = useState(initial);
   const base = useMemo(() => toTurnState(saved), [saved]);
@@ -144,7 +146,7 @@ export function TurnForm({ initial }: { initial: TurnSettingsView }) {
       {saved.source === "env" && <Alert tone="info" testId="turn-env-source">{t("tu.envSource")}</Alert>}
       <Alert tone="warning" testId="turn-secret-warning">{t("tu.secretWarn")}</Alert>
       {formError && <FormError error={formError} />}
-      <form id={FORM_ID} ref={formRef} onSubmit={submit} noValidate className="flex flex-col gap-6" data-testid="turn-form">
+      <form id={FORM_ID} ref={formRef} onSubmit={submit} noValidate className="flex flex-col gap-6" data-testid="turn-form" data-ready={ready ? "true" : "false"}>
         <fieldset disabled={busy} className="flex flex-col gap-6">
           <Section id="tu-urls" title={t("tu.urls")} Icon={Waypoints} aside={<SourceBadge source={saved.source} panel={t("sys.sourcePanelBadge")} env={t("sys.sourceEnvBadge")} />}>
             <p className="text-sm text-fg-muted" id="turn-urls-hint">{t("tu.urlsHint")}</p>

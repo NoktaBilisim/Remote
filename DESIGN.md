@@ -10,13 +10,17 @@ Yeni token/bileşen eklendiğinde bu dosya da güncellenir.
 
 ## 1. İlkeler
 - Yönetim paneli / iş uygulaması: sade, veri odaklı; gradyan, emoji, gereksiz kart yok.
-- **Ham renk/px yasak.** Tailwind'in varsayılan paleti kapalıdır (`--color-*: initial`); yalnız
+- **Ham renk/px yasak** (P12: ESLint `remote/design-tokens` — className ve `*cls/*Class/variants` değişkenlerinde hex/rgb()/hsl(), renk yardımcısında `var(--…)` dışı keyfi değer ve keyfi değerde `px` hata; gerekçeli istisna `eslint-disable-next-line remote/design-tokens -- <gerekçe>`). Tailwind'in varsayılan paleti kapalıdır (`--color-*: initial`); yalnız
   aşağıdaki anlamsal sınıflar derlenir (`bg-surface`, `text-fg-muted` …).
 - JSX `style` prop'u yasak (CSP nonce, G-19; ESLint `react/forbid-dom-props`).
 - Arayüz dili Türkçe; metinler `apps/web/messages/tr.json`, erişim `t("anahtar")`.
 
 ## 2. Renk token'ları (açık / koyu)
-Koyu tema P1'de işletim sistemi tercihine (`prefers-color-scheme`) göre; kullanıcı tercihi (DB, flaşsız) P12.
+Tema (P12, AC-85): kullanıcı tercihi Açık / Koyu / Sistem (DB `users.theme`, varsayılan Sistem). Kök layout ilk HTML'de
+`<html class="light|dark" data-theme="…">` basar (oturum varsa DB değeri, yoksa `rs_theme` çerezi, o da yoksa sistem) →
+flaş yok, satır içi betik yok (CSP). Sistem = sınıf yok, `prefers-color-scheme`. Koyu değerler `globals.css`'te üç seçicide
+aynıdır (`:root.dark`, `:root:not(.light):has(.theme-dark)`, medya içinde `:root:not(.light)`) — değişiklik üçüne birden.
+Tailwind `dark:` varyantı kullanılmaz; renkler yalnız token.
 
 | Token (Tailwind) | CSS değişkeni | Açık | Koyu | Kullanım |
 |---|---|---|---|---|
@@ -88,6 +92,10 @@ Koyu tema P1'de işletim sistemi tercihine (`prefers-color-scheme`) göre; kulla
   Daha fazla yükle → `ChevronsDown`, Audit ayrıntı → `Eye`, Aydınlatma metni sekmesi → `FileText`, Sürüm geçmişi → `History`, Bilgi notu → `Info`.
 - P7 ile eklenenler: Kontrolü bırak → `MousePointerBan`, Kontrol iste / Kontrole devam → `Hand`, Görünüm menüsü → `MonitorCog`, Vazgeç (istek iptali) → `X`, Özel tuşlar → `Keyboard` (+ açılır ok `ChevronDown`),
   Monitör seçimi → `Monitor`, Güvenli masaüstü / yükseltilmiş pencere → `ShieldAlert`.
+- P12 ile eklenenler: Hesap menüsü (avatar tetikleyici) → kişinin avatarı (ikon değil, §1.5), Hesabım → `UserRound`, Şifre değiştir → `KeyRound`,
+  Tema Açık/Koyu/Sistem → `Sun`/`Moon`/`Laptop`, Görünüm bölümü → `Palette`, Çıkış → `LogOut`, Resim yükle/değiştir → `Upload`,
+  Resmi/logoyu kaldır → `Trash2`, Kaydet → `Save`, Logo seç/değiştir → `ImageUp`, Vazgeç (önizleme) → `X`, Logo sekmesi (Ayarlar) ve
+  Sistem logosu sekmesi/bölümü → `Image`.
 
 ## 5. Logolar (ortak standart §1.5)
 - Kaynak `/Users/mennan/Projeler/NOKTA_LOGO` → `apps/web/public/img/` (kopya; çizilmez). Üretim betiği:
@@ -95,6 +103,11 @@ Koyu tema P1'de işletim sistemi tercihine (`prefers-color-scheme`) göre; kulla
 - `logo.png` login ekranı; `nokta-kucuk.png` üst menü/kenar. Her ikisi `BrandLogo` içinde `logo-surface` kartında.
 - Favicon `nokta-kucuk.png`'den kareye tamamlanır: `favicon.ico` (16/32/48), `favicon-32x32.png`, `apple-touch-icon.png` (180).
 - `next/image` kullanılmaz (satır içi style üretir → CSP); sabit boyutlu `<img>`.
+- **P12 yüklenmiş logolar (AC-81, 82):** `LogoImage` (`brand-logo.tsx`) — URL varsayılan (`/img/logo.png`) ya da boşsa `BrandLogo`,
+  değilse `logo-surface` kartında `object-contain` resim (`mark`: h-9 kutu / h-7 resim, en çok 32/28 rem-ölçeği; `full`: h-20 / h-16).
+  Üst menü `me.logoUrl` (firma → sistem → varsayılan; Super Admin'de seçili firma), giriş ekranı `?tenant=<slug>` ile
+  `/public/branding` (proxy slug'ı doğrulayıp `x-rs-tenant` başlığıyla layout'a iletir), müşteri karşılama resolve `tenant.logoUrl`.
+  Koyu temada da kart açık zeminli kalır.
 
 ## 6. Bileşen primitifleri (`apps/web/components`)
 | Bileşen | Amaç |
@@ -131,6 +144,11 @@ Koyu tema P1'de işletim sistemi tercihine (`prefers-color-scheme`) göre; kulla
 | `ui/select-field.tsx` (P8) | Etiketli yerel `<select>`: TextField ile aynı çerçeve, odak, `min-h-11`, `hint`/`error` (aria-invalid + describedby), sağda `ChevronDown`; `hideLabel` etiketi `sr-only` yapar (sayfa boyutu). Klavye/mobil seçici tarayıcıdan gelir |
 | Oturum geçmişi (P8, AC-60..63) | `/history`: SUPER_ADMIN'de (Firma sütunu açık) < 2xl "Bağlantı" sütunu gizlenir, Firma/Teknisyen/Ticket tek satır + `truncate` + `title`; filtre formu `surface` + `border` kutuda ızgara (1/2/4 sütun), Filtrele (`Filter`, `loading`) / Filtreleri temizle (`FilterX`, ghost); ≥ md tablo, dar ekranda tıklanabilir kart (`ChevronRight`); müşteri adı satırın tek bağlantısı; ACTIVE süre canlı ("· sürüyor"). Sayfalama `nav` + Önceki/Sonraki (`ChevronLeft/Right`, dar ekranda yalnız ikon + `sr-only` metin) + sayfa boyutu `SelectField`. **Dışa aktar (CSV)** `secondary` + `Download`, yalnız yetkiyle; hata `Alert danger` düğmenin altında. `/history/[id]`: kart yerine üst çizgili bölümler (`border-t`, h2); özet `<dl>`; onay kayıtları/dosyalar ≥ xl tablo (dosyalar tam genişlik bölüm; taşarsa odaklanabilir yatay kaydırma kabı `role=region`), daha dar alanda aynı veri `<dl>` kart ızgarası (sm+ 2 sütun); dosya adı `min-w-48` + sözcük sınırında kırılma; SHA-256 `ilk 8…son 8` mono + tam değer `title` + **Kopyala** ikon düğmesi (`Copy`, 44 px, toast); kontrol dönemleri `<ol>` (kapanışsız dönem `warning` metin "Kapanış kaydı yok"; `selfElevated` → `warning-surface` hap + `ShieldUser`); zaman çizelgesi sol çizgili `<ol>`, nokta `primary` / başarısız `danger` + metin "(başarısız)"; not formu sayaçlı (`tabular-nums`, sınır aşımı `danger`), Kaydet (`Save`), Geri al (`RotateCcw`), kaydedilmemiş değişiklikte `warning` metin + ayrılma onayı (`Dialog alertdialog`, odak "Sayfada kal") |
 
+| `branding/theme-provider.tsx` (P12, AC-85) | `ThemeProvider` (panel layout, ilk değer /auth/me) + `useTheme()` + `ThemePicker`: 3 sütunlu `aria-pressed` düğme grubu (`Sun`/`Moon`/`Laptop`, min 44 px, seçili `primary-surface`), anında. Seçim iyimser: sınıf + `rs_theme` çerezi hemen, PATCH `/auth/me/preferences`; hata → önceki tema geri + `danger` toast. Açılışta çerez DB'den farklıysa çerez eşitlenir |
+| Hesap menüsü (`(panel)/user-menu.tsx`, P12) | `ui/menu` `variant="avatar"` (çerçevesiz 44 px yuvarlak tetikleyici, ok yok, erişilebilir ad "Hesap menüsü: <ad>"): üstte avatar + ad + e-posta; Hesabım, Şifre değiştir (`/account#pw-h`), Tema (`ThemePicker compact`, menü açık kalır), Çıkış. Üst menüdeki tek dokunuş **Çıkış yap** düğmesi korunur (375 px sınaması, std. §1.3) |
+| `branding/avatar-uploader.tsx` (P12, AC-83) | Avatar `lg` + **Resim yükle/Resmi değiştir** (`secondary`, `Upload`) + **Resmi kaldır** (`danger-ghost`, `Trash2`, `alertdialog` onay, odak Vazgeç). Seçimde ön kontrol (tür/2 MB) ve tarayıcıda çözme (SVG, sahte uzantı, bozuk dosya → `Alert danger`); kırpma diyaloğu `react-easy-crop` (yuvarlak, ızgarasız, `stage` zeminli h-72 alan, sürükle + ok tuşları, alan `role=group` "Kırpma alanı") + "Yakınlaştır" kaydırıcısı (`accent-primary`, min 44 px) → canvas 256×256 WEBP (yoksa PNG) → multipart. Kaynak `data:` URL (blob değil: CSP `connect-src`). Kütüphanenin `<style>` enjeksiyonu kapalı, CSS `globals.css`'te içe aktarılır |
+| `branding/logo-uploader.tsx` (P12, AC-81/82) | "Geçerli logo" figürü (`surface-muted` çerçevede `LogoImage`) + seçimde "Önizleme (henüz kaydedilmedi)" figürü (kesikli `primary` çerçeve, `logo-surface` kart); **Logo seç/Logoyu değiştir** (`ImageUp`) → önizleme → **Logoyu kaydet** (`Save`) / Vazgeç (`X`); `removable` iken **Logoyu kaldır** (onaylı). Sunucu hataları (400 `INVALID_IMAGE`, 413, 429) `FormError` |
+| `ui/tab-nav.tsx` eki (P12) | 5 sekmeye kadar (`grid-cols-5` dar ekranda; etiket `break-words`) |
 | `ui/toast.tsx` eki (P8b-1) | `tone="info"` (`Bell`, `text-primary`) + isteğe bağlı `action: { label, href }` (toast içinde min 44 px bağlantı, tıklayınca kapanır) ve `durationMs` (vars. 4 sn; yeni talep 8 sn) |
 | `ui/combobox.tsx` (P8c-1) | WAI-ARIA 1.2 combobox + listbox: `input role=combobox` + `aria-expanded/aria-controls/aria-activedescendant`, ↑/↓/Home/End dolaşır, Enter seçer, Esc kapatır (kapalıyken temizler), Tab kapatır; 300 ms gecikmeli `load(q, signal)` (önceki istek iptal); liste anında açılır (`shadow-lg`, satır min 44 px, etkin satır `surface-muted`, seçili kalın, ikincil metin `fg-muted`); durum satırı `role=status`: yükleniyor (`LoaderCircle`), "Sonuç yok", hata; temizle `X` (`aria-label`). Saf klavye mantığı `lib/combobox.ts`. Sarmalayıcı `components/customer-combobox.tsx` (`GET /customers/options`, `status=active\|all`, pasif satırda "Pasif") |
 | `copy-link.tsx` (P8c-1, AC-169) | `secondary` **Kopyala** (`Copy`) → 2 sn `Check` + `role=status` "Kopyalandı" (`success`); pano API'si yoksa/reddedilirse bağlantı salt okunur `input`'ta odaklı ve **seçili** gösterilir. `srLabel` kimin bağlantısı olduğunu söyler |
@@ -190,7 +208,7 @@ Yükleniyor (iskelet: `surface-muted` + `animate-pulse`), boş (ikon + açıklam
 hata (`LoadError` / `FormError`, tekrar dene), kısmi, başarılı. Form gönderiminde alanlar ve buton disabled.
 
 ## 8. Onaylı tasarım kararları (2026-11-11, taslak onayı)
-- **Konsol varsayılan koyu:** kullanıcı tema tercihi kaydedilmemişse konsol koyu açılır; tercih varsa ona uyar. Konsol ≥ 1280 px, kaydırmasız: üst bar (müşteri, durum, süre, doğrulama kodu, kalite) + araç çubuğu + sahne + 360 px sağ panel.
+- **Konsol varsayılan koyu:** kullanıcı tema tercihi kaydedilmemişse konsol koyu açılır; tercih varsa ona uyar. (P12 uygulaması: tercih Sistem → `.theme-dark` koyu; Koyu → koyu; Açık → açık — `:root:not(.light):has(.theme-dark)`.) Konsol ≥ 1280 px, kaydırmasız: üst bar (müşteri, durum, süre, doğrulama kodu, kalite) + araç çubuğu + sahne + 360 px sağ panel.
 - **Müşteri ekranları** (karşılama, lobi, tarayıcı modu oturumu) tarayıcı/işletim sistemi temasına uyar (Sistem); hesap yok, DB tercihi yok.
 - **Tarayıcı modunda işaretleme** yalnız müşterinin sekmesindeki önizlemede görünür; gerçek masaüstü üstüne çizim yalnız Hızlı Destek istemcisinde (overlay).
 - **Kötüye kullanım adresi** (`ABUSE_EMAIL`, K10) açık. Güncelleme (S-P4-1): production'da `ABUSE_EMAIL` boşsa "Kötüye kullanımı bildir" bağlantısı **gizlenir** (Super Admin e-postasına düşülmez). Taslaktaki adres yer tutucudur.

@@ -84,6 +84,9 @@ byToken.set(fixed("A"), newSession("PENDING"));
 byToken.get(fixed("A")).token = fixed("A");
 // "B": ABUSE_EMAIL ve Super Admin e-postası yok → resolve abuseEmail: null (bildir bağlantısı gizlenir)
 byToken.set(fixed("B"), Object.assign(newSession("PENDING"), { noAbuse: true }));
+// "L" (P12 QA-2, AC-81): firmanın yüklenmiş logosu var → resolve tenant.logoUrl dolu (dosya mock-branding.mjs'den sunulur)
+export const TENANT_LOGO_URL = "/api/v1/files/logo/demo/public-demo-logo-0001.png";
+byToken.set(fixed("L"), Object.assign(newSession("PENDING"), { tenantLogo: TENANT_LOGO_URL }));
 // P6 (AC-27) indirme ucu: "D" istemci yayında değil (503 NOT_READY), "G" indirme anında oturum iptal (410)
 byToken.set(fixed("D"), Object.assign(newSession("PENDING"), { agent: "notReady" }));
 byToken.set(fixed("G"), Object.assign(newSession("PENDING"), { agent: "gone" }));
@@ -109,7 +112,7 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
     if (rec.view.status === "ACTIVE" || rec.view.status === "ENDED") return send(res, 410, err("SESSION_CONSUMED", "Bu bağlantı zaten kullanıldı.")), true;
     const body = {
       sessionRef: rec.ref,
-      tenant: { name: "Demo Firma", logoUrl: null },
+      tenant: { name: "Demo Firma", logoUrl: rec.tenantLogo ?? null },
       technician: { name: rec.view.technician.name, avatarUrl: null },
       techVerifyCode: rec.view.techVerifyCode,
       expiresAt: rec.view.expiresAt,

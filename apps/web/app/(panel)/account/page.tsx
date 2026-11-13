@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
-import { UserRound } from "lucide-react";
+import { Palette, UserRound } from "lucide-react";
 import { redirect } from "next/navigation";
 import { Breadcrumb } from "@/components/breadcrumb";
-import { Avatar } from "@/components/ui/avatar";
+import { AvatarUploader } from "@/components/branding/avatar-uploader";
+import { ThemePicker } from "@/components/branding/theme-provider";
 import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { getMe } from "@/lib/server-api";
@@ -11,7 +12,7 @@ import { AccountSecurity } from "./account-security";
 export const metadata: Metadata = { title: t("acc.title") };
 
 /**
- * /account — Hesap güvenliği (P10): profil özeti, şifre değiştir (AC-66), iki adımlı doğrulama + kurtarma kodlarını
+ * /account — Hesabım: hesap güvenliği (P10) + profil resmi ve tema (P12, AC-83/85): profil özeti, şifre değiştir (AC-66), iki adımlı doğrulama + kurtarma kodlarını
  * yenile (AC-67), tüm cihazlardan çıkış (AC-68, 115). Her oturumlu kullanıcı kendi hesabı için açar (yetki anahtarı yok).
  */
 export default async function AccountPage() {
@@ -29,7 +30,8 @@ export default async function AccountPage() {
             <UserRound aria-hidden className="size-5 text-fg-muted" />
             {t("acc.profile")}
           </h2>
-          <Avatar name={user.fullName} size="lg" />
+          {/* P12 (AC-83): kendi profil resmi — yükle (kare kırp), değiştir, kaldır */}
+          <AvatarUploader userId="me" name={user.fullName} avatarUrl={user.avatarUrl ?? null} canEdit />
           <dl className="flex flex-col gap-2 text-sm">
             <div>
               <dt className="text-fg-muted">{t("us.f.fullName")}</dt>
@@ -48,7 +50,20 @@ export default async function AccountPage() {
             </div>
           </dl>
         </section>
-        <AccountSecurity mfa={mfa ?? null} />
+        <div className="flex min-w-0 flex-col gap-6">
+          {/* P12 (AC-85): tema tercihi — üst menüdeki seçimle aynı kaynak (ThemeProvider), anında uygulanır */}
+          <section aria-labelledby="acc-app-h" className="rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-6" data-testid="acc-appearance">
+            <h2 id="acc-app-h" className="flex items-center gap-2 text-base font-semibold text-fg">
+              <Palette aria-hidden className="size-5 text-fg-muted" />
+              {t("acc.appearance")}
+            </h2>
+            <p className="mt-1 text-sm text-fg-muted">{t("acc.appearanceBody")}</p>
+            <div className="mt-4">
+              <ThemePicker testId="acc-theme" />
+            </div>
+          </section>
+          <AccountSecurity mfa={mfa ?? null} />
+        </div>
       </div>
     </>
   );

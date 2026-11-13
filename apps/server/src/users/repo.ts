@@ -20,6 +20,7 @@ const userSelect = {
   status: true,
   mustChangePassword: true,
   totpEnabled: true,
+  avatarPath: true,
   createdAt: true,
   permissions: { select: { permKey: true, granted: true } },
   authSessions: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },

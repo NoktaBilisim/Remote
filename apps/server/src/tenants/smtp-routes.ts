@@ -39,7 +39,7 @@ export async function smtpSettingsRoutes(app: FastifyInstance): Promise<void> {
   app.post("/test", { preHandler: requirePerm("settings.edit") }, async (req): Promise<SmtpTestResponse> => {
     const { tenantId } = tenantScope(req);
     const { to } = parseInput(smtpTestInputSchema, req.body);
-    const out = await sendTenantTest({ mail: app.mail, limit: app.smtpTestLimit, ctx: auditContext(req), auth: authOf(req), tenantId, to, action: MAIL_AUDIT.SMTP_TEST, entity: "tenant_settings", content: (firm) => smtpTestMail({ publicBaseUrl: app.env.PUBLIC_BASE_URL, firm }) });
+    const out = await sendTenantTest({ mail: app.mail, limit: app.smtpTestLimit, ctx: auditContext(req), auth: authOf(req), tenantId, to, action: MAIL_AUDIT.SMTP_TEST, entity: "tenant_settings", content: (firm) => smtpTestMail({ firm }) });
     if (!out.ok) throw new AppError("UPSTREAM", { message: SMTP_SEND_FAILED_MESSAGE });
     return { ok: true, message: "Test e-postası gönderildi." };
   });

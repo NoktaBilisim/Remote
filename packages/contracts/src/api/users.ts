@@ -142,6 +142,8 @@ export interface UserListItem {
   status: UserStatus;
   mustChangePassword: boolean;
   totpEnabled: boolean;
+  /** P12 (AC-83): oturumlu avatar URL'si; null → baş harf rozeti. */
+  avatarUrl: string | null;
   /**
    * Son oturum açılışı (`auth_sessions` kaydından). `null`: oturum kaydı yok — hiç giriş yapmadı **veya** son
    * oturumun kaydı saklama işiyle silindi (süresi dolan oturum +7 gün). "Hiç giriş yapmadı" diye gösterilmez.

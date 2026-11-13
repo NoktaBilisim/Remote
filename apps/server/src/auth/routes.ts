@@ -17,6 +17,7 @@ import {
   type MfaSetupResponse,
   type MfaVerifyResponse,
 } from "@remote/contracts/api/auth";
+import { THEME_COOKIE, THEME_COOKIE_MAX_AGE_SEC, preferencesInputSchema, themeCookieValue, type PreferencesResponse, type ThemeValue } from "@remote/contracts/api/branding";
 import type { CookieSerializeOptions } from "@fastify/cookie";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
@@ -25,6 +26,8 @@ import { sha256Hex } from "../lib/ids.ts";
 import { authOf, checkOrigin, requireAuth } from "./guards.ts";
 import { forgotPassword, lockNotifier, logoutAll, mfaEnable, mfaSetup, mfaVerify, recoveryCodesLeft, resetPassword } from "./account.ts";
 import { changePassword, login, logout } from "./service.ts";
+import { setTheme } from "../uploads/service.ts";
+import { effectiveLogoUrl } from "../uploads/urls.ts";
 
 const baseCookie: CookieSerializeOptions = { path: "/", secure: true, sameSite: "strict" };
 // /auth/me ve /auth/logout her aşamada; şifre değişimi 2FA kurulum aşamasında da (doğrulama aşamasında değil).
@@ -35,6 +38,15 @@ const noStore = (reply: FastifyReply) => void reply.header("Cache-Control", "no-
 function setSessionCookies(reply: FastifyReply, s: { token: string; csrfToken: string; expiresAt: Date }): void {
   void reply.setCookie(SESSION_COOKIE, s.token, { ...baseCookie, httpOnly: true, expires: s.expiresAt });
   void reply.setCookie(CSRF_COOKIE, s.csrfToken, { ...baseCookie, httpOnly: false, expires: s.expiresAt });
+}
+
+/**
+ * P12 (AC-85): flaşsız tema çerezi — web kök layout'u sunucuda okur. HttpOnly değil (istemci de okur; gizli değil),
+ * SameSite=Lax (dış bağlantıyla gelişte de tema doğru), production'da Secure. Çıkışta silinmez.
+ */
+function setThemeCookie(reply: FastifyReply, theme: ThemeValue): void {
+  const secure = reply.server.env.NODE_ENV === "production";
+  void reply.setCookie(THEME_COOKIE, themeCookieValue(theme), { path: "/", sameSite: "lax", secure, httpOnly: false, maxAge: THEME_COOKIE_MAX_AGE_SEC });
 }
 
 function clearSessionCookies(reply: FastifyReply): void {
@@ -49,6 +61,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const ctx = auditContext(req);
     const result = await login(app.db, app.authLimits, ctx, req.log, input, app.mfaSetupEnforced, req.cookies[SESSION_COOKIE], lockNotifier(app.account, ctx));
     setSessionCookies(reply, result);
+    setThemeCookie(reply, result.user.theme);
     return { user: result.user, mfaRequired: result.mfaStage === "verify", mfaSetupRequired: result.mfaStage === "setup", mustChangePassword: result.user.mustChangePassword };
   });
 
@@ -122,9 +135,19 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(204).send();
   });
 
-  app.get("/me", pendingOk, async (req): Promise<MeResponse> => {
+  // P12 (AC-85): tema tercihi; şifre değişimi / 2FA kurulumu bekleyen oturumda da (doğrulama aşamasında değil).
+  app.patch("/me/preferences", { config: { allowPasswordChangePending: true, mfaSetupStage: true }, preHandler: requireAuth }, async (req, reply): Promise<PreferencesResponse> => {
+    const { theme } = parseInput(preferencesInputSchema, req.body);
+    await setTheme(app.db, auditContext(req), authOf(req), theme);
+    setThemeCookie(reply, theme);
+    noStore(reply);
+    return { theme };
+  });
+
+  app.get("/me", pendingOk, async (req, reply): Promise<MeResponse> => {
     const auth = authOf(req);
     const ok = auth.mfaStage === "ok";
+    setThemeCookie(reply, auth.user.theme);
     return {
       user: auth.user,
       // Yarım (2FA bekleyen) oturumda yetki/tenant bilgisi verilmez.
@@ -132,6 +155,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       tenant: auth.tenant,
       actingTenant: ok ? auth.actingTenant : null,
       mfa: { enabled: auth.totpEnabled, required: auth.mfaRequired, stage: auth.mfaStage, recoveryCodesLeft: auth.totpEnabled && ok ? await recoveryCodesLeft(app.db, auth.user.id) : 0 },
+      // Yarım oturumda seçili firma bilgisi verilmez → kullanıcının kendi firması / sistem logosu.
+      logoUrl: await effectiveLogoUrl(app.db, ok || auth.tenant ? auth.logoPath : null),
     };
   });
 }

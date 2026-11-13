@@ -17,7 +17,7 @@ import { aadFor, type SecretBox } from "../lib/crypto.ts";
 import type { Db } from "../lib/db.ts";
 import type { NetGuard } from "../lib/netguard.ts";
 import type { Metrics } from "../ops/metrics.ts";
-import type { MailContent } from "./templates.ts";
+import { renderMailHtml, type MailContent } from "./templates.ts";
 
 export const MAIL_TIMEOUT_MS = 10_000;
 /** Deneme başına mutlak tavan (yavaş damlatan sunucu dahil) = etkileşimli başarısızlık yanıt tabanı. */
@@ -48,6 +48,9 @@ export interface MailDeps {
   metrics: Metrics;
   log: { warn(o: object, m: string): void; error(o: object, m: string): void };
   transport?: TransportFactory;
+  /** P12 (AC-81): tenant'a göre mutlak logo adresi (firma → sistem → Nokta). Hata olursa `fallbackLogoUrl`. */
+  logoUrlFor: (tenantId: string | null) => Promise<string>;
+  fallbackLogoUrl: string;
   /** Yalnız testler: deneme tavanı / etkileşimli taban (varsayılan MAIL_ATTEMPT_CAP_MS). */
   attemptCapMs?: number;
 }
@@ -113,7 +116,17 @@ export class MailService {
   }
 
   /** Ham gönderim (audit yok). netguard hatası (HOST_NOT_ALLOWED) yukarı fırlatılır. `attempts`: 1 (etkileşimli) / 2. */
-  async deliver(cfg: SmtpConfig, to: string, content: MailContent, attempts = 2): Promise<SendOutcome> {
+  /** Logo adresi; çözülemezse varsayılan (gönderim logoya takılmaz). */
+  private async logoUrl(tenantId: string | null): Promise<string> {
+    try {
+      return await this.d.logoUrlFor(tenantId);
+    } catch (err) {
+      this.d.log.warn({ err, event: "mail_logo_unresolved" }, "e-posta logosu çözülemedi; varsayılan kullanıldı");
+      return this.d.fallbackLogoUrl;
+    }
+  }
+
+  async deliver(cfg: SmtpConfig, to: string, content: MailContent, attempts = 2, logoUrl = this.d.fallbackLogoUrl): Promise<SendOutcome> {
     if (!(SMTP_ALLOWED_PORTS as readonly number[]).includes(cfg.port)) return { ok: false, reason: "port_not_allowed" };
     if (cfg.security === "NONE" && cfg.user) return { ok: false, reason: "insecure_auth" };
     const ip = await this.d.netguard.resolve(cfg.host);
@@ -138,7 +151,7 @@ export class MailService {
       });
       let timer: NodeJS.Timeout | undefined;
       try {
-        const sending = t.sendMail({ from: cfg.fromName ? { name: cfg.fromName, address: cfg.fromEmail } : cfg.fromEmail, to, subject: content.subject, text: content.text, html: content.html, disableFileAccess: true, disableUrlAccess: true });
+        const sending = t.sendMail({ from: cfg.fromName ? { name: cfg.fromName, address: cfg.fromEmail } : cfg.fromEmail, to, subject: content.subject, text: content.text, html: renderMailHtml(logoUrl, content.bodyHtml), disableFileAccess: true, disableUrlAccess: true });
         sending.catch(() => undefined); // tavan aşıldıktan sonraki geç ret işlenmemiş kalmasın
         await Promise.race([sending, new Promise((_r, rej) => (timer = setTimeout(() => rej(Object.assign(new Error("smtp attempt cap"), { code: "ETIMEDOUT" })), cap)))]);
         return { ok: true };
@@ -167,7 +180,7 @@ export class MailService {
     if (!conf) out = { ok: false, reason: "not_configured" };
     else {
       try {
-        out = await this.deliver(conf, to, content, opts.interactive ? 1 : 2);
+        out = await this.deliver(conf, to, content, opts.interactive ? 1 : 2, await this.logoUrl(a.tenantId));
       } catch {
         out = { ok: false, reason: "connect" };
       }

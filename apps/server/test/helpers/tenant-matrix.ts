@@ -120,6 +120,17 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "DELETE /api/v1/admin/settings/turn": "system",
   "GET /api/v1/settings/consent-text": "scoped",
   "PUT /api/v1/settings/consent-text": "scoped",
+  // P12 marka (izolasyon: branding-api-p12.test.ts "AC-84"); logo dosyaları ve marka ucu kimliksiz (yalnız logo)
+  "POST /api/v1/settings/logo": "scoped",
+  "DELETE /api/v1/settings/logo": "scoped",
+  "POST /api/v1/users/:id/avatar": "tenant",
+  "DELETE /api/v1/users/:id/avatar": "tenant",
+  "POST /api/v1/admin/settings/system-logo": "system",
+  "GET /api/v1/files/logo/:tenantId/:file": "public",
+  "GET /api/v1/files/system-logo/:file": "public",
+  "GET /api/v1/files/avatar/:tenantId/:file": "tenant",
+  "GET /api/v1/public/branding": "public",
+  "PATCH /api/v1/auth/me/preferences": "self",
 };
 
 export interface TwoTenants {
@@ -160,6 +171,10 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
     route: `POST /api/v1/users/:id/${a}`,
     request: (fx: TwoTenants): InjectOptions => ({ method: "POST", url: `/api/v1/users/${fx.a.user.id}/${a}`, payload: {} }),
   })),
+  // P12: A kullanıcısının avatarı / A klasöründeki dosya → 404
+  { route: "POST /api/v1/users/:id/avatar", request: (fx) => ({ method: "POST", url: `/api/v1/users/${fx.a.user.id}/avatar`, payload: {} }) },
+  { route: "DELETE /api/v1/users/:id/avatar", request: (fx) => ({ method: "DELETE", url: `/api/v1/users/${fx.a.user.id}/avatar` }) },
+  { route: "GET /api/v1/files/avatar/:tenantId/:file", request: (fx) => ({ method: "GET", url: `/api/v1/files/avatar/${fx.a.tenantId}/${"A".repeat(24)}.webp` }) },
   { route: "POST /api/v1/support-requests/:id/reject", request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/reject`, payload: { message: "Şu an müsait değiliz" } }) },
 ];
 

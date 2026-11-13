@@ -114,8 +114,13 @@ services:
       # P10 (mimari §3.2/§8.1): *_enc alanlarının AES-256-GCM anahtarları `v1:<base64 32B>[,v2:...]`. production'da
       # zorunlu (env.ts); kaybolursa kayıtlı SMTP şifreleri ve TOTP sırları çözülemez (runbook §3, §14).
       APP_ENCRYPTION_KEYS: ${APP_ENCRYPTION_KEYS:?APP_ENCRYPTION_KEYS gerekli (openssl rand -base64 32 → v1:<deger>)}
+      # P12 (AC-81..84): logo/avatar yükleme kökü; dosyalar {tenantId|system}/{rastgele}.{png|jpg|webp}. Server
+      # `GET /api/v1/files/{logo,system-logo,avatar}/...` uçlarıyla sunar (Caddy statik sunmaz, volume Caddy'ye bağlanmaz).
+      UPLOADS_DIR: /data/uploads
     volumes:
       - agent_downloads:/data/downloads:ro
+      # Kök fs salt okunur; yazılabilir kalıcı tek dizin. İzin imajdan gelir (node:node 0700, apps/server/Dockerfile).
+      - uploads:/data/uploads
     networks: [edge, db]
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -188,3 +193,5 @@ volumes:
   caddy_config:
   # P6: Windows istemcisi (NoktaDestek.exe); yalnız verify-and-publish yazar, server ve caddy salt okunur bağlar.
   agent_downloads:
+  # P12: logo/avatar dosyaları (yalnız server yazar/okur). Yedek: runbook §16.3 (DB dökümüyle aynı anda alınır).
+  uploads:
