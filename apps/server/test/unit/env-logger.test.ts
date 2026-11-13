@@ -33,6 +33,23 @@ describe("env", () => {
 });
 
 describe("boş env değeri = tanımsız (compose `${X:-}`)", () => {
+  it("B-P12b-3: WHATSAPP_SERVICE_URL panel kuralıyla (waServiceUrlSchema) doğrulanır; uymazsa açılış durur, değer mesajda yok", () => {
+    for (const v of ["http://kullanici:sifre@wa.test", "http://wa.test/?k=v", "http://wa.test#f", "ftp://wa.test", "HTTP://wa.test", `https://${"a".repeat(193)}`, "wa.test:3000"]) {
+      let msg = "";
+      try {
+        loadEnv({ ...base, WHATSAPP_SERVICE_URL: v });
+      } catch (e) {
+        msg = (e as Error).message;
+      }
+      expect(msg, v).toMatch(/WHATSAPP_SERVICE_URL/);
+      expect(msg).not.toContain("sifre");
+      expect(msg).not.toContain("wa.test");
+    }
+    expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: "https://wa.test:8443/api/" }).WHATSAPP_SERVICE_URL).toBe("https://wa.test:8443/api");
+    expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: " " }).WHATSAPP_SERVICE_URL).toBe("http://89.252.189.211:3000");
+    expect(loadEnv(base).WHATSAPP_SERVICE_URL).toBe("http://89.252.189.211:3000");
+  });
+
   it("opsiyonel alanlar boş/boşluk dizeyle hata vermez ve varsayılana düşer", () => {
     const env = loadEnv({ ...base, METRICS_TOKEN: "", ABUSE_EMAIL: "  ", TURN_URLS: "", TURN_SECRET: "", TURN_CRED_TTL_MIN: "", ALLOWED_ORIGINS: " ", TRUSTED_PROXY_CIDR: "", SESSION_REF_KEY: "", LOG_LEVEL: "" });
     expect(env).toMatchObject({ TURN_CRED_TTL_MIN: 20, LOG_LEVEL: "info", turnUrls: [], allowedOrigins: ["https://rs.test:4450"] });

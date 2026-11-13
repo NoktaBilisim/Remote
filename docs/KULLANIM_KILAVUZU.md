@@ -15,7 +15,7 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   yetkileri, Ayarlar > Destek talepleri (e-posta bildirimi dahil), Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
   Aydınlatma metni, Ayarlar > Güvenlik, Ayarlar > Logo, kullanıcının profil resmi
 - **Super Admin için:** Firmalar ve firma geçişi, tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
-  (MySQL, TURN ve sistem logosu), şifre/2FA kaybı
+  (MySQL, TURN, sistem logosu ve WhatsApp servisi), şifre/2FA kaybı
 
 ---
 
@@ -1091,7 +1091,8 @@ doldu" olur ve müşteri yeniden talep oluşturabilir. Değişiklik yalnız yeni
 
 Mesaj müşteri adı, telefonu veya açıklaması **içermez**; yalnız firma adı, talep kodu ve panel bağlantısı gider.
 Ekranda "WhatsApp servisi güvenli yapılandırılmamış…" uyarısı görünürse kanal canlı ortamda kapalı kalır; sistem
-yöneticinize bildirin. **E-posta bildirimi** için bkz. "Admin için: Destek talebi e-posta bildirimi".
+yöneticinize bildirin. Servis adresini yalnız Super Admin değiştirir (bkz. "Super Admin için: Sistem ayarları > WhatsApp
+servisi"). **E-posta bildirimi** için bkz. "Admin için: Destek talebi e-posta bildirimi".
 
 ### Güvenilen IP / ağlar
 Kurumsal ofis gibi bilinen ağlardan gelen talepler "Güvenilen ağ" işaretiyle gelir ve IP sınırlarından muaftır
@@ -1336,8 +1337,9 @@ Süper Yönetici içindir" uyarısı çıkar.
 
 ## Super Admin için: Sistem ayarları (MySQL ve TURN)
 Kenar menüsünde **Sistem ayarları** (sunucu-dişli simgesi) yalnız Super Admin'e görünür; Admin bu adresi açarsa "Sistem
-ayarları yalnız Super Admin içindir." yazar. Bu ayarlar **tüm firmalar için** geçerlidir. Sayfada iki sekme vardır:
-**MySQL**, **TURN** ve **Sistem logosu** (bkz. "Super Admin için: Sistem logosu"). Her değişiklik audit log'a yazılır (firma alanı boş, "Sistem" kaydı olarak).
+ayarları yalnız Super Admin içindir." yazar. Bu ayarlar **tüm firmalar için** geçerlidir. Sayfada dört sekme vardır:
+**MySQL**, **TURN**, **Sistem logosu** (bkz. "Super Admin için: Sistem logosu") ve **WhatsApp servisi** (bkz. "Super
+Admin için: Sistem ayarları > WhatsApp servisi"). Her değişiklik audit log'a yazılır (firma alanı boş, "Sistem" kaydı olarak).
 
 Kaynak rozeti: **Ortam değişkenleri (.env)** = panelde kayıt yok, sunucudaki `.env` kullanılıyor; **Panelde kayıtlı** =
 bu ekrandan kaydedilmiş değer.
@@ -1412,6 +1414,76 @@ sekmesi (resim simgesi). Admin bu adresi açarsa yetki uyarısı görür.
 Sistem logosu bu sürümde **kaldırılamaz**, yalnız değiştirilebilir. Nokta Bilişim logosuna dönmek isterseniz o logoyu
 yeniden yükleyin. Değişiklik audit log'a "Sistem" kaydı olarak yazılır. Dosya kuralları ve hata mesajları için bkz.
 "Resim dosyası kuralları". Süper Yönetici kendi profil resmini Hesabım sayfasından yönetir.
+
+## Super Admin için: Sistem ayarları > WhatsApp servisi
+Firmaların destek talebi WhatsApp bildirimleri ve WhatsApp test mesajları, Nokta Bilişim'in WhatsApp bildirim servisine
+gider. Bu sekme o servisin adresini **tüm firmalar için** tek yerden yönetir. Firma yöneticileri (Admin) adresi görmez ve
+değiştiremez; yalnız kendi alıcı numaralarını ayarlar.
+
+Ekran: **Sistem ayarları** → **WhatsApp servisi** sekmesi (konuşma balonu simgesi). Admin bu adresi açarsa yetki uyarısı
+görür, sekme listelenmez.
+
+### Ekranda ne görürüm?
+- **Etkin adres:** Bildirimlerin şu anda gittiği adres. Hiç adres yoksa "Yapılandırılmamış" yazar.
+- **Kaynak rozeti:**
+  - **Panel** = adres bu ekrandan kaydedilmiş.
+  - **Ortam değişkeni** = panelde kayıt yok; sunucu ayar dosyasındaki adres (`WHATSAPP_SERVICE_URL`) ya da varsayılan
+    adres kullanılıyor. Bu durumda "Panelde kayıtlı adres yok…" bilgi notu çıkar ve **Servis URL'si** alanı boş gelir.
+- **Son güncelleme:** Panel kaydının en son ne zaman değiştiği (ortam değişkeninde "—").
+- Hiçbir adres yoksa uyarı kutusu: "WhatsApp servisi yapılandırılmamış…". Bu durumda bildirim ve test gönderilemez.
+
+**Önemli:** Rozet **Panel** iken sunucudaki ayar dosyasını değiştirmek işe yaramaz; adres bu ekrandan değiştirilir.
+
+### Servis adresini nasıl değiştiririm?
+1. **Servis URL'si** alanına adresi yazın (ör. `https://wa.ornek.com` veya `http://10.0.0.5:3000`).
+   - `http://` veya `https://` ile başlamalı.
+   - Kullanıcı adı/şifre, `?` ve `#` içermemeli; en çok 200 karakter.
+   - Sondaki `/` kendiliğinden silinir.
+2. Alt çubuktaki **Kaydet**'e basın. "WhatsApp servis adresi kaydedildi" mesajı çıkar, rozet **Panel** olur.
+3. Yeniden başlatma gerekmez. Kayıttan sonraki ilk bildirim ve test yeni adrese gider.
+
+Kaydetmeden sayfadan ayrılmaya çalışırsanız kaydedilmemiş değişiklik uyarısı çıkar. Kural dışı adreste alanın altında
+hata yazar ve kayıt yapılmaz.
+
+### "Güvensiz adres" uyarısı ne demek?
+Ekranda "Güvensiz adres: canlı ortamda WhatsApp kanalı kapalı. Kalıcı çözüm TLS veya özel ağ." yazıyorsa:
+- Canlı ortamda adres `http://` ile başlıyor ve internete açık bir sunucuyu gösteriyor, ya da adres okunamıyor.
+- Bu durumda **hiçbir WhatsApp bildirimi gönderilmez**; test de servise gitmez ("Servis güvenli yapılandırılmamış.").
+- Çözüm: `https://` ile başlayan bir adres veya iç ağdaki (özel IP) bir adres kaydedin.
+
+Firma yöneticileri de kendi **Ayarlar > Destek talepleri** ekranında aynı durumu uyarı olarak görür.
+
+### Test mesajını nasıl gönderirim?
+1. **Test mesajı** bölümünde **Telefon numarası** alanına numarayı yazın (ör. `0532 000 00 00` veya `+49 151 1234 5678`).
+2. **Test Mesajı Gönder**'e basın. "Test 8 saniyeye kadar sürebilir…" yazar.
+3. Sonuç ekranda görünür: **Test mesajı gönderildi** ya da **Test mesajı gönderilemedi** ve kısa neden.
+
+Bilmeniz gerekenler:
+- Test **kayıtlı** adresle yapılır. Formda kaydedilmemiş bir adres varsa "Formda kaydedilmemiş adres var; test kayıtlı
+  adresle yapılır." notu çıkar; önce **Kaydet**'e basın.
+- Hiç adres kayıtlı değilse test düğmesi pasiftir: "Önce servis adresini kaydedin."
+- Kişi başına dakikada 5 test, tüm Super Admin'ler için toplam dakikada 20 test yapılabilir.
+- Her test audit log'a "WhatsApp test mesajı" olarak yazılır (numara maskeli, sonuç ve neden).
+
+### Ortam değişkenine nasıl dönerim?
+**Ortam değişkenine dön** düğmesi yalnız panel kaydı varken görünür.
+1. **Ortam değişkenine dön**'e basın.
+2. "Ortam değişkenine dönülsün mü?" sorusunu onaylayın.
+3. "WhatsApp servisi ortam değişkenine döndü" mesajı çıkar, rozet **Ortam değişkeni** olur.
+
+Paneldeki adres kaldırılır; bildirimler sunucu ayar dosyasındaki adrese gider. Orada da adres yoksa varsayılan servis
+kullanılır. Değişiklikler audit log'a "WhatsApp servis adresi güncellendi" ve "WhatsApp servisi ortam değerine döndü"
+olarak (eski → yeni adres) yazılır.
+
+### Sık karşılaşılan mesajlar (WhatsApp servisi)
+| Mesaj | Ne yapmalı |
+|---|---|
+| Adres http:// veya https:// ile başlamalı; kullanıcı adı/şifre, ? ve # içeremez (en çok 200 karakter) | Adresi kurala uygun yazın |
+| Servis yapılandırılmamış. | Önce servis adresini kaydedin |
+| Servis güvenli yapılandırılmamış. | Güvensiz veya okunamayan adres; `https://` ya da iç ağ adresi kaydedin |
+| Servis 8 saniye içinde yanıt vermedi (zaman aşımı). | Servis yavaş veya kapalı; sistem yöneticisine bildirin, biraz sonra tekrar deneyin |
+| Servise ulaşılamadı veya servis hata döndürdü. | Adresi kontrol edin; servis çalışıyor mu, güvenlik duvarı izin veriyor mu bakın. Ayrıntılı neden audit log kaydındadır |
+| Çok fazla test denendi. Bir dakika sonra tekrar deneyin. | Dakikalık test sınırı doldu; bir dakika bekleyin |
 
 ## Super Admin için: Şifre veya 2FA kaybı
 Super Admin'in bir firması olmadığı için SMTP ayarı da yoktur: "Şifremi unuttum" e-posta göndermez ve kimse panelden

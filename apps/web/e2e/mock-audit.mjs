@@ -5,10 +5,13 @@
 //   aunone   USER, audit/ayar yetkisi yok (menüde Audit log yok, sayfa 403 durumu)
 //   auempty  ADMIN, audit listesi boş
 //   aubroken ADMIN, audit listesi ilk istekte 500 (sonra 200 → "Tekrar dene"); "Daha fazla yükle" ilk denemede 500
-//   ausa     SUPER_ADMIN (firma seçmemiş): firma filtresi + sistem ayarları
+//   ausa     SUPER_ADMIN (firma seçmemiş): firma filtresi + sistem ayarları; WhatsApp servisi env kaynaklı (P12b)
+//   ausawa0  SUPER_ADMIN, WhatsApp servisi hiç yapılandırılmamış (panel yok, env yok → url null)
+//   ausains  SUPER_ADMIN, WhatsApp servisi panelde http:// + genel adres (insecure, canlı ortam varsayımı)
+//   ausabrk  SUPER_ADMIN, WhatsApp ayarı ilk GET'te 500 (sonra 200 → "Tekrar dene")
 import { PERMISSION_KEYS } from "@remote/contracts/permissions";
 import { listAuditQuerySchema } from "@remote/contracts/api/audit";
-import { MYSQL_PASSWORD_REQUIRED_MESSAGE, consentTextInputSchema, mysqlSettingsInputSchema, turnSettingsInputSchema } from "@remote/contracts/api/system-settings";
+import { MYSQL_PASSWORD_REQUIRED_MESSAGE, WA_TEST_MESSAGES, consentTextInputSchema, mysqlSettingsInputSchema, turnSettingsInputSchema, whatsappAdminTestInputSchema, whatsappSettingsInputSchema } from "@remote/contracts/api/system-settings";
 
 export const AU = {
   SELF: "01JAV00000000000000000000A",
@@ -22,10 +25,10 @@ export const AU = {
 const ALL_NO_WS = PERMISSION_KEYS.filter((k) => !k.startsWith("support_requests."));
 
 export function auditUser(cookie) {
-  const m = cookie?.match(/^u-(auadm|auview|aunone|auempty|aubroken|ausa)-/);
+  const m = cookie?.match(/^u-(auadm|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|brk)?)-/);
   if (!m) return null;
   const kind = m[1];
-  const role = kind === "ausa" ? "SUPER_ADMIN" : kind === "auview" || kind === "aunone" ? "USER" : "ADMIN";
+  const role = kind.startsWith("ausa") ? "SUPER_ADMIN" : kind === "auview" || kind === "aunone" ? "USER" : "ADMIN";
   const permissions =
     kind === "auview" ? ["audit.view", "settings.view", "sessions.view"] : kind === "aunone" ? ["sessions.view"] : ALL_NO_WS;
   return {
@@ -82,6 +85,23 @@ function seedItems(kind) {
 }
 
 const stores = new Map();
+// P12b (AC-196): WhatsApp servis adresi — sözleşme docs/mimari-api.md "Yönetim" whatsapp satırları
+const WA_ENV_URL = "http://10.20.0.5:3000";
+const waEnv = (kind) => ({ url: kind === "ausawa0" ? null : WA_ENV_URL, source: "env", insecure: false, updatedAt: null });
+function waInitial(kind) {
+  if (kind === "ausains") return { url: "http://203.0.113.50:3000", source: "panel", insecure: true, updatedAt: iso(3_600_000) };
+  return waEnv(kind);
+}
+/** Sunucunun `isInsecureServiceUrl(url, production)` taklidi: canlı ortam varsayımı, http:// + özel ağ dışı → güvensiz. */
+const waInsecure = (u) => /^http:\/\//i.test(u) && !/^http:\/\/(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(u);
+/** Sunucu doğrulaması: contracts `whatsappSettingsInputSchema` (alan mesajları sunucunun). "red.example" = sunucu reddi taklidi. */
+function waParse(body) {
+  const p = whatsappSettingsInputSchema.safeParse(body);
+  if (!p.success) return { fields: fieldsOf(p.error) };
+  if (p.data.url.includes("red.example")) return { fields: { url: "Bu adres kabul edilmiyor" } };
+  return { url: p.data.url };
+}
+
 function astore(cookie, kind) {
   let s = stores.get(cookie);
   if (s) return s;
@@ -89,6 +109,8 @@ function astore(cookie, kind) {
     items: seedItems(kind),
     fails: new Set(),
     mysql: { host: "mysql", port: 3306, database: "remote", user: "app", hasPassword: true, updatedAt: null, source: "env", matchesRunning: true },
+    wa: waInitial(kind),
+    waTests: [],
     turn: { urls: ["turn:turn.ornek.com:3478", "turns:turn.ornek.com:443?transport=tcp"], hasSecret: true, source: "panel", updatedAt: iso(86_400_000) },
     consent: [
       { id: "01JCT00000000000000000000B", version: 2, sha256: "b".repeat(64), createdAt: iso(2 * 86_400_000), createdByName: "Derya Kaya", body: "Bu oturumda teknisyen ekranınızı görüntüleyebilir. Onayınızla uzaktan kontrol alabilir. Kayıtlar 730 gün saklanır." },
@@ -214,6 +236,39 @@ export async function handleAudit(req, res, { url, session, csrfOk, send, err, r
     if (p.data.host === "slow.example") await new Promise((r) => setTimeout(r, 1200));
     if (p.data.host === "bad.example") return send(res, 200, { ok: false, message: "Sunucuya bağlanılamadı." }), true;
     return send(res, 200, { ok: true, message: "Bağlantı başarılı.", latencyMs: 12 }), true;
+  }
+  if (path === "/api/v1/admin/settings/whatsapp" && req.method === "GET") {
+    if (who.kind === "ausabrk" && !s.fails.has("wa")) {
+      s.fails.add("wa");
+      return send(res, 500, err("INTERNAL", "Sunucu hatası.")), true;
+    }
+    return send(res, 200, s.wa), true;
+  }
+  if (path === "/api/v1/admin/settings/whatsapp" && req.method === "PUT") {
+    const p = waParse(await readJson(req));
+    if (p.fields) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: p.fields })), true;
+    const url = p.url;
+    s.wa = { url, source: "panel", insecure: waInsecure(url), updatedAt: new Date().toISOString() };
+    return send(res, 200, s.wa), true;
+  }
+  if (path === "/api/v1/admin/settings/whatsapp" && req.method === "DELETE") {
+    s.wa = waEnv(who.kind);
+    return send(res, 200, s.wa), true; // sunucu: 200 + güncel (env) görünüm
+  }
+  if (path === "/api/v1/admin/settings/whatsapp/test" && req.method === "POST") {
+    const tp = whatsappAdminTestInputSchema.safeParse(await readJson(req));
+    if (!tp.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(tp.error) })), true;
+    const phone = tp.data.phoneNumber;
+    // 5/dk/kullanıcı → 6. istek 429
+    const now = Date.now();
+    s.waTests = s.waTests.filter((x) => now - x < 60_000);
+    if (s.waTests.length >= 5) return send(res, 429, err("RATE_LIMITED", "Çok fazla test denendi. Bir dakika sonra tekrar deneyin."), [], { "Retry-After": "60" }), true;
+    s.waTests.push(now);
+    // Sunucunun sabit mesajları (contracts WA_TEST_MESSAGES); güvensiz adreste istek gönderilmez.
+    if (!s.wa.url) return send(res, 200, { ok: false, message: WA_TEST_MESSAGES.unconfigured }), true;
+    if (s.wa.insecure) return send(res, 200, { ok: false, message: WA_TEST_MESSAGES.insecure }), true;
+    if (phone.endsWith("9999999")) return send(res, 200, { ok: false, message: WA_TEST_MESSAGES.unreachable }), true;
+    return send(res, 200, { ok: true, message: WA_TEST_MESSAGES.ok }), true;
   }
   if (path === "/api/v1/admin/settings/turn" && req.method === "GET") return send(res, 200, s.turn), true;
   if (path === "/api/v1/admin/settings/turn" && req.method === "PUT") {

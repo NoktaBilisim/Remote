@@ -1,4 +1,5 @@
-// Sistem ayarları servisi (P11; ADR-0003, G-13; AC-77, AC-78). Tablo `system_settings` (anahtar `mysql` | `turn`).
+// Sistem ayarları servisi (P11; ADR-0003, G-13; AC-77, AC-78; P12b AC-196). Tablo `system_settings` (anahtar `mysql` |
+// `turn` | `whatsapp`).
 // Gizliler AES-256-GCM (`aadFor.systemSecret`), asla dönmez ve loga/audit'e yazılmaz. Yazım upsert (eşzamanlı ilk
 // yazım P2002 yarışı yok), eski değer + yazım + audit tek TX.
 import {
@@ -13,9 +14,12 @@ import {
   type MysqlTestResponse,
   type TurnSettingsData,
   type TurnSettingsView,
+  type WhatsappAdminTestResponse,
+  type WhatsappSettingsData,
+  type WhatsappSettingsView,
 } from "@remote/contracts/api/system-settings";
 import { SYSTEM_AUDIT } from "@remote/contracts/audit";
-import type { JsonObject } from "../audit/mask.ts";
+import { maskPhone, type JsonObject } from "../audit/mask.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import { aadFor, type SecretBox } from "../lib/crypto.ts";
@@ -23,6 +27,7 @@ import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
+import { isInsecureServiceUrl, type WhatsappNotifier } from "../notify/whatsapp.ts";
 import type { TurnConfig } from "../signaling/turn.ts";
 import { probeMysql, type ProbeResult, type ProbeTarget } from "./mysql-probe.ts";
 
@@ -33,6 +38,9 @@ export interface SystemDeps {
   /** Çalışan bağlantı (env). */
   databaseUrl: string;
   turnEnv: { urls: readonly string[]; secret: string | undefined; ttlMin: number };
+  /** P12b: `WHATSAPP_SERVICE_URL` (boş → yapılandırılmamış) ve güvensiz adres kuralı için ortam. */
+  whatsappEnvUrl: string;
+  production: boolean;
 }
 
 const who = (auth: AuthContext) => ({ tenantId: null, userId: auth.user.id, username: auth.user.email });
@@ -247,4 +255,103 @@ export async function deleteTurnSettings(d: SystemDeps, ctx: AuditContext, auth:
     await writeAudit(tx, ctx, { ...who(auth), action: SYSTEM_AUDIT.TURN_DELETED, entity: "system_settings", entityId: "turn", result: "success", ...(oldUrls ? { oldValue: { urls: oldUrls } } : {}), newValue: { source: "env" } });
   });
   return getTurnSettings(d);
+}
+
+// ---- WhatsApp servisi (P12b, AC-196; mimari-e9 T33) ----
+
+/** Panel adresi; `{url: null}` (DELETE sonrası "env'e dön" satırı) veya bozuk kayıt → null (env). */
+function asWaUrl(v: unknown): string | null {
+  const o = v as { url?: unknown } | null;
+  return o && typeof o.url === "string" && o.url !== "" ? o.url : null;
+}
+
+async function readWhatsapp(db: Pick<Db, "systemSetting">) {
+  const row = await db.systemSetting.findUnique({ where: { key: "whatsapp" }, select: { valueJson: true, updatedAt: true } });
+  const url = row ? asWaUrl(row.valueJson) : null;
+  return row && url ? { url, updatedAt: row.updatedAt } : null;
+}
+
+/** Etkin adres: panel kaydı > env (`""` = yapılandırılmamış). */
+export async function effectiveWhatsappUrl(d: Pick<SystemDeps, "db" | "whatsappEnvUrl">): Promise<string> {
+  return (await readWhatsapp(d.db))?.url ?? d.whatsappEnvUrl;
+}
+
+export async function getWhatsappSettings(d: SystemDeps): Promise<WhatsappSettingsView> {
+  const rec = await readWhatsapp(d.db);
+  const url = rec?.url ?? (d.whatsappEnvUrl || null);
+  return { url, source: rec ? "panel" : "env", insecure: url !== null && isInsecureServiceUrl(url, d.production), updatedAt: rec?.updatedAt.toISOString() ?? null };
+}
+
+/**
+ * PUT: upsert + audit `{url}` eski→yeni tek TX. Güvensiz adres de kaydedilir (kanal kapalı kalır, AC-196). Dönüş = yazılan
+ * etkin adres (B-P12b-2: çağıran bunu doğrudan uygular; DB yeniden okunmaz).
+ */
+export async function saveWhatsappSettings(d: SystemDeps, ctx: AuditContext, auth: AuthContext, input: WhatsappSettingsData): Promise<string> {
+  await d.db.$transaction(async (tx) => {
+    const before = await readWhatsapp(tx);
+    await tx.systemSetting.upsert({
+      where: { key: "whatsapp" },
+      create: { key: "whatsapp", valueJson: { url: input.url }, secretEnc: null, updatedBy: auth.user.id },
+      update: { valueJson: { url: input.url }, secretEnc: null, updatedBy: auth.user.id },
+    });
+    await writeAudit(tx, ctx, {
+      ...who(auth),
+      action: SYSTEM_AUDIT.WHATSAPP_UPDATED,
+      entity: "system_settings",
+      entityId: "whatsapp",
+      result: "success",
+      oldValue: before ? { url: before.url, source: "panel" } : { url: d.whatsappEnvUrl || null, source: "env" },
+      newValue: { url: input.url, source: "panel" },
+    });
+  });
+  return input.url;
+}
+
+/**
+ * DELETE: env'e dön. app'te system_settings DELETE yetkisi yok → satır `{url: null}` (TURN kalıbı). İdempotent: panel
+ * kaydı yoksa değişiklik/audit yok.
+ */
+export async function deleteWhatsappSettings(d: SystemDeps, ctx: AuditContext, auth: AuthContext): Promise<string> {
+  await d.db.$transaction(async (tx) => {
+    const before = await readWhatsapp(tx);
+    if (!before) return;
+    await tx.systemSetting.update({ where: { key: "whatsapp" }, data: { valueJson: { url: null }, secretEnc: null, updatedBy: auth.user.id } });
+    await writeAudit(tx, ctx, {
+      ...who(auth),
+      action: SYSTEM_AUDIT.WHATSAPP_DELETED,
+      entity: "system_settings",
+      entityId: "whatsapp",
+      result: "success",
+      oldValue: { url: before.url, source: "panel" },
+      newValue: { url: d.whatsappEnvUrl || null, source: "env" },
+    });
+  });
+  return d.whatsappEnvUrl; // panel kaydı yok → etkin adres env
+}
+
+/** Test hız kovaları: kişi başı (AC-196, 5/dk) + tüm Super Admin'ler için ortak (B-P12b-5, 20/dk; MySQL testi kalıbı). */
+export interface WhatsappTestLimits {
+  perUser: FixedWindowCounter;
+  global: FixedWindowCounter;
+}
+
+/**
+ * POST /admin/settings/whatsapp/test (AC-196): 5/dk/kullanıcı + 20/dk global (6./21. → 429); etkin adrese tek deneme (notifier: 8 sn,
+ * yönlendirme izlenmez; güvensiz/yapılandırılmamış → istek yok). Sonuç 200 `{ok, message}` (sabit mesaj); audit numara
+ * maskeli + sonuç + neden.
+ */
+export async function testWhatsapp(d: SystemDeps, ctx: AuditContext, auth: AuthContext, phone: string, limits: WhatsappTestLimits, notifier: WhatsappNotifier): Promise<WhatsappAdminTestResponse> {
+  const wait = Math.max(limits.perUser.blockedFor(auth.user.id), limits.global.blockedFor(GLOBAL_KEY));
+  if (wait > 0 || limits.perUser.hit(auth.user.id) || limits.global.hit(GLOBAL_KEY)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
+  const out = await notifier.test(phone);
+  await writeAudit(d.db, ctx, {
+    ...who(auth),
+    action: SYSTEM_AUDIT.WHATSAPP_TEST,
+    entity: "system_settings",
+    entityId: "whatsapp",
+    result: out.ok ? "success" : "fail",
+    // QA: tenant testiyle (AC-152) aynı anahtar `recipient` — audit görünümü (OUTBOUND_KEYS) bu alanı gösterir.
+    newValue: { recipient: maskPhone(phone), result: out.ok ? "success" : "fail", ...(out.reason ? { reason: out.reason } : {}) },
+  });
+  return { ok: out.ok, message: out.message };
 }

@@ -1,6 +1,6 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b)
 
-Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11 ve P12'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12 ve P12b'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
@@ -18,6 +18,8 @@ P11: `audit/{routes,read,repo,view}.ts`, `settings/{routes,system,consent,mysql-
 `packages/contracts/src/api/{audit,system-settings}.ts`.
 P12: `uploads/{routes,files,service,image,multipart,store,urls}.ts`, `auth/routes.ts` (`/auth/me/preferences`, `rs_theme`),
 `packages/contracts/src/api/branding.ts`, `errors.ts` (`INVALID_IMAGE`, `PAYLOAD_TOO_LARGE`), `audit.ts` (`BRANDING_AUDIT`).
+P12b: `settings/{routes,system}.ts`, `notify/whatsapp.ts`, `env.ts`, `packages/contracts/src/api/system-settings.ts`
+(`waServiceUrlSchema`, `WA_TEST_MESSAGES`), `audit.ts` (`SYSTEM_AUDIT.WHATSAPP_*`).
 
 ## Genel kurallar
 - Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres `PUBLIC_BASE_URL` (staging `https://remote.noktabilisim.net`;
@@ -172,6 +174,8 @@ stack, SQL veya iç ayrıntı içermez.
 | GET · PUT | `/api/v1/admin/settings/mysql` (P11) | Oturum (+ CSRF), yalnız SUPER_ADMIN | 200 |
 | POST | `/api/v1/admin/settings/mysql/test` (P11) | Oturum + CSRF, yalnız SUPER_ADMIN | 200 |
 | GET · PUT · DELETE | `/api/v1/admin/settings/turn` (P11) | Oturum (+ CSRF), yalnız SUPER_ADMIN | 200 |
+| GET · PUT · DELETE | `/api/v1/admin/settings/whatsapp` (P12b) | Oturum (+ CSRF), yalnız SUPER_ADMIN | 200 |
+| POST | `/api/v1/admin/settings/whatsapp/test` (P12b) | Oturum + CSRF, yalnız SUPER_ADMIN | 200 |
 | GET · PUT | `/api/v1/settings/consent-text` (P11) | Oturum (+ CSRF), `settings.view` · `settings.edit`, firma bağlamı | 200 |
 | PATCH | `/api/v1/auth/me/preferences` (P12) | Oturum + CSRF (şifre değişimi / 2FA kurulumu aşamasında da) | 200 + `rs_theme` |
 | POST · DELETE | `/api/v1/settings/logo` (P12) | Oturum + CSRF, `settings.edit`, firma bağlamı | 200 |
@@ -1098,8 +1102,11 @@ uygulanır. Hata alanları `fields["whatsapp.recipients.1"]`, `fields["trustedCi
 Gövde `{}` → yeni ayarlar. Eski bağlantı ve indirilmiş eski dosyalar anında 404; bekleyen talepler etkilenmez.
 
 ### POST /api/v1/settings/support-requests/whatsapp/test
-Gövde `{ "phone": "0532 000 00 00" }` → `{ "ok": true, "message": "…" }` (servis hata verirse `ok:false`, genel metin).
-Hatalar: 400, 429 (firma başına 5/dk), 502 `UPSTREAM`.
+Gövde `{ "phone": "0532 000 00 00" }` → yalnız `{ "ok": true, "message": "Test mesajı gönderildi." }` (servis hata verirse
+`ok:false` ve sabit metin; P12b'den beri Super Admin testiyle aynı mesajlar, bkz. "WhatsApp servisi (P12b)"). Servis
+yapılandırılmamışsa veya güvensizse istek gönderilmez, 502 `UPSTREAM` "Servis yapılandırılmamış." / "Servis güvenli
+yapılandırılmamış.". Servis adresi bu uçtan ve `GET /settings/support-requests`'ten dönmez; Super Admin
+`/admin/settings/whatsapp` ile yönetir. Hatalar: 400, 429 (firma başına 5/dk), 502 `UPSTREAM`.
 
 ### POST /api/v1/settings/support-requests/email/test (P10, AC-151)
 Gövde `{ "to": "destek@example.com" }`. Kayıtlı firma SMTP'siyle örnek "Yeni destek talebi" e-postası gönderir.
@@ -1612,6 +1619,71 @@ DELETE ("Ortam değerlerine dön"): panel kaydı kaldırılır, `.env` değerler
 Panel secret'ı çözülemezse istemcilere yalnız STUN verilir ve `system_secret_unreadable` alarmı loglanır (çözüm: secret'ı
 yeniden girin veya DELETE). Audit `settings.turn.updated` / `settings.turn.deleted` (secret yalnız `"changed"`). Hatalar: 400, 401, 403.
 
+### WhatsApp servisi (P12b): GET / PUT / DELETE /api/v1/admin/settings/whatsapp
+Yalnız SUPER_ADMIN (Admin/User 403, oturumsuz 401, CSRF'siz yazma 403). Destek talebi bildirimlerinin ve WhatsApp
+testlerinin gittiği whatsapp-bildirim servis adresi; tüm firmalar için tek adres. Yanıtlar `Cache-Control: no-store`.
+
+**Etkin adres:** panel kaydı > `WHATSAPP_SERVICE_URL` > varsayılan. PUT/DELETE çalışan sürece hemen uygulanır (yeniden
+başlatma yok); kayıttan sonraki ilk bildirim ve hem Super Admin hem firma testi yeni adrese gider.
+
+GET yanıtı (`WhatsappSettingsView`):
+```json
+{ "url": "https://wa.example.com", "source": "panel", "insecure": false, "updatedAt": "2026-11-13T09:10:00.000Z" }
+```
+| Alan | Anlam |
+|---|---|
+| `url` | Etkin adres. Panel kaydı da env de yoksa `null` |
+| `source` | `panel` = bu ekrandan kaydedilmiş; `env` = panel kaydı yok, `WHATSAPP_SERVICE_URL` (veya varsayılan) kullanılıyor |
+| `insecure` | `true` → kanal kapalı, bildirim ve test gönderilmez: production'da `http://` + özel ağ dışı adres ya da (her ortamda) ayrıştırılamayan adres. Ekran `WA_INSECURE_WARNING` ("Güvensiz adres: canlı ortamda WhatsApp kanalı kapalı") gösterir |
+| `updatedAt` | Panel kaydının son değişimi; env kaynağında `null` |
+
+PUT gövdesi `{ "url": "…" }` (`strictObject`; başka alan → 400). Kural (`waServiceUrlSchema`; panel, env ve DB CHECK aynı):
+`http://` veya `https://` (küçük harf), `kullanıcı:şifre@`, `?`, `#`, boşluk ve kontrol karakteri yok, en çok 200
+karakter; sondaki `/` kırpılır. Uymayan değer → 400 `VALIDATION`, `fields.url` = "Adres http:// veya https:// ile
+başlamalı; kullanıcı adı/şifre, ? ve # içeremez (en çok 200 karakter)". Yanıt GET görünümü (`source: "panel"`).
+```bash
+curl -sk -X PUT https://localhost:4450/api/v1/admin/settings/whatsapp \
+  -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' -H "X-CSRF-Token: $CSRF" \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF" \
+  -d '{"url":"https://wa.example.com/"}'
+```
+```json
+{ "url": "https://wa.example.com", "source": "panel", "insecure": false, "updatedAt": "2026-11-13T09:10:00.000Z" }
+```
+
+DELETE ("Ortam değişkenine dön"): panel kaydı kaldırılır (satır `{"url": null}` olarak kalır), etkin adres env/varsayılana
+döner. Yanıt **200** + GET görünümü (`source: "env"`). İdempotent: panel kaydı yoksa değişiklik ve audit yok.
+
+Audit (sistem kaydı, `tenantId` boş, entity `system_settings`, kayıt `whatsapp`): `settings.whatsapp.updated` eski
+`{ url, source }` → yeni `{ url, source: "panel" }`; `settings.whatsapp.deleted` eski `{ url, source: "panel" }` → yeni
+`{ url, source: "env" }`. Adres gizli değer sayılmaz, açık yazılır. Kayıt ve audit tek işlemde (transaction).
+PUT/DELETE'te hız sınırı yoktur (yalnız Super Admin + audit; `docs/guvenlik-raporu.md` B-P12b-5). Hatalar: 400, 401, 403.
+
+### POST /api/v1/admin/settings/whatsapp/test (P12b)
+Yalnız SUPER_ADMIN. **Kayıtlı etkin adrese** test mesajı gönderir (formdaki kaydedilmemiş adres kullanılmaz). Gövde
+`{ "phoneNumber": "+905320000000" }` (`phoneSchema`: E.164 veya `90…`; servise `90…` biçiminde gider). Servise
+`POST {url}/test-send`, tek deneme, 8 sn zaman aşımı; yönlendirme (3xx) izlenmez, başarısız sayılır.
+```bash
+curl -sk -X POST https://localhost:4450/api/v1/admin/settings/whatsapp/test \
+  -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' -H "X-CSRF-Token: $CSRF" \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF" \
+  -d '{"phoneNumber":"+905320000000"}'
+```
+```json
+{ "ok": true, "message": "Test mesajı gönderildi." }
+```
+Başarısız denemede de **200** döner, `ok: false` ve sabit mesaj (servis yanıtı, adres ve iç hata dönmez):
+| Neden (yalnız audit/log) | `message` |
+|---|---|
+| `unconfigured` (adres yok; istek gönderilmez) | Servis yapılandırılmamış. |
+| `insecure` (güvensiz veya ayrıştırılamayan adres; istek gönderilmez) | Servis güvenli yapılandırılmamış. |
+| `timeout` | Servis 8 saniye içinde yanıt vermedi (zaman aşımı). |
+| `http_error`, `redirect`, `unreachable` | Servise ulaşılamadı veya servis hata döndürdü. |
+
+Hız: Super Admin başına 5/dk (6. → 429) **ve** tüm Super Admin'ler için ortak 20/dk (21. → 429); 429 `RATE_LIMITED` +
+`Retry-After` (en çok 60 sn). Firma testi (`/settings/support-requests/whatsapp/test`) ayrı kovadır. Her deneme audit
+`settings.whatsapp.test` `{ recipient: <maskeli numara>, result, reason? }`. Hatalar: 400 `fields.phoneNumber`, 401, 403, 429.
+
 ### GET / PUT /api/v1/settings/consent-text
 Etkin firmanın müşteriye gösterilen aydınlatma (KVKK) metni. GET `settings.view`, PUT `settings.edit`; Super Admin firma
 seçmeden çağırırsa 403 "Önce bir firma seçin.".
@@ -1792,6 +1864,8 @@ sıfırlama token'ı hiçbir yere yazılmaz.
 P11: `settings.mysql.updated`, `settings.mysql.test` (hedef + sonuç + sınıf; süre yalnız başarıda), `settings.turn.updated`,
 `settings.turn.deleted`, `settings.consent_text.updated`, `audit.exported` (filtre özeti + satır sayısı). Sistem ayarı
 kayıtlarında `tenantId` boştur. Şifre/secret yalnız `"changed"` işaretiyle görünür.
+P12b: `settings.whatsapp.updated`, `settings.whatsapp.deleted` (eski → yeni `{ url, source }`), `settings.whatsapp.test`
+(Super Admin testi; `{ recipient (maskeli), result, reason? }`, `tenantId` boş). Firma testiyle aynı eylem adı kullanılır.
 P12: `tenant.logo_updated` / `tenant.logo_removed`, `user.avatar_updated` / `user.avatar_removed`, `settings.system_logo.updated`
 (eski → yeni `{ path }`, yüklemede `width`/`height`), `upload.rejected` (`result: fail`, `{ kind: logo|avatar|system_logo,
 reason: invalid_image|too_large }`), `user.theme_changed` (eski → yeni tema; yalnız değer değiştiğinde). Kuyruk dolu (429)

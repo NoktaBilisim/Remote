@@ -3617,3 +3617,81 @@ Kaynak: `docs/test-raporu.md` (P12).
 - **[DÜŞÜK] `/account` başlığı ve breadcrumb.** `acc.title` artık "Hesabım"; sayfa başlığı (`<title>`), breadcrumb ve h1 bu anahtardan geliyor. Alt başlık profil resmi ve temayı da kapsayacak şekilde güncellendi. `p10-account.spec.ts` başlığı ve breadcrumb'ı ("Konum" navigasyonu) doğruluyor.
 - Değişen dosyalar: `apps/web/lib/branding/image.ts`, `components/branding/{logo,avatar}-uploader.tsx`, `messages/tr.json`, `app/(panel)/account/page.tsx` (yorum), `lib/branding/branding.test.ts`, `e2e/{mock-branding.mjs,p12-branding.spec.ts,p10-account.spec.ts}`.
 - Doğrulama: lint, typecheck temiz; Vitest 238 test geçti. Tam e2e takımında 282 test geçti, 0 hata (107 atlandı).
+
+## P12b — Frontend: WhatsApp servisi (frontend-dev, 2026-11-13)
+AC-196 (sözleşme: `docs/mimari-api.md` "Yönetim" whatsapp satırları). Yeni primitif yok; P11 MySQL/TURN deseni (`section.tsx`, `SourceBadge`, `SaveBar`, `Dialog alertdialog`, `useHydrated` → `data-ready`).
+
+### Rotalar
+| Yol | Auth | Ne yapar |
+|---|---|---|
+| `/admin/settings/whatsapp` (yeni) | Super Admin (layout rol denetimi + uç 403; Admin/User "yalnız Super Admin" uyarısı, sekme yok) | Sistem ayarları 4. sekme "WhatsApp servisi" (`MessageCircle`). Etkin adres, kaynak rozeti (Panel / Ortam değişkeni), son güncelleme; Servis URL'si kaydet (PUT); "Ortam değişkenine dön" (DELETE, onaylı, yalnız panel kaydı varken); `insecure` uyarısı; "Test Mesajı Gönder" (telefon numarası → POST `/test`, sonuç ekranda, 429 kilit mesajı) |
+
+### Durumlar
+- loading: `admin/settings/loading.tsx` iskeleti (ortak). error: GET hatası → `LoadError` + Tekrar dene; 403 → yetkisiz uyarısı.
+- empty: `url: null` → bilgi kutusu (ne panel ne env), özet "Yapılandırılmamış", test pasif + "Önce servis adresini kaydedin".
+- partial: `source: "env"` → bilgi notu (WHATSAPP_SERVICE_URL kullanılıyor), alan boş; `insecure: true` → kalıcı uyarı: ilk cümle sözleşme sabiti `WA_INSECURE_WARNING` (AC-196 metni "Güvensiz adres: canlı ortamda WhatsApp kanalı kapalı"), ikinci cümle "Kalıcı çözüm TLS veya özel ağ." (QA P12b Tur 1 Düzeltilmeli 1)
+- success: panel kaydı, toast "kaydedildi"; kaydedilmemiş değişiklikte SaveBar + ayrılma uyarısı; formda kaydedilmemiş adres varken test bölümünde "test kayıtlı adresle yapılır" notu.
+
+### Değişen / eklenen dosyalar
+- Yeni: `apps/web/app/(panel)/admin/settings/whatsapp/{page.tsx,whatsapp-form.tsx}`, `apps/web/lib/admin-settings/whatsapp.ts` (+ `whatsapp.test.ts`), `apps/web/e2e/p12b-whatsapp.spec.ts`.
+- Değişen: `apps/web/app/(panel)/admin/settings/system-tabs.tsx` (4. sekme), `apps/web/messages/tr.json` (`sys.tab.whatsapp`, `wa.svc.*`), `apps/web/e2e/mock-audit.mjs` (whatsapp uçları; senaryolar `ausawa0` boş, `ausains` güvensiz, `ausabrk` ilk GET 500; `ausa` env kaynaklı), `DESIGN.md` (ikonlar + bileşen satırı).
+
+### Sapmalar / notlar
+- **Sözleşme tipleri — giderildi (backend-dev entegrasyonu):** `apps/web/lib/admin-settings/whatsapp.ts` tipleri (`WhatsappSettingsView`, `WhatsappAdminTestInput/Response`), `WA_URL_MAX` ve `WA_INSECURE_WARNING`'i `@remote/contracts/api/system-settings`'ten yeniden dışa aktarır; `checkWaUrl` alan bazlı Türkçe mesajlardan sonra son kapıda `waServiceUrlSchema` kullanır. Yerel tip kalmadı. Sunucu 400 `fields.url` yine alana yazılır.
+- Test numarası istemcide `normalizePhone` (contracts) ile E.164'e (`+90…`) çevrilip `{ phoneNumber }` olarak gönderilir; servise `90…` dönüşümü sunucuda (sözleşme).
+- Env adresi forma yazılmaz (yanlışlıkla env değerini panel kaydına çevirmemek için); etkin adres özet `<dl>`'de görünür.
+- DELETE yanıtı gövdeliyse kullanılır, değilse GET ile görünüm yenilenir (TURN deseni).
+- Bileşen testi: projede Vitest yalnız `lib/**` (node ortamı); form mantığı `lib/admin-settings/whatsapp.ts`'te birim testli, bileşen davranışı e2e'de.
+- Skill dosyaları okunmadı: yeni görsel dil yok, P11 deseni birebir uygulandı.
+
+### Testler
+- Vitest `lib/admin-settings/whatsapp.test.ts` (URL kuralları, kirli durum, sunucu alan hatası, telefon normalize) — 243/243 geçti.
+- e2e `p12b-whatsapp.spec.ts` (desktop + mobile, 10 geçti / 6 masaüstü-yalnız atlandı): kritik akış (env → ön kontrol, PUT gitmez → sunucu 400 → kaydet Panel → test başarı/hata → onaylı ortama dön), 429 (6. deneme), güvensiz adres, boş durum, yükleme hatası + Tekrar dene, Admin yetkisiz, axe açık/koyu 1280/390 px + taşma + 44 px hedef. `p11-admin.spec.ts` regresyon yeşil.
+- `pnpm --filter @remote/web lint typecheck test` temiz.
+
+## P12b — Backend: WhatsApp servisi sistem ayarı (backend-dev, 2026-11-13)
+AC-196 (+AC-152 r3). Sözleşme `docs/mimari-api.md` "Yönetim" whatsapp satırları, mimari §3.1 / §10 P12b, mimari-e9 T33, db-notlari "WhatsApp servis ayarı". Migration `20261114090000_whatsapp_service_setting` (dba) kullanıldı; şema/grant değişikliği yok. Desen: P11 TURN (upsert, DELETE = `{url:null}`, `apply*` ile çalışan sürece uygulama).
+
+### Uçlar (`/api/v1/admin/settings/whatsapp`, yalnız SUPER_ADMIN; requireAuth + CSRF + requireSuperAdmin, `Cache-Control: no-store`)
+| Uç | Girdi | Yanıt | Hatalar |
+|---|---|---|---|
+| GET | — | `WhatsappSettingsView = { url: string\|null, source: "panel"\|"env", insecure, updatedAt: string\|null }` | 401, 403 |
+| PUT | `whatsappSettingsInputSchema = { url: waServiceUrlSchema }` (sondaki `/` kırpılır) | `WhatsappSettingsView` | 400 `VALIDATION` `fields.url = WA_URL_MESSAGE`, 401, 403 |
+| DELETE | — | **200** + `WhatsappSettingsView` (env görünümü; idempotent — panel kaydı yoksa değişiklik/audit yok) | 401, 403 |
+| POST `/test` | `whatsappAdminTestInputSchema = { phoneNumber: phoneSchema }` | 200 `{ ok, message }` (`WA_TEST_MESSAGES`, sabit) | 400 `fields.phoneNumber`, 429 `RATE_LIMITED` + `Retry-After` (5/dk/kullanıcı, 6. → 429; tüm Super Admin'ler 20/dk, 21. → 429 — B-P12b-5), 401, 403 |
+
+### Davranış
+- Etkin adres = panel kaydı (`system_settings.whatsapp.value_json.url` dolu) > `WHATSAPP_SERVICE_URL`. `WhatsappNotifier` artık `setUrl()` ile çalışırken değişir; `configured`/`insecure`/`usable` getter (etkin adresten). Açılışta `onReady` → `applyWhatsapp(app)` (DB okunamazsa env + `alarm: whatsapp_settings_load`). PUT/DELETE: yazım TX'i + yazılan değerin `setUrl` ile uygulanması süreç içi sıralı kuyrukta (B-P12b-2; DB yeniden okunmaz, son commit = bellek). Güvensiz adrese her geçişte `alarm: whatsapp_insecure` (adres loga yazılmaz). Notifier `app.whatsapp` olarak dekore edildi; RequestService aynı örneği kullanır → kayıttan sonraki ilk bildirim ve tenant/admin testi yeni adrese.
+- Test: yapılandırılmamış / güvensiz → istek GÖNDERİLMEDEN 200 `{ok:false}` (`"Servis yapılandırılmamış."` / `"Servis güvenli yapılandırılmamış."`); aksi `POST {url}/test-send {phoneNumber: "90…"}`, tek deneme, 8 sn (mevcut `WA_TIMEOUT_MS`), `redirect: "manual"` (3xx = başarısız). Nedenler `unconfigured|insecure|timeout|http_error|redirect|unreachable` yalnız audit/log'da; yanıtta sabit mesaj (servis gövdesi, adres, iç hata yok).
+- Audit (SYSTEM_AUDIT, entity `system_settings`, entity_id `whatsapp`, tenant_id null): `settings.whatsapp.updated` old `{url, source}` → new `{url, source:"panel"}`; `settings.whatsapp.deleted` old `{url, source:"panel"}` → new `{url(env), source:"env"}`; `settings.whatsapp.test` `{recipient: maskPhone, result, reason?}` (tenant testiyle aynı anahtar; audit görünümü `OUTBOUND_KEYS` gösterir). Yazım + audit tek TX.
+- Tenant `/settings/support-requests` yanıtı değişmedi (yalnız `serviceConfigured`/`insecure`, adres yok); tenant test ucu artık açıkça yalnız `{ok, message}` döndürür.
+
+### Değişen / eklenen dosyalar
+- contracts: `packages/contracts/src/api/system-settings.ts` (`waServiceUrlSchema`, `whatsappSettingsInputSchema`, `WhatsappSettingsView`, `whatsappAdminTestInputSchema`, `WhatsappAdminTestResponse`, `WA_URL_MAX`, `WA_URL_MESSAGE`, `WA_INSECURE_WARNING`, `WA_TEST_REASONS`, `WA_TEST_MESSAGES`), `packages/contracts/src/audit.ts` (`SYSTEM_AUDIT.WHATSAPP_*`).
+- server: `src/notify/whatsapp.ts` (çalışan adres, `PostOutcome` sınıflandırma, `test()` → `{ok,message,reason}`), `src/settings/system.ts` (get/save/delete/test + `effectiveWhatsappUrl`), `src/settings/routes.ts` (4 uç, `applyWhatsapp`), `src/app.ts` (`app.whatsapp` dekorasyonu + açılış yüklemesi), `src/requests/panel.ts` (tenant test yanıtı yalnız `{ok,message}`).
+- web (koordinatör isteği): `apps/web/lib/admin-settings/whatsapp.ts` yerel tipler contracts'tan yeniden dışa aktarım (`WhatsappServiceView = WhatsappSettingsView` vb., `WA_SERVICE_URL_MAX = WA_URL_MAX`); `checkWaUrl` alan bazlı mesajları korur, son kapı `waServiceUrlSchema.safeParse` (harf duyarlı şema, kontrol karakterleri — sunucu/DB ile birebir). `apps/web/e2e/mock-audit.mjs` whatsapp uçları contracts şemaları + `WA_TEST_MESSAGES` ile; DELETE 204 → 200 + görünüm. `apps/web/e2e/p12b-whatsapp.spec.ts` iki metin beklentisi sunucu mesajlarına çekildi.
+- testler: `packages/contracts/test/whatsapp-setting-p12b.test.ts`, `apps/server/test/unit/whatsapp-runtime-p12b.test.ts`, `apps/server/test/integration/whatsapp-admin-p12b.test.ts`, `apps/server/test/helpers/tenant-matrix.ts` (4 uç "system"), `apps/web/lib/admin-settings/whatsapp.test.ts` (+2 beklenti), `apps/server/vitest.config.ts`.
+
+### Sapmalar / notlar
+- **PUT/DELETE hız sınırı yok:** mysql/turn PUT'larıyla aynı (yalnız SUPER_ADMIN + audit). Düzeltme turu 1'de koordinatör kapsamı yalnız test ucu global tavanı (B-P12b-5'in PUT/DELETE kısmı açık; mimari karar).
+- **Servis yolu birleştirme:** önce `new URL("/send-message", url)` idi (adresteki yol düşüyordu); sözleşme `{url}/send-message` → artık `url` (sondaki `/` kırpılmış) + yol. Env adresi yolsuzken davranış aynı.
+- **`redirect: "error"` → `"manual"`** (mimari-api test satırı); 3xx her iki uçta (gönderim/test) yine başarısız, yönlendirme izlenmez (S8b-1 testi yeşil). `FetchLike` tipi buna göre.
+- **Zaman aşımı mesajı** ayrıldı (`"Servis 8 saniye içinde yanıt vermedi (zaman aşımı)."`); diğer hatalar eski genel mesaj. Tenant test ucu da aynı sabit mesajları kullanır.
+- **Test altyapısı:** `system_settings.whatsapp` her uygulama örneğinin açılışta okuduğu paylaşılan satır; paralel dosyalar (ör. `requests-p8b-2` env `WHATSAPP_SERVICE_URL`'e güvenir) etkilenmesin diye `vitest.config.ts` iki projeye ayrıldı: `main` + `serial-system-settings` (`sequence.groupOrder: 1`, yalnız `whatsapp-admin-p12b.test.ts`, diğerleri bittikten sonra). Yeni bağımlılık yok.
+- Audit eylem etiketleri (`apps/web/lib/audit/actions.ts`) frontend kapsamında; `settings.whatsapp.updated|deleted` etiketi yoksa audit ekranında ham ad görünür.
+
+### Testler
+- `pnpm -r run lint` ve `pnpm -r run typecheck` temiz. `pnpm -r run test`: contracts 75/75, web 243/243, server unit 343/343.
+- `test:int` (geçici `rs-mysql-wabe:33371`, temiz DB, silindi): **50 dosya, 488/488**. AC-196 entegrasyon: env görünümü; PUT → panel, audit eski→yeni, gerçek talep akışında ilk bildirim + test yeni adrese, env adresine istek yok; yeni süreç açılışta panel kaydını okur, tenant yanıtında adres yok; DELETE env'e dönüş + idempotent; 400 `fields.url` (13 örnek + fazla alan); Admin/User 403, oturumsuz 401, CSRF'siz 403; test 500/307 (izlenmez)/ulaşılamaz → sabit mesaj, audit maskeli numara + neden, 400 `fields.phoneNumber`; 5/dk → 6. 429 + Retry-After, başka Super Admin etkilenmez; production'da http+genel adres kaydedilir, `insecure:true`, kanal kapalı, test istek göndermeden ok:false, tenant `insecure:true`, https'e geçince açılır.
+- e2e `p12b-whatsapp.spec.ts` 10 geçti / 6 atlandı, `p8b-requests.spec.ts` yeşil (mock güncellemesi sonrası).
+
+### Düzeltme turu 1 (backend-dev, 2026-11-13) — `docs/guvenlik-raporu.md` "P12b turu" + QA önerisi
+- **B-P12b-1:** `setUrl` önce sınıflandırır (fırlatmaz), sonra atar. Ayrıştırılamayan adres (DB CHECK'ten geçen `http://a:99999` vb.) her ortamda kanal kapalı (`insecure=true`, `usable=false`), `alarm: whatsapp_invalid_url` (adres loga yazılmaz); test istek göndermez (`reason: insecure`). `isInsecureServiceUrl` ayrıştırılamayan adreste `true` (GET görünümü 500 vermez); yeni `isParsableServiceUrl`. Açılış `catch` artık yalnız DB okuma hatasında → "env kullanılıyor" logu doğru.
+- **B-P12b-2:** `saveWhatsappSettings` / `deleteWhatsappSettings` yazılan etkin adresi döndürür; route `serialQueue()` içinde TX + `app.whatsapp.setUrl(yazılan)` sıralı. `applyWhatsapp` yalnız açılışta.
+- **B-P12b-3:** `env.ts` `WHATSAPP_SERVICE_URL = waServiceUrlSchema.default(...)` (panel kuralı; sondaki `/` kırpılır; boş/boşluk → varsayılan). Uymazsa açılış durur; hata mesajında yalnız anahtar adı + kural (değer yok). Runbook notu devops'ta.
+- **B-P12b-5:** test ucu `{perUser 5/dk, global 20/dk}` (MySQL testi kalıbı).
+- **B-P12b-6:** `FetchLike` dönüşüne `body?.cancel()`; her sonuçta (2xx/3xx/4xx/5xx) gövde iptal edilir (gönderim + test), iptal hatası yutulur.
+- **QA önerisi:** Super Admin test audit'i `phone` → `recipient` (tenant ucunun anahtarı korundu). `recipient` audit görünümünde (`audit/view.ts` OUTBOUND_KEYS) zaten izinli → önceki `phone` alanı ekranda düşüyordu, artık görünür (maskeli).
+- **B-P12b-4** (normalize + CHECK) kapsam dışı — Sonra.
+- Testler: unit `whatsapp-runtime-p12b` (+3: geçersiz adres fail-closed her ortamda/constructor, gövde iptali 200/500/307 + reddedilen cancel, audit görünümü `recipient`), `env-logger` (+1: 7 geçersiz env değeri açılışı durdurur, değer mesajda yok; kırpma; boş → varsayılan); int `whatsapp-admin-p12b` (+3: 6 PUT + DELETE eşzamanlı ×5 tur → bellek = DB = GET; DB'de ayrıştırılamayan panel adresiyle açılış kanal kapalı, GET 200 insecure, test istek yok; 5 Super Admin × 5 → 20 başarılı, 21.+ 429) ve audit anahtarı `recipient`.
+- Sonuç: `pnpm -r run lint` / `typecheck` temiz; `pnpm -r run test` contracts 75, web 243, server unit 347; `test:int` (temiz DB `rs-mysql-wabe2:33372`, silindi) **50 dosya, 491/491**. Not: ilk tam koşuda `bindings-p8c` AC-192 (TURN) bir kez düştü; tek başına 2/2 ve temiz DB tam koşuda yeşil — `system_settings.turn` satırını paralel `settings-p11` değiştirdiği için mevcut bir yarış (P12b ile ilgisiz; aynı ayrı-proje kalıbı TURN için de uygulanabilir).

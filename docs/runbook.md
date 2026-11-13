@@ -58,7 +58,7 @@ Tarayıcı: `https://<SITE_HOST>:4450`. `tls internal` kök sertifikası test ma
 | ↳ | yalnız seed için; parola ≥ 12, ilk girişte değiştirilir; seed sonrası `.env`'den silinebilir |
 | `ABUSE_EMAIL` | Misafir karşılama ekranındaki "Kötüye kullanımı bildir" `mailto:` adresi (AC-125, V13, S-P4-1), ör. `abuse@<alan-adı>`. **production'da boşsa bağlantı gizlenir** (Super Admin e-postasına düşülmez). Staging/prod'da doldurulması önerilir. Değişiklik: `.env` → `docker compose up -d server`. Kullanmayacaksanız boş bırakmak (`ABUSE_EMAIL=`) veya satırı silmek güvenlidir: env.ts boş/yalnız boşluk değerleri tanımsız sayar (`withoutBlanks`), server açılır ve production'da bağlantı gizlenir. Dolu ama geçersiz bir adres (ör. `abuse@`) ise env.ts doğrulamasında server'ı açtırmaz |
 | `AGENT_SHA256` | P6 (G-07): `agent_downloads` volume'undaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). **Elle yazılmaz**: `deploy/agent/verify-and-publish.sh` attestation + `SHA256SUMS` doğrulamasından sonra yazar, ardından `docker compose up -d server`. Boşsa, dosya yoksa veya hash uyuşmazsa `GET /api/v1/public/agent/download` **503** döner (fail-closed) ve server logunda bir kez `alarm: "agent_binary"` uyarısı çıkar. `AGENT_BINARY_PATH` compose'da sabittir (`/data/downloads/NoktaDestek.exe`); `.env`'deki değer yalnız compose dışı çalıştırmada kullanılır |
-| `WHATSAPP_SERVICE_URL` | P8b: whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). Boş/tanımsız → `env.ts` varsayılanı `http://89.252.189.211:3000` (staging). **production'da `http://` + özel olmayan adres → kanal kapalı başlar** (gönderim yok, test 502, log `alarm:"whatsapp_insecure"`); prod değeri K13'e göre `https://…` veya özel ağ adresi (§12.3). Değişiklik: `.env` → `docker compose up -d server` |
+| `WHATSAPP_SERVICE_URL` | P8b: whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). **P12b: yalnız yedek değerdir.** Etkin adres önceliği: **Sistem ayarları → WhatsApp servisi panel kaydı > `WHATSAPP_SERVICE_URL` > `env.ts` varsayılanı `http://89.252.189.211:3000`** (staging). Açılışta panel kuralıyla doğrulanır: yalnız `http://`/`https://` (küçük harf), `kullanıcı:şifre@`, sorgu (`?`), parça (`#`), boşluk/kontrol karakteri yok, ≤ 200 karakter → **uymazsa server açılmaz** (log `env` doğrulama hatası; `env.ts` `waServiceUrlSchema`; §17.4). **production'da `http://` + özel olmayan adres → kanal kapalı başlar** (gönderim yok, log `alarm:"whatsapp_insecure"`). Güvensiz veya yapılandırılmamış adreste testler servise istek **göndermez**: Super Admin testi (`POST /api/v1/admin/settings/whatsapp/test`) **200 `{ok:false}`** + sabit mesaj, tenant testi (`POST /api/v1/settings/support-requests/whatsapp/test`) **502 `UPSTREAM`** döner; prod değeri K13'e göre `https://…` veya özel ağ adresi (§12.3). **Değişiklik yolu: panel** (Super Admin → Sistem ayarları → WhatsApp servisi → kaydet; yeniden başlatma gerekmez, çalışan sürece hemen uygulanır). Env'e dönüş: aynı ekranda "Ortam değişkenine dön". **Panel kaydı varken `.env` değişikliği etkisizdir**; env'i değiştirip `docker compose up -d server` yalnız panel kaydı yokken (ekranda kaynak rozeti "Ortam değişkeni") anlamlıdır |
 | `APP_ENCRYPTION_KEYS` | P10 (mimari §3.2): `v1:<base64 32 bayt>` (`openssl rand -base64 32`). SMTP şifresi ve TOTP sırları bununla AES-256-GCM şifrelenir. **production'da zorunlu** (yoksa server açılmaz; compose da `:?` ile durur). **Kaybedilirse** kayıtlı SMTP şifreleri ve tüm 2FA sırları çözülemez → SMTP şifreleri yeniden girilir, kullanıcıların 2FA'sı sıfırlanır (§14). Rotasyon: `v1:...,v2:...` (eski silinmez; yeni yazımlar v2 — emekliye ayırma kuralı §14 P10 "Anahtar rotasyonu"). Yedeği parola kasasında; loga/dokümana yazılmaz. Değişiklik: `.env` → `docker compose up -d server` |
 | `UPLOADS_DIR` | P12: logo/avatar yükleme kökü. **Compose sabit verir** (`/data/uploads`, named volume `uploads` → `remote_uploads`); `.env`'deki değer yalnız compose dışı çalıştırmada kullanılır — **mutlak yol** (env.ts göreli yolu reddeder), ör. `<repo>/.data/uploads` (`.data/` git-ignore). Boşsa `/data/uploads`. Yedek/geri yükleme §16.3 |
 | `MIN_AGENT_VERSION` | P8b G-E9-4: asgari Windows istemci sürümü `x.y.z`. Boş = kontrol yok. Düşük sürüm talep/resolve/join/`/ws/guest`'te 426 `CLIENT_OUTDATED`; istemci "Yeni sürümü indir" gösterir. Güvenlik yamasında yükseltilir (§12.4) |
@@ -703,7 +703,7 @@ Prova: dba 2026-11-12 geçici DB'de guard + temiz geri alma + yeniden migrate de
 
 ### 12.3 WhatsApp servisi — K13 prod ön koşulu
 - Staging: `WHATSAPP_SERVICE_URL` boş (varsayılan `http://89.252.189.211:3000`, kimliksiz, internete açık). Mesajda kişisel veri yok (§13.5 şablonu).
-- **Prod açılışından önce (P13 kontrol listesi):** servis TLS arkasında (`https://…`) **veya** özel ağda; servis host güvenlik duvarında 3000 yalnız Remote sunucusunun çıkış IP'sine açık. Doğrulama: başka bir dış makineden `curl -m 5 http://<servis>:3000/` zaman aşımı; Remote sunucusundan Ayarlar > Destek talepleri > "Test Mesajı Gönder" başarılı. Aksi halde server kanalı zaten kapalı başlatır (log `alarm:"whatsapp_insecure"`, ayar ekranında uyarı) — bu bir arıza değil, ön koşul eksikliğidir.
+- **Prod açılışından önce (P13 kontrol listesi):** servis TLS arkasında (`https://…`) **veya** özel ağda; servis host güvenlik duvarında 3000 yalnız Remote sunucusunun çıkış IP'sine açık. Adres Super Admin → Sistem ayarları → WhatsApp servisi'nden girilir (P12b, §17; env yalnız yedek). Doğrulama: başka bir dış makineden `curl -m 5 http://<servis>:3000/` zaman aşımı; Super Admin → Sistem ayarları → WhatsApp servisi → "Test Mesajı Gönder" başarılı (tenant tarafında Ayarlar > Destek talepleri > "Test Mesajı Gönder" de aynı etkin adresi kullanır). Aksi halde server kanalı zaten kapalı başlatır (log `alarm:"whatsapp_insecure"`, ayar ekranında uyarı) — bu bir arıza değil, ön koşul eksikliğidir.
 - Servis API anahtarı desteği "Sonra" (servis destekleyince env eklenir).
 
 ### 12.4 `MIN_AGENT_VERSION` — güvenlik yamasında yükseltme
@@ -721,6 +721,9 @@ Prova: dba 2026-11-12 geçici DB'de guard + temiz geri alma + yeniden migrate de
 | `sum(rs_requests_pending) > 400` | Uyarı | Sistem geneli hedef ≤ 500 bekleyen; teknisyen yokluğu veya spam. Tenant dağılımı için SQL: `SELECT tenant_id, COUNT(*) FROM support_requests WHERE status='PENDING' GROUP BY tenant_id` |
 | `rs_ws_connections{role="request"}` / `{role="panel"}` | Pano | Bekleyen müşteri ve açık panel sayısı; `request` ≈ `rs_requests_pending` olmalı (fark büyükse kopan istemciler) |
 | server log `alarm:"whatsapp_global_cap"` | Bilgi | Saatlik 300 global WhatsApp sınırı aşıldı, özet mesajlara düşüldü |
+| server log `alarm:"whatsapp_insecure"` (P12b: açılışta ve güvensiz adrese **her geçişte**; adres loga yazılmaz) | **Uyarı** (prod) | production'da etkin adres `http://` + genel adres → WhatsApp kanalı kapalı. Arıza değil, K13 ön koşulu eksik (§12.3). Etkin adresin kaynağı Super Admin → Sistem ayarları → WhatsApp servisi rozetinde (Panel / Ortam değişkeni); düzeltme panelden `https://` veya özel ağ adresi |
+| server log `alarm:"whatsapp_invalid_url"` (P12b, **error** seviyesi; adres loga yazılmaz) | **Uyarı** (her ortam) | Etkin adres (panel kaydı veya env) URL olarak ayrıştırılamıyor → WhatsApp kanalı **her ortamda** kapalı (test `reason: insecure`). Normalde panel/env/DB kuralları bunu engeller; görülürse DB'ye kural dışı yazılmış kayıt veya kod hatası. Super Admin → WhatsApp servisi'nden geçerli adres kaydedin veya "Ortam değişkenine dön"; tekrar ederse backend'e bildirin |
+| server log `alarm:"whatsapp_settings_load"` (P12b, açılışta) | **Uyarı** | Panel kaydı (`system_settings.whatsapp`) okunamadı → server env/varsayılan adresle çalışıyor; panelde kayıtlı adres **uygulanmıyor** olabilir. DB erişimini kontrol edin (§7, `db_busy`), sonra `docker compose restart server` ve logda alarmın tekrar etmediğini doğrulayın |
 | server log `alarm:"db_busy"` (metrik yok; log sayımı: `docker compose logs server --since 5m \| grep -c '"alarm":"db_busy"'`) — 5 dk'da > 20 **veya** 15 dk boyunca her 5 dk'da > 0 | **Uyarı** | Geçici DB çekişmesi → istemciye 503 `NOT_READY` + `Retry-After` (errors.ts; kod alanı: `P2028` TX/havuz bekleme, `P2034`/`1213` deadlock, `1205` kilit bekleme, `45028` havuzdan bağlantı alınamadı). Bağlam: talep oluşturma TX'i tenant ayar satırını kilitler; talep kapısı (S8b-5, düzeltildi) talepleri havuzun (10 bağlantı) en çok 4'üyle sınırlar, giriş/panel/WS için en az 6 kalır. Başarısız giriş sayacı DB'ye yazılamazsa bellek içi yedek kova kilidi yine uygular (S8b-6, düzeltildi; `auth_fail_counter_fallback` satırı). İlk adım: (1) kod dağılımı `docker compose logs server --since 15m \| grep '"alarm":"db_busy"' \| grep -o '"code":[^,}]*' \| sort \| uniq -c`; (2) eşzamanlı `rs_requests_created_total` / `rs_request_rate_limited_total` artışı → talep yığılması (tenant dağılımı §12.5 SQL); (3) MySQL tarafı `docker compose exec mysql mysql -uroot -p -e "SHOW PROCESSLIST; SHOW ENGINE INNODB STATUS\G" \| grep -A20 "LATEST DETECTED DEADLOCK"`; (4) uzun süren sorgu veya yedek alma çakışması varsa bitmesini bekleyin. Sürekli ise `docker compose restart server` havuzu boşaltır (geçici); kalıcıysa DB kaynakları/sorgu planı incelenir |
 | `increase(rs_request_gate_rejected_total[5m]) > 0` (`reason="full"` veya `"timeout"`) | **Uyarı** | Talep oluşturma kapısı doldu (S8b-5: firma başına 2, toplam 4 eşzamanlı; kuyruk 16/64, bekleme 5 sn) → müşteriye 503 `NOT_READY` + `Retry-After: 5`. Ani talep yığılması veya yavaş DB. `db_busy` satırıyla birlikte değerlendirin; sürekli artış havuz/DB kaynak yetersizliğidir. Firma dağılımı: `docker compose logs server --since 15m \| grep '"alarm":"request_gate_busy"' \| grep -o '"tenantId":"[^"]*"' \| sort \| uniq -c` |
 | server log `alarm:"request_gate_busy"` (10 sn'de en çok 1; `reason`, `tenantId`; PII yok) | Uyarı | Yukarıdaki metriğin log karşılığı; metrik toplanmıyorsa log sayımı: `docker compose logs server --since 5m \| grep -c '"alarm":"request_gate_busy"'` > 0 |
@@ -734,7 +737,7 @@ Kabul süresi (ayrı metrik yok): `SELECT DATE(created_at) g, COUNT(*), AVG(TIME
 | Firma bağlantısı / dosyası 404 | Ref yenilenmiş, tenant pasif veya Admin ayar ekranını hiç açmamış (ref tembel oluşur, K14). Firma kısa adı değiştiyse eski adlı dosya 404 (label uyuşmaz, G-E9-11) → Admin bağlantıyı yeniler. İç uç elle: `docker compose exec caddy wget -S -O- --header 'X-Forwarded-Method: GET' --header 'X-Forwarded-Uri: /downloads/NoktaDestek-<label>-<ref>.exe' http://server:3001/internal/agent-ready` → 204 |
 | Firma dosyası 503 | P6 ikili kapısı (§7 `agent_binary` satırı) |
 | Firma dosyası 404 ama ad doğru görünüyor | Caddy biçimi: label `[A-Za-z0-9]{1,20}`, ref `[a-z2-7]{16}`, büyük/küçük harf duyarlı; biçim dışı ad server'a hiç gitmez. `deploy/test-caddy.sh` |
-| WhatsApp gelmiyor | Tenant ayarında kanal açık + alıcı var mı; Ayarlar > "Test Mesajı Gönder"; prod'da `alarm:"whatsapp_insecure"` (§12.3); saatlik sınırlar (tenant 30, alıcı 10, global 300 → özet); audit `request.notify` |
+| WhatsApp gelmiyor | Tenant ayarında kanal açık + alıcı var mı; Ayarlar > "Test Mesajı Gönder"; etkin adres ve kaynağı için Super Admin → Sistem ayarları → WhatsApp servisi → "Test Mesajı Gönder", sonra Audit ekranında `settings.whatsapp.test` kaydının `reason` alanı (§17.4 tablosu); prod'da `alarm:"whatsapp_insecure"` (§12.3), açılışta `alarm:"whatsapp_settings_load"` (§12.5); saatlik sınırlar (tenant 30, alıcı 10, global 300 → özet); audit `request.notify` |
 | Müşteri "dosya eski" görüyor | `MIN_AGENT_VERSION` > istemci sürümü (§12.4); yanlışlıkla yükseltildiyse geri çekin |
 | `/ws/request` veya `/ws/panel` 502 | server ayakta değil (§7); nginx/Caddy WS ayarı değişmedi (`/ws/*` aynı kural) |
 | Seed sonrası müşteri karşılamada 400 | AC-127: yeni aydınlatma sürümü; müşteri sayfayı yenilesin (§12.1/4) |
@@ -1265,3 +1268,69 @@ docker compose start server
 | 413 JSON değil, boş gövde (Caddy) | Uç `@upload` listesinde yok → Caddyfile + `test-caddy.sh` |
 | Logo/avatar kırık resim | DB yolu var, dosya yok (yedek/geri yükleme farklı anlardan) → kullanıcı yeniden yükler; toplu ise §16.3 ile eşleşen yedek |
 | Disk doluyor | `docker system df -v | grep remote_uploads`; dosyalar ≤ 512 px yeniden kodlanır (tipik < 100 KB). Eski dosya silme backend'in işi (değiştirmede eski dosya silinir); artış anormalse backend'e bildir |
+
+## 17. P12b — WhatsApp servisi sistem ayarı (devops, 2026-11-13; AC-196)
+Migration `20261114090000_whatsapp_service_setting` (**yalnız CHECK**: `system_settings` anahtar kümesine `whatsapp`,
+`{"url": string|null}` biçimi; tablo/sütun/grant/seed değişikliği yok; ayrıntı `docs/db-notlari.md` "WhatsApp servis ayarı").
+Yeni env, volume, Caddy/nginx değişikliği **yok**. `WHATSAPP_SERVICE_URL` artık yalnız yedek (§3 satırı).
+
+### 17.1 Etkin adres ve değişiklik yolu
+- Öncelik: **panel kaydı** (`system_settings.whatsapp.value_json.url` dolu) **> `WHATSAPP_SERVICE_URL` > varsayılan** `http://89.252.189.211:3000`.
+- Değiştirme: Super Admin → Sistem ayarları → **WhatsApp servisi** → Servis URL'si → Kaydet. Yeniden başlatma gerekmez;
+  kayıttan sonraki ilk bildirim ve test yeni adrese gider. Kayıt + audit `settings.whatsapp.updated` (eski → yeni) tek TX.
+- Env'e dönüş: aynı ekranda **"Ortam değişkenine dön"** (onaylı; audit `settings.whatsapp.deleted`). Satır silinmez,
+  `{"url": null}` olarak kalır (app kullanıcısında DELETE yok, P11 kararı) — etkin adres env/varsayılana döner.
+- **Tuzak:** panel kaydı varken `.env`'deki `WHATSAPP_SERVICE_URL`'i değiştirip `up -d server` yapmak **etkisizdir**. Önce
+  ekrandaki kaynak rozetine bakın: "Panel" → panelden değiştirin; "Ortam değişkeni" → env değişikliği geçerli.
+- Kural (panel, env ve DB CHECK aynı): `http://` veya `https://` (küçük harf), `kullanıcı:şifre@` / `?` / `#` / boşluk /
+  kontrol karakteri yok, ≤ 200 karakter; sondaki `/` kırpılır. Panelde uymayan değer 400 (alan hatası). **Env'de uymayan
+  değer → server açılmaz** (`apps/server/src/env.ts` aynı `waServiceUrlSchema` ile doğrular; yayından önce `.env` değerini
+  bu kurala göre kontrol edin, boş bırakmak = varsayılan).
+
+### 17.2 Yayın sırası (staging, §8 akışı; prod'da aynı)
+Kesinti: yalnız server/web yeniden yaratılırken birkaç saniye; MySQL yeniden yaratılmaz.
+1. **Yedek** (ayrı ssh çağrısı; §15.1/1 komutu, dosya adı `remote-pre-p12b-…`) + §16.3 `uploads` yedeği aynı pencerede.
+2. **Repo güncelle** (§8 bundle + pull, yeni ssh çağrısı, `umask` yok).
+3. **`.env` ön kontrolü:** `grep '^WHATSAPP_SERVICE_URL=' deploy/.env` → boş veya §17.1 kuralına uygun olmalı
+   (ör. sonunda `?x=1`, içinde `user:pass@` varsa server açılmaz — önce düzeltin).
+4. **Build + up:** `docker compose build && docker compose up -d` → migrate önce çalışır
+   (`docker compose logs --since 5m migrate` → "All migrations have been successfully applied"). Caddy yeniden başlatılmaz.
+5. **Yetki sınırı:** §15.1/5 komutu → **337/337 PASS** (330 + 7), `grep -c FAIL` = 0.
+6. **Duman testi:** Super Admin → Sistem ayarları → WhatsApp servisi: rozet "Ortam değişkeni", etkin adres görünür →
+   "Test Mesajı Gönder" (kendi numaranız) sonucu ekranda; Audit ekranında `settings.whatsapp.test` (numara maskeli,
+   `result`, varsa `reason`). Admin/User bu sekmeyi görmez (403). Panel kaydı denenecekse: adres kaydet → test → "Ortam
+   değişkenine dön" → rozet tekrar "Ortam değişkeni". `docker compose logs server --since 10m | grep -c whatsapp_settings_load` → `0`.
+7. §8 yayın geçmişine satır (yedek yolu, grants 337, rozet kaynağı).
+
+### 17.3 Geri alma
+Tercih: **ileri düzeltme > yalnız imaj geri alma > imaj + `down.sql`**. P12 server'ı `whatsapp` satırını okumaz → çoğu
+durumda 1. adım yeter; P12 kodu env adresini kullanır (panel adresi o sürede **uygulanmaz** — env doğru olmalı).
+1. **Önceki imaj:** `.env` `IMAGE_TAG=<P12 etiketi>` → `docker compose up -d`. Satır DB'de kalır (zararsız; ileri dönüşte yeniden geçerli).
+2. **`down.sql`** (yalnız şemanın kendisi sorunluysa; önce 17.2/1 yedeği ve 1. adım — sunucu kodu önce geri alınır):
+```bash
+docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute \
+  --file prisma/migrations/20261114090000_whatsapp_service_setting/down.sql
+```
+   **Koruma — `wa_down_guard_chk`:** `system_settings`'te `whatsapp` anahtarlı **herhangi bir satır** varsa **3819** ile
+   durur, hiçbir şey değişmez. **"Ortam değişkenine dön" bunu çözmez**: satır `{"url": null}` olarak kalır ve guard'ı yine
+   tetikler. Down için satır migrator ile **silinmelidir** (bilinçli karar; panel adresi kaybolur, env/varsayılan geçerli olur):
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql -umigrator "$MYSQL_DATABASE"' \
+  <<< "DELETE FROM system_settings WHERE \`key\` = 'whatsapp';"
+```
+   ardından `down.sql` tekrar. Sonra `check-app-grants.sh`: P12b satırları FAIL verir (beklenen), P12 ve öncesi PASS (330).
+   Prova: dba 2026-11-14 geçici DB'de guard (satır varken 3819, değişiklik yok) + satır silinince temiz geri alma + drift 0
+   (`docs/db-notlari.md`).
+3. **Yeniden ileri:** yeni `IMAGE_TAG` → `docker compose up -d` (migration yeniden uygulanır; panel adresi gerekiyorsa yeniden girilir).
+
+### 17.4 Sorun giderme (P12b)
+| Belirti | Neden / Yapılacak |
+|---|---|
+| Yayından sonra server açılmıyor, log env doğrulama hatası `WHATSAPP_SERVICE_URL` | Env değeri §17.1 kuralına uymuyor (kullanıcı:şifre, `?`, `#`, büyük harf şema, > 200). `.env`'i düzeltin veya boşaltın → `docker compose up -d server` |
+| `.env` değiştirildi, adres değişmedi | Panel kaydı var (rozet "Panel") → panelden değiştirin veya "Ortam değişkenine dön" (§17.1) |
+| WhatsApp gitmiyor | Super Admin → WhatsApp servisi → "Test Mesajı Gönder"; Audit ekranı `settings.whatsapp.test` → `reason`: `unconfigured` (adres yok), `insecure` (prod'da http+genel adres, §12.3; **ya da her ortamda ayrıştırılamayan adres** — log `whatsapp_invalid_url`; istek gönderilmedi), `timeout` (8 sn), `http_error` (servis 4xx/5xx), `redirect` (3xx, izlenmez — adres yanlış/yönlendiriyor), `unreachable` (DNS/bağlantı/güvenlik duvarı). Ekrandaki mesaj sabittir; ayrıntı yalnız audit/log'da |
+| Test 429 | Super Admin başına 5/dk (6. → 429) **ve** tüm Super Admin'ler için ortak 20/dk (21. → 429); `Retry-After` kadar bekleyin. Tenant testi ayrı kova (tenant 5/dk) |
+| Log `alarm:"whatsapp_insecure"` | §12.5 satırı; prod'da adresi `https://`/özel ağa çekin |
+| Log `alarm:"whatsapp_invalid_url"` | Etkin adres ayrıştırılamıyor → kanal her ortamda kapalı; §12.5 satırı |
+| Log `alarm:"whatsapp_settings_load"` | Açılışta panel kaydı okunamadı → env adresiyle çalışıyor; §12.5 satırı |
+| `down.sql` 3819 | `whatsapp` satırı var (`{url:null}` dahil) → §17.3/2 |

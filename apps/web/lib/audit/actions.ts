@@ -43,6 +43,8 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   [SYSTEM_AUDIT.MYSQL_TEST]: "MySQL bağlantı testi",
   [SYSTEM_AUDIT.TURN_UPDATED]: "TURN ayarı güncellendi",
   [SYSTEM_AUDIT.TURN_DELETED]: "TURN ortam değerlerine döndü",
+  [SYSTEM_AUDIT.WHATSAPP_UPDATED]: "WhatsApp servis adresi güncellendi",
+  [SYSTEM_AUDIT.WHATSAPP_DELETED]: "WhatsApp servisi ortam değerine döndü",
   [SYSTEM_AUDIT.AUDIT_EXPORTED]: "Audit log dışa aktarıldı",
   "session.updated": "Oturum notu/ticket güncellendi",
   "session.exported": "Oturum geçmişi dışa aktarıldı",

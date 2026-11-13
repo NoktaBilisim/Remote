@@ -118,7 +118,7 @@ describe("P12 system_settings `system_logo` (AC-81, AC-82)", () => {
   });
 
   it("anahtar ikili (ADR-0014); P11 anahtarları geçerli kalır", async () => {
-    for (const k of ["SYSTEM_LOGO", "System_logo", "system_logo ", "system-logo", "logo"]) await bad(k, { path: `system/${RND}.png` }, "system_settings_key_chk");
+    for (const k of ["SYSTEM_LOGO", "System_logo", "system_logo ", "system-logo", "logo", "WHATSAPP", "whatsapp ", "whats_app"]) await bad(k, { path: `system/${RND}.png` }, "system_settings_key_chk");
     await ok("turn", { urls: ["stun:stun.example.com:3478"] });
   });
 

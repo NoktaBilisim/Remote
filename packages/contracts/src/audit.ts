@@ -99,6 +99,12 @@ export const SYSTEM_AUDIT = {
   TURN_UPDATED: "settings.turn.updated",
   /** Panel kaydı silindi; TURN yeniden env'den (`TURN_URLS`/`TURN_SECRET`). */
   TURN_DELETED: "settings.turn.deleted",
+  /** P12b (AC-196): WhatsApp servis adresi `{url}` eski→yeni (gizli değil). */
+  WHATSAPP_UPDATED: "settings.whatsapp.updated",
+  /** Panel kaydı kaldırıldı; adres yeniden env'den (`WHATSAPP_SERVICE_URL`). */
+  WHATSAPP_DELETED: "settings.whatsapp.deleted",
+  /** Super Admin testi `{phone(maske), result, reason}`; tenant testi (AC-152) aynı eylem, entity tenant_request_settings. */
+  WHATSAPP_TEST: "settings.whatsapp.test",
   CONSENT_TEXT_UPDATED: "settings.consent_text.updated",
   /** Audit CSV dışa aktarımı: filtre özeti + satır sayısı. */
   AUDIT_EXPORTED: "audit.exported",

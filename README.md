@@ -4,12 +4,13 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P12 tamamlandı (Windows elle testleri bekliyor)
+## Şu anki durum: P1–P12b tamamlandı (Windows elle testleri bekliyor)
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
 turu GEÇTİ), sayfa testi gerçek server ile GEÇTİ, QA Tur 2'nin tek maddesi (P11'e ait kararsız e2e testi) düzeltildi
-(`docs/arsiv/p12-qa-raporu.md`, `docs/arsiv/p12-test-raporu.md`, `docs/guvenlik-raporu.md`). P11 ve P12 henüz staging'e
-yayınlanmadı (yayın adımları runbook §15, §16). Windows istemci **0.10.2** qa ve güvenlik denetiminden geçti. Gerçek
+(`docs/arsiv/p12-qa-raporu.md`, `docs/arsiv/p12-test-raporu.md`, `docs/guvenlik-raporu.md`). **P12b** (Super Admin
+"WhatsApp servisi" sistem ayarı, AC-196) tamamlandı: QA Tur 3 GEÇTİ, güvenlik Kritik/Yüksek/Orta 0 (`docs/qa-raporu.md`,
+`docs/guvenlik-raporu.md`). P11, P12 ve P12b henüz staging'e yayınlanmadı (yayın adımları runbook §15, §16, §17). Windows istemci **0.10.2** qa ve güvenlik denetiminden geçti. Gerçek
 Windows'ta elle testler (P7, P8b-2, P8c-2, 0.10.2) ve AC-192 staging ölçümü bekliyor. Sıradaki paket **P13** (prod deploy,
 yedek, retention); açık maddeler `docs/gereksinimler-sonra-acik.md`.
 
@@ -306,6 +307,14 @@ Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.
   (Apache-2.0; libvips LGPL, dinamik), `file-type` 22.3.0 (MIT), `@fastify/multipart` 10.1.8 (MIT), `react-easy-crop` 6.2.5 (MIT).
   Sunucu CPU'su x86-64-v2 olmalı (runbook §16.1/0).
 
+**P12b — WhatsApp servisi sistem ayarı (AC-196)**
+- **Sistem ayarları > WhatsApp servisi** (`/admin/settings/whatsapp`, yalnız Super Admin): etkin servis adresi, kaynak
+  rozeti (**Panel** / **Ortam değişkeni**), servis URL'sini kaydetme (yeniden başlatma yok), **Ortam değişkenine dön**,
+  **Test Mesajı Gönder** (sonuç ekranda; kişi başı 5/dk, tüm Super Admin'ler 20/dk). Güvensiz adreste kalıcı uyarı.
+- Etkin adres önceliği: panel kaydı > `WHATSAPP_SERVICE_URL` > varsayılan. Panel kaydı varken `.env` değişikliği etkisizdir.
+- `WHATSAPP_SERVICE_URL` açılışta panel kuralıyla doğrulanır; uymayan değerde server açılmaz (runbook §17.1).
+- Migration `20261114090000_whatsapp_service_setting` (yalnız CHECK). Yeni ortam değişkeni, volume ve bağımlılık yok.
+
 **Düzeltme — talepten doğan oturumda siyah ekran:** sunucu teknisyene ICE (TURN) listesini `peer.joined`'dan önce
 gönderir, konsol liste gelmeden teklif üretmez (`6701567`).
 
@@ -337,6 +346,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P10 ✓ | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış, e-posta bildirimleri |
 | P11 ✓ | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri, aydınlatma metni düzenleme |
 | P12 ✓ | Firma/sistem logosu, avatar yükleme, kullanıcı tema tercihi, hesap menüsü, token lint kuralı |
+| P12b ✓ | Super Admin "WhatsApp servisi" sistem ayarı: servis adresi, kaynak rozeti, test mesajı |
 | P13 | Prod deploy, yedek/geri yükleme, retention, kullanım kılavuzu, datasheet, PDF'ler |
 
 Prod açılışı P10 (2FA) sonrası mümkündür; ön koşullar runbook §14 P10 "Prod açılış kontrol listesi". O zamana kadar
@@ -406,7 +416,7 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 | `AGENT_SHA256` | İndirme için | Yayındaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). Elle yazılmaz; `deploy/agent/verify-and-publish.sh` doğrulamadan sonra yazar. Boşsa istemci indirmesi 503 döner, server yine açılır |
 | `AGENT_BINARY_PATH` | Compose dışı | İkilinin mutlak yolu. Compose `/data/downloads/NoktaDestek.exe` verir; yalnız yerel `pnpm` çalıştırmada gerekir |
 | `ABUSE_EMAIL` | Önerilir | Müşteri ekranındaki "Kötüye kullanımı bildir" adresi (ör. `abuse@<alan-adı>`). Production'da boşsa bağlantı gizlenir; Super Admin e-postası kullanılmaz. Boş bırakmak güvenlidir; dolu ama geçersiz adres server'ı açtırmaz |
-| `WHATSAPP_SERVICE_URL` | Hayır | P8b: whatsapp-bildirim servis adresi (sistem düzeyi). Boşsa varsayılan servis; production'da şifresiz + genel adres → kanal kapalı başlar (runbook §12.3) |
+| `WHATSAPP_SERVICE_URL` | Hayır | P8b: whatsapp-bildirim servis adresi (sistem düzeyi). **P12b'den beri yalnız yedek:** Sistem ayarları > WhatsApp servisi'nde panel kaydı varsa o geçerlidir. Boşsa varsayılan servis. Kural: `http://`/`https://`, kullanıcı:şifre, `?`, `#`, boşluk yok, ≤ 200 karakter; **uymazsa server açılmaz** (runbook §17.1). Production'da şifresiz + genel adres → kanal kapalı başlar (runbook §12.3) |
 | `APP_ENCRYPTION_KEYS` | Evet | P10: SMTP şifresi ve 2FA sırlarının AES-256-GCM anahtarı, `v1:<base64 32 bayt>`. Üretim: `echo "v1:$(openssl rand -base64 32)"`. Production'da yoksa server açılmaz. **Parola kasasında yedeklenmeli**: kaybolursa SMTP şifreleri yeniden girilir, tüm kullanıcıların 2FA'sı sıfırlanır. Rotasyonda eski sürüm silinmez (`v1:…,v2:…`); runbook §3 ve §14 P10 |
 | `MIN_AGENT_VERSION` | Hayır | P8b: asgari Windows istemci sürümü `x.y.z`; boş = kontrol yok. Müşterilerin tamamı 0.9.0 firma dosyasına geçene kadar boş bırakın (runbook §12.4) |
 | `UPLOADS_DIR` | Compose dışı | P12: logo/avatar dosyalarının kökü, **mutlak yol**. Compose sabit `/data/uploads` verir (volume `remote_uploads`); boşsa `/data/uploads`. Yedeği DB ile aynı pencerede alınır (runbook §16.3) |
@@ -475,7 +485,16 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 `e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
-### Son test sonuçları (P12, 2026-11-13)
+### Son test sonuçları (P12b, 2026-11-13)
+| Takım | Sonuç |
+|---|---|
+| Birim (`pnpm -r run test`) | 665: server 347, web 243, contracts 75 |
+| Server entegrasyon (`test:int`) | 491 (50 dosya); P12b: `whatsapp-admin-p12b` (paylaşılan ayar satırı nedeniyle ayrı vitest projesinde, en sonda), `whatsapp-setting` (DB CHECK) |
+| Web e2e (sahte API/WS) | P12b spec'i `e2e/p12b-whatsapp.spec.ts` + `p11-admin`, `p8b-requests` regresyonu: 42 geçti, 0 hata, 30 atlandı (masaüstü-yalnız) |
+
+QA Tur 3 GEÇTİ (`docs/qa-raporu.md`); güvenlik Kritik/Yüksek/Orta 0, Düşük 1 açık (B-P12b-4, Sonra).
+
+#### Önceki paket (P12, 2026-11-13)
 | Takım | Sonuç |
 |---|---|
 | Birim (`pnpm -r run test`) | 648: server 339, web 238, contracts 71 |
@@ -593,6 +612,14 @@ Betik `SHA256SUMS` + `gh attestation verify` doğrular, exe'yi `agent_downloads`
 içindeki `AGENT_SHA256`'yı yazar, server'ı yeniden başlatır ve Caddy üzerinden hash'i kontrol eder. Rollback, staging
 (Release'siz) yayını, private repo yolu ve bütünlük alarmı: runbook §11.3–§11.7. Günlük dış gözcü: `agent-watch.yml`.
 - Günlük işlemler, loglar, sorun giderme: [`docs/runbook.md`](docs/runbook.md).
+
+## Kullanılan ortak servisler
+| Servis | Ne için | Bağlantı |
+|---|---|---|
+| whatsapp-bildirim (Nokta Bilişim, `Projeler/whatsapp-bildirim`) | Destek talebi WhatsApp bildirimi ve test mesajları (`POST {url}/send-message`, `POST {url}/test-send`) | Adres Super Admin → Sistem ayarları → **WhatsApp servisi**'nden yönetilir; panel kaydı yoksa `WHATSAPP_SERVICE_URL`, o da yoksa varsayılan `http://89.252.189.211:3000`. Kimlik bilgisi yok. Production'da `https://` veya özel ağ adresi gerekir (runbook §12.3, §17) |
+| SMTP (firmanın kendi sunucusu) | Şifre sıfırlama, kilit, oturum bağlantısı ve talep e-postaları | Firma başına Ayarlar > E-posta (SMTP); şifre AES-256-GCM ile saklanır |
+
+SMS (smsportal) ve Paraşüt entegrasyonu yoktur.
 
 ## Klasör yapısı
 ```

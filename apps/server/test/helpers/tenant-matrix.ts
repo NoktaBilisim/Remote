@@ -118,6 +118,10 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /api/v1/admin/settings/turn": "system",
   "PUT /api/v1/admin/settings/turn": "system",
   "DELETE /api/v1/admin/settings/turn": "system",
+  "GET /api/v1/admin/settings/whatsapp": "system", // P12b (AC-196)
+  "PUT /api/v1/admin/settings/whatsapp": "system",
+  "DELETE /api/v1/admin/settings/whatsapp": "system",
+  "POST /api/v1/admin/settings/whatsapp/test": "system",
   "GET /api/v1/settings/consent-text": "scoped",
   "PUT /api/v1/settings/consent-text": "scoped",
   // P12 marka (izolasyon: branding-api-p12.test.ts "AC-84"); logo dosyaları ve marka ucu kimliksiz (yalnız logo)

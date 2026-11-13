@@ -133,7 +133,7 @@ Tarih: 2026-11-12 (r2: güvenlik tasarım turu E9 G-E9-1..14 işlendi) · Ayrın
 | Yetkilendirme / IDOR | Kapsamda: `support_requests.view/accept` (tek tanım), `settings.edit` ayarlar; `tenantScope` tüm talep uçlarında, başka tenant 404; Super Admin firma seçmeli; kuyruk tenant genelinde (V17 — "yalnız kendi" kuralı bilinçli olarak uygulanmaz) | §4, AC-147/148 | P8b-1 |
 | Oturum yönetimi | Kapsamda: `/ws/panel` 60 sn `auth_sessions` + yetki yeniden doğrulaması, kullanıcı başına ≤ 5 soket; müşteri tarafında oturum yok | protokol §5.3 | P8b-1 |
 | Davet / hesap silme (KVKK) | Kapsamda: "Bilgilerimi unut" (yerel), sunucuda saklama + anonimleştirme işi. Sunucudaki talep için bireysel silme talebi ekranı **Sonra** (genel "KVKK silme talebi ekranı" maddesiyle birlikte; şimdi runbook prosedürü) | §3.6 | P8b-1, P8b-2 |
-| Servis hesapları / API anahtarları | Kapsamda: tenantRef yenileme (rotasyon, AC-131). WhatsApp servisi kimliksiz — anahtar yok; URL yalnız env | §3.1, T33 | P8b-1 |
+| Servis hesapları / API anahtarları | Kapsamda: tenantRef yenileme (rotasyon, AC-131). WhatsApp servisi kimliksiz — anahtar yok; URL sistem düzeyi: **P12b'den itibaren Super Admin panel kaydı (`system_settings.whatsapp`, AC-196), yoksa env**; tenant göremez (T33). Servis API anahtarı Sonra (servis destekleyince `secret_enc`) | §3.1, T33 | P8b-1, P12b |
 
 ## 2. Veri Modeli
 | Madde | Karar | Gerekçe / nerede | Paket |
@@ -168,7 +168,7 @@ Tarih: 2026-11-12 (r2: güvenlik tasarım turu E9 G-E9-1..14 işlendi) · Ayrın
 | Tehdit modeli | Kapsamda: T28–T38 + güvenlik tasarım turu E9 G-E9-1..14 (r2, mimari-e9 §13): talep–kişi bağı (`requestCode` + bilinen kaynak, kayıtlı numaradan arama), onay tazeliği (her kabulde tek tık), asgari sürüm, WhatsApp içeriği, kova atlatma | §5.2, §13 | P8b-1, P8b-2 |
 | Giriş noktaları | Kapsamda (envanter eki): 4 public REST, 9 panel REST, `/ws/request`, `/ws/panel`, firma `/downloads/NoktaDestek-*`, istemci dosya adı ve hatırlama dosyası, WhatsApp çıkışı | §4 | — |
 | Girdi doğrulama / çıktı kodlama | Kapsamda: zod strict (ad/telefon/e-posta/açıklama/ret mesajı, Cc/Cf/bidi reddi), Go aynı kurallar (fixture); React metin; Win32 statik metin; WhatsApp şablonu sunucuda | T37, T38, AC-134 | P8b-1, P8b-2 |
-| Gizli bilgi yönetimi | Kapsamda: `WHATSAPP_SERVICE_URL` env (gizli değil); talep sırrı hash; yeni gizli anahtar yok | §8 | P8b-1 |
+| Gizli bilgi yönetimi | Kapsamda: `WHATSAPP_SERVICE_URL` env veya panel kaydı (gizli değil, audit'e açık yazılır — AC-196); talep sırrı hash; yeni gizli anahtar yok | §8 | P8b-1 |
 | Hassas veri / şifreleme | Kapsamda: §5.3; yerel dosya DPAPI; **r2:** WhatsApp'a kişisel veri gitmez (yurt dışı aktarım yok); prod'da güvensiz WhatsApp adresi → kanal kapalı (fail-closed); K13 prod ön koşulu: TLS/özel ağ + güvenlik duvarında yalnız Remote sunucusu | T34, §13.5, ADR-0004 r3 | P8b-1, P13 |
 | Log maskeleme | Kapsamda: `requestSecret`, subprotocol `rs.req.*`, firma indirme yolu (Caddy), ref yalnız ilk 4 karakter audit'te; telefon maskeli | T31, §8 | P8b-1 (devops: Caddy) |
 | Bağımlılık / SBOM | Kapsamda: yeni bağımlılık yok; mevcut tarama | — | — |

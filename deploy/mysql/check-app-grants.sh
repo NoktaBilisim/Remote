@@ -388,6 +388,14 @@ run DENIED "UPDATE users SET avatar_path=CONCAT('$GT/$RND.png',CHAR(10)) WHERE i
 run OK     "$TX $SSI ('system_logo','{\"path\":\"system/$RND.webp\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL,updated_at=NOW(3); $R"
 run DENIED "$TX $SSI ('system_logo','{\"path\":\"$GT/$RND.webp\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_system_logo_chk
 run DENIED "$TX $SSI ('System_Logo','{\"path\":\"system/$RND.webp\"}',NULL,NOW(3)); $R" system_settings_key_chk
+# WhatsApp servis ayarı (20261114090000): yetki değişmedi; anahtar `whatsapp` ikili, value_json {url: null|http(s) adresi}.
+run OK     "$TX $SSI ('whatsapp','{\"url\":\"http://89.252.189.211:3000\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL,updated_at=NOW(3); $R"
+run OK     "$TX $SSI ('whatsapp','{\"url\":null}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL,updated_at=NOW(3); $R"
+run DENIED "$TX $SSI ('WhatsApp','{\"url\":null}',NULL,NOW(3)); $R" system_settings_key_chk
+run DENIED "$TX $SSI ('whatsapp','{\"url\":\"ftp://wa.example\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_whatsapp_chk
+run DENIED "$TX $SSI ('whatsapp','{\"url\":\"http://u:p@wa.example\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_whatsapp_chk
+run DENIED "$TX $SSI ('whatsapp','{\"url\":null,\"token\":\"x\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_whatsapp_chk
+run DENIED "$TX $SSI ('whatsapp','{\"url\":null}',RANDOM_BYTES(45),NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=VALUES(secret_enc); $R" system_settings_whatsapp_chk
 # Temizlik (FK sırasıyla)
 run OK     "DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"
 exit $FAILED

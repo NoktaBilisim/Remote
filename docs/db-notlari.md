@@ -520,3 +520,23 @@ Değişiklik yok: app'in `tenants`/`users` tablo düzeyi UPDATE'i (logo_path, av
 - `branding-p12.test.ts` (yeni, app kullanıcısı): logo/avatar geçerli/geçersiz yollar (başka tenant, `..`, alt dizin, mutlak, `uploads/`, svg/PNG/jpeg, `\n`, kısa/uzun/ASCII dışı ad), Super Admin `system/`, tenant değişimi engeli, tema ikili, system_logo şema/secret/anahtar.
 - Güncellenen: `audit-immutability-p11` (system_logo artık geçerli anahtar → ret listesinde `SYSTEM_LOGO`), `session-history-p8` ikili CHECK sayısı 22 → 25.
 - `test:int` **455/455**, birim 324/324, typecheck + lint temiz.
+
+## WhatsApp servis ayarı — `system_settings.whatsapp` (2026-11-14)
+Migration `apps/server/prisma/migrations/20261114090000_whatsapp_service_setting/{migration.sql,down.sql}`. P12b, AC-196 (mimari §3.1): Super Admin WhatsApp servis adresini panelden girer; kayıt yoksa env `WHATSAPP_SERVICE_URL`. **Yalnız CHECK**: tablo/sütun, veri taşıma, Prisma şema, seed, grant değişikliği yok (drift 0; satır yoksa env/varsayılan geçerli — geliştirme ortamı boş kalmaz).
+
+| CHECK | Kural |
+|---|---|
+| `system_settings_key_chk` | ikili `mysql\|turn\|system_logo\|whatsapp` (DROP+ADD aynı ALTER) |
+| `system_settings_whatsapp_chk` | key ≠ whatsapp veya: `value_json` dolu; `secret_enc` NULL; JSON şema `{"url": string\|null}` (url zorunlu, tek alan, `maxLength` 200 kod noktası); url string ise ICU `REGEXP_LIKE(url, '^https?://[^@?#\s\p{Cc}]+\z', 'c')` |
+
+- `\s` = ICU Unicode boşlukları (`\t\n\f\r` + `\p{Z}`: NBSP, U+2028, U+3000…); `\p{Cc}` = C0/C1 kontrol + DEL. Harf duyarlı: `HTTP://` ret. Sonda `\z` (ICU `$` sondaki `\n`'yi kabul eder — P10 madde 3).
+- `url: null` = "panelden ayar yok" (env/varsayılana dön). Satır silinemez (app'te DELETE yok, P11 kararı) → kaldırma `{url:null}` ile yapılır.
+- CHECK yalnız biçimi sınar; SSRF/özel adres denetimi (mimari-e9 T33, §13.5 fail-closed) backend'de kalır.
+- Kilit: ADD CHECK = COPY, `system_settings` birkaç satır. Ön koruma gerekmez (eski key CHECK'i `whatsapp` satırına izin vermiyordu).
+- `down.sql`: `whatsapp` satırı varsa `wa_down_guard_chk` (3819) ile hiçbir şey değişmeden durur; yoksa yeni CHECK'i düşürür, key CHECK'ini P12 kümesine döndürür, `_prisma_migrations` kaydını siler.
+
+### Test (2026-11-14, geçici `mysql:8.4.13` binlog açık + bayrak, `rs-mysql-wadba:33361`, silindi)
+- Temiz DB P1→bu migration OK; `check-app-grants.sh` **337/337 PASS** (330 + 7).
+- down: satır varken `wa_down_guard_chk` 3819, CHECK'ler ve migration kaydı değişmedi; satır silinince OK → P12 durumu, drift 0. P12 durumundaki DB (mysql/turn/system_logo satırları dolu) → `migrate deploy` OK, `migrate status` güncel, drift 0.
+- `whatsapp-setting.test.ts` (yeni, app kullanıcısı): geçerli null/http/https/port/yol/IPv6/200 karakter; ret: anahtar varyantları, value_json NULL/`{}`/ek alan/dizi/tip, secret_enc, şema (`ftp`, `HTTP`, `//`, boş, `http://`), `@ ? #`, boşluk/tab/`\n`/`\r`/NUL/DEL/U+0085/NBSP/U+2028/U+3000, 201 karakter.
+- Güncellenen: `audit-immutability-p11` ve `branding-p12` geçersiz anahtar listeleri (`WHATSAPP`, `WhatsApp`, `whatsapp `…), `session-history-p8` ikili CHECK sayısı 25 → 26. `test:int` **479/479**, typecheck + lint temiz.

@@ -306,5 +306,5 @@ export async function whatsappTest(svc: RequestService, ctx: AuditContext, auth:
   const out = await n.test(phone);
   await writeAudit(svc.d.db, ctx, { ...who(auth, tenantId), action: "settings.whatsapp.test", entity: "tenant_request_settings", entityId: tenantId, result: out.ok ? "success" : "fail", newValue: { recipient: maskPhone(phone), result: out.ok ? "success" : "fail" } });
   svc.d.metrics.inc("rs_request_notify_total", { channel: "whatsapp_test", result: out.ok ? "ok" : "failed" });
-  return out;
+  return { ok: out.ok, message: out.message }; // AC-152: adres/neden tenant yanıtına girmez
 }

@@ -109,7 +109,7 @@ Prisma şeması `apps/server/prisma/schema.prisma` (sahibi dba). Ortak kurallar:
 | `session_consents` | id, session_id, tenant_id, level `VIEW\|CONTROL`, decision `GRANTED\|DENIED\|REVOKED`, source `UI\|HOTKEY\|RECONNECT\|SYSTEM\|TECH` (TECH: P7, teknisyen bırakması — ADR-0013), consent_text_id?, consent_sha256 CHAR(64)?, ip, user_agent, created_at | IX(session_id, created_at); AC-29, AC-62, AC-111 zaman çizelgesi |
 | `session_files` | id, session_id, tenant_id, direction `TO_CUSTOMER\|TO_TECH`, file_name VARCHAR(255), size_bytes BIGINT, sha256 CHAR(64), result `OK\|REJECTED\|CANCELLED\|CORRUPT`, created_at | AC-55; içerik yok |
 | `audit_logs` (G-15: `app` DB kullanıcısı yalnız INSERT/SELECT/DELETE; DELETE tetikleyiciyle sınırlı) | id BIGINT AI, created_at, tenant_id?, user_id?, username VARCHAR(190)?, action VARCHAR(60), entity VARCHAR(40), entity_id VARCHAR(40)?, old_value JSON?, new_value JSON?, ip_address VARCHAR(45)?, user_agent VARCHAR(300)?, result `success\|fail`, correlation_id CHAR(26)? | IX(tenant_id, created_at), IX(tenant_id, user_id, created_at), IX(tenant_id, action, created_at); `updated_at` yok (append-only istisnası) |
-| `system_settings` | key VARCHAR(60) PK, value_json JSON?, secret_enc VARBINARY?, updated_by, updated_at | MySQL ayarları, sistem logosu, TURN secret (şifreli) |
+| `system_settings` | key VARCHAR(60) PK, value_json JSON?, secret_enc VARBINARY?, updated_by, updated_at | MySQL ayarları, sistem logosu, TURN secret (şifreli), **`whatsapp`** (P12b, AC-196: `value_json {url: string\|null}`, `secret_enc` NULL — servis API anahtarı desteklenince Sonra; `url` null = panel kaydı yok → `WHATSAPP_SERVICE_URL`; CHECK `system_settings_key_chk` += `whatsapp` + anahtar JSON şeması, dba) |
 
 İlişkiler: tenants 1-N users, support_sessions, consent_texts, audit_logs; users 1-N auth_sessions,
 user_permissions, support_sessions(technician); support_sessions 1-N session_consents, session_files.
@@ -140,6 +140,8 @@ FK davranışı: `ON DELETE RESTRICT` (hiçbir cascade yok; hard delete yalnız 
 **dba sapma notu (P11, 2026-11-13):** (1) `system_settings` + `created_at` (dba kuralı); `updated_by` FK users RESTRICT. Anahtar CHECK'i ikili `mysql|turn` (ADR-0014); `value_json` için anahtar başına JSON şeması (`additionalProperties:false`, gizli değer `secret_enc`'te); turn:/turns: URL'si varsa secret zorunlu. (2) §3.3 DELETE tetikleyicisi `NOW()` yerine `CONVERT_TZ(SYSDATE(3), @@session.time_zone, '+00:00')` kullanıyor ve fail-closed çalışıyor: `SET TIMESTAMP` (yetki gerektirmez) `NOW()`'ı ileri alıp 730 gün sınırını aşabiliyordu. (3) Binlog açıkken migrator tetikleyici oluşturabilsin diye mysqld `--log-bin-trust-function-creators=1` (compose, test-db, CI). SUPER verilmedi; 8.4'te bu değişken deprecated. (4) `app`'e audit_logs DELETE yetkisi **verilmedi**; tetikleyici kuruldu, yetki P13 retention ile gelecek (§3.3'teki INSERT/SELECT/DELETE o pakette geçerli olur). (5) audit indeksleri: IX(tenant_id, user_id, created_at) yerine IX(user_id, created_at), ek olarak IX(action, created_at) (Super Admin tüm tenant filtreleri). Ayrıntı `docs/db-notlari.md` P11.
 
 **dba notu (P12, 2026-11-13):** Yeni tablo/sütun yok (`tenants.logo_path`, `users.avatar_path`, `users.theme` P1'den). Migration `20261113120000_p12_branding` yalnız CHECK: (1) `system_settings_key_chk` += `system_logo` (ikili); `system_settings_system_logo_chk` value_json `{path}` (`additionalProperties:false`), secret_enc NULL. (2) Yol biçimi `{öndek}/{[A-Za-z0-9_-]16..100}.{png|jpg|webp}` (yükleme köküne göreli, `uploads/` öneki yok): `tenants_logo_path_chk` öndek = satırın id'si; `users_avatar_path_chk` öndek = tenant_id, Super Admin → `system`; sistem logosu `system/`. Öndek satırın tenant'ına bağlı → başka tenant klasörü DB'ye yazılamaz (AC-84). `users_theme_chk` zaten ikili. Yetki değişmedi. Ayrıntı `docs/db-notlari.md` P12.
+
+**dba notu (WhatsApp servis ayarı, 2026-11-14):** `system_settings` anahtarı `whatsapp` eklendi (migration `20261114090000_whatsapp_service_setting`, yalnız CHECK): key CHECK'i ikili `mysql|turn|system_logo|whatsapp`; `system_settings_whatsapp_chk` value_json `{url: string|null}` (tek alan), url `^https?://[^@?#\s\p{Cc}]+\z` ('c'), ≤ 200; secret_enc NULL. Tasarımla uyumlu (P12b, AC-196); sapma yok. Satır yok/`url:null` → `WHATSAPP_SERVICE_URL`. Ayrıntı `docs/db-notlari.md`.
 
 **backend-dev sapma notu (P8, 2026-11-11):** (1) CSV, `reply.raw` yerine `reply.send(Readable)` ile akıyor; Fastify kancaları/başlıkları korunuyor, davranış §5 ile aynı. (2) PATCH notunda CRLF → LF normalize ediliyor; tek `\r` hâlâ 400. (3) Admit'te 2 kod noktasından kısa ad (zod UTF-16 / DB CHAR_LENGTH farkı) NULL yazılıyor, admit düşmüyor. (4) Audit maskesinde `ticketNo` izinli anahtar. Ayrıntı: `docs/implementation.md` "Backend P8".
 
@@ -345,7 +347,7 @@ Go istemcinin `internal/*` paketleri birer dosyayla başlar; arayüz (interface)
 |---|---|
 | `NODE_ENV`, `PORT` (3001), `PUBLIC_BASE_URL` (staging: `https://remote.noktabilisim.net` — 2026-11-12, host nginx → Caddy, ADR-0015; önceki `https://185.126.217.99:4450`; prod: K1) | Link, firma indirme bağlantısı, WhatsApp mesajındaki panel linki |
 | `MIN_AGENT_VERSION` (P8b r2; opsiyonel semver, boş = kontrol yok) | AGENT sürümü düşükse 426 `CLIENT_OUTDATED` (mimari-e9 §13.4; güvenlik yamasında runbook adımıyla yükseltilir) |
-| `WHATSAPP_SERVICE_URL` (P8b; vars. `http://89.252.189.211:3000`, sistem düzeyi — tenant değiştiremez) | Talep bildirimi + test (mimari-e9 §6, §8; prod ön koşulu K13) |
+| `WHATSAPP_SERVICE_URL` (P8b; vars. `http://89.252.189.211:3000`, sistem düzeyi — tenant değiştiremez; P12b'den itibaren Super Admin panel kaydı varsa onun yerine geçer, AC-196) | Talep bildirimi + test (mimari-e9 §6, §8; prod ön koşulu K13) |
 | `DATABASE_URL` | MySQL, **`app` kullanıcısı** (Prisma). Panel MySQL ayar ekranı bu değeri **test eder ve şifreli saklar**; uygulama yeniden başlatmada `DATABASE_URL` öncelikli (ADR-0003) |
 | `MIGRATE_DATABASE_URL` | Yalnız `migrate` servisinde, **`migrator` kullanıcısı** (G-15); server konteynerine verilmez |
 | `TRUSTED_PROXY_CIDR` | Caddy'nin compose ağı adresi (G-11) |
@@ -448,6 +450,7 @@ Güvenlik raporu Tur 0 kaynaklı zorunlu testler:
 | P10 | Hesap güvenliği + SMTP: TOTP 2FA + kurtarma, şifre değişimi/sıfırlama e-postası, boşta 30 dk/8 sa, tüm cihazlardan çıkış (**→ endByTechnician**), **hesap geneli kilit + bildirim e-postası**; SMTP ayar + test (**netguard, genel hata, 5/dk**); oturum linki e-postası (**20/sa**) | 10(rev.), 65(rev., e-posta kısmı), 66, 67, 68, 78(SMTP), 79, 80, 115(logout-all), 122, **151** (E9 e-posta bildirim kanalı + "Test maili gönder" — mimari-e9 §6) | P9 | dba → (backend ‖ frontend) |
 | P11 | Sistem ayarları + audit ekranı: MySQL ayar/test, TURN ayar, audit listesi/filtre/405, audit CSV (**formül kaçışı**), audit tetikleyicileri (**app kullanıcısıyla düşürülemez testi**), aydınlatma metni düzenleme | 76, 77, 78, 123, 124(audit CSV) | P10 | (backend ‖ frontend) |
 | P12 | Marka ve kişiselleştirme: logo/avatar yükleme (magic bytes, sharp), avatar baş harf, tema (DB + flaş yok), ikon/token lint, reduced-motion | 81–85, 87 | P11 | (backend ‖ frontend) |
+| P12b | WhatsApp servisi sistem ayarı (kullanıcı kararı 2026-11-13, Projeler/CLAUDE.md §2.2): `system_settings.whatsapp`, GET/PUT/DELETE + test uçları (mimari-api Yönetim), notifier'ın etkin adresi çalışırken okuması, Sistem ayarları > WhatsApp servisi sekmesi (kaynak, güvensiz uyarısı, test), audit | 196 (+152 revize) | P12 | dba → (backend ‖ frontend) |
 | P13 | Prod operasyon + dokümantasyon: prod deploy (**K1 alan adı + TURN ayrı IP/443 kararı ön koşul**), yedek/geri yükleme testi, retention işi, runbook (**attestation/yayın, denied-peer-ip güncelleme, staging güvenlik duvarı, tenant firma doğrulaması, kötüye kullanım bildirimi**), README/api/kılavuz/datasheet/PDF | 88, 91, 92(rev.), 93 (+ veri saklama NFR) | P12 | devops ‖ teknik-yazar |
 
 ### 10.3 Paket başına dokunulacak yerler ve "bitti" tanımı
@@ -545,7 +548,8 @@ Go: `github.com/pion/webrtc/v4` (MIT), `github.com/coder/websocket` (ISC, bakım
 | 128 | `agent-win.yml` attestation, `deploy/agent/verify-and-publish.sh`, `agent-watch.yml`, istemci "Hakkında" satırı | P6 |
 | 129–164 | E9 — ayrıntılı eşleme `docs/mimari-e9.md` §11 (AC-151 → P10) | P8b-1, P8b-2, P10 |
 | 165–195 | E10 — ayrıntılı eşleme `docs/mimari-e10.md` §13 | P8c-1, P8c-2 |
-Karşılığı olmayan AC: **yok** (AC-1..AC-195; E9 eşlemesi mimari-e9 §11, E10 eşlemesi mimari-e10 §13).
+| 196 | `system_settings.whatsapp`, `/admin/settings/whatsapp` (+`/test`), `notify/whatsapp.ts` etkin adres, `web/app/(panel)/admin/settings` WhatsApp sekmesi | P12b |
+Karşılığı olmayan AC: **yok** (AC-1..AC-196; E9 eşlemesi mimari-e9 §11, E10 eşlemesi mimari-e10 §13).
 
 ## 12. Açık kararlar
 | # | Konu | Durum / varsayılan karar | Sahibi |

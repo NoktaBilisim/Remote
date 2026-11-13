@@ -1,3 +1,124 @@
+# Güvenlik Raporu — P12b turu — Kod turu 2 / doğrulama (2026-11-13)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 açık (B-P12b-4, Sonra). B-P12b-1, -2, -3 ve -6 kapandı. B-P12b-5 kısmen kapandı: test ucuna global tavan eklendi, PUT/DELETE hız sınırı "Sonra"ya bırakıldı. Gerilemeye rastlanmadı.
+
+Kapsam: düzeltme turu 1 değişiklikleri: `notify/whatsapp.ts`, `settings/{routes,system}.ts`, `env.ts`, runbook §env satırı. Koşulanlar: server `test/unit` **347/347**, contracts **75/75**, `pnpm -r run typecheck` temiz. DB'li entegrasyon testleri bu turda da koşulmadı.
+
+## Kapanan bulgular
+- **B-P12b-1 (KAPANDI):** `setUrl` artık önce sınıflandırıyor (`isParsableServiceUrl` hata fırlatmıyor), atamayı sonra yapıyor (`whatsapp.ts` `setUrl`). Ayrıştırılamayan adreste `insecure=true` → kanal kapalı oluyor ve `alarm:"whatsapp_invalid_url"` logu yazılıyor (adres loga girmiyor). `isInsecureServiceUrl` de ayrıştırılamayan adres için her ortamda `true` dönüyor. Bu sayede `getWhatsappSettings` artık 500 üretmiyor; ekranda güvensiz uyarısı görünüyor. Test ucu bu durumda istek göndermeden `ok:false` dönüyor.
+- **B-P12b-2 (KAPANDI):** PUT/DELETE + belleğe uygulama süreç içi `serialQueue` ile sıralı çalışıyor (`settings/routes.ts`). Uygulanan değer, TX'te yazılan değerin kendisi (`save…` → `input.url`, `delete…` → env); DB yeniden okunmuyor. Hata zinciri kuyruğu kırmıyor (`tail = run.catch(...)`). Zod doğrulaması kuyruk dışında yapıldığı için geçersiz istek sırayı bekletmiyor. Tek süreç varsayımı (ADR-0005) sürüyor; çok örnekli kurulumda yeniden değerlendirilmeli.
+- **B-P12b-3 (KAPANDI):** `env.ts:68` artık `waServiceUrlSchema` kullanıyor. Doğrulandı: `http://u:p@h` ve `http://h/?a=1` reddediliyor, sondaki `/` kırpılıyor. Hata mesajında yalnız anahtar adı ve kural metni var, değer yok (`loadEnv`). Boş değer `withoutBlanks` ile tanımsız sayılıp varsayılana düşüyor; staging'deki `WHATSAPP_SERVICE_URL=` (boş) satırı açılışı bozmuyor. Runbook env satırı "uymazsa server açılmaz" diye güncellenmiş.
+- **B-P12b-5 (KISMEN):** test ucuna MySQL kalıbıyla aynı `global` 20/dk eklendi (`GLOBAL_KEY`, 21. → 429). PUT/DELETE hız sınırı "Sonra"ya bırakıldı. Gerekçe: yalnız SUPER_ADMIN kullanabiliyor ve her işlem audit'e yazılıyor. Risk kabulü uygun; §9'a eklenmeli.
+- **B-P12b-6 (KAPANDI):** `void res.body?.cancel().catch(() => undefined)` sonuç sınıflandırılmadan önce çağrılıyor; 3xx ve hata yanıtlarında da çalışıyor. `FetchLike` tipine isteğe bağlı `body` eklendi, test sahteleri gövdesiz de çalışıyor.
+
+## Gerileme kontrolü (bulgu yok)
+- K13: `production` + `http` + genel adres kuralı değişmedi. Kod turu 1'deki Node denemeleri (ondalık/onaltılı/IPv4-mapped/DNS adı) aynı sonucu veriyor; kural yalnız "ayrıştırılamıyor → kapalı" yönünde sıkılaştı.
+- Yönlendirme (`redirect:"manual"`), 8 sn zaman aşımı, sabit test mesajları ve log içeriği değişmedi.
+- Audit: Super Admin testi artık `recipient` anahtarını kullanıyor (QA hizalaması). Değer yine `maskPhone`; `recipient` kara listede değil, maske değerin kendisinde uygulanıyor.
+- Yetki/CSRF hook'ları ve tenant yanıtları (`serviceConfigured`/`insecure`, adres yok) değişmedi.
+- Hız sınırı sırası: `perUser.hit || global.hit` kısa devre yapıyor. Kullanıcı kotası dolmuşsa global kova tüketilmiyor, kullanıcı kotası sürerken global dolarsa kullanıcı hakkı harcanıyor. MySQL testiyle aynı davranış, kabul edilebilir.
+
+## Açık kalan (Sonra — `docs/gereksinimler.md` §9'a eklenmesi önerilir)
+- B-P12b-4 [DÜŞÜK]: adres normalize edilerek saklanmalı, `\p{Cf}\p{Zl}\p{Zp}` reddedilmeli; zod ve DB CHECK birlikte değişmeli (backend-dev + dba).
+- B-P12b-5 kalan kısmı [DÜŞÜK]: PUT/DELETE için kullanıcı başına sınır veya değişmeyen kayıtta audit yazmama (backend-dev).
+- Bilgi (T33 risk kabulü): K13'te `169.254/16` link-local aralığının "genel" sayılması ve bildirim hedefini değiştiren ayarlarda step-up 2FA.
+
+## Otomatik tarama
+- Kod turu 1 çıktıları geçerli: `pnpm audit` açık yok, gizli bilgi taraması temiz. Düzeltme turunda yeni bağımlılık eklenmedi.
+
+---
+
+# Güvenlik Raporu — P12b turu (Super Admin WhatsApp servisi ayarı, AC-196) — Kod turu 1 (2026-11-13)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 6 (B-P12b-1..6). Hepsi `docs/gereksinimler.md` §9'a "Sonra" olarak önerilir; B-P12b-1 ve B-P12b-3 küçük olduğu için bu paketin düzeltme turunda kapatılabilir.
+
+Kapsam: commit edilmemiş P12b değişiklikleri (`git diff` + yeni dosyalar). Okunanlar: migration `20261114090000_whatsapp_service_setting` (up/down), contracts `api/system-settings.ts` ve `audit.ts`, server `notify/whatsapp.ts`, `settings/{system,routes}.ts`, `app.ts`, `requests/panel.ts`, `auth/guards.ts`, `audit/mask.ts`, `env.ts`; web `admin/settings/whatsapp/*` ve `lib/admin-settings/whatsapp.ts`. Koşulan testler: `test/unit/whatsapp-runtime-p12b.test.ts` **4/4**, contracts `test/whatsapp-setting-p12b.test.ts` **4/4** geçti. DB'li entegrasyon testleri bu turda koşulmadı.
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] B-P12b-1 `setUrl` atama sırası: ayrıştırılamayan adreste eski `insecure` değeri kalıyor — A04 Insecure Design (fail-closed)
+Yer: `apps/server/src/notify/whatsapp.ts:146-150`; `apps/server/src/app.ts:233-239` (onReady catch)
+Sorun: `this.url = url` önce atanıyor, `isInsecureServiceUrl` (içinde `new URL`) sonra çalışıyor. `new URL` hata fırlatırsa `url` yeni değerde kalır ama `insecureNow` önceki adresin değerini korur. Açılışta bu hata `onReady` içinde yakalanıyor ve "env kullanılıyor" logu yazılıyor. Oysa etkin adres env değil, bozuk panel değeri oluyor; log yanlış bilgi veriyor. DB CHECK yalnız regex uyguluyor (`http://a:99999` CHECK'ten geçer, WHATWG'de geçersizdir). Zod `parsesAsUrl` bu yüzden yalnız API yolunu koruyor; migrator ile elle yazılmış ya da ileride değişen bir satır bu duruma düşebilir.
+İstismar senaryosu: Doğrudan istismar yok. Ayrıştırılamayan adrese `fetch` de gidemez (`unreachable`). Sorun güvenlik kapısının fail-closed tasarlanmamış olması ve alarm logunun yanıltıcı olması.
+Düzeltme: Önce `const insecure = isInsecureServiceUrl(...)` hesaplanmalı (try/catch içinde; ayrıştırılamıyorsa kanal kapalı sayılmalı, `alarm:"whatsapp_invalid_url"`), atamalar sonra yapılmalı. Ya da `effectiveWhatsappUrl` panel değerini `waServiceUrlSchema` ile yeniden doğrulamalı; geçmezse env'e dönmeli ve alarm yazmalı. Bunun için birim testi eklenmeli. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] B-P12b-2 Eşzamanlı PUT/DELETE: bellekteki etkin adres DB'den farklı kalabiliyor — A04 (yarış durumu)
+Yer: `apps/server/src/settings/routes.ts:100-108` (`save…` TX'i bittikten sonra ayrıca `applyWhatsapp` → `effectiveWhatsappUrl` DB'yi yeniden okuyor)
+Sorun: A ve B aynı anda PUT yapınca şu sıra oluşabiliyor: A yazar → A okur(A) → B yazar → B okur(B) → B `setUrl(B)` → A `setUrl(A)`. Sonuçta DB ve ekran B'yi gösteriyor, bildirimler ve testler ise A'ya gidiyor. Bu durum yeniden başlatmaya kadar sürüyor. K13 bozulmuyor, çünkü `insecure` her zaman gerçekten kullanılan adresten hesaplanıyor. Bozulan, AC-196'daki "ekranda görünen = kullanılan" tutarlılığı ve audit'teki son değerin gerçeği yansıtması.
+İstismar senaryosu: Kötü niyetli kullanım için Super Admin olmak gerekiyor; ikinci bir Super Admin'in yaptığı değişikliği sessizce geçersiz kılmak gibi denetim sorunları doğabilir. Olasılığı düşük.
+Düzeltme: Uygula adımı süreç içinde sıraya alınmalı (tek promise zinciri ile `PUT/DELETE + apply` seri çalışmalı). Ya da apply, TX'te yazılan değeri (`input.url` / env) doğrudan `setUrl` ile uygulamalı ve okuma ile yazma aynı kilit altında yapılmalı. Eşzamanlı iki PUT için bir test eklenmeli. (atanan ajan: backend-dev)
+
+### [DÜŞÜK] B-P12b-3 `WHATSAPP_SERVICE_URL` (env) panel kuralına tabi değil: userinfo/sorgu GET yanıtına ve audit'e açık gidebilir, `endpoint()` birleştirmesi bozulur — A05 Security Misconfiguration / A09
+Yer: `apps/server/src/env.ts:65` (`z.url()` + yalnız şema kontrolü); `apps/server/src/settings/system.ts:281` (GET `url`), `:300` ve `:322` (audit `oldValue`/`newValue` env adresi); `apps/server/src/notify/whatsapp.ts:111` (`endpoint` = string birleştirme)
+Sorun: Panel adresinde `@ ? #` yasak, env adresinde değil. Operatör env'e `http://kullanici:sifre@host` yazarsa bu değer Super Admin GET yanıtında görünür ve her PUT/DELETE'te audit'e açık yazılır. Audit maskesi `url` anahtarını maskelemiyor. Ayrıca P12b'de `new URL(path, base)` yerine string birleştirmeye geçildi. Env adresinde sorgu varsa (`…/?k=v`) istek `…/?k=v/send-message` adresine gider ve sessizce bozulur.
+İstismar senaryosu: Audit okuma yetkisi olan biri (Super Admin, audit CSV dışa aktarımı) env'deki servis kimlik bilgisini görür. whatsapp-bildirim servisi bugün kimlik doğrulamasız olduğu için etkisi düşük.
+Düzeltme: `env.ts` tek kaynak olan `waServiceUrlSchema` ile doğrulama yapmalı; boş değere ayrıca izin verilmeli. Kurala uymayan env değerinde açılış hata vermeli (fail-fast). Runbook'a "env adresi panel kuralıyla aynı" notu eklenmeli. (atanan ajan: backend-dev; runbook notu: devops)
+
+### [DÜŞÜK] B-P12b-4 Adres normalize edilmeden saklanıyor; ondalık/onaltılı/percent-encoded host ve görünmez `\p{Cf}` karakterleri kabul ediliyor — A09 Security Logging (yanıltıcı audit/ekran)
+Yer: `packages/contracts/src/api/system-settings.ts:142` (`WA_URL_RE` yalnız `\p{Cc}` dışlıyor), `:158` (transform yalnız sondaki `/` kırpıyor)
+Sorun: Node'da denendi (`isInsecureServiceUrl`, production=true):
+- `http://3232235777` → `192.168.1.1`, `http://0x7f.1` → `127.0.0.1`, `http://%31%30.0.0.1` → `10.0.0.1`: zod kabul ediyor, ham hâli saklanıyor.
+- `http://exa​mple.com` (sıfır genişlikli boşluk, `\p{Cf}`) zod'dan geçiyor. Ekranda ve audit'te `example.com` gibi görünüyor; WHATWG bu karakteri atıyor.
+
+K13 sınıflandırması ve fetch aynı WHATWG ayrıştırıcısını kullandığı için **bypass yok** (ayrıntı aşağıda). Sorun, audit okuyucusunun ve ikinci Super Admin'in gerçekte hangi hosta gidildiğini ham metinden anlayamaması. Projenin diğer alanlarında kullanılan `CONTROL_CHARS` (`\p{Cf}\p{Zl}\p{Zp}` dahil) burada uygulanmıyor.
+İstismar senaryosu: Ele geçirilmiş bir Super Admin hesabı, iç ağ ya da dış adresi zararsız görünen bir biçimde kaydeder (ör. `http://3232235777:3000`). Denetim sırasında bu adres fark edilmez.
+Düzeltme: Transform aşamasında `new URL(v)` ile kanonik `origin + pathname` (sondaki `/` kırpılmış) saklanmalı. Regex'e `\p{Cf}\p{Zl}\p{Zp}` eklenmeli ve DB CHECK deseni aynı şekilde genişletilmeli (zod ↔ CHECK birebir kuralı). İstenirse host için yalnız noktalı ondalık IPv4, köşeli IPv6 ya da LDH ad kabul edilebilir. (atanan ajan: backend-dev; CHECK: dba)
+
+### [DÜŞÜK] B-P12b-5 Test ucunda sistem geneli tavan yok, PUT/DELETE sınırsız — A04 (kaynak tüketimi / audit şişmesi)
+Yer: `apps/server/src/settings/routes.ts:76` (yalnız `perUser` 5/dk); `:100-108` (PUT/DELETE için sınır yok)
+Sorun: MySQL testinde B-P11-4 ile 20/dk global tavan var, WhatsApp testinde yok. Her PUT bir audit satırı yazıyor ve sınırı yok.
+İstismar senaryosu: Çalınmış bir Super Admin oturumu döngüyle PUT atarak `audit_logs` tablosunu şişirir (silinemez tablo, saklama süresine kadar kalır) ve gerçek olayları gürültüye gömer. Birden çok Super Admin hesabıyla test ucu 5/dk × N hızla iç ağa yoklama yapar.
+Düzeltme: Test ucuna MySQL testindeki gibi `global` 20/dk eklenmeli. PUT/DELETE'e kullanıcı başına makul bir sınır (ör. 30/dk) ya da `changed:false` durumunda audit yazmama kuralı eklenmeli (aydınlatma metni kalıbı). (atanan ajan: backend-dev)
+
+### [DÜŞÜK] B-P12b-6 Yanıt gövdesi tüketilmiyor/iptal edilmiyor — A05
+Yer: `apps/server/src/notify/whatsapp.ts:285-289`
+Sorun: Zaman aşımı yalnız başlıklar gelene kadar geçerli. Başlıklar gelince zamanlayıcı temizleniyor ve gövde hiç okunmuyor. Undici'de okunmayan gövde, GC'ye kadar soketi ve tamponu tutabiliyor. Gövdenin yansıtılmaması doğru (sızıntı yok); eksik olan kaynak serbest bırakma.
+İstismar senaryosu: Super Admin'in seçtiği (ya da ele geçirilmiş) bir servis, sonsuz ve yavaş gövdeli 200 yanıtlar döner. Her bildirim ve denemede bir soket açık kalır (saatte en çok 300 + yeniden denemeler).
+Düzeltme: Sonuç sınıflandırıldıktan sonra `void res.body?.cancel()` çağrılmalı (`FetchLike` dönüş tipine `body` eklenmeli). (atanan ajan: backend-dev)
+
+## Odak maddeleri — doğrulama sonuçları (bulgu yok)
+- **K13 bypass (production + http + genel adres → kanal kapalı):** `isInsecureServiceUrl` ham metne değil, WHATWG `new URL(...).hostname` değerine bakıyor. Fetch de aynı ayrıştırıcıyı kullanıyor, bu yüzden iki taraf arasında ayrıştırma farkı yok. Node'da denenen girdiler:
+  - Ondalık/onaltılı/percent-encoded özel IP → özel (doğru).
+  - `[::ffff:127.0.0.1]` → özel, `[::ffff:8.8.8.8]` → genel (BlockList IPv4-mapped eşliyor).
+  - `0.0.0.0`, `localhost.` ve tüm DNS adları → genel → kapalı (fail-closed; DNS çözülmüyor, rebinding yok).
+  - `http://10.0.0.1\evil.com` → host `10.0.0.1` (ters bölü yol ayırıcı; fetch de aynı hosta gidiyor).
+  - Userinfo (`@`) regex ile yasak, bu yüzden `http://10.0.0.1@evil` hilesi yok.
+  - `endpoint()` yalnız `/…` ekliyor; host bölümünü değiştiremiyor.
+  
+  Kapalı kanalda hem test hem gönderim istek atmıyor (`test()` ön kontrolü + `post()` içinde `usable`).
+- **Yönlendirme:** `redirect:"manual"` gerçek Node 24 fetch'iyle denendi: 307 → `status 307, ok:false`, hedef sunucuya istek **gitmedi**. Sonuç `redirect`, sabit mesaj.
+- **Yanıt sızıntısı:** test yanıtı yalnız `{ok, message}` döndürüyor ve mesaj `WA_TEST_MESSAGES` sabitlerinden geliyor. Gövde, durum kodu, hata metni ve adres istemciye dönmüyor. Log'a yalnız `status`/`err.name`/`path` yazılıyor (numara ve adres yazılmıyor).
+- **Zaman aşımı:** 8 sn, `AbortController` ile DNS + bağlantı + başlıkları kapsıyor (gövde için B-P12b-6).
+- **Yetki:** plugin seviyesinde `requireAuth` + `requireSuperAdmin` preHandler var. Admin/User 403 alıyor. Web sayfası da 403'te uyarı gösteriyor, ama son söz sunucuda.
+- **CSRF:** PUT/DELETE/POST `requireAuth` içinde double-submit + Origin kontrolünden geçiyor.
+- **Tenant'a adres sızması (T33):** tenant `GET /settings/support-requests` yalnız `serviceConfigured`/`insecure` döndürüyor (`requests/panel.ts:230`). Tenant testi `{ok, message}` döndürüyor; `reason` ve adres çıkarılmış (`panel.ts:309`).
+- **Audit:** numaralar `maskPhone` ile maskeleniyor (Super Admin testinde `phone`, tenant testinde `recipient`). `url` açık yazılıyor. Panel kuralı userinfo/sorgu yasakladığı ve servis kimlik doğrulamasız olduğu için bu uygun (env istisnası için B-P12b-3). Eski→yeni değer ve kaynak kaydediliyor.
+- **Rate limit:** test 5/dk/kullanıcı (6. → 429), zod sonrası sayılıyor. Geçersiz girdi kotayı tüketmiyor.
+- **Runtime değişim:** sürmekte olan yeniden denemeler sonraki çağrıda yeni adresi kullanıyor (belgelenmiş). Güvensiz adrese geçişte alarm logu var, adres yazılmıyor.
+- **DB CHECK ↔ zod:** desen aynı. ICU'da `\z` kullanıldığı için sondaki `\n` reddediliyor. `secret_enc IS NULL`. Zod daha katı (UTF-16 uzunluk + WHATWG ayrıştırma), DB ise son savunma hattı. Fark B-P12b-1/-4'te. `down.sql` koruması var (satır varsa hiçbir şey değişmeden duruyor).
+- **Gizli bilgi:** diff'te sır yok. `89.252.189.211` varsayılanı zaten herkese açık (env varsayılanı/AC-152); yalnız `check-app-grants.sh` test verisinde geçiyor.
+
+## Bilgi (bulgu değil — T33 risk kabulü)
+- İç ağ adresi bilerek serbest. "Özel" listesi `169.254.0.0/16` (bulut metadata) ve `100.64/10` aralıklarını da içeriyor. Bu yüzden production'da `http://169.254.169.254` kanalı açık tutuyor. Yine de istek yalnız `POST` + JSON gövde ile gidiyor ve yanıt yansıtılmıyor; IMDSv2 ve GCP metadata bu isteği kabul etmez.
+- Test ucu sınırlı bir kör yoklama kehaneti sunuyor: ekranda `ok`, `timeout` ve "diğer" ayrımı görünüyor, audit'teki `reason` ise `redirect`/`http_error`/`unreachable` ayrımını da veriyor. Super Admin güvenilir aktör olduğundan kabul edilebilir.
+- Öneri (Sonra): K13 sınıflandırmasında link-local aralığı "özel" yerine "genel" sayılabilir. Ayrıca bildirim hedefini değiştiren sistem ayarları için yeniden kimlik doğrulama (step-up 2FA) düşünülebilir.
+
+## Otomatik tarama çıktıları
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- `git grep` gizli bilgi deseni (test/docs hariç): eşleşme yok.
+- `git log --all -- '*.env*'`: yalnız `.env.example`.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- Yok. T33 r3 maddelerinin (kaynak önceliği, yalnız SUPER_ADMIN, URL kuralı, yönlendirme izlenmemesi, K13, tenant'a sızmama) hepsi kodda bulundu.
+
+## Olumlu
+- Test sonuçları sabit mesajlarla ve sınıflandırılmış nedenlerle dönüyor. Servis yanıtı hiçbir yerde yansıtılmıyor.
+- K13 kontrolü her `setUrl` çağrısında etkin adresten yeniden hesaplanıyor. Güvensiz adreste test ve gönderim ağa hiç çıkmıyor.
+- Tek kaynak `waServiceUrlSchema` (web + server) ve onunla birebir DB CHECK var. Down migration veri kaybını engelleyen bir korumayla geliyor.
+- Tenant yanıtlarından `reason` ve adres bilinçli olarak çıkarılmış.
+
+---
+
 # Güvenlik Raporu — P12 turu — Doğrulama turu 1 (2026-11-13)
 DURUM: GEÇTİ
 Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 açık. B-P12-1, -2, -4 ve -5 kapandı. B-P12-3 P13'e devredildi; şu an kalıcı silme yok, yalnız pasife alma var, bu yüzden açık değil. Gereksinimler §9'a "Sonra (P13)" olarak eklenmeli.

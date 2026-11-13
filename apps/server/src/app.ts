@@ -44,7 +44,7 @@ import { MailService, type TransportFactory } from "./mail/service.ts";
 import { smtpSettingsRoutes } from "./tenants/smtp-routes.ts";
 import { adminTenantRoutes, tenantSettingsRoutes } from "./tenants/routes.ts";
 import { auditReadOnlyRoutes, auditRoutes } from "./audit/routes.ts";
-import { adminSettingsRoutes, applyTurn, consentTextRoutes } from "./settings/routes.ts";
+import { adminSettingsRoutes, applyTurn, applyWhatsapp, consentTextRoutes } from "./settings/routes.ts";
 import type { ProbeResult, ProbeTarget } from "./settings/mysql-probe.ts";
 import { DEFAULT_LOGO_URL } from "@remote/contracts/api/branding";
 import { fileRoutes, publicBrandingRoutes } from "./uploads/files.ts";
@@ -65,6 +65,8 @@ declare module "fastify" {
     /** P8b: destek talebi servisi + bildirim merkezi. */
     requests: RequestService;
     requestHub: RequestHub;
+    /** P12b (AC-196): WhatsApp istemcisi; etkin adres panel kaydı > env (`applyWhatsapp`). */
+    whatsapp: WhatsappNotifier;
     /** P10: gizli alan şifreleme, e-posta, hesap güvenliği. */
     secrets: SecretBox;
     netguard: NetGuard;
@@ -226,6 +228,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const hub: RequestHub = new RequestHub(rooms.clock, (tenantId: string) => requests.statesOf(tenantId), (err) => app.log.error({ err }, "talep sıra yayını hatası"));
   const requestLimits = createRequestLimits();
   const notifier = new WhatsappNotifier({ url: env.WHATSAPP_SERVICE_URL, production: env.NODE_ENV === "production", publicBaseUrl: env.PUBLIC_BASE_URL, db: deps.db, log: app.log, metrics, clock: rooms.clock, ...(deps.whatsappFetch ? { fetch: deps.whatsappFetch } : {}) });
+  app.decorate("whatsapp", notifier);
+  // P12b (AC-196): panel WhatsApp adresi varsa env yerine o; okunamazsa env ile devam (alarm logu).
+  app.addHook("onReady", async () => {
+    try {
+      await applyWhatsapp(app);
+    } catch (err) {
+      app.log.error({ err, alarm: "whatsapp_settings_load" }, "WhatsApp panel ayarı okunamadı; env kullanılıyor");
+    }
+  });
   const requests: RequestService = new RequestService({ db: deps.db, env, log: app.log, rooms, hub, limits: requestLimits, notifier, mail, metrics, clock: rooms.clock, timing: rooms.timing });
   app.decorate("requests", requests);
   app.decorate("requestHub", hub);

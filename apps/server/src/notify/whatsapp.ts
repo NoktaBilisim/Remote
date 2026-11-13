@@ -8,6 +8,9 @@
 //    bastırılır; pencere sonunda bastırılan her alıcıya tek özet (özet de sınıra dahil). Bastırma audit'i pencere başına
 //    tenant için 1 kez; global aşım alarm logu.
 //  - Son sonuç alıcı başına audit `request.notify{channel, recipient(maske), result, attempts}`. Numara loga yazılmaz.
+//  - P12b (AC-196): etkin adres çalışırken değişir (`setUrl`): açılışta ve Super Admin PUT/DELETE sonrası panel kaydı
+//    (`system_settings.whatsapp`) > env. configured/insecure/usable her zaman etkin adresten; güvensiz adrese geçişte alarm.
+import { WA_TEST_MESSAGES, type WhatsappTestReason } from "@remote/contracts/api/system-settings";
 import { BlockList, isIP } from "node:net";
 import { maskPhone } from "../audit/mask.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
@@ -21,7 +24,7 @@ export const WA_LIMITS = { tenantPerHour: 30, recipientPerHour: 10, globalPerHou
 const HOUR_MS = 3_600_000;
 const FIRM_MAX = 60;
 
-export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal; redirect: "error" }) => Promise<{ ok: boolean; status: number }>;
+export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal; redirect: "manual" }) => Promise<{ ok: boolean; status: number; body?: { cancel(): Promise<void> } | null }>;
 
 interface Log {
   info(obj: object, msg: string): void;
@@ -30,6 +33,7 @@ interface Log {
 }
 
 export interface WhatsappDeps {
+  /** Başlangıç adresi (env `WHATSAPP_SERVICE_URL`); panel kaydı `setUrl` ile uygulanır. */
   url: string;
   production: boolean;
   publicBaseUrl: string;
@@ -56,9 +60,20 @@ export function isPrivateHost(host: string): boolean {
 
 /** §13.5 fail-closed: production + `http://` + özel olmayan host → güvensiz. */
 export function isInsecureServiceUrl(url: string, production: boolean): boolean {
+  if (!isParsableServiceUrl(url)) return true; // B-P12b-1: ayrıştırılamayan adres her ortamda fail-closed
   if (!production) return false;
   const u = new URL(url);
   return u.protocol === "http:" && !isPrivateHost(u.hostname);
+}
+
+/** WHATWG ile ayrıştırılabilir http(s) adresi mi (DB CHECK yalnız regex; `http://a:99999` CHECK'ten geçer). */
+export function isParsableServiceUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return (u.protocol === "http:" || u.protocol === "https:") && u.hostname !== "";
+  } catch {
+    return false;
+  }
 }
 
 /** Firma adı: tek satır, WhatsApp biçim karakterleri (`* _ ~ \``) yok, ≤ 60 karakter. */
@@ -92,10 +107,20 @@ interface Window {
 }
 
 export type SendResult = "success" | "fail";
+/** Tek çağrı sonucu: başarı ya da sınıflandırılmış neden (ayrıntı yalnız log). */
+export type PostOutcome = "ok" | Exclude<WhatsappTestReason, "unconfigured" | "insecure">;
+export interface WhatsappTestOutcome {
+  ok: boolean;
+  message: string;
+  reason: WhatsappTestReason | null;
+}
+
+/** Servis yolu: `{url}/send-message` (adres yolu korunur; sondaki `/` kırpılır). */
+const endpoint = (base: string, path: string): string => `${base.replace(/\/+$/, "")}${path}`;
 
 export class WhatsappNotifier {
-  readonly insecure: boolean;
-  readonly configured: boolean;
+  private url: string;
+  private insecureNow: boolean;
   private readonly d: WhatsappDeps;
   private readonly fetchFn: FetchLike;
   private win: Window;
@@ -106,10 +131,38 @@ export class WhatsappNotifier {
   constructor(d: WhatsappDeps) {
     this.d = d;
     this.fetchFn = d.fetch ?? ((url, init) => fetch(url, init));
-    this.configured = Boolean(d.url);
-    this.insecure = this.configured && isInsecureServiceUrl(d.url, d.production);
-    if (this.insecure) d.log.warn({ alarm: "whatsapp_insecure" }, "WhatsApp servisi güvenli yapılandırılmamış (production + http + genel adres): kanal kapalı");
+    this.url = "";
+    this.insecureNow = false;
+    this.setUrl(d.url);
     this.win = this.newWindow(this.windowStart(d.clock.now()));
+  }
+
+  /** Etkin adres (yalnız Super Admin görünümü ve testler; tenant yanıtlarına girmez). */
+  get effectiveUrl(): string {
+    return this.url;
+  }
+
+  get configured(): boolean {
+    return this.url !== "";
+  }
+
+  get insecure(): boolean {
+    return this.insecureNow;
+  }
+
+  /**
+   * Etkin adresi değiştirir (AC-196: yeniden başlatma yok; sonraki gönderim/test yeni adrese). Boş → yapılandırılmamış.
+   * Güvensiz adrese geçişte alarm logu (adres loga yazılmaz). Sürmekte olan denemeler sonraki çağrıda yeni adresi kullanır.
+   */
+  setUrl(url: string): void {
+    if (url === this.url && url !== "") return;
+    // B-P12b-1: önce sınıflandır (fırlatmaz), sonra ata — yarım güncelleme yok; ayrıştırılamayan adres → kanal kapalı.
+    const invalid = url !== "" && !isParsableServiceUrl(url);
+    const insecure = url !== "" && (invalid || isInsecureServiceUrl(url, this.d.production));
+    this.url = url;
+    this.insecureNow = insecure;
+    if (invalid) this.d.log.error({ alarm: "whatsapp_invalid_url" }, "WhatsApp servis adresi ayrıştırılamıyor: kanal kapalı");
+    else if (insecure) this.d.log.warn({ alarm: "whatsapp_insecure" }, "WhatsApp servisi güvenli yapılandırılmamış (production + http + genel adres): kanal kapalı");
   }
 
   /** Kanal kullanılabilir mi (ayar ekranı ve gönderim kapısı). */
@@ -199,8 +252,9 @@ export class WhatsappNotifier {
   private attempt(tenantId: string, phone: string, message: string, n: number): void {
     const delay = WA_RETRY_DELAYS_MS[n - 1] ?? 0;
     const run = (): void => {
-      void this.post("/send-message", { phoneNumber: servicePhone(phone), message }).then(async (ok) => {
+      void this.post("/send-message", { phoneNumber: servicePhone(phone), message }).then(async (outcome) => {
         if (this.closed) return;
+        const ok = outcome === "ok";
         if (ok || n >= WA_RETRY_DELAYS_MS.length) {
           this.d.metrics.inc("rs_request_notify_total", { channel: "whatsapp", result: ok ? "ok" : "failed" });
           await this.audit(tenantId, phone, ok ? "success" : "fail", n);
@@ -233,28 +287,39 @@ export class WhatsappNotifier {
     }
   }
 
-  /** Tek çağrı, 8 sn zaman aşımı; 2xx → true. Ağ/zaman aşımı/3xx (yönlendirme izlenmez, S8b-1)/5xx → false (ayrıntı log, numara yok). */
-  private async post(path: string, body: { phoneNumber: string; message?: string }): Promise<boolean> {
-    if (!this.usable) return false;
+  /**
+   * Tek çağrı, 8 sn zaman aşımı; 2xx → ok. 3xx → `redirect` (izlenmez, S8b-1: `redirect: "manual"`), diğer → `http_error`,
+   * zaman aşımı → `timeout`, ağ → `unreachable`. Ayrıntı log (durum kodu/hata adı; numara, adres, yanıt gövdesi yok).
+   */
+  private async post(path: string, body: { phoneNumber: string; message?: string }): Promise<PostOutcome> {
+    if (!this.usable) return "unreachable";
     const ctrl = new AbortController();
     // Zaman aşımı enjekte saatten (realClock unref'li); denemeler arası beklemelerle aynı saat → test edilebilir.
     const timer = this.d.clock.setTimeout(() => ctrl.abort(), WA_TIMEOUT_MS);
     try {
-      const res = await this.fetchFn(new URL(path, this.d.url).toString(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal, redirect: "error" }); // S8b-1: 3xx izlenmez (SSRF)
-      if (!res.ok) this.d.log.warn({ event: "whatsapp_http_error", status: res.status, path }, "WhatsApp servisi hata döndürdü");
-      return res.ok;
+      const res = await this.fetchFn(endpoint(this.url, path), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal, redirect: "manual" }); // S8b-1: 3xx izlenmez (SSRF)
+      void res.body?.cancel().catch(() => undefined); // B-P12b-6: gövde okunmaz/yansıtılmaz; soket ve tampon bırakılır
+      if (res.ok) return "ok";
+      this.d.log.warn({ event: "whatsapp_http_error", status: res.status, path }, "WhatsApp servisi hata döndürdü");
+      return res.status >= 300 && res.status < 400 ? "redirect" : "http_error";
     } catch (err) {
-      this.d.log.warn({ event: "whatsapp_unreachable", path, err: err instanceof Error ? err.name : "unknown" }, "WhatsApp servisine ulaşılamadı");
-      return false;
+      const timedOut = ctrl.signal.aborted;
+      this.d.log.warn({ event: timedOut ? "whatsapp_timeout" : "whatsapp_unreachable", path, err: err instanceof Error ? err.name : "unknown" }, "WhatsApp servisine ulaşılamadı");
+      return timedOut ? "timeout" : "unreachable";
     } finally {
       this.d.clock.clearTimeout(timer);
     }
   }
 
-  /** "Test mesajı gönder" (AC-152): tek deneme, 8 sn. Çağıran usable kontrolünü yapar (502). */
-  async test(phone: string): Promise<{ ok: boolean; message: string }> {
-    const ok = await this.post("/test-send", { phoneNumber: servicePhone(phone) });
-    return { ok, message: ok ? "Test mesajı gönderildi." : "Servise ulaşılamadı veya servis hata döndürdü." };
+  /**
+   * "Test mesajı gönder" (AC-152, AC-196): etkin adrese tek deneme, 8 sn. Yapılandırılmamış/güvensiz → istek GÖNDERİLMEZ
+   * (`reason` unconfigured/insecure). Mesajlar sabit (`WA_TEST_MESSAGES`); servis yanıtı yansıtılmaz.
+   */
+  async test(phone: string): Promise<WhatsappTestOutcome> {
+    const pre: WhatsappTestReason | null = !this.configured ? "unconfigured" : this.insecure ? "insecure" : null;
+    const outcome: PostOutcome | WhatsappTestReason = pre ?? (await this.post("/test-send", { phoneNumber: servicePhone(phone) }));
+    if (outcome === "ok") return { ok: true, message: WA_TEST_MESSAGES.ok, reason: null };
+    return { ok: false, message: WA_TEST_MESSAGES[outcome], reason: outcome };
   }
 
   close(): void {

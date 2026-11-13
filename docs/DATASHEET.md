@@ -44,7 +44,7 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 | Kullanıcılar | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme |
 | Firmalar (Süper Yönetici) | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş |
 | Audit log | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV |
-| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi, TURN sunucuları ve gizli anahtar, sistem logosu |
+| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi, TURN sunucuları ve gizli anahtar, sistem logosu, WhatsApp servis adresi + test mesajı |
 | Hesabım | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu ve kurtarma kodları, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış |
 | Ayarlar | Destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni, firma logosu |
 
@@ -74,7 +74,8 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 ## Entegrasyonlar
 - TURN sunucusu (coturn): güvenlik duvarı arkasındaki müşteriler için görüntü aktarımı; adres ve anahtar panelden
   yönetilebilir.
-- WhatsApp (Nokta Bilişim whatsapp-bildirim servisi): yeni talepte kişisel veri içermeyen bildirim; test butonu.
+- WhatsApp (Nokta Bilişim whatsapp-bildirim servisi): yeni talepte kişisel veri içermeyen bildirim; test butonu. Servis
+  adresi Süper Yönetici panelinden yeniden başlatmadan değiştirilir; güvensiz adreste kanal kendiliğinden kapanır.
 - E-posta (firmanın kendi SMTP sunucusu): şifre sıfırlama, güvenlik bildirimleri, yeni talep bildirimi, oturum
   bağlantısını müşteriye gönderme; test butonu.
 - MySQL: bağlantı bilgisi yönetim panelinde, "Bağlantıyı Test Et" ile; geçiş sunucu yapılandırmasıyla yapılır.

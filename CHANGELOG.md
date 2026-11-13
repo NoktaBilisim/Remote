@@ -5,6 +5,39 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P12b (WhatsApp servisi sistem ayarı, AC-196)
+- **Sistem ayarları > WhatsApp servisi** (`/admin/settings/whatsapp`, yalnız Super Admin; 4. sekme): etkin servis adresi,
+  kaynak rozeti (**Panel** / **Ortam değişkeni**), son güncelleme. **Servis URL'si** kaydedilir, yeniden başlatma gerekmez;
+  kayıttan sonraki ilk bildirim ve test yeni adrese gider. **Ortam değişkenine dön** (onaylı) panel kaydını kaldırır.
+  **Test Mesajı Gönder** girilen numaraya kayıtlı adresle test mesajı yollar, sonucu ekranda gösterir.
+- Etkin adres önceliği: panel kaydı > `WHATSAPP_SERVICE_URL` > varsayılan. `WHATSAPP_SERVICE_URL` artık yalnız yedek değer.
+- API: `GET/PUT/DELETE /admin/settings/whatsapp`, `POST /admin/settings/whatsapp/test`. Ayrıntı `docs/api.md`.
+- Audit (sistem kaydı, firma boş): `settings.whatsapp.updated`, `settings.whatsapp.deleted` (eski → yeni adres ve kaynak);
+  `settings.whatsapp.test` (numara maskeli, sonuç, hata nedeni sınıfı).
+- Migration `20261114090000_whatsapp_service_setting` (yalnız CHECK: `system_settings` += `whatsapp`, `{"url": string|null}`).
+  Yeni ortam değişkeni, volume ve bağımlılık yok. Yayın ve geri alma: runbook §17.
+
+### Değişti — P12b
+- `WHATSAPP_SERVICE_URL` açılışta panel kuralıyla doğrulanır (`http://`/`https://`, kullanıcı:şifre, `?`, `#`, boşluk yok,
+  ≤ 200 karakter; sondaki `/` kırpılır). **Uymayan değerde server açılmaz**; yayından önce `.env` değerini kontrol edin
+  (runbook §17.2/3). Boş değer varsayılana düşer.
+- Servis yolu adresin sonuna eklenir (`{url}/send-message`, `{url}/test-send`); önceden adresteki yol düşüyordu.
+- Firma (tenant) WhatsApp testi aynı sabit mesajları kullanır; zaman aşımı ayrı mesajla bildirilir ("Servis 8 saniye
+  içinde yanıt vermedi (zaman aşımı).").
+
+### Güvenlik — P12b
+- Güvensiz adres (production'da `http://` + genel adres) veya ayrıştırılamayan adres → kanal kapalı, testler servise istek
+  göndermez; ekranda kalıcı uyarı, logda `alarm: whatsapp_insecure` / `whatsapp_invalid_url` (adres loga yazılmaz).
+- Test yanıtı sabit mesajdır; servis gövdesi, adres ve iç hata dönmez. Yönlendirme (3xx) izlenmez, başarısız sayılır.
+  Her yanıt gövdesi iptal edilir.
+- Test ucu: Super Admin başına 5/dk, tüm Super Admin'ler için ortak 20/dk; aşımda 429 + `Retry-After`.
+- PUT/DELETE süreç içinde sıralı yürür; bellekteki adres son kayıtla aynı kalır. Firma uçları adresi döndürmez.
+- Güvenlik denetimi: Kritik/Yüksek/Orta 0; QA Tur 3 GEÇTİ.
+
+### Bilinen sınırlamalar — P12b
+- Adres normalize edilmeden saklanır (görünmez karakter reddi dahil, B-P12b-4) ve PUT/DELETE'te hız sınırı yoktur; ikisi
+  "Sonra" (`docs/guvenlik-raporu.md`). Adres değişikliği yalnız tek sunucu sürecine uygulanır (ADR-0005).
+
 ### Eklendi — P12 (marka ve kişiselleştirme)
 - **Hesap menüsü** (üst menüde avatar): Hesabım, Şifre değiştir, Tema (Açık / Koyu / Sistem), Çıkış; klavyeyle kullanılabilir
   (Esc kapatır). `/account` sayfasına **Profil** (profil resmi) ve **Görünüm** (tema) bölümleri eklendi.

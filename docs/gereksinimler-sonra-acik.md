@@ -1,6 +1,19 @@
 # Gereksinimler — "Sonra / açık" takip tabloları
 Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (bölüm 9'un devamıdır, ayrılmaz parçasıdır). Boyut nedeniyle 2026-11-12'de ana dosyadan taşındı; P2..P8 tabloları içerik değiştirilmeden taşındı, yeni paketlerin tabloları en üste eklenir.
 
+### Sonra / açık — P12b'den (2026-11-13)
+Kaynak: `docs/guvenlik-raporu.md` (P12b turu, Kod turu 1–2), `docs/arsiv/p12b-qa-raporu.md`, `docs/arsiv/p12b-test-raporu.md`, `docs/implementation.md` ("P12b — Backend"). Kritik/Yüksek/Orta açık yok.
+
+| Madde | Ne yapılacak | Sahip | Ne zaman |
+|---|---|---|---|
+| B-P12b-4 (Düşük) | WhatsApp servis adresi WHATWG kanonik biçimde saklanacak; `\p{Cf}\p{Zl}\p{Zp}` zod ve DB CHECK'te (`system_settings_whatsapp_chk`) birlikte reddedilecek (ondalık/onaltılı IP, görünmez karakter yanıltıcı görünümü) | backend-dev + dba | P13 |
+| B-P12b-5 kalan (Düşük) | Sistem ayarı PUT/DELETE uçlarına (mysql/turn/whatsapp) kullanıcı başına hız sınırı ya da değişmeyen kayıtta audit yazmama | backend-dev | P13 |
+| T33 risk kabulü | K13'te link-local `169.254.0.0/16` (bulut metadata) "genel" sayılsın; bildirim hedefini değiştiren sistem ayarlarında step-up 2FA değerlendirilsin | mimar + backend-dev | P13 |
+| Çok süreç | WhatsApp etkin adresi süreç içi kuyrukla uygulanıyor (ADR-0005 tek süreç); yatay ölçeklemede yayılım (DB yoklama/pub-sub) gerekir | mimar | Ölçekleme kararıyla |
+| Sayfa testi T-P12b (Orta→karara bağlandı) | AC-196 "numara maskeli görünür" ile P11 "dış gönderim kayıtlarında yalnız reason" kuralı çelişiyordu; AC metni "audit kaydına maskeli yazılır" olarak düzeltildi (B-P10 korunur). Audit detayında `reason` kodlarının Türkçe etiketi (ör. `unreachable`) eklenecek | frontend-dev | P13 |
+| Sayfa testi (Düşük) | Büyük harfli şema (`HTTPS://…`) genel mesajla reddediliyor → küçük harfe çevir ya da nedeni söyle; hiç yapılandırılmamışken kaynak rozeti "Ortam değişkeni" yazıyor; IDN ve `[::1]` kabulü güvenlikle değerlendirilecek | frontend-dev + backend-dev | P13 |
+| Test yarışı | `bindings-p8c` AC-192 ile `settings-p11` paylaşılan `system_settings.turn` satırında yarışıyor (P12b'den önce de vardı); P12b'deki "ayrı proje, en sona" kalıbı uygulanacak | backend-dev | P13 |
+
 ### Sonra / açık — P12'den (2026-11-13)
 Kaynak: `docs/guvenlik-raporu.md` (P12 turu, Kod turu 1 + Doğrulama turu 1), `docs/arsiv/p12-qa-raporu.md` (Tur 1–2
 Öneriler), `docs/arsiv/p12-test-raporu.md` (sayfa testi), `docs/implementation.md` ("P12 — Backend" sapmalar ve düzeltme turu 1,

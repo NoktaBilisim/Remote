@@ -1,0 +1,101 @@
+{"t":"2026-11-13T20:43:20.115Z","kind":"check","flow":"/admin/settings → mysql yönlendirme","ok":false,"note":"http://localhost:3217/admin/settings"}
+{"t":"2026-11-13T20:43:20.295Z","kind":"check","flow":"sekme TURN → /turn, aria-current","ok":true,"note":"page"}
+{"t":"2026-11-13T20:43:20.345Z","kind":"check","flow":"sekme Sistem logosu → /system-logo, aria-current","ok":true,"note":"page"}
+{"t":"2026-11-13T20:43:20.394Z","kind":"check","flow":"sekme WhatsApp servisi → /whatsapp, aria-current","ok":true,"note":"page"}
+{"t":"2026-11-13T20:43:20.445Z","kind":"check","flow":"sekme MySQL → /mysql, aria-current","ok":true,"note":"page"}
+{"t":"2026-11-13T20:43:20.462Z","kind":"check","flow":"geri tuşu → whatsapp formu","ok":true,"note":""}
+{"t":"2026-11-13T20:43:20.466Z","kind":"check","flow":"klavye Tab: Sistem logosu → WhatsApp servisi","ok":true,"note":"WhatsApp servisi"}
+{"t":"2026-11-13T20:43:20.879Z","kind":"check","flow":"boş alan + env: kayıt çubuğu yok","ok":true,"note":""}
+{"t":"2026-11-13T20:43:21.333Z","kind":"input","value":"<script>alert(1)</script>","len":25,"bar":1,"invalid":"true","puts":0,"effective":"http://10.20.0.5:3000","msg":""}
+{"t":"2026-11-13T20:43:21.782Z","kind":"input","value":"' OR 1=1 --","len":11,"bar":1,"invalid":"true","puts":0,"effective":"http://10.20.0.5:3000","msg":""}
+{"t":"2026-11-13T20:43:22.232Z","kind":"input","value":"javascript:alert(1)","len":19,"bar":1,"invalid":"true","puts":0,"effective":"http://10.20.0.5:3000","msg":""}
+{"t":"2026-11-13T20:43:22.680Z","kind":"input","value":"https://","len":8,"bar":1,"invalid":"true","puts":0,"effective":"http://10.20.0.5:3000","msg":""}
+{"t":"2026-11-13T20:43:23.127Z","kind":"input","value":"http://exa mple.com","len":19,"bar":1,"invalid":"true","puts":0,"effective":"http://10.20.0.5:3000","msg":""}
+{"t":"2026-11-13T20:43:23.542Z","kind":"input","value":"  ","len":2,"bar":0,"invalid":"true","puts":0,"effective":"http://10.20.0.5:3000","msg":""}
+{"t":"2026-11-13T20:43:23.995Z","kind":"input","value":"wa.ornek.com","len":12,"bar":1,"invalid":"true","puts":0,"effective":"http://10.20.0.5:3000","msg":""}
+{"t":"2026-11-13T20:43:24.445Z","kind":"input","value":"https://wa.ornek.com#x","len":22,"bar":1,"invalid":"true","puts":0,"effective":"http://10.20.0.5:3000","msg":""}
+{"t":"2026-11-13T20:43:24.897Z","kind":"input","value":"HTTPS://WA.ORNEK.COM","len":20,"bar":1,"invalid":"true","puts":0,"effective":"http://10.20.0.5:3000","msg":""}
+{"t":"2026-11-13T20:43:25.349Z","kind":"input","value":"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","len":200,"bar":1,"invalid":null,"puts":1,"putBody":"{\"url\":\"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","effective":"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com","msg":""}
+{"t":"2026-11-13T20:43:25.350Z","kind":"check","flow":"XSS metni DOM'a script eklemedi","ok":true,"note":"script sayısı 20"}
+{"t":"2026-11-13T20:43:30.187Z","kind":"check","flow":"çift tıklama → tek PUT","ok":true,"note":"PUT sayısı 1"}
+{"t":"2026-11-13T20:43:30.306Z","kind":"check","flow":"yenileme: kaydedilmemiş değer atılır, kayıtlı panel değeri görünür","ok":true,"note":"https://cift.ornek.com"}
+{"t":"2026-11-13T20:43:31.151Z","kind":"dirtynav","dialog":null,"url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:32.173Z","kind":"check","flow":"Esc diyaloğu kapatır, DELETE yok","ok":true,"note":"open=false DELETE=0"}
+{"t":"2026-11-13T20:43:32.174Z","kind":"check","flow":"Esc sonrası odak tetikleyiciye döner","ok":true,"note":"wa-svc-reset"}
+{"t":"2026-11-13T20:43:32.434Z","kind":"check","flow":"Vazgeç → DELETE yok","ok":true,"note":""}
+{"t":"2026-11-13T20:43:32.495Z","tag":"reset","kind":"console","type":"error","text":"Failed to load resource: net::ERR_FAILED","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:33.296Z","kind":"check","flow":"DELETE ağ hatası → ekranda hata, kaynak Panel kalır","ok":true,"note":"Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin. | "}
+{"t":"2026-11-13T20:43:34.205Z","kind":"check","flow":"onay → kaynak Ortam değişkeni, uyarı kalkar","ok":true,"note":""}
+{"t":"2026-11-13T20:43:34.701Z","tag":"errors","kind":"http","status":500,"method":"PUT","url":"http://localhost:3217/api/v1/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:34.701Z","tag":"errors","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 500 (Internal Server Error)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:35.374Z","kind":"check","flow":"PUT 500 → form hatası görünür, değer korunur","ok":true,"note":"Sunucu hatası.Hata kodu: req-op-1 | "}
+{"t":"2026-11-13T20:43:35.474Z","tag":"errors","kind":"console","type":"error","text":"Failed to load resource: net::ERR_FAILED","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:36.166Z","kind":"check","flow":"PUT ağ hatası → hata görünür","ok":true,"note":"Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin. | "}
+{"t":"2026-11-13T20:43:36.621Z","kind":"phone","value":"","invalid":"true","posts":0,"result":"-"}
+{"t":"2026-11-13T20:43:37.067Z","kind":"phone","value":"<script>","invalid":"true","posts":0,"result":"-"}
+{"t":"2026-11-13T20:43:37.518Z","kind":"phone","value":"' OR 1=1","invalid":"true","posts":0,"result":"-"}
+{"t":"2026-11-13T20:43:37.969Z","kind":"phone","value":"+90 532 000 00 00 00 00","invalid":"true","posts":0,"result":"-"}
+{"t":"2026-11-13T20:43:38.418Z","kind":"phone","value":"905320000000","invalid":null,"posts":1,"result":"Test mesajı gönderildiTest mesajı gönderildi."}
+{"t":"2026-11-13T20:43:38.870Z","kind":"phone","value":"+491511234567","invalid":null,"posts":1,"result":"Test mesajı gönderildiTest mesajı gönderildi."}
+{"t":"2026-11-13T20:43:39.320Z","kind":"phone","value":"5320000000","invalid":null,"posts":1,"result":"Test mesajı gönderildiTest mesajı gönderildi."}
+{"t":"2026-11-13T20:43:39.375Z","tag":"errors","kind":"console","type":"error","text":"Failed to load resource: net::ERR_FAILED","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:39.971Z","kind":"check","flow":"test ağ hatası → sonuç kutusu hata","ok":true,"note":"Test mesajı gönderilemediSunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin."}
+{"t":"2026-11-13T20:43:40.074Z","tag":"errors","kind":"http","status":500,"method":"POST","url":"http://localhost:3217/api/v1/admin/settings/whatsapp/test"}
+{"t":"2026-11-13T20:43:40.075Z","tag":"errors","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 500 (Internal Server Error)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:40.668Z","kind":"check","flow":"test 500 → sonuç kutusu hata","ok":true,"note":"Test mesajı gönderilemediSunucu hatası."}
+{"t":"2026-11-13T20:43:41.498Z","kind":"check","flow":"Test butonu çift tıklama → tek POST","ok":true,"note":"POST 1"}
+{"t":"2026-11-13T20:43:43.554Z","tag":"429m","kind":"http","status":429,"method":"POST","url":"http://localhost:3217/api/v1/admin/settings/whatsapp/test"}
+{"t":"2026-11-13T20:43:43.555Z","tag":"429m","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 429 (Too Many Requests)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:43.900Z","kind":"check","flow":"6. test 429 → kilit mesajı (mobil, koyu)","ok":true,"note":"Test mesajı gönderilemediÇok fazla test denendi. Bir dakika sonra tekrar deneyin."}
+{"t":"2026-11-13T20:43:44.087Z","kind":"check","flow":"çerezsiz → /login yönlendirme","ok":true,"note":"http://localhost:3217/login?next=%2Fadmin%2Fsettings%2Fwhatsapp 200"}
+{"t":"2026-11-13T20:43:44.212Z","tag":"authz","kind":"http","status":403,"method":"GET","url":"http://localhost:3217/api/v1/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.212Z","tag":"authz","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.215Z","tag":"authz","kind":"http","status":403,"method":"PUT","url":"http://localhost:3217/api/v1/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.215Z","tag":"authz","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.219Z","tag":"authz","kind":"http","status":403,"method":"POST","url":"http://localhost:3217/api/v1/admin/settings/whatsapp/test"}
+{"t":"2026-11-13T20:43:44.219Z","tag":"authz","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.219Z","kind":"check","flow":"auadm: yetkisiz durumu, form yok, menüde Sistem ayarları yok, API 403","ok":true,"note":"forbidden=1 form=0 menu=0 GET=403 PUT=403 TEST=403"}
+{"t":"2026-11-13T20:43:44.346Z","tag":"authz","kind":"http","status":403,"method":"GET","url":"http://localhost:3217/api/v1/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.346Z","tag":"authz","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.351Z","tag":"authz","kind":"http","status":403,"method":"PUT","url":"http://localhost:3217/api/v1/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.351Z","tag":"authz","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.357Z","tag":"authz","kind":"http","status":403,"method":"POST","url":"http://localhost:3217/api/v1/admin/settings/whatsapp/test"}
+{"t":"2026-11-13T20:43:44.357Z","tag":"authz","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.357Z","kind":"check","flow":"auview: yetkisiz durumu, form yok, menüde Sistem ayarları yok, API 403","ok":true,"note":"forbidden=1 form=0 menu=0 GET=403 PUT=403 TEST=403"}
+{"t":"2026-11-13T20:43:44.498Z","tag":"authz","kind":"http","status":403,"method":"GET","url":"http://localhost:3217/api/v1/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.499Z","tag":"authz","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.501Z","tag":"authz","kind":"http","status":403,"method":"PUT","url":"http://localhost:3217/api/v1/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.501Z","tag":"authz","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.503Z","tag":"authz","kind":"http","status":403,"method":"POST","url":"http://localhost:3217/api/v1/admin/settings/whatsapp/test"}
+{"t":"2026-11-13T20:43:44.503Z","tag":"authz","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.503Z","kind":"check","flow":"aunone: yetkisiz durumu, form yok, menüde Sistem ayarları yok, API 403","ok":true,"note":"forbidden=1 form=0 menu=0 GET=403 PUT=403 TEST=403"}
+{"t":"2026-11-13T20:43:44.623Z","tag":"authz","kind":"http","status":403,"method":"PUT","url":"http://localhost:3217/api/v1/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.623Z","tag":"authz","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 403 (Forbidden)","url":"http://localhost:3217/admin/settings/whatsapp"}
+{"t":"2026-11-13T20:43:44.623Z","kind":"check","flow":"CSRF başlığı yok → 403","ok":true,"note":"403"}
+{"t":"2026-11-13T20:43:45.770Z","kind":"check","flow":"audit etiketi: WhatsApp servis adresi güncellendi","ok":true,"note":""}
+{"t":"2026-11-13T20:43:45.771Z","kind":"check","flow":"audit etiketi: WhatsApp servisi ortam değerine döndü","ok":true,"note":""}
+{"t":"2026-11-13T20:43:45.771Z","kind":"check","flow":"audit etiketi: WhatsApp test mesajı","ok":true,"note":""}
+{"t":"2026-11-13T20:43:45.771Z","kind":"check","flow":"ham eylem adı görünmüyor","ok":true,"note":""}
+{"t":"2026-11-13T20:43:45.929Z","kind":"check","flow":"filtre seçeneklerinde 3 WhatsApp eylemi","ok":true,"note":"WhatsApp servis adresi güncellendi, WhatsApp servisi ortam değerine döndü, WhatsApp test mesajı"}
+{"t":"2026-11-13T20:44:45.358Z","kind":"check","flow":"/admin/settings → /admin/settings/mysql (istemci yönlendirmesi)","ok":true,"note":"http://localhost:3217/admin/settings/mysql"}
+{"t":"2026-11-13T20:44:45.996Z","kind":"input2","value":"HTTPS://WA.ORNEK.COM","len":20,"invalid":"true","desc":"Geçerli bir adres girin (ör. https://wa.ornek.com:3000)","eff":"http://10.20.0.5:3000"}
+{"t":"2026-11-13T20:44:46.537Z","kind":"input2","value":"https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","len":201,"invalid":"true","desc":"Adres en çok 200 karakter olabilir","eff":"http://10.20.0.5:3000"}
+{"t":"2026-11-13T20:44:47.089Z","kind":"input2","value":"http://[::1]:3000","len":17,"invalid":null,"desc":"Örnek: https://wa.ornek.com veya http://10.0.0.5:3000 — kullanıcı adı/şifre, ? ve # olmadan, en çok 200 karakter.","eff":"http://[::1]:3000"}
+{"t":"2026-11-13T20:44:51.596Z","kind":"input2","value":"https://wa.örnek.com","len":20,"invalid":null,"desc":"Örnek: https://wa.ornek.com veya http://10.0.0.5:3000 — kullanıcı adı/şifre, ? ve # olmadan, en çok 200 karakter.","eff":"https://wa.örnek.com"}
+{"t":"2026-11-13T20:44:56.089Z","kind":"input2","value":"https://wa.ornek.com:99999","len":26,"invalid":"true","desc":"Geçerli bir adres girin (ör. https://wa.ornek.com:3000)","eff":"https://wa.örnek.com"}
+{"t":"2026-11-13T20:44:57.053Z","kind":"check","flow":"kirli formdan sekme geçişi → ayrılma diyaloğu","ok":true,"note":"Kaydedilmemiş değişiklikler var WhatsApp servis adresindeki değişiklik kaydedilmedi. Sayfadan ayrılırsanız kaybolur. Sayfada kal Kaydetmeden ayrıl"}
+{"t":"2026-11-13T20:44:57.447Z","kind":"check","flow":"Sayfada kal → değer korunur","ok":true,"note":""}
+{"t":"2026-11-13T20:44:59.231Z","kind":"auditdetail","i":0,"txt":"Kayıt ayrıntısı\nGiriş · 13.11.2026 23:39\nZaman\n13.11.2026 23:39 (23:39:08)\nKullanıcı\nCA\nCan Aydın\ncan.aydin@ornek.com\nFirma\nDemo Firma\nİşlem\nGiriş\nauth.login\nVarlık\nauth_sessions\nSonuç\nBaşarılı\nIP adresi\n203.0.113.7\nTarayıcı\nMozilla/5.0 (Windows NT 10.0) Chrome/130\nKayıt no\n1060\nEski değer\n\nDeğer yok\n\nYeni değer\n{\n  \"method\": \"password\"\n}\n\nAudit kayıtları salt okunurdur; düzenlenemez ve silinemez.\n\nKapat"}
+{"t":"2026-11-13T20:45:00.017Z","kind":"auditdetail","i":1,"txt":"Kayıt ayrıntısı\nGiriş · 13.11.2026 23:38\nZaman\n13.11.2026 23:38 (23:38:08)\nKullanıcı\nK\nkotu@ornek.com\nFirma\nDemo Firma\nİşlem\nGiriş\nauth.login\nVarlık\nauth_sessions\nSonuç\nBaşarısız\nIP adresi\n203.0.113.7\nTarayıcı\nMozilla/5.0 (Windows NT 10.0) Chrome/130\nKayıt no\n1059\nEski değer\n\nDeğer yok\n\nYeni değer\n{\n  \"reason\": \"bad_password\"\n}\n\nAudit kayıtları salt okunurdur; düzenlenemez ve silinemez.\n\nKapat"}
+{"t":"2026-11-13T20:45:00.800Z","kind":"auditdetail","i":2,"txt":"Kayıt ayrıntısı\nKullanıcı güncellendi · 13.11.2026 23:37\nZaman\n13.11.2026 23:37 (23:37:08)\nKullanıcı\nElif Yönetici\nelif@ornek.com\nFirma\nDemo Firma\nİşlem\nKullanıcı güncellendi\nuser.updated\nVarlık\nusers\nKayıt kimliği\n01JAV00000000000000000000B\nSonuç\nBaşarılı\nIP adresi\n203.0.113.7\nTarayıcı\nMozilla/5.0 (Windows NT 10.0) Chrome/130\nKayıt no\n1058\nEski değer\n{\n  \"fullName\": \"Can Aydin\"\n}\nYeni değer\n{\n  \"fullName\": \"<img src=x onerror=alert(1)>Can\"\n}\n\nAudit kayıtları salt okunurdur; düzenlenemez ve silinemez.\n\nKapat"}
+{"t":"2026-11-13T20:45:34.713Z","kind":"check","flow":"audit light 1280: 3 etiket listede","ok":true,"note":""}
+{"t":"2026-11-13T20:45:35.212Z","kind":"check","flow":"audit light 1280: axe 0, taşma yok","ok":true,"note":" of=0 "}
+{"t":"2026-11-13T20:45:35.705Z","kind":"auditdetail","i":0,"txt":"Kayıt ayrıntısı WhatsApp test mesajı · 13.11.2026 23:45 Zaman 13.11.2026 23:45 (23:45:33) Kullanıcı DK Derya Kaya derya@ornek.com İşlem WhatsApp test mesajı settings.whatsapp.test Varlık system_settings Sonuç Başarısız IP adresi 203.0.113.7 Tarayıcı Chrome/130 Kayıt no 9003 Neden unreachable Gönderim ve test kayıtlarında yalnız sonuç nedeni gösterilir; alıcı, içerik ve ham hata metni burada yer almaz. Audit kayıtları salt okunurdur; düzenlenemez ve silinemez. Kapat"}
+{"t":"2026-11-13T20:45:36.522Z","kind":"auditdetail","i":1,"txt":"Kayıt ayrıntısı WhatsApp servisi ortam değerine döndü · 13.11.2026 23:45 Zaman 13.11.2026 23:45 (23:45:33) Kullanıcı DK Derya Kaya derya@ornek.com İşlem WhatsApp servisi ortam değerine döndü settings.whatsapp.deleted Varlık system_settings Sonuç Başarılı IP adresi 203.0.113.7 Tarayıcı Chrome/130 Kayıt no 9002 Eski değer { \"url\": \"https://wa.ornek.com\" } Yeni değer Değer yok Audit kayıtları salt okunurdur; düzenlenemez ve silinemez. Kapat"}
+{"t":"2026-11-13T20:45:37.323Z","kind":"auditdetail","i":2,"txt":"Kayıt ayrıntısı WhatsApp servis adresi güncellendi · 13.11.2026 23:45 Zaman 13.11.2026 23:45 (23:45:33) Kullanıcı DK Derya Kaya derya@ornek.com İşlem WhatsApp servis adresi güncellendi settings.whatsapp.updated Varlık system_settings Sonuç Başarılı IP adresi 203.0.113.7 Tarayıcı Chrome/130 Kayıt no 9001 Eski değer { \"url\": \"http://10.20.0.5:3000\" } Yeni değer { \"url\": \"https://wa.ornek.com\" } Audit kayıtları salt okunurdur; düzenlenemez ve silinemez. Kapat"}
+{"t":"2026-11-13T20:45:38.381Z","kind":"check","flow":"audit light 390: 3 etiket listede","ok":true,"note":""}
+{"t":"2026-11-13T20:45:38.860Z","kind":"check","flow":"audit light 390: axe 0, taşma yok","ok":true,"note":" of=0 "}
+{"t":"2026-11-13T20:45:39.597Z","kind":"check","flow":"audit dark 1280: 3 etiket listede","ok":true,"note":""}
+{"t":"2026-11-13T20:45:40.014Z","kind":"check","flow":"audit dark 1280: axe 0, taşma yok","ok":true,"note":" of=0 "}
+{"t":"2026-11-13T20:45:40.721Z","kind":"check","flow":"audit dark 390: 3 etiket listede","ok":true,"note":""}
+{"t":"2026-11-13T20:45:41.130Z","kind":"check","flow":"audit dark 390: axe 0, taşma yok","ok":true,"note":" of=0 "}

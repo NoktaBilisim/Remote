@@ -2,6 +2,7 @@
 // Her paket yalnız kullandığı anahtarları ister; diğerleri (APP_ENCRYPTION_KEYS …)
 // ilgili pakette eklenir.
 import { isIP } from "node:net";
+import { waServiceUrlSchema } from "@remote/contracts/api/system-settings";
 import { z } from "zod";
 
 const cidr = z.string().refine((v) => {
@@ -62,7 +63,9 @@ const schema = z
       .optional(),
     // P8b (mimari-e9 §6, §13.5, AC-150/152): whatsapp-bildirim servisi; sistem düzeyi, tenant değiştiremez. Prod'da http:// +
     // özel olmayan adres → kanal kapalı (fail-closed, notify/whatsapp.ts). Boş → varsayılan canlı servis.
-    WHATSAPP_SERVICE_URL: z.url().refine((v) => /^https?:\/\//.test(v), "http(s) URL olmalı").default("http://89.252.189.211:3000"),
+    // B-P12b-3: panel kaydıyla aynı kural (waServiceUrlSchema: http/https, kullanıcı:şifre/?/# yok, ≤ 200; sondaki / kırpılır);
+    // uymazsa açılış durur (değer hata mesajına yazılmaz).
+    WHATSAPP_SERVICE_URL: waServiceUrlSchema.default("http://89.252.189.211:3000"),
     // P8b r2 (§13.4, G-E9-4): asgari Windows istemci sürümü; boş = kontrol yok. Düşük sürüm → 426 CLIENT_OUTDATED.
     MIN_AGENT_VERSION: z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/, "x.y.z biçiminde olmalı").optional(),
     // P10 (mimari §3.2, §8.1): `*_enc` alanlarının AES-256-GCM anahtarları; yeni yazım en yüksek sürümle, okuma `ver`

@@ -9,7 +9,7 @@ Tarih: 2026-11-12   Durum: TASLAK (2026-11-10: tam erişim MVP'de; 2026-11-11: `
 > E9'un kapsamı, NFR'leri, varsayımları, riskleri, açık soruları ve paket önerisi: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e9.md`.
 > E10 (Müşteri firmalar ve kalıcı istemci) kabul kriterleri: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e10.md` (AC-165..AC-195). Kapsamı, NFR'leri, varsayımları (V21–V28), riskleri (R19–R24), açık soruları (S18–S21) ve paket önerisi: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e10.md`.
 > Bölüm 9'un "Sonra / açık" tabloları (P2..P8b-1): `/Users/mennan/Projeler/Remote/docs/gereksinimler-sonra-acik.md` (2026-11-12'de içerik değiştirilmeden taşındı). Yeni paketlerin tabloları (P8b-2, P8c, P9) aynı dosyanın en üstündedir.
-> Toplam: **45 kullanıcı hikâyesi, 195 kabul kriteri** (AC-1..AC-195).
+> Toplam: **45 kullanıcı hikâyesi, 196 kabul kriteri** (AC-1..AC-196; AC-196 2026-11-13, E9 WhatsApp servisi sistem ayarı).
 
 ## 1. Amaç ve iş değeri
 Kurumsal müşterilere teknik destek verirken AnyDesk/TeamViewer gibi üçüncü taraf SaaS'a bağımlılığı kaldırmak. Tamamen self-hosted, uçtan uca şifreli (DTLS-SRTP), **tam erişimli** (uzaktan klavye/fare) bir destek platformu: teknisyen web panelinden çalışır; müşteri **kurulum ve admin yetkisi gerektirmeyen** taşınabilir "Hızlı Destek" uygulamasıyla tam erişim verir veya bu uygulama çalıştırılamıyorsa tarayıcıdan yalnızca görüntü paylaşır. Medya ve veri firmanın kendi sunucusundan çıkmaz; tüm oturumlar audit log ile denetlenir. Proje açık kaynaktır (Apache-2.0).

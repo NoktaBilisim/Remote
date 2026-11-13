@@ -1,6 +1,7 @@
 // P11 sistem ayarları (SUPER_ADMIN; mimari-api "Yönetim", ADR-0003; AC-77, AC-78) ve tenant aydınlatma metni
 // düzenleme (settings.view/edit; AC-29). Kurallar DB CHECK'leriyle birebir (db-notlari "P11" system_settings).
 import { z } from "zod";
+import { phoneSchema } from "./requests.ts";
 import { smtpHostSchema } from "./tenants.ts";
 
 const CONTROL_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
@@ -129,6 +130,74 @@ export interface TurnSettingsView {
   hasSecret: boolean;
   source: "panel" | "env";
   updatedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// WhatsApp servisi — GET/PUT/DELETE /admin/settings/whatsapp, POST /admin/settings/whatsapp/test (P12b; AC-196)
+// ---------------------------------------------------------------------------------------------------------------
+
+export const WA_URL_MAX = 200;
+export const WA_URL_MESSAGE = "Adres http:// veya https:// ile başlamalı; kullanıcı adı/şifre, ? ve # içeremez (en çok 200 karakter)";
+/** `system_settings_whatsapp_chk` ile birebir (ICU `\z` ↔ JS `$` bayraksız: sondaki `\n` kabul edilmez). */
+const WA_URL_RE = /^https?:\/\/[^@?#\s\p{Cc}]+$/u;
+/** WHATWG URL (tarayıcı + Node global); contracts lib'inde DOM tipi yok (tenants.ts kalıbı). */
+const UrlCtor = (globalThis as unknown as { URL: new (u: string) => { hostname: string } }).URL;
+const parsesAsUrl = (v: string): boolean => {
+  try {
+    return new UrlCtor(v).hostname !== "";
+  } catch {
+    return false;
+  }
+};
+
+/** Panel adresi. Sondaki `/` kırpılır (istek `{url}/test-send`, `{url}/send-message`); kırpılmış değer de kurala uyar. */
+export const waServiceUrlSchema = z
+  .string({ error: WA_URL_MESSAGE })
+  .max(WA_URL_MAX, WA_URL_MESSAGE)
+  .regex(WA_URL_RE, WA_URL_MESSAGE)
+  .transform((v) => v.replace(/\/+$/, ""))
+  .refine((v) => WA_URL_RE.test(v) && parsesAsUrl(v), WA_URL_MESSAGE);
+
+/** PUT gövdesi. Kaldırma (env'e dönüş) DELETE ile. */
+export const whatsappSettingsInputSchema = z.strictObject({ url: waServiceUrlSchema });
+export type WhatsappSettingsInput = z.input<typeof whatsappSettingsInputSchema>;
+export type WhatsappSettingsData = z.output<typeof whatsappSettingsInputSchema>;
+
+/**
+ * `url` = etkin adres (panel kaydı, yoksa `WHATSAPP_SERVICE_URL`; o da yoksa null). `insecure` = production + `http://` +
+ * özel ağ dışı host → kanal kapalı (AC-150, K13); ekranda `WA_INSECURE_WARNING`. Tenant uçları adresi asla döndürmez.
+ */
+export interface WhatsappSettingsView {
+  url: string | null;
+  source: "panel" | "env";
+  insecure: boolean;
+  updatedAt: string | null;
+}
+
+export const WA_INSECURE_WARNING = "Güvensiz adres: canlı ortamda WhatsApp kanalı kapalı";
+
+/** POST /admin/settings/whatsapp/test. Numara E.164 / `90…` (servise `90…` biçiminde gider). */
+export const whatsappAdminTestInputSchema = z.strictObject({ phoneNumber: phoneSchema });
+export type WhatsappAdminTestInput = z.input<typeof whatsappAdminTestInputSchema>;
+
+export const WA_TEST_REASONS = ["unconfigured", "insecure", "timeout", "http_error", "redirect", "unreachable"] as const;
+export type WhatsappTestReason = (typeof WA_TEST_REASONS)[number];
+
+/** Sabit mesajlar (servis yanıt gövdesi/iç hata ayrıntısı/adres kullanıcıya yansıtılmaz; ayrıntı yalnız sunucu logunda). */
+export const WA_TEST_MESSAGES: Readonly<Record<WhatsappTestReason | "ok", string>> = {
+  ok: "Test mesajı gönderildi.",
+  unconfigured: "Servis yapılandırılmamış.",
+  insecure: "Servis güvenli yapılandırılmamış.",
+  timeout: "Servis 8 saniye içinde yanıt vermedi (zaman aşımı).",
+  http_error: "Servise ulaşılamadı veya servis hata döndürdü.",
+  redirect: "Servise ulaşılamadı veya servis hata döndürdü.",
+  unreachable: "Servise ulaşılamadı veya servis hata döndürdü.",
+};
+
+/** 200 `{ ok:false }` = denendi/denenemedi ve başarısız; 429 = 5/dk/kullanıcı (6. → 429). */
+export interface WhatsappAdminTestResponse {
+  ok: boolean;
+  message: string;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
