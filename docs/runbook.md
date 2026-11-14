@@ -617,6 +617,8 @@ Caddy `/downloads/NoktaDestek.exe` hash kontrolü. Caddy her `/downloads/*.exe` 
 | Repo değişkenleri (gözcü) | `AGENT_WATCH_URL` = `https://<host>:4450/downloads/NoktaDestek.exe`; staging'de `AGENT_WATCH_CA_PEM` = §8'deki Caddy kök sertifikası (PEM, gizli değil) |
 | Görünürlük | **Repo public olmalı**: GitHub attestation private repoda yalnız Enterprise Cloud'da çalışır (§11.6) |
 
+**Durum (2026-11-15, U1):** repo **public** yapıldı (gitleaks tüm geçmiş 45 commit 0 bulgu; kullanıcı commit e-postası ve dokümanlardaki sunucu/ağ ayrıntılarının açılmasını kabul etti). Environment `agent-release` oluşturuldu: required reviewer `NoktaBilisim`, deployment policy yalnız `v*` etiketi. Tag ruleset "v* etiketleri korumalı (AC-94)" etkin: `refs/tags/v*` oluşturma/güncelleme/silme yalnız depo yöneticisi rolü (bypass). Repo değişkeni `AGENT_SERVER_URL` = `https://remote.noktabilisim.net` (prod; main push derlemeleri de bu adresi gömer). **Henüz yok:** `AGENT_WATCH_URL` (prod: `https://remote.noktabilisim.net/downloads/NoktaDestek.exe`, ilk Release yayınından sonra), main branch protection.
+
 ### 11.2 Yerel doğrulama (CI ile aynı imaj; Go kurulu olması gerekmez)
 ```bash
 cd <repo>   # temiz checkout (VCS damgası exe'ye girer: kirli ağaçta hash farklı olur)
