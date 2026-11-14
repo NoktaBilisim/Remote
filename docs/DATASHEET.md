@@ -24,6 +24,10 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - **Oturum geçmişi ve CSV** — filtreli liste, onay ve kontrol kayıtları, ticket/not, Excel uyumlu dışa aktarma.
 - **Değiştirilemez denetim kaydı** — kim, ne zaman, ne yaptı: filtreli ekran ve CSV; kayıtlar uygulamadan da
   veritabanından da düzenlenemez, silinemez.
+- **KVKK uyumlu saklama** — müşteri kişisel verileri firmanın belirlediği süre (90–730 gün) dolunca her gece
+  kendiliğinden anonimleştirilir; denetim kaydı 730 gün saklanır.
+- **Şifreli günlük yedek** — veritabanı ve yüklenen dosyalar her gece şifreli yedeklenir, 14 gün saklanır; geri yükleme
+  önce ayrı bir test veritabanında doğrulanır.
 - **Kendi markanızla** — firma logosu giriş ekranında, panelde, müşteri sayfasında ve e-postalarda; her kullanıcı kendi
   profil resmini ve açık/koyu temasını seçer.
 
@@ -55,10 +59,15 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   ve kayıtlı bilgisayarları hemen kapanır.
 - Denetim kaydı: giriş/çıkış, oturum olayları, kontrol izinleri, dosya aktarımı, dışa aktarma, kullanıcı/yetki/firma
   ve ayar değişiklikleri (eski → yeni), e-posta/WhatsApp gönderimleri. Şifre ve anahtarlar maskelenir; müşteri kişisel
-  verisi yazılmaz. Kayıtlar ekranda salt okunurdur; veritabanı kuralları son 730 günün kaydının değiştirilmesini ve
-  silinmesini engeller.
-- KVKK: aydınlatma metni firma bazında ve sürümlü, yönetici panelden düzenler; her onay, onaylanan sürümle saklanır. Talep verisi saklama süresi sonunda
-  anonimleştirilir.
+  verisi yazılmaz; müşteri IP adresi yalnız ağ kısmıyla kaydedilir. Kayıtlar ekranda salt okunurdur; veritabanı kuralları
+  son 730 günün kaydının değiştirilmesini ve silinmesini, geri tarihli kayıt eklenmesini engeller. 730 günden eski kayıtlar
+  kendiliğinden silinir.
+- KVKK: aydınlatma metni firma bazında ve sürümlü, yönetici panelden düzenler; her onay, onaylanan sürümle saklanır.
+  Saklama süresi (varsayılan 365 gün) dolan oturum, talep ve pasif müşteri kayıtlarında kişisel veriler (ad, e-posta, not,
+  IP, dosya kayıtları) her gece anonimleştirilir; onay kararı ve metin sürümü kanıt olarak kalır.
+- Yedekleme: her gece veritabanı ve yüklenen dosyalar birlikte, açık anahtarla şifreli yedeklenir (çözme anahtarı sunucuda
+  tutulmaz); 14 gün saklanır, hata olursa alarm verir. Geri yükleme önce geçici bir veritabanında satır sayıları ve
+  özetlerle doğrulanır.
 - Şifreler argon2id ile saklanır; hatalı girişte kilit (ve kullanıcıya e-posta), ilk girişte şifre değişimi, CSRF
   koruması, süreli oturum (30 dk boşta / 8 sa).
 - İki adımlı doğrulama (TOTP; Google/Microsoft Authenticator vb.) ve tek kullanımlık kurtarma kodları; yönetici
@@ -96,7 +105,7 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 | | Minimum | Önerilen |
 |---|---|---|
 | CPU / RAM | 2 çekirdek / 4 GB | 4 çekirdek / 8 GB |
-| Disk | 20 GB | 50 GB (kayıt saklama süresine göre) |
+| Disk | 20 GB | 50 GB (kayıt saklama süresine ve 14 günlük yedeğe göre) |
 | Ağ | Tek HTTPS portu; TURN için 3478/5349 ve UDP röle aralığı | Genel IP, alan adı ve genel sertifika |
 
 ## Destek ve iletişim

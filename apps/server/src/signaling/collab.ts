@@ -21,8 +21,18 @@ export const FILE_META_SENDER_PER_MIN = 10;
 export const FILE_META_SENDER_PER_SESSION = 200;
 /** `file.meta.rate_limited` audit'i oda + taraf + sınıf başına bu aralıkta en çok 1 kez (S-P5-T2-2). */
 export const FILE_META_RATE_AUDIT_MS = 60_000;
-/** DB CHECK reddinde audit'e ad yerine yazılan yer tutucu (S-P5-8; ham/temizlenmiş ad CHECK'i geçmediği için yazılmaz). */
-export const FILE_NAME_DB_REJECTED = "[ad DB tarafından reddedildi]";
+/**
+ * S-P13a-8 (KVKK): dosya aktarım audit'i (730 gün) dosya adı ve sha256 taşımaz — ad kişisel veri içerebilir, özet dosyayı
+ * tanımlar; ikisi `session_files`'ta kalır ve saklama işiyle silinir. Audit'te yalnız uzantı: son noktadan sonrası,
+ * ASCII harf/rakam, 1–10 karakter, küçük harf; adın başındaki nokta uzantı sayılmaz; uymazsa null.
+ */
+export function fileExtOf(name: string): string | null {
+  const m = /^.+\.([A-Za-z0-9]{1,10})$/s.exec(name);
+  return m?.[1] ? m[1].toLowerCase() : null;
+}
+
+/** Audit `newValue` (file.transfer, sender_report, rejected_by_db): yön, uzantı, boyut, sonuç. */
+const fileAuditValue = (sessionId: string, m: FileMeta, name: string) => ({ sessionId, direction: m.direction, ext: fileExtOf(name), sizeBytes: String(m.sizeBytes), result: m.result });
 /** `quality.summary` DB yazımları arası en kısa süre (istemci 60 sn'de bir + oturum sonunda gönderir). */
 export const QUALITY_MIN_INTERVAL_MS = 5_000;
 /** DB CHECK `JSON_STORAGE_SIZE(quality_summary) ≤ 4096` ile aynı tavan (metin uzunluğu üstten sınırlar). */
@@ -99,7 +109,7 @@ export async function handleFileMeta(rooms: Rooms, room: Room, from: Reporter, m
   }
 
   const fileName = sanitizeFileName(m.fileName);
-  const value = { sessionId: room.sessionId, direction: m.direction, fileName, sizeBytes: String(m.sizeBytes), sha256: m.sha256, result: m.result };
+  const value = fileAuditValue(room.sessionId, m, fileName);
   const outcome = m.result === "OK" ? "success" : "fail";
   try {
     if (from.side !== receiver) {
@@ -144,14 +154,14 @@ async function auditRateLimited(rooms: Rooms, room: Room, ctx: AuditContext, act
   }
 }
 
-/** S-P5-8: JS ve MySQL Unicode sürüm farkıyla CHECK (3819) reddi sessiz kalmaz: ad yerine yer tutucu ile audit + VALIDATION. */
+/** S-P5-8: JS ve MySQL Unicode sürüm farkıyla CHECK (3819) reddi sessiz kalmaz: audit (ad yok, yalnız uzantı) + VALIDATION. */
 async function rejectedByDb(rooms: Rooms, room: Room, from: Reporter, ctx: AuditContext, actor: Actor, m: FileMeta): Promise<FileMetaResult> {
   rooms.metrics.inc("rs_file_meta_total", { result: "rejected_by_db" });
   rooms.log.warn({ event: "file_meta_rejected_by_db", sessionId: room.sessionId }, "file.meta DB CHECK reddi");
   try {
     await writeAudit(rooms.db, ctx, {
       tenantId: room.tenantId, ...actor, action: "file.meta.rejected_by_db", entity: "support_sessions", entityId: room.sessionId, result: "fail",
-      newValue: { sessionId: room.sessionId, direction: m.direction, fileName: FILE_NAME_DB_REJECTED, sizeBytes: String(m.sizeBytes), sha256: m.sha256, result: m.result },
+      newValue: fileAuditValue(room.sessionId, m, sanitizeFileName(m.fileName)),
     });
   } catch (err) {
     rooms.log.error({ err, ref: newId(), event: "file_meta_rejected_audit_failed", sessionId: room.sessionId }, "file.meta.rejected_by_db audit yazılamadı");

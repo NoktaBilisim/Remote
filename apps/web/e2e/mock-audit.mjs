@@ -9,6 +9,7 @@
 //   ausawa0  SUPER_ADMIN, WhatsApp servisi hiç yapılandırılmamış (panel yok, env yok → url null)
 //   ausains  SUPER_ADMIN, WhatsApp servisi panelde http:// + genel adres (insecure, canlı ortam varsayımı)
 //   ausabrk  SUPER_ADMIN, WhatsApp ayarı ilk GET'te 500 (sonra 200 → "Tekrar dene")
+//   ausadef  SUPER_ADMIN, WhatsApp servisi panel yok + env açıkça verilmemiş → yerleşik varsayılan (P13a, source "default")
 import { PERMISSION_KEYS } from "@remote/contracts/permissions";
 import { listAuditQuerySchema } from "@remote/contracts/api/audit";
 import { MYSQL_PASSWORD_REQUIRED_MESSAGE, WA_TEST_MESSAGES, consentTextInputSchema, mysqlSettingsInputSchema, turnSettingsInputSchema, whatsappAdminTestInputSchema, whatsappSettingsInputSchema } from "@remote/contracts/api/system-settings";
@@ -25,7 +26,7 @@ export const AU = {
 const ALL_NO_WS = PERMISSION_KEYS.filter((k) => !k.startsWith("support_requests."));
 
 export function auditUser(cookie) {
-  const m = cookie?.match(/^u-(auadm|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|brk)?)-/);
+  const m = cookie?.match(/^u-(auadm|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|brk|def)?)-/);
   if (!m) return null;
   const kind = m[1];
   const role = kind.startsWith("ausa") ? "SUPER_ADMIN" : kind === "auview" || kind === "aunone" ? "USER" : "ADMIN";
@@ -77,8 +78,14 @@ function seedItems(kind) {
     }),
     base({ id: "1057", createdAt: iso(240_000), action: "mail.sent", entity: "mail", entityId: null, result: "fail", newValue: { reason: "auth", kind: "session_link" } }),
     base({ id: "1056", createdAt: iso(300_000), action: "yeni.bilinmeyen_olay", entity: "misc", entityId: null }),
+    // P13a: saklama işi (sistem, yalnız sayılar) + WhatsApp test reason kodu (Türkçe etiket)
+    base({ id: "1055b", createdAt: iso(330_000), action: "retention.run", userId: null, username: "system", userFullName: null, ipAddress: null, userAgent: null, entity: "retention", entityId: null, newValue: { sessions: 3, consents: 4, files: 1, requests: 0, customers: 0, bindings: 0 } }),
+    // P13a güvenlik turu (backend): müşteri kaynaklı kayıtlarda IP yalnız ağ öneki (/24, IPv6 /48), UA boş
+    base({ id: "1055d", createdAt: iso(370_000), action: "guest.pending", userId: null, username: "customer", userFullName: null, ipAddress: "203.0.113.0/24", userAgent: null, entity: "support_sessions", entityId: "01JHXST0000000000000000004", newValue: { mode: "BROWSER" } }),
+    base({ id: "1055c", createdAt: iso(380_000), action: "request.created", userId: null, username: "customer", userFullName: null, ipAddress: "2001:db8:1234::/48", userAgent: null, entity: "support_requests", entityId: "01JREQH0000000000000000001", newValue: { status: "PENDING" } }),
+    base({ id: "1055a", createdAt: iso(360_000), action: "settings.whatsapp.test", entity: "system_settings", entityId: null, result: "fail", newValue: { recipient: "90532*****00", result: "fail", reason: "unreachable" } }),
   ];
-  for (let i = 0; i < 55; i++) {
+  for (let i = 0; i < 51; i++) {
     items.push(base({ id: String(1055 - i), createdAt: iso(400_000 + i * 3_600_000), action: i % 3 === 0 ? "session.created" : "customer.updated", entity: i % 3 === 0 ? "support_sessions" : "customers", entityId: "01JCU00000000000000000000A", result: i % 7 === 0 ? "fail" : "success", tenantId: i % 2 ? AU.T2 : AU.T1, tenantName: i % 2 ? "Acme Bilişim" : "Demo Firma" }));
   }
   return items;
@@ -88,7 +95,9 @@ const stores = new Map();
 // P12b (AC-196): WhatsApp servis adresi — sözleşme docs/mimari-api.md "Yönetim" whatsapp satırları
 const WA_ENV_URL = "http://10.20.0.5:3000";
 const waEnv = (kind) => ({ url: kind === "ausawa0" ? null : WA_ENV_URL, source: "env", insecure: false, updatedAt: null });
+const WA_DEFAULT_URL = "http://198.51.100.10:3000";
 function waInitial(kind) {
+  if (kind === "ausadef") return { url: WA_DEFAULT_URL, source: "default", insecure: false, updatedAt: null };
   if (kind === "ausains") return { url: "http://203.0.113.50:3000", source: "panel", insecure: true, updatedAt: iso(3_600_000) };
   return waEnv(kind);
 }
@@ -98,6 +107,8 @@ const waInsecure = (u) => /^http:\/\//i.test(u) && !/^http:\/\/(localhost|127\.|
 function waParse(body) {
   const p = whatsappSettingsInputSchema.safeParse(body);
   if (!p.success) return { fields: fieldsOf(p.error) };
+  // P13a (B-P12b-4): sunucu WHATWG kanonik biçimde saklar (şema/host küçük harf, sondaki / yok)
+  p.data.url = new URL(p.data.url).href.replace(/\/+$/, "");
   if (p.data.url.includes("red.example")) return { fields: { url: "Bu adres kabul edilmiyor" } };
   return { url: p.data.url };
 }
@@ -252,7 +263,7 @@ export async function handleAudit(req, res, { url, session, csrfOk, send, err, r
     return send(res, 200, s.wa), true;
   }
   if (path === "/api/v1/admin/settings/whatsapp" && req.method === "DELETE") {
-    s.wa = waEnv(who.kind);
+    s.wa = who.kind === "ausadef" ? waInitial(who.kind) : waEnv(who.kind);
     return send(res, 200, s.wa), true; // sunucu: 200 + güncel (env) görünüm
   }
   if (path === "/api/v1/admin/settings/whatsapp/test" && req.method === "POST") {

@@ -8,7 +8,8 @@
   "scripts": {
     "db:generate": "pnpm --filter @remote/server db:generate",
     "db:migrate": "pnpm --filter @remote/server db:migrate",
-    "db:seed": "pnpm --filter @remote/server db:seed"
+    "db:seed": "pnpm --filter @remote/server db:seed",
+    "docs:pdf": "bash scripts/build-docs.sh"
   },
   "pnpm": {
     "overrides": {

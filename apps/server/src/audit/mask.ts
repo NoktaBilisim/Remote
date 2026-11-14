@@ -23,6 +23,8 @@ const ALLOWED_KEYS: ReadonlySet<string> = new Set([
   "channel",
   "bucket",
   "keyType",
+  // P13a retention.run (mimari-p13 §2): yalnız satır sayısı; `token` kalıbına takılmasın.
+  "resetTokens",
 ]);
 
 const MASKED_KEY =

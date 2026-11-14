@@ -30,6 +30,19 @@ export function testDb(): Db {
   return db;
 }
 
+let fixtureDb: Db | undefined;
+/**
+ * P13a: geçmiş tarihli audit fikstürü için migrator bağlantısı (TEST_MIGRATE_DATABASE_URL). `app` kullanıcısının yazdığı
+ * audit_logs.created_at DB tetikleyicisiyle (audit_logs_force_created_at) DB saatine zorlanır; yalnız migrator/root kendi
+ * değerini yazabilir. Uygulama kodu bu bağlantıyı KULLANMAZ — yalnız test verisi hazırlığı.
+ */
+export function testFixtureDb(): Db {
+  const url = process.env.TEST_MIGRATE_DATABASE_URL;
+  if (!url) throw new Error("TEST_MIGRATE_DATABASE_URL tanımlı değil (scripts/test-db.sh up)");
+  fixtureDb ??= createDb(url);
+  return fixtureDb;
+}
+
 /** P10: zorunlu 2FA kurulum aşaması varsayılan KAPALI (P1–P9 testleri); P10 testleri `p10: { ... }` ile açar. */
 export function makeApp(opts: { env?: Record<string, string>; logger?: Logger; signaling?: AppDeps["signaling"]; p10?: Pick<AppDeps, "netguard" | "mailTransport" | "mfaSetupEnforcement">; p11?: Pick<AppDeps, "mysqlProbe"> } = {}): FastifyInstance {
   const env = testEnv(opts.env);

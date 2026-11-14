@@ -3,9 +3,9 @@
  * (`@remote/contracts/audit`) ve sunucunun yazdığı diğer adlardan gelir; bilinmeyen ad HAM gösterilir (labels.ts kuralı).
  * Grup = adın ilk bölümü (`auth.login` → `auth`); grup filtresi API'ye `auth.*` öneki olarak gider.
  */
-import { AUTH_AUDIT, BINDING_AUDIT, CONTROL_AUDIT, CUSTOMER_AUDIT, MAIL_AUDIT, SYSTEM_AUDIT, TENANT_AUDIT, USER_AUDIT } from "@remote/contracts/audit";
+import { AUTH_AUDIT, BINDING_AUDIT, CONTROL_AUDIT, CUSTOMER_AUDIT, MAIL_AUDIT, RETENTION_AUDIT, SYSTEM_AUDIT, TENANT_AUDIT, USER_AUDIT } from "@remote/contracts/audit";
 import { AUDIT_ACTION_GROUPS } from "./contract";
-import { labelOf, TIMELINE_ACTION_LABELS } from "@remote/contracts/labels";
+import { labelOf, OUTBOUND_REASON_LABELS, TIMELINE_ACTION_LABELS } from "@remote/contracts/labels";
 
 export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   ...TIMELINE_ACTION_LABELS,
@@ -72,10 +72,16 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   [BINDING_AUDIT.REVOKED]: "Bilgisayar kaydı iptal edildi",
   [BINDING_AUDIT.DENIED]: "Bilgisayar kaydı reddedildi",
   [CONTROL_AUDIT.CAPS_CHANGED]: "Teknisyen yetkileri daraldı",
+  // P13a (AC-199): günlük saklama işi (sistem, yalnız sayılar)
+  [RETENTION_AUDIT.RUN]: "Saklama süresi işi",
 };
 
+/** Dış gönderim `reason` etiketleri tek kaynak: contracts (`OUTBOUND_REASON_LABELS`, mimari-p13 §3). */
+export { OUTBOUND_REASON_LABELS };
+export const reasonLabel = (reason: string): string => labelOf(OUTBOUND_REASON_LABELS, reason);
+
 /** Grup (adın ilk bölümü) → Türkçe başlık: contracts `AUDIT_ACTION_GROUPS` (`auth.*` → "Giriş ve hesap güvenliği"). */
-export const AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = Object.fromEntries(AUDIT_ACTION_GROUPS.map((g) => [g.prefix.slice(0, -2), g.label]));
+export const AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = { ...Object.fromEntries(AUDIT_ACTION_GROUPS.map((g) => [g.prefix.slice(0, -2), g.label])) };
 
 export const groupOf = (action: string): string => action.split(".")[0] ?? action;
 export const actionLabel = (action: string): string => labelOf(AUDIT_ACTION_LABELS, action);

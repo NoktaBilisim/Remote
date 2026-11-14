@@ -40,6 +40,8 @@ export interface SystemDeps {
   turnEnv: { urls: readonly string[]; secret: string | undefined; ttlMin: number };
   /** P12b: `WHATSAPP_SERVICE_URL` (boş → yapılandırılmamış) ve güvensiz adres kuralı için ortam. */
   whatsappEnvUrl: string;
+  /** P13a: env açıkça verildi mi (`env`) yoksa yerleşik varsayılan mı (`default`). */
+  whatsappEnvSource: "env" | "default";
   production: boolean;
 }
 
@@ -115,6 +117,8 @@ export async function saveMysqlSettings(d: SystemDeps, ctx: AuditContext, auth: 
     const before = await tx.systemSetting.findUnique({ where: { key: "mysql" }, select: { valueJson: true, secretEnc: true } });
     const old = before ? asMysqlCore(before.valueJson) : null;
     if (input.password === undefined && before?.secretEnc && !(old && sameTarget(old, core))) throw new AppError("VALIDATION", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } });
+    // P13a (B-P12b-5): değer değişmediyse (aynı hedef + veritabanı, yeni şifre yok) yazım ve audit yok.
+    if (old && sameCore(old, core) && input.password === undefined) return;
     const secretEnc = input.password !== undefined ? d.secrets.encrypt(input.password, aadFor.mysqlSecret(core)) : undefined;
     await tx.systemSetting.upsert({
       where: { key: "mysql" },
@@ -221,13 +225,15 @@ export async function saveTurnSettings(d: SystemDeps, ctx: AuditContext, auth: A
   await d.db.$transaction(async (tx) => {
     const before = await tx.systemSetting.findUnique({ where: { key: "turn" }, select: { valueJson: true, secretEnc: true } });
     if (hasTurnUrl(input.urls) && input.secret === undefined && !before?.secretEnc) throw new AppError("VALIDATION", { fields: { secret: TURN_SECRET_REQUIRED_MESSAGE } });
+    const oldUrls = before ? asUrls(before.valueJson) : null;
+    // P13a (B-P12b-5): aynı adres listesi (sıra dahil) ve yeni secret yok → yazım ve audit yok.
+    if (oldUrls && input.secret === undefined && oldUrls.length === input.urls.length && oldUrls.every((u, i) => u === input.urls[i])) return;
     const secretEnc = input.secret !== undefined ? d.secrets.encrypt(input.secret, aadFor.systemSecret("turn")) : undefined;
     await tx.systemSetting.upsert({
       where: { key: "turn" },
       create: { key: "turn", valueJson: { urls: input.urls }, secretEnc: secretEnc ?? null, updatedBy: auth.user.id },
       update: { valueJson: { urls: input.urls }, ...(secretEnc ? { secretEnc } : {}), updatedBy: auth.user.id },
     });
-    const oldUrls = before ? asUrls(before.valueJson) : null;
     await writeAudit(tx, ctx, {
       ...who(auth),
       action: SYSTEM_AUDIT.TURN_UPDATED,
@@ -279,7 +285,7 @@ export async function effectiveWhatsappUrl(d: Pick<SystemDeps, "db" | "whatsappE
 export async function getWhatsappSettings(d: SystemDeps): Promise<WhatsappSettingsView> {
   const rec = await readWhatsapp(d.db);
   const url = rec?.url ?? (d.whatsappEnvUrl || null);
-  return { url, source: rec ? "panel" : "env", insecure: url !== null && isInsecureServiceUrl(url, d.production), updatedAt: rec?.updatedAt.toISOString() ?? null };
+  return { url, source: rec ? "panel" : url === null ? "env" : d.whatsappEnvSource, insecure: url !== null && isInsecureServiceUrl(url, d.production), updatedAt: rec?.updatedAt.toISOString() ?? null };
 }
 
 /**
@@ -289,6 +295,7 @@ export async function getWhatsappSettings(d: SystemDeps): Promise<WhatsappSettin
 export async function saveWhatsappSettings(d: SystemDeps, ctx: AuditContext, auth: AuthContext, input: WhatsappSettingsData): Promise<string> {
   await d.db.$transaction(async (tx) => {
     const before = await readWhatsapp(tx);
+    if (before?.url === input.url) return; // P13a (B-P12b-5): değişmeyen kayıt → yazım ve audit yok
     await tx.systemSetting.upsert({
       where: { key: "whatsapp" },
       create: { key: "whatsapp", valueJson: { url: input.url }, secretEnc: null, updatedBy: auth.user.id },
@@ -300,7 +307,7 @@ export async function saveWhatsappSettings(d: SystemDeps, ctx: AuditContext, aut
       entity: "system_settings",
       entityId: "whatsapp",
       result: "success",
-      oldValue: before ? { url: before.url, source: "panel" } : { url: d.whatsappEnvUrl || null, source: "env" },
+      oldValue: before ? { url: before.url, source: "panel" } : { url: d.whatsappEnvUrl || null, source: d.whatsappEnvSource },
       newValue: { url: input.url, source: "panel" },
     });
   });
@@ -323,7 +330,7 @@ export async function deleteWhatsappSettings(d: SystemDeps, ctx: AuditContext, a
       entityId: "whatsapp",
       result: "success",
       oldValue: { url: before.url, source: "panel" },
-      newValue: { url: d.whatsappEnvUrl || null, source: "env" },
+      newValue: { url: d.whatsappEnvUrl || null, source: d.whatsappEnvSource },
     });
   });
   return d.whatsappEnvUrl; // panel kaydı yok → etkin adres env

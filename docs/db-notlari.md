@@ -540,3 +540,87 @@ Migration `apps/server/prisma/migrations/20261114090000_whatsapp_service_setting
 - down: satır varken `wa_down_guard_chk` 3819, CHECK'ler ve migration kaydı değişmedi; satır silinince OK → P12 durumu, drift 0. P12 durumundaki DB (mysql/turn/system_logo satırları dolu) → `migrate deploy` OK, `migrate status` güncel, drift 0.
 - `whatsapp-setting.test.ts` (yeni, app kullanıcısı): geçerli null/http/https/port/yol/IPv6/200 karakter; ret: anahtar varyantları, value_json NULL/`{}`/ek alan/dizi/tip, secret_enc, şema (`ftp`, `HTTP`, `//`, boş, `http://`), `@ ? #`, boşluk/tab/`\n`/`\r`/NUL/DEL/U+0085/NBSP/U+2028/U+3000, 201 karakter.
 - Güncellenen: `audit-immutability-p11` ve `branding-p12` geçersiz anahtar listeleri (`WHATSAPP`, `WhatsApp`, `whatsapp `…), `session-history-p8` ikili CHECK sayısı 25 → 26. `test:int` **479/479**, typecheck + lint temiz.
+
+## P13a — saklama, audit created_at zorlaması, app DELETE yetkileri, `backup` kullanıcısı (2026-11-14)
+Migration `apps/server/prisma/migrations/20261114120000_p13a_retention/{migration.sql,down.sql}`. Mimari §10.5 D1–D3, mimari-p13 §2 (K-P13-1..4), §3 (B-P12b-4), §4; AC-197, 198, 200. Expand-only, veri taşıma yok. Seed değişmedi (yeni sütun NULL = anonim değil; geliştirme ortamı boş kalmaz).
+
+### Şema (D1)
+| Değişiklik | Ayrıntı |
+|---|---|
+| `support_sessions.anonymized_at DATETIME(3) NULL` | Prisma `anonymizedAt`. ALGORITHM=INSTANT |
+| `support_sessions_anonymized_chk` | `anonymized_at IS NULL OR (status IN (ENDED,EXPIRED,CANCELLED) AND customer_name, customer_email, note, guest_net_key, guest_ip_key IS NULL)`. ticket_no, mod, kalite özeti kalır. Anonim oturuma kişisel alan yazan her UPDATE 3819 (PATCH 409'un DB savunması). CAST yok (status_chk zaten ikili) → ikili CHECK sayısı **26 kalır** |
+| IX `support_sessions_tenant_id_anonymized_at_created_at_idx` | Aday sorgusu `tenant_id = ? AND anonymized_at IS NULL AND created_at < ? AND status IN (…) ORDER BY created_at, id LIMIT 1000`. INPLACE, LOCK=NONE |
+| Tetikleyici `audit_logs_force_created_at` (BEFORE INSERT) | `IF CAST(SUBSTRING_INDEX(USER(),'@',1) AS BINARY) NOT IN ('migrator','root') THEN SET NEW.created_at = CONVERT_TZ(SYSDATE(3), @@session.time_zone, '+00:00')`. audit_logs tetikleyici sayısı **2 → 3** |
+| `system_settings_whatsapp_chk` | desen `^https?://[^@?#\s\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+\z` ('c'); geri kalanı P12b ile aynı |
+
+**Tetikleyici koşulu (K-P13-4 kararı):** zorlanan liste değil **muaf liste** (fail-closed): yalnız `migrator` (migration, test fikstürü) ve `root` (geri yükleme; mysqldump satırları özgün `created_at` ile döner) kendi değerini yazar; `app` ve ileride eklenecek her hesap DB saatine zorlanır. `USER()` kullanıldı, çünkü tetikleyici içinde `CURRENT_USER()` DEFINER'ı (migrator) döndürür. Saat kaynağı P11 DELETE tetikleyicisiyle aynıdır (SYSDATE + UTC). `SET TIMESTAMP` ve `time_zone=+14:00` ile denendi, etkilemiyor. CONVERT_TZ NULL dönerse NOT NULL ihlaliyle INSERT reddedilir.
+- Sonuç: app'in Prisma `createdAt` / ham SQL `created_at` değeri yok sayılır. 2020 tarihli ekle → sil denemesi `older than 730 days` ile düşer.
+- **Test fikstürü:** geçmiş tarihli audit satırı artık app ile yazılamaz. Bunun için `test/helpers/app.ts` `testFixtureDb()` (TEST_MIGRATE_DATABASE_URL) kullanılır; `audit-p11.test.ts` buna geçirildi. **Backend retention testleri de (730 g) bunu kullanmalı.**
+
+**Kilit:** ADD CHECK = COPY → support_sessions yeniden yazılır (staging küçük, prod kapalı). Diğer DDL çevrimiçidir.
+**Up guard `p13a_up_guard_chk`:** mevcut `whatsapp` adresinde Cf/Zl/Zp varsa migration hiçbir şey değişmeden 3819 (P3018) ile durur. Kurtarma: adres yeniden girilir ya da `{url:null}` yapılır → `prisma migrate resolve --rolled-back 20261114120000_p13a_retention` → `pnpm db:migrate`. Test edildi.
+**down.sql:** anonim oturum varsa `p13a_down_guard_chk` (3819) ile hiçbir şey değişmeden durur. Yoksa: P13a grant'larını REVOKE eder (tablo REVOKE'u sütun yetkisini kaldırmadığı için sütun yetkisi ayrıca), tetikleyiciyi, CHECK'i, indeksi ve sütunu düşürür, WhatsApp CHECK'ini P12b desenine döndürür, `_prisma_migrations` kaydını siler.
+
+### Ek: `audit_logs_no_update` gövdesi (devops yedek provası bulgusu, 2026-11-14)
+- **Sorun:** P11'de tetikleyici tek ifadelik gövdeyle yazılmıştı (`SIGNAL …;`). Prisma çok ifadeli gönderdiği için MySQL sondaki `;`'yi gövdeye dahil etti; ACTION_STATEMENT `…UPDATE denied';` olarak saklandı.
+- **Etkisi:** mysqldump bunu `…'; */;;` olarak döküyor ve düz `mysql` istemcisiyle geri yükleme 1064 veriyor (AC-200).
+- **Düzeltme:** P13a migration'ında (madde 0) `DROP` + `CREATE` ile **BEGIN…END** gövdesi kuruldu. Bileşik ifade `END`'de biter. Davranış ve DEFINER aynıdır. P11 migration dosyasına dokunulmadı (checksum).
+- **Diğer iki tetikleyici** (`retention_only_delete`, `force_created_at`) IF…END IF gövdeli ve `END IF` ile bitiyor; sorun yok.
+- **Kural:** yeni tetikleyiciler bileşik gövdeyle (BEGIN…END / IF…END IF) yazılır.
+- **down.sql** gövdeyi bilerek P11 biçimine döndürmez.
+- **Test (`rs-mysql-p13d2:33393`, silindi):**
+  - Temiz DB'de up sonrası üç gövdede de sonda `;` yok.
+  - `backup` kullanıcısıyla mysqldump alındı (`'; */;;` sayısı 0). Döküm düz `mysql` ile boş bir DB'ye 1064'süz yüklendi (rc 0, 3 tetikleyici, son migration p13a).
+  - drift 0. `check-app-grants.sh` 373/373 PASS.
+  - Temiz DB'de `test:int` 52 dosya, **525/525**.
+  - down → up: drift 0, gövde yine BEGIN…END.
+- **Restore-verify notu (devops):** tetikleyicilerin DEFINER'ı `migrator@%`. Bu hesabın olmadığı (ya da hedef DB'de yetkisinin olmadığı) scratch MySQL'de UPDATE/DELETE/INSERT tetikleyicileri çalışırken hata verir. Bu fail-closed bir davranış; yalnız sayım/satır doğrulaması yapılıyorsa sorun değildir.
+
+### Yetkiler (D2, `grants.sql`)
+| Tablo | P13a sonrası app |
+|---|---|
+| audit_logs | SELECT, INSERT, **DELETE** (730 g sınırı tetikleyicide; UPDATE yok) |
+| password_reset_tokens | SELECT, INSERT, **DELETE**, UPDATE(used_at, updated_at) |
+| session_files | SELECT, INSERT, **DELETE** (UPDATE yok, K-P13-2) |
+| session_consents | SELECT, INSERT, **UPDATE(ip, user_agent)**; DELETE yok |
+| auth_sessions | değişmedi: SELECT/INSERT/UPDATE/DELETE P1'den beri var (+7 g silme için ek yetki gerekmez) |
+| support_sessions, support_requests, device_bindings, customers, request_refs, consent_texts, system_settings | **DELETE yok** (K-P13-1/K27; genişleme `purgeAnonymized()` o pakette grant ekler) |
+- `check-app-grants.sh`: app'in DELETE yetkili tablo kümesi ve sütun yetkisi kümesi **tam eşitlikle** sınanıyor. Yeni bir DELETE ya da sütun yetkisi eklenirse betikteki beklenen liste de güncellenmeli.
+- `session_consents` sütun dışı UPDATE → 1143 (`command denied … for column`).
+
+### `backup` kullanıcısı (D3)
+- **Hesap:** `'backup'@'localhost'`, `MYSQL_DATABASE.*` üzerinde **SELECT, SHOW VIEW, TRIGGER**. Global yetkisi yok.
+- **PROCESS verilmedi:** mimari önerisindeydi, ancak yalnız tablespace dökümü için gerekir ve `--no-tablespaces` ile gereksizdir. Global PROCESS diğer oturumların SQL metnini gösterir.
+- **LOCK TABLES / RELOAD verilmedi:** `--single-transaction` ve `--set-gtid-purged=OFF` ile FTWRL yapılmaz.
+- **TRIGGER:** `--triggers` için zorunlu. Yan etkisi CREATE/DROP TRIGGER iznidir. Bu yüzden hesap yalnız `localhost`'tur: soket, yani mysql konteyneri içi. TCP `127.0.0.1` ile bile 1045 döner (test edildi). Tetikleyici sayısı check-app-grants'te ve restore-verify'da izlenir.
+- **Env:** `MYSQL_BACKUP_PASSWORD` (≥ 16 karakter).
+  - `.env.example`'da anahtar boş durur. Yalnız compose `mysql` servisine verilir (`${MYSQL_BACKUP_PASSWORD:-}`, isteğe bağlı).
+  - Boşsa 01-users.sh kullanıcıyı oluşturmaz ve uyarı yazar.
+  - Server okumadığı için `env.ts`'te yoktur (mimari-p13 §4 istisnası).
+- **Yeni kurulum:** `deploy/mysql/init/01-users.sh`.
+- **Mevcut kurulum:** root ile `deploy/mysql/backup-user.sql`. Çalıştırma komutu dosya başlığındadır: değerler konteyner env'inden onaltılı literal olarak aktarılır, parola süreç argümanında görünmez.
+  - İdempotenttir: parolayı günceller, yetkileri tam kümeye eşitler (fazla PROCESS/INSERT geri alındı, test edildi).
+  - Kısa parola `backup_user_guard_chk` ile reddedilir.
+- **Yedek betiği için öneri:** `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_BACKUP_PASSWORD" mysqldump -ubackup --single-transaction --no-tablespaces --triggers --set-gtid-purged=OFF "$MYSQL_DATABASE"'`. Böylece backup.env'deki `BACKUP_DB_PASSWORD`'e gerek kalmaz; kullanılırsa değeri `MYSQL_BACKUP_PASSWORD` ile aynı olmalı.
+- **CI:** `MYSQL_BACKUP_PASSWORD` env'i eklendi, 01-users.sh'a ve check-app-grants'e (`BACKUP_PW`) iletiliyor. `test-db.sh` rastgele parola veriyor.
+
+### Test (2026-11-14, geçici `mysql:8.4.13` binlog açık + bayrak, `rs-mysql-p13d:33391`, silindi)
+- **Temiz DB** P1→P13a OK, drift 0. `check-app-grants.sh` **373/373 PASS**. Yeni kontroller:
+  - audit: DELETE, ekle-sil reddi, tetikleyici sayısı 3, DROP TRIGGER reddi.
+  - Yetki kümeleri; session_consents sütun UPDATE ±; session_files/reset DELETE.
+  - anonymized CHECK 6 durum; WhatsApp Cf/Zl/Zp 7 durum.
+  - backup: hesap/host/yetki kümesi, DML/DDL/LOCK reddi, gerçek `mysqldump` rc=0 + 3 tetikleyici + `_prisma_migrations`.
+- **down:** anonim oturum varken 3819, hiçbir şey değişmedi. Temizlenince OK: tetikleyici 2, P13a grant'ları geri alındı, HEAD (P12b) şemasına drift 0. Yeniden up → drift 0, `migrate status` güncel.
+- **P12b durumu + U+200B'li whatsapp satırı → up:** 3819 (P3018), tetikleyici ve sütun değişmedi. Satır düzeltilip resolve + migrate → OK, drift 0, 373/373 PASS.
+- `retention-p13a-db.test.ts` (yeni, 15 test):
+  - Zorlama: Prisma/ham, geçmiş/gelecek, SET TIMESTAMP/time_zone; migrator muaf.
+  - DELETE: 731 g OK, 729/0 g SIGNAL, ekle-sil reddi, parti atomik.
+  - Yetkiler: session_consents sütun ±, session_files ve reset DELETE, K27 DELETE reddi (8 tablo).
+  - anonymized CHECK ve indeks.
+- `whatsapp-setting.test.ts` += Cf/Zl/Zp (12 karakter × yol/host).
+- Güncellenen testler:
+  - `audit-immutability-p11`: tetikleyici 3, app DELETE artık yetki reddi değil.
+  - `session-files-p5`: DELETE izinli.
+  - `audit-p11`: geçmiş tarihli fikstür `testFixtureDb`.
+- `test:int` **506 test**. Test güncellemelerinden sonraki tam koşu aynı DB'de yapıldı (ilk koşu P13a öncesi testlerle): 505 geçti. Düşen tek test `branding-api-p12` "boş DB ön koşulu"ydu: önceki koşudan `system_logo` satırı kalmıştı. Satır silinince 16/16 geçti; bu mevcut bir test varsayımı. Etkilenen 5 dosya ayrıca 52/52 geçti. **Temiz DB'de tek tam koşu yapılmadı** (qa/CI'da doğrulanmalı).
+- typecheck + lint temiz.

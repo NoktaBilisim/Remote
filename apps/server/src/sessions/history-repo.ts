@@ -72,6 +72,8 @@ const listSelect = {
   request: { select: { createdAt: true, acceptedAt: true } },
   // P8c (AC-179): müşteri firma (tek ek IN sorgusu, N+1 yok)
   customer: { select: { id: true, name: true, status: true } },
+  // P13a (AC-197): anonimleştirme işareti
+  anonymizedAt: true,
 } as const;
 
 export type HistoryListRow = Prisma.SupportSessionGetPayload<{ select: typeof listSelect }>;
@@ -179,7 +181,8 @@ export function userNames(db: DbOrTx, ids: readonly string[]) {
 }
 
 /** Kapsam koşulu UPDATE'in kendisinde (§4); count 0 → 404. */
+/** P13a: `anonymized_at IS NULL` koşulu — eşzamanlı anonimleştirmeden sonra 0 satır (servis 409 döner, DB 3819'a gitmez). */
 export async function updateNotes(db: DbOrTx, scope: HistoryScope, id: string, data: { ticketNo?: string | null; note?: string | null }): Promise<number> {
-  const r = await db.supportSession.updateMany({ where: { ...historyWhere(scope), id }, data });
+  const r = await db.supportSession.updateMany({ where: { ...historyWhere(scope), id, anonymizedAt: null }, data });
   return r.count;
 }

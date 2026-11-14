@@ -476,38 +476,43 @@ export async function sweepCustomerPassive(svc: RequestService, take = 500): Pro
  */
 export async function anonymizeCustomers(svc: RequestService, now = new Date(svc.d.clock.now())): Promise<number> {
   let total = 0;
-  for (const t of await rrepo.retentionTenants(svc.d.db)) {
-    const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
-    for (const c of await repo.anonymizeCandidates(svc.d.db, t.tenantId, cutoff, 1000)) {
-      const done = await svc.d.db.$transaction(async (tx) => {
-        const n = await repo.update(
-          tx,
-          t.tenantId,
-          c.id,
-          {
-            contactName: null,
-            phone: null,
-            email: null,
-            note: null,
-            ...customerKeys(c.name, null, null),
-            anonymizedAt: now,
-          },
-          { status: "PASSIVE", anonymizedAt: null },
-        );
-        if (n === 0) return false;
-        await writeAudit(tx, SYSTEM_CTX, {
-          tenantId: t.tenantId,
-          ...SYSTEM,
-          action: CUSTOMER_AUDIT.ANONYMIZED,
-          entity: ENTITY,
-          entityId: c.id,
-          result: "success",
-          newValue: { fields: [...PII] },
-        });
-        return true;
+  for (const t of await rrepo.retentionTenants(svc.d.db)) total += await anonymizeCustomersOf(svc, t, now);
+  return total;
+}
+
+/** P13a: tek tenant için müşteri anonimleştirme (saklama işinin tenant döngüsü). */
+export async function anonymizeCustomersOf(svc: RequestService, t: { tenantId: string; retentionDays: number }, now: Date): Promise<number> {
+  let total = 0;
+  const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
+  for (const c of await repo.anonymizeCandidates(svc.d.db, t.tenantId, cutoff, 1000)) {
+    const done = await svc.d.db.$transaction(async (tx) => {
+      const n = await repo.update(
+        tx,
+        t.tenantId,
+        c.id,
+        {
+          contactName: null,
+          phone: null,
+          email: null,
+          note: null,
+          ...customerKeys(c.name, null, null),
+          anonymizedAt: now,
+        },
+        { status: "PASSIVE", anonymizedAt: null },
+      );
+      if (n === 0) return false;
+      await writeAudit(tx, SYSTEM_CTX, {
+        tenantId: t.tenantId,
+        ...SYSTEM,
+        action: CUSTOMER_AUDIT.ANONYMIZED,
+        entity: ENTITY,
+        entityId: c.id,
+        result: "success",
+        newValue: { fields: [...PII] },
       });
-      if (done) total++;
-    }
+      return true;
+    });
+    if (done) total++;
   }
   return total;
 }

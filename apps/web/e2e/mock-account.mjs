@@ -128,6 +128,9 @@ export async function handleAccount(req, res, { url, session, csrfOk, send, err,
       if (p.data.smtp?.host === "red.ornek.com")
         return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { "smtp.port": SMTP_PORT_MESSAGE, "smtp.security": SMTP_INSECURE_AUTH_MESSAGE } })), true;
       if (p.data.smtp && /^(10\.|127\.|192\.168\.)/.test(p.data.smtp.host)) return send(res, 400, err("HOST_NOT_ALLOWED", "Bu sunucu adresi kullanılamaz.")), true;
+      // P13a: retentionDays 729 → sunucu alan hatası taklidi (istemci aralığı geçer, sunucu reddeder)
+      if (p.data.retentionDays === 729) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { retentionDays: "Sunucu bu süreyi reddetti" } })), true;
+      if (p.data.retentionDays !== undefined) s.settings.retentionDays = p.data.retentionDays;
       if (p.data.requireTech2fa !== undefined) s.settings.requireTech2fa = p.data.requireTech2fa;
       if (p.data.smtp === null) s.settings.smtp = null;
       else if (p.data.smtp) {

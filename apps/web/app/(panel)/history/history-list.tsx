@@ -2,8 +2,9 @@ import type { SessionListItem } from "@remote/contracts/api/sessions";
 import { labelOf, SESSION_MODE_LABELS, SESSION_SOURCE_LABELS } from "@remote/contracts/labels";
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { StatusBadge } from "@/components/ui/badge";
+import { AnonymizedBadge, StatusBadge } from "@/components/ui/badge";
 import { formatDateTime, formatDuration } from "@/lib/format";
+import { isAnonymized } from "@/lib/history/anonymized";
 import { t } from "@/lib/i18n";
 import { LiveDuration } from "./live-duration";
 
@@ -19,8 +20,9 @@ export function DurationCell({ s }: { s: Pick<SessionListItem, "status" | "start
   return <span className="text-fg-muted">—</span>;
 }
 
+/** P13a (AC-197): anonimleştirilmiş oturumda ad yerine "Anonimleştirildi" rozeti (ad sunucudan zaten null gelir). */
 const customer = (s: SessionListItem) =>
-  s.customerName ?? <span className="text-fg-muted italic">{t("h.noCustomer")}</span>;
+  isAnonymized(s) ? <AnonymizedBadge /> : (s.customerName ?? <span className="text-fg-muted italic">{t("h.noCustomer")}</span>);
 const mode = (s: SessionListItem) => (s.mode ? labelOf(SESSION_MODE_LABELS, s.mode) : t("h.mode.none"));
 /** P8b (AC-158): talepten doğan oturumda kaynak + bekleme süresi (TECH'te gösterilmez — varsayılan yol). */
 export function SourceNote({ s, compact = false }: { s: Pick<SessionListItem, "source" | "waitSec">; compact?: boolean }) {

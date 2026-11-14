@@ -1,6 +1,6 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a)
 
-Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12 ve P12b'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b ve P13a'da **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
@@ -20,6 +20,9 @@ P12: `uploads/{routes,files,service,image,multipart,store,urls}.ts`, `auth/route
 `packages/contracts/src/api/branding.ts`, `errors.ts` (`INVALID_IMAGE`, `PAYLOAD_TOO_LARGE`), `audit.ts` (`BRANDING_AUDIT`).
 P12b: `settings/{routes,system}.ts`, `notify/whatsapp.ts`, `env.ts`, `packages/contracts/src/api/system-settings.ts`
 (`waServiceUrlSchema`, `WA_TEST_MESSAGES`), `audit.ts` (`SYSTEM_AUDIT.WHATSAPP_*`).
+P13a: `jobs/{retention,retention-repo,scheduler}.ts`, `sessions/{history,history-repo}.ts`, `settings/{routes,system}.ts`,
+`audit/service.ts` (müşteri IP öneki), `notify/whatsapp.ts`, `env.ts`, `packages/contracts/src/{errors.ts,audit.ts,labels.ts,
+api/sessions.ts,api/system-settings.ts,api/audit.ts}`. Özet: "Saklama ve anonimleştirme (P13a)" bölümü.
 
 ## Genel kurallar
 - Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres `PUBLIC_BASE_URL` (staging `https://remote.noktabilisim.net`;
@@ -92,6 +95,7 @@ stack, SQL veya iç ayrıntı içermez.
 | `REQUEST_PENDING` | 409 | P8b: bu istemci örneğinin zaten bekleyen talebi var |
 | `REQUEST_TAKEN` | 409 | P8b: talebi başka teknisyen kabul etti |
 | `REQUEST_CLOSED` | 409 | P8b: talep iptal, süre dolumu veya ret ile kapandı |
+| `SESSION_ANONYMIZED` | 409 | P13a: oturum saklama süresi dolduğu için anonimleştirildi, ticket/not yazılamaz ("Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.") |
 | `SESSION_EXPIRED` | 410 | Oturum linkinin/kodunun süresi dolmuş |
 | `SESSION_CONSUMED` | 410 | Link/kod kullanılmış (müşteri kabul edilmiş) |
 | `SESSION_CANCELLED` | 410 | Oturum iptal edilmiş |
@@ -101,7 +105,7 @@ stack, SQL veya iç ayrıntı içermez.
 | `INVALID_IMAGE` | 400 | P12: yüklenen dosya PNG/JPEG/WEBP değil (tür içerikten okunur; SVG, GIF, sahte uzantı reddedilir), bozuk, 24 MP'den büyük ("Yalnız PNG, JPG veya WEBP resim yükleyebilirsiniz.") ya da boyut/oran dışı ("Resim boyutları uygun değil: her kenar en az 16 px, en-boy oranı logoda en çok 20:1, profil resminde en çok 4:1 olmalı.") |
 | `PAYLOAD_TOO_LARGE` | 413 | P12: yüklenen dosya 2 MB'tan büyük ("Dosya en çok 2 MB olabilir.") |
 | `METHOD_NOT_ALLOWED` | 405 | P11: audit uçlarına POST/PUT/PATCH/DELETE (`Allow` başlığıyla); audit kayıtları salt okunurdur |
-| `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma; P11 audit CSV, MySQL testi, aydınlatma metni kaydı; P12 resim yükleme 20/sa/kullanıcı, resim işleme kuyruğu dolu, `/public/branding` 60/dk/IP); `Retry-After` ile |
+| `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma; P11 audit CSV, MySQL testi, aydınlatma metni kaydı; P12 resim yükleme 20/sa/kullanıcı, resim işleme kuyruğu dolu, `/public/branding` 60/dk/IP; P13a sistem ayarı PUT/DELETE 10/dk/kullanıcı); `Retry-After` ile |
 | `QUEUE_FULL` | 429 | P8b: firmada 50 bekleyen talep, ya da ≥ 40 iken bilinmeyen kaynak ("Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.") |
 | `INTERNAL` | 500 | Beklenmeyen hata |
 | `UPSTREAM` | 502 | P8b: WhatsApp test ucu — servis yapılandırılmamış veya production'da güvensiz adres. P10: SMTP yok ("Önce SMTP ayarlarını yapın") veya gönderim başarısız (tek genel mesaj "E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.") |
@@ -379,7 +383,7 @@ curl -sk 'https://localhost:4450/api/v1/sessions?from=2026-11-01&to=2026-11-11&s
                "createdAt": "2026-11-10T07:00:00.000Z", "expiresAt": "2026-11-10T07:15:00.000Z",
                "endedAt": "2026-11-10T07:42:10.000Z", "endedBy": "TECH", "endReason": "tech",
                "mode": "AGENT", "startedAt": "2026-11-10T07:03:00.000Z", "durationSec": 2350,
-               "customerName": "Ahmet Yılmaz", "ticketNo": "INC-1002", "tenant": null } ],
+               "customerName": "Ahmet Yılmaz", "ticketNo": "INC-1002", "tenant": null, "anonymized": false } ],
   "page": 1, "pageSize": 25, "total": 1 }
 ```
 - `code` yalnız PENDING iken ve **yalnız oturumun kendi teknisyenine** döner; ADMIN ve Super Admin başka teknisyenin
@@ -388,6 +392,8 @@ curl -sk 'https://localhost:4450/api/v1/sessions?from=2026-11-01&to=2026-11-11&s
   ACTIVE oturumda `null` (arayüz canlı süreyi kendisi hesaplar).
 - `tenant` yalnız firma seçmemiş Super Admin'de dolu (`{ id, name }`), diğerlerinde `null`.
 - Listede müşteri e-postası ve not **yoktur**; bunlar ayrıntı ucundadır.
+- `anonymized` (P13a): oturum saklama süresi dolduğu için anonimleştirildiyse `true`; bu durumda `customerName` `null`
+  döner (bkz. "Saklama ve anonimleştirme (P13a)").
 
 Hatalar: 400 `VALIDATION` (`fields` ile), 401, 403, 429 `RATE_LIMITED`.
 
@@ -462,6 +468,10 @@ kesilir. Dosya olayları `files`'ta, diğer operasyon olayları P11 audit ekran�
   "timelineTruncated": false, "files": [] }
 ```
 (Örnek kısaltılmıştır; liste öğesinin diğer alanları da döner.)
+**Anonim oturum (P13a, `anonymized: true`):** `customerName`, `customerEmail`, `note` ve talep bilgilerindeki kişisel alanlar
+`null`, `files` boş dizidir. Zaman çizelgesinde müşteri adı yoktur (`details.name` silinir, CUSTOMER `actorName` `null`) ve
+`session.terminated` olayının serbest metin `reason`'ı silinir. `ticketNo`, süreler, mod, kalite özeti ve onay kayıtlarının
+karar/seviye/kaynak/metin sürümü korunur.
 Hatalar: 401, 403, 404.
 
 ### PATCH /api/v1/sessions/:id
@@ -482,8 +492,13 @@ curl -sk -X PATCH https://localhost:4450/api/v1/sessions/$ID \
 ```
 Yanıt 200: güncel `SessionHistoryDetail`. Audit `session.updated`: `oldValue/newValue = { ticketNo, noteLength }`;
 **not metni audit'e yazılmaz** (audit 730 gün saklanır).
+P13a: anonimleştirilmiş oturumda (eşzamanlı anonimleşme dahil) yazım yapılmaz, **409 `SESSION_ANONYMIZED`** döner:
+```json
+{ "error": { "code": "SESSION_ANONYMIZED", "message": "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.", "requestId": "01K…" } }
+```
+Ticket no saklama süresinden sonra da korunduğu için içine kişisel veri (ad, telefon, e-posta) yazılmamalıdır.
 Hatalar: 400 `VALIDATION` (`fields.ticketNo`, `fields.note`; alan yoksa `fields._`), 401, 403 (`FORBIDDEN`,
-`CSRF_INVALID`), 404.
+`CSRF_INVALID`), 404, 409 `SESSION_ANONYMIZED`.
 
 ### GET /api/v1/sessions/export.csv
 Listenin filtrelerini alır (`status`, `mode`, `from`, `to`, `technicianId`, `tenantId`, `customer`, `sort`; `page` ve
@@ -504,6 +519,7 @@ Dosya biçimi:
 - Zamanlar **Europe/Istanbul** `YYYY-AA-GG SS:dd:ss`; süre `SS:DD:ss` (yoksa boş). Durum, mod, sonlandıran ve bitiş
   nedeni Türkçe etiketle yazılır (ör. `Bitti`, `İstemci`, `Teknisyen`, `Müşteri bitirdi`).
 - E-posta, onay kayıtları ve zaman çizelgesi CSV'ye girmez.
+- P13a: sütun kümesi değişmez. Anonimleştirilmiş oturumun satırında **Müşteri** hücresi `Anonimleştirildi`, **Not** boştur.
 - **Formül kaçışı (AC-124, S8-1):** `=`, `+`, `-`, `@`, TAB veya CR ile başlayan hücreye (başlık dahil) `'` eklenir.
   Baştaki boşluk/NBSP/ideografik boşluktan sonra gelen tetikleyiciler ve tam genişlikli `＝ ＋ － ＠` de yakalanır.
   Ardından RFC 4180 tırnaklama: `;`, `"`, CR veya LF içeren hücre `"…"` içine alınır, `"` iki kez yazılır.
@@ -825,8 +841,12 @@ Her transferde iki taraf da birer rapor gönderir; sunucu raporu kimin gönderdi
 - **Alıcının raporu** (`TO_CUSTOMER` → misafir, `TO_TECH` → teknisyen): `session_files` satırı + audit `file.transfer`
   (entity `session_files`; `OK` → success, diğerleri fail) **tek işlemde** yazılır. Geçmişin tek kaynağıdır.
 - **Gönderenin raporu**: `session_files`'a yazılmaz; yalnız audit `file.transfer.sender_report` (entity
-  `support_sessions`; yön, temizlenmiş ad, boyut, SHA-256, sonuç). Değiştirilmiş bir konsol `TO_TECH` raporunu
-  bastırsa da müşteri tarafının izi kalır.
+  `support_sessions`). Değiştirilmiş bir konsol `TO_TECH` raporunu bastırsa da müşteri tarafının izi kalır.
+- **Audit içeriği (P13a, S-P13a-8):** `file.transfer`, `file.transfer.sender_report` ve `file.meta.rejected_by_db`
+  kayıtlarının `newValue`'su `{ sessionId, direction, ext, sizeBytes, result }`'tır. **Dosya adı ve SHA-256 audit'e
+  yazılmaz** (audit 730 gün saklanır; ad kişisel veri içerebilir). `ext` yalnız uzantıdır (son noktadan sonrası, ASCII
+  harf/rakam, 1–10 karakter, küçük harf; uymazsa `null`). Ad ve SHA-256 yalnız `session_files`'ta durur ve saklama işiyle
+  silinir.
 
 Sunucunun kontrol sırası ve yanıtları (başarılı kayıtta yanıt mesajı yoktur):
 | Durum | Yanıt |
@@ -1367,7 +1387,7 @@ Yetki `users.edit`, gövde `{}` veya boş → 204. Pasif kullanıcı giriş yapa
 
 ### GET / PUT /api/v1/settings/tenant
 GET `settings.view`, PUT `settings.edit`. Etkin firmanın genel ayarları. Web ekranları: Ayarlar > E-posta (SMTP), Ayarlar > Güvenlik
-(diğer alanların ekranı henüz yok):
+(`requireTech2fa`; P13a'dan itibaren "Veri saklama" bölümünde `retentionDays`). Diğer alanların ekranı henüz yok:
 ```json
 { "sessionTtlMin": 15, "maxOpenSessions": 3, "maxActiveHours": 4, "maxFileMb": 100, "retentionDays": 365,
   "requireTech2fa": true,
@@ -1516,6 +1536,8 @@ curl -sk "https://localhost:4450/api/v1/audit?from=2026-11-01&to=2026-11-13&acti
   "nextCursor": "MTg0Mi0xNzYy…" }
 ```
 `id` BIGINT olduğu için dizedir. `avatarUrl` P12'ye kadar `null`. Son sayfada `nextCursor: null`.
+P13a: müşteri kaynaklı kayıtlarda (`username: "customer"`) `ipAddress` tam IP değil ağ önekidir (`203.0.113.0/24`,
+`2001:db8:1234::/48`), `userAgent` `null`'dır. Grup filtresi `action=retention.*` "Saklama süresi işi" kayıtlarını getirir.
 Hatalar: 400 `VALIDATION`, 401, 403 (yetki yok).
 
 ### GET /api/v1/audit/export.csv
@@ -1544,7 +1566,9 @@ curl -sk -i -X DELETE https://localhost:4450/api/v1/audit/1842
 { "error": { "code": "METHOD_NOT_ALLOWED", "message": "Audit kayıtları salt okunurdur; değiştirilemez veya silinemez.", "requestId": "01K…" } }
 ```
 Veritabanı düzeyinde de koruma vardır: `app` kullanıcısının `audit_logs` üzerinde UPDATE/DELETE yetkisi yoktur; tetikleyiciler
-UPDATE'i ve 730 günden yeni kaydın silinmesini reddeder (`docs/db-notlari.md` "P11").
+UPDATE'i ve 730 günden yeni kaydın silinmesini reddeder (`docs/db-notlari.md` "P11"). P13a'dan itibaren `app` kullanıcısı
+yalnız 730 günden eski kayıtları silebilir (saklama işi); eklenen kaydın `created_at`'i her zaman veritabanı saatidir
+(geri tarihli kayıt yazılamaz).
 
 ### GET / PUT /api/v1/admin/settings/mysql
 Yalnız SUPER_ADMIN (rol; diğer roller 403). Sistem seviyesindeki MySQL bağlantı bilgisi (tek veritabanı, tüm firmalar).
@@ -1633,13 +1657,15 @@ GET yanıtı (`WhatsappSettingsView`):
 | Alan | Anlam |
 |---|---|
 | `url` | Etkin adres. Panel kaydı da env de yoksa `null` |
-| `source` | `panel` = bu ekrandan kaydedilmiş; `env` = panel kaydı yok, `WHATSAPP_SERVICE_URL` (veya varsayılan) kullanılıyor |
+| `source` | `panel` = bu ekrandan kaydedilmiş; `env` = panel kaydı yok, `WHATSAPP_SERVICE_URL` kullanılıyor; `default` (P13a) = panel kaydı da `WHATSAPP_SERVICE_URL` da yok, yerleşik varsayılan adres kullanılıyor (ekranda "Varsayılan" rozeti) |
 | `insecure` | `true` → kanal kapalı, bildirim ve test gönderilmez: production'da `http://` + özel ağ dışı adres ya da (her ortamda) ayrıştırılamayan adres. Ekran `WA_INSECURE_WARNING` ("Güvensiz adres: canlı ortamda WhatsApp kanalı kapalı") gösterir |
 | `updatedAt` | Panel kaydının son değişimi; env kaynağında `null` |
 
 PUT gövdesi `{ "url": "…" }` (`strictObject`; başka alan → 400). Kural (`waServiceUrlSchema`; panel, env ve DB CHECK aynı):
-`http://` veya `https://` (küçük harf), `kullanıcı:şifre@`, `?`, `#`, boşluk ve kontrol karakteri yok, en çok 200
-karakter; sondaki `/` kırpılır. Uymayan değer → 400 `VALIDATION`, `fields.url` = "Adres http:// veya https:// ile
+`http://` veya `https://`, `kullanıcı:şifre@`, `?`, `#`, boşluk, kontrol ve görünmez biçim karakteri (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}`)
+yok, en çok 200 karakter. **P13a — kanonik biçim:** adres WHATWG URL kuralıyla saklanır ve yanıtta öyle döner: şema ve
+sunucu adı küçük harfe çevrilir (`HTTPS://WA.Example.com/` → `https://wa.example.com`), ondalık/onaltılı IPv4 noktalı
+biçime, IDN punycode'a çevrilir, kök yolda sondaki `/` atılır. Büyük harfli şema reddedilmez, küçültülür. Uymayan değer → 400 `VALIDATION`, `fields.url` = "Adres http:// veya https:// ile
 başlamalı; kullanıcı adı/şifre, ? ve # içeremez (en çok 200 karakter)". Yanıt GET görünümü (`source: "panel"`).
 ```bash
 curl -sk -X PUT https://localhost:4450/api/v1/admin/settings/whatsapp \
@@ -1652,12 +1678,14 @@ curl -sk -X PUT https://localhost:4450/api/v1/admin/settings/whatsapp \
 ```
 
 DELETE ("Ortam değişkenine dön"): panel kaydı kaldırılır (satır `{"url": null}` olarak kalır), etkin adres env/varsayılana
-döner. Yanıt **200** + GET görünümü (`source: "env"`). İdempotent: panel kaydı yoksa değişiklik ve audit yok.
+döner. Yanıt **200** + GET görünümü (`source: "env"` veya env yoksa `"default"`). İdempotent: panel kaydı yoksa değişiklik ve audit yok.
+Aynı kanonik adresle tekrarlanan PUT 200 döner, yazım ve audit yapılmaz (P13a).
 
 Audit (sistem kaydı, `tenantId` boş, entity `system_settings`, kayıt `whatsapp`): `settings.whatsapp.updated` eski
 `{ url, source }` → yeni `{ url, source: "panel" }`; `settings.whatsapp.deleted` eski `{ url, source: "panel" }` → yeni
 `{ url, source: "env" }`. Adres gizli değer sayılmaz, açık yazılır. Kayıt ve audit tek işlemde (transaction).
-PUT/DELETE'te hız sınırı yoktur (yalnız Super Admin + audit; `docs/guvenlik-raporu.md` B-P12b-5). Hatalar: 400, 401, 403.
+PUT/DELETE hız sınırı (P13a): MySQL, TURN ve WhatsApp ayarlarının PUT/DELETE'i kullanıcı başına **ortak 10/dk**; 11. istek
+429 `RATE_LIMITED` + `Retry-After`. Sayım girdi doğrulamasından sonradır (400 kotayı tüketmez). Hatalar: 400, 401, 403, 429.
 
 ### POST /api/v1/admin/settings/whatsapp/test (P12b)
 Yalnız SUPER_ADMIN. **Kayıtlı etkin adrese** test mesajı gönderir (formdaki kaydedilmemiş adres kullanılmaz). Gövde
@@ -1814,6 +1842,38 @@ Giriş ekranı logosu. Çerez istemez. Yanıt `Cache-Control: no-store`:
 curl -sk 'https://localhost:4450/api/v1/public/branding?tenant=demo'
 ```
 
+## Saklama ve anonimleştirme (P13a)
+Yeni uç yoktur. Kaynak: `docs/mimari-p13.md` §2–§3, `apps/server/src/jobs/retention.ts`.
+
+**Saklama işi.** Her gün 03:30 (Europe/Istanbul) sunucu içinde çalışır; ikinci tur üst üste binmez, aynı gün ikinci
+çalıştırma 0 satır değiştirir (idempotent). Bir firmadaki hata diğer firmaları durdurmaz.
+| Veri | Süre | İşlem |
+|---|---|---|
+| Bitmiş oturum (ENDED/EXPIRED/CANCELLED) | Firma ayarı `retentionDays` (90–730, varsayılan 365; Ayarlar › Güvenlik › Veri saklama, `PUT /settings/tenant`), `createdAt`'ten | Müşteri adı, e-posta, not ve ağ anahtarları silinir, `anonymized: true` olur; onay kayıtlarının IP/tarayıcı bilgisi silinir (karar, seviye, kaynak, metin sürümü kalır); dosya kayıtları silinir |
+| Destek talebi, pasif müşteri, bilgisayar kaydı | Aynı `retentionDays` | Anonimleştirme / süresi doldu (P8b, P8c davranışı, değişmedi) |
+| Audit kayıtları | 730 gün (sabit) | Silinir |
+| Giriş oturumları, şifre sıfırlama bağlantıları | Süre bitiminden 7 gün sonra | Silinir |
+
+**Sözleşme etkileri:**
+- `GET /sessions` ve `GET /sessions/:id/history`: `anonymized: boolean` alanı; anonimse kişisel alanlar `null`, `files: []`
+  (ayrıntı yukarıda).
+- `PATCH /sessions/:id`: anonim oturumda 409 `SESSION_ANONYMIZED`.
+- `GET /sessions/export.csv`: anonim satırda Müşteri = `Anonimleştirildi`, Not boş.
+- Audit: müşteri kaynaklı kayıtlarda tam IP yerine ağ öneki (IPv4 /24, IPv6 /48), tarayıcı bilgisi yok; yeni kayıtlarda
+  müşteri adı yok (`guest.pending`, `guest.admitted`, `guest.rejected`); dosya aktarım kayıtlarında dosya adı ve SHA-256
+  yok, yalnız yön, uzantı, boyut, sonuç.
+
+**Sistem ayarları (`/admin/settings/{mysql,turn,whatsapp}`):**
+- PUT/DELETE kullanıcı başına ortak 10/dk; 11. istek 429 `RATE_LIMITED` + `Retry-After`.
+- Değeri değiştirmeyen PUT (MySQL: aynı hedef ve veritabanı, şifre yok; TURN: aynı liste, secret yok; WhatsApp: aynı
+  kanonik adres) 200 döner, yazım ve audit yapılmaz.
+- WhatsApp: kanonik adres, `source: "panel" | "env" | "default"`. Canlı ortamda `http://` + link-local adres
+  (`169.254.0.0/16`, `fe80::/10`) artık özel ağ sayılmaz; kanal kapalı kalır (`insecure: true`).
+
+**Metrikler (`/metrics`):** `rs_retention_last_success_timestamp_seconds` (gauge; yalnız hatasız turda ilerler),
+`rs_retention_rows_total{kind}` (`sessions|consents|files|requests|customers|bindings|audit|auth_sessions|reset_tokens`),
+`rs_retention_failures_total`. Alarm eşikleri: `docs/runbook.md` §18.6.
+
 ## Audit
 Giriş (başarılı/başarısız), kilit (`auth.locked`, kapsam `account_ip` veya `account`), çıkış ve şifre değişimi
 `audit_logs` tablosuna yazılır. P2: `session.created`, `session.cancelled`, `session.expired` (SYSTEM) ve
@@ -1824,7 +1884,8 @@ nedeni), `session.ended`, `session.terminated`, `reconnect.conflict`. `joinNonce
 P4: `guest.pending` KVKK metin kimliği ve sürümünü, `guest.admitted` `newValue.consent = { textId, version, sha256 }`
 özetini içerir.
 P5: `file.transfer` (alıcı raporu; entity `session_files`), `file.transfer.sender_report`, `file.meta.rate_limited`
-(`{sessionId, side, class}`), `file.meta.rejected_by_db`. Dosya içeriği hiçbir yere yazılmaz.
+(`{sessionId, side, class}`), `file.meta.rejected_by_db`. Dosya içeriği hiçbir yere yazılmaz. P13a'dan itibaren aktarım
+kayıtlarında dosya adı ve SHA-256 yoktur; yalnız yön, uzantı, boyut ve sonuç (`{ sessionId, direction, ext, sizeBytes, result }`).
 P6: istemci indirme ucu yeni audit olayı üretmez; süresi dolmuş PENDING için `session.expired` yazılır, 404/410
 denemeleri resolve ile aynı başarısız sayaçlara (`rs_resolve_failed`) girer. İkili uyuşmazlığı audit değil server
 logunda `alarm: "agent_binary"` olarak (durum geçişinde bir kez; yol ve hash yazılmaz) görünür.
@@ -1871,5 +1932,9 @@ P12: `tenant.logo_updated` / `tenant.logo_removed`, `user.avatar_updated` / `use
 reason: invalid_image|too_large }`), `user.theme_changed` (eski → yeni tema; yalnız değer değiştiğinde). Kuyruk dolu (429)
 reddi audit'e yazılmaz. Dosya içeriği hiçbir yere yazılmaz. Audit ekranında satırın avatarı yalnız görüntüleyenin erişebildiği
 dosyaysa döner, değilse baş harf.
+P13a: `retention.run` (entity `retention`, kullanıcı `system`, `userId` boş). Değişiklik olan ya da hata alan her firma için
+bir kayıt: `newValue = { sessions, consents, files, requests, customers, bindings }`; global adımlar için firma alanı boş bir kayıt:
+`{ audit, authSessions, resetTokens }`. Yalnız sayılar yazılır; hata olursa `result: fail`. Ekranda "Saklama süresi işi",
+grup "Veri saklama". Müşteri kaynaklı kayıtlarda IP ağ önekiyle, tarayıcı bilgisi olmadan yazılır; yeni misafir kayıtlarında ad yoktur.
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Kayıtlar Audit log ekranında (`/audit`) ve
 `GET /api/v1/audit` ile okunur; değiştirilemez.

@@ -56,6 +56,7 @@ case "${1:-}" in
     docker run -d --name "$NAME" --user mysql -p "127.0.0.1:$PORT:3306" \
       -e MYSQL_ROOT_PASSWORD="root$(openssl rand -hex 12)" -e MYSQL_DATABASE=remote \
       -e MYSQL_APP_PASSWORD="$APP_PW" -e MYSQL_MIGRATOR_PASSWORD="$MIG_PW" \
+      -e MYSQL_BACKUP_PASSWORD="bak$(openssl rand -hex 12)" \
       -v "$ROOT/deploy/mysql/init:/docker-entrypoint-initdb.d:ro" \
       "$MYSQL_IMAGE" --default-time-zone=+00:00 --log-bin-trust-function-creators=1 >/dev/null
     # P11: binlog (8.4 varsayılanı AÇIK) korunur; migrator'ın audit_logs tetikleyicilerini SUPER'siz oluşturabilmesi için

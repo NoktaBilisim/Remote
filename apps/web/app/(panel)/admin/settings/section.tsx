@@ -17,15 +17,16 @@ export function Section({ id, title, Icon, children, aside }: { id: string; titl
   );
 }
 
-/** Kaynak rozeti: panelde kayıtlı / ortam değişkenleri (renk yalnız değil, metin). */
-export function SourceBadge({ source, panel, env }: { source: "panel" | "env"; panel: string; env: string }) {
+/**
+ * Kaynak rozeti: panelde kayıtlı / ortam değişkenleri / (P13a, yalnız WhatsApp) yerleşik varsayılan. Renk yalnız değil, metin.
+ * Panel `primary-surface`; ortam ve varsayılan nötr `surface-muted` (varsayılan ayrıca kesik kenarlı — "ayar yapılmamış").
+ */
+export function SourceBadge({ source, panel, env, fallback }: { source: "panel" | "env" | "default"; panel: string; env: string; fallback?: string }) {
+  const cls =
+    source === "panel" ? "bg-primary-surface text-primary" : source === "default" ? "border border-dashed border-border bg-surface-muted text-fg" : "bg-surface-muted text-fg";
   return (
-    <span
-      data-testid="setting-source"
-      data-source={source}
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${source === "panel" ? "bg-primary-surface text-primary" : "bg-surface-muted text-fg"}`}
-    >
-      {source === "panel" ? panel : env}
+    <span data-testid="setting-source" data-source={source} className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
+      {source === "panel" ? panel : source === "default" ? (fallback ?? env) : env}
     </span>
   );
 }

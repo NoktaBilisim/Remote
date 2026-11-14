@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/toast";
 import {
   checkTestPhone,
   checkWaUrl,
+  normalizeWaView,
   WA_SERVICE_URL_MAX,
   waDirty,
   waFieldValue,
@@ -38,7 +39,8 @@ type TestResult = { tone: "success" | "danger" | "locked"; title: string; messag
  * kaydını gösterir; etkin adres (env dahil) üstteki özette. "Ortam değişkenine dön" (DELETE) yalnız panel kaydı varken,
  * `alertdialog` (odak Vazgeç). Test kayıtlı etkin adresle yapılır (formdaki kaydedilmemiş değer değil); sonuç ekranda kalır.
  */
-export function WhatsappForm({ initial }: { initial: WhatsappServiceView }) {
+export function WhatsappForm({ initial: raw }: { initial: WhatsappServiceView }) {
+  const initial = normalizeWaView(raw);
   const router = useRouter();
   const ready = useHydrated(); // data-ready: e2e hidrasyondan önce yazmasın (QA P12 Tur 2)
   const toast = useToast();
@@ -83,7 +85,7 @@ export function WhatsappForm({ initial }: { initial: WhatsappServiceView }) {
     setBusy(true);
     setFormError(null);
     try {
-      apply(await api<WhatsappServiceView>("PUT", PATH, { url: c.url }));
+      apply(normalizeWaView(await api<WhatsappServiceView>("PUT", PATH, { url: c.url })));
       toast(t("wa.svc.saved"));
     } catch (err) {
       if (isUnauthenticated(err)) return router.replace(EXPIRED_LOGIN_PATH);
@@ -104,7 +106,7 @@ export function WhatsappForm({ initial }: { initial: WhatsappServiceView }) {
     try {
       const r = await api<WhatsappServiceView | undefined>("DELETE", PATH);
       // DELETE yanıtı gövdesiz olabilir → güncel (env) görünümü yeniden al
-      apply(r && typeof r === "object" && "source" in r ? r : await api<WhatsappServiceView>("GET", PATH));
+      apply(normalizeWaView(r && typeof r === "object" && "source" in r ? r : await api<WhatsappServiceView>("GET", PATH)));
       setConfirmReset(false);
       toast(t("wa.svc.resetDone"));
     } catch (err) {
@@ -147,7 +149,10 @@ export function WhatsappForm({ initial }: { initial: WhatsappServiceView }) {
       {!configured ? (
         <Alert tone="info" testId="wa-svc-empty">{t("wa.svc.empty")}</Alert>
       ) : (
-        saved.source === "env" && <Alert tone="info" testId="wa-svc-env-source">{t("wa.svc.envSource")}</Alert>
+        <>
+          {saved.source === "env" && <Alert tone="info" testId="wa-svc-env-source">{t("wa.svc.envSource")}</Alert>}
+          {saved.source === "default" && <Alert tone="info" testId="wa-svc-default-source">{t("wa.svc.defaultSource")}</Alert>}
+        </>
       )}
       {saved.insecure && <Alert tone="warning" testId="wa-svc-insecure">{t("wa.svc.insecure", { warning: WA_INSECURE_WARNING })}</Alert>}
       {formError && <FormError error={formError} />}
@@ -158,7 +163,7 @@ export function WhatsappForm({ initial }: { initial: WhatsappServiceView }) {
             id="wa-svc"
             title={t("wa.svc.title")}
             Icon={MessageCircle}
-            aside={<SourceBadge source={saved.source} panel={t("wa.svc.panelBadge")} env={t("wa.svc.envBadge")} />}
+            aside={<SourceBadge source={saved.source} panel={t("wa.svc.panelBadge")} env={t("wa.svc.envBadge")} fallback={t("wa.svc.defaultBadge")} />}
           >
             <p className="text-sm text-fg-muted">{t("wa.svc.intro")}</p>
             <dl className="grid gap-x-4 gap-y-2 rounded-md border border-border bg-canvas px-3 py-2.5 text-sm sm:grid-cols-[9rem_1fr]" data-testid="wa-svc-summary">
@@ -176,7 +181,7 @@ export function WhatsappForm({ initial }: { initial: WhatsappServiceView }) {
                 setUrlError(undefined);
               }}
               error={urlError}
-              hint={saved.source === "env" ? `${t("wa.svc.urlHint")} ${t("wa.svc.urlHintEnv")}` : t("wa.svc.urlHint")}
+              hint={saved.source === "env" ? `${t("wa.svc.urlHint")} ${t("wa.svc.urlHintEnv")}` : saved.source === "default" ? `${t("wa.svc.urlHint")} ${t("wa.svc.urlHintDefault")}` : t("wa.svc.urlHint")}
               placeholder="https://wa.ornek.com"
               type="url"
               inputMode="url"

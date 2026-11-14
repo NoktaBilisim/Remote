@@ -44,9 +44,11 @@ export interface WhatsappDeps {
   fetch?: FetchLike;
 }
 
+// P13a (T33, mimari-p13 §3): link-local `169.254.0.0/16` (bulut metadata) ve `fe80::/10` "özel ağ" SAYILMAZ → canlıda
+// `http://` + link-local adres kanalı kapatır. Loopback (`127.0.0.0/8`, `::1`) özel kalır.
 const PRIVATE = new BlockList();
-for (const [net, bits] of [["10.0.0.0", 8], ["172.16.0.0", 12], ["192.168.0.0", 16], ["127.0.0.0", 8], ["169.254.0.0", 16], ["100.64.0.0", 10]] as const) PRIVATE.addSubnet(net, bits, "ipv4");
-for (const [net, bits] of [["::1", 128], ["fc00::", 7], ["fe80::", 10]] as const) PRIVATE.addSubnet(net, bits, "ipv6");
+for (const [net, bits] of [["10.0.0.0", 8], ["172.16.0.0", 12], ["192.168.0.0", 16], ["127.0.0.0", 8], ["100.64.0.0", 10]] as const) PRIVATE.addSubnet(net, bits, "ipv4");
+for (const [net, bits] of [["::1", 128], ["fc00::", 7]] as const) PRIVATE.addSubnet(net, bits, "ipv6");
 
 /** Host özel ağ/loopback mu (yalnız IP sabitleri ve `localhost`; DNS çözülmez — ad her zaman "genel" sayılır). */
 export function isPrivateHost(host: string): boolean {

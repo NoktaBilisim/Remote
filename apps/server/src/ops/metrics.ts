@@ -67,6 +67,8 @@ export function createMetrics(): Metrics {
   m.counter("rs_request_rate_limited_total", "Talep hız/bekleyen sınırı aşımları (bucket)");
   m.counter("rs_request_gate_rejected_total", "Talep oluşturma kapısı dolu → 503 (reason: full|timeout; S8b-5)");
   m.counter("rs_request_notify_total", "Talep bildirimleri (channel, result: ok|failed|suppressed)");
+  m.counter("rs_retention_rows_total", "Saklama işinin değiştirdiği/sildiği satırlar (P13a; kind: sessions|consents|files|requests|customers|bindings|audit|auth_sessions|reset_tokens)");
+  m.counter("rs_retention_failures_total", "Saklama işinde başarısız adımlar (P13a; firma adımı, global adım, audit yazımı)");
   m.counter("rs_sessions_ended_total", "Sinyalizasyon üzerinden biten oturumlar (reason)");
   m.counter(
     "rs_control_total",

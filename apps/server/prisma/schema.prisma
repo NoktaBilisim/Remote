@@ -237,6 +237,7 @@ model SupportSession {
   guestNetKey    String?   @map("guest_net_key") @db.VarChar(64) // P8b §13.1: admit edilen misafirin ağ öneki (netKey: IPv4 /24, IPv6 /48); retention'da NULL
   guestIpKey     String?   @map("guest_ip_key") @db.VarChar(64) // P8b G-E9-15: misafirin tam ipKey'i (IPv4 /32, IPv6 /64) — "bilinen ağ" rozeti yalnız tam eşleşmede; retention'da NULL
   customerId     String?   @map("customer_id") @db.Char(26) // P8c AC-177/180: müşteri FİRMA (customers); customer_name misafir KİŞİdir. Kabul TX'inde talepten kopya veya POST /sessions customerId
+  anonymizedAt   DateTime? @map("anonymized_at") @db.DateTime(3) // P13a AC-197: saklama işi kişisel alanları NULL'ladığı an (CHECK support_sessions_anonymized_chk)
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
@@ -261,6 +262,7 @@ model SupportSession {
   @@index([terminatedBy]) // FK (RESTRICT kontrolü); MySQL'in gizli indeksi yerine adlı indeks
   @@index([tenantId, guestNetKey, consumedAt]) // P8b §13.1 bilinen ağ öneki (son 90 gün admit)
   @@index([tenantId, guestIpKey, consumedAt]) // P8b G-E9-15 tam IP eşleşmesi (son 90 gün admit)
+  @@index([tenantId, anonymizedAt, createdAt]) // P13a retention aday sorgusu (tenant + anonymized_at IS NULL + created_at < cutoff)
   @@index([tenantId, customerId, createdAt]) // P8c geçmiş müşteri filtresi + müşteri detayı Oturumlar sekmesi + customer FK (tenant_id, customer_id)
   @@map("support_sessions")
 }

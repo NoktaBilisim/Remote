@@ -4,15 +4,17 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P12b tamamlandı (Windows elle testleri bekliyor)
+## Şu anki durum: P1–P12b tamamlandı, P13a kodu hazır (staging doğrulaması ve Windows elle testleri bekliyor)
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
 turu GEÇTİ), sayfa testi gerçek server ile GEÇTİ, QA Tur 2'nin tek maddesi (P11'e ait kararsız e2e testi) düzeltildi
 (`docs/arsiv/p12-qa-raporu.md`, `docs/arsiv/p12-test-raporu.md`, `docs/guvenlik-raporu.md`). **P12b** (Super Admin
 "WhatsApp servisi" sistem ayarı, AC-196) tamamlandı: QA Tur 3 GEÇTİ, güvenlik Kritik/Yüksek/Orta 0 (`docs/qa-raporu.md`,
 `docs/guvenlik-raporu.md`). P11, P12 ve P12b henüz staging'e yayınlanmadı (yayın adımları runbook §15, §16, §17). Windows istemci **0.10.2** qa ve güvenlik denetiminden geçti. Gerçek
-Windows'ta elle testler (P7, P8b-2, P8c-2, 0.10.2) ve AC-192 staging ölçümü bekliyor. Sıradaki paket **P13** (prod deploy,
-yedek, retention); açık maddeler `docs/gereksinimler-sonra-acik.md`.
+Windows'ta elle testler (P7, P8b-2, P8c-2, 0.10.2) ve AC-192 staging ölçümü bekliyor. **P13a** (saklama işi, şifreli
+yedek/geri yükleme, runbook senaryo dizini, dokümantasyon PDF'leri) kodlandı; staging kurulumu ve yedek provası runbook §18.7'de
+bekliyor. Sıradaki paket **P13b** (prod açılışı; alan adı ve TURN ayrı IP kararlarına bağlı). Açık maddeler
+`docs/gereksinimler-sonra-acik.md`.
 
 Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.126.217.99:4450` geçiş süresince açık).
 
@@ -315,6 +317,21 @@ Staging: **https://remote.noktabilisim.net** (ADR-0015; IP girişi `https://185.
 - `WHATSAPP_SERVICE_URL` açılışta panel kuralıyla doğrulanır; uymayan değerde server açılmaz (runbook §17.1).
 - Migration `20261114090000_whatsapp_service_setting` (yalnız CHECK). Yeni ortam değişkeni, volume ve bağımlılık yok.
 
+**P13a — saklama, yedek ve geri yükleme (AC-88, 91, 92, 93, 197–200)**
+- **Saklama süresi işi** (her gün 03:30): bitmiş oturumlarda firma saklama süresinden (`retentionDays`, varsayılan 365 gün)
+  sonra müşteri adı, e-posta, not, onay IP/tarayıcı bilgisi ve dosya kayıtları silinir, oturum "Anonimleştirildi" olur.
+  Süre **Ayarlar › Güvenlik › Veri saklama** ekranından değişir (90–730 gün, `settings.edit`). Audit 730 gün, giriş
+  oturumları ve sıfırlama bağlantıları süre bitiminden 7 gün sonra silinir. Audit `retention.run`,
+  metrikler `rs_retention_*`.
+- Oturum geçmişinde "Anonimleştirildi" rozeti, salt okunur ayrıntı, PATCH → 409 `SESSION_ANONYMIZED`, CSV'de `Anonimleştirildi`.
+- Müşteri kaynaklı audit kayıtlarında ad yok, IP yerine ağ öneki (/24, /48), tarayıcı bilgisi yok; dosya aktarım
+  kayıtlarında dosya adı ve SHA-256 yok (yalnız yön, uzantı, boyut, sonuç).
+- WhatsApp adresi kanonik biçimde saklanır, yeni **Varsayılan** kaynak rozeti; sistem ayarı yazımları 10/dk/kullanıcı.
+- **Şifreli günlük yedek** (`deploy/backup/`, systemd 02:00, `age`, 14 gün) ve doğrulamalı geri yükleme (bkz. "Yedek, geri
+  yükleme ve saklama").
+- Migration `20261114120000_p13a_retention`. Yeni ortam değişkeni **`MYSQL_BACKUP_PASSWORD`**. Yeni bağımlılık yok (host'ta
+  `age`, `jq`).
+
 **Düzeltme — talepten doğan oturumda siyah ekran:** sunucu teknisyene ICE (TURN) listesini `peer.joined`'dan önce
 gönderir, konsol liste gelmeden teklif üretmez (`6701567`).
 
@@ -347,7 +364,8 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P11 ✓ | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri, aydınlatma metni düzenleme |
 | P12 ✓ | Firma/sistem logosu, avatar yükleme, kullanıcı tema tercihi, hesap menüsü, token lint kuralı |
 | P12b ✓ | Super Admin "WhatsApp servisi" sistem ayarı: servis adresi, kaynak rozeti, test mesajı |
-| P13 | Prod deploy, yedek/geri yükleme, retention, kullanım kılavuzu, datasheet, PDF'ler |
+| P13a (kod ✓, staging doğrulaması bekliyor) | Saklama işi (anonimleştirme, audit 730 g), şifreli yedek/geri yükleme, runbook senaryo dizini, kılavuz, datasheet, PDF'ler |
+| P13b | Prod açılışı: alan adı, TURN ayrı IP/443, IPv6, site dışı yedek, Super Admin kurtarma CLI |
 
 Prod açılışı P10 (2FA) sonrası mümkündür; ön koşullar runbook §14 P10 "Prod açılış kontrol listesi". O zamana kadar
 yalnız staging kullanılır.
@@ -401,6 +419,7 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 |---|---|---|
 | `MYSQL_ROOT_PASSWORD`, `MYSQL_APP_PASSWORD`, `MYSQL_MIGRATOR_PASSWORD` | Evet | `openssl rand -hex 24`; yalnız harf/rakam |
 | `MYSQL_DATABASE` | Evet | Veritabanı adı (ör. `remote`) |
+| `MYSQL_BACKUP_PASSWORD` | Yedek için | P13a: `backup` MySQL kullanıcısının parolası, ≥ 16 karakter (`openssl rand -hex 24`). Yalnız `mysql` servisine verilir; server okumaz. Boşsa kullanıcı oluşturulmaz ve yedek hata verir (runbook §3, §18) |
 | `PUBLIC_BASE_URL` | Evet | Dış adres, port dahil (ör. `https://localhost:4450`) |
 | `SITE_HOST` | Hayır | Caddy site adı/sertifika adı (varsayılan `localhost`) |
 | `SEED_SUPERADMIN_EMAIL`, `SEED_SUPERADMIN_PASSWORD`, `SEED_SUPERADMIN_NAME` | Seed için | Boşluklu değer tırnaklanır; seed sonrası silinebilir |
@@ -416,7 +435,7 @@ hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örne
 | `AGENT_SHA256` | İndirme için | Yayındaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). Elle yazılmaz; `deploy/agent/verify-and-publish.sh` doğrulamadan sonra yazar. Boşsa istemci indirmesi 503 döner, server yine açılır |
 | `AGENT_BINARY_PATH` | Compose dışı | İkilinin mutlak yolu. Compose `/data/downloads/NoktaDestek.exe` verir; yalnız yerel `pnpm` çalıştırmada gerekir |
 | `ABUSE_EMAIL` | Önerilir | Müşteri ekranındaki "Kötüye kullanımı bildir" adresi (ör. `abuse@<alan-adı>`). Production'da boşsa bağlantı gizlenir; Super Admin e-postası kullanılmaz. Boş bırakmak güvenlidir; dolu ama geçersiz adres server'ı açtırmaz |
-| `WHATSAPP_SERVICE_URL` | Hayır | P8b: whatsapp-bildirim servis adresi (sistem düzeyi). **P12b'den beri yalnız yedek:** Sistem ayarları > WhatsApp servisi'nde panel kaydı varsa o geçerlidir. Boşsa varsayılan servis. Kural: `http://`/`https://`, kullanıcı:şifre, `?`, `#`, boşluk yok, ≤ 200 karakter; **uymazsa server açılmaz** (runbook §17.1). Production'da şifresiz + genel adres → kanal kapalı başlar (runbook §12.3) |
+| `WHATSAPP_SERVICE_URL` | Hayır | P8b: whatsapp-bildirim servis adresi (sistem düzeyi). **P12b'den beri yalnız yedek:** Sistem ayarları > WhatsApp servisi'nde panel kaydı varsa o geçerlidir. Boşsa varsayılan servis (ekranda "Varsayılan" rozeti). Değer kanonik biçime çevrilir (P13a). Kural: `http://`/`https://`, kullanıcı:şifre, `?`, `#`, boşluk ve görünmez karakter yok, ≤ 200 karakter; **uymazsa server açılmaz** (runbook §17.1). Production'da şifresiz + genel adres → kanal kapalı başlar (runbook §12.3) |
 | `APP_ENCRYPTION_KEYS` | Evet | P10: SMTP şifresi ve 2FA sırlarının AES-256-GCM anahtarı, `v1:<base64 32 bayt>`. Üretim: `echo "v1:$(openssl rand -base64 32)"`. Production'da yoksa server açılmaz. **Parola kasasında yedeklenmeli**: kaybolursa SMTP şifreleri yeniden girilir, tüm kullanıcıların 2FA'sı sıfırlanır. Rotasyonda eski sürüm silinmez (`v1:…,v2:…`); runbook §3 ve §14 P10 |
 | `MIN_AGENT_VERSION` | Hayır | P8b: asgari Windows istemci sürümü `x.y.z`; boş = kontrol yok. Müşterilerin tamamı 0.9.0 firma dosyasına geçene kadar boş bırakın (runbook §12.4) |
 | `UPLOADS_DIR` | Compose dışı | P12: logo/avatar dosyalarının kökü, **mutlak yol**. Compose sabit `/data/uploads` verir (volume `remote_uploads`); boşsa `/data/uploads`. Yedeği DB ile aynı pencerede alınır (runbook §16.3) |
@@ -485,7 +504,17 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 `e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
-### Son test sonuçları (P12b, 2026-11-13)
+### Son test sonuçları (P13a, 2026-11-14)
+| Takım | Sonuç |
+|---|---|
+| Birim (`pnpm -r run test`) | 676: server 349, web 249, contracts 78 |
+| Server entegrasyon (`test:int`, temiz DB) | 529 (53 dosya); P13a: `retention-p13a-job`, `retention-p13a-db`, `audit-customer-p13a`, `whatsapp-admin-p12b` (P13a ekleri) |
+| Web e2e (sahte API/WS, tüm projeler) | 305 geçti, 0 hata; P13a spec'i `e2e/p13a.spec.ts` |
+| `deploy/mysql/check-app-grants.sh` | 373/373 PASS (tetikleyici 3, backup hesabı dahil) |
+
+Staging ölçümleri (AC-88 temiz kurulum, AC-91/200 yedek ve geri yükleme provası) runbook §18.7'de bekliyor.
+
+#### Önceki paket (P12b, 2026-11-13)
 | Takım | Sonuç |
 |---|---|
 | Birim (`pnpm -r run test`) | 665: server 347, web 243, contracts 75 |
@@ -578,7 +607,9 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
   Staging'de TURN'ün dışarıdan çalışması için üst NAT'ta (pfSense) 3478/udp+tcp, 5349/tcp ve 49160–49199/udp
   yönlendirmesi gerekir (runbook §9.3, ağ yöneticisi talebi).
 - Migration her `up -d`'de `migrate` servisiyle otomatik uygulanır; server `migrate` başarıyla bitmeden başlamaz.
-  Yedekleme P13'te eklenecek.
+  Yedekleme ve geri yükleme: aşağıdaki "Yedek, geri yükleme ve saklama" bölümü.
+- **P13a yayını:** migrate → `backup` kullanıcısı (`deploy/mysql/backup-user.sql`) → grants → server; ardından yedek
+  zamanlayıcısı kurulumu ve prova. Sıra, doğrulama ve geri alma: `docs/runbook.md` §18.7–§18.8.
 - **P7 yayını:** `20261111050000_p7_consent_source_tech` migration'ı P7 server'ından **önce** uygulanmalıdır (P7 server
   `source='TECH'` satırı yazar; eski CHECK bunu reddeder). Compose sırası bunu sağlar; elle yayında önce
   `docker compose run --rm migrate`, sonra `docker compose up -d server`. Geri alma: önce P7 kodu, sonra `down.sql`
@@ -587,6 +618,28 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
 - **P8 yayını:** iki migration (`20261111060000_p8_session_history`, `20261111070000_enum_check_binary`). `up -d`'den
   **önce** ADR-0014 ön kontrolü (`precheck.sql`, salt okunur) çalıştırılır; her satır 0 olmalıdır. Sıfır olmayan
   satır elle düzeltilmez (KVKK kanıtı), mimara bildirilir. Komutlar ve geri dönüş: `docs/runbook.md` §6.1.
+
+### Yedek, geri yükleme ve saklama (P13a; runbook §18)
+- **Ne yedeklenir:** MySQL dökümü (`backup` kullanıcısı, yalnız okuma) ve `uploads` volume'u (logo/avatar), aynı
+  çalıştırmada. Her çalıştırma bir `manifest.json` üretir (son migration, tablo satır sayıları, SHA-256'lar).
+- **Ne zaman / ne kadar:** her gün 02:00 (systemd `remote-backup.timer`), 14 gün saklanır (RPO ≤ 24 sa).
+- **Şifreleme:** `age` açık anahtarıyla; çözme anahtarı sunucuda tutulmaz (yönetici parola kasasında, runbook §18.1).
+  Düz döküm diske yazılmaz.
+- **Yapılandırma:** `deploy/backup/backup.env` (git dışı, sahibi root, izin 600; şablon `backup.env.example`):
+  `BACKUP_DIR`, `BACKUP_AGE_RECIPIENT`, `BACKUP_KEEP_DAYS`, `BACKUP_MIN_FREE_MB`, `BACKUP_ALERT_CMD`,
+  `BACKUP_EXPECTED_TRIGGERS`. MySQL parolası burada değil, `deploy/.env` `MYSQL_BACKUP_PASSWORD`'dadır.
+- **Kurulum:** host'ta `apt-get install -y age jq`, ardından birimleri kurma ve ilk elle çalıştırma (runbook §18.2):
+  ```bash
+  systemctl start remote-backup.service && journalctl -u remote-backup.service -n 20 --no-pager   # "remote-backup: OK run=…"
+  ```
+- **Doğrulama provası** (canlıya dokunmaz; ayda bir):
+  `deploy/backup/restore.sh --identity <age-anahtarı> <çalıştırma-dizini> --target scratch` → `restore-verify: OK`.
+  Gerçek geri yükleme `--target staging --confirm <db>@<host>` ile yapılır (runbook §18.4–§18.5).
+- **Hata:** yedek başarısız olursa birim `failed` olur, journal'a `remote-backup: FAILED` yazılır ve tanımlıysa
+  `BACKUP_ALERT_CMD` çalışır (runbook §18.3, §19.10).
+- **Saklama işi:** server içinde her gün 03:30 çalışır; ayrı kurulum gerekmez. Süreler ve alarm (`rs_retention_*`, 26 sa):
+  runbook §18.6. Anonimleştirilen veri yedeklerde en çok 14 gün daha kalır.
+- Site dışı yedek ve audit'in harici kopyası P13b'dedir.
 
 ### Windows istemciyi derleme ve yayınlama (runbook §11)
 **Derleme** — `apps/agent-win/build/build.sh <https://alan-adı[:port]> <sürüm x.y.z> [çıktı]`. Betik go-winres ile
@@ -631,8 +684,9 @@ apps/agent-win/     Windows istemci (Go): cmd/noktadestek, internal/ (api, flow,
                     build/ (build.sh, winres.json), test/trace-check.ps1
 deploy/             docker-compose.yml, Caddyfile, mysql/ (kullanıcı init + yetki kontrol betiği),
                     turn/ (coturn compose, başlatıcı, güvenlik duvarı ve test betikleri),
-                    agent/ (verify-and-publish.sh: istemci yayını)
-scripts/            Lisans denetimi, gerçek sunucu e2e betiği (e2e-real.sh)
+                    agent/ (verify-and-publish.sh: istemci yayını),
+                    backup/ (backup.sh, restore.sh, systemd birimleri, backup.env.example)
+scripts/            Lisans denetimi, gerçek sunucu e2e betiği (e2e-real.sh), doküman PDF betiği (build-docs.sh)
 .github/            CI iş akışları (ci, agent-win, agent-watch), Dependabot
 docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim raporları
 ```
@@ -684,6 +738,9 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 - Logo ve avatar (P12): tür yalnız içerikten (PNG/JPEG/WEBP; SVG asla), 2 MB, 24 MP, kenar/oran sınırı, sunucuda yeniden
   kodlama ve metadata silme, rastgele ad, firma klasörü. Dosya yalnız DB'de kayıtlı yolsa sunulur; avatar oturumlu ve
   yalnız aynı firmaya (başka firma 404), logolar herkese açık. Yükleme kişi başı 20/sa, işleme 2 eşzamanlı.
+- Saklama ve yedek (P13a): süresi dolan müşteri kişisel verisi her gece anonimleştirilir; müşteri kaynaklı audit kayıtlarında
+  ad yok, IP yalnız ağ öneki. `app` kullanıcısı 730 günden yeni audit'i silemez, geri tarihli kayıt yazamaz. Yedekler `age`
+  ile şifreli, çözme anahtarı sunucuda yok; geri yükleme istemci komutlarını kapatır ve hesap/yetki değişikliği görürse durur.
 - Konteynerler salt okunur kök dosya sistemi, `cap_drop: ALL`, root olmayan kullanıcıyla çalışır; imajlar digest ile sabitlenir.
 - CI: `pnpm audit`, lisans denetimi (GPL/AGPL yasak), gitleaks. Repoya gizli bilgi girmez.
 - Ayrıntı: `docs/guvenlik-raporu.md`, ADR'ler `docs/adr/`.
@@ -693,6 +750,7 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 - Yeni ortam değişkeni → `.env.example` (boş) + `apps/server/src/env.ts` + `deploy/docker-compose.yml` + runbook.
 - Yeni tablo → `apps/server/prisma/sql/grants.sql`'e yetki satırı.
 - PR öncesi lint, typecheck, test ve e2e yeşil olmalı.
+- Doküman PDF'leri (`docs/pdf/` README, KULLANIM_KILAVUZU, DATASHEET): `pnpm docs:pdf` (`scripts/build-docs.sh`; ortak araç yolu `DOCS_PDF_TOOL` ile değiştirilebilir).
 
 ## Lisans
 Apache License 2.0 — bkz. [`LICENSE`](LICENSE).

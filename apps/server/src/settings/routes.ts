@@ -15,7 +15,7 @@ import {
   type WhatsappAdminTestResponse,
   type WhatsappSettingsView,
 } from "@remote/contracts/api/system-settings";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
 import { authOf, requireAuth, requirePerm, requireSuperAdmin, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
@@ -60,6 +60,7 @@ export function systemDeps(app: FastifyInstance): SystemDeps {
     databaseUrl: app.env.DATABASE_URL,
     turnEnv: { urls: app.env.turnUrls, secret: app.env.TURN_SECRET, ttlMin: app.env.TURN_CRED_TTL_MIN },
     whatsappEnvUrl: app.env.WHATSAPP_SERVICE_URL,
+    whatsappEnvSource: app.env.WHATSAPP_URL_SOURCE,
     production: app.env.NODE_ENV === "production",
   };
 }
@@ -87,6 +88,14 @@ export async function adminSettingsRoutes(app: FastifyInstance, opts: { mysqlPro
     perUser: new FixedWindowCounter(6, 60_000, 60_000), // AC-196: 5/dk/kullanıcı (6. → 429)
     global: new FixedWindowCounter(21, 60_000, 60_000), // B-P12b-5: tüm Super Admin'ler için 20/dk (21. → 429)
   };
+  // P13a (B-P12b-5): sistem ayarı yazımları (PUT/DELETE mysql|turn|whatsapp) kullanıcı başına toplam 10/dk (11. → 429).
+  // Girdi doğrulamasından sonra sayılır (aydınlatma metni kalıbı): 400 alan isteği kotayı tüketmez.
+  const writeLimit = new FixedWindowCounter(SYSTEM_SETTINGS_WRITES_PER_MIN + 1, 60_000, 60_000);
+  const writeGuard = (req: FastifyRequest): void => {
+    const userId = authOf(req).user.id;
+    const wait = writeLimit.blockedFor(userId);
+    if (wait > 0 || writeLimit.hit(userId)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
+  };
   // B-P12b-2: WhatsApp yazımı + belleğe uygulama süreç içinde sıralı (son commit = bellekteki adres).
   const waSerial = serialQueue();
   app.addHook("onClose", async () => {
@@ -94,19 +103,27 @@ export async function adminSettingsRoutes(app: FastifyInstance, opts: { mysqlPro
     testLimits.global.close();
     waTestLimits.perUser.close();
     waTestLimits.global.close();
+    writeLimit.close();
   });
 
   app.get("/mysql", async (): Promise<MysqlSettingsView> => getMysqlSettings(d));
-  app.put("/mysql", async (req): Promise<MysqlSettingsSaveResponse> => saveMysqlSettings(d, auditContext(req), authOf(req), parseInput(mysqlSettingsInputSchema, req.body)));
+  app.put("/mysql", async (req): Promise<MysqlSettingsSaveResponse> => {
+    const input = parseInput(mysqlSettingsInputSchema, req.body);
+    writeGuard(req);
+    return saveMysqlSettings(d, auditContext(req), authOf(req), input);
+  });
   app.post("/mysql/test", async (req): Promise<MysqlTestResponse> => testMysql(d, auditContext(req), authOf(req), parseInput(mysqlSettingsInputSchema, req.body), testLimits, opts.mysqlProbe));
 
   app.get("/turn", async (): Promise<TurnSettingsView> => getTurnSettings(d));
   app.put("/turn", async (req): Promise<TurnSettingsView> => {
-    const out = await saveTurnSettings(d, auditContext(req), authOf(req), parseInput(turnSettingsInputSchema, req.body));
+    const input = parseInput(turnSettingsInputSchema, req.body);
+    writeGuard(req);
+    const out = await saveTurnSettings(d, auditContext(req), authOf(req), input);
     await applyTurn(app);
     return out;
   });
   app.delete("/turn", async (req): Promise<TurnSettingsView> => {
+    writeGuard(req);
     const out = await deleteTurnSettings(d, auditContext(req), authOf(req));
     await applyTurn(app);
     return out;
@@ -115,22 +132,27 @@ export async function adminSettingsRoutes(app: FastifyInstance, opts: { mysqlPro
   app.get("/whatsapp", async (): Promise<WhatsappSettingsView> => getWhatsappSettings(d));
   app.put("/whatsapp", async (req): Promise<WhatsappSettingsView> => {
     const input = parseInput(whatsappSettingsInputSchema, req.body);
+    writeGuard(req);
     return waSerial(async () => {
       app.whatsapp.setUrl(await saveWhatsappSettings(d, auditContext(req), authOf(req), input));
       return getWhatsappSettings(d);
     });
   });
-  app.delete("/whatsapp", async (req): Promise<WhatsappSettingsView> =>
-    waSerial(async () => {
+  app.delete("/whatsapp", async (req): Promise<WhatsappSettingsView> => {
+    writeGuard(req);
+    return waSerial(async () => {
       app.whatsapp.setUrl(await deleteWhatsappSettings(d, auditContext(req), authOf(req)));
       return getWhatsappSettings(d);
-    }),
-  );
+    });
+  });
   app.post("/whatsapp/test", async (req): Promise<WhatsappAdminTestResponse> => {
     const { phoneNumber } = parseInput(whatsappAdminTestInputSchema, req.body);
     return testWhatsapp(d, auditContext(req), authOf(req), phoneNumber, waTestLimits, app.whatsapp);
   });
 }
+
+/** P13a (B-P12b-5): sistem ayarı PUT/DELETE üst sınırı (kullanıcı başına, dakika; üç ayar toplamı). */
+export const SYSTEM_SETTINGS_WRITES_PER_MIN = 10;
 
 /** B-P11-6: aydınlatma metni kaydı tenant başına 10/saat (11. → 429); geçerli her PUT sayılır (`changed:false` dahil). */
 export const CONSENT_SAVE_PER_HOUR = 10;

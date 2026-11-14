@@ -13,8 +13,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON users            TO 'app'@'%';
 GRANT SELECT, INSERT, UPDATE, DELETE ON user_permissions TO 'app'@'%';
 GRANT SELECT, INSERT, UPDATE, DELETE ON auth_sessions    TO 'app'@'%';
 
--- P2: oturumlar hard delete edilmez (iptal/expiry = UPDATE status). DELETE yetkisi retention
--- işiyle (P13, mimari §3.4: anonimleştirme +30 gün hard delete) birlikte verilir.
+-- P2: oturumlar hard delete edilmez (iptal/expiry = UPDATE status; P13a anonimleştirme = UPDATE). DELETE YOK:
+-- K-P13-1/K27 hard delete ertelendi (FK döngüsü; anonimleştirme KVKK imha yöntemi). Genişleme: purgeAnonymized().
 GRANT SELECT, INSERT, UPDATE ON support_sessions TO 'app'@'%';
 REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON support_sessions FROM 'app'@'%';
 
@@ -29,23 +29,25 @@ REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON cons
 -- tablo düzeyi REVOKE'tan SONRA gelmeli (sıra korunursa dosya idempotent).
 GRANT UPDATE (is_current, updated_at) ON consent_texts TO 'app'@'%';
 
--- P4 session_consents: append-only onay zaman çizelgesi (AC-29/62/111). UPDATE (anonimleştirme) ve
--- DELETE (+30 gün hard delete) retention işiyle P13'te verilir.
+-- P4 session_consents: append-only onay zaman çizelgesi (AC-29/62/111). DELETE YOK (K-P13-1/K27).
+-- P13a (AC-197): anonimleştirme yalnız sütun düzeyi UPDATE(ip, user_agent) → karar/seviye/kaynak/metin sürümü/özeti
+-- (KVKK onay kanıtı) değiştirilemez. Tabloda updated_at yok. Sütun GRANT'ı tablo düzeyi REVOKE'tan SONRA.
 GRANT SELECT, INSERT ON session_consents TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_consents FROM 'app'@'%';
+GRANT UPDATE (ip, user_agent) ON session_consents TO 'app'@'%';
 
--- P5 session_files: append-only dosya transferi meta kaydı (AC-55; içerik yok). UPDATE (file_name
--- anonimleştirme) ve DELETE (+30 gün hard delete) retention işiyle P13'te verilir.
--- support_sessions.quality_summary için ek yetki gerekmez (tablo düzeyi UPDATE P2'den beri var).
-GRANT SELECT, INSERT ON session_files TO 'app'@'%';
-REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_files FROM 'app'@'%';
+-- P5 session_files: append-only dosya transferi meta kaydı (AC-55; içerik yok). UPDATE YOK.
+-- P13a (K-P13-2, AC-197): oturum anonimleştirilirken satır SİLİNİR (file_name CHECK'i `***`'a izin vermez; sha256
+-- de tanımlayıcı) → DELETE. support_sessions.quality_summary için ek yetki gerekmez (tablo düzeyi UPDATE P2'den).
+GRANT SELECT, INSERT, DELETE ON session_files TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_files FROM 'app'@'%';
 
 -- P8b-1 tenant_request_settings (mimari-e9 §3.1): tembel INSERT, ayar/ref yenileme UPDATE. Silme yok (tenant silinmez).
 GRANT SELECT, INSERT, UPDATE ON tenant_request_settings TO 'app'@'%';
 REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON tenant_request_settings FROM 'app'@'%';
 
--- P8b-1 support_requests (mimari-e9 §3.2/§3.6): durum geçişleri ve anonimleştirme UPDATE'tir. DELETE (hard delete)
--- retention işiyle P13'te verilir (önce oturum, sonra talep — FK RESTRICT).
+-- P8b-1 support_requests (mimari-e9 §3.2/§3.6): durum geçişleri ve anonimleştirme UPDATE'tir. DELETE YOK
+-- (K-P13-1/K27: hard delete ertelendi; genişleme noktası purgeAnonymized(), grant o pakette eklenir).
 GRANT SELECT, INSERT, UPDATE ON support_requests TO 'app'@'%';
 REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON support_requests FROM 'app'@'%';
 
@@ -55,7 +57,7 @@ REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON customers FR
 -- P8c-1 request_refs: append-only ref ad alanı (ADR-0006 r5) — emekli ref asla silinmez/güncellenmez.
 GRANT SELECT, INSERT ON request_refs TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON request_refs FROM 'app'@'%';
--- P8c-1 device_bindings: verme/yenileme/geçersizleştirme UPDATE'tir; DELETE (hard delete) P13 retention ile.
+-- P8c-1 device_bindings: verme/yenileme/geçersizleştirme/EXPIRED UPDATE'tir; DELETE YOK (K-P13-1/K27).
 GRANT SELECT, INSERT, UPDATE ON device_bindings TO 'app'@'%';
 REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON device_bindings FROM 'app'@'%';
 
@@ -66,9 +68,9 @@ GRANT SELECT, INSERT, DELETE ON recovery_codes TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON recovery_codes FROM 'app'@'%';
 GRANT UPDATE (used_at, updated_at) ON recovery_codes TO 'app'@'%';
 -- P10 password_reset_tokens (mimari §3.1, AC-66): istek INSERT; kullanım/geçersizleştirme yalnız used_at. token_hash,
--- expires_at, user_id güncellenemez (süre uzatılamaz). DELETE (expires_at + 7 gün hard delete) retention işiyle P13'te.
-GRANT SELECT, INSERT ON password_reset_tokens TO 'app'@'%';
-REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON password_reset_tokens FROM 'app'@'%';
+-- expires_at, user_id güncellenemez (süre uzatılamaz). P13a (AC-198): expires_at + 7 gün hard delete → DELETE.
+GRANT SELECT, INSERT, DELETE ON password_reset_tokens TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON password_reset_tokens FROM 'app'@'%';
 GRANT UPDATE (used_at, updated_at) ON password_reset_tokens TO 'app'@'%';
 
 -- P11 system_settings (mimari §3.1; AC-77, 78): yalnız Super Admin ucu yazar; kayıt yoksa ilk kayıt INSERT, sonra UPDATE.
@@ -76,12 +78,12 @@ GRANT UPDATE (used_at, updated_at) ON password_reset_tokens TO 'app'@'%';
 GRANT SELECT, INSERT, UPDATE ON system_settings TO 'app'@'%';
 REVOKE IF EXISTS DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON system_settings FROM 'app'@'%';
 
--- Append-only: yalnız SELECT/INSERT. P11'de DB tetikleyicileri kuruldu (audit_logs_no_update: her UPDATE → SIGNAL;
--- audit_logs_retention_only_delete: 730 günden yeni satır DELETE → SIGNAL) ama DELETE yetkisi BİLEREK verilmedi:
--- en az yetki — silen tek iş retention (P13); yetki o pakette bu dosyaya eklenir (tetikleyici yine sınırlar).
--- UPDATE/DELETE/DDL/TRIGGER yetkisi varsa geri alınır.
-GRANT SELECT, INSERT ON audit_logs TO 'app'@'%';
-REVOKE IF EXISTS UPDATE, DELETE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON audit_logs FROM 'app'@'%';
+-- Append-only: SELECT/INSERT + P13a (AC-198) retention DELETE. Üç tetikleyici sınırlar: audit_logs_no_update (her
+-- UPDATE → SIGNAL), audit_logs_retention_only_delete (730 günden yeni satır DELETE → SIGNAL, SYSDATE/UTC),
+-- audit_logs_force_created_at (P13a: app'in yazdığı created_at DB saatine zorlanır → geriye tarihli ekle-sil yok).
+-- DELETE yetkisi tetikleyiciyle AYNI pakette (K-P13-4). UPDATE/DDL/TRIGGER yetkisi varsa geri alınır.
+GRANT SELECT, INSERT, DELETE ON audit_logs TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON audit_logs FROM 'app'@'%';
 
 -- /ready: uygulanmış son migration sürümünü okur (yalnız okuma).
 GRANT SELECT ON _prisma_migrations TO 'app'@'%';

@@ -70,6 +70,14 @@ describe("system_settings `whatsapp` CHECK reddi", () => {
       "//wa.example", "wa.example", "http:/wa.example", "javascript:alert(1)", " http://wa.example"]) await bad({ url });
   });
 
+  it("P13a (B-P12b-4): biçim (Cf), satır/paragraf ayırıcı (Zl/Zp) reddi — yolda ve host'ta", async () => {
+    for (const ch of ["\u200B", "\u200C", "\u200D", "\u202A", "\u202E", "\u2066", "\u2069", "\uFEFF", "\u00AD", "\u2060", "\u2028", "\u2029"]) {
+      await bad({ url: `http://wa.example/a${ch}b` });
+      await bad({ url: `http://wa${ch}.example` });
+    }
+    await ok({ url: "http://wa.example/api/v1" }); // sıradan yol hâlâ geçerli
+  });
+
   it("yasak karakterler: @ ? # boşluk kontrol", async () => {
     for (const url of [
       "http://u:p@wa.example", "http://wa.example/@x", "http://wa.example/?a=1", "http://wa.example?", "http://wa.example/#x",

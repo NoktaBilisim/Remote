@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkTestPhone, checkWaUrl, normalizeWaUrl, WA_URL_MESSAGES, waDirty, waFieldValue, waServerFields, type WhatsappServiceView } from "./whatsapp";
+import { canonicalWaUrl, checkTestPhone, checkWaUrl, normalizeWaUrl, normalizeWaView, WA_URL_MESSAGES, waDirty, waFieldValue, waServerFields, type WhatsappServiceView } from "./whatsapp";
 
 const panel: WhatsappServiceView = { url: "https://wa.ornek.com:3000", source: "panel", insecure: false, updatedAt: "2026-11-13T09:00:00.000Z" };
 const env: WhatsappServiceView = { url: "http://10.0.0.5:3000", source: "env", insecure: false, updatedAt: null };
@@ -21,9 +21,18 @@ describe("AC-196 WhatsApp servis adresi ön kontrolü", () => {
     expect(checkWaUrl("https://wa ornek.com").error).toBe(WA_URL_MESSAGES.chars);
     expect(checkWaUrl(`https://${"a".repeat(200)}.com`).error).toBe(WA_URL_MESSAGES.max);
     expect(checkWaUrl("https://:3000").error).toBe(WA_URL_MESSAGES.invalid);
-    // contracts son kapısı (sunucu/DB kuralı birebir): harf duyarlı şema, kontrol karakteri
-    expect(checkWaUrl("HTTP://wa.ornek.com").error).toBe(WA_URL_MESSAGES.invalid);
-    expect(checkWaUrl("https://wa.ornek.com\u0085").error).toBeDefined();
+    // kontrol / görünmez biçim / satır ayırıcı karakterleri (sunucu + DB CHECK de reddeder)
+    expect(checkWaUrl("https://wa.ornek.com\u0085").error).toBe(WA_URL_MESSAGES.chars);
+    expect(checkWaUrl("https://wa\u200b.ornek.com").error).toBe(WA_URL_MESSAGES.chars);
+    expect(checkWaUrl("https://wa.ornek\u2028.com").error).toBe(WA_URL_MESSAGES.chars);
+  });
+  it("P13a: büyük harfli şema/host reddedilmez, WHATWG kanonik biçime çevrilir (sunucuyla aynı)", () => {
+    expect(checkWaUrl("HTTPS://WA.Ornek.com:3000/")).toEqual({ url: "https://wa.ornek.com:3000" });
+    expect(checkWaUrl("HTTP://wa.ornek.com").url).toBe("http://wa.ornek.com");
+    expect(checkWaUrl("http://2130706433:3000").url).toBe("http://127.0.0.1:3000");
+    expect(checkWaUrl("https://wa.ornek.com:443").url).toBe("https://wa.ornek.com");
+    expect(checkWaUrl("https://bücher.example").url).toBe("https://xn--bcher-kva.example");
+    expect(canonicalWaUrl("bozuk adres/")).toBe("bozuk adres");
   });
 });
 
@@ -35,6 +44,14 @@ describe("AC-196 form durumu", () => {
     expect(waDirty("https://wa2.ornek.com", panel)).toBe(true);
     expect(waDirty("", env)).toBe(false);
     expect(waDirty("http://x.example", env)).toBe(true);
+    expect(waDirty("HTTPS://WA.ornek.com:3000/", panel)).toBe(false);
+  });
+  it("P13a kaynak: default (varsayılan) korunur, büyük harfli yanıt küçültülür, bilinmeyen → env", () => {
+    expect(normalizeWaView({ ...env, source: "default" }).source).toBe("default");
+    expect(normalizeWaView({ ...env, source: "DEFAULT" }).source).toBe("default");
+    expect(normalizeWaView({ ...panel, source: "PANEL" }).source).toBe("panel");
+    expect(normalizeWaView({ ...env, source: "x" }).source).toBe("env");
+    expect(waFieldValue({ ...env, source: "default" })).toBe("");
   });
   it("sunucu alan hatası alana, kalanı form üstüne", () => {
     expect(waServerFields({ url: "Geçersiz", _: "Diğer" }, "url")).toEqual({ error: "Geçersiz", rest: ["Diğer"] });

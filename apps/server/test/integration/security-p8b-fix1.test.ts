@@ -2,6 +2,7 @@
 // S8b-3 (request.created audit'inde IP yok), QA-P8b-11 (guest.admitted{via:"request"} müşteri adı taşımaz; AC-160).
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
+import { netKey } from "../../src/lib/ip.ts";
 import { WhatsappNotifier } from "../../src/notify/whatsapp.ts";
 import { createMetrics } from "../../src/ops/metrics.ts";
 import { createTenant, createUser, loginAs, ORIGIN, testDb } from "../helpers/app.ts";
@@ -77,12 +78,15 @@ describe("S8b-3 / QA-P8b-11 talep audit'leri", () => {
     return { rc, ip, c, ws, tech, wsTicket, sessionId: acc.json<{ sessionId: string }>().sessionId };
   }
 
-  it("AC-160 / S8b-3: request.created audit newValue'da müşteri IP'si yok (yalnız ip_address sütununda), clientVersion var", async () => {
+  it("AC-160 / S8b-3 / S-P13a-1: request.created audit newValue'da müşteri IP'si yok (ip_address sütununda yalnız /24 öneki), clientVersion var", async () => {
     const { ip, c } = await acceptedTicket();
     const a = await testDb().auditLog.findFirstOrThrow({ where: { entityId: c.requestId, action: "request.created" } });
     expect(a.newValue).toEqual({ clientVersion: "0.9.0", via: "ref", customerId: null }); // P8c: via + customerId (mimari-e10 §8)
     expect(JSON.stringify(a.newValue)).not.toContain(ip);
-    expect(a.ipAddress).toBe(ip);
+    // S-P13a-1: müşteri kaydında tam IP değil ağ öneki (/24), UA yok
+    expect(a.ipAddress).toBe(netKey(ip));
+    expect(a.ipAddress).not.toBe(ip);
+    expect(a.userAgent).toBeNull();
   });
 
   it("AC-160 / QA-P8b-11: guest.admitted{via:\"request\"} yalnız requestId/acceptedBy + onay özeti taşır; müşteri adı yok", async () => {

@@ -125,3 +125,12 @@ export const BRANDING_AUDIT = {
   UPLOAD_REJECTED: "upload.rejected",
   THEME_CHANGED: "user.theme_changed",
 } as const;
+
+/**
+ * P13a (AC-199): günlük saklama işi. Firma başına tek kayıt (değişiklik ya da hata varsa) `{sessions, consents, files,
+ * requests, customers, bindings}`; firmadan bağımsız silmeler `tenant_id NULL` tek kayıt `{audit, authSessions,
+ * resetTokens}`. Yalnız sayılar (kişisel veri yok); `username=system`, `user_id NULL`, entity `retention`.
+ */
+export const RETENTION_AUDIT = {
+  RUN: "retention.run",
+} as const;

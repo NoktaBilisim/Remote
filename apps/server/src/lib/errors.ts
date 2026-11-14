@@ -2,6 +2,7 @@
 // Bilinmeyen hatalar loglanır, kullanıcıya yalnız 500 + requestId döner (stack/SQL sızmaz).
 import { BINDING_INVALID_MESSAGE } from "@remote/contracts/api/bindings";
 import { INVALID_IMAGE_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from "@remote/contracts/api/branding";
+import { SESSION_ANONYMIZED_MESSAGE } from "@remote/contracts/api/sessions";
 import { ERROR_STATUS, type ErrorCode, type ErrorEnvelope } from "@remote/contracts/errors";
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -24,6 +25,7 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   CONFLICT: "Kayıt bu işlem için uygun durumda değil.",
   OPEN_SESSION_LIMIT: "Açık oturum sınırına ulaştınız. Yeni oturum için bekleyen bir oturumu iptal edin.",
   LOBBY_FULL: "Bu oturumda bekleyen katılımcı sınırı doldu. Lütfen teknisyeninizle görüşün.",
+  SESSION_ANONYMIZED: SESSION_ANONYMIZED_MESSAGE,
   SESSION_EXPIRED: "Bağlantının süresi doldu.",
   SESSION_CONSUMED: "Bu bağlantı zaten kullanıldı.",
   SESSION_CANCELLED: "Oturum iptal edildi.",

@@ -12,6 +12,9 @@ const cidr = z.string().refine((v) => {
   return family !== 0 && Number(bits) <= (family === 4 ? 32 : 128);
 }, "CIDR olmalı (ör. 172.30.0.2/32)");
 
+/** Ortak standart 2.2: whatsapp-bildirim canlı servis adresi (env verilmezse). */
+export const DEFAULT_WHATSAPP_URL = "http://89.252.189.211:3000";
+
 const origin = z.url().transform((v) => new URL(v).origin);
 
 /** `v1:<base64 32 bayt>[,v2:...]` (mimari §3.2, §8.1). Sürüm 1..255 tekil; her anahtar tam 32 bayt. */
@@ -65,7 +68,8 @@ const schema = z
     // özel olmayan adres → kanal kapalı (fail-closed, notify/whatsapp.ts). Boş → varsayılan canlı servis.
     // B-P12b-3: panel kaydıyla aynı kural (waServiceUrlSchema: http/https, kullanıcı:şifre/?/# yok, ≤ 200; sondaki / kırpılır);
     // uymazsa açılış durur (değer hata mesajına yazılmaz).
-    WHATSAPP_SERVICE_URL: waServiceUrlSchema.default("http://89.252.189.211:3000"),
+    // P13a: açıkça verilmediyse `WHATSAPP_URL_SOURCE = "default"` (ayar ekranı rozeti "Varsayılan").
+    WHATSAPP_SERVICE_URL: waServiceUrlSchema.optional(),
     // P8b r2 (§13.4, G-E9-4): asgari Windows istemci sürümü; boş = kontrol yok. Düşük sürüm → 426 CLIENT_OUTDATED.
     MIN_AGENT_VERSION: z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/, "x.y.z biçiminde olmalı").optional(),
     // P10 (mimari §3.2, §8.1): `*_enc` alanlarının AES-256-GCM anahtarları; yeni yazım en yüksek sürümle, okuma `ver`
@@ -98,7 +102,8 @@ const schema = z
     const allowedOrigins = (list.length > 0 ? list : [e.PUBLIC_BASE_URL]).map((o) => origin.parse(o));
     const turnUrls = e.TURN_URLS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
     const encryptionKeys = e.APP_ENCRYPTION_KEYS ? parseEncryptionKeys(e.APP_ENCRYPTION_KEYS) : null;
-    return { ...e, allowedOrigins, turnUrls, encryptionKeys };
+    const WHATSAPP_URL_SOURCE: "env" | "default" = e.WHATSAPP_SERVICE_URL === undefined ? "default" : "env";
+    return { ...e, WHATSAPP_SERVICE_URL: e.WHATSAPP_SERVICE_URL ?? DEFAULT_WHATSAPP_URL, WHATSAPP_URL_SOURCE, allowedOrigins, turnUrls, encryptionKeys };
   });
 
 export type Env = z.infer<typeof schema>;

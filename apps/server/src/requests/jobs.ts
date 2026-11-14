@@ -1,7 +1,7 @@
 // Talep süpürücüsü ve anonimleştirme (mimari-e9 §2 Zamanlayıcı, §3.6; AC-141, 142, 145, 155, 159). jobs/scheduler.ts çağırır.
 import { writeAudit } from "../audit/service.ts";
-import { expireIdleBindings, sweepPassiveTenantBindings } from "../bindings/service.ts";
-import { anonymizeCustomers, sweepCustomerPassive } from "../customers/service.ts";
+import { sweepPassiveTenantBindings } from "../bindings/service.ts";
+import { sweepCustomerPassive } from "../customers/service.ts";
 import * as repo from "./repo.ts";
 import { SYSTEM, SYSTEM_CTX, type RequestService } from "./service.ts";
 
@@ -53,27 +53,22 @@ export async function armOrphanedPending(svc: RequestService): Promise<number> {
   return rows.length;
 }
 
-/** Günlük 03:30 iş gövdesi: talep anonimleştirme (AC-159) + P8c müşteri anonimleştirme (AC-195) + boşta kayıtlar (V28). */
-export async function dailyRetention(svc: RequestService): Promise<{ requests: number; customers: number; bindings: number }> {
-  const requests = await anonymizeRequests(svc);
-  const customers = await anonymizeCustomers(svc);
-  const bindings = await expireIdleBindings(svc);
-  svc.refreshCustomersGauge();
-  return { requests, customers, bindings };
-}
-
 /** AC-159: tenant `retention_days`'ten eski talepler anonimleştirilir (1000'lik partiler). Dönen: satır sayısı. */
 export async function anonymizeRequests(svc: RequestService, now = new Date(svc.d.clock.now())): Promise<number> {
   let total = 0;
-  for (const t of await repo.retentionTenants(svc.d.db)) {
-    const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
-    for (;;) {
-      const n = await repo.anonymizeBatch(svc.d.db, t.tenantId, cutoff, now, ANON_BATCH);
-      total += n;
-      if (n < ANON_BATCH) break;
-    }
-  }
+  for (const t of await repo.retentionTenants(svc.d.db)) total += await anonymizeRequestsOf(svc, t, now);
   return total;
+}
+
+/** P13a: tek tenant için talep anonimleştirme (jobs/retention.ts tenant döngüsü). */
+export async function anonymizeRequestsOf(svc: RequestService, t: { tenantId: string; retentionDays: number }, now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
+  let total = 0;
+  for (;;) {
+    const n = await repo.anonymizeBatch(svc.d.db, t.tenantId, cutoff, now, ANON_BATCH);
+    total += n;
+    if (n < ANON_BATCH) return total;
+  }
 }
 
 /** Bir sonraki 03:30 Europe/Istanbul (UTC+3, DST yok) = 00:30 UTC. */

@@ -1,0 +1,13 @@
+# remote-backup.service başarısız olunca çalışır (OnFailure). Journal'a tek satır yazar ve backup.env'de
+# BACKUP_ALERT_CMD tanımlıysa onu çağırır (mesaj $REMOTE_BACKUP_MSG). Runbook §18.3.
+[Unit]
+Description=Remote Support yedegi BASARISIZ alarmi
+
+[Service]
+Type=oneshot
+ExecStart=/opt/remote/deploy/backup/backup.sh --alert
+User=root
+TimeoutStartSec=2min
+NoNewPrivileges=true
+PrivateTmp=true
+SyslogIdentifier=remote-backup

@@ -5,6 +5,60 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P13a (saklama, yedek/geri yükleme, dokümantasyon; AC-88, 91, 92, 93, 197–200)
+- **Saklama süresi işi** (`apps/server/src/jobs/retention.ts`, her gün 03:30 Europe/Istanbul; mevcut zamanlayıcı genişletildi):
+  - Bitmiş oturumlar firma saklama süresinden (`retentionDays`, varsayılan 365) sonra anonimleştirilir: müşteri adı, e-posta,
+    not, ağ anahtarları silinir; onay kayıtlarında IP/tarayıcı silinir (karar ve metin sürümü kalır); dosya kayıtları silinir.
+  - Audit kayıtları 730 gün sonra, giriş oturumları ve şifre sıfırlama bağlantıları süre bitiminden 7 gün sonra silinir.
+  - 1.000'lik partiler, firma başına hata yalıtımı, üst üste binmeyen ve idempotent tur.
+  - Audit `retention.run` (yalnız sayılar; firma başına + firma alanı boş global kayıt), metrikler
+    `rs_retention_last_success_timestamp_seconds`, `rs_retention_rows_total{kind}`, `rs_retention_failures_total`.
+- **Ayarlar › Güvenlik › Veri saklama:** firmanın saklama süresi (90–730 gün, varsayılan 365) ekrandan değiştirilir;
+  `settings.edit` ile düzenlenir, `settings.view` ile salt okunur görünür.
+- **Oturum geçmişi:** "Anonimleştirildi" rozeti (liste ve ayrıntı), silinen/korunan veriler bilgi notu, salt okunur
+  ticket/not; API `anonymized` alanı, PATCH → 409 `SESSION_ANONYMIZED`; CSV'de Müşteri hücresi `Anonimleştirildi`.
+- **Audit ekranı:** "Saklama süresi işi" etiketi, "Veri saklama" grup filtresi; dış gönderim/test kayıtlarında hata nedeni
+  Türkçe etiketle (tek kaynak `contracts/src/labels.ts`).
+- **Yedek ve geri yükleme** (`deploy/backup/`): günlük 02:00 systemd zamanlayıcısı, MySQL dökümü + `uploads` aynı çalıştırmada,
+  `age` ile şifreli (çözme anahtarı sunucuda yok), manifest (son migration, satır sayıları, SHA-256), 14 gün rotasyon,
+  boş alan kontrolü, hata alarmı (`BACKUP_ALERT_CMD`). `restore.sh --target scratch` geçici MySQL'e yükleyip
+  `restore-verify: OK|FAIL` yazar; `--target staging` onaylı gerçek geri yükleme. Yapılandırma `deploy/backup/backup.env`
+  (git dışı, root 600). Ayrıntı runbook §18.
+- `backup` MySQL kullanıcısı (yalnız `localhost`, `SELECT, SHOW VIEW, TRIGGER`): yeni kurulumda `deploy/mysql/init/01-users.sh`,
+  mevcut kurulumda `deploy/mysql/backup-user.sql`.
+- Yeni ortam değişkeni **`MYSQL_BACKUP_PASSWORD`** (`deploy/.env`, ≥ 16 karakter; yalnız `mysql` servisine verilir, server okumaz).
+- Runbook §19 senaryo dizini (servis düştü, TURN, sertifika, istemci yayını/bütünlük, TURN IP değişimi, kötüye kullanım,
+  veri bozuldu, saklama işi çalışmadı, disk doldu, yedek alınamadı); runbook §2 temiz kurulum kaydı (AC-88).
+- `scripts/build-docs.sh` ve `pnpm docs:pdf`: README, kullanım kılavuzu ve datasheet PDF'leri tek komutla (`docs/pdf/`).
+- Kılavuz: kişisel veri saklama/anonimleştirme, kurumsal AppLocker/antivirüs izin rehberi (hash kuralı, `SHA256SUMS`).
+- Tarayıcıda 256 MB üstü dosya alırken kayıt penceresinden **önce** "Var olan bir dosyanın üzerine yazmayın" uyarısı.
+
+### Değişti — P13a
+- Migration `20261114120000_p13a_retention`: `support_sessions.anonymized_at` + CHECK + indeks; `audit_logs` için
+  `created_at`'i veritabanı saatine zorlayan tetikleyici (yalnız `app`); P11 `audit_logs_no_update` tetikleyicisi bileşik
+  gövdeyle yeniden kuruldu (döküm `mysql` ile yüklenebilsin); WhatsApp CHECK'i görünmez karakterleri reddeder.
+  `app` yetkileri: `audit_logs`, `password_reset_tokens`, `session_files` DELETE; `session_consents` UPDATE(ip, user_agent).
+- `requests/jobs.ts` `dailyRetention` kaldırıldı; talep, müşteri ve kayıt adımları `RetentionJob` içinde firma başına çalışır
+  (davranış aynı).
+- WhatsApp servis adresi WHATWG kanonik biçimde saklanır (`HTTPS://X/` → `https://x`; ondalık IPv4 noktalı, IDN punycode);
+  büyük harfli şema reddedilmez. Kaynak `source: "panel" | "env" | "default"`; ekranda yeni **Varsayılan** rozeti.
+  `WHATSAPP_SERVICE_URL` artık isteğe bağlı.
+- Sistem ayarları (MySQL, TURN, WhatsApp) PUT/DELETE kullanıcı başına ortak 10/dk (429 + `Retry-After`); değeri
+  değiştirmeyen PUT yazım ve audit yapmaz.
+- Ticket no ipucu: "Kişisel veri (ad, telefon, e-posta) yazmayın; ticket no saklama süresinden sonra da korunur."
+- Go: `golang.org/x/net` v0.62.0, `x/crypto` v0.59.0 doğrulandı (govulncheck temiz); istemci sürümü yayımlanmadı.
+
+### Güvenlik — P13a
+- Müşteri kaynaklı audit kayıtlarında müşteri adı yazılmaz; IP yerine ağ öneki (IPv4 /24, IPv6 /48), tarayıcı bilgisi yok
+  (S-P13a-1). Anonim oturumun zaman çizelgesinde ad ve sonlandırma gerekçesi gösterilmez (S-P13a-5).
+- Dosya aktarım audit kayıtlarına (`file.transfer`, `file.transfer.sender_report`, `file.meta.rejected_by_db`) dosya adı
+  ve SHA-256 yazılmaz; yalnız yön, uzantı, boyut ve sonuç (S-P13a-8).
+- `app` kullanıcısı 730 günden yeni audit kaydını silemez ve geri tarihli kayıt yazamaz.
+- Canlı ortamda link-local adres (`169.254.0.0/16`, `fe80::/10`) WhatsApp için özel ağ sayılmaz; `http://` ile kanal kapalı.
+- Yedek: düz döküm diske yazılmaz; geri yükleme `--system-command=OFF`, dökümde istemci komutu varsa ve yükleme öncesi/sonrası
+  hesap/yetki/rutin farkı varsa FAIL; tetikleyici sayısı 3 değilse yedek FAILED; `backup.env` root/600 değilse okunmaz;
+  `--target staging` açık onay (`--confirm`) ister, `production` hedefi reddedilir (S-P13a-2..7).
+
 ### Eklendi — P12b (WhatsApp servisi sistem ayarı, AC-196)
 - **Sistem ayarları > WhatsApp servisi** (`/admin/settings/whatsapp`, yalnız Super Admin; 4. sekme): etkin servis adresi,
   kaynak rozeti (**Panel** / **Ortam değişkeni**), son güncelleme. **Servis URL'si** kaydedilir, yeniden başlatma gerekmez;

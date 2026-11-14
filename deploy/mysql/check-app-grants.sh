@@ -1,6 +1,8 @@
 #!/bin/bash
 # app DB kullanıcısının yetki sınırı kontrolü (G-15, AC-123 kullanıcı ayrımı). Kullanım:
-#   APP_PW=<app parolası> CONTAINER=<mysql konteyner adı> DB=<veritabanı> ./check-app-grants.sh
+#   APP_PW=<app parolası> CONTAINER=<mysql konteyner adı> DB=<veritabanı> [BACKUP_PW=<backup parolası>] ./check-app-grants.sh
+# P13a: sonda `backup` kullanıcısı da sınanır (parola BACKUP_PW ya da konteyner env MYSQL_BACKUP_PASSWORD; ikisi de
+# yoksa o bölüm FAIL — yedek kullanıcısı her kurulumda olmalı).
 # Beklenen tüm satırlar PASS; FAIL varsa çıkış kodu 1. Geçici tenant/kullanıcı ekler ve sonunda siler; audit_logs'a kalıcı satır yazmaz.
 FAILED=0
 run() { # $1 beklenen, $2 sql, $3 (ops.) DENIED'de hata mesajında beklenen metin (ör. kısıt adı)
@@ -19,7 +21,10 @@ run OK     "SELECT COUNT(*) FROM audit_logs"
 # INSERT geri alınan transaction içinde denenir: app audit satırı silemez, kalıcı test satırı bırakılmaz.
 run OK     "START TRANSACTION; INSERT INTO audit_logs (action,entity,result) VALUES ('test.grant','audit_logs','success'); ROLLBACK"
 run DENIED "UPDATE audit_logs SET result='fail' WHERE id=-1"
-run DENIED "DELETE FROM audit_logs WHERE id=-1"
+# P13a: DELETE yetkisi var (retention), tetikleyici 730 günden yeni satırı reddeder; app'in geriye tarihli created_at'i
+# DB saatine zorlanır → 2020 tarihli eklenen satır da "yeni" sayılır ve silinemez (K-P13-4).
+run OK     "DELETE FROM audit_logs WHERE id=-1"
+run DENIED "START TRANSACTION; INSERT INTO audit_logs (created_at,action,entity,result) VALUES ('2020-01-01 00:00:00.000','test.grant','audit_logs','success'); DELETE FROM audit_logs WHERE id=LAST_INSERT_ID(); ROLLBACK" "older than 730 days"
 run DENIED "ALTER TABLE audit_logs ADD COLUMN x INT"
 run DENIED "CREATE TRIGGER t_x BEFORE INSERT ON audit_logs FOR EACH ROW SET @a=1"
 run DENIED "DROP TABLE audit_logs"
@@ -86,7 +91,12 @@ run DENIED "START TRANSACTION; $CT1; $CT ('00000000000000000000GRANTD','00000000
 run DENIED "START TRANSACTION; $CT ('00000000000000000000GRANTC','00000000000000000000GRANTT',1,'metin',SHA2('baska',256),1,NOW(3)); ROLLBACK"
 run DENIED "START TRANSACTION; $CT ('00000000000000000000GRANTC','00000000000000000000GRANTT',0,'metin',SHA2('metin',256),1,NOW(3)); ROLLBACK"
 run OK     "START TRANSACTION; $CT1; $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','VIEW','GRANTED','UI','00000000000000000000GRANTC',SHA2($B,256),'203.0.113.7','ua'),('00000000000000000000GRANTW','00000000000000000000GRANTS','00000000000000000000GRANTT','CONTROL','DENIED','SYSTEM',NULL,NULL,NULL,NULL); ROLLBACK"
-run DENIED "UPDATE session_consents SET ip=NULL WHERE id='00000000000000000000GRANTV'"
+# P13a: anonimleştirme yalnız ip/user_agent (sütun düzeyi UPDATE); karar/seviye/kaynak/metin özeti değişmez (1143).
+run OK     "START TRANSACTION; $CT1; $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','VIEW','GRANTED','UI','00000000000000000000GRANTC',SHA2($B,256),'203.0.113.7','ua'); UPDATE session_consents SET ip=NULL,user_agent=NULL WHERE session_id='00000000000000000000GRANTS'; ROLLBACK"
+run DENIED "UPDATE session_consents SET level='CONTROL' WHERE id='00000000000000000000GRANTV'" "command denied"
+run DENIED "UPDATE session_consents SET decision='DENIED' WHERE id='00000000000000000000GRANTV'" "command denied"
+run DENIED "UPDATE session_consents SET consent_sha256=NULL,consent_text_id=NULL WHERE id='00000000000000000000GRANTV'" "command denied"
+run DENIED "UPDATE session_consents SET created_at=NOW(3) WHERE id='00000000000000000000GRANTV'" "command denied"
 run DENIED "DELETE FROM session_consents WHERE id='00000000000000000000GRANTV'"
 run DENIED "START TRANSACTION; $CT1; $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','VIEW','GRANTED','UI','00000000000000000000GRANTC',SHA2('baska',256),'203.0.113.7','ua'); ROLLBACK"
 run DENIED "START TRANSACTION; $CT1; $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','VIEW','GRANTED','UI','00000000000000000000GRANTC',NULL,'203.0.113.7','ua'); ROLLBACK"
@@ -99,7 +109,8 @@ SF="INSERT INTO session_files (id,session_id,tenant_id,direction,file_name,size_
 run OK     "SELECT COUNT(*) FROM session_files"
 run OK     "START TRANSACTION; $ADM; $SF ('00000000000000000000GRANTF','00000000000000000000GRANTS','00000000000000000000GRANTT','TO_CUSTOMER','rapor.pdf',1024,$H1,'OK'); UPDATE support_sessions SET quality_summary=JSON_OBJECT('connType','relay') WHERE id='00000000000000000000GRANTS'; ROLLBACK"
 run DENIED "UPDATE session_files SET file_name='x' WHERE id='00000000000000000000GRANTF'"
-run DENIED "DELETE FROM session_files WHERE id='00000000000000000000GRANTF'"
+# P13a (K-P13-2): anonimleştirmede satır silinir → DELETE izinli; UPDATE hâlâ yok.
+run OK     "START TRANSACTION; $ADM; $SF ('00000000000000000000GRANTF','00000000000000000000GRANTS','00000000000000000000GRANTT','TO_CUSTOMER','rapor.pdf',1024,$H1,'OK'); DELETE FROM session_files WHERE session_id='00000000000000000000GRANTS'; ROLLBACK"
 run DENIED "ALTER TABLE session_files ADD COLUMN x INT"
 run DENIED "START TRANSACTION; $GX; $ADM; $SF ('00000000000000000000GRANTF','00000000000000000000GRANTS','00000000000000000000GRANTX','TO_CUSTOMER','rapor.pdf',1024,$H1,'OK'); ROLLBACK"
 run DENIED "START TRANSACTION; $ADM; $SF ('00000000000000000000GRANTF','00000000000000000000GRANTS','00000000000000000000GRANTT','TO_CUSTOMER','a/b.pdf',1024,$H1,'OK'); ROLLBACK"
@@ -315,7 +326,7 @@ run DENIED "$TX $RC ('00000000000000000000GRANTQ','00000000000000000000GRANTU',U
 run DENIED "$TX $RC ('00000000000000000000GRANTQ','00000000000000000000GRANTU','ABCD-EFGH-12',NOW(3)); $R" recovery_codes_code_hash_fmt_chk
 run DENIED "$TX $RC ('00000000000000000000GRANTQ','0000000000000000000NOUSER',$H1,NOW(3)); $R" recovery_codes_user_id_fkey
 run OK     "$TX $PR1; UPDATE password_reset_tokens SET used_at=NOW(3) WHERE token_hash=$H1 AND used_at IS NULL AND expires_at > NOW(3); $R"
-run DENIED "DELETE FROM password_reset_tokens WHERE id='00000000000000000000GRANTP'"
+run OK     "START TRANSACTION; $PR1; DELETE FROM password_reset_tokens WHERE id='00000000000000000000GRANTP'; ROLLBACK"
 run DENIED "UPDATE password_reset_tokens SET expires_at=NOW(3)+INTERVAL 1 DAY WHERE id='00000000000000000000GRANTP'"
 run DENIED "UPDATE password_reset_tokens SET token_hash=$H2 WHERE id='00000000000000000000GRANTP'"
 run DENIED "ALTER TABLE password_reset_tokens ADD COLUMN x INT"
@@ -355,10 +366,15 @@ run_root() { # $1 beklenen tek değer, $2 sql, $3 açıklama
   [ "$out" = "$1" ] && s=PASS || { s=FAIL; FAILED=1; }
   printf '%s | beklenen=%-6s sonuç=%-6s | (root) %s\n' "$s" "$1" "$out" "$3"
 }
-run_root 2 "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE() AND EVENT_OBJECT_TABLE='audit_logs' AND ((TRIGGER_NAME='audit_logs_no_update' AND EVENT_MANIPULATION='UPDATE') OR (TRIGGER_NAME='audit_logs_retention_only_delete' AND EVENT_MANIPULATION='DELETE')) AND ACTION_TIMING='BEFORE'" "audit_logs tetikleyicileri var (BEFORE UPDATE + BEFORE DELETE)"
+run_root 3 "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE() AND EVENT_OBJECT_TABLE='audit_logs' AND ((TRIGGER_NAME='audit_logs_no_update' AND EVENT_MANIPULATION='UPDATE') OR (TRIGGER_NAME='audit_logs_retention_only_delete' AND EVENT_MANIPULATION='DELETE') OR (TRIGGER_NAME='audit_logs_force_created_at' AND EVENT_MANIPULATION='INSERT')) AND ACTION_TIMING='BEFORE'" "audit_logs tetikleyicileri var (BEFORE UPDATE + DELETE + INSERT/P13a)"
+run_root 3 "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE()" "DB'de toplam tetikleyici = 3 (restore-verify ile aynı)"
 run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\") + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE IN ('TRIGGER','ALTER','DROP','CREATE','INDEX','REFERENCES','GRANT OPTION'))" "app: global/DB yetkisi yok, hiçbir tabloda TRIGGER/ALTER/DROP/CREATE/INDEX yok"
-run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT')" "app: audit_logs yalnız SELECT/INSERT (DELETE P13)"
+run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT','DELETE')" "app: audit_logs yalnız SELECT/INSERT/DELETE (DELETE P13a)"
+# P13a (K27): DELETE yetkisi tam olarak bu tablolarda; support_sessions/session_consents/support_requests/device_bindings/customers… YOK.
+run_root "audit_logs,auth_sessions,password_reset_tokens,recovery_codes,session_files,tenant_settings,tenants,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
+run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent)"
 run_root 0 "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs'" "app: audit_logs sütun düzeyi UPDATE yok"
+run DENIED "DROP TRIGGER audit_logs_force_created_at" "denied"
 run DENIED "UPDATE audit_logs SET action='x' WHERE id=-1"
 run DENIED "DROP TRIGGER audit_logs_no_update" "denied"
 run DENIED "DROP TRIGGER audit_logs_retention_only_delete" "denied"
@@ -396,6 +412,49 @@ run DENIED "$TX $SSI ('whatsapp','{\"url\":\"ftp://wa.example\"}',NULL,NOW(3)) O
 run DENIED "$TX $SSI ('whatsapp','{\"url\":\"http://u:p@wa.example\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_whatsapp_chk
 run DENIED "$TX $SSI ('whatsapp','{\"url\":null,\"token\":\"x\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_whatsapp_chk
 run DENIED "$TX $SSI ('whatsapp','{\"url\":null}',RANDOM_BYTES(45),NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=VALUES(secret_enc); $R" system_settings_whatsapp_chk
+# P13a (AC-197): support_sessions_anonymized_chk — anonim oturumda kişisel alan yok, yalnız bitmiş oturum anonimleşir;
+# ticket_no/kalite kalır. P13a WhatsApp CHECK'i += \p{Cf}\p{Zl}\p{Zp}.
+END="UPDATE support_sessions SET status='ENDED',ended_at=NOW(3),ended_by='TECH',end_reason='ended' WHERE id='00000000000000000000GRANTS'"
+FULL="UPDATE support_sessions SET customer_name='Ayse Yilmaz',customer_email='ayse@example.test',ticket_no='INC-1',note='not',guest_net_key='203.0.113.0/24',guest_ip_key='203.0.113.7',quality_summary=JSON_OBJECT('connType','relay') WHERE id='00000000000000000000GRANTS'"
+ANON="UPDATE support_sessions SET customer_name=NULL,customer_email=NULL,note=NULL,guest_net_key=NULL,guest_ip_key=NULL,anonymized_at=NOW(3) WHERE id='00000000000000000000GRANTS'"
+run OK     "$TX $ADM; $FULL; $END; $ANON; $R"
+run OK     "$TX $SS ('00000000000000000000GRANTS',$T,$H1,'48291376','0427','PENDING',$E15,NULL,NOW(3),NOW(3)); UPDATE support_sessions SET status='EXPIRED',active_code=NULL,ended_at=NOW(3),ended_by='SYSTEM',end_reason='expired' WHERE id='00000000000000000000GRANTS'; $ANON; $R"
+run DENIED "$TX $ADM; $FULL; $ANON; $R" support_sessions_anonymized_chk
+run DENIED "$TX $ADM; $FULL; $END; UPDATE support_sessions SET customer_email=NULL,customer_name=NULL,anonymized_at=NOW(3) WHERE id='00000000000000000000GRANTS'; $R" support_sessions_anonymized_chk
+run DENIED "$TX $ADM; $FULL; $END; $ANON; UPDATE support_sessions SET note='yeniden' WHERE id='00000000000000000000GRANTS'; $R" support_sessions_anonymized_chk
+run DENIED "$TX $ADM; $FULL; $END; $ANON; UPDATE support_sessions SET customer_name='Ayse Yilmaz' WHERE id='00000000000000000000GRANTS'; $R" support_sessions_anonymized_chk
+run DENIED "DELETE FROM support_sessions WHERE id='00000000000000000000GRANTS'"
+WA() { echo "$TX $SSI ('whatsapp',JSON_OBJECT('url',CONCAT('http://wa.example',CONVERT(X'$1' USING utf8mb4))),NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R"; }
+run DENIED "$(WA E2808B)" system_settings_whatsapp_chk   # U+200B sıfır genişlik (Cf)
+run DENIED "$(WA E280AE)" system_settings_whatsapp_chk   # U+202E RTLO (Cf)
+run DENIED "$(WA EFBBBF)" system_settings_whatsapp_chk   # U+FEFF BOM (Cf)
+run DENIED "$(WA C2AD)" system_settings_whatsapp_chk     # U+00AD yumuşak tire (Cf)
+run DENIED "$(WA E280A8)" system_settings_whatsapp_chk   # U+2028 (Zl)
+run DENIED "$(WA E280A9)" system_settings_whatsapp_chk   # U+2029 (Zp)
+run OK     "$(WA 2F6170692F7631)"                         # /api/v1
 # Temizlik (FK sırasıyla)
 run OK     "DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"
+# P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.
+run_root 1 "SELECT COUNT(*) FROM mysql.user WHERE user='backup'" "backup kullanıcısı var (tek hesap)"
+run_root "'backup'@'localhost'" "SELECT GROUP_CONCAT(DISTINCT GRANTEE) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE LIKE \"'backup'@%\"" "backup yalnız localhost (soket; ağdan kullanılamaz)"
+run_root "SELECT,SHOW VIEW,TRIGGER" "SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'backup'@'localhost'\" AND TABLE_SCHEMA=DATABASE()" "backup: DB yetkisi tam olarak SELECT, SHOW VIEW, TRIGGER"
+run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'backup'@'localhost'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'backup'@'localhost'\" AND TABLE_SCHEMA<>DATABASE()) + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'backup'@'localhost'\") + (SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'backup'@'localhost'\")" "backup: global (PROCESS dahil)/başka DB/tablo/sütun yetkisi yok"
+run_backup() { # $1 beklenen OK|DENIED, $2 sql (backup kullanıcısı, konteyner içinden soketle)
+  out=$(docker exec -e BPW="${BACKUP_PW:-}" "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="${BPW:-$MYSQL_BACKUP_PASSWORD}" mysql -ubackup -N "$1" -e "$0"' "$2" "${DB:-remote}" 2>&1)
+  if [ $? -eq 0 ]; then got=OK; else got=DENIED; fi
+  [ "$got" = "$1" ] && s=PASS || { s=FAIL; FAILED=1; }
+  printf '%s | beklenen=%-6s sonuç=%-6s | (backup) %s %s\n' "$s" "$1" "$got" "$2" "$( [ $got = DENIED ] && echo "-> ${out##*: }" )"
+}
+run_backup OK     "SELECT COUNT(*) FROM audit_logs; SELECT migration_name FROM _prisma_migrations ORDER BY finished_at DESC LIMIT 1"
+run_backup DENIED "INSERT INTO audit_logs (action,entity,result) VALUES ('test.backup','audit_logs','success')"
+run_backup DENIED "UPDATE tenants SET name='x' WHERE id='-'"
+run_backup DENIED "DELETE FROM auth_sessions WHERE id='-'"
+run_backup DENIED "CREATE TABLE x_backup (id INT)"
+run_backup DENIED "ALTER TABLE users ADD COLUMN x INT"
+run_backup DENIED "DROP TABLE request_refs"
+run_backup DENIED "LOCK TABLES users READ"
+# Gerçek döküm (yedek betiğiyle aynı bayraklar): hatasız, 3 tetikleyici ve _prisma_migrations içerir.
+dump=$(docker exec -e BPW="${BACKUP_PW:-}" "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="${BPW:-$MYSQL_BACKUP_PASSWORD}" mysqldump -ubackup --single-transaction --no-tablespaces --triggers --set-gtid-purged=OFF "$0" 2>&1 >/tmp/rs-grant-dump.sql; rc=$?; n=$(grep -c "^/\*!50003 CREATE\*/ /\*!50017 DEFINER=.*\*/ /\*!50003 TRIGGER" /tmp/rs-grant-dump.sql); m=$(grep -c "INSERT INTO \`_prisma_migrations\`" /tmp/rs-grant-dump.sql); rm -f /tmp/rs-grant-dump.sql; [ "$m" -gt 0 ] && m=yes; echo "rc=$rc triggers=$n migrations=$m"' "${DB:-remote}" 2>&1)
+[[ "$dump" == *"rc=0 triggers=3 migrations=yes" ]] && s=PASS || { s=FAIL; FAILED=1; }
+printf '%s | beklenen=rc=0 triggers=3 migrations=yes | (backup) mysqldump --single-transaction --no-tablespaces --triggers -> %s\n' "$s" "${dump//$'\n'/ }"
 exit $FAILED

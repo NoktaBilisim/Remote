@@ -1,0 +1,21 @@
+{"t":"2026-11-14T19:21:50.620Z","kind":"flow","name":"CSV dışa aktarma (anonim satır)","ok":true,"note":"oturumlar-20261111-1200.csv satır=\"01JHXSTAN0N000000000000048;2026-10-29T09:00:00.000Z;ENDED;;INC-0048\""}
+{"t":"2026-11-14T19:21:51.276Z","tag":"Anonim detay: doğrudan PATCH isteği 409 (arayüz dışı)","kind":"http","status":409,"method":"PATCH","url":"http://localhost:3217/api/v1/sessions/01JHXSTAN0N000000000000048"}
+{"t":"2026-11-14T19:21:51.277Z","tag":"Anonim detay: doğrudan PATCH isteği 409 (arayüz dışı)","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 409 (Conflict)","url":"http://localhost:3217/history/01JHXSTAN0N000000000000048"}
+{"t":"2026-11-14T19:21:51.277Z","kind":"flow","name":"Anonim detay: doğrudan PATCH isteği 409 (arayüz dışı)","ok":true,"note":"status=409"}
+{"t":"2026-11-14T19:21:52.005Z","tag":"409 akışı 390px + koyu","kind":"http","status":409,"method":"PATCH","url":"http://localhost:3217/api/v1/sessions/01JHXST0000000000000000004"}
+{"t":"2026-11-14T19:21:52.005Z","tag":"409 akışı 390px + koyu","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 409 (Conflict)","url":"http://localhost:3217/history/01JHXST0000000000000000004"}
+{"t":"2026-11-14T19:21:52.843Z","kind":"flow","name":"409 akışı 390px + koyu","ok":true,"note":"save=0 of=0 axe="}
+{"t":"2026-11-14T19:21:53.354Z","kind":"flow","name":"409 sonrası geri/ileri → salt okunur kalır","ok":true,"note":"url=http://localhost:3217/history/01JHXST0000000000000000004 anon=1"}
+{"t":"2026-11-14T19:21:55.777Z","kind":"flow","name":"Ticket ipucu + özel karakter/uzun girdi","ok":true,"note":"script→invalid=null sql→invalid=null ipucu=true"}
+{"t":"2026-11-14T19:21:57.040Z","kind":"flow","name":"Audit: IPv6/IPv4 önek 390px kart + ayrıntı, UA yok","ok":true,"note":"kart=1 tamV6Görünür=false"}
+{"t":"2026-11-14T19:21:58.431Z","kind":"flow","name":"Audit: Veri saklama filtresi yenileme sonrası korunur + 390","ok":true,"note":"satır=1 seçili=\"Veri saklama — tümü\" of=0"}
+{"t":"2026-11-14T19:22:00.986Z","kind":"flow","name":"WhatsApp: tamamı büyük harf HTTP adres + çift tıklama","ok":true,"note":"PUT=1 gövde={\"url\":\"https://wa.ornek.com/YOL\"} alan=\"https://wa.ornek.com/YOL\""}
+{"t":"2026-11-14T19:22:02.021Z","tag":"Retention: Süreyi düşür çift tıklama + 500 hata","kind":"http","status":500,"method":"PUT","url":"http://localhost:3217/api/v1/settings/tenant"}
+{"t":"2026-11-14T19:22:02.021Z","tag":"Retention: Süreyi düşür çift tıklama + 500 hata","kind":"console","type":"error","text":"Failed to load resource: the server responded with a status of 500 (Internal Server Error)","url":"http://localhost:3217/settings/security"}
+{"t":"2026-11-14T19:22:03.303Z","kind":"flow","name":"Retention: 500 → hata görünür, değer korunur","ok":true,"note":"hataMetni=true kirli=1 alan=200"}
+{"t":"2026-11-14T19:22:04.879Z","kind":"flow","name":"Retention: Süreyi düşür çift tıklama → tek PUT","ok":true,"note":"PUT=1"}
+{"t":"2026-11-14T19:22:05.694Z","kind":"flow","name":"Retention: kirli formda geri → ayrılma uyarısı/korunma","ok":true,"note":"dialog=null url=http://localhost:3217/settings/security"}
+{"t":"2026-11-14T19:22:07.302Z","kind":"flow","name":"Retention 390 koyu: onay diyaloğu","ok":true,"note":"axe= of=0 "}
+{"t":"2026-11-14T19:22:09.572Z","kind":"flow","name":"Yetkisiz: çıkışlı kullanıcı korumalı URL'ler","ok":true,"note":"/settings/security→/login /history/01JHXSTAN0N000000000000048→/login /audit?action=retention.*→/login /admin/settings/whatsapp→/login"}
+{"t":"2026-11-14T19:22:10.809Z","kind":"flow","name":"Yetkisiz: USER → WhatsApp / audit","ok":true,"note":"wa 200 /audit \"Ana sayfa Sistem ayarları Sistem ayarları Tüm firmalar için geçerli altyapı aya\" | audit 200 \"Ana sayfa Audit log Audit log Audit log'u görüntüleme yetkiniz yok.\""}
+{"t":"2026-11-14T19:22:11.474Z","kind":"flow","name":"Var olmayan oturum ID","ok":true,"note":"200 \"Ana sayfa Oturum geçmişi Oturum bulunamadı Oturum bulunamadı Oturum bulunamadı \""}

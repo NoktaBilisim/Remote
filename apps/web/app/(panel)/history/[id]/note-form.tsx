@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/toast";
 import { api, ApiError, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
 import { formatNumber } from "@/lib/format";
+import { isAnonymizedError } from "@/lib/history/anonymized";
 import { buildPatch, validateNote, type Errors, type Fields } from "@/lib/history/note";
 import { t } from "@/lib/i18n";
 import { useLeaveGuard } from "@/lib/use-leave-guard";
@@ -26,7 +27,9 @@ export function NoteForm({ session }: { session: Pick<SessionHistoryDetail, "id"
   const [errors, setErrors] = useState<Errors>({});
   const [serverError, setServerError] = useState<UiError | null>(null);
   const [busy, setBusy] = useState(false);
-  const patch = buildPatch(initial, v);
+  // P13a (AC-197): sayfa açıkken saklama işi oturumu anonimleştirdiyse PATCH 409 SESSION_ANONYMIZED → form kilitlenir
+  const [locked, setLocked] = useState(false);
+  const patch = locked ? null : buildPatch(initial, v);
   const guard = useLeaveGuard(patch !== null && !busy);
   const noteLen = v.note.length;
   const noteOver = noteLen > NOTE_MAX;
@@ -53,7 +56,15 @@ export function NoteForm({ session }: { session: Pick<SessionHistoryDetail, "id"
       router.refresh();
     } catch (err) {
       if (isUnauthenticated(err)) return router.replace(EXPIRED_LOGIN_PATH);
-      if (err instanceof ApiError && err.fields) {
+      if (isAnonymizedError(err)) {
+        // Değişiklik kaydedilemez → kirli durum ve ayrılma uyarısı kalkar; sayfa yenilenince salt okunur görünüme geçer
+        setLocked(true);
+        setV(initial);
+        setErrors({});
+        setServerError({ message: t("h.anon.conflict"), tone: "danger", requestId: err instanceof ApiError ? err.requestId : undefined });
+        toast(t("h.anon.conflict"), "danger");
+        router.refresh();
+      } else if (err instanceof ApiError && err.fields) {
         const f: Errors = {};
         if (err.fields.ticketNo) f.ticketNo = err.fields.ticketNo;
         if (err.fields.note) f.note = err.fields.note;
@@ -75,7 +86,7 @@ export function NoteForm({ session }: { session: Pick<SessionHistoryDetail, "id"
         onChange={change("ticketNo")}
         error={errors.ticketNo}
         hint={`${t("h.n.ticketHint")} · ${t("h.n.count", { n: formatNumber(v.ticketNo.trim().length), max: TICKET_NO_MAX })}`}
-        disabled={busy}
+        disabled={busy || locked}
         autoComplete="off"
         data-testid="ticket-input"
       />
@@ -87,7 +98,7 @@ export function NoteForm({ session }: { session: Pick<SessionHistoryDetail, "id"
           rows={6}
           value={v.note}
           onChange={change("note")}
-          disabled={busy}
+          disabled={busy || locked}
           aria-invalid={errors.note || noteOver ? true : undefined}
           aria-describedby={`${noteId}-count${errors.note ? ` ${noteId}-err` : ""}`}
           data-testid="note-input"
@@ -100,7 +111,7 @@ export function NoteForm({ session }: { session: Pick<SessionHistoryDetail, "id"
           </p>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      {!locked && <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" loading={busy} disabled={!patch} data-testid="note-save">
           {!busy && <Save aria-hidden className="size-4" />}
           {t("h.n.save")}
@@ -114,7 +125,7 @@ export function NoteForm({ session }: { session: Pick<SessionHistoryDetail, "id"
             <p className="text-xs font-medium text-warning" role="status" data-testid="note-dirty">{t("h.n.unsaved")}</p>
           </>
         )}
-      </div>
+      </div>}
       <LeaveDialog guard={guard} body={t("h.n.leaveBody")} />
     </form>
   );

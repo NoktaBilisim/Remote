@@ -6,7 +6,11 @@
 #   migrator -> MYSQL_DATABASE üzerinde DDL + TRIGGER + GRANT OPTION (yalnız `migrate` servisi)
 #   app      -> burada HİÇ yetki almaz; tablo bazlı DML yetkisini migration sonrası
 #               apps/server/prisma/sql/grants.sql verir (audit_logs'ta UPDATE yok).
+#   backup   -> (P13a, mimari-p13 §4) yalnız 'backup'@'localhost': MYSQL_DATABASE üzerinde SELECT, SHOW VIEW, TRIGGER
+#               (mysqldump --single-transaction --no-tablespaces --triggers). Yalnız mysql konteyneri içinden
+#               (`docker compose exec mysql mysqldump …`) bağlanabilir. Mevcut kurulumda: deploy/mysql/backup-user.sql.
 # Gerekli env: MYSQL_ROOT_PASSWORD, MYSQL_DATABASE, MYSQL_APP_PASSWORD, MYSQL_MIGRATOR_PASSWORD.
+# İsteğe bağlı: MYSQL_BACKUP_PASSWORD (boşsa backup kullanıcısı oluşturulmaz; yedek betiği o durumda hata verir).
 (
 set -euo pipefail
 
@@ -18,8 +22,8 @@ for var in MYSQL_ROOT_PASSWORD MYSQL_DATABASE MYSQL_APP_PASSWORD MYSQL_MIGRATOR_
 done
 
 # SQL'e gömüldüğü için tırnak/ters bölü içeren değerler reddedilir (enjeksiyon önlemi).
-for var in MYSQL_DATABASE MYSQL_APP_PASSWORD MYSQL_MIGRATOR_PASSWORD; do
-  case "${!var}" in
+for var in MYSQL_DATABASE MYSQL_APP_PASSWORD MYSQL_MIGRATOR_PASSWORD MYSQL_BACKUP_PASSWORD; do
+  case "${!var:-}" in
     *\'* | *\\* | *\`*) echo "01-users.sh: $var tırnak veya ters bölü içeremez" >&2; exit 1 ;;
   esac
 done
@@ -34,4 +38,18 @@ MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=socket -uroot --database=mysql
 
 	FLUSH PRIVILEGES;
 EOSQL
+
+if [ -n "${MYSQL_BACKUP_PASSWORD:-}" ]; then
+  if [ "${#MYSQL_BACKUP_PASSWORD}" -lt 16 ]; then
+    echo "01-users.sh: MYSQL_BACKUP_PASSWORD en az 16 karakter olmalı" >&2
+    exit 1
+  fi
+  # Yetki kümesi deploy/mysql/backup-user.sql ile AYNI tutulmalı (gerekçe docs/db-notlari.md "P13a").
+  MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=socket -uroot --database=mysql <<-EOSQL
+		CREATE USER IF NOT EXISTS 'backup'@'localhost' IDENTIFIED BY '${MYSQL_BACKUP_PASSWORD}';
+		GRANT SELECT, SHOW VIEW, TRIGGER ON \`${MYSQL_DATABASE}\`.* TO 'backup'@'localhost';
+	EOSQL
+else
+  echo "01-users.sh: MYSQL_BACKUP_PASSWORD boş — 'backup' kullanıcısı oluşturulmadı (sonradan: deploy/mysql/backup-user.sql)" >&2
+fi
 )

@@ -19,3 +19,22 @@ describe("file-names fixture", () => {
     expect(fileNameWarning(sanitizeFileName(c.name))).toBe(c.warning);
   });
 });
+
+describe("S-P13a-8 audit'te yalnız dosya uzantısı", () => {
+  it("S-P13a-8: uzantı küçük harf, ASCII harf/rakam, ≤ 10 karakter; yoksa/uymazsa null", async () => {
+    const { fileExtOf } = await import("../../src/signaling/collab.ts");
+    const cases: [string, string | null][] = [
+      ["rapor.PDF", "pdf"],
+      ["arsiv.tar.gz", "gz"],
+      ["Ayşe_Yılmaz_maaş.xlsx", "xlsx"],
+      ["README", null],
+      [".bashrc", null],
+      ["dosya.", null],
+      ["x.abcdefghijk", null],
+      ["x.abcdefghij", "abcdefghij"],
+      ["x.ğüş", null],
+      ["x.tar-gz", null],
+    ];
+    for (const [name, ext] of cases) expect(fileExtOf(name), name).toBe(ext);
+  });
+});

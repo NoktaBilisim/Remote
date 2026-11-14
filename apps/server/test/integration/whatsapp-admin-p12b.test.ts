@@ -134,7 +134,7 @@ describe("P12b WhatsApp servis adresi (AC-196)", () => {
 
   it("AC-196: geçersiz adres 400 VALIDATION fields.url (kayıt değişmez)", async () => {
     const before = await audits("settings.whatsapp.updated");
-    for (const url of ["ftp://x", "HTTP://x", "http://u:p@wa.test", "http://wa.test?a=1", "http://wa.test#f", "http://wa test", "http://wa.test\n", "http://", "http:///", "", `https://${"a".repeat(193)}`, 5, null]) {
+    for (const url of ["ftp://x", "http://wa\u200b.test", "http://u:p@wa.test", "http://wa.test?a=1", "http://wa.test#f", "http://wa test", "http://wa.test\n", "http://", "http:///", "", `https://${"a".repeat(193)}`, 5, null]) {
       const r = await call(app, sSuper, "PUT", W, { url });
       expect(r.statusCode, JSON.stringify(url)).toBe(400);
       expect(r.json<{ error: { code: string; fields: Record<string, string> } }>().error).toMatchObject({ code: "VALIDATION", fields: { url: WA_URL_MESSAGE } });
@@ -219,7 +219,9 @@ describe("P12b düzeltme turu 1 (B-P12b-1, -2, -5)", () => {
   it("B-P12b-2: eşzamanlı PUT/DELETE sonrası bellekteki etkin adres = DB = GET (yazım + uygulama sıralı)", async () => {
     const urls = Array.from({ length: 6 }, (_, i) => `https://wa${i}.p12b.test`);
     for (let round = 0; round < 5; round++) {
-      const rs = await Promise.all([...urls.map((url) => call(app, sSuper, "PUT", W, { url })), call(app, sSuper, "DELETE", W)]);
+      // P13a: sistem ayarı yazımı kullanıcı başına 10/dk → her tur ayrı Super Admin (7 yazım)
+      const sr = await loginAs(app, await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+      const rs = await Promise.all([...urls.map((url) => call(app, sr, "PUT", W, { url })), call(app, sr, "DELETE", W)]);
       expect(rs.map((r) => r.statusCode)).toEqual(Array(urls.length + 1).fill(200));
       const row = await testDb().systemSetting.findUniqueOrThrow({ where: { key: "whatsapp" } });
       const dbUrl = (row.valueJson as { url: string | null }).url ?? envFake.url;
@@ -304,5 +306,90 @@ describe("P12b WhatsApp güvensiz adres — production (AC-196, AC-150, K13)", (
       await call(prod, s, "DELETE", W);
     }
     expect(prod.whatsapp.effectiveUrl).toBe(envFake.url);
+  });
+});
+
+describe("P13a sistem ayarları (B-P12b-4, B-P12b-5, T33; mimari-p13 §3)", () => {
+  it("B-P12b-4: büyük harfli şema / ondalık IPv4 kanonik biçimde saklanır; görünmez karakter 400", async () => {
+    const s = await loginAs(app, await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+    try {
+      const up = await call(app, s, "PUT", W, { url: "HTTPS://WA.P13A.Test/" });
+      expect(up.statusCode, up.body).toBe(200);
+      expect(view(up)).toMatchObject({ url: "https://wa.p13a.test", source: "panel" });
+      expect((await testDb().systemSetting.findUniqueOrThrow({ where: { key: "whatsapp" } })).valueJson).toEqual({ url: "https://wa.p13a.test" });
+      expect(view(await call(app, s, "PUT", W, { url: "http://3232235777:3000" })).url).toBe("http://192.168.1.1:3000");
+      for (const url of ["http://wa​.p13a.test", "http://wa.p13a.test/a‮b", "http://wa.p13a.test "]) {
+        const r = await call(app, s, "PUT", W, { url });
+        expect(r.statusCode, JSON.stringify(url)).toBe(400);
+        expect(r.json<{ error: { fields: Record<string, string> } }>().error.fields).toEqual({ url: WA_URL_MESSAGE });
+      }
+    } finally {
+      await call(app, s, "DELETE", W);
+    }
+  });
+
+  it("B-P12b-5: değer değişmediyse PUT 200 döner, audit yazılmaz", async () => {
+    const su = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
+    const s = await loginAs(app, su);
+    try {
+      expect((await call(app, s, "PUT", W, { url: "https://same.p13a.test" })).statusCode).toBe(200);
+      const n = (await audits("settings.whatsapp.updated", su.id)).length;
+      const again = await call(app, s, "PUT", W, { url: "HTTPS://SAME.p13a.test/" }); // kanonik olarak aynı
+      expect(again.statusCode).toBe(200);
+      expect(view(again)).toMatchObject({ url: "https://same.p13a.test", source: "panel" });
+      expect(await audits("settings.whatsapp.updated", su.id)).toHaveLength(n);
+    } finally {
+      await call(app, s, "DELETE", W);
+    }
+  });
+
+  it("B-P12b-5: sistem ayarı PUT/DELETE kullanıcı başına dakikada 10 (11. → 429 + Retry-After); başka kullanıcı etkilenmez; 400 kotayı tüketmez", async () => {
+    const a = await loginAs(app, await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+    const b = await loginAs(app, await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+    try {
+      expect((await call(app, a, "PUT", W, { url: "ftp://x" })).statusCode).toBe(400);
+      const codes: number[] = [];
+      for (let i = 0; i < 10; i++) codes.push((await call(app, a, i % 2 ? "DELETE" : "PUT", W, i % 2 ? undefined : { url: `https://rl${i}.p13a.test` })).statusCode);
+      expect(codes).toEqual(Array(10).fill(200));
+      for (const [m, u, p] of [["PUT", W, { url: "https://rl.p13a.test" }], ["DELETE", W, undefined], ["DELETE", "/api/v1/admin/settings/turn", undefined], ["PUT", "/api/v1/admin/settings/mysql", { host: "db.p13a.test", port: 3306, database: "x", user: "u", password: "p" }]] as const) {
+        const r = await call(app, a, m, u, p);
+        expect(r.statusCode, `${m} ${u}`).toBe(429);
+        expect(r.json<{ error: { code: string } }>().error.code).toBe("RATE_LIMITED");
+        expect(Number(r.headers["retry-after"])).toBeGreaterThan(0);
+      }
+      expect((await call(app, a, "GET", W)).statusCode).toBe(200); // okuma sınırlı değil
+      expect((await call(app, b, "DELETE", W)).statusCode).toBe(200);
+    } finally {
+      await call(app, b, "DELETE", W);
+    }
+  });
+
+  it("B-P12b-4: env açıkça verilmemişse kaynak `default` (rozet \"Varsayılan\"), verilmişse `env`", async () => {
+    const def = makeApp({ env: { WHATSAPP_SERVICE_URL: "" } });
+    extraApps.push(def);
+    await def.ready();
+    const s = await loginAs(def, superAdmin);
+    expect(view(await call(def, s, "GET", W))).toMatchObject({ url: "http://89.252.189.211:3000", source: "default" });
+    expect(view(await call(app, sSuper, "GET", W)).source).toBe("env");
+  });
+
+  it("T33: canlıda http:// + link-local (169.254.169.254, [fe80::1]) güvensiz → kanal kapalı", async () => {
+    const prod = makeApp({ env: { ...PROXY, NODE_ENV: "production", SESSION_REF_KEY: "k".repeat(40), APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS, WHATSAPP_SERVICE_URL: envFake.url } });
+    extraApps.push(prod);
+    await prod.ready();
+    const s = await loginAs(prod, await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+    const setup = (await call(prod, s, "POST", "/api/v1/auth/mfa/setup", {})).json<{ secret: string }>();
+    expect((await call(prod, s, "POST", "/api/v1/auth/mfa/enable", { code: hotp(base32Decode(setup.secret), stepOf(Date.now())) })).statusCode).toBe(200);
+    try {
+      for (const url of ["http://169.254.169.254", "http://[fe80::1]:3000"]) {
+        const put = await call(prod, s, "PUT", W, { url });
+        expect(put.statusCode, put.body).toBe(200);
+        expect(view(put)).toMatchObject({ insecure: true });
+        expect(prod.whatsapp.usable).toBe(false);
+      }
+      expect(view(await call(prod, s, "PUT", W, { url: "http://[::1]:3000" }))).toMatchObject({ insecure: false }); // loopback özel
+    } finally {
+      await call(prod, s, "DELETE", W);
+    }
   });
 });

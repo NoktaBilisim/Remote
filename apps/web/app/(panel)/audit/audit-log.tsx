@@ -7,7 +7,7 @@ import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { actionLabel, auditPayload } from "@/lib/audit/actions";
+import { actionLabel, auditPayload, reasonLabel } from "@/lib/audit/actions";
 import { AUDIT_RESULT_LABELS, type AuditItem, type AuditListResponse, type AuditResult } from "@/lib/audit/contract";
 import { auditApiPath, type AuditFilters } from "@/lib/audit/query";
 import { api, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
@@ -124,7 +124,8 @@ export function AuditLog({ initial, filters, showTenant }: { initial: AuditListR
                 <td className="max-w-60 px-3 py-2"><ActionCell action={a.action} /></td>
                 <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg-muted" title={a.entity}>{a.entity}</td>
                 <td className="px-3 py-2"><ResultBadge result={a.result} /></td>
-                <td className={`px-3 py-2 font-mono text-xs whitespace-nowrap text-fg-muted ${ipCol}`}>{a.ipAddress ?? "—"}</td>
+                {/* IPv6 / ağ öneki (S-P13a: müşteri kaydında `…/24`, `…::/48`) tabloyu genişletmesin: dar sütunda kırpılır, tam değer title + ayrıntıda */}
+                <td className={`max-w-32 truncate px-3 py-2 font-mono text-xs whitespace-nowrap text-fg-muted ${ipCol}`} title={a.ipAddress ?? undefined}>{a.ipAddress ?? "—"}</td>
                 <td className="sticky right-0 bg-surface px-3 py-1 text-right group-hover:bg-surface-muted">{detailBtn(a)}</td>
               </tr>
             ))}
@@ -251,7 +252,18 @@ function AuditDetailDialog({ item, onClose }: { item: AuditItem | null; onClose:
           </dl>
           {payload.kind === "reason" ? (
             <section aria-label={t("au.d.reason")} className="flex flex-col gap-2" data-testid="audit-detail-reason">
-              <Row term={t("au.d.reason")}>{payload.reason ?? <span className="text-fg-muted">{t("au.d.noReason")}</span>}</Row>
+              <dl>
+              <Row term={t("au.d.reason")}>
+                {payload.reason === null ? (
+                  <span className="text-fg-muted">{t("au.d.noReason")}</span>
+                ) : (
+                  <span className="flex min-w-0 flex-col" data-testid="audit-reason">
+                    <span>{reasonLabel(payload.reason)}</span>
+                    {reasonLabel(payload.reason) !== payload.reason && <span className="font-mono text-xs text-fg-muted">{payload.reason}</span>}
+                  </span>
+                )}
+              </Row>
+              </dl>
               <p className="flex items-start gap-2 text-xs text-fg-muted">
                 <Info aria-hidden className="mt-0.5 size-4 shrink-0" />
                 {t("au.d.mailNote")}

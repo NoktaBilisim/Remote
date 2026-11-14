@@ -18,6 +18,9 @@ const DAY = 86_400_000;
 const BASE = Date.parse("2026-11-10T09:00:00Z");
 export const RICH_ID = "01JHXST0000000000000000000";
 export const BROWSER_ID = "01JHXSTBRWSR00000000000002";
+// P13a (AC-197): saklama işi anonimleştirmiş oturum (USER'ın kendi oturumu, ilk sayfada); PATCH → 409 SESSION_ANONYMIZED
+export const ANON_ID = "01JHXSTAN0N000000000000048";
+const ANON_I = 48;
 
 export function historyUser(cookie) {
   const m = cookie?.match(/^u-(hu|hro|hadm|hsa|hempty|hbroken|hbig|hrate)-/);
@@ -41,7 +44,7 @@ function seed() {
     const started = status === "ENDED" || status === "ACTIVE" ? created + 60_000 : null;
     const ended = status === "ACTIVE" ? null : created + 60_000 + (i + 1) * 97_000;
     items.push({
-      id: i === 0 ? RICH_ID : i === 2 ? BROWSER_ID : `01JHXST${String(i).padStart(19, "0")}`,
+      id: i === 0 ? RICH_ID : i === 2 ? BROWSER_ID : i === ANON_I ? ANON_ID : `01JHXST${String(i).padStart(19, "0")}`,
       status,
       code: null,
       techVerifyCode: "1234",
@@ -54,8 +57,9 @@ function seed() {
       mode: started ? (i % 4 < 2 ? "AGENT" : "BROWSER") : null,
       startedAt: started ? new Date(started).toISOString() : null,
       durationSec: started && ended ? Math.floor((ended - started) / 1000) : null,
-      customerName: started || status === "CANCELLED" ? NAMES[i % NAMES.length] : null,
-      ticketNo: i === 2 ? "INC-1002" : null,
+      customerName: i === ANON_I ? null : started || status === "CANCELLED" ? NAMES[i % NAMES.length] : null,
+      ticketNo: i === 2 ? "INC-1002" : i === ANON_I ? "INC-0048" : null,
+      anonymized: i === ANON_I,
       tenant: TENANTS[i < 60 ? 0 : 1],
       // P8b (AC-158): her 5. oturum talepten doğar
       source: i % 5 === 0 && i > 0 && started ? "REQUEST" : "TECH",
@@ -134,6 +138,13 @@ function detail(s, who) {
         ]
       : [],
     timelineTruncated: rich,
+    // anonim oturum: zaman çizelgesinde müşteri adı yok (K-P13-3), dosya kaydı yok
+    ...(s.anonymized
+      ? { timeline: [
+          { at: at(0), action: "session.created", actor: "TECH", actorName: "Mehmet Kaya", result: "success", details: { ttlMin: 15 } },
+          { at: at(1), action: "guest.admit", actor: "CUSTOMER", actorName: null, result: "success", details: {} },
+        ], files: [] }
+      : {}),
     request:
       s.source === "REQUEST"
         ? { id: "01JREQH0000000000000000001", createdAt: s.createdAt, acceptedAt: at(2), waitSec: s.waitSec, customerName: s.customerName, customerPhone: "+905321112233", customerEmail: null, description: "Yazıcı çalışmıyor https://kotu.example bağlantısı tıklanmamalı" }
@@ -190,6 +201,12 @@ export async function handleHistory(req, res, { url, session, csrfOk, send, err,
     if (!s) return send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true;
     const parsed = updateSessionInputSchema.safeParse(await readJson(req));
     if (!parsed.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { [String(parsed.error.issues[0]?.path[0])]: parsed.error.issues[0]?.message } })), true;
+    // P13a: anonim oturum ya da (yarış taklidi) "ANON-409" → 409 SESSION_ANONYMIZED; sonrasında oturum anonim görünür
+    if (s.anonymized) return send(res, 409, err("SESSION_ANONYMIZED", "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.")), true;
+    if (parsed.data.ticketNo === "ANON-409") {
+      Object.assign(s, { anonymized: true, customerName: null, customerEmail: null, note: null });
+      return send(res, 409, err("SESSION_ANONYMIZED", "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.")), true;
+    }
     if (parsed.data.ticketNo === "HATA-400") return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { ticketNo: "Sunucu bu ticket no'yu reddetti" } })), true;
     if (parsed.data.ticketNo !== undefined) s.ticketNo = parsed.data.ticketNo;
     if (parsed.data.note !== undefined) s.note = parsed.data.note;

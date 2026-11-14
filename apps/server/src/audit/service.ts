@@ -3,7 +3,11 @@
 import type { FastifyRequest } from "fastify";
 import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
+import { netKey } from "../lib/ip.ts";
 import { maskValue, type JsonObject } from "./mask.ts";
+
+/** Müşteri (misafir, talep formu, istemci) aktörlü kayıtların `username` değeri; oturum geçmişi aktörü de buna bakar. */
+export const CUSTOMER_USERNAME = "customer";
 
 export interface AuditContext {
   ip: string;
@@ -40,8 +44,9 @@ export async function writeAudit(db: DbOrTx, ctx: AuditContext, entry: AuditEntr
       entityId: entry.entityId ?? null,
       ...(entry.oldValue ? { oldValue: maskValue(entry.oldValue) as Prisma.InputJsonObject } : {}),
       ...(entry.newValue ? { newValue: maskValue(entry.newValue) as Prisma.InputJsonObject } : {}),
-      ipAddress: ctx.ip.slice(0, 45),
-      userAgent: ctx.userAgent.slice(0, 300),
+      // S-P13a-1 (KVKK): müşteri kaydı 730 gün kalır, oturum/talep ise saklama süresinde anonimleşir → audit tam IP ve
+      // tarayıcı bilgisi taşımaz; IP yerine ağ öneki (IPv4 /24, IPv6 /48), UA hiç yazılmaz. Çalışan kayıtları değişmez.
+      ...(entry.username === CUSTOMER_USERNAME ? { ipAddress: ctx.ip ? netKey(ctx.ip).slice(0, 45) : "", userAgent: null } : { ipAddress: ctx.ip.slice(0, 45), userAgent: ctx.userAgent.slice(0, 300) }),
       result: entry.result,
       correlationId: ctx.requestId,
     },

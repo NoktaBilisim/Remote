@@ -172,7 +172,7 @@ export const GONE: Partial<Record<string, ErrorCode>> = {
 async function goneAudit(db: Db, limits: PublicLimits, ctx: AuditContext, s: repo.PublicSessionRow, code: ErrorCode): Promise<void> {
   const key = `${s.id}:${code}`;
   if (limits.goneAudit.blockedFor(key) > 0 || limits.goneAudit.hit(key)) return;
-  await writeAudit(db, ctx, { tenantId: s.tenantId, action: "session.resolve", entity: "support_sessions", entityId: s.id, result: "fail", newValue: { reason: code } });
+  await writeAudit(db, ctx, { tenantId: s.tenantId, username: "customer", action: "session.resolve", entity: "support_sessions", entityId: s.id, result: "fail", newValue: { reason: code } });
 }
 
 export async function resolvePublicSession(

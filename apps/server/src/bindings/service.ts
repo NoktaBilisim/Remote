@@ -253,17 +253,20 @@ export async function sweepPassiveTenantBindings(svc: RequestService): Promise<n
 /** Günlük 03:30 (V28): son kullanımdan tenant `retention_days` geçmiş etkin kayıtlar → EXPIRED; tenant başına özet audit. */
 export async function expireIdleBindings(svc: RequestService, now = new Date(svc.d.clock.now())): Promise<number> {
   let total = 0;
-  for (const t of await rrepo.retentionTenants(svc.d.db)) {
-    const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
-    let n = 0;
-    for (;;) {
-      const k = await repo.expireIdle(svc.d.db, t.tenantId, cutoff, now, BATCH);
-      n += k;
-      if (k < BATCH) break;
-    }
-    if (n > 0) await writeAudit(svc.d.db, SYSTEM_CTX, { tenantId: t.tenantId, ...SYSTEM, action: BINDING_AUDIT.REVOKED, entity: ENTITY, result: "success", newValue: { reason: "EXPIRED", count: n } });
-    total += n;
-  }
-  countRevoked(svc, "EXPIRED", total);
+  for (const t of await rrepo.retentionTenants(svc.d.db)) total += await expireIdleBindingsOf(svc, t, now);
   return total;
+}
+
+/** P13a: tek tenant için boşta kayıt dolumu (saklama işinin tenant döngüsü; fail-soft tenant başına). */
+export async function expireIdleBindingsOf(svc: RequestService, t: { tenantId: string; retentionDays: number }, now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
+  let n = 0;
+  for (;;) {
+    const k = await repo.expireIdle(svc.d.db, t.tenantId, cutoff, now, BATCH);
+    n += k;
+    if (k < BATCH) break;
+  }
+  if (n > 0) await writeAudit(svc.d.db, SYSTEM_CTX, { tenantId: t.tenantId, ...SYSTEM, action: BINDING_AUDIT.REVOKED, entity: ENTITY, result: "success", newValue: { reason: "EXPIRED", count: n } });
+  countRevoked(svc, "EXPIRED", n);
+  return n;
 }

@@ -4,8 +4,10 @@ import { notFound, redirect } from "next/navigation";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { LoadError } from "@/components/load-error";
 import { Alert } from "@/components/ui/alert";
+import { AnonymizedBadge } from "@/components/ui/badge";
 import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { isAnonymized } from "@/lib/history/anonymized";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 import { NoteForm } from "./note-form";
@@ -48,15 +50,21 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
   }
   const s = res.data;
   const showTenant = me.me.user.role === "SUPER_ADMIN" && !me.me.actingTenant;
-  const canEdit = perms.includes("session_history.edit");
+  const anon = isAnonymized(s);
+  // P13a (AC-197): anonimleştirilmiş oturum düzenlenemez (sunucu da 409 SESSION_ANONYMIZED döner) → form yerine salt okunur
+  const canEdit = perms.includes("session_history.edit") && !anon;
 
   return (
     <>
       <Breadcrumb items={[{ label: t("nav.history"), href: "/history" }, { label: s.customerName ?? t("h.d.title") }]} />
-      <h1 className="text-2xl font-semibold text-fg wrap-anywhere" data-testid="detail-title">
-        {s.customerName ?? t("h.d.title")}
-      </h1>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h1 className="text-2xl font-semibold text-fg wrap-anywhere" data-testid="detail-title">
+          {s.customerName ?? t("h.d.title")}
+        </h1>
+        {anon && <AnonymizedBadge />}
+      </div>
       <p className="mt-1 text-sm text-fg-muted tabular-nums">{formatDateTime(s.createdAt)} · {s.technician.name}</p>
+      {anon && <div className="mt-4 max-w-3xl"><Alert tone="info" testId="history-anonymized">{t("h.anon.note")}</Alert></div>}
 
       <div className="mt-6 flex flex-col gap-8">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
@@ -72,10 +80,10 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
                 <dd className="text-fg wrap-anywhere">{s.ticketNo ?? "—"}</dd>
                 <dt className="text-fg-muted">{t("h.n.note")}</dt>
                 <dd className="whitespace-pre-wrap text-fg wrap-anywhere">{s.note ?? "—"}</dd>
-                <dd className="mt-2 text-xs text-fg-muted">{t("h.n.readonly")}</dd>
+                <dd className="mt-2 text-xs text-fg-muted">{t(anon ? "h.anon.readonly" : "h.n.readonly")}</dd>
               </dl>
             ) : (
-              <p className="text-sm text-fg-muted" data-testid="note-readonly">{t("h.n.empty")} {t("h.n.readonly")}</p>
+              <p className="text-sm text-fg-muted" data-testid="note-readonly">{t("h.n.empty")} {t(anon ? "h.anon.readonly" : "h.n.readonly")}</p>
             )}
           </Section>
         </div>

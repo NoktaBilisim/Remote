@@ -85,3 +85,14 @@ describe("P10 hesap yardımcıları", () => {
     expect(shouldProbe("visible", t0 + 120_000, t0, t0)).toBe(true);
   });
 });
+
+describe("P13a (AC-197) firma veri saklama süresi", () => {
+  it("90–730 tam sayı kabul; boş, ondalık, harf, aralık dışı ret", async () => {
+    const { checkRetentionDays, RETENTION_LIMITS } = await import("./retention");
+    expect(RETENTION_LIMITS).toEqual({ min: 90, max: 730 });
+    expect(checkRetentionDays(" 90 ")).toEqual({ days: 90 });
+    expect(checkRetentionDays("730")).toEqual({ days: 730 });
+    expect(checkRetentionDays("").error).toBe("Saklama süresi gerekli");
+    for (const bad of ["89", "731", "12.5", "-100", "1e3", "abc"]) expect(checkRetentionDays(bad).error).toContain("90–730");
+  });
+});

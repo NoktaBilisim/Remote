@@ -138,25 +138,41 @@ export interface TurnSettingsView {
 
 export const WA_URL_MAX = 200;
 export const WA_URL_MESSAGE = "Adres http:// veya https:// ile başlamalı; kullanıcı adı/şifre, ? ve # içeremez (en çok 200 karakter)";
-/** `system_settings_whatsapp_chk` ile birebir (ICU `\z` ↔ JS `$` bayraksız: sondaki `\n` kabul edilmez). */
-const WA_URL_RE = /^https?:\/\/[^@?#\s\p{Cc}]+$/u;
+/**
+ * `system_settings_whatsapp_chk` ile birebir (P13a, B-P12b-4: + `\p{Cf}\p{Zl}\p{Zp}`; ICU `\z` ↔ JS `$` bayraksız: sondaki
+ * `\n` kabul edilmez). Saklanan (kanonik) değere uygulanır.
+ */
+const WA_URL_RE = /^https?:\/\/[^@?#\s\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u;
+/** Girdi: aynı küme, yalnız şema harf duyarsız (`HTTPS://…` reddedilmez, kanonikleşir). */
+const WA_URL_INPUT_RE = /^https?:\/\/[^@?#\s\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/iu;
 /** WHATWG URL (tarayıcı + Node global); contracts lib'inde DOM tipi yok (tenants.ts kalıbı). */
-const UrlCtor = (globalThis as unknown as { URL: new (u: string) => { hostname: string } }).URL;
-const parsesAsUrl = (v: string): boolean => {
-  try {
-    return new UrlCtor(v).hostname !== "";
-  } catch {
-    return false;
-  }
-};
+const UrlCtor = (globalThis as unknown as { URL: new (u: string) => { hostname: string; href: string } }).URL;
+/** Uzunluk kod noktası ile (DB JSON şeması `maxLength` karakter sayar). */
+const cpLength = (v: string): number => [...v].length;
 
-/** Panel adresi. Sondaki `/` kırpılır (istek `{url}/test-send`, `{url}/send-message`); kırpılmış değer de kurala uyar. */
+/**
+ * P13a (mimari-p13 §3): WHATWG kanonik biçim — şema/host küçük harf, ondalık/onaltılı IPv4 noktalı, IDN punycode,
+ * varsayılan port atılır; sondaki `/` kırpılır (istek `{url}/test-send`, `{url}/send-message`). Kurala uymazsa null.
+ */
+export function canonicalWaUrl(v: string): string | null {
+  if (cpLength(v) > WA_URL_MAX || !WA_URL_INPUT_RE.test(v)) return null;
+  let href: string;
+  try {
+    const u = new UrlCtor(v);
+    if (u.hostname === "") return null;
+    href = u.href;
+  } catch {
+    return null;
+  }
+  const out = href.replace(/\/+$/, "");
+  return WA_URL_RE.test(out) && cpLength(out) <= WA_URL_MAX ? out : null;
+}
+
+/** Panel adresi (ve env `WHATSAPP_SERVICE_URL`): doğrulanır ve kanonik biçimde döner. */
 export const waServiceUrlSchema = z
   .string({ error: WA_URL_MESSAGE })
-  .max(WA_URL_MAX, WA_URL_MESSAGE)
-  .regex(WA_URL_RE, WA_URL_MESSAGE)
-  .transform((v) => v.replace(/\/+$/, ""))
-  .refine((v) => WA_URL_RE.test(v) && parsesAsUrl(v), WA_URL_MESSAGE);
+  .refine((v) => canonicalWaUrl(v) !== null, WA_URL_MESSAGE)
+  .transform((v) => canonicalWaUrl(v) ?? v);
 
 /** PUT gövdesi. Kaldırma (env'e dönüş) DELETE ile. */
 export const whatsappSettingsInputSchema = z.strictObject({ url: waServiceUrlSchema });
@@ -169,7 +185,8 @@ export type WhatsappSettingsData = z.output<typeof whatsappSettingsInputSchema>;
  */
 export interface WhatsappSettingsView {
   url: string | null;
-  source: "panel" | "env";
+  /** P13a: `default` = ne panel kaydı ne açık env değeri var; yerleşik varsayılan adres kullanılıyor (rozet "Varsayılan"). */
+  source: "panel" | "env" | "default";
   insecure: boolean;
   updatedAt: string | null;
 }

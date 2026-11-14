@@ -1,4 +1,4 @@
-# Runbook — Remote Support (P1–P12)
+# Runbook — Remote Support (P1–P13a)
 Sahibi: devops. Kapsam P1: kurulum, başlatma/durdurma, env, log, migrate/seed. Yedek, alarm, rollback
 provası, TURN, sertifika yenileme P3/P13'te eklenecek. Mimari: `docs/mimari.md` §8.
 
@@ -41,6 +41,25 @@ docker compose --profile setup run --rm seed  # ilk Super Admin (bir kez; tekrar
 docker compose ps                             # migrate "exited (0)", diğerleri "healthy"/"running"
 ```
 Beklenen: `server` ≤ 120 sn içinde healthy (yerel ölçüm: mysql ilk init dahil ~60 sn, server 14 sn).
+**Temiz kurulum kaydı (AC-88, K26; mimari-p13 §5).** Yöntem: imaj önbelleği ve volume'u olmayan Docker (temiz Ubuntu 24.04
+VM; yoksa `docker:29-dind` kabı, `/var/lib/docker` ayrı volume'da). Uygulama imajları (`remote-{server,web,migrate}:<tag>`)
+`docker save | docker load` ile, `mysql`/`caddy`/`coturn` digest'le **önceden** çekilir (çekme/derleme süresi ölçüme girmez).
+`deploy/.env` §3'e göre doldurulur (`MYSQL_BACKUP_PASSWORD` dahil). Ölçüm:
+```bash
+t0=$(date +%s); docker compose up -d --no-build
+until docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/ready').then(r=>process.exit(r.status===200?0:1),()=>process.exit(1))" 2>/dev/null; do sleep 1; done
+echo "ready=$(( $(date +%s) - t0 ))s"     # hedef ≤ 120
+cd turn && docker compose up -d && docker compose ps     # coturn ayrı compose (ADR-0007, K26); healthy
+# HMAC credential (server algoritması): pozitif allocation + yanlış secret negatif
+u="$(( $(date +%s) + 600 )):ac88"; p="$(printf %s "$u" | openssl dgst -sha1 -hmac "$TURN_SECRET" -binary | base64)"
+docker run --rm --network host --entrypoint turnutils_uclient coturn/coturn:4.18.0-alpine -u "$u" -w "$p" -n 1 -m 1 -c -e 127.0.0.1 127.0.0.1   # "Total lost packets 0"
+```
+| Tarih | Ortam | Commit / tag | `up -d` → `/ready` 200 | coturn HMAC | Not |
+|---|---|---|---|---|---|
+| 2026-11-14 | yerel `docker:29-dind` (Docker Desktop arm64) | `0f06d7d` + P13a çalışma ağacı / `p13a-t1` | yarıda kaldı | — | dind iç `/var/lib/docker` katmanında I/O hatası → Docker Desktop VM diski salt okunur oldu (Docker yeniden başlatılarak düzeldi). **dind bu makinede kullanılmaz** |
+| 2026-11-14 | yerel Docker Desktop 29.8 (arm64), ayrı compose projesi `rsp13ae2e` (yeni volume'lar, imajlar önceden derli, mysql `user: mysql` override — QA-P5-6, caddy portsuz) | `0f06d7d` + P13a çalışma ağacı / `p13a-e2e` | **28 sn** (`up -d` dönüşü 28 sn; mysql healthy 26 sn, server healthy +11 sn; `/ready` → `200 {"status":"ready","migration":"20261114120000_p13a_retention"}`) | `deploy/turn/test-local.sh` (ayrı compose `remote-turn-test`): HMAC UDP/TCP/TLS allocation + yanlış secret/süresi geçmiş red + denied-peer-ip → **62 PASS / 0 FAIL** (2 dk 46 sn) | Hedef ≤ 120 sn **GEÇTİ** (yerel). Staging/prod temiz VM tekrarı P13b (§18.7/7). Not: coturn testi uygulama yığını ayaktayken çalıştırılırsa yığının otomatik `db` ağı (172.31.0.0/16) testin 172.31.250.0/24 ağıyla çakışır → sırayla çalıştırın |
+| 2026-11-14 (güvenlik düzeltmeleri sonrası tekrar) | aynı yöntem, compose `rsp13ae2e` (`db` ağı sabit alt ağ — otomatik havuz 172.30.0.0/16 alıp `edge` ile çakışabiliyor; yalnız yerel override) | `0f06d7d` + P13a çalışma ağacı / `p13a-e2e` | **20 sn** | (önceki satır) | GEÇTİ |
+
 Tarayıcı: `https://<SITE_HOST>:4450`. `tls internal` kök sertifikası test makinesine kurulur:
 `docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt` → işletim sistemi
 "Güvenilen kök sertifikalar"a eklenir. (Gerçek müşteri staging'e bağlanmaz.)
@@ -50,6 +69,7 @@ Tarayıcı: `https://<SITE_HOST>:4450`. `tls internal` kök sertifikası test ma
 |---|---|
 | `MYSQL_ROOT_PASSWORD`, `MYSQL_APP_PASSWORD`, `MYSQL_MIGRATOR_PASSWORD` | `openssl rand -hex 24` (yalnız harf/rakam: URL'ye gömülür, tırnak/ters bölü yasak) |
 | `MYSQL_DATABASE` | `remote` |
+| `MYSQL_BACKUP_PASSWORD` | P13a: `openssl rand -hex 24` (≥ 16; harf/rakam). `'backup'@'localhost'` yedek kullanıcısının parolası (SELECT, SHOW VIEW, TRIGGER). **Yalnız `mysql` servisine** verilir; server/migrate görmez, `env.ts`'te yoktur. Boşsa yeni kurulumda kullanıcı oluşturulmaz ve yedek FAILED olur. Mevcut kurulumda ekleme/değişim: `.env` → `docker compose up -d mysql` → `deploy/mysql/backup-user.sql` (§18.7/3–4; idempotent, parolayı günceller). Yedeği parola kasasında |
 | `PUBLIC_BASE_URL` | staging `https://185.126.217.99:4450`, yerel `https://localhost:4450` |
 | `SESSION_REF_KEY` | `openssl rand -base64 48` (≥ 32 karakter). Oturum linklerindeki `sessionRef`'in HMAC anahtarı; compose'da zorunlu. Değiştirilirse/boş kalırsa (compose dışı) mevcut `sessionRef`'ler 404 olur — açık oturum yokken değiştirin; yedeği parola kasasında |
 | `EDGE_PROXY_SECRET` | `openssl rand -base64 32` (≥ 32 karakter). Caddy → web `X-Edge-Auth` sırrı. Compose'da caddy ve web için zorunlu; web production'da sır yoksa müşteri sayfası hata verir. Rotasyon: `.env`'i güncelleyip `docker compose up -d caddy web` çalıştırın; iki servis birlikte yeniden yaratılır, açık oturumlar etkilenmez. Yedeği parola kasasında tutulur, loga ve dokümana yazılmaz |
@@ -1133,8 +1153,13 @@ aktarımı sessizce kırılır**: istemciler 401 alır, yalnız doğrudan/STUN b
 - `mysqldump` tetikleyicileri `DEFINER=migrator@%` ile döker (`--triggers` varsayılan). Geri yükleme **root ile** yapılır ve
   bayrak açık olmalıdır (aksi halde 1419). Ayrı bir `backup` kullanıcısı tanımlanırsa `TRIGGER` yetkisi gerekir.
 - `migrator` kullanıcısı silinir/yeniden adlandırılırsa audit UPDATE/DELETE "definer does not exist" ile reddedilir
-  (fail-closed); INSERT etkilenmez.
-- Geri yükleme provasından sonra: `SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE()` = 2.
+  (fail-closed). **P13a'dan itibaren INSERT de reddedilir:** `audit_logs_force_created_at` (BEFORE INSERT) tetikleyicisinin
+  DEFINER'ı da `migrator@%`'dir → migrator yoksa her audit yazımı hata verir; audit'e bağlı işlemler (giriş, ayar, yetki,
+  oturum olayları) fail-closed olarak başarısız olur. `migrator` silinmez/yeniden adlandırılmaz; parola değişimi `ALTER USER` ile yapılır.
+  Kontrol: `SELECT TRIGGER_NAME, DEFINER FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE()` → 3 satır, hepsi `migrator@%`.
+- Geri yükleme provasından sonra: `SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE()` = **3**
+  (P13a'dan itibaren: `audit_logs` no_update + retention_only_delete + force_created_at; P11–P12b arası 2). `restore.sh` bunu
+  otomatik denetler (§18.4). P13a'dan sonra yedek/geri yükleme için §18 geçerlidir; buradaki elle komutlar yalnız tarihçedir.
 
 ### 15.7 Sorun giderme (P11)
 | Belirti | Neden / Yapılacak |
@@ -1335,3 +1360,305 @@ docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql -
 | Log `alarm:"whatsapp_invalid_url"` | Etkin adres ayrıştırılamıyor → kanal her ortamda kapalı; §12.5 satırı |
 | Log `alarm:"whatsapp_settings_load"` | Açılışta panel kaydı okunamadı → env adresiyle çalışıyor; §12.5 satırı |
 | `down.sql` 3819 | `whatsapp` satırı var (`{url:null}` dahil) → §17.3/2 |
+
+## 18. P13a — yedek/geri yükleme, saklama işi alarmları, yayın (devops, 2026-11-14; AC-91, AC-199, AC-200)
+Tasarım: `docs/mimari-p13.md` §2 (saklama), §4 (yedek). Dosyalar `deploy/backup/`: `backup.sh`, `restore.sh`, `lib.sh` (ortak),
+`remote-backup.service` + `remote-backup.timer` + `remote-backup-failed.service` (systemd), `backup.env.example`.
+Uygulama konteynerine eklenen bir şey yok; yedek host'ta, systemd ile çalışır.
+
+| Konu | Karar |
+|---|---|
+| Ne | MySQL dökümü (`backup` kullanıcısı, `--single-transaction --triggers --skip-extended-insert`) + `uploads` volume'u (logo/avatar) **aynı çalıştırmada** |
+| Şifreleme | `age -r <BACKUP_AGE_RECIPIENT>` (yalnız açık anahtar). **Çözme anahtarı sunucuda yok** |
+| Nerede | `BACKUP_DIR` (staging `/var/backups/remote`), çalıştırma başına `<UTC zaman>/` (700): `db.sql.gz.age`, `uploads.tar.gz.age`, `manifest.json` (hepsi 600) |
+| Manifest | zaman, sürüm (commit, `IMAGE_TAG`, MySQL sürümü + imaj), son migration, tetikleyici sayısı, tablo başına satır sayısı (dökümden, kesin), uploads dosya sayısı + özet listesinin sha256'sı, her dosyanın boyutu + sha256'sı (şifreli ve düz) |
+| Ne zaman | her gün 02:00 Europe/Istanbul (`Persistent=true`: kaçırılan çalıştırma açılışta telafi) — RPO ≤ 24 sa |
+| Saklama | `BACKUP_KEEP_DAYS=14` (AC-91): her yedek en az 14 gün kalır, daha eskisi yalnız **başarılı** yedekten sonra silinir |
+| Düz veri | Düz döküm/arşiv **diske hiç yazılmaz**: `mysqldump | sayım | gzip | tee(sha256, boyut) | age`; yan hesaplar FIFO üzerinden. Yarım kalmış `.partial-*` (yalnız sayı/özet içerir) her çalıştırmanın başında silinir. Geri yüklemede çözülmüş dosyalar yalnız **RAM'de** (`/dev/shm`; yoksa/yetmezse açık hata, `--work-dir` ile bilinçli seçim) (S-P13a-3) |
+| Hata | `set -euo pipefail`; eksik döküm (son satır `-- Dump completed`, tetikleyici sayısı DB = döküm), **DB'deki tetikleyici sayısı ≠ `BACKUP_EXPECTED_TRIGGERS` (3)** (audit koruması düşürülmüş; S-P13a-4), `backup.env` root/600 değil (S-P13a-7), MySQL erişilemez, disk < `BACKUP_MIN_FREE_MB` → rc ≠ 0, stderr/journal `remote-backup: FAILED adım=<adım> rc=<n>`, birim `failed` → `remote-backup-failed.service` journal'a `remote-backup: FAILED host=…` yazar + `BACKUP_ALERT_CMD` |
+| Doğrulama | `restore.sh` (döküm tetikleyici satırı normalize edilerek, §18.4 notu) önce geçici, ağsız MySQL'e (aynı imaj + bayraklar) `mysql --system-command=OFF` ile yükler; tetikleyici = 3 ve = manifest, son migration, tablo kümesi + satır sayıları, uploads listesi, **dökümde istemci meta-komutu yok** (tırnak dışında satırın herhangi bir yerinde `\X` — ör. `SELECT 1; \! id`; satır başında system/source/tee/pager/connect/use/edit/charset), **yükleme öncesi/sonrası anlık görüntü aynı**: hesap listesi, `CHECKSUM TABLE` mysql.user (plugin + authentication_string dahil; değer yazılmaz)/global_grants/db/tables_priv/columns_priv/procs_priv/proxies_priv/role_edges/default_roles/component, ROUTINES, EVENTS, `persisted_variables` özeti — farkta değişen öğenin **adı** yazılır (S-P13a-2) → `restore-verify: OK\|FAIL` |
+| Env istisnası | `backup.env` anahtarları yalnız `backup.sh` içindir; server okumaz → `env.ts`/compose'a **girmez** (mimari-p13 §4). MySQL parolası `backup.env`'de değil, `deploy/.env` `MYSQL_BACKUP_PASSWORD` (yalnız mysql servisine verilir; döküm `docker exec` ile konteyner içinden, parola argümana düşmez). Mimari'deki `BACKUP_DB_PASSWORD` bu yüzden kullanılmadı (db-notlari P13a önerisi) |
+| Host araçları | `docker`, `age`, `jq` (`apt-get install -y age jq`; age BSD-3, jq MIT). mysqldump/tar/sha256 hesapları `mysql:8.4.13` imajı içinde (sabit digest) |
+
+**Kişisel veri notu (B-P12-3, KVKK):** saklama işinin anonimleştirdiği/sildiği veriler (oturum müşteri alanları, onay IP/UA,
+dosya satırları, 730 günü dolan audit, pasif kullanıcı/firma dosyaları) **yedeklerde en çok 14 gün daha** (+ en fazla 1 saat
+tolerans) kalır; rotasyonla düşer. Aydınlatma metni/VERBİS'te "yedekler 14 gün, şifreli" olarak geçer. Yedekten geri dönüşte
+silinmiş veri geri gelebilir → geri yüklemeden sonraki ilk saklama turu (03:30) bunları yeniden anonimleştirir; acil ise §18.6'daki
+gibi server yeniden başlatılmaz, tur beklenir (iş idempotent).
+
+### 18.1 Ön koşul: age anahtar çifti (KULLANICI yapar; sunucuda değil)
+Anahtar **yönetici iş istasyonunda** üretilir; özel anahtar sunucuya, repoya, dokümana, sohbete/bilete yazılmaz.
+```bash
+# macOS: brew install age   ·   Ubuntu: sudo apt-get install -y age
+umask 077 && age-keygen -o remote-backup-age.key     # stderr: "Public key: age1..."  ← yalnız bu satır sunucuya gider
+age-keygen -y remote-backup-age.key                  # açık anahtarı tekrar göster
+```
+- **Özel anahtarın yeri:** (1) şirket parola kasasında "Remote — yedek çözme anahtarı (age)" kaydı (dosya eki veya içerik),
+  (2) çevrimdışı ikinci kopya (şifreli USB / kasadaki kâğıt çıktı, `AGE-SECRET-KEY-1...` tek satır). İki kişinin erişimi olmalı
+  (tek kişi bağımlılığı RTO'yu bozar). Kaybolursa **hiçbir yedek açılamaz** → yeni çift üretilir, `BACKUP_AGE_RECIPIENT` güncellenir,
+  hemen bir yedek alınıp §18.4 provası yapılır; eski yedekler 14 günde düşer.
+- İkinci alıcı (önerilir): ayrı bir kişinin anahtarı `BACKUP_AGE_RECIPIENT=age1aaa…,age1bbb…` — biri kaybolsa diğeri açar.
+- Rotasyon: yeni çift → recipient değiştir → yeni yedek + prova → eski özel anahtar 14 gün sonra (son eski yedek düşünce) imha.
+
+### 18.2 Kurulum (staging; root; `/opt/remote` varsayımı)
+```bash
+apt-get install -y age jq
+install -d -m 700 /var/backups/remote
+cd /opt/remote/deploy/backup && install -o root -g root -m 600 backup.env.example backup.env   # root + 600 zorunlu (S-P13a-7)
+#   backup.env: BACKUP_DIR=/var/backups/remote · BACKUP_AGE_RECIPIENT=age1… (18.1 açık anahtarı) · BACKUP_KEEP_DAYS=14
+#               BACKUP_ALERT_CMD= (isteğe bağlı; örnek dosyada) · BACKUP_EXPECTED_TRIGGERS= (boş = 3)
+install -m 644 remote-backup.service remote-backup-failed.service remote-backup.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now remote-backup.timer
+systemctl list-timers remote-backup.timer          # NEXT = yarın 02:00 (+3) civarı
+systemctl start remote-backup.service && journalctl -u remote-backup.service -n 20 --no-pager   # "remote-backup: OK run=…"
+ls -l /var/backups/remote/*/                       # 3 dosya, -rw-------
+```
+Ön koşul: `backup` MySQL kullanıcısı (§18.7/3–4). Yoksa yedek `MYSQL_BACKUP_PASSWORD boş` / `Access denied` ile FAILED olur.
+Elle çalıştırma (zamanlayıcıdan bağımsız, aynı birim): `systemctl start remote-backup.service`. Doğrudan betik de olur
+(`/opt/remote/deploy/backup/backup.sh`), ama o zaman OnFailure alarmı çalışmaz.
+
+### 18.3 İzleme ve alarm (yedek)
+| Kontrol | Komut | Beklenen |
+|---|---|---|
+| Son çalıştırma | `systemctl status remote-backup.service --no-pager \| head -5`; `journalctl -u remote-backup.service --since -26h \| grep -E 'remote-backup: (OK\|FAILED)'` | son 26 saatte bir `OK` |
+| Hata | `journalctl -t remote-backup --since -2d \| grep FAILED` | boş |
+| Tazelik (timer hiç çalışmadıysa OnFailure da çalışmaz) | `find /var/backups/remote -maxdepth 1 -type d -name '2*Z' -mmin -1560 \| wc -l` | ≥ 1 (son 26 sa) |
+| Zamanlayıcı | `systemctl is-enabled remote-backup.timer && systemctl is-active remote-backup.timer` | `enabled` `active` |
+| Saklama | `ls /var/backups/remote \| grep -c 'Z$'` | 14–15 (ilk 2 haftada daha az) |
+| Disk | `df -h /var/backups/remote` | < %80 |
+
+Alarm kuralları: journal'da `remote-backup: FAILED` → **Kritik** (aynı gün düzeltilir, §19.10). Tazelik 0 → **Kritik**.
+`BACKUP_ALERT_CMD` tanımlıysa FAILED anında çağrılır (ör. WhatsApp servisi, `backup.env.example`). Staging'de Prometheus yok;
+tazelik ve §18.6 retention kontrolü elle/cron ile yapılır (prod izleme P13b).
+
+### 18.4 Geri yükleme provası (`scratch`, canlıya dokunmaz) ve RTO ölçümü
+Ayda bir ve her anahtar/betik değişikliğinden sonra. İki yol:
+- **A (önerilen, anahtar sunucuya hiç gelmez):** yönetici iş istasyonunda (docker + age + jq + repo klonu):
+```bash
+R=$(ssh root@185.126.217.99 'ls -1 /var/backups/remote | grep Z$ | tail -1')
+scp -r root@185.126.217.99:/var/backups/remote/$R ./backup-$R
+deploy/backup/restore.sh --identity ~/guvenli/remote-backup-age.key --work-dir ~/guvenli/tmp ./backup-$R   # restore-verify: OK
+# macOS'ta /dev/shm yok → çözülmüş veri için --work-dir zorunlu: FileVault açık diskte, yalnız sizin okuyabildiğiniz dizin
+rm -rf ./backup-$R
+```
+- **B (sunucuda, mimari-p13 §4):** anahtar yalnız RAM'de (`/dev/shm`), iş bitince silinir:
+```bash
+# iş istasyonundan: anahtarı diske yazmadan RAM'e aktar
+ssh root@185.126.217.99 'umask 077; cat > /dev/shm/rb.key' < ~/guvenli/remote-backup-age.key
+ssh root@185.126.217.99 'cd /opt/remote/deploy/backup && R=$(ls -1 /var/backups/remote | grep Z$ | tail -1) \
+  && ./restore.sh --identity /dev/shm/rb.key /var/backups/remote/$R; rc=$?; shred -u /dev/shm/rb.key; exit $rc'
+ssh root@185.126.217.99 'ls /dev/shm/rb.key 2>&1'      # "No such file" olmalı
+```
+Çıktı: `CHECK OK/FAIL` satırları, `restore-sure: toplam Ns (çözme, MySQL açılış, yükleme, doğrulama)` ve `restore-verify: OK`.
+**Bilinen döküm sorunu (P11 tetikleyicisi, 2026-11-14 provasında bulundu):** `audit_logs_no_update` gövdesi sonda `;` ile
+saklanmış; mysqldump satırı `... 'audit_logs is append-only: UPDATE denied'; */;;` olarak döker ve **düz `mysql` ile geri yükleme
+1064 verir** (eski elle alınan `remote-pre-*.sql.gz` dökümleri de dahil). `restore.sh` yüklemeden önce yalnız tetikleyici `CREATE`
+satırının sonundaki `; */;;`'yi ` */;;` yapar (`lib.sh fix_trigger_dump`; gövde anlamı aynı). Eski bir dökümü elle yüklerken:
+`gzip -dc X.sql.gz | sed -E '/^\/\*!50003 CREATE\*\/ \/\*!50017 DEFINER=/ s/;[[:space:]]*\*\/;;$/ *\/;;/' | mysql …`. **Kalıcı çözüm uygulandı:** P13a migration'ı
+(`20261114120000_p13a_retention`, madde 0) tetikleyiciyi BEGIN…END gövdesiyle yeniden kurdu (`docs/db-notlari.md` P13a "Ek"); P13a
+sonrası dökümlerde bu satır yoktur ve `fix_trigger_dump` hiçbir şey değiştirmez. Normalleştirme yalnız **P13a öncesi** dökümler
+(eski `remote-pre-*.sql.gz` ve P13a yayınından önce alınmış run'lar) için kalır.
+
+**Bütünlük sınırı ve imza (S-P13a-2):** age yalnız gizlilik sağlar; alıcı **açık** anahtarını bilen biri geçerli bir `.age` ve
+ona uyan manifest üretebilir. Bugün yedek dizinine yazmak staging root'u gerektirdiği için risk düşük; `restore.sh`'teki istemci
+komutu yasağı ve hesap/yetki/rutin karşılaştırması kurcalanmış dökümün en tehlikeli etkilerini yakalar. Döküm denetimi tırnaklı veriyi (kaçış ve `''` dahil, satırlar arası) atlar; mysqldump tırnak dışında ters bölü üretmediği için
+bilinen dökümlerde yanlış pozitif yoktur (tırnak içinde `\!`, `\.`, `system` geçen gerçek audit verisiyle denendi). Yorum
+satırları da ihtiyatla taranır: elle düzenlenmiş, yorumunda ters bölü olan bir döküm işaretlenebilir (beklenen; elle düzenlenmiş
+döküm zaten geri yüklenmemeli). Tablo **içeriği** bugün satır sayısıyla karşılaştırılır; `CHECKSUM TABLE` ile tam içerik
+karşılaştırması P13b'dedir. **Site dışı yedek (P13b)
+devreye girmeden önce manifest imzası zorunludur:** `backup.sh` manifesti imzalar (ör. `ssh-keygen -Y sign` veya minisign;
+imza anahtarı yalnız yedek sunucusunda, doğrulama açık anahtarı yönetici tarafında), `restore.sh` imzayı doğrulamadan çözmeye
+geçmez. Ayrıca yüklemenin root yerine `migrator` ile yapılması dba ile değerlendirilecek. Site dışı eşitlemede `.partial-*` ve
+`.lock` hariç tutulur.
+
+**RTO yöntemi:** RTO = karar anı → `/ready` 200. Bileşenler: (a) anahtarın kasadan alınması (elle; kronometre), (b) `restore.sh`
+scratch doğrulaması (`restore-sure: toplam`), (c) canlıya uygulama + `/ready` (`--target staging` çıktısındaki
+`staging kesintisi`). Prova kaydına a + b + c yazılır; hedef ≤ 60 dk. Döküm satır başına INSERT içerdiğinden yükleme süresi
+satır sayısıyla doğrusal büyür (audit_logs 730 g); prova her ay ölçülür, 30 dk'yı geçerse dba ile hızlandırma (paralel yükleme) değerlendirilir.
+
+**Prova kaydı**
+| Tarih | Yol | Yedek (run) | scratch süre | Canlı kesinti | RTO (a+b+c) | Sonuç | Yapan |
+|---|---|---|---|---|---|---|---|
+| 2026-11-14 | yerel (iş istasyonu, Docker Desktop; compose `rsp13ae2e`, test age anahtarı) | `20261114T182249Z` (db 10,8 KB, uploads 2 dosya; 19 tablo, tetikleyici 3) | 8 sn (MySQL açılış 7 sn) | 14 sn (`--target staging`, Linux root konteynerinden; ön yedek dahil toplam 22 sn) | a: ölçülmedi (test anahtarı) · b: 8 sn · c: 14 sn | **OK** — bozulan `users.full_name`, silinen `_prisma_migrations` satırı ve uploads (silinen/eklenen dosya) geri döndü; izinler `1000:1000 700/750/640`; `check-app-grants.sh` 373/373 PASS. Olumsuz: kurcalanmış `.age` → sha256 FAIL (çözülmedi), yanlış anahtar → çözülemedi rc 1, MySQL durdurulmuş → `FAILED adım=mysql-bul` + `--alert` → `BACKUP_ALERT_CMD` çağrıldı, yarım dizin kalmadı; rotasyon: 15 günlük silindi, 14 gün − 10 dk'lık kaldı, 2 günlük `.partial` silindi | devops |
+| 2026-11-14 (güvenlik düzeltmeleri, S-P13a-2/3/4/6/7) | yerel, **Linux root konteyneri** (docker CLI + bash/age/jq; staging'e en yakın), compose `rsp13ae2e` | `20261114T190007Z` (akış biçiminde yedek; düz dosya yok) | 7 sn (`/dev/shm`) | 13 sn (toplam 20 sn) | b: 7 sn · c: 13 sn | **OK**. Olumsuz testler: `backup.env` 644 → FAILED + alarm komutu çalıştırılmadı; ölü `.partial` başlangıçta silindi; dökümde `system` satırı (açık anahtarla yeniden şifrelenmiş + manifesti güncellenmiş sahte yedek) → `dökümde istemci komutu` FAIL; `CREATE USER bd@%` eklenmiş sahte yedek → `hesap/yetki/rutin` FAIL; yanlış `--confirm`/proje/`production` → hiçbir şeye dokunmadan durdu; tetikleyici düşürülünce `FAILED adım=tetikleyici`, ardından `--target staging` (`--no-pre-backup`) tetikleyiciyi geri getirdi → sonraki yedek OK; MySQL durdurulunca FAILED + alarm komutu çalıştı | devops |
+| 2026-11-14 (güvenlik kod turu 2, S-P13a-2 kalanı) | yerel Linux root konteyneri, compose `rsp13asec` (yalnız mysql + migrate) | `20261114T191114Z` (audit'te tırnak içinde `\!`, `\.`, `system` geçen meşru veri) | — | — | — | Geçerli yedek **OK** (yanlış pozitif yok, 15 öğe aynı). Açık anahtarla yeniden şifrelenip manifesti güncellenmiş sahte yedekler: `SELECT 1; \! id`, satır içi `\. /etc/hostname`, `pager …` → istemci komutu FAIL (yüklenmedi); `CREATE USER` → hesap-listesi + mysql.user; `GRANT … ON mysql.*` → mysql.db; dinamik yetki → mysql.global_grants; `ALTER USER … IDENTIFIED BY` → mysql.user; `SET PERSIST` → persisted; `INSTALL COMPONENT` → mysql.component + components; `CREATE PROCEDURE` → routines; hepsi `restore-verify: FAIL`. Busybox/mawk/BSD awk aynı sonucu verdi | devops |
+
+### 18.5 Gerçek geri yükleme (`--target staging`; veri bozuldu / felaket)
+Kesinti: server + web durur (DB silinip yeniden yüklenir). Önce §18.4 B'deki gibi anahtarı `/dev/shm`'e aktarın.
+```bash
+cd /opt/remote/deploy/backup && R=<geri dönülecek run, ör. 20261120T230000Z>
+./restore.sh --identity /dev/shm/rb.key --target staging --confirm remote@develop /var/backups/remote/$R; rc=$?
+shred -u /dev/shm/rb.key; echo rc=$rc
+```
+**Ortam kilidi (S-P13a-6):** `--confirm <veritabanı>@<hostname -s>` — staging'de **`remote@develop`**; compose projesi
+`remote` olmalı (başka adlıysa `RESTORE_EXPECT_PROJECT`). Eşleşmezse hiçbir şeye dokunmadan durur. `--target production` yoktur
+(P13b'de ayrı bayrak + ayrı onay).
+Betik sırası: scratch doğrulaması (FAIL → canlıya **dokunmaz**) → güncel durumun yedeği (`backup.sh`; DB tamamen bozuksa ve
+yedek alınamıyorsa bilinçli olarak `--no-pre-backup`) → `docker compose stop web server` → DB root ile `DROP`/`CREATE` (mevcut
+karakter seti korunur) + döküm → `uploads` volume'u boşaltılıp arşiv açılır (sahiplik/izin korunur) → aynı doğrulama canlıda →
+`docker compose up -d` (migrate önce; yedek eski migration'daysa yenileri uygulanır) → server healthy → `/ready` 200 → `restore-verify: OK`.
+Kullanıcılar/yetkiler `mysql` şemasındadır, DB silinince kaybolmaz; yine de sonra §15.1/5 `check-app-grants.sh` → **373/373 PASS**.
+Canlı doğrulama FAIL olursa server **durdurulmuş bırakılır** (bozuk veriyle açılmaz): başka bir run ile tekrar deneyin veya §19.7.
+Geri dönüş (yanlış run seçildiyse): ön yedek (`/var/backups/remote/<en yeni>`) ile aynı komut.
+
+### 18.6 Saklama işi metrikleri ve alarmları (AC-199; adlar mimari-p13 §2, `apps/server/src/jobs/retention.ts`)
+İş her gün 03:30 Europe/Istanbul server süreci içinde çalışır (ayrı zamanlayıcı yok). Metrikler (`/metrics`, Bearer `METRICS_TOKEN`):
+`rs_retention_last_success_timestamp_seconds` (gauge; 0 = süreç açıldığından beri başarılı tur yok),
+`rs_retention_rows_total{kind}` (sessions, consents, files, requests, customers, bindings, audit, auth_sessions, reset_tokens),
+`rs_retention_failures_total`.
+| Kural (PromQL) | Seviye | Anlamı / ilk adım |
+|---|---|---|
+| `time() - rs_retention_last_success_timestamp_seconds > 26*3600 and (time() - process_start) > 26*3600` | **Uyarı** | 26 saattir başarılı tur yok (süreç 26 saatten uzun ayakta). §19.8 |
+| `increase(rs_retention_failures_total[1d]) > 0` | **Uyarı** | En az bir firma/global adım hata verdi (fail-soft: diğerleri işlendi). §19.8 |
+| `increase(rs_retention_rows_total{kind="audit"}[1d]) > 100000` | Bilgi | Olağan dışı büyük audit silmesi (ilk tur/uzun kesinti sonrası beklenir) |
+Server'da süreç başlangıç metriği yok; süreç yaşı konteynerden alınır. Staging'de (Prometheus yok) aynı kural, sunucuda elle/cron:
+```bash
+cd /opt/remote/deploy && last=$(docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log((m?m[1]:'yok')+' '+(f?f[1]:'0'))})")
+started=$(date -d "$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose ps -q server)")" +%s); now=$(date +%s)
+set -- $last; echo "son_basari=$1 hata=$2 surec_yasi=$(( (now-started)/3600 ))sa"
+[ "$1" != yok ] && { [ $((now-started)) -lt 93600 ] || [ $((now-${1%.*})) -lt 93600 ]; } && [ "${2%.*}" = 0 ] && echo retention-ok || echo RETENTION-ALARM
+```
+`yok` → metrik kaydı yok (server P13a öncesi imaj veya `METRICS_TOKEN` boş). Audit karşılığı: Audit ekranında "Saklama süresi işi"
+(`retention.run`) kayıtları; SQL: `SELECT created_at, tenant_id, new_value FROM audit_logs WHERE action='retention.run' ORDER BY id DESC LIMIT 10`.
+
+### 18.7 P13a yayın sırası (staging, §8 akışı; prod'da aynı — P13b)
+Kesinti: mysql yeniden oluşturulurken 10–30 sn (3. adım) + server/web yeniden yaratılırken birkaç sn. Düşük trafik saatinde.
+1. **Yedek (eski yöntem, son kez; ayrı ssh):** §15.1/1 komutu (dosya `remote-pre-p13a-…`) + §16.3 uploads komutu.
+2. **Repo güncelle** (§8 bundle + pull, yeni ssh çağrısı, `umask` yok) ve `.env` yedeği: `cp -p deploy/.env /root/.env.bak.p13a.$(date -u +%Y%m%dT%H%M%SZ)`.
+3. **mysql env:** `.env`'e yedek kullanıcısı parolası (ekrana yazılmadan; harf/rakam, ≥ 16):
+   `grep -q '^MYSQL_BACKUP_PASSWORD=.' .env || { sed -i '/^MYSQL_BACKUP_PASSWORD=/d' .env; echo "MYSQL_BACKUP_PASSWORD=$(openssl rand -hex 24)" >> .env; }`
+   → `docker compose up -d mysql` (env değişti → konteyner yeniden oluşur, **volume korunur**; `down -v` YAPMAYIN) → `docker compose ps mysql` healthy.
+   Kontrol: `docker compose exec -T mysql sh -c 'echo ${#MYSQL_BACKUP_PASSWORD}'` → `48`.
+4. **backup kullanıcısı** (mevcut kurulum; komut `deploy/mysql/backup-user.sql` başlığında, parola argümana düşmez):
+```bash
+docker compose exec -T mysql sh -c 'h() { printf %s "$1" | od -An -tx1 | tr -d " \n"; }; { echo "SET @backup_pw = CONVERT(0x$(h "$MYSQL_BACKUP_PASSWORD") USING utf8mb4), @db = CONVERT(0x$(h "$MYSQL_DATABASE") USING utf8mb4);"; cat; } | MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' < mysql/backup-user.sql
+```
+   Beklenen: `backup-user: OK` + `GRANT SELECT, SHOW VIEW, TRIGGER ON \`remote\`.* TO \`backup\`@\`localhost\``.
+5. **Build + migrate + grants:** `docker compose build && docker compose up -d` → `docker compose logs --since 5m migrate`
+   ("All migrations have been successfully applied"; `20261114120000_p13a_retention`). Guard 3819 (P3018) ile durursa
+   `docs/db-notlari.md` P13a "Up guard" kurtarması. Ardından `docker compose --profile setup run --rm seed` (zararsız).
+6. **Yetki sınırı:** `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD BACKUP_PW=$MYSQL_BACKUP_PASSWORD CONTAINER=remote-mysql-1 DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh | tail -3`
+   → **373/373 PASS**, `grep -c FAIL` = 0 (tetikleyici 3, backup hesabı dahil).
+7. **AC-88 kaydı:** staging'de yığın zaten kurulu olduğundan temiz kurulum ölçümü burada yapılmaz; §2 "Temiz kurulum kaydı"
+   yöntemi ayrı temiz VM/dind'de (veya staging'de geçici compose projesi `-p remote-ac88`, farklı port ve volume'larla, ölçüm
+   sonrası `down -v`) uygulanır ve tabloya yazılır.
+8. **Yedek kurulumu + ilk yedek + prova:** §18.2 (kullanıcıdan alınan **açık** anahtarla) → `restore-verify: OK` (§18.4 A veya B) →
+   §18.4 prova kaydı (RTO).
+9. **Hata testi (AC-200):** `docker compose stop mysql; systemctl start remote-backup.service; systemctl is-failed remote-backup.service; journalctl -t remote-backup -n 5 --no-pager; docker compose start mysql`
+   → `failed`; journal'da `remote-backup: FAILED adım=mysql-bul …` ve `remote-backup: FAILED host=…` (OnFailure). Sonra
+   `systemctl reset-failed remote-backup.service` ve `docker compose ps` (server tekrar healthy; ~30 sn kesinti).
+10. **Saklama duman testi:** §18.6 komutu (ilk tur ertesi 03:30'da; öncesinde `son_basari=0` + süreç yaşı < 26 sa → `retention-ok`).
+    Ertesi gün: `retention.run` audit kaydı + `son_basari` > 0.
+11. §8 yayın geçmişine satır (yedek yolu, grants 373, ilk run adı, prova süresi).
+
+### 18.8 Geri alma (P13a)
+Tercih: **ileri düzeltme > yalnız imaj > imaj + `down.sql`**. Yedek altyapısı bağımsızdır; geri alınması gerekmez.
+1. **Önceki imaj:** `.env` `IMAGE_TAG=b7b4891` (P12b) → `docker compose up -d`. P12b kodu P13a şemasıyla çalışır: yeni sütun/CHECK
+   okunmaz, `app`'in ek DELETE yetkileri kullanılmaz; `created_at` tetikleyicisi zararsız (DB saati yazar). Saklama işi durur
+   (P12b'deki talep/müşteri/kayıt adımları devam eder).
+2. **`down.sql`** (yalnız şema sorunluysa; önce 1. adım ve 18.7/1 yedeği):
+```bash
+docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute \
+  --file prisma/migrations/20261114120000_p13a_retention/down.sql
+```
+   Anonimleştirilmiş oturum varsa `p13a_down_guard_chk` (3819) ile **hiçbir şey değişmeden** durur — bu satırlar geri
+   döndürülemez (kişisel veri silinmiştir); down yerine 1. adımda kalın. Başarılıysa `check-app-grants.sh` → P13a satırları
+   FAIL (beklenen), P12b ve öncesi 337 PASS. Prova: dba 2026-11-14 (`docs/db-notlari.md` P13a "down").
+3. **Yedek işi** (gerekirse): `systemctl disable --now remote-backup.timer`; `backup` kullanıcısı zararsızdır, kaldırmak için
+   root ile `DROP USER 'backup'@'localhost'` (yedek alınamaz hale gelir).
+4. Yeniden ileri: yeni `IMAGE_TAG` → `docker compose up -d` (migration yeniden uygulanır).
+
+## 19. Senaryo dizini (AC-92 + P13a)
+Her senaryo: **belirti → komut → doğrulama → geri dönüş**. Komutlar `/opt/remote/deploy` içinde, root. Ayrıntı bağlantılı bölümde.
+
+### 19.1 Servis düştü (site açılmıyor / 502 / agent-watch "sunucu erişilemez")
+- **Belirti:** tarayıcıda 502/504 veya bağlantı yok; `docker compose ps`'te `unhealthy`/`exited`.
+- **Komut:** `docker compose ps` → hangi servis? `docker compose logs --since 15m <servis> | tail -100`.
+  server: `/ready` (§5) 503 → DB (`docker compose ps mysql`, `logs mysql`); migrate `exited (1)` → §6/§7. Caddy/nginx: §7 ve §8.3 satırları.
+  Disk: `df -h / /var/lib/docker` (§19.9). Yeniden başlatma: `docker compose up -d` (değişmeyen servise dokunmaz) veya `docker compose restart server`.
+- **Doğrulama:** `docker compose ps` hepsi healthy; §5 `/ready` → 200; dışarıdan `/login` 200.
+- **Geri dönüş:** yayın sonrası düştüyse önceki `IMAGE_TAG` (§8 rollback); şema değiştiyse ilgili paketin geri alma bölümü (§18.8 vb.).
+
+### 19.2 TURN çalışmıyor (bağlantı kuruluyor, görüntü gelmiyor / yalnız aynı ağda çalışıyor)
+- **Belirti:** konsolda ICE başarısız; `turn_allocations` 0; coturn `unhealthy`.
+- **Komut:** `cd turn && docker compose ps && docker compose logs --since 30m coturn | tail -50`; tablo §9.8 (secret uyumsuzluğu
+  `message integrity`, `TURN_EXTERNAL_IP`, UFW/NAT 3478/5349/49160-49199, sertifika). `systemctl is-active remote-turn-fw.timer`.
+- **Doğrulama:** §2 temiz kurulum kaydındaki `turnutils_uclient` HMAC denemesi → allocation OK; tam test `test-denied.sh` (§9.7, test oturumu yokken).
+- **Geri dönüş:** yapılandırma değiştiyse `deploy/turn/.env`/local dosyanın önceki hali → `docker compose up -d --force-recreate coturn`; secret rotasyonu yarım kaldıysa §9.6.
+
+### 19.3 Sertifika süresi doldu
+- **Belirti:** tarayıcı `NET::ERR_CERT_DATE_INVALID` (alan adı) veya istemci TLS hatası; TURN-TLS 5349 bağlanmıyor.
+- **Komut:** alan adı (Let's Encrypt, host nginx): `certbot certificates --cert-name remote.noktabilisim.net` →
+  `certbot renew --cert-name remote.noktabilisim.net && nginx -t && systemctl reload nginx` (§7 satırı, §8.3).
+  TURN-TLS: `openssl x509 -in turn/certs/turn.crt -noout -enddate` → `cd turn && ./gen-cert.sh 185.126.217.99 && docker compose restart coturn` (§9.4).
+  IP:4450 (`tls internal`): Caddy kendisi yeniler; kök CA değiştiyse test makinelerine yeniden kurulur (§8).
+- **Doğrulama:** `echo | openssl s_client -connect remote.noktabilisim.net:443 -servername remote.noktabilisim.net 2>/dev/null | openssl x509 -noout -enddate`; TURN için `turnutils_uclient -S -p 5349` (§9.7).
+- **Geri dönüş:** yenileme bozduysa nginx önceki vhost (`/root/remote.conf.prev`), coturn için önceki `certs/` yedeği; alarm eşiği < 14 gün.
+
+### 19.4 İstemci sürüm yayını, köken doğrulama (attestation) ve indirme bütünlük alarmı
+- **Belirti (alarm):** agent-watch issue, server logunda `alarm:"agent_binary"` (`mismatch`/`missing`/`unconfigured`), indirme 503.
+- **Komut:** yayın §11.3 (`verify-and-publish.sh --tag vX.Y.Z`; attestation + SHA256SUMS); alarmda §11.7 (volume'a dokunmadan
+  hash al, `PUBLISHED.log` + SSH logları, son Release'i yeniden yayınla; ele geçirme şüphesinde `AGENT_SHA256=` boş → 503).
+- **Doğrulama:** `docker compose exec server sha256sum /data/downloads/NoktaDestek.exe` = Release `SHA256SUMS`; agent-watch elle tetiklenip yeşil.
+- **Geri dönüş:** önceki sürümü aynı doğrulamayla yeniden yayınla (§11.4).
+
+### 19.5 TURN IP değişimi (denied-peer-ip güncelleme)
+- **Belirti:** sunucu/NAT IP'si değişti; relay adayı yanlış adres, `test-denied.sh` FAIL.
+- **Komut:** `deploy/turn/.env` `TURN_EXTERNAL_IP`, `TURN_REALM`; `denied-peer-ip.local.conf` (yeni sağlayıcı bloğu + yeni kendi IP; §9.5);
+  `./gen-cert.sh <yeni-ip>` (§9.4); `host-firewall.sh apply` (§9.2.1); `docker compose up -d --force-recreate coturn`;
+  uygulama tarafı `deploy/.env` `TURN_URLS` → `docker compose up -d server`; NAT kuralları (§8.2).
+- **Doğrulama:** `test-denied.sh` 0 FAIL (her satırın ilk/son adresi 403, kontrol peer'ı izinli); konsolda relay adayı yeni IP.
+- **Geri dönüş:** önceki `.env`/local conf/certs yedeği → `--force-recreate coturn`; `TURN_URLS` eski değer → `up -d server`.
+
+### 19.6 Kötüye kullanım bildirimi (`ABUSE_EMAIL`'e gelen şikâyet, dış kurum talebi)
+- **Belirti:** misafir "Kötüye kullanımı bildir" e-postası veya resmi yazı: yetkisiz uzaktan erişim / dolandırıcılık iddiası.
+- **Komut:** (1) Bildirimdeki zaman, oturum kodu/ticket no, firma adıyla oturumu bulun: Super Admin → Oturum geçmişi/Audit ekranı
+  veya `SELECT id, tenant_id, ticket_no, status, created_by, created_at FROM support_sessions WHERE ticket_no = '<no>'` (root, salt okuma).
+  (2) Süren oturum: Oturumlar → "Zorla sonlandır" (AC-114). (3) Teknisyen: Kullanıcılar → pasife al (soket ≤ 60 sn kapanır);
+  firma çapında ise Super Admin → firma pasife al (§14.2). Kayıtlı bilgisayar/firma dosyası sızdıysa §13.4.
+  (4) **Kanıt koruma:** ilgili audit kayıtları 730 gün, coturn logu yalnız **7 gün** tutulur (§9.8.1) → hemen dışa alın:
+  `docker compose -f turn/docker-compose.yml logs --since 72h coturn | age -r <BACKUP_AGE_RECIPIENT> > /root/olay-<tarih>-coturn.log.age` ve
+  audit sorgusunun çıktısı aynı şekilde şifreli. (5) Bildirene yanıt + yönetime/KVKK sorumlusuna bilgi (72 saat içinde değerlendirme).
+- **Doğrulama:** oturum ENDED, kullanıcı/firma pasif, audit'te `session.terminate`/`user.update` kayıtları; kanıt dosyaları 600.
+- **Geri dönüş:** iddia asılsızsa kullanıcı/firma yeniden etkinleştirilir (audit'e yazılır); kanıt dosyaları olay kapanınca imha edilir.
+
+### 19.7 Veri bozuldu (yanlış toplu işlem, bozuk tablo, yanlış migration) — yedekten dön
+- **Belirti:** yanlış/eksik kayıtlar, server logunda tutarsızlık hataları, migrate yarıda.
+- **Komut:** (1) Kapsamı belirleyin; yazmayı durdurun: `docker compose stop web server`. (2) Hangi ana dönülecek? `ls /var/backups/remote`,
+  her run'ın `manifest.json`'u (`jq '{run, lastMigration, version}'`). Bozulma anından **önceki** son run. (3) Önce scratch provası
+  (§18.4) → OK. (4) §18.5 `--target staging` (ön yedek bozuk durumu da saklar — inceleme için). Tek tablo/az kayıt sorununda tam
+  geri yükleme yerine: scratch'i `--keep` ile bırakıp ilgili satırları oradan seçici aktarmak dba ile değerlendirilir.
+- **Doğrulama:** `restore-verify: OK`, `/ready` 200, `check-app-grants.sh` 373 PASS, duman testi (giriş, oturum listesi, logo görünüyor).
+  Kayıp pencere = son yedek → olay arası (RPO ≤ 24 sa); kullanıcılara bildirilir.
+- **Geri dönüş:** ön yedeğe (geri yüklemeden hemen önce alınan run) aynı komutla dönülür.
+
+### 19.8 Saklama işi çalışmadı (`RETENTION-ALARM`, §18.6)
+- **Belirti:** son başarılı tur > 26 sa (süreç 26 sa'ten uzun ayakta) veya `rs_retention_failures_total` > 0; audit'te günlük `retention.run` yok.
+- **Komut:** `docker compose logs server --since 30h | grep -iE 'retention' | tail -50` (firma kimliği + hata kodu; kişisel veri yok).
+  Sık nedenler: DB kilit/bağlantı (`db_busy`, §12.5), yetki hatası (`command denied` → migrate/grants eksik: §18.7/5–6
+  `check-app-grants.sh`), tetikleyici reddi (`older than 730 days` → saat sorunu: `docker compose exec -T mysql date -u` ile host `date -u` karşılaştırın).
+  Tek firma hatası diğerlerini durdurmaz (fail-soft); sürekli aynı firma ise o firmanın verisi incelenir (backend'e bildir).
+- **Doğrulama:** bir sonraki 03:30 turundan sonra §18.6 komutu `retention-ok`; audit'te yeni `retention.run`. Tur kaçırılınca veri
+  kaybı olmaz; sonraki tur aynı kesme noktasıyla tamamlar (idempotent). Acil değilse server'ı yeniden başlatmayın (süreç yaşı sıfırlanır, tur yine 03:30'da).
+- **Geri dönüş:** yayın sonrası başladıysa §18.8/1 (önceki imaj; saklama işi P12b kapsamına döner) ve backend'e bildir.
+
+### 19.9 Disk doldu (DB büyüdü / yedek dizini / Docker)
+- **Belirti:** MySQL `No space left on device`/`The table is full`, server 503, yedek `boş alan … < BACKUP_MIN_FREE_MB`.
+- **Komut:** `df -h / /var/lib/docker /var/backups/remote`; `docker system df -v | grep -E 'remote_|VOLUME'`; yedek dizini `du -sh /var/backups/remote/*`.
+  Güvenli temizlik: yalnız kendi eski imajlarımız (`docker image rm remote-*:<eski>`, §8), coturn logu (§9.8.1), en eski yedekler
+  **yalnız** 14 günden eskiyse. `docker system prune` (filtresiz) **yasak** (paylaşımlı sunucu). Büyüyen tablo:
+  `SELECT table_name, ROUND((data_length+index_length)/1048576) mb FROM information_schema.TABLES WHERE table_schema='remote' ORDER BY mb DESC LIMIT 10`
+  (audit_logs → saklama işi çalışıyor mu, §19.8).
+- **Doğrulama:** disk < %80; `docker compose ps` healthy; `systemctl start remote-backup.service` → OK.
+- **Geri dönüş:** silinen imaj gerekiyorsa yeniden build (§8); yedek dizini silinmez, yerine disk büyütülür.
+
+### 19.10 Yedek alınamadı (`remote-backup: FAILED`)
+- **Komut:** `journalctl -u remote-backup.service -n 50 --no-pager` → `adım=`: `önkoşul` (age/jq yok, backup.env eksik/hatalı
+  recipient), `mysql-bul` (mysql durmuş → §19.1), `tetikleyici` (DB'de 3 tetikleyici yok → audit koruması düşürülmüş: **güvenlik olayı**; kim/ne zaman için MySQL genel
+logu yoksa `docker compose logs mysql`, SSH/root erişim logları; tetikleyiciler §18.5 ile yedekten veya dba'nın P11/P13a
+migration SQL'iyle migrator olarak yeniden kurulur), `önkoşul` + "backup.env güvensiz" (`chown root:root … && chmod 600 …`),
+`meta`/`mysqldump` (`Access denied` → §18.7/3–4 backup kullanıcısı; parola
+  `.env` ile mysql konteyneri arasında farklıysa `docker compose up -d mysql` + backup-user.sql), `döküm-doğrula` (boş/bozuk/tetikleyici
+  sayısı farkı → dba), `uploads-arşiv`, `şifrele`, disk (§19.9).
+- **Doğrulama:** `systemctl reset-failed remote-backup.service && systemctl start remote-backup.service` → journal `remote-backup: OK`.
+  Aynı gün içinde başarılı bir yedek olmalı (RPO ≤ 24 sa).

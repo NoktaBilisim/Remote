@@ -34,7 +34,7 @@ describe("env", () => {
 
 describe("boş env değeri = tanımsız (compose `${X:-}`)", () => {
   it("B-P12b-3: WHATSAPP_SERVICE_URL panel kuralıyla (waServiceUrlSchema) doğrulanır; uymazsa açılış durur, değer mesajda yok", () => {
-    for (const v of ["http://kullanici:sifre@wa.test", "http://wa.test/?k=v", "http://wa.test#f", "ftp://wa.test", "HTTP://wa.test", `https://${"a".repeat(193)}`, "wa.test:3000"]) {
+    for (const v of ["http://kullanici:sifre@wa.test", "http://wa.test/?k=v", "http://wa.test#f", "ftp://wa.test", "http://wa\u200b.test", `https://${"a".repeat(193)}`, "wa.test:3000"]) {
       let msg = "";
       try {
         loadEnv({ ...base, WHATSAPP_SERVICE_URL: v });
@@ -48,6 +48,12 @@ describe("boş env değeri = tanımsız (compose `${X:-}`)", () => {
     expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: "https://wa.test:8443/api/" }).WHATSAPP_SERVICE_URL).toBe("https://wa.test:8443/api");
     expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: " " }).WHATSAPP_SERVICE_URL).toBe("http://89.252.189.211:3000");
     expect(loadEnv(base).WHATSAPP_SERVICE_URL).toBe("http://89.252.189.211:3000");
+  });
+
+  it("P13a (B-P12b-4): env adresi kanonikleşir; açıkça verilmezse kaynak `default`, verilirse `env`", () => {
+    expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: "HTTP://WA.Test:3000/" })).toMatchObject({ WHATSAPP_SERVICE_URL: "http://wa.test:3000", WHATSAPP_URL_SOURCE: "env" });
+    expect(loadEnv(base).WHATSAPP_URL_SOURCE).toBe("default");
+    expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: " " }).WHATSAPP_URL_SOURCE).toBe("default");
   });
 
   it("opsiyonel alanlar boş/boşluk dizeyle hata vermez ve varsayılana düşer", () => {

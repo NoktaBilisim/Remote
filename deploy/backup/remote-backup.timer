@@ -1,0 +1,13 @@
+# Her gün 02:00 (Europe/Istanbul). Persistent: sunucu o saatte kapalıysa açılışta bir kez telafi edilir.
+# Kurulum: runbook §18.2 (systemctl enable --now remote-backup.timer).
+[Unit]
+Description=Remote Support gunluk yedek zamanlayicisi
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 Europe/Istanbul
+Persistent=true
+RandomizedDelaySec=5min
+Unit=remote-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -45,3 +45,6 @@ deploy/agent/PUBLISHED.log
 
 # P12 yerel (compose dışı) yükleme kökü: UPLOADS_DIR=./.data/uploads — kullanıcı dosyaları repoya girmez
 .data/
+
+# P13a yedek yapılandırması (sunucuda; anahtar listesi deploy/backup/backup.env.example)
+deploy/backup/backup.env

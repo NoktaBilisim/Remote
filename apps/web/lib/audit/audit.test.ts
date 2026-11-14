@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionLabel, actionOptionGroups, auditPayload, isMailAction } from "./actions";
+import { actionLabel, actionOptionGroups, auditPayload, groupLabel, isMailAction, OUTBOUND_REASON_LABELS, reasonLabel } from "./actions";
 import { addDays, auditApiPath, auditExportPath, auditHref, parseAuditParams, rangeError } from "./query";
 
 const TODAY = "2026-11-12";
@@ -54,5 +54,20 @@ describe("audit işlem etiketleri ve detay", () => {
     expect(auditPayload({ action: "mail.sent", oldValue: null, newValue: { reason: "auth", to: "a***@x.com", subject: "S" } })).toEqual({ kind: "reason", reason: "auth" });
     const p = auditPayload({ action: "user.updated", oldValue: { fullName: "<b>A</b>" }, newValue: null });
     expect(p).toEqual({ kind: "json", oldValue: '{\n  "fullName": "<b>A</b>"\n}', newValue: null });
+  });
+});
+
+describe("P13a audit etiketleri (AC-199, T-P12b)", () => {
+  it("retention.run Türkçe etiket + grup başlığı; filtrede 'Veri saklama — tümü'", () => {
+    expect(actionLabel("retention.run")).toBe("Saklama süresi işi");
+    expect(groupLabel("retention")).toBe("Veri saklama");
+    const g = actionOptionGroups().find((x) => x.label === "Veri saklama");
+    expect(g?.options.map((o) => o.value)).toEqual(["retention.*", "retention.run"]);
+  });
+  it("dış gönderim reason kodları: WhatsApp, SMTP, MySQL ve izdüşüm 'other' Türkçe; bilinmeyen ham", () => {
+    for (const k of ["unconfigured", "insecure", "timeout", "http_error", "redirect", "unreachable", "invalid_response", "other"]) expect(OUTBOUND_REASON_LABELS[k]).toBeTruthy();
+    for (const k of ["connect", "auth", "tls", "rejected", "port_not_allowed", "insecure_auth", "not_configured", "database", "secret_unreadable"]) expect(OUTBOUND_REASON_LABELS[k]).toBeTruthy();
+    expect(reasonLabel("unreachable")).toBe("Servise ulaşılamadı");
+    expect(reasonLabel("yeni_kod")).toBe("yeni_kod");
   });
 });

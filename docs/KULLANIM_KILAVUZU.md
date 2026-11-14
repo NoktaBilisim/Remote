@@ -13,7 +13,8 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   ekranında firma logosu
 - **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
   yetkileri, Ayarlar > Destek talepleri (e-posta bildirimi dahil), Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
-  Aydınlatma metni, Ayarlar > Güvenlik, Ayarlar > Logo, kullanıcının profil resmi
+  Aydınlatma metni, Ayarlar > Güvenlik, Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
+  anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs)
 - **Super Admin için:** Firmalar ve firma geçişi, tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
   (MySQL, TURN, sistem logosu ve WhatsApp servisi), şifre/2FA kaybı
 
@@ -308,6 +309,20 @@ Diğer durumlar:
 - "Dosya kaydedilmedi … güvenlik işareti yazılamıyor" yazarsa İndirilenler klasörünüz bir USB bellekte veya benzeri
   bir sürücüdedir; program çalıştırabilen dosyalar bu durumda kaydedilmez. Teknisyeninize söyleyin.
 - Kaydedilen dosyalar Windows'ta "internetten indirildi" olarak işaretlenir. Açarken Windows ek bir uyarı gösterebilir.
+
+### Tarayıcıda büyük dosya alırken (müşteri sayfası ve teknisyen konsolu)
+Hızlı Destek yerine tarayıcıyla bağlandıysanız dosya teklifi tarayıcı sayfasında görünür. Dosya **256 MB'tan büyükse**
+ve tarayıcınız (Chrome, Edge) dosyayı doğrudan diske yazabiliyorsa, **Kabul et**'e basmadan önce şu uyarı çıkar:
+
+> Büyük dosya: kabul edince kaydedileceği yer sorulur ve dosya doğrudan diske yazılır.
+> **Var olan bir dosyanın üzerine yazmayın; aktarım bozulursa dosya boş kalabilir. Yeni bir dosya adı seçin.**
+
+1. Uyarıyı okuyun ve **Kabul et**'e basın.
+2. Açılan kaydetme penceresinde **yeni bir dosya adı** yazın. Var olan bir dosyayı seçmeyin: tarayıcı o dosyayı hemen
+   boşaltır, aktarım yarıda kalırsa eski içerik de kaybolur.
+
+Tarayıcınız diske doğrudan yazamıyorsa (ör. Firefox, Safari) dosya bellekte tutulur; çok büyük dosyada sekme
+kapanabilir. Mümkünse Chrome veya Edge kullanın.
 
 ### Teknisyen bilgisayarımı kullanmak isterse (uzaktan kontrol)
 Teknisyen fare ve klavyenizi kullanmak isterse ekranınızda **Uzaktan kontrol isteği** penceresi açılır. Pencerede
@@ -714,12 +729,32 @@ Satıra tıklayınca oturum ayrıntısı açılır:
 
 "Oturum bulunamadı" görürseniz oturum sizin değildir, silinmiştir ya da bağlantı hatalıdır.
 
+### "Anonimleştirildi" rozeti ne demek?
+Firmanızın **saklama süresi** (varsayılan 365 gün) dolan bitmiş oturumlarda müşterinin kişisel bilgileri her gece
+kendiliğinden silinir. Bu oturumlar listede ve ayrıntıda **Anonimleştirildi** rozetiyle görünür.
+
+| Silinenler | Korunanlar |
+|---|---|
+| Müşteri adı ve e-postası (yerinde "Anonimleştirildi" yazar) | Oturum no, tarihler, süre, durum, bağlantı türü |
+| Not | Ticket no |
+| Onay kayıtlarındaki IP ve tarayıcı bilgisi | Onay kararları (izin verildi/reddedildi/geri alındı) ve onaylanan metnin sürümü |
+| Dosya kayıtları ("Dosya kayıtları saklama süresi dolduğu için silindi.") | Kalite özeti, kontrol dönemleri |
+| Zaman çizelgesinde müşteri adı ve sonlandırma gerekçesi | Zaman çizelgesindeki olaylar |
+
+- Anonimleştirilmiş oturum **düzenlenemez**: Ticket ve not bölümü salt okunur görünür ("Anonimleştirilmiş oturum
+  düzenlenemez.").
+- Sayfa açıkken oturum anonimleşir ve **Kaydet**'e basarsanız "Bu oturum saklama süresi dolduğu için anonimleştirildi;
+  düzenlenemez." yazar, sayfa salt okunur görünüme geçer. Yaptığınız değişiklik kaydedilmez.
+- CSV dosyasında bu oturumların **Müşteri** hücresinde `Anonimleştirildi` yazar, **Not** boştur.
+
 ### Nasıl ticket numarası ve not eklerim?
 1. Oturumun ayrıntısını açın, **Ticket ve not** bölümüne gelin.
 2. **Ticket no** (yardım masası kayıt numarası, en çok 50 karakter) ve **Not** (en çok 4.000 karakter) alanlarını
    doldurun. Sayaç sınırı aşınca kırmızı olur.
 3. **Kaydet**'e basın. "Ticket ve not kaydedildi" mesajı çıkar. Vazgeçmek için **Değişiklikleri geri al**.
 - Alanı boşaltıp kaydederseniz ticket/not silinir. Bitmiş oturumlara da not eklenebilir.
+- **Ticket no alanına kişisel veri (ad, telefon, e-posta) yazmayın.** Ticket no saklama süresi dolduktan sonra da korunur;
+  yalnız yardım masası kayıt numarasını yazın. Müşteriyle ilgili bilgileri **Not** alanına yazın (not süre dolunca silinir).
 - Kaydetmeden başka sayfaya geçmeye çalışırsanız uyarı çıkar (**Sayfada kal** / **Kaydetmeden ayrıl**). Tarayıcının
   geri tuşu bu uyarıyı her zaman vermez; önce kaydedin.
 - Alanlar görünüyor ama düzenlenemiyorsa ("Ticket ve notu düzenleme yetkiniz yok") yöneticinizden yetki isteyin.
@@ -1150,6 +1185,19 @@ değişiklikleri, e-posta/WhatsApp gönderimleri, oturum ve uzaktan kontrol olay
 düzenleme veya silme düğmesi yoktur, sunucu ve veritabanı da buna izin vermez. Son 730 güne ait kayıtlar hiçbir
 şekilde silinemez.
 
+**Ne kadar saklanır?** Audit kayıtları **730 gün** (yaklaşık 2 yıl) saklanır. Bu süre firmaya göre değişmez. Daha eski
+kayıtları her gece çalışan **Saklama süresi işi** kendiliğinden siler. İş her çalıştığında, bir şey değiştirdiyse, kendisi de
+"Saklama süresi işi" adıyla bir kayıt bırakır (kullanıcı: `system`). Kaydın ayrıntısında yalnız sayılar vardır: kaç oturum,
+onay kaydı, dosya kaydı, talep, müşteri ve bilgisayar kaydı anonimleştirildi; sistem kaydında kaç audit kaydı, giriş
+oturumu ve şifre sıfırlama bağlantısı silindi. Sonuç "Başarısız" ise sistem yöneticisine bildirin. Bu kayıtları **İşlem**
+filtresinde **Veri saklama** grubuyla bulursunuz.
+
+**Müşteri kayıtlarında ne görünür?** Müşteri kaynaklı kayıtlarda (bağlanma, destek talebi, bilgisayar kaydı vb.; kullanıcı
+`customer`) müşterinin adı yazılmaz. IP adresinin tamamı değil yalnız ağ kısmı görünür (ör. `203.0.113.0/24`), tarayıcı
+bilgisi boştur. Dosya aktarım kayıtlarında dosya adı ve dosya özeti (SHA-256) yazılmaz; yalnız yön (teknisyene/müşteriye),
+uzantı (ör. `pdf`), boyut ve sonuç görünür. Dosyanın adı oturum ayrıntısındaki **Dosyalar** bölümündedir ve saklama süresi
+dolunca silinir. Böylece saklama süresi dolup oturum anonimleştikten sonra müşteri audit üzerinden tanınamaz.
+
 **Kim görür?**
 | Rol | Ne görür |
 |---|---|
@@ -1182,8 +1230,8 @@ rozeti, IP adresi. Dar ekranda (telefon) tablo yerine kartlar gösterilir.
 Satırdaki **Ayrıntı** (göz simgesi) düğmesine, telefonda karta dokunun. Pencerede kayıt no, tarih, kullanıcı, işlem,
 varlık ve kayıt kimliği, IP, tarayıcı, **Eski değer** ve **Yeni değer** görünür. Şifre, token ve anahtarlar `***` ya da
 yalnız "changed" (değişti) olarak görünür; asıl değer hiçbir yerde tutulmaz. E-posta gönderimi ve test kayıtlarında yalnız
-sonuç **nedeni** gösterilir (ör. `auth`, `connect`); alıcı içeriği ve sunucunun ham hata metni gösterilmez. Esc veya
-**Kapat** ile çıkın.
+sonuç **nedeni** Türkçe olarak, altında teknik kodla gösterilir (ör. "Servise ulaşılamadı" / `unreachable`); tanınmayan
+kod olduğu gibi görünür. Alıcı içeriği ve sunucunun ham hata metni gösterilmez. Esc veya **Kapat** ile çıkın.
 
 ### Nasıl CSV indiririm?
 1. Önce filtreleri ayarlayın; CSV yalnız filtreye uyan kayıtları içerir.
@@ -1259,7 +1307,9 @@ Yükleme, değiştirme ve kaldırma audit log'a yazılır. Reddedilen dosyalar d
 Firmanızın giriş ekranında kendi logonuzun görünmesi için ekibe `…/login?tenant=<firmanızın kısa adı>` bağlantısını verin
 (bkz. "Giriş ekranında firmamın logosu nasıl görünür?").
 
-## Admin için: Ayarlar > Güvenlik (teknisyenler için 2FA)
+## Admin için: Ayarlar > Güvenlik (teknisyenler için 2FA ve veri saklama)
+Bu sayfada ayrıca **Veri saklama** bölümü vardır (bkz. "Kişisel verilerin saklama süresi ve anonimleştirme").
+
 1. **Ayarlar** → **Güvenlik**.
 2. **Teknisyenler için zorunlu** anahtarını açın veya kapatın; değişiklik hemen kaydedilir.
 - Açıkken 2FA kurmamış teknisyenler sonraki girişte kurulum ekranına yönlendirilir.
@@ -1290,6 +1340,88 @@ e-postaya yazılmaz; ayrıntı paneldedir. Firma başına saatte en çok 30 bild
 - Yalnız bu pencere açıkken gönderilebilir (bağlantı güvenlik gereği sonradan gösterilmez).
 - Yalnız bekleyen (müşteri henüz katılmamış) oturum gönderilebilir. Saatte en çok 20 e-posta.
 - Firmanın SMTP ayarı yoksa veya gönderim başarısızsa satırda hata görünür; bağlantıyı kopyalayıp başka yolla iletin.
+
+## Admin için: Kişisel verilerin saklama süresi ve anonimleştirme (KVKK)
+Sistem müşterilerin kişisel verilerini süresiz tutmaz. Her gece 03:30'da (Türkiye saati) çalışan **Saklama süresi işi**
+süresi dolan verileri kendiliğinden siler veya anonimleştirir. Sizin bir şey yapmanız gerekmez.
+
+**Firmanın saklama süresi:** varsayılan **365 gün**, 90 ile 730 gün arasında olabilir.
+
+**Saklama süresini nasıl değiştiririm?**
+1. **Ayarlar** → **Güvenlik** sayfasını açın.
+2. **Veri saklama** bölümünde **Veri saklama süresi (gün)** alanına 90 ile 730 arasında bir sayı yazın.
+3. Alt çubuktaki **Kaydet**'e basın. "Veri saklama süresi … gün olarak kaydedildi" mesajı çıkar.
+- Kaydetmeden sayfadan ayrılmaya çalışırsanız kaydedilmemiş değişiklik uyarısı çıkar.
+- Alan pasif (gri) görünüyorsa yalnız görüntüleme yetkiniz vardır (**Ayarlar → Görüntüle**); değiştirmek için
+  **Ayarlar → Düzenle** yetkisi gerekir.
+- Aralık dışı değerde alanın altında hata yazar ve kayıt yapılmaz.
+- Yeni süre bir sonraki gece turunda (03:30) uygulanır. Süreyi kısaltırsanız o gece daha fazla kayıt anonimleşir; geri
+  uzatmak silinen bilgiyi geri getirmez.
+- Değişiklik audit log'a eski → yeni değerle yazılır.
+
+| Veri | Ne zaman | Ne olur |
+|---|---|---|
+| Bitmiş, süresi dolmuş veya iptal edilmiş destek oturumu | Oluşturulmasından saklama süresi kadar sonra | Müşteri adı, e-postası, not, onay kayıtlarındaki IP/tarayıcı ve dosya kayıtları silinir; oturum "Anonimleştirildi" olur (bkz. "Anonimleştirildi rozeti ne demek?") |
+| Destek talebi | Saklama süresi dolunca | Ad, telefon, e-posta ve açıklama silinir |
+| Pasif müşteri | Pasife alındıktan saklama süresi kadar sonra | Yetkili kişi, telefon, e-posta ve not silinir ("Anonimleştirildi") |
+| Kayıtlı bilgisayar | Son kullanımdan saklama süresi kadar sonra | Kayıt geçersiz olur; müşteri yeni dosya veya kodla bağlanır |
+| Audit log | 730 gün (firmaya göre değişmez) | Silinir |
+| Giriş oturumları ve şifre sıfırlama bağlantıları | Süreleri bittikten 7 gün sonra | Silinir |
+
+- Onay kararları (izin verdi/reddetti) ve onaylanan aydınlatma metninin sürümü KVKK onay kanıtı olarak kalır; kişiyi
+  tanıtan bilgi kalmaz.
+- Anonimleştirilen kayıtlar istatistik için (süre, sayı, kalite) listede kalır; kişisel veri içermez.
+- Sunucu yedekleri 14 gün saklanır. Silinen veri bu yüzden yedeklerde en çok 14 gün daha bulunur.
+- Yedekten geri dönülürse silinmiş veri geri gelebilir; ilk gece turu bunları yeniden anonimleştirir.
+
+## Admin için: Kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs)
+Müşterinizin şirketi programların çalışmasını AppLocker, Windows Defender Uygulama Denetimi veya bir antivirüs ile
+kısıtlıyorsa Hızlı Destek engellenebilir. Bu bölüm o şirketin BT sorumlusuna iletebileceğiniz rehberdir.
+
+**Bilmeniz gerekenler**
+- Hızlı Destek **imzasızdır**. Bu yüzden "yayımcı" (publisher/sertifika) kuralı yazılamaz; **dosya özeti (hash) kuralı**
+  kullanılır.
+- `Destek-12345678.exe`, `NoktaDestek.exe` ve `NoktaDestek-<firma adı>-….exe` aynı programdır; yalnız adları farklıdır.
+  Aynı sürümün hepsinin SHA-256 özeti aynıdır, tek bir hash kuralı hepsini kapsar.
+- Program kurulum yapmaz, yönetici izni istemez, hizmet veya başlangıç kaydı oluşturmaz. Yalnız
+  `%LOCALAPPDATA%\NoktaDestek\` klasörüne ayar (`hatirla.bin`) ve tanılama (`tanilama.log`) dosyası yazar; buradan program
+  çalıştırmaz.
+- Ağ: yalnız destek sunucusunun adresine HTTPS ile, görüntü aktarımı için de TURN sunucusuna bağlanır (bugünkü kurulumda
+  3478 UDP/TCP ve 5349 TCP; kesin adres ve portları sistem yöneticiniz verir).
+
+**1. Dosyanın doğru olduğunu doğrulayın (SHA256SUMS)**
+1. GitHub sürüm sayfasından ilgili sürümün `SHA256SUMS` dosyasını indirin.
+2. İndirilen programın özetini PowerShell ile hesaplayın:
+   ```powershell
+   Get-FileHash .\Destek-12345678.exe -Algorithm SHA256
+   ```
+3. Çıkan değer `SHA256SUMS` içindeki `NoktaDestek.exe` satırıyla aynı olmalı. Programın karşılama penceresinin en altındaki
+   **Parmak izi**, bu değerin ilk 8 karakteridir. Eşleşmiyorsa dosyayı kullanmayın.
+
+**2a. AppLocker hash kuralı (önerilen)**
+1. Grup İlkesi Yönetimi'nde (veya tek bilgisayarda `secpol.msc`) **Uygulama Denetimi İlkeleri → AppLocker →
+   Yürütülebilir Kurallar** bölümünü açın.
+2. **Yeni Kural Oluştur** → Eylem: **İzin Ver** → Kullanıcı veya grup: destek alacak kullanıcılar (ör. `Everyone`).
+3. Koşul: **Dosya karması** (File hash) → doğruladığınız program dosyasını seçin → kuralı kaydedin.
+4. İlkeyi dağıtın (`gpupdate /force`) ve programı standart kullanıcıyla açarak deneyin.
+
+**2b. AppLocker yol kuralı (yalnız gerekirse)**
+- **İndirilenler** klasörüne yol kuralı yazmayın: kullanıcı oraya her dosyayı koyabildiği için kural her programa izin verir.
+- Yol kuralı gerekiyorsa programı yalnız yöneticilerin yazabildiği bir klasöre kopyalayın (ör.
+  `C:\Program Files\NoktaDestek\`) ve yalnız o dosyanın tam yoluna izin verin. Firma dosyasını kopyalarken **adını
+  değiştirmeyin**; ad, programın hangi firmaya bağlanacağını belirler.
+
+**3. Antivirüs / EDR**
+- İstisnayı klasör veya dosya adına göre değil, **SHA-256 özetine** göre tanımlayın (ör. Microsoft Defender for
+  Endpoint'te **Göstergeler → Dosya karmaları → İzin ver**).
+- `%LOCALAPPDATA%\NoktaDestek\` için istisna gerekmez.
+
+**4. Yeni sürümde**
+Program her yeni sürümde değişir ve özeti de değişir. Yeni sürüm yayımlandığında 1. adımı tekrarlayıp kurala yeni özeti
+ekleyin; eski sürümün kuralını kaldırın. Eski sürümle bağlanan müşteriye "Bu Hızlı Destek dosyası eski" uyarısı çıkabilir.
+
+Kural yazılamıyorsa müşteri destek sayfasında **Uygulama çalışmıyor mu? Tarayıcıdan yalnızca görüntü paylaş** seçeneğiyle
+bağlanabilir (uzaktan kontrol olmadan).
 
 ## Super Admin için: Firmalar ve firma geçişi
 Menüde **Firmalar** (bina simgesi) yalnız Süper Yönetici'ye görünür. Diğer roller bu adresi açarsa "Bu sayfa yalnız
@@ -1401,7 +1533,7 @@ onaylarsanız paneldeki adresler ve anahtar silinir, uygulama yeniden `.env` de�
 | Kayıtlı şifre okunamadı; şifreyi yeniden girin | Sunucunun şifreleme anahtarı değişmiş olabilir; şifreyi yazıp kaydedin |
 | Gizli anahtar en az 32 karakter olmalı / boşluk ve # içermeyen ASCII olmalı | coturn'deki anahtarı kurallara uygun üretin ve iki yerde aynı yapın |
 | En az bir adres gerekli | `.env` değerlerine dönmek için **Ortam değerlerine dön**'ü kullanın |
-| Çok fazla istek | Dakikalık test sınırı doldu; bir dakika bekleyin |
+| Çok fazla istek | Dakikalık test sınırı (5) ya da kaydetme/geri dönme sınırı (MySQL, TURN ve WhatsApp için toplam 10) doldu; bir dakika bekleyin |
 
 ## Super Admin için: Sistem logosu
 Sistem logosu, giriş ekranında firma belli değilken ve logosu olmayan firmaların ekranlarında, müşteri sayfalarında ve
@@ -1427,8 +1559,11 @@ görür, sekme listelenmez.
 - **Etkin adres:** Bildirimlerin şu anda gittiği adres. Hiç adres yoksa "Yapılandırılmamış" yazar.
 - **Kaynak rozeti:**
   - **Panel** = adres bu ekrandan kaydedilmiş.
-  - **Ortam değişkeni** = panelde kayıt yok; sunucu ayar dosyasındaki adres (`WHATSAPP_SERVICE_URL`) ya da varsayılan
-    adres kullanılıyor. Bu durumda "Panelde kayıtlı adres yok…" bilgi notu çıkar ve **Servis URL'si** alanı boş gelir.
+  - **Ortam değişkeni** = panelde kayıt yok; sunucu ayar dosyasındaki adres (`WHATSAPP_SERVICE_URL`) kullanılıyor. Bu
+    durumda "Panelde kayıtlı adres yok…" bilgi notu çıkar ve **Servis URL'si** alanı boş gelir.
+  - **Varsayılan** = panelde kayıt yok ve sunucu ayar dosyasında da adres tanımlanmamış; sistemin yerleşik varsayılan
+    servis adresi kullanılıyor. "Panelde kayıtlı adres yok ve WHATSAPP_SERVICE_URL tanımlanmamış…" notu çıkar. Kendi
+    servisinizi kullanmak için adresi girip kaydedin.
 - **Son güncelleme:** Panel kaydının en son ne zaman değiştiği (ortam değişkeninde "—").
 - Hiçbir adres yoksa uyarı kutusu: "WhatsApp servisi yapılandırılmamış…". Bu durumda bildirim ve test gönderilemez.
 
@@ -1439,15 +1574,20 @@ görür, sekme listelenmez.
    - `http://` veya `https://` ile başlamalı.
    - Kullanıcı adı/şifre, `?` ve `#` içermemeli; en çok 200 karakter.
    - Sondaki `/` kendiliğinden silinir.
+   - Adres standart biçime çevrilerek kaydedilir: büyük harfle yazılan başlangıç ve sunucu adı küçültülür
+     (`HTTPS://WA.Ornek.com/` → `https://wa.ornek.com`). Bu bir hata değildir; adres aynı yere gider.
+   - Görünmez karakter (ör. kopyalarken gelen sıfır genişlikli boşluk) içeren adres kabul edilmez; adresi elle yazın.
 2. Alt çubuktaki **Kaydet**'e basın. "WhatsApp servis adresi kaydedildi" mesajı çıkar, rozet **Panel** olur.
 3. Yeniden başlatma gerekmez. Kayıttan sonraki ilk bildirim ve test yeni adrese gider.
 
 Kaydetmeden sayfadan ayrılmaya çalışırsanız kaydedilmemiş değişiklik uyarısı çıkar. Kural dışı adreste alanın altında
-hata yazar ve kayıt yapılmaz.
+hata yazar ve kayıt yapılmaz. Aynı adresi yeniden kaydederseniz hiçbir şey değişmez ve audit log'a kayıt düşmez.
+MySQL, TURN ve WhatsApp ayarlarında kaydetme ve geri dönme işlemleri kişi başına dakikada toplam 10 kez yapılabilir.
 
 ### "Güvensiz adres" uyarısı ne demek?
 Ekranda "Güvensiz adres: canlı ortamda WhatsApp kanalı kapalı. Kalıcı çözüm TLS veya özel ağ." yazıyorsa:
 - Canlı ortamda adres `http://` ile başlıyor ve internete açık bir sunucuyu gösteriyor, ya da adres okunamıyor.
+  `169.254.x.x` gibi yerel bağlantı (link-local) adresleri iç ağ sayılmaz; bunlar da bu uyarıyı verir.
 - Bu durumda **hiçbir WhatsApp bildirimi gönderilmez**; test de servise gitmez ("Servis güvenli yapılandırılmamış.").
 - Çözüm: `https://` ile başlayan bir adres veya iç ağdaki (özel IP) bir adres kaydedin.
 
@@ -1484,6 +1624,7 @@ olarak (eski → yeni adres) yazılır.
 | Servis 8 saniye içinde yanıt vermedi (zaman aşımı). | Servis yavaş veya kapalı; sistem yöneticisine bildirin, biraz sonra tekrar deneyin |
 | Servise ulaşılamadı veya servis hata döndürdü. | Adresi kontrol edin; servis çalışıyor mu, güvenlik duvarı izin veriyor mu bakın. Ayrıntılı neden audit log kaydındadır |
 | Çok fazla test denendi. Bir dakika sonra tekrar deneyin. | Dakikalık test sınırı doldu; bir dakika bekleyin |
+| Çok fazla istek. Lütfen biraz sonra tekrar deneyin. (kaydederken) | Dakikada 10 kaydetme/geri dönme sınırı doldu; bir dakika bekleyin |
 
 ## Super Admin için: Şifre veya 2FA kaybı
 Super Admin'in bir firması olmadığı için SMTP ayarı da yoktur: "Şifremi unuttum" e-posta göndermez ve kimse panelden

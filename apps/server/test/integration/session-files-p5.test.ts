@@ -88,11 +88,11 @@ describe("P5 session_files", () => {
     for (const fileName of ["_CON.txt", ".gizli", "a b.c d", "x".repeat(255), "日本語.txt", "emoji 😀.png"]) await insertFile({ ...s, fileName });
   });
 
-  it("G-15: app kullanıcısı session_files'ta UPDATE/DELETE/DDL yapamaz (append-only; retention P13)", async () => {
+  it("G-15: app kullanıcısı session_files'ta UPDATE/DDL yapamaz; DELETE yalnız P13a retention için (K-P13-2)", async () => {
     const s = await activeSession();
     const f = await insertFile(s);
     await rejectsWith(testDb().$executeRaw`UPDATE session_files SET file_name = 'x.txt' WHERE id = ${f.id}`, /UPDATE command denied|1142/);
-    await rejectsWith(testDb().$executeRaw`DELETE FROM session_files WHERE id = ${f.id}`, /DELETE command denied|1142/);
+    await expect(testDb().$executeRaw`DELETE FROM session_files WHERE id = ${f.id}`).resolves.toBe(1); // P13a: anonimleştirmede satır silinir
     await rejectsWith(testDb().$executeRawUnsafe("ALTER TABLE session_files ADD COLUMN x INT"), /ALTER command denied|1142/);
     await rejectsWith(testDb().$executeRawUnsafe("DROP TABLE session_files"), /DROP command denied|1142/);
   });

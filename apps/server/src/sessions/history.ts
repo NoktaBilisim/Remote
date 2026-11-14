@@ -3,6 +3,7 @@
 // not/ticket PATCH (audit'te not metni yok), CSV (formül kaçışı → RFC 4180; BOM, `;`, Europe/Istanbul).
 import { Readable } from "node:stream";
 import {
+  SESSION_CSV_ANONYMIZED,
   SESSION_CSV_COLUMNS,
   SESSION_CSV_TENANT_COLUMN,
   SESSION_EXPORT_MAX_ROWS,
@@ -90,6 +91,7 @@ export function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, v
     source: r.requestId ? "REQUEST" : "TECH",
     waitSec: waitSecOf(r),
     customerFirm: firmOf(r.customer),
+    anonymized: r.anonymizedAt !== null,
   };
 }
 
@@ -193,6 +195,7 @@ export function deriveControlPeriods(
 
 async function buildDetail(db: Db, log: HistoryLog, scope: hrepo.HistoryScope, row: hrepo.HistoryDetailRow, viewerId: string): Promise<SessionHistoryDetail> {
   const s = { id: row.id, tenantId: row.tenantId };
+  const anonymized = row.anonymizedAt !== null;
   const [consents, files, timelineRows, controlAudits] = await Promise.all([
     hrepo.consentsOf(db, s, SESSION_HISTORY_LIST_MAX),
     hrepo.filesOf(db, s, SESSION_HISTORY_LIST_MAX),
@@ -212,27 +215,42 @@ async function buildDetail(db: Db, log: HistoryLog, scope: hrepo.HistoryScope, r
     else log.warn({ event: "quality_summary_unparsable", sessionId: row.id }, "kalite özeti ayrıştırılamadı");
   }
 
+  // S-P13a-1: yeni guest.* kayıtlarında ad yok; müşteri adı oturum satırından ve yalnız kabul edilen misafire (guestId
+  // eşleşmesi; guestId'siz müşteri olayları = kabul edilen misafir) gösterilir. Eski kayıtların `details.name`'i önceliklidir.
+  const admittedGuestId = events.map((a) => (a.action === "guest.admitted" ? asObject(a.newValue).guestId : undefined)).find((g) => typeof g === "string");
+  const isAdmittedGuest = (a: { newValue: Json }): boolean => {
+    const g = asObject(a.newValue).guestId;
+    return typeof g !== "string" || g === admittedGuestId;
+  };
   const timeline: TimelineEvent[] = events.map((a) => {
     const actor = actorOf(a, row.technicianId);
     const details = projectDetails(a.action, a.oldValue, a.newValue);
     const actorName =
       actor === "TECH" || actor === "ADMIN"
         ? (names.get(a.userId ?? "") ?? null)
-        : actor === "CUSTOMER"
+        : actor === "CUSTOMER" && !anonymized
           ? typeof details.name === "string"
             ? details.name
-            : row.customerName
+            : isAdmittedGuest(a)
+              ? row.customerName
+              : null
           : null;
+    // K-P13-3: anonim oturumda zaman çizelgesi müşteri adını taşımaz (audit 730 g append-only kalır; ad yalnız audit.view ile).
+    if (anonymized) {
+      delete details.name;
+      // S-P13a-5: sonlandırma gerekçesi serbest metin (kişisel veri içerebilir) → anonim oturumda gösterilmez.
+      if (a.action === "session.terminated") delete details.reason;
+    }
     return { at: a.createdAt.toISOString(), action: a.action, actor, actorName, result: a.result === "fail" ? "fail" : "success", details };
   });
 
   return {
     ...toListItem(row, scope, viewerId),
-    customerEmail: row.customerEmail,
-    note: row.note,
+    customerEmail: anonymized ? null : row.customerEmail,
+    note: anonymized ? null : row.note,
     terminatedBy: row.endedBy === "ADMIN" && row.terminatedBy ? { id: row.terminatedBy, name: names.get(row.terminatedBy) ?? "" } : null,
     quality,
-    files: files.map(
+    files: (anonymized ? [] : files).map(
       (f): SessionFileRecord => ({
         id: f.id,
         direction: f.direction as SessionFileRecord["direction"],
@@ -262,10 +280,11 @@ async function buildDetail(db: Db, log: HistoryLog, scope: hrepo.HistoryScope, r
           createdAt: row.request.createdAt.toISOString(),
           acceptedAt: row.request.acceptedAt?.toISOString() ?? null,
           waitSec: waitSecOf(row),
-          customerName: row.request.customerName,
-          customerPhone: row.request.customerPhone,
-          customerEmail: row.request.customerEmail,
-          description: row.request.description,
+          // P13a: talep aynı turda anonimleşir; oturum anonimse savunma olarak yine boş döner.
+          customerName: anonymized ? null : row.request.customerName,
+          customerPhone: anonymized ? null : row.request.customerPhone,
+          customerEmail: anonymized ? null : row.request.customerEmail,
+          description: anonymized ? null : row.request.description,
         }
       : null,
   };
@@ -290,7 +309,9 @@ export async function updateHistory(db: Db, log: HistoryLog, ctx: AuditContext, 
   const patch = { ...(data.ticketNo !== undefined ? { ticketNo: data.ticketNo } : {}), ...(data.note !== undefined ? { note: data.note } : {}) };
   await db.$transaction(async (tx) => {
     const before = await hrepo.findHistory(tx, scope, id);
-    if (!before || (await hrepo.updateNotes(tx, scope, id, patch)) === 0) throw new AppError("NOT_FOUND");
+    if (!before) throw new AppError("NOT_FOUND");
+    // P13a (AC-197): anonim oturumda düzenleme yok; koşullu UPDATE 0 → eşzamanlı anonimleştirme (kapsam aynı TX'te doğrulandı).
+    if (before.anonymizedAt !== null || (await hrepo.updateNotes(tx, scope, id, patch)) === 0) throw new AppError("SESSION_ANONYMIZED");
     const after = { ticketNo: before.ticketNo, note: before.note, ...patch };
     await writeAudit(tx, ctx, {
       tenantId: before.tenantId,
@@ -328,11 +349,11 @@ function csvCells(r: hrepo.HistoryExportRow, withTenant: boolean): string[] {
     r.customer?.name ?? "", // P8c AC-179: müşterisizde boş ("Genel" değil)
     hms(waitSecOf(r)),
     r.technician.fullName,
-    r.customerName ?? "",
+    r.anonymizedAt !== null ? SESSION_CSV_ANONYMIZED : (r.customerName ?? ""),
     r.ticketNo ?? "",
     labelOf(SESSION_ENDED_BY_LABELS, r.endedBy),
     labelOf(END_REASON_LABELS, r.endReason),
-    r.note ?? "",
+    r.anonymizedAt !== null ? "" : (r.note ?? ""),
   ];
 }
 

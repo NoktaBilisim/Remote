@@ -20,6 +20,7 @@ import { endOrphanedActive } from "./sessions/service.ts";
 import { Rooms } from "./signaling/rooms.ts";
 import type { Clock, Timing } from "./signaling/types.ts";
 import { attachSignaling, type SignalingOptions } from "./signaling/ws.ts";
+import { RetentionJob } from "./jobs/retention.ts";
 import { startScheduler, type Scheduler } from "./jobs/scheduler.ts";
 import { AgentBinary } from "./public/agent-binary.ts";
 import { internalAgentRoutes, publicAgentRoutes } from "./public/routes.ts";
@@ -65,6 +66,8 @@ declare module "fastify" {
     /** P8b: destek talebi servisi + bildirim merkezi. */
     requests: RequestService;
     requestHub: RequestHub;
+    /** P13a (AC-197..199): günlük saklama işi (zamanlayıcı + testler aynı örneği kullanır). */
+    retention: RetentionJob;
     /** P12b (AC-196): WhatsApp istemcisi; etkin adres panel kaydı > env (`applyWhatsapp`). */
     whatsapp: WhatsappNotifier;
     /** P10: gizli alan şifreleme, e-posta, hesap güvenliği. */
@@ -239,6 +242,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
   const requests: RequestService = new RequestService({ db: deps.db, env, log: app.log, rooms, hub, limits: requestLimits, notifier, mail, metrics, clock: rooms.clock, timing: rooms.timing });
   app.decorate("requests", requests);
+  const retention = new RetentionJob(requests);
+  app.decorate("retention", retention);
   app.decorate("requestHub", hub);
   app.decorate("account", {
     db: deps.db,
@@ -270,7 +275,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       const armed = await armOrphanedPending(requests); // §3.5: 120 sn tolerans
       if (armed > 0) app.log.info({ pending: armed }, "yeniden başlatma: bekleyen talepler için kopma toleransı başlatıldı");
       requests.refreshCustomersGauge();
-      jobs = startScheduler(deps.db, app.log, rooms, undefined, requests);
+      jobs = startScheduler(deps.db, app.log, rooms, undefined, requests, retention);
     });
     app.addHook("onClose", async () => jobs?.stop());
   }

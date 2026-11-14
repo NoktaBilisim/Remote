@@ -17,7 +17,7 @@ Karar: **Kapsamda** / **Sonra** / **Kapsam dışı**. Bakılmamış madde yoktur
 | Madde | Karar | Gerekçe / nerede | Paket |
 |---|---|---|---|
 | created_at/updated_at/deleted_at/created_by | Kapsamda: tüm tablolarda created/updated; `deleted_at` yalnız tenants/users; `created_by` consent_texts ve system_settings (`updated_by`); audit_logs append-only (updated_at yok) | §3.1 | dba her paket |
-| Silme stratejisi | Kapsamda: soft (tenant/user), hard yalnız retention işiyle; FK `RESTRICT`, cascade yok | §3 | P13 (retention) |
+| Silme stratejisi | Kapsamda: soft (tenant/user), hard yalnız retention işiyle; FK `RESTRICT`, cascade yok. **P13a (2026-11-14):** hard delete yalnız audit (730 g), auth_sessions/reset (+7 g), session_files (anonimleştirmede); anonim oturum/talep/kayıt hard delete Sonra (K27) | §3, mimari-p13 §2 | P13a |
 | Para | Kapsam dışı: finansal veri yok | — | — |
 | Tarih/saat | Kapsamda: `DATETIME(3)` UTC, gösterim Europe/Istanbul `date-fns-tz` (yaz saati kütüphanede) | §3 | tümü |
 | Benzersizlik / indeks / partition | Kapsamda: §3.1 indeksleri, `active_code` global UQ, `token_hash` UQ. Partition Kapsam dışı (3 yılda ~250k oturum) | §3.1, §7 | dba |
@@ -95,7 +95,7 @@ Karar: **Kapsamda** / **Sonra** / **Kapsam dışı**. Bakılmamış madde yoktur
 | Yapılandırılmış log / korelasyon | Kapsamda: pino JSON, `requestId`, WS bağlantı ID, seviye `LOG_LEVEL` | AC-90 | P1 |
 | Metrik / alarm / health | Kapsamda: `/health`, `/ready`, `/metrics` (token + iç ağ), coturn Prometheus; alarm eşikleri §8.2 | AC-88, 89 | P1, P3, P13 |
 | Hata izleme | Sonra: self-hosted Sentry/GlitchTip; şimdi `requestId` kullanıcıya gösterilir | §8.2 | — |
-| Yedekleme + geri yükleme testi | Kapsamda: günlük dump, 14 gün, şifreli, aylık geri yükleme testi | AC-91 | P13 |
+| Yedekleme + geri yükleme testi | Kapsamda: günlük dump + uploads, 14 gün, age şifreli, manifest + scratch doğrulama, aylık prova; ayrı disk/site dışı P13b | AC-91, AC-200 | P13a (P13b) |
 | Ortamlar / feature flag | Kapsamda: dev, staging, prod (compose + env farkı). Feature flag Kapsam dışı (paket sırası yeter) | §8.3 | P1, P13 |
 | CI/CD + rollback | Kapsamda: lint → type → test → build → bağımlılık/lisans/gitleaks taraması → tekrarlanabilir istemci build + SHA256SUMS; deploy elle tetiklenen workflow; rollback önceki imaj etiketi | AC-94 | P1, P6, P13 |
 | Sıfır kesintili migration / bakım modu | Kısmen: expand→contract migration Kapsamda; sıfır kesinti Kapsam dışı (tek instance; deploy aktif oturumları düşürür → bakım penceresi + "aktif oturum var" kontrolü runbook'ta) | ADR-0005 | P13 |
@@ -336,3 +336,59 @@ Tarih: 2026-11-12 (r2: güvenlik tasarım turu E10 GEÇTİ; G-E10-1..9, K19, K20
 
 ## E10 "Sonra" listesi
 **Kabul edilen risk (G-E10-9):** kayıt yanıtı kaybolursa istemci bir sonraki açılışta kaydı kaybeder (AC-185 ile kurtarılır); `prev_key_hash` 24 sa toleransı Sonra. Pencere bazlı paylaşım, bir bilgisayarda birden çok firma kaydı (S19 — genişleme noktası `binding` → `bindings[]`), müşteri portalı, müşteri başına SLA/sözleşme/fatura/Paraşüt cari, müşteriye bağlantıyı WhatsApp/e-posta ile sistemden gönderme, müşteri CSV içe/dışa aktarma, müşteri başına logo/aydınlatma (S21), "Bağlantı kodum var" alanına link yapıştırma, müşteri listesinde son talebe göre sıralama (sayaç sütunlarıyla), panelde müşterinin kayıtlı bilgisayar listesi/tek tek iptal ekranı.
+
+---
+
+# P13a — Operasyon, saklama, yedek, dokümantasyon (2026-11-14) kontrol listesi kararları
+Kaynak: `docs/mimari-p13.md`, mimari §3.4 / §10.2 / §10.5 / §12 K26–K27. Kullanıcı kararı 2026-11-13: P13 → P13a (staging) + P13b (prod; K1/K3 bekliyor).
+
+| Bölüm / madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| 1. Kimlik doğrulama, şifre, oturum | Etkisi yok; auth_sessions/reset token +7 g silme Kapsamda | AC-198 | P13a |
+| 1. Hesap silme (KVKK) | Kapsamda: oturum PII anonimleştirme (AC-197). Kalıcı kullanıcı/firma silme ve dosya temizliği (B-P12-3) Sonra | mimari-p13 §6 | P13a / Sonra |
+| 1. Servis hesapları | Kapsamda: `'backup'@'localhost'` (SELECT, SHOW VIEW, TRIGGER; PROCESS yok), parola `MYSQL_BACKUP_PASSWORD` yalnız mysql servisinde; age açık anahtar sunucuda, özel anahtar sunucu dışında | mimari-p13 §4 | P13a |
+| 1. Step-up 2FA (T33) | Sonra: yeni akış + AC gerekir; genişleme `requireFreshMfa()` | mimari-p13 §6 | Sonra |
+| 2. Zaman alanları | Kapsamda: `support_sessions.anonymized_at`; audit `created_at` DB saatine zorlanır (I-P11-3; muaf liste migrator/root; tetikleyiciler bileşik gövdeli — db-notlari P13a) | K-P13-4 | P13a |
+| 2. Silme stratejisi | Kapsamda: anonimleştirme + yaprak tablolarda hard delete; FK döngüsü nedeniyle anonim oturum/talep/kayıt hard delete Sonra (genişleme `purgeAnonymized()`) | K27, K-P13-1 | P13a |
+| 2. Saklama süreleri | Karar: gereksinimlerden türetildi; yeni süre yok. Oturum/onay/talep = tenant `retention_days` (90–730, vars. 365); audit 730 g; auth/reset +7 g; yedek 14 g; dosya meta = oturumla birlikte silinir | mimari-p13 §2 tablo | P13a |
+| 2. CHECK çelişkisi (P5 file_name `***`) | Karar: yer tutucu yok, satır silinir | K-P13-2 | P13a |
+| 2. Para / partition | Kapsam dışı / gerek yok (partili silme yeter) | — | — |
+| 2. Migration / geri alma | Kapsamda: tek P13a migration + `down.sql`; grants idempotent | §10.5 D1–D2 | P13a |
+| 2. Audit izi | Kapsamda: `retention.run` (yalnız sayılar). **S-P13a-1 kararı (seçenek a, 2026-11-14):** yeni audit kayıtlarına müşteri adı yazılmaz, IP yerine önek (IPv4 /24, IPv6 /48); P13a öncesi staging kayıtları 730 g'de silinir, prod'da oluşmaz; eski kayıtlar için anonim oturum ekranında ad gösterilmez | K-P13-3 r1 | P13a |
+| 2. Multi-tenant | Kapsamda: retention tenant döngüsü, tenant fail-soft; global adımlar `tenant_id NULL` | AC-199 | P13a |
+| 2. Dosya yönetimi | Kapsamda: uploads yedeği DB ile aynı pencerede; yetim dosya taraması Sonra | mimari-p13 §4, §6 | P13a / Sonra |
+| 3. API sözleşmesi / hata | Kapsamda: `anonymized` alanı, 409 `SESSION_ANONYMIZED`, WhatsApp `source` DEFAULT; kırılmaz ekler | mimari-p13 §3 | P13a |
+| 3. Rate limiting | Kapsamda: sistem ayarı PUT/DELETE 10/dk/kullanıcı (B-P12b-5) | mimari-p13 §3 | P13a |
+| 3. Sayfalama, CORS, webhook, retry | Etkisi yok | — | — |
+| 4. Tehdit modeli | Kapsamda: app'e DELETE verilmesiyle "geri tarihli sahte satır ekleyip silme" tehdidi → BEFORE INSERT zorlaması; yedek dosyası sızıntısı → age + 600 + özel anahtar sunucu dışında; migrator'a karşı audit koruması (I-P11-1) P13b | K-P13-4, §4 | P13a / P13b |
+| 4. Girdi doğrulama | Kapsamda: WhatsApp URL kanonik + Cc/Cf/Zl/Zp reddi (zod + DB CHECK) | B-P12b-4 | P13a |
+| 4. Gizli bilgi | Kapsamda: `deploy/backup/backup.env` git-ignore, yalnız `.example`; server env'ine girmez (CLAUDE.md env kuralının gerekçeli istisnası) | mimari-p13 §4 | P13a |
+| 4. Hassas veri / şifreleme | Kapsamda: yedekler age ile şifreli; anonimleştirilen veri yedeklerde ≤ 14 g (runbook notu). Yedek bütünlüğü (S-P13a-2: manifest imzası, `--system-command=OFF`, migrator ile yükleme) P13b ön koşulu, site dışı yedekten önce | AC-200 | P13a / P13b |
+| 4. Log maskeleme | Etkisi yok: retention logu yalnız sayı | — | — |
+| 4. Bağımlılık taraması | Kapsamda: Go x/net, x/crypto güncelleme; govulncheck yeşil; yeni npm bağımlılığı yok | §10.5 B5 | P13a |
+| 4. Başlıklar / admin 2FA | Etkisi yok; HSTS `includeSubDomains` P13b (K1) | — | P13b |
+| 5. 5 durum, form, a11y, tema | Kapsamda: geçmiş "Anonimleştirildi" rozeti, Düzenle gizli, 409 mesajı; iki tema axe; 390 px | §10.5 F1 | P13a |
+| 5. Yıkıcı işlem onayı | Kapsamda: saklama süresi düşürülürken onay diyaloğu (F5); staging geri yükleme `--confirm <db>@<host>` ortam kilidi, `production` hedefi reddedilir (S-P13a-6); retention işini kullanıcı tetiklemez | mimari §10.5 F5, mimari-p13 §4 | P13a |
+| 5. Bildirim / yerelleştirme | Kapsamda: audit etiketleri Türkçe (`retention.run`, reason kodları) | §10.5 F2 | P13a |
+| 5. Dosya kayıt uyarısı (S-P5-T2-1) | Kapsamda: diyalog öncesi uyarı metni | §10.5 F4 | P13a |
+| 6. Yük / indeks | Kapsamda: IX(tenant_id, anonymized_at, created_at); mevcut IX(created_at)/IX(expires_at); 1000/5000'lik partiler | D1 | P13a |
+| 6. Arka plan işi | Kapsamda: mevcut tek 03:30 zamanlayıcısı genişler; ikinci zamanlayıcı yok; kaçırılan gün telafisi yok (idempotent) | mimari-p13 §2 | P13a |
+| 6. Önbellek / export / performans bütçesi | Etkisi yok | — | — |
+| 7. Log / metrik / alarm | Kapsamda: `rs_retention_*`, 26 sa alarmı; yedek hatası systemd `failed` + journal + `BACKUP_ALERT_CMD` | AC-199, AC-200 | P13a |
+| 7. Hata izleme | Sonra (genel karar) | — | — |
+| 7. Yedekleme + geri yükleme testi | Kapsamda: RPO ≤ 24 sa, RTO ≤ 60 dk; scratch doğrulama `restore-verify: OK`; aylık elle prova kaydı. Ayrı disk + site dışı P13b | mimari-p13 §4 | P13a / P13b |
+| 7. Ortamlar | Kapsamda: P13a yalnız staging; prod P13b (K1 + K3 açık) | §10.2 | P13a / P13b |
+| 7. CI/CD / rollback | Kapsamda: shellcheck yedek betikleri; migration down; yayın sırası runbook | §10.5 T2, T4 | P13a |
+| 7. Sıfır kesinti | Kapsam dışı (genel karar) | — | — |
+| 7. Runbook | Kapsamda: AC-92 altı senaryo + "veri bozuldu" + "saklama işi çalışmadı" dizini; AC-88 temiz kurulum kaydı (K26) | §10.5 T1, T3 | P13a |
+| 8. KVKK | Kapsamda: saklama süresi uygulanır, anonimleştirme = imha yöntemi; bu gerekçe audit'te müşteri adı/tam IP olmamasına dayanır (S-P13a-1); audit 730 g ve önekli IP kılavuzda/aydınlatmada | K-P13-1, K-P13-3 | P13a |
+| 8. Lisans | Etkisi yok: `age` BSD-3 host aracı, npm/Go yeni lisans yok | — | — |
+| 8. Finansal | Kapsam dışı | — | — |
+| 9. Kapsam dışı / ertelenen | Kapsamda: mimari-p13 §6 sınıflandırma tablosu (P13a / P13b / Sonra, gerekçeli) | mimari-p13 §6 | — |
+| 9. Ölçülebilir AC | Kapsamda: AC-197..AC-200 eklendi; mimari §11'de eşlendi; karşılıksız AC yok (AC-1..AC-200) | §11 | — |
+| 9. Riskler / açık sorular | K26 (AC-88 coturn yorumu), K27 (hard delete) karara bağlandı; K1, K3 açık → P13b | §12 | — |
+| 9. DoD | Kapsamda: §10.3 P13a satırı | §10.3 | — |
+| 9. Dokümantasyon | Kapsamda: `scripts/build-docs.sh` + `pnpm docs:pdf`, kılavuz AppLocker/AV rehberi, README yedek, api.md, DATASHEET, CHANGELOG, 3 PDF | §10.5 W1–W2 | P13a |
+
+## P13 "Sonra" listesi
+Step-up 2FA (T33), kalıcı kullanıcı/firma silme + uploads temizliği + yetim tarama (B-P12-3), anonim kayıt hard delete (K27), donanım MFT yedeği, istemci koyu teması, `session_files.reporter` (S-P5-T2-4). P13b: S-P13a-2 yedek bütünlüğü (site dışı yedekten önce), prod deploy, AC-23 443, IPv6, genel CA TURN-TLS, K13, site dışı yedek + audit harici kopya (I-P11-1), Super Admin kurtarma CLI, staging elle test listesi.

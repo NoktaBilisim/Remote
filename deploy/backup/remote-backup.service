@@ -1,0 +1,26 @@
+# Remote Support günlük yedek (P13a; docs/mimari-p13.md §4, runbook §18). Kurulum: runbook §18.2.
+# /etc/systemd/system/ altına kopyalanır; yol /opt/remote varsayar (farklıysa ExecStart'ı düzeltin).
+[Unit]
+Description=Remote Support yedegi (MySQL dokumu + uploads, age ile sifreli)
+Documentation=file:///opt/remote/docs/runbook.md
+Requires=docker.service
+After=docker.service network-online.target
+# Hata (rc != 0, zaman aşımı, öldürülme) -> journal'a "remote-backup: FAILED" + BACKUP_ALERT_CMD
+OnFailure=remote-backup-failed.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/remote/deploy/backup/backup.sh
+User=root
+UMask=0077
+TimeoutStartSec=1h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+SyslogIdentifier=remote-backup

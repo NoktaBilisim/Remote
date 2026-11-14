@@ -127,7 +127,11 @@ export function FilesPanel({ collab, allowed, peerName }: { collab: Collab; allo
         }
       >
         {pending && pending.size > DISK_MIN_BYTES && canStreamToDisk() && (
-          <Alert tone="warning" testId="file-big">{t("p5.files.bigDisk")}</Alert>
+          // S-P5-T2-1 (P13a): tarayıcı kayıt penceresi seçilen dosyayı hemen oluşturur/boşaltır → uyarı diyalogdan ÖNCE
+          <Alert tone="warning" testId="file-big">
+            <span className="block">{t("p5.files.bigDisk")}</span>
+            <span className="mt-1 block font-semibold" data-testid="file-big-overwrite">{t("p5.files.bigDiskWarn")}</span>
+          </Alert>
         )}
         {pending && pending.size > BIG_MEM_WARN_BYTES && !canStreamToDisk() && (
           <Alert tone="warning" testId="file-big">{t("p5.files.bigMem")}</Alert>

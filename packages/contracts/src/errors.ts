@@ -27,6 +27,8 @@ export const ERROR_STATUS = {
   OPEN_SESSION_LIMIT: 409,
   /** Lobide bekleyen misafir sınırı (3) dolu (AC-112). */
   LOBBY_FULL: 409,
+  /** P13a (AC-197): oturum saklama süresi dolduğu için anonimleştirildi; kişisel veri (not/ticket) yeniden yazılamaz. */
+  SESSION_ANONYMIZED: 409,
   /** Oturum/link/kod süresi dolmuş (AC-5). */
   SESSION_EXPIRED: 410,
   /** Token/kod tüketilmiş — oturum ACTIVE/ENDED (AC-7). */

@@ -29,6 +29,10 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE gerekli}
       MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:?MYSQL_APP_PASSWORD gerekli}
       MYSQL_MIGRATOR_PASSWORD: ${MYSQL_MIGRATOR_PASSWORD:?MYSQL_MIGRATOR_PASSWORD gerekli}
+      # P13a yedek kullanıcısı ('backup'@'localhost', SELECT/SHOW VIEW/TRIGGER): yeni kurulumda 01-users.sh, mevcut
+      # kurulumda deploy/mysql/backup-user.sql oluşturur; yedek betiği mysqldump'ı bu env ile konteyner içinde çalıştırır.
+      # Boşsa kullanıcı oluşturulmaz (yedek alınamaz). Yalnız bu servise verilir; server/migrate görmez.
+      MYSQL_BACKUP_PASSWORD: ${MYSQL_BACKUP_PASSWORD:-}
     volumes:
       - mysql_data:/var/lib/mysql
       - ./mysql/init:/docker-entrypoint-initdb.d:ro

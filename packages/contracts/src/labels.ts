@@ -221,3 +221,33 @@ export function describeTimelineEvent(ev: Pick<TimelineEvent, "action" | "detail
       return plain(base);
   }
 }
+
+/**
+ * P13a: dış gönderim / bağlantı testi `reason` kodlarının Türkçe etiketleri (T-P12b, mimari-p13 §3). Kaynaklar: SMTP
+ * (`mail/service.ts` SmtpFailure + not_configured), MySQL (`MYSQL_TEST_REASONS`), WhatsApp (`WA_TEST_REASONS`), sunucu
+ * görünümünün izdüşümü (`audit/view.ts`: biçim dışı → `other`). Aynı kod tüm kanallarda aynı anlamı taşır; bilinmeyen ham.
+ */
+export const OUTBOUND_REASON_LABELS: Readonly<Record<string, string>> = {
+  // ortak
+  connect: "Sunucuya bağlanılamadı",
+  auth: "Kimlik reddedildi (kullanıcı adı veya şifre hatalı)",
+  timeout: "Zaman aşımı",
+  other: "Diğer hata",
+  // SMTP
+  tls: "TLS/sertifika hatası",
+  rejected: "Alıcı veya ileti sunucu tarafından reddedildi",
+  port_not_allowed: "İzin verilmeyen port",
+  insecure_auth: "Şifresiz bağlantıda kimlik bilgisi gönderilmedi",
+  not_configured: "SMTP ayarı yapılandırılmamış",
+  no_smtp: "SMTP ayarı yok",
+  // MySQL
+  database: "Veritabanı bulunamadı veya erişim yok",
+  secret_unreadable: "Kayıtlı şifre okunamadı",
+  // WhatsApp
+  unconfigured: "Servis yapılandırılmamış",
+  insecure: "Güvensiz adres (canlı ortamda kanal kapalı)",
+  http_error: "Servis hata döndürdü",
+  redirect: "Servis yönlendirme döndürdü (izlenmez)",
+  unreachable: "Servise ulaşılamadı",
+  invalid_response: "Servis geçersiz yanıt döndürdü",
+};

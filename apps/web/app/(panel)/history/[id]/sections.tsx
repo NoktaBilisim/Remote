@@ -20,6 +20,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { StatusBadge } from "@/components/ui/badge";
 import { formatBytes, formatDateTime, formatDuration, formatNumber, formatTimeSeconds } from "@/lib/format";
+import { isAnonymized } from "@/lib/history/anonymized";
 import { t, type MessageKey } from "@/lib/i18n";
 import { DurationCell } from "../history-list";
 import { CopyHash } from "./copy-hash";
@@ -60,6 +61,7 @@ const none = <span className="text-fg-muted">{t("h.d.none")}</span>;
 
 /** Özet: başlangıç/bitiş/süre, müşteri, sonlandıran (AC-62). */
 export function Summary({ s, showTenant, canCustomers = false }: { s: D; showTenant: boolean; canCustomers?: boolean }) {
+  const anon = isAnonymized(s); // P13a (AC-197): kişisel alanlar null — "kayıt yok" değil "Anonimleştirildi"
   const endedBy = s.endedBy
     ? `${labelOf(SESSION_ENDED_BY_LABELS, s.endedBy)}${s.endedBy === "ADMIN" && s.terminatedBy ? ` — ${s.terminatedBy.name}` : ""}`
     : null;
@@ -86,8 +88,8 @@ export function Summary({ s, showTenant, canCustomers = false }: { s: D; showTen
         none
       ),
     ],
-    ["h.d.customer", s.customerName ?? <span className="text-fg-muted italic">{t("h.noCustomer")}</span>],
-    ["h.d.email", s.customerEmail ?? none],
+    ["h.d.customer", s.customerName ?? <span className="text-fg-muted italic">{t(anon ? "h.anon.customer" : "h.noCustomer")}</span>],
+    ["h.d.email", s.customerEmail ?? (anon ? <span className="text-fg-muted italic">{t("h.anon.customer")}</span> : none)],
     ["h.d.endedBy", endedBy ?? none],
     ["h.d.endReason", s.endReason ? labelOf(END_REASON_LABELS, s.endReason) : none],
   ];
@@ -300,7 +302,7 @@ export function Quality({ s }: { s: D }) {
 }
 
 export function Files({ s }: { s: D }) {
-  if (s.files.length === 0) return <Muted testId="files-empty">{t("h.file.empty")}</Muted>;
+  if (s.files.length === 0) return <Muted testId="files-empty">{t(isAnonymized(s) ? "h.anon.files" : "h.file.empty")}</Muted>;
   const cols: Col<FileMeta>[] = [
     { head: t("h.file.at"), cell: (f) => <span className="tabular-nums">{formatDateTime(f.createdAt)}</span>, className: "whitespace-nowrap" },
     {

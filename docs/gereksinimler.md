@@ -9,7 +9,7 @@ Tarih: 2026-11-12   Durum: TASLAK (2026-11-10: tam erişim MVP'de; 2026-11-11: `
 > E9'un kapsamı, NFR'leri, varsayımları, riskleri, açık soruları ve paket önerisi: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e9.md`.
 > E10 (Müşteri firmalar ve kalıcı istemci) kabul kriterleri: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e10.md` (AC-165..AC-195). Kapsamı, NFR'leri, varsayımları (V21–V28), riskleri (R19–R24), açık soruları (S18–S21) ve paket önerisi: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e10.md`.
 > Bölüm 9'un "Sonra / açık" tabloları (P2..P8b-1): `/Users/mennan/Projeler/Remote/docs/gereksinimler-sonra-acik.md` (2026-11-12'de içerik değiştirilmeden taşındı). Yeni paketlerin tabloları (P8b-2, P8c, P9) aynı dosyanın en üstündedir.
-> Toplam: **45 kullanıcı hikâyesi, 196 kabul kriteri** (AC-1..AC-196; AC-196 2026-11-13, E9 WhatsApp servisi sistem ayarı).
+> Toplam: **45 kullanıcı hikâyesi, 200 kabul kriteri** (AC-1..AC-200; AC-196 2026-11-13, E9 WhatsApp servisi sistem ayarı; AC-197..AC-200 2026-11-14, E7 saklama ve yedek — P13a).
 
 ## 1. Amaç ve iş değeri
 Kurumsal müşterilere teknik destek verirken AnyDesk/TeamViewer gibi üçüncü taraf SaaS'a bağımlılığı kaldırmak. Tamamen self-hosted, uçtan uca şifreli (DTLS-SRTP), **tam erişimli** (uzaktan klavye/fare) bir destek platformu: teknisyen web panelinden çalışır; müşteri **kurulum ve admin yetkisi gerektirmeyen** taşınabilir "Hızlı Destek" uygulamasıyla tam erişim verir veya bu uygulama çalıştırılamıyorsa tarayıcıdan yalnızca görüntü paylaşır. Medya ve veri firmanın kendi sunucusundan çıkmaz; tüm oturumlar audit log ile denetlenir. Proje açık kaynaktır (Apache-2.0).
@@ -152,9 +152,9 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 - **Tarayıcı desteği:** teknisyen ve müşteri: Chrome/Edge son 2 sürüm (tam), Firefox son 2 sürüm (Document PiP yok), Safari macOS son 2 sürüm (müşteri, best-effort).
 - **Erişilebilirlik:** WCAG 2.1 AA; klavye ile tam kullanım; durumlar yalnız renkle anlatılmaz.
 - **Yerelleştirme:** arayüz Türkçe; tarihler UTC saklanır, Europe/Istanbul gösterilir; metinler i18n anahtarlarından.
-- **Veri saklama:** oturum meta verisi ve onay kayıtları tenant ayarı (90–730 gün, varsayılan 365); audit log 730 gün; süresi dolan kayıtlar günlük işle anonimleştirilir/silinir. E9 talep kayıtları oturum meta verisiyle aynı süreye tabidir (AC-159).
+- **Veri saklama:** oturum meta verisi ve onay kayıtları tenant ayarı (90–730 gün, varsayılan 365); audit log 730 gün; süresi dolan kayıtlar günlük işle anonimleştirilir/silinir. E9 talep kayıtları oturum meta verisiyle aynı süreye tabidir (AC-159). Ölçüt: AC-197..AC-199 (P13a; anonim kayıtların kalıcı silinmesi ertelendi, mimari §12 K27).
 - **Gözlemlenebilirlik:** JSON log + korelasyon ID; `/health`, `/ready`, `/metrics` (aktif oturum, WS bağlantı, TURN tahsis sayısı).
-- **Yedekleme:** MySQL günlük döküm, 14 gün saklama, geri yükleme testi runbook'ta.
+- **Yedekleme:** MySQL günlük döküm, 14 gün saklama, geri yükleme testi runbook'ta. Ölçüt: AC-91, AC-200 (şifreli, uploads dahil, RPO ≤ 24 sa, RTO ≤ 60 dk).
 - **Lisans:** proje Apache-2.0; bağımlılıklar izinli lisanslı (MIT/BSD/Apache), AGPL yasak; CI lisans taraması (AC-94).
 
 ## 7. Varsayımlar

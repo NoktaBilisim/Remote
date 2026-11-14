@@ -53,7 +53,7 @@ export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code:
       if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest), keys)) !== 1) return false; // count=0 → consent yazılmaz
       await recordViewConsent(tx, room.sessionId, room.tenantId, guest.consent);
       const c = guest.consent;
-      await audit("success", { guestId: guest.id, name: guest.name, guestKind: guest.kind, consentTextId: c.textId, consentVersion: String(c.version), consentSha256: c.sha256 }, tx);
+      await audit("success", { guestId: guest.id, guestKind: guest.kind, consentTextId: c.textId, consentVersion: String(c.version), consentSha256: c.sha256 }, tx);
       return true;
     });
   } finally {
@@ -93,7 +93,7 @@ export async function rejectGuest(rooms: Rooms, room: Room, tech: TechConn, gues
   }
   room.rejectedIps.add(guest.ipKey);
   rooms.leaveLobby(room, guest, "rejected", "rejected");
-  await writeAudit(rooms.db, tech.ctx, { tenantId: room.tenantId, ...actor(tech), action: "guest.rejected", entity: "support_sessions", entityId: room.sessionId, result: "success", newValue: { guestId, name: guest.name } });
+  await writeAudit(rooms.db, tech.ctx, { tenantId: room.tenantId, ...actor(tech), action: "guest.rejected", entity: "support_sessions", entityId: room.sessionId, result: "success", newValue: { guestId } }); // S-P13a-1: ad yok
 }
 
 /**

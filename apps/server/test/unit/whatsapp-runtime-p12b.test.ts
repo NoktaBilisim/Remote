@@ -129,3 +129,11 @@ describe("P12b WhatsApp etkin adres (AC-196)", () => {
     expect(auditValueView("settings.whatsapp.test", { recipient: "+90******2233", result: "fail", reason: "insecure" })).toEqual({ recipient: "+90******2233", result: "fail", reason: "insecure" });
   });
 });
+
+describe("P13a K13 sınıflaması (T33, mimari-p13 §3)", () => {
+  it("T33: canlıda http:// + link-local (169.254/16, fe80::/10) güvensiz → kanal kapalı; loopback ve özel ağ özel kalır", () => {
+    for (const url of ["http://169.254.169.254", "http://169.254.1.2:3000", "http://[fe80::1]:3000", "http://[febf::1]", "http://203.0.113.5:3000", "http://wa.example.com"]) expect(isInsecureServiceUrl(url, true), url).toBe(true);
+    for (const url of ["http://127.0.0.1:3000", "http://[::1]:3000", "http://localhost:3000", "http://10.0.0.5:3000", "http://192.168.1.1", "http://[fd00::5]", "https://169.254.169.254"]) expect(isInsecureServiceUrl(url, true), url).toBe(false);
+    expect(isInsecureServiceUrl("http://169.254.169.254", false)).toBe(false); // geliştirme ortamında kural uygulanmaz
+  });
+});

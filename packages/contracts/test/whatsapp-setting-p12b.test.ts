@@ -19,7 +19,6 @@ describe("P12b WhatsApp servis adresi sözleşmesi", () => {
     const bad: unknown[] = [
       "",
       "ftp://x",
-      "HTTP://x",
       "//x",
       "http://",
       "http:///",
@@ -62,5 +61,35 @@ describe("P12b WhatsApp servis adresi sözleşmesi", () => {
 
   it("AC-196: test mesajları sabit ve adres/ayrıntı içermez", () => {
     for (const m of Object.values(WA_TEST_MESSAGES)) expect(m).not.toMatch(/https?:|\d+\.\d+\.\d+\.\d+/);
+  });
+});
+
+describe("P13a WhatsApp adresi — WHATWG kanonik + Cf/Zl/Zp reddi (B-P12b-4, mimari-p13 §3)", () => {
+  it("B-P12b-4: büyük harfli şema/host reddedilmez, küçük harfe kanonikleşir; ondalık/onaltılı IPv4 noktalı; IDN punycode; varsayılan port atılır", () => {
+    const cases: [string, string][] = [
+      ["HTTPS://X", "https://x"],
+      ["HTTP://WA.Example.COM:3000/Api/", "http://wa.example.com:3000/Api"],
+      ["http://3232235777:3000", "http://192.168.1.1:3000"],
+      ["http://0xC0A80101", "http://192.168.1.1"],
+      ["https://örnek.com.tr", "https://xn--rnek-4qa.com.tr"],
+      ["http://wa.example.com:80", "http://wa.example.com"],
+      ["http://[::1]:3000", "http://[::1]:3000"],
+    ];
+    for (const [input, out] of cases) expect(whatsappSettingsInputSchema.safeParse({ url: input }).data?.url, input).toBe(out);
+  });
+
+  it("B-P12b-4: biçim (Cf), satır/paragraf ayırıcı (Zl/Zp) karakterleri yolda ve host'ta reddedilir", () => {
+    for (const ch of ["\u200b", "\u200c", "\u200d", "\u202e", "\u2066", "\ufeff", "\u00ad", "\u2028", "\u2029"]) {
+      for (const url of [`http://wa${ch}.example.com`, `http://wa.example.com/a${ch}b`]) {
+        const r = whatsappSettingsInputSchema.safeParse({ url });
+        expect(r.success, JSON.stringify(url)).toBe(false);
+        expect(r.error?.issues[0]?.message).toBe(WA_URL_MESSAGE);
+      }
+    }
+  });
+
+  it("B-P12b-4: uzunluk kod noktasıyla (DB maxLength); kanonik biçim 200'ü aşarsa red", () => {
+    expect(whatsappSettingsInputSchema.safeParse({ url: `https://${"a".repeat(190)}/${"ğ".repeat(1)}` }).success).toBe(false); // %C4%9F → 202
+    expect(whatsappSettingsInputSchema.safeParse({ url: `https://${"a".repeat(192)}` }).success).toBe(true);
   });
 });

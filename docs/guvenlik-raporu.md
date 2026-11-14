@@ -1,3 +1,176 @@
+# Güvenlik Raporu — P13a turu — Kod turu 2 / doğrulama (2026-11-14)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 1 açık (S-P13a-8, yeni) / Düşük 1 açık (S-P13a-2 kalanı, P13b ön koşulu).
+- KAPANDI: S-P13a-1, -3, -4, -5, -6, -7.
+- KISMEN: S-P13a-2. Manifest imzası ve migrator ile yükleme kararla P13b'ye ertelendi; aşağıdaki iki boşluk da o pakette kapatılmalı.
+- Gerileme yok.
+
+Kapsam: düzeltme turu değişiklikleri.
+- Kod: `audit/service.ts`, `public/service.ts`, `signaling/admit.ts`, `sessions/{public,history}.ts`, `deploy/backup/{backup,restore,lib}.sh`.
+- Belgeler: implementation "Güvenlik turu 1" (backend, devops, frontend).
+
+Koşulanlar:
+- `bash -n`: 3 betik temiz.
+- server birim testleri: **349/349**.
+- `pnpm audit --audit-level=moderate`: açık yok.
+- `dump_client_command_count` elle denendi (aşağıda).
+- DB'li entegrasyon testleri (backend: 529/529) ve yedek provası bu turda koşulmadı. Staging'e bağlanılmadı.
+
+## Kapanan bulgular
+- **S-P13a-1 (KAPANDI):**
+  - `guest.pending`, `guest.admitted` ve `guest.rejected` artık ad yazmıyor.
+  - Kural tek noktada, `writeAudit` içinde: `username === "customer"` olan kayıtlarda `ip_address = netKey(ip)` (IPv4 /24, IPv6 /48) ve `user_agent = NULL`.
+  - Müşteri aktörlü yazımların hepsi taranıp doğrulandı:
+    - `public/service.ts`, `sessions/public.ts`, `signaling/{ws,control,collab}.ts`;
+    - talep yolunda `requests/service.ts` (`CUSTOMER` sabiti) ve `bindings/service.ts` (müşteri tarafı);
+    - talep yolundaki `guest.admitted`.
+  - Teknisyen bağlamındaki `guest.admitted/rejected` kayıtları teknisyen IP'sini taşıyor; doğru davranış.
+  - Zaman çizelgesi adı oturum satırından alıyor ve yalnız kabul edilen misafire gösteriyor. Anonim oturumda ad null kalıyor.
+  - Kalan: P13a öncesi `guest.*` satırları 730 gün ad taşımaya devam ediyor (append-only). Prod henüz açılmadığı için yalnız staging verisi etkileniyor; kabul edilebilir.
+- **S-P13a-3 (KAPANDI):**
+  - `backup.sh` artık akış biçiminde çalışıyor: `mysqldump | dump_tee_meta | gzip | tee(FIFO: sha, boyut) | age`. Düz döküm diske hiç yazılmıyor; `pipefail` kesilen dökümü yakalıyor.
+  - Ölü `.partial` dizinleri, kilit alındıktan sonra yaşına bakılmadan siliniyor.
+  - `restore.sh` çözülmüş dosyaları varsayılan olarak `/dev/shm`'e yazıyor (boş alan kontrolüyle). Başka bir dizin ancak `--work-dir` ile açıkça seçilebiliyor.
+- **S-P13a-4 (KAPANDI):** tetikleyici sayısı ≠ `BACKUP_EXPECTED_TRIGGERS` (3) olduğunda `FAILED adım=tetikleyici` veriliyor ve OnFailure alarmı çalışıyor. Tetikleyici adları manifeste yazılıyor.
+- **S-P13a-5 (KAPANDI):** anonim oturumda `session.terminated.reason` siliniyor. Ticket alanına "kişisel veri yazmayın" ipucu eklendi. Arayüzde gerekçe alanı yok; gerekçe yalnız API ile girilebiliyor.
+- **S-P13a-6 (KAPANDI):**
+  - `--confirm <db>@<hostname -s>` zorunlu; compose projesi `RESTORE_EXPECT_PROJECT` ile eşleşmeli.
+  - `--target production` açıkça reddediliyor; P13b'de ayrı bayrak ve ayrı onayla eklenecek.
+- **S-P13a-7 (KAPANDI):**
+  - `backup.env` sembolik bağlantı değil, normal dosya; sahibi uid 0, izni tam 600 veya 400 olmalı. Değilse yedek FAILED oluyor.
+  - Bu durumda `--alert` modunda `BACKUP_ALERT_CMD` çalıştırılmıyor.
+  - ACL ile yazma izni verilirse mask grup bitlerinde görünür ve kontrol düşer.
+
+## Açık / yeni bulgular
+
+### [ORTA] S-P13a-8 Dosya aktarım audit kayıtları dosya adını ve sha256'yı 730 gün tutuyor — KVKK (S-P13a-1'in kalanı)
+Yer: `apps/server/src/signaling/collab.ts:101-117` (`file.transfer` ve `file.transfer.sender_report`; `newValue = {sessionId, direction, fileName, sizeBytes, sha256, result}`).
+Sorun: K-P13-2, dosya adı ile sha256'yı tanımlayıcı saydığı için `session_files` satırını anonimleştirmede siliyor. Aynı iki değer ise audit'te `entity_id` (oturum veya dosya id'si) ile 730 gün kalıyor. Dosya adları sık sık kişisel veri içeriyor (ör. `Ayse_Yilmaz_bordro_2026-10.pdf`); sha256 da belirli bir belgeyi eşleştirmeye yarıyor. Bu, S-P13a-1'de ad için kapatılan yeniden tanımlanabilirlik sorununun aynısı.
+İstismar senaryosu: Oturum anonimleştirildikten sonra `audit.view` yetkili bir Admin, Audit ekranında `file.transfer` kayıtlarından müşterinin dosya adlarına ve içeriğe ait sha256 değerlerine ulaşır.
+Düzeltme: Audit'e `fileName` yerine yalnız uzantı (ör. `.pdf`, ≤ 10 karakter) ve boyut yazılmalı; sha256 audit'ten çıkarılmalı. Aktarım kaydının kanıtı olarak `session_files` id'si (`entity_id`) yeterli. Zaman çizelgesi ve dosya listesi `session_files`'tan okumaya devam eder. Eski satırlar append-only olduğu için olduğu gibi kalır (yalnız staging). Atanan ajan: backend-dev.
+
+### [DÜŞÜK] S-P13a-2 (kalan) Geri yüklemede hesap ve yetki anlık görüntüsü eksik; istemci komutu denetimi yalnız satır başına bakıyor — A08
+Yer: `deploy/backup/restore.sh:149-159` (`sec_snapshot`), `lib.sh:125-127` (`dump_client_command_count`).
+Sorun 1 (anlık görüntü):
+- Karşılaştırılan değerler: `mysql.user` için yalnız `user@host` listesi, `db/tables_priv/columns_priv/procs_priv` için satır sayıları, ROUTINES ve EVENTS sayıları.
+- Kurcalanmış bir döküm bunları hiç değiştirmeden yetki yükseltebilir:
+  - `GRANT ALL ON *.* TO 'app'@'%'` yalnız `mysql.user` satırının sütunlarını değiştirir;
+  - dinamik yetkiler (`GRANT SYSTEM_USER, …`) `mysql.global_grants` tablosuna yazılır;
+  - `ALTER USER 'app' IDENTIFIED BY '…'` parolayı değiştirir;
+  - `SET PERSIST …` ve `INSTALL COMPONENT` kalıcı değişiklik bırakır.
+- Bunların hiçbiri anlık görüntüde görünmüyor.
+Sorun 2 (istemci komutu): Desen satır başına bağlı (`^[[:space:]]*(\\!|\\\.|system |source )`). mysql istemcisi ters bölü komutlarını satırın ortasında da tanır. Elle denemede `SELECT 1; \! id` ve `\. /x` satır ortasında yakalanmadı (3 örnekten 2'si yakalandı). `\!` için `--system-command=OFF` ikinci savunma olarak çalışıyor; `\.` ise konteyner içinden dosya okumaya izin veriyor (etkisi düşük).
+Ön koşul: yedek dizinine yazma erişimi. Bugün bu yalnız staging root'unda var; P13b'deki site dışı kopyayla genişler.
+Düzeltme (P13b'de manifest imzası ve migrator ile yükleme kapsamında):
+- Anlık görüntüye şunlar eklenmeli: `CHECKSUM TABLE mysql.user, mysql.db, mysql.tables_priv, mysql.columns_priv, mysql.procs_priv, mysql.global_grants, mysql.proxies_priv, mysql.role_edges, mysql.default_roles`, `performance_schema.persisted_variables` sayısı ve `mysql.component`/`mysql.plugin` sayısı.
+- İstemci komutu deseni satır içi `\\[!.]` biçimini (tırnak dışında) de yakalamalı; daha basit yol: dökümde mysqldump'ın üretmediği her `\` komutu reddedilir.
+- Esas çözüm değişmedi: imza + migrator ile yükleme (migrator `GRANT`/`CREATE USER`/`SET PERSIST` yapamaz).
+Atanan ajan: devops (+ dba).
+
+## Gerileme kontrolü (bulgu yok)
+- `writeAudit` çalışan kayıtlarını değiştirmiyor: tam IP ve 300 karaktere kırpılmış UA yazılıyor. Giriş ve brute-force audit kayıtları etkilenmedi.
+- Akış biçimli yedekte başarısız `mysqldump` → `pipefail` → `die` → `on_exit` `.partial` dizinini siliyor. "-- Dump completed", tablo, `_prisma_migrations` ve tetikleyici sayısı denetimleri korunuyor.
+  - Not: `on_exit` arka plandaki yan süreçleri (FIFO okuyucuları) öldürmüyor. Takılırsa systemd `TimeoutStartSec=1h` keser; güvenlik etkisi yok.
+- `restore.sh` döküm adını ve tablo adlarını hâlâ regex ile doğruluyor. Şifreli dosya özeti çözmeden önce, istemci komutu denetimi yüklemeden önce yapılıyor. Scratch FAIL olursa canlıya dokunulmuyor.
+- Parola argv kuralı korunuyor: yeni `mysql` çağrıları da `MYSQL_PWD` konteyner env'iyle çalışıyor.
+
+## Otomatik tarama
+- `pnpm audit --audit-level=moderate`: No known vulnerabilities found. Yeni bağımlılık yok.
+- Diff'te sır yok (backup.env.example hâlâ değersiz).
+
+## Açık kalan (Sonra — `docs/gereksinimler.md` §9'a eklenmesi önerilir)
+- S-P13a-8 [ORTA]: `file.transfer` audit'inde dosya adı ve sha256 (backend-dev). Prod açılışından (P13b) önce kapatılması önerilir.
+- S-P13a-2 kalanı [DÜŞÜK]: manifest imzası, migrator ile yükleme, tam yetki anlık görüntüsü, satır içi istemci komutu (devops + dba). **P13b site dışı yedek ön koşulu.**
+
+---
+
+# Güvenlik Raporu — P13a turu — Kod turu 1 (2026-11-14)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 1 / Düşük 6 (S-P13a-1..7) + 1 bilgi notu. Orta ve Düşük bulgular GEÇTİ kararını engellemez; `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmeleri önerilir. **S-P13a-2 (yedek bütünlüğü) site dışı yedekten (P13b) önce kapatılmalıdır.**
+
+Kapsam: commit edilmemiş P13a değişiklikleri. İncelenen kod: migration `20261114120000_p13a_retention` (up ve down), `prisma/sql/grants.sql`, `deploy/mysql/{init/01-users.sh,backup-user.sql,check-app-grants.sh}`, `deploy/backup/*` (backup.sh, restore.sh, lib.sh, systemd birimleri, backup.env.example), `jobs/{retention,retention-repo,scheduler}.ts`, `requests/jobs.ts`, `customers/service.ts`, `bindings/service.ts`, `sessions/history{,-repo}.ts`, `settings/{routes,system}.ts`, `notify/whatsapp.ts`, `env.ts`, `audit/mask.ts`, contracts `api/system-settings.ts`, `api/sessions.ts`, compose/CI/.env.example/.gitignore. Okunan belgeler: mimari-p13, db-notlari P13a, implementation P13a, runbook §18.
+Koşulanlar: K13 ve kanonikleştirme için Node denemesi (aşağıda). DB'li entegrasyon testleri ve `check-app-grants.sh` bu turda koşulmadı; dba ve backend kayıtlarına (373/373, 525/525 ×3) dayanıldı. Staging'e bağlanılmadı.
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] S-P13a-1 Anonimleştirilmiş oturum audit üzerinden 730 gün yeniden tanımlanabiliyor — A04 Insecure Design / KVKK
+Yer: `apps/server/src/public/service.ts:69-77` (`guest.pending` → `newValue.name`, `entityId = session id`, `ip_address`, `user_agent`); aynı desen `guest.admitted` ve `guest.rejected` (`TIMELINE_DETAIL_KEYS`, `packages/contracts/src/api/sessions.ts:302-304`); `docs/mimari-p13.md` K-P13-1 ve K-P13-3.
+Sorun: Saklama işi oturumun kişisel alanlarını NULL'luyor (`retention-repo.ts:38-41`). Ancak aynı oturumun audit satırları müşteri adını, IP adresini ve tarayıcı bilgisini (UA) `entity_id = <oturum id>` ile 730 gün tutuyor. Anonim oturum ve kişisel veri tek bir anahtarla birleştirilebiliyor. KVKK'da anonimleştirme, verinin "başka verilerle eşleştirilerek dahi" bir kişiyle ilişkilendirilememesini gerektirir. Bu nedenle sonuç anonimleştirme değil, takma adlandırmadır (pseudonymization). K-P13-1'in "anonim satır artık kişisel veri değil, hard delete gerekmez" gerekçesi, audit kaydı durdukça (730 gün) zayıf kalıyor. Ekran kuralı (K-P13-3) adı yalnız zaman çizelgesinden gizliyor. `audit.view` yetkisi olan her Admin, oturum id'si ile ada ve IP'ye ulaşabiliyor.
+İstismar senaryosu: Bir ilgili kişi, 365 gün sonra verisinin "anonimleştirildiği" bildirimini alır. Tenant Admin'i Audit ekranında oturum id'si (veya tarih) ile filtreleme yaparak `guest.pending` kaydından ad, IP ve UA'ya ulaşır. Oturumun ticket no'su, süresi ve teknisyeni de yeniden kişiye bağlanmış olur. Denetimde "anonimleştirme" beyanı tutarsız bulunur.
+Düzeltme (seçeneklerden biri; mimar karar verir):
+(a) İleriye dönük: `guest.*` audit kayıtlarına ad yazılmaz. Ad oturum satırında zaten var ve saklama işiyle birlikte silinir. Audit'te yalnız `guestId` ve `guestKind` kalır. Misafir IP'si için `ip_address` yerine kesilmiş önek (netKey) yazılması değerlendirilir.
+(b) Hukuki ve belge düzeltmesi: K-P13-1/K-P13-3 "takma adlandırma + 730 gün meşru menfaat" olarak yeniden yazılır. Aydınlatma metni ve VERBİS bu süreyi belirtir. Audit'teki ada erişim yalnız Super Admin'e daraltılır.
+Atanan ajan: mimar (karar) → backend-dev (a) / teknik-yazar (b).
+
+### [DÜŞÜK] S-P13a-2 Yedek kimlik doğrulamasız; geri yükleme root ile ve `mysql` istemci komutları açık — A08 Software and Data Integrity Failures
+Yer: `deploy/backup/restore.sh:84-88` (sha256 manifestin içinden okunuyor), `:121` `sql_root` (root), `:146` ve `:184` (döküm root ile yükleniyor); `backup.sh:181-188` (manifest imzasız, `ageRecipients` açık anahtarı manifestte).
+Sorun: age yalnız gizlilik sağlar. Alıcı açık anahtarını bilen herkes geçerli bir `.age` dosyası üretebilir. Manifestteki sha256 değerleri de manifestle birlikte değiştirilebilir. Döküm `mysql -uroot` ile yükleniyor. Böylece dökümdeki her SQL (`CREATE USER … '%'`, `GRANT ALL`, `USE mysql`, `CREATE EVENT/PROCEDURE`) root olarak çalışır. `mysql` 8.4 istemcisinde `system` ve `\!` komutları varsayılan olarak açıktır; bunlar konteyner içinde kabuk komutu çalıştırır. Scratch doğrulaması yalnız tablo kümesine, satır sayısına, tetikleyici sayısına ve son migration'a bakıyor. Eklenen kullanıcıları ve rutinleri görmüyor. `mysql` şeması `DROP DATABASE` işleminden etkilenmediği için eklenen hesap kalıcı olur.
+İstismar senaryosu: Bugün yedek dizinine yazmak için staging'de root gerekiyor, bu yüzden etki düşük. P13b'de site dışı kopya (S3/NAS) devreye girince, o hedefe yazabilen biri manifest ve dökümü değiştirir. Yönetici `--target staging` ile geri yükleme yapar, scratch doğrulaması OK verir ve canlı MySQL'de `backdoor'@'%'` hesabı oluşur.
+Düzeltme: (1) Manifest imzalanır (`ssh-keygen -Y sign` / minisign). Doğrulama açık anahtarı yönetici tarafında durur ve `restore.sh` imzayı doğrulamadan çözmeye geçmez. (2) Yükleme `mysql --system-command=OFF` ile yapılır. (3) Yükleme root yerine `migrator` ile yapılır: migrator DB'ye bağlıdır, `CREATE USER` yetkisi yoktur ve `force_created_at` tetikleyicisinden muaftır. (4) Geri yükleme öncesinde ve sonrasında `mysql.user`, `information_schema.ROUTINES` ve `EVENTS` karşılaştırılır. P13b site dışı yedekten önce zorunlu. Atanan ajan: devops (+ dba, 3. madde).
+
+### [DÜŞÜK] S-P13a-3 Şifresiz tam döküm diske yazılıyor (geri yüklemede /tmp, yedekte .partial) — A02 Cryptographic Failures / veri artığı
+Yer: `deploy/backup/restore.sh:83` (`mktemp -d "${TMPDIR:-/tmp}/…"`, `:93` çözülmüş `db.sql.gz` ve `uploads.tar.gz`); `backup.sh:123-133` (`$BACKUP_DIR/.partial-*/db.sql.gz` düz), `:210-214` (ölü `.partial` yalnız başarılı bir yedekten sonra ve 24 saatten eskiyse silinir); runbook §18.4 B / §18.5.
+Sorun: Runbook özel anahtarı özenle `/dev/shm`'de tutuyor. Ancak çözülmüş tam veritabanı (kişisel veri, parola hash'leri, şifreli sırlar) ve uploads, Ubuntu 24.04'te disk üzerinde olan `/tmp`'ye yazılıyor ve `rm -rf` ile siliniyor (üzerine yazılmıyor). Yedek tarafında düz döküm, şifreli yedeklerle aynı diskte duruyor. Süreç SIGKILL ile ya da `TimeoutStartSec` sonrası öldürülürse düz döküm en az bir gün kalır. Ayrıca P13b'de site dışı eşitleme (`rsync BACKUP_DIR`) `.partial` dizinini de kopyalayabilir.
+İstismar senaryosu: Disk imajı, snapshot ya da `.partial` dahil eşitlenen bir kopya ele geçirilir ve şifreleme atlanmış olur.
+Düzeltme: `restore.sh` sunucuda `WORK` için `/dev/shm`'i tercih etmeli (boş alan kontrolüyle; runbook'ta `TMPDIR=/dev/shm` da olur). `backup.sh` akış biçiminde çalışmalı: `mysqldump | gzip | tee >(sha256/sayım) | age -o …`, böylece düz dosya hiç oluşmaz. Ölü `.partial` dizinleri betik başında, yaşına bakılmadan temizlenmeli (kilit alındıktan sonra). Site dışı eşitlemede `.partial-*` ve `.lock` hariç tutulmalı. Atanan ajan: devops.
+
+### [DÜŞÜK] S-P13a-4 `backup` hesabı audit tetikleyicilerini düşürebilir; günlük yedek tetikleyici kaybını yakalamıyor — A09 Logging & Monitoring Failures
+Yer: `deploy/mysql/backup-user.sql` (`GRANT … TRIGGER`), `backup.sh:141-142` (yalnız DB sayısı = döküm sayısı karşılaştırılıyor).
+Sorun: MySQL'de `TRIGGER` yetkisi `DROP TRIGGER` iznini de kapsar. db-notlari bunu kabul ediyor ve yan etkiyi `'backup'@'localhost'` sınırıyla azaltıyor. Hesaba ulaşmak için mysql konteynerine girmek gerekiyor, orada root parolası zaten var; yani yetki yükseltmesi yok. Asıl açık tespit tarafında: `audit_logs_retention_only_delete` veya `force_created_at` düşürülürse `app` yeni audit satırlarını silebilir hale gelir. `backup.sh` ise DB'deki tetikleyici sayısını yalnız dökümle karşılaştırdığı için "OK" yazmaya devam eder. Beklenen 3 ile karşılaştırma yalnız aylık `restore.sh` provasında ve CI'da var.
+İstismar senaryosu: Tetikleyiciler düşürülür (elle hata veya saldırı), ardından `app` yetkisiyle yakın tarihli audit satırları silinir. Bu durum aylık provaya kadar fark edilmez.
+Düzeltme: `backup.sh`'te `TRIGGERS` değeri `BACKUP_EXPECTED_TRIGGERS` (varsayılan 3) değilse FAILED verilmeli (alarm zaten bağlı). Tetikleyici adları manifeste yazılmalı. `check-app-grants.sh`'e "backup DROP TRIGGER yapabilir (kabul edilen risk)" yorumu eklenmeli. Atanan ajan: devops (+ dba yorum).
+
+### [DÜŞÜK] S-P13a-5 Anonim oturumda serbest metin alanları kalıyor (`session.terminated.reason`, `ticket_no`) — KVKK / veri minimizasyonu
+Yer: `packages/contracts/src/api/sessions.ts:137` (`reason` ≤ 200 serbest metin) ve `:319` (zaman çizelgesinde gösteriliyor); `apps/server/src/sessions/history.ts` (anonimde yalnız `details.name` siliniyor); `support_sessions.ticket_no` (≤ 50, serbest; AC-197 gereği kalıyor).
+Sorun: Yönetici sonlandırma gerekçesine ("Ayşe Hanım'ın isteğiyle kapatıldı") ya da ticket alanına kişisel veri yazabiliyor. Bu alanlar anonimleştirmeden sonra da ekranda ve CSV'de görünüyor.
+Düzeltme: Anonim oturumda zaman çizelgesinden `session.terminated.reason` çıkarılmalı. `ticket_no` ve sonlandırma gerekçesi alanlarına "kişisel veri yazmayın" ipucu eklenmeli. Atanan ajan: backend-dev (+ frontend-dev ipucu).
+
+### [DÜŞÜK] S-P13a-6 `restore.sh --target staging` ortamı doğrulamıyor — A04 Insecure Design
+Yer: `deploy/backup/restore.sh:157-166`.
+Sorun: Koruma, scratch doğrulaması, `--confirm <DB adı>`, root kontrolü ve ön yedekten oluşuyor; hepsi iyi. Ancak "staging" adı hiçbir şeyle eşleştirilmiyor. P13b'de prod sunucuda aynı komut prod DB'sini siler (DB adı iki ortamda da `remote` olabilir).
+Düzeltme: P13b'de `--target` değeri compose proje adı veya `deploy/.env` içindeki bir `DEPLOY_ENV` ile eşleşmeli. `production` için ayrı onay istenmeli (ör. hostname yazdırma). Atanan ajan: devops.
+
+### [DÜŞÜK] S-P13a-7 `backup.env` sahiplik/izin denetimi yok; `BACKUP_ALERT_CMD` root olarak `sh -c` ile çalışıyor — A05 Security Misconfiguration
+Yer: `deploy/backup/backup.sh:29`, `:36-38`; `lib.sh:20-31`.
+Sorun: Dosyanın `source` edilmemesi ve anahtarların izin listesiyle sınırlanması iyi. Ancak `BACKUP_ALERT_CMD` keyfi komut olduğu için dosya fiilen root kodudur. İzinler yanlış kurulursa (ör. `/opt/remote`'u başka bir kullanıcı yönetiyorsa) yetki yükseltmesine yol açar. `BACKUP_ENV_FILE` ortamdan değiştirilebiliyor (systemd altında sorun değil).
+Düzeltme: `load_env_file` öncesinde dosya root sahibi değilse veya grup/diğer yazabiliyorsa `die` verilmeli (`[ -O "$f" ]` ve `find "$f" -perm /022`). Atanan ajan: devops.
+
+### Bilgi (bulgu değil)
+- `audit_logs_force_created_at` muafiyeti `USER()` ile, yani istemcinin bildirdiği kullanıcı adıyla yapılıyor. Anonim bir MySQL hesabı (`''@'%'`) eklenirse `-u root` ile bağlanıp anonim hesapla doğrulanan bir istemci de muaf sayılır. Bugün böyle bir hesap yok. `check-app-grants.sh`'e `SELECT COUNT(*) FROM mysql.user WHERE user=''` = 0 kontrolü eklenebilir (dba).
+- `REPLACE INTO audit_logs` (INSERT + DELETE yetkisi) çakışmada silme tetikleyicisini çalıştırır, dolayısıyla 730 gün sınırı korunur. `INSERT … ON DUPLICATE KEY UPDATE` için UPDATE yetkisi gerekir ve app'te yok. Ek açık yok.
+
+## Doğrulanan odak maddeleri (bulgu yok)
+- **En az yetki:** app'in DELETE yetkisi olan tablolar tam olarak `audit_logs, auth_sessions, password_reset_tokens, recovery_codes, session_files, tenant_settings, tenants, user_permissions, users`; sütun yetkileri tam eşitlikle sınanıyor (`check-app-grants.sh`). `session_consents` için yalnız `UPDATE(ip, user_agent)` verilmiş; karar, seviye ve metin özeti değişirse 1143 alınıyor. `support_sessions/support_requests/device_bindings/customers` tablolarında DELETE yok (K-P13-1). Sütun GRANT'ı tablo REVOKE'undan sonra geliyor; dosya idempotent.
+- **Tetikleyici atlatma:** `created_at` app için `SYSDATE(3)` + `CONVERT_TZ` ile zorlanıyor. `SET TIMESTAMP` ve oturum `time_zone` etkisiz; bilinmeyen dilim `SET` aşamasında reddediliyor; NULL → NOT NULL ihlali (fail-closed). Geriye tarihli ekle-sil reddi CI'da sınanıyor. Silme kesmesi `LEAST(iş saati, UTC_TIMESTAMP)-730 g` olduğu için ileri kaymış uygulama saati tetikleyiciyi aşamıyor. Muaf liste yaklaşımı (yalnız `migrator`, `root`) fail-closed. Tetikleyiciyi düşürme (`DROP TRIGGER`) app için reddediliyor.
+- **Anonimleştirme (oturum tablosu):** Tek TX; dosya satırları silinip onay IP/UA ve oturum PII aynı UPDATE'te temizleniyor. `support_sessions_anonymized_chk` sayesinde PATCH ile yeniden kişisel veri yazılamıyor (DB savunması); API önce 409 `SESSION_ANONYMIZED` dönüyor, eşzamanlı durum `anonymized_at IS NULL` koşuluyla karşılanıyor. Detayda e-posta, not, dosyalar ve talep PII'si null; zaman çizelgesinde ad ve CUSTOMER `actorName` null; CSV'de "Anonimleştirildi". Talep anonimleştirmesi IP, ipKey, netKey ve deviceHash'i de temizliyor. down.sql anonim oturum varken duruyor.
+- **Saklama işi DoS ve kilitleme:** 1000'lik oturum partileri tek TX'te ve yeni indeksle (`tenant_id, anonymized_at, created_at`) çalışıyor; global silmeler 5000'lik partilerle `IX(created_at)` üzerinden yapılıyor. Turlar üst üste binmiyor, iş fail-soft ve idempotent. Sonsuz döngü riski yok: seçim ve UPDATE koşulları aynı, bitmiş durumlar terminal. Tek ağır DDL `ADD CHECK` (COPY); staging'de küçük, prod henüz kapalı.
+- **Log ve audit:** `retention.run` yalnız sayı içeriyor; `resetTokens` maske izin listesine eklendi; hata logunda kişisel veri yok.
+- **Yedek parolaları:** `backup` parolası hiçbir argv'ye girmiyor (`MYSQL_PWD` konteyner env'inden; `backup-user.sql` onaltılı literal + `QUOTE()`; `01-users.sh` heredoc + tırnak reddi + ≥ 16 karakter). Yalnız scratch'in rastgele root parolası `docker run -e` argümanında görünüyor; ağsız ve geçici olduğu için önemsiz. PROCESS, LOCK TABLES ve RELOAD verilmemiş. Hesap yalnız localhost'tan (soket) bağlanıyor.
+- **Yedek betikleri:** `umask 077`, dizin 700, dosyalar 600; atomik `mv`; kilit; rotasyon yalnız regex'e uyan adları siliyor. age alıcısı `^age1[0-9a-z]{58}$` ile doğrulanıyor (özel anahtar yanlışlıkla yazılamıyor). Manifestteki DB ve tablo adları regex ile doğrulandıktan sonra SQL'e giriyor, bu yüzden komut ve SQL enjeksiyonu yok. Yardımcı konteynerler `--network none --cap-drop ALL --no-new-privileges` ile çalışıyor; staging hedefinde scratch FAIL ise canlıya dokunulmuyor, `--confirm` isteniyor ve ön yedek alınıyor. Kurcalanmış `.age` dosyası çözme öncesinde FAIL veriyor (S-P13a-2'deki sınırla).
+- **Hız sınırı:** PUT/DELETE mysql|turn|whatsapp için kullanıcı başına 10/dk; doğrulamadan sonra sayılıyor; 429 + `Retry-After` dönüyor. Değişmeyen PUT yazılmıyor ve audit'e girmiyor.
+- **WhatsApp kanonikleştirme ↔ K13:** saklanan değer WHATWG kanonik biçimde ve K13 aynı değeri sınıflıyor. Node denemesinde `0xa9fea9fe`, `[::ffff:169.254.169.254]`, `[fe80::1]`, `0.0.0.0`, `[::]`, `localhost.` ve IDN adresleri prod + http'de **kapalı**; `%31%30.0.0.1`, `127.1`, `[::ffff:7f00:1]` ve `[::ffff:a00:1]` özel ağ olarak **açık** (tutarlı). `\` → yol (`http://10.0.0.1/.evil.com`) ve U+00AD reddediliyor. Zod ile DB CHECK aynı kümeyi kullanıyor (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}`).
+- **Go bağımlılıkları:** implementation kaydına göre govulncheck temiz; `go.mod` değişmedi.
+
+## Otomatik tarama çıktıları
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- Gizli bilgi (`git grep` api_key/secret/password/token kalıbı, testler hariç): eşleşme yok. Yalnız CI'daki sahte `MYSQL_BACKUP_PASSWORD: ci-backup-only-123` var (test değeri, kabul). `AGE-SECRET-KEY-1…` kalıbı deploy/docs/apps/packages içinde yok.
+- `.env` geçmişi: git geçmişinde yalnız `.env.example` var. `deploy/backup/backup.env` `.gitignore`'da. `backup.env.example` değer içermiyor.
+- `89.252.189.211` (kimliksiz WhatsApp servisi) `backup.env.example` örneğine de girdi. Daha önce kabul edilmiş durum (P12b raporu); yeni risk yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- Mimari §4 `backup` yetkileri `… PROCESS` diyordu; dba bilerek vermedi (daha sıkı, gerekçeli). Uygun.
+- Mimari §4 `BACKUP_DB_PASSWORD`: kullanılmadı, parola konteyner env'inden okunuyor (daha iyi, runbook'ta gerekçeli).
+- Mimari §4 "özel anahtar yalnız geçici olarak getirilir": anahtar için uygulanmış, ancak çözülmüş döküm diske yazılıyor (S-P13a-3).
+- Mimari §3 `source` büyük harf → küçük harfle uygulandı (gerekçeli, güvenlik etkisi yok).
+
+## Olumlu
+- K-P13-4 tasarımına uyulmuş: DELETE yetkisi ve `created_at` zorlaması aynı migration'da. Muafiyet fail-closed ve yeni hesaplar varsayılan olarak zorlanıyor.
+- DB katmanında savunma derinliği var: anonimlik CHECK'i, sütun düzeyi UPDATE, tam eşitlikli yetki kümesi testleri, WhatsApp CHECK ↔ zod eşliği ve up/down guard'ları.
+- Yedek betikleri olgun: kaynak edilmeyen env, alıcı regex'i, atomik yayım, ağsız ve yeteneksiz yardımcı konteynerler, scratch-önce akışı ve olumsuz senaryo provası (kurcalanmış `.age`, yanlış anahtar, MySQL kapalı).
+- Saklama işi gözlemlenebilir (metrikler, alarm kuralları, `retention.run` audit) ve kişisel veri içermiyor.
+
+---
+
 # Güvenlik Raporu — P12b turu — Kod turu 2 / doğrulama (2026-11-13)
 DURUM: GEÇTİ
 Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 açık (B-P12b-4, Sonra). B-P12b-1, -2, -3 ve -6 kapandı. B-P12b-5 kısmen kapandı: test ucuna global tavan eklendi, PUT/DELETE hız sınırı "Sonra"ya bırakıldı. Gerilemeye rastlanmadı.

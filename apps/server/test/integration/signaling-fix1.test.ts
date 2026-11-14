@@ -38,14 +38,15 @@ describe("P3 düzeltme 1 — audit", () => {
     for (const s of [joinNonce, t.token, t.code]) expect(dump).not.toContain(s);
   });
 
-  it("AC-113 (QA-P3-4): join → tek guest.pending audit; yalnız guestId/ad/tür, admitCode ve ticket yok", async () => {
+  it("AC-113 (QA-P3-4, S-P13a-1): join → tek guest.pending audit; yalnız guestId/tür/onay, admitCode ve ticket yok", async () => {
     live = await startLive();
     const t = await techSession(live);
     const g = await joinGuest(live, t);
     const logs = await testDb().auditLog.findMany({ where: { entityId: t.sessionId, action: "guest.pending" } });
     expect(logs).toHaveLength(1);
     expect(logs[0]).toMatchObject({ result: "success", username: "customer" });
-    expect(Object.keys(logs[0]?.newValue as object).sort()).toEqual(["consentTextId", "consentVersion", "guestId", "guestKind", "name"]);
+    // S-P13a-1: ad audit'e yazılmaz (oturum satırında, saklama işiyle silinir)
+    expect(Object.keys(logs[0]?.newValue as object).sort()).toEqual(["consentTextId", "consentVersion", "guestId", "guestKind"]);
     expect(JSON.stringify(logs, big)).not.toContain(`"${g.admitCode}"`);
   });
 

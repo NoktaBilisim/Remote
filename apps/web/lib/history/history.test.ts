@@ -59,3 +59,15 @@ describe("AC-63 not formu", () => {
     expect(validateNote({ note: "gizli​karakter" }).note).toBe("Görünmez veya kontrol karakteri kullanılamaz");
   });
 });
+
+describe("P13a (AC-197) anonimleştirilmiş oturum", () => {
+  it("anonymized bayrağı ve 409 SESSION_ANONYMIZED (contracts)", async () => {
+    const { isAnonymized, isAnonymizedError } = await import("./anonymized");
+    const { ApiError } = await import("@/lib/api");
+    expect(isAnonymized({ anonymized: true })).toBe(true);
+    expect(isAnonymized({ anonymized: false })).toBe(false);
+    expect(isAnonymizedError(new ApiError(409, "SESSION_ANONYMIZED", "x"))).toBe(true);
+    expect(isAnonymizedError(new ApiError(409, "CONFLICT", "x"))).toBe(false);
+    expect(isAnonymizedError(new Error("x"))).toBe(false);
+  });
+});

@@ -6,10 +6,10 @@ import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
-import { ORIGIN, TEST_UPLOADS_DIR, createSupportSessionRow, createTenant, createUser, loginRequest, makeApp, testDb, type Session, type TestUser } from "../helpers/app.ts";
+import { ORIGIN, TEST_UPLOADS_DIR, createSupportSessionRow, createTenant, createUser, loginRequest, makeApp, testDb, testFixtureDb, type Session, type TestUser } from "../helpers/app.ts";
 import { createRequestSettings } from "../helpers/requests.ts";
 import { newBindingKey, newId, sha256Hex } from "../../src/lib/ids.ts";
-import { mailLogoUrl, systemLogoPath, systemLogoUrl } from "../../src/uploads/urls.ts";
+import { SYSTEM_LOGO_KEY, mailLogoUrl, systemLogoPath, systemLogoUrl } from "../../src/uploads/urls.ts";
 
 let app: FastifyInstance;
 const db = () => testDb();
@@ -51,6 +51,9 @@ let userB: TestUser;
 let superAdmin: TestUser;
 
 beforeAll(async () => {
+  // P13a (B4, ardışık koşu): sistem logosu süreç geneli tek kayıt ve yalnız bu dosya yazar → önceki koşudan kalan satır
+  // migrator ile silinir (app'te system_settings DELETE yok). "Sistem logosu yok" ön koşulu yeniden kullanılan DB'de de sağlanır.
+  await testFixtureDb().$executeRawUnsafe("DELETE FROM system_settings WHERE `key` = ?", SYSTEM_LOGO_KEY);
   app = makeApp();
   await app.ready();
   tA = await createTenant();
@@ -61,7 +64,10 @@ beforeAll(async () => {
   userB = await createUser({ tenantId: tB.id });
   superAdmin = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
 });
-afterAll(() => app.close());
+afterAll(async () => {
+  await app.close();
+  await testFixtureDb().$disconnect();
+});
 
 describe("AC-81 firma logosu", () => {
   it("AC-81/84: Admin yükler → PNG ≤512 px; herkese açık sunum, başlıklar; /auth/me, /settings/tenant, branding, e-posta logosu", async () => {
@@ -125,7 +131,7 @@ describe("AC-81 firma logosu", () => {
 // Zincir: firma logosu → sistem logosu → `/img/logo.png`. Sistem logosu süreç geneli tek kayıttır ve yalnız bu dosyadaki
 // AC-82 testi yazar (dosya içi testler sıralı). Bu yüzden "sistem logosu yok" vakası AC-82'den ÖNCE, "sistem logosuna
 // düşer" vakası SONRA koşar; bu testler sistem logosunu kendisi değiştirmez (paralel dosyaların gördüğü değer oynamaz).
-// test-db.sh her `up`ta boş DB açar; yeniden kullanılmış DB'de ön koşul açık mesajla düşer.
+// Dosya açılışında önceki koşudan kalan sistem logosu satırı silinir (yeniden kullanılan DB'de de ön koşul sağlanır).
 type PublicInfo = { tenant: { name: string; logoUrl: string } };
 let publicIpSeq = 0;
 const nextPublicIp = () => `192.0.2.${(++publicIpSeq % 250) + 1}`;

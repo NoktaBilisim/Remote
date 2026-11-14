@@ -3695,3 +3695,202 @@ AC-196 (+AC-152 r3). Sözleşme `docs/mimari-api.md` "Yönetim" whatsapp satırl
 - **B-P12b-4** (normalize + CHECK) kapsam dışı — Sonra.
 - Testler: unit `whatsapp-runtime-p12b` (+3: geçersiz adres fail-closed her ortamda/constructor, gövde iptali 200/500/307 + reddedilen cancel, audit görünümü `recipient`), `env-logger` (+1: 7 geçersiz env değeri açılışı durdurur, değer mesajda yok; kırpma; boş → varsayılan); int `whatsapp-admin-p12b` (+3: 6 PUT + DELETE eşzamanlı ×5 tur → bellek = DB = GET; DB'de ayrıştırılamayan panel adresiyle açılış kanal kapalı, GET 200 insecure, test istek yok; 5 Super Admin × 5 → 20 başarılı, 21.+ 429) ve audit anahtarı `recipient`.
 - Sonuç: `pnpm -r run lint` / `typecheck` temiz; `pnpm -r run test` contracts 75, web 243, server unit 347; `test:int` (temiz DB `rs-mysql-wabe2:33372`, silindi) **50 dosya, 491/491**. Not: ilk tam koşuda `bindings-p8c` AC-192 (TURN) bir kez düştü; tek başına 2/2 ve temiz DB tam koşuda yeşil — `system_settings.turn` satırını paralel `settings-p11` değiştirdiği için mevcut bir yarış (P12b ile ilgisiz; aynı ayrı-proje kalıbı TURN için de uygulanabilir).
+
+## P13a — Frontend (frontend-dev, 2026-11-14)
+Görevler F1–F4 (`docs/mimari-p13.md` §3, §6; AC-197, AC-199; sonra-açık T-P12b, P12b sayfa testi, S-P5-T2-1). `packages/contracts` ve
+`apps/server`'a dokunulmadı (backend paralel): sözleşme alanları web'de yerel/opsiyonel tiplerle karşılandı.
+
+### Rotalar (yeni rota yok; değişen ekranlar)
+| Yol | Auth | P13a değişikliği |
+|---|---|---|
+| `/history` | `session_history.view` | Anonim oturumda müşteri hücresinde "Anonimleştirildi" rozeti (`Eraser`) — tablo ve kart |
+| `/history/[id]` | `session_history.view` (düzenleme `session_history.edit`) | Anonimse: başlık yanında rozet, `Alert info` (silinen/korunan veriler), not/ticket formu yerine salt okunur görünüm ("Anonimleştirilmiş oturum düzenlenemez."), müşteri adı/e-posta "Anonimleştirildi", dosya boş durumu "saklama süresi dolduğu için silindi". Sayfa açıkken anonimleşirse PATCH 409 `SESSION_ANONYMIZED` → form kilitlenir, kaydet gizlenir, hata + toast, `router.refresh()` ile salt okunur görünüme geçer (ayrılma uyarısı tetiklenmez) |
+| `/audit` | `audit.view` | `retention.run` → "Saklama süresi işi", grup "Veri saklama" (filtre `retention.*`); dış gönderim/test ayrıntısında `reason` Türkçe etiket + altında mono ham kod |
+| `/admin/settings/whatsapp` | Super Admin | Kaynak `default` → "Varsayılan" rozeti + bilgi notu; büyük harfli şema/host istemcide reddedilmez, WHATWG kanonik biçime çevrilip gönderilir |
+| Konsol / müşteri sayfası dosya teklifi diyaloğu | oturum | 256 MB üstü + diske akış destekli tarayıcıda, kabul (= kayıt penceresi) ÖNCESİ uyarı: "Var olan bir dosyanın üzerine yazmayın; aktarım bozulursa dosya boş kalabilir." (S-P5-T2-1) |
+
+### Durumlar
+- Geçmiş detayı: loading/error/404/403 değişmedi; partial = anonim (bilgi notu + salt okunur); success = normal form. Liste boş/hata durumları değişmedi.
+- Audit: bilinmeyen reason kodu ham gösterilir (`labelOf`); reason yoksa "—" metni (mevcut).
+- WhatsApp: empty (`url: null`), partial (`env` / `default` / `insecure`), success (panel) — `default` için ayrı bilgi notu ve alan ipucu.
+
+### Değişen / eklenen dosyalar
+- Yeni: `apps/web/lib/history/anonymized.ts` (`isAnonymized`, `isAnonymizedError`), `apps/web/e2e/p13a.spec.ts`.
+- Değişen: `apps/web/components/ui/badge.tsx` (`AnonymizedBadge`), `apps/web/app/(panel)/history/{history-list.tsx,[id]/page.tsx,[id]/sections.tsx,[id]/note-form.tsx}`,
+  `apps/web/lib/audit/actions.ts` (`retention.run`, `EXTRA_GROUP_LABELS`, `OUTBOUND_REASON_LABELS`, `reasonLabel`), `apps/web/app/(panel)/audit/audit-log.tsx`
+  (reason etiketi; reason satırı `<dl>` içine alındı — önceden `dt/dd` `dl` dışındaydı, axe `dlitem` ihlali), `apps/web/lib/admin-settings/whatsapp.ts`
+  (`WhatsappSource`, `normalizeWaView`, `canonicalWaUrl`, görünmez karakter ön kontrolü, kanonik `waDirty`), `apps/web/app/(panel)/admin/settings/{section.tsx,whatsapp/whatsapp-form.tsx}`,
+  `apps/web/components/collab/files-panel.tsx`, `apps/web/messages/tr.json` (`h.anon.*`, `wa.svc.defaultBadge|defaultSource|urlHintDefault`, `p5.files.bigDisk` düzeltildi + `p5.files.bigDiskWarn`),
+  testler `lib/{audit/audit,admin-settings/whatsapp,history/history}.test.ts`, mock'lar `e2e/mock-history.mjs` (`anonymized` alanı, `ANON_ID`, ticket `ANON-409` → 409), `e2e/mock-audit.mjs`
+  (`retention.run` + `settings.whatsapp.test{reason:unreachable}` kayıtları — toplam 60 korunarak; `ausadef` senaryosu; PUT kanonikleştirme), `DESIGN.md` (rozet, ikon, kaynak hapı).
+
+### Sapmalar / backend-dev'e notlar
+- **`source` harf biçimi:** mimari-p13 §3 `"PANEL" | "ENV" | "DEFAULT"` yazıyor, contracts `"panel" | "env"` (küçük). Contracts'a uyuldu: `"default"`. `normalizeWaView` yanıtı küçük harfe indirir, büyük harfli gelse de çalışır. Contracts'a `source: "panel" | "env" | "default"` eklenince `WhatsappServiceView` yerel genişletmesi kaldırılabilir.
+- **`anonymized`:** `SessionListItem`/`SessionHistoryDetail`'e henüz eklenmedi; `isAnonymized(s)` alan yoksa `false` döner (kırılmaz). Contracts'a eklenince tip doğrudan kullanılabilir. `SESSION_ANONYMIZED` sabiti web'de yerel; `contracts/errors.ts`'e kod eklenince oradan alınmalı.
+- **Reason etiketleri:** mimari §3 tabloyu `contracts/src/labels.ts`'e koyuyor; contracts'a dokunulmadığı için tablo `apps/web/lib/audit/actions.ts` `OUTBOUND_REASON_LABELS`'ta. Backend contracts'a eklerse web oradan yeniden dışa aktarmalı (tek kaynak). Kapsanan kodlar: SMTP `connect, auth, tls, rejected, port_not_allowed, insecure_auth, not_configured` (+ hesap akışındaki `no_smtp`), MySQL `connect, auth, database, timeout, secret_unreadable`, WhatsApp `unconfigured, insecure, timeout, http_error, redirect, unreachable` (+ mimarideki `invalid_response`), izdüşüm `other`. Aynı kod tüm kanallarda tek anlamlı.
+- **`retention.*` grubu:** contracts `AUDIT_ACTION_GROUPS`'ta yok; web'de yerel "Veri saklama" başlığı (contracts'a eklenirse o önceliklidir).
+- **Kanonikleştirme:** istemci `new URL().href` (+ sondaki `/` kırpma) ile sunucuyla aynı WHATWG kuralını uygular ve kanonik değeri gönderir; son kapı hâlâ contracts `waServiceUrlSchema`. `/api/` gibi kök dışı yolda sondaki `/` istemcide kırpılır (eski davranış); sunucu kökte kırpıyorsa kirli karşılaştırması iki tarafı da kanonikleştirdiği için tutarlı kalır.
+- **F4 e2e:** uyarı 256 MB üstü teklifte görünür; e2e'de dosya sınırı 1 MB olduğundan otomatik test yok (metin değişikliği). Gerçek tarayıcı (Chromium `showSaveFilePicker`) doğrulaması test-operatoru'nda (sonra-açık S-P5-T2-1).
+- Skill dosyaları okunmadı: yeni görsel dil yok, mevcut rozet/Alert desenleri kullanıldı.
+
+### Testler
+- Vitest: 25 dosya, 248/248 (yeni: retention etiketi/grubu, reason tablosu; büyük harfli şema/IDN/ondalık IP kanonikleştirme, görünmez karakter, `default` kaynak; `isAnonymized`/`isAnonymizedError`).
+- e2e `p13a.spec.ts`: AC-197 liste rozeti + anonim detay (desktop + mobile), 409 yarışı, AC-199 audit etiketi + `retention.*` filtresi + reason etiketi (axe), WhatsApp "Varsayılan" + büyük harfli şema kanonik kayıt, axe açık/koyu 1280/390 px.
+- Tam e2e (`playwright test`, tüm projeler): 299 geçti / 118 atlandı (masaüstü-yalnız / perf), 0 hata. `pnpm --filter @remote/web lint`, `typecheck` temiz.
+
+### Güvenlik turu 1 (frontend-dev, 2026-11-14) — S-P13a-5 ipucu, müşteri IP öneki görünümü
+- **S-P13a-5:** `h.n.ticketHint` → "… Kişisel veri (ad, telefon, e-posta) yazmayın; ticket no saklama süresinden sonra da korunur." (alanın `aria-describedby` ipucu). **Sonlandırma gerekçesi:** arayüzde gerekçe alanı yok — `TerminateDialog` (`/sessions`, Admin "Zorla sonlandır") gövdeyi `{}` gönderir; `reason` yalnız API ile girilebilir, bu yüzden ipucu eklenecek bir form yok. İleride alan eklenirse aynı ipucu metni kullanılmalı.
+- **Audit IP öneki / boş UA:** müşteri kaynaklı kayıtlarda `ipAddress` artık `203.0.113.0/24` / `2001:db8:1234::/48`, `userAgent` null. Ayrıntı penceresinde UA satırı zaten koşullu (boşken basılmaz); öneki tam gösterir. **Düzeltme:** IPv6 öneki 1280 px'te audit tablo kabını taşırıyordu (`p11-admin` taşma testi yakaladı) → IP hücresi `max-w-32 truncate` + `title` (tam değer ayrıntıda). Mock `e2e/mock-audit.mjs`'e `guest.pending` (/24, UA null) ve `request.created` (IPv6 /48, UA null) kayıtları eklendi (toplam 60 korunarak).
+- Testler: `p13a.spec.ts` +2 (IP öneki liste + ayrıntı, UA satırı yok, axe, taşma — desktop + mobile; ticket ipucu + `aria-describedby`). Tam e2e 302 geçti, 0 hata; Vitest 248/248; lint/typecheck temiz.
+
+### Firma veri saklama süresi alanı (frontend-dev, 2026-11-14)
+- **Yer:** `/settings/security` (Ayarlar › Güvenlik; auth: `settings.view` görür, `settings.edit` değiştirir — sekmenin mevcut kuralı), 2FA bölümünün altında yeni bölüm **"Veri saklama"** (`CalendarClock`). Alan etiketi **"Veri saklama süresi (gün)"**, ipucu "90–730 gün (varsayılan 365). Süresi dolan oturum, onay ve talep kayıtları her gece anonimleştirilir; audit 730 gün tutulur." Sayfa alt başlığı "… giriş güvenliği kuralları ve kişisel verilerin saklama süresi." olarak güncellendi.
+- **Davranış:** PUT `/settings/tenant` `{ retentionDays }` (sözleşme `updateTenantSettingsInputSchema`, sunucu zaten destekliyor). Aralık tek kaynaktan (`TENANT_SETTINGS_LIMITS.retentionDays`); istemci boş/ondalık/harf/aralık dışını istek göndermeden alan hatasıyla reddeder ve odağı alana taşır; sunucu 400 `fields.retentionDays` alana, diğer hatalar form üstüne. Kirliyken `SaveBar` + ayrılma uyarısı; başarıda toast "Veri saklama süresi N gün olarak kaydedildi". Salt okunurda alan pasif (2FA bölümündeki "yalnız görüntüleme" uyarısı ortak).
+- **Dosyalar:** yeni `apps/web/lib/account/retention.ts`, `apps/web/app/(panel)/settings/security/retention-form.tsx`; değişen `settings/security/page.tsx`, `messages/tr.json` (`ret.*`, `sec.subtitle`), `lib/account/account.test.ts`, `e2e/mock-account.mjs` (`retentionDays` uygulanır; 729 → sunucu alan hatası taklidi), `e2e/p13a.spec.ts` (+2), `DESIGN.md` (ikon).
+- **Testler:** Vitest 249/249; tam e2e 305 geçti, 0 hata; lint/typecheck temiz. Kılavuz/PDF güncellenmedi (teknik-yazar: Ayarlar › Güvenlik › Veri saklama).
+- **QA önerisi — düşürmede onay:** yeni değer kayıtlı değerden küçükse kayıttan önce `Dialog role=alertdialog` (odak "Vazgeç", Escape vazgeçer): "Saklama süresini N günden M güne düşürüyorsunuz. Bu gece M günden eski oturum, onay ve talep kayıtları geri alınamaz biçimde anonimleştirilir." Onay düğmesi `danger` "Süreyi düşür" (`TriangleAlert`). Artırmada onay yok. Vazgeçince istek gitmez, değer formda (kirli) kalır. e2e: onay metni + odak + axe, Vazgeç ve Escape → PUT yok, onay → PUT, artırma → diyalogsuz PUT.
+- **Varsayılan 365:** contracts'ta sabit yok (`TENANT_SETTINGS_LIMITS` yalnız aralık); contracts'a dokunulmadı, `apps/web/lib/account/retention.ts` `RETENTION_DEFAULT_DAYS = 365` yerel kaldı (yalnız ipucu metninde kullanılır). Contracts'a eklenirse oradan alınmalı.
+
+## P13a — Backend (backend-dev, 2026-11-14)
+Görevler B1–B5 (`docs/mimari.md` §10.5, `docs/mimari-p13.md` §2–§3, §6; AC-197, 198, 199; sonra-açık B-P12b-4, B-P12b-5, T33, test yarışı). DB: dba migration `20261114120000_p13a_retention` (değiştirilmedi).
+
+### Değişen / eklenen dosyalar
+| Dosya | Değişiklik |
+|---|---|
+| `apps/server/src/jobs/retention.ts` (yeni) | `RetentionJob`: tenant döngüsü (talep → müşteri → kayıt → oturum), 1000'lik oturum partileri, global silmeler (audit 730 g, auth_sessions / password_reset_tokens +7 g, 5000'lik partiler); fail-soft (tenant hatası loglanır, sonraki tenant), üst üste binmez (`run()` eşzamanlıda `null`), idempotent; `retention.run` audit (tenant başına + `tenant_id NULL` global), metrikler. Genişleme noktası `purgeAnonymized()` yalnız yorum (K-P13-1) |
+| `apps/server/src/jobs/retention-repo.ts` (yeni) | `anonymizeSessionBatch` (tek TX: aday seçimi → `session_files` DELETE → `session_consents` ip/UA NULL → oturum PII NULL + `anonymized_at`, `anonymized_at IS NULL` koşullu), `deleteOldAudit` (`created_at < LEAST(iş saati − 730 g, UTC_TIMESTAMP − 730 g)` → tetikleyici hiçbir zaman ifadeyi geri almaz), `deleteOldAuthSessions` (expires ve revoked < kesme), `deleteOldResetTokens` |
+| `apps/server/src/jobs/scheduler.ts` | 03:30 zamanlayıcısı `RetentionJob.run()`'ı çağırır (ikinci zamanlayıcı yok); bir sonraki tur önceki bittikten sonra kurulur |
+| `apps/server/src/app.ts` | `app.retention` (tek örnek; zamanlayıcı + testler) |
+| `apps/server/src/requests/jobs.ts` | `dailyRetention` kaldırıldı (yerine `RetentionJob`); `anonymizeRequestsOf` (tenant başına) |
+| `apps/server/src/customers/service.ts`, `bindings/service.ts` | `anonymizeCustomersOf`, `expireIdleBindingsOf` (tenant başına; eski global fonksiyonlar onları çağırır, davranış aynı) |
+| `apps/server/src/ops/metrics.ts` | `rs_retention_rows_total{kind}`, `rs_retention_failures_total` (counter); `rs_retention_last_success_timestamp_seconds` (gauge, `RetentionJob` kaydeder) |
+| `apps/server/src/audit/mask.ts` | `resetTokens` izinli anahtar (sayı; `token` kalıbı yüzünden `***` oluyordu) |
+| `apps/server/src/sessions/history-repo.ts`, `history.ts` | `anonymized` (liste/detay); anonimse `customerEmail`, `note`, talep PII null, `files: []`, zaman çizelgesinde `details.name` silinir ve CUSTOMER `actorName` null; PATCH → 409 `SESSION_ANONYMIZED` (`updateNotes` `anonymized_at IS NULL` koşullu, eşzamanlı anonimleştirmede de 409, DB 3819'a gitmez); CSV "Müşteri" hücresi `Anonimleştirildi`, "Not" boş |
+| `apps/server/src/lib/errors.ts` | `SESSION_ANONYMIZED` mesajı (contracts) |
+| `apps/server/src/env.ts` | `WHATSAPP_SERVICE_URL` artık opsiyonel; yoksa `DEFAULT_WHATSAPP_URL` + türetilmiş `WHATSAPP_URL_SOURCE: "env" \| "default"`; env adresi de kanonikleşir |
+| `apps/server/src/settings/system.ts`, `routes.ts` | WhatsApp `source: "panel" \| "env" \| "default"`; değişmeyen PUT (mysql: aynı hedef + db, şifre yok; turn: aynı liste, secret yok; whatsapp: aynı kanonik adres) → yazım/audit yok; PUT/DELETE mysql/turn/whatsapp kullanıcı başına toplam 10/dk (`FixedWindowCounter`, 11. → 429 + `Retry-After`; girdi doğrulamasından sonra sayılır) |
+| `apps/server/src/notify/whatsapp.ts` | K13: `169.254.0.0/16` ve `fe80::/10` özel ağ listesinden çıkarıldı (T33) |
+| `packages/contracts/src/api/sessions.ts` | `SessionListItem.anonymized`, `SESSION_ANONYMIZED_MESSAGE`, `SESSION_CSV_ANONYMIZED` |
+| `packages/contracts/src/errors.ts` | `SESSION_ANONYMIZED: 409` |
+| `packages/contracts/src/api/system-settings.ts` | `canonicalWaUrl()` (WHATWG kanonik, `\p{Cc}\p{Cf}\p{Zl}\p{Zp}` reddi, şema harf duyarsız girdi, kod noktasıyla ≤ 200); `waServiceUrlSchema` kanonik değer döndürür; `WhatsappSettingsView.source` += `"default"` |
+| `packages/contracts/src/audit.ts` | `RETENTION_AUDIT.RUN = "retention.run"` |
+| `packages/contracts/src/api/audit.ts` | `AUDIT_ACTION_GROUPS` += `retention.*` "Veri saklama" |
+| `packages/contracts/src/labels.ts` | `OUTBOUND_REASON_LABELS` (web'den taşındı, tek kaynak) |
+| `apps/web/lib/history/anonymized.ts`, `lib/audit/actions.ts`, `lib/admin-settings/whatsapp.ts`, `lib/history/history.test.ts` | Frontend'in yerel kopyaları contracts'a bağlandı (`anonymized` tipi, `SESSION_ANONYMIZED` `ErrorCode`, `OUTBOUND_REASON_LABELS`, `retention.*` grubu, `WhatsappSettingsView` doğrudan) |
+| `apps/server/vitest.config.ts` | B4: `bindings-p8c` ayrı proje (groupOrder 2), `retention-p13a-job` ayrı proje en sonda (groupOrder 3) |
+| Testler | yeni `test/integration/retention-p13a-job.test.ts` (AC-197/198/199, 14 test); `whatsapp-admin-p12b.test.ts` += P13a describe (5 test), B-P12b-2 testi tur başına ayrı Super Admin (10/dk), "HTTP://x" artık geçerli; `test/unit/env-logger.test.ts`, `whatsapp-runtime-p12b.test.ts` (K13), `packages/contracts/test/whatsapp-setting-p12b.test.ts` (kanonik + Cf/Zl/Zp) |
+
+### Tasarımdan sapmalar (gerekçeli)
+- **`source` harf biçimi:** mimari-p13 §3 `PANEL/ENV/DEFAULT` diyor; mevcut sözleşme ve frontend küçük harf kullanıyor → `"default"` eklendi (kırılmaz).
+- **CSV:** mimari "şema değişmez; müşteri hücreleri boş" diyor, AC-197 "CSV'de Anonimleştirildi olarak görünür" diyor. Sütun kümesi değişmedi; "Müşteri" hücresine `Anonimleştirildi` yazılır, "Not" boş. İkisini birlikte karşılar.
+- **Son başarı zamanı:** `rs_retention_last_success_timestamp_seconds` yalnız hatasız turda ilerler (herhangi bir tenant/global adım ya da audit yazımı hatasında ilerlemez; `failures_total` artar).
+- **Hatalı tenant audit'i:** hata olan tenant için de `retention.run` yazılır (`result: "fail"`, o ana kadarki sayılar). Mimari yalnız "değişiklik olan tenant" diyor; hata görünürlüğü için eklendi (kişisel veri/hata metni yok).
+- **Audit silme kesme noktası:** iş saati ile DB saatinden küçüğü (sahte saat ileride olsa da tetikleyici ifadeyi geri almaz).
+- **Hız sınırı sayımı:** girdi doğrulamasından sonra (aydınlatma metni kalıbı); 400'ler kotayı tüketmez. Üç ayarın PUT/DELETE'i tek kova.
+- Yeni bağımlılık yok.
+
+### frontend-dev için sözleşme değişiklikleri
+- `SessionListItem.anonymized: boolean` (detay da). Anonimse `customerName/customerEmail/note` null, `files: []`, `request.*` PII null, zaman çizelgesinde `details.name` yok ve CUSTOMER `actorName` null.
+- PATCH `/sessions/:id` → 409 `SESSION_ANONYMIZED`, mesaj `SESSION_ANONYMIZED_MESSAGE`.
+- `WhatsappSettingsView.source: "panel" | "env" | "default"`; PUT yanıtındaki `url` kanonik biçimdir (`HTTPS://X/` → `https://x`).
+- Sistem ayarı PUT/DELETE 429 `RATE_LIMITED` + `Retry-After` dönebilir (10/dk/kullanıcı). Değişmeyen PUT 200 döner, audit yazılmaz.
+- `OUTBOUND_REASON_LABELS` ve `retention.*` grubu artık contracts'ta; web yeniden dışa aktarıyor.
+
+### Test durumu (2026-11-14)
+- `pnpm -r run lint` temiz · `pnpm -r run typecheck` temiz · `pnpm -r run test` (birim): contracts 78/78, web 248/248, server 349/349.
+- **Entegrasyon (`test:int`, `rs-mysql-p13b:33392`):** ilk tam koşu P13a'nın doğurduğu 5 hatayı gösterdi. Hepsi test tarafındaydı ve düzeltildi:
+  - Saklama testinde sahte saatli tur giriş oturumlarını da (+7 g) sildiği için sonraki API testleri 401 aldı → her test yeni oturumla.
+  - Kalite özeti fikstürü şemaya uymuyordu.
+  - `requests-p8b-2` testi `169.254.1.1`'i özel varsayıyordu; T33 gereği artık özel sayılmıyor.
+  - Ardından **temiz DB** (down → up) üzerinde ardışık 3 tam koşu: **525/525 ×3 yeşil** (52 dosya). İlk 3'lü denemede 2. ve 3. koşuda `branding-api-p12` düştü: P12'den kalan "boş DB ön koşulu" (önceki koşunun `system_logo` satırı). Bu bir yarış değil, testin yeniden çalıştırılabilir olmamasıydı. Dosya açılışında satır migrator ile siliniyor (`test/integration/branding-api-p12.test.ts`); ardından temiz DB + 3 ardışık koşu yeşil.
+- **B4:** `bindings-p8c` ayrı projede; ardışık 3 tam koşuda yarış gözlenmedi (koordinatör kararıyla kabul 5 → 3).
+- **B5 (Go, `golang:1.26.11-bookworm@sha256:dc40a13b…`):**
+  - `golang.org/x/crypto` v0.59.0 ve `golang.org/x/net` v0.62.0 zaten en güncel sürüm (`go list -m -versions`); `go get @latest` + `go mod tidy` sonrası `go.mod`/`go.sum` değişmedi.
+  - `gofmt -l` boş; `go vet` (linux + windows/amd64) temiz; `go mod verify` ok.
+  - `go test -race -count=1 ./...` 19/19 paket ok; tüm paketlerin Windows test ikilileri derlendi.
+  - `build/build.sh` iki kez (arada `go clean -cache`) → aynı SHA-256 `d8006b8f…16f9858c`.
+  - govulncheck v1.7.0 linux ve windows/amd64: "No vulnerabilities found".
+  - İstemci sürümü yayımlanmadı.
+
+## P13a — DevOps (devops, 2026-11-14)
+Görevler T1–T4 (mimari §10.5, mimari-p13 §4–5). Dosyalar: `deploy/backup/{backup.sh,restore.sh,lib.sh,remote-backup.service,
+remote-backup.timer,remote-backup-failed.service,backup.env.example}`, `.gitignore` (`deploy/backup/backup.env`), `docs/runbook.md`
+§2 (temiz kurulum kaydı), §3 (`MYSQL_BACKUP_PASSWORD`), §15.6, §18 (yedek/geri yükleme, saklama alarmları, yayın, geri alma), §19 (senaryo dizini).
+Uygulama kodu değişmedi.
+
+| Karar | Gerekçe |
+|---|---|
+| **`jq` host aracı** (mimari §10.4 dışında; lisans **MIT**; Ubuntu `apt-get install jq`) | `manifest.json`'u güvenli üretmek ve okumak için (tablo adları, sayılar, sha256'lar). Elle `printf`/`awk` ile JSON üretmek kaçış hatasına açık. npm/Go bağımlılığı değil, yalnız yedek host'unda gerekiyor. AGPL/GPL değil. `age` (BSD-3) zaten §10.4'te |
+| **`mysqldump --skip-extended-insert --no-autocommit --hex-blob`** | Satır başına bir INSERT olduğundan tablo satır sayıları dökümün kendisinden kesin okunur (`lib.sh dump_row_counts`). Bunlar manifeste yazılıp `restore-verify`'da karşılaştırılır. Ayrı `COUNT(*)` sorgusu başka bir anlık görüntü olurdu ve sürekli yazılan `audit_logs` yüzünden sahte FAIL üretirdi. Bedeli: döküm büyür, yükleme satır sayısıyla doğrusal yavaşlar. `--no-autocommit` tablo başına tek COMMIT ile bunu hafifletir. RTO aylık provada ölçülür (runbook §18.4; 30 dk'yı aşarsa dba ile paralel yükleme) |
+| **`MYSQL_BACKUP_PASSWORD`** (mimari-p13'teki `BACKUP_DB_PASSWORD` yerine) | db-notlari P13a önerisi: parola yalnız `mysql` konteynerinin env'indedir. Döküm `docker exec` ile konteyner içinden alınır (`'backup'@'localhost'`, soket). Parola `backup.env`'de, süreç argümanında veya logda bulunmaz. Server okumadığı için `env.ts`'te yoktur (proje CLAUDE.md "yeni env" kuralının gerekçeli istisnası; runbook §3 ve §18) |
+| **`BACKUP_MIN_FREE_MB`** (vars. 1024; mimari listesinde yok) | Disk dolmadan önce açık bir hata (`FAILED adım=önkoşul`) vermek için. Yarım döküm yazıp diski tamamen doldurmak, MySQL'i de durdurur ("DB dolu" senaryosu, runbook §19.9) |
+| **`backup.env` `source` edilmez** | Yalnız izinli anahtarlar okunur (`lib.sh load_env_file`); dosyada kod çalışmaz. Ortamdaki değer dosyadakini ezer (test ve elle çalıştırma için) |
+| **Atomik çalıştırma dizini** (`.partial-<zaman>` → `<zaman>`), rotasyon yalnız başarıdan sonra, ad tabanlı (KEEP_DAYS gün + 1 sa) | Yarım yedek geçerli gibi görünmez. Başarısız günlerde eski yedekler silinmez. Her yedek en az 14 gün kalır (AC-91). Ölü `.partial-*` her çalıştırmanın başında, kilit alındıktan sonra yaşına bakılmadan silinir (S-P13a-3) |
+| **uploads özeti arşivden hesaplanır** (canlı volume'dan değil), MySQL imajı içinde (`LC_ALL=C`, GNU araçları) | Yedekle doğrulama aynı içeriği karşılaştırır; arada yüklenen dosya sahte alarm üretmez. Yedeği alan Linux ile doğrulayan iş istasyonu (macOS) aynı çıktıyı verir |
+| **`fix_trigger_dump`** (`lib.sh`, `restore.sh` yüklemeden önce) | Yerel provada P11 `audit_logs_no_update` gövdesinin sonda `;` ile saklandığı bulundu. Döküm düz `mysql` ile 1064 veriyordu. **dba P13a migration'ı tetikleyiciyi BEGIN…END ile yeniden kurarak düzeltti** (db-notlari P13a "Ek"). Bu yüzden P13a sonrası dökümlerde sed hiçbir şey değiştirmez. Fonksiyon yalnız **P13a öncesi** dökümleri (eski `remote-pre-*.sql.gz`) yükleyebilmek için kalır. Yalnız tetikleyici `CREATE` satırının sonundaki `; */;;` → ` */;;`; gövde anlamı aynı. `lib.sh`'teki yorum "kalıcı çözüm dba'da" diyor; bir sonraki kod dokunuşunda "P13a migration'ı düzeltti" olarak güncellenecek |
+| **systemd birimleri** | `Type=oneshot`, `OnFailure=remote-backup-failed.service` (journal + `BACKUP_ALERT_CMD`), timer 02:00 Europe/Istanbul `Persistent=true`. Sertleştirme: `ProtectSystem=full`, `PrivateTmp`, `NoNewPrivileges`, `UMask=0077`. `ProtectHome` konmadı (docker CLI `/root/.docker`'a yazabilir). Linux'ta `systemd-analyze verify` henüz koşulmadı → staging kurulumunda (runbook §18.2) |
+
+**Doğrulama (yerel, 2026-11-14):** shellcheck temiz, `bash -n` OK. Ayrı compose projesinde uçtan uca prova yapıldı: `backup.sh` OK; `restore.sh` scratch `restore-verify: OK` (8 sn); `--target staging` OK (kesinti 14 sn, veri ve uploads geri döndü, grants 373/373). Olumsuz testler: kurcalanmış dosya, yanlış anahtar, MySQL durdurulmuş (`FAILED` + alarm komutu) ve rotasyon. AC-88: `/ready` 28 sn; coturn `test-local.sh` 62/0. Ayrıntı runbook §2 ve §18.4. Staging kurulumu ve provası §18.7'de bekliyor.
+
+### Güvenlik turu 1 (backend-dev, 2026-11-14) — S-P13a-1, S-P13a-5
+Kaynak: `docs/guvenlik-raporu.md` "P13a turu"; karar `docs/mimari-p13.md` K-P13-3 r1 (seçenek a).
+
+**S-P13a-1 [Orta] — müşteri audit kayıtlarında ad, tam IP ve UA yok**
+- **Ad:** `guest.pending` (`public/service.ts`), `guest.admitted` ve `guest.rejected` (`signaling/admit.ts`) artık `name` yazmıyor. Talep yolunun `guest.admitted{via:"request"}` kaydı zaten ad taşımıyordu.
+- **IP ve UA (merkezi kural):** kural tek noktada, `audit/service.ts` `writeAudit` içinde. `username === "customer"` olan her kayıtta:
+  - `ip_address` = `netKey(ip)`: IPv4 /24, IPv6 /48; IPv4-mapped IPv6 → IPv4 /24.
+  - `user_agent` = NULL.
+  - Kapsadığı kayıtlar: misafir/oturum (`guest.pending`, `session.join`, `reconnect.conflict`, müşteri kontrol/monitör olayları, müşteri dosya olayları), talep formu (`request.created/cancelled/rate_limited`) ve istemci kayıt olayları (`binding.*` müşteri tarafı).
+  - `session.resolve` (fail) kaydına `username: "customer"` eklendi; aktör zaman çizelgesinde yok, etkilenen ekran olmadı.
+  - Çalışan (teknisyen/yönetici) kayıtları değişmedi.
+- **UA kararı:** müşteri UA'sı audit'e hiç yazılmaz. Kısaltma yerine silme seçildi, çünkü kısaltılmış UA bile parmak izine katkı verir ve audit amacı (kim/ne/ne zaman) için gereksizdir. KVKK onay kanıtı için tam IP ve UA `session_consents`'te kalır ve saklama işiyle NULL'lanır (mimari-p13 §2 ile tutarlı).
+- **Zaman çizelgesi:** CUSTOMER `actorName` için öncelik sırası:
+  1. eski kayıtlarda `details.name`,
+  2. yoksa oturum satırındaki `customer_name`; bu yalnız kabul edilen misafirin olaylarında gösterilir (`guestId` eşleşmesi; `guestId`'siz müşteri olayları kabul edilen misafirdir).
+  - Reddedilen misafirin `guest.pending` satırında ad null kalır; böylece kabul edilen müşterinin adı yanlış satıra yazılmaz.
+  - Anonim oturumda oturum adı zaten NULL olduğu için sonuç da null.
+- `TIMELINE_DETAIL_KEYS` `name` anahtarını koruyor (P13a öncesi kayıtlar 730 gün okunabilir; tetikleyici UPDATE'e izin vermez).
+
+**S-P13a-5 [Düşük]:** anonim oturumun zaman çizelgesinde `session.terminated` `details.reason` (serbest metin) silinir. `ticket_no` AC-197 gereği kalır. "Kişisel veri yazmayın" ipucu frontend-dev'in işi.
+
+**Değişen dosyalar:**
+- Kod: `apps/server/src/audit/service.ts` (`CUSTOMER_USERNAME`, önek/UA kuralı), `public/service.ts`, `signaling/admit.ts`, `sessions/public.ts`, `sessions/history.ts`.
+- Testler: yeni `test/integration/audit-customer-p13a.test.ts` (4 test: writeAudit IPv4/IPv6/mapped/çalışan; gerçek resolve→join→admit akışı; reddedilen misafir; S-P13a-5). Güncellenen: `signaling-fix1.test.ts` (guest.pending anahtarlarında `name` yok), `security-p8b-fix1.test.ts` (request.created `ip_address` = /24 öneki, UA null).
+
+**frontend-dev'e etkisi:**
+- Audit ekranında müşteri kayıtlarının IP sütunu artık `203.0.113.0/24` biçiminde, UA boş.
+- Sözleşme tipi değişmedi.
+
+**Test:** lint ve typecheck temiz; birim testleri 78 + 248 + 349; temiz DB'de `test:int` **529/529** (53 dosya), `rs-mysql-p13b:33392`. Konteyner silindi.
+
+### P13a — DevOps güvenlik düzeltmeleri (güvenlik raporu "P13a turu", 2026-11-14)
+| Bulgu | Uygulanan |
+|---|---|
+| S-P13a-2 (yedek bütünlüğü) | Yükleme `mysql --system-command=OFF` ile yapılıyor (8.4.13 istemcisi destekliyor). **Döküm denetimi** (`lib.sh dump_client_command_count`, durum tutan awk tarayıcısı): tırnaklı veri (`'`/`"`/`` ` ``, `\` kaçışı, `''` ikilemesi, satırlar arası) atlanıyor; tırnak dışındaki her ters bölü (satır içi `SELECT 1; \! id`, `\.`, `\T` vb.) ve satır başındaki system/source/tee/pager/connect/use/edit/charset işaretleniyor; dosya sonunda kapanmamış tırnak da işaretleniyor. mysqldump tırnak dışında ters bölü üretmediği için gerçek dökümde yanlış pozitif yok. Yorum içi de taranıyor (ihtiyatlı: yorumunda ters bölü olan elle düzenlenmiş döküm işaretlenebilir; kabul edildi). BSD awk, mawk ve busybox ile aynı sonuç alındı (`\x` kaçışı yerine `-v sq="'"`). **Anlık görüntü** (scratch + canlı, öncesi/sonrası): hesap listesi, `CHECKSUM TABLE` mysql.user (plugin + authentication_string dahil, değer asla yazılmaz)/global_grants/db/tables_priv/columns_priv/procs_priv/proxies_priv/role_edges/default_roles/component, ROUTINES/EVENTS sayıları, `persisted_variables` SHA-256 özeti (ilk 16 hane). Farkta yalnız değişen öğenin adı yazılıyor (`sec_check`). **Kalan (P13b, site dışı yedekten önce zorunlu):** manifest imzası (`ssh-keygen -Y sign`/minisign), tablo içeriği için `CHECKSUM TABLE` tam karşılaştırması, yüklemenin `migrator` ile yapılması (dba). Runbook §18.4 |
+| S-P13a-3 (düz veri artığı) | `backup.sh` akış biçiminde çalışıyor: `mysqldump → dump_tee_meta (awk, akışı değiştirmeden sayım/son satır/tetikleyici adları) → gzip → tee(FIFO: sha256, boyut[, uploads özeti]) → age`. Düz döküm/arşiv diske hiç yazılmıyor; `.partial`'da yalnız sayılar ve özetler duruyor. `restore.sh` çözülmüş dosyaları `/dev/shm`'e yazıyor (manifestteki düz boyut + %10 boş alan kontrolü). `/dev/shm` yoksa (macOS) veya yer yetmiyorsa açık hata veriyor; bilinçli seçim `--work-dir` ile |
+| S-P13a-4 (tetikleyici kaybı) | DB'deki tetikleyici sayısı `BACKUP_EXPECTED_TRIGGERS` (vars. 3) değilse `FAILED adım=tetikleyici` (OnFailure alarmı). Tetikleyici adları manifeste yazılıyor (`triggerNames`). `check-app-grants.sh`'teki "backup DROP TRIGGER yapabilir (kabul edilen risk)" yorumu dba'ya bırakıldı |
+| S-P13a-6 (ortam doğrulaması) | `--target staging` için `--confirm <db>@<hostname -s>` (staging `remote@develop`) ve compose projesi `RESTORE_EXPECT_PROJECT` (vars. `remote`) zorunlu. `--target production` açık bir hatayla reddediliyor (P13b'de ayrı bayrak + ayrı onay) |
+| S-P13a-7 (backup.env) | Dosya varsa sahibi root (uid 0) ve izni tam 600/400 değilse okunmuyor: normal modda `FAILED adım=önkoşul`, `--alert` modunda `BACKUP_ALERT_CMD` **çalıştırılmıyor** (yalnız journal satırı) |
+
+**Doğrulama (güvenlik düzeltmeleri sonrası, 2026-11-14):** shellcheck temiz, `bash -n` OK. Yerel uçtan uca prova Linux root konteynerinde (dind kullanılmadı; compose `rsp13ae2e`, sonra `down -v` ve imajlar silindi) yapıldı. AC-88 `/ready` 20 sn; yedek OK; scratch `restore-verify: OK` (7 sn); `--target staging` OK (kesinti 13 sn). Tüm olumsuz senaryolar beklendiği gibi FAIL verdi ya da durdu. Ayrıntı runbook §2 ve §18.4 prova kaydında.
+
+### Güvenlik turu 2 (backend-dev, 2026-11-14) — S-P13a-8
+Kaynak: `docs/guvenlik-raporu.md` (kod turu 2, S-P13a-8 [Orta]).
+- **Sorun:** dosya aktarım audit kayıtları (`file.transfer`, `file.transfer.sender_report`, `file.meta.rejected_by_db`) dosya adı ve sha256'yı 730 gün tutuyordu. Bu iki alan `session_files`'ta da var ve saklama işiyle siliniyor; audit'te kalmaları anonimleştirmeyi boşa çıkarıyordu.
+- **Düzeltme (`apps/server/src/signaling/collab.ts`):** üç kayıt da artık `{sessionId, direction, ext, sizeBytes, result}` yazıyor.
+  - `ext` = `fileExtOf(temizlenmiş ad)`: son noktadan sonrası, ASCII harf/rakam, 1–10 karakter, küçük harf; adın başındaki nokta uzantı sayılmıyor; uymazsa null.
+  - Ad ve sha256 artık audit'e yazılmıyor.
+  - Kullanılmayan `FILE_NAME_DB_REJECTED` yer tutucusu kaldırıldı.
+- **Ekranlara etkisi:**
+  - Zaman çizelgesi dosya olaylarını göstermiyor (`TIMELINE_DETAIL_KEYS`'te yok).
+  - Geçmiş detayındaki dosya listesi `session_files`'tan geliyor; anonim oturumda zaten boş.
+  - Audit ekranı `newValue`'yu genel JSON olarak gösteriyor; sunucu `audit/view.ts` bu alanlara özel izdüşüm yapmıyor.
+  - Eski kayıtlarda ad ve sha256 730 gün görünmeye devam eder (tetikleyici UPDATE'e izin vermez; P13a öncesi yalnız staging).
+- **Frontend etkisi:** yok. Sözleşme tipi değişmedi. Audit detayında yeni kayıtlar `fileName`/`sha256` yerine `ext` gösterir.
+- **Testler:**
+  - Yeni birim testi `test/unit/file-names.test.ts` "S-P13a-8" (10 vaka).
+  - `signaling-collab-p5.test.ts`: `file.transfer` ve `sender_report` audit değerleri; ad ve sha256 yok.
+  - `signaling-collab-p5-dbcheck.test.ts`: `rejected_by_db` audit'inde ad ve sha256 yok, `ext` null.
+- **Sonuç:** lint ve typecheck temiz; server birim testleri 350/350; temiz DB'de `test:int` **529/529** (53 dosya). `rs-mysql-p13b` silindi.
+
+**Doğrulama (güvenlik kod turu 2, 2026-11-14):** shellcheck temiz. Olumsuz testler Linux root konteynerinde koşuldu (compose `rsp13asec`, dind yok; sonra `down -v`, imajlar silindi). Meşru ters bölülü veride sonuç OK. Satır içi `\!`/`\.`/`pager`, `CREATE USER`, db yetkisi, dinamik yetki, `ALTER USER`, `SET PERSIST`, `INSTALL COMPONENT` ve `CREATE PROCEDURE` içeren sahte yedeklerin hepsi FAIL verdi; değişen öğe adıyla gösterildi (runbook §18.4 prova kaydı).

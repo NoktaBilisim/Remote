@@ -42,6 +42,13 @@ describe("P5 file.meta", () => {
       [rows[0]?.id, "customer", "success"],
       [rows[1]?.id, fx.user.email, "fail"],
     ]);
+    // S-P13a-8: ad ve sha256 yalnız session_files'ta (saklama işiyle silinir); audit'te uzantı + boyut + yön
+    expect(audits.map((a) => a.newValue)).toEqual([
+      { sessionId: fx.session.id, direction: "TO_CUSTOMER", ext: "pdf", sizeBytes: "2048", result: "OK" },
+      { sessionId: fx.session.id, direction: "TO_TECH", ext: "zip", sizeBytes: "2048", result: "CORRUPT" },
+    ]);
+    const text = JSON.stringify(audits.map((a) => a.newValue));
+    for (const raw of ["rapor", "log.zip", SHA]) expect(text).not.toContain(raw);
   });
 
   it("AC-117: kötü ad sunucuda temizlenir (yol, RTLO, ayrılmış ad) — DB CHECK ihlali olmaz", async () => {
@@ -175,7 +182,8 @@ describe("P5 file.meta", () => {
     expect(await files(fx.session.id)).toHaveLength(0);
     const a = await testDb().auditLog.findMany({ where: { tenantId: fx.tenant.id, action: "file.transfer.sender_report" } });
     expect(a.map((x) => [x.username, x.entity, x.entityId, x.result, x.newValue])).toEqual([
-      ["customer", "support_sessions", fx.session.id, "success", { sessionId: fx.session.id, direction: "TO_TECH", fileName: "log.zip", sizeBytes: "4096", sha256: SHA, result: "OK" }],
+      // S-P13a-8: audit'te dosya adı ve sha256 yok; yalnız uzantı
+      ["customer", "support_sessions", fx.session.id, "success", { sessionId: fx.session.id, direction: "TO_TECH", ext: "zip", sizeBytes: "4096", result: "OK" }],
     ]);
   });
 

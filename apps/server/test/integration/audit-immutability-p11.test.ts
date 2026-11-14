@@ -59,6 +59,7 @@ describe("P11 audit_logs tetikleyicileri (mimari §3.3)", () => {
       "SELECT TRIGGER_NAME n, EVENT_MANIPULATION e, ACTION_TIMING t, DEFINER d FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA = DATABASE() AND EVENT_OBJECT_TABLE = 'audit_logs' ORDER BY n",
     );
     expect(rows).toEqual([
+      { n: "audit_logs_force_created_at", e: "INSERT", t: "BEFORE", d: "migrator@%" }, // P13a (K-P13-4)
       { n: "audit_logs_no_update", e: "UPDATE", t: "BEFORE", d: "migrator@%" },
       { n: "audit_logs_retention_only_delete", e: "DELETE", t: "BEFORE", d: "migrator@%" },
     ]);
@@ -96,12 +97,13 @@ describe("P11 audit_logs tetikleyicileri (mimari §3.3)", () => {
     await expect(migrator().$executeRawUnsafe("DELETE FROM audit_logs WHERE id = ?", id)).resolves.toBe(1);
   });
 
-  it("AC-123: app kullanıcısı UPDATE/DELETE yapamaz, tetikleyiciyi düşüremez/değiştiremez, tabloyu değiştiremez", async () => {
+  it("AC-123: app kullanıcısı UPDATE yapamaz, tetikleyiciyi düşüremez/değiştiremez, tabloyu değiştiremez", async () => {
     const old = await auditRow(800);
     const denied = [
       `UPDATE audit_logs SET result = 'fail' WHERE id = ${old}`,
-      `DELETE FROM audit_logs WHERE id = ${old}`, // 730+ gün olsa da: DELETE yetkisi P13'e kadar yok
+      // P13a: DELETE yetkisi var (retention, AC-198); 730 gün sınırı tetikleyicide → retention-p13a.test.ts
       "DROP TRIGGER audit_logs_no_update",
+      "DROP TRIGGER audit_logs_force_created_at",
       "DROP TRIGGER audit_logs_retention_only_delete",
       "CREATE TRIGGER audit_logs_p11_x BEFORE DELETE ON audit_logs FOR EACH ROW SET @x = 1",
       "ALTER TABLE audit_logs ADD COLUMN x INT",
@@ -116,7 +118,7 @@ describe("P11 audit_logs tetikleyicileri (mimari §3.3)", () => {
     const seen = await app().$queryRawUnsafe<unknown[]>("SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA = DATABASE()");
     expect(seen).toHaveLength(0);
     const still = await migrator().$queryRawUnsafe<{ c: bigint }[]>("SELECT COUNT(*) c FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA = DATABASE() AND EVENT_OBJECT_TABLE = 'audit_logs'");
-    expect(Number(still[0]?.c)).toBe(2);
+    expect(Number(still[0]?.c)).toBe(3); // P11 iki + P13a audit_logs_force_created_at
     // INSERT/SELECT sürer
     await inRolledBackTx(app(), async (tx) => {
       await expect(tx.$executeRawUnsafe("INSERT INTO audit_logs (action, entity, result) VALUES ('p11.test', 'audit_logs', 'success')")).resolves.toBe(1);

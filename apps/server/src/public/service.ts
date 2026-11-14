@@ -73,7 +73,8 @@ export async function joinPublicSession(
     entity: "support_sessions",
     entityId: row.id,
     result: "success",
-    newValue: { guestId: g.guestId, name: input.customerName, guestKind: nonce.kind, consentTextId: consent.textId, consentVersion: String(consent.version) },
+    // S-P13a-1: ad audit'e yazılmaz (oturum satırında; saklama işiyle silinir). Zaman çizelgesi adı oturumdan alır.
+    newValue: { guestId: g.guestId, guestKind: nonce.kind, consentTextId: consent.textId, consentVersion: String(consent.version) },
   });
   return { wsTicket: g.wsTicket, admitCode: g.admitCode, technicianName: row.technician.fullName };
 }

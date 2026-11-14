@@ -1,7 +1,7 @@
 // P11 audit ekranı (AC-76, AC-124, AC-69; G-15/G-16; B-P10 SMTP koşulu). Gerçek MySQL; her test benzersiz action öneki.
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createTenant, createUser, loginAs, makeApp, testDb, type Session, type TestUser } from "../helpers/app.ts";
+import { createTenant, createUser, loginAs, makeApp, testDb, testFixtureDb, type Session, type TestUser } from "../helpers/app.ts";
 import { newId } from "../../src/lib/ids.ts";
 
 let app: FastifyInstance;
@@ -25,11 +25,12 @@ beforeAll(async () => {
   sAdminA = await loginAs(app, adminA);
   sSuper = await loginAs(app, superAdmin);
 });
-afterAll(() => app.close());
+afterAll(async () => { await app.close(); await testFixtureDb().$disconnect(); });
 
 type Row = { tenantId?: string | null; userId?: string | null; username?: string | null; action: string; result?: string; newValue?: object; oldValue?: object; createdAt?: Date };
 async function insert(r: Row): Promise<string> {
-  const row = await testDb().auditLog.create({
+  // P13a: app'in created_at'i DB saatine zorlanır → geçmiş tarihli fikstür migrator bağlantısıyla.
+  const row = await (r.createdAt ? testFixtureDb() : testDb()).auditLog.create({
     data: { tenantId: r.tenantId ?? null, userId: r.userId ?? null, username: r.username ?? null, action: r.action, entity: "p11_test", result: r.result ?? "success", ...(r.newValue ? { newValue: r.newValue } : {}), ...(r.oldValue ? { oldValue: r.oldValue } : {}), ipAddress: "203.0.113.5", userAgent: "vitest", ...(r.createdAt ? { createdAt: r.createdAt } : {}) },
     select: { id: true },
   });

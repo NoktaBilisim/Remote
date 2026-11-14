@@ -230,6 +230,12 @@ export interface SessionListItem extends SessionView {
   waitSec: number | null;
   /** P8c (AC-179): müşteri firma; müşterisiz oturumda null (UI boş gösterir, "Genel" değil). */
   customerFirm: CustomerFirmRef | null;
+  /**
+   * P13a (AC-197): saklama işi oturumu anonimleştirdi (`anonymized_at IS NOT NULL`). true iken `customerName`,
+   * `customerEmail`, `note`, talep PII'si null; `files` boş; zaman çizelgesinde müşteri adı yok. Ticket no, süre, mod,
+   * kalite kalır. Düzenleme 409 `SESSION_ANONYMIZED`.
+   */
+  anonymized: boolean;
 }
 
 /** P8b (AC-158): geçmiş detayında "Destek talebi" bölümü. Anonimleştirilmiş talepte PII null. */
@@ -404,6 +410,10 @@ export const SESSION_CSV_COLUMNS = [
   "Bitiş nedeni",
   "Not",
 ] as const;
+/** P13a (AC-197): 409 `SESSION_ANONYMIZED` mesajı (mimari-p13 §3). */
+export const SESSION_ANONYMIZED_MESSAGE = "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.";
+/** P13a (AC-197): anonimleştirilmiş satırda "Müşteri" hücresine yazılan değer (sütun kümesi değişmez; Not boş). */
+export const SESSION_CSV_ANONYMIZED = "Anonimleştirildi";
 export const SESSION_CSV_TENANT_COLUMN = "Firma";
 
 /**
