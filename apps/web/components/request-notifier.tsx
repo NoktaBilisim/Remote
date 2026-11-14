@@ -1,7 +1,6 @@
 "use client";
 
 import { TriangleAlert } from "lucide-react";
-import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/api";
@@ -9,8 +8,9 @@ import { formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { GENERAL_CUSTOMER_LABEL } from "@remote/contracts/labels";
 import { parsePanelMessage, type PanelMessage } from "@/lib/requests/contract";
-import { panelBackoff, panelCloseAction, titleWithCount } from "@/lib/requests/panel-socket";
+import { panelBackoff, panelCloseAction } from "@/lib/requests/panel-socket";
 import { playChime, readSoundPref, writeSoundPref } from "@/lib/requests/sound";
+import { setTitlePart } from "@/lib/tab-title";
 
 /*
  * Anlık talep bildirimi (AC-149, mimari-protokol §5.3): /ws/panel (çerez + Origin; sorgu dizesi yok, istemciden mesaj yok).
@@ -70,7 +70,6 @@ export function useRequestNotifier() {
 /** Panel kabuğunda bir kez; yalnız uyarı bandını çizer (içerik sarmaz). */
 export function RequestNotifier({ enabled }: { enabled: boolean }) {
   const toast = useToast();
-  const pathname = usePathname();
   const { count } = useRequestNotifier();
   const [alertUntil, setAlertUntil] = useState<number | null>(null);
 
@@ -174,21 +173,13 @@ export function RequestNotifier({ enabled }: { enabled: boolean }) {
     return () => clearTimeout(id);
   }, [alertUntil]);
 
-  // Sekme başlığı: "(n) …". Konsol kendi okunmamış sohbet önekini kullanır (DESIGN §8) → orada dokunulmaz.
+  // Sekme başlığı "(n) …": tek yazıcı <TabTitle /> (P13b-L, mimari-lobi §6.6); burada yalnız sayı bildirilir.
+  // Konsol kuralı (önek yok) TabTitle'dadır.
   useEffect(() => {
-    if (!enabled || count === null || /\/console$/.test(pathname)) return;
-    const apply = () => {
-      const next = titleWithCount(document.title, count);
-      if (document.title !== next) document.title = next;
-    };
-    apply();
-    const obs = new MutationObserver(apply);
-    obs.observe(document.head, { subtree: true, childList: true, characterData: true });
-    return () => {
-      obs.disconnect();
-      document.title = titleWithCount(document.title, 0);
-    };
-  }, [enabled, count, pathname]);
+    if (!enabled) return;
+    setTitlePart("requests", count ?? 0);
+    return () => setTitlePart("requests", 0);
+  }, [enabled, count]);
 
   if (alertUntil === null) return null;
   return (

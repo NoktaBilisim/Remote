@@ -2,6 +2,7 @@
 // P3: resolve joinNonce/nonceExpiresAt, join, terminate. P4: resolve consentText + abuseEmail, join consentTextId zorunlu (G-24, AC-127).
 // P8: oturum geçmişi — liste filtreleri, SessionListItem, SessionHistoryDetail, PATCH, CSV (mimari-api "Oturum geçmişi (P8)").
 // P8c (mimari-api "Mevcut uçlara ekler"): POST /sessions `customerId`, `customerFirm` alanları, geçmiş müşteri firma filtresi + CSV.
+// P13b-L (mimari-lobi §4.3): lobi göstergesi — GET /sessions/waiting, SessionListItem.waitingGuests.
 import { z } from "zod";
 import type { CustomerFirmRef } from "./customers.ts";
 import { FILE_DIRECTIONS, FILE_RESULTS, qualitySummarySchema, type QualitySummary } from "../ws.ts";
@@ -236,6 +237,11 @@ export interface SessionListItem extends SessionView {
    * kalite kalır. Düzenleme 409 `SESSION_ANONYMIZED`.
    */
   anonymized: boolean;
+  /**
+   * P13b-L (AC-305): bekleme odasındaki (LOBBY) misafir sayısı, 0..LOBBY_GUEST_MAX. Sunucu belleğinden gelir;
+   * PENDING olmayan satırda 0. Yalnız sayı (AC-311).
+   */
+  waitingGuests: number;
 }
 
 /** P8b (AC-158): geçmiş detayında "Destek talebi" bölümü. Anonimleştirilmiş talepte PII null. */
@@ -338,7 +344,8 @@ export interface TimelineEvent {
 export const SESSION_HISTORY_LIST_MAX = 500;
 
 /** GET /sessions/:id/history ve PATCH /sessions/:id yanıtı (§3, AC-62). */
-export interface SessionHistoryDetail extends SessionListItem {
+/** Geçmiş detayı canlı lobi durumu taşımaz (mimari-lobi §4.2). */
+export interface SessionHistoryDetail extends Omit<SessionListItem, "waitingGuests"> {
   customerEmail: string | null;
   note: string | null;
   /** Yalnız endedBy=ADMIN iken dolu (sonlandıran yönetici). */
@@ -433,3 +440,29 @@ export interface SessionEmailResponse {
 }
 /** AC-10: teknisyen başına saatlik oturum bağlantısı e-postası üst sınırı (G-23). */
 export const SESSION_EMAIL_PER_HOUR = 20;
+
+// --- P13b-L: bekleme odası (lobi) göstergesi (mimari-lobi §4.3, ADR-0029; AC-304..315) ---
+
+/** Oda başına bekleme odası üst sınırı (AC-113); sunucu `signaling/types.ts` LOBBY_MAX bu değeri kullanır. */
+export const LOBBY_GUEST_MAX = 3;
+/** Web yoklama aralığı (V-L1). */
+export const LOBBY_POLL_MS = 10_000;
+/** GET /sessions/waiting kullanıcı başına dakikalık üst sınır (AC-314); 61. istek 429. */
+export const SESSIONS_WAITING_PER_MIN = 60;
+
+/**
+ * GET /sessions/waiting yanıtı: yalnız kendi PENDING oturumlarım (waiting ≥ 1), `id`'ye göre sıralı; `count` = Σ waiting.
+ * `arrivals` oda başına monoton artan LOBBY geliş sayacıdır (toast tekilleştirme, mimari-lobi §6.3). Strict: ad, e-posta
+ * gibi ek alan şema ihlalidir (AC-311).
+ */
+export const waitingSessionsResponseSchema = z.strictObject({
+  count: z.number().int().min(0),
+  sessions: z.array(
+    z.strictObject({
+      id: z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/),
+      waiting: z.number().int().min(1).max(LOBBY_GUEST_MAX),
+      arrivals: z.number().int().min(1),
+    }),
+  ),
+});
+export type WaitingSessionsResponse = z.infer<typeof waitingSessionsResponseSchema>;

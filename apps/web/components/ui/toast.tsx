@@ -73,7 +73,9 @@ export function ToastViewport({ root = false }: { root?: boolean }) {
   const active = root ? hosts.length === 0 : hosts[hosts.length - 1] === id;
   if (!active) return null;
   return (
+    // P13b-L (AC-307): role="status" — bölge zaten aria-live=polite; rol ekran okuyucuya durum bildirimi olduğunu söyler
     <section
+      role="status"
       aria-label={t("toast.region")}
       aria-live="polite"
       className="pointer-events-none fixed inset-x-4 bottom-4 z-[60] flex flex-col items-center gap-2 sm:inset-x-auto sm:right-6 sm:items-end"

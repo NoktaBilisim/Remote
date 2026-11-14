@@ -5,6 +5,36 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P13b-L (bekleme odası göstergesi; AC-304–315, ADR-0029)
+- **"Müşteri bekliyor (n)" rozeti:** Oturumlar listesinde bekleyen (PENDING) oturumun "Durum" hücresinde, bekleme
+  odasındaki müşteri sayısıyla birlikte (zil ikonu). Kendi oturumunuzda rozete tıklamak konsolu açar. Admin'in başka
+  teknisyene ait satırında ve firma seçmemiş Super Admin'de rozet yalnız bilgi verir, tıklanmaz.
+- **Menü sayacı:** Kenar menüdeki "Oturumlar" öğesinde, kendi oturumlarınızdaki bekleyen müşterilerin toplamı. Panelin
+  her sayfasında görünür, 0 iken gizlidir. `support_requests.view` yetkisine bağlı değildir; `sessions.view` yeter.
+- **Toast:** Yeni müşteri bekleme odasına girince "Bekleme odasında müşteri var" ve "Konsolu aç" eylemi (birden çok
+  oturumda "Bekleme odasında {n} müşteri var" + "Oturumlara git"). En az 15 sn ekranda kalır. Sayfa açılırken zaten bekleyen
+  müşteri ve o oturumun konsolundayken gelen müşteri için gösterilmez.
+- **Sekme başlığı:** Sekme arka plandayken başlık "({n}) Müşteri bekliyor — " ile başlar; talep sayacıyla birlikte
+  "(1) Müşteri bekliyor — (3) …" sırasıyla yazılır. Konsol sayfalarında uygulanmaz.
+- **API:** `GET /api/v1/sessions/waiting` (yalnız kendi oturumlarınız, bellekten, `no-store`, audit yok, 60/dk/kullanıcı,
+  firma seçmemiş Super Admin → 403). `GET /api/v1/sessions` ve `GET /api/v1/customers/:id/sessions` öğelerine
+  `waitingGuests` (0..3) alanı. `sessions.view` yetkisi olmayan kullanıcıda değer her zaman 0'dır.
+- Sözleşme: `LOBBY_GUEST_MAX`, `LOBBY_POLL_MS`, `SESSIONS_WAITING_PER_MIN`, `waitingSessionsResponseSchema`
+  (`@remote/contracts/api/sessions`).
+- Göstergeler 10 sn'de bir yenilenir. Yalnız sayı taşır, müşteri adı göstermez (KVKK veri en aza indirme). Hata olursa
+  son değer korunur, hata mesajı çıkmaz.
+- Migration, yeni yetki anahtarı, yeni ortam değişkeni ve yeni bağımlılık yok.
+
+### Değişti — P13b-L
+- `SessionHistoryDetail` artık `waitingGuests` taşımaz (geçmiş ayrıntısı canlı durum göstermez).
+- Destek talebi sekme başlığı sayacı lobi ön ekiyle aynı yazıcıdan üretilir; iki sayaç birbirini silmez.
+- Bildirim alanı (`ToastViewport`) `role="status"` taşır.
+
+### Düzeltildi
+- **Oturumlar, firma seçmemiş Super Admin** (`a71d80e`): "Yeni destek oturumu" düğmesi 403 "Önce bir firma seçin."
+  ile dönüyordu. Artık liste tüm firmaları göstermeye devam eder; oluştur, iptal et, sonlandır ve konsol eylemleri
+  gizlenir, yerine "üst menüden bir firma seçin" notu çıkar.
+
 ### Eklendi — P13b (prod açılışı; AC-23, 91, 126, 200 revize; AC-298–302)
 - **Prod adresi** `https://remote.noktabilisim.net` (Let's Encrypt, host nginx → Caddy `127.0.0.1:4451`); staging yığını yerinde
   terfi eder (ADR-0019), prod'da `CADDY_BIND=127.0.0.1`. Açılış sırası ve imzalı kontrol listesi runbook §20.

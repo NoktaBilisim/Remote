@@ -21,6 +21,8 @@ import {
   updateSessionInputSchema,
   sessionEmailInputSchema,
   type SessionEmailResponse,
+  SESSIONS_WAITING_PER_MIN,
+  type WaitingSessionsResponse,
 } from "@remote/contracts/api/sessions";
 import { emailSessionLink } from "./email.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -29,6 +31,7 @@ import { authOf, checkPublicClient, requireAnyPerm, requireAuth, requirePerm, te
 import { AppError, parseInput } from "../lib/errors.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import { exportHistoryCsv, getHistoryDetail, listHistorySessions, updateHistory } from "./history.ts";
+import { getWaitingSessions, withWaitingGuests } from "./lobby.ts";
 import { publicSessionStatus, resolvePublicSession } from "./public.ts";
 import { issueJoinNonce, joinPublicSession } from "../public/service.ts";
 import { cancelSession, createSupportSession, getSession, terminateSession } from "./service.ts";
@@ -64,7 +67,20 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
   app.get("", { preHandler: requireAnyPerm("sessions.view", "session_history.view") }, async (req, reply): Promise<SessionListResponse> => {
     const q = parseInput(listSessionsQuerySchema, req.query);
     void reply.header("Cache-Control", "no-store");
-    return listHistorySessions(app.db, authOf(req), q, customerSearchLimit);
+    return withWaitingGuests(await listHistorySessions(app.db, authOf(req), q, customerSearchLimit), app.rooms, authOf(req));
+  });
+
+  // P13b-L (mimari-lobi §4.1, AC-306/314): kendi bekleyen lobilerim; bellekten, audit yok. 60/dk/kullanıcı (61. istek 429).
+  // Statik yol `/:id`'den önce eşleşir. Sorgu dizesi yok sayılır.
+  const waitingLimit = new FixedWindowCounter(SESSIONS_WAITING_PER_MIN + 1, MIN_MS, MIN_MS);
+  app.addHook("onClose", async () => waitingLimit.close());
+  app.get("/waiting", { preHandler: requirePerm("sessions.view") }, async (req, reply): Promise<WaitingSessionsResponse> => {
+    const auth = authOf(req);
+    const { tenantId } = tenantScope(req);
+    const wait = waitingLimit.blockedFor(auth.user.id);
+    if (wait > 0 || waitingLimit.hit(auth.user.id)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
+    void reply.header("Cache-Control", "no-store");
+    return getWaitingSessions(app.rooms, auth, tenantId);
   });
 
   // AC-63, 124: 5/dk/kullanıcı (6. istek reddedilir). Statik yol `/:id`'den önce eşleşir (find-my-way).

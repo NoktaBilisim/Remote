@@ -1,6 +1,6 @@
 "use client";
 
-import type { SessionListResponse, SessionStatus, SessionView } from "@remote/contracts/api/sessions";
+import type { SessionListItem, SessionListResponse, SessionStatus } from "@remote/contracts/api/sessions";
 import { MonitorSmartphone, Plus, SearchX } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -21,7 +21,7 @@ const OPEN: readonly SessionStatus[] = ["PENDING", "ACTIVE"];
 const REFRESH_MS = 10_000;
 
 export function SessionsView(props: {
-  initial: SessionView[];
+  initial: SessionListItem[];
   fetchedAt: number;
   canCreate: boolean;
   canCancel: boolean;
@@ -39,8 +39,8 @@ export function SessionsView(props: {
   const [stale, setStale] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [creating, setCreating] = useState(false);
-  const [cancelTarget, setCancelTarget] = useState<SessionView | null>(null);
-  const [terminateTarget, setTerminateTarget] = useState<SessionView | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<SessionListItem | null>(null);
+  const [terminateTarget, setTerminateTarget] = useState<SessionListItem | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -140,6 +140,7 @@ export function SessionsView(props: {
             meId={props.meId}
             canTerminate={props.canTerminate}
             onTerminate={setTerminateTarget}
+            pickTenant={props.pickTenant}
           />
         )}
       </div>

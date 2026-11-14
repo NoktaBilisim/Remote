@@ -79,7 +79,7 @@ const waitSecOf = (r: { request: { createdAt: Date; acceptedAt: Date | null } | 
 export const firmOf = (c: { id: string; name: string; status: string } | null): CustomerFirmRef | null =>
   c ? { id: c.id, name: c.name, status: c.status as CustomerStatus } : null;
 
-export function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, viewerId: string): SessionListItem {
+export function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, viewerId: string): Omit<SessionListItem, "waitingGuests"> {
   return {
     ...toView(r, viewerId),
     mode: (r.mode as SessionMode | null) ?? null,
@@ -96,7 +96,7 @@ export function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, v
 }
 
 /** GET /sessions (AC-60, 61). Müşteri filtresi doluyken kullanıcı başına hız sınırı (S8-3; `%x%` taraması pahalı). */
-export async function listHistorySessions(db: Db, auth: AuthContext, q: ListSessionsQuery, customerLimit?: FixedWindowCounter): Promise<SessionListResponse> {
+export async function listHistorySessions(db: Db, auth: AuthContext, q: ListSessionsQuery, customerLimit?: FixedWindowCounter): Promise<Omit<SessionListResponse, "items"> & { items: Omit<SessionListItem, "waitingGuests">[] }> {
   if (q.customer !== undefined && customerLimit) {
     const wait = customerLimit.blockedFor(auth.user.id);
     if (wait > 0 || customerLimit.hit(auth.user.id)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });

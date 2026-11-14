@@ -35,6 +35,7 @@ import { requestDownloadUrl, requestFileName } from "../requests/ref.ts";
 import * as rrepo from "../requests/repo.ts";
 import { SYSTEM, SYSTEM_CTX, type RequestService } from "../requests/service.ts";
 import { toListItem } from "../sessions/history.ts";
+import { withWaitingGuests } from "../sessions/lobby.ts";
 import * as hrepo from "../sessions/history-repo.ts";
 import { historyScope } from "../sessions/service.ts";
 import * as repo from "./repo.ts";
@@ -216,12 +217,8 @@ export async function customerSessions(svc: RequestService, auth: AuthContext, t
   await assertExists(svc, tenantId, id);
   const scope = historyScope(auth); // tenantScope önce zorlandı → kind "tenant"
   const { rows, total } = await hrepo.listHistory(svc.d.db, scope, { customerFirm: id }, "createdAt:desc", { skip: (q.page - 1) * q.pageSize, take: q.pageSize });
-  return {
-    items: rows.map((r) => toListItem(r, scope, auth.user.id)),
-    page: q.page,
-    pageSize: q.pageSize,
-    total,
-  };
+  // P13b-L: SessionListItem.waitingGuests (S13L-1: sessions.view yoksa 0).
+  return withWaitingGuests({ items: rows.map((r) => toListItem(r, scope, auth.user.id)), page: q.page, pageSize: q.pageSize, total }, svc.d.rooms, auth);
 }
 
 // ------------------------------------------------------------------ yazma

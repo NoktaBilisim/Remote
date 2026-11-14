@@ -7,6 +7,9 @@ import { endRoom } from "./mock-ws.mjs";
 const BASE = process.env.MOCK_PUBLIC_BASE_URL ?? "http://localhost:3217";
 const ALL = ["sessions.view", "sessions.create", "sessions.delete"];
 const TECH = { id: "01JUSER0000000000000000009", name: "Mehmet Kaya" };
+// P13b-L: aynı firmada başka teknisyen (ADMIN / Super Admin listesinde görünür; lobi sayacına girmez)
+const OTHER_TECH = { id: "01JUSER0000000000000000010", name: "Zeynep Ak" };
+const LOBBY_TENANT = { id: "01JTENANT", name: "Demo Firma" };
 export const ulid = () => "01J" + randomBytes(16).toString("hex").toUpperCase().replace(/[ILOU]/g, "A").slice(0, 23);
 const token = () => randomBytes(32).toString("base64url");
 const code = () => String(10_000_000 + Math.floor(Math.random() * 89_999_999));
@@ -33,21 +36,81 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  */
 export function sessionUser(cookie) {
   if (!cookie?.startsWith("u-") || dead.has(cookie)) return null;
-  const admin = cookie.startsWith("u-admin-");
+  // P13b-L: u-lobadm-* ADMIN; u-sa-* firma seçmemiş Super Admin; u-sat-* firma seçmiş Super Admin
+  const sa = cookie.startsWith("u-sa-") || cookie.startsWith("u-sat-");
+  const admin = cookie.startsWith("u-admin-") || cookie.startsWith("u-lobadm-") || sa;
   return {
-    user: { id: TECH.id, email: "mehmet@ornek.com", fullName: TECH.name, role: admin ? "ADMIN" : "USER", mustChangePassword: false },
+    user: { id: TECH.id, email: "mehmet@ornek.com", fullName: TECH.name, role: sa ? "SUPER_ADMIN" : admin ? "ADMIN" : "USER", mustChangePassword: false },
     permissions: cookie.startsWith("u-noperm-") ? [] : admin ? [...ALL, "sessions.terminate"] : cookie.startsWith("u-p5-") ? [...ALL, "file_transfer.use"] : cookie.startsWith("u-p7-") ? [...ALL, "remote_control.use"] : ALL,
+    ...(sa ? { tenant: null, actingTenant: cookie.startsWith("u-sat-") ? LOBBY_TENANT : null } : {}),
   };
 }
 
-function newSession(status = "PENDING", minutesAgo = 0) {
+/*
+ * P13b-L lobi göstergesi (mimari-lobi §9.3). Bellekteki oda durumu taklidi: oturum → { waiting, arrivals }.
+ * Kanca: GET /__e2e/lobby/<oturum>?waiting=n&arrivals=m (sorgusuz → kayıt silinir = sunucu yeniden başladı, sayı 0).
+ * GET /__e2e/lobby-calls/<çerez> → { calls } waiting ucu çağrı sayısı.
+ * GET /__e2e/lobby-extra/<çerez>?id=&waiting=&arrivals= → listesi başka sahte modülde olan kullanıcı (ör. u-rqadm-*)
+ * için "kendi oturumu" lobi kaydı (talep + lobi başlık sırası testi).
+ * Senaryolar: u-lobbyfail-* (ilk waiting 200, sonrakiler 500), u-lobbyrate-* (ilk 200, sonrakiler 429 Retry-After: 30).
+ * u-noreq-* = varsayılan teknisyen (support_requests.view yok).
+ */
+const lobbyState = new Map();
+const lobbyCalls = new Map();
+const lobbyExtra = new Map(); // çerez → Map(id → { waiting, arrivals })
+export function lobbyHook(url) {
+  const m = url.match(/^\/__e2e\/lobby\/([0-9A-Z]{26})(?:\?(.*))?$/);
+  if (m) {
+    const q = new URLSearchParams(m[2] ?? "");
+    if (!q.has("waiting")) lobbyState.delete(m[1]);
+    else lobbyState.set(m[1], { waiting: Number(q.get("waiting")), arrivals: Number(q.get("arrivals") ?? q.get("waiting")) });
+    return { status: 200, body: {} };
+  }
+  const x = url.match(/^\/__e2e\/lobby-extra\/([^/?]+)\?(.*)$/);
+  if (x) {
+    const q = new URLSearchParams(x[2]);
+    const m2 = lobbyExtra.get(decodeURIComponent(x[1])) ?? new Map();
+    m2.set(q.get("id"), { waiting: Number(q.get("waiting")), arrivals: Number(q.get("arrivals") ?? q.get("waiting")) });
+    lobbyExtra.set(decodeURIComponent(x[1]), m2);
+    return { status: 200, body: {} };
+  }
+  const c = url.match(/^\/__e2e\/lobby-calls\/([^/?]+)$/);
+  if (c) return { status: 200, body: { calls: lobbyCalls.get(decodeURIComponent(c[1])) ?? 0 } };
+  return null;
+}
+const waitingOf = (v) => (v.status === "PENDING" ? (lobbyState.get(v.id)?.waiting ?? 0) : 0);
+
+/**
+ * GET /api/v1/sessions/waiting (mimari-lobi §4.1): `me` = /auth/me karşılığı (mock-api çözer; bilinmeyen sahte kullanıcı
+ * → boş yanıt). Yalnız kendi PENDING oturumlarım; firma seçmemiş Super Admin 403; no-store.
+ */
+export function handleLobby(res, { session, me, send, err }) {
+  const H = { "Cache-Control": "no-store" };
+  if (!session || dead.has(session)) return send(res, 401, err("UNAUTHENTICATED", "Oturum gerekli."), [], H);
+  lobbyCalls.set(session, (lobbyCalls.get(session) ?? 0) + 1);
+  if (!me) return send(res, 200, { count: 0, sessions: [] }, [], H);
+  if (!me.permissions.includes("sessions.view")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok."), [], H);
+  if (me.user.role === "SUPER_ADMIN" && !me.actingTenant) return send(res, 403, err("FORBIDDEN", "Önce bir firma seçin."), [], H);
+  const n = lobbyCalls.get(session);
+  if (session.startsWith("u-lobbyfail-") && n > 1) return send(res, 500, err("INTERNAL", "Sunucu hatası."), [], H);
+  if (session.startsWith("u-lobbyrate-") && n > 1) return send(res, 429, err("RATE_LIMITED", "Çok fazla istek."), [], { ...H, "Retry-After": "30" });
+  const sessions = (lists.get(session) ?? [])
+    .map((r) => r.view)
+    .filter((v) => v.technician.id === me.user.id && waitingOf(v) > 0)
+    .map((v) => ({ id: v.id, waiting: waitingOf(v), arrivals: lobbyState.get(v.id).arrivals }))
+    .concat([...(lobbyExtra.get(session) ?? new Map())].filter(([, e]) => e.waiting > 0).map(([id, e]) => ({ id, ...e })))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return send(res, 200, { count: sessions.reduce((a, s) => a + s.waiting, 0), sessions }, [], H);
+}
+
+function newSession(status = "PENDING", minutesAgo = 0, technician = TECH) {
   const t = token();
   const s = {
     id: ulid(),
     status,
     code: status === "PENDING" ? code() : null,
     techVerifyCode: String(1000 + Math.floor(Math.random() * 8999)),
-    technician: TECH,
+    technician,
     createdAt: iso(-minutesAgo * 60_000),
     expiresAt: iso((15 - minutesAgo) * 60_000),
     endedAt: status === "PENDING" || status === "ACTIVE" ? null : iso(0),
@@ -65,7 +128,14 @@ function listFor(cookie) {
   if (!lists.has(cookie)) {
     const seed = ["u-seed-", "u-admin-", "u-flaky-", "u-expire-"].some((p) => cookie.startsWith(p))
       ? [newSession("PENDING", 1), newSession("ACTIVE", 20), newSession("EXPIRED", 40), newSession("CANCELLED", 50)]
-      : [];
+      : // P13b-L: iki kendi PENDING oturumum + (ADMIN / Super Admin) başka teknisyenin PENDING oturumu
+        ["u-lob", "u-noreq-", "u-sa-", "u-sat-"].some((p) => cookie.startsWith(p))
+        ? [
+            newSession("PENDING", 2),
+            newSession("PENDING", 1),
+            ...(["u-lobadm-", "u-sa-", "u-sat-"].some((p) => cookie.startsWith(p)) ? [newSession("PENDING", 3, OTHER_TECH)] : []),
+          ]
+        : [];
     lists.set(cookie, seed);
   }
   return lists.get(cookie);
@@ -173,7 +243,7 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
     listCalls.set(session, n);
     if (session.startsWith("u-flaky-") && n > 1) return send(res, 500, err("INTERNAL", "Sunucu hatası.")), true;
     if (session.startsWith("u-slow-")) await sleep(SLOW_MS);
-    const items = list.map((r) => r.view).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const items = list.map((r) => ({ ...r.view, waitingGuests: waitingOf(r.view) })).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return send(res, 200, { items, page: 1, pageSize: Number(q.get("pageSize") ?? 25), total: items.length }), true;
   }
   const one = path.match(/^\/api\/v1\/sessions\/([0-9A-Z]{26})$/);

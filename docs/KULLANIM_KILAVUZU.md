@@ -6,7 +6,8 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Müşteri için:** Hızlı Destek uygulaması (Windows), "Destek iste" ile talep gönderme, bilgisayarın hatırlanması
   ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, ekran görüntüsü alınamazsa ne yapılır,
   bilgisayarda ne kalır (iz ve gizlilik)
-- **Teknisyen için:** Uzaktan kontrol (konsol), Oturum geçmişi, Destek talepleri, müşterinin ekranı gelmiyorsa
+- **Teknisyen için:** Oturumlar ve bekleme odası ("Müşteri bekliyor" rozeti, menü sayacı, bildirim), Uzaktan kontrol
+  (konsol), Oturum geçmişi, Destek talepleri, müşterinin ekranı gelmiyorsa
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, kayıtlı bilgisayarlar)
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
   kodları, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış; hesap menüsü, profil resmi ve tema; giriş
@@ -597,6 +598,80 @@ ve destek talebi bu sırada çalışmaya devam eder.
     Klasörü açmak için Windows tuşu + R'ye basın, `%LOCALAPPDATA%\NoktaDestek` yazıp Enter'a basın.
 - **Silmek için:** ana ekranda **Bu bilgisayarı unut**'a tıklayın; ayar dosyası, tanılama dosyası ve boş kalan klasör
   silinir. Kayıt yokken **Bilgilerimi unut** da aynı şekilde her şeyi siler.
+
+---
+
+## Teknisyen için: Oturumlar ve bekleme odası
+**Oturumlar** ekranı (menüde "Oturumlar") açtığınız destek oturumlarını listeler. Liste 10 saniyede bir kendiliğinden
+yenilenir; üstte "Son güncelleme" saati yazar. Müşteri bağlantıyı açıp adını yazdığında doğrudan ekranınıza gelmez,
+önce **bekleme odasına** düşer. Siz onu konsoldan kabul edene kadar bekler. Bu bölüm müşterinin beklediğini nasıl
+fark edeceğinizi ve onu nasıl kabul edeceğinizi anlatır.
+
+### Müşterinin beklediğini nereden anlarım?
+Müşteri bekleme odasına girdikten sonra en geç 10 saniye içinde dört yerde işaret görürsünüz:
+
+| Nerede | Ne görürsünüz |
+|---|---|
+| Oturumlar listesi | Oturumun "Durum" hücresinde, "Bekliyor" yazısının yanında zil simgeli **Müşteri bekliyor (n)** rozeti. n, o oturumda bekleyen müşteri sayısıdır (en çok 3) |
+| Kenar menü | **Oturumlar** öğesinin yanında sarı bir sayı: kendi oturumlarınızda bekleyen toplam müşteri. Panelin her sayfasında (Talepler, Müşteriler, Ayarlar, Profil, konsol) görünür. Kimse beklemiyorsa sayı görünmez |
+| Bildirim (ekranın altı; geniş ekranda sağ alt) | **Bekleme odasında müşteri var** ve **Konsolu aç** düğmesi. Birden çok oturumunuza aynı anda müşteri geldiyse "Bekleme odasında 2 müşteri var" ve **Oturumlara git** yazar |
+| Tarayıcı sekmesi | Başka bir sekmedeyseniz panel sekmesinin başlığı "(1) Müşteri bekliyor — " ile başlar. Sekmeye döndüğünüzde başlık eski haline gelir |
+
+- Bildirim yaklaşık 15 saniye ekranda kalır; çarpı (**Bildirimi kapat**) ile erken kapatabilirsiniz. Aynı müşteri için
+  bildirim bir kez çıkar.
+- Sayfayı yenilediğinizde zaten bekleyen müşteri için yeni bildirim çıkmaz; rozet ve menü sayısı yine görünür.
+- O oturumun konsolu zaten açıksa bildirim çıkmaz; müşteri konsoldaki "Bekleme odası" listesine düşer.
+- Destek taleplerinin sekme sayacı da açıksa ikisi birlikte yazar: önce "(1) Müşteri bekliyor — ", sonra talep sayısı.
+- Bu işaretler müşterinin adını göstermez, yalnız sayı gösterir. Ad yalnız konsoldaki bekleme odası listesinde görünür.
+  Ekranınızı paylaşırken ya da ortak bir ekranda çalışırken müşteri adı başkalarına görünmez.
+- Ses ve masaüstü (işletim sistemi) bildirimi yoktur.
+
+### Bekleyen müşteriyi nasıl kabul ederim?
+1. Konsola geçin. Üç yoldan biri yeter:
+   - bildirimdeki **Konsolu aç**,
+   - Oturumlar listesinde **Müşteri bekliyor (n)** rozetine tıklama (klavyede Tab ile rozete gelip Enter),
+   - satırdaki **Konsolu aç** düğmesi.
+2. Konsolda **Bekleme odası (n)** bölümünde bekleyen müşterileri görürsünüz: adı, bağlanma şekli ("Hızlı Destek
+   (Windows)" veya "Tarayıcı") ve ne kadar süredir beklediği.
+3. Müşteriden ekranındaki **4 haneli kabul kodunu** telefonda okumasını isteyin.
+4. Kodu **Kabul kodu** alanına yazın ve **Kabul et**'e tıklayın. Kod doğruysa müşteri bağlanır ve oturum "Aktif" olur.
+   Rozet ve menü sayısı en geç 10 saniye içinde kaybolur.
+5. Tanımadığınız ya da beklemediğiniz bir kişi varsa satırındaki **Reddet** ile onu çıkarın.
+
+Kurallar (değişmedi):
+- Bir oturumun bekleme odasında aynı anda en çok **3 müşteri** bekler.
+- Müşteri **5 dakika** içinde kabul edilmezse bekleme odasından düşer ("Bekleme süresi doldu"); rozet de kaybolur.
+- Kod yanlışsa "Kod eşleşmedi. n hatalı girişte daha bekleme odası boşaltılır." yazar. Kod 4 rakam olmalıdır.
+- Birden çok kişiyi reddettiyseniz "kod başkasına sızmış olabilir" uyarısı çıkar: oturumu iptal edip yenisini açın.
+
+### Rolünüze göre ne görürsünüz?
+| Rol | Liste rozeti | Menü sayısı, bildirim, sekme başlığı |
+|---|---|---|
+| Teknisyen (User) | Yalnız kendi oturumlarında; tıklanınca konsol açılır | Kendi oturumları |
+| Admin | Firmadaki bütün bekleyen oturumlarda. Başka teknisyenin satırında rozet yalnız bilgi verir, tıklanmaz | Yalnız kendi oturumları |
+| Super Admin, firma seçili | Admin gibi | Yalnız o firmadaki kendi oturumları |
+| Super Admin, firma seçili değil | Tüm firmaların satırlarında yalnız bilgi amaçlı (tıklanmaz) | Çalışmaz |
+
+Başka bir teknisyenin müşterisini yalnız o oturumun teknisyeni kabul edebilir; Admin ve Super Admin başkasının
+bekleme odasına giremez. Göstergeler için **Oturumlar** görüntüleme yetkisi yeter; "Talepler" yetkiniz olmasa da çalışır.
+
+### Super Admin: Oturumlar ekranında "bir firma seçin" notu
+Firma seçmeden **Oturumlar**'ı açarsanız liste tüm firmaların oturumlarını gösterir, ama işlem yapamazsınız:
+**Yeni destek oturumu**, iptal, zorla sonlandırma ve **Konsolu aç** düğmeleri görünmez. Yerine şu not çıkar: "Liste tüm
+firmaların oturumlarını gösterir. Yeni oturum açmak, iptal etmek veya sonlandırmak için üst menüden bir firma seçin."
+1. Üst menüdeki firma seçiciye (bina simgesi) tıklayın.
+2. Firmayı seçin. Düğmeler geri gelir; o firmadaki kendi oturumlarınız için menü sayısı ve bildirim de çalışmaya başlar.
+
+### Sık karşılaşılan durumlar (Oturumlar ve bekleme odası)
+| Durum | Ne yapmalı |
+|---|---|
+| Müşteri "bağlandım, bekliyorum" diyor ama ekranını göremiyorum | Müşteri bekleme odasındadır; siz kabul edene kadar görüntü gelmez. **Talepler** ekranına bakmayın: kod veya bağlantıyla gelen müşteri orada görünmez. Menüdeki **Oturumlar** sayısına ya da bildirime bakın, **Konsolu aç** ile konsola geçin ve müşterinin okuduğu kabul kodunu girin |
+| Menüde sayı var ama listede rozet göremiyorum | Liste filtresi "Bitmiş" olabilir; **Tümü** veya **Açık**'ı seçin. Rozet yalnız "Bekliyor" durumundaki satırlarda çıkar |
+| Rozet tıklanmıyor | Oturum size ait değildir (Admin), ya da Super Admin olarak firma seçmediniz. Firma seçin veya oturumun teknisyenine haber verin |
+| Rozet hâlâ görünüyor ama müşteri gitti | Göstergeler 10 saniyede bir yenilenir; biraz bekleyin. Müşteri vazgeçince ya da 5 dakika dolunca rozet kaybolur |
+| "Liste güncellenemedi; son bilinen durum gösteriliyor." | Bağlantı geçici olarak koptu. Sayılar son bilinen değerde kalır ve bağlantı gelince kendiliğinden düzelir |
+| Sunucu yeniden başladıktan sonra sayı 0 oldu | Beklenir: bekleme odası sunucu belleğinde tutulur ve yeniden başlatmada boşalır. Müşteriyle telefonda durumu teyit edin |
+| "Yeni destek oturumu" düğmesi yok (Super Admin) | Firma seçmediniz; üst menüden firma seçin |
 
 ---
 
@@ -1455,7 +1530,8 @@ Süper Yönetici içindir" uyarısı çıkar.
 - Üst menüde bina simgesiyle **etkin firma** görünür ("Firma seçilmedi" veya firma adı). Tıklayınca aktif firmalar listelenir
   (ilk 100; arama henüz yok). Bir firmaya tıklayınca o firmaya geçersiniz; **Firma bağlamından çık** ile çıkarsınız.
 - Firma seçiliyken Kullanıcılar, Talepler, Müşteriler ve Ayarlar o firmanın verisini gösterir. Seçili değilken bu
-  ekranlar "Firma seçin" der; Oturum geçmişi ise tüm firmaları gösterir.
+  ekranlar "Firma seçin" der; Oturum geçmişi ve Oturumlar ise tüm firmaları gösterir (Oturumlar'da işlem yapmak için
+  firma seçmek gerekir; bkz. "Teknisyen için: Oturumlar ve bekleme odası").
 - Her geçiş denetim kaydına yazılır. Mobilde seçici yalnız simge olarak görünür; işlem yapmadan önce doğru firmada
   olduğunuzu firma listesinden kontrol edin.
 

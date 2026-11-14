@@ -9,7 +9,7 @@ import { auditUser, handleAudit } from "./mock-audit.mjs";
 import { handleCustomers } from "./mock-customers.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleRequests, requestUser } from "./mock-requests.mjs";
-import { handleSessions, sessionUser } from "./mock-sessions.mjs";
+import { handleLobby, handleSessions, lobbyHook, sessionUser } from "./mock-sessions.mjs";
 import { handleUsers, usersUser } from "./mock-users.mjs";
 import { ageRoom, attachWs, revokeControl, strayGrant, wsLog } from "./mock-ws.mjs";
 
@@ -59,6 +59,24 @@ async function readJson(req) {
   }
 }
 
+/** /auth/me gövdesi (çekirdek sahte kullanıcılar); P10/P12 hesap/marka kullanıcıları kendi modüllerinde çözülür → null. */
+function resolveMe(session) {
+  const tenant = { id: "01JTENANT", name: "Demo Firma" };
+  const au = auditUser(session);
+  if (au) return { user: au.user, permissions: au.permissions, tenant: au.tenant, actingTenant: au.actingTenant };
+  const uu = usersUser(session);
+  if (uu) return { user: uu.user, permissions: uu.permissions, tenant: uu.tenant, actingTenant: uu.actingTenant };
+  const ru = requestUser(session);
+  if (ru) return { user: ru.user, permissions: ru.permissions, tenant: ru.tenant, actingTenant: ru.actingTenant };
+  const hu = historyUser(session);
+  if (hu) return { user: hu.user, permissions: hu.permissions, tenant: hu.tenant, actingTenant: hu.actingTenant };
+  const su = sessionUser(session);
+  if (su) return { tenant, ...su };
+  const user = users[session];
+  if (!user) return null;
+  return { user, permissions: ["sessions.view", "sessions.create", "sessions.delete"], tenant };
+}
+
 const srv = createServer(async (req, res) => {
   const c = cookies(req);
   const session = c[SESSION_COOKIE];
@@ -75,6 +93,11 @@ const srv = createServer(async (req, res) => {
   // TEST-P7-3: oda zaman damgalarını geçmişe çek (?ms=), 30 sn kurallarını beklemeden sınamak için
   const ageHit = req.method === "GET" && url.match(/^\/__e2e\/age\/([0-9A-Z]{26})\?ms=(\d+)$/);
   if (ageHit) return send(res, ageRoom(ageHit[1], Number(ageHit[2])) ? 200 : 404, {});
+  // P13b-L: lobi durumu kancası (/__e2e/lobby/<oturum>?waiting=&arrivals=, /__e2e/lobby-calls/<çerez>)
+  const lh = req.method === "GET" && lobbyHook(url);
+  if (lh) return send(res, lh.status, lh.body);
+  // P13b-L: panel geneli lobi sayacı ucu — tüm sahte kullanıcılar için (panel kabuğu her sayfada yoklar)
+  if (req.method === "GET" && url.split("?")[0] === "/api/v1/sessions/waiting") return handleLobby(res, { session, me: resolveMe(session), send, err });
   const csrfOk = req.headers[CSRF_HEADER.toLowerCase()] === CSRF && c[CSRF_COOKIE] === CSRF;
   // Backend gibi: durum değiştiren isteklerde Origin allowlist'te olmalı (ADR-0008)
   if (req.method !== "GET" && req.headers.origin !== (process.env.MOCK_ALLOWED_ORIGIN ?? "http://localhost:3217"))
@@ -104,20 +127,8 @@ const srv = createServer(async (req, res) => {
     const delay = Number(process.env.MOCK_ME_DELAY_MS ?? 0);
     if (delay > 0) await new Promise((r) => setTimeout(r, delay));
     if (session === "s-broken") return send(res, 503, err("INTERNAL", "Hazır değil"));
-    const tenant = { id: "01JTENANT", name: "Demo Firma" };
-    const au = auditUser(session);
-    if (au) return send(res, 200, { user: au.user, permissions: au.permissions, tenant: au.tenant, actingTenant: au.actingTenant });
-    const uu = usersUser(session);
-    if (uu) return send(res, 200, { user: uu.user, permissions: uu.permissions, tenant: uu.tenant, actingTenant: uu.actingTenant });
-    const ru = requestUser(session);
-    if (ru) return send(res, 200, { user: ru.user, permissions: ru.permissions, tenant: ru.tenant, actingTenant: ru.actingTenant });
-    const hu = historyUser(session);
-    if (hu) return send(res, 200, { user: hu.user, permissions: hu.permissions, tenant: hu.tenant, actingTenant: hu.actingTenant });
-    const su = sessionUser(session);
-    if (su) return send(res, 200, { ...su, tenant });
-    const user = users[session];
-    if (!user) return send(res, 401, err("UNAUTHENTICATED", "Oturum gerekli."));
-    return send(res, 200, { user, permissions: ["sessions.view", "sessions.create", "sessions.delete"], tenant });
+    const me = resolveMe(session);
+    return me ? send(res, 200, me) : send(res, 401, err("UNAUTHENTICATED", "Oturum gerekli."));
   }
 
   if (req.method === "POST" && url === "/api/v1/auth/password/change") {

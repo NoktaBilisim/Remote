@@ -3897,3 +3897,63 @@ Yok. Kapı ve fail-closed hesap kilidi, implementation notlarında anlatıldığ
 - Alarm logları PII içermiyor. 503 yanıtında Retry-After var, SQL/stack yok.
 
 Karar: Kritik/Yüksek 0 → **GEÇTİ**. S8b-7 ve S8b-8 (Düşük) `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmeli. S8b-8 en geç P8b-2'deki istemci yeniden deneme işiyle birlikte ele alınmalı.
+
+---
+
+## P13b-L — kod turu 1
+Tarih: 2026-11-15 · Kapsam: çalışma ağacındaki P13b-L değişiklikleri (commit edilmemiş). Kaynak: `docs/gereksinimler-lobi-gostergesi.md` (AC-304..316), `docs/mimari-lobi.md` §3–§5, ADR-0029.
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 / Bilgi 5
+
+### Tasarım vaadi → kod doğrulaması
+| Vaat (mimari-lobi §4.1/§5) | Kod | Sonuç |
+|---|---|---|
+| Guard sırası requireAuth → requirePerm(sessions.view) → tenantScope → hız sınırı → servis | `apps/server/src/sessions/routes.ts:51` (plugin `preHandler` requireAuth), `:77` requirePerm, `:79` tenantScope, `:80-81` sayaç | Var |
+| Tenant/teknisyen istemciden alınmaz | `sessions/lobby.ts` `getWaitingSessions(rooms, auth, tenantId)`; `signaling/rooms.ts:105-113` `room.tenantId === tenantId && room.technicianId === technicianId` | Var; sorgu dizesi hiç okunmuyor |
+| Firma seçmemiş Super Admin → 403 | `tenantScope(req)` (`routes.ts:79`); test "AC-310" | Var |
+| 60/dk/kullanıcı, 61. istek 429 + Retry-After | `routes.ts:75` `FixedWindowCounter(61, 60 sn, 60 sn)`, anahtar `user.id`; `lib/errors.ts:80` Retry-After | Var. Anahtar kimliği doğrulanmış kullanıcı kimliği: sahte anahtarla tablo şişirilemez; tablo zaten 50 000 kayıt üst sınırlı ve süpürülüyor |
+| `Cache-Control: no-store`, audit yok | `routes.ts:82`; test `audit_logs` öncesi = sonrası | Var |
+| Yanıt yalnız sayı + kendi oturum ULID'i (AC-311) | `waitingSessionsResponseSchema` `strictObject` (`packages/contracts/src/api/sessions.ts`); test gövdede ad/e-posta/IP/kod yok | Var |
+| Liste `waitingGuests` kapsamı = `historyScope` | `sessions/history.ts:101-104` (yalnız DB'nin zaten döndürdüğü satırlar için `waitingIn(id)`); `customers/service.ts:220` aynı `historyScope` | Var; başka tenant/teknisyen satırı yanıta yeni girmiyor |
+| Bellekten okuma, yarışsız | `rooms.ts:99-121` eşzamanlı (await yok) tek geçiş; `lobbyWaiting` ending/admitted/expiresAt süzgeci | Var; Node tek iş parçacığında okuma tutarlı, kilit gerekmez |
+| e2e kancaları üretime girmez | `/__e2e/lobby*` yalnız `apps/web/e2e/mock-api.mjs:97-100` + `e2e/mock-sessions.mjs`; `app/`, `components/`, `lib/`, `apps/server/src` içinde iz yok; web imajı yalnız `.next/standalone` + `static` + `public` kopyalıyor (`apps/web/Dockerfile:32-34`) | Var |
+| tenant-matrix sınıflandırması | `test/helpers/tenant-matrix.ts:54` `"scoped"`; izolasyon `sessions-lobby-p13bl.test.ts` AC-309/310 | Var |
+
+### Bulgular
+
+#### [DÜŞÜK] S13L-1 `waitingGuests` yalnız `session_history.view` ile de okunabiliyor (AC-314 "sessions.view yoksa 403" ile ifade farkı) — A01 Erişim Denetimi
+Yer: `apps/server/src/sessions/routes.ts:67-70` (`requireAnyPerm("sessions.view","session_history.view")` + `app.rooms`), `apps/server/src/customers/routes.ts:109` (`customers.view` + `session_history.view`) → `customers/service.ts:220`.
+Sorun: Yeni uç `sessions.view` istiyor, ama aynı canlı bilgi (PENDING satırda bekleyen misafir sayısı) mevcut liste uçlarına alan olarak eklendi. Bu uçlar `sessions.view` istemiyor. `sessions.view` kapalı, `session_history.view` açık bir ADMIN (historyScope tenant geneli) tenant'taki bütün PENDING oturumların lobi sayısını 10 sn aralıkla izleyebilir. USER'da kapsam kendi satırlarıyla sınırlı kalıyor.
+İstismar senaryosu: Tenant içi, düşük etkili bilgi. Yetkisi yalnız geçmiş görüntülemeye daraltılmış bir yönetici, teknisyenlerin o anda müşteri beklettiğini görebilir. Başka tenant'a ya da kişisel veriye (ad/IP/kod) sızıntı yok. Mimari §9.1 bunu bilerek kabul ediyor ("yalnız session_history.view olan kullanıcıda liste 200, uç 403").
+Düzeltme (seçenekler): (a) `toListItem` içinde `auth.permissions.has("sessions.view")` değilse `waitingGuests = 0` döndürmek. (b) Davranışı kabul edip AC-314 metnine "mevcut liste uçlarındaki `waitingGuests` alanı, listenin kendi yetkisine tabidir" diye not düşmek. Atanan ajan: backend-dev (a) ya da proje-yoneticisi (b). Gereksinimler §9'a "Sonra" olarak eklenmesi önerilir.
+
+#### [BİLGİ] S13L-2 Hız sınırı yetki/tenant reddinden sonra sayılıyor
+Yer: `routes.ts:77-81`. 403 yanıtları (yetki yok, firma seçilmemiş) sayaca girmiyor. Bu yollar bellek içi ve ucuz, kullanıcı kimliği doğrulanmış olmak zorunda. Mimari §4.1 sırasıyla uyumlu. İşlem gerekmiyor.
+
+#### [BİLGİ] S13L-3 Hata yanıtlarında (403/429) `no-store` yok
+Yer: `routes.ts:82` başlık yalnız başarı yolunda. 403 ve 429 sezgisel olarak önbelleğe alınabilen durum kodları değil, gövdede kişisel veri de yok. Risk yok. İsteğe bağlı olarak global hata işleyicisine `no-store` eklenebilir (backend-dev, Sonra).
+
+#### [BİLGİ] S13L-4 `arrivals` sayacı kendi lobisindeki geçmiş giriş sayısını açığa çıkarıyor
+Yer: `rooms.ts:183`. Monoton sayaç yalnız odanın kendi teknisyenine dönüyor ve kişi bilgisi taşımıyor (AC-311 ile uyumlu). Odanın ömrüyle sınırlı. İşlem gerekmiyor.
+
+#### [BİLGİ] S13L-5 Web tarafında enjeksiyon ve veri sızıntısı yüzeyi yok
+`lobby-notifier.tsx`, `waiting-badge.tsx`, `lib/tab-title.ts` ve `tab-title.tsx` yalnız sayıları React metin düğümüne ya da `document.title`'a yazıyor (`dangerouslySetInnerHTML` yok). Toast/rozet bağlantısındaki `id` şemada ULID regex'iyle doğrulanıyor (`/sessions/${id}/console`). Bu yüzden yol enjeksiyonu yapılamıyor. Konsol bağlantısı yalnız `technician.id === meId && !pickTenant` iken veriliyor (`session-list.tsx`). Bu yalnız UI kolaylığı: konsol ve kabul yetkisi sunucuda (G-04) değişmedi. Firma seçmemiş Super Admin'de notifier bağlanmıyor (`layout.tsx:41`). 403 gelirse yoklama duruyor (`lobby-notifier.tsx:104`).
+
+#### [BİLGİ] S13L-6 e2e kancaları kimlik doğrulamasız ama yalnız sahte sunucuda
+`/__e2e/lobby`, `/__e2e/lobby-calls`, `/__e2e/lobby-extra` yalnız `node e2e/mock-api.mjs` (playwright `webServer`, port 4217) içinde var. Üretim Next sunucusunda ve Fastify'da karşılığı yok. `e2e/` klasörü build bağlamına giriyor, ama standalone çıktı onu import etmediği için çalışma imajına girmiyor. İşlem gerekmiyor.
+
+### Otomatik doğrulama (bu tur)
+- `apps/server` entegrasyon + birim: `sessions-lobby-p13bl.test.ts`, `sessions-history-api-p8.test.ts`, `tenant-isolation.test.ts`, `lobby-count-p13bl.test.ts` → **4 dosya, 54 test geçti**. Ayrı geçici konteynerde koşuldu (`rs-mysql-test-guv-p13bl`, port 33391; bitince silindi).
+- AC-314 perf (test çıktısı): 100 oda/300 misafir, 1000 istek → p50 3.05 ms, **p95 15.98 ms** (hedef ≤ 100 ms).
+- Yeni bağımlılık yok. Migration, grant ve env değişikliği yok. Bu nedenle `pnpm audit` ve gizli bilgi taraması bu turda tekrarlanmadı.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+Yok.
+
+### Olumlu
+- Sahiplik süzmesi tek yerde (`Rooms.waitingFor`) ve tamamen `auth`'tan türetiliyor. Uçta IDOR yüzeyi yok, çünkü uç id parametresi almıyor.
+- Yanıt şeması `strictObject`: ileride yanlışlıkla eklenecek ad/e-posta alanı hem sunucu testinde hem web `safeParse`'ında yakalanır.
+- `SessionHistoryDetail` canlı alanı taşımıyor (`Omit`). Detay ve PATCH yollarına `rooms` bağımlılığı eklenmedi.
+- Hız sınırı mevcut sınırlı ve süpürülen `FixedWindowCounter` sınıfını kullanıyor. Kapanışta `onClose` ile temizleniyor.
+- Tek başlık yazıcısı (`TabTitle`), iki bildiricinin birbirinin önekini silmesini önlüyor.
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0). S13L-1 (Düşük) `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmeli ya da AC-314 metni netleştirilmeli.

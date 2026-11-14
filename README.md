@@ -350,6 +350,18 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 **Düzeltme — talepten doğan oturumda siyah ekran:** sunucu teknisyene ICE (TURN) listesini `peer.joined`'dan önce
 gönderir, konsol liste gelmeden teklif üretmez (`6701567`).
 
+**P13b-L — bekleme odası göstergesi (AC-304–315, ADR-0029)**
+- Oturumlar listesinde bekleyen oturumun satırında **"Müşteri bekliyor (n)"** rozeti; kendi oturumunuzda tıklanınca konsol açılır.
+- Kenar menüde "Oturumlar" öğesinde bekleyen müşteri sayacı (panelin her sayfasında), yeni gelişte "Bekleme odasında
+  müşteri var" bildirimi ve "Konsolu aç" eylemi, sekme arka plandayken başlıkta "({n}) Müşteri bekliyor — " ön eki.
+- Kaynak `GET /api/v1/sessions/waiting` (10 sn yoklama, bellekten, audit yok, 60/dk/kullanıcı) ve liste öğelerinde
+  `waitingGuests`. Yalnız `sessions.view` gerekir. Göstergeler yalnız sayı taşır, müşteri adı göstermez.
+- Migration, yeni yetki, yeni ortam değişkeni ve yeni bağımlılık yok. Lobi tek sunucu örneğinin belleğindedir; yeniden
+  başlatmada sayaç 0'a iner.
+
+**Düzeltme — firma seçmemiş Super Admin, Oturumlar:** oluştur/iptal/sonlandır/konsol eylemleri gizlenir, yerine üst
+menüden firma seçme notu çıkar; önceden "Yeni destek oturumu" 403 ile dönüyordu (`a71d80e`).
+
 API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
 Kullanım (müşteri, teknisyen, yönetici): [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
 Ürün föyü: [`docs/DATASHEET.md`](docs/DATASHEET.md).
@@ -381,6 +393,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P12b ✓ | Super Admin "WhatsApp servisi" sistem ayarı: servis adresi, kaynak rozeti, test mesajı |
 | P13a ✓ | Saklama işi (anonimleştirme, audit 730 g), şifreli yedek/geri yükleme, runbook senaryo dizini, kılavuz, datasheet, PDF'ler |
 | P13b (kod ✓, prod terfisi runbook §20) | Prod açılışı: `remote.noktabilisim.net`, TURN-TLS 5349 + LE sertifika kancası, imzalı yedek + site dışı kanca + audit süreklilik denetimi, `reset-superadmin` CLI, `remote-watch`, `proxy-guard`, WhatsApp servis anahtarı |
+| P13b-L (kod ✓, qa GEÇTİ, güvenlik Kritik/Yüksek 0; staging testi AC-316 bekliyor) | Bekleme odası göstergesi: liste rozeti, "Oturumlar" menü sayacı, bildirim, sekme başlığı, `GET /sessions/waiting` |
 | P13c | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu

@@ -172,7 +172,8 @@ test("loading: oturum oluşturulurken diyalogda iskelet (aria-busy), sonra kod",
   const creating = dlg.getByTestId("creating");
   await expect(creating).toBeVisible();
   await expect(creating).toHaveAttribute("aria-busy", "true");
-  await expect(dlg.getByRole("status")).toHaveText("Oturum oluşturuluyor…");
+  // P13b-L: diyaloğun toast bölgesi de role=status → oluşturma durumu metniyle seçilir
+  await expect(dlg.getByRole("status").filter({ hasText: "Oturum oluşturuluyor…" })).toHaveText("Oturum oluşturuluyor…");
   await expect(dlg.getByTestId("session-code")).toBeVisible();
   await expect(creating).toHaveCount(0);
 });

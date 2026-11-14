@@ -50,6 +50,8 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   // P8 oturum geçmişi (historyScope)
   "GET /api/v1/sessions/export.csv": "list",
   "GET /api/v1/sessions/:id/history": "tenant",
+  // P13b-L: kendi bekleyen lobilerim (tenantScope + auth'tan teknisyen); izolasyon sessions-lobby-p13bl.test.ts "AC-309/310"
+  "GET /api/v1/sessions/waiting": "scoped",
   "PATCH /api/v1/sessions/:id": "tenant",
   // P8b-1 destek talepleri
   "GET /api/v1/public/requests/tenant": "public",

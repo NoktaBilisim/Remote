@@ -116,6 +116,8 @@ describe("AC-60 liste filtreleri ve sayfalama", () => {
     expect(JSON.stringify(body)).not.toMatch(/customerEmail|"note"/); // listede e-posta/not yok
     const cancelled = body.items.find((i) => i.status === "CANCELLED");
     expect(cancelled).toMatchObject({ mode: null, startedAt: null, durationSec: null, customerName: null });
+    // P13b-L (AC-305): her öğede waitingGuests; PENDING olmayan satırlarda 0.
+    expect(body.items.every((i) => i.waitingGuests === 0)).toBe(true);
   });
 
   it("AC-60: tarih aralığı Europe/Istanbul günü (from dahil, to ertesi gün 00:00 hariç)", async () => {
@@ -298,6 +300,7 @@ describe("AC-62 detay", () => {
       endedBy: "ADMIN", endReason: "admin", terminatedBy: { id: admin.id, name: "Yönetici Ünal" }, timelineTruncated: false,
       quality: { connType: "relay", fps: { avg: 20, min: 10, max: 30 } },
     });
+    expect(d).not.toHaveProperty("waitingGuests"); // P13b-L §4.2: detay canlı lobi durumu taşımaz
     expect(d.files).toEqual([{ id: expect.any(String), direction: "TO_CUSTOMER", fileName: "rapor.pdf", sizeBytes: 5_000_000, sha256: "a".repeat(64), result: "OK", createdAt: expect.any(String) }]);
   });
 

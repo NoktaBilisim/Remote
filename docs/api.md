@@ -1,6 +1,6 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L)
 
-Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b, P13a ve P13b'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b, P13a, P13b ve P13b-L'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
@@ -25,6 +25,8 @@ P13a: `jobs/{retention,retention-repo,scheduler}.ts`, `sessions/{history,history
 api/sessions.ts,api/system-settings.ts,api/audit.ts}`. Özet: "Saklama ve anonimleştirme (P13a)" bölümü.
 P13b: `app.ts` (HSTS), `auth/{service,superadmin-reset}.ts`, `cli/reset-superadmin.ts`, `settings/{routes,system}.ts`,
 `notify/whatsapp.ts`, `env.ts`, `packages/contracts/src/{audit.ts,api/system-settings.ts,api/audit.ts}`.
+P13b-L: `sessions/{routes,lobby}.ts`, `signaling/{lobby-count,rooms,types}.ts`, `customers/service.ts`,
+`packages/contracts/src/api/sessions.ts` (`waitingSessionsResponseSchema`, `waitingGuests`). Özet: "GET /api/v1/sessions/waiting".
 
 ## Genel kurallar
 - Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres `PUBLIC_BASE_URL` (prod `https://remote.noktabilisim.net`;
@@ -109,7 +111,7 @@ stack, SQL veya iç ayrıntı içermez.
 | `INVALID_IMAGE` | 400 | P12: yüklenen dosya PNG/JPEG/WEBP değil (tür içerikten okunur; SVG, GIF, sahte uzantı reddedilir), bozuk, 24 MP'den büyük ("Yalnız PNG, JPG veya WEBP resim yükleyebilirsiniz.") ya da boyut/oran dışı ("Resim boyutları uygun değil: her kenar en az 16 px, en-boy oranı logoda en çok 20:1, profil resminde en çok 4:1 olmalı.") |
 | `PAYLOAD_TOO_LARGE` | 413 | P12: yüklenen dosya 2 MB'tan büyük ("Dosya en çok 2 MB olabilir.") |
 | `METHOD_NOT_ALLOWED` | 405 | P11: audit uçlarına POST/PUT/PATCH/DELETE (`Allow` başlığıyla); audit kayıtları salt okunurdur |
-| `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma; P11 audit CSV, MySQL testi, aydınlatma metni kaydı; P12 resim yükleme 20/sa/kullanıcı, resim işleme kuyruğu dolu, `/public/branding` 60/dk/IP; P13a sistem ayarı PUT/DELETE 10/dk/kullanıcı); `Retry-After` ile |
+| `RATE_LIMITED` | 429 | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma; P11 audit CSV, MySQL testi, aydınlatma metni kaydı; P12 resim yükleme 20/sa/kullanıcı, resim işleme kuyruğu dolu, `/public/branding` 60/dk/IP; P13a sistem ayarı PUT/DELETE 10/dk/kullanıcı; P13b-L `GET /sessions/waiting` 60/dk/kullanıcı); `Retry-After` ile |
 | `QUEUE_FULL` | 429 | P8b: firmada 50 bekleyen talep, ya da ≥ 40 iken bilinmeyen kaynak ("Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.") |
 | `INTERNAL` | 500 | Beklenmeyen hata |
 | `UPSTREAM` | 502 | P8b: WhatsApp test ucu — servis yapılandırılmamış veya production'da güvensiz adres. P10: SMTP yok ("Önce SMTP ayarlarını yapın") veya gönderim başarısız (tek genel mesaj "E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.") |
@@ -134,6 +136,7 @@ stack, SQL veya iç ayrıntı içermez.
 | POST | `/api/v1/users/:id/reset-mfa` (P10) | Oturum + CSRF, `users.edit` | 204 |
 | POST | `/api/v1/sessions` | Oturum + CSRF, `sessions.create` | 201 |
 | GET | `/api/v1/sessions` | Oturum, `sessions.view` **veya** `session_history.view` | 200 |
+| GET | `/api/v1/sessions/waiting` (P13b-L) | Oturum, `sessions.view`, firma bağlamı | 200 |
 | GET | `/api/v1/sessions/export.csv` (P8) | Oturum, `session_history.export` | 200 (CSV akışı) |
 | GET | `/api/v1/sessions/:id` | Oturum, `sessions.view` | 200 |
 | GET | `/api/v1/sessions/:id/history` (P8) | Oturum, `session_history.view` | 200 |
@@ -387,7 +390,8 @@ curl -sk 'https://localhost:4450/api/v1/sessions?from=2026-11-01&to=2026-11-11&s
                "createdAt": "2026-11-10T07:00:00.000Z", "expiresAt": "2026-11-10T07:15:00.000Z",
                "endedAt": "2026-11-10T07:42:10.000Z", "endedBy": "TECH", "endReason": "tech",
                "mode": "AGENT", "startedAt": "2026-11-10T07:03:00.000Z", "durationSec": 2350,
-               "customerName": "Ahmet Yılmaz", "ticketNo": "INC-1002", "tenant": null, "anonymized": false } ],
+               "customerName": "Ahmet Yılmaz", "ticketNo": "INC-1002", "tenant": null, "anonymized": false,
+               "waitingGuests": 0 } ],
   "page": 1, "pageSize": 25, "total": 1 }
 ```
 - `code` yalnız PENDING iken ve **yalnız oturumun kendi teknisyenine** döner; ADMIN ve Super Admin başka teknisyenin
@@ -398,8 +402,42 @@ curl -sk 'https://localhost:4450/api/v1/sessions?from=2026-11-01&to=2026-11-11&s
 - Listede müşteri e-postası ve not **yoktur**; bunlar ayrıntı ucundadır.
 - `anonymized` (P13a): oturum saklama süresi dolduğu için anonimleştirildiyse `true`; bu durumda `customerName` `null`
   döner (bkz. "Saklama ve anonimleştirme (P13a)").
+- `waitingGuests` (P13b-L): satırın bekleme odasındaki müşteri sayısı, 0..3. Yalnız `PENDING` satırda dolu olabilir,
+  diğer durumlarda 0. Değer sunucu belleğindeki lobiden gelir (DB'den ve audit'ten türetilmez); sunucu yeniden başlarsa 0'a
+  iner. Kullanıcıda `sessions.view` yoksa (yalnız `session_history.view`) her satırda 0 döner. Alan yalnız sayıdır; misafir
+  adı, e-postası veya IP'si yoktur. Aynı alan `GET /api/v1/customers/:id/sessions` öğelerinde de vardır.
+  `GET /sessions/:id/history` ve PATCH yanıtı (`SessionHistoryDetail`) bu alanı taşımaz.
 
 Hatalar: 400 `VALIDATION` (`fields` ile), 401, 403, 429 `RATE_LIMITED`.
+
+### GET /api/v1/sessions/waiting
+P13b-L (ADR-0029). Panel kabuğu bu ucu 10 sn'de bir yoklar; "Oturumlar" menü sayacı, toast ve sekme başlığı buradan
+beslenir. Girdi yok; sorgu dizesi yok sayılır. Yetki: oturum çerezi + `sessions.view` (`support_requests.view` gerekmez).
+Firma bağlamı zorunludur. Yanıt `Cache-Control: no-store`. Audit yazılmaz (salt okuma).
+
+Kapsam: rol ne olursa olsun (USER, ADMIN, firma seçmiş Super Admin) **yalnız kendi oturumlarınız** sayılır
+(`tenant_id` = seçili firma, `technician_id` = siz). Tenant ve teknisyen istemciden alınmaz, oturumdan türetilir.
+Bekleyen misafir = bekleme odasında olan, henüz kabul edilmemiş, reddedilmemiş, ayrılmamış ve süresi dolmamış misafir.
+Talepten doğan, ön-kabullü misafir sayılmaz.
+```bash
+curl -sk https://localhost:4450/api/v1/sessions/waiting \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF"
+```
+Yanıt 200 (`waitingSessionsResponseSchema`, strict):
+```json
+{ "count": 2, "sessions": [ { "id": "01K…", "waiting": 2, "arrivals": 3 } ] }
+```
+| Alan | Anlam |
+|---|---|
+| `count` | Bekleyen misafirlerin toplamı (Σ `waiting`) |
+| `sessions[].id` | Kendi oturumunuzun ULID'i ("Konsolu aç" hedefi) |
+| `sessions[].waiting` | O oturumda bekleyen misafir sayısı, 1..3. Bekleyeni olmayan oturum listede yer almaz |
+| `sessions[].arrivals` | O odaya bugüne kadar kaç misafirin bekleme odasına girdiği (yalnız artar). İstemci yeni geleni bununla anlar ve toast'ı bir kez gösterir |
+
+`sessions` `id`'ye göre sıralıdır. Kimse beklemiyorsa `{ "count": 0, "sessions": [] }` döner.
+
+Hatalar: 401 `UNAUTHENTICATED`; 403 `FORBIDDEN` (`sessions.view` yok veya Super Admin firma seçmedi: "Önce bir firma
+seçin."); 429 `RATE_LIMITED` + `Retry-After` (kullanıcı başına dakikada 60 istek serbest, 61. istekte 60 sn kilit).
 
 ### GET /api/v1/sessions/:id
 Yanıt: konsol özeti (`SessionView`, P2 şekli; P8 alanları yok). Kapsam listeyle aynıdır; `code` kuralı aynıdır.

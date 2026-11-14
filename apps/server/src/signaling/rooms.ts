@@ -85,6 +85,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     for (const r of this.rooms.values()) if (r.admitted && !r.ending) n++;
     return n;
   }
+  values(): IterableIterator<Room> { return this.rooms.values(); } // P13b-L salt okuma (lobby-count.ts)
   get(sessionId: string): Room | undefined {
     return this.rooms.get(sessionId);
   }
@@ -95,7 +96,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   private getOrCreate(row: RoomRow): Room {
     let room = this.rooms.get(row.id);
     if (!room) {
-      room = { sessionId: row.id, tenantId: row.tenantId, technicianId: row.technicianId, technicianName: row.technician.fullName, expiresAt: row.expiresAt.getTime(), lobby: new Map(), admitting: false, admitFails: 0, rejectedIps: new Set(), caps: [], fileMeta: { quotas: new Map(), auditAt: new Map() }, control: newControl(), timers: {}, ending: false };
+      room = { sessionId: row.id, tenantId: row.tenantId, technicianId: row.technicianId, technicianName: row.technician.fullName, expiresAt: row.expiresAt.getTime(), lobby: new Map(), admitting: false, admitFails: 0, rejectedIps: new Set(), caps: [], fileMeta: { quotas: new Map(), auditAt: new Map() }, control: newControl(), timers: {}, ending: false, lobbyArrivals: 0 };
       this.rooms.set(row.id, room);
     }
     return room;
@@ -153,6 +154,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   attachGuest(room: Room, guest: Guest, peer: Peer): void {
     this.clock.clearTimeout(guest.timer);
     guest.state = "LOBBY";
+    room.lobbyArrivals++; // P13b-L: monoton geliş sayacı (signaling/lobby-count.ts)
     guest.peer = peer;
     guest.since = this.clock.now();
     const expiresAt = guest.since + this.timing.lobbyMs;

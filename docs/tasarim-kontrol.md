@@ -515,3 +515,28 @@ P14a/P14b için her madde karara bağlandı; P15+ maddeleri "Sonra (paket turu)"
 | 9. Riskler / açık sorular | Kapsamda: R25–R33; K-E11-1, 4, 5, 6 kullanıcı kararıyla kapandı; 2, 3 varsayılanlı | §14 | — |
 | 9. DoD | Kapsamda: paket başı kabul ölçütleri (§4.6, §5.2) + ortak DoD | §4.6, §5.2 | — |
 | 9. Dokümantasyon | Kapsamda: runbook §21, alarm eşikleri, kılavuz (step-up, 409 mesajı), api.md ITSM örneği P25 | AC-288 | her paket |
+
+## P13b-L — Lobi göstergesi (2026-11-15, `docs/mimari-lobi.md`, ADR-0029)
+Kontrol listesi baştan gezildi; değişmeyen maddeler ana karardaki gibi kalır, yalnız bu işe dokunanlar yazıldı.
+| Madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| 1. Yetki / IDOR | Kapsamda: `sessions.view` (yeni anahtar yok); tenant + teknisyen `auth`'tan, süzme `Rooms.waitingFor`'da; istemciden filtre alınmaz; firma seçmemiş Super Admin 403 | §5, AC-309/310 | P13b-L |
+| 1. Oturum yönetimi | Değişmez: çerez + `requireAuth`; 401'de giriş ekranına | §6.2 | P13b-L |
+| 2. Veri modeli / migration | Kapsam dışı: DB değişmez; yalnız bellek alanı `Room.lobbyArrivals` | §3 | — |
+| 2. Multi-tenant izolasyon | Kapsamda: çapraz tenant/teknisyen entegrasyon testi | §9.1 | P13b-L |
+| 2. Audit | Kapsam dışı: salt okuma ucu audit yazmaz (AC-314); lobi olaylarının audit'i (`guest.*`) değişmez | §4.1 | — |
+| 3. API sözleşmesi / sürümleme | Kapsamda: yeni `GET /sessions/waiting` + liste alanı eklemeli (geriye uyumlu); zod strict yanıt şeması | §4 | P13b-L |
+| 3. Hız sınırı | Kapsamda: 60/dk/kullanıcı, 429 + Retry-After | §4.1 | P13b-L |
+| 3. Gerçek zamanlılık | Kapsamda: 10 sn REST yoklama; `/ws/panel` genişletmesi genişleme noktası olarak Sonra | ADR-0029 | P13b-L / Sonra |
+| 4. Hassas veri / KVKK | Kapsamda: yalnız sayı + kendi oturum id; ad yalnız konsolda (AC-311) | §5, K-L2 | P13b-L |
+| 4. Önbellek başlıkları | Kapsamda: `no-store` | §4.1 | P13b-L |
+| 5. UI durumları | Kapsamda: 0 → gizli, hata → son değer (sessiz), yükleniyor → gösterge yok (temel çizgi) | §6.2 | P13b-L |
+| 5. Erişilebilirlik / tema / mobil / animasyon | Kapsamda: metin + ikon, `aria-live` değişince, warning token (iki tema ≥ 4.5:1), 360 px, opacity/scale ≤ 200 ms, reduced-motion | §6.4–6.7 | P13b-L |
+| 5. Bildirim kanalları | Kapsamda: toast + sekme başlığı. OS bildirimi/ses Sonra (L-S1); WA/e-posta/SMS kapsam dışı | gereksinim §3 | — |
+| 6. Performans | Kapsamda: bellek O(oda), p95 ≤ 100 ms ölçümü; indeks gerekmez | §7 | P13b-L |
+| 6. Ölçek | Sonra: çok instance'ta paylaşımlı lobi (R-L1) | ADR-0005 | — |
+| 7. Config / env / metrik | Kapsam dışı: yeni env yok; metrik Sonra (S-L1); runbook tek satır | §8 | P13b-L |
+| 7. Rollback | Kapsamda: imaj geri dönüşü, şema farkı yok | §8 | — |
+| 8. Lisans / bağımlılık | Kapsam dışı: yeni bağımlılık yok | — | — |
+| 9. AC / riskler / DoD | Kapsamda: AC-304..316 eşlemesi §11; R-L6, R-L7 eklendi; K-L1..K-L4 proje-yoneticisine | §11–12 | — |
+| 9. Dokümantasyon | Kapsamda: mimari-api satırı, kılavuz, CHANGELOG | §10.3 | P13b-L |

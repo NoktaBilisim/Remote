@@ -1,6 +1,6 @@
 "use client";
 
-import type { SessionView } from "@remote/contracts/api/sessions";
+import type { SessionListItem } from "@remote/contracts/api/sessions";
 import { CircleX, Copy, Monitor, Power, Timer } from "lucide-react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/ui/badge";
@@ -9,16 +9,19 @@ import { useToast } from "@/components/ui/toast";
 import { formatRemaining, formatSessionCode, formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { copyText, useNow } from "@/lib/use-now";
+import { WaitingBadge } from "./waiting-badge";
 
 interface Props {
-  items: SessionView[];
+  items: SessionListItem[];
   showTechnician: boolean;
   canCancel: boolean;
-  onCancel: (s: SessionView) => void;
+  onCancel: (s: SessionListItem) => void;
   /** P4: konsol yalnız oturumun teknisyenine (AC-15); zorla sonlandırma sessions.terminate (AC-114). */
   meId: string;
   canTerminate: boolean;
-  onTerminate: (s: SessionView) => void;
+  onTerminate: (s: SessionListItem) => void;
+  /** Firma seçmemiş Super Admin: konsol bağlantısı yok, lobi rozeti bilgi amaçlı (AC-310). */
+  pickTenant?: boolean;
 }
 
 const dangerBtn =
@@ -27,11 +30,11 @@ const iconBtn =
   "inline-flex size-11 cursor-pointer items-center justify-center rounded-md text-fg-muted transition-transform duration-150 ease-out hover:bg-surface-muted hover:text-fg active:scale-[0.97]";
 
 /** Oturum listesi: ≥ md tablo, dar ekranda kart listesi (aynı veri, aynı eylemler). */
-export function SessionList({ items, showTechnician, canCancel, onCancel, meId, canTerminate, onTerminate }: Props) {
+export function SessionList({ items, showTechnician, canCancel, onCancel, meId, canTerminate, onTerminate, pickTenant = false }: Props) {
   const now = useNow();
   const toast = useToast();
 
-  const remaining = (s: SessionView) => {
+  const remaining = (s: SessionListItem) => {
     if (s.status !== "PENDING") return null;
     if (now === null) return "—";
     return t("s.left", { time: formatRemaining(Date.parse(s.expiresAt) - now) });
@@ -40,10 +43,11 @@ export function SessionList({ items, showTechnician, canCancel, onCancel, meId, 
     const ok = await copyText(code);
     toast(ok ? t("toast.copied") : t("toast.copyFailed"), ok ? "success" : "danger");
   };
-  const actions = (s: SessionView) => {
+  const actions = (s: SessionListItem) => {
     const pending = s.status === "PENDING" && (now === null || Date.parse(s.expiresAt) > now);
     const open = pending || s.status === "ACTIVE";
-    const mine = s.technician.id === meId;
+    // Firma seçmemiş Super Admin konsola giremez (tenantScope 403) → bağlantı yok (a71d80e, AC-310)
+    const mine = s.technician.id === meId && !pickTenant;
     const terminate = s.status === "ACTIVE" && canTerminate;
     if (!pending && !(open && mine) && !terminate) return null;
     const code = s.code ? formatSessionCode(s.code) : "";
@@ -72,7 +76,15 @@ export function SessionList({ items, showTechnician, canCancel, onCancel, meId, 
       </div>
     );
   };
-  const timeCell = (s: SessionView) => {
+  /**
+   * P13b-L (AC-304/305/309/310): PENDING satırda lobi rozeti yuvası (n = 0 iken görünmez, yer kaymaz). Bağlantı yalnız
+   * kendi oturumumda ve firma bağlamı varken ("Konsolu aç" ile aynı koşul, V-L7).
+   */
+  const waiting = (s: SessionListItem) =>
+    s.status === "PENDING" ? (
+      <WaitingBadge n={s.waitingGuests} href={s.technician.id === meId && !pickTenant ? `/sessions/${s.id}/console` : undefined} />
+    ) : null;
+  const timeCell = (s: SessionListItem) => {
     const r = remaining(s);
     return r ? (
       <span className="inline-flex items-center gap-1.5 tabular-nums text-fg">
@@ -101,7 +113,12 @@ export function SessionList({ items, showTechnician, canCancel, onCancel, meId, 
           <tbody className="divide-y divide-border">
             {items.map((s) => (
               <tr key={s.id} data-testid="session-row">
-                <td className="px-4 py-2"><StatusBadge status={s.status} /></td>
+                <td className="px-4 py-2">
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <StatusBadge status={s.status} />
+                    {waiting(s)}
+                  </div>
+                </td>
                 <td className="px-4 py-2">{s.code ? <CodeDisplay code={s.code} size="sm" /> : <span className="text-fg-muted">—</span>}</td>
                 {showTechnician && <td className="px-4 py-2 text-fg">{s.technician.name}</td>}
                 <td className="px-4 py-2 tabular-nums text-fg">{formatTime(s.createdAt)}</td>
@@ -122,6 +139,7 @@ export function SessionList({ items, showTechnician, canCancel, onCancel, meId, 
                 {t("s.col.created")}: {formatTime(s.createdAt)}
               </span>
             </div>
+            {s.status === "PENDING" && <div className="mt-1 flex">{waiting(s)}</div>}
             {(s.status === "PENDING" || s.status === "ACTIVE" || showTechnician) && (
               <div className="mt-2 flex items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-col gap-1 text-sm">

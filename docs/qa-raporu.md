@@ -174,3 +174,151 @@ Yeniden çalıştırılmayanlar: `deploy/ops/test-watch.sh`, `deploy/turn/test-c
 - Deploy ve kod ağacında altyapı IP'si kalmadı (README hariç); boş WhatsApp adresi fail-closed çalışıyor.
 - TURN credential önbelleği, yeniden bağlanmanın coturn `user-quota`'sını şişirmesini engelliyor ve testle sabitlenmiş.
 - Sertifika hook'u ve remote-watch'ta sembolik bağlantı, sahiplik ve izin denetimleri ile sır deseni reddi kapsamlı.
+
+---
+
+## P13b-L — Tur 1
+Tarih: 2026-11-15 · Kapsam: bekleme odası (lobi) göstergesi, AC-304..316 (`docs/gereksinimler-lobi-gostergesi.md`, `docs/mimari-lobi.md`, ADR-0029). Değişiklikler commit edilmemiş çalışma ağacında. Kod değiştirilmedi.
+
+DURUM: DÜZELTİLMELİ
+
+### Test sonucu
+| Komut | Sonuç |
+|---|---|
+| `pnpm -r run lint` | temiz (çıkış 0, uyarı yok) |
+| `pnpm -r run typecheck` | temiz (çıkış 0) |
+| `pnpm -r run test` (unit) | contracts 78/78, web **271/271** (27 dosya; yeni `lib/lobby/diff.test.ts` 10 test, `lib/tab-title.test.ts` 8 test), server **367/367** (yeni `lobby-count-p13bl.test.ts` 13 test). Skip yok |
+| `test-db.sh up` (konteyner `rs-p13bl-qa-93483`, port 34783) + `pnpm --filter @remote/server test:int` | **553/553** (55 dosya). Ardından `down`; konteyner silindiği doğrulandı |
+| AC-314 perf çıktısı | `GET /sessions/waiting 1000 istek, 100 oda/300 misafir: p50=5.60 ms p95=8.94 ms` (hedef ≤ 100 ms). test-operatoru `docs/test-raporu.md`'ye aktarır |
+| `pnpm --filter @remote/web e2e` (tam paket) | **329 geçti, 0 kaldı, 132 skip** (çıkış 0). `p13bl-lobby.spec.ts`: 14 test × 2 proje → 19 geçti, 9 skip. Skip'lerin tamamı `mobile` projesinde, `desktopOnly(...)` "masaüstü akışı" gerekçesiyle (mevcut desen). Mobilde koşanlar: AC-305, 306/312 (360 px), 312 (axe), 315 (×2) |
+
+### Kabul kriterleri
+| AC | Durum | Kanıt veya eksik |
+|---|---|---|
+| AC-304 | ✅ | e2e `AC-304/305/307/311: liste açıkken misafir gelir …`: gerçek misafir join, ardından tek yoklama turu (`clock.runFor(10_000)`) → "Müşteri bekliyor (1)" bağlantısı. Tık → `/sessions/:id/console`, `lobby-panel` `toBeInViewport` (1280×800). Kabul kodu girilince "Aktif". Sunucu: entegrasyon `AC-305/309: USER listesinde …` `waitingGuests` 1/3 |
+| AC-305 | ✅ | Unit `lobby-count-p13bl`: 0/1/3, TICKETED sayılmıyor; ayrılma, ret, 5 dk zaman aşımı, kabul (`admitted`), iptal (`closeSession`), `ending`, `expiresAt` geçmiş → 0; ön-kabullü misafir sayılmıyor. Entegrasyon: ret ve ADMIN iptali sonrası uç ve liste 0, ENDED satır 0; P8 liste testi her öğede `waitingGuests === 0`, detayda alan yok. e2e `AC-305: waiting 3 → (3); 0 → rozet kaybolur`: tek turda (≤ 10 sn), yuva kalıyor; ACTIVE/EXPIRED satırda yuva yok |
+| AC-306 | ✅ | e2e `AC-306/312` (`u-noreq`, Talepler menüsü yok): "/" sayfasında tek turda sayaç "1"; 0'da gizli; 360 px'te `toBeInViewport`; erişilebilir ad "1 müşteri bekleme odasında". Entegrasyon: `session_history.view` ile liste 200 alınıyor, uç 403; layout koşulu yalnız `sessions.view`. Konsolda sayaç: e2e `AC-306/307`. **Not:** AC'deki "menü düğmesinde işaret" maddesi için panelde açılır/kapanır menü düğmesi yok, menü yatay şerit (mimari K-L3). AC metni bununla uyumlu değil (madde 3) |
+| AC-307 | ✅ | Unit `diff.test.ts`: temel çizgi, tek/iki oturum, aynı misafir, çık-gir, gelip giden, restart, açık konsol. e2e `AC-307`: tek toast; ikinci turda yeni toast yok ve ilki 10 sn sonra hâlâ görünür (`durationMs` 15 000); yeniden yükleme → toast yok, sayaç var; 2 misafir → "Bekleme odasında 2 müşteri var" + "Oturumlara git" `/sessions`; bölge `role="status"`. Konsolda toast yok: e2e `AC-306/307` |
+| AC-308 | ✅ | Unit `tab-title.test.ts`: önek, 0'da eski başlık, lobi önce + talep sonra, idempotent, `/console` istisnası. e2e: gizli sekmede `(1) Müşteri bekliyor — (3) Talepler · …`, görünür olunca yalnız talep öneki; yalnız lobi senaryosu |
+| AC-309 | ✅ | Entegrasyon: USER-A/B/C yalnız kendi sayısını görüyor; ADMIN `count` 0 ama listede B'nin satırında 2; tenant-1 ADMIN listesinde tenant-2 oturumu yok; sorgu dizesiyle (`technicianId`, `tenantId`) süzme atlatılamıyor. Unit: `waitingFor` tenant + teknisyen süzmesi. e2e `AC-309`: başkasının satırında bağlantısız rozet, tek bağlantı, sayaç 1 |
+| AC-310 | ✅ | Entegrasyon: firma seçmemiş SA → 403 "Önce bir firma seçin."; liste `waitingGuests` döndürüyor; firma A'da kendi oturumu sayılıyor, B'de sayılmıyor. e2e `AC-310`: rozet var, bağlantı yok ("Konsolu aç" de yok), sayaç ve `lobby-live` yok, waiting ucu hiç çağrılmıyor. Firma seçmiş SA'da sayaç ve toast çalışıyor |
+| AC-311 | ✅ | `waitingSessionsResponseSchema` strict (unit: ek alan reddi). Entegrasyon gövdesinde ad, e-posta, IP, `admitCode`, `BROWSER` yok. e2e: "Ayşe Yılmaz" rozet, toast, menü, `main` ve başlıkta yok, yalnız konsol lobi listesinde var |
+| AC-312 | ⚠️ kanıt eksik | Metin + `BellRing`, `navSr`, `aria-live` tekrar duyurmama (MutationObserver sayacı 0), axe açık/koyu 0 ihlal (desktop 1280 ve mobile **412 px** Pixel 7), Enter ile konsol: kanıtlı. **Eksik:** (a) AC "360 px genişlikte yatay taşma yok" ve mimari §9.3 "axe 360 ve 1280 px" ister. 360 px yalnız "/" sayfasında taşma için ölçülüyor; rozetin bulunduğu `/sessions` kart görünümü 360 px'te ne taşma ne axe ile ölçülüyor. (b) "Klavyeyle odaklanabilir" `locator.focus()` ile sınanıyor; Tab sırasında erişilebilirlik kanıtlanmıyor (madde 1) |
+| AC-313 | ✅ | e2e `AC-313` (desktop): menü sayacı ve satır rozetinde hesaplanan `transition-property: opacity, transform`, 0.2 sn, `linear`/`ease-in` yok, animasyon yok/sonsuz değil; reduced-motion'da `opacity`. Kaybolurken yer kayması yok: n = 0 yuvası `invisible` (e2e `waiting-slot`). Panelde açılır/kapanır menü yok |
+| AC-314 | ✅ | Entegrasyon: 401 çerezsiz, 403 yetkisiz, başka tenant/teknisyen yok, `Cache-Control: no-store`, audit satırı sayısı değişmiyor, 60 istek 200 / 61. istek 429 `RATE_LIMITED` + `Retry-After`, başka kullanıcı etkilenmiyor; perf p95 8.94 ms. Tenant matrisi (`tenant-matrix.ts`) uca `scoped` sınıfı atıyor. e2e: 429'da `Retry-After` (30 sn) boyunca ek yoklama yok |
+| AC-315 | ✅ | e2e `AC-315: 500 → son değer` ve `ağ kesilir → son değer; sunucu yeniden başlar → ≤ 10 sn sayaç 0`: toast yok; `afterEach` konsol bekçisi (uygulama `console.error/warn` + `pageerror` = 0; yalnız tarayıcının ağ satırları süzülüyor). Unit: yeni `Rooms` örneği → 0. Liste "Liste güncellenemedi…" uyarısı değişmedi (mevcut `sessions.spec` yeşil) |
+| AC-316 | — staging'de test-operatoru | Bloklayıcı sayılmadı (koordinatör talimatı). Senaryo: mimari-lobi §9.4 |
+
+### Tasarım–kod uyumu
+- Sözleşme (§4.3) birebir: sabitler, strict şema, `SessionListItem.waitingGuests`, `SessionHistoryDetail` Omit. Guard sırası (§4.1) `requirePerm` → `tenantScope` → hız sınırı; `/:id`'den önce kayıtlı. `LOBBY_MAX = LOBBY_GUEST_MAX` tek kaynak.
+- Bellek sayımı §3 koşullarıyla aynı (`LOBBY` durumu, `!ending && !admitted && expiresAt > now`); DB'ye gidilmiyor.
+- Web §6.1–6.8 birebir: layout `lobby` koşulu ve `scopeKey`, `setTimeout` zinciri, gizli sekmede yoklama, hata tablosu (401/403/429/ağ), `arrivals` tabanlı tekilleştirme, tek başlık yazıcısı (`TabTitle`), `role="status"`, i18n anahtarları, warning token'ları, `BellRing`.
+- implementation.md'de gerekçeli sapmalar: `customers/service.ts` aynı tipte tutarlılık için `rooms` geçiriyor; perf 20 kullanıcıya bölündü; mock "restart" oda başına; `/__e2e/lobby-extra`; `LobbyDot` P14b'ye (K-L3). Hepsi kabul edilebilir.
+- DB, migration, grant, env değişikliği yok. Runbook satırı ve `mimari-api.md` güncellendi. Yeni bağımlılık yok.
+
+### Düzeltilmeli (somut, uygulanabilir; her madde bir ajana atanır)
+1. **[frontend-dev] — Önem: Orta (AC-312 kanıtı)** — `apps/web/e2e/p13bl-lobby.spec.ts:299-332` (`AC-312: axe …`). Bu test desktop'ta 1280 px'te, mobile projesinde Pixel 7 (412 px) genişliğinde koşuyor. AC-312 ise 360 px'te taşma olmadığının ve axe kontrolünün kanıtını ister (mimari-lobi §9.3 "axe (iki tema, 360 ve 1280 px)"). Bugün 360 px yalnız `:162-181` testinde "/" sayfası için ölçülüyor. **Beklenen:** `/sessions` sayfasında rozet görünürken (`setLobby` + `tick`) `page.setViewportSize({ width: 360, height: 740 })` ile kart görünümünde `noHorizontalOverflow` ve iki temada `axeScan` 0 ihlal sağlanmalı. Rozetin klavye erişimi `focus()` yerine `page.keyboard.press("Tab")` döngüsüyle kanıtlanmalı: rozet bağlantısı Tab sırasında odak alabilmeli, sonra Enter konsolu açmalı.
+2. **[backend-dev] — Önem: Düşük (DoD dosya boyutu, önceki turlarla tutarlı)** — `apps/server/src/signaling/rooms.ts` 327 satırdan 355 satıra çıktı (+28: `waitingIn`, `waitingFor`, `lobbyWaiting`). Dosya zaten 300 sınırını aşıyordu ve büyümenin implementation.md'de gerekçesi yok (kalite-standartlari §15). `sessions/history.ts` de 419'dan 427'ye çıktı. **Beklenen:** ya sayım fonksiyonları `Rooms`'un `rooms` haritasını alan saf bir modüle (ör. `signaling/lobby-count.ts`) taşınmalı, ya da implementation.md "P13b-L — backend" bölümüne gerekçe yazılmalı (tasarım §10.1 yeri `rooms.ts` olarak belirledi; özel `rooms` haritasına erişim gerekiyor).
+3. **[proje-yoneticisi] — Önem: Düşük (AC metni ile tasarım uyumu)** — `docs/gereksinimler-lobi-gostergesi.md` AC-306 "Mobil genişlikte menü kapalıyken menü düğmesinde de bir işaret görünür … 360 px genişlikte menü düğmesinde işaret" diyor. Panelde açılır/kapanır menü düğmesi yok; mimari K-L3 bunu P14b'ye bıraktı ama AC metni güncellenmedi (K-L1, K-L2 ve R-L7 güncellendi). **Beklenen:** AC-306 şöyle düzeltilmeli: "360 px'te sayaç 'Oturumlar' öğesinde görünür; açılır mobil menü geldiğinde (P14b, AC-222) menü düğmesinde işaret". P14b AC listesine `LobbyDot` bağlantısı eklenmeli.
+
+### Definition of Done
+| Madde | ✅/❌ | Not |
+|---|---|---|
+| Lint / typecheck temiz | ✅ | |
+| Unit testler yeşil, skip yok | ✅ | 78 + 271 + 367 |
+| Entegrasyon testleri yeşil | ✅ | 553/553 |
+| e2e yeşil; skip'ler gerekçeli | ✅ | 329 geçti; P13b-L mobil skip'leri `desktopOnly` gerekçeli |
+| Her AC'nin test kanıtı | ❌ | AC-312'de 360 px kanıtı eksik (madde 1); AC-316 staging (beklemede, bloklayıcı değil) |
+| Tasarım–kod uyumu; sapmalar gerekçeli | ✅ | Bkz. "Tasarım–kod uyumu" |
+| Katman: route ince, iş mantığı serviste | ✅ | `routes.ts` guard + sınır; `sessions/lobby.ts` servis; tenant ve teknisyen `auth`'tan |
+| `any` / hata yutma | ✅ | `any` yok. Web'de sessiz `catch`, AC-315'in açık şartı (son değer + yeniden deneme) |
+| Sayfalı liste / transaction | ✅ | Uç bellekte ve sınırlı (≤ açık oturum sınırı); yazma yok |
+| PII log / yanıt | ✅ | Yalnız sayı + kendi oturum ULID'i; audit/log yazılmıyor |
+| 5 durum (frontend) | ✅ | Boş (0 → gizli/yuva), yükleniyor (temel çizgi), hata (sessiz son değer), 403 (dur), dolu |
+| Erişilebilirlik | ⚠️ | axe 1280/412 px'te 0 ihlal, metin + ikon, `aria-live`; 360 px kanıtı eksik (madde 1) |
+| Token / ham renk-spacing | ✅ | `warning`, `warning-surface`, `border-warning/30`; ham hex yok |
+| İkon (Projeler §1.8) | ✅ | `BellRing` anlamlı ve DESIGN.md'ye işlendi; menü sayacı mevcut `MonitorSmartphone` öğesinde |
+| Animasyon (§1.8) | ✅ | Yalnız opacity/transform, 200 ms ease-out, `scale(.95)`, reduced-motion global kural, nabız yok |
+| Dosya ≤ 300 satır | ❌ | Yeni üretim dosyaları ≤ 157 satır; `rooms.ts` gerekçesiz büyüme (madde 2) |
+| Yeni bağımlılık / env / grant | ✅ | Yok |
+| Dokümanlar | ✅ | mimari-api, runbook, DESIGN.md, implementation.md güncellendi. Kılavuz, api.md ve CHANGELOG teknik-yazar'da (mimari §10.3) |
+
+### Öneriler (zorunlu değil)
+- AC-304 e2e'de kabulden sonra rozetin kaybolması `page.goto("/sessions")` (yeniden yükleme) ile kontrol ediliyor. 10 sn'lik liste yenilemesiyle kaybolması ayrı bir testte (`AC-305 … 0 → rozet kaybolur`) kanıtlanıyor; yine de kabul akışında yeniden yükleme yerine `tick` kullanılırsa senaryo AC'deki gibi uçtan uca olur.
+- `toast.tsx` bölgesine `role="status"` eklendi. Bu bölgede eylem bağlantıları (`Konsolu aç`) var. axe ihlal vermiyor, ama AC-316 sırasında NVDA/VoiceOver ile bir kez dinlenip çift duyuru (K-L4) gözlemlenmeli.
+- Kartta n = 0 yuvası PENDING kartı ~44 px uzatıyor (implementation.md'de belirtilmiş). test-operatoru 360 px'te görsel olarak değerlendirmeli.
+
+### Olumlu
+- Sahiplik süzmesi tek fonksiyonda (`Rooms.waitingFor`) ve sunucuda. Entegrasyon testi sorgu dizesiyle atlatma denemesini, ADMIN/USER/SA ve iki tenant kombinasyonlarını kapsıyor.
+- `arrivals` monoton sayacı, misafir kimliği yanıta girmeden "çık + gir" ve restart durumlarında doğru toast kararını veriyor. Saf fonksiyon olarak birim testli.
+- İki başlık yazıcısının birbirinin önekini silmesi tasarımda öngörülmüş ve tek yazıcıyla (`TabTitle`) çözülmüş; mevcut talep sayacı regresyonsuz.
+- e2e konsol bekçisi uygulama kaynaklı `console.error/warn` ve `pageerror` için sıfır tolerans uyguluyor. 429'da `Retry-After`'a uyulduğu çağrı sayacıyla kanıtlanıyor.
+- p95 8.94 ms; hedefin (100 ms) çok altında.
+
+---
+
+## P13b-L — Tur 2
+Tarih: 2026-11-15 · Kapsam: Tur 1 maddelerinin (1–3) ve güvenlik S13L-1 düzeltmesinin doğrulanması, tam regresyon. Kod değiştirilmedi.
+
+DURUM: GEÇTİ
+
+### Test sonucu
+| Komut | Sonuç |
+|---|---|
+| `pnpm -r run lint` | temiz (çıkış 0) |
+| `pnpm -r run typecheck` | temiz (çıkış 0) |
+| `pnpm -r run test` (unit) | contracts 78/78, web 271/271, server **368/368** (+1: `AC-305/S13L-1`); skip yok |
+| `test-db.sh up` (konteyner `rs-p13bl-qa2-97372`, port 35172) + `test:int` | **554/554** (+1: `AC-314/S13L-1`). `down` çıkış 0, konteyner silindi (doğrulandı) |
+| AC-314 perf | p50=5.61 ms, p95=9.26 ms (hedef ≤ 100 ms) |
+| `pnpm --filter @remote/web e2e` (tam paket) | **329 geçti, 0 kaldı, 132 skip** (çıkış 0). `p13bl-lobby.spec.ts`: 19 geçti, 9 skip (mobil, `desktopOnly` gerekçeli; Tur 1 ile aynı) |
+
+### Tur 1 maddelerinin durumu
+| # | Madde | Durum | Kanıt |
+|---|---|---|---|
+| 1 | [frontend-dev] AC-312: 360 px axe + taşma, Tab ile erişim | ✅ kapandı | `p13bl-lobby.spec.ts:304-345`: rozet görünürken `/sessions` desktop projesinde 1280 ve 360 px'te, mobile projesinde 360 px'te açılıyor; açık ve koyu temada `axeScan` 0 ihlal, `noHorizontalOverflow`. Rozete sayfa başlığından en çok 40 Tab'la ulaşılıyor, `toBeFocused`, Enter → konsol URL'si. Test iki projede de yeşil (desktop #125, mobile #346) |
+| 2 | [backend-dev] `rooms.ts` / `history.ts` büyümesi | ✅ kapandı | Sayım `signaling/lobby-count.ts`'e (41 satır, saf fonksiyonlar + yapısal `LobbyRooms`) taşındı. Liste eki `sessions/lobby.ts` `withWaitingGuests`'te. `rooms.ts` 327 → 329 (+2: `lobbyArrivals++` ve salt okunur `values()`), `history.ts` 419 → 419. +2 satırın gerekçesi implementation.md "P13b-L — backend düzeltme turu 1"de |
+| 3 | [proje-yoneticisi] AC-306 metni ve K-L3 | ✅ kapandı | `gereksinimler-lobi-gostergesi.md:39`: "360 px genişlikte sayaç 'Oturumlar' öğesinde görünür … açılır mobil menü P14b'de geldiğinde menü düğmesine işaret eklenir (r1, K-L3)". e2e parantezi de buna göre güncellenmiş; kapsam satırı (§3 madde 3) uyumlu |
+| S13L-1 | (güvenlik) `sessions.view` yoksa `waitingGuests` sızmasın | ✅ | `withWaitingGuests`: `auth.permissions.has("sessions.view")` yoksa her satır 0. `GET /sessions` ve `GET /customers/:id/sessions` aynı fonksiyonu kullanıyor (tek kaynak). Entegrasyon `AC-314/S13L-1`: yalnız geçmiş/müşteri yetkili kullanıcının kendi PENDING oturumunda 2 misafir → iki uçta 0, ADMIN aynı satırda 2. Unit `AC-305/S13L-1` |
+
+### Kabul kriterleri
+| AC | Durum | Kanıt |
+|---|---|---|
+| AC-304 | ✅ | Tur 1 kanıtları yeşil (e2e rozet → konsol, lobi `toBeInViewport`) |
+| AC-305 | ✅ | Unit (çıkış yolları; artık `lobby-count.ts` üzerinden) + entegrasyon + e2e |
+| AC-306 | ✅ | e2e `u-noreq` 360 px sayaç; düzeltilmiş AC metniyle birebir |
+| AC-307 | ✅ | Unit `diff.test.ts` + e2e |
+| AC-308 | ✅ | Unit `tab-title.test.ts` + e2e |
+| AC-309 | ✅ | Entegrasyon sahiplik/tenant matrisi + e2e ADMIN |
+| AC-310 | ✅ | Entegrasyon 403 + e2e (rozet var, bağlantı/sayaç yok, uç çağrılmıyor) |
+| AC-311 | ✅ | Strict şema + entegrasyon gövde taraması + e2e ad yok |
+| AC-312 | ✅ | Madde 1 (360/1280 px, iki tema axe 0, taşma yok, Tab + Enter) + `aria-live` tekrarsız |
+| AC-313 | ✅ | e2e hesaplanan stil + reduced-motion |
+| AC-314 | ✅ | Entegrasyon 401/403/no-store/audit yok/60–61 sınırı/perf; S13L-1 sıkılaştırması |
+| AC-315 | ✅ | e2e 500/ağ kesme/restart + unit yeni `Rooms` → 0 |
+| AC-316 | — staging'de test-operatoru | Bloklayıcı değil (koordinatör talimatı) |
+
+### Düzeltilmeli
+Yok.
+
+### Definition of Done
+| Madde | ✅/❌ | Not |
+|---|---|---|
+| Lint / typecheck temiz | ✅ | |
+| Unit testler yeşil, skip yok | ✅ | 78 + 271 + 368 |
+| Entegrasyon testleri yeşil | ✅ | 554/554 |
+| e2e yeşil; skip'ler gerekçeli | ✅ | 329 geçti |
+| Her AC'nin test kanıtı | ✅ | AC-316 staging adımı (test-operatoru) |
+| Tasarım–kod uyumu; sapmalar gerekçeli | ✅ | `lobby-count.ts` ayrımı ve S13L-1 implementation.md'de |
+| Katman / `any` / hata yutma / PII | ✅ | Değişmedi; `withWaitingGuests` yetkiyi arka uçta uyguluyor |
+| Erişilebilirlik | ✅ | 360 ve 1280 px, iki tema axe 0; Tab erişimi |
+| Token, ikon, animasyon (§1.6/§1.8) | ✅ | Tur 1'deki gibi |
+| Dosya ≤ 300 satır | ✅ | Yeni dosyalar ≤ 157; `rooms.ts` +2 gerekçeli, `history.ts` büyümedi |
+| Yeni bağımlılık / env / grant | ✅ | Yok |
+| Dokümanlar | ✅ | Kılavuz, api.md ve CHANGELOG teknik-yazar adımında (mimari §10.3) |
+
+### Öneriler (zorunlu değil)
+- Tur 1 önerileri geçerli: AC-304 kabul akışında yeniden yükleme yerine `tick`; AC-316'da ekran okuyucuyla çift duyuru (K-L4) gözlemi; 360 px kartta n = 0 yuvasının görsel değerlendirmesi.
+
+### Olumlu
+- S13L-1 tek fonksiyonda çözülmüş ve iki uç aynı yolu kullanıyor; yetki kontrolü arka uçta, testle sabit.
+- `lobby-count.ts` saf ve `Rooms`'tan bağımsız; `rooms.ts` yalnız 2 satır büyüdü.

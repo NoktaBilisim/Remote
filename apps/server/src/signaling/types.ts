@@ -3,6 +3,7 @@
 import type { Cap, GuestKind, ServerOutbound, ShareSnapshot } from "@remote/contracts/ws";
 import type { PermissionKey, Role } from "@remote/contracts/permissions";
 import type { ControlAuditAction } from "@remote/contracts/audit";
+import { LOBBY_GUEST_MAX } from "@remote/contracts/api/sessions";
 import type { AuditContext } from "../audit/service.ts";
 import type { JsonObject } from "../audit/mask.ts";
 import type { GuestConsent } from "../public/consent.ts";
@@ -141,6 +142,8 @@ export interface Room {
   tech?: TechConn;
   /** TICKETED + LOBBY misafirler (≤ 3). */
   lobby: Map<string, Guest>;
+  /** P13b-L (mimari-lobi §3): misafirin LOBBY durumuna her geçişinde +1; hiç azalmaz (toast tekilleştirme `arrivals`). */
+  lobbyArrivals: number;
   admitted?: Guest;
   admitting: boolean;
   admitFails: number;
@@ -199,5 +202,6 @@ export const DEFAULT_TIMING: Timing = {
   requestDisconnectMs: 120_000,
 };
 
-export const LOBBY_MAX = 3;
+/** Tek kaynak: sözleşmedeki LOBBY_GUEST_MAX (mimari-lobi §3). */
+export const LOBBY_MAX = LOBBY_GUEST_MAX;
 export const ADMIT_FAIL_MAX = 5;

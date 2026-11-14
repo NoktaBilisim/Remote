@@ -41,7 +41,7 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 ## Modüller
 | Modül | Ne yapar |
 |---|---|
-| Destek oturumları | Tek kullanımlık link ve 8 haneli kod, bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma |
+| Destek oturumları | Tek kullanımlık link ve 8 haneli kod, bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma; müşteri beklerken panelin her sayfasında sayaç ve bildirim |
 | Teknisyen konsolu | Canlı ekran, uzaktan kontrol, monitör değiştirme, sohbet, dosya, işaretleme, kalite paneli |
 | Hızlı Destek (Windows) | Müşteri programı: "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut", onay ve izin diyalogları |
 | Destek talepleri | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi |

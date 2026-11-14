@@ -3,6 +3,7 @@
 import { Building, Building2, History, House, Inbox, MonitorSmartphone, ScrollText, ServerCog, Settings, Users, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LobbyCountBadge } from "@/components/lobby-notifier";
 import { RequestCountBadge } from "@/components/request-notifier";
 import { t, type MessageKey } from "@/lib/i18n";
 
@@ -41,6 +42,7 @@ export function SideNav({ permissions, role }: { permissions: readonly string[];
               >
                 <Icon aria-hidden className="size-5 shrink-0" />
                 {t(label)}
+                {href === "/sessions" && <LobbyCountBadge />}
                 {href === "/requests" && <RequestCountBadge />}
               </Link>
             </li>

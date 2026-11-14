@@ -3,7 +3,9 @@ import { ThemeProvider } from "@/components/branding/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
 import { LogoImage } from "@/components/brand-logo";
 import { LoadError } from "@/components/load-error";
+import { LobbyNotifier } from "@/components/lobby-notifier";
 import { RequestNotifier } from "@/components/request-notifier";
+import { TabTitle } from "@/components/tab-title";
 import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { gateOf, getMe } from "@/lib/server-api";
@@ -34,6 +36,9 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   // P8b-1: /ws/panel yalnız `support_requests.view` + tenant bağlamı varken (Super Admin firma seçmeli; sunucu da 403)
   const isSa = user.role === "SUPER_ADMIN";
   const notify = (permissions as readonly string[]).includes("support_requests.view") && (!isSa || Boolean(actingTenant));
+  // P13b-L (AC-306, 310): lobi göstergesi yalnız `sessions.view`'e bağlı (talep yetkisinden bağımsız); firma seçmemiş
+  // Super Admin'de çalışmaz (uç da 403). scopeKey değişirse (firma geçişi) temel çizgi yeniden alınır.
+  const lobby = (permissions as readonly string[]).includes("sessions.view") && (!isSa || Boolean(actingTenant));
 
   return (
     // P9: sağlayıcı tüm kabuğu sarar (üst menüdeki firma geçişi de toast gösterir)
@@ -74,6 +79,8 @@ export default async function PanelLayout({ children }: { children: React.ReactN
         </aside>
         <main id="icerik" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 focus:outline-none sm:px-6 lg:px-8">
           {notify && <RequestNotifier enabled />}
+          {lobby && <LobbyNotifier enabled scopeKey={`${user.id}:${(actingTenant ?? tenant)?.id ?? ""}`} />}
+          <TabTitle />
           <SessionWatch />
           {children}
         </main>
