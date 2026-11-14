@@ -16,6 +16,9 @@ export default async function SessionsPage() {
   const me = await getMe();
   if (me.kind !== "ok") redirect(EXPIRED_LOGIN_PATH);
   const perms = me.me.permissions as readonly string[];
+  // Firma seçmemiş Super Admin: liste tüm firmaları gösterir (historyScope), ama oluşturma/iptal/sonlandırma firma ister
+  // (tenantScope → 403 "Önce bir firma seçin."). Bu eylemler gizlenir, yerine yönlendirme notu gösterilir.
+  const pickTenant = me.me.user.role === "SUPER_ADMIN" && !me.me.actingTenant;
   const res = await serverGet<SessionListResponse>("/sessions?pageSize=100");
   if (res.kind === "error" && res.status === 401) redirect(EXPIRED_LOGIN_PATH);
 
@@ -40,11 +43,12 @@ export default async function SessionsPage() {
         <SessionsView
           initial={res.data.items}
           fetchedAt={res.at}
-          canCreate={perms.includes("sessions.create")}
-          canCancel={perms.includes("sessions.delete")}
+          canCreate={!pickTenant && perms.includes("sessions.create")}
+          canCancel={!pickTenant && perms.includes("sessions.delete")}
           showTechnician={me.me.user.role !== "USER"}
           meId={me.me.user.id}
-          canTerminate={perms.includes("sessions.terminate")}
+          canTerminate={!pickTenant && perms.includes("sessions.terminate")}
+          pickTenant={pickTenant}
           canPickCustomer={perms.includes("customers.view")}
         />
       )}

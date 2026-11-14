@@ -30,6 +30,8 @@ export function SessionsView(props: {
   canTerminate: boolean;
   /** P8c (AC-180) */
   canPickCustomer?: boolean;
+  /** Firma seçmemiş Super Admin: eylemler kapalı, üst menüden firma seçme notu gösterilir. */
+  pickTenant?: boolean;
 }) {
   const router = useRouter();
   const [items, setItems] = useState(props.initial);
@@ -77,6 +79,14 @@ export function SessionsView(props: {
           </Button>
         )}
       </div>
+
+      {props.pickTenant && (
+        <div className="mt-4 max-w-2xl">
+          <Alert tone="info" testId="sessions-pick-tenant">
+            {t("s.pickTenantBody")}
+          </Alert>
+        </div>
+      )}
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Segmented<Filter>

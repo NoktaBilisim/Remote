@@ -192,6 +192,14 @@ test("AC-146: geçmiş sekmesi + durum filtresi; boş ve hata durumları; yetki 
   }
 });
 
+test("Super Admin firma seçmeden /sessions: liste görünür, oluştur/iptal/sonlandır yok, firma seçme notu var", async ({ context, page }) => {
+  await signInRq(context, "rqsa");
+  await page.goto("/sessions");
+  await expect(page.getByTestId("sessions-pick-tenant")).toContainText("üst menüden bir firma seçin");
+  await expect(page.getByRole("button", { name: "Yeni destek oturumu" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /İptal et|Zorla sonlandır/ })).toHaveCount(0);
+});
+
 test("AC-129/131/152: ayarlar — bağlantı kopyala, onaylı yenile, alan hataları, kaydet, WhatsApp testi", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);

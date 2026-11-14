@@ -58,6 +58,7 @@
   "s.subtitle": "Link ve kod {minutes} dakika geçerlidir, tek kullanımlıktır. Aynı anda en fazla {max} açık oturumunuz olabilir.",
   "s.subtitleShort": "Link ve kod sınırlı süre geçerlidir ve tek kullanımlıktır. Açık oturum sayınız sınırlıdır.",
   "s.new": "Yeni destek oturumu",
+  "s.pickTenantBody": "Liste tüm firmaların oturumlarını gösterir. Yeni oturum açmak, iptal etmek veya sonlandırmak için üst menüden bir firma seçin.",
   "s.filter": "Durum filtresi",
   "s.filter.all": "Tümü",
   "s.filter.open": "Açık",
