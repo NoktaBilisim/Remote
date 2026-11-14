@@ -68,6 +68,8 @@ export const AUTH_AUDIT = {
   LOGOUT_ALL: "auth.logout_all",
   PASSWORD_RESET_REQUESTED: "auth.password_reset_requested",
   PASSWORD_RESET: "auth.password_reset",
+  /** P13b (mimari-p13 §7.7): sunucudaki `reset-superadmin` CLI'si; `username="cli"`, parola/hash yazılmaz. */
+  SUPERADMIN_RESET: "auth.superadmin_reset",
 } as const;
 
 /** P10: gönderilen her e-posta (ortak standart 2.1: alıcı (maskeli), konu, sonuç). `kind` şablon türü. */
@@ -133,4 +135,9 @@ export const BRANDING_AUDIT = {
  */
 export const RETENTION_AUDIT = {
   RUN: "retention.run",
+} as const;
+
+/** P13b (G-P13b-5, dba D2): yedek audit süreklilik denetiminin taban çizgisi sıfırlandı (geri yükleme / elle kabul). */
+export const BACKUP_AUDIT = {
+  AUDIT_BASELINE_RESET: "backup.audit_baseline_reset",
 } as const;

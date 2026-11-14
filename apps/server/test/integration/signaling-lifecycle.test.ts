@@ -147,6 +147,35 @@ describe("P3 zamanlayıcılar (sahte saat)", () => {
     expect(await row(fx.session.id)).toMatchObject({ status: "ENDED", endedBy: "SYSTEM", endReason: "max_duration" });
   });
 
+  it("G-P13b-1/AC-22: yeniden bağlanma yeni TURN credential üretmez; yenileme eşiğine kadar aynı username, aynı anda en çok 2 geçerli", async () => {
+    const clock = new FakeClock();
+    const rooms = makeRooms(clock);
+    const fx = await roomFixture(rooms);
+    const g = fx.guest();
+    await admitGuest(rooms, fx.room, fx.tech, g.admitCode);
+    const userOf = (servers: { username?: string }[] | undefined) => servers?.find((x) => x.username)?.username ?? "";
+    const first = userOf(g.peer.of("hello")[0]?.iceServers);
+    expect(first).toMatch(/^\d+:/);
+    expect(userOf(fx.techPeer.of("ice.servers")[0]?.iceServers)).toBe(first);
+    for (let i = 0; i < 5; i++) {
+      rooms.detachGuest(fx.room, g.entry, g.peer);
+      clock.advance(10_000);
+      rooms.reattachGuest(fx.room, g.peer);
+    }
+    const hellos = g.peer.of("hello").map((h) => userOf(h.iceServers));
+    expect(hellos.length).toBeGreaterThan(1);
+    expect(new Set(hellos)).toEqual(new Set([first]));
+    // TTL 60 dk, yenileme 5 dk önce: 55. dakikada yeni credential; sonraki yeniden bağlanma yenisini alır
+    clock.advance(55 * 60_000);
+    const refreshed = userOf(g.peer.of("ice.servers").at(-1)?.iceServers);
+    expect(refreshed).not.toBe(first);
+    rooms.detachGuest(fx.room, g.entry, g.peer);
+    rooms.reattachGuest(fx.room, g.peer);
+    expect(userOf(g.peer.of("hello").at(-1)?.iceServers)).toBe(refreshed);
+    const valid = new Set([...g.peer.of("hello"), ...g.peer.of("ice.servers")].map((m) => userOf(m.iceServers)).filter((u) => Number(u.split(":")[0]) * 1000 > clock.now()));
+    expect(valid.size).toBeLessThanOrEqual(2);
+  });
+
   it("AC-25: misafir 120 sn içinde dönmezse ENDED{timeout}; dönerse sayaç iptal", async () => {
     const clock = new FakeClock();
     const rooms = makeRooms(clock);

@@ -17,6 +17,8 @@ export const aadFor = {
   systemSecret: (key: "turn"): string => `system_settings.secret_enc:${key}`,
   /** P11 (B-P11-1): `mysql` satırı hedefe (host:port:user) bağlı — hedef değişince kayıtlı şifre çözülemez. */
   mysqlSecret: (t: { host: string; port: number; user: string }): string => `system_settings.secret_enc:mysql:${t.host.toLowerCase()}:${t.port}:${t.user}`,
+  /** S-P13b-3: `whatsapp` satırı servis anahtarı, adresin kökenine (şema+host+port) bağlı — köken değişince çözülemez. */
+  whatsappApiKey: (origin: string): string => `system_settings.secret_enc:whatsapp:${origin}`,
 } as const;
 
 /** HKDF amaç etiketleri (anahtar ayrımı). */

@@ -139,7 +139,8 @@ function helmetOptions(env: Env) {
         upgradeInsecureRequests: [],
       },
     },
-    strictTransportSecurity: { maxAge: 31_536_000, includeSubDomains: false },
+    // P13b (mimari-p13 §7.5, G-19): yalnız remote.noktabilisim.net ve alt alanları; preload yok, apex'e konmaz.
+    strictTransportSecurity: { maxAge: 31_536_000, includeSubDomains: true, preload: false },
     crossOriginResourcePolicy: { policy: "same-origin" as const },
     crossOriginOpenerPolicy: { policy: "same-origin" as const },
     referrerPolicy: { policy: "no-referrer" as const },
@@ -230,7 +231,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // P8b (mimari-e9 §2): bildirim merkezi, hız sınırları, WhatsApp istemcisi, talep servisi.
   const hub: RequestHub = new RequestHub(rooms.clock, (tenantId: string) => requests.statesOf(tenantId), (err) => app.log.error({ err }, "talep sıra yayını hatası"));
   const requestLimits = createRequestLimits();
-  const notifier = new WhatsappNotifier({ url: env.WHATSAPP_SERVICE_URL, production: env.NODE_ENV === "production", publicBaseUrl: env.PUBLIC_BASE_URL, db: deps.db, log: app.log, metrics, clock: rooms.clock, ...(deps.whatsappFetch ? { fetch: deps.whatsappFetch } : {}) });
+  const notifier = new WhatsappNotifier({ url: env.WHATSAPP_SERVICE_URL, apiKey: env.WHATSAPP_SERVICE_API_KEY ?? null, production: env.NODE_ENV === "production", publicBaseUrl: env.PUBLIC_BASE_URL, db: deps.db, log: app.log, metrics, clock: rooms.clock, ...(deps.whatsappFetch ? { fetch: deps.whatsappFetch } : {}) });
   app.decorate("whatsapp", notifier);
   // P12b (AC-196): panel WhatsApp adresi varsa env yerine o; okunamazsa env ile devam (alarm logu).
   app.addHook("onReady", async () => {

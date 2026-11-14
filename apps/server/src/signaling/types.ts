@@ -6,6 +6,7 @@ import type { ControlAuditAction } from "@remote/contracts/audit";
 import type { AuditContext } from "../audit/service.ts";
 import type { JsonObject } from "../audit/mask.ts";
 import type { GuestConsent } from "../public/consent.ts";
+import type { IceGrant, TurnConfig } from "./turn.ts";
 
 /** Misafir istemci ortamı (`env.state` alanları, `t`/`id` hariç). */
 export type GuestEnv = Omit<Extract<ServerOutbound, { t: "env.state" }>, "t">;
@@ -167,6 +168,8 @@ export interface Room {
   control: ControlRoom;
   /** P8c: oturum başına iletilen `binding.request` sayısı (≤ 3, mimari-e10 §5.3). */
   bindingRequests?: number;
+  /** G-P13b-1: son verilen TURN credential (yeniden bağlanmada aynısı; `active.ts` grant). */
+  iceGrant?: { cfg: TurnConfig; grant: IceGrant };
   timers: { disconnect?: unknown; warn?: unknown; maxEnd?: unknown; iceRefresh?: unknown; idle?: unknown };
   ending: boolean;
 }

@@ -15,6 +15,7 @@ import { ipKey } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
 import * as repo from "./repo.ts";
+import { superadminTempPasswordExpired } from "./superadmin-reset.ts";
 import { canSignIn, mfaStageOf, openSession, toAuthUser, type AuthContext } from "./session.ts";
 
 /** P10 (AC-65): hesap geneli kilit konduğunda hesap sahibine bildirim (asenkron; SMTP yoksa yalnız audit). */
@@ -26,6 +27,7 @@ const ACCOUNT_LIMIT = 20;
 const LOCK_MIN = 15;
 const LOCK_MS = LOCK_MIN * MIN;
 const BAD_CREDENTIALS = "E-posta/kullanıcı adı veya şifre hatalı.";
+const TEMP_PASSWORD_EXPIRED = "Geçici şifrenin süresi doldu (24 saat). Sunucu yöneticisinden yeniden sıfırlama isteyin.";
 
 export interface AuthLimits {
   ip: FixedWindowCounter;
@@ -128,6 +130,12 @@ export async function login(db: Db, limits: AuthLimits, ctx: AuditContext, log: 
     const accountLocked = await recordFailure(db, limits, ctx, log, user, login, pairLocked, now, onLock);
     if (pairLocked || accountLocked) throw locked(LOCK_MS / 1000);
     throw new AppError("UNAUTHENTICATED", { message: BAD_CREDENTIALS });
+  }
+
+  // G-P13b-10: CLI ile verilen geçici Super Admin parolası 24 saat geçerli (parolayı bilen kişiye özel mesaj; oracle değil).
+  if (user.mustChangePassword && user.role === "SUPER_ADMIN" && (await superadminTempPasswordExpired(db, user.id, now))) {
+    await writeAudit(db, ctx, { ...who(user, login), action: "auth.login", entity: "users", entityId: user.id, result: "fail", newValue: { reason: "temp_password_expired" } });
+    throw new AppError("UNAUTHENTICATED", { message: TEMP_PASSWORD_EXPIRED });
   }
 
   limits.pair.reset(pairKey);

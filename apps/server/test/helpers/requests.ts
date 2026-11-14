@@ -70,6 +70,8 @@ export async function createRequestRow(
 export interface WaHit {
   path: string;
   body: Record<string, unknown>;
+  /** S-P13b-3: gelen `x-api-key` başlığı (yoksa undefined). */
+  apiKey: string | undefined;
 }
 
 /** Yanıt planı: HTTP durum kodu veya "hang" (yanıt verilmez; istemci zaman aşımı). n = 1'den başlayan çağrı sırası. */
@@ -90,7 +92,8 @@ export async function startFakeWhatsapp(plan: WaPlan = () => 200): Promise<FakeW
     const chunks: Buffer[] = [];
     req.on("data", (c: Buffer) => chunks.push(c));
     req.on("end", () => {
-      const hit: WaHit = { path: req.url ?? "", body: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as Record<string, unknown> };
+      const key = req.headers["x-api-key"];
+      const hit: WaHit = { path: req.url ?? "", body: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as Record<string, unknown>, apiKey: typeof key === "string" ? key : undefined };
       fake.hits.push(hit);
       const out = fake.plan(fake.hits.length, hit);
       if (out === "hang") return void hung.add(res);

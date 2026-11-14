@@ -6,7 +6,7 @@ const parse = (url: unknown) => whatsappSettingsInputSchema.safeParse({ url });
 
 describe("P12b WhatsApp servis adresi sözleşmesi", () => {
   it("AC-196: http/https, port, yol, IPv6, tam 200 karakter kabul; sondaki / kırpılır", () => {
-    for (const url of ["http://89.252.189.211:3000", "http://localhost:3000", "https://wa.example.com", "https://wa.example.com:8443/api/v1", "http://[2001:db8::5]:3000", "http://x", `https://${"a".repeat(192)}`]) {
+    for (const url of ["http://203.0.113.10:3000", "http://localhost:3000", "https://wa.example.com", "https://wa.example.com:8443/api/v1", "http://[2001:db8::5]:3000", "http://x", `https://${"a".repeat(192)}`]) {
       const r = parse(url);
       expect(r.success, url).toBe(true);
       expect(r.data?.url).toBe(url);

@@ -1,5 +1,6 @@
 # ADR-0007 — coturn ayrı VM/public IP, TURN-TLS 443, HMAC kısa ömürlü credential
-Durum: Kabul, r5 (G-05, G-13, K3; r5: QA-P3-6, S-P3-2, S-P3-3) · Tarih: 2026-11-10
+Durum: Kabul, r6 (G-05, G-13, K3; r5: QA-P3-6, S-P3-2, S-P3-3; **r6: "ayrı VM/IP + 443 + `turn.<domain>`" maddeleri prod için ADR-0018 ile değiştirildi**) · Tarih: 2026-11-10
+> **r6 (2026-11-14, K3 kullanıcı kararı):** Prod aynı sunucuda, ayrı IP yok. TURN 3478 + 5349 (LE `remote-turn`), relay 49160–49479, 443 yok (risk kabulü) → **ADR-0018**. Bu ADR'nin HMAC credential, denied-peer-ip, host OUTPUT kuralı (r5 m.4), IPv6 (r5 m.5) ve 4.18 farkları maddeleri aynen geçerlidir.
 ## Bağlam
 Kurumsal ağlarda çoğu zaman yalnız 443/TCP açık (R4); publish sunucusunda 443 dolu.
 ## Karar

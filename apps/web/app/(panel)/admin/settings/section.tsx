@@ -18,15 +18,14 @@ export function Section({ id, title, Icon, children, aside }: { id: string; titl
 }
 
 /**
- * Kaynak rozeti: panelde kayıtlı / ortam değişkenleri / (P13a, yalnız WhatsApp) yerleşik varsayılan. Renk yalnız değil, metin.
- * Panel `primary-surface`; ortam ve varsayılan nötr `surface-muted` (varsayılan ayrıca kesik kenarlı — "ayar yapılmamış").
+ * Kaynak rozeti: panelde kayıtlı / ortam değişkenleri. Renk yalnız değil, metin.
+ * Panel `primary-surface`; ortam nötr `surface-muted`.
  */
-export function SourceBadge({ source, panel, env, fallback }: { source: "panel" | "env" | "default"; panel: string; env: string; fallback?: string }) {
-  const cls =
-    source === "panel" ? "bg-primary-surface text-primary" : source === "default" ? "border border-dashed border-border bg-surface-muted text-fg" : "bg-surface-muted text-fg";
+export function SourceBadge({ source, panel, env, none, testId = "setting-source" }: { source: "panel" | "env" | null; panel: string; env: string; none?: string; testId?: string }) {
+  const cls = source === "panel" ? "bg-primary-surface text-primary" : source === "env" ? "bg-surface-muted text-fg" : "border border-dashed border-border bg-surface-muted text-fg-muted";
   return (
-    <span data-testid="setting-source" data-source={source} className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
-      {source === "panel" ? panel : source === "default" ? (fallback ?? env) : env}
+    <span data-testid={testId} data-source={source ?? "none"} className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
+      {source === "panel" ? panel : source === "env" ? env : (none ?? env)}
     </span>
   );
 }

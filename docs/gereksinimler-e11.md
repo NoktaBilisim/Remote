@@ -1,0 +1,194 @@
+# Gereksinimler — E11 Ertelenen ve kapsam dışı işlerin yol haritası
+Tarih: 2026-11-14   Durum: ONAYLANDI (kullanıcı kararları 2026-11-14: S22–S28 ve K-E11-1..6, §8). Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (ayrılmaz parçasıdır).
+AC'ler: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e11.md` (G1–G4, AC-201..AC-244) ve `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e11-b.md` (G5–G8, ortak ve kararlarla eklenenler, AC-245..AC-297). Tasarım: `docs/mimari-e11.md`, ADR-0021..0028.
+Kaynak karar: kullanıcı 2026-11-14 — "ertelenen ve kapsam dışı bırakılan işlerin hepsi yol haritasına alınır; yalnız Windows ARM64 hariç".
+**Ön koşul (2026-11-14, P13b tasarımı):** E11 kod paketleri **P13c (ayrı staging ortamı) kurulmadan başlamaz**; E11 özellikleri P13c'den önce prod'a çıkmaz (`docs/gereksinimler-p13b.md` §6, ADR-0019 m.5).
+
+## 1. Amaç ve iş değeri
+P1–P13a bitti; paketlerin "Sonra / açık" tablolarında ve kapsam dışı listelerinde 100'ü aşkın madde birikti. E11 bunları tek, izlenebilir bir yol haritasında toplar: önce güvenlik/kalite borcu ve küçük özellikler, sonra istemci iyileştirmeleri ve müşteri iletişimi, en son iş kararı gerektiren büyük entegrasyonlar (SSO, webhook/ITSM, oturum başına faturalama, gözetimsiz erişim). Hedef, P13b prod açılışından sonra teknik borcu sıfırlamak ve ürünü AnyDesk/TeamViewer muadili olarak satılabilir hâle getirmektir.
+
+## 2. Roller (ek)
+- **Super Admin:** sistem logosu kaldırma, başka Super Admin'in şifresini sıfırlama, firma kalıcı silme, oturum fiyatı ve kullanım raporu, sistem düzeyi Paraşüt ayarı ve tenant–cari eşlemesi.
+- **Admin:** engelleme listesi, kullanıcı kalıcı silme, talep atama/öncelik/SLA/mesai, müşteri bildirim kanalları, SSO/LDAP, API anahtarı/webhook, müşteri portal hesapları, gözetimsiz cihazlar ve teknisyen–cihaz yetkileri, kendi kullanım sayısı.
+- **User (Teknisyen):** kurtarma kodu yenileme, kabul öncesi mesajlaşma, atanan talepler, bağlantıyı SMS/WhatsApp ile gönderme, yetkili olduğu cihazlara gözetimsiz bağlantı (step-up ile).
+- **Müşteri:** web formundan talep, durum bildirimi seçimi, müşteri portalı (yeni: hesaplı yetkili kişi), tepsi/çoklu firma kaydı; gözetimsiz cihazda yerel yönetici (kurulum, yerel kapatma anahtarı) ve bağlantı bildirimlerinin alıcısı.
+
+## 3. Kapsam
+### Mevcut / kapanmış — E11'e alınmadı (çift iş yok)
+- AC-151 talep e-posta bildirimi **P10'da kapandı** (`docs/arsiv/p10-qa-raporu.md`).
+- S-P3-8 (P7), TEST-P8-1/2 ve AC-39 axe kararsızlığı (P8), S-P4-T3-1/2 (P5): kapandı (`docs/implementation.md`).
+- P13a'ya alınıp yapılanlar: B-P12b-4, B-P12b-5, T33 link-local, audit `reason` etiketleri, `bindings-p8c` yarışı, I-P11-3, x/net v0.62, S-P5-T2-1 uyarı metni, veri saklama süresi web alanı.
+- Fare imleci bindirme kodlandı (`internal/capture/cursor.go`); yalnız Windows doğrulaması kalır (§9).
+
+### Kapsamda
+| Grup | İçerik | AC |
+|---|---|---|
+| G1 Güvenlik/kalite | MySQL CHECK `$`→`\z`; B-P9-2..6; rol değişimi kayıp güncelleme (`If-Match`, 428/409) + ezme kaybı + test; S-P2-4 alarm; S8b-8, S8b2-2 sunucu yarıları; B-P11-3 MySQL TLS; B-P11-4 metrik; STARTTLS testleri; B-P10-6; T33 step-up (TOTP veya kurtarma kodu); `/ws/panel` 4429; P11/P12/P13a QA önerileri; biçimlendirici kararı; test kararlılığı | 201–219 |
+| G2 UI/a11y | 404 + h1; toggle kontrastı; mobil etkin menü; "Tümü" boş durumu ve çift diyalog; `/settings/tenant` kalan alanları (`sessionTtlMin`, `maxActiveHours`, oturum ve dosya sınırları); filtre seçenekleri seçenek uçlarından; firma seçicide arama; sohbet gönderen sınırı (TEST-P5-4); geri tuşu uyarısı; `.webp`; 256 MB eşik testi | 220–230 |
+| G3 Küçük özellikler | 2FA kurtarma kodu yenileme; Super Admin şifre kurtarma (panel yolu); sistem logosu kaldırma; neden kodunun teknisyene gösterilmesi; IP/cihaz engelleme (G-E9-17); teknisyen avatarı (imzalı URL); `users.delete`; dosya raporlayan tarafı (S-P5-T2-4); talepte kabul kodu (S12) | 231–239 |
+| G4 Kalıcı silme | K27 hard delete; kullanıcı/firma kalıcı silme (audit `username` maskeli, 730 gün); avatar/logo/`uploads` temizliği, yetim tarama (B-P12-3) | 240–244 |
+| G5 İstemci 0.11.x | MFT otomatik geçiş; dirty-rect; koyu tema; pencere bazlı paylaşım; `remember` TOCTOU; `bindingPending`; aynı adlı tenant (AC-187); SignPath; tepsi + otomatik başlatma; çoklu firma kaydı | 245–254 (+234 istemci kısmı) |
+| G6 Talep/müşteri iletişimi | kabul öncesi mesajlaşma; atama/öncelik/SLA/mesai; web formundan talep; SMS/WhatsApp ile link; müşteriye durum bildirimi; müşteri portalı; müşteri CSV içe/dışa aktarma | 255–263 |
+| G7 Büyük entegrasyonlar | chat **her zaman** saklama, sunucu aktarımlı WS chat, eski istemcide chat kapalı + KVKK bilgilendirme (S25); İngilizce arayüz; SSO (OIDC) + LDAPS; public API; webhook (ITSM bağlantısı dahil, S22); oturum başına faturalama (10 yıl saklama) + sistem düzeyi Paraşüt taslak fatura (S23); gözetimsiz erişim — onaysız tam erişim + bağlayıcı telafi kontrolleri (S24) + UAC/Secure Desktop | 264–275, 291–297 |
+| G8 Ürün genişlemeleri | macOS, Linux, mobil müşteri, oturum kaydı (S6), çoklu teknisyen, ses, pano, uzaktan yazdırma, sunucuda dosya + virüs taraması (gereksinimler §3 madde 3–9) | 276–284 |
+| Ortak | yetki tek tanımdan, test düğmesi/şifreli saklama, 5 durum/a11y/ikon, doküman, iz testi, paket kapısı | 285–290 |
+| G9 Doğrulama ve ölçüm | kod değil; §9 listesi | — |
+
+### Kapsam DIŞI (açıkça)
+1. **Windows ARM64 istemci** — kullanıcı kararı 2026-11-14.
+2. **P13b ve ona atanmış her şey** (K1/K3 kararları verildi; ayrıntı `docs/gereksinimler-p13b.md`, AC-298..302): S-P13a-2 kalanı, site dışı yedek kancası, I-P11-1, `reset-superadmin` CLI, genel CA'lı TURN-TLS (TEST-NAT-1), AC-23 (5349'a revize; 443 risk kabulü), prod IPv6 (S-P3-3, S-P2-5 IPv6), repo görünürlüğü + attestation, K13 WhatsApp prod ön koşulu, P13a "Bilgi (güvenlik)" maddeleri, S-P13a-8, P10 staging SMTP elle testleri, istemci 0.10.2 Windows elle testleri, `AGENT_SERVER_URL` alan adı değeri. P13c (ayrı staging) E11'in ön koşuludur ama E11 kapsamında değildir.
+3. **Ekran karartma / gizli mod** (§3 madde 11, G-17) — "hiçbir fazda planlanmaz" kararı geçerli. Gözetimsiz erişimdeki görünür gösterge (AC-294) bu nedenle kapatılamaz.
+4. Tarayıcı modunda bilgisayar kaydı ve kod alanına link yapıştırma (E10 kapsam dışı 9–10) — S27 kararı: alınmaz.
+5. **ITSM'ye (Nokta ITSM dahil) özel entegrasyon** — S22 kararı: yalnız genel webhook (AC-269/270).
+6. **Chat saklamayı kapatma ayarı ve uçtan uca şifreli chat** — S25 kararı: her zaman saklanır, sunucu aktarımlıdır (ADR-0025).
+7. **Gözetimsiz bağlantıda yerel onay penceresi** — S24 kararı: onaysız tam erişim (telafi kontrolleri AC-293..297).
+8. Teknisyen sayısı veya abonelik tabanlı lisans ve kullanım sınırı ile oturum engelleme; tenant düzeyi Paraşüt ayarı — S23 kararı: yalnız oturum başına faturalama, Paraşüt sistem düzeyinde.
+9. Çok süreçli WhatsApp yayılımı (yatay ölçekleme kararıyla gelir) ve `MIN_AGENT_VERSION=0.9.0` açılışı (operasyon kararı, runbook §12.4).
+
+## 4. Kullanıcı hikâyeleri
+- US-46: Super Admin olarak düşük önemli güvenlik bulgularının kapanmasını istiyorum ki denetimde açık borç kalmasın. (G1)
+- US-47: Admin olarak yönetim ekranlarının mobilde, iki temada ve çok kayıtta sorunsuz çalışmasını istiyorum. (G2)
+- US-48: Teknisyen olarak kurtarma kodlarım bitince yöneticiye gitmeden yenilemek istiyorum. (G3)
+- US-49: Super Admin olarak şifresini unutan diğer Super Admin'i panelden kurtarmak ve sistem logosunu kaldırmak istiyorum. (G3)
+- US-50: Teknisyen olarak müşterinin neden paylaşamadığını panelde görmek istiyorum ki telefonda sormayayım. (G3)
+- US-51: Admin olarak kötüye kullanan IP ve cihazları engellemek istiyorum ki kuyruk spamle dolmasın. (G3)
+- US-52: Admin olarak anonim kayıtları, ayrılan kullanıcıyı ve kapanan firmayı dosyalarıyla kalıcı silmek istiyorum (KVKK imha). (G4)
+- US-53: Teknisyen olarak istemcinin zayıf donanımda akıcı, koyu temada okunaklı olmasını ve müşterinin tek pencere paylaşabilmesini istiyorum. (G5)
+- US-54: Müşteri olarak istemciyi tepside tutabilmek ve birden çok destek firmasına kayıtlı olabilmek istiyorum. (G5)
+- US-55: Teknisyen olarak talebi kabul etmeden yazışmak, talepleri atamak ve mesai dışını yönetmek istiyorum. (G6)
+- US-56: Teknisyen olarak bağlantıyı müşteriye SMS/WhatsApp ile sistemden göndermek istiyorum. (G6)
+- US-57: Müşteri olarak web formundan talep açmak, durum bildirimi almak ve portalda geçmişimi görmek istiyorum. (G6)
+- US-58: Admin olarak müşteri listemi CSV ile içe/dışa aktarmak istiyorum. (G6)
+- US-59: Admin olarak tüm sohbetlerin saklanmasını istiyorum ki ihtilafta kanıt olsun; müşteri bunu onay ekranında öğrenmeli. (G7)
+- US-60: Yabancı müşterisi olan Admin olarak arayüzü İngilizce kullanmak istiyorum. (G7)
+- US-61: Admin olarak teknisyenlerin kurumsal hesaplarıyla (SSO/LDAP) girmesini istiyorum. (G7)
+- US-62: Admin olarak verilere API anahtarıyla erişmek ve olayları (ITSM'im dahil) webhook ile almak istiyorum. (G7)
+- US-63: Super Admin olarak tenant'ları aylık oturum sayısına göre faturalamak ve taslak faturanın Paraşüt'te kendiliğinden oluşmasını istiyorum. (G7)
+- US-64: Admin olarak sözleşmeli müşterinin kayıtlı cihazına, başında kimse yokken onay beklemeden bağlanmak istiyorum; müşteri firması bundan haberdar olmalı ve isterse cihazda kapatabilmeli. (G7)
+- US-65: Ürün sahibi olarak macOS/Linux/mobil müşterilere kayıt, çoklu teknisyen, ses ve pano özellikleriyle destek vermek istiyorum. (G8)
+
+## 5. Kabul kriterleri
+Ayrı dosyalardadır (başlıktaki iki dosya; AC-201..AC-297, **97 AC**). G8 AC'leri çerçeve AC'dir; her biri ayrı tasarım turunda ayrıntılandırılır. P13b'nin AC'leri (AC-298..302) E11'e ait değildir.
+Kararlarla değişen/eklenen: AC-264 (her zaman sakla, WS aktarımı, eski istemcide kapalı), AC-270 (yalnız webhook), AC-271/272 (oturum başına, 10 yıl, sistem düzeyi Paraşüt), AC-273/275 (onaysız tam erişim), AC-291/292 (chat KVKK, uçtan uca değil), AC-293..297 (gözetimsiz telafi kontrolleri).
+Mimari sonrası revizyon r2 (2026-11-14, `docs/mimari-e11.md`): AC-206 (428), AC-215 (`MFA_SETUP_REQUIRED`, kurtarma kodu), AC-216 (close 4429 + `retry=`), AC-224 (`sessionTtlMin` + `maxActiveHours`), AC-225 (teknisyen tam liste, müşteri/firma aramalı ≤ 20), AC-241 (audit `username` maskeli), AC-273 (bağlantı başına step-up, kurtarma kodu telafi kontrolleri — ADR-0022 r2), AC-297 (beyana dayalı kullanılabilirlik kapısı).
+
+## 6. Fonksiyonel olmayan gereksinimler (ek)
+- **Performans:** firma seçici araması ≤ 500 ms (250 firma); müşteri/firma filtre araması en çok 20 sonuç; CSV içe aktarma 5.000 satır ≤ 30 sn; durum, gözetimsiz bağlantı ve "kurtarma kodu kullanıldı" bildirimleri ≤ 60 sn; MFT geçişinde görüntü ≤ 5 sn'de döner; gözetimsiz cihaz iptali ≤ 10 sn, yetki geri alma ≤ 5 sn, yerel kapatma ≤ 2 sn.
+- **Güvenlik:** yeni her dış servis = test düğmesi + maskeli/şifreli sır + audit (Projeler/CLAUDE.md §3); hassas işlemler ve **her gözetimsiz bağlantı** step-up ister (AC-215, AC-273; TOTP veya kurtarma kodu, gözetimsizde bağlantı başına tüketilir; kurtarma kodu kullanımında e-posta bildirimi ve kalan ≤ 3 uyarısı); public API ve webhook HMAC + hız sınırı; G7/G8 her paket tasarım güvenlik turundan geçer; SMS/WhatsApp için yalnız ortak servisler (smsportal, whatsapp-bildirim); Paraşüt kimlikleri `.secrets/parasut.env`'den, repoya girmez (repo açık kaynak, gitleaks). Gözetimsiz erişim prod'da imza beyanı olmadan kapalıdır (AC-297; kimlik doğrulama değil, kullanılabilirlik kapısı).
+- **KVKK:** kalıcı silme gerçek imhadır (yedekten ≤ 14 günde düşer); silinen kullanıcının audit'teki eski `username`'i audit saklama süresince (730 gün) kalır ve her görünümde maskelenir (K-E11-4); sohbet her zaman saklanır, **artık uçtan uca şifreli değildir** (sunucu aktarımlı, sunucuda alan düzeyinde şifreli), oturum saklama süresine bağlıdır ve anonimleştirmede silinir; aydınlatma metni yeni sürümü ve onay ekranı satırı zorunludur (AC-291/292); müşteri portalı yeni kişisel veri üretir; oturum kaydı ayrı açık rıza ister.
+- **Finansal / saklama:** oturum fiyatı ondalık tiple (float değil) ve para birimiyle saklanır; aylık sayım ay kapanınca dondurulur; fatura tutarı uygulamada değil Paraşüt'te tutulur. **Faturalama verisi (faturalanabilir oturum kayıtları, aylık kullanım özetleri) 10 yıl saklanır (VUK, K-E11-5; mali müşavir teyidi kullanıcıda)**; oturum saklama süresi, anonimleştirme ve G4 kalıcı silme bu veriyi silmez; veri kişisel bilgi içermez.
+- **Erişilebilirlik / yerelleştirme:** WCAG 2.1 AA, iki tema; TR + EN (AC-265), Europe/Istanbul varsayılan.
+- **Lisans:** yeni bağımlılık AGPL/GPL olamaz (ClamAV GPL'dir: ayrı süreç/servis olarak çalışır, koda bağlanmaz — mimar doğrular).
+- **Ortamlar:** E11 paketlerinin staging adımı P13c ortamında (`stg.remote.noktabilisim.net`) yapılır; P13c'den önce E11 kodu prod'a çıkmaz. Staging yedekleri 3 gün, ayrı age anahtarıyla tutulur (K-E11-2).
+
+## 7. Varsayımlar
+- V29: E11 kod paketleri P13b prod açılışından ve **P13c ayrı staging kurulumundan sonra** başlar (ADR-0019 m.5, K-P13b-5); istemci yayınları prod alan adıyla (`remote.noktabilisim.net`) yapılır.
+- V30: Super Admin şifre kurtarmanın panel yolu yalnız ikinci bir Super Admin varken çalışır; sistem düzeyi SMTP ile "şifremi unuttum" yapılmaz (CLI P13b'de, AC-299).
+- V31: Sistem logosu kaldırmada `app` DELETE yetkisi veya "boş değer" biçimi seçimi mimarındır (AC-233 davranışı değişmez).
+- V32: Kalıcı silme bekleme süreleri: anonim kayıt +30 gün, firma için ≥ 30 gün pasiflik; kullanıcı silmede audit satırları silinmez ve değiştirilmez (AC-241, K-E11-4). Kalıcı silme AC-301 audit süreklilik denetimini bozmamalıdır.
+- V33: Engelleme listesi tenant düzeyindedir; Super Admin tenant seçerek uygular.
+- V34: Tepsi/otomatik başlatma yalnız kayıtlı bilgisayarda ve varsayılan kapalıdır; ADR-0004 eki gerekir.
+- V35: Çoklu firma kaydı üst sınırı 5'tir.
+- V36: Web talep formu tarayıcı modu oturumu açar; Windows istemci gerekiyorsa indirme bağlantısı verilir.
+- V37: Gözetimsiz erişimde bağlantı onaysızdır (S24). Yerel "kapat" anahtarı yalnız cihaz tarafındadır; sunucu bu anahtarı açamaz.
+- V38: Faturalanabilir oturum, müşterinin bağlandığı (ACTIVE'e geçmiş) oturumdur; gözetimsiz bağlantılar da oturum sayılır.
+- V39: Sohbet saklama kapsamı: oturum sohbeti ve kabul öncesi talep mesajları; dosya içeriği saklanmaz (G8 AC-284 hariç). Tarayıcı modu ve yeni Windows istemcisi WS chat kullanır; eski istemcide chat kapalıdır (K-E11-6).
+- V40: AC-248 pencere modu (Windows.Graphics.Capture) prototipi başarısız olursa iş P17'den P20'ye kayar, kapsam daraltılmaz (K-E11-3).
+
+## 8. Riskler ve açık sorular
+### Riskler
+| # | Risk | Etki | Önlem | Sahibi |
+|---|---|---|---|---|
+| R25 | Gözetimsiz servis AV/EDR tarafından "uzaktan yönetim aracı/zararlı" sayılır | Yüksek | SignPath imzası olmadan prod'da kapalı (AC-297); ayrı tehdit modeli | mimar + guvenlik + kullanıcı |
+| R26 | Kalıcı silmede FK döngüsü ve yanlış silme | Yüksek (geri dönüşsüz) | Ad yazarak onay, bekleme süreleri, kaldığı yerden devam, yedekten geri yükleme prosedürü | dba + backend-dev |
+| R27 | Sohbetin her zaman saklanması KVKK yükü ve veri sızıntısı etkisini büyütür (sohbette şifre, kişisel veri paylaşılabilir) | Orta–Yüksek | Alan düzeyinde şifreleme, `sessions.view_chat` + görüntüleme audit'i, saklama süresiyle silme, aydınlatma metni ve onay ekranı satırı (AC-264, 291, 292); kılavuzda "sohbete şifre yazmayın" uyarısı | proje-yoneticisi + guvenlik |
+| R28 | SSO/LDAP yerel yetki modeliyle çakışır, hesap ele geçirme yüzeyi büyür | Orta | Rol/toggle yerel kalır, doğrulanmış e-posta eşlemesi, acil durum hesabı | mimar |
+| R29 | Kapsam çok büyük; G7/G8 G1–G4'ü geciktirir; P13c gecikirse E11'in tamamı bekler | Orta | Sıra sabit: P13c → G1–G4 önce; G7/G8 paket kapısıyla | proje-yoneticisi |
+| R30 | Kod imzası gelmezse tepsi/otomatik başlatma AV'ye takılır, gözetimsiz erişim prod'a hiç açılamaz | Yüksek (G5/G7) | AC-252, AC-297; SignPath başvurusunun takibi | kullanıcı + devops |
+| R31 | Dış servis (smsportal, whatsapp-bildirim, webhook alıcısı, Paraşüt) tek nokta | Orta | Zaman aşımı, yeniden deneme, audit, test düğmesi; fatura işi idempotent | devops |
+| **R32** | **Ele geçirilmiş teknisyen hesabı, yetkili olduğu tüm kayıtlı cihazlara onaysız tam erişim sağlar (S24 kararının doğal sonucu). K-E11-1 ile step-up'ta kurtarma kodu da kabul edildiğinden, kodları ele geçiren saldırgan TOTP cihazı olmadan da bağlanabilir** | **Yüksek** (müşteri altyapısında veri hırsızlığı, fidye yazılımı yayılımı, itibar) | Kullanıcı kararı değişmeden bağlayıcı telafi kontrolleri: bağlantı başına tüketilen step-up (AC-273); kurtarma kodu kullanımında e-posta bildirimi, audit'te `method` + kalan kod sayısı, kalan ≤ 3 uyarısı (AC-273, ADR-0022 r2); cihaz başına varsayılan kapalı Admin yetkisi (AC-293); kapatılamayan görünür gösterge (AC-294); cihazda yerel kapatma anahtarı (AC-295); müşteri firmasına bağlantı bildirimi (AC-296); imzasız beyanda prod kapalı (AC-297); anında iptal (AC-275); audit + Windows olay günlüğü. Kalan risk kullanıcı tarafından kabul edildi (2026-11-14) | kullanıcı (risk sahibi) + guvenlik + mimar |
+| R33 | Oturum başına faturalamada sayım ihtilafı (müşteri "bağlanmadı" der) | Orta | Faturalanabilir tanımı açık (AC-271), ay kapanınca dondurulur, CSV dökümü oturum id'li, fatura önce taslak, veri 10 yıl saklanır | backend-dev + kullanıcı |
+| **R37** | **Chat'in uçtan uca şifreli olmaktan çıkması (ADR-0025):** sohbet sunucudan geçer ve sunucuda okunabilir hâldedir; sunucu ya da yönetici hesabı ele geçirilirse tüm sohbet geçmişi ifşa olur; "uçtan uca şifreli" ürün iddiası sohbet için artık geçerli değildir; eski istemcili müşteride chat kullanılamaz | Orta–Yüksek (gizlilik, itibar, KVKK ihlal bildirimi yükü; destek akışında kesinti) | Alan düzeyinde şifreleme ve anahtarın DB dışında tutulması; `sessions.view_chat` + görüntüleme audit'i; saklama süresiyle silme (AC-264); aydınlatma metninde ve DATASHEET'te "sohbet uçtan uca değil; görüntü, kontrol ve dosya uçtan uca" açık beyanı (AC-292, AC-288); eski istemcide açık "güncelleyin" mesajı ve telefonla iletişim yolu; kılavuzda "sohbete şifre yazmayın" | mimar + guvenlik + teknik-yazar |
+
+### Açık sorular — karar verildi (kullanıcı, 2026-11-14)
+| # | Soru | Karar | Etkilenen |
+|---|---|---|---|
+| S22 | ITSM entegrasyonu hangi sistemle? | **Karar verildi:** yalnız genel webhook; Nokta ITSM'ye özel entegrasyon yok. ITSM işi webhook paketine (P25) birleşti, ayrı ITSM paketi kalktı | AC-270, §10 |
+| S23 | Lisans modeli? | **Karar verildi:** oturum başına; aylık oturum sayısına göre faturalanır, ay sonunda Paraşüt'te taslak fatura oluşur | AC-271, AC-272, R33 |
+| S24 | Gözetimsiz erişimin güvenlik çerçevesi? | **Karar verildi:** onaysız tam erişim; kayıttan sonra yerel onay yok, teknisyen step-up + audit. Telafi kontrolleri bağlayıcı AC olarak eklendi | AC-273..275, AC-293..297, R32 |
+| S25 | Chat saklama? | **Karar verildi:** tüm firmalarda her zaman saklanır, oturum saklama süresine bağlı, anonimleştirmede silinir; aydınlatma metni + onay ekranı bilgilendirmesi | AC-264, AC-291, AC-292, R27, R37 |
+| S26 | SSO önceliği, mobil müşteri kapsamı? | **Karar verildi (öneri kabul):** OIDC (önce Entra ID) + LDAPS; mobil: Android görüntü + chat, iOS yalnız chat | AC-266, 267, 278 |
+| S27 | Tarayıcı modunda kayıt / link yapıştırma alınsın mı? | **Karar verildi (öneri kabul):** Hayır | §3 kapsam dışı 4 |
+| S28 | G8 E11'de mi? | **Karar verildi (öneri kabul):** E11'de en sona, her biri ayrı tasarım turuyla | §10 P28+ |
+| K-E11-1 | Step-up'ta kurtarma kodu kabul edilsin mi? | **Karar verildi (kullanıcı; mimarın varsayılanının tersi):** kabul edilir. Kod tüketilir; audit'e kod değil `method` + kalan kod sayısı yazılır; "Kurtarma kodunuz kullanıldı" e-postası; kalan ≤ 3'te yenileme uyarısı (ADR-0022 r2). TOTP'si olmayana 403 `MFA_SETUP_REQUIRED` | AC-215, AC-273, R32 |
+| K-E11-2 | Staging yedek saklama | **Karar verildi (mimar varsayılanı):** 3 gün, ayrı age anahtarı | §6 Ortamlar |
+| K-E11-3 | AC-248 WGC prototipi başarısız olursa | **Karar verildi (mimar varsayılanı):** AC-248 P17'den P20'ye kayar, kapsam daraltılmaz | AC-248, V40 |
+| K-E11-4 | Kalıcı silinen kullanıcının audit'teki eski `username`'i | **Karar verildi (kullanıcı):** audit saklama süresi (730 gün) boyunca kalır, ekranda ve CSV'de maskelenir | AC-241, §6 KVKK |
+| K-E11-5 | Faturalama verisi saklama süresi | **Karar verildi (kullanıcı):** 10 yıl (VUK); mali müşavir teyidi kullanıcıda | AC-271, §6 Finansal |
+| K-E11-6 | Eski Windows istemcisinde chat | **Karar verildi (kullanıcı):** chat kapanır, "güncelleyin" uyarısı gösterilir | AC-264, AC-292, R37 |
+
+## 9. Doğrulama ve ölçüm listesi (G9 — kod değil)
+Sonuçlar `docs/test-raporu.md`'ye yazılır; kalan bulgu E11 düzeltme turuna girer. P13b'ye atanmış ölçümler (prod açılış kontrol listesi, mimari-p13 §7.13) burada değildir.
+| # | Madde (kaynak) | Ne ölçülür | Sahibi |
+|---|---|---|---|
+| D1 | Windows elle P6 (AC-95, 96, 103, 106, 110, 118, Zone.Identifier, AC-108 iz testi) | Temiz Win10 22H2/Win11'de adım listesi | test-operatoru / kullanıcı |
+| D2 | Windows elle P7 adım 25–42 + fare imleci 43–47 | Kontrol, izin, imleç görünürlüğü | test-operatoru / kullanıcı |
+| D3 | Windows elle P8b-2 (adım 1–20, a–c) ve P8c-2 (adım 1–16 + Tab sırası) | Talep, kayıt, unut akışları | test-operatoru / kullanıcı |
+| D4 | AC-41 / TEST-NAT-3 / QA-P5-4 | İki ayrı ağdan 1080p ≥ 15 fps, UDP relay kaybı (tcpdump/nstat/pfctl) | test-operatoru + devops + kullanıcı (ikinci ağ) |
+| D5 | TEST-NAT-2 | Yalnız TCP TURN'de ICE `webrtc-internals` dökümü | frontend-dev + test-operatoru |
+| D6 | AC-40, AC-42, AC-57 p95 (AC-23 P13b prod ölçümünde) | Gerçek ağ ölçümleri | test-operatoru |
+| D7 | AC-149 uçtan uca, K18/AC-192 | Talep→toast ≤ 3 sn; kabul→ilk kare p95 ≤ 8 sn, 10/10 | test-operatoru / kullanıcı |
+| D8 | QA-P8-1 ve CSV yeni sütunlar | Excel tr-TR'de açma, formül hücresi metin kalır | kullanıcı |
+| D9 | AC-175 "Genel bağlantı" başlığı, talep sayfalarında logo, TEST-P4-3 kamera uyarısı (`rs_theme` Secure P13b kontrol listesinde) | Gerçek Chrome/Windows | test-operatoru |
+| D10 | P11 kalanı: MySQL testi gerçek DB (başarı/yanlış şifre/zaman aşımı), TURN panel ayarı gerçek oturumda | P13c staging | test-operatoru |
+| D11 | TEST-NAT-4 | İşaretleme kaybı tekrarını izleme | test-operatoru |
+| D12 | AC-246 öncesi taban ölçüm | 0.10.x CPU ve fps tabanı | test-operatoru |
+
+## 10. Paket sırası ve bağımlılıklar (karar sonrası yeniden numaralandı)
+Paket kuralları (mimari §10.1) aynen geçerlidir. Mimari karşılığı `docs/mimari-e11.md`. **Tüm E11 paketlerinin ön koşulu: P13b prod açılışı + P13c ayrı staging.**
+| Paket | İçerik | AC | Bağımlı | Ekip |
+|---|---|---|---|---|
+| P14a | G1 güvenlik/kalite | 201–219 | P13c | dba → backend ‖ devops |
+| P14b | G2 UI/a11y | 220–230 | P13c; P14a ile paralel | frontend (+ backend: seçenek uçları, `q`) |
+| P15 | G3 küçük özellikler (sunucu + panel) | 231–239 (234 sunucu/konsol) | P14a | dba → backend ‖ frontend |
+| P16 | G4 kalıcı silme | 240–244 | P15 (AC-237) | mimar (FK planı) → dba → backend ‖ frontend ‖ devops |
+| P17 | G5 istemci 0.11.0 + AC-234 istemci | 234, 245–252 | P15, D1–D3 sonuçları | backend-dev (Go) → qa ‖ güvenlik → test-operatoru |
+| P18 | G6-a: kabul öncesi mesajlaşma, atama/öncelik/SLA/mesai | 255–258 | P15 | dba → backend ‖ frontend |
+| P19 | G6-b: web formu, SMS/WhatsApp link, durum bildirimi, müşteri CSV | 259–261, 263 | P18 | dba → backend ‖ frontend ‖ devops |
+| P20 | G5-b istemci 0.12.0: tepsi/otomatik başlatma, çoklu firma kaydı, WS chat | 253, 254 (+248 K-E11-3 durumunda) | P17, SignPath sonucu | mimar (ADR-0004 eki) → backend-dev (Go) |
+| P21 | Müşteri portalı | 262 | P19 | mimar → dba → backend ‖ frontend |
+| P22 | Chat her zaman saklama + KVKK bilgilendirme | 264, 291, 292 | P18 (talep mesajları), P20 (istemci WS chat) | dba → backend ‖ frontend ‖ backend-dev (Go: onay ekranı satırı) |
+| P23 | İngilizce arayüz | 265 | P14b | frontend ‖ backend-dev (Go) |
+| P24 | SSO + LDAP | 266, 267 | P15 (AC-215 step-up) | mimar → backend ‖ frontend |
+| P25 | Public API + webhook + ITSM bağlantısı (webhook ile) | 268, 269, 270 | P15 | mimar → backend ‖ frontend ‖ teknik-yazar (api.md eşleme örneği) |
+| P26 | Oturum başına faturalama + Paraşüt taslak fatura | 271, 272 | P25 | mimar → dba → backend ‖ frontend ‖ devops |
+| P27 | Gözetimsiz erişim (onaysız tam erişim + telafi kontrolleri) | 273–275, 293–297 | P17, P20, P26 (gözetimsiz oturum sayımı), SignPath imzası (prod), ayrı tehdit modeli | mimar → guvenlik tasarım turu → dba → backend ‖ backend-dev (Go) ‖ frontend ‖ devops |
+| P28+ | G8 (her biri ayrı paket ve tasarım turu) | 276–284 | P27'ye kadar olanlar | — |
+Gerekçe: güvenlik/bulgu temizliği ve küçük özellikler en düşük riskli ve değeri hemen görünen işlerdir; istemci yayınları Windows elle testlerine bağlıdır; faturalama webhook/API altyapısından sonra gelir; gözetimsiz erişim en yüksek riskli iştir (R32), en sona ve imzaya bağlıdır. Ortak AC'ler (285–290) her pakette geçerlidir. Eski numaralı P26 (ITSM) kaldırıldı; P27→P26, P28→P27, P29+→P28+.
+
+## 11. Kontrol listesi kararları (E11)
+| Madde | Karar | Gerekçe |
+|---|---|---|
+| 1. Kimlik doğrulama | Kapsamda: SSO/OIDC, LDAPS, step-up (TOTP veya kurtarma kodu; her gözetimsiz bağlantıda zorunlu ve bağlantı başına), kurtarma kodu yenileme, müşteri portal girişi | G3, G6, G7, K-E11-1 |
+| 1. Şifre sıfırlama / kilit | Kapsamda: Super Admin panel kurtarma (V30); CLI P13b (AC-299) | AC-232 |
+| 1. Yetki / IDOR | Yeni anahtarlar tek tanımdan (`support_requests.assign`, `sessions.view_chat`, `sessions.view_recording`, `unattended.connect`, portal kapsamı); gözetimsiz cihazda ek olarak cihaz başına yetki | AC-285, AC-293 |
+| 1. Hesap silme (KVKK) | Kapsamda: kalıcı silme (G4); audit'teki eski kullanıcı adı 730 gün maskeli | K27, K-E11-4 |
+| 1. Servis hesapları / API anahtarı | Kapsamda: kapsamlı, iptal edilebilir, süreli API anahtarı; webhook HMAC | AC-268/269 |
+| 2. Para | Oturum fiyatı ondalık + para birimi; tutar Paraşüt'te; faturalama verisi 10 yıl | AC-271/272, K-E11-5 |
+| 2. Eşzamanlılık | Kullanıcı PATCH'inde `If-Match` zorunlu (428/409) | AC-206 |
+| 3. Webhook güvenliği | HMAC imza, zaman damgası, yeniden deneme, netguard | AC-269 |
+| 3. Rate limiting (WS) | Close kodu 4429 + `retry=<sn>`; WS'de `Retry-After` yok | AC-216 |
+| 5. 5 durum / a11y / responsive | Her yeni ekran; G2 mevcut borcu kapatır | AC-287 |
+| 5. Yıkıcı işlem onayı | Kalıcı silme ad yazarak; kurtarma kodu yenileme ve cihaz iptali onaylı | AC-231/241/242/275 |
+| 5. Yerelleştirme | Kapsamda: TR + EN | AC-265 |
+| 5. Bildirim stratejisi | Müşteriye SMS/WhatsApp/e-posta (isteğe bağlı, onaylı); gözetimsiz bağlantıda müşteri firmasına zorunlu bildirim; kurtarma kodu kullanımında kullanıcıya e-posta; fatura hatası Super Admin'e | AC-260/261/272/273/296 |
+| 5. 404 sayfaları | Kapsamda: gerçek 404 kodu | AC-220 |
+| 7. Ortamlar | E11 staging adımı P13c'de (yedek 3 gün); P13c'den önce E11 prod'a çıkmaz | ADR-0019 m.5, K-E11-2 |
+| 8. KVKK | Sohbet her zaman saklanır, uçtan uca değil → aydınlatma yeni sürümü + onay ekranı satırı; oturum kaydı ayrı rıza; kalıcı silme | AC-264, 291, 292, R27, R37 |
+| 8. Lisanslar | GPL bileşen (ClamAV) yalnız ayrı servis | NFR |
+| 8. Finansal veri | Aylık sayım dondurulur, fatura taslağı idempotent, 10 yıl saklama | AC-271/272 |
+| 9. Kapsam dışı | 9 madde (§3) | — |
+| 9. Ölçülebilir AC | AC-201..AC-297 (97 AC); G8 çerçeve | — |
+| 9. Riskler / açık sorular | R25–R33 ve R37 (R32 yüksek, kullanıcı kabulü); S22–S28 ve K-E11-1..6 karar verildi | §8 |
+| 9. Dokümantasyon | Her pakette kılavuz/DATASHEET/CHANGELOG/PDF; api.md'de ITSM webhook eşleme örneği; DATASHEET'te chat'in uçtan uca olmadığı | AC-288, AC-270, R37 |
+| Sonra | Windows ARM64; ekran karartma hiç; tarayıcı modunda kayıt; çok süreç WhatsApp | Unutulmasın diye |

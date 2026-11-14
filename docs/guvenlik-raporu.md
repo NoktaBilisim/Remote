@@ -1,3 +1,508 @@
+# Güvenlik Raporu — P13b kod turu 2 (2026-11-15)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 6 (yeni) — tur 1'den açık: S-P13b-4 (kısmen), S-P13b-5 (Düşük, runbook)
+
+Kapsam: commit edilmemiş çalışma ağacı; `docs/implementation.md` "P13b — devops düzeltme turu 1" ve "P13b — backend/frontend, WhatsApp
+servis anahtarı (S-P13b-3)". İncelenen: `deploy/backup/{backup.sh,lib-audit.sh,lib-offsite.sh,lib.sh,restore.sh,lib-restore.sh}`,
+`deploy/ops/proxy-guard.sh`, `deploy/ops/remote-watch.sh`, `apps/server/src/{notify/whatsapp.ts,settings/system.ts,settings/routes.ts,
+audit/mask.ts,lib/logger.ts,env.ts}`, `packages/contracts/src/api/system-settings.ts`, migration `20261115090000_whatsapp_api_key`,
+`apps/web/app/(panel)/admin/settings/whatsapp/whatsapp-form.tsx`. Staging'e bağlanılmadı, ACCESS.txt okunmadı, dind kullanılmadı,
+kod değiştirilmedi. Not: tur sınırı nedeniyle `test-backup*.sh` / `test-proxy-guard.sh` yeniden çalıştırılmadı (devops sonuçları 55/55, 34/34 kabul edildi).
+
+## Tur 1 maddelerinin durumu
+| Kimlik | Önem | Durum | Kanıt |
+|---|---|---|---|
+| S-P13b-1 | Orta | KAPANDI | `lib-audit.sh:80-87`: sıfırlama yalnız `baseline.at > P.measuredAtUtc` **ve** `BACKUP_DIR/audit-baseline-reset.json` root 600 normal dosya (`lib.sh:171 file_root_600`, symlink reddi) **ve** `işaret.id = baseline.id` ise uyarı; aksi `FAILED taban-cizgisi-isaretsiz`. İşaret imzalı manifeste girer, tüketilir (`backup.sh:281`). DB satırı tek başına yetmiyor. `offsite_normalize` işarete dokunmuyor (644 → 600 yükseltme yolu kapalı). Kalan pencere → S-P13b-10, S-P13b-11. |
+| G-P13b-3 | Orta | KAPANDI (kalan risk gerekçeli) | `proxy-guard.sh:72-83`: `inet remote_proxy_guard` output, priority filter (DNAT'tan sonra), `tcp dport 4451`, hedef `127.0.0.0/8,172.30.0.0/24` + `::1`, `meta skuid != {root,www-data}` → RST. Docker-proxy (127.0.0.1), DNAT yolu ve doğrudan 172.30.0.2 kapsanıyor; IPv4-mapped IPv6 soketler IPv4 paketi üretir, kural yakalar; rootless konteyner/slirp kullanıcı uid'iyle bağlanır → red. Başka bridge'deki konteynerler FORWARD'dan geçer ve kaynakları .128 değildir (güvenilmez). Kalan: www-data (belgelenmiş, `check` UYARI) ve S-P13b-12. |
+| S-P13b-2 | Düşük | KAPANDI | `restore.sh:74-78` manifest+imza 700 `mktemp -d` kopyasına alınıp tüm okumalar kopyadan; `:108-111` `M_RUN/M_ENV/M_HOST/M_SEQ` sıkı desen, `:114` tablo adları. |
+| S-P13b-3 | Orta | KOD KAPANDI (servis tarafı kullanıcıda) | `x-api-key` desteği aşağıda incelendi. `git grep 89.252.189.211` → yalnız `docs/guvenlik-raporu.md` (eski turlar, 9 satır); diğer dokümanlardan temizlenmiş. Servisin anahtarı fiilen zorlaması ayrı projede doğrulanmalı (repo public öncesi). |
+| S-P13b-4 | Düşük | KISMEN | `remote-watch.sh:231` `\( -perm -0020 ! -group 0 \)` eklendi. Yedek biriminin kurulu kopyadan çalışması → Sonra (implementation.md). |
+| S-P13b-5 | Düşük | AÇIK (runbook, T5) | Kod değişikliği gerekmiyor; runbook notu bekleniyor. |
+| S-P13b-6 | Düşük | KAPANDI | `lib-offsite.sh:63-79` `OFFSITE_OPEN` + `backup.sh:68 on_exit → offsite_close`; SIGKILL için yalnız run dizinlerini normalleştiren `offsite_normalize`. |
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] S-P13b-7 Yeni sahte test anahtarları gitleaks `generic-api-key`e takılıyor — commit edilince CI gitleaks işi kırmızı — A05 (süreç)
+Yer: `apps/server/test/integration/whatsapp-admin-p12b.test.ts:399` (`ENV_KEY`), `apps/server/test/unit/whatsapp-runtime-p12b.test.ts:144` (`KEY`),
+`apps/web/e2e/p12b-whatsapp.spec.ts:256` (`apiKey`). `.github/workflows/ci.yml:175-178` tüm geçmişi `--exit-code 1` ile tarar.
+Sorun: Değerler sahte (gerçek anahtar öneki `git grep` ile 0) ama yüksek entropili (4,2–4,4), `.gitleaks.toml` allowlist'inde değil.
+İstismar senaryosu: Güvenlik açığı değil; commit sonrası CI kırılır, aceleyle geniş bir allowlist eklenirse (ör. bütün `test/` dizini)
+gerçek bir sızıntı da gizlenir.
+Düzeltme: Sahte anahtarlar tek kaynağa, allowlist'teki `apps/server/test/helpers/secrets.ts`'e taşınır (web e2e için düşük entropili
+belirgin sahte değer, ör. `test-only-wa-key-0000000000`). Yeni dosya yolu ya da dizin allowlist'e eklenmez. **Commit öncesi kapanmalı.**
+Sahip: backend-dev (server testleri), frontend-dev (e2e).
+
+### [DÜŞÜK] S-P13b-8 Servis anahtarı `http://` üzerinden düz metin gönderilebiliyor — A02
+Yer: `apps/server/src/notify/whatsapp.ts:65-71` (`isInsecureServiceUrl`: production'da yalnız http + **özel olmayan** adres kapalı;
+development/test'te her şey serbest), `:308` (başlık koşulsuz eklenir).
+Sorun: Production'da `http://10.x/172.16.x/192.168.x/127.x` adreslerine ve geliştirme ortamında herhangi bir `http://` adrese `x-api-key`
+şifresiz gider. Staging compose `NODE_ENV=production` olduğundan genel IP'ye http zaten kapalı (iyi); risk özel ağ/VPN yolunda.
+İstismar senaryosu: Aynı LAN/VPN segmentinde pasif dinleme yapan biri anahtarı yakalar ve firmanın numarasından toplu mesaj gönderir.
+Düzeltme: Anahtar tanımlıysa `http://` yalnız loopback ya da compose iç ağı (ör. 172.30.0.0/24) için kabul edilir, aksi hâlde kanal
+`insecure` sayılır (ayar ekranında mevcut uyarı). Servis tarafında TLS (vekil) önerisi U1'le birlikte. Sahip: backend-dev; servis: kullanıcı.
+
+### [DÜŞÜK] S-P13b-9 Anahtar şeması yazdırılabilir ASCII'yi zorlamıyor — A04 / A05
+Yer: `packages/contracts/src/api/system-settings.ts:181` `WA_API_KEY_RE = /^[^\s\p{Cc}]+$/u`.
+Sorun: U+0100 ve üstü karakterler ile `\p{Cf}` (ör. kopyala-yapıştırla gelen U+200B) kabul edilir. Kaydedilen anahtarla her istek
+`fetch` içinde `TypeError: Cannot convert argument to a ByteString` atar (yerelde doğrulandı); sonuç `unreachable` olur, kanal sessizce
+çalışmaz ve teşhis yanlış yönlendirir. 0x80–0xFF ise ham Latin-1 bayt olarak gider. Değer loga yazılmıyor (yalnız `err.name`) — sızıntı yok.
+Düzeltme: `^[\x21-\x7E]+$` (16–256). env ve panel aynı şemayı kullandığı için tek değişiklik yeterli. Sahip: backend-dev.
+
+### [DÜŞÜK] S-P13b-10 Kabul edilen taban çizgisi sıfırlamasında gün özeti karşılaştırması hiç yapılmıyor — A09
+Yer: `deploy/backup/lib-audit.sh:80-87` (sıfırlama dalı, `$bad` hesabından önce döner).
+Sorun: Tur 1'deki iki düzeltme önerisinden ikincisi (host işareti) uygulandı; birincisi (sıfırlamada da karşılaştır, farkı alarm metnine yaz)
+uygulanmadı. Önceki ölçüm ile meşru sıfırlama arasındaki kurcalama görünmez kalır.
+İstismar senaryosu: migrator ele geçirilmiş, operatörün elle (restore dışı) `--reset-audit-baseline` çalıştıracağı biliniyor
+(ör. bir önceki alarm sonrası). Saldırgan sıfırlamadan önce audit satırlarını değiştirir; işaret eşleştiği için sonuç "uyarı" olur.
+Restore sonrası etkisi yok (veri zaten yedekten gelir).
+Düzeltme: Sıfırlama dalında da `$bad`/`maxId` farkı hesaplanır; sonuç değişmez ama alarm metnine `fark: gun=…` eklenir, operatör görür.
+Sahip: devops.
+
+### [DÜŞÜK] S-P13b-11 `--reset-audit-baseline` yedek kilidini almıyor; işaret yol bazlı siliniyor — A04 (yarış)
+Yer: `deploy/backup/backup.sh:55-58` (kilit `:116`'dan önce çıkar), `:281` `rm -f -- "$(baseline_marker_path)"`.
+Sorun: Yedek A sıfırlama id=5'i kabul ettikten sonra operatör id=6 sıfırlaması yaparsa, A'nın `rm -f`'i yeni işareti siler; sonraki yedek
+`FAILED taban-cizgisi-isaretsiz` verir. Fail-safe (yanlış alarm), ama runbook "olay müdahalesi" der → gereksiz müdahale.
+TOCTOU (izin denetimi → `jq` okuma) istismar edilemez: BACKUP_DIR root 700 (kanca sırasında 710, grup yazamaz).
+Düzeltme: Reset komutu aynı `LOCK_DIR`'i alır; silmeden önce dosyadaki `id` kabul edilen id ile karşılaştırılır. Sahip: devops.
+
+### [DÜŞÜK] S-P13b-12 proxy-guard kalan pencereleri — A01
+Yer: `deploy/ops/proxy-guard.sh:72-83`, `:128-142` (unit).
+Sorun: (a) `root` izinli: `docker` grubundaki herhangi bir kullanıcı `--network host` ile root konteyner açıp atlatır (root eşdeğeri
+yetki; kabul edilebilir ama runbook'ta yazılı değil). (b) Ubuntu `nftables.service` yeniden başlatılırsa `/etc/nftables.conf` içindeki
+`flush ruleset` tabloyu siler; timer ≤5 dk sonra onarır. (c) Servis `Before=docker.service` içermez; açılışta kısa korumasız pencere.
+Düzeltme: runbook'a (a) notu; unit'e `Before=docker.service`, `PartOf=nftables.service` (ya da `/etc/nftables.d` include); Sahip: devops (T5).
+
+## İncelenen ve temiz bulunanlar (yeni kod)
+- **SSRF ile anahtar sızması:** env anahtarı yalnız env adresine (`system.ts effectiveWhatsappTarget`), panel anahtarı yalnız panel adresine;
+  köken (şema+host+port) değişirken anahtar verilmezse 400 `WA_API_KEY_REENTER`; şifreli değer AAD'si kökene bağlı (`crypto.ts:21`), başka
+  köken altında çözülemez. `redirect: "manual"` → 3xx hedefine başlık gitmez. Node `fetch` env proxy kullanmaz. http→https ya da tersi de
+  yeniden giriş ister. Sadece DNS düzeyinde ana bilgisayar ele geçirme kapsam dışı.
+- **Yanıt/log/audit:** `getWhatsappSettings` yalnız `apiKeySet/apiKeySource`; log `keySet` boolean + `*.apiKey` redakte; hata logunda yalnız
+  `err.name`; audit `apiKey: "***"` (`MASK`) + izinli `apiKeySet/apiKeyChanged` boolean (yalnız sunucu üretir). `maskValue` `key` kalıbı
+  savunma katmanı olarak da maskeler.
+- **Zamanlama:** `prevKey === input.apiKey` sabit zamanlı değil ama yalnız Super Admin çağırır ve yanlış tahmin anahtarı ezer — tekrarlanabilir
+  oracle yok. Test ucunun `unauthorized` yanıtı tasarım gereği (hız sınırlı).
+- **Durum tutarlılığı:** `setUrl(url, key)` adres ve anahtarı aynı senkron adımda atar; yeniden denemeler her zaman eşleşen çifti kullanır;
+  PUT/DELETE `waSerial` ile sıralı; 401'de yeniden deneme yok.
+- **Frontend:** anahtar `autoComplete="new-password"`, geri yazılmıyor, depolama/konsol yok; kaldırma kayıtlı adresle gider.
+- **Migration:** CHECK yalnız `url` null iken `secret_enc` NULL zorlar; uzunluk genel kuralla. Yetki değişmedi.
+
+## Otomatik tarama çıktıları
+- `gitleaks dir` (çalışma ağacı, untracked dahil; v8.30.1, repo `.gitleaks.toml`): **16 bulgu, rc 1**. 13'ü `apps/web/.next/**`
+  (derleme çıktısı, `.gitignore`'da; hariç tutuldu). **3'ü kaynakta**: yukarıdaki S-P13b-7 sahte test anahtarları (gerçek sır değil).
+- `gitleaks git --staged`: staged dosya 0 → "no leaks found". `gitleaks git` (yerel geçmiş): 48 commit, "no leaks found".
+- `git grep -n -- "-H4Nl0la5"` (gerçek anahtar öneki): **0**. Ek: `--cached` 0, untracked dahil çalışma ağacı 0, `apps/web/.next` 0.
+  `deploy/.env` ve `.env` `.gitignore`'da (`git check-ignore` doğrulandı).
+- `git grep 89.252.189.211`: 9 satır, yalnız `docs/guvenlik-raporu.md` (eski turlar).
+- `npm audit`: yeni bağımlılık yok; çalıştırılmadı.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- S-P13b-4 yedek birimi kurulu kopya kalıbı (Sonra).
+- S-P13b-1 düzeltmesinin "sıfırlamada da karşılaştır" seçeneği (S-P13b-10).
+- WhatsApp servisinin anahtarı fiilen zorlaması (ayrı proje; repo public öncesi kullanıcı doğrulamalı).
+
+## Olumlu
+- Taban çizgisi artık host'taki root 600 kanıtına bağlı; işaret imzalı manifeste kopyalanıyor; restore aynı tek kod yolunu kullanıyor;
+  644 işareti 600'e "iyileştiren" normalleştirme hatasını devops testi yakalayıp daraltmış.
+- proxy-guard: ayrı tablo, atomik `nft -f`, imzalı yorumla sapma denetimi, kurulu kopya + root 0644 conf doğrulaması, olumsuz testler.
+- Anahtar tasarımı (köken bağlı AAD + yeniden giriş zorunluluğu) MySQL B-P11-1 kalıbını doğru uygulamış.
+
+## Önerilen "Sonra" (gereksinimler §9)
+S-P13b-8, S-P13b-9, S-P13b-10, S-P13b-11, S-P13b-12. **S-P13b-7 Sonra'ya bırakılmaz: commit öncesi.**
+
+---
+
+# Güvenlik Raporu — P13b kod turu (2026-11-15)
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 3 / Düşük 5
+
+Kapsam: commit edilmemiş çalışma ağacı (`git diff` + yeni dosyalar): `deploy/backup/{backup.sh,restore.sh,lib.sh,remote-backup.service,backup.env.example}`,
+`deploy/mysql/{audit-continuity,audit-baseline-reset,restore-reset-db,restore-sec-snapshot,checksum-tables}.sql`, `deploy/turn/{cert-deploy-hook.sh,host-firewall.sh,docker-compose.yml}`,
+`deploy/ops/*`, `deploy/Caddyfile`, `apps/server/src/{cli/reset-superadmin.ts,auth/superadmin-reset.ts,auth/service.ts,signaling/active.ts,env.ts,settings/*}`.
+Staging'e bağlanılmadı, ACCESS.txt okunmadı, dind kullanılmadı, kod değiştirilmedi.
+
+## Tasarım turu bulgularının durumu
+| Kimlik | Önem | Durum | Kanıt |
+|---|---|---|---|
+| G-P13b-1 | Yüksek | KAPANDI | `active.ts` `grant()` oda başına önbellek, yalnız yenilemede `fresh`; `TURN_BPS_CAPACITY=0` + `host-firewall.sh` 3 aggregate `hashlimit` kuralı; 63. allocation ölçümü implementation.md'de. `turn_allocations` alarmı Sonra. |
+| G-P13b-2 | Yüksek | KOD KAPANDI, kalan → S-P13b-3 (Orta) | `env.ts` varsayılan adres kaldırıldı (boş → kanal kapalı); compose `${WHATSAPP_SERVICE_URL:-}`; `.env.example`/`backup.env.example` yer tutucu; gitleaks tüm geçmiş temiz. |
+| G-P13b-3 | Orta | AÇIK → aşağıda | `skuid` kuralı / nginx sır başlığı yok (`grep -r skuid deploy` boş). |
+| G-P13b-4 | Orta | KAPANDI | `cert-deploy-hook.sh`: git dışı `/etc/remote/turn-certs` root:65533 0750, `safe_dir` (symlink/sahip/g-o yazma, bütün üstler), `safe_target`, `mktemp` + `chown -h`/`chmod` içerikten önce, `mv -fT`, lineage tam eşitlik, kurulu kopya env'i yok sayar. |
+| G-P13b-5 | Orta | KAPANDI, yeni zayıflık → S-P13b-1 | Sıralı SHA-256 gün özetleri + `tail`/`prevTail`, tetikleyici gövde özeti, `instanceId`/env/host/db eşlemesi. |
+| G-P13b-6 | Orta | KAPANDI | `backup.sh:418-423` `timeout -k 60` + `setpriv --reuid/--regid --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs` + `env -i`; uid/gid 0 reddi; süre bütçesi; `TimeoutStartSec=2h`. |
+| G-P13b-7 | Orta | KAPANDI | `lib.sh:181` `cmd_has_inline_secret` (alert + offsite), `remote-watch.sh:238`; mesaj env/stdin ile; `curl -K` örnekleri. |
+| G-P13b-8 | Orta | KAPANDI (kalan risk → S-P13b-5) | `verify_manifest_sig` find-principals + verify `-Overify-time`; dizin adı = `manifest.run`, `seq`/`prevRun`, daha yeni yedek uyarısı, prod'da `ESKI-<run>` onayı. |
+| G-P13b-9 | Düşük | KAPANDI (runbook notu T5'e) | implementation.md T1 "G-P13b-9" adımları. |
+| G-P13b-10 | Düşük | KISMEN | 24 sa süre `auth/service.ts` (parola doğrulandıktan sonra, oracle yok); bant dışı bildirim Sonra. |
+| G-P13b-11 | Düşük | Kullanıcı (U1) | Telegram birincil kanal örneği. |
+| G-P13b-12 | Düşük | KAPANDI | Ölçüm allocation başına; AC metni proje-yöneticisinde. |
+| G-P13b-13 | Düşük | KISMEN → S-P13b-4 | `remote-watch` ve hook kurulu kopyadan; yedek birimi hâlâ git ağacından. |
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] S-P13b-1 Audit taban çizgisi sıfırlaması DB'den taklit edilebilir; FAILED yalnız "uyarı"ya düşer — A09
+Yer: `deploy/backup/backup.sh:242-247` (baseline kontrolü karşılaştırmadan ÖNCE), `deploy/mysql/audit-continuity.sql` `baseline` alanı,
+`deploy/mysql/audit-baseline-reset.sql` başlığı ("app aynı action'ı yazabilir").
+Sorun: Taban çizgisi sıfırlaması, `audit_logs`'a `action='backup.audit_baseline_reset'` satırı eklenmesiyle tanınır. `audit_logs` INSERT yetkisi
+olan her hesap (app, migrator) bu satırı yazabilir. Bu satır önceki ölçümden sonra eklenirse `backup.sh` gün/tail karşılaştırmasını hiç yapmaz,
+`taban-cizgisi-sifirlandi` (uyarı, `audit_continuity_ok=1`) yazar.
+İstismar senaryosu: migrator kimliğini ele geçiren biri tetikleyiciyi düşürür, audit satırlarını değiştirir ya da siler, tetikleyiciyi aynı
+gövdeyle yeniden kurar (`triggers.ok` geçer) ve sahte bir `backup.audit_baseline_reset` satırı ekler. Gece yedeği FAILED yerine
+"taban çizgisi elle/geri yüklemeyle sıfırlandı (uyarı)" mesajı gönderir. Operatör bunu rutin kabul eder ve kurcalama görünmez kalır.
+Düzeltme:
+- Sıfırlama durumunda da karşılaştırma YAPILIR, fark listesi alarm metnine yazılır. Fark varsa sonuç `FAILED+baseline` olur ve meşru
+  sıfırlama operatörün incelemesine kalır.
+- Ya da sıfırlama host tarafına bağlanır: `backup.sh --accept-audit-baseline <run>` root komutuyla, `BACKUP_DIR`'e root 600 imzalı bir
+  işaret dosyası yazılır. DB satırı tek başına yeterli sayılmaz. `restore.sh` de bu işareti kendisi yazar.
+- `baseline` satırının `user_agent='audit-baseline-reset-sql'` ve `username='cli'` olması denetlenir (savunma derinliği; tek başına yetmez).
+- Sahip: devops (backup.sh), dba (audit-baseline-reset.sql / kural metni).
+
+### [ORTA] G-P13b-3 (açık) 127.0.0.1:4451'e yerel süreçler sahte X-Forwarded-For verebilir — A01 / A07
+Yer: `deploy/docker-compose.yml:174`, `deploy/Caddyfile:48-50` (`trusted_proxies static 172.30.0.128/32`).
+Sorun: Tasarım turundan beri değişmedi. backend payı yok (gerekçe doğru), devops payı T1/T5'e ertelenmiş, kodda karşılığı yok. Prod'da VM
+başka sitelerle paylaşıldığından IP bazlı giriş/sıfırlama limitleri ve audit `ip_address` aynı host'taki herhangi bir süreç tarafından
+atlatılabilir.
+Düzeltme: `nftables`/`iptables` OUTPUT `-o lo -p tcp --dport 4450:4451 -m owner ! --uid-owner www-data,root -j REJECT` (`host-firewall.sh`
+kalıbında kurulu birim + olumsuz test) ya da nginx sabit sır başlığı + Caddy 4451'de başlıksız istek 403. Prod açılışından önce kapanması
+önerilir. Sahip: devops (T5).
+
+### [ORTA] S-P13b-3 (G-P13b-2 kalanı) Kimliksiz WhatsApp servis adresi dokümanlarda ve geçmişte duruyor — A05
+Yer: `git grep -n 89.252.189.211` → `README.md:672`, `docs/gereksinimler-kabul-kriterleri-e9.md:41`, `docs/mimari.md:352`,
+`docs/mimari-e9.md:18,262`, `docs/runbook.md:81,727,1305`, `docs/implementation.md:3958,4245`, `docs/guvenlik-raporu.md` (eski turlar).
+Kod, örnek env ve `check-app-grants.sh` dosyalarında artık geçmiyor.
+Sorun: Adres git geçmişindeki eski commit'lerde (`env.ts`, `.env.example`) de var. Dokümanlardan silmek geçmişteki görünürlüğü
+kaldırmaz. Asıl risk servisin kimliksiz olmasıdır: repo public olunca herkes firmanın numarasından mesaj gönderebilir.
+Düzeltme: Repo public yapılmadan **önce** U1/G-P13b-11 tamamlanır: servise API anahtarı (ya da TLS + kimlik doğrulamalı vekil + hız
+sınırı) eklenir veya adres değiştirilir. Belgelerdeki adres yer tutucuyla değiştirilir (`http://<whatsapp-servis>:3000`). Geçmiş yeniden
+yazılmaz. Sahip: kullanıcı (servis), teknik-yazar + mimar (dokümanlar).
+
+### [DÜŞÜK] S-P13b-2 restore.sh doğrulanmış manifesti tekrar diskteki yoldan okur (TOCTOU); `manifest.run` SQL metnine doğrulanmadan girer — A08
+Yer: `deploy/backup/restore.sh:87` (imza `$MANIFEST` üzerinde), sonra `:97-101`, `:160`, `:171`, `:179`, `:258-268` (`jq ... "$MANIFEST"`),
+`:337` (`printf "SET @rs_reason = '%s'" "restore $M_RUN ..."`).
+Sorun: İmza doğrulandıktan sonra manifest her `jq` çağrısında `RUN_DIR`'den yeniden okunur. `:101`'de tablo adları doğrulanır ama
+`:266`'daki SQL sorgusu manifesti yeniden okuyarak kurulur. `RUN_DIR`'e yazabilen biri (site dışından indirilen ve kullanıcıya ait bir
+dizin, iş istasyonu) doğrulamadan sonra manifesti değiştirebilir. Bu durumda migrator ile çalışan SQL'e tanımlayıcı/ifade enjekte edilebilir.
+`M_RUN` biçim olarak denetlenmeden `@rs_reason` dizesine girer (dizin adı run biçiminde değilse yalnız uyarı verilir).
+Düzeltme: Doğrulamadan önce manifest ve imza `WORK`'e (700) kopyalanır. Doğrulama ve sonraki bütün okumalar bu kopyadan yapılır.
+`M_RUN` `^[0-9]{8}T[0-9]{6}Z$` ile, `M_ENV`/`M_HOST` dar desenle doğrulanır. Sahip: devops.
+
+### [DÜŞÜK] S-P13b-4 (G-P13b-13 kalanı) Yedek birimi root olarak git ağacından çalışıyor; ağaç denetimi grup yazmayı görmüyor — A08
+Yer: `deploy/backup/remote-backup.service` `ExecStart=/opt/remote/deploy/backup/backup.sh` (lib.sh ve `../mysql/*.sql` de ağaçtan);
+`deploy/ops/remote-watch.sh:230-231` (`-perm -0002 -o ! -user 0`).
+Sorun: `remote-watch` ve sertifika hook'u kurulu kopya kalıbına geçti, yedek tarafı geçmedi. `tree-perms` denetimi root sahipli ama
+root olmayan bir gruba yazılabilir (`g+w`) dosyaları yakalamıyor.
+Düzeltme: `backup.sh`, `restore.sh`, `lib.sh` ve SQL dosyaları `install` ile `/usr/local/lib/remote/backup/` altına root 0755/0644 kurulur.
+Ya da `tree-perms` `\( -perm -0020 ! -group 0 \)` koşulunu da kapsar. Sahip: devops (T5).
+
+### [DÜŞÜK] S-P13b-5 `-Overify-time` imzalı `createdUtc`'yi kullanır; anahtar sızıntısında geriye tarihli sahte yedek doğrulanır — A08
+Yer: `deploy/backup/lib.sh:205-210`; runbook rotasyon notu ("sızıntıda `valid-before=<sızma anı>`").
+Sorun: Doğrulama zamanı, imzalayanın kendi yazdığı `createdUtc` alanından gelir. Sızan anahtarla imzalanan ve `createdUtc` değeri
+sızma anından önceye ayarlanan bir manifest `valid-before` sınırını geçer. Production'da 48 saat yaş onayı ikinci bir engeldir;
+staging'de bu engel de yok.
+Düzeltme: Runbook'a yazılır: sızıntıda eski satır `valid-before` ile bırakılmaz, **silinir**. Sızıntı öncesi yedekler yalnız ayrı, kasada
+saklanan ve tarih penceresi elle doğrulanan `allowed_signers` kopyasıyla yüklenir. Sahip: devops (T5), mimar (ADR-0020 notu).
+
+### [DÜŞÜK] S-P13b-6 Kanca sırasında süreç öldürülürse çalıştırma dizini grup-okunur kalır — A05
+Yer: `deploy/backup/backup.sh:415-425` (izin geri alma `on_exit` trap'inde değil).
+Sorun: Birim zaman aşımı ya da SIGKILL kanca sırasında gelirse `BACKUP_DIR` 710, run 750 ve dosyalar 640 (grup `remote-offsite`)
+olarak kalır. İçerik age ile şifreli olduğu için etkisi düşüktür.
+Düzeltme: Geri alma `on_exit` içine taşınır (`OFFSITE_OPEN=1` bayrağıyla) ya da bir sonraki çalıştırma başında `chmod 700` +
+`chmod 600` ile normalleştirilir. Sahip: devops.
+
+## Otomatik tarama çıktıları
+- `docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:v8.30.1 git --no-banner --redact --config /repo/.gitleaks.toml`
+  → **48 commit, ~9,8 MB, "no leaks found", rc 0**. Not: bu mod yalnız yerel ref'leri tarar (G-P13b-2'deki `--mirror` klon önerisi geçerli).
+- Ek: `gitleaks dir` (çalışma ağacı, commit edilmemiş dosyalar dahil) → 13 bulgu, **hepsi** `apps/web/.next/**` (Next.js
+  `preview-props.json`, `prerender-manifest.json` vb. derleme çıktısı), hepsi `.gitignore`'da (`git check-ignore` doğrulandı). Repoya girmez.
+- `git grep -n "89.252.189.211"`: kod/örnek env dosyalarında **0**. Yalnız dokümanlarda: README.md:672, docs/gereksinimler-kabul-kriterleri-e9.md:41,
+  docs/mimari.md:352, docs/mimari-e9.md:18,262, docs/runbook.md:81,727,1305, docs/implementation.md:3958,4245, docs/guvenlik-raporu.md (eski turlar) → S-P13b-3.
+- `npm audit` / `govulncheck`: P13b'de yeni bağımlılık yok; çalıştırılmadı.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+- G-P13b-3 düzeltmesi (yukarıda).
+- G-P13b-13 yedek tarafında kurulu kopya kalıbı (S-P13b-4).
+- G-P13b-10 bant dışı bildirim (Sonra; `remote-watch` `auth.superadmin_reset` sayacı ya da sarmalayıcı betik).
+- G-P13b-1 `turn_allocations > 2×active+10` alarmı (Sonra).
+
+## Olumlu
+- İmza her şeyden önce yapılır, atlama seçeneği yok. Şifreli sha256 → çözme → düz sha256 sırası, takas edilmiş şifreli dosyayı da yakalar.
+- Ortam kilidi çözmeden önce uygulanır (`deploy/.env` DEPLOY_ENV = hedef = manifest.env, `--confirm db@host`, root, compose projesi,
+  prod'da host + TTY + `PRODUCTION-<host>`). Ortam değişkeni DEPLOY_ENV'i ezemez.
+- Canlıda root yalnız salt okunur anlık görüntü için kullanılır. Reset ve yükleme migrator ile, `--system-command=OFF --local-infile=0`.
+  Guard'lar `CHECK` kısıtlı geçici tabloyla yapılır, `mysql` batch modu ilk hatada durur. `anon=0`/`migratorExtra=0` önkoşulu var.
+  CHECKSUM canlı = scratch.
+- `audit-continuity.sql`: XOR yerine sıralı SHA-256 seçilmiş. Tetikleyici gövdesi ve DEFINER özetleniyor. Kesik özet (`h=null`) FAILED sayılıyor.
+- Kanca: setpriv ile bütün yetenekler düşürülüyor, `env -i`, root/uid 0 reddediliyor, komut metni loglanmıyor; testte imza anahtarı ve
+  `deploy/.env` okunamadı.
+- `cert-deploy-hook.sh` G-P13b-4'ün bütün maddelerini karşılıyor; olumsuz testler (symlink dizin/dosya, g+w üst dizin, benzer lineage) mevcut.
+- `remote-watch`: kurulu kopya, watch.env root 600 zorunlu, `source` yok, sır deseni reddi, mesaj stdin'den.
+- CLI: TTY yoksa DB'ye bağlanmıyor, parola yalnız stdout TTY'ye bir kez yazılıyor, audit'te parola yok, koşullu UPDATE TX içinde.
+  Süre dolumu mesajı yalnız doğru parolayla görünüyor.
+- HSTS `max-age=31536000; includeSubDomains` (preload yok) hem helmet'te hem Caddy'de. `trustProxy` 172.30.0.2/31, server portu yayımlanmıyor.
+- WhatsApp: boş adres → gönderim yok, testler sabit "yapılandırılmamış" yanıtı; yerleşik varsayılan kaldırıldı.
+  Bilgi: `whatsapp-form.tsx:154,184` "default" dalı ölü kod (frontend-dev temizleyebilir).
+
+## Önerilen "Sonra" maddeleri (`docs/gereksinimler.md` §9)
+S-P13b-4/5/6, G-P13b-10 bant dışı bildirim, `turn_allocations` alarmı. S-P13b-1 ve G-P13b-3'ün prod açılışından önce kapanması önerilir.
+
+---
+
+# Güvenlik Raporu — P13b tasarım turu (2026-11-14)
+DURUM: DÜZELTİLMELİ (tasarım; kod henüz yok)
+Özet: Kritik 0 / Yüksek 2 / Orta 6 / Düşük 5
+
+Kapsam: `docs/mimari-p13.md` §7.1–7.17, ADR-0018/0019/0020, ADR-0007 r6, `docs/tasarim-kontrol.md` P13b tablosu. Mevcut
+durum için okunanlar: `deploy/backup/{backup.sh,restore.sh,lib.sh,*.service,*.timer,backup.env.example}`,
+`deploy/turn/{docker-compose.yml,turnserver.base.conf,entrypoint.sh}`, `deploy/Caddyfile`, `deploy/docker-compose.yml`,
+`deploy/nginx/remote.noktabilisim.net.conf`, `apps/server/src/signaling/{turn,active}.ts`, runbook §8, §9, §18.
+Sunucuya/staging'e bağlanılmadı, ACCESS.txt okunmadı, kod değiştirilmedi.
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] G-P13b-1 `bps-capacity` rezervasyonu eşzamanlı allocation sayısını ~62'ye indirir; kabul edilmiş müşteri TURN'ü tüketebilir — A04 / kullanılabilirlik
+Yer: `docs/mimari-p13.md` §7.4 (`TURN_BPS_CAPACITY=62500000`, `TURN_MAX_BPS=1000000`, `total-quota=300`); ADR-0018 m.2;
+`apps/server/src/signaling/turn.ts:24-32` (her `hello`/yeniden bağlanmada yeni username).
+Sorun:
+- coturn `bps-capacity` ayarlıyken her yeni allocation için `max-bps` kadar bant **rezerve eder** (`allocate_bps`). Kalan kapasite
+  bitince yeni allocation "Allocation Bandwidth Quota Reached" ile reddedilir. 62.500.000 / 1.000.000 = **62 allocation**. Oturum
+  başına 6 allocation ile bu ~10 eşzamanlı oturum demektir; S4 (50 oturum) ve `total-quota=300` hesabı geçersiz olur.
+- Birim düzeltmesi (8.000.000 → 1.000.000) doğru, ama kapasiteyle birlikte düşünülmemiş.
+- `user-quota=8` username başınadır. Username `<expiry>:<sessionId>` olduğundan her yeniden bağlanma yeni bir username ve yeni 8'lik
+  kota verir. Credential 20 dk geçerlidir, oturum bitse bile.
+İstismar senaryosu: Oturum koduyla kabul edilen kötü niyetli bir müşteri, istemcisini birkaç kez yeniden bağlar ve her credential ile
+8 allocation açar (allocation'ları refresh ederek tutar). ~8 credential, 62'lik kapasiteyi tüketir; o andan sonra bütün firmaların
+yeni oturumları relay alamaz (UDP kapalı ağlarda görüntü gelmez).
+Düzeltme:
+- devops (T2) kabul ölçütüne ekleyin: `turnutils_uclient` ile N allocation açılır, 63. allocation'ın davranışı ölçülür.
+- Rezervasyon doğrulanırsa iki yoldan biri seçilir: (a) `bps-capacity=0` yapılır ve paylaşımlı sunucu koruması host'ta relay port
+  aralığına nftables/tc hız sınırıyla sağlanır; (b) `bps-capacity ≥ total-quota × max-bps` olur (pratikte sınır anlamını yitirir).
+- backend: aynı oturum için TURN credential üretimine sınır konur. Örnek: oturum başına aynı anda en çok 2 geçerli credential, ya da
+  `expiresAt` dakikaya yuvarlanır ve yeniden bağlanmada aynı username verilir. Alarm `turn_allocations > 2×active+10` prod'da
+  `remote-watch`'a eklenir.
+- Atanan ajan: devops (T2), backend-dev.
+
+### [YÜKSEK] G-P13b-2 Repo public olmadan önceki kontrol yetersiz: kimliksiz WhatsApp gönderim ucu ve altyapı ayrıntıları yayımlanır; gitleaks yalnız yerel geçmişi tarar — A05 / A02
+Yer: §7.10 m.1, U1; repo içinde `89.252.189.211` geçen dosyalar: `.env.example`, `README.md`, `apps/server/src/env.ts`,
+`deploy/backup/backup.env.example` ve test dosyaları. `192.168.25.10` geçen dosyalar: `.env.example`, `deploy/turn/docker-compose.yml`,
+`docs/adr/0007…`, `docs/gereksinimler-sonra-acik.md`, `docs/implementation.md` (ayrıca runbook'ta hostname, VM, pfSense düzeni).
+Sorun:
+- whatsapp-bildirim servisi (`http://89.252.189.211:3000/send-message`) kimlik doğrulamasızdır. Repo public olunca adres ve istek
+  biçimi herkese açılır. Bu servis firmanın WhatsApp numarasıyla mesaj gönderir; başka projeler ve operasyon alarmları da ona bağlıdır.
+- `gitleaks detect --log-opts="--all"` yalnız yerel klondaki ref'leri tarar. GitHub tarafında `refs/pull/*`, silinmiş veya
+  force-push edilmiş dallardaki commit'ler (SHA ile erişilebilir), Release ekleri, Actions logları ve issue/PR yorumları kapsam dışı
+  kalır. Varsayılan kurallar IP, telefon numarası, iç ağ şeması ve dosya adı (ACCESS.txt) yakalamaz.
+- Bu turda sunucuda/iş istasyonunda `gitleaks` kurulu değildi, çalıştırılamadı (aşağıda).
+İstismar senaryosu: Repo public olduktan sonra bir saldırgan `.env.example`'daki adresi görür ve `POST /send-message` ile firmanın
+numarasından toplu spam veya oltalama mesajı gönderir. Numara WhatsApp tarafından engellenir. Remote'un ve diğer projelerin
+bildirimleri ile prod alarm kanalı (`remote-watch` komutu WhatsApp ise) aynı anda susar.
+Düzeltme:
+- Public yapmadan önce WhatsApp servisine API anahtarı (başlık) eklenir ya da servis yalnız TLS + kimlik doğrulamalı ters vekil
+  arkasına alınır. Bu, K13 (G-P13b-11) ile aynı iştir; public yapma bunun ön koşulu olur.
+- Repodaki gerçek adres yer tutucuyla değiştirilir (`http://<whatsapp-servis>:3000`). Varsayılan değer `env.ts`'ten kaldırılıp
+  `.env`'e taşınır ya da kabul gerekçesi yazılır.
+- Tarama listesi: `git clone --mirror` (GitHub'daki tüm ref'ler, `refs/pull/*` dahil) üzerinde `gitleaks detect` + özel kurallar
+  (IPv4 özel/genel adresler, `90?5\d{9}`, `ACCESS`, `AGE-SECRET-KEY`, `BEGIN OPENSSH PRIVATE KEY`). Release ekleri ve Actions logları elle
+  gözden geçirilir. Geçmişte gerçek sır bulunursa, geçmiş yeniden yazılmaz; sır **döndürülür** (public sonrası eski SHA'lar erişilebilir
+  kalabilir).
+- Altyapı bilgisinin (iç IP, hostname, pfSense düzeni) yayımlanmasını kullanıcı açıkça kabul eder; kabul §7.13/12 kanıtına yazılır.
+- Atanan ajan: devops (tarama betiği), backend-dev (`env.ts` varsayılanı), kullanıcı (U1, WhatsApp servisi).
+
+### [ORTA] G-P13b-3 Paylaşımlı host'taki herhangi bir yerel süreç 127.0.0.1:4451'e bağlanıp sahte `X-Forwarded-For` verebilir — A01 / A07
+Yer: `deploy/docker-compose.yml:167-170`; ADR-0015 (`trusted_proxies static 172.30.0.128/32` + strict); §7.3 (4450 de loopback'e iner).
+Sorun: Host'tan yayımlanan porta yapılan **her** yerel bağlantı userland-proxy üzerinden 172.30.0.128'den gelir. Caddy bu adresin
+gönderdiği XFF'e güvenir. Yani yalnız nginx değil, VM'deki diğer sitelerin süreçleri de istemci IP'sini istediği gibi belirleyebilir.
+Prod'da aynı VM'de başka ekiplerin servisleri çalışıyor.
+İstismar senaryosu: Aynı VM'deki başka bir sitede RCE elde eden saldırgan, `curl -H 'X-Forwarded-For: <rastgele>' http://127.0.0.1:4451/api/auth/login`
+ile her denemede farklı IP gösterir. IP bazlı giriş/sıfırlama/oturum kodu limitleri atlanır; audit `ip_address` sahte olur.
+Düzeltme (biri yeter, ilki tercih):
+- nftables OUTPUT kuralı: `oif lo tcp dport {4450,4451} meta skuid != {www-data, root} reject`. Kalıcı olur, `host-firewall.sh`
+  kalıbıyla kurulur ve `test-*.sh` ile negatif test edilir (www-data dışı kullanıcı bağlanamaz).
+- ya da nginx her isteğe sabit bir sır başlığı ekler (`proxy_set_header X-Edge-Origin <sır>`). Caddy 4451'de başlık yoksa 403 döner
+  ve başlığı upstream'e iletmez. Sır nginx config'inde root 600 dosyada `include` edilir.
+- Atanan ajan: devops.
+
+### [ORTA] G-P13b-4 TURN sertifika deploy hook'u root olarak git çalışma dizinine yazar: sembolik bağlantı / sahiplik saldırısı riski — A05 / A08
+Yer: §7.4 m.2 (`TURN_CERT_DIR=/opt/remote/deploy/turn/certs`, geçici dosya + `mv -f`, `chown 65534:65533`, lineage "ile bitiyorsa").
+Sorun:
+- Hook root olarak çalışır; hedef dizin git çalışma ağacının içindedir. Bu dizin (ya da üstü) root dışı bir kullanıcının yazabileceği
+  hâle gelirse (`git pull` umask dersleri, runbook §8 "chmod go+rX"), `certs` bir sembolik bağlantıyla değiştirilebilir. root bu durumda
+  özel anahtarı başka bir yere yazar ve keyfi dosyayı 65534'e `chown` eder (yetki yükseltme).
+- "`RENEWED_LINEAGE` `remote-turn` ile bitiyorsa" kontrolü `…/eski-remote-turn` gibi adlarla da eşleşir.
+- Anahtar host'ta uid 65534'e (`nobody`) aittir; host'ta `nobody` olarak çalışan herhangi bir süreç TURN anahtarını okuyabilir.
+Düzeltme:
+- Hook başlamadan `TURN_CERT_DIR` ve bütün üst dizinlerinin root sahibi olduğunu, group/other yazamadığını ve hiçbirinin symlink
+  olmadığını denetler. Değilse yazmadan `err` ile çıkar.
+- Geçici dosya `mktemp` ile aynı dizinde açılır. İçerik yazılmadan önce `chown`/`chmod` yapılır (ya da `install -o 65534 -g 65533 -m 0400`).
+  Taşıma `mv -fT` ile yapılır; `chown` hiçbir zaman yol üzerinden symlink izlemez (`chown -h` / `--no-dereference`).
+- Lineage kontrolü tam eşitliktir: `RENEWED_LINEAGE = /etc/letsencrypt/live/remote-turn`.
+- Tercihen sertifika dizini git ağacının dışına taşınır (`/etc/remote-turn/certs`, root 0750, grup 65533) ve compose bunu bağlar.
+- T2 kabul ölçütüne olumsuz test eklenir: `certs` symlink'e çevrilir → hook yazmaz, rc≠0.
+- Atanan ajan: devops (T2).
+
+### [ORTA] G-P13b-5 Audit süreklilik denetimi yalnız silmeyi ve yalnız eski günleri görür; terfi ve geri yüklemeden sonra taban çizgisi tanımsız — A09
+Yer: §7.6 m.1/m.3; ADR-0020 m.5.
+Sorun:
+1. **Değiştirmeyi görmez.** Yalnız gün başına sayı ve `maxId` karşılaştırılır. migrator `DROP TRIGGER … no_update` → `UPDATE audit_logs`
+   → `CREATE TRIGGER` yapabilir. Tetikleyici sayısı, gün sayıları ve `maxId` değişmez. Silip aynı sayıda sahte satır eklemek de görünmez.
+2. **Son ~48 saat kör.** Manifest yalnız tamamlanmış UTC günlerini yazar. Karşılaştırma ise "önceki çalıştırmanın gününden önceki"
+   günlerle yapılır. Çalıştırma 23:00 UTC'de olduğu için D günü ilk kez D+1 çalıştırmasında yazılır. D+1 çalıştırmasından önce D'nin
+   satırları silinirse hiçbir zaman karşılaştırılmaz. En taze ve en değerli kayıtlar (saldırı anı) korunmaz.
+3. **Taban çizgisi.** Terfide yalnız son staging çalıştırması taşınır (§7.12/2); diğer staging çalıştırmaları `BACKUP_DIR`'de kalır.
+   İlk prod yedeği, staging manifestiyle karşılaştırılır (`maxId` azaldı) → `FAILED adım=audit-sureklilik` olur. Meşru bir
+   `restore.sh --target production` sonrası da aynısı olur. Denetim sürekli FAIL verirse yedek alınamaz (RPO), operatör de denetimi
+   kapatmaya ya da manifestleri silmeye itilir.
+Düzeltme:
+- Manifeste `audit.prevMaxIdCount` eklenir: `SELECT COUNT(*), BIT_XOR(CRC32(CONCAT_WS('|', id, created_at, action, entity, entity_id, result,
+  SHA2(COALESCE(new_value,''),256)))) FROM audit_logs WHERE id <= <önceki maxId>`. Bu değer, önceki manifestin aynı aralıktaki değerine
+  eşit olmalıdır (retention'ın sildiği en eski gün düşülerek). Böylece silme, değiştirme ve son 48 saat kapsanır. Tek sorgu, IX(PK) ile
+  hızlıdır. dba (D2) sorguyu ve süresini doğrular.
+- Gün histogramına gün başına aynı özet (CRC/hash) eklenir.
+- Karşılaştırma yalnız aynı `env` + `host` + `database` ve aynı DB kurulum kimliği (ör. `@@server_uuid` ya da kurulumda üretilip
+  manifeste yazılan `instanceId`) taşıyan önceki manifestle yapılır. Farklıysa `audit-sureklilik: ilk` yazılır.
+- `restore.sh` canlı hedefe başarıyla yükledikten sonra taban çizgisi sıfırlanır (yüklenen manifest önceki kabul edilir). Elle sıfırlama
+  için `backup.sh --accept-audit-baseline` gibi açık bir seçenek eklenir; journal'a ve alarm komutuna yazılır.
+- Terfi adımı (§7.12/2): staging'in bütün çalıştırmaları `BACKUP_DIR` dışına taşınır.
+- Atanan ajan: dba (D2), devops (T1).
+
+### [ORTA] G-P13b-6 Site dışı kanca root olarak, imza anahtarına ve `deploy/.env`'e erişerek çalışır; süre sınırı birim zaman aşımıyla çakışır — A08 / A05
+Yer: §7.6 m.4; ADR-0020 m.4 ("root olarak"); `deploy/backup/remote-backup.service` (`TimeoutStartSec=1h`).
+Sorun:
+- Kanca üçüncü taraf bir aracı çalıştıracak (rclone/restic/aws-cli). root olarak ve aynı süreç ortamında çalıştığı için bu araç ya da
+  bir eklentisi (tedarik zinciri) şunlara erişir: `/etc/remote-backup/manifest_ed25519` (sahte imzalı yedek), `deploy/.env` (bütün prod
+  sırları), `deploy/turn/.env`. ADR "tehdit sınırı root" diyor; ama bu durumda root koda kendi isteğimizle dış bir araç sokuyoruz.
+- Kanca 1800 sn'ye kadar sürebilir. Birimin toplam süresi 1 saattir. Uzun bir döküm ile asılı kalan bir kanca birlikte süreyi aşarsa
+  systemd birimi öldürür, `OnFailure` "FAILED = yerel yedek yok" alarmı verir. Oysa yerel yedek yayımlanmıştır; alarm anlamı bozulur.
+  `timeout` yalnız TERM gönderir; TERM'i yok sayan süreç birimi askıda bırakır.
+Düzeltme:
+- Kanca ayrı bir systemd biriminde çalışır (`remote-backup-offsite@<run>.service`): `User=remote-offsite` (ayrı kullanıcı),
+  `ReadOnlyPaths=<BACKUP_DIR>/<run>`, `InaccessiblePaths=/etc/remote-backup /opt/remote/deploy/.env /opt/remote/deploy/turn/.env`,
+  `ProtectSystem=strict`, `ProtectHome=read-only`, `PrivateTmp`, `NoNewPrivileges`, `CapabilityBoundingSet=` (boş),
+  `RuntimeMaxSec=1800`. Hedef kimliği bu kullanıcının 600 dosyasındadır. `backup.sh` birimi tetikler, sonucu ayrı birim raporlar
+  (`OFFSITE-FAILED` + alarm). Böylece yedek biriminin süresi ve anlamı korunur.
+- Tek birimde kalınacaksa: `timeout --kill-after=60`; `TimeoutStartSec` ≥ döküm üst sınırı + kanca süresi + 10 dk; kanca
+  `setpriv --reuid=remote-offsite --clear-groups --inh-caps=-all` ile çalıştırılır.
+- Kancaya `env -i` ile yalnız belgelenmiş `REMOTE_BACKUP_*` değişkenleri ve `PATH` verilir.
+- Atanan ajan: devops (T1).
+
+### [ORTA] G-P13b-7 Alarm komutları sırrı süreç argümanında taşır; paylaşımlı host'ta `ps` ile okunur — A02
+Yer: §7.8 (`WATCH_ALERT_CMD`, "WhatsApp servisi ya da Telegram"); `deploy/backup/backup.env.example:18-20` (`BACKUP_ALERT_CMD` örneği
+curl); ADR-0020 m.4 son madde (kanca için kural var, alarm komutları için yok).
+Sorun: Telegram Bot API'de token URL'nin içindedir (`/bot<TOKEN>/sendMessage`). `curl https://api.telegram.org/bot…` biçiminde bir
+alarm komutu çalıştığı sürece token `/proc/<pid>/cmdline` üzerinden VM'deki her kullanıcıya görünür (Ubuntu'da `hidepid` kapalıdır).
+Aynı VM'de başka siteler çalışıyor.
+İstismar senaryosu: Diğer bir sitede kod çalıştıran saldırgan `ps -eo args` döngüsüyle 10 dakikalık alarmda token'ı alır; botun
+gönderdiği bütün kanallara sahte "düzeldi" mesajları yollayabilir ya da botu ele geçirir.
+Düzeltme:
+- Kural (runbook + `.example` yorumları): alarm/kanca komutlarına sır argüman olarak yazılmaz. curl için `curl -K /etc/remote-watch/telegram.curl`
+  (root 600; içinde `url = "https://api.telegram.org/bot…/sendMessage"`) ya da `--config -` ile stdin.
+- `remote-watch.sh` ve `backup.sh`, komut metninde `api.telegram.org/bot[0-9]` veya `x-api-key:` deseni görürse çalıştırmayı reddeder
+  ve uyarı yazar (fail-closed).
+- Atanan ajan: devops (T1, T4).
+
+### [ORTA] G-P13b-8 İmzalı ama eski yedekle değiştirme (replay) ve anahtar rotasyonunda doğrulama zamanı tanımsız — A08
+Yer: §7.6 restore m.2; ADR-0020 m.1 (rotasyon: `valid-before`, 15 gün).
+Sorun:
+- İmza, manifestin bütünlüğünü korur ama **tazeliğini** korumaz. Site dışı hedefe yazabilen biri, `20261201T…` dizininin içeriğini daha
+  eski geçerli bir çalıştırmayla değiştirebilir (ya da eski dizini yeni adla kopyalayabilir). `restore.sh` imzayı geçer, operatör yanlış
+  (eski) veriyi yükler; arada oluşan audit kayıtları ve veri kaybolur.
+- `ssh-keygen -Y verify` varsayılan olarak **bugünün** tarihine göre doğrular. Rotasyonda eski satıra `valid-before=<rotasyon günü>`
+  yazılınca eski anahtarla imzalanmış 14 günlük yedeklerin hepsi hemen doğrulanamaz olur. Operatör de imzayı atlamaya zorlanır.
+Düzeltme:
+- `restore.sh`: dizin adı = `manifest.run`, `manifest.host` = beklenen host (production'da `hostname -s`), `manifest.env` = hedef.
+  Manifest yaşı ekrana yazılır. `production`'da 48 saatten eski yedek için ayrıca TTY onayı istenir.
+- Doğrulama `-Overify-time=<manifest.createdUtc>` ile yapılır (OpenSSH ≥ 8.9; sürüm runbook'ta önkoşul olur). Rotasyon kuralı:
+  eski satır `valid-before=<rotasyon anı>`; sızma durumunda `<sızma anı>`. Sızıntıda o andan sonraki eski anahtar imzaları reddedilir.
+- Site dışı hedef seçim şartına (ADR-0020 m.4-a) "üzerine yazma ve yeniden adlandırma yok" açıkça eklenir.
+- Atanan ajan: devops (T1), mimar (ADR-0020 notu).
+
+### [DÜŞÜK] G-P13b-9 Terfi: staging imza anahtarı, geri dönüş doğrulaması ve "imha"nın sınırı belirsiz — A02 / A05
+Yer: §7.12/2–5, 8 ve "Geri dönüş"; ADR-0019 m.1.
+Sorun ve öneri:
+- Adım 8'de prod imza anahtarı üretilir. Aynı yolda üretilirse staging anahtarı ezilir ve geri dönüşte (`restore.sh --target staging
+  <staging-final>`) imza doğrulanamaz. Öneri: staging açık anahtarı `/root/allowed_signers.staging-final` (644, 14 gün) dosyasına alınır,
+  geri dönüşte `--allowed-signers` ile verilir. Prod `allowed_signers`'ta **yalnız** prod anahtarı bulunur. Staging özel anahtarı terfide
+  `shred` edilir.
+- Geri konacak `/root/.env.staging-final.*` içinde `DEPLOY_ENV=staging` bulunmalıdır; yoksa `restore.sh --target staging` reddeder.
+  Adım 3'te denetlenir.
+- `shred` ext4 (journal) ve SSD/thin disk üzerinde içeriğin silindiğini garanti etmez. Asıl kontrol **sırların döndürülmesidir**
+  (zaten tasarımda). Kontrol listesi m.13'e eklenir: `/root/.bash_history` ve `/root/.*_history` içinde parola/token taraması,
+  `journalctl` içinde sır taraması, `docker builder prune` (build arg sızıntısı), iş istasyonlarındaki ACCESS.txt kopyaları ve parola
+  kasası dışındaki notlar. Terfiden sonra staging sırlarıyla eşleşen değer hiçbir yerde **kullanılmıyor** (ör. `grep -c` ile eski
+  `TURN_SECRET` coturn env'inde yok).
+- 4450: Docker'ın yayımladığı portlar UFW'yi atlar (runbook §9.2 notu). UFW kuralını silmek kontrol değildir; kontrol `CADDY_BIND=127.0.0.1`'dir.
+  Kanıt: `ss -tlnp | grep 4450` yalnız `127.0.0.1`, ve dış makineden `nc -vz 185.126.217.99 4450` zaman aşımı. Bu kanıt m.13'e girer.
+- Atanan ajan: devops (T5, T6).
+
+### [DÜŞÜK] G-P13b-10 `reset-superadmin`: bant dışı bildirim yok, geçici parola süresiz — A07
+Yer: §7.7.
+Sorun: Docker grubundaki herhangi bir hesap (root eşdeğeri) Super Admin parolasını ve 2FA'sını sessizce sıfırlayabilir. Audit satırı aynı
+DB'dedir. Geçici parola, kullanılmazsa süresiz geçerlidir.
+Öneri:
+- CLI başarıyla bitince `WATCH_ALERT_CMD` (ya da `BACKUP_ALERT_CMD`) ile "Super Admin parolası CLI ile sıfırlandı (id=…)" bildirimi
+  gönderilir; mümkünse hesabın e-postasına da bildirim gider (parola içermez).
+- Geçici parolaya süre: `must_change_password=1` ile birlikte `password_changed_at = now()`; giriş, `must_change_password` iken
+  `password_changed_at` 24 saatten eskiyse reddedilir. Yeni sütun gerekiyorsa gerekçesiyle Sonra'ya yazılır.
+- `--reset-mfa` sonrası ilk girişte 2FA kurulumu zorunlu (P10 kuralı) mu, entegrasyon testine eklenir.
+- Docker grubu üyeleri runbook'ta listelenir (yalnız root).
+- Atanan ajan: backend-dev (B1), devops (T5).
+
+### [DÜŞÜK] G-P13b-11 K13: TLS ters vekil tek başına yetmez; servis kimliksizdir — A07
+Yer: §7.11 K13 (a); ADR yok.
+Sorun: (a) seçeneğinde trafik şifrelenir, ama servis herkese açık ve kimliksiz kalır (G-P13b-2). Operasyon alarmlarının da bu kanaldan
+geçmesi, kanal kötüye kullanılıp numara engellenince alarmların da susması demektir.
+Öneri: (a) için kabul şartı "TLS + API anahtarı (ya da mTLS) + hız sınırı" olur. Prod operasyon alarmları için birincil kanal Telegram
+(HTTPS) olur, WhatsApp ikincil. (b) seçeneği güvenlik açısından kabul edilebilir.
+Atanan ajan: kullanıcı (servis sahibi), devops.
+
+### [DÜŞÜK] G-P13b-12 `max-bps` allocation başınadır, oturum başına değil; giriş ve çıkış ayrı sayılır — A04
+Yer: §7.4; ADR-0018 m.2.
+Sorun: coturn `max-bps` her TURN allocation'ına ayrı ayrı ve her yöne ayrı uygulanır. Bir destek oturumu en çok 6 allocation açabildiği
+için gerçek tavan oturum başına 8 Mbit/s değildir. Teorik üst sınır yön başına 48 Mbit/s olur. AC-21 metni ve ölçüm yöntemi buna göre
+yazılmalıdır.
+Öneri: T2 ölçümü allocation başına ve iki yönde ayrı yapılır. AC-21 kanıtı "allocation başına 8 Mbit/s" olarak kaydedilir. Toplam koruma
+G-P13b-1'deki host sınırıyla sağlanır. Atanan ajan: devops (T2), proje-yoneticisi (AC metni).
+
+### [DÜŞÜK] G-P13b-13 root systemd birimleri betikleri doğrudan git çalışma ağacından çalıştırır — A08
+Yer: `deploy/backup/remote-backup.service` (`ExecStart=/opt/remote/deploy/backup/backup.sh`); §7.8 `deploy/ops/remote-watch.sh`
+(aynı kalıp); runbook §8 (`chmod -R go+rX`, bundle ile `git pull`).
+Sorun: `/opt/remote` ağacında root dışı bir kullanıcıya yazma izni (yanlış `chmod`/ACL, ileride eklenecek deploy kullanıcısı) verilirse,
+bu kullanıcı root kodu çalıştırır. Deploy hook'u ve `host-firewall.sh` kurulu kopya kalıbını kullanıyor; yedek ve izleme birimleri
+kullanmıyor.
+Öneri: `backup.sh`, `restore.sh`, `lib.sh` ve `remote-watch.sh` de `install` ile `/usr/local/sbin/` altına root:root 0755 olarak kurulur.
+Ya da prod kontrol listesine `find /opt/remote -perm -o+w -o ! -user root` = boş kontrolü eklenir ve `remote-watch` bunu her koşuda
+denetler. Atanan ajan: devops (T4, T5).
+
+## Otomatik tarama çıktıları
+- `gitleaks`: bu makinede kurulu değil, çalıştırılmadı. Repo public olmadan önce G-P13b-2'deki biçimde (mirror klon) çalıştırılması
+  zorunlu.
+- `git grep -nE "(api[_-]?key|secret|password|token)\s*[:=]\s*['\"][^'\"]{8,}"` (test/example hariç): **0 sonuç**.
+- `git log --all -- '*.env*'`: 8 commit; incelenen dosyalar `.env.example` ve `backup.env.example` (boş anahtarlar). Takip edilen `.env`
+  ya da ACCESS dosyası yok (`git ls-files` boş).
+- Altyapı ayrıntısı taraması: `89.252.189.211` 10 dosyada, `192.168.25.10` 5 dosyada (G-P13b-2). Telefon deseni yalnız testlerdeki
+  sahte numarada (`+905321234567`).
+- `npm audit` / `govulncheck`: P13b'de yeni bağımlılık yok; bu tasarım turunda çalıştırılmadı (son P13a turu: açık yok).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+P13b kodu henüz yazılmadı. Çalışma ağacında yalnız B2 başlamış (`apps/server/src/app.ts:143` `includeSubDomains: true`, commit edilmemiş).
+`deploy/Caddyfile:118` hâlâ `max-age=31536000` (T3 bekliyor). Kod turunda §7.4–7.8'in hepsi ve yukarıdaki düzeltmeler denetlenecek.
+
+## Olumlu
+- HSTS kapsam analizi (§7.5) doğru: `includeSubDomains` yalnız `*.remote.noktabilisim.net`'i etkiler. `preload` yok, apex'e dokunulmuyor.
+  Bulgu yok.
+- TURN için ayrı LE kaydı ve ayrı anahtar: coturn ele geçirilirse web TLS anahtarı sızmaz.
+- Yedek imzası "önce imza, sonra sha256, sonra çözme" sırasında. İmzasız yedek için atlama seçeneği yok.
+- Migrator + `--system-command=OFF` + yetki anlık görüntüsü + `CHECKSUM TABLE`: S-P13a-2'nin kalanını önleyici biçimde kapatır.
+- `--target production`: `DEPLOY_ENV` + `--confirm` + TTY + manifest `env` dörtlü kilidi. Başka ortamın yedeği prod'a yüklenemez.
+- Kanca komut metni loglanmıyor; kanca hatası yerel yedeği geçersiz saymıyor; `status.prom` sır içermiyor.
+- CLI: TTY zorunlu, parola yalnız bir kez TTY'ye yazılıyor, audit'te parola yok, rol kısıtı ve sızdırmayan "bulunamadı" çıktısı var.
+- Terfi temiz kurulum olarak yapılıyor: bütün sırlar yeniden üretiliyor, staging verisi prod'a taşınmıyor, volume'lar adıyla siliniyor.
+
+## Önerilen "Sonra" maddeleri (`docs/gereksinimler.md` §9)
+G-P13b-10'daki geçici parola süresi (şema gerekiyorsa), G-P13b-11 WhatsApp servis kimlik doğrulaması (servis sahibi), G-P13b-13'ün
+kurulu kopya kalıbına geçişi (kontrol listesi kontrolü P13b'de yapılırsa).
+
+---
+
 # Güvenlik Raporu — P13a turu — Kod turu 2 / doğrulama (2026-11-14)
 DURUM: GEÇTİ
 Özet: Kritik 0 / Yüksek 0 / Orta 1 açık (S-P13a-8, yeni) / Düşük 1 açık (S-P13a-2 kalanı, P13b ön koşulu).

@@ -34,7 +34,7 @@ describe("system_settings `whatsapp` geçerli değerler", () => {
   it("{url: null} ve http(s) adresleri kabul", async () => {
     await ok({ url: null });
     for (const url of [
-      "http://89.252.189.211:3000",
+      "http://203.0.113.10:3000",
       "http://localhost:3000",
       "https://wa.example.com",
       "https://wa.example.com/",
@@ -60,9 +60,10 @@ describe("system_settings `whatsapp` CHECK reddi", () => {
     await bad(["http://wa.example"], "system_settings_(value_json|whatsapp)_chk"); // dizi: genel CHECK de düşebilir
   });
 
-  it("secret_enc NULL olmalı", async () => {
+  it("S-P13b-3: secret_enc (servis anahtarı) yalnız adres doluyken; adres null → NULL olmalı; kısa değer genel CHECK'e takılır", async () => {
     await bad({ url: null }, C, Buffer.alloc(45, 7));
-    await bad({ url: "http://wa.example" }, C, Buffer.alloc(45, 7));
+    expect(await upsert("whatsapp", { url: "http://wa.example" }, Buffer.alloc(45, 7))).toBeGreaterThanOrEqual(1);
+    await bad({ url: "http://wa.example" }, "system_settings_secret_enc_chk", Buffer.alloc(20, 7));
   });
 
   it("şema/öndek: yalnız http:// veya https://, harf duyarlı", async () => {

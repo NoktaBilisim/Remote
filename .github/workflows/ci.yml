@@ -79,7 +79,7 @@ jobs:
             | tee /dev/stderr | grep -qx $'1\t1'
       - run: pnpm db:migrate
       - name: app kullanıcısı yetki sınırı (G-15)
-        run: APP_PW=ciapp BACKUP_PW="$MYSQL_BACKUP_PASSWORD" CONTAINER=${{ job.services.mysql.id }} DB=remote bash deploy/mysql/check-app-grants.sh
+        run: APP_PW=ciapp BACKUP_PW="$MYSQL_BACKUP_PASSWORD" MIGRATOR_PW="$MYSQL_MIGRATOR_PASSWORD" CONTAINER=${{ job.services.mysql.id }} DB=remote bash deploy/mysql/check-app-grants.sh
       - run: pnpm -r --if-present run test
       - run: pnpm --filter @remote/server test:int
 

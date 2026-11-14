@@ -217,3 +217,104 @@ for (const scheme of ["light", "dark"] as const) {
     }
   });
 }
+
+test("S-P13b-3 servis anahtarı: env kaynaklı rozet, kaldırma yok", async ({ page, context }, info) => {
+  desktopOnly(info.project.name);
+  await signInAu(context, "ausa");
+  await open(page);
+  await expect(page.getByTestId("wa-key-source")).toHaveText("Kayıtlı (env)");
+  await expect(page.getByTestId("wa-key-remove")).toHaveCount(0);
+  await expect(page.getByTestId("wa-key-input")).toHaveValue("");
+});
+
+test("S-P13b-3 servis anahtarı: kayıt, geri yazılmaz, hata, kaldırma onayı, 401 testi", async ({ page, context }, info) => {
+  desktopOnly(info.project.name);
+  await signInAu(context, "ausawa0");
+  await open(page);
+  const key = page.getByTestId("wa-key-input");
+  const badge = page.getByTestId("wa-key-source");
+  await expect(badge).toHaveText("Tanımlı değil");
+  await expect(key).toHaveAttribute("type", "password");
+  await expect(page.getByTestId("wa-key-remove")).toHaveCount(0);
+
+  // İstemci ön kontrolü: kısa anahtar → istek yok, alan hatası
+  let puts = 0;
+  page.on("request", (r) => {
+    if (r.method() === "PUT" && r.url().endsWith(API)) puts++;
+  });
+  await page.getByTestId("wa-svc-url").fill("https://wa.ornek.com:3000");
+  await key.fill("kisa");
+  await page.getByTestId("save-bar-save").click();
+  await expect(key).toHaveAttribute("aria-invalid", "true");
+  await expect(key).toBeFocused();
+  expect(puts).toBe(0);
+
+  // Kayıt: anahtar gövdede; sonra rozet Panel, alan boş (geri yazılmaz)
+  await key.fill("test-api-key-aaaaaaaaaaaaaaaa");
+  const put = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith(API));
+  await page.getByTestId("save-bar-save").click();
+  expect((await put).postDataJSON()).toEqual({ url: "https://wa.ornek.com:3000", apiKey: "test-api-key-aaaaaaaaaaaaaaaa" });
+  await expect(badge).toHaveText("Kayıtlı (panel)");
+  await expect(key).toHaveValue("");
+  await expect(page.getByTestId("save-bar")).toHaveCount(0);
+  expect(await axeScan(page, "#icerik")).toEqual([]);
+
+  // Anahtar boş bırakılınca (yalnız adres) gövdede apiKey yok → mevcut korunur
+  await page.getByTestId("wa-svc-url").fill("https://wa.ornek.com:3000/yol");
+  const put2 = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith(API));
+  await page.getByTestId("save-bar-save").click();
+  expect((await put2).postDataJSON()).toEqual({ url: "https://wa.ornek.com:3000/yol" });
+  await expect(badge).toHaveText("Kayıtlı (panel)");
+
+  // Servis 401 → test sonucu "Servis anahtarı reddetti."
+  await page.getByTestId("wa-test-phone").fill("0532 888 88 88");
+  await page.getByTestId("wa-test-send").click();
+  await expect(page.getByTestId("wa-test-result")).toContainText("Servis anahtarı reddetti");
+
+  // Kaldırma: onay diyaloğu, Vazgeç istek göndermez, onay `apiKey: null`
+  await page.getByTestId("wa-key-remove").click();
+  const dlg = page.getByTestId("wa-key-remove-dialog");
+  await expect(dlg).toBeVisible();
+  await dlg.getByRole("button", { name: "Vazgeç" }).click();
+  await expect(dlg).toBeHidden();
+  await page.getByTestId("wa-key-remove").click();
+  const del = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith(API));
+  await page.getByTestId("wa-key-remove-confirm").click();
+  expect((await del).postDataJSON()).toEqual({ url: "https://wa.ornek.com:3000/yol", apiKey: null });
+  await expect(badge).toHaveText("Tanımlı değil");
+  await expect(page.getByTestId("wa-key-remove")).toHaveCount(0);
+});
+
+test("S-P13b-3 servis anahtarı: adres kökeni değişince anahtar yeniden istenir; panel adresinde anahtar yoksa ipucu", async ({ page, context }, info) => {
+  desktopOnly(info.project.name);
+  await signInAu(context, "ausains");
+  await open(page);
+  // Panel adresi + panel anahtarı yok → "Tanımlı değil" ve env anahtarının kullanılmadığı ipucu
+  await expect(page.getByTestId("wa-key-source")).toHaveText("Tanımlı değil");
+  await expect(page.getByTestId("wa-svc-form")).toContainText("ortam değişkenindeki anahtar");
+
+  const url = page.getByTestId("wa-svc-url");
+  const key = page.getByTestId("wa-key-input");
+  await key.fill("test-api-key-aaaaaaaaaaaaaaaa");
+  await url.fill("http://10.0.0.5:3000");
+  await page.getByTestId("save-bar-save").click();
+  await expect(page.getByTestId("wa-key-source")).toHaveText("Kayıtlı (panel)");
+
+  let puts = 0;
+  page.on("request", (r) => {
+    if (r.method() === "PUT" && r.url().endsWith(API)) puts++;
+  });
+  await url.fill("http://10.0.0.6:3000");
+  await page.getByTestId("save-bar-save").click();
+  await expect(key).toHaveAttribute("aria-invalid", "true");
+  await expect(key).toBeFocused();
+  await expect(page.getByTestId("wa-svc-form")).toContainText("Adres değiştiği için servis anahtarını yeniden girin.");
+  expect(puts, "anahtarsız köken değişiminde PUT gitmemeli").toBe(0);
+
+  // Yeni anahtarla kayıt geçer
+  await key.fill("test-api-key-bbbbbbbbbbbbbbbb");
+  await page.getByTestId("save-bar-save").click();
+  await expect(page.getByTestId("wa-svc-effective")).toHaveText("http://10.0.0.6:3000");
+  await expect(page.getByTestId("wa-key-source")).toHaveText("Kayıtlı (panel)");
+  expect(puts).toBe(1);
+});

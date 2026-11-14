@@ -13,7 +13,9 @@ Type=oneshot
 ExecStart=/opt/remote/deploy/backup/backup.sh
 User=root
 UMask=0077
-TimeoutStartSec=1h
+# G-P13b-6: döküm üst sınırı + site dışı kanca (≤ 1800 sn, bütçeye göre kırpılır) + 10 dk pay. backup.env
+# BACKUP_UNIT_TIMEOUT_SEC ile aynı tutun (sn).
+TimeoutStartSec=2h
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7

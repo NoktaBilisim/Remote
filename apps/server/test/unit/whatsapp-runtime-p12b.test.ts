@@ -6,12 +6,14 @@ import type { Db } from "../../src/lib/db.ts";
 import { auditValueView } from "../../src/audit/view.ts";
 import { WA_TIMEOUT_MS, WhatsappNotifier, isInsecureServiceUrl, type FetchLike } from "../../src/notify/whatsapp.ts";
 import { createMetrics } from "../../src/ops/metrics.ts";
+import { FAKE_WA_PANEL_API_KEY } from "../helpers/secrets.ts";
 import { FakeClock } from "../helpers/ws.ts";
 
 interface Call {
   url: string;
   body: string;
   redirect: string;
+  apiKey: string | undefined;
 }
 
 function make(o: { url: string; production?: boolean; respond?: (url: string) => ReturnType<FetchLike> }) {
@@ -20,7 +22,7 @@ function make(o: { url: string; production?: boolean; respond?: (url: string) =>
   const errors: Record<string, unknown>[] = [];
   const clock = new FakeClock();
   const fetch: FetchLike = async (url, init) => {
-    calls.push({ url, body: init.body, redirect: init.redirect });
+    calls.push({ url, body: init.body, redirect: init.redirect, apiKey: init.headers["x-api-key"] });
     return o.respond ? o.respond(url) : { ok: true, status: 200 };
   };
   const log = { info: () => undefined, warn: (obj: object) => void warns.push(obj as Record<string, unknown>), error: (obj: object) => void errors.push(obj as Record<string, unknown>) };
@@ -135,5 +137,58 @@ describe("P13a K13 sınıflaması (T33, mimari-p13 §3)", () => {
     for (const url of ["http://169.254.169.254", "http://169.254.1.2:3000", "http://[fe80::1]:3000", "http://[febf::1]", "http://203.0.113.5:3000", "http://wa.example.com"]) expect(isInsecureServiceUrl(url, true), url).toBe(true);
     for (const url of ["http://127.0.0.1:3000", "http://[::1]:3000", "http://localhost:3000", "http://10.0.0.5:3000", "http://192.168.1.1", "http://[fd00::5]", "https://169.254.169.254"]) expect(isInsecureServiceUrl(url, true), url).toBe(false);
     expect(isInsecureServiceUrl("http://169.254.169.254", false)).toBe(false); // geliştirme ortamında kural uygulanmaz
+  });
+});
+
+describe("S-P13b-3 servis anahtarı", () => {
+  it("S-P13b-3: anahtar varsa x-api-key başlığı; adresle birlikte değişir; 401 → unauthorized + alarm (değer logda yok)", async () => {
+    const KEY = FAKE_WA_PANEL_API_KEY;
+    let status = 200;
+    const { n, calls, errors } = make({ url: "http://127.0.0.1:3000", respond: async () => ({ ok: status < 300, status }) });
+    await n.test("+905321112233");
+    expect(calls.at(-1)?.apiKey).toBeUndefined();
+    n.setUrl("http://127.0.0.1:3000", KEY);
+    await n.test("+905321112233");
+    expect(calls.at(-1)?.apiKey).toBe(KEY);
+    status = 401;
+    expect(await n.test("+905321112233")).toEqual({ ok: false, message: "Servis anahtarı reddetti.", reason: "unauthorized" });
+    expect(errors.filter((e) => e.alarm === "whatsapp_unauthorized")).toHaveLength(1);
+    expect(JSON.stringify(errors)).not.toContain(KEY);
+    status = 200;
+    n.setUrl("https://wa.example.com"); // anahtarsız yeni adres → eski anahtar taşınmaz
+    await n.test("+905321112233");
+    expect(calls.at(-1)?.apiKey).toBeUndefined();
+    n.setUrl("", KEY);
+    expect(n.configured).toBe(false);
+  });
+});
+
+describe("S-P13b-8 anahtar düz http üzerinden gitmez", () => {
+  it("S-P13b-8: production'da anahtar + loopback dışı http → kanal kapalı (istek yok, alarm); loopback http ve https açık; anahtarsız özel ağ http eskisi gibi açık", async () => {
+    const KEY = FAKE_WA_PANEL_API_KEY;
+    const { n, calls, warns } = make({ url: "http://10.0.0.5:3000", production: true });
+    expect(n.usable).toBe(true); // anahtarsız: K13 (a) özel ağ
+    n.setUrl("http://10.0.0.5:3000", KEY); // yalnız anahtar değişti → yeniden sınıflandırılır
+    expect({ insecure: n.insecure, usable: n.usable }).toEqual({ insecure: true, usable: false });
+    expect(await n.test("+905321112233")).toMatchObject({ ok: false, reason: "insecure" });
+    expect(calls).toHaveLength(0);
+    expect(warns.filter((w) => w.alarm === "whatsapp_key_over_http")).toHaveLength(1);
+    expect(JSON.stringify(warns)).not.toContain(KEY);
+    for (const url of ["http://127.0.0.1:3000", "http://[::1]:3000", "http://localhost:3000", "https://wa.example.com"]) {
+      n.setUrl(url, KEY);
+      expect(n.usable, url).toBe(true);
+    }
+    await n.test("+905321112233");
+    expect(calls.at(-1)?.apiKey).toBe(KEY);
+  });
+
+  it("S-P13b-8: geliştirmede anahtar + http izinli ama uyarı logu (değer yok)", async () => {
+    const { n, calls, warns } = make({ url: "http://10.0.0.5:3000" });
+    n.setUrl("http://10.0.0.5:3000", FAKE_WA_PANEL_API_KEY);
+    expect(n.usable).toBe(true);
+    expect(warns.filter((w) => w.event === "whatsapp_key_over_http")).toHaveLength(1);
+    await n.test("+905321112233");
+    expect(calls.at(-1)?.apiKey).toBe(FAKE_WA_PANEL_API_KEY);
+    expect(JSON.stringify(warns)).not.toContain(FAKE_WA_PANEL_API_KEY);
   });
 });

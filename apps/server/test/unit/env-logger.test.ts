@@ -46,14 +46,27 @@ describe("boş env değeri = tanımsız (compose `${X:-}`)", () => {
       expect(msg).not.toContain("wa.test");
     }
     expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: "https://wa.test:8443/api/" }).WHATSAPP_SERVICE_URL).toBe("https://wa.test:8443/api");
-    expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: " " }).WHATSAPP_SERVICE_URL).toBe("http://89.252.189.211:3000");
-    expect(loadEnv(base).WHATSAPP_SERVICE_URL).toBe("http://89.252.189.211:3000");
   });
 
-  it("P13a (B-P12b-4): env adresi kanonikleşir; açıkça verilmezse kaynak `default`, verilirse `env`", () => {
-    expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: "HTTP://WA.Test:3000/" })).toMatchObject({ WHATSAPP_SERVICE_URL: "http://wa.test:3000", WHATSAPP_URL_SOURCE: "env" });
-    expect(loadEnv(base).WHATSAPP_URL_SOURCE).toBe("default");
-    expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: " " }).WHATSAPP_URL_SOURCE).toBe("default");
+  it("S-P13b-9: WHATSAPP_SERVICE_API_KEY yalnız yazdırılabilir ASCII 16–256; hata mesajında değer yok", () => {
+    expect(loadEnv({ ...base, WHATSAPP_SERVICE_API_KEY: "A".repeat(16) }).WHATSAPP_SERVICE_API_KEY).toBe("A".repeat(16));
+    expect(loadEnv(base).WHATSAPP_SERVICE_API_KEY).toBeUndefined();
+    for (const v of ["kisa", "ç".repeat(20), `${"a".repeat(20)}\u200B`, `${"a".repeat(10)} ${"b".repeat(10)}`, "x".repeat(257)]) {
+      let msg = "";
+      try {
+        loadEnv({ ...base, WHATSAPP_SERVICE_API_KEY: v });
+      } catch (e) {
+        msg = (e as Error).message;
+      }
+      expect(msg, v).toMatch(/WHATSAPP_SERVICE_API_KEY/);
+      expect(msg).not.toContain(v);
+    }
+  });
+
+  it("G-P13b-2: yerleşik varsayılan adres yok — verilmezse/boşsa kanal yapılandırılmamış (boş dize); verilirse kanonikleşir", () => {
+    expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: " " }).WHATSAPP_SERVICE_URL).toBe("");
+    expect(loadEnv(base).WHATSAPP_SERVICE_URL).toBe("");
+    expect(loadEnv({ ...base, WHATSAPP_SERVICE_URL: "HTTP://WA.Test:3000/" }).WHATSAPP_SERVICE_URL).toBe("http://wa.test:3000");
   });
 
   it("opsiyonel alanlar boş/boşluk dizeyle hata vermez ve varsayılana düşer", () => {

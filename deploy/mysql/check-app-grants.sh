@@ -1,8 +1,9 @@
 #!/bin/bash
 # app DB kullanıcısının yetki sınırı kontrolü (G-15, AC-123 kullanıcı ayrımı). Kullanım:
-#   APP_PW=<app parolası> CONTAINER=<mysql konteyner adı> DB=<veritabanı> [BACKUP_PW=<backup parolası>] ./check-app-grants.sh
+#   APP_PW=<app parolası> CONTAINER=<mysql konteyner adı> DB=<veritabanı> [BACKUP_PW=<backup parolası>] [MIGRATOR_PW=<migrator parolası>] ./check-app-grants.sh
 # P13a: sonda `backup` kullanıcısı da sınanır (parola BACKUP_PW ya da konteyner env MYSQL_BACKUP_PASSWORD; ikisi de
-# yoksa o bölüm FAIL — yedek kullanıcısı her kurulumda olmalı).
+# yoksa o bölüm FAIL — yedek kullanıcısı her kurulumda olmalı). P13b: sonda migrator sınırı da sınanır (parola MIGRATOR_PW
+# ya da konteyner env MYSQL_MIGRATOR_PASSWORD; compose/test-db.sh'te env var, CI servis konteynerinde yok → MIGRATOR_PW).
 # Beklenen tüm satırlar PASS; FAIL varsa çıkış kodu 1. Geçici tenant/kullanıcı ekler ve sonunda siler; audit_logs'a kalıcı satır yazmaz.
 FAILED=0
 run() { # $1 beklenen, $2 sql, $3 (ops.) DENIED'de hata mesajında beklenen metin (ör. kısıt adı)
@@ -405,13 +406,17 @@ run OK     "$TX $SSI ('system_logo','{\"path\":\"system/$RND.webp\"}',NULL,NOW(3
 run DENIED "$TX $SSI ('system_logo','{\"path\":\"$GT/$RND.webp\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_system_logo_chk
 run DENIED "$TX $SSI ('System_Logo','{\"path\":\"system/$RND.webp\"}',NULL,NOW(3)); $R" system_settings_key_chk
 # WhatsApp servis ayarı (20261114090000): yetki değişmedi; anahtar `whatsapp` ikili, value_json {url: null|http(s) adresi}.
-run OK     "$TX $SSI ('whatsapp','{\"url\":\"http://89.252.189.211:3000\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL,updated_at=NOW(3); $R"
+run OK     "$TX $SSI ('whatsapp','{\"url\":\"http://203.0.113.10:3000\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL,updated_at=NOW(3); $R"
 run OK     "$TX $SSI ('whatsapp','{\"url\":null}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL,updated_at=NOW(3); $R"
 run DENIED "$TX $SSI ('WhatsApp','{\"url\":null}',NULL,NOW(3)); $R" system_settings_key_chk
 run DENIED "$TX $SSI ('whatsapp','{\"url\":\"ftp://wa.example\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_whatsapp_chk
 run DENIED "$TX $SSI ('whatsapp','{\"url\":\"http://u:p@wa.example\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_whatsapp_chk
 run DENIED "$TX $SSI ('whatsapp','{\"url\":null,\"token\":\"x\"}',NULL,NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=NULL; $R" system_settings_whatsapp_chk
 run DENIED "$TX $SSI ('whatsapp','{\"url\":null}',RANDOM_BYTES(45),NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=VALUES(secret_enc); $R" system_settings_whatsapp_chk
+# 20261115090000_whatsapp_api_key (S-P13b-3): adres doluyken şifreli API anahtarı serbest; kısa blob genel CHECK'e çarpar.
+run OK     "$TX $SSI ('whatsapp','{\"url\":\"https://wa.example\"}',RANDOM_BYTES(45),NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=VALUES(secret_enc),updated_at=NOW(3); $R"
+run DENIED "$TX $SSI ('whatsapp','{\"url\":\"https://wa.example\"}',X'00',NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=VALUES(secret_enc); $R" system_settings_secret_enc_chk
+run DENIED "$TX $SSI ('whatsapp','{\"url\":\"https://u:p@wa.example\"}',RANDOM_BYTES(45),NOW(3)) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json),secret_enc=VALUES(secret_enc); $R" system_settings_whatsapp_chk
 # P13a (AC-197): support_sessions_anonymized_chk — anonim oturumda kişisel alan yok, yalnız bitmiş oturum anonimleşir;
 # ticket_no/kalite kalır. P13a WhatsApp CHECK'i += \p{Cf}\p{Zl}\p{Zp}.
 END="UPDATE support_sessions SET status='ENDED',ended_at=NOW(3),ended_by='TECH',end_reason='ended' WHERE id='00000000000000000000GRANTS'"
@@ -432,6 +437,11 @@ run DENIED "$(WA C2AD)" system_settings_whatsapp_chk     # U+00AD yumuşak tire 
 run DENIED "$(WA E280A8)" system_settings_whatsapp_chk   # U+2028 (Zl)
 run DENIED "$(WA E280A9)" system_settings_whatsapp_chk   # U+2029 (Zp)
 run OK     "$(WA 2F6170692F7631)"                         # /api/v1
+# P13b D2 (mimari-p13 §7.7): `reset-superadmin` CLI app ile tek TX'te çalışır — yeni grant GEREKMEZ. Yazdığı her ifade
+# (users parola/kilit/MFA alanları, auth_sessions iptal, password_reset_tokens used_at, recovery_codes DELETE, audit INSERT).
+SA="UPDATE users SET password_hash='\$argon2id\$x',must_change_password=1,failed_login_count=0,failed_window_at=NULL,locked_until=NULL,updated_at=NOW(3) $WU"
+AS1="INSERT INTO auth_sessions (id,user_id,token_hash,ip,user_agent,last_seen_at,expires_at,updated_at) VALUES ('00000000000000000000GRANTZ','00000000000000000000GRANTU',$H1,'203.0.113.7','ua',NOW(3),NOW(3)+INTERVAL 1 HOUR,NOW(3))"
+run OK     "$TX $AS1; $RC1; $PR1; $SA; UPDATE auth_sessions SET revoked_at=NOW(3),updated_at=NOW(3) WHERE user_id='00000000000000000000GRANTU' AND revoked_at IS NULL; UPDATE password_reset_tokens SET used_at=NOW(3),updated_at=NOW(3) WHERE user_id='00000000000000000000GRANTU' AND used_at IS NULL; $UU totp_enabled=0,totp_secret_enc=NULL,totp_last_step=NULL $WU; DELETE FROM recovery_codes WHERE user_id='00000000000000000000GRANTU'; INSERT INTO audit_logs (action,entity,entity_id,username,user_agent,result,new_value) VALUES ('auth.superadmin_reset','users','00000000000000000000GRANTU','cli','reset-superadmin-cli','success',JSON_OBJECT('mustChangePassword',TRUE,'mfaReset',TRUE,'revokedSessions',1)); $R"
 # Temizlik (FK sırasıyla)
 run OK     "DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.
@@ -457,4 +467,27 @@ run_backup DENIED "LOCK TABLES users READ"
 dump=$(docker exec -e BPW="${BACKUP_PW:-}" "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="${BPW:-$MYSQL_BACKUP_PASSWORD}" mysqldump -ubackup --single-transaction --no-tablespaces --triggers --set-gtid-purged=OFF "$0" 2>&1 >/tmp/rs-grant-dump.sql; rc=$?; n=$(grep -c "^/\*!50003 CREATE\*/ /\*!50017 DEFINER=.*\*/ /\*!50003 TRIGGER" /tmp/rs-grant-dump.sql); m=$(grep -c "INSERT INTO \`_prisma_migrations\`" /tmp/rs-grant-dump.sql); rm -f /tmp/rs-grant-dump.sql; [ "$m" -gt 0 ] && m=yes; echo "rc=$rc triggers=$n migrations=$m"' "${DB:-remote}" 2>&1)
 [[ "$dump" == *"rc=0 triggers=3 migrations=yes" ]] && s=PASS || { s=FAIL; FAILED=1; }
 printf '%s | beklenen=rc=0 triggers=3 migrations=yes | (backup) mysqldump --single-transaction --no-tablespaces --triggers -> %s\n' "$s" "${dump//$'\n'/ }"
+# P13b G-P13b-5: audit-continuity.sql backup kullanıcısıyla çalışır ve tetikleyici özeti beklenen sabite eşit (tetikleyici
+# değiştiren migration audit-continuity.sql'deki sabiti güncellemezse burada FAIL olur).
+cont=$(docker exec -i -e BPW="${BACKUP_PW:-}" "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="${BPW:-$MYSQL_BACKUP_PASSWORD}" exec mysql -ubackup -NB "$0"' "${DB:-remote}" < "$(dirname "$0")/audit-continuity.sql" 2>&1)
+[[ "$cont" == *'"triggers": {"ok": true, "count": 3,'* && "$cont" == *'"format": 2'* ]] && s=PASS || { s=FAIL; FAILED=1; }
+printf '%s | beklenen=triggers.ok=true count=3 | (backup) audit-continuity.sql -> %s\n' "$s" "$(grep -o '"triggers": {[^}]*}' <<<"$cont" || echo "${cont:0:200}")"
+# P13b D1/D2 (ADR-0020 m.2): geri yükleme migrator ile yapılır; güvenlik sınırı migrator'ın `*.*` üzerinde yetkisiz olmasıdır.
+run_root 0 "SELECT COUNT(*) FROM mysql.user WHERE user=''" "anonim MySQL hesabı yok (force_created_at USER() muafiyeti; §7.11)"
+run_root "migratorExtra=0" "$(sed -n "/^SELECT CONCAT('migratorExtra=',/,/;\$/p" "$(dirname "$0")/restore-sec-snapshot.sql")" "migrator: kendi DB'si dışında hiçbir yetki/rol/proxy/ek host yok (restore-sec-snapshot.sql ile aynı sorgu)"
+run_migrator() { # $1 beklenen DENIED, $2 sql (migrator, konteyner içinden soketle; parola MIGRATOR_PW ya da konteyner env'i)
+  out=$(docker exec -e MPW="${MIGRATOR_PW:-}" "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="${MPW:-$MYSQL_MIGRATOR_PASSWORD}" mysql -umigrator --protocol=socket --system-command=OFF --local-infile=0 -N "$1" -e "$0"' "$2" "${DB:-remote}" 2>&1)
+  if [ $? -eq 0 ]; then got=OK; else got=DENIED; fi
+  [ "$got" = "$1" ] && s=PASS || { s=FAIL; FAILED=1; }
+  printf '%s | beklenen=%-6s sonuç=%-6s | (migrator) %s %s\n' "$s" "$1" "$got" "$2" "$( [ $got = DENIED ] && echo "-> ${out%%:*}" )"
+}
+run_migrator DENIED "CREATE USER 'rs_grant_probe'@'localhost' IDENTIFIED BY 'rs-grant-probe-123'"
+run_migrator DENIED "GRANT SELECT ON *.* TO 'app'@'%'"
+run_migrator DENIED "GRANT SELECT ON mysql.* TO 'app'@'%'"
+run_migrator DENIED "SET PERSIST max_connections = @@global.max_connections"
+run_migrator DENIED "INSERT INTO mysql.user (Host, User) VALUES ('localhost', 'rs_grant_probe')"
+run_migrator DENIED "CREATE DATABASE rs_grant_probe"
+run_migrator DENIED "CREATE DEFINER='root'@'localhost' TRIGGER rs_grant_probe BEFORE INSERT ON _prisma_migrations FOR EACH ROW SET @a = 1"
+# Beklenmedik başarıya karşı temizlik (yukarıdakiler FAIL olsa da iz kalmasın).
+docker exec "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N "$0" -e "DROP USER IF EXISTS '"'"'rs_grant_probe'"'"'@'"'"'localhost'"'"'; RESET PERSIST IF EXISTS max_connections; DROP DATABASE IF EXISTS rs_grant_probe; DROP TRIGGER IF EXISTS rs_grant_probe; REVOKE IF EXISTS SELECT ON *.* FROM '"'"'app'"'"'@'"'"'%'"'"'"' "${DB:-remote}" >/dev/null 2>&1
 exit $FAILED

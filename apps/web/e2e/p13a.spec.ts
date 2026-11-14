@@ -4,7 +4,7 @@ import { axeScan, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 
 // P13a — frontend (AC-197, AC-199; T-P12b reason etiketleri; P12b sayfa testi: kaynak rozeti + büyük harfli şema).
 // Sahte API: e2e/mock-history.mjs (u-hu-*; ANON_ID anonim oturum, ticket "ANON-409" → 409 yarışı) ve e2e/mock-audit.mjs
-// (u-auadm-* retention.run + settings.whatsapp.test kaydı; u-ausadef-* WhatsApp yerleşik varsayılan kaynak).
+// (u-auadm-* retention.run + settings.whatsapp.test kaydı; u-ausadef-* WhatsApp adres yok (yapılandırılmamış)).
 guardConsole();
 const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 const ANON = "01JHXSTAN0N000000000000048";
@@ -88,17 +88,14 @@ test("AC-199 + T-P12b: audit'te retention.run Türkçe etiket ve grup filtresi; 
   await expect(f.getByLabel("İşlem").locator("option:checked")).toHaveText("Veri saklama — tümü");
 });
 
-test("P13a WhatsApp: 'Varsayılan' kaynak rozeti + bilgi notu; büyük harfli şema kanonik biçimde kaydedilir", async ({ page, context }, info) => {
+test("P13a WhatsApp: adres yokken 'yapılandırılmamış' durumu; büyük harfli şema kanonik biçimde kaydedilir", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
   await signInAu(context, "ausadef");
   await page.goto("/admin/settings/whatsapp");
   await expect(page.getByTestId("wa-svc-form")).toHaveAttribute("data-ready", "true");
-  await expect(page.getByTestId("setting-source")).toHaveText("Varsayılan");
-  await expect(page.getByTestId("setting-source")).toHaveAttribute("data-source", "default");
-  await expect(page.getByTestId("wa-svc-default-source")).toContainText("varsayılan");
-  await expect(page.getByTestId("wa-svc-env-source")).toHaveCount(0);
+  await expect(page.getByTestId("wa-svc-empty")).toContainText("yapılandırılmamış");
   await expect(page.getByTestId("wa-svc-url")).toHaveValue("");
-  await expect(page.getByTestId("wa-test-send")).toBeEnabled();
+  await expect(page.getByTestId("wa-test-send")).toBeDisabled();
   expect(await axeScan(page, "#icerik")).toEqual([]);
 
   const url = page.getByTestId("wa-svc-url");
@@ -110,10 +107,10 @@ test("P13a WhatsApp: 'Varsayılan' kaynak rozeti + bilgi notu; büyük harfli ş
   await expect(url).toHaveValue("https://wa.ornek.com:3000");
   await expect(page.getByTestId("save-bar")).toHaveCount(0);
 
-  // Ortam değişkenine dön → env verilmemiş: yine yerleşik varsayılan
+  // Ortam değişkenine dön → env verilmemiş: yine yapılandırılmamış
   await page.getByTestId("wa-svc-reset").click();
   await page.getByTestId("wa-svc-reset-dialog").getByTestId("wa-svc-reset-confirm").click();
-  await expect(page.getByTestId("setting-source")).toHaveText("Varsayılan");
+  await expect(page.getByTestId("wa-svc-empty")).toBeVisible();
 });
 
 for (const scheme of ["light", "dark"] as const) {

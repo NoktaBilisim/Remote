@@ -9,10 +9,10 @@
 //   ausawa0  SUPER_ADMIN, WhatsApp servisi hiç yapılandırılmamış (panel yok, env yok → url null)
 //   ausains  SUPER_ADMIN, WhatsApp servisi panelde http:// + genel adres (insecure, canlı ortam varsayımı)
 //   ausabrk  SUPER_ADMIN, WhatsApp ayarı ilk GET'te 500 (sonra 200 → "Tekrar dene")
-//   ausadef  SUPER_ADMIN, WhatsApp servisi panel yok + env açıkça verilmemiş → yerleşik varsayılan (P13a, source "default")
+//   ausadef  SUPER_ADMIN, WhatsApp servisi panel yok + env yok → adres null, source "env" (yapılandırılmamış)
 import { PERMISSION_KEYS } from "@remote/contracts/permissions";
 import { listAuditQuerySchema } from "@remote/contracts/api/audit";
-import { MYSQL_PASSWORD_REQUIRED_MESSAGE, WA_TEST_MESSAGES, consentTextInputSchema, mysqlSettingsInputSchema, turnSettingsInputSchema, whatsappAdminTestInputSchema, whatsappSettingsInputSchema } from "@remote/contracts/api/system-settings";
+import { MYSQL_PASSWORD_REQUIRED_MESSAGE, WA_API_KEY_REENTER, WA_TEST_MESSAGES, consentTextInputSchema, mysqlSettingsInputSchema, turnSettingsInputSchema, whatsappAdminTestInputSchema, whatsappSettingsInputSchema } from "@remote/contracts/api/system-settings";
 
 export const AU = {
   SELF: "01JAV00000000000000000000A",
@@ -94,11 +94,10 @@ function seedItems(kind) {
 const stores = new Map();
 // P12b (AC-196): WhatsApp servis adresi — sözleşme docs/mimari-api.md "Yönetim" whatsapp satırları
 const WA_ENV_URL = "http://10.20.0.5:3000";
-const waEnv = (kind) => ({ url: kind === "ausawa0" ? null : WA_ENV_URL, source: "env", insecure: false, updatedAt: null });
-const WA_DEFAULT_URL = "http://198.51.100.10:3000";
+const waEnv = (kind) => ({ url: kind === "ausawa0" ? null : WA_ENV_URL, source: "env", insecure: false, updatedAt: null, apiKeySet: kind === "ausa", apiKeySource: kind === "ausa" ? "env" : null });
 function waInitial(kind) {
-  if (kind === "ausadef") return { url: WA_DEFAULT_URL, source: "default", insecure: false, updatedAt: null };
-  if (kind === "ausains") return { url: "http://203.0.113.50:3000", source: "panel", insecure: true, updatedAt: iso(3_600_000) };
+  if (kind === "ausadef") return { url: null, source: "env", insecure: false, updatedAt: null, apiKeySet: false, apiKeySource: null };
+  if (kind === "ausains") return { url: "http://203.0.113.50:3000", source: "panel", insecure: true, updatedAt: iso(3_600_000), apiKeySet: false, apiKeySource: null };
   return waEnv(kind);
 }
 /** Sunucunun `isInsecureServiceUrl(url, production)` taklidi: canlı ortam varsayımı, http:// + özel ağ dışı → güvensiz. */
@@ -110,7 +109,7 @@ function waParse(body) {
   // P13a (B-P12b-4): sunucu WHATWG kanonik biçimde saklar (şema/host küçük harf, sondaki / yok)
   p.data.url = new URL(p.data.url).href.replace(/\/+$/, "");
   if (p.data.url.includes("red.example")) return { fields: { url: "Bu adres kabul edilmiyor" } };
-  return { url: p.data.url };
+  return { url: p.data.url, apiKey: p.data.apiKey };
 }
 
 function astore(cookie, kind) {
@@ -259,7 +258,14 @@ export async function handleAudit(req, res, { url, session, csrfOk, send, err, r
     const p = waParse(await readJson(req));
     if (p.fields) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: p.fields })), true;
     const url = p.url;
-    s.wa = { url, source: "panel", insecure: waInsecure(url), updatedAt: new Date().toISOString() };
+    // S-P13b-3: yok/"" → koru; null → sil; dolu → yeni. Köken değişip anahtar verilmezse yeniden giriş istenir.
+    const origin = (u) => new URL(u).origin;
+    const prevKey = s.wa.apiKeySource === "panel";
+    if (p.apiKey === undefined || p.apiKey === "") {
+      if (prevKey && s.wa.url && origin(s.wa.url) !== origin(url)) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { apiKey: WA_API_KEY_REENTER } })), true;
+    }
+    const keySet = p.apiKey === null ? false : p.apiKey ? true : prevKey;
+    s.wa = { url, source: "panel", insecure: waInsecure(url), updatedAt: new Date().toISOString(), apiKeySet: keySet, apiKeySource: keySet ? "panel" : null };
     return send(res, 200, s.wa), true;
   }
   if (path === "/api/v1/admin/settings/whatsapp" && req.method === "DELETE") {
@@ -278,6 +284,7 @@ export async function handleAudit(req, res, { url, session, csrfOk, send, err, r
     // Sunucunun sabit mesajları (contracts WA_TEST_MESSAGES); güvensiz adreste istek gönderilmez.
     if (!s.wa.url) return send(res, 200, { ok: false, message: WA_TEST_MESSAGES.unconfigured }), true;
     if (s.wa.insecure) return send(res, 200, { ok: false, message: WA_TEST_MESSAGES.insecure }), true;
+    if (phone.endsWith("8888888")) return send(res, 200, { ok: false, message: WA_TEST_MESSAGES.unauthorized }), true; // servis 401
     if (phone.endsWith("9999999")) return send(res, 200, { ok: false, message: WA_TEST_MESSAGES.unreachable }), true;
     return send(res, 200, { ok: true, message: WA_TEST_MESSAGES.ok }), true;
   }

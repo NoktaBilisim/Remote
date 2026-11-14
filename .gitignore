@@ -48,3 +48,5 @@ deploy/agent/PUBLISHED.log
 
 # P13a yedek yapılandırması (sunucuda; anahtar listesi deploy/backup/backup.env.example)
 deploy/backup/backup.env
+# P13b izleme yapılandırması (sunucuda /etc/remote-watch/watch.env; buraya kopyalanırsa da repoya girmez)
+deploy/ops/watch.env

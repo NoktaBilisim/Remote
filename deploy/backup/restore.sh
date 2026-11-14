@@ -1,31 +1,36 @@
 #!/usr/bin/env bash
-# Remote Support — geri yükleme ve doğrulama (P13a; docs/mimari-p13.md §4, AC-91, AC-200; runbook §18.4–18.6).
+# Remote Support — geri yükleme ve doğrulama (P13a + P13b; docs/mimari-p13.md §4 ve §7.6, ADR-0020, AC-91, AC-200;
+# runbook §18.4–18.6).
 #
-#   restore.sh --identity <age-anahtar-dosyası> [--target scratch] <çalıştırma-dizini>
-#       Geçici, ağsız bir MySQL konteynerine (compose ile aynı imaj + bayraklar) yükler ve manifestle karşılaştırır:
-#       şifreli/düz dosya sha256, tetikleyici sayısı (beklenen RESTORE_EXPECTED_TRIGGERS, vars. 3), son migration,
-#       tablo kümesi + satır sayıları, uploads özet listesi. Son satır: "restore-verify: OK" veya "restore-verify: FAIL".
-#       Canlı sisteme dokunmaz; yönetici iş istasyonunda da çalışır (yalnız docker + age + jq gerekir).
+#   restore.sh --identity <age-anahtarı> [--allowed-signers <dosya>] [--target scratch] <çalıştırma-dizini>
+#       Geçici, ağsız bir MySQL konteynerine (compose ile aynı imaj + bayraklar + deploy/mysql/init) MIGRATOR ile yükler
+#       ve manifestle karşılaştırır. Son satır: "restore-verify: OK" veya "restore-verify: FAIL". Canlıya dokunmaz;
+#       yönetici iş istasyonunda da çalışır (docker + age + jq + ssh-keygen >= 8.9).
 #
-#   restore.sh --identity <anahtar> --target staging --confirm <veritabanı>@<hostname> [--no-pre-backup] <çalıştırma-dizini>
-#       ÖNCE yukarıdaki scratch doğrulamasını yapar (FAIL ise hiçbir şeye dokunmaz). Ardından deploy/ yığınında:
-#       (varsayılan) güncel durumun yedeği (backup.sh) -> server + web durdurulur -> veritabanı root ile silinip
-#       yeniden oluşturulur ve döküm yüklenir -> uploads volume'u boşaltılıp arşiv açılır -> aynı doğrulama canlı
-#       DB/volume üzerinde -> `docker compose up -d` (migrate önce) -> server healthy (/ready 200) beklenir.
-#       Kullanıcı hesapları (app/migrator/backup) ve yetkileri mysql şemasındadır, DB silinince kaybolmaz.
-#       Ortam kilidi (S-P13a-6): --confirm'deki hostname `hostname -s` ile, compose projesi RESTORE_EXPECT_PROJECT
-#       (vars. remote) ile eşleşmeli. Prod hedefi yok (P13b'de ayrı bayrak + ayrı onay).
+#   restore.sh --identity <anahtar> --target staging|production --confirm <veritabanı>@<hostname -s> \
+#              [--no-pre-backup] <çalıştırma-dizini>
+#       ÖNCE scratch doğrulaması (FAIL ise canlıya dokunulmaz). Sonra deploy/ yığınında: ön yedek (backup.sh) ->
+#       `stop web server` -> güvenlik anlık görüntüsü (anon=0, migratorExtra=0 şart) -> restore-reset-db.sql (migrator;
+#       DROP/CREATE DATABASE) -> migrator ile yükleme -> anlık görüntü eşit -> uploads -> CHECKSUM canlı = scratch ->
+#       satır/tetikleyici = manifest -> backup.sh --reset-audit-baseline (SQL + host işareti, S-P13b-1) -> up -d -> /ready.
 #
-# Güvenlik (S-P13a-2/3): döküm `mysql --system-command=OFF` ile yüklenir; dökümde istemci meta-komutu (tırnak dışında
-# satırın herhangi bir yerinde `\X`, satır başında system/source/tee/pager/connect/use/edit/charset) varsa FAIL; yükleme
-# öncesi/sonrası hesap listesi + yetki tabloları/mysql.component CHECKSUM + ROUTINES/EVENTS + persisted_variables özeti
-# farklıysa FAIL. Çözülmüş dosyalar yalnız RAM'de (/dev/shm) tutulur; yoksa veya yer yetmezse --work-dir <dizin> açıkça
-# verilmelidir (iş istasyonunda şifreli disk). Manifest imzası ve tablo içeriği CHECKSUM karşılaştırması yok: site dışı
-# yedekten (P13b) önce zorunlu (runbook §18.4).
+# 1. İLK ADIM İMZA (ADR-0020 m.1): manifest.json.sig, --allowed-signers (vars. /etc/remote-backup/allowed_signers) ile
+#    `ssh-keygen -Y verify -n remote-backup -Overify-time=<manifest.createdUtc>` doğrulanır. Geçmezse sha256, çözme ve
+#    yükleme YAPILMAZ: "restore-verify: FAIL (imza)". Atlama seçeneği YOKTUR. İmzalayan anahtar = manifest.signer.
+# 2. Tazelik (G-P13b-8): dizin adı çalıştırma adı biçimindeyse manifest.run ile aynı olmalı; manifest yaşı ve sıra
+#    numarası yazılır; aynı üst dizinde daha yeni yedek varsa uyarılır. production'da 48 saatten eski ya da en yeni
+#    olmayan yedek için TTY'de ayrıca "ESKI-<run>" yazılır.
+# 3. Ortam kilidi (S-P13a-6): staging|production hedefinde deploy/.env DEPLOY_ENV = hedef = manifest.env, --confirm,
+#    compose projesi RESTORE_EXPECT_PROJECT (vars. remote), root. production ek olarak: manifest.host = hostname -s ve
+#    TTY'de "PRODUCTION-<hostname -s>" (TTY yoksa ret).
 #
-# Seçenekler: --keep (scratch konteynerini incelemek için bırakır), --work-dir <dizin>, RESTORE_READY_TIMEOUT (sn, vars. 240).
-# Özel anahtar: yalnız bu çalıştırma süresince; sunucuda ise RAM'de (/dev/shm) tutulur ve hemen silinir (runbook §18.4).
-# Çıkış: 0 OK · 1 doğrulama FAIL / hata · 2 kullanım hatası.
+# Güvenlik (S-P13a-2/3, D1/D2): döküm migrator ile `--system-command=OFF --local-infile=0` yüklenir (root yazmaz; root
+# yalnız salt okunur deploy/mysql/restore-sec-snapshot.sql için); dökümde istemci meta-komutu varsa FAIL; anlık görüntü
+# önce/sonra farklıysa FAIL; tablo içerikleri CHECKSUM TABLE ile scratch = canlı. Çözülmüş dosyalar yalnız RAM'de
+# (/dev/shm); yoksa --work-dir <şifreli disk dizini> açıkça verilir.
+#
+# Seçenekler: --keep (scratch konteynerini bırakır), --work-dir <dizin>, RESTORE_READY_TIMEOUT (sn, vars. 240).
+# Çıkış: 0 OK · 1 doğrulama FAIL / hata / ret · 2 kullanım hatası.
 set -euo pipefail
 umask 077
 export LC_ALL=C
@@ -33,14 +38,18 @@ export LC_ALL=C
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=deploy/backup/lib.sh
 . "$SCRIPT_DIR/lib.sh"
+# shellcheck source=deploy/backup/lib-restore.sh
+. "$SCRIPT_DIR/lib-restore.sh"
 DEPLOY_DIR="${BACKUP_DEPLOY_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 LOG_TAG=remote-restore
 
-usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 IDENTITY=""; TARGET=scratch; CONFIRM=""; PRE_BACKUP=1; KEEP=0; RUN_DIR=""; WORK_PARENT=""
+ALLOWED_SIGNERS=/etc/remote-backup/allowed_signers
 while [ $# -gt 0 ]; do
   case "$1" in
     --identity) IDENTITY="${2:-}"; shift 2 ;;
+    --allowed-signers) ALLOWED_SIGNERS="${2:-}"; shift 2 ;;
     --target) TARGET="${2:-}"; shift 2 ;;
     --confirm) CONFIRM="${2:-}"; shift 2 ;;
     --no-pre-backup) PRE_BACKUP=0; shift ;;
@@ -53,17 +62,96 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$IDENTITY" ] && [ -n "$RUN_DIR" ] || usage
 case "$TARGET" in
-  scratch|staging) ;;
-  production|prod) die "--target production henüz yok (P13b: ayrı bayrak ve ayrı onayla eklenecek)" ;;
-  *) echo "--target scratch|staging" >&2; usage ;;
+  scratch|staging|production) ;;
+  *) echo "--target scratch|staging|production" >&2; usage ;;
 esac
-[ -f "$IDENTITY" ] && [ -r "$IDENTITY" ] || die "anahtar dosyası okunamıyor: $IDENTITY"
+need_cmd docker age jq gzip awk ssh-keygen
+[ -d "$RUN_DIR" ] || die "çalıştırma dizini yok: $RUN_DIR"
 RUN_DIR="$(cd "$RUN_DIR" && pwd)"
-MANIFEST="$RUN_DIR/manifest.json"
-[ -f "$MANIFEST" ] || die "manifest yok: $MANIFEST"
-need_cmd docker age jq gzip awk
+[ -f "$RUN_DIR/manifest.json" ] || die "manifest yok: $RUN_DIR/manifest.json"
+# S-P13b-2: manifest + imza önce 700 bir dizine KOPYALANIR; doğrulama ve sonraki BÜTÜN okumalar bu kopyadan yapılır
+# (RUN_DIR'e yazabilen biri doğrulamadan sonra manifesti değiştiremez).
+VDIR="$(mktemp -d "${TMPDIR:-/tmp}/remote-restore-m.XXXXXX")"; chmod 700 "$VDIR"
+trap 'rm -rf -- "$VDIR"' EXIT
+cp -- "$RUN_DIR/manifest.json" "$VDIR/manifest.json"
+[ ! -f "$RUN_DIR/manifest.json.sig" ] || cp -- "$RUN_DIR/manifest.json.sig" "$VDIR/manifest.json.sig"
+MANIFEST="$VDIR/manifest.json"
 EXPECTED_TRIGGERS="${RESTORE_EXPECTED_TRIGGERS:-3}"
 READY_TIMEOUT="${RESTORE_READY_TIMEOUT:-240}"
+HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
+
+FAILS=0
+check() {  # <ad> <beklenen> <bulunan>
+  if [ "$2" = "$3" ]; then printf 'CHECK OK    %-28s %s\n' "$1" "$3"
+  else printf 'CHECK FAIL  %-28s beklenen=%s bulunan=%s\n' "$1" "$2" "$3"; FAILS=$((FAILS + 1)); fi
+}
+verdict() {
+  if [ "$FAILS" -eq 0 ]; then echo "restore-verify: OK"; else echo "restore-verify: FAIL ($FAILS kontrol)"; exit 1; fi
+}
+reject() { log "RET: $*"; echo "restore-verify: FAIL (ret)"; exit 1; }
+
+# --- 0. İmza: her şeyden ÖNCE (ADR-0020 m.1; atlama seçeneği yok) ------------------------------------------------
+[ -f "$ALLOWED_SIGNERS" ] || { log "allowed_signers yok: $ALLOWED_SIGNERS (--allowed-signers <dosya>; kasadaki kopya)"; echo "restore-verify: FAIL (imza)"; exit 1; }
+if ! SIG_FP="$(verify_manifest_sig "$MANIFEST" "$ALLOWED_SIGNERS")"; then
+  log "manifest imzası doğrulanamadı (imza yok/bozuk, manifest değiştirilmiş ya da anahtar allowed_signers'ta yok/süresi geçmiş) — çözme ve yükleme YAPILMADI"
+  echo "restore-verify: FAIL (imza)"; exit 1
+fi
+printf 'CHECK OK    %-28s %s\n' "manifest imzası" "$SIG_FP"
+# Bundan sonra manifest güvenilir (imzalı). P13b biçimi şart.
+[ "$(jq -r '.format' "$MANIFEST")" = 2 ] || reject "manifest biçimi 2 değil"
+check "imzalayan = manifest.signer" "$(jq -r '.signer' "$MANIFEST")" "$SIG_FP"
+[ "$FAILS" -eq 0 ] || verdict
+
+M_RUN="$(jq -r '.run' "$MANIFEST")"; M_ENV="$(jq -r '.env' "$MANIFEST")"; M_HOST="$(jq -r '.host' "$MANIFEST")"
+M_SEQ="$(jq -r '.seq' "$MANIFEST")"; M_CREATED="$(jq -r '.createdUtc' "$MANIFEST")"
+# S-P13b-2: imzalı olsa da SQL/log metnine giren alanlar dar biçimle denetlenir.
+[[ "$M_RUN" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || reject "manifest.run biçimi geçersiz"
+case "$M_ENV" in development|staging|production) ;; *) reject "manifest.env geçersiz" ;; esac
+[[ "$M_HOST" =~ ^[A-Za-z0-9.-]{1,64}$ ]] || reject "manifest.host geçersiz"
+[[ "$M_SEQ" =~ ^[0-9]{1,9}$ ]] || reject "manifest.seq geçersiz"
+DB_NAME="$(jq -r '.database' "$MANIFEST")"
+[[ "$DB_NAME" =~ ^[A-Za-z0-9_]{1,64}$ ]] || die "manifestte geçersiz veritabanı adı"
+jq -e '.tables | keys | all(test("^[A-Za-z0-9_]{1,64}$"))' "$MANIFEST" >/dev/null || die "manifestte geçersiz tablo adı"
+
+# --- 0b. Tazelik (G-P13b-8) -------------------------------------------------------------------------------------------
+RUN_NAME="${RUN_DIR##*/}"
+if [[ "$RUN_NAME" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]; then
+  [ "$RUN_NAME" = "$M_RUN" ] || reject "dizin adı ($RUN_NAME) manifest.run ($M_RUN) ile aynı değil — başka bir yedek bu ada kopyalanmış olabilir"
+else
+  log "uyarı: dizin adı çalıştırma biçiminde değil ($RUN_NAME); manifest.run=$M_RUN"
+fi
+created_epoch="$(utc_to_epoch "$M_CREATED")"
+AGE_H=-1; [ -n "$created_epoch" ] && AGE_H=$(( ($(date -u +%s) - created_epoch) / 3600 ))
+NEWER=""
+while IFS= read -r d; do
+  n="${d##*/}"
+  [[ "$n" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] && [[ "$n" > "$M_RUN" ]] && [ -f "$d/manifest.json" ] && NEWER="$n"
+done < <(find "${RUN_DIR%/*}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | LC_ALL=C sort)
+log "çalıştırma $M_RUN · sıra $M_SEQ · env $M_ENV · host $M_HOST · yaş ${AGE_H} sa · commit $(jq -r '.version.commit' "$MANIFEST") · migration $(jq -r '.lastMigration' "$MANIFEST") · hedef $TARGET"
+[ -z "$NEWER" ] || log "UYARI: aynı dizinde DAHA YENİ bir yedek var ($NEWER) — en yenisini mi yüklemek istiyorsunuz?"
+
+# --- 0c. Ortam kilidi (S-P13a-6, ADR-0020): çözmeden önce ---------------------------------------------------------
+if [ "$TARGET" != scratch ]; then
+  DEPLOY_ENV_VAL="$(deploy_env_of "$DEPLOY_DIR")"
+  [ "$DEPLOY_ENV_VAL" = "$TARGET" ] || reject "--target $TARGET ama $DEPLOY_DIR/.env DEPLOY_ENV='${DEPLOY_ENV_VAL}' (yanlış sunucu/yığın?)"
+  [ "$M_ENV" = "$TARGET" ] || reject "yedek env=$M_ENV, hedef $TARGET — başka ortamın yedeği yüklenmez"
+  [ "$CONFIRM" = "$DB_NAME@$HOST_SHORT" ] || reject "--target $TARGET için --confirm $DB_NAME@$HOST_SHORT gerekli (canlı veritabanı SİLİNİP yeniden yüklenir; runbook §18.5)"
+  [ "$(id -u)" = 0 ] || reject "--target $TARGET root ile çalıştırılır"
+  if [ "$TARGET" = production ]; then
+    [ "$M_HOST" = "$HOST_SHORT" ] || reject "yedek host=$M_HOST, bu sunucu $HOST_SHORT"
+    { [ -t 0 ] && [ -t 2 ] && [ -r /dev/tty ]; } || reject "--target production etkileşimli terminal (TTY) ister"
+    printf 'PRODUCTION geri yüklemesi: %s@%s, yedek %s (yaş %s sa). Onay için PRODUCTION-%s yazın: ' "$DB_NAME" "$HOST_SHORT" "$M_RUN" "$AGE_H" "$HOST_SHORT" >&2
+    read -r ans < /dev/tty || ans=""
+    [ "$ans" = "PRODUCTION-$HOST_SHORT" ] || reject "production onayı verilmedi"
+    if [ "$AGE_H" -lt 0 ] || [ "$AGE_H" -gt 48 ] || [ -n "$NEWER" ]; then
+      printf 'DİKKAT: yedek %s sa önce alınmış%s. Bilerek yüklemek için ESKI-%s yazın: ' "$AGE_H" "${NEWER:+ ve daha yenisi var ($NEWER)}" "$M_RUN" >&2
+      read -r ans < /dev/tty || ans=""
+      [ "$ans" = "ESKI-$M_RUN" ] || reject "eski yedek onayı verilmedi"
+    fi
+  fi
+fi
+[ -f "$IDENTITY" ] && [ -r "$IDENTITY" ] || die "anahtar dosyası okunamıyor: $IDENTITY"
+SQL_DIR="$(sql_dir)"
 
 T0="$(date -u +%s)"
 WORK=""; SCRATCH=""
@@ -74,24 +162,11 @@ cleanup() {
     else docker rm -fv "$SCRATCH" >/dev/null 2>&1 || true; fi
   fi
   [ -n "$WORK" ] && [ -d "$WORK" ] && rm -rf -- "$WORK"
+  rm -rf -- "$VDIR"
   exit "$rc"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
-
-FAILS=0
-check() {  # <ad> <beklenen> <bulunan>
-  if [ "$2" = "$3" ]; then printf 'CHECK OK    %-28s %s\n' "$1" "$3"
-  else printf 'CHECK FAIL  %-28s beklenen=%s bulunan=%s\n' "$1" "$2" "$3"; FAILS=$((FAILS + 1)); fi
-}
-verdict() {
-  if [ "$FAILS" -eq 0 ]; then echo "restore-verify: OK"; else echo "restore-verify: FAIL ($FAILS kontrol)"; exit 1; fi
-}
-
-DB_NAME="$(jq -r '.database' "$MANIFEST")"
-[[ "$DB_NAME" =~ ^[A-Za-z0-9_]{1,64}$ ]] || die "manifestte geçersiz veritabanı adı"
-jq -e '.tables | keys | all(test("^[A-Za-z0-9_]{1,64}$"))' "$MANIFEST" >/dev/null || die "manifestte geçersiz tablo adı"
-log "çalıştırma $(jq -r '.run' "$MANIFEST") · commit $(jq -r '.version.commit' "$MANIFEST") · migration $(jq -r '.lastMigration' "$MANIFEST") · hedef $TARGET"
 
 # --- 1. Şifreli dosya bütünlüğü (anahtar kullanılmadan önce) -----------------------------------------------------
 # S-P13a-3: çözülmüş döküm/arşiv yalnız RAM'de (/dev/shm). Yoksa (macOS) veya yer yetmezse açık hata; bilinçli seçim
@@ -123,90 +198,18 @@ check "dökümde istemci komutu" 0 "$(gzip -dc "$WORK/db.sql.gz" | dump_client_c
 T2="$(date -u +%s)"
 
 MYSQL_IMAGE="$(compose_mysql_image "$DEPLOY_DIR")"
-# Geçici MySQL: ağsız, compose ile aynı imaj ve bayraklar (tetikleyiciler için --log-bin-trust-function-creators=1).
-# --user mysql: entrypoint gosu'yu atlar (Docker Desktop gosu takılması, QA-P5-6; Linux'ta da sorunsuz).
-start_scratch() {
-  SCRATCH="rs-restore-verify-$(date -u +%s)-$$"
-  docker run -d --name "$SCRATCH" --network none --user mysql \
-    -e MYSQL_ROOT_PASSWORD="r$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')" -e MYSQL_DATABASE="$DB_NAME" \
-    "$MYSQL_IMAGE" --default-time-zone=+00:00 --log-bin-trust-function-creators=1 >/dev/null
-  local deadline=$(( $(date -u +%s) + READY_TIMEOUT ))
-  while [ "$(date -u +%s)" -lt "$deadline" ]; do
-    [ "$(docker inspect -f '{{.State.Running}}' "$SCRATCH" 2>/dev/null)" = true ] || { docker logs --tail 20 "$SCRATCH" >&2; die "scratch MySQL durdu"; }
-    if docker logs "$SCRATCH" 2>&1 | grep -q 'mysqld: ready for connections.*port: 3306[^0-9]' &&
-       docker exec "$SCRATCH" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -h127.0.0.1 -NBe "SELECT 1"' >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 2
-  done
-  die "scratch MySQL ${READY_TIMEOUT} sn içinde hazır olmadı"
-}
-
-# root SQL (konteyner env'indeki parola; argümana girmez). $1 = konteyner.
-# --system-command=OFF: dökümdeki `system`/`\!` kabuk komutu çalışmaz (S-P13a-2).
-sql_root() { docker exec -i "$1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -NB --system-command=OFF --default-character-set=utf8mb4 "$0"' "$DB_NAME"; }
-
-# S-P13a-2: hesap/yetki/rutin/olay/bileşen/kalıcı değişken anlık görüntüsü. Döküm yalnız DB tablolarını ve
-# tetikleyicileri içerir; bunlardan biri değişirse döküm hesap/yetki/rutin eklemiş ya da değiştirmiştir (kurcalanmış) -> FAIL.
-# Yetki tabloları `CHECKSUM TABLE` ile tüm satır içeriği üzerinden özetlenir (mysql.user'da plugin ve authentication_string
-# dahil); parola özeti/değeri hiçbir zaman yazdırılmaz, yalnız tablo sağlama toplamı. Kalıcı değişkenler (SET PERSIST)
-# SHA-256 özetiyle karşılaştırılır.
-sec_snapshot() {
-  sql_root "$1" <<'SQL' | tr '\n\t' ' :'
-SELECT COALESCE(GROUP_CONCAT(CONCAT(user, '@', host) ORDER BY user, host SEPARATOR ','), '') FROM mysql.user;
-CHECKSUM TABLE mysql.user, mysql.global_grants, mysql.db, mysql.tables_priv, mysql.columns_priv, mysql.procs_priv,
-  mysql.proxies_priv, mysql.role_edges, mysql.default_roles, mysql.component;
-SELECT CONCAT('routines=', COUNT(*)) FROM information_schema.ROUTINES;
-SELECT CONCAT('events=', COUNT(*)) FROM information_schema.EVENTS;
-SELECT CONCAT('components=', COUNT(*)) FROM mysql.component;
-SELECT CONCAT('persisted=', COUNT(*), '/', LEFT(SHA2(COALESCE(GROUP_CONCAT(CONCAT(VARIABLE_NAME, '=', VARIABLE_VALUE)
-  ORDER BY VARIABLE_NAME SEPARATOR ';'), ''), 256), 16)) FROM performance_schema.persisted_variables;
-SQL
-}
-# Anlık görüntüleri öğe öğe karşılaştırır; farklı öğelerin yalnız ADINI yazar (değer/özet yazmaz).
-sec_check() {  # <ad> <önce> <sonra>
-  local -a a b; local i diff="" key
-  read -r -a a <<<"$2"; read -r -a b <<<"$3"
-  if [ "${#a[@]}" -ne "${#b[@]}" ]; then diff="öğe-sayısı"; else
-    for i in "${!a[@]}"; do
-      [ "${a[$i]}" = "${b[$i]}" ] && continue
-      key="${a[$i]%%[:=]*}"; [ "$i" -eq 0 ] && key="hesap-listesi"
-      diff="${diff:+$diff,}$key"
-    done
-  fi
-  if [ -z "$diff" ]; then printf 'CHECK OK    %-28s %s öğe aynı\n' "$1" "${#a[@]}"
-  else printf 'CHECK FAIL  %-28s değişen: %s\n' "$1" "$diff"; FAILS=$((FAILS + 1)); fi
-}
-
-verify_db() {  # $1 = konteyner
-  local c="$1" q got
-  check "tetikleyici sayısı (manifest)" "$(jq -r '.triggers' "$MANIFEST")" \
-    "$(echo "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE();" | sql_root "$c")"
-  check "tetikleyici sayısı (beklenen)" "$EXPECTED_TRIGGERS" \
-    "$(echo "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE();" | sql_root "$c")"
-  check "son migration" "$(jq -r '.lastMigration' "$MANIFEST")" \
-    "$(echo "SELECT COALESCE(MAX(migration_name), '') FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;" | sql_root "$c")"
-  check "tablo kümesi" "$(jq -r '.tables | keys | join(",")' "$MANIFEST")" \
-    "$(echo "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY TABLE_NAME SEPARATOR ',') FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE';" | sql_root "$c")"
-  # Ters tırnaklar SQL tanımlayıcısıdır (kabuk genişletmesi değil):
-  # shellcheck disable=SC2016
-  q="$(jq -r '.tables | keys | map("SELECT \"" + . + "\", COUNT(*) FROM `" + . + "`") | join(" UNION ALL ") + ";"' "$MANIFEST")"
-  got="$(sql_root "$c" <<<"$q" | LC_ALL=C sort)"
-  check "tablo satır sayıları" "$(jq -r '.tables | to_entries | map(.key + "\t" + (.value | tostring)) | .[]' "$MANIFEST" | LC_ALL=C sort | tr '\n\t' ';=')" \
-    "$(printf '%s\n' "$got" | tr '\n\t' ';=')"
-  printf 'INFO        toplam satır %s · tablo %s\n' "$(printf '%s\n' "$got" | awk -F'\t' '{s += $2} END {print s + 0}')" "$(printf '%s\n' "$got" | grep -c .)"
-}
-
 # --- 3. Scratch: yükle + doğrula -----------------------------------------------------------------------------------
 log "scratch MySQL başlatılıyor ($MYSQL_IMAGE)"
 start_scratch
 T3="$(date -u +%s)"
-[ "$FAILS" -eq 0 ] || { log "döküm yüklenmedi"; verdict; }
 SEC_BEFORE="$(sec_snapshot "$SCRATCH")"
-gzip -dc "$WORK/db.sql.gz" | fix_trigger_dump | sql_root "$SCRATCH" || die "döküm scratch MySQL'e yüklenemedi"
+sec_precondition "scratch hesap koşulu" "$SEC_BEFORE"
+[ "$FAILS" -eq 0 ] || verdict
+load_dump "$SCRATCH" || { check "döküm yükleme (migrator)" 0 "rc≠0"; verdict; }
 sec_check "hesap/yetki/rutin değişmedi" "$SEC_BEFORE" "$(sec_snapshot "$SCRATCH")"
 T4="$(date -u +%s)"
 verify_db "$SCRATCH"
+checksum_tables "$SCRATCH" > "$WORK/checksum.scratch" || check "CHECKSUM (scratch)" 0 "rc≠0"
 read -r up_n up_d < <(uploads_digest "$MYSQL_IMAGE" < "$WORK/uploads.tar.gz")
 check "uploads dosya sayısı" "$(jq -r '.uploads.files' "$MANIFEST")" "$up_n"
 check "uploads özet listesi" "$(jq -r '.uploads.listSha256' "$MANIFEST")" "$up_d"
@@ -215,11 +218,8 @@ printf 'restore-sure: toplam %ss (çözme %ss, MySQL açılış %ss, yükleme %s
   "$((T5 - T0))" "$((T2 - T1))" "$((T3 - T2))" "$((T4 - T3))" "$((T5 - T4))"
 if [ "$TARGET" = scratch ]; then verdict; exit 0; fi
 
-# --- 4. Staging: canlı yığına uygula ---------------------------------------------------------------------------------
+# --- 4. Canlı (staging|production) -----------------------------------------------------------------------------------
 [ "$FAILS" -eq 0 ] || { log "scratch doğrulaması FAIL — canlı yığına DOKUNULMADI"; verdict; }
-HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
-[ "$CONFIRM" = "$DB_NAME@$HOST_SHORT" ] || die "--target staging için --confirm $DB_NAME@$HOST_SHORT gerekli (canlı veritabanı SİLİNİP yeniden yüklenir; runbook §18.5)"
-[ "$(id -u)" = 0 ] || die "--target staging root ile çalıştırılır"
 docker rm -fv "$SCRATCH" >/dev/null 2>&1 || true; SCRATCH=""
 cd "$DEPLOY_DIR"
 LIVE="$(docker compose ps -q mysql)"; [ -n "$LIVE" ] || die "canlı mysql konteyneri yok ($DEPLOY_DIR)"
@@ -237,25 +237,32 @@ fi
 T6="$(date -u +%s)"
 log "server ve web durduruluyor"
 docker compose stop web server
-charset="$(echo "SELECT CONCAT(DEFAULT_CHARACTER_SET_NAME, ' ', DEFAULT_COLLATION_NAME) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = DATABASE();" | sql_root "$LIVE")"
-read -r cs coll <<<"$charset"
-[[ "$cs" =~ ^[a-z0-9_]+$ && "$coll" =~ ^[a-z0-9_]+$ ]] || die "karakter seti okunamadı"
-log "veritabanı yeniden oluşturuluyor ($DB_NAME, $cs/$coll) ve döküm yükleniyor"
-# shellcheck disable=SC2016
-printf 'DROP DATABASE `%s`; CREATE DATABASE `%s` CHARACTER SET %s COLLATE %s;\n' "$DB_NAME" "$DB_NAME" "$cs" "$coll" \
-  | docker exec -i "$LIVE" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -NB --system-command=OFF'
 SEC_LIVE_BEFORE="$(sec_snapshot "$LIVE")"
-gzip -dc "$WORK/db.sql.gz" | fix_trigger_dump | sql_root "$LIVE" || die "döküm canlı MySQL'e yüklenemedi — server DURDURULMUŞ kaldı (runbook §19 'Veri bozuldu')"
+sec_precondition "canlı hesap koşulu" "$SEC_LIVE_BEFORE"
+[ "$FAILS" -eq 0 ] || { log "canlı yetki durumu beklenmedik — DB'ye DOKUNULMADI, server DURDURULMUŞ (runbook §19)"; verdict; }
+log "veritabanı migrator ile boşaltılıyor ($DB_NAME; deploy/mysql/restore-reset-db.sql)"
+reset_out="$({ printf "SET @rs_confirm_db = '%s';\n" "$DB_NAME"; cat "$SQL_DIR/restore-reset-db.sql"; } | sql_migrator "$LIVE")" \
+  || die "restore-reset-db.sql başarısız — DB değişmedi (guard) ya da yok kaldı: runbook §19 'Veri bozuldu'"
+case "$reset_out" in "restore-reset: OK $DB_NAME "*) log "$reset_out" ;; *) die "beklenmeyen reset çıktısı" ;; esac
+log "döküm migrator ile yükleniyor"
+load_dump "$LIVE" || die "döküm canlı MySQL'e yüklenemedi — server DURDURULMUŞ kaldı (runbook §19 'Veri bozuldu')"
 log "uploads volume'u geri yükleniyor ($UPLOADS_VOL)"
 docker run --rm -i --network none --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add DAC_OVERRIDE \
   --security-opt no-new-privileges:true --user 0 -v "$UPLOADS_VOL:/u" --entrypoint bash "$MYSQL_IMAGE" \
   -c 'set -euo pipefail; find /u -mindepth 1 -delete; tar -C /u --same-owner -xzpf -' < "$WORK/uploads.tar.gz"
 sec_check "hesap/yetki/rutin değişmedi (canlı)" "$SEC_LIVE_BEFORE" "$(sec_snapshot "$LIVE")"
+checksum_tables "$LIVE" > "$WORK/checksum.live" || check "CHECKSUM (canlı)" 0 "rc≠0"
+checksum_check "CHECKSUM canlı = scratch" "$WORK/checksum.scratch" "$WORK/checksum.live"
 verify_db "$LIVE"
 read -r up_n up_d < <(volume_digest "$MYSQL_IMAGE" "$UPLOADS_VOL")
 check "uploads dosya sayısı (volume)" "$(jq -r '.uploads.files' "$MANIFEST")" "$up_n"
 check "uploads özet listesi (volume)" "$(jq -r '.uploads.listSha256' "$MANIFEST")" "$up_d"
 [ "$FAILS" -eq 0 ] || { log "canlı doğrulama FAIL — server DURDURULMUŞ bırakıldı (runbook §19 'Veri bozuldu')"; verdict; }
+# Audit taban çizgisi (G-P13b-5, S-P13b-1): geri yükleme datadir'i değiştirmez. `backup.sh --reset-audit-baseline`
+# audit-baseline-reset.sql'i migrator ile çalıştırır VE BACKUP_DIR'e root 600 host işaretini yazar; sonraki yedek ikisini
+# eşleştirip "taban-cizgisi-sifirlandi" (uyarı) der. CHECKSUM'dan SONRA (audit satırı yazar).
+"$SCRIPT_DIR/backup.sh" --reset-audit-baseline "restore $M_RUN sonrasi (restore.sh --target $TARGET)" \
+  || die "audit taban çizgisi sıfırlanamadı (veri yüklendi, server DURDURULMUŞ): backup.sh --reset-audit-baseline '<gerekçe>' + docker compose up -d (runbook §18)"
 log "yığın başlatılıyor (migrate önce)"
 docker compose up -d
 deadline=$(( $(date -u +%s) + READY_TIMEOUT ))
@@ -266,5 +273,5 @@ done
 ready="$(docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/ready').then(async r=>console.log(r.status, await r.text()))")"
 check "/ready" 200 "${ready%% *}"
 T7="$(date -u +%s)"
-printf 'restore-sure: staging kesintisi %ss (durdurma -> /ready 200), toplam %ss\n' "$((T7 - T6))" "$((T7 - T0))"
+printf 'restore-sure: %s kesintisi %ss (durdurma -> /ready 200), toplam %ss\n' "$TARGET" "$((T7 - T6))" "$((T7 - T0))"
 verdict

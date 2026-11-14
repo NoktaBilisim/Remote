@@ -1,0 +1,12 @@
+# 10 dakikada bir (mimari-p13 §7.8; AC önerisi §7.15-e: bozulmadan sonra <= 10 dk'da alarm). Kurulum: remote-watch.sh install.
+[Unit]
+Description=Remote Support izleme zamanlayicisi (10 dk)
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+AccuracySec=30s
+Unit=remote-watch.service
+
+[Install]
+WantedBy=timers.target

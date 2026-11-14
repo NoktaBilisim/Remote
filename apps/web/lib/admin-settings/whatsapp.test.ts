@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { canonicalWaUrl, checkTestPhone, checkWaUrl, normalizeWaUrl, normalizeWaView, WA_URL_MESSAGES, waDirty, waFieldValue, waServerFields, type WhatsappServiceView } from "./whatsapp";
+import { canonicalWaUrl, checkTestPhone, checkWaApiKey, waKeyNeedsReenter, checkWaUrl, normalizeWaUrl, normalizeWaView, WA_URL_MESSAGES, waDirty, waFieldValue, waServerFields, type WhatsappServiceView } from "./whatsapp";
 
-const panel: WhatsappServiceView = { url: "https://wa.ornek.com:3000", source: "panel", insecure: false, updatedAt: "2026-11-13T09:00:00.000Z" };
-const env: WhatsappServiceView = { url: "http://10.0.0.5:3000", source: "env", insecure: false, updatedAt: null };
+const panel: WhatsappServiceView = { url: "https://wa.ornek.com:3000", source: "panel", insecure: false, updatedAt: "2026-11-13T09:00:00.000Z", apiKeySet: true, apiKeySource: "panel" };
+const env: WhatsappServiceView = { url: "http://10.0.0.5:3000", source: "env", insecure: false, updatedAt: null, apiKeySet: false, apiKeySource: null };
 
 describe("AC-196 WhatsApp servis adresi ön kontrolü", () => {
   it("http/https kabul; sondaki / kırpılır", () => {
@@ -46,12 +46,10 @@ describe("AC-196 form durumu", () => {
     expect(waDirty("http://x.example", env)).toBe(true);
     expect(waDirty("HTTPS://WA.ornek.com:3000/", panel)).toBe(false);
   });
-  it("P13a kaynak: default (varsayılan) korunur, büyük harfli yanıt küçültülür, bilinmeyen → env", () => {
-    expect(normalizeWaView({ ...env, source: "default" }).source).toBe("default");
-    expect(normalizeWaView({ ...env, source: "DEFAULT" }).source).toBe("default");
+  it("kaynak: büyük harfli yanıt küçültülür, bilinmeyen (eski default dahil) → env", () => {
+    expect(normalizeWaView({ ...env, source: "default" }).source).toBe("env");
     expect(normalizeWaView({ ...panel, source: "PANEL" }).source).toBe("panel");
     expect(normalizeWaView({ ...env, source: "x" }).source).toBe("env");
-    expect(waFieldValue({ ...env, source: "default" })).toBe("");
   });
   it("sunucu alan hatası alana, kalanı form üstüne", () => {
     expect(waServerFields({ url: "Geçersiz", _: "Diğer" }, "url")).toEqual({ error: "Geçersiz", rest: ["Diğer"] });
@@ -63,5 +61,29 @@ describe("AC-196 form durumu", () => {
     expect(checkTestPhone("+4915112345678").phoneNumber).toBe("+4915112345678");
     expect(checkTestPhone("").error).toBeTruthy();
     expect(checkTestPhone("12ab").error).toBeTruthy();
+  });
+});
+
+describe("S-P13b-3 WhatsApp servis anahtarı ön kontrolü", () => {
+  it("boş alan gönderilmez; 16–256 karakter, boşluksuz kabul", () => {
+    expect(checkWaApiKey("")).toEqual({});
+    expect(checkWaApiKey("a".repeat(16))).toEqual({ apiKey: "a".repeat(16) });
+    expect(checkWaApiKey("a".repeat(256)).apiKey).toHaveLength(256);
+  });
+  it("kısa, uzun, boşluklu ve kontrol karakterli reddedilir", () => {
+    for (const bad of ["a".repeat(15), "a".repeat(257), `${"a".repeat(16)} x`, `${"a".repeat(16)}\n`, ` ${"a".repeat(16)}`]) expect(checkWaApiKey(bad).error).toContain("16");
+  });
+  it("görünüm: eksik anahtar alanları güvenli varsayılana iner", () => {
+    expect(normalizeWaView({ url: null, source: "env", insecure: false, updatedAt: null }).apiKeySource).toBeNull();
+    expect(normalizeWaView({ ...panel, apiKeySource: "x" }).apiKeySource).toBeNull();
+    expect(normalizeWaView({ ...panel }).apiKeySource).toBe("panel");
+  });
+  it("adres kökeni değişirse (şema/host/port) kayıtlı panel anahtarı için yeniden giriş gerekir; yol değişimi gerekmez", () => {
+    expect(waKeyNeedsReenter(panel, "https://wa2.ornek.com:3000")).toBe(true);
+    expect(waKeyNeedsReenter(panel, "http://wa.ornek.com:3000")).toBe(true);
+    expect(waKeyNeedsReenter(panel, "https://wa.ornek.com:3001")).toBe(true);
+    expect(waKeyNeedsReenter(panel, "https://wa.ornek.com:3000/yol")).toBe(false);
+    expect(waKeyNeedsReenter(env, "https://x.example")).toBe(false);
+    expect(waKeyNeedsReenter({ ...panel, apiKeySet: false, apiKeySource: null }, "https://x.example")).toBe(false);
   });
 });

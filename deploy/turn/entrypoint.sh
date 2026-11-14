@@ -29,11 +29,12 @@ CR="$(printf '\r')"
 : "${TURN_SECRET:?TURN_SECRET gerekli}"
 : "${TURN_REALM:?TURN_REALM gerekli}"
 : "${TURN_EXTERNAL_IP:?TURN_EXTERNAL_IP gerekli (public veya public/private)}"
-TURN_MAX_BPS="${TURN_MAX_BPS:-8000000}"
+TURN_MAX_BPS="${TURN_MAX_BPS:-1000000}"
 TURN_BPS_CAPACITY="${TURN_BPS_CAPACITY:-0}"
 TURN_PROMETHEUS_ADDRESS="${TURN_PROMETHEUS_ADDRESS:-127.0.0.1}"
 
 # Config'e satır olarak yazılan her env: çok satırlı/CR içeren değer ikinci satırla coturn ayarı enjekte edebilir -> reddet.
+val=""
 for v in TURN_SECRET TURN_SECRET_PREVIOUS TURN_REALM TURN_EXTERNAL_IP TURN_MAX_BPS TURN_BPS_CAPACITY \
          TURN_PROMETHEUS_ADDRESS TURN_TEST_MAX_PORT TURN_LISTEN_IPS; do
   eval "val=\${$v:-}"

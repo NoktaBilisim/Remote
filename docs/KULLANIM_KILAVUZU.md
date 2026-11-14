@@ -14,7 +14,8 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
 - **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
   yetkileri, Ayarlar > Destek talepleri (e-posta bildirimi dahil), Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
   Aydınlatma metni, Ayarlar > Güvenlik, Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
-  anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs)
+  anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs), ağ gereksinimleri
+  (güvenlik duvarı izin listesi)
 - **Super Admin için:** Firmalar ve firma geçişi, tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
   (MySQL, TURN, sistem logosu ve WhatsApp servisi), şifre/2FA kaybı
 
@@ -1192,6 +1193,10 @@ onay kaydı, dosya kaydı, talep, müşteri ve bilgisayar kaydı anonimleştiril
 oturumu ve şifre sıfırlama bağlantısı silindi. Sonuç "Başarısız" ise sistem yöneticisine bildirin. Bu kayıtları **İşlem**
 filtresinde **Veri saklama** grubuyla bulursunuz.
 
+**Yedekleme kayıtları:** Sunucu yöneticisi yedeklerin audit denetimini bilerek sıfırladığında (ör. bir geri yüklemeden sonra)
+"Yedek audit taban çizgisi sıfırlandı" kaydı düşer. Bu kayıtları **İşlem** filtresinde **Yedekleme** grubuyla bulursunuz.
+Beklemediğiniz bir anda böyle bir kayıt görürseniz sunucu yöneticisine bildirin.
+
 **Müşteri kayıtlarında ne görünür?** Müşteri kaynaklı kayıtlarda (bağlanma, destek talebi, bilgisayar kaydı vb.; kullanıcı
 `customer`) müşterinin adı yazılmaz. IP adresinin tamamı değil yalnız ağ kısmı görünür (ör. `203.0.113.0/24`), tarayıcı
 bilgisi boştur. Dosya aktarım kayıtlarında dosya adı ve dosya özeti (SHA-256) yazılmaz; yalnız yön (teknisyene/müşteriye),
@@ -1216,7 +1221,7 @@ adresi elle açarsa "Audit log'u görüntüleme yetkiniz yok." yazar.
    |---|---|
    | Başlangıç / Bitiş tarihi | Türkiye saatiyle gün; bitiş günü dahil. Aralık en çok 731 gün |
    | Kullanıcı | İşlemi yapan kişi |
-   | İşlem | Tek bir işlem veya bir grup (ör. "Giriş ve hesap güvenliği", "Kullanıcı ve yetki", "Ayarlar ve testler", "E-posta") |
+   | İşlem | Tek bir işlem veya bir grup (ör. "Giriş ve hesap güvenliği", "Kullanıcı ve yetki", "Ayarlar ve testler", "E-posta", "Veri saklama", "Yedekleme") |
    | Sonuç | Başarılı / Başarısız |
    | Firma | Yalnız firma seçmemiş Super Admin'de |
 4. İlk 50 kayıt görünür; devamı için listenin altındaki **Daha fazla yükle**. Hepsi geldiyse "Tüm kayıtlar gösterildi" yazar.
@@ -1386,8 +1391,8 @@ kısıtlıyorsa Hızlı Destek engellenebilir. Bu bölüm o şirketin BT sorumlu
 - Program kurulum yapmaz, yönetici izni istemez, hizmet veya başlangıç kaydı oluşturmaz. Yalnız
   `%LOCALAPPDATA%\NoktaDestek\` klasörüne ayar (`hatirla.bin`) ve tanılama (`tanilama.log`) dosyası yazar; buradan program
   çalıştırmaz.
-- Ağ: yalnız destek sunucusunun adresine HTTPS ile, görüntü aktarımı için de TURN sunucusuna bağlanır (bugünkü kurulumda
-  3478 UDP/TCP ve 5349 TCP; kesin adres ve portları sistem yöneticiniz verir).
+- Ağ: yalnız destek sunucusunun adresine HTTPS ile, görüntü aktarımı için de TURN sunucusuna bağlanır. Açılması gereken
+  portlar bir sonraki bölümdedir ("Ağ gereksinimleri").
 
 **1. Dosyanın doğru olduğunu doğrulayın (SHA256SUMS)**
 1. GitHub sürüm sayfasından ilgili sürümün `SHA256SUMS` dosyasını indirin.
@@ -1422,6 +1427,25 @@ ekleyin; eski sürümün kuralını kaldırın. Eski sürümle bağlanan müşte
 
 Kural yazılamıyorsa müşteri destek sayfasında **Uygulama çalışmıyor mu? Tarayıcıdan yalnızca görüntü paylaş** seçeneğiyle
 bağlanabilir (uzaktan kontrol olmadan).
+
+## Admin için: Ağ gereksinimleri (güvenlik duvarı izin listesi)
+Müşterinin veya kendi ekibinizin ağında güvenlik duvarı dışarı giden bağlantıları kısıtlıyorsa, ekran görüntüsünün
+gelmesi için aşağıdaki çıkışlara izin verilmelidir. Hedef her satırda destek sunucusudur: `remote.noktabilisim.net`.
+
+| Port | Protokol | Ne için |
+|---|---|---|
+| 443 | TCP | Web konsolu, müşteri sayfası, Hızlı Destek'in sunucuyla konuşması (HTTPS) |
+| 3478 | UDP ve TCP | Görüntü aktarımı için bağlantı kurma (STUN/TURN) |
+| 5349 | TCP | Görüntü aktarımı, şifreli (TURN-TLS); UDP'nin kapalı olduğu ağlar için |
+| 49160–49479 | UDP | Görüntü aktarımının aktığı port aralığı (TURN relay) |
+
+Bilmeniz gerekenler:
+- **Yalnız 443'ün açık olduğu ağlar desteklenmez.** Böyle bir ağda giriş ve sohbet ekranı açılabilir ama görüntü gelmez.
+  En azından 5349/TCP'ye izin verilmelidir.
+- UDP kapalı, yalnız 443/TCP ve 5349/TCP açık bir ağda bağlantı 5349 üzerinden kurulur. Müşterinin bilgisayarına sertifika
+  kurmak gerekmez.
+- Tablo bu kılavuzu müşterinin BT sorumlusuna iletmeniz için hazırlanmıştır. Görüntü gelmiyorsa önce "Teknisyen için:
+  Müşterinin ekranı gelmiyorsa" bölümüne bakın.
 
 ## Super Admin için: Firmalar ve firma geçişi
 Menüde **Firmalar** (bina simgesi) yalnız Süper Yönetici'ye görünür. Diğer roller bu adresi açarsa "Bu sayfa yalnız
@@ -1561,11 +1585,10 @@ görür, sekme listelenmez.
   - **Panel** = adres bu ekrandan kaydedilmiş.
   - **Ortam değişkeni** = panelde kayıt yok; sunucu ayar dosyasındaki adres (`WHATSAPP_SERVICE_URL`) kullanılıyor. Bu
     durumda "Panelde kayıtlı adres yok…" bilgi notu çıkar ve **Servis URL'si** alanı boş gelir.
-  - **Varsayılan** = panelde kayıt yok ve sunucu ayar dosyasında da adres tanımlanmamış; sistemin yerleşik varsayılan
-    servis adresi kullanılıyor. "Panelde kayıtlı adres yok ve WHATSAPP_SERVICE_URL tanımlanmamış…" notu çıkar. Kendi
-    servisinizi kullanmak için adresi girip kaydedin.
 - **Son güncelleme:** Panel kaydının en son ne zaman değiştiği (ortam değişkeninde "—").
-- Hiçbir adres yoksa uyarı kutusu: "WhatsApp servisi yapılandırılmamış…". Bu durumda bildirim ve test gönderilemez.
+- Hiçbir adres yoksa uyarı kutusu: "WhatsApp servisi yapılandırılmamış: panelde kayıt yok ve WHATSAPP_SERVICE_URL tanımlı
+  değil…". Sistemin hazır bir varsayılan adresi yoktur; bu durumda bildirim ve test gönderilemez. Adresi girip kaydedin.
+- **Servis anahtarı** bölümü ve anahtar rozeti (aşağıda).
 
 **Önemli:** Rozet **Panel** iken sunucudaki ayar dosyasını değiştirmek işe yaramaz; adres bu ekrandan değiştirilir.
 
@@ -1583,6 +1606,33 @@ görür, sekme listelenmez.
 Kaydetmeden sayfadan ayrılmaya çalışırsanız kaydedilmemiş değişiklik uyarısı çıkar. Kural dışı adreste alanın altında
 hata yazar ve kayıt yapılmaz. Aynı adresi yeniden kaydederseniz hiçbir şey değişmez ve audit log'a kayıt düşmez.
 MySQL, TURN ve WhatsApp ayarlarında kaydetme ve geri dönme işlemleri kişi başına dakikada toplam 10 kez yapılabilir.
+
+### Servis anahtarını nasıl girerim?
+WhatsApp servisi bir anahtar (API anahtarı) istiyorsa bu anahtar **Servis anahtarı** bölümüne girilir. Anahtar şifreli
+saklanır, ekrana bir daha gelmez ve yalnız kayıtlı servis adresine gönderilir.
+
+Anahtar rozeti:
+| Rozet | Anlamı |
+|---|---|
+| **Kayıtlı (panel)** | Anahtar bu ekrandan kaydedilmiş |
+| **Kayıtlı (env)** | Anahtar sunucu ayar dosyasından (`WHATSAPP_SERVICE_API_KEY`) geliyor; adres de oradan geliyor |
+| **Tanımlı değil** | Anahtar yok; servise anahtarsız istek gider |
+
+Adımlar:
+1. **API anahtarı** alanına anahtarı yazın (16–256 karakter, boşluksuz). Göz simgesiyle yazdığınızı görebilirsiniz.
+2. Alt çubuktaki **Kaydet**'e basın. Rozet **Kayıtlı (panel)** olur.
+3. Doğrulamak için **Test Mesajı Gönder**'i kullanın.
+
+Bilmeniz gerekenler:
+- Alanı boş bırakıp kaydederseniz kayıtlı anahtar **değişmez**.
+- Adres panelde kayıtlıysa yalnız paneldeki anahtar kullanılır; sunucu ayar dosyasındaki anahtar bu adrese gönderilmez.
+- **Adres değişince anahtarı yeniden girin.** Sunucu adını, portunu veya `http`/`https` kısmını değiştirdiğinizde kayıtlı
+  anahtar yeni adrese taşınmaz; anahtar alanının altında "Adres değiştiği için servis anahtarını yeniden girin." yazar ve
+  kayıt yapılmaz. Anahtarı yeniden yazın ya da kaldırın, sonra kaydedin. Yalnız adresin yolu değişirse anahtar korunur.
+- **Anahtarı kaldır** (yalnız panelde kayıtlı anahtar varken görünür): onay sorusundan sonra anahtar silinir. Servis anahtar
+  istiyorsa bundan sonraki bildirimler ve testler reddedilir.
+- **Ortam değişkenine dön** paneldeki adresle birlikte paneldeki anahtarı da kaldırır.
+- Anahtar değişiklikleri audit log'a anahtarın kendisi yazılmadan, yalnız "var / değişti" bilgisiyle düşer.
 
 ### "Güvensiz adres" uyarısı ne demek?
 Ekranda "Güvensiz adres: canlı ortamda WhatsApp kanalı kapalı. Kalıcı çözüm TLS veya özel ağ." yazıyorsa:
@@ -1611,8 +1661,8 @@ Bilmeniz gerekenler:
 2. "Ortam değişkenine dönülsün mü?" sorusunu onaylayın.
 3. "WhatsApp servisi ortam değişkenine döndü" mesajı çıkar, rozet **Ortam değişkeni** olur.
 
-Paneldeki adres kaldırılır; bildirimler sunucu ayar dosyasındaki adrese gider. Orada da adres yoksa varsayılan servis
-kullanılır. Değişiklikler audit log'a "WhatsApp servis adresi güncellendi" ve "WhatsApp servisi ortam değerine döndü"
+Paneldeki adres ve servis anahtarı kaldırılır; bildirimler sunucu ayar dosyasındaki adrese gider. Orada da adres yoksa
+WhatsApp bildirimi gönderilmez. Değişiklikler audit log'a "WhatsApp servis adresi güncellendi" ve "WhatsApp servisi ortam değerine döndü"
 olarak (eski → yeni adres) yazılır.
 
 ### Sık karşılaşılan mesajlar (WhatsApp servisi)
@@ -1620,6 +1670,9 @@ olarak (eski → yeni adres) yazılır.
 |---|---|
 | Adres http:// veya https:// ile başlamalı; kullanıcı adı/şifre, ? ve # içeremez (en çok 200 karakter) | Adresi kurala uygun yazın |
 | Servis yapılandırılmamış. | Önce servis adresini kaydedin |
+| Servis anahtarı reddetti. | Anahtar yok veya yanlış. **Servis anahtarı** bölümüne doğru anahtarı girip kaydedin |
+| Adres değiştiği için servis anahtarını yeniden girin. | Adres değişti; anahtarı yeniden yazın veya kaldırın, sonra kaydedin |
+| Servis anahtarı 16–256 karakter olmalı; boşluk ve kontrol karakteri içeremez. | Anahtarı boşluksuz ve doğru uzunlukta yazın |
 | Servis güvenli yapılandırılmamış. | Güvensiz veya okunamayan adres; `https://` ya da iç ağ adresi kaydedin |
 | Servis 8 saniye içinde yanıt vermedi (zaman aşımı). | Servis yavaş veya kapalı; sistem yöneticisine bildirin, biraz sonra tekrar deneyin |
 | Servise ulaşılamadı veya servis hata döndürdü. | Adresi kontrol edin; servis çalışıyor mu, güvenlik duvarı izin veriyor mu bakın. Ayrıntılı neden audit log kaydındadır |
@@ -1630,5 +1683,15 @@ olarak (eski → yeni adres) yazılır.
 Super Admin'in bir firması olmadığı için SMTP ayarı da yoktur: "Şifremi unuttum" e-posta göndermez ve kimse panelden
 Super Admin'in 2FA'sını sıfırlayamaz. Bu yüzden:
 - İlk girişte 2FA'yı kurarken 10 kurtarma kodunu **mutlaka** parola kasasına kaydedin.
-- Hem telefon hem kurtarma kodları kaybolduysa veya şifre unutulduysa sistem yöneticisi sunucuda kurtarma yapar
-  (`docs/runbook.md` §14 P10 "Super Admin 2FA/şifre kaybı"). Ardından girişte 2FA yeniden kurulur.
+- Hem telefon hem kurtarma kodları kaybolduysa veya şifre unutulduysa **sunucu yöneticisine başvurun**. Sunucu yöneticisi
+  sunucuda şifrenizi (gerekirse 2FA'nızı da) sıfırlar ve size **geçici bir şifre** verir.
+
+Geçici şifreyle giriş:
+1. Geçici şifre **24 saat** geçerlidir. Süre dolarsa giriş ekranında "Geçici şifrenin süresi doldu (24 saat). Sunucu
+   yöneticisinden yeniden sıfırlama isteyin." yazar; yöneticiden yeni şifre isteyin.
+2. Giriş yapınca yeni şifrenizi belirlemeniz istenir; bu adım atlanamaz.
+3. 2FA da sıfırlandıysa ardından 2FA'yı yeniden kurar, yeni 10 kurtarma kodunu parola kasasına kaydedersiniz.
+4. Sıfırlama sırasında açık olan bütün oturumlarınız kapatılır.
+
+Sıfırlama audit log'a "Super Admin şifresi sunucudan sıfırlandı" olarak yazılır (şifre yazılmaz). Sizin bilginiz dışında
+böyle bir kayıt görürseniz hemen sunucu yöneticisine bildirin.

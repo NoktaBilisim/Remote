@@ -360,13 +360,13 @@ Kaynak: `docs/mimari-p13.md`, mimari §3.4 / §10.2 / §10.5 / §12 K26–K27. K
 | 3. API sözleşmesi / hata | Kapsamda: `anonymized` alanı, 409 `SESSION_ANONYMIZED`, WhatsApp `source` DEFAULT; kırılmaz ekler | mimari-p13 §3 | P13a |
 | 3. Rate limiting | Kapsamda: sistem ayarı PUT/DELETE 10/dk/kullanıcı (B-P12b-5) | mimari-p13 §3 | P13a |
 | 3. Sayfalama, CORS, webhook, retry | Etkisi yok | — | — |
-| 4. Tehdit modeli | Kapsamda: app'e DELETE verilmesiyle "geri tarihli sahte satır ekleyip silme" tehdidi → BEFORE INSERT zorlaması; yedek dosyası sızıntısı → age + 600 + özel anahtar sunucu dışında; migrator'a karşı audit koruması (I-P11-1) P13b | K-P13-4, §4 | P13a / P13b |
+| 4. Tehdit modeli | Kapsamda: app'e DELETE verilmesiyle "geri tarihli sahte satır ekleyip silme" tehdidi → BEFORE INSERT zorlaması; yedek dosyası sızıntısı → age + 600 + özel anahtar sunucu dışında; migrator'a karşı audit koruması (I-P11-1) → P13b kararı: süreklilik denetimi + site dışı kanca, WORM hedef Sonra (ADR-0020) | K-P13-4, §4 | P13a / P13b |
 | 4. Girdi doğrulama | Kapsamda: WhatsApp URL kanonik + Cc/Cf/Zl/Zp reddi (zod + DB CHECK) | B-P12b-4 | P13a |
 | 4. Gizli bilgi | Kapsamda: `deploy/backup/backup.env` git-ignore, yalnız `.example`; server env'ine girmez (CLAUDE.md env kuralının gerekçeli istisnası) | mimari-p13 §4 | P13a |
 | 4. Hassas veri / şifreleme | Kapsamda: yedekler age ile şifreli; anonimleştirilen veri yedeklerde ≤ 14 g (runbook notu). Yedek bütünlüğü (S-P13a-2: manifest imzası, `--system-command=OFF`, migrator ile yükleme) P13b ön koşulu, site dışı yedekten önce | AC-200 | P13a / P13b |
 | 4. Log maskeleme | Etkisi yok: retention logu yalnız sayı | — | — |
 | 4. Bağımlılık taraması | Kapsamda: Go x/net, x/crypto güncelleme; govulncheck yeşil; yeni npm bağımlılığı yok | §10.5 B5 | P13a |
-| 4. Başlıklar / admin 2FA | Etkisi yok; HSTS `includeSubDomains` P13b (K1) | — | P13b |
+| 4. Başlıklar / admin 2FA | Etkisi yok; HSTS `includeSubDomains` → P13b'de eklenir (mimari-p13 §7.5) | — | P13b |
 | 5. 5 durum, form, a11y, tema | Kapsamda: geçmiş "Anonimleştirildi" rozeti, Düzenle gizli, 409 mesajı; iki tema axe; 390 px | §10.5 F1 | P13a |
 | 5. Yıkıcı işlem onayı | Kapsamda: saklama süresi düşürülürken onay diyaloğu (F5); staging geri yükleme `--confirm <db>@<host>` ortam kilidi, `production` hedefi reddedilir (S-P13a-6); retention işini kullanıcı tetiklemez | mimari §10.5 F5, mimari-p13 §4 | P13a |
 | 5. Bildirim / yerelleştirme | Kapsamda: audit etiketleri Türkçe (`retention.run`, reason kodları) | §10.5 F2 | P13a |
@@ -377,7 +377,7 @@ Kaynak: `docs/mimari-p13.md`, mimari §3.4 / §10.2 / §10.5 / §12 K26–K27. K
 | 7. Log / metrik / alarm | Kapsamda: `rs_retention_*`, 26 sa alarmı; yedek hatası systemd `failed` + journal + `BACKUP_ALERT_CMD` | AC-199, AC-200 | P13a |
 | 7. Hata izleme | Sonra (genel karar) | — | — |
 | 7. Yedekleme + geri yükleme testi | Kapsamda: RPO ≤ 24 sa, RTO ≤ 60 dk; scratch doğrulama `restore-verify: OK`; aylık elle prova kaydı. Ayrı disk + site dışı P13b | mimari-p13 §4 | P13a / P13b |
-| 7. Ortamlar | Kapsamda: P13a yalnız staging; prod P13b (K1 + K3 açık) | §10.2 | P13a / P13b |
+| 7. Ortamlar | Kapsamda: P13a yalnız staging; prod P13b (K1, K3 kapandı 2026-11-14 → ADR-0018/0019) | §10.2 | P13a / P13b |
 | 7. CI/CD / rollback | Kapsamda: shellcheck yedek betikleri; migration down; yayın sırası runbook | §10.5 T2, T4 | P13a |
 | 7. Sıfır kesinti | Kapsam dışı (genel karar) | — | — |
 | 7. Runbook | Kapsamda: AC-92 altı senaryo + "veri bozuldu" + "saklama işi çalışmadı" dizini; AC-88 temiz kurulum kaydı (K26) | §10.5 T1, T3 | P13a |
@@ -386,9 +386,132 @@ Kaynak: `docs/mimari-p13.md`, mimari §3.4 / §10.2 / §10.5 / §12 K26–K27. K
 | 8. Finansal | Kapsam dışı | — | — |
 | 9. Kapsam dışı / ertelenen | Kapsamda: mimari-p13 §6 sınıflandırma tablosu (P13a / P13b / Sonra, gerekçeli) | mimari-p13 §6 | — |
 | 9. Ölçülebilir AC | Kapsamda: AC-197..AC-200 eklendi; mimari §11'de eşlendi; karşılıksız AC yok (AC-1..AC-200) | §11 | — |
-| 9. Riskler / açık sorular | K26 (AC-88 coturn yorumu), K27 (hard delete) karara bağlandı; K1, K3 açık → P13b | §12 | — |
+| 9. Riskler / açık sorular | K26 (AC-88 coturn yorumu), K27 (hard delete) karara bağlandı; K1, K3 kapandı (2026-11-14) → mimari-p13 §7 | §12 | — |
 | 9. DoD | Kapsamda: §10.3 P13a satırı | §10.3 | — |
 | 9. Dokümantasyon | Kapsamda: `scripts/build-docs.sh` + `pnpm docs:pdf`, kılavuz AppLocker/AV rehberi, README yedek, api.md, DATASHEET, CHANGELOG, 3 PDF | §10.5 W1–W2 | P13a |
 
 ## P13 "Sonra" listesi
 Step-up 2FA (T33), kalıcı kullanıcı/firma silme + uploads temizliği + yetim tarama (B-P12-3), anonim kayıt hard delete (K27), donanım MFT yedeği, istemci koyu teması, `session_files.reporter` (S-P5-T2-4). P13b: S-P13a-2 yedek bütünlüğü (site dışı yedekten önce), prod deploy, AC-23 443, IPv6, genel CA TURN-TLS, K13, site dışı yedek + audit harici kopya (I-P11-1), Super Admin kurtarma CLI, staging elle test listesi.
+(2026-11-14 notu: yukarıdaki P13b maddelerinin hepsi aşağıdaki P13b tablosunda karara bağlandı.)
+
+---
+
+# P13b — Prod açılışı (2026-11-14) kontrol listesi kararları
+Kaynak: `docs/mimari-p13.md` §7, ADR-0018 (TURN 5349, risk kabulü), ADR-0019 (yerinde terfi), ADR-0020 (yedek imzası, site dışı kanca).
+Kullanıcı kararları (2026-11-14): K1 `remote.noktabilisim.net`; K3 aynı sunucu, ayrı IP yok; site dışı hedef belirsiz.
+P13b'de "bakılmadı" ya da "karar bekliyor" durumunda madde yoktur. Kullanıcıya kalan seçimler varsayılanlarıyla mimari-p13 §7.17'dedir.
+
+| Bölüm / madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| 1. Kimlik doğrulama / şifre / kilit | Etkisi yok; P10 akışları prod'da elle sınanır | §7.13/6 | R1 |
+| 1. Şifre sıfırlama (Super Admin) | Kapsamda: `reset-superadmin` CLI. Yalnız SUPER_ADMIN; TTY zorunlu; geçici parola bir kez gösterilir; ilk girişte değişim; oturumlar iptal; `--reset-mfa`; audit `auth.superadmin_reset`. Panel yolu (başka Super Admin sıfırlar) E11 G3'e bırakıldı | §7.7 | B1 |
+| 1. Oturum yönetimi | Etkisi yok. CLI sonrası açık WebSocket bir sonraki yeniden doğrulamada kapanır (kabul) | §7.7 | — |
+| 1. Davet / hesap silme | Etkisi yok | — | — |
+| 1. Servis hesapları / anahtarlar | Kapsamda: prod'da bütün sırlar yeniden üretilir, staging sırları imha edilir. Yedek imza anahtarı (sunucuda, root 600) + `allowed_signers` (kasa). Prod için yeni age çifti. TURN secret yeni | ADR-0019, ADR-0020 | T1, T6 |
+| 2. Zaman alanları / migration | Kapsam dışı: P13b'de şema değişikliği yok | — | — |
+| 2. Silme stratejisi | Etkisi yok. Staging volume'ları adıyla silinir (prune yasak) | §7.12 | T6 |
+| 2. Audit izi | Kapsamda: `auth.superadmin_reset`. S-P13a-8 kapsamında `file.transfer*`'da dosya adı ve sha256 yerine uzantı + boyut yazılır. Audit süreklilik denetimi (I-P11-1 tespit kısmı) | §7.6, §7.11 | B1, B3, D2, T1 |
+| 2. Multi-tenant | Etkisi yok. Prod kontrolleri "Nokta Test" firmasında yapılır, sonra firma pasife alınır | ADR-0019 | R1 |
+| 2. Dosya yönetimi | Etkisi yok. Uploads yedeği imzalı çalıştırma içinde | §7.6 | — |
+| 2. Para / partition | Kapsam dışı | — | — |
+| 3. API / hata / sayfalama / CORS | Etkisi yok: yeni HTTP ucu yok, CLI sunucu içinden çalışır | — | — |
+| 3. Dış servis zaman aşımı / retry | Kapsamda: site dışı kancaya `timeout` (vars. 1800 sn). Hatası yerel yedeği bozmaz, alarm verir | ADR-0020 m.4 | T1 |
+| 3. Webhook / idempotency | Kapsam dışı | — | — |
+| 4. Tehdit modeli | Kapsamda: kurcalanmış site dışı yedek → imza + migrator + CHECKSUM; kötü migration (TRUNCATE/DROP TRIGGER) → süreklilik + tetikleyici sayısı; yanlış ortama geri yükleme → `DEPLOY_ENV` + TTY + manifest `env`; coturn ele geçirilmesi → TURN sertifikası ayrı anahtarlı; yalnız 443 açık ağlar → risk kabulü (R4) | ADR-0018, ADR-0020 | D1, D2, T1, T2 |
+| 4. Girdi doğrulama | Kapsamda: CLI argümanları (e-posta biçimi, bilinmeyen seçenek → 2); restore seçenekleri | §7.7 | B1, T1 |
+| 4. Gizli bilgi | Kapsamda: yeni dosyalar `watch.env`, `backup.env` (yeni anahtarlar), `/etc/remote-backup/*` root; repo public olmadan önce gitleaks tüm geçmişte çalışır + altyapı bilgisi incelenir; ACCESS.txt ve `.env.bak.*` imha | §7.9, §7.10 | T1, T4, U1 |
+| 4. Hassas veri / şifreleme | Kapsamda: site dışı kopya yalnız age şifreli + imzalı; hedef şartları (yalnız yazma kimliği, 14 + 1 gün, KVKK aktarım) | ADR-0020 m.4 | (hedef: Sonra) |
+| 4. Log maskeleme | Kapsamda: CLI parolası loga girmez; kanca komut metni loglanmaz; `remote-watch` mesajı yalnız kontrol adını taşır | §7.6–7.8 | B1, T1, T4 |
+| 4. Bağımlılık taraması | Etkisi yok: yeni npm/Go/host paketi yok (OpenSSH, certbot, openssl zaten var) | ADR-0020 alternatifler | — |
+| 4. Güvenlik başlıkları | Kapsamda: HSTS `includeSubDomains` (kapsam yalnız `*.remote.noktabilisim.net`), `preload` yok, apex'e dokunulmaz | §7.5 | B2, T3 |
+| 4. Yönetici paneli 2FA / IP | Etkisi yok: Super Admin ilk girişte 2FA kurar. IP girişi (4450) kapanır | ADR-0019 m.3 | T6 |
+| 5. UI 5 durum / form / a11y / tema | Kapsam dışı: P13b'de ekran değişikliği yok (yalnız audit etiketi) | — | — |
+| 5. Yıkıcı işlem onayı | Kapsamda: `restore.sh --target production` için `--confirm` + TTY `PRODUCTION-<host>`; terfi adımları yedek + scratch doğrulamasından sonra | §7.6, §7.12 | T1, T6 |
+| 5. Bildirim stratejisi | Kapsamda: `remote-watch` / `BACKUP_ALERT_CMD` (WhatsApp veya Telegram komutu); WhatsApp kanalı K13'e göre | §7.8, §7.11 | T4 |
+| 5. Yerelleştirme | Kapsamda: CLI ve betik çıktıları Türkçe; audit etiketi | §7.16 B1 | B1 |
+| 6. Yük / kapasite | Kapsamda: relay 320 port, `total-quota=300` (S4: 50 oturum × 6); toplam relay tavanı 500 Mbit/s (paylaşımlı sunucu); oturum tavanı birim düzeltmesi (`TURN_MAX_BPS=1000000`, ölçülecek) | ADR-0018 m.2 | T2 |
+| 6. İndeks / ağır sorgu | Kapsamda: audit gün histogramı IX(created_at) ile < 2 sn; CHECKSUM TABLE yalnız geri yüklemede | §7.16 D2 | D2 |
+| 6. Önbellek / kuyruk / export / performans bütçesi | Etkisi yok | — | — |
+| 6. Arka plan işleri | Kapsamda: `remote-watch.timer` (10 dk), certbot hook; yedek timer değişmez | §7.4, §7.8 | T2, T4 |
+| 7. Log / metrik / alarm | Kapsamda: `remote-watch` kontrol seti, `status.prom` dosyaları; Prometheus/Alertmanager Sonra (genişleme noktası textfile) | §7.8 | T4 |
+| 7. Hata izleme | Sonra (genel karar değişmez) | — | — |
+| 7. Yedekleme + geri yükleme testi | Kapsamda: prod'da AC-91/200 provası (imzalı, yol A), RTO kaydı; site dışı kanca (hedef tanımsızken uyarı); ayrı disk = site dışı hedefle birlikte (Sonra) | §7.6, §7.12/8 | T1, T6 |
+| 7. Ortamlar | Kapsamda: prod = staging'in yerinde temiz terfisi; `DEPLOY_ENV`; ayrı staging P13c (E11 kod paketlerinden önce); bu arada yerel e2e | ADR-0019 | T6 |
+| 7. CI/CD / rollback | Kapsamda: attestation'lı Release (repo public), shellcheck yeni betikler; terfi geri dönüşü (imzadan önce) | §7.10, §7.12 | T1–T4, U1 |
+| 7. Sıfır kesinti / bakım modu | Kapsam dışı: terfi müşteri öncesi yapılır; sertifika yenilemesinde coturn SIGUSR2 (olmazsa restart + ICE restart, kabul) | §7.4 | — |
+| 7. Runbook | Kapsamda: §20 prod (açılış, geri dönüş, kontrol listesi, pfSense/UFW, IPv6 değişiklik kuralı); §19'a "site dışı kanca başarısız" ve "audit süreklilik alarmı" | §7.16 T5 | T5 |
+| 8. KVKK | Kapsamda: site dışı saklama 14 + 1 gün (aydınlatma metniyle aynı), yurt dışı aktarım değerlendirmesi hedef şartı; S-P13a-8 (dosya adı audit'te yok); staging test verisi prod'a taşınmaz | ADR-0019, ADR-0020 | B3, U3 |
+| 8. Lisans | Etkisi yok: yeni bağımlılık yok; repo Apache-2.0 public olur | §7.10 | U1 |
+| 8. Finansal | Kapsam dışı | — | — |
+| 9. Kapsam dışı / ertelenen | Kapsamda: §7.1 "kapsam dışı" listesi (P13c staging, 443, site dışı hedef, Prometheus, ICE tanı mesajı) | §7.1 | — |
+| 9. Ölçülebilir AC | Kapsamda: AC-23 revizyonu, AC-91/200 metin düzeltmeleri, 5 yeni AC önerisi (a)–(e); eşleme §7.14 | §7.14–7.15 | proje-yoneticisi |
+| 9. Riskler / açık sorular | Kapsamda: R4 risk kabulü (3 ay sonra gözden geçirme, ayda ≥ 3 vaka eşiği); K13 servis tüketicileri çatışması; açık seçimler K-P13b-1..6 varsayılanlı | ADR-0018, §7.17 | kullanıcı |
+| 9. DoD | Kapsamda: §7.16 kabul ölçütleri + imzalı prod açılış kontrol listesi (§7.13) | §7.13 | R1 |
+| 9. Dokümantasyon | Kapsamda: README, kılavuz (ağ gereksinimleri/allowlist, Super Admin kurtarma), DATASHEET, CHANGELOG, PDF; proje CLAUDE.md'deki staging satırı terfiden sonra güncellenir (kullanıcı/ana oturum) | §7.16 W1 | W1 |
+
+
+## E11 — Yol haritası (P13c, P14a–P28+; 2026-11-14, `docs/mimari-e11.md`)
+P14a/P14b için her madde karara bağlandı; P15+ maddeleri "Sonra (paket turu)" olarak sahibine yazıldı.
+| Madde | Karar | Gerekçe / nerede | Paket |
+|---|---|---|---|
+| 1. Kimlik doğrulama | Kapsamda: step-up 2FA (TOTP veya tüketilen kurtarma kodu — K-E11-1 kullanıcı kararı; e-posta bildirimi + kalan ≤ 3 uyarısı; 5 dk, oturum satırında); SSO/LDAPS Sonra (P24), portal girişi Sonra (P21) | ADR-0022; §4.2 | P14a / P24 / P21 |
+| 1. Şifre/kilit/brute-force | Kapsamda: step-up hataları mevcut MFA kilit sayacını kullanır; `/users` 30/dk, `POST /users` 10/dk; SA panel kurtarma P15 | §4.2, §6 | P14a, P15 |
+| 1. Yetki / IDOR | Kapsamda: aktör yetkisi TX içinde yeniden okunur + satır kilidi; 403'ler audit'e; seçenek uçlarında rol kapsamı (`historyScope`); yeni anahtarlar (`users.delete`, `support_requests.block`) tek tanımdan | ADR-0023; §5.1 (225); §6 | P14a, P14b, P15 |
+| 1. Oturum yönetimi | Kapsamda: `/ws/panel` tek bağlantı + 4429 geri çekilme; oturum modeli değişmez | §4.2 (216) | P14a |
+| 1. Hesap silme (KVKK) | Sonra: kalıcı silme mezar taşı modeli; audit `username` 730 gün kalır, ekranda maskeli (K-E11-4 kararı) | §7 | P16 |
+| 1. Servis hesapları / API anahtarı | Sonra: `api_keys` (özet, kapsam, süre, iptal, step-up) | ADR-0026 | P25 |
+| 2. created/updated/deleted | Kapsamda: yeni sütunlar mevcut tablolara (`users.version`, `auth_sessions.step_up_at`); yeni tablo yok (P14) | §4.1 | P14a |
+| 2. Silme stratejisi | P14 etkisi yok; P16 hard delete FK planı + kuru çalıştırma | §7 | P16 |
+| 2. Para | Sonra: `DECIMAL(12,2)` + `currency`, dondurulmuş aylık sayım | ADR-0027 | P26 |
+| 2. Tarih/saat | Kapsamda: değişmez (UTC, Europe/Istanbul); mesai/fatura işleri Istanbul takvimi | §10.2, P18 | P18, P26 |
+| 2. İndeks | Kapsamda: `tenants(name)` gerekirse (EXPLAIN); diğerleri değişmez | §5.2 B1 | P14b |
+| 2. Migration / geri alma | Kapsamda: tek P14a migration + ön kontrol (`SIGNAL` ile durur) + `down.sql` | §4.1 | P14a |
+| 2. Audit | Kapsamda: 403 fail kayıtları, step-up, 409 e-posta; değişmeyen PUT → audit yok | §4.2 | P14a |
+| 2. Multi-tenant | Kapsamda: seçenek uçları tenant kapsamlı, SA firma seçeneği yalnız SUPER_ADMIN; izolasyon testleri | §5.1 | P14b |
+| 2. Dosya / imzalı URL | Kapsamda (P14b): `.webp` boş MIME istemcide geçer, karar magic bytes. İmzalı avatar URL P15; yetim tarama P16; virüs taraması P28+ (ClamAV ayrı servis) | §5.1, §6, §7 | P14b / P15 / P16 |
+| 3. API sözleşmesi / versiyon | Kapsamda: yeni uçlar `contracts` zod; public API `/api/v1/public-api` + OpenAPI P25 | §4.2, §5.1 | P14a, P14b, P25 |
+| 3. Hata formatı | Kapsamda: yeni kodlar `MFA_STEP_UP_REQUIRED` 401, `STALE_WRITE` 409, `PRECONDITION_REQUIRED` 428; WS 4429 | §4.2 | P14a |
+| 3. Sayfalama/filtre | Kapsamda: teknisyen seçenekleri tam liste (≤ 1.000), firma/müşteri `q` + ≤ 20 | §5.1 | P14b |
+| 3. Rate limit / idempotency | Kapsamda: §4.2 kovaları; NOT_READY'de kova tüketilmez; güvenilen CIDR muafiyeti. Fatura idempotensi P26 | §4.2; ADR-0027 | P14a / P26 |
+| 3. Zaman aşımı / retry | Kapsamda: MySQL test sınıflandırması; webhook/Paraşüt/SMS P19/P25/P26 | §4.2; ADR-0026 | P14a / sonra |
+| 3. Webhook güvenliği | Sonra: HMAC + zaman damgası + netguard + outbox | ADR-0026 | P25 |
+| 3. CORS | Etkisi yok (P14); public API'de CORS kapalı (sunucudan sunucuya) | — | P25 |
+| 4. Tehdit modeli | Kapsamda: P14a G1 bulgularını kapatır; G7 paketleri ayrı tur (AC-290), P27 tehdit modeli eki zorunlu | ADR-0028 | P14a / P27 |
+| 4. Girdi doğrulama | Kapsamda: CHECK `\z`, ayar alanları contracts şeması | §4.1, §5.1 | P14a, P14b |
+| 4. Gizli bilgi | Kapsamda: P13c ayrı sırlar; Paraşüt kimlikleri `deploy/.env` (repo dışı) P26 | ADR-0021, ADR-0027 | P13c / P26 |
+| 4. Hassas veri / şifreleme | Kapsamda: MySQL "TLS gerekli" + `allowPublicKeyRetrieval` daraltma; chat alan şifreleme P22 | §4.2; ADR-0025 | P14a / P22 |
+| 4. Log maskeleme | Kapsamda: 403 audit'inde PII yok; step-up kodu loglanmaz | §4.2 | P14a |
+| 4. Bağımlılık taraması | Kapsamda: Prettier + eslint-config-prettier (MIT, dev); mevcut CI taramaları | ADR-0024 | P14a |
+| 4. Başlıklar / CSRF | Etkisi yok (P14); staging `X-Robots-Tag` | ADR-0021 | P13c |
+| 4. Yönetici paneli 2FA | Kapsamda: sistem ayarları step-up | ADR-0022 | P14a |
+| 5. 5 durum | Kapsamda: ayar alanları, seçici, step-up diyaloğu, 404 | §5.1 | P14a, P14b |
+| 5. Form doğrulama | Kapsamda: alan bazlı 400 → form; 409/428 mesajı | §4.2, §5.1 | P14a, P14b |
+| 5. Yıkıcı işlem onayı | Kapsamda: geri tuşu kaydedilmemiş not onayı; kalıcı silme ad yazarak P16 | §5.1 (228) | P14b / P16 |
+| 5. Responsive | Kapsamda: 375/390 px menü etkin öğe + kaydırma ipucu | §5.1 (222) | P14b |
+| 5. Erişilebilirlik | Kapsamda: toggle ≥ 3:1, combobox WAI-ARIA, step-up diyaloğu odak tuzağı, `role=status` uyarıları | §5.1 | P14a, P14b |
+| 5. Yerelleştirme | Sonra: TR/EN P23 | §11 | P23 |
+| 5. Bildirim stratejisi | Kapsamda: chat hız uyarısı satır içi; P19/P27 müşteri bildirimleri sonra | §5.1, §10.1 | P14b / sonra |
+| 5. Çevrimdışı / yavaş ağ | Kapsamda: panel WS geri çekilme (jitter), sessiz | §4.2 (216) | P14a |
+| 5. 404/500 | Kapsamda: gerçek 404 kodu + tek h1 | §5.1 (220) | P14b |
+| 5. Token'lar | Kapsamda: yeni switch token'ları DESIGN.md + globals.css; koyu kopya eşitlik testi | §5.1 (221), §4.3 | P14b |
+| 6. Yük / kapasite | Kapsamda: firma araması ≤ 500 ms (250), teknisyen 150 seçenek | §5.1 | P14b |
+| 6. N+1 / indeks | Kapsamda: seçenek uçları tek sorgu | §5.1 | P14b |
+| 6. Önbellek | Etkisi yok (P14); engelleme listesi bellek önbelleği P15 | §6 | P15 |
+| 6. Arka plan işleri | Etkisi yok (P14); purge/outbox/fatura işleri sonraki paketlerde, mevcut scheduler | §7, ADR-0026/0027 | P16+ |
+| 6. Export | Etkisi yok (P14); müşteri CSV P19, kullanım CSV P26 | §11 | P19, P26 |
+| 6. Performans bütçesi | Etkisi yok | — | — |
+| 7. Log / metrik / alarm | Kapsamda: `rs_guest_code_rate_limited_total{scope}`, `rs_mysql_test_failed_total{class}` + runbook eşikleri; `remote-watch@stg` | §4.2; §3.1 | P14a, P13c |
+| 7. Hata izleme | Sonra (genel karar değişmez) | — | — |
+| 7. Yedekleme | Kapsamda: staging ayrı yedek (3 g, ayrı age), ortamlar arası geri yükleme engeli | ADR-0021 | P13c |
+| 7. Ortamlar | Kapsamda: P13c ayrı staging; E11 staging adımı `remote-stg` | ADR-0021 | P13c |
+| 7. CI/CD | Kapsamda: `format:check`, shellcheck, `stability.yml` (20 koşu), staging istemci artifact | §4.4, §3.3 | P14a, P13c |
+| 7. Sıfır kesinti migration | Kapsamda: P14a sütun eklemeleri anlık (INSTANT/INPLACE); CHECK değişimi tablo kopyası — küçük tablolar, bakım penceresi gerekmez (dba süreyi stg'de ölçer) | §4.1 | P14a |
+| 7. Runbook | Kapsamda: §21 staging, alarm eşikleri | §3.4, §4.6 | P13c, P14a |
+| 8. KVKK | P14 etkisi yok; chat saklama aydınlatması P22; kalıcı silme P16; portal P21 | ADR-0025 | sonra |
+| 8. Lisans | Kapsamda: Prettier MIT; ClamAV yalnız ayrı servis (P28+) | ADR-0024 | P14a |
+| 8. Finansal | Sonra: dondurulmuş sayım, taslak fatura, saklama 10 yıl VUK (K-E11-5 kararı) | ADR-0027 | P26 |
+| 9. Kapsam dışı | Kapsamda: gereksinimler-e11 §3 (9 madde) aynen | — | — |
+| 9. Ölçülebilir AC | Kapsamda: AC-201..297 eşlemesi `mimari-e11.md` §13; revizyon önerileri proje-yöneticisine | §13 | — |
+| 9. Riskler / açık sorular | Kapsamda: R25–R33; K-E11-1, 4, 5, 6 kullanıcı kararıyla kapandı; 2, 3 varsayılanlı | §14 | — |
+| 9. DoD | Kapsamda: paket başı kabul ölçütleri (§4.6, §5.2) + ortak DoD | §4.6, §5.2 | — |
+| 9. Dokümantasyon | Kapsamda: runbook §21, alarm eşikleri, kılavuz (step-up, 409 mesajı), api.md ITSM örneği P25 | AC-288 | her paket |

@@ -149,6 +149,14 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' -X PUT --data-binary "@$TMP/img2m
 CODE="$(curl -s -o /dev/null -w '%{http_code}' "$B/api/v1/files/avatar/T1/abcdefghijklmnop.webp?v=gizlisorgu")"
 [ "$CODE" = 200 ] && pass "/api/v1/files/* server'a gider" || fail "/api/v1/files → $CODE"
 
+echo "== güvenlik başlıkları (mimari-p13 §7.5, AC-126; uygulama koymadığında Caddy tamamlar)"
+H="$(curl -s -D - -o /dev/null "$B/downloads/x")"
+HSTS="$(printf '%s' "$H" | tr -d '\r' | sed -n 's/^[Ss]trict-[Tt]ransport-[Ss]ecurity: //p')"
+[ "$HSTS" = "max-age=31536000; includeSubDomains" ] && pass "HSTS = '$HSTS'" || fail "HSTS = '$HSTS'"
+case "$HSTS" in *preload*) fail "HSTS preload içeriyor" ;; *) pass "HSTS preload yok" ;; esac
+printf '%s' "$H" | grep -qi '^server:' && fail "Server başlığı var" || pass "Server başlığı yok"
+printf '%s' "$H" | tr -d '\r' | grep -qi '^x-content-type-options: nosniff$' && pass "X-Content-Type-Options nosniff" || fail "nosniff yok"
+
 echo "== ops uçları dışarıya kapalı"
 for u in /internal/agent-ready /metrics /ready; do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Forwarded-Method: GET' "$B$u")"

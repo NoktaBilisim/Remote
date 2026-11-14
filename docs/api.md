@@ -1,6 +1,6 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b)
 
-Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b ve P13a'da **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
+Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b, P13a ve P13b'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
 `ops/{health,metrics}.ts`, `sessions/{routes,service,public}.ts`, `public/{service,consent,routes,agent,agent-binary}.ts`,
 `signaling/*.ts`, `deploy/Caddyfile`,
@@ -23,10 +23,14 @@ P12b: `settings/{routes,system}.ts`, `notify/whatsapp.ts`, `env.ts`, `packages/c
 P13a: `jobs/{retention,retention-repo,scheduler}.ts`, `sessions/{history,history-repo}.ts`, `settings/{routes,system}.ts`,
 `audit/service.ts` (müşteri IP öneki), `notify/whatsapp.ts`, `env.ts`, `packages/contracts/src/{errors.ts,audit.ts,labels.ts,
 api/sessions.ts,api/system-settings.ts,api/audit.ts}`. Özet: "Saklama ve anonimleştirme (P13a)" bölümü.
+P13b: `app.ts` (HSTS), `auth/{service,superadmin-reset}.ts`, `cli/reset-superadmin.ts`, `settings/{routes,system}.ts`,
+`notify/whatsapp.ts`, `env.ts`, `packages/contracts/src/{audit.ts,api/system-settings.ts,api/audit.ts}`.
 
 ## Genel kurallar
-- Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres `PUBLIC_BASE_URL` (staging `https://remote.noktabilisim.net`;
-  geçiş süresince `https://185.126.217.99:4450`).
+- Taban yol: `/api/v1`. İstek ve yanıt JSON, UTF-8. Dış adres `PUBLIC_BASE_URL` (prod `https://remote.noktabilisim.net`;
+  IP girişi `https://185.126.217.99:4450` prod açılış imzasından sonra kapanır).
+- **HSTS (P13b, AC-126):** her yanıtta `Strict-Transport-Security: max-age=31536000; includeSubDomains` (server helmet ve
+  Caddy; `preload` yok). Kontrol: `curl -sI https://remote.noktabilisim.net/login | grep -i strict`.
 - İstek gövdesi en çok 64 KB (Caddy sınırı 2 MB); aşım, bozuk JSON veya yanlış içerik türü → 400 `VALIDATION`.
   İstisna (P12): üç resim yükleme ucu `multipart/form-data` alır, dosya en çok 2 MB (Caddy bu uçlarda 3 MiB'a izin verir).
   Diğer uçlara multipart gövde gönderilirse 400.
@@ -1647,21 +1651,31 @@ yeniden girin veya DELETE). Audit `settings.turn.updated` / `settings.turn.delet
 Yalnız SUPER_ADMIN (Admin/User 403, oturumsuz 401, CSRF'siz yazma 403). Destek talebi bildirimlerinin ve WhatsApp
 testlerinin gittiği whatsapp-bildirim servis adresi; tüm firmalar için tek adres. Yanıtlar `Cache-Control: no-store`.
 
-**Etkin adres:** panel kaydı > `WHATSAPP_SERVICE_URL` > varsayılan. PUT/DELETE çalışan sürece hemen uygulanır (yeniden
+**Etkin adres:** panel kaydı > `WHATSAPP_SERVICE_URL`. P13b'den beri yerleşik varsayılan adres yoktur; ikisi de boşsa
+`url: null`, kanal kapalı. PUT/DELETE çalışan sürece hemen uygulanır (yeniden
 başlatma yok); kayıttan sonraki ilk bildirim ve hem Super Admin hem firma testi yeni adrese gider.
 
 GET yanıtı (`WhatsappSettingsView`):
 ```json
-{ "url": "https://wa.example.com", "source": "panel", "insecure": false, "updatedAt": "2026-11-13T09:10:00.000Z" }
+{ "url": "https://wa.example.com", "source": "panel", "insecure": false, "updatedAt": "2026-11-13T09:10:00.000Z",
+  "apiKeySet": true, "apiKeySource": "panel" }
 ```
 | Alan | Anlam |
 |---|---|
 | `url` | Etkin adres. Panel kaydı da env de yoksa `null` |
-| `source` | `panel` = bu ekrandan kaydedilmiş; `env` = panel kaydı yok, `WHATSAPP_SERVICE_URL` kullanılıyor; `default` (P13a) = panel kaydı da `WHATSAPP_SERVICE_URL` da yok, yerleşik varsayılan adres kullanılıyor (ekranda "Varsayılan" rozeti) |
+| `source` | `panel` = bu ekrandan kaydedilmiş; `env` = panel kaydı yok, `WHATSAPP_SERVICE_URL` kullanılıyor (boşsa `url: null`). P13a'daki `default` değeri P13b'de kaldırıldı |
 | `insecure` | `true` → kanal kapalı, bildirim ve test gönderilmez: production'da `http://` + özel ağ dışı adres ya da (her ortamda) ayrıştırılamayan adres. Ekran `WA_INSECURE_WARNING` ("Güvensiz adres: canlı ortamda WhatsApp kanalı kapalı") gösterir |
 | `updatedAt` | Panel kaydının son değişimi; env kaynağında `null` |
+| `apiKeySet` (P13b) | Etkin adrese gönderilecek servis anahtarı var mı. Anahtarın değeri hiçbir yanıtta dönmez |
+| `apiKeySource` (P13b) | `panel`, `env` (`WHATSAPP_SERVICE_API_KEY`) ya da `null`. Anahtar adresiyle birlikte gelir: panel adresine yalnız panel anahtarı, env adresine yalnız env anahtarı gider; panelde adres var ama panel anahtarı yoksa `null` |
 
-PUT gövdesi `{ "url": "…" }` (`strictObject`; başka alan → 400). Kural (`waServiceUrlSchema`; panel, env ve DB CHECK aynı):
+PUT gövdesi `{ "url": "…", "apiKey"?: … }` (`strictObject`; başka alan → 400).
+**`apiKey` (P13b, S-P13b-3):** alan yok veya `""` → kayıtlı panel anahtarı korunur; `null` → panel anahtarı silinir; dolu →
+yeni anahtar (16–256 kod noktası, boşluk ve kontrol karakteri yok; uymazsa 400, `fields.apiKey` = "Servis anahtarı 16–256
+karakter olmalı; boşluk ve kontrol karakteri içeremez."). Anahtar AES-256-GCM ile, adresin kökenine (şema+host+port) bağlı
+AAD ile saklanır ve servise `x-api-key` başlığıyla gider. **Köken değişirken anahtar verilmezse** 400 `VALIDATION`,
+`fields.apiKey` = `WA_API_KEY_REENTER` ("Servis adresi değişti; servis anahtarını yeniden girin (ya da anahtarı kaldırın).");
+kayıtlı anahtar yeni adrese taşınmaz. Aynı kökende (yalnız yol değişikliği) anahtar korunur. Kural (`waServiceUrlSchema`; panel, env ve DB CHECK aynı):
 `http://` veya `https://`, `kullanıcı:şifre@`, `?`, `#`, boşluk, kontrol ve görünmez biçim karakteri (`\p{Cc}\p{Cf}\p{Zl}\p{Zp}`)
 yok, en çok 200 karakter. **P13a — kanonik biçim:** adres WHATWG URL kuralıyla saklanır ve yanıtta öyle döner: şema ve
 sunucu adı küçük harfe çevrilir (`HTTPS://WA.Example.com/` → `https://wa.example.com`), ondalık/onaltılı IPv4 noktalı
@@ -1671,19 +1685,21 @@ başlamalı; kullanıcı adı/şifre, ? ve # içeremez (en çok 200 karakter)". 
 curl -sk -X PUT https://localhost:4450/api/v1/admin/settings/whatsapp \
   -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' -H "X-CSRF-Token: $CSRF" \
   -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF" \
-  -d '{"url":"https://wa.example.com/"}'
+  -d '{"url":"https://wa.example.com/","apiKey":"<servis-anahtarı>"}'
 ```
 ```json
-{ "url": "https://wa.example.com", "source": "panel", "insecure": false, "updatedAt": "2026-11-13T09:10:00.000Z" }
+{ "url": "https://wa.example.com", "source": "panel", "insecure": false, "updatedAt": "2026-11-13T09:10:00.000Z",
+  "apiKeySet": true, "apiKeySource": "panel" }
 ```
 
-DELETE ("Ortam değişkenine dön"): panel kaydı kaldırılır (satır `{"url": null}` olarak kalır), etkin adres env/varsayılana
-döner. Yanıt **200** + GET görünümü (`source: "env"` veya env yoksa `"default"`). İdempotent: panel kaydı yoksa değişiklik ve audit yok.
+DELETE ("Ortam değişkenine dön"): panel kaydı ve panel anahtarı kaldırılır (satır `{"url": null}` olarak kalır), etkin
+adres env'e döner. Yanıt **200** + GET görünümü (`source: "env"`; env de boşsa `url: null`). İdempotent: panel kaydı yoksa değişiklik ve audit yok.
 Aynı kanonik adresle tekrarlanan PUT 200 döner, yazım ve audit yapılmaz (P13a).
 
 Audit (sistem kaydı, `tenantId` boş, entity `system_settings`, kayıt `whatsapp`): `settings.whatsapp.updated` eski
 `{ url, source }` → yeni `{ url, source: "panel" }`; `settings.whatsapp.deleted` eski `{ url, source: "panel" }` → yeni
-`{ url, source: "env" }`. Adres gizli değer sayılmaz, açık yazılır. Kayıt ve audit tek işlemde (transaction).
+`{ url, source: "env" }`. Adres gizli değer sayılmaz, açık yazılır. P13b: anahtar değeri yazılmaz; yalnız `apiKey: "***"`
+(varsa), `apiKeySet` ve PUT'ta `apiKeyChanged`. Kayıt ve audit tek işlemde (transaction).
 PUT/DELETE hız sınırı (P13a): MySQL, TURN ve WhatsApp ayarlarının PUT/DELETE'i kullanıcı başına **ortak 10/dk**; 11. istek
 429 `RATE_LIMITED` + `Retry-After`. Sayım girdi doğrulamasından sonradır (400 kotayı tüketmez). Hatalar: 400, 401, 403, 429.
 
@@ -1707,6 +1723,7 @@ Başarısız denemede de **200** döner, `ok: false` ve sabit mesaj (servis yan�
 | `insecure` (güvensiz veya ayrıştırılamayan adres; istek gönderilmez) | Servis güvenli yapılandırılmamış. |
 | `timeout` | Servis 8 saniye içinde yanıt vermedi (zaman aşımı). |
 | `http_error`, `redirect`, `unreachable` | Servise ulaşılamadı veya servis hata döndürdü. |
+| `unauthorized` (P13b; servis 401 döndü, anahtar yok/yanlış) | Servis anahtarı reddetti. |
 
 Hız: Super Admin başına 5/dk (6. → 429) **ve** tüm Super Admin'ler için ortak 20/dk (21. → 429); 429 `RATE_LIMITED` +
 `Retry-After` (en çok 60 sn). Firma testi (`/settings/support-requests/whatsapp/test`) ayrı kovadır. Her deneme audit
@@ -1867,7 +1884,7 @@ Yeni uç yoktur. Kaynak: `docs/mimari-p13.md` §2–§3, `apps/server/src/jobs/r
 - PUT/DELETE kullanıcı başına ortak 10/dk; 11. istek 429 `RATE_LIMITED` + `Retry-After`.
 - Değeri değiştirmeyen PUT (MySQL: aynı hedef ve veritabanı, şifre yok; TURN: aynı liste, secret yok; WhatsApp: aynı
   kanonik adres) 200 döner, yazım ve audit yapılmaz.
-- WhatsApp: kanonik adres, `source: "panel" | "env" | "default"`. Canlı ortamda `http://` + link-local adres
+- WhatsApp: kanonik adres, `source: "panel" | "env"` (P13a'da `"default"` da vardı; P13b'de kaldırıldı). Canlı ortamda `http://` + link-local adres
   (`169.254.0.0/16`, `fe80::/10`) artık özel ağ sayılmaz; kanal kapalı kalır (`insecure: true`).
 
 **Metrikler (`/metrics`):** `rs_retention_last_success_timestamp_seconds` (gauge; yalnız hatasız turda ilerler),
@@ -1936,5 +1953,9 @@ P13a: `retention.run` (entity `retention`, kullanıcı `system`, `userId` boş).
 bir kayıt: `newValue = { sessions, consents, files, requests, customers, bindings }`; global adımlar için firma alanı boş bir kayıt:
 `{ audit, authSessions, resetTokens }`. Yalnız sayılar yazılır; hata olursa `result: fail`. Ekranda "Saklama süresi işi",
 grup "Veri saklama". Müşteri kaynaklı kayıtlarda IP ağ önekiyle, tarayıcı bilgisi olmadan yazılır; yeni misafir kayıtlarında ad yoktur.
+P13b: `auth.superadmin_reset` (CLI; kullanıcı `cli`, `newValue.mustChangePassword`, `mfaReset`, `revokedSessions`; parola
+yok; bulunamazsa `fail{reason:"not_found"}`), `auth.login` fail `{reason:"temp_password_expired"}` (CLI geçici şifresi 24 saati
+geçti; yanıt 401 "Geçici şifrenin süresi doldu (24 saat). Sunucu yöneticisinden yeniden sıfırlama isteyin."),
+`backup.audit_baseline_reset` (grup "Yedekleme", `backup.*` filtresi), `settings.whatsapp.test` `reason: "unauthorized"`.
 Şifre, token ve çerez değerleri `***` olarak maskelenir. Kayıtlar Audit log ekranında (`/audit`) ve
 `GET /api/v1/audit` ile okunur; değiştirilemez.

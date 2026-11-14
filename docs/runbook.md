@@ -78,7 +78,8 @@ Tarayıcı: `https://<SITE_HOST>:4450`. `tls internal` kök sertifikası test ma
 | ↳ | yalnız seed için; parola ≥ 12, ilk girişte değiştirilir; seed sonrası `.env`'den silinebilir |
 | `ABUSE_EMAIL` | Misafir karşılama ekranındaki "Kötüye kullanımı bildir" `mailto:` adresi (AC-125, V13, S-P4-1), ör. `abuse@<alan-adı>`. **production'da boşsa bağlantı gizlenir** (Super Admin e-postasına düşülmez). Staging/prod'da doldurulması önerilir. Değişiklik: `.env` → `docker compose up -d server`. Kullanmayacaksanız boş bırakmak (`ABUSE_EMAIL=`) veya satırı silmek güvenlidir: env.ts boş/yalnız boşluk değerleri tanımsız sayar (`withoutBlanks`), server açılır ve production'da bağlantı gizlenir. Dolu ama geçersiz bir adres (ör. `abuse@`) ise env.ts doğrulamasında server'ı açtırmaz |
 | `AGENT_SHA256` | P6 (G-07): `agent_downloads` volume'undaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). **Elle yazılmaz**: `deploy/agent/verify-and-publish.sh` attestation + `SHA256SUMS` doğrulamasından sonra yazar, ardından `docker compose up -d server`. Boşsa, dosya yoksa veya hash uyuşmazsa `GET /api/v1/public/agent/download` **503** döner (fail-closed) ve server logunda bir kez `alarm: "agent_binary"` uyarısı çıkar. `AGENT_BINARY_PATH` compose'da sabittir (`/data/downloads/NoktaDestek.exe`); `.env`'deki değer yalnız compose dışı çalıştırmada kullanılır |
-| `WHATSAPP_SERVICE_URL` | P8b: whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). **P12b: yalnız yedek değerdir.** Etkin adres önceliği: **Sistem ayarları → WhatsApp servisi panel kaydı > `WHATSAPP_SERVICE_URL` > `env.ts` varsayılanı `http://89.252.189.211:3000`** (staging). Açılışta panel kuralıyla doğrulanır: yalnız `http://`/`https://` (küçük harf), `kullanıcı:şifre@`, sorgu (`?`), parça (`#`), boşluk/kontrol karakteri yok, ≤ 200 karakter → **uymazsa server açılmaz** (log `env` doğrulama hatası; `env.ts` `waServiceUrlSchema`; §17.4). **production'da `http://` + özel olmayan adres → kanal kapalı başlar** (gönderim yok, log `alarm:"whatsapp_insecure"`). Güvensiz veya yapılandırılmamış adreste testler servise istek **göndermez**: Super Admin testi (`POST /api/v1/admin/settings/whatsapp/test`) **200 `{ok:false}`** + sabit mesaj, tenant testi (`POST /api/v1/settings/support-requests/whatsapp/test`) **502 `UPSTREAM`** döner; prod değeri K13'e göre `https://…` veya özel ağ adresi (§12.3). **Değişiklik yolu: panel** (Super Admin → Sistem ayarları → WhatsApp servisi → kaydet; yeniden başlatma gerekmez, çalışan sürece hemen uygulanır). Env'e dönüş: aynı ekranda "Ortam değişkenine dön". **Panel kaydı varken `.env` değişikliği etkisizdir**; env'i değiştirip `docker compose up -d server` yalnız panel kaydı yokken (ekranda kaynak rozeti "Ortam değişkeni") anlamlıdır |
+| `WHATSAPP_SERVICE_URL` | P8b: whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). **P12b: yalnız yedek değerdir.** Etkin adres önceliği: **Sistem ayarları → WhatsApp servisi panel kaydı > `WHATSAPP_SERVICE_URL`** (P13b, G-P13b-2: `env.ts`'te yerleşik varsayılan **yok**; ikisi de boşsa kanal yapılandırılmamış = kapalı). Açılışta panel kuralıyla doğrulanır: yalnız `http://`/`https://` (küçük harf), `kullanıcı:şifre@`, sorgu (`?`), parça (`#`), boşluk/kontrol karakteri yok, ≤ 200 karakter → **uymazsa server açılmaz** (log `env` doğrulama hatası; `env.ts` `waServiceUrlSchema`; §17.4). **production'da `http://` + özel olmayan adres → kanal kapalı başlar** (gönderim yok, log `alarm:"whatsapp_insecure"`). Güvensiz veya yapılandırılmamış adreste testler servise istek **göndermez**: Super Admin testi (`POST /api/v1/admin/settings/whatsapp/test`) **200 `{ok:false}`** + sabit mesaj, tenant testi (`POST /api/v1/settings/support-requests/whatsapp/test`) **502 `UPSTREAM`** döner; prod değeri K13'e göre `https://…` veya özel ağ adresi (§12.3). **Değişiklik yolu: panel** (Super Admin → Sistem ayarları → WhatsApp servisi → kaydet; yeniden başlatma gerekmez, çalışan sürece hemen uygulanır). Env'e dönüş: aynı ekranda "Ortam değişkenine dön". **Panel kaydı varken `.env` değişikliği etkisizdir**; env'i değiştirip `docker compose up -d server` yalnız panel kaydı yokken (ekranda kaynak rozeti "Ortam değişkeni") anlamlıdır |
+| `WHATSAPP_SERVICE_API_KEY` | İsteğe bağlı. whatsapp-bildirim servisinin `x-api-key` anahtarı (sır: parola kasasında; loga, dokümana, komut satırına yazılmaz). Anahtar adresle birlikte gider: **panel adresi kayıtlıysa yalnız panel anahtarı kullanılır (bu değişken o adrese gönderilmez); panel kaydı yoksa env adresiyle bu değişken kullanılır.** Panelde adresin kökeni değişirse anahtar yeniden girilmelidir (`WA_API_KEY_REENTER`). Boşsa istek anahtarsız gider. Servis tarafında `REQUIRE_API_KEY` ile kademeli geçiş ayrı projede yürür: **servis anahtarı zorunlu hâle gelmeden ÖNCE Remote'a anahtar girilir** (panel ya da bu değişken + `docker compose up -d server`), aksi hâlde gönderimler ve test 401/502 ile düşer. Kontrol (değer basmadan): `grep -c '^WHATSAPP_SERVICE_API_KEY=.' deploy/.env` → `1` ya da panelde kaynak rozeti "Panel kaydı" |
 | `APP_ENCRYPTION_KEYS` | P10 (mimari §3.2): `v1:<base64 32 bayt>` (`openssl rand -base64 32`). SMTP şifresi ve TOTP sırları bununla AES-256-GCM şifrelenir. **production'da zorunlu** (yoksa server açılmaz; compose da `:?` ile durur). **Kaybedilirse** kayıtlı SMTP şifreleri ve tüm 2FA sırları çözülemez → SMTP şifreleri yeniden girilir, kullanıcıların 2FA'sı sıfırlanır (§14). Rotasyon: `v1:...,v2:...` (eski silinmez; yeni yazımlar v2 — emekliye ayırma kuralı §14 P10 "Anahtar rotasyonu"). Yedeği parola kasasında; loga/dokümana yazılmaz. Değişiklik: `.env` → `docker compose up -d server` |
 | `UPLOADS_DIR` | P12: logo/avatar yükleme kökü. **Compose sabit verir** (`/data/uploads`, named volume `uploads` → `remote_uploads`); `.env`'deki değer yalnız compose dışı çalıştırmada kullanılır — **mutlak yol** (env.ts göreli yolu reddeder), ör. `<repo>/.data/uploads` (`.data/` git-ignore). Boşsa `/data/uploads`. Yedek/geri yükleme §16.3 |
 | `MIN_AGENT_VERSION` | P8b G-E9-4: asgari Windows istemci sürümü `x.y.z`. Boş = kontrol yok. Düşük sürüm talep/resolve/join/`/ws/guest`'te 426 `CLIENT_OUTDATED`; istemci "Yeni sürümü indir" gösterir. Güvenlik yamasında yükseltilir (§12.4) |
@@ -196,6 +197,21 @@ Ayrıntı: `docs/db-notlari.md` "ADR-0014 uygulandı", ADR-0014.
 | Tüm müşteriler aynı IP'den (`172.30.0.x`) görünüyor / token limiti (429) ortak işliyor | web'in adresi .3 değil veya `TRUSTED_PROXY_CIDR` kapsamıyor: `docker inspect remote-web-1 -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'` |
 
 ## 8. Staging (185.126.217.99:4450)
+> **Arşiv notu (P13b, ADR-0019):** Bu bölüm prod terfisine (§20) kadar geçerlidir. Terfide staging yığını `/opt/remote`'ta
+> yerinde **prod'a dönüşür** (yeni volume, yeni sırlar, `DEPLOY_ENV=production`, `CADDY_BIND=127.0.0.1`, 4450 dışarı kapalı).
+> Terfiden sonra aşağıdaki staging komutları (4450 erişimi, ACCESS.txt, test hesapları) **kullanılmaz**; yayın geçmişi tablosu
+> kayıt olarak kalır. Yeni staging P13c'de ayrı compose projesi olarak kurulur (`remote-stg`, 127.0.0.1:4460/4461); o zamana kadar
+> paket doğrulaması yerelde yapılır. Prod işletimi: §20.
+>
+> **P13b staging yayını (sıra A) notları:** (1) `deploy/.env`'e `DEPLOY_ENV=staging` eklenir (§18.9/1); yoksa yedek
+> `FAILED adım=önkoşul`. (2) WhatsApp kanalı artık yerleşik varsayılan adres kullanmaz: panel kaydı (Sistem ayarları → WhatsApp
+> servisi) ya da `WHATSAPP_SERVICE_URL` yoksa kanal **kapalıdır**. Yayından önce kontrol (değer ekrana basılmaz):
+> `grep -c '^WHATSAPP_SERVICE_URL=.' deploy/.env` → `1` ya da panelde kaynak rozeti "Panel kaydı". İkisi de yoksa ve kanal
+> isteniyorsa değer parola kasasındaki kayıttan `.env`'e yazılır → `docker compose up -d server`; doğrulama Super Admin
+> "Test Mesajı Gönder" → başarılı. Servis anahtarı (`WHATSAPP_SERVICE_API_KEY`, isteğe bağlı; panel adresi kayıtlıysa yalnız panel
+> anahtarı kullanılır): `grep -c '^WHATSAPP_SERVICE_API_KEY=.' deploy/.env` → `1` ya da panelde anahtar kayıtlı. Servis tarafında
+> `REQUIRE_API_KEY` açılmadan **önce** Remote'a anahtar girilmiş olmalı (değer kasadan, ekrana basılmadan) → `docker compose up -d server`
+> → test mesajı yine başarılı. (3) Yedek imzası kurulumu §18.9.
 Paylaşımlı sunucu (`/opt` altında başka projeler; 80/443 başka serviste). Yalnız `remote` compose projesinin
 konteyner/ağ/volume'larına dokunulur; `docker system prune` / `docker builder prune` (filtresiz) **yasak**.
 - Konum: `/opt/remote` (main klonu), yığın `/opt/remote/deploy`. Ağlar `remote_edge` (172.30.0.0/24; Docker 29
@@ -724,7 +740,7 @@ siler (dağıtılmış firma dosyaları 404 olur). Seed'in eklediği aydınlatma
 Prova: dba 2026-11-12 geçici DB'de guard + temiz geri alma + yeniden migrate denedi (`docs/db-notlari.md` P8b-1).
 
 ### 12.3 WhatsApp servisi — K13 prod ön koşulu
-- Staging: `WHATSAPP_SERVICE_URL` boş (varsayılan `http://89.252.189.211:3000`, kimliksiz, internete açık). Mesajda kişisel veri yok (§13.5 şablonu).
+- Staging: adres panel kaydından ya da `deploy/.env` `WHATSAPP_SERVICE_URL`'den gelir (P13b'den beri yerleşik varsayılan yok; değer runbook'a yazılmaz; servis kimliksizdir, G-P13b-2/K13). Mesajda kişisel veri yok (§13.5 şablonu).
 - **Prod açılışından önce (P13 kontrol listesi):** servis TLS arkasında (`https://…`) **veya** özel ağda; servis host güvenlik duvarında 3000 yalnız Remote sunucusunun çıkış IP'sine açık. Adres Super Admin → Sistem ayarları → WhatsApp servisi'nden girilir (P12b, §17; env yalnız yedek). Doğrulama: başka bir dış makineden `curl -m 5 http://<servis>:3000/` zaman aşımı; Super Admin → Sistem ayarları → WhatsApp servisi → "Test Mesajı Gönder" başarılı (tenant tarafında Ayarlar > Destek talepleri > "Test Mesajı Gönder" de aynı etkin adresi kullanır). Aksi halde server kanalı zaten kapalı başlatır (log `alarm:"whatsapp_insecure"`, ayar ekranında uyarı) — bu bir arıza değil, ön koşul eksikliğidir.
 - Servis API anahtarı desteği "Sonra" (servis destekleyince env eklenir).
 
@@ -982,12 +998,11 @@ Tekrarlıyorsa sunucu logunda `err` incelenir.
 - **Admin 2FA kaybı:** aynı firmadaki başka Admin Kullanıcılar → kullanıcı → "2FA'yı sıfırla" (`POST /users/:id/reset-mfa`).
 - **Super Admin 2FA/şifre kaybı (SMTP yok — koordinatör kararı 1):** Super Admin'in firması olmadığı için sıfırlama/kilit
   e-postası gönderilmez (istek yine 202, audit `auth.password_reset_requested fail{reason:no_smtp}`). Kurtarma sunucuda,
-  DB üzerinden (audit dışı işlem olduğundan kim/ne zaman ayrıca kayda geçirilir):
-  `UPDATE users SET totp_enabled=0, totp_secret_enc=NULL, totp_last_step=NULL WHERE email='<sa>' AND role='SUPER_ADMIN';`
-  `DELETE FROM recovery_codes WHERE user_id=(SELECT id FROM users WHERE email='<sa>');`. Ardından Super Admin girişte
-  2FA'yı yeniden kurar. **Şifre kaybı** için hazır araç yoktur (seed var olan hesabın şifresini ezmez); sunucu tarafı
-  şifre sıfırlama aracı `docs/gereksinimler-sonra-acik.md` "P10'dan" listesindedir. Bu nedenle Super Admin şifresi ve
-  kurtarma kodları parola kasasında tutulur.
+  **`reset-superadmin` CLI** ile yapılır (P13b; eski elle SQL yöntemi **kullanılmaz**): komutlar, çıktı ve çıkış kodları §20.6.
+  Özet: `cd /opt/remote/deploy && docker compose exec server node src/cli/reset-superadmin.ts --email <e-posta> [--reset-mfa]`
+  (`-T` verilmez; TTY şart). Geçici parola **yalnız terminale, bir kez** yazılır ve **24 saat** geçerlidir; Super Admin ilk
+  girişte değiştirir, `--reset-mfa` verildiyse 2FA'yı yeniden kurar. İşlem audit'e `auth.superadmin_reset` olarak yazılır
+  (parola yok). Super Admin şifresi ve kurtarma kodları yine parola kasasında tutulur.
 - **Prod açılış kontrol listesi (P10 ön koşulları):**
   1. `APP_ENCRYPTION_KEYS` üretildi: `echo "v1:$(openssl rand -base64 32)"` çıktısı `deploy/.env`'e yazıldı (ekrana/loga
      kopyalanmadan; dosya `chmod 600`).
@@ -1302,7 +1317,7 @@ Migration `20261114090000_whatsapp_service_setting` (**yalnız CHECK**: `system_
 Yeni env, volume, Caddy/nginx değişikliği **yok**. `WHATSAPP_SERVICE_URL` artık yalnız yedek (§3 satırı).
 
 ### 17.1 Etkin adres ve değişiklik yolu
-- Öncelik: **panel kaydı** (`system_settings.whatsapp.value_json.url` dolu) **> `WHATSAPP_SERVICE_URL` > varsayılan** `http://89.252.189.211:3000`.
+- Öncelik: **panel kaydı** (`system_settings.whatsapp.value_json.url` dolu) **> `WHATSAPP_SERVICE_URL`**; P13b'den beri yerleşik varsayılan yok (ikisi de boşsa kanal kapalı, G-P13b-2).
 - Değiştirme: Super Admin → Sistem ayarları → **WhatsApp servisi** → Servis URL'si → Kaydet. Yeniden başlatma gerekmez;
   kayıttan sonraki ilk bildirim ve test yeni adrese gider. Kayıt + audit `settings.whatsapp.updated` (eski → yeni) tek TX.
 - Env'e dönüş: aynı ekranda **"Ortam değişkenine dön"** (onaylı; audit `settings.whatsapp.deleted`). Satır silinmez,
@@ -1438,7 +1453,8 @@ Ayda bir ve her anahtar/betik değişikliğinden sonra. İki yol:
 ```bash
 R=$(ssh root@185.126.217.99 'ls -1 /var/backups/remote | grep Z$ | tail -1')
 scp -r root@185.126.217.99:/var/backups/remote/$R ./backup-$R
-deploy/backup/restore.sh --identity ~/guvenli/remote-backup-age.key --work-dir ~/guvenli/tmp ./backup-$R   # restore-verify: OK
+deploy/backup/restore.sh --identity ~/guvenli/remote-backup-age.key --allowed-signers ~/guvenli/remote-allowed_signers \
+  --work-dir ~/guvenli/tmp ./backup-$R      # ilk satır "CHECK OK manifest imzası SHA256:…", son satır restore-verify: OK
 # macOS'ta /dev/shm yok → çözülmüş veri için --work-dir zorunlu: FileVault açık diskte, yalnız sizin okuyabildiğiniz dizin
 rm -rf ./backup-$R
 ```
@@ -1448,6 +1464,7 @@ rm -rf ./backup-$R
 ssh root@185.126.217.99 'umask 077; cat > /dev/shm/rb.key' < ~/guvenli/remote-backup-age.key
 ssh root@185.126.217.99 'cd /opt/remote/deploy/backup && R=$(ls -1 /var/backups/remote | grep Z$ | tail -1) \
   && ./restore.sh --identity /dev/shm/rb.key /var/backups/remote/$R; rc=$?; shred -u /dev/shm/rb.key; exit $rc'
+# --allowed-signers verilmezse /etc/remote-backup/allowed_signers kullanılır (§18.9)
 ssh root@185.126.217.99 'ls /dev/shm/rb.key 2>&1'      # "No such file" olmalı
 ```
 Çıktı: `CHECK OK/FAIL` satırları, `restore-sure: toplam Ns (çözme, MySQL açılış, yükleme, doğrulama)` ve `restore-verify: OK`.
@@ -1466,7 +1483,7 @@ komutu yasağı ve hesap/yetki/rutin karşılaştırması kurcalanmış döküm�
 bilinen dökümlerde yanlış pozitif yoktur (tırnak içinde `\!`, `\.`, `system` geçen gerçek audit verisiyle denendi). Yorum
 satırları da ihtiyatla taranır: elle düzenlenmiş, yorumunda ters bölü olan bir döküm işaretlenebilir (beklenen; elle düzenlenmiş
 döküm zaten geri yüklenmemeli). Tablo **içeriği** bugün satır sayısıyla karşılaştırılır; `CHECKSUM TABLE` ile tam içerik
-karşılaştırması P13b'dedir. **Site dışı yedek (P13b)
+karşılaştırması P13b'dedir. **(P13b'de uygulandı → §18.9: imza, migrator ile yükleme, CHECKSUM.)** Tarihsel not — **Site dışı yedek (P13b)
 devreye girmeden önce manifest imzası zorunludur:** `backup.sh` manifesti imzalar (ör. `ssh-keygen -Y sign` veya minisign;
 imza anahtarı yalnız yedek sunucusunda, doğrulama açık anahtarı yönetici tarafında), `restore.sh` imzayı doğrulamadan çözmeye
 geçmez. Ayrıca yüklemenin root yerine `migrator` ile yapılması dba ile değerlendirilecek. Site dışı eşitlemede `.partial-*` ve
@@ -1491,9 +1508,10 @@ cd /opt/remote/deploy/backup && R=<geri dönülecek run, ör. 20261120T230000Z>
 ./restore.sh --identity /dev/shm/rb.key --target staging --confirm remote@develop /var/backups/remote/$R; rc=$?
 shred -u /dev/shm/rb.key; echo rc=$rc
 ```
-**Ortam kilidi (S-P13a-6):** `--confirm <veritabanı>@<hostname -s>` — staging'de **`remote@develop`**; compose projesi
-`remote` olmalı (başka adlıysa `RESTORE_EXPECT_PROJECT`). Eşleşmezse hiçbir şeye dokunmadan durur. `--target production` yoktur
-(P13b'de ayrı bayrak + ayrı onay).
+**Ortam kilidi (S-P13a-6 + P13b):** `--confirm <veritabanı>@<hostname -s>` — staging'de **`remote@develop`**; compose projesi
+`remote` olmalı (başka adlıysa `RESTORE_EXPECT_PROJECT`); `deploy/.env` `DEPLOY_ENV` = `--target` = manifest `env`. Eşleşmezse
+hiçbir şeye dokunmadan durur. Prod hedefi: §18.9/6. **P13b'den beri sıra değişti (§18.9/5):** DB root ile değil migrator ile
+boşaltılır ve yüklenir, CHECKSUM canlı = scratch, ardından audit taban çizgisi sıfırlanır.
 Betik sırası: scratch doğrulaması (FAIL → canlıya **dokunmaz**) → güncel durumun yedeği (`backup.sh`; DB tamamen bozuksa ve
 yedek alınamıyorsa bilinçli olarak `--no-pre-backup`) → `docker compose stop web server` → DB root ile `DROP`/`CREATE` (mevcut
 karakter seti korunur) + döküm → `uploads` volume'u boşaltılıp arşiv açılır (sahiplik/izin korunur) → aynı doğrulama canlıda →
@@ -1569,7 +1587,150 @@ docker compose run --rm migrate pnpm --filter @remote/server exec prisma db exec
    root ile `DROP USER 'backup'@'localhost'` (yedek alınamaz hale gelir).
 4. Yeniden ileri: yeni `IMAGE_TAG` → `docker compose up -d` (migration yeniden uygulanır).
 
-## 19. Senaryo dizini (AC-92 + P13a)
+### 18.9 P13b — imza, ortam kilidi, audit süreklilik, site dışı kanca, `status.prom` (devops, 2026-11-15; ADR-0020)
+Tasarım: `docs/mimari-p13.md` §7.6; SQL arayüzü `deploy/mysql/{restore-sec-snapshot,restore-reset-db,checksum-tables,audit-continuity,audit-baseline-reset}.sql`
+(`docs/db-notlari.md` "P13b"). Değişiklik özeti:
+
+| Konu | P13b davranışı |
+|---|---|
+| Manifest | `format: 2`; yeni alanlar `env` (`deploy/.env` `DEPLOY_ENV`), `host` (`hostname -s`), `signer` (imza anahtarı SHA256), `seq` (monoton sıra) + `prevRun`, `audit` (audit-continuity.sql çıktısı), `auditContinuity {result, detail, comparedWith}` |
+| İmza | `ssh-keygen -Y sign -n remote-backup` → `manifest.json.sig` (600). Anahtar `/etc/remote-backup/manifest_ed25519` (root 600; değilse `FAILED adım=imza`) |
+| Doğrulama | `restore.sh` **ilk iş** imzayı `--allowed-signers` ile doğrular (`-Overify-time=<createdUtc>`; OpenSSH ≥ 8.9). Geçmezse sha256/çözme/yükleme yok: `restore-verify: FAIL (imza)`. Atlama seçeneği **yok**. P13a (imzasız, format 1) yedekler yeni betikle açılmaz (14 günde rotasyonla düşer; zorunlu olursa `git show a0265be:deploy/backup/restore.sh`) |
+| Tazelik (G-P13b-8) | Dizin adı run biçimindeyse `= manifest.run` (eski yedeğin yeni ada kopyası reddedilir); yaş + sıra yazılır; aynı dizinde daha yeni yedek varsa `UYARI` |
+| Ortam kilidi | `--target staging\|production` → `deploy/.env DEPLOY_ENV` = hedef = manifest `env`, `--confirm <db>@<hostname -s>`, root, compose projesi `remote`. production ek: manifest `host` = bu sunucu, TTY'de `PRODUCTION-<host>`; yedek > 48 sa ya da daha yenisi varsa ayrıca `ESKI-<run>`. Hepsi **çözmeden önce** |
+| Yükleme | scratch'te `deploy/mysql/init` (app + migrator) → **migrator** ile `--system-command=OFF --local-infile=0`; root yalnız salt okunur `restore-sec-snapshot.sql` (yüklemeden önce `anon=0`, `migratorExtra=0` şart; önce = sonra) |
+| Canlı sıra | scratch OK → ön yedek → `stop web server` → anlık görüntü → `restore-reset-db.sql` (migrator, DROP/CREATE) → migrator ile yükleme → anlık görüntü eşit → uploads → `CHECKSUM` canlı = scratch (farkta yalnız tablo adı) → satır/tetikleyici = manifest → `backup.sh --reset-audit-baseline "restore <run> sonrasi …"` (SQL + host işareti) → `up -d` → `/ready` 200 |
+| Audit süreklilik | Önceki imzası geçerli ve sonucu FAILED olmayan manifestle karşılaştırılır: `ilk` (önceki yok / format ≠ 2 / instanceId, env, host, DB farklı), `ok`, `taban-cizgisi-sifirlandi` (önceki ölçümden **sonra** yazılmış sıfırlama kaydı **ve** onunla aynı id'li host işareti `$BACKUP_DIR/audit-baseline-reset.json` (root 600); işaret imzalı manifeste `auditContinuity.baselineMarker` olarak girer ve silinir; uyarı + alarm, rc 0), `FAILED taban-cizgisi-isaretsiz` (DB'de sıfırlama satırı var ama işaret yok / id farklı / izin yanlış — ör. elle SQL ya da app ile yazılmış), `FAILED …` (maxId azaldı, geçmiş bir günün `{n,h}`'si değişti, `prevTail` ≠ önceki `tail`, özet kesildi, sıfırlama kaydı kayboldu — ör. TRUNCATE). FAILED'da yedek **yine yayımlanır ve imzalanır** (kanıt) ama rc 1 → alarm; taban çizgisi sıfırlanana kadar her gün tekrar eder. `triggers.ok=false` → `FAILED adım=tetikleyici` (yedek yok) |
+| Kanca | `BACKUP_OFFSITE_CMD` tanımsız → `OFFSITE-UNCONFIGURED (uyarı)`. Tanımlıysa `remote-offsite` kullanıcısı olarak (`setpriv`, `env -i`, cwd `/`), yalnız o çalıştırmanın dizinini okuyarak, süre `min(BACKUP_OFFSITE_TIMEOUT_SEC, birim bütçesi − 10 dk)`; `OFFSITE OK run=… sure=…s` / `OFFSITE-FAILED run=… rc=<n>` + `BACKUP_ALERT_CMD`; **birim yine başarılı**. Komut metni loga yazılmaz; metinde sır (Telegram bot token'ı, `x-api-key:`, `Authorization: Bearer`) varsa çalıştırılmaz (rc 126) |
+| Durum | `/var/lib/remote-backup/status.prom` (644, atomik, sır yok), her çıkışta: `remote_backup_last_success_timestamp_seconds`, `remote_backup_last_run_ok`, `remote_backup_offsite_configured`, `remote_backup_offsite_last_success_timestamp_seconds`, `remote_backup_offsite_last_rc`, `remote_backup_audit_continuity_ok`. `remote-watch` (§20.4) okur |
+| Birim | `TimeoutStartSec=2h` (backup.env `BACKUP_UNIT_TIMEOUT_SEC` ile aynı, sn) |
+
+**1. Kurulum / yükseltme (root; staging P13b yayını ve prod terfisi aynı)**
+```bash
+apt-get install -y age jq openssh-client util-linux      # ssh -V → OpenSSH_9.6 (≥ 8.9); setpriv util-linux içinde
+ssh -V 2>&1 | head -1                                    # "OpenSSH_9.6p1 Ubuntu…"
+cd /opt/remote/deploy
+grep -q '^DEPLOY_ENV=' .env || echo 'DEPLOY_ENV=staging' >> .env     # prod terfisinde: production (§20.2/5)
+grep '^DEPLOY_ENV=' .env                                 # DEPLOY_ENV=staging
+# İmza anahtarı (sunucuda üretilir, sunucudan çıkmaz; parolasız çünkü systemd çalıştırır)
+install -d -m 755 /etc/remote-backup
+ssh-keygen -q -t ed25519 -N '' -C "remote-backup@$(hostname -s)" -f /etc/remote-backup/manifest_ed25519
+chmod 600 /etc/remote-backup/manifest_ed25519 && stat -c '%U %a' /etc/remote-backup/manifest_ed25519   # root 600
+printf 'remote-backup@%s namespaces="remote-backup" %s\n' "$(hostname -s)" "$(cut -d' ' -f1,2 /etc/remote-backup/manifest_ed25519.pub)" \
+  > /etc/remote-backup/allowed_signers && chmod 644 /etc/remote-backup/allowed_signers
+cat /etc/remote-backup/allowed_signers   # tek satır: remote-backup@develop namespaces="remote-backup" ssh-ed25519 AAAA…
+```
+`allowed_signers` satırı **açık** anahtardır (sır değil); parola kasasına "Remote — yedek imza doğrulama (allowed_signers, <ortam>)"
+olarak konur ve iş istasyonundaki provada (§18.4 A) `--allowed-signers` ile verilir. Özel anahtar sunucudan çıkmaz, kasaya da konmaz
+(kaybolursa yeni çift üretilir, aşağıdaki rotasyon).
+```bash
+# Site dışı kanca kullanıcısı (kanca tanımlı olmasa da önceden kurulur)
+id remote-offsite 2>/dev/null || useradd --system --home-dir /var/lib/remote-offsite --create-home --shell /usr/sbin/nologin remote-offsite
+id remote-offsite                       # uid=9xx(remote-offsite) gid=9xx(remote-offsite) — uid/gid ≠ 0
+stat -c '%a %U' /var/backups            # 755 root  (kanca kullanıcısı geçebilmeli; değilse OFFSITE-FAILED rc=126)
+# Birimler (TimeoutStartSec=2h)
+cd /opt/remote/deploy/backup && install -m 644 remote-backup.service remote-backup-failed.service remote-backup.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl show -p TimeoutStartUSec remote-backup.service    # TimeoutStartUSec=2h
+# backup.env: yeni anahtarlar isteğe bağlı (boş = varsayılan): BACKUP_SIGNING_KEY, BACKUP_OFFSITE_CMD, BACKUP_OFFSITE_USER,
+# BACKUP_OFFSITE_TIMEOUT_SEC (1800), BACKUP_UNIT_TIMEOUT_SEC (7200), BACKUP_STATUS_FILE. Açıklamalar backup.env.example'da.
+stat -c '%U %a' backup.env              # root 600
+```
+**2. İlk imzalı yedek ve kontrol**
+```bash
+systemctl start remote-backup.service
+journalctl -u remote-backup.service -n 30 --no-pager | grep -E 'audit-sureklilik|OFFSITE|remote-backup: (OK|FAILED)'
+#   … audit-sureklilik: ilk            (P13a manifestleri imzasız/format 1 → "ilk"; beklenen)
+#   … OFFSITE-UNCONFIGURED (uyarı: site dışı kopya yok)
+#   … remote-backup: OK run=<run> …
+R=$(ls -1 /var/backups/remote | grep 'Z$' | tail -1); ls -l /var/backups/remote/$R     # 4 dosya, hepsi -rw------- (… manifest.json.sig)
+jq '{run, seq, env, host, signer, auditContinuity}' /var/backups/remote/$R/manifest.json
+ssh-keygen -Y verify -f /etc/remote-backup/allowed_signers -I "remote-backup@$(hostname -s)" -n remote-backup \
+  -s /var/backups/remote/$R/manifest.json.sig < /var/backups/remote/$R/manifest.json
+#   Good "remote-backup" signature for remote-backup@develop with ED25519 key SHA256:…
+grep -v '^#' /var/lib/remote-backup/status.prom
+#   remote_backup_last_run_ok 1 · remote_backup_offsite_configured 0 · remote_backup_audit_continuity_ok 1 · last_success = şimdi
+```
+Ertesi yedekte `audit-sureklilik: ok (karşılaştırılan: <önceki run>)` beklenir.
+
+**3. Prova (imzalı) ve olumsuz test** — §18.4 A/B, `--allowed-signers` ile → `restore-verify: OK`. Olumsuz (iş istasyonunda):
+```bash
+cp -r ./backup-$R ./neg && printf ' ' >> ./neg/manifest.json
+deploy/backup/restore.sh --identity ~/guvenli/remote-backup-age.key --allowed-signers ~/guvenli/remote-allowed_signers --work-dir ~/guvenli/tmp ./neg
+#   … manifest imzası doğrulanamadı … — çözme ve yükleme YAPILMADI
+#   restore-verify: FAIL (imza)        (rc 1; "sha256" ya da "düz" satırı YOK)
+rm -rf ./neg
+```
+
+**4. Site dışı kanca (hedef belli olunca; ADR-0020 m.4)** — hedef şartları: kimlik yalnız yazabilir, üzerine yazma ve yeniden
+adlandırma yok, saklama 14 + 1 gün, yurt içi tercih. Hedef kimliği **`remote-offsite` kullanıcısının** 600 dosyasında
+(ör. `/var/lib/remote-offsite/.config/rclone/rclone.conf`, sahibi remote-offsite) durur; `BACKUP_OFFSITE_CMD` metninde sır olmaz.
+Kanca yalnız `PATH`, `HOME` ve `REMOTE_BACKUP_RUN_DIR`, `REMOTE_BACKUP_RUN`, `REMOTE_BACKUP_DIR`, `REMOTE_BACKUP_HOST`,
+`REMOTE_BACKUP_ENV` değişkenlerini görür; imza anahtarı, `deploy/.env`, `backup.env` ve diğer çalıştırmalar ona kapalıdır.
+Örnek (backup.env): `BACKUP_OFFSITE_CMD=rclone copy --immutable "$REMOTE_BACKUP_RUN_DIR" "offsite:remote-backup/$REMOTE_BACKUP_ENV/$REMOTE_BACKUP_RUN"`.
+```bash
+# Elle deneme (kancanın kullanıcısıyla; komut çalışır mı)
+sudo -u remote-offsite -H rclone lsd offsite:          # hedef listelenir (yetki yalnız yazma ise "permission denied" de kabul)
+systemctl start remote-backup.service; journalctl -u remote-backup.service -n 20 --no-pager | grep OFFSITE
+#   remote-backup: OFFSITE OK run=<run> sure=<n>s
+grep -E '^remote_backup_offsite_(configured|last_rc)' /var/lib/remote-backup/status.prom    # configured 1, last_rc 0
+# Alarm yolu testi (gerçek hedefe dokunmaz; bir yedek daha üretir):
+BACKUP_OFFSITE_CMD='exit 3' /opt/remote/deploy/backup/backup.sh 2>&1 | grep -E 'OFFSITE|remote-backup: OK'
+#   remote-backup: OFFSITE-FAILED run=<run> rc=3 … + BACKUP_ALERT_CMD mesajı geldi; ardından "remote-backup: OK" (rc 0)
+```
+
+**5. Audit taban çizgisini sıfırlama** (yalnız: incelenip meşru bulunan bir `audit-sureklilik` FAILED'ından sonra; geri
+yüklemeden sonra `restore.sh` kendisi yapar). **Tek yol `backup.sh --reset-audit-baseline`** (S-P13b-1): komut
+`audit-baseline-reset.sql`'i migrator ile çalıştırır ve dönen id ile host işareti `$BACKUP_DIR/audit-baseline-reset.json`
+(root 600) yazar. **`audit-baseline-reset.sql`'i elle çalıştırmak artık yetmez:** işaretsiz sıfırlama satırı bir sonraki yedeği
+`FAILED taban-cizgisi-isaretsiz` yapar. Gerekçe 10–200 karakter, kişisel veri/sır yok, `'` ve `\` yok:
+```bash
+sudo /opt/remote/deploy/backup/backup.sh --reset-audit-baseline "<olay no / kısa gerekçe>"
+#   audit-baseline-reset: OK id=<n> isaret=/var/backups/remote/audit-baseline-reset.json     (guard ihlali → 3819, hiçbir şey yazılmaz)
+stat -c '%U %a' /var/backups/remote/audit-baseline-reset.json                                 # root 600
+systemctl start remote-backup.service; journalctl -u remote-backup.service -n 20 --no-pager | grep audit-sureklilik
+#   audit-sureklilik: taban-cizgisi-sifirlandi id=<n> zaman=… (uyarı) + BACKUP_ALERT_CMD uyarısı; rc 0. İşaret dosyası silinir
+#   (manifestte auditContinuity.baselineMarker). Sonraki yedek: ok
+```
+Sıfırlama Audit ekranında "Yedek audit taban çizgisi sıfırlandı" olarak görünür; gizli sıfırlama yoktur.
+
+**6. Prod hedefi (`--target production`)** — yalnız prod sunucusunda, **etkileşimli** ssh oturumunda (`ssh -t`), root:
+```bash
+cd /opt/remote/deploy/backup && R=<run>
+./restore.sh --identity /dev/shm/rb.key --target production --confirm remote@$(hostname -s) /var/backups/remote/$R; rc=$?
+shred -u /dev/shm/rb.key; echo rc=$rc
+#   PRODUCTION geri yüklemesi: remote@develop, yedek <run> (yaş N sa). Onay için PRODUCTION-develop yazın: PRODUCTION-develop
+#   (yaş > 48 sa ya da daha yeni yedek varsa) … Bilerek yüklemek için ESKI-<run> yazın: ESKI-<run>
+#   … restore-reset: OK remote utf8mb4 utf8mb4_unicode_ci · CHECK OK CHECKSUM canlı = scratch 19 tablo eşit ·
+#   audit-baseline-reset: OK id=<n> · CHECK OK /ready 200 · restore-sure: production kesintisi Ns · restore-verify: OK
+```
+Ret durumları (hepsi çözmeden önce, `restore-verify: FAIL (ret)`): `DEPLOY_ENV` ≠ production, yedek `env=staging`, yedek başka
+host'tan, `--confirm` yanlış, TTY yok (`ssh` `-t`'siz / cron), onay metni yanlış.
+
+**7. İmza anahtarı rotasyonu / sızıntı (S-P13b-5)** — doğrulama `-Overify-time=<manifest.createdUtc>` ile yapılır, yani
+anahtarın geçerliliği manifestin **imzalı** oluşturulma anına göre değerlendirilir. İki durum farklıdır:
+- **Planlı rotasyon:** yeni çift üretilir (1. adımdaki komut; eski dosya önce `manifest_ed25519.old`'a taşınır), `allowed_signers`'a
+  yeni satır eklenir, eski satırın başına `valid-before="<rotasyon anı, YYYYMMDDHHMMSS>Z"` yazılır → rotasyondan önce imzalanmış
+  14 günlük yedekler doğrulanmaya devam eder. Eski satır 15 gün sonra silinir; eski özel anahtar `shred -u`.
+- **Sızıntı / sızma şüphesi:** sızan anahtarla geriye tarihli `createdUtc` yazılarak imzalanmış sahte bir manifest
+  `valid-before` sınırını geçebilir. Bu yüzden eski satır sunucudaki ve kasadaki çalışma kopyasından **kaldırılır** (yalnız
+  `valid-before` koymak yetmez). Sızma öncesi bir yedek gerekirse yalnız kasadaki **ayrı, eski** `allowed_signers` kopyasıyla,
+  manifestin `createdUtc`/`seq` değerleri sızma anından önceki kesin güvenli pencereyle elle karşılaştırılarak yüklenir; production'da
+  48 saatten eski yedek için istenen `ESKI-<run>` onayı ikinci engeldir. Ardından yeni çift + yedek + prova; olay kaydı.
+Her iki durumda kasadaki `allowed_signers` kopyası aynı gün güncellenir.
+
+**8. Yedek testi (yerel; betik/SQL değişikliğinden sonra zorunlu):** iş istasyonunda repo kökünde, Docker çalışırken
+`deploy/backup/test-backup.sh` (yardımcı alpine konteyner + docker.sock, dind yok; benzersiz compose projesi `rstb…`, ~2,5 dk;
+çıkışta compose `down -v`, yardımcı ve volume'lar silinir) → son satır **`SONUÇ: GEÇTİ (55 PASS)`**. Kalıntı kontrolü:
+`docker ps -a --format '{{.Names}}' | grep -c rstb` → 0. İlgili diğer testler: `deploy/ops/test-proxy-guard.sh` (34 PASS),
+`deploy/ops/test-watch.sh` (49 PASS). Sunucuda çalıştırılmaz.
+
+**Önceki test kaydı (yerel, 2026-11-15, T1):** 49/49 PASS (`docs/implementation.md` "P13b — devops T1"): meşru yedek → imza → scratch
+`restore-verify: OK` (7 sn) ve canlı taklidi (kesinti 7 sn, CHECKSUM 19 tablo); imzasız / değiştirilmiş / bozuk / yabancı
+imza → `FAIL (imza)` (çözme yok); replay; yanlış `DEPLOY_ENV`, `env=staging` → production, TTY yok → ret; tek DELETE, TRUNCATE →
+`FAILED adım=audit-sureklilik`; tetikleyici DROP → `FAILED adım=tetikleyici`; kanca `exit 7` → `OFFSITE-FAILED` + alarm, birim OK.
+Sunucuda prova kaydı §18.4 tablosuna eklenir.
+
+## 19. Senaryo dizini (AC-92 + P13a + P13b)
 Her senaryo: **belirti → komut → doğrulama → geri dönüş**. Komutlar `/opt/remote/deploy` içinde, root. Ayrıntı bağlantılı bölümde.
 
 ### 19.1 Servis düştü (site açılmıyor / 502 / agent-watch "sunucu erişilemez")
@@ -1661,5 +1822,366 @@ migration SQL'iyle migrator olarak yeniden kurulur), `önkoşul` + "backup.env g
 `meta`/`mysqldump` (`Access denied` → §18.7/3–4 backup kullanıcısı; parola
   `.env` ile mysql konteyneri arasında farklıysa `docker compose up -d mysql` + backup-user.sql), `döküm-doğrula` (boş/bozuk/tetikleyici
   sayısı farkı → dba), `uploads-arşiv`, `şifrele`, disk (§19.9).
+  P13b adımları: `önkoşul` + "DEPLOY_ENV" (`deploy/.env`'e `DEPLOY_ENV=` ekleyin, §18.9/1), `imza` (anahtar yok/izin ≠ 600:
+  `stat -c '%U %a' /etc/remote-backup/manifest_ed25519` → `root 600`), `audit-sureklilik` (§19.12), "önceki yedeğin manifest
+  imzası geçersiz" (yerel yedek dizini kurcalanmış: **güvenlik olayı**, dizine dokunmadan inceleyin, §19.12 adımları).
 - **Doğrulama:** `systemctl reset-failed remote-backup.service && systemctl start remote-backup.service` → journal `remote-backup: OK`.
   Aynı gün içinde başarılı bir yedek olmalı (RPO ≤ 24 sa).
+
+### 19.11 Site dışı kanca başarısız (`OFFSITE-FAILED`)
+- **Belirti:** journal `remote-backup: OFFSITE-FAILED run=<run> rc=<n>` + `BACKUP_ALERT_CMD` mesajı; `status.prom`
+  `remote_backup_offsite_last_rc` ≠ 0; `remote-watch` site dışı kontrolü (son başarı > 26 sa). **Yerel yedek tamamdır** (birim OK).
+- **Komut:** `journalctl -u remote-backup.service --since -26h --no-pager | grep -E 'OFFSITE|HATA'`. rc anlamı:
+  `124`/`137` süre aşımı (TERM / 60 sn sonra KILL; `BACKUP_OFFSITE_TIMEOUT_SEC`, ağ hızı), `126` kanca çalıştırılmadı
+  (`remote-offsite` yok ya da uid 0, `/var/backups` 755 değil, komut metninde sır, birim süre bütçesi bitti — ayrıntı aynı
+  dakikadaki `HATA:` satırında), `127` `setpriv` yok (`apt-get install -y util-linux`), diğerleri aracın kendi kodu
+  (kimlik süresi doldu, hedef dolu, ağ). Elle tekrar (aynı kısıtlarla; komutu backup.env'den alın, metni ekrana basmayın):
+```bash
+R=<run>; D=/var/backups/remote
+chgrp remote-offsite $D $D/$R $D/$R/*; chmod 710 $D; chmod 750 $D/$R; chmod 640 $D/$R/*
+CMD="$(awk -F= '$1=="BACKUP_OFFSITE_CMD"{sub(/^[^=]*=/,""); print}' /opt/remote/deploy/backup/backup.env)"
+(cd / && setpriv --reuid=remote-offsite --regid=remote-offsite --clear-groups --inh-caps=-all env -i PATH=/usr/bin:/bin \
+   HOME=/var/lib/remote-offsite REMOTE_BACKUP_RUN_DIR=$D/$R REMOTE_BACKUP_RUN=$R REMOTE_BACKUP_DIR=$D \
+   REMOTE_BACKUP_HOST="$(hostname -s)" REMOTE_BACKUP_ENV="$(awk -F= '$1=="DEPLOY_ENV"{print $2}' /opt/remote/deploy/.env)" sh -c "$CMD"); echo rc=$?
+chmod 600 $D/$R/*; chmod 700 $D/$R $D                  # izinleri geri al
+```
+- **Doğrulama:** `rc=0`; hedefte `<env>/<run>/` altında 4 dosya; sonraki zamanlanmış yedekte `OFFSITE OK`, `remote_backup_offsite_last_rc 0`.
+- **Geri dönüş:** kanca bozuk ve hemen düzelmiyorsa `BACKUP_OFFSITE_CMD=` boşaltılır (her yedekte `OFFSITE-UNCONFIGURED` uyarısı,
+  `remote-watch` 7 günde bir hatırlatır); yerel yedekler etkilenmez. Hedef kimliği değiştiyse yalnız `remote-offsite`'ın 600 dosyası güncellenir.
+
+### 19.12 Audit süreklilik alarmı (`FAILED adım=audit-sureklilik` / `taban-cizgisi-sifirlandi`)
+- **Belirti:** journal `audit-sureklilik: FAILED <neden>` (`maxId`, `gun=<YYYY-MM-DD,…>`, `tail=<gün>`, `ozet-kesildi`,
+  `taban-cizgisi-kaydi-kayboldu`, `taban-cizgisi-isaretsiz`), birim `failed` + alarm; `status.prom` `remote_backup_audit_continuity_ok 0`. Uyarı biçimi:
+  `audit-sureklilik: taban-cizgisi-sifirlandi id=<n> zaman=<at>` (rc 0, alarm mesajı). **FAILED = olası güvenlik olayı**: geçmiş
+  audit kaydı silinmiş/değiştirilmiş ya da tablo boşaltılmış olabilir (tetikleyicileri atlayabilen yalnız root/migrator).
+- **Komut:**
+  1. Karşılaştırmayı görün (kişisel veri yok, yalnız gün/sayı/özet):
+     `R=$(ls -1 /var/backups/remote | grep Z$ | tail -1); jq '.auditContinuity' /var/backups/remote/$R/manifest.json` →
+     `comparedWith` = son İYİ run. Değişen gün için iki manifesti karşılaştırın:
+     `jq --arg d <gün> '.audit.days[$d]' /var/backups/remote/{<comparedWith>,$R}/manifest.json` (n ve h).
+  2. Kim/ne zaman: Audit ekranı (o gün, `retention.run`, `backup.audit_baseline_reset`), `docker compose logs mysql --since 48h`,
+     `journalctl _COMM=sshd --since -3d`, `last -F | head`, `docker events --since 48h --until now --filter container=remote-mysql-1` (kısa tutun).
+     Sıfırlama kaydı gerçekten yapıldı mı: Audit ekranında "Yedek audit taban çizgisi sıfırlandı" kaydının operatörü ve gerekçesi.
+  3. Kanıt: FAILED run'ları ve `comparedWith` run'ı **silmeyin/taşımayın** (imzalı kanıt; rotasyon referansı korur). Gerekirse
+     iş istasyonunda iki run'ı scratch'e açıp (§18.4 A, `--keep`) ilgili günün satırlarını karşılaştırın (dba).
+  4. Karar: (a) meşru (ör. belgelenmiş elle düzeltme, saat sorunu) → §18.9/5 `backup.sh --reset-audit-baseline "<olay no>"` (elle SQL **değil**; işaretsiz sıfırlama FAILED üretir);
+     (b) yetkisiz değişiklik → olay müdahalesi: erişimleri kapatın, sırları döndürün (§20.2/5 komutları), gerekirse §19.7 ile
+     son İYİ yedeğe dönün; yönetim/KVKK bildirimi değerlendirilir.
+  - `taban-cizgisi-sifirlandi` uyarısı: beklenen bir geri yükleme ya da sizin yaptığınız sıfırlama değilse FAILED gibi ele alın (2–4).
+  - Meşru sıfırlamadan sonraki uyarıda (`taban-cizgisi-sifirlandi`) farklar yine hesaplanır ve ` fark-bilgi=<maxId;gun=…;tail=…>`
+    olarak journal'a, manifest `auditContinuity.detail`'e ve alarm metnine eklenir. **Yalnız bilgidir** (sonuç uyarı, rc 0): sıfırlama
+    öncesinde hangi günlerin değiştiğini gösterir; beklenmeyen gün varsa 2–4 adımlarıyla inceleyin.
+  - `--reset-audit-baseline` yedekle aynı kilidi (`$BACKUP_DIR/.lock`) kullanır: yedek ya da başka bir sıfırlama çalışırken
+    `başka bir yedek/sıfırlama çalışıyor` ile **reddedilir**, işaret yazılmaz → yedek bitince (`systemctl is-active remote-backup.service`
+    → `inactive`) yeniden çalıştırın.
+  - `FAILED taban-cizgisi-isaretsiz`: DB'ye sıfırlama satırı **host işareti olmadan** yazılmış (elle SQL ya da app ile) →
+    olay müdahalesi: Audit ekranında `backup.audit_baseline_reset` satırının kullanıcı/IP'si ve zamanı incelenir. Meşruysa
+    (ör. operatör eski yöntemle SQL çalıştırdı) `backup.sh --reset-audit-baseline "<gerekçe>"` yeniden çalıştırılır (§18.9/5).
+  - `FAILED adım=tetikleyici`: §19.10 (tetikleyici gövdesi beklenen özetle eşleşmiyor; yedek alınmadı).
+- **Doğrulama:** sıfırlamadan sonraki yedek `taban-cizgisi-sifirlandi` (uyarı), ondan sonraki `audit-sureklilik: ok`;
+  `remote_backup_audit_continuity_ok 1`; `remote-watch` "DUZELDI".
+- **Geri dönüş:** yanlış sıfırlama geri alınamaz (kayıt kalır); bir sonraki yedek yeni taban olur. Olay kaydına not düşülür.
+
+## 20. Prod (P13b; ADR-0019, `docs/mimari-p13.md` §7.2–7.13)
+Prod, staging yığınının `/opt/remote`'ta **yerinde terfisidir** (compose projesi `remote`, aynı VM `develop`). Terfi temiz kurulumdur:
+yeni volume'lar, yeni sırlar, `DEPLOY_ENV=production`, `CADDY_BIND=127.0.0.1`, yeni TURN secret, yeni age ve imza anahtarları.
+Erişim: `https://remote.noktabilisim.net` (host nginx → `127.0.0.1:4451`). 4450 yalnız loopback tanı içindir. Değerler ve sırlar
+bu dokümana yazılmaz; parola kasasında tutulur.
+
+### 20.1 Ön koşullar ve ağ talepleri
+Ön koşullar (§7.12): P13b staging'de yayında (sıra A); qa GEÇTİ, güvenlik Kritik/Yüksek 0; kullanıcı adımları U1–U3 tamam
+(repo public + gitleaks, Release onayı, prod age çifti ve kasa kayıtları, `ABUSE_EMAIL`, K13 kararı).
+
+**pfSense talebi (ağ yöneticisine, iki ayrı zamanda):**
+| # | Ne zaman | Kural | Doğrulama |
+|---|---|---|---|
+| P1 | Terfiden **önce** (dinleyeni olmayan port zararsız) | WAN 185.126.217.99 UDP **49160–49479** → 192.168.25.10 aynı portlar (1:1, port çevirisi yok); eski 49160–49199 kuralı bunun içinde kalır/silinir | Terfi sonrası `test-denied.sh` "0)" bölümü ve AC-23 ölçümü; dış makineden relay adayı 49200+ portta |
+| P2 | §20.3 kontrol listesi **imzalandıktan sonra** | WAN TCP **4450** NAT ve izin kuralı **kaldırılır** | Dış makineden `nc -vz -w 5 185.126.217.99 4450` → zaman aşımı |
+Değişmeyenler: 80/443 (nginx), 3478 UDP/TCP, 5349 TCP, 22.
+
+**UFW (sunucuda, root; terfi adımı 6'da):**
+```bash
+ufw delete allow 49160:49199/udp; ufw allow 49160:49479/udp; ufw delete allow 4450/tcp
+ufw status | grep -E '49160|4450'          # yalnız "49160:49479/udp ALLOW"; 4450 satırı yok
+```
+Not: Docker'ın yayımladığı portlar UFW'yi atlar; 4450'nin asıl kontrolü `CADDY_BIND=127.0.0.1`'dir (G-P13b-9):
+`ss -tlnp | grep ':4450 '` → yalnız `127.0.0.1:4450`.
+
+### 20.2 Açılış sırası (terfi, sıra B) — her adım: komut → beklenen
+Komutlar root, `/opt/remote/deploy` (aksi yazmadıkça). Sırlar ekrana yazılmaz; `set -x` kullanılmaz.
+
+**1. Duyuru:** staging test kullanıcılarına kapanış bildirimi (WhatsApp/e-posta; metinde adres/sır yok).
+
+**2. Son staging yedeği + doğrulama + staging imza anahtarının saklanması (G-P13b-9):**
+```bash
+systemctl start remote-backup.service; journalctl -u remote-backup.service -n 10 --no-pager | grep 'remote-backup: OK'
+R=$(ls -1 /var/backups/remote | grep Z$ | tail -1); jq -r '.env' /var/backups/remote/$R/manifest.json     # staging
+install -d -m 700 /var/backups/remote-staging-final && mv /var/backups/remote/$R /var/backups/remote-staging-final/$R   # dizin adı = run KALIR
+cp -p /etc/remote-backup/allowed_signers /root/allowed_signers.staging-final && chmod 644 /root/allowed_signers.staging-final
+```
+Ardından §18.4 B ile scratch doğrulaması (staging age anahtarı, `/var/backups/remote-staging-final/$R`,
+`--allowed-signers /root/allowed_signers.staging-final`) → `restore-verify: OK`. Kalan staging run'ları (test verisi) silinir:
+`rm -rf /var/backups/remote/2*Z` → `ls /var/backups/remote` boş. Staging-final dizini ve `allowed_signers.staging-final` **14 gün**
+sonra silinir (takvime yazın).
+
+**3. Geri dönüş için `.env`:**
+```bash
+TS=$(date -u +%Y%m%dT%H%M%SZ); cp -p .env /root/.env.staging-final.$TS && chmod 600 /root/.env.staging-final.$TS
+grep -c '^DEPLOY_ENV=staging$' /root/.env.staging-final.$TS      # 1 (yoksa önce ekleyin; geri dönüşte restore aksi hâlde reddeder)
+```
+14 gün sonra `shred -u /root/.env.staging-final.*`.
+
+**4. İmajları hazırla, yığını indir, yalnız remote volume'larını sil:**
+```bash
+git -C /opt/remote log -1 --oneline                  # terfi edilecek commit
+TAG=$(git -C /opt/remote rev-parse --short HEAD) && sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$TAG/" .env && docker compose build
+docker compose down
+docker volume rm remote_mysql_data remote_uploads remote_caddy_data remote_caddy_config remote_agent_downloads
+docker volume ls -q | grep '^remote_'                # boş
+```
+Başka projelerin volume/konteynerine dokunulmaz; `docker volume prune` / `system prune` **yasak**.
+
+**5. Yeni `deploy/.env` (yeni sırlar, prod değerleri; §7.9).** Sır olmayan değerler staging-final'den gelir, bütün sırlar yeniden üretilir:
+```bash
+umask 077 && cp -p /root/.env.staging-final.$TS .env.new
+kv() { if grep -q "^$1=" .env.new; then sed -i "s|^$1=.*|$1=$2|" .env.new; else printf '%s=%s\n' "$1" "$2" >> .env.new; fi; }
+for k in MYSQL_ROOT_PASSWORD MYSQL_APP_PASSWORD MYSQL_MIGRATOR_PASSWORD MYSQL_BACKUP_PASSWORD METRICS_TOKEN; do kv "$k" "$(openssl rand -hex 24)"; done
+kv SESSION_REF_KEY "$(openssl rand -base64 48 | tr -d '\n')"
+kv EDGE_PROXY_SECRET "$(openssl rand -base64 32)"
+kv APP_ENCRYPTION_KEYS "v1:$(openssl rand -base64 32)"
+kv TURN_SECRET "$(openssl rand -hex 32)"; kv TURN_SECRET_PREVIOUS ""
+kv SEED_SUPERADMIN_PASSWORD "$(openssl rand -hex 12)"
+DB=$(awk -F= '$1=="MYSQL_DATABASE"{print $2}' .env.new)
+kv DATABASE_URL "mysql://app:$(awk -F= '$1=="MYSQL_APP_PASSWORD"{print $2}' .env.new)@mysql:3306/$DB?allowPublicKeyRetrieval=true"
+kv MIGRATE_DATABASE_URL "mysql://migrator:$(awk -F= '$1=="MYSQL_MIGRATOR_PASSWORD"{print $2}' .env.new)@mysql:3306/$DB"
+kv DEPLOY_ENV production; kv NODE_ENV production; kv CADDY_BIND 127.0.0.1
+kv PUBLIC_BASE_URL https://remote.noktabilisim.net; kv ALLOWED_ORIGINS https://remote.noktabilisim.net
+kv TURN_URLS 'stun:remote.noktabilisim.net:3478,turn:remote.noktabilisim.net:3478?transport=udp,turn:remote.noktabilisim.net:3478?transport=tcp,turns:remote.noktabilisim.net:5349?transport=tcp'
+kv MIN_AGENT_VERSION ""                               # adım 10'da doldurulur
+# SEED_SUPERADMIN_EMAIL, ABUSE_EMAIL (K-P13b-3), WHATSAPP_SERVICE_URL (K13: boş ya da kasadaki TLS adresi) elle — değerler runbook'a yazılmaz
+# WHATSAPP_SERVICE_API_KEY (isteğe bağlı; servisin x-api-key anahtarı, kasadan editörle; yalnız env adresiyle kullanılır, panel adresi kayıtlıysa panel anahtarı gerekir).
+#   Servis REQUIRE_API_KEY'e geçmeden ÖNCE girilmiş olmalı. Kontrol: grep -c '^WHATSAPP_SERVICE_API_KEY=.' .env.new → 1 (kanal kullanılacaksa)
+mv .env.new .env && chmod 600 .env && stat -c '%U %a' .env                         # root 600
+grep -cE '^(DEPLOY_ENV=production|CADDY_BIND=127\.0\.0\.1|NODE_ENV=production)$' .env   # 3
+```
+- Kasa kaydı (tek seferlik, terminalden doğrudan kasaya; dosyaya/sohbete yazılmaz):
+  `grep -E '^(SEED_SUPERADMIN_PASSWORD|APP_ENCRYPTION_KEYS|MYSQL_ROOT_PASSWORD)=' .env` → kasaya → `clear`.
+- Eski artıklar imha (G-P13b-9 sınırı: ext4/SSD'de `shred` garanti değildir; asıl kontrol sırların döndürülmüş olması):
+  `shred -u deploy/.env.bak.* /root/.env.bak.* /root/remote-pre-*.sql.gz 2>/dev/null; rm -rf /root/remote-uploads-pre-*; shred -u /opt/remote/deploy/ACCESS.txt`
+  → `ls /opt/remote/deploy/ACCESS.txt` "No such file". Geçmiş taraması: `grep -lE 'PASSWORD=|SECRET=|AGE-SECRET-KEY' /root/.*_history` → boş (varsa ilgili satırları silin).
+- WhatsApp: kanal panel kaydı ya da `WHATSAPP_SERVICE_URL` olmadan **kapalıdır** (yeni DB'de panel kaydı yok). K13 kararı (b) ise boş kalır.
+  Kanal açılacaksa `WHATSAPP_SERVICE_API_KEY` de girilir (servis anahtar zorunlu hâle gelmeden önce; panel adresi kayıtlıysa
+  anahtar da panelden girilir). Doğrulama §20.3/8: Super Admin "Test Mesajı Gönder" başarılı; anahtar loglarda/ekranda görünmez.
+
+**6. TURN (ADR-0018; §9, §20.5):**
+```bash
+cd /opt/remote/deploy/turn
+TS2=$(awk -F= '$1=="TURN_SECRET"{print $2}' ../.env); sed -i "s|^TURN_SECRET=.*|TURN_SECRET=$TS2|" .env; unset TS2
+for kvp in TURN_REALM=remote.noktabilisim.net TURN_MAX_BPS=1000000 TURN_BPS_CAPACITY=0 TURN_FW_RELAY_MAX_BPS=62500000 TURN_CERT_DIR=/etc/remote/turn-certs; do
+  k=${kvp%%=*}; grep -q "^$k=" .env && sed -i "s|^$k=.*|$kvp|" .env || echo "$kvp" >> .env; done
+cmp <(awk -F= '$1=="TURN_SECRET"{print $2}' .env | sha256sum) <(awk -F= '$1=="TURN_SECRET"{print $2}' ../.env | sha256sum) && echo secret-eş
+```
+Ardından sırayla: §20.5 sertifika kancası (LE `remote-turn`) → `sudo ./host-firewall.sh preflight` (`preflight OK`) →
+`sudo ./host-firewall.sh install` (`önceki relay aralığı 49160-49199 reserved ports'tan geri alındı`;
+`cat /proc/sys/net/ipv4/ip_local_reserved_ports` 49160-49479'u kapsar; `iptables -S REMOTE-TURN-OUT | grep -c hashlimit` → 3) →
+§20.1 UFW → `docker compose -p remote-turn up -d --force-recreate` (`docker compose -p remote-turn ps` healthy) →
+`./test-denied.sh` → 0 FAIL ("0)" bölümü 49160-49479 / 300; ~60 allocation açar, 600 sn yaşar) → §9.2.3 listesi.
+
+**7. Yığın + AC-88 ölçümü + seed + yetki sınırı:**
+```bash
+cd /opt/remote/deploy
+t0=$(date +%s); docker compose up -d --no-build
+until docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/ready').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))" 2>/dev/null; do sleep 2; done
+echo "AC-88: $(( $(date +%s) - t0 )) sn"                 # ≤ 120 → §2 "Temiz kurulum kaydı" tablosuna
+docker compose --profile setup run --rm seed           # Super Admin + varsayılanlar
+set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD BACKUP_PW=$MYSQL_BACKUP_PASSWORD MIGRATOR_PW=$MYSQL_MIGRATOR_PASSWORD \
+  CONTAINER=remote-mysql-1 DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh | tail -3; set +a
+#   384/384 PASS (P13b; anon=0, migratorExtra=0 dahil), grep -c FAIL = 0
+ss -tlnp | grep -E ':445[01] '                         # yalnız 127.0.0.1:4450 ve 127.0.0.1:4451
+curl -sI https://remote.noktabilisim.net/login | grep -i strict-transport   # max-age=31536000; includeSubDomains
+```
+(Ortam değişkenlerini kabukta bırakmamak için bu adımı ayrı bir `ssh` çağrısında çalıştırın.)
+
+**8. Yedek (prod anahtarları; §18.9):**
+- Kullanıcı iş istasyonunda **yeni prod age çifti** üretir (§18.1); yalnız açık anahtar gelir:
+  `sed -i "s|^BACKUP_AGE_RECIPIENT=.*|BACKUP_AGE_RECIPIENT=age1…|" backup/backup.env`.
+- Staging imza anahtarı imha + prod anahtarı (G-P13b-9; prod `allowed_signers`'ta **yalnız** prod anahtarı olur):
+```bash
+shred -u /etc/remote-backup/manifest_ed25519 && rm -f /etc/remote-backup/manifest_ed25519.pub /etc/remote-backup/allowed_signers
+# §18.9/1'deki anahtar üretimi + allowed_signers (aynı komutlar); DEPLOY_ENV zaten production
+wc -l < /etc/remote-backup/allowed_signers             # 1
+cat /etc/remote-backup/allowed_signers                 # kasaya: "Remote — yedek imza doğrulama (allowed_signers, prod)"
+systemctl start remote-backup.service; journalctl -u remote-backup.service -n 20 --no-pager | grep -E 'audit-sureklilik|OFFSITE|remote-backup: OK'
+#   audit-sureklilik: ilk (yeni volume = yeni instanceId) · OFFSITE-UNCONFIGURED (uyarı) · remote-backup: OK run=…
+jq -r '.env' /var/backups/remote/$(ls -1 /var/backups/remote | grep Z$ | tail -1)/manifest.json      # production
+```
+- **AC-91 prod provası:** §18.4 **yol A** (iş istasyonu; `--allowed-signers` = kasadaki prod kopyası) → `restore-verify: OK`, RTO
+  (a+b; c için prod'da canlı geri yükleme yapılmaz, scratch kesinti tahmini §18.4 tablosundaki ölçüm) §18.4 tablosuna.
+- **Olumsuz:** §18.9/3 (tek bayt) → `restore-verify: FAIL (imza)`.
+- **AC-200 hata testi:** §18.7/9 komutu → `FAILED adım=mysql-bul` + alarm; sonra `systemctl reset-failed remote-backup.service`.
+
+**9. `remote-watch`:** §20.4 → ilk koşu `remote-watch: OK` ya da yalnız `offsite-unconfigured` uyarısı.
+
+**9b. proxy-guard (G-P13b-3):** §20.9 → `verify OK: root bağlandı, 'nobody' reddedildi`.
+
+**10. İstemci Release ve sürüm zorlaması (§11; mimari §7.10):** yerelde
+`deploy/agent/verify-and-publish.sh --tag vX.Y.Z --ssh root@185.126.217.99` (`--no-attestation`/`ALLOW_UNATTESTED` **yok**) →
+`deploy/.env` `MIN_AGENT_VERSION=X.Y.Z` → `docker compose up -d server`. Doğrulama: indirme `sha256sum` = Release `SHA256SUMS`
+(§19.4); eski staging istemcisi bağlanınca 426 `CLIENT_OUTDATED`.
+
+**11. Super Admin ilk girişi:** kasadaki seed parolasıyla giriş → parola değişir → 2FA kurulur → 10 kurtarma kodu kasaya.
+`docker compose exec server node src/cli/reset-superadmin.ts --email <sa> --dry-run` (`-T` yok) → `Dry-run: … hesabı bulundu.
+Değişiklik yapılmadı.`, rc 0. "Nokta Test" firması ve test hesapları oluşturulur (§20.3 testleri için).
+
+**12. Kontrol listesi ve imza:** §20.3 tablosu (test-operatoru + kullanıcı) doldurulur ve imzalanır → pfSense P2 (4450 NAT
+kaldırma) → "Nokta Test" pasife alınır → müşteri yönlendirmesi **ancak imzadan sonra** başlar. §8 yayın geçmişine son satır
+("Prod terfisi — staging arşivlendi").
+
+### 20.3 Prod açılış kontrol listesi (şablon; imzalı)
+| # | Madde | Kanıt (komut / kayıt) | Sonuç | Yapan | Tarih |
+|---|---|---|---|---|---|
+| 1 | AC-88 ≤ 120 sn; AC-91/AC-200 prod provası OK, RTO ≤ 60 dk; imza olumsuz testi FAIL | §20.2/7 süre; §18.4 tablo satırı; §18.9/3 çıktısı; §18.7/9 journal | | | |
+| 2 | AC-23 `relay/tls` (UDP kapalı, yalnız 443 + 5349/TCP; kök sertifika yok); AC-21 tavanı (allocation başına 8 Mbit/s) | `docs/test-raporu.md` kaydı; `test-local.sh` ölçümü | | | |
+| 3 | `test-denied.sh` 0 FAIL (49160–49479); S-P3-2 relay↔relay echo PASS; §9.2.3 listesi | çıktı özeti | | | |
+| 4 | S-P2-5: dış makineden başarısız girişte audit `ip_address` = istemcinin genel IPv4'ü; IPv6 kaydı (§20.7) | Audit ekranı; `ip -6 addr show scope global` boş; `dig +short AAAA remote.noktabilisim.net` boş | | | |
+| 5 | HSTS `max-age=31536000; includeSubDomains`; AC-126 e2e; `rs_theme` çerezi `Secure` | `curl -sI …/login`; e2e çıktısı | | | |
+| 6 | P10 elle testleri (SSL/465, STARTTLS/587, sıfırlama 30 dk, 20/sa → 21. 429, kilit e-postası, logout-all/2FA sıfırlamada oturum ≤ 5 sn, SA SMTP ekranı, 8 sa oturum) | `docs/test-raporu.md` | | | |
+| 7 | Windows elle testleri (prod Release, 0.10.2 adım 1–7 + AC-95/96/128; parmak izi = SHA256SUMS); eski istemci 426 | test raporu | | | |
+| 8 | K13: (a) TLS/özel ağ + test mesajı başarılı ya da (b) kanal kapalı, uyarı + `whatsapp_insecure` log + karar kaydı | ekran / log satırı / karar | | | |
+| 9 | `reset-superadmin --dry-run` 0 (gerçek çalıştırma ikinci SA'da ya da entegrasyon testi kanıtı) | §20.2/11 çıktısı | | | |
+| 10a | G-P13b-3 proxy-guard verify OK; nginx yolu 200; `check` UYARI satırları değerlendirildi | `remote-proxy-guard verify` / `check` çıktısı; `nft list table inet remote_proxy_guard` | | | |
+| 10 | `remote-watch` alarm testi: `docker compose stop web` → ≤ 10 dk ALERT → `start` → DUZELDI | gelen mesajlar, journal | | | |
+| 11 | Yedek hata testi (AC-200) FAILED + alarm; audit süreklilik olumsuz testi (T1 yerel kanıtı) | journal; `docs/implementation.md` T1 | | | |
+| 12 | Repo public, gitleaks tüm geçmiş 0 bulgu; `verify-and-publish` attestation'la; agent-watch yeşil | gitleaks çıktısı; Actions | | | |
+| 13 | Gizli bilgi temizliği: staging sırları/dökümleri imha, ACCESS.txt yok, yeni sırların kasa kaydı; history/journal sır taraması (`grep -lE 'PASSWORD=\|SECRET=\|AGE-SECRET-KEY' /root/.*_history` boş; `journalctl --since -30d \| grep -ciE 'password=\|secret='` 0); imaj katmanlarında sır yok (`docker history --no-trunc remote-server:<TAG> \| grep -ciE 'password\|secret'` 0); staging sırlarıyla eşleşen değer kullanılmıyor; 4450 yalnız 127.0.0.1 (`ss`) ve dışarıdan `nc` zaman aşımı | komut çıktıları (değer yazmadan, yalnız sayılar) | | | |
+| 13b | `docker` grubu boş (root eşdeğeri; proxy-guard ve root 600 korumalarını aşar) | `getent group docker` → üye yok | | | |
+| 14 | "Nokta Test" pasif; README, kılavuz, DATASHEET (ağ gereksinimleri), PDF'ler güncel | dosya tarihleri / commit | | | |
+
+Onay: ad, tarih: ______________________
+
+### 20.4 `remote-watch` kurulumu (T4; `deploy/ops/`)
+```bash
+cd /opt/remote/deploy/ops && ./remote-watch.sh install
+#   kurulu kopya /usr/local/lib/remote/remote-watch.sh (root 0755), /etc/remote-watch/watch.env (600), timer enable
+install -m 600 /dev/null /etc/remote-watch/telegram.curl   # içerik: url = "https://api.telegram.org/bot<TOKEN>/sendMessage" + data = "chat_id=<ID>" (kasadan; ekrana basmadan editörle)
+#   watch.env: WATCH_ALERT_CMD=curl -fsS -m 10 -K /etc/remote-watch/telegram.curl --data-urlencode text@- >/dev/null  (watch.env.example)
+stat -c '%U %a' /etc/remote-watch/watch.env /etc/remote-watch/telegram.curl     # root 600 · root 600
+systemctl start remote-watch.service; journalctl -u remote-watch -n 20 --no-pager | grep remote-watch:
+#   remote-watch: OK (<n> kontrol)   — ya da yalnız offsite-unconfigured hatırlatması
+systemctl list-timers remote-watch.timer        # 10 dakikada bir
+```
+Alarm testi (§20.3/10): `docker compose stop web` → ≤ 10 dk `remote-watch: ALERT check=…` + Telegram mesajı → `docker compose start web`
+→ sonraki koşuda "DUZELDI". Komut metninde token varsa `ALERT check=alert-cmd-unsafe` ve komut çalışmaz (G-P13b-7). Betik
+değişince `./remote-watch.sh install` yeniden çalıştırılır (root birimi git ağacından çalışmaz, G-P13b-13).
+
+### 20.5 TURN sertifika kancası (LE `remote-turn`; ADR-0018, G-P13b-4)
+```bash
+cd /opt/remote/deploy/turn && ./cert-deploy-hook.sh install
+#   /usr/local/sbin/remote-turn-cert-deploy (root 0755), /etc/default/remote-turn-cert, /etc/remote/turn-certs (git dışı)
+certbot certonly --webroot -w /var/www/remote-acme -d remote.noktabilisim.net --cert-name remote-turn --non-interactive \
+  --deploy-hook /usr/local/sbin/remote-turn-cert-deploy          # aynı ad kümesi için onay isterse --duplicate
+ls -l /etc/remote/turn-certs        # turn.crt 0444, turn.key 0400 (65534:65533)
+docker compose -p remote-turn up -d --force-recreate             # yeni bağlama (TURN_CERT_DIR)
+RENEWED_LINEAGE=/etc/letsencrypt/live/remote-turn /usr/local/sbin/remote-turn-cert-deploy   # OK: coturn SIGUSR2 ile yeni sertifikayı sunuyor
+/usr/local/sbin/remote-turn-cert-deploy check                    # check OK
+certbot renew --dry-run --cert-name remote-turn                  # "Congratulations, all simulated renewals succeeded"
+shred -u certs/*.key certs/ca.* 2>/dev/null; rm -rf certs        # eski özel CA ve sertifikalar (staging)
+```
+Yenileme `certbot.timer` ile; hook sunulan parmak izini doğrular, tutmazsa `docker restart` yapar, yine tutmazsa rc 1 (journal `err`)
+→ `remote-watch` sertifika kontrolü alarm verir (§19.3).
+
+### 20.6 `reset-superadmin` (Super Admin parola / 2FA kaybı; mimari §7.7)
+```bash
+cd /opt/remote/deploy
+docker compose exec server node src/cli/reset-superadmin.ts --email <sa-e-postası> --dry-run
+#   Dry-run: DB bağlantısı tamam, Super Admin hesabı bulundu. Değişiklik yapılmadı.        (rc 0)
+docker compose exec server node src/cli/reset-superadmin.ts --email <sa-e-postası> [--reset-mfa]
+#   Super Admin şifresi sıfırlandı.
+#   Geçici şifre (yalnız bir kez gösterilir): ********************   → doğrudan kişiye/kasaya; ekran kaydı, sohbet, bilet YOK
+#   Geçici şifre 24 saat geçerlidir; ilk girişte yeni şifre belirlenmesi zorunludur.
+#   Açık oturumlar iptal edildi: N. [İki adımlı doğrulama ve kurtarma kodları silindi.]
+```
+- `-T` **verilmez** (TTY şart; yoksa rc 4 "stdout bir terminal değil; işlem yapılmadı"). Çıktıyı pipe/dosyaya yönlendirmeyin.
+- Server durmuşsa: `docker compose run --rm --no-deps server node src/cli/reset-superadmin.ts --email …`.
+- Çıkış kodları: 0 tamam · 2 kullanım hatası · 3 "Super Admin bulunamadı." (ADMIN/pasif/silinmiş e-posta da 3) · 4 TTY yok ·
+  5 DB/yapılandırma hatası (`ref <ULID>`; ayrıntı `docker compose logs server`'da değil, komutun stderr JSON logunda).
+- Geçici parola **24 saat** sonra geçersiz (giriş 401 "Geçici şifrenin süresi doldu…", audit `auth.login fail temp_password_expired`) →
+  komut yeniden çalıştırılır. Açık WebSocket'ler bir sonraki yeniden doğrulamada kapanır.
+- Doğrulama: Audit ekranında "Super Admin şifresi sunucudan sıfırlandı" (`auth.superadmin_reset`, kullanıcı `cli`, parola yok);
+  kullanıcı girişte şifre değiştirir, `--reset-mfa` ise 2FA'yı yeniden kurar ve yeni kurtarma kodlarını kasaya koyar.
+- Bant dışı bildirim (G-P13b-10) henüz otomatik değil: başarılı çalıştırmadan sonra elle alarm kanalına (parola içermez):
+  `printf 'Super Admin parolasi CLI ile sifirlandi (%s, %s)\n' "$(hostname -s)" "$(date -u +%FT%TZ)" | curl -fsS -m 10 -K /etc/remote-watch/telegram.curl --data-urlencode text@- >/dev/null`
+  → mesaj geldi (§20.10 Y3).
+
+### 20.7 IPv6 değişiklik kuralı (S-P3-3, S-P2-5; mimari §7.11)
+Açılışta kayda geçer (§20.3/4): `ip -6 addr show scope global` → boş; `dig +short AAAA remote.noktabilisim.net` → boş;
+`deploy/turn/test-denied.sh` IPv6 bölümü SKIP + gerekçe.
+**Kural:** VM'e global IPv6 adresi eklenmesi ya da AAAA kaydı açılması bir **değişiklik talebidir** ve şu adımlar **değişiklikten
+önce** yapılır, yapılmadan uygulanmaz: (1) §9.2.2: denied-peer-ip listesine VM'in /64'ü ve sağlayıcı bloğu, `TURN_FW_SELF_IPS`'e
+IPv6 adresleri, `host-firewall.sh install`; (2) coturn IPv6 relay kapalı kalır (`relay-ip` yalnız IPv4) — `test-denied.sh` IPv6
+bölümü 0 FAIL; (3) S-P2-5 IPv6 doğrulaması: IPv6 istemciden başarısız giriş → audit `ip_address` istemcinin IPv6'sı (nginx
+`X-Forwarded-For` → Caddy trusted_proxies); (4) UFW IPv6 kuralları (`/etc/default/ufw IPV6=yes`) 3478/5349/relay ile aynı. Kayıt §8
+yayın geçmişine benzer bir "değişiklik" satırı olarak yazılır.
+
+### 20.8 Geri dönüş (yalnız §20.2/12 imzasından önce)
+```bash
+cd /opt/remote/deploy && docker compose down
+docker volume rm remote_mysql_data remote_uploads remote_caddy_data remote_caddy_config remote_agent_downloads
+cp -p /root/.env.staging-final.<TS> .env && grep -c '^DEPLOY_ENV=staging$' .env        # 1
+docker compose up -d && docker compose ps                        # hepsi healthy (boş DB, migrate + seed: --profile setup run --rm seed)
+# staging age anahtarı RAM'e (§18.4 B), sonra:
+backup/restore.sh --identity /dev/shm/rb.key --allowed-signers /root/allowed_signers.staging-final \
+  --target staging --confirm remote@develop --no-pre-backup /var/backups/remote-staging-final/<run>; shred -u /dev/shm/rb.key
+#   restore-verify: OK   (yaş > 48 sa ise yalnız uyarı; staging'de ek onay yok)
+```
+- `--no-pre-backup`: boş DB'nin yedeği gereksizdir ve imza anahtarı artık prod'undur. Staging imza anahtarı terfide imha edildiği
+  için geri dönüşten sonra yeni staging yedekleri için §18.9/1 anahtar üretimi tekrarlanır (`DEPLOY_ENV=staging`).
+- TURN: `deploy/turn/.env` önceki hâli (staging realm/secret), `TURN_CERT_DIR` boş → `./gen-cert.sh 185.126.217.99` → 
+  `docker compose -p remote-turn up -d --force-recreate`; UFW: `ufw allow 4450/tcp` (relay aralığı geniş kalabilir).
+- pfSense 4450 NAT henüz kaldırılmadığı için (P2 imzadan sonra) staging erişimi döner. `CADDY_BIND` staging-final'deki değerdir.
+
+### 20.9 proxy-guard — 127.0.0.1:4451'e yerel bağlantı kısıtı (G-P13b-3; `deploy/ops/proxy-guard.sh`)
+Sorun: host'tan yayımlanan 4451'e yapılan her yerel bağlantı Caddy'ye güvenilen 172.30.0.128'den görünür; VM'deki başka bir
+sürecin sahte `X-Forwarded-For` ile IP limitlerini atlamasını ve audit IP'sini sahtelemesini engellemek için nftables
+`meta skuid` kuralı: ayrı tablo `inet remote_proxy_guard`, `tcp dport 4451`, hedef `127.0.0.0/8`, `172.30.0.0/24`, `::1`, yeni
+bağlantı, soket sahibi `root` ve `www-data` dışında → `reject with tcp reset` (sayaçlı). Uygulamaya ve Caddy'ye dokunmaz.
+Ne zaman: prod'da nginx kurulduktan sonra, §20.2/9b'de (staging'de de önerilir).
+```bash
+apt-get install -y nftables          # yalnız nft aracı; nftables.service'i etkinleştirmek GEREKMEZ
+nft --version                        # nftables v1.0.x
+ps -o user= -C nginx | sort -u       # root + www-data (işçi kullanıcısı). Farklıysa: /etc/default/remote-proxy-guard
+                                     #   PROXY_GUARD_USERS="root <kullanıcı>" (install sonrası, dosya root 0644)
+cd /opt/remote/deploy/ops && ./proxy-guard.sh install
+#   kurulu kopya /usr/local/sbin/remote-proxy-guard (root 0755), /etc/default/remote-proxy-guard (root 0644),
+#   remote-proxy-guard.service (açılışta) + .timer (5 dk'da bir ensure) etkin
+remote-proxy-guard check             # OK (tablo yerinde, kural sayısı doğru)
+remote-proxy-guard verify            # verify OK: root bağlandı, 'nobody' reddedildi
+curl -sI https://remote.noktabilisim.net/login | head -1              # HTTP/2 200  (nginx → 4451 yolu çalışıyor)
+nft list table inet remote_proxy_guard | grep -c reject               # ≥ 1 (sayaç: … packets N)
+systemctl is-active remote-proxy-guard.timer                          # active
+```
+- **www-data riski (kalan, gerekçeli):** `www-data` olarak çalışan **başka** süreçler (paylaşımlı sunucuda php-fpm havuzları,
+  diğer sitelerin CGI'ları) hâlâ 4451'e bağlanıp XFF sahteleyebilir. `remote-proxy-guard check` bunları
+  `UYARI: www-data ile nginx dışı süreç …` olarak yazar; her kurulumda ve sunucuya yeni site eklendiğinde bakılır. Kapatma yolu:
+  nginx'i ya da php-fpm havuzlarını ayrı kullanıcıya almak ve `PROXY_GUARD_USERS`'ı daraltmak (sunucu sahibiyle).
+- Kural silinir/bozulursa: `check` rc 1, timer 5 dk içinde `ensure` ile onarır; `remote-watch` ve journal
+  (`journalctl -u remote-proxy-guard -n 20`) izlenir. `nft -f` tek işlemdir: hatalı yapılandırmada mevcut tablo değişmez.
+- Birim sırası (S-P13b-12): `remote-proxy-guard.service` `Before=docker.service`, `After=network-pre.target nftables.service`,
+  `WantedBy=multi-user.target nftables.service` → açılışta Docker 4451'i yayımlamadan önce kural kurulur; nftables.service
+  (yeniden) başlatılınca birim de ardından çalışıp tabloyu yeniden kurar. Kontrol: `systemctl show -p Before,WantedBy remote-proxy-guard.service`.
+  **Kalan pencere:** `systemctl stop nftables` (ya da elle `nft flush ruleset`) tabloyu siler; timer **en geç 5 dk** içinde `ensure`
+  ile onarır. nftables'ı durdurmanız gerekirse hemen ardından `remote-proxy-guard ensure && remote-proxy-guard check` çalıştırın.
+  Birim değişikliğinden sonra `./proxy-guard.sh install` yeniden çalıştırılır (enable'ı kendisi yapar).
+- **docker grubu:** kural uid'e bakar; `docker` grubundaki her kullanıcı root eşdeğeridir (docker.sock ile `--privileged`, host
+  bağlama, `--network host --user 0`) ve proxy-guard'ı, imza anahtarının ve `backup.env`'in root 600 korumasını aşar. Prod'da grup
+  **boş** tutulur: `getent group docker` → `docker:x:<gid>:` (üye yok); yönetim `sudo` ile (§20.3 madde 13b).
+- Geri alma: `remote-proxy-guard uninstall` → `nft list table inet remote_proxy_guard` "No such file or directory".
+- Test (yerel, sunucuda değil): `deploy/ops/test-proxy-guard.sh` → 34/34 PASS.
+
+### 20.10 Açık işler (prod sonrası, sahibi devops)
+| # | İş | Not |
+|---|---|---|
+| Y1 | ~~G-P13b-3~~ → **kurulum adımı oldu** (§20.9 proxy-guard). Kalan: www-data ile çalışan nginx dışı süreçler (§20.9 uyarısı) | `check` UYARI satırları izlenir |
+| Y2 | **Sonra** — G-P13b-13 / S-P13b-4 yedek tarafı: `remote-backup.service` hâlâ git ağacındaki `/opt/remote/deploy/backup/backup.sh`'i çalıştırıyor, kurulu kopyadan (`/usr/local/lib/remote/`) çalışmıyor. Geçişte `backup.sh`, `restore.sh`, `lib*.sh` ve `../mysql/*.sql` birlikte kurulmalı; `sql_dir` yolu ve restore'un `backup.sh` çağrısı uyarlanmalı | O zamana kadar `remote-watch` `tree-perms` (root dışı sahip, o+w, root dışı gruba yazılabilir) ağacı izliyor |
+| Y3 | G-P13b-10: `reset-superadmin` sarmalayıcı host betiği (rc 0 → alarm kanalına parola içermeyen bildirim) | §20.6 son madde elle yapılır |
+| Y4 | Site dışı hedef seçimi (K-P13b-4) → §18.9/4 | `remote-watch` hatırlatması kendiliğinden susar |

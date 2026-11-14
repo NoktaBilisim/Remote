@@ -6,6 +6,10 @@
 # Yalnız bu üçlüye uyan paket düşer; başka projelerin trafiğine dokunulmaz. Ek olarak relay aralığı çekirdeğin
 # geçici (ephemeral) port havuzundan çıkarılır (net.ipv4.ip_local_reserved_ports, v4+v6) -> aralıktan kaynak port
 # yalnız açıkça bind eden coturn'de olur (başka süreçlerin 127.0.0.53:53 DNS sorgusu vb. etkilenmez).
+# G-P13b-1 (P13b): TURN_FW_RELAY_MAX_BPS > 0 ise aynı zincire toplam relay hız tavanı eklenir (hashlimit, bayt/sn):
+#   relay -> peer (UDP, kaynak port relay aralığı) ve relay -> istemci (UDP 3478, TCP 3478/5349) için ayrı ayrı. coturn
+#   `bps-capacity` her allocation için max-bps REZERVE ettiğinden (62,5 MB/s / 1 MB/s = 62 allocation) kullanılmaz (0);
+#   paylaşımlı sunucunun diğer sitelerini bu tavan korur. Aşan paket düşer (UDP) / yeniden iletilir (TCP).
 # Docker kurallarına dokunmaz (Docker filter/OUTPUT kullanmaz; DOCKER-*/nat zincirleri ayrı). UFW'nin ufw-* zincirleri ayrı.
 #
 # Kullanım (root):  ./host-firewall.sh apply|ensure|check|remove|install|uninstall|print
@@ -24,6 +28,10 @@
 #   TURN_FW_SELF_IPS   ek kendi adresleri (virgüllü; v4/v6), ör. prod IPv6 adresi.
 #   TURN_FW_PORT_MIN/MAX  relay aralığı (vars. turnserver.base.conf min-port/max-port).
 #   TURN_FW_RESERVE_PORTS=0  reserved ports adımını atla (yalnız test konteyneri: /proc/sys salt okunur).
+#   TURN_FW_RELAY_MAX_BPS  toplam relay tavanı, bayt/sn, yön/akış başına (0 veya boş = kapalı; prod 62500000 = 500 Mbit/s).
+# Aralık değişince (P13b: 49160-49199 -> 49160-49479) `install` yeniden çalıştırılır: önceki aralığın reserved ports
+#   kaydı geri alınır, yenisi eklenir. apply/install önce aralıkta coturn dışında UDP dinleyen süreç olmadığını denetler
+#   (`ss -Hlunp`; varsa yazmadan çıkar). preflight alt komutu yalnız bu denetimi yapar.
 set -eu
 DIR="$(cd "$(dirname "$0")" && pwd)"
 SELF_PATH="$DIR/$(basename "$0")"
@@ -56,6 +64,7 @@ fi
 if [ -f "$SRC" ]; then
   [ -n "${TURN_EXTERNAL_IP:-}" ] || TURN_EXTERNAL_IP="$(file_val TURN_EXTERNAL_IP "$SRC")"
   [ -n "${TURN_FW_SELF_IPS:-}" ] || TURN_FW_SELF_IPS="$(file_val TURN_FW_SELF_IPS "$SRC")"
+  [ -n "${TURN_FW_RELAY_MAX_BPS:-}" ] || TURN_FW_RELAY_MAX_BPS="$(file_val TURN_FW_RELAY_MAX_BPS "$SRC")"
 fi
 if [ "$SRC" = "$CONF" ]; then
   [ -n "${TURN_FW_PORT_MIN:-}" ] || TURN_FW_PORT_MIN="$(file_val TURN_FW_PORT_MIN "$CONF")"
@@ -67,11 +76,16 @@ conf_port() { [ -f "$DIR/turnserver.base.conf" ] && sed -n "s/^$1=\([0-9][0-9]*\
 PMIN="${TURN_FW_PORT_MIN:-$(conf_port min-port || true)}"
 PMAX="${TURN_FW_PORT_MAX:-$(conf_port max-port || true)}"
 RESERVE="${TURN_FW_RESERVE_PORTS:-1}"
+RMAX="${TURN_FW_RELAY_MAX_BPS:-0}"
 one_line TURN_EXTERNAL_IP "$TURN_EXTERNAL_IP"
 one_line TURN_FW_SELF_IPS "${TURN_FW_SELF_IPS:-}"
 case "$PMIN" in ''|*[!0-9]*|0?*) die "relay port aralığı okunamadı (min)" ;; esac
 case "$PMAX" in ''|*[!0-9]*|0?*) die "relay port aralığı okunamadı (max)" ;; esac
 case "$RESERVE" in 0|1) ;; *) die "TURN_FW_RESERVE_PORTS 0 veya 1 olmalı" ;; esac
+case "$RMAX" in *[!0-9]*|0?*) die "TURN_FW_RELAY_MAX_BPS sayı olmalı (bayt/sn)" ;; esac
+[ "${#RMAX}" -le 10 ] || die "TURN_FW_RELAY_MAX_BPS çok büyük"
+# hashlimit bayt kipi: kb = 1024 bayt (iptables), yukarı yuvarlanır. En az 1kb/s.
+RKB=$(( (RMAX + 1023) / 1024 ))
 [ "${#PMIN}" -le 5 ] && [ "${#PMAX}" -le 5 ] && [ "$PMIN" -ge 1024 ] && [ "$PMAX" -le 65535 ] && [ "$PMIN" -lt "$PMAX" ] \
   || die "port aralığı hatalı: $PMIN-$PMAX (1024..65535, min<max)"
 RANGE="$PMIN:$PMAX"
@@ -116,22 +130,44 @@ rules() {
   for ip in $ips; do echo "-p udp --sport $RANGE -d $ip ! --dport $RANGE -j DROP"; done
   # Arayüzdeki tüm kendi adresleri (özel IP, docker köprü ağ geçitleri, IPv6 global/ULA, loopback).
   echo "-p udp --sport $RANGE -m addrtype --dst-type LOCAL ! --dport $RANGE -j DROP"
+  if [ "$RMAX" != 0 ]; then
+    echo "-p udp --sport $RANGE -m hashlimit --hashlimit-above ${RKB}kb/s --hashlimit-name remote-turn-peer$1 -j DROP"
+    echo "-p udp --sport 3478 -m hashlimit --hashlimit-above ${RKB}kb/s --hashlimit-name remote-turn-cu$1 -j DROP"
+    echo "-p tcp -m multiport --sports 3478,5349 -m hashlimit --hashlimit-above ${RKB}kb/s --hashlimit-name remote-turn-ct$1 -j DROP"
+  fi
 }
 ipt() { if [ "$1" = 4 ]; then shift; iptables -w "$@"; else shift; ip6tables -w "$@"; fi; }
 fams() { echo 4; if have6; then echo 6; fi; }
 
-RES=/proc/sys/net/ipv4/ip_local_reserved_ports
+# TURN_FW_TEST_RES_FILE: YALNIZ test (konteynerde /proc/sys salt okunur); aralık değişimi geri alma mantığını sınar.
+RES="${TURN_FW_TEST_RES_FILE:-/proc/sys/net/ipv4/ip_local_reserved_ports}"
 reserve_on() { [ "$RESERVE" = 1 ]; }
 # Bizim aralık listedeki bir girdi tarafından KAPSANIYOR mu (çekirdek komşu/örtüşen aralıkları birleştirebilir; S-P3-T2-1 m.3).
 reserved_ok() {
   tr ',' '\n' <"$RES" | awk -F- -v a="$PMIN" -v b="$PMAX" \
     '$1!="" { hi = ($2 == "" ? $1 : $2); if ($1 + 0 <= a && hi + 0 >= b) f = 1 } END { exit !f }'
 }
+# Önceki apply'ın eklediği aralık farklıysa (aralık değişti) önce o geri alınır (reserved.range kaydı).
+reserve_prev_undo() {
+  if [ -f "$STATE/reserved.range" ]; then prev="$(tr -d ' \n' <"$STATE/reserved.range")"
+  # P13a ve öncesi kurulumlar reserved.range yazmıyordu: önceki aralık kurulu /etc/default dosyasından (install apply'dan
+  # SONRA yazar, yani burada hâlâ eski değerdedir) alınır.
+  elif [ -f "$CONF" ] && [ -f "$STATE/reserved.before" ]; then prev="$(file_val TURN_FW_PORT_MIN "$CONF")-$(file_val TURN_FW_PORT_MAX "$CONF")"
+  else return 0; fi
+  [ "$prev" = "$PMIN-$PMAX" ] && return 0
+  case "$prev" in [0-9]*-[0-9]*) ;; *) warn "$STATE/reserved.range okunamadı ($prev); yok sayıldı"; rm -f "$STATE/reserved.range"; return 0 ;; esac
+  bef=""; [ -f "$STATE/reserved.before" ] && bef="$(tr -d ' \n' <"$STATE/reserved.before")"
+  ( PMIN="${prev%-*}"; PMAX="${prev#*-}"; reserved_minus "$(cat "$RES")" "$bef" >"$RES" )
+  rm -f "$STATE/reserved.before" "$STATE/reserved.range"
+  log "önceki relay aralığı $prev reserved ports'tan geri alındı"
+}
 reserve_add() {
+  reserve_prev_undo
   reserved_ok && return 0
   cur="$(cat "$RES")"
   # Eklemeden önceki liste saklanır: remove, birleşmiş aralıktan yalnız BİZİM eklediğimiz portları çıkarır.
   (umask 077; mkdir -p "$STATE"; printf '%s\n' "$cur" >"$STATE/reserved.before")
+  (umask 077; printf '%s\n' "$PMIN-$PMAX" >"$STATE/reserved.range")
   if [ -n "$cur" ]; then echo "$cur,$PMIN-$PMAX" >"$RES"; else echo "$PMIN-$PMAX" >"$RES"; fi
   reserved_ok || die "ip_local_reserved_ports ayarlanamadı"
 }
@@ -160,7 +196,7 @@ reserve_del() {
   reserved_ok || return 0
   bef=""; [ -f "$STATE/reserved.before" ] && bef="$(tr -d ' \n' <"$STATE/reserved.before")"
   reserved_minus "$(cat "$RES")" "$bef" >"$RES"
-  rm -f "$STATE/reserved.before"
+  rm -f "$STATE/reserved.before" "$STATE/reserved.range"
 }
 
 do_check() {
@@ -202,7 +238,7 @@ apply_fam() {
 do_apply() {
   for f in $(fams); do apply_fam "$f"; done
   if reserve_on; then reserve_add; fi
-  log "uygulandı (aralık $RANGE; IPv4:$V4; IPv6:${V6:- -}; IPv6 zinciri: $(have6 && echo var || echo yok))"
+  log "uygulandı (aralık $RANGE; relay tavanı ${RMAX} B/s; IPv4:$V4; IPv6:${V6:- -}; IPv6 zinciri: $(have6 && echo var || echo yok))"
 }
 do_remove() {
   for f in 4 6; do
@@ -229,6 +265,7 @@ do_install() {
     echo "TURN_FW_PORT_MIN=$PMIN"
     echo "TURN_FW_PORT_MAX=$PMAX"
     echo "TURN_FW_RESERVE_PORTS=$RESERVE"
+    echo "TURN_FW_RELAY_MAX_BPS=$RMAX"
   } >"$tmp")
   chown root:root "$tmp"; chmod 0644 "$tmp"; mv -f "$tmp" "$CONF"
   cat >"/etc/systemd/system/$UNIT.service" <<EOF
@@ -271,15 +308,28 @@ do_uninstall() {
   rm -rf "$STATE"
 }
 need_root() { [ "$(id -u)" = 0 ] || die "root gerekli"; }
+# Aralıkta coturn (turnserver) dışında UDP dinleyen süreç varsa yazmadan çık (mimari-p13 §7.4 "önce ss -lunp").
+# TURN_FW_SKIP_PREFLIGHT=1 yalnız test konteyneri (ss yok / coturn ağ ad alanı) içindir.
+preflight() {
+  [ "${TURN_FW_SKIP_PREFLIGHT:-0}" = 1 ] && return 0
+  command -v ss >/dev/null 2>&1 || die "ss yok (iproute2); aralık denetimi yapılamadı"
+  busy="$(ss -Hlunp 2>/dev/null | awk -v a="$PMIN" -v b="$PMAX" '
+    { l = ""; for (i = 1; i <= NF; i++) if ($i ~ /:[0-9]+$/) { l = $i; break }   # ilk adres:port = yerel (Netid sütunu olsa da olmasa da)
+      n = split(l, x, ":"); p = x[n] + 0; if (p >= a && p <= b && $0 !~ /"turnserver"/) print p " " $NF }' | sort -u)"
+  [ -z "$busy" ] || die "relay aralığı $RANGE içinde başka süreç UDP dinliyor (önce kapatın): $(echo "$busy" | tr '\n' ';')"
+  log "preflight OK: $RANGE aralığında coturn dışında UDP dinleyen yok"
+}
 
 case "${1:-}" in
   print)
     echo "# iptables -N $NEW; -A ...; -I OUTPUT 1 -j $NEW; eski $CHAIN silinir; -E $NEW $CHAIN"
     rules 4 | sed "s/^/iptables -A $CHAIN /"
     echo "# ip6tables (varsa)"; rules 6 | sed "s/^/ip6tables -A $CHAIN /"
-    echo "# reserved: net.ipv4.ip_local_reserved_ports += $PMIN-$PMAX (kapsama kontrolü)" ;;
+    echo "# reserved: net.ipv4.ip_local_reserved_ports += $PMIN-$PMAX (kapsama kontrolü)"
+    echo "# relay tavanı: ${RMAX} bayt/sn (${RKB}kb/s; 0 = kapalı)" ;;
+  preflight) preflight ;;
   check) need_root; if do_check; then log "OK"; else exit 1; fi ;;
-  apply) need_root; do_apply; do_check >/dev/null || die "uygulama sonrası check başarısız" ;;
+  apply) need_root; preflight; do_apply; do_check >/dev/null || die "uygulama sonrası check başarısız" ;;
   ensure)
     need_root
     if ! drift="$(do_check 2>&1)"; then
@@ -288,7 +338,7 @@ case "${1:-}" in
       do_check >/dev/null 2>&1 || die "onarım sonrası check başarısız: $(do_check 2>&1 | tr '\n' ';')"
     fi ;;
   remove) need_root; do_remove ;;
-  install) need_root; do_apply; do_install ;;
+  install) need_root; preflight; do_apply; do_install ;;
   uninstall) need_root; do_uninstall ;;
   *) sed -n '2,/^set -eu/p' "$0" | sed '$d' >&2; exit 2 ;;
 esac

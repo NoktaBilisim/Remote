@@ -26,7 +26,7 @@ describe("health / ready", () => {
 });
 
 describe("güvenlik başlıkları", () => {
-  it("AC-126: CSP connect-src portu içerir, worker/manifest 'self', upgrade-insecure-requests, CORP; Server/X-Powered-By yok; unsafe-inline yok", async () => {
+  it("AC-126: HSTS includeSubDomains (preload yok), CSP connect-src portu içerir, worker/manifest 'self', upgrade-insecure-requests, CORP; Server/X-Powered-By yok; unsafe-inline yok", async () => {
     const app = makeApp();
     for (const url of ["/api/v1/auth/me", "/health", "/yok"]) {
       const res = await app.inject(url);
@@ -38,7 +38,7 @@ describe("güvenlik başlıkları", () => {
       expect(csp).toContain("upgrade-insecure-requests");
       expect(csp).not.toContain("unsafe-inline");
       expect(res.headers["cross-origin-resource-policy"]).toBe("same-origin");
-      expect(res.headers["strict-transport-security"]).toBe("max-age=31536000");
+      expect(res.headers["strict-transport-security"]).toBe("max-age=31536000; includeSubDomains"); // P13b §7.5: preload yok
       expect(res.headers["referrer-policy"]).toBe("no-referrer");
       expect(res.headers["x-content-type-options"]).toBe("nosniff");
       expect(res.headers["permissions-policy"]).toContain("camera=()");

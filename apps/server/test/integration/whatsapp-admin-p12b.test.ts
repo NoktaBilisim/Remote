@@ -1,14 +1,14 @@
 // P12b (AC-196, AC-152 r3): Super Admin WhatsApp servis adresi — GET/PUT/DELETE /admin/settings/whatsapp + /test.
 // Gerçek MySQL. `system_settings.whatsapp` satırı TÜM uygulama örneklerinin açılışta okuduğu paylaşılan satırdır: bu dosya
 // vitest.config.ts'te ayrı projede (groupOrder 1) diğer entegrasyon dosyalarından SONRA, tek başına çalışır.
-import { WA_TEST_MESSAGES, WA_URL_MESSAGE, type WhatsappSettingsView } from "@remote/contracts/api/system-settings";
+import { WA_API_KEY_REENTER, WA_TEST_MESSAGES, WA_URL_MESSAGE, type WhatsappSettingsView } from "@remote/contracts/api/system-settings";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { hotp, base32Decode, stepOf } from "../../src/auth/mfa.ts";
 import { createDb, type Db } from "../../src/lib/db.ts";
 import { createTenant, createUser, loginAs, makeApp, testDb, type Session, type TestUser } from "../helpers/app.ts";
 import { createRequestSettings, startFakeWhatsapp, type FakeWhatsapp } from "../helpers/requests.ts";
-import { FAKE_APP_ENCRYPTION_KEYS } from "../helpers/secrets.ts";
+import { FAKE_APP_ENCRYPTION_KEYS, FAKE_WA_ENV_API_KEY, FAKE_WA_PANEL_API_KEY } from "../helpers/secrets.ts";
 
 const W = "/api/v1/admin/settings/whatsapp";
 const PROXY = { TRUSTED_PROXY_CIDR: "127.0.0.1/32" };
@@ -62,7 +62,7 @@ describe("P12b WhatsApp servis adresi (AC-196)", () => {
     const r = await call(app, sSuper, "GET", W);
     expect(r.statusCode).toBe(200);
     expect(r.headers["cache-control"]).toBe("no-store");
-    expect(view(r)).toEqual({ url: envFake.url, source: "env", insecure: false, updatedAt: null });
+    expect(view(r)).toEqual({ url: envFake.url, source: "env", insecure: false, updatedAt: null, apiKeySet: false, apiKeySource: null });
   });
 
   it("AC-196: PUT panel kaydı env'in yerine yeniden başlatmasız geçer — sonraki ilk bildirim ve test yeni adrese; audit eski→yeni", async () => {
@@ -119,7 +119,7 @@ describe("P12b WhatsApp servis adresi (AC-196)", () => {
   it("AC-196: DELETE env'e döner ({url:null} satırı), audit; ikinci DELETE değişiklik/audit yok; test env adresine", async () => {
     const d = await call(app, sSuper, "DELETE", W);
     expect(d.statusCode).toBe(200);
-    expect(view(d)).toEqual({ url: envFake.url, source: "env", insecure: false, updatedAt: null });
+    expect(view(d)).toEqual({ url: envFake.url, source: "env", insecure: false, updatedAt: null, apiKeySet: false, apiKeySource: null });
     expect((await testDb().systemSetting.findUniqueOrThrow({ where: { key: "whatsapp" } })).valueJson).toEqual({ url: null });
     const del = await audits("settings.whatsapp.deleted");
     expect(del).toHaveLength(1);
@@ -364,12 +364,13 @@ describe("P13a sistem ayarları (B-P12b-4, B-P12b-5, T33; mimari-p13 §3)", () =
     }
   });
 
-  it("B-P12b-4: env açıkça verilmemişse kaynak `default` (rozet \"Varsayılan\"), verilmişse `env`", async () => {
+  it("G-P13b-2: env verilmemiş ve panel kaydı yoksa yerleşik adres yok → url null, kaynak `env`, test istek atmadan \"yapılandırılmamış\"", async () => {
     const def = makeApp({ env: { WHATSAPP_SERVICE_URL: "" } });
     extraApps.push(def);
     await def.ready();
     const s = await loginAs(def, superAdmin);
-    expect(view(await call(def, s, "GET", W))).toMatchObject({ url: "http://89.252.189.211:3000", source: "default" });
+    expect(view(await call(def, s, "GET", W))).toMatchObject({ url: null, source: "env", insecure: false });
+    expect((await call(def, s, "POST", `${W}/test`, { phoneNumber: PHONE })).json()).toEqual({ ok: false, message: WA_TEST_MESSAGES.unconfigured });
     expect(view(await call(app, sSuper, "GET", W)).source).toBe("env");
   });
 
@@ -391,5 +392,94 @@ describe("P13a sistem ayarları (B-P12b-4, B-P12b-5, T33; mimari-p13 §3)", () =
     } finally {
       await call(prod, s, "DELETE", W);
     }
+  });
+});
+
+describe("S-P13b-3 WhatsApp servis anahtarı (x-api-key)", () => {
+  const ENV_KEY = FAKE_WA_ENV_API_KEY;
+  const PANEL_KEY = FAKE_WA_PANEL_API_KEY;
+  type ErrBody = { error: { code: string; fields: Record<string, string> } };
+  beforeEach(async () => {
+    await resetRow();
+  });
+  const keyedApp = async () => {
+    const a = makeApp({ env: { ...PROXY, WHATSAPP_SERVICE_URL: envFake.url, WHATSAPP_SERVICE_API_KEY: ENV_KEY } });
+    extraApps.push(a);
+    await a.ready();
+    return { a, s: await loginAs(a, superAdmin) };
+  };
+
+  it("S-P13b-3: env anahtarı env adresiyle gider; panel adresi + anahtar şifreli saklanır, yanıtta/audit'te değer yok; panel anahtarı başlıkta", async () => {
+    const { a, s } = await keyedApp();
+    expect(view(await call(a, s, "GET", W))).toMatchObject({ source: "env", apiKeySet: true, apiKeySource: "env" });
+    expect((await call(a, s, "POST", `${W}/test`, { phoneNumber: PHONE })).json()).toEqual({ ok: true, message: WA_TEST_MESSAGES.ok });
+    expect(testSends(envFake).at(-1)?.apiKey).toBe(ENV_KEY);
+
+    const put = await call(a, s, "PUT", W, { url: panelFake.url, apiKey: PANEL_KEY });
+    expect(put.statusCode, put.body).toBe(200);
+    expect(view(put)).toMatchObject({ source: "panel", apiKeySet: true, apiKeySource: "panel" });
+    expect(put.body).not.toContain(PANEL_KEY);
+    expect((await call(a, s, "GET", W)).body).not.toContain(PANEL_KEY);
+    const row = await testDb().systemSetting.findUniqueOrThrow({ where: { key: "whatsapp" } });
+    expect(row.secretEnc).not.toBeNull();
+    expect(Buffer.from(row.secretEnc ?? new Uint8Array()).toString("latin1")).not.toContain(PANEL_KEY);
+    const [audit] = (await audits("settings.whatsapp.updated")).slice(-1);
+    expect(audit?.oldValue).toMatchObject({ source: "env", apiKeySet: true, apiKey: "***" });
+    expect(audit?.newValue).toMatchObject({ url: panelFake.url, source: "panel", apiKeySet: true, apiKey: "***", apiKeyChanged: true });
+    expect(JSON.stringify([audit?.oldValue, audit?.newValue])).not.toContain(PANEL_KEY);
+    await call(a, s, "POST", `${W}/test`, { phoneNumber: PHONE });
+    expect(testSends(panelFake).at(-1)?.apiKey).toBe(PANEL_KEY);
+
+    // Alan yok / "" → korunur (değişiklik yok → audit yok)
+    const n = (await audits("settings.whatsapp.updated")).length;
+    for (const body of [{ url: panelFake.url }, { url: panelFake.url, apiKey: "" }]) {
+      expect(view(await call(a, s, "PUT", W, body))).toMatchObject({ apiKeySet: true, apiKeySource: "panel" });
+    }
+    expect((await audits("settings.whatsapp.updated")).length).toBe(n);
+    await call(a, s, "POST", `${W}/test`, { phoneNumber: PHONE });
+    expect(testSends(panelFake).at(-1)?.apiKey).toBe(PANEL_KEY);
+  });
+
+  it("S-P13b-3: adres kökeni değişirken anahtar verilmezse 400 fields.apiKey; null → silinir (env anahtarı panel adresine gitmez); DELETE env'e döner", async () => {
+    const { a, s } = await keyedApp();
+    await call(a, s, "PUT", W, { url: panelFake.url, apiKey: PANEL_KEY });
+    const moved = await call(a, s, "PUT", W, { url: envFake.url });
+    expect(moved.statusCode).toBe(400);
+    expect(moved.json<ErrBody>().error).toMatchObject({ code: "VALIDATION", fields: { apiKey: WA_API_KEY_REENTER } });
+    expect(view(await call(a, s, "GET", W))).toMatchObject({ url: panelFake.url, apiKeySource: "panel" });
+
+    const cleared = await call(a, s, "PUT", W, { url: envFake.url, apiKey: null });
+    expect(view(cleared)).toMatchObject({ url: envFake.url, source: "panel", apiKeySet: false, apiKeySource: null });
+    const [audit] = (await audits("settings.whatsapp.updated")).slice(-1);
+    expect(audit?.oldValue).toMatchObject({ apiKeySet: true, apiKey: "***" });
+    expect(audit?.newValue).toMatchObject({ apiKeySet: false, apiKeyChanged: true });
+    expect(audit?.newValue).not.toHaveProperty("apiKey");
+    await call(a, s, "POST", `${W}/test`, { phoneNumber: PHONE });
+    expect(testSends(envFake).at(-1)?.apiKey).toBeUndefined();
+
+    await call(a, s, "PUT", W, { url: envFake.url, apiKey: PANEL_KEY });
+    const del = await call(a, s, "DELETE", W);
+    expect(view(del)).toMatchObject({ source: "env", apiKeySet: true, apiKeySource: "env" });
+    expect((await testDb().systemSetting.findUniqueOrThrow({ where: { key: "whatsapp" } })).secretEnc).toBeNull();
+    const [delAudit] = (await audits("settings.whatsapp.deleted")).slice(-1);
+    expect(delAudit?.oldValue).toMatchObject({ apiKeySet: true, apiKey: "***" });
+    expect(delAudit?.newValue).toMatchObject({ source: "env", apiKeySet: true, apiKey: "***" });
+    await call(a, s, "POST", `${W}/test`, { phoneNumber: PHONE });
+    expect(testSends(envFake).at(-1)?.apiKey).toBe(ENV_KEY);
+  });
+
+  it("S-P13b-3: servis 401 → test yanıtı \"Servis anahtarı reddetti.\" + audit reason unauthorized; geçersiz anahtar 400", async () => {
+    const { a, s } = await keyedApp();
+    envFake.plan = () => 401;
+    expect((await call(a, s, "POST", `${W}/test`, { phoneNumber: PHONE })).json()).toEqual({ ok: false, message: WA_TEST_MESSAGES.unauthorized });
+    expect(WA_TEST_MESSAGES.unauthorized).toBe("Servis anahtarı reddetti.");
+    const [t] = (await audits("settings.whatsapp.test")).slice(-1);
+    expect(t?.newValue).toMatchObject({ result: "fail", reason: "unauthorized" });
+    for (const apiKey of ["kisa", "bosluklu anahtar 0123456789", "ç".repeat(20), `${"a".repeat(20)}\u200B`, `a${"\u0007"}${"b".repeat(20)}`, "x".repeat(257), 12345]) {
+      const r = await call(a, s, "PUT", W, { url: panelFake.url, apiKey });
+      expect(r.statusCode, String(apiKey)).toBe(400);
+      expect(r.json<ErrBody>().error.fields).toHaveProperty("apiKey");
+    }
+    expect(view(await call(a, s, "GET", W)).source).toBe("env");
   });
 });

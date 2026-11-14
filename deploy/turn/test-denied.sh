@@ -16,11 +16,14 @@
 #      TURN_TEST_PUBLIC_PEER6 (2606:4700:4700::1111). Kontrol peer'ına tek 100 baytlık UDP paketi gider.
 #      Bölüm 4: TURN_TEST_FW (1), TURN_TEST_FW_EXEC (iptables/betik önüne eklenen komut; staging boş),
 #      TURN_TEST_FW_SCRIPT (./host-firewall.sh), TURN_TEST_PEER_NET (echo peer ağı; vars. TURN_TEST_NETWORK),
-#      TURN_TEST_FW_OUTPORT (3480; aralık dışı, boş olmalı), TURN_TEST_FW_INPORT (vars. base.conf max-port).
-# Staging'de ~60 allocation açar, 40 portluk aralık dolar: test oturumu yokken çalıştırın (~20-25 dk).
+#      TURN_TEST_FW_OUTPORT (3480; aralık dışı, boş olmalı), TURN_TEST_FW_INPORT (vars. base.conf max-port = aralığın
+#      SON portu 49479; relay<->relay aralık sınırında da çalışmalı).
+#  0) Aralık/kapasite (P13b, ADR-0018 m.2): base.conf min/max = TURN_TEST_EXPECT_RANGE (49160-49479, 320 port),
+#     total-quota (300) <= port sayısı ve >= 50 oturum x 6 allocation; user-quota 8.
+# ~60 allocation açar (600 sn yaşar); prod'da 320 portluk aralığın ~%20'si: yoğun saatte çalıştırmayın (~3-5 dk).
 # Çıkış kodu: 0 = tüm beklentiler tuttu, 1 = en az bir FAIL. Secret yazdırılmaz.
 set -uo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 : "${TURN_SECRET:?TURN_SECRET gerekli}"
 : "${TURN_EXTERNAL_IP:?TURN_EXTERNAL_IP gerekli}"
 HOST="${TURN_HOST:-127.0.0.1}"
@@ -33,7 +36,7 @@ IMAGE="$(awk '/image: coturn\/coturn/ {print $2; exit}' docker-compose.yml)"
 [ -n "$IMAGE" ] || { echo "imaj docker-compose.yml'den okunamadı" >&2; exit 2; }
 [ -f "$LOCAL" ] || { echo "$LOCAL yok" >&2; exit 2; }
 OUT="$(mktemp)"; trap 'rm -f "$OUT"' EXIT
-n=0; pass=0; fail=0; v6_ok=1
+n=0; pass=0; fail=0
 
 # uclient <ad> <secret> <expiry-ofset-sn> [uclient argümanları...] -> $rc, çıktı $OUT
 uclient() {
@@ -44,7 +47,7 @@ uclient() {
   docker run --rm --network "$NET" --entrypoint turnutils_uclient "$IMAGE" \
     -u "$user" -w "$pw" -n 1 -m 1 -c "$@" "$HOST" >"$OUT" 2>&1
   rc=$?
-  # Kaynak tükenmesi: 508 = relay portu kalmadı (her deneme bir allocation; 600 sn yaşar; staging'de 40 port),
+  # Kaynak tükenmesi: 508 = relay portu kalmadı (her deneme bir allocation; 600 sn yaşar; prod 320 port),
   # 486 = user-quota (kullanıcı başına allocation tavanı) aşıldı; uclient bazen yalnız "Cannot complete Allocation"
   # yazar. Hepsinde kaynak boşalana kadar bekleyip aynı denemeyi tekrarla (en çok TURN_TEST_WAIT_MAX sn).
   # Yalnız beklenen başarısızlık değilse tekrarla: negatif kimlik/IPv6 relay testleri (wrong/expired/v6relay) zaten "Cannot complete
@@ -71,6 +74,16 @@ expect_403() { if [ "$rc" -ne 0 ] && grep -q 'error 403' "$OUT"; then ok "$1"; e
 expect_403_or_v4only() { if [ "$rc" -ne 0 ] && grep -Eq 'error (403|440|443)' "$OUT"; then ok "$1"; else bad "$1 (403/440 beklendi)"; fi; }
 expect_noalloc() { if [ "$rc" -ne 0 ] && grep -q 'Cannot complete Allocation' "$OUT"; then ok "$1"; else bad "$1 (allocation reddi beklendi)"; fi; }
 
+echo "== 0) relay aralığı ve kapasite (turnserver.base.conf)"
+cval() { sed -n "s/^$1=\([0-9][0-9]*\)\$/\1/p" turnserver.base.conf | tail -1; }
+RMIN="$(cval min-port)"; RMAX="$(cval max-port)"; TQ="$(cval total-quota)"; UQ="$(cval user-quota)"
+EXP="${TURN_TEST_EXPECT_RANGE:-49160-49479}"
+NPORT=$(( ${RMAX:-0} - ${RMIN:-0} + 1 ))
+if [ "$RMIN-$RMAX" = "$EXP" ]; then ok "relay aralığı $RMIN-$RMAX ($NPORT port; son port $RMAX)"; else bad "relay aralığı $RMIN-$RMAX (beklenen $EXP)"; fi
+if [ -n "$TQ" ] && [ "$TQ" -le "$NPORT" ] && [ "$TQ" -ge 300 ]; then ok "total-quota $TQ: <= $NPORT port, >= 50 oturum x 6 allocation"
+else bad "total-quota '${TQ:-yok}' (300 <= q <= $NPORT olmalı)"; fi
+if [ "$UQ" = 8 ]; then ok "user-quota 8"; else bad "user-quota '${UQ:-yok}' (8 beklenir)"; fi
+
 echo "== 1) HMAC credential, pozitif (host=$HOST, relay=$SELF)"
 uclient udp "$TURN_SECRET" 600 -e "$SELF";            expect_ok "UDP 3478 allocation + kendi relay IP'si (allowed-peer-ip)"
 uclient tcp "$TURN_SECRET" 600 -t -e "$SELF";         expect_ok "TCP 3478 allocation"
@@ -83,7 +96,6 @@ uclient v6relay "$TURN_SECRET" 600 -x -e "$PUB6"
 if [ "$rc" -ne 0 ] && grep -Eq 'error 440|Cannot complete Allocation' "$OUT"; then ok "IPv6 relay allocation reddedildi (relay-ip IPv4)"
 elif [ "$rc" -eq 0 ] && ! grep -q 'error 4' "$OUT"; then bad "IPv6 relay açık: $PUB6'e relay edildi (relay-ip IPv4 olmalı)"
 else bad "IPv6 relay denemesi beklenmeyen sonuç"; fi
-v6_ok=0
 [ -n "$(ip -6 addr show scope global 2>/dev/null)" ] || echo "INFO  host'ta global IPv6 yok (staging, S-P2-5): IPv6 relay zaten imkânsız; prod ağında P13'te tekrar koşulur"
 
 echo "== 2) HMAC credential, negatif"

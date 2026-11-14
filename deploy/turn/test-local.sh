@@ -2,13 +2,19 @@
 # Yerel/CI coturn testi: geçici secret + geçici staging CA/sertifika ile coturn'ü bridge ağda
 # (docker-compose.test.yml) başlatır, test-denied.sh'ı çalıştırır, her durumda yığını kaldırır.
 # Gerçek .env / denied-peer-ip.local.conf / certs/ KULLANILMAZ ve değiştirilmez. Kullanım: ./test-local.sh
+# P13b ekleri: host-firewall.sh relay tavanı (hashlimit) + aralık değişiminde reserved ports geri alma + preflight;
+# AC-21 bant ölçümü (TURN_MAX_BPS=1000000 bayt/sn, allocation başına; G-P13b-12); G-P13b-1 kapasite (64 eşzamanlı
+# allocation, bps-capacity=0). TURN_TEST_BPS=0 / TURN_TEST_CAP=0 ile atlanır.
 set -euo pipefail
 cd "$(dirname "$0")"
 TMP="$(mktemp -d)"
 export COMPOSE_FILE=docker-compose.yml:docker-compose.test.yml COMPOSE_PROJECT_NAME=remote-turn-test
-export TURN_SECRET="$(openssl rand -hex 32)" TURN_REALM=remote.test TURN_EXTERNAL_IP=172.31.250.2
+TURN_SECRET="$(openssl rand -hex 32)"
+export TURN_SECRET TURN_REALM=remote.test TURN_EXTERNAL_IP=172.31.250.2
 export TURN_PROMETHEUS_ADDRESS=0.0.0.0 TURN_TEST_CERT_DIR="$TMP/certs" TURN_LISTEN_IPS=auto
-cleanup() { docker rm -f remote-turn-test-fw >/dev/null 2>&1 || true; docker compose --env-file /dev/null down -v >/dev/null 2>&1 || true; rm -rf "$TMP"; }
+export TURN_MAX_BPS=1000000 TURN_BPS_CAPACITY=0   # prod değerleri (mimari-p13 §7.4, G-P13b-1)
+cleanup() { docker ps -aq --filter name=remote-turn-test-x | xargs docker rm -f >/dev/null 2>&1 || true
+  docker rm -f remote-turn-test-fw >/dev/null 2>&1 || true; docker compose --env-file /dev/null down -v >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
 TURN_CERT_OUT="$TMP/certs" ./gen-cert.sh 172.31.250.2 >/dev/null 2>&1
 echo "== yapılandırma (TURN_CONFIG_CHECK, secret maskeli)"
@@ -30,16 +36,80 @@ else echo "FAIL  3478 dinleme adresleri: $L3478"; exit 1; fi
 echo "== host-firewall.sh (S-P3-2) coturn ağ ad alanında (yardımcı konteyner, NET_ADMIN)"
 docker run -d --name remote-turn-test-fw --network "container:$CID" --cap-add NET_ADMIN --user 0 --entrypoint sh \
   -v "$PWD/host-firewall.sh:/fw/host-firewall.sh:ro" -v "$PWD/turnserver.base.conf:/fw/turnserver.base.conf:ro" \
-  "$IMAGE" -c 'apk add --no-cache iptables ip6tables >/dev/null 2>&1 && touch /tmp/ready && exec sleep 3600' >/dev/null
+  "$IMAGE" -c 'apk add --no-cache iptables ip6tables iproute2 >/dev/null 2>&1 && touch /tmp/ready && exec sleep 3600' >/dev/null
 for _ in $(seq 60); do docker exec remote-turn-test-fw test -f /tmp/ready 2>/dev/null && break; sleep 1; done
-FWENV=(-e TURN_EXTERNAL_IP=172.31.250.2 -e TURN_FW_PORT_MAX=49999 -e TURN_FW_RESERVE_PORTS=0)
-docker exec "${FWENV[@]}" remote-turn-test-fw /fw/host-firewall.sh apply
-docker exec "${FWENV[@]}" remote-turn-test-fw /fw/host-firewall.sh apply >/dev/null   # idempotent: 2. kez
+FX() { docker exec "$@" remote-turn-test-fw /fw/host-firewall.sh "${FWCMD[@]}"; }
+# Aralık değişimi (49160-49199 -> 49160-49479): önceki apply'ın reserved ports kaydı geri alınır, yenisi eklenir; remove
+# yalnız bizimkini çıkarır. /proc/sys konteynerde salt okunur -> TURN_FW_TEST_RES_FILE.
+docker exec remote-turn-test-fw sh -c 'mkdir -p /var/lib/remote-turn-fw && echo 1000-1001,49160-49199 >/tmp/res &&
+  echo 49160-49199 >/var/lib/remote-turn-fw/reserved.range && echo 1000-1001 >/var/lib/remote-turn-fw/reserved.before'
+RENV=(-e TURN_EXTERNAL_IP=172.31.250.2 -e TURN_FW_PORT_MAX=49479 -e TURN_FW_RESERVE_PORTS=1 -e TURN_FW_TEST_RES_FILE=/tmp/res -e TURN_FW_SKIP_PREFLIGHT=1)
+FWCMD=(apply); FX "${RENV[@]}" >/dev/null
+r1="$(docker exec remote-turn-test-fw cat /tmp/res)"
+FWCMD=(remove); FX "${RENV[@]}" >/dev/null
+r2="$(docker exec remote-turn-test-fw cat /tmp/res)"
+if [ "$r1" = "1000-1001,49160-49479" ] && [ "$r2" = "1000-1001" ]; then echo "PASS  aralık değişimi: reserved '$r1' -> remove '$r2' (eski 49160-49199 geri alındı)"
+else echo "FAIL  reserved ports aralık değişimi: apply '$r1', remove '$r2'"; exit 1; fi
+# preflight: aralıkta başka süreç UDP dinliyorsa apply yazmadan çıkar.
+docker exec -d remote-turn-test-fw sh -c 'exec nc -u -l -p 49300 >/dev/null'
+sleep 1
+FWCMD=(preflight)
+if FX -e TURN_EXTERNAL_IP=172.31.250.2 -e TURN_FW_PORT_MAX=49479 >"$TMP/pf" 2>&1; then echo "FAIL  preflight dinleyiciyi görmedi"; exit 1
+elif grep -q '49300' "$TMP/pf"; then echo "PASS  preflight: aralıkta başka UDP dinleyici (49300) -> çıkış 1"; else echo "FAIL  preflight: $(cat "$TMP/pf")"; exit 1; fi
+docker exec remote-turn-test-fw pkill -f 'nc -u -l' || true
+FWENV=(-e TURN_EXTERNAL_IP=172.31.250.2 -e TURN_FW_PORT_MAX=49999 -e TURN_FW_RESERVE_PORTS=0 -e TURN_FW_RELAY_MAX_BPS=62500000)
+FWCMD=(apply); FX "${FWENV[@]}"
+FX "${FWENV[@]}" >/dev/null   # idempotent: 2. kez
 n4="$(docker exec remote-turn-test-fw iptables -S REMOTE-TURN-OUT | grep -c '^-A')"
 j4="$(docker exec remote-turn-test-fw iptables -S OUTPUT | grep -c 'REMOTE-TURN-OUT')"
-if [ "$n4" = 2 ] && [ "$j4" = 1 ]; then echo "PASS  iki kez apply -> 2 kural, 1 atlama (idempotent)"; else echo "FAIL  idempotent değil ($n4 kural, $j4 atlama)"; exit 1; fi
-docker exec "${FWENV[@]}" remote-turn-test-fw /fw/host-firewall.sh print | sed 's/^/      /'
+h4="$(docker exec remote-turn-test-fw iptables -S REMOTE-TURN-OUT | grep -c 'hashlimit-above')"
+if [ "$n4" = 5 ] && [ "$j4" = 1 ] && [ "$h4" = 3 ]; then echo "PASS  iki kez apply -> 5 kural (3 hashlimit relay tavanı), 1 atlama (idempotent)"
+else echo "FAIL  idempotent/tavan değil ($n4 kural, $h4 hashlimit, $j4 atlama)"; exit 1; fi
+FWCMD=(check); FX "${FWENV[@]}" >/dev/null && echo "PASS  check: hashlimit kuralları dahil beklenen halde" || { echo "FAIL  check"; exit 1; }
+FWCMD=(print); FX "${FWENV[@]}" | sed 's/^/      /'
 TURN_TEST_NETWORK=remote-turn-test_turntest TURN_HOST=172.31.250.2 \
   TURN_LOCAL_CONF=./denied-peer-ip.local.conf.example \
   TURN_TEST_FW_EXEC="docker exec ${FWENV[*]} remote-turn-test-fw" TURN_TEST_FW_SCRIPT=/fw/host-firewall.sh \
   TURN_TEST_PEER_NET="container:$CID" TURN_TEST_FW_INPORT=49990 ./test-denied.sh
+
+cred() { TU="$(( $(date +%s) + 900 )):t$$-$1"; TP="$(printf %s "$TU" | openssl dgst -sha1 -hmac "$TURN_SECRET" -binary | base64)"; }
+# Peer coturn ağ ad alanında, aralık İÇİ portta (host OUTPUT kuralı aralık dışını düşürür).
+docker run -d --rm --name remote-turn-test-xpeer --network "container:$CID" --entrypoint turnutils_peer "$IMAGE" -p 49991 >/dev/null
+sleep 1
+# uclient <ad> [arg...] -> çıktı $TMP/<ad>.log
+uc() { local n="$1"; shift; cred "$n"; docker run --rm --name "remote-turn-test-x$n" --network remote-turn-test_turntest \
+  --entrypoint turnutils_uclient "$IMAGE" -u "$TU" -w "$TP" -c -e 172.31.250.2 -r 49991 "$@" 172.31.250.2 >"$TMP/$n.log" 2>&1 || true; }
+# Saniyelik ilerleme satırlarından (tot_*_bytes) sıfır olmayan tam saniyelerin medyanı (ilk/son kısmi saniye atılır).
+rate() { grep -o "tot_$2_bytes ~ [0-9]*" "$TMP/$1.log" | awk '{print $3}' | awk 'NR>1 {d=$1-p; if (d>0) print d} {p=$1}' \
+  | sed '1d;$d' | sort -n | awk '{a[NR]=$1} END {print (NR ? a[int((NR+1)/2)] : 0)}'; }
+
+if [ "${TURN_TEST_BPS:-1}" = 1 ]; then
+  echo "== AC-21 bant tavanı (TURN_MAX_BPS=1000000 bayt/sn; 1200 B x 1000 paket/sn = 1,2 MB/s teklif)"
+  uc bps1 -l 1200 -z 1 -n 6000
+  S1="$(rate bps1 send)"; R1="$(rate bps1 recv)"
+  echo "      tek allocation: teklif ~$S1 B/s, teslim ~$R1 B/s (echo: istemci->relay->peer->relay->istemci)"
+  if [ "$S1" -gt 1100000 ] && [ "$R1" -ge 900000 ] && [ "$R1" -le 1100000 ]; then
+    echo "PASS  allocation başına tavan ~1 MB/s = 8 Mbit/s (birim BAYT/sn; bit olsaydı ~125 KB/s)"
+  else echo "FAIL  bant ölçümü: teklif $S1, teslim $R1 (beklenen teklif > 1,1 MB/s, teslim 0,9-1,1 MB/s)"; exit 1; fi
+  # G-P13b-12: tavan oturum/kullanıcı değil ALLOCATION başınadır: aynı credential ile 2 allocation ~2 MB/s taşır.
+  uc bps2 -m 2 -l 1200 -z 1 -n 3000
+  R2="$(rate bps2 recv)"
+  echo "      aynı credential, 2 allocation: teslim ~$R2 B/s"
+  if [ "$R2" -ge 1800000 ]; then echo "PASS  max-bps allocation başına uygulanıyor (2 allocation ~2 MB/s; G-P13b-12)"
+  else echo "FAIL  2 allocation teslimi $R2 (allocation başına ise ~2 MB/s beklenir)"; exit 1; fi
+fi
+
+if [ "${TURN_TEST_CAP:-1}" = 1 ]; then
+  echo "== G-P13b-1 kapasite: bps-capacity=0 iken 63 açık allocation + 64. açılır (62500000 ile 63. 486 alıyordu)"
+  for i in 1 2 3 4 5 6 7 8; do m=8; [ "$i" = 8 ] && m=7; cred "cap$i"
+    docker run -d --name "remote-turn-test-xcap$i" --network remote-turn-test_turntest --entrypoint turnutils_uclient "$IMAGE" \
+      -u "$TU" -w "$TP" -c -h -m "$m" -n 1 -z 1000 -e 172.31.250.2 -r 49991 172.31.250.2 >/dev/null; done
+  sleep 12
+  NA="$(docker run --rm --network remote-turn-test_turntest --entrypoint wget "$IMAGE" -qO- http://172.31.250.2:9641/metrics \
+    | awk '$1 ~ /^turn_total_allocations/ {s+=$2} END {print s+0}')"
+  uc probe -n 1
+  if [ "$NA" -ge 63 ] && ! grep -Eq 'error 486|Cannot complete Allocation' "$TMP/probe.log" && grep -q 'Total lost packets 0' "$TMP/probe.log"; then
+    echo "PASS  $NA allocation açıkken 64. allocation açıldı (rezervasyon yok)"
+  else echo "FAIL  kapasite: açık $NA, 64. deneme: $(grep -Eo 'error [0-9]+|Cannot complete Allocation' "$TMP/probe.log" | head -1)"; exit 1; fi
+  docker ps -aq --filter name=remote-turn-test-xcap | xargs docker rm -f >/dev/null 2>&1 || true
+fi

@@ -122,6 +122,8 @@ export const AUDIT_ACTION_GROUPS: readonly { prefix: string; label: string }[] =
   { prefix: "audit.*", label: "Audit dışa aktarma" },
   // P13a (AC-199): günlük saklama işi `retention.run`
   { prefix: "retention.*", label: "Veri saklama" },
+  // P13b (G-P13b-5): `backup.audit_baseline_reset`
+  { prefix: "backup.*", label: "Yedekleme" },
 ];
 
 /** 405 yanıtı mesajı (`METHOD_NOT_ALLOWED`; AC-76: audit kayıtları değiştirilemez/silinemez). */

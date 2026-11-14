@@ -3,14 +3,25 @@
 import { newSecretToken, sha256Hex } from "../lib/ids.ts";
 import { offerBinding } from "./binding.ts";
 import type { Rooms } from "./rooms.ts";
-import { iceServersFor } from "./turn.ts";
+import { iceServersFor, type IceGrant } from "./turn.ts";
 import type { Guest, Room } from "./types.ts";
 
 const HOUR_MS = 3_600_000;
 const iso = (ms: number): string => new Date(ms).toISOString();
 
-function grant(rooms: Rooms, room: Room) {
-  return iceServersFor(rooms.turn, room.sessionId, rooms.clock.now(), room.maxEndsAt ?? rooms.clock.now());
+/**
+ * G-P13b-1: oda başına TURN credential önbelleği. Yeniden bağlanma (hello) yeni username üretmez; credential yenileme
+ * eşiğine (`iceRefreshBeforeMs`) gelene kadar aynısı verilir → coturn `user-quota` oturum başına çoğalmaz. Yeni credential
+ * yalnız yenileme zamanlayıcısında (ya da eşik geçince) üretilir; bu yüzden aynı anda en çok 2 geçerli credential olur
+ * (yeni + bitmekte olan). TURN ayarı değişince (`rooms.turn` yeni nesne) önbellek kullanılmaz.
+ */
+function grant(rooms: Rooms, room: Room, fresh = false): IceGrant {
+  const now = rooms.clock.now();
+  const c = room.iceGrant;
+  if (!fresh && c && c.cfg === rooms.turn && c.grant.expiresAt !== null && c.grant.expiresAt - now > rooms.timing.iceRefreshBeforeMs) return c.grant;
+  const g = iceServersFor(rooms.turn, room.sessionId, now, room.maxEndsAt ?? now);
+  room.iceGrant = g.expiresAt === null ? undefined : { cfg: rooms.turn, grant: g };
+  return g;
 }
 
 /** Teknisyen hello'su: PENDING'de iceServers boş + maxEndsAt null (TURN yalnız admit sonrası). */
@@ -63,7 +74,7 @@ function scheduleIceRefresh(rooms: Rooms, room: Room): void {
   if (room.maxEndsAt !== undefined && exp >= room.maxEndsAt) return; // credential oturum sonuna kadar geçerli
   room.timers.iceRefresh = rooms.clock.setTimeout(() => {
     if (!rooms.live(room)) return;
-    const { iceServers } = grant(rooms, room);
+    const { iceServers } = grant(rooms, room, true);
     room.tech?.peer.send({ t: "ice.servers", iceServers });
     room.admitted?.peer?.send({ t: "ice.servers", iceServers });
     scheduleIceRefresh(rooms, room);

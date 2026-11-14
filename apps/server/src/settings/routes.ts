@@ -23,19 +23,15 @@ import { FixedWindowCounter } from "../lib/rate.ts";
 import { getConsentSettings, saveConsentText } from "./consent.ts";
 import {
   deleteTurnSettings,
-  deleteWhatsappSettings,
   effectiveTurn,
-  effectiveWhatsappUrl,
   getMysqlSettings,
   getTurnSettings,
-  getWhatsappSettings,
   saveMysqlSettings,
   saveTurnSettings,
-  saveWhatsappSettings,
   testMysql,
-  testWhatsapp,
   type SystemDeps,
 } from "./system.ts";
+import { deleteWhatsappSettings, effectiveWhatsappTarget, getWhatsappSettings, saveWhatsappSettings, testWhatsapp } from "./whatsapp.ts";
 import type { ProbeResult, ProbeTarget } from "./mysql-probe.ts";
 
 const noStore = async (_req: unknown, reply: { header(k: string, v: string): unknown }) => {
@@ -60,14 +56,15 @@ export function systemDeps(app: FastifyInstance): SystemDeps {
     databaseUrl: app.env.DATABASE_URL,
     turnEnv: { urls: app.env.turnUrls, secret: app.env.TURN_SECRET, ttlMin: app.env.TURN_CRED_TTL_MIN },
     whatsappEnvUrl: app.env.WHATSAPP_SERVICE_URL,
-    whatsappEnvSource: app.env.WHATSAPP_URL_SOURCE,
+    whatsappEnvApiKey: app.env.WHATSAPP_SERVICE_API_KEY,
     production: app.env.NODE_ENV === "production",
   };
 }
 
 /** P12b (AC-196): etkin WhatsApp adresini (panel > env) notifier'a uygular (açılışta ve her PUT/DELETE sonrası; tek süreç). */
 export async function applyWhatsapp(app: FastifyInstance): Promise<void> {
-  app.whatsapp.setUrl(await effectiveWhatsappUrl(systemDeps(app)));
+  const t = await effectiveWhatsappTarget(systemDeps(app));
+  app.whatsapp.setUrl(t.url, t.apiKey);
 }
 
 /** Panel TURN kaydını odalara uygular (açılışta ve her değişiklikte; tek instance — ADR-0005). */
@@ -134,14 +131,16 @@ export async function adminSettingsRoutes(app: FastifyInstance, opts: { mysqlPro
     const input = parseInput(whatsappSettingsInputSchema, req.body);
     writeGuard(req);
     return waSerial(async () => {
-      app.whatsapp.setUrl(await saveWhatsappSettings(d, auditContext(req), authOf(req), input));
+      const t = await saveWhatsappSettings(d, auditContext(req), authOf(req), input);
+      app.whatsapp.setUrl(t.url, t.apiKey);
       return getWhatsappSettings(d);
     });
   });
   app.delete("/whatsapp", async (req): Promise<WhatsappSettingsView> => {
     writeGuard(req);
     return waSerial(async () => {
-      app.whatsapp.setUrl(await deleteWhatsappSettings(d, auditContext(req), authOf(req)));
+      const t = await deleteWhatsappSettings(d, auditContext(req), authOf(req));
+      app.whatsapp.setUrl(t.url, t.apiKey);
       return getWhatsappSettings(d);
     });
   });

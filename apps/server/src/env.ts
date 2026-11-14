@@ -2,7 +2,7 @@
 // Her paket yalnız kullandığı anahtarları ister; diğerleri (APP_ENCRYPTION_KEYS …)
 // ilgili pakette eklenir.
 import { isIP } from "node:net";
-import { waServiceUrlSchema } from "@remote/contracts/api/system-settings";
+import { waApiKeySchema, waServiceUrlSchema } from "@remote/contracts/api/system-settings";
 import { z } from "zod";
 
 const cidr = z.string().refine((v) => {
@@ -11,9 +11,6 @@ const cidr = z.string().refine((v) => {
   const family = isIP(addr);
   return family !== 0 && Number(bits) <= (family === 4 ? 32 : 128);
 }, "CIDR olmalı (ör. 172.30.0.2/32)");
-
-/** Ortak standart 2.2: whatsapp-bildirim canlı servis adresi (env verilmezse). */
-export const DEFAULT_WHATSAPP_URL = "http://89.252.189.211:3000";
 
 const origin = z.url().transform((v) => new URL(v).origin);
 
@@ -65,11 +62,15 @@ const schema = z
       .transform((v) => v.toLowerCase())
       .optional(),
     // P8b (mimari-e9 §6, §13.5, AC-150/152): whatsapp-bildirim servisi; sistem düzeyi, tenant değiştiremez. Prod'da http:// +
-    // özel olmayan adres → kanal kapalı (fail-closed, notify/whatsapp.ts). Boş → varsayılan canlı servis.
+    // özel olmayan adres → kanal kapalı (fail-closed, notify/whatsapp.ts).
+    // G-P13b-2 (repo public): yerleşik varsayılan adres YOK; boş → kanal yapılandırılmamış (K13 "kanal kapalı" ile aynı:
+    // gönderim yok, testler sabit "yapılandırılmamış" yanıtı). Adres yalnız bu env ya da Super Admin panel kaydından gelir.
     // B-P12b-3: panel kaydıyla aynı kural (waServiceUrlSchema: http/https, kullanıcı:şifre/?/# yok, ≤ 200; sondaki / kırpılır);
     // uymazsa açılış durur (değer hata mesajına yazılmaz).
-    // P13a: açıkça verilmediyse `WHATSAPP_URL_SOURCE = "default"` (ayar ekranı rozeti "Varsayılan").
     WHATSAPP_SERVICE_URL: waServiceUrlSchema.optional(),
+    // S-P13b-3: servisin `x-api-key` anahtarı (16–256, boşluk/kontrol karakteri yok). Yalnız env adresiyle birlikte gönderilir
+    // (panel adresine panel anahtarı gider). Loglanmaz; değer hata mesajına yazılmaz.
+    WHATSAPP_SERVICE_API_KEY: waApiKeySchema.optional(),
     // P8b r2 (§13.4, G-E9-4): asgari Windows istemci sürümü; boş = kontrol yok. Düşük sürüm → 426 CLIENT_OUTDATED.
     MIN_AGENT_VERSION: z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/, "x.y.z biçiminde olmalı").optional(),
     // P10 (mimari §3.2, §8.1): `*_enc` alanlarının AES-256-GCM anahtarları; yeni yazım en yüksek sürümle, okuma `ver`
@@ -102,8 +103,7 @@ const schema = z
     const allowedOrigins = (list.length > 0 ? list : [e.PUBLIC_BASE_URL]).map((o) => origin.parse(o));
     const turnUrls = e.TURN_URLS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
     const encryptionKeys = e.APP_ENCRYPTION_KEYS ? parseEncryptionKeys(e.APP_ENCRYPTION_KEYS) : null;
-    const WHATSAPP_URL_SOURCE: "env" | "default" = e.WHATSAPP_SERVICE_URL === undefined ? "default" : "env";
-    return { ...e, WHATSAPP_SERVICE_URL: e.WHATSAPP_SERVICE_URL ?? DEFAULT_WHATSAPP_URL, WHATSAPP_URL_SOURCE, allowedOrigins, turnUrls, encryptionKeys };
+    return { ...e, WHATSAPP_SERVICE_URL: e.WHATSAPP_SERVICE_URL ?? "", allowedOrigins, turnUrls, encryptionKeys };
   });
 
 export type Env = z.infer<typeof schema>;

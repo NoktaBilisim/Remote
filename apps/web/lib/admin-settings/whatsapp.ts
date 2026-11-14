@@ -3,18 +3,17 @@
  * `@remote/contracts/api/system-settings`'ten (sunucuyla tek kaynak); burada yalnız alan bazlı ön kontrol mesajları.
  * Sunucu son sözü söyler: istemci kontrolü yalnız gereksiz isteği önler; 400 `fields.url` alana yazılır.
  */
-import { WA_INSECURE_WARNING, WA_URL_MAX, waServiceUrlSchema, type WhatsappAdminTestInput, type WhatsappAdminTestResponse, type WhatsappSettingsInput, type WhatsappSettingsView } from "@remote/contracts/api/system-settings";
+import { WA_API_KEY_MESSAGE, WA_API_KEY_REENTER, WA_INSECURE_WARNING, WA_URL_MAX, waApiKeySchema, waServiceUrlSchema, type WhatsappAdminTestInput, type WhatsappAdminTestResponse, type WhatsappSettingsInput, type WhatsappSettingsView } from "@remote/contracts/api/system-settings";
 import { normalizePhone } from "@/lib/requests/validate";
 
 /**
- * P13a (mimari-p13 §3, B-P12b-4): kaynak contracts'tan `"panel" | "env" | "default"` (`default` = env açıkça verilmemiş,
- * yerleşik varsayılan adres; rozet "Varsayılan"). `normalizeWaView` beklenmeyen değeri "env"e indirir (savunma).
+ * Kaynak contracts'tan `"panel" | "env"`. `normalizeWaView` beklenmeyen değeri "env"e indirir (savunma).
  */
 export type WhatsappSource = WhatsappSettingsView["source"];
 export type WhatsappServiceView = WhatsappSettingsView;
-export function normalizeWaView(v: Omit<WhatsappSettingsView, "source"> & { source: string }): WhatsappServiceView {
+export function normalizeWaView(v: Omit<WhatsappSettingsView, "source" | "apiKeySet" | "apiKeySource"> & { source: string; apiKeySet?: boolean; apiKeySource?: string | null }): WhatsappServiceView {
   const src = String(v.source).toLowerCase();
-  return { ...v, source: src === "panel" || src === "default" ? src : "env" };
+  return { ...v, source: src === "panel" ? src : "env", apiKeySet: Boolean(v.apiKeySet), apiKeySource: v.apiKeySource === "panel" || v.apiKeySource === "env" ? v.apiKeySource : null };
 }
 export type WhatsappServiceInput = WhatsappSettingsInput;
 export type WhatsappServiceTestInput = WhatsappAdminTestInput;
@@ -97,4 +96,28 @@ export function checkTestPhone(raw: string): { phoneNumber?: string; error?: str
   if (raw.trim() === "") return { error: WA_PHONE_MESSAGES.required };
   const n = normalizePhone(raw);
   return n ? { phoneNumber: n } : { error: WA_PHONE_MESSAGES.invalid };
+}
+
+export { WA_API_KEY_REENTER };
+
+/**
+ * Kayıtlı panel anahtarı varken adresin kökeni (şema+host+port) değişiyorsa anahtar yeniden girilmeli (sunucu kuralıyla aynı).
+ */
+export function waKeyNeedsReenter(saved: WhatsappServiceView, nextUrl: string): boolean {
+  if (saved.source !== "panel" || saved.apiKeySource !== "panel" || !saved.url) return false;
+  try {
+    return new URL(saved.url).origin !== new URL(nextUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Servis anahtarı ön kontrolü (sözleşme `waApiKeySchema`: 16–256 karakter, boşluk/kontrol karakteri yok). Boş alan =
+ * "değiştirme" (gönderilmez). Sunucu son sözü söyler.
+ */
+export function checkWaApiKey(raw: string): { apiKey?: string; error?: string } {
+  if (raw === "") return {};
+  const parsed = waApiKeySchema.safeParse(raw);
+  return parsed.success ? { apiKey: parsed.data } : { error: WA_API_KEY_MESSAGE };
 }

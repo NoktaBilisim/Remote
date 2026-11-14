@@ -5,6 +5,47 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P13b (prod açılışı; AC-23, 91, 126, 200 revize; AC-298–302)
+- **Prod adresi** `https://remote.noktabilisim.net` (Let's Encrypt, host nginx → Caddy `127.0.0.1:4451`); staging yığını yerinde
+  terfi eder (ADR-0019), prod'da `CADDY_BIND=127.0.0.1`. Açılış sırası ve imzalı kontrol listesi runbook §20.
+- **Yedek imzası** (ADR-0020): manifest `format: 2` (`env`, `host`, `signer`, `seq`, `prevRun`, `audit`) ed25519 ile
+  imzalanır (`manifest.json.sig`). `restore.sh --allowed-signers` imzayı her şeyden önce doğrular; imzasız/bozuk/değiştirilmiş
+  yedek çözülmez. Ortam kilidi (`DEPLOY_ENV` = `--target` = manifest `env`, `--confirm`, production'da TTY), migrator ile
+  `--system-command=OFF` yükleme, `CHECKSUM TABLE` eşitliği, tazelik/replay denetimi.
+- **Audit süreklilik denetimi** (AC-301): geçmiş gün sayısı/özeti değişirse veya en büyük id azalırsa `FAILED adım=audit-sureklilik`
+  + alarm; meşru sıfırlama `backup.sh --reset-audit-baseline "<gerekçe>"` ve host işareti. Audit etiketi "Yedek audit taban
+  çizgisi sıfırlandı", audit filtresinde yeni **Yedekleme** grubu.
+- **Site dışı kanca** (AC-300): `BACKUP_OFFSITE_CMD`, ayrı `remote-offsite` kullanıcısı, süre sınırı; `OFFSITE-FAILED` alarmı,
+  tanımsızsa `OFFSITE-UNCONFIGURED`. `/var/lib/remote-backup/status.prom`.
+- **`reset-superadmin` CLI** (AC-299): `node src/cli/reset-superadmin.ts --email … [--reset-mfa] [--dry-run]`; geçici şifre
+  yalnız TTY'ye, 24 saat geçerli; oturumlar iptal; audit `auth.superadmin_reset`.
+- **`remote-watch`** (AC-302): 10 dk'lık systemd zamanlayıcısı; servis, `/ready`, nginx, coturn, sertifika, yedek, disk ve izin
+  kontrolleri; 6 saatte bir tekrar, "DUZELDI" bildirimi; komut metninde sır varsa çalışmaz.
+- **`proxy-guard`** (G-P13b-3): nftables ile yerel 4451'e yalnız root/nginx kullanıcısı bağlanır.
+- **TURN sertifika kancası** (`deploy/turn/cert-deploy-hook.sh`): LE `remote-turn` → `/etc/remote/turn-certs`, SIGUSR2, parmak izi
+  doğrulaması.
+- **WhatsApp servis anahtarı** (S-P13b-3): Sistem ayarları › WhatsApp servisi'nde "Servis anahtarı" alanı ve rozeti; `x-api-key`
+  başlığı; AES-256-GCM ile adrese bağlı saklama; servis 401 → "Servis anahtarı reddetti.". API: `apiKey`, `apiKeySet`,
+  `apiKeySource`, `WA_API_KEY_REENTER`. Migration `20261115090000_whatsapp_api_key` (CHECK).
+- Yeni ortam değişkenleri: `DEPLOY_ENV`, `WHATSAPP_SERVICE_API_KEY`, `TURN_FW_RELAY_MAX_BPS`, `TURN_CERT_DIR`.
+- Kılavuz: Admin için ağ gereksinimleri (443/TCP, 3478 UDP/TCP, 5349/TCP, 49160–49479/UDP), Super Admin kurtarma, servis anahtarı.
+
+### Değişti — P13b
+- HSTS `max-age=31536000; includeSubDomains` (helmet ve Caddy).
+- TURN: relay aralığı 49160–49479/udp, `total-quota=300`, `TURN_MAX_BPS` varsayılanı 1000000 bayt/sn (8 Mbit/s, ölçüldü),
+  `TURN_BPS_CAPACITY=0`; host toplam tavanı hashlimit ile. TURN-TLS 5349 (443 kullanılmaz, ADR-0018).
+- TURN credential oda başına önbelleğe alınır; yeniden bağlanmada yeni coturn kullanıcısı üretilmez (G-P13b-1).
+- Yedek betikleri bölündü (`lib-audit.sh`, `lib-offsite.sh`, `lib-restore.sh`); birim `TimeoutStartSec=2h`.
+
+### Kaldırıldı — P13b
+- WhatsApp için yerleşik varsayılan servis adresi ve "Varsayılan" rozeti (G-P13b-2). Env ve panel kaydı boşsa kanal kapalıdır.
+  API `source` artık yalnız `panel` | `env`.
+
+### Güvenlik — P13b
+- Dokümanlardaki gerçek WhatsApp servis adresi yer tutucuyla değiştirildi (`http://<whatsapp-servis>:3000`).
+- `file.transfer*` audit kayıtlarında dosya adı/sha256 yok (S-P13a-8, doğrulandı); `check-app-grants.sh` anonim hesap ve
+  migrator fazlalığı kontrolleri (384 kontrol).
+
 ### Eklendi — P13a (saklama, yedek/geri yükleme, dokümantasyon; AC-88, 91, 92, 93, 197–200)
 - **Saklama süresi işi** (`apps/server/src/jobs/retention.ts`, her gün 03:30 Europe/Istanbul; mevcut zamanlayıcı genişletildi):
   - Bitmiş oturumlar firma saklama süresinden (`retentionDays`, varsayılan 365) sonra anonimleştirilir: müşteri adı, e-posta,

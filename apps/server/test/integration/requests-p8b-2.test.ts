@@ -217,7 +217,7 @@ describe("P8b-1 WhatsApp bildirimi (AC-150)", () => {
     expect(isInsecureServiceUrl("http://[fd00::1]:3000", true)).toBe(false);
     expect(isInsecureServiceUrl("https://wa.example.com", true)).toBe(false);
     expect(isInsecureServiceUrl("http://wa.example.com", true)).toBe(true); // ad çözülmez → genel sayılır
-    expect(isInsecureServiceUrl("http://89.252.189.211:3000", false)).toBe(false);
+    expect(isInsecureServiceUrl("http://203.0.113.10:3000", false)).toBe(false);
     expect(["localhost", "192.168.1.1", "::1"].every(isPrivateHost)).toBe(true);
     expect(isPrivateHost("8.8.8.8")).toBe(false);
     expect(["169.254.1.1", "fe80::1"].some(isPrivateHost)).toBe(false); // P13a T33: link-local özel sayılmaz

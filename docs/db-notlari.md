@@ -624,3 +624,130 @@ Migration `apps/server/prisma/migrations/20261114120000_p13a_retention/{migratio
   - `audit-p11`: geçmiş tarihli fikstür `testFixtureDb`.
 - `test:int` **506 test**. Test güncellemelerinden sonraki tam koşu aynı DB'de yapıldı (ilk koşu P13a öncesi testlerle): 505 geçti. Düşen tek test `branding-api-p12` "boş DB ön koşulu"ydu: önceki koşudan `system_logo` satırı kalmıştı. Satır silinince 16/16 geçti; bu mevcut bir test varsayımı. Etkilenen 5 dosya ayrıca 52/52 geçti. **Temiz DB'de tek tam koşu yapılmadı** (qa/CI'da doğrulanmalı).
 - typecheck + lint temiz.
+
+## P13b — geri yüklemede migrator, CHECKSUM, audit süreklilik (2026-11-14)
+Mimari-p13 §7.6, §7.11, §7.16 D1/D2; ADR-0020 m.2 ve m.5; güvenlik raporu P13b tasarım turu **G-P13b-5** (dba payı); AC-298, AC-301.
+**Şema, migration, seed ve `grants.sql` değişmedi.** Yeni grant gerekmedi. Bütün iş `deploy/mysql/` altındaki SQL arayüzü ile `check-app-grants.sh`'tedir. `restore.sh` ve `backup.sh`'ye dokunulmadı; onları devops (T1) bu arayüzle değiştirecek.
+
+### Arayüz (devops T1 bunları çağırır)
+| Dosya | Hesap | Ne zaman | Çıktı / beklenen |
+|---|---|---|---|
+| `deploy/mysql/restore-sec-snapshot.sql` | root (yalnız okuma) | yüklemeden önce ve sonra, scratch ve canlıda | `restore.sh` `sec_snapshot` heredoc'unun **yerine** geçer (aynı biçim; `\| tr '\n\t' ' :'`). Sona `plugins=`, `views=`, `anon=`, `migratorExtra=` eklendi. Önce ve sonra eşit olmalı. **Mutlak koşul (yüklemeden önce):** `anon=0` ve `migratorExtra=0`; sağlanmazsa yükleme yapılmaz. |
+| `deploy/mysql/restore-reset-db.sql` | **migrator** | yalnız canlıda: scratch OK + `stop web server` sonrası, yüklemeden önce | Önüne `SET @rs_confirm_db = '<db>';` eklenir. Çıktı: tek satır `restore-reset: OK <db> <cs> <coll>`. Guard (3819) şu durumlarda hiçbir şey değiştirmeden durur: root ya da başka bir hesapla çalıştırma, onay yok ya da farklı (harf duyarlı), sistem şeması. |
+| (döküm yükleme) | **migrator** | scratch, sonra canlı | `gzip -dc db.sql.gz \| fix_trigger_dump \| docker exec -i $C sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" exec mysql -umigrator --protocol=socket --system-command=OFF --local-infile=0 --default-character-set=utf8mb4 -NB "$MYSQL_DATABASE"'`. rc≠0 → FAIL. |
+| `deploy/mysql/checksum-tables.sql` | migrator | yükleme bittikten sonra, `docker compose up -d`'den önce, iki tarafta | Her tablo için bir satır: `<db>.<tablo>\t<checksum>`, ikili sıralı, `_prisma_migrations` dahil, bütün BASE TABLE'lar. İki çıktı birebir eşit olmalı. Farkta yalnız tablo adı yazılır; `join` satırı dosya başlığında. |
+| `deploy/mysql/audit-continuity.sql` | backup | `backup.sh`, döküm adımının yanında | Tek satır JSON → manifest `audit`. Önceki manifestte `audit.tail` varsa önüne `SET @rs_prev_tail_day=…, @rs_prev_tail_until=…;` eklenir. Alanlar ve karşılaştırma kuralı dosya başlığında (aşağıda özet). |
+| `deploy/mysql/audit-baseline-reset.sql` | migrator | yalnız `backup.sh --reset-audit-baseline "<gerekçe>"` üzerinden (root; `restore.sh` canlı yüklemeden sonra çağırır) | Önüne `SET @rs_reason='…', @rs_operator='<kullanıcı>@<host>';` eklenir. Çıktı `audit-baseline-reset: OK id=<n>`. Audit satırı yazar; backup.sh aynı id ile `$BACKUP_DIR/audit-baseline-reset.json` host işaretini (root 600) yazar (S-P13b-1). |
+
+**Scratch kurulumu (D1):** `restore.sh` `start_scratch`'e şunlar eklenir: `-v "$DEPLOY_DIR/mysql/init:/docker-entrypoint-initdb.d:ro"`, `-e MYSQL_APP_PASSWORD=<rastgele>`, `-e MYSQL_MIGRATOR_PASSWORD=<rastgele>`. `MYSQL_BACKUP_PASSWORD` verilmez; o hesap scratch'te gerekmez. Böylece compose ile aynı `01-users.sh` çalışır ve migrator, `<db>`.* üzerinde ALL + GRANT OPTION alır.
+- Hazır olma beklemesi P13a'daki gibi kalır. Ek olarak migrator ile `SELECT 1` denenir.
+- root yalnız `restore-sec-snapshot.sql` ve tetikleyici sayımı için kullanılır; yazma yapmaz.
+
+**Canlı sırası (D1):** scratch OK → `stop web server` → snapshot (mutlak koşullar) → `restore-reset-db.sql` → migrator ile yükleme → snapshot eşit → `checksum-tables` canlı = scratch → satır/tetikleyici = manifest → `audit-baseline-reset.sql` (gerekçe: `restore <run>`) → `up -d`.
+- P13a'daki root `DROP/CREATE DATABASE` printf'i kalkar.
+- Scratch'in checksum çıktısı scratch silinmeden önce `$WORK`'e yazılır. Bu çıktı yalnız tablo adı ve sayı içerir, kişisel veri yoktur.
+
+### D1 kararları
+- **DB boşaltma = migrator ile `DROP DATABASE` + `CREATE DATABASE` (aynı charset ve collation).** Tablo ve tetikleyiciyi tek tek düşürmeye göre avantajları:
+  - Dökümde olmayan her nesne de gider (fazla tablo, view, rutin, olay).
+  - FK sırası ya da nesne listesi gerekmez.
+  - Migrator'ın `<db>`.* ALL yetkisi DROP ve CREATE'i kapsar. Başka bir DB oluşturamaz (1044).
+- **DROP DATABASE hesap ve yetki silmez:** `mysql.db`, `tables_priv` ve `columns_priv` kalır. app'in tablo yetkileri, aynı adlı tablolar yeniden oluşunca geçerli olur.
+  - Test: geri yüklenen DB'de `grants.sql` yeniden çalıştırılmadan `check-app-grants` **384/384**.
+  - `up -d` içindeki migrate ve grants.sql bunu ayrıca eşitler. migrate "No pending migrations" verdi, drift 0.
+- **Tetikleyici DEFINER:** dökümde yalnız `` `migrator`@`%` `` bulunur (testte doğrulandı). Yükleyen de migrator olduğundan `SET_ANY_DEFINER` gerekmez.
+  - Kurcalanmış bir dökümde başka bir DEFINER varsa 1227 döner.
+- **`created_at` korunur:** mysqldump tetikleyicileri tablonun verisinden **sonra** yazar. Ayrıca `force_created_at`, migrator'ı (`USER()`) muaf tutar. İki yönden de özgün değer kalır.
+  - Test: `2025-01-02 03:04:05.678` scratch'te ve canlıda aynı çıktı; UTF-8 JSON da aynı.
+  - P13a notundaki "root muaf (restore root kullanır)" gerekçesi artık migrator için geçerli. root muafiyeti ise elle kurtarma için kalır.
+- **`--local-infile=0`:** sunucuda `local_infile` 8.4'te varsayılan olarak kapalı. İstemcide de kapatılır. Bu olmadan kurcalanmış bir `LOAD DATA LOCAL INFILE '/proc/1/environ'`, konteyner içindeki root ortamını (MYSQL_ROOT_PASSWORD) bir tabloya okuyabilirdi. Test: 3948.
+- **Sınırın türü:**
+  - **Önlenenler:** CREATE USER, global ya da `mysql.*` GRANT, ALTER USER, SET PERSIST/GLOBAL, `sql_log_bin`, INSTALL COMPONENT/PLUGIN, `mysql.*` DML, `USE mysql`, başka DB, `INTO OUTFILE`, `LOAD DATA LOCAL`, yabancı DEFINER.
+  - **Önlenmeyip yakalananlar** (migrator'ın kendi DB'sindeki yetkisi): `GRANT … ON <db>.* TO app`, `SET PASSWORD` (kendi parolası), CREATE VIEW/EVENT/PROCEDURE. Bunlar scratch'te snapshot farkı verir (`mysql.db`/`mysql.user` checksum, `views=`, `events=`, `routines=`) ve FAIL olur. Canlıya hiç ulaşmazlar, çünkü aynı döküm önce scratch'te yüklenir.
+- **Kalıcı iz:** reddedilen ifadeden önceki ifadeler (ör. ilk tablolar) yalnız scratch'te kalır ve scratch silinir.
+  - Testte her kurcalama vakası aynı scratch'te `reset → yükle` ile denendi. Hiçbirinde hesap, yetki, kalıcı değişken, bileşen, eklenti ya da view değişmedi.
+
+### D2
+- **CHECKSUM:** varsayılan EXTENDED kullanılır; InnoDB'de QUICK NULL döner. Değer ROW_FORMAT'a bağlıdır; iki taraf da aynı imaj ve aynı dökümle kurulur.
+  - Yedek **anında** alınmaz, çünkü CHECKSUM TABLE `--single-transaction` anlık görüntüsünü değil güncel veriyi okur. Bu yüzden karşılaştırma scratch ↔ canlı yapılır. Manifest tarafında satır sayısı ve audit özetleri kullanılır.
+  - Test: tek hücre değişikliği yalnız `remote.tenants` adıyla yakalandı.
+- **Yetki anlık görüntüsü:** P13a listesine `plugins`, `views`, `anon` ve `migratorExtra` eklendi. `migratorExtra` şunların toplamıdır: global statik ve dinamik yetkiler, başka şema, başka şemadaki tablo/sütun/rutin yetkisi, rol, proxy ve `%` dışı migrator hesabı.
+- **`check-app-grants.sh` (373 → 384 PASS):**
+  - Anonim hesap = 0.
+  - `migratorExtra=0` (snapshot dosyasındaki sorgunun aynısı, `sed` ile okunur).
+  - Migrator için 7 DENIED denemesi: CREATE USER (1227), `GRANT *.*` (1045), `GRANT mysql.*` (1044), SET PERSIST (1227), `INSERT mysql.user` (1142), CREATE DATABASE (1044), `DEFINER=root` (1227). Ardından root ile koşulsuz temizlik yapılır.
+  - `audit-continuity.sql` backup ile çalışır ve `triggers.ok=true`, `count=3` döner.
+  - `reset-superadmin` CLI'nin bütün ifadeleri app ile geri alınan bir TX'te denenir.
+  - Migrator parolası `MIGRATOR_PW` ya da konteyner env'inden alınır. CI servis konteynerinde env olmadığı için `.github/workflows/ci.yml` adımına `MIGRATOR_PW="$MYSQL_MIGRATOR_PASSWORD"` eklendi.
+- **CLI yetkileri (§7.7): değişiklik yok.** Yetkiler: users tablo düzeyi UPDATE (parola, `must_change_password`, `failed_*`, `locked_until`, `totp_*`); `auth_sessions` UPDATE (`revoked_at`); `password_reset_tokens` UPDATE(`used_at`, `updated_at`); `recovery_codes` DELETE; `audit_logs` INSERT. CLI'nin audit `created_at`'i DB saatine zorlanır (app).
+
+### Audit süreklilik (D2 + G-P13b-5)
+`audit-continuity.sql` çıktısı (`format: 2`):
+
+| Alan | Anlamı |
+|---|---|
+| `instanceId` | `@@server_uuid` |
+| `maxId` | en büyük audit id |
+| `asOfUtcDate`, `measuredAtUtc` | ölçüm günü ve anı |
+| `baseline {id, at}` | son taban çizgisi sıfırlama kaydı |
+| `triggers {count, digest, ok}` | tetikleyici sayısı, gövde özeti, beklenen sabitle eşleşme |
+| `days {"YYYY-MM-DD": {n, h}}` | 729 tamamlanmış gün: satır sayısı ve içerik özeti |
+| `tail {day, until, n, h}` | bugünün ölçülen kısmı |
+| `prevTail` | önceki tail aralığının bugünkü hâli |
+
+1. **Tetikleyici varlığı ve gövdesi:** `information_schema.TRIGGERS`'tan (ad, tablo, zaman, olay, sıra, `ACTION_STATEMENT`, DEFINER) değerleri JSON_ARRAY ile alınır, ada göre sıralanır ve SHA-256'sı hesaplanır. Sonuç dosyadaki **beklenen sabitle** (`c1ce0877…50eb`, P13a sonrası) karşılaştırılır.
+   - `ok=false` → `FAILED adım=tetikleyici`. Bu mutlak bir kontroldür; taban çizgisinden etkilenmez.
+   - SQL_MODE ve karakter seti alanları dışarıda bırakıldı, çünkü bağlantıya bağlıdırlar ve ortama göre değişebilirler.
+   - Özet, döküm → migrator yükleme sonrasında aynı kaldı.
+   - **Kural:** tetikleyici değiştiren her migration bu sabiti günceller. `check-app-grants` bunu zorlar.
+   - Test: DROP → `ok=false`, count 2. Gövdesi değiştirilerek yeniden kurulan tetikleyicide count 3 ama `ok=false`. Özgün gövde geri kurulunca `ok=true`.
+2. **İçerik özeti:** `h` = SHA-256( id sırasıyla, her satırın `SHA2(JSON_ARRAY(bütün 14 sütun))` hex değerlerinin birleşimi ).
+   - **Sıralı ve kriptografik.** Raporun önerdiği `BIT_XOR(CRC32)` reddedildi: XOR tabanlı çoklu küme özeti doğrusaldır. Wagner'in genelleştirilmiş doğum günü yöntemiyle "sil + aynı sayıda uydurma satır ekle" düşük maliyetle eşlenebilir; CRC32 ise zaten kriptografik değildir.
+   - Kesilme koruması: `n*64 ≠ LENGTH` ise `h=null` → FAILED. Sınır, gün başına ~1 M satırdır (`max_allowed_packet` 64 MB). Bugünkü hacmin çok üstündedir.
+   - Test: migrator ile `DROP TRIGGER no_update` → geçmiş günde UPDATE → tetikleyiciyi aynen geri kurma. Tetikleyici `ok`, `n` ve `maxId` aynı kaldı; **yalnız o günün `h`'si** farklı çıktı.
+3. **Son ~48 saat:** `tail` = bugünün `[00:00, ölçüm − 5 dk)` satırları. Ertesi çalıştırma aynı aralığı `prevTail` ile yeniden ölçer; değer önceki `tail` ile eşit olmalıdır. Böylece bir satır, onu ilk ölçen çalıştırmadan itibaren korunur (eski kural: ilk ölçümden ~48 saat sonra).
+   - 5 dk pay: `created_at` INSERT anındaki SYSDATE'tir; o anda açık kalan kısa bir transaction'ın satırı daha sonra görünebilir.
+   - `created_at`'i geçmişe yazmak yalnız migrator ve root ile mümkündür.
+   - Test: tail'den 1 satır sil + 1 ekle → `n` aynı, `h` farklı. Ölçümden sonra app'in eklediği satır geçmiş özetleri bozmuyor.
+   - **Kalan kör aralık (belgelenmiş sınır):** son ölçümden (ve son 5 dk'dan) sonra yazılan satır, sonraki çalıştırmaya kadar (≤ 24 sa + 5 dk) hiçbir manifestte yoktur. Bu sürede silinir ya da değiştirilirse görünmez. Silme sondaysa `maxId` de yakalamayabilir.
+   - Daraltma yolları: daha sık timer (ör. 6 saatte bir) ya da site dışı yalnız-yazılır kopya (ADR-0020 m.5, Sonra).
+4. **Taban çizgisi:**
+   - `instanceId` (yeni datadir ya da volume = yeni kurulum), `env`, `host` ya da `database` farklıysa → `audit-sureklilik: ilk`. Terfi sonrası ilk prod yedeği temiz kurulumdur (yeni volume), bu yüzden kendiliğinden "ilk" sayılır.
+   - Geri yükleme datadir'i değiştirmez (`server_uuid` aynı kalır). Bu yüzden **açık sıfırlama** gerekir: `audit-baseline-reset.sql` migrator ile çalışır, gerekçe (10–200 karakter, kontrol karakteri yok) ve operatör (`kullanıcı@host`) zorunludur.
+   - Sıfırlama audit'e `backup.audit_baseline_reset` satırı yazar (`username=cli`, `new_value {reason, operator, maxIdBefore}`, `created_at` UTC). Sonraki yedek `baseline.id` farkını görür; **yalnız host işareti aynı id'yi taşıyorsa** (S-P13b-1) karşılaştırmayı atlar → journal'a `taban-cizgisi-sifirlandi` yazar ve alarm (uyarı) çalışır. İşaret yoksa ya da id farklıysa `FAILED taban-cizgisi-isaretsiz` (audit_logs'a INSERT yapabilen app/migrator sahte sıfırlama satırıyla karşılaştırmayı atlatamaz).
+   - Sıfırlamanın kaydı DB'de, audit'te ve dökümde kalır. Gizli bir sıfırlama yoktur.
+   - app ile çalıştırma 1044 verir (geçici tablo yetkisi yok) ve satır yazılmaz. app doğrudan aynı action'ı INSERT edebilir, ama bu da alarm üretir ve Audit ekranında görünür. Tetikleyici özeti sıfırlamadan etkilenmez.
+   - Test: guard (kısa gerekçe, parametresiz, app) ve `baseline.id` değişimi.
+   - **backend-dev'e:** `contracts` audit etiketi `backup.audit_baseline_reset` = "Yedek audit taban çizgisi sıfırlandı" eklenmeli.
+5. **Süre** (2 M satır, 730 gün, ~2.700 satır/gün; Docker Desktop):
+   - Gün histogramı tek başına **0,44 sn** (`audit_logs_created_at_idx` kaplayan aralık taraması; EXPLAIN ANALYZE). AC'nin < 2 sn ölçütü histogram için sağlanıyor.
+   - İçerik özetiyle birlikte tam sorgu **4,6 sn**. Satır okuma ve 2 M SHA-256 gerektirdiği için ek süre G-P13b-5'in bilinçli bedelidir; doğrusal büyür.
+   - Gün başına `GROUP_CONCAT` bir kez hesaplanır (ilk sürüm 7,8 sn idi).
+   - Yedek döküm süresinin yanında küçüktür. **Sapma:** mimari-p13 §7.6/1'deki `days: {gün: n}` biçimi `{gün: {n, h}}` oldu (`format: 2`).
+
+**Karşılaştırma kuralı (backup.sh, devops T1)** dosya başlığında birebir yazılıdır:
+- 0) `triggers.ok`.
+- 1) "ilk" koşulları.
+- 2) `baseline.id` farkı: `baseline.at` önceki manifestin `measuredAtUtc`'sinden yeni **ve** `$BACKUP_DIR/audit-baseline-reset.json` host işareti (root 600, `backup.sh --reset-audit-baseline` yazar) aynı id'yi taşıyorsa uyarı + alarm, karşılaştırma yok; işaret imzalı manifeste (`auditContinuity.baselineMarker`) girer ve silinir. Yeni ama işaretsiz/id farklı → `FAILED taban-cizgisi-isaretsiz` (S-P13b-1, devops düzeltme turu 1). Yeni değilse (kayıt yok/null ya da eski; ör. TRUNCATE sıfırlama kaydını da sildi) `FAILED taban-cizgisi-kaydi-kayboldu` (devops T1 bulgusu, 2026-11-15). Sahte bir taban kaydının eski tarihle eklenmesi de (yalnız migrator/root `created_at` yazabilir) bu kurala takılır.
+- 3) FAILED: `maxId` azaldı, `T−728 ≤ gün < P.asOfUtcDate` aralığında `{n, h}` farkı var, ya da `prevTail ≠ P.tail`.
+- **Terfi notu (G-P13b-5/3, devops):** staging çalıştırmaları `BACKUP_DIR` dışına taşınmasa bile `instanceId` farkı karşılaştırmayı engeller. Raporun önerdiği taşıma yine de yapılmalıdır, çünkü rotasyon ve "son başarılı manifest" seçimi açısından temizdir.
+
+### Test (2026-11-14, geçici `mysql:8.4.13` binlog açık + bayrak; `rs-p13b-dba-21c21a` (2 M sahte audit), `-src` (seed'li kaynak), `-scr` (ağsız scratch, 01-users.sh); üçü de silindi)
+- **D1/D2 betiği 62/62 PASS:**
+  - Döküm: istemci komutu 0, DEFINER yalnız migrator.
+  - Scratch: `anon=0`, `migratorExtra=0`, hesaplar `app,migrator`.
+  - Migrator ile meşru yükleme rc 0, snapshot aynı, tetikleyici 3, audit `created_at` ve UTF-8 korunur.
+  - CHECKSUM kaynak = scratch (19 tablo).
+  - Canlı benzetimi: fazla tablo ve view varken reset → boş DB, `tables_priv` aynı → yükleme → snapshot önce = sonra, CHECKSUM eşit. Reset guard: root, onaysız ve harf farklı onayda tablolar yerinde kaldı.
+  - Kurcalama, ret + iz yok (15 vaka): CREATE USER 1227, `GRANT *.*` 1045, `GRANT mysql.*` 1044, SET PERSIST 1227, SET GLOBAL 1227, INSTALL COMPONENT 1142, INSTALL PLUGIN 1142, `USE mysql` + INSERT 1044, `INSERT mysql.user` 1142, CREATE DATABASE 1044, `DEFINER=root` 1227, `sql_log_bin` 1227, `INTO OUTFILE` 1227, `LOAD DATA LOCAL` 3948, ALTER USER app 1227.
+  - Kurcalama, yakalanan (5 vaka): `GRANT <db>.* app`, CREATE VIEW, EVENT, PROCEDURE, `SET PASSWORD`.
+- **G-P13b-5 betiği 21/21 PASS** (yukarıda).
+- **`check-app-grants.sh` 384/384:** 2 M satırlı DB'de ve migrator ile geri yüklenmiş DB'de (`grants.sql` yeniden çalıştırılmadan). Geri yüklenmiş DB'de migrate "No pending", drift 0.
+- Şema değişmediği için `test:int` koşulmadı (backend kaydı: temiz DB 538/538).
+
+## `20261115090000_whatsapp_api_key` — dba incelemesi (2026-11-15; yazan backend-dev, S-P13b-3)
+- **Değişiklik:** `system_settings_whatsapp_chk` içindeki koşulsuz `secret_enc IS NULL` maddesi gevşetildi. Yeni kural: adres JSON `null` ise `secret_enc` NULL olmak zorunda; adres doluyken NULL da olabilir, şifreli API anahtarı da.
+- **Korunan güvenceler:** anahtar ikili karşılaştırılıyor; JSON şeması (`additionalProperties:false`, url ≤ 200); adres deseni P13a ile birebir aynı (`^https?://[^@?#\s\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+\z`, `'c'`; `\z` var). Blob uzunluğu genel `system_settings_secret_enc_chk` (≥ 30) ile sınırlı. Değişiklik tek bir ALTER'da (DROP + ADD) yapılıyor, arada kısıtsız an yok. Yetki, tetikleyici ve Prisma şeması değişmedi; `audit-continuity.sql` tetikleyici özeti etkilenmez.
+- **down.sql:** önce kayıtlı anahtarı siliyor (`secret_enc = NULL`), sonra P13a CHECK'ini geri kuruyor ve migration kaydını siliyor. Doğru; önce sunucu kodu geri alınmalı.
+- **`check-app-grants.sh` (+3 → 387):** adres + anahtar OK; kısa blob → `secret_enc_chk`; kullanıcı bilgisi içeren adres + anahtar → `whatsapp_chk`. Var olan "adres null + anahtar" DENIED denemesi geçerli kalıyor.
+- **Test** (`rs-p13b-dba-wa-cbc48d`, silindi): up → anahtarlı INSERT OK; anahtar varken url null yapılınca 3819. down → anahtar NULL; anahtarlı INSERT 3819 (P13a kuralı geri geldi). Yeniden up → OK, drift 0, tetikleyici 3. `check-app-grants` 387/387.

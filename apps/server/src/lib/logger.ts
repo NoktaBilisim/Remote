@@ -20,6 +20,8 @@ const REDACT_PATHS = [
   "*.nonce",
   "*.ticket",
   "*.secret",
+  // S-P13b-3: WhatsApp servis anahtarı (savunma; değer zaten loglanmaz).
+  "*.apiKey",
   // sessionRef (P6 indirme ucu dosya adına kodu yazar → ref kodla eşdeğer gizli; G-10)
   "*.ref",
   // P8b (G-E9-9): talep sırrı, kabulde iletilen ticket ve cihaz anahtarı (yollar tam anahtar adıyla eşleşir).

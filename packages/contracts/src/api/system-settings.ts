@@ -174,8 +174,26 @@ export const waServiceUrlSchema = z
   .refine((v) => canonicalWaUrl(v) !== null, WA_URL_MESSAGE)
   .transform((v) => canonicalWaUrl(v) ?? v);
 
-/** PUT gövdesi. Kaldırma (env'e dönüş) DELETE ile. */
-export const whatsappSettingsInputSchema = z.strictObject({ url: waServiceUrlSchema });
+/** S-P13b-3: servis anahtarı (`x-api-key`) uzunluk sınırları; kontrol karakteri ve boşluk yok. */
+export const WA_API_KEY_MIN = 16;
+export const WA_API_KEY_MAX = 256;
+export const WA_API_KEY_MESSAGE = `Servis anahtarı ${WA_API_KEY_MIN}–${WA_API_KEY_MAX} karakter olmalı; yalnız boşluksuz yazdırılabilir ASCII (Türkçe karakter, boşluk ve kontrol karakteri yok).`;
+/** S-P13b-9: yalnız yazdırılabilir ASCII (0x21–0x7E) — HTTP başlık değerine güvenle girer (CR/LF, Unicode, boşluk yok). */
+const WA_API_KEY_RE = /^[\x21-\x7E]{16,256}$/;
+
+/** Anahtar değeri (env `WHATSAPP_SERVICE_API_KEY` ve panel; aynı şema). */
+export const waApiKeySchema = z.string({ error: WA_API_KEY_MESSAGE }).regex(WA_API_KEY_RE, WA_API_KEY_MESSAGE);
+
+/**
+ * PUT gövdesi. Kaldırma (env'e dönüş) DELETE ile (anahtar da silinir).
+ * `apiKey` (S-P13b-3): yok / `""` → mevcut panel anahtarı korunur; `null` → panel anahtarı silinir; dolu → yeni anahtar
+ * (şifreli saklanır, hiçbir yanıtta dönmez). Adresin kökeni (şema+host+port) değişirken anahtar verilmezse 400 VALIDATION
+ * `fields.apiKey` = `WA_API_KEY_REENTER` (kayıtlı anahtar eski adrese bağlıdır, yeni adrese gönderilmez).
+ */
+export const whatsappSettingsInputSchema = z.strictObject({
+  url: waServiceUrlSchema,
+  apiKey: z.union([z.literal(""), z.null(), waApiKeySchema]).optional(),
+});
 export type WhatsappSettingsInput = z.input<typeof whatsappSettingsInputSchema>;
 export type WhatsappSettingsData = z.output<typeof whatsappSettingsInputSchema>;
 
@@ -185,11 +203,19 @@ export type WhatsappSettingsData = z.output<typeof whatsappSettingsInputSchema>;
  */
 export interface WhatsappSettingsView {
   url: string | null;
-  /** P13a: `default` = ne panel kaydı ne açık env değeri var; yerleşik varsayılan adres kullanılıyor (rozet "Varsayılan"). */
-  source: "panel" | "env" | "default";
+  source: "panel" | "env";
   insecure: boolean;
   updatedAt: string | null;
+  /** S-P13b-3: etkin adresle gönderilecek anahtar var mı (değer asla dönmez). */
+  apiKeySet: boolean;
+  /**
+   * Anahtarın kaynağı; yoksa null. Anahtar adresiyle birlikte gelir: panel adresi → yalnız panel anahtarı, env adresi →
+   * yalnız `WHATSAPP_SERVICE_API_KEY` (env anahtarı panelde girilen başka bir adrese gönderilmez).
+   */
+  apiKeySource: "panel" | "env" | null;
 }
+
+export const WA_API_KEY_REENTER = "Servis adresi değişti; servis anahtarını yeniden girin (ya da anahtarı kaldırın).";
 
 export const WA_INSECURE_WARNING = "Güvensiz adres: canlı ortamda WhatsApp kanalı kapalı";
 
@@ -197,7 +223,7 @@ export const WA_INSECURE_WARNING = "Güvensiz adres: canlı ortamda WhatsApp kan
 export const whatsappAdminTestInputSchema = z.strictObject({ phoneNumber: phoneSchema });
 export type WhatsappAdminTestInput = z.input<typeof whatsappAdminTestInputSchema>;
 
-export const WA_TEST_REASONS = ["unconfigured", "insecure", "timeout", "http_error", "redirect", "unreachable"] as const;
+export const WA_TEST_REASONS = ["unconfigured", "insecure", "timeout", "http_error", "redirect", "unreachable", "unauthorized"] as const;
 export type WhatsappTestReason = (typeof WA_TEST_REASONS)[number];
 
 /** Sabit mesajlar (servis yanıt gövdesi/iç hata ayrıntısı/adres kullanıcıya yansıtılmaz; ayrıntı yalnız sunucu logunda). */
@@ -209,6 +235,8 @@ export const WA_TEST_MESSAGES: Readonly<Record<WhatsappTestReason | "ok", string
   http_error: "Servise ulaşılamadı veya servis hata döndürdü.",
   redirect: "Servise ulaşılamadı veya servis hata döndürdü.",
   unreachable: "Servise ulaşılamadı veya servis hata döndürdü.",
+  /** S-P13b-3: servis 401 döndü (anahtar yok/yanlış). */
+  unauthorized: "Servis anahtarı reddetti.",
 };
 
 /** 200 `{ ok:false }` = denendi/denenemedi ve başarısız; 429 = 5/dk/kullanıcı (6. → 429). */

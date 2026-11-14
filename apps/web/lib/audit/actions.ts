@@ -3,7 +3,7 @@
  * (`@remote/contracts/audit`) ve sunucunun yazdığı diğer adlardan gelir; bilinmeyen ad HAM gösterilir (labels.ts kuralı).
  * Grup = adın ilk bölümü (`auth.login` → `auth`); grup filtresi API'ye `auth.*` öneki olarak gider.
  */
-import { AUTH_AUDIT, BINDING_AUDIT, CONTROL_AUDIT, CUSTOMER_AUDIT, MAIL_AUDIT, RETENTION_AUDIT, SYSTEM_AUDIT, TENANT_AUDIT, USER_AUDIT } from "@remote/contracts/audit";
+import { AUTH_AUDIT, BACKUP_AUDIT, BINDING_AUDIT, CONTROL_AUDIT, CUSTOMER_AUDIT, MAIL_AUDIT, RETENTION_AUDIT, SYSTEM_AUDIT, TENANT_AUDIT, USER_AUDIT } from "@remote/contracts/audit";
 import { AUDIT_ACTION_GROUPS } from "./contract";
 import { labelOf, OUTBOUND_REASON_LABELS, TIMELINE_ACTION_LABELS } from "@remote/contracts/labels";
 
@@ -19,6 +19,7 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   [AUTH_AUDIT.LOGOUT_ALL]: "Tüm cihazlardan çıkış",
   [AUTH_AUDIT.PASSWORD_RESET_REQUESTED]: "Şifre sıfırlama istendi",
   [AUTH_AUDIT.PASSWORD_RESET]: "Şifre sıfırlandı",
+  [AUTH_AUDIT.SUPERADMIN_RESET]: "Super Admin şifresi sunucudan sıfırlandı",
   [USER_AUDIT.CREATED]: "Kullanıcı oluşturuldu",
   [USER_AUDIT.UPDATED]: "Kullanıcı güncellendi",
   [USER_AUDIT.PERMISSION_CHANGED]: "Yetki değiştirildi",
@@ -74,6 +75,8 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   [CONTROL_AUDIT.CAPS_CHANGED]: "Teknisyen yetkileri daraldı",
   // P13a (AC-199): günlük saklama işi (sistem, yalnız sayılar)
   [RETENTION_AUDIT.RUN]: "Saklama süresi işi",
+  // P13b (G-P13b-5): yedek audit süreklilik taban çizgisi
+  [BACKUP_AUDIT.AUDIT_BASELINE_RESET]: "Yedek audit taban çizgisi sıfırlandı",
 };
 
 /** Dış gönderim `reason` etiketleri tek kaynak: contracts (`OUTBOUND_REASON_LABELS`, mimari-p13 §3). */

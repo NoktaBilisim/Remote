@@ -6,7 +6,8 @@
 
 # Yalnız bu anahtarlar backup.env'den okunur (dosya `source` edilmez: kod çalıştırmaz). Ortamda zaten tanımlı
 # olan değer dosyadakini ezer (test/elle çalıştırma için).
-BACKUP_ENV_KEYS="BACKUP_DIR BACKUP_AGE_RECIPIENT BACKUP_KEEP_DAYS BACKUP_ALERT_CMD BACKUP_MIN_FREE_MB BACKUP_EXPECTED_TRIGGERS"
+BACKUP_ENV_KEYS="BACKUP_DIR BACKUP_AGE_RECIPIENT BACKUP_KEEP_DAYS BACKUP_ALERT_CMD BACKUP_MIN_FREE_MB BACKUP_EXPECTED_TRIGGERS
+  BACKUP_SIGNING_KEY BACKUP_OFFSITE_CMD BACKUP_OFFSITE_TIMEOUT_SEC BACKUP_OFFSITE_USER BACKUP_UNIT_TIMEOUT_SEC BACKUP_STATUS_FILE"
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 log() { printf '%s %s: %s\n' "$(ts)" "${LOG_TAG:-remote-backup}" "$*" >&2; }
@@ -38,7 +39,7 @@ load_env_file() {
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|'#'*) continue ;; esac
     key="${line%%=*}"; val="${line#*=}"
-    case " $BACKUP_ENV_KEYS " in *" $key "*) ;; *) continue ;; esac
+    case " $(printf '%s' "$BACKUP_ENV_KEYS" | tr -s ' \n' '  ') " in *" $key "*) ;; *) continue ;; esac
     # Çevreleyen tek/çift tırnak kaldırılır (değer içi kaçış yorumlanmaz).
     case "$val" in \"*\") val="${val#\"}"; val="${val%\"}" ;; \'*\') val="${val#\'}"; val="${val%\'}" ;; esac
     if [ -z "${!key+x}" ]; then printf -v "$key" '%s' "$val"; export "${key?}"; fi
@@ -153,4 +154,106 @@ dump_client_command_count() {
       if (flagged) bad++
     }
     END { if (q != "") bad++; print bad + 0 }'
+}
+
+# --- P13b (docs/mimari-p13.md §7.6, ADR-0020) -------------------------------------------------------------------------
+
+# deploy/.env'den DEPLOY_ENV (dosya `source` edilmez; son tanım geçerli, çevreleyen tırnak atılır). Ortam değişkeni
+# DİKKATE ALINMAZ: ortam kilidi (S-P13a-6) yığının kendi yapılandırmasından gelir. stdout: değer (geçersiz/boşsa boş).
+deploy_env_of() {
+  local v
+  v="$(awk -F= '$1 == "DEPLOY_ENV" {sub(/^[^=]*=/, ""); v=$0} END {print v}' "$1/.env" 2>/dev/null || true)"
+  v="${v%$'\r'}"; v="${v#\"}"; v="${v%\"}"; v="${v#\'}"; v="${v%\'}"
+  case "$v" in development|staging|production) printf '%s\n' "$v" ;; *) printf '\n' ;; esac
+}
+
+# Dosya sahibi root (uid 0) ve izni 600/400 mü (imza anahtarı). 0 = evet.
+file_root_600() {
+  local perm uid
+  [ -f "$1" ] && [ ! -L "$1" ] || return 1
+  read -r perm _ uid _ < <(ls -ln "$1")
+  perm="${perm:0:10}"
+  [ "$uid" = 0 ] && { [ "$perm" = "-rw-------" ] || [ "$perm" = "-r--------" ]; }
+}
+
+# G-P13b-7: alarm/kanca komut metninde sır argümanı (Telegram bot token'ı URL'de, x-api-key başlığı) varsa 0 döner.
+# Sır süreç argümanında /proc/<pid>/cmdline ile okunur; bu komutlar ÇALIŞTIRILMAZ (fail-closed). Doğrusu: curl -K <dosya>.
+cmd_has_inline_secret() {
+  printf '%s' "$1" | grep -Eiq 'api\.telegram\.org/bot[0-9]|x-api-key[[:space:]]*:|authorization[[:space:]]*:[[:space:]]*bearer[[:space:]]+[a-z0-9]'
+}
+
+# ssh-keygen -Y verify için zaman: manifest createdUtc (2026-11-15T23:00:00Z) -> 20261115230000Z. Geçersizse boş.
+sig_time_of() {
+  [[ "$1" =~ ^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z$ ]] || { printf '\n'; return; }
+  printf '%s%s%s%s%s%sZ\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}" \
+    "${BASH_REMATCH[5]}" "${BASH_REMATCH[6]}"
+}
+
+# 2026-11-15T23:00:00Z -> epoch (GNU `date -d`, busybox `date -D`, BSD `date -j -f`). Geçersizse boş.
+utc_to_epoch() {
+  date -u -d "$1" +%s 2>/dev/null || date -u -D '%Y-%m-%dT%H:%M:%SZ' -d "$1" +%s 2>/dev/null \
+    || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || printf '\n'
+}
+
+# Manifest imzasını doğrular (ADR-0020 m.1, G-P13b-8). <manifest> <allowed_signers> -> stdout: imzalayan anahtarın
+# SHA256 parmak izi; 0 = geçerli. Doğrulama manifestin createdUtc anına göre yapılır (-Overify-time; OpenSSH >= 8.9):
+# rotasyonda eski satıra valid-before=<rotasyon anı> yazılır, o andan ÖNCE imzalanmış yedekler doğrulanmaya devam eder.
+# createdUtc imzanın kapsamındadır; değiştirilirse imza tutmaz.
+verify_manifest_sig() {
+  local manifest="$1" allowed="$2" sig="$1.sig" created vt principal out fp
+  [ -f "$manifest" ] && [ -f "$sig" ] && [ -f "$allowed" ] || return 1
+  created="$(jq -r '.createdUtc // empty' "$manifest" 2>/dev/null || true)"
+  vt="$(sig_time_of "$created")"; [ -n "$vt" ] || return 1
+  principal="$(ssh-keygen -Y find-principals -s "$sig" -f "$allowed" -Overify-time="$vt" 2>/dev/null | head -n 1)" || return 1
+  [[ "$principal" =~ ^[A-Za-z0-9@._+-]{1,128}$ ]] || return 1
+  out="$(ssh-keygen -Y verify -f "$allowed" -I "$principal" -n remote-backup -s "$sig" -Overify-time="$vt" \
+    < "$manifest" 2>&1)" || return 1
+  fp="$(printf '%s\n' "$out" | grep -Eo 'SHA256:[A-Za-z0-9+/]{43}' | head -n 1)"
+  [ -n "$fp" ] || return 1
+  printf '%s\n' "$fp"
+}
+
+# SQL dosyaları (dba arayüzü): deploy/mysql/ (BACKUP_DEPLOY_DIR'den bağımsız; betikle aynı sürüm).
+sql_dir() { (cd "$SCRIPT_DIR/../mysql" && pwd); }
+
+# --- backup.sh yardımcıları (dosya ≤ 300 satır kuralı için buraya taşındı) ---------------------------------------------
+# side <fifo-adı> <komut...>: $WORK/<fifo-adı> FIFO'sunu okuyan arka plan süreci; çıktısı $WORK/<fifo-adı>.out (BG_PIDS).
+side() {
+  local name="$1"; shift
+  mkfifo -m 600 "$WORK/$name"
+  "$@" < "$WORK/$name" > "$WORK/$name.out" &
+  BG_PIDS+=("$!")
+}
+wait_side() { local p; for p in "${BG_PIDS[@]}"; do wait "$p" || die "yan hesap süreci başarısız"; done; BG_PIDS=(); }
+count_bytes() { wc -c | tr -d ' '; }
+
+# rotate_runs <bu run> <audit referans run>: adı (UTC zaman) KEEP_DAYS gün + 1 saatten eski çalıştırmalar silinir -> her
+# yedek en az KEEP_DAYS gün kalır. Audit karşılaştırma referansı (son İYİ manifest) silinmez: aksi hâlde FAILED süren bir
+# durum KEEP_DAYS sonra "ilk"e döner. Sonuç (backup.sh okur): removed, kept.
+# shellcheck disable=SC2034
+rotate_runs() {
+  local cutoff d name
+  cutoff="$(fmt_epoch $(( $(date -u +%s) - KEEP_DAYS * 86400 - 3600 )))"
+  removed=0
+  for d in "$BACKUP_DIR"/*; do
+    [ -d "$d" ] || continue
+    name="${d##*/}"
+    [[ "$name" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || continue
+    [ "$name" != "$1" ] && [ "$name" != "$2" ] || continue
+    if [[ "$name" < "$cutoff" ]]; then rm -rf -- "$d"; removed=$((removed + 1)); fi
+  done
+  kept="$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*Z' | wc -l | tr -d ' ')"
+}
+
+# backup_lock: $BACKUP_DIR/.lock (mkdir atomik; pid yazılır). Canlı sahibi varsa çıkar, ölü kilit temizlenir. Sonuç: LOCK.
+# backup.sh ve `backup.sh --reset-audit-baseline` (S-P13b-11) aynı kilidi kullanır.
+# shellcheck disable=SC2034
+backup_lock() {
+  local dir="$BACKUP_DIR/.lock" oldpid
+  if ! mkdir -- "$dir" 2>/dev/null; then
+    oldpid="$(cat -- "$dir/pid" 2>/dev/null || true)"
+    if [ -n "$oldpid" ] && kill -0 "$oldpid" 2>/dev/null; then die "başka bir yedek/sıfırlama çalışıyor (pid $oldpid)"; fi
+    log "ölü kilit temizlendi (pid ${oldpid:-?})"; rm -rf -- "$dir"; mkdir -- "$dir"
+  fi
+  LOCK="$dir"; echo $$ > "$dir/pid"
 }

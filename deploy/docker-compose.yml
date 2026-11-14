@@ -108,10 +108,12 @@ services:
       # SHA256SUMS doğrulamasından sonra yazar; boşsa veya dosya hash'i uyuşmazsa indirme ucu 503 (fail-closed).
       AGENT_BINARY_PATH: /data/downloads/NoktaDestek.exe
       AGENT_SHA256: ${AGENT_SHA256:-}
-      # P8b (mimari-e9 §6/§8/§13.5): whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). Tanımsız/boş → env.ts
-      # varsayılanı (staging servisi http://89.252.189.211:3000). production'da http:// + özel olmayan adres → kanal
-      # KAPALI başlar (fail-closed, log `alarm:"whatsapp_insecure"`); prod ön koşulu K13: TLS veya özel ağ (runbook §12).
-      WHATSAPP_SERVICE_URL:
+      # P8b (mimari-e9 §6/§8/§13.5): whatsapp-bildirim servisi (sistem düzeyi; tenant değiştiremez). deploy/.env'den gelir
+      # (ör. http://<whatsapp-servis>:3000); yerleşik varsayılan YOK (G-P13b-2): boşsa ve panel kaydı yoksa kanal kapalı.
+      # production'da http:// + özel olmayan adres → kanal KAPALI başlar (fail-closed, log `alarm:"whatsapp_insecure"`);
+      # prod ön koşulu K13: TLS veya özel ağ (runbook §12).
+      WHATSAPP_SERVICE_URL: ${WHATSAPP_SERVICE_URL:-}
+      WHATSAPP_SERVICE_API_KEY: ${WHATSAPP_SERVICE_API_KEY:-}
       # P8b G-E9-4 (mimari-e9 §13.4): asgari Windows istemci sürümü (x.y.z). Boş = kontrol yok; düşük sürüm 426
       # CLIENT_OUTDATED. Güvenlik yamasında yamalı sürüme yükseltilir (runbook §12).
       MIN_AGENT_VERSION:
@@ -164,6 +166,9 @@ services:
       SITE_HOST: ${SITE_HOST:-localhost}
       EDGE_PROXY_SECRET: ${EDGE_PROXY_SECRET:?EDGE_PROXY_SECRET gerekli (openssl rand -base64 32)}
     ports:
+      # 4450 (tls internal, IP ile tanı girişi). PROD: CADDY_BIND=127.0.0.1 (mimari-p13 §7.2/7.9) -> yalnız sunucudan
+      # tanı amaçlı erişilir; Docker yayımladığı portta UFW'yi atlar, kapatan kontrol UFW değil bu değerdir (G-P13b-9;
+      # kanıt: ss -tlnp | grep 4450 yalnız 127.0.0.1). Boşsa 0.0.0.0 (yalnız staging/yerel geçmiş davranışı).
       - "${CADDY_BIND:-0.0.0.0}:4450:4450/tcp"
       # Host nginx (TLS, remote.noktabilisim.net) -> düz HTTP; YALNIZ loopback (ADR-0015). Caddy bu dinleyicide
       # yalnız edge ağ geçidinden (172.30.0.128, userland-proxy) gelen XFF'e güvenir. 0.0.0.0'a AÇILMAZ.

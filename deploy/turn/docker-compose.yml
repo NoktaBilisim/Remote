@@ -1,9 +1,9 @@
-# coturn (STUN/TURN) — ayrı compose projesi (mimari §8.3.1, ADR-0007 r3). Staging'de publish sunucusunda
-# uygulama yığınının yanında; prod'da ayrı VM/IP'de aynı dosya kullanılır. Ayrıntı: docs/runbook.md §9.
+# coturn (STUN/TURN) — ayrı compose projesi (mimari §8.3.1, ADR-0007 r3, ADR-0018). Prod da uygulama yığınıyla aynı
+# sunucuda (K3): 3478 udp/tcp, 5349 tls (443 yok), relay 49160-49479/udp. Ayrıntı: docs/runbook.md §9.
 # Kullanım:  cd deploy/turn && cp ../../.env.example .env (yalnız TURN_* doldurulur)
 #            cp denied-peer-ip.local.conf.example denied-peer-ip.local.conf (gerçek IP'lerle)
 #            ./gen-cert.sh <public-ip> && docker compose up -d
-# network_mode: host -> relay aralığı (49160-49199/udp) tek tek yayımlanmadan dinlenir ve istemci kaynak
+# network_mode: host -> relay aralığı (49160-49479/udp; turnserver.base.conf) tek tek yayımlanmadan dinlenir ve istemci kaynak
 # adresi NAT'sız görülür (denied-peer-ip, XOR-MAPPED-ADDRESS doğruluğu). Dışa açılan portları host UFW +
 # üst NAT belirler (runbook §9.2/9.3); 9641 (Prometheus) 127.0.0.1'e bağlanır, CLI 4.18'de varsayılan kapalı
 # (`no-cli` yazılmaz, ADR-0007 r5; doğrulama `ss -tlnp`). relay↔relay için host OUTPUT kuralı: host-firewall.sh (§9.2.1).
@@ -28,7 +28,10 @@ services:
       TURN_SECRET_PREVIOUS: ${TURN_SECRET_PREVIOUS:-}
       TURN_REALM: ${TURN_REALM:?TURN_REALM gerekli (staging 185.126.217.99)}
       TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:?TURN_EXTERNAL_IP gerekli (staging 185.126.217.99/192.168.25.10)}
-      TURN_MAX_BPS: ${TURN_MAX_BPS:-8000000}
+      # Bayt/sn, allocation başına ve yön başına (G-P13b-12): 1000000 = 8 Mbit/s (AC-21; P13b'de ölçüldü).
+      TURN_MAX_BPS: ${TURN_MAX_BPS:-1000000}
+      # 0 bırakın (G-P13b-1): coturn her allocation için max-bps rezerve eder; 62500000 ile 63. allocation 486 alır.
+      # Toplam koruma host'ta: host-firewall.sh TURN_FW_RELAY_MAX_BPS (hashlimit).
       TURN_BPS_CAPACITY: ${TURN_BPS_CAPACITY:-0}
       TURN_PROMETHEUS_ADDRESS: ${TURN_PROMETHEUS_ADDRESS:-127.0.0.1}
       # listening-ip (runbook §9.1): auto = özel relay IPv4 + 127.0.0.1; boşsa tüm arayüzler (uyarı)
@@ -37,7 +40,9 @@ services:
       - ./entrypoint.sh:/etc/coturn/entrypoint.sh:ro
       - ./turnserver.base.conf:/etc/coturn/turnserver.base.conf:ro
       - ./denied-peer-ip.local.conf:/etc/coturn/denied-peer-ip.local.conf:ro
-      - ./certs:/etc/coturn/certs:ro
+      # Prod (G-P13b-4): TURN_CERT_DIR=/etc/remote/turn-certs — git ağacı dışı, root:65533 0750; cert-deploy-hook.sh
+      # yazar. Boşsa ./certs (staging/yerel gen-cert.sh).
+      - ${TURN_CERT_DIR:-./certs}:/etc/coturn/certs:ro
     healthcheck:
       # STUN Binding (kimliksiz) yanıtı -> dinleyici ayakta. 127.0.0.1: entrypoint TURN_LISTEN_IPS'e her zaman ekler.
       test: ["CMD", "turnutils_stunclient", "-p", "3478", "127.0.0.1"]

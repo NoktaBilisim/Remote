@@ -1,0 +1,160 @@
+#!/bin/bash
+# shellcheck disable=SC2034  # BRC, RC, M, P, FP, SEC0 t() içindeki eval koşullarında okunur
+# test-backup.sh senaryoları — YALNIZ yardımcı konteyner içinde (root, docker.sock) çalışır. Doğrudan çalıştırmayın.
+set -u
+F=0; ok() { echo "PASS  $*"; }
+no() { echo "FAIL  $*"; F=$((F + 1)); tail -n 2 /tmp/bo /tmp/ro 2>/dev/null | sed 's/^/INFO  | /'; }
+t() { if eval "$2"; then ok "$1"; else no "$1"; fi; }   # t <açıklama> <koşul>
+B="$REPO/deploy/backup"; D=/opt/tdeploy; cd "$D" || exit 1
+install -d -m 755 /var/backups /etc/remote-backup /var/lib/remote-backup
+ssh-keygen -q -t ed25519 -N '' -C remote-backup@rstest -f /etc/remote-backup/manifest_ed25519
+printf 'remote-backup@rstest namespaces="remote-backup" %s\n' "$(cut -d' ' -f1,2 /etc/remote-backup/manifest_ed25519.pub)" >/etc/remote-backup/allowed_signers
+ssh-keygen -q -t ed25519 -N '' -f /root/foreign
+printf 'x@y namespaces="remote-backup" %s\n' "$(cut -d' ' -f1,2 /root/foreign.pub)" >/root/foreign_signers
+age-keygen -o /root/age.key 2>/dev/null
+adduser -D -H -h /var/lib/remote-offsite -s /sbin/nologin remote-offsite; install -d -o remote-offsite -m 700 /offsite
+BACKUP_AGE_RECIPIENT="$(age-keygen -y /root/age.key)"
+export BACKUP_ENV_FILE=/nonexistent BACKUP_DEPLOY_DIR=$D BACKUP_DIR=/var/backups/remote BACKUP_MIN_FREE_MB=10 \
+  BACKUP_AGE_RECIPIENT RESTORE_EXPECT_PROJECT="$PROJ" \
+  BACKUP_ALERT_CMD='printf "%s\n" "$REMOTE_BACKUP_MSG" >>/tmp/alerts'
+FP="$(ssh-keygen -l -E sha256 -f /etc/remote-backup/manifest_ed25519 | awk '{print $2}')"
+SQLR='MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -NB "$MYSQL_DATABASE"'
+SQLM='MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" exec mysql -umigrator -NB "$MYSQL_DATABASE"'
+SQLA='MYSQL_PWD="$MYSQL_APP_PASSWORD" exec mysql -uapp -NB "$MYSQL_DATABASE"'
+q() { docker compose exec -T mysql sh -c "$1"; }     # q "$SQLM" <<<"SQL"
+# Çalıştırma adı saniye çözünürlüklü (aynı saniyede ikinci yedek reddedilir): her yedekten önce 1 sn.
+bk() { sleep 1; : >/tmp/alerts; bash "$B/backup.sh" >/tmp/bo 2>&1; BRC=$?; }
+last() { find "${1:-$BACKUP_DIR}" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*Z' | sort | tail -1; }
+rs() { bash "$B/restore.sh" --identity /root/age.key --allowed-signers "${AS:-/etc/remote-backup/allowed_signers}" "$@" >/tmp/ro 2>&1 </dev/null; RRC=$?; }
+has() { grep -q -- "$1" "${2:-/tmp/bo}"; }
+setenv() { sed -i "s/^DEPLOY_ENV=.*/DEPLOY_ENV=$1/" $D/.env; }
+prom() { awk -v k="$1" '$1 == k {print $2}' /var/lib/remote-backup/status.prom; }
+docker compose exec -T server sh -c 'mkdir -p /data/uploads/t1 && echo logo >/data/uploads/t1/a.png && echo av >/data/uploads/t1/b.webp'
+q "$SQLM" <<<"INSERT INTO audit_logs (created_at, username, action, entity, entity_id, user_agent, result) VALUES
+  (UTC_TIMESTAMP(3) - INTERVAL 3 DAY,'cli','test.seed','test','1','t','success'),(UTC_TIMESTAMP(3) - INTERVAL 2 DAY,'cli','test.seed','test','2','t','success'),
+  (UTC_TIMESTAMP(3) - INTERVAL 2 DAY,'cli','test.seed','test','3','t','success'),(UTC_TIMESTAMP(3) - INTERVAL 1 DAY,'cli','test.seed','test','4','t','success');"
+q 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" exec mysqldump -umigrator --no-tablespaces --no-create-info --no-data --triggers --skip-opt "$MYSQL_DATABASE" audit_logs' >/tmp/trg.sql
+DROPALL='DROP TRIGGER audit_logs_no_update; DROP TRIGGER audit_logs_retention_only_delete; DROP TRIGGER audit_logs_force_created_at;'
+reset_bl() { bash "$B/backup.sh" --reset-audit-baseline "$1" >/tmp/rb 2>&1; }
+
+echo "== A) meşru yedek, imza, doğrulama"
+bk; R1="$(last)"; M="$R1/manifest.json"
+t "ilk yedek rc 0, audit-sureklilik: ilk, OFFSITE-UNCONFIGURED" '[ $BRC = 0 ] && has "audit-sureklilik: ilk" && has OFFSITE-UNCONFIGURED'
+t "status.prom 644, last_run_ok 1, offsite_configured 0" '[ "$(stat -c %a /var/lib/remote-backup/status.prom)" = 644 ] && [ "$(prom remote_backup_last_run_ok)" = 1 ] && [ "$(prom remote_backup_offsite_configured)" = 0 ]'
+t "manifest format 2, env staging, host rstest, signer = anahtar, seq 1" '[ "$(jq -r "[.format,.env,.host,.signer,.seq]|join(\" \")" $M)" = "2 staging rstest $FP 1" ]'
+t "çalıştırma dizini 700, dosyalar 600 (imza dahil)" '[ "$(stat -c %a $R1)" = 700 ] && [ -z "$(find $R1 -type f ! -perm 600)" ] && [ -f $M.sig ]'
+t "imza ssh-keygen -Y verify ile doğrulanır" 'ssh-keygen -Y verify -f /etc/remote-backup/allowed_signers -I remote-backup@rstest -n remote-backup -s $M.sig <$M >/dev/null 2>&1'
+sleep 1; bk; R2="$(last)"
+t "ikinci yedek: audit ok, seq 2, prevRun = ilk" 'has "audit-sureklilik: ok" && [ "$(jq -r ".seq,.prevRun" $R2/manifest.json | paste -sd" ")" = "2 ${R1##*/}" ]'
+rs "$R2"
+t "scratch geri yükleme meşru yedekte restore-verify: OK" '[ $RRC = 0 ] && has "restore-verify: OK" /tmp/ro && has "CHECK OK    manifest imzası" /tmp/ro'
+
+echo "== B) imzasız / değiştirilmiş / bozuk / yabancı anahtar / replay / biçim"
+neg() { rm -rf /tmp/neg; mkdir -p /tmp/neg; cp -a "$R2" "/tmp/neg/${2:-${R2##*/}}"; N="/tmp/neg/${2:-${R2##*/}}"; eval "$1"; }
+imzafail() { [ $RRC = 1 ] && has "restore-verify: FAIL (imza)" /tmp/ro && ! has "sha256" /tmp/ro; }
+neg 'rm $N/manifest.json.sig'; rs "$N"; t "imzasız -> FAIL (imza), sha256/çözme yok" imzafail
+neg 'sed -i "s/\"keepDays\": *14/\"keepDays\":15/" $N/manifest.json'; rs "$N"; t "manifestte tek değer değişti -> FAIL (imza)" imzafail
+neg 'sed -i "3s/./A/5" $N/manifest.json.sig'; rs "$N"; t "bozuk imza -> FAIL (imza)" imzafail
+neg :; AS=/root/foreign_signers rs "$N"; t "yabancı anahtar (allowed_signers'ta yok) -> FAIL (imza)" imzafail
+neg 'printf x >>$N/db.sql.gz.age'; rs "$N"; t "şifreli döküm değişti -> sha256 FAIL, çözülmedi" '[ $RRC = 1 ] && has "çözülmedi" /tmp/ro && ! has "düz sha256" /tmp/ro'
+neg : "${R2##*/}"; mv "$N" "/tmp/neg/29991231T000000Z"; rs /tmp/neg/29991231T000000Z
+t "replay: eski yedek yeni ada kopyalandı -> ret" '[ $RRC = 1 ] && has "manifest.run" /tmp/ro'
+resign() { ssh-keygen -q -Y sign -f /etc/remote-backup/manifest_ed25519 -n remote-backup "$1/manifest.json" 2>/dev/null <<<y; }
+neg 'jq ".run = \"bad-run\"" $N/manifest.json >/tmp/m && cp /tmp/m $N/manifest.json && rm $N/manifest.json.sig && resign $N' sahte-ad
+rs "$N"; t "S-P13b-2: imzalı ama run biçimi geçersiz -> ret (SQL'e girmez)" '[ $RRC = 1 ] && has "manifest.run biçimi" /tmp/ro'
+
+echo "== C) ortam kilidi"
+rs --target staging --confirm yanlis@rstest "$R2"; t "yanlış --confirm -> ret" '[ $RRC = 1 ] && has "confirm remote@rstest" /tmp/ro'
+rs --target production --confirm remote@rstest "$R2"; t "DEPLOY_ENV=staging iken --target production -> ret" '[ $RRC = 1 ] && has "DEPLOY_ENV=" /tmp/ro'
+setenv production; rs --target production --confirm remote@rstest "$R2"
+t "staging yedeği production'a -> ret (başka ortamın yedeği)" '[ $RRC = 1 ] && has "env=staging, hedef production" /tmp/ro'
+BACKUP_DIR=/var/backups/prod bk; RP="$(last /var/backups/prod)"
+rs --target production --confirm remote@rstest "$RP"
+t "production yedeği + TTY yok -> ret" '[ $BRC = 0 ] && [ $RRC = 1 ] && has "TTY" /tmp/ro'
+setenv ''; BACKUP_DIR=/var/backups/prod bk
+t "DEPLOY_ENV boş -> yedek FAILED adım=önkoşul, last_run_ok 0" '[ $BRC != 0 ] && has "FAILED adım=önkoşul" && [ "$(prom remote_backup_last_run_ok)" = 0 ]'
+setenv staging; RESTORE_EXPECT_PROJECT=remote rs --target staging --confirm remote@rstest --no-pre-backup "$R2"
+t "yanlış compose projesi -> canlıya dokunulmadan ret" '[ $RRC = 1 ] && has "compose projesi" /tmp/ro'
+
+echo "== D) canlı taklidi (staging) + audit taban çizgisi (S-P13b-1)"
+q "$SQLM" <<<"INSERT INTO audit_logs (created_at, username, action, entity, result) VALUES (UTC_TIMESTAMP(3),'cli','test.after','test','success');"
+rs --target staging --confirm remote@rstest "$R2"
+t "canlı geri yükleme OK (reset migrator, CHECKSUM canlı = scratch, /ready)" '[ $RRC = 0 ] && has "restore-reset: OK" /tmp/ro && has "CHECK OK    CHECKSUM canlı = scratch" /tmp/ro && has "CHECK OK    /ready" /tmp/ro'
+t "yedekten sonra eklenen satır gitti" '[ "$(q "$SQLR" <<<"SELECT COUNT(*) FROM audit_logs WHERE action=\"test.after\"")" = 0 ]'
+MK=/var/backups/remote/audit-baseline-reset.json
+t "restore host işaretini yazdı (root 600, id = DB sıfırlama satırı)" '[ "$(stat -c "%u %a" $MK)" = "0 600" ] && [ "$(jq .id $MK)" = "$(q "$SQLR" <<<"SELECT MAX(id) FROM audit_logs WHERE action=\"backup.audit_baseline_reset\"")" ]'
+bk; t "sonraki yedek: taban-cizgisi-sifirlandi (uyarı) + alarm, rc 0" '[ $BRC = 0 ] && has "taban-cizgisi-sifirlandi" && grep -q "audit-sureklilik taban" /tmp/alerts'
+t "işaret imzalı manifeste girdi ve tüketildi" '[ "$(jq .auditContinuity.baselineMarker.id "$(last)/manifest.json")" -gt 0 ] && [ ! -e $MK ]'
+bk; t "değişiklik yok -> audit ok" 'has "audit-sureklilik: ok"'
+q "$SQLA" <<<"INSERT INTO audit_logs (username, action, entity, result) VALUES ('cli','backup.audit_baseline_reset','audit_logs','success');"
+bk; t "S-P13b-1: app sahte sıfırlama satırı -> FAILED taban-cizgisi-isaretsiz, rc≠0, audit_ok 0" '[ $BRC != 0 ] && has "taban-cizgisi-isaretsiz" && [ "$(prom remote_backup_audit_continuity_ok)" = 0 ]'
+echo '{"format":1,"id":1}' >$MK; chmod 600 $MK; bk; t "işaret id'si farklı -> yine FAILED" 'has "taban-cizgisi-isaretsiz id=.* isaret=1"'
+jq ".id = $(q "$SQLR" <<<"SELECT MAX(id) FROM audit_logs")" $MK >/tmp/mk; cp /tmp/mk $MK; chmod 644 $MK; bk
+t "işaret 644 (root 600 değil) -> yok sayıldı, FAILED" 'has "YOK SAYILDI" && has "taban-cizgisi-isaretsiz"'
+rm -f $MK; reset_bl "test: sahte satir incelendi"; bk
+t "meşru --reset-audit-baseline -> sifirlandi, rc 0" 'has "audit-baseline-reset: OK id=" /tmp/rb && [ $BRC = 0 ] && has "taban-cizgisi-sifirlandi"'
+q "$SQLM" <<<"$DROPALL DELETE FROM audit_logs WHERE action='test.seed' ORDER BY id LIMIT 1;"; q "$SQLM" </tmp/trg.sql
+bk; t "tetikleyiciler düşürülüp geçmiş satır silindi, birebir geri kuruldu -> FAILED gun=, tetikleyici ok" '[ $BRC != 0 ] && has "FAILED adım=audit-sureklilik" && has "gun=" && ! has "adım=tetikleyici"'
+bk; t "ertesi çalıştırma yine FAILED (son İYİ yedekle karşılaştırır)" '[ $BRC != 0 ] && has "gun="'
+reset_bl "test: silme incelendi"; bk; t "sıfırlama sonrası uyarı + rc 0, fark yalnız bilgi (S-P13b-10)" '[ $BRC = 0 ] && has "taban-cizgisi-sifirlandi" && grep -q "fark-bilgi=.*gun=" /tmp/alerts'
+q "$SQLM" <<<"TRUNCATE TABLE audit_logs;"; bk
+t "TRUNCATE -> FAILED taban-cizgisi-kaydi-kayboldu" '[ $BRC != 0 ] && has "taban-cizgisi-kaydi-kayboldu"'
+reset_bl "test: truncate incelendi"; bk; t "TRUNCATE sonrası meşru sıfırlama -> rc 0" '[ $BRC = 0 ]'
+q "$SQLM" <<<"DROP TRIGGER audit_logs_no_update;"; bk
+t "DROP TRIGGER -> FAILED adım=tetikleyici" '[ $BRC != 0 ] && has "FAILED adım=tetikleyici"'
+q "$SQLM" <<<"DROP TRIGGER audit_logs_retention_only_delete; DROP TRIGGER audit_logs_force_created_at;"; q "$SQLM" </tmp/trg.sql
+bk; t "tetikleyiciler geri kurulunca -> ok" '[ $BRC = 0 ] && has "audit-sureklilik: ok"'
+
+echo "== E) site dışı kanca"
+export BACKUP_OFFSITE_CMD='d=/offsite/$REMOTE_BACKUP_RUN; mkdir -p $d && cp $REMOTE_BACKUP_RUN_DIR/* $d/ && { cat /etc/remote-backup/manifest_ed25519 && echo KEYREAD; cat /opt/tdeploy/.env && echo ENVREAD; ls $REMOTE_BACKUP_DIR && echo DIRLIST; env; id -u; } >$d/probe 2>/dev/null; true'
+bk; RO="$(last)"; P="/offsite/${RO##*/}/probe"
+t "kanca OK: remote-offsite olarak 4 dosya kopyaladı" '[ $BRC = 0 ] && has "OFFSITE OK" && [ "$(ls /offsite/${RO##*/} | grep -vc probe)" = 4 ] && [ "$(tail -1 $P)" = "$(id -u remote-offsite)" ]'
+t "kanca imza anahtarını, deploy/.env'i okuyamadı, BACKUP_DIR'i listeleyemedi, ortamda sır yok" '! grep -Eq "KEYREAD|ENVREAD|DIRLIST|BACKUP_AGE|MYSQL_|ALERT_CMD" $P'
+t "kanca sonrası izinler 700/600, komut metni logda yok, offsite_last_rc 0" '[ "$(stat -c %a $RO)$(stat -c %a /var/backups/remote)" = 700700 ] && [ -z "$(find $RO -type f ! -perm 600)" ] && ! has "KEYREAD" && [ "$(prom remote_backup_offsite_last_rc)" = 0 ]'
+BACKUP_OFFSITE_CMD='exit 7' bk
+t "kanca rc 7 -> OFFSITE-FAILED + alarm, birim rc 0, offsite_last_rc 7" '[ $BRC = 0 ] && has "OFFSITE-FAILED run=.* rc=7" && grep -q OFFSITE-FAILED /tmp/alerts && [ "$(prom remote_backup_offsite_last_rc)" = 7 ]'
+BACKUP_OFFSITE_CMD="touch /tmp/RAN; curl -H 'x-api-key: abc' http://x" bk
+t "metinde x-api-key -> çalıştırılmadı, rc=126" 'has "rc=126" && [ ! -e /tmp/RAN ]'
+BACKUP_OFFSITE_CMD='sleep 20' setsid bash "$B/backup.sh" >/tmp/bo 2>&1 & BP=$!
+for _ in $(seq 120); do pgrep -u remote-offsite sleep >/dev/null && break; sleep 0.5; done
+kill -TERM -- -"$BP" 2>/dev/null; wait "$BP" 2>/dev/null; RK="$(last)"
+t "S-P13b-6: kanca sırasında TERM -> izinler trap ile geri alındı" '[ "$(stat -c %a $RK)$(stat -c %a /var/backups/remote)" = 700700 ] && [ -z "$(find $RK -type f ! -perm 600)" ]'
+BACKUP_OFFSITE_CMD='sleep 20' setsid bash "$B/backup.sh" >/tmp/bo 2>&1 & BP=$!
+for _ in $(seq 120); do pgrep -u remote-offsite sleep >/dev/null && break; sleep 0.5; done
+kill -KILL -- -"$BP" 2>/dev/null; wait "$BP" 2>/dev/null; RK="$(last)"; G="$(stat -c %a "$RK")"
+unset BACKUP_OFFSITE_CMD; bk
+t "S-P13b-6: SIGKILL ($G kaldı) -> sonraki çalıştırma 700/600'e normalleştirdi" '[ "$G" = 750 ] && [ "$(stat -c %a $RK)" = 700 ] && [ -z "$(find $RK -type f ! -perm 600)" ]'
+
+echo "== F) kurcalanmış döküm (imzalı) yüklenemez, iz bırakmaz (AC-298)"
+SEC0="$(q "$SQLR" <<<"SELECT COUNT(*) FROM mysql.user; SELECT COUNT(*) FROM performance_schema.persisted_variables; SELECT COUNT(*) FROM mysql.component;" | paste -sd,)"
+tamper() {  # <ifade> -> /tmp/tam/kurcalanmis (imzalı, özetler güncel)
+  rm -rf /tmp/tam; mkdir -p /tmp/tam/kurcalanmis; T=/tmp/tam/kurcalanmis; cp "$R2/uploads.tar.gz.age" $T/
+  age -d -i /root/age.key "$R2/db.sql.gz.age" | gzip -dc | S="$1" awk 'NR == 2 {print ENVIRON["S"]} {print}' | gzip >$T/db.sql.gz
+  age -r "$BACKUP_AGE_RECIPIENT" -o $T/db.sql.gz.age $T/db.sql.gz
+  jq --argjson b "$(wc -c <$T/db.sql.gz.age)" --arg s "$(sha256sum $T/db.sql.gz.age | cut -d" " -f1)" \
+     --argjson pb "$(wc -c <$T/db.sql.gz)" --arg ps "$(sha256sum $T/db.sql.gz | cut -d" " -f1)" \
+     '.files[0] += {bytes: $b, sha256: $s, plainBytes: $pb, plainSha256: $ps}' "$R2/manifest.json" >$T/manifest.json
+  rm -f $T/db.sql.gz; resign $T
+}
+for s in "CREATE USER 'evil'@'%' IDENTIFIED BY 'x';" "GRANT ALL ON *.* TO 'migrator'@'%';" "SET PERSIST max_connections = 999;" \
+         "INSTALL COMPONENT 'file://component_validate_password';" "SELECT 1; USE mysql; INSERT INTO mysql.db (Host, Db, User) VALUES ('%','x','evil');"; do
+  tamper "$s"; rs /tmp/tam/kurcalanmis
+  t "kurcalanmış döküm [${s:0:24}…] -> imza OK ama migrator yükleyemez, FAIL" '[ $RRC = 1 ] && has "CHECK OK    manifest imzası" /tmp/ro && has "CHECK FAIL  döküm yükleme (migrator)" /tmp/ro'
+done
+tamper '\! touch /tmp/pwned'; rs /tmp/tam/kurcalanmis
+t "istemci meta-komutu (\\!) -> FAIL, yükleme denenmedi" '[ $RRC = 1 ] && has "CHECK FAIL  dökümde istemci komutu" /tmp/ro && [ ! -e /tmp/pwned ]'
+tamper "GRANT ALL ON *.* TO 'migrator'@'%';"; rs --target staging --confirm remote@rstest --no-pre-backup /tmp/tam/kurcalanmis
+t "staging hedefi: scratch yüklemesi FAIL -> canlıya dokunulmadı (reset/durdurma yok)" '[ $RRC = 1 ] && has "CHECK FAIL  döküm yükleme" /tmp/ro && ! has "restore-reset" /tmp/ro && ! has "durduruluyor" /tmp/ro'
+t "kalıcı iz yok: canlı hesap/persist/bileşen sayısı aynı, evil yok, scratch konteyneri kalmadı" '[ "$(q "$SQLR" <<<"SELECT COUNT(*) FROM mysql.user; SELECT COUNT(*) FROM performance_schema.persisted_variables; SELECT COUNT(*) FROM mysql.component;" | paste -sd,)" = "$SEC0" ] && [ -z "$(docker ps -aq --filter name=rs-restore-verify)" ]'
+
+echo "== G) diğer"
+BACKUP_ALERT_CMD='touch /tmp/AL; curl https://api.telegram.org/bot123456:ABC/sendMessage' bash "$B/backup.sh" --alert >/tmp/bo 2>&1; RC=$?
+t "--alert metninde Telegram token'ı -> çalıştırılmadı, rc 1" '[ $RC = 1 ] && [ ! -e /tmp/AL ] && has "ÇALIŞTIRILMADI"'
+chmod 644 /etc/remote-backup/manifest_ed25519; bk; chmod 600 /etc/remote-backup/manifest_ed25519
+t "imza anahtarı 644 -> FAILED adım=imza" '[ $BRC != 0 ] && has "FAILED adım=imza"'
+bash "$B/backup.sh" --reset-audit-baseline "kisa" >/tmp/rb 2>&1; RC=$?
+t "--reset-audit-baseline kısa gerekçe -> ret, işaret yok" '[ $RC != 0 ] && [ ! -e $MK ]'
+mkdir /var/backups/remote/.lock; sleep 300 & LP=$!; echo $LP >/var/backups/remote/.lock/pid
+bash "$B/backup.sh" --reset-audit-baseline "test: kilit sinamasi" >/tmp/rb 2>&1; RC=$?; kill $LP 2>/dev/null; rm -rf /var/backups/remote/.lock
+t "S-P13b-11: yedek kilidi tutulurken --reset-audit-baseline -> ret, işaret yok" '[ $RC != 0 ] && grep -q "çalışıyor" /tmp/rb && [ ! -e $MK ]'
+echo "SONUÇ-İÇ $F"

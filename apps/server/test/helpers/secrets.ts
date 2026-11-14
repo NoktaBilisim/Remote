@@ -10,3 +10,6 @@ export const FAKE_APP_ENCRYPTION_KEYS = `v1:${Buffer.alloc(32, 0x11).toString("b
 export const FAKE_SMTP_PASSWORD = "Cok-Gizli-Sifre-1";
 // P11 (B-P11-2): panel TURN secret'ı (settings-p11 entegrasyon testi).
 export const FAKE_P11_TURN_SECRET = "p11-turn-secret-0123456789abcdefghij";
+// P13b (S-P13b-3/7): WhatsApp servis anahtarı (`x-api-key`; env ve panel). Sahte servis dışında hiçbir yere gitmez.
+export const FAKE_WA_ENV_API_KEY = "fake-wa-env-api-key-0123456789";
+export const FAKE_WA_PANEL_API_KEY = "fake-wa-panel-api-key-0123456789";

@@ -115,7 +115,9 @@
 		-Server
 		-X-Powered-By
 		-Via
-		?Strict-Transport-Security "max-age=31536000"
+		# mimari-p13 §7.5 / G-19: includeSubDomains (yalnız *.remote.noktabilisim.net; apex ve kardeş alanlar etkilenmez), preload YOK.
+		# Değer server helmet ile aynı; uygulama koyduysa "?" dokunmaz.
+		?Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		?X-Content-Type-Options "nosniff"
 		?Referrer-Policy "no-referrer"
 	}

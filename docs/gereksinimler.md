@@ -9,7 +9,9 @@ Tarih: 2026-11-12   Durum: TASLAK (2026-11-10: tam erişim MVP'de; 2026-11-11: `
 > E9'un kapsamı, NFR'leri, varsayımları, riskleri, açık soruları ve paket önerisi: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e9.md`.
 > E10 (Müşteri firmalar ve kalıcı istemci) kabul kriterleri: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e10.md` (AC-165..AC-195). Kapsamı, NFR'leri, varsayımları (V21–V28), riskleri (R19–R24), açık soruları (S18–S21) ve paket önerisi: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e10.md`.
 > Bölüm 9'un "Sonra / açık" tabloları (P2..P8b-1): `/Users/mennan/Projeler/Remote/docs/gereksinimler-sonra-acik.md` (2026-11-12'de içerik değiştirilmeden taşındı). Yeni paketlerin tabloları (P8b-2, P8c, P9) aynı dosyanın en üstündedir.
-> Toplam: **45 kullanıcı hikâyesi, 200 kabul kriteri** (AC-1..AC-200; AC-196 2026-11-13, E9 WhatsApp servisi sistem ayarı; AC-197..AC-200 2026-11-14, E7 saklama ve yedek — P13a).
+> E11 (ertelenen ve kapsam dışı işlerin yol haritası, 2026-11-14): `/Users/mennan/Projeler/Remote/docs/gereksinimler-e11.md`; AC'ler `gereksinimler-kabul-kriterleri-e11.md` (AC-201..AC-244) ve `gereksinimler-kabul-kriterleri-e11-b.md` (AC-245..AC-297).
+> P13b (prod açılışı, 2026-11-14; r2 2026-11-15): kapsam, revize AC'ler (AC-23, 91, 126, 200), yeni AC-298..AC-303 (AC-303: WhatsApp servis anahtarı, güvenlik S-P13b-3), K1/K3 kapanışı, riskler (R4 güncel, R34–R36, R38) ve ortamlar notu: `/Users/mennan/Projeler/Remote/docs/gereksinimler-p13b.md`. Tasarım: `docs/mimari-p13.md` §7, ADR-0018/0019/0020.
+> Toplam: **65 kullanıcı hikâyesi, 303 kabul kriteri** (AC-1..AC-303; AC-196 2026-11-13, E9 WhatsApp servisi sistem ayarı; AC-197..AC-200 2026-11-14, E7 saklama ve yedek — P13a; AC-201..AC-297 2026-11-14, E11; AC-298..AC-302 2026-11-14 ve AC-303 2026-11-15, P13b prod açılışı).
 
 ## 1. Amaç ve iş değeri
 Kurumsal müşterilere teknik destek verirken AnyDesk/TeamViewer gibi üçüncü taraf SaaS'a bağımlılığı kaldırmak. Tamamen self-hosted, uçtan uca şifreli (DTLS-SRTP), **tam erişimli** (uzaktan klavye/fare) bir destek platformu: teknisyen web panelinden çalışır; müşteri **kurulum ve admin yetkisi gerektirmeyen** taşınabilir "Hızlı Destek" uygulamasıyla tam erişim verir veya bu uygulama çalıştırılamıyorsa tarayıcıdan yalnızca görüntü paylaşır. Medya ve veri firmanın kendi sunucusundan çıkmaz; tüm oturumlar audit log ile denetlenir. Proje açık kaynaktır (Apache-2.0).
@@ -54,6 +56,8 @@ E9 (2026-11-12): Sık destek alan kurumsal müşteri, firmasına ait Hızlı Des
 11. **Ekran karartma / gizli mod** (müşteriden gizli işlem yapma) — kötüye kullanım riski; hiçbir fazda planlanmaz (G-17).
 12. **E9'a özgü kapsam dışı maddeler:** tepsi simgesi/otomatik başlatma, web formundan talep, talep atama/SLA/mesai saatleri, kabul öncesi mesajlaşma. Tam liste `docs/gereksinimler-e9.md` §3.
 13. **E10'a özgü kapsam dışı maddeler:** pencere bazlı paylaşım, müşteri portalı/girişi, müşteriye sistemden bağlantı gönderimi ve WhatsApp'ta müşteri firma bilgisi, müşteri başına SLA/fatura/Paraşüt eşlemesi, kalıcı silme ve CSV içe/dışa aktarma, bir bilgisayarda birden çok firma kaydı, tarayıcı modunda kayıt, kod alanına link yapıştırma; gözetimsiz erişim yine kapsam dışı (kayıt yalnız talep açar). Tam liste `docs/gereksinimler-e10.md` §3.
+
+> Not (2026-11-14, E11): madde 1, 2 (gözetimsiz erişimle), 3–9, 10 (Windows ARM64 hariç), 12 ve 13'teki maddeler E11 yol haritasına taşındı (`gereksinimler-e11.md` §3). Madde 11 ve Windows ARM64 kapsam dışı kalır.
 
 ## 4. Fazlar (MVP yol haritası)
 | Faz | İçerik | Çıkış kriteri |
@@ -153,6 +157,8 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 - **Erişilebilirlik:** WCAG 2.1 AA; klavye ile tam kullanım; durumlar yalnız renkle anlatılmaz.
 - **Yerelleştirme:** arayüz Türkçe; tarihler UTC saklanır, Europe/Istanbul gösterilir; metinler i18n anahtarlarından.
 - **Veri saklama:** oturum meta verisi ve onay kayıtları tenant ayarı (90–730 gün, varsayılan 365); audit log 730 gün; süresi dolan kayıtlar günlük işle anonimleştirilir/silinir. E9 talep kayıtları oturum meta verisiyle aynı süreye tabidir (AC-159). Ölçüt: AC-197..AC-199 (P13a; anonim kayıtların kalıcı silinmesi ertelendi, mimari §12 K27).
+- **Ortamlar (P13b, 2026-11-14):** P13c'ye kadar ayrı staging yoktur; staging yığını yerinde prod'a terfi eder (ADR-0019). Prod kontrolleri "Nokta Test" firmasıyla yapılır. P13c (`stg.remote.noktabilisim.net`) prod açılışından sonra ve E11 kod paketlerinden önce kurulur.
+- **K13 notu (P13b):** prod WhatsApp kanalı kapalı başlayabilir (Admin'ler e-posta bildirimi kullanır). Servisin başka tüketicileri olduğundan IP kısıtı yerine TLS ters vekil önerilir (mimari-p13 §7.11).
 - **Gözlemlenebilirlik:** JSON log + korelasyon ID; `/health`, `/ready`, `/metrics` (aktif oturum, WS bağlantı, TURN tahsis sayısı).
 - **Yedekleme:** MySQL günlük döküm, 14 gün saklama, geri yükleme testi runbook'ta. Ölçüt: AC-91, AC-200 (şifreli, uploads dahil, RPO ≤ 24 sa, RTO ≤ 60 dk).
 - **Lisans:** proje Apache-2.0; bağımlılıklar izinli lisanslı (MIT/BSD/Apache), AGPL yasak; CI lisans taraması (AC-94).
@@ -181,7 +187,7 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 | R1 | Kod imzalama sertifikası yok (K8, ADR-0010): SmartScreen/AV imzasız istemciyi uyarır veya engeller | Yüksek: tam erişim çalışmayabilir | SmartScreen "Ek bilgi → Yine de çalıştır" rehberi (AC-27), tekrarlanabilir build + SHA-256 + attestation (AC-94, AC-96), AV yanlış pozitif bildirimi, kurumsal politikada tarayıcı moda düşüş; SignPath Foundation başvurusu Faz 4 ile paralel | devops |
 | R2 | AV/EDR uzaktan destek araçlarını "remote access tool" olarak işaretleyebilir | Yüksek | Tekrarlanabilir build, AV üreticilerine false-positive bildirimi, kurumsal müşteriye SHA-256 hash allowlist dokümanı | devops, teknik-yazar |
 | R3 | UIPI: admin'siz süreç yükseltilmiş pencerelere, UAC ve Secure Desktop'a girdi gönderemez; yeniden başlatma sonrası bağlantı kopar | Orta: bazı destek işleri yapılamaz | Kapsam dışı olarak belgelendi, konsolda uyarı, kılavuzda anlatım | proje-yoneticisi |
-| R4 | Kurumsal ağlarda yalnızca 443 açık olabilir; 443 sunucuda dolu | Yüksek: bağlantı kurulamaz | TURN-TLS 443 ayrı IP/VM (ADR-0007, K3) | mimar, devops |
+| R4 | Kurumsal ağlarda yalnızca 443 açık olabilir; 443 sunucuda dolu, TURN-TLS 5349'da (K3, 2026-11-14) | Yüksek: o ağlarda medya kurulamaz | Risk kabulü (ADR-0018); kılavuz ve DATASHEET'te ağ gereksinimleri (443/TCP, 3478 UDP/TCP, 5349/TCP, 49160–49479/UDP); 3 ayda bir gözden geçirme; ayda ≥ 3 vaka olursa ek IP talebi ve TURN 443 yeniden açılır (ADR-0018 m.6). Ayrıntı `docs/gereksinimler-p13b.md` §5 | kullanıcı, devops |
 | R5 | AppLocker/WDAC kurumsal politikaları imzasız, bilinmeyen exe'yi engeller | Orta | Tarayıcı-yalnız yedek mod; kurumsal müşteriye hash allowlist rehberi | teknik-yazar |
 | R6 | Kötüye kullanım (sosyal mühendislik dolandırıcılığı) | Yüksek itibar riski | Kimliği doğrulanmış teknisyenler; teknisyen doğrulama kodu + lobi kabul kodu (AC-112); dolandırıcılık uyarısı ve kötüye kullanım bildirimi (AC-125); görünür kontrol göstergesi; zorla sonlandırma (AC-114); gizli mod yok; audit | guvenlik |
 | R7 | TURN relay bant genişliği: 50 oturum × ~4 Mbps ≈ 200 Mbps; sunucu kapasitesi bilinmiyor | Orta | Kapasite ölçümü, oturum başına 8 Mbps relay tavanı (AC-21, S4) | devops |
@@ -195,12 +201,12 @@ Not: US-27 ve US-28 2026-11-11'de eklendi; numaralar epik sırasına göre deği
 | # | Soru | Varsayılan (cevap gelmezse) | Sahibi |
 |---|---|---|---|
 | S1 | **Karar (2026-11-10):** Go + Pion WebRTC, ekran yakalama + SendInput Windows API; RustDesk kodu kullanılmaz, yalnız tasarım ilhamı (ADR-0004, ADR-0011). | — | Kapandı |
-| S2 | Yayın alan adı ve TLS sertifikası nedir (`destek.<domain>`)? (mimari K1) | Staging: IP:port + Caddy `tls internal`; prod: Let's Encrypt, ayrı portta | Kullanıcı |
-| S3 | **Karar:** TURN-TLS 443 ayrı public IP/VM üzerinde; dev/staging'de coturn publish sunucusunda farklı portlarda (ADR-0007, K3). Prod IP'si açık. | 5349 TLS ile başlanır, R4 izlenir | Kullanıcı + devops |
+| S2 | Yayın alan adı ve TLS sertifikası nedir? (mimari K1) | **Kapandı (2026-11-14):** `remote.noktabilisim.net`, Let's Encrypt; staging yerinde prod'a terfi eder (ADR-0019). `docs/gereksinimler-p13b.md` §2 | Kapandı |
+| S3 | TURN-TLS için ayrı IP/443 (mimari K3) | **Kapandı (2026-11-14):** aynı sunucu, TURN-TLS 5349/TCP, 443 yok (ADR-0018 risk kabulü, R4). `docs/gereksinimler-p13b.md` §2 | Kapandı |
 | S4 | Beklenen eşzamanlı oturum sayısı ve sunucu bant genişliği? | 50 eşzamanlı, 1 Gbps | Kullanıcı |
-| S5 | Chat geçmişi oturum kaydına saklansın mı? | Hayır (V9) | Kullanıcı |
+| S5 | Chat geçmişi oturum kaydına saklansın mı? | Hayır (V9); 2026-11-14: E11'e taşındı (S25) | Kullanıcı |
 | S6 | Oturum kaydı (video) ileride istenecek mi; hangi fazda? | Sonra, ayrı doküman | Kullanıcı |
-| S7 | Gözetimsiz erişim (unattended) ileride istenecek mi? Bu admin kurulumlu servis demektir | Kapsam dışı (2026-11-12: E9'da da kapsam dışı; kullanıcı ileride ayrı paket isteyebilir) | Kullanıcı |
+| S7 | Gözetimsiz erişim (unattended) ileride istenecek mi? Bu admin kurulumlu servis demektir | Kapsam dışı (2026-11-12: E9'da da kapsam dışı; kullanıcı ileride ayrı paket isteyebilir); 2026-11-14: E11'e taşındı (S24) | Kullanıcı |
 | S8 | **Karar:** ikisi birden — dosya adındaki kod (`Destek-48291376.exe`) otomatik + ad değişirse 8 haneli kodun elle girişi; kod kısa ömürlü (yalnız PENDING), deneme sınırlı (ADR-0006, AC-3, AC-97). | — | Kapandı |
 | S9 | **Karar (K8):** sertifika ALINMAYACAK; istemci imzasız + tekrarlanabilir build + SHA-256 + GitHub build attestation; SignPath Foundation başvurusu Faz 4 ile paralel (ADR-0010). AC-27, AC-92, AC-94, AC-96 2026-11-11'de revize edildi. | — | Kapandı |
 | S10 | Platform önceliği Windows → macOS → Linux doğru mu? | Evet (V11) | Kullanıcı |

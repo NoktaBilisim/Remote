@@ -35,6 +35,8 @@ interface Log {
 export interface WhatsappDeps {
   /** Başlangıç adresi (env `WHATSAPP_SERVICE_URL`); panel kaydı `setUrl` ile uygulanır. */
   url: string;
+  /** S-P13b-3: başlangıç anahtarı (env `WHATSAPP_SERVICE_API_KEY`); varsa her istekte `x-api-key`. */
+  apiKey?: string | null;
   production: boolean;
   publicBaseUrl: string;
   db: Db;
@@ -66,6 +68,27 @@ export function isInsecureServiceUrl(url: string, production: boolean): boolean 
   if (!production) return false;
   const u = new URL(url);
   return u.protocol === "http:" && !isPrivateHost(u.hostname);
+}
+
+/** Loopback host mu (127.0.0.0/8, ::1, localhost). */
+function isLoopbackHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  return h === "localhost" || h === "::1" || (isIP(h) === 4 && h.startsWith("127."));
+}
+
+/**
+ * S-P13b-8: anahtar tanımlıyken `http://` (loopback dışı) anahtarı şifresiz taşır. Production'da güvensiz sayılır (kanal
+ * kapalı, ayar ekranında mevcut "güvensiz" uyarısı); geliştirme/testte izinli ama `keyOverHttp` ile uyarı logu düşer.
+ */
+export function keyOverPlainHttp(url: string, hasKey: boolean): boolean {
+  if (!hasKey || !isParsableServiceUrl(url)) return false;
+  const u = new URL(url);
+  return u.protocol === "http:" && !isLoopbackHost(u.hostname);
+}
+
+/** Adres + anahtar birlikte: §13.5 kuralı ve production'da anahtar + düz http (S-P13b-8). */
+export function isInsecureServiceTarget(url: string, hasKey: boolean, production: boolean): boolean {
+  return isInsecureServiceUrl(url, production) || (production && keyOverPlainHttp(url, hasKey));
 }
 
 /** WHATWG ile ayrıştırılabilir http(s) adresi mi (DB CHECK yalnız regex; `http://a:99999` CHECK'ten geçer). */
@@ -122,6 +145,7 @@ const endpoint = (base: string, path: string): string => `${base.replace(/\/+$/,
 
 export class WhatsappNotifier {
   private url: string;
+  private apiKey: string | null = null;
   private insecureNow: boolean;
   private readonly d: WhatsappDeps;
   private readonly fetchFn: FetchLike;
@@ -135,7 +159,7 @@ export class WhatsappNotifier {
     this.fetchFn = d.fetch ?? ((url, init) => fetch(url, init));
     this.url = "";
     this.insecureNow = false;
-    this.setUrl(d.url);
+    this.setUrl(d.url, d.apiKey ?? null);
     this.win = this.newWindow(this.windowStart(d.clock.now()));
   }
 
@@ -156,15 +180,21 @@ export class WhatsappNotifier {
    * Etkin adresi değiştirir (AC-196: yeniden başlatma yok; sonraki gönderim/test yeni adrese). Boş → yapılandırılmamış.
    * Güvensiz adrese geçişte alarm logu (adres loga yazılmaz). Sürmekte olan denemeler sonraki çağrıda yeni adresi kullanır.
    */
-  setUrl(url: string): void {
-    if (url === this.url && url !== "") return;
+  setUrl(url: string, apiKey: string | null = null): void {
+    // S-P13b-3: anahtar adresle birlikte atanır (panel adresi → panel anahtarı, env adresi → env anahtarı); boş → başlık yok.
+    const key = url !== "" && apiKey ? apiKey : null;
+    if (url === this.url && key === this.apiKey && url !== "") return;
     // B-P12b-1: önce sınıflandır (fırlatmaz), sonra ata — yarım güncelleme yok; ayrıştırılamayan adres → kanal kapalı.
     const invalid = url !== "" && !isParsableServiceUrl(url);
-    const insecure = url !== "" && (invalid || isInsecureServiceUrl(url, this.d.production));
+    const urlInsecure = url !== "" && (invalid || isInsecureServiceUrl(url, this.d.production));
+    const plainKey = url !== "" && keyOverPlainHttp(url, key !== null);
     this.url = url;
-    this.insecureNow = insecure;
+    this.apiKey = key;
+    this.insecureNow = urlInsecure || (this.d.production && plainKey);
     if (invalid) this.d.log.error({ alarm: "whatsapp_invalid_url" }, "WhatsApp servis adresi ayrıştırılamıyor: kanal kapalı");
-    else if (insecure) this.d.log.warn({ alarm: "whatsapp_insecure" }, "WhatsApp servisi güvenli yapılandırılmamış (production + http + genel adres): kanal kapalı");
+    else if (urlInsecure) this.d.log.warn({ alarm: "whatsapp_insecure" }, "WhatsApp servisi güvenli yapılandırılmamış (production + http + genel adres): kanal kapalı");
+    else if (plainKey && this.d.production) this.d.log.warn({ alarm: "whatsapp_key_over_http" }, "WhatsApp servis anahtarı düz http ile gidecekti: kanal kapalı (https gerekli)");
+    else if (plainKey) this.d.log.warn({ event: "whatsapp_key_over_http" }, "WhatsApp servis anahtarı şifresiz (http) gönderilecek — yalnız geliştirme ortamında izinli");
   }
 
   /** Kanal kullanılabilir mi (ayar ekranı ve gönderim kapısı). */
@@ -257,7 +287,8 @@ export class WhatsappNotifier {
       void this.post("/send-message", { phoneNumber: servicePhone(phone), message }).then(async (outcome) => {
         if (this.closed) return;
         const ok = outcome === "ok";
-        if (ok || n >= WA_RETRY_DELAYS_MS.length) {
+        // S-P13b-3: 401 kalıcıdır (anahtar yanlış/eksik) → yeniden deneme yok.
+        if (ok || outcome === "unauthorized" || n >= WA_RETRY_DELAYS_MS.length) {
           this.d.metrics.inc("rs_request_notify_total", { channel: "whatsapp", result: ok ? "ok" : "failed" });
           await this.audit(tenantId, phone, ok ? "success" : "fail", n);
           return;
@@ -299,9 +330,15 @@ export class WhatsappNotifier {
     // Zaman aşımı enjekte saatten (realClock unref'li); denemeler arası beklemelerle aynı saat → test edilebilir.
     const timer = this.d.clock.setTimeout(() => ctrl.abort(), WA_TIMEOUT_MS);
     try {
-      const res = await this.fetchFn(endpoint(this.url, path), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal, redirect: "manual" }); // S8b-1: 3xx izlenmez (SSRF)
+      const headers: Record<string, string> = { "Content-Type": "application/json", ...(this.apiKey ? { "x-api-key": this.apiKey } : {}) };
+      const res = await this.fetchFn(endpoint(this.url, path), { method: "POST", headers, body: JSON.stringify(body), signal: ctrl.signal, redirect: "manual" }); // S8b-1: 3xx izlenmez (SSRF)
       void res.body?.cancel().catch(() => undefined); // B-P12b-6: gövde okunmaz/yansıtılmaz; soket ve tampon bırakılır
       if (res.ok) return "ok";
+      if (res.status === 401) {
+        // S-P13b-3: anahtar yok/yanlış (loga yalnız anahtar var mı; değer asla).
+        this.d.log.error({ alarm: "whatsapp_unauthorized", path, keySet: this.apiKey !== null }, "WhatsApp servisi anahtarı reddetti");
+        return "unauthorized";
+      }
       this.d.log.warn({ event: "whatsapp_http_error", status: res.status, path }, "WhatsApp servisi hata döndürdü");
       return res.status >= 300 && res.status < 400 ? "redirect" : "http_error";
     } catch (err) {
