@@ -165,17 +165,20 @@ function AccountFacts({ ed, canEdit }: { ed: Ed; canEdit: boolean }) {
           <StatusPill status={saved.status} testId="user-status" />
         </dd>
       </div>
-      <div className="flex items-start justify-between gap-3">
-        <dt className="font-medium text-fg">
+      {/* K12: eylem düğmesi dar profil sütununda kendi satırında (tek satır etiket; satır kırılması yok) */}
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+        <dt className="min-w-0 flex-1 font-medium text-fg">
           {t("us.e.twofa")}
           <span className="block text-xs font-normal text-fg-muted">{t("us.e.twofaHint")}</span>
         </dt>
-        <dd className="flex flex-col items-end gap-2">
+        <dd className="shrink-0">
           <span className={`text-sm ${saved.totpEnabled ? "text-success" : "text-fg-muted"}`} data-testid="user-2fa">
             {saved.totpEnabled ? t("us.e.twofaOn") : t("us.e.twofaOff")}
           </span>
-          {/* P10 (AC-115): yönetici 2FA sıfırlaması — kendi hesabı hariç, yönetebildiği etkin hesapta */}
-          {saved.totpEnabled && canEdit && saved.canManage && !saved.isSelf && ed.active && (
+        </dd>
+        {/* P10 (AC-115): yönetici 2FA sıfırlaması — kendi hesabı hariç, yönetebildiği etkin hesapta */}
+        {saved.totpEnabled && canEdit && saved.canManage && !saved.isSelf && ed.active && (
+          <dd className="basis-full">
             <Button
               type="button"
               variant="secondary"
@@ -186,8 +189,8 @@ function AccountFacts({ ed, canEdit }: { ed: Ed; canEdit: boolean }) {
               <KeyRound aria-hidden className="size-4" />
               {t("us.m.open")}
             </Button>
-          )}
-        </dd>
+          </dd>
+        )}
       </div>
       <TrustedDevicesFact ed={ed} canEdit={canEdit} />
     </dl>
@@ -202,16 +205,16 @@ function TrustedDevicesFact({ ed, canEdit }: { ed: Ed; canEdit: boolean }) {
   const { saved } = ed;
   const n = saved.trustedDeviceCount ?? 0;
   return (
-    <div className="flex items-start justify-between gap-3">
-      <dt className="font-medium text-fg">
+    <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+      <dt className="min-w-0 flex-1 font-medium text-fg">
         {t("acc.td.adminLabel")}
         <span className="block text-xs font-normal text-fg-muted">{t("acc.td.adminHint")}</span>
       </dt>
-      <dd className="flex flex-col items-end gap-2">
-        <span className="text-sm text-fg tabular-nums" data-testid="user-td-count">
-          {t("acc.td.adminCount", { n: formatNumber(n) })}
-        </span>
-        {canEdit && saved.canManage && !saved.isSelf && (
+      <dd className="shrink-0 text-sm text-fg tabular-nums" data-testid="user-td-count">
+        {t("acc.td.adminCount", { n: formatNumber(n) })}
+      </dd>
+      {canEdit && saved.canManage && !saved.isSelf && (
+        <dd className="basis-full">
           <Button
             type="button"
             variant="danger-ghost"
@@ -222,8 +225,8 @@ function TrustedDevicesFact({ ed, canEdit }: { ed: Ed; canEdit: boolean }) {
             <MonitorX aria-hidden className="size-4" />
             {t("acc.td.adminRemove")}
           </Button>
-        )}
-      </dd>
+        </dd>
+      )}
     </div>
   );
 }

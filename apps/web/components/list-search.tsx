@@ -10,7 +10,12 @@ const SEARCH_DELAY_MS = 300;
  * Liste araması (kullanıcı / müşteri / firma): en az 2 karakterde 300 ms sonra `go(q)`; 1 karakterde arama yapılmaz
  * (önceki sonuç kalır), boşaltınca arama kalkar, değer URL'dekiyle aynıysa gidilmez. `submit` (Enter) beklemeden gider.
  */
-export function useListSearch(current: string | undefined, go: (q: string | undefined) => void) {
+export function useListSearch(
+  current: string | undefined,
+  go: (q: string | undefined) => void,
+  /** Liste sözleşmesine özgü doğrulama (ör. cihaz araması ≤ 64); varsayılan 2..100 karakter. */
+  term: (raw: string) => string | undefined = searchTerm,
+) {
   const [text, setText] = useState(current ?? "");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -22,16 +27,16 @@ export function useListSearch(current: string | undefined, go: (q: string | unde
   const onText = (v: string) => {
     setText(v);
     if (timer.current) clearTimeout(timer.current);
-    const q = searchTerm(v);
+    const q = term(v);
     if ((q === undefined && v.trim() !== "") || q === current) return;
     timer.current = setTimeout(() => go(q), SEARCH_DELAY_MS);
   };
   const submit = () => {
     if (timer.current) clearTimeout(timer.current);
-    const q = searchTerm(text);
+    const q = term(text);
     if (q !== undefined || text.trim() === "") go(q);
   };
-  const short = text.trim() !== "" && searchTerm(text) === undefined;
+  const short = text.trim() !== "" && term(text) === undefined;
   return { text, onText, submit, short };
 }
 
@@ -46,6 +51,7 @@ export function ListSearch({
   search,
   pending,
   hint,
+  maxLength = 100,
 }: {
   label: string;
   placeholder: string;
@@ -53,6 +59,8 @@ export function ListSearch({
   search: ReturnType<typeof useListSearch>;
   pending: boolean;
   hint?: { normal: string; short: string };
+  /** Sözleşmedeki arama üst sınırı (kod birimi); girdi bunu aşamaz → filtre sessizce düşmez. */
+  maxLength?: number;
 }) {
   const id = useId();
   const { short } = search;
@@ -67,7 +75,7 @@ export function ListSearch({
           id={id}
           type="search"
           value={search.text}
-          maxLength={100}
+          maxLength={maxLength}
           autoComplete="off"
           placeholder={placeholder}
           aria-describedby={hint ? `${id}-hint` : undefined}

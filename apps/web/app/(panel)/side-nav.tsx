@@ -1,30 +1,16 @@
 "use client";
 
-import {
-  Building,
-  ChevronLeft,
-  ChevronRight,
-  Building2,
-  History,
-  House,
-  Inbox,
-  MonitorCog,
-  MonitorSmartphone,
-  ScrollText,
-  ServerCog,
-  Settings,
-  ShieldBan,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import { Building, ChevronLeft, ChevronRight, House, ServerCog, ShieldBan, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { LobbyCountBadge } from "@/components/lobby-notifier";
 import { RequestCountBadge } from "@/components/request-notifier";
 import { t, type MessageKey } from "@/lib/i18n";
+import { MODULE_ICONS as M } from "@/lib/module-icons";
 
-// Yalnız mevcut sayfalar; yeni modül eklendiğinde buraya ikonuyla eklenir (std. 1.8)
+// Yalnız mevcut sayfalar; yeni modül eklendiğinde buraya ikonuyla eklenir (std. 1.8). Modül sayfalarının ikonu yetki
+// tablosuyla aynı tek kaynaktan (`lib/module-icons.ts`).
 // `perm`: öğe yalnız bu yetki varsa görünür (arka uç da her uçta denetler).
 // `anyPerm`: öğe bu yetkilerden biri varsa görünür (P27 gözetimsiz cihazlar: connect ∨ manage).
 // `superAdmin`: yalnız SUPER_ADMIN rolü (toggle değil; arka uç da rol denetler).
@@ -39,17 +25,16 @@ type NavItem = {
 };
 const items: NavItem[] = [
   { href: "/", label: "panel.home", Icon: House },
-  { href: "/sessions", label: "nav.sessions", Icon: MonitorSmartphone, perm: "sessions.view" },
-  { href: "/requests", label: "nav.requests", Icon: Inbox, perm: "support_requests.view" },
+  { href: "/sessions", label: "nav.sessions", Icon: M.sessions, perm: "sessions.view" },
+  { href: "/requests", label: "nav.requests", Icon: M.support_requests, perm: "support_requests.view" },
   // P15 (AC-235): Engellenenler — engel (yasak) anlamında ShieldBan
   { href: "/request-blocks", label: "nav.blocks", Icon: ShieldBan, perm: "support_requests.block" },
-  { href: "/customers", label: "nav.customers", Icon: Building2, perm: "customers.view" },
-  // P27 (mimari-p27 §6): gözetimsiz cihazlar — ayarlı (yönetilen) bilgisayar anlamında MonitorCog
-  { href: "/unattended", label: "nav.unattended", Icon: MonitorCog, anyPerm: ["unattended.connect", "unattended.manage"] },
-  { href: "/history", label: "nav.history", Icon: History, perm: "session_history.view" },
-  { href: "/users", label: "nav.users", Icon: Users, perm: "users.view" },
-  { href: "/settings/support-requests", label: "nav.settings", Icon: Settings, perm: "settings.edit", match: "/settings" },
-  { href: "/audit", label: "nav.audit", Icon: ScrollText, perm: "audit.view" },
+  { href: "/customers", label: "nav.customers", Icon: M.customers, perm: "customers.view" },
+  { href: "/unattended", label: "nav.unattended", Icon: M.unattended, anyPerm: ["unattended.connect", "unattended.manage"] },
+  { href: "/history", label: "nav.history", Icon: M.session_history, perm: "session_history.view" },
+  { href: "/users", label: "nav.users", Icon: M.users, perm: "users.view" },
+  { href: "/settings/support-requests", label: "nav.settings", Icon: M.settings, perm: "settings.edit", match: "/settings" },
+  { href: "/audit", label: "nav.audit", Icon: M.audit, perm: "audit.view" },
   { href: "/admin/tenants", label: "nav.tenants", Icon: Building, superAdmin: true },
   { href: "/admin/settings/mysql", label: "nav.system", Icon: ServerCog, superAdmin: true, match: "/admin/settings" },
 ];

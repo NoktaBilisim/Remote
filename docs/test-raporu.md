@@ -2,6 +2,148 @@
 
 Önceki paketlerin sayfa testi raporları `docs/arsiv/*-test-raporu.md` ve `docs/test-raporu/` altındadır.
 
+## P27a + P27 — sayfa testi
+
+DURUM: GEÇTİ (web + sunucu kapsamı; Windows elle testi kullanıcıda bekliyor, aşağıda)
+Ortam: üretim derlemesi (standalone) `http://localhost:3217` + sahte API `apps/web/e2e/mock-api.mjs` (mock-p27/mock-p27a);
+gerçek sunucu `apps/server` :3352 + geçici MySQL 8.4.13 `rs-p27-k12-db` (test-db.sh; `--max-connections=300
+--log-bin-trust-function-creators=1`; test sonunda silindi). Dal `p27-wip`, test başında HEAD `c05f8b9` + çalışma ağacı;
+test sırasında `81568e5` commit'lendi (web derlemesi testin başında alınan ağaçtan). Tarih 2026-11-15. Staging'e bağlanılmadı.
+Test betikleri: `docs/test-raporu/e2e/p27-k12/` (`tarama.spec.ts`, `akis.spec.ts`, `real-flow.mts`, `k12.config.ts`).
+Ekran görüntüleri: seçilmiş 14 adet `docs/img/p27-k12/`; tamamı (122) scratch'te.
+
+### Özet
+
+| Ölçüt                                                                              | Sonuç                                                                                     |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Taranan ekran × durum                                                              | 29 (14 sayfa; 5 durumlu senaryolar) × açık/koyu × masaüstü 1440 / mobil 390 = 116 görünüm |
+| Konsol hatası / JS hatası                                                          | 0 (yalnız beklenen: hata-durumu senaryosunda bilerek döndürülen 500'ün ağ kaydı)          |
+| 4xx/5xx                                                                            | yalnız senaryoya ait beklenen yanıtlar (tdbad 500, step-up 401)                           |
+| axe (wcag2a/aa/21aa)                                                               | 0 ihlal, 116/116                                                                          |
+| 390 px yatay taşma                                                                 | 0                                                                                         |
+| Mevcut e2e (`unattended.spec.ts`, `p27a-trusted-device.spec.ts`, desktop + mobile) | 31 geçti, 3 atlandı (masaüstüne özel testler mobilde)                                     |
+| Gerçek sunucu akışı (`real-flow.mts`)                                              | 27/27 PASS                                                                                |
+| Yavaş sayfa                                                                        | yok (her görünüm < 1,5 sn, sahte API)                                                     |
+
+### Bulgular (öncelik sırasıyla)
+
+#### [ORTA] Gözetimsiz oturumda konsol sahnesi "Müşteri bekleniyor / linki açıp… telefonda doğrulama kodunu söyleyin" yazıyor
+
+Sayfa/akış: `/sessions/<id>/console`, gözetimsiz oda (`hello.unattended` dolu), ACTIVE öncesi.
+Adımlar: 1. Teknisyen olarak konsolu aç. 2. `/ws/tech` hello'suna `unattended:{deviceId, deviceName}` gelsin (testte
+`page.routeWebSocket` ile eklendi). 3. Sahneye bak.
+Beklenen (mimari-p27 §4.6): ACTIVE öncesi "Cihaz bağlanıyor…"; müşteri etkileşimi gerektiren metin yok.
+Gerçekleşen: üst barda rozet "Gözetimsiz" ve durum "Cihaz bağlanıyor…" doğru. Ama sahne katmanı (`components/console/stage-overlay.tsx`
+`waitingMsg`) `state.unattended`'a bakmıyor: "Müşteri bekleniyor — Müşteri linki açıp katılım isteği gönderdiğinde burada
+görünür. Telefonda doğrulama kodunu söyleyin." + doğrulama kodu yazıyor. Gözetimsiz bağlantıda müşteri yok, metin teknisyeni
+yanıltıyor. Üst bardaki "Kod geçerliliği / Doğrulama kodu" alanları da gözetimsiz oturumda anlamsız.
+Kanıt: `docs/img/p27-k12/console-unattended-desktop-dark.png`
+Atanan: frontend-dev
+
+#### [DÜŞÜK] 64 karakterden uzun aramada filtre sessizce düşüyor, tüm cihazlar listeleniyor
+
+Sayfa: `/unattended`. Adımlar: 1. "Cihaz ara"ya 70+ karakter yaz, Enter (ya da `/unattended?q=<70×x>`).
+Beklenen: "Arama en çok 64 karakter olabilir" uyarısı ya da girişin 64 ile sınırlanması. Gerçekleşen: kutu 100 karaktere
+kadar alıyor (sözleşme 64), liste filtresiz 4 cihazı gösteriyor; kullanıcı aradığı sonucu görüyormuş gibi sanabilir.
+Kanıt: `akis.spec.ts` "arama-girdi" (300×x → değer 100 karakter, 4 satır); SSR yanıtında 4 kart. Atanan: frontend-dev
+
+#### [DÜŞÜK] Cihaz ayrıntısı "bulunamadı" sayfası HTTP 200 dönüyor
+
+Sayfa: `/unattended/<olmayan id>`, `/unattended/abc`, teknisyende yetkisiz cihaz `/unattended/<D3>`.
+Beklenen: 404 durum kodu. Gerçekleşen: içerik doğru ("Sayfa bulunamadı", veri sızmıyor) ama durum 200, başlık
+"Cihaz ayrıntısı". Neden büyük olasılıkla `[id]/loading.tsx` akışı (Next notFound akış başladıktan sonra). Güvenlik
+etkisi yok (API 404). Atanan: frontend-dev
+
+#### [DÜŞÜK] Görsel: filtre satırı hizasız; "Hatırlanan cihazları kaldır" düğmesi sıkışık; modül ikonu tutarsız
+
+1. `/unattended` masaüstü: "Cihaz ara" ile "Müşteri" alanları ve durum düğmesi farklı yükseklikte (arama altındaki yardım
+   metni hizayı bozuyor); mobilde Müşteri kutusu arama kutusundan dar. Kanıt: `un-list-admin-desktop-light.png`.
+2. `/users/<id>` (masaüstü): "Hatırlanan cihazları kaldır" düğmesi dar sütunda 3 satıra kırılıyor, ikon küçük/kayık.
+   Kanıt: `user-edit-td-desktop-light.png`.
+3. Yetki tablosunda "Gözetimsiz erişim" satırı kalkan ikonu, yan menüde aynı modül `MonitorCog` (Projeler/CLAUDE.md §1.8:
+   aynı anlam için aynı ikon). Kanıt: aynı ekran + `un-list-admin-desktop-light.png`.
+   Atanan: frontend-dev
+
+#### [DÜŞÜK, test verisi] Sahte API müşteri kaydı çelişkili
+
+`mock-p27.mjs` `customer()` ACTIVE müşteriye `downloadUrl: null` veriyor; müşteri ayrıntısında "Aktif" rozeti yanında
+"Pasif — bağlantı geçersiz" uyarısı çıkıyor (`customer-beta-mobile-light.png`). Ürün hatası değil (sayfa ACTIVE +
+downloadUrl ister); sahte veri gerçek sözleşmeye uydurulmalı. Atanan: frontend-dev
+
+### Akış sonuçları
+
+| Akış                                                                       | Sonuç | Not                                                                                                                                                                         |
+| -------------------------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hatırla → çıkış → tekrar giriş TOTP'siz (gerçek sunucu)                    | ✅    | verify `deviceRemembered:true`; çerez HttpOnly/Secure/SameSite=Strict/Path=/api/v1/auth/Max-Age=2592000; çıkışta çerez kalır; girişte `mfaRequired:false`, çerez döndürülür |
+| Step-up atlanmaz (AC-327, gerçek)                                          | ✅    | hatırlanan oturumda `POST /unattended/registration-codes` → 401 `MFA_STEP_UP_REQUIRED`; step-up sonrası istek ilerliyor                                                     |
+| Eski (döndürülmüş) çerezle giriş → yeniden kullanım (AC-335b, gerçek)      | ✅    | TOTP sorulur, açık oturum kapanır (401)                                                                                                                                     |
+| Cihaz kaldır → TOTP geri gelir (gerçek)                                    | ✅    | `DELETE` bu cihaz → `currentCleared:true`, çerez silinir; sonraki giriş `mfaRequired:true`; bilinmeyen id 404                                                               |
+| Kurtarma kodu + `rememberDevice`                                           | ✅    | 400 VALIDATION                                                                                                                                                              |
+| 2FA sayfası kutusu (UI)                                                    | ✅    | varsayılan işaretsiz, kurtarma modunda gizli, Super Admin'de yok; klavyeyle işaretlenebilir                                                                                 |
+| Kayıt kodu üret → tek gösterim (UI)                                        | ✅    | step-up sonrası kod + indirme + UAC satırı; kapat → tekrar görünmez; yenilemede yok. Çift tıklamada tek oluşturma (2 POST = 401 + step-up sonrası tekrar)                   |
+| Bağlan (step-up) → konsola yönlenme (UI)                                   | ✅    | yanlış kodda "Kod hatalı ya da süresi geçti", connect gitmez; doğru kodla `/sessions/<id>/console`; geri tuşu `/unattended`                                                 |
+| SMTP yok → Bağlan ve Kayıt kodu pasif + neden                              | ✅    | sahte API `unsmtp`; gerçek sunucu `status.notifyChannel:false`                                                                                                              |
+| Mod off → kırmızı bant, düğmeler pasif                                     | ✅    | sahte API; gerçek sunucuda `status {mode:"off", available:false}`                                                                                                           |
+| Yetkisiz kullanıcı                                                         | ✅    | `unnone`: menü öğesi yok, sayfada uyarı; teknisyen (`untech`): sekme/oluştur düğmesi yok, `/unattended/codes` uyarı, yetkisiz cihaz URL'si "bulunamadı"                     |
+| Çıkış sonrası korumalı URL                                                 | ✅    | 5 URL → `/login?next=…`                                                                                                                                                     |
+| Filtre + yenileme / geri                                                   | ✅    | `?q=depo&state=offline` URL'de kalır, yenilemede korunur                                                                                                                    |
+| Arama `<script>`, `' OR 1=1 --`                                            | ✅    | sonuç yok, diyalog/çalışma yok                                                                                                                                              |
+| Bildirim adresi geçersiz / 254+ karakter / 5 adres sınırı                  | ✅    | alan hataları, 5'ten sonra "Adres ekle" pasif, taşma yok                                                                                                                    |
+| Kod oluşturma 500                                                          | ✅    | diyalogda "Beklenmeyen hata. Hata kodu: …"                                                                                                                                  |
+| Liste yoklama hatası (kısmi durum)                                         | ✅    | son veri + "güncellenemedi" bandı (mevcut e2e)                                                                                                                              |
+| Hatırlanan cihazlar: boş / hata + Tekrar dene / kısmi (satır kaldırma 500) | ✅    | mevcut e2e + tarama                                                                                                                                                         |
+
+### Kabul kriterleri (uçtan uca, web/sunucu)
+
+| AC                                                  | Durum      | Nasıl doğrulandı                                                                          |
+| --------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------- |
+| AC-325                                              | ✅         | UI (sahte) + gerçek sunucu verify + çerez öznitelikleri                                   |
+| AC-326                                              | ✅         | gerçek: TOTP'siz giriş, çerez döndürme                                                    |
+| AC-327                                              | ✅         | gerçek: hatırlanan oturumda step-up 401                                                   |
+| AC-328                                              | ✅ (kısmi) | gerçek: kaldırma + reuse; diğer olaylar entegrasyon testinde (bu turda koşulmadı)         |
+| AC-329                                              | ✅         | UI 5 durum, iki tema, mobil; gerçek: liste/kaldır/404                                     |
+| AC-330                                              | ✅         | UI (sahte): sayı + onaylı kaldır                                                          |
+| AC-331                                              | ✅         | UI (sahte): anahtar + onay                                                                |
+| AC-335b                                             | ✅         | gerçek: eski çerezle reuse                                                                |
+| AC-273 (web)                                        | ✅         | kayıt kodu tek gösterim, Bağlan → konsol                                                  |
+| AC-275                                              | ✅         | liste: durum, son bağlantı, yerel anahtar, yetkili sayısı; iptal ad yazarak               |
+| AC-285 / AC-287                                     | ✅         | yetki anahtarları toggle ekranında; 5 durum, iki tema axe 0, 390 px taşma yok, menü ikonu |
+| AC-293 (web)                                        | ✅         | teknisyen yalnız yetkili cihazı görür, diğeri "bulunamadı"                                |
+| AC-296 / AC-337 (web)                               | ✅         | adres boş uyarısı, ekle, step-up ile kaydet                                               |
+| AC-297 (web)                                        | ✅         | mod off bandı, TEST bandı                                                                 |
+| AC-336 (web)                                        | ✅         | düğmeler pasif + neden                                                                    |
+| AC-274, 294, 295, 338 (cihaz tarafı), 340, 341, 342 | bekliyor   | yalnız Windows'ta; aşağıdaki liste                                                        |
+
+### Test edilmeyenler
+
+- Web arayüzü gerçek sunucuya karşı koşulmadı (API_INTERNAL_URL derlemeye gömülü; ikinci derleme paylaşılan `.next`'i
+  bozacaktı). Gerçek sunucu akışı API düzeyinde, arayüz sahte API'yle doğrulandı.
+- Gerçek cihazla `/ws/device`, connect → ACTIVE, iptalde ≤ 10 sn kesilme, e-posta bildirimi (SMTP yok).
+- AC-328'in diğer geçersiz kılma olayları ve AC-332/333/334/335a: entegrasyon testlerine bırakıldı.
+- Konsol rozeti gerçek sunucu hello'suyla değil, WS yanıtına eklenen alanla doğrulandı.
+
+### Görsel gözlemler
+
+- Liste (masaüstü tablo / mobil kart) iki temada okunaklı; rozetler (Çevrimdışı, Son bildirim gönderilemedi, Yeni —
+  doğrulanmadı, Anahtar başka yerden…, Yerel olarak kapalı) renk + ikon + metinle ayrışıyor; pasif "Bağlan" altında neden yazıyor.
+- Ayrıntı: kayıt IP'si uyarı bandı, yetki anahtarları, son oturumlar boş durumu, "Cihazı iptal et" sayfanın altında ayrık.
+- 2FA sayfası koyu temada logo açık kartta; kutu + yardım metni net.
+- Hesabım → Hatırlanan cihazlar: "Bu cihaz" rozeti, IP mono yazı; mobilde satırlar düzgün kırılıyor.
+- Güvenlik ayarları: "2FA cihaz hatırlama · Açık" açıklamasıyla; "İki adımlı doğrulama" kart başlığında ikon yok
+  (yanındaki "Veri saklama"da var) — küçük tutarsızlık.
+
+### Windows elle test listesi (kullanıcı Windows testi bekliyor)
+
+Bu ortamda Windows yok; adımların tamamı `docs/implementation.md` ilgili bölümlerinde. Staging ikilisiyle gerçek
+Windows 10/11'de koşulup sonuç buraya yazılır.
+
+| Kapsam                                    | Adımlar (implementation.md)                                                                                                                                                                                                                                                                                                  | Sonuç |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| P27 K5 — servis                           | 1 klasör squatting (AC-340), 2 yeniden adlandırma yarışı, 3 açılış ACL doğrulaması (olay 1004), 4 `device.key` DPAPI, 5 yardımcı jeton dökümü (AC-341), 6 ImagePath tırnaklı, 7 yerel kapatma ≤ 2 sn (AC-295), 8 boru adı gaspı (AC-338), 9 yeniden başlatmada ≤ 2 dk çevrimiçi (AC-274), 10 iz bırakmadan kaldırma (AC-274) |       |
+| P27 K6 — yardımcı + gösterge              | 1 her monitörde gösterge (AC-294), 2 onaysız kontrol + konsol kaynağı "Gözetimsiz", 3 dosya `Gelen` + MOTW, 4 `Gelen` yeniden adlandırma/reparse, 5 monitör ekle/çıkar → yeniden çizim / `indicator_failed`, 6 `--helper` ebeveyn denetimi (çıkış 21), 7 gösterge gizlenince ≤ 2 sn yeniden çizim, 8 yerel "Kapat" ≤ 2 sn    |       |
+| P27 K6b — Secure Desktop                  | 1 kilit ekranı, 2 UAC onayı, 3 oturum açılmamış giriş ekranı, 4 oturum kapatma, 5 hızlı kullanıcı değiştirme, 6 parolalı ekran koruyucu, 7 doğrulanamayan gösterge → ≤ 2 sn kesilme (AC-342), 8 ayrıcalık ölçümü, 9 P20 katılımlı gerileme                                                                                   |       |
+| P27 K7 — ayar penceresi / tepsi / kurulum | 1 kur (AC-273/274), 2 tepsiden yerel kapatma (AC-295), 3 boru kimliği (AC-338), 4 bağlantı ipucu, 5 tek tepsi, 6 güncelle, 7 kaldır (AC-274), 8 tema/DPI                                                                                                                                                                     |       |
+
 ## PT — Windows elle duman testi (istemci yayın kapısı, bekliyor)
 
 **Durum:** istemci yayın kapısı, kullanıcı tarafında bekliyor (koşulmadı). PT-K8 Win32 ekranlarını (`internal/ui`,

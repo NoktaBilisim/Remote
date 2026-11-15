@@ -1,3 +1,72 @@
+## P27 — kod turu 2 (2026-11-15, dal p27-wip, HEAD 81568e5; düzeltme turu 1 doğrulaması + tur 1'de incelenmeyen alanlar)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 (+3 bilgi)
+Kapsam: `unattended/{device-auth,device-ws,registration,register,customer-passive,contacts}.ts`, `customers/write-tx.ts` `deactivateTx`,
+`tenants/routes.ts` `smtpChangeGuard`, `app.ts`/`server.ts`/`signaling/ws.ts` (test kancası), `notify/outbox{,-content}.ts`,
+`jobs/unattended-cleanup.ts`; web `app/(panel)/unattended/**`, `customers/[id]/notify-contacts.tsx`, `lib/unattended/*`,
+`components/copy-link.tsx`; Go `internal/desktop/*`, `internal/unattended/helper/{follow,desktop_windows,helper,main_windows}.go`,
+`internal/servis/{uninstall_windows,paths_windows,wsdevice}.go`, `internal/servisui/{state,text}*.go` (boru sonucu eşlemesi);
+`docs/`, README, CHANGELOG gizli bilgi taraması. Kod değiştirilmedi; entegrasyon testleri ve Windows elle testleri çalıştırılmadı;
+staging'e bağlanılmadı.
+
+### Tur 1 bulgularının kapanışı
+
+| Bulgu    | Durum       | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-P27-K1 | **Kapandı** | Başarı yazımı `updateMany({id, revokedAt:null})`, `count≠1` → `revoked{}`+4401 (device-auth.ts:81, :87-105). `confirmAttached` önce `hub.attach`, sonra `deviceLiveState` (iptal/firma pasifi) yeniden okunur; görülürse `detach`+4401 (device-ws.ts:193-202). İptal/pasif hub çağrısı commit'ten sonra geldiği için her sıralamada iki yoldan biri soketi kapatır (attach okumadan önce → commit sonrası `hub.revoked` soketi bulur; okuma commit'ten sonra → iptali görür). `ws` kapanırsa `readyState` denetimi `detach` eder. Test kancası `deviceBeforeAttach` yalnız `SignalingOptions` üzerinden (ws.ts:28-29 → app.ts:255); üretim girişi `buildApp({ env, db, logger, startJobs })` `signaling` vermez (server.ts:11), env/HTTP yolu yok |
+| D-P27-K2 | **Kapandı** | Kod üretimi pasif müşteride 409 + TX içinde müşteri `FOR SHARE` ile yineleme (registration.ts:86-88, :97). Kayıt TX'i: kod ön okuma → müşteri `FOR SHARE` (pasif/anonim → null = aynı tek 404) → kod `FOR UPDATE` (registration.ts:177-186). Müşteri pasifi: müşteri satırı önce X kilitli (write-tx.ts:211 `repo.lock`), sonra cihaz iptali + bekleyen kod silme aynı TX'te (customer-passive.ts:45-53, `cancelledRegistrations` audit'te, write-tx.ts:236). Kilit sırası iki yolda müşteri → kod; kayıt FOR SHARE'i önce alırsa pasif TX bekler ve commit sonrası yeni cihazı da kilitli okumayla iptal eder                                                                                                                                    |
+| D-P27-K3 | **Kapandı** | Üç kova `ipKey(ctx.ip)` (register.ts:39, :57-60); audit'te ham IP korunuyor (doğru — inceleme için)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| D-P27-K4 | **Kapandı** | `cfg===null` → gönderim yok `no_previous_config`; `sent/failed` sayımına göre `sent`/`failed`/`no_recipients` (tenants/routes.ts:181-199)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+
+### [DÜŞÜK] D-P27-K5 Kaldırma: yükseltilmiş süreç kendini kullanıcıya yazılabilir `%TEMP%`'e kopyalayıp oradan yükseltilmiş başlatıyor — A08 / A04
+
+Yer: apps/agent-win/internal/servis/uninstall_windows.go:42-51 (önce `runas`, sonra `inProgramDir` → `tempCopy` → `relaunch(tmp,"open")`), :116-124 (`os.TempDir()`); install_windows.go:176-191 (`copyFile`: `.yeni` → yeniden adlandırma, tanıtıcı kapatılır).
+Sorun: Bölünmüş jetonlu yönetici hesabında yükseltilmiş sürecin `%TEMP%`'i, aynı kullanıcının orta bütünlükteki süreçlerinin yazabildiği `%LOCALAPPDATA%\Temp`'tir. Kopya kapatıldıktan sonra `ShellExecute("open")` çağrılana kadar dosya değiştirilebilir; ayrıca yükseltilmiş ikili kullanıcı yazılabilir bir klasörden çalışır (uygulama klasöründen DLL arama). Yeniden başlatma `open` fiiliyle olduğu için ikinci UAC onayı yoktur.
+İstismar senaryosu: Kullanıcı oturumunda orta bütünlükte çalışan zararlı yazılım `ReadDirectoryChangesW` ile `NoktaDestekServis-kaldir-*.exe` oluşmasını bekler, yeniden adlandırma ile `open` arasında dosyayı kendi ikilisiyle değiştirir (ya da yanına DLL bırakır) → kullanıcı "Nokta Destek kaldır" UAC onayını verdiği anda saldırgan kodu yüksek bütünlükte, ek onay olmadan çalışır (UAC atlatma). Aynı kullanıcı + zararlı yazılım ön koşulu ve dar pencere nedeniyle Düşük; UAC Microsoft için güvenlik sınırı değildir ama bu ürün yükseltmeyi bilinçli tasarlıyor.
+Düzeltme: Kopyayı yalnız Administrators/SYSTEM'in yazabildiği bir klasöre koyun (ör. `%SystemRoot%\Temp` altında `acl_windows.go` kalıbıyla `CreateDirectory`+SDDL `D:P(A;;FA;;;SY)(A;;FA;;;BA)` tek çağrıda oluşturulan rastgele adlı alt klasör) ya da kopyayı `FILE_SHARE_READ` (yazma/silme paylaşımı yok) ile açık tutup başlatma tamamlanana dek kapatmayın; başlatmadan önce kopyanın SHA-256'sını kendi ikilisiyle karşılaştırın. Atanan: backend-dev (Go).
+
+### [BİLGİ] Masaüstü yoklaması (250 ms) penceresi
+
+`Follower.Run` giriş masaüstü adını 250 ms'de bir okur (follow.go:94-115); geçişten sonra kapı en geç bir aralıkta kapanır. Bu pencerede sızıntı yok: yakalama iş parçacığı eski masaüstüne bağlı (`capture.Opener.Attach`; GDI/DXGI yeni giriş masaüstünü — Winlogon/UAC — göremez) ve `SendInput` çağıran iş parçacığının masaüstü giriş masaüstü değilse Windows tarafından reddedilir. Kapı yeniden açılmadan önce gösterge yeni masaüstünde çizilip ad iki kez doğrulanır (follow.go:128-135), dönem değişince kaynak yeniden açılır ve geçiş sırasında alınan kare düşürülür (gated.go:44-53). `deskInjector` kapı denetimi (desktop_windows.go:46) ile `Inject` (:59) arasındaki küçük TOCTOU da aynı Windows sınırıyla karşılanıyor. `Name()` hatası fail-closed (geçiş sayılır). Değişiklik gerekmez.
+
+### [BİLGİ] Altyapı IP'si açık kaynak dokümanlarda
+
+README.md:22, :852, :966, CHANGELOG.md:1122, :1697 ve ADR-0007/0015/0018 staging/prod sunucu IP'sini içeriyor; ADR-0007:14 ise "public repoya altyapı IP'si yazılmaz" diyor. Gizli bilgi değil (port taraması ile bulunur) ve önceki turlardan beri var; tutarlılık için ya ADR cümlesi "denied-peer-ip.local.conf için" diye daraltılmalı ya da dokümanlarda `<sunucu-ip>` yer tutucusu kullanılmalı (teknik-yazar, karar kullanıcıda).
+
+### [BİLGİ] Cihaz adı müşteri e-postasına giriyor
+
+Kayıt sırasında cihazın verdiği `name` (saldırgan denetimli olabilir) `UN_DEVICE_REGISTERED` müşteri e-postasına yazılıyor (outbox-content.ts:89-91); HTML'de `esc` ile kaçışlı (unattended/mail.ts:23), konu satırı nodemailer başlık kodlamasında. İçerik yalnız metin; geçerli kayıt kodu gerektirdiği için kimlik avı yüzeyi düşük. Değişiklik gerekmez.
+
+### İncelenen alanlarda olumlu (kanıtlı)
+
+- Web: `/unattended/**` ve `notify-contacts.tsx`'te `dangerouslySetInnerHTML`/`innerHTML` yok (tek eşleşme chat-panel yorum satırı); tüm sunucu verileri React metin düğümü. `href`'ler yalnız sunucu sabiti (`UNATTENDED_DOWNLOAD_PATH`) ve ULID'li iç yollar; arama parametreleri ULID/izinli değer/uzunluk süzgecinden geçiyor (lib/unattended/query.ts:21-36), ayrıntı sayfası ULID değilse `notFound` (`[id]/page.tsx:147`).
+- Yetki gizleme yalnız arayüz kolaylığı; her uç sunucuda `manage()`/`manageStepUp()` ile korunuyor (unattended/routes.ts:122-130), son IP ve kayıt bilgisi yalnız `manage` ise gösteriliyor ve sunucu da yalnız `manage`'e döndürüyor. Bildirim adresleri bölümü yalnız `unattended.manage` (customers/[id]/page.tsx:180).
+- Kayıt kodu yalnız üretim yanıtında React durumunda tutuluyor, liste uçları kodu döndürmüyor, diyalog kapanınca `reset` ile siliniyor (code-dialog.tsx:62, :125-130); kopyalama pano API'si, başarısızsa salt okunur alan.
+- Hata gösterimi sözleşme sözlüğünden (`Object.hasOwn` ile prototip kirlenmesine kapalı), 404 varlık sızdırmıyor, sunucu mesajı/stack basılmıyor (lib/unattended/errors.ts:19-27). Step-up `lib/api` tek yineleme; Bağlan çift tıklamaya kapalı (use-connect.ts).
+- Outbox: `FOR UPDATE SKIP LOCKED` toplama; her satır kendi `tenantId`'si ile SMTP/SMS/WA'ya gidiyor, alıcı şifresi AAD'ye `tenantId+id` bağlı (outbox.ts:144-210) → tenant karışması yok; olay içeriği audit'ten `tenantId`+`eventId` ile okunuyor; teslimde alıcı şifresi siliniyor.
+- `unattended-cleanup.ts` parametreli ham SQL, parti ≤ 500, silme koşulu DELETE'te yineleniyor.
+- `removeProgramDir`: hedef `FOLDERID_ProgramFiles` altında (yalnız yönetici yazar), `os.RemoveAll` Go 1.26'da junction/sembolik bağlantıyı izlemiyor; yeniden deneme sınırlı (~6 sn). `DataDir` için aynı.
+- `wsdevice`: üstel geri çekilme 1–30 sn ±%20 titreşim, `revoked{}` sonrası yeniden bağlanma yok, 4401/4403 bekleyerek yeniden deneme.
+
+### Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: `No known vulnerabilities found`.
+- Gizli bilgi `git grep` kalıbı `docs/`, README.md, CHANGELOG.md: eşleşme yok. Ek kalıplar (GitHub/OpenAI/AWS anahtarları, özel anahtar başlığı, Slack, Telegram bot jetonu, `WHATSAPP_API_KEY=`, `PARASUT_CLIENT_SECRET=`): eşleşme yok. Repoda `.pem/.pfx/.key/ACCESS*` izlenen dosya yok.
+- `git log --all -- '*.env' '.env*'` (`.env.example` hariç): kayıt yok.
+- `govulncheck` bu turda yeniden çalıştırılmadı (go.mod/go.sum değişmedi; tur 1: temiz).
+
+### Bu turda incelenmeyenler
+
+- `internal/servisui/*` UAC yükseltme ve HKLM okuma ayrıntısı (yalnız boru sonucu eşlemesi okundu), `indicator_windows.go` çizim/doğrulama (pencere sınıfı, üstte kalma, tıklama geçirgenliği) — Windows elle testiyle birlikte sonraki turda.
+- Hızlı kullanıcı değiştirme / konsol oturumu değişimi sırasında yardımcının davranışı (oturuma bağlı süreç; sızıntı beklenmiyor ama doğrulanmadı).
+- Entegrasyon testleri ve Windows elle testleri (K5/K6b, D-P27-2 `ImagePath`).
+
+### Öneri
+
+D-P27-K5 Kritik/Yüksek değil; P27'yi engellemez. `docs/gereksinimler.md` §9'a "Sonra" olarak önerilir (D-P27-K5).
+
+---
+
 ## P27 — kod turu 1 (K11; 2026-11-15, dal p27-wip, HEAD c05f8b9)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4 (+2 bilgi)

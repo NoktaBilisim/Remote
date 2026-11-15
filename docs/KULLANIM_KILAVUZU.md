@@ -2733,7 +2733,9 @@ E-posta (SMTP)").
 - E-posta sunucusu geçici olarak yanıt vermezse bağlantı yine açılır; cihazda **Son bildirim gönderilemedi** rozeti çıkar.
   SMTP test düğmesiyle sorunu kontrol edin.
 - Firmanızda kayıtlı en az bir gözetimsiz cihaz varken SMTP ayarını değiştirmek "Kimliğinizi doğrulayın" penceresi açar.
-  Kayıttan önce firmanızdaki diğer yöneticilere (eski ayarla) bilgi e-postası gider.
+  Eski bir SMTP ayarı kayıtlıysa, kayıttan önce firmanızdaki diğer yöneticilere eski ayarla bilgi e-postası gider. Eski ayar
+  yoksa ya da bilgilendirilecek başka yönetici yoksa e-posta gitmez. E-posta gönderilemese de yeni ayar kaydedilir; sonuç audit
+  log'daki ayar değişikliği kaydında görünür.
 - Müşteri onaylı normal destek oturumları bu koşuldan etkilenmez.
 
 ### Kim ne yapar?
@@ -2820,7 +2822,8 @@ Teknisyende liste yalnız yetkili olduğu cihazları gösterir; hiç yoksa "Size
 
 1. **Gözetimsiz cihazlar** → cihaz satırında **Bağlan**.
 2. "Kimliğinizi doğrulayın" penceresinde uygulamadaki kodu (ya da bir kurtarma kodunu) girin.
-3. Konsol açılır, "Cihaz bağlanıyor…" görünür; cihaz katılınca ekran gelir. Başlıkta **Gözetimsiz** rozeti ve cihaz adı vardır.
+3. Konsol açılır, "Cihaz bağlanıyor…" görünür; cihaz katılınca ekran gelir. Müşteri onaylı oturumdaki doğrulama kodu ve
+   oturum kodu burada yoktur; kimseye kod söylemeniz gerekmez. Başlıkta **Gözetimsiz** rozeti ve cihaz adı vardır.
 4. Kontrol için konsoldaki **Kontrol iste** düğmesini kullanın; cihazda onay sorulmaz. Dosya gönderebilirsiniz; dosya
    cihazda `C:\ProgramData\NoktaDestek Servis\Gelen\` klasörüne düşer. Cihazdan dosya çekme ve sohbet yoktur.
 5. Bitirmek için oturumu normal şekilde sonlandırın.
@@ -2857,7 +2860,8 @@ Cihaz yeniden başlatılırsa bağlantı biter; cihaz çevrimiçi olunca yeniden
   kayıt koduyla kurun.
 - **Tek teknisyenin erişimini kaldırmak:** Teknisyen yetkileri → anahtarı kapatın → Kaydet (en geç 5 sn'de kesilir).
 - **Teknisyenin tüm gözetimsiz erişimini kaldırmak:** Kullanıcılar → kullanıcı → **Gözetimsiz erişim → Bağlan** yetkisini kapatın.
-- Müşteri pasife alınınca o müşterinin cihazları kendiliğinden iptal edilir.
+- Müşteri pasife alınınca o müşterinin cihazları kendiliğinden iptal edilir ve kullanılmamış kayıt kodları silinir.
+  Pasif müşteriye kayıt kodu üretilemez; önce müşteriyi **Yeniden aktif et**.
 
 ### Müşteri BT için: servisi kurma
 
@@ -2931,6 +2935,7 @@ edilir (bilgisayar o an çevrimdışıysa cihaz panelde çevrimdışı kalır, A
 | Yerel olarak kapalı                                                                  | Müşteri cihazda kapattı; açmak için müşterinin bilgisayar yöneticisine başvurun       |
 | Cihaz bulunamadı ya da bu cihaz için yetkiniz yok.                                   | Admin'den o cihaz için teknisyen yetkisi isteyin                                      |
 | Kayıt kodu geçersiz, kullanılmış ya da süresi dolmuş (servis kurulumunda)            | Destek firmasından yeni kod isteyin; kod 24 saat geçerli ve tek kullanımlıktır        |
+| Müşteri pasif; kayıt kodu oluşturulamaz.                                             | Önce müşteriyi **Yeniden aktif et**, sonra kodu yeniden oluşturun                     |
 
 ## Super Admin için: Firmalar ve firma geçişi
 

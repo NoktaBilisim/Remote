@@ -1,4 +1,4 @@
-import { Hourglass, LoaderCircle, ScreenShareOff, ShieldAlert, WifiOff } from "lucide-react";
+import { Hourglass, LoaderCircle, MonitorCog, ScreenShareOff, ShieldAlert, WifiOff } from "lucide-react";
 import type { ReactNode } from "react";
 import { CodeDisplay } from "@/components/ui/code-display";
 import { formatRemaining } from "@/lib/format";
@@ -63,7 +63,14 @@ export function stageOverlay(o: OverlayInput): ReactNode {
   return state.phase === "live" ? liveOverlay(o) : null;
 }
 
-function waitingMsg({ verifyCode, sessionCode }: OverlayInput) {
+function waitingMsg({ state, verifyCode, sessionCode }: OverlayInput) {
+  // P27 (mimari-p27 §4.6, K12): gözetimsiz odada müşteri yok — ACTIVE öncesi "Cihaz bağlanıyor…", kod/müşteri metni yok.
+  if (state.unattended)
+    return (
+      <Msg testId="stage-unattended-wait" icon={<MonitorCog aria-hidden className="size-8" />} title={t("un.c.connecting")}>
+        {t("un.c.connectingBody")}
+      </Msg>
+    );
   return (
     <Msg icon={<Hourglass aria-hidden className="size-8" />} title={t("cs.waitingTitle")}>
       <p>{t("cs.waitingBody")}</p>

@@ -20,7 +20,7 @@ function statusOf(state: TechState): { cls: string; label: string } {
     : { cls: "bg-primary-surface text-primary", label: t("c.st.waiting") };
 }
 
-/** Konsol üst barı: geri, müşteri, durum, kalan süre, doğrulama kodu, (tarayıcı modunda pasif kontrol), bitir/iptal. */
+/** Konsol üst barı: geri, müşteri, durum, kalan süre, doğrulama kodu (gözetimsizde yok), (tarayıcı modunda pasif kontrol), bitir/iptal. */
 export function ConsoleHeader({
   session,
   state,
@@ -40,6 +40,8 @@ export function ConsoleHeader({
   const status = statusOf(state);
   const until = live ? state.maxEndsAt : session.expiresAt;
   const left = until && now !== null ? formatRemaining(Date.parse(until) - now) : "—";
+  // K12: gözetimsiz oturumda kod geçerliliği ve doğrulama kodu anlamsız (müşteri yok); canlıda en uzun süre kalır.
+  const codes = !state.unattended;
   return (
     <header className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg xl:flex-nowrap border border-border bg-surface px-3 py-2">
       <Link
@@ -69,7 +71,7 @@ export function ConsoleHeader({
         <span aria-hidden className="size-1.5 rounded-full bg-current" />
         {status.label}
       </span>
-      {state.phase !== "ended" && (
+      {state.phase !== "ended" && (live || codes) && (
         <div className="shrink-0 text-xs text-fg-muted">
           <span className="block">{live ? t("c.maxLeft") : t("c.codeLeft")}</span>
           <b className="text-sm tabular-nums text-fg" data-testid="console-left">
@@ -77,10 +79,12 @@ export function ConsoleHeader({
           </b>
         </div>
       )}
-      <div className="shrink-0 text-xs text-fg-muted">
-        <span className="block">{t("cs.verify")}</span>
-        <CodeDisplay code={session.techVerifyCode} size="sm" testId="console-verify-code" />
-      </div>
+      {codes && (
+        <div className="shrink-0 text-xs text-fg-muted">
+          <span className="block">{t("cs.verify")}</span>
+          <CodeDisplay code={session.techVerifyCode} size="sm" testId="console-verify-code" />
+        </div>
+      )}
       <span className="flex-1" />
       {live && state.guest?.kind === "BROWSER" && <BrowserControlHint id={controlHint} />}
       <HeaderActions phase={state.phase} onConfirm={onConfirm} />

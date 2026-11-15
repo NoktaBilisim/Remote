@@ -7,9 +7,9 @@ import { getMe, serverGet } from "@/lib/server-api";
 import type { DeviceListResponse, UnattendedStatus } from "@/lib/unattended/contract";
 import { createCodeBlock, gateOpen } from "@/lib/unattended/errors";
 import { devicesApiPath, parseDeviceParams } from "@/lib/unattended/query";
-import { DeviceFilters } from "./device-filters";
-import { DeviceList } from "./device-list";
-import { accessOf, gateBody, UnattendedShell } from "./unattended-shell";
+import { DeviceFilters } from "../device-filters";
+import { DeviceList } from "../device-list";
+import { accessOf, gateBody, UnattendedShell } from "../unattended-shell";
 
 export const metadata: Metadata = { title: t("nav.unattended") };
 

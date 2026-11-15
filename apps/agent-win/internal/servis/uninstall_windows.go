@@ -3,8 +3,6 @@
 package servis
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -18,8 +16,10 @@ import (
 // Kaldırma (`--uninstall`; "Uygulamalar"ın UninstallString'i ya da ayar penceresi; mimari-p27 §5.3, AC-274). Onay →
 // boruyla `unregister` (servis `device.unregister` gönderir; çevrimdışıysa sessizce geçer) → servis durdur/sil →
 // Run, Uninstall, HKLM kaydı, olay kaynağı → `%ProgramData%\NoktaDestek Servis` (Gelen dahil) → Program Files klasörü.
-// Program Files'taki ikili kendini silemeyeceği için önce `%TEMP%` kopyasından yeniden çalışır; geçici kopya
-// `MoveFileEx(DELAY_UNTIL_REBOOT)` ile ilk yeniden başlatmada silinir. Yükseltilmemiş açılış UAC ile yeniden başlar.
+// Program Files'taki ikili kendini silemeyeceği için önce `%SystemRoot%\Temp\NoktaDestekServis-kaldir-<rastgele>\`
+// kopyasından (yalnız SY/BA yazar, SHA-256 denetimli; D-P27-K5, uninstall_copy_windows.go) yeniden çalışır; kopya ve
+// klasörü her çıkış yolunda `MoveFileEx(DELAY_UNTIL_REBOOT)` ile ilk yeniden başlatmada silinir. Yükseltilmemiş
+// açılış UAC ile yeniden başlar.
 
 // UninstallUI kaldırma arayüzü kancaları (K7).
 type UninstallUI interface {
@@ -43,12 +43,10 @@ func Uninstall(ui UninstallUI, elevated bool) int {
 		return relaunch(self, "runas")
 	}
 	if inProgramDir(self) {
-		tmp, err := tempCopy(self)
-		if err != nil {
-			ui.ShowError("Kaldırma başlatılamadı.")
-			return 1
-		}
-		return relaunch(tmp, "open")
+		return relaunchFromCopy(ui, self)
+	}
+	if IsUninstallTemp(self) {
+		defer scheduleTempRemoval(self)
 	}
 	if !ui.Confirm() {
 		return 0
@@ -61,13 +59,23 @@ func Uninstall(ui UninstallUI, elevated bool) int {
 		return 1
 	}
 	uninstallLocal()
-	if strings.Contains(filepath.Base(self), "-kaldir-") {
-		p, err := windows.UTF16PtrFromString(self)
-		if err == nil {
-			_ = windows.MoveFileEx(p, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
-		}
-	}
 	return 0
+}
+
+// relaunchFromCopy güvenli kopyayı oluşturur ve kopya açık/sabit tutulurken aynı yetkiyle başlatır (ikinci UAC yok;
+// kopya klasörüne orta bütünlükteki süreçler yazamaz). Başlatılamazsa klasör silinir.
+func relaunchFromCopy(ui UninstallUI, self string) int {
+	tmp, held, err := secureCopy(self)
+	if err != nil {
+		ui.ShowError("Kaldırma başlatılamadı.")
+		return 1
+	}
+	code := relaunch(tmp, "open")
+	held.Close()
+	if code != 0 {
+		_ = os.RemoveAll(filepath.Dir(tmp))
+	}
+	return code
 }
 
 // uninstallLocal servis dışındaki tüm izleri siler (kurulum geri alma da kullanır); en iyi çaba.
@@ -111,16 +119,6 @@ func inProgramDir(self string) bool {
 		return false
 	}
 	return strings.EqualFold(filepath.Clean(filepath.Dir(self)), filepath.Clean(dir))
-}
-
-// tempCopy ikiliyi `%TEMP%\NoktaDestekServis-kaldir-<rastgele>.exe` olarak kopyalar.
-func tempCopy(self string) (string, error) {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	dst := filepath.Join(os.TempDir(), "NoktaDestekServis-kaldir-"+hex.EncodeToString(b[:])+".exe")
-	return dst, copyFile(self, dst)
 }
 
 // relaunch ikiliyi `--uninstall` ile yeniden başlatır (verb "runas": UAC; "open": aynı yetki).

@@ -63,3 +63,35 @@ test("AC-248: pencere modu (WGC) konsolda 'Pencere paylaşımı' olarak görün�
   await expect(mode).toHaveCount(0);
   await a.close();
 });
+
+// K12 (mimari-p27 §4.6): gözetimsiz odada (hello.unattended; sahte WS bu alanı üretmez → routeWebSocket ile eklenir) sahne
+// "Cihaz bağlanıyor…" der, müşteri/kod metni ve üst bardaki kod alanları yok. Katılımlı bekleme aynı kalır.
+test("K12: gözetimsiz konsol bekleme — 'Cihaz bağlanıyor…', kod alanları yok; katılımlıda değişmedi", async ({ page, context }) => {
+  await signIn(context, "p7");
+  const { id: plain } = await newSession(page);
+  await page.goto(`/sessions/${plain}/console`);
+  await expect(page.getByTestId("console")).toHaveAttribute("data-phase", "waiting");
+  await expect(page.getByTestId("stage")).toContainText("Müşteri bekleniyor");
+  await expect(page.getByTestId("console-verify-code")).toBeVisible();
+  await expect(page.getByTestId("console-left")).toBeVisible();
+
+  await page.routeWebSocket(/\/ws\/tech/, (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((m) => {
+      const o = JSON.parse(String(m)) as { t: string; unattended?: unknown };
+      if (o.t === "hello") o.unattended = { deviceId: "01JDVP2700000000000000000A", deviceName: "MUHASEBE-PC" };
+      ws.send(JSON.stringify(o));
+    });
+    ws.onMessage((m) => server.send(m));
+  });
+  const { id } = await newSession(page);
+  await page.goto(`/sessions/${id}/console`);
+  await expect(page.getByTestId("console-unattended")).toBeVisible();
+  await expect(page.getByTestId("console-guest")).toHaveText("MUHASEBE-PC");
+  await expect(page.getByTestId("stage-unattended-wait")).toContainText("Cihaz bağlanıyor…");
+  await expect(page.getByTestId("stage")).not.toContainText("Müşteri bekleniyor");
+  await expect(page.getByTestId("stage")).not.toContainText("Doğrulama kodu");
+  await expect(page.getByTestId("console-verify-code")).toHaveCount(0);
+  await expect(page.getByTestId("console-left")).toHaveCount(0);
+  expect(await axeScan(page)).toEqual([]);
+});

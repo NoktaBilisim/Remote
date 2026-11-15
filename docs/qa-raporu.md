@@ -1,3 +1,109 @@
+## P27 — kod turu 2
+
+# QA Raporu — P27 (gözetimsiz erişim) Tur 2 (doğrulama)
+
+DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-15 · Dal `p27-wip` @ `81568e5` · PR NoktaBilisim/Remote#10. Kod değiştirilmedi, staging'e bağlanılmadı.
+Kalan sebep yalnız dokümantasyon tutarlılığı (kod ve testler bu turda temiz).
+
+## Test sonucu
+
+| Kaynak                                                                                                   | Sonuç                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| CI `test (MySQL 8.4)` (run 43744023035)                                                                  | unit: contracts 173/173 · web 402/402 · server 461/461; tam `test:int` **923/923**, 91 dosya, skip yok                            |
+| CI lint + type-check, shellcheck + actionlint, audit+lisans+gitleaks, coturn, Docker build               | pass                                                                                                                              |
+| CI agent-win: gofmt+vet+`test -race`+govulncheck, `go test (Windows)`, build 1/2–2/2, tekrarlanabilirlik | pass                                                                                                                              |
+| CI `web e2e (Playwright, mock API)`                                                                      | rapor anında **pending**. Bu commit `apps/web`'e dokunmuyor (tur 1: 474/0); sonucu koordinatör `gh pr checks 10` ile teyit etmeli |
+| CI atlananlar                                                                                            | SignPath, onay, attestation, Release — yalnız etiket yolunda (gerekçeli, AC-252/297)                                              |
+| Yerel `scripts/pt-olcum.sh` (geçici DB, kapsam koşusu dahil; konteyner silindi)                          | vitest server 1384 geçti (unit + entegrasyon), web 402, contracts 173; exit 0                                                     |
+| Yerel işlev ölçümü (max-lines-per-function 40)                                                           | `src/unattended/**` **0 aşım**; tur 1'deki 6 işlevin hiçbiri listede yok                                                          |
+
+## Tur 1 maddelerinin durumu
+
+| Madde                                    | Durum                                 | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1. AC-296 SMS/WA testi                   | ✅                                    | `unattended-outbox-k4.test.ts:84` "AC-296: firmada SMS/WhatsApp açık + telefonlu adres → EMAIL + SMS + WHATSAPP; kapalı ya da telefonsuzda yalnız EMAIL; aynı numara bir kez". Test `enqueueStarted`'ı (admit TX'inin çağırdığı işlev) dört durumda koşuyor: ayar satırı yok → yalnız EMAIL; bayrak açık + telefon yok → yalnız EMAIL; iki adres + aynı telefon → tek SMS + tek WHATSAPP (maske karşılaştırmalı) + 3 EMAIL; bayrak kapalı → yalnız EMAIL. `notify.ts:22-25` dalı artık çalıştırılıyor. CI'da yeşil |
+| 2. 6 işlevin ≤ 40 satıra bölünmesi       | ✅                                    | Yerel ölçümde `routes.ts`, `contacts.ts`, `device-ws.ts`, `registration.ts`, `service.ts`, `connect-tx.ts` için aşım yok; `register.ts` ayrıldı (dosyalar ≤ 300)                                                                                                                                                                                                                                                                                                                                                   |
+| 3. Kılavuz / DATASHEET / CHANGELOG + PDF | ✅ (yeni tutarlılık açıkları aşağıda) | Kılavuz §"Gözetimsiz erişim" (satır 2712–2933): SMTP ön koşulu + 409 mesajı (2720–2737, 2926), UAC/standart kullanıcı uyarısı (2780, 2875–2877), prod'da imzaya kadar kapalı (2916–2918). DATASHEET 23–26, 70–71, 129–134 (UAC + "imza alındıktan sonra canlıda açılır"). CHANGELOG "Eklendi — P27 … prod'da kapalı". PDF'ler yeniden üretilmiş: pypdf ile KULLANIM_KILAVUZU.pdf 86 sayfa / 40 "gözetimsiz", DATASHEET.pdf 7 eşleşme, iki PDF'te de "standart kullanıcı" geçiyor                                   |
+
+## Kabul kriterleri
+
+Tur 1'deki ✅'ler değişmedi. Bu turda durumu değişenler:
+
+| AC     | Durum                                | Kanıt / eksik                                                                                                                                                                                                                                |
+| ------ | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-296 | ✅                                   | Yukarıdaki madde 1 + tur 1'deki e-posta testleri                                                                                                                                                                                             |
+| AC-342 | ✅ (+ Windows'ta elle test bekliyor) | Kod/test ayağı tur 1; kılavuz ve DATASHEET'te UAC uyarısı var                                                                                                                                                                                |
+| AC-288 | ⚠️                                   | Bölüm yazıldı, ama düzeltme turu 1'in davranış değişiklikleri (pasif müşteri 409 / kodların silinmesi, `smtpChangeNotice` yeni değerleri) dokümanlara girmedi. Düzeltilmeli 1–3                                                              |
+| AC-275 | ✅                                   | `unattended-device-ws-k3` "AC-275 D-P27-K1 …" (iptal/firma pasifi hub'a eklemeden önce → 4401), `unattended-register` "AC-275 D-P27-K2 …" (pasif müşteriye kod 409; pasife almada kodlar silinir; pasif müşteride kayıt 404, kod tüketilmez) |
+| AC-339 | ✅                                   | `unattended-register` "AC-339 D-P27-K3: aynı IPv6 /64 … 429; başka /64 etkilenmez"                                                                                                                                                           |
+| AC-336 | ✅                                   | `unattended-api` "AC-336 D-P27-K4 … no_recipients; … no_previous_config"                                                                                                                                                                     |
+| AC-290 | ⏳                                   | qa DÜZELTİLMELİ (yalnız doküman)                                                                                                                                                                                                             |
+
+## Düzeltilmeli
+
+1. [teknik-yazar] `docs/api.md:3008` — `POST /registration-codes` hata sütununda pasif müşteri için 409 `CONFLICT`
+   ("Müşteri pasif; kayıt kodu oluşturulamaz.") yok. Beklenen: hata listesine eklenmeli. Aynı bölümde `POST /unattended/register`
+   için "müşteri pasif/anonim → geçersiz kodla aynı 404 `REGISTRATION_CODE_INVALID`, kod tüketilmez" notu.
+2. [teknik-yazar] `docs/api.md:3019-3020` ve `docs/KULLANIM_KILAVUZU.md:2735-2736` — "kayıttan önce diğer yöneticilere (eski ayarla)
+   bilgi e-postası gider" koşulsuz yazılmış. Kodda (`tenants/routes.ts` `smtpChangeGuard`) eski SMTP kaydı yoksa e-posta
+   denenmiyor (`no_previous_config`), alıcı yoksa `no_recipients`. Beklenen: api.md'de audit
+   `tenant_settings.updated.newValue.smtpChangeNotice` = `sent | failed | no_recipients | no_previous_config` ve
+   `unattendedDevices` belgelenir; kılavuzda "eski SMTP ayarı varsa" koşulu eklenir.
+3. [teknik-yazar] `docs/KULLANIM_KILAVUZU.md:2860` + "Sık karşılaşılan mesajlar (Gözetimsiz erişim)" tablosu (2922–2933) +
+   `CHANGELOG.md` P27 bölümü — D-P27-K2 davranışı eksik. Beklenen: "Müşteri pasife alınınca cihazları iptal edilir **ve
+   kullanılmamış kayıt kodları silinir**; pasif müşteriye kayıt kodu üretilemez"; mesaj tablosuna "Müşteri pasif; kayıt kodu
+   oluşturulamaz." → "Önce müşteriyi **Yeniden aktif et**". CHANGELOG'a aynı madde. Ardından `scripts/build-docs.sh` ile PDF'ler.
+4. [devops] `docs/runbook.md` §27.2 adım 5 (yaklaşık satır 3418) — "açılış logu `unattended.mode=<mod> deployEnv=<env>` server'da
+   henüz yok — backend açık işi" yanlış: `apps/server/src/server.ts:26` bu logu yazıyor. Beklenen: parantez kaldırılıp doğrulama
+   komutu (`docker compose logs server --since 5m | grep -m1 unattended.mode` → `unattended.mode=unsigned deployEnv=staging`)
+   doğrudan adıma yazılır. Aynı bölümde menü adı "Gözetimsiz erişim" (§27 giriş ve adım 6) arayüzdeki "Gözetimsiz cihazlar"
+   (`nav.unattended`) ve düğme adı "Servis programını indir" ile eşitlenir.
+
+## Definition of Done
+
+| Madde                                            | ✅/❌ | Not                                                                                                                                    |
+| ------------------------------------------------ | ----- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. AC'lerin tamamı testle kanıtlı, testler yeşil | ✅    | Tüm kod AC'leri kanıtlı; test:int 923/923, unit yeşil, Go yeşil. e2e bu commit için pending (web değişmedi). Windows elle testleri K12 |
+| 2. Lint/format/type-check temiz                  | ✅    | CI pass                                                                                                                                |
+| 3. qa GEÇTİ + güvenlik Kritik/Yüksek 0           | ❌    | qa DÜZELTİLMELİ (yalnız doküman)                                                                                                       |
+| 4. test-operatoru sayfa taraması                 | ❌    | Bu tur çalışma ağacında `docs/test-raporu.md` değişikliği ve `docs/img/p27-k12/` görüldü (sürüyor); sonuç bu raporda değerlendirilmedi |
+| 5. Migration geri alınabilir, seed güncel        | ✅    | Düzeltme turunda migration yok                                                                                                         |
+| 6. Dokümantasyon güncel                          | ❌    | Düzeltilmeli 1–4                                                                                                                       |
+| 7. Sapmalar implementation.md'de gerekçeli       | ✅    | "P27 — düzeltme turu 1 / Tasarımdan sapmalar" 1–2 (pasif müşteriye 409 seçimi, ekle → yeniden oku) gerekçeli                           |
+
+## İncelenen ek alanlar (tur 1'de incelenmeyenler)
+
+- `deploy/agent/publish-servis.sh`: ortam kilidi fail-closed (production → yalnız `vX.Y.Z`; `--dir` etiketi `dir-…` olduğu için
+  prod'a gidemez), `--no-attestation` yalnız `ALLOW_UNATTESTED=staging`, SHA/PE/≤40 MB/UPX/`asInvoker` denetimi, ağsız yardımcı
+  konteynerle atomik volume yazımı, `.env` yedeği (son 5), konteyner içinden SHA eşitliği. Bulgu yok.
+- `deploy/docker-compose.yml:143-155, 242`: `DEPLOY_ENV` `:?` ile zorunlu, `UNATTENDED_*` yalnız server'da, `unattended_downloads`
+  salt okunur ve yalnız server'a bağlı. Boş `UNATTENDED_MODE` → `env.ts:189-193` boş = tanımsız → `off`. `.env.example` 102–118
+  boş anahtarlar. CLAUDE.md "yeni env" kuralı sağlanıyor.
+- Runbook §27: ortam tablosu, staging açılışı, imza gelince `signed` geçişi, acil kapatma, metrik adları (`rs_unattended_*` adları
+  ve `bad_sig`/`unauth_cap`/`cap` değerleri kodla eşleşiyor). Tek bulgu Düzeltilmeli 4.
+
+## Öneriler (zorunlu değil)
+
+- `apps/server/src/tenants/settings.ts:100` `settingsTx` 41 satır (P27a `mfaRememberDevice` + P27 `auditExtra` eklemeleriyle 40'ı
+  geçti); `tenants/routes.ts:58` `adminTenantRoutes` 70 → 71 (PT sonrası baseline'da zaten > 40). Dokunan böler kuralıyla bir
+  sonraki dokunuşta bölünmeli.
+- Runbook §27.8 alarm listesine D-P27-K1'in yeni `rs_unattended_device_auth_total{result="revoked"|"tenant_passive"}` değerleri
+  (bilgi düzeyi) eklenebilir.
+- Tur 1 K9 açıkları (remote-watch P27 alarmları, SignPath iki-PE) prod açılışından önce kapanmalı.
+
+## Olumlu
+
+- Tur 1'in üç maddesi kod tarafında eksiksiz kapandı; AC-296 testi dört ayrı durumu ve aynı numaranın tekilleştirilmesini
+  maskeli değerle doğruluyor.
+- Güvenlik bulguları (D-P27-K1..K4) adı AC içeren testlerle kapatılmış; tam entegrasyon CI'da 923/923, yerelde 1384/1384.
+- Teknik-yazar bölümü kapsamlı: rol tablosu, kurulum sırası, rozetler, kapanış mesajları ve ortam bantları kodla uyumlu;
+  PDF'ler gerçekten güncel.
+- Dağıtım betiği ve compose kablolaması fail-closed ve runbook ile tutarlı.
+
+---
+
 ## P27 — kod turu 1
 
 # QA Raporu — P27 (gözetimsiz erişim) Tur 1 (K11)

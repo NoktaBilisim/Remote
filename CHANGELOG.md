@@ -47,6 +47,13 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - **Bilinen risk:** Windows'ta oturum açmış kullanıcı yöneticiyse teknisyen UAC onayı verebilir. Müşteri bilgisayarlarında
   standart kullanıcı hesabı önerilir (kılavuz, DATASHEET ve kayıt kodu yönergesinde yazılı).
 - İmza kapısı cihazın kendi beyanına dayanır; kimlik doğrulama değil, imzasız yapının prod'a çıkmasını önleyen bir kapıdır.
+- Müşteri pasife alınınca cihazları iptal edilir ve kullanılmamış kayıt kodları aynı işlemde silinir. Pasif müşteriye kayıt
+  kodu üretilemez (409 `CONFLICT`, "Müşteri pasif; kayıt kodu oluşturulamaz."). Kod dururken müşteri pasifse cihaz kaydı
+  geçersiz kodla aynı 404'ü alır ve kod tüketilmez.
+- İptal veya firma pasifi, cihaz bağlanırken gelse de bağlantı 4401 ile kapanır (bağlantı kaydından sonra durum yeniden okunur).
+- Kayıt ucunun IP kovaları IPv6'da /64 öneki üzerinden sayılır.
+- Etkin cihaz varken SMTP değişiminde bilgi e-postası yalnız eski SMTP kaydı varsa denenir. Audit `smtpChangeNotice`:
+  `sent` / `failed` / `no_recipients` / `no_previous_config`; yanında `unattendedDevices` (etkin cihaz sayısı).
 
 ### Operasyon — P27
 

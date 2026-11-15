@@ -7,8 +7,8 @@ import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 import type { RegistrationCodeListResponse, UnattendedStatus } from "@/lib/unattended/contract";
 import { createCodeBlock } from "@/lib/unattended/errors";
-import { CodesTab } from "../codes-tab";
-import { accessOf, gateBody, UnattendedShell } from "../unattended-shell";
+import { CodesTab } from "../../codes-tab";
+import { accessOf, gateBody, UnattendedShell } from "../../unattended-shell";
 
 export const metadata: Metadata = { title: t("un.tab.codes") };
 

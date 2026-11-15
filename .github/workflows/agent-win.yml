@@ -273,7 +273,8 @@ jobs:
           $un   = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\NoktaDestekServis'
           $ev   = 'HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\NoktaDestek'
           $hk   = 'HKLM:\SOFTWARE\NoktaDestek'
-          foreach ($x in $pfd, $pd, $un, $ev, $hk) { if (Test-Path -LiteralPath $x) { Write-Output "::error::$x öz testten önce var"; exit 1 } }
+          $kc   = Join-Path $env:SystemRoot 'Temp\NoktaDestekServis-kaldir-0000000000000000'
+          foreach ($x in $pfd, $pd, $un, $ev, $hk, $kc) { if (Test-Path -LiteralPath $x) { Write-Output "::error::$x öz testten önce var"; exit 1 } }
           pwsh -NoProfile -File $tc -Mode Snapshot -SnapshotPath $snap
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $script:bad = 0
@@ -320,10 +321,17 @@ jobs:
             Expect 1 'kaldırma sonrası Uninstall anahtarı kalmış' @()
             Remove-Item -LiteralPath $un -Recurse -Force
             Expect 0 'kaldırma sonrası temiz (-Servis off)' @()
+            # D-P27-K5: kaldırma kopyası klasörü yeniden başlatma kaydı yoksa iz, kayıtlıysa UYARI (çıkış 0).
+            New-Item -ItemType Directory -Path $kc | Out-Null
+            Expect 1 'kaldırma kopyası kalmış (yeniden başlatma kaydı yok)' @()
+            Add-Type -Namespace P27 -Name K5 -MemberDefinition '[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool MoveFileEx(string a, string b, int f);'
+            if (-not [P27.K5]::MoveFileEx($kc, $null, 4)) { Write-Output '::error::MoveFileEx DELAY_UNTIL_REBOOT'; $script:bad++ }
+            Expect 0 'kaldırma kopyası yeniden başlatmada silinecek (UYARI)' @()
+            Remove-Item -LiteralPath $kc -Force
           } finally {
             & sc.exe delete NoktaDestekServis 2>$null | Out-Null
             Remove-ItemProperty -LiteralPath $run -Name NoktaDestekServis -ErrorAction SilentlyContinue
-            foreach ($x in $hk, $ev, $un, $pfd, $pd) { Remove-Item -LiteralPath $x -Recurse -Force -ErrorAction SilentlyContinue }
+            foreach ($x in $hk, $ev, $un, $pfd, $pd, $kc) { Remove-Item -LiteralPath $x -Recurse -Force -ErrorAction SilentlyContinue }
           }
           if ($script:bad -gt 0) { exit 1 }
           Write-Output 'trace-check P27 -Servis öz testi: tüm beklenen çıkış kodları tuttu'

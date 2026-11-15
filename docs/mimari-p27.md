@@ -459,6 +459,9 @@ kayıt (anahtar, `DeviceId`) korunur. Yeni kayıt istenirse önce kaldırılır 
 `unregister` (servis `device.unregister` gönderir; çevrimdışıysa sessizce geçer — cihaz panelde çevrimdışı kalır, Admin iptal
 eder) → servis durdur/sil → Run, Uninstall, `HKLM\SOFTWARE\NoktaDestek\Servis`, olay kaynağı, `%ProgramData%\NoktaDestek Servis`
 silinir → ikili `%TEMP%` kopyasından çalışıp Program Files klasörünü siler, kendi geçici kopyası `MoveFileEx(DELAY_UNTIL_REBOOT)`.
+**D-P27-K5 notu (backend-dev, P27 düzeltme turu 2):** kopya kullanıcı `%TEMP%`'i yerine `%SystemRoot%\Temp\NoktaDestekServis-kaldir-<16 hex>\`
+klasörüne (tek çağrıda `O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`, reparse/ACL denetimli) yazılır, SHA-256'sı kaynakla aynı değilse
+başlatılmaz; kopya ve klasörü her çıkış yolunda yeniden başlatmada silinir (ayrıntı `docs/implementation.md`).
 `trace-check.ps1` yeni `-Servis` profili bu listeyi denetler (AC-289).
 
 ### 5.4 Yerel kapatma anahtarı, tepsi ve ayar penceresi (AC-295)

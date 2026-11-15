@@ -9,6 +9,7 @@ export function Segmented<T extends string>({
   options,
   onChange,
   disabled = false,
+  size = "default",
 }: {
   label: string;
   value: T;
@@ -16,9 +17,19 @@ export function Segmented<T extends string>({
   onChange: (v: T) => void;
   /** Tüm grup geçici olarak kullanılamaz (ör. bekleyen istek); neden çağıranın görünür metninde yazılır. */
   disabled?: boolean;
+  /**
+   * `field`: form alanlarıyla aynı satırda dış yükseklik alanla eşit (`min-h-11`, 44 px) — iç boşluk yok, düğmeler
+   * çerçeveyi örter (`-my-px`), dokunma hedefi yine 44 px. Varsayılan: iç boşluklu hap grubu (54 px).
+   */
+  size?: "default" | "field";
 }) {
+  const field = size === "field";
   return (
-    <div role="group" aria-label={label} className="inline-flex rounded-md border border-border bg-surface p-1 shadow-sm">
+    <div
+      role="group"
+      aria-label={label}
+      className={`inline-flex rounded-md border border-border bg-surface shadow-sm ${field ? "min-h-11" : "p-1"}`}
+    >
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -28,9 +39,9 @@ export function Segmented<T extends string>({
             aria-pressed={active}
             disabled={disabled}
             onClick={() => onChange(o.value)}
-            className={`inline-flex min-h-11 cursor-pointer items-center disabled:cursor-not-allowed disabled:opacity-60 gap-1.5 rounded-sm px-3 text-sm font-medium ${
-              active ? "bg-primary-surface text-primary" : "text-fg-muted hover:bg-surface-muted hover:text-fg"
-            }`}
+            className={`inline-flex min-h-11 cursor-pointer items-center disabled:cursor-not-allowed disabled:opacity-60 gap-1.5 px-3 text-sm font-medium ${
+              field ? "-my-px first:-ml-px first:rounded-l-md last:-mr-px last:rounded-r-md" : "rounded-sm"
+            } ${active ? "bg-primary-surface text-primary" : "text-fg-muted hover:bg-surface-muted hover:text-fg"}`}
           >
             {o.icon}
             {o.label}

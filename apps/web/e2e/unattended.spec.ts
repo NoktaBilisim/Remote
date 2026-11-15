@@ -200,7 +200,43 @@ test("kısmi durum: yoklama hatasında son veri + 'güncellenemedi' bandı", asy
   await signIn(context, "unpoll");
   await page.goto("/unattended");
   await expect(page.locator('[data-testid="un-row"], [data-testid="un-card"]').filter({ visible: true })).toHaveCount(4);
-  await page.clock.fastForward(16_000);
-  await expect(page.getByTestId("un-stale")).toBeVisible();
+  // CI mobil kararsızlığı: satırlar SSR'dan hidrasyondan önce görünür; ilk fastForward yoklama zamanlayıcısı kurulmadan
+  // gelirse boşa gider. Saat her denemede bir yoklama aralığı ilerletilir, bant görünene dek (deterministik üst sınır).
+  await expect(async () => {
+    await page.clock.fastForward(16_000);
+    await expect(page.getByTestId("un-stale")).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
   await expect(page.locator('[data-testid="un-row"], [data-testid="un-card"]').filter({ visible: true })).toHaveCount(4);
+});
+
+test("K12: olmayan / bozuk / yetkisiz cihaz id'si gerçek HTTP 404 + tek h1 'Cihaz bulunamadı'", async ({ browser }) => {
+  for (const [kind, path] of [
+    ["unm", "/unattended/01JDVP27000000000000000ZZZ"],
+    ["unm", "/unattended/abc"],
+    ["untech", `/unattended/${D3}`],
+  ] as const) {
+    const ctx = await browser.newContext();
+    await signIn(ctx, kind);
+    const p = await ctx.newPage();
+    const res = await p.goto(path);
+    expect(res?.status(), path).toBe(404);
+    await expect(p.getByRole("heading", { level: 1, name: "Cihaz bulunamadı" })).toBeVisible();
+    await expect(p.getByTestId("un-not-found").getByRole("link", { name: "Gözetimsiz cihazlara dön" })).toHaveAttribute(
+      "href",
+      "/unattended",
+    );
+    await ctx.close();
+  }
+});
+
+test("K12: arama kutusu sözleşme sınırında (64) — fazlası girilemez, filtre düşmez", async ({ page, context }) => {
+  await signIn(context, "unm");
+  await page.goto("/unattended");
+  const box = page.getByTestId("un-search");
+  await expect(box).toHaveAttribute("maxlength", "64");
+  await box.fill("x".repeat(70));
+  await expect(box).toHaveValue("x".repeat(64));
+  await box.press("Enter");
+  await expect(page).toHaveURL(new RegExp(`q=${"x".repeat(64)}$`));
+  await expect(page.getByTestId("un-no-match")).toBeVisible();
 });

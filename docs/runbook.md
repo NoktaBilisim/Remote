@@ -3390,7 +3390,7 @@ gönderimi başarısız olur (outbox kalıcıdır, 3 deneme 0/10/30 sn sonra FAI
 ## 27. P27 — gözetimsiz erişim altyapısı (devops K9, 2026-11-15; mimari-p27 §4.5, §8, §9 K9; AC-289, 297, 339, 340, 342)
 
 Servis ikilisi `NoktaDestekServis.exe` (`apps/agent-win/cmd/noktadestek-servis`) Windows'ta SYSTEM hizmeti olarak kurulur; panel
-"Gözetimsiz erişim" sayfasından (`unattended.manage`) indirilir ve kayıt koduyla kaydolur. Sunucu tarafı tek kapı `UNATTENDED_MODE`.
+"Gözetimsiz cihazlar" sayfasından (`/unattended`, `unattended.manage`; kayıt kodu penceresindeki "Servis programını indir") indirilir ve kayıt koduyla kaydolur. Sunucu tarafı tek kapı `UNATTENDED_MODE`.
 
 ### 27.1 Ortamlara göre değerler (yalnız `deploy/.env`; değerler ekrana basılmaz)
 
@@ -3415,10 +3415,11 @@ Panel bandı "TEST ortamı — imzasız servis" görünür.
    → `staging`, `unsigned`, `/data/unattended/NoktaDestekServis.exe`.
 4. İkiliyi yayınla (§27.3) — `publish-servis.sh` server'ı yeniden yaratır ve sağlıklı olmasını bekler. İkiliyi yayınlamadan
    yalnız kapı açılacaksa: `docker compose up -d --no-deps server` → `docker compose ps server` healthy.
-5. Konteynerin gördüğü değerler: `docker compose exec -T server printenv DEPLOY_ENV UNATTENDED_MODE` → `staging`, `unsigned`.
-   (Mimarideki açılış logu `unattended.mode=<mod> deployEnv=<env>` server'da henüz yok — backend açık işi; gelince
-   `docker compose logs server --since 5m | grep -m1 unattended.mode` ile de bakılır.)
-6. Panel: Super Admin/Admin → Gözetimsiz erişim → bant "TEST ortamı — imzasız servis"; "İndir" `NoktaDestekServis.exe` verir
+5. Açılış logu (server her açılışta yazar; SHA listesi yazılmaz): `docker compose logs server --since 5m | grep -m1 unattended.mode`
+   → satırda `unattended.mode=unsigned deployEnv=staging`. Ek teyit: `docker compose exec -T server printenv DEPLOY_ENV UNATTENDED_MODE`
+   → `staging`, `unsigned`.
+6. Panel: Super Admin (firma seçili) / Admin → kenar çubuğu **Gözetimsiz cihazlar** → bant "TEST ortamı — imzasız servis";
+   Kayıt kodları → Kayıt kodu oluştur → pencerede **Servis programını indir** `NoktaDestekServis.exe` verir
    (503 ise §27.8). `curl` ile kimliksiz deneme: `curl -sk -o /dev/null -w '%{http_code}\n' https://<host>/downloads/NoktaDestekServis.exe` → `404`
    (Caddy public yolu yok; volume Caddy'ye bağlı değil).
 7. Duman testi (Windows VM, staging adresli ikili): kayıt kodu üret → VM'de kur (§27.7) → panelde çevrimiçi → bağlan → müşteri
@@ -3479,7 +3480,7 @@ Volume salt okunur ve yalnız server'a bağlı: Caddy ve web dosyayı göremez. 
 - Uygulama geri alma: önceki `IMAGE_TAG` + `UNATTENDED_MODE=off` → `docker compose up -d server web`.
 - Migration geri alma (`down.sql`): önce `UNATTENDED_MODE=off`, açık gözetimsiz oturum kalmadığını panelden teyit et, sonra dba'nın
   down adımı (UNATTENDED satır varsa down ön kontrolü uyarır).
-- Cihaz toplu iptali SQL'siz panelden (Gözetimsiz erişim → cihaz → İptal). Yedek: yeni tablolar mysqldump kapsamında; `device.key`
+- Cihaz toplu iptali SQL'siz panelden (Gözetimsiz cihazlar → cihaz → Cihazı iptal et). Yedek: yeni tablolar mysqldump kapsamında; `device.key`
   cihazdadır, sunucu yedeği gerekmez.
 
 ### 27.7 Windows iz testi (`trace-check.ps1 -Servis`, yönetici PowerShell)
@@ -3487,7 +3488,9 @@ Volume salt okunur ve yalnız server'a bağlı: Caddy ve web dosyayı göremez. 
 Kurulu cihazda: `pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Check -Servis on` → `TEMİZ` (ImagePath tırnaklı ve Program
 Files altında, ProgramData/Gelen sahip + korumalı DACL + ACE kümesi, reparse yok). Kaldırma öncesi
 `-Mode Snapshot -SnapshotPath D:\once.json` (kurulumdan önce alınmış olmalı) → kaldır → `-Mode Compare -SnapshotPath D:\once.json`
-→ `TEMİZ`. `NoktaDestek Servis.eski-*` (squatting önlemi) UYARI olarak listelenir; içeriği incelenip elle silinir.
+→ `TEMİZ`. `NoktaDestek Servis.eski-*` (squatting önlemi) UYARI olarak listelenir; içeriği incelenip elle silinir. Kaldırmadan hemen sonra
+`%SystemRoot%\Temp\NoktaDestekServis-kaldir-*` (kaldırıcının geçici kopyası, D-P27-K5) yeniden başlatmada silinmek üzere kayıtlıysa
+UYARI, kayıtlı değilse iz sayılır; bilgisayar yeniden başlatılıp `-Mode Compare` tekrarlanır → uyarısız `TEMİZ`.
 
 ### 27.8 Sorun giderme ve operasyon notları
 
@@ -3497,7 +3500,7 @@ Files altında, ProgramData/Gelen sahip + korumalı DACL + ACE kümesi, reparse 
 | server açılmıyor, log `UNATTENDED_MODE: unsigned yalnız DEPLOY_ENV=staging` | prod'a staging `.env`'i kopyalanmış → `UNATTENDED_MODE=off`                                                            |
 | log `DEPLOY_ENV gerekli (production)` / `(UNATTENDED_MODE off değil)`       | `.env` `DEPLOY_ENV` boş ama compose dışı çalıştırma (yerel `pnpm`) → `.env`'e ekle                                     |
 | log `UNATTENDED_SIGNED_SHA256: signed modda zorunlu`                        | liste boş → §27.5 ya da `off`                                                                                          |
-| panel "İndir" 503                                                           | `UNATTENDED_AGENT_SHA256` boş veya volume'daki dosya farklı → §27.3 yeniden yayınla                                    |
+| panel "Servis programını indir" 503                                         | `UNATTENDED_AGENT_SHA256` boş veya volume'daki dosya farklı → §27.3 yeniden yayınla                                    |
 | Cihazlar sunucu yeniden başlarken 503 alıyor                                | K-P27-21: kimliksiz soket tavanı IP başına 5; aynı NAT arkasında ≥ 6 cihaz üstel beklemeyle toparlanır, eylem gerekmez |
 | AV/SmartScreen servisi engelliyor (R-P27-2)                                 | imzasız ikili yalnız staging'de; prod `off`. Staging VM'de Defender istisnası verilmez — imza gelene kadar beklenen    |
 
@@ -3507,6 +3510,11 @@ Alarm eşikleri (mimari-p27 §7.3; `/metrics`, Bearer `METRICS_TOKEN`):
 - `rs_unattended_device_replaced_total`: 10 dk'da 3'ten fazla → uyarı (aynı anahtar iki makinede — klon).
 - `rs_unattended_register_total{result="cap"}`: sıfırdan büyük → uyarı (kayıt kodu tahmin denemesi).
 - `rs_unattended_device_auth_total{result="unauth_cap"}`: sıfırdan büyük → uyarı (bağlantı seli).
+- `rs_unattended_device_auth_total{result="revoked"}`: iptal edilmiş cihaz bağlanmayı sürdürüyor; tek seferlik artış normaldir
+  (iptal anı, bağlanırken gelen iptal dahil); aynı cihazdan süregelen artış → uyarı (servisi kaldırılmamış cihaz veya
+  kopyalanmış anahtar; mimaride sayısal eşik yok).
+- `rs_unattended_device_auth_total{result="tenant_passive"}`: pasif firmanın cihazları bağlanmaya çalışıyor → bilgi; süregelen
+  artışta firma yeniden etkinleştirilmeyecekse cihazlar iptal edilir.
 - `rs_unattended_connect_total{result="ok"}`: mesai dışı ani artış → bilgi.
 
 **Durum:** `remote-watch` otomasyonu bu serileri henüz okumuyor (K9 açık işi). O gelene kadar elle bakılır:

@@ -2073,7 +2073,7 @@
   "un.clearFilters": "Filtreleri temizle",
   "un.search": "Cihaz ara",
   "un.searchPh": "Cihaz veya müşteri adı",
-  "un.searchHint": "En az 2 karakter; Enter ile hemen ara.",
+  "un.searchHint": "2–64 karakter; Enter ile hemen ara.",
   "un.f.state": "Cihaz durumu",
   "un.f.all": "Tümü",
   "un.f.customerSelected": "Seçili müşteri",
@@ -2144,5 +2144,9 @@
   "un.contacts.dirty": "Bildirim adreslerinde kaydedilmemiş değişiklik var.",
   "un.contacts.leave": "Bildirim adreslerindeki değişiklikler kaydedilmedi. Sayfadan ayrılırsanız kaybolur.",
   "un.c.badge": "Gözetimsiz",
-  "un.c.connecting": "Cihaz bağlanıyor…"
+  "un.c.connecting": "Cihaz bağlanıyor…",
+  "un.c.connectingBody": "Cihazdaki servis oturuma katıldığında ekran burada açılır; müşterinin bir şey yapması gerekmez.",
+  "un.nf.title": "Cihaz bulunamadı",
+  "un.nf.body": "Cihaz bu firmaya ait değil, iptal edilmiş ya da bu cihaza bağlanma yetkiniz yok.",
+  "un.nf.back": "Gözetimsiz cihazlara dön"
 }

@@ -91,6 +91,9 @@
     denetimi: %ProgramData%\NoktaDestek Servis ve Gelen\ sahibi SYSTEM/Administrators, DACL korumalı (devralma kapalı),
     ACE kümesi tam olarak SY+BA tam (Gelen: + Authenticated Users okuma/yürütme 0x1200a9), reparse noktası yok.
     Yönetici yetkisi ister (yoksa 2). "NoktaDestek Servis.eski-*" (squatting önlemi) iz değil UYARI'dır.
+    Kaldırıcının geçici kopyası %SystemRoot%\Temp\NoktaDestekServis-kaldir-<16 hex>\ (D-P27-K5) her modda taranır:
+    PendingFileRenameOperations'ta yeniden başlatmada silinmek üzere kayıtlıysa UYARI, değilse iz; yeniden başlatma
+    sonrası hiç görünmemeli.
 
 .PARAMETER Strict
     Desene uymayan yeni girdileri de iz say (sessiz, temiz bir VM'de kullanın).
@@ -258,6 +261,22 @@ function Get-ServisAllowance {
     return [pscustomobject]@{ Allowed = $allowed; Missing = $missing; Warning = $warning }
 }
 
+function Split-PendingUninstallCopy {
+    # Saf fonksiyon (D-P27-K5): yeniden başlatmada silinmek üzere kayıtlı (PendingFileRenameOperations) kaldırma kopyası
+    # klasörleri iz değil UYARI'dır; kayıtlı değilse iz kalır. $Pending çoklu dize, yollar `\??\` önekli olabilir.
+    param([string[]]$After, [string[]]$Pending)
+    $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($p in $Pending) { if ($p) { [void]$set.Add(($p -replace '^\\\?\?\\', '').TrimEnd('\')) } }
+    $keep = @(); $warning = @()
+    foreach ($a in $After) {
+        $cat, $item = $a -split "`t", 2
+        if ($cat -eq 'WinTemp' -and $set.Contains($item.TrimEnd('\'))) {
+            $warning += "kaldırma kopyası yeniden başlatmada silinecek (yeniden başlatıp tekrar çalıştırın): $item"
+        } else { $keep += $a }
+    }
+    return [pscustomobject]@{ After = $keep; Warning = $warning }
+}
+
 function Test-ServisAcl {
     # Saf fonksiyon (P27 K9, mimari-p27 §5.3 r2): klasör sahip/DACL/ACE denetimi. $Aces: @{ Sid; Rights (int); Allow (bool);
     # Inherited (bool) }. Beklenen: sahip SY/BA, korumalı DACL, izin ACE'leri tam olarak $Expect (sid -> rights), deny yok.
@@ -375,6 +394,10 @@ function Get-TraceSnapshot {
     # P27 K9: gözetimsiz servis kurulum yerleri (her modda; kaldırma sonrası iz kalmamalı).
     foreach ($x in @(Get-FileEntry -Category 'ProgramFiles' -Root $env:ProgramFiles -Depth 1)) { $e.Add($x) }
     foreach ($x in @(Get-FileEntry -Category 'ProgramData' -Root $env:ProgramData -Depth 1)) { $e.Add($x) }
+    # D-P27-K5: kaldırıcının geçici kopya klasörü %SystemRoot%\Temp\NoktaDestekServis-kaldir-* (yalnız bu ad; klasörün
+    # geri kalanı taranmaz, içi SY/BA'ya kapalı).
+    Get-ChildItem -LiteralPath (Join-Path $env:SystemRoot 'Temp') -Filter 'NoktaDestekServis-kaldir-*' -Force -ErrorAction SilentlyContinue |
+        ForEach-Object { $e.Add("WinTemp`t$($_.FullName)") }
     foreach ($k in $script:UninstallKey, $script:EventLogKey) {
         $cat = if ($k -eq $script:UninstallKey) { 'Uninstall' } else { 'EventSource' }
         Get-ChildItem -Path $k -ErrorAction SilentlyContinue | ForEach-Object { $e.Add("$cat`t$($_.PSChildName)") }
@@ -451,10 +474,17 @@ if ($Autostart -eq 'on') {
     }
 }
 $allowedAll = @($al.Allowed)
-$servisWarn = @()
+$pendingOps = @()   # değer yoksa (bekleyen işlem yok) Get-ItemProperty hata verir
+try {
+    $pendingOps = @((Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' `
+                -Name PendingFileRenameOperations -ErrorAction Stop).PendingFileRenameOperations)
+} catch { $pendingOps = @() }
+$pc = Split-PendingUninstallCopy -After $after -Pending $pendingOps
+$after = @($pc.After)
+$servisWarn = @($pc.Warning)
 if ($Servis -eq 'on') {
     $sa = Get-ServisAllowance -Pf $env:ProgramFiles -Pd $env:ProgramData -After $after
-    $allowedAll += $sa.Allowed; $missing += $sa.Missing; $servisWarn = @($sa.Warning)
+    $allowedAll += $sa.Allowed; $missing += $sa.Missing; $servisWarn += @($sa.Warning)
     $missing += @(Get-ServisAclProblem -Pd $env:ProgramData)
     $rk = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
     $kind = $null

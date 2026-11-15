@@ -155,6 +155,8 @@ const gateOf = (kind) =>
 const mode = (kind) => ({ ...gateOf(kind), notifyChannel: kind !== "unsmtp" });
 const LIST_KEYS = ["osVersion", "agentVersion", "signed", "lastIp", "registeredIp", "registeredAt", "grants"];
 const listItem = (d) => Object.fromEntries(Object.entries(d).filter(([k]) => !LIST_KEYS.includes(k)));
+const BASE = process.env.MOCK_PUBLIC_BASE_URL ?? "http://localhost:3217";
+const CUSTOMER_REF = { [P27.ACME]: "acmeacmeacmeacme", [P27.BETA]: "betabetabetabeta" };
 const customer = (id) => ({
   id,
   name: id === P27.ACME ? "Acme Ltd." : "Beta A.Ş.",
@@ -170,8 +172,9 @@ const customer = (id) => ({
   createdAt: iso(-30 * 86_400_000),
   defaultPriority: null,
   slaMinutes: null,
-  downloadUrl: null,
-  fileName: null,
+  // K12: gerçek sözleşmede ACTIVE müşteri bağlantı taşır (mock-customers.mjs link() ile aynı biçim)
+  downloadUrl: `${BASE}/api/v1/public/agent/request-download?ref=${CUSTOMER_REF[id] ?? "p27p27p27p27p27p"}`,
+  fileName: `NoktaDestek-Firma-${CUSTOMER_REF[id] ?? "p27p27p27p27p27p"}.exe`,
   webFormUrl: null,
   lastRequestAt: null,
   requestCount: 0,

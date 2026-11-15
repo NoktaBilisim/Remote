@@ -1,23 +1,11 @@
 "use client";
 
-import {
-  Building2,
-  History,
-  Inbox,
-  Lock,
-  MonitorSmartphone,
-  MousePointerClick,
-  Paperclip,
-  ScrollText,
-  Settings,
-  ShieldCheck,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import { Lock, ShieldCheck, type LucideIcon } from "lucide-react";
 import { PERMISSION_DESCRIPTIONS } from "@remote/contracts/permissions";
 import { useId, useMemo } from "react";
 import { ToggleSwitch } from "@/components/ui/switch";
 import { t } from "@/lib/i18n";
+import { MODULE_ICONS } from "@/lib/module-icons";
 import {
   actionLabel,
   buildMatrix,
@@ -31,18 +19,8 @@ import {
   type PermState,
 } from "@/lib/users/permissions";
 
-/** Modül ikonları (std. 1.8; menüdekilerle aynı anlam). Tanıma yeni eklenen modülün ikonu yoksa nötr `ShieldCheck`. */
-const ICONS: Record<string, LucideIcon> = {
-  sessions: MonitorSmartphone,
-  remote_control: MousePointerClick,
-  file_transfer: Paperclip,
-  session_history: History,
-  support_requests: Inbox,
-  customers: Building2,
-  users: Users,
-  settings: Settings,
-  audit: ScrollText,
-};
+/** Modül ikonları menüyle tek kaynaktan (`lib/module-icons.ts`, std. 1.8). Geçici test modülünde nötr `ShieldCheck`. */
+const ICONS: Record<string, LucideIcon> = MODULE_ICONS;
 
 interface Props {
   value: PermState;
