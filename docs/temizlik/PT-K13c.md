@@ -9,18 +9,18 @@ Kural: davranış ve görünüm değişmez; dışa açık adlar yerinde (`Reques
 
 ## 1. Sonuç
 
-| Hedef                                        | Önce                    | Sonra                                                                                                                                                          |
-| -------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hedef                                        | Önce                    | Sonra                                                                                                                                                        |
+| -------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `requests/page.tsx` `RequestsPage`           | dosya 318 · 258 · cx 47 | dosya 86 · ≤ 40 · cx ≤ 15; `query.ts` (URL ayrıştırma, `href`, `linkFor`, `listPath`), `page-parts.tsx` (başlık, sekme/filtreler, hata, Geçmiş, Bekleyenler) |
-| `request-thread.tsx` `RequestThread`         | dosya 357 · 303 · cx 32 | dosya 67 · ≤ 40; `use-thread.ts` (`useThreadMessages`, `useScrollToEnd`, `useThreadSend`), `thread-parts.tsx`                                                  |
-| gönderim işlevi                              | 44 · cx 19              | ≤ 40, cx ≤ 15 (`optimistic`, `applySendError`)                                                                                                                 |
-| `RejectDialog`                               | 122                     | ≤ 40 (`useRejectState`, `useRejectForm`, `RejectChoices`, `RejectOther`, `RejectFooter`)                                                                       |
-| `AssignMenuItems` / `AssignDialog`           | 63 / 82                 | ≤ 40 (`MenuButton`, `PriorityGroup`, `loadAssignable`, `AssignFooter`, `useAssignPick`)                                                                        |
-| `RevokeBindingDialog`                        | 58                      | ≤ 40 (`useRevoke`)                                                                                                                                             |
-| `RequestCustomerFilter`                      | 52                      | ≤ 40 (`useCustomerFilter`)                                                                                                                                     |
-| `SupportRequestSettingsPage`                 | 58                      | ≤ 40 (`SrsHeader`, `Forbidden`)                                                                                                                                |
-| `HolidayActions`                             | 46                      | ≤ 40 (`HolidayButtons`)                                                                                                                                        |
-| `lib/requests/settings-form.ts` `buildInput` | 60 · cx 18              | ≤ 40, cx ≤ 15 (`uniqueList`, `hasRowError`, `parsePhone/Email/Cidr`, `checkWait/Whatsapp/Email`)                                                               |
+| `request-thread.tsx` `RequestThread`         | dosya 357 · 303 · cx 32 | dosya 67 · ≤ 40; `use-thread.ts` (`useThreadMessages`, `useScrollToEnd`, `useThreadSend`), `thread-parts.tsx`                                                |
+| gönderim işlevi                              | 44 · cx 19              | ≤ 40, cx ≤ 15 (`optimistic`, `applySendError`)                                                                                                               |
+| `RejectDialog`                               | 122                     | ≤ 40 (`useRejectState`, `useRejectForm`, `RejectChoices`, `RejectOther`, `RejectFooter`)                                                                     |
+| `AssignMenuItems` / `AssignDialog`           | 63 / 82                 | ≤ 40 (`MenuButton`, `PriorityGroup`, `loadAssignable`, `AssignFooter`, `useAssignPick`)                                                                      |
+| `RevokeBindingDialog`                        | 58                      | ≤ 40 (`useRevoke`)                                                                                                                                           |
+| `RequestCustomerFilter`                      | 52                      | ≤ 40 (`useCustomerFilter`)                                                                                                                                   |
+| `SupportRequestSettingsPage`                 | 58                      | ≤ 40 (`SrsHeader`, `Forbidden`)                                                                                                                              |
+| `HolidayActions`                             | 46                      | ≤ 40 (`HolidayButtons`)                                                                                                                                      |
+| `lib/requests/settings-form.ts` `buildInput` | 60 · cx 18              | ≤ 40, cx ≤ 15 (`uniqueList`, `hasRowError`, `parsePhone/Email/Cidr`, `checkWait/Whatsapp/Email`)                                                             |
 
 Kapsam ölçümü (`max-lines-per-function` 40, `complexity` 15; dizinler `requests`, `settings/{support-requests,business-hours}`,
 `lib/requests/settings-form.ts`, `components/settings`): **15 → 0**. Kapsamda > 300 satır dosya yok (en büyük `request-queue` 286).
