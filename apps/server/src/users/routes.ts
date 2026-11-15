@@ -61,7 +61,29 @@ function idParam(req: FastifyRequest): string {
   return r.data;
 }
 
+type Gate = { preHandler: ReturnType<typeof requirePerm> };
+
+/** Uç grupları arasında paylaşılan kapılar ve canlı yansıma bağımlılıkları (önceden `userRoutes` kapanış değişkenleri). */
+interface RouteKit {
+  fx: () => UserLiveEffects;
+  view: Gate;
+  edit: Gate;
+}
+
 export async function userRoutes(app: FastifyInstance): Promise<void> {
+  const creates = userHooks(app);
+  const fx = (): UserLiveEffects => ({ rooms: app.rooms, hub: app.requestHub, log: app.log });
+  const view = { preHandler: requirePerm("users.view") };
+  // mimari-api: deactivate (ve P9 eki reactivate) users.edit; P16: users.delete → DELETE /users/:id (kalıcı silme).
+  const edit = { preHandler: requirePerm("users.edit") };
+  const kit: RouteKit = { fx, view, edit };
+  readRoutes(app, kit);
+  editRoutes(app, kit, creates);
+  actionRoutes(app, kit);
+}
+
+/** Kimlik + no-store + yazma hızı kancaları; POST sayacını döner (AC-203). */
+function userHooks(app: FastifyInstance): FixedWindowCounter {
   app.addHook("preHandler", requireAuth);
   app.addHook("onSend", async (_req, reply) => {
     void reply.header("Cache-Control", "no-store");
@@ -77,11 +99,10 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", async (req) => {
     if (UNSAFE.has(req.method)) await writeLimit(req);
   });
-  const fx = (): UserLiveEffects => ({ rooms: app.rooms, hub: app.requestHub, log: app.log });
-  const view = { preHandler: requirePerm("users.view") };
-  // mimari-api: deactivate (ve P9 eki reactivate) users.edit; P16: users.delete → DELETE /users/:id (kalıcı silme).
-  const edit = { preHandler: requirePerm("users.edit") };
+  return creates;
+}
 
+function readRoutes(app: FastifyInstance, { view }: RouteKit): void {
   app.get("", view, async (req): Promise<UserListResponse> => {
     const { tenantId } = tenantScope(req);
     return listUsers(app.db, tenantId, parseInput(listUsersQuerySchema, req.query));
@@ -98,7 +119,9 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       return userOptions(app.db, auth, await userOptionsTenant(app.db, auth, tenantId), includeDeleted, assignable);
     },
   );
+}
 
+function editRoutes(app: FastifyInstance, { fx, view, edit }: RouteKit, creates: FixedWindowCounter): void {
   app.post("", { preHandler: [limitBy(creates), requirePerm("users.create")] }, async (req, reply): Promise<CreateUserResponse> => {
     const { tenantId } = tenantScope(req);
     const input = parseInput(createUserInputSchema, req.body);
@@ -119,7 +142,9 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     const input = parseInput(updateUserInputSchema, req.body);
     return withEtag(reply, await updateUser(app.db, fx(), auditContext(req), authOf(req), tenantId, id, input, version));
   });
+}
 
+function actionRoutes(app: FastifyInstance, { fx, edit }: RouteKit): void {
   app.post("/:id/deactivate", edit, async (req, reply) => {
     const { tenantId } = tenantScope(req);
     const id = idParam(req);

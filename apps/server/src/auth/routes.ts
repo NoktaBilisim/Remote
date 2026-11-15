@@ -35,18 +35,9 @@ import { auditContext } from "../audit/service.ts";
 import { parseInput } from "../lib/errors.ts";
 import { sha256Hex } from "../lib/ids.ts";
 import { authOf, checkOrigin, requireAuth } from "./guards.ts";
-import {
-  forgotPassword,
-  lockNotifier,
-  logoutAll,
-  mfaEnable,
-  mfaSetup,
-  mfaVerify,
-  recoveryCodesLeft,
-  regenerateRecoveryCodes,
-  resetPassword,
-  stepUp,
-} from "./account.ts";
+import { logoutAll, mfaEnable, mfaSetup, mfaVerify, recoveryCodesLeft } from "./account.ts";
+import { forgotPassword, lockNotifier, resetPassword } from "./password-reset.ts";
+import { regenerateRecoveryCodes, stepUp } from "./step-up.ts";
 import { changePassword, login, logout } from "./service.ts";
 import { setTheme } from "../uploads/service.ts";
 import { effectiveLogoUrl } from "../uploads/urls.ts";
