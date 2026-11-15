@@ -243,6 +243,7 @@ jobs:
           }
           if ($script:bad -gt 0) { exit 1 }
           Write-Output 'trace-check P20 öz testi: tüm beklenen çıkış kodları tuttu'
+          exit 0 # son Expect'in bilerek 1 dönen $LASTEXITCODE'u adımı düşürmesin
 
   build:
     name: build ${{ matrix.n }}/2
