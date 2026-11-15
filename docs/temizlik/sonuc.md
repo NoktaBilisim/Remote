@@ -319,5 +319,7 @@ temizliği" bölümünde özetlendi; PT commit'lerinde hiçbiri düzeltilmedi (R
 5. ~~Go test sayısı çelişkisi (397/398/424/458)~~ — tek yöntem, 397 / 423 (AC-317).
 6. ~~"Yeni > 300 dosya yok" teyidi~~ — dosya dosya yapıldı, yeni yok (AC-320).
 7. ~~§5 K18 satırı + §1-2 K18 test istisnası + AC-317 revizyonu; AC-322 kararı~~ — mimar yaptı.
-8. ~~HEAD CI~~ — `e280551`: ci 43727719947, agent-win 43727719960 yeşil; `259a6f0` agent-win 43728760055 yeşil, ci
-   koşusu bu belgenin commit'inde yeniden doğrulanır. K8 Windows elle testi yayın kapısı (K-PT-4).
+8. ~~HEAD CI~~ — `e280551`: ci 43727719947, agent-win 43727719960 yeşil; `259a6f0` ci 43728760018 **cancelled** (yeni
+   push), agent-win 43728760055 yeşil; **`90dfe1d`** (son kod `64e6301` dahil): ci 43729189569 (test MySQL 8.4 + web e2e
+   dahil) ve agent-win 43729189584 **yeşil**. Seçim: kanıt `90dfe1d`'ye bağlanır; bu belgeyi ekleyen commit yalnız belge
+   değiştirir, onun CI'ı da birleştirmeden önce yeşil görülür. K8 Windows elle testi yayın kapısı (K-PT-4).

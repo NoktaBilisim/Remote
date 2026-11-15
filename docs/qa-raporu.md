@@ -1,3 +1,78 @@
+# QA Raporu — PT (kod temizliği) Tur 3
+
+DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-15 · Dal `pt-wip` @ `90dfe1d` (temiz) · Kapsam: yalnız Tur 2 "Düzeltilmeli" 1–2. Kod değişmedi
+(`90dfe1d` yalnız `docs/`), test yerelde koşulmadı. Staging'e bağlanılmadı, ACCESS.txt okunmadı.
+
+Özet: Belge maddesi (Tur 2 Düzeltilmeli 1) tam kapandı. Kalan tek engel CI kanıtı. `259a6f0`'ın `ci` koşusu yeşil
+bitmedi, **iptal edildi** (`90dfe1d` itilince eşzamanlılık grubu yüzünden). İptal olan işler `test (MySQL 8.4)` ve
+`web e2e`. Yani `64e6301` kod düzeltmesi için CI'da henüz bir test sonucu yok. HEAD `90dfe1d` koşuları rapor anında
+sürüyordu.
+
+## Test sonucu (Tur 3)
+
+| SHA              | `ci`                                                                                                                                                                                                                               | `agent-win`                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `e280551`        | 43727719947 **success**                                                                                                                                                                                                            | 43727719960 **success**               |
+| `259a6f0`        | 43728760018 **cancelled**: lint+type, build, audit/gitleaks, coturn, shellcheck success. **`test (MySQL 8.4)` ve `web e2e (Playwright)` cancelled.** Neden: aynı dalda `90dfe1d` itildi, eşzamanlılık grubu eski koşuyu iptal etti | 43728760055 **success**               |
+| `90dfe1d` (HEAD) | 43729189569 rapor anında **queued**: bekliyor                                                                                                                                                                                      | 43729189584 **in_progress**: bekliyor |
+
+Yerelde test koşulmadı. Tur 2'deki server unit 435/435 ve mutasyon sağlaması (`64e6301`) geçerliliğini koruyor:
+`90dfe1d` yalnız belgedir (`git show --stat`: `gereksinimler.md`, `implementation.md`, `mimari-temizlik.md`,
+`qa-raporu.md`, `temizlik/sonuc.md`).
+
+## Tur 2 maddelerinin durumu
+
+| Tur 2 maddesi                                              | Durum | Kanıt / eksik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — `sonuc.md` / `implementation.md` eski durum satırları  | ✅    | `sonuc.md:8-12` durum notu: AC-317..324 GEÇTİ, K8 = yayın kapısı (K-PT-4), `64e6301` PT ölçümü dışında. Özet tablo `:22` AC-317 "GEÇTİ (K18 istisnası)", `:29` AC-324 "GEÇTİ (gerekçeli sapma)". `:276-280` K18 paragrafı "§5 K18 satırı ve §1-2 test istisnası eklendi". `:295` Elle test satırında "istemci yayın kapısı (K-PT-4)". Kalan iş 7-8 güncel. Test koşuları e2e hücresi CI `e280551` (43727719947). `implementation.md:8994` Elle test, `:9005` K18 "eklendi", `:9008` AC-322 "revize edildi (K-PT-3), GEÇTİ". `mimari-temizlik.md:294-297` ve `gereksinimler.md` K-PT-3: 6 gövde, `login` ×2. Eski ifadeler için grep ("ekleniyor", "QA Düzeltilmeli 6", "PT kapanış koşulu", "karar mimar") PT bölümlerinde sonuç vermedi |
+| 2 — HEAD `ci` + `agent-win` yeşil, numaralar `sonuc.md`'de | ❌    | `259a6f0` ci iptal oldu, `90dfe1d` ci/agent-win sürüyor. `sonuc.md:322-323` Kalan iş 8'in üstü çizilmiş ("~~HEAD CI~~") ama metni "ci koşusu … yeniden doğrulanır" diyor. Yani kapanmamış bir iş kapalı gösteriliyor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+## Kabul kriterleri
+
+| AC             | Durum | Kanıt veya eksik                                                                                                       |
+| -------------- | ----- | ---------------------------------------------------------------------------------------------------------------------- |
+| AC-317..AC-323 | ✅    | Tur 2'de olduğu gibi, değişiklik yok                                                                                   |
+| AC-324         | ✅    | Kapanış raporu artık kendi içinde tutarlı (Tur 2 Düzeltilmeli 1 kapandı). §5 tam, `implementation.md` PT bölümü güncel |
+
+## Düzeltilmeli
+
+1. **[devops]** HEAD'in (`90dfe1d` ya da sonraki SHA) `ci` (43729189569) ve `agent-win` (43729189584) koşuları
+   **success** bitmeli. Özellikle `test (MySQL 8.4)` ve `web e2e` işleri, çünkü `64e6301` bu işlerden hiç geçmedi.
+   Koşular bittikten sonra:
+   - `sonuc.md` "Kalan iş" 8'e ve "Test koşuları" tablosuna HEAD koşu numaralarını ve sonucunu yaz.
+   - `259a6f0` ci 43728760018'i "cancelled (yerine geçen koşu: …)" olarak düzelt.
+   - Üstü çizili gösterimi ancak koşular yeşil olunca bırak.
+
+   Kırmızı biterse R-PT8 uygulanır: 3 tekrar ve kararsız test listesiyle (Kararsız-1..3) karşılaştırma. Yalnız bu
+   belge commit'ini itmek yeni bir koşu başlatır ve süren koşuyu iptal eder. Bu yüzden ya sonuçlar belgeye yazılıp
+   **yeni koşu da yeşil** bitmeli, ya da sonuç numaraları bir sonraki ilgisiz commit'e bırakılmalı. Hangisinin
+   seçildiği `sonuc.md`'de belirtilmeli.
+
+## Definition of Done (Tur 3)
+
+| Madde                                              | ✅/❌ | Not                                                                      |
+| -------------------------------------------------- | ----- | ------------------------------------------------------------------------ |
+| Lint / typecheck / format temiz                    | ✅    | Tur 1-2. `259a6f0` ci lint+type success                                  |
+| Unit + entegrasyon testleri yeşil                  | ✅    | Yerelde Tur 1-2 (435/435 + entegrasyon 796). CI kanıtı aşağıdaki satırda |
+| Go test + vet + staticcheck (linux + windows)      | ✅    | `259a6f0` agent-win success                                              |
+| e2e (Playwright) yeşil                             | ✅    | `e280551` ci success. `64e6301`/`90dfe1d` web'e dokunmuyor               |
+| HEAD CI yeşil                                      | ❌    | `259a6f0` ci cancelled, `90dfe1d` bekliyor. Düzeltilmeli 1               |
+| Her AC ✅                                          | ✅    | AC-317..324                                                              |
+| Tasarım ↔ kod uyumu, sapmalar gerekçeli            | ✅    | K-PT-3/4, §5 K18                                                         |
+| Davranış değişmedi / bilinçli düzeltme ayrı commit | ✅    | `64e6301`                                                                |
+| Yeni bağımlılık yok                                | ✅    | `90dfe1d` yalnız belge                                                   |
+| `implementation.md` kaydı / PT bulguları           | ✅    | Güncel                                                                   |
+
+## Olumlu
+
+- Tur 2'deki belge düzeltmesinin tüm alt maddeleri, isteğe bağlı K-PT-3 "6 gövde + `login` ×2" dahil, beş belgede
+  tutarlı işlendi. Grep ile kalan eski ifade bulunmadı.
+- `64e6301` PT ölçümünün dışında tutuldu ve bu açıkça yazıldı (434 → 435).
+
+---
+
 # QA Raporu — PT (kod temizliği) Tur 2
 
 DURUM: DÜZELTİLMELİ
