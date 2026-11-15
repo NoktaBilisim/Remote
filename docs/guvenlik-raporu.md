@@ -1,3 +1,212 @@
+# Güvenlik Raporu — P28a tasarım turu (K9a, AC-290; pano + uzaktan yazdırma, kod öncesi, 2026-11-15)
+
+DURUM: DÜZELTİLMELİ — Kritik 0 / Yüksek 1 / Orta 5 / Düşük 4 (+3 bilgi)
+Kapsam: `docs/mimari-p28.md` r1 (§0–13), `docs/adr/0031-uzaktan-yazdirma-windows-data-pdf.md`, `docs/tasarim-kontrol.md` P28a,
+`docs/gereksinimler-p28.md` (AC-343..352, AC-404, V45, R45, R47). Tasarımın dayandığı mevcut kod da okundu: `apps/server/src/signaling/handlers.ts`,
+`ws-auth.ts`, `apps/agent-win/internal/ui/thread_windows.go`, `ui/consent_windows.go`, `internal/servis/launch_windows.go`.
+Kod yazılmadı, staging'e bağlanılmadı. Y-P28a-1 mimariye r2 olarak işlenmeden K2–K6 birleştirilmez (mimari §10 K9a kuralı).
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] Y-P28a-1 Onaydan önce PDF ayrıştırma kontrol izni olmadan tetiklenebiliyor; düşük bütünlük gizliliği korumuyor — A04 Insecure Design / A08
+
+Yer: docs/mimari-p28.md:156 (`print.request` kapısında `controlState` yok), :203 (onaydan önce işleyiciyle sayfa sayısı), :225-237 (§5.2 yalıtım),
+:401 (K-P28a-5), :416 (R-P28a-1 geri dönüşü); ADR-0031 "Sonuçlar" (−) maddeleri.
+Sorun: K-P28a-5'in risk kabulü şu varsayıma dayanıyor: "teknisyen zaten kimlikli ve yetkili". Ancak yazdırma kapısı kontrol izni istemiyor.
+Bu yüzden müşterinin yalnız **izleme** izni verdiği bir oturumda bile teknisyenin seçtiği baytlar müşteri makinesinde, müşteri hiçbir şeye
+basmadan Windows.Data.Pdf ayrıştırıcısına girer. Bu bileşenin geçmişinde uzaktan kod çalıştırma açıkları var (Windows PDF Library RCE sınıfı).
+Önerilen yalıtım açıklardan birinin sömürülmesi durumunda bütünlüğü korur, gizliliği korumaz:
+- Düşük bütünlük düzeyi (S-1-16-4096) yalnız yukarı **yazmayı** engeller (dosyalarda varsayılan politika NO_WRITE_UP).
+  Düşük bütünlükteki süreç kullanıcının belgelerini **okuyabilir**.
+- `CreateRestrictedToken(DISABLE_MAX_PRIVILEGE)` yalnız ayrıcalıkları kaldırır. Kullanıcı SID'i ve gruplar etkin kalır.
+- Job nesnesi ve UI kısıtları ağ erişimini kesmez.
+
+R-P28a-1 geri dönüşünde (düşük bütünlük kaldırılır, yalnız kısıtlı jeton + job kalır) süreç fiilen kullanıcının tüm haklarıyla çalışır.
+Bu durumda süreç hem dosyaya yazabilir hem ağa çıkabilir. Bu geri dönüş, onay öncesi ayrıştırmayla birlikte **kabul edilemez**.
+İstismar senaryosu: Müşteri yalnız ekranını izletmek ister ve kontrol vermez. Teknisyen hesabı ele geçirilmiş ya da kötü niyetli kişi
+"Uzaktan yazdır" ile hazırlanmış bir PDF gönderir. PDF onay diyaloğu açılmadan önce işleyicide ayrıştırılır. Sömürü düşük bütünlükte kod
+çalıştırır, `%USERPROFILE%\Documents`'ı okur ve HTTPS ile dışarı yollar. Müşteri yalnızca bir onay diyaloğu görür, reddeder ve
+audit `REJECTED` gösterir. Böylece "yalnız izleme" izni, müşterinin dosyalarını okuma yetkisine dönüşür.
+Düzeltme (mimar r2; karar ürün davranışını değiştirdiği için proje-yöneticisi onayı; varsayılan A):
+- **A (önerilen, tek koşul):** `print.request` kapısına pano ile aynı (4) adımı eklenir: `controlState≠GRANTED` → `FORBIDDEN` "Kontrol izni yok".
+  `featureState`'te yazdırma için de "Önce uzaktan kontrol izni alın" nedeni gösterilir. Misafir alıcı kuralına (§4.4 (c)) yazdırma için
+  "kontrol kapısı açık" denetimi eklenir. Kontrol `VIEW`'a dönerse bekleyen yazdırma `print.cancel` ile kapanır.
+  Kontrol izni olan teknisyen kullanıcı yetkisiyle zaten her şeyi yapabildiğinden ayrıştırıcı sömürüsü ek yetki kazandırmaz.
+  Bu durumda K-P28a-5 kabul edilir ve R-P28a-1 geri dönüşü (kısıtlı jeton + job) **kabul edilebilir** olur.
+  Yalıtım yine kalır, çünkü çökme oturumu düşürmemeli. AC-348 metni "+ kontrol izni" ile güncellenir.
+- **B (A reddedilirse, hepsi birlikte):** (1) K0 prototipi düşük bütünlük yerine önce **yeteneksiz AppContainer** (LPAC tercihen) dener.
+  Windows.Data.Pdf bir UWP API'si olduğundan AppContainer içinde çalışır. AppContainer olmadan ağ ve kullanıcı dosyası erişimi yoktur.
+  Profil oluşturulmadan `SECURITY_CAPABILITIES` ile başlatılır. Oluşturmak gerekirse iş sonunda `DeleteAppContainerProfile` çağrılır ve
+  iz testi bunu kapsar. İkilinin bulunduğu klasörde "ALL APPLICATION PACKAGES" okuma izni yoksa (İndirilenler) K0 bunu ölçer.
+  (2) AppContainer çalışmazsa onay öncesi ayrıştırma yapılmaz. Diyalog "Sayfa: yazdırırken hesaplanır" gösterir; bu, AC-349 için
+  proje-yöneticisi değişikliğidir. Ya da `rs.cap.print1` bildirilmez ve özellik o makinede kapalı kalır.
+  Kısıtlı jeton + düşük bütünlük ile onay öncesi ayrıştırma B altında **yeterli değildir**.
+Atanan: mimar (r2, §4.3/§4.4/§5.2/§12/§13) + proje-yoneticisi (AC-348 veya AC-349) → backend-dev (K0, K2, K3, K4), frontend-dev (K6).
+
+### [ORTA] O-P28a-1 Misafirdeki yetkili cid/pid kümesi sunucu durumuyla senkron değil: zaman aşımı veya kopmadan sonra içerik audit dışı uygulanabiliyor — A04 / A09
+
+Yer: docs/mimari-p28.md:154-159 (rapor yalnız bekleyen eşleşirse işlenir; sunucu TIMEOUT/ABANDONED/DISCONNECTED üretir), :183-186 (misafir
+"hâlâ bekleyen" der ama süreyi tanımlamaz), :96.
+Sorun: Bekleyen işin süresini yalnız sunucu sayıyor (pano 10 sn, yazdırma 10 dk). Misafirde son tarih tanımlı değil. WS koptuğunda
+misafirin kümeyi temizlediği de yazılı değil; DC, WS'den bağımsız olarak açık kalabiliyor. cid'in yöne bağlı olduğu da belirtilmemiş.
+İstismar senaryosu: Değiştirilmiş konsol `clip.push` yetkisini alır, `clip.ready`'yi bekletir. 10 sn sonra sunucu `TIMEOUT` audit'ini yazar
+ve `clipPending`'i siler. Konsol ardından `clip.data` gönderir. Misafir cid'i hâlâ bekleyen sayar ve metni panoya yazar. Gelen `clip.report{OK}`
+sunucuda eşleşmediği için yok sayılır: pano yazılmış, audit ise `fail/TIMEOUT` diyor. Aynı açık yazdırmada da var: misafir `ABANDONED`'dan
+sonra onay alıp basabilir. Ayrıca bir `clip.pull` cid'iyle teknisyenden gelen `clip.data` kabul edilirse, okuma yetkisi yazmaya dönüşür.
+Düzeltme (§4.4'e bağlayıcı kural):
+1. Misafir, cid/pid'i WS'den aldığı anda kendi monoton saatiyle bir son tarih koyar. Bu süre sunucununkinden kısadır: pano 8 sn;
+   yazdırmada aktarım + inspect 8 dk, diyalog 60 sn, toplam < 10 dk. Süre dolunca kimlik silinir ve `report{TIMEOUT|ERROR}` gönderilir.
+2. Kimlik yöne bağlanır: `push` → yalnız gelen `clip.data`; `pull` → yalnız okuma. `pid` → yalnız `print.offer`/`file`/`print.done`.
+3. Kimlik tek kullanımlıktır. Rapor gönderildiği anda silinir. Misafir oturum boyunca görülen kimlikleri tutar ve tekrar gelen yetkiyi reddeder.
+   Sunucu da oda içinde aynı cid/pid'in yeniden kullanımını `VALIDATION` ile reddeder (son 64 kimlik).
+4. WS koptuğunda (yeniden bağlanma dahil) misafirdeki tüm bekleyen kimlikler silinir, anahtar kapanır, işleyici job'u kapatılır.
+   Go birim testi sahte saatle 8 sn sonra gelen `clip.data`'nın uygulama sayacını 0 bıraktığını doğrular.
+Atanan: mimar (r2 §4.4) → backend-dev (K2, K3).
+
+### [ORTA] O-P28a-2 Onaylanan belge ile basılan belge arasındaki bağ ve `file` kanalı dizin sahipliği tanımsız — A04 (TOCTOU)
+
+Yer: docs/mimari-p28.md:176-181 (`print.offer.idx` konsol seçer, mevcut `file` kanalı paylaşılır), :203-204.
+Sorun: Şu kurallar yazılmamış: `print.done` sonrasında tampon sabit kalıyor mu, aynı pid için ikinci bir `print.offer` reddediliyor mu,
+`print.ready` gelmeden önceki çerçeveler atılıyor mu, print `idx`'i ile normal dosya aktarımı `idx`'i karışabilir mi.
+İstismar senaryosu: Konsol, sayfa sayısı hesaplanıp diyalog açıldıktan sonra aynı pid ile yeni bir `print.offer` ya da ek çerçeveler gönderir.
+Basılan belge, müşterinin onayladığı belge (sayfa sayısı ve ad) olmaz. Bir başka yol: print `idx`'i, müşterinin daha önce kabul ettiği bir
+dosya aktarımının `idx`'iyle aynı seçilir. Bu durumda yazdırma baytları dosya alıcısına gider ve diske yazılır (AC-350 iz garantisi bozulur),
+ya da tersi olur.
+Düzeltme: (1) pid başına tek `print.offer`. İkinci offer, `print.done` sonrasında gelen her çerçeve ya da `print.ready` öncesindeki çerçeve
+işi `CANCELLED/ERROR` ile bitirir. (2) `print.done` ile SHA-256 doğrulandıktan sonra tampon değişmez hâle gelir; inspect ve render bu aynı
+dilim üzerinde yapılır (kopya alınmaz, yeniden alım olmaz). (3) Misafir `idx → {file|print, kimlik}` sahiplik tablosu tutar.
+`print.offer.idx` o anda başka bir aktarımda ya da son 64 içinde kullanılmışsa reddedilir. Sahibi olmayan `idx` çerçevesi atılır.
+Atanan: mimar (r2 §4.4) → backend-dev (K3), frontend-dev (K6 dizin üretimi).
+
+### [ORTA] O-P28a-3 İşleyici çıktısı üst süreçte güvenilmeyen girdi olarak tanımlanmamış — A08
+
+Yer: docs/mimari-p28.md:231-233 (boru protokolü `{w,h,stride, BGR}`), :241-243 (GDI `StretchDIBits`), :158 (`pages ≤ 100000`).
+Sorun: Yalıtımın amacı sömürülmüş bir işleyiciyi içeride tutmaktır. Üst süreç ise uzunluk önekini, `w/h/stride`'ı ve sayfa sayısını
+doğrulamadan kullanırsa, sömürülen işleyici üst süreçte büyük bellek ayırma (DoS) ya da `StretchDIBits` aracılığıyla yığın taşması
+(BITMAPINFO ile tampon uyuşmazlığı) yaratabilir. Bu durumda kaçış korumalı alanı gerekmeden olur. Render boyutunun PDF sayfa ölçüsünden
+türetilmesi de sorunlu: 200 inçlik bir sayfa 300 DPI'da on binlerce piksele çıkar.
+Düzeltme (§5.2'ye): (1) Uzunluk öneki ≤ `w*h*3 + 64` ve mutlak üst sınır 64 MiB; aşılırsa job kapatılır, sonuç `ERROR`. (2) Render pikseli
+yazıcının yazdırılabilir alanından hesaplanır (DPI ≤ 300 ve ≤ 40 Mpx). Üst süreç bu hedefi `render` isteğinde yollar ve gelen `w,h` değerinin
+hedefle birebir aynı olduğunu, `stride == align4(w*3)` ve `len == stride*h` eşitliklerini taşma denetimli olarak doğrular.
+(3) `pages` 1..100000 aralığında değilse `INVALID_PDF`. Render, inspect'in döndürdüğü sayfa dizinleriyle sınırlıdır. (4) İşleyiciye yalnız
+`HANDLE_LIST` ile iki boru ucu verilir (`launch_windows.go:176` kalıbı); `PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY` uygulanır
+(dinamik kod, imzasız görüntü, alt süreç yasak). (5) Boru okuması üst süreçte ayrı bir goroutine'de yapılır ve zaman aşımı job'u kapatır.
+Atanan: mimar (r2 §5.2) → backend-dev (K4).
+
+### [ORTA] O-P28a-4 Gözetimsiz oturumda kapalılık (V45) yalnız istemcinin belirteç göndermemesine dayanıyor — A01 Broken Access Control
+
+Yer: docs/mimari-p28.md:25-26, :139 (helper `features=nil`), :92 (`ws-auth.ts` belirteçleri okur); apps/server/src/signaling/ws-auth.ts:140
+(`room.unattended` → `deviceTicket`).
+Sorun: Sunucu gözetimsiz odayı zaten ayırıyor, ama tasarım özelliği kapatmak için yardımcı süreçteki bir parametreye güveniyor. İleride bir
+hata, yanlışlıkla eklenen bir bağımsız değişken ya da yardımcı yerine gözetimli ikilinin bir cihaz biletiyle bağlanması olursa, yanında kimse
+olmayan bir makinede onay öncesi PDF ayrıştırma (Y-P28a-1) ve pano yolları açılır. Pano için yerel anahtar gerektiğinden etki pratikte
+yazdırma ayrıştırmasıyla sınırlıdır.
+Düzeltme: `ws-auth.ts` → `room.unattended` ise `features = ∅`; belirteçler hiç okunmaz. Bu, "ayrı kod yolu" sayılmaz; sunucudaki tek koşuldur.
+Entegrasyon testi: `rs.cap.clip1, rs.cap.print1` gönderen bir cihaz bileti sokedi için `guestFeatures=[]`, `print.request` → `FORBIDDEN`.
+Atanan: mimar (r2 §4.2) → backend-dev (K2).
+
+### [ORTA] O-P28a-5 `clip.consent` değişimi sınırsız audit satırı üretiyor — A04 / DoS
+
+Yer: docs/mimari-p28.md:150 (her değişimde audit), :314; apps/server/src/signaling/handlers.ts:36 (soket başına 50 mesaj/sn).
+Sorun: Misafir (bilet sahibi, hesapsız taraf) değiştirilmiş bir istemciyle `clip.consent{on:true}` ve `{on:false}` mesajlarını sırayla
+gönderebilir. "Aynı değer tekrarında no-op" kuralı sırayla gelen farklı değerleri durdurmaz. Sonuç: soket başına saniyede 50, birkaç soketle
+saatte milyonlarca `audit_logs` INSERT'i ve audit ekranının kullanılamaz hâle gelmesi.
+Düzeltme: oda başına `clip.consent` değişimi ≤ 6/dk (`CLIP_CONSENT_PER_MIN`). Aşan mesaj yok sayılır ve misafire `clip.consent{on:false}`
+gönderilir; bunun için metrik `rs_clip_print_denied_total{kind="consent",reason="rate"}` artar, audit yazılmaz. Gerçek kullanıcı tıklaması bu
+sınıra ulaşmaz. Entegrasyon testi: 7. değişim → audit sayısı 6.
+Atanan: mimar (r2 §4.3, §8.3) → backend-dev (K2).
+
+### [DÜŞÜK] D-P28a-1 Pano anahtarının görünen durumu mantıktan ayrışabilir
+
+Yer: docs/mimari-p28.md:252-256.
+Sorun: Onay kutusu `BS_AUTOCHECKBOX` ile yapılırsa enjekte tıklama, UIA Invoke ya da başka bir süreçten gelen `BM_CLICK` kutunun görünüşünü
+değiştirir. `userInput` süzgeci (thread_windows.go:117) mantıktaki değişikliği engeller, ama ekranda "açık" görünen bir anahtar müşteriyi
+yanıltır. Ardından gelen gerçek tıklama da `BM_GETCHECK` ile yanlış değeri okur.
+Düzeltme: `BS_CHECKBOX` (elle). Görünür durum yalnız `BM_SETCHECK(consent)` ile mantıktan yazılır. `BN_CLICKED`'de önce `userInput` denetlenir;
+geçmezse görünüm yeniden mantık durumuna çekilir. Gerçek klavye Space girdisi kabul edilir. Windows testi: `SendInput` tıklaması, `BM_CLICK`
+ve UIA Invoke sonrasında hem `BM_GETCHECK` hem mantık değeri `false` kalmalı. Atanan: backend-dev (K5).
+
+### [DÜŞÜK] D-P28a-2 Win32 pano ayrıntıları: SENSITIVE kümesi, atomik denetim, boyut, UI iş parçacığı
+
+Yer: docs/mimari-p28.md:257-261.
+Düzeltme: (1) SENSITIVE kümesi şu biçimlerden oluşur: `ExcludeClipboardContentFromMonitorProcessing`, `Clipboard Viewer Ignore`, değeri 0 olan
+`CanIncludeInClipboardHistory` ve değeri 0 olan `CanUploadToCloudClipboard`. KeePass/Bitwarden gibi parola yöneticileri bunlardan birini koyar.
+Bu kümeyle, teknisyenin koyduğu metin geri okunduğunda da `SENSITIVE` döner; bu güvenli taraftır, kılavuza yazılır.
+(2) Biçim denetimi ve okuma tek bir `OpenClipboard`…`CloseClipboard` içinde yapılır. Önce `GlobalSize` okunur; 131 074 baytı aşarsa veri
+kopyalanmadan `TOO_LARGE` döner. (3) Yazma sırasında `EmptyClipboard` + metin + iki geçmiş/bulut biçimi aynı açık oturumda konur; aksi hâlde
+geçmiş servisi ara durumu yakalar. (4) Gecikmeli işleme (`WM_RENDERFORMAT`) sırasında askıya alınmış bir sahip uygulama `GetClipboardData`'yı
+bekletebilir. Bu yüzden pano işlemleri onay diyaloğunun ve göstergenin çalıştığı UI iş parçacığında değil, kendi gizli penceresi olan ayrı bir
+iş parçacığında, 2 sn sınırla yapılır. Atanan: backend-dev (K4).
+
+### [DÜŞÜK] D-P28a-3 İstemci (Go) tarafı içerik/ad sızıntısı log taramasına dahil değil
+
+Yer: docs/mimari-p28.md:345 (log taraması: sunucu, audit, /metrics, tarayıcı konsolu).
+Sorun: PDF adı, pano içeriği ya da Windows.Data.Pdf hata metni Go istemcisinin günlüğüne veya tanılama paketine (`internal/diag`) düşebilir.
+Düzeltme: Go hata türleri yalnız sonuç kodu taşır; `print.offer.name` hiçbir `log`/`diag` çağrısına geçmez. Bunun için `flow/clipprint`'e
+bir sınır testi eklenir. Windows elle turunda istemcinin tanı çıktısında `P28A-ISARET-` ve `gizli-ad-` aranır. Atanan: backend-dev (K3, K4),
+devops (K7 tarama adımı).
+
+### [DÜŞÜK] D-P28a-4 Müşteri panosundan alınan metin teknisyen makinesinin pano geçmişinde kalıcılaşır
+
+Yer: docs/mimari-p28.md:197 (`navigator.clipboard.writeText`).
+Sorun: Tarayıcı geçmiş/bulut dışlama biçimlerini koyamaz. Müşterinin kişisel verisi teknisyenin Win+V geçmişine, bulut panosuna ve pano
+yöneticisine düşer (KVKK, R47).
+Düzeltme: kılavuzun Teknisyen bölümüne "Pano geçmişini kapatın / alınan metni kullandıktan sonra temizleyin" notu eklenir. Panelde "Al"
+sonuç toast'ına kısa bir hatırlatma konur. Kod değişikliği gerekmez. Atanan: teknik-yazar (K10), frontend-dev (K6 metin).
+
+### [BİLGİ] Pano anahtarı, kontrol sahibine karşı bir güvenlik sınırı değildir
+
+Kontrol izni olan teknisyen müşteri makinesinde Not Defteri'ni açıp Ctrl+V yaparak panoyu ekranda görebilir; SENSITIVE işaretini de bu yolla
+aşar. Anahtar bir şeffaflık ve rıza önlemidir. Kılavuz, DATASHEET ve aydınlatma metni "teknisyen panonuzu izniniz olmadan okuyamaz" gibi
+mutlak bir ifade kullanmamalıdır. Önerilen ifade: "Pano düğmeleri yalnız izninizle çalışır; kontrol verdiğiniz teknisyen ekranınızda
+gördüğünüz her şeyi görebilir". Atanan: teknik-yazar (K10).
+
+### [BİLGİ] Yapıştırma tuzağı (iki yön)
+
+Teknisyenin koyduğu metin müşteri tarafından bir komut satırına yapıştırılabilir. Müşteriden alınan metin de teknisyenin terminaline
+yapıştırılabilir. Bu, içerik aktarımının doğasında olan bir risktir. Kılavuza "alınan metni komut satırına körlemesine yapıştırmayın" notu
+eklenir. Kod gerekmez.
+
+### [BİLGİ] Audit'te hash yokluğu (AC-351)
+
+Hash olmadığı için kötüye kullanımda (rahatsız edici belge basılması) hangi belgenin basıldığı sonradan kanıtlanamaz. Öte yandan küçük ya da
+tahmin edilebilir belgelerde hash, içeriğin doğrulanmasına imkân verir. AC-351 ve tasarım kararı kabul edildi; değişiklik önerilmiyor.
+
+## Sorulan konulara yanıtlar
+
+| Konu | Değerlendirme |
+| --- | --- |
+| DC içeriğinin sunucu kapısına bağlanması (K-P28a-2) | Kalıp doğru: içerik sunucudan geçmiyor, ama misafir yalnız sunucunun WS ile yetkilendirdiği kimliği uyguluyor. DTLS ağdaki tekrar oynatmayı engelliyor; asıl tehdit değiştirilmiş konsol. Eksik olanlar: misafir tarafında süre, tek kullanım, yön bağı ve kopmada temizlik (O-P28a-1), ayrıca pid ↔ tampon ↔ idx bağı (O-P28a-2). Sunucunun alanları "yeniden kurması" ve şemanın sokete göre seçilmesi (1008) yerinde. |
+| Müşteri anahtarının yalnız yerel tıklamayla değişmesi | Mevcut S7-5/S7-12 altyapısı (`GetCurrentInputMessageSource`, yalnız IMO_HARDWARE yerel sayılır, fail-closed; thread_windows.go:89-117) uygun. `BM_CLICK`/UIA da `userInput=false` verir. Kalan risk görünen durumun ayrışması (D-P28a-1). Anahtar, kontrol sahibine karşı bir sınır değildir (Bilgi). Sunucunun `on:true`'yu yalnız GRANTED iken kabul etmesi ve VIEW'da kapatması doğru. |
+| Onay öncesi PDF ayrıştırma (K-P28a-5) | Kontrol izni kapısı olmadan **kabul edilemez** (Y-P28a-1). Kapı eklenirse kabul edilir. |
+| Düşük bütünlük çalışmazsa (R-P28a-1) | Y-P28a-1/A uygulanırsa kısıtlı jeton + job **kabul edilebilir**: yalıtım çökme ve kaynak sınırı için yeterli, ek yetki kazancı yok. A uygulanmazsa kabul edilemez; AppContainer ya da onay sonrası ayrıştırma gerekir (Y-P28a-1/B). Not: düşük bütünlük çalışsa bile tek başına gizliliği korumaz. |
+| Pano SENSITIVE / Win+V | Yaklaşım doğru; biçim kümesi genişletilmeli ve denetim ile okuma atomik yapılmalı (D-P28a-2). Yazmada geçmiş/bulut dışlama doğru (T9). Teknisyen tarafı geçmişi D-P28a-4'te. K-P28a-6 metni proje-yöneticisi onayına bağlı, güvenlik açısından onaylanır. |
+| DoS sınırları | Pano 30/dk, tek bekleyen iş, 64 KB / 8 parça, yazdırma 20/oturum, 30 sn ret beklemesi, 20 MiB + işleyici 512 MB yeterli. Eksikler: `clip.consent` audit taşkını (O-P28a-5) ve işleyici çıktısının üst süreçte sınırlanması (O-P28a-3). Sayfa sınırının olmaması kabul edilir, çünkü müşteri sayfa sayısını görüp onaylıyor. |
+| Audit içerik sızıntısı | Kabul: audit'te yalnız sayısal ve numaralandırılmış alanlar var; dosya adı ve hash WS'ye girmiyor, spool adı sabit. Reddedilen isteğin audit'e yazılmaması (K-P28a-8) kabul edilir. İstemci tarafı taraması eksik (D-P28a-3). |
+| Yetenek bildirimi sahteciliği | Belirteci yalnız misafir (korunan taraf) bildiriyor. Sahte bildirim ancak müşterinin kendisine zarar verir; eski istemci için `capsFor` geri uyumu doğru. Tek gerçek risk gözetimsiz odadır (O-P28a-4). |
+| Gözetimsiz oturumda devre dışılık | Sunucuda zorunlu kılınmalı (O-P28a-4). |
+
+## Otomatik tarama çıktıları
+
+Kod öncesi tasarım turu; yeni bağımlılık yok (WinRT saf Go, ADR-0031). Taramalar P28a-K8 kod turunda çalıştırılacak.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Kod henüz yok. Yanlış çıkan varsayımlar: K-P28a-5'teki "teknisyen yetkili" gerekçesi kontrol izni kapısı olmadan geçerli değil. §5.2'deki
+"düşük bütünlük + job ikinci savunma hattı" ifadesi yalnız bütünlük için doğru; gizlilik ve ağ için doğru değil (Y-P28a-1).
+
+## Olumlu
+
+- İçerik uçtan uca kalıyor; WS yalnız yetki, durum ve audit taşıyor; sunucu iletimde alanları yeniden kuruyor.
+- Konsolun DC'den doğrudan gönderdiği içerik reddediliyor (T3). Bu, "sunucuda 403" iddiasını gerçek bir kapı hâline getiriyor.
+- Windows.Data.Pdf seçimi `printto`/Adobe/PDFium/AGPL seçeneklerine göre doğru: JS ve eylem yok, diske yazım yok, ek ikili yok.
+- GDI yazdırması üst süreçte ve spool adı sabit; dosya adı yazdırma kuyruğuna düşmüyor.
+- Onay diyaloğu AC-116/G-03 kurallarını yeniden kullanıyor (Reddet varsayılan, 1,5 sn kilit, enjekte tıklama yok sayılıyor).
+- Pano izni her oturumda kapalı başlıyor, kontrol kapanınca sunucuda ve istemcide kapanıyor; okumada müşteriye bildirim gösteriliyor.
+- Beyan edilen boyuta güvenilmiyor (sayaç > size → iptal); UTF-8 ve U+0000 denetimi var.
+
+---
+
 ## P27 — kod turu 3 (2026-11-15, dal p27-wip, HEAD 9f12760; D-P27-K5 kapanışı + K12 web hızlı bakış)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (+2 bilgi)

@@ -1,6 +1,6 @@
 # ADR-0031 — Uzaktan yazdırma: yalnız Windows istemci, Windows.Data.Pdf + GDI, yalıtılmış işleyici süreç
 
-Tarih: 2026-11-15 · Durum: Önerildi (mimar; K0 prototipiyle kesinleşir) · İlgili: AC-283, AC-348..351, R45, `docs/mimari-p28.md` §5, ADR-0004, ADR-0009
+Tarih: 2026-11-15 · Durum: Önerildi r2 (mimar; güvenlik turu işlendi — yazdırma kontrol izni ister; K0 prototipiyle kesinleşir) · İlgili: AC-283, AC-348..351, R45, `docs/mimari-p28.md` §5, ADR-0004, ADR-0009
 
 ## Bağlam
 
@@ -42,3 +42,16 @@ geri dönüş var (özellik bildirimi `rs.cap.print1` kaldırılırsa düğme pa
 - (−) Sayfa sayısı için onaydan **önce** ayrıştırma (risk kabulü K-P28a-5; yalıtımla azaltılır).
 - (−) Düşük bütünlükte WinRT etkinleştirmesi doğrulanmadı → K0 prototipi; olmazsa kısıtlı jeton + job ile devam (güvenlik turuna bildirilir).
 - Genişleme: yazıcı seçimi/kopya/çift yüz (Sonra) aynı GDI katmanında DEVMODE alanlarıdır; P28b'de baytlar sunucu yolundan gelir (`PrintSource`).
+
+## r2 — güvenlik tasarım turu (2026-11-15, `docs/guvenlik-raporu.md` "P28a tasarım turu")
+
+- **Y-P28a-1 / seçenek A (koordinatör kararı):** yazdırma isteği ancak müşteri **uzaktan kontrol izni (GRANTED)** vermişken kabul edilir;
+  izin VIEW'a dönünce bekleyen iş iptal edilir. Onay öncesi ayrıştırma (sayfa sayısı) bu koşulla kabul edilir: kontrol sahibi teknisyen
+  ayrıştırıcı sömürüsüyle ek yetki kazanmaz.
+- Düşük bütünlük + job **bütünlük, çökme ve kaynak** sınırıdır; gizlilik ve ağ sınırı **değildir** (Sonuçlar'daki "ikinci savunma hattı"
+  ifadesi bu anlamda okunur). K0'da düşük bütünlük çalışmazsa kısıtlı jeton + job ile devam edilir (kabul edilebilir).
+- **O-P28a-3:** işleyici çıktısı üst süreçte güvenilmeyen girdidir: çerçeve ≤ 64 MiB, render hedef pikseli (≤ 300 DPI, ≤ 40 Mpx) üst süreç
+  belirler ve dönen `w/h/stride/len` birebir doğrulanır; `pages` 1..100000; işleyiciye `HANDLE_LIST` ile yalnız iki boru ucu ve
+  `PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY` (dinamik kod yasak, yalnız Microsoft imzalı görüntü, alt süreç yasak — K0 doğrular).
+- AppContainer (seçenek B) seçilmedi: A ile gerekmez; karmaşıklık ve profil izi ekler. Genişleme noktası: ileride kontrol izni koşulu
+  kaldırılmak istenirse B (LPAC) zorunlu hâle gelir.
