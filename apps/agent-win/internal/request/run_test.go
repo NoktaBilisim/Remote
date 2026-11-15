@@ -122,8 +122,6 @@ func (c *fakeConn) Close(normal bool) error {
 // fakeUI form kararlarını sırayla verir; bekleme ekranı çağrılarını kaydeder.
 type fakeUI struct {
 	mu       sync.Mutex
-	homes    []HomeAction // boşsa HomeSupport (mevcut testler doğrudan forma geçer)
-	hviews   []HomeView
 	forms    []func(FormView) (FormAction, Form)
 	views    []FormView
 	problems []ProblemAction
@@ -140,21 +138,6 @@ type fakeUI struct {
 func newUI() *fakeUI {
 	return &fakeUI{accepted: make(chan AcceptView, 8), waiting: make(chan WaitView, 64), chats: make(chan ChatView, 256),
 		chatIn: make(chan string, 8)}
-}
-
-func (u *fakeUI) RequestHome(_ context.Context, v HomeView) HomeAction {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	u.hviews = append(u.hviews, v)
-	if len(u.homes) == 0 {
-		if !v.Support {
-			return HomeClose
-		}
-		return HomeSupport
-	}
-	a := u.homes[0]
-	u.homes = u.homes[1:]
-	return a
 }
 
 func (u *fakeUI) RequestProblem(_ context.Context, p Problem) ProblemAction {

@@ -8,48 +8,46 @@ import (
 	"remote-support/agent-win/internal/request"
 )
 
-func TestAC189HomeTabOrder(t *testing.T) {
+// TestAC190AC189FirmHomeSingleScreen tek ana ekran (2026-11-15): satır yoksa "Destek iste" pasif, varsayılan "Bağlantı
+// kodum var", AC-190 açıklaması; dosyanın firması tek satırsa öneksiz ve "Bu firmayı unut" pasif; kayıtlı firmada
+// "Kayıtlı firma: …" ve unut etkin. Tab sırası her durumda aynı.
+func TestAC190AC189FirmHomeSingleScreen(t *testing.T) {
+	const order = "Destek iste|Bağlantı kodum var|Bu firmayı unut|Bu bilgisayarı unut (tüm firmalar)"
+	file := launch.FirmRow{Text: "Bu dosyanın firması: Ref Firma", File: true}
+	reg := launch.FirmRow{Key: "k", Text: "A (kayıt: 01.11.2026)"}
 	cases := []struct {
-		name string
-		v    request.HomeView
-		want []string
-		def  string
+		name      string
+		v         launch.FirmView
+		text      string
+		def       string
+		support   bool
+		forgetOne bool
+		listed    bool
 	}{
-		{"kaynaklı + kötüye kullanım", request.HomeView{Support: true, AbuseEmail: "a@b.c"},
-			[]string{"Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut", "Kötüye kullanımı bildir"}, "Destek iste"},
-		{"kaynaklı, adres yok", request.HomeView{Support: true},
-			[]string{"Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut"}, "Destek iste"},
-		{"AC-190 kaynaksız", request.HomeView{}, []string{"Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut"}, "Bağlantı kodum var"},
+		{"AC-190 satır yok", launch.FirmView{}, request.MsgNoSource, "Bağlantı kodum var", false, false, false},
+		{"yalnız dosyanın firması", launch.FirmView{Firms: []launch.FirmRow{file}, Single: true}, file.Text, "Destek iste", true, false, false},
+		{"tek kayıtlı firma", launch.FirmView{Firms: []launch.FirmRow{reg}, Single: true}, "Kayıtlı firma: " + reg.Text, "Destek iste", true, true, false},
+		{"dosyanın firması + kayıtlı", launch.FirmView{Firms: []launch.FirmRow{file, reg}}, "", "Destek iste", true, false, true},
 	}
 	for _, c := range cases {
-		got := homeButtons(c.v)
-		if len(got) != len(c.want) {
-			t.Fatalf("%s: %+v", c.name, got)
-		}
-		defs := 0
-		for i, b := range got {
-			if b.text != c.want[i] {
-				t.Errorf("%s: %d. düğme %q, beklenen %q", c.name, i, b.text, c.want[i])
-			}
-			if b.def {
-				defs++
-				if b.text != c.def || !b.enabled {
-					t.Errorf("%s: varsayılan %q", c.name, b.text)
-				}
-			}
-			if b.text == "Destek iste" && b.enabled != c.v.Support {
-				t.Errorf("%s: Destek iste etkinliği", c.name)
-			}
-			if b.text != "Destek iste" && !b.enabled {
-				t.Errorf("%s: %s her zaman etkin", c.name, b.text)
+		var names []string
+		for _, b := range firmButtons(c.v) {
+			names = append(names, b.text)
+			if b.def && b.text != c.def {
+				t.Errorf("%s: varsayılan %q", c.name, b.text)
 			}
 		}
-		if defs != 1 {
-			t.Errorf("%s: tek varsayılan düğme olmalı", c.name)
+		b := firmButtons(c.v)
+		if strings.Join(names, "|") != order || b[0].enabled != c.support || b[2].enabled != c.forgetOne || !b[1].enabled || !b[3].enabled {
+			t.Errorf("%s: %+v", c.name, b)
+		}
+		if listed(c.v) != c.listed || (!c.listed && singleText(c.v) != c.text) {
+			t.Errorf("%s: liste=%v satır=%q", c.name, listed(c.v), singleText(c.v))
 		}
 	}
-	if registeredText("Nokta – Örnek") != "Bu bilgisayar Nokta – Örnek için kayıtlı" || registeredText("") != "" {
-		t.Fatal("kayıt satırı")
+	v := launch.FirmView{Firms: []launch.FirmRow{file, reg}}
+	if forgettable(v, 0) || !forgettable(v, 1) || forgettable(v, 2) || forgettable(v, -1) {
+		t.Fatal("yalnız kayıtlı satır unutulabilir (seçim değişince düğme güncellenir)")
 	}
 }
 

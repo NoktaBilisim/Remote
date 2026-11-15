@@ -7,12 +7,11 @@ import (
 	"remote-support/agent-win/internal/request"
 )
 
-// Ana ekran düğme kimlikleri (home_windows.go).
+// Ana ekran (FirmHome) düğme kimlikleri (home_windows.go).
 const (
 	idHomeSupport = 70
 	idHomeCode    = 71
 	idHomeForget  = 72
-	idHomeAbuse   = 73
 )
 
 // homeButton ana ekran düğmesi; dilim sırası oluşturma = Tab sırasıdır (AC-189).
@@ -23,30 +22,8 @@ type homeButton struct {
 	def     bool // varsayılan odak ve varsayılan düğme
 }
 
-// homeButtons AC-189 Tab sırası: Destek iste → Bağlantı kodum var → Bu bilgisayarı unut → Kötüye kullanımı bildir.
-// "Destek iste" pasifse (AC-190) varsayılan odak "Bağlantı kodum var". "Bu bilgisayarı unut" her zaman etkin
-// (idempotent). "Kötüye kullanımı bildir" yalnız adres varsa.
-func homeButtons(v request.HomeView) []homeButton {
-	b := []homeButton{
-		{text: "Destek iste", id: idHomeSupport, enabled: v.Support, def: v.Support},
-		{text: "Bağlantı kodum var", id: idHomeCode, enabled: true, def: !v.Support},
-		{text: "Bu bilgisayarı unut", id: idHomeForget, enabled: true},
-	}
-	if v.AbuseEmail != "" {
-		b = append(b, homeButton{text: "Kötüye kullanımı bildir", id: idHomeAbuse, enabled: true})
-	}
-	return b
-}
-
-// registeredText AC-182 kayıt satırı.
-func registeredText(label string) string {
-	if label == "" {
-		return ""
-	}
-	return "Bu bilgisayar " + label + " için kayıtlı"
-}
-
-// Firma listeli ana ekran (P20 K3, mimari-e11 §8d.3) kimlikleri ve metinleri (home_windows.go FirmHome).
+// Firma listeli tek ana ekran (P20 K3, mimari-e11 §8d.3; tek ekran kararı 2026-11-15) kimlikleri ve metinleri
+// (home_windows.go FirmHome).
 const (
 	idFirmList      = 74
 	idFirmForgetOne = 75
@@ -54,6 +31,7 @@ const (
 	idFirmAutostart = 77
 
 	firmPick          = "Destek istemek istediğiniz firmayı seçin:"
+	singlePrefix      = "Kayıtlı firma: "
 	autostartInfo     = "Windows açıldığında program tepside, pencere açmadan ve sunucuya bağlanmadan başlar."
 	confirmForgetOne  = "%s bu bilgisayardan unutulsun mu? Bu firmadan destek istemek için yeniden dosya veya kod gerekir."
 	confirmForgetAll  = "Bu bilgisayardaki tüm firma kayıtları ve kayıtlı bilgileriniz silinsin mi? Başka sunucunun kayıtları yalnız bu bilgisayardan silinir; o sunucuda iptal edilemez."
@@ -63,15 +41,38 @@ const (
 )
 
 // firmButtons firma ekranı Tab sırası: Destek iste → Bağlantı kodum var → Bu firmayı unut → Bu bilgisayarı unut (tüm
-// firmalar). "Destek iste" ve "Bu firmayı unut" seçili firma varken etkindir (liste her zaman bir seçimle açılır).
+// firmalar). Liste her zaman ilk satır seçili açılır: "Destek iste" satır varken etkindir (yoksa AC-190: pasif, varsayılan
+// "Bağlantı kodum var"); "Bu firmayı unut" seçili satır kayıtlı bir firmaysa etkindir (dosyanın firması unutulamaz).
 func firmButtons(v launch.FirmView) []homeButton {
 	has := len(v.Firms) > 0
 	return []homeButton{
 		{text: "Destek iste", id: idHomeSupport, enabled: has, def: has},
 		{text: "Bağlantı kodum var", id: idHomeCode, enabled: true, def: !has},
-		{text: "Bu firmayı unut", id: idFirmForgetOne, enabled: has},
+		{text: "Bu firmayı unut", id: idFirmForgetOne, enabled: forgettable(v, 0)},
 		{text: "Bu bilgisayarı unut (tüm firmalar)", id: idHomeForget, enabled: true},
 	}
+}
+
+// forgettable i. satır "Bu firmayı unut" ile silinebilir mi (yalnız kayıtlı firma; dosyanın firması kayıt değildir).
+func forgettable(v launch.FirmView, i int) bool {
+	return i >= 0 && i < len(v.Firms) && !v.Firms[i].File
+}
+
+// singleText tek satırlık ana ekranın satırı: kayıtlı firma "Kayıtlı firma: …", dosyanın firması kendi metniyle; satır
+// yoksa AC-190 açıklaması (firma dosyası veya kod).
+func singleText(v launch.FirmView) string {
+	switch {
+	case len(v.Firms) == 0:
+		return request.MsgNoSource
+	case v.Firms[0].File:
+		return v.Firms[0].Text
+	}
+	return singlePrefix + v.Firms[0].Text
+}
+
+// listed firmalar liste kutusunda mı (birden çok satır ya da başka köken bloğu); değilse tek satır etiketi.
+func listed(v launch.FirmView) bool {
+	return !v.Single && len(v.Firms) > 0
 }
 
 // othersText başka kökenli kayıtlar: başlık + girintili satırlar (seçilemez, yalnız bilgi; K-P20-12).
@@ -106,7 +107,7 @@ func firmListRows(v launch.FirmView) int {
 // firmHomeHeight FirmHome istemci alanı yüksekliği (home_windows.go yerleşimiyle aynı adımlar).
 func firmHomeHeight(v launch.FirmView) int32 {
 	y := int32(46)
-	if v.Single {
+	if !listed(v) {
 		y += 40
 	} else {
 		y += 24 + int32(firmListRows(v)*firmRowHeight+8) + 8

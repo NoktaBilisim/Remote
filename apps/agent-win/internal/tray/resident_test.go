@@ -325,7 +325,6 @@ func TestAC107NormalExitWhenNotResident(t *testing.T) {
 	}{
 		{"tepsi tercihi kapalı (AC-107 aynen)", func(f *fixture, _ *Resident) { f.st = state(remember.StatusOK, false, 1) }},
 		{"kayıt okunamıyor", func(f *fixture, _ *Resident) { f.st = state(remember.StatusUnreadable, true, 1) }},
-		{"kod/ref dosyası bağımsız", func(_ *fixture, r *Resident) { r.Standalone = true }},
 		{"yükseltilmiş", func(_ *fixture, r *Resident) { r.Elevated = true }},
 	}
 	for _, c := range cases {
@@ -335,6 +334,36 @@ func TestAC107NormalExitWhenNotResident(t *testing.T) {
 		wait(t, runAsync(func() { r.RunNormal(context.Background()) }))
 		if f.started != 0 {
 			t.Errorf("%s: tepsiye inilmemeli", c.name)
+		}
+	}
+}
+
+// TestAC253CodeSessionEndThenTrayRule tek ekran (2026-11-15): kod dosyasıyla doğrudan başlayan oturum bittiğinde (son
+// ekran gösterilir) tepsi kuralı normal açılıştakiyle aynıdır — tercih açıksa tepsiye inilir, kapalıysa çıkılır;
+// yükseltilmiş süreçte hiç tepsi yok (K-P20-8).
+func TestAC253CodeSessionEndThenTrayRule(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		tray     bool
+		elevated bool
+		want     int
+	}{{"tepsi açık", true, false, 1}, {"tepsi kapalı", false, false, 0}, {"yükseltilmiş", true, true, 0}} {
+		f := newFixture()
+		f.st = state(remember.StatusOK, c.tray, 1)
+		f.log.body = func(context.Context, *control.Gate, func()) flow.Outcome {
+			return flow.Outcome{Message: flow.Message{Title: "Oturum sona erdi"}} // kod akışının son ekranı
+		}
+		r := f.resident()
+		r.Elevated = c.elevated
+		done := runAsync(func() { r.RunNormal(context.Background()) })
+		if c.want == 1 {
+			f.log.waitIdle(t, 1)
+			time.Sleep(30 * time.Millisecond)
+			f.icon.cmds <- CmdExit
+		}
+		wait(t, done)
+		if f.startedN() != c.want || f.log.ended != 1 {
+			t.Errorf("%s: tepsi=%d son ekran=%d", c.name, f.startedN(), f.log.ended)
 		}
 	}
 }

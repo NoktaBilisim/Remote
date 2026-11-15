@@ -41,7 +41,7 @@ type Deps struct {
 	Flow      flow.Deps
 	Request   request.Deps
 	Now       func() time.Time
-	// Home P20 firma listeli ana ekran; nil ise Request.UI HomeUI'yi uyguluyorsa o kullanılır.
+	// Home tek ana ekran (firma listesi; zorunlu — nil ise ana ekran açılmaz, sonuç boş döner).
 	Home HomeUI
 	// Autostart "Windows açılışında başlat" (internal/autorun); nil ise Windows'ta autorun.New(), başka yerde kapalı.
 	Autostart Autostart
@@ -59,9 +59,6 @@ func Run(ctx context.Context, d Deps) flow.Outcome {
 	if d.Autostart == nil {
 		d.Autostart = defaultAutostart()
 	}
-	if d.Home == nil {
-		d.Home, _ = d.Request.UI.(HomeUI)
-	}
 	obs := &observedAPI{API: d.API}
 	d.API = obs
 	server, serverOK := remember.CanonicalOrigin(d.ServerURL.String())
@@ -77,12 +74,11 @@ func Run(ctx context.Context, d Deps) flow.Outcome {
 			}
 		}
 	}
-	var own []remember.Binding
-	if serverOK {
-		own = st.Data.ForOrigin(server)
+	if !serverOK {
+		server = ""
 	}
 	d.Flow.API = d.API
-	in := Input{Bindings: len(own)}
+	in := Input{Bindings: len(st.Data.ForOrigin(server))}
 	var info *api.TenantRequestInfo
 	var infoErr error
 	ref, isRef := pairing.RefFromFileName(d.Exe)
@@ -109,12 +105,14 @@ func Run(ctx context.Context, d Deps) flow.Outcome {
 	if dec.Screen == ScreenCode {
 		return flow.Run(ctx, d.Flow, code)
 	}
-	if dec.Source == SourceBinding && d.Home != nil {
-		return d.firmHome(ctx, server, joinNotes(append([]string{dec.Notice}, notes...)))
+	if d.Home == nil {
+		return flow.Outcome{}
 	}
-	dec.Notice = joinNotes(append([]string{dec.Notice}, notes...))
-	rd := d.requestDeps(dec, ref, info, infoErr, own, server)
-	return d.runRequest(ctx, rd)
+	var file *fileFirm
+	if dec.FileRow {
+		file = &fileFirm{ref: ref, info: info, err: infoErr}
+	}
+	return d.firmHome(ctx, server, file, joinNotes(append([]string{dec.Notice}, notes...)))
 }
 
 // startState açılış okuma durumu (K5 Migrate sonucunu verirse o, değilse LoadState). Depo yoksa kayıtsız.
@@ -128,46 +126,27 @@ func (d Deps) startState() remember.MigrateResult {
 	return remember.MigrateResult{}
 }
 
-// requestDeps talep modu (firma dosyası, kaynaksız ekran; HomeUI yoksa en son kullanılan kayıt).
-func (d Deps) requestDeps(dec Decision, ref string, info *api.TenantRequestInfo, infoErr error, own []remember.Binding, server string) request.Deps {
-	rd := d.baseRequest(server)
-	rd.Notice = dec.Notice
-	switch dec.Source {
-	case SourceRef:
-		rd.Ref, rd.Info, rd.InfoErr = ref, info, infoErr
-	case SourceBinding:
-		rd.BindingKey = own[0].Key
-		key := own[0].Key
-		rd.OnBindingInvalid = func() { d.onBindingInvalid(key, server) }
-	}
-	if len(own) > 0 {
-		rd.Registered = bindingLabel(own[0])
-	}
-	return rd
-}
-
 // baseRequest talep modunun ortak alanları.
-func (d Deps) baseRequest(server string) request.Deps {
+func (d Deps) baseRequest() request.Deps {
 	rd := d.Request
 	rd.API, rd.ServerURL = d.API, d.ServerURL
 	rd.BindingEnabled = d.Flow.Binding != nil // AC-188 satırı yalnız kayıt alınabiliyorsa
 	if d.Store != nil {
 		rd.Remember = d.Store
 	}
-	rd.ForgetComputer = func(ctx context.Context) error {
-		_, err := d.forgetAll(ctx, server)
-		return err
-	}
 	return rd
 }
 
-// runRequest talep modu → kod akışı ya da talepten doğan oturum (P8b-2 sırası aynen).
-func (d Deps) runRequest(ctx context.Context, rd request.Deps) flow.Outcome {
+// runRequest talep modu → kod akışı ya da talepten doğan oturum (P8b-2 sırası aynen). back=true: talep ana ekrana
+// döner (AC-185 kayıt geçersiz; note bilgi satırı).
+func (d Deps) runRequest(ctx context.Context, rd request.Deps) (flow.Outcome, bool, string) {
 	res := request.Run(ctx, rd)
 	switch res.Kind {
+	case request.OutBack:
+		return flow.Outcome{}, true, res.Notice
 	case request.OutCodeMode: // AC-162, AC-189: "Bağlantı kodum var" → 8 hane girişi + lobi
 		d.Flow.API = d.API
-		return flow.Run(ctx, d.Flow, "")
+		return flow.Run(ctx, d.Flow, ""), false, ""
 	case request.OutShare:
 		fd := d.Flow
 		fd.Admitted = func() { res.Release(request.ReleaseAdmitted) }
@@ -179,9 +158,9 @@ func (d Deps) runRequest(ctx context.Context, rd request.Deps) flow.Outcome {
 			kind = request.ReleaseFailed
 		}
 		res.Release(kind)
-		return out
+		return out, false, ""
 	}
-	return flow.Outcome{} // AC-163: pencere kapatıldı
+	return flow.Outcome{}, false, "" // AC-163: pencere kapatıldı
 }
 
 func apiErr(err error) (*api.Error, bool) {

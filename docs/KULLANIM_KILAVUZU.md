@@ -739,10 +739,10 @@ NoktaDestek dosyasını (hangisi olursa olsun) açıp **Destek iste**'ye basman�
 - Oturumu lobide **Vazgeç** ile bırakırsanız ya da ekranınızı paylaşmazsanız bilgisayar hatırlanmaz.
 
 **Programı yeniden açtığımda ne görürüm?**
-Hızlı Destek 0.12 ve sonrasında bilgisayarınız kayıtlıysa **firma listeli ana ekran** açılır (bkz. "Birden çok firmadan
-destek alıyorum"). Aşağıdaki açıklama 0.10–0.11 ana ekranını ve 0.12'de geçerli bir firma dosyasıyla açılan ekranı
-anlatır: üstte firma adı, kırmızı dolandırıcılık uyarısı ve (kayıtlıysa) "Bu bilgisayar <firma>[ – <müşteri
-firma>] için kayıtlı" satırı bulunur. Altında dört düğme vardır:
+Hızlı Destek 0.12 ve sonrasında program hangi dosyayla açılırsa açılsın **aynı ana ekran** açılır (firma listesi; bkz.
+"Birden çok firmadan destek alıyorum"). Aşağıdaki tablo 0.10–0.11 ana ekranını anlatır: üstte firma adı, kırmızı
+dolandırıcılık uyarısı ve (kayıtlıysa) "Bu bilgisayar <firma>[ – <müşteri firma>] için kayıtlı" satırı bulunur. Altında
+dört düğme vardır:
 
 | Düğme                       | Ne yapar                                                                                                    |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -755,15 +755,17 @@ Tab tuşu düğmeler arasında bu sırayla gezer; Enter seçili düğmeyi çalı
 
 **Hangi durumda hangi ekran açılır?**
 
-- Teknisyenin gönderdiği geçerli `Destek-<kod>.exe` → her zamanki karşılama ekranı (kod akışı).
-- Süresi dolmuş veya kullanılmış `Destek-<kod>.exe` ve bilgisayar kayıtlıysa → ana ekran, üstte "Bu destek bağlantısının
-  süresi doldu." **Destek iste** ile yine talep gönderebilirsiniz.
-- Firmanızın verdiği `NoktaDestek-<ad>-….exe` geçerliyse → ana ekran; talep o dosyanın firmasına gider.
-- O dosya artık geçerli değilse ve bilgisayar kayıtlıysa → ana ekran, üstte "Bu dosya artık geçerli değil; bu
-  bilgisayarın kaydıyla destek isteyebilirsiniz."
-- Adı değiştirilmiş dosya (ör. `NoktaDestek.exe`) ve bilgisayar kayıtlı değilse → **Destek iste** pasiftir; altında
-  "Destek istemek için firmanızın gönderdiği dosyayı kullanın veya teknisyeninizin verdiği kodu girin" yazar.
-  **Bağlantı kodum var** ile devam edin.
+- Teknisyenin gönderdiği geçerli `Destek-<kod>.exe` → her zamanki karşılama ekranı (kod akışı; oturum doğrudan başlar).
+  Oturum bitince **Tepside çalıştır** açıksa program tepsiye iner, kapalıysa kapanır.
+- Süresi dolmuş veya kullanılmış `Destek-<kod>.exe` → ana ekran, üstte "Bu destek bağlantısının süresi doldu."
+  Bilgisayar kayıtlıysa listeden firmayı seçip **Destek iste** ile yine talep gönderebilirsiniz.
+- Firmanızın verdiği `NoktaDestek-<ad>-….exe` geçerliyse → ana ekran; listenin en üstünde "Bu dosyanın firması: <firma>"
+  satırı seçili gelir. **Destek iste**'ye basınca talep o dosyanın firmasına gider.
+- O dosya artık geçerli değilse → ana ekran, üstte "Bu dosya artık geçerli değil…" yazar; kayıtlı firmalarınız varsa
+  onlardan destek isteyebilir, yoksa **Bağlantı kodum var** ile devam edebilirsiniz.
+- Bilgisayar hiçbir firmaya kayıtlı değilse ve dosya da firma dosyası değilse → **Destek iste** pasiftir; "Destek
+  istemek için firmanızın gönderdiği dosyayı kullanın veya teknisyeninizin verdiği kodu girin" yazar. **Bağlantı kodum
+  var** ile devam edin.
 
 **"Bu bilgisayarı unut" ne yapar?**
 
@@ -795,12 +797,11 @@ Eski sürümdeki (0.10–0.11) kaydınız ilk açılışta kendiliğinden taşı
 
 **Firma listesi ne zaman görünür?**
 
-- Programın adı değiştirilmişse (ör. `NoktaDestek.exe`) ve bilgisayar kayıtlıysa.
-- Elinizdeki firma dosyasının ya da teknisyen kodunun süresi dolduysa ve bilgisayar kayıtlıysa.
-- Program tepsideyken simgeye tıkladığınızda (bkz. sonraki bölüm).
-
-Geçerli bir firma dosyası (`NoktaDestek-<firma>-….exe`) ya da geçerli bir kod dosyası (`Destek-<kod>.exe`) açarsanız liste
-görünmez; o dosyanın firmasının ekranı açılır.
+Her zaman: program adı ne olursa olsun, firma dosyasıyla, süresi dolmuş kodla ya da tepsiden açıldığında aynı ekran
+gelir. Yalnız geçerli bir teknisyen kodu dosyası (`Destek-<kod>.exe`) oturumu doğrudan başlatır. Firma dosyasıyla
+açtıysanız o dosyanın firması listenin en üstünde ve seçili gelir ("Bu dosyanın firması: <firma>"); bu satır bir kayıt
+değildir, bu yüzden onda **Bu firmayı unut** pasiftir. Firma zaten kayıtlıysa aynı firma listede ayrıca kayıt tarihiyle
+görünür; ikisinden de destek isteyebilirsiniz.
 
 **Ekranda neler var?**
 
@@ -852,8 +853,9 @@ görünmez; o dosyanın firmasının ekranı açılır.
 ### Program tepside çalışsın ve Windows açılınca başlasın mı? (Hızlı Destek 0.12 ve sonrası)
 
 Sık destek alıyorsanız programı her seferinde aramak zorunda kalmamak için iki seçenek vardır. İkisi de **kapalı** gelir;
-siz açmadıkça program bilgisayarınızda çalışmaya devam etmez. Seçenekler firma listeli ana ekranın altındadır, bu yüzden
-yalnız bilgisayarınız en az bir firmaya kayıtlıyken görünür.
+siz açmadıkça program bilgisayarınızda çalışmaya devam etmez. Seçenekler ana ekranın altındadır ve program hangi dosyayla
+açılırsa açılsın aynı çalışır. Bilgisayarınız henüz hiçbir firmaya kayıtlı değilse kutular pasiftir ve "Tepside
+çalıştır, bu bilgisayar bir firmaya kaydolduktan sonra (ilk destek oturumunun ardından) açılabilir." yazar.
 
 **Tepside çalıştır nasıl açılır?**
 
@@ -862,8 +864,9 @@ yalnız bilgisayarınız en az bir firmaya kayıtlıyken görünür.
    alanına (tepsi) iner. İlk seferde "Program tepside çalışmaya devam ediyor" balonu çıkar.
 3. Oturum bitince de program kapanmaz: son ekran birkaç saniye görünür, sonra pencere kapanır ve program tepside kalır.
 
-Geçerli bir firma dosyası ya da kod dosyasıyla açtığınız program pencere kapanınca her zamanki gibi kapanır; tepsiye
-inmez. Tepsi en kolay **Windows açılışında başlat** ile kullanılır.
+Firma dosyası ya da kod dosyasıyla açtığınız program da aynı kurala uyar: **Tepside çalıştır** açıksa pencere
+kapanınca tepsiye iner. Tepside zaten bir Nokta Destek çalışıyorsa ikinci simge açılmaz; bu pencere kapanınca program
+kapanır. Tepsi en kolay **Windows açılışında başlat** ile kullanılır.
 
 **Tepsi simgesiyle neler yapılır?**
 

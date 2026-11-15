@@ -25,14 +25,13 @@ type Deps struct {
 	Remember  Remember
 	ServerURL *url.URL
 	// Ref ve BindingKey karşılıklı dışlayandır (P8c, mimari-e10 §8.1): Ref → firma/müşteri dosyası; BindingKey →
-	// bilgisayar kaydı; ikisi de boşsa kaynaksız ana ekran ("Destek iste" pasif, AC-190).
+	// bilgisayar kaydı. Talep modu ana ekran göstermez (tek ana ekran launch'taki firma listesidir; P20 sadelik kararı).
 	Ref        string
 	BindingKey string
 	Version    string
-	// Registered yerel kaydın etiketi ("<firma>[ – <müşteri>]"); Ref/kaynaksız modda ana ekranda bilgi olarak.
+	// Registered seçili kaydın YEREL etiketi ("<firma>[ – <müşteri>]"); bekleme penceresi başlığı (G-P20-7). Ref
+	// modunda boş.
 	Registered string
-	// Notice ana ekranın ilk bilgi satırı (launch kararı: süre doldu, dosya geçersiz, AC-185).
-	Notice string
 	// Info / InfoErr launch'ın Ref için aldığı ilk yanıt (aynı isteği tekrarlamamak için); ilk turda bir kez kullanılır.
 	Info    *api.TenantRequestInfo
 	InfoErr error
@@ -41,8 +40,6 @@ type Deps struct {
 	BindingEnabled bool
 	// OnBindingInvalid BINDING_INVALID (status/oluşturma): kayıt silinir, kişisel bilgiler kalır (AC-185).
 	OnBindingInvalid func()
-	// ForgetComputer "Bu bilgisayarı unut" (AC-186): yerel silme + en iyi çaba sunucu iptali. Hata yalnız yerel silme.
-	ForgetComputer func(ctx context.Context) error
 	// Logo `tenant.logoUrl`'i indirir (api.Client.Logo); nil olabilir.
 	Logo func(ctx context.Context, logoURL string) (image.Image, error)
 	// Test kancaları (varsayılan: time.Now, time.After, crypto/rand jitter, 120 sn / 2 sn).
@@ -95,10 +92,7 @@ type runner struct {
 	vals       Form
 	rem        remember.Personal
 	remembered bool
-	// P8c ana ekran durumu (home.go).
-	registered string
-	homeNotice string
-	homeDone   bool
+	registered string // bekleme penceresi başlığı (G-P20-7)
 	notice     string
 	// forgetWarn QA-P8b2-2: dosya silinemedi (diskte kişisel veri kaldı) uyarısı; başarılı bir silmeye kadar
 	// formda ve bekleme ekranında görünür kalır.
@@ -128,7 +122,7 @@ func Run(ctx context.Context, d Deps) Outcome {
 	if d.CancelWait == 0 {
 		d.CancelWait = 4 * time.Second // AC-141: 5 sn içinde İPTAL
 	}
-	r := &runner{d: d, instance: newKey(), registered: d.Registered, homeNotice: d.Notice}
+	r := &runner{d: d, instance: newKey(), registered: d.Registered}
 	if d.Remember != nil {
 		if rem, ok := d.Remember.LoadPersonal(); ok {
 			r.rem, r.remembered = rem, true
@@ -138,11 +132,6 @@ func Run(ctx context.Context, d Deps) Outcome {
 	for {
 		if out := r.loadInfo(ctx); out != nil {
 			return *out
-		}
-		if !r.homeDone || r.info == nil {
-			if out := r.home(ctx); out != nil {
-				return *out
-			}
 		}
 		created, reload, out := r.form(ctx)
 		if out != nil {
@@ -219,9 +208,8 @@ func infoProblem(err error) Problem {
 }
 
 func (r *runner) loadInfo(ctx context.Context) *Outcome {
-	if r.d.Ref == "" && r.d.BindingKey == "" {
-		r.info = nil // kaynaksız ana ekran (AC-190)
-		return nil
+	if r.d.Ref == "" && r.d.BindingKey == "" { // kaynaksız talep yok (AC-190 ana ekranda): ana ekrana dön
+		return &Outcome{Kind: OutBack}
 	}
 	for {
 		info, customer, err := r.fetchInfo(ctx)
@@ -237,8 +225,7 @@ func (r *runner) loadInfo(ctx context.Context) *Outcome {
 			r.applyInfo(ctx, info, customer)
 			return nil
 		case r.d.BindingKey != "" && errors.As(err, &ae) && ae.Code == "BINDING_INVALID": // B-P8c2-1: kodsuz 404 kaydı silmez
-			r.bindingInvalid()
-			return nil
+			return r.bindingInvalid()
 		case errors.As(err, &ae) && (ae.Code == "CLIENT_OUTDATED" || ae.Status == 426):
 			_, out := r.problem(ctx, r.outdatedProblem())
 			return out
@@ -419,8 +406,7 @@ func (r *runner) form(ctx context.Context) (*api.CreateRequestResult, bool, *Out
 			r.notice = noticeCheck
 		case ae.Code == "BINDING_INVALID":
 			r.d.UI.RequestFormClose()
-			r.bindingInvalid() // AC-185: ana ekrana, "Bağlantı kodum var" etkin
-			return nil, true, nil
+			return nil, false, r.bindingInvalid() // AC-185: ana ekrana (firma listesi), "Bağlantı kodum var" etkin
 		case ae.Code == "REQUEST_REF_INVALID" || ae.Code == "CLIENT_OUTDATED":
 			r.d.UI.RequestFormClose()
 			p := Problem{Message: msgRefGone, CodeMode: true}

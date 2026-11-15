@@ -7,86 +7,15 @@ import (
 	"fmt"
 
 	"remote-support/agent-win/internal/launch"
-	"remote-support/agent-win/internal/request"
 	"remote-support/agent-win/internal/win"
 )
 
-// RequestHome ana ekran (AC-182, 183, 189, 190; mimari-e10 §8.2): logo, sunucudan gelen firma adı, kayıt satırı,
-// dolandırıcılık uyarısı (AC-125), bilgi satırı, düğmeler (Tab sırası homeButtons), sunucu + sürüm + SHA-256 satırı
-// (AC-133). Sunucu metinleri statik denetimde `SS_NOPREFIX` (f.label), request.Display'den süzülmüş gelir. Enter
-// odaktaki düğmeyi çalıştırır (IsDialogMessage); pasif "Destek iste" hiçbir yoldan tetiklenmez.
-func (u *UI) RequestHome(ctx context.Context, v request.HomeView) request.HomeAction {
-	ch := make(chan request.HomeAction, 1)
-	u.t.Do(func() {
-		title := v.Tenant
-		if title == "" {
-			title = "Uzaktan destek"
-		}
-		f := u.t.newForm(appTitle+" — "+title, 540, 330, false)
-		logo := v.Logo
-		if logo == nil {
-			logo = systemLogo()
-		}
-		f.picture(logo, 396, 8, 128, 56)
-		f.label(title, 16, 10, 370, 32, fontBig)
-		f.label(registeredText(v.Registered), 16, 46, 370, 20, fontNormal)
-		f.danger(fraudText, 16, 72, 508, 36, fontNormal)
-		f.danger(v.Notice, 16, 114, 508, 54, fontNormal)
-		var focus *ctrl
-		x := int32(16)
-		widths := map[int]int32{idHomeSupport: 140, idHomeCode: 170, idHomeForget: 170, idHomeAbuse: 200}
-		for i, b := range homeButtons(v) {
-			if i == 3 { // ikinci satır: Kötüye kullanımı bildir
-				x = 16
-			}
-			y := int32(176)
-			if i == 3 {
-				y = 214
-			}
-			c := f.button(b.text, b.id, x, y, widths[b.id], b.def)
-			win.EnableWindow(c.h, b.enabled)
-			if b.def {
-				focus = c
-			}
-			x += widths[b.id] + 8
-		}
-		f.button("Kapat", idCancel, 434, 214, 90, false)
-		if !v.Support {
-			f.label(v.Hint, 16, 252, 508, 36, fontNormal) // AC-190 açıklaması
-		}
-		f.label(u.footer, 16, 300, 508, 20, fontNormal)
-		done := func(a request.HomeAction) { f.destroy(); ch <- a }
-		f.command = func(id, _ int) {
-			switch id {
-			case idHomeSupport, idOK:
-				if v.Support {
-					done(request.HomeSupport)
-				}
-			case idHomeCode:
-				done(request.HomeCode)
-			case idHomeForget:
-				done(request.HomeForget)
-			case idHomeAbuse:
-				win.OpenMailto(v.AbuseEmail)
-			case idCancel:
-				done(request.HomeClose)
-			}
-		}
-		f.close = func() { done(request.HomeClose) }
-		f.show(win.WorkAreaAt(win.CursorPos()), true, focus)
-	})
-	select {
-	case a := <-ch:
-		return a
-	case <-ctx.Done():
-		return request.HomeClose
-	}
-}
-
-// FirmHome P20 firma listeli ana ekran (mimari-e11 §8d.3, AC-253/254): firma listesi (her satırda kayıt tarihi),
-// başka kökenli kayıtlar ayrı başlık altında ve seçilemez, seçili firmayla "Destek iste", "Bu firmayı unut" (onay),
-// "Bu bilgisayarı unut (tüm firmalar)" (onay), "Tepside çalıştır" / "Windows açılışında başlat" onay kutuları + açıklama.
-// Satırlar yerel kayıttan, request.Display süzgecinden geçmiş gelir; statik metinler SS_NOPREFIX.
+// FirmHome istemcinin tek ana ekranı (mimari-e11 §8d.3, AC-253/254; tek ekran kararı 2026-11-15): her açılış yolu
+// (dosya adı, firma dosyası, süresi dolmuş kod, tepsi) bu ekranı açar. Firma listesi (dosyanın firması üstte ve seçili,
+// kayıtlı firmalarda kayıt tarihi), başka kökenli kayıtlar ayrı başlık altında ve seçilemez, seçili firmayla "Destek
+// iste", "Bu firmayı unut" (onay; yalnız kayıtlı firmada), "Bu bilgisayarı unut (tüm firmalar)" (onay), "Tepside
+// çalıştır" / "Windows açılışında başlat" onay kutuları + açıklama. Satır yoksa AC-190 açıklaması ve "Bağlantı kodum
+// var" varsayılandır. Satırlar request.Display süzgecinden geçmiş gelir; statik metinler SS_NOPREFIX.
 func (u *UI) FirmHome(ctx context.Context, v launch.FirmView) launch.FirmAction {
 	ch := make(chan launch.FirmAction, 1)
 	u.t.Do(func() {
@@ -97,8 +26,8 @@ func (u *UI) FirmHome(ctx context.Context, v launch.FirmView) launch.FirmAction 
 		f.label("Uzaktan destek", 16, y, 370, 32, fontBig)
 		y = 46
 		var list *ctrl
-		if v.Single {
-			f.label("Kayıtlı firma: "+v.Firms[0].Text, 16, y, 370, 36, fontNormal)
+		if !listed(v) {
+			f.label(singleText(v), 16, y, 370, 36, fontNormal)
 			y += 40
 		} else {
 			f.label(firmPick, 16, y, 370, 20, fontBold)
@@ -123,7 +52,7 @@ func (u *UI) FirmHome(ctx context.Context, v launch.FirmView) launch.FirmAction 
 			f.danger(v.Notice, 16, y, 508, 72, fontNormal)
 			y += 76
 		}
-		var focus *ctrl
+		var focus, forgetOne *ctrl
 		x := int32(16)
 		widths := map[int]int32{idHomeSupport: 140, idHomeCode: 170, idFirmForgetOne: 170, idHomeForget: 260}
 		for i, b := range firmButtons(v) {
@@ -134,6 +63,9 @@ func (u *UI) FirmHome(ctx context.Context, v launch.FirmView) launch.FirmAction 
 			win.EnableWindow(c.h, b.enabled)
 			if b.def {
 				focus = c
+			}
+			if b.id == idFirmForgetOne {
+				forgetOne = c
 			}
 			x += widths[b.id] + 8
 		}
@@ -178,11 +110,13 @@ func (u *UI) FirmHome(ctx context.Context, v launch.FirmView) launch.FirmAction 
 				if i := selected(); i >= 0 && i < len(v.Firms) {
 					done(launch.FirmAction{Kind: launch.FirmSupport, Index: i})
 				}
+			case id == idFirmList && code == lbnSelChange:
+				win.EnableWindow(forgetOne.h, forgettable(v, selected()))
 			case id == idHomeCode:
 				done(launch.FirmAction{Kind: launch.FirmCode})
 			case id == idFirmForgetOne:
 				i := selected()
-				if i < 0 || i >= len(v.Firms) {
+				if !forgettable(v, i) {
 					return
 				}
 				if win.MessageBox(f.h, fmt.Sprintf(confirmForgetOne, v.Firms[i].Text), appTitle,

@@ -15,7 +15,8 @@ import (
 	"remote-support/agent-win/internal/request"
 )
 
-// Firma listeli ana ekran (P20 K3; mimari-e11 §8d.3 ana ekran satırı, §8d.4 silme yolları, G-P20-4/8/9/12/17/18).
+// Firma listeli tek ana ekran (P20 K3; mimari-e11 §8d.3 ana ekran satırı, §8d.4 silme yolları, G-P20-4/8/9/12/17/18;
+// tek ekran kararı 2026-11-15: dosya adı, firma dosyası, süresi dolmuş kod ve tepsi açılışı aynı ekranı açar).
 
 // HomeUI firma listeli ana ekranı gösterir (Win32: internal/ui). Engelleyen çağrı: karar dönene kadar bekler.
 // "Bu firmayı unut" ve "Bu bilgisayarı unut" onayı UI'dadır (onaylanmazsa karar dönmez).
@@ -23,10 +24,13 @@ type HomeUI interface {
 	FirmHome(ctx context.Context, v FirmView) FirmAction
 }
 
-// FirmRow talep için seçilebilen firma satırı (gömülü kökenden). Text "<firma>[ – <müşteri>] (kayıt: GG.AA.YYYY)".
+// FirmRow talep için seçilebilen firma satırı. Kayıtlı firma (gömülü kökenden): Text "<firma>[ – <müşteri>] (kayıt:
+// GG.AA.YYYY)". File: açılan firma dosyasının firması (kayıt değildir; Key boş, "Bu firmayı unut" uygulanmaz); listede
+// her zaman ilk satırdır ve seçili açılır. Adı yalnız sunucu yanıtından gelir (dosya adındaki etiket kullanılmaz, G-E9-11).
 type FirmRow struct {
 	Key  string
 	Text string
+	File bool
 }
 
 // OtherOrigin gömülü kökenden farklı kökenli kayıtlar: "Başka sunucu (<host>)" başlığı altında, seçilemez (T43).
@@ -44,7 +48,8 @@ type Toggles struct {
 	Hint            string
 }
 
-// FirmView ana ekran. Single: tek kayıt ve başka köken yok → liste yerine "Bu bilgisayar … için kayıtlı" satırı.
+// FirmView ana ekran. Single: tek satır ve başka köken yok → liste yerine satır metni. Firms boşsa AC-190: "Destek
+// iste" pasif, açıklama ve "Bağlantı kodum var".
 // SetTray/SetAutostart UI iş parçacığında çağrılır (yerel, ağsız) ve kutuların yeni durumunu döner.
 type FirmView struct {
 	Firms        []FirmRow
@@ -95,6 +100,8 @@ const (
 	hintTrayFirst     = "Windows açılışında başlatmak için önce Tepside çalıştır'ı açın."
 	hintStateFailed   = "Windows açılışında başlatma durumu okunamadı."
 	hintWindowsOff    = "Windows ayarlarında devre dışı"
+	hintTrayNoFirm    = "Tepside çalıştır, bu bilgisayar bir firmaya kaydolduktan sonra (ilk destek oturumunun ardından) açılabilir."
+	fileRowPrefix     = "Bu dosyanın firması"
 	statusTimeout     = 5 * time.Second
 	revokeAllTimeout  = 2 * time.Second
 )
@@ -167,27 +174,53 @@ func (d Deps) startupNotes(st remember.MigrateResult) []string {
 	return n
 }
 
-// firmHome ana ekran döngüsü: her gösterimde öğeler sırayla `bindings/status` ile denetlenir; seçilen firmayla talep;
-// talep ana ekrana dönerse (kayıt geçersiz) liste yeniden gösterilir.
-func (d Deps) firmHome(ctx context.Context, server, notice string) flow.Outcome {
+// fileFirm açılan firma dosyasının ref'i ve açılıştaki ilk firma bilgisi yanıtı (yalnız ilk talepte kullanılır).
+type fileFirm struct {
+	ref  string
+	info *api.TenantRequestInfo
+	err  error
+	used bool
+}
+
+// row dosyanın firması satırı: ad sunucu yanıtından (Display süzgeçli); yanıt yoksa (ağ hatası) yalnız önek.
+func (f *fileFirm) row() FirmRow {
+	text := fileRowPrefix
+	if f.info != nil {
+		if n := request.Display(f.info.Tenant.Name, ""); n != "" {
+			text += ": " + n
+		}
+	}
+	return FirmRow{Text: text, File: true}
+}
+
+// firmHome tek ana ekran döngüsü: her gösterimde öğeler sırayla `bindings/status` ile denetlenir; seçilen satırla
+// (dosyanın firması → ref, kayıtlı firma → anahtar) talep; talep ana ekrana dönerse (kayıt geçersiz) liste bilgi
+// satırıyla yeniden gösterilir. Satır kalmazsa ekran AC-190 durumuyla ("Bağlantı kodum var") açık kalır.
+func (d Deps) firmHome(ctx context.Context, server string, file *fileFirm, notice string) flow.Outcome {
 	notes := []string{notice}
 	for {
 		notes = append(notes, d.checkStatus(ctx, server)...)
-		st := d.Store.LoadState()
-		own := st.Data.ForOrigin(server)
+		st, own := d.loadOwn(server)
 		if ctx.Err() != nil {
 			return flow.Outcome{}
 		}
-		if len(own) == 0 { // son öğe de gitti → kaynaksız ana ekran (satır 8 + bilgiler)
-			return d.runRequest(ctx, d.requestDeps(Decision{Notice: joinNotes(notes)}, "", nil, nil, nil, server))
-		}
-		v := d.firmView(st.Data, own, server, joinNotes(notes))
+		v := d.firmView(st.Data, file, own, server, joinNotes(notes))
 		notes = nil
 		act := d.Home.FirmHome(ctx, v)
-		valid := act.Index >= 0 && act.Index < len(own)
+		i := act.Index
+		if file != nil {
+			i-- // dosyanın firması 0. satır
+		}
+		valid := i >= 0 && i < len(own)
 		switch {
+		case act.Kind == FirmSupport && file != nil && act.Index == 0:
+			out, back, note := d.requestFile(ctx, file)
+			if !back {
+				return out
+			}
+			notes = append(notes, note)
 		case act.Kind == FirmSupport && valid:
-			out, back, note := d.requestFor(ctx, own[act.Index], server)
+			out, back, note := d.requestFor(ctx, own[i], server)
 			if !back {
 				return out
 			}
@@ -197,22 +230,37 @@ func (d Deps) firmHome(ctx context.Context, server, notice string) flow.Outcome 
 			fd.API = d.API
 			return flow.Run(ctx, fd, "")
 		case act.Kind == FirmForgetOne && valid:
-			notes = append(notes, d.forgetOne(ctx, own[act.Index], server))
+			notes = append(notes, d.forgetOne(ctx, own[i], server))
 		case act.Kind == FirmForgetAll:
 			runNote, err := d.forgetAll(ctx, server)
 			n := request.MsgForgotten
 			if err != nil {
 				n = "Bu bilgisayardaki kayıt silinemedi. Pencereyi kapatıp yeniden deneyin."
 			}
-			return d.runRequest(ctx, d.requestDeps(Decision{Notice: joinNotes([]string{n, runNote})}, "", nil, nil, nil, server))
+			notes = append(notes, n, runNote)
 		case act.Kind == FirmClose:
 			return flow.Outcome{}
 		}
 	}
 }
 
-func (d Deps) firmView(data remember.Data, own []remember.Binding, server, notice string) FirmView {
+// loadOwn kayıt dosyasının güncel durumu ve gömülü kökenin kayıtları (depo yoksa / köken kanonik değilse kayıtsız).
+func (d Deps) loadOwn(server string) (remember.LoadResult, []remember.Binding) {
+	if d.Store == nil {
+		return remember.LoadResult{}, nil
+	}
+	st := d.Store.LoadState()
+	if server == "" {
+		return st, nil
+	}
+	return st, st.Data.ForOrigin(server)
+}
+
+func (d Deps) firmView(data remember.Data, file *fileFirm, own []remember.Binding, server, notice string) FirmView {
 	v := FirmView{Notice: notice, Toggles: d.toggles(""), SetTray: d.setTray, SetAutostart: d.setAutostart}
+	if file != nil {
+		v.Firms = append(v.Firms, file.row())
+	}
 	for _, b := range own {
 		v.Firms = append(v.Firms, FirmRow{Key: b.Key, Text: rowText(b)})
 	}
@@ -237,6 +285,9 @@ func (d Deps) firmView(data remember.Data, own []remember.Binding, server, notic
 // 5xx, ağ hatası, CLIENT_OUTDATED, kodsuz 404 hiçbir öğeyi silmez. Ad değiştiyse dosya güncellenir + bir kez bilgi
 // (G-P20-12). Ağ yoksa (ilk ağ hatası) kalan öğeler denetlenmez (ekran gecikmesin).
 func (d Deps) checkStatus(ctx context.Context, server string) []string {
+	if d.Store == nil || server == "" {
+		return nil
+	}
 	st := d.Store.LoadState()
 	if st.Status != remember.StatusOK {
 		return nil
@@ -355,40 +406,31 @@ func (d Deps) forgetAll(ctx context.Context, server string) (string, error) {
 	return note, err
 }
 
-// requestFor seçilen firmayla talep modu. Talebin ana ekranı otomatik geçilir; talep ana ekrana dönmek isterse (kayıt
-// geçersiz) back=true ve bilgi metni döner.
+// requestFor seçilen kayıtlı firmayla talep modu (doğrudan form). Talep ana ekrana dönerse (kayıt geçersiz) back=true
+// ve bilgi metni döner.
 func (d Deps) requestFor(ctx context.Context, b remember.Binding, server string) (flow.Outcome, bool, string) {
-	rd := d.baseRequest(server)
+	rd := d.baseRequest()
 	rd.BindingKey, rd.Registered = b.Key, bindingLabel(b)
 	key := b.Key // G-P20-8: kapanış bu talebin anahtarını taşır
 	rd.OnBindingInvalid = func() { d.onBindingInvalid(key, server) }
-	u := &firmRequestUI{UI: rd.UI, first: true}
-	rd.UI = u
-	out := d.runRequest(ctx, rd)
-	if u.back {
-		return out, true, u.notice
-	}
-	return out, false, ""
+	return d.runRequest(ctx, rd)
 }
 
-// firmRequestUI talep modunun ana ekranını firma listesine bağlar: ilk ana ekran (firma bilgisi alındıysa) "Destek
-// iste" ile geçilir; sonraki/başarısız ana ekran talebi kapatır ve listeye döner (bilgi satırıyla).
-type firmRequestUI struct {
-	request.UI
-	first  bool
-	back   bool
-	notice string
-}
-
-func (u *firmRequestUI) RequestHome(_ context.Context, v request.HomeView) request.HomeAction {
-	if u.first {
-		u.first = false
-		if v.Support {
-			return request.HomeSupport
+// requestFile dosyanın firmasıyla talep (AC-182 kural 2: talep dosyadaki ref'e). Açılıştaki firma bilgisi yanıtı yalnız
+// ilk talepte kullanılır (aynı istek tekrarlanmaz); sonraki taleplerde yeniden sorulur. Hata yanıtları talep modunun
+// bugünkü engel ekranlarıyla gösterilir (ağ/TLS "Tekrar dene", eski sürüm "Yeni sürümü indir").
+func (d Deps) requestFile(ctx context.Context, f *fileFirm) (flow.Outcome, bool, string) {
+	rd := d.baseRequest()
+	rd.Ref = f.ref
+	if !f.used {
+		f.used = true
+		if f.info != nil {
+			cp := *f.info // satır adı açılıştaki yanıttan kalır; talep modu kendi kopyasını süzer
+			rd.Info = &cp
 		}
+		rd.InfoErr = f.err
 	}
-	u.back, u.notice = true, v.Notice
-	return request.HomeClose
+	return d.runRequest(ctx, rd)
 }
 
 // toggles kutuların durumu (yükseltilmiş süreçte ikisi pasif + açıklama; başlatma yalnız tepsi açıkken).
@@ -399,8 +441,10 @@ func (d Deps) toggles(hint string) Toggles {
 		return t
 	}
 	st := d.Store.LoadState()
+	server, _ := remember.CanonicalOrigin(d.ServerURL.String())
+	firms := len(st.Data.ForOrigin(server)) > 0 // tercih yalnız kayıt varken tutulur (remember.SetPrefs)
 	t.Tray = st.Data.Prefs != nil && st.Data.Prefs.Tray
-	t.TrayEnabled = !d.Flow.SelfElevated && st.Status == remember.StatusOK
+	t.TrayEnabled = !d.Flow.SelfElevated && st.Status == remember.StatusOK && firms
 	if d.Autostart == nil {
 		t.AutostartHidden = true
 		return t
@@ -414,6 +458,8 @@ func (d Deps) toggles(hint string) Toggles {
 	switch {
 	case d.Flow.SelfElevated:
 		t.Hint = autorun.ReasonElevated.Message()
+	case st.Status != remember.StatusUnreadable && !firms:
+		t.Hint = hintTrayNoFirm
 	case err != nil:
 		t.Hint = hintStateFailed
 	case as.Blocked != autorun.ReasonOK:
@@ -426,10 +472,11 @@ func (d Deps) toggles(hint string) Toggles {
 	return t
 }
 
-// setTray "Tepside çalıştır"; kapatılınca Run değeri de silinir (§8d.4).
+// setTray "Tepside çalıştır"; kapatılınca Run değeri de silinir (§8d.4). Kutu pasifken (depo yok, yükseltilmiş, okunamayan
+// dosya, kayıtlı firma yok) hiçbir şey yazılmaz.
 func (d Deps) setTray(on bool) Toggles {
-	if d.Store == nil || d.Flow.SelfElevated {
-		return d.toggles("")
+	if t := d.toggles(""); !t.TrayEnabled {
+		return t
 	}
 	if err := d.Store.SetPrefs(remember.Prefs{Tray: on}); err != nil {
 		d.diag(err)

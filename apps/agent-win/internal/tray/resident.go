@@ -129,8 +129,6 @@ type Resident struct {
 	// Raise açık kapsamın penceresini öne getirir; EndSession süren oturumu kullanıcı bitirmiş gibi sonlandırır.
 	Raise      func()
 	EndSession func()
-	// Standalone kod/ref dosyasıyla açıldı: tepsi örneğine bağlanmaz, tepsiye inmez (bugünkü gibi çıkar).
-	Standalone bool
 	// Elevated yükseltilmiş süreç: tepsi yok (K-P20-8).
 	Elevated bool
 	// ExitGrace "Çık" sonrası oturumun session.end ile kapanması için beklenen süre; sonra bağlam iptal edilir.
@@ -138,10 +136,11 @@ type Resident struct {
 }
 
 // RunNormal normal açılış: ilk kapsam dosya adıyla; bittiğinde (X, oturum sonu) koşullar sağlanıyorsa ve mutex
-// alınabiliyorsa süreç tepsiye iner (bir kez balon), değilse döner (AC-107: çıkış).
+// alınabiliyorsa süreç tepsiye iner (bir kez balon), değilse döner (AC-107: çıkış). Dosya türünden (firma dosyası, kod
+// dosyası, yeniden adlandırılmış) bağımsızdır (tek ekran kararı 2026-11-15); kod oturumu bitince de aynı kural.
 func (r Resident) RunNormal(ctx context.Context) {
 	r.scope(ctx, nil, true)
-	if ctx.Err() != nil || r.Standalone || r.Elevated || !Eligible(r.State(), r.Origin) {
+	if ctx.Err() != nil || r.Elevated || !Eligible(r.State(), r.Origin) {
 		return
 	}
 	ic, ok := r.StartTray()

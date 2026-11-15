@@ -28,7 +28,6 @@ import (
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/input"
 	"remote-support/agent-win/internal/launch"
-	"remote-support/agent-win/internal/pairing"
 	"remote-support/agent-win/internal/remember"
 	"remote-support/agent-win/internal/request"
 	"remote-support/agent-win/internal/rtc"
@@ -203,8 +202,6 @@ func run() int {
 		CloseDelay: closeDelay,
 		Idle:       client.HTTPClient().CloseIdleConnections,
 	}
-	_, isRef := pairing.RefFromFileName(exe)
-	_, isCode := pairing.FromFileName(exe)
 	res := tray.Resident{
 		Scope:  scope,
 		Origin: origin,
@@ -230,8 +227,7 @@ func run() int {
 		Disable:    func() { _ = autorun.New().Disable() },
 		Raise:      u.Raise,
 		EndSession: u.EndSession,
-		Standalone: isRef || isCode, // kod/ref dosyası tepsi örneğine bağlanmaz
-		Elevated:   selfElevated,
+		Elevated:   selfElevated, // firma/kod dosyasıyla açılış da aynı tepsi kurallarına tabidir (tek ekran, 2026-11-15)
 		ExitGrace:  exitGrace,
 	}
 	if trayIcon != nil {
@@ -306,7 +302,7 @@ func launchDeps(cfg config.Config, fp string, elevated bool, client *api.Client,
 		EnvProbe:     env.Probe,
 		SelfElevated: elevated, // K8: env.state.selfElevated (GRANTED audit'i, konsol rozeti)
 	}
-	ld := launch.Deps{ServerURL: cfg.ServerURL, API: client, Flow: deps,
+	ld := launch.Deps{ServerURL: cfg.ServerURL, API: client, Flow: deps, Home: u,
 		Request: request.Deps{UI: u, Events: u.RequestEvents(), Version: cfg.Version, Logo: client.Logo,
 			Dial: func(ctx context.Context, secret string) (request.Conn, error) {
 				return request.Dial(ctx, client.HTTPClient(), cfg.ServerURL, secret)

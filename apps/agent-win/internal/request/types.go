@@ -73,28 +73,6 @@ type FormView struct {
 	RememberNote string
 }
 
-// HomeView ana ekran (AC-182, 183, 189, 190; mimari-e10 §8.2). Tenant boşsa kaynaksız ekrandır (satır 3/8).
-type HomeView struct {
-	Tenant     string
-	Logo       image.Image // nil → sistem logosu
-	Registered string      // "<firma>[ – <müşteri>]"; doluysa "Bu bilgisayar … için kayıtlı"
-	Support    bool        // "Destek iste" etkin; değilse pasif + Hint (AC-190)
-	Hint       string
-	Notice     string // bilgi satırı: süre doldu / dosya geçersiz / kayıt geçersiz (AC-185) / unutuldu (AC-186)
-	AbuseEmail string // boşsa "Kötüye kullanımı bildir" gizli
-}
-
-// HomeAction ana ekran kararı. Tab sırası: Destek iste → Bağlantı kodum var → Bu bilgisayarı unut → Kötüye kullanımı
-// bildir (AC-189).
-type HomeAction int
-
-const (
-	HomeClose HomeAction = iota
-	HomeSupport
-	HomeCode
-	HomeForget
-)
-
 // FormAction form kararı.
 type FormAction int
 
@@ -150,8 +128,6 @@ const (
 // UI talep modunun arayüzü (Win32: internal/ui). Engelleyen çağrılar karar dönene kadar bekler; diğerleri hemen döner.
 // Bekleme/onay ekranındaki kullanıcı eylemleri Deps.Events'ten gelir.
 type UI interface {
-	// RequestHome ana ekranı gösterir ve bir karar bekler (pencere karar verilince kapanır).
-	RequestHome(ctx context.Context, v HomeView) HomeAction
 	RequestProblem(ctx context.Context, p Problem) ProblemAction
 	// RequestForm pencere yoksa açar, varsa günceller (girilen değerler korunur) ve bir karar bekler.
 	RequestForm(ctx context.Context, v FormView) (FormAction, Form)
@@ -176,6 +152,7 @@ const (
 	OutClose    OutcomeKind = iota // pencere kapatıldı / bitti → süreç sonlanır (AC-163)
 	OutCodeMode                    // "Bağlantı kodum var" → 8 hane akışı (AC-162, AC-189)
 	OutShare                       // "Ekranımı paylaş" → flow.RunTicket
+	OutBack                        // ana ekrana (firma listesi) dön; Notice bilgi satırı (AC-185 kayıt geçersiz)
 )
 
 // Outcome Run sonucu.
@@ -185,6 +162,8 @@ type Outcome struct {
 	TechName string
 	// AdmitCode AC-239: doluysa `/ws/guest` lobiye düşer, kod lobi ekranında gösterilir (flow.RunTicket).
 	AdmitCode string
+	// Notice OutBack'te ana ekranın bilgi satırı.
+	Notice string
 	// Release `/ws/request`'i bırakır (bkz. ReleaseKind). Bir kez çalışır; sonraki çağrılar etkisizdir.
 	Release func(ReleaseKind)
 }

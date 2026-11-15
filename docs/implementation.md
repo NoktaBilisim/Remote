@@ -8778,3 +8778,66 @@ Eklenen bağımlılık yok.
 ### frontend-dev için
 
 Sözleşme değişikliği yok (yalnız Windows istemci).
+
+## P20 tek ekran (sadelik) (backend-dev, Go; kullanıcı kararı 2026-11-15)
+
+Kullanıcı kararı: "İşlemlerimiz basit olması lazım." İstemci hangi yoldan açılırsa açılsın aynı firma listeli ana ekran
+(`FirmHome`) açılır. Karar notu: `docs/mimari-e11.md` §8d.14 K-P20-14.
+
+### Değişen dosyalar (`apps/agent-win`)
+
+- `internal/launch/decide.go`: `Screen` = `ScreenCode | ScreenHome`; `Source` kaldırıldı; `Decision.FileRow` (geçerli
+  veya ağ hatalı firma dosyası → dosya satırı). Satır 6 (geçersiz ref, kayıt yok) artık ana ekran + `NoticeRefGone`.
+- `internal/launch/run.go`: kod akışı dışındaki her yol `firmHome`; `requestDeps` ve tek firma dalı kaldırıldı;
+  `Deps.Home` zorunlu (main `Home: u` verir); `runRequest` `(Outcome, back, note)` döner (`request.OutBack`).
+- `internal/launch/home.go`: `FirmRow.File` (dosyanın firması; ilk satır, seçili, adı yalnız sunucu yanıtından, unutulamaz);
+  `fileFirm` + `requestFile` (ilk yanıt bir kez kullanılır); satırsız ekran (AC-190) ve "Bu bilgisayarı unut" sonrası
+  döngü aynı ekranda kalır; `firmRequestUI` kaldırıldı; depo yok / kanonik olmayan köken korumaları (`loadOwn`,
+  `checkStatus`); kutular kayıtlı firma yokken pasif + `hintTrayNoFirm`; `setTray` pasif kutuda yazmaz.
+- `internal/request/{home.go,run.go,types.go}`: talep modunun kendi ana ekranı kaldırıldı (`UI.RequestHome`, `HomeView`,
+  `HomeAction`, `Deps.Notice`, `Deps.ForgetComputer`, home döngüsü). Talep doğrudan forma gider; kayıt geçersizse
+  (`BINDING_INVALID`, status veya oluşturma) `Outcome{Kind: OutBack, Notice: MsgBindingInvalid}`.
+- `internal/ui/{home.go,home_windows.go,screens_windows.go}`: `RequestHome` (Win32), `homeButtons`, `registeredText`,
+  `idHomeAbuse` kaldırıldı; `FirmHome` tek satır/satırsız metni `singleText`, "Bu firmayı unut" seçim değişince
+  (`LBN_SELCHANGE`) dosya satırında pasif (`forgettable`).
+- `internal/tray/resident.go`, `cmd/noktadestek/main.go`: `Resident.Standalone` ve dosya adı denetimi kaldırıldı; tepsiye
+  inme dosya türünden bağımsız (`Eligible` + G-P20-13/16 mutex + K-P20-8 yükseltilmiş).
+
+### Tasarımdan sapmalar (gerekçeli)
+
+- **Dosyanın firması kayıtlıysa "o satır seçili" yerine dosya satırı ayrıca üstte:** istemci ref'in firmasını yerel kayıtla
+  eşleyemez (sunucu yanıtlarında firma kimliği yok; ad eşlemesi farklı firmaları karıştırabilir, dosya etiketi kayıt
+  anahtarı değildir). Dosya satırı her zaman ilk ve seçili; kayıtlı aynı firma altında tarihle görünür, ikisi de çalışır.
+- **Kayıtsız bilgisayarda (yalnız dosya satırı) tepsi kutuları pasif:** tercih yalnız kayıt varken tutulur
+  (`remember.SetPrefs` → `ErrNoBinding`, "kayıtsız bilgisayarda tepsi yok" kuralı). Kutular görünür, açıklama verir; ilk
+  başarılı oturumdan sonra etkinleşir. Kayıtlı firma varken firma dosyasıyla açılışta kutular normal açılıştaki gibi etkin.
+- **Kod dosyası:** oturum doğrudan başlar (değişmedi, kod tek kullanımlık oturum içindir); oturum bitince `RunNormal`
+  normal kuralı uygular (tercih açık + kayıt varsa tepsiye iner). En basit ve güvenli seçenek: yeni dal yok, yalnız
+  `Standalone` istisnası kalktı.
+- **Firma dosyası ağ hatası / eski sürüm / dosya hatası:** engel ekranı (Tekrar dene / Yeni sürümü indir) açılışta değil,
+  dosya satırında "Destek iste" ile gösterilir (metinler ve düğmeler aynı). Geçersiz dosya + kayıt yok (satır 6): engel
+  ekranı yerine ana ekranda bilgi satırı + "Bağlantı kodum var".
+- "Kötüye kullanımı bildir" ana ekran düğmesi eski tek firma ekranıyla birlikte kalktı; talep formunda duruyor.
+
+Yeni bağımlılık yok. Güvenlik kuralları korunur: G-P20-5 kapsam başına sıfırlama (Scope değişmedi), G-P20-6 `--tray`
+(değişmedi), G-P20-13/16 tek örnek (StartTray mutex), başka firmanın kaydına dokunulmaz (ref talebinde kayıt anahtarı
+yok; `OnBindingInvalid` yalnız talebin anahtarıyla), silme yalnız `BINDING_INVALID`.
+
+### Testler
+
+Yeni/güncellenen: `TestAC182RefOpensFirmHomeWithFileFirmSelected` (ref → FirmHome, dosya satırı ilk/seçili, talep ref ile,
+ilk yanıt tekrar sorulmaz), `TestAC182RefRows5And6AndNetError`, `TestAC253RefOpenTogglesSameRules` (kayıtlıyken kutular
+etkin ve tercih yazılır; kayıtsızken pasif + açıklama; yükseltilmişte pasif), `TestAC253CodeSessionEndThenTrayRule`
+(tray: kod oturumu sonrası tepsi açık → tepsi, kapalı → çıkış, yükseltilmiş → çıkış), karar tablosu, `ui`
+`TestAC190AC189FirmHomeSingleScreen`, request `TestAC190NoSourceReturnsHome` ve `OutBack` testleri.
+
+```
+docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 go test -race ./...   # 21 paket ok
+docker run --rm -v "$PWD:/src" -w /src/apps/agent-win -e GOOS=windows golang:1.26 go vet ./...   # temiz
+gofmt -l .   # boş
+```
+
+### frontend-dev için
+
+Sözleşme değişikliği yok (yalnız Go istemci içi). Windows elle test listesine eklenecek: firma dosyasıyla açılış (dosya
+satırı üstte, tepsi kutuları), kod oturumu sonrası tepsi.

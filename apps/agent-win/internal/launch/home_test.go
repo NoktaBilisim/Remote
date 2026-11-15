@@ -102,7 +102,7 @@ func homeSetup(t *testing.T, bs ...remember.Binding) *homeEnv {
 	}
 	h.d = e.d
 	h.d.API, h.d.Store, h.d.Autostart = h.a, h.s, h.as
-	h.d.Request.UI = h.u
+	h.d.Request.UI, h.d.Home = h.u, h.u
 	return h
 }
 
@@ -191,15 +191,15 @@ func TestGP208OnBindingInvalidUsesRequestKey(t *testing.T) {
 	}
 }
 
-// TestAC254SupportSelectedFirmSkipsRequestHome seçilen firmayla talep: status o anahtarla, talebin ana ekranı otomatik
-// geçilir (form açılır), talep oluşturma o anahtarla, form başlığı/kayıt etiketi seçilenin.
-func TestAC254SupportSelectedFirmSkipsRequestHome(t *testing.T) {
+// TestAC254SupportSelectedFirmOpensFormDirectly seçilen firmayla talep: status o anahtarla, talep modunda ikinci bir ana
+// ekran yoktur (doğrudan form), form başlığı seçilenin.
+func TestAC254SupportSelectedFirmOpensFormDirectly(t *testing.T) {
 	h := homeSetup(t, bnd(server, 1, "A"), bnd(server, 2, "B"))
 	h.u.acts = []FirmAction{{Kind: FirmSupport, Index: 1}}
 	Run(context.Background(), h.d)
 	sel := h.u.views[0].Firms[1].Key
-	if len(h.u.hviews) != 0 || len(h.u.fviews) != 1 || len(h.u.views) != 1 {
-		t.Fatalf("talep ana ekranı geçilmeli: home=%d form=%d list=%d", len(h.u.hviews), len(h.u.fviews), len(h.u.views))
+	if len(h.u.fviews) != 1 || len(h.u.views) != 1 || h.u.fviews[0].Tenant != "A" {
+		t.Fatalf("doğrudan form: form=%+v list=%d", h.u.fviews, len(h.u.views))
 	}
 	if last := h.a.statusKeys[len(h.a.statusKeys)-1]; last != sel {
 		t.Fatalf("status seçilen anahtarla: %s ≠ %s", last, sel)
@@ -207,7 +207,7 @@ func TestAC254SupportSelectedFirmSkipsRequestHome(t *testing.T) {
 }
 
 // TestAC254ForgetOneRevokesOnlyThatKey "Bu firmayı unut": yalnız o öğe yerelde silinir ve yalnız o anahtar iptal
-// edilir; son öğe gidince Run değeri silinir ve kaynaksız ana ekran.
+// edilir; son öğe gidince Run değeri silinir ve aynı ana ekran satırsız (AC-190) kalır.
 func TestAC254ForgetOneRevokesOnlyThatKey(t *testing.T) {
 	h := homeSetup(t, bnd(server, 1, "A"), bnd(server, 2, "B"))
 	h.u.acts = []FirmAction{{Kind: FirmForgetOne, Index: 0}}
@@ -222,8 +222,8 @@ func TestAC254ForgetOneRevokesOnlyThatKey(t *testing.T) {
 	h = homeSetup(t, bnd(server, 1, "A"))
 	h.u.acts = []FirmAction{{Kind: FirmForgetOne, Index: 0}}
 	Run(context.Background(), h.d)
-	if h.as.disabled != 1 || len(h.u.hviews) != 1 || h.u.hviews[0].Support {
-		t.Fatalf("son öğe: disabled=%d home=%+v", h.as.disabled, h.u.hviews)
+	if h.as.disabled != 1 || len(h.u.views) != 2 || len(h.u.views[1].Firms) != 0 {
+		t.Fatalf("son öğe: disabled=%d home=%+v", h.as.disabled, h.u.views)
 	}
 }
 
@@ -240,7 +240,7 @@ func TestAC254ForgetAllRevokesOwnOriginOnly(t *testing.T) {
 	if !slices.Equal(h.a.revoked, []string{bkey(1), bkey(2)}) || h.as.disabled != 1 {
 		t.Fatalf("revoke=%v disabled=%d", h.a.revoked, h.as.disabled)
 	}
-	if v := h.u.hviews[0]; v.Notice != request.MsgForgotten {
+	if v := h.u.views[1]; v.Notice != request.MsgForgotten || len(v.Firms) != 0 || len(v.Others) != 0 {
 		t.Fatalf("%+v", v)
 	}
 }
@@ -289,19 +289,16 @@ func TestAC253TogglesTrayGatesAutostart(t *testing.T) {
 	}
 }
 
-// TestGP2018UnreadableOffersForgetAndNotices sınıf-2 okuma: kayıtsız gibi (firma listesi yok), "Bu bilgisayarı unut"
-// kaynaksız ana ekranda; öneri ve göç engeli (G-P20-9 cümlesiyle) bilgi satırında; Verify silmesi bildirilir.
+// TestGP2018UnreadableOffersForgetAndNotices sınıf-2 okuma (açılış durumu): öneri ve göç engeli (G-P20-9 cümlesiyle)
+// ana ekranın bilgi satırında; Verify silmesi bildirilir; "Bu bilgisayarı unut" okuma durumundan bağımsız siler.
 func TestGP2018UnreadableOffersForgetAndNotices(t *testing.T) {
 	h := homeSetup(t, bnd(server, 1, "A"))
 	h.d.Startup = &remember.MigrateResult{LoadResult: remember.LoadResult{Status: remember.StatusUnreadable, SuggestForget: true},
 		Blocked: "Eski Firma"}
 	h.as.verify = autorun.Check{Present: true, Removed: true, Reason: autorun.ReasonWeakACL}
-	h.u.homes = []request.HomeAction{request.HomeForget}
+	h.u.acts = []FirmAction{{Kind: FirmForgetAll}}
 	Run(context.Background(), h.d)
-	v := h.u.hviews[0]
-	if len(h.u.views) != 0 || v.Support {
-		t.Fatalf("firma listesi gösterilmemeli: %+v", v)
-	}
+	v := h.u.views[0]
 	for _, want := range []string{NoticeSuggestForget, BlockedText("Eski Firma"), NoticeOldVersion, NoticeRunRemoved} {
 		if !strings.Contains(v.Notice, want) {
 			t.Fatalf("eksik %q: %q", want, v.Notice)

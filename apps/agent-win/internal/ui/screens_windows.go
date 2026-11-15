@@ -295,6 +295,7 @@ const (
 	idOneWindow  = 52
 	idWinList    = 53
 	idWinRefresh = 54
+	lbnSelChange = 1
 	lbnDblClk    = 2
 )
 

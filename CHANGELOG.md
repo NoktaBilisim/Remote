@@ -58,12 +58,15 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   yalnız aynı Windows kullanıcısının penceresini öne getirir (S-P20-K2); tepsi kilidi süreç ömrü boyunca açıkça tutulur
   (S-P20-K3).
 
+### Değişti — istemci 0.12.0 tek ana ekran (2026-11-15)
+
+- Program hangi dosyayla açılırsa açılsın aynı ana ekran açılır. Firma dosyasıyla (`NoktaDestek-<firma>-….exe`)
+  açılınca o dosyanın firması listede en üstte ve seçili gelir; kayıtlı firmalar, **Tepside çalıştır** / **Windows
+  açılışında başlat** kutuları ve pencere kapanınca tepsiye inme normal açılıştaki kurallarla çalışır. Kod dosyasında
+  oturum yine doğrudan başlar; oturum bitince aynı tepsi kuralı uygulanır. Eski tek firma ekranı kaldırıldı.
+
 ### Bilinen sınırlamalar — istemci 0.12.0
 
-- Firma listesi ve tepsi/başlatma kutuları, program firma dosyası (`NoktaDestek-<firma>-….exe`) ya da kod dosyası
-  (`Destek-<kod>.exe`) geçerliyken görünmez; o durumda o firmanın tek ekranı açılır ve pencere kapatılınca program tepsiye
-  inmez. Liste; dosya adı değiştirilmiş programda (ör. `NoktaDestek.exe`), dosyanın süresi dolunca ve tepsiden açılışta
-  görünür.
 - Tepsi ipucu oturumda firma adı göstermez ("Nokta Destek — oturum sürüyor"). Exe'de simge kaynağı yok; Görev Yöneticisi >
   Başlangıç'ta genel simge görünür.
 - 0.12.0 imzasızdır; prod yayını runbook §24.10 AV kapısına bağlıdır. Windows CI (AC-253/254 zorunlu testleri) ve gerçek
