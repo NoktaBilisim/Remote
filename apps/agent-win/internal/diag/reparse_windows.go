@@ -242,7 +242,9 @@ func (d *Dir) Rename(from, to string) error {
 	ri := renameInfo{Flags: 1, NameLen: uint32((len(name) - 1) * 2)}
 	copy(ri.Name[:], name)
 	var iosb windows.IO_STATUS_BLOCK
-	size := uint32(unsafe.Offsetof(ri.Name)) + ri.NameLen
+	// Uzunluk en az sizeof(FILE_RENAME_INFORMATION) (amd64'te 24) olmalı; offset+NameLen kısa adlarda bunun altında
+	// kalır ve STATUS_INFO_LENGTH_MISMATCH döner. Tüm yapı boyutu verilir; çekirdek FileNameLength'i kullanır.
+	size := uint32(unsafe.Sizeof(ri))
 	if st := windows.NtSetInformationFile(h, &iosb, (*byte)(unsafe.Pointer(&ri)), size, windows.FileRenameInformation); st != nil {
 		return &os.LinkError{Op: "rename", Old: from, New: to, Err: st}
 	}
