@@ -1,3 +1,367 @@
+# Güvenlik Raporu — PT turu (kod temizliği, 14b2629..pt-wip, 2026-11-15) — hafif tur, odak davranış eşdeğerliği
+
+DURUM: GEÇTİ (PT; Kritik/Yüksek 0)
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0) — **kısmi tur**: tur sınırı nedeniyle bazı kontroller yapılmadı (aşağıda listeli).
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (+ 1 bilgi notu).
+Kapsam: `git diff 14b2629..pt-wip` (29 commit, 500 dosya; sunucu 115 dosya). Kod değiştirilmedi.
+
+## Bulgular (öncelik sırasıyla)
+
+Kritik/Yüksek/Orta/Düşük bulgu yok.
+
+### [BİLGİ] Rota anlık görüntüsü yetki zincirini kapsamıyor — A01
+
+Yer: apps/server/test/integration/pt-surface.test.ts:11
+Not: Anlık görüntü yalnız `metot + yol + [schema]` tutar; preHandler/guard zinciri yok. Bu turda guard eşdeğerliği statik olarak
+(aşağıdaki çoklu-küme karşılaştırması) doğrulandı. Öneri (Sonra): anlık görüntüye her rotanın preHandler sayısı/adı eklenebilir
+(guard fabrikaları adlı işlev döndürürse). Atanan: backend-dev.
+
+## Doğrulananlar (kanıt)
+
+1. **Guard çağrıları birebir aynı.** `git grep -o` ile `requirePerm(..)`, `requireStepUp(..)`, `requireSuperAdmin`, `checkPublicClient(..)`,
+   `checkOrigin(..)`, `rateLimit(..)` çağrılarının argümanlarıyla çoklu-kümesi 14b2629 ve pt-wip'te **farksız** (diff boş).
+   Sayımlar: requireAuth 58→58, requireStepUp 10→10, requireSuperAdmin 11→11, tenantScope 88→88, checkOrigin 6→6,
+   checkPublicClient 14→14, `$transaction` 99→99, maxPayload 2→2 (requirePerm 68→69, rateLimit 16→18 = yalnız import satırı).
+2. **Rota tablosu**: `__snapshots__/pt-surface.test.ts.snap` PT-K1 (c661ea0) dışında hiçbir commit'te değişmedi.
+3. **FOR UPDATE / FOR SHARE SQL satırları** çoklu-küme olarak aynı; fark yalnız 3 yorum satırı (create-tx, panel-accept, ayar kilidi).
+4. **Audit eylem dizeleri** çoklu-kümesi aynı; farklar (`remote_control.use`/`file_transfer.use` 1 eksik, `share.state` 1 fazla)
+   incelendi: signaling/admit.ts:28-32 `capsOf` iki kopyayı tek yardımcıda topladı; handlers.ts:200/224 `share.state` dalı
+   `onShareState` işlevine çıkarıldı. Yetki/caps semantiği aynı.
+5. **Hız kovaları**: `hit(...)` çağrıları aynı; `hit(auth.user.id)`→`hit(userId)` farkı settings/system.ts:168 (userId = auth.user.id
+   parametre olarak geçiriliyor). `take(...)` farkı sessions/history zaman çizelgesi yardımcısı (kova değil).
+6. **Talep oluşturma (requests/create-steps.ts + create-tx.ts)** eski `createCore` (14b2629 service.ts) ile satır satır karşılaştırıldı:
+   sıra aynı — assertRefNotBlocked → ref/binding peek → WEB form kapalı 404 → trusted CIDR → assertCreateNotBlocked → kapı içinde
+   ip/önek/net48 kovaları → bindingInvalid → parse → sürüm kapısı → binding kovası → engel listesi → mesai → kanal → aydınlatma →
+   tenant kovası okuma → TX (lockSettings ilk ifade → shareTenantActive → müşteri FOR SHARE → touchForRequest → bekleyen anlık
+   görüntü → politika → INSERT → audit) → 5 deneme kod çakışması → `pendingHit` audit'i catch'te. Eşdeğer.
+7. **WS (signaling/ws.ts → ws-auth.ts, requests/ws.ts)**: kaldırılmış görünen satırlar (403 protocol/client_kind/session, 429 rate,
+   426 outdated, `ws.close(1008,"policy")`, panel `support_requests.view` + tenant eşleşmesi) hareket algısı dışında kalan girinti
+   değişiklikleri; aynı kontroller yeni dosyalarda mevcut (grep). Ayrıntılı dal-dal okuma **yapılmadı** (aşağı bkz.).
+8. **Gizli değer maskesi**: `"***"` 19→20 (tenants/settings.ts SMTP `smtpPassword: "***"` korunuyor; artış yeni dosyada).
+9. **Web app/r**: `dangerouslySetInnerHTML` eklenmedi (diff'te `+` satırı yok); `app/r/[ref]/page.tsx:10` `referrer: "no-referrer"` duruyor.
+10. **Bağımlılık/CI**: `@vitest/coverage-v8` 5.1.0 MIT (devDep, 3 pakette); `@types/smtp-server` kaldırıldı (smtp-server devDep duruyor).
+    staticcheck `honnef.co/go/tools/cmd/staticcheck@v0.8.2` sabit sürüm, go.sum DB doğrulamalı `go install`; tüm `uses:` 40 hane SHA;
+    agent-win.yml `permissions: contents: read` değişmedi.
+
+## Otomatik tarama çıktıları
+
+- gitleaks v8.30.1 (`git --log-opts="14b2629..pt-wip" --redact --config .gitleaks.toml`): **29 commit tarandı, no leaks found**.
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- Hareket-algılı diff (`--color-moved=zebra --color-moved-ws=allow-indentation-change`): sunucuda 2885 taşınmamış `+`, 1371 taşınmamış `-`
+  satır; `-` satırları güvenlik anahtar kelimeleriyle süzülüp incelendi (çoğu knip `export` kaldırma ve girinti değişikliği).
+
+## Yapılmadı (tur sınırı) — sonraki turda tamamlanmalı
+
+- bindings/issue-tx.ts ↔ eski bindings/service.ts kilit sırası (lockActiveByHash/previousKey dalı) satır satır.
+- users/{writes,guard,purge}.ts, auth/{account-shared,step-up,password-reset}.ts, tenants/{deactivate,settings}.ts,
+  sessions/history-*.ts, signaling/control-{grant,record,revoke}.ts, lib/ws-upgrade.ts için dal dal okuma (yalnız sayımsal/grep doğrulandı).
+- WS kapanış kodları ve mesaj boyut/oran sınırlarının dal bazında eşdeğerliği (maxPayload sayımı aynı).
+- Web: request-socket.ts token yenileme, bot (honeypot) alanı, image-pick istemci tür/boyut kontrolleri, silinen 19 i18n anahtarının içeriği.
+- Go: tray mutex SID, SignalExisting sahip SID denetimi, kilit ömrü, diag rename_windows.go (reparse_windows.go'dan taşındığı görüldü,
+  `openChecked` + ad uzunluğu kontrolü korunmuş), remember biçimi, request tel doğrulaması, input/keys.go (applier.go'dan taşındı) kapsamı.
+- Entegrasyon testleri çalıştırılmadı (yerel MySQL başka bir işte kullanımda).
+
+## Olumlu
+
+- Guard/audit/kilit SQL'lerinin argüman düzeyinde değişmemesi temizliğin mekanik yapıldığını gösteriyor; çıkarılan işlevler TX nesnesini
+  parametre olarak alıyor (kendi `db`'si yok), TX sınırı kaymamış (`$transaction` 99→99).
+
+## 2. tur — web/Go (2026-11-15, `git diff 14b2629..pt-wip`, kısmi tur)
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0). Kod değiştirilmedi. Tur sınırı nedeniyle Go maddelerinin bir kısmı yapılmadı (aşağıda).
+
+### Doğrulananlar (eski ↔ yeni, kanıt)
+
+1. **Web talep bekleme soketi — eşdeğer.** Eski `app/r/[ref]/waiting-room.tsx` (14b2629) :84-163 → yeni `request-socket.ts:113-151`
+   (`startRequestSocket`) + `use-waiting-room.ts:36-48`. Kopuşta yeniden bağlanma koşulu aynı: eski `stopped || ended.current` +
+   aşama `closed|sharing|gone` (:139-141) = yeni `stopped || h.done()` (request-socket.ts:133; `done` use-waiting-room.ts:37-40).
+   `shouldReconnect(ev.code)` yanlışsa `gone` (4xxx/1008'de durur) aynı (:142-146 ↔ :134-138); üstel `reconnectDelay(attempt++)` aynı.
+   `request.closed` → `stop()` + `finish` aynı closure değişkenini yazıyor (:78-80). Temizlik sırası aynı: stopped+clearTimeout →
+   clearInterval → CONNECTING ise açılınca kapat (:154-161 ↔ use-waiting-room.ts:43-47 + request-socket.ts:93-99). Çerçeve
+   doğrulaması aynı: önce `requestChatOutboundSchema`, sonra `requestOutboundSchema` `safeParse`, bozuk JSON yok sayılır (:96-114 ↔ :43-91).
+2. **Web form token yenileme (4xx/429/503) ve 2 sn kapısı — eşdeğer.** Eski `web-request-form.tsx` :55-100 → yeni
+   `use-web-request-form.ts:35-93`. `submitFailure` (lib/web-request, bu aralıkta değişmedi) sonucu `refreshToken` ise `refreshInfo()`
+   (eski :96 ↔ yeni :89); 404'te eski `return onNotFound()` ile yenileme atlanıyordu, yeni `applyFailure` 404'te `false` döner (:37-40) — aynı.
+   2 sn kapısı iki katman da korunmuş: düğme `ready = !busy && retentionShown && wait === 0` (eski :102 ↔ web-request-form.tsx:20) ve
+   gönderimde yeniden `remainingDelay(...) > 0 → wr.fast` (eski :80 ↔ yeni :83); sayaç `issuedAt` değişince yeniden kurulur (:51-56).
+3. **Gizli bot alanı (`website`) — eşdeğer.** Eski :160-173 → yeni `web-request-fields.tsx:75-92` (`Honeypot`): aynı ekran dışı sınıf,
+   `aria-hidden`, `tabIndex={-1}`, `autoComplete="off"`, `name="website"`; `ContactFields` içinde açıklamadan hemen sonra (:69-70) — DOM sırası aynı.
+   Değer taslakta (`d.website`) `buildWebRequest`'e gidiyor (değişmedi).
+4. **Metin kaçışlama — eşdeğer.** Sohbet gövdesi metin düğümü + `whitespace-pre-wrap` (request-chat.tsx:101 ↔ yeni `ChatList`);
+   red mesajı `<span className="whitespace-pre-wrap">{t("wr.rejectMsg",…)}</span>` (eski :227 ↔ waiting-parts.tsx:26); aydınlatma metni
+   `whitespace-pre-line` metin düğümü (web-request-fields.tsx ConsentFields). `dangerouslySetInnerHTML` app/r altında yok.
+5. **Aynı kökenli indirme bağlantısı — eşdeğer.** `href={`/api/v1/public/agent/request-download?ref=${encodeURIComponent(tenantRef)}`}`
+   eski :270 ↔ waiting-parts.tsx:78 birebir (göreli yol, `encodeURIComponent` korunmuş).
+6. **Logo/avatar istemci ön kontrolleri — eşdeğer.** Eski avatar-uploader.tsx `onFile` ve logo-uploader.tsx `onFile` aynı diziydi;
+   yeni `image-pick.tsx:38-53` (`useImagePick`) birebir: input sıfırlama → `precheckFile` (MIME izin listesi, SVG red, boş MIME'de uzantı,
+   `UPLOAD_MAX_BYTES`, 0 bayt red) → data URL → `loadImage` → `precheckDimensions(kind)` (avatar/logo türü çağıranlardan doğru:
+   use-avatar-uploader.ts:72, use-logo-uploader.ts:24) → hata `INVALID_IMAGE_MESSAGE`. `<input accept={ACCEPT_ATTR}>` aynı
+   (image-pick.tsx:94-103). `lib/branding/image.ts` farkı yalnız dışa aktarımların daraltılması; `precheckFile` gövdesi değişmedi.
+   Avatar 256 px kırpma (`cropToBlob(..., AVATAR_PX)`) ve 401 → `EXPIRED_LOGIN_PATH` (image-pick.tsx:72) korunmuş; logo kaldırma
+   hatasında onay kapatma + hata sırası aynı (use-logo-uploader.ts:46). Kesin denetim sunucuda (magic bytes) — değişmedi.
+7. **Silinen 19 i18n anahtarı — güvenlik etkisi yok.** Hepsi 14b2629'da da kodda kullanılmıyordu (`git grep` apps/web, messages hariç:
+   0 eşleşme; dinamik `t(\`ön.${…}\`)`kalıbı bu öneklerde yok). Uyarı içerikli olanların ekrandaki karşılıkları duruyor:`s.subtitle`→`s.subtitleShort`(sessions-view.tsx:75, "tek kullanımlıktır"),`us.f.roleHint`→`us.e.roleHint`(tr.json:1251),`av.readonly`/`us.e.superAdmin`/`my.restart` zaten görüntülenmiyordu. Ölü metin silindi, görünür uyarı kaybı yok.
+8. **Go tepsi mutex SID / `SignalExisting` sahip denetimi — değişmedi.** `internal/tray/tray_windows.go` bu aralıkta değişmedi
+   (`git diff --stat` boş); tray.go farkı yalnız `AreaSum` simge küçültme çıkarımı (saf hesap).
+9. **Go tepsi kilidi ömrü — eşdeğer.** Eski main.go `var trayLock *tray.Lock; defer func(){ trayLock.Release() }()` → yeni `app.trayLock`
+   alanı, `run()` içinde `defer func() { a.trayLock.Release() }()` (cmd/noktadestek/main.go:77; `a` işaretçi, kapanış dönüşte okur).
+   Kilit iki yolda atanıyor: açılış (main.go:172) ve X ile tepsiye inme (deps.go:48); `acquireTray` (deps.go:103-122) `LockForeign`'da
+   diag yazar, simge hatasında `lock.Release()`. İkinci örnekte `tray.SignalExisting()` (main.go:168) korunmuş.
+10. **diag rename** — 1. turda `openChecked` + ad uzunluğu kontrolünün korunduğu görülmüştü; bu turda diag.go farkı yalnız
+    `openRotated` çıkarımı (aynı `d.Open(FileName, ModeAppend)` + `Size()+len(rec) > limit` döndürme). ACL/reparse satır satır okunmadı.
+
+### Yapılmadı (tur sınırı) — sonraki turda
+
+- `internal/remember` (codec.go, store_file.go, store_lock.go ↔ eski data.go/remember.go): dosya biçimi, kilit, yeniden deneme, DPAPI sınıflaması.
+- `internal/request/chat_wire.go` `parseChat`/`ParseServer` hata metinleri ve tel doğrulaması ↔ eski chat.go.
+- `internal/input/scope.go` + `scope_keys.go` `translateScoped` kapsamı ↔ eski scope.go/applier.go.
+- `internal/diag/rename_windows.go` ↔ eski reparse_windows.go ACL/reparse satır satır.
+
+## 2. tur — sunucu/WS (2026-11-15, `git diff 14b2629..pt-wip -- apps/server/src`, kısmi tur)
+
+DURUM: **GEÇTİ** (Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0). Kod değiştirilmedi. Entegrasyon testleri çalıştırılmadı.
+Yöntem: (a) her modül için eski ↔ yeni dosya kümesinde yorum/import dışı satırların çoklu-küme farkı (yalnız `export`
+eklenmesi, işlev imzası ve parametre geçirme farkları kalmalı); (b) farkın düştüğü her işlev eski gövdeyle yan yana
+okundu; (c) rota guard satırları (`app.<metot>(`, `preHandler`, `requireAuth/Perm/AnyPerm/StepUp`, `checkOrigin`,
+`checkPublicClient`, `rateLimit`, `tenantScope`) dosya içi **sıralı** diff.
+
+### Bulgular
+
+Kritik/Yüksek/Orta/Düşük bulgu yok. Aşağıdaki maddelerin tümü **eşdeğer**.
+
+### 1. bindings/issue-tx.ts ↔ eski bindings/service.ts `issueTx` — eşdeğer
+
+- TX sırası satır satır aynı: `admitSession` (issue-tx.ts:57-71: oturum ACTIVE+AGENT → `tenantActive` → müşteri
+  `shareStatus` FOR SHARE → §15.1 bayat kaynak) → `pickTarget` (:122 `lockActiveOfSession` FOR UPDATE ilk kilit) →
+  çoklu dal `pickMulti` (:100 `cur ? [] : lockActiveByHashesForTenant(tenantId)` — S-P20-4 tenant filtresi korunuyor,
+  :102 `capacity`, :104-109 fazlası REPLACED + audit) | tekli dal (:124 `lockActiveByHash`, :125 hedef yalnız aynı
+  tenant) → `writeBinding` (:140-163 yenile / başka tenant'ın önceki kaydı REPLACED + karşı tenant kimliği yazılmadan audit
+  - INSERT) → `binding.issued` audit (:198-206, `newValue` alanları aynı) → `firmNameOf`.
+- TX sınırı: service.ts `db.$transaction(async (tx) => issueWrite(...), REQUEST_TX_OPTIONS)` — tek TX, aynı seçenekler;
+  `now` eskiden de TX geri çağrısı içinde alınıyordu (issue-tx.ts:191).
+- Yeniden deneme döngüsü değişmedi: bindings/service.ts:107 `ensureSettings` → :108 `for (attempt…)` → :112 `Denied` →
+  audit + metrik → :129 `attempt < 2 && (UQ active_session_id || isTransientDbError)`.
+- `Denied`, `denied`, `IssueInput`, `sessionSelect` birebir taşındı. repo.ts'ten silinen `revokeByHash` 14b2629'da da
+  çağrılmıyordu (ölü kod; `bindingRevoke` `revokeById` kullanıyor).
+
+### 2. users / auth / tenants / sessions — eşdeğer
+
+- **users/{writes,guard,purge}.ts**: çoklu-küme farkı yalnız `export` ve `WriteCtx` parametre geçirme. Okunan dallar:
+  `updateTx`/`planUpdate` (writes.ts:60-115) — kilit → kapsamlı `loadOrThrow({tenantId})` → üstünlük (`assertManage`) →
+  kendi hesabı 403 → `assertGrantable` → sürüm 409 (S14-5 sırası: yetki kararlarından sonra) → değişiklik yoksa
+  yazma/audit yok → `bumpVersion` → `user.updated` old/new → yetki satırları → `unassignWithAudit`; `setStatusTx`
+  (:144-163), `resetMfaTx` (:166-191), `createTx` (:194-224) ve `purgeTx`/`assertPurgeable` (purge.ts:25-74: 404 → self
+  403 → üstünlük 403 → ACTIVE 409 → açık oturum 409 → sürüm 409 → ad onayı 400 → defter `intent` → mezar taşı) eski gövdeyle
+  aynı sırada. Her yazma hâlâ `auditFailures(... () => db.$transaction(...))` içinde (service.ts:147,168,205,256,290);
+  argon2 hash TX dışında (service.ts:144). users/routes.ts: `requireAuth` + yazma hız kancası hâlâ rotalardan önce
+  eklenir (`userHooks`, routes.ts:87-103), rota başına guard'lar aynı (users.view/edit/create+limit, DELETE
+  `users.delete`+`requireStepUp`).
+- **auth/{account-shared,step-up,password-reset}.ts**: `stepUp`/`stepUpTx` (step-up.ts:21-78) — `MFA_SETUP_REQUIRED` →
+  ortak deneme sayacı → TX içinde faktör tüketimi + `stepUpAt` + başarı audit'i, başarısızlık audit'i TX dışında, 400
+  `fields.code`; `regenerateRecoveryCodes` değişmedi. `forgotPassword`/`issueResetToken` (password-reset.ts:21-81) —
+  her durumda 202 + `setImmediate`, `RESET_PER_ACCOUNT_HOUR = 3` aynı, aynı TX'te eski açık token'lar `usedAt` ile
+  kapatılıyor, link `#token=` (fragment). `resetPassword` (:84-120) birebir (koşullu tek kullanım UPDATE, süre, sayaç
+  sıfırlama, tüm oturum iptali). `mfaEnable`/`enableTx` (account.ts) koşullu `totpSecretEnc` eşleşmesi dahil aynı.
+  auth/routes.ts guard satırları sıralı diff: **farksız** (23 satır).
+- **tenants/{deactivate,settings}.ts**: `deactivateTx` (deactivate.ts:56-87) eski sırayla — `lockTenant` → 404/409 →
+  PASSIVE → oturum iptali → bekleyen kod oturumları → `unassignWithAudit` → talepler iptal → kayıtlar 1000'lik partilerle →
+  talep audit'leri → kayıt özeti audit'i → `tenant.deactivated`; bildirimler commit sonrası (`afterDeactivate`).
+  `settingsTx`/`smtpChange` (settings.ts:57-126): `lockSettings` FOR UPDATE ilk ifade; SMTP şifresi AAD
+  `smtpPassword(tenantId)` ile şifreleniyor; audit `newValue.smtp.smtpPassword = "***"` maskesi aynı koşulla
+  (`passChanged`); netguard çözümü TX'ten önce (service.ts:246). tenants/routes.ts ve sms-routes.ts guard satırları farksız.
+- **sessions/history-{view,detail,csv}.ts**: `requestOf` (history-detail.ts:91-105) anonimleştirme dalları aynı;
+  `actorNameOf` iç içe üçlü ifadenin birebir açılımı (TECH/ADMIN → `actorLabelOf`, CUSTOMER && !anonim → ad | kabul edilmiş
+  misafir → `customerName`, aksi null). CSV: hız sınırı → `historyScope(auth)` → `resolveFilter` → satır sınırı 400 →
+  `session.exported` audit akış başlamadan → akış aynı kapsam/filtre ile (history.ts:139-156, history-csv.ts:67-…).
+  `take` → `takeMatch` yeniden adlandırma (hız kovası değil). sessions/routes.ts guard satırları farksız.
+
+### 3. signaling / WS — eşdeğer
+
+- **ws-auth.ts ↔ eski signaling/ws.ts `tech`/`guest`**: `techUpgrade` (ws-auth.ts:56-76) IP kovası 429 → Origin 403 →
+  ULID + çerez 403 → `resolveSession` + `mustChangePassword` 403 → yalnız oturum sahibi ve `signalable` (PENDING süresi
+  dolmamış | ACTIVE + canlı oda) 403 — eski `open` ifadesiyle aynı. `guestUpgrade` (:112-127) sorgu dizesi 403 → IP kovası
+  429 → `guestCredential` (:101-109: `rs.v1` + tam bir ticket|reconnect + 43 karakter TOKEN) 403.
+  `ticketGuest` (:131-164): tek kullanımlık `tickets.take` → TICKETED 403 → `publicClientAllowed` 403 → AGENT sürüm 426 →
+  talep misafiri ticket kuşağı 403 → (kabul kodsuz: `admitRequestGuest`, g.peer atanmaz — S8b-2 | kabul kodlu: ip/net
+  anahtarı + `attachGuest`) — eski dallarla aynı, yalnız if/else yönü ters çevrilmiş. `reconnectGuest` (:166-179) +
+  `auditReconnectConflict` (:182-194, oda başına 60 sn'de 1 audit; koşul De Morgan ile eşdeğer). `bindGuest` (:200-214)
+  canlı değilse `close(1000,"ended")`. `revalidateTech` (:220-227) birebir.
+- **signaling/ws.ts**: `WebSocketServer` seçenekleri aynı (`maxPayload: WS_MAX_PAYLOAD`, `perMessageDeflate:false`,
+  `handleProtocols`); kovalar 31/dk + 60 sn kilit; `clientIpOf` güvenilen proxy kuralı aynı; ping 30 sn/2 kaçırma, yeniden
+  doğrulama 60 sn; `onUpgrade` 404/500 ve ret metriği aynı; `preClose` sırası aynı.
+- **lib/ws-upgrade.ts**: `jsonPeer` eski requests/ws.ts `jsonPeer` ve signaling `peerOf` ile birebir; `cookieValue` iki
+  kopyanın birebir birleşimi; `offeredProtocols` eski satır içi ayrıştırmanın aynısı.
+- Kapanış kodları / boyut / oran: `maxPayload`, `new TokenBucket(...)`, `close(10xx)`, `WS_REQUEST_CLOSE.*` satırlarının
+  çoklu-kümesi 14b2629 ↔ pt-wip **eşit** (21↔21; farklar yalnız `u.`/`s.` öneki ve `bucket:` nesne alanı —
+  `WS_REQUEST_RATE_PER_SEC` korunuyor).
+- **control.ts / control-grant.ts / control-record.ts**: `controlRefusal` ve `monitorRefusal` eski ret zincirinin aynı
+  sırayla çıkarımı (yetki+caps FORBIDDEN → misafir yok → tarayıcı → bekleyen → açık → 30 sn bekleme → sınır);
+  `refuse` her zaman dolu `RequestResult` döndürür, `refused ?? "no_guest"` güvenli. `onGranted`/`grantAllowed`/
+  `grantFailed` (control-grant.ts:26-91): G-15 fail-closed (800 ms, timeout'ta geç commit REVOKED ile dengelenir) ve
+  epoch kontrolü aynı; `recordRevoked` = eski `recordControl(…"REVOKED", rec.*)` çağrısının sarmalayıcısı. `onView`/
+  `onDenied` sıra aynı (canlılık + `admitted === guest` kontrolü DENIED dalından önce).
+- **handlers.ts**: `relayToGuest` (sdp.offer/ice/ice.restart) lobi engelinden sonra, eski switch'teki yerinde; araya
+  `await` girmediği için `room.admitted?.peer` aynı anda okunuyor. `techAction` geri kalan dallar birebir.
+- **collab.ts / file-meta-store.ts**: `refuseFileMeta` (collab.ts:138-152: caps `file_transfer` 403, tenant boyut sınırı)
+  → aktör/ctx → `takeFileMetaSlot` hız sınırı + audit → `FileMetaWrite`; gönderen raporu / kayıt / tekrar / CHECK ihlali
+  dalları aynı (`fileMetaFailed`).
+
+### Yapılmadı (2. tur sınırı)
+
+- signaling/control-revoke.ts dal dal okuma (yalnız çoklu-küme: farklar `recordRevoked` sarmalayıcısı ve `export`).
+- signaling/control-record.ts ve file-meta-store.ts'nin `recordFileMeta`/`senderReportOnly` gövdeleri satır satır
+  (çoklu-küme: yalnız `w.` öneki ve `export` farkı).
+- requests/ws.ts (/ws/request, /ws/panel) dal dal okuma — yalnız kapanış kodu/oran/maxPayload çoklu-kümesi ve 1. turdaki grep.
+- signaling/admit.ts ve collab.ts'nin dosya meta dışı kısımları; app-hooks.ts/app-routes.ts sıralı hook diff'i.
+- Entegrasyon testleri (yerel MySQL) çalıştırılmadı.
+
+## 3. tur — Go kalan (2026-11-15, `git diff 14b2629..pt-wip -- apps/agent-win`)
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0). Kod değiştirilmedi. Yöntem: dal dal okuma + yorum/boşluk atılmış satırların
+çoklu-küme karşılaştırması (eski dosyalar ↔ yeni dosyalar); kalan farklar tek tek incelendi.
+
+### Doğrulananlar (eski ↔ yeni, kanıt)
+
+1. **internal/remember — eşdeğer.**
+   - Dosya biçimi: `fileV3`/`filePersonal`/`fileBindingV3`/`filePrefs` eski data.go:99-139 → codec.go:13-37; JSON etiketleri, `omitempty`
+     ve alan sırası birebir (sıra = encode çıktısı). v1/v2 tipleri (`fileV1`, `fileBinding`, `fileV2`, `legacy`) → migrate.go:150-177 birebir.
+   - Sürüm/bütünlük: eski `decode` :288-307 → `decodeFileV3` codec.go:95-116: `version` → `v != 3` "bilinmeyen sürüm" →
+     `DisallowUnknownFields` → `dec.Token()` EOF değilse "fazladan veri" → `(Personal==nil) != (DeviceKey=="")`; sıra ve metinler aynı.
+     Öğe çözümü eski :316-329 → `decodeBinding` codec.go:119-134 (RFC 3339, `valid()` → "geçersiz kayıt"). Tercih kayıtsız red, `normalize`,
+     "boş veri" sırası aynı (:80-91). `encode` (SetEscapeHTML(false), countOK → ErrLimit, sondaki `\n` atımı) birebir (:138-173).
+     `decodeLegacy` birebir (migrate.go:185-224).
+   - Bozuk dosya: `readSealed` (sealedMax+1 LimitReader, sealedMax/plainMax → errCorrupt) ve `load` (decode hatası → errCorrupt →
+     ClassFormat → `dropBroken`, sayaç 0) eski remember.go:199-262 → store_file.go:15-67 birebir. Sınıf-2 sayaç mantığı (kod<<4|n,
+     0x0f tavan, yalnız `startup`'ta ilerler, `n >= suggestForgetN(3)`) eski :249-260 → `held.unreadable` store_lock.go:102-115 birebir
+     (G-P20-18). `dropBroken`, `wipe` (silme listesi, kilit bırakıldıktan sonra kilit dosyası, `isSharing` muafiyeti, yalnız hatasızsa
+     `RemoveIfEmpty`) birebir (store_file.go:71-100).
+   - Kilit: `acquire`/`tryAcquire` (lockPoll 50 ms, lockWait 2 sn, paylaşım ihlalinde yeniden deneme yalnız süre içinde, süre dolunca
+     paylaşım hatası ya da ErrLockTimeout), `unlock`/`close`, `counter`/`setCounter` eski :33-157 → store_lock.go:13-98 birebir (G-P20-2/16).
+   - update: eski :280-322 → `update` + `updateHeld` + `changeErr` remember.go:110-159; kilit altında yeniden okuma, sınıf-2'de
+     `ErrUnreadable` (yazma yok), errNoChange → nil, kayıt yoksa Prefs düşer, boşsa wipe, aksi halde write; iki yolda da `h.close()` aynı
+     noktada. SavePersonal/ClearPersonal/SaveBinding/RemoveBinding/TouchBinding/SetPrefs/ForgetAll gövdeleri birebir.
+   - Göç: eski Migrate :31-91 → Migrate + `readLegacy` + `mergeLegacy` migrate.go:32-107; legacy biçim hatasında `dropLegacy`, geçici
+     hatada dokunmama, birleştirme kuralları, `writeVerified`/`restore`, `blocked==""` ise dropLegacy aynı.
+   - Yazma/izin: `write` (encode → plainMax → Protect → sealedMax → `.tmp` CREATE_NEW, ErrExist'te bir kez sil-yeniden dene → Sync →
+     handle ile Rename, hatada tmp silme) birebir (store_file.go:105-140). Dosyalar `diag.Dir.Open` ile, güvenlik tanımlayıcısı verilmeden
+     (miras ACL) açılıyor — değişmedi. class.go, lock_*.go, dpapi_windows.go bu aralıkta değişmedi (diff --stat'ta yok).
+   - Silinen `SameRegistration` (origin.go): 14b2629'da da yalnız tanımı vardı (`git grep` çağıran yok) — ölü kod.
+2. **internal/request tel doğrulaması — eşdeğer.** Eski chat.go ↔ yeni chat.go + chat_view.go + chat_wire.go çoklu-küme farkı yalnız
+   import/parantez/hizalama ve `parseChat` dallarının `parseChatMessage`/`parseChatHistory`/`parseChatToggle` (chat_wire.go:121-169)
+   işlevlerine çıkarılması. Sabitler (chatRawMax 4000, chatBodyMax 1000, chatLinesMax 20, chatInBodyMax 2000, chatHistoryMax 50,
+   senderNameMax 100), `ulidRe`/`clientMsgIDRe`, `validChatItem`, 5 hata metni, `ChatBody` sırası ve `EncodeMessage` birebir.
+   `ChatDisplayBody` (G-P20-7 görünmez karakter süzgeci) chat_view.go'ya değişmeden taşındı; `unsafeChar`/`jsSpace`/`utf16Len`
+   validate.go'da, değişmedi. ws.go `ParseServer`: yalnız :111 sonrası dallar `parseState/parseAccepted/parseClosed/parseError`'a
+   çıkarıldı; koşullar (codeRe, secretRe, techNameMax 100, verifyRe, `validAdmitCode`, closedMsgMax 200, errMsgMax 300, wsErrorCodes)
+   ve `Display(...)` süzmeleri birebir; üst bölüm (head çözümü) değişmedi. hardening_test.go'da görünmez karakter içeren dize
+   değişmezleri `‮`, `⁧/⁩`, `​­͏`, `‏`, `⁦` kaçışlarına çevrildi — eski dosyadaki
+   kod noktalarıyla birebir aynı (doğrulandı); test kapsamı daralmadı.
+3. **internal/input kapsam — eşdeğer.** Eski scope.go + applier.go + messages.go ↔ yeni scope.go + scope_keys.go + keys.go + applier.go +
+   messages.go çoklu-küme farkı: yalnız işlev çıkarımları (`scopedButton`, `scopedWheel`, `scopedKeyUp`, `scopedKeyDown`,
+   `latchShortcut`, `unlatchedDrop`, `wheelOK`). `translateScoped` (scope.go:207-227) dal sırası aynı; tuş basma sırası pencere durumu →
+   kabuk kısayolu → ön plan (UNFOCUSED'da basılı tuşlar bırakılır) → tuş kovası (scope_keys.go:22-45) eski ile aynı. `shellShortcut`:
+   eski tek `switch` → `latchShortcut` (Win basması/scopeMeta, açık kilit ya da basılı Win, Alt+Tab, Alt/Ctrl+Esc → kilit) +
+   `unlatchedDrop` (PrintScreen, Alt+Shift+NumLock, Fare Tuşları, Yapışkan Tuşlar Tab/Esc, 5. Shift); `switch` ilk eşleşmede durduğu
+   için bölme ve sıra korunuyor; `scopeMeta` yazımı yalnız ilk dalda (scope_keys.go:54-97). Tuş bırakma kilidi açma koşulu birebir.
+   `key`/`blocked` (AC-48 Ctrl+Alt+Del, Win+L) / `unicodeOf` / `keyEvents` applier.go → keys.go birebir taşındı. `wheelOK` aynı aralık.
+   `Limited()`/`ScopeDropped()` export_test.go'ya taşındı (yalnız test okuyucusu; sayaçlar üretimde artmaya devam ediyor).
+4. **internal/diag rename — eşdeğer (salt taşıma).** `renameInfo` ve `Dir.Rename` eski reparse_windows.go → rename_windows.go:18-62
+   satır satır aynı; yapı etiketi her ikisinde `//go:build windows && (amd64 || arm64)` (32 bit eşi reparse_unsupported_windows.go
+   `windows && !(amd64 || arm64)` değişmedi). Rename kaynak handle'ı `DELETE|FILE_READ_ATTRIBUTES|SYNCHRONIZE`, paylaşım 0, `openChecked`
+   (reparse/öznitelik denetimi); hedef `FILE_READ_ATTRIBUTES` + shareAll ile reparse denetimi; ad ≤ 256 UTF-16 kontrolü — eskiyle aynı.
+   reparse_windows.go'da kalan kısım değişmedi: klasör sabitleme handle'ı hâlâ `dirAccess` (DELETE yok, :124) + `shareNoDel`
+   (P20 düzeltmesi korunuyor); DELETE yalnız Remove/RemoveIfEmpty/Rename kısa ömürlü handle'larında. diag.go `openRotated` çıkarımı
+   aynı sıra (Open ModeAppend → Stat → limit aşımında Close → Rename → yeniden Open) ve hata yolunda açık dosya bırakmıyor.
+
+### Yapılmadı (tur sınırı) — sonraki turda
+
+- `internal/input/host_windows.go` (117 satır fark) dal dal okunmadı.
+- Go testleri çalıştırılmadı (Windows yapı etiketli dosyalar yerelde derlenmez); eşdeğerlik statik karşılaştırmayla gösterildi.
+
+## 4. tur — sunucu kalan (2026-11-15, `git diff 14b2629..pt-wip -- apps/server/src`)
+
+DURUM: **GEÇTİ** (Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0). Kod değiştirilmedi. Yöntem: eski dosya (14b2629) ile yeni dosyalar
+yan yana, dal dal okundu. Not: çalışma ağacındaki commit edilmemiş değişiklikler (`git diff` HEAD, 15 sunucu dosyası) yalnız
+`export` kaldırma (ör. control-revoke.ts:15 `revokeControl`, admit.ts:14 `AdmitResult`, collab.ts sabitleri); çağıran yok, davranış farkı yok.
+
+### 1. app.ts ↔ app-hooks.ts + app-routes.ts — eşdeğer
+
+- **decorate / kanca sırası birebir**: `buildApp` (app.ts:227-254) sırası `decorateCore` (:115-137: db → mfaSetupEnforced → env →
+  authLimits + onClose → metrics → publicLimits → sessionRefKey → onClose → agentBinary + onReady) → `decorateIo` (:172-197: secrets/
+  netguard/mail kurulur → uploads → erasureLedger → onReady(yazılabilir) → secrets/netguard/mail decorate → smtpTestLimit → onClose)
+  → `decorateRooms` (:200-225: rooms → onReady(applyTurn) → 3 gösterge) → `decorateRequests` (app-hooks.ts:100-136: hub → requestLimits →
+  whatsapp + onReady(applyWhatsapp) → sms → outbox → requests) → `decorateJobs` (:171-196: retention → orphanScan → tenantPurge →
+  purge metrikleri → requestHub → account → 2 gösterge → onClose) → `attachSignaling` → `addStartupJobs` (yalnız `startJobs`) →
+  `addRequestHooks` → `registerRoutes`. Eski app.ts:183-440 ile aynı sıra; onReady (agentBinary, uploads, TURN, WhatsApp, açılış işleri)
+  ve onClose sıraları korunuyor. `hub` → `requests.statesOf` ileri başvurusu eskisi gibi aynı işlev kapsamında (TDZ riski yok).
+- **İstek kancaları**: `addRequestHooks` (app-hooks.ts:225-241) = eski :392-406 birebir — `decorateRequest("auth", null)` →
+  `registerErrorHandling` (lib/errors.ts değişmedi: setErrorHandler :99, setNotFoundHandler :115) → gövdesiz JSON ayrıştırıcı (Fastify
+  varsayılan, prototip korumalı) → onRequest `X-Request-Id` + `Permissions-Policy` (sabit aynı, :198).
+- **Eklenti/rota sırası**: `registerCoreRoutes` + `registerAdminRoutes` (app-routes.ts:62-100) = eski :408-440; cookie → helmet ilk iki
+  kayıt, ardından 31 rota aynı önek ve seçeneklerle aynı sırada (mysqlProbe/uploads seçenekleri dahil).
+- **CSP/başlıklar**: `helmetOptions` (app-routes.ts:32-59) eski :141-168 ile birebir (useDefaults:false, connect-src ws origin,
+  frame-ancestors 'none', HSTS 1 yıl includeSubDomains preload:false, CORP/COOP same-origin, no-referrer).
+- **Oturum çözümleme/CSRF**: genel onRequest/preHandler kancası yok, guard'lar rota eklentilerinde — `addHook("preHandler"|"onSend"…)`,
+  `setErrorHandler`, `decorateRequest` satırlarının tüm sunucuda sıralı listesi 14b2629 ↔ pt-wip aynı (fark yalnız users/routes.ts ve
+  customers/routes.ts satır numarası). auth/session.ts ve guards.ts farkı yalnız `export` kaldırma (oturum süreleri 8 sa / 30 dk aynı).
+- Fastify seçenekleri (trustProxy = TRUSTED_PROXY_CIDR, requestIdHeader:false, bodyLimit 64 KB) ve B-P10-3 production 2FA kilidi aynı.
+
+### 2. requests/ws.ts (/ws/request, /ws/panel) — eşdeğer
+
+- **/ws/request ret sırası** eski :69-107 ↔ `requestUpgrade` (:95-125) + `rowGate` (:69-86) + `agentGate` (:61-66): sorgu dizesi 403 →
+  BROWSER/AGENT türü `publicClientAllowed` 403 → `wsUpgrade`/`refInvalid` kilitli 429 (sayım yok) → subprotocol (`rs.v1` + tam bir
+  `rs.req.*` + 43 karakter, `requestSecret` :89-93) 403 → sır yok: `refInvalid` sayımı, 429/403 → `source` ↔ tür 403 → durum
+  (PENDING | ACCEPTED+oturum PENDING+süresi dolmamış) 403 → güvenilen CIDR → güvenilmeyende `hitBlocked(wsUpgrade)` 429 → `ipFull`
+  429 → yalnız AGENT: clientVersion null 403, eski sürüm 426, `legacy`. Tümü aynı koşul ve sırayla.
+- `RequestConn` alanları aynı (`...gate` = `{trusted, legacy}`); açılış: attach → PENDING'de durum yayını + geçmiş | ACCEPTED'te
+  ticket yeniden üretimi (`request.accepted`, ad 100 karakter) (:131-146 ↔ eski :122-137).
+- **Mesaj/kapanış**: `onRequestMessage` (:167-204) eski :147-181 birebir — attach kontrolü → `TokenBucket(WS_REQUEST_RATE_PER_SEC)`
+  aşımı/ikili/bozuk JSON → null → yeteneğe göre şema → zarf geçerli gövde geçersizse VALIDATION (soket açık, gövde loglanmaz) → aksi
+  `close(1008,"policy")` → cancel/decline/message. `onRequestClose` (:206-223): 1000 → iptal, aksi PENDING'de 120 sn tolerans — aynı.
+- **/ws/panel** `panelUpgrade` (:225-258) eski :200-231 birebir: sorgu 403 → IP kovası 429 → Origin allowlist 403 → çerez +
+  `resolveSession` + mustChangePassword 403 → `support_requests.view` + tenant 403 → oturum kovası aşımında kabul + `4429 retry=`
+  → `addPanel` dolu ise `TOO_MANY "too_many"` → gelen her mesajda `1008 policy`. 60 sn yeniden doğrulama (:264-274) aynı koşullar.
+- `cookieValue`/`jsonPeer`/`offeredProtocols` (lib/ws-upgrade.ts:10-33) eski satır içi kodla birebir; maxPayload signaling/ws.ts'te
+  (2. turda doğrulandı).
+
+### 3. signaling/control-revoke.ts + control-record.ts — eşdeğer
+
+- control-revoke.ts:15-112 eski control.ts:527-624 ile **satır satır aynı** (`revokeControl`, `resetOnGuestGone`, `revokeOnTechChange`,
+  `closeControlOnEnd`, `CAP_PERM`, `narrowCaps`). Geri alma tetikleyicileri aynı: rooms.ts:277-278 (teknisyen değişimi + bağlanma
+  anı yetki daralması), :290, :301 (misafir kopması), :380 (oturum sonu), :402 (yetki yeniden doğrulama) — eski rooms.ts:276-401 ile aynı
+  çağrılar; tek fark import kaynağı `./control-revoke.ts`.
+- control-record.ts eski control.ts:21-172 + :514-521 ile birebir: `CONTROL_AUDIT_TIMEOUT_MS = 800` (G-15), `recordControl` tek TX
+  (onay satırı + audit; yalnız UI/HOTKEY'de ip/UA), `settleWithin`, `enqueue` sıralı zincir, `recordClose` (granting'de `interrupt ??=`),
+  `closeState` (VIEW + `epoch += 1`), `auditBeforeForward`. `recordRevoked` (:69-70) eski `recordControl(…"REVOKED", rec.*)` çağrısının
+  birebir sarmalayıcısı. control-grant.ts `onGranted`/`grantFailed` (:45-91) epoch karşılaştırması ve timeout dengeleme REVOKED'ı aynı.
+
+### 4. signaling/admit.ts + collab.ts (dosya meta dışı) — eşdeğer
+
+- `admitGuest` (admit.ts:110-138) eski :27-111: zaten kabul/kabul sürüyor → CONFLICT + audit; kod `safeEqual` ile eşleşmezse
+  `codeMismatch` (:61-68: sayaç, ADMIT_CODE_INVALID, audit, `ADMIT_FAIL_MAX`'ta lobi boşaltma); `admitting` kilidi await öncesi;
+  `consumeLobbyGuest` (:71-99) aynı TX (koşullu UPDATE count=1 → onay → `guest.admitted` audit tx ile); kayıpta `admitLost`
+  (:102-108) durum → neden eşlemesi aynı; caps `capsOf(tech.permissions)` (:30-33) eski satır içi ifadeyle aynı.
+- `admitRequestGuest` (:219-256) + `activeTechPerms` (:171-190) + `consumeRequestGuest` (:193-217) + `activateRequestGuest` (:258-281):
+  eşzamanlı ikinci soket 1008 → `admitting` → teknisyen/tenant ACTIVE ve silinmemiş değilse `auth_revoked` + `failed` → TX → kayıpta
+  `timeout` → oda canlı değilse 1000 → `guest.peer` yalnız kazanan (S8b-2) → caps DB'deki etkin yetkiden → `syncDisconnect` → kapanmış
+  soketse `detachGuest`. Sıra ve koşullar eskiyle aynı. `rejectGuest` değişmedi.
+- collab.ts: `refuseFileMeta` (yetki caps + AC-53 boyut) dosya meta yolunun başında kalıyor; `handleQualitySummary`, `rejectedByDb`,
+  hız kovası (`takeFileMetaSlot`) ve limit tabloları değişmedi (diff yalnız dosya meta çıkarımı + `export` daraltma).
+  `fileMetaFailed` P2002/3819/genel hata dalları eski catch bloğuyla aynı; `return await senderReportOnly` hatayı aynı catch'e düşürüyor.
+
+### Bilgi (bulgu değil)
+
+- admit.ts:160-169 `admitRequestGuest` JSDoc bloğu çıkarım sonrası `activeTechPerms`'in üstünde kaldı (yorum yeri; davranış etkisi yok).
+
+### Yapılmadı (4. tur sınırı)
+
+- signaling/file-meta-store.ts `recordFileMeta`/`senderReportOnly`/`auditRateLimited` gövdelerinin eski collab.ts ile satır satır
+  karşılaştırması (2. turda çoklu-küme eşit bulunmuştu).
+- Entegrasyon testleri (yerel MySQL) çalıştırılmadı; eşdeğerlik statik okuma ile gösterildi.
+
+---
+
 # Güvenlik Raporu — P20 kod turu 2 (p20-wip f4b2a20..dbe87cd, 2026-11-15)
 
 DURUM: GEÇTİ (Kritik 0 / Yüksek 0).
