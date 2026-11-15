@@ -1,3 +1,508 @@
+# Güvenlik Raporu — P28u tasarım turu (K0, AC-290; gözetimsiz izinli/izinsiz bağlantı + müdahale, kod öncesi, 2026-11-16)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 3 / Düşük 6 (Orta bulgular tasarım r2'de kapatılmalı; kod turunda (K9) doğrulanır)
+
+Kapsam: `docs/mimari-p28u.md` r1 (§1–18), `docs/adr/0033-gozetimsiz-onay-diyalogu-yardimcida.md`, `docs/tasarim-kontrol.md` "P28u",
+`docs/gereksinimler-p28u.md` (AC-429..450), P27 kararları (K-P27-16, S-P27-6, Y-P27-3), P28b K-P28b-7. Kod yok; otomatik tarama bu
+turda uygulanmaz (yeni bağımlılık yok, yeni env yok).
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] O-P28u-1 Onay diyaloğu üst üste bindirme (overlay) ile tıklatılabilir: UIPI enjeksiyonu engeller, görsel aldatmayı engellemez — A04 Insecure Design
+
+Yer: mimari-p28u §7.3 "Konum/odak", §12 T1/T2; ADR-0033 Sonuçlar "(+) UIPI".
+Sorun: Savunma enjekte girdiye (UIPI, `injected` süzgeci) dayanıyor. Medium IL bir süreç, System IL pencereye ileti gönderemez ama kendi
+`WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT` penceresini diyaloğun üstüne koyabilir: tıklama altta kalan "İzin ver"e geçer, kullanıcı
+ise sahte içerik görür ("Reddet", "Tamam", oyun düğmesi). Tıklama fiziksel olduğu için `injected` süzgeci ve 1,5 sn kilit onu kabul eder.
+"1 sn'de bir en üste" yeterli değil (iki TOPMOST pencere sıra yarışır; saldırgan daha sık yeniler).
+İstismar senaryosu: Kullanıcı oturumundaki zararlı yazılım/kötü niyetli yerel uygulama, ele geçirilmiş ya da kötü niyetli teknisyen
+hesabıyla işbirliği yapar; teknisyen `ask` bağlantısı başlatır, overlay "İzin ver"i "Kapat" gibi gösterir; kullanıcı tıklar → `granted`,
+audit'e "kullanıcı izin verdi" yazılır (inkâr edilemez sahte onay).
+Düzeltme (backend-dev, K6): `consent.go`'ya "örtülme" kuralı: karar tıklamasında ve her 250 ms'de `GetWindow(GW_HWNDPREV)` zinciriyle
+diyalog dikdörtgenini kesen görünür bir pencere (kendi göstergemiz hariç) varsa "İzin ver" pasif olur ve 1,5 sn kilit örtülme bittikten
+sonra **yeniden başlar** (Android `filterTouchesWhenObscured` kalıbı); tıklama anında `WindowFromPoint(pt) == düğme` doğrulaması.
+Birim test (sahte z-sırası) + Windows elle T2'ye "saydam katman ile tıklama → kabul edilmez" maddesi. ADR-0033 Sonuçlar'a sınır
+eklenmeli ("UIPI yalnız enjeksiyonu kapatır").
+
+### [ORTA] O-P28u-2 Politika/yetki geri alma ile `silent` bağlantı arasında yarış: admit ve rejoin TX'leri silent koşullarını yeniden denetlemiyor — A01 Broken Access Control
+
+Yer: mimari-p28u §5.1 adım 10, §5.2 TX + commit sonrası `finishSilent`, §8.1 admit TX, §8.3 `rejoinDeviceGuest`, §8.4.
+Sorun: Connect TX politikayı `FOR SHARE` ile okur, PUT `FOR UPDATE` ile yazar — DB sırası doğru. Ancak `finishSilent` commit **sonrası**
+yalnız bellekteki odaları dolaşır; connect commit'i ile odanın `rooms`'a girmesi arasında (ya da henüz PENDING, `/ws/guest` bekleyen oturum)
+çalışırsa oda kaçırılır. `unattended.silent` geri alımında `applyPermChange` de aynı pencereye düşer. Admit TX (§8.1) ve rejoin TX (§8.3)
+yalnız cihaz/grant/kapı denetler; politika ve `unattended.silent` denetlenmez. Sonuç: AC-440 "≤ 5 sn" yalnız yedek `revalidateTech`
+(≤ 60 sn) ile karşılanır; ayrıca politika kapandıktan sonra yeni bir `silent` misafiri **admit edilebilir**.
+İstismar senaryosu: Yönetici ele geçirilmiş hesabı fark edip politikayı kapatır; aynı saniyede gönderilmiş silent connect admit'e
+ilerler ve ≤ 60 sn boyunca ekran izlenir; logoff→rejoin ile pencere 30 sn daha uzar.
+Düzeltme (backend-dev, K3/K4): (a) `consent_mode='silent'` odasının admit TX'i ve `rejoinDeviceGuest` TX'i `tenant_settings FOR SHARE` +
+çağıran teknisyenin `unattended.silent` yetkisini yeniden okur; değilse `CANCELLED/ended("permission")`. (b) `finishSilent` bellek
+odalarına ek olarak tenant'ın `consent_mode='silent' AND status='PENDING'` satırlarını `CANCELLED(permission)` yapar (aynı TX'te ya da
+hemen ardından). (c) Entegrasyon testi: connect TX commit'i ile oda kaydı arasına `finishSilent` sokulur → oturum açılmaz.
+
+### [ORTA] O-P28u-3 `asked` oturumunda "oturumu kapat" → yeniden katılım, sonraki oturum açan kullanıcıyı onaysız izletir (onay aklama) — A01 / KVKK
+
+Yer: mimari-p28u §7.5 "Yeniden katılım" (kip `asked` korunur), §8.3, K-P28u-5; AC-433 ("oturum açarsa yeni onay istenmez" yalnız
+`no_user` için yazılmış).
+Sorun: `asked` onayı **o anki** kullanıcıdan alınmıştır. Teknisyen `logoff` ile kullanıcıyı atar, yardımcı giriş ekranına yeniden katılır
+(kontrol kapalı ama görüntü açık); ardından aynı ya da **farklı** bir kullanıcı oturum açar — konsol oturum kimliği değişmediği için oda sürer,
+yeni kullanıcı hiç sorulmadan izlenir ve kontrol yeniden istenince otomatik `GRANTED` (P27). Kayıtta kip hâlâ `asked` görünür (yanıltıcı
+audit). `unattended.silent` yetkisi olmayan teknisyen bu yolla "izin alınmış" etiketiyle onaysız izleme elde eder.
+İstismar senaryosu: Teknisyen bir kez onay alır, kullanıcıyı logoff eder, paylaşımlı PC'de sonraki çalışanın tüm oturumunu "İzinli"
+kipte izler.
+Düzeltme (backend-dev K4/K5, mimar r2): En basit güvenli kural — `asked` odasında yeniden katılımdan sonra servis `WTS_SESSION_LOGON`
+(konsol) görürse odayı `session_changed` ile bitirir (teknisyen yeniden bağlanırsa kullanıcı aktif olduğundan diyalog çıkar). Alternatif:
+rejoin sonrası kip `no_user`'a düşürülür ve audit `unattended.rejoin{consentModeAfter:"no_user"}` yazılır (AC-433 kapsamına girer, en
+azından kayıt doğru olur). Seçim A-P28u-2 ile kullanıcıya sorulmalı; varsayılan ilk seçenek. `silent`/`no_user` davranışı değişmez.
+
+### [DÜŞÜK] D-P28u-1 Durum borusu ve servis tarafı kontrol durumu: durum makinesi ve sıfırlama tanımsız; pencere ileti süzgeci — A04 / A08
+
+Yer: §7.4 durum borusu, §7.5 "İstemci tarafı ret", ADR-0033 m.3.
+Sorun: Yardımcı ağa dönük, daha az güvenilen süreçtir (S-P27-6); durum borusu onu kısıtsız SYSTEM servisine bağlayan yeni bir girdi
+kanalıdır. (a) Servisin `ev:consent` satırını yalnız `Consent=="ask"` iken ve **bir kez** kabul edeceği, `ev:lock`'u yalnız bekleyen
+`id` için kabul edeceği yazılmamış. (b) Servisin tuttuğu son `control` değeri yardımcı çıkışında / yeni yardımcı başlarken `off`'a
+sıfırlanmıyor — yeniden katılım sonrası eski `on` değeri kalırsa `not_in_control` reddi atlanır. (c) `NoktaDestekOnay` penceresi için
+`ChangeWindowMessageFilter(Ex)` yasağı yok (çağrılırsa UIPI delinir).
+Düzeltme (backend-dev, K5/K6): servis okuyucusunda olay×durum tablosu (beklenmeyen olay = `helper_protocol` + `TerminateProcess`);
+yardımcı başlangıç/çıkışında `control=off`; `boundary_test.go` yasak listesine `ChangeWindowMessageFilter`, `ChangeWindowMessageFilterEx`
+eklenir. Birim testleri: Consent `none` iken `ev:consent` → sonlandırma; çıkış sonrası `intervene{lock}` → `no_session`.
+
+### [DÜŞÜK] D-P28u-2 Yeniden katılım penceresi ve bilet ömrü belgede çelişkili; süre aşımında işaret temizliği yok — A04
+
+Yer: §7.5 (`rejoinUntil = now + 45 sn`, komut **gönderilince**) ↔ §8.3 (`now + 30 sn`, `intervene.result` **sonrası**); `rejoin.expiresInSec
+1..30`; §5.3 logoff 15 sn zaman aşımı.
+Sorun: İki farklı süre ve başlangıç anı; `intervene` 15 sn'de yanıtsız kalırsa (502 `timeout`) `rejoinUntil`/`rejoinPending` temizliği
+yalnız `ok:false` için yazılmış — misafir kopuşu bu sürede odayı bitirmez (bekleyen "hayalet" oda).
+Düzeltme (mimar r2 + backend-dev K4/K5): tek tanım (öneri: komut gönderilince 45 sn üst sınır, bilet 30 sn, ikisi de sabit dosyada);
+`timeout` ve `ok:false` aynı temizlik yolunu kullanır; servis tarafında `rejoinPending` 45 sn sonra kendiliğinden düşer. Entegrasyon:
+logoff yanıtsız → 45 sn sonra oda `session_changed` ile biter.
+
+### [DÜŞÜK] D-P28u-3 `WTSLogoffSession` hedefi "o anki konsol oturumu"; yardımcının oturum kimliğiyle eşleşmesi zorunlu değil — A01
+
+Yer: §7.5 "Kullanıcı oturumunu kapat" (`consoleSessionId`).
+Sorun: Komut alınırken hızlı kullanıcı değiştirme/konsol geçişi olduysa izlenen değil başka bir kullanıcının oturumu zorla kapatılabilir
+(veri kaybı, T11). `session_changed` bitişi yarışa açık kısa pencere bırakır.
+Düzeltme (backend-dev, K5): hedef = çalışan yardımcının `SessionId`'si; `WTSGetActiveConsoleSessionId()` ile eşit değilse
+`ok:false, reason:"no_session"`. `--lock` geri dönüşünde (K-P28u-5b) aynı eşleşme + `dllsafe` ilk satır ve tam yol ile başlatma.
+
+### [DÜŞÜK] D-P28u-4 Audit'te `reason` alanı iki anlamlı; gerekçe kopyaları çoğalıyor; e-postada kaçış belirtilmemiş — A09 / KVKK
+
+Yer: §5.1 ("her ret `unattended.connect{result:fail, reason, mode}`") ↔ §9.1 (`reason` = gerekçe); §8.1 `session.started{consentMode,
+reason?}`; §9.2 e-posta içeriği.
+Sorun: Aynı eylemde `reason` hem ret kodu hem kişisel veri içerebilen gerekçe → filtre/rapor karışır, maskelenmesi gereken alan ayırt
+edilemez. Gerekçe audit'te iki satıra (connect + session.started) ve e-postaya yazılır (veri en aza indirme). E-posta HTML ise gerekçe
+kaçışlanmalı, konu satırına girmemeli.
+Düzeltme (backend-dev, K2/K3): gerekçe alanı `silentReason`, ret kodu `failReason`; gerekçe yalnız `unattended.connect` satırında
+(started'da yok); e-postada gerekçe yalnız gövdede, HTML kaçışlı / düz metin, konuda sabit metin. Tek kişilik tenant'ta dört göz
+alıcısının yalnız bağlananın kendisi olabileceği kılavuzda (K11) açıkça yazılsın.
+
+### [DÜŞÜK] D-P28u-5 Geri uyum: `consent` alanı eksik `connect` ve sunucu geri alımı onay diyaloğunu sessizce kapatır — A04 / A05
+
+Yer: §6.1 (eski sunucuda servis P27 davranışı), §6.2 (`consent` zorunlu), §14.1 geri alma.
+Sorun: Go'da eksik alan sıfır değer `""` olur; `device.features` alınmış bir bağlantıda `consent==""` gelirse davranış tanımsız (P27
+onaysız yola düşmemeli). Sunucu imajı geri alınırsa tüm cihazlar onaysız P27 davranışına döner — gizlilik gerilemesi runbook'ta yazılı değil.
+Düzeltme (backend-dev K5, devops K8): servis `features` sonrası `consent ∉ {ask, silent}` → `connect.result{ok:false, reason:"protocol"}`
+(fail-closed, birim test). Runbook §28u: "sunucu geri alımı onay diyaloğunu kapatır; geri alımda önce `UNATTENDED_MODE=off` ya da
+müşteriye bildirim".
+
+### [DÜŞÜK] D-P28u-6 Kullanıcı varlık durumu (aktif/kilitli/yok) göstergesiz izlenebilir; diyalogdaki teknisyen adı yanıltıcı olabilir — KVKK / A04
+
+Yer: §5.4 `userState`, §10 liste sütunu + 8 sn yoklama (AC-429); §7.3 diyalog gövdesi.
+Sorun: Bağlantı yokken (cihazda gösterge yokken) ≤ 10 sn çözünürlükle çalışanın bilgisayar başında olup olmadığı izlenebilir —
+G-17'nin ruhu (gizli izleme yok) ekran içindir ama varlık bilgisi de kişisel davranış verisidir. Bellekte tutulması ve DB'ye
+yazılmaması doğru. Diyalogda teknisyenin kendi düzenleyebildiği görünen ad ("Bilgi İşlem — Acil Güvenlik") sosyal mühendislik için kullanılabilir.
+Düzeltme (teknik-yazar K11, backend-dev K3): AC-436 aydınlatma metni ve kılavuzda varlık durumunun panelde göründüğü yazılsın;
+`userState` yalnız grant'lı cihazlarda ve hiçbir dışa aktarım/audit'te yer almasın (test). Diyalogda ad + destek firması (tenant adı,
+teknisyen değiştiremez) birlikte; ad değişikliği audit'te zaten var.
+
+## Otomatik tarama çıktıları
+
+Bu tur tasarım turudur; kod değişikliği yok. Yeni bağımlılık ve env değişkeni yok (§1, §14.1) — `pnpm audit`/`govulncheck`/gitleaks
+P28u kod turunda (K9) çalıştırılır.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Kod öncesi tur; uygulanmadı. K9'da doğrulanacak vaatler: T1–T12 önlemleri; `RegisterClassEx` sınıf kümesi testi; HANDLE_LIST = iki tanıtıcı
+testi; 2c kovasının yalnız TX başarısında artması; `consent_missing` admit reddi; `device.user`/`consent.result` başka oturum → yok sayma
+metriği; `silent_reason` anonimleştirmede NULL; gerekçenin pino/olay günlüğünde olmaması (lint/test); `finishSilent` ≤ 5 sn ve
+`revalidateTech` ≤ 60 sn sahte saat testi; Windows elle T2 (enjeksiyon + O-P28u-1 saydam katman).
+
+## Olumlu
+
+- G-17 korunuyor: gösterge her kipte fail-closed, yerel kapatma anahtarı her kipte; `silent` izleme kipinde (kontrolsüz) başlıyor ve
+  dosya teklifi kontrol durumuna bağlı (SERVER modunda gözetimsiz dosya zaten kapalı, K-P28b-7).
+- Kip kararı cihazda canlı durumla, okunamazsa `active` (gizlilik yönünde fail-safe, K-P28u-2); sunucu `ask` odasını onay kaydı
+  olmadan admit etmiyor (K-P28u-3); karar öncesi `/ws/guest` yapısal olarak yok + `proceed` sıra el sıkışması.
+- Diyalog System IL yardımcıda, yalnız `Default` masaüstünde, imleç altında açılmıyor, varsayılan Reddet, Enter/Space tetiklemiyor;
+  AC-341 yasak listesi ve derleme sınırı testi korunuyor, üçüncü pencere sınıfı test ile engelleniyor.
+- `silent` zinciri katmanlı: varsayılan kapalı politika + aydınlatma izi (DB CHECK) + ayrı yetki + grant + tüketilen step-up + gerekçe +
+  TX içi yeniden denetim + dört göz e-postası + müşteri bildirimi + alarm. Kapatma yönü sürtünmesiz.
+- Müdahale ucu zinciri (teknisyen, katılımlı oda 403, GRANTED, bekleyen komut tekliği, 6/dk) ve servis tarafı ikinci denetim; logoff'ta
+  `confirm:true`; gerekçe olay günlüğüne/log'a yazılmıyor; geri uyum `device.ready` şemasını bozmuyor (K-P28u-8).
+- K-P28u-16 (AC-116 sayacının gözetimsizde kalkması) kabul edilebilir: kullanıcıya diyalog yok, `Deps.Unattended` yerel başlatma
+  bayrağı (ağdan gelmiyor — `internal/flow/flow.go`), yerine oda başına 30/dk kova.
+
+**"Sonra" önerisi (gereksinimler §9):** O-P28u-3'ün kalıcı çözümü S-P28u-5 (kilit açılınca / yeni oturumda yeniden onay) ile birlikte ele alınsın; diyalogda örtülme tespitinin katılımlı (P20) onay penceresine de taşınması.
+
+---
+
+# Güvenlik Raporu — P28b tasarım turu (K9a, AC-290; sunucuda dosya + ClamAV + kota, kod öncesi, 2026-11-16)
+
+DURUM: DÜZELTİLMELİ — Kritik 0 / Yüksek 1 / Orta 3 / Düşük 6
+
+Kapsam: `docs/mimari-p28b.md` r1 (§1–16), `docs/adr/0032-sunucu-dosya-deposu-clamav.md`, `docs/tasarim-kontrol.md` "P28b",
+`docs/gereksinimler-p28.md` AC-353..363. Tasarımın dayandığı mevcut kod ve yapılandırma da okundu: `apps/server/src/lib/crypto.ts`
+(`SecretBox`, `macKey` HKDF), `lib/netguard.ts` (`classifyHost`), `lib/logger.ts` (redact), `signaling/handlers.ts` (ret logu),
+`ops/health.ts`, `deploy/Caddyfile` (log filtresi, `request_body`, `read_body`), `deploy/nginx/remote.noktabilisim.net.conf`,
+`deploy/docker-compose.yml` (ağlar). Kod yazılmadı, staging'e bağlanılmadı, otomatik tarama çalıştırılmadı (kod değişikliği yok).
+Y-P28b-1 mimariye r2 olarak işlenmeden K3–K7 birleştirilmez (mimari §13 kuralı).
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] Y-P28b-1 clamd, internet çıkışı olan ve imza veritabanını yazabilen konteynerde; misafirin yüklediği dosya clamd'yi sömürürse tüm tenant'ların düz metin dosyaları dışarı sızabilir — A04 Insecure Design / A06
+
+Yer: docs/mimari-p28b.md:256-264 (§7.1, tek `clamav` servisi hem `av` hem `av_egress` ağında, `clamav_db` volume'u), :334 (T5),
+ADR-0032 Karar m.5 ("yalnız freshclam çıkışı için `av_egress`"). Ayrım ve imaj davranışı K0'da doğrulanacak varsayımlardır.
+Sorun: Docker'da ağ konteynere bağlanır, sürece bağlanmaz. Resmî imajda clamd ve freshclam aynı konteynerde çalışır. Bu yüzden
+"yalnız freshclam çıkışı" sözü tutmaz: düşmanca dosyayı ayrıştıran clamd süreci de `av_egress` üzerinden internete çıkabilir. Ayrıca
+`clamav_db` aynı konteynerde yazılabilir. T5 önlemi "sunucu konteynerine yol yok" da tam doğru değil, çünkü `av` ağı `server` ile
+paylaşılıyor. Bu ayrıntı tek başına küçük: clamd server:3001'e ulaşır, ama `/metrics` Bearer ister (token yoksa 404; `ops/metrics.ts:1`).
+XFF'e yalnız `TRUSTED_PROXY_CIDR` (172.30.0.2/31, Caddy/web) için güvenilir, bu yüzden `av` adresinden IP sahteciliği de yapılamaz. Asıl sorun şu:
+clamd, SERVER modundaki **bütün** tenant'ların dosyalarını düz metin olarak alan tek süreç. ClamAV ayrıştırıcılarında geçmişte
+uzaktan kod çalıştırma açıkları çıktı (dosya biçimi ayrıştırıcıları). Dosyayı yükleyen taraf da kimliksiz sayılabilecek müşteri.
+İstismar senaryosu: (1) Kötü niyetli bir müşteri, teknisyenin kabul ettiği herhangi bir oturumda clamd'deki bir n-day/0-day açığını
+tetikleyen dosyayı yükler (`fsrv.init` → PUT). Tarama sırasında clamd'de kod çalıştırır. (2) Uzun ömürlü clamd sürecinde kalır.
+Sonraki saatlerde/günlerde tüm firmaların taranan dosyalarını `av_egress` üzerinden dışarı gönderir. Bu, tenant'lar arası gizlilik
+ihlalidir. (3) `clamav_db`'ye beyaz liste/`.ign2` imzası yazar. Böylece konteyner yeniden başlasa da belirli zararlıların algılanmaması
+kalıcı olur. Bu, tarama atlatmanın kalıcılaşmasıdır (T7 dışı).
+Düzeltme (mimari §7.1/T5/ADR-0032 r2):
+
+- İki servis kullanılsın, imaj ve digest aynı olsun: **`clamav-update`** (yalnız freshclam; `av_egress`; `clamav_db` rw; clamd kapalı)
+  ve **`clamav`** (yalnız clamd; yalnız `av` iç ağı; `clamav_db` **ro**; freshclam kapalı; çıkış yok).
+- İmzanın yeniden yüklenmesi clamd'nin kendi `SelfCheck` yoklamasıyla yapılsın. freshclam'ın clamd'ye bildirmesi (`NotifyClamd`) gerekmez;
+  gerekiyorsa yalnız `av` üzerinden yapılsın.
+- Servisleri ayırmak için kullanılacak imaj seçenekleri ve ro veritabanıyla `SelfCheck` davranışı K0'da sabitlenen imajla doğrulansın
+  (doğrulanmamış varsayım olarak yazılıyor).
+- T5 metni "sunucuya yol yok" yerine şöyle düzeltilsin: "clamd yalnız server:3001'e genel API kadar erişir; çıkış yok; DB salt okunur".
+- `server` yalnız `av`'de clamd'ye bağlansın. `av` ağına başka servis eklenmesin (edge ağı S-P2-1 notu kalıbında compose yorumu).
+- Port taraması testine (AC-353) "clamav konteynerinden dış bağlantı kurulamıyor" denetimi eklensin (ör. `docker exec clamav` içinden
+  `nc -z 1.1.1.1 443` başarısız olmalı).
+  (atanan ajan: mimar r2 → devops K0/K6)
+
+### [ORTA] O-P28b-1 ClamAV adresi "herhangi bir özel adres" olabiliyor: Super Admin oturumu ele geçiren, tüm firmaların dosyalarını kendi dinleyicisine akıtabilir ve taramayı "OK" ile atlatabilir — A01 / A10 SSRF
+
+Yer: docs/mimari-p28b.md:169 (`PUT /admin/settings/clamav`, "yalnız özel/iç adres veya tek etiketli konteyner adı"), :338 (T9), :470 (K-P28b-16);
+apps/server/src/lib/netguard.ts:102-113, :134 (`classifyHost` → `private` = 10/8, 172.16/12, 192.168/16, fc00::/7; + loopback).
+Sorun: T9 yalnız iç servis taraması yönünü ele alıyor. Ters yön ele alınmamış: ayar hedefi, sistemdeki **bütün** dosyaların düz metnini
+alan ve "temiz/virüslü" kararını veren taraf. `server` konteyneri `edge` ağında. Bu ağ `internal` değil, bu yüzden host'un eriştiği her
+özel ağa yönlenebilir: sağlayıcı özel ağı, VPN, Docker ağ geçitleri. `private` sınıfı bu adreslerin hepsini kabul eder. Super Admin,
+`historyScope` `kind:"all"` (`sessions/service.ts:40`) sayesinde geçmişten `CLEAN` dosyaları zaten indirebilir, ama her indirme
+`file.download` audit'i üretir. Ayar ekranının getirdiği **ek** risk üç parçalı: (a) tüm tenant'ların dosyaları dosya başına audit
+olmadan, toplu ve canlı olarak akar; (b) teslim edilmeyen ve virüslü dosyalar da akar; (c) sahte "temiz" kararıyla zararlı dosya
+teslim ettirilebilir.
+İstismar senaryosu: Super Admin oturumunu ele geçiren saldırgan step-up'ı geçer (ya da kötü niyetli bir iç yönetici). Erişebildiği özel
+ağdaki bir makinede sahte clamd dinler (`PONG`, EICAR için `FOUND`, diğer her şey için `stream: OK`). Test başarılı olur ve
+`lastTest.ok=true` yazılır. Bundan sonra tüm tenant'ların dosyaları bu makineye düz metin olarak akar ve zararlılar "temiz" diye teslim
+edilir. Audit'te yalnız `settings.clamav` satırı kalır.
+Düzeltme: Hedef, `av` ağının sabit alt ağıyla sınırlansın. Compose'ta `av` için sabit `subnet` tanımlansın. Env'e `CLAMAV_ALLOWED_CIDR`
+eklensin; varsayılan `av` alt ağı olsun, `.env.example` + `env.ts` + runbook'a yazılsın. Çözümlenen **tüm** adresler bu CIDR içinde
+olmalı; değilse `HOST_NOT_ALLOWED` verilsin. Bağlantı, netguard kalıbındaki gibi çözümlenen IP'ye yapılsın (rebinding yok). Panel
+alanları AC-353 için kalır, ama yalnız bu alt ağ içinde değiştirilebilir. Ayrıca adres değiştiğinde **tüm** tenant'ların sistem
+yöneticilerine (ya da audit ekranında uyarı rengiyle) görünürlük verilmesi tercih edilir. K-P28b-16 metnindeki "mevcut kalıp" ifadesi
+"`classifyHost` + CIDR beyaz listesi" diye güncellensin. (atanan ajan: mimar r2 → backend-dev K3, devops K6)
+
+### [ORTA] O-P28b-2 Reddedilen/teslim edilmeyen dosyalar günlerce kotayı tutuyor; oturum başına sınır ve elle silme yok — tek bir müşteri firma genelinde dosya aktarımını ve kaydı durdurabilir — A04 Insecure Design (DoS)
+
+Yer: docs/mimari-p28b.md:135-136 ve :463 (K-P28b-9: teslim/ret fark etmez, `CLEAN` saklanır), :469 (K-P28b-15: elle silme yok), :120-122
+(kota yalnız tenant toplamı), :200 (init 20/dk/oda, yön başına tek etkin); AC-362, AC-384 (kayıt aynı kotayı kullanır).
+Sorun: Kota tenant'a ait, ama yükleyen taraf misafir olabilir. `fsrv.init` gönderen misafir için kapı yalnız ADMITTED olmasına bakıyor.
+Alıcı dosyayı reddetse bile dosya `CLEAN` olarak `file_retention_days` boyunca (7 güne kadar) kotada kalır. Admin'in bu alanı boşaltacak
+bir aracı yok (K-P28b-15). Super Admin kotayı yükseltmeden firma, saklama süresi bitene kadar dosya aktaramaz. P28e'de de
+"Depolama kotası doldu, kayıt durdu" (AC-384) olur.
+İstismar senaryosu: Kabul edilmiş bir müşteri (ya da bilgisayarındaki zararlı) yön başına tek etkin kuralına uyarak arka arkaya 512 MiB
+dosya yükler. 20 GB kota ~40 dosyayla dolar (süre hatta ve tarama süresine bağlı). Teknisyen hepsini reddeder ama hepsi kotada kalır.
+Firmanın tüm teknisyenleri ve müşterileri günlerce "Firma depolama kotası doldu" görür.
+Düzeltme: (a) **Teslim edilmeyen dosya saklanmasın.** Şu durumlarda dosya hemen silinsin ve satır `CANCELLED`/`EXPIRED` olsun: alıcı
+`fsrv.reject` gönderdi, teklif `fsrv.cancel` ile geri çekildi ya da oda kapandığında `delivered_at IS NULL`. AC-360'taki "geçmişten
+indirme" yalnız teslim edilmiş dosyalar için geçerli olsun. Bu, K-P28b-9 kararını daraltır; AC-360 metnine K11 notu eklenir.
+(b) **Oturum başına bayt tavanı** olsun (ör. `FSRV_SESSION_MAX_BYTES = 2 GiB`, contracts sabiti). Aşılırsa `fsrv.status{REJECTED, QUOTA}`
+dönsün. (c) Misafir yönü için oda başına dakikalık bayt sınırı (init sayısı değil) değerlendirilsin. (d) Runbook'ta kota doluyken Super
+Admin'in yapacağı işler tarif edilsin. Elle silme (K-P28b-15) "Sonra" listesinde kalabilir; (a)+(b) varken gerekmez.
+(atanan ajan: mimar r2 → backend-dev K3)
+
+### [ORTA] O-P28b-3 Tarama kapasitesi tüm sistemde ortak ve adil değil; clamd belleği 2 × 512 MiB akış + imza DB için yetersiz — bir oturum tüm firmalarda fail-closed'a yol açabilir; INSTREAM geçici dosyası düz metin — A04 (DoS) / A02
+
+Yer: docs/mimari-p28b.md:259-264 (§7.1 `mem_limit: 2g`, tmpfs `/tmp`), :265 (RAM ~1,2–1,6 GB), :270-271 (eşzamanlılık 2, kuyruk 20,
+kuyrukta > 30 sn → `BUSY`), :244 ("düz metin diske hiç yazılmaz"), :466 (K-P28b-12, 512 MiB).
+Sorun: (1) Tarama yuvaları (2) ve kuyruk (20) sistem genelinde tek ve FIFO. 512 MiB'lık bir dosyanın taranması 60 sn sınırına kadar
+sürebilir. Birkaç oturum iki yuvayı sürekli dolu tutarsa, diğer firmaların 30 sn kuyruk sınırını aşan dosyaları
+`SCAN_FAILED/BUSY` olur. Tasarım, yön başına "etkin aktarım" sayılırken `SCANNING` durumunun ya da bekleyen teklifin dahil olup
+olmadığını da belirtmiyor. (2) clamd INSTREAM ile gelen akışı tarama için geçici dosyaya yazar. Arşivleri de geçici dizine açar
+(davranış K0'da doğrulanmalı). Bu dizin tmpfs ise bellekten yer: imza DB (~1,2 GB) + 2 × 512 MiB akış + arşiv açılımı, 2 GB sınırını
+aşar. OOM olursa clamd ölür ve bütün firmalarda tarama `UNAVAILABLE` olur. Dizin diskteyse bu kez §6'daki "düz metin diske yazılmaz"
+sözü bozulur.
+İstismar senaryosu: Kötü niyetli müşteri(ler), iki ayrı oturumda sürekli 512 MiB'lık sıkıştırılmış ya da yoğun içerikli dosya yükler.
+Diğer tenant'ların küçük dosyaları kuyrukta 30 sn bekleyip "taranamadı" olur. Ya da iki büyük akış aynı anda clamd'yi OOM'a sokar ve
+tarama servisi döngüsel olarak yeniden başlar.
+Düzeltme: (a) Kuyruk tenant bazında adil olsun: tenant başına en çok 1 etkin tarama, kuyrukta tenant başına en çok N bekleyen; büyük
+dosya (> 64 MiB) için ayrı tek yuva da olabilir. (b) §5.2 kapı 4'te "etkin" = `UPLOADING|SCANNING` diye açıkça yazılsın. (c) clamd
+`TemporaryDirectory`, boyut sınırı açıkça verilmiş bir tmpfs olsun (≥ 2 × `StreamMaxLength` + arşiv payı). `mem_limit`, K0 ölçümüyle
+"imza DB + tmpfs + çalışma" olarak hesaplansın (yeniden yükleme eşzamanlı değil, §7.1). Gerekirse sunucu modu tavanı 512 MiB'tan düşürülsün
+(K-P28b-12). (d) clamd geçici dizininin düz metin taşıdığı §10.2'ye yazılsın. (atanan ajan: mimar r2 → devops K0/K6, backend-dev K3)
+
+### [DÜŞÜK] D-P28b-1 Bağlantı testi yalnız EICAR'ı kanıtlıyor; şifreli arşiv / sınır aşımı ayarı sessizce "temiz" dönerse fail-closed bozulur — A05 Security Misconfiguration
+
+Yer: docs/mimari-p28b.md:170 (test = PING + EICAR), :261-264 (davranış `clamd.conf`'a bağlı), :277-280; AC-359.
+Sorun: Şifreli arşivin ve sınır aşımının "taranamadı" sayılması (AC-359) tamamen clamd yapılandırmasındaki `Alert*` seçeneklerine bağlı.
+Bu seçeneklerin çoğunun varsayılanı kapalı olabilir; K0'da doğrulanmalı. Panelden başka bir clamd gösterilebiliyor (O-P28b-1).
+Yapılandırma değişebilir ya da imaj güncellemesinde seçenek adı değişebilir (R-P28b-3). Bu durumlarda şifreli zip `stream: OK` döner
+ve dosya `CLEAN` teslim edilir. Test bunu yakalamaz.
+Düzeltme: "Bağlantıyı Test Et" ve 10 dk yoklaması küçük bir **şifreli zip fikstürünü** de akıtsın. Beklenen sonuç `Heuristics.Encrypted.*`;
+gelmezse `ok=false` ve "Şifreli arşiv algılaması kapalı" mesajı dönsün, `lastTest.ok=false` olsun. Bu durumda AC-354'e göre anahtar
+açılamaz; açık tenant'larda da yükleme `SCAN_FAILED/ERROR` olsun. EICAR dizesi kaynak kodda parçalı tutulsun ve çalışma anında birleştirilsin.
+Bu, host AV'sinin imajı karantinaya almasını önler. (atanan ajan: backend-dev K3)
+
+### [DÜŞÜK] D-P28b-2 Belirteç yaşam döngüsü: oda kapanınca/kullanıcı pasifleşince düşmüyor, gövde belirteçten önce okunabilir, 404 denemelerine IP sınırı yok — A07 / A04
+
+Yer: docs/mimari-p28b.md:164-166, :178-181 (belirteçler yalnız süreyle düşer), :204 ("aynı fid için en çok 3 belirteç", her belirteç 5 dk
+içinde sınırsız kullanılır).
+Sorun: `TECH`/`CUSTOMER` indirme belirteçleri oturum bittikten, misafir çıkarıldıktan ya da teknisyen değiştikten sonra da 5 dk geçerli.
+`HISTORY` belirteci oturuma (authSession) bağlı değil, bu yüzden çıkış ya da kullanıcının pasife alınması onu düşürmüyor. Tasarım,
+belirteç denetiminin Fastify gövde ayrıştırmasından **önce** yapılacağını yazmıyor. Yapılmazsa her geçersiz PUT için 1 MiB gövde
+belleğe okunur.
+İstismar senaryosu: Oturumdan atılan bir misafir, elindeki indirme belirteciyle 5 dk içinde dosyayı yeniden indirir. Belirteçsiz PUT
+seli de sunucu belleğini ve bant genişliğini tüketir.
+Düzeltme: Oda kapanışında, misafir çıkarıldığında ve teknisyen değiştiğinde o odanın yükleme ve `TECH/CUSTOMER` indirme belirteçleri
+silinsin. `HISTORY` belirteci `authSessionId`'ye bağlansın; GET anında oturumun ve kullanıcının etkin olduğu denetlensin. Belirteç
+denetimi `onRequest`'te, gövde okunmadan yapılsın. PUT/GET 404'leri için IP başına sınır konsun (mevcut `lib/rate.ts`, ör. 60/dk).
+(atanan ajan: backend-dev K3)
+
+### [DÜŞÜK] D-P28b-3 Yazdırma (PRINT) yolu: boyut 20 MiB'a ve yetkilenen değere bağlı değil, `fsrv.offer`'da `pid` yok, belge ve adı günlerce saklanıyor — A04 / KVKK veri en aza indirme
+
+Yer: docs/mimari-p28b.md:200 (kapı 5 `min(max_file_mb, 512)`, PRINT için ayrı tavan yok), :203 (`fsrv.offer` alanları `pid` içermiyor),
+:213-220 (§5.3), :467 (K-P28b-13).
+Sorun: P28a'da yazdırma PDF'i ≤ 20 MiB. O-P28a-2'ye göre boyut, WS'de yetkilenen değere eşit olmalı. SERVER modunda `fsrv.init{PRINT}` için
+bu bağ yazılmamış; teknisyen 512 MiB'lık "PRINT" yükleyebilir. Go'daki 20 MiB sayaç indirmeyi keser, ama kota ve tarama yükü oluşur.
+Misafir de teklifi bekleyen yazdırma işine `pid` ile bağlayamıyor. Basılan belge ve adı `CLEAN` satırında 1–7 gün kalıyor ve Admin
+geçmişten indirebiliyor. P28a'da belge hiç saklanmıyordu.
+K-P28b-13 değerlendirmesi: SERVER modunda sunucu içeriği zaten görüyor. Bu yüzden adın WS/TLS'ten geçmesi tek başına yeni bir gizlilik
+riski değil; **kabul edilebilir**. Ama yazdırma için ada hiç gerek yok.
+Düzeltme: PRINT kapısı `size === printPending.size && size ≤ 20 MiB` olsun. `fsrv.offer`'a `pid?` eklensin (PRINT'te zorunlu). Go istemci,
+bekleyen işin `pid`'i ve boyutuyla eşleşmeyen teklifi reddetsin (`report{ERROR}`). PRINT satırında `file_name` sabit `belge.pdf`
+olsun. PRINT dosyası P28a son durumunda (basıldı, reddedildi, ABANDONED) hemen silinsin; ya da AC-360/aydınlatma metni yazdırma
+belgelerinin de saklandığını açıkça yazsın (K11). (atanan ajan: mimar r2 → backend-dev K3/K5)
+
+### [DÜŞÜK] D-P28b-4 nginx tamponu için yeni `location` bloğu G-11 başlıklarını devralmaz — A05
+
+Yer: docs/mimari-p28b.md:250, :343 (T14), :471 (K-P28b-17); deploy/nginx/remote.noktabilisim.net.conf:80-103 (`proxy_set_header`'lar
+`location /` içinde).
+Sorun: nginx'te `proxy_set_header` / `proxy_*` yönergeleri yalnız üst seviyeden devralınır, kardeş `location`'dan devralınmaz. Yeni
+`location /api/v1/fsrv/` bloğunda bunlar yeniden yazılmazsa, G-11'deki `X-Forwarded-For $remote_addr` yeniden yazımı ve
+`proxy_pass`/zaman aşımları eksik kalır. Sonuçta Caddy tüm istemcileri ağ geçidi IP'si olarak görür ve IP sınırları çöker; ya da istek
+hiç iletilmez. Bugün diğer yüklemeler de (logo/avatar, 3 MiB) varsayılan 16 KiB tamponu aşıyor ve host diskine geçici dosya yazıyor.
+Bu P28b'den bağımsız, ama aynı düzeltmeyle kapanır.
+Düzeltme: Yeni `location` açılmasın. `client_body_buffer_size 3m;` sunucu (server) seviyesine yazılsın: `client_max_body_size 3m`
+ile aynı yere, tüm gövdeler için. `test-nginx.sh`'e "gövde host diskine yazılmaz" denetimi eklensin (`client_body_temp_path`
+dizini boş kalmalı). Staging'de nginx yok; prod denetimi runbook'ta tanımlansın. (atanan ajan: devops K6)
+
+### [DÜŞÜK] D-P28b-5 İçerik ucu ve ayrıştırıcı ayrıntıları: `Content-Disposition` kodlaması, sandbox CSP, octet-stream ayrıştırıcısının kapsamı, Bearer uçlarında çerez — A03 / A05
+
+Yer: docs/mimari-p28b.md:164-165, :176.
+Sorun ve düzeltme (dördü birlikte):
+
+- `filename*=UTF-8''` değeri RFC 5987'ye göre yüzde kodlansın (`encodeURIComponent` + `'()*` kaçışı). Yanına ASCII yedek `filename="…"`
+  (kontrol karakteri ve `"` temizlenmiş) eklensin. Başlık enjeksiyonu birim testi yazılsın.
+- İçerik GET'ine `Content-Security-Policy: sandbox; default-src 'none'` ve `Cross-Origin-Resource-Policy: same-origin` eklensin. Yanıt
+  yanlışlıkla doğrudan açılırsa bile betik çalışmaz.
+- `application/octet-stream` içerik türü ayrıştırıcısı yalnız fsrv eklentisinin kapsamında (Fastify encapsulation) kaydedilsin. Diğer
+  rotalar ikili gövde kabul etmesin.
+- fsrv uçları çerez oturumunu **hiç okumasın**; yalnız Bearer kullansın. Birim testi: geçerli çerez var, Bearer yok → 404.
+- §5.1/§5.2 ile K-P28b-20 çelişiyor. §5.1, `hello.fileMode`'u yalnız `fsrv` bildiren sokete gönderiyor. §5.2, `fsrv.*`'yi yalnız
+  bildiren sokette şemaya alıyor (aksi 1008). Tarayıcı ise hiç bildirmiyor. r2'de "bildirdi **veya** `guestKind=BROWSER`" diye tek
+  bir `hasFsrv(peer)` yardımcısı tanımlansın. Tarayıcı için özellik kümesi yalnız `{fsrv}` olsun. O-P28a-4 kuralı (AGENT dışı misafirde pano/yazdırma
+  özelliği yok) bozulmasın; `capsFor` tablosu testine eklensin.
+  (atanan ajan: backend-dev K3)
+
+### [DÜŞÜK] D-P28b-6 K-P28b-19 risk kabulü ve "tarama" iddiasının sınırı; AC-356 ↔ AC-360 metin çelişkisi — A04 / KVKK şeffaflık
+
+Yer: docs/mimari-p28b.md:337 (T8), :473 (K-P28b-19), :341 (T12); AC-356 ("yalnız o oturumun katılımcıları"), AC-360 (geçmişten Admin
+indirmesi).
+Değerlendirme: K-P28b-19 **kabul edilebilir**. İki uçtaki istemci de değiştirilmişse uçtan uca DataChannel'ı sunucu engelleyemez.
+Ayrıca uzaktan kontrol izni olan teknisyen, müşterinin tarayıcısıyla zaten her dosyayı indirebilir. Tarama bir hijyen kontrolüdür,
+kötü niyetli uç noktaya karşı bir güvenlik sınırı değildir. Normal istemcilerde sunucu caps daraltması, istemcinin DC reddi ve
+`file.meta`'nın yok sayılması üç katmanlı ve yeterli. Pano (P28a, metin) SERVER modunda taranmıyor; bu da kapsam dışında.
+Koşul: DATASHEET, kılavuz ve AC-363 metninde "tüm dosyalar taranır" gibi mutlak bir ifade olmasın. Şu yazılsın: "Uygulamanın dosya
+aktarımı ve yazdırma özellikleriyle gönderilen dosyalar taranır; pano metni ve uzaktan kontrol sırasında müşterinin kendi indirdikleri
+kapsam dışıdır." AC-356'daki "yalnız katılımcılar" ifadesi AC-360 ile çelişiyor; "oturum katılımcıları ve (AC-360) geçmiş yetkisi olan
+kullanıcılar" diye düzeltilsin (K11). (atanan ajan: teknik-yazar K10, proje-yoneticisi K11)
+
+## Mevcut mimariyle tutarlılık
+
+| Konu                         | Durum                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `APP_ENCRYPTION_KEYS` / HKDF | Tutarlı. `lib/crypto.ts` `macKey` bilgi dizesi `remote-support/<amaç>/v1` (tuz boş); dosya anahtarı `remote-support/stored-file/v1\|tenant\|fid` + 32 B tuz → alan ayrık. Öneri: `SecretBox.keys` özel kalsın; `deriveFileKey(ver, salt, tenantId, fid)` `lib/crypto.ts` içine eklensin, ana anahtar dışarı verilmesin. Başlıktaki `key_ver` ile DB `key_ver`'ı eşit olmalı (değilse `CORRUPT`). |
+| Nonce / segment              | Sağlam. Dosya başına anahtar + sayaç + son bayrak; 512 MiB = 8192 segment ≪ 2³²; AAD = başlık + HKDF bağlamı → taşıma/kesme/yeniden sıralama yakalanır.                                                                                                                                                                                                                                          |
+| Caddy                        | Tutarlı. `Authorization`, `Referer`, `resp Content-Disposition` log filtresinde siliniyor (Caddyfile:36,122,126); PUT `@notUpload` 2 MB sınırına (1 MiB parça) sığıyor; `read_body 30s` K-P28b-4 hesabıyla uyumlu. Yeni Caddy kuralı gerekmez.                                                                                                                                                   |
+| nginx                        | `client_max_body_size 3m` yeterli; tampon için D-P28b-4.                                                                                                                                                                                                                                                                                                                                         |
+| Logger                       | `req.headers.authorization` redact ediliyor (`lib/logger.ts:12`); WS şema reddi yalnız `event` yazıyor (`handlers.ts:77`), girdi değeri (dosya adı) loga düşmüyor.                                                                                                                                                                                                                               |
+| netguard                     | `classifyHost` "private" sınıfı var (MySQL probe kalıbı); K-P28b-16 bu anlamda doğru, ancak hedef daraltması O-P28b-1.                                                                                                                                                                                                                                                                           |
+| ws-auth / rate limit         | Okundu: `rooms-features.ts:2,28` (bilinmeyen `rs.cap.*` yok sayılır, AGENT dışı özellik yok); `lib/rate.ts` `FixedWindowCounter` mevcut, D-P28b-2 için yeterli. `mimari.md` güvenlik bölümü bu turda ayrıca açılmadı; P28b yeni bir genel kural getirmiyor, yalnız mevcut kalıpları (G-10/G-11, step-up, netguard, AAD) kullanıyor.                                                              |
+| Compose ağları               | `edge` yorumu "yeni servis → ayrı ağ" kuralına uyuluyor (`av` ayrı). `av_egress` kullanımı Y-P28b-1.                                                                                                                                                                                                                                                                                             |
+
+## Tehdit modeli ve kararlar — karar özeti
+
+| Madde                         | Değerlendirme                                         |
+| ----------------------------- | ----------------------------------------------------- |
+| T1, T2, T3, T4, T10, T11, T13 | Yeterli (T2 için D-P28b-2 ek)                         |
+| T5                            | Yetersiz → Y-P28b-1                                   |
+| T6                            | Kısmen → O-P28b-2, O-P28b-3                           |
+| T7                            | Yeterli; yapılandırmaya bağlı fail-open → D-P28b-1    |
+| T8 / K-P28b-19                | Risk kabulü kabul edilebilir; belge koşulu → D-P28b-6 |
+| T9 / K-P28b-16                | Ters yön eksik → O-P28b-1                             |
+| T12                           | Yeterli; metin koşulu D-P28b-6                        |
+| T14 / K-P28b-17               | Amaç doğru, uygulama biçimi → D-P28b-4                |
+| K-P28b-9, K-P28b-15           | Daraltılmalı → O-P28b-2                               |
+| K-P28b-12, K-P28b-18          | K0 bellek ölçümüne bağlı → O-P28b-3                   |
+| K-P28b-13                     | Kabul edilebilir; PRINT'te ad gereksiz → D-P28b-3     |
+| K-P28b-20                     | Kabul; şema çelişkisi → D-P28b-5                      |
+| K-P28b-1..8, 10, 11, 14       | Yeterli                                               |
+
+## Otomatik tarama çıktıları
+
+Tasarım turu; kod değişikliği yok, `pnpm audit` / gitleaks çalıştırılmadı (bir önceki P28a kod turunun sonuçları geçerli). K8 kod turunda
+clamav imajı digest'i ve Dependabot docker kaydı denetlenecek.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Kod yok (K9a). K8'de doğrulanacaklar: IDOR matrisi (AC-356), log tarama testi (ad + 43 karakter belirteç), `file_mode` UPDATE grant'ının
+olmaması, açılış süpürmesi, 03:30 mutabakatı, firma silmede `FILES_DIR/{tenant}` boş testi, Y-P28b-1 ağ ayrımı ve çıkış testi.
+
+## Olumlu
+
+- Belirteçler yalnız `Authorization` başlığında, URL'de yok; bellekte SHA-256 ile tutuluyor; tüm uyuşmazlıklar tek tip 404 (T1/T2).
+- İndirme belirteci yalnız `CLEAN` için üretiliyor ve GET anında durum yeniden denetleniyor; diskte yalnız `CLEAN` dosya var (T7).
+- Segmentli AES-256-GCM, doğrula-sonra-ver; tek GCM akışı alternatifinin reddi gerekçeli; düz metin hiçbir aşamada uygulama diskine yazılmıyor.
+- Mod oturum açılışında sabit ve `file_mode` kolonuna UPDATE grant'ı yok (AC-355). Bu, oturum ortasında moddan kaçışı DB düzeyinde kapatıyor.
+- Sunucu teslimi kendisi kaydettiği için S-P5-T2-4 (sahte `session_files` raporu) SERVER modunda kapanıyor.
+- Fail-closed sınıflandırma tablosu net; ayrıştırılamayan yanıt `ERROR`; imza adı regex'le sınırlı; `/ready` clamd'den bağımsız.
+- GPL kodu bağlanmıyor, npm bağımlılığı yok; dosyalar yedeğe girmiyor (silinen kişisel veri geri gelmez).
+- Kota rezervasyonu tenant satırı kilidiyle serileştirilmiş; parça başına disk %10 denetimi var.
+
+**"Sonra" önerisi (gereksinimler §9):** geçmişten indirmede (imza DB güncellendiyse) yeniden tarama; adres değişikliğinde tüm Admin'lere bildirim.
+
+## r2 doğrulama (K9a-r2, 2026-11-16)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 5 (yeni)
+
+Kapsam: `docs/mimari-p28b.md` r2 (§2–§16 + §r2 tablosu), `docs/adr/0032-sunucu-dosya-deposu-clamav.md` r2, `docs/gereksinimler-p28.md`
+AC-356/357/360/363, `docs/tasarim-kontrol.md` "P28b". `guestKind`'in sunucuda üretildiği kodda doğrulandı (`public/service.ts:99`, nonce türü).
+Bağlam: host 15 GiB RAM (7,8 GiB boş), 8 çekirdek, 23 GB boş disk; staging ve prod aynı hostta. Kod yok; Y-P28b-1'in kesin kanıtı K6 kapısı 1–3'tedir.
+K3–K7 birleştirme kapısı (§13) bu doğrulamayla açılabilir. Aşağıdaki Düşük bulgular K3/K6 içinde kapatılmalı; kapatılmazsa K8'de yeniden açılır.
+
+### Bulguların durumu
+
+| Bulgu    | Durum   | Not                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Y-P28b-1 | KAPANDI | Tasarımda kapandı (§7.1, T5, K-P28b-21, ADR m.5). clamd yalnız `av` ağında (`internal`), DB `:ro`; freshclam ayrı, yalnız `av_egress`'te, `NotifyClamd` yok. `/init` kullanılmıyor. Böylece ro DB'de `chown -R` ile çıkma sorunu ve `/init`'in açtığı ek süreçler ortadan kalkıyor. `SelfCheck` yalnız `stat` ile okuma yapar, ro'da çalışması beklenir; çalışmazsa yedeği `zRELOAD` (kapı 2), DB rw'ye dönülmüyor. Çıkış testi kapı 3. Kalan risk D-r2-1.                                                                                                                                                                                        |
+| O-P28b-1 | KAPANDI | `CLAMAV_ALLOWED_CIDR` = `av` sabit alt ağı. Çözülen tüm adresler bu ağda olmalı (ağ adresi, yayın ve ağ geçidi hariç); bağlantı çözülen IP'ye yapılıyor. Panel, env ve test ucu aynı kuralı kullanıyor; loopback reddediliyor. Env boşsa SERVER modu çalışmıyor (fail-closed). `av` ağında yalnız server + clamav var. Ağın içinde başka hedef olarak yalnız server'ın kendi IP'si kalıyor (clamd protokolü HTTP'ye gider, zararsız). Bildirim "Sonra"ya alındı; hedef artık `av` ağıyla sınırlı olduğu için kabul edilebilir. Env doğrulaması için D-r2-5.                                                                                       |
+| O-P28b-2 | KAPANDI | (a) `REJECTED`/`CANCELLED` durumunda disk hemen siliniyor. Saklanan dosya = teslim edilmiş `FILE`+`CLEAN` (§3.2, AC-360). Kotada en çok yön başına bir uçuştaki dosya (≤ 256 MiB) ve teslim edilmiş dosyalar kalır. Oda kapanınca ve açılış süpürmesinde temizlenir. (b) Oturum başına 2 GiB, tüm durumlar sayılıyor. Bu yalnız oturumu etkiler; teknisyen oturumu kapatabilir, kabul edilebilir. (c) "Sonra"ya alındı, gerekçesi yeterli. Silme yarışı: alıcı indirirken gönderen iptal ederse, Linux'ta açık dosya tanıtıcısı akışı tamamlar; `CANCELLED` satıra gelen `fsrv.result` yok sayılmalı (K3 testine eklenmeli, güvenlik etkisi yok). |
+| O-P28b-3 | KAPANDI | Adil kuyruk: firma başına 1 etkin + 3 bekleyen, ≤ 1 büyük dosya, round-robin. "Etkin" tanımı kapı 4'te. `/scratch` tmpfs 1536m, `mem_limit` 3g; sabit değer sınırı doğru hesaplanmış. Düz metin geçici dizin §10.2'de, swap riski R-P28b-8'de. Kalan inceltmeler D-r2-2, D-r2-3, D-r2-4.                                                                                                                                                                                                                                                                                                                                                          |
+| D-P28b-1 | KAPANDI | Test ve 10 dk yoklama EICAR (parçalı) + şifreli zip ile yapılıyor. Kesin yanlış yanıt, erişilemezlikten ayrılıyor; bayrak yeni taramaları `ERROR` yapıyor; `lastTest.ok=true` yalnız elle test edilince geri geliyor. Önekler K0'da doğrulandı.                                                                                                                                                                                                                                                                                                                                                                                                   |
+| D-P28b-2 | KAPANDI | Belirteç oda, misafir ve teknisyen olaylarında düşüyor. `HISTORY` belirteci `authSessionId`'ye bağlı; kullanıcı ve oturum GET anında denetleniyor. Denetim `onRequest`'te yapılıyor; 404 için IP başına 60/dk sınırı var. Not: yetki geri alınınca (`file_transfer.use`, `session_history.view`) belirteç düşmüyor, en çok 5 dk geçerli kalıyor. Kabul edilebilir; GET anında `HISTORY` için yetki de yeniden denetlenirse daha iyi olur (K3, tek satır).                                                                                                                                                                                         |
+| D-P28b-3 | KAPANDI | Boyut `printPending.sizeBytes` ile eşleşmeli ve ≤ 20 MiB olmalı. `fsrv.offer.pid` var; Go eşleşmeyen teklifi reddediyor. Ad `belge.pdf`; belge saklanmıyor, disk silindiğinde durum `EXPIRED` oluyor.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| D-P28b-4 | KAPANDI | `client_body_buffer_size 3m` server düzeyinde, yeni `location` yok; `test-nginx.sh` geçici dizin denetimi var (T14, K-P28b-17).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| D-P28b-5 | KAPANDI | RFC 5987 + ASCII yedek, `sandbox` CSP + CORP, `octet-stream` yalnız fsrv kapsamında, çerez okunmuyor; tek `hasFsrv(peer)`. `guestKind` istemcinin beyanı değil, sunucunun nonce türü; tarayıcı gibi davranmak `{fsrv}` dışında yetki vermez. Öneri: `hasFsrv`'nin ilk koşulu `!room.unattended` olsun. Böylece P28u'nun gözetimsiz odaları için tablo testine güvenmek yerine yardımcının kendisi kapalı başlar.                                                                                                                                                                                                                                  |
+| D-P28b-6 | KAPANDI | AC-363'te mutlak ifade yasağı ve kapsam cümlesi var; AC-356 "katılımcılar + AC-360 yetkilileri" olarak düzeltildi; T8/K-P28b-19 tutarlı. DATASHEET/kılavuz denetimi K10'da.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+### Yeni bulgular (r2'nin getirdiği ya da r2'de görünür olan)
+
+#### [DÜŞÜK] D-r2-1 clamd → server:3001 yolu açık; ele geçirilmiş clamd kimliksiz uçlardan audit'e veri yazarak yavaş bir sızma kanalı kurabilir — A04
+
+Yer: docs/mimari-p28b.md:424 (T5 "clamd yalnız server:3001'e genel API kadar erişir"), :313-315 (`av`'de server); `apps/server/src/server.ts:23`
+(`listen({host: env.HOST})`, tüm arayüzler).
+Sorun: Y-P28b-1 düzeltmesinden sonra clamd'nin dışarıya tek yolu server'ın genel API'si. Bağlantıyı her zaman server başlatıyor; clamd'nin
+server'a istek atması hiç gerekmiyor. Kimliksiz uçlar girdinin bir kısmını kalıcı olarak yazıyor. Örneğin başarısız giriş audit'i,
+hedef kullanıcının tenant'ında `user_agent` alanını tutuyor.
+İstismar senaryosu: Saldırgan kendi firmasında teknisyen ve misafir uçlarını birlikte yönetir ve exploit dosyasıyla clamd'de kod çalıştırır.
+Ele geçirilmiş clamd, sonraki saatlerde başka firmaların taranan dosyalarından parçaları `POST /auth/login` (kendi kullanıcı adı,
+`User-Agent` = veri) isteğiyle server'a gönderir. Saldırgan bu verileri kendi tenant'ının Audit Log ekranından okur. Bant genişliği düşük
+(giriş sınırı ve hesap kilidi), ama belgelerin kısa ve değerli kısımları (parola, TC kimlik no) sızabilir. Önce clamd'de kod çalıştırmak
+gerektiği için olasılık düşük.
+Düzeltme: Server, kaynak IP'si `CLAMAV_ALLOWED_CIDR` içinde olan her HTTP/WS isteğini `onRequest`'in en başında (Fastify ilk kanca) gövde
+okumadan bağlantıyı kapatarak ya da 404 ile reddetsin. Yalnız `/health` gerekiyorsa o da kapalı kalsın (clamd healthcheck'i kendi
+`localhost`'una bakıyor). Test: `av` ağı kaynak IP'sinden `/api/v1/auth/login` → reddedildi + audit satırı 0. K6 kapı 3'e
+`docker compose exec clamav nc -z -w 3 server 3001` → bağlantı kurulabilir ama HTTP yanıtı 404/kapanış olmalı (ya da `wget -qO- http://server:3001/ready` başarısız).
+(atanan ajan: backend-dev K3, devops K6)
+
+#### [DÜŞÜK] D-r2-2 ENOSPC kapısı yalnız akışın tmpfs'e sığmadığı durumu sınıyor; arşiv açılımı sırasında yazma hatası üyeyi sessizce atlatabilir (fail-open) — A05
+
+Yer: docs/mimari-p28b.md:331-332 (K6 kapısı 5: "`/scratch` 64m iken 200 MiB tarama"), :316-321 (sabit değer sınırı).
+Sorun: Kapı 5'teki 200 MiB akış 64m tmpfs'e hiç yazılamaz. Bu durumda clamd büyük olasılıkla INSTREAM aşamasında `ERROR` döner, yani kapı
+kolay vakayı sınıyor. Riskli vaka başka: akış tmpfs'e sığıyor, ama arşivden çıkan bir üye yazılırken ENOSPC oluşuyor. libclamav'ın bazı
+ayrıştırıcıları açılım hatasını ölümcül saymayıp sonraki üyeye geçebilir. O zaman o üye taranmadan `stream: OK` dönebilir. Sabit değer sınırı (1,35 ≤ 1,5 GiB)
+bunu normalde önler. Ama sınır, `MaxScanSize`'ın iç içe arşivlerdeki eşzamanlı geçici dosya toplamını gerçekten sınırladığı varsayımına dayanıyor.
+Bu varsayım doğrulanmadı.
+İstismar senaryosu: İç içe, yüksek sıkıştırmalı bir arşiv `/scratch`'ı eşzamanlı taramayla birlikte doldurur. İçteki zararlı üye açılamaz,
+atlanır ve dosya `CLEAN` olarak teslim edilir.
+Düzeltme: Kapı 5'e ikinci vaka eklensin. `/scratch size=64m` iken ~20 MiB'lık zip tmpfs'e sığsın, açıldığında ~150 MiB olsun ve sonuna
+EICAR eklenmiş bir üye taşısın (iç içe bir düzey de denensin). Beklenen sonuç `FOUND`, `Heuristics.Limits.Exceeded*` ya da `ERROR`; **`OK` olmamalı**.
+`OK` dönerse kapı 5'in mevcut yedeği uygulansın: `MaxScanSize` + `StreamMaxLength` toplamı, iki tarama için `/scratch`'ın yarısının altına indirilsin.
+(atanan ajan: devops K6)
+
+#### [DÜŞÜK] D-r2-3 Büyük dosya yuvasında 30 sn kuyruk sınırı, 55–60 sn'lik taramadan kısa; tek firma diğer firmaların > 64 MiB dosyalarını sürekli `BUSY` yapabilir — A04 (DoS)
+
+Yer: docs/mimari-p28b.md:343-345 (§7.2 adil kuyruk, "kuyrukta > 30 sn → BUSY"), :304-305 (`MaxScanTime 55000`), K-P28b-22.
+Sorun: Sistemde en çok 1 büyük tarama çalışabiliyor ve bu tarama 55 sn sürebiliyor. Kuyruk sınırı 30 sn. Bu yüzden büyük dosya yuvası
+doluyken kuyruğa giren başka bir firmanın büyük dosyası round-robin sırası gelmeden zaman aşımına düşer. Küçük dosyalar korunuyor, büyük
+dosyalarda firmalar arası adalet sağlanmıyor.
+İstismar senaryosu: Bir firmanın müşterisi, tarama süresi uzun olan 256 MiB'lık dosyaları arka arkaya yükler (firma başına tek etkin kuralına
+uyarak). Diğer firmaların 64 MiB'tan büyük bütün dosyaları "Virüs tarama servisi yoğun" uyarısıyla teslim edilmez.
+Düzeltme: Bekleme sınırı büyük dosya kuyruğu için `AV_SCAN_TIMEOUT_MS` + pay (ör. 75 sn) olsun. Ya da büyük dosya yuvası boşaldığında,
+son N saniyede yuvayı kullanmamış firmaya öncelik verilsin ve aynı firma art arda iki kez büyük yuva alamasın. Sahte saatle test: A firmasının
+55 sn'lik büyük taraması sürerken B'nin büyük dosyası `BUSY` olmamalı.
+(atanan ajan: backend-dev K3)
+
+#### [DÜŞÜK] D-r2-4 Bellek: kapsayıcı swap'i sınırlı değil (tmpfs düz metni swap'e düşebilir) ve kapı 6 tek yığına göre hesaplanmış; staging `av` profili ile prod birlikte çalışınca tavanların toplamı hostun boş belleğini aşıyor — A04 / A02
+
+Yer: docs/mimari-p28b.md:298 (`mem_limit` 3g / 1536m), :333-334 (kapı 6), :443-445 (§10.2), R-P28b-8, K-P28b-18.
+Sorun: (1) Compose'ta `memswap_limit` verilmezse Docker kapsayıcının `mem_limit` kadar ek swap kullanmasına izin verir. Host'ta swap açıksa
+`/scratch` tmpfs'teki düz metin sayfaları diske düşebilir. Runbook'taki "swap kapalı/şifreli" denetimi tek seferlik bir kayıttır; sonradan
+swap açılırsa sessizce bozulur. (2) Tek yığının tavanı 3 + 1,5 = 4,5 GiB. Staging `av` profili prod'la aynı anda açılırsa toplam 9 GiB eder; hostta
+7,8 GiB boş var. Bu tavan yalnız saldırı ya da yük altında dolar. Ama dolarsa hostun OOM killer'ı MySQL'i ya da 80/443'teki başka web
+servisini öldürebilir. Bu durumda etki tek dosyanın taranamamasıyla kalmaz, bütün sistemleri etkiler.
+Düzeltme: İki servise `memswap_limit` = `mem_limit` (3g / 1536m) verilsin; böylece kapsayıcı swap'e hiç düşmez ve R-P28b-8 kapsayıcı
+düzeyinde kapanır. Kapı 6 şöyle yazılsın: "available ≥ prod tavanı (4,5 GiB) + staging `av` açıksa staging tavanı". Bu koşul sağlanmıyorsa
+staging `av` profili kapı 6'daki 128 MiB yedek değerleriyle (`mem_limit` 2304m) çalışsın ya da yalnız prod'da tarama yükü yokken açılsın (runbook).
+Bellek ölçümü (kapı 4) prod clamd boştayken yapılsın.
+(atanan ajan: devops K6)
+
+#### [DÜŞÜK] D-r2-5 `CLAMAV_ALLOWED_CIDR` / `AV_SUBNET` env değeri doğrulanmıyor; geniş bir değer O-P28b-1 düzeltmesini sessizce geri alır — A05
+
+Yer: docs/mimari-p28b.md:479 (§11.3), :313-315.
+Sorun: Kural doğru, ama sınırı tanımlayan env değeri serbest. `AV_SUBNET=10.0.0.0/8` gibi yanlış ya da geniş bir değer verilirse panel
+hedefi yeniden "herhangi bir özel adres" olur. IPv4'e eşlenmiş IPv6 yazımı (`::ffff:a.b.c.d`) da sınıflandırıcıda normalleştirilmezse CIDR
+denetimi atlanabilir.
+Düzeltme: `env.ts` şunları denetlesin: CIDR IPv4 olmalı, özel aralıkta (RFC 1918) olmalı, önek ≥ /24 olmalı ve `EDGE_SUBNET`/`TRUSTED_PROXY_CIDR`
+ile çakışmamalı. Aksi durumda açılış hatası verilsin (mevcut `TRUSTED_PROXY_CIDR` refine kalıbı). §12 CIDR testine `::ffff:` biçimi ve IPv6 literal eklensin.
+(atanan ajan: backend-dev K3)
+
+### Odak noktaları — kısa değerlendirme
+
+| Konu                                  | Değerlendirme                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/init`'siz clamd/freshclam           | Güvenlik açısından iyileşme: gereksiz süreç yok, `chown` yok, PID 1 tek süreç. `user 100:101` + `cap_drop ALL` + `read_only` korunuyor. Kapı 1 eksik yazılabilir dizini tmpfs ile kapatıyor, rw'ye dönülmüyor. Uygun.                                                                                                  |
+| `SelfCheck` + salt okunur DB          | Uygun. Yeniden yükleme penceresi (8 sn) yalnız bağlantı aşamasında yeniden denemeyle karşılanıyor; veri yazıldıktan sonra yeniden deneme olmadığı için fail-closed korunuyor. Kalan risk: freshclam ele geçirilirse (yalnız ağ girdisini ayrıştırır, CVD imzası doğrulanır) DB'ye `.ign2` yazabilir. Kabul edilebilir. |
+| CIDR + çözülen IP                     | Uygun (O-P28b-1); env sağlamlaştırma D-r2-5.                                                                                                                                                                                                                                                                           |
+| `REJECTED` + hemen silme              | Uygun; kota tutma döngüsü kapandı, yalnız teslim edilen saklanıyor.                                                                                                                                                                                                                                                    |
+| Adil kuyruk                           | Küçük dosyalar için uygun; büyük yuva için D-r2-3.                                                                                                                                                                                                                                                                     |
+| `/scratch` dolunca                    | Sabit değer sınırı + kapı 5 doğru yönde; arşiv açılımı vakası D-r2-2.                                                                                                                                                                                                                                                  |
+| Belirteç düşürme                      | Uygun; yetki geri alma için 5 dk pencere notu (D-P28b-2 satırı).                                                                                                                                                                                                                                                       |
+| `hasFsrv`                             | Uygun; `guestKind` sunucu kaynaklı. `!room.unattended` ön koşulu önerisi (D-P28b-5 satırı).                                                                                                                                                                                                                            |
+| Host kapasitesi (15 GiB / 8 çekirdek) | Prod tek yığın için yeterli (4,5 GiB tavan < 7,8 GiB boş); staging ile birlikte D-r2-4. Disk 23 GB boş: varsayılan 20 GB tenant kotası, tek firma kotayı doldurursa disk %10 eşiğine (~2,3 GB) yaklaşır. %10 koruması var; runbook'ta "toplam kota ≤ boş disk" uyarısı önerilir.                                       |
+
+**"Sonra" önerisi (gereksinimler §9) ek:** D-r2-1..5 K3/K6'da kapatılmazsa "Sonra"ya; toplam tenant kotasının boş diski aşmaması için Super Admin uyarısı.
+
+---
+
 # Güvenlik Raporu — P28a kod turu 1 (K8; pano + uzaktan yazdırma, dal p28a, HEAD b0ed14c, 2026-11-16)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2
