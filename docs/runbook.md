@@ -2847,6 +2847,8 @@ Etiket: **`v0.11.0`** (mimari-e11 §8'deki `agent-v0.11.0` yazımı AC-94 "korum
 
 ### 24.2 Staging exe (0.11.0) — yalnız main dalından
 
+Kayıt: p17-wip dispatch koşusu 43687183097 (`f862e0e`) — `go test (Windows)` yeşil; AC-248/249 `-v` adımı 31 PASS, 0 SKIP; `TestAC248WGCWindowSmoke` PASS.
+
 1. Actions → agent-win → Run workflow: dal **main**, `server_url=https://stg.remote.noktabilisim.net`, `version=0.11.0`.
    CLI: `gh workflow run agent-win.yml --repo NoktaBilisim/Remote --ref main -f server_url=https://stg.remote.noktabilisim.net -f version=0.11.0`
 2. Koşu yeşil → artifact `agent-win-stg`: `NoktaDestek-stg-0.11.0.exe` + `SHA256SUMS` + `build-meta.txt`; attestation

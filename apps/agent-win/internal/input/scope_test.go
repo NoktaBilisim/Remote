@@ -25,6 +25,10 @@ type fakeDesk struct {
 	z      []uintptr
 	fg     uintptr
 	cx, cy int32
+	// S-P17-7: işletim sistemi değiştirici durumu ve erişilebilirlik ayarı.
+	osWin, osAlt, osCtrl bool
+	sticky, mouseKeys    bool
+	accReads             int
 }
 
 func (d *fakeDesk) w(h uintptr) *fakeWin {
@@ -68,7 +72,12 @@ func (d *fakeDesk) ThreadProcess(h uintptr) (uint32, uint32) {
 	}
 	return 0, 0
 }
-func (d *fakeDesk) IsMenu(h uintptr) bool { w := d.w(h); return w != nil && w.menu }
+func (d *fakeDesk) IsMenu(h uintptr) bool           { w := d.w(h); return w != nil && w.menu }
+func (d *fakeDesk) OSModifiers() (bool, bool, bool) { return d.osWin, d.osAlt, d.osCtrl }
+func (d *fakeDesk) Accessibility() (bool, bool) {
+	d.accReads++
+	return d.sticky, d.mouseKeys
+}
 
 const (
 	hTarget  uintptr = 0x100 // paylaşılan pencere (muhasebe programı)
@@ -491,5 +500,168 @@ func TestSP171UnfocusReleasesHeldKeys(t *testing.T) {
 	}
 	if evs := play(a, inj, "-ControlLeft"); len(evs) != 0 {
 		t.Fatalf("çift bırakma: %+v", evs)
+	}
+}
+
+const vkNum5, vkNumLock = 0x65, 0x90
+
+// S-P17-7: Alt/Ctrl/Win kararına işletim sisteminin durumu da girer (yerel Alt + uzak Tab, yerel Win + uzak R).
+func TestSP177OSModifierStateCounted(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		win, alt, ctl bool
+		code          string
+		bad           uint16
+	}{
+		{"yerel Alt + Tab", false, true, false, "Tab", vkTab},
+		{"yerel Ctrl + Esc", false, false, true, "Escape", vkEsc},
+		{"yerel Win + R", true, false, false, "KeyR", vkR},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d, inj, a, logs := newScoped(t)
+			d.osWin, d.osAlt, d.osCtrl = c.win, c.alt, c.ctl
+			if evs := play(a, inj, "+"+c.code); hasVKDown(evs, c.bad) || len(*logs) != 1 || (*logs)[0] != DropShell {
+				t.Fatalf("iletildi: %+v %v", evs, *logs)
+			}
+		})
+	}
+	d, inj, a, _ := newScoped(t)
+	d.osAlt = false
+	if evs := play(a, inj, "+Tab", "-Tab"); !hasVKDown(evs, vkTab) {
+		t.Fatalf("değiştiricisiz Tab geçmeli: %+v", evs)
+	}
+}
+
+// S-P17-7: Yapışkan Tuşlar açıkken tek başına Ctrl/Alt basma+bırakmasından sonra gelen Esc/Tab düşer.
+func TestSP177StickyKeysLoneModifierThenEscDropped(t *testing.T) {
+	d, inj, a, logs := newScoped(t)
+	d.sticky = true
+	// Oturum başında önceki durum bilinmez: ilk Esc düşer; bir harf kilitli değiştiriciyi tüketir.
+	if evs := play(a, inj, "+Escape"); hasVKDown(evs, vkEsc) || len(*logs) != 1 || (*logs)[0] != DropSticky {
+		t.Fatalf("oturum başı Esc: %+v %v", evs, *logs)
+	}
+	play(a, inj, "+KeyA", "-KeyA")
+	if evs := play(a, inj, "+Escape", "-Escape"); !hasVKDown(evs, vkEsc) {
+		t.Fatalf("harften sonra Esc geçmeli: %+v", evs)
+	}
+	for _, seq := range [][]string{
+		{"+ControlLeft", "-ControlLeft", "+Escape"},
+		{"+AltLeft", "-AltLeft", "+Tab"},
+		{"+ControlLeft", "-ControlLeft", "+ShiftLeft", "-ShiftLeft", "+Escape"}, // Ctrl+Shift+Esc (Görev Yöneticisi)
+	} {
+		evs := play(a, inj, seq...)
+		if hasVKDown(evs, vkEsc, vkTab) {
+			t.Fatalf("%v: %+v", seq, evs)
+		}
+		play(a, inj, "+KeyB", "-KeyB") // kilidi tüketir
+	}
+	// Kısayolda kullanılan Ctrl (Ctrl+C) bırakılınca kilitlenmez: sonraki Esc geçer.
+	if evs := play(a, inj, "+ControlLeft", "+KeyC", "-KeyC", "-ControlLeft", "+Escape", "-Escape"); !hasVKDown(evs, vkEsc) {
+		t.Fatalf("Ctrl+C sonrası Esc: %+v", evs)
+	}
+}
+
+// S-P17-7: odak kaçınca bırakılan Ctrl de Yapışkan Tuşlar'da kilitlenebilir; odak dönünce ilk Esc düşer.
+func TestSP177StickyKeysArmedByUnfocusRelease(t *testing.T) {
+	d, inj, a, _ := newScoped(t)
+	d.sticky = true
+	play(a, inj, "+KeyA", "-KeyA", "+ControlLeft")
+	d.fg = hBrowser
+	play(a, inj, "+KeyV")
+	d.fg = hTarget
+	if evs := play(a, inj, "+Escape"); hasVKDown(evs, vkEsc) {
+		t.Fatalf("kilitli Ctrl + Esc: %+v", evs)
+	}
+}
+
+// S-P17-7: Yapışkan Tuşlar kapalıyken Ctrl↓↑ Esc davranışı değişmez.
+func TestSP177StickyKeysOffUnchanged(t *testing.T) {
+	_, inj, a, logs := newScoped(t)
+	if evs := play(a, inj, "+Escape", "-Escape", "+ControlLeft", "-ControlLeft", "+Escape", "-Escape", "+AltLeft", "-AltLeft", "+Tab"); len(evs) != 9 {
+		t.Fatalf("Yapışkan Tuşlar kapalı: %+v", evs)
+	}
+	if len(*logs) != 0 {
+		t.Fatalf("%v", *logs)
+	}
+}
+
+// S-P17-7: art arda 5. Shift (Yapışkan Tuşlar kısayolu) pencere modunda düşer; araya tuş girince sayaç sıfırlanır.
+func TestSP177FifthShiftDropped(t *testing.T) {
+	_, inj, a, logs := newScoped(t)
+	var seq []string
+	for range 5 {
+		seq = append(seq, "+ShiftLeft", "-ShiftLeft")
+	}
+	if evs := play(a, inj, seq...); len(evs) != 8 {
+		t.Fatalf("4 Shift basma+bırakma beklenir: %d", len(evs))
+	}
+	if len(*logs) != 1 || (*logs)[0] != DropSticky {
+		t.Fatalf("%v", *logs)
+	}
+	play(a, inj, "+KeyA", "-KeyA")
+	if evs := play(a, inj, "+ShiftLeft", "-ShiftLeft"); len(evs) != 2 {
+		t.Fatalf("sayaç sıfırlanmalı: %+v", evs)
+	}
+}
+
+// S-P17-7: Fare Tuşları açıkken Numpad ve NumLock düşer; kapalıyken geçer; Alt+Shift+NumLock her zaman düşer.
+func TestSP177MouseKeysNumpadDropped(t *testing.T) {
+	_, inj, a, logs := newScoped(t)
+	if evs := play(a, inj, "+Numpad5", "-Numpad5", "+NumLock", "-NumLock"); !hasVKDown(evs, vkNum5) || !hasVKDown(evs, vkNumLock) {
+		t.Fatalf("Fare Tuşları kapalı: %+v", evs)
+	}
+	if evs := play(a, inj, "+AltLeft", "+ShiftLeft", "+NumLock", "-NumLock", "-ShiftLeft", "-AltLeft"); hasVKDown(evs, vkNumLock) {
+		t.Fatalf("Alt+Shift+NumLock: %+v", evs)
+	}
+	if len(*logs) != 1 || (*logs)[0] != DropMouseKeys {
+		t.Fatalf("%v", *logs)
+	}
+	d2, inj2, a2, _ := newScoped(t)
+	d2.mouseKeys = true
+	if evs := play(a2, inj2, "+Numpad5", "+Numpad8", "+NumpadAdd", "+NumLock"); len(evs) != 0 {
+		t.Fatalf("Fare Tuşları açık: %+v", evs)
+	}
+	if evs := play(a2, inj2, "+Digit5"); len(evs) != 1 {
+		t.Fatalf("üst sıra rakam geçmeli: %+v", evs)
+	}
+}
+
+// S-P17-7: erişilebilirlik ayarı oturum başında ve en çok 2 sn'de bir okunur; değişiklik sonraki okumada uygulanır.
+func TestSP177AccessibilityRefreshedPeriodically(t *testing.T) {
+	d, inj, a, _ := newScoped(t)
+	for range 99 { // 198 mesaj × 10 ms < 2 sn: tek okuma
+		play(a, inj, "+KeyA", "-KeyA")
+	}
+	if d.accReads != 1 {
+		t.Fatalf("okuma=%d", d.accReads)
+	}
+	d.mouseKeys = true
+	for range 150 { // +3 sn (basma+bırakma = 20 ms) → en az bir yeniden okuma
+		play(a, inj, "+KeyA", "-KeyA")
+	}
+	if d.accReads < 2 {
+		t.Fatalf("okuma=%d", d.accReads)
+	}
+	if evs := play(a, inj, "+Numpad5"); len(evs) != 0 {
+		t.Fatalf("yeni ayar uygulanmadı: %+v", evs)
+	}
+	a.SetWindowTarget(hTarget, virtDesk, d) // yeni oturum: hemen okunur
+	reads := d.accReads
+	play(a, inj, "+KeyA")
+	if d.accReads != reads+1 {
+		t.Fatalf("oturum başı okuması yok: %d→%d", reads, d.accReads)
+	}
+}
+
+// S-P17-7: monitör modunda erişilebilirlik süzgeci yok (Numpad, Ctrl↓↑ Esc, 5×Shift geçer).
+func TestSP177MonitorModeUnchanged(t *testing.T) {
+	g, inj, a := newApplier()
+	g.Open()
+	seq := []string{"+Numpad5", "-Numpad5", "+NumLock", "-NumLock", "+ControlLeft", "-ControlLeft", "+Escape", "-Escape"}
+	for range 5 {
+		seq = append(seq, "+ShiftLeft", "-ShiftLeft")
+	}
+	if evs := play(a, inj, seq...); len(evs) != len(seq) {
+		t.Fatalf("monitör modu: %d/%d", len(evs), len(seq))
 	}
 }

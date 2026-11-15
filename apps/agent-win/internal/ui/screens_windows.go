@@ -309,7 +309,7 @@ func (u *UI) ChooseShare(ctx context.Context, mons []signal.Monitor, def int, wi
 		}
 		height, btnY := int32(252), int32(204)
 		if windows {
-			height, btnY = 452, 404
+			height, btnY = 492, 444
 		}
 		f := u.t.newForm(appTitle+" — Ekran seçimi", 460, height, true)
 		y := int32(16)
@@ -361,6 +361,7 @@ func (u *UI) ChooseShare(ctx context.Context, mons []signal.Monitor, def int, wi
 			winLb = f.add("LISTBOX", "", win.WS_TABSTOP|win.LBS_NOTIFY|win.WS_VSCROLL, win.WS_EX_CLIENTEDGE, idWinList, 32, 184, 412, 140, fontNormal)
 			f.label("Pencere modunda teknisyen yalnız bu pencereyi görür; uzaktan kontrol yalnız bu pencere öndeyken çalışır.",
 				16, 330, 428, 40, fontNormal)
+			f.label(windowShareWarning, 16, 374, 428, 40, fontBold) // S-P17-8
 			f.button("&Listeyi yenile", idWinRefresh, 16, btnY, 140, false)
 			fill()
 			setMode(false)

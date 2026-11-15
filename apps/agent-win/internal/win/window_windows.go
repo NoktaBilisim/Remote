@@ -18,6 +18,15 @@ var (
 	pGetWindow        = user32.NewProc("GetWindow")
 	pGetWindowLongPtr = user32.NewProc("GetWindowLongPtrW")
 	pGetWindowRect    = user32.NewProc("GetWindowRect")
+	pGetAsyncKeyState = user32.NewProc("GetAsyncKeyState")
+)
+
+// S-P17-7: erişilebilirlik süzgeçleri (Yapışkan Tuşlar, Fare Tuşları) SendInput girdisini de işler.
+const (
+	SPI_GETMOUSEKEYS  = 0x0036
+	SPI_GETSTICKYKEYS = 0x003A
+	skfStickyKeysOn   = 0x1
+	mkfMouseKeysOn    = 0x1
 )
 
 // AC-248 paylaşım seçim ekranı denetimleri.
@@ -164,6 +173,26 @@ func WindowBounds(h uintptr) (RECT, bool) {
 		return RECT{}, false
 	}
 	return r, true
+}
+
+// KeyDown GetAsyncKeyState yüksek biti: işletim sistemine göre tuş şu an basılı mı (yerel ya da enjekte).
+func KeyDown(vk uint16) bool {
+	r, _, _ := pGetAsyncKeyState.Call(uintptr(vk))
+	return uint16(r)&0x8000 != 0
+}
+
+// StickyKeysOn Yapışkan Tuşlar açık mı (SPI_GETSTICKYKEYS). Okunamazsa açık sayılır (S-P17-7, kapalı tarafta kal).
+func StickyKeysOn() bool {
+	v := [2]uint32{8} // STICKYKEYS{cbSize, dwFlags}
+	r, _, _ := pSystemParametersInfoW.Call(SPI_GETSTICKYKEYS, uintptr(v[0]), uintptr(unsafe.Pointer(&v)), 0)
+	return r == 0 || v[1]&skfStickyKeysOn != 0
+}
+
+// MouseKeysOn Fare Tuşları açık mı (SPI_GETMOUSEKEYS). Okunamazsa açık sayılır.
+func MouseKeysOn() bool {
+	v := [7]uint32{28} // MOUSEKEYS{cbSize, dwFlags, iMaxSpeed, iTimeToMaxSpeed, iCtrlSpeed, dwReserved1, dwReserved2}
+	r, _, _ := pSystemParametersInfoW.Call(SPI_GETMOUSEKEYS, uintptr(v[0]), uintptr(unsafe.Pointer(&v)), 0)
+	return r == 0 || v[1]&mkfMouseKeysOn != 0
 }
 
 // B2U BOOL değerli mesaj parametresi (BM_SETCHECK).

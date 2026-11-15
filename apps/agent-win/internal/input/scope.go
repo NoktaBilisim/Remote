@@ -1,6 +1,9 @@
 package input
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // S17-1 / AC-248 (P17 I4): "Yalnız bir pencere" modunda uzaktan girdi yalnız paylaşılan pencereye gider. WGC yalnız
 // hedef pencerenin içeriğini yakalar; dikdörtgen kırpma, onun üstündeki başka pencereyi (tarayıcı, parola yöneticisi)
@@ -17,6 +20,13 @@ import "time"
 //     tüm ekranın panoya alınması); ön plan denetiminden ÖNCE düşer. Böyle bir kısayol görüldükten sonra uzaktaki
 //     Win/Alt/Ctrl bırakılana dek gelen bütün basmalar da düşer (Alt+Tab+Tab, Win+R+metin). Alt+F4 iletilir: ön plan
 //     hedefken yalnız hedef pencereyi (ya da onun diyaloğunu) kapatır; kapanış paylaşımı WINDOW_CLOSED ile bitirir.
+//   - Değiştirici kararı (S-P17-7): "Alt/Ctrl/Win basılı" = bu alıcının durumu VEYA işletim sisteminin durumu
+//     (GetAsyncKeyState; yerel kullanıcının basılı tuttuğu Alt + uzaktan Tab da düşer).
+//   - Erişilebilirlik (S-P17-7): Yapışkan Tuşlar açıkken tek başına basılıp bırakılan Ctrl/Alt'tan (araya başka tuş
+//     girmeden) sonra gelen Tab/Esc düşer (işletim sistemi kilitli değiştiriciyle Ctrl+Esc/Alt+Tab üretirdi); art arda
+//     5. Shift (Yapışkan Tuşlar kısayolu) düşer. Fare Tuşları açıkken Numpad* ve NumLock düşer (imleci pencere dışına
+//     taşıyıp tıklatırdı); Alt+Shift+NumLock (Fare Tuşları kısayolu) her zaman düşer. Ayar oturum başında ve en çok
+//     accessEvery'de bir okunur.
 //   - Tuş patlaması (S-P17-1 TOCTOU): denetim SendInput'tan hemen önce kilit altında yapılır, ama tuş sistem girdi
 //     kuyruğundan sonra teslim edilir. Pencere modunda tuş basmaları ayrıca WindowKeyPerSec/WindowKeyBurst ile
 //     sınırlanır; ön plan değişirse kuyruğa girmiş olabilecek tuş sayısı küçük kalır.
@@ -41,6 +51,10 @@ type WindowAPI interface {
 	ThreadProcess(h uintptr) (tid, pid uint32)
 	// IsMenu açılır menü penceresi ("#32768").
 	IsMenu(h uintptr) bool
+	// OSModifiers işletim sisteminin gördüğü Win/Alt/Ctrl basılı durumu (GetAsyncKeyState: yerel + enjekte).
+	OSModifiers() (win, alt, ctrl bool)
+	// Accessibility Yapışkan Tuşlar / Fare Tuşları açık mı (SPI_GETSTICKYKEYS / SPI_GETMOUSEKEYS; okunamazsa açık).
+	Accessibility() (sticky, mouseKeys bool)
 }
 
 // Düşürme nedenleri (`input_dropped` tanılama satırı; içerik/koordinat yazılmaz).
@@ -51,7 +65,15 @@ const (
 	DropUnfocused = "UNFOCUSED"
 	DropShell     = "SHELL_SHORTCUT" // S-P17-1
 	DropKeyBurst  = "KEY_BURST"      // S-P17-1
+	DropSticky    = "STICKY_KEYS"    // S-P17-7
+	DropMouseKeys = "MOUSE_KEYS"     // S-P17-7
 )
+
+// accessEvery erişilebilirlik ayarının yeniden okunma aralığı (S-P17-7).
+const accessEvery = 2 * time.Second
+
+// stickyShiftRun art arda bu kadar Shift basması Yapışkan Tuşlar kısayolunu tetikler; sonuncusu düşer.
+const stickyShiftRun = 5
 
 // Pencere modu tuş basma sınırı (S-P17-1): hızlı yazı (~12/sn) ve konsolun tuş tekrarı (~30/sn) sığar; monitör
 // modundaki RateBurst (500) patlaması pencere modunda uygulanmaz.
@@ -78,6 +100,8 @@ type winScope struct {
 func (a *Applier) SetWindowTarget(hwnd uintptr, virt Rect, api WindowAPI) {
 	a.mu.Lock()
 	a.scope, a.virt = winScope{on: true, hwnd: hwnd, api: api}, virt
+	a.accessAt = time.Time{} // oturum başında erişilebilirlik ayarı yeniden okunur
+	a.stickyArmed = true     // önceki durum bilinmiyor: ilk Tab/Esc kilitli değiştiriciyle birleşebilir (S-P17-7)
 	a.mu.Unlock()
 }
 
@@ -229,16 +253,19 @@ func (a *Applier) translateScoped(m Msg) []Event {
 		if !*m.Down {
 			delete(a.scopeMeta, m.Code)
 			evs := a.key(m) // yalnız basılı tuşun bırakılması üretilir (key içinde)
+			if len(evs) > 0 {
+				a.noteUpLocked(m.Code)
+			}
 			if len(a.scopeMeta) == 0 && !a.modHeld(shellMods...) {
 				a.scopeLatch = false
 			}
 			return evs
 		}
-		if a.shellShortcut(m.Code) {
-			a.dropLocked(DropShell)
+		if why := a.windowState(); why != "" {
+			a.dropLocked(why)
 			return nil
 		}
-		if why := a.windowState(); why != "" {
+		if why := a.shellShortcut(m.Code); why != "" { // ön plan denetiminden önce (S-P17-1)
 			a.dropLocked(why)
 			return nil
 		}
@@ -250,7 +277,12 @@ func (a *Applier) translateScoped(m Msg) []Event {
 			a.dropLocked(DropKeyBurst)
 			return nil
 		}
-		return a.key(m)
+		_, held := a.keys[m.Code]
+		evs := a.key(m)
+		if len(evs) > 0 {
+			a.noteDownLocked(m.Code, held)
+		}
+		return evs
 	}
 	return nil
 }
@@ -258,24 +290,72 @@ func (a *Applier) translateScoped(m Msg) []Event {
 // shellMods kabuk kısayolu kilidini (scopeLatch) ayakta tutan değiştiriciler.
 var shellMods = []string{"MetaLeft", "MetaRight", "AltLeft", "AltRight", "ControlLeft", "ControlRight"}
 
-// shellShortcut S-P17-1: basılan tuş pencere modunda kabuğa giden bir kısayol mu (ya da kısayol kilidi açık mı).
-// Win basması enjekte edilmez; uzakta basılı olduğu scopeMeta'da izlenir (monitör modunda basılıp a.keys'te kalan
-// Win de sayılır). a.mu altında.
-func (a *Applier) shellShortcut(code string) bool {
-	alt := a.modHeld("AltLeft", "AltRight")
-	ctrl := a.modHeld("ControlLeft", "ControlRight")
+// shellShortcut S-P17-1/7: basılan tuş pencere modunda kabuğa giden bir kısayol mu (ya da kısayol kilidi açık mı);
+// düşme nedeni, geçerse "". Win basması enjekte edilmez; uzakta basılı olduğu scopeMeta'da izlenir (monitör modunda
+// basılıp a.keys'te kalan Win de sayılır). Değiştirici kararı bu alıcının ve işletim sisteminin durumunun birleşimidir.
+// a.mu altında.
+func (a *Applier) shellShortcut(code string) string {
+	osWin, osAlt, osCtrl := a.scope.api.OSModifiers()
+	alt := osAlt || a.modHeld("AltLeft", "AltRight")
+	ctrl := osCtrl || a.modHeld("ControlLeft", "ControlRight")
+	shift := a.modHeld("ShiftLeft", "ShiftRight")
+	sticky, mouseKeys := a.accessibility()
 	switch {
 	case code == "MetaLeft" || code == "MetaRight":
 		a.scopeMeta[code] = true
-	case a.scopeLatch || len(a.scopeMeta) > 0 || a.modHeld("MetaLeft", "MetaRight"):
+	case a.scopeLatch || len(a.scopeMeta) > 0 || osWin || a.modHeld("MetaLeft", "MetaRight"):
 	case code == "Tab" && alt, code == "Escape" && (alt || ctrl):
 	case code == "PrintScreen":
-		return true // değiştiricisiz de kabuğa gider (ekran alıntısı); kilit açılmaz
+		return DropShell // değiştiricisiz de kabuğa gider (ekran alıntısı); kilit açılmaz
+	case code == "NumLock" && alt && shift:
+		return DropMouseKeys // Fare Tuşları kısayolu (ayar kapalıyken onay diyaloğu açar)
+	case mouseKeys && (code == "NumLock" || strings.HasPrefix(code, "Numpad")):
+		return DropMouseKeys
+	case sticky && a.stickyArmed && (code == "Tab" || code == "Escape"):
+		return DropSticky // işletim sistemi kilitli Ctrl/Alt ile birleştirirdi; kilit açılmaz
+	case isShift(code) && !shift && a.shiftRun >= stickyShiftRun-1:
+		return DropSticky
 	default:
-		return false
+		return ""
 	}
 	a.scopeLatch = true
-	return true
+	return DropShell
+}
+
+// accessibility erişilebilirlik ayarı; en çok accessEvery'de bir işletim sisteminden okunur. a.mu altında.
+func (a *Applier) accessibility() (sticky, mouseKeys bool) {
+	if a.accessAt.IsZero() || a.cur.Sub(a.accessAt) >= accessEvery {
+		a.sticky, a.mouseKeys = a.scope.api.Accessibility()
+		a.accessAt = a.cur
+	}
+	return a.sticky, a.mouseKeys
+}
+
+func isShift(code string) bool { return code == "ShiftLeft" || code == "ShiftRight" }
+
+// noteDownLocked S-P17-7: enjekte edilen basmanın Yapışkan Tuşlar izine etkisi (held: otomatik tekrar). Ctrl/Alt
+// basması aday olur; değiştirici olmayan tuş işletim sisteminin kilitli değiştiricisini tüketir. a.mu altında.
+func (a *Applier) noteDownLocked(code string, held bool) {
+	switch {
+	case held:
+	case isShift(code):
+		a.shiftRun++
+	case code == "ControlLeft" || code == "ControlRight" || code == "AltLeft" || code == "AltRight":
+		a.tapCand[code] = true
+		a.shiftRun = 0
+	default:
+		clear(a.tapCand)
+		a.stickyArmed = false
+		a.shiftRun = 0
+	}
+}
+
+// noteUpLocked S-P17-7: araya başka tuş girmeden bırakılan Ctrl/Alt Yapışkan Tuşlar'da kilitlenir. a.mu altında.
+func (a *Applier) noteUpLocked(code string) {
+	if a.tapCand[code] {
+		a.stickyArmed = true
+	}
+	delete(a.tapCand, code)
 }
 
 // resetShellLocked kabuk kısayolu durumunu sıfırlar (monitör moduna dönüş, k.release_all, kapı kapanışı). a.mu altında.
@@ -287,8 +367,9 @@ func (a *Applier) resetShellLocked() {
 // releaseKeysLocked bu alıcının basılı tuttuğu tuşların bırakılması (ön plan hedeften çıktı). a.mu altında.
 func (a *Applier) releaseKeysLocked() []Event {
 	var evs []Event
-	for _, k := range a.keys {
+	for code, k := range a.keys {
 		evs = append(evs, keyEvents(k, false)...)
+		a.noteUpLocked(code)
 	}
 	clear(a.keys)
 	return evs

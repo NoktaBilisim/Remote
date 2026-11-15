@@ -6785,7 +6785,7 @@ Sözleşme değişikliği yok. I4: `select.go`'ya `selectEncoder`, `lastMethod`,
 ## P17 I4 — AC-248 pencere modu (WGC) + S17-1 girdi kapsamı (backend-dev Go, 2026-11-15)
 
 Kapsam: mimari-e11 §8.1 AC-248, §8.3 I4, güvenlik S17-1. **I0 kapısı:** Windows CI (`go test (Windows)`, windows-2025)
-iki koşuda da `internal/capture` (içinde `TestAC248WGCWindowSmoke`) `ok` → K-E11-3 **GO** kesinleşti; AC-248 P17'de.
+`-v` adımlı koşu 43687183097 (`f862e0e`): `--- PASS: TestAC248WGCWindowSmoke (0.59s)` — gerçek WGC karesi (ilk kare 134 ms, 306x233); K-E11-3 **GO** kanıtlı; AC-248 P17'de.
 Sunucu, şema ve `packages/contracts` değişmedi.
 
 ### Değişen / yeni dosyalar (`apps/agent-win/`)
@@ -6852,7 +6852,7 @@ Yeni modül yok (`golang.org/x/sys/windows` mevcut).
   `method:"WGC"`, monitör isteği yok sayılır, kapanışta `WINDOW_CLOSED`+WGC ve durum satırı),
   `TestAC248WindowOpenFailureSendsReason`, `TestAC248WindowOptionOnlyWhenSupported`.
 - capture: `TestAC248AwaitFirstWindowClosedReturnsImmediately`, `TestAC248SelectMethodWindowReasonsKept`,
-  `TestAC248WindowReasonsShareMethod`; Windows duman `TestAC248WGCWindowSmoke` (I0, CI'da ok).
+  `TestAC248WindowReasonsShareMethod`; Windows duman `TestAC248WGCWindowSmoke` (CI 43687183097: PASS 0.59 s, SKIP değil).
 - UI süzgeci: `TestAC248ShareableWindowsFilter`, `TestAC248ShareableWindowsCapped`.
 
 ```
@@ -6908,6 +6908,15 @@ Eklenene dek konsol "Bilinmeyen neden (KOD)" gösterir (S17-2 yolu, hatasız).
     olmaz), Ctrl+Esc, Ctrl+Shift+Esc (Görev Yöneticisi açılmaz), PrintScreen (ekran alıntısı açılmaz) → etkisiz;
     tanılama logunda `input_dropped reason=SHELL_SHORTCUT`. Ctrl+C/Ctrl+V ve normal yazı Not Defteri'ne gider; Alt+F4
     Not Defteri'ni kapatır ve paylaşım `WINDOW_CLOSED` ile durur. Monitör modunda Win+E ve Alt+Tab çalışmaya devam eder.
+12. **Erişilebilirlik (S-P17-7):** Ayarlar → Erişilebilirlik → Klavye'den **Yapışkan Tuşlar** açılır; Not Defteri pencere
+    modunda paylaşılır, kontrol verilir. Teknisyen önce bir harf yazar, sonra Ctrl'e basıp bırakır ve Esc'ye basar →
+    Başlat menüsü **açılmaz**; Alt bas-bırak + Tab → pencere geçişi olmaz; Ctrl, Shift bas-bırak + Esc → Görev Yöneticisi
+    açılmaz (`input_dropped reason=STICKY_KEYS`). Ctrl+C sonra Esc normal çalışır. Teknisyen Shift'e 5 kez basar →
+    Yapışkan Tuşlar diyaloğu açılmaz. **Fare Tuşları** açılır: teknisyen Numpad 8/2/4/6/5 → imleç oynamaz, tıklama olmaz
+    (`reason=MOUSE_KEYS`); üst sıra rakamlar yazılır. Ayar oturum sırasında değiştirilirse ≤ 2 sn içinde uygulanır.
+    Müşteri fiziksel Alt'ı basılı tutarken teknisyen Tab gönderir → pencere geçişi olmaz. Paylaşım ekranında pencere
+    listesinin altında "Paylaştığınız pencerenin içinden (ör. Dosya Gezgini, tarayıcı) başka programlar açılabilir."
+    uyarısı açık/koyu temada okunur. Monitör modunda Numpad ve Ctrl↓↑ Esc eskisi gibi iletilir.
 
 ## P17 konsol (frontend) — AC-248 mod görünürlüğü + pencere neden etiketleri (frontend-dev, 2026-11-15)
 
@@ -7086,3 +7095,56 @@ Linux `go vet ./...` 0 bulgu. Windows çalışma zamanı (gerçek `GetClassName`
 
 Sözleşme değişmedi. Yeni tanılama nedenleri yalnız istemci logunda (`input_dropped reason=SHELL_SHORTCUT|KEY_BURST`);
 ağa/konsola gitmez.
+
+## P17 güvenlik düzeltmeleri tur 2 (Go) — backend-dev, 2026-11-15
+
+Kaynak: `docs/guvenlik-raporu.md` "P17 kod turu 2" S-P17-7 (Orta), S-P17-8 (Düşük).
+
+| Dosya (`apps/agent-win/`)                                                             | Değişiklik                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `internal/input/scope.go`                                                             | `WindowAPI`'ye `OSModifiers()` ve `Accessibility()`; `shellShortcut` artık neden döner ve Alt/Ctrl/Win kararında uzak ∨ işletim sistemi durumunu kullanır; Yapışkan Tuşlar / Fare Tuşları kuralları; `DropSticky = "STICKY_KEYS"`, `DropMouseKeys = "MOUSE_KEYS"`; ayar önbelleği `accessEvery = 2 sn` |
+| `internal/input/applier.go`                                                           | İz alanları `tapCand`, `stickyArmed`, `shiftRun`, ayar önbelleği; `releaseLocked` bırakılan Ctrl/Alt'ı Yapışkan Tuşlar izine işler; `SetTarget` (monitör) izi sıfırlar                                                                                                                                 |
+| `internal/input/window_windows.go`, `internal/win/window_windows.go`                  | `GetAsyncKeyState` (`VK_LWIN/VK_RWIN`, `VK_MENU`, `VK_CONTROL`), `SPI_GETSTICKYKEYS` (`SKF_STICKYKEYSON`), `SPI_GETMOUSEKEYS` (`MKF_MOUSEKEYSON`); okunamazsa "açık" (kapalı tarafta kal)                                                                                                              |
+| `internal/input/scope_test.go`                                                        | Sahte API'ye işletim sistemi değiştiricileri ve erişilebilirlik; 8 yeni `TestSP177…` testi                                                                                                                                                                                                             |
+| `internal/ui/share.go`, `internal/ui/screens_windows.go`, `internal/ui/share_test.go` | S-P17-8: `windowShareWarning` metni pencere listesinin altında (kalın, form 40 px uzadı); `TestSP178WindowShareWarningText`                                                                                                                                                                            |
+
+### Kurallar (yalnız pencere modu; monitör modu değişmedi)
+
+- **İşletim sistemi değiştiricileri:** Tab+Alt, Esc+Alt/Ctrl ve "Win basılı" kararında `GetAsyncKeyState` de sayılır
+  (yerel kullanıcının fiziksel basılı tuttuğu Alt + uzak Tab da düşer, `SHELL_SHORTCUT`).
+- **Yapışkan Tuşlar açıkken:** Ctrl/Alt basılıp araya değiştirici olmayan bir tuş girmeden bırakılmışsa (`stickyArmed`)
+  sonraki Tab/Esc düşer (`STICKY_KEYS`). Değiştirici olmayan tuş enjekte edilince iz temizlenir (işletim sistemi de kilitli
+  değiştiriciyi o tuşla tüketir). Shift izi ne kurar ne bozar (Ctrl↓↑ Shift↓↑ Esc = Ctrl+Shift+Esc da düşer). Odak kaçınca
+  ya da `k.release_all`/kapı kapanışında bırakılan Ctrl/Alt da iz kurar. Pencere oturumu başında iz "kurulu" başlar
+  (önceki durum bilinmez): Yapışkan Tuşlar açıksa ilk harften önceki Tab/Esc düşer.
+- **Art arda 5. Shift** (Yapışkan Tuşlar kısayolu) her zaman düşer (`STICKY_KEYS`); araya başka tuş girince sayaç sıfırlanır.
+- **Fare Tuşları açıkken** `Numpad*` ve `NumLock` düşer (`MOUSE_KEYS`); **Alt+Shift+NumLock** (kısayol) her zaman düşer.
+- **Ayar okuma:** pencere oturumu başında (`SetWindowTarget`) ve sonra en çok 2 sn'de bir, yalnız tuş basması geldiğinde
+  (boşta sorgu yok).
+
+### Sapmalar (gerekçeli)
+
+1. **Denetim sırası değişti:** kapalı/simge → kabuk/erişilebilirlik → ön plan → tuş kovası (tur 1'de kabuk önceydi).
+   `OSModifiers` için geçerli bir API gerekir; pencere kapalı/simgeyken tuş zaten düşer. Kapalıyken basılan Win
+   `scopeMeta`'ya girmez — işletim sistemi o Win'i hiç görmediğinden sonraki tuş kısayol oluşturamaz.
+2. **"Kilitli" durumu işletim sisteminden okunmuyor:** Yapışkan Tuşlar'ın kilitli değiştiricisi `GetAsyncKeyState`'te
+   güvenilir görünmediği için koordinatörün "en sade güvenli kural"ı (tek başına bas-bırak izi) uygulandı.
+3. **Fare Tuşları'nda bütün Numpad** düşer (NumLock durumuna bakılmaz; Fare Tuşları ayarına göre NumLock açık ya da kapalıyken
+   etkin olabilir). Pencere modunda rakam için üst sıra kullanılabilir.
+4. **Ayar okunamazsa açık sayılır:** en kötü durumda Numpad ve bas-bırak sonrası Tab/Esc düşer; kapsam delinmez.
+5. **S-P17-8 metni** raporun önerdiği uzun cümle yerine koordinatörün verdiği kısa metinle; kullanım kılavuzu notu
+   teknik-yazar işi.
+
+### Bağımlılık
+
+Yok.
+
+### Test
+
+`docker run golang:1.26` (`apps/agent-win`): `gofmt -l .` boş; `go test -race -count=1 ./...` 19 paket `ok`
+(`-run SP17`: 15 test PASS — S-P17-1 6, S-P17-7 8, S-P17-8 1); Linux `go vet ./...` ve `GOOS=windows GOARCH=amd64|arm64|386
+go vet ./...` 0 bulgu. Windows çalışma zamanı (GetAsyncKeyState, SPI, form yerleşimi) I6 senaryo 12.
+
+### frontend-dev / konsol için
+
+Sözleşme değişmedi. Yeni tanılama nedenleri yalnız istemci logunda (`STICKY_KEYS`, `MOUSE_KEYS`).

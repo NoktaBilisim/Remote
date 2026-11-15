@@ -23,3 +23,13 @@ func (WinWindowAPI) CursorPos() (int32, int32) {
 func (WinWindowAPI) Owner(h uintptr) uintptr                  { return win.Owner(h) }
 func (WinWindowAPI) ThreadProcess(h uintptr) (uint32, uint32) { return win.ThreadProcess(h) }
 func (WinWindowAPI) IsMenu(h uintptr) bool                    { return win.ClassName(h) == "#32768" }
+
+// OSModifiers S-P17-7: VK_LWIN/VK_RWIN, VK_MENU, VK_CONTROL (GetAsyncKeyState).
+func (WinWindowAPI) OSModifiers() (winKey, alt, ctrl bool) {
+	return win.KeyDown(0x5B) || win.KeyDown(0x5C), win.KeyDown(0x12), win.KeyDown(0x11)
+}
+
+// Accessibility S-P17-7: Yapışkan Tuşlar ve Fare Tuşları.
+func (WinWindowAPI) Accessibility() (sticky, mouseKeys bool) {
+	return win.StickyKeysOn(), win.MouseKeysOn()
+}

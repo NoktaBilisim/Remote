@@ -1,3 +1,158 @@
+# Güvenlik Raporu — P17 kod turu 2 (2026-11-15)
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 1 (yeni) / Düşük 1 (yeni) — tur 1: S-P17-1..5 kapandı, S-P17-6 kullanıcıda (runbook §24.7)
+
+Kapsam: dal `p17-wip`, commit f862e0e (tur 1 = ac20df3 + çalışma alanı). İncelenenler: `apps/agent-win/internal/input/
+{scope.go,applier.go,keys.go,messages.go,sendinput_windows.go,scope_test.go}`, `internal/ui/share.go`,
+`internal/win/window_windows.go`, `internal/diag/reparse_{windows,unsupported_windows}.go`, `cmd/noktadestek/main.go`
+(mod geçişi), `.github/workflows/agent-win.yml`, `docs/implementation.md` "P17 güvenlik düzeltmeleri (CI)/(Go)".
+Kod değiştirilmedi; staging'e bağlanılmadı, ACCESS.txt okunmadı.
+
+## Tur 1 bulgularının doğrulaması
+
+| Bulgu                                                 | Durum                     | Kanıt                                                                                                                                                                                                                                                                                                                 |
+| ----------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P17-1 (Yüksek) kabuk kısayolları                    | **Kapandı**               | `scope.go:264-280` `shellShortcut`, ön plan denetiminden ÖNCE (`scope.go:237`). Ayrıntı aşağıda.                                                                                                                                                                                                                      |
+| S-P17-2 (Orta) imza onaydan önce, token repo secret'ı | **Kapandı** (YAML tarafı) | `agent-win.yml:267-300` `approve` (agent-release) → `:302-318` `sign` `needs: [reproducible, approve]`, `if: … needs.approve.result == 'success'`, `environment: agent-sign`; token ön kontrolü `:333,337`. Ortam/secret/SignPath origin politikası GitHub ayarı — kullanıcıda, hesap açılmadan önce (runbook §24.3). |
+| S-P17-3 (Düşük) otomatik `[x]`                        | **Kapandı**               | `agent-win.yml:247-259` kutular boş, "onay vermeden önce kontrol edin"; kanıt onay yorumu.                                                                                                                                                                                                                            |
+| S-P17-4 (Düşük) kabuk pencereleri listede             | **Kapandı**               | `share.go` `shellClasses` (Progman, WorkerW, Shell_TrayWnd, Shell_SecondaryTrayWnd); sınıf `GetClassName` ile (`window_windows.go` `ClassName`); test PASS.                                                                                                                                                           |
+| S-P17-5 (Düşük) 386 `renameInfo`                      | **Kapandı, fail-closed**  | `reparse_windows.go:1` `windows && (amd64 \|\| arm64)`; `reparse_unsupported_windows.go` her işlem `ErrUnsupported`, mod biti yoluna dönüş yok. `GOOS=windows GOARCH=386/amd64/arm64 go vet ./...` temiz (bu turda koşturuldu).                                                                                       |
+| S-P17-6 (Düşük) `v1.0.0` koşusu/etiketi               | **Açık — kullanıcı işi**  | runbook §24.7 komutları yazılmış; ajan etiketi silmedi (doğru). Silinene dek yayın öncesi kontrol listesinde "bekleyen eski etiket koşusu yok" maddesi var.                                                                                                                                                           |
+
+### S-P17-1 ayrıntılı doğrulama
+
+- **Düşenler (pencere modu):** `MetaLeft/MetaRight` basması hiç enjekte edilmez (`scopeMeta`'da izlenir); Win (uzakta ya da
+  monitör modundan `a.keys`'te kalan) basılıyken her basma; Alt (sol/sağ) + `Tab` (Alt+Shift+Tab, Ctrl+Alt+Tab dahil);
+  Alt/Ctrl + `Escape` (Alt+Esc, Ctrl+Esc, Ctrl+Shift+Esc); `PrintScreen` (Alt+PrtSc, Alt+Shift+PrtSc yüksek karşıtlık dahil).
+  Win+L/Ctrl+Alt+Del `blocked` aynen.
+- **Kilit:** kısayol görülünce `scopeLatch`; uzaktaki Win/Alt/Ctrl hepsi bırakılana dek tüm basmalar düşer (Win+R+metin,
+  Alt+Tab+Tab testli). Sıfırlama: son değiştirici bırakılınca (`scope.go:229-235`), `k.release_all`/kapı kapanışı
+  (`applier.go:219`), monitör moduna dönüş (`applier.go:114`). Odak kaçınca `a.keys` boşalır ama kilit bir sonraki
+  tuş bırakmasına kadar kalır — fail-closed yönde, sorun değil.
+- **Patlama:** pencere modunda ayrıca 40/sn, patlama 40 (`takeKeyLocked`), monitörün 500'lük kovasına ek; test PASS.
+  Kabuk kısayolu üretilemediğinden kalan TOCTOU yalnız yerel kullanıcının odak değiştirmesi; kuyrukta ≤ ~40 tuş.
+- **Odak kaçınca bırakma:** `UNFOCUSED` dalında `releaseKeysLocked` — yalnız bırakma üretir, basma yok. Bırakılan tek Alt
+  yeni ön plandaki pencerenin menü çubuğuna odak verebilir; sonraki tuşlar zaten düşer — kabul edilebilir.
+- **Sapmalar (Alt+F4, Alt+harf, Alt+Space, ContextMenu iletilir):** kabul edilebilir. Hepsi ön plan kökü hedef iken hedefin
+  kendi penceresine/sistem menüsüne gider; kabuk düzeyinde global kısayol değiller. Alt+F4 en kötü ihtimalle hedefi
+  kapatır → `WINDOW_CLOSED` ile paylaşım biter (kapsam genişlemez).
+- **Protokolden alternatif temsiller:** yok. `Parse` katı şema (`messages.go`: `code` `^[A-Za-z0-9]{1,32}$`, `key` ≤ 4
+  UTF-16, bilinmeyen alan red); VK yalnız `codeVK` beyaz listesinden (`keys.go`) — Win'e eşlenen tek kodlar `MetaLeft/
+MetaRight`; `OSLeft`, ham scancode, ham VK alanı protokolde yok, listede olmayan kod düşer. Scancode `MapVirtualKeyW(VK)`
+  ile istemcide üretilir (`sendinput_windows.go:66-70`), dışarıdan gelmez; `KEYEVENTF_SCANCODE` kullanılmıyor.
+  Unicode yolu (`KEYEVENTF_UNICODE`/VK_PACKET) yalnız `charKey` + `IsPrint` + kısayol değiştiricisi yokken; VK_PACKET
+  kısayol tetiklemez. IME: Win+Space düşer; Alt+Shift / Ctrl+Shift yalnız giriş dili değiştirir (zararsız).
+  Ctrl+Alt+Del dışı güvenli dikkat dizisi SendInput ile üretilemez.
+- **Monitör modu değişmedi:** `shellShortcut`/tuş kovası yalnız `translateScoped`'ta; `translate` aynı;
+  `TestSP171MonitorModeUnchanged` (Win+E, Alt+Tab, Ctrl+Esc, PrtSc, 100 tuşluk patlama) PASS.
+- **Kalan bypass yolu:** erişilebilirlik özellikleri — aşağıda S-P17-7.
+
+### S-P17-2/3/6 iş akışı doğrulaması
+
+- **Sıra ve koşullar fail-closed:** etikette `reproducible → approve → sign → attest → release`. `sign` yalnız
+  `approve == success`; `attest` etikette `approve == success` VE `sign ∈ {success, skipped}`; `release`
+  `approve == success && attest == success`. `sign` başarısız → attest/release koşmaz; SignPath değişkeni doluyken imzasız
+  ikili `release` adımında reddedilir (`:448`). Reject → `approve` başarısız → sign/attest/release koşmaz, imzalı ikili hiç
+  oluşmaz.
+- **Ortamsız `release` onayı atlatabilir mi:** Hayır.
+  - `workflow_dispatch`: `approve`/`sign`/`release` `github.event_name == 'push'` ister → atlanır; etiket ref'inde elle
+    tetikleme `build`'de hata verir (`:171-173`), `attest` etikette `approve` başarısı ister.
+  - Re-run: tek iş yeniden koşturulursa `needs` sonuçları önceki denemeden gelir (`approve` failure → release skipped);
+    "Re-run failed/all jobs" `approve`'u yeniden koşturur ve ortam onayını yeniden ister. `agent-win-signed` 1 gün
+    retention: geç re-run imzalı artifact'i bulamaz → fail-closed.
+  - Not (yeni risk değil): `contents: write` herhangi bir iş akışında istenebildiğinden, yazma yetkili bir hesap dalda
+    değiştirilmiş iş akışıyla mevcut bir etikete Release açabilir — bu, `release` işinde ortam olsa da geçerliydi (saldırgan
+    ortam satırını siler). Gerçek korumalar: etiket ruleset'i, `agent-sign` deployment policy (yalnız `v*` etiketi → dal iş
+    akışı imzalatamaz), `gh attestation verify --signer-workflow … --source-ref refs/tags/$TAG`. Öneri (Sonra): GitHub
+    "immutable releases" açılsın; `agent-release` ortamında "Prevent self-review" değerlendirilsin.
+- **Artifact retention:** imzasız `agent-win` 30 gün (imzasız, zaten Release'e gidebilir), `agent-win-unsigned` ve
+  `agent-win-signed` 1 gün — uygun.
+- **`${{ }}` injection:** `run:` bloklarında doğrudan ifade yok; tüm bağlam `env:` üzerinden. `with:` içindeki
+  `needs.reproducible.outputs.exe` regex'le (`:242`) ve artifact adı beyaz listeyle sınırlı. `sign` ön kontrolü
+  artifact adını `agent-win` ile sabitliyor. `TOKEN_SET` yalnız boolean.
+- Tüm action'lar SHA sabit, yeni action yok; izinler en az (approve `contents: read`, sign `actions: read`).
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] S-P17-7 Pencere modunda Yapışkan Tuşlar / Fare Tuşları açıksa kabuk kısayolu ve fare kapsamı atlatılabilir — A01 Bozuk erişim kontrolü (S17-1 kalan yol)
+
+Yer: `apps/agent-win/internal/input/scope.go:264-280` (`shellShortcut` yalnız bu alıcının `a.keys` durumuna bakar),
+`scope.go:228-255` (Numpad tuşları pencere modunda kısıtsız), `keys.go:29-37`.
+
+Sorun: Denetim, değiştiricinin _uzakta basılı_ olup olmadığına bakar; işletim sisteminin mantıksal değiştirici durumuna
+bakmaz. Windows erişilebilirlik süzgeçleri SendInput girdisini de işler:
+(a) **Yapışkan Tuşlar açıksa** teknisyen `Ctrl↓ Ctrl↑` gönderir (geçer; bırakıldığı için `a.keys`'te Ctrl yok), ardından
+`Escape↓` — `ctrl=false`, geçer; işletim sistemi kilitli Ctrl ile birleştirir → Ctrl+Esc → Başlat menüsü. Aynı yolla
+Alt+Tab, Ctrl+Shift+Esc (Görev Yöneticisi). Başlat menüsü ön plana geçmeden önce kuyruğa giren ≤ 40 tuş (`cmd` + Enter)
+arama kutusuna düşer: tur 1'deki Win+R senaryosunun eşdeğeri.
+(b) **Fare Tuşları açıksa** Numpad 1–9/5/+ ön plan hedefken iletilir ama işletim sistemi bunları gerçek imleç hareketi ve
+tıklamaya çevirir — `scopedMove`/`acceptsRoot` hiç devreye girmez; imleç pencere dışına (görev çubuğu, masaüstü) taşınıp
+tıklanabilir.
+Varsayılan kapalı olduğundan ve kısayolla açma (5×Shift, Alt+Shift+NumLock) onay diyaloğu ön planı aldığı için
+uzaktan açılamadığından (diyaloğa giden tuş UNFOCUSED ile düşer, tık OCCLUDED) Yüksek değil; ancak bu özellikleri kalıcı
+kullanan (erişilebilirlik ihtiyacı olan) müşteride kapsam tamamen delinir. Windows'ta elle doğrulanmalı (I6).
+
+İstismar senaryosu: Yapışkan Tuşlar'ı açık kullanan müşteri yalnız Not Defteri'ni paylaşır ve kontrol verir. Teknisyen tek
+patlamada `ControlLeft↓↑, Escape↓↑, c m d, Enter` gönderir → Başlat araması → müşteri yetkisiyle `cmd` açılır (teknisyen
+göremez ama sonraki odak kaybında tuşlar düşer; tek komut satırı yine de çalıştırılabilir: `p o w e r s h e l l - c …`
+≤ 40 tuş).
+
+Düzeltme (atanan ajan: backend-dev):
+
+1. Pencere modunda `shellShortcut` değiştirici kararını işletim sistemi durumuyla da versin: `WindowAPI`'ye
+   `OSModifiers()` (GetAsyncKeyState `VK_LWIN/VK_RWIN/VK_MENU/VK_CONTROL`) eklensin; Tab/Escape için `alt`/`ctrl`,
+   Win için "herhangi basma" kararında `uzak || OS` kullanılsın (yerel kullanıcının fiziksel basılı tuttuğu Alt + uzak Tab
+   kombinasyonunu da kapatır). Ek güvence: `SystemParametersInfo(SPI_GETSTICKYKEYS)` `SKF_STICKYKEYSON` ise pencere
+   modunda tek başına değiştirici basma+bırakmasından hemen sonra gelen `Tab/Escape` düşsün.
+2. `SPI_GETMOUSEKEYS` `MKF_MOUSEKEYSON` ise pencere modunda `Numpad*` ve `NumLock` basmaları düşsün (neden `SHELL_SHORTCUT`
+   ya da yeni `ACCESSIBILITY`); ayrıca Alt+Shift+NumLock ve art arda 5×Shift (Yapışkan Tuşlar kısayolu, yerel kullanıcıyı
+   rahatsız eden diyalog) pencere modunda düşsün.
+3. Birim testi (sahte API): sticky açıkken `Ctrl↓↑ Esc↓` → Esc düşer; mouse keys açıkken `Numpad5` düşer; ikisi kapalıyken
+   davranış değişmez; monitör modu değişmez. I6 elle testi: Yapışkan Tuşlar açık Windows'ta aynı dizi Başlat'ı açmamalı.
+
+### [DÜŞÜK] S-P17-8 Pencere modu, seçilen uygulamanın kendi yetenekleri ve başka uygulamaların global kısayollarıyla sınırlı değil — A04 (kalan risk, belgeleme)
+
+Yer: `apps/agent-win/internal/ui/share.go` (Gezgin `CabinetWClass` ve tarayıcılar listede), mimari-e11 §8.1 AC-248.
+Sorun: Girdi kapsamı pencere düzeyindedir; hedef Gezgin/tarayıcı/terminal ise adres çubuğundan program başlatılabilir
+(başlatılan pencere kapsam dışı kalır ama süreç çalışır). Üçüncü taraf uygulamaların `RegisterHotKey` global kısayolları
+(ör. parola yöneticisi otomatik yazma Ctrl+Alt+A) ön plan hedefken iletilen tuşla tetiklenir ve hedef pencereye kimlik
+bilgisi yazabilir (teknisyen WGC karesinde görür). Kodla tamamen engellenemez.
+Düzeltme (frontend-dev/backend-dev + teknik-yazar): paylaşım ekranında "Yalnız bir pencere" seçiminin altına kısa uyarı
+("Seçtiğiniz program başka program açabiliyorsa — ör. Dosya Gezgini, tarayıcı — teknisyen onu kullanabilir") ve
+kullanım kılavuzuna not. Gereksinimler §9 "Sonra".
+
+## Otomatik tarama çıktıları
+
+- `docker run golang:1.26.11-bookworm` (`apps/agent-win`, repo salt okunur bağlı): `go test -count=1 ./...` → 20 paket `ok`;
+  `-run 'SP171|AC248' -v ./internal/input/` → 15 test PASS (6 yeni S-P17-1 testi dahil); `GOOS=windows
+GOARCH=amd64|386|arm64 CGO_ENABLED=0 go vet ./...` → üçü de temiz.
+- Gizli bilgi `git grep -nE "(api[_-]?key|secret|password|token)\s*[:=]\s*['\"][^'\"]{8,}"` (agent-win, .github,
+  contracts): eşleşme yok.
+- `.env` geçmişi: yalnız `.env.example`.
+- Çalıştırılmadı: `govulncheck`, actionlint (devops yerelde 0 bulgu raporladı; CI `check` işi zorunlu tutar); Windows
+  çalışma zamanı (SendInput, GetClassName) CI `test-windows` + I6.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- Yok. mimari-e11 §8.1 AC-248 "Pencere modunda Win tuşu ve kabuk kısayolları iletilmez" kodda var; erişilebilirlik
+  süzgeçleri tasarımda da yok (S-P17-7 — mimara §8.1'e eklenmesi önerilir).
+
+## Olumlu
+
+- Kabuk kısayolu denetimi ön plan/simge denetiminden önce, kilitli ve fail-closed; monitör modu dokunulmadan kaldı ve testle
+  korunuyor.
+- Sapmalar implementation.md'de gerekçeli; PrintScreen'in kendiliğinden eklenmesi doğru bir genişletme.
+- İmza artık insan onayından sonra; Reject edilen etiket için imzalı ikili hiç oluşmuyor, imzalı artifact 1 gün.
+- 386 için "derlenir ama kapalı" stub'u, zayıf denetime sessiz dönüş yerine doğru seçim.
+
+## Önerilen "Sonra" (gereksinimler §9)
+
+- S-P17-7 (P17 kapanışından önce önerilir, Orta), S-P17-8 (uyarı metni), immutable releases + self-review engeli,
+  S-P17-6 etiket silme (kullanıcı).
+
+---
+
 # Güvenlik Raporu — P17 kod turu 1 (2026-11-15)
 
 DURUM: DÜZELTİLMELİ

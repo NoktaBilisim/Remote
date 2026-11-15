@@ -84,11 +84,18 @@ type Applier struct {
 	keys    map[string]heldKey
 	buttons map[string]bool
 	// AC-248 / S17-1 pencere modu (scope.go); scope.on false ise monitör modu.
-	scope       winScope
-	scopeMeta   map[string]bool // S-P17-1: pencere modunda düşürülen, uzakta hâlâ basılı Win tuşları
-	scopeLatch  bool            // S-P17-1: kabuk kısayolu görüldü; Win/Alt/Ctrl bırakılana dek basmalar düşer
-	keyTokens   float64         // S-P17-1: pencere modu tuş basma kovası
-	keyLast     time.Time
+	scope      winScope
+	scopeMeta  map[string]bool // S-P17-1: pencere modunda düşürülen, uzakta hâlâ basılı Win tuşları
+	scopeLatch bool            // S-P17-1: kabuk kısayolu görüldü; Win/Alt/Ctrl bırakılana dek basmalar düşer
+	keyTokens  float64         // S-P17-1: pencere modu tuş basma kovası
+	keyLast    time.Time
+	// S-P17-7 erişilebilirlik izi (pencere modu).
+	tapCand     map[string]bool // basıldıktan sonra araya tuş girmemiş Ctrl/Alt
+	stickyArmed bool            // Yapışkan Tuşlar'da kilitli Ctrl/Alt olabilir
+	shiftRun    int             // art arda Shift basması
+	sticky      bool
+	mouseKeys   bool
+	accessAt    time.Time
 	dropLog     func(reason string)
 	dropAt      time.Time
 	pendingDrop string
@@ -101,7 +108,7 @@ func NewApplier(g *control.Gate, inj Injector, now func() time.Time) *Applier {
 		now = time.Now
 	}
 	a := &Applier{gate: g, inj: inj, now: now, keys: map[string]heldKey{}, buttons: map[string]bool{},
-		scopeMeta: map[string]bool{}}
+		scopeMeta: map[string]bool{}, tapCand: map[string]bool{}}
 	g.OnClose(a.ReleaseAll)
 	return a
 }
@@ -112,6 +119,8 @@ func (a *Applier) SetTarget(mon, virt Rect) {
 	a.mon, a.virt, a.hasMon = mon, virt, mon.Right > mon.Left && virt.Right > virt.Left
 	a.scope = winScope{}
 	a.resetShellLocked()
+	clear(a.tapCand)
+	a.stickyArmed, a.shiftRun = false, 0
 	a.mu.Unlock()
 }
 
@@ -211,8 +220,9 @@ func (a *Applier) releaseLocked() {
 	for b := range a.buttons {
 		evs = append(evs, Event{Mouse: true, Flags: buttonFlag(b, false)})
 	}
-	for _, k := range a.keys {
+	for code, k := range a.keys {
 		evs = append(evs, keyEvents(k, false)...)
+		a.noteUpLocked(code)
 	}
 	clear(a.buttons)
 	clear(a.keys)

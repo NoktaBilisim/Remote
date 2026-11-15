@@ -20,6 +20,10 @@ type windowCandidate struct {
 	Class   string // pencere sınıfı (kabuk pencerelerini ayıklamak için; gösterilmez)
 }
 
+// windowShareWarning S-P17-8: girdi kapsamı pencere düzeyindedir; hedef program başka program başlatabiliyorsa
+// teknisyen onu da kullanabilir (başlatılan pencere kapsam dışında kalır ama süreç çalışır). Pencere listesinin altında.
+const windowShareWarning = "Paylaştığınız pencerenin içinden (ör. Dosya Gezgini, tarayıcı) başka programlar açılabilir."
+
 // shellClasses kabuk penceresi sınıfları (S-P17-4): masaüstü (Progman, WorkerW), birincil/ikincil görev çubuğu.
 var shellClasses = map[string]bool{"Progman": true, "WorkerW": true, "Shell_TrayWnd": true, "Shell_SecondaryTrayWnd": true}
 

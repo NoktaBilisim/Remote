@@ -51,3 +51,11 @@ func TestAC248ShareableWindowsCapped(t *testing.T) {
 		t.Fatal("boş liste")
 	}
 }
+
+// S-P17-8: "Yalnız bir pencere" seçiminde kalan risk uyarısı (paylaşım ekranında pencere listesinin altında).
+func TestSP178WindowShareWarningText(t *testing.T) {
+	const want = "Paylaştığınız pencerenin içinden (ör. Dosya Gezgini, tarayıcı) başka programlar açılabilir."
+	if windowShareWarning != want {
+		t.Fatalf("uyarı metni: %q", windowShareWarning)
+	}
+}

@@ -1194,3 +1194,85 @@ Kodda `t.Skip` yalnız gerekçeli durumlarda var: WGC duman testinde 3 durum, do
 - AC-249 hard link ve TOCTOU (`GetFinalPathNameByHandle`) korumaları AC'nin istediğinin ötesinde. CI'da yakalanan rename hatası kök nedeniyle düzeltilmiş ve regresyon testi eklenmiş.
 - AC-246 bayt eşitliği testi kapsamlı: 4 döndürme, ölçekleme, tek boyutlar, imleç izi.
 - I5 fail-closed tasarlanmış: `sign` başarısızsa attest/Release koşmuyor; SignPath tanımlıyken imzasız ikili reddediliyor; sürüm geri gidemiyor.
+
+## P17 — Tur 2
+
+DURUM: DÜZELTİLMELİ (yalnız dokümantasyon; kod, test ve AC tarafı tam)
+
+Kapsam: P17 Tur 1 Düzeltilmeli 1 (devops) ve 2 (backend-dev); güvenlik düzeltmeleri S-P17-1, S-P17-4, S-P17-5
+(+ 386 `mf_windows.go`/`WorkAreaAt`); implementation.md "P17 güvenlik düzeltmeleri (Go)" ve "(CI)". Denetlenen commit
+`f862e0e` (`p17-wip`, çalışma alanı temiz). Kod değiştirilmedi.
+
+### Test sonucu
+
+| Komut                                                                                                   | Sonuç                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Go (golang:1.26, linux, repo kökü bağlı) `gofmt -l .` / `go vet ./...` / `go test -race -count=1 ./...` | boş / 0 / **19 paket ok**                                                                                                                                                                                          |
+| `GOOS=windows GOARCH=amd64 \| arm64 \| 386 go vet ./...`                                                | 0 / 0 / 0 (386 vet artık temiz)                                                                                                                                                                                    |
+| `go test -v -run 'TestSP171\|TestAC248S171' ./internal/input` (linux)                                   | 15/15 PASS (6 yeni S-P17-1 testi dahil)                                                                                                                                                                            |
+| contracts / web vitest                                                                                  | 14 dosya **103/103** · 39 dosya **351/351**                                                                                                                                                                        |
+| contracts+web lint / typecheck · `pnpm format:check`                                                    | 0 / 0 · temiz                                                                                                                                                                                                      |
+| actionlint 1.7.8 `agent-win.yml`                                                                        | 0 bulgu                                                                                                                                                                                                            |
+| **Windows CI 43687183097** (`f862e0e`, workflow_dispatch)                                               | `success`. `go test (Windows)` 20 paket `ok`; yeni "-v" adımında 31 `--- PASS: TestAC248*/TestAC249*`, **0 SKIP**, `::warning::`/`::error::` yok. Etiket dışı olduğundan sign/approve/release `skipped` (beklenen) |
+
+**`TestAC248WGCWindowSmoke`: PASS (0.59 s)** — günlük: `oturum açılışı 77.599ms`, `ilk kare 134.0155ms sonra, 306x233,
+orta piksel BGRA=[0 0 255 255]` (kırmızı test penceresinin gerçek WGC karesi). Böylece AC-248'in gerçek yakalama kanıtı
+otomatik olarak alındı; I6 elle testine bağlı kalmıyor (I6 yine pencere taşıma/küçültme ve S-P17-1 Win+R senaryosu için
+gerekli). AC-249 symlink alt testleri (`TestAC249SymlinkLogFileAndRotationRefused`, `TestAC249SymlinkFileNotFollowed`)
+runner'da PASS — atlanmadılar.
+
+### Tur 1 maddeleri ve güvenlik düzeltmeleri
+
+| Madde                                  | Durum             | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tur 1 / 1 [devops] `-v` + SKIP uyarısı | ✅ kod · ❌ kayıt | `agent-win.yml` ayrı adım `go test -count=1 -v -run 'TestAC248\|TestAC249' ./internal/... \| tee` (bash `pipefail` ile test hatası işi düşürür); SKIP → `::warning::`, test yoksa `::error::` + `exit 1`. CI 43687183097'de doğru çalıştı. **Eksik:** maddenin istediği "koşu numarası ve sonuç runbook §24'e" yazılmadı (§24.2 yalnız mekanizmayı anlatıyor)                                                                                                                  |
+| Tur 1 / 2 [backend-dev] PASS/SKIP notu | ❌                | `docs/implementation.md:6788` hâlâ "`internal/capture` … `ok` → K-E11-3 **GO** kesinleşti"; `:6855` "(I0, CI'da ok)". PASS kanıtı artık var ama implementation.md'ye yazılmadı                                                                                                                                                                                                                                                                                                 |
+| S-P17-1 kabuk kısayolları              | ✅                | `scope.go:229-305`: kabuk denetimi ön plan denetiminden önce; Win basması hiç enjekte edilmez, Alt+Tab/Alt+Esc/Ctrl+Esc/Ctrl+Shift+Esc/PrintScreen düşer; değiştiriciler bırakılana dek kilit (Win+R+metin, Alt+Tab+Tab); bırakmalar geçer; ön plan kaçınca basılı tuşlar bırakılır; pencere modu tuş kovası 40/sn. Testler: `TestSP171*` 6 test (monitör modu değişmedi testi dahil). `mimari-e11.md:466` AC-248 satırına kural eklendi. Win+R gerçek davranışı I6 senaryo 11 |
+| S-P17-4 kabuk pencereleri              | ✅                | `win.ClassName` (`GetClassName`) → `screens_windows.go:434` → `share.go:24,44` `Progman/WorkerW/Shell_TrayWnd/Shell_SecondaryTrayWnd` süzülüyor; `TestAC248ShareableWindowsFilter` (Gezgin `CabinetWClass` kalıyor) linux ve Windows'ta PASS                                                                                                                                                                                                                                   |
+| S-P17-5 + 386                          | ✅                | `diag/reparse_windows.go` ve testi `windows && (amd64 \|\| arm64)`; `reparse_unsupported_windows.go` her işlemde `ErrUnsupported` (fail-closed, zayıf denetime dönüş yok). `setUINT64` 32 bit ABI'de iki sözcük; `WorkAreaAt` düzeltildi. Üç mimaride vet 0                                                                                                                                                                                                                    |
+
+### Kabul kriterleri (Tur 1'e göre değişen)
+
+| AC  | Durum | Kanıt                                                                                                                                      |
+| --- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 248 | ✅    | Tur 1'deki mantık testleri + **CI 43687183097 `TestAC248WGCWindowSmoke` PASS** (gerçek WGC karesi, 306x233, doğru renk) + S-P17-1 testleri |
+| 249 | ✅    | CI 43687183097: junction, üst zincir, symlink (atlanmadı), hard link, handle rename/remove, `RenameInfoLayout` PASS                        |
+
+Diğer AC'ler (234, 239, 245, 246, 247, 250, 251, 252) Tur 1'deki gibi; regresyon yok. 245/246/247 elle/ölçüm kısımları
+gerekçeli olarak I6'da.
+
+### Düzeltilmeli
+
+1. [backend-dev] `docs/implementation.md:6788` (P17 I4 "I0 kapısı") ve `:6855` — "`ok` → GO kesinleşti" / "CI'da ok"
+   yerine: "CI 43687183097 (`f862e0e`): `--- PASS: TestAC248WGCWindowSmoke (0.59s)`, oturum 77.6 ms, ilk kare 134 ms,
+   306x233, orta piksel kırmızı → K-E11-3 GO kanıtlandı" yazılsın.
+2. [devops] `docs/runbook.md` §24.2 WGC paragrafı — Tur 1 / 1'in istediği koşu kaydı eklensin: "CI 43687183097
+   (`f862e0e`, dispatch): AC-248/249 adımı 31 PASS, 0 SKIP; WGC duman PASS".
+
+Yalnız metin; kod/test tekrarı gerekmez. Uygulanınca Tur 3 belge kontrolüyle kapanır.
+
+### Definition of Done
+
+| Madde                                           | ✅/❌ | Not                                                                                     |
+| ----------------------------------------------- | ----- | --------------------------------------------------------------------------------------- |
+| Her AC'nin kanıtlayan testi var                 | ✅    | AC-248 gerçek yakalama kanıtı CI'da alındı                                              |
+| Testler yeşil (lint/type/unit, Go vet/test, CI) | ✅    | Linux Go 19 paket, Windows CI 20 paket + -v adımı, vitest 103+351                       |
+| Format (prettier, gofmt) · actionlint           | ✅    |                                                                                         |
+| Tasarım–kod uyumu, sapmalar gerekçeli           | ✅    | S-P17-1 sapmaları (Alt+F4, Alt+harf, PrintScreen, ContextMenu) gerekçeli; mimari güncel |
+| Hata yutma / PII log                            | ✅    | Yeni nedenler `SHELL_SHORTCUT`/`KEY_BURST` yalnız sabit kod, tuş içeriği yok            |
+| Yeni bağımlılık                                 | ✅    | Yok                                                                                     |
+| Dokümantasyon (implementation.md, runbook)      | ❌    | Düzeltilmeli 1–2 (Tur 1 maddelerinin kayıt kısmı uygulanmadı)                           |
+
+### Öneriler (zorunlu değil)
+
+1. [backend-dev] `internal/remember/reparse_windows_test.go` `//go:build windows` — 386'da `ErrReparse` beklediği için
+   koşarsa düşer (implementation.md'de yazılı). `diag` testiyle aynı `windows && (amd64 || arm64)` etiketi verilsin.
+2. Tur 1 Öneriler 1 (TEST-P5-1) ve 2 (release özeti kutuları; S-P17-3 ile `reproducible` özetine taşınmış, boş kutu) —
+   ilki hâlâ açık.
+
+### Olumlu
+
+- CI adımı üç durumu (PASS / SKIP uyarı / koşmadı hata) ayırıyor ve ilk koşuda gerçek kare kanıtını görünür kıldı.
+- S-P17-1 düzeltmesi raporun istediğinin ötesinde: kilit mantığı type-ahead'i (Win+R+metin) kesiyor, PrintScreen
+  eklendi, ön plan kaybında basılı tuşlar bırakılıyor.
+- 386 için sessiz zayıf denetime dönmek yerine fail-closed eş seçilmiş.
