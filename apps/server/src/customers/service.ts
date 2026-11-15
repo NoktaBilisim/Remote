@@ -4,66 +4,27 @@
 // yeniden aktif etmede önce request_refs sonra customers. PK/UQ çakışması → tüm TX yeni ref ile (en çok 5 deneme).
 // B-P8c2-2: geçici DB hatası (deadlock 1213 / P2034, kilit bekleme 1205, P2028) → tüm TX bir kez daha (§15.4 kayıt
 // verme yolu `device_bindings → customers` sırasıyla kilitler; pasife alma/yenileme `customers → device_bindings`).
-import type {
-  CreateCustomerData,
-  CustomerDetail,
-  CustomerFirmRef,
-  CustomerListItem,
-  CustomerListResponse,
-  CustomerOptionsQuery,
-  CustomerOptionsResponse,
-  CustomerStatus,
-  CustomerTabQuery,
-  GeneralLinkResponse,
-  ListCustomersQuery,
-  UpdateCustomerData,
-} from "@remote/contracts/api/customers";
-import {
-  CUSTOMER_NAME_CONFLICT_MESSAGE,
-  CUSTOMER_OPTIONS_MAX,
-  customerKeys,
-  digitsOf,
-  foldKey,
-  suggestFileLabel,
-} from "@remote/contracts/api/customers";
-import type { RequestPriority, SupportRequestListResponse } from "@remote/contracts/api/requests";
-import type { SessionListResponse } from "@remote/contracts/api/sessions";
+import type { CreateCustomerData, CustomerDetail, UpdateCustomerData } from "@remote/contracts/api/customers";
+import { customerKeys, suggestFileLabel } from "@remote/contracts/api/customers";
 import { CUSTOMER_AUDIT } from "@remote/contracts/audit";
-import { customerAuditView, type CustomerAuditFields } from "../audit/mask.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import { countRevoked } from "../bindings/service.ts";
-import * as brepo from "../bindings/repo.ts";
 import { conflictIndex, isTransientDbError } from "../lib/db.ts";
-import { AppError } from "../lib/errors.ts";
-import { newId, newTenantRef } from "../lib/ids.ts";
-import { ensureSettings, generalRotatedAt, toItem, webFormUrl } from "../requests/panel.ts";
-import { requestDownloadUrl, requestFileName } from "../requests/ref.ts";
+import { newId } from "../lib/ids.ts";
+import { ensureSettings } from "../requests/panel.ts";
 import * as rrepo from "../requests/repo.ts";
 import { SYSTEM, SYSTEM_CTX, type RequestService } from "../requests/service.ts";
-import { toListItem } from "../sessions/history.ts";
-import { withWaitingGuests } from "../sessions/lobby.ts";
-import * as hrepo from "../sessions/history-repo.ts";
-import { historyScope } from "../sessions/service.ts";
 import * as repo from "./repo.ts";
+import { detail, ENTITY, nameConflict } from "./view.ts";
+import { deactivateTx, insertCustomerTx, PII, reactivateTx, rotateRefTx, updateCustomerTx } from "./write-tx.ts";
 
-const ENTITY = "customer";
 const REF_ATTEMPTS = 5;
 const TRANSIENT_RETRIES = 1;
 const NAME_UQ = "customers_tenant_id_name_key_key";
 const REF_CONFLICTS: ReadonlySet<string> = new Set(["PRIMARY", "customers_request_ref_key"]);
 const DAY_MS = 86_400_000;
 
-const who = (auth: AuthContext, tenantId: string) => ({
-  tenantId,
-  userId: auth.user.id,
-  username: auth.user.email,
-});
-const nameConflict = (): AppError =>
-  new AppError("CONFLICT", {
-    message: CUSTOMER_NAME_CONFLICT_MESSAGE,
-    fields: { name: CUSTOMER_NAME_CONFLICT_MESSAGE },
-  });
 const isRefConflict = (err: unknown): boolean => REF_CONFLICTS.has(conflictIndex(err) ?? "-");
 
 /**
@@ -87,174 +48,8 @@ export async function withTxRetry<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function link(svc: RequestService, c: { status: string; fileLabel: string; requestRef: string }) {
-  const active = c.status === "ACTIVE";
-  return {
-    downloadUrl: active ? requestDownloadUrl(svc.d.env.PUBLIC_BASE_URL, c.requestRef) : null,
-    fileName: active ? requestFileName(c.fileLabel, c.requestRef) : null,
-  };
-}
-
-function listItem(svc: RequestService, c: repo.CustomerListRow, stats: { count: number; last: Date | null } | undefined): CustomerListItem {
-  return {
-    id: c.id,
-    name: c.name,
-    status: c.status as CustomerStatus,
-    ...link(svc, c),
-    createdAt: c.createdAt.toISOString(),
-    lastRequestAt: stats?.last?.toISOString() ?? null,
-    requestCount: stats?.count ?? 0,
-  };
-}
-
-async function detail(svc: RequestService, tenantId: string, id: string): Promise<CustomerDetail> {
-  const c = await repo.find(svc.d.db, tenantId, id);
-  if (!c) throw new AppError("NOT_FOUND");
-  const [stats, sessionCount, rs] = await Promise.all([
-    repo.requestStats(svc.d.db, tenantId, [id]),
-    repo.sessionCount(svc.d.db, tenantId, id),
-    svc.d.db.tenantRequestSettings.findUnique({ where: { tenantId }, select: { webFormEnabled: true } }),
-  ]);
-  return {
-    ...listItem(svc, c, stats.get(id)),
-    fileLabel: c.fileLabel,
-    contactName: c.contactName,
-    phone: c.phone,
-    email: c.email,
-    note: c.note,
-    refRotatedAt: c.refRotatedAt?.toISOString() ?? null,
-    passiveAt: c.passiveAt?.toISOString() ?? null,
-    anonymizedAt: c.anonymizedAt?.toISOString() ?? null,
-    sessionCount,
-    defaultPriority: (c.defaultPriority as RequestPriority | null) ?? null,
-    slaMinutes: c.slaMinutes,
-    // P19 (§8c.6, AC-259): müşterinin kendi ref'iyle web formu; form kapalıysa ya da müşteri pasif/anonimse null.
-    webFormUrl:
-      rs?.webFormEnabled && c.status === "ACTIVE" && c.anonymizedAt === null ? webFormUrl(svc.d.env.PUBLIC_BASE_URL, c.requestRef) : null,
-  };
-}
-
-const auditFields = (c: repo.CustomerRow): CustomerAuditFields => ({
-  name: c.name,
-  fileLabel: c.fileLabel,
-  status: c.status,
-  contactName: c.contactName,
-  phone: c.phone,
-  email: c.email,
-  note: c.note,
-  defaultPriority: c.defaultPriority,
-  slaMinutes: c.slaMinutes,
-});
-
 async function writeLimit(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string): Promise<void> {
   await svc.limit(ctx, tenantId, "customersWrite", "customers.write", "user", auth.user.id);
-}
-
-// ------------------------------------------------------------------ okuma
-
-/** GET /customers (AC-166): durum + arama + sayfa; sayaçlar sayfadaki id'ler için tek gruplama sorgusu. */
-export async function listCustomers(svc: RequestService, tenantId: string, q: ListCustomersQuery): Promise<CustomerListResponse> {
-  const folded = q.q ? foldKey(q.q) : undefined;
-  const d = q.q && /^[\d\s+\-()]+$/.test(q.q) ? digitsOf(q.q).replace(/^0+/, "") : undefined;
-  const { rows, total } = await repo.list(
-    svc.d.db,
-    tenantId,
-    {
-      status: q.status,
-      folded,
-      digits: d && d.length >= 2 ? d : undefined,
-      sort: q.sort,
-    },
-    { skip: (q.page - 1) * q.pageSize, take: q.pageSize },
-  );
-  const stats = await repo.requestStats(
-    svc.d.db,
-    tenantId,
-    rows.map((r) => r.id),
-  );
-  return {
-    items: rows.map((r) => listItem(svc, r, stats.get(r.id))),
-    page: q.page,
-    pageSize: q.pageSize,
-    total,
-  };
-}
-
-export const getCustomer = (svc: RequestService, tenantId: string, id: string): Promise<CustomerDetail> => detail(svc, tenantId, id);
-
-export async function customerOptions(svc: RequestService, tenantId: string, q: CustomerOptionsQuery): Promise<CustomerOptionsResponse> {
-  const folded = q.q ? foldKey(q.q) : undefined;
-  const rows = await repo.options(svc.d.db, tenantId, q.status, folded || undefined, CUSTOMER_OPTIONS_MAX);
-  return {
-    items: rows.map((r): CustomerFirmRef => ({
-      id: r.id,
-      name: r.name,
-      status: r.status as CustomerStatus,
-    })),
-  };
-}
-
-/** GET /customers/general-link (AC-175): salt okunur; ayar yoksa tembel oluşturulur. */
-export async function generalLink(svc: RequestService, tenantId: string): Promise<GeneralLinkResponse> {
-  const s = await ensureSettings(svc, tenantId);
-  return {
-    downloadUrl: requestDownloadUrl(svc.d.env.PUBLIC_BASE_URL, s.requestRef),
-    fileName: requestFileName(s.fileLabel, s.requestRef),
-  };
-}
-
-async function assertExists(svc: RequestService, tenantId: string, id: string): Promise<void> {
-  if (
-    !(await svc.d.db.customer.findFirst({
-      where: { id, tenantId },
-      select: { id: true },
-    }))
-  )
-    throw new AppError("NOT_FOUND");
-}
-
-/** GET /customers/:id/requests (AC-178): tüm durumlar, yeniden eskiye. */
-export async function customerRequests(
-  svc: RequestService,
-  tenantId: string,
-  id: string,
-  q: CustomerTabQuery,
-): Promise<SupportRequestListResponse> {
-  await assertExists(svc, tenantId, id);
-  const { rows, total } = await rrepo.listByCustomer(svc.d.db, tenantId, id, {
-    skip: (q.page - 1) * q.pageSize,
-    take: q.pageSize,
-  });
-  const now = svc.d.clock.now();
-  const rotated = await generalRotatedAt(svc, tenantId);
-  return {
-    items: rows.map((r) => toItem(r, now, rotated)),
-    page: q.page,
-    pageSize: q.pageSize,
-    total,
-  };
-}
-
-/** GET /customers/:id/sessions (AC-178, K23): oturum geçmişi kapsamı (USER yalnız kendi oturumları). */
-export async function customerSessions(
-  svc: RequestService,
-  auth: AuthContext,
-  tenantId: string,
-  id: string,
-  q: CustomerTabQuery,
-): Promise<SessionListResponse> {
-  await assertExists(svc, tenantId, id);
-  const scope = historyScope(auth); // tenantScope önce zorlandı → kind "tenant"
-  const { rows, total } = await hrepo.listHistory(svc.d.db, scope, { customerFirm: id }, "createdAt:desc", {
-    skip: (q.page - 1) * q.pageSize,
-    take: q.pageSize,
-  });
-  // P13b-L: SessionListItem.waitingGuests (S13L-1: sessions.view yoksa 0).
-  return withWaitingGuests(
-    { items: rows.map((r) => toListItem(r, scope, auth.user.id)), page: q.page, pageSize: q.pageSize, total },
-    svc.d.rooms,
-    auth,
-  );
 }
 
 // ------------------------------------------------------------------ yazma
@@ -274,55 +69,11 @@ export async function createCustomer(
   const phone = input.phone ?? null;
   const fileLabel = input.fileLabel ?? suggestFileLabel(input.name);
   await withTxRetry(() =>
-    svc.d.db.$transaction(async (tx) => {
-      const now = new Date(svc.d.clock.now());
-      const ref = newTenantRef();
-      await repo.insert(tx, {
-        id,
-        tenantId,
-        name: input.name,
-        ...customerKeys(input.name, contactName, phone),
-        fileLabel,
-        requestRef: ref,
-        contactName,
-        phone,
-        email: input.email ?? null,
-        note: input.note ?? null,
-        defaultPriority: input.defaultPriority ?? null,
-        slaMinutes: input.slaMinutes ?? null,
-        status: "ACTIVE",
-        createdBy: auth.user.id,
-        createdAt: now,
-      });
-      await rrepo.insertRequestRef(tx, {
-        ref,
-        tenantId,
-        customerId: id,
-        createdAt: now,
-      });
-      // §15.6 (3): oluşturma PII taşımaz.
-      await writeAudit(tx, ctx, {
-        ...who(auth, tenantId),
-        action: CUSTOMER_AUDIT.CREATED,
-        entity: ENTITY,
-        entityId: id,
-        result: "success",
-        newValue: customerAuditView({
-          name: input.name,
-          fileLabel,
-          refPrefix: ref,
-          ...(input.defaultPriority ? { defaultPriority: input.defaultPriority } : {}),
-          ...(input.slaMinutes ? { slaMinutes: input.slaMinutes } : {}),
-        }),
-      });
-    }),
+    svc.d.db.$transaction(async (tx) => insertCustomerTx(tx, svc, ctx, auth, tenantId, { id, input, contactName, phone, fileLabel })),
   );
   svc.refreshCustomersGauge();
   return detail(svc, tenantId, id);
 }
-
-const FIELDS = ["name", "fileLabel", "contactName", "phone", "email", "note", "defaultPriority", "slaMinutes"] as const;
-const PII = ["contactName", "phone", "email", "note"] as const;
 
 /** PATCH /customers/:id (AC-167, 195): yalnız değişen alanlar; boşaltma; pasifte de serbest; audit maskeli (K19). */
 export async function updateCustomer(
@@ -335,43 +86,7 @@ export async function updateCustomer(
 ): Promise<CustomerDetail> {
   await writeLimit(svc, ctx, auth, tenantId);
   try {
-    await svc.d.db.$transaction(async (tx) => {
-      const c = await repo.lock(tx, tenantId, id);
-      if (!c) throw new AppError("NOT_FOUND");
-      const next = {
-        name: c.name,
-        fileLabel: c.fileLabel,
-        contactName: c.contactName,
-        phone: c.phone,
-        email: c.email,
-        note: c.note,
-        defaultPriority: c.defaultPriority,
-        slaMinutes: c.slaMinutes,
-      };
-      for (const f of FIELDS) {
-        const v = input[f];
-        if (v !== undefined) (next as Record<string, string | number | null>)[f] = v;
-      }
-      const changed = FIELDS.filter((f) => next[f] !== c[f]);
-      if (changed.length === 0) return;
-      const writesPii = PII.some((f) => changed.includes(f) && next[f] !== null);
-      await repo.update(tx, tenantId, id, {
-        ...Object.fromEntries(changed.map((f) => [f, next[f]])),
-        ...customerKeys(next.name, next.contactName, next.phone),
-        ...(writesPii ? { anonymizedAt: null } : {}), // CHECK customers_anonymized_chk
-      });
-      const pick = (src: CustomerAuditFields): CustomerAuditFields =>
-        Object.fromEntries(changed.map((f) => [f, src[f]])) as CustomerAuditFields;
-      await writeAudit(tx, ctx, {
-        ...who(auth, tenantId),
-        action: CUSTOMER_AUDIT.UPDATED,
-        entity: ENTITY,
-        entityId: id,
-        result: "success",
-        oldValue: customerAuditView(pick(auditFields(c))),
-        newValue: { changed: [...changed], ...customerAuditView(pick(next)) },
-      });
-    });
+    await svc.d.db.$transaction(async (tx) => updateCustomerTx(tx, ctx, auth, tenantId, id, input));
   } catch (err) {
     if (conflictIndex(err) === NAME_UQ) throw nameConflict();
     throw err;
@@ -388,39 +103,7 @@ export async function rotateCustomerRef(
   id: string,
 ): Promise<CustomerDetail> {
   await writeLimit(svc, ctx, auth, tenantId);
-  const revoked = await withTxRetry(() =>
-    svc.d.db.$transaction(async (tx) => {
-      const c = await repo.lock(tx, tenantId, id);
-      if (!c) throw new AppError("NOT_FOUND");
-      if (c.status !== "ACTIVE")
-        throw new AppError("CONFLICT", {
-          message: "Pasif müşterinin bağlantısı yenilenemez; önce yeniden aktif edin.",
-        });
-      const now = new Date(svc.d.clock.now());
-      const ref = newTenantRef();
-      await rrepo.insertRequestRef(tx, {
-        ref,
-        tenantId,
-        customerId: id,
-        createdAt: now,
-      });
-      await repo.update(tx, tenantId, id, {
-        requestRef: ref,
-        refRotatedAt: now,
-      });
-      const n = await brepo.revokeForOwner(tx, tenantId, id, "CUSTOMER_ROTATED", now);
-      await writeAudit(tx, ctx, {
-        ...who(auth, tenantId),
-        action: CUSTOMER_AUDIT.REF_ROTATED,
-        entity: ENTITY,
-        entityId: id,
-        result: "success",
-        oldValue: { oldRefPrefix: c.requestRef.slice(0, 4) },
-        newValue: { newRefPrefix: ref.slice(0, 4), revokedBindings: n },
-      });
-      return n;
-    }),
-  );
+  const revoked = await withTxRetry(() => svc.d.db.$transaction(async (tx) => rotateRefTx(tx, svc, ctx, auth, tenantId, id)));
   countRevoked(svc, "CUSTOMER_ROTATED", revoked);
   return detail(svc, tenantId, id);
 }
@@ -438,47 +121,7 @@ export async function deactivateCustomer(
 ): Promise<CustomerDetail> {
   await writeLimit(svc, ctx, auth, tenantId);
   const { revoked, cancelled } = await withTxRetry(() =>
-    svc.d.db.$transaction(async (tx) => {
-      const c = await repo.lock(tx, tenantId, id);
-      if (!c) throw new AppError("NOT_FOUND");
-      if (c.status !== "ACTIVE") throw new AppError("CONFLICT", { message: "Müşteri zaten pasif." });
-      const now = new Date(svc.d.clock.now());
-      await repo.update(tx, tenantId, id, {
-        status: "PASSIVE",
-        passiveAt: now,
-      });
-      const n = await brepo.revokeForOwner(tx, tenantId, id, "CUSTOMER_PASSIVE", now);
-      // B-P8c-1/6: bekleyenler aynı TX'te iptal (talep TX'i müşteriyi FOR SHARE ile doğruladığından bu kilitten sonra yeni
-      // bekleyen doğamaz); `cancelledRequests` gerçekte iptal edilen sayıdır. Süpürücü yalnız savunma yedeği.
-      const ids: string[] = [];
-      for (const p of await rrepo.findPendingOfCustomer(tx, tenantId, id)) {
-        if ((await rrepo.cancelPending(tx, p.id, "CUSTOMER_PASSIVE", now)) === 0) continue;
-        ids.push(p.id);
-        await writeAudit(tx, ctx, {
-          ...who(auth, tenantId),
-          action: "request.cancelled",
-          entity: "support_requests",
-          entityId: p.id,
-          result: "success",
-          oldValue: { status: "PENDING" },
-          newValue: { status: "CANCELLED", reason: "CUSTOMER_PASSIVE" },
-        });
-      }
-      await writeAudit(tx, ctx, {
-        ...who(auth, tenantId),
-        action: CUSTOMER_AUDIT.DEACTIVATED,
-        entity: ENTITY,
-        entityId: id,
-        result: "success",
-        oldValue: customerAuditView({ status: "ACTIVE" }),
-        newValue: {
-          ...customerAuditView({ status: "PASSIVE", refPrefix: c.requestRef }),
-          revokedBindings: n,
-          cancelledRequests: ids.length,
-        },
-      });
-      return { revoked: n, cancelled: ids };
-    }),
+    svc.d.db.$transaction(async (tx) => deactivateTx(tx, svc, ctx, auth, tenantId, id)),
   );
   countRevoked(svc, "CUSTOMER_PASSIVE", revoked);
   for (const rid of cancelled)
@@ -498,36 +141,7 @@ export async function reactivateCustomer(
   id: string,
 ): Promise<CustomerDetail> {
   await writeLimit(svc, ctx, auth, tenantId);
-  await withTxRetry(() =>
-    svc.d.db.$transaction(async (tx) => {
-      const c = await repo.lock(tx, tenantId, id);
-      if (!c) throw new AppError("NOT_FOUND");
-      if (c.status !== "PASSIVE") throw new AppError("CONFLICT", { message: "Müşteri zaten aktif." });
-      const now = new Date(svc.d.clock.now());
-      const ref = newTenantRef();
-      await rrepo.insertRequestRef(tx, {
-        ref,
-        tenantId,
-        customerId: id,
-        createdAt: now,
-      });
-      await repo.update(tx, tenantId, id, {
-        status: "ACTIVE",
-        passiveAt: null,
-        requestRef: ref,
-        refRotatedAt: now,
-      });
-      await writeAudit(tx, ctx, {
-        ...who(auth, tenantId),
-        action: CUSTOMER_AUDIT.REACTIVATED,
-        entity: ENTITY,
-        entityId: id,
-        result: "success",
-        oldValue: { oldRefPrefix: c.requestRef.slice(0, 4), status: "PASSIVE" },
-        newValue: { newRefPrefix: ref.slice(0, 4), status: "ACTIVE" },
-      });
-    }),
-  );
+  await withTxRetry(() => svc.d.db.$transaction(async (tx) => reactivateTx(tx, svc, ctx, auth, tenantId, id)));
   svc.refreshCustomersGauge();
   return detail(svc, tenantId, id);
 }

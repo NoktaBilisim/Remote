@@ -6,9 +6,9 @@ import type { Db } from "../lib/db.ts";
 import { REQUEST_TX_OPTIONS, TX_OPTIONS } from "../lib/db.ts";
 
 /** Anonimleştirilebilen (bitmiş) oturum durumları; CHECK `support_sessions_anonymized_chk` ile aynı küme. */
-export const FINISHED_STATUSES = ["ENDED", "EXPIRED", "CANCELLED"] as const;
+const FINISHED_STATUSES = ["ENDED", "EXPIRED", "CANCELLED"] as const;
 
-export interface SessionBatchResult {
+interface SessionBatchResult {
   /** Partide seçilen aday sayısı (döngü sonu: < limit). */
   selected: number;
   sessions: number;
@@ -83,7 +83,7 @@ export const PURGE_BATCH = 500;
 
 const PURGE_CUT = Prisma.sql`(UTC_TIMESTAMP(3) - INTERVAL 30 DAY - INTERVAL 1 HOUR)`;
 
-export interface PurgeBindingsResult {
+interface PurgeBindingsResult {
   selected: number;
   bindings: number;
 }
@@ -111,7 +111,7 @@ export async function purgeBindingsBatch(db: Db, tenantId: string, limit: number
   }, TX_OPTIONS);
 }
 
-export interface PurgeSessionsResult {
+interface PurgeSessionsResult {
   selected: number;
   sessions: number;
   consents: number;
@@ -160,7 +160,7 @@ export async function purgeOrphanRequestsBatch(db: Db, tenantId: string, limit: 
     LIMIT ${limit}`;
 }
 
-export interface PurgeCandidates {
+interface PurgeCandidates {
   sessions: number;
   consents: number;
   files: number;

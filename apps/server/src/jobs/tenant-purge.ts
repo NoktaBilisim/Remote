@@ -11,17 +11,17 @@ import { TENANT_PURGE_STATES, TENANT_PURGE_STEPS, type TenantPurgeStep } from "@
 import { TENANT_PURGE_AUDIT } from "@remote/contracts/audit";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Prisma } from "../generated/prisma/client.ts";
-import { isP16Signal, type Db } from "../lib/db.ts";
+import type { Db } from "../lib/db.ts";
 import { newId } from "../lib/ids.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import type { ErasureEntry } from "../ops/erasure-ledger.ts";
 import type { UploadStore } from "../uploads/store.ts";
 import * as repo from "./tenant-purge-repo.ts";
+import { classifyPurgeError, FsStepError } from "./tenant-purge-errors.ts";
 
 export const PURGE_INTERVAL_MS = 60_000;
 /** 4. hatada FAILED (ilk üç hatadan sonra 1, 5, 30 dk bekleme — `repo.nextJobId`). */
-export const PURGE_MAX_ERRORS = 4;
-export type PurgeErrorClass = "db_fk" | "db_signal" | "fs" | "invalid_job" | "other";
+const PURGE_MAX_ERRORS = 4;
 
 const ENTITY = "tenants";
 const SYSTEM_ACTOR = { userId: null, username: "system" } as const;
@@ -29,25 +29,6 @@ const ctx = (): AuditContext => ({ ip: "", userAgent: "tenant-purge", requestId:
 const stepIndex = (s: TenantPurgeStep): number => TENANT_PURGE_STEPS.indexOf(s);
 const nextStep = (s: TenantPurgeStep): TenantPurgeStep => TENANT_PURGE_STEPS[stepIndex(s) + 1] ?? "DONE";
 const TENANT_ROW_INDEX = stepIndex("TENANT_ROW");
-
-class FsStepError extends Error {}
-
-/** MySQL FK ihlali (1451/1452) ya da Prisma P2003. */
-function isFkError(err: unknown): boolean {
-  const e = err as { code?: unknown; meta?: { driverAdapterError?: { cause?: { code?: unknown; originalCode?: unknown } } } } | null;
-  if (!e || typeof e !== "object") return false;
-  if (e.code === "P2003") return true;
-  const c = e.meta?.driverAdapterError?.cause;
-  const code = Number(c?.code ?? c?.originalCode);
-  return code === 1451 || code === 1452;
-}
-
-export function classifyPurgeError(err: unknown): PurgeErrorClass {
-  if (err instanceof FsStepError) return "fs";
-  if (isP16Signal(err)) return "db_signal";
-  if (isFkError(err)) return "db_fk";
-  return "other";
-}
 
 /**
  * `uploads/{tenantId}/` içindeki düzenli dosyalar (sembolik bağlantı izlenmez, sayılmaz). Kimlik yalnız
@@ -80,7 +61,7 @@ export interface TenantPurgeDeps {
   afterBatch?: (step: TenantPurgeStep) => Promise<void>;
 }
 
-export type RunOutcome = "done" | "failed" | "retry" | "idle";
+type RunOutcome = "done" | "failed" | "retry" | "idle";
 
 export function registerPurgeMetrics(m: Metrics, runner: () => TenantPurgeRunner | undefined): void {
   m.counter("rs_tenant_purge_rows_total", "Firma silme işinin sildiği/güncellediği satırlar (P16; table)");

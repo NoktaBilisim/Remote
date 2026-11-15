@@ -39,9 +39,35 @@ export function customerCsvCells(c: repo.CustomerExportRow): string[] {
   ];
 }
 
-export interface CustomerCsvExport {
+interface CustomerCsvExport {
   filename: string;
   body: Readable;
+}
+
+/** Başlık + 500'lük `id` imleçli partiler (en çok `CUSTOMER_EXPORT_MAX_ROWS`); akış hatası loglanıp yeniden fırlatılır. */
+async function* exportStream(
+  db: Db,
+  log: { error(o: object, m: string): void },
+  tenantId: string,
+  status: ExportCustomersQuery["status"],
+): AsyncGenerator<string> {
+  yield CSV_BOM + csvRow(CUSTOMER_CSV_COLUMNS);
+  let after: string | null = null;
+  let written = 0;
+  try {
+    while (written < CUSTOMER_EXPORT_MAX_ROWS) {
+      const batch = await repo.exportPage(db, tenantId, status, after, Math.min(BATCH, CUSTOMER_EXPORT_MAX_ROWS - written));
+      if (batch.length === 0) return;
+      yield batch.map((c) => csvRow(customerCsvCells(c))).join("");
+      written += batch.length;
+      const last = batch[batch.length - 1];
+      if (!last || batch.length < BATCH) return;
+      after = last.id;
+    }
+  } catch (err) {
+    log.error({ err, ref: newId(), event: "customer_export_stream_failed" }, "müşteri CSV akışı kesildi");
+    throw err;
+  }
 }
 
 export async function exportCustomersCsv(
@@ -71,25 +97,6 @@ export async function exportCustomersCsv(
     result: "success",
     newValue: { count, status: q.status },
   });
-  async function* generate(): AsyncGenerator<string> {
-    yield CSV_BOM + csvRow(CUSTOMER_CSV_COLUMNS);
-    let after: string | null = null;
-    let written = 0;
-    try {
-      while (written < CUSTOMER_EXPORT_MAX_ROWS) {
-        const batch = await repo.exportPage(db, tenantId, q.status, after, Math.min(BATCH, CUSTOMER_EXPORT_MAX_ROWS - written));
-        if (batch.length === 0) return;
-        yield batch.map((c) => csvRow(customerCsvCells(c))).join("");
-        written += batch.length;
-        const last = batch[batch.length - 1];
-        if (!last || batch.length < BATCH) return;
-        after = last.id;
-      }
-    } catch (err) {
-      log.error({ err, ref: newId(), event: "customer_export_stream_failed" }, "müşteri CSV akışı kesildi");
-      throw err;
-    }
-  }
   const day = istanbulDateTime(now).slice(0, 10).replaceAll("-", "");
-  return { filename: `musteriler-${day}.csv`, body: Readable.from(generate(), { objectMode: false }) };
+  return { filename: `musteriler-${day}.csv`, body: Readable.from(exportStream(db, log, tenantId, q.status), { objectMode: false }) };
 }

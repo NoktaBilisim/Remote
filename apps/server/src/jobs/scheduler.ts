@@ -20,28 +20,106 @@ export interface Scheduler {
 }
 
 /**
- * P8b: `requests` verilirse aynı 30 sn turunda talep süpürücüsü (süre dolumu, 60 sn bağlanma, pasif tenant) çalışır.
- * P13a: `retention` verilirse günlük 03:30 Europe/Istanbul saklama işi (jobs/retention.ts; AC-159, 195, 197..199).
- * P16 (AC-243): `orphanScan` verilirse haftalık pazar 04:30 Europe/Istanbul yetim dosya taraması (jobs/orphan-scan.ts).
- * P16 G3 (AC-242): `tenantPurge` verilirse 60 sn'de bir firma silme turu (tur başına tek iş; açılışta göstergeler hemen).
- * P19 J3 (AC-261): `outbox` verilirse 2 sn'de bir müşteri bildirimi işçisi (açılışta önce çökme kurtarma; temizlik ve
- * hacim göstergesi işçi turunun içinde, kendi aralıklarıyla).
- * Bir sonraki tur önceki bittikten sonra kurulur (üst üste binmez).
+ * Zamanlayıcı tablosundaki tek iş: `tick` turu çalıştırır (sonucu ve hatayı kendisi loglar), bitince `delay()` sonra yeniden
+ * kurulur. `stoppable` → `stop()` sonrası yeniden kurulmaz (saklama işinde bu denetim yoktu; aynen korunur).
  */
-export function startScheduler(
-  db: Db,
-  log: FastifyBaseLogger,
-  rooms?: RoomNotifier,
-  intervalMs = EXPIRY_INTERVAL_MS,
-  requests?: RequestService,
-  retention?: RetentionJob,
-  orphanScan?: OrphanScanJob,
-  tenantPurge?: TenantPurgeRunner,
-  outbox?: NotifyOutbox,
-): Scheduler {
-  let running = false;
+interface TimedJob {
+  /** Açılış adımı; `arm` ilk turu kurar. */
+  start(arm: () => void): void;
+  tick(): Promise<unknown>;
+  delay(): number;
+  stoppable: boolean;
+}
+
+/** P13a: günlük 03:30 Europe/Istanbul saklama işi (jobs/retention.ts; AC-159, 195, 197..199). */
+function retentionJob(log: FastifyBaseLogger, retention: RetentionJob): TimedJob {
+  return {
+    start: (arm) => arm(),
+    tick: () =>
+      retention
+        .run()
+        .then((r) => {
+          if (r) log.info({ job: "retention", tenants: r.tenants, failures: r.failures, ...r.totals }, "saklama işi tamamlandı");
+        })
+        .catch((err: unknown) => log.error({ err, job: "retention" }, "zamanlanmış iş hatası")),
+    delay: () => nextRetentionAt(Date.now()) - Date.now(),
+    stoppable: false,
+  };
+}
+
+/** P16 (AC-243): haftalık pazar 04:30 Europe/Istanbul yetim dosya taraması (açılışta önce durum dosyası). */
+function orphanScanJob(log: FastifyBaseLogger, orphanScan: OrphanScanJob): TimedJob {
+  return {
+    start: (arm) =>
+      void orphanScan
+        .init()
+        .catch((err: unknown) => log.error({ err, job: "orphan-scan" }, "yetim taraması durum dosyası okunamadı"))
+        .finally(arm),
+    tick: () =>
+      orphanScan
+        .run()
+        .then((r) => {
+          if (r) log.info({ job: "orphan-scan", ...r }, "yetim dosya taraması tamamlandı");
+        })
+        .catch((err: unknown) => log.error({ err, job: "orphan-scan" }, "zamanlanmış iş hatası")),
+    delay: () => nextOrphanScanAt(Date.now()) - Date.now(),
+    stoppable: true,
+  };
+}
+
+/** P16 G3 (AC-242): 60 sn'de bir firma silme turu (tur başına tek iş; açılışta göstergeler hemen). */
+function tenantPurgeJob(log: FastifyBaseLogger, tenantPurge: TenantPurgeRunner): TimedJob {
+  return {
+    start: (arm) => {
+      void tenantPurge.refreshMetrics().catch((err: unknown) => log.error({ err, job: "tenant-purge" }, "gösterge okunamadı"));
+      arm();
+    },
+    tick: () =>
+      tenantPurge
+        .tick()
+        .then((r) => {
+          if (r !== "idle") log.info({ job: "tenant-purge", outcome: r }, "firma silme turu");
+        })
+        .catch((err: unknown) => log.error({ err, job: "tenant-purge" }, "zamanlanmış iş hatası")),
+    delay: () => PURGE_INTERVAL_MS,
+    stoppable: true,
+  };
+}
+
+/** P19 J3 (AC-261): 2 sn'de bir müşteri bildirimi işçisi (açılışta önce çökme kurtarma). */
+function outboxJob(log: FastifyBaseLogger, outbox: NotifyOutbox): TimedJob {
+  return {
+    start: (arm) =>
+      void outbox
+        .recover(Date.now())
+        .catch((err: unknown) => log.error({ err, job: "notify-outbox" }, "outbox kurtarma hatası"))
+        .finally(arm),
+    tick: () => outbox.tick().catch((err: unknown) => log.error({ err, job: "notify-outbox" }, "zamanlanmış iş hatası")),
+    delay: () => OUTBOX_POLL_MS,
+    stoppable: true,
+  };
+}
+
+/** İşi kurar; dönen `clear` bekleyen zamanlayıcıyı iptal eder. */
+function startTimedJob(job: TimedJob, isStopped: () => boolean): () => void {
+  let timer: NodeJS.Timeout | undefined;
+  const arm = (): void => {
+    if (job.stoppable && isStopped()) return;
+    timer = setTimeout(() => {
+      void job.tick().finally(arm);
+    }, job.delay());
+    timer.unref();
+  };
+  job.start(arm);
+  return () => {
+    if (timer) clearTimeout(timer);
+  };
+}
+
+/** P8b: 30 sn turunda talep süpürücüsü (süre dolumu, 60 sn bağlanma, pasif tenant); turlar üst üste binmez. */
+function requestSweeper(log: FastifyBaseLogger, requests?: RequestService): () => Promise<void> {
   let sweeping = false;
-  const runRequestSweep = async (): Promise<void> => {
+  return async () => {
     if (!requests || sweeping) return;
     sweeping = true;
     try {
@@ -54,80 +132,12 @@ export function startScheduler(
       sweeping = false;
     }
   };
-  let retentionTimer: NodeJS.Timeout | undefined;
-  const armRetention = (): void => {
-    if (!retention) return;
-    retentionTimer = setTimeout(
-      () => {
-        void retention
-          .run()
-          .then((r) => {
-            if (r) log.info({ job: "retention", tenants: r.tenants, failures: r.failures, ...r.totals }, "saklama işi tamamlandı");
-          })
-          .catch((err: unknown) => log.error({ err, job: "retention" }, "zamanlanmış iş hatası"))
-          .finally(armRetention);
-      },
-      nextRetentionAt(Date.now()) - Date.now(),
-    );
-    retentionTimer.unref();
-  };
-  armRetention();
-  let orphanTimer: NodeJS.Timeout | undefined;
-  let stopped = false;
-  const armOrphanScan = (): void => {
-    if (!orphanScan || stopped) return;
-    orphanTimer = setTimeout(
-      () => {
-        void orphanScan
-          .run()
-          .then((r) => {
-            if (r) log.info({ job: "orphan-scan", ...r }, "yetim dosya taraması tamamlandı");
-          })
-          .catch((err: unknown) => log.error({ err, job: "orphan-scan" }, "zamanlanmış iş hatası"))
-          .finally(armOrphanScan);
-      },
-      nextOrphanScanAt(Date.now()) - Date.now(),
-    );
-    orphanTimer.unref();
-  };
-  if (orphanScan)
-    void orphanScan
-      .init()
-      .catch((err: unknown) => log.error({ err, job: "orphan-scan" }, "yetim taraması durum dosyası okunamadı"))
-      .finally(armOrphanScan);
-  let purgeTimer: NodeJS.Timeout | undefined;
-  const armPurge = (delay: number): void => {
-    if (!tenantPurge || stopped) return;
-    purgeTimer = setTimeout(() => {
-      void tenantPurge
-        .tick()
-        .then((r) => {
-          if (r !== "idle") log.info({ job: "tenant-purge", outcome: r }, "firma silme turu");
-        })
-        .catch((err: unknown) => log.error({ err, job: "tenant-purge" }, "zamanlanmış iş hatası"))
-        .finally(() => armPurge(PURGE_INTERVAL_MS));
-    }, delay);
-    purgeTimer.unref();
-  };
-  if (tenantPurge) void tenantPurge.refreshMetrics().catch((err: unknown) => log.error({ err, job: "tenant-purge" }, "gösterge okunamadı"));
-  armPurge(PURGE_INTERVAL_MS);
-  let outboxTimer: NodeJS.Timeout | undefined;
-  const armOutbox = (): void => {
-    if (!outbox || stopped) return;
-    outboxTimer = setTimeout(() => {
-      void outbox
-        .tick()
-        .catch((err: unknown) => log.error({ err, job: "notify-outbox" }, "zamanlanmış iş hatası"))
-        .finally(armOutbox);
-    }, OUTBOX_POLL_MS);
-    outboxTimer.unref();
-  };
-  if (outbox)
-    void outbox
-      .recover(Date.now())
-      .catch((err: unknown) => log.error({ err, job: "notify-outbox" }, "outbox kurtarma hatası"))
-      .finally(armOutbox);
-  const runExpiry = async (): Promise<number> => {
+}
+
+/** Oturum süre dolumu turu; turlar üst üste binmez (çakışan çağrı 0 döner). */
+function sessionExpiry(db: Db, log: FastifyBaseLogger, rooms?: RoomNotifier): () => Promise<number> {
+  let running = false;
+  return async () => {
     if (running) return 0;
     running = true;
     try {
@@ -142,6 +152,35 @@ export function startScheduler(
       running = false;
     }
   };
+}
+
+/**
+ * Oturum süre dolumu her `intervalMs`'de; P8b: `requests` verilirse aynı turda talep süpürücüsü. İş tablosu (verilen
+ * işler, bu sırayla): `retention` (P13a), `orphanScan` (P16 AC-243), `tenantPurge` (P16 G3 AC-242), `outbox` (P19 J3
+ * AC-261; temizlik ve hacim göstergesi işçi turunun içinde, kendi aralıklarıyla).
+ * Bir sonraki tur önceki bittikten sonra kurulur (üst üste binmez).
+ */
+export function startScheduler(
+  db: Db,
+  log: FastifyBaseLogger,
+  rooms?: RoomNotifier,
+  intervalMs = EXPIRY_INTERVAL_MS,
+  requests?: RequestService,
+  retention?: RetentionJob,
+  orphanScan?: OrphanScanJob,
+  tenantPurge?: TenantPurgeRunner,
+  outbox?: NotifyOutbox,
+): Scheduler {
+  const runRequestSweep = requestSweeper(log, requests);
+  let stopped = false;
+  const table: TimedJob[] = [
+    ...(retention ? [retentionJob(log, retention)] : []),
+    ...(orphanScan ? [orphanScanJob(log, orphanScan)] : []),
+    ...(tenantPurge ? [tenantPurgeJob(log, tenantPurge)] : []),
+    ...(outbox ? [outboxJob(log, outbox)] : []),
+  ];
+  const clears = table.map((job) => startTimedJob(job, () => stopped));
+  const runExpiry = sessionExpiry(db, log, rooms);
   const timer = setInterval(() => {
     void runExpiry();
     void runRequestSweep();
@@ -151,11 +190,8 @@ export function startScheduler(
     runExpiry,
     stop: () => {
       clearInterval(timer);
-      if (retentionTimer) clearTimeout(retentionTimer);
       stopped = true;
-      if (orphanTimer) clearTimeout(orphanTimer);
-      if (purgeTimer) clearTimeout(purgeTimer);
-      if (outboxTimer) clearTimeout(outboxTimer);
+      for (const clear of clears) clear();
     },
   };
 }

@@ -7,7 +7,7 @@
 // sayar. Açık firma silme işi olan firma atlanır. Global adımlara DONE/CANCELLED iş satırlarının 730 g saklaması eklendi.
 // Genişleme noktası (G3 firma silme): global adımlar `globalSteps` listesindedir; firma atlama kuralı `skipTenant`.
 import { RETENTION_AUDIT } from "@remote/contracts/audit";
-import { writeAudit } from "../audit/service.ts";
+import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { JsonObject } from "../audit/mask.ts";
 import { isP16Signal } from "../lib/db.ts";
 import { expireIdleBindingsOf } from "../bindings/service.ts";
@@ -19,97 +19,29 @@ import { SYSTEM, type RequestService } from "../requests/service.ts";
 import { purgeExpiredBlocks } from "../requests/blocks.ts";
 import { REQUEST_BLOCK_EXPIRED_RETENTION_DAYS } from "@remote/contracts/api/request-blocks";
 import * as repo from "./retention-repo.ts";
+import { isPurgeKey, KINDS, sum, zeroGlobal, zeroTenant, candidateName, type GlobalCounts, type TenantCounts } from "./retention-counts.ts";
 
 const DAY_MS = 86_400_000;
 /** AC-199: oturum partisi. */
 export const SESSION_BATCH = 1000;
 /** mimari-p13 §2: global silme partisi. */
-export const GLOBAL_BATCH = 5000;
+const GLOBAL_BATCH = 5000;
 /** Sabit (tenant değiştiremez); DB tetikleyicisi de aynı sınırı uygular. */
-export const AUDIT_RETENTION_DAYS = 730;
+const AUDIT_RETENTION_DAYS = 730;
 /** Giriş oturumu / sıfırlama bağlantısı: süresi (ya da iptali) + 7 gün. */
-export const AUTH_GRACE_DAYS = 7;
+const AUTH_GRACE_DAYS = 7;
 
-export interface TenantCounts {
-  sessions: number;
-  consents: number;
-  files: number;
-  requests: number;
-  customers: number;
-  bindings: number;
-  /** P15 (AC-235): süresi 30 günden önce dolmuş talep engelleri (IP kişisel veri). */
-  blocks: number;
-  /** P16 (AC-240): kalıcı silinen (dry'da aday) satırlar. */
-  purgedSessions: number;
-  purgedConsents: number;
-  purgedFiles: number;
-  purgedRequests: number;
-  purgedBindings: number;
-  /** P18 H3 (ADR-0025 m.3): anonimleştirmeyle aynı TX'te silinen talep mesajları (dry modda da silinir — anonimleştirme adımı). */
-  purgedMessages: number;
-}
-export interface GlobalCounts {
-  audit: number;
-  authSessions: number;
-  resetTokens: number;
-  /** P16 (S16-10): 730 g önce bitmiş/iptal edilmiş firma silme iş satırları (dry'da aday). */
-  purgedJobs: number;
-}
 /** `RETENTION_PURGE_MODE` (mimari-e11 §7.7): `on` siler, `dry` aynı aday koşullarını sayar. */
-export type PurgeMode = "dry" | "on";
+type PurgeMode = "dry" | "on";
 /** `rs_retention_failures_total{class}` (ADR-0030 m.2): tetikleyici reddi `db_signal`, audit yazımı `audit`, diğer `other`. */
-export type RetentionFailureClass = "db_signal" | "audit" | "other";
-export interface RetentionResult {
+type RetentionFailureClass = "db_signal" | "audit" | "other";
+interface RetentionResult {
   tenants: number;
   failures: number;
   totals: TenantCounts & GlobalCounts;
 }
 
 const ENTITY = "retention";
-/** `rs_retention_rows_total{kind}` etiketleri (düşük kardinalite, sabit küme). */
-const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
-  sessions: "sessions",
-  consents: "consents",
-  files: "files",
-  requests: "requests",
-  customers: "customers",
-  bindings: "bindings",
-  blocks: "request_blocks",
-  purgedSessions: "purged_sessions",
-  purgedConsents: "purged_consents",
-  purgedFiles: "purged_files",
-  purgedRequests: "purged_requests",
-  purgedBindings: "purged_bindings",
-  purgedMessages: "request_messages",
-  audit: "audit",
-  authSessions: "auth_sessions",
-  resetTokens: "reset_tokens",
-  purgedJobs: "purged_jobs",
-};
-
-const PURGE_KEYS = ["purgedSessions", "purgedConsents", "purgedFiles", "purgedRequests", "purgedBindings", "purgedJobs"] as const;
-type PurgeKey = (typeof PURGE_KEYS)[number];
-const isPurgeKey = (k: string): k is PurgeKey => (PURGE_KEYS as readonly string[]).includes(k);
-/** Dry modda sayaç anahtarı `purgeCandidates.<ad>` (`purgedSessions` → `sessions`). */
-const candidateName = (k: PurgeKey): string => k.slice("purged".length, "purged".length + 1).toLowerCase() + k.slice("purged".length + 1);
-
-const zeroTenant = (): TenantCounts => ({
-  sessions: 0,
-  consents: 0,
-  files: 0,
-  requests: 0,
-  customers: 0,
-  bindings: 0,
-  blocks: 0,
-  purgedSessions: 0,
-  purgedConsents: 0,
-  purgedFiles: 0,
-  purgedRequests: 0,
-  purgedBindings: 0,
-  purgedMessages: 0,
-});
-const zeroGlobal = (): GlobalCounts => ({ audit: 0, authSessions: 0, resetTokens: 0, purgedJobs: 0 });
-const sum = (o: object): number => Object.values(o).reduce((a: number, b: unknown) => a + (typeof b === "number" ? b : 0), 0);
 
 /** Sınıflandırma (log/metrik; mesaj metni dışarı çıkmaz). */
 export const failureClass = (err: unknown): RetentionFailureClass => (isP16Signal(err) ? "db_signal" : "other");
@@ -173,36 +105,51 @@ export class RetentionJob {
   private failures: Record<RetentionFailureClass, number> = { db_signal: 0, audit: 0, other: 0 };
 
   private async runOnce(now: Date): Promise<RetentionResult> {
-    const { db, metrics } = this.svc.d;
     const runId = newId();
     const ctx = { ip: "", userAgent: "retention", requestId: runId };
     const totals = { ...zeroTenant(), ...zeroGlobal() };
     this.failures = { db_signal: 0, audit: 0, other: 0 };
-    const tenants = await rrepo.retentionTenants(db);
-    for (const t of tenants) {
-      const c = zeroTenant();
-      let failed = false;
-      try {
-        if (await this.skipTenant(t.tenantId)) continue;
-        await this.tenantSteps(t, now, c);
-      } catch (err) {
-        failed = true;
-        this.fail(failureClass(err), err, "saklama işi: firma adımı başarısız, sonraki firmaya geçildi", t.tenantId);
-      }
-      for (const k of Object.keys(c) as (keyof TenantCounts)[]) totals[k] += c[k];
-      if (sum(c) > 0 || failed) {
-        await writeAudit(db, ctx, {
-          tenantId: t.tenantId,
-          ...SYSTEM,
-          action: RETENTION_AUDIT.RUN,
-          entity: ENTITY,
-          result: failed ? "fail" : "success",
-          newValue: this.auditView(c),
-        }).catch((err: unknown) => {
-          if (!failed) this.fail("audit", err, "saklama işi: audit yazılamadı", t.tenantId);
-        });
-      }
+    const tenants = await rrepo.retentionTenants(this.svc.d.db);
+    for (const t of tenants) await this.runTenant(t, now, ctx, totals);
+    await this.runGlobal(now, ctx, totals);
+    const failures = this.recordMetrics(totals);
+    this.svc.refreshCustomersGauge();
+    return { tenants: tenants.length, failures, totals };
+  }
+
+  /** Tek firma: atlama kuralı → adımlar (fail-soft) → sayaçlar toplama → (iş yaptıysa ya da hata varsa) audit. */
+  private async runTenant(
+    t: { tenantId: string; retentionDays: number },
+    now: Date,
+    ctx: AuditContext,
+    totals: TenantCounts,
+  ): Promise<void> {
+    const c = zeroTenant();
+    let failed = false;
+    try {
+      if (await this.skipTenant(t.tenantId)) return;
+      await this.tenantSteps(t, now, c);
+    } catch (err) {
+      failed = true;
+      this.fail(failureClass(err), err, "saklama işi: firma adımı başarısız, sonraki firmaya geçildi", t.tenantId);
     }
+    for (const k of Object.keys(c) as (keyof TenantCounts)[]) totals[k] += c[k];
+    if (sum(c) > 0 || failed) {
+      await writeAudit(this.svc.d.db, ctx, {
+        tenantId: t.tenantId,
+        ...SYSTEM,
+        action: RETENTION_AUDIT.RUN,
+        entity: ENTITY,
+        result: failed ? "fail" : "success",
+        newValue: this.auditView(c),
+      }).catch((err: unknown) => {
+        if (!failed) this.fail("audit", err, "saklama işi: audit yazılamadı", t.tenantId);
+      });
+    }
+  }
+
+  /** Firmadan bağımsız silmeler + (iş yaptıysa ya da hata varsa) audit. */
+  private async runGlobal(now: Date, ctx: AuditContext, totals: TenantCounts & GlobalCounts): Promise<void> {
     const g = zeroGlobal();
     let globalFailed = false;
     try {
@@ -213,7 +160,7 @@ export class RetentionJob {
     }
     Object.assign(totals, g);
     if (sum(g) > 0 || globalFailed) {
-      await writeAudit(db, ctx, {
+      await writeAudit(this.svc.d.db, ctx, {
         tenantId: null,
         ...SYSTEM,
         action: RETENTION_AUDIT.RUN,
@@ -224,6 +171,11 @@ export class RetentionJob {
         if (!globalFailed) this.fail("audit", err, "saklama işi: audit yazılamadı");
       });
     }
+  }
+
+  /** Satır ve hata sayaçları; hatasız turda son başarı göstergesi. Dönen: hata sayısı. */
+  private recordMetrics(totals: TenantCounts & GlobalCounts): number {
+    const { metrics } = this.svc.d;
     // Dry modda silme sayaçları ayrı etiketle (`purge_candidate_*`) — gerçek silmeyle karışmaz.
     for (const [k, kind] of Object.entries(KINDS) as [keyof typeof totals, string][]) {
       const label = this.purgeMode === "dry" && isPurgeKey(k) ? kind.replace("purged_", "purge_candidate_") : kind;
@@ -232,8 +184,7 @@ export class RetentionJob {
     const failures = sum(this.failures);
     for (const [cls, n] of Object.entries(this.failures)) if (n > 0) metrics.inc("rs_retention_failures_total", { class: cls }, n);
     if (failures === 0) this.lastSuccessSeconds = Math.floor(this.svc.d.clock.now() / 1000);
-    this.svc.refreshCustomersGauge();
-    return { tenants: tenants.length, failures, totals };
+    return failures;
   }
 
   /** Çakışma (mimari-e11 §7.2, ADR-0030 m.5): açık firma silme işi olan firma bu gece atlanır. */

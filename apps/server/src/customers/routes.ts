@@ -23,26 +23,16 @@ import {
 } from "@remote/contracts/api/customers";
 import type { SupportRequestListResponse } from "@remote/contracts/api/requests";
 import type { SessionListResponse } from "@remote/contracts/api/sessions";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from "fastify";
+import type { RequestService } from "../requests/service.ts";
 import { auditContext } from "../audit/service.ts";
 import { authOf, requireAnyPerm, requireAuth, requirePerm, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import { exportCustomersCsv } from "./csv-export.ts";
 import { commitImport, ImportPreviewStore, previewImport, readCsvUpload } from "./csv-import.ts";
-import {
-  createCustomer,
-  customerOptions,
-  customerRequests,
-  customerSessions,
-  deactivateCustomer,
-  generalLink,
-  getCustomer,
-  listCustomers,
-  reactivateCustomer,
-  rotateCustomerRef,
-  updateCustomer,
-} from "./service.ts";
+import { customerOptions, customerRequests, customerSessions, generalLink, getCustomer, listCustomers } from "./read.ts";
+import { createCustomer, deactivateCustomer, reactivateCustomer, rotateCustomerRef, updateCustomer } from "./service.ts";
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 function idParam(req: FastifyRequest): string {
@@ -65,7 +55,17 @@ export async function customerRoutes(app: FastifyInstance): Promise<void> {
     return listCustomers(svc(), tenantId, parseInput(listCustomersQuerySchema, req.query));
   });
 
-  // P19 (AC-263, S-P19-14, K-P19-9): CSV dışa/içe aktarma. Statik yollar `/:id`'den önce eşleşir (find-my-way).
+  await csvRoutes(app, svc);
+  firmRoutes(app, svc, view, edit);
+  actionRoutes(app, svc, edit);
+  tabRoutes(app, svc);
+}
+
+type Svc = () => RequestService;
+type Guard = { preHandler: preHandlerHookHandler };
+
+/** P19 (AC-263, S-P19-14, K-P19-9): CSV dışa/içe aktarma. Statik yollar `/:id`'den önce eşleşir (find-my-way). */
+async function csvRoutes(app: FastifyInstance, svc: Svc): Promise<void> {
   const MIN = 60_000;
   const HOUR = 60 * MIN;
   const exportLimit = new FixedWindowCounter(CUSTOMER_EXPORTS_PER_MIN + 1, MIN, MIN);
@@ -88,7 +88,21 @@ export async function customerRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(out.body);
   });
 
-  // multipart ayrıştırıcısı yalnız önizleme alt bağlamında (diğer uçlar multipart gövdeyi reddetmeye devam eder).
+  await previewRoute(app, svc, previewLimit, previews);
+
+  app.post(
+    "/import/commit",
+    { preHandler: [requirePerm("customers.import"), requirePerm("customers.create")] },
+    async (req): Promise<ImportResult> => {
+      const { tenantId } = tenantScope(req);
+      const input = parseInput(importCommitInputSchema, req.body);
+      return commitImport(svc(), previews, importLocks, auditContext(req), authOf(req), tenantId, input);
+    },
+  );
+}
+
+/** multipart ayrıştırıcısı yalnız önizleme alt bağlamında (diğer uçlar multipart gövdeyi reddetmeye devam eder). */
+async function previewRoute(app: FastifyInstance, svc: Svc, previewLimit: FixedWindowCounter, previews: ImportPreviewStore): Promise<void> {
   await app.register(async (sub) => {
     await sub.register(multipart, {
       limits: { fileSize: CUSTOMER_IMPORT_MAX_BYTES, files: 1, fields: 0, parts: 1 },
@@ -107,17 +121,10 @@ export async function customerRoutes(app: FastifyInstance): Promise<void> {
       },
     );
   });
+}
 
-  app.post(
-    "/import/commit",
-    { preHandler: [requirePerm("customers.import"), requirePerm("customers.create")] },
-    async (req): Promise<ImportResult> => {
-      const { tenantId } = tenantScope(req);
-      const input = parseInput(importCommitInputSchema, req.body);
-      return commitImport(svc(), previews, importLocks, auditContext(req), authOf(req), tenantId, input);
-    },
-  );
-
+/** Genel bağlantı, seçim kutusu, oluşturma, ayrıntı ve düzenleme. */
+function firmRoutes(app: FastifyInstance, svc: Svc, view: Guard, edit: Guard): void {
   app.get("/general-link", view, async (req): Promise<GeneralLinkResponse> => generalLink(svc(), tenantScope(req).tenantId));
 
   // Filtre/seçim kutusu: customers.view VEYA support_requests.view VEYA session_history.view (≤ 20 sonuç).
@@ -144,7 +151,10 @@ export async function customerRoutes(app: FastifyInstance): Promise<void> {
     const id = idParam(req);
     return updateCustomer(svc(), auditContext(req), authOf(req), tenantId, id, parseInput(updateCustomerInputSchema, req.body));
   });
+}
 
+/** Ref yenileme, pasife alma, yeniden aktif etme. */
+function actionRoutes(app: FastifyInstance, svc: Svc, edit: Guard): void {
   app.post("/:id/rotate-ref", edit, async (req): Promise<CustomerDetail> => {
     const { tenantId } = tenantScope(req);
     const id = idParam(req);
@@ -166,7 +176,9 @@ export async function customerRoutes(app: FastifyInstance): Promise<void> {
     parseInput(customerActionInputSchema, req.body);
     return reactivateCustomer(svc(), auditContext(req), authOf(req), tenantId, id);
   });
+}
 
+function tabRoutes(app: FastifyInstance, svc: Svc): void {
   // K23: sekmeler ayrıca talep / oturum geçmişi yetkisi ister.
   app.get(
     "/:id/requests",

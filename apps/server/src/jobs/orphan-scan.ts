@@ -6,7 +6,7 @@
 // şey silinmez, durum dosyası değişmez; audit `fail{reason: "circuit_open"}` + alarm logu.
 import { UPLOADS_AUDIT } from "@remote/contracts/audit";
 import type { FastifyBaseLogger } from "fastify";
-import { writeAudit } from "../audit/service.ts";
+import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Db } from "../lib/db.ts";
 import { newId } from "../lib/ids.ts";
 import type { Metrics } from "../ops/metrics.ts";
@@ -15,13 +15,13 @@ import type { OrphanState, UploadStore } from "../uploads/store.ts";
 
 const DAY_MS = 86_400_000;
 /** Karşılıksız dosyanın silinmeden önceki bekleme süresi (AC-243). */
-export const ORPHAN_GRACE_DAYS = 7;
+const ORPHAN_GRACE_DAYS = 7;
 /** `save()` geçici artığı bu süreden eskiyse silinir. */
-export const TMP_MAX_AGE_MS = DAY_MS;
+const TMP_MAX_AGE_MS = DAY_MS;
 /** Devre kesici eşiği: bulunan / toplam bu oranı AŞARSA tur silme yapmaz (S16-9). */
-export const ORPHAN_CIRCUIT_RATIO = 0.2;
+const ORPHAN_CIRCUIT_RATIO = 0.2;
 
-export interface OrphanScanResult {
+interface OrphanScanResult {
   outcome: "ok" | "circuit_open";
   total: number;
   found: number;
@@ -82,7 +82,7 @@ export class OrphanScanJob {
   }
 
   private async runOnce(now: Date): Promise<OrphanScanResult> {
-    const { db, store, metrics, log } = this.d;
+    const { db, store } = this.d;
     const ctx = { ip: "", userAgent: "orphan-scan", requestId: newId() };
     const listing = await store.list();
     const refs = await readUploadReferences(db, this.d.sources ?? UPLOAD_REFERENCE_SOURCES);
@@ -92,52 +92,77 @@ export class OrphanScanJob {
     const base = { total, found, deleted: 0, tmpDeleted: 0 };
 
     if (total > 0 && (refs.size === 0 || found / total > ORPHAN_CIRCUIT_RATIO)) {
-      metrics.inc("rs_orphan_files_total", { action: "circuit_open" });
-      log.error(
-        { job: "orphan-scan", alarm: "orphan_scan_circuit_open", total, found, references: refs.size },
-        "yetim taraması: devre kesici açık, silme yapılmadı",
-      );
-      await writeAudit(db, ctx, {
-        tenantId: null,
-        username: "system",
-        action: UPLOADS_AUDIT.ORPHAN_SCAN,
-        entity: "uploads",
-        result: "fail",
-        newValue: { reason: "circuit_open", total, found, references: refs.size },
-      });
+      await this.circuitOpen(ctx, total, found, refs.size);
       return { outcome: "circuit_open", ...base, pending: 0 };
     }
 
     const prev = await store.readOrphans();
     const next: OrphanState = { v: 1, lastSuccessAt: now.toISOString(), files: {} };
+    const deleted = await this.removeExpired(orphans, prev, next, now);
+    const tmpDeleted = await this.removeOldTmp(listing.tmp, now);
+    await store.writeOrphans(next);
+    const pending = Object.keys(next.files).length;
+    await this.recordSuccess(ctx, { total, found, deleted, tmpDeleted, pending });
+    this.lastSuccessSeconds = Math.floor(now.getTime() / 1000);
+    return { outcome: "ok", total, found, deleted, tmpDeleted, pending };
+  }
+
+  /** Devre kesici açık: hiçbir şey silinmez; metrik + alarm logu + audit `fail`. */
+  private async circuitOpen(ctx: AuditContext, total: number, found: number, references: number): Promise<void> {
+    this.d.metrics.inc("rs_orphan_files_total", { action: "circuit_open" });
+    this.d.log.error(
+      { job: "orphan-scan", alarm: "orphan_scan_circuit_open", total, found, references },
+      "yetim taraması: devre kesici açık, silme yapılmadı",
+    );
+    await writeAudit(this.d.db, ctx, {
+      tenantId: null,
+      username: "system",
+      action: UPLOADS_AUDIT.ORPHAN_SCAN,
+      entity: "uploads",
+      result: "fail",
+      newValue: { reason: "circuit_open", total, found, references },
+    });
+  }
+
+  /** 7 günü dolan yetimler silinir, kalanlar ilk görülme anıyla `next`'e yazılır. Dönen: silinen sayı. */
+  private async removeExpired(orphans: { rel: string }[], prev: OrphanState, next: OrphanState, now: Date): Promise<number> {
     let deleted = 0;
     for (const f of orphans) {
       const first = prev.files[f.rel] ?? now.toISOString();
       if (now.getTime() - Date.parse(first) >= ORPHAN_GRACE_DAYS * DAY_MS) {
-        await store.remove(f.rel);
+        await this.d.store.remove(f.rel);
         deleted++;
       } else next.files[f.rel] = first;
     }
+    return deleted;
+  }
+
+  /** 24 saatten eski `.tmp` artıkları. Dönen: silinen sayı. */
+  private async removeOldTmp(tmp: { rel: string; mtimeMs: number }[], now: Date): Promise<number> {
     let tmpDeleted = 0;
-    for (const t of listing.tmp)
+    for (const t of tmp)
       if (now.getTime() - t.mtimeMs > TMP_MAX_AGE_MS) {
-        await store.removeTmp(t.rel);
+        await this.d.store.removeTmp(t.rel);
         tmpDeleted++;
       }
-    await store.writeOrphans(next);
-    const pending = Object.keys(next.files).length;
-    if (found > 0) metrics.inc("rs_orphan_files_total", { action: "found" }, found);
-    if (deleted > 0) metrics.inc("rs_orphan_files_total", { action: "deleted" }, deleted);
-    if (tmpDeleted > 0) metrics.inc("rs_orphan_files_total", { action: "tmp_deleted" }, tmpDeleted);
-    await writeAudit(db, ctx, {
+    return tmpDeleted;
+  }
+
+  private async recordSuccess(
+    ctx: AuditContext,
+    r: { total: number; found: number; deleted: number; tmpDeleted: number; pending: number },
+  ): Promise<void> {
+    const { metrics } = this.d;
+    if (r.found > 0) metrics.inc("rs_orphan_files_total", { action: "found" }, r.found);
+    if (r.deleted > 0) metrics.inc("rs_orphan_files_total", { action: "deleted" }, r.deleted);
+    if (r.tmpDeleted > 0) metrics.inc("rs_orphan_files_total", { action: "tmp_deleted" }, r.tmpDeleted);
+    await writeAudit(this.d.db, ctx, {
       tenantId: null,
       username: "system",
       action: UPLOADS_AUDIT.ORPHAN_SCAN,
       entity: "uploads",
       result: "success",
-      newValue: { total, found, deleted, tmpDeleted, pending },
+      newValue: { total: r.total, found: r.found, deleted: r.deleted, tmpDeleted: r.tmpDeleted, pending: r.pending },
     });
-    this.lastSuccessSeconds = Math.floor(now.getTime() / 1000);
-    return { outcome: "ok", total, found, deleted, tmpDeleted, pending };
   }
 }

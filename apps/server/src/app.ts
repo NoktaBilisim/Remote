@@ -1,64 +1,40 @@
 // Fastify uygulaması (dinlemeden). server.ts dinler; testler `inject` ile kullanır.
-// Rotalar eklenti olarak kaydedilir (ready'de yüklenir) — AC-69 test aracı onRoute ile tüm uçları toplar.
-import cookie from "@fastify/cookie";
-import helmet from "@fastify/helmet";
+// Rota kaydı `app-routes.ts`, açılış işleri ve istek kancaları `app-hooks.ts` (sıra buildApp'teki gibi korunur).
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Logger } from "pino";
 import { z } from "zod";
-import { authRoutes } from "./auth/routes.ts";
-import { superadminRoutes } from "./auth/superadmin-routes.ts";
+import { addRequestHooks, addStartupJobs, decorateJobs, decorateRequests, type Wiring } from "./app-hooks.ts";
+import { registerRoutes } from "./app-routes.ts";
 import { closeAuthLimits, createAuthLimits, type AuthLimits } from "./auth/service.ts";
 import type { AuthContext } from "./auth/session.ts";
 import type { Env } from "./env.ts";
 import type { Db } from "./lib/db.ts";
-import { registerErrorHandling } from "./lib/errors.ts";
 import { newId } from "./lib/ids.ts";
 import { FixedWindowCounter } from "./lib/rate.ts";
 import { createLogger } from "./lib/logger.ts";
-import { healthRoutes } from "./ops/health.ts";
-import { createMetrics, metricsRoutes, type Metrics } from "./ops/metrics.ts";
-import { endOrphanedActive } from "./sessions/service.ts";
+import { createMetrics, type Metrics } from "./ops/metrics.ts";
 import { Rooms } from "./signaling/rooms.ts";
 import type { Clock, Timing } from "./signaling/types.ts";
 import { attachSignaling, type SignalingOptions } from "./signaling/ws.ts";
-import { RetentionJob } from "./jobs/retention.ts";
-import { OrphanScanJob } from "./jobs/orphan-scan.ts";
-import { registerPurgeMetrics, TenantPurgeRunner } from "./jobs/tenant-purge.ts";
-import { startScheduler, type Scheduler } from "./jobs/scheduler.ts";
 import { AgentBinary } from "./public/agent-binary.ts";
-import { internalAgentRoutes, publicAgentRoutes } from "./public/routes.ts";
 import { refKeyFrom } from "./sessions/codes.ts";
 import { closePublicLimits, createPublicLimits, type PublicLimits } from "./sessions/public.ts";
-import { publicSessionRoutes, sessionRoutes } from "./sessions/routes.ts";
-import { WhatsappNotifier, type FetchLike } from "./notify/whatsapp.ts";
-import { SmsClient } from "./notify/sms.ts";
-import { NotifyOutbox } from "./notify/outbox.ts";
-import { RequestHub } from "./requests/hub.ts";
-import { armOrphanedPending, pendingGauge } from "./requests/jobs.ts";
-import { closeRequestLimits, createRequestLimits } from "./requests/limits.ts";
-import { publicRequestDownloadRoutes, publicRequestRoutes } from "./requests/public-routes.ts";
-import { requestSettingsRoutes, supportRequestRoutes } from "./requests/routes.ts";
-import { businessHoursRoutes, holidayRoutes } from "./requests/hours-routes.ts";
-import { requestBlockRoutes } from "./requests/block-routes.ts";
-import { RequestService } from "./requests/service.ts";
+import type { RequestService } from "./requests/service.ts";
 import { requestChannels } from "./requests/ws.ts";
-import { publicWebRequestRoutes } from "./requests/web-routes.ts";
-import { customerRoutes } from "./customers/routes.ts";
-import { publicBindingRoutes } from "./bindings/public-routes.ts";
-import { userRoutes } from "./users/routes.ts";
+import type { FetchLike, WhatsappNotifier } from "./notify/whatsapp.ts";
+import type { SmsClient } from "./notify/sms.ts";
+import type { NotifyOutbox } from "./notify/outbox.ts";
+import type { RequestHub } from "./requests/hub.ts";
+import type { RetentionJob } from "./jobs/retention.ts";
+import type { OrphanScanJob } from "./jobs/orphan-scan.ts";
+import type { TenantPurgeRunner } from "./jobs/tenant-purge.ts";
 import { closeAccountLimits, createAccountLimits, type AccountDeps } from "./auth/account.ts";
 import { SecretBox } from "./lib/crypto.ts";
 import { createNetGuard, type NetGuard } from "./lib/netguard.ts";
 import { MailService, type TransportFactory } from "./mail/service.ts";
-import { smtpSettingsRoutes } from "./tenants/smtp-routes.ts";
-import { smsSettingsRoutes } from "./tenants/sms-routes.ts";
-import { adminTenantRoutes, tenantSettingsRoutes } from "./tenants/routes.ts";
-import { auditReadOnlyRoutes, auditRoutes } from "./audit/routes.ts";
-import { adminSettingsRoutes, applyTurn, applyWhatsapp, consentTextRoutes } from "./settings/routes.ts";
+import { applyTurn } from "./settings/routes.ts";
 import type { ProbeResult, ProbeTarget } from "./settings/mysql-probe.ts";
 import { DEFAULT_LOGO_URL } from "@remote/contracts/api/branding";
-import { fileRoutes, publicBrandingRoutes } from "./uploads/files.ts";
-import { uploadRoutes } from "./uploads/routes.ts";
 import { UploadStore } from "./uploads/store.ts";
 import { ErasureLedger } from "./ops/erasure-ledger.ts";
 import { mailLogoUrl } from "./uploads/urls.ts";
@@ -135,51 +111,9 @@ export interface AppDeps {
   erasureLedgerPath?: string;
 }
 
-const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), display-capture=(self)";
-
-/** CSP / başlıklar (mimari §5.4, G-19, AC-126). connect-src WS origin'i portu içerir. */
-function helmetOptions(env: Env) {
-  const base = new URL(env.PUBLIC_BASE_URL);
-  const ws = `${base.protocol === "https:" ? "wss" : "ws"}://${base.host}`;
-  return {
-    contentSecurityPolicy: {
-      useDefaults: false,
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'"],
-        imgSrc: ["'self'", "data:", "blob:"],
-        connectSrc: ["'self'", ws],
-        workerSrc: ["'self'"],
-        manifestSrc: ["'self'"],
-        frameAncestors: ["'none'"],
-        baseUri: ["'none'"],
-        formAction: ["'self'"],
-        objectSrc: ["'none'"],
-        upgradeInsecureRequests: [],
-      },
-    },
-    // P13b (mimari-p13 §7.5, G-19): yalnız remote.noktabilisim.net ve alt alanları; preload yok, apex'e konmaz.
-    strictTransportSecurity: { maxAge: 31_536_000, includeSubDomains: true, preload: false },
-    crossOriginResourcePolicy: { policy: "same-origin" as const },
-    crossOriginOpenerPolicy: { policy: "same-origin" as const },
-    referrerPolicy: { policy: "no-referrer" as const },
-  };
-}
-
-export function buildApp(deps: AppDeps): FastifyInstance {
+/** db/env, giriş ve public hız sınırları, metrikler, istemci ikilisi. */
+function decorateCore(app: FastifyInstance, deps: AppDeps): Pick<Wiring, "metrics" | "publicLimits"> {
   const { env } = deps;
-  // B-P10-3: zorunlu 2FA kurulumu production'da kapatılamaz (savunma derinliği; server.ts zaten vermez).
-  if (deps.mfaSetupEnforcement === false && env.NODE_ENV === "production")
-    throw new Error("mfaSetupEnforcement:false production'da kullanılamaz");
-  const app = Fastify({
-    loggerInstance: deps.logger ?? createLogger(env.LOG_LEVEL),
-    trustProxy: env.TRUSTED_PROXY_CIDR ?? false, // G-11: yalnız Caddy
-    genReqId: () => newId(),
-    requestIdHeader: false,
-    bodyLimit: 64 * 1024,
-  }) as unknown as FastifyInstance;
-
   app.decorate("db", deps.db);
   app.decorate("mfaSetupEnforced", deps.mfaSetupEnforcement ?? true); // örnek başına (modül global'i yok)
   app.decorate("env", env);
@@ -200,12 +134,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.addHook("onReady", async () => {
     await agentBinary.check();
   });
-  // P10: gizli alanlar, netguard (G-12), e-posta.
-  const secrets = new SecretBox(env.encryptionKeys);
-  const netguard =
+  return { metrics, publicLimits };
+}
+
+/** P10: netguard (G-12); testler kendi örneğini verebilir. */
+function netguardFor(app: FastifyInstance, deps: AppDeps): NetGuard {
+  return (
     deps.netguard ??
     createNetGuard({
-      denyHosts: [new URL(env.PUBLIC_BASE_URL).hostname], // B-P10-1: kendi adresimiz de yasak
+      denyHosts: [new URL(deps.env.PUBLIC_BASE_URL).hostname], // B-P10-1: kendi adresimiz de yasak
       onSelfUnresolved: (host, cached) =>
         app.log.warn(
           { alarm: "netguard_self_unresolved", host, cached },
@@ -213,8 +150,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
             ? "kendi adımız çözülemedi; son başarılı çözüm kullanıldı"
             : "kendi adımız çözülemedi; SMTP hedefi reddedildi (fail-closed)",
         ),
-    });
-  const mail = new MailService({
+    })
+  );
+}
+
+function createMail(app: FastifyInstance, deps: AppDeps, secrets: SecretBox, netguard: NetGuard, metrics: Metrics): MailService {
+  const { env } = deps;
+  return new MailService({
     db: deps.db,
     secrets,
     netguard,
@@ -224,8 +166,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     fallbackLogoUrl: `${env.PUBLIC_BASE_URL.replace(/\/+$/, "")}${DEFAULT_LOGO_URL}`,
     ...(deps.mailTransport ? { transport: deps.mailTransport } : {}),
   });
+}
+
+/** P10 gizli alanlar/e-posta/hesap sınırları, P12 yükleme deposu, P16 imha defteri. */
+function decorateIo(app: FastifyInstance, deps: AppDeps, metrics: Metrics): Omit<Wiring, "metrics" | "publicLimits" | "rooms"> {
+  // P10: gizli alanlar, netguard (G-12), e-posta.
+  const secrets = new SecretBox(deps.env.encryptionKeys);
+  const netguard = netguardFor(app, deps);
+  const mail = createMail(app, deps, secrets, netguard, metrics);
   // P12 (AC-84): yükleme deposu; yazılamıyorsa alarm (yüklemeler 500 verir, sunucu yine açılır).
-  const uploads = new UploadStore(env.UPLOADS_DIR);
+  const uploads = new UploadStore(deps.env.UPLOADS_DIR);
   app.decorate("uploads", uploads);
   const erasureLedger = new ErasureLedger(deps.erasureLedgerPath, () => metrics.inc("rs_erasure_ledger_write_failed_total")); // P16
   app.decorate("erasureLedger", erasureLedger);
@@ -243,6 +193,12 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     closeAccountLimits(accountLimits);
     smtpTestLimit.close();
   });
+  return { secrets, netguard, mail, uploads, erasureLedger, accountLimits };
+}
+
+/** Sinyalizasyon odaları + P11 (G-13) panel TURN kaydı + oda göstergeleri. */
+function decorateRooms(app: FastifyInstance, deps: AppDeps, metrics: Metrics, publicLimits: PublicLimits): Rooms {
+  const { env } = deps;
   const sig = deps.signaling ?? {};
   const turn = { urls: env.turnUrls, secret: env.TURN_SECRET, ttlMin: env.TURN_CRED_TTL_MIN };
   const rooms = new Rooms({
@@ -265,178 +221,34 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   metrics.gauge("rs_active_rooms", "Bellekteki oda sayısı", () => rooms.size);
   metrics.gauge("rs_active_sessions", "Admit edilmiş (ACTIVE) oturum sayısı", () => rooms.activeCount);
   metrics.gauge("rs_resolve_failed", "Başarısız kod çözümleme (süreç başından beri)", () => publicLimits.resolveFailed.total);
-  // P8b (mimari-e9 §2): bildirim merkezi, hız sınırları, WhatsApp istemcisi, talep servisi.
-  const hub: RequestHub = new RequestHub(
-    rooms.clock,
-    (tenantId: string) => requests.statesOf(tenantId),
-    (err) => app.log.error({ err }, "talep sıra yayını hatası"),
-  );
-  const requestLimits = createRequestLimits();
-  const notifier = new WhatsappNotifier({
-    url: env.WHATSAPP_SERVICE_URL,
-    apiKey: env.WHATSAPP_SERVICE_API_KEY ?? null,
-    production: env.NODE_ENV === "production",
-    publicBaseUrl: env.PUBLIC_BASE_URL,
-    db: deps.db,
-    log: app.log,
-    metrics,
-    clock: rooms.clock,
-    ...(deps.whatsappFetch ? { fetch: deps.whatsappFetch } : {}),
-  });
-  app.decorate("whatsapp", notifier);
-  // P12b (AC-196): panel WhatsApp adresi varsa env yerine o; okunamazsa env ile devam (alarm logu).
-  app.addHook("onReady", async () => {
-    try {
-      await applyWhatsapp(app);
-    } catch (err) {
-      app.log.error({ err, alarm: "whatsapp_settings_load" }, "WhatsApp panel ayarı okunamadı; env kullanılıyor");
-    }
-  });
-  const sms = new SmsClient({
-    db: deps.db,
-    secrets,
-    guard: netguard,
-    envUrl: env.SMSPORTAL_URL,
-    production: env.NODE_ENV === "production",
-    log: app.log,
-    metrics,
-    now: () => rooms.clock.now(),
-  });
-  app.decorate("sms", sms);
-  const outbox = new NotifyOutbox({
-    db: deps.db,
-    secrets,
-    sms,
-    whatsapp: notifier,
-    mail,
-    metrics,
-    log: app.log,
-    now: () => rooms.clock.now(),
-  });
-  app.decorate("outbox", outbox);
-  const requests: RequestService = new RequestService({
-    db: deps.db,
-    env,
-    log: app.log,
-    rooms,
-    hub,
-    limits: requestLimits,
-    notifier,
-    mail,
-    sms,
-    outbox,
-    metrics,
-    clock: rooms.clock,
-    timing: rooms.timing,
-    secrets,
-  });
-  app.decorate("requests", requests);
-  const retention = new RetentionJob(requests);
-  app.decorate("retention", retention);
-  const orphanScan = new OrphanScanJob({ db: deps.db, store: uploads, metrics, log: app.log }); // P16 AC-243
-  app.decorate("orphanScan", orphanScan);
-  // P16 G3 (AC-242): firma silme yürütücüsü; FENCE sonrası canlı odalar/panel soketleri kapatılır.
-  const tenantPurge = new TenantPurgeRunner({
-    db: deps.db,
-    store: uploads,
-    ledger: erasureLedger,
-    metrics,
-    log: app.log,
-    live: {
-      closeTenant: async (tenantId) => {
-        await rooms.endByTenant(tenantId);
-        hub.closeByTenant(tenantId);
-      },
-    },
-  });
-  app.decorate("tenantPurge", tenantPurge);
-  registerPurgeMetrics(metrics, () => tenantPurge);
-  app.decorate("requestHub", hub);
-  app.decorate("account", {
-    db: deps.db,
-    secrets,
-    mail,
-    limits: accountLimits,
-    publicBaseUrl: env.PUBLIC_BASE_URL,
-    log: app.log,
-    endLive: async (userId: string) => {
-      await rooms.endByTechnician(userId);
-      hub.closeByUser(userId);
-    },
-  } satisfies AccountDeps);
-  metrics.gauge("rs_customers_active", "Aktif müşteri firmalar (P8c; açılış, günlük iş, durum değişimi)", () => requests.customersActive);
-  metrics.gauge("rs_requests_pending", "Bekleyen destek talepleri (süpürücü turunda tazelenir)", () => pendingGauge.value);
-  app.addHook("onClose", async () => {
-    requests.shutdown();
-    hub.shutdown();
-    notifier.close();
-    closeRequestLimits(requestLimits);
-  });
-  attachSignaling(app, rooms, sig, requestChannels(app, requests, sig.revalidateMs), () => ({
-    request: hub.requestCount,
-    panel: hub.panelCount,
-  }));
-  if (deps.startJobs) {
-    let jobs: Scheduler | undefined;
-    app.addHook("onReady", async () => {
-      // Bellekteki odası olmayan ACTIVE oturumlar (yeniden başlatma) → ENDED{server} (mimari §3.5).
-      const orphaned = await endOrphanedActive(deps.db, new Date());
-      if (orphaned > 0) app.log.warn({ ended: orphaned }, "yeniden başlatma: etkin oturumlar sonlandırıldı");
-      const armed = await armOrphanedPending(requests); // §3.5: 120 sn tolerans
-      if (armed > 0) app.log.info({ pending: armed }, "yeniden başlatma: bekleyen talepler için kopma toleransı başlatıldı");
-      requests.refreshCustomersGauge();
-      jobs = startScheduler(deps.db, app.log, rooms, undefined, requests, retention, orphanScan, tenantPurge, outbox);
-    });
-    app.addHook("onClose", async () => jobs?.stop());
-  }
-  app.decorateRequest("auth", null);
-  registerErrorHandling(app);
-  // Gövdesiz `Content-Type: application/json` (ör. POST /auth/logout) kabul edilir (QA-4);
-  // dolu gövde Fastify'ın varsayılan (prototip zehirlenmesine karşı korumalı) ayrıştırıcısıyla.
-  const defaultJson = app.getDefaultJsonParser("error", "error");
-  app.removeContentTypeParser("application/json");
-  app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
-    const text = body.toString();
-    if (text.trim() === "") return done(null, undefined);
-    return defaultJson(req, text, done);
-  });
-  app.addHook("onRequest", async (req, reply) => {
-    void reply.header("X-Request-Id", req.id);
-    void reply.header("Permissions-Policy", PERMISSIONS_POLICY);
-  });
+  return rooms;
+}
 
-  void app.register(cookie);
-  void app.register(helmet, helmetOptions(env));
-  void app.register(healthRoutes);
-  void app.register(metricsRoutes);
-  void app.register(authRoutes, { prefix: "/api/v1/auth" });
-  void app.register(sessionRoutes, { prefix: "/api/v1/sessions" });
-  void app.register(publicSessionRoutes, { prefix: "/api/v1/public/sessions" });
-  void app.register(publicAgentRoutes, { prefix: "/api/v1/public/agent" });
-  void app.register(internalAgentRoutes, { prefix: "/internal" });
-  void app.register(publicRequestRoutes, { prefix: "/api/v1/public/requests" });
-  void app.register(publicWebRequestRoutes, { prefix: "/api/v1/public/web-requests" });
-  void app.register(publicRequestDownloadRoutes, { prefix: "/api/v1/public/agent" });
-  void app.register(supportRequestRoutes, { prefix: "/api/v1/support-requests" });
-  void app.register(requestSettingsRoutes, { prefix: "/api/v1/settings/support-requests" });
-  void app.register(requestBlockRoutes, { prefix: "/api/v1/request-blocks" });
-  void app.register(businessHoursRoutes, { prefix: "/api/v1/settings/business-hours" });
-  void app.register(holidayRoutes, { prefix: "/api/v1/settings/holidays" });
-  void app.register(customerRoutes, { prefix: "/api/v1/customers" });
-  void app.register(publicBindingRoutes, { prefix: "/api/v1/public/bindings" });
-  void app.register(userRoutes, { prefix: "/api/v1/users" });
-  void app.register(adminTenantRoutes, { prefix: "/api/v1/admin" });
-  void app.register(superadminRoutes, { prefix: "/api/v1/admin/superadmins" });
-  void app.register(tenantSettingsRoutes, { prefix: "/api/v1/settings/tenant" });
-  void app.register(smtpSettingsRoutes, { prefix: "/api/v1/settings/smtp" });
-  void app.register(smsSettingsRoutes, { prefix: "/api/v1/settings/sms" });
-  void app.register(auditRoutes, { prefix: "/api/v1/audit" });
-  void app.register(auditReadOnlyRoutes, { prefix: "/api/v1/audit" });
-  void app.register(adminSettingsRoutes, { prefix: "/api/v1/admin/settings", ...(deps.mysqlProbe ? { mysqlProbe: deps.mysqlProbe } : {}) });
-  void app.register(consentTextRoutes, { prefix: "/api/v1/settings/consent-text" });
-  // P12 marka: yükleme (multipart yalnız bu bağlamda), dosya sunumu, public marka.
-  void app.register(uploadRoutes, { prefix: "/api/v1", deps: { db: deps.db, store: uploads, log: app.log } });
-  void app.register(fileRoutes, { prefix: "/api/v1", store: uploads });
-  void app.register(publicBrandingRoutes, { prefix: "/api/v1/public" });
+export function buildApp(deps: AppDeps): FastifyInstance {
+  const { env } = deps;
+  // B-P10-3: zorunlu 2FA kurulumu production'da kapatılamaz (savunma derinliği; server.ts zaten vermez).
+  if (deps.mfaSetupEnforcement === false && env.NODE_ENV === "production")
+    throw new Error("mfaSetupEnforcement:false production'da kullanılamaz");
+  const app = Fastify({
+    loggerInstance: deps.logger ?? createLogger(env.LOG_LEVEL),
+    trustProxy: env.TRUSTED_PROXY_CIDR ?? false, // G-11: yalnız Caddy
+    genReqId: () => newId(),
+    requestIdHeader: false,
+    bodyLimit: 64 * 1024,
+  }) as unknown as FastifyInstance;
+  const core = decorateCore(app, deps);
+  const io = decorateIo(app, deps, core.metrics);
+  const rooms = decorateRooms(app, deps, core.metrics, core.publicLimits);
+  const w: Wiring = { ...core, ...io, rooms };
+  const r = decorateRequests(app, deps, w);
+  const jobs = decorateJobs(app, deps, w, r);
+  const sig = deps.signaling ?? {};
+  attachSignaling(app, rooms, sig, requestChannels(app, r.requests, sig.revalidateMs), () => ({
+    request: r.hub.requestCount,
+    panel: r.hub.panelCount,
+  }));
+  if (deps.startJobs) addStartupJobs(app, deps.db, { rooms, requests: r.requests, ...jobs, outbox: r.outbox });
+  addRequestHooks(app);
+  registerRoutes(app, deps, io.uploads);
   return app;
 }

@@ -137,10 +137,6 @@ export function anonymizeCandidates(db: DbOrTx, tenantId: string, cutoff: Date, 
   });
 }
 
-export function countActive(db: DbOrTx): Promise<number> {
-  return db.customer.count({ where: { status: "ACTIVE" } });
-}
-
 // ------------------------------------------------------------------ P19 CSV (AC-263)
 
 export const exportSelect = {
