@@ -53,7 +53,7 @@ describe("P16 contracts", () => {
     expect(tenantPurgeInputSchema.safeParse({ dryRun: false, confirmName: "Firma" }).success).toBe(false);
     expect(tenantPurgeInputSchema.safeParse({ dryRun: false, previewId: "abcDEF0123456789._-", confirmName: "Firma" }).success).toBe(true);
     expect(purgeJobsQuerySchema.parse({ open: "1" }).open).toBe(true);
-    expect(TENANT_PURGE_STEPS).toHaveLength(17);
+    expect(TENANT_PURGE_STEPS).toHaveLength(18);
     expect(TENANT_PURGE_STEPS[0]).toBe("FENCE");
     expect(TENANT_PURGE_STEPS.at(-1)).toBe("DONE");
   });

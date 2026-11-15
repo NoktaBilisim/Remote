@@ -60,6 +60,7 @@ export const PURGE_STEP_LABELS: Readonly<Record<TenantPurgeStep, string>> = {
   FENCE: "Hazırlık",
   SESSION_FILES: "Oturum dosya kayıtları",
   SESSION_CONSENTS: "Aydınlatma onayları",
+  MESSAGES: "Talep mesajları",
   REQUEST_UNLINK: "Talep–oturum bağları",
   BINDINGS: "Kayıtlı bilgisayarlar",
   SESSIONS: "Destek oturumları",

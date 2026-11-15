@@ -1,3 +1,184 @@
+# Güvenlik Raporu — P18 tasarım turu (2026-11-15)
+
+DURUM: GEÇTİ (tasarım; koşullu — aşağıdaki Orta maddeler H1–H3 başlamadan mimari §8b'ye işlenmeli)
+Özet: Kritik 0 / Yüksek 0 / Orta 4 / Düşük 8
+
+Kapsam: `docs/mimari-e11.md` §8b (8b.1–8b.12, K-P18-1..9), `docs/tasarim-kontrol.md` "P18" tablosu. P18 kodu yok;
+tasarım, mevcut kodla (P17 sonu, 00b6687) karşılaştırıldı: `apps/server/src/requests/ws.ts`, `lib/crypto.ts`,
+`lib/logger.ts`, `requests/service.ts` (create), `packages/contracts/src/ws-request.ts`, `apps/agent-win/internal/request/run.go`.
+Kod değiştirilmedi, staging'e bağlanılmadı, ACCESS.txt okunmadı. Otomatik tarama bu turda koşturulmadı (yeni bağımlılık yok, §8b.2).
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] S-P18-T1 Müşteri WS işleyicisi her geçerli mesajı iptal sayıyor; tasarımda tip dağıtımı yok — A04 Güvensiz Tasarım
+
+Yer: `apps/server/src/requests/ws.ts:126-137` (mevcut), `packages/contracts/src/ws-request.ts:46`; tasarım §8b.4
+Sorun: Bugün `requestInboundSchema.safeParse` başarılıysa koşulsuz `cancel()` çağrılıyor, çünkü birlikte yalnızca
+`request.cancel`/`request.decline` var. §8b.4 `request.message`'ı birliğe ekliyor ama "tipe göre dağıt" kuralını ve
+"yeteneksiz sokette `request.message` şema dışıdır" ayrımını yazmıyor. Ayrıca genel kova (`bucket.take()` başarısız →
+`msg=null` → 1008) chat'te 1 msg/sn sınırından önce çalışıyor. Bu yüzden hızlı yazan yeni istemci RATE_LIMITED yerine 1008
+ile kopabilir.
+İstismar senaryosu: Naif bir birleştirmede müşterinin ilk sohbet mesajı talebini iptal eder. Bu, AC-255'i bozar ve
+güvenilirlik sorunu yaratır. Tersine, birlik soket yeteneğine göre seçilmezse yeteneksiz soket `request.message` gönderebilir
+ve kayıt yazdırabilir.
+Düzeltme: §8b.4'e şu sözleşme eklenmeli: (a) Şema sokete göre seçilir: `caps.chat ? requestInboundChatSchema :
+requestInboundSchema`. (b) `switch (msg.t)` kullanılır; yalnız `cancel/decline` iptal yoluna gider. (c) Sıra şöyledir:
+genel kova → JSON → şema. Chat'in 1/sn kovası şemadan sonra gelir ve RATE_LIMITED döner. Genel kova aşımında 1008 kalır,
+istemci 1/sn uyduğu için buna düşmez. (d) Test: "yetenekli sokette `request.message` sonrası talep PENDING kalır",
+"yeteneksiz sokette `request.message` → 1008, satır 0". (atanan: mimar → backend-dev)
+
+### [ORTA] S-P18-T2 Append-only + UPDATE yetkisi yok → anahtar rotasyonunda yeniden şifreleme imkânsız — A02 Kriptografik Hatalar
+
+Yer: §8b.1 `grants.sql` (session_messages: UPDATE yok), §8b.6 "Anahtar rotasyonu mevcut anahtar halkası runbook'una tabidir";
+`apps/server/src/lib/crypto.ts:1-3,32-40` (okuma `ver` baytına göre)
+Sorun: Mevcut rotasyon modeli "yeni yazım en yüksek sürümle, eski sürüm okunur" şeklindedir. Diğer şifreli sütunlar tek
+satırdır ve yeniden kaydedilerek taşınır. `session_messages` ise UPDATE edilemez, bu yüzden eski anahtar ancak en uzun
+saklama süresi (`retention_days` ≤ 730 gün) dolunca emekliye ayrılabilir. Anahtar sızıntısı senaryosunda bu tabloyu yeni
+anahtarla yeniden şifreleme yolu tanımlı değil. Eski anahtar erken silinirse mesajlar sessizce `body: null` olur
+(yalnızca metrik artar).
+İstismar senaryosu: `APP_ENCRYPTION_KEYS` v1 sızdı ve v2'ye geçildi. v1 halkada kalmak zorunda, çünkü mesajlar onunla
+şifreli. Sızan anahtarla yedeklerdeki ve DB dökümündeki mesajlar 2 yıl boyunca çözülebilir.
+Düzeltme: (a) Runbook'a "anahtar emekliliği ön koşulu: `SELECT COUNT(*) FROM session_messages WHERE ASCII(body_enc)=<ver>`
+= 0" adımı eklenir. (b) Sızıntı yolu tanımlanır: `migrator` ile çalışan tek seferlik `cli crypto:rewrap session_messages`.
+Bu araç tetikleyici/yetki dışında, satır satır yeniden şifreler, audit'e sayı yazar ve ADR-0025 append-only istisnası olarak
+belgelenir. (c) H5 alarmı: `rs_crypto_decrypt_failures_total{table="session_messages"}` > 0. (atanan: mimar + devops; dba
+`rewrap` yetki notu)
+
+### [ORTA] S-P18-T3 Yazma işlemi (müşteriye mesaj) `support_requests.view` yetkisiyle yapılıyor — A01 Erişim Denetimi
+
+Yer: §8b.5 `POST /support-requests/:id/messages` satırı; K-P18-2
+Sorun: Ortak standart (CLAUDE.md §1.3) toggle'ları Görüntüle/Ekle/Düzenle olarak ayırır. Burada salt görüntüleme yetkisi
+verilmiş bir kullanıcı (ör. gözlemci veya stajyer rolü) müşteriyle dışarıya yazışabilir. Müşteri, oltalama riskine açık bir
+kanalda teknisyen adıyla mesaj alır.
+İstismar senaryosu: Admin, bir kullanıcıya yalnız kuyruğu izlemesi için `view` verir. Bu kullanıcı bekleyen müşteriye "şu
+linkten AnyDesk indirin" yazar. Bağlantı otomatik oluşmaz, ama müşteri metni kopyalar. Audit'te yalnız `{sender, chars}`
+bulunur, içerik denetlenemez.
+Düzeltme: Yeni eylem `support_requests.message` eklenir (ya da mevcut `support_requests.accept` şartı konur). ADMIN varsayılanı
+açık, USER kapalı olur ve toggle otomatik çıkar. AC-255 metni "view" diyorsa bu kullanıcı kararıdır; K-P18-2'ye alt madde
+olarak eklenmeli. Okuma `view` ile kalabilir. (atanan: mimar, kullanıcı onayı → backend-dev)
+
+### [ORTA] S-P18-T4 Müşteri tarafı mesajlarında tenant geneli sınır yok; 200 tavanı göndericiler arasında ortak — A04 / API4 Kaynak Tüketimi
+
+Yer: §8b.4 (talep başına 1/sn + 200), §8b.5 (kullanıcı 60/dk, tenant 600/dk yalnız teknisyen POST'u), §8b.7 (`request.message_sent` her mesajda)
+Sorun: (a) Müşteri mesajları yalnız talep başına sınırlı. Kuyruk ≤ 50 talep × 1/sn = 50 msg/sn olabilir. Her mesaj 1 INSERT,
+1 audit satırı ve tüm panel soketlerine `request.activity` yayını üretir. (b) 200 mesaj tavanı TECH ve CUSTOMER için ortak
+sayılırsa müşteri 200 sn'de tavanı doldurur ve teknisyen artık yazamaz.
+İstismar senaryosu: Geçerli ref'le IP/önek kovaları içinde açılan çok sayıda talep, her biri 1 msg/sn ile audit tablosunu
+dakikada binlerce satırla şişirir ve panelleri olay yağmuruna tutar. Ayrıca müşteri kendi talebinde kanalı kilitler.
+Düzeltme: Müşteri mesajlarına tenant başına kova eklenir (ör. 300/dk; aşımda RATE_LIMITED + `queue.alert` kalıbı). Tavan
+gönderici başına ayrılır (CUSTOMER 200, TECH 200). `request.activity` yayını talep başına ≤ 1/sn birleştirilir. Müşteri
+mesajı audit'i talep başına özetlenebilir (ilk mesaj + kapanışta `{count}`). Bu bir kullanıcı kararıdır, AC "her mesaj"
+istiyorsa kalır. (atanan: mimar → backend-dev)
+
+### [DÜŞÜK] S-P18-T5 Atama alanında yaşam döngüsü ve tenant bütünlüğü yalnız uygulamada — A01
+
+Yer: §8b.1 `assigned_to → users`, `sender_user_id → users` (tekil FK)
+Sorun: Atanan kullanıcı sonradan PASSIVE/DELETED olur ya da `accept` yetkisi kaldırılırsa talep ona atanmış kalır.
+`request.updated` mezar taşı adını yayabilir. Çapraz tenant engeli yalnız serviste uygulanır.
+Düzeltme: Kullanıcı pasifleştirme/`purgeUser`/yetki kaldırma işlemleri aynı TX'te PENDING taleplerde `assigned_to=NULL`
+yazar ve audit'e `request.assigned {reason:"user_inactive"}` düşer. Users'ta UQ(id, tenant_id) varsa bileşik FK
+`(assigned_to, tenant_id)` kullanılır. Super Admin'in başka tenant'ta yazdığı mesajın `sender_user_id`'si de doğrulanmalıdır
+(Super Admin'in tenant_id'si NULL olduğundan bileşik FK uygulanamıyorsa test eklenir). (atanan: dba + backend-dev)
+
+### [DÜŞÜK] S-P18-T6 K-P18-7 maskeleme: 429 yan etkileri — A09 İzleme
+
+Yer: §8b.5 `POST /public/requests` OUTSIDE_HOURS → eski istemciye 429 `QUEUE_FULL`; `apps/agent-win/internal/request/run.go:434`
+Değerlendirme: Maskeleme kabul edilebilir. 0.9–0.11 istemci bu kodda yalnız `Display(ae.Message)` gösterir, otomatik
+yeniden deneme yapmaz (`run.go:434-438`). Gerçek neden audit'te kalır.
+Sorun: 429, hız sınırı alarmlarını, `rs_*_rejected` metriklerini ve (varsa) IP kilit sayaçlarını yanlış besleyebilir. Ayrıca
+`Retry-After` eklenirse yanlış anlama doğar.
+Düzeltme: Bu yanıtta `Retry-After` kullanılmaz. Hız sınırı sayaçlarına ve alarmlarına girmez, yalnız
+`rs_requests_outside_hours_total{mode,legacy="1"}` artar. Mesai kontrolü ref ve **binding** (`bindingKey`) yollarının ikisinde
+de, güvenilen CIDR dahil aynı sırada yapılır. Tasarım yalnız "ref" diyor; açıkça yazılmalı. (atanan: backend-dev)
+
+### [DÜŞÜK] S-P18-T7 Mesai reddi audit'i kimliksiz aktörce çoğaltılabilir — A09
+
+Yer: §8b.7 `request.created fail {reason:"outside_hours"}`; §8b.5 "kova tüketilmez"
+Sorun: IP/önek kovaları `create` başında sayılıyor (`service.ts:319-321`), bu yüzden sınır var. Ancak tenant kovası
+tüketilmediği için her denemede bir audit satırı oluşur. Dağıtık IP'lerle tenant audit'i şişirilebilir.
+Düzeltme: `message_rejected` kalıbı uygulanır: tenant başına pencere (ör. 1 dk) başına 1 audit satırı + sayaç metriği.
+(atanan: backend-dev)
+
+### [DÜŞÜK] S-P18-T8 Gövde normalizasyonu eksikleri — A03
+
+Yer: §8b.4 `body` kuralı (NFC, Cc/Cf yasak, ≤ 20 satır)
+Sorun: U+2028/U+2029 (Zl/Zp) satır sayacını atlatır. Yalnız (lone) vekil kod noktaları (`\ud800`) şifrelemede U+FFFD'ye
+döner ve yankı ile kayıt farklı olur. Cf yasağı ZWJ'li emojiyi de reddeder (işlevsel, güvenlik değil).
+Düzeltme: `str.isWellFormed()` şartı konur. Zl/Zp `\n` sayılır ya da reddedilir. Satır sınırı `\r\n|\n| | `
+üzerinden sayılır. Panelde yalnız React metin düğümü + `pre-wrap` kullanılır. Markdown, linkify ve `title`'a ham gövde
+konmaz (tasarım bunu zaten söylüyor; frontend testinde `<img onerror>` gövdesi metin olarak görünmeli). (atanan: backend-dev + frontend-dev)
+
+### [DÜŞÜK] S-P18-T9 Logger redaksiyonu tek seviyeli — A09
+
+Yer: `apps/server/src/lib/logger.ts:10-20` (`*.password` kalıbı), §8b.6 "`*.body` redakte"
+Sorun: pino `*.body` yalnız bir seviye derindeki alanı yakalar. `body` üst düzeyde ya da `err.meta.body`, `msg.body` gibi iki
+seviyede olursa açık yazılır. WS yolunda `svc.logErr(err, …)` çağrıları gövdeyi taşıyan nesneyi loglayabilir.
+Düzeltme: `body`, `*.body`, `*.*.body` eklenir. Mesaj servisinde hata loguna gövde içeren nesne verilmez. Bir log testi
+yazılır: hata yolunda gövde metni log çıktısında 0 kez geçmeli. (atanan: backend-dev)
+
+### [DÜŞÜK] S-P18-T10 Okuma audit'i yok (K-P18-2) — A09 (kabul edilebilir risk)
+
+Değerlendirme: Okuma yalnız PENDING iken ve ≤ 120 dk süreyle mümkündür, yalnız `view` sahibine açıktır, panel soketi 60 sn'de
+bir yeniden doğrulanır (`ws.ts:191-197`). Kabul edilebilir.
+Düzeltme: P22'de kapalı talep okuması audit'li olmalı (§8b.11'de yazılı). P18'de `rs_request_messages_read_total` metriği
+yeterlidir. K-P18-2 onay metnine "PENDING okuma audit'siz" ifadesi açıkça girmeli. (atanan: mimar)
+
+### [DÜŞÜK] S-P18-T11 Retention/purge: P22 satırları ve iki üst bağ — A04 (veri bütünlüğü)
+
+Yer: §8b.1 tetikleyici 23 (izin: talep **ya da** oturum anonim **ya da** RUNNING silme), retention yalnız `request_id` yolu
+Sorun: P18'de yalnız talep satırı vardır, sorun yoktur. P22'de `session_id` dolu satırlar için oturum retention'ı mesaj
+silmezse P16 `purgeAnonymized` oturum silmede FK RESTRICT ile durur. İki bağlı (request + session) satırda "ya da" kuralı,
+anonimleşmemiş bir talebin mesajını oturum anonimleşince silinebilir kılar.
+Düzeltme: §8b.11'e "P22: oturum anonimleştirmesi aynı TX'te `session_id` mesajlarını siler; iki bağlı satırda tetikleyici
+**her iki** üst anonim ise izin verir" notu eklenir. P18 için `erasure:verify` ve `purge` meta-testlerinin yeşil olması
+yeterlidir. Ön kontrol `P18_PRECHECK` ve `down.sql` koruması uygundur. (atanan: mimar, P22'de dba)
+
+### [DÜŞÜK] S-P18-T12 Takvim girdisi: saat dilimi/ICU ve hesap sınırı — A04
+
+Yer: §8b.1 `time_zone` CHECK + zod `Intl.supportedValuesOf`, §8b.2 `addBusinessMinutes`
+Değerlendirme: Enjeksiyon yüzeyi dar. Regex CHECK, zod liste doğrulaması, `JSON_SCHEMA_VALID` ve parametreli sorgu birlikte
+uygulanıyor. Tatil `name` metin kuralıyla, `day`/`openUntil` şemayla sınırlı.
+Sorun: Node/ICU güncellemesinde kayıtlı bir dilim (ör. eski takma ad) `RangeError` atarsa o tenant'ın her talep oluşturması
+500 döner. `addBusinessMinutes` için tarama üst sınırı (`nextOpening`'deki 366 gün gibi) yazılmamış. Haftada 1 dk mesai ile
+1440 dk SLA, ~27 yıllık tarama demektir. Tatil ≤ 200 sınırı "say sonra ekle" ise yarışta aşılabilir.
+Düzeltme: Takvim kurulamazsa `Europe/Istanbul`'a düşülür ve bir metrik/alarm artar (fail-open değil: mesai kapalı
+sayılmaz, SLA NULL). `addBusinessMinutes` ≤ 366 yerel gün tarar, aşarsa NULL döner. Tatil sayısı ayar satırı `FOR UPDATE`
+kilidi altında sayılır. (atanan: backend-dev)
+
+## Tasarımda vaat edilip doğrulanması gerekenler (H6 kod turunda kontrol edilecek)
+
+- Bütün yeni uçlarda sıra `requireAuth`(+CSRF) → `requirePerm` → `tenantScope` → zod. `DELETE /settings/holidays/:id`
+  `(tenant_id,id)` ile çalışmalı, başka tenant 404 dönmeli.
+- `createRequestInputSchema` strict kalmalı. Müşteri `priority`/`sla` gönderememeli (değer sunucuda türetiliyor).
+- `sendChat` tip ayrımı (`RequestChatOutbound`): yeteneksiz sokete 0 çerçeve (fikstür testi).
+- `aadFor.sessionMessage` tek yer olmalı. AAD başka satıra taşınınca çözülmemeli. `body_enc` düz metni içermemeli.
+- Assign hedefi aynı tenant + ACTIVE + view+accept olmalı, aksi 400 (varlık sızıntısı yok).
+- `support_requests.assign` toggle'ı tek tanımdan gelmeli. Admin'in sahip olmadığı yetkiyi verememe kuralı yeni eylemde de
+  geçerli olmalı (mevcut genel kural, test eklenmeli).
+- `request.activity` ve toast gövde taşımamalı. WhatsApp/e-posta bildirimine gövde girmemeli.
+
+## Otomatik tarama çıktıları
+
+Bu tasarım turunda koşturulmadı: kod değişikliği yok, §8b.2 yeni bağımlılık yok. H6 kod turunda `pnpm audit`, gitleaks ve
+`.env` geçmiş taraması yapılacak.
+
+## Olumlu
+
+- Müşteri WS'te talep kimliği yalnız sırdan türetiliyor, mesajda id yok. IDOR yüzeyi yok.
+- Yetenek bayrağı + tip düzeyinde `RequestChatOutbound` ayrımı, eski istemcinin 1008 kopmasını yapısal olarak önlüyor.
+- Gövde AES-256-GCM + satır bağlı AAD ile korunuyor. Log/audit/bildirimde gövde yok. Otomatik bağlantı yok.
+- Silme yalnız tetikleyici korumalı retention/firma silme yollarıyla mümkün. Adım listesi değişimi için açık iş ön kontrolü var.
+- "Saklama önce, iletim sonra" ve koşullu INSERT (`status='PENDING'`) yarış durumunu kapatıyor. `client_msg_id` UQ çift
+  gönderimi önlüyor.
+- Atama hedefi hatası 400 (404 değil) dönüyor, varlık sızıntısı önleniyor. SLA dondurulmuş, istemciden gelmiyor.
+- Mesai oracle'ı yalnız geçerli ref sonrası. Geçersiz ref tek tip 404.
+
+## Önerilen "Sonra" (gereksinimler §9)
+
+S-P18-T5..T12 Düşük maddeleri H2/H3 içinde ucuzsa birlikte kapatılabilir. Değilse "Sonra" olarak yazılır.
+
+---
+
 # Güvenlik Raporu — P17 kod turu 2 (2026-11-15)
 
 DURUM: GEÇTİ

@@ -107,6 +107,12 @@ function randomTenantRef(): string {
   return out;
 }
 
+const WEEKDAY = [
+  { from: "09:00", to: "12:30" },
+  { from: "13:30", to: "18:00" },
+];
+const DEMO_BUSINESS_HOURS = [WEEKDAY, WEEKDAY, WEEKDAY, WEEKDAY, WEEKDAY, [], []];
+
 async function seedDemoRequestSettings(prisma: PrismaClient): Promise<"created" | "exists" | "skipped"> {
   if (process.env.NODE_ENV === "production") return "skipped";
   const tenant = await prisma.tenant.findUnique({ where: { slug: DEMO_TENANT.slug }, select: { id: true } });
@@ -118,7 +124,17 @@ async function seedDemoRequestSettings(prisma: PrismaClient): Promise<"created" 
   await prisma.$transaction([
     prisma.requestRef.create({ data: { ref: requestRef, tenantId: tenant.id, customerId: null } }),
     prisma.tenantRequestSettings.create({
-      data: { tenantId: tenant.id, requestRef, fileLabel: "DemoFirma", waRecipients: [], emailRecipients: [], trustedCidrs: [] },
+      data: {
+        tenantId: tenant.id,
+        requestRef,
+        fileLabel: "DemoFirma",
+        waRecipients: [],
+        emailRecipients: [],
+        trustedCidrs: [],
+        // P18 (AC-258): mesai ekranı boş gelmesin — hafta içi 09:00–18:00 (öğle arası 12:30–13:30). Takvim kapalı
+        // (hours_enabled=false) → geliştirmede talep akışı saatten bağımsız kalır.
+        businessHours: DEMO_BUSINESS_HOURS,
+      },
     }),
   ]);
   return "created";

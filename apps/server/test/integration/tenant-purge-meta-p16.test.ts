@@ -21,8 +21,9 @@ import { seedPurgeTenant, tenantRowCounts } from "../helpers/tenant-purge.ts";
 const KEEP_WITHOUT_TENANT_FK = ["audit_logs", "tenant_purge_jobs"];
 /** FENCE'te güncellenen (silinmeyen) firma referansı. */
 const FENCE_TABLES = ["auth_sessions"];
-/** Korunan 11 tablo (koşullu DELETE tetikleyicisi). */
+/** Korunan 12 tablo (koşullu DELETE tetikleyicisi; P18 += session_messages). */
 const GUARDED = [
+  "session_messages",
   "support_sessions",
   "support_requests",
   "session_consents",
@@ -87,12 +88,16 @@ describe("P16 G3 meta-testler (S16-11)", () => {
     expect(refs).toEqual(
       [
         "auth_sessions.user_id",
+        "business_holidays.created_by",
         "consent_texts.created_by",
         "customers.created_by",
         "password_reset_tokens.user_id",
         "recovery_codes.user_id",
         "request_blocks.created_by",
+        "session_messages.sender_user_id",
         "support_requests.accepted_by",
+        "support_requests.assigned_to",
+        "support_requests.tenant_id", // P18 S-P18-T5: bileşik FK (assigned_to, tenant_id) → users(id, tenant_id)
         "support_requests.rejected_by",
         "support_sessions.technician_id",
         "support_sessions.terminated_by",
@@ -137,10 +142,10 @@ describe("P16 G3 meta-testler (S16-11)", () => {
     expect(first).toBe("inserted");
   });
 
-  it("AC-242 meta: adım sırası contracts ile aynı; veri adımları + FENCE/TENANT_ROW/FILES/DONE = 17", () => {
+  it("AC-242 meta: adım sırası contracts ile aynı; veri adımları + FENCE/TENANT_ROW/FILES/DONE = 18 (P18 += MESSAGES)", () => {
     const special = ["FENCE", "TENANT_ROW", "FILES", "DONE"];
     expect(TENANT_PURGE_STEPS.filter((s) => !special.includes(s))).toEqual(Object.keys(DATA_STEPS));
-    expect(TENANT_PURGE_STEPS).toHaveLength(17);
+    expect(TENANT_PURGE_STEPS).toHaveLength(18);
   });
 });
 

@@ -83,6 +83,21 @@ export async function seedPurgeTenant(app: FastifyInstance): Promise<PurgeFixtur
   await db.requestBlock.create({
     data: { id: newId(), tenantId: t.id, kind: "DEVICE", deviceKeyHash: sha256Hex(newId()), createdBy: admin.id },
   });
+  // P18: talep mesajı (MESSAGES adımı; gövde fikstürde sahte şifreli blob — 29 + 2 bayt, body_chars 2) + tatil (SETTINGS).
+  await db.sessionMessage.create({
+    data: {
+      id: newId(),
+      tenantId: t.id,
+      requestId: request.id,
+      sender: "TECH",
+      senderUserId: user.id,
+      bodyEnc: new Uint8Array(31),
+      bodyChars: 2,
+    },
+  });
+  await db.businessHoliday.create({
+    data: { id: newId(), tenantId: t.id, day: new Date("2026-04-23T00:00:00Z"), name: "Ulusal Egemenlik", createdBy: admin.id },
+  });
   const fileRel = await app.uploads.save(t.id, "png", Buffer.from("not-really-a-png"));
   return { tenantId: t.id, tenantName: t.name, admin, user, fileRel };
 }
@@ -106,6 +121,7 @@ export async function makeDue(jobId: string): Promise<void> {
 const TENANT_TABLES = [
   "session_files",
   "session_consents",
+  "session_messages",
   "device_bindings",
   "support_sessions",
   "support_requests",
@@ -114,6 +130,7 @@ const TENANT_TABLES = [
   "customers",
   "tenant_request_settings",
   "tenant_settings",
+  "business_holidays",
   "consent_texts",
   "users",
 ] as const;

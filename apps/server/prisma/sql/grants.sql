@@ -107,3 +107,15 @@ REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON request_bloc
 -- 730 g silme. DDL/TRIGGER yetkisi yok.
 GRANT SELECT, INSERT, UPDATE, DELETE ON tenant_purge_jobs TO 'app'@'%';
 REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON tenant_purge_jobs FROM 'app'@'%';
+
+-- P18 session_messages (mimari-e11 §8b.1, ADR-0025; AC-255): append-only talep/oturum mesajları. INSERT (gönderim), DELETE
+-- (retention: üst talep anonimleşince aynı TX; firma silme MESSAGES adımı — koşul session_messages_delete_guard'da).
+-- UPDATE YOK (gövde değişmez). S-P18-T2: anahtar sızıntısında yeniden şifreleme (`crypto:rewrap`) migrator ile yapılır
+-- (migrator'ın DB yetkisi zaten var; tabloda UPDATE tetikleyicisi yok) — app'e UPDATE verilmez.
+GRANT SELECT, INSERT, DELETE ON session_messages TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_messages FROM 'app'@'%';
+
+-- P18 business_holidays (§8b.1; AC-258): ekle INSERT, kaldır DELETE; değişiklik = DELETE + INSERT (request_blocks kalıbı).
+-- Firma silmede SETTINGS adımında silinir (tetikleyicisiz; satır firma ayarıdır, kişisel veri yok).
+GRANT SELECT, INSERT, DELETE ON business_holidays TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON business_holidays FROM 'app'@'%';

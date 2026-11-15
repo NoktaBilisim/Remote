@@ -385,14 +385,14 @@ run_root() { # $1 beklenen tek değer, $2 sql, $3 açıklama
   printf '%s | beklenen=%-6s sonuç=%-6s | (root) %s\n' "$s" "$1" "$out" "$3"
 }
 run_root 3 "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE() AND EVENT_OBJECT_TABLE='audit_logs' AND ((TRIGGER_NAME='audit_logs_no_update' AND EVENT_MANIPULATION='UPDATE') OR (TRIGGER_NAME='audit_logs_retention_only_delete' AND EVENT_MANIPULATION='DELETE') OR (TRIGGER_NAME='audit_logs_force_created_at' AND EVENT_MANIPULATION='INSERT')) AND ACTION_TIMING='BEFORE'" "audit_logs tetikleyicileri var (BEFORE UPDATE + DELETE + INSERT/P13a)"
-run_root 22 "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE()" "DB'de toplam tetikleyici = 22 (audit 3 + P16 19; backup.sh/restore-verify ile aynı)"
-run_root "11,6,2" "SELECT CONCAT(SUM(EVENT_MANIPULATION='DELETE'),',',SUM(EVENT_MANIPULATION='UPDATE'),',',SUM(EVENT_MANIPULATION='INSERT')) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE() AND TRIGGER_NAME LIKE '%\\_guard'" "P16: 11 BEFORE DELETE, 6 BEFORE UPDATE, 2 BEFORE INSERT"
+run_root 23 "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE()" "DB'de toplam tetikleyici = 23 (audit 3 + P16 19 + P18 1; backup.sh/restore-verify ile aynı)"
+run_root "12,6,2" "SELECT CONCAT(SUM(EVENT_MANIPULATION='DELETE'),',',SUM(EVENT_MANIPULATION='UPDATE'),',',SUM(EVENT_MANIPULATION='INSERT')) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE() AND TRIGGER_NAME LIKE '%\\_guard'" "P16+P18: 12 BEFORE DELETE, 6 BEFORE UPDATE, 2 BEFORE INSERT"
 run_root 0 "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND (DELETE_RULE<>'RESTRICT' OR UPDATE_RULE<>'RESTRICT')" "P16 (S16-11): bütün FK'ler RESTRICT (CASCADE/SET NULL tetikleyiciyi atlatır)"
 run_root 0 "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME='tenants' AND TABLE_NAME IN ('audit_logs','tenant_purge_jobs')" "P16 (ADR-0030 m.1): audit_logs ve tenant_purge_jobs tenants'a FK taşımaz"
 run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\") + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE IN ('TRIGGER','ALTER','DROP','CREATE','INDEX','REFERENCES','GRANT OPTION'))" "app: global/DB yetkisi yok, hiçbir tabloda TRIGGER/ALTER/DROP/CREATE/INDEX yok"
 run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT','DELETE')" "app: audit_logs yalnız SELECT/INSERT/DELETE (DELETE P13a)"
 # P13a (K27) + P16 (ADR-0030 m.3): DELETE yetkisi tam olarak bu tablolarda; P16'nın 8 tablosunda koşul tetikleyicide.
-run_root "audit_logs,auth_sessions,consent_texts,customers,device_bindings,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
+run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customers,device_bindings,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
 run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent)"
 run_root 0 "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs'" "app: audit_logs sütun düzeyi UPDATE yok"
 run DENIED "DROP TRIGGER audit_logs_force_created_at" "denied"
@@ -591,6 +591,83 @@ run DENIED "DELETE FROM tenant_purge_jobs $WJ" "p16: tenant_purge_jobs DELETE"
 run_mig OK "UPDATE tenant_purge_jobs SET finished_at=$UTC30 731 DAY WHERE id=$GJ"
 run OK     "DELETE FROM tenant_purge_jobs $WJ"
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE id=$GJ"
+# P18 (mimari-e11 §8b.1 + §8b.13; AC-255..258; S-P18-T5/T11): session_messages (SELECT/INSERT/DELETE; UPDATE yok),
+# business_holidays (SELECT/INSERT/DELETE), talep/müşteri/ayar sütunları ve CHECK'leri, session_messages_delete_guard
+# (`p18:`), bileşik atama FK'si. Tümü geri alınan TX'te; firma silme fikstürü migrator ile.
+SM="INSERT INTO session_messages (id,tenant_id,request_id,session_id,sender,sender_user_id,client_msg_id,body_enc,body_chars) VALUES"
+GM="'00000000000000000000GRANTM'"; GRR="'00000000000000000000GRANTR'"; GRS="'00000000000000000000GRANTS'"
+M1="$SM ($GM,'$GT',$GRR,NULL,'TECH',$GU,'msg-1_a',RANDOM_BYTES(31),2)"
+M2="$SM ('00000000000000000000GRANTN','$GT',$GRR,NULL,'CUSTOMER',NULL,'msg-1_a',REPEAT(X'AB',29+4*1000),1000)"
+RANON="$UR status='EXPIRED',closed_at=NOW(3) $WR; $UR customer_name=NULL,customer_phone=NULL,customer_email=NULL,description=NULL,ip=NULL,ip_key=NULL,net_key=NULL,device_hash=NULL,anonymized_at=NOW(3) $WR"
+HB="INSERT INTO business_holidays (id,tenant_id,day,name,open_until,created_by) VALUES"
+H18="$HB ('00000000000000000000GRANTH','$GT','2026-10-28','Cumhuriyet Bayrami arifesi','13:00',$GU)"
+WK="'[[{\"from\":\"09:00\",\"to\":\"12:30\"},{\"from\":\"13:30\",\"to\":\"18:00\"}],[{\"from\":\"09:00\",\"to\":\"18:00\"}],[{\"from\":\"09:00\",\"to\":\"18:00\"}],[{\"from\":\"09:00\",\"to\":\"18:00\"}],[{\"from\":\"09:00\",\"to\":\"18:00\"}],[{\"from\":\"10:00\",\"to\":\"24:00\"}],[]]'"
+URS="UPDATE tenant_request_settings SET"; WRS="WHERE tenant_id='$GT'"
+run OK     "SELECT COUNT(*) FROM session_messages; SELECT COUNT(*) FROM business_holidays"
+run OK     "$TX $RQ; $M1; $M2; $R"
+run OK     "$TX $RQ; $ACC; $UR priority='HIGH',assigned_to=$GU,assigned_at=NOW(3),sla_minutes=30,sla_due_at=created_at+INTERVAL 30 MINUTE,after_hours=1 $WR; $R"
+run OK     "$TX $RQ; $UR sla_minutes=30 $WR; $R"   # dakika var, takvimde açık an yok → due NULL
+run OK     "$TX $RS1; $URS default_priority='LOW',default_sla_minutes=1440,time_zone='America/Argentina/Buenos_Aires',business_hours=$WK,hours_enabled=1,after_hours_mode='REJECT' $WRS; $URS time_zone='Etc/GMT+3' $WRS; $R"
+run OK     "$TX $CU1; UPDATE customers SET default_priority='HIGH',sla_minutes=5 $WC; $R"
+run OK     "$TX $H18; $HB ('00000000000000000000GRANTI','$GT','2026-10-29','Cumhuriyet Bayrami',NULL,$GU); DELETE FROM business_holidays WHERE tenant_id='$GT'; $R"
+# §8b.1 negatifleri
+run DENIED "$TX $RQ; $M1; DELETE FROM session_messages WHERE id=$GM; $R" "p18: session_messages DELETE"   # anonim olmayan talep
+run OK     "$TX $RQ; $M1; $RANON; DELETE FROM session_messages WHERE request_id=$GRR; $R"                      # anonim talep (aynı TX)
+run DENIED "UPDATE session_messages SET body_chars=1 WHERE id=$GM" "command denied"
+run DENIED "UPDATE business_holidays SET name='x' WHERE id='-'" "command denied"
+run DENIED "ALTER TABLE session_messages ADD COLUMN x INT" "denied"
+run DENIED "DROP TRIGGER session_messages_delete_guard" "denied"
+run DENIED "$TX $RQ; $SM ($GM,'$GT',$GRR,NULL,'TECH',NULL,NULL,RANDOM_BYTES(31),2); $R" session_messages_sender_user_chk
+run DENIED "$TX $RQ; $SM ($GM,'$GT',$GRR,NULL,'CUSTOMER',$GU,NULL,RANDOM_BYTES(31),2); $R" session_messages_sender_user_chk
+run DENIED "$TX $RQ; $SM ($GM,'$GT',$GRR,NULL,'customer',NULL,NULL,RANDOM_BYTES(31),2); $R" session_messages_sender_chk
+run DENIED "$TX $SM ($GM,'$GT',NULL,NULL,'CUSTOMER',NULL,NULL,RANDOM_BYTES(31),2); $R" session_messages_parent_chk
+run DENIED "$TX $RQ; $SM ($GM,'$GT',$GRR,NULL,'CUSTOMER',NULL,'a b',RANDOM_BYTES(31),2); $R" session_messages_client_msg_id_fmt_chk
+run DENIED "$TX $RQ; $SM ($GM,'$GT',$GRR,NULL,'CUSTOMER',NULL,CONCAT('abc',CHAR(10)),RANDOM_BYTES(31),2); $R" session_messages_client_msg_id_fmt_chk
+run DENIED "$TX $RQ; $SM ($GM,'$GT',$GRR,NULL,'CUSTOMER',NULL,NULL,REPEAT(X'AB',29+4*1001),1001); $R" session_messages_body_chars_chk
+run DENIED "$TX $RQ; $SM ($GM,'$GT',$GRR,NULL,'CUSTOMER',NULL,NULL,'duz metin govde',2); $R" session_messages_body_enc_chk
+run DENIED "$TX $RQ; $M1; $SM ('00000000000000000000GRANTN','$GT',$GRR,NULL,'TECH',$GU,'msg-1_a',RANDOM_BYTES(31),2); $R" "Duplicate"   # aynı client_msg_id
+run DENIED "$TX $GX; $RQ; $SM ($GM,'00000000000000000000GRANTX',$GRR,NULL,'CUSTOMER',NULL,NULL,RANDOM_BYTES(31),2); $R" "foreign key"   # başka tenant'ın talebi
+run DENIED "$TX $RQ; $UR priority='URGENT' $WR; $R" support_requests_priority_chk
+run DENIED "$TX $RQ; $UR priority='high' $WR; $R" support_requests_priority_chk
+run DENIED "$TX $RQ; $UR assigned_to=$GU $WR; $R" support_requests_assigned_chk
+run DENIED "$TX $RQ; $UR sla_minutes=4 $WR; $R" support_requests_sla_minutes_chk
+run DENIED "$TX $RQ; $UR sla_due_at=NOW(3)+INTERVAL 1 HOUR $WR; $R" support_requests_sla_due_chk   # dakikasız due
+run DENIED "$TX $RQ; $UR sla_minutes=30,sla_due_at=created_at-INTERVAL 1 MINUTE $WR; $R" support_requests_sla_due_chk
+# S-P18-T5: atanan aynı tenant'ta (bileşik FK) — başka tenant kullanıcısı ve Super Admin → 1452.
+run DENIED "$TX $GX; INSERT INTO users (id,tenant_id,email,full_name,role,password_hash,updated_at) VALUES ('00000000000000000000GRANTA','00000000000000000000GRANTX','grant-x@invalid.test','Grant X','USER','x',NOW(3)); $RQ; $UR assigned_to='00000000000000000000GRANTA',assigned_at=NOW(3) $WR; $R" "foreign key constraint fails"
+run DENIED "$TX INSERT INTO users (id,tenant_id,email,full_name,role,password_hash,updated_at) VALUES ('00000000000000000000GRANTA',NULL,'grant-sa@invalid.test','Grant SA','SUPER_ADMIN','x',NOW(3)); $RQ; $UR assigned_to='00000000000000000000GRANTA',assigned_at=NOW(3) $WR; $R" "foreign key constraint fails"
+run DENIED "$TX $CU1; UPDATE customers SET sla_minutes=1441 $WC; $R" customers_sla_minutes_chk
+run DENIED "$TX $CU1; UPDATE customers SET default_priority='URGENT' $WC; $R" customers_default_priority_chk
+run DENIED "$TX $RS1; $URS default_priority='normal' $WRS; $R" tenant_request_settings_default_priority_chk
+run DENIED "$TX $RS1; $URS default_sla_minutes=0 $WRS; $R" tenant_request_settings_default_sla_chk
+run DENIED "$TX $RS1; $URS time_zone='Europe/Istanbul;x' $WRS; $R" tenant_request_settings_time_zone_chk
+run DENIED "$TX $RS1; $URS time_zone=CONCAT('Europe/Istanbul',CHAR(10)) $WRS; $R" tenant_request_settings_time_zone_chk
+run DENIED "$TX $RS1; $URS after_hours_mode='DROP' $WRS; $R" tenant_request_settings_after_hours_mode_chk
+run DENIED "$TX $RS1; $URS hours_enabled=1 $WRS; $R" tenant_request_settings_hours_enabled_chk
+run DENIED "$TX $RS1; $URS business_hours='[[],[],[],[],[],[],[],[]]' $WRS; $R" tenant_request_settings_business_hours_chk   # 8 gün
+run DENIED "$TX $RS1; $URS business_hours='[[{\"from\":\"18:00\",\"to\":\"09:00\"}],[],[],[],[],[],[]]' $WRS; $R" tenant_request_settings_business_hours_chk   # from > to
+run DENIED "$TX $RS1; $URS business_hours='[[],[],[{\"from\":\"09:00\",\"to\":\"13:00\"},{\"from\":\"12:00\",\"to\":\"18:00\"}],[],[],[],[]]' $WRS; $R" tenant_request_settings_business_hours_chk   # örtüşme
+run DENIED "$TX $RS1; $URS business_hours='[[{\"from\":\"09:00\",\"to\":\"24:30\"}],[],[],[],[],[],[]]' $WRS; $R" tenant_request_settings_business_hours_chk
+run DENIED "$TX $RS1; $URS business_hours='[[{\"from\":\"09:00\",\"to\":\"18:00\",\"x\":1}],[],[],[],[],[],[]]' $WRS; $R" tenant_request_settings_business_hours_chk
+run DENIED "$TX $RS1; $URS business_hours='[[{\"from\":\"08:00\",\"to\":\"09:00\"},{\"from\":\"10:00\",\"to\":\"11:00\"},{\"from\":\"12:00\",\"to\":\"13:00\"}],[],[],[],[],[],[]]' $WRS; $R" tenant_request_settings_business_hours_chk   # 3 aralık
+run DENIED "$TX $H18; $HB ('00000000000000000000GRANTI','$GT','2026-10-28','Tekrar',NULL,$GU); $R" "Duplicate"
+run DENIED "$TX $HB ('00000000000000000000GRANTH','$GT','2026-10-28',' Bayram',NULL,$GU); $R" business_holidays_name_chk
+run DENIED "$TX $HB ('00000000000000000000GRANTH','$GT','2026-10-28',CONCAT('Bayram',CHAR(10)),NULL,$GU); $R" business_holidays_name_chk
+run DENIED "$TX $HB ('00000000000000000000GRANTH','$GT','2026-10-28','Bayram','00:00',$GU); $R" business_holidays_open_until_chk
+run DENIED "$TX $HB ('00000000000000000000GRANTH','$GT','2026-10-28','Bayram','13:00:30',$GU); $R" business_holidays_open_until_chk
+# S-P18-T11: iki bağlı satır (talep + oturum; P22) — yalnız talep anonimken SIGNAL, ikisi anonimken OK.
+M3="$SM ($GM,'$GT',$GRR,$GRS,'CUSTOMER',NULL,NULL,RANDOM_BYTES(31),2)"
+run DENIED "$TX $RQ; $ADM; $M3; $RANON; DELETE FROM session_messages WHERE id=$GM; $R" "p18: session_messages DELETE"
+run DENIED "$TX $RQ; $ADM; $M3; $END; $ANON; DELETE FROM session_messages WHERE id=$GM; $R" "p18: session_messages DELETE"   # yalnız oturum anonim
+run OK     "$TX $RQ; $ADM; $M3; $END; $ANON; $RANON; DELETE FROM session_messages WHERE id=$GM; $R"
+# Firma silme: RUNNING iş (PASSIVE 31 g) kilidi açar; iş yokken SIGNAL. Fikstür migrator ile (tetikleyiciden muaf).
+run_mig OK "INSERT INTO tenants (id,name,slug,status,passive_at,updated_at) VALUES ('$GW','grant-w','grant-test-w','PASSIVE',$UTC30 31 DAY,NOW(3)); ${RQ//00000000000000000000GRANTT/$GW}; $SM ($GM,'$GW',$GRR,NULL,'CUSTOMER',NULL,NULL,RANDOM_BYTES(31),2)"
+run DENIED "DELETE FROM session_messages WHERE tenant_id='$GW'" "p18: session_messages DELETE"
+run_mig OK "INSERT INTO tenant_purge_jobs (id,tenant_id,state,step,scheduled_for,counts,preview_hash,started_by,started_at,updated_at) VALUES ($GJ,'$GW','RUNNING','MESSAGES',NOW(3),'{}',$H1,$GU,NOW(3),NOW(3))"
+run OK     "$TX DELETE FROM session_messages WHERE tenant_id='$GW'; $R"
+run OK     "$TX $UJ step='REQUEST_UNLINK' $WJ; $R"   # MESSAGES → REQUEST_UNLINK (+1)
+run DENIED "$UJ step='BINDINGS' $WJ" "p16: tenant_purge_jobs step"
+run_mig OK "DELETE FROM tenant_purge_jobs WHERE id=$GJ; DELETE FROM session_messages WHERE id=$GM; DELETE FROM support_requests WHERE id=$GRR; DELETE FROM consent_texts WHERE tenant_id='$GW'; DELETE FROM tenants WHERE id='$GW'"
 # Temizlik (FK sırasıyla)
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.
@@ -614,13 +691,13 @@ run_backup DENIED "DROP TABLE request_refs"
 run_backup DENIED "LOCK TABLES users READ"
 # Gerçek döküm (yedek betiğiyle aynı bayraklar): hatasız, 3 tetikleyici ve _prisma_migrations içerir.
 dump=$(docker exec -e BPW="${BACKUP_PW:-}" "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="${BPW:-$MYSQL_BACKUP_PASSWORD}" mysqldump -ubackup --single-transaction --no-tablespaces --triggers --set-gtid-purged=OFF "$0" 2>&1 >/tmp/rs-grant-dump.sql; rc=$?; n=$(grep -c "^/\*!50003 CREATE\*/ /\*!50017 DEFINER=.*\*/ /\*!50003 TRIGGER" /tmp/rs-grant-dump.sql); m=$(grep -c "INSERT INTO \`_prisma_migrations\`" /tmp/rs-grant-dump.sql); rm -f /tmp/rs-grant-dump.sql; [ "$m" -gt 0 ] && m=yes; echo "rc=$rc triggers=$n migrations=$m"' "${DB:-remote}" 2>&1)
-[[ "$dump" == *"rc=0 triggers=22 migrations=yes" ]] && s=PASS || { s=FAIL; FAILED=1; }
-printf '%s | beklenen=rc=0 triggers=22 migrations=yes | (backup) mysqldump --single-transaction --no-tablespaces --triggers -> %s\n' "$s" "${dump//$'\n'/ }"
+[[ "$dump" == *"rc=0 triggers=23 migrations=yes" ]] && s=PASS || { s=FAIL; FAILED=1; }
+printf '%s | beklenen=rc=0 triggers=23 migrations=yes | (backup) mysqldump --single-transaction --no-tablespaces --triggers -> %s\n' "$s" "${dump//$'\n'/ }"
 # P13b G-P13b-5: audit-continuity.sql backup kullanıcısıyla çalışır ve tetikleyici özeti beklenen sabite eşit (tetikleyici
 # değiştiren migration audit-continuity.sql'deki sabiti güncellemezse burada FAIL olur).
 cont=$(docker exec -i -e BPW="${BACKUP_PW:-}" "${CONTAINER:-rs-mysql-test}" sh -c 'MYSQL_PWD="${BPW:-$MYSQL_BACKUP_PASSWORD}" exec mysql -ubackup -NB "$0"' "${DB:-remote}" < "$(dirname "$0")/audit-continuity.sql" 2>&1)
-[[ "$cont" == *'"triggers": {"ok": true, "count": 22,'* && "$cont" == *'"format": 2'* ]] && s=PASS || { s=FAIL; FAILED=1; }
-printf '%s | beklenen=triggers.ok=true count=22 | (backup) audit-continuity.sql -> %s\n' "$s" "$(grep -o '"triggers": {[^}]*}' <<<"$cont" || echo "${cont:0:200}")"
+[[ "$cont" == *'"triggers": {"ok": true, "count": 23,'* && "$cont" == *'"format": 2'* ]] && s=PASS || { s=FAIL; FAILED=1; }
+printf '%s | beklenen=triggers.ok=true count=23 | (backup) audit-continuity.sql -> %s\n' "$s" "$(grep -o '"triggers": {[^}]*}' <<<"$cont" || echo "${cont:0:200}")"
 # P13b D1/D2 (ADR-0020 m.2): geri yükleme migrator ile yapılır; güvenlik sınırı migrator'ın `*.*` üzerinde yetkisiz olmasıdır.
 run_root 0 "SELECT COUNT(*) FROM mysql.user WHERE user=''" "anonim MySQL hesabı yok (force_created_at USER() muafiyeti; §7.11)"
 run_root "migratorExtra=0" "$(sed -n "/^SELECT CONCAT('migratorExtra=',/,/;\$/p" "$(dirname "$0")/restore-sec-snapshot.sql")" "migrator: kendi DB'si dışında hiçbir yetki/rol/proxy/ek host yok (restore-sec-snapshot.sql ile aynı sorgu)"

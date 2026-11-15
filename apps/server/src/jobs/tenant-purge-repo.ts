@@ -66,6 +66,7 @@ const unlinkBindings: TablePart = {
 export const DATA_STEPS: Readonly<Partial<Record<TenantPurgeStep, readonly TablePart[]>>> = {
   SESSION_FILES: [byTenant("session_files")],
   SESSION_CONSENTS: [byTenant("session_consents")],
+  MESSAGES: [byTenant("session_messages")], // P18: IX(tenant_id, created_at)
   REQUEST_UNLINK: [unlinkBindings],
   BINDINGS: [byTenant("device_bindings")],
   SESSIONS: [byTenant("support_sessions")],
@@ -73,7 +74,8 @@ export const DATA_STEPS: Readonly<Partial<Record<TenantPurgeStep, readonly Table
   REQUEST_BLOCKS: [byTenant("request_blocks")],
   REQUEST_REFS: [byTenant("request_refs")],
   CUSTOMERS: [byTenant("customers")],
-  SETTINGS: [byTenant("tenant_request_settings"), byTenant("tenant_settings")],
+  // P18: business_holidays (created_by → users) USERS adımından önce.
+  SETTINGS: [byTenant("tenant_request_settings"), byTenant("tenant_settings"), byTenant("business_holidays")],
   CONSENT_TEXTS: [byTenant("consent_texts")],
   USER_CHILDREN: [
     byTenantUser("user_permissions"),

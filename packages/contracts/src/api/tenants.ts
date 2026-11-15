@@ -348,6 +348,7 @@ export const TENANT_PURGE_STEPS = [
   "FENCE",
   "SESSION_FILES",
   "SESSION_CONSENTS",
+  "MESSAGES", // P18 (mimari-e11 §8b.1): talep/oturum mesajları, oturum ve talep satırlarından önce
   "REQUEST_UNLINK",
   "BINDINGS",
   "SESSIONS",

@@ -37,6 +37,8 @@ model Tenant {
   requestRefs     RequestRef[]
   deviceBindings  DeviceBinding[]
   requestBlocks   RequestBlock[]
+  messages        SessionMessage[]
+  holidays        BusinessHoliday[]
 
   @@map("tenants")
 }
@@ -102,7 +104,11 @@ model User {
   requestBlocks      RequestBlock[]
   purgeJobsStarted   TenantPurgeJob[]     @relation("PurgeJobStarter")
   purgeJobsCancelled TenantPurgeJob[]     @relation("PurgeJobCanceller")
+  assignedRequests   SupportRequest[]     @relation("RequestAssignee")
+  sentMessages       SessionMessage[]
+  createdHolidays    BusinessHoliday[]
 
+  @@unique([id, tenantId]) // P18 (S-P18-T5): support_requests (assigned_to, tenant_id) bileşik FK hedefi — atanan aynı tenant'ta
   @@index([tenantId, status])
   @@map("users")
 }
@@ -255,6 +261,7 @@ model SupportSession {
   files         SessionFile[]
   bindingsFirst DeviceBinding[]  @relation("BindingFirstSession")
   bindingsLast  DeviceBinding[]  @relation("BindingLastSession")
+  messages      SessionMessage[]
 
   @@unique([id, tenantId]) // P4: session_consents/P5: session_files (session_id, tenant_id) bileşik FK hedefi (tenant tutarlılığı)
   @@unique([requestId, tenantId]) // P8b: talep başına en çok 1 oturum (request_id global tekil ULID → UQ(request_id) ile eşdeğer) + bileşik FK
@@ -372,6 +379,14 @@ model TenantRequestSettings {
   emailRecipients   Json      @map("email_recipients") // string[] e-posta, ≤ 5 (P10)
   trustedCidrs      Json      @map("trusted_cidrs") // string[] CIDR, ≤ 10 (§13.6; genişlik/özel aralık kuralı zod'da)
   requireAcceptCode Boolean   @default(false) @map("require_accept_code") // P15 (AC-239): kabulde 4 haneli kod
+  // P18 (mimari-e11 §8b.1; AC-257, 258). CHECK'ler migration.sql'de (elle): öncelik/mod ikili enum, SLA 5..1440, saat dilimi
+  // biçimi, business_hours JSON şeması + gün içi sıra/örtüşme, hours_enabled ⇒ business_hours dolu.
+  defaultPriority   String    @default("NORMAL") @map("default_priority") @db.VarChar(20) // LOW | NORMAL | HIGH
+  defaultSlaMinutes Int?      @map("default_sla_minutes") @db.UnsignedSmallInt // 5..1440; NULL = SLA yok
+  timeZone          String    @default("Europe/Istanbul") @map("time_zone") @db.VarChar(40) // IANA adı (geçerlilik zod'da)
+  hoursEnabled      Boolean   @default(false) @map("hours_enabled")
+  businessHours     Json?     @map("business_hours") // 7 gün (Pazartesi=0) × ≤ 2 aralık {from,to} "HH:MM"; to ≤ "24:00"
+  afterHoursMode    String    @default("ACCEPT") @map("after_hours_mode") @db.VarChar(20) // ACCEPT | REJECT
   createdAt         DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
@@ -417,6 +432,13 @@ model SupportRequest {
   anonymizedAt   DateTime? @map("anonymized_at") @db.DateTime(3)
   customerId     String?   @map("customer_id") @db.Char(26) // P8c AC-175/176: NULL = Genel (Genel ref veya Genel kayıt)
   bindingId      String?   @map("binding_id") @db.Char(26) // P8c: kayıtla açılan talep (API viaBinding/bindingRevoked bundan türer)
+  // P18 (mimari-e11 §8b.1–8b.2; AC-256, 257, 258). Oluşturmada dondurulur (sla_*); CHECK'ler migration.sql'de (elle).
+  priority       String    @default("NORMAL") @db.VarChar(20) // LOW | NORMAL | HIGH
+  assignedTo     String?   @map("assigned_to") @db.Char(26) // atanan teknisyen (users.id); NULL = atanmamış
+  assignedAt     DateTime? @map("assigned_at") @db.DateTime(3) // assigned_to ⇔ assigned_at
+  slaMinutes     Int?      @map("sla_minutes") @db.UnsignedSmallInt // 5..1440 (oluşturma anındaki kopya); NULL = SLA yok
+  slaDueAt       DateTime? @map("sla_due_at") @db.DateTime(3) // NULL: SLA yok ya da takvimde açık an yok (sla_minutes NULL ⇒ NULL)
+  afterHours     Boolean   @default(false) @map("after_hours") // mesai dışında (ACCEPT modunda) açıldı
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
@@ -424,10 +446,12 @@ model SupportRequest {
   consentText ConsentText      @relation(fields: [consentTextId, tenantId, consentSha256], references: [id, tenantId, sha256], onDelete: Restrict, onUpdate: Restrict)
   acceptor    User?            @relation("RequestAcceptor", fields: [acceptedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
   rejector    User?            @relation("RequestRejector", fields: [rejectedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  assignee    User?            @relation("RequestAssignee", fields: [assignedTo, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   customer    Customer?        @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
   binding     DeviceBinding?   @relation(fields: [bindingId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   session     SupportSession?
   consents    SessionConsent[]
+  messages    SessionMessage[]
 
   @@unique([id, tenantId]) // support_sessions/session_consents (request_id, tenant_id) bileşik FK hedefi
   @@index([tenantId, status, createdAt]) // kuyruk (asc) + sıra hesabı + pasif tenant süpürücüsü + tenant FK
@@ -443,6 +467,7 @@ model SupportRequest {
   @@index([rejectedBy]) // FK
   @@index([tenantId, customerId, createdAt]) // P8c müşteri detayı Talepler sekmesi, türetilmiş sayaçlar (COUNT/MAX), filtre + customer FK (tenant_id, customer_id)
   @@index([bindingId, tenantId, status]) // P8c kayıt başına 1 bekleyen + ADMIN_REVOKED bekleyenleri kapatma + binding FK
+  @@index([assignedTo, tenantId, status]) // P18 "Bana atananlar" (assigned_to = ? / IS NULL) + assignee bileşik FK (assigned_to, tenant_id) (dba sapma)
   @@map("support_requests")
 }
 
@@ -453,24 +478,26 @@ model SupportRequest {
 // search_key name_key ile başlar.
 // Bileşik FK hedefi UQ(tenant_id, id) (mimarideki (id, tenant_id) sırası tersine çevrildi — db-notlari P8c karar 1).
 model Customer {
-  id           String    @id @db.Char(26)
-  tenantId     String    @map("tenant_id") @db.Char(26)
-  name         String    @db.VarChar(100) // 2..100 kod noktası, kırpılmış, Cc/Cf/Zl/Zp yok
-  nameKey      String    @map("name_key") @db.VarChar(200) // foldKey(name); UQ(tenant_id, name_key) pasifler dahil (AC-167)
-  searchKey    String    @map("search_key") @db.VarChar(400) // foldKey(name) + ' ' + foldKey(contact) + ' ' + rakamlar(phone)
-  fileLabel    String    @map("file_label") @db.VarChar(20) // [A-Za-z0-9]{1,20}; tekil değil
-  requestRef   String    @unique @map("request_ref") @db.Char(16) // [a-z2-7]{16}; her zaman dolu, request_refs'e kayıtlı
-  refRotatedAt DateTime? @map("ref_rotated_at") @db.DateTime(3) // son yenileme / yeniden aktif etme (G-E10-1 bayat kaynak)
-  contactName  String?   @map("contact_name") @db.VarChar(80) // kişisel (AC-195)
-  phone        String?   @db.VarChar(16) // E.164, kişisel
-  email        String?   @db.VarChar(254) // kişisel
-  note         String?   @db.VarChar(1000) // düz metin; yalnız \n serbest; kişisel sayılır
-  status       String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | PASSIVE
-  passiveAt    DateTime? @map("passive_at") @db.DateTime(3)
-  anonymizedAt DateTime? @map("anonymized_at") @db.DateTime(3) // doluyken PII NULL (CHECK); PII yazan UPDATE bunu NULL'lamalı
-  createdBy    String?   @map("created_by") @db.Char(26)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt    DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  id              String    @id @db.Char(26)
+  tenantId        String    @map("tenant_id") @db.Char(26)
+  name            String    @db.VarChar(100) // 2..100 kod noktası, kırpılmış, Cc/Cf/Zl/Zp yok
+  nameKey         String    @map("name_key") @db.VarChar(200) // foldKey(name); UQ(tenant_id, name_key) pasifler dahil (AC-167)
+  searchKey       String    @map("search_key") @db.VarChar(400) // foldKey(name) + ' ' + foldKey(contact) + ' ' + rakamlar(phone)
+  fileLabel       String    @map("file_label") @db.VarChar(20) // [A-Za-z0-9]{1,20}; tekil değil
+  requestRef      String    @unique @map("request_ref") @db.Char(16) // [a-z2-7]{16}; her zaman dolu, request_refs'e kayıtlı
+  refRotatedAt    DateTime? @map("ref_rotated_at") @db.DateTime(3) // son yenileme / yeniden aktif etme (G-E10-1 bayat kaynak)
+  contactName     String?   @map("contact_name") @db.VarChar(80) // kişisel (AC-195)
+  phone           String?   @db.VarChar(16) // E.164, kişisel
+  email           String?   @db.VarChar(254) // kişisel
+  note            String?   @db.VarChar(1000) // düz metin; yalnız \n serbest; kişisel sayılır
+  status          String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | PASSIVE
+  passiveAt       DateTime? @map("passive_at") @db.DateTime(3)
+  anonymizedAt    DateTime? @map("anonymized_at") @db.DateTime(3) // doluyken PII NULL (CHECK); PII yazan UPDATE bunu NULL'lamalı
+  defaultPriority String?   @map("default_priority") @db.VarChar(20) // P18 (AC-257): LOW | NORMAL | HIGH; NULL = firma varsayılanı
+  slaMinutes      Int?      @map("sla_minutes") @db.UnsignedSmallInt // P18 (AC-257): 5..1440; NULL = firma varsayılanı
+  createdBy       String?   @map("created_by") @db.Char(26)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   creator         User?            @relation(fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -620,4 +647,54 @@ model TenantPurgeJob {
   @@index([startedBy]) // FK
   @@index([cancelledBy]) // FK
   @@map("tenant_purge_jobs")
+}
+
+// P18 (mimari-e11 §8b.1, ADR-0025 m.1–m.3; AC-255): talep (P18) ve oturum (P22) mesajları. APPEND-ONLY: updated_at yok, app
+// SELECT/INSERT/DELETE (UPDATE yok). Gövde yalnız şifreli (AES-256-GCM, `aadFor.sessionMessage`); düz metin DB'de yok.
+// DELETE yalnız retention (üst talep/oturum anonim; aynı TX) ya da RUNNING firma silme işinde — tetikleyici
+// `session_messages_delete_guard` (`p18:` önekli SIGNAL). Elle CHECK'ler: sender ikili enum, TECH ⇔ sender_user_id,
+// talep ya da oturum bağı, client_msg_id biçimi, body_chars 1..1000, body_enc uzunluğu body_chars ile tutarlı.
+model SessionMessage {
+  id           String   @id @db.Char(26)
+  tenantId     String   @map("tenant_id") @db.Char(26)
+  requestId    String?  @map("request_id") @db.Char(26)
+  sessionId    String?  @map("session_id") @db.Char(26) // P22 (oturum sohbeti); P18'de NULL
+  sender       String   @db.VarChar(20) // TECH | CUSTOMER
+  senderUserId String?  @map("sender_user_id") @db.Char(26) // TECH ⇔ dolu
+  clientMsgId  String?  @map("client_msg_id") @db.VarChar(36) // ^[A-Za-z0-9_-]{1,36}$ (yeniden gönderim tekilliği)
+  bodyEnc      Bytes    @map("body_enc") @db.VarBinary(4200) // ver(1) | iv(12) | tag(16) | UTF-8 gövde (≤ 4.000 bayt)
+  bodyChars    Int      @map("body_chars") @db.UnsignedSmallInt // 1..1000 kod noktası (audit/sayaç; gövde okunmadan)
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  request    SupportRequest? @relation(fields: [requestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session    SupportSession? @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  senderUser User?           @relation(fields: [senderUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([requestId, sender, clientMsgId]) // yeniden gönderimde çift kayıt yok (NULL'lar çakışmaz)
+  @@index([requestId, tenantId, createdAt]) // talep yazışması (after=, son 50) + request FK
+  @@index([sessionId, tenantId, createdAt]) // P22 oturum yazışması + session FK
+  @@index([tenantId, createdAt]) // tenant FK + firma silme partisi
+  @@index([senderUserId]) // FK
+  @@map("session_messages")
+}
+
+// P18 (mimari-e11 §8b.1–8b.2; AC-258): firma tatil günleri (tenant saat diliminde yerel gün). UPDATE YOK (değişiklik =
+// DELETE + INSERT, request_blocks kalıbı) → updated_at yok; app SELECT/INSERT/DELETE. Tenant başına ≤ 200 (uygulama).
+// Elle CHECK'ler: ad metin kuralı, open_until (00:00, 24:00) ve saniyesiz.
+model BusinessHoliday {
+  id        String    @id @db.Char(26)
+  tenantId  String    @map("tenant_id") @db.Char(26)
+  day       DateTime  @db.Date // yerel gün
+  name      String    @db.VarChar(100)
+  openUntil DateTime? @map("open_until") @db.Time(0) // NULL = tam gün kapalı; dolu = o güne kadar açık (ör. arife 13:00)
+  createdBy String    @map("created_by") @db.Char(26)
+  createdAt DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  creator User   @relation(fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, day]) // aynı gün tek satır + tenant FK + yıl listesi (day aralığı)
+  @@index([createdBy]) // FK
+  @@map("business_holidays")
 }

@@ -7149,3 +7149,29 @@ go vet ./...` 0 bulgu. Windows çalışma zamanı (GetAsyncKeyState, SPI, form y
 ### frontend-dev / konsol için
 
 Sözleşme değişmedi. Yeni tanılama nedenleri yalnız istemci logunda (`STICKY_KEYS`, `MOUSE_KEYS`).
+
+## P18 H1 (dba) — 2026-11-15
+
+Ayrıntı: `docs/db-notlari.md` "P18"; mimari-e11 §8b.1 + §8b.13.
+
+- **Migration** `apps/server/prisma/migrations/20261119000000_p18_request_comms/{migration.sql,down.sql}`: `session_messages`,
+  `business_holidays`, talep/müşteri/firma ayarı sütunları + CHECK'ler, users UQ(id, tenant_id) + bileşik atama FK'si
+  (S-P18-T5), `session_messages_delete_guard` (AND'li, S-P18-T11; toplam 23), `MESSAGES` adımı (step CHECK + update_guard
+  yeniden), ön kontrol `P18_PRECHECK purge_jobs_open|binlog_flag`, korumalı down.
+- **Şema/tip:** `schema.prisma` (`SessionMessage`, `BusinessHoliday`, yeni alanlar, `User @@unique([id, tenantId])`,
+  `SupportRequest.assignee` fields `[assignedTo, tenantId]`); `pnpm db:generate`.
+- **Yetki:** `grants.sql` (iki tablo SELECT/INSERT/DELETE; T2 yorumu — app'e UPDATE yok).
+- **Kontrol betikleri:** `deploy/mysql/check-app-grants.sh` (23, 12/6/2, DELETE kümesi, +60 P18 satırı),
+  `deploy/mysql/audit-continuity.sql` sabiti `f029d544…`.
+- **Uygulama (zorunlu eşleşme, sapma):** DB adım listesi ile uygulama listesi birlikte değişmeli; aksi hâlde update_guard
+  P16 firma silme testlerini kırar. Bu yüzden H1'de: `contracts/api/tenants.ts` `TENANT_PURGE_STEPS` += `MESSAGES` (18),
+  `jobs/tenant-purge-repo.ts` `DATA_STEPS.MESSAGES` + `SETTINGS` += `business_holidays`, web `PURGE_STEP_LABELS.MESSAGES`,
+  `lib/db.ts isP16Signal` += `p18:`. H3 bu parçayı yapmaz; yalnız retention aynı-TX silmesini ve erasure verify'ı ekler.
+- **Seed:** demo firma talep ayarına hafta içi mesai (takvim kapalı).
+- **Testler:** yeni `test/integration/p18-schema-h1.test.ts` (7); güncellenen `tenant-purge-meta-p16` (18 adım, users FK
+  listesi, korunan tablolar), `helpers/tenant-purge.ts` (mesaj + tatil fikstürü), `session-history-p8` (ikili CHECK 36 → 42),
+  `contracts/p16-contracts` (18). Sonuç: `test:int` 686/686, `check-app-grants` 561/561, up/down/up drift 0.
+- **H5'e (devops):** `backup.sh`/`backup.env.example`/`restore.sh`/`test-backup-inner.sh` beklenen tetikleyici 22 → 23
+  (sabit tek kaynakta değil; dba dokunmadı).
+- **H2/H3'e:** atama yaşam döngüsü (T5a: pasif/yetki kaldırma → aynı TX'te `assigned_to = NULL`) uygulamada; `sender_user_id`
+  tekil FK (Super Admin başka tenant'ta yazabilir → servis testi). `business_hours.to` `"24:00"` kabul eder, zod aynı olmalı.

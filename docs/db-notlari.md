@@ -1111,3 +1111,100 @@ DELETE eklendi: `support_sessions`, `support_requests`, `session_consents`, `dev
 - Ön kontrol: down sonrası `deleted_at` dolu kullanıcı → `P16_PRECHECK users=1`, hiçbir şey değişmedi (tetikleyici 3, sütun yok, FK var). Düzeltme + resolve + up → OK; audit satırı `{grantedBefore: 1, rowsDeleted: 2, grantedAfter: 0}`; PASSIVE firmada `passive_at = updated_at`. `binlog_flag` dalı sınanmadı (root'la global bayrak değiştirmek gerekir).
 - P14a düzeltme SQL'i (yukarıda) `prisma db execute` ile iki kez: hatasız.
 - Server: typecheck/lint temiz, `test` 383/383, temiz DB'de `test:int` **636/636** (65 dosya).
+
+## P18 — talep iletişimi: session_messages, business_holidays, öncelik/atama/SLA, mesai, MESSAGES adımı (H1, 2026-11-15)
+
+Migration `apps/server/prisma/migrations/20261119000000_p18_request_comms/{migration.sql,down.sql}`. Mimari-e11 §8b.1 +
+§8b.13 (güvenlik tasarım turu S-P18-T2, T5, T11); ADR-0025 m.1–m.3; AC-255..258. Veri taşıma yok: eski talepler `NORMAL`,
+atanmamış, SLA'sız, `after_hours = 0`; firma ayarları `NORMAL` / SLA yok / `Europe/Istanbul` / takvim kapalı / `ACCEPT`.
+
+### Şema
+
+| Değişiklik                   | Ayrıntı                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `session_messages` (yeni)    | §8b.1 sütunları, `updated_at` yok. CHECK: `sender` (ikili), `sender_user` (TECH ⇔ `sender_user_id`), `parent` (talep ya da oturum), `client_msg_id_fmt` (`^[A-Za-z0-9_-]{1,36}\z`), `body_chars` 1..1000, `body_enc` uzunluğu `[29 + chars, 29 + 4 × chars]` (lib/crypto biçimi). UQ(request_id, sender, client_msg_id); IX(request_id, tenant_id, created_at), IX(session_id, tenant_id, created_at), IX(tenant_id, created_at), IX(sender_user_id). FK'ler RESTRICT; talep/oturum bileşik (tenant tutarlı) |
+| `business_holidays` (yeni)   | `day` DATE, `name` metin kuralı (1..100, kırpılmış, Cc/Cf/Zl/Zp yok), `open_until` TIME(0) (00:00 < t < 24:00, saniyesiz). UQ(tenant_id, day), IX(created_by)                                                                                                                                                                                                                                                                                                                                                |
+| `support_requests` +=        | `priority` (LOW/NORMAL/HIGH), `assigned_to` + `assigned_at` (birlikte), `sla_minutes` 5..1440, `sla_due_at` (dakika NULL ⇒ NULL; > created_at), `after_hours`. **Bileşik FK** (`assigned_to`, `tenant_id`) → `users(id, tenant_id)` (S-P18-T5): başka tenant kullanıcısı ve Super Admin atanamaz (1452). IX(assigned_to, tenant_id, status)                                                                                                                                                                  |
+| `users`                      | UQ(id, tenant_id) `users_id_tenant_id_key` (bileşik FK hedefi; INPLACE)                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `customers` +=               | `default_priority` (NULL ya da enum), `sla_minutes` (NULL ya da 5..1440)                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `tenant_request_settings` += | `default_priority`, `default_sla_minutes`, `time_zone` (biçim CHECK; geçerlilik zod), `hours_enabled`, `business_hours` (JSON şeması + gün içi `from < to` + iki aralık örtüşmez; `to` en çok `"24:00"`), `after_hours_mode` (ACCEPT/REJECT); `hours_enabled ⇒ business_hours` dolu                                                                                                                                                                                                                          |
+| `tenant_purge_jobs_step_chk` | 18 adım: `MESSAGES`, `SESSION_CONSENTS` ile `REQUEST_UNLINK` arasında. `tenant_purge_jobs_update_guard` aynı gövdeyle yeniden kuruldu (üç `FIELD()` listesi)                                                                                                                                                                                                                                                                                                                                                 |
+
+**Sapmalar** (mimari §8b.13'e not düşüldü): IX sırası (`assigned_to` başta, FK için); `sla_due_chk` yönü düzeltildi (`<=`);
+`"24:00"` kabulü. `business_hours` gün sırası Pazartesi=0; iki aralığın sırası serbest (zod sıralayabilir).
+
+### Tetikleyici (1 yeni, toplam 23)
+
+`session_messages_delete_guard` (BEFORE DELETE; P16 ortak gövdesi, `p18:` önekli). İzin: **dolu her üst bağ anonim**
+(talep VE oturum; S-P18-T11) ya da PURGING (RUNNING iş + PASSIVE ≥ 30 g). Retention `anonymizeRequestsOf`, talebi
+anonimleştirdiği **aynı TX'te** siler; tetikleyici aynı TX'in UPDATE'ini görür (test edildi). `lib/db.ts isP16Signal`
+artık `p18:` önekini de `db_signal` sayar.
+
+### Ön kontrol
+
+`p18_precheck`: `P18_PRECHECK purge_jobs_open=<n>` (RUNNING/FAILED firma silme işi) ve `binlog_flag`. Düşerse hiçbir şey
+değişmez (yordam DB'de kalır, zararsız). Deploy öncesi elle: `SELECT id, tenant_id, state, step FROM tenant_purge_jobs
+WHERE state IN ('RUNNING','FAILED');` → 0 olmalı. Açık iş varsa önce bitirilir (yürütücü) ya da FAILED iş runbook'taki
+sürdürme ile tamamlanır; sonra `prisma migrate resolve --rolled-back 20261119000000_p18_request_comms` → `pnpm db:migrate`.
+
+### Yetkiler
+
+`session_messages`, `business_holidays`: SELECT, INSERT, DELETE; UPDATE/DDL REVOKE. **S-P18-T2:** app'e UPDATE yok;
+anahtar sızıntısında yeniden şifreleme (`cli crypto:rewrap`, H3) `migrator` ile yapılır — migrator'ın DB üzerinde ALL'ı
+var ve tabloda UPDATE tetikleyicisi yok, ek yetki gerekmez. **S-P18-T3** (`support_requests.message`): yetki
+`contracts/permissions.ts`'te; `user_permissions.perm_key` serbest VARCHAR(60) → şema değişikliği yok.
+
+### Beklenen sayılar
+
+- `audit-continuity.sql` sabiti `f029d544…3c90` (23; P16 22'nin sabiti `a4a6f552…13be`).
+- `check-app-grants.sh`: toplam 23; dağılım 12/6/2; DELETE yetkili tablo kümesi += business_holidays, session_messages;
+  mysqldump 23; continuity `count=23, ok=true`.
+- **devops'a (H5):** `backup.sh` `BACKUP_EXPECTED_TRIGGERS` varsayılanı, `backup.env.example`, `restore.sh`
+  `RESTORE_EXPECTED_TRIGGERS` varsayılanı, `test-backup-inner.sh` beklentisi 22 → 23 (sabit tek kaynakta değil; dba
+  dokunmadı). `lib-ledger.sh` `-ge 22` doğru kalır. Staging/prod `backup.env`'de elle 22 yazılıysa migration'dan önce boşaltın.
+
+### Firma silme (uygulama tarafı, H1'de yapıldı)
+
+`TENANT_PURGE_STEPS` += `MESSAGES` (18), `DATA_STEPS.MESSAGES = [session_messages]`, `SETTINGS` += `business_holidays`
+(USERS'tan önce; `created_by` FK). Web etiketi "Talep mesajları". Meta-testler: `users`'a FK listesi +=
+`business_holidays.created_by`, `session_messages.sender_user_id`, `support_requests.assigned_to` / `.tenant_id` (bileşik
+FK iki satır); korunan tablolar += session_messages. Fikstür `seedPurgeTenant` bir mesaj + bir tatil ekler.
+
+### Sorgu planları (EXPLAIN, 8.4.13, seed + test verisi)
+
+| Sorgu                                                                          | Plan                                                          |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| Kuyruk: `tenant_id = ? AND status = 'PENDING' ORDER BY created_at LIMIT 200`   | IX(tenant_id, status, created_at) (sıralama uygulamada)       |
+| "Bana atananlar": `tenant_id = ? AND assigned_to = ? AND status = 'PENDING'`   | IX(assigned_to, tenant_id, status) ref                        |
+| "Atanmamış": `assigned_to IS NULL` + aynı süzgeç                               | IX(tenant_id, status, created_at) + filtre (kuyruk ≤ 50)      |
+| Mesajlar: `tenant_id = ? AND request_id = ? AND id > ? ORDER BY created_at`    | IX(request_id, tenant_id, created_at) + ICP; sıralama yok     |
+| Talep başına sayım (200 tavanı): `COUNT(*) … request_id = ? AND tenant_id = ?` | UQ(request_id, sender, client_msg_id) önek (gönderici başına) |
+| Tatiller: `tenant_id = ? AND day BETWEEN ? AND ?`                              | UQ(tenant_id, day) kaplayan aralık                            |
+
+**Backend'e:** mesaj listesinde `ORDER BY created_at, id` yerine `ORDER BY created_at` (ULID aynı ms'de sıralı değilse
+istemci `id` ile kararlı sıralar); gönderici başına tavan (S-P18-T4) `request_id = ? AND sender = ?` ile UQ önekini kullanır.
+
+### Kilit ve geri alma
+
+- INSTANT: üç tablodaki sütun eklemeleri. COPY: `tenant_request_settings`, `customers` (CHECK), `support_requests`
+  (indeks + FK + CHECK tek ALTER), `tenant_purge_jobs` (CHECK). INPLACE: `users` UQ. Yeni tablolar boş.
+- `down.sql`: `p18_down_guard_chk` (mesaj ya da tatil satırı) ve `p18_down_jobs_guard_chk` (RUNNING/FAILED iş ya da
+  `step = MESSAGES`) → hiçbir şey değişmeden 3819. Sonra REVOKE (DROP TABLE tables_priv satırını silmez), update_guard + step
+  CHECK P16 hâline, tetikleyici, tablolar, FK/indeks/CHECK/sütunlar, UQ, migration kaydı. **Önce P18 kodu ve grants.sql
+  geri alınmalı.**
+
+### Test (2026-11-15, geçici `rs-p18h1-c4e7a2:33481`, mysql 8.4.13 binlog açık + bayrak, silindi)
+
+- Temiz up (P1→P18) OK; `migrate diff --exit-code` 0; tetikleyici 23; continuity `ok=true count=23`.
+- `check-app-grants.sh` **561/561 PASS** (+60 P18 satırı): §8b.1 negatiflerinin hepsi (anonim olmayan talebin mesajı DELETE →
+  SIGNAL, anonim → OK; `session_messages`/`business_holidays` UPDATE → 1142; TECH + NULL `sender_user_id` → 3819;
+  `priority = 'URGENT'` → 3819; 8 günlük `business_hours` → 3819), §8b.13 ekleri (başka tenant kullanıcısına ve Super
+  Admin'e atama → 1452; iki bağlı satırda yalnız talep ya da yalnız oturum anonim → SIGNAL, ikisi anonim → OK), RUNNING
+  silme işinde DELETE OK / iş yokken SIGNAL, adım MESSAGES → REQUEST_UNLINK OK / atlama SIGNAL, CHECK negatifleri.
+- down: iki koruma 3819 (tetikleyici 23 kaldı). Temiz down → P16 şemasına diff 0, tetikleyici 22, continuity özeti P16
+  sabitine (`a4a6f552…`) eşit, tables_priv satırı yok. Yeniden up → drift 0.
+- Ön kontrol: down + RUNNING iş → `P18_PRECHECK purge_jobs_open=1`, hiçbir şey değişmedi (tetikleyici 22, sütun yok).
+  Temizlik + resolve + up → OK.
+- Seed (boş DB) OK (demo `business_hours` CHECK'ten geçti).
+- Server `test` 383/383, contracts 103/103, web `p16.test` 10/10; temiz DB'de `test:int` **686/686** (71 dosya; yeni
+  `p18-schema-h1.test.ts` 7 test).

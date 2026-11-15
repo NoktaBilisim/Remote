@@ -68,5 +68,5 @@ export function isP16Signal(err: unknown): boolean {
   const code = cause?.code ?? cause?.originalCode;
   if (code !== 1644 && code !== "1644") return false;
   const text = [cause?.message, cause?.originalMessage, e.message].filter((v) => typeof v === "string").join(" ");
-  return text.includes("p16:");
+  return text.includes("p16:") || text.includes("p18:"); // P18: session_messages_delete_guard
 }
