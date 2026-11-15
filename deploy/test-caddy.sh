@@ -199,8 +199,9 @@ CODE="$(curl -s -o "$TMP/out" -w '%{http_code}' "$B/downloads/$FIRM.exe?utm=2")"
 
 echo "== log maskesi (G-10, G-E9-8, T31)"
 sleep 1
-docker logs "$P-caddy" 2>&1 | grep -q '"logger":"http.log.error' && pass "hata logu satırı üretildi (filtre sınanıyor)" || fail "hata logu satırı yok"
+# Önce dosyaya al: `docker logs | grep -q` pipefail altında grep erken çıkınca SIGPIPE ile yanlış FAIL verir.
 docker logs "$P-caddy" >"$TMP/caddy.log" 2>&1
+grep -q '"logger":"http.log.error' "$TMP/caddy.log" && pass "hata logu satırı üretildi (filtre sınanıyor)" || fail "hata logu satırı yok"
 grep -q '"uri":"/downloads/NoktaDestek-\*\*\*"' "$TMP/caddy.log" && pass "erişim logu /downloads/NoktaDestek-***" || fail "maskeli firma yolu logda yok"
 grep -q '"uri":"/downloads/NoktaDestek.exe"' "$TMP/caddy.log" && pass "kodsuz ad maskelenmez (NoktaDestek.exe)" || fail "NoktaDestek.exe logda yok"
 grep -q '"uri":"/api/v1/files/avatar/T1/abcdefghijklmnop.webp"' "$TMP/caddy.log" && pass "erişim logu /api/v1/files yolu sorgu dizesiz" || fail "/api/v1/files log satırı"
