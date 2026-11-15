@@ -125,3 +125,9 @@ REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON business_hol
 -- (7 gün temizlik, anonimleştirme aynı TX, firma silme MESSAGES adımı). Tetikleyici yok; kurallar CHECK'lerde. DDL yok.
 GRANT SELECT, INSERT, UPDATE, DELETE ON notification_outbox TO 'app'@'%';
 REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON notification_outbox FROM 'app'@'%';
+
+-- P27a trusted_devices (mimari-p27a §3.1/§3.3; AC-325..334): "2FA cihazı 30 gün hatırla". INSERT (verify + hatırla), UPDATE
+-- (her atlamada token_hash döndürme + last_used_at/ip; koşullu UPDATE), DELETE (geçersiz kılma noktaları §3.4, yeniden kullanım,
+-- saklama, firma silme USER_CHILDREN, KVKK erasure, purgeTx). Tetikleyici yok; kurallar CHECK + bileşik FK'de. DDL yok.
+GRANT SELECT, INSERT, UPDATE, DELETE ON trusted_devices TO 'app'@'%';
+REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON trusted_devices FROM 'app'@'%';

@@ -394,7 +394,7 @@ run_root 0 "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHER
 run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\") + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE IN ('TRIGGER','ALTER','DROP','CREATE','INDEX','REFERENCES','GRANT OPTION'))" "app: global/DB yetkisi yok, hiçbir tabloda TRIGGER/ALTER/DROP/CREATE/INDEX yok"
 run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT','DELETE')" "app: audit_logs yalnız SELECT/INSERT/DELETE (DELETE P13a)"
 # P13a (K27) + P16 (ADR-0030 m.3): DELETE yetkisi tam olarak bu tablolarda; P16'nın 8 tablosunda koşul tetikleyicide.
-run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customers,device_bindings,notification_outbox,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
+run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customers,device_bindings,notification_outbox,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,trusted_devices,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
 run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent)"
 run_root 0 "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs'" "app: audit_logs sütun düzeyi UPDATE yok"
 run DENIED "DROP TRIGGER audit_logs_force_created_at" "denied"
@@ -735,6 +735,34 @@ run DENIED "$TX $US19 sms_url=CONCAT('https://sms.example.com',CHAR(10)) $WT19; 
 run DENIED "$TX $US19 sms_url='ftp://sms.example.com' $WT19; $R" tenant_settings_sms_url_chk
 run DENIED "$TX $US19 sms_url='https:///api' $WT19; $R" tenant_settings_sms_url_chk                     # boş host
 run DENIED "$TX $US19 sms_api_key_enc='duz-anahtar' $WT19; $R" tenant_settings_sms_api_key_enc_chk
+# P27a (mimari-p27a §3.1/§3.3; AC-325..334, K-P27a-2/3/11): tenant_settings.mfa_remember_device (varsayılan TRUE) ve
+# trusted_devices (SELECT/INSERT/UPDATE/DELETE; tetikleyici yok; r3: token_hash indekssiz) — CHECK/bileşik FK. Tümü geri alınan TX'te.
+TD="INSERT INTO trusted_devices (id,tenant_id,user_id,token_hash,ua_summary,ip,expires_at,updated_at) VALUES"
+GD="'00000000000000000000GRANTD'"; E30="NOW(3)+INTERVAL 30 DAY"
+TD1="$TD ($GD,'$GT','00000000000000000000GRANTU',$H1,'Chrome · Windows','203.0.113.7',$E30,NOW(3))"
+td() { echo "$TD ($GD,'$GT','00000000000000000000GRANTU',$1,$2,'203.0.113.7',$3,NOW(3))"; }   # $1 özet, $2 ua, $3 bitiş
+run_val 1 "SELECT mfa_remember_device FROM tenant_settings WHERE tenant_id='$GT'" "tenant_settings.mfa_remember_device varsayılanı TRUE (K-P27a-12)"
+run OK     "SELECT COUNT(*) FROM trusted_devices"
+run OK     "$TX $US19 mfa_remember_device=0 $WT19; $US19 mfa_remember_device=1 $WT19; $R"
+run OK     "$TX $TD1; UPDATE trusted_devices SET token_hash=$H2,last_used_at=NOW(3),ip='198.51.100.9' WHERE id=$GD AND token_hash=$H1; DELETE FROM trusted_devices WHERE user_id='00000000000000000000GRANTU'; $R"   # verify → döndürme → iptal
+run OK     "$TX $TD1; DELETE FROM trusted_devices WHERE tenant_id='$GT'; $R"                                       # firma geneli (pasif / anahtar kapatma)
+run OK     "$TX $(td "$H1" "''" "$E30"); $R"                                                                     # boş UA özeti serbest
+run DENIED "ALTER TABLE trusted_devices ADD COLUMN x INT" "denied"
+run DENIED "DROP TABLE trusted_devices" "denied"
+run DENIED "CREATE TRIGGER t_x BEFORE INSERT ON trusted_devices FOR EACH ROW SET @a=1" "denied"
+run DENIED "$TX $TD ($GD,NULL,'00000000000000000000GRANTU',$H1,'ua','203.0.113.7',$E30,NOW(3)); $R" "cannot be null"   # K-P27a-2: Super Admin (tenant NULL) satırı yok
+run DENIED "$TX $GX; $TD ($GD,'00000000000000000000GRANTX','00000000000000000000GRANTU',$H1,'ua','203.0.113.7',$E30,NOW(3)); $R" trusted_devices_user_id_tenant_id_fkey   # kullanıcının firması değil
+run DENIED "$TX $TD ($GD,'$GT','0000000000000000000NOUSER',$H1,'ua','203.0.113.7',$E30,NOW(3)); $R" trusted_devices_user_id_tenant_id_fkey
+run DENIED "$TX $(td "'plain-device-token'" "'ua'" "$E30"); $R" trusted_devices_token_hash_fmt_chk
+run DENIED "$TX $(td "UPPER($H2)" "'ua'" "$E30"); $R" trusted_devices_token_hash_fmt_chk
+run DENIED "$TX $(td "CONCAT(REPEAT('a',63),CHAR(10))" "'ua'" "$E30"); $R" trusted_devices_token_hash_fmt_chk
+run DENIED "$TX $TD1; UPDATE trusted_devices SET token_hash='plain-device-token' WHERE id=$GD; $R" trusted_devices_token_hash_fmt_chk
+run DENIED "$TX $(td "$H1" "'ua'" "NOW(3)+INTERVAL 31 DAY"); $R" trusted_devices_ttl_chk                     # 30 günden uzun
+run DENIED "$TX $(td "$H1" "'ua'" "NOW(3)-INTERVAL 1 SECOND"); $R" trusted_devices_ttl_chk
+run DENIED "$TX $TD1; UPDATE trusted_devices SET expires_at=expires_at+INTERVAL 1 DAY WHERE id=$GD; $R" trusted_devices_ttl_chk   # döndürme süre uzatamaz
+run DENIED "$TX $(td "$H1" "CONCAT('Chrome',CHAR(13),CHAR(10),'Bcc: x')" "$E30"); $R" trusted_devices_ua_summary_chk
+run DENIED "$TX $(td "$H1" "CONCAT('Chrome',CONVERT(X'E280AE' USING utf8mb4),'swodniW')" "$E30"); $R" trusted_devices_ua_summary_chk   # U+202E (Cf)
+run DENIED "$TX $(td "$H1" "REPEAT('u',81)" "$E30"); $R" "Data too long"
 # Temizlik (FK sırasıyla)
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.

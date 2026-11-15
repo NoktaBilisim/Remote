@@ -9008,3 +9008,43 @@ Kararsız testlerde kural R-PT8: kırmızıda 3 tekrar; baseline'da da kararsız
 | AC-322: sunucu entegrasyon testlerinde dosya-yerel `boot` 7, `signIn` 2, `login` 2 dosya                                         | gövde farkı (PT-K2.md); AC-322 metni revize edildi (K-PT-3), GEÇTİ                                                        |
 | Go test sayısı: betik `Test+Benchmark` sayar (398/424), geçerli sayı `Test` işlevi 397 / 423                                     | sonuc.md AC-317 "Go test sayısı" (yöntem ve 458'in kaynağı)                                                               |
 | K0: vitest listesi `vitest list` yerine kapsam koşusu JSON'undan; testsiz Go `deadcode` yalnız windows; knip/jscpd `pnpm dlx`    | yukarıdaki PT-K0 "Sapmalar"                                                                                               |
+
+## P27a
+
+### P27a-K1 (şema, migration, grants) — dba — 2026-11-15
+
+Mimari-p27a r3 §3.1–3.3, §13; AC-331 (anahtar varsayılanı), AC-334 (grants), K-P27a-2 (Super Admin satırı yok), K-P27a-12.
+
+| Dosya                                                                | Değişiklik                                                                                                         |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `apps/server/prisma/schema.prisma`                                   | `TrustedDevice` modeli (`trusted_devices`), `TenantSettings.mfaRememberDevice` (varsayılan `true`), ters ilişkiler |
+| `apps/server/prisma/migrations/20261121000000_p27a_trusted_devices/` | `migration.sql` (INSTANT ADD COLUMN + CREATE TABLE + elle CHECK'ler) ve `down.sql` (koruma + REVOKE + DROP)        |
+| `apps/server/prisma/sql/grants.sql`                                  | `trusted_devices`: SELECT/INSERT/UPDATE/DELETE; ALTER/DROP/INDEX/TRIGGER/REFERENCES REVOKE                         |
+| `deploy/mysql/check-app-grants.sh`                                   | P27a bölümü (+22 satır) ve DELETE yetkili tablo kümesine `trusted_devices`                                         |
+| `docs/db-notlari.md`                                                 | "P27a" bölümü                                                                                                      |
+
+Mimariden sapmalar (mimari-p27a §3.1'e işlenmesi için koordinatöre bildirildi):
+
+- r3 uygulandı: `prev_token_hash` yok, `token_hash` indekssiz; arama PK `id` (ULID CHAR(26)) ile.
+- user FK bileşik `(user_id, tenant_id) → users(id, tenant_id)` (P18 S-P18-T5 kalıbı). "tenant_id kullanıcı satırından
+  kopyalanır" kuralı DB'de zorlanır. Bu yüzden indeks `(user_id, tenant_id, created_at)`: mimarideki `(user_id, created_at)`
+  bileşik FK'yi karşılamaz. Uygulama kodunda fark yok: Prisma `create({ data: { userId, tenantId, … } })` aynı.
+- Ek CHECK'ler (daraltma): `token_hash` küçük harf hex 64; `expires_at ∈ (created_at, created_at + 30 g + 1 dk]` (döndürme
+  süreyi uzatamaz); `ua_summary`'de Cc/Cf yok (boş özet serbest).
+
+K2/K3/K4 için notlar:
+
+- `expires_at` uygulama saatiyle `now + 30 gün` yazılabilir; `created_at` DB varsayılanıdır, 1 dk sapma toleransı var.
+  Süresi dolmuş fikstür gerekiyorsa `created_at`'i de geriye alın (migrator).
+- Döndürme `UPDATE trusted_devices SET token_hash=?, last_used_at=?, ip=? WHERE id=? AND token_hash=?` (PK ile; 1 satır).
+- **K4:** `tenant-purge-meta-p16.test.ts` iki testi bu şemayla kırmızıdır; mimari "meta-test yeni tabloyu ister" diyor.
+  `trusted_devices.user_id` ve `.tenant_id` users-FK listesine eklenmeli. Tablo `tenants`'a da FK verdiği için
+  USER_CHILDREN'da olması 1. meta-testi geçirmez: `auth_sessions` gibi istisna kümesine alınmalı. Öneri:
+  `byTenant("trusted_devices")` (tenant_id NOT NULL, `IX(tenant_id)` kullanır). `test/helpers/tenant-purge.ts`
+  `TENANT_TABLES`'a eklenmeli.
+
+Test (geçici `rs-p27a-k1-59530b`, mysql 8.4.13, `--max-connections=300`, silindi): temiz up (24 migration),
+`migrate diff --exit-code` 0, `check-app-grants.sh` 649/649 PASS. `down.sql` koruması 3819 verdi ve hiçbir şey değişmedi.
+Koruma geçilince down çalıştı: P19 şemasına diff 0, tables_priv satırı ve migration kaydı silindi. Yeniden up: diff 0,
+grants 649/649. `typecheck` temiz, server unit 435/435. `test:int` 794/796: yalnız yukarıdaki iki meta-test kırmızı (beklenen,
+K4).

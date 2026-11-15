@@ -40,32 +40,35 @@ model Tenant {
   messages        SessionMessage[]
   holidays        BusinessHoliday[]
   notifications   NotificationOutbox[]
+  trustedDevices  TrustedDevice[]
 
   @@map("tenants")
 }
 
 model TenantSettings {
-  tenantId        String   @id @map("tenant_id") @db.Char(26)
-  sessionTtlMin   Int      @default(15) @map("session_ttl_min") // 15..30
-  maxOpenSessions Int      @default(3) @map("max_open_sessions") // 1..10
-  maxActiveHours  Int      @default(4) @map("max_active_hours") // 1..8
-  maxFileMb       Int      @default(100) @map("max_file_mb") // 1..2048
-  requireTech2fa  Boolean  @default(true) @map("require_tech_2fa")
-  retentionDays   Int      @default(365) @map("retention_days") // 90..730
-  smtpHost        String?  @map("smtp_host") @db.VarChar(255)
-  smtpPort        Int?     @map("smtp_port")
-  smtpSecurity    String?  @map("smtp_security") @db.VarChar(20) // NONE | SSL | STARTTLS
-  smtpUser        String?  @map("smtp_user") @db.VarChar(190)
-  smtpPassEnc     Bytes?   @map("smtp_pass_enc") @db.VarBinary(512) // AES-256-GCM, §3.2
-  smtpFromName    String?  @map("smtp_from_name") @db.VarChar(100)
-  smtpFromEmail   String?  @map("smtp_from_email") @db.VarChar(190)
+  tenantId          String   @id @map("tenant_id") @db.Char(26)
+  sessionTtlMin     Int      @default(15) @map("session_ttl_min") // 15..30
+  maxOpenSessions   Int      @default(3) @map("max_open_sessions") // 1..10
+  maxActiveHours    Int      @default(4) @map("max_active_hours") // 1..8
+  maxFileMb         Int      @default(100) @map("max_file_mb") // 1..2048
+  requireTech2fa    Boolean  @default(true) @map("require_tech_2fa")
+  retentionDays     Int      @default(365) @map("retention_days") // 90..730
+  // P27a (mimari-p27a §3.2, K-P27a-1/12; AC-331): 2FA cihaz hatırlama firma anahtarı; mevcut firmalar da TRUE (INSTANT ADD COLUMN)
+  mfaRememberDevice Boolean  @default(true) @map("mfa_remember_device")
+  smtpHost          String?  @map("smtp_host") @db.VarChar(255)
+  smtpPort          Int?     @map("smtp_port")
+  smtpSecurity      String?  @map("smtp_security") @db.VarChar(20) // NONE | SSL | STARTTLS
+  smtpUser          String?  @map("smtp_user") @db.VarChar(190)
+  smtpPassEnc       Bytes?   @map("smtp_pass_enc") @db.VarBinary(512) // AES-256-GCM, §3.2
+  smtpFromName      String?  @map("smtp_from_name") @db.VarChar(100)
+  smtpFromEmail     String?  @map("smtp_from_email") @db.VarChar(190)
   // P19 (mimari-e11 §8c.1, §8c.4; AC-260; S-P19-T5): smsportal. CHECK'ler migration.sql'de (elle): sms_url yalnız köken + yol
   // (userinfo `@`, sorgu `?`, parça `#`, boşluk/kontrol karakteri yok); sms_header NetGSM başlığı biçimi.
-  smsUrl          String?  @map("sms_url") @db.VarChar(255) // NULL = sistem varsayılanı (env SMSPORTAL_URL)
-  smsApiKeyEnc    Bytes?   @map("sms_api_key_enc") @db.VarBinary(512) // AES-256-GCM, AAD `tenant_settings.sms_api_key:<tenantId>|<etkin URL kökeni>`
-  smsHeader       String?  @map("sms_header") @db.VarChar(11) // ^[A-Za-z0-9 .-]{1,11}$
-  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  smsUrl            String?  @map("sms_url") @db.VarChar(255) // NULL = sistem varsayılanı (env SMSPORTAL_URL)
+  smsApiKeyEnc      Bytes?   @map("sms_api_key_enc") @db.VarBinary(512) // AES-256-GCM, AAD `tenant_settings.sms_api_key:<tenantId>|<etkin URL kökeni>`
+  smsHeader         String?  @map("sms_header") @db.VarChar(11) // ^[A-Za-z0-9 .-]{1,11}$
+  createdAt         DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.DateTime(3)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
@@ -113,6 +116,7 @@ model User {
   assignedRequests   SupportRequest[]     @relation("RequestAssignee")
   sentMessages       SessionMessage[]
   createdHolidays    BusinessHoliday[]
+  trustedDevices     TrustedDevice[]
 
   @@unique([id, tenantId]) // P18 (S-P18-T5): support_requests (assigned_to, tenant_id) bileşik FK hedefi — atanan aynı tenant'ta
   @@index([tenantId, status])
@@ -166,6 +170,34 @@ model PasswordResetToken {
   @@index([userId, createdAt]) // hesap başına istek sayımı + açık tokenları kapatma
   @@index([expiresAt]) // retention (§3.4)
   @@map("password_reset_tokens")
+}
+
+// P27a (mimari-p27a §3.1; AC-325..335b, K-P27a-2/11): 2FA "bu cihazı 30 gün hatırla". Düz belirteç DB'de yok (SHA-256 hex);
+// r3 (O-P27a-r2-1): çerez `<id>.<gizli>`; arama PK ile, doğrulama token_hash ile (indeks/UQ yok, prev_token_hash yok); her
+// atlamada token_hash döner (koşullu UPDATE `WHERE id=? AND token_hash=?`).
+// tenant_id NOT NULL → Super Admin (users.tenant_id NULL) satırı DB düzeyinde oluşamaz. Bileşik FK (user_id, tenant_id) →
+// users(id, tenant_id) (P18 S-P18-T5 kalıbı): satırın firması kullanıcının firmasıyla DB düzeyinde aynı (dba; mimariden güçlendirme).
+// expires_at = created_at + 30 gün, güncellenmez. CHECK'ler migration.sql'de (elle): token_hash biçimi, TTL ≤ 30 g + 1 dk,
+// ua_summary'de kontrol karakteri yok. Silme yolları: saklama (expires_at), firma silme USER_CHILDREN, KVKK erasure, purgeTx.
+model TrustedDevice {
+  id         String    @id @db.Char(26)
+  tenantId   String    @map("tenant_id") @db.Char(26)
+  userId     String    @map("user_id") @db.Char(26)
+  tokenHash  String    @map("token_hash") @db.Char(64) // SHA-256 hex (küçük harf); her kullanımda değişir; r3: indekssiz (arama PK ile)
+  uaSummary  String    @map("ua_summary") @db.VarChar(80) // "Chrome · Windows"; tam UA saklanmaz
+  ip         String    @db.VarChar(45) // son kullanım IP'si (oluşturmada oluşturan)
+  lastUsedAt DateTime? @map("last_used_at") @db.DateTime(3) // NULL = henüz atlama yapılmadı
+  expiresAt  DateTime  @map("expires_at") @db.DateTime(3) // created_at + 30 gün; sabit
+  createdAt  DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  user   User   @relation(fields: [userId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([userId, tenantId, createdAt]) // bileşik FK öneki + kullanıcının listesi / 10 sınırı / en eski
+  @@index([tenantId]) // tenant FK + firma geneli silme (pasif, anahtar kapatma, firma silme partisi)
+  @@index([expiresAt]) // saklama işi
+  @@map("trusted_devices")
 }
 
 model AuthSession {

@@ -1310,3 +1310,59 @@ oturumun TX'i aynı satırı yenilerken (STORED `active_session_id` eklemesi) bi
 yeniden denemesi bunu çözer — ancak `$queryRaw` hatası `P2010` + `cause.originalCode: "1213"` (dize) taşıdığından
 `isTransientDbError` onu tanımıyordu (yeniden deneme hiç çalışmıyordu → `INTERNAL`). K1'de düzeltildi (`lib/db.ts`); eşzamanlılık
 testi `bindings-p20.test.ts` "K0" 3/3 yeşil.
+
+## P27a — hatırlanan 2FA cihazları: trusted_devices, tenant_settings.mfa_remember_device (K1, 2026-11-15)
+
+Migration `apps/server/prisma/migrations/20261121000000_p27a_trusted_devices/{migration.sql,down.sql}`. Mimari-p27a r3 §3.1–3.3,
+§13. Veri taşıma yok: tablo boş başlar. Mevcut `tenant_settings` satırları sütun varsayılanıyla TRUE alır (K-P27a-12). Satırı
+olmayan firma da tembel INSERT'te TRUE alır. Seed değişmedi.
+
+### Şema
+
+| Değişiklik               | Ayrıntı                                                                                                                                                                                                    |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenant_settings` +=     | `mfa_remember_device BOOLEAN NOT NULL DEFAULT TRUE`                                                                                                                                                        |
+| `trusted_devices` (yeni) | id ULID PK; `tenant_id` NOT NULL; `user_id`; `token_hash` CHAR(64) (indekssiz, r3); `ua_summary` ≤ 80; `ip` ≤ 45; `last_used_at` NULL; `expires_at`; `created_at`/`updated_at` DATETIME(3) UTC             |
+| CHECK                    | `token_hash_fmt_chk` `^[0-9a-f]{64}\z` 'c'; `ttl_chk` `expires_at ∈ (created_at, created_at + 30 g + 1 dk]`; `ua_summary_chk` Cc/Cf yok                                                                    |
+| FK (RESTRICT)            | `tenant_id → tenants(id)`; **bileşik** `(user_id, tenant_id) → users(id, tenant_id)`: satırın firması kullanıcının firmasıdır. tenant_id NOT NULL ile Super Admin (tenant NULL) satırı oluşamaz (K-P27a-2) |
+| İndeks                   | PK `id` (girişte arama, r3); IX(user_id, tenant_id, created_at) (bileşik FK öneki + liste/sınır/en eski); IX(tenant_id) (tenant FK + firma geneli silme); IX(expires_at) (saklama)                         |
+
+Sapmalar (mimari §3.1'e işlenmek üzere bildirildi):
+
+- r3 (O-P27a-r2-1): `prev_token_hash` yok, `token_hash` UQ/indeks yok. Çerez `<id>.<gizli>`. Arama PK ile, doğrulama
+  özetle yapılır. Döndürme koşullu `UPDATE … WHERE id=? AND token_hash=?` ile olur.
+- Bileşik user FK ve buna bağlı indeks sırası. Mimarideki `(user_id, created_at)` FK'yi karşılamaz; MySQL gizli ek indeks
+  açardı. Kullanıcı başına ≤ 10 satır olduğundan `WHERE user_id=? ORDER BY created_at` filesort'u önemsizdir.
+- CHECK'ler daraltmadır. TTL üst sınırı döndürmenin ya da hatalı bir UPDATE'in süreyi uzatmasını da engeller.
+
+Enum/lookup: yeni enum yok. Hacim: kullanıcı × ≤ 10, büyümez. Saklama işi `expires_at < now` siler (K4), partition gerekmez.
+Hassas veri: düz belirteç yok, yalnız SHA-256 hex. `ua_summary` ve `ip` kişisel veridir: KVKK erasure ve kullanıcı/firma silme
+yollarında silinir (K4).
+
+### Yetkiler ve silme yolları
+
+`trusted_devices`: SELECT/INSERT/UPDATE/DELETE; ALTER/DROP/INDEX/TRIGGER/REFERENCES REVOKE. Tetikleyici yok, toplam 23 kalır
+(lib.sh, audit-continuity değişmez). Olay anında `DELETE FROM trusted_devices;` app yetkisiyle yapılabilir.
+Firma silme: tabloda tenant FK olduğundan P16 meta-testi `auth_sessions` gibi istisna ister. Öneri USER_CHILDREN'da
+`byTenant("trusted_devices")` (implementation.md "P27a-K1", K4).
+
+### Kilit ve geri alma
+
+- ADD COLUMN sonda + sabit DEFAULT → `ALGORITHM=INSTANT`, yeniden yazım yok. Yeni tablo boştur. CHECK'ler CREATE'te olduğu
+  için COPY olmaz.
+- `down.sql` koruması `p27a_down_guard_chk`: anahtarı kapatmış firma varsa (`mfa_remember_device = 0`) hiçbir şey değişmeden
+  3819 verir. Aksi hâlde yeniden uygulamada firma sessizce TRUE'ya dönerdi. Yapılacaklar dosyanın başında yazılı: listeyi alın,
+  geçin, sonra geri çekin. Ardından REVOKE, DROP TABLE, DROP COLUMN (INSTANT) ve migration kaydı silinir.
+  **Önce P27a kodu ve grants.sql geri alınmalıdır.**
+- Yedek: mevcut MySQL yedeği kapsar; gizli değer yok, yalnız özet var.
+
+### Test (2026-11-15, geçici `rs-p27a-k1-59530b`, mysql 8.4.13 binlog açık + bayrak, `--max-connections=300`, silindi)
+
+- Temiz up (P1→P27a, 24 migration) sorunsuz geçti. `migrate diff --exit-code` 0. `check-app-grants.sh` **649/649 PASS**
+  (+22 P27a). Bunlar: varsayılan TRUE, verify → döndürme → iptal, firma geneli silme, DDL reddi, tenant NULL (1048),
+  başka firma / olmayan kullanıcı (bileşik FK), düz/büyük harf/satır sonlu özet, TTL 31 g / geçmiş / UPDATE ile uzatma,
+  UA CR-LF / U+202E, 81 karakter.
+- Dolu DB'de (bir firma kapalı) down → 3819, değişiklik yok. Geçince down → P19 şemasına diff 0, tables_priv yok, kayıt
+  silindi. Yeniden up → diff 0, grants 649/649.
+- Server typecheck temiz, unit 435/435. `test:int` 794/796: `tenant-purge-meta-p16` iki meta-testi yeni tabloyu ister
+  (beklenen; K4 USER_CHILDREN + meta-test listesi).
