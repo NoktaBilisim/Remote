@@ -1,3 +1,358 @@
+# Güvenlik Raporu — P27a tasarım turu ("Bu cihazı 30 gün hatırla"; kod öncesi, 2026-11-15)
+
+DURUM: DÜZELTİLMELİ — mimariye işlenmeli (Y-P27a-1: K-P27a-2 bu haliyle kabul edilmedi; `docs/mimari-p27a.md` r2 + kullanıcı kararı)
+Özet: Kritik 0 / Yüksek 1 / Orta 2 / Düşük 4
+Kapsam: `docs/mimari-p27a.md` (§3.4, §4, §5, K-P27a-1..10), `docs/gereksinimler.md` §11 AC-325..335; mevcut auth kodu (login, mfa
+verify, step-up, logout-all, şifre değişimi/sıfırlama, superadmin-reset, çerez, CSRF) ile varsayımlar doğrulandı. Kod değiştirilmedi.
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] Y-P27a-1 Super Admin'in hatırlamaya dahil edilmesi (K-P27a-2): bu haliyle ret — A07 Identification and Authentication Failures
+
+Yer: docs/mimari-p27a.md:28, :214 (T6); apps/server/src/tenants/routes.ts:138 (`POST /admin/switch-tenant` step-up yok);
+apps/server/src/users/routes.ts:125 (`POST /users` yalnız `users.create`), :157 (`/:id/reset-mfa` yalnız `users.edit`).
+Sorun: T6 kabulü "Super Admin'in hassas işlemleri step-up ister" varsayımına dayanıyor. Bu varsayım yanlış: firma geçişi step-up istemiyor;
+geçişten sonra Super Admin her firmada kullanıcı oluşturabiliyor, 2FA sıfırlayabiliyor, bütün müşteri, oturum ve audit verisini
+okuyabiliyor. Ayrıca T1'in "şifre ayrıca gerekir" telafisi, en yaygın tehdit olan tarayıcı bilgi hırsızlarına (infostealer) karşı zayıf:
+bu yazılımlar tarayıcıda kayıtlı şifreyi ve çerezleri aynı anda alır. Super Admin tenant'sız olduğu için firma anahtarı (K-P27a-1) ve
+Admin'in "Tümünü kaldır" ucu (K-P27a-9) ona hiç ulaşmaz. Yani bu hesapta yalnız kullanıcının kendisi iptal edebilir.
+İstismar senaryosu: Super Admin'in bilgisayarına bulaşan infostealer `__Secure-rs_td` çerezini ve kayıtlı şifreyi alır. Saldırgan
+30 gün boyunca TOTP sormadan giriş yapar, istediği firmaya geçer ve o firmada yeni bir Admin oluşturur (step-up yok). Oluşturduğu Admin
+kendi TOTP'sini kurar. Böylece kalıcı, çok firmalı bir ele geçirme elde edilir ve kimse uyarılmaz (K-P27a-10: e-posta Sonra).
+Düzeltme (karar kullanıcıya; varsayılan A):
+
+- **A (önerilen, tek satır):** `rememberAllowed`: `role === "SUPER_ADMIN"` → false (T6'daki geri dönüş). Kutu Super Admin'e gösterilmez
+  (`rememberDeviceAvailable=false`). Admin ve teknisyenler için özellik aynen kalır.
+- **B (kullanıcı Super Admin için ısrar ederse, hepsi birlikte):**
+  1. `auth_sessions`'a `mfa_via` (`totp` \| `remembered`) yazılır. `remembered` oturumda `/admin/*` yazma uçları ve `switch-tenant`
+     `requireStepUp` ister (guard'da tek koşul).
+  2. S-P27a-1 Super Admin için şimdi uygulanır: yeni cihaz hatırlandığında ve hatırlanan cihazla her girişte e-posta gider (sistem SMTP'si).
+  3. O-P27a-1'deki belirteç döndürme uygulanır.
+  4. Süre 7 gündür.
+
+  B'nin pratik kazancı düşüktür: Super Admin'in günlük işi firma geçişidir ve orada yine kod girer. Bu yüzden A önerilir.
+
+Atanan: mimar (r2 + kullanıcıya tek soru) → backend-dev (P27a-K3).
+
+### [ORTA] O-P27a-1 Belirteç kullanımda dönmüyor; çalınan çerez fark edilmeden 30 gün yaşıyor — A07 (T1)
+
+Yer: docs/mimari-p27a.md:84 (`expires_at` güncellenmez), :185-192 (kullanımda yalnız `touch`).
+Sorun: Aynı belirteç 30 gün boyunca değişmeden kullanılıyor. Kopyalanan çerezle gerçek tarayıcı yan yana çalışabiliyor ve bu
+algılanamıyor. IP'ye bağlamamak (T1) doğru bir karar; ama bu durumda tek tespit yolu döndürmedir.
+Düzeltme: her başarılı atlamada aynı login TX'inde yeni 32 bayt belirteç üretilir, `token_hash` güncellenir, eski değer
+`prev_token_hash` sütununa taşınır ve yeni `Set-Cookie` yazılır (`expires_at` ve Max-Age değişmez, kalan süre korunur).
+`prev_token_hash` ile gelen istek "yeniden kullanım" sayılır: kullanıcının bütün satırları silinir, audit
+`auth.trusted_device_reuse{result:fail}` yazılır, SMTP varsa kullanıcıya e-posta gider ve normal TOTP aşamasına geçilir.
+Eşzamanlı iki sekme girişi nadirdir; kabul edilir. Test: döndürülmüş eski çerezle giriş → TOTP sorulur ve satırlar silinir.
+Atanan: backend-dev (K3), dba (K1: sütun + UNIQUE).
+
+### [ORTA] O-P27a-2 "Yeni cihaz hatırlandı" bildirimi Sonra'ya bırakılmış; varsayılan açık özellikte tespit yalnız profil ekranında — A09 (K-P27a-10, S-P27a-1)
+
+Yer: docs/mimari-p27a.md:36, :309.
+Sorun: Özellik bütün firmalarda varsayılan açık (K-P27a-1). Kullanıcının bilgisi dışında hatırlanan bir cihaz (paylaşılan PC, T2;
+oturum ele geçirme sırasında işaretlenen kutu) ancak Hesabım listesine bakılırsa görülür.
+Düzeltme: S-P27a-1 bu pakete alınsın. `issue` commit'inden sonra mevcut `mail` servisiyle (firma SMTP'si varsa; yoksa audit
+`not_configured`, mevcut kalıp) "Yeni cihaz hatırlandı: tarayıcı · işletim sistemi, IP, saat; siz değilseniz Hesabım → Hatırlanan
+cihazlar → Tümünü kaldır ve şifrenizi değiştirin" e-postası gönderilsin. İçerikte belirteç ve bağlantı olmaz. Yeni bağımlılık gerekmez.
+Atanan: backend-dev (K3/K4), teknik-yazar.
+
+### [DÜŞÜK] D-P27a-1 Mevcut firmalarda sessiz gevşeme: `requireTech2fa` açan firmaya da varsayılan açık — A05
+
+Yer: docs/mimari-p27a.md:95 (migration her satıra TRUE).
+Düzeltme: migration `mfa_remember_device = NOT require_tech_2fa` yazsın: 2FA'yı zorunlu kılmış firmalar bilinçli seçim yapana kadar
+kapalı kalır. Yeni firmalarda AC-331 gereği varsayılan açık kalır. Bu yol kabul edilmezse CHANGELOG'a ve sürüm notuna firma
+Admin'lerine yönelik açık bir satır yazılsın. Atanan: dba (K1), proje-yöneticisi (karar).
+
+### [DÜŞÜK] D-P27a-2 Aynı adlı birden çok çerez ve paylaşılan host — A05 (K-P27a-7, K-P27a-8)
+
+Sorun: `__Secure-` öneki `Domain=` kullanımını engellemez. Kardeş bir alt alan adı aynı adla çerez yerleştirebilir (cookie tossing).
+Ayrıca çerezler porta göre ayrılmaz: staging host'u (IP:4450) aynı IP'de başka portlardaki servislerle çerez kutusunu paylaşır.
+Etkisi DoS düzeyindedir (doğru çerezin gölgelenmesi). Başkasının çerezi kullanıcı eşleşmesi nedeniyle atlama vermez (§3.1 koruması doğru).
+Düzeltme: `consumeAtLogin` aynı addaki bütün değerleri (en çok 2) dener; geçersiz değer için `Set-Cookie` silme yalnız host-only
+çereze yazılır. Yol kısıtı için `__Secure-` seçimi kabul edilir. Prod'da ayrı alan adı kullanılır (runbook notu). Atanan: backend-dev (K3).
+
+### [DÜŞÜK] D-P27a-3 Login dalındaki sıralama tasarımda yazılı değil — A07
+
+Yer: docs/mimari-p27a.md:185-192; apps/server/src/auth/service.ts:177-198.
+Sorun: Atlama dalı, mevcut `temp_password_expired` reddinden (service.ts:178), `mustChangePassword` aşamasından ve `previousToken`
+iptalinden (service.ts:193) sonra gelmelidir. Hatırlanan cihaz şifre değiştirme zorunluluğunu ve 2FA kurulum zorunluluğunu
+(`setupEnforced`) atlamamalıdır.
+Düzeltme: §5.1'e sıra yazılsın: kilit → şifre → geçici şifre süresi → `consumeAtLogin` → `openSession(mfaPassed)` → `mfaStageOf`
+(şifre değişimi aşaması korunur). Entegrasyon testi: `mustChangePassword` olan kullanıcı hatırlanan cihazla girince yine şifre değişim
+aşamasına düşer. Atanan: backend-dev (K3).
+
+### [DÜŞÜK] D-P27a-4 Audit ayrımı ve savunmacı silme — A09
+
+Düzeltme:
+
+- `auth.login` success satırının `newValue` alanına `{ mfa: "remembered" }` eklensin. Audit ekranında tek filtreyle "TOTP'siz girişler"
+  ayrılabilir; `trusted_device_used` satırına ek olarak.
+- `users/purge.ts` kalıcı silme TX'ine `DELETE FROM trusted_devices WHERE user_id=?` eklensin. Pasif geçişi satırları zaten siler;
+  bu ek, FK RESTRICT nedeniyle silmenin takılmasına karşı savunmadır.
+
+Atanan: backend-dev (K3, K4).
+
+## Sorulan konulara yanıtlar
+
+| Konu                            | Değerlendirme                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Çerez öneki/yol                 | Kabul. Tarayıcı API'ye Caddy `handle /api/*` → server üzerinden gider (deploy/Caddyfile:201), yani `Path=/api/v1/auth` doğru kapsamdır. RFC 6265 yol eşleşmesi `/api/v1/authX`'i kapsamaz. `__Host-` yerine `__Secure-` gerekçesi geçerli; yan riski D-P27a-2'de.                                                                          |
+| CSRF / SameSite                 | Kabul. Login `checkOrigin` ile korunuyor (auth/guards.ts:11-14); durum değiştiren uçlarda çift gönderim CSRF var (guards.ts:37-40). Hatırlama çerezi SameSite=Strict ve yalnız eşleşen kullanıcıda etkili; login CSRF ile saldırgan hesabını açtırma senaryosuna katkısı yok.                                                              |
+| Belirteç karşılaştırma          | Sabit zamanlı karşılaştırma **gerekmez**: arama 256 bit rastgele değerin SHA-256'sı üzerinden UNIQUE indeksle yapılıyor. Zamanlama farkı belirteç hakkında bilgi sızdırmaz (önceden görüntü yok). Arama ancak doğru şifreden sonra yapıldığı için bir kehanet (oracle) de oluşmaz.                                                         |
+| Oturum sabitleme                | Kabul. Login önceki oturum token'ını iptal ediyor (service.ts:193) ve `openSession` yeni token + CSRF üretiyor. Atlamada `step_up_at` NULL (AC-327). `mfaVerify` oturumu yeniliyor.                                                                                                                                                        |
+| İptal noktalarının eksiksizliği | §3.4 listesi kodla karşılaştırıldı: şifre değişimi, sıfırlama, superadmin-reset, Admin 2FA sıfırlama, 2FA etkinleştirme, logout-all, kullanıcı/firma pasif, ayar kapatma tamam. TOTP kapatma ucu yok (yalnız Admin reset-mfa). Super Admin'e ulaşan Admin/firma yolu olmaması Y-P27a-1'de ele alındı. Savunmacı purge silmesi D-P27a-4'te. |
+| Kilit / hız sınırı              | Kabul. Belirteç IP/çift/hesap kilidi ve argon2 başarılı olduktan sonra değerlendiriliyor (service.ts:140-175 sırası korunur). Ek sınır gerekmez. MFA deneme sayacına etkisi yok.                                                                                                                                                           |
+| Audit / log maskesi             | Kabul. `lib/logger.ts:11,15` `req.headers.cookie` ve `res.headers['set-cookie']` değerlerini maskeliyor. Tasarım belirteci ve özetini audit'e yazmıyor; Caddy çerez yazmıyor (G-10). AC-333 log yakalama testi yeterli. Öneri: D-P27a-4.                                                                                                   |
+| Super Admin (K-P27a-2)          | **Ret (bu haliyle)**, Y-P27a-1.                                                                                                                                                                                                                                                                                                            |
+
+## Otomatik tarama çıktıları
+
+Kod öncesi tasarım turu; yeni bağımlılık yok. Taramalar P27a-K8 kod turunda çalıştırılacak.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Kod henüz yok. Yanlış çıkan varsayım: T6'daki "hassas Super Admin işlemleri step-up ister" ifadesi `switch-tenant` ve firma içi
+kullanıcı yazma uçları için doğru değil (Y-P27a-1).
+
+## Olumlu
+
+- Şifre her girişte soruluyor, step-up hiçbir durumda atlanmıyor, süre sabit 30 gün.
+- Kurtarma koduyla hatırlama sunulmuyor (K-P27a-4).
+- DB'de yalnız SHA-256 tutuluyor; geçersiz kılma tek repo işlevinden yapılıyor ve her nokta için ayrı test var.
+- Kullanıcı başına en çok 10 cihaz sınırı satır kilidiyle uygulanıyor.
+- Tenant/kullanıcı eşleşmesi null-güvenli (`<=>`) karşılaştırmayla denetleniyor.
+
+---
+
+# Güvenlik Raporu — P27 tasarım turu (K11a, AC-290; kod öncesi tehdit modeli, 2026-11-15)
+
+DURUM: DÜZELTİLMELİ — mimariye işlenmeli (Y-P27-1..3, `docs/mimari-p27.md` r2; işlenmeden K2–K7 kodu birleştirilmez, §9 K11a)
+Özet: Kritik 0 / Yüksek 3 / Orta 6 / Düşük 6
+Kapsam: `docs/mimari-p27.md` (taslak), ADR-0028, AC-273..275, 285..290, 293..297 + P27 revizyon notu; varsayımlar mevcut kodla
+doğrulandı (aşağıda "Doğrulanan varsayımlar"). Kod/tasarım dosyası değiştirilmedi. Yeni tehdit numaraları S-P27-15..17.
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] Y-P27-1 Müşteri bildirimi (ana telafi kontrolü) Admin tarafından sessizce etkisizleştirilebilir — A04 Insecure Design (S-P27-15, Repudiation/Spoofing)
+
+Yer: docs/mimari-p27.md:202 (`PUT …/contacts` yalnız `manage`, step-up yok), :222 (zincir 6. adım yalnız "≥ 1 adres var"), :430-431
+(başarısızlıkta bağlantı sürer); apps/server/src/notify/outbox.ts:283-284 ve apps/server/src/mail/service.ts:235 (tenant SMTP yoksa
+`not_configured` → `unconfigured`, gönderim yapılmaz).
+Sorun: Onaysız tam erişimde müşterinin haberdar olmasının tek yolu bildirimdir (ADR-0028). Ama (a) `unattended.manage` sahibi müşterinin
+adreslerini kendi adresiyle değiştirebilir, eski adreslere hiçbir şey gitmez, step-up istenmez; (b) tenant SMTP'si tanımsız/bozuk ise
+zincir geçer, her bildirim `unconfigured` olur ve bağlantı yine açılır; (c) SMTP ayarını da aynı Admin değiştirebilir.
+İstismar senaryosu: Kötü niyetli iç Admin (ya da ele geçirilmiş Admin hesabı + TOTP) müşteri adreslerini `ben@…` yapar veya SMTP
+şifresini bozar, kendine grant verir (step-up), mesai dışı bağlanır. Müşteri tarafına hiçbir bildirim ulaşmaz; gösterge yalnız
+ekranın başında biri varsa görülür. AC-296'nın amacı (bağlantıdan müşterinin haberdar olması) fiilen atlanır.
+Düzeltme (mimariye işlenecek kontrol):
+
+1. `PUT /unattended/customers/:customerId/contacts` → `manage` + **step-up** (tüketmez). Commit TX'inde yeni outbox türü
+   `UNATTENDED_CONTACTS_CHANGED` **eski ve yeni** adreslerin hepsine (maskeli fark: "x adresi eklendi/kaldırıldı", kim, saat). P19
+   tavanlarından muaf (K-P27-8 gerekçesi aynı).
+2. Zincire 6b adımı: tenant e-posta kanalı **yapılandırılmış** (SMTP kaydı var) değilse 409 `NOTIFY_CHANNEL_UNAVAILABLE`; kayıt kodu
+   üretiminde de aynı 409. Geçici gönderim hatasında bağlantı sürebilir (AC-296 "≤ 60 sn" dışı kalır) ama `unattended.session.started`
+   audit'ine `notify:"failed"` ve panelde cihaz satırında "Son bildirim gönderilemedi" uyarısı.
+3. SMTP ayarı değiştiğinde ya da silindiğinde, tenant'ta kayıtlı (iptal edilmemiş) cihaz varsa ayar ucu step-up ister (mevcut
+   `requireStepUp`, tüketmez) ve audit'e `unattended_devices>0` notu düşer.
+4. Test: adres değişince eski adrese outbox satırı; SMTP yokken connect → 409; değişiklik step-up'sız → 401.
+   Atanan: mimar (r2) → backend-dev (K2, K4), frontend-dev (K8: StepUpDialog adres kaydında).
+
+### [YÜKSEK] Y-P27-2 `%ProgramData%\NoktaDestek Servis` ön-yaratma (squatting): anahtar hırsızlığı ve SYSTEM keyfi dosya yazma — A01/A05 (S-P27-5, S-P27-7, S-P27-16 EoP)
+
+Yer: docs/mimari-p27.md:341-343 (klasör + `device.key`, "DPAPI makine kapsamı … asıl koruma ACL'dir"), :392-393 (`Gelen\` SYSTEM yazar),
+:564 (K-P27-11).
+Sorun: Windows'ta standart kullanıcı `%ProgramData%` altında klasör **oluşturabilir** (varsayılan ACL: Users "create folders"). Kurulumdan
+önce `NoktaDestek Servis` klasörünü yaratan kullanıcı **sahip** olur; kurulumun DACL'i değiştirmesi sahibin örtük `WRITE_DAC`
+hakkını almaz, kullanıcı kendine izin geri ekler. Ayrıca DPAPI **makine kapsamı** aynı makinedeki her süreçce çözülebilir; ACL düşerse
+anahtar korumasızdır. `Gelen\` de aynı yolla junction/bağ noktası yapılabilir; SYSTEM yardımcısı buraya yazar.
+İstismar senaryosu: (1) Standart kullanıcı klasörü önceden açar, kurulumdan sonra `device.key`'i okur, DPAPI makine kapsamıyla çözer
+→ cihaz kimliğine bürünür (S-P27-1 etkisi: teknisyen bağlantıları ve biletleri ona gider; bkz. D-P27-3). (2) `Gelen` → `C:\Windows\System32`
+junction; teknisyenin gönderdiği dosya SYSTEM yetkisiyle oraya düşer (`.part` O_EXCL ve no-replace taşıma üzerine yazmayı engeller ama
+yeni DLL/exe adı yerleştirmeyi engellemez → DLL arama sırası kaçırma → yerel yetki yükseltme).
+Düzeltme (mimariye işlenecek kontrol):
+
+1. `--install`: klasör varsa sahibi SYSTEM/Administrators değilse **veya** reparse noktasıysa yeniden adlandır/sil ve
+   `CreateDirectory` + `SECURITY_ATTRIBUTES` (korumalı DACL `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`, sahip BA) ile **atomik** oluştur;
+   önce oluşturup sonra ACL yazma yok. `Gelen` için aynı, ek olarak `(A;OICI;0x1200a9;;;AU)`.
+2. Servis her açılışta klasör + `device.key` + `Gelen` için sahip/DACL/reparse doğrulaması yapar; uymazsa bağlanmaz (olay 1004,
+   `connect.result{helper_failed}`), fail-closed.
+3. Yardımcı dosyayı yazarken `Gelen` tanıtıcısını açıp `GetFinalPathNameByHandle` beklenen yolla eşleşmezse reddeder (AC-249 kalıbı,
+   SYSTEM bağlamı için zorunlu).
+4. Anahtar: kurulum (yönetici) makine kapsamlı geçici dosya yazar; servis ilk açılışta SYSTEM **kullanıcı kapsamlı** DPAPI ile yeniden
+   şifreler ve geçiciyi siler (yalnız SYSTEM çözebilir). Ek bağımlılık yok (`CryptProtectData` bayraksız).
+5. Windows elle test (K5/K6b): klasörü standart kullanıcıyla önceden açıp kur → kurulum klasörü yeniden yaratmalı; `Gelen` junction → yazma
+   reddi. Atanan: mimar (r2) → backend-dev Go (K5, K6).
+
+### [YÜKSEK] Y-P27-3 SYSTEM yardımcısı tam ayrıcalıklı jetonla kullanıcı masaüstünde; sınır/kısıtlama yok — A04/A08 (S-P27-6, R-P27-3)
+
+Yer: docs/mimari-p27.md:317-319 (`DuplicateTokenEx` SYSTEM jetonu → `CreateProcessAsUser`), :308, :540 ("düşük bütünlük — Sonra mı");
+mevcut yeniden kullanılacak kodda kullanıcı arayüzü/kabuk çağrıları: apps/agent-win/internal/win/win_windows.go:566-579 (`OpenMailto`,
+`OpenURL` → `ShellExecuteW`), apps/agent-win/internal/ui/ui_windows.go:119 (hata `MessageBox`), ui/home_windows.go:188, session_windows.go:112.
+Sorun: Yardımcı, ağdan gelen veriyi (STUN/ICE, DTLS/SCTP, SDP, DC mesajları, dosya) işleyen ve teknisyen girdisini enjekte eden süreçtir;
+servis jetonunun kopyası `SeDebug`, `SeTcb`, `SeImpersonate`, `SeTakeOwnership`, `SeBackup/Restore` vb. tüm ayrıcalıkları taşır. P20
+istemcisinde kullanıcı bağlamında zararsız olan kabuk/diyalog çağrıları, SYSTEM bağlamında kullanıcının masaüstünde açıldığında klasik
+yetki yükseltme yoludur (diyalog → Gezgin/`cmd` SYSTEM olarak). Go bellek güvenli olsa da mantık hatası ya da yanlışlıkla bağlanmış bir
+UI yolu doğrudan SYSTEM'dir. Servisin kalıtılabilir tanıtıcıları (ör. `/ws/device` soketi) da yardımcıya sızabilir.
+İstismar senaryosu: Teknisyen (veya oturumu ele geçiren) yardımcıda bir hata/MessageBox/URL açma yolunu tetikler; açılan pencereden
+"Farklı kaydet" → `cmd.exe` SYSTEM olarak, kullanıcının masaüstünde. Kullanıcı düzeyindeki "tam erişim" SYSTEM'e yükselir; müşteri
+filosunda kalıcı ele geçirme.
+Düzeltme (mimariye işlenecek kontrol — "Sonra" değil, şimdi; maliyeti düşük):
+
+1. Jeton: `CreateRestrictedToken(DISABLE_MAX_PRIVILEGE)` ya da `AdjustTokenPrivileges` ile yalnız gerekli olanlar kalır (beklenen:
+   `SeChangeNotify`; masaüstü geçişi ayrıcalık değil masaüstü ACL'i ister — K6b'de ölçülür, gereken her ayrıcalık mimaride adıyla
+   gerekçelenir).
+2. Job nesnesi: `JOB_OBJECT_LIMIT_ACTIVE_PROCESS=1`, `KILL_ON_JOB_CLOSE` (servis ölürse yardımcı da ölür), ek olarak
+   `PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY = RESTRICTED` ve `PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY` (görüntü yükleme: uzak ve düşük
+   etiketli görüntü yok, System32 öncelikli).
+3. `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` ile yardımcıya **yalnız** anonim boru tanıtıcısı devredilir.
+4. Derleme sınırı: `internal/unattended/helper` bağımlılık kümesinde `win.OpenURL/OpenMailto/MessageBox`, `ui` diyalog/ana pencere
+   dosyaları, dosya seçici yok — `go list -deps` + AST taramalı birim testi (K6). Ölümcül hata yolu yalnız çıkış kodu + olay günlüğü;
+   hiçbir pencere/diyalog yok (gösterge hariç).
+5. Tüm kiplerde ilk iş `dllsafe` (`SetDefaultDllDirectories`), özellikle UAC'li `--install`'ın İndirilenler klasöründen çalışması için.
+6. Düşük bütünlüklü ayrı ağ süreci (WebRTC'yi ayırmak) gerçekten Sonra; 1-5 bu paketin parçası. Atanan: mimar (r2) → backend-dev Go (K5
+   `launch_windows.go`, K6).
+
+### [ORTA] O-P27-1 Adlandırılmış boru: sahte sunucu (squatting) ve istemci kimlik doğrulaması tanımsız — A07 (S-P27-5)
+
+Yer: docs/mimari-p27.md:364-367, :355-356 (yükseltilmiş `--uninstall` boruya bağlanır).
+Sorun: Servis yeniden başlarken/çökmüşken standart kullanıcı aynı adla boru açabilir; tepsi/pencere `disable` gönderip "Kapalı" yanıtı alır
+ama gerçek anahtar açık kalır (AC-295 kullanıcı güvencesi yanıltılır). Yükseltilmiş kaldırıcı varsayılan taklit düzeyiyle bağlanır.
+Düzeltme: sunucu `FILE_FLAG_FIRST_PIPE_INSTANCE`, sınırlı örnek sayısı, okuma zaman aşımı, DACL'e `ANONYMOUS LOGON` ve `NETWORK` deny;
+istemci `SECURITY_SQOS_PRESENT|SECURITY_IDENTIFICATION` ile açar ve `GetNamedPipeServerProcessId` = SCM'den alınan servis PID'i değilse
+bağlantıyı reddeder; tepsi/pencere "Kapalı" durumunu boru yanıtına değil HKLM `LocalEnabled` okumasına dayandırır (Users okuma var).
+Olay 1003'teki kullanıcı adı mesajdan değil `GetNamedPipeClientProcessId` → süreç jetonundan alınır. Atanan: backend-dev Go (K5, K7).
+
+### [ORTA] O-P27-2 Bağlantı zincirinde TX dışı denetimler ve yarışlar — A04 (S-P27-3, S-P27-9)
+
+Yer: docs/mimari-p27.md:219-226 (adım 3, 5, 9 TX öncesi), :83-85 (admit yeniden denetim kilitsiz), :130-133 (kod tüketimi), :261-264.
+Sorun: (a) İki teknisyen aynı anda bağlanırsa adım 9 (`DEVICE_BUSY`) ikisinde de geçer → iki PENDING oturum (K-P27-7 ihlali). (b) Adım 3
+ile TX arasında iptal/grant geri alma commit olursa ve `finishDevice` PENDING satırdan önce koşarsa oturum yetkisiz oluşur; admit kilitsiz
+okursa aynı pencere ACTIVE'e taşır. (c) Kayıt kodu çift kullanımı (iki eşzamanlı register). (d) Serviste `disable` ile yardımcı başlatma
+yarışı.
+Düzeltme: connect TX'i `SELECT … FROM unattended_devices WHERE id=? AND tenant_id=? FOR UPDATE` ile başlar; `revoked_at`, `local_enabled`,
+grant (`FOR SHARE`) ve cihazın açık UNATTENDED oturum sayısı TX içinde yeniden denetlenir. Revoke, PUT grants ve `device.state` aynı satırı
+`FOR UPDATE` kilitler. `admitDeviceGuest` aynı kilit + yeniden denetim. Kod: `UPDATE … SET used_at, device_id WHERE code_hash=? AND
+used_at IS NULL AND expires_at>?` count=1, cihaz INSERT'iyle tek TX. Servis: anahtar okuması + yardımcı başlatma tek mutex altında; disable
+mutex'i alıp yardımcıyı keser. Test: `Promise.all` iki connect → biri 409; revoke ‖ connect → oturum yok ya da ≤ 10 sn biter.
+Atanan: backend-dev (K2, K3), Go (K5).
+
+### [ORTA] O-P27-3 Yedek yeniden doğrulama grant/cihaz durumunu kapsamıyor — A01 (S-P27-9)
+
+Yer: apps/server/src/signaling/ws-auth.ts:220-223 (`revalidateTech` yalnız rol + izinler → `applyPermChange`); docs/mimari-p27.md:263-265.
+Sorun: Grant geri almada kesme yalnız commit sonrası `finishDevice`'a bağlı; bu adım hata verir/atlanırsa 60 sn'lik yedek grant'ı, cihaz
+iptalini, `local_enabled`'ı ve `UNATTENDED_MODE`'u denetlemez; oturum `maxActiveHours`'a dek sürer.
+Düzeltme: `room.unattended` odalarında `revalidateTech` ek olarak grant varlığı, `revoked_at IS NULL`, `local_enabled`, gate modunu denetler;
+biri düşerse `permission`/`device_revoked`/`local_disabled` ile biter. Test: `finishDevice` çağrısını devre dışı bırakıp ≤ 60 sn kesilme.
+Atanan: backend-dev (K3).
+
+### [ORTA] O-P27-4 Masaüstü geçişinde gösterge doğrulanmadan görüntü/girdi akmaya devam ediyor; UAC onayı riski — A04 (S-P27-12)
+
+Yer: docs/mimari-p27.md:319-322, :384-385 ("2 sn içinde doğrulanamazsa" bitir).
+Sorun: Geçişten sonraki ≤ 2 sn'de yakalama ve girdi yeni masaüstünde (kilit/UAC) göstergesiz çalışır; AC-294 "her zaman" ve fail-closed
+ilkesiyle çelişir. Ayrıca oturum açmış kullanıcı yöneticiyse teknisyen UAC **onay** istemini kimlik bilgisi olmadan onaylayabilir (yerel
+yönetici düzeyine örtük yükselme); bu S24 kapsamında beklenen ama müşteriye açıkça söylenmemiş.
+Düzeltme: masaüstü değişince önce yakalama durdurulur ve gelen girdi düşürülür; gösterge yeni masaüstünde doğrulandıktan **sonra** devam;
+2 sn içinde doğrulanmazsa `indicator_failed`. UAC onayı yeteneği kılavuz (Müşteri BT bölümü), DATASHEET güvenlik bölümü ve kayıt kodu
+ekranındaki 3 adımlı yönergede açıkça yazılır ("oturumdaki kullanıcı yöneticiyse teknisyen yükseltme onayı verebilir; standart kullanıcı
+hesabı önerilir"). Atanan: backend-dev Go (K6b), teknik-yazar (K13).
+
+### [ORTA] O-P27-5 Yeni cihaz kaydı sessiz; sızan kodla sahte cihaz teknisyeni hedefler — A07 (S-P27-2, S-P27-17)
+
+Yer: docs/mimari-p27.md:204, :536.
+Sorun: Kayıt yalnız audit'e düşer. Sızan kodla kaydolan saldırgan cihazı, grant verilince teknisyen bağlantılarını alır: teknisyen adı/IP'si,
+teknisyenin gönderdiği dosyalar saldırgana gider; sahte masaüstüyle teknisyenden kimlik bilgisi istenebilir.
+Düzeltme (S-P27-2 sorusunun yanıtı: evet): register başarısında tenant'ta `unattended.manage` sahiplerine e-posta ("Yeni cihaz kaydedildi:
+ad, müşteri, IP, saat") + müşterinin bildirim adreslerine aynı bilgi (outbox türü `UNATTENDED_DEVICE_REGISTERED`); panelde ilk grant
+verilene kadar "Yeni — doğrulanmadı" rozeti ve grant ekranında kayıt IP'si/zamanı. Atanan: backend-dev (K2, K4), frontend-dev (K8).
+
+### [ORTA] O-P27-6 `DEPLOY_ENV` sunucuda henüz yok; kapı tek operatör değişkenine dayanıyor — A05 (AC-297, K-P27-3)
+
+Yer: apps/server/src/env.ts:40 (yalnız `NODE_ENV`, `DEPLOY_ENV` yok); docs/mimari-p27.md:271-279, :466-468.
+Sorun: Tasarım `DEPLOY_ENV`'in "ADR-0021'de var" olduğunu varsayıyor; sunucu env'inde yok. Varsayılan/eksik değer ya da staging `.env`'inin
+prod'a kopyalanması imzasız SYSTEM servisini prod'da açar.
+Düzeltme: `DEPLOY_ENV` `z.enum(["production","staging","development"])` **varsayılansız zorunlu** (NODE_ENV=production iken); `unsigned` ⇔
+`DEPLOY_ENV==="staging"`, aksi açılış hatası (mevcut refine kalıbı). `unsigned` modda gösterge metni ve panel bandı "TEST — imzasız" içerir;
+`/healthz` ya da açılış logu modu yazar; runbook: staging'e gerçek müşteri cihazı kaydedilmez. Test: prod + unsigned → açılış hatası;
+DEPLOY_ENV yok + mode≠off → açılış hatası. Atanan: backend-dev (K2), devops (K9).
+
+### [DÜŞÜK] D-P27-1 `/ws/device` kimliksiz soket tavanı yok; register sistem tavanı DoS'a açık — A04 (S-P27-11)
+
+Yer: docs/mimari-p27.md:209, :239-241.
+Sorun: IP başına 31/dk × 10 sn auth süresi tek IP'den onlarca, çok IP'den sınırsız kimliksiz soket. Register sistem geneli 100/sa tavanını
+saldırgan doldurursa meşru kayıtlar durur (80 bit kod kaba kuvvete zaten kapalı).
+Düzeltme: kimliksiz `/ws/device` soketleri için süreç geneli tavan (ör. 1000) + IP başına eşzamanlı 5; register sistem tavanı yalnız
+**başarısız** denemeleri saysın ya da kaldırılıp alarm metriğine dönsün. Atanan: backend-dev (K3, K2).
+
+### [DÜŞÜK] D-P27-2 Servis ikilisi için sabit sunucu adresi ve hizmet yolu tırnağı tasarımda yazılı değil — A05
+
+Yer: docs/mimari-p27.md:340-349; mevcut kalıp apps/agent-win/internal/config/config.go:2 (adres yalnız `-ldflags -X`).
+Sorun: Servis ikilisinin sunucu adresini nereden aldığı yazılmamış; kayıt defteri/argümanla ayarlanabilir olursa imzalı ikili başka sunucuya
+yönlendirilebilir "imzalı RAT" olur. Hizmet `ImagePath` boşluklu yolda tırnaksızsa (unquoted service path) yerel EoP.
+Düzeltme: §5'e "sunucu adresi yalnız ldflags; TLS doğrulaması atlanmaz" satırı; `trace-check.ps1 -Servis` kurulum sonrası `ImagePath`
+tırnaklı ve `Program Files` altında olduğunu denetler. Atanan: mimar (r2), backend-dev Go (K5), devops (K9).
+
+### [DÜŞÜK] D-P27-3 Çalınan cihaz anahtarı 4409 ile gerçek cihazı düşürür, fark edilmez — A07 (S-P27-1)
+
+Yer: docs/mimari-p27.md:247, :450 (auth audit'i yalnız fail).
+Düzeltme: başarılı `device.auth`'ta IP `last_ip`'den farklıysa audit `unattended.device.auth{result:success, ipChanged:true}`; 4409 için
+`rs_unattended_device_replaced_total` ve cihaz başına 10 dk'da > 3 için alarm + panelde uyarı. Anahtar döndürme Sonra kabul edilebilir
+(iptal + yeniden kayıt yolu var). Atanan: backend-dev (K3), devops (K9).
+
+### [DÜŞÜK] D-P27-4 `manage` sahibi kendine grant verebilir (görev ayrılığı yok) — A01 (S-P27-14)
+
+Yer: docs/mimari-p27.md:195.
+Düzeltme: kendine grant ekleme (actor = alıcı) audit'te `selfGrant:true` ile işaretlenir ve tenant'taki diğer `manage` sahiplerine
+e-posta; engelleme gerekmez (Admin zaten tenant'ta güvenilir). Atanan: backend-dev (K2).
+
+### [DÜŞÜK] D-P27-5 Cihaz olay günlüğü yerel kullanıcılarca sahtelenebilir/silinebilir — A09 (S-P27-8)
+
+Sorun: Application günlüğüne etkileşimli kullanıcılar kayıtlı kaynakla olay yazabilir; yönetici silebilir. Kabul edilir; kılavuzda
+"yetkili kayıt sunucu audit'idir" notu. Atanan: teknik-yazar (K13).
+
+### [DÜŞÜK] D-P27-6 Kurtarma koduyla gözetimsiz bağlantı ek görünürlük almalı (S-P27-3 sorusu)
+
+Düzeltme: step-up `method=recovery_code` ile tüketilen `unattended.connect` audit'inde `stepUpMethod` alanı + mevcut "kurtarma kodu
+kullanıldı" e-postasına ek olarak tenant `manage` sahiplerine bilgi e-postası. Ek kod sorma gerekmez. Atanan: backend-dev (K2, K4).
+
+## Kabul önerileri (risk kabul yazısı, mimariye işlenir)
+
+- S-P27-4: İmza/sha beyanı kimlik doğrulama değil kullanılabilirlik kapısıdır (AC-297 notu); güvenlik grant + step-up + bildirim +
+  gösterge + yerel anahtara dayanır — **Y-P27-1 düzeltilmeden bu kabul geçerli değildir**.
+- S-P27-12: Yerel yönetici göstergeyi gizleyebilir — kabul (yerel yönetici zaten makinenin sahibi).
+- S-P27-1 anahtar döndürme: Sonra, D-P27-3 tespit kontrolüyle.
+
+## Doğrulanan varsayımlar (mevcut kod)
+
+- Step-up: `requireStepUp` `auth.stepUpAt` + `STEP_UP_MAX_AGE_SEC` denetler (apps/server/src/auth/guards.ts:90-96); `step_up_at`
+  oturum satırında (auth/step-up.ts:66) → §4.3 adım 10'daki koşullu `UPDATE … WHERE step_up_at >= now-300s` InnoDB kilitli okuma ile
+  eşzamanlı iki connect'te tek kazanan verir. Doğru.
+- Bilet: `rooms.tickets` `OneTimeStore` tek kullanımlık + TTL (signaling/rooms.ts:58,77; ws-auth.ts:133 `take`); ön-kabul kuşak
+  denetimi (ws-auth.ts:142-143) UNATTENDED dalında da korunmalı.
+- `consumeForAdmit` tek genişleme noktası (sessions/repo.ts:136; admit.ts:76,196) — K-P27-2 ile uyumlu.
+- `revalidateTech` yalnız izin → O-P27-3. Bildirim `unconfigured` sessiz → Y-P27-1. `DEPLOY_ENV` yok → O-P27-6.
+- Go: sunucu adresi yalnız ldflags (config.go:2); dosya `.part` `O_EXCL` (transfer.go:135) + üzerine yazmayan `MoveFileEx`
+  (rename_windows.go:22) — SYSTEM bağlamında klasör bütünlüğü Y-P27-2 ile tamamlanmalı.
+
+## Otomatik tarama çıktıları
+
+Kod öncesi tasarım turu: yeni bağımlılık/kod yok, `pnpm audit`/gitleaks bu turda çalıştırılmadı (son çalıştırma PT turunda; K11 kod
+turunda zorunlu).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Kod henüz yok. Tasarımın mevcut koda dair varsayımlarından yalnız `DEPLOY_ENV`'in sunucuda var olduğu varsayımı yanlış (O-P27-6).
+
+## Olumlu
+
+- Sunucudan yerel anahtarı değiştiren mesaj yok; açma yalnız UAC'li HKLM yazımı; yerel kapatma sunucudan bağımsız `TerminateProcess`.
+- Grant varsayılan boş, grant'sız 404 (varlık sızmaz), tenant'a bağlı bileşik FK'ler, Super Admin'e grant yok (K-P27-9).
+- Step-up bağlantı başına koşullu tüketim; gösterge çizilmeden `/ws/guest` açılmıyor (fail-closed).
+- Bilet stdin/anonim boru ile; sorgu dizesi yok (G-10); `/ws/device` Origin'li isteği reddediyor; imza dizesi origin'e bağlı (staging
+  anahtarı prod'da geçmez).
+- Kayıt kodu 80 bit, HMAC'li saklama, 24 sa, tek gövdeli 404; prod varsayılanı `off`.
+
+---
+
 # Güvenlik Raporu — PT turu (kod temizliği, 14b2629..pt-wip, 2026-11-15) — hafif tur, odak davranış eşdeğerliği
 
 DURUM: GEÇTİ (PT; Kritik/Yüksek 0)
