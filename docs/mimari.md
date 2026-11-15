@@ -1,5 +1,7 @@
 # Mimari — Remote Support (Uzaktan Destek) Platformu
 
+> **P28 (G8 ürün genişlemeleri):** çatı ilkeleri + P28a (metin panosu, uzaktan yazdırma) ayrıntılı tasarımı `docs/mimari-p28.md`, ADR-0031; kontrol listesi `docs/tasarim-kontrol.md` "P28a".
+
 Tarih: 2026-11-10 · Durum: TASLAK r2 — güvenlik raporu Tur 0 (`docs/guvenlik-raporu.md`, G-01..G-25) işlendi; izlenebilirlik §5.5, AC değişiklik talebi §13 · Girdi: `docs/gereksinimler.md`, `docs/gereksinimler-kabul-kriterleri.md` (AC-1..AC-111)
 Ekler: `docs/tasarim-kontrol.md`, `docs/adr/0001..0012`. Repo GitHub'da **açık kaynak, Apache-2.0** (K7 kapandı, ADR-0011); istemci **imzasız** (ADR-0010). Bu belge bölüm bölüm ve ayrıntılı sözleşme alt dosyalarıyla tamamlanır:
 

@@ -1,0 +1,284 @@
+# Gereksinimler — P28 (G8 ürün genişlemeleri)
+
+Tarih: 2026-11-15 Durum: TASLAK (kullanıcı kapsam kararı alındı; ayrıntılar varsayımla dolduruldu, §7 — kullanıcı onayı bekler)
+Üst doküman: `docs/gereksinimler-e11.md` (G8, S28 "her biri ayrı tasarım turu", §10). Çerçeve AC'ler: `docs/gereksinimler-kabul-kriterleri-e11-b.md` AC-276..AC-284. Ortak AC-285..AC-290 her alt pakette geçerlidir.
+Yeni AC'ler: **AC-343..AC-404 (62 AC)**. Yeni hikâyeler: US-66..US-72. Varsayımlar V41..V54. Riskler R39..R50.
+
+## 1. Amaç ve iş değeri
+
+Ürünü AnyDesk/TeamViewer muadili olarak satılabilir kılan eksikleri kapatmak: macOS ve Linux müşterisine tam destek, metin panosu ve uzaktan yazdırma, ikinci teknisyen/süpervizör ve sesli görüşme, rızalı oturum kaydı, sunucuda virüs taramalı dosya aktarımı. Prod açılışı P28'in tamamı bittikten sonradır (kullanıcı kararı); alt paketler yalnız staging'e çıkar.
+
+## 2. Roller (ek)
+
+| Rol              | P28 ile gelen                                                                                                           |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Super Admin      | ClamAV sistem ayarı + test; tenant başına sunucu depolama kotası                                                        |
+| Admin            | Tenant ayarları: sunucu üzerinden dosya + tarama, oturum kaydı ve saklama süreleri; kayıt silme; yeni yetki toggle'ları |
+| User (Teknisyen) | Pano, yazdırma, ses, davet/devir; yetkisi varsa süpervizör izleme ve kayıt izleme                                       |
+| Müşteri          | Pano izni, yazdırma onayı, ses kabulü, kayıt rızası ve geri alma, teknisyeni oturumdan çıkarma; macOS/Linux istemcisi   |
+
+## 3. Alt paketler ve sıra
+
+| Sıra     | Paket | İçerik                                                     | Çerçeve AC | Yeni AC | Bağımlı                          | Ekip                                                                      |
+| -------- | ----- | ---------------------------------------------------------- | ---------- | ------- | -------------------------------- | ------------------------------------------------------------------------- |
+| 1        | P28a  | Metin panosu + uzaktan yazdırma (Windows istemci + konsol) | 282, 283   | 343–352 | P27 kapısı                       | backend ‖ backend-dev (Go) ‖ frontend                                     |
+| 2        | P28b  | Sunucuda dosya saklama + ClamAV, sunucu depolama kotası    | 284        | 353–363 | P28a (yazdırma da aynı yoldan)   | mimar (ADR) → dba → backend ‖ frontend ‖ devops ‖ Go                      |
+| 3        | P28c  | Çoklu teknisyen: davet, süpervizör, devir                  | 280        | 364–372 | P28b                             | mimar (oda modeli, P27 genişleme noktası) → dba → backend ‖ frontend ‖ Go |
+| 4        | P28d  | Sesli görüşme (N katılımcı)                                | 281        | 373–379 | P28c                             | mimar (ADR: Opus/cgo) → frontend ‖ Go                                     |
+| 5        | P28e  | Oturum kaydı (rıza, şifreli saklama, izleme)               | 279        | 380–388 | P28b (depolama/kota), P28c, P28d | mimar → dba → backend ‖ frontend ‖ Go ‖ devops                            |
+| 6        | P28f  | macOS istemci                                              | 276        | 389–396 | P28a–e                           | mimar (ADR) → Go ‖ devops (CI imza/notarization)                          |
+| 7        | P28g  | Linux istemci (X11 + Wayland)                              | 277        | 397–403 | P28f (ortak unix kodu)           | Go ‖ devops                                                               |
+| her biri | —     | Ortak kapı                                                 | 285–290    | 404     | —                                | qa ‖ güvenlik → test-operatoru                                            |
+
+**Sıra gerekçesi**
+
+- Prod P28'in tamamından sonra açıldığından, alt paketler arasında "erken değer" yalnız staging'de görülür; baskın ölçüt **yeniden işi en aza indirmek** ve **riski erken görmek**tir.
+- P28a en küçük ve en düşük risklidir (mevcut DataChannel, mevcut onay diyaloğu kalıbı), değeri teknisyen tarafından hemen görülür.
+- P28b sunucu/devops ağırlıklıdır; P28e'nin kullanacağı şifreli depolama, kota ve saklama-silme altyapısını bir kez kurar.
+- P28c oda modelini değiştirir; P28d sesi baştan N katılımcı için tasarlasın diye önce gelir (1:1 yapıp genişletmek çift iştir). Ses ayrı pakettir çünkü yerel istemcide Opus/mikrofon riski (R44) çoklu teknisyeni bekletmemelidir.
+- P28e en yüksek KVKK yüküdür; depolama (b), göstergenin tüm teknisyenlere görünmesi (c) ve "ses kaydedilmez" (d) kesinleşmiş olmalıdır.
+- macOS/Linux en sona: özellik seti Windows'ta oturduktan sonra **bir kez** taşınır (aksi hâlde a–e'nin her biri üç platformda yapılır). macOS (talep yüksek, teknik yol bilinen) Linux'tan önce; Linux'un Wayland belirsizliği en yüksektir. macOS imza hesabı (R39) yalnız prod'u engeller; staging imzasız TEST moduyla ilerler (P27 deseni).
+
+## 4. Kapsam
+
+### Kapsamda
+
+Tablo §3. Her alt paket kendi Windows istemci artımını staging'e çıkarır; elle Windows testi yalnız yeni özelliğin adımlarıyla sınırlıdır (§9 D listesi kalıbı).
+
+### Kapsam DIŞI (açıkça)
+
+| #   | Madde                                                                                                                   | Durum                                   |
+| --- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| 1   | Mobil müşteri (AC-278: Android görüntü + chat, iOS yalnız chat)                                                         | Sonra (kullanıcı kararı)                |
+| 2   | Dosya/görsel/zengin metin panosu; otomatik (sürekli) pano eşitleme                                                      | Kapsam dışı (AC-282; sızıntı riski R47) |
+| 3   | Yazdırmada yazıcı seçimi, kopya sayısı, çift yüz, PDF dışı biçim                                                        | Sonra                                   |
+| 4   | Kaydın indirilmesi/dışa aktarılması; kayıtta ses, chat veya işaretleme bindirmesi                                       | Kapsam dışı                             |
+| 5   | Gözetimsiz oturumda kayıt, pano, yazdırma ve ses (müşteri onayı alınamaz; ayrı davranış kodlanmaz, V45)                 | Sonra                                   |
+| 6   | Gizli süpervizör izlemesi (müşteriye görünmeyen katılım)                                                                | Kapsam dışı (G-17 ilkesi)               |
+| 7   | 3'ten fazla teknisyen, SFU/medya sunucusu, başka tenant'tan teknisyen daveti                                            | Sonra                                   |
+| 8   | macOS/Linux'ta tepsi/otomatik başlatma/çoklu firma kaydı (P20), gözetimsiz erişim (P27), E9 firma dosyası/destek talebi | Sonra                                   |
+| 9   | Linux'ta Ubuntu 22.04/24.04 GNOME dışı dağıtım/masaüstü garantisi; ARM64 (macOS hariç)                                  | Sonra                                   |
+| 10  | Enfekte dosya için karantina klasörü; ClamAV dışı AV/sandbox; S3 vb. harici nesne deposu                                | Kapsam dışı                             |
+
+## 5. Kullanıcı hikâyeleri
+
+- US-66: Teknisyen olarak müşteriye uzun bir komutu/lisans anahtarını panoya koymak ve bir PDF'i onun yazıcısından basmak istiyorum ki telefonda harf harf okutmayayım. (P28a)
+- US-67: Admin olarak müşteriyle değiş tokuş edilen dosyaların virüs taramasından geçmesini istiyorum ki zararlı dosya teslim edilmesin. (P28b)
+- US-68: Teknisyen olarak zor bir arızada uzman bir arkadaşımı oturuma çağırmak ve gerekirse oturumu ona devretmek; süpervizör olarak oturumları izlemek istiyorum. (P28c)
+- US-69: Teknisyen olarak telefon açmadan müşteriyle sesli konuşmak istiyorum. (P28d)
+- US-70: Admin olarak müşterinin rızasıyla oturumların görüntü kaydını tutmak istiyorum ki ihtilafta kanıtım olsun. (P28e)
+- US-71: macOS kullanan müşteri olarak Windows'takiyle aynı tam destek deneyimini istiyorum. (P28f)
+- US-72: Linux kullanan müşteri olarak en azından görüntü, chat ve dosya; masaüstüm izin veriyorsa kontrol istiyorum. (P28g)
+
+## 6. Kabul kriterleri
+
+### P28a — Pano + uzaktan yazdırma (AC-282, AC-283)
+
+| AC     | Kriter                                                                                                                                                                                                                                                                                                                                    |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-343 | Konsolda "Panoyu gönder" ve "Müşteri panosunu al" düğmeleri yalnız `remote_control.clipboard` yetkisi + kontrol izni verilmiş (GRANTED) + müşteri pano iznini açmışken etkindir; aksi hâlde pasif ve neden metni görünür. Yetkisiz pano mesajı sunucuda 403, istemcide reddedilir (AC-119 kalıbı, otomatik test).                         |
+| AC-344 | İstemcide "Pano paylaşımına izin ver" anahtarı her oturumda varsayılan kapalıdır; kontrol kapatılınca veya oturum bitince kendiliğinden kapanır; kapandıktan sonra gelen pano mesajı 100 ms içinde uygulanmaz (otomatik test).                                                                                                            |
+| AC-345 | Yalnız düz metin (UTF-8) ≤ 64 KB aktarılır; aşan metin gönderilmez ve "Pano metni 64 KB sınırını aşıyor" gösterilir; panoda metin yoksa "Panoda metin yok". `ç ğ ı ö ş ü İ`, emoji ve satır sonları iki yönde birebir korunur (fikstür testi).                                                                                            |
+| AC-346 | "Gönder" teknisyen tarayıcı panosundaki metni müşteri panosuna, "Al" müşteri panosundaki metni teknisyen panosuna RTT < 100 ms ağda ≤ 1 sn'de yazar. Müşteride her işlemde 3 sn'lik "Teknisyen panonuza metin koydu" / "Teknisyen panonuzu okudu" bildirimi görünür.                                                                      |
+| AC-347 | Her aktarım audit'e `clipboard.transfer` (yön, bayt, sonuç), izin açma/kapama `clipboard.consent` olarak yazılır; pano içeriği hiçbir log, audit veya metrikte yer almaz (log taraması testi).                                                                                                                                            |
+| AC-348 | Konsolda "Uzaktan yazdır" yalnız `file_transfer.print` yetkisiyle ve istemci modunda görünür (tarayıcı modunda gizli, AC-34 açıklaması). Yalnız içeriği `%PDF-` ile başlayan ≤ 20 MB dosya kabul edilir; diğerleri gönderilmeden alan hatası verir.                                                                                       |
+| AC-349 | Müşteride onay diyaloğu teknisyen adını, dosya adını, sayfa sayısını ve varsayılan yazıcı adını gösterir; "Yazdır / Reddet"; AC-116 odak/gecikme kuralı geçerlidir; 60 sn yanıtsız istek reddedilmiş sayılır ve teknisyene "Müşteri yanıt vermedi" gösterilir.                                                                            |
+| AC-350 | Onaylanan belge müşterinin varsayılan yazıcısına tek kopya gönderilir; sonuç (gönderildi / varsayılan yazıcı yok / hata) iki tarafta ≤ 5 sn'de görünür; geçici PDF iş bitince silinir ve AC-108 iz testi geçer (işletim sisteminin yazdırma kuyruğu kaydı hariç, kılavuzda yazılı). PDF işlenirken gömülü JavaScript/eylem çalıştırılmaz. |
+| AC-351 | Yazdırma audit'e `print.job` (karar, sayfa sayısı, boyut, sonuç) olarak yazılır; dosya adı ve içerik yazılmaz (S-P13a-8 kalıbı).                                                                                                                                                                                                          |
+| AC-352 | Yeteneği olmayan (eski) istemcide pano ve yazdırma düğmeleri pasiftir ve "Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin" yazar (K-E11-6 kalıbı).                                                                                                                                                    |
+
+### P28b — Sunucuda dosya + ClamAV (AC-284)
+
+| AC     | Kriter                                                                                                                                                                                                                                                                                                                        |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-353 | Super Admin sistem ayarlarında "Virüs tarama (ClamAV)": sunucu, port (varsayılan 3310), "Bağlantıyı Test Et". Test PING + EICAR örneği tarar; başarı = EICAR yakalandı + imza veritabanı tarihi gösterilir; hata metni gösterilir. Değişiklik audit'e yazılır. clamd portu dış ağa açık değildir (devops port taraması).      |
+| AC-354 | Admin Ayarlar → Dosyalar: "Dosyaları sunucu üzerinden aktar ve virüs tara" (varsayılan kapalı) ve saklama süresi 1–7 gün (varsayılan 1). Son ClamAV testi başarılı değilse anahtar açılamaz (409 alan hatası). Açarken "Aydınlatma metnimi bu değişikliği kapsayacak şekilde güncelledim" kutusu zorunludur. Audit eski→yeni. |
+| AC-355 | Ayar oturum açılışında sabitlenir. Açıksa o oturumdaki **tüm** dosya aktarımları (iki yön, yazdırma dahil) sunucu yolundan geçer; DataChannel dosya kanalı sunucu ve istemcide reddedilir. Bir oturumda iki yol karışmaz.                                                                                                     |
+| AC-356 | Dosya TLS ile yüklenir; sunucuda AES-256-GCM ile şifreli, tenant klasöründe rastgele adla saklanır; yalnız o oturumun katılımcıları ≤ 5 dk geçerli bağlantıyla indirir; başka tenant/oturum → 404 (IDOR testi).                                                                                                               |
+| AC-357 | Her dosya teslimden önce clamd ile taranır; temiz dosya mevcut kabul diyaloğuyla teklif edilir (AC-36, AC-116 aynen). 50 MB dosyada yükleme bitişinden teklife ≤ 30 sn (staging ölçümü).                                                                                                                                      |
+| AC-358 | Enfekte dosya teslim edilmez, şifreli kopyası hemen silinir, iki tarafa ≤ 5 sn'de "Dosya virüslü bulundu (<imza adı>), teslim edilmedi" gösterilir; audit `file.infected` (imza adı, uzantı, boyut).                                                                                                                          |
+| AC-359 | Hata kapalı (fail-closed): clamd erişilemez, tarama 60 sn'yi aşar, şifreli arşiv veya tarama boyut sınırı → dosya teslim edilmez, "Dosya taranamadı, teslim edilmedi: <neden>" gösterilir; `rs_av_scan_total{result}` metriği artar; runbook'ta alarm eşiği tanımlıdır.                                                       |
+| AC-360 | Saklama süresi dolan dosya günlük 03:30 işinde diskten silinir; oturum anonimleştirme ve kalıcı silmede de silinir (diskte dosya kalmaz testi). Süre içinde oturum geçmişi detayından `session_history.view` + `file_transfer.use` sahibi indirebilir; her indirme `file.download` audit'i üretir.                            |
+| AC-361 | İmza veritabanı günde en az bir kez güncellenir; imza tarihi 3 günden eskiyse ClamAV ayar ekranında ve sağlık ucunda uyarı görünür.                                                                                                                                                                                           |
+| AC-362 | Super Admin tenant düzenlemede "Sunucu depolama kotası" belirler (varsayılan 20 GB; dosya + kayıt toplamı). Kota doluysa veya disk boş alanı %10'un altındaysa yükleme reddedilir ("Firma depolama kotası doldu"). Admin Ayarlar'da kullanım/kota görür.                                                                      |
+| AC-363 | Ayar açıkken konsol ve müşteri ekranının dosya alanında "Dosyalar sunucuda virüs taramasından geçer; bu modda uçtan uca şifreli değildir" satırı görünür; DATASHEET ve kılavuz aynı ayrımı yazar.                                                                                                                             |
+
+### P28c — Çoklu teknisyen (AC-280)
+
+| AC     | Kriter                                                                                                                                                                                                                                                                                                                                                  |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-364 | Oturum sahibi `sessions.invite` ile etkin oturuma aynı tenant'tan aktif bir kullanıcıyı davet eder; davetli panelde bildirim alır, 2 dk içinde kabul/ret eder, süre dolunca davet düşer. Davetli oturuma kendi başına girebileceği koşulları taşımıyorsa (gözetimsizde `unattended.connect` + cihaz yetkisi + step-up dahil) davet 403 ile gönderilmez. |
+| AC-365 | Bir oturumda sahip dahil en çok 3 teknisyen (katılımcı + izleyici) bulunur; fazlası 409 "Oturum dolu".                                                                                                                                                                                                                                                  |
+| AC-366 | Müşteri ekranında (istemci ve tarayıcı) bağlı tüm teknisyenler ad ve rolle (Kontrol sahibi / Katılımcı / İzleyici) listelenir; katılım/ayrılma ≤ 2 sn'de yansır. Müşteri sahip dışındaki teknisyeni "Çıkar" ile çıkarır; çıkarılan kişi aynı oturuma yeniden giremez.                                                                                   |
+| AC-367 | Girdi yalnız kontrol sahibinden uygulanır; diğerlerinin girdi mesajı sunucuda ve istemcide reddedilir (otomatik test). Sahip kontrolü bir katılımcıya devrettiğinde izin VIEW'a döner ve yeni kişi AC-99 akışıyla müşteriden yeniden ister; AC-103 göstergesi güncel adı gösterir.                                                                      |
+| AC-368 | `sessions.supervise` sahibi, tenant'ın etkin oturum listesinden "İzle" ile davetsiz katılır: yalnız görüntü, sohbeti okuma ve (P28d sonrası) dinleme; kontrol, sohbete yazma, dosya, pano, yazdırma, işaretleme yoktur ve sunucu reddeder. Müşteriye "İzleyici" olarak görünür.                                                                         |
+| AC-369 | Sahip "Oturumu devret" ile bir katılımcıyı yeni sahip yapar; oturumun teknisyeni değişir, oturum geçmişinde tüm katılımcılar ve devir zamanı görünür. Devretmeden ayrılan sahibin oturumu mevcut kurala göre biter (diğerleri de düşer).                                                                                                                |
+| AC-370 | Audit: `session.invite`, `session.invite_accept`, `session.invite_reject`, `session.invite_expire`, `session.participant_join`, `session.participant_leave`, `session.participant_remove` (müşteri çıkarma), `session.supervise_join`, `session.control_handover`, `session.transfer`.                                                                  |
+| AC-371 | 3 teknisyenli oturumda (≥ 10 Mbps müşteri yükleme) kontrol sahibinde AC-41 (≥ 15 FPS) korunur, diğerlerinde ≥ 5 FPS; bant yetmezse önce izleyici akışlarının kalitesi düşer (staging ölçümü).                                                                                                                                                           |
+| AC-372 | Yeteneği olmayan istemcide "Davet et" ve "İzle" pasiftir, AC-352 metniyle açıklanır.                                                                                                                                                                                                                                                                    |
+
+### P28d — Sesli görüşme (AC-281)
+
+| AC     | Kriter                                                                                                                                                                                                                        |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-373 | `sessions.voice` sahibi teknisyen "Sesli görüşme"ye basınca tarayıcı mikrofon izni istenir; müşteriye "<ad> sesli görüşme istiyor — Kabul / Reddet" diyaloğu gelir (AC-116 kuralı); 60 sn yanıtsız istek reddedilmiş sayılır. |
+| AC-374 | Kabulde müşteri mikrofonu açılır (yerel istemcide OS izni istenir); iki tarafta "Mikrofon açık" göstergesi, "Sessize al" ve "Görüşmeyi bitir" vardır; bitirince mikrofon ≤ 1 sn'de kapanır (OS mikrofon göstergesi söner).    |
+| AC-375 | Ses WebRTC (Opus, DTLS-SRTP) ile taşınır, sunucuda çözülmez; ses hiçbir yerde kaydedilmez (oturum kaydı dosyasında ses izi 0 — P28e testi).                                                                                   |
+| AC-376 | RTT < 150 ms ağda ağızdan kulağa gecikme p95 < 400 ms; kalite panelinde ses paket kaybı gösterilir.                                                                                                                           |
+| AC-377 | Tarayıcı modunda ve Windows istemcide aynı akış çalışır (tek yol).                                                                                                                                                            |
+| AC-378 | Çoklu teknisyende katılımcılar konuşabilir (her biri kendi düğmesiyle; müşteri kabulü görüşme başına bir kez); izleyici yalnız dinler, mikrofonu açılamaz (sunucu reddeder).                                                  |
+| AC-379 | Audit: `voice.request`, `voice.accept`, `voice.reject`, `voice.end` (süre sn). Eski istemcide düğme pasif (AC-352 metni).                                                                                                     |
+
+### P28e — Oturum kaydı (AC-279)
+
+| AC     | Kriter                                                                                                                                                                                                                                                                                            |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-380 | Admin Ayarlar'da "Oturum kaydı" (varsayılan kapalı) ve kayıt saklama süresi 1–90 gün (varsayılan 30; tenant oturum saklama süresini aşamaz) bulunur; açarken AC-354'teki aydınlatma onay kutusu zorunludur; audit eski→yeni.                                                                      |
+| AC-381 | Açıkken müşteri onay ekranında (istemci + tarayıcı) ayrı, varsayılan işaretsiz "Oturumun görüntü kaydının alınmasına izin veriyorum" kutusu bulunur; işaretlenmezse oturum kayıtsız sürer. Rıza (zaman, metin sürüm özeti) onay kaydına yazılır.                                                  |
+| AC-382 | Rıza varsa kayıt ilk kareyle kendiliğinden başlar (teknisyen düğmesi yoktur). Müşteride ve tüm teknisyenlerde gizlenemeyen "Kayıt yapılıyor" göstergesi bulunur. Müşteri "Kaydı durdur" ile rızasını geri alır: kayıt ≤ 2 sn'de durur, o oturumda yeniden başlamaz; o ana kadarki kısım saklanır. |
+| AC-383 | Kayıt yalnız görüntüdür; medyanın uçtan uca yolu değişmez. Kayıt sunucuya ≤ 10 sn'lik parçalarla yüklenir (kopmada en çok son 10 sn kaybolur), AES-256-GCM şifreli, tenant klasöründe saklanır.                                                                                                   |
+| AC-384 | 1080p kayıt ≤ 1 GB/saattir. Kota (AC-362) oturum başında doluysa rıza kutusu gösterilmez; oturum içinde dolarsa kayıt durur ve teknisyende "Depolama kotası doldu, kayıt durdu" görünür.                                                                                                          |
+| AC-385 | Oturum geçmişi detayında "Kaydı izle" yalnız `sessions.view_recording` ile görünür; oynatma tarayıcıda akışla olur, indirme düğmesi ve ucu yoktur; her izleme `recording.view` audit'i üretir; başka tenant → 404.                                                                                |
+| AC-386 | Kayıt saklama süresi dolunca 03:30 işinde, oturum anonimleştirmede ve kalıcı silmede silinir; `session_history.edit` sahibi onay diyaloğuyla tek kaydı elle siler (`recording.delete`).                                                                                                           |
+| AC-387 | Gözetimsiz oturumda onay ekranı olmadığından rıza yoktur ve kayıt yapılmaz (ayrı kod yolu yok; test).                                                                                                                                                                                             |
+| AC-388 | Audit: `recording.start`, `recording.stop` (neden: rıza geri alındı / kota / oturum bitti / hata), `recording.view`, `recording.delete`.                                                                                                                                                          |
+
+### P28f — macOS istemci (AC-276)
+
+| AC     | Kriter                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-389 | macOS 13+ (Apple Silicon + Intel, tek universal paket), ≤ 60 MB; kurulum ve yönetici şifresi gerektirmeden İndirilenler'den çalışır; çift tıktan karşılama ekranına ≤ 5 sn.                                                                                                                                                                                                             |
+| AC-390 | Prod'da yalnız Developer ID ile imzalı + notarize + staple edilmiş paket yayımlanır (`spctl -a -vv` → "Notarized Developer ID"). İmza yoksa prod karşılama sayfasında macOS indirme seçeneği görünmez, bugünkü tarayıcı modu sunulur. Staging'de imzasız TEST sürümü gizlenemeyen "TEST SÜRÜMÜ — imzasız" bandıyla çalışır; kılavuzda "Gizlilik ve Güvenlik → Yine de Aç" adımı vardır. |
+| AC-391 | Ekran Kaydı izni yoksa adım adım rehber ve Sistem Ayarları'nı açan düğme gösterilir; izin sonrası gereken yeniden başlatma oturum kodunu koruyarak yapılır. Erişilebilirlik izni yoksa görüntü + chat + dosya çalışır, kontrol isteğinde müşteriye rehber, teknisyene "Müşteri erişilebilirlik izni vermedi" gösterilir.                                                                |
+| AC-392 | E8 AC'leri macOS karşılıklarıyla geçer: AC-97..107, 109..111, 116, 117 (Zone.Identifier yerine `com.apple.quarantine`), 125, 128; AC-49 Retina (2x) ölçekte; Türkçe Q klavyede AC-48 karakterleri; kısayol Control+Shift+F12.                                                                                                                                                           |
+| AC-393 | P28a–e özellikleri macOS'ta aynı AC'lerle çalışır (yazdırma CUPS ile, mikrofon OS izniyle).                                                                                                                                                                                                                                                                                             |
+| AC-394 | İz testi: kapanınca `~/Library` altında (Application Support, Caches, Preferences, LaunchAgents) istemciye ait dosya kalmaz; tek istisna sistemin tuttuğu TCC izin kayıtlarıdır (kılavuzda nasıl kaldırılacağı yazılı).                                                                                                                                                                 |
+| AC-395 | Derleme CI'da macOS çalıştırıcısında yapılır; `SHA256SUMS` + attestation üretilir; Apple sırları yalnız korumalı GitHub environment secret'tadır (repoda yok, gitleaks yeşil).                                                                                                                                                                                                          |
+| AC-396 | Karşılama sayfası macOS'u algılar ve Windows ile aynı düzeni gösterir: birincil "Uygulamayı indir", ikincil "Tarayıcıdan yalnızca görüntü paylaş" (AC-27 güncellenir).                                                                                                                                                                                                                  |
+
+### P28g — Linux istemci (AC-277)
+
+| AC     | Kriter                                                                                                                                                                                                                                                                                 |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-397 | Ubuntu 22.04 ve 24.04 LTS x86_64, GNOME (X11 ve Wayland) desteklenir; tek çalıştırılabilir dosya ≤ 60 MB, root gerektirmez; karşılama sayfası çalıştırma izni adımını (`chmod +x`) kopyalanabilir komutla gösterir.                                                                    |
+| AC-398 | X11'de görüntü + kontrol + chat + dosya, E8 eşdeğer AC'leriyle (AC-392 listesi, Linux karşılıkları) çalışır.                                                                                                                                                                           |
+| AC-399 | Wayland'de görüntü masaüstü portalı (ScreenCast) diyaloğuyla alınır; kontrol yalnız RemoteDesktop portalı izin verirse çalışır, vermezse teknisyende "Müşterinin masaüstü uzaktan kontrole izin vermiyor (Wayland)" gösterilir; portal reddinde "Paylaşım başlatılmadı / Tekrar dene". |
+| AC-400 | Wayland'de her zaman üstte gösterge garanti edilemiyorsa istemci penceresindeki gösterge + masaüstünün ekran paylaşım göstergesi kabul edilir; bu sınır kılavuzda yazılıdır (X11'de AC-103 aynen).                                                                                     |
+| AC-401 | İz testi: `~/.config`, `~/.cache`, `~/.local/share`, `~/.config/autostart` ve `/tmp`'de istemciye ait iz kalmaz.                                                                                                                                                                       |
+| AC-402 | P28a–e özellikleri Linux'ta aynı AC'lerle çalışır (yazdırma CUPS, ses PipeWire/PulseAudio).                                                                                                                                                                                            |
+| AC-403 | İmza gerekmez; `SHA256SUMS` + attestation üretilir; karşılama sayfası Linux'u algılayıp AC-396 düzenini gösterir.                                                                                                                                                                      |
+
+### Ortak
+
+| AC     | Kriter                                                                                                                                                                                                                                                                              |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-404 | Her P28 alt paketinde: yeni yetki anahtarları yalnız `packages/contracts/src/permissions.ts`'ye eklenir ve açıklamasıyla toggle ekranında görünür (AC-72/285); yeni ekranlar AC-287'yi karşılar; yeni istemci metinleri tek ileti tablosundadır (P23 için); AC-288..290 geçerlidir. |
+
+## 7. Varsayımlar (kullanıcı uyurken en basit güvenli seçenek)
+
+- V41: Pano **elle** (iki düğme) çalışır, otomatik eşitleme yoktur; müşteri izni oturum başına bir anahtardır.
+- V42: Yazdırma yalnız PDF, ≤ 20 MB, varsayılan yazıcı, tek kopya; her iş ayrı onaylanır.
+- V43: Sunucu üzerinden dosya modu tenant düzeyinde açılır ve oturumdaki tüm dosyalar için tek yoldur; kapalıyken mevcut uçtan uca yol aynen kalır.
+- V44: Şifreli arşiv ve taranamayan dosya teslim edilmez (fail-closed); enfekte dosya karantinada tutulmaz, silinir.
+- V45: Müşteri onayı isteyen özellikler (pano, yazdırma, ses, kayıt) gözetimsiz oturumda yanıt gelmediği için çalışmaz; ayrı davranış kodlanmaz (sadelik ilkesi).
+- V46: En çok 3 teknisyen; müşteri ek teknisyen için önceden onay vermez ama hepsini adıyla görür ve çıkarabilir (gizli katılım yok).
+- V47: Kontrol devrinde müşteriden yeniden izin istenir (mevcut AC-99 akışı; yeni diyalog yok).
+- V48: Kayıt teknisyen tarafında alınır ve sunucuya şifreli yüklenir; medya sunucudan geçmez (mimar doğrular; çok teknisyende kaydı sahip alır).
+- V49: Kayıt indirilemez; yalnız panelde izlenir. Rıza geri alınana kadarki kısım saklanır.
+- V50: Sunucu depolama kotası tek kavramdır (dosya + kayıt), Super Admin tenant başına belirler, varsayılan 20 GB.
+- V51: ClamAV ayrı konteynerde (`clamd`, iç ağ, GPL koda bağlanmaz); imza güncellemesi sunucunun internete çıkışıyla yapılır.
+- V52: macOS 13+, Linux Ubuntu 22.04/24.04 GNOME; macOS/Linux'ta yalnız Hızlı Destek (kod/link) akışı, firma dosyası/talep ve tepsi/gözetimsiz Sonra.
+- V53: Alt paketler yalnız staging'e çıkar; prod P28'in tamamı bitince açılır, P27 prod'da imza gelene kadar kapalı kalır (R30).
+- V54: Yeni yetkiler rol varsayılanına uyar (Admin açık, User kapalı); `sessions.supervise` ve `sessions.view_recording` hassas olduğundan kılavuzda "yalnız gerekene verin" uyarısı yazılır.
+
+## 8. Yetki, audit, ayarlar, ortamlar
+
+### Yetki anahtarları (tek kaynak `permissions.ts`)
+
+| Anahtar                    | Paket | Not                                                 |
+| -------------------------- | ----- | --------------------------------------------------- |
+| `remote_control.clipboard` | P28a  | Kontrol izni + müşteri pano izni ayrıca gerekir     |
+| `file_transfer.print`      | P28a  | PDF yazdırma                                        |
+| `sessions.invite`          | P28c  | Davet, kontrol devri, oturum devri                  |
+| `sessions.supervise`       | P28c  | Tenant'ın etkin oturumlarını izleyici olarak izleme |
+| `sessions.voice`           | P28d  | Sesli görüşme başlatma                              |
+| `sessions.view_recording`  | P28e  | E11'de adı belirlenmişti (AC-279)                   |
+
+Kayıt elle silme mevcut `session_history.edit`, saklanan dosya indirme mevcut `session_history.view` + `file_transfer.use` ile yapılır (yeni anahtar yok).
+
+### Audit olayları
+
+| Paket  | Olaylar                                                                                                                                                                               |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P28a   | `clipboard.transfer`, `clipboard.consent`, `print.job`                                                                                                                                |
+| P28b   | `settings.clamav` (sistem), tenant ayarı değişikliği, `tenant.storage_quota`, `file.upload`, `file.scan` (sonuç), `file.infected`, `file.download`, `file.expired` (toplu, retention) |
+| P28c   | AC-370 listesi                                                                                                                                                                        |
+| P28d   | `voice.request/accept/reject/end`                                                                                                                                                     |
+| P28e   | `recording.start/stop/view/delete`, kayıt ayarı değişikliği, rıza onay kaydında                                                                                                       |
+| P28f/g | yeni olay yok; istemci platformu (`os`) mevcut katılım audit'ine eklenir                                                                                                              |
+
+İçerik (pano metni, dosya adı, PDF, ses, görüntü) hiçbir audit/log satırına yazılmaz.
+
+### Ayarlar ve dış servis
+
+| Düzey                | Ayar                                                   | Test düğmesi                                 |
+| -------------------- | ------------------------------------------------------ | -------------------------------------------- |
+| Sistem (Super Admin) | ClamAV sunucu/port                                     | "Bağlantıyı Test Et" (PING + EICAR) — AC-353 |
+| Super Admin → tenant | Sunucu depolama kotası (GB)                            | —                                            |
+| Tenant (Admin)       | Sunucu üzerinden dosya + tarama, dosya saklama 1–7 gün | ClamAV başarısına bağlı                      |
+| Tenant (Admin)       | Oturum kaydı, kayıt saklama 1–90 gün                   | —                                            |
+
+ClamAV'ın sırrı yoktur (iç ağ TCP); maskeli alan gerekmez. Yeni env değişkenleri proje kuralına göre `.env.example` + `env.ts` + compose + runbook'a eklenir.
+
+### Ortamlar / prod notları
+
+| Konu                      | Staging                                 | Prod                                                                                         |
+| ------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| macOS istemci             | İmzasız TEST sürümü + bant (P27 deseni) | Yalnız Developer ID + notarization; yoksa macOS indirmesi görünmez                           |
+| Linux istemci             | Normal                                  | Normal (imza gerekmez)                                                                       |
+| Windows istemci artımları | Her alt pakette                         | P28 sonu tek sürüm                                                                           |
+| ClamAV                    | Ayrı konteyner; RAM kontrolü            | Aynı; kapasite runbook'ta                                                                    |
+| Kayıt/dosya diski         | 3 gün yedek kuralı (K-E11-2)            | Kayıtlar yedek boyutunu büyütür — yedeğe dahil edilip edilmeyeceği mimar/devops kararı (R41) |
+
+## 9. Riskler
+
+| #   | Risk                                                                                       | Etki               | Önlem                                                                                        | Sahibi                      |
+| --- | ------------------------------------------------------------------------------------------ | ------------------ | -------------------------------------------------------------------------------------------- | --------------------------- |
+| R39 | Apple Developer Program hesabı (kurum, D-U-N-S) ve notarization yoksa macOS prod'a çıkamaz | Yüksek (P28f prod) | Staging TEST modu; prod kapısı AC-390; diğer paketleri engellemez                            | kullanıcı + devops          |
+| R40 | clamd ~1–1,5 GB RAM; imza güncellemesi CDN sınırına takılabilir; GPL lisansı               | Orta               | Ayrı konteyner, kapasite ölçümü, AC-361 uyarısı, fail-closed                                 | devops + mimar              |
+| R41 | Kayıt depolama: ~1 GB/saat; 20 GB ≈ 20 saat; disk ve yedek şişmesi                         | Orta–Yüksek        | Kota + %10 disk koruması + saklama süresi + metrik                                           | devops + dba                |
+| R42 | KVKK: kayıt rızası ve sunucu dosya modu "uçtan uca" iddiasını daraltır                     | Yüksek             | Ayrı rıza, geri alma, aydınlatma onay kutusu, DATASHEET açık beyanı (AC-363), izleme audit'i | proje-yoneticisi + guvenlik |
+| R43 | Mesh: müşteri her teknisyene ayrı akış yükler, zayıf hatta görüntü düşer                   | Orta               | En çok 3 teknisyen, izleyici kalitesi önce düşer (AC-371); SFU Sonra                         | mimar                       |
+| R44 | Yerel istemcide Opus kodlama cgo gerektirebilir ("cgo yok" hedefi); yankı giderme yok      | Orta               | ADR ile seçim; kulaklık önerisi kılavuzda; ses ayrı paket                                    | mimar + backend-dev         |
+| R45 | Windows'ta PDF'i üçüncü taraf okuyucusuz yazdırmak zor; PDF ayrıştırıcı saldırı yüzeyi     | Orta               | Yerleşik işleyici, JS'siz, iz bırakmama; tasarım güvenlik turu                               | mimar + guvenlik            |
+| R46 | Wayland parçalı: RemoteDesktop portalı ve üstte gösterge her masaüstünde yok               | Orta               | Destek matrisi dar (V52), AC-399/400 sınırları                                               | backend-dev                 |
+| R47 | Pano ile müşterinin kopyaladığı şifre/kişisel verinin sızması                              | Orta               | Elle düğme, izin anahtarı, her okumada müşteriye bildirim, içerik loglanmaz                  | guvenlik                    |
+| R48 | Süpervizör izlemesi gizlilik kaygısı                                                       | Orta               | Müşteriye görünür, çıkarılabilir, audit                                                      | proje-yoneticisi            |
+| R49 | macOS TCC izinleri sistemde kalır, izin sonrası yeniden başlatma akışı kafa karıştırır     | Düşük–Orta         | Rehber ekran, AC-394 istisnası kılavuzda                                                     | frontend-dev + teknik-yazar |
+| R50 | 7 alt paket ve elle Windows/macOS/Linux testleri P21–P26'yı geciktirir                     | Orta               | Sıra sabit, her paket bağımsız kapanır; mobil Sonra                                          | proje-yoneticisi            |
+
+### Açık sorular (kullanıcı uyanınca; şimdilik varsayımla ilerlenir)
+
+| #       | Soru                                          | Varsayılan                         | Sahibi             |
+| ------- | --------------------------------------------- | ---------------------------------- | ------------------ |
+| S-P28-1 | Apple Developer hesabı açılacak mı, ne zaman? | Açılana kadar macOS yalnız staging | kullanıcı          |
+| S-P28-2 | Varsayılan depolama kotası 20 GB uygun mu?    | 20 GB                              | kullanıcı          |
+| S-P28-3 | Kayıtlar yedeğe dahil mi?                     | Mimar/devops önerir                | kullanıcı + devops |
+
+## 10. Kontrol listesi kararları
+
+| Madde                   | Karar                                                                                                                                                                  | Gerekçe          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| 1. Yetkilendirme / IDOR | Kapsamda: 6 yeni anahtar; dosya/kayıt tenant + oturum kapsamlı, başka tenant 404                                                                                       | AC-356, 385, 404 |
+| 1. Kimlik               | Değişmez; gözetimsizde davetliye step-up                                                                                                                               | AC-364           |
+| 1. Hesap silme (KVKK)   | Kalıcı silme dosya ve kayıtları da siler                                                                                                                               | AC-360, 386      |
+| 5. 5 durum / a11y       | Yeni ekranlar (ClamAV, Dosyalar, kayıt, oynatıcı, davetler) AC-287                                                                                                     | AC-404           |
+| 5. Yıkıcı işlem onayı   | Kayıt silme onaylı; müşteri diyalogları AC-116                                                                                                                         | AC-349, 373, 386 |
+| 5. Bildirim             | Panel bildirimi (davet), müşteri ekran bildirimleri; e-posta yok                                                                                                       | AC-346, 364      |
+| 5. Yerelleştirme        | TR; metinler tek tabloda (P23)                                                                                                                                         | AC-404           |
+| 8. KVKK                 | Kayıt ayrı rıza + geri alma; dosya modu ve kayıt için aydınlatma onay kutusu; saklama süreleri                                                                         | AC-354, 380–382  |
+| 8. Lisans               | ClamAV ayrı servis; yeni bağımlılık AGPL/GPL değil                                                                                                                     | V51              |
+| 9. Kapsam dışı          | 10 madde (§4)                                                                                                                                                          | —                |
+| 9. Ölçülebilir AC       | AC-343..AC-404 (62)                                                                                                                                                    | —                |
+| 9. Riskler / sorular    | R39–R50, S-P28-1..3                                                                                                                                                    | §9               |
+| Sonra                   | Mobil (AC-278); otomatik/dosya panosu; yazıcı seçenekleri; gözetimsizde kayıt/pano/yazdırma/ses; >3 teknisyen/SFU; macOS/Linux'ta P20/P27/E9 talebi; Ubuntu dışı Linux | Unutulmasın diye |
