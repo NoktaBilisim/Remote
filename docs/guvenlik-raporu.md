@@ -1,3 +1,121 @@
+# Güvenlik Raporu — P18 kod turu 1 (2026-11-15)
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4 (+2 bilgi)
+
+Kapsam: `p18-wip` 06e9ab3, `git diff main...HEAD`. İncelenenler: `apps/server/src/requests/{messages,ws,hub,routes,panel,service,repo,assign,hours,hours-routes,calendar}.ts`,
+`cli/crypto.ts`, `cli/main.ts`, `lib/{crypto,logger}.ts`, `audit/mask.ts`, `users/{service,routes,repo}.ts`, `tenants/service.ts`,
+`prisma/migrations/20261119000000_p18_request_comms`, `prisma/sql/grants.sql`, web `requests/*` ve `request-thread.tsx`,
+`deploy/docker-compose.yml`, `deploy/ops/remote-watch.sh`, `deploy/backup/*`. Kod değiştirilmedi. Staging'e ve dind'e bağlanılmadı,
+ACCESS.txt okunmadı.
+
+## Tasarım turu maddelerinin (S-P18-T1..T12) kodda doğrulanması
+
+| Madde                                                      | Durum     | Kanıt                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T1 WS tip dağıtımı / yetenek                               | UYGULANDI | `ws.ts:98` caps yalnız alt protokolden; `ws.ts:134` şema sokete göre seçiliyor; `ws.ts:149-161` `switch (m.t)`, iptal yalnız cancel/decline için; sıra genel kova → JSON → şema (`ws.ts:139-147`) → sohbet kovaları (`messages.ts:352-356`, `error RATE_LIMITED`, soket açık kalıyor); `hub.ts` `sendChat`/`sendChatError` `caps.chat` yoksa göndermiyor |
+| T2 rewrap / emeklilik                                      | UYGULANDI | `cli/crypto.ts`: yalnız `MIGRATE_DATABASE_URL` (`:102-106`); `app` kullanıcısında UPDATE yok (`grants.sql` P18 bloğu); parti başına `FOR UPDATE` TX, aynı AAD; `check-retire` sayımı; audit `crypto.rewrap` (gövde yok); alarm `remote-watch.sh` crypto-decrypt                                                                                          |
+| T3 `support_requests.message`                              | UYGULANDI | `permissions.ts` (tek tanım, toggle otomatik); `routes.ts` POST `…/messages` view + message; UI `canMessage`                                                                                                                                                                                                                                             |
+| T4 tenant kovası / gönderici tavanı / activity birleştirme | UYGULANDI | `messages.ts:142,353` 300/dk + `queue.alert`; `countBySender` (gönderici başına 200); `hub.activity` talep başına ≤ 1/sn, gövde yok                                                                                                                                                                                                                      |
+| T5 atama yaşam döngüsü, bileşik FK                         | UYGULANDI | migration: `support_requests_assigned_to_tenant_id_fkey (assigned_to, tenant_id)`; `assign.ts` + `users/service.ts:428,489,638`, `tenants/service.ts:169` aynı TX'te; `panel.ts assignable()` aynı tenant + ACTIVE + ADMIN/USER + view+accept, `FOR SHARE`; aksi 400                                                                                     |
+| T6 429 maskesi                                             | UYGULANDI | `service.ts rejectOutsideHours`: eski istemciye `QUEUE_FULL` gidiyor, `retryAfterSec` yok; yalnız `rs_requests_outside_hours_total`; `rateAudit`/kova sayılmıyor; kontrol ref ve binding yollarının ortak noktasında, güvenilen CIDR dahil (`service.ts:442-447`)                                                                                        |
+| T7 mesai reddi audit'i                                     | UYGULANDI | tenant başına dakikada 1 satır + `count`                                                                                                                                                                                                                                                                                                                 |
+| T8 gövde normalizasyonu                                    | UYGULANDI | `contracts/api/requests.ts:831-853`: iyi biçim kontrolü, NFC, Cc/Cf/Zl/Zp yasak (ZWJ ve VS16 hariç), ≤ 1000 kod noktası, ≤ 20 satır; DB `body_chars`/`body_enc` CHECK                                                                                                                                                                                    |
+| T9 logger                                                  | UYGULANDI | `logger.ts`: `body`, `*.body`, `*.*.body`; servis log'u yalnız `requestId` + `chars`                                                                                                                                                                                                                                                                     |
+| T10 okuma metriği                                          | UYGULANDI | `rs_request_messages_read_total`                                                                                                                                                                                                                                                                                                                         |
+| T11 delete guard                                           | UYGULANDI | tetikleyici `session_messages_delete_guard`: iki üst için AND (`request` anonim VE `session` anonim) ya da RUNNING purge + PASSIVE ≥ 30 g; retention aynı TX'te (`repo.anonymizeBatch`)                                                                                                                                                                  |
+| T12 takvim                                                 | UYGULANDI | `CalendarCache.fallback` + metrik/alarm; SLA NULL; tatil ≤ 200 `lockSettings` altında (`hours.ts:256-258,322-326`)                                                                                                                                                                                                                                       |
+
+Ek doğrulamalar (tasarımda vaat edilenler):
+
+- Bütün yeni uçlarda sıra `requireAuth` (plugin hook, CSRF) → `requirePerm` → `tenantScope` → zod. IDOR kontrolü: mesaj list/post,
+  assign/priority ve tatil silme sorguları `(id, tenant_id)` ile yapılıyor (`messages.ts:287,310`, `repo.lockRequest`, `hours.ts:292-296`).
+  Başka tenant'ın kaydı 404 dönüyor. `after` imleci de `requestId` + `tenantId` ile sınırlı (`messages.ts:92`).
+- AAD tek yerde tanımlı (`aadFor.sessionMessage`, tenant|parent|id). Satır taşınırsa gövde çözülmüyor. Audit'e yalnız `{sender, chars}` yazılıyor.
+- Web: gövde yalnız React metin düğümü olarak `whitespace-pre-wrap` ile çiziliyor (`request-thread.tsx:283`). `dangerouslySetInnerHTML`,
+  linkify ve `href` yok. Toast ve `request.activity` gövde taşımıyor. Atama ve mesaj UI'ı yetkiye göre açılıyor (`page.tsx:206`, `canMessage`).
+- Panel soketi `support_requests.view` + aynı tenant ile 60 sn'de bir yeniden doğrulanıyor (`ws.ts:189,219`). Bu yüzden `request.activity`
+  ve `request.updated` yetkisiz soketlere gitmiyor.
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] S-P18-K1 Yetenekli sokette içerik doğrulama hatası soketi 1008 ile kapatıyor — A04 Güvensiz Tasarım
+
+Yer: `apps/server/src/requests/ws.ts:143-147`, `packages/contracts/src/api/requests.ts:837-853`
+Sorun: `request.message` gövdesi şemayı geçemezse (21 satır, yumuşak tire U+00AD (Cf) içeren kopyala-yapıştır metin, 1000+ karakter)
+`inbound.safeParse` başarısız oluyor ve soket 1008 ile kapanıyor. Kopma `DISCONNECTED` zamanlayıcısını başlatıyor (`ws.ts:171`).
+İstismar senaryosu: Saldırgan için bir kazanç yok, yalnızca müşteri kendi bağlantısını kaybediyor. Ama istemcide (P19 tarayıcı, Go) doğrulama
+eksik kalırsa normal bir müşteri metin yapıştırdığında talebi düşebilir.
+Düzeltme: Yetenekli sokette zarf geçerliyse (`t: "request.message"`, `clientMsgId` geçerli) ama gövde hatalıysa `error VALIDATION`
+dönülmeli ve soket açık kalmalı. 1008 yalnız zarf/tip hatasında ve yeteneksiz sokette kalmalı. Alternatif: istemcinin aynı
+`requestMessageBodySchema`'yı kullanması zorunlu tutulur ve P19 AC'sine yazılır. (atanan: backend-dev; P19'da frontend-dev)
+
+### [DÜŞÜK] S-P18-K2 `crypto:rewrap` kısmi hatada audit kaydı bırakmıyor — A09
+
+Yer: `apps/server/src/cli/crypto.ts:46-77,134-136`
+Sorun: Partiler ayrı TX'lerde commit ediliyor (satır düzeyinde tutarlı: her satır ya eski ya yeni sürümde ve ikisi de okunabiliyor).
+Ancak N. partide DB hatası olursa önceki partiler yazılmış oluyor, `writeAudit` hiç çalışmıyor ve çıkış kodu 5 oluyor. Audit izinde
+"yeniden şifreleme yapıldı" bilgisi kayboluyor.
+Düzeltme: `rewrap` gövdesi `try/finally` içine alınmalı. Hata yolunda da `crypto.rewrap {result:"fail", rows, failed, error:<ad>}` yazılmalı.
+Runbook'a "çıkış 5 → aynı komutu yeniden çalıştır (idempotent: yalnız `fromVer` satırları seçilir)" notu eklenmeli. (atanan: backend-dev)
+
+### [DÜŞÜK] S-P18-K3 `migrate` servisinde `APP_ENCRYPTION_KEYS` kalıcı olarak tanımlı — A05 Güvenlik Yapılandırması
+
+Yer: `deploy/docker-compose.yml:63-64`
+Sorun: Anahtar halkası her `docker compose up` ve `migrate` çalışmasında migrate konteynerinin ortamına giriyor. Migrate konteyneri yalnız
+`prisma migrate` için gerekli olduğu halde, çıkmış konteynerin `docker inspect` çıktısında da anahtar görünüyor. Anahtarın görünebildiği yerler
+server'dan migrate'e (migrator DB yetkisiyle aynı konteyner) genişliyor. Etkisi düşük, çünkü sınır yine host/docker yetkisi ve aynı değer server'da da var.
+Düzeltme: Satır compose'dan kaldırılmalı. Runbook §25.5'te tek seferlik verilmeli:
+`docker compose run --rm -e APP_ENCRYPTION_KEYS migrate pnpm … cli crypto:rewrap …` (değer kabuk ortamından, komut satırında açık yazılmaz).
+`crypto:check-retire` anahtar gerektirmiyor. Çalıştırma sonrası `docker compose rm -f migrate` yapılmalı. (atanan: devops)
+
+### [DÜŞÜK] S-P18-K4 Bilinçli istemci, müşteri tavanına ve kovaya kadar audit üretebilir — A09 / API4
+
+Yer: `apps/server/src/requests/messages.ts:249-258`
+Sorun: Her başarılı müşteri mesajı bir `request.message_sent` audit satırı üretiyor. Firma kovası 300/dk olduğundan bir firma dakikada
+300 audit satırına kadar şişirilebilir. Tasarımda K-P18-12 olarak kabul edildi. Kovalar bellek içi; tek instance (ADR-0005).
+Düzeltme: Kabul edilmiş risk. Yalnız "Sonra" (gereksinimler §9): talep başına özet audit (ilk mesaj + kapanışta `{count}`) seçeneği yeniden
+değerlendirilir. (atanan: mimar)
+
+### [BİLGİ] S-P18-K5 Panel çözümleme ve rewrap AAD'si P22 satırlarında ayrışıyor
+
+Yer: `messages.ts:186` (`requestId ?? ""`) ve `cli/crypto.ts:53` (`request_id ?? session_id`)
+P18'de bütün satırlarda `request_id` dolu olduğu için şu an sorun yok. P22'de oturum mesajları eklenince panel `""` ile çözmeye çalışır ve
+satırlar "okunamadı" görünür. Düzeltme: `aadFor.sessionMessage` çağrısı tek bir yardımcı üzerinden `request_id ?? session_id` ile yapılmalı.
+(atanan: backend-dev, P22)
+
+### [BİLGİ] S-P18-K6 Tavan sayımı kilitsiz
+
+`store()` önce sayıyor sonra ekliyor (`messages.ts:230`). Eşzamanlı gönderim tavanı birkaç satır aşabilir, ama talep+gönderici başına
+1/sn bellek kovası buna pratikte izin vermiyor. Eylem gerekmiyor.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate` → `No known vulnerabilities found`.
+- Gizli bilgi kalıbı (`git grep` + diff `^+` üzerinde `api_key|secret|password|token = '…8+'`) → eşleşme yok.
+- `.env` geçmişi: git geçmişinde yalnız `*.env.example` var. Bu dalda değişen tek env dosyası `deploy/backup/backup.env.example` (değersiz).
+- Yeni bağımlılık yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Yok. S-P18-T1..T12'nin ve "H6 kod turunda kontrol edilecek" listesinin tamamı kodda karşılık buldu (yukarıdaki tablo). Bu tur, testleri
+(`p18-messages-h3`, `p18-backend-h2`, `p18-schema-h1`, e2e `p18-h4`) çalıştırarak değil, kodu okuyarak doğruladı.
+
+## Olumlu
+
+- "Saklama önce, iletim sonra" doğru uygulanmış. INSERT…SELECT `status='PENDING'` ve audit aynı TX'te. 0 satır gelirse iletim yok, yanıt REQUEST_CLOSED. Eşzamanlı aynı `clientMsgId` UQ ile idempotent.
+- `session_messages` için `app` kullanıcısında UPDATE yetkisi yok. Rewrap yalnız migrator ile ve açık kullanımla yapılabiliyor. Tetikleyici AND mantığı ve bileşik FK'ler (request/session + tenant) tenant karışmasını DB düzeyinde engelliyor.
+- Atama hedefi doğrulaması `FOR SHARE` ile yarışa kapalı. Super Admin hedef olarak seçilemiyor. Hata 400, varlık sızıntısı yok.
+- Ret audit'i (talep, neden, gönderici) başına dakikada 1. Mesai reddi audit'i tenant başına dakikada 1.
+- Müşteriye giden teknisyen adı görünmez karakterlerden temizleniyor (`displayName`).
+- remote-watch'ta P18 metrikleri yoksa fail-closed (`p18-metrics`). Yedek tetik sayısı tek kaynaktan (23).
+
+## Önerilen "Sonra" (gereksinimler §9)
+
+S-P18-K1 (P19 istemcisiyle birlikte), K2, K3 ucuz düzeltmeler; P18 kapanışında yapılabilir. K4 ve K5 için P22 notu düşülmeli.
+
+---
+
 # Güvenlik Raporu — P18 tasarım turu (2026-11-15)
 
 DURUM: GEÇTİ (tasarım; koşullu — aşağıdaki Orta maddeler H1–H3 başlamadan mimari §8b'ye işlenmeli)

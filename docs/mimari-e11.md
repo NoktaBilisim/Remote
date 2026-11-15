@@ -746,7 +746,9 @@ Metrikler: `rs_request_messages_total{sender}`, `rs_request_messages_rejected_to
   - Tatiller sekmesi (`CalendarOff`): liste, ekle, sil (onaylı), "Resmî tatilleri ekle (yıl)" `CalendarPlus`.
   - Talep ayarları: varsayılan öncelik + SLA dakikası.
 - **Müşteri formu:** varsayılan öncelik ("Firma varsayılanı" seçeneği) + SLA dakikası (boş = firma varsayılanı).
-- **Geçmiş:** talep detayında SLA hedefi/aşım satırı.
+- **Geçmiş:** talep detayında SLA hedefi/aşım satırı ("SLA hedefi: <tarih saat> — aşıldı / aşılmadı"; SLA yoksa satır yok).
+  Detay API'si `slaDueAt` + `slaBreached` taşır (backend), ekran satırı + e2e (frontend). **Kapsamda kalır** (QA P18 Tur 1
+  Düzeltilmeli 1; CSV hücresi tek başına karşılamaz) — ertelenmez.
 - Her ekran iki temada axe 0, 390 px, `prefers-reduced-motion`.
 
 ### 8b.9 Dosya planı (P18)
@@ -766,7 +768,8 @@ holidays),hub.ts,ws.ts,service.ts,repo.ts,panel.ts,routes.ts,jobs.ts}`
 - `apps/web/app/(panel)/requests/{request-queue,request-card,request-thread (yeni),assign-menu (yeni),page}.tsx`,
   `app/(panel)/settings/business-hours/*` (yeni), `app/(panel)/customers/*` (form), `side-nav.tsx`,
   `lib/requests/contract.ts`
-- `docs/{mimari-protokol.md (§5 eki),db-notlari,runbook,KULLANIM_KILAVUZU,api}.md`, `CHANGELOG.md`
+- `docs/{mimari-protokol.md (§5 eki — **yapıldı** 2026-11-15: §5.4 "P18 WS eki", koddan doğrulandı),db-notlari,runbook,KULLANIM_KILAVUZU,api}.md`,
+  `CHANGELOG.md`
 
 ### 8b.10 Görev paketleri (P18)
 

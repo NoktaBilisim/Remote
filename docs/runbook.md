@@ -3045,18 +3045,49 @@ Kontroller yalnız P18 server'da (`/metrics`'te `rs_request_messages_total` vars
 Elle kontrol: §22.2 komutunda süzgeç `/^rs_(crypto_decrypt_failures|calendar_fallback|request_messages(_rejected)?)_total/`.
 Yerel test: `deploy/ops/test-watch.sh` (P18 senaryoları dahil).
 
-### 25.5 Anahtar emekliliği ve yeniden şifreleme (S-P18-T2a/b; CLI H3 ile gelir)
+### 25.5 Anahtar emekliliği ve yeniden şifreleme (S-P18-T2a/b, S-P18-K3; CLI H3 ile gelir)
 
 `session_messages.body_enc` ilk baytı anahtar sürümüdür. §14 P10 "Anahtar rotasyonu" kuralına ek olarak:
 
-1. **Emeklilik ön koşulu:** sürüm `<ver>` halkadan çıkarılmadan önce
+**Çalıştırma kuralı (S-P18-K3):** `migrate` servisinin compose tanımında `APP_ENCRYPTION_KEYS` **yoktur** (her `up`/migration
+koşusunda anahtar konteyner ortamına girip `docker inspect`'te görünmesin diye). CLI, migrate imajında hazırdır
+(`apps/server/Dockerfile` `migrate` hedefi = `tooling`, repo kaynağı `COPY . .`; `pnpm --filter @remote/server cli` →
+`node src/cli/main.ts` → `crypto:*` → `src/cli/crypto.ts`). İki komut da `MIGRATE_DATABASE_URL` (migrator) ister ve yalnız
+`migrate` servisinde çalışır (ADR-0025 append-only istisnası). Anahtar yalnız `crypto:rewrap` için, **tek seferlik**
+verilir:
+
+```bash
+cd /opt/remote/deploy            # ikinci yığın: /opt/remote-stg/deploy
+# -e ANAHTAR (değer YOK): compose değeri kabuk ortamından, yoksa bu dizindeki .env'den alır (Compose v2/v5'te denendi).
+# Değer komut satırına, kabuk geçmişine, `ps` çıktısına düşmez. --rm: konteyner bitince silinir, `docker inspect` izi kalmaz.
+docker compose run --rm -e APP_ENCRYPTION_KEYS migrate \
+  sh -c 'echo "anahtar_uzunlugu=${#APP_ENCRYPTION_KEYS}"'   # ön kontrol: yalnız uzunluk; 0 ise aşağıdaki B yolunu kullan
+```
+
+- **B yolu (eski compose ya da `.env` başka dizinde):** değeri alt kabukta, yalnız o satırı okuyarak aktar (tüm `.env`'i
+  `source` etmek yerine; `.env`'de `$` içeren parolalar kabukta bozulmaz). Alt kabuk kapanınca değer oturumda kalmaz:
+  `( export APP_ENCRYPTION_KEYS="$(sed -n 's/^APP_ENCRYPTION_KEYS=//p' .env)"; docker compose run --rm -e APP_ENCRYPTION_KEYS migrate pnpm --filter @remote/server cli crypto:rewrap session_messages --from <ver> --dry )`.
+  Bilinen kalıp `( set -a; . ./.env; set +a; docker compose run --rm -e APP_ENCRYPTION_KEYS migrate … )` da olur, ama
+  yalnız `.env` kabukta okunabiliyorsa. Hiçbir yolda `-e APP_ENCRYPTION_KEYS=<değer>` **yazılmaz**, değer `echo` edilmez.
+- **Yasak:** `docker compose up migrate` ya da `-e`'siz `run` ile rewrap (CLI `APP_ENCRYPTION_KEYS tanımlı değil` deyip
+  çıkış 2 ile durur, zararsız). Compose dosyasına anahtar geri eklenmez.
+- **Koşu sırasında** anahtar o çalışan konteynerin ortamında `docker inspect` ile görülebilir (sınır host/docker yetkisi;
+  aynı değer server'da zaten var). Bitince doğrula: `docker ps -a --filter name=migrate-run --format '{{.Names}}'` → **boş**.
+  `--rm` unutulduysa ya da koşu kesildiyse: `docker compose rm -f migrate` ve
+  `docker ps -aq --filter name=migrate-run | xargs -r docker rm -f`.
+
+1. **Emeklilik ön koşulu (anahtar gerekmez, `-e` verilmez):** sürüm `<ver>` halkadan çıkarılmadan önce
    `docker compose run --rm migrate pnpm --filter @remote/server cli crypto:check-retire <ver>` → **0** satır olmalı
    (eşdeğer SQL: `SELECT COUNT(*) FROM session_messages WHERE ASCII(body_enc) = <ver>`). 0 değilse sürüm çıkarılmaz.
-2. **Sızıntı yolu (anahtar sızdı):** yeni sürüm eklenir (`v1:…,v2:…`) → `up -d server` → kuru koşu
-   `docker compose run --rm migrate pnpm --filter @remote/server cli crypto:rewrap session_messages --from <ver> --dry` →
-   gerçek koşu `--dry` olmadan (yalnız `migrate` servisi, `MIGRATE_DATABASE_URL`/migrator; 500'lük partiler). Audit
-   `crypto.rewrap {table, fromVer, rows}` (aktör `system:cli`) görülür → adım 1 ile 0 doğrulanır → sürüm çıkarılır.
+2. **Sızıntı yolu (anahtar sızdı):** yeni sürüm `.env`'e eklenir (`v1:…,v2:…`) → `up -d server` → kuru koşu
+   `docker compose run --rm -e APP_ENCRYPTION_KEYS migrate pnpm --filter @remote/server cli crypto:rewrap session_messages --from <ver> --dry`
+   → `cozulemeyen=0` ise gerçek koşu `--dry` olmadan, aynı biçimde (yalnız `migrate` servisi, `MIGRATE_DATABASE_URL`/migrator;
+   500'lük partiler). Audit `crypto.rewrap {table, fromVer, rows}` (aktör `system:cli`) görülür → adım 1 ile 0 doğrulanır
+   → `migrate-run` konteyneri kalmadığı doğrulanır → sürüm çıkarılır.
    Bu, ADR-0025 append-only kuralının tek istisnasıdır (K-P18-10); `app` kullanıcısına UPDATE verilmez.
+   **Çıkış 5 (yarıda DB hatası, S-P18-K2):** tamamlanan partiler yazılmış kalır; audit `crypto.rewrap {result:"fail", rows,
+batches, error}` yazılır. Sorun giderilince **aynı komut yeniden çalıştırılır** (yalnız kalan `--from <ver>` satırlarını
+   taşır), ardından adım 1 ile 0 doğrulanır.
 3. Emekli sürüm kasada en az son yedeğin saklama süresi (14 g + site dışı) boyunca tutulur.
 
 ### 25.6 Resmî tatil listesi — yıllık güncelleme (AC-258)

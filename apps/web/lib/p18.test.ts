@@ -14,6 +14,7 @@ import {
 } from "./requests/business-hours";
 import {
   applyUpdate,
+  closedSlaView,
   formatSlaRemaining,
   matchesAssigned,
   parseAssigned,
@@ -216,5 +217,20 @@ describe("S-P18-T3: yeni yetkiler toggle ekranında otomatik", () => {
     expect(sr.other.map((o) => o.key)).toEqual(expect.arrayContaining(["support_requests.assign", "support_requests.message"]));
     expect(actionLabel("assign")).toBe("Ata / öncelik");
     expect(actionLabel("message")).toBe("Mesaj yaz");
+  });
+});
+
+describe("§8b.8 geçmiş detayı SLA satırı (closedSlaView)", () => {
+  const due = "2026-11-15T10:10:00.000Z";
+  it("hedef yok → none (satır gösterilmez)", () => {
+    expect(closedSlaView({ slaDueAt: null, slaBreached: null })).toEqual({ kind: "none" });
+    expect(closedSlaView({ slaDueAt: null, slaBreached: true })).toEqual({ kind: "none" });
+  });
+  it("sunucu kararı aynen: true → aşıldı, false → içinde", () => {
+    expect(closedSlaView({ slaDueAt: due, slaBreached: true })).toEqual({ kind: "breached" });
+    expect(closedSlaView({ slaDueAt: due, slaBreached: false })).toEqual({ kind: "met" });
+  });
+  it("hedef var, karar null → yalnız hedef saati", () => {
+    expect(closedSlaView({ slaDueAt: due, slaBreached: null })).toEqual({ kind: "due", at: due });
   });
 });

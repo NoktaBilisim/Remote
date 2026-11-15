@@ -1729,6 +1729,7 @@
   "rq.sla.target": "SLA hedefi",
   "rq.sla.missed": "aşıldı",
   "rq.sla.met": "karşılandı",
+  "rq.sla.within": "SLA içinde",
   "th.panel": "Kabul öncesi yazışma",
   "th.open": "Mesajlar",
   "th.openFor": "Mesajlar: {name}",

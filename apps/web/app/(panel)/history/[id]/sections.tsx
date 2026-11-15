@@ -23,6 +23,8 @@ import { StatusBadge } from "@/components/ui/badge";
 import { formatBytes, formatDateTime, formatDuration, formatNumber, formatTimeSeconds } from "@/lib/format";
 import { isAnonymized } from "@/lib/history/anonymized";
 import { t, type MessageKey } from "@/lib/i18n";
+import { closedSlaView } from "@/lib/requests/p18";
+import { SlaBadge } from "../../requests/request-badges";
 import { DurationCell } from "../history-list";
 import { CopyHash } from "./copy-hash";
 
@@ -110,12 +112,26 @@ export function Summary({ s, showTenant, canCustomers = false }: { s: D; showTen
   return <Rows rows={rows} />;
 }
 
-/** P8b (AC-158): "Destek talebi" bölümü — talep zamanı, bekleme (talep→kabul), ad, telefon, e-posta, açıklama (düz metin). */
+/** P8b (AC-158): "Destek talebi" bölümü — talep zamanı, bekleme (talep→kabul), P18 SLA hedefi + aşıldı/içinde, ad, telefon, e-posta, açıklama (düz metin). */
 export function RequestInfo({ r }: { r: NonNullable<D["request"]> }) {
   const rows: [MessageKey, ReactNode][] = [
     ["h.r.created", formatDateTime(r.createdAt)],
     ["h.r.accepted", r.acceptedAt ? formatDateTime(r.acceptedAt) : none],
     ["h.r.wait", r.waitSec !== null ? formatDuration(r.waitSec) : none],
+    // P18 (§8b.8, AC-257): SLA'sız talepte satır yok
+    ...(r.slaDueAt
+      ? ([
+          [
+            "rq.sla.target",
+            <span key="sla" className="inline-flex flex-wrap items-center gap-2" data-testid="history-request-sla">
+              <time dateTime={r.slaDueAt} className="tabular-nums">
+                {formatDateTime(r.slaDueAt)}
+              </time>
+              {r.slaBreached !== null && <SlaBadge view={closedSlaView(r)} />}
+            </span>,
+          ],
+        ] satisfies [MessageKey, ReactNode][])
+      : []),
     ["h.r.name", r.customerName ?? none],
     ["h.r.phone", r.customerPhone ?? none],
     ["h.r.email", r.customerEmail ?? none],

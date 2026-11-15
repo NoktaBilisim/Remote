@@ -8,6 +8,7 @@ import { WS_SUBPROTOCOL } from "@remote/contracts/ws";
 import {
   requestInboundChatSchema,
   requestInboundSchema,
+  requestMessageEnvelopeSchema,
   WS_REQUEST_CAP_CHAT,
   WS_REQUEST_CLOSE,
   WS_REQUEST_PREFIX,
@@ -141,6 +142,12 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
           msg = null;
         }
         const parsed = inbound.safeParse(msg);
+        if (!parsed.success && caps.chat && requestMessageEnvelopeSchema.safeParse(msg).success) {
+          // S-P18-K1: zarf geçerli, gövde (S-P18-T8 kuralları) değil → soket açık kalır; talep düşmez. Gövde loglanmaz.
+          const reason = parsed.error.issues[0]?.message ?? "Mesaj geçersiz";
+          hub.sendChatError(row.id, "VALIDATION", reason.slice(0, 300));
+          return;
+        }
         if (!parsed.success) {
           rooms.metrics.inc("rs_ws_closed_policy_total", { reason: "request_invalid_message" });
           return void ws.close(1008, "policy");

@@ -230,6 +230,7 @@ async function buildDetail(
   scope: hrepo.HistoryScope,
   row: hrepo.HistoryDetailRow,
   viewerId: string,
+  now: number,
 ): Promise<SessionHistoryDetail> {
   const s = { id: row.id, tenantId: row.tenantId };
   const anonymized = row.anonymizedAt !== null;
@@ -316,17 +317,26 @@ async function buildDetail(
           customerPhone: anonymized ? null : row.request.customerPhone,
           customerEmail: anonymized ? null : row.request.customerEmail,
           description: anonymized ? null : row.request.description,
+          // P18 (§8b.8): CSV "SLA aşıldı" hücresiyle aynı hesap (`slaCell` → `slaBreachedAt`); SLA yoksa ikisi de null.
+          slaDueAt: row.request.slaDueAt?.toISOString() ?? null,
+          slaBreached: row.request.slaDueAt === null ? null : slaBreachedAt(row.request, now),
         }
       : null,
   };
 }
 
 /** GET /sessions/:id/history (AC-61, 62). Kapsam dışı/yok → 404. */
-export async function getHistoryDetail(db: Db, log: HistoryLog, auth: AuthContext, id: string): Promise<SessionHistoryDetail> {
+export async function getHistoryDetail(
+  db: Db,
+  log: HistoryLog,
+  auth: AuthContext,
+  id: string,
+  now = Date.now(),
+): Promise<SessionHistoryDetail> {
   const scope = historyScope(auth);
   const row = await hrepo.findHistory(db, scope, id);
   if (!row) throw new AppError("NOT_FOUND");
-  return buildDetail(db, log, scope, row, auth.user.id);
+  return buildDetail(db, log, scope, row, auth.user.id, now);
 }
 
 // ---- PATCH (AC-63) ----

@@ -380,3 +380,37 @@ test("AC-63: kaydedilmemiş değişiklik — uygulama içinden gelip tarayıcı 
   await expect(page).toHaveURL(/\/history$/);
   await expect(leave).toBeHidden();
 });
+
+// P18 (mimari-e11 §8b.8, AC-257; QA P18 tur 1 madde 1): talep detayında SLA hedefi + aşıldı/içinde; SLA'sızda satır yok.
+for (const scheme of ["light", "dark"] as const) {
+  test(`AC-257: geçmiş detayı SLA satırı — aşıldı / içinde / SLA'sız; axe (${scheme})`, async ({ page, context }, info) => {
+    desktopOnly(info.project.name);
+    await page.emulateMedia({ colorScheme: scheme });
+    await signIn(context, "hadm");
+    const cases = [
+      { id: "01JHXST0000000000000000025", state: "breached", text: "SLA aşıldı" },
+      { id: "01JHXST0000000000000000020", state: "met", text: "SLA içinde" },
+    ];
+    for (const c of cases) {
+      await page.goto(`/history/${c.id}`);
+      const sec = page.getByTestId("section-request");
+      await expect(sec.getByRole("heading", { name: "Destek talebi" })).toBeVisible();
+      await expect(sec.getByText("SLA hedefi", { exact: true })).toBeVisible();
+      const row = sec.getByTestId("history-request-sla");
+      await expect(row.locator("time")).toHaveAttribute("datetime", /^\d{4}-\d\d-\d\dT/);
+      await expect(row.getByTestId("request-sla")).toHaveAttribute("data-state", c.state);
+      await expect(row.getByTestId("request-sla")).toHaveText(c.text);
+      expect(await axeScan(page), `${c.state} ${scheme}`).toEqual([]);
+    }
+    await page.goto("/history/01JHXST0000000000000000030");
+    const sec = page.getByTestId("section-request");
+    await expect(sec.getByRole("heading", { name: "Destek talebi" })).toBeVisible();
+    await expect(sec.getByTestId("history-request-sla")).toHaveCount(0);
+    await expect(sec.getByText("SLA hedefi", { exact: true })).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/history/01JHXST0000000000000000025");
+    await expect(page.getByTestId("history-request-sla")).toBeVisible();
+    await noHorizontalOverflow(page);
+    expect(await axeScan(page), `390 ${scheme}`).toEqual([]);
+  });
+}

@@ -7445,3 +7445,106 @@ kaldırıldı; mesaj tipleri/şemaları ve `request.activity` artık `@remote/co
   `request.new.customerChat` kuyrukta henüz kullanılmıyor (yazışma paneli durumu GET yanıtından alır).
 - Müşteri arayüzü (tarayıcı bekleme sayfası P19, Go istemci P20) bu paketin dışında (K-P18-1).
 - `e2e/p16.spec.ts` "Adım n/17" beklentisi H1'in 18. adımıyla kırmızıydı; 18'e çekildi (test düzeltmesi, ürün kodu değil).
+
+## P18 düzeltme turu 1 (devops)
+
+- **S-P18-K3 (Düşük) kapatıldı:** `deploy/docker-compose.yml` `migrate` servisinden `APP_ENCRYPTION_KEYS: ${APP_ENCRYPTION_KEYS:-}`
+  kaldırıldı (yerine açıklama satırı). Migrate ortamında yalnız `MIGRATE_DATABASE_URL` kaldı; server `:?` zorunluluğu değişmedi.
+- **Runbook §25.5:** `crypto:rewrap` anahtarı yalnız tek seferlik `docker compose run --rm -e APP_ENCRYPTION_KEYS migrate …`
+  ile verilir (değersiz `-e`: değer kabuk ortamından ya da yığın `.env`'inden çözülür; komut satırı/geçmiş/`ps`'e düşmez).
+  Yedek yol: alt kabukta yalnız o satırı okuyup export etmek. Uzunluk ön kontrolü, koşu sonrası `migrate-run` konteyneri
+  kalmadığı kontrolü, `docker compose rm -f migrate` temizliği eklendi. `crypto:check-retire` anahtarsız (CLI yalnız rewrap'te
+  okur, `cli/crypto.ts`). ADR-0025 (yalnız migrate servisi, migrator) ile tutarlı.
+- **Doğrulama (yerel):** migrate imajında CLI var (`apps/server/Dockerfile` `migrate`=`tooling`, `COPY . .`; `.dockerignore`
+  `apps/server/src` dışlamıyor; `cli` → `node src/cli/main.ts`). Compose v5.5.1'de atılabilir projeyle denendi: `-e ANAHTAR`
+  değeri `.env`'den aldı, alt kabuk yolu da çalıştı, `-e`'siz koşuda değer boş, `--rm` sonrası konteyner kalmadı.
+  `docker compose config --quiet` (yalnız `:?` zorunluları sahte değerli env dosyasıyla) temel ve `+staging` için rc=0;
+  JSON çıktısında migrate ortam anahtarları yalnız `MIGRATE_DATABASE_URL`.
+- **Açık (backend-dev):** `apps/server/src/cli/crypto.ts` baş yorumundaki örnek komut (satır 4) `-e APP_ENCRYPTION_KEYS`
+  içermiyor; runbook §25.5 ile hizalanması önerilir (bu turda dokunulmadı, dosya backend-dev'de).
+
+## P18 düzeltme turu 1 (backend)
+
+Kaynak: `docs/guvenlik-raporu.md` "P18 kod turu 1" (S-P18-K1, S-P18-K2), `docs/qa-raporu.md` "P18 — Tur 1" madde 1 (backend kısmı).
+Devops notundaki açık madde (crypto.ts satır 4 örnek komutu) de kapatıldı.
+
+### Değişen dosyalar
+
+- `packages/contracts/src/ws-request.ts` — `requestMessageEnvelopeSchema` (tip + geçerli `clientMsgId` + metin gövde; gövde içeriği denetlenmez).
+- `apps/server/src/requests/ws.ts` — S-P18-K1: yetenekli sokette tam şema başarısız ama zarf geçerliyse `error VALIDATION`
+  (mesaj = şemanın Türkçe hata metni, ≤ 300; gövde yansıtılmaz/loglanmaz), soket açık, talep düşmez. Zarf/JSON geçersizse
+  ve yeteneksiz sokette 1008 aynen.
+- `apps/server/src/requests/hub.ts` — `sendChatError` kodu `REQUEST_WS_ERROR_CODES` (VALIDATION dahil; mevcut zarf).
+- `apps/server/src/cli/crypto.ts` — S-P18-K2: `rewrap` gövdesi `try/catch/finally`; hata yolunda da audit
+  `crypto.rewrap {result:"fail", table, fromVer, toVer, rows, failed, batches, dry, error:<hata adı>}`. Sayaçlar yalnız
+  commit edilmiş partilerden (önceden geri alınan partinin satırları da sayılabiliyordu). `RewrapResult.batches` eklendi.
+  Başlık yorumu runbook §25.5 ile hizalandı: `docker compose run --rm -e APP_ENCRYPTION_KEYS migrate … crypto:rewrap …`.
+- `packages/contracts/src/api/sessions.ts` + `apps/server/src/sessions/{history,history-repo}.ts` — §8b.8: geçmiş detayına SLA.
+- Testler: `test/integration/p18-messages-h3.test.ts` (S-P18-K1, S-P18-K2), `test/integration/p18-backend-h2.test.ts` (AC-257 / §8b.8).
+
+### Sözleşme değişikliği (frontend-dev için)
+
+Uç: `GET /api/v1/sessions/:id/history` (yanıt `SessionHistoryDetail`; PATCH `/api/v1/sessions/:id` yanıtı da aynı tip).
+Alanlar `request` nesnesinin içinde (`SessionRequestInfo`, `@remote/contracts/api/sessions`); talepsiz oturumda `request: null`:
+
+| Alan                  | Tip               | Anlam                                                                                                  |
+| --------------------- | ----------------- | ------------------------------------------------------------------------------------------------------ |
+| `request.slaDueAt`    | `string \| null`  | SLA hedefi (ISO). SLA'sız talepte `null`                                                               |
+| `request.slaBreached` | `boolean \| null` | `slaBreachedAt(talep, yanıt anı)` — CSV "SLA aşıldı" (Evet/Hayır/boş) ile aynı hesap; SLA yoksa `null` |
+
+Anonimleştirilmiş oturumda da dolu döner (kişisel veri değil). Etiket için `SLA_BREACHED_LABEL` (`@remote/contracts/labels`) var.
+WS (`/ws/request`, `rs.cap.chat1`): gövde kuralını geçemeyen `request.message` artık `{t:"error", code:"VALIDATION", message}`
+alır (soket açık); P19/P20 istemcisi bunu gönderim hatası olarak göstermeli.
+
+### Sapma / bağımlılık
+
+Sapma yok; yeni bağımlılık yok. VALIDATION reddi için yeni metrik etiketi eklenmedi (kapsam dışı; `rs_request_messages_rejected_total`
+reason listesi değişmedi).
+
+### Test (2026-11-15)
+
+- `pnpm -r run typecheck` / `pnpm -r run lint` / `pnpm format:check`: temiz.
+- contracts 133/133 · server birim 410/410.
+- server `test:int` (geçici DB `rs-mysql-be-p18fix1`, port 33341; bitince silindi): ilgili iki dosya 40/40; tam koşu
+  73 dosya / **726/726** (önceki 723 + 3 yeni), skip 0.
+
+## P18 düzeltme turu 1 (frontend)
+
+QA "P18 — Tur 1" Düzeltilmeli madde 1 (mimari-e11 §8b.8, AC-257): oturum geçmişi detayında talep SLA satırı.
+
+### Rotalar
+
+| Yol             | Auth                          | Ne yapar                                                                                                                           |
+| --------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `/history/[id]` | evet (`session_history.view`) | (değişti) "Destek talebi" bölümünde "SLA hedefi" satırı: yerel tarih/saat + rozet "SLA aşıldı" / "SLA içinde"; SLA'sızda satır yok |
+
+### Davranış
+
+- Kaynak `request.slaDueAt` / `request.slaBreached` (`SessionRequestInfo`, backend "P18 düzeltme turu 1"). Karar sunucudan
+  aynen alınır (sayaç yok): `true` → `AlarmClock` + `danger-surface` "SLA aşıldı"; `false` → `CircleCheck` + `success-surface`
+  "SLA içinde"; `slaDueAt` null → satır gösterilmez; hedef var ama karar null (beklenmez) → yalnız tarih.
+- Tarih `formatDateTime` (`<time dateTime>`), rozet mevcut `SlaBadge` (`requests/request-badges.tsx`) — yeni primitif yok,
+  bileşene yalnız `met` varyantı eklendi. Sayfa sunucu bileşeni olarak kalır (`"use client"` yok).
+
+### Değişen dosyalar
+
+- `apps/web/lib/requests/p18.ts` — `SlaView` + `{ kind: "met" }`; `closedSlaView(r)`.
+- `apps/web/app/(panel)/requests/request-badges.tsx` — `SlaBadge` `met` varyantı (`data-state="met"`).
+- `apps/web/app/(panel)/history/[id]/sections.tsx` — `RequestInfo` SLA satırı (`data-testid="history-request-sla"`).
+- `apps/web/messages/tr.json` — `rq.sla.within` "SLA içinde" (satır etiketi mevcut `rq.sla.target`).
+- `DESIGN.md` — P18 kuyruk rozetleri satırına geçmiş detayı SLA satırı notu.
+- Testler: `apps/web/lib/p18.test.ts` (`closedSlaView` üç durum + null karar); `apps/web/e2e/mock-history.mjs` (detay
+  `request` nesnesine `slaDueAt`/`slaBreached`: …020 içinde, …025 aşıldı, …030 SLA'sız); `apps/web/e2e/p8-history.spec.ts`
+  "AC-257: geçmiş detayı SLA satırı — aşıldı / içinde / SLA'sız; axe (light|dark)" (390 px taşma + axe dahil).
+
+### Sapma / bağımlılık
+
+Sapma yok; yeni bağımlılık yok. Liste/CSV değişmedi (CSV hücresi sunucuda zaten vardı).
+
+### Test (2026-11-15)
+
+- web `typecheck` / `lint` temiz; vitest 40 dosya / **371/371**.
+- e2e `p8-history` + `p18-h4` + `p8b-requests`: **54 geçti, 0 kırmızı**, 38 skip (mobil projede `desktopOnly`; 390 px kontrolü
+  desktop projesinde viewport ile).
+- `pnpm format:check`: bu turda değişen dosyalar temiz; tek uyarı `docs/runbook.md` (bu turda dokunulmadı, çalışma ağacında başka
+  bir değişiklikten).

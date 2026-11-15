@@ -1,4 +1,4 @@
-import { AlarmClock, ChevronsDown, ChevronsUp, Minus, MoonStar, Timer, UserCheck } from "lucide-react";
+import { AlarmClock, CircleCheck, ChevronsDown, ChevronsUp, Minus, MoonStar, Timer, UserCheck } from "lucide-react";
 import { AFTER_HOURS_LABEL, labelOf, PRIORITY_LABELS, SLA_BREACHED_LABEL } from "@remote/contracts/labels";
 import { formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
@@ -50,7 +50,7 @@ export function AssignedChip({ assignedTo, meId }: { assignedTo: NonNullable<Sup
   );
 }
 
-/** SLA göstergesi: `Timer` + kalan süre; aşınca `AlarmClock` + danger "SLA aşıldı". */
+/** SLA göstergesi: `Timer` + kalan süre; aşınca `AlarmClock` + danger "SLA aşıldı"; kapanmış ve karşılanmış → `CircleCheck` + success "SLA içinde". */
 export function SlaBadge({ view }: { view: SlaView }) {
   if (view.kind === "none") return null;
   if (view.kind === "breached")
@@ -58,6 +58,13 @@ export function SlaBadge({ view }: { view: SlaView }) {
       <span data-testid="request-sla" data-state="breached" className={`${pill} bg-danger-surface text-danger`}>
         <AlarmClock aria-hidden className="size-3.5 shrink-0" />
         {SLA_BREACHED_LABEL}
+      </span>
+    );
+  if (view.kind === "met")
+    return (
+      <span data-testid="request-sla" data-state="met" className={`${pill} bg-success-surface text-success`}>
+        <CircleCheck aria-hidden className="size-3.5 shrink-0" />
+        {t("rq.sla.within")}
       </span>
     );
   return (

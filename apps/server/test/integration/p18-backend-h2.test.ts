@@ -12,6 +12,7 @@ import type {
 } from "@remote/contracts/api/requests";
 import { ASSIGNEE_INVALID_MESSAGE, HOLIDAYS_MAX } from "@remote/contracts/api/requests";
 import type { CustomerDetail } from "@remote/contracts/api/customers";
+import type { SessionHistoryDetail } from "@remote/contracts/api/sessions";
 import type { UserOptionsResponse } from "@remote/contracts/api/users";
 import { TR_HOLIDAYS } from "@remote/contracts/holidays-tr";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -297,6 +298,33 @@ describe("AC-257 öncelik, kuyruk, varsayılanlar, SLA", () => {
     expect(lines[0]?.endsWith(";Dosyalar;SLA aşıldı")).toBe(true);
     const lastCells = lines.slice(1).map((l) => l.slice(l.lastIndexOf(";") + 1));
     expect(lastCells.sort()).toEqual(["", "Evet", "Hayır"]);
+  });
+
+  it("AC-257 / §8b.8: oturum geçmişi detayı request.slaDueAt + request.slaBreached (CSV ile aynı hesap; SLA'sız null, talepsiz request null)", async () => {
+    const { t, admin, s } = await tenantWithAdmin();
+    const now = Date.now();
+    const late = await createRequestRow(t.id, { createdAt: new Date(now - 10 * 60_000) });
+    const fine = await createRequestRow(t.id, { createdAt: new Date(now - 10 * 60_000) });
+    const none = await createRequestRow(t.id, { createdAt: new Date(now - 10 * 60_000) });
+    const lateDue = new Date(now - 5 * 60_000);
+    const fineDue = new Date(now + 50 * 60_000);
+    await db().supportRequest.update({ where: { id: late.id }, data: { slaMinutes: 5, slaDueAt: lateDue } });
+    await db().supportRequest.update({ where: { id: fine.id }, data: { slaMinutes: 60, slaDueAt: fineDue } });
+    await db().supportRequest.update({ where: { id: none.id }, data: { slaMinutes: null, slaDueAt: null } });
+    for (const id of [late.id, fine.id, none.id])
+      expect((await call(s, "POST", `/support-requests/${id}/accept`, {})).statusCode).toBe(200);
+    const detailOf = async (requestId: string) => {
+      const sess = await db().supportSession.findFirstOrThrow({ where: { requestId }, select: { id: true } });
+      const res = await call(s, "GET", `/sessions/${sess.id}/history`);
+      expect(res.statusCode, res.body).toBe(200);
+      return res.json<SessionHistoryDetail>();
+    };
+    expect((await detailOf(late.id)).request).toMatchObject({ slaDueAt: lateDue.toISOString(), slaBreached: true });
+    expect((await detailOf(fine.id)).request).toMatchObject({ slaDueAt: fineDue.toISOString(), slaBreached: false });
+    expect((await detailOf(none.id)).request).toMatchObject({ slaDueAt: null, slaBreached: null });
+    const plain = await createSupportSessionRow({ tenantId: t.id, technicianId: admin.id, status: "ENDED" });
+    const pr = await call(s, "GET", `/sessions/${plain.id}/history`);
+    expect(pr.json<SessionHistoryDetail>().request).toBeNull();
   });
 });
 

@@ -7,9 +7,10 @@ import { MESSAGES_PER_SENDER_MAX } from "@remote/contracts/api/requests";
 import { WS_REQUEST_CAP_CHAT } from "@remote/contracts/ws-request";
 import pino from "pino";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { main as cryptoMain, CLI_ACTOR } from "../../src/cli/crypto.ts";
+import { main as cryptoMain, CLI_ACTOR, REWRAP_BATCH, rewrap } from "../../src/cli/crypto.ts";
 import { TenantPurgeRunner } from "../../src/jobs/tenant-purge.ts";
 import { aadFor, SecretBox } from "../../src/lib/crypto.ts";
+import { createDb, type Db } from "../../src/lib/db.ts";
 import { newId } from "../../src/lib/ids.ts";
 import { anonymizeRequestsOf } from "../../src/requests/jobs.ts";
 import { CAP_MESSAGE, RATE_MESSAGE } from "../../src/requests/messages.ts";
@@ -365,6 +366,32 @@ describe("AC-255 geriye uyum (0.11.0 istemci — yetenek bildirmeyen soket)", ()
     c2.send({ t: "request.message", body: "x", clientMsgId: "x", requestId: r.id });
     expect((await c2.closed).code).toBe(1008);
   });
+
+  it("S-P18-K1: yetenekli sokette zarf geçerli, gövde hatalı (21 satır / yumuşak tire / bidi) → error VALIDATION, soket açık, talep düşmez", async () => {
+    const { r } = await firm();
+    const cust = await reqWs(r.secret);
+    await waitMsg(cust, "request.messages");
+    const bad = [Array.from({ length: 21 }, (_, i) => `satır ${i}`).join("\n"), "kopya\u00ADlanmış metin", "abc\u202Edef"];
+    for (const [i, body] of bad.entries()) {
+      tick();
+      cust.send({ t: "request.message", body, clientMsgId: `bad-${i}` });
+      const e = await waitMsg<{ t: string; code: string; message: string }>(cust, "error");
+      expect(e.code).toBe("VALIDATION");
+      expect(e.message).not.toContain(body);
+    }
+    await settle();
+    expect(isOpen(cust)).toBe(true);
+    expect(await rowsOf(r.id)).toBe(0);
+    expect((await db().supportRequest.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("PENDING");
+    // Aynı soketten geçerli mesaj iletilir (soket ve talep sağlam).
+    tick();
+    cust.send({ t: "request.message", body: "düzeltilmiş metin", clientMsgId: "ok-1" });
+    expect(await waitMsg(cust, "request.message")).toMatchObject({ sender: "CUSTOMER", clientMsgId: "ok-1" });
+    expect(await rowsOf(r.id)).toBe(1);
+    // Zarf geçersizse (clientMsgId hatalı) davranış değişmez: 1008.
+    cust.send({ t: "request.message", body: "x", clientMsgId: "geçersiz kimlik" });
+    expect((await cust.closed).code).toBe(1008);
+  });
 });
 
 describe("AC-255 saklama ve şifreleme (ADR-0025 m.1–m.2, S-P18-T2/T9)", () => {
@@ -548,6 +575,78 @@ describe("S-P18-T2 cli crypto:check-retire / crypto:rewrap (migrator)", () => {
         expect.objectContaining({ table: "session_messages", fromVer: 7, toVer: 8, rows: 2, failed: 0, dry: false }),
       ]),
     );
+  });
+
+  it("S-P18-K2: rewrap ikinci partide DB hatası → audit crypto.rewrap fail (rows/batches/error); yeniden çalıştırma kalanı taşır", async () => {
+    const { t, admin, r } = await firm();
+    const v7 = new SecretBox(new Map([[7, k7]]));
+    const n = REWRAP_BATCH + 1;
+    const data = Array.from({ length: n }, (_, i) => {
+      const id = newId();
+      return {
+        id,
+        tenantId: t.id,
+        requestId: r.id,
+        sender: "TECH" as const,
+        senderUserId: admin.id,
+        clientMsgId: `k2-${i}`,
+        bodyEnc: v7.encrypt(`parti ${i}`, aadFor.sessionMessage(t.id, r.id, id)),
+        bodyChars: 7,
+      };
+    });
+    await testFixtureDb().sessionMessage.createMany({ data });
+    const migrator = createDb(process.env.TEST_MIGRATE_DATABASE_URL ?? "");
+    let txCalls = 0;
+    const failing = new Proxy(migrator, {
+      get(target, prop) {
+        if (prop === "$transaction")
+          return (...args: Parameters<Db["$transaction"]>) => {
+            if (++txCalls === 2) {
+              const e = new Error("bağlantı koptu");
+              e.name = "SimulatedDbError";
+              return Promise.reject(e);
+            }
+            return (target.$transaction as (...a: unknown[]) => unknown)(...args);
+          };
+        const v: unknown = Reflect.get(target, prop, target);
+        return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+      },
+    });
+    const box = new SecretBox(
+      new Map([
+        [7, k7],
+        [8, k8],
+      ]),
+    );
+    try {
+      await expect(rewrap(failing, box, 7, false)).rejects.toThrow("bağlantı koptu");
+    } finally {
+      await migrator.$disconnect();
+    }
+    const [audit] = await db().auditLog.findMany({
+      where: { action: "crypto.rewrap", username: CLI_ACTOR },
+      orderBy: { id: "desc" },
+      take: 1,
+    });
+    expect(audit?.result).toBe("fail");
+    expect(audit?.newValue).toEqual({
+      table: "session_messages",
+      fromVer: 7,
+      toVer: 8,
+      rows: REWRAP_BATCH,
+      failed: 0,
+      batches: 1,
+      dry: false,
+      error: "SimulatedDbError",
+    });
+    expect(JSON.stringify(audit?.newValue)).not.toContain("parti");
+    const pending = io();
+    expect(await cryptoMain(["crypto:check-retire", "7"], env(), pending.io)).toBe(1);
+    expect(pending.o.out).toContain("satir=1");
+    const again = io();
+    expect(await cryptoMain(["crypto:rewrap", "session_messages", "--from", "7"], env(), again.io)).toBe(0);
+    expect(again.o.out).toContain("satir=1");
+    expect(await cryptoMain(["crypto:check-retire", "7"], env(), io().io)).toBe(0);
   });
 
   it("S-P18-T2: kullanım hataları — migrator URL yok, bilinmeyen tablo, halkada olmayan / güncel sürüm → 2", async () => {

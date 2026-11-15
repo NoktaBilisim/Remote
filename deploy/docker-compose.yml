@@ -60,8 +60,8 @@ services:
     cap_drop: [ALL]
     environment:
       MIGRATE_DATABASE_URL: mysql://migrator:${MYSQL_MIGRATOR_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
-      # P18 H3 (S-P18-T2b, runbook §25.5): yalnız `cli crypto:rewrap` kullanır (server ile aynı değer; boşsa CLI reddeder).
-      APP_ENCRYPTION_KEYS: ${APP_ENCRYPTION_KEYS:-}
+      # APP_ENCRYPTION_KEYS burada TANIMLANMAZ (S-P18-K3): `cli crypto:rewrap` için yalnız tek seferlik
+      # `docker compose run --rm -e APP_ENCRYPTION_KEYS migrate …` ile verilir (runbook §25.5).
     # P16 (ADR-0030 m.9): `cli erasure:replay|verify` imha defterini okur (salt okunur; yazan yalnız server). runbook §23.5
     volumes:
       - ledger:/var/lib/remote:ro

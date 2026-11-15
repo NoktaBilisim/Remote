@@ -149,6 +149,9 @@ const detailSelect = {
       customerPhone: true,
       customerEmail: true,
       description: true,
+      status: true,
+      slaDueAt: true,
+      closedAt: true,
     },
   },
 } as const;

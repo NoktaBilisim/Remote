@@ -264,6 +264,10 @@ export interface SessionRequestInfo {
   customerPhone: string | null;
   customerEmail: string | null;
   description: string | null;
+  /** P18 (mimari-e11 §8b.8, AC-257): talebin SLA hedefi (ISO); SLA'sız talepte null. */
+  slaDueAt: string | null;
+  /** P18: `slaBreachedAt(talep, yanıt anı)` — CSV "SLA aşıldı" ile aynı hesap; SLA yoksa null (CSV'de boş hücre). */
+  slaBreached: boolean | null;
 }
 
 export const CONSENT_LEVELS = ["VIEW", "CONTROL"] as const;

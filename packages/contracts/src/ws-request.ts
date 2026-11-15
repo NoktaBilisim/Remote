@@ -66,6 +66,16 @@ export const requestMessageInboundSchema = z.strictObject({
   body: requestMessageBodySchema,
   clientMsgId: clientMsgIdSchema,
 });
+/**
+ * S-P18-K1: `request.message` zarfı (tip + geçerli `clientMsgId` + metin gövde; gövde içeriği denetlenmez). Yetenekli
+ * sokette tam şema başarısız ama zarf geçerliyse gövde hatasıdır → `error VALIDATION`, soket açık kalır; zarf/JSON da
+ * geçersizse 1008.
+ */
+export const requestMessageEnvelopeSchema = z.strictObject({
+  t: z.literal("request.message"),
+  body: z.string(),
+  clientMsgId: clientMsgIdSchema,
+});
 /** S-P18-T1: yalnız `caps.chat` soketinde kullanılır; yeteneksiz sokette `requestInboundSchema` (mesaj şema dışı → 1008). */
 export const requestInboundChatSchema = z.discriminatedUnion("t", [requestCancelSchema, requestDeclineSchema, requestMessageInboundSchema]);
 export type RequestInboundChat = z.output<typeof requestInboundChatSchema>;

@@ -79,7 +79,24 @@ export function serverOffset(items: readonly Pick<SupportRequestItem, "createdAt
   return best !== null && Math.abs(best) <= 86_400_000 ? best : 0;
 }
 
-export type SlaView = { kind: "none" } | { kind: "due"; at: string } | { kind: "remaining"; ms: number } | { kind: "breached" };
+export type SlaView =
+  | { kind: "none" }
+  | { kind: "due"; at: string }
+  | { kind: "remaining"; ms: number }
+  | { kind: "breached" }
+  /** Kapanmış talep hedef içinde karşılandı (geçmiş ekranı, §8b.8). */
+  | { kind: "met" };
+
+/**
+ * Oturum geçmişi talep bölümü (mimari-e11 §8b.8): sunucunun `slaBreached` kararı olduğu gibi kullanılır (sayaç yok).
+ * Hedef yok → `none` (satır gösterilmez); true → aşıldı; false → içinde; hedef var ama karar null → yalnız hedef saati.
+ */
+export function closedSlaView(r: { slaDueAt: string | null; slaBreached: boolean | null }): SlaView {
+  if (!r.slaDueAt) return { kind: "none" };
+  if (r.slaBreached === true) return { kind: "breached" };
+  if (r.slaBreached === false) return { kind: "met" };
+  return { kind: "due", at: r.slaDueAt };
+}
 
 /**
  * SLA göstergesi: hedef yoksa yok; sunucu aşıldı dediyse ya da (sunucu saatiyle) şimdi hedefi geçtiyse aşıldı

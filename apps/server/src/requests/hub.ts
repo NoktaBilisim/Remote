@@ -7,7 +7,7 @@
 // `sendToRequest` tip düzeyinde yalnız eski birliği (`RequestOutbound`) taşır → ≤ 0.11.0 istemci bilinmeyen tip almaz.
 import type { CustomerChatState, MessageSender } from "@remote/contracts/api/requests";
 import type { PanelOutbound, RequestChatOutbound, RequestOutbound } from "@remote/contracts/ws-request";
-import { LEGACY_CANCEL_REASONS, WS_REQUEST_CLOSE } from "@remote/contracts/ws-request";
+import { LEGACY_CANCEL_REASONS, type REQUEST_WS_ERROR_CODES, WS_REQUEST_CLOSE } from "@remote/contracts/ws-request";
 import type { Clock } from "../signaling/types.ts";
 
 export interface JsonPeer<T> {
@@ -149,7 +149,7 @@ export class RequestHub {
   }
 
   /** P18: sohbet kovası/saklama hatası (`error`, mevcut tip) — yalnız yetenekli sokete; eski istemci bu yoldan hiç mesaj almaz. */
-  sendChatError(requestId: string, code: "RATE_LIMITED" | "INTERNAL", message: string): boolean {
+  sendChatError(requestId: string, code: (typeof REQUEST_WS_ERROR_CODES)[number], message: string): boolean {
     const c = this.requests.get(requestId);
     if (!c?.caps.chat) return false;
     c.peer.send({ t: "error", code, message });

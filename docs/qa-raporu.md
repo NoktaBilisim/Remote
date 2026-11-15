@@ -1344,3 +1344,88 @@ Yok.
 - Tur 2'nin iki metin maddesi ve öneri tek commit'te, istenen ayrıntıyla (koşu no, commit, süre) kapandı.
 - S-P17-7 testleri yalnız "düşer" değil "geçmesi gereken geçer" tarafını da (Ctrl+C sonrası Esc, üst sıra rakam,
   monitör modu) doğruluyor; erişilebilirlik ayarı okunamazsa kapalı tarafta kalınıyor.
+
+---
+
+# P18 — Tur 1
+
+DURUM: DÜZELTİLMELİ
+
+Kapsam: dal `p18-wip` @ `06e9ab3` (`git diff main...HEAD`, 114 dosya); mimari-e11 §8b; AC-255..258; S-P18-T1..T12;
+K-P18-1..12; implementation.md "P18 H1/H2/H3/H4/H5".
+
+## Test sonucu
+
+| Komut                                                                       | Sonuç                                                                                                                                                                                                                               |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint` / `pnpm -r run typecheck`                                | temiz (çıkış 0)                                                                                                                                                                                                                     |
+| `pnpm -r run test`                                                          | contracts 133/133 · web 368/368 · server birim 410/410; skip 0                                                                                                                                                                      |
+| `pnpm format:check`                                                         | temiz                                                                                                                                                                                                                               |
+| server `test:int` (geçici DB `rs-mysql-qa-p18-t1`, migrate + grants)        | 73 dosya / **723/723**; skip 0; konteyner silindi                                                                                                                                                                                   |
+| `pnpm --filter @remote/web e2e` (tam takım çalıştı; p18-h4, p16, p15 dahil) | **404 geçti, 0 kırmızı, 191 skip**. Skip'ler proje kapsamlı (`desktopOnly`/mobil projesi); p18-h4'te 11 skip = mobil projede `test.skip(name !== "desktop")`, 390 px kontrolü desktop projesinde viewport ile yapılıyor — gerekçeli |
+| Go `go test ./...` (golang:1.26)                                            | 19 paket ok (fikstür `ws-request.json` yeni girdileriyle `ParseServer` uyumlu)                                                                                                                                                      |
+| `deploy/ops/test-watch.sh`                                                  | GEÇTİ (P18 crypto-decrypt / calendar-fallback / msg-tenant-rate / p18-metrics dahil)                                                                                                                                                |
+| `deploy/backup/test-backup.sh`                                              | GEÇTİ (102 PASS; manifest tetikleyici 23 = lib.sh `REMOTE_EXPECTED_TRIGGERS`)                                                                                                                                                       |
+
+Test konteynerleri (DB, watch, backup) silindi; prune/restart yapılmadı. `check-app-grants.sh` ayrı koşulmadı
+(H1 notu 561/561; tetikleyici/yetki negatiflerinin bir kısmı `p18-schema-h1.test.ts` ile bu turda yeşil).
+
+## Kabul kriterleri
+
+| AC     | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AC-255 | ✅    | Sunucu+protokol+panel (K-P18-1: müşteri arayüzü P19/P20). `p18-messages-h3.test.ts`: çift yönlü (yetenekli sahte istemci ↔ panel, talep PENDING kalır), 1.001 → 400, < 1 sn → 429/`RATE_LIMITED` soket açık, view yok → 403 / message yok → yazma 403, başka tenant 404, PENDING dışı 409, `body_enc` düz metin içermez + AAD taşınınca çözülmez, INSERT hatasında iletim yok, retention aynı TX'te mesaj 0, firma silmede iki tablo 0; geriye uyum (yeteneksiz soket 0 çerçeve, POST 409 `CHAT_UNSUPPORTED`, 1008 + satır 0); Go fikstür testi yeşil. Web: `p18-h4.spec.ts` yazışma 5 durumu + UNSUPPORTED + 429 + XSS metin düğümü |
+| AC-256 | ✅    | `p18-backend-h2.test.ts` "AC-256 atama" (403, 400 başka tenant/pasif/kabul yetkisiz/Super Admin, atanana `request.updated`, audit eski→yeni; 404/409; K-P18-3), `assignable=1`; S-P18-T5 yaşam döngüsü; DB FK 1452 (`p18-schema-h1`). Web e2e: ata → çip + ikinci tarayıcıda "Atandı: <ad>", atanana toast                                                                                                                                                                                                                                                                                                                           |
+| AC-257 | ✅    | Birim `compareQueue`/`slaBreachedAt` sınırları (tam due aşım değil, +1 ms aşım); entegrasyon HIGH → position 1, FIFO, müşteri > firma varsayılanı, SLA dondurulur, liste `slaBreached`, CSV "SLA aşıldı" Evet/Hayır/boş; web e2e kuyruk sırası + SLA due anında kırmızı (sahte saat), müşteri formu/talep ayarı alanları                                                                                                                                                                                                                                                                                                             |
+| AC-258 | ✅    | `calendar-p18.test.ts` İstanbul + New York DST tabloları, tatil + arife 13:00, 24:00, 366 gün sınırı, mesaj biçimi; entegrasyon REJECT 0.12.0 → 409 `OUTSIDE_HOURS` + `nextOpeningAt`, 0.11.0 → 429 `QUEUE_FULL` aynı mesaj (Retry-After yok), bindingKey yolu, ACCEPT `after_hours=1` + SLA açılıştan, açık an yoksa NULL, önbellek geçersiz kılma; tatil uçları + ≤ 200 kilit testi; web e2e mesai kaydet/önizleme, tatil ekle/sil/içe aktar                                                                                                                                                                                       |
+
+S-P18-T1..T12: her birinin adında `S-P18-Tn` taşıyan en az bir testi var ve yeşil (T1, T2 CLI, T3, T4, T5/T5c, T6, T7, T8,
+T9 log, T10 metrik, T11 tetikleyici, T12 fallback + tatil kilidi).
+
+## Düzeltilmeli
+
+1. [frontend-dev] `apps/web/app/(panel)/history/*` — mimari-e11 §8b.8 "Geçmiş: talep detayında SLA hedefi/aşım satırı"
+   uygulanmamış (history ekranında SLA ile ilgili hiçbir şey yok; sunucu yalnız CSV hücresi üretiyor) ve
+   implementation.md "P18 H4 → Sapmalar"da gerekçesi yok. Beklenen: ya oturum/talep detayında "SLA hedefi: <saat> —
+   aşıldı/aşılmadı" satırı (detay API'sine `slaDueAt`/`slaBreached` eklenerek [backend-dev] ile) + e2e, ya da
+   implementation.md'ye gerekçeli sapma notu (AC-257 CSV ile karşılandığı için ertelendi vb.) ve mimarın onayı.
+2. [mimar] `docs/mimari-protokol.md` §5 — §8b.9 dosya planındaki "§5 eki" (`rs.cap.chat1`, `request.message(s)`,
+   `request.chat`, `request.activity`, `request.updated`, `request.new` ek alanları) yapılmamış; P20 Go istemcisi bu
+   belgeye bakacak. Beklenen: §5'e P18 mesaj tabloları ve yetenek bildirimi kuralı eklensin (H8 ile birlikte de olabilir;
+   o zaman H8 görev kartına yazılsın).
+
+## Definition of Done
+
+| Madde                                                       | ✅/❌ | Not                                                                                                                             |
+| ----------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Testler yeşil (unit, int, e2e, Go, ops, backup)             | ✅    | Yukarıdaki tablo; skip'ler gerekçeli                                                                                            |
+| Lint / typecheck / format                                   | ✅    |                                                                                                                                 |
+| Her AC'nin adında AC no taşıyan testi                       | ✅    |                                                                                                                                 |
+| Katman (route → servis → repo), tenant guard, IDOR 404      | ✅    | `tenant-matrix.ts` 2 uç + çapraz tenant vakaları; atama DB bileşik FK                                                           |
+| `any` / `@ts-ignore` / boş `catch` / `console.log`          | ✅    | Diff taramasında 0                                                                                                              |
+| Transaction (atama, öncelik, tatil tavanı, retention silme) | ✅    | Kilit sırası belgeli                                                                                                            |
+| PII/gövde log ve audit                                      | ✅    | Logger redakte + S-P18-T9 testi; audit `{sender, chars}`                                                                        |
+| Audit (atama, öncelik, ayar, tatil, mesaj, ret, rewrap)     | ✅    |                                                                                                                                 |
+| Yetki toggle'ı tek tanımdan otomatik                        | ✅    | `permissions.ts` `assign`, `message`; ADMIN açık / USER kapalı testli; UI menü/gönder alanı yetkiye bağlı                       |
+| Sayfalı/sınırlı listeler                                    | ✅    | Mesaj ≤ 100/≤ 50, tatil ≤ 200, kuyruk ≤ 50                                                                                      |
+| 5 durum, a11y (axe 0 iki tema, 1280/390)                    | ✅    | p18-h4 e2e                                                                                                                      |
+| İkonlar (lucide, anlamlı), ham renk/px yok                  | ✅    | `CalendarClock`, `UserPlus/UserMinus/UserCheck`, `Flag`, `MoonStar`, `Timer/AlarmClock`; diff'te hex/ham Tailwind renk/`[px]` 0 |
+| Yeni bağımlılık                                             | ✅    | Yok (Vaul yerine mevcut `Dialog`, gerekçeli)                                                                                    |
+| Tasarım-kod uyumu; sapmalar gerekçeli                       | ❌    | Düzeltilmeli 1 (geçmiş SLA satırı gerekçesiz eksik), 2 (protokol eki)                                                           |
+| Env/compose/runbook                                         | ✅    | `migrate` servisine mevcut `APP_ENCRYPTION_KEYS`; runbook §25                                                                   |
+| Dokümantasyon (kılavuz, api.md, CHANGELOG, PDF)             | —     | H8 (teknik-yazar) kapsamı; bu turda değerlendirilmedi                                                                           |
+
+## Öneriler (zorunlu değil)
+
+1. `request.new.customerChat` panelde kullanılmıyor (implementation.md'de not var); yazışma paneli açılmadan önce kartta
+   "müşteri mesajlaşmayı desteklemiyor" ipucu için kullanılabilir ya da P19'a kadar sözleşmeden çıkarılabilir.
+2. Okunmamış sayacı sayfa yenilemede sıfırlanıyor (gerekçeli); H7'de teknisyenlerin bunu sorun sayıp saymadığı not edilsin.
+3. Web e2e'de `-- p18-h4 p16 p15` süzgeci uygulanmayıp tam takım koşuyor; `e2e` betiğine dosya argümanı geçişi
+   kontrol edilebilir.
+
+## Olumlu
+
+- Geriye uyum (0.11.0 istemci) tip düzeyinde ayrım + Go fikstürü + sözleşme testiyle üç katmanda kanıtlı.
+- DST, var olmayan/iki kez yaşanan saat ve 366 gün sınırı tablo testleriyle; mesai reddi ref ve bindingKey yollarında aynı sırada.
+- Saklama-önce-iletim, AAD bağlama, retention aynı TX ve firma silme regresyonu gerçek DB'de test ediliyor; tetikleyici
+  sayısı (23) tek kaynaktan backup/ops testlerine kadar tutarlı.

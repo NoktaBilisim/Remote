@@ -41,6 +41,10 @@ const BASE = Date.parse("2026-11-10T09:00:00Z");
 export const RICH_ID = "01JHXST0000000000000000000";
 export const BROWSER_ID = "01JHXSTBRWSR00000000000002";
 // P13a (AC-197): saklama işi anonimleştirmiş oturum (USER'ın kendi oturumu, ilk sayfada); PATCH → 409 SESSION_ANONYMIZED
+/** P18 (§8b.8): talepten doğan oturumlar — 20 SLA içinde, 25 aşıldı, 30 SLA'sız. */
+export const REQUEST_SLA_MET_ID = "01JHXST0000000000000000020";
+export const REQUEST_SLA_BREACHED_ID = "01JHXST0000000000000000025";
+export const REQUEST_NO_SLA_ID = "01JHXST0000000000000000030";
 export const ANON_ID = "01JHXSTAN0N000000000000048";
 const ANON_I = 48;
 
@@ -254,9 +258,17 @@ function detail(s, who) {
             customerPhone: "+905321112233",
             customerEmail: null,
             description: "Yazıcı çalışmıyor https://kotu.example bağlantısı tıklanmamalı",
+            // P18 (§8b.8): …25 aşıldı, …30 SLA'sız, diğerleri SLA içinde
+            ...slaOf(s),
           }
         : null,
   };
+}
+
+/** P18 mock SLA: REQUEST_SLA_BREACHED_ID aşıldı, REQUEST_NO_SLA_ID SLA'sız, diğer talepler SLA içinde (hedef talep + 10 dk). */
+function slaOf(s) {
+  if (s.id === REQUEST_NO_SLA_ID) return { slaDueAt: null, slaBreached: null };
+  return { slaDueAt: new Date(Date.parse(s.createdAt) + 10 * 60_000).toISOString(), slaBreached: s.id === REQUEST_SLA_BREACHED_ID };
 }
 
 const csvCell = (v) => {

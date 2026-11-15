@@ -246,6 +246,112 @@ Ticket kaydı `{ sessionId, guestId, requestId }`; `Guest.requestId` doluysa:
 
 Sıralama garantisi: aynı tenant olayları üretim sırasıyla gönderilir; istemci `request.removed`'ı bilmediği id için yok sayar. Kaçırılan olay için kaynak REST'tir (yeniden bağlanınca liste yeniden çekilir).
 
+**P18:** `request.new` ek alanları, `request.updated` ve `request.activity` §5.4.5'te; `/ws/request` sohbet ekleri §5.4.
+
+### 5.4 P18 WS eki — kabul öncesi mesajlaşma, atama/öncelik/SLA (mimar, 2026-11-15; mimari-e11 §8b.4, AC-255..258, S-P18-T1/T4/T8)
+
+Kaynak ve doğrulama: `packages/contracts/src/ws-request.ts`, `packages/contracts/src/api/requests.ts` (gövde/kimlik şemaları,
+sabitler), `apps/server/src/requests/{ws,hub,messages,panel,service}.ts`, `fixtures/ws-request.json` (`requestChatInbound` /
+`requestChatOutbound` anahtarları; `valid.*` geçer, `invalid.*` reddedilir). P20 Go istemcisi (`internal/request/ws.go`) bu
+bölümü ve aynı fikstür anahtarlarını uygular; mevcut `requestInbound` / `requestOutbound` anahtarları **değişmedi** (0.11.x
+`ParseServer` aynı girdiyi okur). §5.1–5.3'teki her kural aynen geçerlidir; bu bölüm yalnız ekler.
+
+#### 5.4.1 Yetenek bildirimi (`rs.cap.chat1`)
+
+| Konu           | Kural                                                                                                                                                                                                                                                                                                                                                                |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| İstek          | `Sec-WebSocket-Protocol: rs.v1, rs.req.<requestSecret>, rs.cap.chat1` (sıra serbest; değerler `,` ile ayrılır, boşluk kırpılır). Sabit `WS_REQUEST_CAP_CHAT`                                                                                                                                                                                                         |
+| Yanıt          | Yine **yalnız `rs.v1`** (yetenek yankılanmaz). İstemci yeteneğin kabul edildiğini yanıttan değil, bağlantı sonrası `request.messages` gelmesinden anlar (aşağıda)                                                                                                                                                                                                    |
+| Karar          | Soket başına `caps.chat = protos.includes("rs.cap.chat1")`. **Sürüme bakılmaz** (P19 tarayıcısının `clientVersion`'ı yok). Yeniden bağlantıda (4409 değişimi dahil) her soket kendi bildirimini taşır                                                                                                                                                                |
+| Sürüm tahmini  | Panel `request.new.customerChat` talep oluşturma anındaki `clientVersion >= CHAT_MIN_CLIENT_VERSION` (`"0.12.0"`) tahminidir; kesin durum soket yeteneğidir (`GET /support-requests/:id/messages` → `customerChat`). **P20 Go istemcisi hem `rs.cap.chat1` göndermeli hem `clientVersion ≥ 0.12.0` bildirmelidir**; aksi panel kartı yanlış "desteklemiyor" gösterir |
+| Eski istemci   | Yeteneksiz sokete (≤ 0.11.x) yeni tipte (`request.message`, `request.messages`, `request.chat`) **hiçbir çerçeve gitmez** (sunucuda tip düzeyinde ayrım: `hub.sendToRequest` yalnız eski birliği, `hub.sendChat` / `sendChatError` yalnız `caps.chat` soketine). Yeteneksiz soket `request.message` gönderirse şema dışıdır → **1008**, `session_messages` satırı 0  |
+| Hata çerçevesi | Sohbetten doğan `error` (RATE_LIMITED / VALIDATION / INTERNAL) **yalnız yetenekli sokete** gider                                                                                                                                                                                                                                                                     |
+
+#### 5.4.2 `/ws/request` ek mesajları (yalnız `caps.chat` soketi)
+
+| t                  | Yön | Alanlar (strictObject; fazla alan = şema dışı)                                                                                                                                                                                                                      | Davranış                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------ | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `request.message`  | C→S | `body: string` (§5.4.4), `clientMsgId: /^[A-Za-z0-9_-]{1,36}$/`                                                                                                                                                                                                     | Yalnız talep PENDING iken anlamlı. İşleme sırası §5.4.3. Başarıda sunucu aynı sokete yankı `request.message` (aynı `clientMsgId` ile) gönderir; panele gövdesiz `request.activity` gider                                                                                                                                                                                                   |
+| `request.message`  | S→C | `id: ULID`, `sender: "TECH"\|"CUSTOMER"`, `senderName?: string(1..100)` (yalnız TECH; teknisyen adı, görünmez/kontrol karakterleri ayıklanmış), `body: string(1..2000)`, `createdAt: ISO-8601`, `clientMsgId?` (yalnız CUSTOMER satırında, kendi mesajının yankısı) | Teknisyen mesajı (panel REST POST commit'inden sonra) ya da müşterinin kendi mesajının yankısı (onay). Çözülemeyen gövde sabit metin `"Mesaj okunamadı"` olarak gelir. İstemci `body`'yi **yalnız düz metin** olarak çizer (HTML/bağlantı yorumu yok)                                                                                                                                      |
+| `request.messages` | S→C | `items: [{id, sender, senderName?, body, createdAt, clientMsgId?}]` (≤ 50; **öğelerde `t` yok** — öğe de strictObject)                                                                                                                                              | Talep PENDING iken bağlantı ve her yeniden bağlantı sonrası bir kez: son 50 mesaj, **artan** `(createdAt, id)` sırası. `request.state` ile göreli sırası garanti değil (ikisi bağımsız async); istemci iki sırayı da kabul eder. İstemci listeyi `id` ile birleştirir, kendi bekleyen mesajlarını `clientMsgId` ile onaylar. ACCEPTED talepte (kabul sonrası yeniden bağlantı) gönderilmez |
+| `request.chat`     | S→C | `enabled: boolean`                                                                                                                                                                                                                                                  | Sunucu bugün yalnız `false` gönderir: (a) kabulde `request.accepted`'dan **hemen önce**; (b) kapanışta `request.closed`'dan hemen önce (ardından 1000); (c) müşteri mesajı PENDING dışı talebe düştüğünde (koşullu INSERT 0 satır). İstemci giriş alanını kapatır, bekleyen mesajları "gönderilemedi" işaretler; `true` gelirse (ileriye dönük) yeniden açar                               |
+| `error`            | S→C | `code: "RATE_LIMITED"\|"VALIDATION"\|"INTERNAL"`, `message: string(≤300)`                                                                                                                                                                                           | Mevcut tip (§5.1). Sohbet kaynaklı kodlar §5.4.3. **`clientMsgId` taşımaz** → istemci aynı anda en çok **bir** onaylanmamış mesaj tutar (1 msg/sn kuralıyla zaten gerekli); hata bu mesaja aittir                                                                                                                                                                                          |
+
+`CHAT_UNSUPPORTED` WS kodu **değildir**: panelin `POST /support-requests/:id/messages` ucunun 409 kodudur (bağlı müşteri
+soketi yeteneksiz). Müşteri istemcisi bu kodu görmez.
+
+#### 5.4.3 İşleme sırası, kovalar ve hata kodları (S-P18-T1, T4 — bağlayıcı)
+
+Gelen her çerçeve için sunucu sırası (ilk tutan döner):
+
+1. Genel kova 5 msg/sn (`WS_REQUEST_RATE_PER_SEC`, `request.cancel/decline` dahil her mesaj sayılır) → aşım **1008**.
+2. İkili çerçeve veya geçersiz JSON → **1008**.
+3. Zarf şeması sokete göre: `caps.chat ? requestInboundChatSchema : requestInboundSchema`. Tip bilinmiyor, fazla/eksik alan,
+   `clientMsgId` biçimsiz → **1008**. Yeteneksiz sokette `request.message` → **1008**.
+4. Gövde (`body`) §5.4.4 kurallarına uymuyor (S-P18-K1): yetenekli sokette zarf `requestMessageEnvelopeSchema` ile geçerliyse
+   (`t: "request.message"`, `body` herhangi bir **string**, geçerli `clientMsgId`, fazla alan yok) →
+   `error{VALIDATION, message: <ilk zod iletisi, ≤ 300>}`, **soket açık kalır**, talep PENDING kalır, satır yazılmaz, sohbet
+   kovası harcanmaz (genel 5/sn kovası harcanmıştır). `body` string değilse ya da zarf bozuksa adım 3 (1008). Not: düzeltme
+   `p18-wip` çalışma ağacında (backend, 2026-11-15); birleşmeden önceki kod gövde hatasında da 1008 kapatır. İstemci her
+   durumda gövdeyi göndermeden önce **aynı kurallarla yerelde doğrular** (§5.4.4).
+5. Dağıtım `switch (msg.t)`: `request.cancel`/`request.decline` iptal yoluna (§5.1), `request.message` mesaj servisine.
+6. Sohbet kovaları (aşımda `error{RATE_LIMITED}`, **soket açık**, satır yazılmaz, `request.message_rejected` audit'i talep+neden
+   başına dakikada 1):
+   - talep + gönderici başına **1 msg/sn** (`MESSAGE_RATE_PER_REQUEST_MS`; müşteri ve teknisyen kovası ayrı) — message
+     `"Çok hızlı mesaj gönderiyorsunuz. Lütfen biraz bekleyin."`;
+   - firma başına müşteri mesajı **300/dk** (`CUSTOMER_MESSAGES_PER_TENANT_MIN`) — aynı message; panellere pencere başına bir kez
+     `queue.alert{kind:"rate_limited", until}`;
+   - talep başına gönderici tavanı **200** (`MESSAGES_PER_SENDER_MAX`) — message `"Bu talepte en çok 200 mesaj gönderilebilir."`.
+     Kova hakkı yinelenen `clientMsgId` kontrolünden **önce** harcanır (yeniden gönderim de 1 sn kuralına tabidir).
+7. Saklama önce, iletim sonra (ADR-0025 m.1): aynı `(talep, CUSTOMER, clientMsgId)` varsa mevcut satır döner (yankı yeniden
+   gönderilir, panele `request.activity` **gitmez**, audit yok); yoksa şifreli koşullu `INSERT … SELECT … WHERE status='PENDING'`
+   - audit `request.message_sent{sender, chars}` aynı TX. 0 satır (talep kapanmış) → `request.chat{enabled:false}`.
+     DB hatası → `error{INTERNAL, "Mesaj gönderilemedi."}`, iletim yok.
+8. Commit sonrası: yankı `request.message` (+`clientMsgId`) müşteriye, `request.activity` panele.
+
+**İstemci yeniden deneme kuralı (P19/P20):** `RATE_LIMITED` → ≥ 1 sn bekle, **aynı `clientMsgId`** ile yeniden gönder (tavan
+iletisinde yeniden deneme yok, giriş kapatılır). `INTERNAL` → kullanıcıya "gönderilemedi, tekrar dene"; yeniden denemede aynı
+`clientMsgId`. Bağlantı koparsa bekleyen mesaj yeniden bağlantıdaki `request.messages` içinde `clientMsgId` ile aranır; yoksa aynı
+`clientMsgId` ile yeniden gönderilir (çift kayıt oluşmaz). `clientMsgId` talep ömrü boyunca tekil üretilir (ör. ULID ya da
+sayaçlı önek); aynı kimlikle **farklı gövde** gönderilirse sunucu ilk kaydı döndürür, yeni gövdeyi yok sayar.
+
+#### 5.4.4 Gövde kuralları (`requestMessageBodySchema`; WS ve REST aynı, DB `body_chars` CHECK 1..1000)
+
+Sırayla uygulanır; istemci aynı sırayı uygular:
+
+1. Ham uzunluk ≤ 4.000 UTF-16 birimi.
+2. İyi biçimli UTF-16 (`String.prototype.isWellFormed()` eşdeğeri `isWellFormedText`; eşleşmemiş vekil yok). Go: geçerli UTF-8
+   ve vekil kod noktası (U+D800–DFFF) yok.
+3. Normalleştirme: `\r\n` → `\n`, **NFC**, baş/son boşluk kırpma (trim). Sunucu normalleştirilmiş metni saklar ve yankılar;
+   istemci yankıdaki `body`'yi esas alır.
+4. Yasak karakter yok: `\p{Cc}` (yalnız `\n` serbest; `\t` dahil diğerleri ret), `\p{Cf}` (yalnız **ZWJ U+200D** ve **VS16 U+FE0F**
+   serbest — emoji), U+2028 / U+2029 (`\p{Zl}`, `\p{Zp}`), U+034F (CGJ), U+180E. Bidi denetimleri U+202A–202E ve U+2066–2069
+   Cf olduğu için **reddedilir**; yumuşak tire U+00AD da Cf'dir (ret).
+5. 1 ≤ kod noktası sayısı ≤ **1.000** (`MESSAGE_BODY_MAX`; UTF-16 birimi değil, kod noktası).
+6. Satır sayısı (`\n` ile bölünmüş parça sayısı) ≤ **20** (`MESSAGE_LINES_MAX`).
+
+Panel → müşteri yönünde `body` ≤ 2.000 (şema payı); fiilen aynı kurallardan geçmiş metindir. WS `maxPayload` (64 KB) değişmez.
+
+#### 5.4.5 `/ws/panel` ekleri (§5.3 tablosuna)
+
+| t                  | Alanlar                                                                                                                              | Ne zaman                                                                                                                                                                                                                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `request.new` (ek) | += `priority?: "LOW"\|"NORMAL"\|"HIGH"`, `slaDueAt?: ISO\|null`, `afterHours?: boolean`, `customerChat?: "SUPPORTED"\|"UNSUPPORTED"` | Sunucu P18'den itibaren **her zaman** gönderir; şemada opsiyonel (P18 öncesi fikstürler, yayın sırasında açık kalmış sekme — kuyruk 60 sn yoklamada düzelir). `customerChat` oluşturma anı tahminidir (§5.4.1)                                                                                         |
+| `request.updated`  | `id`, `priority`, `assignedTo: {id: ULID, name: string(≤100)}\|null`, `slaDueAt: ISO\|null`                                          | Atama, atama kaldırma, öncelik değişimi commit'i sonrası; kullanıcı pasife alma / yetki kaybıyla kalkan atamada da (`assignedTo: null`, ad yayılmaz — S-P18-T5). Tenant'ın bütün panel soketlerine. Web `assignedTo.id === me` ise toast + ses (K-P18-9). Bilinmeyen `id` yok sayılır                  |
+| `request.activity` | `id`, `kind: "message"`, `sender: "TECH"\|"CUSTOMER"`, `at: ISO` — **gövde yok**                                                     | Talepte yeni mesaj saklandığında. Talep başına **≤ 1/sn**: pencere boşsa hemen gönderilir, pencere içindeki olaylar birleşir ve pencere sonunda son `sender`/`at` ile bir kez gider. Panel gövdeyi `GET /support-requests/:id/messages?after=<son id>` ile çeker. Yinelenen `clientMsgId` olay üretmez |
+
+Panel kanalı tek yönlü kalır (istemci mesajı 1008). Sıralama garantisi §5.3 ile aynı; kaçırılan olayın kaynağı REST'tir.
+
+#### 5.4.6 Uygulama kontrol listesi (P19 tarayıcı / P20 Go)
+
+- [ ] Subprotocol'e `rs.cap.chat1` eklendi; Go `clientVersion ≥ 0.12.0`.
+- [ ] Ayrıştırıcı: eski birlik + sohbet birliği ayrı; `request.messages.items` öğelerinde `t` yok; strict (fazla alan ret).
+- [ ] Gövde yerel doğrulaması §5.4.4 sırasıyla (fikstür `invalid.requestChatInbound` hepsi ret; `valid.*` hepsi kabul).
+- [ ] En çok bir onaylanmamış mesaj; `RATE_LIMITED` / `INTERNAL` / kopma sonrası aynı `clientMsgId` ile yeniden deneme.
+- [ ] `request.chat{enabled:false}` → giriş kapalı; ardından gelen `request.accepted` / `request.closed` mevcut akışla işlenir.
+- [ ] `body` yalnız düz metin çizilir; `senderName` yalnız TECH'te gösterilir.
+- [ ] `VALIDATION` hem `error` (K1 sonrası) hem 1008 (K1 öncesi) durumunda kullanıcı metni kaybolmaz.
+
 ## 6. Bilgisayar kaydı mesajları (P8c — mimar, 2026-11-12; ADR-0017, `docs/mimari-e10.md` §3.4)
 
 Şemalar `packages/contracts/src/ws.ts` (`binding.*`, `strictObject`); Go eşi `internal/signal/messages.go`, ortak fixture `fixtures/bindings.json`. Kanal mevcut `/ws/guest` soketidir; yeni WS ucu yok. `hello` şeması **değişmez** (0.9.x istemci sıkı ayrıştırır).
