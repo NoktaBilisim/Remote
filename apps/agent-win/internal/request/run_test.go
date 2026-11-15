@@ -219,6 +219,11 @@ func submit(f Form) func(FormView) (FormAction, Form) {
 	return func(FormView) (FormAction, Form) { return FormSubmit, f }
 }
 
+// submits tek form kararı: f gönderilir (sonraki form çağrısı FormClose).
+func submits(f Form) []func(FormView) (FormAction, Form) {
+	return []func(FormView) (FormAction, Form){submit(f)}
+}
+
 var goodForm = Form{Name: "Ayşe Yılmaz", Phone: "0532 123 45 67", Description: "Yazıcı çalışmıyor acil", Consent: true}
 
 func deps(a *fakeAPI, u *fakeUI, conn *fakeConn, ev chan UserAction, rem Remember) Deps {
@@ -254,9 +259,15 @@ func wait[T any](t *testing.T, c chan T) T {
 // connected bir request.state gönderip ekrana yansımasını bekler (soket bağlandı).
 func connected(t *testing.T, u *fakeUI, conn *fakeConn) {
 	t.Helper()
-	conn.in <- State{T: "request.state", Status: "PENDING", RequestCode: "042917", Position: 7,
+	connectedAt(t, u, conn, 7)
+}
+
+// connectedAt sırası pos olan bir request.state gönderip ekrana yansımasını bekler.
+func connectedAt(t *testing.T, u *fakeUI, conn *fakeConn, pos int) {
+	t.Helper()
+	conn.in <- State{T: "request.state", Status: "PENDING", RequestCode: "042917", Position: pos,
 		CreatedAt: "2026-11-12T10:00:00.000Z", ExpiresAt: "2026-11-12T10:30:00.000Z", ServerTime: "2026-11-12T10:01:05.000Z"}
-	for v := wait(t, u.waiting); v.Position != 7; v = wait(t, u.waiting) {
+	for v := wait(t, u.waiting); v.Position != pos; v = wait(t, u.waiting) {
 	}
 }
 
@@ -265,12 +276,9 @@ func TestAC139AC154HappyPathRememberAndShare(t *testing.T) {
 	rem := &memRemember{}
 	f := goodForm
 	f.Remember = true
-	u.forms = []func(FormView) (FormAction, Form){submit(f)}
+	u.forms = submits(f)
 	out := runAsync(deps(a, u, conn, ev, rem))
-	conn.in <- State{T: "request.state", Status: "PENDING", RequestCode: "042917", Position: 1,
-		CreatedAt: "2026-11-12T10:00:00.000Z", ExpiresAt: "2026-11-12T10:30:00.000Z", ServerTime: "2026-11-12T10:01:05.000Z"}
-	for v := wait(t, u.waiting); v.Position != 1; v = wait(t, u.waiting) {
-	}
+	connectedAt(t, u, conn, 1)
 	conn.in <- acc
 	av := wait(t, u.accepted)
 	if av.TechName != "Mehmet" || av.TechVerifyCode != "4821" || av.RequestCode != "042917" {
@@ -302,7 +310,7 @@ func TestAC139AC154HappyPathRememberAndShare(t *testing.T) {
 func TestAC136UncheckedSubmitForgetsAndSendsNoDeviceKey(t *testing.T) {
 	a, u, conn, ev := &fakeAPI{}, newUI(), newConn(), make(chan UserAction, 4)
 	rem := &memRemember{d: &remember.Personal{Name: "Eski Ad", Phone: "+905321234567", DeviceKey: "AAAAAAAAAAAAAAAAAAAAAA"}}
-	u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
+	u.forms = submits(goodForm)
 	out := runAsync(deps(a, u, conn, ev, rem))
 	connected(t, u, conn)
 	ev <- UserClose
@@ -339,7 +347,7 @@ func TestAC137ForgetClearsForm(t *testing.T) {
 
 func TestAC134AC164ValidationErrorsFocusFirstField(t *testing.T) {
 	a, u := &fakeAPI{}, newUI()
-	u.forms = []func(FormView) (FormAction, Form){submit(Form{Name: "Ayşe Yılmaz", Phone: "12", Description: "kısa"})}
+	u.forms = submits(Form{Name: "Ayşe Yılmaz", Phone: "12", Description: "kısa"})
 	Run(context.Background(), deps(a, u, newConn(), nil, nil))
 	v := u.views[1]
 	if v.Focus != FieldPhone || v.Errors[FieldDescription] == "" || v.Errors[FieldConsent] == "" || len(a.bodies) != 0 {
@@ -350,7 +358,7 @@ func TestAC134AC164ValidationErrorsFocusFirstField(t *testing.T) {
 func TestS8b8NotReadyRetriedOnceThenNotice(t *testing.T) {
 	busy := &api.Error{Status: 503, Code: "NOT_READY", RetryAfter: time.Second}
 	a, u := &fakeAPI{createErrs: []error{busy, busy}}, newUI()
-	u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
+	u.forms = submits(goodForm)
 	Run(context.Background(), deps(a, u, newConn(), nil, nil))
 	if len(a.bodies) != 2 || u.views[1].Notice != noticeBusy {
 		t.Fatalf("en çok 2 deneme: %d %q", len(a.bodies), u.views[1].Notice)
@@ -379,7 +387,7 @@ func TestAC133OutdatedBlocksFormAndOpensFixedURL(t *testing.T) {
 
 func TestAC142ExpiredRecreateKeepsForm(t *testing.T) {
 	a, u, conn, ev := &fakeAPI{}, newUI(), newConn(), make(chan UserAction, 4)
-	u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
+	u.forms = submits(goodForm)
 	u.closed = []ClosedAction{ClosedRecreate}
 	out := runAsync(deps(a, u, conn, ev, nil))
 	conn.in <- Closed{T: "request.closed", Status: "EXPIRED"}
@@ -393,7 +401,7 @@ func TestAC142ExpiredRecreateKeepsForm(t *testing.T) {
 
 func TestAC154CancelRaceDeclinesLateAccept(t *testing.T) {
 	a, u, conn, ev := &fakeAPI{}, newUI(), newConn(), make(chan UserAction, 4)
-	u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
+	u.forms = submits(goodForm)
 	d := deps(a, u, conn, ev, nil)
 	d.After = time.After // iptal yanıtı bekleme süresi gerçek (sahte After hemen düşerdi)
 	out := runAsync(d)
@@ -419,7 +427,7 @@ func TestAC154CancelRaceDeclinesLateAccept(t *testing.T) {
 
 func TestAC141ReconnectAfterDropAnd403Ends(t *testing.T) {
 	a, u, ev := &fakeAPI{}, newUI(), make(chan UserAction, 4)
-	u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
+	u.forms = submits(goodForm)
 	first := &dropConn{fakeConn: newConn()}
 	calls := 0
 	d := deps(a, u, nil, ev, nil)

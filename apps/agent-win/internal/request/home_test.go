@@ -2,10 +2,7 @@ package request
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"remote-support/agent-win/internal/api"
@@ -38,11 +35,11 @@ func TestAC190NoSourceReturnsHome(t *testing.T) {
 // TestAC182BindingModeRequestUsesKeyNoRefNoDeviceKey kayıtla talep: ana ekran yok (doğrudan form), status anahtarla,
 // talep gövdesinde bindingKey (ref yok), "hatırla" açıkken bile deviceKey yok (G-E10-5).
 func TestAC182BindingModeRequestUsesKeyNoRefNoDeviceKey(t *testing.T) {
-	a, u, conn, ev := &fakeAPI{customer: "Örnek‮ A.Ş."}, newUI(), newConn(), make(chan UserAction, 4)
+	a, u, conn, ev := &fakeAPI{customer: "Örnek\u202e A.Ş."}, newUI(), newConn(), make(chan UserAction, 4)
 	rem := &memRemember{}
 	f := goodForm
 	f.Remember, f.RememberChosen = true, true
-	u.forms = []func(FormView) (FormAction, Form){submit(f)}
+	u.forms = submits(f)
 	d := bindingDeps(a, u, conn, ev, rem)
 	d.BindingEnabled = true
 	out := runAsync(d)
@@ -115,7 +112,7 @@ func TestBP8c21Status404WithoutCodeKeepsBinding(t *testing.T) {
 // TestAC185CreateInvalidReturnsToHome talep oluşturmada BINDING_INVALID → form kapanır, ana ekrana AC-185 metniyle.
 func TestAC185CreateInvalidReturnsToHome(t *testing.T) {
 	a, u := &fakeAPI{createErrs: []error{errBindingInvalid}}, newUI()
-	u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
+	u.forms = submits(goodForm)
 	cleared := 0
 	d := bindingDeps(a, u, nil, nil, nil)
 	d.OnBindingInvalid = func() { cleared++ }
@@ -168,16 +165,10 @@ func TestAC171ClosedReasonsCustomerPassiveBindingRevoked(t *testing.T) {
 }
 
 func TestAC185MessagesMatchContractsFixture(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packages", "contracts", "fixtures", "bindings.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	var f struct {
 		Messages map[string]string `json:"messages"`
 	}
-	if err := json.Unmarshal(b, &f); err != nil {
-		t.Fatal(err)
-	}
+	loadFixture(t, "bindings.json", &f)
 	if f.Messages["invalid"] != MsgBindingInvalid || f.Messages["forgotten"] != MsgForgotten || f.Messages["noSource"] != MsgNoSource {
 		t.Fatalf("metinler fixture ile aynı olmalı: %v", f.Messages)
 	}

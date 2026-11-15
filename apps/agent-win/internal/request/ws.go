@@ -111,55 +111,71 @@ func ParseServer(raw []byte) (Inbound, error) {
 	}
 	switch head.T {
 	case "request.state":
-		var m State
-		if err := signal.DecodeStrict(raw, &m); err != nil {
-			return nil, bad(head.T, err.Error())
-		}
-		if m.Status != "PENDING" || !codeRe.MatchString(m.RequestCode) || m.Position < 1 ||
-			!signal.IsISO(m.CreatedAt) || !signal.IsISO(m.ExpiresAt) || !signal.IsISO(m.ServerTime) {
-			return nil, bad(head.T, "alan")
-		}
-		return m, nil
+		return parseState(head.T, raw)
 	case "request.accepted":
-		var m Accepted
-		if err := signal.DecodeStrict(raw, &m); err != nil {
-			return nil, bad(head.T, err.Error())
-		}
-		if !secretRe.MatchString(m.WsTicket) || m.TechnicianName == "" || utf16Len(m.TechnicianName) > techNameMax ||
-			!verifyRe.MatchString(m.TechVerifyCode) || !signal.IsISO(m.TicketExpiresAt) || !validAdmitCode(raw, m.AdmitCode) {
-			return nil, bad(head.T, "alan")
-		}
-		m.TechnicianName = Display(m.TechnicianName, "Teknisyen") // S8b2-3: arayüze yalnız süzülmüş ad gider
-		return m, nil
+		return parseAccepted(head.T, raw)
 	case "request.closed":
-		var m Closed
-		if err := signal.DecodeStrict(raw, &m); err != nil {
-			return nil, bad(head.T, err.Error())
-		}
-		if !slices.Contains(closedStatuses, m.Status) ||
-			(m.Reason != nil && (m.Status != "CANCELLED" || !slices.Contains(cancelReasons, *m.Reason))) ||
-			(m.Message != nil && (m.Status != "REJECTED" || utf16Len(*m.Message) > closedMsgMax)) {
-			return nil, bad(head.T, "alan")
-		}
-		if m.Message != nil {
-			msg := Display(*m.Message, "")
-			m.Message = &msg
-		}
-		return m, nil
+		return parseClosed(head.T, raw)
 	case "error":
-		var m ErrorMsg
-		if err := signal.DecodeStrict(raw, &m); err != nil {
-			return nil, bad(head.T, err.Error())
-		}
-		if !slices.Contains(wsErrorCodes, m.Code) || utf16Len(m.Message) > errMsgMax {
-			return nil, bad(head.T, "alan")
-		}
-		m.Message = Display(m.Message, "")
-		return m, nil
-	case "request.message", "request.messages", "request.chat": // P20 K6: rs.cap.chat1 birliği (chat.go)
+		return parseError(head.T, raw)
+	case "request.message", "request.messages", "request.chat": // P20 K6: rs.cap.chat1 birliği (chat_wire.go)
 		return parseChat(head.T, raw)
 	}
 	return nil, bad(head.T, "bilinmeyen tip")
+}
+
+func parseState(t string, raw []byte) (Inbound, error) {
+	var m State
+	if err := signal.DecodeStrict(raw, &m); err != nil {
+		return nil, bad(t, err.Error())
+	}
+	if m.Status != "PENDING" || !codeRe.MatchString(m.RequestCode) || m.Position < 1 ||
+		!signal.IsISO(m.CreatedAt) || !signal.IsISO(m.ExpiresAt) || !signal.IsISO(m.ServerTime) {
+		return nil, bad(t, "alan")
+	}
+	return m, nil
+}
+
+func parseAccepted(t string, raw []byte) (Inbound, error) {
+	var m Accepted
+	if err := signal.DecodeStrict(raw, &m); err != nil {
+		return nil, bad(t, err.Error())
+	}
+	if !secretRe.MatchString(m.WsTicket) || m.TechnicianName == "" || utf16Len(m.TechnicianName) > techNameMax ||
+		!verifyRe.MatchString(m.TechVerifyCode) || !signal.IsISO(m.TicketExpiresAt) || !validAdmitCode(raw, m.AdmitCode) {
+		return nil, bad(t, "alan")
+	}
+	m.TechnicianName = Display(m.TechnicianName, "Teknisyen") // S8b2-3: arayüze yalnız süzülmüş ad gider
+	return m, nil
+}
+
+func parseClosed(t string, raw []byte) (Inbound, error) {
+	var m Closed
+	if err := signal.DecodeStrict(raw, &m); err != nil {
+		return nil, bad(t, err.Error())
+	}
+	if !slices.Contains(closedStatuses, m.Status) ||
+		(m.Reason != nil && (m.Status != "CANCELLED" || !slices.Contains(cancelReasons, *m.Reason))) ||
+		(m.Message != nil && (m.Status != "REJECTED" || utf16Len(*m.Message) > closedMsgMax)) {
+		return nil, bad(t, "alan")
+	}
+	if m.Message != nil {
+		msg := Display(*m.Message, "")
+		m.Message = &msg
+	}
+	return m, nil
+}
+
+func parseError(t string, raw []byte) (Inbound, error) {
+	var m ErrorMsg
+	if err := signal.DecodeStrict(raw, &m); err != nil {
+		return nil, bad(t, err.Error())
+	}
+	if !slices.Contains(wsErrorCodes, m.Code) || utf16Len(m.Message) > errMsgMax {
+		return nil, bad(t, "alan")
+	}
+	m.Message = Display(m.Message, "")
+	return m, nil
 }
 
 // Outbound istemci → sunucu: yalnız `request.cancel` ve `request.decline` (requestInboundSchema).

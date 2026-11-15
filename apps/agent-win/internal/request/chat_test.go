@@ -41,12 +41,18 @@ func TestAC255ChatOutboundMatchesContractsFixture(t *testing.T) {
 	if len(fx.Valid.Out) == 0 || len(fx.Invalid.Out) == 0 {
 		t.Fatal("fixture boş")
 	}
-	for _, raw := range fx.Valid.Out {
+	expectServerParse(t, fx.Valid.Out, fx.Invalid.Out)
+}
+
+// expectServerParse fixture'daki geçerli sunucu mesajları ayrışır, geçersizler reddedilir.
+func expectServerParse(t *testing.T, valid, invalid []json.RawMessage) {
+	t.Helper()
+	for _, raw := range valid {
 		if _, err := ParseServer(raw); err != nil {
 			t.Errorf("geçerli reddedildi %s: %v", raw, err)
 		}
 	}
-	for _, raw := range fx.Invalid.Out {
+	for _, raw := range invalid {
 		if _, err := ParseServer(raw); err == nil {
 			t.Errorf("geçersiz kabul edildi %s", raw)
 		}
@@ -436,7 +442,7 @@ func TestKP20_9BalloonHasNoBody(t *testing.T) {
 
 func TestAC255ChatFlowThroughWait(t *testing.T) {
 	a, u, conn, ev := &fakeAPI{}, newUI(), newConn(), make(chan UserAction, 4)
-	u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
+	u.forms = submits(goodForm)
 	d := deps(a, u, conn, ev, nil)
 	// her okumada 1 sn ilerleyen saat: 1 msg/sn kilidi gerçek beklemeden açılır (test After'ı anında tetikler)
 	var tick atomic.Int64
@@ -475,7 +481,7 @@ func TestAC255ChatFlowThroughWait(t *testing.T) {
 
 func TestGP20_7WaitTitleUsesLocalLabel(t *testing.T) {
 	a, u, conn, ev := &fakeAPI{tenant: "Sunucu\u202eAdı"}, newUI(), newConn(), make(chan UserAction, 4)
-	u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
+	u.forms = submits(goodForm)
 	d := deps(a, u, conn, ev, nil)
 	d.Registered = "Demo Firma – Muhasebe"
 	out := runAsync(d)

@@ -50,7 +50,7 @@ func TestAC136ChangedIdentityNotSavedWithoutOptIn(t *testing.T) {
 		rem := &memRemember{d: &d}
 		f := goodForm
 		f.Name, f.Remember, f.RememberChosen = "Ali Veli", true, chosen
-		u.forms = []func(FormView) (FormAction, Form){submit(f)}
+		u.forms = submits(f)
 		out := runAsync(deps(a, u, conn, ev, rem))
 		connected(t, u, conn)
 		ev <- UserClose
@@ -75,7 +75,7 @@ func TestAC137ForgetFailureVisible(t *testing.T) {
 	a, u, conn, ev := &fakeAPI{}, newUI(), newConn(), make(chan UserAction, 4)
 	d := personA
 	rem := &memRemember{d: &d, forgetErr: errors.New("erişim engellendi")}
-	u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
+	u.forms = submits(goodForm)
 	out := runAsync(deps(a, u, conn, ev, rem))
 	first := wait(t, u.waiting)
 	connected(t, u, conn)
@@ -128,7 +128,7 @@ func TestS8b22DialRetryDelay(t *testing.T) {
 
 func TestS8b22DialBackoffInWaitLoop(t *testing.T) {
 	a, u, conn, ev := &fakeAPI{}, newUI(), newConn(), make(chan UserAction, 4)
-	u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
+	u.forms = submits(goodForm)
 	d := deps(a, u, conn, ev, nil)
 	var mu sync.Mutex
 	var waits []time.Duration
@@ -166,12 +166,12 @@ func TestS8b22DialBackoffInWaitLoop(t *testing.T) {
 func TestS8b23Display(t *testing.T) {
 	cases := map[string]string{
 		"Mehmet":                  "Mehmet",
-		"Meh‮met":                 "Mehmet",
-		"⁧Firma⁩ A.Ş.":            "Firma A.Ş.",
-		"a​b­c͏d":                 "abcd",
+		"Meh\u202emet":            "Mehmet",
+		"\u2067Firma\u2069 A.Ş.":  "Firma A.Ş.",
+		"a\u200bb\u00adc\u034fd":  "abcd",
 		"satır1\r\nsatır2\tson":   "satır1  satır2 son",
 		"x y\u0007z":              "x yz",
-		"  ‮‏  ":                  "yedek",
+		"  \u202e\u200f  ":        "yedek",
 		"Ayşe & Ortakları <Ltd.>": "Ayşe & Ortakları <Ltd.>",
 	}
 	for in, want := range cases {
@@ -183,20 +183,20 @@ func TestS8b23Display(t *testing.T) {
 
 func TestS8b23ServerTextsSanitized(t *testing.T) {
 	m, err := ParseServer([]byte(`{"t":"request.accepted","wsTicket":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",` +
-		`"technicianName":"Meh‮met","techVerifyCode":"4821","ticketExpiresAt":"2026-11-12T10:01:00.000Z"}`))
+		`"technicianName":"Meh` + "\u202e" + `met","techVerifyCode":"4821","ticketExpiresAt":"2026-11-12T10:01:00.000Z"}`))
 	if err != nil || m.(Accepted).TechnicianName != "Mehmet" {
 		t.Fatalf("%+v %v", m, err)
 	}
 	m, err = ParseServer([]byte(`{"t":"request.accepted","wsTicket":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",` +
-		`"technicianName":"‏","techVerifyCode":"4821","ticketExpiresAt":"2026-11-12T10:01:00.000Z"}`))
+		`"technicianName":"` + "\u200f" + `","techVerifyCode":"4821","ticketExpiresAt":"2026-11-12T10:01:00.000Z"}`))
 	if err != nil || m.(Accepted).TechnicianName != "Teknisyen" {
 		t.Fatalf("%+v %v", m, err)
 	}
-	m, err = ParseServer([]byte(`{"t":"request.closed","status":"REJECTED","message":"Yarın⁦ arayın"}`))
+	m, err = ParseServer([]byte(`{"t":"request.closed","status":"REJECTED","message":"Yarın` + "\u2066" + ` arayın"}`))
 	if err != nil || *m.(Closed).Message != "Yarın arayın" {
 		t.Fatalf("%+v %v", m, err)
 	}
-	a, u := &fakeAPI{tenant: "‮Demo Firma"}, newUI()
+	a, u := &fakeAPI{tenant: "\u202eDemo Firma"}, newUI()
 	Run(context.Background(), deps(a, u, newConn(), nil, nil))
 	if u.views[0].Tenant != "Demo Firma" {
 		t.Fatalf("%q", u.views[0].Tenant)
@@ -208,7 +208,7 @@ func TestS8b23ServerTextsSanitized(t *testing.T) {
 func TestAC154ReleaseKinds(t *testing.T) {
 	for _, k := range []ReleaseKind{ReleaseFailed, ReleaseAbandoned} {
 		a, u, conn, ev := &fakeAPI{}, newUI(), newConn(), make(chan UserAction, 4)
-		u.forms = []func(FormView) (FormAction, Form){submit(goodForm)}
+		u.forms = submits(goodForm)
 		out := runAsync(deps(a, u, conn, ev, nil))
 		connected(t, u, conn)
 		conn.in <- acc

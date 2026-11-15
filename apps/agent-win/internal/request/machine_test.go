@@ -137,16 +137,7 @@ func TestAC154WsRequestMatchesContractsFixture(t *testing.T) {
 	if len(fx.Valid.RequestOutbound) == 0 || len(fx.Invalid.RequestOutbound) == 0 {
 		t.Fatal("fixture boş")
 	}
-	for _, raw := range fx.Valid.RequestOutbound {
-		if _, err := ParseServer(raw); err != nil {
-			t.Errorf("geçerli reddedildi %s: %v", raw, err)
-		}
-	}
-	for _, raw := range fx.Invalid.RequestOutbound {
-		if _, err := ParseServer(raw); err == nil {
-			t.Errorf("geçersiz kabul edildi %s", raw)
-		}
-	}
+	expectServerParse(t, fx.Valid.RequestOutbound, fx.Invalid.RequestOutbound)
 	for i, raw := range fx.Valid.RequestInbound {
 		out := []Outbound{SendCancel, SendDecline}[i]
 		b, err := Encode(out)

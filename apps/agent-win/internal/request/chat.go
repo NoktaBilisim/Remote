@@ -1,61 +1,19 @@
 package request
 
 // P20 K6 — kabul öncesi talep sohbeti (AC-255 Go ucu; mimari-e11 §8d.3 sohbet satırı, G-P20-7, K-P20-1; mimari-protokol
-// §5.4). Sunucu P18'de hazırdır; bu dosya platformdan bağımsız kısımdır: gelen sohbet mesajlarının sıkı ayrıştırılması,
-// gönderim gövdesinin yerel doğrulaması (§5.4.4, sunucuyla aynı sıra), gösterim süzgeci + önek/girinti + tavan, ve
-// "en çok bir onaylanmamış mesaj" durum modeli. Zaman, soket ve arayüz wait.go'dadır. Oturum sohbeti (DC `chat`) P22'ye
-// kadar değişmez.
+// §5.4). Sunucu P18'de hazırdır; bu dosya platformdan bağımsız "en çok bir onaylanmamış mesaj" durum modelidir. Tel
+// tipleri, ayrıştırma ve gövde doğrulaması chat_wire.go'da; gösterim süzgeci + önek/girinti + tavan chat_view.go'dadır.
+// Zaman, soket ve arayüz wait.go'dadır. Oturum sohbeti (DC `chat`) P22'ye kadar değişmez.
 
 import (
-	"crypto/rand"
-	"encoding/base64"
-	"encoding/json"
-	"errors"
-	"regexp"
 	"slices"
-	"strings"
 	"time"
-	"unicode/utf8"
-
-	"remote-support/agent-win/internal/signal"
 )
 
-// Sözleşme sabitleri (contracts `api/requests.ts`, `ws-request.ts`).
 const (
-	// CapChat `rs.cap.chat1` (WS_REQUEST_CAP_CHAT): Dial her zaman bildirir.
-	CapChat         = "rs.cap.chat1"
-	chatRawMax      = 4000 // ham gövde ön sınırı (UTF-16 birimi)
-	chatBodyMax     = 1000 // MESSAGE_BODY_MAX (kod noktası)
-	chatLinesMax    = 20   // MESSAGE_LINES_MAX
-	chatInBodyMax   = 2000 // sunucu → istemci gövde payı (MESSAGE_BODY_MAX * 2, UTF-16 birimi)
-	chatHistoryMax  = 50   // MESSAGE_HISTORY_WS
-	senderNameMax   = 100
-	senderTech      = "TECH"
-	senderCustomer  = "CUSTOMER"
-	capMessage      = "Bu talepte en çok 200 mesaj gönderilebilir."
-	chatRetries     = 4 // RATE_LIMITED sonrası aynı clientMsgId ile en çok bu kadar yeniden deneme (1, 2, 4, 8 sn)
-	chatSendEvery   = time.Second
-	chatIndent      = "    "
-	chatUnreadable  = "(görüntülenemeyen içerik)"
-	chatTechDefault = "Teknisyen"
-)
-
-// Gösterim tavanları (G-P20-7): 200 mesaj ve 256 K karakter (UTF-16 birimi; aşımda en eski düşer). Salt okunur geçmiş
-// kutusunun `EM_SETLIMITTEXT` sınırı ChatTextLimit'tir (ui).
-const (
-	ChatShowMax    = 200
-	ChatTextMax    = 256 * 1024
-	ChatTextLimit  = 512 * 1024
-	ChatInputLimit = 2 * chatBodyMax // giriş kutusu (UTF-16 birimi); asıl sınır ChatBody'dedir
-)
-
-// Gövde hata metinleri contracts `requestMessageBodySchema` ile aynı.
-const (
-	errChatLong    = "Mesaj en çok 1000 karakter olabilir"
-	errChatBadText = "Mesaj geçersiz karakter içeriyor"
-	errChatUnsafe  = "Mesaj görünmez veya kontrol karakteri içeremez"
-	errChatEmpty   = "Mesaj boş olamaz"
-	errChatLines   = "Mesaj en çok 20 satır olabilir"
+	capMessage    = "Bu talepte en çok 200 mesaj gönderilebilir."
+	chatRetries   = 4 // RATE_LIMITED sonrası aynı clientMsgId ile en çok bu kadar yeniden deneme (1, 2, 4, 8 sn)
+	chatSendEvery = time.Second
 )
 
 // Sohbet durum satırı metinleri.
@@ -67,185 +25,7 @@ const (
 	chatNoteOffline  = "Bağlantı bekleniyor; mesaj şu an gönderilemez."
 	chatNoteClosed   = "Talep kabul edildi ya da kapandı; mesaj gönderilemez."
 	chatNoteAccepted = "Talep kabul edildi; sohbet kapandı."
-	// ChatBalloonText tepsi balonu / bildirim metni: mesaj gövdesi ve teknisyen adı GÖSTERİLMEZ (K-P20-9).
-	ChatBalloonText = "Teknisyenden yeni mesaj"
 )
-
-var (
-	ulidRe        = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{26}$`)
-	clientMsgIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,36}$`)
-	chatSenders   = []string{senderTech, senderCustomer}
-)
-
-// ChatItem `request.message` / `request.messages.items[]` alanları (S→C; öğede `t` yok).
-type ChatItem struct {
-	ID          string  `json:"id"`
-	Sender      string  `json:"sender"`
-	SenderName  *string `json:"senderName,omitempty"`
-	Body        string  `json:"body"`
-	CreatedAt   string  `json:"createdAt"`
-	ClientMsgID *string `json:"clientMsgId,omitempty"`
-}
-
-// ChatMessage `request.message` (S→C): teknisyen mesajı ya da müşterinin kendi mesajının yankısı.
-type ChatMessage struct {
-	T string `json:"t"`
-	ChatItem
-}
-
-// ChatHistory `request.messages`: bağlantı sonrası son ≤ 50 mesaj, artan sıra.
-type ChatHistory struct {
-	T     string
-	Items []ChatItem
-}
-
-// ChatToggle `request.chat`: false → giriş kapanır (kabul/kapanış öncesi).
-type ChatToggle struct {
-	T       string `json:"t"`
-	Enabled *bool  `json:"enabled"`
-}
-
-func (ChatMessage) isInbound() {}
-func (ChatHistory) isInbound() {}
-func (ChatToggle) isInbound()  {}
-
-// chatItemWire ChatItem'ın sıkı çözümü için gömmesiz eşi (DecodeStrict gömülü alanı görmez).
-type chatItemWire struct {
-	ID          string  `json:"id"`
-	Sender      string  `json:"sender"`
-	SenderName  *string `json:"senderName,omitempty"`
-	Body        string  `json:"body"`
-	CreatedAt   string  `json:"createdAt"`
-	ClientMsgID *string `json:"clientMsgId,omitempty"`
-}
-
-type chatMessageWire struct {
-	T           string  `json:"t"`
-	ID          string  `json:"id"`
-	Sender      string  `json:"sender"`
-	SenderName  *string `json:"senderName,omitempty"`
-	Body        string  `json:"body"`
-	CreatedAt   string  `json:"createdAt"`
-	ClientMsgID *string `json:"clientMsgId,omitempty"`
-}
-
-func validChatItem(it ChatItem) bool {
-	return ulidRe.MatchString(it.ID) && slices.Contains(chatSenders, it.Sender) &&
-		(it.SenderName == nil || (*it.SenderName != "" && utf16Len(*it.SenderName) <= senderNameMax)) &&
-		it.Body != "" && utf16Len(it.Body) <= chatInBodyMax && signal.IsISO(it.CreatedAt) &&
-		(it.ClientMsgID == nil || clientMsgIDRe.MatchString(*it.ClientMsgID))
-}
-
-// parseChat requestChatOutboundSchema eşi (yalnız `rs.cap.chat1` soketine gelir; Dial her zaman bildirir).
-func parseChat(t string, raw []byte) (Inbound, error) {
-	switch t {
-	case "request.message":
-		var w chatMessageWire
-		if err := signal.DecodeStrict(raw, &w); err != nil {
-			return nil, bad(t, err.Error())
-		}
-		it := ChatItem{ID: w.ID, Sender: w.Sender, SenderName: w.SenderName, Body: w.Body, CreatedAt: w.CreatedAt,
-			ClientMsgID: w.ClientMsgID}
-		if !validChatItem(it) {
-			return nil, bad(t, "alan")
-		}
-		return ChatMessage{T: t, ChatItem: it}, nil
-	case "request.messages":
-		var w struct {
-			T     string            `json:"t"`
-			Items []json.RawMessage `json:"items"`
-		}
-		if err := signal.DecodeStrict(raw, &w); err != nil {
-			return nil, bad(t, err.Error())
-		}
-		if w.Items == nil || len(w.Items) > chatHistoryMax {
-			return nil, bad(t, "items")
-		}
-		h := ChatHistory{T: t, Items: make([]ChatItem, 0, len(w.Items))}
-		for _, r := range w.Items {
-			var iw chatItemWire // öğede `t` yok: bilinmeyen alan olarak reddedilir
-			if err := signal.DecodeStrict(r, &iw); err != nil {
-				return nil, bad(t, err.Error())
-			}
-			it := ChatItem(iw)
-			if !validChatItem(it) {
-				return nil, bad(t, "öğe")
-			}
-			h.Items = append(h.Items, it)
-		}
-		return h, nil
-	case "request.chat":
-		var m ChatToggle
-		if err := signal.DecodeStrict(raw, &m); err != nil {
-			return nil, bad(t, err.Error())
-		}
-		if m.Enabled == nil {
-			return nil, bad(t, "enabled")
-		}
-		return m, nil
-	}
-	return nil, bad(t, "bilinmeyen tip")
-}
-
-// ChatBody §5.4.4 gövde kuralları (sunucuyla aynı sıra): ham ≤ 4000 UTF-16 → iyi biçimli metin → `\r\n`→`\n` → trim →
-// yasak karakter yok (Cc yalnız `\n` serbest; Cf yalnız ZWJ serbest; Zl/Zp, U+034F, U+180E) → 1..1000 kod noktası →
-// ≤ 20 satır. NFC sunucuda yapılır (ek bağımlılık yok); istemci yankıdaki gövdeyi esas alır. Hata yoksa msg boştur.
-func ChatBody(raw string) (body, msg string) {
-	if utf16Len(raw) > chatRawMax {
-		return "", errChatLong
-	}
-	if !utf8.ValidString(raw) { // Go dizesinde vekil kod noktası olamaz; geçersiz UTF-8 = iyi biçimsiz metin
-		return "", errChatBadText
-	}
-	s := strings.TrimFunc(strings.ReplaceAll(raw, "\r\n", "\n"), jsSpace)
-	if strings.ContainsFunc(s, func(r rune) bool { return r != '\n' && r != 0x200D && unsafeChar(r) }) {
-		return "", errChatUnsafe
-	}
-	switch n := utf8.RuneCountInString(s); {
-	case n < 1:
-		return "", errChatEmpty
-	case n > chatBodyMax:
-		return "", errChatLong
-	}
-	if strings.Count(s, "\n")+1 > chatLinesMax {
-		return "", errChatLines
-	}
-	return s, ""
-}
-
-// EncodeMessage `request.message` (C→S). Gövde ChatBody'den geçmiş olmalıdır.
-func EncodeMessage(body, clientMsgID string) ([]byte, error) {
-	if nb, msg := ChatBody(body); msg != "" || nb != body || !clientMsgIDRe.MatchString(clientMsgID) {
-		return nil, errors.New("request: geçersiz sohbet mesajı")
-	}
-	return json.Marshal(struct {
-		T           string `json:"t"`
-		Body        string `json:"body"`
-		ClientMsgID string `json:"clientMsgId"`
-	}{"request.message", body, clientMsgID})
-}
-
-// newClientMsgID 16 bayt rastgele, base64url (22 karakter): talep ömrü boyunca tekil.
-func newClientMsgID() string {
-	var b [16]byte
-	_, _ = rand.Read(b[:])
-	return base64.RawURLEncoding.EncodeToString(b[:])
-}
-
-// ChatDisplayBody G-P20-7 gövde süzgeci (request.Display'den AYRI: satır sonları korunur). Cc (`\n` hariç; `\r` ve
-// `\t` dahil), tüm Cf (U+200B–200F, U+202A–202E, U+2066–2069, U+FEFF, U+00AD…), U+2028/2029, U+034F, U+180E,
-// geçersiz UTF-8 baytları ve U+FFFD atılır (encoding/json eşlenmemiş vekili U+FFFD'ye çevirir; vekil böylece atılır).
-func ChatDisplayBody(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); {
-		r, n := utf8.DecodeRuneInString(s[i:])
-		i += n
-		if r == '\n' || (r != utf8.RuneError && !unsafeChar(r)) {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
 
 type entryState int
 
@@ -272,18 +52,6 @@ type outgoing struct {
 
 // ChatSend gönderilecek `request.message`.
 type ChatSend struct{ Body, ClientMsgID string }
-
-// ChatView bekleme ekranının sohbet alanı.
-type ChatView struct {
-	Text      string // salt okunur geçmiş: süzülmüş, öneki istemci üretmiş, `\r\n`, tavanlı
-	Rev       int    // Text değiştiğinde artar (arayüz yalnız değişince yeniden yazar)
-	Input     bool   // giriş kutusu etkin
-	CanSend   bool   // "Gönder" etkin (1 msg/sn, tek bekleyen mesaj, bağlantı)
-	Status    string // durum satırı
-	Clear     bool   // giriş kutusunu boşalt (gönderim kabul edildi)
-	Restore   string // giriş boşsa bu metni geri koy (gönderilemedi; müşteri metni kaybolmaz)
-	NotifyNew bool   // yeni teknisyen mesajı (pencere önde değilse yanıp sönme / gövdesiz balon)
-}
 
 // Chat talep sohbeti durum modeli (saf; zaman parametreyle gelir).
 type Chat struct {
@@ -398,12 +166,6 @@ func (c *Chat) merge(it ChatItem) bool {
 	c.trim()
 	c.changed()
 	return it.Sender == senderTech
-}
-
-func (c *Chat) trim() {
-	if n := len(c.entries) - ChatShowMax; n > 0 {
-		c.entries = slices.Delete(c.entries, 0, n)
-	}
 }
 
 // OnMessage `request.message`.
@@ -521,57 +283,6 @@ func (c *Chat) SendFailed() {
 	if c.out != nil && c.out.inFlight {
 		c.Online(false)
 	}
-}
-
-// View görünüm; tek seferlik alanlar (Clear, Restore, NotifyNew) okununca sıfırlanır.
-func (c *Chat) View(now time.Time) ChatView {
-	v := ChatView{Text: c.text(), Rev: c.rev, Input: !c.closed, CanSend: c.canSend(now), Status: c.status,
-		Clear: c.clear, Restore: c.restore, NotifyNew: c.notify}
-	c.clear, c.restore, c.notify = false, "", false
-	return v
-}
-
-// text geçmiş metni: her mesaj "[SS:DD] Teknisyen <ad>:" / "Siz:" başlığı (istemci üretir) + girintili gövde satırları;
-// gövde satırı hiçbir zaman sütun 0'da başlamaz, sahte başlık üretilemez (G-P20-7). Tavan aşımında en eski düşer.
-func (c *Chat) text() string {
-	blocks := make([]string, 0, len(c.entries))
-	total := 0
-	for i := len(c.entries) - 1; i >= 0; i-- {
-		b := c.block(c.entries[i])
-		if n := utf16Len(b); total+n > ChatTextMax {
-			break
-		} else {
-			total += n
-		}
-		blocks = append(blocks, b)
-	}
-	slices.Reverse(blocks)
-	return strings.Join(blocks, "")
-}
-
-func (c *Chat) block(e chatEntry) string {
-	var head string
-	if !e.at.IsZero() {
-		head = "[" + e.at.In(c.loc).Format("15:04") + "] "
-	}
-	switch {
-	case e.sender == senderTech:
-		head += chatTechDefault
-		if n := Display(e.name, ""); n != "" {
-			head += " " + n
-		}
-	case e.state == entryPending:
-		head += "Siz (gönderiliyor…)"
-	case e.state == entryFailed:
-		head += "Siz (gönderilemedi)"
-	default:
-		head += "Siz"
-	}
-	body := ChatDisplayBody(e.body)
-	if strings.TrimSpace(body) == "" {
-		body = chatUnreadable
-	}
-	return head + ":\r\n" + chatIndent + strings.ReplaceAll(body, "\n", "\r\n"+chatIndent) + "\r\n"
 }
 
 func maxTime(a, b time.Time) time.Time {
