@@ -13,34 +13,43 @@ import { SettingsForm } from "./settings-form";
 
 export const metadata: Metadata = { title: t("srs.title") };
 
-/** /settings/support-requests — firma talep ayarları (P8b-1: AC-129, 131, 142, 150, 152). Tenant ayar ekranının ilk sayfası. */
-export default async function SupportRequestSettingsPage() {
-  const me = await getMe();
-  if (me.kind !== "ok") redirect(EXPIRED_LOGIN_PATH);
-  const perms = me.me.permissions as readonly string[];
-  const header = (
+function SrsHeader() {
+  return (
     <>
       <Breadcrumb items={[{ label: t("nav.settings") }, { label: t("srs.title") }]} />
       <h1 className="text-2xl font-semibold text-fg">{t("srs.title")}</h1>
       <p className="mt-1 max-w-2xl text-sm text-fg-muted">{t("srs.subtitle")}</p>
     </>
   );
+}
+
+function Forbidden() {
+  return (
+    <div className="mt-6 max-w-xl">
+      <Alert tone="warning" testId="settings-forbidden">
+        {t("srs.forbidden")}
+      </Alert>
+    </div>
+  );
+}
+
+/** /settings/support-requests — firma talep ayarları (P8b-1: AC-129, 131, 142, 150, 152). Tenant ayar ekranının ilk sayfası. */
+export default async function SupportRequestSettingsPage() {
+  const me = await getMe();
+  if (me.kind !== "ok") redirect(EXPIRED_LOGIN_PATH);
+  const perms = me.me.permissions as readonly string[];
   if (!perms.includes("settings.edit")) {
     return (
       <>
-        {header}
-        <div className="mt-6 max-w-xl">
-          <Alert tone="warning" testId="settings-forbidden">
-            {t("srs.forbidden")}
-          </Alert>
-        </div>
+        <SrsHeader />
+        <Forbidden />
       </>
     );
   }
   if (me.me.user.role === "SUPER_ADMIN" && !me.me.actingTenant) {
     return (
       <>
-        {header}
+        <SrsHeader />
         <div className="mt-6">
           <EmptyState Icon={Building2} title={t("rq.pickTenantTitle")} body={t("srs.pickTenantBody")} testId="settings-pick-tenant" />
         </div>
@@ -49,26 +58,18 @@ export default async function SupportRequestSettingsPage() {
   }
   const res = await serverGet<SupportRequestSettings>("/settings/support-requests");
   if (res.kind === "error" && res.status === 401) redirect(EXPIRED_LOGIN_PATH);
-  if (res.kind === "error") {
-    return (
-      <>
-        {header}
-        <div className="mt-6 max-w-xl">
-          {res.status === 403 ? (
-            <Alert tone="warning" testId="settings-forbidden">
-              {t("srs.forbidden")}
-            </Alert>
-          ) : (
-            <LoadError />
-          )}
-        </div>
-      </>
-    );
-  }
   return (
     <>
-      {header}
-      <SettingsForm initial={res.data} />
+      <SrsHeader />
+      {res.kind === "ok" ? (
+        <SettingsForm initial={res.data} />
+      ) : res.status === 403 ? (
+        <Forbidden />
+      ) : (
+        <div className="mt-6 max-w-xl">
+          <LoadError />
+        </div>
+      )}
     </>
   );
 }

@@ -10,30 +10,10 @@ import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
 import type { SupportRequestItem } from "@/lib/requests/contract";
 
-/**
- * "Bu bilgisayarın kaydını iptal et" (mimari-e10 §15.2, AC-185): `POST /support-requests/:id/revoke-binding`.
- * Kayıt kimliği istemciden gönderilmez (talepten bulunur). `alertdialog`, varsayılan odak "Vazgeç".
- * 409 (zaten geçersiz) / 404 → çağırana `onGone` (liste tazelenir).
- */
-export function RevokeBindingDialog({
-  item,
-  onClose,
-  onDone,
-  onGone,
-}: {
-  item: SupportRequestItem | null;
-  onClose: () => void;
-  onDone: (id: string) => void;
-  onGone: (id: string, message: string) => void;
-}) {
+/** `POST …/revoke-binding`: 409 → "zaten geçersiz", 404 → "kapandı" (`onGone`); diğer hatalar diyalogda. */
+function useRevoke(item: SupportRequestItem | null, onDone: (id: string) => void, onGone: (id: string, message: string) => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
-
-  const close = () => {
-    if (busy) return;
-    setError(null);
-    onClose();
-  };
   const run = async () => {
     if (!item) return;
     setBusy(true);
@@ -48,6 +28,28 @@ export function RevokeBindingDialog({
     } finally {
       setBusy(false);
     }
+  };
+  return { busy, error, setError, run };
+}
+
+interface RevokeBindingDialogProps {
+  item: SupportRequestItem | null;
+  onClose: () => void;
+  onDone: (id: string) => void;
+  onGone: (id: string, message: string) => void;
+}
+
+/**
+ * "Bu bilgisayarın kaydını iptal et" (mimari-e10 §15.2, AC-185): `POST /support-requests/:id/revoke-binding`.
+ * Kayıt kimliği istemciden gönderilmez (talepten bulunur). `alertdialog`, varsayılan odak "Vazgeç".
+ * 409 (zaten geçersiz) / 404 → çağırana `onGone` (liste tazelenir).
+ */
+export function RevokeBindingDialog({ item, onClose, onDone, onGone }: RevokeBindingDialogProps) {
+  const { busy, error, setError, run } = useRevoke(item, onDone, onGone);
+  const close = () => {
+    if (busy) return;
+    setError(null);
+    onClose();
   };
 
   return (

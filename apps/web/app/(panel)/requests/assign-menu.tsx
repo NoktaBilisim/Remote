@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronsDown, ChevronsUp, Flag, Minus, UserCheck, UserMinus, UserPlus } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { labelOf, PRIORITY_LABELS } from "@remote/contracts/labels";
 import { FormError } from "@/components/form-error";
 import { Button } from "@/components/ui/button";
@@ -27,106 +27,149 @@ export interface AssignActions {
   onPriority: (p: RequestPriority) => void;
 }
 
+type Run = (e: React.MouseEvent<HTMLButtonElement>, fn: () => void) => void;
+
+interface MenuButtonProps {
+  testId: string;
+  busy: boolean;
+  onClick: React.MouseEventHandler<HTMLButtonElement>;
+  Icon: typeof Minus;
+  label: string;
+}
+
+function MenuButton({ testId, busy, onClick, Icon, label }: MenuButtonProps) {
+  return (
+    <button type="button" disabled={busy} className={itemCls} data-testid={testId} onClick={onClick}>
+      <Icon aria-hidden className="size-4 shrink-0" />
+      {label}
+    </button>
+  );
+}
+
+/** "Öncelik" grubu: Yüksek → Düşük; seçili olan `aria-pressed`, yeniden seçmek istek göndermez. */
+function PriorityGroup({ item, actions, run }: { item: SupportRequestItem; actions: AssignActions; run: Run }) {
+  return (
+    <div role="group" aria-labelledby={`prio-${item.id}`} className="mt-1 border-t border-border pt-1">
+      <p id={`prio-${item.id}`} className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-fg-muted">
+        <Flag aria-hidden className="size-4 shrink-0" />
+        {t("rq.p.title")}
+      </p>
+      {[...REQUEST_PRIORITIES].reverse().map((p) => {
+        const Icon = PRIORITY_ICON[p];
+        const active = item.priority === p;
+        return (
+          <button
+            key={p}
+            type="button"
+            aria-pressed={active}
+            disabled={actions.busy}
+            data-testid={`priority-${p}`}
+            className={`${itemCls} ${active ? "bg-primary-surface font-medium text-primary" : ""}`}
+            onClick={(e) => run(e, () => !active && actions.onPriority(p))}
+          >
+            <Icon aria-hidden className="size-4 shrink-0" />
+            {labelOf(PRIORITY_LABELS, p)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * Kart menüsünün atama/öncelik öğeleri (§8b.8; yalnız `support_requests.assign` ile çizilir): "Ata…" (`UserPlus`),
  * "Bana ata" (`UserCheck`), "Atamayı kaldır" (`UserMinus`), "Öncelik" (`Flag`) grubu — seçili olan `aria-pressed`.
  */
 export function AssignMenuItems({ item, actions }: { item: SupportRequestItem; actions: AssignActions }) {
   const { meId, busy } = actions;
-  const run = (e: React.MouseEvent<HTMLButtonElement>, fn: () => void) => {
+  const run: Run = (e, fn) => {
     closeMenu(e.currentTarget);
     fn();
   };
   return (
     <div data-testid="assign-menu" className="flex flex-col">
-      <button type="button" disabled={busy} className={itemCls} data-testid="assign-open" onClick={(e) => run(e, actions.onOpenAssign)}>
-        <UserPlus aria-hidden className="size-4 shrink-0" />
-        {t("rq.as.open")}
-      </button>
+      <MenuButton testId="assign-open" busy={busy} onClick={(e) => run(e, actions.onOpenAssign)} Icon={UserPlus} label={t("rq.as.open")} />
       {item.assignedTo?.id !== meId && (
-        <button
-          type="button"
-          disabled={busy}
-          className={itemCls}
-          data-testid="assign-me"
+        <MenuButton
+          testId="assign-me"
+          busy={busy}
           onClick={(e) => run(e, () => actions.onAssign(meId))}
-        >
-          <UserCheck aria-hidden className="size-4 shrink-0" />
-          {t("rq.as.me")}
-        </button>
+          Icon={UserCheck}
+          label={t("rq.as.me")}
+        />
       )}
       {item.assignedTo && (
-        <button
-          type="button"
-          disabled={busy}
-          className={itemCls}
-          data-testid="assign-clear"
+        <MenuButton
+          testId="assign-clear"
+          busy={busy}
           onClick={(e) => run(e, () => actions.onAssign(null))}
-        >
-          <UserMinus aria-hidden className="size-4 shrink-0" />
-          {t("rq.as.clear")}
-        </button>
+          Icon={UserMinus}
+          label={t("rq.as.clear")}
+        />
       )}
-      <div role="group" aria-labelledby={`prio-${item.id}`} className="mt-1 border-t border-border pt-1">
-        <p id={`prio-${item.id}`} className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-fg-muted">
-          <Flag aria-hidden className="size-4 shrink-0" />
-          {t("rq.p.title")}
-        </p>
-        {[...REQUEST_PRIORITIES].reverse().map((p) => {
-          const Icon = PRIORITY_ICON[p];
-          const active = item.priority === p;
-          return (
-            <button
-              key={p}
-              type="button"
-              aria-pressed={active}
-              disabled={busy}
-              data-testid={`priority-${p}`}
-              className={`${itemCls} ${active ? "bg-primary-surface font-medium text-primary" : ""}`}
-              onClick={(e) => run(e, () => !active && actions.onPriority(p))}
-            >
-              <Icon aria-hidden className="size-4 shrink-0" />
-              {labelOf(PRIORITY_LABELS, p)}
-            </button>
-          );
-        })}
-      </div>
+      <PriorityGroup item={item} actions={actions} run={run} />
     </div>
   );
 }
 
-/** "Ata…" diyaloğu: atanabilir teknisyenler (`GET /users/options?assignable=1`) arasından seçim. */
-export function AssignDialog({
-  item,
-  busy,
-  error,
-  onClose,
-  onSubmit,
-}: {
+/** Atanabilir etkin teknisyenler; arama metni ad içinde (tr küçük harf) aranır. */
+async function loadAssignable(q: string, signal: AbortSignal): Promise<ComboOption[]> {
+  const r = await api<UserOptionsResponse>("GET", "/users/options?assignable=1", undefined, {
+    fetch: (input, init) => fetch(input, { ...init, signal }),
+    cookie: () => document.cookie,
+  });
+  const needle = q.trim().toLocaleLowerCase("tr");
+  return r.items
+    .filter((u) => u.status === "ACTIVE" && (!needle || u.fullName.toLocaleLowerCase("tr").includes(needle)))
+    .map((u) => ({ id: u.id, label: u.fullName }));
+}
+
+function AssignFooter({ busy, onCancel, onSubmit }: { busy: boolean; onCancel: () => void; onSubmit: () => void }) {
+  return (
+    <>
+      <Button variant="secondary" onClick={onCancel} disabled={busy} className="sm:ml-auto">
+        {t("rq.rj.cancel")}
+      </Button>
+      <Button loading={busy} data-testid="assign-submit" onClick={onSubmit}>
+        {!busy && <UserPlus aria-hidden className="size-4" />}
+        {t("rq.as.submit")}
+      </Button>
+    </>
+  );
+}
+
+interface AssignDialogProps {
   item: SupportRequestItem | null;
   busy: boolean;
   error: UiError | null;
   onClose: () => void;
   onSubmit: (userId: string) => void;
-}) {
+}
+
+/** Seçili teknisyen ve alan hatası; kapatırken (meşgul değilse) sıfırlanır, seçimsiz gönderim alan hatası verir. */
+function useAssignPick(busy: boolean, onClose: () => void, onSubmit: (userId: string) => void) {
   const [value, setValue] = useState<ComboOption | null>(null);
   const [fieldError, setFieldError] = useState<string>();
-  const load = useCallback(async (q: string, signal: AbortSignal): Promise<ComboOption[]> => {
-    const r = await api<UserOptionsResponse>("GET", "/users/options?assignable=1", undefined, {
-      fetch: (input, init) => fetch(input, { ...init, signal }),
-      cookie: () => document.cookie,
-    });
-    const needle = q.trim().toLocaleLowerCase("tr");
-    return r.items
-      .filter((u) => u.status === "ACTIVE" && (!needle || u.fullName.toLocaleLowerCase("tr").includes(needle)))
-      .map((u) => ({ id: u.id, label: u.fullName }));
-  }, []);
+  const change = (v: ComboOption | null) => {
+    setValue(v);
+    setFieldError(undefined);
+  };
   const close = () => {
     if (busy) return;
     setValue(null);
     setFieldError(undefined);
     onClose();
   };
+  const submit = () => {
+    if (!value) return setFieldError(t("rq.as.pick"));
+    onSubmit(value.id);
+  };
+  return { value, fieldError, change, close, submit };
+}
+
+/** "Ata…" diyaloğu: atanabilir teknisyenler (`GET /users/options?assignable=1`) arasından seçim. */
+export function AssignDialog({ item, busy, error, onClose, onSubmit }: AssignDialogProps) {
+  const { value, fieldError, change, close, submit } = useAssignPick(busy, onClose, onSubmit);
   return (
     <Dialog
       open={item !== null}
@@ -135,24 +178,7 @@ export function AssignDialog({
       testId="assign-dialog"
       title={t("rq.as.title")}
       description={item ? t("rq.as.desc", { name: item.customerName ?? t("rq.anon") }) : undefined}
-      footer={
-        <>
-          <Button variant="secondary" onClick={close} disabled={busy} className="sm:ml-auto">
-            {t("rq.rj.cancel")}
-          </Button>
-          <Button
-            loading={busy}
-            data-testid="assign-submit"
-            onClick={() => {
-              if (!value) return setFieldError(t("rq.as.pick"));
-              onSubmit(value.id);
-            }}
-          >
-            {!busy && <UserPlus aria-hidden className="size-4" />}
-            {t("rq.as.submit")}
-          </Button>
-        </>
-      }
+      footer={<AssignFooter busy={busy} onCancel={close} onSubmit={submit} />}
     >
       <div className="flex flex-col gap-3">
         {error && <FormError error={error} />}
@@ -160,11 +186,8 @@ export function AssignDialog({
           <Combobox
             label={t("rq.as.tech")}
             value={value}
-            onChange={(v) => {
-              setValue(v);
-              setFieldError(undefined);
-            }}
-            load={load}
+            onChange={change}
+            load={loadAssignable}
             placeholder={t("rq.as.search")}
             hint={item?.assignedTo ? t("rq.as.current", { name: item.assignedTo.name }) : undefined}
             error={fieldError}

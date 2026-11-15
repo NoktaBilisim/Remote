@@ -16,40 +16,36 @@ type List = ReturnType<typeof useHolidayList>;
 type Add = ReturnType<typeof useHolidayAdd>;
 type Remove = ReturnType<typeof useHolidayRemove>;
 
+type Import = ReturnType<typeof useHolidayImport>;
+
+function HolidayButtons({ year, trAvailable, onAdd, imp }: { year: number; trAvailable: boolean; onAdd: () => void; imp: Import }) {
+  return (
+    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+      <Button variant="secondary" onClick={onAdd} data-testid="hd-add-open">
+        <Plus aria-hidden className="size-4" />
+        {t("hd.add")}
+      </Button>
+      <Button
+        variant="secondary"
+        onClick={() => void imp.importTr()}
+        loading={imp.importing}
+        disabled={!trAvailable}
+        aria-describedby={!trAvailable ? "hd-tr-na" : undefined}
+        data-testid="hd-import"
+      >
+        {!imp.importing && <CalendarPlus aria-hidden className="size-4" />}
+        {t("hd.import", { year })}
+      </Button>
+    </div>
+  );
+}
+
 /** "Tatil ekle" + "Resmî tatilleri ekle (yıl)" (yalnız tanımlı yıllarda; değilse açıklama) + içe aktarma hatası. */
-export function HolidayActions({
-  year,
-  canEdit,
-  onAdd,
-  imp,
-}: {
-  year: number;
-  canEdit: boolean;
-  onAdd: () => void;
-  imp: ReturnType<typeof useHolidayImport>;
-}) {
+export function HolidayActions({ year, canEdit, onAdd, imp }: { year: number; canEdit: boolean; onAdd: () => void; imp: Import }) {
   const trAvailable = TR_HOLIDAY_YEARS.includes(year);
   return (
     <>
-      {canEdit && (
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <Button variant="secondary" onClick={onAdd} data-testid="hd-add-open">
-            <Plus aria-hidden className="size-4" />
-            {t("hd.add")}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => void imp.importTr()}
-            loading={imp.importing}
-            disabled={!trAvailable}
-            aria-describedby={!trAvailable ? "hd-tr-na" : undefined}
-            data-testid="hd-import"
-          >
-            {!imp.importing && <CalendarPlus aria-hidden className="size-4" />}
-            {t("hd.import", { year })}
-          </Button>
-        </div>
-      )}
+      {canEdit && <HolidayButtons year={year} trAvailable={trAvailable} onAdd={onAdd} imp={imp} />}
       {canEdit && !trAvailable && (
         <p id="hd-tr-na" className="mt-2 text-xs text-fg-muted">
           {t("hd.importNa", { years: TR_HOLIDAY_YEARS.join(", ") })}

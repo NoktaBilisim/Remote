@@ -9,11 +9,8 @@ import { t } from "@/lib/i18n";
 
 type Mode = "" | "general" | "customer";
 
-/**
- * Talepler müşteri filtresi (AC-176): `SelectField` Tümü / Genel / Müşteri firma + combobox (pasifler dahil).
- * Durum URL'de (`?customer=general|<id>`), kuyrukta ve Geçmiş sekmesinde aynı. `hrefFor` sayfa yolunu üretir.
- */
-export function RequestCustomerFilter({ value, selectedName, basePath }: { value?: string; selectedName?: string; basePath: string }) {
+/** Mod ve seçili firma durumu; seçim değişince sayfa (`page` silinir) `?customer=` ile yeniden açılır. */
+function useCustomerFilter(value: string | undefined, selectedName: string | undefined, basePath: string) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const initialMode: Mode = value === "general" ? "general" : value ? "customer" : "";
@@ -29,20 +26,32 @@ export function RequestCustomerFilter({ value, selectedName, basePath }: { value
     else u.searchParams.delete("customer");
     start(() => router.push(u.pathname + u.search));
   };
+  const changeMode = (m: Mode) => {
+    setMode(m);
+    if (m === "") go();
+    else if (m === "general") go("general");
+    else if (picked) go(picked.id);
+  };
+  const pick = (o: ComboOption | null) => {
+    setPicked(o);
+    if (o) go(o.id);
+  };
+  return { pending, mode, picked, changeMode, pick };
+}
 
+/**
+ * Talepler müşteri filtresi (AC-176): `SelectField` Tümü / Genel / Müşteri firma + combobox (pasifler dahil).
+ * Durum URL'de (`?customer=general|<id>`), kuyrukta ve Geçmiş sekmesinde aynı. `hrefFor` sayfa yolunu üretir.
+ */
+export function RequestCustomerFilter({ value, selectedName, basePath }: { value?: string; selectedName?: string; basePath: string }) {
+  const { pending, mode, picked, changeMode, pick } = useCustomerFilter(value, selectedName, basePath);
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start" data-testid="request-customer-filter" aria-busy={pending || undefined}>
       <SelectField
         label={t("rq.cf.label")}
         value={mode}
         className="sm:w-56"
-        onChange={(e) => {
-          const m = e.target.value as Mode;
-          setMode(m);
-          if (m === "") go();
-          else if (m === "general") go("general");
-          else if (picked) go(picked.id);
-        }}
+        onChange={(e) => changeMode(e.target.value as Mode)}
         options={[
           { value: "", label: t("rq.cf.all") },
           { value: "general", label: t("rq.cf.general") },
@@ -52,16 +61,7 @@ export function RequestCustomerFilter({ value, selectedName, basePath }: { value
       />
       {mode === "customer" && (
         <div className="sm:w-80">
-          <CustomerCombobox
-            label={t("rq.cf.pick")}
-            status="all"
-            value={picked}
-            onChange={(o) => {
-              setPicked(o);
-              if (o) go(o.id);
-            }}
-            testId="request-customer-combobox"
-          />
+          <CustomerCombobox label={t("rq.cf.pick")} status="all" value={picked} onChange={pick} testId="request-customer-combobox" />
         </div>
       )}
     </div>
