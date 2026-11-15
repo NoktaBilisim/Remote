@@ -182,6 +182,13 @@ Yeni dış servis veya env değişkeni yoktur.
 | S-P28u-4 | İzinsiz bağlantı her zaman kaydedilmeli mi (kayıt zorunlu)?                                                              | Hayır; ayrı anahtar (V-PU12)                      | kullanıcı |
 | S-P28u-5 | Kilitli cihaza bağlanıldıktan sonra kullanıcı kilidi açınca izin sorulsun mu?                                            | Hayır (V-PU2, AC-433)                             | kullanıcı |
 
+**Mimari r2 notları (güvenlik tasarım turu, 2026-11-16):** (1) D-P28u-6: AC-436 aydınlatma kutusu metni **değişmez**; ancak
+firmanın aydınlatma metninin, panelde cihaz kullanıcısının varlık durumunun (aktif / kilitli / oturum yok) da göründüğünü kapsaması
+gerektiği ayar ekranı açıklamasında ve kılavuzda (K11) yazılır. (2) O-P28u-3: `asked` bağlantıda teknisyen kullanıcı oturumunu
+kapattıktan sonra konsolda bir kullanıcı oturum açarsa bağlantı sonlandırılır (onay aklama yok; mimari K-P28u-17). AC-433'teki
+"yeni onay istenmez" yalnız `no_user` için geçerlidir. A-P28u-2 bununla kapandı. (3) Sonra: S-P28u-6 — örtülme tespitinin P20
+katılımlı onay penceresine taşınması.
+
 ## 10. Kontrol listesi kararları
 
 | Madde                   | Karar                                                                                                                                                                            | Gerekçe            |
