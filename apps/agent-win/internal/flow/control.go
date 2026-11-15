@@ -162,7 +162,8 @@ func (s *session) onControlUser(ctx context.Context, ev Event) {
 
 // onMonitorRequest AC-43: yalnız çoklu monitörde, farklı ve bilinen kimlik için diyalog (G-03 kuralları).
 func (s *session) onMonitorRequest(id int) {
-	if s.phase != phActive || len(s.monitors) < 2 || (s.monitor != nil && *s.monitor == id) {
+	// AC-248: pencere modunda monitör geçişi yok (paylaşım kapsamı müşterinin seçtiği pencere).
+	if s.phase != phActive || s.window != 0 || len(s.monitors) < 2 || (s.monitor != nil && *s.monitor == id) {
 		return
 	}
 	mon, ok := s.monitorByID(id)
@@ -202,8 +203,12 @@ func (s *session) switchMonitor(ctx context.Context, id int) {
 	s.sendShare(ctx, "sharing")
 }
 
+// setInputMonitor girdi hedefi: pencere modunda paylaşılan pencere (S17-1 kapsamı), değilse monitör (AC-49).
 func (s *session) setInputMonitor() {
-	if s.d.SetInputMonitor != nil && s.monitor != nil {
+	switch {
+	case s.window != 0:
+		s.d.SetInputWindow(s.window)
+	case s.d.SetInputMonitor != nil && s.monitor != nil:
 		s.d.SetInputMonitor(*s.monitor)
 	}
 }

@@ -139,6 +139,7 @@ type fakeUI struct {
 	codes    []string
 	welcome  []bool
 	monitor  int
+	window   uintptr
 	welcomes []Welcome
 	mu       sync.Mutex
 }
@@ -172,9 +173,13 @@ func (u *fakeUI) Welcome(_ context.Context, w Welcome) (string, bool) {
 
 func (u *fakeUI) Lobby(code, tech string) { u.log("lobby:" + code + ":" + tech) }
 func (u *fakeUI) Connecting(tech string)  { u.log("connecting:" + tech) }
-func (u *fakeUI) ChooseMonitor(_ context.Context, m []signal.Monitor, def int) (int, bool) {
-	u.log("choose")
-	return u.monitor, true
+func (u *fakeUI) ChooseShare(_ context.Context, m []signal.Monitor, def int, windows bool) (ShareChoice, bool) {
+	if windows {
+		u.log("choose:windows")
+	} else {
+		u.log("choose")
+	}
+	return ShareChoice{Monitor: u.monitor, Window: u.window}, true
 }
 func (u *fakeUI) Active(tech string, m signal.Monitor) { u.log("active:" + tech + ":" + m.Name) }
 func (u *fakeUI) Status(msg string)                    { u.log("status:" + msg) }

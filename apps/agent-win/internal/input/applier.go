@@ -72,7 +72,8 @@ type Applier struct {
 	inj  Injector
 	now  func() time.Time
 
-	limited atomic.Uint64
+	limited      atomic.Uint64
+	scopeDropped atomic.Uint64
 
 	mu      sync.Mutex
 	tokens  float64
@@ -82,6 +83,12 @@ type Applier struct {
 	hasMon  bool
 	keys    map[string]heldKey
 	buttons map[string]bool
+	// AC-248 / S17-1 pencere modu (scope.go); scope.on false ise monitör modu.
+	scope       winScope
+	dropLog     func(reason string)
+	dropAt      time.Time
+	pendingDrop string
+	cur         time.Time // işlenen mesajın zamanı (handleLocked)
 }
 
 // NewApplier kapıya bağlı alıcı; kapı kapanınca basılı kalan tuş/düğmeler bırakılır.
@@ -98,6 +105,7 @@ func NewApplier(g *control.Gate, inj Injector, now func() time.Time) *Applier {
 func (a *Applier) SetTarget(mon, virt Rect) {
 	a.mu.Lock()
 	a.mon, a.virt, a.hasMon = mon, virt, mon.Right > mon.Left && virt.Right > virt.Left
+	a.scope = winScope{}
 	a.mu.Unlock()
 }
 
@@ -113,24 +121,41 @@ func (a *Applier) Handle(raw []byte) {
 	if err != nil {
 		return
 	}
+	if log, reason := a.handleLocked(m); reason != "" {
+		log(reason) // tanılama yazımı kilit dışında (S7-3: kilit yalnız enjeksiyonu korur)
+	}
+}
+
+// handleLocked Handle'ın kilitli kısmı; pencere kapsamı düşmesi için tanılama zamanı geldiyse yazıcı ve neden döner.
+func (a *Applier) handleLocked(m Msg) (func(string), string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if m.T == "k.release_all" {
 		a.releaseLocked()
-		return
+		return nil, ""
 	}
 	now := a.now()
+	a.cur = now
 	if !a.heldReleaseLocked(m) && !a.takeLocked(now) {
 		a.limited.Add(1)
-		return
+		return nil, ""
 	}
 	if !a.gate.Allow(now) {
 		a.gate.Drop()
-		return
+		return nil, ""
 	}
-	if evs := a.translate(m); len(evs) > 0 {
+	var evs []Event
+	if a.scope.on {
+		evs = a.translateScoped(m)
+	} else {
+		evs = a.translate(m)
+	}
+	if len(evs) > 0 {
 		_ = a.inj.Inject(evs)
 	}
+	reason := a.pendingDrop
+	a.pendingDrop = ""
+	return a.dropLog, reason
 }
 
 // Limited hız sınırı nedeniyle düşen mesaj sayısı (S7-8; tanı ve test).

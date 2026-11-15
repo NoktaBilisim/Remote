@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"remote-support/agent-win/internal/capture"
 	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/dc"
@@ -18,6 +20,9 @@ import (
 	"remote-support/agent-win/internal/transfer"
 	"remote-support/agent-win/internal/win"
 )
+
+// windowsSelfPID kendi sürecimiz (pencere listesinden çıkarılır).
+func windowsSelfPID() uint32 { return windows.GetCurrentProcessId() }
 
 const appTitle = "Nokta Destek"
 
@@ -62,6 +67,8 @@ type UI struct {
 	hotkeyLabel string
 	// elevated istemci yönetici olarak çalışıyor (S7-9): oturum penceresinde ve kontrol diyaloğunda uyarı.
 	elevated bool
+	// windowShare AC-248: müşteri "Yalnız bir pencere" seçti (gösterge metni, işaretleme katmanı yok).
+	windowShare bool
 
 	// P8b-2 talep modu (request_windows.go)
 	reqEvents chan request.UserAction
@@ -277,10 +284,21 @@ func (u *UI) Connecting(techName string) {
 	})
 }
 
-// ChooseMonitor AC-106: varsayılan birincil monitör seçili.
-func (u *UI) ChooseMonitor(ctx context.Context, mons []signal.Monitor, def int) (int, bool) {
+// Paylaşım seçim ekranı denetimleri (AC-106, AC-248).
+const (
+	idMonList    = 50
+	idFullScreen = 51
+	idOneWindow  = 52
+	idWinList    = 53
+	idWinRefresh = 54
+	lbnDblClk    = 2
+)
+
+// ChooseShare AC-106: varsayılan birincil monitör seçili. AC-248: windows true ise "Tüm ekran / Yalnız bir pencere"
+// seçimi ve pencere listesi (shareableWindows süzgeci) gösterilir; varsayılan "Tüm ekran".
+func (u *UI) ChooseShare(ctx context.Context, mons []signal.Monitor, def int, windows bool) (flow.ShareChoice, bool) {
 	type res struct {
-		id int
+		c  flow.ShareChoice
 		ok bool
 	}
 	ch := make(chan res, 1)
@@ -289,47 +307,133 @@ func (u *UI) ChooseMonitor(ctx context.Context, mons []signal.Monitor, def int) 
 			u.lobby.destroy()
 			u.lobby = nil
 		}
-		f := u.t.newForm(appTitle+" — Ekran seçimi", 420, 252, true)
-		f.label("Teknisyenle paylaşılacak ekranı seçin", 16, 16, 388, 24, fontBold)
-		lb := f.add("LISTBOX", "", win.WS_TABSTOP|win.LBS_NOTIFY|win.WS_VSCROLL, win.WS_EX_CLIENTEDGE, 50, 16, 48, 388, 140, fontNormal)
+		height, btnY := int32(252), int32(204)
+		if windows {
+			height, btnY = 452, 404
+		}
+		f := u.t.newForm(appTitle+" — Ekran seçimi", 460, height, true)
+		y := int32(16)
+		var full, one, winLb *ctrl
+		if windows {
+			f.label("Teknisyenle neyi paylaşmak istiyorsunuz?", 16, y, 428, 24, fontBold)
+			full = f.add("BUTTON", "&Tüm ekran", win.WS_TABSTOP|win.WS_GROUP|win.BS_AUTORADIOBUTTON, 0, idFullScreen, 16, 46, 428, 24, fontNormal)
+			y = 74
+		} else {
+			f.label("Teknisyenle paylaşılacak ekranı seçin", 16, y, 428, 24, fontBold)
+			y = 48
+		}
+		monH := int32(140)
+		if windows {
+			monH = 72
+		}
+		monLb := f.add("LISTBOX", "", win.WS_TABSTOP|win.LBS_NOTIFY|win.WS_VSCROLL, win.WS_EX_CLIENTEDGE, idMonList, 32, y, 412, monH, fontNormal)
+		if !windows {
+			monLb.x, monLb.w = 16, 428
+		}
 		sel := 0
 		for i, m := range mons {
 			label := fmt.Sprintf("%s — %d×%d", m.Name, m.W, m.H)
 			if m.Primary {
 				label += " (birincil)"
 			}
-			win.SendMessageStr(lb.h, win.LB_ADDSTRING, 0, label)
+			win.SendMessageStr(monLb.h, win.LB_ADDSTRING, 0, label)
 			if m.ID == def {
 				sel = i
 			}
 		}
-		win.SendMessage(lb.h, win.LB_SETCURSEL, uintptr(sel), 0)
-		f.button("Paylaş", idOK, 220, 204, 90, true)
-		f.button("Vazgeç", idCancel, 316, 204, 88, false)
-		done := func(r res) { f.destroy(); ch <- r }
-		pick := func() {
-			i := int(win.SendMessage(lb.h, win.LB_GETCURSEL, 0, 0))
-			if i >= 0 && i < len(mons) {
-				done(res{mons[i].ID, true})
+		win.SendMessage(monLb.h, win.LB_SETCURSEL, uintptr(sel), 0)
+		var list []shareWindow
+		fill := func() {
+			list = shareableWindows(topWindows(), windowsSelfPID())
+			win.SendMessage(winLb.h, win.LB_RESETCONTENT, 0, 0)
+			for _, w := range list {
+				win.SendMessageStr(winLb.h, win.LB_ADDSTRING, 0, w.Label)
 			}
 		}
+		setMode := func(window bool) {
+			win.SendMessage(full.h, win.BM_SETCHECK, win.B2U(!window), 0)
+			win.SendMessage(one.h, win.BM_SETCHECK, win.B2U(window), 0)
+			win.EnableWindow(monLb.h, !window)
+			win.EnableWindow(winLb.h, window)
+		}
+		if windows {
+			one = f.add("BUTTON", "&Yalnız bir pencere", win.WS_TABSTOP|win.BS_AUTORADIOBUTTON, 0, idOneWindow, 16, 156, 428, 24, fontNormal)
+			winLb = f.add("LISTBOX", "", win.WS_TABSTOP|win.LBS_NOTIFY|win.WS_VSCROLL, win.WS_EX_CLIENTEDGE, idWinList, 32, 184, 412, 140, fontNormal)
+			f.label("Pencere modunda teknisyen yalnız bu pencereyi görür; uzaktan kontrol yalnız bu pencere öndeyken çalışır.",
+				16, 330, 428, 40, fontNormal)
+			f.button("&Listeyi yenile", idWinRefresh, 16, btnY, 140, false)
+			fill()
+			setMode(false)
+		}
+		f.button("Paylaş", idOK, 260, btnY, 90, true)
+		f.button("Vazgeç", idCancel, 356, btnY, 88, false)
+		done := func(r res) {
+			u.windowShare = r.ok && r.c.Window != 0
+			f.destroy()
+			ch <- r
+		}
+		pickMonitor := func() {
+			i := int(win.SendMessage(monLb.h, win.LB_GETCURSEL, 0, 0))
+			if i >= 0 && i < len(mons) {
+				done(res{flow.ShareChoice{Monitor: mons[i].ID}, true})
+			}
+		}
+		pickWindow := func() {
+			i := int(win.SendMessage(winLb.h, win.LB_GETCURSEL, 0, 0))
+			if i < 0 || i >= len(list) {
+				return // seçim yok: ekran açık kalır
+			}
+			if !win.IsWindow(list[i].HWND) { // seçim ile Paylaş arasında kapandı
+				fill()
+				return
+			}
+			done(res{flow.ShareChoice{Window: list[i].HWND}, true})
+		}
+		windowMode := func() bool { return windows && win.SendMessage(one.h, win.BM_GETCHECK, 0, 0) == 1 }
 		f.command = func(id, code int) {
 			switch {
-			case id == idOK, id == 50 && code == 2: // LBN_DBLCLK
-				pick()
+			case id == idFullScreen:
+				setMode(false)
+			case id == idOneWindow:
+				setMode(true)
+			case id == idWinRefresh:
+				fill()
+			case id == idMonList && code == lbnDblClk:
+				pickMonitor()
+			case id == idWinList && code == lbnDblClk:
+				pickWindow()
+			case id == idOK && windowMode():
+				pickWindow()
+			case id == idOK:
+				pickMonitor()
 			case id == idCancel:
 				done(res{})
 			}
 		}
 		f.close = func() { done(res{}) }
-		f.show(win.WorkAreaAt(win.CursorPos()), true, lb)
+		focus := monLb
+		if windows {
+			focus = full
+		}
+		f.show(win.WorkAreaAt(win.CursorPos()), true, focus)
 	})
 	select {
 	case r := <-ch:
-		return r.id, r.ok
+		return r.c, r.ok
 	case <-ctx.Done():
-		return 0, false
+		return flow.ShareChoice{}, false
 	}
+}
+
+// topWindows EnumWindows sonucu süzgeç girdisine çevrilir.
+func topWindows() []windowCandidate {
+	ws := win.TopWindows()
+	out := make([]windowCandidate, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, windowCandidate{HWND: w.HWND, Title: w.Title, PID: w.PID, Visible: w.Visible, Tool: w.Tool,
+			Cloaked: w.Cloaked, Iconic: w.Iconic})
+	}
+	return out
 }
 
 // Active oturum penceresi + her monitörde gösterge (AC-103) + işaretleme katmanı (AC-37/56).
@@ -340,6 +444,9 @@ func (u *UI) Active(techName string, mon signal.Monitor) {
 			u.lobby = nil
 		}
 		watchText := "Ekranınız izleniyor — " + techName
+		if u.windowShare {
+			watchText = "Paylaştığınız pencere izleniyor — " + techName // AC-248
+		}
 		u.techName = techName
 		height, endY := int32(500), int32(456)
 		if u.elevated {
@@ -411,7 +518,9 @@ func (u *UI) Active(techName string, mon signal.Monitor) {
 		u.sess = s
 
 		u.ind = newIndicator(u.t, watchText)
-		if r, ok := capture.MonitorRect(mon.ID); ok {
+		// AC-248: pencere modunda işaretleme katmanı yok (koordinatlar pencereye göredir; monitör katmanı yanlış yere
+		// çizerdi). Gösterge her monitörde kalır.
+		if r, ok := capture.MonitorRect(mon.ID); ok && !u.windowShare {
 			u.ov = newOverlay(u.t, r)
 		}
 	})

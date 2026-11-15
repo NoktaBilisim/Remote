@@ -63,6 +63,9 @@ var captureHints = map[capture.Reason]string{
 	capture.ReasonNoH264Encoder:     "Windows Medya Özellik Paketi gerekli.",
 	capture.ReasonEncoderConfig:     "Görüntü kodlayıcı başlatılamadı; teknisyeninize bu kodu bildirin.",
 	capture.ReasonEncodeFailed:      "Görüntü kodlanamadı; teknisyeninize bu kodu bildirin.",
+	capture.ReasonWGCUnsupported:    "Bu Windows sürümünde pencere paylaşımı yok; tüm ekranı paylaşın.",
+	capture.ReasonWindowClosed:      "Paylaşılan pencere kapandı; oturumu bitirip yeniden başlatın.",
+	capture.ReasonWindowUnavailable: "Bu pencere paylaşılamıyor; başka bir pencere ya da tüm ekranı seçin.",
 }
 
 const captureHintOther = "Teknisyeninize bu kodu bildirin."

@@ -9,6 +9,7 @@ const (
 	MethodDXGI  Method = "DXGI"  // IDXGIOutput1::DuplicateOutput
 	MethodDXGI1 Method = "DXGI1" // IDXGIOutput5::DuplicateOutput1 (BGRA istenir; HDR/gelişmiş renk)
 	MethodGDI   Method = "GDI"   // BitBlt(CAPTUREBLT) yedeği, düşük kare hızı
+	MethodWGC   Method = "WGC"   // AC-248: Windows.Graphics.Capture, yalnız bir pencere (sözleşme değeri)
 )
 
 // grabber tek monitörün BGRA kaynağı (DXGI çoğaltması veya GDI). Yalnız kaynağın iş parçacığında kullanılır.
@@ -64,6 +65,11 @@ func selectMethod(chain []methodOpener, first func(c methodOpener, g grabber) (g
 			continue
 		}
 		if err != nil {
+			if windowFinal(err) { // pencere kapandı/açılamadı: neden korunur (FIRST_FRAME_TIMEOUT'a çevrilmez)
+				e, _ := AsError(err)
+				tried = append(tried, attempt{m: c.m, err: e})
+				continue
+			}
 			tried = append(tried, attempt{m: c.m, err: tag(err, stageFirstFrame, "FirstFrame")})
 			continue
 		}
@@ -80,6 +86,12 @@ func selectMethod(chain []methodOpener, first func(c methodOpener, g grabber) (g
 func asOpenError(m Method, err error) *Error {
 	if e, ok := AsError(err); ok && e.Reason != "" && e.Reason != ReasonOther {
 		return e
+	}
+	if m == MethodWGC { // WGC açıcısı kendi sınıflandırır; DXGI HRESULT tablosu uygulanmaz
+		if e, ok := AsError(err); ok {
+			return e
+		}
+		return &Error{Reason: ReasonOther, Op: "OpenWGC"}
 	}
 	if m == MethodGDI {
 		return tag(err, stageGDI, "OpenGDI")
@@ -99,8 +111,8 @@ func awaitFirst(g grabber, reopen func() (grabber, error), fn func(grabber) func
 			if err == nil && ok {
 				return g, nil
 			}
-			if e, ok := AsError(err); ok && e.Reason == ReasonDXGIUnsupported {
-				g.close() // BGRA dışı yüzey: yeniden açmak düzeltmez, hemen döner
+			if e, ok := AsError(err); ok && (e.Reason == ReasonDXGIUnsupported || windowFinal(err)) {
+				g.close() // BGRA dışı yüzey / pencere kapandı: yeniden açmak düzeltmez, hemen döner
 				return nil, e
 			}
 			if err != nil {
@@ -122,6 +134,10 @@ func awaitFirst(g grabber, reopen func() (grabber, error), fn func(grabber) func
 		if g == nil {
 			pause(reopenPause)
 			ng, err := reopen()
+			if windowFinal(err) {
+				e, _ := AsError(err)
+				return nil, e
+			}
 			if err != nil {
 				last = tag(err, stageDuplicate, "Duplicate")
 				continue

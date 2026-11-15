@@ -66,9 +66,23 @@ func (o Opener) Open(monitorID int) (rtc.Source, error) {
 		o.write(diag.Report{Event: diag.EventOpenFail, Reason: string(err.Reason), Op: err.Op}, true)
 		return nil, err
 	}
+	return o.start(ms[monitorID-1].Device, 0)
+}
+
+// OpenWindow AC-248: yalnız hwnd penceresinin H.264 kaynağı (WGC). Yedek yol yoktur (pencere modunda DXGI/GDI tüm
+// ekranı gösterirdi); açılamazsa tipli hata (WGC_UNSUPPORTED / WINDOW_CLOSED / WINDOW_UNAVAILABLE, method WGC).
+// Yayında pencere kapanırsa NextFrame WINDOW_CLOSED döner ve akış paylaşımı durdurur.
+func (o Opener) OpenWindow(hwnd uintptr) (rtc.Source, error) {
+	return o.start(windowTarget, hwnd)
+}
+
+// windowTarget pencere modunda tanılama kaydının hedef alanı (pencere başlığı kişisel veri olabilir; yazılmaz).
+const windowTarget = "window"
+
+func (o Opener) start(device string, hwnd uintptr) (rtc.Source, error) {
 	s := &source{reqs: make(chan frameReq), done: make(chan struct{}), exited: make(chan struct{})}
 	initErr := make(chan error, 1)
-	go s.run(o, ms[monitorID-1].Device, initErr)
+	go s.run(o, device, hwnd, initErr)
 	if err := <-initErr; err != nil {
 		return nil, err
 	}
@@ -109,7 +123,7 @@ func (s *source) Close() error {
 	return nil
 }
 
-func (s *source) run(o Opener, device string, initErr chan<- error) {
+func (s *source) run(o Opener, device string, hwnd uintptr, initErr chan<- error) {
 	defer close(s.exited)
 	runtime.LockOSThread() // bilerek açılmaz: goroutine bitince iş parçacığı COM durumuyla birlikte sonlanır
 	rep := diag.Report{Event: diag.EventOpenFail, Target: device}
@@ -138,7 +152,7 @@ func (s *source) run(o Opener, device string, initErr chan<- error) {
 		return
 	}
 	defer func() { _, _, _ = pMFShutdown.Call() }()
-	p := &pipeline{device: device, kc: &s.kc, rc: newRateCtl(), fps: targetFPS}
+	p := &pipeline{device: device, hwnd: hwnd, kc: &s.kc, rc: newRateCtl(), fps: targetFPS}
 	p.onFallback = func(fb Fallback) { // AC-245: yerel diag `encoder_fallback`; oturum sürer
 		r := rep
 		r.Event, r.Encoder, r.HWReason = eventEncoderFallback, encoderSW, string(fb.Reason)
@@ -160,7 +174,7 @@ func (s *source) run(o Opener, device string, initErr chan<- error) {
 		fail(e)
 		return
 	}
-	if p.method != MethodDXGI || len(p.attempts) > 1 {
+	if hwnd == 0 && (p.method != MethodDXGI || len(p.attempts) > 1) { // pencere modunda WGC yedek değil, seçimdir
 		rep.Event = diag.EventOpenFallbk
 		o.write(rep, true)
 	}
@@ -203,6 +217,7 @@ func (p *pipeline) encoderKind() string {
 // pipeline worker iş parçacığının durumu.
 type pipeline struct {
 	device     string
+	hwnd       uintptr // AC-248: 0 değilse pencere modu (yalnız WGC)
 	kc         *keyClock
 	rc         *rateCtl
 	fps        int // kodlayıcının hedef kare hızı (GDI'da gdiFPS)
@@ -224,13 +239,16 @@ type pipeline struct {
 	convCost   time.Duration // son BGRA→NV12 dönüşüm süresi
 }
 
-// start yöntem zincirini (DXGI → DXGI1 → GDI) dener, ilk kareyi alır ve kodlayıcıyı kurar. Kodlayıcı hatası yöntem
+// start yöntem zincirini (DXGI → DXGI1 → GDI; pencere modunda yalnız WGC) dener, ilk kareyi alır ve kodlayıcıyı kurar. Kodlayıcı hatası yöntem
 // değiştirmeyi gerektirmez (GDI de aynı kodlayıcıyı kullanır); doğrudan döner.
 func (p *pipeline) start() error {
 	chain := []methodOpener{
 		{MethodDXGI, func() (grabber, error) { return wrapDup(openDuplicator(p.device, false)) }},
 		{MethodDXGI1, func() (grabber, error) { return wrapDup(openDuplicator(p.device, true)) }},
 		{MethodGDI, func() (grabber, error) { return wrapGDI(openGDI(p.device)) }},
+	}
+	if p.hwnd != 0 {
+		chain = []methodOpener{{MethodWGC, func() (grabber, error) { return openWGCGrabber(p.hwnd) }}}
 	}
 	first := func(c methodOpener, g grabber) (grabber, error) {
 		p.cv = frameConv{}
@@ -324,7 +342,8 @@ func (p *pipeline) ensureEncoder() error {
 
 // grab yeni masaüstü karesini (varsa; yalnız imleç hareketi de sayılır) NV12'ye çevirip imleci bindirir; çözünürlük değişirse kodlayıcıyı yeniden kurar.
 // Kaynak kaybında (ACCESS_LOST, Güvenli Masaüstü/UAC, kilit ekranı, mod değişimi) kaynağı kapatır ve aynı yöntemle
-// geri çekilmeli yeniden açar; bu sürede son kare kullanılmaya devam eder. Yalnız kodlayıcı kurulamazsa hata döner.
+// geri çekilmeli yeniden açar; bu sürede son kare kullanılmaya devam eder. Yalnız kodlayıcı kurulamazsa ya da
+// paylaşılan pencere kapandıysa (WINDOW_CLOSED, AC-248) hata döner.
 func (p *pipeline) grab() (bool, error) {
 	if p.g == nil {
 		wait := time.Until(p.retryAt)
@@ -333,6 +352,9 @@ func (p *pipeline) grab() (bool, error) {
 			return false, nil
 		}
 		g, err := p.reopen()
+		if windowFinal(err) {
+			return false, err // pencere kapandı: yeniden açma düzeltmez, paylaşım durur (AC-248)
+		}
 		if err != nil {
 			p.backoff = min(reopenMax, max(reopenMin, p.backoff*2))
 			p.retryAt = time.Now().Add(p.backoff)
@@ -343,6 +365,9 @@ func (p *pipeline) grab() (bool, error) {
 		p.kc.Request()
 	}
 	changed, err := p.g.acquire(acquireWaitMs, p.convert(p.g))
+	if windowFinal(err) {
+		return false, err
+	}
 	if err != nil {
 		p.g.close()
 		p.g = nil

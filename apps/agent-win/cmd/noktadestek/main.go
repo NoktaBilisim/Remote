@@ -41,6 +41,9 @@ const (
 	exitUI
 )
 
+// eventInputDropped S17-1 tanılama olayı (mimari: `input.dropped{reason}`).
+const eventInputDropped = "input_dropped"
+
 // closeDelay AC-107: son ekran gösterildikten sonra kapanış ("3 sn içinde" — pay bırakıldı).
 const closeDelay = 2500 * time.Millisecond
 
@@ -93,6 +96,12 @@ func run() int {
 	if store != nil {
 		diagLog = diag.NewLog(store.Dir, selfElevated, store.Persistent)
 	}
+	opener := capture.Opener{Version: cfg.Version, Log: diagLog}
+	if diagLog != nil { // S17-1: pencere kapsamı düşmeleri (5 sn'de en çok 1 satır; içerik/koordinat yok)
+		applier.SetDropLog(func(reason string) {
+			_ = diagLog.Write(diag.Report{Time: time.Now(), Event: eventInputDropped, Version: cfg.Version, Reason: reason})
+		})
+	}
 	deps := flow.Deps{
 		Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: fp,
 		API: client,
@@ -103,7 +112,7 @@ func run() int {
 			return rtc.New(ice, caps, h)
 		},
 		Monitors:    capture.Monitors,
-		Capture:     capture.Opener{Version: cfg.Version, Log: diagLog}.Open,
+		Capture:     opener.Open,
 		DownloadDir: func() (string, error) { return windows.KnownFolderPath(windows.FOLDERID_Downloads, 0) },
 		MOTW:        files.WriteMOTW,
 		Logo:        client.Logo, // AC-98: yalnız gömülü sunucu kökeni, PNG/JPG ≤ 2 MB
@@ -116,6 +125,12 @@ func run() int {
 			if r, ok := capture.MonitorRect(id); ok {
 				applier.SetTarget(control.Rect{Left: r.Left, Top: r.Top, Right: r.Right, Bottom: r.Bottom}, input.VirtualScreen())
 			}
+		},
+		// AC-248 pencere modu (WGC) + S17-1 girdi kapsamı.
+		WindowCapture: capture.WindowCaptureSupported,
+		CaptureWindow: opener.OpenWindow,
+		SetInputWindow: func(hwnd uintptr) {
+			applier.SetWindowTarget(hwnd, input.VirtualScreen(), input.WinWindowAPI{})
 		},
 		EnvProbe:     env.Probe,
 		SelfElevated: selfElevated, // K8: env.state.selfElevated (GRANTED audit'i, konsol rozeti)

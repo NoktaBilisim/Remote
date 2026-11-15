@@ -22,6 +22,10 @@ const (
 	ReasonNoH264Encoder     Reason = "NO_H264_ENCODER"     // donanım ve yazılım H.264 kodlayıcı yok
 	ReasonEncoderConfig     Reason = "ENCODER_CONFIG"      // kodlayıcı türleri/parametreleri kabul etmedi
 	ReasonEncodeFailed      Reason = "ENCODE_FAILED"       // yayın sırasında kodlama hatası
+	// AC-248 pencere modu (WGC, P17 I4).
+	ReasonWGCUnsupported    Reason = "WGC_UNSUPPORTED"    // Windows.Graphics.Capture yok (Windows 10 1903 öncesi, Server Core)
+	ReasonWindowClosed      Reason = "WINDOW_CLOSED"      // paylaşılan pencere kapandı
+	ReasonWindowUnavailable Reason = "WINDOW_UNAVAILABLE" // pencere yakalamaya açılamadı (CreateForWindow reddetti)
 	ReasonOther             Reason = "OTHER"
 )
 
@@ -43,10 +47,12 @@ func (e *Error) ShareMethod() string {
 		return string(MethodDXGI)
 	case MethodGDI:
 		return string(MethodGDI)
-	case methodWGC:
-		return string(methodWGC)
+	case MethodWGC:
+		return string(MethodWGC)
 	}
 	switch e.Reason {
+	case ReasonWGCUnsupported, ReasonWindowClosed, ReasonWindowUnavailable:
+		return string(MethodWGC)
 	case ReasonGDI:
 		return string(MethodGDI)
 	case ReasonDXGIUnsupported, ReasonDXGIAccessDenied, ReasonDXGINotAvailable, ReasonD3DDevice, ReasonFirstFrameTimeout:
@@ -55,8 +61,11 @@ func (e *Error) ShareMethod() string {
 	return ""
 }
 
-// methodWGC Windows.Graphics.Capture yolu (AC-248, I0/I4); sözleşme değeri burada sabitlenir.
-const methodWGC Method = "WGC"
+// windowFinal pencere modunda kalıcı neden: yeniden açmak düzeltmez, paylaşım durur (share.state stopped).
+func windowFinal(err error) bool {
+	e, ok := AsError(err)
+	return ok && (e.Reason == ReasonWindowClosed || e.Reason == ReasonWindowUnavailable || e.Reason == ReasonWGCUnsupported)
+}
 
 func (e *Error) Error() string {
 	if e.HR != 0 {

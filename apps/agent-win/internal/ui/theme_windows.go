@@ -29,7 +29,7 @@ const (
 func ctrlKind(class string, style uint32) int {
 	switch class {
 	case "BUTTON":
-		if style&0xF == win.BS_AUTOCHECKBOX {
+		if s := style & 0xF; s == win.BS_AUTOCHECKBOX || s == win.BS_AUTORADIOBUTTON { // AC-248 seçim düğmeleri de
 			return kindCheck
 		}
 		return kindButton

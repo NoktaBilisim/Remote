@@ -6781,3 +6781,125 @@ Yeni modül yok (`encoding/binary` standart kütüphane).
 
 Sözleşme değişikliği yok. I4: `select.go`'ya `selectEncoder`, `lastMethod`, `withMethod` eklendi; WGC grabber'ı
 `damager` uygulamazsa her kare tam dönüştürülür (doğru davranış), ek iş gerekmez.
+
+## P17 I4 — AC-248 pencere modu (WGC) + S17-1 girdi kapsamı (backend-dev Go, 2026-11-15)
+
+Kapsam: mimari-e11 §8.1 AC-248, §8.3 I4, güvenlik S17-1. **I0 kapısı:** Windows CI (`go test (Windows)`, windows-2025)
+iki koşuda da `internal/capture` (içinde `TestAC248WGCWindowSmoke`) `ok` → K-E11-3 **GO** kesinleşti; AC-248 P17'de.
+Sunucu, şema ve `packages/contracts` değişmedi.
+
+### Değişen / yeni dosyalar (`apps/agent-win/`)
+
+| Dosya | Değişiklik |
+| --- | --- |
+| `internal/capture/window_windows.go` (yeni, amd64/arm64) | `WindowCaptureSupported()` (IsSupported, kendi MTA iş parçacığında, önbellekli); `openWGCGrabber(hwnd)` hata sınıflandırma; `wgcGrabber` (I0 `wgcWindow`'u `grabber`'a bağlar): pencere yoksa `WINDOW_CLOSED` (kalıcı), `IsIconic` ise son kare boyutunda siyah + "Pencere simge durumunda" kaplaması (GDI DIB, bir kez verilir; kodlayıcı 1 sn'de bir tekrarlar), değilse WGC karesi. `damager` yok → her kare tam dönüşüm (I2 notu); imleci WGC çizer |
+| `internal/capture/window_other_windows.go` (yeni) | 386 vb.: `WindowCaptureSupported()=false`, açıcı `WGC_UNSUPPORTED` (pencere seçeneği gösterilmez) |
+| `internal/capture/wgc_windows.go` | Simge durumunda `get_Size` 0 dönerse havuz 1×1 açılır, ilk karede `Recreate` (tek değişiklik) |
+| `internal/capture/reason.go` | Yeni nedenler `WGC_UNSUPPORTED`, `WINDOW_CLOSED`, `WINDOW_UNAVAILABLE`; `ShareMethod` bunları WGC'ye eşler; `windowFinal` (kalıcı pencere nedeni). `methodWGC` → `select.go` `MethodWGC` (dışa açık) |
+| `internal/capture/select.go` | `MethodWGC`; `selectMethod`/`awaitFirst` pencere nedenini korur ve beklemeden döner (FIRST_FRAME_TIMEOUT'a çevirmez); WGC açma hatasına DXGI HRESULT tablosu uygulanmaz |
+| `internal/capture/source_windows.go` | `Opener.OpenWindow(hwnd)` (zincir yalnız WGC; DXGI/GDI yedeği yok — tüm ekranı gösterirdi); `pipeline.hwnd`; `grab` kalıcı pencere hatasında yeniden açmaz, hatayı akışa verir (→ `share.state stopped`); pencere modunda `acilis_yedek` kaydı yazılmaz; tanılama hedefi `"window"` (başlık yazılmaz) |
+| `internal/win/window_windows.go` (yeni) | `TopWindows` (EnumWindows), `IsWindow`, `IsIconic`, `ExStyle`, `Cloaked`, `ThreadProcess`, `Owner`, `ClassName`, `RootAt` (WindowFromPoint→GA_ROOT), `ForegroundRoot`, `WindowBounds` (DWMWA_EXTENDED_FRAME_BOUNDS, yoksa GetWindowRect), `B2U`, radyo/liste sabitleri |
+| `internal/input/scope.go` (yeni), `applier.go` | S17-1: `SetWindowTarget(hwnd, virt, WindowAPI)`, `SetDropLog`, `ScopeDropped`; `Handle` kilitli kısmı `handleLocked`'a ayrıldı, tanılama yazımı kilit dışında (S7-3). `SetTarget` (monitör) kapsamı kaldırır |
+| `internal/input/window_windows.go` (yeni) | `WinWindowAPI` (her olayda güncel değer) |
+| `internal/flow/flow.go`, `control.go`, `messages.go` | `UI.ChooseMonitor` → `UI.ChooseShare(ctx, mons, def, windows) (ShareChoice, ok)`; `Deps.WindowCapture/CaptureWindow/SetInputWindow`; WGC destekliyse tek monitörde de seçim ekranı; pencere modunda `share.state sharing` `method:"WGC"` (monitör listesi yok), `monitor.request` yok sayılır, girdi hedefi pencere; üç yeni neden için müşteri yönlendirme metni |
+| `internal/ui/share.go` (yeni), `screens_windows.go`, `theme_windows.go` | `shareableWindows` süzgeci (görünür, araç penceresi değil, kendi sürecimiz değil, DWM-gizli değil, başlıklı; ≤ 64; başlık ≤ 70 karakter; simge durumundakiler ekli). `ChooseShare`: "Tüm ekran / Yalnız bir pencere" radyo, monitör ve pencere listesi, "Listeyi yenile"; pencere modunda gösterge metni "Paylaştığınız pencere izleniyor — …", işaretleme katmanı yok. Radyo düğmeleri koyu temada onay kutusu gibi klasik çizilir (I3 `ctrlKind`) — iki temada tablo renkleri |
+| `cmd/noktadestek/main.go` | Bağlama: `WindowCapture`, `CaptureWindow: opener.OpenWindow`, `SetInputWindow` → `applier.SetWindowTarget(hwnd, VirtualScreen(), WinWindowAPI{})`; tanılama logu varsa `input_dropped` satırı (yalnız neden) |
+| Testler | yeni `input/scope_test.go`, `capture/window_test.go`, `flow/window_test.go`, `ui/share_test.go`; `flow_test.go` sahte UI `ChooseShare` |
+
+### S17-1 girdi kapsamı (uygulanan kurallar)
+
+- **Fare** (`m.move`, `m.btn` basma): normalize koordinat `WindowBounds`'a eşlenir ve `[Left, Right-1] × [Top, Bottom-1]`
+  içine kırpılır; o noktada `RootAt` hedef değilse, hedefin sahip zincirinde (en çok 8 adım, her adım hedefle aynı PID)
+  bir pencere ya da hedefle aynı iş parçacığının açılır menüsü (`#32768`) değilse **düşer** (`OCCLUDED`).
+- **Tekerlek:** konumsuz olduğundan aynı denetim gerçek imleç konumunda yapılır.
+- **Klavye** (basma): `ForegroundRoot() != hedef` ise düşer (`UNFOCUSED`); kuyruklanmaz, odak çalınmaz/getirilmez.
+- **Simge durumu / kapalı pencere:** bütün girdi düşer (`WINDOW_MINIMIZED` / `WINDOW_CLOSED`); `hwnd = 0` ya da API
+  yoksa da düşer (monitör moduna sessiz dönüş yok).
+- **Tanılama:** düşmeler sayılır; 5 sn'de en çok 1 `input_dropped reason=<KOD>` satırı (içerik/koordinat/başlık yok).
+
+### Tasarımdan sapmalar (gerekçeli; mimari-e11 §8.1 altına not düşüldü)
+
+1. **Bırakma muafiyeti:** Bu alıcının basılı tuttuğu tuş/düğmenin bırakılması ve `k.release_all` kapsam dışında da
+   uygulanır; fare düğmesi bırakması kapsam dışındaysa **konumsuz** gönderilir (imleç taşınmaz). Gerekçe S7-13 ile
+   aynı: bırakma yeni etkileşim üretmez, düşürülmesi yerel kullanıcıya takılı Ctrl/Shift veya basılı sol tık bırakır.
+2. **Açılır menü:** Win32 açılır menüleri (`#32768`) sahipsizdir; `GW_OWNER` zinciriyle kabul edilemezdi ve paylaşılan
+   uygulamanın sağ tık/menü çubuğu menüleri kullanılamazdı. Mimarinin "menü/diyalog" niyetine göre yalnız **hedefle aynı
+   iş parçacığının** menüsü kabul edilir (PID'den sıkı).
+3. **Klavye ve sahipli diyalog:** Mimari metni birebir uygulandı (yalnız ön plan kökü hedefse). Sonuç: hedefin "Farklı
+   kaydet" gibi sahipli diyaloğu öndeyken fare çalışır, klavye düşer. Güvenli taraf bu; I6'da gözlenecek, genişletme
+   mimar kararıdır.
+4. **İşaretleme katmanı** pencere modunda gösterilmez (katman monitör dikdörtgenine çizer, koordinatlar pencereye
+   göredir; yanlış yere çizerdi). Pencereyi izleyen katman P20 adayı.
+5. **Monitör geçişi** pencere modunda yok (`monitor.request` yok sayılır; `share.state` monitör listesi taşımaz).
+6. **Pencere kapanınca** paylaşım durur (`share.state {stopped, WINDOW_CLOSED, WGC}` + müşteri durum satırı); otomatik
+   tüm ekrana geçiş yapılmaz (onay kapsamı). Müşteri oturumu bitirip yeniden başlatır.
+7. **Liste süzgeci:** mimari süzgece ek olarak DWM-gizli (`DWMWA_CLOAKED`: başka sanal masaüstü, askıdaki UWP) ve
+   başlıksız pencereler gösterilmez; liste 64 ile sınırlı.
+
+### Bağımlılık
+
+Yeni modül yok (`golang.org/x/sys/windows` mevcut).
+
+### AC ↔ test
+
+- S17-1 (birim, sahte `WindowAPI` masaüstü — z sırası, ön plan, imleç, sahiplik):
+  `TestAC248S171CoordinatesMapToWindowAndClip`, **`TestAC248S171ClickOnOverlappingWindowDropped`**,
+  `TestAC248S171WheelUnderOccludingWindowDropped`, **`TestAC248S171KeyDroppedWhenFocusInOtherApp`** (kuyruklanmaz,
+  sahipli diyalog öndeyken de düşer), `TestAC248S171HeldKeyReleaseNotDropped`, `TestAC248S171OwnedDialogAndMenuAccepted`
+  (yabancı PID ve başka iş parçacığı menüsü red, iki adımlı zincir kabul), `TestAC248S171MinimizedOrClosedDropsAll`,
+  `TestAC248S171DropLogRateLimited`, `TestAC248S171NilAPIOrZeroHandleDropsAll`.
+- AC-248 akış: `TestAC248WindowModeSharesOnlyWindowAndStopsOnClose` (yalnız pencere yakalanır, girdi pencereye,
+  `method:"WGC"`, monitör isteği yok sayılır, kapanışta `WINDOW_CLOSED`+WGC ve durum satırı),
+  `TestAC248WindowOpenFailureSendsReason`, `TestAC248WindowOptionOnlyWhenSupported`.
+- capture: `TestAC248AwaitFirstWindowClosedReturnsImmediately`, `TestAC248SelectMethodWindowReasonsKept`,
+  `TestAC248WindowReasonsShareMethod`; Windows duman `TestAC248WGCWindowSmoke` (I0, CI'da ok).
+- UI süzgeci: `TestAC248ShareableWindowsFilter`, `TestAC248ShareableWindowsCapped`.
+
+```
+docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 sh -c 'gofmt -l . ; go vet ./... && go test -race -count=1 ./...'
+→ gofmt temiz, vet temiz, 19 paket ok
+docker run ... -e GOOS=windows -e GOARCH=amd64 -e CGO_ENABLED=0 golang:1.26 go vet ./... && go build ./...  → ok
+GOOS=windows GOARCH=arm64 go vet ./... → ok; GOOS=windows go test -c ./internal/capture → derleniyor
+```
+
+Not: `GOARCH=386 go vet ./internal/capture` mevcut `mf_windows.go:270` sabit taşmasıyla zaten kırmızı (bu paketten
+önce de; 386 hedef değil). Win32 UI ve WGC kaplaması bu makinede çalıştırılamadı → I6.
+
+### frontend-dev / konsol için
+
+Şema değişmedi. 0.11.0 pencere modunda `share.state {state:"sharing", method:"WGC"}` gönderir (monitör listesi yok) —
+konsolda mod etiketi `SHARE_METHOD_LABELS.WGC` ("Pencere yakalama (WGC)") ile **paylaşım sürerken** de gösterilmeli
+(AC-248 "teknisyen konsolunda mod görünür"); şu an `describeShareFailure` yalnız durdurmada kullanıyor. Yeni neden
+kodları için `SHARE_FAIL_REASON_LABELS`'a etiket önerisi: `WGC_UNSUPPORTED` "Bu Windows sürümü pencere paylaşımını
+desteklemiyor", `WINDOW_CLOSED` "Paylaşılan pencere kapandı", `WINDOW_UNAVAILABLE` "Seçilen pencere paylaşılamadı".
+Eklenene dek konsol "Bilinmeyen neden (KOD)" gösterir (S17-2 yolu, hatasız).
+
+### P17 I6 elle test senaryoları (Windows 10 22H2 ve 11; açık + koyu tema) — `docs/test-raporu.md` olmadığından burada
+
+1. **Seçim ekranı:** Tek monitörde paylaşım başlarken "Tüm ekran / Yalnız bir pencere" görünür; varsayılan Tüm ekran,
+   pencere listesi pasif. "Yalnız bir pencere" → liste etkin; Nokta Destek pencereleri, görünmez/araç pencereleri ve
+   başka sanal masaüstündekiler listede yok; simge durumundaki pencere "(simge durumunda)" ekiyle var. "Listeyi yenile"
+   yeni açılan pencereyi getirir. Açık ve koyu temada metin/radyo/liste okunur. WGC olmayan sistemde (Server Core /
+   1809) yalnız monitör seçimi (çoklu monitörde) görünür.
+2. **Yalnız pencere görüntüsü:** Not Defteri paylaşılır; konsolda yalnız Not Defteri içeriği (sarı WGC kenarlığı
+   beklenir), mod "Pencere yakalama (WGC)"; müşteri göstergesi "Paylaştığınız pencere izleniyor — …".
+3. **Örtüşen pencere (S17-1):** Kontrol izni verilir. Tarayıcı Not Defteri'nin sağ yarısının üstüne getirilir. Teknisyen
+   sağ yarıda tıklar/sürükler/tekerlek çevirir → tarayıcıda **hiçbir etki olmaz**; sol (görünür) yarıda tıklama Not
+   Defteri'ne gider. Tanılama logunda (kalıcı mod) en çok 5 sn'de bir `input_dropped reason=OCCLUDED`.
+4. **Odak başka uygulamada (S17-1):** Müşteri tarayıcıya tıklar (ön plan). Teknisyen yazı yazar → tarayıcıya **hiçbir
+   karakter gitmez**; müşteri Not Defteri'ne dönünce yalnız yeni tuşlar yazılır (eski tuşlar oynatılmaz).
+   `reason=UNFOCUSED`. Teknisyen Ctrl basılıyken odak kaçarsa Ctrl takılı kalmaz.
+5. **Menü ve diyalog:** Not Defteri'nde Dosya menüsü ve sağ tık menüsü teknisyen tıklamasıyla kullanılabilir;
+   "Farklı kaydet" diyaloğu fareyle kullanılabilir, klavye düşer (sapma 3 — sonucu raporla). Teknisyen bu menü/
+   diyaloğu görüntüde görmeyebilir (WGC yalnız hedefi yakalar) — gözlemi raporla.
+6. **Taşıma / boyut:** Pencere taşınır ve büyütülür/küçültülür; tıklama konumu doğru kalır (±2 px), görüntü yeni
+   boyuta uyar, kesinti ≤ 2 sn.
+7. **Simge durumu:** Pencere küçültülür → konsolda siyah kare + "Pencere simge durumunda"; teknisyenin bütün girdisi düşer
+   (`WINDOW_MINIMIZED`). Geri açılınca görüntü ve kontrol döner.
+8. **Kapanma:** Paylaşılan pencere kapatılır → ≤ 2 sn içinde konsolda durdu + "Bilinmeyen neden (WINDOW_CLOSED)"
+   (etiket eklenince Türkçe) ve WGC; müşteri durum satırı "Ekran görüntüsü alınamadı (WINDOW_CLOSED). Paylaşılan
+   pencere kapandı…"; girdi uygulanmaz; tüm ekrana geçilmez.
+9. **Yükseltilmiş pencere:** Yönetici olarak açılmış bir pencere seçilir: görüntü gelir ya da `WINDOW_UNAVAILABLE`;
+   girdi UIPI nedeniyle uygulanmaz (AC-105 uyarısı) — sonucu raporla.
+10. **Monitör modu regresyonu:** "Tüm ekran" ile 0.10.x davranışı (çoklu monitör seçimi, monitör geçişi, işaretleme
+    katmanı, kontrol) değişmemiş.

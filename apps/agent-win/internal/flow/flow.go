@@ -71,7 +71,7 @@ type BindingHandler interface {
 	Issued(m signal.BindingIssued) string
 }
 
-// UI akışın arayüzden beklediği işlemler. Engelleyen çağrılar (AskCode, Welcome, ChooseMonitor) yalnız oturum
+// UI akışın arayüzden beklediği işlemler. Engelleyen çağrılar (AskCode, Welcome, ChooseShare) yalnız oturum
 // öncesi/başında kullanılır; oturum sırasındaki çağrılar engellemez (UI iş parçacığına iletilir).
 type UI interface {
 	AskCode(ctx context.Context, notice string) (code string, ok bool)
@@ -79,7 +79,8 @@ type UI interface {
 	Lobby(admitCode, techName string)
 	// Connecting P8b-2: talepten doğan oturumda lobi yok (ön-kabul); "Teknisyen bağlanıyor…" gösterilir.
 	Connecting(techName string)
-	ChooseMonitor(ctx context.Context, mons []signal.Monitor, def int) (id int, ok bool)
+	// ChooseShare AC-106/AC-248: paylaşılacak monitör ya da (windows true ise) "Yalnız bir pencere" seçimi.
+	ChooseShare(ctx context.Context, mons []signal.Monitor, def int, windows bool) (c ShareChoice, ok bool)
 	Active(techName string, mon signal.Monitor)
 	Status(msg string)
 	Chat(text string)
@@ -96,6 +97,12 @@ type UI interface {
 	MonitorPromptClosed() // monitör izni diyaloğu karar verilmeden kapanır
 	ControlState(granted bool, hotkey string)
 	MonitorChanged(mon signal.Monitor)
+}
+
+// ShareChoice paylaşım seçimi: Window 0 değilse yalnız o pencere (AC-248, WGC), değilse Monitor.
+type ShareChoice struct {
+	Monitor int
+	Window  uintptr
 }
 
 // EventKind kullanıcıdan akışa gelen olay.
@@ -146,6 +153,11 @@ type Deps struct {
 	Input func(raw []byte)
 	// SetInputMonitor fare koordinatlarının eşleneceği monitör (AC-49).
 	SetInputMonitor func(id int)
+	// AC-248 pencere modu: WindowCapture() true ve CaptureWindow/SetInputWindow doluysa paylaşım ekranında
+	// "Yalnız bir pencere" sunulur. SetInputWindow girdiyi o pencereye kapsar (S17-1).
+	WindowCapture  func() bool
+	CaptureWindow  func(hwnd uintptr) (rtc.Source, error)
+	SetInputWindow func(hwnd uintptr)
 	// EnvProbe AC-105 ortam yoklaması (env.Probe); nil olabilir.
 	EnvProbe func() env.State
 	// SelfElevated K8 (S7-9): istemci süreci yönetici belirteciyle çalışıyor (açılışta bir kez ölçülür, sabit).
@@ -320,6 +332,8 @@ type session struct {
 
 	monitors []signal.Monitor
 	monitor  *int
+	// window AC-248: 0 değilse yalnız bu pencere paylaşılıyor (monitor nil).
+	window   uintptr
 	src      rtc.Source
 	streamCx context.CancelFunc
 	streamDn chan struct{}
@@ -564,25 +578,38 @@ func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 					id = mo.ID
 				}
 			}
-			// AC-106: tek monitörde sorulmaz; çoklu monitörde varsayılan birincil.
-			if len(mons) > 1 {
-				chosen, ok := s.d.UI.ChooseMonitor(ctx, mons, id)
+			// AC-106: tek monitörde sorulmaz; çoklu monitörde varsayılan birincil. AC-248: pencere modu varsa tek
+			// monitörde de seçim ekranı açılır ("Tüm ekran / Yalnız bir pencere").
+			windows := s.windowMode()
+			if len(mons) > 1 || windows {
+				c, ok := s.d.UI.ChooseShare(ctx, mons, id, windows)
 				if !ok {
 					s.send(ctx, signal.SessionEnd{T: "session.end"})
 					return Outcome{Message: msgSelfEnd}, true
 				}
-				id = chosen
+				if c.Window != 0 && windows {
+					s.window = c.Window
+				} else {
+					id = c.Monitor
+				}
 			}
-			s.monitor = &id
+			if s.window == 0 {
+				s.monitor = &id
+			}
 		}
 		s.d.UI.Active(s.techName, s.activeMonitor())
-		if s.monitor != nil {
-			src, err := s.d.Capture(*s.monitor)
-			if err == nil {
-				s.src = src
-			}
-			s.captureErr = err
+		var src rtc.Source
+		var cerr error
+		switch {
+		case s.window != 0:
+			src, cerr = s.d.CaptureWindow(s.window)
+		case s.monitor != nil:
+			src, cerr = s.d.Capture(*s.monitor)
 		}
+		if src != nil && cerr == nil {
+			s.src = src
+		}
+		s.captureErr = cerr
 	} else {
 		s.d.UI.Status(statusReconnected)
 	}
@@ -597,6 +624,11 @@ func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 	s.startStream(ctx)
 	s.sendShare(ctx, "sharing")
 	return Outcome{}, false
+}
+
+// windowMode AC-248 pencere modu sunulabilir mi (WGC destekli ve bağımlılıklar bağlı).
+func (s *session) windowMode() bool {
+	return s.d.WindowCapture != nil && s.d.CaptureWindow != nil && s.d.SetInputWindow != nil && s.d.WindowCapture()
 }
 
 func (s *session) activeMonitor() signal.Monitor {
@@ -646,7 +678,10 @@ func (s *session) initFiles(ctx context.Context) (Outcome, bool) {
 
 func (s *session) sendShare(ctx context.Context, state string) {
 	m := signal.ShareState{T: "share.state", State: state}
-	if state == "sharing" {
+	switch {
+	case state == "sharing" && s.window != 0:
+		m.Method = string(capture.MethodWGC) // AC-248: konsolda mod (P15 etiketi); monitör listesi yok (geçiş sunulmaz)
+	case state == "sharing":
 		m.Monitors, m.ActiveMonitor = s.monitors, s.monitor
 	}
 	s.sendShareMsg(ctx, m)

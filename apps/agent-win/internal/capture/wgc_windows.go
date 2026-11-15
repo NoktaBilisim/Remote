@@ -145,6 +145,9 @@ func openWGCWindow(hwnd uintptr) (*wgcWindow, error) {
 	if hr := c.item.call(vtItemGetSize, uintptr(unsafe.Pointer(&c.poolSize))); hr.failed() {
 		return nil, hr.err("GraphicsCaptureItem.Size")
 	}
+	if c.poolSize.W < 1 || c.poolSize.H < 1 { // I4: simge durumundaki pencerede boyut 0 olabilir; ilk karede Recreate
+		c.poolSize = sizeInt32{1, 1}
+	}
 	st2, err := activationFactory(classDirect3D11CaptureFramePool, &iidIDirect3D11CaptureFramePoolSt2)
 	if err != nil {
 		return nil, err
