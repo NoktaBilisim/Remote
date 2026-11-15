@@ -10896,3 +10896,56 @@ tabloları yeşil. D-P28a-1 enjeksiyon (`SendInput`, `BM_CLICK`, UIA) ve 60 sn d
 (mimari §9) — Linux konteynerinde çalıştırılamaz.
 Komut: `docker run … golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...'` →
 29 paket ok, vet/build temiz; `staticcheck` v0.8.2 (linux + windows) temiz; `gofmt -l` boş. Yeni bağımlılık yok.
+
+## P28a AC-352 entegrasyon testi (backend-dev)
+
+**Dosya:** `apps/server/test/integration/clip-print-unattended.test.ts` (yeni; kod değişikliği yok, yeni bağımlılık yok).
+Gözetimsiz oda P27-K3 yardımcılarıyla (`keyedDevice`, `onlineDevice`, `connectReq`, `grantRow`, `setSmtp`, `contactRow`)
+kurulur; teknisyen `remote_control.clipboard` + `file_transfer.print` yetkili, yardımcı cihaz biletiyle `/ws/guest`'e bağlanır,
+ardından teknisyen `/ws/tech` konsolu açılır.
+
+- `AC-352: cihaz bileti soketi rs.cap.clip1+print1 gönderir …` — yardımcı `hello.caps` = `[remote_control, file_transfer]`,
+  teknisyen `hello`'sunda `guestFeatures`/`clipConsent` yok (= `[]`), `print.request` ve `clip.push` → `error{FORBIDDEN}`,
+  yardımcıya hiçbir `print.*`/`clip.*` iletilmez; yardımcının `clip.consent` göndermesi → 1008.
+- `AC-352: gözetimsiz odada yetenek göndermeyen (eski) yardımcı …` — aynı FORBIDDEN davranışı.
+
+**Not:** Gözetimsiz odada FORBIDDEN'ın ilk tetiklendiği adım `actorMay` (oturum caps'i) — `admit-device.ts` oda caps'ini yalnız
+`remote_control`/`file_transfer` ile kurar; misafir özellik kümesi (`featuresOf`, O-P28a-4) ikinci savunma. Bu yüzden mesaj
+"…yetkiniz yok." olur (özellik metni değil); test mesajı değil kodu bağlar. Sözleşme değişikliği yok.
+
+**Komut:** `TEST_DB_CONTAINER=rs-mysql-ac352 TEST_DB_PORT=33352` ayrı konteyner →
+`npx vitest run test/integration/clip-print*.test.ts test/integration/unattended-connect*.test.ts` → 3 dosya, 19/19 geçti.
+`pnpm --filter @remote/server lint` ve `typecheck` temiz; prettier biçimli.
+
+## P28a K7 — devops: Windows CI, içerik işareti taraması, istemci 0.13.0, runbook §28a (devops, 2026-11-16)
+
+Kapsam: mimari-p28 §10 K7 + r2 D-P28a-3. Uygulama kodu değişmedi (Go kaynağı dahil).
+
+- **`.github/workflows/agent-win.yml` (`test-windows`):**
+  - "P28a pano + yazdırma testleri (-v; yazıcısız çalıştırıcı)": `go test -v ./internal/clip/... ./internal/printing/...
+./internal/clipprint/... ./internal/proclimit/...`. **Ad sözleşmesi** (ad değişirse adım kırmızı): ZORUNLU PASS
+    `TestP28aK0InProcessRender` (Windows.Data.Pdf, `testdata/k0.pdf`), `TestP28aK0WorkerIsolation` (kısıtlı jeton + job temel varyantı),
+    `TestP28aK4PrintCancelled`; PASS veya SKIP (uyarı) `TestP28aK0PrintToPDF` (runner'da yazıcı yoksa), `TestP28aClipWindowsWriteMarksSensitive`
+    (etkileşimsiz oturum). Adımda `GITHUB_STEP_SUMMARY=''` — "P28a K0/K4" tablosunu yalnız genel `go test ./...` adımı yazar (iki kez basılmaz).
+  - "P28a işleyici süreç kalmadı": testlerden sonra komut satırında `--pdf-isleyici` olan süreç → kırmızı.
+  - "trace-check içerik işareti öz testi (P28a, D-P28a-3)": işin son adımı; tanilama.log işaretsiz → 0, UTF-8 `P28A-ISARET-` → 1,
+    `tanilama.log.1` UTF-16LE `gizli-ad-` → 1, `%TEMP%\gizli-ad-ci.pdf` (ad) → 1, `eventcreate` ile kaynak `NoktaDestek` olay metni → 1;
+    her işaretli durumda çıktıda `[D-P28a-3]` satırı aranır (olay kaynağı anahtarı desen izi de üretir, bu yüzden yalnız çıkış koduna
+    güvenilmez). Kaynak anahtarı finally'de silinir.
+  - Yeni Action yok (SHA sabitleri ve `permissions: contents: read` değişmedi). actionlint 1.7.8 (CI ile aynı imaj) temiz.
+- **`apps/agent-win/test/trace-check.ps1`:** yeni `-ContentMarker` (varsayılan `P28A-ISARET-`, `gizli-ad-`; `@()` kapatır), Compare/Check'te
+  her zaman: `%LOCALAPPDATA%\NoktaDestek\**` ve `%ProgramData%\NoktaDestek Servis\**` dosya içerikleri, `%TEMP%` (Compare: önceki durumdan
+  sonra yazılanlar; Check: istemci desenine uyanlar), Application olay günlüğü kaynak `NoktaDestek` (Compare: önceki durumdan sonrası), tüm
+  taranan girdilerin yolu. UTF-8 + UTF-16LE (iki hizalama), harf duyarsız, dosya başına ≤ 16 MB. Eşleşen içerik basılmaz (yer + işaret).
+  Saf fonksiyonlar `Find-MarkerInText`, `Find-ContentMarker`, `Find-PathMarker` nokta-kaynakla birim test edildi (macOS pwsh 7: UTF-8,
+  UTF-16LE, tek bayt kaymalı UTF-16LE, temiz, boş, yol, kapalı — 8/8). Windows'a bağlı `Get-ContentMarkerHit` CI öz testiyle sınanır.
+  Snapshot JSON biçimi değişmedi (`created` zaten vardı; Compare artık zaman sınırı olarak okur).
+- **İstemci 0.13.0:** sürüm kaynakta sabit değil (`build.sh <adres> <sürüm>` → ldflags + go-winres); değişiklik gerekmedi. Yayın komutları
+  runbook §28a.5 (istemci + servis ikilisi, `--dir --no-attestation`, staging tek yığın). P27 staging servis ikilisi de "0.13.0" etiketliydi;
+  ayırt edici SHA-256 (yayın geçmişine yazılacak). Yayını koordinatör yapar.
+- **Runbook §28a:** gözetimsiz odada kapalı olması, metrik okuma (3 seri, etiket anlamları, elle eşik ERROR > %20/gün), "yazdırma başarısız"
+  tablosu + `ERROR` adımları, Windows elle iz/içerik turu, 0.13.0 staging yayını, geri alma.
+- **Açık / sonraki:** gerçek istemcinin bu yerlere işaret yazmadığının uçtan uca kanıtı Windows VM elle turu (§28a.4, test-operatoru K9);
+  sunucu tarafı tarama backend K2 `scripts/log-scan`. `remote-watch` bu serileri okumaz (mimari: alarm yok).
+
+**Doğrulama:** `pnpm format:check` temiz; `python3 yaml.safe_load` geçerli; actionlint temiz; trace-check pwsh ayrıştırma + birim 8/8.

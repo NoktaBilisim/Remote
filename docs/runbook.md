@@ -3532,3 +3532,139 @@ Alarm eşikleri (mimari-p27 §7.3; `/metrics`, Bearer `METRICS_TOKEN`):
 
 **Durum:** `remote-watch` otomasyonu bu serileri henüz okumuyor (K9 açık işi). O gelene kadar elle bakılır:
 `docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>console.log(t.split('\n').filter(l=>l.startsWith('rs_unattended_')).join('\n')))"`
+
+## 28a. P28a — pano senkronu + uzaktan yazdırma, istemci 0.13.0 (devops K7, 2026-11-16; mimari-p28 §8, §9, §10 K7; ADR-0031; AC-343..352)
+
+Kapsam: teknisyen konsolu ↔ Windows istemcisi arasında metin panosu (en çok 64 KB) ve PDF'in müşterinin varsayılan yazıcısına
+gönderilmesi (en çok 20 MiB, müşteri onayıyla). İçerik (pano metni, PDF, dosya adı, hash) sunucudan **geçmez**; sunucu yalnız kimlik + bayt +
+sonuç taşır. **Yeni env değişkeni, migration ve feature flag yok** (mimari-p28 §8.3–8.4): açma/kapama yetki toggle'ı
+(`remote_control.clipboard`, `file_transfer.print`) + istemci sürümüdür.
+
+### 28a.1 Gözetimsiz odada kapalı (bilerek)
+
+Gözetimsiz (P27 servis) oturumlarında pano ve yazdırma **çalışmaz**: sunucu gözetimsiz bilet soketinde `guestFeatures=[]` uygular
+(istemci `rs.cap.clip1` / `rs.cap.print1` gönderse bile — O-P28a-4), konsol "Gözetimsiz oturumda kullanılamaz — müşteri onayı gerekir"
+gösterir, `print.request` → `FORBIDDEN` (`rs_clip_print_denied_total{reason="feature"}`). Servis yardımcısı (`helper`) `features=nil` ile
+başlar. Bu bir arıza değildir; açmak için mimari değişikliği gerekir (müşteri onayı olmayan yazdırma/pano okuma yasak).
+
+Diğer kapalı durumlar (arıza değil): tarayıcı müşterisi (yazdırma gizli), kontrol izni yok (VIEW), müşteri "Pano paylaşımına izin ver"
+kutusunu açmamış, eski istemci (< 0.13.0 → "Müşterinin uygulaması bu özelliği desteklemiyor").
+
+### 28a.2 Metrikler (`/metrics`, Bearer `METRICS_TOKEN`; `apps/server/src/ops/metrics.ts`)
+
+| Seri                                            | Etiketler                                                                                                                                                                                              | Okuma                                                                                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `rs_clipboard_transfer_total{direction,result}` | `direction`: `TO_CUSTOMER` (konsol → müşteri panosu) / `TO_TECH` (müşteri panosu → konsol); `result`: `OK`, `EMPTY`, `TOO_LARGE`, `SENSITIVE`, `INVALID`, `DENIED`, `ERROR`, `TIMEOUT`, `DISCONNECTED` | `SENSITIVE` normaldir (parola yöneticisi işaretli içerik okunmaz). `TIMEOUT`/`ERROR` artışı → §28a.3       |
+| `rs_print_job_total{result}`                    | `PRINTED`, `NO_PRINTER`, `REJECTED`, `TIMEOUT` (müşteri 60 sn yanıt vermedi), `INVALID_PDF`, `TOO_LARGE`, `BUSY`, `CANCELLED`, `ERROR`, `ABANDONED`, `DISCONNECTED` (son ikisini yalnız sunucu üretir) | Başarı oranı = `PRINTED` / (toplam − `REJECTED` − `TIMEOUT` − `CANCELLED`). Müşteri reddi arıza değildir   |
+| `rs_clip_print_denied_total{kind,reason}`       | `kind`: `clip`, `print`, `consent`; `reason`: `permission`, `no_guest`, `feature`, `control`, `consent`, `pending`, `rate`, `cooldown`, `limit`, `reuse`, `unmatched_report`, `unmatched_cancel`       | Konsol düğmeyi önceden pasifler; süregelen `reuse`/`unmatched_*`/`rate` = değiştirilmiş istemci → güvenlik |
+
+Okuma (sunucuda, yığın klasöründe):
+
+```bash
+docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>console.log(t.split('\n').filter(l=>/^rs_(clipboard_transfer|print_job|clip_print_denied)_total/.test(l)).join('\n')))"
+```
+
+Alarm eşiği yok (düşük hacim, mimari-p28 §8.2). Elle bakış kuralı: bir günde `rs_print_job_total{result="ERROR"}` yazdırma işlerinin
+%20'sinden fazlaysa → §28a.3 ve müşteriden istemci tanılama logu istenir. `rs_clip_print_denied_total{reason=~"reuse|unmatched_report|unmatched_cancel"}`
+sıfırdan büyükse server logunda `ws_clip_print_denied` (oda başına dakikada 1 satır; içerik/kimlik yok) satırları incelenir. Audit: Audit Log
+ekranında işlem `clipboard.consent`, `clipboard.transfer`, `print.job` (dosya adı ve hash **yok**, AC-351).
+
+### 28a.3 "Yazdırma başarısız" — sorun giderme
+
+Konsoldaki sonuç metni ve audit `print.job.new_value.result` aynı koddur. Sıra: koda bak → tabloya göre eylem.
+
+| Sonuç (konsol metni)                                         | Olası neden                                                                                                                                                                                                                | Eylem                                                                                                          |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `NO_PRINTER` "Müşterinin varsayılan yazıcısı yok"            | Windows'ta varsayılan yazıcı seçili değil ("Windows varsayılan yazıcımı yönetsin" kapalı/yazıcı yok)                                                                                                                       | Müşteri Ayarlar → Bluetooth ve cihazlar → Yazıcılar'dan bir yazıcıyı varsayılan yapar; yeniden dene            |
+| `INVALID_PDF` "Belge açılamadı (bozuk veya parola korumalı)" | PDF parola korumalı/bozuk; `%PDF-` ile başlamıyor; sayfa sayısı 0 veya > 100 000                                                                                                                                           | Konsol tarafında PDF'i bir görüntüleyicide aç, parolasız "PDF olarak yazdır" ile yeniden kaydet, tekrar gönder |
+| `TOO_LARGE`                                                  | > 20 MiB veya gelen bayt beyandan fazla                                                                                                                                                                                    | Sıkıştır/böl; dosya aktarımı (P5) ile gönderip müşteriye yazdırt                                               |
+| `BUSY` "Başka bir aktarım sürüyor"                           | Aynı oturumda bekleyen yazdırma/aktarım var                                                                                                                                                                                | Öncekinin bitmesini bekle veya "Vazgeç"                                                                        |
+| `REJECTED` / `TIMEOUT`                                       | Müşteri reddetti / 60 sn yanıt vermedi                                                                                                                                                                                     | Arıza değil; 30 sn bekleme sonrası yeniden iste (`cooldown`)                                                   |
+| `CANCELLED` "Kontrol izni kapandı, yazdırma iptal edildi"    | Kontrol VIEW'a döndü (kısayol, "Kontrolü kapat", yetki daralması) — Y-P28a-1                                                                                                                                               | Kontrol iznini yeniden al, tekrar gönder                                                                       |
+| `ABANDONED` / `DISCONNECTED`                                 | 10 dk içinde sonuç gelmedi / müşteri koptu                                                                                                                                                                                 | Bağlantıyı kontrol et; tekrar dene                                                                             |
+| `ERROR` "Yazdırma başarısız oldu"                            | (a) PDF işleyici süreci açılamadı/çöktü (kısıtlı jeton + job + düşük bütünlük; AV engeli), (b) render zaman aşımı (sayfa 15 sn, toplam 10 dk), (c) GDI/yazıcı sürücüsü hatası (`StartDoc`/`EndDoc`), (d) yazıcı çevrimdışı | Aşağıdaki adımlar                                                                                              |
+
+`ERROR` adımları (müşteri makinesinde, teknisyen uzaktan kontrolle yapabilir):
+
+1. Müşteri aynı PDF'i kendi görüntüleyicisinden yazdırabiliyor mu? Hayır → yazıcı/sürücü sorunu (Windows "Yazıcı sorun gidericisi",
+   kuyruktaki takılı işler `Ayarlar → Yazıcılar → Kuyruğu aç`). Spool belge adı her zaman **"NoktaDestek uzaktan yazdırma"**dır (dosya adı
+   kuyruğa düşmez).
+2. Evet → çok sayfalı/ağır PDF ise sayfa başına 15 sn sınırı aşılıyor olabilir: daha küçük parça veya dosya aktarımı + müşterinin yazdırması.
+3. Antivirüs `NoktaDestek.exe --pdf-isleyici` alt sürecini engelliyor mu? (Defender koruma geçmişi.) İmzasız staging ikilisinde
+   beklenebilir (§24.10 AV kapısı); prod imzalı ikiliyle tekrar dene. İstisna **verilmez**.
+4. Görev Yöneticisi'nde iş bittikten sonra `NoktaDestek.exe` alt süreci kalmamalı (job `KILL_ON_JOB_CLOSE`). Kalıyorsa hata kaydı açılır
+   (backend-dev; iz testi §28a.4 de yakalar).
+5. Müşteriden tanılama logu istenir (`%LOCALAPPDATA%\NoktaDestek\tanilama.log`, yalnız kalıcı modda oluşur; içinde pano metni / dosya adı
+   **olmaz** — D-P28a-3). Logda olmayan ayrıntı için Windows sürümü + yazıcı modeli + PDF'in sayfa sayısı/boyutu kayda yazılır.
+6. "Microsoft Print to PDF" varsayılan yazıcıysa Windows kayıt diyaloğu açar — bu müşterinin seçimidir, `PRINTED` döner (kılavuz).
+
+Pano için: `TIMEOUT` (müşteri 8 sn içinde yanıt vermedi — istemci donmuş/pano başka uygulamada kilitli), `ERROR` (pano 10 × 50 ms denemede
+açılamadı — başka program panoyu tutuyor; müşteri panoyu kullanan uygulamayı kapatır), `SENSITIVE` (parola yöneticisi içeriği; teknisyenin
+koyduğu metin geri okunurken de `SENSITIVE` döner — beklenen, D-P28a-2).
+
+### 28a.4 Windows elle turu: iz ve içerik işareti testi (AC-347, 350, 351; r2 D-P28a-3)
+
+Windows 10 ve 11 VM, staging adresli 0.13.0 istemci (§28a.5), varsayılan yazıcı fiziksel/ağ yazıcısı veya "Microsoft Print to PDF"
+(kayıt yeri **Masaüstü** seçilir — taranan klasörler dışı).
+
+1. `pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Snapshot -SnapshotPath D:\once-p28a.json`
+2. Oturum: kontrol izni ver → müşteri "Pano paylaşımına izin ver" → konsoldan `P28A-ISARET-<rastgele>` metnini **gönder**; müşteri
+   panosuna `P28A-ISARET-<rastgele2>` kopyala → konsoldan **al**; `gizli-ad-<rastgele>.pdf` adlı 2 sayfalık PDF'i **uzaktan yazdır**
+   (onayla), bir kez de reddet; kontrolü kapat → bekleyen yazdırma `CANCELLED`. Oturumu bitir, istemciyi kapat.
+3. `pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Compare -SnapshotPath D:\once-p28a.json -ExePath "<exe tam yolu>"`
+   (kayıtlı bilgisayarda `-Binding on`). Beklenen: `TEMİZ` — `İÇERİK İŞARETİ [D-P28a-3]` satırı **yok**: işaretler `%LOCALAPPDATA%\NoktaDestek`
+   (tanılama logu dahil), `%ProgramData%\NoktaDestek Servis`, `%TEMP%`, İndirilenler ve Application olay günlüğünde (kaynak `NoktaDestek`) yok;
+   açık `--pdf-isleyici` süreci yok. Sunucu tarafı aynı işaretlerle backend `scripts/log-scan` + e2e ile taranır (server logu, `audit_logs`,
+   `/metrics`, tarayıcı konsolu).
+4. Teknisyenin koyduğu pano metni oturumdan sonra müşteri panosunda kalır (amaç budur; Win+V geçmişine/buluta düşmez) — trace-check panoyu
+   taramaz; müşteri isterse panoyu temizler.
+5. Sonuç `docs/test-raporu.md`'ye (Windows sürümü, yazıcı, çıkış kodu).
+
+CI (`.github/workflows/agent-win.yml`, `test-windows`): "P28a pano + yazdırma testleri" (render, işleyici yalıtımı, iptal **zorunlu PASS**;
+runner yazıcısız olduğundan `TestP28aK0PrintToPDF` ve etkileşimsiz oturumda pano testi SKIP → uyarı), "P28a işleyici süreç kalmadı" ve
+"trace-check içerik işareti öz testi" (işaretsiz log temiz; UTF-8/UTF-16LE içerik, `%TEMP%` dosya adı, olay günlüğü metni → çıkış 1 +
+`[D-P28a-3]`). "P28a K0/K4" tablosu koşu özetinde (`go test ./...` adımı) görünür.
+
+### 28a.5 İstemci 0.13.0 staging yayını (koordinatör deploy adımında uygular)
+
+Sürüm numarası kodda **yoktur** (§24.8): `build.sh <adres> 0.13.0` → ldflags `config.version` + go-winres sürüm alanları. Kaynakta değişecek
+sabit yok. Not: P27 staging servis ikilisi de 0.13.0 etiketiyle derlenmişti (§8 geçmişi, SHA `ce4e6c1c…`); P28a ile ikisi yeniden derlenir,
+ayırt edici olan SHA-256'dır (yayın geçmişine yazılır).
+
+Ön koşul (sıra bağlayıcı): P28a sunucu + web imajı staging'de (yeni istemci eski sunucuda özellik görmez ama çalışır — ileri/geri uyumlu,
+§8.4); `agent-win` koşusu yeşil (P28a adımları dahil). Staging tek yığın `/opt/remote/deploy`, gömülü adres `https://remote.noktabilisim.net`.
+Operatör makinesinde, repo kökünde (Go gerekmez):
+
+```bash
+SERVER='https://remote.noktabilisim.net'; VER=0.13.0
+OUT="$(mktemp -d)"
+for c in noktadestek noktadestek-servis; do
+  exe=$([ "$c" = noktadestek ] && echo NoktaDestek.exe || echo NoktaDestekServis.exe)
+  docker run --rm -v "$PWD:/src" -v "$OUT:/out" -w /src -e GOFLAGS=-mod=readonly -e GOTOOLCHAIN=local \
+    golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 sh -c '
+    git config --global --add safe.directory /src; export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+    apps/agent-win/build/build.sh "$0" "$1" "/out/$2" "$3"' "$SERVER" "$VER" "$exe" "$c"
+done
+mkdir -p "$OUT/istemci" "$OUT/servis"; mv "$OUT/NoktaDestek.exe" "$OUT/istemci/"; mv "$OUT/NoktaDestekServis.exe" "$OUT/servis/"
+(cd "$OUT/istemci" && shasum -a 256 NoktaDestek.exe > SHA256SUMS && cat SHA256SUMS)
+(cd "$OUT/servis" && shasum -a 256 NoktaDestekServis.exe > SHA256SUMS && cat SHA256SUMS)
+# Tekrarlanabilirlik: aynı komutu ikinci kez koşup SHA'ların aynı olduğunu teyit edin (§11.6).
+ALLOW_UNATTESTED=staging deploy/agent/verify-and-publish.sh --dir "$OUT/istemci" --no-attestation --ssh root@185.126.217.99
+ALLOW_UNATTESTED=staging deploy/agent/publish-servis.sh --dir "$OUT/servis" --no-attestation --ssh root@185.126.217.99 \
+  --deploy-dir /opt/remote/deploy
+```
+
+Beklenen: `verify-and-publish` son satırlarında dış hash = yerel SHA (`/downloads/NoktaDestek.exe`), `publish-servis` `kontrol: server
+UNATTENDED_AGENT_PATH SHA-256 = UNATTENDED_AGENT_SHA256 = <sha>`. Ardından: `MIN_AGENT_VERSION` **yükseltilmez** (0.12.x istemciler özelliksiz
+çalışır, konsol "güncel sürümü indirin" der); §8 yayın geçmişine satır (staging, 0.13.0, iki SHA-256); Windows duman (§28a.4) test-operatoru.
+P13c ikinci yığını kurulduysa staging exe main dalından `gh workflow run agent-win.yml --ref main -f server_url=https://stg.remote.noktabilisim.net
+-f version=0.13.0` + `verify-and-publish.sh --stg-run <run-id>` ile yayınlanır (§24.8). Prod: P28 sonu, `v0.13.0` etiketi (§24.4).
+
+### 28a.6 Geri alma
+
+- Özelliği tek kullanıcı/firmada kapatmak: yetki toggle'ları (`remote_control.clipboard`, `file_transfer.print`) kapatılır — anında,
+  sunucu her istekte yetkiyi denetler; açık oturumda yetki daralması bekleyen yazdırmayı iptal eder.
+- İstemci geri alma: önceki exe (0.12.x) aynı `verify-and-publish.sh --dir` ile yeniden yayınlanır (dosyayı ve SHA'sını §8 geçmişinden
+  alın). Servis ikilisi için `publish-servis.sh --dir` önceki ikiliyle.
+- Sunucu/web geri alma: önceki `IMAGE_TAG` → `docker compose up -d server web` (migration yok). Yeni istemci eski sunucuda `rs.cap.*`
+  görmezden gelinir, özellik görünmez.

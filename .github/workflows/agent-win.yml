@@ -116,6 +116,45 @@ jobs:
           if grep -- '--- SKIP: TestAC249' "$RUNNER_TEMP/ac248-249.txt"; then
             echo "::warning::AC-249 testlerinden SKIP olan var (yukarıdaki satırlar)"
           fi
+      # P28a K7 (mimari-p28 §9–§10, ADR-0031; AC-345/350): pano (internal/clip) + yazdırma (internal/printing: Windows.Data.Pdf
+      # fikstürü testdata/k0.pdf, kısıtlı işleyici süreç, GDI) + clipprint testleri günlükte PASS/SKIP görünür koşar. "P28a K0/K4"
+      # step summary tablosunu yukarıdaki `go test ./...` adımı yazar (printing TestMain); burada GITHUB_STEP_SUMMARY boş
+      # verilir, tablo iki kez basılmaz. Runner'da fiziksel yazıcı yoktur: TestP28aK0PrintToPDF "Microsoft Print to PDF" yoksa
+      # SKIP (uyarı); render + işleyici yalıtımı + iptal ZORUNLU PASS. Pano testi etkileşimsiz oturumda SKIP olabilir (uyarı).
+      - name: P28a pano + yazdırma testleri (-v; yazıcısız çalıştırıcı)
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/p28a.txt"
+          GITHUB_STEP_SUMMARY='' go test -count=1 -v ./internal/clip/... ./internal/printing/... ./internal/clipprint/... ./internal/proclimit/... | tee "$out"
+          bad=0
+          for t in TestP28aK0InProcessRender TestP28aK0WorkerIsolation TestP28aK4PrintCancelled; do
+            if grep -q -- "--- PASS: $t (" "$out"; then continue; fi
+            if grep -q -- "--- SKIP: $t (" "$out"; then
+              echo "::error::$t SKIP: Windows.Data.Pdf / işleyici yalıtımı kanıtı yalnız Windows CI'dan gelir, SKIP kabul edilmez"
+            else
+              echo "::error::$t koşmadı (ad değişti mi? sözleşme: docs/implementation.md P28a K7)"
+            fi
+            bad=1
+          done
+          for t in TestP28aK0PrintToPDF TestP28aClipWindowsWriteMarksSensitive; do
+            if grep -q -- "--- PASS: $t (" "$out"; then continue; fi
+            if grep -q -- "--- SKIP: $t (" "$out"; then
+              echo "::warning::$t SKIP (yazıcısız / etkileşimsiz runner): kanıt Windows VM elle turundan (runbook §28a.4)"
+            else
+              echo "::error::$t koşmadı (ad değişti mi?)"; bad=1
+            fi
+          done
+          exit "$bad"
+      - name: P28a işleyici süreç kalmadı (--pdf-isleyici)
+        shell: pwsh
+        run: |
+          $left = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match '--pdf-isleyici' })
+          if ($left.Count -gt 0) {
+            Write-Output "::error::testlerden sonra PDF işleyici süreç açık kaldı: $($left.ProcessId -join ', ')"
+            $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            exit 1
+          }
+          Write-Output 'PDF işleyici süreç yok (KILL_ON_JOB_CLOSE)'
       # P20 K7 (mimari-e11 §8d.8/§8d.9; G-P20-1/14 tanılaması): runner'ın gerçek ACL'leri ve süreç bütünlük düzeyi günlüğe
       # yazılır. Runner yönetici + yükseltilmiş belirteçle koşar; autorun testleri yükseltilmiş süreç reddini (Enable) değil
       # Inspect + Evaluate kararını sınar. Gerçek C:\ fikstürü kırmızıysa önce bu çıktı varsayılan Windows ACL'iyle karşılaştırılır.
@@ -340,6 +379,58 @@ jobs:
           }
           if ($script:bad -gt 0) { exit 1 }
           Write-Output 'trace-check P27 -Servis öz testi: tüm beklenen çıkış kodları tuttu'
+          exit 0
+      # P28a K7 (mimari-p28 §9 r2 D-P28a-3; AC-347/350/351): pano metni (P28A-ISARET-) ve yazdırılan dosya adı (gizli-ad-)
+      # istemci günlüğüne (tanilama.log[.1], olay günlüğü kaynağı NoktaDestek), tanılama paketine (internal/diag) ve %TEMP%'e
+      # geçmemeli. trace-check içerik taraması gerçek Windows'ta sınanır: işaretsiz log temiz, UTF-8 / UTF-16LE içerik, %TEMP%
+      # dosya adı ve olay günlüğü metni iz (çıkış 1 + "[D-P28a-3]" satırı). Gerçek istemcinin bu yerlere yazmadığının kanıtı
+      # Go sınır testleri (flow/clipprint, printing/boundary_test) + Windows VM elle turu (runbook §28a.4). Olay kaynağı
+      # eventcreate ile geçici açılır ve finally'de silinir; bu adım işin SON adımıdır (olay günlükte kalır).
+      - name: trace-check içerik işareti öz testi (P28a, D-P28a-3)
+        shell: pwsh
+        run: |
+          $tc    = Join-Path $PWD 'test/trace-check.ps1'
+          $snap  = Join-Path $env:RUNNER_TEMP 'trace/once-p28a.json'
+          $store = Join-Path $env:LOCALAPPDATA 'NoktaDestek'
+          $log   = Join-Path $store 'tanilama.log'
+          $tmpf  = Join-Path ([IO.Path]::GetTempPath()) 'gizli-ad-ci.pdf'
+          $ev    = 'HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\NoktaDestek'
+          foreach ($x in $store, $tmpf, $ev) { if (Test-Path -LiteralPath $x) { Write-Output "::error::$x öz testten önce var"; exit 1 } }
+          pwsh -NoProfile -File $tc -Mode Snapshot -SnapshotPath $snap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Start-Sleep -Seconds 1
+          $script:bad = 0
+          function Expect([int]$want, [bool]$marker, [string]$label) {
+            Write-Output "--- $label (beklenen çıkış $want)"
+            $out = pwsh -NoProfile -File $tc -Mode Compare -SnapshotPath $snap -Diagnostics on 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            Write-Output $out
+            if ($code -ne $want) { Write-Output "::error::$label — çıkış $code, beklenen $want"; $script:bad++ }
+            if ($marker -ne ($out -match 'D-P28a-3')) { Write-Output "::error::$label — [D-P28a-3] satırı beklenen=$marker"; $script:bad++ }
+          }
+          try {
+            New-Item -ItemType Directory -Path $store | Out-Null
+            Set-Content -LiteralPath $log -Value 'olay=acilis_hata neden=dxgi_yok' -Encoding utf8
+            Expect 0 $false 'tanılama logu işaretsiz'
+            Add-Content -LiteralPath $log -Value 'metin=P28A-ISARET-ci01' -Encoding utf8
+            Expect 1 $true 'tanilama.log içinde pano işareti (UTF-8)'
+            Set-Content -LiteralPath $log -Value 'olay=acilis_hata' -Encoding utf8
+            [IO.File]::WriteAllBytes("$log.1", [Text.Encoding]::Unicode.GetBytes('ad=gizli-ad-ci01.pdf'))
+            Expect 1 $true 'tanilama.log.1 içinde dosya adı (UTF-16LE)'
+            Remove-Item -LiteralPath "$log.1"
+            Expect 0 $false 'işaretli dosya silindi'
+            Set-Content -LiteralPath $tmpf -Value 'x'
+            Expect 1 $true '%TEMP% dosya adında işaret'
+            Remove-Item -LiteralPath $tmpf
+            & eventcreate.exe /L APPLICATION /T INFORMATION /SO NoktaDestek /ID 1 /D 'yazdirma ad=gizli-ad-ci02.pdf' | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Output '::error::eventcreate başarısız'; $script:bad++ }
+            Expect 1 $true 'olay günlüğü (kaynak NoktaDestek) metninde işaret'
+          } finally {
+            Remove-Item -LiteralPath $store, $tmpf -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $ev -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          if ($script:bad -gt 0) { exit 1 }
+          Write-Output 'trace-check P28a içerik işareti öz testi: tüm beklenen sonuçlar tuttu'
           exit 0
 
   build:
