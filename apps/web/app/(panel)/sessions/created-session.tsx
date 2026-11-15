@@ -11,9 +11,19 @@ import { formatRemaining, formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { copyText, useNow } from "@/lib/use-now";
 import { SessionEmail } from "./session-email";
+import { SessionSendLink } from "./session-send-link";
 
 /** Oluşturulan oturumun link + kod + doğrulama kodu + geçerlilik geri sayımı (AC-1, 3, 9). */
-export function CreatedSession({ data, cancelled }: { data: CreateSessionResponse; cancelled: boolean }) {
+export function CreatedSession({
+  data,
+  cancelled,
+  canSendLink = false,
+}: {
+  data: CreateSessionResponse;
+  cancelled: boolean;
+  /** P19 (AC-260): `sessions.create` + `sessions.send_link`. */
+  canSendLink?: boolean;
+}) {
   const id = useId();
   const toast = useToast();
   const now = useNow();
@@ -70,6 +80,8 @@ export function CreatedSession({ data, cancelled }: { data: CreateSessionRespons
         </p>
         {/* P10 (AC-10) */}
         <SessionEmail sessionId={data.id} link={data.link} disabled={invalid} />
+        {/* P19 (AC-260): SMS / WhatsApp ile gönder */}
+        {canSendLink && <SessionSendLink sessionId={data.id} link={data.link} disabled={invalid} />}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

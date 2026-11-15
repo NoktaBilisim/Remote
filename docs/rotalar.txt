@@ -19,3 +19,4 @@
 /yok-boyle-sayfa
 /r/webformaaaaaaaaa
 /customers/import
+/settings/sms

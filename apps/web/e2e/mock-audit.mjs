@@ -7,6 +7,7 @@
 //   aubroken ADMIN, audit listesi ilk istekte 500 (sonra 200 → "Tekrar dene"); "Daha fazla yükle" ilk denemede 500
 //   ausa     SUPER_ADMIN (firma seçmemiş): firma filtresi + sistem ayarları; WhatsApp servisi env kaynaklı (P12b)
 //   ausawa0  SUPER_ADMIN, WhatsApp servisi hiç yapılandırılmamış (panel yok, env yok → url null)
+//   ausarsv  SUPER_ADMIN, panelde P19 URL kuralına uymayan eski adres (kullanıcı bilgisi içerir) → "yeniden kaydedin" bandı
 //   ausains  SUPER_ADMIN, WhatsApp servisi panelde http:// + genel adres (insecure, canlı ortam varsayımı)
 //   ausabrk  SUPER_ADMIN, WhatsApp ayarı ilk GET'te 500 (sonra 200 → "Tekrar dene")
 //   ausadef  SUPER_ADMIN, WhatsApp servisi panel yok + env yok → adres null, source "env" (yapılandırılmamış)
@@ -39,7 +40,7 @@ export const AU = {
 const ALL_NO_WS = PERMISSION_KEYS.filter((k) => !k.startsWith("support_requests."));
 
 export function auditUser(cookie) {
-  const m = cookie?.match(/^u-(auadm|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|brk|def|su)?)-/);
+  const m = cookie?.match(/^u-(auadm|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|brk|def|su|rsv)?)-/);
   if (!m) return null;
   const kind = m[1];
   const role = kind.startsWith("ausa") ? "SUPER_ADMIN" : kind === "auview" || kind === "aunone" ? "USER" : "ADMIN";
@@ -207,6 +208,15 @@ const waEnv = (kind) => ({
 });
 function waInitial(kind) {
   if (kind === "ausadef") return { url: null, source: "env", insecure: false, updatedAt: null, apiKeySet: false, apiKeySource: null };
+  if (kind === "ausarsv")
+    return {
+      url: "https://kul:sifre@wa.ornek.com",
+      source: "panel",
+      insecure: false,
+      updatedAt: iso(3_600_000),
+      apiKeySet: false,
+      apiKeySource: null,
+    };
   if (kind === "ausains")
     return {
       url: "http://203.0.113.50:3000",

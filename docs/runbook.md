@@ -3174,21 +3174,56 @@ admin panelinde yeni anahtar üretir → Remote "Ayarlar → SMS"te anahtar alan
 değer `***`) → "Test SMS Gönder" başarılı → smsportal'da eski anahtar iptal edilir. Sıra önemli: eski anahtar test başarılı olmadan
 iptal edilmez (arada `unauthorized`). Anahtar hiçbir zaman dokümana, sohbete, `.env`'e yazılmaz.
 
-**`APP_ENCRYPTION_KEYS` sürüm emekliliği (§25.5 kuralına ek):** `crypto:check-retire <ver>` P19'da üç sayım verir (J3 CLI):
-`session_messages.body_enc`, `tenant_settings.sms_api_key_enc`, `notification_outbox.recipient_enc`; toplam > 0 → çıkış 1, sürüm
-çıkarılmaz. Eşdeğer SQL (ilk bayt sürüm):
+**`APP_ENCRYPTION_KEYS` sürüm emekliliği (§25.5 kuralına ek; CLI `apps/server/src/cli/crypto.ts`, J3):**
 
-```sql
-SELECT 'sms_api_key', COUNT(*) FROM tenant_settings WHERE sms_api_key_enc IS NOT NULL AND ASCII(sms_api_key_enc) = <ver>
-UNION ALL SELECT 'outbox_recipient', COUNT(*) FROM notification_outbox WHERE recipient_enc IS NOT NULL AND ASCII(recipient_enc) = <ver>
-```
+1. **Sayım (anahtar gerekmez, `-e` verilmez):**
+   `docker compose run --rm migrate pnpm --filter @remote/server cli crypto:check-retire <ver>` → tablo başına bir satır:
+   `crypto:check-retire tablo=<t> surum=<ver> satir=<n>` (`session_messages`, `tenant_settings.sms_api_key_enc`,
+   `notification_outbox.recipient_enc`). Toplam > 0 → çıkış 1, sürüm halkadan **çıkarılmaz**. Eşdeğer SQL (ilk bayt sürüm):
 
-- `sms_api_key` > 0: §25.5/2 yolu, tablo adı `tenant_settings.sms_api_key` (`crypto:rewrap tenant_settings.sms_api_key --from <ver>
---dry` → `cozulemeyen=0` → gerçek koşu; yalnız `migrate` servisi, `-e APP_ENCRYPTION_KEYS` değer YAZILMADAN). `cozulemeyen > 0`
-  ise o firmaların anahtarı zaten okunamıyordur (§26.3) → Admin yeniden girer, sonra tekrar sayım.
-- `outbox_recipient` > 0: rewrap **yok**. Alıcı yalnız PENDING/SENDING'de doludur ve dakikalar içinde NULL'lanır → yeni sürüm
-  `.env`'e eklenip `up -d server` yapıldıktan sonra sayım 0 olana dek beklenir (normalde ≤ 1 dk; `notify-outbox-pending` alarmı
-  yoksa en geç birkaç dakika).
+   ```sql
+   SELECT 'sms_api_key', COUNT(*) FROM tenant_settings WHERE sms_api_key_enc IS NOT NULL AND ASCII(sms_api_key_enc) = <ver>
+   UNION ALL SELECT 'outbox_recipient', COUNT(*) FROM notification_outbox WHERE recipient_enc IS NOT NULL AND ASCII(recipient_enc) = <ver>
+   ```
+
+2. **S-P19-T13 uyarısı:** `<ver>` koddaki sabit `NOTIFY_RECIPIENT_KEY_VERSION` (`lib/crypto.ts`; `recipient_hash` HMAC anahtarının
+   sürümü) ise check-retire stderr'e `uyarı: sürüm <ver> NOTIFY_RECIPIENT_KEY_VERSION; …` yazar. Bu sürüm emekliye ayrılmadan
+   **önce** sabit yeni sürüme taşınmış bir server sürümü yayınlanmalıdır (backend değişikliği; devops sabiti değiştirmez). Taşıma
+   anında eski `recipient_hash`'ler yeni hash'lerle eşleşmez → alıcı tavanlarının (3/24 sa firma içi, 5/24 sa sistem) sayımı **bir kez,
+   en çok 24 sa** sıfırlanır (kabul edilen risk; firma × kanal saatlik tavanı hash'e bağlı değildir ve korur). Bu 24 sa içinde
+   `notify-volume` alarmı normalden dikkatli izlenir. Sabit taşınmadan sürüm çıkarılırsa server güncel sürüme düşer (gönderim
+   durmaz) ama sayım yine sıfırlanır — taşıma yayın planına yazılır.
+3. **`tenant_settings.sms_api_key_enc` > 0 → rewrap** (`crypto:rewrap tenant_settings.sms_api_key`). AAD etkin kökene bağlıdır; firma adresi (`sms_url`) **boş** satırlarda köken
+   `SMSPORTAL_URL`'den alınır. `migrate` servisinin compose tanımında **ne `APP_ENCRYPTION_KEYS` ne `SMSPORTAL_URL` vardır** → ikisi
+   de komuta tek seferlik, **değersiz `-e`** ile verilir (değer `.env`'den/kabuktan gelir; komut satırına, geçmişe, `ps`'e düşmez;
+   §25.5 ön kontrol ve B yolu aynen geçerli). `-e SMSPORTAL_URL` unutulursa varsayılanı kullanan firmaların satırları
+   **çözülemez** sayılır (atlanır, değişmez; `cozulemeyen > 0`, çıkış 1; çözülebilenler gerçek koşuda yeniden şifrelenir) →
+   komut `-e SMSPORTAL_URL` ile yeniden çalıştırılır (yalnız kalan `--from <ver>` satırlarını taşır).
+
+   ```bash
+   cd /opt/remote/deploy            # ikinci yığın: /opt/remote-stg/deploy
+   # ön kontrol: iki değişken de konteynere iniyor mu (yalnız uzunluk; 0 ise §25.5 B yolu, SMSPORTAL_URL için de aynı kalıp)
+   docker compose run --rm -e APP_ENCRYPTION_KEYS -e SMSPORTAL_URL migrate \
+     sh -c 'echo "anahtar_uzunlugu=${#APP_ENCRYPTION_KEYS} smsportal_uzunlugu=${#SMSPORTAL_URL}"'
+   # kuru koşu (yazmaz): cozulemeyen=0 beklenir
+   docker compose run --rm -e APP_ENCRYPTION_KEYS -e SMSPORTAL_URL migrate \
+     pnpm --filter @remote/server cli crypto:rewrap tenant_settings.sms_api_key --from <ver> --dry
+   # gerçek koşu (tek TX; firma sayısı küçük)
+   docker compose run --rm -e APP_ENCRYPTION_KEYS -e SMSPORTAL_URL migrate \
+     pnpm --filter @remote/server cli crypto:rewrap tenant_settings.sms_api_key --from <ver>
+   docker ps -a --filter name=migrate-run --format '{{.Names}}'   # boş olmalı
+   ```
+
+   Beklenen: `crypto:rewrap tablo=tenant_settings.sms_api_key kaynak=<ver> hedef=<yeni> satir=<n> cozulemeyen=0 kuru=false`, audit
+   `crypto.rewrap {table, fromVer, toVer, rows, …}` (aktör `system:cli`). `SMSPORTAL_URL` boşken varsayılanı kullanan satır varsa
+   (`sms_url` NULL + anahtar dolu) bunlar zaten okunamıyordur (§26.3) → `cozulemeyen` kalır; o firmaların Admin'i anahtarı panelde
+   yeniden girer, sonra adım 1 tekrarlanır. `SMSPORTAL_URL` değişimi (§26.3) ile emeklilik **aynı bakım penceresinde yapılmaz**:
+   önce rewrap (eski kökenle), sonra adres değişimi.
+
+4. **`notification_outbox.recipient_enc` > 0:** rewrap **yok**. Alıcı yalnız PENDING/SENDING'de doludur ve dakikalar içinde NULL'lanır →
+   yeni sürüm `.env`'e eklenip `up -d server` yapıldıktan sonra sayım 0 olana dek beklenir (normalde ≤ 1 dk; `notify-outbox-pending`
+   alarmı yoksa en geç birkaç dakika).
+5. Üç sayım 0 → `session_messages` için §25.5/2 → sürüm halkadan çıkarılır, kasada saklama süresince tutulur (§25.5/3).
 
 ### 26.5 Form spam'i / bildirim istismarı (alarm `notify-volume` → eylem; S-P19-12, S-P19-T9)
 

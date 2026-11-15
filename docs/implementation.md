@@ -7992,3 +7992,49 @@ Kaynak: mimari-e11 §8c.3, §8c.4, §8c.6, §8c.7, §8c.9 (S-P19-5/6/7/10/11/12)
   `apps/web/app/r/[ref]/web-request-form.tsx` dosyasında uyarı veriyor (paralel iş, dokunulmadı).
 - **Yapılmadı:** S-P19-T12 genişletilmiş eşzamanlılık testi ayrı yazılmadı (J2'nin 20 oluşturma + 5 kabul + süpürücü testi kabul
   TX'indeki kuyruğa almayı da kapsıyor ve yeşil); staging'e bağlanılmadı.
+
+## P19 J5 (frontend) tur 2 — 2026-11-15
+
+Kaynak: mimari-e11 §8c.3, §8c.4, §8c.8; implementation "P19 J3 (backend)" → "frontend-dev (J5) için sözleşme". `apps/server`'a
+dokunulmadı.
+
+### Rotalar
+
+| Yol                                  | Auth                                               | Ne yapar                                                                                                                                                                                                             |
+| ------------------------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/settings/sms` (yeni)               | Evet; `settings.view` (kayıt/test `settings.edit`) | smsportal adresi (boş = sistem varsayılanı), API anahtarı (maskeli, boş = korunur, "Anahtarı sil" onaylı), başlık, Kaydet; "Test SMS Gönder"; bantlar: anahtar okunamıyor / güvensiz / kullanılamaz / kullanılabilir |
+| `/sessions` (değişti)                | Evet; `sessions.create` + `sessions.send_link`     | Yeni oturum diyaloğunda e-posta düğmesinin yanında "SMS / WhatsApp ile gönder": kanal seçimi (yalnız kullanılabilir kanallar), telefon + E.164 önizlemesi, sonuç toast + satır içi, 429'da geri sayım                |
+| `/admin/settings/whatsapp` (değişti) | Evet; Super Admin                                  | Kayıtlı panel adresi P19 URL kuralına uymuyorsa "Adresi yeniden kaydedin" bandı                                                                                                                                      |
+
+Ayarlar sekmelerine "SMS" (`MessageSquareText`) eklendi (SMTP'nin yanında).
+
+### Değişen / yeni dosyalar
+
+- Yeni: `app/(panel)/settings/sms/{page,sms-form}.tsx`, `app/(panel)/sessions/session-send-link.tsx`, `lib/notify/{send-link,sms-form}.ts`,
+  `lib/notify/notify.test.ts`.
+- Değişen: `settings/settings-tabs.tsx`, `sessions/{page,sessions-view,new-session-dialog,created-session}.tsx` (`canSendLink` geçişi),
+  `admin/settings/whatsapp/whatsapp-form.tsx` (bant), `lib/audit/actions.ts` (`P19_NOTIFY_AUDIT_LABELS` yayıldı — tur 1'de bağlı
+  değildi), `messages/tr.json` (`set.tab.sms`, `sms.*`, `sl.*`, `wa.svc.resave`), `e2e/mock-p19.mjs` (SMS ayarı/test, send-link,
+  `p19tech`/`p19technl` rolleri), `e2e/mock-audit.mjs` (`ausarsv` senaryosu), `e2e/p19-j5.spec.ts`.
+
+### Kararlar / sapmalar
+
+1. **WA "yeniden kaydedin" bandı istemcide hesaplanır:** `WhatsappSettingsView` bu durumu taşıyan bir alan döndürmüyor; bant
+   `source === "panel" && url !== null && !serviceUrlSchema.safeParse(url).success` ile (contracts, sunucunun `isParsableServiceUrl`
+   kuralıyla aynı küme). Sunucu ileride ayrı bir bayrak döndürürse ona geçilmeli (backend-dev notu).
+2. **send-link satır içi form** (ayrı `send-link-dialog.tsx` değil): oluşturulan oturum zaten bir diyalogda; iç içe diyalog yerine
+   mevcut "E-postayla gönder" kalıbı izlendi. Talepten doğan oturumda `suggestedPhone` alanı doldurur.
+3. Union şemalarda zod'un genel "Invalid input" mesajı alanın sözleşme mesajına çevrilir (`SERVICE_URL_MESSAGE`,
+   `SMS_HEADER_MESSAGE`, `SMS_API_KEY_MESSAGE`). `fields.apiKey = SMS_API_KEY_REENTER` ve `HOST_NOT_ALLOWED` alana yansır.
+4. 429 geri sayımı `Retry-After` başlığından (`ApiError.retryAfter`); gövdedeki `retryAfterSec` `api()` tarafından okunmuyor —
+   sunucu başlığı da yazıyorsa sorun yok, yazmıyorsa varsayılan 60 sn (backend-dev doğrulamalı).
+5. Talep ayarındaki `channelWarnings.sms` bandı tur 1'de vardı; bağlantısı artık var olan `/settings/sms`'e gidiyor.
+
+### Test
+
+- `apps/web`: `tsc` temiz, `eslint .` temiz, vitest **385/385** (yeni `lib/notify/notify.test.ts` 5), `pnpm format:check` temiz.
+- e2e `p19-j5.spec.ts` 32/32 (desktop + mobile): SMS ayarı (okunamıyor bandı, maskeli/boş anahtar, URL'de sır alan hatası, adres
+  değişince "anahtarı yeniden girin", kaydet → kullanılabilir, test SMS sonucu, onaylı anahtar silme → kullanılamaz); send-link
+  (kanal seçimi, TR dışı SMS reddi, E.164 önizleme, 502 kanal mesajı, 409 kanal yok, 429 geri sayımı ve süre sonunda yeniden
+  etkin, WhatsApp başarı); yetkisizde düğme yok; WA "yeniden kaydedin" bandı; iki tema axe 0 + 390 px (SMS ayarı, send-link).
+- **Tüm web e2e takımı (desktop + mobile): 417 geçti, 0 hata** (197 atlanan = proje bazlı `desktopOnly` / rtc / perf).

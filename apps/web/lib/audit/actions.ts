@@ -12,6 +12,7 @@ import {
   MAIL_AUDIT,
   P16_AUDIT_LABELS,
   P18_AUDIT_LABELS,
+  P19_NOTIFY_AUDIT_LABELS,
   P19_REQUEST_AUDIT_LABELS,
   RETENTION_AUDIT,
   SYSTEM_AUDIT,
@@ -100,6 +101,7 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   // P18 (talep iletişimi) ve P19 (web talep formu)
   ...P18_AUDIT_LABELS,
   ...P19_REQUEST_AUDIT_LABELS,
+  ...P19_NOTIFY_AUDIT_LABELS,
 };
 
 /**

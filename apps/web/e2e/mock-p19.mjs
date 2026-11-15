@@ -8,6 +8,7 @@
 // request.chat false + request.accepted); GET /__e2e/p19/techmsg/<ref>?body= (teknisyen mesajı).
 import { WebSocketServer } from "ws";
 import { webRequestInputSchema } from "@remote/contracts/api/requests";
+import { SEND_FAILED_MESSAGES, SMS_API_KEY_REENTER, SMS_TEST_MESSAGES, smsSettingsInputSchema } from "@remote/contracts/api/notify";
 
 const TENANT = { id: "01JTNP1900000000000000000A", name: "Demo Firma" };
 const REFS = {
@@ -23,9 +24,23 @@ const iso = (ms) => new Date(ms).toISOString();
 let seq = 0;
 
 export function p19User(cookie) {
-  const m = cookie?.match(/^u-(p19adm|p19noimp)-([a-z0-9]+)$/);
+  const m = cookie?.match(/^u-(p19adm|p19noimp|p19tech|p19technl)-([a-z0-9]+)$/);
   if (!m) return null;
   const adm = m[1] === "p19adm";
+  if (m[1] === "p19tech" || m[1] === "p19technl")
+    return {
+      room: m[2],
+      user: {
+        id: "01JMSP1900000000000000000C",
+        email: "tech@ornek.com",
+        fullName: "Mehmet Teknik",
+        role: "USER",
+        mustChangePassword: false,
+      },
+      permissions: ["sessions.view", "sessions.create", "sessions.delete", ...(m[1] === "p19tech" ? ["sessions.send_link"] : [])],
+      tenant: TENANT,
+      actingTenant: null,
+    };
   return {
     room: m[2],
     user: {
@@ -52,6 +67,18 @@ export function p19User(cookie) {
 }
 
 const settings = new Map();
+const smsStore = new Map();
+const smsLog = [];
+const smsInitial = () => ({
+  url: null,
+  defaultUrl: true,
+  header: null,
+  apiKeySet: true,
+  keyUnreadable: true,
+  insecure: false,
+  usable: false,
+  updatedAt: null,
+});
 const baseSettings = () => ({
   downloadUrl: "http://localhost:3217/api/v1/public/agent/request-download?ref=webformaaaaaaaaa",
   fileName: "NoktaDestek-Demo-webformaaaaaaaaa.exe",
@@ -272,10 +299,64 @@ export async function handleP19(req, res, { url, session, csrfOk, send, err, rea
   // --- panel (p19 kullanıcıları) ---
   const who = p19User(session);
   if (!who) return false;
+  // AC-260: bağlantı gönderimi (oturumların kendisi mock-sessions.mjs'de)
+  const sl = path.match(/^\/api\/v1\/sessions\/([0-9A-Z]{26})\/send-link(\/options)?$/);
+  if (sl) {
+    if (!who.permissions.includes("sessions.send_link")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+    if (sl[2] && req.method === "GET") return (send(res, 200, { sms: true, whatsapp: true, suggestedPhone: null }, [], ns), true);
+    if (!sl[2] && req.method === "POST") {
+      if (!csrfOk) return (send(res, 403, err("CSRF_INVALID", "CSRF doğrulaması başarısız.")), true);
+      const b = await readJson(req);
+      if (b.phone === "+905320000429")
+        return (send(res, 429, err("RATE_LIMITED", "Çok fazla gönderim.", { retryAfterSec: 3 }), [], { "Retry-After": "3" }), true);
+      if (b.phone === "+905320000502")
+        return (send(res, 502, err("UPSTREAM", SEND_FAILED_MESSAGES[b.channel] ?? "x", { fields: { reason: "unreachable" } })), true);
+      if (b.phone === "+905320000409") return (send(res, 409, err("CHANNEL_UNAVAILABLE", "Bu kanal şu an kullanılamıyor.")), true);
+      smsLog.push(b);
+      return (send(res, 200, { sent: true }), true);
+    }
+  }
   if (req.method !== "GET" && !csrfOk) return (send(res, 403, err("CSRF_INVALID", "CSRF doğrulaması başarısız.")), true);
   const can = (p) => who.permissions.includes(p);
   const forbidden = () => (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
 
+  if (path === "/api/v1/settings/sms") {
+    const cur = smsStore.get(who.room) ?? smsInitial();
+    if (req.method === "GET") return (send(res, 200, cur, [], ns), true);
+    if (req.method === "PUT") {
+      if (!can("settings.edit")) return forbidden();
+      const b = await readJson(req);
+      const r = smsSettingsInputSchema.safeParse(b);
+      if (!r.success) {
+        const fields = Object.fromEntries(r.error.issues.map((i) => [String(i.path[0]), i.message]));
+        return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields })), true);
+      }
+      if (r.data.url !== cur.url && cur.apiKeySet && (b.apiKey === undefined || b.apiKey === ""))
+        return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { apiKey: SMS_API_KEY_REENTER } })), true);
+      const keySet = b.apiKey === null ? false : b.apiKey ? true : cur.apiKeySet;
+      const next = {
+        ...cur,
+        url: r.data.url,
+        header: r.data.header,
+        apiKeySet: keySet,
+        keyUnreadable: b.apiKey ? false : b.apiKey === null ? false : cur.keyUnreadable,
+        updatedAt: new Date().toISOString(),
+      };
+      next.usable = next.apiKeySet && !next.keyUnreadable && (next.url !== null || next.defaultUrl);
+      smsStore.set(who.room, next);
+      return (send(res, 200, next), true);
+    }
+  }
+  if (path === "/api/v1/settings/sms/test" && req.method === "POST") {
+    if (!can("settings.edit")) return forbidden();
+    const b = await readJson(req);
+    const cur = smsStore.get(who.room) ?? smsInitial();
+    const ok = cur.usable && b.phone !== "+905320000502";
+    return (
+      send(res, 200, { ok, message: ok ? SMS_TEST_MESSAGES.ok : SMS_TEST_MESSAGES.unconfigured, reason: ok ? null : "unconfigured" }),
+      true
+    );
+  }
   if (path === "/api/v1/support-requests/count") return (send(res, 200, { pending: 0 }), true);
   if (path === "/api/v1/support-requests" && req.method === "GET") {
     const src = q.get("source");

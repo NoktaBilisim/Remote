@@ -50,6 +50,7 @@ export default async function SessionsPage() {
           canTerminate={!pickTenant && perms.includes("sessions.terminate")}
           pickTenant={pickTenant}
           canPickCustomer={perms.includes("customers.view")}
+          canSendLink={perms.includes("sessions.create") && perms.includes("sessions.send_link")}
         />
       )}
     </>

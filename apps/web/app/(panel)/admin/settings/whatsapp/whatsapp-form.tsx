@@ -1,5 +1,6 @@
 "use client";
 
+import { serviceUrlSchema } from "@remote/contracts/api/notify";
 import { MessageCircle, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -155,6 +156,12 @@ export function WhatsappForm({ initial: raw }: { initial: WhatsappServiceView })
             </Alert>
           )}
         </>
+      )}
+      {/* P19 (S-P19-T5, §8c.4): kayıtlı panel adresi yeni URL kuralına uymuyor → kanal kullanılamaz; yeniden kaydedilmeli */}
+      {saved.source === "panel" && saved.url !== null && !serviceUrlSchema.safeParse(saved.url).success && (
+        <Alert tone="warning" testId="wa-svc-resave">
+          {t("wa.svc.resave")}
+        </Alert>
       )}
       {saved.insecure && (
         <Alert tone="warning" testId="wa-svc-insecure">

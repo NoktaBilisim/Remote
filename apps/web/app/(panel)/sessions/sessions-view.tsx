@@ -30,6 +30,8 @@ export function SessionsView(props: {
   canTerminate: boolean;
   /** P8c (AC-180) */
   canPickCustomer?: boolean;
+  /** P19 (AC-260): `sessions.create` + `sessions.send_link` → "SMS/WhatsApp ile gönder". */
+  canSendLink?: boolean;
   /** Firma seçmemiş Super Admin: eylemler kapalı, üst menüden firma seçme notu gösterilir. */
   pickTenant?: boolean;
 }) {
@@ -149,6 +151,7 @@ export function SessionsView(props: {
         <NewSessionDialog
           canCancel={props.canCancel}
           canPickCustomer={props.canPickCustomer}
+          canSendLink={props.canSendLink}
           onChanged={refresh}
           onClose={() => {
             setCreating(false);

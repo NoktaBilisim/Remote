@@ -15,7 +15,7 @@ const stats = async (page: Page, ref: string) =>
     last: Record<string, unknown>;
   };
 
-async function signInP19(context: BrowserContext, role: "p19adm" | "p19noimp") {
+async function signInP19(context: BrowserContext, role: "p19adm" | "p19noimp" | "p19tech" | "p19technl") {
   const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
   await context.addCookies([
     { ...base, name: SESSION_COOKIE, value: `u-${role}-${newRoom()}`, httpOnly: true },
@@ -226,4 +226,106 @@ test("AC-259: geçmişte kaynak filtresi ve 'Web' rozeti", async ({ page, contex
 test("panel P19 ekranları iki tema axe 0, 390 px", async ({ browser }) => {
   await scanBoth(browser, "/customers/import", (p) => expect(p.getByTestId("import-step-file")).toBeVisible(), true);
   await scanBoth(browser, "/settings/support-requests", (p) => expect(p.getByTestId("web-form-url")).toBeVisible(), true);
+});
+
+// ---------------------------------------------------------------- tur 2: SMS ayarı, send-link, WA bandı (AC-260, S-P19-T5/T6)
+
+async function openCreated(page: Page) {
+  await page.goto("/sessions");
+  await page.getByRole("button", { name: "Yeni destek oturumu" }).first().click();
+  await expect(page.getByTestId("session-link")).toBeVisible();
+}
+
+test("AC-260: SMS ayarı — anahtar okunamıyor bandı, anahtar maskeli/korunur, adres değişince anahtar yeniden istenir, test SMS", async ({
+  page,
+  context,
+}) => {
+  await signInP19(context, "p19adm");
+  await page.goto("/settings/sms");
+  await expect(page.getByTestId("settings-tabs").getByRole("link", { name: "SMS" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByTestId("sms-key-unreadable")).toContainText("Kayıtlı API anahtarı okunamıyor");
+  await expect(page.getByTestId("sms-api-key")).toHaveValue("");
+  await expect(page.getByTestId("sms-api-key")).toHaveAttribute("placeholder", "Kayıtlı — değiştirmek için yazın");
+  await expect(page.getByTestId("sms-api-key")).toHaveAttribute("type", "password");
+  // URL'de sır → alan hatası (istemci, contracts şeması)
+  await page.getByTestId("sms-url").fill("https://kul:sifre@sms.ornek.com");
+  await page.getByTestId("sms-save").click();
+  await expect(page.getByText("Adres kullanıcı adı, şifre veya sorgu içeremez")).toBeVisible();
+  // adres değişti, anahtar boş → sunucu "yeniden girin"
+  await page.getByTestId("sms-url").fill("https://sms.ornek.com");
+  await page.getByTestId("sms-save").click();
+  await expect(page.getByText("Adres değişti; API anahtarını yeniden girin.")).toBeVisible();
+  await page.getByTestId("sms-api-key").fill("yeni-anahtar-123");
+  await page.getByTestId("sms-save").click();
+  await expect(page.getByTestId("sms-usable")).toBeVisible();
+  await expect(page.getByTestId("sms-key-unreadable")).toHaveCount(0);
+  await expect(page.getByTestId("sms-api-key")).toHaveValue("");
+  await page.getByTestId("sms-test-phone").fill("0532 111 22 33");
+  await page.getByTestId("sms-test-send").click();
+  await expect(page.getByTestId("sms-test-result")).toHaveText("Test SMS'i gönderildi.");
+  // anahtarı sil: onay diyaloğu → kaydedince kanal kullanılamaz
+  await page.getByTestId("sms-key-remove").click();
+  await page.getByTestId("sms-key-remove-confirm").click();
+  await expect(page.getByTestId("sms-key-remove-pending")).toBeVisible();
+  await page.getByTestId("sms-save").click();
+  await expect(page.getByTestId("sms-unusable")).toBeVisible();
+});
+
+test("AC-260: send-link — kanal seçimi, E.164 önizleme, TR dışı SMS reddi, 502/409, 429 geri sayımı, başarı", async ({ page, context }) => {
+  await signInP19(context, "p19tech");
+  await openCreated(page);
+  await page.getByTestId("send-link-open").click();
+  const form = page.getByTestId("send-link-form");
+  await expect(form.getByRole("group", { name: "Gönderim kanalı" })).toBeVisible();
+  await page.getByTestId("send-link-phone").fill("+44 7700 900123");
+  await page.getByTestId("send-link-send").click();
+  await expect(form.getByText("SMS yalnız Türkiye cep numaralarına gönderilir")).toBeVisible();
+  await page.getByTestId("send-link-phone").fill("0532 000 05 02");
+  await expect(form.getByText("Gönderilecek numara: +905320000502")).toBeVisible();
+  await page.getByTestId("send-link-send").click();
+  await expect(page.getByTestId("send-link-result")).toContainText("SMS gönderilemedi");
+  await page.getByTestId("send-link-phone").fill("05320000409");
+  await page.getByTestId("send-link-send").click();
+  await expect(page.getByTestId("send-link-result")).toContainText("kullanılamıyor");
+  await page.getByTestId("send-link-phone").fill("05320000429");
+  await page.getByTestId("send-link-send").click();
+  await expect(page.getByTestId("send-link-send")).toContainText("Bekleyin");
+  await expect(page.getByTestId("send-link-send")).toBeDisabled();
+  await expect(page.getByTestId("send-link-send")).toHaveText(/Gönder/, { timeout: 6000 });
+  await form.getByRole("button", { name: "WhatsApp" }).click();
+  await page.getByTestId("send-link-phone").fill("0532 111 22 33");
+  await page.getByTestId("send-link-send").click();
+  await expect(page.getByTestId("send-link-result")).toHaveText("Bağlantı WhatsApp ile gönderildi: +905321112233");
+});
+
+test("AC-260: send_link yetkisi yoksa düğme yok", async ({ page, context }) => {
+  await signInP19(context, "p19technl");
+  await openCreated(page);
+  await expect(page.getByTestId("session-email-open")).toBeVisible();
+  await expect(page.getByTestId("send-link-open")).toHaveCount(0);
+});
+
+test("S-P19-T5: kurala uymayan kayıtlı WhatsApp adresi → 'yeniden kaydedin' bandı", async ({ page, context }) => {
+  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
+  await context.addCookies([
+    { ...base, name: SESSION_COOKIE, value: `u-ausarsv-${newRoom()}`, httpOnly: true },
+    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
+  ]);
+  await page.goto("/admin/settings/whatsapp");
+  await expect(page.getByTestId("wa-svc-resave")).toContainText("Adresi yeniden kaydedin");
+});
+
+test("tur 2 ekranları iki tema axe 0, 390 px", async ({ browser }) => {
+  await scanBoth(browser, "/settings/sms", (p) => expect(p.getByTestId("sms-key-unreadable")).toBeVisible(), true);
+  for (const scheme of ["light", "dark"] as const) {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 900 }, colorScheme: scheme, reducedMotion: "reduce" });
+    await signInP19(ctx, "p19tech");
+    const p = await ctx.newPage();
+    await openCreated(p);
+    await p.getByTestId("send-link-open").click();
+    await expect(p.getByTestId("send-link-form")).toBeVisible();
+    await noHorizontalOverflow(p);
+    expect(await axeScan(p), `send-link ${scheme}`).toEqual([]);
+    await ctx.close();
+  }
 });

@@ -30,12 +30,15 @@ type State =
 export function NewSessionDialog({
   canCancel,
   canPickCustomer = false,
+  canSendLink = false,
   onClose,
   onChanged,
 }: {
   canCancel: boolean;
   /** P8c (AC-180): `customers.view` → önce isteğe bağlı müşteri firma seçimi; yoksa bugünkü gibi anında oluşturur. */
   canPickCustomer?: boolean;
+  /** P19 (AC-260): SMS/WhatsApp ile bağlantı gönderimi. */
+  canSendLink?: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -156,7 +159,7 @@ export function NewSessionDialog({
             </div>
           </div>
         )}
-        {ok && <CreatedSession data={ok.data} cancelled={ok.cancelled} />}
+        {ok && <CreatedSession data={ok.data} cancelled={ok.cancelled} canSendLink={canSendLink} />}
         {state.kind === "limit" && (
           <Alert tone="warning" testId="limit-error">
             <p className="font-medium">{t("d.limitTitle")}</p>

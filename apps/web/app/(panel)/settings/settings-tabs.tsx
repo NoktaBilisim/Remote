@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, FileText, Image as ImageIcon, Inbox, Mail, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { CalendarClock, FileText, Image as ImageIcon, Inbox, Mail, MessageSquareText, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { TabNav } from "@/components/ui/tab-nav";
 import { t } from "@/lib/i18n";
 
@@ -15,6 +15,7 @@ export function SettingsTabs() {
         { href: "/settings/support-requests", label: t("set.tab.requests"), Icon: Inbox },
         { href: "/settings/business-hours", label: t("set.tab.hours"), Icon: CalendarClock },
         { href: "/settings/smtp", label: t("set.tab.smtp"), Icon: Mail },
+        { href: "/settings/sms", label: t("set.tab.sms"), Icon: MessageSquareText },
         { href: "/settings/security", label: t("set.tab.security"), Icon: ShieldCheck },
         { href: "/settings/consent-text", label: t("set.tab.consent"), Icon: FileText },
         { href: "/settings/logo", label: t("set.tab.logo"), Icon: ImageIcon },
