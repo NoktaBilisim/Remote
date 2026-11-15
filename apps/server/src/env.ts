@@ -2,6 +2,7 @@
 // Her paket yalnız kullandığı anahtarları ister; diğerleri (APP_ENCRYPTION_KEYS …)
 // ilgili pakette eklenir.
 import { isIP } from "node:net";
+import { serviceUrlSchema } from "@remote/contracts/api/notify";
 import { waApiKeySchema, waServiceUrlSchema } from "@remote/contracts/api/system-settings";
 import { z } from "zod";
 
@@ -77,6 +78,9 @@ const schema = z
     // S-P13b-3: servisin `x-api-key` anahtarı (16–256, boşluk/kontrol karakteri yok). Yalnız env adresiyle birlikte gönderilir
     // (panel adresine panel anahtarı gider). Loglanmaz; değer hata mesajına yazılmaz.
     WHATSAPP_SERVICE_API_KEY: waApiKeySchema.optional(),
+    // P19 J3 (§8c.4, S-P19-T5): firmaların sistem varsayılanı smsportal adresi (boş = varsayılan yok). userinfo/sorgu/parça
+    // reddedilir; değer hata mesajına yazılmaz. Değişimi kayıtlı anahtarları çözülemez kılar (runbook §26.3).
+    SMSPORTAL_URL: z.preprocess((v) => (v === "" ? undefined : v), serviceUrlSchema.optional()),
     // P8b r2 (§13.4, G-E9-4): asgari Windows istemci sürümü; boş = kontrol yok. Düşük sürüm → 426 CLIENT_OUTDATED.
     MIN_AGENT_VERSION: z
       .string()
@@ -132,7 +136,14 @@ const schema = z
         .map((s) => s.trim())
         .filter(Boolean) ?? [];
     const encryptionKeys = e.APP_ENCRYPTION_KEYS ? parseEncryptionKeys(e.APP_ENCRYPTION_KEYS) : null;
-    return { ...e, WHATSAPP_SERVICE_URL: e.WHATSAPP_SERVICE_URL ?? "", allowedOrigins, turnUrls, encryptionKeys };
+    return {
+      ...e,
+      WHATSAPP_SERVICE_URL: e.WHATSAPP_SERVICE_URL ?? "",
+      SMSPORTAL_URL: e.SMSPORTAL_URL ?? "",
+      allowedOrigins,
+      turnUrls,
+      encryptionKeys,
+    };
   });
 
 export type Env = z.infer<typeof schema>;

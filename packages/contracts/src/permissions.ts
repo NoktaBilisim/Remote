@@ -3,7 +3,8 @@
 // Yeni modül/alt yetki yalnız buraya eklenir.
 
 export const PERMISSION_MODULES = [
-  { key: "sessions", actions: ["view", "create", "edit", "delete", "terminate"] },
+  // P19 (AC-260): send_link = oturum bağlantısını müşteriye SMS/WhatsApp ile gönder (+ sessions.create).
+  { key: "sessions", actions: ["view", "create", "edit", "delete", "terminate", "send_link"] },
   { key: "remote_control", actions: ["use"] },
   { key: "file_transfer", actions: ["use"] },
   { key: "session_history", actions: ["view", "edit", "export"] },
@@ -42,6 +43,7 @@ export const PERMISSION_KEYS: readonly PermissionKey[] = permissionKeysOf(PERMIS
  */
 export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, string>>> = {
   "sessions.terminate": "Etkin bir destek oturumunu yönetici olarak zorla sonlandırır.",
+  "sessions.send_link": "Oturum bağlantısını müşteriye SMS/WhatsApp ile gönderir.",
   "support_requests.accept":
     "Talep kabul et — kabul edilen talep için oturum açar (Oturum oluşturma yetkisi gerekmez; açık oturum sınırı geçerlidir). Reddetme de bu yetkiyle yapılır.",
   "customers.delete": "Müşteriyi pasife alır (kalıcı silme yoktur).",

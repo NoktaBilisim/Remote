@@ -11,6 +11,8 @@ import {
   CUSTOMER_AUDIT,
   MAIL_AUDIT,
   P16_AUDIT_LABELS,
+  P18_AUDIT_LABELS,
+  P19_REQUEST_AUDIT_LABELS,
   RETENTION_AUDIT,
   SYSTEM_AUDIT,
   TENANT_AUDIT,
@@ -82,6 +84,9 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   [CUSTOMER_AUDIT.DEACTIVATED]: "Müşteri pasife alındı",
   [CUSTOMER_AUDIT.REACTIVATED]: "Müşteri yeniden etkinleştirildi",
   [CUSTOMER_AUDIT.ANONYMIZED]: "Müşteri anonimleştirildi",
+  // P19 (AC-263): CSV dışa/içe aktarma
+  [CUSTOMER_AUDIT.EXPORTED]: "Müşteriler dışa aktarıldı",
+  [CUSTOMER_AUDIT.IMPORTED]: "Müşteriler içe aktarıldı",
   [BINDING_AUDIT.ISSUED]: "Bilgisayar kaydedildi",
   [BINDING_AUDIT.REVOKED]: "Bilgisayar kaydı iptal edildi",
   [BINDING_AUDIT.DENIED]: "Bilgisayar kaydı reddedildi",
@@ -92,6 +97,9 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   [BACKUP_AUDIT.AUDIT_BASELINE_RESET]: "Yedek audit taban çizgisi sıfırlandı",
   // P16 (AC-240..243): kalıcı silme, firma silme işi, yetim dosya taraması (`uploads.*`), migration kaydı (`migration.*`)
   ...P16_AUDIT_LABELS,
+  // P18 (talep iletişimi) ve P19 (web talep formu)
+  ...P18_AUDIT_LABELS,
+  ...P19_REQUEST_AUDIT_LABELS,
 };
 
 /**

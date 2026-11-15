@@ -15,7 +15,8 @@ import { aadFor } from "../lib/crypto.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
-import { isInsecureServiceTarget, type WhatsappNotifier } from "../notify/whatsapp.ts";
+import { isInsecureServiceTarget } from "../notify/service-url.ts";
+import type { WhatsappNotifier } from "../notify/whatsapp.ts";
 import { GLOBAL_KEY, who, type SystemDeps } from "./system.ts";
 
 /** Panel adresi; `{url: null}` (DELETE sonrası "env'e dön" satırı) veya bozuk kayıt → null (env). */

@@ -227,7 +227,7 @@ test("AC-129/131/152: ayarlar — bağlantı kopyala, onaylı yenile, alan hatal
   await expect(page).toHaveTitle(/Destek talepleri ayarları/);
   await expect(page.getByTestId("save-bar")).toHaveCount(0);
   await expect(page.getByTestId("download-url")).toContainText("ref=abcdefghijklmnop");
-  await page.getByRole("button", { name: "Kopyala" }).click();
+  await page.getByRole("button", { name: "Kopyala", exact: true }).click();
   await expect(page.getByTestId("toast").filter({ hasText: "Bağlantı kopyalandı." })).toBeVisible();
 
   await page.getByRole("button", { name: "Bağlantıyı yenile" }).click();

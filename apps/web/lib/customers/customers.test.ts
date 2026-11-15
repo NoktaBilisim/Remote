@@ -10,6 +10,7 @@ const detail: CustomerDetail = {
   name: "Acme Ltd",
   status: "ACTIVE",
   downloadUrl: "https://x/api/v1/public/agent/request-download?ref=abcdefghijklmnop",
+  webFormUrl: null,
   fileName: "NoktaDestek-AcmeLtd-abcdefghijklmnop.exe",
   createdAt: "2026-11-12T08:00:00.000Z",
   lastRequestAt: null,

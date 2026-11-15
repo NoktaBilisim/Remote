@@ -70,6 +70,10 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
   const canCreate = perms.includes("customers.create");
   const allowed = perms.includes("customers.view");
   const pickTenant = me.me.user.role === "SUPER_ADMIN" && !me.me.actingTenant;
+  const params = parseCustomerParams(await searchParams);
+  // P19 (AC-263, S-P19-14): dışa aktar view+export; içe aktar import+create+view BİRLİKTE yoksa gizli (sunucu da denetler)
+  const canExport = perms.includes("customers.export");
+  const canImport = perms.includes("customers.import") && canCreate && perms.includes("customers.view");
 
   const header = (
     <>
@@ -79,7 +83,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
           <h1 className="text-2xl font-semibold text-fg">{t("cu.title")}</h1>
           <p className="mt-1 max-w-2xl text-sm text-fg-muted">{t("cu.subtitle")}</p>
         </div>
-        {allowed && !pickTenant && <CustomersActions canCreate={canCreate} />}
+        {allowed && !pickTenant && (
+          <CustomersActions canCreate={canCreate} canExport={canExport} canImport={canImport} exportStatus={params.status} />
+        )}
       </div>
     </>
   );
@@ -107,7 +113,6 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
     );
   }
 
-  const params = parseCustomerParams(await searchParams);
   const [res, general] = await Promise.all([
     serverGet<CustomerListResponse>(customersApiPath(params)),
     serverGet<GeneralLinkResponse>("/customers/general-link"),

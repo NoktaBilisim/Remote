@@ -17,3 +17,5 @@
 /admin/tenants
 /settings/tenant
 /yok-boyle-sayfa
+/r/webformaaaaaaaaa
+/customers/import

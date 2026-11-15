@@ -174,6 +174,16 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "POST /api/v1/settings/holidays/import-tr": "scoped",
   "DELETE /api/v1/settings/holidays/:id": "tenant",
   "GET /api/v1/public/sessions/:sessionId/tech-avatar": "public",
+  // P19 J4 (AC-263): CSV dışa/içe aktarma — tenantScope'lu koleksiyon (izolasyon: customers-csv-p19.test.ts)
+  "GET /api/v1/customers/export.csv": "scoped",
+  "POST /api/v1/customers/import/preview": "scoped",
+  "POST /api/v1/customers/import/commit": "scoped",
+  // P19 J3 (AC-260): bağlantı gönderimi (kendi oturumu; başka tenant → 404) ve firma SMS ayarı (tenantScope)
+  "POST /api/v1/sessions/:id/send-link": "tenant",
+  "GET /api/v1/sessions/:id/send-link/options": "tenant",
+  "GET /api/v1/settings/sms": "scoped",
+  "PUT /api/v1/settings/sms": "scoped",
+  "POST /api/v1/settings/sms/test": "scoped",
 };
 
 export interface TwoTenants {
@@ -260,6 +270,19 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
       url: `/api/v1/sessions/${fx.a.sessionId}/email`,
       payload: { to: "x@example.test", link: "https://x.test/session/y" },
     }),
+  },
+  // P19 J3: başka tenant'ın oturumuna bağlantı gönderimi / seçenekleri → 404
+  {
+    route: "POST /api/v1/sessions/:id/send-link",
+    request: (fx) => ({
+      method: "POST",
+      url: `/api/v1/sessions/${fx.a.sessionId}/send-link`,
+      payload: { channel: "SMS", phone: "05321234567", link: "https://x.test/session/y" },
+    }),
+  },
+  {
+    route: "GET /api/v1/sessions/:id/send-link/options",
+    request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}/send-link/options` }),
   },
   ...(["deactivate", "reactivate", "reset-mfa"] as const).map((a) => ({
     route: `POST /api/v1/users/:id/${a}`,

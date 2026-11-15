@@ -15,14 +15,17 @@ import { CRYPTO_AUDIT } from "@remote/contracts/audit";
 import { writeAudit } from "../audit/service.ts";
 import { cliAuditContext } from "../auth/superadmin-reset.ts";
 import { parseEncryptionKeys } from "../env.ts";
-import { aadFor, SecretBox } from "../lib/crypto.ts";
+import { aadFor, NOTIFY_RECIPIENT_KEY_VERSION, SecretBox } from "../lib/crypto.ts";
 import { Prisma } from "../generated/prisma/client.ts";
 import { createDb, type Db } from "../lib/db.ts";
 
 export const EXIT = { OK: 0, PENDING: 1, USAGE: 2, ERROR: 5 } as const;
 export const REWRAP_BATCH = 500;
 export const CLI_ACTOR = "system:cli";
-const TABLES = ["session_messages"] as const;
+// P19 J3 (S-P19-T6): firma SMS anahtarı da yeniden şifrelenir (AAD etkin kökene bağlı; `sms_url` NULL satırlarda köken
+// `SMSPORTAL_URL`'den — komuta `-e SMSPORTAL_URL` verilmezse bu satırlar çözülemez sayılır). Outbox alıcısı için rewrap yok
+// (`recipient_enc` dakikalar içinde NULL'lanır; check-retire sayar, sayım 0 olana dek beklenir).
+const TABLES = ["session_messages", "tenant_settings.sms_api_key"] as const;
 type Io = { out(s: string): void; err(s: string): void };
 
 const verSchema = z.coerce.number().int().min(1).max(255);
@@ -32,6 +35,72 @@ const urlSchema = z.string().regex(/^mysql:\/\/.+/);
 export async function countByVersion(db: Db, ver: number): Promise<number> {
   const r = await db.$queryRaw<{ n: bigint | number }[]>`SELECT COUNT(*) AS n FROM session_messages WHERE ASCII(body_enc) = ${ver}`;
   return Number(r[0]?.n ?? 0);
+}
+
+/** S-P19-T6: emeklilik kapsamı — tablo başına sayım (toplam > 0 → sürüm halkadan çıkarılmaz). */
+export async function countAllByVersion(db: Db, ver: number): Promise<Record<string, number>> {
+  const n = async (q: Promise<{ n: bigint | number }[]>): Promise<number> => Number((await q)[0]?.n ?? 0);
+  return {
+    session_messages: await countByVersion(db, ver),
+    "tenant_settings.sms_api_key_enc": await n(
+      db.$queryRaw`SELECT COUNT(*) AS n FROM tenant_settings WHERE sms_api_key_enc IS NOT NULL AND ASCII(sms_api_key_enc) = ${ver}`,
+    ),
+    "notification_outbox.recipient_enc": await n(
+      db.$queryRaw`SELECT COUNT(*) AS n FROM notification_outbox WHERE recipient_enc IS NOT NULL AND ASCII(recipient_enc) = ${ver}`,
+    ),
+  };
+}
+
+/** S-P19-T6: `tenant_settings.sms_api_key_enc` yeniden şifreleme (aynı AAD; köken tenant `sms_url` ?? `envSmsUrl`). */
+export async function rewrapSmsKeys(db: Db, box: SecretBox, fromVer: number, dry: boolean, envSmsUrl: string): Promise<RewrapResult> {
+  const toVer = box.currentVersion;
+  const out: RewrapResult = { rows: 0, failed: 0, toVer, batches: 0 };
+  let errorName: string | null = null;
+  try {
+    await db.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ tenant_id: string; sms_url: string | null; sms_api_key_enc: Uint8Array }[]>`SELECT tenant_id,
+        sms_url, sms_api_key_enc FROM tenant_settings WHERE sms_api_key_enc IS NOT NULL AND ASCII(sms_api_key_enc) = ${fromVer}
+        ${dry ? Prisma.empty : Prisma.sql`FOR UPDATE`}`;
+      for (const r of rows) {
+        const url = r.sms_url ?? envSmsUrl;
+        let plain: string;
+        let aad: string;
+        try {
+          aad = aadFor.smsApiKey(r.tenant_id, new URL(url).origin);
+          plain = box.decrypt(r.sms_api_key_enc, aad);
+        } catch {
+          out.failed++;
+          continue;
+        }
+        if (!dry)
+          await tx.$executeRaw`UPDATE tenant_settings SET sms_api_key_enc = ${Buffer.from(box.encrypt(plain, aad))} WHERE tenant_id = ${r.tenant_id}`;
+        out.rows++;
+      }
+      if (rows.length > 0) out.batches = 1;
+    });
+  } catch (err) {
+    errorName = err instanceof Error ? err.name : "Error";
+    out.rows = 0;
+    throw err;
+  } finally {
+    await writeAudit(db, cliAuditContext(), {
+      username: CLI_ACTOR,
+      action: CRYPTO_AUDIT.REWRAP,
+      entity: "tenant_settings",
+      result: errorName === null && out.failed === 0 ? "success" : "fail",
+      newValue: {
+        table: "tenant_settings.sms_api_key",
+        fromVer,
+        toVer,
+        rows: out.rows,
+        failed: out.failed,
+        batches: out.batches,
+        dry,
+        ...(errorName === null ? {} : { error: errorName }),
+      },
+    });
+  }
+  return out;
 }
 
 export interface RewrapResult {
@@ -111,22 +180,25 @@ export async function rewrap(db: Db, box: SecretBox, fromVer: number, dry: boole
 export async function main(argv: string[], env: NodeJS.ProcessEnv, io: Io): Promise<number> {
   const [cmd, ...rest] = argv;
   const usage = (): number => {
-    io.err("kullanım: cli crypto:check-retire <ver> | cli crypto:rewrap session_messages --from <ver> [--dry]\n");
+    io.err(
+      "kullanım: cli crypto:check-retire <ver> | cli crypto:rewrap session_messages|tenant_settings.sms_api_key --from <ver> [--dry]\n",
+    );
     return EXIT.USAGE;
   };
   let ver: number;
   let dry = false;
+  let table: string = TABLES[0];
   if (cmd === "crypto:check-retire") {
     const v = verSchema.safeParse(rest[0]);
     if (rest.length !== 1 || !v.success) return usage();
     ver = v.data;
   } else if (cmd === "crypto:rewrap") {
-    const [table, flag, raw, ...more] = rest;
+    const [t, flag, raw, ...more] = rest;
     const v = verSchema.safeParse(raw);
     dry = more.length === 1 && more[0] === "--dry";
-    if (!(TABLES as readonly string[]).includes(table ?? "") || flag !== "--from" || !v.success || (more.length > 0 && !dry))
-      return usage();
+    if (!(TABLES as readonly string[]).includes(t ?? "") || flag !== "--from" || !v.success || (more.length > 0 && !dry)) return usage();
     ver = v.data;
+    table = t as string;
   } else return usage();
 
   const url = urlSchema.safeParse(env.MIGRATE_DATABASE_URL);
@@ -154,12 +226,18 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: Io): Prom
   const db = createDb(url.data);
   try {
     if (!box) {
-      const n = await countByVersion(db, ver);
-      io.out(`crypto:check-retire tablo=session_messages surum=${ver} satir=${n}\n`);
-      return n === 0 ? EXIT.OK : EXIT.PENDING;
+      const counts = await countAllByVersion(db, ver);
+      for (const [t, n] of Object.entries(counts)) io.out(`crypto:check-retire tablo=${t} surum=${ver} satir=${n}\n`);
+      // S-P19-T13: recipient_hash sabit sürümü emekliye ayrılırsa 24 sa tavan sayımı bir kez sıfırlanır.
+      if (ver === NOTIFY_RECIPIENT_KEY_VERSION)
+        io.err(
+          `uyarı: sürüm ${ver} NOTIFY_RECIPIENT_KEY_VERSION; emeklilikten önce sabiti yeni sürüme taşıyın (bildirim tavan sayımı 24 sa sıfırlanır)\n`,
+        );
+      return Object.values(counts).some((n) => n > 0) ? EXIT.PENDING : EXIT.OK;
     }
-    const r = await rewrap(db, box, ver, dry);
-    io.out(`crypto:rewrap tablo=session_messages kaynak=${ver} hedef=${r.toVer} satir=${r.rows} cozulemeyen=${r.failed} kuru=${dry}\n`);
+    const r =
+      table === "session_messages" ? await rewrap(db, box, ver, dry) : await rewrapSmsKeys(db, box, ver, dry, env.SMSPORTAL_URL ?? "");
+    io.out(`crypto:rewrap tablo=${table} kaynak=${ver} hedef=${r.toVer} satir=${r.rows} cozulemeyen=${r.failed} kuru=${dry}\n`);
     return r.failed === 0 ? EXIT.OK : EXIT.PENDING;
   } catch (err) {
     io.err(`${cmd}: hata (${(err as Error).name})\n`);

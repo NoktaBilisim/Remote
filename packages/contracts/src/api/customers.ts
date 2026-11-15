@@ -324,6 +324,8 @@ export interface CustomerDetail extends CustomerListItem {
   defaultPriority: RequestPriority | null;
   /** P18 (AC-257): SLA hedefi dakika; null = firma varsayılanı. */
   slaMinutes: number | null;
+  /** P19 (§8c.6, AC-259): `${PUBLIC_BASE_URL}/r/<müşteri ref>`; firma web formu kapalıysa ya da müşteri pasif/anonimse null. */
+  webFormUrl: string | null;
 }
 
 export interface CustomerListResponse {

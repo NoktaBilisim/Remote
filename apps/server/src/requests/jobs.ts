@@ -36,6 +36,7 @@ export async function sweepRequests(svc: RequestService, now = new Date(svc.d.cl
         oldValue: { status: "PENDING" },
         newValue: { status: "EXPIRED" },
       });
+      await svc.d.outbox.enqueue(tx, r.tenantId, r.id, "REQ_EXPIRED"); // P19 (AC-261): aynı TX
       return true;
     });
     if (!ok) continue;

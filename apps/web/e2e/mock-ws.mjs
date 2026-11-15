@@ -15,6 +15,7 @@ import { WebSocketServer } from "ws";
 import { SESSION_COOKIE as SESSION_COOKIE_NAME } from "@remote/contracts/api/auth";
 import { panelUpgrade } from "./mock-requests.mjs";
 import { p18PanelUpgrade } from "./mock-p18.mjs";
+import { p19Upgrade } from "./mock-p19.mjs";
 import { byId, tickets, ulid } from "./mock-sessions.mjs";
 
 const wss = new WebSocketServer({ noServer: true, handleProtocols: (p) => (p.has("rs.v1") ? "rs.v1" : false) });
@@ -280,12 +281,14 @@ export function attachWs(srv) {
     const protos = String(req.headers["sec-websocket-protocol"] ?? "")
       .split(",")
       .map((s) => s.trim());
+    if (url.pathname === "/ws/request") return void (p19Upgrade(req, sock, head, undefined, url, protos) || sock.destroy());
     if (url.pathname === "/ws/panel") {
       const cookie = String(req.headers.cookie ?? "")
         .split(";")
         .map((p) => p.trim().split("="))
         .find(([k]) => k === SESSION_COOKIE_NAME)?.[1];
       const c = cookie ? decodeURIComponent(cookie) : undefined;
+      if (p19Upgrade(req, sock, head, c, url, protos)) return;
       if (p18PanelUpgrade(req, sock, head, c)) return;
       return panelUpgrade(req, sock, head, c);
     }

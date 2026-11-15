@@ -139,6 +139,10 @@ describe("ayar formu", () => {
       acceptCode: false,
       priority: "HIGH" as const,
       slaMinutes: " 30 ",
+      webForm: true,
+      notifySms: true,
+      notifyWa: false,
+      notifyEmail: false,
     };
     expect(buildInput(st, base.email).input).toEqual({
       waitMinutes: 45,
@@ -148,7 +152,20 @@ describe("ayar formu", () => {
       requireAcceptCode: false,
       defaultPriority: "HIGH",
       defaultSlaMinutes: 30,
+      webFormEnabled: true,
+      notifySmsEnabled: true,
+      notifyWhatsappEnabled: false,
+      notifyEmailEnabled: false,
     });
+  });
+  it("P19 AC-259/261: web formu ve bildirim kanalları durumdan PUT gövdesine gider, kirli sayılır", () => {
+    const a = toState({ ...base, webFormEnabled: true, notifyEmailEnabled: true });
+    expect([a.webForm, a.notifySms, a.notifyWa, a.notifyEmail]).toEqual([true, false, false, true]);
+    expect(isDirty(a, { ...a, webForm: false })).toBe(true);
+    expect(isDirty(a, { ...a, notifyWa: true })).toBe(true);
+    const input = buildInput({ ...a, notifyWa: true }, base.email).input;
+    expect(input?.webFormEnabled).toBe(true);
+    expect(input?.notifyWhatsappEnabled).toBe(true);
   });
   it("AC-239: kabul kodu anahtarı durumdan PUT gövdesine gider ve kirli sayılır", () => {
     const a = toState({ ...base, requireAcceptCode: true });
@@ -168,6 +185,10 @@ describe("ayar formu", () => {
       acceptCode: false,
       priority: "NORMAL" as const,
       slaMinutes: "4",
+      webForm: false,
+      notifySms: false,
+      notifyWa: false,
+      notifyEmail: false,
     };
     const { input, errors } = buildInput(st, base.email);
     expect(errors.defaultSlaMinutes).toBe("sla");

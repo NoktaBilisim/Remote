@@ -7829,3 +7829,166 @@ Kaynak: mimari-e11 §8c.2, §8c.6, §8c.7, §8c.9 (S-P19-1/2/3/4/9/12/13/15), §
   (`preAdmitGuest` `kind`), web `lib/requests/requests.test.ts` (ayar fikstürü yeni alanlar). Server unit 421/421, contracts
   133/133, web 370/371 (kalan: `users.test.ts` "import" eylem etiketi — J4'ün `permissions.ts` değişikliği), `pnpm -r
 typecheck` temiz, eslint (server/contracts/web değişenler) temiz, `pnpm format:check` temiz, `check-app-grants.sh` 627/627.
+
+## P19 J5 (frontend) tur 1 — 2026-11-15
+
+Kaynak: mimari-e11 §8c.2, §8c.5, §8c.8, §8c.14 (J5 satırları: S-P19-14, S-P19-T4, B1). J3'e bağlı ekranlar (SMS ayarı + test,
+send-link diyaloğu, `keyUnreadable` / WA "adresi yeniden kaydedin" bantları) **bu turda yapılmadı** (tur 2).
+
+### Rotalar
+
+| Yol                          | Auth                                          | Ne yapar                                                                                                                                                                                  |
+| ---------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/r/<ref>` (yeni)            | Hayır (herkese açık; `PUBLIC_PATHS += "/r/"`) | Web talep formu → bekleme (sıra/kalan süre, sohbet, iptal) → kabul (teknisyen adı, doğrulama kodu, kabul kodu, "Ekranımı paylaş" → `GuestSession`, "Vazgeç", Windows programı bağlantısı) |
+| `/customers/import` (yeni)   | Evet; `customers.import`+`create`+`view`      | CSV içe aktarma 3 adım: dosya (sürükle-bırak, ≤ 2 MB) → önizleme (sayılar, ilk 50 satır, hatalar + "Hata raporunu indir", Atla/Güncelle) → sonuç                                          |
+| `/customers` (değişti)       | Evet                                          | Başlıkta "Dışa aktar" (`customers.export`; listedeki durum filtresiyle) ve "İçe aktar" (üç yetki birlikte yoksa gizli)                                                                    |
+| `/customers/<id>` (değişti)  | Evet                                          | "Web talep formu bağlantısı" + kopyala (`webFormUrl` doluysa)                                                                                                                             |
+| `/requests` (değişti)        | Evet                                          | Kaynak filtresi (Tüm kaynaklar / İstemci / Web, `?source=`; kuyruk ve geçmiş), kartta "Web" rozeti                                                                                        |
+| `/settings/support-requests` | Evet; `settings.edit`                         | += "Web talep formu" anahtarı + form bağlantısı (kopyala), "Müşteriye durum bildirimi" SMS/WhatsApp/E-posta anahtarları + `channelWarnings` bantları                                      |
+
+### Değişen / yeni dosyalar
+
+- Yeni: `apps/web/app/r/[ref]/{page,web-request-flow,web-request-form,waiting-room,request-chat,chat-retention-notice}.tsx`,
+  `lib/web-request/flow.ts` (+ `flow.test.ts`), `app/(panel)/customers/import/{page,import-wizard}.tsx`, `lib/customers/import.ts`,
+  `e2e/mock-p19.mjs`, `e2e/p19-j5.spec.ts`.
+- Değişen: `proxy.ts` (`/r/` public; `/r/` yolu `next=`'e yazılmaz), `messages/tr.json` (`perm.a.import`, `perm.a.send_link`,
+  `wr.*`, `cu.csv.*`, `cu.imp.*`, `srs.wf.*`, `srs.cn.*`, `rq.src.*`), `lib/audit/actions.ts` (`customer.exported/imported` +
+  `P18_AUDIT_LABELS` ve `P19_REQUEST_AUDIT_LABELS` yayıldı — P18 etiketleri daha önce web sözlüğüne bağlanmamıştı),
+  `lib/tenants/purge.ts` (MESSAGES adımı "Talep mesajları ve bildirim kuyruğu"), `lib/requests/settings-form.ts` (+4 alan),
+  `app/(panel)/requests/{page,request-queue,request-card,request-badges}.tsx`, `settings/support-requests/settings-form.tsx`,
+  `customers/(list)/page.tsx`, `customers/customers-actions.tsx`, `customers/[id]/page.tsx`, testler (`requests.test.ts`,
+  `customers.test.ts` fikstür `webFormUrl`, `users.test.ts` `sessions.send_link` "Diğer" sütunu), `e2e/mock-api.mjs`,
+  `e2e/mock-ws.mjs` (p19 kancaları), `e2e/p8b-requests.spec.ts` (ikinci "…kopyala" düğmesi nedeniyle `exact: true`).
+
+### Davranış notları
+
+- Form bilgisi ve token **tarayıcıdan** alınır (SSR'de değil): IP kovaları ziyaretçinin adresini saymalı ve 2 sn sayacı
+  tarayıcıda başlamalı. Gönder düğmesi sayaç bitene dek "Talep gönder (N sn)" ve pasif. Her 4xx/429/503 sonrası yeni
+  `GET …/form` ile token yenilenir, sayaç yeniden kurulur; `FORM_TOKEN_INVALID`/`RATE_LIMITED` mesajı formda kalır.
+- Talep sırrı yalnız `sessionStorage` `rs.wr.<ref>`; F5'te bekleme sayfasına dönülür, kapanış/iptalde silinir.
+- `/ws/request` alt protokolleri `rs.v1, rs.req.<sır>, rs.cap.chat1`; 1008/4xxx'te durur (tek tip "bulunamadı" + "Yeni talep
+  oluştur"), diğer kapanışlarda üstel 1→30 sn yeniden bağlanma ve "Bağlantı koptu" bandı.
+- AC-292: `ChatRetentionNotice` gönder düğmesinin hemen üstünde ve sohbet başlığında; `chatRetentionDays` geçerli değilse satır
+  çizilmez ve düğme pasif. Kutucuklar varsayılan işaretsiz; firmanın kapalı/kullanılamaz kanalı gösterilmez; e-posta kutusu
+  seçilince e-posta zorunlu (contracts zod). Gizli `website` alanı ekran dışı, `tabIndex=-1`, `aria-hidden`.
+- Formda alanı olmayan bir doğrulama hatası (ör. `consentTextId`) genel hata bandında metniyle gösterilir.
+- Hata raporu CSV'si istemcide `@remote/contracts/csv` `csvRow` ile (BOM, `;`, CRLF, formül kaçışı); dosya
+  `ice-aktarma-hatalari.csv`. 428 → adım 1'e dönüş + "önizlemenin süresi doldu" mesajı; 409 → "Başka bir içe aktarma sürüyor";
+  413/400 `fields.file` → dosya alanı hatası. Önizleme adımında sayfadan ayrılırken uyarı (`useLeaveGuard`).
+
+### Sapmalar (gerekçeli)
+
+1. "Web" rozeti için ayrı bilgi token'ı yok; `primary-surface`/`primary` kullanıldı (DESIGN.md'de yeni token eklenmedi).
+2. SMS kanal uyarısının bağlantısı `/settings/sms`'e gider; sayfa J3 ile tur 2'de eklenecek (o zamana dek 404).
+3. Tasarım skill'i (`ui-ux-pro-max`) tur sınırı nedeniyle okunmadı; DESIGN.md token'ları ve mevcut primitifler (`GuestShell`,
+   `GuestEndScreen`, `Switch`, `CsvExportButton`, `Alert`, `Skeleton`) kullanıldı; yeni primitif yok.
+
+### Test
+
+- `apps/web`: `tsc` temiz, `eslint .` temiz, vitest **380/380** (yeni `lib/web-request/flow.test.ts` 8), `pnpm format:check` temiz.
+- e2e `p19-j5.spec.ts` (desktop + mobile; sahte API/WS `mock-p19.mjs`): CSP başlığı (`frame-ancestors 'none'`, `connect-src`
+  `wss://<host>`, çıplak `wss:` yok, `no-referrer`), geçersiz ref, kutucuklar işaretsiz + 2 sn sayacı + gönderim → bekleme →
+  sohbet (HTML metin olarak) → F5 dönüşü → kabul (doğrulama + kabul kodu) → Vazgeç → yeni talep, iptal, AC-292 satırı yoksa düğme
+  pasif, 429 ve `FORM_TOKEN_INVALID` sonrası token yenileme + sayaç, talep ayarları anahtar/bant/kaydet, CSV dışa aktar + içe
+  aktar 3 adım + hata raporu içeriği + Güncelle pasif, yetkisiz kullanıcıda düğmeler gizli + sayfa uyarısı, geçmişte kaynak filtresi
+  ve "Web" rozeti, iki tema axe 0 + 390 px (form, içe aktarma, talep ayarları). Tüm e2e (desktop+mobile) 406+ geçti.
+- **Kapsanmayan:** "Ekranımı paylaş" sonrası `GuestSession` bağlantısı e2e'de tıklanmadı (sahte `/ws/guest` web talebi bileti
+  tanımıyor); düğmenin varlığı doğrulandı. Gerçek uçtan uca J8/test-operatörü (staging).
+
+## P19 J3 (backend) — 2026-11-15
+
+Kaynak: mimari-e11 §8c.3, §8c.4, §8c.6, §8c.7, §8c.9 (S-P19-5/6/7/10/11/12), §8c.14 (T5, T6, T7, T8, T11, T12, T13). AC-260, AC-261.
+
+**Yeni dosyalar**
+
+- `packages/contracts/src/api/notify.ts` (exports `./api/notify`): `NOTIFY_CHANNELS`, `NOTIFY_KINDS`, `NOTIFY_LIMITS`
+  (alıcı 3/24 sa firma içi, 5/24 sa sistem; firma × kanal SMS 100 / WA 60 / EMAIL 100 sa), `WA_CUSTOMER_LIMITS`, `NOTIFY_RATE_SCOPES`,
+  `SEND_LINK_*` sınırları, `SMS_TEST_RECIPIENT_PER_HOUR`, `serviceUrlSchema`/`canonicalServiceUrl` (T5), `toSmsPhone`,
+  `PUBLIC_SEND_REASONS` (`timeout` yok), `SEND_FAILED_MESSAGES`, `SMS_TEST_*`, `sendLinkInputSchema`, `SendLinkOptions`,
+  `smsSettingsInputSchema`, `SmsSettingsView`, `SMS_KEY_UNREADABLE_WARNING`, `SMS_API_KEY_REENTER`, `SMS_PORT_MESSAGE`, `smsTestInputSchema`.
+- `apps/server/src/lib/outbound.ts` — `postJson` (node:http/https; netguard ile tek çözüm + `lookup` IP sabitleme; 3xx izlenmez;
+  gövde ≤ 4 KB atılır; sınıflandırılmış sonuç) + `publicReason` (timeout → unreachable, T7).
+- `src/notify/service-url.ts` — `whatsapp.ts`'ten taşındı (WA davranışı aynı); `isParsableServiceUrl` artık userinfo/`?`/`#`
+  içeren adresi reddeder (T5, WA dahil: kayıtlı eski değer kurala uymuyorsa kanal kapalı).
+- `src/notify/sms.ts` (`SmsClient`: etkin hedef, anahtar çözme, `keyUnreadable`, prod 443 kuralı, tek deneme, metrikler),
+  `src/notify/templates.ts` (`sanitizeTemplateName`, `firmName` ≤ 30, `techShortName` "Ad S.", bağlantı/durum metinleri, e-posta),
+  `src/notify/outbox.ts` (`NotifyOutbox`: kuyruğa alma + DB tavanları, işçi, kurtarma, 7 gün temizlik, göstergeler,
+  `recipientHash`), `src/sessions/send-link.ts`, `src/tenants/sms-routes.ts`.
+- Testler: `test/unit/p19-notify-j3.test.ts` (9), `test/integration/p19-notify-j3.test.ts` (13).
+
+**Değişenler**
+
+- contracts: `errors.ts` `CHANNEL_UNAVAILABLE: 409`; `permissions.ts` `sessions.send_link` (+ açıklama; ADMIN açık, USER kapalı);
+  `audit.ts` `NOTIFY_AUDIT` (`session.link_sent`, `request.customer_notify`, `settings.sms_updated`, `settings.sms_test`) +
+  `P19_NOTIFY_AUDIT_LABELS`; `api/customers.ts` `CustomerDetail.webFormUrl: string | null`.
+- server: `lib/crypto.ts` (`aadFor.smsApiKey(tenantId, origin)`, `aadFor.outboxRecipient`, `MacPurpose += notify-recipient`,
+  `NOTIFY_RECIPIENT_KEY_VERSION = 1`, `macAt(ver,…)` — T13), `lib/errors.ts` (mesaj), `env.ts` (`SMSPORTAL_URL`, `serviceUrlSchema`,
+  boş = yok), `notify/whatsapp.ts` (`sendCustomer` + ayrı müşteri kovası), `settings/whatsapp.ts` (import yolu), `requests/service.ts`
+  (`channelsOf(s, ChannelAvailability)` + `channelAvailability(tenantId)` — SMS kullanılabilirliği tek kaynakta; deps += `sms`,
+  `outbox`), `requests/panel.ts` (kabul/ret TX'inde `outbox.enqueue`, ayar görünümü), `requests/jobs.ts` (süre dolumu TX'inde),
+  `jobs/scheduler.ts` (2 sn outbox işçisi; açılışta kurtarma), `ops/metrics.ts`, `app.ts` (bağlantı, `/api/v1/settings/sms`),
+  `sessions/routes.ts` (2 uç), `cli/crypto.ts` (check-retire 3 tablo + T13 uyarısı; `rewrap tenant_settings.sms_api_key`),
+  `customers/service.ts` (`webFormUrl`), `test/helpers/tenant-matrix.ts` (J4 3 uç + J3 5 uç; 2 çapraz tenant vakası),
+  `test/integration/p19-web-j2.test.ts` (SMS kullanılabilirliği artık adres + anahtar ister: `webTenant({sms})` firma anahtarı yazar;
+  ayar uyarısı `["sms","email"]`), iki test dosyasında import yolu (`service-url.ts`).
+
+**Davranış özeti**
+
+- Kuyruğa alma kabul/ret/süre dolumu TX'lerinde `lockSettings`'ten (ilk ifade, T12) sonra; yalnız talebin `notify_*` (bastırma
+  sonrası) **ve** firmanın `notify_*_enabled` kanalı. Kanal yapılandırılmamış olsa da satır yazılır → işçi `unconfigured` ile hemen FAILED.
+  Tavan aşımı: `FAILED rate_limited`, alıcı NULL, attempts 0, audit `{…, reason:"rate_limited", scope}`, `rs_notify_rate_limited_total`.
+- İşçi: claim (`FOR UPDATE SKIP LOCKED`, 20) → SENDING → gönder → SENT / yeniden deneme (+10 sn, +30 sn) / FAILED; kalıcı nedenler
+  (`unconfigured`, `unauthorized`, `host_not_allowed`, `invalid_phone`, `rate_limited`, `recipient_unreadable`) denenmez. Son
+  durumda `recipient_enc=NULL` aynı UPDATE'te. WA kova reddi → `scope:"wa_bucket"`.
+- Metrik sözleşmesi (J6): `rs_notify_outbox_total{channel,result=sent|failed}` yalnız son durumlar, rate_limited hariç;
+  `rs_notify_outbox_oldest_pending_seconds`, `rs_notify_tenant_max_hourly{role=<KANAL>}` göstergeleri ve `rs_sms_key_unreadable_total`
+  her zaman yazılır; ayrıca `rs_sms_send_total{result}`, `rs_link_send_total{channel,result}`, `rs_notify_outbox_cleaned_total`,
+  `rs_notify_outbox_latency_seconds_sum/_count{channel}`. Hacim warn logu `notify.tenant_volume {tenantId, channel, count}`.
+- Sırlar: SMS anahtarı yalnız şifreli; GET/audit/log'da yok (`apiKey:"***"`, `apiKeySet`, `apiKeyChanged`); numara loga yazılmaz, audit maskeli.
+
+**Tasarımdan sapmalar (gerekçeli; mimari-e11 §8c.1 sonuna not düşüldü)**
+
+1. Bağlantı SMS'i (sabit şablon + ~75 karakter bağlantı + firma 30 + "Ad S.") ≤ 2 bölüme sığmıyor → ≤ 3 bölüm (201) testi; durum
+   bildirimleri ≤ 134. Şablon metni tasarımdaki gibi bırakıldı (kısaltmak metin kararıdır).
+2. Süpürücü tenant başına gruplanmadı: talep başına TX, `lockSettings` ilk ifade (J2'nin yapısı; kilit sırası aynı, 1213 riski yok).
+3. Gecikme metriği histogram yerine `_sum`/`_count` (mevcut `Metrics` yalnız sayaç/gösterge; bağımlılık eklenmedi).
+4. `crypto:rewrap tenant_settings.sms_api_key`: `sms_url` NULL satırlarda köken `SMSPORTAL_URL`'den (migrate servisinde yok →
+   `-e SMSPORTAL_URL` gerekir; runbook §26'ya devops eklemeli). Tek TX (firma sayısı küçük).
+5. `send-link` `invalid_phone` ön denetimi 400 `fields.phone` (servise gitmeden); kova reddi (WA müşteri kovası) → 429.
+6. `NOTIFY_RECIPIENT_KEY_VERSION` halkada yoksa (dev/test tek anahtar) güncel sürüme düşülür (gönderim durmaz); check-retire o sürümde uyarır.
+
+**Bağımlılık:** yok. **Yeni env:** yok (`SMSPORTAL_URL` J6'da compose/.env.example/runbook'a girdi; zod burada).
+
+**frontend-dev (J5) için sözleşme**
+
+| Uç                                           | Yetki                                                                                | Girdi                                                                                         | Çıktı                                                             | Hatalar                                                                                                                                                                                                                                                           |
+| -------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/v1/sessions/:id/send-link`        | `sessions.create` + `sessions.send_link`; 20/sa/kullanıcı, 5/sa/alıcı, 200/sa/tenant | `sendLinkInputSchema` `{channel:"SMS"\|"WHATSAPP", phone, link}`                              | 200 `{sent:true}`                                                 | 400 `VALIDATION` (`fields.phone` = `SMS_TR_ONLY_MESSAGE`, `fields.link`) · 404 · 409 `CONFLICT` (oturum bekleyen değil) / `CHANNEL_UNAVAILABLE` · 429 `retryAfterSec` · 502 `UPSTREAM` (`SEND_FAILED_MESSAGES[channel]`, `fields.reason` ∈ `PUBLIC_SEND_REASONS`) |
+| `GET /api/v1/sessions/:id/send-link/options` | `sessions.send_link`                                                                 | —                                                                                             | `SendLinkOptions {sms, whatsapp, suggestedPhone}`                 | 404                                                                                                                                                                                                                                                               |
+| `GET /api/v1/settings/sms`                   | `settings.view`                                                                      | —                                                                                             | `SmsSettingsView`                                                 | —                                                                                                                                                                                                                                                                 |
+| `PUT /api/v1/settings/sms`                   | `settings.edit`; 30/dk/tenant                                                        | `smsSettingsInputSchema` `{url:null\|string, header:null\|string, apiKey?: ""\|null\|string}` | `SmsSettingsView`                                                 | 400 `VALIDATION` (`fields.url` biçim/`SMS_PORT_MESSAGE`, `fields.apiKey` = `SMS_API_KEY_REENTER`) / `HOST_NOT_ALLOWED` · 429                                                                                                                                      |
+| `POST /api/v1/settings/sms/test`             | `settings.edit`; 5/dk/kullanıcı, 20/dk/tenant, 3/sa/alıcı                            | `{phone}`                                                                                     | 200 `SmsTestResponse {ok, message, reason}` (`SMS_TEST_MESSAGES`) | 400 (`fields.phone`) · 429                                                                                                                                                                                                                                        |
+| `GET /api/v1/customers/:id`                  | değişmez                                                                             | —                                                                                             | += `webFormUrl: string \| null`                                   | —                                                                                                                                                                                                                                                                 |
+
+- `keyUnreadable:true` → bant `SMS_KEY_UNREADABLE_WARNING`; `usable:false`. `url:null` + `defaultUrl:true` = sistem varsayılanı.
+- Talep ayarı `channelWarnings` artık SMS'i de içerir (adres/anahtar yok, güvensiz ya da okunamıyor).
+- Web sözlüğüne gerekenler: `perm.a.send_link` etiketi ("Bağlantı gönder"), audit etiketleri `P19_NOTIFY_AUDIT_LABELS`'tan.
+
+**Test** (geçici `rs-p19j3-a71c`, mysql 8.4.13, `--max-connections=300`, port 33479; iş sonunda silindi)
+
+- `vitest run test/integration` tam koşu: 77 dosya, **775/777** — kalan 2 J2 testi SMS kullanılabilirliği artık adres + anahtar
+  istediği için kırmızıydı; test kurulumu güncellendi, ardından `p19-web-j2` + `tenant-isolation` + `p19-notify-j3` **35/35** yeşil
+  (tam koşu düzeltmeden sonra yinelenmedi). `tenant-isolation` AC-69 yeşil.
+- `p19-notify-j3` 13/13: AC-260 gövde/başlık + E.164 tablo (`0532…`, `+90 532…`, `90532…`), yurt dışı 400, başka bağlantı 400,
+  audit maskeli/anahtar yok; WA + 500 → 502 `http_error`, kanal yok 409; 21. → 429 (yeni uygulama örneğinde de), alıcı 6. → 429;
+  USER yetkisiz 403; SMS ayarı userinfo/sorgu/parça 400, iç adresler (127.0.0.1, 169.254.169.254, 10.x, `[::ffff:127.0.0.1]`) →
+  HOST_NOT_ALLOWED, değişmeyen kayıt audit'siz; `SMSPORTAL_URL` değişimi → `keyUnreadable`, test `unconfigured`, istek gitmez,
+  metrik, köken değişince anahtarsız PUT 400; test SMS 4. → 429; check-retire kapsamı. AC-261 ret → SMS+WA SENT, e-posta 0, alıcı
+  NULL, ret metni şablonda yok; süre dolumu + servis 500 → 3 deneme (sahte saat 0/10/40 sn) → FAILED + audit fail ≤ 60 sn;
+  SMTP yok → hemen FAILED `unconfigured`; SENDING kurtarma; 4. bildirim `rate_limited` + scope + metrik; e-posta `+` normalize; 7 gün temizlik.
+- Unit: server 430/430 (yeni 9: şablon süzgeci örnekleri, "Mehmet Y.", SMS uzunluğu, `toSmsPhone`, T5 adresleri, prod 443,
+  postJson 302/401/4 KB, netguard reddi + rebinding'de tek çözüm, timeout/ret birleşik), contracts 133/133, web 380/380.
+- `pnpm -r run typecheck` temiz; server/contracts eslint temiz; değişen dosyalarda prettier temiz. `pnpm format:check` yalnız J5'in
+  `apps/web/app/r/[ref]/web-request-form.tsx` dosyasında uyarı veriyor (paralel iş, dokunulmadı).
+- **Yapılmadı:** S-P19-T12 genişletilmiş eşzamanlılık testi ayrı yazılmadı (J2'nin 20 oluşturma + 5 kabul + süpürücü testi kabul
+  TX'indeki kuyruğa almayı da kapsıyor ve yeşil); staging'e bağlanılmadı.

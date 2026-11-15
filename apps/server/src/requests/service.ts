@@ -37,6 +37,8 @@ import { cidrListMatcher, ipKey, isIPv6Key, netKey, prefixKey } from "../lib/ip.
 import type { FixedWindowCounter } from "../lib/rate.ts";
 import { compareVersions, isOutdated, UNDECLARED_AGENT_VERSION } from "../lib/version.ts";
 import type { WhatsappNotifier } from "../notify/whatsapp.ts";
+import type { SmsClient } from "../notify/sms.ts";
+import type { NotifyOutbox } from "../notify/outbox.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import { abuseEmail, currentConsentText } from "../public/consent.ts";
 import { outdated } from "../sessions/public.ts";
@@ -99,6 +101,9 @@ export interface RequestServiceDeps {
   notifier: WhatsappNotifier;
   /** P10 (AC-151): e-posta bildirim kanalı (tenant SMTP). */
   mail: MailService;
+  /** P19 J3: SMS kanalı kullanılabilirliği ve müşteri durum bildirimi kuyruğu (kabul/ret/süre dolumu TX'inde). */
+  sms: SmsClient;
+  outbox: NotifyOutbox;
   metrics: Metrics;
   clock: Clock;
   timing: Timing;
@@ -118,6 +123,11 @@ const isUniqueConflict = (err: unknown, index: string): boolean => {
 };
 
 const tenantActive = (t: { status: string; deletedAt: Date | null }): boolean => t.status === "ACTIVE" && t.deletedAt === null;
+
+export interface ChannelAvailability {
+  smtp: boolean;
+  sms: boolean;
+}
 
 const NO_NOTIFY: NotifyChoice = { sms: false, whatsapp: false, email: false };
 
@@ -499,7 +509,7 @@ export class RequestService {
         );
       // P19 (§8c.6): firmanın kapalı/kullanılamaz kanalı seçilmişse 400 (form yalnız açık kanalları gösterir).
       if (web) {
-        const ch = this.channelsOf(s, (await this.d.mail.configFor(tenantId)) !== null);
+        const ch = this.channelsOf(s, await this.channelAvailability(tenantId));
         const bad = (["sms", "whatsapp", "email"] as const).filter((k) => input.notify[k] && !ch[k]);
         if (bad.length > 0)
           throw new AppError("VALIDATION", {
@@ -732,15 +742,21 @@ export class RequestService {
   // ------------------------------------------------------------------ P19 web talep formu (§8c.2; AC-259)
 
   /**
-   * Müşteriye sunulabilir durum bildirimi kanalları: firma açmış **ve** kanal kullanılabilir. SMS altyapısı J3'tedir; o
-   * gelene dek SMS yalnız firma anahtarına bakar (J3 `sms` kullanılabilirliğini buraya ekler).
+   * Müşteriye sunulabilir durum bildirimi kanalları: firma açmış **ve** kanal kullanılabilir (tek kaynak: form, oluşturma
+   * denetimi, ayar uyarıları). SMS: adres + çözülebilir anahtar + güvenli hedef (J3; `keyUnreadable` → kullanılamaz).
    */
-  channelsOf(s: repo.SettingsRow, smtpConfigured: boolean): NotifyChoice {
+  channelsOf(s: repo.SettingsRow, avail: ChannelAvailability): NotifyChoice {
     return {
-      sms: s.notifySmsEnabled,
+      sms: s.notifySmsEnabled && avail.sms,
       whatsapp: s.notifyWhatsappEnabled && this.d.notifier.usable,
-      email: s.notifyEmailEnabled && smtpConfigured,
+      email: s.notifyEmailEnabled && avail.smtp,
     };
+  }
+
+  /** Kanal altyapısı (firma bayraklarından bağımsız): tenant SMTP ve SMS. */
+  async channelAvailability(tenantId: string): Promise<ChannelAvailability> {
+    const [smtp, sms] = await Promise.all([this.d.mail.configFor(tenantId), this.d.sms.usableFor(tenantId)]);
+    return { smtp: smtp !== null, sms };
   }
 
   /** GET /public/web-requests/form?ref= — geçersiz ref, pasif müşteri, form kapalı → aynı 404 (S-P19-2). */
@@ -751,17 +767,17 @@ export class RequestService {
     if (!r || !r.s.webFormEnabled) throw this.refInvalid(ip);
     await this.limit(ctx, r.s.tenantId, "info", "req.info", "ip", ip);
     const tenantId = r.s.tenantId;
-    const [info, ts, smtp] = await Promise.all([
+    const [info, ts, avail] = await Promise.all([
       this.requestInfo(tenantId, r.s.tenant, r.s.waitMinutes),
       this.d.db.tenantSettings.findUnique({ where: { tenantId }, select: { retentionDays: true } }),
-      this.d.mail.configFor(tenantId),
+      this.channelAvailability(tenantId),
     ]);
     if (!ts || !info.businessHours) throw new Error("tenant_settings satırı yok");
     return {
       tenant: info.tenant,
       consentText: info.consentText,
       chatRetentionDays: ts.retentionDays,
-      channels: this.channelsOf(r.s, smtp !== null),
+      channels: this.channelsOf(r.s, avail),
       businessHours: info.businessHours,
       formToken: this.formTokens.issue(ref as string), // resolveRef biçimi doğruladı; token bu ref'e bağlı
       minDelayMs: WEB_FORM_MIN_DELAY_MS,

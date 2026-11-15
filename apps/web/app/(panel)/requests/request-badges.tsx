@@ -1,5 +1,5 @@
-import { AlarmClock, CircleCheck, ChevronsDown, ChevronsUp, Minus, MoonStar, Timer, UserCheck } from "lucide-react";
-import { AFTER_HOURS_LABEL, labelOf, PRIORITY_LABELS, SLA_BREACHED_LABEL } from "@remote/contracts/labels";
+import { AlarmClock, CircleCheck, ChevronsDown, ChevronsUp, Globe, Minus, MoonStar, Timer, UserCheck } from "lucide-react";
+import { AFTER_HOURS_LABEL, labelOf, PRIORITY_LABELS, REQUEST_SOURCE_LABELS, SLA_BREACHED_LABEL } from "@remote/contracts/labels";
 import { formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import type { SupportRequestItem } from "@/lib/requests/contract";
@@ -21,6 +21,17 @@ export function PriorityBadge({ priority }: { priority: RequestPriority }) {
       <v.Icon aria-hidden className="size-3.5 shrink-0" />
       <span className="sr-only">{t("rq.p.sr")} </span>
       {labelOf(PRIORITY_LABELS, priority)}
+    </span>
+  );
+}
+
+/** P19 (AC-259): web formundan gelen talep rozeti "Web" (`Globe`); İstemci (AGENT) varsayılan olduğu için rozet yok. */
+export function WebSourceBadge() {
+  return (
+    <span data-testid="request-source-web" className={`${pill} bg-primary-surface text-primary`}>
+      <Globe aria-hidden className="size-3.5 shrink-0" />
+      <span className="sr-only">{t("rq.src.sr")} </span>
+      {REQUEST_SOURCE_LABELS.WEB}
     </span>
   );
 }

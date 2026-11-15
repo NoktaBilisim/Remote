@@ -8,7 +8,7 @@ import type {
 } from "@remote/contracts/api/requests";
 import { WEB_REQUEST_AUDIT } from "@remote/contracts/audit";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { SecretBox } from "../../src/lib/crypto.ts";
+import { aadFor, SecretBox } from "../../src/lib/crypto.ts";
 import { newId, newSecretToken } from "../../src/lib/ids.ts";
 import { FormTokens } from "../../src/requests/form-token.ts";
 import { sweepRequests } from "../../src/requests/jobs.ts";
@@ -55,6 +55,12 @@ async function webTenant(o: { trustedCidrs?: string[]; sms?: boolean; email?: bo
     where: { tenantId: t.id },
     data: { webFormEnabled: o.formEnabled ?? true, notifySmsEnabled: o.sms ?? false, notifyEmailEnabled: o.email ?? false },
   });
+  // J3: SMS kanalı kullanılabilir sayılması için firma adresi + çözülebilir anahtar (gönderim bu testlerde yapılmaz).
+  if (o.sms) {
+    const url = "https://sms.example.com";
+    const enc = Buffer.from(live.app.secrets.encrypt("sms-test-key-0123456789", aadFor.smsApiKey(t.id, url)));
+    await db().tenantSettings.update({ where: { tenantId: t.id }, data: { smsUrl: url, smsApiKeyEnc: enc } });
+  }
   return { t, ref };
 }
 
@@ -197,7 +203,7 @@ describe("AC-259 web talep formu", () => {
     expect(put.statusCode, put.body).toBe(200);
     const v = put.json<SupportRequestSettings>();
     expect(v).toMatchObject({ webFormEnabled: true, webFormUrl: `${ORIGIN}/r/${ref}`, notifySmsEnabled: true, notifyEmailEnabled: true });
-    expect(v.channelWarnings).toEqual(["email"]); // SMTP yok
+    expect(v.channelWarnings).toEqual(["sms", "email"]); // J3: SMS adresi/anahtarı yok, SMTP yok
     const again = await live.app.inject({ method: "PUT", url: "/api/v1/settings/support-requests", headers: admin.headers, payload: base });
     expect(again.json<SupportRequestSettings>()).toMatchObject({ webFormEnabled: true, notifySmsEnabled: true });
     const a = await db().auditLog.findFirstOrThrow({

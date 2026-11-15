@@ -1,12 +1,15 @@
 "use client";
 
 import {
+  BellRing,
   Copy,
   Flag,
+  Globe,
   KeyRound,
   Link2,
   Mail,
   MessageSquare,
+  MessageSquareText,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -215,6 +218,7 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
         fileName: next.fileName,
         refPrefix: next.refPrefix,
         refRotatedAt: next.refRotatedAt,
+        webFormUrl: next.webFormUrl,
       }));
       setRotateOpen(false);
       toast(t("srs.dl.rotated"));
@@ -246,10 +250,11 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
     }
   };
 
-  const copy = async () => {
-    const ok = await copyText(saved.downloadUrl);
+  const copy = async (url = saved.downloadUrl) => {
+    const ok = await copyText(url);
     toast(ok ? t("srs.dl.copied") : t("srs.dl.copyFailed"), ok ? "success" : "danger");
   };
+  const warnings = new Set(saved.channelWarnings ?? []);
 
   return (
     <div className="mt-6 flex max-w-3xl flex-col gap-6">
@@ -262,7 +267,7 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
           >
             {saved.downloadUrl}
           </code>
-          <Button type="button" variant="secondary" onClick={() => void copy()} className="shrink-0">
+          <Button type="button" variant="secondary" onClick={() => void copy()} className="shrink-0" data-testid="download-url-copy">
             <Copy aria-hidden className="size-4" />
             {t("srs.dl.copy")}
           </Button>
@@ -446,6 +451,78 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
                 {t("srs.mail.test")}
               </Button>
             </div>
+          </Section>
+
+          {/* P19 (AC-259): web talep formu — kapalıyken /r/<ref> tek tip 404 (kill switch, S-P19-T9) */}
+          <Section id="wf" title={t("srs.wf.title")} Icon={Globe}>
+            <Switch
+              label={t("srs.wf.label")}
+              checked={st.webForm}
+              onChange={(v) => set({ webForm: v })}
+              description={t("srs.wf.desc")}
+              onText={t("rq.on")}
+              offText={t("rq.off")}
+              testId="web-form-switch"
+            />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <code
+                data-testid="web-form-url"
+                className="min-w-0 flex-1 rounded-md border border-border bg-canvas px-3 py-2.5 font-mono text-sm text-fg break-all"
+              >
+                {saved.webFormUrl}
+              </code>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void copy(saved.webFormUrl)}
+                className="shrink-0"
+                data-testid="web-form-url-copy"
+              >
+                <Copy aria-hidden className="size-4" />
+                {t("srs.wf.copy")}
+              </Button>
+            </div>
+            {!saved.webFormEnabled && (
+              <p className="text-xs text-fg-muted" data-testid="web-form-off-hint">
+                {t("srs.wf.offHint")}
+              </p>
+            )}
+          </Section>
+
+          {/* P19 (AC-261): müşteriye durum bildirimi kanalları; açık ama kullanılamayan kanal → uyarı bandı */}
+          <Section id="cn" title={t("srs.cn.title")} Icon={BellRing}>
+            <p className="text-sm text-fg-muted">{t("srs.cn.body")}</p>
+            {(
+              [
+                ["sms", "notifySms", MessageSquareText, "/settings/sms"],
+                ["whatsapp", "notifyWa", MessageSquare, null],
+                ["email", "notifyEmail", Mail, "/settings/smtp"],
+              ] as const
+            ).map(([ch, key, Icon, href]) => (
+              <div key={ch} className="flex flex-col gap-2" data-testid={`notify-${ch}`}>
+                <Switch
+                  label={t(`srs.cn.${ch}` as MessageKey)}
+                  checked={st[key]}
+                  onChange={(v) => set({ [key]: v } as Partial<SettingsState>)}
+                  onText={t("rq.on")}
+                  offText={t("rq.off")}
+                  testId={`notify-${ch}-switch`}
+                />
+                {warnings.has(ch) && (
+                  <Alert tone="warning" testId={`channel-warning-${ch}`}>
+                    <span className="flex flex-col gap-1">
+                      <span>{t(`srs.cn.warn.${ch}` as MessageKey)}</span>
+                      {href && (
+                        <Link href={href} className="inline-flex min-h-11 items-center gap-1.5 self-start font-medium underline">
+                          <Icon aria-hidden className="size-4" />
+                          {t(`srs.cn.go.${ch}` as MessageKey)}
+                        </Link>
+                      )}
+                    </span>
+                  </Alert>
+                )}
+              </div>
+            ))}
           </Section>
 
           <Section id="cidr" title={t("srs.cidr.title")} Icon={ShieldCheck}>

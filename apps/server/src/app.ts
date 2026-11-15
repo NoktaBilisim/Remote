@@ -31,6 +31,8 @@ import { refKeyFrom } from "./sessions/codes.ts";
 import { closePublicLimits, createPublicLimits, type PublicLimits } from "./sessions/public.ts";
 import { publicSessionRoutes, sessionRoutes } from "./sessions/routes.ts";
 import { WhatsappNotifier, type FetchLike } from "./notify/whatsapp.ts";
+import { SmsClient } from "./notify/sms.ts";
+import { NotifyOutbox } from "./notify/outbox.ts";
 import { RequestHub } from "./requests/hub.ts";
 import { armOrphanedPending, pendingGauge } from "./requests/jobs.ts";
 import { closeRequestLimits, createRequestLimits } from "./requests/limits.ts";
@@ -49,6 +51,7 @@ import { SecretBox } from "./lib/crypto.ts";
 import { createNetGuard, type NetGuard } from "./lib/netguard.ts";
 import { MailService, type TransportFactory } from "./mail/service.ts";
 import { smtpSettingsRoutes } from "./tenants/smtp-routes.ts";
+import { smsSettingsRoutes } from "./tenants/sms-routes.ts";
 import { adminTenantRoutes, tenantSettingsRoutes } from "./tenants/routes.ts";
 import { auditReadOnlyRoutes, auditRoutes } from "./audit/routes.ts";
 import { adminSettingsRoutes, applyTurn, applyWhatsapp, consentTextRoutes } from "./settings/routes.ts";
@@ -80,6 +83,9 @@ declare module "fastify" {
     tenantPurge: TenantPurgeRunner;
     /** P12b (AC-196): WhatsApp istemcisi; etkin adres panel kaydı > env (`applyWhatsapp`). */
     whatsapp: WhatsappNotifier;
+    /** P19 J3: firma SMS istemcisi ve müşteri durum bildirimi kuyruğu. */
+    sms: SmsClient;
+    outbox: NotifyOutbox;
     /** P10: gizli alan şifreleme, e-posta, hesap güvenliği. */
     secrets: SecretBox;
     netguard: NetGuard;
@@ -286,6 +292,28 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       app.log.error({ err, alarm: "whatsapp_settings_load" }, "WhatsApp panel ayarı okunamadı; env kullanılıyor");
     }
   });
+  const sms = new SmsClient({
+    db: deps.db,
+    secrets,
+    guard: netguard,
+    envUrl: env.SMSPORTAL_URL,
+    production: env.NODE_ENV === "production",
+    log: app.log,
+    metrics,
+    now: () => rooms.clock.now(),
+  });
+  app.decorate("sms", sms);
+  const outbox = new NotifyOutbox({
+    db: deps.db,
+    secrets,
+    sms,
+    whatsapp: notifier,
+    mail,
+    metrics,
+    log: app.log,
+    now: () => rooms.clock.now(),
+  });
+  app.decorate("outbox", outbox);
   const requests: RequestService = new RequestService({
     db: deps.db,
     env,
@@ -295,6 +323,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     limits: requestLimits,
     notifier,
     mail,
+    sms,
+    outbox,
     metrics,
     clock: rooms.clock,
     timing: rooms.timing,
@@ -355,7 +385,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       const armed = await armOrphanedPending(requests); // §3.5: 120 sn tolerans
       if (armed > 0) app.log.info({ pending: armed }, "yeniden başlatma: bekleyen talepler için kopma toleransı başlatıldı");
       requests.refreshCustomersGauge();
-      jobs = startScheduler(deps.db, app.log, rooms, undefined, requests, retention, orphanScan, tenantPurge);
+      jobs = startScheduler(deps.db, app.log, rooms, undefined, requests, retention, orphanScan, tenantPurge, outbox);
     });
     app.addHook("onClose", async () => jobs?.stop());
   }
@@ -399,6 +429,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(superadminRoutes, { prefix: "/api/v1/admin/superadmins" });
   void app.register(tenantSettingsRoutes, { prefix: "/api/v1/settings/tenant" });
   void app.register(smtpSettingsRoutes, { prefix: "/api/v1/settings/smtp" });
+  void app.register(smsSettingsRoutes, { prefix: "/api/v1/settings/sms" });
   void app.register(auditRoutes, { prefix: "/api/v1/audit" });
   void app.register(auditReadOnlyRoutes, { prefix: "/api/v1/audit" });
   void app.register(adminSettingsRoutes, { prefix: "/api/v1/admin/settings", ...(deps.mysqlProbe ? { mysqlProbe: deps.mysqlProbe } : {}) });

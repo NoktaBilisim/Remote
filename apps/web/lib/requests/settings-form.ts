@@ -38,6 +38,11 @@ export interface SettingsState {
   /** P18 (AC-257): firma varsayılan önceliği ve SLA hedefi (boş = SLA yok). */
   priority: RequestPriority;
   slaMinutes: string;
+  /** P19 (AC-259, 261): web talep formu ve müşteriye durum bildirimi kanalları. */
+  webForm: boolean;
+  notifySms: boolean;
+  notifyWa: boolean;
+  notifyEmail: boolean;
 }
 
 /** Hata anahtarları sunucu `fields` yolu biçiminde: "waitMinutes", "whatsapp.recipients.1", "trustedCidrs.0" … */
@@ -66,6 +71,10 @@ export const toState = (s: SupportRequestSettings): SettingsState => ({
   acceptCode: s.requireAcceptCode,
   priority: s.defaultPriority ?? "NORMAL",
   slaMinutes: s.defaultSlaMinutes == null ? "" : String(s.defaultSlaMinutes),
+  webForm: s.webFormEnabled ?? false,
+  notifySms: s.notifySmsEnabled ?? false,
+  notifyWa: s.notifyWhatsappEnabled ?? false,
+  notifyEmail: s.notifyEmailEnabled ?? false,
 });
 
 const norm = (st: SettingsState) =>
@@ -79,6 +88,8 @@ const norm = (st: SettingsState) =>
     ac: st.acceptCode,
     p: st.priority,
     sla: st.slaMinutes.trim(),
+    wf: st.webForm,
+    ns: [st.notifySms, st.notifyWa, st.notifyEmail],
   });
 
 export const isDirty = (a: SettingsState, b: SettingsState): boolean => norm(a) !== norm(b);
@@ -142,6 +153,10 @@ export function buildInput(
       requireAcceptCode: st.acceptCode,
       defaultPriority: st.priority,
       defaultSlaMinutes: sla ?? null,
+      webFormEnabled: st.webForm,
+      notifySmsEnabled: st.notifySms,
+      notifyWhatsappEnabled: st.notifyWa,
+      notifyEmailEnabled: st.notifyEmail,
     },
   };
 }

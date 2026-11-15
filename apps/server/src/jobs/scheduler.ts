@@ -9,6 +9,7 @@ import type { RequestService } from "../requests/service.ts";
 import type { RetentionJob } from "./retention.ts";
 import { nextOrphanScanAt, type OrphanScanJob } from "./orphan-scan.ts";
 import { PURGE_INTERVAL_MS, type TenantPurgeRunner } from "./tenant-purge.ts";
+import { OUTBOX_POLL_MS, type NotifyOutbox } from "../notify/outbox.ts";
 
 const EXPIRY_INTERVAL_MS = 30_000;
 
@@ -23,6 +24,8 @@ export interface Scheduler {
  * P13a: `retention` verilirse günlük 03:30 Europe/Istanbul saklama işi (jobs/retention.ts; AC-159, 195, 197..199).
  * P16 (AC-243): `orphanScan` verilirse haftalık pazar 04:30 Europe/Istanbul yetim dosya taraması (jobs/orphan-scan.ts).
  * P16 G3 (AC-242): `tenantPurge` verilirse 60 sn'de bir firma silme turu (tur başına tek iş; açılışta göstergeler hemen).
+ * P19 J3 (AC-261): `outbox` verilirse 2 sn'de bir müşteri bildirimi işçisi (açılışta önce çökme kurtarma; temizlik ve
+ * hacim göstergesi işçi turunun içinde, kendi aralıklarıyla).
  * Bir sonraki tur önceki bittikten sonra kurulur (üst üste binmez).
  */
 export function startScheduler(
@@ -34,6 +37,7 @@ export function startScheduler(
   retention?: RetentionJob,
   orphanScan?: OrphanScanJob,
   tenantPurge?: TenantPurgeRunner,
+  outbox?: NotifyOutbox,
 ): Scheduler {
   let running = false;
   let sweeping = false;
@@ -107,6 +111,22 @@ export function startScheduler(
   };
   if (tenantPurge) void tenantPurge.refreshMetrics().catch((err: unknown) => log.error({ err, job: "tenant-purge" }, "gösterge okunamadı"));
   armPurge(PURGE_INTERVAL_MS);
+  let outboxTimer: NodeJS.Timeout | undefined;
+  const armOutbox = (): void => {
+    if (!outbox || stopped) return;
+    outboxTimer = setTimeout(() => {
+      void outbox
+        .tick()
+        .catch((err: unknown) => log.error({ err, job: "notify-outbox" }, "zamanlanmış iş hatası"))
+        .finally(armOutbox);
+    }, OUTBOX_POLL_MS);
+    outboxTimer.unref();
+  };
+  if (outbox)
+    void outbox
+      .recover(Date.now())
+      .catch((err: unknown) => log.error({ err, job: "notify-outbox" }, "outbox kurtarma hatası"))
+      .finally(armOutbox);
   const runExpiry = async (): Promise<number> => {
     if (running) return 0;
     running = true;
@@ -135,6 +155,7 @@ export function startScheduler(
       stopped = true;
       if (orphanTimer) clearTimeout(orphanTimer);
       if (purgeTimer) clearTimeout(purgeTimer);
+      if (outboxTimer) clearTimeout(outboxTimer);
     },
   };
 }

@@ -10,13 +10,14 @@
 //  - Son sonuç alıcı başına audit `request.notify{channel, recipient(maske), result, attempts}`. Numara loga yazılmaz.
 //  - P12b (AC-196): etkin adres çalışırken değişir (`setUrl`): açılışta ve Super Admin PUT/DELETE sonrası panel kaydı
 //    (`system_settings.whatsapp`) > env. configured/insecure/usable her zaman etkin adresten; güvensiz adrese geçişte alarm.
+import { WA_CUSTOMER_LIMITS } from "@remote/contracts/api/notify";
 import { WA_TEST_MESSAGES, type WhatsappTestReason } from "@remote/contracts/api/system-settings";
-import { BlockList, isIP } from "node:net";
 import { maskPhone } from "../audit/mask.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Db } from "../lib/db.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import type { Clock } from "../signaling/types.ts";
+import { isInsecureServiceUrl, isParsableServiceUrl, keyOverPlainHttp } from "./service-url.ts";
 
 export const WA_TIMEOUT_MS = 8_000;
 export const WA_RETRY_DELAYS_MS = [0, 5_000, 20_000] as const;
@@ -47,72 +48,6 @@ export interface WhatsappDeps {
   metrics: Metrics;
   clock: Clock;
   fetch?: FetchLike;
-}
-
-// P13a (T33, mimari-p13 §3): link-local `169.254.0.0/16` (bulut metadata) ve `fe80::/10` "özel ağ" SAYILMAZ → canlıda
-// `http://` + link-local adres kanalı kapatır. Loopback (`127.0.0.0/8`, `::1`) özel kalır.
-const PRIVATE = new BlockList();
-for (const [net, bits] of [
-  ["10.0.0.0", 8],
-  ["172.16.0.0", 12],
-  ["192.168.0.0", 16],
-  ["127.0.0.0", 8],
-  ["100.64.0.0", 10],
-] as const)
-  PRIVATE.addSubnet(net, bits, "ipv4");
-for (const [net, bits] of [
-  ["::1", 128],
-  ["fc00::", 7],
-] as const)
-  PRIVATE.addSubnet(net, bits, "ipv6");
-
-/** Host özel ağ/loopback mu (yalnız IP sabitleri ve `localhost`; DNS çözülmez — ad her zaman "genel" sayılır). */
-export function isPrivateHost(host: string): boolean {
-  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
-  if (h === "localhost") return true;
-  const family = isIP(h);
-  if (family === 4) return PRIVATE.check(h, "ipv4");
-  if (family === 6) return PRIVATE.check(h, "ipv6");
-  return false;
-}
-
-/** §13.5 fail-closed: production + `http://` + özel olmayan host → güvensiz. */
-export function isInsecureServiceUrl(url: string, production: boolean): boolean {
-  if (!isParsableServiceUrl(url)) return true; // B-P12b-1: ayrıştırılamayan adres her ortamda fail-closed
-  if (!production) return false;
-  const u = new URL(url);
-  return u.protocol === "http:" && !isPrivateHost(u.hostname);
-}
-
-/** Loopback host mu (127.0.0.0/8, ::1, localhost). */
-function isLoopbackHost(host: string): boolean {
-  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
-  return h === "localhost" || h === "::1" || (isIP(h) === 4 && h.startsWith("127."));
-}
-
-/**
- * S-P13b-8: anahtar tanımlıyken `http://` (loopback dışı) anahtarı şifresiz taşır. Production'da güvensiz sayılır (kanal
- * kapalı, ayar ekranında mevcut "güvensiz" uyarısı); geliştirme/testte izinli ama `keyOverHttp` ile uyarı logu düşer.
- */
-export function keyOverPlainHttp(url: string, hasKey: boolean): boolean {
-  if (!hasKey || !isParsableServiceUrl(url)) return false;
-  const u = new URL(url);
-  return u.protocol === "http:" && !isLoopbackHost(u.hostname);
-}
-
-/** Adres + anahtar birlikte: §13.5 kuralı ve production'da anahtar + düz http (S-P13b-8). */
-export function isInsecureServiceTarget(url: string, hasKey: boolean, production: boolean): boolean {
-  return isInsecureServiceUrl(url, production) || (production && keyOverPlainHttp(url, hasKey));
-}
-
-/** WHATWG ile ayrıştırılabilir http(s) adresi mi (DB CHECK yalnız regex; `http://a:99999` CHECK'ten geçer). */
-export function isParsableServiceUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    return (u.protocol === "http:" || u.protocol === "https:") && u.hostname !== "";
-  } catch {
-    return false;
-  }
 }
 
 /** Firma adı: tek satır, WhatsApp biçim karakterleri (`* _ ~ \``) yok, ≤ 60 karakter. */
@@ -174,6 +109,8 @@ export class WhatsappNotifier {
   private flushTimer: unknown;
   private readonly pending = new Set<unknown>();
   private closed = false;
+  /** P19 (S-P19-T1 m.3): müşteri kovası — personel penceresinden ayrı; alıcı anahtarı `recipient_hash`. */
+  private cust = { start: 0, global: 0, tenant: new Map<string, number>(), recipient: new Map<string, number>() };
 
   constructor(d: WhatsappDeps) {
     this.d = d;
@@ -399,6 +336,36 @@ export class WhatsappNotifier {
     } finally {
       this.d.clock.clearTimeout(timer);
     }
+  }
+
+  /**
+   * P19 (§8c.3): müşteriye tek mesaj (bağlantı / durum bildirimi). Tek deneme (yeniden deneme çağıranda), mevcut `post()`
+   * (8 sn, yönlendirme yok). Müşteri kovası `WA_CUSTOMER_LIMITS` (sistem 600, firma 60, alıcı 3 / sa) aşılırsa `rate_limited`
+   * (kalıcı). Kanal kullanılamıyorsa `unconfigured`. Numara loga yazılmaz.
+   */
+  async sendCustomer(
+    tenantId: string,
+    recipientHash: string,
+    phoneE164: string,
+    message: string,
+  ): Promise<PostOutcome | "rate_limited" | "unconfigured"> {
+    if (!this.usable) return "unconfigured";
+    if (!this.allowCustomer(tenantId, recipientHash)) return "rate_limited";
+    return this.post("/send-message", { phoneNumber: servicePhone(phoneE164), message });
+  }
+
+  private allowCustomer(tenantId: string, recipientHash: string): boolean {
+    const start = this.windowStart(this.d.clock.now());
+    if (start !== this.cust.start) this.cust = { start, global: 0, tenant: new Map(), recipient: new Map() };
+    const c = this.cust;
+    const t = c.tenant.get(tenantId) ?? 0;
+    const r = c.recipient.get(recipientHash) ?? 0;
+    if (c.global >= WA_CUSTOMER_LIMITS.globalPerHour || t >= WA_CUSTOMER_LIMITS.tenantPerHour || r >= WA_CUSTOMER_LIMITS.recipientPerHour)
+      return false;
+    c.global += 1;
+    c.tenant.set(tenantId, t + 1);
+    c.recipient.set(recipientHash, r + 1);
+    return true;
   }
 
   /**

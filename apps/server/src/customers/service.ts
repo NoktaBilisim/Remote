@@ -37,7 +37,7 @@ import * as brepo from "../bindings/repo.ts";
 import { conflictIndex, isTransientDbError } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId, newTenantRef } from "../lib/ids.ts";
-import { ensureSettings, generalRotatedAt, toItem } from "../requests/panel.ts";
+import { ensureSettings, generalRotatedAt, toItem, webFormUrl } from "../requests/panel.ts";
 import { requestDownloadUrl, requestFileName } from "../requests/ref.ts";
 import * as rrepo from "../requests/repo.ts";
 import { SYSTEM, SYSTEM_CTX, type RequestService } from "../requests/service.ts";
@@ -110,7 +110,11 @@ function listItem(svc: RequestService, c: repo.CustomerListRow, stats: { count: 
 async function detail(svc: RequestService, tenantId: string, id: string): Promise<CustomerDetail> {
   const c = await repo.find(svc.d.db, tenantId, id);
   if (!c) throw new AppError("NOT_FOUND");
-  const [stats, sessionCount] = await Promise.all([repo.requestStats(svc.d.db, tenantId, [id]), repo.sessionCount(svc.d.db, tenantId, id)]);
+  const [stats, sessionCount, rs] = await Promise.all([
+    repo.requestStats(svc.d.db, tenantId, [id]),
+    repo.sessionCount(svc.d.db, tenantId, id),
+    svc.d.db.tenantRequestSettings.findUnique({ where: { tenantId }, select: { webFormEnabled: true } }),
+  ]);
   return {
     ...listItem(svc, c, stats.get(id)),
     fileLabel: c.fileLabel,
@@ -124,6 +128,9 @@ async function detail(svc: RequestService, tenantId: string, id: string): Promis
     sessionCount,
     defaultPriority: (c.defaultPriority as RequestPriority | null) ?? null,
     slaMinutes: c.slaMinutes,
+    // P19 (§8c.6, AC-259): müşterinin kendi ref'iyle web formu; form kapalıysa ya da müşteri pasif/anonimse null.
+    webFormUrl:
+      rs?.webFormEnabled && c.status === "ACTIVE" && c.anonymizedAt === null ? webFormUrl(svc.d.env.PUBLIC_BASE_URL, c.requestRef) : null,
   };
 }
 

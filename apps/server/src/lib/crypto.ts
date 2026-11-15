@@ -25,13 +25,24 @@ export const aadFor = {
    * (ya da başka talebe/tenant'a) taşınan `body_enc` çözülemez.
    */
   sessionMessage: (tenantId: string, parentId: string, id: string): string => `session_messages.body:${tenantId}|${parentId}|${id}`,
+  /** P19 (§8c.1, S-P19-T6): firma SMS anahtarı etkin adresin kökenine bağlı — köken (ya da `SMSPORTAL_URL`) değişince çözülemez. */
+  smsApiKey: (tenantId: string, origin: string): string => `tenant_settings.sms_api_key:${tenantId}|${origin}`,
+  /** P19 (§8c.3): outbox alıcısı satıra bağlı. */
+  outboxRecipient: (tenantId: string, id: string): string => `notification_outbox.recipient:${tenantId}|${id}`,
 } as const;
+
+/**
+ * S-P19-T13: `recipient_hash` HMAC'i bu SABİT anahtar sürümüyle hesaplanır (güncel sürümle değil) → rotasyonda 24 sa tavan
+ * sayımları sıfırlanmaz. Sürüm emekliye ayrılacaksa sabit yeni sürüme taşınır (tek seferlik sayım sıfırlanması kabul);
+ * `crypto:check-retire` bu sürüm için uyarır.
+ */
+export const NOTIFY_RECIPIENT_KEY_VERSION = 1;
 
 /** Şifreli değerin anahtar sürümü (ilk bayt; `crypto:check-retire` / `crypto:rewrap`). Boşsa 0. */
 export const keyVersionOf = (data: Uint8Array): number => data[0] ?? 0;
 
 /** HKDF amaç etiketleri (anahtar ayrımı). */
-export type MacPurpose = "recovery-code" | "avatar-url" | "purge-preview" | "web-form-token";
+export type MacPurpose = "recovery-code" | "avatar-url" | "purge-preview" | "web-form-token" | "notify-recipient";
 
 export class SecretBox {
   private readonly keys: Map<number, Buffer>;
@@ -95,6 +106,15 @@ export class SecretBox {
   /** HMAC-SHA-256 hex (64) — güncel anahtar sürümüyle (yeni yazım). */
   mac(purpose: MacPurpose, value: string): string {
     return createHmac("sha256", this.macKey(this.current, purpose)).update(value, "utf8").digest("hex");
+  }
+
+  /**
+   * Belirli anahtar sürümüyle HMAC (S-P19-T13 `recipient_hash`). Sürüm halkada yoksa (yalnız dev/test tek anahtar ya da
+   * sabit taşınmadan emekliye ayrılmış) güncel sürüme düşer — sayım sürekliliği bozulur ama gönderim durmaz.
+   */
+  macAt(ver: number, purpose: MacPurpose, value: string): string {
+    const v = this.keys.has(ver) ? ver : this.current;
+    return createHmac("sha256", this.macKey(v, purpose)).update(value, "utf8").digest("hex");
   }
 
   /** Tüm anahtar sürümleriyle özetler (doğrulama; rotasyondan önce yazılmış kayıtlar da eşleşir). */

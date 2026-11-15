@@ -921,6 +921,12 @@ migration `20261120010000_p19_request_session_mode` kısıtı düşürür (yaln�
 kümesini korur; talep ↔ kaynak eşleşmesi tablolar arası → servis kuralı). check-app-grants: eski negatif → `OK` + `mode='KIOSK'`
 negatifi. Tetikleyici 23 aynı.
 
+**backend sapma notu (J3, 2026-11-15; implementation.md "P19 J3"):** (1) Bağlantı SMS'i sabit şablonla ~180 karakter → 3 bölüm
+(UCS-2 201); ≤ 2 bölüm kuralı durum bildirimlerinde sağlanır. (2) Süpürücü süre dolumunu talep başına ayrı TX'te (`lockSettings` ilk
+ifade) kuyruğa alır — tenant başına gruplama yok (kilit sırası aynı). (3) `rs_notify_outbox_latency_seconds` histogram yerine
+`_sum`/`_count` sayaç çifti (Metrics yalnız sayaç/gösterge). (4) `crypto:rewrap tenant_settings.sms_api_key` `sms_url` NULL
+satırlarda kökeni `SMSPORTAL_URL`'den alır (komuta `-e SMSPORTAL_URL` verilmeli; verilmezse satır çözülemez sayılır, çıkış 1).
+
 ### 8c.2 Web talep formu ve bekleme sayfası (AC-259, AC-143/144, AC-292 form satırı)
 
 **Akış:** `GET /r/<ref>` (Next, panel düzeni dışında) → `GET /api/v1/public/web-requests/form?ref=` → form → `POST

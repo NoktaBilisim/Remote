@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { Link2, UserRound } from "lucide-react";
+import { Globe, Link2, UserRound } from "lucide-react";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { CopyLink } from "@/components/copy-link";
 import { LoadError } from "@/components/load-error";
@@ -115,6 +115,19 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
                 </Row>
                 <Row label={t("srs.dl.rotatedAt")}>{c.refRotatedAt ? formatDateTime(c.refRotatedAt) : t("srs.dl.never")}</Row>
               </dl>
+              {/* P19 (AC-259): web talep formu bağlantısı (form açıksa; aynı ref) */}
+              {c.webFormUrl && (
+                <div className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3" data-testid="customer-web-form">
+                  <p className="flex items-center gap-2 text-sm font-medium text-fg">
+                    <Globe aria-hidden className="size-4 text-fg-muted" />
+                    {t("cu.webForm")}
+                  </p>
+                  <code className="font-mono text-sm text-fg break-all" data-testid="customer-web-form-url">
+                    {c.webFormUrl}
+                  </code>
+                  <CopyLink url={c.webFormUrl} srLabel={t("cu.webFormCopy", { name: c.name })} testId="customer-web-form-copy" />
+                </div>
+              )}
               <CustomerActions customer={c} canEdit={canEdit} canDelete={false} only="rotate" />
             </>
           ) : (

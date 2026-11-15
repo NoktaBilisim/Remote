@@ -11,7 +11,8 @@ import { NextResponse, type NextRequest } from "next/server";
  */
 // Oturumsuz erişilen yollar (önek eşleşmesi). /session/ = müşteri karşılama sayfası (P4; o zamana dek 404)
 // P10: /forgot-password, /reset-password (AC-66; token URL parçasında — sunucuya/loga gitmez)
-const PUBLIC_PATHS = ["/login", "/session/", "/forgot-password", "/reset-password"];
+// P19 (mimari-e11 §8c.2 m.8): /r/<ref> = herkese açık web talep formu (çerezsiz ziyaretçi /login'e yönlenmez)
+const PUBLIC_PATHS = ["/login", "/session/", "/forgot-password", "/reset-password", "/r/"];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => (p.endsWith("/") ? pathname.startsWith(p) : pathname === p || pathname.startsWith(`${p}/`)));
@@ -43,7 +44,8 @@ export function proxy(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     // S1-4 / QA-3: next= yalnız yol (sorgu dizesi yok); /session/ yolları (token taşır) asla next'e yazılmaz
-    url.search = pathname === "/" || pathname.startsWith("/session/") ? "" : `?next=${encodeURIComponent(pathname)}`;
+    url.search =
+      pathname === "/" || pathname.startsWith("/session/") || pathname.startsWith("/r/") ? "" : `?next=${encodeURIComponent(pathname)}`;
     return NextResponse.redirect(url);
   }
 

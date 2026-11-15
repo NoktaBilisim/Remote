@@ -25,6 +25,8 @@ import {
   type WaitingSessionsResponse,
 } from "@remote/contracts/api/sessions";
 import { emailSessionLink } from "./email.ts";
+import { sendLinkInputSchema, type SendLinkOptions, type SendLinkResponse } from "@remote/contracts/api/notify";
+import { closeSendLinkLimits, createSendLinkLimits, sendLinkOptions, sendSessionLink, type SendLinkDeps } from "./send-link.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
 import { authOf, checkPublicClient, requireAnyPerm, requireAuth, requirePerm, tenantScope } from "../auth/guards.ts";
@@ -130,6 +132,33 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
     const input = parseInput(sessionEmailInputSchema, req.body);
     await emailSessionLink(app.mail, app.env.PUBLIC_BASE_URL, auditContext(req), authOf(req), tenantId, id, input);
     return { sent: true };
+  });
+
+  // P19 J3 (AC-260): bağlantıyı SMS/WhatsApp ile gönder — sessions.create + sessions.send_link; 20/sa/kullanıcı (audit).
+  const sendLimits = createSendLinkLimits();
+  app.addHook("onClose", async () => closeSendLinkLimits(sendLimits));
+  const sendDeps = (): SendLinkDeps => ({
+    db: app.db,
+    sms: app.sms,
+    whatsapp: app.whatsapp,
+    secrets: app.secrets,
+    metrics: app.metrics,
+    publicBaseUrl: app.env.PUBLIC_BASE_URL,
+    limits: sendLimits,
+  });
+  const sendLinkPerms = [requirePerm("sessions.create"), requirePerm("sessions.send_link")];
+  app.post("/:id/send-link", { preHandler: sendLinkPerms }, async (req, reply): Promise<SendLinkResponse> => {
+    const { tenantId } = tenantScope(req);
+    const id = idParam(req);
+    const input = parseInput(sendLinkInputSchema, req.body);
+    void reply.header("Cache-Control", "no-store");
+    await sendSessionLink(sendDeps(), auditContext(req), authOf(req), tenantId, id, input);
+    return { sent: true };
+  });
+  app.get("/:id/send-link/options", { preHandler: requirePerm("sessions.send_link") }, async (req, reply): Promise<SendLinkOptions> => {
+    const { tenantId } = tenantScope(req);
+    void reply.header("Cache-Control", "no-store");
+    return sendLinkOptions(sendDeps(), authOf(req), tenantId, idParam(req));
   });
 
   app.post("/:id/cancel", { preHandler: requirePerm("sessions.delete") }, async (req): Promise<CancelSessionResponse> => {

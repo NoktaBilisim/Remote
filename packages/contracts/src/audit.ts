@@ -244,6 +244,21 @@ export const WEB_REQUEST_AUDIT = {
   WEB_FORM_REJECTED: "request.web_form_rejected",
 } as const;
 
+/** P19 J3 (§8c.7): dış gönderim ve SMS ayarı eylemleri. */
+export const NOTIFY_AUDIT = {
+  LINK_SENT: "session.link_sent",
+  CUSTOMER_NOTIFY: "request.customer_notify",
+  SMS_UPDATED: "settings.sms_updated",
+  SMS_TEST: "settings.sms_test",
+} as const;
+
+export const P19_NOTIFY_AUDIT_LABELS: Readonly<Record<string, string>> = {
+  [NOTIFY_AUDIT.LINK_SENT]: "Oturum bağlantısı gönderildi (SMS/WhatsApp)",
+  [NOTIFY_AUDIT.CUSTOMER_NOTIFY]: "Müşteriye durum bildirimi",
+  [NOTIFY_AUDIT.SMS_UPDATED]: "SMS ayarları değişti",
+  [NOTIFY_AUDIT.SMS_TEST]: "Test SMS'i",
+};
+
 /** P19 J2 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
 export const P19_REQUEST_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [WEB_REQUEST_AUDIT.WEB_FORM_REJECTED]: "Web talep formu reddedildi",

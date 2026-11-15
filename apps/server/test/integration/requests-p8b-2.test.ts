@@ -3,7 +3,8 @@
 // Deneme beklemeleri ve 8 sn zaman aşımı sahte saatle (FakeClock) ilerletilir.
 import { FAKE_APP_ENCRYPTION_KEYS } from "../helpers/secrets.ts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { WhatsappNotifier, isInsecureServiceUrl, isPrivateHost, type FetchLike } from "../../src/notify/whatsapp.ts";
+import { isInsecureServiceUrl, isPrivateHost } from "../../src/notify/service-url.ts";
+import { WhatsappNotifier, type FetchLike } from "../../src/notify/whatsapp.ts";
 import { createMetrics } from "../../src/ops/metrics.ts";
 import { createTenant, createUser, loginAs, ORIGIN, testDb, type Session } from "../helpers/app.ts";
 import { createRequestRow, createRequestSettings, startFakeWhatsapp, type FakeWhatsapp } from "../helpers/requests.ts";

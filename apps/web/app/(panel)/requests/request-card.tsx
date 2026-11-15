@@ -38,7 +38,7 @@ import { REQUEST_VERIFY_HINT, type RequestStatus, type SupportRequestItem } from
 import { formatRequestCode, sourceView } from "@/lib/requests/source";
 import { slaView } from "@/lib/requests/p18";
 import { AssignMenuItems, type AssignActions } from "./assign-menu";
-import { AfterHoursBadge, AssignedChip, PriorityBadge, SlaBadge } from "./request-badges";
+import { AfterHoursBadge, AssignedChip, PriorityBadge, SlaBadge, WebSourceBadge } from "./request-badges";
 
 const STATUS_PILL: Record<RequestStatus, string> = {
   PENDING: "bg-primary-surface text-primary",
@@ -364,9 +364,11 @@ function P18Badges({
   offsetMs: number;
 }) {
   const sla = pending ? slaView(item, now, offsetMs) : item.slaBreached ? ({ kind: "breached" } as const) : ({ kind: "none" } as const);
-  if (!pending && item.priority === "NORMAL" && !item.afterHours && sla.kind === "none") return null;
+  const web = item.source === "WEB";
+  if (!pending && !web && item.priority === "NORMAL" && !item.afterHours && sla.kind === "none") return null;
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="request-p18">
+      {web && <WebSourceBadge />}
       <PriorityBadge priority={item.priority} />
       {item.afterHours && <AfterHoursBadge />}
       {pending && item.assignedTo && <AssignedChip assignedTo={item.assignedTo} meId={meId} />}

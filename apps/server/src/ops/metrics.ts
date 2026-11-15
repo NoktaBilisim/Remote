@@ -71,6 +71,21 @@ export function createMetrics(): Metrics {
   m.counter("rs_web_requests_total", "Web talep formu gönderimleri (P19; result: created|rejected)");
   m.counter("rs_web_form_rejected_total", "Web formu bot kapısı retleri (P19 S-P19-1; reason: fast|token|honeypot|token_store_full)");
   m.counter("rs_notify_suppressed_total", "Bastırılan müşteri durum bildirimleri (P19 S-P19-12; reason: pending_duplicate)");
+  // P19 J3 (§8c.3, §8c.7; J6 remote-watch sözleşmesi): outbox yalnız son durumları sayar, rate_limited hariç.
+  m.counter("rs_link_send_total", "Oturum bağlantısı gönderimleri (P19 AC-260; channel, result: ok|<neden>)");
+  m.counter(
+    "rs_sms_send_total",
+    "SMS çağrıları (P19; result: ok|timeout|unreachable|unauthorized|http_error|redirect|host_not_allowed|unconfigured|invalid_phone)",
+  );
+  m.counter(
+    "rs_notify_outbox_total",
+    "Müşteri durum bildirimi son durumları (P19 AC-261; channel, result: sent|failed; rate_limited hariç)",
+  );
+  m.counter("rs_notify_outbox_latency_seconds_sum", "Bildirim oluşturma → son durum süresi toplamı (sn; channel)");
+  m.counter("rs_notify_outbox_latency_seconds_count", "Bildirim oluşturma → son durum sayısı (channel)");
+  m.counter("rs_notify_rate_limited_total", "Tavana takılan müşteri bildirimleri (P19 S-P19-12; scope, channel)");
+  m.counter("rs_notify_outbox_cleaned_total", "7 gün temizliğinde silinen outbox satırları (P19)");
+  m.counter("rs_sms_key_unreadable_total", "Çözülemeyen firma SMS anahtarı (P19 S-P19-T6; P18 çözme alarmından ayrı)");
   m.counter(
     "rs_guest_code_rate_limited_total",
     "Kod/agent indirme yolunda 429 (P14a AC-208; scope: ip|prefix — alarm: 15 dk'da prefix >= 20)",

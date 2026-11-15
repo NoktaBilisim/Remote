@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiError, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
 import { t } from "@/lib/i18n";
+import type { RequestSource } from "@remote/contracts/api/requests";
 import type { AcceptResult, SupportRequestItem, SupportRequestList } from "@/lib/requests/contract";
 import { consolePath, requestErrorMessage } from "@/lib/requests/errors";
 import { useNow } from "@/lib/use-now";
@@ -63,6 +64,7 @@ export function RequestQueue({
   customer,
   meId = "",
   assigned,
+  source,
   canAssign = false,
   canMessage = false,
 }: {
@@ -79,6 +81,8 @@ export function RequestQueue({
   meId?: string;
   /** P18 (AC-256): `me` = bana atanan, `none` = atanmamış. */
   assigned?: AssignedFilter;
+  /** P19 (AC-259): kaynak filtresi (`AGENT` | `WEB`). */
+  source?: RequestSource;
   /** P18 (AC-256, 257): `support_requests.assign` → atama ve öncelik menüsü. */
   canAssign?: boolean;
   /** P18 (AC-255, S-P18-T3): `support_requests.message` → mesaj yazma alanı. */
@@ -127,6 +131,7 @@ export function RequestQueue({
       const q = new URLSearchParams({ tab: "pending" });
       if (customer) q.set("customer", customer);
       if (assigned) q.set("assigned", assigned);
+      if (source) q.set("source", source);
       const r = await api<SupportRequestList>("GET", `/support-requests?${q.toString()}`);
       if (my !== seq.current) return;
       setItems(prepare(r.items));
@@ -138,7 +143,7 @@ export function RequestQueue({
     } finally {
       if (my === seq.current) setRefreshing(false);
     }
-  }, [router, customer, assigned]);
+  }, [router, customer, assigned, source]);
 
   const drop = useCallback((id: string) => {
     setItems((xs) => xs.filter((x) => x.id !== id));

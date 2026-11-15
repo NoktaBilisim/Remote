@@ -41,7 +41,7 @@ import { newTechVerifyCode } from "../sessions/codes.ts";
 import * as srepo from "../sessions/repo.ts";
 import { fileLabelOf, requestDownloadUrl, requestFileName } from "./ref.ts";
 import * as repo from "./repo.ts";
-import type { RequestService } from "./service.ts";
+import type { ChannelAvailability, RequestService } from "./service.ts";
 
 const DAY_MS = 86_400_000;
 const REF_ATTEMPTS = 5;
@@ -225,6 +225,7 @@ export async function acceptRequest(
         ...(acceptCode ? { acceptVerification: true } : {}),
       },
     });
+    await svc.d.outbox.enqueue(tx, tenantId, id, "REQ_ACCEPTED"); // P19 (AC-261): aynı TX, lockSettings'ten sonra (T12)
     return { r, sessionId, techVerifyCode, now, acceptCode };
   });
   if (res === "customer_passive") {
@@ -298,6 +299,7 @@ export async function rejectRequest(
       oldValue: { status: "PENDING" },
       newValue: { status: "REJECTED", message },
     });
+    await svc.d.outbox.enqueue(tx, tenantId, id, "REQ_REJECTED"); // P19 (AC-261): aynı TX
     return true;
   });
   if (!ok) throw await lostRace(svc, tenantId, id);
@@ -425,10 +427,11 @@ export async function ensureSettings(svc: RequestService, tenantId: string): Pro
 /** P19 (AC-259): `${PUBLIC_BASE_URL}/r/<ref>` — müşteriye paylaşılan web talep formu adresi. */
 export const webFormUrl = (base: string, ref: string): string => `${base.replace(/\/+$/, "")}/r/${ref}`;
 
-function settingsView(svc: RequestService, s: repo.SettingsRow, smtpConfigured: boolean): SupportRequestSettings {
+function settingsView(svc: RequestService, s: repo.SettingsRow, avail: ChannelAvailability): SupportRequestSettings {
+  const smtpConfigured = avail.smtp;
   const n = svc.d.notifier;
   const enabled = { sms: s.notifySmsEnabled, whatsapp: s.notifyWhatsappEnabled, email: s.notifyEmailEnabled };
-  const available = svc.channelsOf(s, smtpConfigured);
+  const available = svc.channelsOf(s, avail);
   return {
     downloadUrl: requestDownloadUrl(svc.d.env.PUBLIC_BASE_URL, s.requestRef),
     fileName: requestFileName(s.fileLabel, s.requestRef),
@@ -452,7 +455,7 @@ function settingsView(svc: RequestService, s: repo.SettingsRow, smtpConfigured: 
 
 export async function getSettings(svc: RequestService, tenantId: string): Promise<SupportRequestSettings> {
   const row = await ensureSettings(svc, tenantId);
-  return settingsView(svc, row, (await svc.d.mail.configFor(tenantId)) !== null);
+  return settingsView(svc, row, await svc.channelAvailability(tenantId));
 }
 
 const auditShape = (s: {
