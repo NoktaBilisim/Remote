@@ -1,6 +1,6 @@
 # ADR-0004 — Windows Hızlı Destek istemcisi: Go + Pion + Win32
 
-Durum: Kabul (kullanıcı kararı S1), r2 2026-11-11 (P6 uygulamasıyla eşitlendi: Dosyalar, Proxy), **r3 2026-11-12 (E9 hatırlama dosyası — aşağıda "Revizyon r3")**, r4 2026-11-12 (E10 bilgisayar kaydı), **r5 2026-11-12 (istemci 0.10.2 tanılama logu — aşağıda "Revizyon r5")** · Tarih: 2026-11-10
+Durum: Kabul (kullanıcı kararı S1), r2 2026-11-11 (P6 uygulamasıyla eşitlendi: Dosyalar, Proxy), **r3 2026-11-12 (E9 hatırlama dosyası — aşağıda "Revizyon r3")**, r4 2026-11-12 (E10 bilgisayar kaydı), **r5 2026-11-12 (istemci 0.10.2 tanılama logu — aşağıda "Revizyon r5")**, **r6 2026-11-15 (istemci 0.12.0 tepsi, `HKCU\Run`, çoklu firma kaydı — aşağıda "Revizyon r6")** · Tarih: 2026-11-10
 
 ## Bağlam
 
@@ -82,3 +82,28 @@ Win32 UI kodu elle yazılır (birkaç pencere — kabul). macOS/Linux için `cap
 ## Revizyon r5 (2026-11-12, istemci 0.10.2 — AC-108/AC-138/AC-188 notu)
 
 r4 "Yasaklar" satırındaki "log dosyası yok" kuralına tek istisna: kalıcı modda (kayıt var veya "hatırla" açık), yalnız ekran yakalama sorununda ve yükseltilmemiş süreçte `%LOCALAPPDATA%\NoktaDestek\tanilama.log` (+`.1`, toplam ≤ 256 KB, kişisel veri yok; bağlantı/junction ise yazılmaz) bulunabilir; ayar dosyasıyla aynı silme yollarında silinir. Kod modunda yazılmaz. İz testi: `trace-check.ps1 -Diagnostics auto`.
+
+## Revizyon r6 (2026-11-15, istemci 0.12.0 — AC-253, 254; P20; `docs/mimari-e11.md` §8d; R30)
+
+**Bağlam:** E11 G5-b: müşteri istemciyi tepside tutabilmeli ve Windows açılışında başlatabilmeli (AC-253); bir bilgisayar
+≤ 5 destek firmasına kayıtlı olabilmeli (AC-254). r3/r4 "Yasaklar" satırı (kayıt defteri, başlangıç, tepsi yok) ve r4 "tek
+kayıt" kuralı bu iki AC ile çelişir. Kod imzası (SignPath) henüz yok (ADR-0010 geçerli).
+**Karar:**
+
+| Konu            | Seçim                                                                                                                                                                                                                                                                                                                                    |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tepsi           | `Shell_NotifyIconW` (uID, GUID yok); menü yalnız Destek iste / Aç / Çık; yerleşikken ikon her zaman görünür; tek örnek `Local\` mutex + veri taşımayan "göster" mesajı. Varsayılan kapalı, yalnız kayıtlı bilgisayarda                                                                                                                   |
+| Otomatik başlat | Yalnız `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, değer `NoktaDestek` = `"<exe yolu>" --tray`; admin yok, servis/zamanlanmış görev/başlangıç klasörü kısayolu yok; exe kopyalanmaz. Yalnız tepsi açıkken ve açık kullanıcı eylemiyle; yükseltilmiş süreçte, ağ/çıkarılabilir/geçici konumda kapalı. `--tray` açılışı ağsızdır |
+| Kayıt dosyası   | `%LOCALAPPDATA%\NoktaDestek\kayitlar.bin` v3 (DPAPI CurrentUser, entropi `NoktaDestek.kayit.v3`, ≤ 8 KB): `personal?`, `deviceKey?`, `bindings[0..5]`, `prefs.tray`. `hatirla.bin` (v1/v2) doğrulamalı göçle taşınır ve silinir; eski sürüm sonradan yazarsa birleştirilir                                                               |
+| Çoklu kayıt     | Sunucu protokol eki `binding.offer.multi` / `binding.request.previousKeys` (≤ 0.11 için eski dal aynen); başka firmanın kaydı asla iptal edilmez; 5 doluyken yeni kayıt alınmaz                                                                                                                                                          |
+| Yasaklar (r6)   | r4 listesi daralır: **izinli** iz yalnız `kayitlar.bin` (+ r5 tanılama logu) ve kullanıcı açtıysa tek Run değeri. Servis, zamanlanmış görev, kendini kopyalama, `%TEMP%`, gizli yerleşik süreç yasak kalır                                                                                                                               |
+| Silme           | "Bu bilgisayarı unut": iki dosya + tmp + log + boşsa klasör + Run değeri + tepsi; "Bu firmayı unut": tek öğe (son öğeyse Run + tepsi de)                                                                                                                                                                                                 |
+| Test            | Go birim (v3, göç, silme yolları, autorun ret koşulları), Windows CI gerçek HKCU, `trace-check.ps1 -Tray/-Autostart`; işletim sisteminin tepsi geçmişi (`NotifyIconSettings`, `TrayNotify`) iz testinde istisna                                                                                                                          |
+
+**Alternatifler:** Exe'yi `%LOCALAPPDATA%`'ya kopyalayıp Run'ı ona bağlamak — kalıcı ama klasik "dropper" örüntüsü, AV riski
+(R30) ve kurulum anlamı; reddedildi. Zamanlanmış görev — daha görünmez, AV riski; reddedildi. Aynı `hatirla.bin` adıyla `v:3`
+— 0.11.x bilinmeyen sürümü sessizce sildiği için eski exe'yi açan müşterinin bütün kayıtlarını siler; reddedildi.
+**Sonuçlar:** "Kurulumsuz, iz bırakmaz" ilkesi "yalnız kullanıcının açtığı tek başlangıç değeri ve tek ayar dosyası kalabilir, tek
+tıkla silinir" olur. İmzasız exe'nin Run'dan başlaması AV sezgisellerine takılabilir: prod yayını mimari-e11 §8d.8 AV kapısına
+bağlıdır (K-P20-3). Exe taşınırsa/silinirse Run değeri boşa düşer (Windows atlar; ana ekran uyarır). Gözetimsiz erişim (P27) bu
+tepsi sürecini kullanmaz, ayrı servis ikilisidir.

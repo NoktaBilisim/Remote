@@ -1,6 +1,6 @@
 # Mimari — E11 yol haritası (P13c, P14a–P28+)
 
-Tarih: 2026-11-14 · Durum: P13c/P14a/P14b/P16/P17/P18 ayrıntılı (kodlanabilir); P15 orta; P18–P28+ üst düzey.
+Tarih: 2026-11-14 · Durum: P13c/P14a/P14b/P16/P17/P18/P19/P20 ayrıntılı (kodlanabilir); P15 orta; P18–P28+ üst düzey.
 Girdiler: `docs/gereksinimler-e11.md` (ONAYLANDI, S22–S28), `docs/gereksinimler-kabul-kriterleri-e11.md` (AC-201..244),
 `-e11-b.md` (AC-245..297), ADR-0019 m.5, `docs/mimari-p13.md` §7. Ana mimari `docs/mimari.md` (§10.1 paket kuralları aynen geçerli).
 Yeni ADR'ler: 0021–0028, 0030 (§9). Ortak AC-285..290 her pakette geçerlidir; ayrıca tekrar yazılmaz.
@@ -1375,6 +1375,265 @@ Yan menüye yeni öğe eklenmez (ayarlar sekmesi). `docs/rotalar.txt` += `/r/<re
 
 Açık karar yok: K-P19-1..10 mimar kararı olarak uygulanır, kullanıcı onayı bekler (onaylanmazsa geri dönüş satırlarda yazılı).
 
+## 8d. P20 — G5-b istemci 0.12.0: tepsi + `HKCU\Run`, çoklu firma kaydı (≤ 5), talep sohbeti (WS) (AC-253, 254, 255 müşteri ucu; ayrıntılı; 2026-11-15)
+
+- **Kapsam:** `apps/agent-win` (Go, ağırlık burada), `apps/server` + `packages/contracts` (yalnız `binding.*` çoklu firma eki),
+  `.github/workflows/agent-win.yml`, `apps/agent-win/test/trace-check.ps1`, dokümanlar. **Şema/migration yok. Web (panel) kodu
+  değişmez** (§8d.6).
+- **AC'ler:** AC-253 (tepsi + otomatik başlatma), AC-254 (≤ 5 firma kaydı, firma seçerek talep, tek/tüm unut, 0.10.x dosyası
+  kayıpsız göç), AC-255 müşteri ucu Go (P18 `rs.cap.chat1`, `docs/mimari-protokol.md` §5.4), ortak AC-285..290 (özellikle
+  AC-289 iz testi + tekrarlanabilir build). AC-248 P17'de kapandı (K-E11-3 GO), P20'ye kaymadı.
+- **"WS chat" netleştirmesi (K-P20-1):** P20'deki WS sohbeti **talep sohbetidir** (kabul öncesi, `/ws/request`, sunucusu P18'de
+  hazır). Oturum sohbetinin WS'e taşınması (AC-264, `/ws/guest` sunucu aktarımı + saklama) sunucusuyla birlikte **P22**'de
+  yapılır; Go ucu da P22'dedir. Gerekçe: sunucu sözleşmesi olmadan Go'da oturum sohbeti yazmak §10.1 "spekülatif kod yok"
+  kuralını çiğner. 0.12.0'da oturum sohbeti bugünkü DC `chat` ile sürer. Roadmap §11 P20/P22 satırları buna göre güncellendi.
+- **ADR:** ADR-0004 **r6** eki (tepsi, `HKCU\Run`, `kayitlar.bin` v3, çoklu kayıt); r3/r4 "Yasaklar" satırı daralır.
+- **Sürüm / yayın sırası (bağlayıcı):** `0.12.0` (ldflags `cfg.Version`, etiket `v0.12.0`). Sunucu eki (K1) staging'de olmadan
+  0.12.0 staging artifact'ı bağlanmaz. Sıra bozulsa da güvenlidir: eski sunucu `binding.offer.multi` göndermez, 0.12.0 bu durumda
+  `previousKey` **hiç göndermez** (başka firmanın kaydını `REPLACED` ettirmemek için) ve yeni kayıt ekler (§8d.2).
+- **İmza (SignPath henüz yok):** 0.12.0 **imzasız** (ADR-0010) staging'e çıkar; prod yayını §8d.8 AV kapısına bağlıdır
+  (K-P20-3). SignPath hesabı gelirse P17 `sign` işi kendiliğinden devreye girer, tasarım değişmez.
+
+### 8d.1 Kayıt dosyası v3 ve göç (AC-254; ADR-0004 r6)
+
+**Dosya:** `%LOCALAPPDATA%\NoktaDestek\kayitlar.bin` (yeni ad). DPAPI CurrentUser, `CRYPTPROTECT_UI_FORBIDDEN`, yeni sabit
+entropi `NoktaDestek.kayit.v3` (alan ayrımı). Okuma/yazma/silme AC-249 handle kuralıyla (`diag.OpenDir`, reparse reddi,
+`FileDispositionInfoEx`). Atomik yazım: `kayitlar.bin.tmp` (O_EXCL; varsa sil + bir kez yeniden dene) → `MoveFileExW(REPLACE)`.
+Sınırlar: düz metin ≤ 8 KB, mühürlü ≤ 32 KB (5 kayıt × en kötü UTF-8 ad ~1 KB + kişisel bilgi).
+
+**Neden yeni dosya adı (K-P20-4):** 0.11.x `decode` bilinmeyen sürümde dosyayı **sessizce siler** (`forgetIn`). Müşterinin
+İndirilenler'de kalan eski `NoktaDestek-<etiket>-<ref>.exe`'yi açması (sık) aynı ad + `v:3` ile bütün kayıtları silerdi; sunucu
+anahtarları ise yetim kalırdı. Ayrı dosyayı eski sürüm görmez.
+
+**Şema (strict decode, bilinmeyen alan reddi):**
+
+| Alan         | Tip / kural                                                                                                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `v`          | `3`                                                                                                                                                                      |
+| `personal?`  | `{name 1..80, phone E.164, email? ≤ 254}` (r3 kuralı aynen)                                                                                                              |
+| `deviceKey?` | 22 karakter base64url; `personal` ile birlikte var/yok (G-E10-5 aynen)                                                                                                   |
+| `bindings?`  | dizi 0..**5**; öğe `{server, key, tenantName 1..120, customerName? ≤ 100, issuedAt RFC3339, lastUsedAt? RFC3339}`; `key` benzersiz; `server` = `CanonicalOrigin(server)` |
+| `prefs?`     | `{tray: bool}`; yalnız `bindings` boş değilken yazılır (kayıtsız bilgisayarda tepsi yok)                                                                                 |
+| Bütünlük     | `personal` veya ≥ 1 `bindings` öğesi dolu; ikisi de boşsa dosya (+tmp, boşsa klasör) silinir. Sıra: `lastUsedAt` azalan (ekran sırası)                                   |
+
+`lastUsedAt` yalnız yerel sıralamadır (kayıtla talep 201 aldığında güncellenir); sunucuya gitmez. Otomatik başlatmanın gerçeği
+kayıt defteridir (§8d.3), dosyada `autostart` alanı **yoktur** (iki kaynak sapmasın).
+
+**Göç (`remember.Migrate`, açılışta bir kez, `Store` kilidi altında; idempotent):**
+
+1. `kayitlar.bin` yok, `hatirla.bin` var ve çözülüyor (v1/v2) → v3 kur (`binding` → `bindings[0]`, `lastUsedAt = issuedAt`) →
+   atomik yaz → geri oku + `decode` eşitliği → `hatirla.bin` (+tmp) handle ile silinir. Geri okuma tutmazsa `kayitlar.bin`
+   silinir, `hatirla.bin` **dokunulmadan** kalır (bir sonraki açılışta yeniden denenir; diag olayı `migrate_failed`, içerik yok).
+2. `hatirla.bin` çözülemiyor → bugünkü kural (sil).
+3. İkisi de var (göç yarıda kaldı ya da eski sürüm sonradan `hatirla.bin` yazdı) → **birleştirme:** `personal` yalnız v3'te yoksa
+   alınır; `binding` anahtarı v3'te yoksa ve yer varsa eklenir; ardından `hatirla.bin` silinir. **Yer yoksa (5 dolu)**
+   `hatirla.bin` dokunulmadan kalır ve ana ekranda bir kez bilgi satırı: "Eski sürümden kalan bir kayıt (<firma>) eklenemedi;
+   5 firma sınırı. Eklemek için bir firmayı unutun." (sessiz kayıp ve sessiz iptal yok; K-P20-5).
+4. Aynı firmaya iki kayıt (eski sürüm yolu) olabilir; kimlik adla değil anahtarla tutulduğu için birleştirilmez. Sunucu bir
+   sonraki kayıt isteğinde aynı firmanın fazla anahtarlarını iptal eder (§8d.2 m.4), istemci ana ekrandaki `status` kontrolünde
+   `BINDING_INVALID` dönen öğeyi siler (AC-185 öğe bazında).
+
+**Geri dönüş:** 0.11.x `kayitlar.bin`'i görmez (kayıtsız gibi davranır; kayıt alırsa `hatirla.bin` yazar → 0.12 tekrar
+birleştirir). Silme yollarının hepsi iki dosyayı da siler (§8d.4).
+
+### 8d.2 Sunucu ve protokol: çoklu firma kaydı (`binding.*` eki; `docs/mimari-protokol.md` §6.1)
+
+**Sorun:** bugün `binding.request.previousKey` başka tenant'a aitse sunucu o kaydı `REPLACED` iptal eder (§15.3 adım 5, tek kayıt
+modeli). Çoklu kayıtta istemci oturumun hangi firmaya ait olduğunu `binding.issued` gelene kadar bilmez; tek anahtar göndermek
+başka firmanın kaydını düşürür.
+
+| Mesaj             | Ek (yalnız yeni sürüm)                                       | Kural                                                                                                                                                                       |
+| ----------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `binding.offer`   | `multi?: true`                                               | Yalnız ticket `clientVersion ≥ 0.12.0` ise eklenir (≤ 0.11.x `DecodeStrict` bilinmeyen alanı reddeder). Sabit `BINDING_MULTI_MIN_VERSION = "0.12.0"`                        |
+| `binding.request` | `previousKeys?: bindingKey[1..5]` (benzersiz), `full?: true` | `previousKey` ile **birlikte gönderilemez** (zod `superRefine` → `error VALIDATION`). Yalnız bu bağlantıya `multi` teklifi gitmişse kabul edilir, değilse `error{CONFLICT}` |
+| `binding.issued`  | `previousIndex?: 0..4 \| null`                               | Yalnız istek `previousKeys` taşıyorsa eklenir: yenilenen satırın anahtarının `previousKeys` içindeki sırası; yeni satırda `null`                                            |
+| `error`           | yeni kod `BINDING_LIMIT`                                     | Yalnız `full: true` isteğe, eşleşen firma kaydı yoksa. İstemci oturuma devam eder (bugünkü `error` kuralı)                                                                  |
+
+**`issueTx` çoklu dal (bağlayıcı sıra; `bindings/service.ts`, `bindings/repo.ts`):**
+
+1. `cur = lockActiveOfSession` (değişmez; aynı oturumda yeniden istek).
+2. `cur` yoksa: `SELECT … FROM device_bindings WHERE key_hash IN (<≤5 hash>) AND tenant_id = <oturum tenant> AND revoked_at IS NULL
+ORDER BY last_used_at DESC FOR UPDATE` — **yalnız oturumun tenant'ının** satırları kilitlenir/okunur; başka tenant'ın satırı
+   sorguya hiç girmez (S-P20-4).
+3. İlk satır `target` → `renew` (mevcut). `previousIndex` = `target` (veya `cur`) hash'inin listedeki sırası, yoksa `null`.
+4. Aynı tenant'tan kalan fazla satırlar `revokeById(…, "REPLACED")` + audit `binding.revoked {reason:"REPLACED"}` (aynı
+   tenant; karşı tenant bilgisi yok).
+5. `target` yok: `full` ise `Denied("capacity")` → `error BINDING_LIMIT` + metrik `rs_binding_denied_total{reason="capacity"}`
+   (+ audit `binding.denied` mevcut kalıp). Değilse yeni satır INSERT. **Başka tenant'ın satırı çoklu dalda asla iptal edilmez.**
+6. Audit `binding.issued.newValue` += `multi: true`; `replacedOtherTenant` çoklu dalda her zaman `false`.
+
+Eski dal (`previousKey`) **aynen** kalır (0.10/0.11 istemciler). Logger `REDACT_PATHS += "*.previousKeys"`. Gelen mesaj sınırı
+(64 KB, token-bucket) yeterli; oturum başına 3 istek kuralı değişmez. Kimliksiz uçlar (`/bindings/status`, `/revoke`) değişmez:
+istemci her firmayı ayrı anahtarla sorar/iptal eder (60/dk/IP ve 30/dk/IP mevcut sınırlar 5 öğe için yeterli).
+
+**İstemci kuralı (`flow/binding.go`, `launch/keeper.go`):**
+
+- `binding.offer.multi` geldiyse: aynı kökenli (T43) bütün anahtarlar `previousKeys` olarak, dosyada 5 kayıt varsa `full: true`
+  ile gönderilir. `issued` gelince: bu süreçte bu oturum için zaten bir yuva yazıldıysa o yuva, değilse `previousIndex` yuvası
+  güncellenir; `null` ise yeni yuva eklenir (5 doluysa sunucu zaten reddeder; yine de istemci yazmaz).
+- `multi` yoksa (eski sunucu): `previousKey` gönderilmez; dosyada 5 kayıt varsa istek hiç gönderilmez.
+- Oturum sonu bilgisi (AC-187/251 eki): yeni yuva eklendiyse "Bu bilgisayar artık <firma> için de kayıtlı (n/5)."; yenilemede
+  bilgi yok; `BINDING_LIMIT`'te "Bu bilgisayar 5 firmaya kayıtlı; <firma> için kayıt alınmadı. Ana ekrandan bir firmayı
+  unutabilirsiniz."
+
+### 8d.3 Go istemci modül planı
+
+| Modül (yeni/değişen)                                                                    | Sorumluluk                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | AC       |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `internal/remember/{data.go,remember.go,migrate.go (yeni)}`                             | v3 şema, `Bindings` dizisi (≤ 5), `Prefs`, göç ve birleştirme (§8d.1). API: `Load`, `SaveBinding(slot)`, `RemoveBinding(key)`, `TouchBinding(key, t)`, `SetPrefs`, `ForgetAll` (iki dosya + iki tmp + boşsa klasör). Saf mantık platformsuz (Linux'ta test edilir)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | 254      |
+| `internal/autorun/{autorun.go,registry_windows.go}` (yeni)                              | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, değer adı sabit `NoktaDestek`, veri `"<exe tam yolu>" --tray`. `Enable/Disable/State`. Yol `GetFinalPathNameByHandleW` ile kanonik; **ret koşulları** (seçenek pasif + açıklama): süreç yükseltilmiş; yol UNC/ağ/çıkarılabilir sürücü (`GetDriveTypeW ≠ DRIVE_FIXED`); `%TEMP%`, `INetCache`, `*.zip`-geçici klasörleri altında; yol veya klasörü reparse. `State` ayrıca `…\Explorer\StartupApproved\Run` değerini okur (yazmaz): Windows'ta kapatılmışsa "Windows ayarlarında devre dışı" gösterilir. Değer başka bir yolu gösteriyorsa (eski sürüm/başka konum) etkinleştirme kendi yoluyla **üzerine yazar** ("son açan sürüm kazanır"). Kayıt defteri arayüzü enjekte edilir (sahte ile test)                                                                           | 253      |
+| `internal/tray/{tray.go,tray_windows.go}` (yeni)                                        | `Shell_NotifyIconW` (`uID` ile; GUID **yok** — imzasız exe'de yol bağı sorunu), ipucu "Nokta Destek", ikon exe kaynağından. Menü: **Destek iste / Aç / Çık** (yalnız bu üçü). `TaskbarCreated` mesajında ikon yeniden eklenir. Tek örnek: `Local\NoktaDestek.Tray.<kullanıcı SID SHA-256 ilk 16 hane>` mutex; ikinci tepsi örneği `RegisterWindowMessage("NoktaDestek.Show")` ile ilkini öne getirir ve çıkar (veri taşımaz). Kod/ref dosyasıyla açılan örnek tepsi örneğine bağlanmaz, bugünkü gibi bağımsız çalışır                                                                                                                                                                                                                                                                                                              | 253      |
+| `cmd/noktadestek/main.go`, `internal/launch/{run.go,resident.go (yeni),decide.go}`      | Açılış: `--tray` bayrağı (başka argüman yok sayılır) → dosya adı **değerlendirilmez**, ağ isteği **yapılmaz**, yalnız tepsi (kayıt yoksa ya da tepsi tercihi kapalıysa Run değeri silinir ve süreç çıkar). Normal açılışta `prefs.tray` açıksa pencere kapatılınca (X) süreç tepsiye iner (ilk seferde bir kez balon "Program tepside çalışmaya devam ediyor"). Tepsi modunda oturum/talep bitince süreç çıkmaz, tepsiye döner (AC-107 istisnası, K-P20-7). "Çık": oturum sürüyorsa onay → oturum biter → çıkış. `Decide` girdisi `Binding bool` → `Bindings int` (aynı kökenli öğe sayısı); satır 5 (ref geçersiz + kayıt) ve 7 artık firma listesiyle ana ekran                                                                                                                                                                  | 253, 254 |
+| `internal/request/home.go`, `internal/ui/home_windows.go`                               | Ana ekran: firma listesi (ListBox, `Display()` süzgeçli "Firma — Müşteri", aynı etiketlilerde "(kayıt: GG.AA.YYYY)"), seçili firmayla **Destek iste**, **Bu firmayı unut** (onay), **Bu bilgisayarı unut (tüm firmalar)** (onay), onay kutuları **Tepside çalıştır** ve **Windows açılışında başlat** (ikincisi tepsi açıkken etkin; yükseltilmiş süreçte ikisi pasif + açıklama). Tek kayıtta liste yerine bugünkü satır. Açılışta ve ana ekran gösterildiğinde öğeler sırayla `bindings/status` ile denetlenir (≤ 5 istek; geçersiz → yalnız o öğe silinir); tepsi boştayken denetim yok                                                                                                                                                                                                                                         | 253, 254 |
+| `internal/request/{ws.go,chat.go (yeni),wait.go}`, `internal/ui/chat_windows.go` (yeni) | `Dial` alt protokole `rs.cap.chat1` ekler. `ParseServer` P18 tiplerini (`request.message`, `request.messages`, `request.chat`, `error RATE_LIMITED`) `DecodeStrict` ile ayrıştırır; fikstür `fixtures/ws-request.json` `requestChatInbound/Outbound` anahtarları Go testinde **aynen** kullanılır. Gönderim: trim, 1..1000 rune, ≤ 20 satır, Cc/Cf (`\n` hariç) yok, istemcide 1 msg/sn (düğme 1 sn pasif), `clientMsgId` 16 bayt rastgele base64url; yankı gelene kadar "gönderiliyor", `error` → "Gönderilemedi" (NFC sunucuda). Bekleme ekranına sohbet alanı: salt okunur çok satırlı EDIT (geçmiş ≤ 200, eskisi düşer) + giriş + **Gönder**; `request.chat false` → giriş pasif "Talep kabul edildi/kapandı". Pencere tepsideyken teknisyen mesajı → **gövdesiz** balon "Teknisyenden yeni mesaj" + `FlashWindowEx` (K-P20-9) | 255      |
+| `internal/ui/theme.go`, erişilebilirlik                                                 | Yeni kontroller P17 tema tablosundan boyanır (iki tema ≥ 4.5:1), sekme sırası, `&` kısayolları, ekran okuyucu adları                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | 253–255  |
+| `apps/agent-win/test/trace-check.ps1`                                                   | Yeni parametreler `-Tray on/off`, `-Autostart on/off`; izinli iz: `kayitlar.bin` (+`tanilama.log`), `-Autostart on` iken yalnız `HKCU\…\Run\NoktaDestek`. "Bu bilgisayarı unut" sonrası: dosya, klasör, Run değeri yok. İşletim sisteminin yazdığı tepsi geçmişi (`HKCU\Control Panel\NotifyIconSettings\*`, `…\TrayNotify` IconStreams) **istisna listesinde**, kılavuzda açıklanır                                                                                                                                                                                                                                                                                                                                                                                                                                               | 253, 289 |
+
+Yeni Go bağımlılığı yok (`x/sys/windows`: `Shell_NotifyIconW`, `registry`, mutex). Boyut ≤ 40 MB, açılış ≤ 5 sn korunur.
+
+### 8d.4 Silme yolları (AC-253, 254, 186 eki)
+
+| Eylem                      | Yerel (≤ 1 sn)                                                            | Sunucu (en iyi çaba)                  | Tepsi / Run                                                          |
+| -------------------------- | ------------------------------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------- |
+| Bu firmayı unut            | yalnız o öğe; kalan yoksa `prefs` düşer                                   | o anahtarla `revoke`                  | son öğeyse: Run değeri silinir, tepsi kapanır, süreç pencerede kalır |
+| Bu bilgisayarı unut (tümü) | `kayitlar.bin` + `hatirla.bin` + tmp'ler + `tanilama.log*` + boşsa klasör | her anahtar için `revoke` (≤ 5, 2 sn) | Run silinir, tepsi kapanır                                           |
+| Bilgilerimi unut           | yalnız `personal` + `deviceKey` (r3)                                      | —                                     | değişmez                                                             |
+| `BINDING_INVALID` (status) | yalnız o öğe                                                              | —                                     | son öğeyse "Bu firmayı unut" ile aynı                                |
+| Tepsi kapatıldı            | `prefs.tray=false`                                                        | —                                     | Run silinir                                                          |
+
+Run silme hatası (izin vb.) ekranda gösterilir ve kılavuzdaki elle kaldırma adımına yönlendirir (`reg delete` komutu runbook/kılavuz).
+
+### 8d.5 Sunucu dosyaları ve sözleşme
+
+- `packages/contracts/src/ws.ts`: `bindingOfferSchema` += `multi: z.literal(true).optional()`; `bindingRequestSchema` +=
+  `previousKeys` (1..5, benzersiz), `full: z.literal(true).optional()`, `previousKey` ile karşılıklı dışlama;
+  `bindingIssuedSchema` += `previousIndex: z.number().int().min(0).max(4).nullable().optional()`; sabit
+  `BINDING_MULTI_MIN_VERSION`, `BINDING_MAX_PER_DEVICE = 5`. `errors.ts` += `BINDING_LIMIT`. `fixtures/bindings.json` += `multi.*`
+  geçerli/geçersiz örnekler (Go aynı fikstürü kullanır).
+- `apps/server/src/signaling/binding.ts` (teklifte sürüm kapısı, bağlantı başına `multiOffered`), `bindings/{service,repo}.ts`
+  (§8d.2 dalı, `lockActiveByHashesForTenant`), `lib/logger.ts` (`*.previousKeys`), `ops/metrics.ts`
+  (`rs_binding_denied_total{reason="capacity"}`, `rs_bindings_issued_total{renewed,multi}`).
+- S-P18-K7 Sonra maddesi burada kapanır: `rs_request_messages_rejected_total{reason="validation"}` (gövde etiketsiz) — Go istemci
+  doğrulama açığını görünür kılar; remote-watch eşiği yayından 2 hafta sonra değerlendirilir (runbook).
+
+### 8d.6 Web / panel etkisi
+
+Kod değişikliği **yok**. 0.12.0 istemci `rs.cap.chat1` bildirdiği için `request.new.customerChat` kendiliğinden `SUPPORTED`
+olur; panel P18 sohbet arayüzü değişmeden çalışır. Müşteri kartındaki kayıt listesi zaten tenant kapsamlıdır (bir bilgisayarın
+başka firmalara da kayıtlı olduğu panelde **görünmez**; S-P20-4). frontend-dev'e paket yok; yalnız qa'nın e2e regresyonu.
+
+### 8d.7 Güvenlik (S-P20-n; güvenlik tasarım turu bu numaraları kullanır)
+
+| #       | Tehdit                                                   | Karar                                                                                                                                                                                                                                                                                     |
+| ------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P20-1 | Run değeri ile kalıcılık kötüye kullanımı / yanlış hedef | Yalnız açık kullanıcı eylemiyle yazılır (varsayılan kapalı, sessiz etkinleştirme yok); değer adı ve biçim sabit, tek argüman `--tray`; §8d.3 yol ret koşulları; yükseltilmiş süreçte yazılmaz (yanlış hive / yükseltilmiş kalıcılık); okuma yalnız karşılaştırma için                     |
+| S-P20-2 | `--tray` açılışının saldırı yüzeyi                       | `--tray`'de dosya adı, ağ, WS yok; ilk ağ isteği kullanıcının "Destek iste"/"Aç" eylemiyle. Bilinmeyen argümanlar yok sayılır (komut satırından URL/anahtar alınmaz)                                                                                                                      |
+| S-P20-3 | Tek örnek IPC'nin kötüye kullanımı                       | Mutex `Local\` + kullanıcı SID özeti; "göster" mesajı veri taşımaz, yalnız pencereyi öne getirir. Aynı kullanıcıdaki zararlı yazılım kapsam dışı (T17)                                                                                                                                    |
+| S-P20-4 | Çoklu anahtarın firmalar arası sızması / iptali          | Anahtarlar yalnız gömülü kökene (T43, öğe bazında) ve yalnız guest WS'te gider; sunucu yalnız oturum tenant'ının satırlarını sorgular, başka tenant satırını okumaz/kilitlemez/iptal etmez; `previousIndex` yalnız aynı tenant eşleşmesini açıklar; log redaksiyonu; audit'te anahtar yok |
+| S-P20-5 | Dosya bütünlüğü ve göç sırasında kayıp/yarış             | DPAPI + yeni entropi, strict decode, ≤ 5 + benzersiz anahtar, ≤ 8 KB; AC-249 handle kuralı iki dosyada; göç kilit altında, geri okuma doğrulamalı, başarısızlıkta eski dosyaya dokunulmaz                                                                                                 |
+| S-P20-6 | Sohbet metniyle UI enjeksiyonu / sahte bağlantı          | Sunucu metni salt okunur düz EDIT'te (`SS_NOPREFIX`/düz metin, bağlantı tıklanmaz), `Display` süzgeci (Cc/Cf, bidi) teknisyen adında; gövdede `\n` dışındaki kontrol karakterleri gösterimde atılır; balonda gövde yok                                                                    |
+| S-P20-7 | Kaynak tüketimi (sohbet seli)                            | Sunucu kovaları (P18) yetkili; istemci 1/sn gönderim, geçmiş ≤ 200, gelen mesaj ≤ 64 KB çerçeve                                                                                                                                                                                           |
+| S-P20-8 | AV/EDR yanlış pozitif ve "gizli kalıcılık" algısı (R30)  | Kendini kopyalama, zamanlanmış görev, servis, gizli pencere **yok**; yerleşik süreçte tepsi ikonu her zaman görünür; boşta ağ bağlantısı yok; Run silme her unut yolunda; VERSIONINFO (CompanyName/ProductName/FileDescription) dolu; yayın öncesi AV kapısı (§8d.8)                      |
+| S-P20-9 | Yerleşik süreçte bellekteki anahtarlar                   | Kabul: dosyadakiyle aynı güven sınırı (aynı kullanıcı). Diag loguna anahtar/ad/mesaj yazılmaz (mevcut kural)                                                                                                                                                                              |
+
+### 8d.8 Operasyon (devops) ve imzasız yayın / AV önlemi (R30)
+
+- **Yeni env yok.** Sunucu eki normal staging dağıtımı (runbook §24 sırası: sunucu → istemci artifact).
+- **`agent-win.yml`:** `test-windows`'a `go test -count=1 -v -run 'TestAC253|TestAC254' ./internal/...` adımı (çıktı tee, AC-248
+  kalıbı); gerçek HKCU testi geçici değer adıyla (`NoktaDestekTest-<rastgele>`), test sonunda silinir; tepsi duman testi
+  etkileşimsiz oturumda koşmaz → elle test. `reproducible` işi değişmez (AC-289).
+- **AV kapısı (imza yokken bağlayıcı, K-P20-3), runbook §24'e yeni alt bölüm "AV yanlış pozitif":**
+  1. Release adayında Windows 10 ve 11 Defender (güncel tanımlar) `MpCmdRun -Scan -ScanType 3 -File` temiz; tepsi + Run açıkken
+     24 sa izlenir (Defender geçmişi temiz).
+  2. VirusTotal'da **hash araması** (gerekirse yükleme; depo zaten açık kaynak): büyük motorlarda (Microsoft, Kaspersky, ESET,
+     Bitdefender, Sophos, Trend) 0, toplam ≤ 2 tespit. Sonuç ve tarih Release notuna.
+  3. Tespit varsa Microsoft WDSI (yazılım geliştirici yanlış pozitif) ve ilgili satıcıya gönderim; çözülene dek prod Release
+     yayımlanmaz, staging sürer. Prod'da tepsi/Run seçenekleri varsayılan kapalı kalır.
+  4. Remote-watch: destek talebinde "program silindi/karantina" geri bildirimi → runbook ilk müdahale (SHA256SUMS ile doğrula,
+     WDSI gönder, müşteriye tarayıcı modu P19 bağlantısı).
+- **Geri alma:** 0.11.x'e dönüşte müşteri kayıtları `kayitlar.bin`'de durur (0.11 görmez); Run değeri 0.12 exe'sini göstermeye
+  devam eder → kılavuz/runbook "Windows açılışından kaldırma" (`reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v
+NoktaDestek /f` veya Görev Yöneticisi > Başlangıç). Sunucu eki geri alınırsa 0.12 eski dala düşer (§8d.2), veri kaybı yok.
+- **Metrik/alarm:** `rs_binding_denied_total{reason="capacity"}` (bilgi), `rs_request_messages_rejected_total{reason}`.
+
+### 8d.9 Test planı
+
+| Seviye                                                                                                    | Kapsam                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | AC            |
+| --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| Go birim (Linux): `docker run --rm -v "$PWD/apps/agent-win":/src -w /src golang:1.26 go test -race ./...` | `remember`: v3 decode/encode, 6. öğe reddi, yinelenen anahtar reddi, ≤ 8 KB; göç v1→v3, v2→v3 (alan alan eşitlik — "kayıpsız"), yarım göç (iki dosya) birleştirme, 5 doluyken `hatirla.bin` korunur, geri okuma hatasında eski dosya kalır; silme yolları tablosu (§8d.4). `autorun`: komut satırı biçimi/tırnak, ret koşulları, "son açan kazanır", StartupApproved okuma (sahte kayıt defteri). `launch`: `Decide` çoklu satırlar, `--tray` ağsız açılış (sahte API çağrı sayısı 0). `flow/keeper`: `multi` var/yok, `previousIndex` yuva güncelleme, `full`, `BINDING_LIMIT` metni, eski sunucuda `previousKey` gönderilmez. `request`: fikstür `requestChatInbound/Outbound` geçerli/geçersiz, 1/sn istemci kısıtı, `request.chat false` | 253, 254, 255 |
+| Go Windows (CI `agent-win.yml` `test-windows`)                                                            | Gerçek HKCU Run yaz/oku/sil (geçici ad), mutex tek örnek, `kayitlar.bin` junction/symlink reddi (AC-249 kalıbı), DPAPI gidiş-dönüş, göç gerçek dosyalarla                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | 253, 254      |
+| Sunucu Vitest (`pnpm --filter @remote/server test`)                                                       | Aynı tenant yenileme + `previousIndex`; başka tenant anahtarları dokunulmaz (satır `revoked_at` NULL kalır, audit yok); aynı tenant fazlası `REPLACED`; `full` → `BINDING_LIMIT`; `multi` yalnız ≥ 0.12.0 teklifinde; `previousKey`+`previousKeys` → VALIDATION; teklifsiz `previousKeys` → CONFLICT; eski dal regresyonu; redaksiyon; sözleşme fikstürü                                                                                                                                                                                                                                                                                                                                                                                     | 254           |
+| Elle (test-operatoru, Windows 10 + 11, açık/koyu tema)                                                    | Tepsi menüsü 3 öğe; X → tepsiye iniş; Run aç → oturumu kapat/aç → tepside başlar, pencere açılmaz, ağ yok (Kaynak İzleyicisi); Görev Yöneticisi'nde devre dışı bırakınca bilgi satırı; 3 firmaya kayıt → seçerek talep; 6. firma → `BINDING_LIMIT` metni; tek firma unut / tümü; 0.11.0 kayıtlı makinede 0.12'ye geçiş (kayıt ve kişisel bilgi korunur) ve ardından eski exe'yi açma (kayıtlar silinmez); sohbet gidiş-dönüş panel ↔ istemci, tepsideyken balon; Defender taraması                                                                                                                                                                                                                                                           | 253, 254, 255 |
+| İz testi (`trace-check.ps1`)                                                                              | `-Tray on -Autostart on` (yalnız `kayitlar.bin` + Run değeri), unut sonrası `-Binding off -Remember off -Autostart off` temiz; iki tekrarlanabilir build hash eşit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 253, 289      |
+
+### 8d.10 Dosya planı (P20)
+
+- Go: `apps/agent-win/cmd/noktadestek/main.go`; `internal/remember/{data.go,remember.go,dpapi_windows.go,migrate.go*}`;
+  `internal/autorun/*` (yeni); `internal/tray/*` (yeni); `internal/launch/{run.go,decide.go,keeper.go,resident.go*}`;
+  `internal/flow/binding.go`, `internal/signal/messages.go` (`binding.*` ekleri); `internal/request/{ws.go,chat.go*,wait.go,home.go}`;
+  `internal/ui/{home_windows.go,request_windows.go,chat_windows.go*,theme.go}`; `build/winres.json` (VERSIONINFO kontrol);
+  `test/trace-check.ps1`. (`*` yeni)
+- Sunucu: `packages/contracts/src/{ws.ts,errors.ts}`, `packages/contracts/fixtures/bindings.json`;
+  `apps/server/src/{signaling/binding.ts,bindings/service.ts,bindings/repo.ts,lib/logger.ts,ops/metrics.ts,requests/messages.ts}`.
+- CI/ops: `.github/workflows/agent-win.yml`, `docs/runbook.md` §24.
+- Doküman: `docs/mimari-protokol.md` §6.1, `docs/adr/0004-go-windows-istemci.md` r6, `docs/implementation.md`,
+  `docs/KULLANIM_KILAVUZU.md`, `docs/DATASHEET.md`, `CHANGELOG.md`, PDF'ler, aydınlatma metni seed'i (yerel ayar dosyası,
+  başlangıç kaydı cümlesi — yeni sürüm, AC-127 kuralı).
+
+### 8d.11 Görev paketleri (P20)
+
+| #   | Ajan                          | İş                                                                                                                                    | Bağımlı                | Kabul ölçütü                                                              |
+| --- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------- |
+| K0  | dba                           | Şema değişikliği yok: `device_bindings` UQ(`key_hash`) + `tenant_id` sorgu planı `EXPLAIN` notu `docs/db-notlari.md`; grants değişmez | —                      | Not yazıldı; migration yok                                                |
+| K1  | backend-dev                   | §8d.2 + §8d.5 (contracts, fikstür, sunucu çoklu dal, metrikler, S-P18-K7 metriği)                                                     | K0                     | Vitest §8d.9 satırı yeşil; eski dal regresyonu yeşil; staging'e dağıtıldı |
+| K2  | backend-dev (Go)              | `remember` v3 + göç + silme yolları (§8d.1, §8d.4)                                                                                    | —                      | Go birim + Windows reparse/DPAPI testleri yeşil                           |
+| K3  | backend-dev (Go)              | Çoklu firma: `signal`/`flow`/`keeper` ekleri, `Decide`, ana ekran firma listesi, tek/tüm unut, status döngüsü                         | K1 (fikstür), K2       | Sahte sunucuyla `multi`/eski sunucu/`BINDING_LIMIT` testleri yeşil        |
+| K4  | backend-dev (Go)              | `autorun` paketi (§8d.3)                                                                                                              | —                      | Ret koşulları birim + CI gerçek HKCU testi yeşil                          |
+| K5  | backend-dev (Go)              | `tray` + `--tray` yerleşik döngü (`resident.go`, main), AC-107 istisnası, tek örnek                                                   | K2, K4                 | Ağsız açılış testi; Windows elle duman (I6 kalıbı) geliştirici notu       |
+| K6  | backend-dev (Go)              | Talep sohbeti (`rs.cap.chat1`, `chat.go`, sohbet UI, balon)                                                                           | — (P18 sunucusu hazır) | Fikstür testleri; staging panel ↔ istemci gidiş-dönüş                     |
+| K7  | devops                        | `agent-win.yml` AC253/254 adımı, `trace-check.ps1` parametreleri, runbook §24 AV kapısı + Run elle kaldırma, 0.12.0 staging artifact  | K1–K6                  | CI yeşil; AV kapısı sonuç tablosu; artifact staging'e bağlı               |
+| K8  | qa-denetci ‖ guvenlik         | Önce güvenlik **tasarım turu** (S-P20-1..9) — K1–K6 kodlanmadan; sonra paket sonu qa + güvenlik kod turu                              | tasarım: —; kod: K7    | qa GEÇTİ, Kritik/Yüksek 0                                                 |
+| K9  | test-operatoru → teknik-yazar | §8d.9 elle tur + iz testi; ardından kılavuz (tepsi, başlangıç, çoklu firma, sohbet, AV/kaldırma), DATASHEET, CHANGELOG, PDF           | K8                     | Test raporu; AC-288                                                       |
+
+- **Paralel:** K1 ‖ K2 ‖ K4 ‖ K6 (dosyalar ayrık: sunucu ↔ `remember` ↔ `autorun` ↔ `request/ws,chat`). K3, K1 fikstürü + K2'den;
+  K5, K2 + K4'ten sonra. `internal/ui` dosyalarında K3 (`home_windows.go`) ile K6 (`chat_windows.go`, `request_windows.go`) ayrık;
+  `theme.go`'ya yalnız K6 ekler. frontend-dev paketi yok (§8d.6).
+- **Kabul (paket):** AC-253, 254, 255 (müşteri ucu) yeşil; AC-289 iz testi + hash eşitliği; qa GEÇTİ; güvenlik Kritik/Yüksek 0;
+  AV kapısı staging sonucu yazılı.
+
+### 8d.12 Riskler
+
+| Risk                                     | Önlem                                                                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| R30 AV yanlış pozitif (imzasız + Run)    | §8d.7 S-P20-8 tasarım kısıtları + §8d.8 AV kapısı; varsayılan kapalı; kendini kopyalama yok; WDSI süreci; tarayıcı modu yedek yol     |
+| Kayıt dosyası göçü (kayıp, eski sürüm)   | Yeni dosya adı (eski sürüm silemez), geri okuma doğrulamalı göç, birleştirme, 5 doluyken eski dosya korunur; v1/v2/yarım göç testleri |
+| Yerleşik süreç döngüsü (UI iş parçacığı) | `resident.go` tek mesaj döngüsü; oturum/talep akışları mevcut `launch.Run`'ı yeniden kullanır; K5 en son                              |
+| Exe taşındı/silindi, Run boşa düşer      | Windows sessizce atlar; ana ekran "Başlangıç kaydı başka konumu gösteriyor" + yeniden etkinleştirme; kılavuz                          |
+| Windows 11 tepsi taşma menüsü            | Kılavuzda "simgeyi görev çubuğuna sabitle"; ilk iniş balonu                                                                           |
+
+### 8d.13 Sonra (P20 dışı; genişleme noktaları)
+
+- Oturum sohbetinin WS'e taşınması (Go + sunucu) ve AC-292 Go onay satırı: **P22** (K-P20-1).
+- Go talep formunda bildirim kutucukları (AC-261 Go ucu; `createRequestInputSchema.notify`): ayrı AC gerekir, P20'de yok.
+- Tepside "çevrimiçi" durumu / gözetimsiz bağlantı: P27 (ayrı servis ikilisi; bu tepsi süreci kullanılmaz).
+- Otomatik güncelleme: yok (imza olmadan güvenli değil); SignPath sonrası ayrı ADR.
+- Tepsi menüsünde firma alt menüsü (doğrudan firmaya talep): talep gelirse; bugün "Destek iste" ana ekranı açar.
+
+### 8d.14 Kararlar (mimar kararı, kullanıcı onayı bekler)
+
+| #        | Konu                         | Karar (varsayılan)                                                                                                                                                                                                          |
+| -------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| K-P20-1  | P20 "WS chat" kapsamı        | Talep sohbeti (AC-255 Go ucu). Oturum sohbetinin WS'e taşınması sunucusuyla P22'de; 0.12.0'da oturum sohbeti DC'de kalır. Onaylanmazsa: P22 sunucu sözleşmesi öne çekilir, P20 uzar                                         |
+| K-P20-2  | Run hedefi                   | Exe'nin bulunduğu yer, kopyalama yok (kurulumsuz ilke, dropper örüntüsünden kaçınma). Geçici/ağ/çıkarılabilir konumda seçenek pasif. Alternatif `%LOCALAPPDATA%\NoktaDestek\NoktaDestek.exe`'ye kopya reddedildi (AV riski) |
+| K-P20-3  | İmzasız yayın                | Staging imzasız; prod 0.12.0 yalnız AV kapısı (§8d.8) geçerse; tepsi/Run varsayılan kapalı. SignPath gelince ek iş yok                                                                                                      |
+| K-P20-4  | Dosya adı                    | Yeni `kayitlar.bin` (v3) + `hatirla.bin`'den göç; eski sürümün sessiz silmesini önler. İz testi ve kılavuz iki adı bilir                                                                                                    |
+| K-P20-5  | 5 doluyken yeni firma        | Otomatik çıkarma yok; kayıt alınmaz, oturum sürer, bilgi satırı. Eski sürümden kalan fazla kayıt `hatirla.bin`'de korunur                                                                                                   |
+| K-P20-6  | Başlangıç ↔ tepsi            | "Windows açılışında başlat" yalnız tepsi açıkken etkin, `--tray` ile sessiz başlar; tepsi kapanınca Run silinir (AC iki ayrı seçenek der; ayrı kutu korunur, bağımlılık eklenir)                                            |
+| K-P20-7  | AC-107 istisnası             | Tepsi modunda oturum sonu süreç tepsiye döner; tepsi kapalıyken AC-107 aynen                                                                                                                                                |
+| K-P20-8  | Yükseltilmiş süreç           | Tepsi/Run seçenekleri pasif (yanlış hive, yükseltilmiş kalıcılık)                                                                                                                                                           |
+| K-P20-9  | Sohbet bildirimi             | Gövdesiz balon + pencere yanıp sönmesi (kilit ekranında içerik görünmez)                                                                                                                                                    |
+| K-P20-10 | Aynı firmaya yinelenen kayıt | Sunucu çoklu dalda aynı tenant fazlasını `REPLACED` iptal eder; istemci status'ta temizler                                                                                                                                  |
+
 ## 9. ADR listesi (E11)
 
 | ADR  | Konu                                                                                       | Durum                                           |
@@ -1389,7 +1648,7 @@ Açık karar yok: K-P19-1..10 mimar kararı olarak uygulanır, kullanıcı onay�
 | 0028 | Gözetimsiz erişim: onaysız tam erişim + bağlayıcı telafi kontrolleri (S24)                 | Kabul (çerçeve; P27 tehdit modeli turu zorunlu) |
 | 0030 | Kalıcı silme: FK döngüsü, tetikleyiciyle koşullu DELETE, mezar taşı, firma silme işi (K27) | Kabul (P16)                                     |
 
-P20 (ADR-0004 eki: tepsi/otomatik başlatma), P21 (portal kimliği), P23 (i18n kütüphanesi), P24 (SSO/LDAP)
+P20: ADR-0004 r6 eki yazıldı (§8d). P21 (portal kimliği), P23 (i18n kütüphanesi), P24 (SSO/LDAP)
 ADR'leri kendi tasarım turlarında yazılır (numara o gün sıradaki).
 
 ## 10. Kullanıcı kararlarının mimari sonuçları
@@ -1441,19 +1700,19 @@ Veri: `unattended_devices`, `unattended_device_grants`, `unattended_registration
 
 ## 11. Yol haritası — P18–P28+ (üst düzey)
 
-| Paket | Kapsam                                                                                                                                                         | Bağımlı                                | Gereken ADR (kendi turunda)                                            | Büyük riskler                                                 |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
-| P18   | **Ayrıntı §8b.** Kabul öncesi mesajlaşma (WS, `session_messages.request_id`), atama (`assigned_to`), öncelik, SLA (müşteri varsayılanı), mesai + tatil tablosu | P15 (+ ADR-0025 tablosu P18'de açılır) | — (ADR-0025 yeterli)                                                   | Kuyruk sıralamasının mevcut hub'a etkisi; mesai saat dilimi   |
-| P19   | **Ayrıntı §8c.** Web talep formu `/r/<ref>`, SMS/WA link, durum bildirimi (outbox), müşteri CSV içe/dışa                                                       | P18                                    | SMS ayarı (tenant, smsportal) — ADR gerekmez, §2.3 standardı           | Bot/spam (AC-143/144 + gizli alan); smsportal tek nokta (R31) |
-| P20   | İstemci 0.12.0: tepsi + `HKCU\Run`, çoklu firma kaydı (≤ 5), WS chat (ADR-0025)                                                                                | P17, SignPath sonucu                   | ADR-0004 eki                                                           | AV yanlış pozitif (R30); kayıt dosyası göçü                   |
-| P21   | Müşteri portalı (ayrı kimlik alanı `portal_users`, ayrı çerez adı, IDOR)                                                                                       | P19                                    | Portal kimliği ve oturum ayrımı                                        | Yeni kişisel veri; panel oturumuyla karışma                   |
-| P22   | Chat saklama + KVKK metni + onay satırı                                                                                                                        | P18, P20 (istemci)                     | — (ADR-0025)                                                           | Eski istemcilerde chat kapanması; R27                         |
-| P23   | TR/EN (web anahtar tabanlı, mevcut `messages/tr.json` + `lib/i18n.ts` genişler; Go istemci kaynak tablosu)                                                     | P14b                                   | i18n kütüphanesi (mevcut çözüm mü next-intl mi)                        | Anahtar borcu; e-posta/PDF şablonları                         |
-| P24   | OIDC (Entra ID önce) + LDAPS, acil durum hesabı                                                                                                                | P15 (step-up)                          | SSO/LDAP kimlik eşlemesi                                               | Hesap ele geçirme (R28); sağlayıcı test ortamı                |
-| P25   | Public API + webhook + outbox (ITSM örneği)                                                                                                                    | P15                                    | — (ADR-0026) + OpenAPI üretim kütüphanesi seçimi                       | SSRF; anahtar sızıntısı                                       |
-| P26   | Kullanım sayımı + Paraşüt taslak fatura                                                                                                                        | P25                                    | — (ADR-0027)                                                           | Çift fatura; Paraşüt API değişikliği; sayım ihtilafı (R33)    |
-| P27   | Gözetimsiz erişim                                                                                                                                              | P17, P20, P26, SignPath (prod)         | ADR-0028 + tehdit modeli eki (zorunlu güvenlik turu)                   | R25, R30, R32; Session 0 / Secure Desktop karmaşıklığı        |
-| P28+  | macOS, Linux, Android/iOS, oturum kaydı, çoklu teknisyen, ses, pano, yazdırma, sunucuda dosya + ClamAV                                                         | P27'ye kadar                           | her biri ayrı ADR; ClamAV ayrı konteyner (GPL, bağlanmaz, `clamd` TCP) | Kapsam; lisans; depolama/KVKK (kayıt, dosya)                  |
+| Paket | Kapsam                                                                                                                                                         | Bağımlı                                      | Gereken ADR (kendi turunda)                                            | Büyük riskler                                                 |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
+| P18   | **Ayrıntı §8b.** Kabul öncesi mesajlaşma (WS, `session_messages.request_id`), atama (`assigned_to`), öncelik, SLA (müşteri varsayılanı), mesai + tatil tablosu | P15 (+ ADR-0025 tablosu P18'de açılır)       | — (ADR-0025 yeterli)                                                   | Kuyruk sıralamasının mevcut hub'a etkisi; mesai saat dilimi   |
+| P19   | **Ayrıntı §8c.** Web talep formu `/r/<ref>`, SMS/WA link, durum bildirimi (outbox), müşteri CSV içe/dışa                                                       | P18                                          | SMS ayarı (tenant, smsportal) — ADR gerekmez, §2.3 standardı           | Bot/spam (AC-143/144 + gizli alan); smsportal tek nokta (R31) |
+| P20   | **Ayrıntı §8d.** İstemci 0.12.0: tepsi + `HKCU\Run`, çoklu firma kaydı (≤ 5, `kayitlar.bin` v3), talep sohbeti WS (AC-255 Go ucu; oturum sohbeti P22, K-P20-1) | P17, SignPath sonucu (yoksa §8d.8 AV kapısı) | ADR-0004 r6                                                            | AV yanlış pozitif (R30); kayıt dosyası göçü                   |
+| P21   | Müşteri portalı (ayrı kimlik alanı `portal_users`, ayrı çerez adı, IDOR)                                                                                       | P19                                          | Portal kimliği ve oturum ayrımı                                        | Yeni kişisel veri; panel oturumuyla karışma                   |
+| P22   | Chat saklama + KVKK metni + onay satırı + oturum sohbeti WS (sunucu + Go ucu, K-P20-1)                                                                         | P18, P20 (istemci)                           | — (ADR-0025)                                                           | Eski istemcilerde chat kapanması; R27                         |
+| P23   | TR/EN (web anahtar tabanlı, mevcut `messages/tr.json` + `lib/i18n.ts` genişler; Go istemci kaynak tablosu)                                                     | P14b                                         | i18n kütüphanesi (mevcut çözüm mü next-intl mi)                        | Anahtar borcu; e-posta/PDF şablonları                         |
+| P24   | OIDC (Entra ID önce) + LDAPS, acil durum hesabı                                                                                                                | P15 (step-up)                                | SSO/LDAP kimlik eşlemesi                                               | Hesap ele geçirme (R28); sağlayıcı test ortamı                |
+| P25   | Public API + webhook + outbox (ITSM örneği)                                                                                                                    | P15                                          | — (ADR-0026) + OpenAPI üretim kütüphanesi seçimi                       | SSRF; anahtar sızıntısı                                       |
+| P26   | Kullanım sayımı + Paraşüt taslak fatura                                                                                                                        | P25                                          | — (ADR-0027)                                                           | Çift fatura; Paraşüt API değişikliği; sayım ihtilafı (R33)    |
+| P27   | Gözetimsiz erişim                                                                                                                                              | P17, P20, P26, SignPath (prod)               | ADR-0028 + tehdit modeli eki (zorunlu güvenlik turu)                   | R25, R30, R32; Session 0 / Secure Desktop karmaşıklığı        |
+| P28+  | macOS, Linux, Android/iOS, oturum kaydı, çoklu teknisyen, ses, pano, yazdırma, sunucuda dosya + ClamAV                                                         | P27'ye kadar                                 | her biri ayrı ADR; ClamAV ayrı konteyner (GPL, bağlanmaz, `clamd` TCP) | Kapsam; lisans; depolama/KVKK (kayıt, dosya)                  |
 
 ## 12. Paralel çalışmayla çakışma (P13b şu an `deploy/`, `apps/server`, `docs/db-notlari.md`, `docs/implementation.md`)
 
@@ -1489,7 +1748,7 @@ Bu tasarım kod/dosya değiştirmez. P14a/P14b P13c'den sonra başladığı içi
 | 243                     | `jobs/orphan-scan.ts` (§7.6)                                                                    | P16 G5                       |
 | 244                     | runbook §23 + kılavuz (§7.7)                                                                    | P16 G7/G8                    |
 | 245–252, 234            | §8                                                                                              | P17                          |
-| 253, 254                | §11 P20                                                                                         | P20                          |
+| 253, 254, 255 (Go ucu)  | §8d (`remember` v3, `autorun`, `tray`, çoklu `binding.*`, talep sohbeti)                        | P20 K1–K6                    |
 | 255–258                 | §8b (mesaj, atama, öncelik/SLA, mesai/tatil)                                                    | P18 H1–H4                    |
 | 259–261, 263            | §8c (web formu, send-link, SMS ayarı, outbox, CSV)                                              | P19 J1–J5                    |
 | 262                     | §11 P21                                                                                         | P21                          |
