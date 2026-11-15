@@ -1,5 +1,7 @@
 # Mimari — Remote Support (Uzaktan Destek) Platformu
 
+> **LG (müşteriye bağlantı gönderme, P28'den önce):** tek "Müşteriye gönder" diyaloğu, `POST /customer-send`, servis indirme belirteci — `docs/mimari-link-gonderme.md`; kontrol listesi `docs/tasarim-kontrol.md` "LG".
+
 > **P28 (G8 ürün genişlemeleri):** çatı ilkeleri + P28a (metin panosu, uzaktan yazdırma) ayrıntılı tasarımı `docs/mimari-p28.md`, ADR-0031; kontrol listesi `docs/tasarim-kontrol.md` "P28a".
 
 Tarih: 2026-11-10 · Durum: TASLAK r2 — güvenlik raporu Tur 0 (`docs/guvenlik-raporu.md`, G-01..G-25) işlendi; izlenebilirlik §5.5, AC değişiklik talebi §13 · Girdi: `docs/gereksinimler.md`, `docs/gereksinimler-kabul-kriterleri.md` (AC-1..AC-111)
