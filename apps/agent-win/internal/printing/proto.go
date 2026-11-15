@@ -9,11 +9,16 @@ import (
 // Boru protokolü (mimari-p28 §5.2): uzunluk önekli ikili, küçük endian. Üst süreç işleyici çıktısını güvenilmeyen
 // girdi sayar (r2 O-P28a-3): render yanıtı hedef boyutla birebir, stride/uzunluk taşma denetimli doğrulanır.
 //
-//	istek : op u8 | idx u32 | w u32 | h u32 | n u32 | yük[n]   (inspect: yük = PDF; render: yük yok)
-//	yanıt : st u8 | a u32   | b u32 | c u32 | n u32 | yük[n]   (inspect: a = sayfa; render: a,b,c = w,h,stride; yük = BGR)
+//	istek : op u8 | idx u32 | w u32 | h u32 | n u32 | yük[n]   (inspect: yük = PDF; size/render: yük yok)
+//	yanıt : st u8 | a u32   | b u32 | c u32 | n u32 | yük[n]   (inspect: a = sayfa; size: a,b = sayfa DIP;
+//	                                                            render: a,b,c = w,h,stride; yük = BGR)
+//
+// Uzunluk öneki hiçbir yanıtta beklenenden farklı olamaz: inspect/size yanıtı yük taşımaz, render yanıtı tam
+// stride*h'dir (≤ 40 Mpx, ≤ 64 MiB). Aksi ErrProtocol; yük okunmaz, çağıran işleyiciyi durdurur.
 const (
-	OpInspect byte = 1
-	OpRender  byte = 2
+	OpInspect  byte = 1
+	OpRender   byte = 2
+	OpPageSize byte = 3 // K4: sayfa yönü (ResetDCW) için yalnız en/boy oranı
 
 	StatusOK         byte = 0
 	StatusInvalidPDF byte = 1 // parola korumalı / bozuk
@@ -23,6 +28,7 @@ const (
 	MaxFrameBytes = 64 << 20 // r2 (1) mutlak önek sınırı
 	MaxPixels     = 40_000_000
 	MaxPages      = 100_000
+	MaxPageDIP    = 1 << 20 // sayfa kenarı üst sınırı (DIP); yalnız oran için kullanılır
 	headerLen     = 17
 )
 
@@ -56,6 +62,9 @@ func writeFrame(w io.Writer, kind byte, a, b, c uint32, payload []byte) error {
 	if _, err := w.Write(h[:]); err != nil {
 		return err
 	}
+	if len(payload) == 0 { // boş yazma bazı borularda karşı tarafın okumasını bekler
+		return nil
+	}
 	_, err := w.Write(payload)
 	return err
 }
@@ -81,6 +90,7 @@ func ReadRequest(r io.Reader) (Request, error) {
 	switch {
 	case op == OpInspect && n > 0 && n <= MaxPDFBytes:
 	case op == OpRender && n == 0 && validTarget(w, h):
+	case op == OpPageSize && n == 0 && w == 0 && h == 0:
 	default:
 		return Request{}, ErrProtocol
 	}
@@ -115,6 +125,24 @@ func readInspect(r io.Reader) (int, error) {
 		return 0, ErrInvalidPDF
 	}
 	return int(pages), nil
+}
+
+// readPageSize sayfa ölçüsü yanıtı: yük yok, kenarlar 1..MaxPageDIP.
+func readPageSize(r io.Reader) (w, h uint32, err error) {
+	st, a, b, c, n, err := readHeader(r)
+	if err != nil {
+		return 0, 0, err
+	}
+	if n != 0 {
+		return 0, 0, ErrProtocol
+	}
+	if err := statusErr(st); err != nil {
+		return 0, 0, err
+	}
+	if a < 1 || b < 1 || a > MaxPageDIP || b > MaxPageDIP || c != 0 {
+		return 0, 0, ErrProtocol
+	}
+	return a, b, nil
 }
 
 // readRender render yanıtı: w,h istenenle aynı, stride == align4(w*3), n == stride*h ≤ MaxFrameBytes; aksi ErrProtocol

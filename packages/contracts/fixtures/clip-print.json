@@ -1,0 +1,547 @@
+{
+  "_doc": "P28a pano + yazdırma sözleşme örnekleri (mimari-p28 §4.2–4.4, §8.3; AC-343..352). valid.* şemadan geçmeli, invalid.* reddedilmeli. tech = techInboundSchema; guest = guestInboundSchemaFor({clipboard, print}); guestNoFeature = özelliksiz misafir sokette (guestInboundSchema) şema dışı (1008) olan ama özellikli sokette geçerli mesajlar; server = serverOutboundSchema; dc = ctlMessageSchema (ctl kanalı). texts: UTF-8 baytları 8 KB parçalarla standart base64 (dolgulu) — iki yönde birebir korunmalı (AC-345). constants: Go eşi aynı değerleri kullanmalı. Go istemci (K3, internal/signal + internal/dc + internal/flow) bu dosyayı go test ile doğrular.",
+  "subprotocols": {
+    "clipboard": "rs.cap.clip1",
+    "print": "rs.cap.print1"
+  },
+  "constants": {
+    "CLIP_MAX_BYTES": 65536,
+    "CLIP_CHUNK_BYTES": 8192,
+    "CLIP_MAX_CHUNKS": 8,
+    "CLIP_CHUNK_B64_MAX": 10924,
+    "CLIP_PER_MIN": 30,
+    "CLIP_PENDING_TIMEOUT_MS": 10000,
+    "CLIP_CONSENT_PER_MIN": 6,
+    "CLIP_GUEST_DEADLINE_MS": 8000,
+    "PRINT_MAX_BYTES": 20971520,
+    "PRINT_MIN_BYTES": 5,
+    "PDF_MAGIC": "%PDF-",
+    "PRINT_CONSENT_TIMEOUT_MS": 60000,
+    "PRINT_PENDING_TIMEOUT_MS": 600000,
+    "PRINT_PER_SESSION": 20,
+    "PRINT_DENY_COOLDOWN_MS": 30000,
+    "PRINT_GUEST_TRANSFER_DEADLINE_MS": 480000,
+    "ID_REUSE_WINDOW": 64,
+    "PRINT_RENDER_MAX_PX": 40000000,
+    "PRINT_PIPE_FRAME_MAX": 67108864,
+    "PRINT_MAX_PAGES": 100000,
+    "CLIP_PRINT_ID_PATTERN": "^[A-Za-z0-9_-]{8,26}$"
+  },
+  "results": {
+    "clip": ["OK", "EMPTY", "TOO_LARGE", "SENSITIVE", "INVALID", "DENIED", "ERROR", "TIMEOUT", "DISCONNECTED"],
+    "clipGuest": ["OK", "EMPTY", "TOO_LARGE", "SENSITIVE", "INVALID", "DENIED", "ERROR", "TIMEOUT"],
+    "print": [
+      "PRINTED",
+      "NO_PRINTER",
+      "REJECTED",
+      "TIMEOUT",
+      "INVALID_PDF",
+      "TOO_LARGE",
+      "BUSY",
+      "CANCELLED",
+      "ERROR",
+      "ABANDONED",
+      "DISCONNECTED"
+    ],
+    "printGuest": ["PRINTED", "NO_PRINTER", "REJECTED", "TIMEOUT", "INVALID_PDF", "TOO_LARGE", "BUSY", "CANCELLED", "ERROR"],
+    "printDecisions": ["APPROVED", "REJECTED", "TIMEOUT", "NONE"]
+  },
+  "valid": {
+    "tech": [
+      {
+        "t": "clip.push",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "bytes": 1
+      },
+      {
+        "t": "clip.push",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "bytes": 65536
+      },
+      {
+        "t": "clip.pull",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w"
+      },
+      {
+        "t": "print.request",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "sizeBytes": 5
+      },
+      {
+        "t": "print.request",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "sizeBytes": 20971520
+      },
+      {
+        "t": "print.cancel",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0"
+      }
+    ],
+    "guest": [
+      {
+        "t": "clip.consent",
+        "on": true
+      },
+      {
+        "t": "clip.consent",
+        "on": false
+      },
+      {
+        "t": "clip.report",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "dir": "TO_CUSTOMER",
+        "bytes": 65536,
+        "result": "OK"
+      },
+      {
+        "t": "clip.report",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "dir": "TO_TECH",
+        "bytes": 0,
+        "result": "SENSITIVE"
+      },
+      {
+        "t": "clip.report",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "dir": "TO_TECH",
+        "bytes": 0,
+        "result": "TIMEOUT"
+      },
+      {
+        "t": "print.report",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "decision": "APPROVED",
+        "result": "PRINTED",
+        "pages": 3,
+        "sizeBytes": 20480
+      },
+      {
+        "t": "print.report",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "decision": "NONE",
+        "result": "BUSY",
+        "sizeBytes": 0
+      },
+      {
+        "t": "print.report",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "decision": "REJECTED",
+        "result": "REJECTED",
+        "pages": 1,
+        "sizeBytes": 5
+      },
+      {
+        "t": "print.report",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "decision": "NONE",
+        "result": "CANCELLED",
+        "sizeBytes": 1024
+      }
+    ],
+    "server": [
+      {
+        "t": "clip.consent",
+        "on": false
+      },
+      {
+        "t": "clip.consent",
+        "on": true
+      },
+      {
+        "t": "clip.push",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "bytes": 12
+      },
+      {
+        "t": "clip.pull",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w"
+      },
+      {
+        "t": "clip.status",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "result": "DISCONNECTED",
+        "bytes": 0
+      },
+      {
+        "t": "print.request",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "sizeBytes": 20480
+      },
+      {
+        "t": "print.cancel",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0"
+      },
+      {
+        "t": "print.status",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "result": "ABANDONED"
+      },
+      {
+        "t": "print.status",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "result": "PRINTED",
+        "pages": 3
+      },
+      {
+        "t": "caps.update",
+        "caps": ["remote_control", "file_transfer", "clipboard", "print"]
+      },
+      {
+        "t": "peer.joined",
+        "role": "guest",
+        "guestKind": "AGENT",
+        "guestName": "Ayşe",
+        "guestFeatures": ["clipboard", "print"]
+      },
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JD0000000000000000000002",
+        "peerPresent": true,
+        "guestKind": "AGENT",
+        "iceServers": [],
+        "maxEndsAt": null,
+        "caps": ["remote_control", "clipboard"],
+        "guestFeatures": ["clipboard"],
+        "clipConsent": false
+      }
+    ],
+    "dc": [
+      {
+        "t": "clip.ready",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w"
+      },
+      {
+        "t": "clip.data",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "seq": 0,
+        "last": true,
+        "b64": "w6cgxJ8gxLEgw7YgxZ8gw7wgxLA="
+      },
+      {
+        "t": "clip.data",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "seq": 7,
+        "last": true,
+        "b64": "YQ=="
+      },
+      {
+        "t": "print.ready",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0"
+      },
+      {
+        "t": "print.offer",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "idx": 3,
+        "name": "fatura.pdf",
+        "size": 20480,
+        "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+      },
+      {
+        "t": "print.done",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0"
+      }
+    ]
+  },
+  "guestNoFeature": [
+    {
+      "t": "clip.consent",
+      "on": true
+    },
+    {
+      "t": "clip.report",
+      "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+      "dir": "TO_CUSTOMER",
+      "bytes": 10,
+      "result": "OK"
+    },
+    {
+      "t": "print.report",
+      "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+      "decision": "APPROVED",
+      "result": "PRINTED",
+      "pages": 1,
+      "sizeBytes": 100
+    }
+  ],
+  "invalid": {
+    "tech": [
+      {
+        "t": "clip.push",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "bytes": 0
+      },
+      {
+        "t": "clip.push",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "bytes": 65537
+      },
+      {
+        "t": "clip.push",
+        "cid": "kisa",
+        "bytes": 10
+      },
+      {
+        "t": "clip.push",
+        "cid": "geçersiz/kimlik!",
+        "bytes": 10
+      },
+      {
+        "t": "clip.push",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "bytes": 10,
+        "text": "içerik WS'den geçmez"
+      },
+      {
+        "t": "clip.pull",
+        "cid": "aaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "t": "print.request",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "sizeBytes": 4
+      },
+      {
+        "t": "print.request",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "sizeBytes": 20971521
+      },
+      {
+        "t": "print.request",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "sizeBytes": 1024,
+        "fileName": "fatura.pdf"
+      },
+      {
+        "t": "print.cancel"
+      }
+    ],
+    "guest": [
+      {
+        "t": "clip.consent",
+        "on": "true"
+      },
+      {
+        "t": "clip.report",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "dir": "TO_TECH",
+        "bytes": 0,
+        "result": "DISCONNECTED"
+      },
+      {
+        "t": "clip.report",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "dir": "SIDEWAYS",
+        "bytes": 0,
+        "result": "OK"
+      },
+      {
+        "t": "clip.report",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "dir": "TO_TECH",
+        "bytes": 65537,
+        "result": "OK"
+      },
+      {
+        "t": "print.report",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "decision": "APPROVED",
+        "result": "ABANDONED",
+        "sizeBytes": 0
+      },
+      {
+        "t": "print.report",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "decision": "APPROVED",
+        "result": "DISCONNECTED",
+        "sizeBytes": 0
+      },
+      {
+        "t": "print.report",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "decision": "MAYBE",
+        "result": "PRINTED",
+        "sizeBytes": 0
+      },
+      {
+        "t": "print.report",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "decision": "APPROVED",
+        "result": "PRINTED",
+        "pages": 0,
+        "sizeBytes": 10
+      },
+      {
+        "t": "print.report",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "decision": "APPROVED",
+        "result": "PRINTED",
+        "sizeBytes": 10,
+        "fileName": "fatura.pdf"
+      },
+      {
+        "t": "print.report",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "decision": "APPROVED",
+        "result": "PRINTED",
+        "sizeBytes": 10,
+        "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+      }
+    ],
+    "server": [
+      {
+        "t": "hello",
+        "role": "tech",
+        "sessionId": "01JD0000000000000000000002",
+        "peerPresent": true,
+        "iceServers": [],
+        "maxEndsAt": null,
+        "guestFeatures": ["clipboard", "clipboard"]
+      },
+      {
+        "t": "peer.joined",
+        "role": "guest",
+        "guestFeatures": ["voice"]
+      },
+      {
+        "t": "caps.update",
+        "caps": ["remote_control", "voice"]
+      }
+    ],
+    "dc": [
+      {
+        "t": "clip.data",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "seq": 8,
+        "last": true,
+        "b64": "YQ=="
+      },
+      {
+        "t": "clip.data",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "seq": 0,
+        "last": true,
+        "b64": ""
+      },
+      {
+        "t": "clip.data",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "seq": 0,
+        "last": true,
+        "b64": "YQ"
+      },
+      {
+        "t": "clip.data",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "seq": 0,
+        "last": true,
+        "b64": "Y-_="
+      },
+      {
+        "t": "clip.data",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "seq": 0,
+        "last": true,
+        "b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      {
+        "t": "clip.data",
+        "cid": "aZ3_x-Q9LmN0pR7sT2uV1w",
+        "seq": 0,
+        "b64": "YQ=="
+      },
+      {
+        "t": "print.offer",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "idx": 65536,
+        "name": "a.pdf",
+        "size": 100,
+        "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+      },
+      {
+        "t": "print.offer",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "idx": 0,
+        "name": "",
+        "size": 100,
+        "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+      },
+      {
+        "t": "print.offer",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "idx": 0,
+        "name": "a.pdf",
+        "size": 20971521,
+        "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+      },
+      {
+        "t": "print.offer",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "idx": 0,
+        "name": "a.pdf",
+        "size": 100,
+        "sha256": "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08"
+      },
+      {
+        "t": "print.done",
+        "pid": "Pq8-Zx_4KdLm2Nb7Vc1Ty0",
+        "ok": true
+      }
+    ]
+  },
+  "texts": [
+    {
+      "name": "turkce",
+      "text": "ç ğ ı ö ş ü İ — Ç Ğ I Ö Ş Ü",
+      "bytes": 41,
+      "chunks": [
+        {
+          "seq": 0,
+          "last": true,
+          "b64": "w6cgxJ8gxLEgw7YgxZ8gw7wgxLAg4oCUIMOHIMSeIEkgw5YgxZ4gw5w="
+        }
+      ]
+    },
+    {
+      "name": "emoji",
+      "text": "Merhaba 👋🏽 dünya 🖨️ ✅",
+      "bytes": 35,
+      "chunks": [
+        {
+          "seq": 0,
+          "last": true,
+          "b64": "TWVyaGFiYSDwn5GL8J+PvSBkw7xueWEg8J+WqO+4jyDinIU="
+        }
+      ]
+    },
+    {
+      "name": "satir_sonlari",
+      "text": "satır1\r\nsatır2\nsatır3\r\n",
+      "bytes": 26,
+      "chunks": [
+        {
+          "seq": 0,
+          "last": true,
+          "b64": "c2F0xLFyMQ0Kc2F0xLFyMgpzYXTEsXIzDQo="
+        }
+      ]
+    },
+    {
+      "name": "parca_sinirinda_cok_bayt",
+      "text": "ağğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğğ",
+      "bytes": 10001,
+      "chunks": [
+        {
+          "seq": 0,
+          "last": false,
+          "b64": "YcSfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8Q="
+        },
+        {
+          "seq": 1,
+          "last": true,
+          "b64": "n8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8SfxJ/En8Sf"
+        }
+      ]
+    }
+  ]
+}

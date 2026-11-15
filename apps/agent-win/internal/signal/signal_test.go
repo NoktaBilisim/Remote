@@ -223,7 +223,7 @@ func TestAC14DialUsesSubprotocolNoOriginNoQuery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conn, err := Dial(ctx, hc, u, Credential{Ticket: ticket})
+	conn, err := Dial(ctx, hc, u, Credential{Ticket: ticket}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,11 +246,11 @@ func TestAC109DialRejectsUntrustedCertAndBadCredential(t *testing.T) {
 	defer srv.Close()
 	u, _ := url.Parse(srv.URL)
 	ctx := context.Background()
-	if _, err := Dial(ctx, &http.Client{}, u, Credential{Ticket: strings.Repeat("T", 43)}); err == nil {
+	if _, err := Dial(ctx, &http.Client{}, u, Credential{Ticket: strings.Repeat("T", 43)}, nil); err == nil {
 		t.Fatal("güvenilmeyen sertifika reddedilmeli")
 	}
 	for _, c := range []Credential{{}, {Ticket: "a b"}, {Ticket: strings.Repeat("T", 43), Reconnect: strings.Repeat("R", 43)}, {Reconnect: "kisa"}} {
-		if _, err := Dial(ctx, &http.Client{}, u, c); err == nil {
+		if _, err := Dial(ctx, &http.Client{}, u, c, nil); err == nil {
 			t.Errorf("geçersiz kimlik bilgisi kabul edildi: %+v", c)
 		}
 	}

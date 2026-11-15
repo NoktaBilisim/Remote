@@ -51,6 +51,7 @@ func (c closed) any() bool { return c.granted || c.ctlPrompt || c.monPrompt }
 // Kapanış gate.Close ile aynı anda olur; bildirim sonradan gider.
 func (s *session) closeControl(ctx context.Context, source string, monitor bool) closed {
 	s.gate.Close()
+	s.cp.controlClosed() // P28a: anahtar kapanır, yazdırma CANCELLED (Y-P28a-1)
 	c := closed{granted: s.granted, ctlPrompt: s.ctlReq.Pending(), monPrompt: monitor && s.monReq.Pending()}
 	s.granted = false
 	if c.ctlPrompt {
@@ -126,6 +127,7 @@ func (s *session) onCapsUpdate(ctx context.Context, caps []string) {
 	if s.peer != nil {
 		s.peer.SetCaps(s.caps)
 	}
+	s.cp.capsChanged()
 	if !s.hasCap(capRemoteControl) {
 		if c := s.closeControl(ctx, "SYSTEM", false); c.granted {
 			s.d.UI.Status(statusControlRevoked)
@@ -178,6 +180,7 @@ func (s *session) grantControl(ctx context.Context) {
 	s.ctlReq.Granted()
 	s.gate.Open()
 	s.granted = true
+	s.cp.controlOpened()
 	s.d.UI.ControlState(true, s.d.Hotkey)
 	source := "UI"
 	if s.d.Unattended {

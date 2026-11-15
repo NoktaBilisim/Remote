@@ -97,3 +97,16 @@ func TestProtoFrameLimits(t *testing.T) {
 		t.Error("A4 300 DPI reddedildi")
 	}
 }
+
+func TestProtoPageSize(t *testing.T) {
+	var b bytes.Buffer
+	_ = WriteRequest(&b, Request{Op: OpPageSize, Idx: 3})
+	if q, err := ReadRequest(&b); err != nil || q.Op != OpPageSize || q.Idx != 3 {
+		t.Fatalf("istek %+v %v", q, err)
+	}
+	b.Reset()
+	_ = writeFrame(&b, OpPageSize, 0, 5, 5, nil) // size hedef taşımaz
+	if _, err := ReadRequest(&b); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("hedefli size: %v", err)
+	}
+}

@@ -37,6 +37,9 @@ type Hello struct {
 	ReconnectToken string         `json:"reconnectToken,omitempty"`
 	GuestName      *string        `json:"guestName,omitempty"`
 	Share          *ShareSnapshot `json:"share,omitempty"`
+	// P28a (§4.2): yalnız role=tech hello'sunda gelir; misafir istemci kullanmaz, şema eşi için doğrulanır.
+	GuestFeatures []string `json:"guestFeatures,omitempty"`
+	ClipConsent   *bool    `json:"clipConsent,omitempty"`
 }
 
 type LobbyWait struct {
@@ -56,6 +59,8 @@ type PeerJoined struct {
 	GuestName *string `json:"guestName,omitempty"`
 	MaxEndsAt string  `json:"maxEndsAt,omitempty"`
 	MaxFileMb *int    `json:"maxFileMb,omitempty"`
+	// P28a (§4.2): yalnız role=guest (teknisyene giden) mesajda; şema eşi için doğrulanır.
+	GuestFeatures []string `json:"guestFeatures,omitempty"`
 }
 
 type PeerLeft struct {
@@ -179,11 +184,11 @@ func (m ErrorMsg) Type() string       { return m.T }
 var (
 	roles         = []string{"tech", "guest"}
 	guestKinds    = []string{"BROWSER", "AGENT"}
-	caps          = []string{"remote_control", "file_transfer"}
+	caps          = []string{"remote_control", "file_transfer", "clipboard", "print"} // P28a: + clipboard, print (G-09)
 	endedReasons  = []string{"tech", "customer", "timeout", "max_duration", "cancelled", "tenant_passive", "server", "admin", "auth_revoked", "rejected", "lobby_timeout"}
 	wsErrorCodes  = []string{"ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND", "VALIDATION", "INTERNAL", "BINDING_LIMIT"}
 	techOnlyTypes = []string{"peer.pending", "peer.pending.left", "sdp.answer", "share.state", "control.state", "env.state",
-		"monitor.denied"}
+		"monitor.denied", "clip.status", "print.status"}
 	revokeReasons = []string{"permission", "audit", "admin", "reconnect", "stale"}
 )
 
@@ -230,7 +235,13 @@ var serverParsers = map[string]func(raw []byte) (Inbound, error){
 	"control.cancel":  check(func(*ControlCancel) bool { return true }),
 	"caps.update":     check(func(m *CapsUpdate) bool { return validCaps(m.Caps) }),
 	"binding.offer":   parseBindingOffer,
-	"binding.issued":  check(validBindingIssued),
+	// P28a (mimari-p28 §4.3): pano/yazdırma iletimi; doğrulayıcılar clipprint.go.
+	"clip.consent":   check(func(*ClipConsent) bool { return true }),
+	"clip.push":      check(validClipPush),
+	"clip.pull":      check(func(m *ClipPull) bool { return cpIDRe.MatchString(m.CID) }),
+	"print.request":  check(validPrintRequest),
+	"print.cancel":   check(func(m *PrintCancel) bool { return cpIDRe.MatchString(m.PID) }),
+	"binding.issued": check(validBindingIssued),
 	"error": check(func(m *ErrorMsg) bool {
 		return slices.Contains(wsErrorCodes, m.Code) && utf16Len(m.Message) <= errMsgMax
 	}),
@@ -240,7 +251,8 @@ func validHello(m *Hello) bool {
 	return validHelloCaps(m.Caps) && slices.Contains(roles, m.Role) && ulidRe.MatchString(m.SessionID) &&
 		validGuestKind(m.GuestKind) && validIceServers(m.IceServers) && (m.MaxEndsAt == nil || isISO(*m.MaxEndsAt)) &&
 		validMaxFileMb(m.MaxFileMb) && (m.ReconnectToken == "" || tokenRe.MatchString(m.ReconnectToken)) &&
-		(m.GuestName == nil || utf16Len(*m.GuestName) <= nameMax) && validShareSnapshot(m.Share)
+		(m.GuestName == nil || utf16Len(*m.GuestName) <= nameMax) && validShareSnapshot(m.Share) &&
+		validGuestFeatures(m.GuestFeatures)
 }
 
 // validHelloCaps hello'da caps isteğe bağlıdır (nil geçerli); varsa yalnız bilinen yetenekler.
@@ -260,7 +272,7 @@ func validShareSnapshot(s *ShareSnapshot) bool {
 func validPeerJoined(m *PeerJoined) bool {
 	return slices.Contains(roles, m.Role) && validGuestKind(m.GuestKind) &&
 		(m.GuestName == nil || utf16Len(*m.GuestName) <= nameMax) && (m.MaxEndsAt == "" || isISO(m.MaxEndsAt)) &&
-		validMaxFileMb(m.MaxFileMb)
+		validMaxFileMb(m.MaxFileMb) && validGuestFeatures(m.GuestFeatures)
 }
 
 // parseBindingOffer zod `z.literal(true).optional()`: alan varsa yalnız `true` (null/false red).

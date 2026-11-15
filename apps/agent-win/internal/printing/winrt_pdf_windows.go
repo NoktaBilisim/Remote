@@ -4,7 +4,6 @@ package printing
 
 import (
 	"bytes"
-	"image"
 	"image/png"
 	"math"
 	"time"
@@ -102,6 +101,33 @@ func loadPDF(data []byte) (*pdfDoc, error) {
 func (d *pdfDoc) close() {
 	d.doc.release()
 	d.doc = nil
+}
+
+func (d *pdfDoc) pageCount() uint32 { return d.pages }
+
+// pageSize sayfa ölçüsü (DIP, yuvarlanmış, 1..MaxPageDIP); okunamayan/sonsuz değer 1 sayılır (dikey varsayılır).
+func (d *pdfDoc) pageSize(idx uint32) (uint32, uint32, error) {
+	if idx >= d.pages {
+		return 0, 0, ErrProtocol
+	}
+	var page *comObj
+	if hr := d.doc.call(vtPdfDocGetPage, uintptr(idx), uintptr(unsafe.Pointer(&page))); hr.failed() {
+		return 0, 0, hr.err("PdfDocument.GetPage")
+	}
+	defer page.release()
+	var size struct{ W, H float32 }
+	if hr := page.call(vtPdfPageSize, uintptr(unsafe.Pointer(&size))); hr.failed() {
+		return 0, 0, hr.err("PdfPage.Size")
+	}
+	return dip(size.W), dip(size.H), nil
+}
+
+func dip(v float32) uint32 {
+	f := float64(v)
+	if !(f >= 1) || math.IsInf(f, 0) {
+		return 1
+	}
+	return uint32(math.Min(MaxPageDIP, math.Round(f)))
 }
 
 // render idx sayfasını tam w×h hedefe, oranı koruyarak beyaz zemine ortalanmış BGR olarak çizer. Hedef boyutu üst
@@ -244,24 +270,4 @@ func streamOver(ras *comObj) (*comObj, error) {
 		return nil, err
 	}
 	return ist, nil
-}
-
-// compose img'yi beyaz bm üzerine ortalar (24 bit BGR, üstten aşağı). Saydamlık beyaza karıştırılır.
-func compose(bm *Bitmap, img image.Image) {
-	for i := range bm.Pix {
-		bm.Pix[i] = 0xff
-	}
-	b := img.Bounds()
-	iw, ih := min(b.Dx(), bm.W), min(b.Dy(), bm.H)
-	ox, oy := (bm.W-iw)/2, (bm.H-ih)/2
-	for y := 0; y < ih; y++ {
-		row := bm.Pix[(oy+y)*bm.Stride+ox*3:]
-		for x := 0; x < iw; x++ {
-			r, g, bl, a := img.At(b.Min.X+x, b.Min.Y+y).RGBA() // 16 bit, alfa ön çarpımlı
-			inv := 0xffff - a
-			row[x*3] = byte((bl + inv) >> 8)
-			row[x*3+1] = byte((g + inv) >> 8)
-			row[x*3+2] = byte((r + inv) >> 8)
-		}
-	}
 }

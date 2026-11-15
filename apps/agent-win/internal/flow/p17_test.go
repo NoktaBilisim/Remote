@@ -175,7 +175,7 @@ func TestAC234StoppedReachesFakeServerWithin1s(t *testing.T) {
 	failAt := make(chan time.Time, 1)
 	release := make(chan struct{})
 	h.deps.Dial = func(ctx context.Context, cred signal.Credential) (Conn, error) {
-		return signal.Dial(ctx, hc, u, cred)
+		return signal.Dial(ctx, hc, u, cred, nil)
 	}
 	h.deps.NewPeer = func(_ []signal.IceServer, _ []string, hd rtc.Handlers) (Peer, error) {
 		return &timedFailPeer{fakePeer: &fakePeer{h: hd, offers: make(chan string, 4), ctl: make(chan []byte, 4)},

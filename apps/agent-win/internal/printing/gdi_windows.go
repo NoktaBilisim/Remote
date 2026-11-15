@@ -4,44 +4,40 @@ package printing
 
 import (
 	"encoding/binary"
-	"errors"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
 // GDI ile yazıcıya basma (mimari-p28 §5.3): üst süreçte çalışır. Varsayılan DEVMODE üzerine dmCopies=1, spool belge
-// adı sabit (dosya adı kuyruğa düşmez), sayfa yazdırılabilir alana oran korunarak işleyicide sığdırılmış bitmap'tir;
-// burada yalnız 1:1 StretchDIBits. K0 taslağı: sayfa yönü (ResetDCW) K4'te.
+// adı sabit (dosya adı kuyruğa düşmez), sayfa yönü sayfanın en/boy oranından ResetDCW ile (DMORIENT_*), sayfa
+// yazdırılabilir alana oran korunarak işleyicide sığdırılmış bitmap'tir; burada yalnız 1:1 StretchDIBits.
 
 // DocName spool kuyruğunda görünen tek ad.
 const DocName = "NoktaDestek uzaktan yazdırma"
 
 const (
-	maxPrintDPI = 300
-
 	horzRes    = 8  // GetDeviceCaps HORZRES
 	vertRes    = 10 // VERTRES
 	logPixelsX = 88 // LOGPIXELSX
 
-	dmOutBuffer = 2
-	dmInBuffer  = 8
-	dmCopies    = 0x100
-	idOK        = 1
+	dmOutBuffer      = 2
+	dmInBuffer       = 8
+	dmOrientation    = 0x1
+	dmCopies         = 0x100
+	dmOrientPortrait = 1
+	dmOrientLandsc   = 2
+	idOK             = 1
 
 	// DEVMODEW yerleşimi: dmDeviceName[32]WCHAR (64) | dmSpecVersion | dmDriverVersion | dmSize | dmDriverExtra |
 	// dmFields u32 @72 | yazıcı birliği: dmOrientation @76 … dmCopies @86.
 	devmodeFieldsOff = 72
+	devmodeOrientOff = 76
 	devmodeCopiesOff = 86
 	devmodeMinLen    = 88
 
 	srcCopy     = 0x00CC0020
 	dibRGBColor = 0
-)
-
-var (
-	ErrNoPrinter = errors.New("printing: varsayılan yazıcı yok")
-	ErrPrint     = errors.New("printing: yazdırma başarısız")
 )
 
 var (
@@ -53,6 +49,7 @@ var (
 	pClosePrinter        = modWinspool.NewProc("ClosePrinter")
 	pDocumentPropertiesW = modWinspool.NewProc("DocumentPropertiesW")
 	pCreateDCW           = modGDI32.NewProc("CreateDCW")
+	pResetDCW            = modGDI32.NewProc("ResetDCW")
 	pDeleteDC            = modGDI32.NewProc("DeleteDC")
 	pGetDeviceCaps       = modGDI32.NewProc("GetDeviceCaps")
 	pStartDocW           = modGDI32.NewProc("StartDocW")
@@ -96,15 +93,17 @@ func DefaultPrinter() (string, error) {
 	return windows.UTF16ToString(buf), nil
 }
 
-// Printer açık yazıcı DC'si (tek kopya DEVMODE ile).
-type Printer struct {
-	dc uintptr
+// device açık yazıcı DC'si (tek kopya DEVMODE ile). orient: 0 bilinmiyor, aksi DMORIENT_*.
+type device struct {
+	dc     uintptr
+	dm     []byte
+	orient uint16
 }
 
-// OpenPrinter adı verilen yazıcının DC'sini açar; yazıcı yoksa ErrNoPrinter.
-func OpenPrinter(name string) (*Printer, error) {
+// openDevice adı verilen yazıcının DC'sini açar; yazıcı yoksa ErrNoPrinter.
+func openDevice(name string) (*device, error) {
 	n, err := windows.UTF16PtrFromString(name)
-	if err != nil {
+	if err != nil || name == "" {
 		return nil, ErrNoPrinter
 	}
 	dm := oneCopyDevmode(n)
@@ -117,7 +116,7 @@ func OpenPrinter(name string) (*Printer, error) {
 	if dc == 0 {
 		return nil, ErrNoPrinter
 	}
-	return &Printer{dc: dc}, nil
+	return &device{dc: dc, dm: dm}, nil
 }
 
 // oneCopyDevmode sürücünün varsayılan DEVMODE'u, dmCopies=1 ile birleştirilmiş; alınamazsa nil (CreateDC varsayılanı).
@@ -146,24 +145,42 @@ func oneCopyDevmode(name *uint16) []byte {
 	return dm
 }
 
+// Orient sayfa yönünü ResetDCW ile ayarlar (yalnız sayfalar arasında çağrılır). DEVMODE yoksa veya sürücü reddederse
+// mevcut yönde devam edilir: render hedefi yine o yöndeki yazdırılabilir alandan hesaplanır, sayfa oranı korunur.
+func (d *device) Orient(landscape bool) {
+	want := uint16(dmOrientPortrait)
+	if landscape {
+		want = dmOrientLandsc
+	}
+	if len(d.dm) < devmodeMinLen || d.orient == want {
+		return
+	}
+	le := binary.LittleEndian
+	prevFields, prevOrient := le.Uint32(d.dm[devmodeFieldsOff:]), le.Uint16(d.dm[devmodeOrientOff:])
+	le.PutUint32(d.dm[devmodeFieldsOff:], prevFields|dmOrientation)
+	le.PutUint16(d.dm[devmodeOrientOff:], want)
+	if r, _, _ := pResetDCW.Call(d.dc, uintptr(unsafe.Pointer(&d.dm[0]))); r == 0 {
+		le.PutUint32(d.dm[devmodeFieldsOff:], prevFields)
+		le.PutUint16(d.dm[devmodeOrientOff:], prevOrient)
+		return
+	}
+	d.orient = want
+}
+
 // Target işleyiciden istenecek render boyutu: yazdırılabilir alan, DPI ≤ 300 (oran korunur), ≤ MaxPixels.
-func (p *Printer) Target() (w, h uint32, ok bool) {
-	pw, _, _ := pGetDeviceCaps.Call(p.dc, horzRes)
-	ph, _, _ := pGetDeviceCaps.Call(p.dc, vertRes)
-	dpi, _, _ := pGetDeviceCaps.Call(p.dc, logPixelsX)
+func (d *device) Target() (w, h uint32, ok bool) {
+	pw, _, _ := pGetDeviceCaps.Call(d.dc, horzRes)
+	ph, _, _ := pGetDeviceCaps.Call(d.dc, vertRes)
+	dpi, _, _ := pGetDeviceCaps.Call(d.dc, logPixelsX)
 	if int32(pw) <= 0 || int32(ph) <= 0 || int32(dpi) <= 0 {
 		return 0, 0, false
 	}
-	w, h = uint32(pw), uint32(ph)
-	if d := uint32(dpi); d > maxPrintDPI {
-		w, h = max(1, w*maxPrintDPI/d), max(1, h*maxPrintDPI/d)
-	}
-	return w, h, validTarget(w, h)
+	return targetSize(uint32(pw), uint32(ph), uint32(dpi))
 }
 
-// Print sayfaları tek belge olarak basar. output boş değilse spool çıktısı o dosyaya gider (yalnız test: "Microsoft
-// Print to PDF" kayıt diyaloğunu açmasın diye); üretimde boş.
-func (p *Printer) Print(pages []*Bitmap, output string) error {
+// begin belgeyi açar. output boş değilse spool çıktısı o dosyaya gider (yalnız test: "Microsoft Print to PDF" kayıt
+// diyaloğunu açmasın diye); üretimde boş.
+func (d *device) begin(output string) error {
 	name, _ := windows.UTF16PtrFromString(DocName)
 	di := docInfo{docName: name}
 	di.size = int32(unsafe.Sizeof(di))
@@ -174,48 +191,48 @@ func (p *Printer) Print(pages []*Bitmap, output string) error {
 		}
 		di.output = out
 	}
-	if r, _, _ := pStartDocW.Call(p.dc, uintptr(unsafe.Pointer(&di))); int32(r) <= 0 {
-		return ErrPrint
-	}
-	pw, _, _ := pGetDeviceCaps.Call(p.dc, horzRes)
-	ph, _, _ := pGetDeviceCaps.Call(p.dc, vertRes)
-	for _, bm := range pages {
-		if err := p.page(bm, int32(pw), int32(ph)); err != nil {
-			_, _, _ = pAbortDoc.Call(p.dc)
-			return err
-		}
-	}
-	if r, _, _ := pEndDoc.Call(p.dc); int32(r) <= 0 {
+	if r, _, _ := pStartDocW.Call(d.dc, uintptr(unsafe.Pointer(&di))); int32(r) <= 0 {
 		return ErrPrint
 	}
 	return nil
 }
 
-// page tek sayfa: bitmap yazdırılabilir alanın tamamına (render hedefi bu alanın oranında) StretchDIBits.
-func (p *Printer) page(bm *Bitmap, pw, ph int32) error {
-	if bm == nil || bm.Stride != int(Stride(uint32(bm.W))) || len(bm.Pix) != bm.Stride*bm.H {
+func (d *device) end() error {
+	if r, _, _ := pEndDoc.Call(d.dc); int32(r) <= 0 {
 		return ErrPrint
 	}
-	if r, _, _ := pStartPage.Call(p.dc); int32(r) <= 0 {
+	return nil
+}
+
+func (d *device) abort() { _, _, _ = pAbortDoc.Call(d.dc) }
+
+// Page tek sayfa: bitmap o anki yazdırılabilir alanın tamamına (render hedefi bu alandır) StretchDIBits.
+func (d *device) Page(bm *Bitmap) error {
+	if bm == nil || bm.W <= 0 || bm.H <= 0 || bm.Stride != int(Stride(uint32(bm.W))) || len(bm.Pix) != bm.Stride*bm.H {
+		return ErrPrint
+	}
+	pw, _, _ := pGetDeviceCaps.Call(d.dc, horzRes)
+	ph, _, _ := pGetDeviceCaps.Call(d.dc, vertRes)
+	if r, _, _ := pStartPage.Call(d.dc); int32(r) <= 0 {
 		return ErrPrint
 	}
 	bi := bitmapInfoHeader{width: int32(bm.W), height: -int32(bm.H), planes: 1, bits: 24}
 	bi.size = uint32(unsafe.Sizeof(bi))
-	lines, _, _ := pStretchDIBits.Call(p.dc, 0, 0, uintptr(pw), uintptr(ph), 0, 0, uintptr(bm.W), uintptr(bm.H),
+	lines, _, _ := pStretchDIBits.Call(d.dc, 0, 0, pw, ph, 0, 0, uintptr(bm.W), uintptr(bm.H),
 		uintptr(unsafe.Pointer(&bm.Pix[0])), uintptr(unsafe.Pointer(&bi)), dibRGBColor, srcCopy)
 	if int32(lines) <= 0 {
 		return ErrPrint
 	}
-	if r, _, _ := pEndPage.Call(p.dc); int32(r) <= 0 {
+	if r, _, _ := pEndPage.Call(d.dc); int32(r) <= 0 {
 		return ErrPrint
 	}
 	return nil
 }
 
-// Close DC'yi bırakır.
-func (p *Printer) Close() {
-	if p.dc != 0 {
-		_, _, _ = pDeleteDC.Call(p.dc)
-		p.dc = 0
+// close DC'yi bırakır.
+func (d *device) close() {
+	if d.dc != 0 {
+		_, _, _ = pDeleteDC.Call(d.dc)
+		d.dc = 0
 	}
 }

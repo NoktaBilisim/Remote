@@ -149,7 +149,7 @@ func (a *app) flowDeps(client *api.Client, u *ui.UI, opener capture.Opener, appl
 		Host: cfg.DisplayHost(), Version: cfg.Version, Fingerprint: a.fp,
 		API: client,
 		Dial: func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
-			return signal.Dial(ctx, client.HTTPClient(), cfg.ServerURL, cred)
+			return signal.Dial(ctx, client.HTTPClient(), cfg.ServerURL, cred, nil)
 		},
 		NewPeer: func(ice []signal.IceServer, caps []string, h rtc.Handlers) (flow.Peer, error) {
 			return rtc.New(ice, caps, h)

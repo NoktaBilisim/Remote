@@ -4,6 +4,7 @@ package printing
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -63,7 +64,7 @@ func writeSummary() {
 		return
 	}
 	defer f.Close()
-	_, _ = fmt.Fprintf(f, "### P28a K0 — Windows.Data.Pdf / işleyici yalıtımı / GDI\n\n| Sonuç |\n|---|\n")
+	_, _ = fmt.Fprintf(f, "### P28a K0/K4 — Windows.Data.Pdf / işleyici yalıtımı / GDI\n\n| Sonuç |\n|---|\n")
 	for _, r := range summary {
 		_, _ = fmt.Fprintf(f, "| %s |\n", strings.ReplaceAll(r, "|", "/"))
 	}
@@ -138,10 +139,11 @@ func TestP28aK0WorkerIsolation(t *testing.T) {
 		required bool
 	}{
 		{"kısıtlı jeton + job", Isolation{}, true},
+		{"kısıtlı jeton + job, UI kısıtı yok", Isolation{SkipUILimits: true}, false},
 		{"+ düşük bütünlük", Isolation{LowIntegrity: true}, false},
 		{"+ yalnız Microsoft imzalı görüntü", Isolation{MicrosoftOnly: true}, false},
 		{"+ dinamik kod yasak", Isolation{NoDynamicCode: true}, false},
-		{"tam (tasarım r2)", FullIsolation, false},
+		{"tam (tasarım r2 = DefaultIsolation)", FullIsolation, false},
 	}
 	for _, v := range variants {
 		t.Run(v.name, func(t *testing.T) {
@@ -164,7 +166,8 @@ func workerRound(exe string, iso Isolation) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("başlatma: %w", err)
 	}
-	pages, err := w.Inspect(k0PDF)
+	ctx := context.Background()
+	pages, err := w.Inspect(ctx, k0PDF)
 	il := integrityOf(w)
 	if err != nil {
 		code := w.Close()
@@ -175,7 +178,12 @@ func workerRound(exe string, iso Isolation) (string, error) {
 		return "", fmt.Errorf("sayfa = %d", pages)
 	}
 	for i := uint32(0); i < 2; i++ {
-		bm, err := w.Render(i, testW, testH)
+		pw, ph, err := w.PageSize(ctx, i)
+		if err != nil || (i == 0) != (pw < ph) {
+			code := w.Close()
+			return "", fmt.Errorf("sayfa ölçüsü %d: %dx%d %v (çıkış 0x%08X)", i+1, pw, ph, err, code)
+		}
+		bm, err := w.Render(ctx, i, testW, testH)
 		if err != nil {
 			code := w.Close()
 			return "", fmt.Errorf("render %d: %w (bütünlük %s, çıkış 0x%08X)", i+1, err, il, code)
@@ -185,7 +193,7 @@ func workerRound(exe string, iso Isolation) (string, error) {
 			return "", fmt.Errorf("render %d boş görünüyor (mürekkep=%d)", i+1, ink)
 		}
 	}
-	if _, err := w.Inspect([]byte("%PDF-1.4\nbozuk")); !errors.Is(err, ErrInvalidPDF) {
+	if _, err := w.Inspect(ctx, []byte("%PDF-1.4\nbozuk")); !errors.Is(err, ErrInvalidPDF) {
 		w.Close()
 		return "", fmt.Errorf("bozuk PDF: %v, ErrInvalidPDF beklenir", err)
 	}
@@ -198,7 +206,12 @@ func workerRound(exe string, iso Isolation) (string, error) {
 // integrityOf işleyici sürecin bütünlük SID'i (S-1-16-4096 = düşük, 8192 = orta, 12288 = yüksek).
 func integrityOf(w *Worker) string {
 	var tok windows.Token
-	if err := windows.OpenProcessToken(w.p.h, windows.TOKEN_QUERY, &tok); err != nil {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, w.pid)
+	if err != nil {
+		return "okunamadı"
+	}
+	defer windows.CloseHandle(h)
+	if err := windows.OpenProcessToken(h, windows.TOKEN_QUERY, &tok); err != nil {
 		return "okunamadı"
 	}
 	defer tok.Close()
@@ -214,45 +227,42 @@ func integrityOf(w *Worker) string {
 	return (*windows.Tokenmandatorylabel)(unsafe.Pointer(&buf[0])).Label.Sid.String()
 }
 
-// (c) GDI: "Microsoft Print to PDF" varsa iki sayfayı dosyaya basar (çıktı yolu verildiği için kayıt diyaloğu
-// açılmaz); yazıcı yoksa SKIP.
+// (c) Üretim yolu: New → Inspect (işleyici, DefaultIsolation) → Print (sayfa yönü ResetDCW, GDI). "Microsoft Print to
+// PDF" varsa iki sayfa dosyaya basılır (çıktı yolu verildiği için kayıt diyaloğu açılmaz); yazıcı yoksa SKIP.
 func TestP28aK0PrintToPDF(t *testing.T) {
 	if name, err := DefaultPrinter(); err == nil {
 		report(t, fmt.Sprintf("(c) varsayılan yazıcı: %q", name))
 	} else {
 		report(t, "(c) varsayılan yazıcı: yok (NO_PRINTER yolu)")
 	}
-	p, err := OpenPrinter("Microsoft Print to PDF")
+	const pdfPrinter = "Microsoft Print to PDF"
+	dev, err := openDevice(pdfPrinter)
 	if err != nil {
 		report(t, "(c) Microsoft Print to PDF: yazıcı yok — SKIP")
 		t.Skip("Microsoft Print to PDF yok")
 	}
-	defer p.Close()
-	w, h, ok := p.Target()
-	if !ok {
-		t.Fatal("yazdırılabilir alan okunamadı")
-	}
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	if err := roInit(); err != nil {
-		t.Fatal(err)
-	}
-	defer roUninit()
-	doc, err := loadPDF(k0PDF)
+	dev.close()
+	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer doc.close()
-	var pages []*Bitmap
-	for i := uint32(0); i < doc.pages; i++ {
-		bm, err := doc.render(i, w, h)
-		if err != nil {
-			t.Fatal(err)
-		}
-		pages = append(pages, bm)
-	}
 	out := filepath.Join(t.TempDir(), "k0-cikti.pdf")
-	if err := p.Print(pages, out); err != nil {
+	var job Job
+	for _, iso := range []Isolation{DefaultIsolation, {}} { // tam yalıtım açılmazsa temel düzeyle GDI yolu yine sınanır
+		p := &winPrinter{exe: exe, iso: iso, output: out}
+		if job, err = p.Inspect(context.Background(), k0PDF); err == nil {
+			report(t, fmt.Sprintf("(c) işleyici yalıtımı: %+v", iso))
+			break
+		}
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer job.Close()
+	if job.Pages() != 2 {
+		t.Fatalf("sayfa = %d", job.Pages())
+	}
+	if err := job.Print(context.Background(), pdfPrinter); err != nil {
 		report(t, fmt.Sprintf("(c) Microsoft Print to PDF: ÇALIŞMIYOR — %v", err))
 		t.Fatal(err)
 	}
@@ -268,5 +278,24 @@ func TestP28aK0PrintToPDF(t *testing.T) {
 		report(t, fmt.Sprintf("(c) Microsoft Print to PDF: çıktı dosyası yok/geçersiz (%v)", err))
 		t.Fatalf("çıktı: %v", err)
 	}
-	report(t, fmt.Sprintf("(c) Microsoft Print to PDF: ÇALIŞIYOR (hedef %dx%d, 2 sayfa, %d bayt PDF)", w, h, len(data)))
+	report(t, fmt.Sprintf("(c) Microsoft Print to PDF: ÇALIŞIYOR (2 sayfa, dikey + yatay ResetDCW, %d bayt PDF)", len(data)))
+}
+
+// İptal: ctx iptali Print'i ErrCancelled ile bitirir ve işleyiciyi durdurur.
+func TestP28aK4PrintCancelled(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &winPrinter{exe: exe, iso: Isolation{}}
+	job, err := p.Inspect(context.Background(), k0PDF)
+	if err != nil {
+		t.Skipf("işleyici açılmadı: %v", err)
+	}
+	defer job.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := job.Print(ctx, "Microsoft Print to PDF"); !errors.Is(err, ErrCancelled) {
+		t.Fatalf("iptal sonucu = %v", err)
+	}
 }

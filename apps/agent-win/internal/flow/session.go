@@ -52,6 +52,8 @@ type peerEvent struct {
 	state string
 	// doneTimeout transfer.DoneWait doldu (fid); zamanlayıcı goroutine'inden döngüye döner.
 	doneTimeout string
+	// run P28a: zamanlayıcı/goroutine sonucunun döngüde çalışacak kapanışı (clipprint).
+	run func()
 }
 
 type session struct {
@@ -102,6 +104,8 @@ type session struct {
 	bindingChanged              string
 	// techLost bir önceki sunucu mesajı control.revoke{reconnect} idi ve kontrol/diyalog kapattı (yalnız bir mesaj yaşar).
 	techLost bool
+	// cp P28a pano + yazdırma (clipprint.go).
+	cp *clipPrint
 }
 
 func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
@@ -109,6 +113,7 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 	s.peerEv = make(chan peerEvent, 256)
 	s.redial = make(chan Conn, 1)
 	s.shareErr = make(chan error, 1)
+	s.cp = s.newClipPrint(ctx)
 	defer s.cleanup()
 
 	conn, err := s.d.Dial(ctx, signal.Credential{Ticket: jr.WsTicket})
@@ -179,6 +184,7 @@ func (s *session) onInbound(ctx context.Context, r inbound) (Outcome, bool) {
 // startReconnect AC-24: kabul edilmiş misafir reconnectToken ile 120 sn içinde döner; yeni PeerConnection kurulur.
 func (s *session) startReconnect(ctx context.Context) {
 	s.closeControl(ctx, "", true) // kopuşta kapı kapanır; sunucu durumu VIEW yapar (AC-24)
+	s.cp.reset()                  // P28a O-P28a-1 m.4: bekleyen kimlikler silinir
 	// AC-250 (B-P8c2-4): yanıtı gelmemiş kayıt isteği soketle gitti; yeni soketteki teklif yeni istek doğurur.
 	s.bindingPending = false
 	s.phase = phReconnecting
@@ -253,6 +259,8 @@ func (s *session) onUser(ctx context.Context, ev Event) (Outcome, bool) {
 		}
 	case EvControlGrant, EvControlDeny, EvControlClose, EvControlHotkey, EvMonitorAccept, EvMonitorDeny:
 		s.onControlUser(ctx, ev)
+	case EvClipConsent, EvPrintApprove, EvPrintReject:
+		s.cp.onUser(ev)
 	case EvFileCancel:
 		if s.files != nil {
 			if r := s.files.CancelLocal(); r != nil {
@@ -286,6 +294,7 @@ func chatMessage(text string, now time.Time) ([]byte, error) {
 
 func (s *session) cleanup() {
 	s.gate.Close()
+	s.cp.close()
 	s.dropPeer()
 	if s.src != nil {
 		_ = s.src.Close()
