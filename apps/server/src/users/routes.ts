@@ -94,8 +94,8 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireAnyPerm("session_history.view", "support_requests.view", "users.view") },
     async (req): Promise<UserOptionsResponse> => {
       const auth = authOf(req);
-      const { tenantId, includeDeleted } = parseInput(userOptionsQuerySchema, req.query);
-      return userOptions(app.db, auth, await userOptionsTenant(app.db, auth, tenantId), includeDeleted);
+      const { tenantId, includeDeleted, assignable } = parseInput(userOptionsQuerySchema, req.query);
+      return userOptions(app.db, auth, await userOptionsTenant(app.db, auth, tenantId), includeDeleted, assignable);
     },
   );
 

@@ -56,6 +56,13 @@ export const ERROR_STATUS = {
   REQUEST_CLOSED: 409,
   /** P15 düzeltme 2 (S15-6): firmada kabul kodu açık, talep istemcisi < ACCEPT_CODE_MIN_CLIENT_VERSION; talep PENDING kalır. */
   ACCEPT_CODE_CLIENT_UNSUPPORTED: 409,
+  /**
+   * P18 (AC-258, K-P18-7): firma mesai dışında ve `afterHoursMode = REJECT`; `fields.nextOpeningAt` (ISO; açık an yoksa
+   * yok). `clientVersion < CHAT_MIN_CLIENT_VERSION` istemciye aynı mesaj 429 `QUEUE_FULL` olarak döner.
+   */
+  OUTSIDE_HOURS: 409,
+  /** P18 (AC-255, H3): müşteri soketi bağlı ve mesajlaşmayı desteklemiyor. */
+  CHAT_UNSUPPORTED: 409,
   /** P8c: bilgisayar kaydı geçersiz (yok/unutulmuş/değiştirilmiş/müşteri yenilendi-pasif/Genel yenilendi/tenant pasif/süresi doldu) — tek gövde (AC-185). */
   BINDING_INVALID: 404,
   /** P12 (AC-84): yükleme 2 MB'ı aşıyor. */

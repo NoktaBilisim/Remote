@@ -23,6 +23,8 @@ export const detailSelect = {
   passiveAt: true,
   anonymizedAt: true,
   createdAt: true,
+  defaultPriority: true, // P18 (AC-257)
+  slaMinutes: true,
 } as const;
 export type CustomerRow = Prisma.CustomerGetPayload<{ select: typeof detailSelect }>;
 

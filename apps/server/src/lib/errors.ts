@@ -43,6 +43,8 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   REQUEST_TAKEN: "Talep başka bir teknisyen tarafından alındı.",
   REQUEST_CLOSED: "Talep artık açık değil (iptal, süre dolumu veya ret).",
   ACCEPT_CODE_CLIENT_UNSUPPORTED: ACCEPT_CODE_CLIENT_UNSUPPORTED_MESSAGE,
+  OUTSIDE_HOURS: "Mesai dışındayız.",
+  CHAT_UNSUPPORTED: "Müşterinin programı mesajlaşmayı desteklemiyor; güncellemesi gerekir.",
   QUEUE_FULL: "Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.",
   CLIENT_OUTDATED: "Bu Hızlı Destek dosyası eski. Güvenliğiniz için yeni sürümü indirin.",
   UPSTREAM: "Servise ulaşılamadı.",

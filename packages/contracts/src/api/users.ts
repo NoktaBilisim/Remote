@@ -216,6 +216,14 @@ export const userOptionsQuerySchema = z.strictObject({
     .enum(["0", "1"])
     .optional()
     .transform((v) => v === "1"),
+  /**
+   * P18 (AC-256): `1` → yalnız atanabilir kullanıcılar (aynı tenant, ACTIVE, etkin `support_requests.view` +
+   * `support_requests.accept`). Çağıranda `support_requests.assign` varsa USER rolünün "yalnız kendisi" kuralı uygulanmaz.
+   */
+  assignable: z
+    .enum(["0", "1"])
+    .optional()
+    .transform((v) => v === "1"),
 });
 export type UserOptionsQuery = z.infer<typeof userOptionsQuerySchema>;
 

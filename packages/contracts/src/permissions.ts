@@ -9,7 +9,9 @@ export const PERMISSION_MODULES = [
   { key: "session_history", actions: ["view", "edit", "export"] },
   // P8b (AC-147): view = kuyruk, geçmiş, panel bildirimi; accept = kabul VE ret (sessions.create gerekmez, mimari-e9 §4).
   // P15 (AC-235): block = talep engelleri (IP/önek, cihaz) listele/ekle/kaldır.
-  { key: "support_requests", actions: ["view", "accept", "block"] },
+  // P18 (AC-256, 257; S-P18-T3): assign = talebi teknisyene ata / atamayı kaldır / önceliği değiştir; message = bekleyen
+  // talepte müşteriye mesaj yaz (uç H3).
+  { key: "support_requests", actions: ["view", "accept", "block", "assign", "message"] },
   // P8c (AC-165): view = liste, detay, Genel bağlantı, oturumda seçim; edit = düzenle, bağlantıyı yenile, yeniden aktif et,
   // tek kayıt iptali; delete = PASİFE ALMA (kalıcı silme yok — V23).
   { key: "customers", actions: ["view", "create", "edit", "delete"] },
@@ -44,6 +46,8 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   "users.edit": "Kullanıcı bilgilerini, rolünü ve yetkilerini değiştirir; kullanıcıyı pasife alır veya yeniden etkinleştirir.",
   "support_requests.block":
     "Belirli bir IP adresinden/ağdan veya bilgisayardan gelen destek taleplerini engeller; engelleri listeler ve kaldırır.",
+  "support_requests.assign": "Talebi teknisyene atar ve önceliğini değiştirir.",
+  "support_requests.message": "Bekleyen talepte müşteriye mesaj yazar.",
   // P15 (AC-237): anahtar kalıcı kullanıcı silme ucunu korur (uç P16, ADR-0030). Pasife alma "Düzenle" yetkisiyle yapılır.
   // P16 (AC-237/241): DELETE /users/:id — yalnız pasif kullanıcı, ad onayı + step-up.
   "users.delete": 'Pasif kullanıcıyı kalıcı siler (geri alınamaz). Pasife alma "Düzenle" yetkisiyle yapılır.',

@@ -1,7 +1,7 @@
 // Enum → Türkçe etiket eşlemesinin TEK yeri (mimari-api "Oturum geçmişi (P8)"). Web ve sunucu CSV'si aynı eşlemeyi kullanır.
 // CHECK'i olmayan değerler (`end_reason`, audit `action`) bilinmiyorsa ham gösterilir: `labelOf` boş bırakmaz, hata atmaz.
 import type { CustomerStatus } from "./api/customers.ts";
-import type { CancelReason, NetworkMatch, RequestStatus } from "./api/requests.ts";
+import type { AfterHoursMode, CancelReason, NetworkMatch, RequestPriority, RequestStatus } from "./api/requests.ts";
 import type {
   ConsentDecision,
   ConsentLevel,
@@ -79,6 +79,22 @@ export const CANCEL_REASON_LABELS: Readonly<Record<CancelReason, string>> = {
   TENANT_PASSIVE: "Firma pasif",
   CUSTOMER_PASSIVE: "Müşteri pasife alındı",
   BINDING_REVOKED: "Bilgisayar kaydı iptal edildi",
+};
+
+/** P18 (AC-257): öncelik etiketleri. */
+export const PRIORITY_LABELS: Readonly<Record<RequestPriority, string>> = {
+  LOW: "Düşük",
+  NORMAL: "Normal",
+  HIGH: "Yüksek",
+};
+/** P18 (AC-258): mesai dışında açılan talep rozeti. */
+export const AFTER_HOURS_LABEL = "Mesai dışı";
+/** P18 (AC-257): SLA aşımı rozeti ve oturum geçmişi CSV sütun başlığı. */
+export const SLA_BREACHED_LABEL = "SLA aşıldı";
+/** P18 (AC-258): mesai dışı modu. */
+export const AFTER_HOURS_MODE_LABELS: Readonly<Record<AfterHoursMode, string>> = {
+  ACCEPT: "Talebi al",
+  REJECT: "Reddet ve sonraki açılışı göster",
 };
 
 /** P8c (AC-166): müşteri durumu (yalnız renkle değil metinle). */

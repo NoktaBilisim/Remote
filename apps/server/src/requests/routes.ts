@@ -7,6 +7,8 @@ import { newRequestMail } from "../mail/templates.ts";
 import { sendTenantTest } from "../tenants/smtp-routes.ts";
 import {
   acceptRequestInputSchema,
+  assignRequestInputSchema,
+  priorityInputSchema,
   listRequestsQuerySchema,
   rejectRequestInputSchema,
   revokeBindingInputSchema,
@@ -24,11 +26,25 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
 import { authOf, requireAuth, requirePerm, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
-import { acceptRequest, getRequest, getSettings, listRequests, rejectRequest, rotateRef, updateSettings, whatsappTest } from "./panel.ts";
+import {
+  acceptRequest,
+  assignRequest,
+  changePriority,
+  getRequest,
+  getSettings,
+  listRequests,
+  rejectRequest,
+  rotateRef,
+  updateSettings,
+  whatsappTest,
+} from "./panel.ts";
+import { FixedWindowCounter } from "../lib/rate.ts";
 import { revokeRequestBinding } from "../bindings/service.ts";
 import * as repo from "./repo.ts";
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+/** P18: atama/öncelik yazmaları kullanıcı başına dakikada 30 (mimari-e11 §8b.5). */
+export const ASSIGN_WRITES_PER_MIN = 30;
 function idParam(req: FastifyRequest): string {
   const { id } = req.params as { id?: string };
   if (!id || !ULID.test(id)) throw new AppError("NOT_FOUND");
@@ -46,7 +62,7 @@ export async function supportRequestRoutes(app: FastifyInstance): Promise<void> 
 
   app.get("", view, async (req): Promise<SupportRequestListResponse> => {
     const { tenantId } = tenantScope(req);
-    return listRequests(app.requests, tenantId, parseInput(listRequestsQuerySchema, req.query));
+    return listRequests(app.requests, tenantId, parseInput(listRequestsQuerySchema, req.query), authOf(req).user.id);
   });
 
   app.get("/count", view, async (req): Promise<SupportRequestCountResponse> => {
@@ -79,6 +95,30 @@ export async function supportRequestRoutes(app: FastifyInstance): Promise<void> 
       return reply.status(204).send();
     },
   );
+
+  // P18 (AC-256, 257): atama ve öncelik — view + assign; kullanıcı başına 30/dk (iki uç ortak kova, P15 engel kalıbı).
+  const assignWrites = new FixedWindowCounter(ASSIGN_WRITES_PER_MIN + 1, 60_000, 60_000);
+  app.addHook("onClose", async () => assignWrites.close());
+  const assignLimit = async (req: FastifyRequest): Promise<void> => {
+    const key = authOf(req).user.id;
+    const wait = assignWrites.blockedFor(key);
+    if (wait > 0 || assignWrites.hit(key)) throw new AppError("RATE_LIMITED", { retryAfterSec: assignWrites.blockedFor(key) || 60 });
+  };
+  const assignPerm = { preHandler: [requirePerm("support_requests.view"), requirePerm("support_requests.assign"), assignLimit] };
+
+  app.post("/:id/assign", assignPerm, async (req): Promise<SupportRequestItem> => {
+    const { tenantId } = tenantScope(req);
+    const id = idParam(req);
+    const { userId } = parseInput(assignRequestInputSchema, req.body);
+    return assignRequest(app.requests, auditContext(req), authOf(req), tenantId, id, userId);
+  });
+
+  app.post("/:id/priority", assignPerm, async (req): Promise<SupportRequestItem> => {
+    const { tenantId } = tenantScope(req);
+    const id = idParam(req);
+    const { priority } = parseInput(priorityInputSchema, req.body);
+    return changePriority(app.requests, auditContext(req), authOf(req), tenantId, id, priority);
+  });
 
   app.post("/:id/reject", acceptPerm, async (req, reply) => {
     const { tenantId } = tenantScope(req);

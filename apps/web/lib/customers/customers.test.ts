@@ -23,6 +23,8 @@ const detail: CustomerDetail = {
   passiveAt: null,
   anonymizedAt: null,
   sessionCount: 0,
+  defaultPriority: null,
+  slaMinutes: null,
 };
 
 describe("AC-166 liste URL durumu", () => {

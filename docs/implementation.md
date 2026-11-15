@@ -7175,3 +7175,114 @@ Ayrıntı: `docs/db-notlari.md` "P18"; mimari-e11 §8b.1 + §8b.13.
   (sabit tek kaynakta değil; dba dokunmadı).
 - **H2/H3'e:** atama yaşam döngüsü (T5a: pasif/yetki kaldırma → aynı TX'te `assigned_to = NULL`) uygulamada; `sender_user_id`
   tekil FK (Super Admin başka tenant'ta yazabilir → servis testi). `business_hours.to` `"24:00"` kabul eder, zod aynı olmalı.
+
+## P18 H5 (devops) — 2026-11-15
+
+Ayrıntı: `docs/runbook.md` §25; mimari-e11 §8b.10 (H5), §8b.13 (T2a/b/c, T4, T12); "P18 H1 (dba)" sapma notu (22 → 23).
+
+- **Tetikleyici sayısı tek kaynakta:** `deploy/backup/lib.sh` `REMOTE_EXPECTED_TRIGGERS=23`; `backup.sh`
+  (`BACKUP_EXPECTED_TRIGGERS` boşsa) ve `restore.sh` (`RESTORE_EXPECTED_TRIGGERS` boşsa) buradan okur; `backup.env.example`
+  açıklaması "boş bırakın" olarak güncellendi. `test-backup-inner.sh` sabiti `lib.sh`'ten okur ve 23 olduğunu, manifestte
+  `session_messages_delete_guard` adını, `BACKUP_EXPECTED_TRIGGERS=22` → `FAILED adım=tetikleyici`, `RESTORE_EXPECTED_TRIGGERS=22`
+  → `restore-verify FAIL` sınar. `lib-ledger.sh` `-ge 22` (P16 eşiği) değişmedi. `audit-continuity.sql` H1'deki hâliyle.
+- **remote-watch (S-P18-T2c/T4/T12):** `/metrics` okumasına 4 alan (12–15): `rs_crypto_decrypt_failures_total` (bütün
+  seriler), `rs_calendar_fallback_total` (bütün seriler), `rs_request_messages_rejected_total{reason~"tenant"}`,
+  `rs_request_messages_total` (P18 işareti). Yeni kontroller `crypto-decrypt` (sayaç > 0 ya da artıştan 24 sa; Kritik),
+  `calendar-fallback` (artıştan 24 sa; ilk turda > 0 da), `msg-tenant-rate` (artıştan 1 sa; `queue.alert` kovası),
+  `p18-metrics` (P18 server'da iki zorunlu seri yoksa; fail-closed). P18 öncesi server'da kontroller yok. Yeni WATCH_* yok.
+- **Runbook §25:** tek kaynak notu; staging yayın sırası (açık silme işi / binlog ön kontrolü, ön yedek `git pull`'dan önce,
+  grants 561, ilk yedek 23, scratch restore provası, remote-watch); geçiş dönemi eski yedek (`RESTORE_EXPECTED_TRIGGERS=22`);
+  `P18_PRECHECK` sonrası `migrate resolve --rolled-back`; geri alma (yalnız imaj: firma silme çalışmaz; `down.sql` 3819
+  korumaları, ağaç da önceki commit'e); alarm tablosu; anahtar emekliliği + `crypto:rewrap`; tatil listesi yıllık güncellemesi.
+- **Yeni env değişkeni yok** (`.env.example`, `env.ts`, compose değişmedi).
+- **Testler:** shellcheck (CI imajı, `-S warning`) temiz: `deploy/ops/*.sh`, `deploy/backup/*.sh`. `deploy/ops/test-watch.sh`
+  GEÇTİ (P18: 13 senaryo + 2 metrik ayrıştırma). `deploy/backup/test-backup.sh` **GEÇTİ (102 PASS)**:
+  P18 migration'lı scratch MySQL'de manifest 23 + continuity `ok`, 22 → FAILED, restore-verify 23 OK / 22 FAIL. Test
+  konteyner/volume'ları silindi.
+- **Backend'e (H2/H3) metrik sözleşmesi (remote-watch buna bağlı):** `rs_request_messages_total`, `rs_crypto_decrypt_failures_total`
+  ve `rs_calendar_fallback_total` `createMetrics()`'te **kayıtlı** olmalı (seri yokken `ad 0` yazılır; yoksa `p18-metrics`
+  alarmı). Firma müşteri mesajı kovası reddi `rs_request_messages_rejected_total`'da `reason` değeri **"tenant" içermeli**
+  (öneri `reason="tenant_rate"`); gönderici tavanı farklı bir reason (ör. `sender_cap`) kullanmalı. `cli crypto:check-retire` /
+  `crypto:rewrap` komut adları runbook §25.5'tekiyle aynı olmalı (farklıysa devops'a not).
+- **Staging kabulü (H5, sunucuda yapılacak; bu turda staging'e bağlanılmadı):** runbook §25.2 adım 8 (ilk gece yedeği 23) ve
+  adım 9 (restore provası) — sonuç §8 yayın geçmişine.
+
+## P18 H2 (backend)
+
+Kapsam: AC-256 (atama), AC-257 (öncelik/SLA/kuyruk sırası), AC-258 (mesai saatleri/tatil/mesai dışı ret), S-P18-T3/T5/T6/T7/T12.
+Mesajlaşma (H3) ve H1 purge adımı bu turda değiştirilmedi.
+
+### Yeni / değişen uçlar
+
+| Uç                                                                | Yetki                            | Not                                                                                                                                           |
+| ----------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/v1/support-requests/:id/assign` `{userId: ULID\|null}` | view + `support_requests.assign` | 30/dk/kullanıcı; atanabilir değilse 400 `fields.userId`; PENDING değilse REQUEST_CLOSED; no-op audit yazmaz; commit sonrası `request.updated` |
+| `POST /api/v1/support-requests/:id/priority` `{priority}`         | view + `support_requests.assign` | aynı sayaç; `request.priority_changed` audit                                                                                                  |
+| `GET /api/v1/support-requests?tab=pending&assigned=me\|none`      | view                             | liste sırası `compareQueue`                                                                                                                   |
+| `GET/PUT /api/v1/settings/business-hours`                         | settings view / edit             | PUT 30/dk; `to: "24:00"` kabul; açıkken en az 1 aralık                                                                                        |
+| `GET/POST /api/v1/settings/holidays`, `DELETE /:id`               | settings view / edit             | 60/dk; 200 tavanı ayar satırı `FOR UPDATE` kilidi altında sayılır; aynı gün 409                                                               |
+| `POST /api/v1/settings/holidays/import-tr` `{year}`               | settings edit                    | 10/dk; 2026–2027 sabit liste; mevcut günler atlanır; tavan aşılırsa hiçbiri eklenmez (409)                                                    |
+| `GET /api/v1/users/options?assignable=1`                          | mevcut                           | yalnız atanabilir adaylar                                                                                                                     |
+| `GET /public/requests/tenant`                                     | public                           | `businessHours` (openNow, nextOpeningAt — açıkken null, AC-168 tek şekil)                                                                     |
+| Talep oluşturma (ref + bindingKey)                                | public/agent                     | mesai dışı → `409 OUTSIDE_HOURS` + `fields.nextOpeningAt`; istemci < 0.12.0 → `429 QUEUE_FULL`, Retry-After yok, rate-limit alarmını beslemez |
+
+Oturum geçmişi CSV'sine son sütun olarak **"SLA aşıldı"** (Evet / Hayır / boş) eklendi.
+
+### Değişen dosyalar
+
+- Sözleşme: `packages/contracts/src/{permissions,errors,labels,audit,ws-request}.ts`, `src/api/{requests,customers,users,sessions}.ts`,
+  yeni `src/holidays-tr.ts` (+ `package.json` export `./holidays-tr`), `fixtures/ws-request.json`, yeni `test/p18-contracts.test.ts`.
+- Sunucu: yeni `src/requests/{calendar,hours,hours-routes,assign}.ts`; değişen `src/requests/{repo,panel,service,routes,jobs}.ts`,
+  `src/app.ts`, `src/ops/metrics.ts`, `src/lib/errors.ts`, `src/audit/mask.ts`, `src/customers/{repo,service}.ts`,
+  `src/users/{repo,service,routes}.ts`, `src/tenants/service.ts`, `src/sessions/{history,history-repo}.ts`.
+- Test: yeni `test/unit/calendar-p18.test.ts`, `test/integration/p18-backend-h2.test.ts`; değişen `test/helpers/tenant-matrix.ts`
+  (8 yeni uç sınıflandı + 3 çapraz tenant vakası, fikstüre `holidayId`), `test/integration/sessions-history-api-p8.test.ts` (CSV başlığı).
+- Web (yalnız yeşil kalsın diye): `apps/web/messages/tr.json` (`perm.a.assign`, `perm.a.message`), `lib/customers/customers.test.ts`,
+  `lib/requests/requests.test.ts` fikstürlerine yeni alanlar.
+
+### Kararlar ve sapmalar (gerekçeli)
+
+- **Modüller:** takvim saf fonksiyonlar `calendar.ts` (DST: gün başına offset, boşluktaki yerel saat bir sonraki geçerli dakikaya,
+  belirsiz saat ilk geçişe; tarama 366 gün ile sınırlı), DB/önbellek `hours.ts` (kiracı başına 60 sn, yazımda geçersiz kılınır),
+  atama kaldırma ortak `assign.ts` (users/tenants servisleri kullanır, kopyalanmadı).
+- **Geçersiz saat dilimi / bozuk JSON:** talep reddedilmez; Europe/Istanbul'a düşülür, takvim "kapalı" sayılır (SLA NULL),
+  `rs_calendar_fallback_total{tenant}` + `alarm: calendar_fallback` log. Yazımda şema IANA dışını zaten reddeder.
+- **compareQueue tek kaynak** (contracts): öncelik desc → createdAt asc → id asc; kuyruk pozisyonu, liste ve `pendingQueue` bunu kullanır.
+- **Atanabilirlik:** aynı tenant, ACTIVE, ADMIN|USER, efektif view + accept. Super Admin atama yapabilir, atanamaz.
+  `support_requests.assign` yetkisi olmayan USER `assignable=1` ile yalnız kendini görür.
+- **T5 yaşam döngüsü:** kullanıcı pasif/silme, view/accept yetkisi kaldırma ve firma pasife alma, atamayı aynı TX'te kaldırır
+  (`request.assigned` audit, reason `user_inactive`) ve commit sonrası `request.updated` yayınlar. Firma pasifinde talepler zaten
+  iptal edildiği için yayın yapılmaz, audit yazılır. `purgeUser` savunma amaçlı kaldırır, yayın yapmaz.
+- **Kilit sırası:** users (`FOR SHARE`) → support_requests (`FOR UPDATE`); tatil tavanı ayar satırı `FOR UPDATE`.
+- **T7:** mesai dışı ret audit'i kiracı başına dakikada en fazla 1 (pencere içi sayım `count` alanında); metrik her retde
+  `rs_requests_outside_hours_total{mode,legacy}`.
+- **Şema:** `request.new` yeni alanları (priority, slaDueAt, afterHours) **opsiyonel** — eski sekme/fikstür kırılmasın.
+  Mesai açıkken en az bir aralık zorunlu (boş açık takvim anlamsız).
+- **TR listesi:** 2027-05-19 hem 19 Mayıs hem Kurban 4. gün; aynı gün tek kayıtta birleştirildi (tam gün kapanış kazanır).
+  Dini bayram tarihleri her yıl Diyanet takvimiyle doğrulanmalı.
+- **H3 için hazırlık (yalnız tanım):** `support_requests.message` yetkisi, `CHAT_UNSUPPORTED` hata kodu, `CHAT_MIN_CLIENT_VERSION`;
+  `customerChat` alanı ve `requestMessageBodySchema` H3'e bırakıldı.
+- **Metrik kaydı (createMetrics):** `rs_requests_outside_hours_total`, `rs_request_sla_breached_total`, `rs_calendar_fallback_total`
+  ve H3/devops alarmları için `rs_request_messages_total`, `rs_request_messages_rejected_total` (reason `tenant_rate` /
+  gönderici tavanı ayrı reason), `rs_crypto_decrypt_failures_total`.
+
+### frontend-dev için sözleşme notları
+
+- `SupportRequestItem` += `priority`, `assignedTo` ({id, displayName} | null), `slaDueAt`, `slaBreached`, `afterHours`.
+- `SupportRequestSettings` += `defaultPriority`, `defaultSlaMinutes` (5..1440 | null); güncelleme gövdesinde opsiyonel.
+- `CustomerDetail` / create / update += `defaultPriority`, `slaMinutes`.
+- Panel WS: `request.updated` {id, priority, assignedTo|null, slaDueAt}.
+- Etiketler: `PRIORITY_LABELS`, `AFTER_HOURS_LABEL`, `SLA_BREACHED_LABEL`, `AFTER_HOURS_MODE_LABELS`, `P18_AUDIT_LABELS`;
+  yetki etiketleri `tr.json`'a eklendi. Hata: `OUTSIDE_HOURS` (409, `fields.nextOpeningAt`).
+
+### Bağımlılık
+
+Yeni bağımlılık yok (saat dilimi `Intl` ile).
+
+### Test
+
+- `pnpm --filter @remote/server exec vitest run test/integration` (izole MySQL konteyneri) → **72 dosya / 703 test geçti**
+- Sunucu birim → 25 / 404; contracts → 15 / 123; web birim → 39 / 351
+- `pnpm -r run typecheck`, `pnpm -r run lint`, `pnpm format:check` → temiz
+- AC-256/257/258 ve S-P18-T3/T5/T6/T7/T12 adlı testler: `test/integration/p18-backend-h2.test.ts`, `test/unit/calendar-p18.test.ts`,
+  `packages/contracts/test/p18-contracts.test.ts`. Test konteyneri kaldırıldı.

@@ -1542,6 +1542,8 @@
   "cs.windowShare": "Pencere paylaşımı",
   "cs.windowShareHint": "Müşteri yalnız bir pencereyi paylaşıyor ({method})",
   "perm.a.block": "Engelle",
+  "perm.a.assign": "Ata / öncelik",
+  "perm.a.message": "Mesaj yaz",
   "srs.ac.title": "Talep kabulü",
   "srs.ac.label": "Talep kabulünde kabul kodu iste",
   "srs.ac.desc": "Açıkken talebi kabul ettiğinizde müşterinin ekranında 4 haneli bir kod görünür; müşteri kodu size okur, siz konsola girersiniz. Kapalıyken müşteri doğrudan bağlanır. Kabul kodu 0.11 ve sonraki istemcileri gerektirir; açıkken daha eski istemcilerden gelen talepler kabul edilemez (müşterinin istemciyi güncellemesi gerekir).",

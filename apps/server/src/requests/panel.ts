@@ -5,6 +5,7 @@ import type {
   AcceptRequestResponse,
   ListRequestsQuery,
   NetworkMatch,
+  RequestPriority,
   RequestStatus,
   CancelReason,
   SupportRequestItem,
@@ -15,6 +16,8 @@ import type {
 } from "@remote/contracts/api/requests";
 import {
   ACCEPT_CODE_MIN_CLIENT_VERSION,
+  ASSIGNEE_INVALID_MESSAGE,
+  slaBreachedAt,
   REQUEST_CONNECT_WINDOW_SEC,
   REQUEST_HISTORY_DAYS,
   SMTP_REQUIRED_MESSAGE,
@@ -24,9 +27,12 @@ import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import { AppError } from "../lib/errors.ts";
 import type { CustomerStatus } from "@remote/contracts/api/customers";
+import { REQUEST_COMMS_AUDIT } from "@remote/contracts/audit";
+import { effectivePermissions, type Role } from "@remote/contracts/permissions";
 import { countRevoked } from "../bindings/service.ts";
 import * as brepo from "../bindings/repo.ts";
 import * as crepo from "../customers/repo.ts";
+import type { Prisma } from "../generated/prisma/client.ts";
 import { conflictIndex } from "../lib/db.ts";
 import { newId, newSecretToken, newTenantRef, sha256Hex } from "../lib/ids.ts";
 import { compareVersions } from "../lib/version.ts";
@@ -73,6 +79,11 @@ export function toItem(r: repo.ItemRow, now: number, generalRotatedAt: Date | nu
     viaBinding: bindingActive,
     bindingRevoked: r.bindingId !== null && !bindingActive,
     staleSource,
+    priority: r.priority as RequestPriority,
+    assignedTo: r.assignee ? { id: r.assignee.id, name: r.assignee.fullName } : null,
+    slaDueAt: r.slaDueAt?.toISOString() ?? null,
+    slaBreached: slaBreachedAt({ status: r.status, slaDueAt: r.slaDueAt, closedAt: r.closedAt, acceptedAt: r.acceptedAt }, now),
+    afterHours: r.afterHours,
   };
 }
 
@@ -81,11 +92,17 @@ export async function generalRotatedAt(svc: RequestService, tenantId: string): P
   return (await repo.settingsByTenant(svc.d.db, tenantId))?.refRotatedAt ?? null;
 }
 
-export async function listRequests(svc: RequestService, tenantId: string, q: ListRequestsQuery): Promise<SupportRequestListResponse> {
+export async function listRequests(
+  svc: RequestService,
+  tenantId: string,
+  q: ListRequestsQuery,
+  userId: string,
+): Promise<SupportRequestListResponse> {
   const now = svc.d.clock.now();
   const rotated = await generalRotatedAt(svc, tenantId);
   if (q.tab === "pending") {
-    const { rows, total } = await repo.listPending(svc.d.db, tenantId, q.customer);
+    const assigned = q.assigned ? { mode: q.assigned, userId } : undefined;
+    const { rows, total } = await repo.listPending(svc.d.db, tenantId, q.customer, assigned);
     return { items: rows.map((r) => toItem(r, now, rotated)), page: 1, pageSize: rows.length, total };
   }
   const since = new Date(now - REQUEST_HISTORY_DAYS * DAY_MS);
@@ -234,6 +251,7 @@ export async function acceptRequest(
     ...(ticket.admitCode ? { admitCode: ticket.admitCode } : {}),
   });
   svc.d.hub.publish(tenantId, { t: "request.removed", id, status: "ACCEPTED" });
+  svc.countSlaBreach(id);
   svc.d.hub.queueChanged(tenantId);
   await svc.publishCount(tenantId);
   svc.startConnectTimer(id);
@@ -269,8 +287,95 @@ export async function rejectRequest(
   if (!ok) throw await lostRace(svc, tenantId, id);
   svc.d.hub.closeRequest(id, { t: "request.closed", status: "REJECTED", message });
   svc.d.hub.publish(tenantId, { t: "request.removed", id, status: "REJECTED" });
+  svc.countSlaBreach(id);
   svc.d.hub.queueChanged(tenantId);
   await svc.publishCount(tenantId);
+}
+
+// ------------------------------------------------------------------ P18 atama / öncelik (AC-256, 257)
+
+/** Kapalı/yok ayrımı (atama/öncelik uçları): yok → 404, PENDING değil → REQUEST_CLOSED. */
+const notPending = (found: boolean): AppError => new AppError(found ? "REQUEST_CLOSED" : "NOT_FOUND");
+
+/** Commit sonrası: `request.updated` (tenant geneli; atanan kendi soketinde toast) + kuyruk sırası yayını. */
+async function publishUpdated(svc: RequestService, tenantId: string, id: string): Promise<SupportRequestItem> {
+  const item = await getRequest(svc, tenantId, id);
+  svc.d.hub.publish(tenantId, { t: "request.updated", id, priority: item.priority, assignedTo: item.assignedTo, slaDueAt: item.slaDueAt });
+  svc.d.hub.queueChanged(tenantId);
+  return item;
+}
+
+/**
+ * Atanabilir mi (TX içinde, kullanıcı satırı FOR SHARE — pasife alma/yetki değişimi `FOR UPDATE` ile sırayla bekler):
+ * aynı tenant, ACTIVE, ADMIN|USER, etkin `support_requests.view` + `support_requests.accept`.
+ */
+async function assignable(tx: Prisma.TransactionClient, tenantId: string, userId: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<
+    { role: string; status: string }[]
+  >`SELECT role, status FROM users WHERE id = ${userId} AND tenant_id = ${tenantId} FOR SHARE`;
+  const u = rows[0];
+  if (!u || u.status !== "ACTIVE" || (u.role !== "ADMIN" && u.role !== "USER")) return false;
+  const overrides = await tx.userPermission.findMany({ where: { userId }, select: { permKey: true, granted: true } });
+  const eff = effectivePermissions(u.role as Role, overrides);
+  return eff.includes("support_requests.view") && eff.includes("support_requests.accept");
+}
+
+/** POST /support-requests/:id/assign (AC-256): `userId` null → atamayı kaldır. Aynı atama → değişiklik/audit yok. */
+export async function assignRequest(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  userId: string | null,
+): Promise<SupportRequestItem> {
+  const changed = await svc.d.db.$transaction(async (tx) => {
+    if (userId !== null && !(await assignable(tx, tenantId, userId)))
+      throw new AppError("VALIDATION", { fields: { userId: ASSIGNEE_INVALID_MESSAGE } });
+    const cur = await repo.lockRequest(tx, tenantId, id);
+    if (!cur || cur.status !== "PENDING") throw notPending(cur !== null);
+    if (cur.assigned_to === userId) return false;
+    if ((await repo.setAssignee(tx, tenantId, id, userId, new Date(svc.d.clock.now()))) !== 1) throw notPending(true);
+    await writeAudit(tx, ctx, {
+      ...who(auth, tenantId),
+      action: REQUEST_COMMS_AUDIT.ASSIGNED,
+      entity: "support_requests",
+      entityId: id,
+      result: "success",
+      oldValue: { assignedTo: cur.assigned_to },
+      newValue: { assignedTo: userId },
+    });
+    return true;
+  });
+  return changed ? publishUpdated(svc, tenantId, id) : getRequest(svc, tenantId, id);
+}
+
+/** POST /support-requests/:id/priority (AC-257): SLA hedefi değişmez (oluşturmada dondurulur, §8b.2). */
+export async function changePriority(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  priority: RequestPriority,
+): Promise<SupportRequestItem> {
+  const changed = await svc.d.db.$transaction(async (tx) => {
+    const cur = await repo.lockRequest(tx, tenantId, id);
+    if (!cur || cur.status !== "PENDING") throw notPending(cur !== null);
+    if (cur.priority === priority) return false;
+    if ((await repo.setPriority(tx, tenantId, id, priority)) !== 1) throw notPending(true);
+    await writeAudit(tx, ctx, {
+      ...who(auth, tenantId),
+      action: REQUEST_COMMS_AUDIT.PRIORITY_CHANGED,
+      entity: "support_requests",
+      entityId: id,
+      result: "success",
+      oldValue: { priority: cur.priority },
+      newValue: { priority },
+    });
+    return true;
+  });
+  return changed ? publishUpdated(svc, tenantId, id) : getRequest(svc, tenantId, id);
 }
 
 // ------------------------------------------------------------------ ayarlar (settings.edit)
@@ -313,6 +418,8 @@ function settingsView(svc: RequestService, s: repo.SettingsRow, smtpConfigured: 
     whatsapp: { enabled: s.waEnabled, recipients: repo.jsonStrings(s.waRecipients), serviceConfigured: n.configured, insecure: n.insecure },
     email: { enabled: s.emailEnabled, recipients: repo.jsonStrings(s.emailRecipients), smtpConfigured },
     requireAcceptCode: s.requireAcceptCode,
+    defaultPriority: s.defaultPriority as RequestPriority,
+    defaultSlaMinutes: s.defaultSlaMinutes,
   };
 }
 
@@ -329,6 +436,8 @@ const auditShape = (s: {
   emailEnabled: boolean;
   emailRecipients: string[];
   requireAcceptCode: boolean;
+  defaultPriority: string;
+  defaultSlaMinutes: number | null;
 }) => ({
   waitMinutes: s.waitMinutes,
   trustedCidrs: s.trustedCidrs,
@@ -337,6 +446,8 @@ const auditShape = (s: {
   emailEnabled: s.emailEnabled,
   emailRecipients: s.emailRecipients,
   requireAcceptCode: s.requireAcceptCode,
+  defaultPriority: s.defaultPriority,
+  defaultSlaMinutes: s.defaultSlaMinutes,
 });
 
 /** PUT /settings/support-requests (AC-142, 151, 152): SMTP ayarlı değilse e-posta kanalı açılamaz. Audit eski→yeni (alıcılar maskeli). */
@@ -361,6 +472,8 @@ export async function updateSettings(
       emailEnabled: input.email.enabled,
       emailRecipients: input.email.recipients,
       requireAcceptCode: input.requireAcceptCode ?? before.requireAcceptCode,
+      defaultPriority: input.defaultPriority ?? before.defaultPriority,
+      defaultSlaMinutes: input.defaultSlaMinutes === undefined ? before.defaultSlaMinutes : input.defaultSlaMinutes,
     });
     const old = {
       waitMinutes: before.waitMinutes,
@@ -370,6 +483,8 @@ export async function updateSettings(
       emailEnabled: before.emailEnabled,
       emailRecipients: repo.jsonStrings(before.emailRecipients),
       requireAcceptCode: before.requireAcceptCode,
+      defaultPriority: before.defaultPriority,
+      defaultSlaMinutes: before.defaultSlaMinutes,
     };
     const next = {
       waitMinutes: input.waitMinutes,
@@ -379,6 +494,8 @@ export async function updateSettings(
       emailEnabled: input.email.enabled,
       emailRecipients: input.email.recipients,
       requireAcceptCode: input.requireAcceptCode ?? before.requireAcceptCode,
+      defaultPriority: input.defaultPriority ?? before.defaultPriority,
+      defaultSlaMinutes: input.defaultSlaMinutes === undefined ? before.defaultSlaMinutes : input.defaultSlaMinutes,
     };
     await writeAudit(tx, ctx, {
       ...who(auth, tenantId),

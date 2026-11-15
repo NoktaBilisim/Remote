@@ -22,7 +22,8 @@
     "./dc": "./src/dc.ts",
     "./files": "./src/files.ts",
     "./audit": "./src/audit.ts",
-    "./labels": "./src/labels.ts"
+    "./labels": "./src/labels.ts",
+    "./holidays-tr": "./src/holidays-tr.ts"
   },
   "scripts": {
     "lint": "eslint .",

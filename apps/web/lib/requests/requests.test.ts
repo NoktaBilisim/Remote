@@ -119,6 +119,8 @@ describe("ayar formu", () => {
     whatsapp: { enabled: false, recipients: [], serviceConfigured: true, insecure: false },
     email: { enabled: false, recipients: [], smtpConfigured: false },
     requireAcceptCode: false,
+    defaultPriority: "NORMAL" as const,
+    defaultSlaMinutes: null,
   };
   it("geçerli durum → PUT gövdesi (telefon E.164, CIDR kanonik, boş satır atlanır)", () => {
     const st = {

@@ -5,7 +5,8 @@
 # Doğrulananlar: her kontrol için olumsuz durum -> `ALERT check=<ad>` + alarm komutu; tekrar bastırma; tekrar süresi
 # dolunca yeniden; düzelince bir kez DUZELDI; watch.env 644 / bağlantı / root dışı sahip -> çalışmaz; sır içeren alarm
 # komutu çalıştırılmaz; site dışı hatırlatma 7 günde bir; install/uninstall (kurulu kopya root 0755, watch.env 600);
-# P13c ikinci örnek `stg` (ayrı env/durum, [stg] alarm adı, coturn kontrolü yok, @stg birimleri yalnız stg'de sayılır).
+# P13c ikinci örnek `stg` (ayrı env/durum, [stg] alarm adı, coturn kontrolü yok, @stg birimleri yalnız stg'de sayılır);
+# P18 H5 crypto-decrypt / calendar-fallback / msg-tenant-rate / p18-metrics.
 # Kullanım: deploy/ops/test-watch.sh   Çıkış 0 = tüm beklentiler tuttu.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -212,6 +213,39 @@ good; sed -i '/remote_backup_ledger_ok/d' /scn/status.prom; run
 good; for inj in "0 0 1 a[\$(touch /tmp/pwn8)] 0 0 0" "a[\$(touch /tmp/pwn9)] 0 0 - 0 a[\$(touch /tmp/pwn10)] 1"; do echo "$((NOW - 3600)) 0 0 0 $inj" >/scn/metrics; run; done
 ls /tmp/pwn* >/dev/null 2>&1 && no "P16 enjeksiyon: $(ls /tmp/pwn*)" || ok "S14-2: P16 metrik alanlarında a[\$(…)] komut çalıştırmadı"
 good; run
+# P18 H5 (mimari-e11 §8b.13 T2/T4/T12; runbook §25.4): alanlar 12-15 = decrypt calendar tenant-kova mesaj(P18 işareti)
+p18() { echo "$((NOW - 3600)) 0 0 0 0 0 0 - $((NOW - 3600)) 0 0 $1" >/scn/metrics; }
+clr() { sed -i -E '/^(decrypt_fail|calendar_fallback|msg_tenant_rate)=/d' /var/lib/rw/state; }
+p18a() { grep -q "ALERT check=$1" /out/o && alerted "$1"; }
+p18n() { ! grep -q "ALERT check=$1" /out/o; }
+good; clr; p18 "0 0 - 5"; run
+p18n 'p18-metrics\|crypto-decrypt\|calendar-fallback\|msg-tenant-rate' && grep -q 'check="crypto-decrypt"} 1' /var/lib/rw/status.prom \
+  && grep -q 'check="msg-tenant-rate"} 1' /var/lib/rw/status.prom && ok "P18 server temiz -> 4 P18 kontrolü OK, alarm yok" || no "p18 temiz: $(cat /out/o)"
+clr; p18 "2 0 - 5"; run
+p18a crypto-decrypt && grep -q 'rs_crypto_decrypt_failures_total=2' /out/o && ok "S-P18-T2c: decrypt hata > 0 (ilk tur) -> ALERT crypto-decrypt" || no "decrypt: $(cat /out/o)"
+run; grep -q 'ALERT check=crypto-decrypt' /out/o && ok "decrypt sayaç > 0 sürdükçe alarm sürer (journal; tekrar bastırılır)" || no "decrypt sürer: $(cat /out/o)"
+sed -i "s/^decrypt_fail=.*/decrypt_fail=2 $((NOW - 90000))/" /var/lib/rw/state; p18 "0 0 - 5"; run
+p18n crypto-decrypt && ok "decrypt: sayaç 0 (yeniden başladı) ve artıştan 24 sa sonra alarm kalktı" || no "decrypt 24h: $(cat /out/o)"
+sed -i "s/^decrypt_fail=.*/decrypt_fail=0 $((NOW - 90000))/" /var/lib/rw/state; p18 "0 0 - 5"; run
+p18n crypto-decrypt && ok "decrypt: 0 -> 0 alarm yok" || no "decrypt 0: $(cat /out/o)"
+clr; p18 "0 0 - 5"; run; p18 "0 1 - 5"; run
+p18a calendar-fallback && ok "S-P18-T12: rs_calendar_fallback_total arttı -> ALERT calendar-fallback" || no "calendar: $(cat /out/o)"
+sed -i "s/^calendar_fallback=.*/calendar_fallback=1 $((NOW - 90000))/" /var/lib/rw/state; run
+p18n calendar-fallback && ok "takvim düşüşü: artış yok ve 24 sa geçti -> alarm kalktı" || no "calendar 24h: $(cat /out/o)"
+clr; p18 "0 3 - 5"; run
+p18a calendar-fallback && ok "takvim: önceki örnek yok + sayaç > 0 -> taban 0, ALERT (sessiz kalmaz)" || no "calendar ilk: $(cat /out/o)"
+clr; p18 "0 0 - 5"; run; p18 "0 0 4 5"; run
+p18a msg-tenant-rate && ok "S-P18-T4: firma müşteri mesajı kovası reddi (queue.alert) -> ALERT msg-tenant-rate" || no "tenant kova: $(cat /out/o)"
+sed -i "s/^msg_tenant_rate=.*/msg_tenant_rate=4 $((NOW - 3700))/" /var/lib/rw/state; run
+p18n msg-tenant-rate && ok "kova: artıştan 1 sa sonra alarm kalktı" || no "kova 1h: $(cat /out/o)"
+clr; p18 "- - - 5"; run
+p18a p18-metrics && grep -q 'rs_crypto_decrypt_failures_total,rs_calendar_fallback_total' /out/o && ok "P18 server, decrypt/takvim metriği yok -> ALERT p18-metrics (fail-closed)" || no "p18-metrics: $(cat /out/o)"
+clr; p18 "- - - -"; run
+! grep -q 'p18-metrics\|crypto-decrypt' /var/lib/rw/status.prom && p18n p18-metrics && ok "P18 öncesi server (rs_request_messages_total yok) -> P18 kontrolleri yok" || no "p17: $(cat /out/o)"
+clr; p18 'a[$(touch /tmp/pwn11)] a[$(touch /tmp/pwn12)] a[$(touch /tmp/pwn13)] 5'; run
+sed -i 's/^decrypt_fail=.*/decrypt_fail=a[$(touch \/tmp\/pwn14)] 1/' /var/lib/rw/state; p18 "1 0 - 5"; run
+ls /tmp/pwn* >/dev/null 2>&1 && no "P18 enjeksiyon: $(ls /tmp/pwn*)" || ok "S14-2: P18 metrik/durum alanlarında a[\$(…)] komut çalıştırmadı"
+good; clr; run
 cp /le/$H/fullchain.pem /tmp/web.bak
 neg 'cert:web' "cp /tc/short.crt /le/$H/fullchain.pem"
 cp /tmp/web.bak /le/$H/fullchain.pem
@@ -314,9 +348,17 @@ if command -v node >/dev/null 2>&1; then
     'rs_orphan_files_total{action="deleted"} 4' 'rs_orphan_files_total{action="circuit_open"} 3' 'rs_erasure_ledger_write_failed_total 0' >"$M"
   JS="$(sed -n 's/.*node -e "\(const sum=.*\)" 2>\/dev\/null)" || rt=.*/\1/p' "$HERE/remote-watch.sh" | sed 's/\\"/"/g')"
   got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
-  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0"
-  if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma: etiketli rs_retention_failures_total toplamı 3, SCHEDULED/RUNNING, circuit_open 3"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 - - - -"
+  if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma: etiketli rs_retention_failures_total toplamı 3, SCHEDULED/RUNNING, circuit_open 3, P18 serisi yok -> '-'"
   else echo "FAIL  metrik ayrıştırma: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
+  # P18 H5: decrypt (bütün table), takvim (bütün tenant), yalnız reason~tenant kova reddi, mesaj sayacı (P18 işareti).
+  printf '%s\n' 'rs_crypto_decrypt_failures_total{table="session_messages"} 2' 'rs_calendar_fallback_total{tenant="t1"} 1' \
+    'rs_calendar_fallback_total{tenant="t2"} 2' 'rs_request_messages_rejected_total{reason="tenant_rate"} 4' \
+    'rs_request_messages_rejected_total{reason="sender_cap"} 9' 'rs_request_messages_total{sender="CUSTOMER"} 7' >>"$M"
+  got="$(M="$M" node -e "globalThis.fetch=async()=>({text:async()=>require('fs').readFileSync(process.env.M,'utf8')});$JS")"
+  exp="1763000000 3 - - 1 0 1 1763000100 - 3 0 2 3 4 7"
+  if [ "$got" = "$exp" ]; then echo "PASS  metrik ayrıştırma P18: decrypt 2, takvim 1+2, tenant kova 4 (sender_cap hariç), mesaj 7"
+  else echo "FAIL  metrik ayrıştırma P18: '$got' (beklenen '$exp')"; echo "SONUÇ-İÇ 1" >>"$TMP/out"; fi
 else echo "UYARI: host'ta node yok — metrik ayrıştırma testi atlandı"; fi
 grep -E '^(PASS|FAIL)' "$TMP/out" || true
 n="$(sed -n 's/^SONUÇ-İÇ //p' "$TMP/out" | sort -n | tail -1)"

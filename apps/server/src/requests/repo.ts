@@ -1,6 +1,7 @@
 // support_requests / tenant_request_settings erişimi (db-notlari P8b-1 "Backend-dev için"). Panel sorguları her zaman
 // tenant kapsamlı (AC-69, AC-148). Durum geçişleri tek koşullu UPDATE (count=1 kazanır, mimari-e9 §3.4); her geçiş aynı
 // UPDATE'te CHECK'lerin istediği alanları yazar (closed_at, cancel_reason, rejected_*).
+import { compareQueue } from "@remote/contracts/api/requests";
 import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 
@@ -22,6 +23,8 @@ const settingsSelect = {
   emailRecipients: true,
   trustedCidrs: true,
   requireAcceptCode: true, // P15 (AC-239)
+  defaultPriority: true, // P18 (AC-257)
+  defaultSlaMinutes: true,
   tenant: { select: { id: true, name: true, status: true, deletedAt: true, logoPath: true } },
 } as const;
 export type SettingsRow = Prisma.TenantRequestSettingsGetPayload<{ select: typeof settingsSelect }>;
@@ -98,7 +101,7 @@ export const jsonStrings = (v: Prisma.JsonValue): string[] => (Array.isArray(v) 
 export async function pendingSnapshot(tx: DbOrTx, tenantId: string, k: { clientInstance: string; ipKey: string; netKey: string }) {
   const rows = await tx.supportRequest.findMany({
     where: { tenantId, status: "PENDING" },
-    select: { clientInstance: true, ipKey: true, netKey: true, requestCode: true },
+    select: { clientInstance: true, ipKey: true, netKey: true, requestCode: true, priority: true },
   });
   return {
     instance: rows.filter((r) => r.clientInstance === k.clientInstance).length,
@@ -106,6 +109,8 @@ export async function pendingSnapshot(tx: DbOrTx, tenantId: string, k: { clientI
     net: rows.filter((r) => r.netKey === k.netKey).length,
     tenant: rows.length,
     codes: new Set(rows.map((r) => r.requestCode)),
+    /** P18 (AC-257): bekleyenlerin öncelikleri — yeni talebin sırası `compareQueue` ile (aynı/yüksek öncelik önde). */
+    priorities: rows.map((r) => r.priority),
   };
 }
 
@@ -169,14 +174,18 @@ export function findById(db: DbOrTx, id: string): Promise<SecretRow | null> {
   return db.supportRequest.findUnique({ where: { id }, select: secretSelect });
 }
 
-/** Kuyruk (sıra hesabı, AC-139): bekleyenler created_at, id artan (≤ 50). */
-export function pendingQueue(db: DbOrTx, tenantId: string) {
-  return db.supportRequest.findMany({
+/**
+ * Kuyruk (sıra hesabı, AC-139; P18 AC-257): bekleyenler `compareQueue` sırasıyla (öncelik → created_at → id). Prisma
+ * `orderBy` CASE ifade edemez; kuyruk ≤ 50 olduğundan sıralama uygulamada (mimari-e11 §8b.3), sorgu ≤ 200 satır.
+ */
+export async function pendingQueue(db: DbOrTx, tenantId: string) {
+  const rows = await db.supportRequest.findMany({
     where: { tenantId, status: "PENDING" },
-    select: { id: true, requestCode: true, createdAt: true, expiresAt: true },
+    select: { id: true, requestCode: true, createdAt: true, expiresAt: true, priority: true },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take: 200,
   });
+  return rows.sort(compareQueue);
 }
 
 export function countPending(db: DbOrTx, tenantId: string): Promise<number> {
@@ -205,6 +214,11 @@ const itemSelect = {
   bindingId: true,
   binding: { select: { revokedAt: true } },
   customer: { select: { id: true, name: true, status: true, refRotatedAt: true } },
+  // P18 (AC-256..258)
+  priority: true,
+  assignee: { select: { id: true, fullName: true } },
+  slaDueAt: true,
+  afterHours: true,
 } as const;
 export type ItemRow = Prisma.SupportRequestGetPayload<{ select: typeof itemSelect }>;
 
@@ -212,13 +226,22 @@ export type ItemRow = Prisma.SupportRequestGetPayload<{ select: typeof itemSelec
 const customerWhere = (customer: string | undefined): Prisma.SupportRequestWhereInput =>
   customer === undefined ? {} : { customerId: customer === "general" ? null : customer };
 
-export async function listPending(db: DbOrTx, tenantId: string, customer?: string): Promise<{ rows: ItemRow[]; total: number }> {
-  const where: Prisma.SupportRequestWhereInput = { tenantId, status: "PENDING", ...customerWhere(customer) };
+/** P18 (AC-256): `me` → bana atananlar (IX(assigned_to, tenant_id, status)), `none` → atanmamış. */
+const assignedWhere = (assigned: { mode: "me" | "none"; userId: string } | undefined): Prisma.SupportRequestWhereInput =>
+  assigned === undefined ? {} : { assignedTo: assigned.mode === "me" ? assigned.userId : null };
+
+export async function listPending(
+  db: DbOrTx,
+  tenantId: string,
+  customer?: string,
+  assigned?: { mode: "me" | "none"; userId: string },
+): Promise<{ rows: ItemRow[]; total: number }> {
+  const where: Prisma.SupportRequestWhereInput = { tenantId, status: "PENDING", ...customerWhere(customer), ...assignedWhere(assigned) };
   const [rows, total] = await Promise.all([
     db.supportRequest.findMany({ where, select: itemSelect, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 200 }),
     db.supportRequest.count({ where }),
   ]);
-  return { rows, total };
+  return { rows: rows.sort(compareQueue), total };
 }
 
 export async function listHistory(
@@ -261,6 +284,63 @@ export function findStatusInTenant(db: DbOrTx, tenantId: string, id: string) {
     where: { id, tenantId },
     select: { status: true, acceptedBy: true, customerId: true, clientVersion: true },
   });
+}
+
+// ---------------- P18 öncelik / SLA / atama (mimari-e11 §8b.2, §8b.5; S-P18-T5) ----------------
+
+/** Oluşturma TX'inde (ayar kilidi altında) öncelik/SLA varsayılanları: müşteri ?? firma. */
+export async function requestPolicy(tx: DbOrTx, tenantId: string, customerId: string | null) {
+  const [s, c] = await Promise.all([
+    tx.tenantRequestSettings.findUnique({ where: { tenantId }, select: { defaultPriority: true, defaultSlaMinutes: true } }),
+    customerId
+      ? tx.customer.findFirst({ where: { id: customerId, tenantId }, select: { defaultPriority: true, slaMinutes: true } })
+      : Promise.resolve(null),
+  ]);
+  return { priority: c?.defaultPriority ?? s?.defaultPriority ?? "NORMAL", slaMinutes: c?.slaMinutes ?? s?.defaultSlaMinutes ?? null };
+}
+
+/** Atama/öncelik TX'i: talep satırı kilidi (tenant kapsamlı; yoksa null). Kilit sırası users → support_requests. */
+export async function lockRequest(tx: Prisma.TransactionClient, tenantId: string, id: string) {
+  const rows = await tx.$queryRaw<
+    { status: string; assigned_to: string | null; priority: string }[]
+  >`SELECT status, assigned_to, priority FROM support_requests WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`;
+  return rows[0] ?? null;
+}
+
+export async function setAssignee(tx: DbOrTx, tenantId: string, id: string, userId: string | null, now: Date): Promise<number> {
+  const r = await tx.supportRequest.updateMany({
+    where: { id, tenantId, status: "PENDING" },
+    data: { assignedTo: userId, assignedAt: userId ? now : null },
+  });
+  return r.count;
+}
+
+export async function setPriority(tx: DbOrTx, tenantId: string, id: string, priority: string): Promise<number> {
+  const r = await tx.supportRequest.updateMany({ where: { id, tenantId, status: "PENDING" }, data: { priority } });
+  return r.count;
+}
+
+/**
+ * S-P18-T5 (a): kullanıcı pasif/silinme/yetki kaybı ya da firma pasifinde o kullanıcıya (ya da `userId` verilmezse firmanın
+ * tümüne) atanmış BEKLEYEN taleplerin ataması aynı TX'te kalkar. Kapalı taleplerde atama tarih olarak kalır.
+ */
+export async function unassignPending(tx: DbOrTx, where: { userId?: string; tenantId?: string }) {
+  const filter: Prisma.SupportRequestWhereInput = {
+    status: "PENDING",
+    ...(where.userId ? { assignedTo: where.userId } : { assignedTo: { not: null } }),
+    ...(where.tenantId ? { tenantId: where.tenantId } : {}),
+  };
+  const rows = await tx.supportRequest.findMany({
+    where: filter,
+    select: { id: true, tenantId: true, priority: true, slaDueAt: true, assignedTo: true },
+    take: 1000,
+  });
+  if (rows.length === 0) return [];
+  await tx.supportRequest.updateMany({
+    where: { id: { in: rows.map((r) => r.id) }, status: "PENDING" },
+    data: { assignedTo: null, assignedAt: null },
+  });
+  return rows;
 }
 
 // ---------------- Geçişler (§3.4) ----------------

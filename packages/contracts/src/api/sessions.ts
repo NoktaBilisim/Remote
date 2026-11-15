@@ -435,6 +435,8 @@ export const SESSION_CSV_COLUMNS = [
   "Not",
   // P15 (AC-238): "N doğrulanmış; M müşteri bildirimi" (dosya yoksa ve anonimleştirilmişte boş).
   "Dosyalar",
+  // P18 (AC-257, K-P18-6): "Evet" / "Hayır" / boş (talepsiz oturum ya da SLA'sız talep).
+  "SLA aşıldı",
 ] as const;
 /** P13a (AC-197): 409 `SESSION_ANONYMIZED` mesajı (mimari-p13 §3). */
 export const SESSION_ANONYMIZED_MESSAGE = "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.";

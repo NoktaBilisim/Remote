@@ -206,6 +206,32 @@ export const ERASURE_AUDIT = {
   REPLAYED: "erasure.replayed",
 } as const;
 
+/**
+ * P18 (mimari-e11 §8b.7; AC-256..258). Gövde/PII yok:
+ *  - ASSIGNED `old/new: {assignedTo}` (kullanıcı id); kullanıcı pasife alma/yetki kaybı/firma pasifinde `reason: "user_inactive"`.
+ *  - PRIORITY_CHANGED `old/new: {priority}`.
+ *  - `request.created` `fail` `{reason: "outside_hours", count}` — tenant başına 1 dk pencerede 1 satır (S-P18-T7).
+ *  - BUSINESS_HOURS_UPDATED eski → yeni (hafta, mod, tz, açık); HOLIDAY_* `{day, name, openUntil}`; HOLIDAYS_IMPORTED `{year, added}`.
+ */
+export const REQUEST_COMMS_AUDIT = {
+  ASSIGNED: "request.assigned",
+  PRIORITY_CHANGED: "request.priority_changed",
+  BUSINESS_HOURS_UPDATED: "settings.business_hours_updated",
+  HOLIDAY_ADDED: "settings.holiday_added",
+  HOLIDAY_REMOVED: "settings.holiday_removed",
+  HOLIDAYS_IMPORTED: "settings.holidays_imported",
+} as const;
+
+/** P18 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
+export const P18_AUDIT_LABELS: Readonly<Record<string, string>> = {
+  [REQUEST_COMMS_AUDIT.ASSIGNED]: "Talep atandı",
+  [REQUEST_COMMS_AUDIT.PRIORITY_CHANGED]: "Talep önceliği değişti",
+  [REQUEST_COMMS_AUDIT.BUSINESS_HOURS_UPDATED]: "Mesai saatleri değişti",
+  [REQUEST_COMMS_AUDIT.HOLIDAY_ADDED]: "Tatil günü eklendi",
+  [REQUEST_COMMS_AUDIT.HOLIDAY_REMOVED]: "Tatil günü kaldırıldı",
+  [REQUEST_COMMS_AUDIT.HOLIDAYS_IMPORTED]: "Resmî tatiller eklendi",
+};
+
 /** P16 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
 export const P16_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [USER_AUDIT.DELETED]: "Kullanıcı kalıcı silindi",

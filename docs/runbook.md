@@ -2959,3 +2959,108 @@ git ls-remote --tags origin v1.0.0            # boş çıktı = silindi
 
 Release oluşmuşsa (onaylandıysa) önce `gh release delete v1.0.0 --repo NoktaBilisim/Remote --yes`, indirilen exe yayına
 alındıysa §24.5 / §11.4. Reject ve silme (tarih, etiket commit'i, kim) §8 yayın geçmişine bir satır olarak yazılır.
+
+## 25. P18 — talep iletişimi yayını, alarmlar, anahtar emekliliği (devops H5, 2026-11-15; mimari-e11 §8b.10/§8b.13, AC-255..258)
+
+Kapsam: migration `20261119000000_p18_request_comms` (ön kontrollü), tetikleyici **22 → 23** (`session_messages_delete_guard`),
+yedek/geri yükleme beklenen sayısı, yeni `remote-watch` kontrolleri (S-P18-T2c, T4, T12), anahtar emekliliği (S-P18-T2a/b),
+tatil listesi. Yeni env değişkeni **yok** (server, compose, backup.env, watch.env).
+
+### 25.1 Tetikleyici sayısı — tek kaynak
+
+`deploy/backup/lib.sh` `REMOTE_EXPECTED_TRIGGERS=23`. `backup.sh` (`BACKUP_EXPECTED_TRIGGERS` boşsa), `restore.sh`
+(`RESTORE_EXPECTED_TRIGGERS` boşsa) ve `test-backup-inner.sh` buradan okur. Tetikleyici ekleyen/silen migration aynı commit'te
+şunları günceller: `lib.sh` sabiti, `deploy/mysql/audit-continuity.sql` özeti (dba), `check-app-grants.sh` (dba).
+`lib-ledger.sh` `-ge 22` "P16 sonrası yedek" eşiğidir, değişmez.
+
+**Not:** `backup.sh` beklenen sayıyı ve audit tetikleyici özetini (`audit-continuity.sql`) **git ağacından** okur. Ağaç
+P18'e çekilip DB henüz P17'deyken (ya da tersi) yedek `FAILED adım=tetikleyici` olur. Bu yüzden ön yedek `git pull`'dan
+**önce** alınır, geri almada ağaç da önceki commit'e döner.
+
+### 25.2 Staging yayını (sıra; her adım komut → beklenen). Yığın `/opt/remote/deploy` (ikinci yığın varsa `/opt/remote-stg/deploy` için aynısı)
+
+| #   | Komut (sunucu, root, yığın dizininde)                                                                                                                                                                                                                                    | Beklenen                                                                                                                                                                                                                      |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `grep -n '^BACKUP_EXPECTED_TRIGGERS=' backup/backup.env; stat -c '%U %a' backup/backup.env`                                                                                                                                                                              | Satır **boş** (`BACKUP_EXPECTED_TRIGGERS=`), `root 600`. `=22`/`=3` yazılıysa: `sed -i 's/^BACKUP_EXPECTED_TRIGGERS=.*/BACKUP_EXPECTED_TRIGGERS=/' backup/backup.env` (boş = ağaçtaki değer)                                  |
+| 2   | **Açık silme işi ön kontrolü:** `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql -umigrator -NB "$MYSQL_DATABASE" -e "SELECT id, tenant_id, state, step FROM tenant_purge_jobs WHERE CAST(state AS BINARY) IN (\"RUNNING\",\"FAILED\")"'` | **Boş çıktı.** Satır varsa migration `P18_PRECHECK purge_jobs_open=<n>` ile durur: RUNNING → bitmesini bekleyin (heartbeat, §23.3); FAILED → §23.3 "Sürdür" ile `DONE`'a getirin. SCHEDULED sorun değildir (FENCE'ten başlar) |
+| 3   | `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_MIGRATOR_PASSWORD" mysql -umigrator -NB -e "SELECT @@global.log_bin, @@global.log_bin_trust_function_creators"'`                                                                                                  | `1 1` (compose `--log-bin-trust-function-creators=1`). `1 0` ise migration `P18_PRECHECK binlog_flag` ile durur → compose `mysql.command` bayrağı geri konur, `up -d mysql`                                                   |
+| 4   | **Ön yedek, `git pull`'dan ÖNCE** (eski ağaç): `systemctl start remote-backup.service; journalctl -u remote-backup -n 5 --no-pager \| grep -E 'OK run\|FAILED'`                                                                                                          | `remote-backup: OK … tetikleyici=22`. (İkinci yığın: `remote-backup@stg.service`)                                                                                                                                             |
+| 5   | §8 akışı: `git pull` → `IMAGE_TAG` → `docker compose build` → `docker compose up -d` → `docker compose logs --since 5m migrate`                                                                                                                                          | `20261119000000_p18_request_comms` uygulandı, grants OK; server/web healthy. Durursa §25.3                                                                                                                                    |
+| 6   | `docker compose --profile setup run --rm seed`                                                                                                                                                                                                                           | Hata yok (demo firmaya hafta içi mesai, takvim kapalı)                                                                                                                                                                        |
+| 7   | `check-app-grants.sh` (§6 yöntemi: `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD CONTAINER=$(docker compose ps -q mysql) DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh`)                                                                                     | **561/561 PASS**, tetikleyici 23                                                                                                                                                                                              |
+| 8   | `systemctl start remote-backup.service; journalctl -u remote-backup -n 30 --no-pager \| grep -E 'audit-sureklilik\|OK run\|FAILED'`                                                                                                                                      | `audit-sureklilik: ok`, `remote-backup: OK … tetikleyici=23`. **H5 kabulü: migration sonrası ilk gece yedeği PASS** (ertesi sabah aynı grep)                                                                                  |
+| 9   | **Geri yükleme provası (scratch; yönetici iş istasyonu, age anahtarı kasadan, §18.4):** `deploy/backup/restore.sh --identity <age-anahtarı> --target scratch <son çalıştırma dizini>`                                                                                    | `CHECK OK    tetikleyici sayısı (beklenen) 23` … `restore-verify: OK`. **H5 kabulü: staging restore provası PASS** → §8 yayın geçmişine satır                                                                                 |
+| 10  | `cd ops && ./remote-watch.sh install` (prod örneği) / `./remote-watch.sh install stg` (P18 server ayaktayken)                                                                                                                                                            | `systemctl start remote-watch.service` → `OK (<n> kontrol)`; `status.prom`'da `check="crypto-decrypt"`, `"calendar-fallback"`, `"msg-tenant-rate"`, `"p18-metrics"` = 1                                                       |
+
+**Geçiş dönemi geri yüklemesi:** migration'dan önce alınmış yedeklerde (≤ 14 gün) 22 tetikleyici vardır. P18 ağacının
+`restore.sh`'i onlar için `CHECK FAIL tetikleyici sayısı (beklenen)` verir; bilinçli olarak
+`RESTORE_EXPECTED_TRIGGERS=22 deploy/backup/restore.sh …` ile çalıştırılır (manifest = DB kontrolü yine yapılır). Böyle
+bir yedek canlıya yüklenirse sonraki `up -d` P18 migration'ını yeniden uygular (adım 2–3 ön kontrolleri geçerli).
+
+### 25.3 Migration durdu (`P18_PRECHECK …`) ve geri alma
+
+**Ön kontrol düştü** (`docker compose logs migrate | grep P18_PRECHECK`): hiçbir şema değişmemiştir; server başlamaz.
+Neden giderilir (§25.2/2 ya da /3), sonra:
+
+```bash
+docker compose run --rm migrate pnpm --filter @remote/server exec prisma migrate resolve --rolled-back 20261119000000_p18_request_comms
+docker compose up -d && docker compose logs --since 5m migrate
+```
+
+Ön kontrol dışı bir hata (DDL yarıda, 3819/1452/1419): `resolve` **yapmayın**; `docker compose logs migrate` çıktısı dba'ya,
+önceki imaja dönüş aşağıdaki gibi.
+
+**Geri alma tercih sırası:** ileri düzeltme > yalnız imaj geri alma > imaj + `down.sql`.
+
+- **Yalnız imaj** (`IMAGE_TAG=<önceki>` → `up -d`): eski kod yeni şemada çalışır (yeni sütunlar varsayılanlı), **ama**
+  P17 firma silme kodu `MESSAGES` adımını bilmez → `update_guard` reddeder (`db_signal`). Bu sürede firma silme zamanlanmaz;
+  SCHEDULED iş varsa iptal edilir (§23.2/3). Ağaç P18'de kalır (tetikleyici 23 = DB → yedek tutarlı).
+- **İmaj + `down.sql`** (veri kaybı: öncelik/atama/SLA/mesai alanları; korumalar aşağıda):
+  1. Ön yedek (§25.2/8 komutu; P18 ağacıyla `tetikleyici=23`).
+  2. `docker compose stop server web`
+  3. P18 imajıyla: `docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/20261119000000_p18_request_comms/down.sql`
+     — **3819 `p18_down_guard_chk`**: `session_messages` ya da `business_holidays` satırı var (mesaj/tatil kaybı onaysız
+     olmaz; önce dışa alınır ya da bilinçli silinir). **3819 `p18_down_jobs_guard_chk`**: RUNNING/FAILED silme işi ya da
+     `step='MESSAGES'` satırı var (§23.3 ile bitirin). İki durumda da hiçbir şey değişmemiştir.
+  4. Ağaç ve imaj önceki commit'e: `cd /opt/remote && git checkout <önceki commit> -- deploy` (ya da önceki bundle),
+     `.env` `IMAGE_TAG=<önceki>` → `docker compose up -d` (P17 migrate no-op + P17 grants.sql).
+  5. `check-app-grants.sh` (P17 ağacı) → hepsi PASS, tetikleyici 22; `systemctl start remote-backup.service` →
+     `OK … tetikleyici=22`. `backup.env` `BACKUP_EXPECTED_TRIGGERS` boş kalır (ağaçtaki `lib.sh` 22).
+  6. `remote-watch` P18 kontrolleri `rs_request_messages_total` görmeyince kendiliğinden kapanır (yeniden kurulum gerekmez).
+
+### 25.4 Alarmlar (`remote-watch`, 10 dk; `deploy/ops/remote-watch.sh`)
+
+Kontroller yalnız P18 server'da (`/metrics`'te `rs_request_messages_total` varsa) çalışır. Durum: `state` dosyasında
+`decrypt_fail=`, `calendar_fallback=`, `msg_tenant_rate=` ("<son değer> <artış anı>"). Prometheus eşdeğeri parantezde.
+
+| check               | Kaynak                                                                                              | Eşik / davranış                                                                                      | Seviye / ilk müdahale                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crypto-decrypt`    | `rs_crypto_decrypt_failures_total` (bütün `table` serileri; S-P18-T2c `{table="session_messages"}`) | sayaç > 0 oldukça **ya da** artıştan sonra 24 sa (`rs_crypto_decrypt_failures_total > 0`)            | **Kritik.** Mesaj "Mesaj okunamadı" görünür. Nedenler: `APP_ENCRYPTION_KEYS`'ten sürüm erken çıkarıldı (§14 P10 rotasyon), farklı anahtarla geri yükleme, DB'de gövde/kimlik kurcalama (AAD uyuşmaz). `docker compose logs server --since 2h \| grep -i decrypt` (gövde loglanmaz) → kasadaki sürümlerle `.env` karşılaştırılır; eksik sürüm geri eklenir → `up -d server`. Açıklanamıyorsa §19 olay müdahalesi |
+| `calendar-fallback` | `rs_calendar_fallback_total` (bütün `tenant`)                                                       | artıştan sonra 24 sa; ilk turda sayaç > 0 da alarm (`increase(rs_calendar_fallback_total[24h]) > 0`) | **Uyarı** (S-P18-T12). Firma saat dilimi kurulamadı → `Europe/Istanbul` kullanıldı, SLA NULL olabilir. `docker compose logs server --since 24h \| grep -i calendar` → tenant; `SELECT tenant_id, time_zone FROM tenant_request_settings WHERE tenant_id = '<id>'` → Admin mesai ayarında saat dilimini yeniden seçer. Node imajı güncellemesinden sonra çoksa ICU dilim adı değişmiştir (backend'e)             |
+| `msg-tenant-rate`   | `rs_request_messages_rejected_total{reason=~".*tenant.*"}`                                          | artıştan sonra 1 sa (`increase(…[1h]) > 0`)                                                          | **Uyarı** (S-P18-T4). Firma başına müşteri mesajı kovası (300/dk) aşıldı; panelde `queue.alert` bandı. Olağan dışı yoğunluk / bot: Caddy logunda `/ws/request` kaynak IP dağılımı; tek kaynaksa host güvenlik duvarında geçici engel, müşteri bağlantısı yenilenir (§13.4)                                                                                                                                      |
+| `p18-metrics`       | yukarıdaki iki zorunlu seri                                                                         | P18 server'da `rs_crypto_decrypt_failures_total` ya da `rs_calendar_fallback_total` yok              | **Uyarı** (fail-closed). Server metrik sözleşmesi eksik → backend'e                                                                                                                                                                                                                                                                                                                                             |
+
+Elle kontrol: §22.2 komutunda süzgeç `/^rs_(crypto_decrypt_failures|calendar_fallback|request_messages(_rejected)?)_total/`.
+Yerel test: `deploy/ops/test-watch.sh` (P18 senaryoları dahil).
+
+### 25.5 Anahtar emekliliği ve yeniden şifreleme (S-P18-T2a/b; CLI H3 ile gelir)
+
+`session_messages.body_enc` ilk baytı anahtar sürümüdür. §14 P10 "Anahtar rotasyonu" kuralına ek olarak:
+
+1. **Emeklilik ön koşulu:** sürüm `<ver>` halkadan çıkarılmadan önce
+   `docker compose run --rm migrate pnpm --filter @remote/server cli crypto:check-retire <ver>` → **0** satır olmalı
+   (eşdeğer SQL: `SELECT COUNT(*) FROM session_messages WHERE ASCII(body_enc) = <ver>`). 0 değilse sürüm çıkarılmaz.
+2. **Sızıntı yolu (anahtar sızdı):** yeni sürüm eklenir (`v1:…,v2:…`) → `up -d server` → kuru koşu
+   `docker compose run --rm migrate pnpm --filter @remote/server cli crypto:rewrap session_messages --from <ver> --dry` →
+   gerçek koşu `--dry` olmadan (yalnız `migrate` servisi, `MIGRATE_DATABASE_URL`/migrator; 500'lük partiler). Audit
+   `crypto.rewrap {table, fromVer, rows}` (aktör `system:cli`) görülür → adım 1 ile 0 doğrulanır → sürüm çıkarılır.
+   Bu, ADR-0025 append-only kuralının tek istisnasıdır (K-P18-10); `app` kullanıcısına UPDATE verilmez.
+3. Emekli sürüm kasada en az son yedeğin saklama süresi (14 g + site dışı) boyunca tutulur.
+
+### 25.6 Resmî tatil listesi — yıllık güncelleme (AC-258)
+
+Tatiller firma bazındadır (`business_holidays`, firma başına ≤ 200). Dinî bayram tarihleri her yıl değişir; sistem kendisi
+eklemez. **Her yıl Aralık ayının ilk haftası:** firma Admin'lerine (ya da Super Admin firma bağlamında) "Ayarlar → Mesai →
+Tatiller → İçe aktar" ile ertesi yılın listesinin yüklenmesi hatırlatılır (audit `settings.holidays_imported`). Kontrol:
+`SELECT tenant_id, COUNT(*) FROM business_holidays WHERE day >= '<yıl+1>-01-01' GROUP BY tenant_id` — mesai açık
+(`hours_enabled = 1`) olup satırı olmayan firma eksik demektir. Geçmiş yılların satırları silinmez (SLA geçmişi).

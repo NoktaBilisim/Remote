@@ -629,10 +629,10 @@ describe("AC-63/124 CSV dışa aktarma", () => {
     expect(raw.startsWith("﻿")).toBe(true);
     const lines = raw.slice(1).split("\r\n");
     expect(lines[0]).toBe(
-      "Oturum No;Oluşturma;Başlangıç;Bitiş;Süre;Durum;Mod;Kaynak;Müşteri firma;Bekleme;Teknisyen;Müşteri;Ticket No;Sonlandıran;Bitiş nedeni;Not;Dosyalar",
+      "Oturum No;Oluşturma;Başlangıç;Bitiş;Süre;Durum;Mod;Kaynak;Müşteri firma;Bekleme;Teknisyen;Müşteri;Ticket No;Sonlandıran;Bitiş nedeni;Not;Dosyalar;SLA aşıldı",
     );
     expect(raw.slice(1)).toContain(
-      `;2026-01-11 00:00:00;2026-01-11 00:00:05;2026-01-11 01:02:05;01:02:00;Bitti;İstemci;Teknisyen;;;'@Teknisyen;"'=HYPERLINK(""http://x"")";'+905551112233;Müşteri;Müşteri bitirdi;"'-2+3;""alıntı""\nikinci satır";\r\n`, // P15 AC-238: son sütun "Dosyalar" (dosyasız oturumda boş)
+      `;2026-01-11 00:00:00;2026-01-11 00:00:05;2026-01-11 01:02:05;01:02:00;Bitti;İstemci;Teknisyen;;;'@Teknisyen;"'=HYPERLINK(""http://x"")";'+905551112233;Müşteri;Müşteri bitirdi;"'-2+3;""alıntı""\nikinci satır";;\r\n`, // P15 AC-238 "Dosyalar" boş; P18 AC-257 "SLA aşıldı" talepsiz oturumda boş
     );
     expect(raw.slice(1).split("\r\n").filter(Boolean)).toHaveLength(2); // başlık + 1 satır (müşteri filtresi)
     const a = await testDb().auditLog.findFirstOrThrow({ where: { tenantId: T, action: "session.exported" }, orderBy: { id: "desc" } });

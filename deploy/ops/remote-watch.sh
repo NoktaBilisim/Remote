@@ -244,13 +244,17 @@ fi
 # Saklama işi (runbook §18.6 mantığı): metrik + süreç yaşı; hata sayacı son 24 saatte arttıysa alarm.
 seen retention
 RET_FC=""; R_GP=""; R_MF=""; P_SCH=""; P_FAIL=""; P_RUN=""; P_HB=""; O_LAST=""; O_CIRC=""; L_FAIL=""; st_epoch="$NOW"
+D_FAIL=""; C_FB=""; M_TEN=""; M_ALL=""
 if [ -n "$SERVER_C" ]; then
+  # 12.-15. alan (P18 H5; mimari-e11 §8b.13 T2/T4/T12): rs_crypto_decrypt_failures_total (bütün table), rs_calendar_fallback_total
+  # (bütün tenant), rs_request_messages_rejected_total{reason~"tenant"} (firma müşteri mesajı kovası, queue.alert),
+  # rs_request_messages_total (P18 server işareti).
   # 3./4. alan (P14a A5): rs_guest_code_rate_limited_total{scope="prefix"} ve rs_mysql_test_failed_total (tüm class) toplamı;
   # seri yoksa "-" (metrik henüz yayında değil -> değerlendirilmez).
-  rt="$(timeout 20 docker exec "$SERVER_C" node -e "const sum=(t,re)=>{let n=0,k=0;for(const x of t.matchAll(re)){n+=Number(x[1]);k++}return k?String(n):'-'};fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log([m?m[1]:'yok',sum(t,/^rs_retention_failures_total(?:\{[^}]*\})? (\S+)/gm).replace('-','0'),sum(t,/^rs_guest_code_rate_limited_total\{[^}]*scope=\"prefix\"[^}]*\} (\S+)/gm),sum(t,/^rs_mysql_test_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"SCHEDULED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"FAILED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"RUNNING\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_last_heartbeat_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_orphan_scan_last_success_timestamp_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^(?:rs_orphan_scan_circuit_open_total(?:\{[^}]*\})?|rs_orphan_files_total\{[^}]*action=\"circuit_open\"[^}]*\}) (\S+)/gm),sum(t,/^rs_erasure_ledger_write_failed_total(?:\{[^}]*\})? (\S+)/gm)].join(' '))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
+  rt="$(timeout 20 docker exec "$SERVER_C" node -e "const sum=(t,re)=>{let n=0,k=0;for(const x of t.matchAll(re)){n+=Number(x[1]);k++}return k?String(n):'-'};fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log([m?m[1]:'yok',sum(t,/^rs_retention_failures_total(?:\{[^}]*\})? (\S+)/gm).replace('-','0'),sum(t,/^rs_guest_code_rate_limited_total\{[^}]*scope=\"prefix\"[^}]*\} (\S+)/gm),sum(t,/^rs_mysql_test_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"SCHEDULED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"FAILED\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_jobs\{[^}]*=\"RUNNING\"[^}]*\} (\S+)/gm),sum(t,/^rs_tenant_purge_last_heartbeat_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_orphan_scan_last_success_timestamp_seconds(?:\{[^}]*\})? (\S+)/gm),sum(t,/^(?:rs_orphan_scan_circuit_open_total(?:\{[^}]*\})?|rs_orphan_files_total\{[^}]*action=\"circuit_open\"[^}]*\}) (\S+)/gm),sum(t,/^rs_erasure_ledger_write_failed_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_crypto_decrypt_failures_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_calendar_fallback_total(?:\{[^}]*\})? (\S+)/gm),sum(t,/^rs_request_messages_rejected_total\{[^}]*reason=\"[^\"]*tenant[^\"]*\"[^}]*\} (\S+)/gm),sum(t,/^rs_request_messages_total(?:\{[^}]*\})? (\S+)/gm)].join(' '))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
   started="$(docker inspect -f '{{.State.StartedAt}}' "$SERVER_C" 2>/dev/null)"
   st_epoch="$(date -d "$started" +%s 2>/dev/null || echo "$NOW")"
-  read -r r_last r_fail R_GP R_MF P_SCH P_FAIL P_RUN P_HB O_LAST O_CIRC L_FAIL _ <<<"$rt"
+  read -r r_last r_fail R_GP R_MF P_SCH P_FAIL P_RUN P_HB O_LAST O_CIRC L_FAIL D_FAIL C_FB M_TEN M_ALL _ <<<"$rt"
   r_last="${r_last%.*}"; r_fail="${r_fail%.*}"
   # S14-2: konteyner çıktısı güvenilmez; $(( )) bash aritmetiği `a[$(komut)]` ile komut çalıştırır -> yalnız ^[0-9]+$ girer.
   [[ "$st_epoch" =~ ^[0-9]+$ ]] || { err "UYARI: server başlangıç zamanı geçersiz; şimdi varsayıldı"; st_epoch="$NOW"; }
@@ -283,6 +287,16 @@ if [ -n "$SERVER_C" ] && [ "$PURGE_CHECKS" = 1 ] && [[ "${r_last:-yok}" != yok ]
   if [ "$up_s" -ge $((8 * DAY)) ] && { [ -z "$O_LAST" ] || [ $((NOW - O_LAST)) -ge $((8 * DAY)) ]; }; then
     fail orphan-scan "8 gündür başarılı yetim dosya taraması yok"
   fi
+fi
+
+# P18 (mimari-e11 §8b.13; runbook §25.4). rs_request_messages_total yoksa server P18 öncesidir -> değerlendirilmez. Varsa
+# şifre çözme ve takvim sayaçları ZORUNLU (yoksa p18-metrics; fail-closed). Kova reddi serisi ilk artışa kadar yoktur -> 0.
+P18=0
+if [ -n "$SERVER_C" ] && [[ "${r_last:-yok}" != yok ]] && [ -n "$(num "${M_ALL:--}")" ]; then
+  P18=1; seen p18-metrics; seen crypto-decrypt; seen calendar-fallback; seen msg-tenant-rate
+  D_FAIL="$(num "${D_FAIL:--}")"; C_FB="$(num "${C_FB:--}")"; M_TEN="$(num "${M_TEN:--}")"; M_TEN="${M_TEN:-0}"
+  miss=""; [ -n "$D_FAIL" ] || miss="rs_crypto_decrypt_failures_total"; [ -n "$C_FB" ] || miss="${miss:+$miss,}rs_calendar_fallback_total"
+  [ -z "$miss" ] || fail p18-metrics "metrik yok: $miss (P18 server sözleşmesi; runbook §25.4)"
 fi
 
 # Sertifikalar: LE web (nginx), LE remote-turn, coturn'ün dağıtılmış dosyası ve 5349'dan sunulan.
@@ -369,6 +383,23 @@ if [ -n "$L_FAIL" ]; then
   read -r a b <<<"$(bump ledger-write "$L_FAIL" "${lw_prev% *}" "${lw_prev#* }")"; lw_prev="$a $b"
   { [ "$L_FAIL" -eq 0 ] && [ $((NOW - b)) -ge "$DAY" ]; } || fail ledger-write "rs_erasure_ledger_write_failed_total=$L_FAIL (defter satırı yazılamadı; runbook §23.4)"
 fi
+# P18: şifre çözme hatası (T2c) sayaç > 0 oldukça ya da artıştan sonra 24 sa (Kritik); takvim düşüşü (T12) artıştan sonra
+# 24 sa; firma müşteri mesajı kovası (T4, queue.alert) artıştan sonra 1 sa. Sayaçlar süreç yeniden başlayınca sıfırlanır.
+df_prev="$(st_get decrypt_fail)"; cf_prev="$(st_get calendar_fallback)"; mt_prev="$(st_get msg_tenant_rate)"
+if [ "$P18" = 1 ]; then
+  # Önceki örnek yoksa (ilk P18 turu) taban 0: açılıştan beri birikmiş artış da alarm verir (sessiz kalmaz).
+  [ -n "$cf_prev" ] || cf_prev="0 0"; [ -n "$mt_prev" ] || mt_prev="0 0"
+  if [ -n "$D_FAIL" ]; then
+    read -r a b <<<"$(bump crypto-decrypt "$D_FAIL" "${df_prev% *}" "${df_prev#* }")"; df_prev="$a $b"
+    { [ "$D_FAIL" -eq 0 ] && [ $((NOW - b)) -ge "$DAY" ]; } || fail crypto-decrypt "rs_crypto_decrypt_failures_total=$D_FAIL (mesaj okunamadı: anahtar halkası/AAD; runbook §25.4)"
+  fi
+  if [ -n "$C_FB" ]; then
+    read -r a b <<<"$(bump calendar-fallback "$C_FB" "${cf_prev% *}" "${cf_prev#* }")"; cf_prev="$a $b"
+    [ $((NOW - b)) -ge "$DAY" ] || fail calendar-fallback "rs_calendar_fallback_total arttı (firma saat dilimi kurulamadı -> Europe/Istanbul; runbook §25.4)"
+  fi
+  read -r a b <<<"$(bump msg-tenant-rate "$M_TEN" "${mt_prev% *}" "${mt_prev#* }")"; mt_prev="$a $b"
+  [ $((NOW - b)) -ge 3600 ] || fail msg-tenant-rate "firma müşteri mesajı kovası (300/dk) aşıldı, queue.alert (runbook §25.4)"
+fi
 
 # P14a A5 (AC-208/212): sayaç örnekleri "ts:prefix:mysql" (90 dk tutulur). Artış = pencere başından (pencereden eski en
 # yeni örnek; yoksa en eski) bugüne ardışık farkların toplamı; azalma = süreç yeniden başladı -> yeni değer artış sayılır.
@@ -433,8 +464,9 @@ if [ -f "$BSTATUS" ] && [ "$(prom remote_backup_offsite_configured)" = 0 ]; then
 fi
 
 tmp="$STATE.tmp.$$"
-printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\ncounter_samples=%s\npurge_sent=%s\norphan_circuit=%s\nledger_write=%s\n' \
-  "$keep" "$last_sent" "$remind" "${prev_rfc:-}" "${prev_rfa:-}" "$samples" "$purge_sent" "${oc_prev:-}" "${lw_prev:-}" >"$tmp" && mv -f "$tmp" "$STATE"
+printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\ncounter_samples=%s\npurge_sent=%s\norphan_circuit=%s\nledger_write=%s\ndecrypt_fail=%s\ncalendar_fallback=%s\nmsg_tenant_rate=%s\n' \
+  "$keep" "$last_sent" "$remind" "${prev_rfc:-}" "${prev_rfa:-}" "$samples" "$purge_sent" "${oc_prev:-}" "${lw_prev:-}" \
+  "${df_prev:-}" "${cf_prev:-}" "${mt_prev:-}" >"$tmp" && mv -f "$tmp" "$STATE"
 tmp="$STATE_DIR/status.prom.tmp.$$"
 {
   echo "# $TAG (mimari-p13 §7.8); sır yok"

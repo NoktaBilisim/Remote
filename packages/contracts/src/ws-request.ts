@@ -5,7 +5,7 @@
 // (`LEGACY_CANCEL_REASONS`). `request.new` += `customerFirm`, `viaBinding`, `bindingRevoked`, `staleSource`.
 // G-E9-15 (koordinatör kararı a): `request.new` `knownNetwork` yerine `networkMatch` + `knownDevice` taşır.
 import { z } from "zod";
-import { CANCEL_REASONS, NETWORK_MATCHES, REQUEST_STATUSES } from "./api/requests.ts";
+import { CANCEL_REASONS, NETWORK_MATCHES, REQUEST_PRIORITIES, REQUEST_STATUSES } from "./api/requests.ts";
 
 /** `Sec-WebSocket-Protocol: rs.v1, rs.req.<requestSecret>` (yanıt yalnız `rs.v1`). */
 export const WS_REQUEST_PREFIX = "rs.req.";
@@ -112,12 +112,30 @@ export const panelOutboundSchema = z.discriminatedUnion("t", [
     viaBinding: z.boolean(),
     bindingRevoked: z.boolean(),
     staleSource: z.boolean(),
+    /**
+     * P18 (mimari-e11 §8b.4; AC-257, 258): sunucu her zaman gönderir. Şemada opsiyonel: P18 öncesi kayıtlı fikstürler ve
+     * yayın sırasında açık kalan sekme (alan yoksa kuyruk 60 sn yoklamada düzelir).
+     */
+    priority: z.enum(REQUEST_PRIORITIES).optional(),
+    slaDueAt: iso.nullable().optional(),
+    afterHours: z.boolean().optional(),
   }),
   z.strictObject({ t: z.literal("request.removed"), id: ulid, status: z.enum(REQUEST_STATUSES) }),
   /** Yalnız kabul eden kullanıcının soketlerine (AC-155). */
   z.strictObject({ t: z.literal("request.connect_failed"), id: ulid, sessionId: ulid }),
   /** Yalnız kabul edene: müşteri "Vazgeç" dedi / pencereyi kapattı (r2, §13.3). */
   z.strictObject({ t: z.literal("request.declined"), id: ulid, sessionId: ulid }),
+  /**
+   * P18 (AC-256, 257): atama/öncelik değişimi — tenant geneli. Web `assignedTo.id === me` ise toast + ses (K-P18-9).
+   * Kullanıcı pasife alma / yetki kaybı ile kalkan atamada da gider (S-P18-T5; mezar taşı adı yayılmaz).
+   */
+  z.strictObject({
+    t: z.literal("request.updated"),
+    id: ulid,
+    priority: z.enum(REQUEST_PRIORITIES),
+    assignedTo: z.strictObject({ id: ulid, name: z.string().max(100) }).nullable(),
+    slaDueAt: iso.nullable(),
+  }),
   /** Tenant kovası aşıldı (r2, §13.6): panelde kalıcı uyarı bandı `until`'e kadar. */
   z.strictObject({ t: z.literal("queue.alert"), kind: z.literal("rate_limited"), until: iso }),
 ]);

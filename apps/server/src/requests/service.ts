@@ -1,8 +1,21 @@
 // Destek talebi servisi (P8b-1; mimari-e9 §2.3, §3.4, §5.4, §13; mimari-api "Destek talepleri (P8b)"; ADR-0016).
 // Durum makinesi tek koşullu UPDATE'lerle (count=1 kazanır); çoklu yazma tek TX + audit; bellek (hub/rooms/WhatsApp) commit SONRASI.
 // Kişisel veri (ad/telefon/açıklama) audit'e ve loga yazılmaz (AC-160); talep sırrı yalnız 201 yanıtında döner.
-import type { CancelReason, CreateRequestData, CreateRequestResponse, TenantRequestInfo } from "@remote/contracts/api/requests";
-import { REQUEST_BUSY_MESSAGE, REQUEST_QUEUE_KNOWN_ONLY_FROM, REQUEST_QUEUE_MAX } from "@remote/contracts/api/requests";
+import type {
+  CancelReason,
+  CreateRequestData,
+  CreateRequestResponse,
+  RequestPriority,
+  TenantRequestInfo,
+} from "@remote/contracts/api/requests";
+import {
+  CHAT_MIN_CLIENT_VERSION,
+  compareQueue,
+  REQUEST_BUSY_MESSAGE,
+  REQUEST_QUEUE_KNOWN_ONLY_FROM,
+  REQUEST_QUEUE_MAX,
+  slaBreachedAt,
+} from "@remote/contracts/api/requests";
 import type { FastifyBaseLogger } from "fastify";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Env } from "../env.ts";
@@ -12,7 +25,7 @@ import { ConcurrencyGate, GateBusyError, type GateOptions } from "../lib/gate.ts
 import { newId, newRequestCode, newSecretToken, sha256Hex } from "../lib/ids.ts";
 import { cidrListMatcher, ipKey, isIPv6Key, netKey, prefixKey } from "../lib/ip.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
-import { isOutdated } from "../lib/version.ts";
+import { compareVersions, isOutdated } from "../lib/version.ts";
 import type { WhatsappNotifier } from "../notify/whatsapp.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import { abuseEmail, currentConsentText } from "../public/consent.ts";
@@ -40,6 +53,11 @@ import { maskEmail } from "../audit/mask.ts";
 import type { MailService } from "../mail/service.ts";
 import { newRequestMail } from "../mail/templates.ts";
 import { HourCounter } from "./limits.ts";
+import { addBusinessMinutes, outsideHoursMessage } from "./calendar.ts";
+import { CalendarCache, openState, publicBusinessHours, type TenantCalendar } from "./hours.ts";
+
+/** S-P18-T7: `request.created fail {reason:"outside_hours"}` audit'i tenant başına bu pencerede en çok 1 satır. */
+const OUTSIDE_AUDIT_WINDOW_MS = 60_000;
 
 const EMAIL_TENANT_PER_HOUR = 30;
 
@@ -98,9 +116,14 @@ export class RequestService {
   private gateLoggedAt = Number.NEGATIVE_INFINITY;
   /** P15 (AC-235): talep engelleri kapı önbelleği (tenant başına; yazmada geçersiz kılınır). */
   readonly blocks: RequestBlockCache;
+  /** P18 (AC-258): mesai takvimi önbelleği (tenant başına 60 sn; ayar/tatil yazımında geçersiz kılınır). */
+  readonly calendars: CalendarCache;
+  /** S-P18-T7: tenant → {son audit anı, o andan beri bastırılan deneme sayısı}. */
+  private readonly outsideAudit = new Map<string, { at: number; pending: number }>();
 
   constructor(d: RequestServiceDeps) {
     this.d = d;
+    this.calendars = new CalendarCache(d.db, () => d.clock.now(), d.metrics, d.log);
     this.gate = new ConcurrencyGate(d.gate ?? REQUEST_GATE);
     this.blocks = new RequestBlockCache(d.db, () => d.clock.now());
     d.rooms.requestHooks = {
@@ -190,13 +213,54 @@ export class RequestService {
       abuseEmail(this.d.db, { fromEnv: this.d.env.ABUSE_EMAIL, superAdminFallback: this.d.env.NODE_ENV !== "production" }),
       effectiveLogoUrl(this.d.db, tenant.logoPath), // P12 (AC-81)
     ]);
+    const businessHours = await publicBusinessHours(this.calendars, tenantId, this.d.clock.now()); // P18 (AC-258)
     return {
       tenant: { name: tenant.name, logoUrl },
       consentText,
       waitMinutes,
       abuseEmail: abuse,
       minAgentVersion: this.d.env.MIN_AGENT_VERSION ?? null,
+      businessHours,
     };
+  }
+
+  /** P18 `rs_request_sla_breached_total`: talep kapanışında (kabul/ret/iptal/süre dolumu) bir kez; hata yanıtı bozmaz. */
+  countSlaBreach(requestId: string): void {
+    void this.d.db.supportRequest
+      .findUnique({ where: { id: requestId }, select: { status: true, slaDueAt: true, closedAt: true, acceptedAt: true } })
+      .then((r) => {
+        if (r && r.status !== "PENDING" && slaBreachedAt(r, this.d.clock.now())) this.d.metrics.inc("rs_request_sla_breached_total");
+      })
+      .catch((err: unknown) => this.logErr(err, "request_sla_metric"));
+  }
+
+  /**
+   * P18 (AC-258, K-P18-7, S-P18-T6/T7): mesai dışı + REJECT → talep açılmaz. ≥ 0.12.0 → 409 `OUTSIDE_HOURS`
+   * (`fields.nextOpeningAt`); eski istemci → 429 `QUEUE_FULL` aynı mesaj, `Retry-After` YOK; hız sınırı sayaç/alarmlarına
+   * girmez (yalnız `rs_requests_outside_hours_total{mode,legacy}`). Audit tenant başına dakikada 1 satır (`count`).
+   */
+  private async rejectOutsideHours(ctx: AuditContext, tenantId: string, tc: TenantCalendar, next: number | null, clientVersion: string) {
+    const legacy = compareVersions(clientVersion, CHAT_MIN_CLIENT_VERSION) < 0;
+    this.d.metrics.inc("rs_requests_outside_hours_total", { mode: "REJECT", legacy: String(legacy) });
+    const now = this.d.clock.now();
+    const st = this.outsideAudit.get(tenantId) ?? { at: Number.NEGATIVE_INFINITY, pending: 0 };
+    st.pending++;
+    if (now - st.at >= OUTSIDE_AUDIT_WINDOW_MS) {
+      await writeAudit(this.d.db, ctx, {
+        tenantId,
+        ...CUSTOMER,
+        action: "request.created",
+        entity: "support_requests",
+        result: "fail",
+        newValue: { reason: "outside_hours", count: st.pending, legacy },
+      });
+      st.at = now;
+      st.pending = 0;
+    }
+    this.outsideAudit.set(tenantId, st);
+    const message = outsideHoursMessage(next, tc.cal.timeZone);
+    if (legacy) throw new AppError("QUEUE_FULL", { message });
+    throw new AppError("OUTSIDE_HOURS", { message, ...(next === null ? {} : { fields: { nextOpeningAt: new Date(next).toISOString() } }) });
   }
 
   /** Aşım audit'i `request.rate_limited{bucket, keyType}` kaynak başına dakikada en çok 1 (AC-144) + metrik. */
@@ -250,6 +314,23 @@ export class RequestService {
     this.d.hub.publish(tenantId, { t: "queue.count", pending: await repo.countPending(this.d.db, tenantId) });
   }
 
+  /**
+   * SLA hedefi (§8b.2): dakika yoksa NULL; mesai dışında (ACCEPT) sayaç sonraki açılıştan başlar, takvimde açık an yoksa NULL;
+   * takvim bozuksa (T12) NULL. Hesap hatası (RangeError) → NULL + geri düşüş metriği.
+   */
+  private slaDue(tenantId: string, tc: TenantCalendar, now: number, next: number | null, afterHours: boolean, minutes: number | null) {
+    if (minutes === null || tc.broken) return null;
+    const start = afterHours ? next : now;
+    if (start === null) return null;
+    try {
+      const due = addBusinessMinutes(tc.cal, Math.max(now, start), minutes);
+      return due === null ? null : new Date(due);
+    } catch {
+      this.calendars.fallback(tenantId, "range_error");
+      return null;
+    }
+  }
+
   /** Kapanış sonrası ortak bellek adımları (commit sonrası). P8c tek kayıt iptali de kullanır. */
   async closedAfterCommit(
     tenantId: string,
@@ -259,6 +340,7 @@ export class RequestService {
   ): Promise<void> {
     this.d.hub.closeRequest(requestId, { t: "request.closed", status, ...extra });
     this.d.hub.publish(tenantId, { t: "request.removed", id: requestId, status });
+    this.countSlaBreach(requestId);
     this.d.hub.queueChanged(tenantId);
     await this.publishCount(tenantId);
   }
@@ -350,6 +432,13 @@ export class RequestService {
         throw rateLimited(RATE_BLOCK_SEC, REQUEST_BUSY_MESSAGE);
       }
 
+      // P18 (AC-258, S-P18-T6): mesai — ref VE bindingKey yollarında, güvenilen CIDR dahil aynı sırada; tenant kovası
+      // tüketilmez (sayım commit sonrası). Takvim bozuksa (T12) mesai uygulanmaz.
+      const tc = await this.calendars.get(tenantId);
+      const hours = openState(tc, this.d.clock.now(), () => this.calendars.fallback(tenantId, "range_error"));
+      if (!hours.openNow && tc.cal.afterHoursMode === "REJECT")
+        await this.rejectOutsideHours(ctx, tenantId, tc, hours.next, input.clientVersion);
+
       const consent = await this.d.db.consentText.findFirst({
         where: { id: input.consentTextId, tenantId, isCurrent: true },
         select: { id: true, sha256: true },
@@ -389,7 +478,7 @@ export class RequestService {
         throw rateLimited(RATE_BLOCK_SEC, REQUEST_BUSY_MESSAGE);
       }
 
-      let created: { code: string; position: number } | undefined;
+      let created: { code: string; position: number; priority: string; slaDueAt: Date | null; afterHours: boolean } | undefined;
       // Hangi bekleyen sınırı aştı (audit kovası/anahtar türü ayrımı): IP başına 3 ya da önek (net_key) başına 10.
       let pendingHit: { bucket: string; keyType: "ip" | "prefix" | "tenant"; key: string } | undefined;
       for (let attempt = 1; !created; attempt++) {
@@ -422,6 +511,10 @@ export class RequestService {
               pendingHit = { bucket: "pending.tenant", keyType: "tenant", key: tenantId };
               throw new AppError("QUEUE_FULL");
             }
+            // P18 (AC-257, §8b.2): öncelik/SLA müşteri ?? firma varsayılanı (kilitli ayar satırıyla); değerler dondurulur.
+            const policy = await repo.requestPolicy(tx, tenantId, customerId);
+            const afterHours = !hours.openNow;
+            const slaDueAt = this.slaDue(tenantId, tc, now.getTime(), hours.next, afterHours, policy.slaMinutes);
             const taken = c.codes;
             let code = newRequestCode();
             while (taken.has(code)) code = newRequestCode();
@@ -450,6 +543,10 @@ export class RequestService {
               createdAt: now,
               customerId,
               bindingId: binding?.id ?? null,
+              priority: policy.priority,
+              slaMinutes: policy.slaMinutes,
+              slaDueAt,
+              afterHours,
             });
             // S8b-3: IP yalnız audit `ip_address` sütununda. P8c §5.7: via + customerId (ref/anahtar değeri asla).
             await writeAudit(tx, ctx, {
@@ -461,7 +558,10 @@ export class RequestService {
               result: "success",
               newValue: { clientVersion: input.clientVersion, via, customerId },
             });
-            return { code, position: c.tenant + 1 };
+            // Sıra (AC-257): aynı ya da yüksek öncelikli bekleyenler önde (hepsi daha önce oluşturuldu).
+            const me = { priority: policy.priority, createdAt: now, id };
+            const ahead = c.priorities.filter((p) => compareQueue({ priority: p, createdAt: new Date(0), id: "" }, me) < 0).length;
+            return { code, position: ahead + 1, priority: policy.priority, slaDueAt, afterHours };
           }, REQUEST_TX_OPTIONS);
         } catch (err) {
           if (attempt < CODE_ATTEMPTS && isUniqueConflict(err, PENDING_CODE_INDEX)) continue;
@@ -479,6 +579,7 @@ export class RequestService {
     this.d.limits.tenantAll.add(tenantId);
     if (privileged) this.d.limits.tenantKnown.add(tenantId);
     this.d.metrics.inc("rs_requests_created_total", { via });
+    if (created.afterHours) this.d.metrics.inc("rs_requests_outside_hours_total", { mode: "ACCEPT", legacy: "false" });
     const firm = customerId ? await this.d.db.customer.findUnique({ where: { id: customerId }, select: { id: true, name: true } }) : null;
     this.d.hub.publish(tenantId, {
       t: "request.new",
@@ -493,6 +594,9 @@ export class RequestService {
       viaBinding: binding !== null,
       bindingRevoked: false,
       staleSource: false,
+      priority: created.priority as RequestPriority,
+      slaDueAt: created.slaDueAt?.toISOString() ?? null,
+      afterHours: created.afterHours,
     });
     this.d.hub.queueChanged(tenantId);
     await this.publishCount(tenantId);

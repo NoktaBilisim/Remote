@@ -9,6 +9,13 @@
 BACKUP_ENV_KEYS="BACKUP_DIR BACKUP_AGE_RECIPIENT BACKUP_KEEP_DAYS BACKUP_ALERT_CMD BACKUP_MIN_FREE_MB BACKUP_EXPECTED_TRIGGERS
   BACKUP_SIGNING_KEY BACKUP_OFFSITE_CMD BACKUP_OFFSITE_TIMEOUT_SEC BACKUP_OFFSITE_USER BACKUP_UNIT_TIMEOUT_SEC BACKUP_STATUS_FILE"
 
+# DB'de beklenen tetikleyici sayısının TEK KAYNAĞI (backup.sh BACKUP_EXPECTED_TRIGGERS, restore.sh RESTORE_EXPECTED_TRIGGERS
+# boşsa bu değer; test-backup-inner.sh buradan okur). 3 audit + 19 P16 kalıcı silme (ADR-0030 m.3) + 1 P18
+# session_messages_delete_guard (mimari-e11 §8b.1) = 23. Tetikleyici ekleyen/silen migration'la birlikte güncellenir
+# (deploy/mysql/audit-continuity.sql sabiti ve check-app-grants.sh ile aynı commit'te; runbook §25.1).
+# shellcheck disable=SC2034  # backup.sh / restore.sh okur
+REMOTE_EXPECTED_TRIGGERS=23
+
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 log() { printf '%s %s: %s\n' "$(ts)" "${LOG_TAG:-remote-backup}" "$*" >&2; }
 die() { log "HATA: $*"; exit 1; }

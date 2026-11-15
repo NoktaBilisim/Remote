@@ -36,6 +36,7 @@ import { newId } from "../lib/ids.ts";
 import { createInitialConsent } from "../public/consent.ts";
 import { tenantLogoUrl } from "../uploads/urls.ts";
 import * as purgeRepo from "../jobs/tenant-purge-repo.ts";
+import { unassignWithAudit } from "../requests/assign.ts";
 import * as repo from "./repo.ts";
 
 const ENTITY = "tenants";
@@ -163,6 +164,9 @@ export async function deactivateTenant(
     await repo.updateTenant(tx, id, { status: "PASSIVE" });
     const revokedSessions = await repo.revokeTenantSessions(tx, id, now);
     const cancelledSessions = await repo.cancelTenantPending(tx, id, now);
+    // S-P18-T5: firma pasifinde bekleyen taleplerin ataması aynı TX'te kalkar (talepler ardından TENANT_PASSIVE iptal; panel
+    // soketleri kapanacağı için `request.updated` yayını yok).
+    await unassignWithAudit(tx, ctx, actor(auth), { tenantId: id });
     const requestIds = await repo.cancelTenantRequests(tx, id, now);
     let revokedBindings = 0;
     for (;;) {

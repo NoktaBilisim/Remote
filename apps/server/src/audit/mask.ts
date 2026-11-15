@@ -60,6 +60,9 @@ export interface CustomerAuditFields {
   phone?: string | null;
   email?: string | null;
   note?: string | null;
+  /** P18 (AC-257): açık yazılır (kişisel veri değil). */
+  defaultPriority?: string | null;
+  slaMinutes?: number | null;
 }
 
 /**
@@ -77,6 +80,8 @@ export function customerAuditView(c: CustomerAuditFields): JsonObject {
   if (c.phone !== undefined) out.phone = c.phone === null ? null : maskPhone(c.phone);
   if (c.email !== undefined) out.email = c.email === null ? null : maskEmail(c.email);
   if (c.note !== undefined) out.note = c.note === null ? null : "<dolu>";
+  if (c.defaultPriority !== undefined) out.defaultPriority = c.defaultPriority;
+  if (c.slaMinutes !== undefined) out.slaMinutes = c.slaMinutes;
   return out;
 }
 

@@ -158,12 +158,39 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /api/v1/request-blocks": "scoped",
   "POST /api/v1/request-blocks": "scoped",
   "DELETE /api/v1/request-blocks/:id": "tenant",
+  // P18 H2 (AC-256..258)
+  "POST /api/v1/support-requests/:id/assign": "tenant",
+  "POST /api/v1/support-requests/:id/priority": "tenant",
+  "GET /api/v1/settings/business-hours": "scoped",
+  "PUT /api/v1/settings/business-hours": "scoped",
+  "GET /api/v1/settings/holidays": "scoped",
+  "POST /api/v1/settings/holidays": "scoped",
+  "POST /api/v1/settings/holidays/import-tr": "scoped",
+  "DELETE /api/v1/settings/holidays/:id": "tenant",
   "GET /api/v1/public/sessions/:sessionId/tech-avatar": "public",
 };
 
 export interface TwoTenants {
-  a: { tenantId: string; admin: TestUser; user: TestUser; sessionId: string; requestId: string; customerId: string; blockId: string };
-  b: { tenantId: string; admin: TestUser; user: TestUser; sessionId: string; requestId: string; customerId: string; blockId: string };
+  a: {
+    tenantId: string;
+    admin: TestUser;
+    user: TestUser;
+    sessionId: string;
+    requestId: string;
+    customerId: string;
+    blockId: string;
+    holidayId: string;
+  };
+  b: {
+    tenantId: string;
+    admin: TestUser;
+    user: TestUser;
+    sessionId: string;
+    requestId: string;
+    customerId: string;
+    blockId: string;
+    holidayId: string;
+  };
 }
 
 export interface CrossTenantCase {
@@ -254,6 +281,19 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
   },
   // P15 (AC-235): A'nın engelini B Admin'i kaldıramaz → 404
   { route: "DELETE /api/v1/request-blocks/:id", request: (fx) => ({ method: "DELETE", url: `/api/v1/request-blocks/${fx.a.blockId}` }) },
+  // P18 H2 (AC-256, 257, 258): A'nın talebini B atayamaz / önceliğini değiştiremez, tatilini silemez → 404
+  {
+    route: "POST /api/v1/support-requests/:id/assign",
+    request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/assign`, payload: { userId: null } }),
+  },
+  {
+    route: "POST /api/v1/support-requests/:id/priority",
+    request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/priority`, payload: { priority: "HIGH" } }),
+  },
+  {
+    route: "DELETE /api/v1/settings/holidays/:id",
+    request: (fx) => ({ method: "DELETE", url: `/api/v1/settings/holidays/${fx.a.holidayId}` }),
+  },
   {
     route: "POST /api/v1/support-requests/:id/reject",
     request: (fx) => ({
@@ -289,7 +329,11 @@ export async function twoTenants(): Promise<TwoTenants> {
     await testDb().requestBlock.create({
       data: { id: blockId, tenantId: t.id, kind: "DEVICE", deviceKeyHash: sha256Hex(blockId), createdBy: admin.id },
     });
-    return { tenantId: t.id, admin, user, sessionId: session.id, requestId: request.id, customerId: customer.id, blockId };
+    const holidayId = newId(); // P18 (AC-258)
+    await testDb().businessHoliday.create({
+      data: { id: holidayId, tenantId: t.id, day: new Date("2026-12-31T00:00:00.000Z"), name: "Yıl sonu", createdBy: admin.id },
+    });
+    return { tenantId: t.id, admin, user, sessionId: session.id, requestId: request.id, customerId: customer.id, blockId, holidayId };
   };
   return { a: await side(), b: await side() };
 }

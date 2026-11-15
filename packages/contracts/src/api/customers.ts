@@ -2,7 +2,7 @@
 // Tek kaynak: sunucu girdileri bu şemalarla doğrular, web aynı tipleri ve `foldKey`/`suggestFileLabel`'ı kullanır.
 // DB'deki ikinci emniyet: migration `20261112120000_p8c_customers` CHECK'leri (not alanında `\t` de yasak — db-notlari P8c).
 import { z } from "zod";
-import { normalizePhone } from "./requests.ts";
+import { normalizePhone, REQUEST_PRIORITIES, SLA_MINUTES_MAX, SLA_MINUTES_MIN, type RequestPriority } from "./requests.ts";
 import { UNSAFE_NAME_CHARS } from "./sessions.ts";
 
 export { customerFilterSchema, type CustomerFilter } from "./requests.ts";
@@ -198,6 +198,16 @@ export const customerNoteSchema = z
 
 export const customerStatusSchema = z.enum(CUSTOMER_STATUSES);
 
+/** P18 (AC-257): müşteri varsayılan önceliği; `null` = firma varsayılanı. */
+export const customerPrioritySchema = z.enum(REQUEST_PRIORITIES).nullable();
+/** P18 (AC-257): müşteri SLA hedefi (dakika 5..1440); `null` = firma varsayılanı. */
+export const customerSlaMinutesSchema = z
+  .number()
+  .int("Tam sayı olmalı")
+  .min(SLA_MINUTES_MIN, `En az ${SLA_MINUTES_MIN} dakika`)
+  .max(SLA_MINUTES_MAX, `En çok ${SLA_MINUTES_MAX} dakika`)
+  .nullable();
+
 // ---------------------------------------------------------------------------------------------------------------
 // Girdi şemaları
 // ---------------------------------------------------------------------------------------------------------------
@@ -210,6 +220,8 @@ export const createCustomerInputSchema = z.strictObject({
   phone: optionalPhoneSchema.optional(),
   email: optionalEmailNullable.optional(),
   note: customerNoteSchema.optional(),
+  defaultPriority: customerPrioritySchema.optional(),
+  slaMinutes: customerSlaMinutesSchema.optional(),
 });
 export type CreateCustomerInput = z.input<typeof createCustomerInputSchema>;
 export type CreateCustomerData = z.output<typeof createCustomerInputSchema>;
@@ -226,6 +238,8 @@ export const updateCustomerInputSchema = z
     phone: optionalPhoneSchema.optional(),
     email: optionalEmailNullable.optional(),
     note: customerNoteSchema.optional(),
+    defaultPriority: customerPrioritySchema.optional(),
+    slaMinutes: customerSlaMinutesSchema.optional(),
   })
   .refine((o) => Object.values(o).some((v) => v !== undefined), { message: "Değiştirilecek alan yok", path: ["_"] });
 export type UpdateCustomerInput = z.input<typeof updateCustomerInputSchema>;
@@ -306,6 +320,10 @@ export interface CustomerDetail extends CustomerListItem {
   anonymizedAt: string | null;
   /** Tenant geneli oturum sayısı (USER için Oturumlar sekmesi yine `historyScope`). */
   sessionCount: number;
+  /** P18 (AC-257): null = firma varsayılanı. */
+  defaultPriority: RequestPriority | null;
+  /** P18 (AC-257): SLA hedefi dakika; null = firma varsayılanı. */
+  slaMinutes: number | null;
 }
 
 export interface CustomerListResponse {

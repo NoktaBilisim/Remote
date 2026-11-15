@@ -78,7 +78,7 @@ trap 'rm -rf -- "$VDIR"' EXIT
 cp -- "$RUN_DIR/manifest.json" "$VDIR/manifest.json"
 [ ! -f "$RUN_DIR/manifest.json.sig" ] || cp -- "$RUN_DIR/manifest.json.sig" "$VDIR/manifest.json.sig"
 MANIFEST="$VDIR/manifest.json"
-EXPECTED_TRIGGERS="${RESTORE_EXPECTED_TRIGGERS:-22}"  # P16 (S16-11): restore-verify beklenen tetikleyici
+EXPECTED_TRIGGERS="${RESTORE_EXPECTED_TRIGGERS:-$REMOTE_EXPECTED_TRIGGERS}"  # S16-11: restore-verify beklenen (lib.sh; P18 23)
 READY_TIMEOUT="${RESTORE_READY_TIMEOUT:-240}"
 HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
 

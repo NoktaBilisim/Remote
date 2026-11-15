@@ -43,6 +43,7 @@ import {
 } from "@remote/contracts/labels";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
+import { slaBreachedAt } from "@remote/contracts/api/requests";
 import { CSV_BOM, csvRow, hms, istanbulDateTime } from "../lib/csv.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
@@ -453,7 +454,15 @@ export interface CsvExport {
   body: Readable;
 }
 
-function csvCells(r: hrepo.HistoryExportRow, withTenant: boolean, files: readonly FileReportRow[]): string[] {
+type SlaRow = Awaited<ReturnType<typeof hrepo.requestSlaOf>>[number];
+
+/** "SLA aşıldı" hücresi: talepsiz oturum ya da SLA'sız talep boş; aksi `slaBreachedAt` (web/sunucu ortak). */
+export function slaCell(sla: SlaRow | undefined, now: number): string {
+  if (!sla || sla.slaDueAt === null) return "";
+  return slaBreachedAt(sla, now) ? "Evet" : "Hayır";
+}
+
+function csvCells(r: hrepo.HistoryExportRow, withTenant: boolean, files: readonly FileReportRow[], sla: string): string[] {
   return [
     r.id,
     ...(withTenant ? [r.tenant.name] : []),
@@ -473,6 +482,7 @@ function csvCells(r: hrepo.HistoryExportRow, withTenant: boolean, files: readonl
     labelOf(END_REASON_LABELS, r.endReason),
     r.anonymizedAt !== null ? "" : (r.note ?? ""),
     r.anonymizedAt !== null ? "" : fileSummaryCell(files),
+    sla,
   ];
 }
 
@@ -540,7 +550,18 @@ export async function exportHistoryCsv(
         );
         const bySession = new Map<string, FileReportRow[]>();
         for (const f of reports) bySession.set(f.sessionId, [...(bySession.get(f.sessionId) ?? []), f]);
-        yield batch.map((r) => csvRow(csvCells(r, withTenant, bySession.get(r.id) ?? []))).join("");
+        const slaRows = await hrepo.requestSlaOf(
+          db,
+          [...new Set(batch.map((r) => r.tenantId))],
+          batch.flatMap((r) => (r.requestId ? [r.requestId] : [])),
+        );
+        const slaById = new Map(slaRows.map((x) => [x.id, x]));
+        const at = now.getTime();
+        yield batch
+          .map((r) =>
+            csvRow(csvCells(r, withTenant, bySession.get(r.id) ?? [], slaCell(r.requestId ? slaById.get(r.requestId) : undefined, at))),
+          )
+          .join("");
         written += batch.length;
         const last = batch[batch.length - 1];
         if (!last || batch.length < EXPORT_BATCH) return;

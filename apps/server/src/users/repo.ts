@@ -92,6 +92,19 @@ export function listUserOptions(db: DbOrTx, scope: TenantScope, take: number, on
   });
 }
 
+/**
+ * P18 (AC-256): atanabilir aday listesi — kapsam + ACTIVE; etkin yetki (view + accept) çağıranda süzülür (ezme satırları
+ * ile birlikte tek sorgu, ≤ take).
+ */
+export function listAssignableCandidates(db: DbOrTx, scope: TenantScope, take: number, onlyId?: string) {
+  return db.user.findMany({
+    where: { ...scoped(scope), status: "ACTIVE", ...(onlyId ? { id: onlyId } : {}) },
+    select: { id: true, fullName: true, status: true, role: true, permissions: { select: { permKey: true, granted: true } } },
+    orderBy: [{ fullName: "asc" }, { id: "asc" }],
+    take,
+  });
+}
+
 export async function insertUser(tx: Prisma.TransactionClient, data: Prisma.UserUncheckedCreateInput): Promise<void> {
   await tx.user.create({ data, select: { id: true } });
 }

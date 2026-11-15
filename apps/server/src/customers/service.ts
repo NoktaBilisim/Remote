@@ -26,7 +26,7 @@ import {
   foldKey,
   suggestFileLabel,
 } from "@remote/contracts/api/customers";
-import type { SupportRequestListResponse } from "@remote/contracts/api/requests";
+import type { RequestPriority, SupportRequestListResponse } from "@remote/contracts/api/requests";
 import type { SessionListResponse } from "@remote/contracts/api/sessions";
 import { CUSTOMER_AUDIT } from "@remote/contracts/audit";
 import { customerAuditView, type CustomerAuditFields } from "../audit/mask.ts";
@@ -122,6 +122,8 @@ async function detail(svc: RequestService, tenantId: string, id: string): Promis
     passiveAt: c.passiveAt?.toISOString() ?? null,
     anonymizedAt: c.anonymizedAt?.toISOString() ?? null,
     sessionCount,
+    defaultPriority: (c.defaultPriority as RequestPriority | null) ?? null,
+    slaMinutes: c.slaMinutes,
   };
 }
 
@@ -133,6 +135,8 @@ const auditFields = (c: repo.CustomerRow): CustomerAuditFields => ({
   phone: c.phone,
   email: c.email,
   note: c.note,
+  defaultPriority: c.defaultPriority,
+  slaMinutes: c.slaMinutes,
 });
 
 async function writeLimit(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string): Promise<void> {
@@ -277,6 +281,8 @@ export async function createCustomer(
         phone,
         email: input.email ?? null,
         note: input.note ?? null,
+        defaultPriority: input.defaultPriority ?? null,
+        slaMinutes: input.slaMinutes ?? null,
         status: "ACTIVE",
         createdBy: auth.user.id,
         createdAt: now,
@@ -298,6 +304,8 @@ export async function createCustomer(
           name: input.name,
           fileLabel,
           refPrefix: ref,
+          ...(input.defaultPriority ? { defaultPriority: input.defaultPriority } : {}),
+          ...(input.slaMinutes ? { slaMinutes: input.slaMinutes } : {}),
         }),
       });
     }),
@@ -306,7 +314,7 @@ export async function createCustomer(
   return detail(svc, tenantId, id);
 }
 
-const FIELDS = ["name", "fileLabel", "contactName", "phone", "email", "note"] as const;
+const FIELDS = ["name", "fileLabel", "contactName", "phone", "email", "note", "defaultPriority", "slaMinutes"] as const;
 const PII = ["contactName", "phone", "email", "note"] as const;
 
 /** PATCH /customers/:id (AC-167, 195): yalnız değişen alanlar; boşaltma; pasifte de serbest; audit maskeli (K19). */
@@ -330,10 +338,12 @@ export async function updateCustomer(
         phone: c.phone,
         email: c.email,
         note: c.note,
+        defaultPriority: c.defaultPriority,
+        slaMinutes: c.slaMinutes,
       };
       for (const f of FIELDS) {
         const v = input[f];
-        if (v !== undefined) (next as Record<string, string | null>)[f] = v;
+        if (v !== undefined) (next as Record<string, string | number | null>)[f] = v;
       }
       const changed = FIELDS.filter((f) => next[f] !== c[f]);
       if (changed.length === 0) return;

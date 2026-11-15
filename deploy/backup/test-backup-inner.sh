@@ -6,6 +6,8 @@ F=0; ok() { echo "PASS  $*"; }
 no() { echo "FAIL  $*"; F=$((F + 1)); tail -n 2 /tmp/bo /tmp/ro 2>/dev/null | sed 's/^/INFO  | /'; }
 t() { if eval "$2"; then ok "$1"; else no "$1"; fi; }   # t <açıklama> <koşul>
 B="$REPO/deploy/backup"; D=/opt/tdeploy; cd "$D" || exit 1
+# Beklenen tetikleyici sayısı tek kaynaktan (lib.sh); 23 olduğu ayrıca A) bölümünde sınanır.
+EXP_TRG="$(sed -n 's/^REMOTE_EXPECTED_TRIGGERS=\([0-9]*\)$/\1/p' "$B/lib.sh")"
 install -d -m 755 /var/backups /etc/remote-backup-t /var/lib/remote-backup-t
 ssh-keygen -q -t ed25519 -N '' -C remote-backup@rstest -f /etc/remote-backup-t/manifest_ed25519
 printf 'remote-backup@rstest namespaces="remote-backup" %s\n' "$(cut -d' ' -f1,2 /etc/remote-backup-t/manifest_ed25519.pub)" >/etc/remote-backup-t/allowed_signers
@@ -51,7 +53,7 @@ t "manifest format 2, env staging, host rstest, signer = anahtar, seq 1" '[ "$(j
 t "çalıştırma dizini 700, dosyalar 600 (imza dahil)" '[ "$(stat -c %a $R1)" = 700 ] && [ -z "$(find $R1 -type f ! -perm 600)" ] && [ -f $M.sig ]'
 t "imza ssh-keygen -Y verify ile doğrulanır" 'ssh-keygen -Y verify -f /etc/remote-backup-t/allowed_signers -I remote-backup@rstest -n remote-backup -s $M.sig <$M >/dev/null 2>&1'
 sleep 1; bk; R2="$(last)"
-t "S16-11: manifest tetikleyici 22 (BACKUP_EXPECTED_TRIGGERS varsayılanı)" '[ "$(jq .triggers $M)" = 22 ]'
+t "P18 H5: manifest tetikleyici = lib.sh REMOTE_EXPECTED_TRIGGERS ($EXP_TRG) = 23" '[ "$EXP_TRG" = 23 ] && [ "$(jq .triggers $M)" = "$EXP_TRG" ] && jq -e ".triggerNames | index(\"session_messages_delete_guard\")" $M >/dev/null'
 t "P16: defter yokken yedek: ledger ilk, present false, şifreli boş dosya + files[2]" '[ "$(jq -r "[.ledger.result,.ledger.present,.ledger.bytes,.files[2].name]|join(\" \")" $M)" = "ilk false 0 erasure-ledger.jsonl.age" ] && [ -f $R1/erasure-ledger.jsonl.age ] && [ "$(prom remote_backup_ledger_ok)" = 1 ]'
 t "ikinci yedek: audit ok, seq 2, prevRun = ilk" 'has "audit-sureklilik: ok" && [ "$(jq -r ".seq,.prevRun" $R2/manifest.json | paste -sd" ")" = "2 ${R1##*/}" ]'
 rs "$R2"
@@ -214,9 +216,11 @@ for u in remote-backup@.service remote-backup-failed@.service; do
 done
 BACKUP_UNIT_NAME=remote-backup@stg.service bash "$B/backup.sh" --alert >/tmp/bo 2>&1
 t "--alert metni örnek birimine işaret eder (journalctl -u remote-backup@stg.service)" 'has "journalctl -u remote-backup@stg.service"'
-echo "== J) P16 imha defteri (ADR-0030 m.9, S16-5/11/13) + tetikleyici 22"
+echo "== J) P16 imha defteri (ADR-0030 m.9, S16-5/11/13) + tetikleyici $EXP_TRG (P18)"
 BACKUP_EXPECTED_TRIGGERS=3 bk; t "BACKUP_EXPECTED_TRIGGERS=3 (P16 öncesi değer) -> FAILED adım=tetikleyici" '[ $BRC != 0 ] && has "FAILED adım=tetikleyici" && has "beklenen 3"'
-bk; t "varsayılan (22) -> rc 0" '[ $BRC = 0 ]'
+BACKUP_EXPECTED_TRIGGERS=22 bk; t "P18 H5: BACKUP_EXPECTED_TRIGGERS=22 (P16 değeri, elle yazılı kalmış) -> FAILED adım=tetikleyici" '[ $BRC != 0 ] && has "FAILED adım=tetikleyici" && has "beklenen 22"'
+bk; t "varsayılan ($EXP_TRG) -> rc 0" '[ $BRC = 0 ]'
+RESTORE_EXPECTED_TRIGGERS=22 rs "$(last)"; t "P18 H5: RESTORE_EXPECTED_TRIGGERS=22 -> restore-verify FAIL (tetikleyici sayısı beklenen)" '[ $RRC != 0 ] && has "CHECK FAIL  tetikleyici sayısı (beklenen)" /tmp/ro'
 led "printf '%s\n' '{\"v\":1,\"type\":\"tenant\",\"id\":\"$ULA\",\"jobId\":\"$ULB\",\"at\":\"2026-11-15T00:00:00Z\"}' '{\"v\":1,\"type\":\"user\",\"id\":\"$ULB\",\"at\":\"2026-11-15T00:00:01Z\"}' >>$LF && chown 1000:1000 $LF && chmod 600 $LF"
 bk; RL="$(last)"
 t "2 satır eklendi -> ledger ok, lines 2, firma 1, kullanıcı 1" '[ $BRC = 0 ] && has "imha-defteri: ok" && [ "$(jq -r "[.ledger.lines,.ledger.tenants,.ledger.users]|join(\" \")" $RL/manifest.json)" = "2 1 1" ]'

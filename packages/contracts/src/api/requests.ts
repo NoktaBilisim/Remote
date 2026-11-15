@@ -48,6 +48,47 @@ export const REQUEST_TRANSITIONS: Readonly<Record<RequestStatus, readonly Reques
   CONNECT_FAILED: [],
 };
 
+// P18 (mimari-e11 §8b.3; AC-257): öncelik ve kuyruk sırası — TEK karşılaştırıcı (sunucu kuyruk/sıra + web kuyruğu).
+export const REQUEST_PRIORITIES = ["LOW", "NORMAL", "HIGH"] as const;
+export type RequestPriority = (typeof REQUEST_PRIORITIES)[number];
+export const PRIORITY_RANK: Readonly<Record<RequestPriority, number>> = { HIGH: 3, NORMAL: 2, LOW: 1 };
+/** SLA hedefi sınırları (dakika; DB CHECK 5..1440 ile aynı). */
+export const SLA_MINUTES_MIN = 5;
+export const SLA_MINUTES_MAX = 1440;
+
+const timeOf = (v: string | Date): number => (typeof v === "string" ? Date.parse(v) : v.getTime());
+
+/**
+ * K-P18-4: öncelik azalan → `createdAt` artan (FIFO) → `id` artan. Bilinmeyen öncelik NORMAL sayılır (eski veri).
+ * Sözlükbilimsel sıra; ağırlıklı puan yok.
+ */
+export function compareQueue(
+  a: { priority: string; createdAt: string | Date; id: string },
+  b: { priority: string; createdAt: string | Date; id: string },
+): number {
+  const rank = (p: string): number => PRIORITY_RANK[p as RequestPriority] ?? PRIORITY_RANK.NORMAL;
+  const r = rank(b.priority) - rank(a.priority);
+  if (r !== 0) return r;
+  const t = timeOf(a.createdAt) - timeOf(b.createdAt);
+  if (t !== 0) return t;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * K-P18-5: SLA ölçütü ilk yanıt (kabul). Bitiş = PENDING ise `now`, değilse `acceptedAt ?? closedAt`. Aşım yalnız
+ * bitiş > hedef (tam hedef anı aşım DEĞİL). SLA yoksa (`slaDueAt` null) false.
+ */
+export function slaBreachedAt(
+  item: { status: string; slaDueAt: string | Date | null; closedAt: string | Date | null; acceptedAt?: string | Date | null },
+  now: number | Date,
+): boolean {
+  if (item.slaDueAt === null) return false;
+  const nowMs = typeof now === "number" ? now : now.getTime();
+  const closedEnd = item.acceptedAt ?? item.closedAt;
+  const end = item.status === "PENDING" || closedEnd === null ? nowMs : timeOf(closedEnd);
+  return end > timeOf(item.slaDueAt);
+}
+
 export const canTransition = (from: RequestStatus, to: RequestStatus): boolean => REQUEST_TRANSITIONS[from].includes(to);
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -406,6 +447,8 @@ export interface TenantRequestInfo {
   abuseEmail: string | null;
   /** `MIN_AGENT_VERSION`; boşsa null (istemci açılışta karşılaştırır). */
   minAgentVersion: string | null;
+  /** P18 (AC-258): mesai durumu (gevşek JSON; 0.9–0.11 istemci yok sayar). Sunucu her zaman doldurur. */
+  businessHours?: PublicBusinessHours;
 }
 
 /**
@@ -460,12 +503,16 @@ export const listRequestsQuerySchema = z
     status: z.enum(CLOSED_REQUEST_STATUSES).optional(),
     /** P8c (AC-176): `general` | müşteri kimliği; kuyruk ve geçmişte. */
     customer: customerFilterSchema.optional(),
+    /** P18 (AC-256): yalnız `pending` — `me` = bana atananlar, `none` = atanmamış. */
+    assigned: z.enum(["me", "none"]).optional(),
     page: z.coerce.number().int().min(1).max(10_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(REQUEST_PAGE_SIZE_MAX).default(25),
   })
   .superRefine((q, ctx) => {
     if (q.status && q.tab !== "history")
       ctx.addIssue({ code: "custom", path: ["status"], message: "Durum filtresi yalnız geçmiş sekmesinde kullanılır" });
+    if (q.assigned && q.tab !== "pending")
+      ctx.addIssue({ code: "custom", path: ["assigned"], message: "Atama filtresi yalnız bekleyen sekmesinde kullanılır" });
   });
 export type ListRequestsQuery = z.infer<typeof listRequestsQuerySchema>;
 
@@ -498,6 +545,16 @@ export interface SupportRequestItem {
   bindingRevoked: boolean;
   /** r2 (§15.1): ref yenilemesinden önce açıldı ya da kaydı iptal edildi → "Bu talep bağlantı yenilenmeden önce açıldı". */
   staleSource: boolean;
+  /** P18 (AC-257): öncelik (oluşturmada müşteri/firma varsayılanı; sonradan `support_requests.assign` ile değişir). */
+  priority: RequestPriority;
+  /** P18 (AC-256): atanan teknisyen; null = atanmamış. */
+  assignedTo: { id: string; name: string } | null;
+  /** P18 (AC-257): SLA hedefi (oluşturmada dondurulur); null = SLA yok ya da takvimde açık an yok. */
+  slaDueAt: string | null;
+  /** P18 (AC-257): `slaBreachedAt(item, now)` — sunucu yanıt anında hesaplar; web sayaçta aynı fonksiyonu kullanır. */
+  slaBreached: boolean;
+  /** P18 (AC-258): mesai dışında (ACCEPT modunda) açıldı. */
+  afterHours: boolean;
 }
 
 export interface SupportRequestListResponse {
@@ -538,6 +595,10 @@ export interface SupportRequestSettings {
   email: { enabled: boolean; recipients: string[]; smtpConfigured: boolean };
   /** P15 (AC-239): "Talep kabulünde kabul kodu iste" — açıkken müşteri ekranındaki 4 haneli kodla kabul (AC-112). */
   requireAcceptCode: boolean;
+  /** P18 (AC-257): firma varsayılan önceliği (müşteride tanım yoksa). */
+  defaultPriority: RequestPriority;
+  /** P18 (AC-257): firma varsayılan SLA hedefi (dakika, 5..1440); null = SLA yok. */
+  defaultSlaMinutes: number | null;
 }
 
 /**
@@ -566,6 +627,15 @@ export const updateRequestSettingsInputSchema = z
     }),
     /** P15 (AC-239): verilmezse mevcut değer korunur (eski form gövdesi ayarı kapatmaz). */
     requireAcceptCode: z.boolean().optional(),
+    /** P18 (AC-257): verilmezse mevcut değer korunur (eski form gövdesi değiştirmez). */
+    defaultPriority: z.enum(REQUEST_PRIORITIES).optional(),
+    defaultSlaMinutes: z
+      .number()
+      .int("Tam sayı olmalı")
+      .min(SLA_MINUTES_MIN, `En az ${SLA_MINUTES_MIN} dakika`)
+      .max(SLA_MINUTES_MAX, `En çok ${SLA_MINUTES_MAX} dakika`)
+      .nullable()
+      .optional(),
   })
   .superRefine((s, ctx) => {
     if (s.whatsapp.enabled && s.whatsapp.recipients.length === 0)
@@ -598,3 +668,141 @@ export const emailTestInputSchema = z.strictObject({
 });
 export type EmailTestInput = z.input<typeof emailTestInputSchema>;
 export type EmailTestResponse = WhatsappTestResponse;
+
+// ---------------------------------------------------------------------------------------------------------------
+// P18 — atama, öncelik, mesai takvimi, tatiller (mimari-e11 §8b.2–8b.5; AC-256, 257, 258)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * K-P18-7: mesai reddinde bu sürümden eski istemciye `OUTSIDE_HOURS` yerine 429 `QUEUE_FULL` + aynı mesaj döner (0.9–0.11
+ * yalnız RATE_LIMITED/QUEUE_FULL'da sunucu mesajını gösterir). Yalnız eski kod eşlemesi için.
+ */
+export const CHAT_MIN_CLIENT_VERSION = "0.12.0";
+
+/** POST /support-requests/:id/assign — `null` atamayı kaldırır. */
+export const assignRequestInputSchema = z.strictObject({ userId: z.string().regex(ULID, "Geçersiz kullanıcı").nullable() });
+export type AssignRequestInput = z.infer<typeof assignRequestInputSchema>;
+/** 400 `fields.userId` (varlık sızdırmamak için 404 değil). */
+export const ASSIGNEE_INVALID_MESSAGE = "Bu kullanıcıya talep atanamaz (aynı firmada, etkin ve talep kabul yetkisi olmalı).";
+
+/** POST /support-requests/:id/priority */
+export const priorityInputSchema = z.strictObject({ priority: z.enum(REQUEST_PRIORITIES) });
+export type PriorityInput = z.infer<typeof priorityInputSchema>;
+
+export const AFTER_HOURS_MODES = ["ACCEPT", "REJECT"] as const;
+export type AfterHoursMode = (typeof AFTER_HOURS_MODES)[number];
+export const DEFAULT_TIME_ZONE = "Europe/Istanbul";
+/** Gün başına en çok aralık (DB JSON şeması ile aynı). Hafta Pazartesi = 0. */
+export const BUSINESS_DAY_INTERVALS_MAX = 2;
+
+const HHMM_FROM = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** `to` için "24:00" (gün sonu) kabul edilir; gece yarısını aşan aralık ifade edilemez. */
+const HHMM_TO = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/;
+const TZ_RE = /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/;
+
+let tzSet: ReadonlySet<string> | null = null;
+/** IANA saat dilimi geçerli mi: DB CHECK biçimi + `Intl.supportedValuesOf("timeZone")` (UTC dahil). */
+export function isValidTimeZone(tz: string): boolean {
+  if (!TZ_RE.test(tz) || tz.length > 40) return false;
+  tzSet ??= new Set([...Intl.supportedValuesOf("timeZone"), "UTC"]);
+  return tzSet.has(tz);
+}
+
+export const timeZoneSchema = z.string().max(40, "Geçersiz saat dilimi").refine(isValidTimeZone, "Geçersiz saat dilimi");
+
+export const businessIntervalSchema = z
+  .strictObject({
+    from: z.string().regex(HHMM_FROM, "Saat SS:DD biçiminde olmalı (00:00–23:59)"),
+    to: z.string().regex(HHMM_TO, "Saat SS:DD biçiminde olmalı (00:01–24:00)"),
+  })
+  .refine((i) => i.from < i.to, { message: "Bitiş başlangıçtan sonra olmalı", path: ["to"] });
+export type BusinessInterval = z.infer<typeof businessIntervalSchema>;
+
+export const businessDaySchema = z
+  .array(businessIntervalSchema)
+  .max(BUSINESS_DAY_INTERVALS_MAX, `Gün başına en çok ${BUSINESS_DAY_INTERVALS_MAX} aralık`)
+  .superRefine((day, ctx) => {
+    const [a, b] = day;
+    if (a && b && !(a.to <= b.from || b.to <= a.from)) ctx.addIssue({ code: "custom", path: [1, "from"], message: "Aralıklar örtüşemez" });
+  });
+
+/** GET/PUT /settings/business-hours (AC-258). Açıkken en az bir aralık gerekir (her an kapalı takvim talebi kilitler). */
+export const businessHoursSchema = z
+  .strictObject({
+    enabled: z.boolean(),
+    timeZone: timeZoneSchema,
+    afterHoursMode: z.enum(AFTER_HOURS_MODES),
+    week: z.array(businessDaySchema).length(7, "Haftanın 7 günü girilmeli"),
+  })
+  .superRefine((h, ctx) => {
+    if (h.enabled && h.week.every((d) => d.length === 0))
+      ctx.addIssue({ code: "custom", path: ["week"], message: "Mesai açıkken en az bir gün için saat aralığı girin" });
+  });
+export type BusinessHoursInput = z.infer<typeof businessHoursSchema>;
+
+export interface BusinessHoursView extends BusinessHoursInput {
+  openNow: boolean;
+  /** Şu an açıksa şimdi; kapalıysa sonraki açılış; 366 gün içinde açık an yoksa null. */
+  nextOpeningAt: string | null;
+}
+
+/**
+ * GET /public/requests/tenant += businessHours (AC-258). Takvim kapalıysa `openNow: true`. `nextOpeningAt` yalnız şu an
+ * kapalıyken dolu (açıkken ve 366 gün içinde açık an yoksa null).
+ */
+export interface PublicBusinessHours {
+  openNow: boolean;
+  nextOpeningAt: string | null;
+  afterHoursMode: AfterHoursMode;
+}
+
+export const HOLIDAYS_MAX = 200;
+export const HOLIDAY_NAME_MAX = 100;
+const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const validDay = (v: string): boolean => {
+  const m = DAY_RE.exec(v);
+  if (!m) return false;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
+};
+
+/** Yerel gün (tenant saat diliminde) `YYYY-MM-DD`, 2000..2100. */
+export const holidayDaySchema = z
+  .string()
+  .refine((v) => validDay(v) && v >= "2000-01-01" && v <= "2100-12-31", "Tarih YYYY-AA-GG biçiminde olmalı");
+/** DB `business_holidays_name_chk`: 1..100, kırpılmış, Cc/Cf/Zl/Zp yok. */
+export const holidayNameSchema = z
+  .string()
+  .max(400, `Ad en çok ${HOLIDAY_NAME_MAX} karakter olabilir`)
+  .refine((v) => !UNSAFE_NAME_CHARS.test(v), "Ad görünmez veya kontrol karakteri içeremez")
+  .trim()
+  .refine((v) => codePoints(v) >= 1, "Ad girin")
+  .refine((v) => codePoints(v) <= HOLIDAY_NAME_MAX, `Ad en çok ${HOLIDAY_NAME_MAX} karakter olabilir`);
+/** O gün bu saate kadar açık (ör. arife 13:00); 00:01..23:59. `null` = tam gün kapalı. */
+export const openUntilSchema = z
+  .string()
+  .regex(HHMM_FROM, "Saat SS:DD biçiminde olmalı")
+  .refine((v) => v !== "00:00", "Saat 00:00'dan sonra olmalı")
+  .nullable();
+
+export const holidayInputSchema = z.strictObject({ day: holidayDaySchema, name: holidayNameSchema, openUntil: openUntilSchema });
+export type HolidayInput = z.infer<typeof holidayInputSchema>;
+export const holidaysQuerySchema = z.strictObject({ year: z.coerce.number().int().min(2000).max(2100) });
+export const holidayIdSchema = z.string().regex(ULID);
+export const importTrHolidaysInputSchema = z.strictObject({ year: z.number().int().min(2000).max(2100) });
+
+export interface HolidayItem {
+  id: string;
+  day: string;
+  name: string;
+  openUntil: string | null;
+}
+export interface HolidayListResponse {
+  items: HolidayItem[];
+}
+export interface HolidayImportResponse {
+  added: number;
+  skipped: number;
+}
+export const HOLIDAY_DAY_CONFLICT_MESSAGE = "Bu gün zaten tatil olarak ekli";
+export const HOLIDAYS_MAX_MESSAGE = `Firma başına en çok ${HOLIDAYS_MAX} tatil günü tanımlanabilir`;

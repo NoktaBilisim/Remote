@@ -36,6 +36,7 @@ import { armOrphanedPending, pendingGauge } from "./requests/jobs.ts";
 import { closeRequestLimits, createRequestLimits } from "./requests/limits.ts";
 import { publicRequestDownloadRoutes, publicRequestRoutes } from "./requests/public-routes.ts";
 import { requestSettingsRoutes, supportRequestRoutes } from "./requests/routes.ts";
+import { businessHoursRoutes, holidayRoutes } from "./requests/hours-routes.ts";
 import { requestBlockRoutes } from "./requests/block-routes.ts";
 import { RequestService } from "./requests/service.ts";
 import { requestChannels } from "./requests/ws.ts";
@@ -386,6 +387,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   void app.register(supportRequestRoutes, { prefix: "/api/v1/support-requests" });
   void app.register(requestSettingsRoutes, { prefix: "/api/v1/settings/support-requests" });
   void app.register(requestBlockRoutes, { prefix: "/api/v1/request-blocks" });
+  void app.register(businessHoursRoutes, { prefix: "/api/v1/settings/business-hours" });
+  void app.register(holidayRoutes, { prefix: "/api/v1/settings/holidays" });
   void app.register(customerRoutes, { prefix: "/api/v1/customers" });
   void app.register(publicBindingRoutes, { prefix: "/api/v1/public/bindings" });
   void app.register(userRoutes, { prefix: "/api/v1/users" });

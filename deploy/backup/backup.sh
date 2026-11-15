@@ -21,7 +21,7 @@
 # hiçbir zaman geçerli bir çalıştırma gibi görünmez. Düz (şifresiz) döküm/arşiv HİÇ diske yazılmaz: akış doğrudan
 # gzip -> age'e gider, sayım/özetler akış üzerinde hesaplanır (S-P13a-3). Özel (çözme) anahtar sunucuda BULUNMAZ.
 # backup.env root'a ait ve 600 değilse çalışmaz (S-P13a-7). DB'deki tetikleyici sayısı BACKUP_EXPECTED_TRIGGERS
-# (vars. 22; P16 öncesi 3) değilse FAILED (S-P13a-4, S16-11).
+# (vars. lib.sh REMOTE_EXPECTED_TRIGGERS = 23, P18; P16 22, P16 öncesi 3) değilse FAILED (S-P13a-4, S16-11).
 #
 # P13b sırası: meta -> audit ölçümü -> döküm -> manifest -> imza -> yayımla -> rotasyon -> site dışı kanca -> status.prom.
 #   Audit süreklilik (db-notlari "P13b"): önceki imzası geçerli, sonucu FAILED olmayan manifestle karşılaştırılır. FAILED
@@ -103,7 +103,7 @@ file_root_600 "$SIGN_KEY" || die "imza anahtarı $SIGN_KEY yok ya da sahibi root
 SIGNER="$(ssh-keygen -l -E sha256 -f "$SIGN_KEY" 2>/dev/null | awk '{print $2}')"
 [[ "$SIGNER" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || die "imza anahtarının parmak izi okunamadı ($SIGN_KEY)"
 STEP=önkoşul
-EXPECTED_TRIGGERS="${BACKUP_EXPECTED_TRIGGERS:-22}"  # P16 (ADR-0030 m.3, S16-11): 3 audit + 19 kalıcı silme
+EXPECTED_TRIGGERS="${BACKUP_EXPECTED_TRIGGERS:-$REMOTE_EXPECTED_TRIGGERS}"  # S16-11; varsayılan lib.sh (P18: 23)
 case "$EXPECTED_TRIGGERS" in ''|*[!0-9]*) die "BACKUP_EXPECTED_TRIGGERS sayı olmalı" ;; esac
 : "${BACKUP_DIR:?BACKUP_DIR tanımlı değil (backup.env)}"
 : "${BACKUP_AGE_RECIPIENT:?BACKUP_AGE_RECIPIENT tanımlı değil (backup.env; age açık anahtarı, age1...)}"

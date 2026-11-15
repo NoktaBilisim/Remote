@@ -49,6 +49,8 @@ import { newId, newTemporaryPassword } from "../lib/ids.ts";
 import type { UserPhase } from "../ops/erasure-ledger.ts";
 import { findTenant } from "../tenants/repo.ts";
 import { avatarUrlFor } from "../uploads/urls.ts";
+import { publishUnassigned, unassignWithAudit, type UnassignedRow } from "../requests/assign.ts";
+import type { PanelOutbound } from "@remote/contracts/ws-request";
 import * as repo from "./repo.ts";
 
 const ENTITY = AUDIT_ENTITY.USERS;
@@ -60,9 +62,13 @@ export interface UserLiveEffects {
     endByTechnician(userId: string): Promise<void>;
     applyPermChange(userId: string, permissions: Iterable<PermissionKey>): Promise<void>;
   };
-  hub: { closeByUser(userId: string): number };
+  /** P18 (S-P18-T5): `publish` atama kalkınca `request.updated` yayını için (yoksa yayın atlanır; 60 sn yoklama düzeltir). */
+  hub: { closeByUser(userId: string): number; publish?(tenantId: string, msg: PanelOutbound): void };
   log: { error(obj: object, msg: string): void };
 }
+
+/** P18 (AC-256): atanabilirlik — talep görüntüleme + kabul yetkisi (sunucu `assignRequest` ile aynı kural). */
+const canTakeRequests = (p: ReadonlySet<PermissionKey>): boolean => p.has("support_requests.view") && p.has("support_requests.accept");
 
 /** Testlere özel gecikme kancası (ADR-0023): kilit alındıktan hemen sonra, okumalardan önce. Üretimde verilmez. */
 export interface LockHooks {
@@ -277,7 +283,23 @@ export async function userOptionsTenant(db: Db, auth: AuthContext, requested: st
  * GET /users/options (P14b, AC-225): verilen tenant'ın teknisyenleri (tam liste, ≤ 1000). USER rolü yalnız kendisi
  * (oturum geçmişinde yalnız kendi kayıtlarını görür — `historyScope`).
  */
-export async function userOptions(db: Db, auth: AuthContext, tenantId: string, includeDeleted = false): Promise<UserOptionsResponse> {
+export async function userOptions(
+  db: Db,
+  auth: AuthContext,
+  tenantId: string,
+  includeDeleted = false,
+  assignableOnly = false,
+): Promise<UserOptionsResponse> {
+  if (assignableOnly) {
+    // P18 (AC-256): atama seçicisi. `support_requests.assign` olan USER başkalarını da görür (atama yapabilmek için).
+    const own = auth.user.role === "USER" && !auth.permissions.has("support_requests.assign") ? auth.user.id : undefined;
+    const rows = await repo.listAssignableCandidates(db, { tenantId }, USER_OPTIONS_MAX, own);
+    return {
+      items: rows
+        .filter((r) => canTakeRequests(effectiveOf(r.role as Role, r.permissions)))
+        .map((r) => ({ id: r.id, fullName: r.fullName, status: r.status as UserStatus })),
+    };
+  }
   const self = auth.user.role === "USER" ? auth.user.id : undefined;
   const rows = await repo.listUserOptions(db, { tenantId }, USER_OPTIONS_MAX, self);
   const items: UserOptionsResponse["items"] = rows.map((r) => ({ id: r.id, fullName: r.fullName, status: r.status as UserStatus }));
@@ -383,7 +405,8 @@ export async function updateUser(
       if (input.email !== undefined && input.email !== cur.email) [fields.email, old.email] = [input.email, cur.email];
       if (input.fullName !== undefined && input.fullName !== cur.fullName) [fields.fullName, old.fullName] = [input.fullName, cur.fullName];
       if (roleChanged) [fields.role, old.role] = [role, cur.role];
-      if (Object.keys(fields).length === 0 && changed.length === 0) return { roleChanged, before, after };
+      if (Object.keys(fields).length === 0 && changed.length === 0)
+        return { roleChanged, before, after, unassigned: [] as UnassignedRow[] };
       if ((await repo.bumpVersion(tx, id, expectedVersion)) === 0) throw stale();
       if (Object.keys(fields).length > 0) {
         await repo.updateUser(tx, id, fields);
@@ -399,9 +422,14 @@ export async function updateUser(
       }
       if (input.permissions !== undefined || roleChanged) await repo.replacePermissions(tx, id, rows);
       await permissionAudits(tx, ctx, auth, tenantId, id, before, after);
-      return { roleChanged, before, after };
+      // S-P18-T5: talep görüntüleme/kabul yetkisi kalktıysa bekleyen atamalar aynı TX'te kalkar.
+      const unassigned = canTakeRequests(after)
+        ? []
+        : await unassignWithAudit(tx, ctx, { userId: auth.user.id, username: auth.user.email }, { userId: id });
+      return { roleChanged, before, after, unassigned };
     }),
   );
+  publishUnassigned(fx.hub.publish ? { publish: fx.hub.publish.bind(fx.hub) } : undefined, outcome.unassigned);
   await liveAfterUpdate(fx, id, outcome);
   return getUser(db, auth, tenantId, id);
 }
@@ -434,9 +462,9 @@ async function setStatus(
   id: string,
   next: UserStatus,
   hooks: LockHooks,
-): Promise<void> {
+): Promise<UnassignedRow[]> {
   const scope = { tenantId };
-  await auditFailures(db, ctx, auth, tenantId, id, next === "PASSIVE" ? "deactivate" : "reactivate", () =>
+  return auditFailures(db, ctx, auth, tenantId, id, next === "PASSIVE" ? "deactivate" : "reactivate", () =>
     db.$transaction(async (tx) => {
       const actor = await lockActor(tx, auth, tenantId, [id], "users.edit", hooks);
       const cur = asManaged(await loadOrThrow(tx, scope, id));
@@ -453,9 +481,12 @@ async function setStatus(
           : { status: next, version: { increment: 1 } },
       );
       const extra: Record<string, number> = {};
+      let unassigned: UnassignedRow[] = [];
       if (next === "PASSIVE") {
         extra.revokedSessions = await repo.revokeUserSessions(tx, id, now);
         extra.cancelledSessions = await repo.cancelPendingOfTechnician(tx, scope, id, now);
+        // S-P18-T5: pasif kullanıcıya atanmış bekleyen talepler aynı TX'te atanmamışa döner.
+        unassigned = await unassignWithAudit(tx, ctx, { userId: auth.user.id, username: auth.user.email }, { userId: id });
       }
       await writeAudit(tx, ctx, {
         ...who(auth, tenantId),
@@ -466,6 +497,7 @@ async function setStatus(
         oldValue: { status: cur.status },
         newValue: { status: next, ...extra },
       });
+      return unassigned;
     }),
   );
 }
@@ -480,7 +512,8 @@ export async function deactivateUser(
   id: string,
   hooks: LockHooks = {},
 ): Promise<void> {
-  await setStatus(db, ctx, auth, tenantId, id, "PASSIVE", hooks);
+  const unassigned = await setStatus(db, ctx, auth, tenantId, id, "PASSIVE", hooks);
+  publishUnassigned(fx.hub.publish ? { publish: fx.hub.publish.bind(fx.hub) } : undefined, unassigned);
   try {
     await fx.rooms.endByTechnician(id);
     fx.hub.closeByUser(id);
@@ -600,6 +633,9 @@ export async function purgeUser(
       await appendUserLedger(fx, id, "intent", at);
       if ((await repo.tombstone(tx, id, expectedVersion, deletedUserLabel(id), at)) !== 1) throw stale();
       const counts = await repo.deleteUserChildren(tx, id);
+      // S-P18-T5: kullanıcı zaten PASSIVE (pasife almada atamalar kalktı); savunma amaçlı aynı TX'te tekrar (yayın yok —
+      // pasife almada yapıldı; satır kalmış olamaz).
+      await unassignWithAudit(tx, ctx, { userId: auth.user.id, username: auth.user.email }, { userId: id });
       await writeAudit(tx, ctx, {
         ...who(auth, tenantId),
         action: USER_AUDIT.DELETED,

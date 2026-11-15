@@ -41,6 +41,7 @@ export async function sweepRequests(svc: RequestService, now = new Date(svc.d.cl
     out.expired++;
     svc.d.hub.closeRequest(r.id, { t: "request.closed", status: "EXPIRED" });
     svc.d.hub.publish(r.tenantId, { t: "request.removed", id: r.id, status: "EXPIRED" });
+    svc.countSlaBreach(r.id);
     svc.d.hub.queueChanged(r.tenantId);
     await svc.publishCount(r.tenantId);
   }

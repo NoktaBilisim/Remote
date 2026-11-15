@@ -203,6 +203,15 @@ export function fileReportsOf(db: DbOrTx, tenantIds: readonly string[], sessionI
   });
 }
 
+/** P18 (AC-257, K-P18-6): CSV "SLA aşıldı" — partideki talepli oturumların talepleri tek IN sorgusuyla (N+1 yok). */
+export function requestSlaOf(db: DbOrTx, tenantIds: readonly string[], requestIds: readonly string[]) {
+  if (requestIds.length === 0) return Promise.resolve([]);
+  return db.supportRequest.findMany({
+    where: { id: { in: [...requestIds] }, tenantId: { in: [...tenantIds] } },
+    select: { id: true, status: true, slaDueAt: true, closedAt: true, acceptedAt: true },
+  });
+}
+
 const auditSelect = {
   id: true,
   createdAt: true,
