@@ -84,7 +84,7 @@ export interface TechConn {
 }
 
 /** session_consents.source CHECK kümesi (P4 + P7 `TECH`, ADR-0013). DENIED kararı UI kaynağıyla yazılır. */
-export type ConsentSource = "UI" | "HOTKEY" | "RECONNECT" | "SYSTEM" | "TECH";
+export type ConsentSource = "UI" | "HOTKEY" | "RECONNECT" | "SYSTEM" | "TECH" | "UNATTENDED";
 
 /** Kontrol kapanış kaydı (REVOKED): kim, hangi kaynakla, hangi audit adıyla (§3.3 tablo). */
 export interface CloseRecord {
@@ -136,6 +136,8 @@ export interface Room {
   sessionId: string;
   /** P8b: talepten doğan oturum (guest.admit/guest.reject → CONFLICT; P15 `acceptCode` açıksa izinli). */
   requestId?: string;
+  /** P27 (mimari-p27 §4.4, §4.6): gözetimsiz oda — cihaz; yalnız bu odada misafir `control.state{source:UNATTENDED}` kabul edilir. */
+  unattended?: { deviceId: string; deviceName: string; customerId: string; dbEndReason?: string };
   /** P15 (AC-239): talep oturumu kabul koduyla — misafir lobiye düşer, teknisyen 4 haneli kodu girer (AC-112 kuralları). */
   acceptCode?: boolean;
   tenantId: string;
@@ -212,3 +214,15 @@ export const DEFAULT_TIMING: Timing = {
 /** Tek kaynak: sözleşmedeki LOBBY_GUEST_MAX (mimari-lobi §3). */
 export const LOBBY_MAX = LOBBY_GUEST_MAX;
 export const ADMIT_FAIL_MAX = 5;
+
+/**
+ * Canlı oturumlara yetki/hesap değişikliğinin yansıması (S-P3-8, AC-115, G-04). Kullanıcı/yetki/oturum servisleri
+ * (P9 deaktivasyon/yetki/rol, P10 logout-all/reset-mfa) commit sonrası `app.rooms` üzerinden doğrudan çağırır;
+ * /ws/tech 60 sn yeniden doğrulaması yalnız yedek yoldur.
+ */
+export interface TechnicianLiveControl {
+  /** Teknisyenin tüm odaları `session.ended{auth_revoked}` ile biter (teknisyen soketi 4401). */
+  endByTechnician(userId: string): Promise<void>;
+  /** Yeni etkin yetkiler: caps daralırsa `caps.update`, `remote_control` düştüyse `control.revoke{permission}`. */
+  applyPermChange(userId: string, permissions: Iterable<PermissionKey>): Promise<void>;
+}

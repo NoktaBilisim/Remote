@@ -207,6 +207,8 @@ export const listSessionsQuerySchema = z
       .max(100)
       .optional(),
     customerFirm: sessionCustomerFilterSchema.optional(),
+    /** P27 (AC-339 cihaz ayrıntısı "son 20 gözetimsiz oturum"): `device_id` eşleşmesi; tenant/USER kapsamı aynen uygulanır. */
+    deviceId: ulidSchema.optional(),
     page: z.coerce.number().int().min(1).max(10_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(SESSION_PAGE_SIZE_MAX).default(25),
     sort: z.enum(SESSION_LIST_SORTS).default("createdAt:desc"),

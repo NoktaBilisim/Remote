@@ -33,7 +33,13 @@ describe("tenant izolasyonu (AC-69 test aracı)", () => {
         const res = await app.inject({ method: "GET", url: route.slice(4), headers: s.headers });
         expect(res.statusCode, route).toBe(200);
         for (const id of idsOf(fx.a)) expect(res.body, `${route} sızdırdı`).not.toContain(id);
-        expect(res.body).toContain(fx.b.tenantId);
+        // Pozitif kontrol yalnız firma kimliği taşıyan yanıtta (P27a cihaz listesi tenantId döndürmez).
+        if (route === "GET /api/v1/auth/me") expect(res.body).toContain(fx.b.tenantId);
+        // D-P27a-K4: kendi cihazı listede (boş liste negatif kontrolü anlamsızlaştırmasın); B User'ın listesi B Admin'inkini içermez.
+        if (route === "GET /api/v1/auth/trusted-devices") {
+          if (who === fx.b.admin) expect(res.body).toContain(fx.b.trustedDeviceId);
+          else expect(res.body).not.toContain(fx.b.trustedDeviceId);
+        }
       }
     }
   });

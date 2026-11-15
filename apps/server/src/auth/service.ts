@@ -142,6 +142,7 @@ export async function login(
   previousToken?: string,
   onLock?: LockNotifier,
   trustedCookies: readonly string[] = [],
+  hooks: { afterRead?: () => Promise<void> } = {}, // test gecikme kancası (ADR-0023); üretimde verilmez
 ) {
   const ip = ipKey(ctx.ip);
   const ipWait = limits.ip.blockedFor(ip);
@@ -196,12 +197,18 @@ export async function login(
 
   limits.pair.reset(pairKey);
   limits.accountFallback.reset(user.id);
-  const { session, trusted } = await db.$transaction(async (tx) => {
+  await hooks.afterRead?.();
+  const out = await db.$transaction(async (tx) => {
+    // D-P27a-K3: TX dışındaki okuma (argon2'den önce) eskimiş olabilir; karar kilitli güncel satırla verilir.
+    const fresh = await repo.lockUserForLogin(tx, user.id);
+    if (!fresh || fresh.passwordHash !== user.passwordHash || !canSignIn({ ...user, status: fresh.status, deletedAt: fresh.deletedAt }))
+      return null;
+    const current: repo.LoginUser = { ...user, totpEnabled: fresh.totpEnabled };
     if (user.failedLoginCount > 0 || user.lockedUntil) await repo.clearFailures(tx, user.id);
     if (previousToken) await repo.revokeSessionByHash(tx, sha256Hex(previousToken), now);
     // P27a (§5.1 adım 5): yeniden kullanımda oturum iptali BURADA, yeni oturum açılmadan önce.
-    const td: TrustedLoginOutcome = await consumeAtLogin(tx, ctx, user, trustedCookies, now);
-    const mfaPassed = td.kind === "used" || !user.totpEnabled;
+    const td: TrustedLoginOutcome = await consumeAtLogin(tx, ctx, current, trustedCookies, now);
+    const mfaPassed = td.kind === "used" || !current.totpEnabled;
     // P10 (AC-67): 2FA etkinse oturum yarım açılır (mfa_passed=false) → yalnız /auth/mfa/verify.
     const opened = await openSession(tx, user.id, ctx, now, undefined, mfaPassed);
     await writeAudit(tx, ctx, {
@@ -212,10 +219,29 @@ export async function login(
       result: "success",
       ...(td.kind === "used" ? { newValue: { mfa: "remembered" } } : {}),
     });
-    return { session: { ...opened, mfaPassed }, trusted: td };
+    return { session: { ...opened, mfaPassed }, trusted: td, current };
   });
+  if (out === null) {
+    // Şifre/aktiflik doğrulamadan sonra eşzamanlı değişti (şifre değişimi/sıfırlama, pasife alma): eski bilgiyle oturum yok.
+    await writeAudit(db, ctx, {
+      ...who(user, login),
+      action: "auth.login",
+      entity: "users",
+      entityId: user.id,
+      result: "fail",
+      newValue: { reason: "credentials_changed" },
+    });
+    throw new AppError("UNAUTHENTICATED", { message: BAD_CREDENTIALS });
+  }
+  const { session, trusted, current } = out;
   if (trustedCookies.length > 0) log.info({ event: "auth_login", userId: user.id, trustedDevice: trusted.kind }, "giriş");
-  return { ...session, user: toAuthUser(user), mfaStage: mfaStageOf(user, session.mfaPassed, setupEnforced), trusted, owner: user };
+  return {
+    ...session,
+    user: toAuthUser(current),
+    mfaStage: mfaStageOf(current, session.mfaPassed, setupEnforced),
+    trusted,
+    owner: current,
+  };
 }
 
 const authWho = (auth: AuthContext) => ({ tenantId: auth.user.tenantId, userId: auth.user.id, username: auth.user.email });

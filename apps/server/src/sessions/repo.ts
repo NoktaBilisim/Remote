@@ -137,7 +137,7 @@ export async function consumeForAdmit(
   db: DbOrTx,
   id: string,
   now: Date,
-  mode: "BROWSER" | "AGENT",
+  mode: "BROWSER" | "AGENT" | "UNATTENDED",
   customer: { name: string | null; email: string | null },
   /** P8b: misafir ağ anahtarları (ikisi birlikte; §13.1, G-E9-15) ve talep oturumunda `AND request_id = :rid` (§5.2). */
   extra: { guestIpKey?: string; guestNetKey?: string; requestId?: string } = {},

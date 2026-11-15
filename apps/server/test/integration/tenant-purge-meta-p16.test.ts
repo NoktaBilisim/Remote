@@ -219,12 +219,15 @@ describe("P16 G3 imha defteri CLI (S16-5, S16-13)", () => {
 
     expect(await verify(mig, path)).toEqual({ pendingUsers: 0, pendingTenants: 0, rejectedUsers: 0, rejectedTenants: 0, invalid: 1 });
     expect(await replay(mig, path)).toEqual({ users: 0, tenants: 0, rejectedUsers: 0, rejectedTenants: 0, invalid: 1 });
-    const audits = await testDb().auditLog.findMany({
-      where: { action: "erasure.replayed", correlationId: { not: null } },
-      orderBy: { id: "desc" },
-      take: 2,
-    });
-    expect(audits.map((a) => a.newValue)).toEqual([
+    // Eşzamanlı test dosyaları (ör. p27a-revoke) da replay audit'i yazar: yalnız bu defterin (3 satır) kayıtları.
+    const audits = (
+      await testDb().auditLog.findMany({
+        where: { action: "erasure.replayed", correlationId: { not: null } },
+        orderBy: { id: "desc" },
+        take: 20,
+      })
+    ).filter((a) => (a.newValue as { ledgerLines?: number } | null)?.ledgerLines === 3);
+    expect(audits.slice(0, 2).map((a) => a.newValue)).toEqual([
       { users: 0, tenants: 0, rejectedUsers: 0, rejectedTenants: 0, invalid: 1, ledgerLines: 3 },
       { users: 1, tenants: 1, rejectedUsers: 0, rejectedTenants: 0, invalid: 1, ledgerLines: 3 },
     ]);

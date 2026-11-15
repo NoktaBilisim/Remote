@@ -3,7 +3,8 @@
 import { AUTH_AUDIT } from "@remote/contracts/audit";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { sha256Hex } from "../../src/lib/ids.ts";
+import { consumeAtLogin, currentTrustedDeviceId } from "../../src/auth/trusted-device.ts";
+import { newId, sha256Hex } from "../../src/lib/ids.ts";
 import { createTenant, makeApp, testDb } from "../helpers/app.ts";
 import { enroll, ipFactory, passwordLogin, rememberDevice, tdCookie, tdOf, type Enrolled } from "../helpers/trusted-device.ts";
 
@@ -113,5 +114,63 @@ describe("AC-335b yeniden kullanım", () => {
     expect(required).toEqual([false, true]);
     expect(await reuseAudits(a.user.id)).toHaveLength(1);
     expect(await rowsOf(a.user.id)).toHaveLength(0);
+  });
+});
+
+describe("D-P27a-K1 / D-P27a-K2 (güvenlik P27a kod turu 1)", () => {
+  const ctx = { ip: "203.0.113.50", userAgent: "vitest", requestId: "t" };
+  const subject = (a: Enrolled & { tenantId: string }) => ({
+    id: a.user.id,
+    tenantId: a.tenantId,
+    email: a.user.email,
+    role: "ADMIN",
+    tenant: null,
+    totpEnabled: true,
+  });
+
+  it("AC-335b D-P27a-K1: satır okuma ile döndürme arasında silinirse bilinmeyen → yalnız TOTP; reuse audit/e-posta yok, oturumlar açık", async () => {
+    const a = await admin();
+    const t0 = (await rememberDevice(app, ip, a)).cookie ?? "";
+    const [row] = await rowsOf(a.user.id);
+    const openBefore = await openSessions(a.user.id);
+    expect(openBefore.length).toBeGreaterThanOrEqual(1);
+    const out = await db().$transaction((tx) =>
+      consumeAtLogin(tx, ctx, subject(a), [t0], new Date(), {
+        // eşzamanlı meşru silme (profil "Kaldır", Admin, firma anahtarı) ayrı bağlantıda commit edilir
+        beforeRotate: async () => void (await testDb().trustedDevice.delete({ where: { id: row?.id ?? "" } })),
+      }),
+    );
+    expect(out).toEqual({ kind: "none", clearCookie: true });
+    expect(await reuseAudits(a.user.id)).toHaveLength(0);
+    expect(await openSessions(a.user.id)).toEqual(openBefore);
+    const mails = await db().auditLog.findMany({ where: { userId: a.user.id, action: "mail.sent" }, select: { newValue: true } });
+    expect(mails.some((x) => (x.newValue as { kind?: string }).kind === "trusted_device_reuse")).toBe(false);
+  });
+
+  it("AC-335b D-P27a-K1: arada özet değişmişse (aynı nesil yarışı) yine yeniden kullanım", async () => {
+    const a = await admin();
+    const t0 = (await rememberDevice(app, ip, a)).cookie ?? "";
+    const [row] = await rowsOf(a.user.id);
+    const out = await db().$transaction((tx) =>
+      consumeAtLogin(tx, ctx, subject(a), [t0], new Date(), {
+        beforeRotate: async () =>
+          void (await testDb().trustedDevice.update({ where: { id: row?.id ?? "" }, data: { tokenHash: sha256Hex(newId()) } })),
+      }),
+    );
+    expect(out.kind).toBe("reuse");
+    expect(await reuseAudits(a.user.id)).toHaveLength(1);
+  });
+
+  it("AC-329 D-P27a-K2: profil 'Bu cihaz' login ile aynı sahiplik (kullanıcı + firma) ve süre denetimi", async () => {
+    const a = await admin();
+    const t0 = (await rememberDevice(app, ip, a)).cookie ?? "";
+    const [row] = await rowsOf(a.user.id);
+    const owner = { id: a.user.id, tenantId: a.tenantId };
+    expect(await currentTrustedDeviceId(db(), owner, [t0])).toBe(row?.id);
+    expect(await currentTrustedDeviceId(db(), { id: a.user.id, tenantId: newId() }, [t0])).toBeNull();
+    expect(await currentTrustedDeviceId(db(), { id: newId(), tenantId: a.tenantId }, [t0])).toBeNull();
+    const later = new Date((row?.expiresAt.getTime() ?? 0) + 1_000);
+    expect(await currentTrustedDeviceId(db(), owner, [t0], later)).toBeNull();
+    expect(await currentTrustedDeviceId(db(), owner, [`${row?.id ?? ""}.${"A".repeat(43)}`])).toBeNull();
   });
 });

@@ -201,6 +201,7 @@ exports[`PT-K1 HTTP yüzeyi > AC-318: Fastify rota tablosu (metot + yol + schema
   "POST /api/v1/support-requests/:id/priority",
   "POST /api/v1/support-requests/:id/reject",
   "POST /api/v1/support-requests/:id/revoke-binding",
+  "POST /api/v1/unattended/devices/:id/connect",
   "POST /api/v1/unattended/devices/:id/revoke",
   "POST /api/v1/unattended/register",
   "POST /api/v1/unattended/registration-codes",

@@ -120,10 +120,11 @@ export async function deactivateCustomer(
   id: string,
 ): Promise<CustomerDetail> {
   await writeLimit(svc, ctx, auth, tenantId);
-  const { revoked, cancelled } = await withTxRetry(() =>
+  const { revoked, cancelled, devices } = await withTxRetry(() =>
     svc.d.db.$transaction(async (tx) => deactivateTx(tx, svc, ctx, auth, tenantId, id)),
   );
   countRevoked(svc, "CUSTOMER_PASSIVE", revoked);
+  for (const deviceId of devices) svc.d.rooms.devices?.revoked(deviceId); // P27 §3.6: soket + oda (commit sonrası)
   for (const rid of cancelled)
     await svc.closedAfterCommit(tenantId, rid, "CANCELLED", {
       reason: "CUSTOMER_PASSIVE",
@@ -157,7 +158,8 @@ export async function sweepCustomerPassive(svc: RequestService, take = 500): Pro
 
 /**
  * Günlük 03:30 (AC-195, §3.7): pasif + `passive_at`'ten tenant `retention_days` geçmiş müşterilerin kişisel alanları
- * NULL + `search_key` yeniden + `anonymized_at`; audit `customer.anonymized` (system, eski değer yok — §15.6 (3)).
+ * NULL + `search_key` yeniden + `anonymized_at`; audit `customer.anonymized` (system, eski değer yok — §15.6 (3)). P27
+ * (mimari-p27 §3.4, §3.6): gözetimsiz bildirim adresleri (kişisel veri) aynı TX'te silinir.
  */
 export async function anonymizeCustomersOf(
   svc: RequestService,
@@ -183,6 +185,7 @@ export async function anonymizeCustomersOf(
         { status: "PASSIVE", anonymizedAt: null },
       );
       if (n === 0) return false;
+      const contacts = await tx.customerNotifyContact.deleteMany({ where: { tenantId: t.tenantId, customerId: c.id } });
       await writeAudit(tx, SYSTEM_CTX, {
         tenantId: t.tenantId,
         ...SYSTEM,
@@ -190,7 +193,7 @@ export async function anonymizeCustomersOf(
         entity: ENTITY,
         entityId: c.id,
         result: "success",
-        newValue: { fields: [...PII] },
+        newValue: { fields: [...PII], ...(contacts.count > 0 ? { notifyContacts: contacts.count } : {}) },
       });
       return true;
     });

@@ -14,6 +14,7 @@ import * as rrepo from "../requests/repo.ts";
 import type { RequestService } from "../requests/service.ts";
 import * as repo from "./repo.ts";
 import { auditFields, ENTITY, who } from "./view.ts";
+import { revokeCustomerDevicesTx } from "../unattended/customer-passive.ts";
 
 type Tx = Prisma.TransactionClient;
 
@@ -206,7 +207,7 @@ export async function deactivateTx(
   auth: AuthContext,
   tenantId: string,
   id: string,
-): Promise<{ revoked: number; cancelled: string[] }> {
+): Promise<{ revoked: number; cancelled: string[]; devices: string[] }> {
   const c = await repo.lock(tx, tenantId, id);
   if (!c) throw new AppError("NOT_FOUND");
   if (c.status !== "ACTIVE") throw new AppError("CONFLICT", { message: "Müşteri zaten pasif." });
@@ -217,6 +218,12 @@ export async function deactivateTx(
   });
   const n = await brepo.revokeForOwner(tx, tenantId, id, "CUSTOMER_PASSIVE", now);
   const ids = await cancelPendingTx(tx, ctx, auth, tenantId, id, now);
+  const devices = await revokeCustomerDevicesTx(
+    tx,
+    ctx,
+    { userId: auth.user.id, username: auth.user.email },
+    { tenantId, customerId: id, now },
+  );
   await writeAudit(tx, ctx, {
     ...who(auth, tenantId),
     action: CUSTOMER_AUDIT.DEACTIVATED,
@@ -228,9 +235,10 @@ export async function deactivateTx(
       ...customerAuditView({ status: "PASSIVE", refPrefix: c.requestRef }),
       revokedBindings: n,
       cancelledRequests: ids.length,
+      revokedDevices: devices.length,
     },
   });
-  return { revoked: n, cancelled: ids };
+  return { revoked: n, cancelled: ids, devices };
 }
 
 /** Yeniden aktif etme: kilit → YENİ ref (request_refs → customers) → audit. */

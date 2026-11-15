@@ -22,6 +22,11 @@ export type UnattendedMode = (typeof UNATTENDED_MODES)[number];
 export interface UnattendedStatus {
   mode: UnattendedMode;
   available: boolean;
+  /**
+   * Firmanın kendi SMTP kaydı var mı (kayıt kodu / bağlantı ön koşulu, `NOTIFY_CHANNEL_UNAVAILABLE` ile aynı denetim).
+   * false → "Kayıt kodu oluştur" baştan pasif + `UNATTENDED_ERROR_MESSAGES.NOTIFY_CHANNEL_UNAVAILABLE`. Firma seçilmemişse false.
+   */
+  notifyChannel: boolean;
 }
 
 // ------------------------------------------------------------------------------------------- hata metinleri

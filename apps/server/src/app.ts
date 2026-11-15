@@ -16,6 +16,8 @@ import { createMetrics, type Metrics } from "./ops/metrics.ts";
 import { Rooms } from "./signaling/rooms.ts";
 import type { Clock, Timing } from "./signaling/types.ts";
 import { attachSignaling, type SignalingOptions } from "./signaling/ws.ts";
+import { createDeviceChannel } from "./unattended/device-ws.ts";
+import { DeviceHub } from "./unattended/hub.ts";
 import { AgentBinary } from "./public/agent-binary.ts";
 import { refKeyFrom } from "./sessions/codes.ts";
 import { closePublicLimits, createPublicLimits, type PublicLimits } from "./sessions/public.ts";
@@ -47,6 +49,8 @@ declare module "fastify" {
     publicLimits: PublicLimits;
     sessionRefKey: string;
     rooms: Rooms;
+    /** P27 (mimari-p27 §4.4): bağlı gözetimsiz cihazlar (`/ws/device`). */
+    unattendedHub: DeviceHub;
     metrics: Metrics;
     agentBinary: AgentBinary;
     /** P8b: destek talebi servisi + bildirim merkezi. */
@@ -243,10 +247,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const r = decorateRequests(app, deps, w);
   const jobs = decorateJobs(app, deps, w, r);
   const sig = deps.signaling ?? {};
-  attachSignaling(app, rooms, sig, requestChannels(app, r.requests, sig.revalidateMs), () => ({
-    request: r.hub.requestCount,
-    panel: r.hub.panelCount,
-  }));
+  const devices = new DeviceHub({ db: deps.db, rooms, metrics: core.metrics, log: app.log, now: () => rooms.clock.now() });
+  app.decorate("unattendedHub", devices);
+  const deviceChannel = createDeviceChannel(app, devices, {
+    ...(sig.pingMs ? { pingMs: sig.pingMs } : {}),
+    ...(sig.deviceUnauth ? { unauth: sig.deviceUnauth } : {}),
+  });
+  const counts = () => ({ request: r.hub.requestCount, panel: r.hub.panelCount, device: devices.size });
+  attachSignaling(app, rooms, sig, requestChannels(app, r.requests, sig.revalidateMs), counts, deviceChannel);
   if (deps.startJobs) addStartupJobs(app, deps.db, { rooms, requests: r.requests, ...jobs, outbox: r.outbox });
   addRequestHooks(app);
   registerRoutes(app, deps, io.uploads);

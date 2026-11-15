@@ -8,6 +8,7 @@ import {
   History,
   House,
   Inbox,
+  MonitorCog,
   MonitorSmartphone,
   ScrollText,
   ServerCog,
@@ -25,14 +26,26 @@ import { t, type MessageKey } from "@/lib/i18n";
 
 // Yalnız mevcut sayfalar; yeni modül eklendiğinde buraya ikonuyla eklenir (std. 1.8)
 // `perm`: öğe yalnız bu yetki varsa görünür (arka uç da her uçta denetler).
+// `anyPerm`: öğe bu yetkilerden biri varsa görünür (P27 gözetimsiz cihazlar: connect ∨ manage).
 // `superAdmin`: yalnız SUPER_ADMIN rolü (toggle değil; arka uç da rol denetler).
-const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string; superAdmin?: boolean; match?: string }[] = [
+type NavItem = {
+  href: string;
+  label: MessageKey;
+  Icon: LucideIcon;
+  perm?: string;
+  anyPerm?: string[];
+  superAdmin?: boolean;
+  match?: string;
+};
+const items: NavItem[] = [
   { href: "/", label: "panel.home", Icon: House },
   { href: "/sessions", label: "nav.sessions", Icon: MonitorSmartphone, perm: "sessions.view" },
   { href: "/requests", label: "nav.requests", Icon: Inbox, perm: "support_requests.view" },
   // P15 (AC-235): Engellenenler — engel (yasak) anlamında ShieldBan
   { href: "/request-blocks", label: "nav.blocks", Icon: ShieldBan, perm: "support_requests.block" },
   { href: "/customers", label: "nav.customers", Icon: Building2, perm: "customers.view" },
+  // P27 (mimari-p27 §6): gözetimsiz cihazlar — ayarlı (yönetilen) bilgisayar anlamında MonitorCog
+  { href: "/unattended", label: "nav.unattended", Icon: MonitorCog, anyPerm: ["unattended.connect", "unattended.manage"] },
   { href: "/history", label: "nav.history", Icon: History, perm: "session_history.view" },
   { href: "/users", label: "nav.users", Icon: Users, perm: "users.view" },
   { href: "/settings/support-requests", label: "nav.settings", Icon: Settings, perm: "settings.edit", match: "/settings" },
@@ -43,7 +56,12 @@ const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string;
 
 export function SideNav({ permissions, role }: { permissions: readonly string[]; role: string }) {
   const pathname = usePathname();
-  const visible = items.filter((i) => (!i.perm || permissions.includes(i.perm)) && (!i.superAdmin || role === "SUPER_ADMIN"));
+  const visible = items.filter(
+    (i) =>
+      (!i.perm || permissions.includes(i.perm)) &&
+      (!i.anyPerm || i.anyPerm.some((p) => permissions.includes(p))) &&
+      (!i.superAdmin || role === "SUPER_ADMIN"),
+  );
   const listRef = useRef<HTMLUListElement>(null);
   const [more, setMore] = useState({ start: false, end: false });
 

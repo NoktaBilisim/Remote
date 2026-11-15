@@ -21,6 +21,9 @@ async function main(): Promise<void> {
   process.once("SIGINT", shutdown);
 
   await app.listen({ host: env.HOST, port: env.PORT });
+  // P27 (AC-297, 342): gözetimsiz erişim kapısının etkin değeri (gizli bilgi yok; SHA listesi yazılmaz).
+  const deployEnv = env.DEPLOY_ENV ?? "unset";
+  logger.info({ unattendedMode: env.UNATTENDED_MODE, deployEnv }, `unattended.mode=${env.UNATTENDED_MODE} deployEnv=${deployEnv}`);
 }
 
 main().catch((error: unknown) => {

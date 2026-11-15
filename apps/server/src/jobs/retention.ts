@@ -20,6 +20,7 @@ import { purgeExpiredBlocks } from "../requests/blocks.ts";
 import { deleteExpired as deleteExpiredTrustedDevices } from "../auth/trusted-device-repo.ts";
 import { REQUEST_BLOCK_EXPIRED_RETENTION_DAYS } from "@remote/contracts/api/request-blocks";
 import * as repo from "./retention-repo.ts";
+import { deleteOldRegistrationCodes, deleteRevokedDevices } from "./unattended-cleanup.ts";
 import { isPurgeKey, KINDS, sum, zeroGlobal, zeroTenant, candidateName, type GlobalCounts, type TenantCounts } from "./retention-counts.ts";
 
 const DAY_MS = 86_400_000;
@@ -261,6 +262,9 @@ export class RetentionJob {
     g.resetTokens = await drain((n) => repo.deleteOldResetTokens(db, graceCutoff, n));
     // P27a (AC-334, mimari-p27a §3.3): süresi dolan hatırlanan cihazlar (kayan süre yok; `expires_at < now`).
     g.trustedDevices = await drain((n) => deleteExpiredTrustedDevices(db, now, n));
+    // P27 (mimari-p27 §3.6): kayıt kodları (+7 g) önce (cihaz FK'si), sonra 30 g önce iptal edilmiş cihazlar.
+    g.unattendedRegistrations = await drain((n) => deleteOldRegistrationCodes(db, now, n));
+    g.unattendedDevices = await drain((n) => deleteRevokedDevices(db, now, n));
     // S16-10: DONE/CANCELLED firma silme iş satırları 730 g sonra (DB saati; tetikleyici aynı sınırı uygular).
     g.purgedJobs = this.purgeMode === "dry" ? await repo.countOldPurgeJobs(db) : await drain((n) => repo.deleteOldPurgeJobs(db, n));
   }

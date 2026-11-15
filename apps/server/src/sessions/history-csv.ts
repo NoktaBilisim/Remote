@@ -89,6 +89,7 @@ export async function auditExport(
       tenantId: filter.tenantId ?? null,
       customerFilter: filter.customer !== undefined,
       customerFirm: filter.customerFirm ?? null,
+      ...(filter.deviceId ? { deviceId: filter.deviceId } : {}),
       rows,
     },
   });

@@ -74,6 +74,7 @@ type fakeIndicator struct {
 }
 
 func (i *fakeIndicator) Failed() <-chan struct{} { return i.failed }
+func (i *fakeIndicator) Desktop() string         { return "Default" }
 func (i *fakeIndicator) Close()                  { i.closed.Store(true) }
 
 type rig struct {
@@ -92,6 +93,7 @@ func newRig(indErr error) *rig {
 			}
 			return r.ind, nil
 		},
+		InputDesktop: func() (string, error) { return "Default", nil },
 		Flow: flow.Deps{
 			Dial: func(context.Context, signal.Credential) (flow.Conn, error) {
 				r.dials.Add(1)

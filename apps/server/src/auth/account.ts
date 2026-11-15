@@ -6,7 +6,7 @@ import { AUTH_AUDIT } from "@remote/contracts/audit";
 import QRCode from "qrcode";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { aadFor, type SecretBox } from "../lib/crypto.ts";
-import type { Db } from "../lib/db.ts";
+import { isTransientDbError, type Db } from "../lib/db.ts";
 import type { Prisma } from "../generated/prisma/client.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
@@ -17,8 +17,9 @@ import { MIN, consumeSecondFactor, hitMfaLimit, loadSecret, resetMfaLimit, who }
 import { newRecoveryCode, newTotpSecret, otpauthUrl, recoveryCodeHash, matchTotp } from "./mfa.ts";
 import { findUserById } from "./repo.ts";
 import { openSession, type AuthContext } from "./session.ts";
-import { deleteForUser } from "./trusted-device-repo.ts";
-import { issue, notifyTrustedDeviceCreated, rememberAllowed, type IssuedTrustedDevice } from "./trusted-device.ts";
+import { deleteForLockedUser, deleteForUser } from "./trusted-device-repo.ts";
+import { notifyTrustedDeviceCreated } from "./trusted-device-notify.ts";
+import { issue, rememberAllowed, type IssuedTrustedDevice } from "./trusted-device.ts";
 
 export interface AccountLimits {
   /**
@@ -113,7 +114,12 @@ export async function mfaEnable(d: AccountDeps, ctx: AuditContext, auth: AuthCon
   }
   const codes = Array.from({ length: RECOVERY_CODE_COUNT }, newRecoveryCode);
   const now = new Date();
-  await d.db.$transaction(async (tx) => enableTx(d, tx, ctx, auth, { enc, step, codes, now }));
+  const runTx = () => d.db.$transaction(async (tx) => enableTx(d, tx, ctx, auth, { enc, step, codes, now }));
+  // Kalan kilitlenme (1213/P2034) için TX bir kez daha: geri alınan TX hiçbir şey yazmamıştır (çift yazım yok).
+  await runTx().catch((err: unknown) => {
+    if (!isTransientDbError(err)) throw err;
+    return runTx();
+  });
   resetMfaLimit(d, auth.user.id, ctx.ip);
   void d.mail
     .sendForTenant(ctx, { ...who(auth), kind: "mfa_enabled", entity: "users", entityId: auth.user.id }, auth.user.email, mfaEnabledMail())
@@ -143,11 +149,17 @@ async function enableTx(
     data: codes.map((c) => ({ id: newId(), userId: auth.user.id, codeHash: recoveryCodeHash(d.secrets, c) })),
   });
   await tx.authSession.update({ where: { id: auth.sessionId }, data: { mfaPassed: true } });
-  const revoked = await tx.authSession.updateMany({
+  // Diğer oturumlar: `(user_id, revoked_at)` aralığında kilitli UPDATE next-key/boşluk kilidi alıp eşzamanlı girişlerin
+  // INSERT'üyle kilitleniyordu (503). Kilitsiz okuma + PK ile güncelleme yalnız kayıt kilidi alır.
+  const others = await tx.authSession.findMany({
     where: { userId: auth.user.id, revokedAt: null, id: { not: auth.sessionId } },
-    data: { revokedAt: now },
+    select: { id: true },
   });
-  const revokedTrustedDevices = await deleteForUser(tx, auth.user.id); // P27a AC-328
+  const revoked =
+    others.length === 0
+      ? { count: 0 }
+      : await tx.authSession.updateMany({ where: { id: { in: others.map((o) => o.id) }, revokedAt: null }, data: { revokedAt: now } });
+  const revokedTrustedDevices = await deleteForLockedUser(tx, auth.user.id); // P27a AC-328
   await writeAudit(tx, ctx, {
     ...who(auth),
     action: AUTH_AUDIT.MFA_ENABLED,

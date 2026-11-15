@@ -26,6 +26,9 @@ export interface GlobalCounts {
   purgedJobs: number;
   /** P27a (AC-334): süresi dolmuş hatırlanan cihazlar (audit'lenmez; yalnız sayaç). */
   trustedDevices: number;
+  /** P27 (mimari-p27 §3.6): kullanılmış/süresi dolmuş + 7 g kayıt kodları; 30 g önce iptal edilmiş, oturumsuz cihazlar. */
+  unattendedRegistrations: number;
+  unattendedDevices: number;
 }
 /** `rs_retention_rows_total{kind}` etiketleri (düşük kardinalite, sabit küme). */
 export const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
@@ -47,6 +50,8 @@ export const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
   resetTokens: "reset_tokens",
   purgedJobs: "purged_jobs",
   trustedDevices: "trusted_devices",
+  unattendedRegistrations: "unattended_registrations",
+  unattendedDevices: "unattended_devices",
 };
 
 const PURGE_KEYS = ["purgedSessions", "purgedConsents", "purgedFiles", "purgedRequests", "purgedBindings", "purgedJobs"] as const;
@@ -71,5 +76,13 @@ export const zeroTenant = (): TenantCounts => ({
   purgedBindings: 0,
   purgedMessages: 0,
 });
-export const zeroGlobal = (): GlobalCounts => ({ audit: 0, authSessions: 0, resetTokens: 0, purgedJobs: 0, trustedDevices: 0 });
+export const zeroGlobal = (): GlobalCounts => ({
+  audit: 0,
+  authSessions: 0,
+  resetTokens: 0,
+  purgedJobs: 0,
+  trustedDevices: 0,
+  unattendedRegistrations: 0,
+  unattendedDevices: 0,
+});
 export const sum = (o: object): number => Object.values(o).reduce((a: number, b: unknown) => a + (typeof b === "number" ? b : 0), 0);

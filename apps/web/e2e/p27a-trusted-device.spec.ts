@@ -87,6 +87,12 @@ test("AC-329 boş durum ve hata + Tekrar dene", async ({ page, context }) => {
   await signIn(context, "tdbad");
   await page.goto("/account");
   await expect(page.getByTestId("td-error")).toBeVisible();
+  // Hata durumu (FormError + istek kimliği satırı) açık ve koyu temada 0 axe ihlali
+  await expect(page.getByTestId("form-error")).toContainText("Hata kodu");
+  expect(await axeScan(page, "[data-testid=acc-td]")).toEqual([]);
+  await page.emulateMedia({ colorScheme: "dark" });
+  expect(await axeScan(page, "[data-testid=acc-td]")).toEqual([]);
+  await page.emulateMedia({ colorScheme: "light" });
   await page.getByTestId("td-error").getByRole("button", { name: "Tekrar dene" }).click();
   await expect(page.getByTestId("td-row")).toHaveCount(3);
 });

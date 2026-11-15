@@ -226,6 +226,15 @@ export const userOptionsQuerySchema = z.strictObject({
     .enum(["0", "1"])
     .optional()
     .transform((v) => v === "1"),
+  /**
+   * P27 (gözetimsiz cihaz yetki ekranı): `1` → yalnız cihaz yetkisi verilebilecekler (aynı tenant, ACTIVE, ADMIN|USER,
+   * etkin `unattended.connect`). Yalnız `unattended.manage` sahibi çağırabilir (yoksa 403); USER "yalnız kendisi" kuralı yok.
+   * Parametresiz/diğer listeler için `unattended.manage` yetmez (en az yetki).
+   */
+  unattendedGrantable: z
+    .enum(["0", "1"])
+    .optional()
+    .transform((v) => v === "1"),
 });
 export type UserOptionsQuery = z.infer<typeof userOptionsQuerySchema>;
 
@@ -233,7 +242,8 @@ export type UserOptionsQuery = z.infer<typeof userOptionsQuerySchema>;
  * GET /users/options (P14b, AC-225): filtre seçicisi için teknisyen listesi — sayfasız, en çok `USER_OPTIONS_MAX`,
  * `fullName` sırası, pasifler dahil (geçmiş kayıtlarda görünürler). Kapsam: etkin tenant; firma seçmemiş Super Admin
  * `?tenantId=` ile bir firmayı seçer (yoksa 403, firma yoksa 404). USER rolü yalnız kendisini görür (oturum geçmişi
- * `historyScope` kuralı). Yetki: `session_history.view` | `support_requests.view` | `users.view` (biri yeterli).
+ * `historyScope` kuralı). Yetki: `session_history.view` | `support_requests.view` | `users.view` (biri yeterli);
+ * `unattendedGrantable=1` yalnız `unattended.manage` ile.
  * SUPER_ADMIN hesapları listelenmez.
  */
 /** P16: seçenek durumu — `includeDeleted=1` ile mezar taşları `DELETED` döner (ad = "Silinmiş kullanıcı #XXXXXX"). */

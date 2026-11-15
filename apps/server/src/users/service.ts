@@ -23,11 +23,9 @@ import type {
   UpdateUserData,
   UserDetail,
   UserListResponse,
-  UserOptionsResponse,
   UserStatus,
 } from "@remote/contracts/api/users";
-import { TEMPORARY_PASSWORD_LENGTH, USER_OPTIONS_MAX } from "@remote/contracts/api/users";
-import { deletedUserLabel } from "@remote/contracts/audit";
+import { TEMPORARY_PASSWORD_LENGTH } from "@remote/contracts/api/users";
 import type { PermissionKey, Role } from "@remote/contracts/permissions";
 import type { AuditContext } from "../audit/service.ts";
 import { hashPassword } from "../auth/password.ts";
@@ -36,20 +34,9 @@ import type { AuthContext } from "../auth/session.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId, newTemporaryPassword } from "../lib/ids.ts";
-import { findTenant } from "../tenants/repo.ts";
 import { publishUnassigned, type UnassignedRow } from "../requests/assign.ts";
 import type { PanelOutbound } from "@remote/contracts/ws-request";
-import {
-  auditFailures,
-  canTakeRequests,
-  diffKeys,
-  effectiveOf,
-  exceeding,
-  loadOrThrow,
-  normalizeRows,
-  sessionActor,
-  type LockHooks,
-} from "./guard.ts";
+import { auditFailures, diffKeys, effectiveOf, exceeding, loadOrThrow, normalizeRows, sessionActor, type LockHooks } from "./guard.ts";
 import * as repo from "./repo.ts";
 import { appendUserLedger, purgeTx, type UserPurgeEffects } from "./purge.ts";
 import { toDetail, toItem } from "./view.ts";
@@ -71,50 +58,6 @@ export interface UserLiveEffects {
 export async function listUsers(db: Db, tenantId: string, q: ListUsersQuery): Promise<UserListResponse> {
   const { rows, total } = await repo.listUsers(db, { tenantId }, q);
   return { items: rows.map(toItem), page: q.page, pageSize: q.pageSize, total };
-}
-
-/**
- * GET /users/options kapsamı (QA Tur 1, AC-225): etkin tenant her zaman önce gelir — firma seçili olan veya SUPER_ADMIN
- * olmayan rollerde `requested` yok sayılır (başka firmayı göremez). Firma seçmemiş SUPER_ADMIN `requested` ile firma
- * seçer (silinmiş/olmayan → 404); vermezse mevcut 403 kalır.
- */
-export async function userOptionsTenant(db: Db, auth: AuthContext, requested: string | undefined): Promise<string> {
-  if (auth.tenantId) return auth.tenantId;
-  if (auth.user.role !== "SUPER_ADMIN" || !requested) throw new AppError("FORBIDDEN", { message: "Önce bir firma seçin." });
-  if (!(await findTenant(db, requested))) throw new AppError("NOT_FOUND");
-  return requested;
-}
-
-/**
- * GET /users/options (P14b, AC-225): verilen tenant'ın teknisyenleri (tam liste, ≤ 1000). USER rolü yalnız kendisi
- * (oturum geçmişinde yalnız kendi kayıtlarını görür — `historyScope`).
- */
-export async function userOptions(
-  db: Db,
-  auth: AuthContext,
-  tenantId: string,
-  includeDeleted = false,
-  assignableOnly = false,
-): Promise<UserOptionsResponse> {
-  if (assignableOnly) {
-    // P18 (AC-256): atama seçicisi. `support_requests.assign` olan USER başkalarını da görür (atama yapabilmek için).
-    const own = auth.user.role === "USER" && !auth.permissions.has("support_requests.assign") ? auth.user.id : undefined;
-    const rows = await repo.listAssignableCandidates(db, { tenantId }, USER_OPTIONS_MAX, own);
-    return {
-      items: rows
-        .filter((r) => canTakeRequests(effectiveOf(r.role as Role, r.permissions)))
-        .map((r) => ({ id: r.id, fullName: r.fullName, status: r.status as UserStatus })),
-    };
-  }
-  const self = auth.user.role === "USER" ? auth.user.id : undefined;
-  const rows = await repo.listUserOptions(db, { tenantId }, USER_OPTIONS_MAX, self);
-  const items: UserOptionsResponse["items"] = rows.map((r) => ({ id: r.id, fullName: r.fullName, status: r.status as UserStatus }));
-  // P16 (AC-241): mezar taşları ("Silinmiş kullanıcı #X") yalnız istenirse ve USER rolünde değil (USER yalnız kendisini görür).
-  if (includeDeleted && !self) {
-    const gone = await repo.listDeletedOptions(db, { tenantId }, Math.max(0, USER_OPTIONS_MAX - items.length));
-    items.push(...gone.map((r) => ({ id: r.id, fullName: deletedUserLabel(r.id), status: "DELETED" as const })));
-  }
-  return { items };
 }
 
 /**

@@ -64,6 +64,7 @@ export async function adminTenantRoutes(app: FastifyInstance): Promise<void> {
     hub: app.requestHub,
     requestClosed: (tenantId, requestId) => app.requests.closedAfterCommit(tenantId, requestId, "CANCELLED", { reason: "TENANT_PASSIVE" }),
     bindingsRevoked: (n) => countRevoked(app.requests, "TENANT_PASSIVE", n),
+    devices: app.unattendedHub,
     log: app.log,
   });
   // P14a (AC-203): /admin/* yazma uçları kullanıcı başına 30/dk (31. → 429 + Retry-After). Sistem ayarı uçlarının

@@ -46,6 +46,8 @@ export interface TenantLiveEffects {
   requestClosed(tenantId: string, requestId: string): Promise<void>;
   /** Commit sonrası: `rs_bindings_revoked_total{reason:TENANT_PASSIVE}` (mimari-e10 §3.4). */
   bindingsRevoked(count: number): void;
+  /** P27: firmanın bağlı gözetimsiz cihaz soketleri (DeviceHub) 4401 ile kapanır. */
+  devices?: { closeByTenant(tenantId: string): number };
   log: { error(obj: object, msg: string): void; info(obj: object, msg: string): void };
 }
 

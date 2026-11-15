@@ -1,7 +1,7 @@
 // /api/v1/unattended/* (mimari-p27 §4.2; AC-273, 275, 293, 296, 297, 336, 337, 339). Panel uçları: requireAuth (CSRF) →
 // yetki (`connect` ∨ `manage` / `manage`) → tenantScope → (yazma) kullanıcı kovası → (gerekirse) step-up → zod → servis.
 // `POST /register` cihaz ucudur: çerezsiz, Origin'siz (AGENT kuralı), kayıt kodu kimliği, IP + başarısız deneme kovaları.
-// `POST /devices/:id/connect` K3'tür (unattended/connect.ts; hub gerekir) — burada yok.
+// `POST /devices/:id/connect` (K3, unattended/connect.ts): yetki denetimi serviste (ret audit'lensin), kullanıcı başına 20/sa.
 import {
   createRegistrationCodeInputSchema,
   listDevicesQuerySchema,
@@ -15,6 +15,7 @@ import {
   type NotifyContactsResponse,
   type RegisterDeviceResponse,
   type RegistrationCodeListResponse,
+  type UnattendedConnectResponse,
   type UnattendedStatus,
 } from "@remote/contracts/api/unattended";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -23,13 +24,16 @@ import { auditContext } from "../audit/service.ts";
 import { authOf, requireAnyPerm, requireAuth, requirePerm, requireStepUp, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
+import { connectDevice } from "./connect.ts";
 import { putContacts, getContacts } from "./contacts.ts";
 import { sendServiceBinary, serviceBinary } from "./download.ts";
-import { createGate } from "./gate.ts";
+import { createGate, unattendedStatus } from "./gate.ts";
 import { cancelCode, createCode, listCodes, registerDevice, type RegisterLimits, type RegistrationDeps } from "./registration.ts";
 import { getDevice, listDevices, OFFLINE_LINK, putGrants, revokeDevice, type DeviceLink } from "./service.ts";
 
 const WRITES_PER_MIN = 30;
+/** §4.2: bağlantı ucu kullanıcı başına (bildirim sayısının kaynak sınırı, K-P27-8). */
+const CONNECTS_PER_HOUR = 20;
 const ulid = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/);
 
 function idParam(req: FastifyRequest, name = "id"): string {
@@ -39,7 +43,7 @@ function idParam(req: FastifyRequest, name = "id"): string {
 }
 
 export interface UnattendedRouteOptions {
-  /** K3 DeviceHub; verilmezse hiçbir cihaz çevrimiçi değildir. */
+  /** Testler: sahte canlı kanal; verilmezse `app.unattendedHub` (K3 DeviceHub). */
   link?: DeviceLink;
 }
 
@@ -65,13 +69,15 @@ export async function unattendedRoutes(app: FastifyInstance, opts: UnattendedRou
     void reply.header("Cache-Control", "no-store");
   });
   writeLimit(app);
-  const d = depsOf(app, opts.link ?? OFFLINE_LINK);
+  const d = depsOf(app, opts.link ?? app.unattendedHub ?? OFFLINE_LINK);
+  const connectLimit = new FixedWindowCounter(CONNECTS_PER_HOUR + 1, 3_600_000, 3_600_000);
+  app.addHook("onClose", async () => connectLimit.close());
   const anyPerm = { preHandler: requireAnyPerm("unattended.connect", "unattended.manage") };
   const manage = { preHandler: requirePerm("unattended.manage") };
   const stepUp = requireStepUp();
   const manageStepUp = { preHandler: [requirePerm("unattended.manage"), stepUp] };
 
-  app.get("/status", anyPerm, async (): Promise<UnattendedStatus> => d().gate.status());
+  app.get("/status", anyPerm, async (req): Promise<UnattendedStatus> => unattendedStatus(d().gate, app.mail, authOf(req).tenantId));
 
   app.get("/devices", anyPerm, async (req): Promise<DeviceListResponse> =>
     listDevices(d(), authOf(req), tenantScope(req).tenantId, parseInput(listDevicesQuerySchema, req.query)),
@@ -92,6 +98,13 @@ export async function unattendedRoutes(app: FastifyInstance, opts: UnattendedRou
     const { tenantId } = tenantScope(req);
     await revokeDevice(d(), auditContext(req), authOf(req), tenantId, idParam(req));
     return reply.status(204).send();
+  });
+
+  app.post("/devices/:id/connect", async (req): Promise<UnattendedConnectResponse> => {
+    const { tenantId } = tenantScope(req);
+    const id = idParam(req);
+    const c = { ...d(), hub: app.unattendedHub, rooms: app.rooms, metrics: app.metrics, limit: connectLimit };
+    return connectDevice(c, auditContext(req), authOf(req), tenantId, id);
   });
 
   app.get("/registration-codes", manage, async (req): Promise<RegistrationCodeListResponse> => listCodes(d(), tenantScope(req).tenantId));

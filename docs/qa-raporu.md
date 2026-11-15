@@ -1,3 +1,223 @@
+## P27a — kod turu 2
+
+# QA Raporu — P27a (2FA "bu cihazı 30 gün hatırla") Tur 2
+
+DURUM: GEÇTİ
+
+Tarih: 2026-11-15 · Dal `p27-wip` @ `2c70be9` + çalışma ağacı (P27 WIP de var; yalnız P27a denetlendi) · Kapsam: Tur 1
+"Düzeltilmeli" 1-3 + güvenlik D-P27a-K1/K2 düzeltmeleri (`implementation.md` "P27a — düzeltme turu 1"). Kod değiştirilmedi,
+staging'e bağlanılmadı. **Kapsam dışı:** `auth/service.ts`'te paralel yürüyen D-P27a-K3 (login TX'inde kullanıcı satırı
+`FOR SHARE`) değişikliği bu turda değerlendirilmedi; testler o dosyanın o anki (yarım olabilecek) hâliyle koştu.
+
+## Test sonucu
+
+Ortam: geçici `rs-qa-p27a2-db` (mysql 8.4, `--max-connections=300 --log-bin-trust-function-creators=1`, doğrulandı `1 1 300`),
+kullanıcılar `deploy/mysql/init/01-users.sh`, CI env'i; iş sonunda silindi.
+
+| Komut                                                                                          | Sonuç                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm db:migrate` · `check-app-grants.sh`                                                      | tüm migration'lar temiz · 730/730 PASS                                                                                                                                                                                                              |
+| `pnpm -r run lint` · `pnpm -r run typecheck`                                                   | temiz · 0 hata                                                                                                                                                                                                                                      |
+| `pnpm format:check`                                                                            | 3 dosya farklı: `customers/write-tx.ts`, `docs/implementation.md` (P27-K8 rota tablosu), `docs/guvenlik-raporu.md` — üçü de P27/güvenlik raporu; P27a düzeltme dosyaları (`src/auth`, `test`, `form-error.tsx`, p27a spec) `prettier --check` temiz |
+| `pnpm -r run test` (unit)                                                                      | contracts 172/172 · web 402/402 · server 456/456                                                                                                                                                                                                    |
+| Hedefli ×2: `p27a-*`, `account-p10`, `p15-backend`, `security-p14a-auth`, `tenant-isolation`   | 1. koşu **110/110**, 2. koşu **110/110** (8 dosya)                                                                                                                                                                                                  |
+| `pnpm --filter @remote/server test:int` (tam, 1 kez)                                           | 886/890 — 4 kırmızı, **hiçbiri P27a değil** (aşağıda)                                                                                                                                                                                               |
+| `playwright test e2e/p27a-trusted-device.spec.ts` (3217/4217, çakışma yok; `next build` dahil) | 14/14 (desktop + mobile), skip yok                                                                                                                                                                                                                  |
+
+Tam koşudaki kırmızılar (P27 WIP, P27a dışı):
+
+1. `pt-surface` AC-318 — rota anlık görüntüsünde yeni `/unattended/*` uç(lar)ı (P27-K3/K4).
+2. `unattended-k3-fallback` AC-338 ×2 (AC-293 / AC-295 yedek yeniden doğrulama) — P27-K3.
+3. `retention-p13a-job` AC-199 — saklama audit'inde `"unattendedCodes": "***"` (sayı yerine maskeli dize; audit maskeleyicisi
+   `Codes` adlı anahtarı gizli sayıyor). Kaynak: koşu sırasında değişen `jobs/retention*.ts` + yeni `jobs/unattended-cleanup.ts`
+   (P27). Aynı satırdaki P27a sayacı `trustedDevices: 0` sayı, doğru.
+
+Tur 1'in kararsız kırmızıları (`account-p10` AC-67, `p15-backend` AC-231, `security-p14a-auth` AC-215, `enable 503`) ne iki
+hedefli koşuda ne tam koşuda görüldü. Test yardımcısı `enroll`'daki 503 yeniden denemesi kaldırılmış olmasına rağmen yeşil.
+
+## Tur 1 maddelerinin durumu
+
+| #                                       | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 [backend] AC-69 sınıfsız 3 uç         | ✅    | `test/helpers/tenant-matrix.ts:55-57` `"self"`; `tenant-isolation` AC-69 sınıflandırma testi 3 koşuda yeşil                                                                                                                                                                                                                                                            |
+| 2 [backend] `enableTx` kilitlenme       | ✅    | `auth/account.ts:154-161` kilitsiz `findMany` + PK `updateMany`; `:162` `deleteForLockedUser` (`trusted-device-repo.ts:151`); `:117-122` 1213/P2034'te (`isTransientDbError`) tek yeniden deneme. Geri alınan TX yazmadığı için çift yazım yok; `CONFLICT` vb. geçici olmayan hatalar yeniden denenmez                                                                 |
+| 3 [frontend] `FormError` kontrast + axe | ✅    | `components/form-error.tsx:12` `opacity-80` kaldırıldı (ton rengi `Alert`'ten, yeni token yok); `e2e/p27a-trusted-device.spec.ts:90-95` hata durumunda "Hata kodu" satırı görünür iken açık + koyu `axeScan` = [] — desktop+mobile yeşil                                                                                                                               |
+| D-P27a-K1 `rotate` gone/mismatch        | ✅    | `trusted-device-repo.ts:110-117` (0 satırda `FOR SHARE` yeniden okuma); `trusted-device.ts:245-246`; testler `p27a-repo` "satır silinmişse gone", `p27a-rotation` "satır arada silinirse… reuse audit/e-posta yok, oturumlar açık" + "özet değişmişse yine yeniden kullanım" (kanca `beforeRotate` yalnız testte; `auth/service.ts:210` üretim çağrısı kanca vermiyor) |
+| D-P27a-K2 ortak sahiplik                | ✅    | `trusted-device.ts:195` `ownsTrustedDevice` hem `classify` (`:206`) hem `currentTrustedDeviceId` (`:295`, + `trustedDeviceLive`); test `p27a-rotation` "AC-329 D-P27a-K2: profil 'Bu cihaz' … kullanıcı + firma ve süre"                                                                                                                                               |
+| Dosya boyu                              | ✅    | `trusted-device.ts` 299 satır; `trusted-device-notify.ts` 45, `trusted-device-ua.ts` 30; davranış/sözleşme değişmedi                                                                                                                                                                                                                                                   |
+
+### tenant-isolation değişikliği izolasyonu zayıflatıyor mu? — Hayır
+
+- HEAD'de `"self"` sınıfındaki tek GET `/api/v1/auth/me` idi; pozitif kontrol (`B tenantId yanıtta`) aynen ona uygulanmaya
+  devam ediyor (`tenant-isolation.test.ts:37`). Yani mevcut hiçbir uç için denetim gevşemedi.
+- Sızıntı denetimi (`idsOf(fx.a)` hiçbiri yanıtta yok) tüm self GET'lere — yeni cihaz listesi dahil — koşulsuz uygulanıyor;
+  `200` beklentisi de duruyor. `selfGets` içinde `/auth/me` varlığı hâlâ zorunlu (`:29`).
+- Pozitif kontrolün cihaz listesine uygulanmaması doğru: yanıt şeması `tenantId` taşımaz; uygulansaydı test yanlış
+  kırmızı verirdi.
+- Sınırlılık (bulgu değil, öneri): fikstürde A'nın güvenilir cihaz satırı yok ve `idsOf` cihaz id'si içermiyor; bu yüzden
+  matristeki cihaz listesi sızıntı denetimi pratikte boş. Kullanıcılar/firmalar arası cihaz izolasyonunun asıl kanıtı
+  P27a testlerinde: `p27a-auth` AC-329 "liste yalnız kendi cihazları" ve "başkasının id'si / olmayan id 404",
+  `p27a-repo` "tekil silme: başka kullanıcının satırı 0", "firma geneli silme yalnız o firma", login'de
+  `p27a-auth` AC-326 "başka kullanıcının geçerli belirteci yok sayılır".
+
+## Kabul kriterleri
+
+| AC                          | Durum | Kanıt veya eksik                                                                                                                                                                                                   |
+| --------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AC-325..328, 330..334, 335a | ✅    | Tur 1 kanıtları geçerli; ilgili testler bu turda iki hedefli + bir tam koşuda yeşil                                                                                                                                |
+| AC-329                      | ✅    | API `p27a-auth.test.ts:329,346,356` + D-P27a-K2 testi; UI 5 durum + hata durumunda açık/koyu axe 0 ihlal (`p27a-trusted-device.spec.ts:82-98`)                                                                     |
+| AC-335                      | ✅    | lint/typecheck/unit/e2e yeşil; P10/P14a/P15 auth testleri ve `tenant-isolation` 3 koşuda değişmeden yeşil; kalan integration kırmızıları P27 WIP. `format:check` kırmızısı P27 dosyalarında (P27a dosyaları temiz) |
+| AC-335b                     | ✅    | Tur 1 kanıtları + D-P27a-K1 testleri (`gone` reuse'tan ayrıldı, `mismatch` reuse kaldı)                                                                                                                            |
+
+## Düzeltilmeli
+
+Yok (P27a kapsamında).
+
+P27 paketine not (bu paketi bloklamaz; P27 QA turunda ele alınmalı): `pt-surface` anlık görüntüsü, `unattended-k3-fallback`
+AC-338 ×2, `retention-p13a-job` AC-199 (`unattendedCodes` maskelenmesi — anahtar adı ya da maskeleyici istisnası), ve 3 dosyalık
+prettier farkı. P27a commit'lenirken bu dosyalar P27a commit'ine karışmamalı.
+
+## Definition of Done
+
+| Madde                                 | ✅/❌ | Not                                                                                                                                                                 |
+| ------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tüm AC'ler kanıtlı                    | ✅    | 13/13                                                                                                                                                               |
+| Testler yeşil (unit/integration/e2e)  | ✅    | P27a ve etkilenen dosyalar 2×110/110; tam koşuda kırmızılar yalnız P27 WIP                                                                                          |
+| Lint / typecheck / format             | ✅    | lint + typecheck temiz; format farkı yalnız P27/rapor dosyalarında                                                                                                  |
+| Tasarım-kod uyumu, sapmalar gerekçeli | ✅    | `deleteForLockedUser`, yeniden deneme, `RotateResult`, `currentTrustedDeviceId` imzası, dosya bölünmesi `implementation.md`'de gerekçeli; HTTP sözleşmesi değişmedi |
+| Katman/`any`/hata yutma/PII log       | ✅    | yeniden deneme yalnız geçici DB hatasında, diğerleri fırlatılır; `any` yok                                                                                          |
+| Transaction                           | ✅    | `enableTx` tek TX, kullanıcı satırı ilk ifadede X kilitli; `rotate` ek okuma aynı TX'te                                                                             |
+| Frontend 5 durum + a11y               | ✅    | hata durumu axe açık+koyu 0 ihlal                                                                                                                                   |
+| İkonlar / token / tema                | ✅    | yeni ham renk/opaklık yok                                                                                                                                           |
+| Yeni bağımlılık / env / grants        | ✅    | yok; grants 730/730 (`FOR SHARE` `app` kullanıcısıyla testte çalışıyor)                                                                                             |
+
+## Öneriler (zorunlu değil)
+
+- [güvenlik ile] `account.ts:154` "diğer oturumlar" artık kilitsiz (anlık görüntü) okunuyor; anlık görüntü TX içindeki ilk
+  tutarlı okumada (`recoveryCode.count`) alındığından, bu andan sonra commit olan eşzamanlı bir girişin oturumu iptal
+  edilmeden kalabilir (eski kilitli UPDATE boşluk kilidiyle bunu engelliyordu). O oturum `mfa_passed=0` ile doğar ve kullanıcı
+  artık TOTP'li olduğundan ikinci adım ister; risk düşük, ama güvenlik raporunda kabul olarak yazılması iyi olur.
+- `tenant-matrix.ts` `twoTenants`'a A için bir güvenilir cihaz satırı ve `idsOf`'a id'si eklenirse matristeki cihaz listesi
+  sızıntı denetimi anlam kazanır.
+
+## Olumlu
+
+- Kilitlenme kökü (boşluk/next-key kilidi) hedeflendi; yeniden deneme yalnız güvenlik ağı. Test yardımcısındaki 503 yeniden
+  denemesi kaldırılıp yine yeşil kalması düzeltmenin gerçek olduğunu gösteriyor.
+- D-P27a-K1 için `FOR SHARE` seçimi gerekçeli (RR anlık görüntüsü silinen satırı gösterirdi) ve gecikme kancalı testle kanıtlı.
+- Kontrast düzeltmesi yeni token eklemeden yapıldı; axe testi düzeltme geri alınınca kırmızı olduğu (implementation.md) belirtilmiş.
+
+---
+
+## P27a — kod turu 1
+
+# QA Raporu — P27a (2FA "bu cihazı 30 gün hatırla") Tur 1
+
+DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-15 · Dal `p27-wip` @ `2c70be9` (ağaçta P27 WIP de var; yalnız P27a denetlendi) · Kaynak: `docs/gereksinimler.md` §11
+(AC-325..335, 335a, 335b), `docs/mimari-p27a.md` r3, `docs/implementation.md` P27a K1..K5. Kod değiştirilmedi.
+
+## Test sonucu
+
+Ortam: geçici `rs-qa-p27a-db` (mysql 8.4.13, `--max-connections=300 --log-bin-trust-function-creators=1`), kullanıcılar
+`deploy/mysql/init/01-users.sh`, CI ile aynı env; iş sonunda silindi. **Tüm migration'lar (P27 dahil) uygulandı.**
+
+| Komut                                                                                            | Sonuç                                                                                                 |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `pnpm db:migrate`                                                                                | 26 migration + grants temiz                                                                           |
+| `check-app-grants.sh`                                                                            | 730/730 PASS (trusted_devices DML OK; ALTER/DROP/TRIGGER DENIED; CHECK'ler)                           |
+| `pnpm format:check` · `pnpm -r run lint` · `pnpm -r run typecheck`                               | temiz / temiz / 0 hata                                                                                |
+| `pnpm -r run test` (unit)                                                                        | contracts 172/172 · web 391/391 · server 456/456                                                      |
+| `pnpm --filter @remote/server test:int` (tam)                                                    | **846/850 — 4 kırmızı** (aşağıda)                                                                     |
+| Hedefli yeniden koşu ×2 (account-p10, p15-backend, security-p14a-auth, p27a-*, tenant-isolation) | 1. koşu 103/105, 2. koşu 104/105                                                                      |
+| `playwright test p27a-trusted-device p10-account p14a-a4`                                        | 58 geçti / 0 kaldı / 18 skip (skip'ler mevcut mobile kapsam dışı P10/P14a testleri; P27a'da skip yok) |
+
+Kırmızılar:
+
+1. **Deterministik, P27a payı var:** `tenant-isolation.test.ts` "AC-69: uygulamadaki her uç sınıflandırılmış" —
+   sınıfsız 15 uç; 3'ü P27a: `GET /api/v1/auth/trusted-devices`, `DELETE /api/v1/auth/trusted-devices/:id`,
+   `DELETE /api/v1/auth/trusted-devices` (kalan 12'si `/unattended/*`, P27).
+2. **Kararsız (her koşuda farklı test):** `account-p10` AC-67, `p15-backend` AC-231 ×2 (tam koşu), `security-p14a-auth`
+   AC-215 "hatalı kod 400…" (hedefli 1. koşu, `503 NOT_READY`). Hepsinin ortak noktası test kurulumundaki
+   `POST /auth/mfa/enable`'ın eşzamanlı dosyalarda InnoDB deadlock'a düşüp 503 vermesi; sonraki adımda kullanıcıda TOTP
+   olmadığı için `MFA_SETUP_REQUIRED` görülüyor. K3 notunda kaynağı açık bırakılmış: `enableTx` içindeki
+   "diğer oturumları iptal" `auth_sessions` UPDATE'inin next-key kilidi. P27a `enableTx`'e `deleteForUser` ekledi
+   (aynı TX'te ek kilit), yani P27a bu yolu genişletti; AC-335 "P10/P14a/P15 auth testleri değişmeden yeşil" ister.
+
+**Bilinen açık (1) — AC-215 kurtarma kodlu step-up 500:** yeniden üretilemedi. `security-p14a-auth` "kurtarma koduyla
+step-up" testi tam koşuda ve iki hedefli koşuda **geçti**. K3'ün 500'ü, P27 migration'ı (`20261121010000_p27_unattended`)
+uygulanmadan P27 WIP koduyla (support_sessions.device_id, notification_outbox session_id/event_id, SMTP step-up)
+çalışan DB'den kaynaklanmış olmalı; bu turda P27 migration'ı uygulanınca kaybolur. Kök neden P27a kodunda değil.
+Aynı testin kararsız 503'ü yukarıdaki madde 2'dir.
+
+## Kabul kriterleri
+
+| AC      | Durum | Kanıt veya eksik                                                                                                                                                                                                                                                                                                                                                                          |
+| ------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-325  | ✅    | `p27a-auth.test.ts:71` (çerez öznitelikleri Max-Age 2592000, Domain yok, yalnız SHA-256, +30 g, audit created), `:97` (işaretsiz), `:105` (kurtarma + rememberDevice 400), `:131` (Super Admin yok sayılır); e2e `p27a-trusted-device.spec.ts:18,41` (varsayılan işaretsiz, kurtarma modunda gizli)                                                                                       |
+| AC-326  | ✅    | `p27a-auth.test.ts:154` (mfa:"remembered", used audit, last_used/ip, expires sabit, döndürme), `:174` (hatalı şifre 401 + kilit 423, satır değişmez), `:188` (süresi dolmuş → TOTP + çerez silme), `:203` (başkasının belirteci), `:214` (iki çerez), `:221` (mustChangePassword), `:230` (setup aşaması); kod sırası `auth/service.ts:177-203` (kilit → şifre → geçici şifre → belirteç) |
+| AC-327  | ✅    | `p27a-auth.test.ts:247` (step_up_at NULL, `DELETE /users/:id` 401 MFA_STEP_UP_REQUIRED)                                                                                                                                                                                                                                                                                                   |
+| AC-328  | ✅    | auth dalı `p27a-auth.test.ts:265,276,290,300,314`; kullanıcı/firma dalı `p27a-revoke.test.ts:57` (Admin 2FA sıfırlama), `:69` (pasif), `:80` (firma pasif), `:95` (ayar kapatma); hepsi `revokedTrustedDevices` audit'iyle                                                                                                                                                                |
+| AC-329  | ⚠️    | API ✅ `p27a-auth.test.ts:329,346,356,374`; UI 5 durum ✅ `p27a-trusted-device.spec.ts:51,82,94`. Eksik: hata durumu axe'la taranmıyor ve taranırsa `FormError` istek kimliği satırı `color-contrast` ihlali veriyor (K5 notu, `components/form-error.tsx:12`) — erişilebilirlik koşulu kanıtsız/ihlalli                                                                                  |
+| AC-330  | ✅    | `p27a-revoke.test.ts:138` (sayı yalnız süresi dolmamış, forget-devices + audit admin), `:158` (kendi 403, başka firma 404, geniş yetkili 403, yetkisiz 403, fazla alan 400); e2e `:101` (onaylı diyalog + axe)                                                                                                                                                                            |
+| AC-331  | ✅    | `p27a-revoke.test.ts:95,127`; `p27a-auth.test.ts:117,131,141`; unit `trusted-device.test.ts:18,22`; e2e `:115`                                                                                                                                                                                                                                                                            |
+| AC-332  | ✅    | `p27a-auth.test.ts:392` (11. cihaz, audit limit, paralel iki oluşturma); `p27a-repo.test.ts:72,88`                                                                                                                                                                                                                                                                                        |
+| AC-333  | ✅    | `p27a-auth.test.ts:410` (log + audit + mail'de gizli/özet yok, log yakalamalı), `:329` (yanıt gövdesi); unit `trusted-device-token.test.ts:17,25`, `trusted-device.test.ts:54` (UA ≤ 80)                                                                                                                                                                                                  |
+| AC-334  | ✅    | `p27a-revoke.test.ts:183` (saklama), `:193` (purge), `:211` (KVKK erasure); `tenant-purge-meta-p16` yeşil; grants 730/730                                                                                                                                                                                                                                                                 |
+| AC-335  | ❌    | lint/typecheck/format/unit/e2e yeşil; **integration kırmızı**: `tenant-isolation` AC-69 (P27a uçları sınıfsız, deterministik) + P10/P14a/P15 auth testlerinde `mfa/enable` deadlock kaynaklı kararsız kırmızılar                                                                                                                                                                          |
+| AC-335a | ✅    | `p27a-auth.test.ts:410` (tek e-posta, UA, bağlantı/belirteç yok), `:441` (SMTP yok → `not_configured`, yanıt 200); unit `trusted-device.test.ts:80` (IP/saat/kaçış)                                                                                                                                                                                                                       |
+| AC-335b | ✅    | `p27a-rotation.test.ts:33` (aynı id, expires sabit, Max-Age kalan), `:54` (T0→T1→T2→T0: tüm cihaz + T2 oturumu iptal, yeni oturum açık mfa_passed=0, audit fail {count, revokedSessions}, e-posta), `:86` (başkasının id'si / olmayan / biçimsiz → hiçbir şey silinmez), `:108` (paralel aynı nesil)                                                                                      |
+
+## Düzeltilmeli
+
+1. [backend-dev] `apps/server/test/helpers/tenant-matrix.ts:18-36` (ROUTE_CLASSES) — P27a'nın 3 profil ucu sınıfsız,
+   `tenant-isolation.test.ts:21` deterministik kırmızı → `"GET /api/v1/auth/trusted-devices"`,
+   `"DELETE /api/v1/auth/trusted-devices/:id"`, `"DELETE /api/v1/auth/trusted-devices"` satırlarını `"self"` sınıfıyla
+   (`auth/me`, `logout-all` gibi, satır 24/29) ekle. (`/unattended/*` 12 uç P27 paketinin işi.)
+2. [backend-dev] `apps/server/src/auth/account.ts` `enableTx` (≈ satır 124-160) — eşzamanlı ilk etkinleştirmelerde
+   InnoDB deadlock → 503 `NOT_READY`; tam integration koşusunda `account-p10` AC-67, `p15-backend` AC-231 ×2,
+   `security-p14a-auth` AC-215 (hatalı kod) kararsız kırmızı. P27a bu TX'e `deleteForUser` ekledi; AC-335 gerilemesiz
+   yeşil ister → "diğer oturumları iptal" UPDATE'ini önce PK'ları seçip `id IN (...)` ile güncelleyecek biçimde
+   (next-key/gap kilidi almadan) yeniden yaz ya da TX'i deadlock'ta (P2034/1213) bir kez yeniden dene; ardından
+   `pnpm --filter @remote/server test:int` 3 ardışık koşuda 0 kırmızı olduğunu `implementation.md`'ye yaz.
+3. [frontend-dev] `apps/web/components/form-error.tsx:12` — istek kimliği satırı `opacity-80` yüzünden `danger`
+   zemininde axe `color-contrast` ihlali; AC-329 hata durumunda görünür → opaklığı kaldırıp DESIGN.md'deki uygun
+   ön plan tokenını kullan; `apps/web/e2e/p27a-trusted-device.spec.ts:82` "boş durum ve hata" testine hata durumunda
+   `axeScan(page, "[data-testid=acc-td]")` (açık + koyu) ekle, 0 ihlal beklensin.
+
+## Definition of Done
+
+| Madde                                 | ✅/❌ | Not                                                                                                                                           |
+| ------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tüm AC'ler kanıtlı                    | ❌    | AC-335 ❌, AC-329 ⚠️                                                                                                                          |
+| Testler yeşil (unit/integration/e2e)  | ❌    | unit + e2e yeşil; integration 4 kırmızı (1 deterministik P27a)                                                                                |
+| Lint / typecheck / format             | ✅    | temiz                                                                                                                                         |
+| Tasarım-kod uyumu, sapmalar gerekçeli | ✅    | `byTenant` purge, bileşik FK indeksi, repo ad birleştirme, `trusted-device.ts` ~350 satır — hepsi `implementation.md` P27a K1-K5'te gerekçeli |
+| Katman/`any`/hata yutma/PII log       | ✅    | gizli değer yalnız `Set-Cookie`; log yalnız `userId` + `trustedDevice` türü; commit sonrası bildirim hataları loglanıyor, yutulmuyor          |
+| Transaction                           | ✅    | oluşturma/döndürme/reuse/tüm iptal noktaları çağıranın TX'inde; kullanıcı satırı `FOR UPDATE`                                                 |
+| Sayfasız liste                        | ✅    | liste `take: 10` (kullanıcı başına üst sınır)                                                                                                 |
+| Audit log                             | ✅    | created/used/revoked(user/admin/limit)/reuse + toplu iptal satırlarında `revokedTrustedDevices`                                               |
+| Frontend 5 durum + a11y               | ❌    | 5 durum var; hata durumunda kontrast ihlali (madde 3)                                                                                         |
+| İkonlar / token / tema                | ✅    | `MonitorCheck`, `Laptop`, `Trash2`, `MonitorX`, `RotateCw` (lucide); ham renk/px yok; axe açık+koyu                                           |
+| Yeni bağımlılık / env / grants        | ✅    | bağımlılık ve env yok; `grants.sql` + check-app-grants güncel                                                                                 |
+
+## Öneriler (zorunlu değil)
+
+- `consumeAtLogin` (`trusted-device.ts:224-252`): süresi dolmuş ama özeti tutmayan satır da "yeniden kullanım" sayılıp
+  tüm cihazları siliyor. Spec'e aykırı değil (AC-335b "kaç nesil önce" der) ama süresi dolmuş satırı reuse dışında
+  tutmak yanlış alarmı azaltır; güvenlikle birlikte değerlendirilebilir.
+- `trusted-device.ts` 349 satır (hedef 300): bildirimler (`notify*`, `afterTrustedDeviceReuse`) ayrı dosyaya alınabilir.
+
+## Olumlu
+
+- Döndürme koşullu UPDATE + reuse aile iptali + paralel yarış testleri (AC-335b) eksiksiz; tek yol repo (T9) uygulanmış.
+- AC-333 log/audit/mail/yanıt gövdesi sızıntı testi gerçek log yakalamasıyla yapılmış.
+- Super Admin hariç tutması üç katmanda (politika, repo firmasız hata, UI) ve test edilmiş.
+- grants 730/730; P27 migration'ı bu turda temiz uygulanıyor.
+
+---
+
 # QA Raporu — PT (kod temizliği) Tur 4
 
 DURUM: GEÇTİ

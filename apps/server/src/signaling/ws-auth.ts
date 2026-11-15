@@ -17,7 +17,9 @@ import type { FixedWindowCounter } from "../lib/rate.ts";
 import { isOutdated, UNDECLARED_AGENT_VERSION } from "../lib/version.ts";
 import { cookieValue, offeredProtocols, type UpgradeReject } from "../lib/ws-upgrade.ts";
 import * as repo from "../sessions/repo.ts";
+import { createGate } from "../unattended/gate.ts";
 import { admitRequestGuest } from "./admit.ts";
+import { admitDeviceGuest } from "./admit-device.ts";
 import { onGuestMessage, onTechMessage, TokenBucket } from "./handlers.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Guest, Peer, Room } from "./types.ts";
@@ -135,6 +137,7 @@ function ticketGuest(u: UpgradeCtx, c: GuestConn, value: string): UpgradeReject 
   const g = t && room ? room.lobby.get(t.guestId) : undefined;
   if (!room || !g || g.state !== "TICKETED") return { status: 403, reason: "ticket" };
   if (!publicClientAllowed(c.req.headers, app.env.allowedOrigins, g.kind)) return { status: 403, reason: "client_kind" };
+  if (room.unattended) return deviceTicket(u, c, room, g, t?.gen);
   // P8b r2 (§13.4): AGENT sürümü nonce/talep kaydından (yeniden beyan yok).
   if (g.kind === "AGENT" && isOutdated(g.clientVersion ?? UNDECLARED_AGENT_VERSION, app.env.MIN_AGENT_VERSION))
     return { status: 426, reason: "outdated" };
@@ -160,6 +163,21 @@ function ticketGuest(u: UpgradeCtx, c: GuestConn, value: string): UpgradeReject 
     g.netKey = netKey(c.ctx.ip);
   }
   openGuest(u, c, room, g, (peer) => rooms.attachGuest(room, g, peer));
+  return null;
+}
+
+/**
+ * P27 (§2 adım 4–5): gözetimsiz yardımcının bileti — sürüm denetimi yok (servis ikilisi ayrı ürün; kapı `device.auth`'ta),
+ * kuşak eşleşmeli; kabul `admitDeviceGuest` (otomatik, yeniden denetimli). `g.peer` yalnız kazanan bağlantıya atanır.
+ */
+function deviceTicket(u: UpgradeCtx, c: GuestConn, room: Room, g: Guest, gen: number | undefined): UpgradeReject | null {
+  if (gen !== g.ticketGen) return { status: 403, reason: "ticket" };
+  const deps = { gate: createGate(u.app.env), secrets: u.app.secrets };
+  openGuest(u, c, room, g, (peer) => {
+    void admitDeviceGuest(u.rooms, room, g, peer, c.ctx, deps).catch((err: unknown) =>
+      u.app.log.error({ err }, "gözetimsiz misafir kabul edilemedi"),
+    );
+  });
   return null;
 }
 

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"remote-support/agent-win/internal/desktop"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/servis/helperio"
 )
@@ -20,13 +21,24 @@ type Indicator interface {
 	// Failed oturum sırasında gösterge yeniden doğrulanamadığında (pencere kayboldu, monitör değişimi sonrası
 	// çizilemedi) kapanır.
 	Failed() <-chan struct{}
+	// Desktop göstergenin çizildiği giriş masaüstü (K6b; Default / Winlogon …).
+	Desktop() string
 	Close()
 }
 
-// Deps yardımcının bağımlılıkları (Windows: deps_windows.go; Linux testte sahteler).
+// Deps yardımcının bağımlılıkları (Windows: main_windows.go; Linux testte sahteler).
 type Deps struct {
-	// ShowIndicator göstergeyi tüm monitörlerde çizer ve doğrular; hata → bağlantı hiç açılmaz (fail-closed).
+	// ShowIndicator göstergeyi o anki giriş masaüstünde, tüm monitörlerde çizer ve doğrular; hata → bağlantı hiç
+	// açılmaz (fail-closed). Masaüstü değişiminde (K6b) yeniden çağrılır.
 	ShowIndicator func(text string) (Indicator, error)
+	// InputDesktop giriş masaüstünün adı (Windows: desktop.InputName); 250 ms'de bir yoklanır.
+	InputDesktop func() (string, error)
+	// Gate yakalama/girdi masaüstü kapısı (Windows: girdi enjektörü de aynı kapıya bakar). nil → yeni kapı.
+	Gate *desktop.Gate
+	// Resumed kapı doğrulamadan sonra açılınca (Windows: Applier.ReleaseAll — geçişte düşen bırakma olayları).
+	Resumed func()
+	// FollowInterval / FollowTimeout masaüstü yoklama aralığı ve doğrulama bütçesi; 0 → 250 ms / 2 sn.
+	FollowInterval, FollowTimeout time.Duration
 	// Flow oturum bağımlılıkları (Dial, NewPeer, Monitors, Capture, Input, DownloadDir, CheckDir, MOTW …). UI, Events,
 	// Unattended, Hotkey, Admitted ve kullanıcıya dönük alanları Run doldurur/boşaltır.
 	Flow flow.Deps
@@ -47,14 +59,19 @@ func Run(ctx context.Context, d Deps, in helperio.Input) uint32 {
 	if err != nil || ind == nil {
 		return helperio.ExitIndicatorFailed // AC-294: `/ws/guest` çağrılmadı
 	}
-	defer ind.Close()
+	live := newLive(ind)
+	defer live.Close()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	if d.Gate == nil {
+		d.Gate = desktop.NewGate()
+	}
+	follow(ctx, d, live, in.IndicatorText) // K6b: masaüstü değişiminde önce durdur → gösterge doğrula → devam
 	events := make(chan flow.Event, eventBuffer)
 	ui := newHeadless(ctx, events)
 	var admitted, indFailed atomic.Bool
-	fd := unattendedDeps(d.Flow, ui, events, func() { admitted.Store(true) })
-	go watchIndicator(ctx, ind.Failed(), &indFailed, ui, cancel, grace(d.EndGrace))
+	fd := unattendedDeps(gatedFlow(d.Flow, d.Gate), ui, events, func() { admitted.Store(true) })
+	go watchIndicator(ctx, live.Failed(), &indFailed, ui, cancel, grace(d.EndGrace))
 	out := flow.RunTicket(ctx, fd, in.Ticket, in.TechName, "")
 	return exitCode(indFailed.Load(), admitted.Load(), out)
 }

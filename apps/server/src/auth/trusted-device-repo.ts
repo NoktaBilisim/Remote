@@ -99,16 +99,22 @@ export interface RotateTrustedDeviceInput {
   now: Date;
 }
 
+/** `rotated`: döndürüldü · `mismatch`: satır var, özet değişmiş (aynı nesil yarışı) · `gone`: satır arada silindi. */
+export type RotateResult = "rotated" | "mismatch" | "gone";
+
 /**
- * Döndürme (K-P27a-11): koşullu UPDATE `WHERE id = ? AND token_hash = :old`. `false` → aynı nesil eşzamanlı ikinci kez
- * kullanıldı (yarış); çağıran yeniden kullanım dalını uygular (§5.1). `expires_at` değişmez (K-P27a-3).
+ * Döndürme (K-P27a-11): koşullu UPDATE `WHERE id = ? AND token_hash = :old`. `expires_at` değişmez (K-P27a-3).
+ * D-P27a-K1: 0 satırda nedeni ayırmak için satır KİLİTLİ okunur (`FOR SHARE` son işlenmiş sürümü görür; TX anlık
+ * görüntüsü silinmiş satırı hâlâ gösterirdi). Ek kilit yok: aynı PK'yi UPDATE zaten kilitledi (kayıt ya da boşluk).
  */
-export async function rotate(db: DbOrTx, input: RotateTrustedDeviceInput): Promise<boolean> {
+export async function rotate(db: DbOrTx, input: RotateTrustedDeviceInput): Promise<RotateResult> {
   const r = await db.trustedDevice.updateMany({
     where: { id: input.id, tokenHash: input.oldHash },
     data: { tokenHash: input.newHash, lastUsedAt: input.now, ip: input.ip },
   });
-  return r.count === 1;
+  if (r.count === 1) return "rotated";
+  const still = await db.$queryRaw<{ id: string }[]>`SELECT id FROM trusted_devices WHERE id = ${input.id} FOR SHARE`;
+  return still.length > 0 ? "mismatch" : "gone";
 }
 
 /** Profil listesi (AC-329): süresi dolmamış satırlar, en yeni önce, ≤ `TRUSTED_DEVICE_MAX_PER_USER`. */
@@ -133,6 +139,19 @@ export function countForUser(db: DbOrTx, userId: string, now: Date): Promise<num
  */
 export async function deleteForUser(db: DbOrTx, userId: string, id?: string): Promise<number> {
   const r = await db.trustedDevice.deleteMany({ where: id === undefined ? { userId } : { userId, id } });
+  return r.count;
+}
+
+/**
+ * `deleteForUser`'ın kullanıcı satırı ZATEN X kilitliyken kullanılan biçimi (2FA etkinleştirme TX'i). Olmayan satırları
+ * silen `DELETE … WHERE user_id = ?` dizinde boşluk kilidi alır ve eşzamanlı ekleme/silmelerle kilitlenmeye (1213)
+ * girer; burada önce kilitsiz okunur, yalnız var olan satırlar PK ile silinir. Yarış yok: yeni satır (`createTrustedDevice`)
+ * aynı kullanıcı satırını `FOR UPDATE` bekler.
+ */
+export async function deleteForLockedUser(tx: Prisma.TransactionClient, userId: string): Promise<number> {
+  const ids = await tx.trustedDevice.findMany({ where: { userId }, select: { id: true } });
+  if (ids.length === 0) return 0;
+  const r = await tx.trustedDevice.deleteMany({ where: { userId, id: { in: ids.map((x) => x.id) } } });
   return r.count;
 }
 

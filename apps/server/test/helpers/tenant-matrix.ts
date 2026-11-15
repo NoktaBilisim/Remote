@@ -9,6 +9,7 @@ import type { FastifyInstance, InjectOptions } from "fastify";
 import { newId, sha256Hex } from "../../src/lib/ids.ts";
 import { createSupportSessionRow, createTenant, createUser, testDb, type TestUser } from "./app.ts";
 import { createCustomerRow, createRequestRow } from "./requests.ts";
+import { codeRow, createDeviceRow } from "./unattended.ts";
 
 // P8b: "scoped" = tenantScope'lu koleksiyon/ayar ucu (id'siz); izolasyonu requests-p8b.test.ts ("AC-147/148") ve
 // requests-p8b-5.test.ts ("AC-147", "AC-148: Super Admin", "AC-129") test eder.
@@ -16,6 +17,22 @@ import { createCustomerRow, createRequestRow } from "./requests.ts";
 export type RouteClass = "public" | "self" | "tenant" | "list" | "scoped" | "system";
 
 export const ROUTE_CLASSES: Record<string, RouteClass> = {
+  // P27-K3: gözetimsiz bağlantı (B'nin A cihazına isteği → 404; IDOR, AC-293).
+  "POST /api/v1/unattended/devices/:id/connect": "tenant",
+  // P27-K2: koleksiyon/durum uçları tenantScope'lu (liste izolasyonu: unattended-api.test.ts "AC-293"); kayıt ucu kimliksiz
+  // (kayıt kodu kimliği); id'li uçlar B → A kaydı 404.
+  "GET /api/v1/unattended/status": "scoped",
+  "GET /api/v1/unattended/devices": "scoped",
+  "GET /api/v1/unattended/registration-codes": "scoped",
+  "POST /api/v1/unattended/registration-codes": "scoped",
+  "GET /api/v1/unattended/download": "scoped",
+  "POST /api/v1/unattended/register": "public",
+  "GET /api/v1/unattended/devices/:id": "tenant",
+  "PUT /api/v1/unattended/devices/:id/grants": "tenant",
+  "POST /api/v1/unattended/devices/:id/revoke": "tenant",
+  "DELETE /api/v1/unattended/registration-codes/:id": "tenant",
+  "GET /api/v1/unattended/customers/:customerId/contacts": "tenant",
+  "PUT /api/v1/unattended/customers/:customerId/contacts": "tenant",
   "GET /health": "public",
   "GET /ready": "public",
   "POST /api/v1/auth/login": "public",
@@ -34,6 +51,10 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "POST /api/v1/sessions/:id/email": "tenant",
   "POST /api/v1/users/:id/reset-mfa": "tenant",
   "POST /api/v1/users/:id/forget-devices": "tenant", // P27a (AC-330)
+  // P27a (AC-329): profil cihaz listesi/silme yalnız oturum sahibinin satırları (başka kullanıcının id'si 404)
+  "GET /api/v1/auth/trusted-devices": "self",
+  "DELETE /api/v1/auth/trusted-devices/:id": "self",
+  "DELETE /api/v1/auth/trusted-devices": "self",
   "DELETE /api/v1/users/:id": "tenant", // P16 (AC-241): step-up'lı B Admin'i → A kullanıcısı 404
   // P2
   "POST /api/v1/sessions": "self",
@@ -197,6 +218,12 @@ export interface TwoTenants {
     customerId: string;
     blockId: string;
     holidayId: string;
+    /** P27-K3: gözetimsiz cihaz (connect IDOR satırı). */
+    deviceId: string;
+    /** P27-K2: bekleyen kayıt kodu (DELETE IDOR satırı). */
+    codeId: string;
+    /** P27a (D-P27a-K4): Admin'in hatırlanan cihazı (`GET /auth/trusted-devices` self kontrolü). */
+    trustedDeviceId: string;
   };
   b: {
     tenantId: string;
@@ -207,6 +234,12 @@ export interface TwoTenants {
     customerId: string;
     blockId: string;
     holidayId: string;
+    /** P27-K3: gözetimsiz cihaz (connect IDOR satırı). */
+    deviceId: string;
+    /** P27-K2: bekleyen kayıt kodu (DELETE IDOR satırı). */
+    codeId: string;
+    /** P27a (D-P27a-K4): Admin'in hatırlanan cihazı (`GET /auth/trusted-devices` self kontrolü). */
+    trustedDeviceId: string;
   };
 }
 
@@ -219,6 +252,39 @@ export interface CrossTenantCase {
 }
 
 export const CROSS_TENANT_CASES: CrossTenantCase[] = [
+  {
+    route: "POST /api/v1/unattended/devices/:id/connect",
+    request: (fx) => ({ method: "POST", url: `/api/v1/unattended/devices/${fx.a.deviceId}/connect`, payload: {} }),
+    stepUp: true,
+  },
+  // P27-K2 (AC-275, 293, 337): A'nın cihazı / kodu / müşteri adresleri B Admin'ine 404 (yazma uçları step-up'lı oturumla).
+  { route: "GET /api/v1/unattended/devices/:id", request: (fx) => ({ method: "GET", url: `/api/v1/unattended/devices/${fx.a.deviceId}` }) },
+  {
+    route: "PUT /api/v1/unattended/devices/:id/grants",
+    request: (fx) => ({ method: "PUT", url: `/api/v1/unattended/devices/${fx.a.deviceId}/grants`, payload: { userIds: [fx.b.user.id] } }),
+    stepUp: true,
+  },
+  {
+    route: "POST /api/v1/unattended/devices/:id/revoke",
+    request: (fx) => ({ method: "POST", url: `/api/v1/unattended/devices/${fx.a.deviceId}/revoke`, payload: {} }),
+  },
+  {
+    route: "DELETE /api/v1/unattended/registration-codes/:id",
+    request: (fx) => ({ method: "DELETE", url: `/api/v1/unattended/registration-codes/${fx.a.codeId}` }),
+  },
+  {
+    route: "GET /api/v1/unattended/customers/:customerId/contacts",
+    request: (fx) => ({ method: "GET", url: `/api/v1/unattended/customers/${fx.a.customerId}/contacts` }),
+  },
+  {
+    route: "PUT /api/v1/unattended/customers/:customerId/contacts",
+    request: (fx) => ({
+      method: "PUT",
+      url: `/api/v1/unattended/customers/${fx.a.customerId}/contacts`,
+      payload: { items: [{ email: "x@example.test" }] },
+    }),
+    stepUp: true,
+  },
   { route: "GET /api/v1/sessions/:id", request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}` }) },
   { route: "POST /api/v1/sessions/:id/cancel", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/cancel` }) },
   {
@@ -376,10 +442,44 @@ export async function twoTenants(): Promise<TwoTenants> {
     await testDb().businessHoliday.create({
       data: { id: holidayId, tenantId: t.id, day: new Date("2026-12-31T00:00:00.000Z"), name: "Yıl sonu", createdBy: admin.id },
     });
-    return { tenantId: t.id, admin, user, sessionId: session.id, requestId: request.id, customerId: customer.id, blockId, holidayId };
+    const deviceId = await createDeviceRow({ tenantId: t.id, customerId: customer.id }); // P27-K3
+    const codeId = await codeRow(t.id, customer.id); // P27-K2
+    const trustedDeviceId = newId(); // P27a (D-P27a-K4)
+    await testDb().trustedDevice.create({
+      data: {
+        id: trustedDeviceId,
+        tenantId: t.id,
+        userId: admin.id,
+        tokenHash: sha256Hex(trustedDeviceId),
+        uaSummary: "Chrome · Windows",
+        ip: "203.0.113.9",
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    return {
+      tenantId: t.id,
+      admin,
+      user,
+      sessionId: session.id,
+      requestId: request.id,
+      customerId: customer.id,
+      blockId,
+      holidayId,
+      deviceId,
+      codeId,
+      trustedDeviceId,
+    };
   };
   return { a: await side(), b: await side() };
 }
 
 /** A tarafının yanıtta görünmemesi gereken kimlikleri. */
-export const idsOf = (s: TwoTenants["a"]): string[] => [s.tenantId, s.admin.id, s.user.id, s.admin.email, s.user.email, s.sessionId];
+export const idsOf = (s: TwoTenants["a"]): string[] => [
+  s.tenantId,
+  s.admin.id,
+  s.user.id,
+  s.admin.email,
+  s.user.email,
+  s.sessionId,
+  s.trustedDeviceId,
+];

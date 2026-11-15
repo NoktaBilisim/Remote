@@ -114,6 +114,7 @@ export async function afterDeactivate(
   };
   await step("rooms", () => fx.rooms.endByTenant(id));
   await step("panels", async () => fx.hub.closeByTenant(id));
+  await step("devices", async () => fx.devices?.closeByTenant(id));
   for (const requestId of done.requestIds) await step("requests", () => fx.requestClosed(id, requestId));
   await step("bindings", async () => fx.bindingsRevoked(done.revokedBindings));
 }

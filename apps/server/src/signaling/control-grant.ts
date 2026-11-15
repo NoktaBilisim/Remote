@@ -42,14 +42,15 @@ function grantAllowed(rooms: Rooms, room: Room, guest: Guest): boolean {
   return true;
 }
 
-export async function onGranted(rooms: Rooms, room: Room, guest: Guest): Promise<void> {
+/** `source`: `UI` (yerel "İzin ver") ya da P27 `UNATTENDED` (yalnız gözetimsiz odada; control.ts süzer). */
+export async function onGranted(rooms: Rooms, room: Room, guest: Guest, source: "UI" | "UNATTENDED" = "UI"): Promise<void> {
   const c = room.control;
   if (!rooms.live(room) || room.admitted !== guest) return;
   if (!grantAllowed(rooms, room, guest)) return;
   const epoch = c.epoch;
   c.granting = true;
   c.interrupt = undefined;
-  const write = recordControl(rooms, room, "GRANTED", "UI", guestCtx(guest), CUSTOMER, CONTROL_AUDIT.GRANTED, {
+  const write = recordControl(rooms, room, "GRANTED", source, guestCtx(guest), CUSTOMER, CONTROL_AUDIT.GRANTED, {
     selfElevated: selfElevatedOf(room),
   });
   const outcome = await settleWithin(rooms.clock, write, CONTROL_AUDIT_TIMEOUT_MS);
@@ -63,7 +64,7 @@ export async function onGranted(rooms: Rooms, room: Room, guest: Guest): Promise
     return;
   }
   c.state = "GRANTED";
-  room.tech?.peer.send({ t: "control.state", state: "GRANTED", source: "UI" });
+  room.tech?.peer.send({ t: "control.state", state: "GRANTED", source });
   rooms.metrics.inc("rs_control_total", { event: "granted" });
 }
 

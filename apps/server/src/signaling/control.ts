@@ -263,5 +263,25 @@ export function handleControlState(
     rooms.metrics.inc("rs_control_total", { event: "control_state_ignored" });
     return Promise.resolve();
   }
-  return enqueue(rooms, room, () => (m.state === "GRANTED" ? onGranted(rooms, room, guest) : onView(rooms, room, guest, m.source)));
+  if (m.source === "UNATTENDED" && (m.state !== "GRANTED" || !room.unattended)) return unattendedSourceViolation(rooms, room, guest);
+  const source = m.source === "UNATTENDED" ? "UNATTENDED" : "UI";
+  return enqueue(rooms, room, () => (m.state === "GRANTED" ? onGranted(rooms, room, guest, source) : onView(rooms, room, guest, m.source)));
+}
+
+/**
+ * P27 (§4.6, K1 notu): `source:"UNATTENDED"` yalnız gözetimsiz odada GRANTED olarak geçerli; başka odada protokol hatası —
+ * misafir soketi 1008 ile kapanır + audit `control.granted{result:fail, reason}` (kayıt/iletim yok).
+ */
+async function unattendedSourceViolation(rooms: Rooms, room: Room, guest: Guest): Promise<void> {
+  rooms.metrics.inc("rs_control_total", { event: "control_state_unattended_rejected" });
+  guest.peer?.close(1008, "unattended_source");
+  await writeAudit(rooms.db, guestCtx(guest), {
+    tenantId: room.tenantId,
+    ...CUSTOMER,
+    action: CONTROL_AUDIT.GRANTED,
+    entity: "support_sessions",
+    entityId: room.sessionId,
+    result: "fail",
+    newValue: { reason: "unattended_source_outside_room" },
+  });
 }

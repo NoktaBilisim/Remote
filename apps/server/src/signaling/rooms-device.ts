@@ -1,0 +1,108 @@
+// P27 gözetimsiz odaların Rooms eki (mimari-p27 §2 adım 2/8, §4.4 süreler; AC-275, 293, 295, 338). rooms.ts "dokunan böler"
+// sınırı (§9) nedeniyle ayrı: ön-kabullü cihaz misafiri + bilet, cihaz odasını bitirme (PENDING → DB CANCELLED, ACTIVE →
+// mevcut `finish`), cihaz / teknisyen süzgeçli toplu bitirme.
+import type { SessionEndedReason } from "@remote/contracts/ws";
+import { newId } from "../lib/ids.ts";
+import type { UnattendedGate } from "../unattended/gate.ts";
+import type { Rooms } from "./rooms.ts";
+import type { Guest, Room } from "./types.ts";
+
+export interface DeviceRoomRow {
+  id: string;
+  tenantId: string;
+  technicianId: string;
+  technician: { fullName: string };
+  expiresAt: Date;
+}
+
+export interface DeviceRef {
+  deviceId: string;
+  deviceName: string;
+  customerId: string;
+}
+
+/**
+ * Bağlantı TX'i commit'inden sonra (§2 adım 2): oda + TICKETED AGENT misafiri (lobi/admitCode yok) + tek kullanımlık bilet.
+ * Onay metni yoktur (gözetimsiz, S24) — `consent` alanı yalnız tip için boş; admit-device metinsiz UNATTENDED kaydı yazar.
+ */
+export function preAdmitDevice(rooms: Rooms, row: DeviceRoomRow, dev: DeviceRef): { ticket: string; expiresAt: number } {
+  const room = rooms.getOrCreate(row);
+  room.unattended = { deviceId: dev.deviceId, deviceName: dev.deviceName, customerId: dev.customerId };
+  const now = rooms.clock.now();
+  const guest: Guest = {
+    id: newId(),
+    name: dev.deviceName,
+    kind: "AGENT",
+    ipKey: "",
+    admitHash: "",
+    consent: { textId: "", version: 0, sha256: "", at: new Date(now), ip: "", userAgent: "" },
+    state: "TICKETED",
+    since: now,
+    ticketGen: 1,
+  };
+  room.lobby.set(guest.id, guest);
+  const { token, expiresAt } = rooms.tickets.issue({ sessionId: row.id, guestId: guest.id, gen: 1 });
+  return { ticket: token, expiresAt };
+}
+
+/** PENDING cihaz oturumu → CANCELLED(dbReason); koşullu (status=PENDING), count döner. */
+async function cancelPendingDevice(rooms: Rooms, sessionId: string, dbReason: string): Promise<number> {
+  const now = new Date(rooms.clock.now());
+  const r = await rooms.db.supportSession.updateMany({
+    where: { id: sessionId, status: "PENDING", deviceId: { not: null } },
+    data: { status: "CANCELLED", activeCode: null, endedAt: now, endedBy: "SYSTEM", endReason: dbReason },
+  });
+  return r.count;
+}
+
+/**
+ * Cihaz odasını bitirir. ACTIVE → `rooms.finish` (DB ENDED + audit + session.ended); PENDING → DB CANCELLED(`dbReason` ??
+ * reason) + `closeSession`. `dbReason` yalnız DB bitiş nedenidir (`helper_failed`, `no_console`, `busy` — konsola `reason`).
+ */
+export async function endDeviceRoom(rooms: Rooms, room: Room, reason: SessionEndedReason, dbReason?: string): Promise<void> {
+  if (!rooms.live(room) || !room.unattended) return;
+  room.unattended.dbEndReason = dbReason ?? reason;
+  if (room.admitted || room.admitting) return rooms.finish(room, reason, "SYSTEM");
+  try {
+    await cancelPendingDevice(rooms, room.sessionId, dbReason ?? reason);
+  } catch (err) {
+    rooms.log.error({ err, sessionId: room.sessionId }, "gözetimsiz bekleyen oturum iptali DB'ye yazılamadı");
+  }
+  rooms.closeSession(room.sessionId, reason);
+}
+
+/** Bu cihazın canlı odaları (isteğe bağlı: yalnız bu teknisyenin). */
+export function deviceRooms(rooms: Rooms, deviceId: string, technicianId?: string): Room[] {
+  return [...rooms.values()].filter(
+    (r) => r.unattended?.deviceId === deviceId && !r.ending && (technicianId === undefined || r.technicianId === technicianId),
+  );
+}
+
+/** AC-275/293/295: cihazın (ya da teknisyen süzgeçli) tüm odaları `reason` ile biter. */
+export async function finishDevice(rooms: Rooms, deviceId: string, reason: SessionEndedReason, technicianId?: string): Promise<void> {
+  await Promise.all(deviceRooms(rooms, deviceId, technicianId).map((r) => endDeviceRoom(rooms, r, reason)));
+}
+
+/**
+ * O-P27-3 / K-P27-18 yedek yol (60 sn, ws.ts zamanlayıcısı): anlık kesme atlansa da grant / iptal / yerel anahtar / imza
+ * kapısı düşmüşse gözetimsiz oda biter (≤ 60 sn). Teknisyenin bağlı olup olmadığından bağımsız çalışır.
+ */
+export async function revalidateDevice(rooms: Rooms, gate: UnattendedGate, room: Room): Promise<void> {
+  const dev = room.unattended;
+  if (!dev || !rooms.live(room)) return;
+  const row = await rooms.db.unattendedDevice.findFirst({
+    where: { id: dev.deviceId, tenantId: room.tenantId },
+    select: {
+      revokedAt: true,
+      localEnabled: true,
+      signed: true,
+      binarySha256: true,
+      grants: { where: { userId: room.technicianId, tenantId: room.tenantId }, select: { id: true } },
+    },
+  });
+  let reason: SessionEndedReason | null = null;
+  if (!row || row.revokedAt) reason = "device_revoked";
+  else if (!row.localEnabled) reason = "local_disabled";
+  else if (row.grants.length === 0 || !gate.allows({ signed: row.signed, sha256: row.binarySha256 })) reason = "permission";
+  if (reason) await endDeviceRoom(rooms, room, reason);
+}

@@ -7,6 +7,7 @@ import type { IncomingMessage } from "node:http";
 import { STATUS_CODES } from "node:http";
 import type { Duplex } from "node:stream";
 import { WS_MAX_PAYLOAD, WS_SUBPROTOCOL, type ServerOutbound } from "@remote/contracts/ws";
+import { WS_DEVICE_PATH } from "@remote/contracts/ws-device";
 import type { FastifyInstance } from "fastify";
 import { WebSocket, WebSocketServer } from "ws";
 import { newId } from "../lib/ids.ts";
@@ -15,14 +16,24 @@ import { FixedWindowCounter } from "../lib/rate.ts";
 import { jsonPeer, type UpgradeReject } from "../lib/ws-upgrade.ts";
 import type { RequestChannels } from "../requests/ws.ts";
 import type { Rooms } from "./rooms.ts";
+import { createGate } from "../unattended/gate.ts";
+import { revalidateDevice } from "./rooms-device.ts";
 import { guestUpgrade, revalidateTech, techUpgrade, type UpgradeCtx } from "./ws-auth.ts";
 
 export interface SignalingOptions {
   pingMs?: number;
   revalidateMs?: number;
+  /** Yalnız testler: `/ws/device` kimliksiz soket tavanları (varsayılan K-P27-21 sabitleri 1000 / IP başına 5). */
+  deviceUnauth?: { max: number; perIp: number };
 }
 
 type Role = "tech" | "guest" | "request" | "panel";
+
+/** P27 `/ws/device` (unattended/device-ws.ts): kendi WebSocketServer'ı, alt protokolü ve 4 KB sınırı vardır. */
+export interface DeviceChannel {
+  upgrade(req: IncomingMessage, socket: Duplex, head: Buffer, clientIp: string): void;
+  close(): void;
+}
 
 function reject(socket: Duplex, status: number): void {
   socket.end(`HTTP/1.1 ${status} ${STATUS_CODES[status] ?? ""}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
@@ -78,8 +89,19 @@ function roleOf(pathname: string, channels: RequestChannels | undefined): Role |
   return null;
 }
 
-function onUpgrade(u: UpgradeCtx, channels: RequestChannels | undefined, req: IncomingMessage, socket: Duplex, head: Buffer): void {
+function onUpgrade(
+  u: UpgradeCtx,
+  channels: RequestChannels | undefined,
+  device: DeviceChannel | undefined,
+  req: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+): void {
   const url = new URL(req.url ?? "/", "http://x");
+  if (url.pathname === WS_DEVICE_PATH && device) {
+    socket.on("error", () => socket.destroy());
+    return device.upgrade(req, socket, head, u.clientIp(req));
+  }
   const role = roleOf(url.pathname, channels);
   if (!role) return reject(socket, 404);
   socket.on("error", () => socket.destroy());
@@ -118,6 +140,7 @@ function startTimers(u: UpgradeCtx, wss: WebSocketServer, missed: WeakMap<WebSoc
       }
     }
   }, opts.pingMs ?? 30_000);
+  const stopDevices = startDeviceRevalidation(u, opts.revalidateMs ?? 60_000);
   const revalidate = setInterval(() => {
     for (const room of u.rooms.techRooms()) {
       const t = room.tech;
@@ -130,6 +153,27 @@ function startTimers(u: UpgradeCtx, wss: WebSocketServer, missed: WeakMap<WebSoc
   return () => {
     clearInterval(ping);
     clearInterval(revalidate);
+    stopDevices();
+  };
+}
+
+/**
+ * P27 (O-P27-3, K-P27-18): gözetimsiz odalar teknisyen bağlı olmasa da `revalidateMs`'de bir yeniden doğrulanır (grant /
+ * iptal / yerel anahtar / imza kapısı). `rooms.clock` üzerinde (sahte saatle test edilir; AC-338 ≤ 60 sn yedek yol).
+ */
+function startDeviceRevalidation(u: UpgradeCtx, ms: number): () => void {
+  const gate = createGate(u.app.env);
+  let stopped = false;
+  let handle: unknown;
+  const tick = (): void => {
+    for (const room of [...u.rooms.values()].filter((r) => r.unattended))
+      void revalidateDevice(u.rooms, gate, room).catch((err: unknown) => u.app.log.error({ err }, "ws cihaz yeniden doğrulama hatası"));
+    if (!stopped) handle = u.rooms.clock.setTimeout(tick, ms);
+  };
+  handle = u.rooms.clock.setTimeout(tick, ms);
+  return () => {
+    stopped = true;
+    u.rooms.clock.clearTimeout(handle);
   };
 }
 
@@ -138,7 +182,8 @@ export function attachSignaling(
   rooms: Rooms,
   opts: SignalingOptions = {},
   channels?: RequestChannels,
-  panelCount?: () => { request: number; panel: number },
+  panelCount?: () => Record<string, number>,
+  device?: DeviceChannel,
 ): void {
   const wss = new WebSocketServer({
     noServer: true,
@@ -153,12 +198,13 @@ export function attachSignaling(
     "": wss.clients.size,
     ...(panelCount ? panelCount() : {}),
   }));
-  app.server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => onUpgrade(u, channels, req, socket, head));
+  app.server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => onUpgrade(u, channels, device, req, socket, head));
   const stopTimers = startTimers(u, wss, missed, opts);
   // preClose: server.close() yükseltilmiş soketleri beklemesin diye önce WS'ler kapatılır.
   app.addHook("preClose", async () => {
     stopTimers();
     channels?.stop();
+    device?.close();
     u.guestIp.close();
     u.techIp.close();
     rooms.shutdown();

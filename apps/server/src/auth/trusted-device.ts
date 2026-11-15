@@ -1,6 +1,7 @@
 // P27a "Bu cihazı 30 gün hatırla" (mimari-p27a §2, §5; AC-325..333, AC-335a, AC-335b). K2: çerez değeri
 // üretimi/biçimi/ayrıştırma ve gizli değerin özeti. K3: politika (`rememberAllowed`), `issue` (verify TX'i),
-// `consumeAtLogin` (login TX'i; döndürme + yeniden kullanım), `uaSummary`, çerez ayarları, commit sonrası bildirimler.
+// `consumeAtLogin` (login TX'i; döndürme + yeniden kullanım), çerez ayarları. UA özeti: trusted-device-ua.ts;
+// commit sonrası bildirimler: trusted-device-notify.ts.
 // Gizli değer DB'de, logda, audit'te ve yanıt gövdesinde yer almaz; yalnız `Set-Cookie`'de (AC-333).
 import {
   TRUSTED_DEVICE_COOKIE,
@@ -14,10 +15,9 @@ import { timingSafeEqual } from "node:crypto";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { Prisma } from "../generated/prisma/client.ts";
 import { newSecretToken, sha256Hex } from "../lib/ids.ts";
-import { trustedDeviceCreatedMail, trustedDeviceReuseMail } from "../mail/templates.ts";
-import type { MailService } from "../mail/service.ts";
 import { findUserById, revokeUserSessions } from "./repo.ts";
 import * as tdRepo from "./trusted-device-repo.ts";
+import { uaSummary } from "./trusted-device-ua.ts";
 
 /** Aynı adlı çerezden denenen en çok değer (D-P27a-2: cookie tossing / aynı host'ta başka port gölgelemesi). */
 export const TRUSTED_DEVICE_COOKIE_MAX_VALUES = 2;
@@ -76,7 +76,7 @@ export const trustedDeviceRemainingSec = (expiresAt: Date, now: Date): number =>
   Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
 
 // ---------------------------------------------------------------------------------------------------------------
-// K3: politika, UA özeti, çerez ayarları
+// K3: politika, çerez ayarları (UA özeti: trusted-device-ua.ts)
 // ---------------------------------------------------------------------------------------------------------------
 
 /** `rememberAllowed` girdisi: `LoginUser` bu biçimi taşır (repo `settings.mfaRememberDevice`). */
@@ -93,36 +93,6 @@ export interface RememberPolicySubject {
 export function rememberAllowed(u: RememberPolicySubject): boolean {
   if (u.role === "SUPER_ADMIN" || u.tenantId === null) return false;
   return u.tenant?.settings?.mfaRememberDevice ?? true;
-}
-
-export const UNKNOWN_BROWSER = "Bilinmeyen tarayıcı";
-// Sıra önemli: Edge/Opera/Samsung UA'ları "Chrome/", Chrome UA'sı "Safari/" da içerir.
-const BROWSERS: readonly (readonly [RegExp, string])[] = [
-  [/\bEdg(?:e|A|iOS)?\//, "Edge"],
-  [/\b(?:OPR|Opera)\//, "Opera"],
-  [/\bSamsungBrowser\//, "Samsung Internet"],
-  [/\b(?:Firefox|FxiOS)\//, "Firefox"],
-  [/\b(?:Chrome|CriOS|Chromium)\//, "Chrome"],
-  [/\bVersion\/[\d.]+ (?:Mobile\/\w+ )?Safari\//, "Safari"],
-];
-const SYSTEMS: readonly (readonly [RegExp, string])[] = [
-  [/\b(?:iPhone|iPad|iPod)\b/, "iOS"],
-  [/\bAndroid\b/, "Android"],
-  [/\bCrOS\b/, "ChromeOS"],
-  [/\bWindows\b/, "Windows"],
-  [/\bMacintosh\b|\bMac OS X\b/, "macOS"],
-  [/\bLinux\b/, "Linux"],
-];
-
-/**
- * AC-333: tam UA saklanmaz; yalnız sabit etiketlerden kurulan "Tarayıcı · İşletim sistemi" (≤ 80 karakter, kontrol
- * karakteri yok — DB CHECK). Bağımlılıksız regex; girdi 512 karakterle sınırlanır.
- */
-export function uaSummary(ua: string): string {
-  const s = ua.slice(0, 512);
-  const browser = BROWSERS.find(([re]) => re.test(s))?.[1] ?? UNKNOWN_BROWSER;
-  const os = SYSTEMS.find(([re]) => re.test(s))?.[1];
-  return os ? `${browser} · ${os}` : browser;
 }
 
 /** Yanıta yazılacak çerez: değer `<id>.<gizli>`, `Max-Age` kalan saniye. */
@@ -219,13 +189,21 @@ export type TrustedLoginOutcome =
   | { kind: "reuse"; count: number; revokedSessions: number };
 
 type Classified = { cls: "unknown" } | { cls: "reuse" } | { cls: "valid"; row: tdRepo.TrustedDeviceRow };
+type OwnedRow = Pick<tdRepo.TrustedDeviceRow, "userId" | "tenantId">;
+
+/** D-P27a-K2: login ve profil yolunun ORTAK sahiplik denetimi — satır bu kullanıcının ve bu firmanın (mimari §3.1). */
+export const ownsTrustedDevice = (row: OwnedRow, owner: Pick<TrustedDeviceOwner, "id" | "tenantId">): boolean =>
+  row.userId === owner.id && row.tenantId === owner.tenantId;
+
+/** Süresi dolmamış (atlama ve profil "Bu cihaz" için). Yeniden kullanım tespiti süreden bağımsızdır (§5.1). */
+export const trustedDeviceLive = (row: Pick<tdRepo.TrustedDeviceRow, "expiresAt">, now: Date): boolean => row.expiresAt > now;
 
 /** §5.1 sınıfları: satır yok / başka kullanıcının / biçimsiz → bilinmeyen; kullanıcınınsa özet tutmuyor → yeniden kullanım. */
 async function classify(tx: Tx, user: TrustedLoginSubject, raw: string): Promise<Classified> {
   const v = parseTrustedDeviceCookie(raw);
   if (!v) return { cls: "unknown" };
   const row = await tdRepo.findById(tx, v.id);
-  if (!row || row.userId !== user.id || row.tenantId !== user.tenantId) return { cls: "unknown" };
+  if (!row || !ownsTrustedDevice(row, user)) return { cls: "unknown" };
   return trustedDeviceSecretMatches(v.secret, row.tokenHash) ? { cls: "valid", row } : { cls: "reuse" };
 }
 
@@ -234,8 +212,10 @@ const isValid = (c: Classified): c is Extract<Classified, { cls: "valid" }> => c
 /**
  * §5.1 adım 5 (login TX'i, şifre + kilit + geçici şifre denetiminden SONRA, `openSession`'dan ÖNCE). En çok 2 değer
  * denenir. Herhangi biri yeniden kullanımsa: kullanıcının tüm cihazları + tüm açık oturumları iptal, audit `reuse`
- * (fail). Aksi halde ilk geçerli değer TOTP etkin + süresi dolmamış + izinliyse döndürülür (koşullu UPDATE; 0 satır =
- * aynı nesil yarışı → yeniden kullanım) ve `used` audit'i yazılır. Diğer her durumda yalnız çerez silinir.
+ * (fail). Aksi halde ilk geçerli değer TOTP etkin + süresi dolmamış + izinliyse döndürülür (koşullu UPDATE) ve `used`
+ * audit'i yazılır. D-P27a-K1: 0 satırda satır kilitli yeniden okunur — özet değişmişse aynı nesil yarışı → yeniden
+ * kullanım; satır arada silinmişse (profil/Admin/firma anahtarı/logout-all) bilinmeyen → yalnız TOTP, alarm yok.
+ * Diğer her durumda yalnız çerez silinir.
  */
 export async function consumeAtLogin(
   tx: Tx,
@@ -243,15 +223,18 @@ export async function consumeAtLogin(
   user: TrustedLoginSubject,
   raws: readonly string[],
   now: Date,
+  hooks: { beforeRotate?: () => Promise<void> } = {}, // test gecikme kancası (ADR-0023); üretimde verilmez
 ): Promise<TrustedLoginOutcome> {
   if (raws.length === 0) return { kind: "none", clearCookie: false };
   const found: Classified[] = [];
   for (const raw of raws.slice(0, TRUSTED_DEVICE_COOKIE_MAX_VALUES)) found.push(await classify(tx, user, raw));
   if (found.some((c) => c.cls === "reuse")) return reuseTx(tx, ctx, user, now);
   const valid = found.find(isValid);
-  if (!valid || !user.totpEnabled || valid.row.expiresAt <= now || !rememberAllowed(user)) return { kind: "none", clearCookie: true };
+  if (!valid || !user.totpEnabled || !trustedDeviceLive(valid.row, now) || !rememberAllowed(user))
+    return { kind: "none", clearCookie: true };
   const secret = newTrustedDeviceSecret();
   const { id, tokenHash, expiresAt, uaSummary: summary } = valid.row;
+  await hooks.beforeRotate?.();
   const rotated = await tdRepo.rotate(tx, {
     id,
     oldHash: tokenHash,
@@ -259,7 +242,8 @@ export async function consumeAtLogin(
     ip: ctx.ip.slice(0, 45),
     now,
   });
-  if (!rotated) return reuseTx(tx, ctx, user, now);
+  if (rotated === "gone") return { kind: "none", clearCookie: true };
+  if (rotated === "mismatch") return reuseTx(tx, ctx, user, now);
   await writeAudit(tx, ctx, {
     ...whoOf(user),
     action: AUTH_AUDIT.TRUSTED_DEVICE_USED,
@@ -296,54 +280,20 @@ export async function rememberAvailable(db: Parameters<typeof findUserById>[0], 
 }
 
 /**
- * Profil listesi "Bu cihaz" ve silmede çerez temizliği (AC-329): istek çerezlerinden kullanıcıya ait, özeti tutan satırın
- * id'si; yoksa null.
+ * Profil listesi "Bu cihaz" ve silmede çerez temizliği (AC-329): istek çerezlerinden kullanıcıya + firmasına ait
+ * (`ownsTrustedDevice`, login ile aynı), süresi dolmamış ve özeti tutan satırın id'si; yoksa null.
  */
 export async function currentTrustedDeviceId(
   db: Parameters<typeof tdRepo.findById>[0],
-  userId: string,
+  owner: Pick<TrustedDeviceOwner, "id" | "tenantId">,
   raws: readonly string[],
+  now: Date = new Date(),
 ): Promise<string | null> {
   for (const raw of raws.slice(0, TRUSTED_DEVICE_COOKIE_MAX_VALUES)) {
     const v = parseTrustedDeviceCookie(raw);
     const row = v ? await tdRepo.findById(db, v.id) : null;
-    if (v && row && row.userId === userId && trustedDeviceSecretMatches(v.secret, row.tokenHash)) return row.id;
+    if (v && row && ownsTrustedDevice(row, owner) && trustedDeviceLive(row, now) && trustedDeviceSecretMatches(v.secret, row.tokenHash))
+      return row.id;
   }
   return null;
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// K3: commit sonrası bildirimler (K-P27a-10; akışı bekletmez, hata yanıtı bozmaz)
-// ---------------------------------------------------------------------------------------------------------------
-
-export interface TrustedDeviceNotifyDeps {
-  mail: MailService;
-  log: { error(o: object, m: string): void };
-  /** Yeniden kullanımda iptal edilen oturumların canlı odaları + panel soketleri (logout-all kalıbı). */
-  endLive(userId: string): Promise<void>;
-}
-
-const mailMeta = (u: TrustedDeviceOwner, kind: string) => ({ ...whoOf(u), kind, entity: "users", entityId: u.id });
-
-/** AC-335a: "Yeni cihaz hatırlandı" (SMTP yoksa `mail.sent{not_configured}` audit'i). */
-export function notifyTrustedDeviceCreated(
-  d: TrustedDeviceNotifyDeps,
-  ctx: AuditContext,
-  user: TrustedDeviceOwner,
-  dev: IssuedTrustedDevice,
-): void {
-  const content = trustedDeviceCreatedMail({ uaSummary: dev.uaSummary, ip: dev.ip, at: new Date() });
-  void d.mail
-    .sendForTenant(ctx, mailMeta(user, "trusted_device_created"), user.email, content)
-    .catch((err: unknown) => d.log.error({ err, event: "trusted_device_notify_failed" }, "yeni cihaz bildirimi gönderilemedi"));
-}
-
-/** AC-335b: yeniden kullanım e-postası + iptal edilen oturumların canlı etkisi. */
-export function afterTrustedDeviceReuse(d: TrustedDeviceNotifyDeps, ctx: AuditContext, user: TrustedDeviceOwner): void {
-  void d.mail
-    .sendForTenant(ctx, mailMeta(user, "trusted_device_reuse"), user.email, trustedDeviceReuseMail({ at: new Date() }))
-    .catch((err: unknown) => d.log.error({ err, event: "trusted_device_notify_failed" }, "yeniden kullanım bildirimi gönderilemedi"));
-  void d
-    .endLive(user.id)
-    .catch((err: unknown) => d.log.error({ err, alarm: "user_live_effect" }, "yeniden kullanım iptali canlı oturuma yansıtılamadı"));
 }

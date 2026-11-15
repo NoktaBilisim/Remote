@@ -140,8 +140,19 @@ services:
       # P16 (AC-240, mimari-e11 §7.2): gece kalıcı silme modu `dry|on` (boş = dry: yalnız sayar, silmez). Staging'de önce dry
       # çıktısı (retention.run audit purgeCandidates.*) incelenir, sonra on (runbook §23.1).
       RETENTION_PURGE_MODE: ${RETENTION_PURGE_MODE:-}
+      # P27 (mimari-p27 §4.5 r2, §8.1; AC-297/342): dağıtım ortamı + gözetimsiz erişim imza kapısı. DEPLOY_ENV yalnız server'a
+      # verilir (web/migrate/seed almaz); boşsa compose durur. UNATTENDED_MODE boş = off; `unsigned` yalnız staging (env.ts
+      # açılış hatası). Prod: off (SignPath gelene kadar), staging: unsigned (runbook §27).
+      DEPLOY_ENV: ${DEPLOY_ENV:?DEPLOY_ENV gerekli (production | staging | development; runbook §3)}
+      UNATTENDED_MODE: ${UNATTENDED_MODE:-}
+      UNATTENDED_SIGNED_SHA256: ${UNATTENDED_SIGNED_SHA256:-}
+      # Servis ikilisi (GET /unattended/download, oturumlu + `manage`). Ayrı volume, YALNIZ server salt okunur bağlar: Caddy
+      # görmez, /downloads/* public yoluna konmaz. SHA'yı deploy/agent/publish-servis.sh yazar; boş/uyuşmaz → 503.
+      UNATTENDED_AGENT_PATH: /data/unattended/NoktaDestekServis.exe
+      UNATTENDED_AGENT_SHA256: ${UNATTENDED_AGENT_SHA256:-}
     volumes:
       - agent_downloads:/data/downloads:ro
+      - unattended_downloads:/data/unattended:ro
       # Kök fs salt okunur; yazılabilir kalıcı tek dizin. İzin imajdan gelir (node:node 0700, apps/server/Dockerfile).
       - uploads:/data/uploads
       # P16 (ADR-0030 m.9): imha defteri /var/lib/remote/erasure-ledger.jsonl (yalnız eklenen, 0600). Env yok, yol sabit.
@@ -227,6 +238,8 @@ volumes:
   caddy_config:
   # P6: Windows istemcisi (NoktaDestek.exe); yalnız verify-and-publish yazar, server ve caddy salt okunur bağlar.
   agent_downloads:
+  # P27: gözetimsiz erişim servis ikilisi (NoktaDestekServis.exe); yalnız publish-servis.sh yazar, yalnız server salt okur.
+  unattended_downloads:
   # P12: logo/avatar dosyaları (yalnız server yazar/okur). Yedek: runbook §16.3 (DB dökümüyle aynı anda alınır).
   uploads:
   # P16: imha defteri (server yazar, migrate salt okur). SİLİNMEZ: restore sonrası silmeleri yeniden oynatmanın kaynağı.

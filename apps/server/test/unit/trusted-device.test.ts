@@ -6,9 +6,8 @@ import {
   parseTrustedDeviceCookie,
   readTrustedDeviceCookies,
   rememberAllowed,
-  UNKNOWN_BROWSER,
-  uaSummary,
 } from "../../src/auth/trusted-device.ts";
+import { UNKNOWN_BROWSER, uaSummary } from "../../src/auth/trusted-device-ua.ts";
 import { newId } from "../../src/lib/ids.ts";
 import { trustedDeviceCreatedMail, trustedDeviceReuseMail } from "../../src/mail/templates.ts";
 

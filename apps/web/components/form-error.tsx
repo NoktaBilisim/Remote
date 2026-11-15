@@ -9,7 +9,7 @@ export function FormError({ error }: { error: UiError | null }) {
     <Alert tone={error.tone} testId="form-error">
       <p>{error.message}</p>
       {error.requestId && (
-        <p className="mt-1 text-xs opacity-80">
+        <p className="mt-1 text-xs">
           {t("err.requestId")}: <span className="font-mono">{error.requestId}</span>
         </p>
       )}

@@ -72,3 +72,62 @@ export function statusMail(kind: NotifyKind, firm: string, code: string): MailCo
   const text = statusMessage(kind, firm, code);
   return { subject: `${firmName(firm)} – destek talebi ${code}`, text, bodyHtml: `<p>${esc(text)}</p>` };
 }
+
+// ------------------------------------------------------------------------------------------- P27 gözetimsiz (AC-296, 337)
+// Bağlantı/URL yok (mimari-p27 §7.1). Cihaz adı beyandır → aynı ad süzgecinden geçer; adresler yalnız maskeli.
+
+const DEVICE_MAX = 40;
+const istanbul = (d: Date): string =>
+  new Intl.DateTimeFormat("tr-TR", {
+    timeZone: "Europe/Istanbul",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
+const deviceName = (raw: string): string => cut(sanitizeTemplateName(raw), DEVICE_MAX) || "Cihaz";
+const mail = (subject: string, lines: string[]): MailContent => ({
+  subject,
+  text: lines.join("\n\n"),
+  bodyHtml: lines.map((l) => `<p>${esc(l)}</p>`).join(""),
+});
+
+export interface StartedInfo {
+  firm: string;
+  device: string;
+  technician: string;
+  at: Date;
+}
+
+/** UNATTENDED_STARTED (SMS/WA metni). */
+export function startedMessage(o: StartedInfo): string {
+  return `${firmName(o.firm)}: "${deviceName(o.device)}" bilgisayarınıza ${istanbul(o.at)} itibarıyla gözetimsiz uzaktan bağlantı başladı — Teknisyen: ${techShortName(o.technician)}.`;
+}
+
+export function startedMail(o: StartedInfo): MailContent {
+  return mail(`${firmName(o.firm)} – gözetimsiz uzaktan bağlantı başladı`, [
+    startedMessage(o),
+    "Bu bağlantıyı beklemiyorsanız destek firmanızı arayın.",
+  ]);
+}
+
+/** UN_CONTACTS_CHANGED: maskeli adres farkı, değiştiren kullanıcı, saat. */
+export function contactsChangedMail(o: { firm: string; user: string; added: string[]; removed: string[]; at: Date }): MailContent {
+  const f = firmName(o.firm);
+  return mail(`${f} – gözetimsiz erişim bildirim adresleri değişti`, [
+    `${f} firmasında gözetimsiz erişim bildirim adresleriniz ${istanbul(o.at)} tarihinde ${techShortName(o.user)} tarafından değiştirildi.`,
+    ...(o.added.length > 0 ? [`Eklenen: ${o.added.join(", ")}`] : []),
+    ...(o.removed.length > 0 ? [`Kaldırılan: ${o.removed.join(", ")}`] : []),
+    "Bu değişikliği siz istemediyseniz destek firmanızı arayın.",
+  ]);
+}
+
+/** UN_DEVICE_REGISTERED: cihaz adı, kayıt IP'si, saat. */
+export function deviceRegisteredCustomerMail(o: { firm: string; device: string; ip: string; at: Date }): MailContent {
+  const f = firmName(o.firm);
+  return mail(`${f} – yeni cihaz gözetimsiz erişime kaydedildi`, [
+    `"${deviceName(o.device)}" adlı bilgisayar ${istanbul(o.at)} tarihinde ${o.ip} IP adresinden ${f} gözetimsiz erişimine kaydedildi.`,
+    "Bu kaydı siz başlatmadıysanız destek firmanızı arayın.",
+  ]);
+}

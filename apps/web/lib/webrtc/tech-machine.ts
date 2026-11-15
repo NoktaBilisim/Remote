@@ -53,6 +53,8 @@ export interface TechState {
   rejects: number;
   lastError: "ADMIT_CODE_INVALID" | "CONFLICT" | "OTHER" | null;
   end: TechEnd | null;
+  /** P27 (mimari-p27 §4.6): gözetimsiz odada sunucu `hello{unattended}` gönderir → konsol rozeti + cihaz adı. */
+  unattended: { deviceId: string; deviceName: string } | null;
 }
 
 export type TechEvent =
@@ -80,6 +82,7 @@ export const initialTech: TechState = {
   rejects: 0,
   lastError: null,
   end: null,
+  unattended: null,
 };
 
 /**
@@ -190,6 +193,7 @@ function onHello(s: TechState, m: MsgOf<"hello">, now: number): TechState {
     maxEndsAt: m.maxEndsAt,
     guest: active ? { ...prev, name: x.guestName ?? prev.name } : null,
     peerLostSince: active && !m.peerPresent ? (s.peerLostSince ?? now) : null,
+    unattended: m.unattended ?? s.unattended,
     ...helloShare(s, x, active && m.peerPresent),
   };
 }

@@ -1,3 +1,135 @@
+## P27a — kod turu 2 (2026-11-15, dal p27-wip, çalışma ağacı; düzeltme turu 1 doğrulaması)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 1 / Düşük 1
+Kapsam: `auth/trusted-device{,-repo,-notify,-ua}.ts`, `auth/account.ts` (`mfaEnable`/`enableTx`), `auth/service.ts` (login TX),
+`auth/{routes,trusted-device-routes}.ts`, `test/integration/{tenant-isolation,p27a-rotation,p27a-auth}.test.ts`, `test/helpers/tenant-matrix.ts`.
+Kod değiştirilmedi. Unit `test/unit/trusted-device.test.ts` 14/14; entegrasyon (DB gerekir) çalıştırılmadı, staging'e bağlanılmadı.
+
+### Tur 1 bulgularının durumu
+
+| Bulgu                                       | Durum                  | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| D-P27a-K1 (0 satırda yanlış reuse)          | **Kapandı**            | `trusted-device-repo.ts:110-118` `rotate` → `rotated/mismatch/gone`; 0 satırda `SELECT … FOR SHARE` (current read; RR anlık görüntüsünün silinmiş satırı göstermesi sorunu doğru ele alınmış). `trusted-device.ts:245-246` `gone` → `{none, clearCookie}` (audit/e-posta/oturum iptali yok), `mismatch` → `reuseTx`. Testler `p27a-rotation.test.ts:131-163` iki dalı da ayrı bağlantıda commit eden kancayla sınıyor.                                                                                                               |
+| D-P27a-K2 (profil sahiplik denetimi)        | **Kapandı**            | `trusted-device.ts:195-199` ortak `ownsTrustedDevice` (kullanıcı + firma) + `trustedDeviceLive`; `classify` (:206) ve `currentTrustedDeviceId` (:295) aynı yardımcıyı kullanıyor. Reuse tespiti süreden bağımsız kalmış (§5.1 uyumlu). Test `p27a-rotation.test.ts:165-176`.                                                                                                                                                                                                                                                         |
+| `beforeRotate` test kancası                 | **Üretimde verilemez** | Tek üretim çağrısı `auth/service.ts:203` `consumeAtLogin(tx, ctx, user, trustedCookies, now)` — 6. argüman yok; HTTP/env/config yolu yok. Yalnız `test/integration/p27a-rotation.test.ts:138,155`. ADR-0023 kalıbı.                                                                                                                                                                                                                                                                                                                  |
+| `enableTx` bir kez yeniden deneme           | **Güvenli**            | `account.ts:117-122`. TOTP eşleşmesi (`matchTotp`) ve `hitMfaLimit` TX dışında bir kez; "kod tüketimi" (`totp_last_step`) ve tüm yazımlar TX içinde, geri alınan TX'te kaybolur → çift yazım/çift audit yok. Yeniden denemede koşullu UPDATE (`totpEnabled:false AND totpSecretEnc=enc`) eşzamanlı başarılı etkinleştirmeyi 409 ile durdurur. E-posta ve `resetMfaLimit` yalnız başarıdan sonra bir kez. Step-up bu uçta kullanılmıyor. Yalnız `isTransientDbError` (Prisma 1213/P2034) yeniden denenir; diğer hatalar aynen fırlar. |
+| `deleteForLockedUser`                       | **Doğru**              | `trusted-device-repo.ts:151-156`: RR anlık görüntüsü `enableTx`'in ilk tutarlı okumasında (`recoveryCode.count`, kullanıcı X kilidinden sonra) kurulur; `createTrustedDevice` aynı kullanıcı satırını `FOR UPDATE` beklediği için arada kaçan satır yok. Ayrıca TOTP kapalıyken yeni satır oluşamaz.                                                                                                                                                                                                                                 |
+| `trusted-device-notify.ts`, `-ua.ts` ayrımı | **Sorunsuz**           | Davranış değişmemiş; e-postada bağlantı/belirteç yok, hata `void … .catch` + log (gizli değer loga girmiyor). UA girdisi 512 karakterle sınırlı, regex'ler doğrusal (ReDoS yok).                                                                                                                                                                                                                                                                                                                                                     |
+
+### [ORTA] D-P27a-K3 Oturum iptaliyle eşzamanlı giriş, eski kullanıcı okumasıyla tam oturum açabilir (2FA etkinleştirme / şifre değişimi) — A07
+
+Yer: apps/server/src/auth/service.ts:154-157 (`findUserByLogin` + `verifyPassword` TX dışında), :200-208 (login TX kullanıcı satırını yeniden okumuyor);
+apps/server/src/auth/account.ts:154-161 (`enableTx` diğer oturumları anlık görüntü okumasıyla seçiyor).
+Sorun: Login `totpEnabled`'ı ve şifre özetini TX dışında, argon2 doğrulamasından (yüzlerce ms) ÖNCE okuyor; TX içinde kullanıcı satırı
+kilitlenmiyor/yeniden okunmuyor. `mfaEnable` (veya şifre değişimi `changePassword`, Admin 2FA sıfırlama) bu pencerede commit ederse login,
+`mfaPassed = !user.totpEnabled = true` ile oturumu sonradan INSERT eder; iptal TX'i bu satırı göremediği için oturum yaşar. Bu tur yapılan
+değişiklik (kilitli `updateMany` → kilitsiz `findMany` + PK UPDATE) pencereyi az da olsa genişletiyor: anlık görüntü `recoveryCode.count`'ta
+kurulduğu için o an ile `findMany` arasında commit edilen oturum da kaçıyor (eskiden current read bunu yakalıyordu). Kök sorun P10'dan beri var
+(P27a kaynaklı değil), tasarımın "yalnız şifreyle açılmış oturum 2FA'yı atlamasın" vaadini (account.ts:93-94) yarışta bozuyor.
+İstismar senaryosu: Şifreyi ele geçirmiş saldırgan saniyede bir giriş döngüsü çalıştırır. Kurban şüphelenip 2FA'yı etkinleştirir (veya şifresini
+değiştirir); `findUserByLogin` etkinleştirmeden önce, oturum INSERT'ü iptal okumasından sonra kalan giriş 2FA'sız tam oturum olarak kalır.
+Kurban "diğer oturumlar kapatıldı" sanır. Kaba kuvvet sınırı başarılı girişleri saymadığı için döngü engellenmez.
+Düzeltme: Login TX'inin ilk ifadesi `SELECT password_hash, totp_enabled, active/locked_until, version FROM users WHERE id=? FOR SHARE`
+olsun; değerler TX dışındaki okumayla aynı değilse (şifre özeti değiştiyse 401, `totp_enabled` değiştiyse güncel değer) kararı TX içindeki
+değerle versin. `enableTx`/`changePassword`/2FA sıfırlama kullanıcı satırını zaten X kilitlediği için iki yön serileşir; `enableTx`'teki
+kilitsiz `findMany` o zaman da güvenli kalır. Test: `afterRead` kancasıyla login'i `findUserByLogin` sonrası bekletip `mfaEnable` commit
+ettir → login yarım oturum (`mfa_passed=false`) döner ya da açılan oturum iptal edilmiş olur. Atanan: backend-dev.
+
+### [DÜŞÜK] D-P27a-K4 AC-69 matrisi `GET /auth/trusted-devices` için boşta geçiyor (izolasyon testi güvencesi) — A01 (test)
+
+Yer: apps/server/test/integration/tenant-isolation.test.ts:36-37; test/helpers/tenant-matrix.ts:460 (`idsOf`), `twoTenants` fikstürü.
+Sorun: Pozitif kontrolün yalnız `/auth/me`'ye daraltılması tek başına makul (liste firma kimliği döndürmüyor), ama fikstürde A firmasına ait
+güvenilir cihaz satırı yok ve `idsOf` cihaz id'si içermiyor; B'nin de cihazı yok (yanıt `{"items":[]}`). Böylece bu uç için negatif kontrol de
+pozitif kontrol de anlamsız — `listForUser`'dan `userId` filtresi düşse matris kırmızıya dönmez. Kod bugün doğru (`trusted-device-repo.ts:121-128`
+`where: { userId }`), çapraz kullanıcı/firma silme 404'ü `p27a-auth.test.ts:356-371`'de sınanıyor; liste için "başkasının satırı görünmez" testi yok.
+Düzeltme: `twoTenants`'a A admin'i için bir `trusted_devices` satırı (+ B için bir satır) ekleyin, A satır id'sini `idsOf`'a, B satır id'sini
+bu uç için pozitif kontrole koyun; ya da `p27a-auth.test.ts` AC-329 listesine başka firmanın satırı görünmez iddiası ekleyin. Atanan: backend-dev.
+
+### Olumlu
+
+- Döndürme yarışının üç durumu ayrıştırıldı, kilit maliyeti eklenmedi (UPDATE aynı PK'yi zaten kilitliyor).
+- Sahiplik + süre kuralı tek yerde; login ve profil artık ayrışamaz.
+- Kilitlenme düzeltmesi yan etki çiftlemeden yapılmış; yeniden deneme yalnız geçici DB hatasıyla sınırlı.
+
+---
+
+## P27a — kod turu 1 (2026-11-15, dal p27-wip, commit 2c70be9 + a2adbfb; P27 gözetimsiz WIP kapsam dışı)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 (+1 bilgi)
+Kapsam: `apps/server/src/auth/trusted-device{,-repo,-routes}.ts`, `auth/{service,account,routes,guards,session,password-reset,superadmin-reset}.ts`,
+`users/{routes,service,writes,purge}.ts`, `tenants/{settings,deactivate}.ts`, `jobs/retention.ts`, `jobs/tenant-purge-repo.ts`, `cli/erasure.ts`,
+`mail/templates.ts`, `packages/contracts/src/api/auth.ts`, web `mfa-verify-form.tsx`, `login/2fa/page.tsx`, `components/account/trusted-devices.tsx`.
+Kod değiştirilmedi; entegrasyon testleri (DB gerekir) bu turda çalıştırılmadı, yalnız birim testleri.
+
+### [DÜŞÜK] D-P27a-K1 Döndürmede "0 satır" ayrımı yok: eşzamanlı meşru silme yanlış yeniden kullanım alarmı üretir — A04
+
+Yer: apps/server/src/auth/trusted-device.ts:255-262; trusted-device-repo.ts:106-112
+Sorun: `rotate` 0 satır döndüğünde her zaman `reuseTx` çağrılıyor. 0 satırın iki nedeni var: özet değişti (gerçek yarış/yeniden kullanım) ya da
+satır arada **silindi** (aynı anda Admin "Tümünü kaldır", firma anahtarının kapatılması `tenants/settings.ts:127`, kullanıcının profilden silmesi, 11. cihazda tahliye, logout-all). `findById` kilitsiz okunduğu için silme commit'i `findById` ile UPDATE arasında kalırsa giriş reuse'a düşer:
+kullanıcının tüm oturumları iptal edilir, `auth.trusted_device_reuse` fail audit'i ve "belirteç başka yerde kullanıldı" e-postası gider.
+İstismar senaryosu: Saldırı değil; yanlış alarm/DoS. Ancak sahte "çalındı" e-postaları ve audit'teki sahte reuse satırları olay incelemesini kirletir
+(runbook'taki "reuse artışında yapılacaklar" adımını boşa tetikler).
+Düzeltme: `rotate` false dönünce satırı yeniden oku (`findById`); satır yoksa "bilinmeyen" (yalnız TOTP + çerez silme), varsa reuse. Ya da
+`classify` içinde `SELECT ... FOR UPDATE`. Test: döndürmeden önce satırı silen kanca ile giriş → reuse audit'i yok. Atanan: backend-dev.
+
+### [DÜŞÜK] D-P27a-K2 Sahiplik denetimi profil "Bu cihaz" yolunda tenant'ı karşılaştırmıyor; login yolundan farklı — A01 (savunma derinliği)
+
+Yer: apps/server/src/auth/trusted-device.ts:302-313 (`currentTrustedDeviceId`), karşılaştırma için :228
+Sorun: Login `row.userId === user.id && row.tenantId === user.tenantId` istiyor (mimari §3.1 "ek koruma"); `currentTrustedDeviceId` yalnız
+`userId` ve özet karşılaştırıyor, süreyi de denetlemiyor. Bugün kullanıcının firması değiştirilemediği için istismar yolu yok; etkisi yalnız
+`current` rozeti ve çerez silme kararı.
+Düzeltme: Tek bir `ownsRow(row, user)` yardımcısı login ve profil yolunda ortak kullanılsın (tenant + süre dahil). Atanan: backend-dev.
+
+### [BİLGİ] Cookie tossing ile 2 değer sınırı doldurulabilir (T10 kabulünün kapsamında)
+
+Yer: trusted-device.ts:59-69. Kardeş alt alan adından daha özel `Path` (ör. `/api/v1/auth/login`) ile iki çerez yerleştiren saldırgan gerçek değeri 3. sıraya iter → yalnız TOTP sorulur (DoS). Atlama vermez, reuse tetiklemek için kurbanın satır id'si gerekir. Kabul (prod ayrı alan adı, runbook).
+
+## Tasarım turu bulgularının kodda karşılanması
+
+| Bulgu / kontrol                                      | Durum      | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Y-P27a-1 Super Admin dışlama                         | Karşılandı | `rememberAllowed` SA/`tenantId===null` → false (trusted-device.ts:93-96); login atlamasında koşul (:252); verify'da TX içi güncel kullanıcıyla (account.ts:176-178); `createTrustedDevice` firmasızda hata (repo:59-61) + `tenant_id NOT NULL`; `/auth/me` (routes.ts:263) ve web `page.tsx:26`                                                                                                                                                                                                              |
+| O-P27a-1 / O-P27a-r2-1 her nesil reuse + aile iptali | Karşılandı | Çerez `<ULID>.<43>` (contracts auth.ts:254); `findById` + `timingSafeEqual` (trusted-device.ts:40-44, :224-230); reuse → `deleteForUser` + `revokeUserSessions` + audit `{count, revokedSessions}` fail (:278-290), `openSession`'dan önce (service.ts:203-206); commit sonrası e-posta + `endLive` (routes.ts:116, trusted-device.ts:342-349)                                                                                                                                                               |
+| Koşullu UPDATE rotasyon, `expires_at` sabit          | Karşılandı | repo:106-112 `WHERE id AND token_hash=:old`; yalnız `tokenHash/lastUsedAt/ip` yazılır; Max-Age kalan saniye (:75-76, :273). Not: D-P27a-K1                                                                                                                                                                                                                                                                                                                                                                   |
+| O-P27a-2 / K-P27a-10 e-postalar                      | Karşılandı | templates.ts:86-104 bağlantı/belirteç yok, `esc`+`oneLine`; commit sonrası `void ... .catch` (yanıtı etkilemez)                                                                                                                                                                                                                                                                                                                                                                                              |
+| D-P27a-2 ≤2 değer, host-only silme                   | Karşılandı | trusted-device.ts:59-69; `cookieBase` `Domain` yok (:135)                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| D-P27a-3 sıra                                        | Karşılandı | service.ts: kilit → argon2 → `canSignIn` → geçici şifre (:181) → TX (`clearFailures`, `previousToken`) → `consumeAtLogin` → `openSession`; `mustChangePassword` guard'ı aynen (guards.ts:59); TOTP'siz kullanıcıda atlama yok (`totpEnabled` koşulu) → `setup` atlanmaz                                                                                                                                                                                                                                      |
+| D-P27a-4 audit + purge                               | Karşılandı | `auth.login {mfa:"remembered"}` (service.ts:213); `users/purge.ts:60`                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Çerez öznitelikleri                                  | Karşılandı | `__Secure-rs_td`, `Path=/api/v1/auth`, HttpOnly, Secure, SameSite=Strict, Max-Age 2592000 (oluşturma) / kalan (döndürme)                                                                                                                                                                                                                                                                                                                                                                                     |
+| Yalnız SHA-256 saklama                               | Karşılandı | `hashTrustedDeviceSecret`; liste `listSelect` özet seçmez (repo:26); yanıt `TrustedDeviceView` gizli/özet içermez                                                                                                                                                                                                                                                                                                                                                                                            |
+| Bilinmeyen değer → yalnız TOTP                       | Karşılandı | biçimsiz / satır yok / başka kullanıcı / başka tenant → `unknown`, satıra dokunulmaz, audit yok, çerez silinir (:226-228, :252)                                                                                                                                                                                                                                                                                                                                                                              |
+| Kurtarma koduyla hatırlama yok                       | Karşılandı | `mfaVerifyInputSchema` strict union (contracts auth.ts:118-121); `maybeRemember` `"code" in input` (account.ts:176)                                                                                                                                                                                                                                                                                                                                                                                          |
+| Firma anahtarı                                       | Karşılandı | `settings.ts:127` kapatmada aynı TX'te `deleteForTenant` + audit `revokedTrustedDevices`; login/verify anahtarı okur                                                                                                                                                                                                                                                                                                                                                                                         |
+| ≤10 cihaz                                            | Karşılandı | kullanıcı satırı `FOR UPDATE` → INSERT → `deleteOverLimit` (repo:58-92); audit `limit` (trusted-device.ts:199-206)                                                                                                                                                                                                                                                                                                                                                                                           |
+| 9+ geçersiz kılma noktası                            | Karşılandı | şifre değişimi service.ts:261 · sıfırlama password-reset.ts:105 · SA reset superadmin-reset.ts:74 · Admin 2FA reset writes.ts:185 · 2FA etkinleştirme account.ts:150 · logout-all account.ts:250 + çerez silme routes.ts:177 · kullanıcı pasif writes.ts:138 · kalıcı silme purge.ts:60 · firma pasif deactivate.ts:71 · firma ayarı settings.ts:127 · firma purge tenant-purge-repo.ts:48 · KVKK erasure.ts:69 · saklama retention.ts:263 · Admin forget writes.ts:209 · profil trusted-device-routes.ts:44 |
+| Step-up asla atlanmaz                                | Karşılandı | `openSession` `step_up_at` yazmaz (session.ts:89-110); `stepUpAt` yalnız step-up.ts:66; trusted-device kodu step-up'a dokunmaz                                                                                                                                                                                                                                                                                                                                                                               |
+| IDOR                                                 | Karşılandı | `DELETE /auth/trusted-devices/:id` `deleteMany {userId: oturum, id}` 0 → 404 (routes:44-45); ULID şeması; `POST /users/:id/forget-devices` `users.edit` + `tenantScope` + TX içi `lockActor` + `loadOrThrow({tenantId})` (başka firma 404) + kendi id 403 + `assertManage` (writes.ts:205-219); `GET /users/:id` sayısı kapsamlı satırdan                                                                                                                                                                    |
+| CSRF                                                 | Karşılandı | DELETE uçları `requireAuth` → Origin + çift gönderim (guards.ts:54); login `checkOrigin`                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Audit/log sızıntısı                                  | Karşılandı | audit'e yalnız `uaSummary/expiresAt/count`; login logu yalnız `trustedDevice: kind`; logger `cookie`/`set-cookie` maskeli (lib/logger.ts:11,15)                                                                                                                                                                                                                                                                                                                                                              |
+| Rate limit                                           | Karşılandı | satır sorgusu şifre + IP/çift/hesap kilidinden sonra; verify `hitMfaLimit`; ek sınır gerekmez (tasarım kabulü)                                                                                                                                                                                                                                                                                                                                                                                               |
+| Web                                                  | Karşılandı | kutu varsayılan işaretsiz (`useState(false)`), yalnız `code` modu + `rememberAvailable`; `dangerouslySetInnerHTML`/`document.cookie` yok; JS çereze erişmez                                                                                                                                                                                                                                                                                                                                                  |
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: `No known vulnerabilities found`.
+- Gizli bilgi taraması (P27a dosyaları, `git grep` kalıbı): eşleşme yok.
+- `vitest run test/unit/trusted-device.test.ts test/unit/trusted-device-token.test.ts`: 2 dosya, 21 test geçti.
+- Entegrasyon testleri mevcut (`p27a-auth` 33, `p27a-revoke` 14, `p27a-repo` 14, `p27a-rotation` 7 `it`); DB gerektiği için bu turda çalıştırılmadı (qa-denetci/CI).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Yok. (Bilgi: §5.1 "0 satır → yeniden kullanım" kuralı tasarımda da silme ile yarışı ayırmıyor; D-P27a-K1 tasarım + kod düzeltmesi.)
+
+## Olumlu
+
+- r3 tasarımı birebir: id'li çerez, her nesil reuse tespiti, aile iptali yeni oturumdan önce, commit sonrası bildirim.
+- Politika verify'da TX içinde güncel kullanıcı/firma satırıyla değerlendiriliyor (eski sekme/yarış güvenli); SA için üç katmanlı engel.
+- Tüm geçersiz kılmalar tek repo işlevinden ve olayın kendi TX'inde; audit'te sayı.
+- Gizli değer yalnız `Set-Cookie`'de; özet sabit zamanlı karşılaştırılıyor; e-postalar bağlantısız ve kaçışlı.
+- Gereksinimler §9 "Sonra" önerisi: D-P27a-K1, D-P27a-K2 (engellemez).
+
+---
+
 # Güvenlik Raporu — P27a tasarım turu ("Bu cihazı 30 gün hatırla"; kod öncesi, 2026-11-15)
 
 ## r2 teyidi (2026-11-15, `docs/mimari-p27a.md` r2 + `docs/gereksinimler.md` §11 r2; commit a63a72f)

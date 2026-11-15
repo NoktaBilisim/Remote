@@ -27,6 +27,8 @@ export interface HistoryFilter {
   customer?: string;
   /** P8c (AC-179): "none" = customer_id IS NULL; aksi müşteri kimliği. */
   customerFirm?: string;
+  /** P27: gözetimsiz cihazın oturumları (`device_id`; tenant kapsamı yine ezer). */
+  deviceId?: string;
 }
 
 /** Prisma 7 (MySQL) `contains` LIKE jokerlerini kaçışlamaz (db-notlari P8): `%`, `_`, `\` literal aranır. */
@@ -47,6 +49,7 @@ export function historyWhere(scope: HistoryScope, f: HistoryFilter = {}): Prisma
     ...(f.from || f.to ? { createdAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lt: f.to } : {}) } } : {}),
     ...(f.customer ? { customerName: { contains: escapeLike(f.customer) } } : {}),
     ...(f.customerFirm ? { customerId: f.customerFirm === "none" ? null : f.customerFirm } : {}),
+    ...(f.deviceId ? { deviceId: f.deviceId } : {}),
   };
 }
 

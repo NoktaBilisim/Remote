@@ -17,7 +17,7 @@ const cookiesOf = (req: FastifyRequest) => readTrustedDeviceCookies(req.headers.
 
 async function listOwn(db: Db, auth: AuthContext, cookies: readonly string[]): Promise<TrustedDeviceListResponse> {
   const now = new Date();
-  const [rows, current] = await Promise.all([listForUser(db, auth.user.id, now), currentTrustedDeviceId(db, auth.user.id, cookies)]);
+  const [rows, current] = await Promise.all([listForUser(db, auth.user.id, now), currentTrustedDeviceId(db, auth.user, cookies, now)]);
   return {
     items: rows.map((r) => ({
       id: r.id,
@@ -39,7 +39,7 @@ async function revokeOwn(
   cookies: readonly string[],
   id?: string,
 ): Promise<TrustedDeviceRevokeResponse> {
-  const current = await currentTrustedDeviceId(db, auth.user.id, cookies);
+  const current = await currentTrustedDeviceId(db, auth.user, cookies);
   const revoked = await db.$transaction(async (tx) => {
     const count = await deleteForUser(tx, auth.user.id, id);
     if (id !== undefined && count === 0) throw new AppError("NOT_FOUND");

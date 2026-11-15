@@ -129,13 +129,26 @@ jobs:
             -e 's|^EDGE_PROXY_SECRET=$|EDGE_PROXY_SECRET=ci-only-edge-0123456789abcdef0123456789|' \
             -e 's|^TURN_URLS=$|TURN_URLS=stun:127.0.0.1:3478|' \
             -e 's|^TURN_SECRET=$|TURN_SECRET=ci-only-turn-0123456789abcdef0123456789|' \
-            -e 's|^APP_ENCRYPTION_KEYS=$|APP_ENCRYPTION_KEYS=v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=|' .env
+            -e 's|^APP_ENCRYPTION_KEYS=$|APP_ENCRYPTION_KEYS=v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=|' \
+            -e 's|^DEPLOY_ENV=$|DEPLOY_ENV=production|' .env
           # P14a A5: P10'dan (f537cbe) beri compose APP_ENCRYPTION_KEYS'i zorunlu ister (:?); CI'ya özgü sahte değer
           # (32 sıfır bayt, sır değil). Zorunlu bir anahtar eklenince bu listeye eklenir (runbook §3).
           docker compose config --quiet
           if docker compose config --format json | jq -e '.services.server.environment.MIGRATE_DATABASE_URL'; then
             echo 'server MIGRATE_DATABASE_URL görmemeli'; exit 1
           fi
+          # P27 (mimari-p27 §4.5 r2): DEPLOY_ENV yalnız server'da ve zorunlu; servis ikilisi volume'u Caddy'ye bağlanmaz.
+          docker compose config --format json | jq -e '.services.server.environment.DEPLOY_ENV == "production"'
+          if docker compose config --format json | jq -e '[.services[] | select(.environment.DEPLOY_ENV != null)] | length != 1'; then
+            echo 'DEPLOY_ENV yalnız server servisine verilmeli'; exit 1
+          fi
+          if docker compose config --format json | jq -e '[.services.caddy.volumes[].source] | index("unattended_downloads")'; then
+            echo 'unattended_downloads Caddy'"'"'ye bağlanmamalı'; exit 1
+          fi
+          if sed 's/^DEPLOY_ENV=.*/DEPLOY_ENV=/' .env > .env.nodeploy && docker compose --env-file .env.nodeploy config --quiet 2>/dev/null; then
+            echo 'DEPLOY_ENV boşken compose durmalı'; exit 1
+          fi
+          rm -f .env.nodeploy
           # P13c: staging katmanı geçerli; varsayılan (prod) çıktıda staging anahtarı yok
           COMPOSE_PROJECT_NAME=remote-stg COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml \
             CADDY_TRUSTED_PROXIES=172.30.1.128/32 docker compose config --quiet

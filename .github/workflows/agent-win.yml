@@ -3,6 +3,8 @@
 # (ldflags config.version). mimari-e11 §8'deki `agent-v0.11.0` yazımı AC-94 ile çelişir; geçerli olan `v0.11.0` (runbook §24).
 # P17 AC-252: SignPath imzası koşullu (`vars.SIGNPATH_ORGANIZATION_ID` yoksa `sign` atlanır, imzasız akış aynen sürer).
 # Etikette sıra (S-P17-2): reproducible → approve (agent-release, insan onayı) → sign (agent-sign) → attest → release.
+# P27 K9 (mimari-p27 §8, §9 K9): ikinci ikili NoktaDestekServis.exe (./cmd/noktadestek-servis, aynı ldflags, manifest
+# asInvoker) aynı build/reproducible/sign/attest/release zincirinden geçer; Release adı NoktaDestekServis-<sürüm>.exe.
 # Hedef yalnız windows/amd64 (build.sh, vet, govulncheck, lisans); 386/arm64 derlenmez.
 # G-18: Action'lar commit SHA ile sabit; varsayılan izin `contents: read`; yazma izinleri yalnız attest/release job'larında.
 # Go adımları sabit digest'li resmi imajda koşar (yerel doğrulama komutuyla birebir aynı ortam, runbook §11).
@@ -251,6 +253,81 @@ jobs:
           if ($script:bad -gt 0) { exit 1 }
           Write-Output 'trace-check P20 öz testi: tüm beklenen çıkış kodları tuttu'
           exit 0 # son Expect'in bilerek 1 dönen $LASTEXITCODE'u adımı düşürmesin
+      # P27 K9 (mimari-p27 §5.3, AC-289/340, D-P27-2): trace-check `-Servis` kuralları gerçek Windows'ta sınanır. Gerçek kurulum
+      # sunucuda kayıt kodu ister (elle test, runbook §27.7); burada kurulumun bıraktığı iz (hizmet, HKLM, Run, Uninstall, olay
+      # kaynağı, Program Files + ProgramData korumalı DACL) yer tutucu adresli servis ikilisiyle elle kurulur, beklenen çıkış
+      # kodları denetlenir, hepsi silinince -Servis off temiz olmalı. Hizmet BAŞLATILMAZ. Runner yöneticidir.
+      - name: iz testi için servis exe (yer tutucu adres)
+        shell: bash
+        run: build/build.sh "$PLACEHOLDER_SERVER_URL" 0.0.0 "$RUNNER_TEMP/trace/NoktaDestekServis.exe" noktadestek-servis
+      - name: trace-check -Servis öz testi (P27)
+        shell: pwsh
+        run: |
+          $tc   = Join-Path $PWD 'test/trace-check.ps1'
+          $snap = Join-Path $env:RUNNER_TEMP 'trace/once-p27.json'
+          $pfd  = Join-Path $env:ProgramFiles 'NoktaDestek Servis'
+          $exe  = Join-Path $pfd 'NoktaDestekServis.exe'
+          $pd   = Join-Path $env:ProgramData 'NoktaDestek Servis'
+          $gel  = Join-Path $pd 'Gelen'
+          $run  = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+          $un   = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\NoktaDestekServis'
+          $ev   = 'HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\NoktaDestek'
+          $hk   = 'HKLM:\SOFTWARE\NoktaDestek'
+          foreach ($x in $pfd, $pd, $un, $ev, $hk) { if (Test-Path -LiteralPath $x) { Write-Output "::error::$x öz testten önce var"; exit 1 } }
+          pwsh -NoProfile -File $tc -Mode Snapshot -SnapshotPath $snap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $script:bad = 0
+          function Expect([int]$want, [string]$label, [string[]]$tcArgs) {
+            Write-Output "--- $label (beklenen çıkış $want)"
+            pwsh -NoProfile -File $tc -Mode Compare -SnapshotPath $snap @tcArgs
+            if ($LASTEXITCODE -ne $want) { Write-Output "::error::$label — çıkış $LASTEXITCODE, beklenen $want"; $script:bad++ }
+          }
+          function SetSddl([string]$p, [string]$sddl) {
+            $a = Get-Acl -LiteralPath $p; $a.SetSecurityDescriptorSddlForm($sddl); Set-Acl -LiteralPath $p -AclObject $a
+          }
+          $q = '"' + $exe + '"'
+          try {
+            New-Item -ItemType Directory -Path $pfd | Out-Null
+            Copy-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'trace/NoktaDestekServis.exe') -Destination $exe
+            New-Item -ItemType Directory -Path $pd, $gel | Out-Null
+            SetSddl $pd 'O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'
+            SetSddl $gel 'O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;AU)'
+            Set-Content -LiteralPath (Join-Path $pd 'device.key') -Value 'x'
+            New-Item -Path "$hk\Servis" -Force | Out-Null
+            New-ItemProperty -LiteralPath $run -Name NoktaDestekServis -PropertyType String -Value "$q --tray" | Out-Null
+            New-Item -Path $un -Force | Out-Null
+            New-Item -Path $ev -Force | Out-Null
+            New-Service -Name NoktaDestekServis -BinaryPathName "$q --service" -StartupType Manual | Out-Null
+            Expect 0 'kurulu servis izi (izinli küme + ACL)' @('-Servis', 'on')
+            Expect 1 'kurulu servis -Servis off iken iz' @()
+            Set-Content -LiteralPath (Join-Path $pd 'device.key.tmp') -Value 'x'
+            Expect 1 'device.key.tmp kalmış' @('-Servis', 'on')
+            Remove-Item -LiteralPath (Join-Path $pd 'device.key.tmp')
+            SetSddl $gel 'O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;AU)(A;OICI;0x1301bf;;;BU)'
+            Expect 1 'Gelen\ Users yazma ACE (folder_acl)' @('-Servis', 'on')
+            SetSddl $gel 'O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;AU)'
+            SetSddl $pd 'O:BAD:AI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'
+            Expect 1 'ProgramData klasörü DACL korumasız' @('-Servis', 'on')
+            SetSddl $pd 'O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'
+            & sc.exe config NoktaDestekServis binPath= "$exe --service" | Out-Null
+            Expect 1 'ImagePath tırnaksız (D-P27-2)' @('-Servis', 'on')
+            & sc.exe config NoktaDestekServis binPath= "$q --service" | Out-Null
+            Expect 0 'düzeltilmiş kurulum yine temiz' @('-Servis', 'on')
+            & sc.exe delete NoktaDestekServis | Out-Null
+            Remove-ItemProperty -LiteralPath $run -Name NoktaDestekServis
+            Remove-Item -LiteralPath $hk, $ev -Recurse -Force
+            Remove-Item -LiteralPath $pfd, $pd -Recurse -Force
+            Expect 1 'kaldırma sonrası Uninstall anahtarı kalmış' @()
+            Remove-Item -LiteralPath $un -Recurse -Force
+            Expect 0 'kaldırma sonrası temiz (-Servis off)' @()
+          } finally {
+            & sc.exe delete NoktaDestekServis 2>$null | Out-Null
+            Remove-ItemProperty -LiteralPath $run -Name NoktaDestekServis -ErrorAction SilentlyContinue
+            foreach ($x in $hk, $ev, $un, $pfd, $pd) { Remove-Item -LiteralPath $x -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          if ($script:bad -gt 0) { exit 1 }
+          Write-Output 'trace-check P27 -Servis öz testi: tüm beklenen çıkış kodları tuttu'
+          exit 0
 
   build:
     name: build ${{ matrix.n }}/2
@@ -306,8 +383,10 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"; export SOURCE_DATE_EPOCH
           apps/agent-win/build/build.sh "$SERVER" "$VERSION" "$RUNNER_TEMP/out/NoktaDestek.exe"
+          # P27 K9: gözetimsiz erişim servis ikilisi (aynı sunucu adresi + sürüm).
+          apps/agent-win/build/build.sh "$SERVER" "$VERSION" "$RUNNER_TEMP/out/NoktaDestekServis.exe" noktadestek-servis
           printf '%s\n%s\n' "$SERVER" "$VERSION" > "$RUNNER_TEMP/out/build-meta.txt"
-          sha256sum "$RUNNER_TEMP/out/NoktaDestek.exe"
+          sha256sum "$RUNNER_TEMP/out/NoktaDestek.exe" "$RUNNER_TEMP/out/NoktaDestekServis.exe"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-win-build-${{ matrix.n }}
@@ -323,34 +402,47 @@ jobs:
     outputs:
       artifact: ${{ steps.name.outputs.artifact }}
       exe: ${{ steps.name.outputs.exe }}
+      servis_exe: ${{ steps.name.outputs.servis_exe }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { pattern: agent-win-build-*, path: builds }
-      - name: iki build aynı SHA-256 + boyut/packer kontrolü
+      - name: iki build aynı SHA-256 + boyut/packer kontrolü (NoktaDestek.exe + NoktaDestekServis.exe)
         run: |
-          a=$(sha256sum builds/agent-win-build-1/NoktaDestek.exe | cut -d' ' -f1)
-          b=$(sha256sum builds/agent-win-build-2/NoktaDestek.exe | cut -d' ' -f1)
-          echo "build1=$a"; echo "build2=$b"
-          [ "$a" = "$b" ] || { echo "::error::tekrarlanabilir build başarısız: SHA-256 farklı"; exit 1; }
-          f=builds/agent-win-build-1/NoktaDestek.exe
-          size=$(stat -c %s "$f"); echo "boyut=$size"
-          [ "$size" -le 41943040 ] || { echo "::error::exe 40 MB'ı aşıyor (AC-96)"; exit 1; }
-          [ "$(head -c2 "$f")" = MZ ] || { echo "::error::PE değil"; exit 1; }
-          if grep -aq 'UPX!' "$f"; then echo "::error::UPX/packer izi (ADR-0010)"; exit 1; fi
+          for e in NoktaDestek.exe NoktaDestekServis.exe; do
+            a=$(sha256sum "builds/agent-win-build-1/$e" | cut -d' ' -f1)
+            b=$(sha256sum "builds/agent-win-build-2/$e" | cut -d' ' -f1)
+            echo "$e build1=$a"; echo "$e build2=$b"
+            [ "$a" = "$b" ] || { echo "::error::$e tekrarlanabilir build başarısız: SHA-256 farklı"; exit 1; }
+            f="builds/agent-win-build-1/$e"
+            size=$(stat -c %s "$f"); echo "$e boyut=$size"
+            [ "$size" -le 41943040 ] || { echo "::error::$e 40 MB'ı aşıyor (AC-96)"; exit 1; }
+            [ "$(head -c2 "$f")" = MZ ] || { echo "::error::$e PE değil"; exit 1; }
+            if grep -aq 'UPX!' "$f"; then echo "::error::$e UPX/packer izi (ADR-0010)"; exit 1; fi
+            # P27 K9: servis ikilisi yükseltme istemez (kurulum UAC runas ile; manifest asInvoker).
+            grep -aq 'requestedExecutionLevel level="asInvoker"' "$f" || { echo "::error::$e manifest asInvoker değil"; exit 1; }
+          done
       - name: artifact adı (P13c — staging adresli derleme ayrı ad, Release'e gitmez)
         id: name
+        env:
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           meta=builds/agent-win-build-1/build-meta.txt
+          ver="$(sed -n 2p "$meta")"
           if [ "$(sed -n 1p "$meta")" = "$STG_SERVER_URL" ]; then
-            exe="NoktaDestek-stg-$(sed -n 2p "$meta").exe"; artifact=agent-win-stg
+            exe="NoktaDestek-stg-$ver.exe"; sexe="NoktaDestekServis-stg-$ver.exe"; artifact=agent-win-stg
+          elif [ "$REF_TYPE" = tag ]; then
+            # P27 K9 (mimari-p27 §9 K9): Release'te servis ikilisi sürümlü ad taşır; NoktaDestek.exe adı değişmez (Caddy yolu).
+            exe=NoktaDestek.exe; sexe="NoktaDestekServis-$ver.exe"; artifact=agent-win
           else
-            exe=NoktaDestek.exe; artifact=agent-win
+            exe=NoktaDestek.exe; sexe=NoktaDestekServis.exe; artifact=agent-win
           fi
           printf '%s' "$exe" | grep -Eq '^NoktaDestek(-stg-[0-9]+\.[0-9]+\.[0-9]+)?\.exe$' || { echo "::error::exe adı $exe"; exit 1; }
+          printf '%s' "$sexe" | grep -Eq '^NoktaDestekServis(-stg)?(-[0-9]+\.[0-9]+\.[0-9]+)?\.exe$' || { echo "::error::servis exe adı $sexe"; exit 1; }
           mkdir dist && cp builds/agent-win-build-1/NoktaDestek.exe "dist/$exe" && cp "$meta" dist/
-          (cd dist && sha256sum "$exe" > SHA256SUMS && cat SHA256SUMS)
-          { echo "### $exe ($artifact)"; echo '```'; cat dist/SHA256SUMS; cat dist/build-meta.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          echo "exe=$exe" >> "$GITHUB_OUTPUT"; echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
+          cp builds/agent-win-build-1/NoktaDestekServis.exe "dist/$sexe"
+          (cd dist && sha256sum "$exe" "$sexe" > SHA256SUMS && cat SHA256SUMS)
+          { echo "### $exe + $sexe ($artifact)"; echo '```'; cat dist/SHA256SUMS; cat dist/build-meta.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "exe=$exe"; echo "servis_exe=$sexe"; echo "artifact=$artifact"; } >> "$GITHUB_OUTPUT"
       - name: onaylayan için kontrol listesi (yalnız etiket; S17-2, S-P17-3)
         # Onay beklenirken koşu sayfasında görünsün diye onay işinden ÖNCE yazılır. Kutular bilerek boş: kontrol kanıtı
         # değildir; onaylayan maddeleri kontrol edip sonucu onay yorumuna yazar (runbook §24.4).
@@ -447,7 +539,10 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-win-unsigned
-          path: unsigned/NoktaDestek.exe
+          # P27 K9: iki PE tek artifact'te; SignPath artifact yapılandırması ikisini de imzalar (runbook §24.3 / §27.6).
+          path: |
+            unsigned/NoktaDestek.exe
+            unsigned/${{ needs.reproducible.outputs.servis_exe }}
           if-no-files-found: error
           retention-days: 1
       - uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
@@ -461,31 +556,41 @@ jobs:
           output-artifact-directory: signed
       - name: signtool verify /pa (Authenticode zinciri + zaman damgası)
         shell: pwsh
+        env:
+          SERVIS_EXE: ${{ needs.reproducible.outputs.servis_exe }}
         run: |
-          $exe = Join-Path $PWD 'signed/NoktaDestek.exe'
-          if (-not (Test-Path $exe)) { Write-Output "::error::SignPath çıktısında NoktaDestek.exe yok"; exit 1 }
           $st = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
             Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $st) { Write-Output "::error::signtool.exe bulunamadı (Windows SDK)"; exit 1 }
-          & $st.FullName verify /pa /tw /v $exe
-          if ($LASTEXITCODE -ne 0) { Write-Output "::error::signtool verify /pa başarısız"; exit 1 }
-          $sig = Get-AuthenticodeSignature -FilePath $exe
-          if ($sig.Status -ne 'Valid') { Write-Output "::error::Authenticode durumu $($sig.Status)"; exit 1 }
-          Write-Output "imzalayan: $($sig.SignerCertificate.Subject)"
+          foreach ($n in @('NoktaDestek.exe', $env:SERVIS_EXE)) {
+            $exe = Join-Path $PWD "signed/$n"
+            if (-not (Test-Path $exe)) { Write-Output "::error::SignPath çıktısında $n yok"; exit 1 }
+            & $st.FullName verify /pa /tw /v $exe
+            if ($LASTEXITCODE -ne 0) { Write-Output "::error::$n signtool verify /pa başarısız"; exit 1 }
+            $sig = Get-AuthenticodeSignature -FilePath $exe
+            if ($sig.Status -ne 'Valid') { Write-Output "::error::$n Authenticode durumu $($sig.Status)"; exit 1 }
+            Write-Output "$n imzalayan: $($sig.SignerCertificate.Subject)"
+          }
       - name: SHA256SUMS (imzalı ikiliden) + boyut/packer kontrolü
         id: out
         shell: bash
+        env:
+          SERVIS_EXE: ${{ needs.reproducible.outputs.servis_exe }}
         run: |
-          f=signed/NoktaDestek.exe
-          size=$(stat -c %s "$f"); echo "boyut=$size"
-          [ "$size" -le 41943040 ] || { echo "::error::imzalı exe 40 MB'ı aşıyor (AC-96)"; exit 1; }
-          [ "$(head -c2 "$f")" = MZ ] || { echo "::error::PE değil"; exit 1; }
-          if grep -aq 'UPX!' "$f"; then echo "::error::UPX/packer izi (ADR-0010)"; exit 1; fi
-          mkdir dist && cp "$f" dist/NoktaDestek.exe && cp unsigned/build-meta.txt dist/
-          awk '{print $1}' unsigned/SHA256SUMS > dist/unsigned-sha256.txt
-          (cd dist && sha256sum NoktaDestek.exe > SHA256SUMS && cat SHA256SUMS)
-          { echo "### NoktaDestek.exe (imzalı, agent-win-signed)"; echo '```'; cat dist/SHA256SUMS
-            echo "imzasız (tekrarlanabilir) SHA-256: $(cat dist/unsigned-sha256.txt)"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          mkdir dist && cp unsigned/build-meta.txt dist/
+          for e in NoktaDestek.exe "$SERVIS_EXE"; do
+            f="signed/$e"
+            size=$(stat -c %s "$f"); echo "$e boyut=$size"
+            [ "$size" -le 41943040 ] || { echo "::error::imzalı $e 40 MB'ı aşıyor (AC-96)"; exit 1; }
+            [ "$(head -c2 "$f")" = MZ ] || { echo "::error::$e PE değil"; exit 1; }
+            if grep -aq 'UPX!' "$f"; then echo "::error::$e UPX/packer izi (ADR-0010)"; exit 1; fi
+            cp "$f" "dist/$e"
+          done
+          # İmzasız (tekrarlanabilir) özetler: satır biçimi "<sha>  <ad>" (iki ikili).
+          cp unsigned/SHA256SUMS dist/unsigned-sha256.txt
+          (cd dist && sha256sum NoktaDestek.exe "$SERVIS_EXE" > SHA256SUMS && cat SHA256SUMS)
+          { echo "### NoktaDestek.exe + $SERVIS_EXE (imzalı, agent-win-signed)"; echo '```'; cat dist/SHA256SUMS
+            echo "imzasız (tekrarlanabilir) SHA-256:"; cat dist/unsigned-sha256.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "artifact=agent-win-signed" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -525,7 +630,11 @@ jobs:
         with: { name: "${{ steps.pick.outputs.artifact }}", path: dist }
       - run: cd dist && sha256sum -c SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with: { subject-path: "dist/${{ needs.reproducible.outputs.exe }}" }
+        # P27 K9: iki ikili de (istemci + servis) attest edilir; `signed` modda sunucu listesi bu SHA'lardan yazılır.
+        with:
+          subject-path: |
+            dist/${{ needs.reproducible.outputs.exe }}
+            dist/${{ needs.reproducible.outputs.servis_exe }}
 
   release:
     name: GitHub Release (korumalı v* etiketi; agent-release onayından sonra)
@@ -534,7 +643,7 @@ jobs:
     if: >-
       !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' && needs.approve.result == 'success' &&
       needs.attest.result == 'success'
-    needs: [approve, attest]
+    needs: [reproducible, approve, attest]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -549,6 +658,7 @@ jobs:
           REPO: ${{ github.repository }}
           ART: ${{ needs.attest.outputs.artifact }}
           SIGNPATH_ORG: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SERVIS_EXE: ${{ needs.reproducible.outputs.servis_exe }}
         run: |
           case "$ART" in agent-win|agent-win-signed) ;; *) echo "::error::Release artifact'i $ART olamaz"; exit 1 ;; esac
           # AC-252: SignPath yapılandırılmışsa imzasız ikili Release'e gitmez.
@@ -556,15 +666,15 @@ jobs:
           cd dist && sha256sum -c SHA256SUMS
           server=$(sed -n 1p build-meta.txt)
           if [ "$ART" = agent-win-signed ]; then
-            sig="Authenticode imzalı (SignPath, AC-252). İmzasız tekrarlanabilir derlemenin SHA-256'sı: $(cat unsigned-sha256.txt)"
+            sig="Authenticode imzalı (SignPath, AC-252). İmzasız tekrarlanabilir derlemelerin SHA-256'sı: $(tr '\n' ' ' < unsigned-sha256.txt)"
           else
             sig="imzasız (ADR-0010)"
           fi
           {
-            echo "Nokta Destek Windows istemcisi $TAG ($sig). Sunucu: $server"
+            echo "Nokta Destek Windows istemcisi ve gözetimsiz erişim servisi ($SERVIS_EXE) $TAG ($sig). Sunucu: $server"
             echo
             echo '```'; cat SHA256SUMS; echo '```'
             echo
-            echo "Doğrulama: \`sha256sum -c SHA256SUMS\` ve \`gh attestation verify NoktaDestek.exe --repo $REPO --signer-workflow $REPO/.github/workflows/agent-win.yml --source-ref refs/tags/$TAG\`"
+            echo "Doğrulama: \`sha256sum -c SHA256SUMS\` ve her ikili için \`gh attestation verify <NoktaDestek.exe|$SERVIS_EXE> --repo $REPO --signer-workflow $REPO/.github/workflows/agent-win.yml --source-ref refs/tags/$TAG\`"
           } > notes.md
-          gh release create "$TAG" NoktaDestek.exe SHA256SUMS --repo "$REPO" --verify-tag --title "Nokta Destek $TAG" --notes-file notes.md
+          gh release create "$TAG" NoktaDestek.exe "$SERVIS_EXE" SHA256SUMS --repo "$REPO" --verify-tag --title "Nokta Destek $TAG" --notes-file notes.md

@@ -7,6 +7,7 @@ import {
   createTrustedDevice,
   deleteExpired,
   deleteForTenant,
+  deleteForLockedUser,
   deleteForUser,
   findById,
   listForUser,
@@ -110,20 +111,20 @@ describe("P27a-K2 trusted-device-repo", () => {
     expect(await findById(db, newId())).toBeNull();
   });
 
-  it("AC-335b döndürme: koşullu UPDATE özeti/son kullanımı/IP'yi yeniler, expires_at sabit; eski özetle ikinci kez false", async () => {
+  it("AC-335b döndürme: koşullu UPDATE özeti/son kullanımı/IP'yi yeniler, expires_at sabit; eski özetle ikinci kez mismatch", async () => {
     const { user } = await tenantUser();
     const oldHash = hashTrustedDeviceSecret(newTrustedDeviceSecret());
     const c = await create(input(user.id, { tokenHash: oldHash }));
     const newHash = hashTrustedDeviceSecret(newTrustedDeviceSecret());
     const at = new Date(Date.now() + 5_000);
-    expect(await rotate(db, { id: c.id, oldHash, newHash, ip: "198.51.100.9", now: at })).toBe(true);
+    expect(await rotate(db, { id: c.id, oldHash, newHash, ip: "198.51.100.9", now: at })).toBe("rotated");
     const row = await findById(db, c.id);
     expect(row?.tokenHash).toBe(newHash);
     expect(row?.lastUsedAt?.getTime()).toBe(at.getTime());
     expect(row?.ip).toBe("198.51.100.9");
     expect(row?.expiresAt.getTime()).toBe(c.expiresAt.getTime());
     const third = hashTrustedDeviceSecret(newTrustedDeviceSecret());
-    expect(await rotate(db, { id: c.id, oldHash, newHash: third, ip: "198.51.100.10", now: new Date() })).toBe(false);
+    expect(await rotate(db, { id: c.id, oldHash, newHash: third, ip: "198.51.100.10", now: new Date() })).toBe("mismatch");
     expect((await findById(db, c.id))?.tokenHash).toBe(newHash);
   });
 
@@ -136,7 +137,28 @@ describe("P27a-K2 trusted-device-repo", () => {
         rotate(tx, { id: c.id, oldHash, newHash: hashTrustedDeviceSecret(newTrustedDeviceSecret()), ip: "203.0.113.8", now: new Date() }),
       );
     const r = await Promise.all([go(), go()]);
-    expect(r.filter(Boolean)).toHaveLength(1);
+    expect(r.sort()).toEqual(["mismatch", "rotated"]);
+  });
+
+  it("AC-335b D-P27a-K1 döndürme: satır silinmişse gone (yeniden kullanımdan ayrılır)", async () => {
+    const { user } = await tenantUser();
+    const oldHash = hashTrustedDeviceSecret(newTrustedDeviceSecret());
+    const c = await create(input(user.id, { tokenHash: oldHash }));
+    await deleteForUser(db, user.id, c.id);
+    const newHash = hashTrustedDeviceSecret(newTrustedDeviceSecret());
+    expect(await db.$transaction((tx) => rotate(tx, { id: c.id, oldHash, newHash, ip: "203.0.113.9", now: new Date() }))).toBe("gone");
+  });
+
+  it("AC-328 deleteForLockedUser: kullanıcının tümü (süresi dolanlar dahil) PK ile silinir; cihazsız kullanıcıda 0; diğer kullanıcı etkilenmez", async () => {
+    const { tenantId, user } = await tenantUser();
+    const other = await createUser({ tenantId, role: "USER" });
+    await create(input(user.id));
+    const old = await create(input(user.id, { now: new Date(Date.now() - 40 * DAY_MS) }));
+    const kept = await create(input(other.id));
+    expect(await db.$transaction((tx) => deleteForLockedUser(tx, user.id))).toBe(2);
+    expect(await findById(db, old.id)).toBeNull();
+    expect(await findById(db, kept.id)).not.toBeNull();
+    expect(await db.$transaction((tx) => deleteForLockedUser(tx, user.id))).toBe(0);
   });
 
   it("AC-329 liste: en yeni önce, süresi dolan yok, özet seçilmez; cihazı olmayan kullanıcıda boş", async () => {

@@ -122,3 +122,17 @@ export async function candidateUsers(tx: Tx, tenantId: string, ids: string[]) {
 /** Firmadaki iptal edilmemiş cihaz sayısı (AC-336 SMTP step-up koşulu). */
 export const activeDeviceCount = (db: DbOrTx, tenantId: string): Promise<number> =>
   db.unattendedDevice.count({ where: { tenantId, revokedAt: null } });
+
+/** §4.3 adım 9: cihazın açık (ACTIVE ya da süresi dolmamış PENDING) gözetimsiz oturum sayısı. */
+export const openDeviceSessions = (db: DbOrTx, tenantId: string, deviceId: string, now: Date): Promise<number> =>
+  db.supportSession.count({
+    where: { tenantId, deviceId, OR: [{ status: "ACTIVE" }, { status: "PENDING", expiresAt: { gt: now } }] },
+  });
+
+/** §4.3 r2 (c): çağıranın grant'ı paylaşımlı kilitle (iptal/geri alma ile yarışta sıraya girer). */
+export async function lockGrant(tx: Tx, tenantId: string, deviceId: string, userId: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<{ id: string }[]>`SELECT g.id FROM unattended_device_grants g
+    JOIN unattended_devices d ON d.id = g.device_id AND g.tenant_id = d.tenant_id
+    WHERE g.device_id = ${deviceId} AND g.tenant_id = ${tenantId} AND g.user_id = ${userId} FOR SHARE`;
+  return rows.length === 1;
+}

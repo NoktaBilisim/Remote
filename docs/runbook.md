@@ -92,6 +92,10 @@ Tarayıcı: `https://<SITE_HOST>:4450`. `tls internal` kök sertifikası test ma
 | `UPLOADS_DIR`                                                          | P12: logo/avatar yükleme kökü. **Compose sabit verir** (`/data/uploads`, named volume `uploads` → `remote_uploads`); `.env`'deki değer yalnız compose dışı çalıştırmada kullanılır — **mutlak yol** (env.ts göreli yolu reddeder), ör. `<repo>/.data/uploads` (`.data/` git-ignore). Boşsa `/data/uploads`. Yedek/geri yükleme §16.3                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `SMSPORTAL_URL`                                                        | P19: smsportal sistem varsayılan adresi (yalnız köken + yol, ör. `https://<smsportal>`). Firma panelde kendi SMS adresini girmemişse bu kullanılır; boş = varsayılan yok. API anahtarı env'de DEĞİL, firma başına panelde (şifreli, AAD etkin kökene bağlı). Production'da `http://` + özel olmayan host → SMS kapalı. **Değiştirmek** varsayılanı kullanan firmaların anahtarını okunamaz yapar → önce §26.3                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `MIN_AGENT_VERSION`                                                    | P8b G-E9-4: asgari Windows istemci sürümü `x.y.z`. Boş = kontrol yok. Düşük sürüm talep/resolve/join/`/ws/guest`'te 426 `CLIENT_OUTDATED`; istemci "Yeni sürümü indir" gösterir. Güvenlik yamasında yükseltilir (§12.4)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `DEPLOY_ENV`                                                           | **P27: compose'da server için zorunlu** (`${DEPLOY_ENV:?}`; boşsa `docker compose` durur, env.ts NODE_ENV=production iken varsayılansız ister). `production` (prod) · `staging` (staging) · `development` (yerel). Yedek/geri yükleme ve yayın betikleri de okur. Prod `.env` staging'den kopyalanmaz. Açılış hatası "DEPLOY_ENV gerekli" → §27.8                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `UNATTENDED_MODE`                                                      | P27 imza kapısı: boş/`off` (prod — SignPath gelene kadar) · `unsigned` (**yalnız** `DEPLOY_ENV=staging`; başka ortamda server açılmaz) · `signed` (imzalı + listede). §27                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `UNATTENDED_SIGNED_SHA256`                                             | `signed`'da zorunlu: virgüllü 64-hex liste (Release `SHA256SUMS`'taki imzalı `NoktaDestekServis-<sürüm>.exe` satırları, attestation doğrulanmış). §27.5                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `UNATTENDED_AGENT_SHA256`                                              | Servis ikilisinin SHA-256'sı. **Elle yazılmaz**: `deploy/agent/publish-servis.sh` yazar. Yol compose'da sabit (`UNATTENDED_AGENT_PATH=/data/unattended/NoktaDestekServis.exe`, volume `unattended_downloads`, yalnız server salt okunur). Boş/uyuşmaz → panel indirmesi 503                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `NODE_ENV`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `CADDY_BIND`, `IMAGE_TAG`  | opsiyonel (varsayılan: production, info, PUBLIC_BASE_URL, 0.0.0.0, local)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 `DATABASE_URL` / `MIGRATE_DATABASE_URL` compose'da parolalardan **üretilir**; `.env`'deki değerleri yalnız
@@ -3382,3 +3386,128 @@ gönderimi başarısız olur (outbox kalıcıdır, 3 deneme 0/10/30 sn sonra FAI
    olabilir." Gerekirse Admin SMS bildirim kanalını geçici kapatır (FAILED gürültüsü ve audit hacmi azalır).
 5. Servis dönünce yeni bildirimler kendiliğinden gider; FAILED olanlar **yeniden gönderilmez** (tasarım: durum bildirimi
    zamanlıdır). `notify-outbox-failed` 15–25 dk içinde DUZELDI.
+
+## 27. P27 — gözetimsiz erişim altyapısı (devops K9, 2026-11-15; mimari-p27 §4.5, §8, §9 K9; AC-289, 297, 339, 340, 342)
+
+Servis ikilisi `NoktaDestekServis.exe` (`apps/agent-win/cmd/noktadestek-servis`) Windows'ta SYSTEM hizmeti olarak kurulur; panel
+"Gözetimsiz erişim" sayfasından (`unattended.manage`) indirilir ve kayıt koduyla kaydolur. Sunucu tarafı tek kapı `UNATTENDED_MODE`.
+
+### 27.1 Ortamlara göre değerler (yalnız `deploy/.env`; değerler ekrana basılmaz)
+
+| Ortam                                                              | `DEPLOY_ENV`  | `UNATTENDED_MODE`                                         | `UNATTENDED_SIGNED_SHA256` | Servis ikilisi                                     |
+| ------------------------------------------------------------------ | ------------- | --------------------------------------------------------- | -------------------------- | -------------------------------------------------- |
+| Prod (`/opt/remote`, terfiden sonra)                               | `production`  | `off` (SignPath imzası gelene dek)                        | boş                        | yayınlanmaz (kapalıyken 409 `UNATTENDED_DISABLED`) |
+| Staging (bugün `/opt/remote` 4450; P13c sonrası `/opt/remote-stg`) | `staging`     | `unsigned`                                                | boş                        | yerelde derlenmiş imzasız ikili (§27.3)            |
+| Yerel                                                              | `development` | `off` (deneme için `unsigned` **olmaz** — yalnız staging) | boş                        | gerekirse `--local`                                |
+
+Kurallar: `unsigned` yalnız `DEPLOY_ENV=staging` iken açılır (aksi halde server açılış hatası verir — prod'a staging `.env`'i
+kopyalamaya karşı korkuluk). Staging'e **gerçek müşteri cihazı kaydedilmez** (imzasız SYSTEM servisi; gösterge "TEST — imzasız").
+Panel bandı "TEST ortamı — imzasız servis" görünür.
+
+### 27.2 Staging açılışı (koordinatör uygular; her adım komut → beklenen)
+
+Ön koşul: P27 migration'ı staging'de uygulandı (`docker compose run --rm migrate`), imaj P27 commit'inden.
+
+1. `.env` teyidi: `cd /opt/remote/deploy && grep -c '^DEPLOY_ENV=staging$' .env` → `1`. Yoksa ekle (`DEPLOY_ENV=staging`).
+2. Kapıyı aç: `grep -q '^UNATTENDED_MODE=' .env && sed -i 's/^UNATTENDED_MODE=.*/UNATTENDED_MODE=unsigned/' .env || echo UNATTENDED_MODE=unsigned >> .env`
+   → `grep -c '^UNATTENDED_MODE=unsigned$' .env` → `1`.
+3. Compose doğrulaması: `docker compose config --format json | jq -r '.services.server.environment | .DEPLOY_ENV, .UNATTENDED_MODE, .UNATTENDED_AGENT_PATH'`
+   → `staging`, `unsigned`, `/data/unattended/NoktaDestekServis.exe`.
+4. İkiliyi yayınla (§27.3) — `publish-servis.sh` server'ı yeniden yaratır ve sağlıklı olmasını bekler. İkiliyi yayınlamadan
+   yalnız kapı açılacaksa: `docker compose up -d --no-deps server` → `docker compose ps server` healthy.
+5. Konteynerin gördüğü değerler: `docker compose exec -T server printenv DEPLOY_ENV UNATTENDED_MODE` → `staging`, `unsigned`.
+   (Mimarideki açılış logu `unattended.mode=<mod> deployEnv=<env>` server'da henüz yok — backend açık işi; gelince
+   `docker compose logs server --since 5m | grep -m1 unattended.mode` ile de bakılır.)
+6. Panel: Super Admin/Admin → Gözetimsiz erişim → bant "TEST ortamı — imzasız servis"; "İndir" `NoktaDestekServis.exe` verir
+   (503 ise §27.8). `curl` ile kimliksiz deneme: `curl -sk -o /dev/null -w '%{http_code}\n' https://<host>/downloads/NoktaDestekServis.exe` → `404`
+   (Caddy public yolu yok; volume Caddy'ye bağlı değil).
+7. Duman testi (Windows VM, staging adresli ikili): kayıt kodu üret → VM'de kur (§27.7) → panelde çevrimiçi → bağlan → müşteri
+   adresine "gözetimsiz bağlantı başladı" e-postası ≤ 60 sn → yerel kapat ≤ 2 sn → cihaz iptal ≤ 10 sn.
+
+### 27.3 İmzasız servis ikilisini sunucuya koymak (staging)
+
+İkili sunucu adresini derleme zamanında gömer (ldflags; AC-340). Staging adresi = staging `.env` `PUBLIC_BASE_URL` kökeni
+(`https://host[:port]`). Operatör makinesinde, repo kökünde (Go gerekmez):
+
+```bash
+SERVER='https://<staging PUBLIC_BASE_URL kökeni>'; VER=0.13.0      # MIN_AGENT_VERSION'dan düşük olmamalı
+OUT="$(mktemp -d)"
+docker run --rm -v "$PWD:/src" -v "$OUT:/out" -w /src -e GOFLAGS=-mod=readonly -e GOTOOLCHAIN=local \
+  golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 sh -c '
+  git config --global --add safe.directory /src; export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+  apps/agent-win/build/build.sh "$0" "$1" /out/NoktaDestekServis.exe noktadestek-servis' "$SERVER" "$VER"
+(cd "$OUT" && shasum -a 256 NoktaDestekServis.exe > SHA256SUMS && cat SHA256SUMS)
+ALLOW_UNATTESTED=staging deploy/agent/publish-servis.sh --dir "$OUT" --no-attestation --ssh root@185.126.217.99 \
+  --deploy-dir /opt/remote/deploy          # P13c ikinci yığında: /opt/remote-stg/deploy
+```
+
+Beklenen son satırlar: `yayınlandı: unattended_downloads/NoktaDestekServis.exe (dir-…-unattested, <sha>)` ve
+`kontrol: server UNATTENDED_AGENT_PATH SHA-256 = UNATTENDED_AGENT_SHA256 = <sha>`. Betik: SHA256SUMS ↔ dosya, PE + ≤ 40 MB +
+UPX yok + manifest `asInvoker`; sunucuda ortam kilidi (`production` hedefe yalnız `vX.Y.Z` Release), ağsız yardımcı konteynerle
+`unattended_downloads` volume'una atomik yazım (0644), `.env` `UNATTENDED_AGENT_SHA256` (yedek `.env.bak.servis.<zaman>`, son 5),
+`PUBLISHED.log`'a `servis` satırı, `docker compose up -d --no-deps server` + healthy + konteyner içinden SHA eşitliği.
+Volume salt okunur ve yalnız server'a bağlı: Caddy ve web dosyayı göremez. Yerel deneme: `--local` (yığın `deploy/`).
+
+### 27.4 CI (`.github/workflows/agent-win.yml`)
+
+- `build` (×2): `NoktaDestek.exe` + `NoktaDestekServis.exe` (`build/build.sh … noktadestek-servis`, `build/winres-servis.json`,
+  manifest `asInvoker`). `reproducible`: iki ikili için ayrı ayrı SHA eşitliği, ≤ 40 MB, MZ, UPX yok, `asInvoker`; `SHA256SUMS`
+  iki satır. Adlar: dal/PR `NoktaDestekServis.exe`, staging dispatch `NoktaDestekServis-stg-<sürüm>.exe`, Release
+  `NoktaDestekServis-<sürüm>.exe`. `attest` iki ikiliyi, `release` ikisini + `SHA256SUMS`'u yükler.
+- `test-windows`: "trace-check -Servis öz testi (P27)" — kurulum izi (hizmet, HKLM, Run, Uninstall, olay kaynağı, Program Files,
+  ProgramData korumalı DACL) yer tutucu adresli ikiliyle elle kurulur; temiz/ACL bozuk/`device.key.tmp`/tırnaksız ImagePath/
+  kaldırma sonrası artık izler için beklenen çıkış kodları denetlenir. Hizmet başlatılmaz.
+- `sign` (SignPath varsa): iki PE tek artifact'te gönderilir. **SignPath artifact yapılandırması** iki dosyayı da imzalayacak
+  biçimde güncellenmeli (`<pe-file path="NoktaDestek.exe"/>` + `<pe-file path="NoktaDestekServis-*.exe"/>`); güncellenmezse
+  `signtool verify` adımı "SignPath çıktısında … yok" ile kırmızı olur (fail-closed).
+- `ci.yml` compose adımı: `.env`'e `DEPLOY_ENV=production` (sahte), server'da `DEPLOY_ENV` var ve tek servis, `unattended_downloads`
+  Caddy'de yok, `DEPLOY_ENV` boşken compose durur.
+
+### 27.5 İmza gelince (`signed`) — kod değişmez, yalnız env
+
+1. Release `vX.Y.Z` (SignPath'li) → `gh release download vX.Y.Z -p SHA256SUMS -p 'NoktaDestekServis-*.exe'` →
+   `gh attestation verify NoktaDestekServis-X.Y.Z.exe --repo NoktaBilisim/Remote --signer-workflow NoktaBilisim/Remote/.github/workflows/agent-win.yml --source-ref refs/tags/vX.Y.Z`.
+2. `UNATTENDED_SIGNED_SHA256=<yeni sha>[,<önceki desteklenen sha>]` (eski sürüm listeden çıkınca o cihazlar 4403 alır; önce
+   cihazlar güncellenir) + `UNATTENDED_MODE=signed`.
+3. `deploy/agent/publish-servis.sh --tag vX.Y.Z --ssh root@<sunucu>` → server yeniden yaratılır.
+4. Doğrulama: panel bandı yok, cihaz listesinde "İmzasız" rozeti yok.
+
+### 27.6 Kapatma, geri alma ve migration geri dönüşü
+
+- Acil kapatma (her ortam): `sed -i 's/^UNATTENDED_MODE=.*/UNATTENDED_MODE=off/' .env && docker compose up -d --no-deps server`
+  → cihazlar 4403 ile reddedilir (servisler bekleme döngüsünde), kayıt/kod/bağlan 409. Cihaz kaydı silinmez.
+- Uygulama geri alma: önceki `IMAGE_TAG` + `UNATTENDED_MODE=off` → `docker compose up -d server web`.
+- Migration geri alma (`down.sql`): önce `UNATTENDED_MODE=off`, açık gözetimsiz oturum kalmadığını panelden teyit et, sonra dba'nın
+  down adımı (UNATTENDED satır varsa down ön kontrolü uyarır).
+- Cihaz toplu iptali SQL'siz panelden (Gözetimsiz erişim → cihaz → İptal). Yedek: yeni tablolar mysqldump kapsamında; `device.key`
+  cihazdadır, sunucu yedeği gerekmez.
+
+### 27.7 Windows iz testi (`trace-check.ps1 -Servis`, yönetici PowerShell)
+
+Kurulu cihazda: `pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Check -Servis on` → `TEMİZ` (ImagePath tırnaklı ve Program
+Files altında, ProgramData/Gelen sahip + korumalı DACL + ACE kümesi, reparse yok). Kaldırma öncesi
+`-Mode Snapshot -SnapshotPath D:\once.json` (kurulumdan önce alınmış olmalı) → kaldır → `-Mode Compare -SnapshotPath D:\once.json`
+→ `TEMİZ`. `NoktaDestek Servis.eski-*` (squatting önlemi) UYARI olarak listelenir; içeriği incelenip elle silinir.
+
+### 27.8 Sorun giderme ve operasyon notları
+
+| Belirti                                                                     | Neden / eylem                                                                                                          |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `docker compose` "DEPLOY_ENV gerekli"                                       | `.env`'de `DEPLOY_ENV` yok/boş → ortama göre ekle (§27.1)                                                              |
+| server açılmıyor, log `UNATTENDED_MODE: unsigned yalnız DEPLOY_ENV=staging` | prod'a staging `.env`'i kopyalanmış → `UNATTENDED_MODE=off`                                                            |
+| log `DEPLOY_ENV gerekli (production)` / `(UNATTENDED_MODE off değil)`       | `.env` `DEPLOY_ENV` boş ama compose dışı çalıştırma (yerel `pnpm`) → `.env`'e ekle                                     |
+| log `UNATTENDED_SIGNED_SHA256: signed modda zorunlu`                        | liste boş → §27.5 ya da `off`                                                                                          |
+| panel "İndir" 503                                                           | `UNATTENDED_AGENT_SHA256` boş veya volume'daki dosya farklı → §27.3 yeniden yayınla                                    |
+| Cihazlar sunucu yeniden başlarken 503 alıyor                                | K-P27-21: kimliksiz soket tavanı IP başına 5; aynı NAT arkasında ≥ 6 cihaz üstel beklemeyle toparlanır, eylem gerekmez |
+| AV/SmartScreen servisi engelliyor (R-P27-2)                                 | imzasız ikili yalnız staging'de; prod `off`. Staging VM'de Defender istisnası verilmez — imza gelene kadar beklenen    |
+
+Alarm eşikleri (mimari-p27 §7.3; `/metrics`, Bearer `METRICS_TOKEN`):
+
+- `rs_unattended_device_auth_total{result="bad_sig"}`: 10 dk'da 20'den fazla → uyarı (anahtar sızıntısı / deneme).
+- `rs_unattended_device_replaced_total`: 10 dk'da 3'ten fazla → uyarı (aynı anahtar iki makinede — klon).
+- `rs_unattended_register_total{result="cap"}`: sıfırdan büyük → uyarı (kayıt kodu tahmin denemesi).
+- `rs_unattended_device_auth_total{result="unauth_cap"}`: sıfırdan büyük → uyarı (bağlantı seli).
+- `rs_unattended_connect_total{result="ok"}`: mesai dışı ani artış → bilgi.
+
+**Durum:** `remote-watch` otomasyonu bu serileri henüz okumuyor (K9 açık işi). O gelene kadar elle bakılır:
+`docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>console.log(t.split('\n').filter(l=>l.startsWith('rs_unattended_')).join('\n')))"`

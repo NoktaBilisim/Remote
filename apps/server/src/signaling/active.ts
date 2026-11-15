@@ -1,6 +1,9 @@
 // ACTIVE oda zamanlayıcıları ve hello mesajları: max süre (AC-13), 120 sn kopma (AC-24/25),
 // TURN credential yenileme (`ice.servers`, G-13). iceServers yalnız admit sonrası (G-01).
+import type { SessionEndedReason } from "@remote/contracts/ws";
+import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { newSecretToken, sha256Hex } from "../lib/ids.ts";
+import * as repo from "../sessions/repo.ts";
 import { offerBinding } from "./binding.ts";
 import type { Rooms } from "./rooms.ts";
 import { iceServersFor, type IceGrant } from "./turn.ts";
@@ -39,6 +42,7 @@ export function sendHelloTech(rooms: Rooms, room: Room): void {
     ...(g && room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}),
     ...(g ? { guestName: g.name } : {}), // QA-P4-12: yeniden bağlanan teknisyen misafiri tanır
     ...(g && room.share ? { share: room.share } : {}),
+    ...(room.unattended ? { unattended: { deviceId: room.unattended.deviceId, deviceName: room.unattended.deviceName } } : {}),
   });
 }
 
@@ -131,4 +135,35 @@ export function syncDisconnect(rooms: Rooms, room: Room): void {
     room.timers.disconnect = undefined;
     if (!(room.tech && room.admitted?.peer)) void rooms.finish(room, "timeout", "SYSTEM");
   }, rooms.timing.reconnectMs);
+}
+
+/** `Rooms.finish`: ACTIVE oturum → DB ENDED + audit `session.ended` (tek TX); hata loglanır, teardown yine yapılır. */
+export async function recordEnded(
+  rooms: Rooms,
+  room: Room,
+  reason: SessionEndedReason,
+  endedBy: "TECH" | "CUSTOMER" | "SYSTEM",
+  ctx: AuditContext,
+): Promise<void> {
+  try {
+    await rooms.db.$transaction(async (tx) => {
+      if ((await repo.endActive(tx, room.sessionId, new Date(rooms.clock.now()), endedBy, reason)) === 0) return;
+      const actor =
+        endedBy === "TECH" && room.tech
+          ? { userId: room.tech.userId, username: room.tech.username }
+          : { username: endedBy === "CUSTOMER" ? "customer" : "system" };
+      await writeAudit(tx, ctx, {
+        tenantId: room.tenantId,
+        ...actor,
+        action: "session.ended",
+        entity: "support_sessions",
+        entityId: room.sessionId,
+        result: "success",
+        oldValue: { status: "ACTIVE" },
+        newValue: { status: "ENDED", endedBy, reason },
+      });
+    });
+  } catch (err) {
+    rooms.log.error({ err, sessionId: room.sessionId }, "oturum bitişi DB'ye yazılamadı");
+  }
 }

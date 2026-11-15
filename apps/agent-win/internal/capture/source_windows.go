@@ -54,6 +54,9 @@ type frameResp struct {
 type Opener struct {
 	Version string
 	Log     *diag.Log
+	// Attach (P27 K6b, yalnız gözetimsiz yardımcı) yakalama iş parçacığını açılışta giriş masaüstüne bağlar; release iş
+	// parçacığı bitmeden çağrılır. nil → P20 davranışı (iş parçacığı sürecin masaüstünde kalır).
+	Attach func() (release func(), err error)
 }
 
 // Open seçilen monitör için H.264 kaynağı açar: bir yakalama yöntemiyle ilk kare alınabilmeli ve kodlayıcı
@@ -101,6 +104,19 @@ func (o Opener) write(r diag.Report, probe bool) {
 	_ = o.Log.Write(r)
 }
 
+// attach P27 K6b: Attach verilmişse kilitli yakalama iş parçacığını giriş masaüstüne bağlar (DXGI çoğaltma ve GDI
+// yalnız iş parçacığının masaüstü giriş masaüstüyse çalışır: Winlogon/UAC). nil → P20 davranışı.
+func (o Opener) attach() (func(), *Error) {
+	if o.Attach == nil {
+		return func() {}, nil
+	}
+	release, err := o.Attach()
+	if err != nil {
+		return nil, &Error{Reason: ReasonOther, Op: "SetThreadDesktop"}
+	}
+	return release, nil
+}
+
 // RequestKeyframe rtc.KeyframeRequester: yayın başı ve PLI/FIR.
 func (s *source) RequestKeyframe() { s.kc.Request() }
 
@@ -132,6 +148,12 @@ func (s *source) run(o Opener, device string, hwnd uintptr, initErr chan<- error
 		o.write(rep, true)
 		initErr <- err
 	}
+	release, aerr := o.attach()
+	if aerr != nil {
+		fail(aerr)
+		return
+	}
+	defer release()
 	// S_FALSE: iş parçacığında COM zaten MTA (yine dengelenir); RPC_E_CHANGED_MODE: başka kod STA açmış — tek iş
 	// parçacığından kullanım STA'da da geçerli, ama Uninitialize bizim değil.
 	switch err := windows.CoInitializeEx(0, windows.COINIT_MULTITHREADED); {

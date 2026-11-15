@@ -3,6 +3,10 @@
 // doğrulama DEĞİL, kullanılabilirlik kapısıdır (beyan sahtelenebilir; güvenlik AC-273, 293..296'ya dayanır).
 import type { UnattendedMode, UnattendedStatus } from "@remote/contracts/api/unattended";
 import type { Env } from "../env.ts";
+import type { MailService } from "../mail/service.ts";
+
+/** Yalnız mod kapısının kısmı; `notifyChannel` firma SMTP'sine bağlıdır (`unattendedStatus`). */
+export type GateStatus = Omit<UnattendedStatus, "notifyChannel">;
 
 export interface DeviceDeclaration {
   signed: boolean;
@@ -11,7 +15,7 @@ export interface DeviceDeclaration {
 
 export interface UnattendedGate {
   readonly mode: UnattendedMode;
-  status(): UnattendedStatus;
+  status(): GateStatus;
   /** Bu beyanla kayıt/auth/bağlantı açık mı (mod + imza + liste). */
   allows(d: DeviceDeclaration): boolean;
 }
@@ -28,4 +32,14 @@ export function createGate(env: Pick<Env, "UNATTENDED_MODE" | "unattendedSignedS
       return d.signed && list.has(d.sha256.toLowerCase());
     },
   };
+}
+
+/** GET /unattended/status: kapı + firmanın kendi SMTP kaydı (kayıt kodu/bağlantıdaki `configFor` denetimiyle aynı). */
+export async function unattendedStatus(
+  gate: UnattendedGate,
+  mail: Pick<MailService, "configFor">,
+  tenantId: string | null,
+): Promise<UnattendedStatus> {
+  const notifyChannel = tenantId !== null && (await mail.configFor(tenantId)) !== null;
+  return { ...gate.status(), notifyChannel };
 }

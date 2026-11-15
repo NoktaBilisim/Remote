@@ -13,6 +13,7 @@ import { getMe, serverGet } from "@/lib/server-api";
 import { CustomerStatusBadge } from "../customer-list";
 import { CustomerActions } from "./customer-actions";
 import { CustomerTabs } from "./customer-tabs";
+import { NotifyContacts } from "./notify-contacts";
 
 export const metadata: Metadata = { title: t("cu.detailTitle") };
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -175,6 +176,8 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
             </Row>
           </dl>
         </section>
+        {/* P27 (AC-296, 337): gözetimsiz bildirim adresleri — yalnız `unattended.manage` */}
+        {perms.includes("unattended.manage") && <NotifyContacts customerId={c.id} />}
       </div>
 
       <CustomerTabs

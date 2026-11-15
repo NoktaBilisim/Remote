@@ -71,6 +71,28 @@ export function findUserById(db: DbOrTx, id: string): Promise<LoginUser | null> 
   return db.user.findUnique({ where: { id }, select: userSelect });
 }
 
+/** D-P27a-K3: login TX'inde kararı veren alanlar (kilitli current read). */
+export interface LockedLoginRow {
+  passwordHash: string;
+  totpEnabled: boolean;
+  status: string;
+  deletedAt: Date | null;
+}
+
+/**
+ * D-P27a-K3: login TX'inin İLK ifadesi. `FOR UPDATE` (FOR SHARE değil): aynı TX `clearFailures` ile satırı yazabilir;
+ * S→X yükseltmesi eşzamanlı iki girişte kilitlenme (1213) üretirdi. Kilit sırası users → trusted_devices → auth_sessions;
+ * `enableTx`, şifre değişimi/sıfırlama, Admin 2FA sıfırlama ve `createTrustedDevice` de önce kullanıcı satırını X kilitler
+ * → iki yön serileşir (biri commit etmeden diğeri karar vermez).
+ */
+export async function lockUserForLogin(tx: Prisma.TransactionClient, userId: string): Promise<LockedLoginRow | null> {
+  const rows = await tx.$queryRaw<{ password_hash: string; totp_enabled: unknown; status: string; deleted_at: Date | null }[]>`
+    SELECT password_hash, totp_enabled, status, deleted_at FROM users WHERE id = ${userId} FOR UPDATE`;
+  const r = rows[0];
+  if (!r) return null;
+  return { passwordHash: r.password_hash, totpEnabled: Number(r.totp_enabled) === 1, status: r.status, deletedAt: r.deleted_at };
+}
+
 export async function clearFailures(db: DbOrTx, userId: string): Promise<void> {
   await db.user.update({ where: { id: userId }, data: { failedLoginCount: 0, failedWindowAt: null, lockedUntil: null } });
 }

@@ -72,11 +72,12 @@ export async function deviceSessionRow(tenantId: string, technicianId: string, d
 }
 
 /** Sahte canlı kanal: çevrimiçi kümesi + çağrı kaydı (K3 hub yerine). */
-export function fakeLink(online: string[] = []): DeviceLink & { calls: string[] } {
+export function fakeLink(online: string[] = []): DeviceLink & { calls: string[]; online(id: string): void } {
   const calls: string[] = [];
   const set = new Set(online);
   return {
     calls,
+    online: (id) => void set.add(id),
     onlineIds: () => [...set],
     isOnline: (id) => set.has(id),
     replacedAlert: () => false,
@@ -95,3 +96,21 @@ export async function setSmtp(tenantId: string, fromEmail = "destek@firma.test")
 
 /** P27 uygulama env'i (staging + imzasız mod). */
 export const UNSIGNED_ENV = { UNATTENDED_MODE: "unsigned", DEPLOY_ENV: "staging" } as const;
+
+/** Kayıt kodu satırı (varsayılan bekleyen; TTL CHECK: expires = created + 24 sa); yalnız id döner — düz kod yok. */
+export async function codeRow(tenantId: string, customerId: string, o: { usedDeviceId?: string; createdAt?: Date } = {}): Promise<string> {
+  const id = newId();
+  const createdAt = o.createdAt ?? new Date();
+  await testDb().unattendedRegistrationCode.create({
+    data: {
+      id,
+      tenantId,
+      customerId,
+      codeHash: sha256Hex(id),
+      createdAt,
+      expiresAt: new Date(createdAt.getTime() + 86_400_000),
+      ...(o.usedDeviceId ? { usedAt: createdAt, deviceId: o.usedDeviceId } : {}),
+    },
+  });
+  return id;
+}

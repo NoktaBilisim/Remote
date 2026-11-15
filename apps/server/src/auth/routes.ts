@@ -40,13 +40,8 @@ import { forgotPassword, lockNotifier, resetPassword } from "./password-reset.ts
 import { regenerateRecoveryCodes, stepUp } from "./step-up.ts";
 import { changePassword, login, logout } from "./service.ts";
 import { trustedDeviceRoutes } from "./trusted-device-routes.ts";
-import {
-  afterTrustedDeviceReuse,
-  clearTrustedDeviceCookie,
-  readTrustedDeviceCookies,
-  rememberAvailable,
-  setTrustedDeviceCookie,
-} from "./trusted-device.ts";
+import { afterTrustedDeviceReuse } from "./trusted-device-notify.ts";
+import { clearTrustedDeviceCookie, readTrustedDeviceCookies, rememberAvailable, setTrustedDeviceCookie } from "./trusted-device.ts";
 import { setTheme } from "../uploads/service.ts";
 import { effectiveLogoUrl } from "../uploads/urls.ts";
 

@@ -57,10 +57,7 @@ export async function enroll(
   const s = sessionOf(await app.inject(loginRequest(user.email, user.password, { remoteAddress: ip() })));
   const setup = (await call(app, ip(), s, "POST", "/auth/mfa/setup", {})).json<MfaSetupResponse>();
   const code = hotp(base32Decode(setup.secret), stepOf(Date.now()));
-  let en = await call(app, ip(), s, "POST", "/auth/mfa/enable", { code });
-  // Eşzamanlı iki ilk etkinleştirme `recovery_codes` boşluk kilidinde deadlock → 503 NOT_READY (mevcut davranış, P10;
-  // istemci sözleşmesi "yeniden dene"). Dosyalar paralel koştuğu için bir kez yeniden denenir.
-  if (en.statusCode === 503) en = await call(app, ip(), s, "POST", "/auth/mfa/enable", { code });
+  const en = await call(app, ip(), s, "POST", "/auth/mfa/enable", { code });
   if (en.statusCode !== 200) throw new Error(`enable ${en.statusCode} ${en.body}`);
   return { user, secret: setup.secret, codes: en.json<MfaEnableResponse>().recoveryCodes };
 }

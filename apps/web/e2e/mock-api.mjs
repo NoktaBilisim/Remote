@@ -11,6 +11,7 @@ import { handleP15, p15User } from "./mock-p15.mjs";
 import { handleP16, p16User } from "./mock-p16.mjs";
 import { handleP18, p18User } from "./mock-p18.mjs";
 import { handleP19, p19User } from "./mock-p19.mjs";
+import { handleP27, p27User } from "./mock-p27.mjs";
 import { handleHistory, historyUser } from "./mock-history.mjs";
 import { handleRequests, requestUser } from "./mock-requests.mjs";
 import { handleLobby, handleSessions, lobbyHook, sessionUser } from "./mock-sessions.mjs";
@@ -81,6 +82,8 @@ async function readJson(req) {
 /** /auth/me gövdesi (çekirdek sahte kullanıcılar); P10/P12 hesap/marka kullanıcıları kendi modüllerinde çözülür → null. */
 function resolveMe(session) {
   const tenant = { id: "01JTENANT", name: "Demo Firma" };
+  const p27 = p27User(session);
+  if (p27) return p27;
   const p15 = p15User(session);
   if (p15) return p15;
   const p16 = p16User(session);
@@ -135,6 +138,8 @@ const srv = createServer(async (req, res) => {
   if (await handleAccount(req, res, { url, session, csrfOk, send, err, readJson, sessionCookies })) return;
   // P12: tema, avatar, logo, herkese açık marka (u-br*, u-brsa-*; /public/branding herkes)
   if (await handleBranding(req, res, { url, session, csrfOk, send, err })) return;
+  // P27-K8: gözetimsiz erişim arayüzü (u-un*)
+  if (await handleP27(req, res, { url, session, csrfOk, send, err, readJson })) return;
 
   if (req.method === "POST" && url === "/api/v1/auth/login") {
     const { login = "", password = "" } = req.__body ?? (await readJson(req));

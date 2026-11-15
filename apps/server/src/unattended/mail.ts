@@ -118,3 +118,11 @@ export async function smtpWillChange(db: Db, tenantId: string, next: SmtpInput |
   const b = [next.host, next.port, next.security, next.user, next.fromName, next.fromEmail];
   return JSON.stringify(a) !== JSON.stringify(b) || (next.user === null && cur.smtpPassEnc !== null);
 }
+
+/** D-P27-6 / AC-339: kurtarma koduyla yapılan step-up ile gözetimsiz bağlantı açıldı. */
+export function recoveryConnectMail(o: { user: string; device: string; at: Date; ip: string }): MailContent {
+  return content("Gözetimsiz bağlantı kurtarma koduyla açıldı", [
+    `${o.user}, "${o.device}" cihazına kurtarma koduyla doğrulama yaparak gözetimsiz bağlantı açtı (${istanbul(o.at)}, IP ${o.ip}).`,
+    "Bu bağlantı beklenmiyorsa kullanıcının hesabını ve cihaz yetkilerini hemen kontrol edin.",
+  ]);
+}

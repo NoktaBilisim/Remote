@@ -48,6 +48,7 @@ export function resolveFilter(scope: hrepo.HistoryScope, q: ListSessionsQuery): 
     ...(q.tenantId && scope.kind === "all" ? { tenantId: q.tenantId } : {}),
     ...(q.customer ? { customer: q.customer } : {}),
     ...(q.customerFirm ? { customerFirm: q.customerFirm } : {}),
+    ...(q.deviceId ? { deviceId: q.deviceId } : {}),
   };
 }
 

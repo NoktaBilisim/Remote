@@ -245,6 +245,13 @@ describe("P27 konsol ve oturum sözleşmesi ekleri", () => {
     expect(listSessionsQuerySchema.safeParse({ mode: "UNATTENDED" }).success).toBe(true);
   });
 
+  it("AC-339: geçmiş listesi deviceId filtresi (ULID) kabul eder, geçersiz kimliği ve bilinmeyen alanı reddeder", () => {
+    const deviceId = "01J0000000000000000000DEV1";
+    expect(listSessionsQuerySchema.parse({ mode: "UNATTENDED", deviceId, pageSize: "20" })).toMatchObject({ deviceId, pageSize: 20 });
+    expect(listSessionsQuerySchema.safeParse({ deviceId: "x" }).success).toBe(false);
+    expect(listSessionsQuerySchema.safeParse({ device: deviceId }).success).toBe(false);
+  });
+
   it("AC-273: P27 audit eylemleri benzersiz, `unattended.` önekli ve etiketli", () => {
     const actions = Object.values(UNATTENDED_AUDIT);
     expect(new Set(actions).size).toBe(actions.length);

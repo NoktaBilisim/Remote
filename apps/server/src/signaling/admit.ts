@@ -168,7 +168,7 @@ export async function rejectGuest(rooms: Rooms, room: Room, tech: TechConn, gues
  * önce kurulur; `guest.peer` yalnız admit kazanılınca bu bağlantıya atanır; kaybeden yalnız kendi soketini kapatır.
  */
 /** Teknisyenin DB'deki etkin yetkileri; kullanıcı/tenant pasif ya da yoksa null. */
-async function activeTechPerms(rooms: Rooms, room: Room): Promise<Set<string> | null> {
+export async function activeTechPerms(rooms: Rooms, room: Room): Promise<Set<string> | null> {
   const tech = await rooms.db.user.findUnique({
     where: { id: room.technicianId },
     select: {

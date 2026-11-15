@@ -1,7 +1,7 @@
 // /api/v1/users (P9; mimari-api "Yönetim"). Sıra: requireAuth (CSRF durum değiştirenlerde) → requirePerm → tenantScope
 // (Super Admin firma seçmeli) → zod → servis. P10: /users/:id/reset-mfa (2FA sıfırlama).
 // P14a: yazma uçları kullanıcı başına 30/dk, POST ayrıca 10/dk (AC-203); PATCH `If-Match` zorunlu, GET/PATCH `ETag`
-// (AC-206). P14b: GET /users/options (AC-225; Super Admin `?tenantId=`).
+// (AC-206). P14b: GET /users/options (AC-225; Super Admin `?tenantId=`; P27 `unattendedGrantable=1` → `unattended.manage`).
 import {
   USERS_CREATES_PER_MIN,
   USERS_WRITES_PER_MIN,
@@ -26,6 +26,7 @@ import { auditContext } from "../audit/service.ts";
 import { authOf, requireAnyPerm, requireAuth, requirePerm, requireStepUp, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
+import { USER_OPTIONS_PERMS, userOptions } from "./options.ts";
 import {
   createUser,
   deactivateUser,
@@ -36,8 +37,6 @@ import {
   reactivateUser,
   resetUserMfa,
   updateUser,
-  userOptions,
-  userOptionsTenant,
   type UserLiveEffects,
 } from "./service.ts";
 
@@ -115,12 +114,8 @@ function readRoutes(app: FastifyInstance, { view }: RouteKit): void {
   // `?tenantId=` ile firma seçer; diğer rollerde parametre yok sayılır (etkin tenant ezer).
   app.get(
     "/options",
-    { preHandler: requireAnyPerm("session_history.view", "support_requests.view", "users.view") },
-    async (req): Promise<UserOptionsResponse> => {
-      const auth = authOf(req);
-      const { tenantId, includeDeleted, assignable } = parseInput(userOptionsQuerySchema, req.query);
-      return userOptions(app.db, auth, await userOptionsTenant(app.db, auth, tenantId), includeDeleted, assignable);
-    },
+    { preHandler: requireAnyPerm(...USER_OPTIONS_PERMS, "unattended.manage") },
+    async (req): Promise<UserOptionsResponse> => userOptions(app.db, authOf(req), parseInput(userOptionsQuerySchema, req.query)),
   );
 }
 

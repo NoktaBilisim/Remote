@@ -9265,6 +9265,66 @@ migration'larla kuruldu (P27'nin işi).
 - `tsc --noEmit` (server): **0 hata** (routes.ts 122/160/239 kapandı). eslint (auth, mail, yeni/değişen testler) temiz. prettier
   (K3 dosyaları) temiz.
 
+### P27a — düzeltme turu 1
+
+- **frontend-dev (qa madde 3):** `apps/web/components/form-error.tsx` istek kimliği satırından `opacity-80` kaldırıldı; satır `Alert`'in
+  ton rengini (`text-danger` → `--rs-danger` / `--rs-danger-surface`; açık ~5.9:1, koyu ~7:1, AA) yeni token eklemeden alır.
+  `apps/web/e2e/p27a-trusted-device.spec.ts` "boş durum ve hata" testine hata durumunda `axeScan("[data-testid=acc-td]")` açık + koyu
+  eklendi (0 ihlal; düzeltme geri alınınca `color-contrast: .opacity-80` ile kırmızı olduğu doğrulandı).
+- Doğrulama HEAD + bu iki dosyalı ayrı worktree'de (ana ağaçta K8 /unattended WIP `next build` tip hatası veriyor): p27a 14/14; tüm web e2e
+  457/457 (ilk koşuda 1 ilgisiz `toHaveCount` zamanlama kırmızısı, ikinci koşuda temiz). tsc + eslint temiz.
+- **backend-dev (qa madde 1, 2; güvenlik D-P27a-K1, D-P27a-K2; qa önerisi dosya boyu) — 2026-11-15:**
+  - AC-69: `test/helpers/tenant-matrix.ts`'e profil uçları `GET/DELETE /auth/trusted-devices[/:id]` `"self"` olarak eklendi
+    (`/unattended/*` P27-K3'te). `tenant-isolation.test.ts` "self GET" testindeki pozitif kontrol (`B tenantId yanıtta`) yalnız
+    `/auth/me`'ye uygulanır; cihaz listesi tenantId döndürmez (sızıntı denetimi tüm self GET'lerde aynen).
+  - AC-335 kilitlenme (`auth/account.ts` `enableTx`): "diğer oturumları iptal" artık kilitsiz `findMany` + PK ile `updateMany`
+    (`(user_id, revoked_at)` aralığına next-key/boşluk kilidi yok); güvenilir cihaz silme yeni `deleteForLockedUser` (kilitsiz okuma +
+    PK ile silme; kullanıcı satırı X kilitli olduğundan `createTrustedDevice` ile yarış yok). Kalan geçici hata (1213/P2034,
+    `isTransientDbError`) için TX bir kez yeniden denenir (geri alınan TX yazmamıştır). Test yardımcısı `enroll`'daki 503 yeniden
+    denemesi kaldırıldı.
+  - D-P27a-K1: `rotate` artık `"rotated" | "mismatch" | "gone"` döner; 0 satırda satır `FOR SHARE` ile okunur (TX anlık görüntüsü
+    silinmiş satırı göstereceği için kilitsiz `findById` yetmez; UPDATE aynı PK'yi zaten kilitlediğinden ek kilit yok). `gone` →
+    bilinmeyen (yalnız TOTP, çerez silinir, audit/e-posta/oturum iptali yok); `mismatch` → yeniden kullanım (değişmedi).
+    `consumeAtLogin`'e test kancası `beforeRotate` (ADR-0023; üretimde verilmez).
+  - D-P27a-K2: ortak `ownsTrustedDevice(row, owner)` (kullanıcı + firma) login `classify` ve profil `currentTrustedDeviceId`'de;
+    süre `trustedDeviceLive` (atlama + profil "Bu cihaz"; tasarım §5.1 gereği yeniden kullanım tespiti süreden bağımsız kalır).
+    `currentTrustedDeviceId(db, owner, raws, now?)` imzası `userId` yerine `{id, tenantId}` alır.
+  - Dosya boyu: bildirimler `auth/trusted-device-notify.ts`'e, UA özeti `auth/trusted-device-ua.ts`'e taşındı;
+    `trusted-device.ts` 349 → 298 satır. Sözleşme/HTTP değişikliği yok (frontend etkilenmez).
+  - Testler: `p27a-repo` (`gone`, `mismatch`, `deleteForLockedUser`), `p27a-rotation` (satır arada silinince reuse yok + oturumlar
+    açık; özet arada değişince reuse; profil sahiplik firma/kullanıcı/süre).
+  - Doğrulama (geçici `rs-p27a-fix-db`, mysql 8.4, CI env'i; iş sonunda silindi): typecheck/eslint temiz, prettier (değişen dosyalar)
+    temiz, unit 456/456. Tam `test:int` 3 ardışık koşu: 865/867, 864/867, 865/867. Hiçbirinde `enable 503`, `account-p10` AC-67,
+    `p15-backend` AC-231, `security-p14a-auth` AC-215 kırmızısı yok. Kalan kırmızılar P27a'dan değil: (a) her koşuda
+    P27-K3 WIP: `tenant-isolation` AC-69 (12 `/unattended/*` uç sınıfsız) + `pt-surface` AC-318
+    (yeni `POST /unattended/devices/:id/connect` anlık görüntüde yok); (b) 2. koşuda `customers-csv-p19` AC-263 süre ölçümü (54 sn / sınır 30 sn;
+    paralel ajan yükü; diğer iki koşuda geçti).
+
+### P27a — düzeltme turu 2 (güvenlik kod turu 2: D-P27a-K3, D-P27a-K4) — backend-dev — 2026-11-15
+
+- **D-P27a-K3** (`auth/service.ts`, `auth/repo.ts`): login TX'inin ilk ifadesi yeni `repo.lockUserForLogin` —
+  `SELECT password_hash, totp_enabled, status, deleted_at FROM users WHERE id=? FOR UPDATE`. Şifre özeti TX dışındaki okumadan
+  farklıysa ya da kullanıcı artık giriş yapamıyorsa (status/deleted_at) TX boş biter, oturum açılmaz → 401 (aynı mesaj) + audit
+  `auth.login fail {reason:"credentials_changed"}`. Hata sayacı artmaz (kişi eski şifreyi biliyordu; kaba kuvvet değil).
+  `totpEnabled` kararı (mfa_passed, `consumeAtLogin`, `mfaStage`, `toAuthUser`, `owner`) kilitli değerle verilir. Trusted-device akışı
+  ve başarı audit'i değişmedi.
+  - **Rapordan sapma (gerekçeli): FOR SHARE yerine FOR UPDATE.** Aynı TX `clearFailures` ile kullanıcı satırına yazabiliyor; S→X
+    yükseltmesi eşzamanlı iki girişte 1213 kilitlenmesi üretir (FOR SHARE'le yeni testte 2/2 koşuda kırmızı olduğu doğrulandı).
+    Kilit sırası users → trusted_devices → auth_sessions; `enableTx`, şifre değişimi/sıfırlama, Admin 2FA sıfırlama ve
+    `createTrustedDevice` de önce kullanıcı satırını X kilitler → iki yön serileşir. Maliyet: aynı kullanıcının login TX'leri sıralı.
+  - Test kancası `login(..., hooks: { afterRead })` (10. parametre; ADR-0023 kalıbı, route vermez).
+  - Yeni test `test/integration/p27a-login-race.test.ts` (4): okuma sonrası 2FA etkinleştirme → yarım oturum; okuma sonrası şifre
+    değişimi → 401 + audit; enable ile 4 paralel giriş × 3 tur → 5xx yok, etkinleştiren dışında tam oturum yok; dolu hata sayaçlı
+    hesapta 5 paralel giriş → kilitlenme yok. Düzeltme geri alınınca ilk üç test kırmızı (doğrulandı).
+- **D-P27a-K4** (`test/helpers/tenant-matrix.ts`, `tenant-isolation.test.ts`): `twoTenants` her firma Admin'ine bir `trusted_devices`
+  satırı ekler (`trustedDeviceId`); `idsOf` bu id'yi içerir. Self GET testinde `GET /auth/trusted-devices` için B Admin'in yanıtı
+  kendi cihazını içerir, B User'ınki içermez (pozitif kontrol).
+- Sözleşme/HTTP değişikliği yok (frontend etkilenmez).
+- Doğrulama (geçici `rs-p27a-k3fix-db`, mysql 8.4, CI adımları; sonunda silindi): typecheck, eslint, prettier (değişen dosyalar) temiz;
+  unit 461/461; `p27a-*`, `auth-*`, `account-p10`, `p15-backend`, `security-p14a-auth`, `tenant-isolation`, `superadmin-reset-p13b`
+  2 koşu 144/144. Tam `test:int` 909/912: `unattended-register` AC-273 (P27 WIP), `customers-csv-p19` AC-263 süre ölçümü (38 sn,
+  yük), `tenant-purge-meta-p16` AC-242 — son ikisi tek başına ve auth testleriyle birlikte yeniden koşuda geçti (yük/paralel kaynaklı).
+
 ## P27
 
 ### P27-K1 — contracts: gözetimsiz erişim sözleşmeleri (backend-dev, 2026-11-15)
@@ -9586,6 +9646,112 @@ Bağımlılık eklenmedi.
 Açık noktalar: kilit ekranı/UAC'de gösterge ve O-P27-4 sırası K6b; gösterge metni sunucudan geldiği gibi gösterilir
 (TEST öneki sunucunun `deviceIndicatorText`'inde), istemci kendi imza durumundan önek eklemez.
 
+### P27 K6b — Secure Desktop / giriş masaüstü izleme (Go) — backend-dev — 2026-11-15
+
+AC: 274 (masaüstü izleme kısmı), 294 (masaüstü değişiminde yeniden çizim), 342 (doğrulama öncesi kare/girdi yok). Kaynak:
+`docs/mimari-p27.md` §5.2 (K-P27-1, r2 O-P27-4), §5.5, §9 K6b. Bağımlılık eklenmedi. **Windows elle testi yapılmadı**
+(bu ortamda Windows yok) — AC-274 kilit/UAC/giriş ekranı kanıtı elle testten (aşağıda) gelmeden kapanmaz (R-P27-1).
+
+#### Dosyalar
+
+- Yeni `apps/agent-win/internal/desktop/`: `follow.go` (platformsuz: `Gate` — açık/kapalı + dönem; `Follower` — 250 ms
+  yoklama, değişimde **önce kapı kapanır**, gösterge yeni masaüstünde kurulup doğrulanır, bağlanılan ad hâlâ giriş
+  masaüstüyse kapı yeni dönemle açılır, 2 sn bütçe dolarsa `ErrIndicator`), `gated.go` (`Source`: kapı kapalıyken kare
+  yok, geçişte alınan kare/hata düşer, yeni dönemde alttaki kaynak kapatılıp yeniden açılır; `Input`: kapalı kapıda olay
+  düşer, kuyruğa alınmaz), `follow_windows.go` (`InputName` = `OpenInputDesktop`+`GetUserObjectInformationW(UOI_NAME)`;
+  `Attach` = kilitli iş parçacığını `SetThreadDesktop` ile giriş masaüstüne bağlar, `release` önceki masaüstüne döner ve
+  tanıtıcıyı kapatır). Test: `follow_test.go`.
+- Yeni `internal/unattended/helper/follow.go` (`liveIndicator`: masaüstü değişiminde yenilenen göstergeyi tek `Indicator`
+  olarak sunar; `follow`; `gatedFlow` — `flow.Deps.Capture`/`Input` kapıya bağlanır), `desktop_windows.go` (`deskInjector`:
+  SendInput tek kilitli iş parçacığında, dönem değişince yeni giriş masaüstüne geçer, kapı kapalıysa düşürür;
+  `attachCapture`). Test: `follow_test.go`.
+- `helper.go`: `Indicator.Desktop()`; `Deps.InputDesktop`, `Gate`, `Resumed`, `FollowInterval/FollowTimeout`; `Run`
+  göstergeyi `liveIndicator`'a sarar, izleyiciyi başlatır, akışa kapılı yakalama/girdi verir.
+- `indicator_windows.go`: gösterge iş parçacığı pencere oluşturmadan önce `desktop.Attach` (bağlandığı ad `Desktop()`);
+  pencere sınıfı bir kez kaydedilir; tek global `indCurrent` yerine iş parçacığı kimliği → gösterge eşlemesi (geçişte iki
+  gösterge iş parçacığı kısa süre bir arada); `Close` ayrıca bayrak koyar, 1 sn zamanlayıcı görür (başka masaüstündeki
+  pencereye ileti ulaşmazsa).
+- `main_windows.go`: ortak `desktop.Gate`; `capture.Opener{Attach: attachCapture}`; `input.NewApplier(…, deskInjector)`;
+  `Resumed = applier.ReleaseAll`.
+- `internal/capture/source_windows.go` (+22 satır, kanca < 30 → bölünmedi): `Opener.Attach` alanı ve `attach()`; yakalama
+  iş parçacığı `LockOSThread` sonrası, COM/MF öncesi giriş masaüstüne bağlanır. **nil → P20 davranışı aynen** (katılımlı
+  istemci alanı doldurmaz).
+
+#### Tasarımdan sapmalar (gerekçeli)
+
+1. **`input/host_windows.go` ve `ui/overlay_windows.go` değişmedi.** Yardımcı `input.Host`'u (kısayol/LL kanca) kurmaz ve
+   göstergesi K6'da yardımcının içinde yazıldı (`ui` derleme sınırı dışında). Girdi kancası yerine SendInput
+   `input.Injector` sarmalayıcısıyla (`deskInjector`) giriş masaüstüne bağlanır — P20 paketlerinde girdi değişikliği yok.
+2. **DXGI "ACCESS_LOST ile yeniden kurulur" yerine yeni dönemde kaynak baştan açılır** (yeni kilitli yakalama iş
+   parçacığı, açılışta `Attach`). Gerekçe: `SetThreadDesktop` iş parçacığı başına ve yalnız penceresi/kancası olmayan iş
+   parçacığında geçerlidir; COM/MF durumu olan eski iş parçacığını taşımak yerine taze iş parçacığı en az değişikliktir.
+   Mevcut `ACCESS_LOST` kurtarma yolu kendi içinde sürer (aynı masaüstünde mod değişimi vb.). Yeni kaynak IDR ile başlar.
+3. **Gösterge yeniden çizimi `rebuild()` ile değil yeni gösterge iş parçacığıyla.** Pencereli iş parçacığı masaüstü
+   değiştiremez; yeni masaüstünde yeni gösterge çizilip doğrulanır, ardından eskisi (görünmeyen masaüstünde) kapatılır.
+   Geçiş boyunca eski göstergenin hatası dinlenmez (kapı zaten kapalı; sonuç izleyicinin 2 sn bütçesinde).
+4. **Geçişten sonra `Applier.ReleaseAll`** (doğrulama ve kapı açıldıktan sonra): kapalı kapıda düşen bırakma olayları
+   (ör. Win+L'de Win tuşu) takılı kalmasın. Bu bir enjeksiyondur ama doğrulamadan sonradır (O-P27-4'e uygun).
+5. **Masaüstü adı okunamazsa** (geçiş anında `OpenInputDesktop` NULL) değişim sayılır: kapı kapanır, bütçe başlar.
+6. **Ayrıcalık:** `allowedPrivileges` değişmedi (`SeChangeNotifyPrivilege`). `OpenInputDesktop`/`SetThreadDesktop`
+   ayrıcalık değil masaüstü ACL'i ister (SYSTEM SID kısıtlı jetonda da var). İstenen masaüstü hakları: READOBJECTS,
+   CREATEWINDOW, CREATEMENU, HOOKCONTROL, JOURNALRECORD, JOURNALPLAYBACK, ENUMERATE, WRITEOBJECTS (SWITCHDESKTOP yok).
+   Elle testte `Attach` reddedilirse ölçüm buraya yazılır; ek ayrıcalık **adıyla** eklenir.
+
+Yakalama/girdi algılama gecikmesi: değişim en geç 250 ms'de algılanır. Bu arada eski iş parçacıkları eski masaüstündedir:
+DXGI `ACCESS_LOST`/GDI yeni masaüstünü göremez ve SendInput giriş masaüstünde olmayan iş parçacığından reddedilir; yani
+yeni masaüstünün görüntüsü/girdisi doğrulamadan önce geçmez. Kapı kapandıktan sonra gelen her kare ve girdi düşer.
+
+#### Testler (AC adlı)
+
+- `internal/desktop`: `TestAC342GateClosesBeforeIndicatorRebuildAndOpensWithNewEpoch` (Bind sırasında kapı kapalı, dönem
+  1→2, `Resumed` 1), `TestAC342IndicatorNotVerifiedWithinDefaultTwoSecondsIsIndicatorFailed` (varsayılan 2 sn ±),
+  `TestAC342UnreadableDesktopKeepsGateClosedThenFails`, `TestAC342BindOnStaleDesktopDoesNotOpenGate`,
+  `TestAC342FramesAndInputDroppedWhileDesktopChanges` (kapalı kapıda kare +0, girdi 0; açılınca kaynak yeniden açıldı),
+  `TestAC342ReopenFailureEndsSourceWithError`, `TestInputNilStaysNil`.
+- `internal/unattended/helper` (tam `Run`, sahte masaüstü + sayan yayın eşi):
+  `TestAC342DesktopChangeUnverifiedIndicatorNoFramesNoInputThenIndicatorFailed` (değişimden sonra kare 0, girdi 0,
+  `session.end`, çıkış `indicator_failed`, ≤ 2 sn + grace), `TestAC294DesktopChangeRebuildsIndicatorThenResumes`
+  (150 ms çizim gecikmesinde kare/girdi 0 → sonra devam; eski gösterge kapandı, eskisinin hatası oturumu bitirmedi),
+  `TestAC294RebuiltIndicatorFailureEndsSession`.
+
+#### Doğrulama (docker golang:1.26, 2026-11-15)
+
+- `gofmt -l .` boş; `go vet ./...` linux + `GOOS=windows GOARCH=amd64` temiz.
+- `go test -race -count=1 ./...`: 26 paket ok, 0 hata (`boundary_test` yeni `internal/desktop` ile geçti).
+- `GOOS=windows go test -c` (`desktop`, `unattended/helper`, `capture`) derlendi; `GOOS=windows go build`
+  `./cmd/noktadestek-servis` + `./cmd/noktadestek` derlendi.
+- `staticcheck` v0.8.2 `./...` linux + windows/amd64 temiz.
+
+#### Windows elle test adımları (K6b; staging ikilisi, kurulu servis, iki hesap: yönetici A, standart B)
+
+Her adımda teknisyen tarafında: görüntü, fare/klavye ve cihazda gösterge kontrol edilir; `servis.log`/olay günlüğünde
+çıkış nedeni okunur. Gösterge görünmeden teknisyende yeni masaüstünün tek karesi bile görünmemeli.
+
+1. **Kilit ekranı:** A oturumu açık, bağlan → teknisyen klavyeden Win+L (ya da cihazda Win+L) → ≤ 2 sn içinde kilit
+   ekranında kırmızı kenarlık + etiket; teknisyen kilit ekranını görür, şifre alanına yazabilir, A'nın şifresiyle açar →
+   masaüstüne dönüşte gösterge yeniden çizilir, görüntü sürer. Win tuşu takılı kalmamalı (Başlat menüsü kendiliğinden açılmaz).
+2. **UAC onayı:** A (yönetici) oturumunda teknisyen `regedit` başlatır → karartılmış güvenli masaüstünde gösterge + UAC
+   penceresi teknisyende görünür, "Evet" tıklanabilir → masaüstüne dönüş. Standart kullanıcı B'de UAC kimlik bilgisi
+   istemi: teknisyen yönetici şifresini yazabilir (O-P27-4 yönerge notu).
+3. **Oturum açılmamış giriş ekranı:** cihazı yeniden başlat, kimse oturum açmadan bağlan → giriş ekranı (Winlogon) ve
+   gösterge görünür, teknisyen A ile oturum açar → masaüstü yüklenince gösterge Default masaüstünde yeniden çizilir.
+   (Not: oturum açılınca konsol oturumu aynı kalırsa oturum sürer; değişirse K-P27-12 gereği `session_changed` ile biter.)
+4. **Oturum kapatma:** A oturumu açıkken bağlan → teknisyen "Oturumu kapat" → giriş ekranına dönüşte ya oturum sürer
+   (gösterge Winlogon'da) ya da konsol oturumu değiştiyse `session_changed` ile biter; ikisi dışında bir durum (görüntü
+   donması, gösterge yok iken kare) hata.
+5. **Hızlı kullanıcı değiştirme:** A açıkken Başlat → "Kullanıcı değiştir" → giriş ekranında gösterge; B ile giriş →
+   konsol oturumu değişir → bağlantı `session_changed` ile biter (K-P27-12); B oturumunda yeni bağlantı açılabilir.
+6. **Ekran koruyucu** (parolalı, 1 dk): bağlıyken bekle → ekran koruyucu masaüstünde gösterge; fare oynatınca kilit/Default.
+7. **Doğrulanamayan gösterge:** Process Hacker ile yardımcının gösterge iş parçacığını askıya al, Win+L → ≤ 2 sn içinde
+   oturum `indicator_failed` ile biter; teknisyende kilit ekranı karesi görünmemiş olmalı.
+8. **Ayrıcalık ölçümü:** Process Explorer → yardımcı jetonunda yalnız `SeChangeNotifyPrivilege`; adım 1–3 bu jetonla
+   çalıştıysa ek ayrıcalık gerekmez. `Attach` reddedilirse (gösterge çizilmez, `indicator_failed`) sonucu bu bölüme yaz.
+9. **Katılımlı (P20) gerileme:** `noktadestek.exe` ile normal destek oturumu; görüntü/girdi/UAC davranışı öncekiyle aynı
+   (P20'de `Opener.Attach` nil).
+
+Açık risk (R-P27-1): DXGI'nin Winlogon'da açılamaması durumunda yakalama zinciri GDI'ya düşer (mevcut yol); o da açılamazsa
+paylaşım "Ekran görüntüsü alınamadı" ile durur — elle testte görülürse kapsam daraltılmadan raporlanır.
+
 ### P27 K7 — gözetimsiz servis ayar penceresi, tepsi, kurulum/kaldırma arayüzü (Go) — backend-dev — 2026-11-15
 
 AC: 274 (kurulum/kaldırma UI), 295 (yerel kapatma), 338 (boru PID doğrulama, "Servis doğrulanamadı", "Kapalı" HKLM'den),
@@ -9753,3 +9919,365 @@ Kaynak: `docs/mimari-p27.md` r2+r3 §4.2, §4.5, §7, §9 K2; koordinatör devir
 3. K3: connect ucu (+ kullanıcı başına 20/sa), hub `DeviceLink` uygulaması ve `app-routes.ts`'te `link` verilmesi.
 4. K4: outbox işçisinde `UNATTENDED_STARTED`/`UN_*` teslimi (şimdi PENDING bekler), müşteri anonimleştirmesinde adres silme.
 5. K9: yeni 5 env için `.env.example`, compose (`server`), runbook.
+
+**K2 test notu (P27-K2/K4 ajanı, 2026-11-15):** "Yapılmayan" 1 ve 2 tamamlandı. `tenant-matrix.ts`'e 12 uç (5 `scoped`, 1
+`public`, 6 `tenant` + `CROSS_TENANT_CASES`, fikstüre `codeId`) eklendi, `tenant-isolation` 5/5 yeşil. Yeni testler:
+`unattended-api.test.ts` (12; uçlar ikinci önekte `fakeLink` ile), `unattended-register.test.ts` (6),
+`test/unit/env-deploy.test.ts` (5). Not: SMTP değişikliği audit eylemi `tenant_settings.updated`. Mimari §7.2'deki
+`settings.smtp` yanlış ad, alanlar (`unattendedDevices`, `smtpChangeNotice`) bu eylemde.
+
+### P27-K3 — cihaz hub'ı, `/ws/device`, connect ucu, admit-device (backend-dev, 2026-11-15) — TAMAM (devam turu aşağıda)
+
+Kaynak: `docs/mimari-p27.md` r2+r3 §2, §4.3, §4.4, §4.6, §7.1–7.3, §9 K3; devir notları (K0/K1). Commit yok.
+
+**Yeni dosyalar**
+
+- `apps/server/src/unattended/hub.ts`: `DeviceHub` (`DeviceLink`'i uygular). `attach` (eski soket 4409 + `rs_unattended_device_replaced_total`, 10 dk kayan sayaç, > 3 → `replacedAlert` + audit `unattended.device.replaced` 10 dk'da ≤ 1), `detach`, `send`, `revoked` (`revoked{}` + 4401 + `finishDevice(device_revoked)`), `grantsRemoved` (`finishDevice(permission, userId)`), `roomEnded` (Rooms.teardown kancası: cihaza `disconnect`, `rs_unattended_sessions_ended_total{reason}`, audit `unattended.session.ended`), gauge `rs_unattended_devices_online`.
+- `unattended/device-ws.ts`: `/ws/device` kanalı (kendi WebSocketServer'ı, `rs.device.v1`, 4 KB). Upgrade öncesi: sorgu dizesi → 403, Origin → 403, alt protokol → 403, IP kovası 31/dk → 429, kimliksiz tavan 1000 toplam / IP başına 5 → 503 + `device_auth_total{unauth_cap}`. `device.hello{nonce}`, 10 sn auth süresi (4401), 5 msg/sn (1008), ping 30 sn / 2 kayıp. Kapanışta `last_seen_at`.
+- `unattended/device-auth.ts`: Ed25519 doğrulaması (`deviceAuthMessage`, origin = `PUBLIC_BASE_URL`). Sıra: bilinmeyen → imza → iptal (`revoked{}` + 4401) → firma pasif (4401) → kapı (4403). Başarıda beyan alanları + `last_seen_at/last_ip` yazılır. Audit: `ipChanged`, `local_state` (via auth), başarısızlık cihaz başına dakikada ≤ 1.
+- `unattended/device-msg.ts`: `connect.result` (ok:false → CANCELLED(<neden>)), `device.state` (cihaz FOR UPDATE + audit, false → oda `local_disabled`), `session.closed`, `device.unregister` (UNINSTALLED iptali). **Karar (K1 notu):** konsola giden neden: `helper_failed`/`no_console`/`busy` → `device_timeout`. `local_disabled`/`indicator_failed` aynı adla gider. DB `end_reason` cihazın nedenini tutar.
+- `unattended/connect.ts` + `connect-tx.ts`: `POST /devices/:id/connect`. §4.3 zinciri sırasıyla çalışır, her ret için audit `unattended.connect{fail, reason}` + metrik yazılır. Kullanıcı başına 20/sa sınırı var. TX sırası: cihaz FOR UPDATE → grant FOR SHARE (`g.tenant_id = d.tenant_id`) → meşgul kontrolü → `lockTechnician` + sınır → PENDING (60 sn, kod yok, `customer_name` = cihaz adı) → step-up koşullu tüketim → audit (`stepUpMethod`; yöntem bu oturumun son `auth.step_up` audit'inden okunur). Commit sonrası `preAdmitDevice` + cihaza `connect{…, indicatorText}` gider. Gönderilemezse oturum `device_timeout` ile biter. `timing.requestConnectMs` içinde kabul yoksa CANCELLED(device_timeout). Kurtarma koduyla bağlanılırsa diğer `manage` sahiplerine e-posta gider (`mail.ts recoveryConnectMail`).
+- `unattended/notify.ts`: `enqueueStarted`. `UNATTENDED_STARTED` satırları yazılır: her adrese EMAIL, firmada açıksa telefona SMS/WA. Tavanlardan muaftır.
+- `unattended/customer-passive.ts`: müşteri pasife alınınca cihazlar `CUSTOMER_PASSIVE` ile iptal edilir, grant'ları silinir, her cihaz için audit yazılır.
+- `signaling/admit-device.ts`: `admitDeviceGuest`. Teknisyen DB'de etkin olmalı ve `unattended.connect` yetkisi olmalı. Tek TX: cihaz kilidi → iptal/yerel/grant/kapı yeniden kontrol → `consumeForAdmit(UNATTENDED)` → metinsiz VIEW onayı (UNATTENDED) → audit `unattended.session.started` → outbox. Bir koşul düşerse oturum CANCELLED olur. Tüketim sırasında oda biterse `lateEnd` DB'deki ACTIVE'i hemen ENDED yapar.
+- `signaling/rooms-device.ts`: `preAdmitDevice`, `endDeviceRoom` (PENDING → DB CANCELLED + `closeSession`; ACTIVE → `finish`), `finishDevice`, `deviceRooms`, `revalidateDevice` (O-P27-3 yedek yolu).
+- Testler: `test/helpers/unattended-device.ts` (anahtarlı cihaz, sahte servis/yardımcı, `ready` fikstürü), `test/integration/unattended-connect-k3.test.ts` (12 test).
+
+**Değişen dosyalar**
+
+- `signaling/types.ts`: `Room.unattended`, `ConsentSource += UNATTENDED`.
+- `signaling/rooms.ts` (+12): `getOrCreate` public, `deviceEnded`/`devices` kancaları, teardown kancası, `applyPermChange` dalı (`unattended.connect` düşerse `permission`). **rooms.ts 429 satır.** Bölme gerekiyor (devralan ajan).
+- `signaling/ws.ts`: `DeviceChannel`, `/ws/device` yönlendirmesi, 60 sn zamanlayıcıda gözetimsiz odalar için `revalidateDevice`. Bu, teknisyen bağlı olmasa da çalışır.
+- `signaling/ws-auth.ts`: `deviceTicket` dalı. Sürüm kontrolü yok, kuşak kontrolü var, kabul `admitDeviceGuest` ile yapılır.
+- `signaling/control.ts` + `control-grant.ts`: `source:"UNATTENDED"` yalnız gözetimsiz odada GRANTED olarak kabul edilir. Başka bir durumda misafir soketi 1008 ile kapanır ve audit `control.granted{fail, unattended_source_outside_room}` yazılır. `onGranted(source)`.
+- `signaling/active.ts`: teknisyen `hello.unattended {deviceId, deviceName}`.
+- `signaling/admit.ts`: `activeTechPerms` dışa açıldı. `sessions/repo.ts`: `consumeForAdmit` modu `UNATTENDED` kabul ediyor.
+- `app.ts`: `unattendedHub` decorate, kanal `attachSignaling`'e verildi, `rs_ws_connections{role="device"}`.
+- `unattended/routes.ts`: connect ucu. Varsayılan link = `app.unattendedHub`. `unattended/repo.ts`: `openDeviceSessions`, `lockGrant`. `unattended/mail.ts`: `recoveryConnectMail`.
+- `customers/write-tx.ts` + `customers/service.ts`: pasife almada cihaz iptali, commit sonrası `rooms.devices.revoked`.
+- `test/helpers/tenant-matrix.ts`: yalnız connect ucu (`tenant` + IDOR satırı, step-up) ve fikstüre `deviceId`.
+
+**Tasarımdan sapmalar (gerekçeli)**
+
+1. `UNATTENDED_STARTED` outbox satırı connect TX'inde değil, **admit TX'inde** yazılır (mimari §2 adım 5, §7.1). Bildirim oturum gerçekten başlayınca gider; gösterge çizilemediyse bildirim gitmez. Koordinatör notu "connect TX" diyordu; mimari esas alındı.
+2. `/ws/device` kanalı `signaling/ws-auth.ts` yerine `unattended/device-ws.ts`'te. Ayrı WebSocketServer gerekiyor (farklı alt protokol, 4 KB). ws.ts yalnız yönlendiriyor.
+3. Yedek yeniden doğrulama gerçek zamanlayıcı kullanıyor (`revalidateMs`). "Sahte saatli" test bu turda yazılmadı (aşağıda).
+4. `unattended.session.ended` audit'i teardown kancasında, `session.ended` TX'inden ayrı ve en iyi çabayla yazılıyor. `durationSec`, misafir oluşturma anından hesaplanıyor (≤ 60 sn sapma).
+5. Firma pasifinde cihaz soketleri kapatılmıyor. Odalar `endByTenant` ile bitiyor, yeniden auth 4401 alıyor.
+
+**Doğrulama**
+
+- `pnpm --filter @remote/server typecheck` 0 hata. Yeni/değişen dosyalarda eslint temiz. prettier yalnız yeni dosyalara uygulandı.
+- `vitest run test/integration/unattended-connect-k3.test.ts` → **12/12** (konteyner `rs-p27-k3-db`, silindi). Kapsam: AC-273 tam akış + step-up ikinci bağlantıda 401, AC-293/336/296 zincir + ret audit'i, AC-338 eşzamanlı → 409 DEVICE_BUSY, AC-338 revoke ‖ admit → ACTIVE yok, AC-275 iptal → 4401 + `device_revoked` + 404, AC-293 grant geri alma → `permission` ≤ 5 sn, AC-295 `device.state`, AC-294 `indicator_failed`/`helper_failed`, `device_timeout`, AC-339 `stepUpMethod=recovery_code`, müşteri pasifi → CUSTOMER_PASSIVE + 4401.
+- `tenant-isolation.test.ts`: K3 dışı 2 kırık var. (a) K2'nin 12 ucu sınıflandırılmamış (devralan ajan). (b) "self GET" testinde bir uç `{"items":[]}` dönüyor. K3 uçlarından değil, P27a trusted-device uçlarından biri gibi görünüyor, doğrulanmadı.
+- **Tam `test:int` koşusu yapılmadı** (tur sınırı).
+
+**Yapılmayan (devralan ajan için)**
+
+1. Tam `pnpm --filter @remote/server test:int` koşusu. Mevcut signaling/control/rooms testlerinde regresyon olabilir; özellikle `pt-surface` rota/sözleşme anlık görüntüsü (yeni connect ucu) ve `signaling-*`.
+2. `/ws/device` testleri yazılmadı. AC-339 kimliksiz tavanı (IP başına 6. soket 503, toplam 1000), `ipChanged` audit'i, 4409 sayacı + `replacedAlert` + audit 10 dk'da ≤ 1. AC-297 kapı `off` → 4403, kötü imza → 4401, iptal edilmiş cihaz → `revoked{}` + 4401, Origin/sorgu dizesi/alt protokol → 403, 10 sn auth süresi, `device.unregister`.
+3. AC-338 yedek yol testi: `finishDevice` çalışmadan (DB'yi doğrudan değiştirerek) ≤ 60 sn kesilme. Kısa `revalidateMs` ya da `revalidateDevice` doğrudan çağrısıyla yazılmalı. "Sahte saat" isteniyorsa ws.ts zamanlayıcısı `rooms.clock` üzerine alınmalı.
+4. Kalan testler: kontrol `source:UNATTENDED` gözetimsiz oda dışında → 1008 + audit; gözetimsiz odada GRANTED kaydı `UNATTENDED` kaynaklı. Connect ucunun 20/sa sınırı. Kurtarma koduyla bağlantı e-postasının içeriği/alıcısı. SMS/WA outbox satırları.
+5. `signaling/rooms.ts` 429 satır. "Dokunan böler" kuralı gereği K3 eklemesi ≤ 30 satır (+12), ama dosya zaten > 300. Bölme ayrı iş.
+6. Firma pasifinde hub soketlerini kapatma (`afterDeactivate` → `unattendedHub` firma kapatma) yapılmadı. Yeniden auth 4401 ile korunuyor.
+7. K2'nin uç sınıflandırması `tenant-matrix.ts`'te (ayrı ajan).
+
+**frontend-dev için**
+
+- `POST /api/v1/unattended/devices/:id/connect` → `{sessionId}`. Hatalar §4.3 zincirindeki gibi; ek olarak 429 `RATE_LIMITED`.
+- Konsol `session.ended.reason` değerleri: `device_revoked`, `permission`, `local_disabled`, `indicator_failed`, `device_timeout` (cihaz yardımcıyı başlatamadığında da bu), `session_changed`. Teknisyen `hello.unattended` yalnız gözetimsiz odada gelir.
+- Gözetimsiz odada `control.state` kaynağı `UNATTENDED` olarak gelir.
+
+#### P27-K3 devam — kalan işler (backend-dev, 2026-11-15)
+
+Önceki turun "Yapılmayan" listesinden 1–6 kapandı (7 başka ajanın). Commit yok. Konteyner `rs-p27-k3b-db` (mysql:8.4) kullanıldı, sonra silindi.
+
+**Değişen / yeni dosyalar**
+
+- `signaling/rooms.ts` 429 → **294** satır, davranış değişmedi. Lobi işlemleri yeni `signaling/rooms-lobby.ts`'e taşındı (`addGuest`, `preAdmitGuest`, `reissueRequestTicket`, `attachGuest`, `leaveLobby`, `admitHash`, `pending`); sınıf bunlara ince sarmalayıcılarla devrediyor, dışarıya açık API aynı. `admitHash` rooms.ts'ten yeniden dışa açılıyor. `finish`'in DB TX'i (ENDED + `session.ended` audit) `active.ts recordEnded`'e taşındı. `TechnicianLiveControl` arayüzü `types.ts`'e alındı. `dropRoomIfIdle` artık `private` değil, çünkü rooms-lobby.ts çağırıyor.
+- `signaling/ws.ts`: gözetimsiz odaların yedek yeniden doğrulaması (`revalidateDevice`) ayrı bir zamanlayıcıya taşındı: `startDeviceRevalidation`, `rooms.clock` üzerinde yinelenen `setTimeout` ile çalışıyor, sahte saatle test edilebiliyor. `SignalingOptions.deviceUnauth` eklendi; yalnız testler için.
+- `unattended/device-ws.ts`: kimliksiz soket tavanları `createDeviceChannel(..., { unauth: { max, perIp } })` ile enjekte edilebiliyor. Varsayılan K-P27-21 sabitleri değişmedi: 1000 / IP başına 5. 10 sn auth süresi `rooms.clock` üzerinde (üretimde aynı `realClock`). `app.ts` seçenekleri geçiriyor.
+- `unattended/hub.ts`: `closeByTenant(tenantId)` eklendi; firmanın cihaz soketlerini 4401 `tenant_passive` ile kapatıyor. `tenants/service.ts` `TenantLiveEffects.devices?` alanını, `tenants/deactivate.ts afterDeactivate` yeni `devices` adımını aldı (diğer adımlar gibi bağımsız; hata loglanıyor). `tenants/routes.ts` `app.unattendedHub`'ı veriyor.
+- Testler: `test/integration/unattended-device-ws-k3.test.ts` (9) ve `test/integration/unattended-k3-fallback.test.ts` (8). `__snapshots__/pt-surface.test.ts.snap`'e connect ucu eklendi (bilinçli; yeni uç).
+
+**Tasarımdan sapmalar (gerekçeli)**
+
+1. Önceki turun 3. sapması kapandı: yedek yol artık sahte saatle test ediliyor. Yalnız **cihaz** yeniden doğrulaması `rooms.clock`'a taşındı. Teknisyen `revalidateTech` döngüsü gerçek `setInterval`'da kaldı. Nedeni: `signaling.clock` alan 5 test dosyası (p18, p19, requests-p8b-3/6) saati dakikalarca ilerletiyor; teknisyen döngüsünü taşımak bu testlerde DB'ye giden ek turlar başlatır ve davranışlarını değiştirir. Mimari §4.4 r2 yalnız cihaz yedek yolunun sahte saatle testini istiyor.
+2. Önceki turun 5. sapması kapandı: firma pasifinde cihaz soketleri kapatılıyor. Firma silme (`TenantPurgeRunner.closeTenant`) cihaz soketi kapatmıyor. Silme yalnız pasif firmaya uygulandığından soketler o noktada zaten kapalı; yeniden auth da 4401 alıyor.
+3. Kimliksiz soket tavanı env değil, bir test kancası (`signaling.deviceUnauth`). Üretimde K-P27-21 kararı gereği sabit kalıyor.
+
+**Test kapsamı (yeni)**
+
+- `/ws/device`:
+  - AC-339 G-10: sorgu dizesi, Origin ve yanlış alt protokol → 403.
+  - AC-339 D-P27-1: IP başına 6. kimliksiz soket → 503; süreç geneli tavan → 503 + `device_auth_total{unauth_cap}`. Bir soket kapanınca yer açılıyor; auth başarısı sayaçtan düşürüyor.
+  - AC-273: kötü imza → 4401 + audit `bad_sig` + metrik; bilinmeyen cihaz → 4401.
+  - AC-275: iptal edilmiş cihaz → `revoked{}` + 4401.
+  - AC-297: `signed` modda imzasız beyan → 4403 + audit `gate`; imzalı ve listedeki SHA → `device.ready`.
+  - AC-339 D-P27-3: `ipChanged` audit'i yalnız IP değişince yazılıyor; beyan alanları yazılıyor.
+  - 10 sn auth süresi (sahte saat): 9 999 ms'de açık, 10 000 ms'de 4401 `auth_timeout`.
+  - `device.unregister` → UNINSTALLED, grant'lar silinir, `revoked{}` + 4401 + audit.
+  - 4409: eski soket kapanıyor. 4. değiştirmede `replacedAlert` ve liste rozeti açılıyor, metrik +5. 10 dk içinde audit 1 kez yazılıyor; pencere geçince rozet sönüyor ve yeni seride 2. audit yazılıyor.
+- AC-338 yedek yol (her test kendi sahte saatli sunucusunda): `hub.revoked` / `hub.grantsRemoved` no-op'a çevrildiğinde ya da yerel kapatma yalnız DB'de olduğunda oda anında açık kalıyor. `advance(60 sn)` sonunda sırasıyla `device_revoked` / `permission` / `local_disabled` ile bitiyor ve DB'de ENDED oluyor.
+- `control.state{GRANTED, UNATTENDED}`: gözetimsiz oda dışında misafir 1008 alıyor, audit `control.granted{fail, unattended_source_outside_room}` yazılıyor, kayıt ve iletim olmuyor. Gözetimsiz odada GRANTED, `source=UNATTENDED` ile kaydedilip iletiliyor; `VIEW/UNATTENDED` 1008 alıyor.
+- connect sınırı: 20/sa, 21. istek → 429 `RATE_LIMITED` + audit `limit`.
+- AC-339 D-P27-6: kurtarma koduyla bağlantıda e-posta yalnız diğer `unattended.manage` sahibine (Admin) gidiyor. Bağlanan teknisyen ve `manage`'siz kullanıcı e-posta almıyor (süreç içi sahte SMTP).
+- Firma pasifi: bağlı cihaz 4401 `tenant_passive` alıyor, hub çevrimdışı.
+
+**Doğrulama**
+
+- `pnpm --filter @remote/server typecheck` → 0 hata. `test` (unit) → 461/461.
+- Değişen/yeni dosyalarda eslint temiz. prettier yalnız dokunulan dosyalara uygulandı.
+- Yeni dosyalar 3'er kez ardışık koşuldu, hepsi yeşil. `unattended-connect-k3` 12/12.
+- Tam `pnpm --filter @remote/server test:int` (89 dosya, 906 test): **903 geçti, 3 kırmızı. Üçü de K3 dışı:**
+  - `retention-p13a-job` AC-199 (tek başına da kırmızı): K4 ajanının `jobs/retention.ts` + `unattended-cleanup.ts` değişikliği; audit'e sayı yerine dize yazılıyor.
+  - `unattended-api` AC-336 (SMTP değişikliği audit'i): K2 ajanının dosyası, üzerinde hâlâ çalışılıyor.
+  - `p19-notify-j3` AC-261: yalnız tam koşuda kırmızı, tek başına 18/18 yeşil. Tam koşuda paralel `unattended-outbox-k4` (K4 outbox teslimi, `notify/outbox.ts` değişiyor) ile aynı outbox satırlarında yarışıyor gibi görünüyor (koordinatöre raporlandı). Değişikliklerimden önceki tam koşuda (yalnız `pt-surface` ve `tenant-isolation` kırmızıydı) bu dosya yeşildi.
+- `tenant-isolation` AC-69 (K2 uç sınıflandırması, `tenant-matrix.ts`) bu koşuda yeşil; diğer ajan tamamlamış.
+- İkinci tam koşu (90 dosya, 912 test; makine yükü ~20): **909 geçti, 3 kırmızı, üçü de K3 dışı.** `unattended-k3-fallback`, `unattended-device-ws-k3`, `unattended-connect-k3`, `p19-notify-j3` ve `unattended-api` bu koşuda yeşil. Kırmızılar:
+  - `retention-p13a-job` AC-198 ve AC-199: K4'ün retention değişikliği.
+  - `customers-csv-p19` AC-263: ≤ 30 sn yerel performans ölçümü; yük nedeniyle 49 sn sürdü.
+- qa'nın tam koşusunda `unattended-k3-fallback` AC-338'in 2 testi kırmızı görünmüştü. Büyük olasılıkla koşu, test dosyasının ara sürümüne denk geldi. O sürümde paylaşılan sahte saat geri sarılıyordu; yedek tur zamanlayıcısı ileride kaldığı için AC-293 ve AC-295 düşüyordu (bende de tam bu 2 test kırmızıydı). Son sürümde her AC-338 testi kendi sahte saatli sunucusunu açıyor; dosya tek başına 2/2, tam koşuda yeşil.
+
+**Yapılmayan / devredilen**
+
+- Yok. K3 işi tamam. Yukarıdaki K3 dışı kırmızılar K4/K2 ajanlarına ve qa'ya ait.
+- Lint: `test/integration/unattended-outbox-k4.test.ts`'te 5 `no-non-null-assertion` hatası var (K4 ajanının dosyası).
+
+**frontend-dev için:** sözleşme değişikliği yok. Firma pasifinde cihaz listesi zaten `online:false` gösterir.
+
+### P27-K9 — gözetimsiz erişim altyapısı (devops, 2026-11-15)
+
+Kaynak: `docs/mimari-p27.md` r2+r3 §4.5, §5.3, §7.3, §8.1, §9 K9. Commit yok; staging'e bağlanılmadı.
+
+**Yapılan:**
+
+- `apps/agent-win/build/build.sh`: isteğe bağlı 4. argüman `noktadestek|noktadestek-servis` (varsayılan eski davranış); servis
+  için yeni `build/winres-servis.json` (kimlik `NoktaBilisim.NoktaDestekServis`, `asInvoker`, `OriginalFilename
+NoktaDestekServis.exe`). `.gitignore` syso deseni `cmd/*/`.
+- `.github/workflows/agent-win.yml`: build ×2 iki ikili; `reproducible` iki ikili için SHA eşitliği + ≤ 40 MB + MZ + UPX yok +
+  `asInvoker`; SHA256SUMS iki satır; adlar dal `NoktaDestekServis.exe` / dispatch `NoktaDestekServis-stg-<sürüm>.exe` / Release
+  `NoktaDestekServis-<sürüm>.exe` (`servis_exe` çıktısı); `sign` iki PE (SignPath artifact yapılandırması güncellenmeli —
+  runbook §27.4), `signtool verify` döngü; `unsigned-sha256.txt` artık iki satırlı SHA256SUMS; `attest` iki subject; `release`
+  iki ikili + notlar. `test-windows`: yer tutucu adresli servis ikilisi + "trace-check -Servis öz testi (P27)" (8 beklenen çıkış).
+  Yeni Action yok (SHA sabitleri aynı), permissions değişmedi.
+- `apps/agent-win/test/trace-check.ps1`: `-Servis on|off`; tarama her modda + ProgramFiles/ProgramData (1 seviye), HKLM Uninstall,
+  Application olay kaynakları. `on`: izinli küme (hizmet ImagePath tam/tırnaklı, HKLM, HKLM Run REG_SZ, Uninstall, olay kaynağı,
+  klasörler; `device.key.tmp` iz), klasör sahip/korumalı DACL/ACE kümesi/reparse denetimi (saf `Test-ServisAcl`,
+  `Get-ServisAllowance`), yönetici şart (yoksa 2). `.eski-*` UYARI.
+- `deploy/docker-compose.yml` server: `DEPLOY_ENV: ${DEPLOY_ENV:?…}`, `UNATTENDED_MODE`, `UNATTENDED_SIGNED_SHA256`,
+  `UNATTENDED_AGENT_PATH=/data/unattended/NoktaDestekServis.exe` (sabit), `UNATTENDED_AGENT_SHA256`; yeni volume
+  `unattended_downloads` yalnız server'a `:ro` (Caddy görmez; `/downloads/*` public yolu yok). `.env.example`: `DEPLOY_ENV`
+  açıklaması + 3 yeni boş anahtar (yol sabit olduğu için `.env`'de yok).
+- `.github/workflows/ci.yml` compose adımı: `.env`'e `DEPLOY_ENV=production`; server'da DEPLOY_ENV var ve tek servis, volume
+  Caddy'de yok, DEPLOY_ENV boşken compose durur denetimleri.
+- Yeni `deploy/agent/publish-servis.sh` (`--tag` Release / `--dir` + `--no-attestation` ALLOW_UNATTESTED=staging; ortam kilidi
+  production → yalnız vX.Y.Z; volume'a atomik yazım, `.env` SHA, server yeniden yaratma + konteyner içi SHA kontrolü).
+- `docs/runbook.md` §3 (4 satır) + yeni §27 (ortam değerleri, staging açılış adımları, imzasız ikili derleme/yayın, CI, `signed`
+  geçişi, kapatma/geri alma, Windows iz testi, sorun giderme, alarm eşikleri).
+- `apps/server/test/unit/env*.test.ts`: değişiklik gerekmedi (K2 production fikstürlerine `DEPLOY_ENV` eklemiş; 37/37 geçti).
+
+**Doğrulama (2026-11-15):** actionlint 1.7.8 temiz; shellcheck 0.11.0 `-S warning` deploy/ + scripts/ temiz; `docker compose config`
+(örnek .env + `DEPLOY_ENV=production`) geçerli, jq denetimleri beklenen; DEPLOY_ENV boş → compose "DEPLOY_ENV gerekli" ile durur;
+staging katmanı geçerli. golang:1.26.11 (digest'li) içinde iki ikili ×2 derlendi, SHA'lar eşit (servis `fc225e67…`, 12.8 MB,
+manifest asInvoker, UPX yok). `publish-servis.sh` yerel test kipi (`AGENT_PUBLISH_RESTART=0`): staging → yazıldı + `.env` SHA;
+production + dir → RET; DEPLOY_ENV boş → RET; ALLOW_UNATTESTED'sız `--no-attestation` → RET. `trace-check.ps1` saf işlevleri
+pwsh 7 (macOS) ile denendi (izinli küme, tırnaksız ImagePath, ACL ihlalleri). prettier temiz. Windows öz testi yalnız CI'da koşar.
+
+**Yapılmayan / açık:**
+
+1. `deploy/ops/remote-watch.sh` P27 alarmları (§7.3) otomasyona eklenmedi; eşikler runbook §27.8'de, elle bakış komutuyla.
+2. Mimarideki açılış logu `unattended.mode=<mod> deployEnv=<env>` server'da yok (backend-dev); runbook §27.2/5 printenv ile
+   doğruluyor.
+3. SignPath artifact yapılandırmasının iki PE için güncellenmesi (repo sahibi; hesap şu an yok).
+4. Staging `.env`'de `DEPLOY_ENV=staging` teyidi + açılış — koordinatör, runbook §27.2.
+5. `build/build.sh` satır 19'daki önceden var olan SC1007 uyarısı (CI shellcheck kapsamı dışında) dokunulmadı.
+
+## P27-K8 — gözetimsiz erişim web arayüzü — frontend-dev — 2026-11-15
+
+Kaynak: `docs/mimari-p27.md` §6 + §9 K8 (r2/r3), sözleşme `packages/contracts/src/api/unattended.ts`. AC: 273 (UI), 275, 285–287,
+293, 296 (UI), 297 (bant), 336, 337, 339 (rozet), 342 (TEST bandı + UAC satırı).
+
+### Rotalar
+
+| Yol                                                | Auth | Yetki                                      | Ne yapar                                                                                                                                                                                                                                                             |
+| -------------------------------------------------- | ---- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/unattended`                                      | evet | `unattended.connect` ∨ `unattended.manage` | Cihazlar: arama (≥2, ≤64), müşteri seçimi, durum (Tümü/Çevrimiçi/Çevrimdışı) URL'de; tablo/kart; rozetler; **Bağlan** (pasifse neden); 15 sn yoklama; "Daha fazla yükle" (keyset). Kapı bantları (off / TEST). `manage` yoksa sunucu yalnız grant'lı cihazları döner |
+| `/unattended/codes`                                | evet | `unattended.manage`                        | Bekleyen kayıt kodları; iptal (onaylı `alertdialog`); "Kayıt kodu oluştur"                                                                                                                                                                                           |
+| `/unattended/[id]`                                 | evet | grant'lı `connect` ∨ `manage` (yoksa 404)  | Cihaz bilgisi, Bağlan, (`manage`) kayıt IP/zaman doğrulama satırı + teknisyen yetkileri (toggle, Tümünü kapat, SaveBar), (`session_history.view`) son 20 gözetimsiz oturum, (`manage`) Cihazı iptal et (ad yazarak)                                                  |
+| `/customers/[id]` (ek bölüm `#bildirim-adresleri`) | evet | `unattended.manage`                        | Gözetimsiz bildirim adresleri (≤5 e-posta + isteğe bağlı telefon), kaydet step-up ile                                                                                                                                                                                |
+| `/sessions/[id]/console` (ek)                      | evet | mevcut                                     | `hello{unattended}` gelirse "Gözetimsiz" rozeti + cihaz adı, bekleme metni "Cihaz bağlanıyor…"                                                                                                                                                                       |
+
+### Davranış
+
+- **Bağlan:** `POST /unattended/devices/:id/connect` → 401 `MFA_STEP_UP_REQUIRED` → mevcut `StepUpDialog` (`lib/api` varsayılanı) → bir kez yinele → `router.push(/sessions/:id/console)`. Hata kodları `UNATTENDED_ERROR_MESSAGES` metniyle toast; liste yeniden yoklanır / ayrıntı `router.refresh()`.
+- **Pasiflik (AC-336):** Bağlan yalnız sunucunun `canConnect`/`connectBlockedReason` alanına göre (istemci yeniden hesaplamaz); kapı `available=false` ya da durum alınamadıysa (fail-closed) pasif + bant metni. "Kayıt kodu oluştur": kapı kapalı, listede `smtp` nedenli cihaz var ya da üretim 409 `NOTIFY_CHANNEL_UNAVAILABLE` döndüyse pasif + "Bildirim e-postası yapılandırılmamış — Ayarlar → SMTP".
+- **Kayıt kodu:** müşteri seç → step-up → kod bir kez (kopyala), geçerlilik sonu, "Servis programını indir" (`downloadUrl`), 3 adım + UAC satırı. 409 `NOTIFY_CONTACT_REQUIRED` → müşteri sayfasındaki adres bölümüne bağlantı.
+- **Bildirim adresleri:** paylaşılan `putNotifyContactsInputSchema` ile istemci doğrulaması; sunucu `fields["items.<i>.email"]` satıra eşlenir; "Eski ve yeni adreslerin hepsine değişiklik e-postası gider" bilgisi; boşken `BellRing` uyarısı; kaydedilmemiş değişiklikte ayrılma uyarısı.
+- **5 durum:** loading (`loading.tsx` iskeletleri, bölüm iskeletleri), empty (yönetici "Henüz kayıtlı cihaz yok" + Kayıt kodu oluştur / teknisyen "Size yetki verilmiş cihaz yok" / filtre boş / kod yok / oturum yok / adres yok), error (`LoadError` + tekrar dene), partial (yoklama hatası → son veri + "durum güncellenemedi" bandı; kullanıcı listesi alınamazsa yalnız mevcut grant'lar), success (toast).
+- **Ayarlar → SMTP step-up (r2):** kod değişikliği gerekmedi — `use-smtp-form.ts` `api()` varsayılanını (`stepUp` açık) kullanıyor; 401 `MFA_STEP_UP_REQUIRED` geldiğinde diyalog açılır ve istek bir kez yinelenir.
+- **Geçmiş "Gözetimsiz" filtresi:** kod değişikliği gerekmedi — mod seçenekleri `SESSION_MODE_LABELS`'tan (K1 `UNATTENDED` ekledi).
+
+### Dosyalar
+
+Yeni: `app/(panel)/unattended/{page.tsx, loading.tsx, unattended-shell.tsx, un-tabs.tsx, device-filters.tsx, device-list.tsx, device-rows.tsx, device-badges.tsx, connect-button.tsx, use-connect.ts, use-device-poll.ts, code-dialog.tsx, codes-tab.tsx, codes/page.tsx, [id]/page.tsx, [id]/loading.tsx, [id]/grants.tsx, [id]/device-actions.tsx, [id]/device-sessions.tsx}`, `app/(panel)/customers/[id]/notify-contacts.tsx`, `lib/unattended/{contract.ts, errors.ts, query.ts, contacts.ts, unattended.test.ts}`, `e2e/mock-p27.mjs`, `e2e/unattended.spec.ts`.
+Değişen: `app/(panel)/side-nav.tsx` (`anyPerm` + `MonitorCog` öğesi), `components/ui/tab-nav.tsx` (`exact`), `app/(panel)/customers/[id]/page.tsx` (bölüm), `app/(panel)/sessions/[id]/console/console-header.tsx`, `lib/webrtc/tech-machine.ts` (`unattended` alanı), `messages/tr.json` (`nav.unattended`, `un.*`), `e2e/mock-api.mjs` (P27 işleyici), `DESIGN.md`.
+
+### Sapmalar
+
+- Plan "Kayıt kodları sekmesi"ni `/unattended` içinde gösteriyordu; sekmeler bağlantılı `TabNav` olduğu için ayrı rota `/unattended/codes` (TabNav'a geri uyumlu `exact` eklendi). Plandaki `query.ts` dışında `contacts.ts` eklendi (form mantığı birim testli).
+- Bildirim adresleri bölümü `customer-tabs.tsx` yerine müşteri `page.tsx`'ine ayrı bölüm olarak eklendi (sekmeler talep/oturum listesi; bölüm bağlantısı `#bildirim-adresleri`).
+- Teknisyen listesi `GET /users/options`'tan (etkin kullanıcılar) + mevcut grant'lar; `connect` yetkisi olmayan kullanıcıyı sunucu 400 `fields.userIds` ile reddeder, metin forma yansır.
+
+### backend-dev'e notlar (sözleşme boşlukları)
+
+1. **`GET /sessions` `deviceId` filtresi yok.** `listSessionsQuerySchema` strict ve `deviceId` içermiyor; ayrıntıdaki "son 20 gözetimsiz oturum" `?mode=UNATTENDED&deviceId=<id>&pageSize=20` çağırıyor → gerçek sunucuda şu an 400 ve bölüm hata durumunu gösterir. Contracts + `sessions/repo.ts`'e `deviceId` (ULID, `device_id` eşleşmesi) eklenmeli. Web tarafı değişmeden çalışır.
+2. **SMTP ön koşulu cihazsız tenant'ta bilinemiyor.** `connectBlockedReason=smtp` önceliği en sonda; cihaz yoksa/hepsi başka nedenle engelliyse "Kayıt kodu oluştur" ancak 409 `NOTIFY_CHANNEL_UNAVAILABLE` sonrası pasifleşir (step-up girildikten sonra). Öneri: `UnattendedStatus`'a `notifyChannel: boolean` (tenant SMTP kaydı var mı); web tek satırla bağlanır.
+3. `GET /users/options` `unattended.manage` sahibine açık değil (yalnız `session_history.view`/`support_requests.view`/`users.view`); bunlar yoksa yetki ekranı kısmi durumda yalnız mevcut grant'ları gösterir. İsteğe bağlı: `connect` yetkili kullanıcıları dönen bir seçenek ucu.
+
+### Testler
+
+- Vitest `lib/unattended/unattended.test.ts` (11): URL/API yolu, yoklama birleştirme, sayfa ekleme, düğme nedenleri (off/smtp/no_grant), hata metinleri, adres formu doğrulaması ve alan anahtarları, konsol `hello{unattended}`.
+- Playwright `e2e/unattended.spec.ts` (10 test, desktop + mobile; 3 masaüstü-yalnız atlama): liste + rozetler + TEST bandı + iki tema axe 0 + 390 px taşma yok; AC-336 SMTP pasiflik; AC-297 off bandı; Bağlan → step-up → konsol URL'si; teknisyen/boş/yetkisiz; kayıt kodu akışı (adres yok 409 → bağlantı, kod bir kez, UAC satırı, diyalog axe); kod iptali; ayrıntı (kayıt IP satırı, grant ekle step-up → rozet kalkar, oturumlar, iptal ad yazarak); müşteri bildirim adresleri (step-up); kısmi durum (sahte saat, yoklama 500).
+- Sonuç: web `vitest` 45 dosya yeşil, `eslint .` temiz, `tsc` temiz; tüm e2e (desktop+mobile) 389 geçti / 0 kırmızı (paralel koşu port çakışması nedeniyle 3317/4317'de geçici config ile; dosya silindi).
+- Tasarım skill'leri okunmadı (DESIGN.md ve mevcut primitifler yeterliydi; yeni görsel dil yok).
+
+### Yapılmayanlar
+
+- Konsolda gözetimsiz oturuma özel e2e yok (mock WS `hello{unattended}` üretmiyor); birim testle kapsandı.
+- Gerçek sunucuya karşı e2e yok (K3 `connect` paralel yazılıyordu; mock kullanıldı).
+
+### P27-K8 — tur sonu durumu (devir için)
+
+- `messages/tr.json` `nav.unattended` + 115 `un.*` anahtarı ağaçta; `tsc`, `eslint .`, `next build`, web vitest (yeni 11 dahil) temiz.
+- **İşlev ≤ 40 satır kuralı — kapatıldı (2026-11-15, davranış değişmedi; yalnız bölme).** Ölçüm TypeScript AST ile tüm
+  `function`/ok işlevleri (prettier sonrası); devir listesindekilere ek olarak ölçümde çıkan 4 aşım da bölündü:
+  - `unattended/codes-tab.tsx`: `CodesTab` → `CodeRow`; `CancelDialog` (43) → `useCancel` hook.
+  - `unattended/device-rows.tsx`: `DeviceTable` → `TableHead` + `DeviceTableRow`.
+  - `unattended/use-device-poll.ts`: `loadMore` → `useLoadMore` (filtre `useMemo` ile tek nesne; bağımlılıklar aynı).
+  - `unattended/[id]/device-sessions.tsx`: `DeviceSessions` → `SessionsLoading` + `SessionsError`.
+  - `unattended/[id]/grants.tsx`: `GrantsEditor` → `GrantList` + `GrantActions` (Tümünü kapat + SaveBar), `GrantsProps` tipi.
+  - `unattended/[id]/device-actions.tsx`: `RevokeButton` (43) → `useRevoke` hook.
+  - `unattended/[id]/page.tsx`: `DevicePage` (77) → `TitleOnly` (kapı/hata) + `DeviceView` + `DeviceSections`.
+  - `customers/[id]/notify-contacts.tsx`: `useContacts` (48) → `useContactsLoad` + `useContacts`; `ContactFields` (51) → ortak
+    alan özellikleri `field()`; `NotifyContacts` (75) → `ContactsForm` + `ContactRows`.
+  - Son ölçüm: K8 dosyalarında 40 satırı aşan işlev yok; en büyük dosya `notify-contacts.tsx` 212 satır (hepsi ≤ 300).
+  - Açık (emsal): `e2e/mock-p27.mjs` 337 satır — e2e sahte API; mevcut mock'lar da 300'ü aşıyor (`mock-audit.mjs` 553,
+    `mock-p19.mjs` 452). Ürün kodu değil; bölünmedi.
+- Doğrulama (bölme sonrası): `tsc --noEmit` temiz, `eslint .` temiz, web vitest 45 dosya / 402 test yeşil; Playwright hedefli
+  (`unattended`, `customers`, `p17-console`, `p11-admin`, `p8-history`; desktop + mobile) 76 geçti / 0 kırmızı; tam web e2e
+  (e2e webServer üretim `next build` + standalone ile) 474 geçti / 0 kırmızı / 203 proje bazlı atlama. Varsayılan portlar
+  (3217/4217) boştu; geçici config gerekmedi.
+
+### P27-K4 — outbox teslimi, rozet, saklama/temizlik (backend-dev, 2026-11-15) — KISMİ (tam test:int koşulmadı)
+
+Kaynak: `docs/mimari-p27.md` §3.6, §7.1 r2, §9 K4; devir notları. Commit yok.
+
+**Değişen / yeni dosyalar**
+
+- `notify/outbox.ts` (391 → 297 satır; "dokunan böler"): kuyruğa alma `notify/outbox-enqueue.ts`'e taşındı (davranış aynı;
+  `recipientHash` yeniden dışa aktarılıyor, içe aktaranlar değişmedi). İşçi artık `request_id IS NOT NULL` süzgeci olmadan tüm
+  PENDING satırları alıyor. İçerik `notify/outbox-content.ts`'ten geliyor:
+  - talep → eski metinler, audit çapası `support_requests`;
+  - `session_id` → `UNATTENDED_STARTED` (cihaz adı, teknisyen "Ad S.", firma, başlangıç), çapa `support_sessions`;
+  - `event_id` → `UN_*`. İçerik aynı TX'te yazılmış audit satırından (`new_value.eventId`, tenant + eylem + created_at ≥ satır − 1 g)
+    okunur. `UN_CONTACTS_CHANGED`: maskeli eklenen/kaldırılan + değiştiren kullanıcı. `UN_DEVICE_REGISTERED`: cihaz adı, IP, saat.
+
+  İçerik bulunamazsa kalıcı neden `content_unavailable` olur. Kanal başına e-posta türü: `unattended_started`,
+  `unattended_contacts_changed`, `unattended_device_registered`.
+
+- `notify/outbox-settle.ts`: AC-336 rozeti. `UNATTENDED_STARTED` FAILED olunca aynı TX'te `notify_failed_at = now` ve audit
+  `unattended.notify.failed{sessionId, deviceId, channel, recipient(maske), reason}` yazılır. SENT, yalnız bu satırdan önce
+  kaydedilmiş rozeti kaldırır (`notify_failed_at < created_at`). Son durum metrikleri de bu dosyada.
+- `notify/templates.ts`: `startedMessage/startedMail`, `contactsChangedMail`, `deviceRegisteredCustomerMail`. Bağlantı/URL
+  yok, ad süzgeci var.
+- `customers/service.ts` `anonymizeCustomersOf`: `customer_notify_contacts` aynı TX'te silinir, audit'e `notifyContacts: n` yazılır.
+- `jobs/unattended-cleanup.ts` (yeni) + `jobs/retention.ts` global adımı. Kayıt kodu (kullanılmış/süresi dolmuş + 7 g) DELETE
+  edilir. Ardından 30 g önce iptal edilmiş, bağlı oturumu ve kodu kalmamış cihazlar silinir (grant'lar + cihaz, parti 500).
+  `retention-counts.ts` sayaçları `unattendedRegistrations`, `unattendedDevices`. Ad bilinçli seçildi: `…Codes` audit
+  maskeleyicisinin `code` kalıbına takılıp `***` yazılıyordu (qa bulgusu). Maskeleyici zayıflatılmadı.
+- `users/repo.ts` `deleteUserChildren`: kullanıcının cihaz grant'ları silinir, audit `deletedDeviceGrants` (§3.6).
+- Testler: `test/integration/unattended-outbox-k4.test.ts` (6). Yardımcılar: `test/helpers/unattended.ts` `codeRow`,
+  `fakeLink().online`. `retention-p13a-job` anahtar listesi güncellendi.
+
+**Tasarımdan sapmalar (gerekçeli)**
+
+1. Gece temizliği ayrı `TimedJob` satırı değil, saklama işinin global adımı (03:30). P27a `trustedDevices` kalıbı
+   kullanıldı. Böylece scheduler imzası/birim testi değişmedi ve yeni zamanlayıcı eklenmedi; etki aynı (günlük).
+2. `enqueueSession` / `enqueueEvent` outbox sınıfına taşınmadı. Kuyruğa alma K2/K3'ün yazdığı `unattended/notify.ts` ve
+   `contacts.ts`'te kalıyor (tavansız, K-P27-8). İşçi yalnız teslimi üstlenir.
+3. Olay içeriği outbox'a yazılmaz, audit'ten okunur (K2 kararı). Audit 730 g saklanır, outbox 7 g olduğundan içerik kaybı yok.
+4. Gözetimsiz satırların teslim audit'i de `request.customer_notify` eylemiyle yazılır (çapa varlığı farklı). Yeni eylem
+   eklenmedi, contracts değişmedi.
+
+**Doğrulama (konteyner `rs-p27-k4-db`, silindi)**
+
+- `tsc --noEmit` 0 hata. Dokunulan dosyalarda eslint temiz, prettier yalnız kendi dosyalarına uygulandı.
+- Unit 461/461 (`env-deploy` dahil).
+- Entegrasyon (hedefli 8 dosya): unattended-api 12/12, unattended-register 6/6, unattended-outbox-k4 6/6, tenant-isolation
+  5/5, p19-notify-j3, users-delete-p16, unattended-connect-k3 12/12, retention-p13a-job 16/16. Hepsi yeşil.
+
+**Yapılmayan (devralan ajan için)**
+
+1. **Tam `pnpm --filter @remote/server test:int` koşulmadı** (tur sınırı). Özellikle `retention-p16-purge`, `pt-surface`,
+   `tenant-purge-*` ve `customers-p8c-api` (anonimleştirme audit'ine `notifyContacts` yalnız > 0 iken eklenir) koşulmalı.
+2. Bilinen paylaşılan kuyruk riski: `outbox.tick()` tüm firmaların satırlarını alır. Eşzamanlı test dosyaları birbirinin satırını
+   teslim edebilir; K3 testindeki "PENDING" beklentisi bu yüzden kırılgan olabilir. Önceden de talep satırları için vardı.
+3. `customers/write-tx.ts` prettier farkı (K3 dosyası; bu ajan dokunmadı).
+4. e2e (rozet görünümü) K8'e ait.
+
+**frontend-dev için:** sözleşme değişikliği yok. `notifyFailed` artık işçi tarafından gerçekten doldurulur.
+
+## P27 — kapanış backend (backend-dev, 2026-11-15) — KISMİ (tam test:int 1 kez koşuldu)
+
+Kaynak: P27-K8 "backend-dev'e notlar" (1–3) + koordinatör kapanış listesi. Commit yok. Yeni bağımlılık yok. `src/auth/*` dokunulmadı.
+
+**Sözleşme değişiklikleri (frontend-dev için)**
+
+- `listSessionsQuerySchema` (+ export şeması) → `deviceId?: ULID` (strict kalır). Sunucu `device_id` eşleşmesi; tenant ve USER
+  "yalnız kendi" kapsamı aynen ezer. CSV export audit'ine `deviceId` yalnız verildiğinde eklenir. Web değişmedi.
+- `UnattendedStatus.notifyChannel: boolean`: firmanın kendi SMTP kaydı (`mail.configFor` — kayıt kodu/bağlantıdaki 409
+  `NOTIFY_CHANNEL_UNAVAILABLE` denetimiyle aynı). Firma seçilmemişse false. Web `createCodeBlock(status)` artık bunu
+  kullanıyor: "Kayıt kodu oluştur" cihaz listesinden bağımsız, baştan pasif + neden. `smtpMissingIn` kaldırıldı (ölü kod).
+  409 sonrası pasifleşme yedek olarak duruyor.
+- `userOptionsQuerySchema.unattendedGrantable=1`: yalnız `unattended.manage` (yoksa 403). Dönen kullanıcılar aynı tenant,
+  ACTIVE, ADMIN|USER ve etkin `unattended.connect` sahibi (`assertGrantable` ile aynı kural). Alanlar id/fullName/status.
+  Uç ön koşulu `USER_OPTIONS_PERMS ∨ unattended.manage`; yalnız `manage` sahibi parametresiz/`assignable` listeyi alamaz
+  (403, en az yetki). Web yetki ekranı (`unattended/[id]/grants.tsx`) `?unattendedGrantable=1` çağırıyor; e2e mock yalnız
+  bu parametreyle yanıt verir.
+
+**Değişen dosyalar**
+
+- contracts: `api/sessions.ts`, `api/unattended.ts`, `api/users.ts`, `test/unattended-p27.test.ts` (+1 test).
+- server: `sessions/history.ts`, `sessions/history-repo.ts`, `sessions/history-csv.ts`, `unattended/gate.ts`
+  (`GateStatus`, `unattendedStatus`), `unattended/routes.ts`, `users/options.ts` (yeni; seçenek mantığı `users/service.ts`'ten
+  taşındı, service 318 → 270 satır), `users/routes.ts`, `server.ts`.
+- Açılış logu (`server.ts`, listen sonrası): `unattended.mode=<mod> deployEnv=<değer|unset>`. SHA listesi ve gizli bilgi yazılmaz.
+- Testler: `test/integration/unattended-k8-gaps.test.ts` (yeni, 4 test: deviceId filtresi kapsam/400/boş;
+  unattendedGrantable alanlar/kapsam/403'ler), `unattended-api.test.ts` (status `notifyChannel` false → true).
+- Kararsız test düzeltmeleri (davranış değişmedi): `tenant-purge-meta-p16` AC-242 replay audit'i artık yalnız kendi defterinin
+  (`ledgerLines === 3`) satırlarına bakıyor. Eşzamanlı `p27a-revoke` de `erasure.replayed` yazıyor ve P27a ile kırılmıştı.
+  `unattended-connect-k3` "device_timeout" bekleme payı 5 sn'den varsayılan 10 sn'ye çıkarıldı (zamanlayıcı 1,5 sn; yük altında 5 sn aşıldı).
+- web: `lib/unattended/errors.ts`, `lib/unattended/unattended.test.ts`, `app/(panel)/unattended/{page.tsx, codes/page.tsx,
+[id]/grants.tsx}`, `e2e/mock-p27.mjs`, `e2e/unattended.spec.ts` (AC-336: kodlar sekmesinde de baştan pasif).
+- Yalnız format (prettier): `customers/write-tx.ts`, `docs/guvenlik-raporu.md`, `docs/implementation.md`.
+- Lint: `unattended-outbox-k4.test.ts`'te `no-non-null-assertion` bulgusu kalmamıştı (koşuda temiz); dokunulmadı.
+
+**Doğrulama (konteyner `rs-p27-close-db`, mysql:8.4, silindi)**
+
+- `pnpm -r run typecheck` temiz, `pnpm -r run lint` temiz, `pnpm run format:check` temiz.
+- Unit: server 461/461, contracts 173/173, web vitest 45 dosya / 402 test.
+- e2e `unattended.spec.ts` (desktop + mobile): 17 geçti / 3 bilinçli atlama.
+- Tam `test:int`, 1. koşu (düzeltmelerden önce): 91 dosyadan 89'u, 916 testten 914'ü geçti. Kırmızı olan 2 test yukarıdaki kararsız
+  testlerdi; ikisi de tek başına yeşil, düzeltme sonrası hedefli koşu da yeşil (27/27). `customers-csv-p19` AC-263 ve
+  `unattended-register` bu koşuda yeşildi.
+
+**Yapılmayan (devralan için)**
+
+1. Tam `test:int` 2. koşu ve düzeltme sonrası tam koşu yapılmadı (tur sınırı).
+2. `unattended-register` AC-273/337 ilk testi kırılgan olabilir (koordinatör tam koşuda kırmızı gördü; bu koşuda yeşildi).
+   Kayıttan hemen sonra outbox satırının `PENDING` olması ve teslimin bu dosyanın `app.outbox.tick()` çağrısıyla yapılması
+   bekleniyor. Ancak eşzamanlı dosyaların (`p19-notify-j3`, `unattended-outbox-k4`) `tick()`'i tüm firmaların satırlarını
+   alır. Başka uygulamanın taşıyıcısıyla teslim edilen ya da başarısız olan satır bu beklentiyi kırar. Öneri: test satır
+   durumunu değil varlığını doğrulasın. Teslim için ya satırı yalnız bu firmaya bağlayan bir test kancası eklensin ya da
+   outbox kullanan dosyalar `describe.sequential`/ayrı havuzda koşsun. Davranış değiştirilmemeli.

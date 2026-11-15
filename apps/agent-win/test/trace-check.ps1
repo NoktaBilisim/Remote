@@ -80,6 +80,18 @@
     sayılır. Kayıt/kişisel veri silindiğinde ("Bu bilgisayarı unut", kayıt yokken "Bilgilerimi unut", geçersiz kayıt)
     log da silinir.
 
+.PARAMETER Servis
+    P27 K9 (mimari-p27 §5.3, AC-289/340, D-P27-2). Gözetimsiz erişim servisi (NoktaDestekServis.exe) profili. Tarama her
+    modda ayrıca %ProgramFiles% ve %ProgramData% (1 seviye), HKLM ...\Uninstall anahtarlarını ve Application olay günlüğü
+    kaynaklarını kapsar; servis kaldırıldıktan sonra (off, varsayılan) bunların hiçbirinde NoktaDestek izi kalmamalı.
+    on: kurulu servis — izinli izler: hizmet NoktaDestekServis (ImagePath tam olarak
+    "%ProgramFiles%\NoktaDestek Servis\NoktaDestekServis.exe" --service, tırnaklı), HKLM\SOFTWARE\NoktaDestek\Servis,
+    HKLM Run NoktaDestekServis = "<exe>" --tray (REG_SZ), Uninstall\NoktaDestekServis, olay kaynağı NoktaDestek,
+    %ProgramFiles%\NoktaDestek Servis\ ve %ProgramData%\NoktaDestek Servis\ (device.key.tmp hariç). Ayrıca klasör
+    denetimi: %ProgramData%\NoktaDestek Servis ve Gelen\ sahibi SYSTEM/Administrators, DACL korumalı (devralma kapalı),
+    ACE kümesi tam olarak SY+BA tam (Gelen: + Authenticated Users okuma/yürütme 0x1200a9), reparse noktası yok.
+    Yönetici yetkisi ister (yoksa 2). "NoktaDestek Servis.eski-*" (squatting önlemi) iz değil UYARI'dır.
+
 .PARAMETER Strict
     Desene uymayan yeni girdileri de iz say (sessiz, temiz bir VM'de kullanın).
 
@@ -94,6 +106,7 @@
     # Kayıt alınmış oturum sonrası: -Binding on; "Bu bilgisayarı unut" sonrası: -Binding off -Remember off
     # Firma dosyası + "hatırla" açık: -Remember on -ExePath "$env:USERPROFILE\Downloads\NoktaDestek-Firma-<ref>.exe"
     # 0.12.0 tepsi + Windows açılışı açık (runbook §24.9): -Binding on -Tray on -Autostart on -ExePath "<exe tam yolu>"
+    # P27 gözetimsiz servis kurulu (yönetici PowerShell): -Servis on ; kaldırıldıktan sonra: -Servis off (varsayılan)
     # 0.12.0 "Bu bilgisayarı unut" sonrası: -Binding off -Remember off -Tray off -Autostart off (varsayılanlar)
     pwsh -File apps\agent-win\test\trace-check.ps1 -Mode Compare -SnapshotPath D:\iz-once.json -ExePath "$env:USERPROFILE\Downloads\Destek-12345678.exe"
 
@@ -117,6 +130,8 @@ param(
     [string]$Autostart = 'off',
     [ValidateSet('auto', 'on', 'off')]
     [string]$Diagnostics = 'auto',
+    [ValidateSet('on', 'off')]
+    [string]$Servis = 'off',
     [switch]$Strict
 )
 
@@ -212,6 +227,85 @@ function Get-TraceAllowance {
     return [pscustomobject]@{ Allowed = @($allowed | Select-Object -Unique); Missing = $missing; Warning = $warning }
 }
 
+$script:UninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+$script:EventLogKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application'
+
+function Get-ServisAllowance {
+    # Saf fonksiyon (P27 K9): -Servis on izinli girdileri ve eksikleri üretir. $Pf/$Pd = %ProgramFiles%/%ProgramData%.
+    param([string]$Pf, [string]$Pd, [string[]]$After = @())
+    $dir = "$Pf\NoktaDestek Servis"; $exe = "$dir\NoktaDestekServis.exe"; $data = "$Pd\NoktaDestek Servis"
+    $svc = "Service`tNoktaDestekServis=`"$exe`" --service"
+    $run = "RunValue`tHKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\NoktaDestekServis=`"$exe`" --tray"
+    $allowed = @($svc, $run, "ProgramFiles`t$dir", "ProgramFiles`t$exe",
+        'Registry`tHKEY_LOCAL_MACHINE\SOFTWARE\NoktaDestek', 'Registry`tHKEY_LOCAL_MACHINE\SOFTWARE\NoktaDestek\Servis',
+        "Uninstall`tNoktaDestekServis", "EventSource`tNoktaDestek", "ProgramData`t$data")
+    $allowed = @($allowed | ForEach-Object { $_ -replace '`t', "`t" })
+    foreach ($a in $After) {
+        $cat, $item = $a -split "`t", 2
+        if ($cat -eq 'ProgramData' -and $item -like "$data\*" -and $item -notlike '*\device.key.tmp') { $allowed += $a }
+    }
+    $missing = @(); $warning = @()
+    foreach ($need in $svc, "ProgramFiles`t$exe", "ProgramData`t$data") {
+        if (-not ($After -contains $need)) { $missing += "Beklenen servis izi yok veya farklı: $need" }
+    }
+    foreach ($a in $After) {
+        $cat, $item = $a -split "`t", 2
+        if ($cat -eq 'Service' -and $item -like 'NoktaDestekServis=*' -and $a -ne $svc) {
+            $missing += "ImagePath tırnaklı ve Program Files altında değil (D-P27-2): $item"
+        }
+        if ($cat -eq 'ProgramData' -and $item -like "$data.eski-*") { $warning += "squatting önlemi klasörü (inceleyin): $item" }
+    }
+    return [pscustomobject]@{ Allowed = $allowed; Missing = $missing; Warning = $warning }
+}
+
+function Test-ServisAcl {
+    # Saf fonksiyon (P27 K9, mimari-p27 §5.3 r2): klasör sahip/DACL/ACE denetimi. $Aces: @{ Sid; Rights (int); Allow (bool);
+    # Inherited (bool) }. Beklenen: sahip SY/BA, korumalı DACL, izin ACE'leri tam olarak $Expect (sid -> rights), deny yok.
+    param([string]$Path, [string]$Owner, [bool]$Protected, [object[]]$Aces, [hashtable]$Expect, [bool]$Reparse)
+    $p = @()
+    if ($Owner -notin 'S-1-5-18', 'S-1-5-32-544') { $p += "$Path sahibi SYSTEM/Administrators değil ($Owner)" }
+    if (-not $Protected) { $p += "$Path DACL korumalı değil (devralma açık)" }
+    if ($Reparse) { $p += "$Path reparse noktası (junction/symlink)" }
+    $seen = @{}
+    foreach ($a in $Aces) {
+        if (-not $a.Allow) { $p += "$Path beklenmeyen deny ACE: $($a.Sid)"; continue }
+        if (-not $Expect.ContainsKey($a.Sid)) { $p += "$Path beklenmeyen ACE: $($a.Sid) 0x$('{0:x}' -f $a.Rights)"; continue }
+        if ([int]$a.Rights -ne [int]$Expect[$a.Sid]) { $p += "$Path $($a.Sid) hakları 0x$('{0:x}' -f $a.Rights), beklenen 0x$('{0:x}' -f $Expect[$a.Sid])" }
+        $seen[$a.Sid] = $true
+    }
+    foreach ($k in $Expect.Keys) { if (-not $seen.ContainsKey($k)) { $p += "$Path ACE eksik: $k" } }
+    return $p
+}
+
+function Get-ServisAclProblem {
+    # Windows'ta gerçek klasörleri okur ve Test-ServisAcl'e verir (yönetici gerekir: klasör yalnız SY/BA'ya açık).
+    param([string]$Pd)
+    $full = 0x1F01FF; $rx = 0x1200A9
+    $data = Join-Path $Pd 'NoktaDestek Servis'
+    if (-not (Test-Path -LiteralPath $data)) { return @("$data yok") }
+    $p = @()
+    $targets = @(@{ P = $data; E = @{ 'S-1-5-18' = $full; 'S-1-5-32-544' = $full } })
+    $gelen = Join-Path $data 'Gelen'
+    if (Test-Path -LiteralPath $gelen) {
+        $targets += @{ P = $gelen; E = @{ 'S-1-5-18' = $full; 'S-1-5-32-544' = $full; 'S-1-5-11' = $rx } }
+    }
+    foreach ($t in $targets) {
+        $acl = Get-Acl -LiteralPath $t.P
+        $owner = (New-Object Security.Principal.NTAccount $acl.Owner).Translate([Security.Principal.SecurityIdentifier]).Value
+        # Kalıtımla gelen (OICI'den alt nesneye düşen) ACE'ler aynı klasörde görünmez; yalnız açık ACE'ler sayılır.
+        $aces = @($acl.Access | Where-Object { -not $_.IsInherited } | ForEach-Object {
+                @{ Sid = $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+                    Rights = [int]$_.FileSystemRights; Allow = ($_.AccessControlType -eq 'Allow') }
+            })
+        $rp = [bool]((Get-Item -LiteralPath $t.P -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)
+        $p += Test-ServisAcl -Path $t.P -Owner $owner -Protected $acl.AreAccessRulesProtected -Aces $aces -Expect $t.E -Reparse $rp
+    }
+    Get-ChildItem -LiteralPath $data -Recurse -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint } |
+        ForEach-Object { $p += "$($_.FullName) reparse noktası (junction/symlink)" }
+    return $p
+}
+
 function Get-DownloadsPath {
     $k = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders'
     $v = (Get-ItemProperty -Path $k -Name '{374DE290-123F-4565-9164-39C4925E467B}' -ErrorAction SilentlyContinue)
@@ -278,6 +372,13 @@ function Get-TraceSnapshot {
     foreach ($x in @(Get-FileEntry -Category 'LocalAppData' -Root $env:LOCALAPPDATA -Depth 1)) { $e.Add($x) }
     foreach ($x in @(Get-FileEntry -Category 'Temp' -Root ([IO.Path]::GetTempPath()) -Depth 3)) { $e.Add($x) }
     foreach ($x in @(Get-FileEntry -Category 'Downloads' -Root (Get-DownloadsPath) -Depth 0)) { $e.Add($x) }
+    # P27 K9: gözetimsiz servis kurulum yerleri (her modda; kaldırma sonrası iz kalmamalı).
+    foreach ($x in @(Get-FileEntry -Category 'ProgramFiles' -Root $env:ProgramFiles -Depth 1)) { $e.Add($x) }
+    foreach ($x in @(Get-FileEntry -Category 'ProgramData' -Root $env:ProgramData -Depth 1)) { $e.Add($x) }
+    foreach ($k in $script:UninstallKey, $script:EventLogKey) {
+        $cat = if ($k -eq $script:UninstallKey) { 'Uninstall' } else { 'EventSource' }
+        Get-ChildItem -Path $k -ErrorAction SilentlyContinue | ForEach-Object { $e.Add("$cat`t$($_.PSChildName)") }
+    }
 
     return , $e.ToArray()
 }
@@ -306,6 +407,11 @@ if ($Mode -ne 'Check' -and -not $SnapshotPath) {
 if ($Autostart -eq 'on' -and ($Tray -ne 'on' -or -not $ExePath)) {
     Write-Output 'HATA: -Autostart on için -Tray on ve -ExePath gerekli (Windows açılışı yalnız tepsiyle; Run verisi exe yolunu taşır).'
     exit 2
+}
+if ($Servis -eq 'on') {
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) { Write-Output 'HATA: -Servis on yönetici yetkisi ister (klasör ACL''i yalnız SY/BA okunur).'; exit 2 }
 }
 $exeFull = if ($ExePath) { [IO.Path]::GetFullPath($ExePath) } else { '' }
 $pattern = Get-TracePattern -Exe $ExePath -Extra $ExtraPattern
@@ -344,10 +450,30 @@ if ($Autostart -eq 'on') {
         $missing += "Run değeri REG_SZ değil ($kind): $($script:RunKey)\$($script:RunValueName)"
     }
 }
-$r = Compare-TraceSnapshot -Before $before -After $after -Pattern $pattern -ExeFull $exeFull -Exclude $exclude -Allowed $al.Allowed
+$allowedAll = @($al.Allowed)
+$servisWarn = @()
+if ($Servis -eq 'on') {
+    $sa = Get-ServisAllowance -Pf $env:ProgramFiles -Pd $env:ProgramData -After $after
+    $allowedAll += $sa.Allowed; $missing += $sa.Missing; $servisWarn = @($sa.Warning)
+    $missing += @(Get-ServisAclProblem -Pd $env:ProgramData)
+    $rk = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+    $kind = $null
+    try { $kind = (Get-Item -LiteralPath $rk).GetValueKind('NoktaDestekServis') } catch { $kind = $null }
+    if ($null -ne $kind -and $kind -ne [Microsoft.Win32.RegistryValueKind]::String) { $missing += "HKLM Run NoktaDestekServis REG_SZ değil ($kind)" }
+} else {
+    foreach ($a in $after) {
+        $item = ($a -split "`t", 2)[-1]
+        if ($a -like "ProgramData`t*" -and $item -like '*\NoktaDestek Servis.eski-*') { $servisWarn += "squatting önlemi klasörü (inceleyin): $item" }
+    }
+    $after = @($after | Where-Object { -not ($_ -like "ProgramData`t*" -and $_ -like '*\NoktaDestek Servis.eski-*') })
+}
+$r = Compare-TraceSnapshot -Before $before -After $after -Pattern $pattern -ExeFull $exeFull -Exclude $exclude -Allowed $allowedAll
 $procs = @(Get-TraceProcess -Pattern $pattern -ExeFull $exeFull)
 $procInfo = @()
-if ($Tray -eq 'on') { $procInfo = $procs; $procs = @() }   # tepside çalışan istemci iz değil (AC-253, K-P20-7)
+if ($Tray -eq 'on') { $procInfo = $procs; $procs = @() }
+if ($Servis -eq 'on') {   # kurulu servis (ve yardımcı/tepsi) çalışır: iz değil, bilgi
+    $procInfo += @($procs | Where-Object { $_ -match '(?i)NoktaDestekServis' }); $procs = @($procs | Where-Object { $_ -notmatch '(?i)NoktaDestekServis' })
+}   # tepside çalışan istemci iz değil (AC-253, K-P20-7)
 
 $traces = @($r.Trace) + @($procs) + @($missing)
 if ($Mode -eq 'Check') {
@@ -359,9 +485,9 @@ if ($Mode -eq 'Check') {
 }
 
 Write-Output ("trace-check ($Mode, Remember=$Remember, Binding=$Binding, Tray=$Tray, Autostart=$Autostart, " +
-    "Diagnostics=$Diagnostics) — desen: $pattern")
+    "Diagnostics=$Diagnostics, Servis=$Servis) — desen: $pattern")
 foreach ($p in $r.Preexisting) { Write-Output "UYARI (çalıştırmadan önce de vardı): $p" }
-foreach ($w in $al.Warning) { Write-Output "UYARI: $w" }
+foreach ($w in @($al.Warning) + $servisWarn) { Write-Output "UYARI: $w" }
 foreach ($p in $procInfo) { Write-Output "BİLGİ (tepside çalışıyor, -Tray on): $p" }
 if ($review.Count -gt 0) {
     Write-Output "İNCELEYİN — desene uymayan yeni girdiler ($($review.Count)); istemciye ait değilse yok sayılabilir:"

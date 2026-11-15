@@ -13,6 +13,7 @@ import (
 	"remote-support/agent-win/internal/capture"
 	"remote-support/agent-win/internal/config"
 	"remote-support/agent-win/internal/control"
+	"remote-support/agent-win/internal/desktop"
 	"remote-support/agent-win/internal/env"
 	"remote-support/agent-win/internal/files"
 	"remote-support/agent-win/internal/flow"
@@ -40,17 +41,20 @@ func Main(cfg config.Config) int {
 	} else {
 		inc = nil
 	}
-	d := Deps{ShowIndicator: showIndicator, Flow: flowDeps(cfg, inc)}
+	gate := desktop.NewGate()
+	fd, applier := flowDeps(cfg, inc, gate)
+	d := Deps{ShowIndicator: showIndicator, InputDesktop: desktop.InputName, Gate: gate, Resumed: applier.ReleaseAll,
+		Flow: fd}
 	return int(Run(context.Background(), d, in))
 }
 
 // flowDeps P20 istemcisinin yakalama/WebRTC/girdi/dosya paketleriyle akış bağımlılıkları (cmd/noktadestek flowDeps
-// eşi; arayüz, kısayol, kayıt ve pencere modu yok).
-func flowDeps(cfg config.Config, inc *incoming) flow.Deps {
+// eşi; arayüz, kısayol, kayıt ve pencere modu yok). K6b: yakalama ve SendInput iş parçacıkları giriş masaüstüne bağlanır.
+func flowDeps(cfg config.Config, inc *incoming, desk *desktop.Gate) (flow.Deps, *input.Applier) {
 	client := api.New(cfg.ServerURL, cfg.Version)
 	gate := &control.Gate{}
-	applier := input.NewApplier(gate, input.SendInputInjector{}, nil)
-	opener := capture.Opener{Version: cfg.Version}
+	applier := input.NewApplier(gate, newDeskInjector(desk, input.SendInputInjector{}), nil)
+	opener := capture.Opener{Version: cfg.Version, Attach: attachCapture}
 	d := flow.Deps{
 		Host: cfg.DisplayHost(), Version: cfg.Version,
 		Dial: func(ctx context.Context, cred signal.Credential) (flow.Conn, error) {
@@ -75,7 +79,7 @@ func flowDeps(cfg config.Config, inc *incoming) flow.Deps {
 		SelfElevated: windows.GetCurrentProcessToken().IsElevated(),
 	}
 	d.DownloadDir, d.CheckDir = incomingDeps(inc)
-	return d
+	return d, applier
 }
 
 // incomingDeps `Gelen` yolu ve yazım denetimi; klasör doğrulanamadıysa DownloadDir hata verir (her teklif reddedilir).

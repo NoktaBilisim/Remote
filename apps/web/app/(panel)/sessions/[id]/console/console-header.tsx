@@ -1,5 +1,5 @@
 import type { SessionView } from "@remote/contracts/api/sessions";
-import { ArrowLeft, CircleX, MousePointer2, Power } from "lucide-react";
+import { ArrowLeft, CircleX, MonitorCog, MousePointer2, Power } from "lucide-react";
 import Link from "next/link";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ function statusOf(state: TechState): { cls: string; label: string } {
   if (state.phase === "ended") return { cls: "bg-surface-muted text-fg-muted", label: t("c.st.ended") };
   if (state.reconnectSince !== null || state.peerLostSince !== null) return { cls: "bg-danger-surface text-danger", label: t("c.st.lost") };
   if (state.phase === "live") return { cls: "bg-success-surface text-success", label: t("c.st.live") };
+  if (state.unattended) return { cls: "bg-primary-surface text-primary", label: t("un.c.connecting") };
   return state.pending.length
     ? { cls: "bg-warning-surface text-warning", label: t("c.st.lobby") }
     : { cls: "bg-primary-surface text-primary", label: t("c.st.waiting") };
@@ -49,12 +50,19 @@ export function ConsoleHeader({
         <ArrowLeft aria-hidden className="size-5" />
       </Link>
       <div className="flex min-w-0 items-center gap-2">
-        <Avatar name={name} />
+        <Avatar name={state.unattended?.deviceName ?? name} />
         <div className="min-w-0">
           <h1 className="truncate font-semibold text-fg" data-testid="console-guest">
-            {name}
+            {state.unattended?.deviceName ?? name}
           </h1>
-          <p className="text-xs text-fg-muted">{t(state.guest?.kind === "AGENT" ? "cl.kindAgent" : "c.kindBrowser")}</p>
+          {state.unattended ? (
+            <p className="flex items-center gap-1 text-xs font-medium text-primary" data-testid="console-unattended">
+              <MonitorCog aria-hidden className="size-3.5" />
+              {t("un.c.badge")}
+            </p>
+          ) : (
+            <p className="text-xs text-fg-muted">{t(state.guest?.kind === "AGENT" ? "cl.kindAgent" : "c.kindBrowser")}</p>
+          )}
         </div>
       </div>
       <span role="status" data-testid="console-status" className={`${pill} shrink-0 ${status.cls}`}>
