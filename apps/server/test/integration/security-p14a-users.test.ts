@@ -11,8 +11,8 @@ import { resolveSession, type AuthContext } from "../../src/auth/session.ts";
 import { newId } from "../../src/lib/ids.ts";
 import { lockUsers, replacePermissions } from "../../src/users/repo.ts";
 import { updateUser, type UserLiveEffects } from "../../src/users/service.ts";
-import { createTenant, createUser, loginRequest, makeApp, ORIGIN, testDb, type Session, type TestUser } from "../helpers/app.ts";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { createTenant, createUser, makeApp, testDb, type Session } from "../helpers/app.ts";
+import { signIn } from "../helpers/auth.ts";
 
 let app: FastifyInstance;
 beforeAll(async () => {
@@ -26,16 +26,7 @@ const CTX: AuditContext = { ip: "10.14.0.1", userAgent: "vitest", requestId: "p1
 const fx = (): UserLiveEffects => ({ rooms: app.rooms, hub: app.requestHub, log: app.log });
 
 let ipSeq = 0;
-async function signIn(user: TestUser): Promise<Session> {
-  const res = await app.inject(
-    loginRequest(user.email, user.password, { remoteAddress: `10.14.${Math.floor(++ipSeq / 250) + 1}.${(ipSeq % 250) + 1}` }),
-  );
-  if (res.statusCode !== 200) throw new Error(`login ${res.statusCode}`);
-  const jar = Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
-  const token = jar[SESSION_COOKIE] ?? "";
-  const csrf = jar[CSRF_COOKIE] ?? "";
-  return { token, headers: { cookie: `${SESSION_COOKIE}=${token}; ${CSRF_COOKIE}=${csrf}`, "x-csrf-token": csrf, origin: ORIGIN } };
-}
+const nextIp = () => `10.14.${Math.floor(++ipSeq / 250) + 1}.${(ipSeq % 250) + 1}`;
 
 /** Doğrudan servis çağrısı için oturumun (o anki, bayatlayabilecek) bağlamı. */
 async function authOfSession(s: Session): Promise<AuthContext> {
@@ -80,8 +71,8 @@ describe("AC-202 satır kilidi + aktörün TX içinde yeniden okunması", () => 
   it("AC-202: paralel istekte yetkisi düşürülen aktörün işlemi 403 döner — gecikme kancalı, 20/20", async () => {
     for (let round = 0; round < 20; round++) {
       const { tenantId, strong, actor, target } = await tenantAdmins();
-      const sStrong = await signIn(strong);
-      const sActor = await signIn(actor);
+      const sStrong = await signIn(app, strong, nextIp());
+      const sActor = await signIn(app, actor, nextIp());
       const strongAuth = await authOfSession(sStrong);
       const staleActor = await authOfSession(sActor); // users.edit VAR (oturumdaki kopya)
       expect(staleActor.permissions.has("users.edit")).toBe(true);
@@ -110,7 +101,7 @@ describe("AC-202 satır kilidi + aktörün TX içinde yeniden okunması", () => 
       const t = await createTenant();
       const a = await createUser({ tenantId: t.id, role: "ADMIN" });
       const b = await createUser({ tenantId: t.id, role: "ADMIN" });
-      const [authA, authB] = [await authOfSession(await signIn(a)), await authOfSession(await signIn(b))];
+      const [authA, authB] = [await authOfSession(await signIn(app, a, nextIp())), await authOfSession(await signIn(app, b, nextIp()))];
       const g = gate();
       const first = updateUser(db(), fx(), CTX, authA, t.id, b.id, { fullName: "B Yeni" }, 0, { afterLock: g.afterLock });
       await g.entered;
@@ -123,7 +114,7 @@ describe("AC-202 satır kilidi + aktörün TX içinde yeniden okunması", () => 
 
   it("AC-202: pasife alınan aktörün bayat oturumdan gelen yazması 403 (oturum kopyasına değil DB'ye bakılır)", async () => {
     const { tenantId, actor, target } = await tenantAdmins();
-    const stale = await authOfSession(await signIn(actor));
+    const stale = await authOfSession(await signIn(app, actor, nextIp()));
     await db().user.update({ where: { id: actor.id }, data: { status: "PASSIVE" } });
     await expect(updateUser(db(), fx(), CTX, stale, tenantId, target.id, { fullName: "X Y" }, 0)).rejects.toMatchObject({
       code: "FORBIDDEN",
@@ -137,7 +128,7 @@ describe("AC-203 hız sınırı", () => {
     const t = await createTenant();
     const admin = await createUser({ tenantId: t.id, role: "ADMIN" });
     const other = await createUser({ tenantId: t.id, role: "ADMIN" });
-    const s = await signIn(admin);
+    const s = await signIn(app, admin, nextIp());
     const mk = () => call(s, "POST", "/users", { email: `rl-${newId().toLowerCase()}@example.test`, fullName: "Hız Testi", role: "USER" });
     for (let i = 0; i < 10; i++) expect((await mk()).statusCode).toBe(201);
     const over = await mk();
@@ -150,11 +141,11 @@ describe("AC-203 hız sınırı", () => {
     expect(w.statusCode).toBe(429);
     expect(Number(w.headers["retry-after"])).toBeGreaterThan(0);
     expect((await call(s, "GET", "/users")).statusCode).toBe(200);
-    expect((await call(await signIn(other), "POST", `/users/${newId()}/deactivate`, {})).statusCode).toBe(404);
+    expect((await call(await signIn(app, other, nextIp()), "POST", `/users/${newId()}/deactivate`, {})).statusCode).toBe(404);
   });
 
   it("AC-203: /admin/* yazma uçları Super Admin başına 30/dk (31. → 429 + Retry-After); okuma sınırsız", async () => {
-    const sa = await signIn(await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+    const sa = await signIn(app, await createUser({ tenantId: null, role: "SUPER_ADMIN" }), nextIp());
     for (let i = 0; i < 30; i++) expect((await call(sa, "PATCH", `/admin/tenants/${newId()}`, { name: "Yok Firma" })).statusCode).toBe(404);
     const r = await call(sa, "POST", "/admin/switch-tenant", { tenantId: null });
     expect(r.statusCode).toBe(429);
@@ -165,7 +156,7 @@ describe("AC-203 hız sınırı", () => {
   it("AC-203: e-posta çakışması (409) audit'e result=fail yazılır — e-posta değeri yazılmaz", async () => {
     const t = await createTenant();
     const admin = await createUser({ tenantId: t.id, role: "ADMIN" });
-    const s = await signIn(admin);
+    const s = await signIn(app, admin, nextIp());
     const taken = await createUser({ tenantId: t.id, role: "USER" });
     const dup = await call(s, "POST", "/users", { email: taken.email, fullName: "Çakışan", role: "USER" });
     expect(dup.statusCode).toBe(409);
@@ -188,7 +179,7 @@ describe("AC-204 403 kararlarının audit'i", () => {
     const t = await createTenant();
     const admin = await createUser({ tenantId: t.id, role: "ADMIN", perms: { "audit.export": false } });
     const strong = await createUser({ tenantId: t.id, role: "ADMIN" });
-    const s = await signIn(admin);
+    const s = await signIn(app, admin, nextIp());
     const u = (
       await call(s, "POST", "/users", { email: `d-${newId().toLowerCase()}@example.test`, fullName: "Hedef", role: "USER" })
     ).json<CreateUserResponse>().user;
@@ -229,7 +220,7 @@ describe("S14-5 yetki kararı sürüm kontrolünden önce", () => {
     const t = await createTenant();
     const admin = await createUser({ tenantId: t.id, role: "ADMIN", perms: { "audit.export": false } });
     const strong = await createUser({ tenantId: t.id, role: "ADMIN" });
-    const s = await signIn(admin);
+    const s = await signIn(app, admin, nextIp());
     const wrong = { "if-match": '"v7"' };
     const r = await call(s, "PATCH", `/users/${strong.id}`, { fullName: "Değişmez" }, wrong);
     expect(r.statusCode).toBe(403);
@@ -248,7 +239,7 @@ describe("S14-5 yetki kararı sürüm kontrolünden önce", () => {
 describe("AC-206 If-Match / ETag (iyimser kilit)", () => {
   it('AC-206: GET → version + ETag "v<n>"; If-Match yok/bozuk → 428; güncel → 200 + yeni ETag; eski sürüm → 409 STALE_WRITE ve mesaj', async () => {
     const { actor, target } = await tenantAdmins();
-    const s = await signIn(actor);
+    const s = await signIn(app, actor, nextIp());
     const g = await call(s, "GET", `/users/${target.id}`);
     expect(g.headers.etag).toBe('"v0"');
     expect(g.json<UserDetail>().version).toBe(0);
@@ -272,7 +263,7 @@ describe("AC-206 If-Match / ETag (iyimser kilit)", () => {
 
   it("AC-206: yetki değişimi, pasif/aktif ve 2FA sıfırlama sürümü artırır; değişmeyen PATCH artırmaz", async () => {
     const { actor, target } = await tenantAdmins();
-    const s = await signIn(actor);
+    const s = await signIn(app, actor, nextIp());
     const v = async () => (await db().user.findUniqueOrThrow({ where: { id: target.id } })).version;
     expect(
       (await call(s, "PATCH", `/users/${target.id}`, { permissions: { "sessions.view": true } }, { "if-match": '"v0"' })).statusCode,
@@ -295,8 +286,8 @@ describe("AC-206 If-Match / ETag (iyimser kilit)", () => {
   it("AC-206: araya giren değişiklik — kilidi tutan kaydetme sürerken aynı sürümle gelen ikinci PATCH 409 (gecikme kancalı, 20/20)", async () => {
     for (let round = 0; round < 20; round++) {
       const { tenantId, strong, actor, target } = await tenantAdmins();
-      const authStrong = await authOfSession(await signIn(strong));
-      const s = await signIn(actor);
+      const authStrong = await authOfSession(await signIn(app, strong, nextIp()));
+      const s = await signIn(app, actor, nextIp());
       const g = gate();
       const first = updateUser(db(), fx(), CTX, authStrong, tenantId, target.id, { fullName: "İlk Kaydeden" }, 0, {
         afterLock: g.afterLock,
@@ -376,7 +367,7 @@ describe("AC-207 diff tabanlı audit (users-p9 kalıbı)", () => {
   it("AC-207: ADMIN aktör + kilitli anahtar + rol değişimi + tam yetki haritası → 200; aynı gövde tekrar → 200, fazladan audit satırı ve sürüm artışı yok", async () => {
     const t = await createTenant();
     const admin = await createUser({ tenantId: t.id, role: "ADMIN", perms: { "audit.export": false } });
-    const s = await signIn(admin);
+    const s = await signIn(app, admin, nextIp());
     const u = (
       await call(s, "POST", "/users", { email: `f-${newId().toLowerCase()}@example.test`, fullName: "Terfi", role: "USER" })
     ).json<CreateUserResponse>().user;
@@ -417,7 +408,7 @@ describe("AC-225 GET /users/options (teknisyen seçenekleri)", () => {
     });
     const foreign = await createUser({ tenantId: other.id, role: "USER" });
     const sa = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
-    const res = await call(await signIn(admin), "GET", "/users/options");
+    const res = await call(await signIn(app, admin, nextIp()), "GET", "/users/options");
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-store");
     const items = res.json<UserOptionsResponse>().items;
@@ -430,7 +421,7 @@ describe("AC-225 GET /users/options (teknisyen seçenekleri)", () => {
     expect(res.body).not.toContain(foreign.id);
     expect(res.body).not.toContain(sa.id);
     expect(res.body).not.toContain("@");
-    expect((await call(await signIn(sa), "GET", "/users/options")).statusCode).toBe(403);
+    expect((await call(await signIn(app, sa, nextIp()), "GET", "/users/options")).statusCode).toBe(403);
   });
 
   it("AC-225: rol kapsamı — USER yalnız kendisi; yetki session_history.view | support_requests.view | users.view (biri yeter), hiçbiri yoksa 403; boş liste değil kendisi", async () => {
@@ -438,12 +429,12 @@ describe("AC-225 GET /users/options (teknisyen seçenekleri)", () => {
     await createUser({ tenantId: t.id, role: "ADMIN" });
     for (const perm of ["session_history.view", "support_requests.view", "users.view"]) {
       const u = await createUser({ tenantId: t.id, role: "USER", perms: { [perm]: true } });
-      const r = await call(await signIn(u), "GET", "/users/options");
+      const r = await call(await signIn(app, u, nextIp()), "GET", "/users/options");
       expect(r.statusCode, perm).toBe(200);
       expect(r.json<UserOptionsResponse>().items).toEqual([{ id: u.id, fullName: "Test Kullanıcı", status: "ACTIVE" }]);
     }
     const none = await createUser({ tenantId: t.id, role: "USER", perms: { "sessions.view": true } });
-    expect((await call(await signIn(none), "GET", "/users/options")).statusCode).toBe(403);
+    expect((await call(await signIn(app, none, nextIp()), "GET", "/users/options")).statusCode).toBe(403);
     expect((await app.inject({ method: "GET", url: "/api/v1/users/options" })).statusCode).toBe(401);
   });
 
@@ -457,7 +448,7 @@ describe("AC-225 GET /users/options (teknisyen seçenekleri)", () => {
     const sa = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
     const ids = (r: { json: <T>() => T }) => r.json<UserOptionsResponse>().items.map((i) => i.id);
 
-    const saS = await signIn(sa);
+    const saS = await signIn(app, sa, nextIp());
     const saB = await call(saS, "GET", `/users/options?tenantId=${b.id}`);
     expect(saB.statusCode).toBe(200);
     expect(saB.headers["cache-control"]).toBe("no-store");
@@ -470,13 +461,13 @@ describe("AC-225 GET /users/options (teknisyen seçenekleri)", () => {
     expect((await call(saS, "GET", `/users/options?tenantId=${b.id}&x=1`)).statusCode).toBe(400);
 
     // ADMIN A, B'yi isterse yine yalnız kendi firması (parametre yok sayılır); B'den hiçbir kimlik sızmaz
-    const admR = await call(await signIn(adminA), "GET", `/users/options?tenantId=${b.id}`);
+    const admR = await call(await signIn(app, adminA, nextIp()), "GET", `/users/options?tenantId=${b.id}`);
     expect(admR.statusCode).toBe(200);
     expect(ids(admR).sort()).toEqual([adminA.id, userA.id].sort());
     expect(admR.body).not.toContain(adminB.id);
     expect(admR.body).not.toContain(userB.id);
     // USER A, B'yi isterse yalnız kendisi
-    const usrR = await call(await signIn(userA), "GET", `/users/options?tenantId=${b.id}`);
+    const usrR = await call(await signIn(app, userA, nextIp()), "GET", `/users/options?tenantId=${b.id}`);
     expect(usrR.statusCode).toBe(200);
     expect(ids(usrR)).toEqual([userA.id]);
   });

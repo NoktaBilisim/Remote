@@ -14,7 +14,6 @@ import { createDb, type Db } from "../../src/lib/db.ts";
 import { newId } from "../../src/lib/ids.ts";
 import { anonymizeRequestsOf } from "../../src/requests/jobs.ts";
 import { CAP_MESSAGE, RATE_MESSAGE } from "../../src/requests/messages.ts";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import {
   createTenant,
   createUser,
@@ -26,6 +25,7 @@ import {
   type Session,
   type TestUser,
 } from "../helpers/app.ts";
+import { sessionOf } from "../helpers/auth.ts";
 import { createRequestRow, createRequestSettings, requestClient, waitMsg } from "../helpers/requests.ts";
 import { startLive, type Live } from "../helpers/signal-flow.ts";
 import { makeDue, makeEligible, seedPurgeTenant, tenantRowCounts } from "../helpers/tenant-purge.ts";
@@ -59,13 +59,7 @@ async function loginAs(app: Live["app"], user: TestUser): Promise<Session> {
   const ip = `198.18.${Math.floor(++loginSeq / 200)}.${(loginSeq % 200) + 1}`;
   const res = await app.inject(loginRequest(user.email, user.password, { headers: { origin: ORIGIN, "x-forwarded-for": ip } }));
   if (res.statusCode !== 200) throw new Error(`login başarısız: ${res.statusCode} ${res.body}`);
-  const jar = Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
-  const session = jar[SESSION_COOKIE] ?? "";
-  const csrf = jar[CSRF_COOKIE] ?? "";
-  return {
-    token: session,
-    headers: { cookie: `${SESSION_COOKIE}=${session}; ${CSRF_COOKIE}=${csrf}`, "x-csrf-token": csrf, origin: ORIGIN },
-  };
+  return sessionOf(res);
 }
 async function loginStepUp(app: Live["app"], user: TestUser): Promise<Session> {
   const s = await loginAs(app, user);

@@ -2,18 +2,17 @@
 // (RFC 6238) ve süreç içi sahte SMTP (smtp-server, 127.0.0.1; account-p10 kalıbı). TOTP adım sınırı oynamasın diye
 // hesap servisinin saati adım ortasına sabitlenir (`app.account.now`).
 import type { MfaEnableResponse, MfaSetupResponse, StepUpResponse } from "@remote/contracts/api/auth";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import type { FastifyInstance } from "fastify";
-import nodemailer from "nodemailer";
 import { SMTPServer } from "smtp-server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mfaSetup } from "../../src/auth/account.ts";
 import { base32Decode, hotp, recoveryCodeCandidates, stepOf, TOTP_STEP_SEC } from "../../src/auth/mfa.ts";
 import { resolveSession } from "../../src/auth/session.ts";
 import { sha256Hex } from "../../src/lib/ids.ts";
-import { createNetGuard, isBlockedIp } from "../../src/lib/netguard.ts";
 import type { TransportFactory } from "../../src/mail/service.ts";
-import { createTenant, createUser, loginRequest, makeApp, ORIGIN, testDb, type Session, type TestUser } from "../helpers/app.ts";
+import { createTenant, createUser, makeApp, ORIGIN, testDb, type Session, type TestUser } from "../helpers/app.ts";
+import { closeSmtp, inboxTransport, loopbackNetguard, startInboxSmtp } from "../helpers/mail-tls.ts";
+import { signIn } from "../helpers/auth.ts";
 
 const inbox: { to: string; body: string }[] = [];
 let smtp: SMTPServer;
@@ -23,50 +22,24 @@ let app: FastifyInstance;
 const NOW = (stepOf(Date.now()) + 0.5) * TOTP_STEP_SEC * 1000;
 const step = stepOf(NOW);
 
-const transport: TransportFactory = (o) =>
-  nodemailer.createTransport({ ...o, port: o.port === 2525 ? smtpPort : 9 } as Parameters<typeof nodemailer.createTransport>[0]);
+const transport: TransportFactory = inboxTransport(() => smtpPort);
 
 beforeAll(async () => {
-  smtp = new SMTPServer({
-    authOptional: true,
-    disabledCommands: ["STARTTLS", "AUTH"],
-    logger: false,
-    onData(stream, session, cb) {
-      let body = "";
-      stream.on("data", (c: Buffer) => (body += c.toString("utf8")));
-      stream.on("end", () => {
-        inbox.push({ to: session.envelope.rcptTo.map((r) => r.address).join(","), body });
-        cb();
-      });
-    },
-  });
-  await new Promise<void>((r) => smtp.listen(0, "127.0.0.1", () => r()));
-  smtpPort = (smtp.server.address() as { port: number }).port;
-  const netguard = createNetGuard({
-    lookupAll: async (h) => (h === "smtp.test" ? ["127.0.0.1"] : []),
-    isBlocked: (ip) => ip !== "127.0.0.1" && isBlockedIp(ip),
-  });
+  ({ smtp, port: smtpPort } = await startInboxSmtp(inbox));
+  const netguard = loopbackNetguard();
   app = makeApp({ p10: { netguard, mailTransport: transport } });
   await app.ready();
   app.account.now = () => NOW;
 });
 afterAll(async () => {
   await app.close();
-  await new Promise<void>((r) => smtp.close(() => r()));
+  await closeSmtp(smtp);
 });
 
 const db = () => testDb();
 let ipSeq = 0;
 const nextIp = () => `10.15.${Math.floor(++ipSeq / 250) + 1}.${(ipSeq % 250) + 1}`;
 
-async function signIn(u: TestUser): Promise<Session> {
-  const res = await app.inject(loginRequest(u.email, u.password, { remoteAddress: nextIp() }));
-  if (res.statusCode !== 200) throw new Error(`login ${res.statusCode}`);
-  const jar = Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
-  const token = jar[SESSION_COOKIE] ?? "";
-  const csrf = jar[CSRF_COOKIE] ?? "";
-  return { token, headers: { cookie: `${SESSION_COOKIE}=${token}; ${CSRF_COOKIE}=${csrf}`, "x-csrf-token": csrf, origin: ORIGIN } };
-}
 const call = (s: Session, method: "GET" | "POST" | "PUT" | "DELETE", url: string, payload?: object, remoteAddress = "10.15.0.1") =>
   app.inject({ method, url: `/api/v1${url}`, headers: s.headers, remoteAddress, ...(payload === undefined ? {} : { payload }) });
 
@@ -74,7 +47,7 @@ const code = (secret: string, offset: number) => hotp(base32Decode(secret), step
 
 /** 2FA'yı gerçek akışla kurar (etkinleştirme t-1 adımını tüketir → step-up için t ve t+1 kalır). */
 async function enrolled(u: TestUser) {
-  const s = await signIn(u);
+  const s = await signIn(app, u, nextIp());
   const setup = (await call(s, "POST", "/auth/mfa/setup", {})).json<MfaSetupResponse>();
   const en = await call(s, "POST", "/auth/mfa/enable", { code: code(setup.secret, -1) });
   expect(en.statusCode, en.body).toBe(200);
@@ -98,7 +71,7 @@ describe("AC-214 paralel mfa/setup yarışı", () => {
     const t = await createTenant();
     for (let round = 0; round < 20; round++) {
       const u = await createUser({ tenantId: t.id, role: "ADMIN" });
-      const s = await signIn(u);
+      const s = await signIn(app, u, nextIp());
       const auth = await resolveSession(db(), s.token, new Date(), { setupEnforced: false });
       if (!auth) throw new Error("oturum");
       let release!: () => void;
@@ -131,7 +104,7 @@ describe("AC-214 paralel mfa/setup yarışı", () => {
 
 describe("AC-215 step-up", () => {
   it("AC-215: TOTP'si kurulu olmayan Super Admin → hassas uçlar ve /auth/step-up 403 MFA_SETUP_REQUIRED; okuma serbest", async () => {
-    const s = await signIn(await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+    const s = await signIn(app, await createUser({ tenantId: null, role: "SUPER_ADMIN" }), nextIp());
     for (const [m, u, p] of SENSITIVE) {
       const r = await call(s, m, u, p);
       expect(r.statusCode, `${m} ${u}`).toBe(403);
@@ -173,7 +146,7 @@ describe("AC-215 step-up", () => {
     expect((await call(s, "PUT", "/admin/settings/turn", { urls: [] })).json().error.code).toBe("MFA_STEP_UP_REQUIRED");
     // step-up oturuma bağlı: başka oturum (aynı kullanıcı) ayrıca ister
     await db().authSession.update({ where: { tokenHash: sha256Hex(s.token) }, data: { stepUpAt: new Date() } });
-    const other = await signIn(sa);
+    const other = await signIn(app, sa, nextIp());
     await db().authSession.update({ where: { tokenHash: sha256Hex(other.token) }, data: { mfaPassed: true } });
     expect((await call(other, "DELETE", "/admin/settings/turn")).json().error.code).toBe("MFA_STEP_UP_REQUIRED");
   });

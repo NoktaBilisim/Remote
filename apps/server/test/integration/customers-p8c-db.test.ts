@@ -5,17 +5,8 @@
 import { describe, expect, it } from "vitest";
 import { newId, newTenantRef, sha256Hex } from "../../src/lib/ids.ts";
 import { createSupportSessionRow, createTenant, createUser, testDb } from "../helpers/app.ts";
+import { rejectsWith } from "../helpers/db-grants.ts";
 import { createRequestRow } from "../helpers/requests.ts";
-
-async function rejectsWith(p: Promise<unknown>, needle: string | RegExp) {
-  const err = await p.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err, `reddedilmeliydi: ${String(needle)}`).toBeInstanceOf(Error);
-  const text = `${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`;
-  expect(text).toMatch(needle);
-}
 
 const db = () => testDb();
 const hash = () => sha256Hex(newId());

@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { anonymizeCustomersOf, sweepCustomerPassive } from "../../src/customers/service.ts";
 import { forEachRetentionTenant } from "../helpers/retention.ts";
 import { sha256Hex } from "../../src/lib/ids.ts";
-import { createTenant, createUser, loginAs, testDb, type Session } from "../helpers/app.ts";
+import { createTenant, testDb, type Session } from "../helpers/app.ts";
+import { login } from "../helpers/auth.ts";
 import { createCustomerRow, createRequestRow, createRequestSettings, requestClient, waitMsg } from "../helpers/requests.ts";
 import { startLive, TECH_PERMS, type Live } from "../helpers/signal-flow.ts";
 
@@ -32,18 +33,9 @@ type Method = "GET" | "POST" | "PATCH";
 const api = (l: Live, s: Session, method: Method, url: string, payload?: unknown) =>
   l.app.inject({ method, url, headers: s.headers, ...(payload === undefined ? {} : { payload: payload as Record<string, unknown> }) });
 
-async function login(
-  l: Live,
-  tenantId: string | null,
-  o: { role?: "SUPER_ADMIN" | "ADMIN" | "USER"; perms?: Record<string, boolean> } = {},
-) {
-  const user = await createUser({ tenantId, role: o.role ?? "USER", ...(o.perms ? { perms: o.perms } : {}) });
-  return { user, s: await loginAs(l.app, user) };
-}
-
 async function adminOf(l: Live) {
   const t = await createTenant();
-  const a = await login(l, t.id, { role: "ADMIN" });
+  const a = await login(l.app, t.id, { role: "ADMIN" });
   return { tenantId: t.id, ...a };
 }
 async function create(l: Live, s: Session, body: Record<string, unknown>) {
@@ -62,7 +54,7 @@ describe("AC-165 yetki anahtarları", () => {
     const { l } = await boot();
     const t = await createTenant();
     const c = await createCustomerRow(t.id);
-    const u = await login(l, t.id, { perms: { ...TECH_PERMS } });
+    const u = await login(l.app, t.id, { perms: { ...TECH_PERMS } });
     const calls: [Method, string, unknown?][] = [
       ["GET", C],
       ["GET", `${C}/general-link`],
@@ -78,7 +70,7 @@ describe("AC-165 yetki anahtarları", () => {
   it("AC-165: customers.create yoksa POST /customers 403, kayıt yazılmaz", async () => {
     const { l } = await boot();
     const t = await createTenant();
-    const u = await login(l, t.id, { perms: { "customers.view": true, "customers.edit": true, "customers.delete": true } });
+    const u = await login(l.app, t.id, { perms: { "customers.view": true, "customers.edit": true, "customers.delete": true } });
     expect((await api(l, u.s, "POST", C, { name: "Yetkisiz Ltd" })).statusCode).toBe(403);
     expect(await testDb().customer.count({ where: { tenantId: t.id } })).toBe(0);
   });
@@ -87,7 +79,7 @@ describe("AC-165 yetki anahtarları", () => {
     const { l } = await boot();
     const t = await createTenant();
     const c = await createCustomerRow(t.id);
-    const u = await login(l, t.id, { perms: { "customers.view": true, "customers.create": true, "customers.delete": true } });
+    const u = await login(l.app, t.id, { perms: { "customers.view": true, "customers.create": true, "customers.delete": true } });
     expect((await api(l, u.s, "PATCH", `${C}/${c.id}`, { note: "x" })).statusCode).toBe(403);
     expect((await api(l, u.s, "POST", `${C}/${c.id}/rotate-ref`, {})).statusCode).toBe(403);
     expect((await api(l, u.s, "POST", `${C}/${c.id}/reactivate`, {})).statusCode).toBe(403);
@@ -98,9 +90,9 @@ describe("AC-165 yetki anahtarları", () => {
     const { l } = await boot();
     const t = await createTenant();
     const c = await createCustomerRow(t.id);
-    const u = await login(l, t.id, { perms: { "customers.view": true, "customers.create": true, "customers.edit": true } });
+    const u = await login(l.app, t.id, { perms: { "customers.view": true, "customers.create": true, "customers.edit": true } });
     expect((await api(l, u.s, "POST", `${C}/${c.id}/deactivate`, {})).statusCode).toBe(403);
-    const a = await login(l, t.id, { role: "ADMIN" });
+    const a = await login(l.app, t.id, { role: "ADMIN" });
     expect((await api(l, a.s, "POST", `${C}/${c.id}/deactivate`, {})).statusCode).toBe(200);
     expect((await api(l, a.s, "POST", `${C}/${c.id}/reactivate`, {})).statusCode).toBe(200);
     expect((await api(l, a.s, "POST", C, { name: "Admin Firma" })).statusCode).toBe(201);
@@ -196,7 +188,7 @@ describe("AC-172 tenant izolasyonu", () => {
     const b = await createTenant();
     const ca = await createCustomerRow(a.id);
     const cb = await createCustomerRow(b.id);
-    const sa = await login(l, null, { role: "SUPER_ADMIN" });
+    const sa = await login(l.app, null, { role: "SUPER_ADMIN" });
     for (const url of [C, `${C}/${ca.id}`, `${C}/general-link`]) {
       const r = await api(l, sa.s, "GET", url);
       expect(r.statusCode, url).toBe(403);
@@ -523,7 +515,7 @@ describe("AC-175..180 talep/oturum bağlantısı", () => {
     const a = await adminOf(l);
     const genRef = await createRequestSettings(a.tenantId);
     const c = await create(l, a.s, { name: "Talep Firması" });
-    const tech = await login(l, a.tenantId, { perms: REQ_PERMS });
+    const tech = await login(l.app, a.tenantId, { perms: REQ_PERMS });
     const panel = await rc.panelWs(tech.s.token);
     const cr = (await rc.createReq(refOf(c.downloadUrl), nextIp())).json<{ requestId: string }>();
     const gr = (await rc.createReq(genRef, nextIp())).json<{ requestId: string }>();
@@ -573,7 +565,7 @@ describe("AC-175..180 talep/oturum bağlantısı", () => {
     expect(item?.lastRequestAt).toBe(tab.items[0]?.createdAt);
     expect(tab.items.map((x) => x.createdAt)).toEqual([...tab.items.map((x) => x.createdAt)].sort().reverse());
     expect((await api(l, a.s, "GET", `${C}/${c.id}`)).json()).toMatchObject({ requestCount: 3, sessionCount: 0 });
-    const v = await login(l, a.tenantId, { perms: { "customers.view": true } });
+    const v = await login(l.app, a.tenantId, { perms: { "customers.view": true } });
     expect((await api(l, v.s, "GET", `${C}/${c.id}/requests`)).statusCode).toBe(403);
     expect((await api(l, v.s, "GET", `${C}/${c.id}/sessions`)).statusCode).toBe(403);
     expect((await api(l, v.s, "GET", `${C}/${c.id}`)).statusCode).toBe(200);
@@ -594,7 +586,7 @@ describe("AC-175..180 talep/oturum bağlantısı", () => {
     expect((await testDb().supportSession.findUniqueOrThrow({ where: { id: sid } })).customerId).toBe(c.id);
     expect((await api(l, a.s, "POST", "/api/v1/sessions", { customerId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })).statusCode).toBe(404);
     expect((await api(l, a.s, "POST", "/api/v1/sessions", { customerId: c.id, x: 1 })).statusCode).toBe(400);
-    const noView = await login(l, a.tenantId, { perms: { ...TECH_PERMS } });
+    const noView = await login(l.app, a.tenantId, { perms: { ...TECH_PERMS } });
     expect((await api(l, noView.s, "POST", "/api/v1/sessions", { customerId: c.id })).statusCode).toBe(403);
     expect((await api(l, noView.s, "POST", "/api/v1/sessions", {})).statusCode).toBe(201);
 

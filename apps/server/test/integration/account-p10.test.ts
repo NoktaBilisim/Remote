@@ -1,26 +1,17 @@
 // P10 hesap güvenliği + SMTP (AC-10, 65, 66, 67, 68, 78, 79, 80, 115, 122, 151). Gerçek MySQL + fastify.inject +
 // süreç içi sahte SMTP (smtp-server, 127.0.0.1) — dış sunucuya bağlanılmaz. netguard testte yalnız 127.0.0.1'e izin
 // verir ("smtp.test" → 127.0.0.1); diğer tüm yasak aralıklar gerçek kuralla reddedilir.
-import {
-  CSRF_COOKIE,
-  SESSION_COOKIE,
-  type LoginResponse,
-  type MeResponse,
-  type MfaEnableResponse,
-  type MfaSetupResponse,
-} from "@remote/contracts/api/auth";
+import { type LoginResponse, type MeResponse, type MfaEnableResponse, type MfaSetupResponse } from "@remote/contracts/api/auth";
 import {
   SMTP_INSECURE_AUTH_MESSAGE,
   SMTP_PORT_MESSAGE,
   SMTP_SEND_FAILED_MESSAGE,
   type TenantSettingsView,
 } from "@remote/contracts/api/tenants";
-import type { FastifyInstance, LightMyRequestResponse } from "fastify";
-import nodemailer from "nodemailer";
+import type { FastifyInstance } from "fastify";
 import { SMTPServer } from "smtp-server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { base32Decode, hotp, stepOf } from "../../src/auth/mfa.ts";
-import { createNetGuard, isBlockedIp } from "../../src/lib/netguard.ts";
 import { MAIL_ATTEMPT_CAP_MS, type TransportFactory } from "../../src/mail/service.ts";
 import { mailLogoUrl } from "../../src/uploads/urls.ts";
 import {
@@ -35,6 +26,8 @@ import {
   type Session,
   type TestUser,
 } from "../helpers/app.ts";
+import { closeSmtp, inboxTransport, loopbackNetguard, startInboxSmtp } from "../helpers/mail-tls.ts";
+import { sessionOf } from "../helpers/auth.ts";
 import { createRequestSettings, requestClient } from "../helpers/requests.ts";
 import { FAKE_SMTP_PASSWORD } from "../helpers/secrets.ts";
 import { admitted, startLive, techSession } from "../helpers/signal-flow.ts";
@@ -51,29 +44,11 @@ let p10: NonNullable<Parameters<typeof makeApp>[0]>["p10"];
 let app: FastifyInstance;
 let wsBase = "";
 /** Sözleşme yalnız 25/465/587/2525'e izin verir (B-P10-1): 2525 → süreç içi sahte SMTP, diğerleri → kapalı port 9. */
-const transport: TransportFactory = (o) =>
-  nodemailer.createTransport({ ...o, port: o.port === 2525 ? smtpPort : 9 } as Parameters<typeof nodemailer.createTransport>[0]);
+const transport: TransportFactory = inboxTransport(() => smtpPort);
 
 beforeAll(async () => {
-  smtp = new SMTPServer({
-    authOptional: true,
-    disabledCommands: ["STARTTLS", "AUTH"],
-    logger: false,
-    onData(stream, session, cb) {
-      let body = "";
-      stream.on("data", (c: Buffer) => (body += c.toString("utf8")));
-      stream.on("end", () => {
-        inbox.push({ to: session.envelope.rcptTo.map((r) => r.address).join(","), body });
-        cb();
-      });
-    },
-  });
-  await new Promise<void>((r) => smtp.listen(0, "127.0.0.1", () => r()));
-  smtpPort = (smtp.server.address() as { port: number }).port;
-  const netguard = createNetGuard({
-    lookupAll: async (h) => (h === "smtp.test" ? ["127.0.0.1"] : []),
-    isBlocked: (ip) => ip !== "127.0.0.1" && isBlockedIp(ip),
-  });
+  ({ smtp, port: smtpPort } = await startInboxSmtp(inbox));
+  const netguard = loopbackNetguard();
   p10 = { netguard, mailTransport: transport, mfaSetupEnforcement: true };
   app = makeApp({ p10, env: { TRUSTED_PROXY_CIDR: "127.0.0.1/32" } });
   await app.listen({ host: "127.0.0.1", port: 0 });
@@ -81,23 +56,17 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await app.close();
-  await new Promise<void>((r) => smtp.close(() => r()));
+  await closeSmtp(smtp);
 });
 
 const db = () => testDb();
 let ipSeq = 0;
 const ip = () => `10.77.${Math.floor(++ipSeq / 250)}.${(ipSeq % 250) + 1}`;
 
-function jar(res: LightMyRequestResponse): Session {
-  const c = Object.fromEntries(res.cookies.map((x) => [x.name, x.value]));
-  const token = c[SESSION_COOKIE] ?? "";
-  const csrf = c[CSRF_COOKIE] ?? "";
-  return { token, headers: { cookie: `${SESSION_COOKIE}=${token}; ${CSRF_COOKIE}=${csrf}`, "x-csrf-token": csrf, origin: ORIGIN } };
-}
 async function signIn(u: TestUser, password = u.password): Promise<{ s: Session; body: LoginResponse }> {
   const res = await app.inject(loginRequest(u.email, password, { remoteAddress: ip() }));
   if (res.statusCode !== 200) throw new Error(`login ${res.statusCode} ${res.body}`);
-  return { s: jar(res), body: res.json<LoginResponse>() };
+  return { s: sessionOf(res), body: res.json<LoginResponse>() };
 }
 const call = (s: Session | null, method: "GET" | "POST" | "PUT", url: string, payload?: unknown) =>
   app.inject({
@@ -186,7 +155,7 @@ describe("AC-67 iki adımlı doğrulama", () => {
     expect(reused.statusCode).toBe(401);
     const v = await call(a.s, "POST", "/auth/mfa/verify", { code: await totpFromLastStep(admin.id, secret, 1) });
     expect(v.statusCode, v.body).toBe(200);
-    const full = jar(v);
+    const full = sessionOf(v);
     expect(full.token).not.toBe(a.s.token); // token yenilenir
     expect((await call(a.s, "GET", "/auth/me")).statusCode).toBe(401);
     expect((await call(full, "GET", "/sessions")).statusCode).toBe(200);

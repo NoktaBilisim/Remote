@@ -1,23 +1,13 @@
 // P14a A2 + P14b B2 — firma pasife alma tek TX (AC-205), tenant ayar audit'i (AC-224), firma seçici (AC-226).
 // Gerçek MySQL + inject.
 import type { TenantOptionsResponse, TenantSettingsView } from "@remote/contracts/api/tenants";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveSession } from "../../src/auth/session.ts";
 import { newId, sha256Hex } from "../../src/lib/ids.ts";
 import { deactivateTenant, type TenantLiveEffects } from "../../src/tenants/service.ts";
-import {
-  createSupportSessionRow,
-  createTenant,
-  createUser,
-  loginRequest,
-  makeApp,
-  ORIGIN,
-  testDb,
-  type Session,
-  type TestUser,
-} from "../helpers/app.ts";
+import { createSupportSessionRow, createTenant, createUser, makeApp, testDb, type Session } from "../helpers/app.ts";
+import { signIn } from "../helpers/auth.ts";
 import { createRequestRow } from "../helpers/requests.ts";
 
 let app: FastifyInstance;
@@ -29,16 +19,7 @@ afterAll(() => app.close());
 
 const db = () => testDb();
 let ipSeq = 0;
-async function signIn(user: TestUser): Promise<Session> {
-  const res = await app.inject(
-    loginRequest(user.email, user.password, { remoteAddress: `10.16.${Math.floor(++ipSeq / 250) + 1}.${(ipSeq % 250) + 1}` }),
-  );
-  if (res.statusCode !== 200) throw new Error(`login ${res.statusCode}`);
-  const jar = Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
-  const token = jar[SESSION_COOKIE] ?? "";
-  const csrf = jar[CSRF_COOKIE] ?? "";
-  return { token, headers: { cookie: `${SESSION_COOKIE}=${token}; ${CSRF_COOKIE}=${csrf}`, "x-csrf-token": csrf, origin: ORIGIN } };
-}
+const nextIp = () => `10.16.${Math.floor(++ipSeq / 250) + 1}.${(ipSeq % 250) + 1}`;
 const call = (s: Session, method: "GET" | "POST" | "PUT", url: string, payload?: object) =>
   app.inject({ method, url: `/api/v1${url}`, headers: s.headers, ...(payload === undefined ? {} : { payload }) });
 
@@ -64,7 +45,7 @@ describe("AC-205 firma pasife alma — talep iptali ve kayıt geçersizleştirme
     const reqs = [await createRequestRow(t.id), await createRequestRow(t.id)];
     const bindings = [await bindingRow(t.id, tech.id), await bindingRow(t.id, tech.id)];
     const sa = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
-    const s = await signIn(sa);
+    const s = await signIn(app, sa, nextIp());
     const auth = await resolveSession(db(), s.token, new Date(), { setupEnforced: false });
     if (!auth) throw new Error("oturum");
     const boom = async (): Promise<never> => {
@@ -119,7 +100,7 @@ describe("AC-205 firma pasife alma — talep iptali ve kayıt geçersizleştirme
     const theirs = await createRequestRow(other.id);
     const b1 = await bindingRow(t.id, tech.id);
     const b2 = await bindingRow(other.id, otherTech.id);
-    const s = await signIn(await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+    const s = await signIn(app, await createUser({ tenantId: null, role: "SUPER_ADMIN" }), nextIp());
     expect((await call(s, "POST", `/admin/tenants/${t.id}/deactivate`, {})).statusCode).toBe(200);
     expect((await db().supportRequest.findUniqueOrThrow({ where: { id: mine.id } })).status).toBe("CANCELLED");
     expect((await db().deviceBinding.findUniqueOrThrow({ where: { id: b1.id } })).revokedAt).not.toBeNull();
@@ -131,7 +112,7 @@ describe("AC-205 firma pasife alma — talep iptali ve kayıt geçersizleştirme
 describe("AC-224 tenant ayarları (Ayarlar > Genel)", () => {
   it("AC-224: sessionTtlMin, maxActiveHours, maxOpenSessions, maxFileMb alan bazlı doğrulanır (400 fields.<alan>); kayıt audit'e eski → yeni; değişmeyen kayıtta audit yok", async () => {
     const t = await createTenant();
-    const s = await signIn(await createUser({ tenantId: t.id, role: "ADMIN" }));
+    const s = await signIn(app, await createUser({ tenantId: t.id, role: "ADMIN" }), nextIp());
     for (const [k, v] of [
       ["sessionTtlMin", 14],
       ["sessionTtlMin", 31],
@@ -167,7 +148,7 @@ describe("AC-226 GET /admin/tenants/options (firma seçici)", () => {
   const tok = Array.from({ length: 8 }, () => "abcdefghjkmnpqrstuvwxyz"[Math.floor(Math.random() * 23)]).join("");
   let sa: Session;
   beforeAll(async () => {
-    sa = await signIn(await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+    sa = await signIn(app, await createUser({ tenantId: null, role: "SUPER_ADMIN" }), nextIp());
     const rows = Array.from({ length: 250 }, (_, i) => {
       const id = newId();
       const n = String(i).padStart(3, "0");
@@ -231,7 +212,7 @@ describe("AC-226 GET /admin/tenants/options (firma seçici)", () => {
 
   it("AC-226: yalnız SUPER_ADMIN — tenant Admin'i 403, kimliksiz 401", async () => {
     const t = await createTenant();
-    const admin = await signIn(await createUser({ tenantId: t.id, role: "ADMIN" }));
+    const admin = await signIn(app, await createUser({ tenantId: t.id, role: "ADMIN" }), nextIp());
     expect((await call(admin, "GET", "/admin/tenants/options")).statusCode).toBe(403);
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/tenants/options" })).statusCode).toBe(401);
   });

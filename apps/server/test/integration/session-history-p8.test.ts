@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { listPage, seedPerfSessions } from "../../scripts/perf-sessions.ts";
 import { newId } from "../../src/lib/ids.ts";
 import { createSupportSessionRow, createTenant, createUser, testDb } from "../helpers/app.ts";
+import { rejectsWith } from "../helpers/db-grants.ts";
 
 async function session(status: "ACTIVE" | "PENDING" | "ENDED" = "ENDED") {
   const tenant = await createTenant();
@@ -16,16 +17,6 @@ async function session(status: "ACTIVE" | "PENDING" | "ENDED" = "ENDED") {
 type P8 = { customerName?: string | null; customerEmail?: string | null; ticketNo?: string | null; note?: string | null };
 const patch = (s: { id: string; tenantId: string }, data: P8) =>
   testDb().supportSession.updateMany({ where: { id: s.id, tenantId: s.tenantId }, data });
-
-async function rejectsWith(p: Promise<unknown>, needle: string | RegExp) {
-  const err = await p.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err, `reddedilmeliydi: ${String(needle)}`).toBeInstanceOf(Error);
-  const text = `${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`;
-  expect(text).toMatch(needle);
-}
 
 describe("P8 support_sessions geçmiş alanları", () => {
   it("AC-62/63: müşteri adı/e-posta, ticket no ve not yazılır/okunur; Türkçe çok baytlı sınır değerler kabul", async () => {

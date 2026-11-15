@@ -5,7 +5,6 @@ import { DEFAULT_LOGO_URL, THEME_COOKIE, UPLOAD_MAX_BYTES } from "@remote/contra
 import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import {
   ORIGIN,
   TEST_UPLOADS_DIR,
@@ -19,6 +18,7 @@ import {
   type Session,
   type TestUser,
 } from "../helpers/app.ts";
+import { sessionOf } from "../helpers/auth.ts";
 import { createRequestSettings } from "../helpers/requests.ts";
 import { newBindingKey, newId, sha256Hex } from "../../src/lib/ids.ts";
 import { SYSTEM_LOGO_KEY, mailLogoUrl, systemLogoPath, systemLogoUrl } from "../../src/uploads/urls.ts";
@@ -53,12 +53,7 @@ const nextIp = () => `203.0.113.${(++ipSeq % 250) + 1}`;
 async function login(u: TestUser): Promise<Session> {
   const res = await app.inject(loginRequest(u.email, u.password, { remoteAddress: nextIp() }));
   if (res.statusCode !== 200) throw new Error(`login başarısız: ${res.statusCode}`);
-  const jar = Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
-  const csrf = jar[CSRF_COOKIE] ?? "";
-  return {
-    token: jar[SESSION_COOKIE] ?? "",
-    headers: { cookie: `${SESSION_COOKIE}=${jar[SESSION_COOKIE] ?? ""}; ${CSRF_COOKIE}=${csrf}`, "x-csrf-token": csrf, origin: ORIGIN },
-  };
+  return sessionOf(res);
 }
 
 const del = (s: Session, url: string) => app.inject({ method: "DELETE", url, headers: s.headers });

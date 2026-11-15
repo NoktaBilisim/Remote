@@ -1,6 +1,5 @@
 // P15 — G3 küçük özellikler (AC-231..239; mimari-e11 §6). Gerçek MySQL + inject; WS akışları gerçek dinleyen sunucu.
 import type { MfaEnableResponse, MfaRecoveryCodesResponse, MfaSetupResponse } from "@remote/contracts/api/auth";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import { REQUEST_BLOCK_EXISTS_MESSAGE, type RequestBlockItem, type RequestBlockListResponse } from "@remote/contracts/api/request-blocks";
 import {
   ACCEPT_CODE_CLIENT_UNSUPPORTED_MESSAGE,
@@ -30,6 +29,7 @@ import {
   type Session,
   type TestUser,
 } from "../helpers/app.ts";
+import { sessionOf } from "../helpers/auth.ts";
 import { createRequestRow, createRequestSettings, requestClient, waitMsg } from "../helpers/requests.ts";
 import { startLive, TECH_PERMS, techSession, type Live } from "../helpers/signal-flow.ts";
 import { FakeClock, makeRooms, roomFixture } from "../helpers/ws.ts";
@@ -48,13 +48,9 @@ let ipSeq = 0;
 const nextIp = () => `10.16.${Math.floor(++ipSeq / 250) + 1}.${(ipSeq % 250) + 1}`;
 const errOf = (r: { json: <T>() => T }) => r.json<{ error: { code: string; message: string; fields?: Record<string, string> } }>().error;
 
-async function signIn(u: TestUser): Promise<Session> {
-  const res = await app.inject(loginRequest(u.email, u.password, { remoteAddress: nextIp() }));
-  const jar = Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
-  const token = jar[SESSION_COOKIE] ?? "";
-  const csrf = jar[CSRF_COOKIE] ?? "";
-  return { token, headers: { cookie: `${SESSION_COOKIE}=${token}; ${CSRF_COOKIE}=${csrf}`, "x-csrf-token": csrf, origin: ORIGIN } };
-}
+/** Ortak `signIn`'den farklı: 200 denetimi yok (PT-K2 — davranış korunur). */
+const signIn = async (u: TestUser): Promise<Session> =>
+  sessionOf(await app.inject(loginRequest(u.email, u.password, { remoteAddress: nextIp() })));
 const code = (secret: string, offset: number) => hotp(base32Decode(secret), step + offset);
 
 describe("AC-231 kurtarma kodlarını yenile", () => {

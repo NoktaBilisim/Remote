@@ -4,18 +4,10 @@
 import { describe, expect, it } from "vitest";
 import type { Db } from "../../src/lib/db.ts";
 import { testDb } from "../helpers/app.ts";
+import { errorText } from "../helpers/db-grants.ts";
 
 const app = () => testDb();
 const C = "system_settings_whatsapp_chk";
-
-async function errorText(p: Promise<unknown>): Promise<string> {
-  const err = await p.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err, "reddedilmeliydi").toBeInstanceOf(Error);
-  return `${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`;
-}
 
 const UPSERT =
   "INSERT INTO system_settings (`key`, value_json, secret_enc, updated_at) VALUES (?, ?, ?, NOW(3)) ON DUPLICATE KEY UPDATE value_json = VALUES(value_json), secret_enc = VALUES(secret_enc), updated_at = NOW(3)";

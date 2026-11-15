@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { anonymizeRequestsOf } from "../../src/requests/jobs.ts";
 import { forEachRetentionTenant } from "../helpers/retention.ts";
 import { sha256Hex } from "../../src/lib/ids.ts";
-import { createConsentText, createTenant, createUser, loginAs, ORIGIN, testDb, type Session } from "../helpers/app.ts";
+import { createConsentText, createTenant, ORIGIN, testDb, type Session } from "../helpers/app.ts";
+import { login } from "../helpers/auth.ts";
 import { createRequestRow, createRequestSettings, requestClient, waitMsg } from "../helpers/requests.ts";
 import { startLive, TECH_PERMS, type Live } from "../helpers/signal-flow.ts";
 import { connect, techHeaders } from "../helpers/ws.ts";
@@ -25,15 +26,6 @@ afterEach(async () => {
 async function boot() {
   live = await startLive({ env: PROXY });
   return { l: live, rc: requestClient(live.app, live.base) };
-}
-
-async function login(
-  app: Live["app"],
-  tenantId: string | null,
-  o: { role?: "SUPER_ADMIN" | "ADMIN" | "USER"; perms?: Record<string, boolean> } = {},
-) {
-  const user = await createUser({ tenantId, role: o.role ?? "USER", ...(o.perms ? { perms: o.perms } : {}) });
-  return { user, s: await loginAs(app, user) };
 }
 
 const api = (app: Live["app"], s: Session, method: "GET" | "POST" | "PUT", url: string, payload?: unknown) =>

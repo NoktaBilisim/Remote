@@ -5,21 +5,10 @@
 import { describe, expect, it } from "vitest";
 import { newId, sha256Hex } from "../../src/lib/ids.ts";
 import { createSupportSessionRow, createTenant, createUser, testDb } from "../helpers/app.ts";
+import { errorText, TERMINATORS } from "../helpers/db-grants.ts";
 import { createCustomerRow, createRequestRow, createRequestSettings } from "../helpers/requests.ts";
 
 const db = () => testDb();
-
-async function errorText(p: Promise<unknown>): Promise<string> {
-  const err = await p.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err, "reddedilmeliydi").toBeInstanceOf(Error);
-  return `${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`;
-}
-
-// ICU `$` girdinin sonundaki TEK satır sonlandırıcıdan önce de eşleşiyordu (8.4.13'te denendi); `\z` hepsini reddeder.
-const TERMINATORS = { LF: "\n", CR: "\r", CRLF: "\r\n", VT: "\v", FF: "\f", NEL: "\u0085", LS: " ", PS: " " };
 
 const CHECKS = [
   "customers_file_label_chk",

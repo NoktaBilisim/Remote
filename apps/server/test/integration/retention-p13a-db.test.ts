@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import type { Db } from "../../src/lib/db.ts";
 import { newId, sha256Hex } from "../../src/lib/ids.ts";
 import { createSupportSessionRow, createTenant, createUser, testDb, testFixtureDb } from "../helpers/app.ts";
+import { errorText, inRolledBackTx } from "../helpers/db-grants.ts";
 import { PRIVILEGE_DENIED } from "../helpers/text-sql.ts";
 
 const app = () => testDb();
@@ -13,34 +14,9 @@ afterAll(async () => {
   await testFixtureDb().$disconnect();
 });
 
-async function errorText(p: Promise<unknown>): Promise<string> {
-  const err = await p.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err, "reddedilmeliydi").toBeInstanceOf(Error);
-  return `${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`;
-}
 const rejectsWith = async (p: Promise<unknown>, needle: RegExp) => expect(await errorText(p)).toMatch(needle);
 const RETENTION = /older than 730 days/;
 const COLUMN_DENIED = /command denied.*column|1143/i;
-
-/** Tek bağlantıda çalıştırır ve her durumda geri alır; oturum değişkenleri sıfırlanır. */
-async function inRolledBackTx(db: Db, fn: (tx: Pick<Db, "$executeRawUnsafe" | "$queryRawUnsafe">) => Promise<void>) {
-  const ROLLBACK = new Error("rollback");
-  await db
-    .$transaction(async (tx) => {
-      try {
-        await fn(tx);
-      } finally {
-        await tx.$executeRawUnsafe("SET TIMESTAMP = DEFAULT, time_zone = DEFAULT");
-      }
-      throw ROLLBACK;
-    })
-    .catch((e: unknown) => {
-      if (e !== ROLLBACK) throw e;
-    });
-}
 
 const createdAtOf = async (db: Pick<Db, "$queryRawUnsafe">, id: bigint) =>
   (await db.$queryRawUnsafe<{ c: Date }[]>("SELECT created_at c FROM audit_logs WHERE id = ?", id))[0]?.c;

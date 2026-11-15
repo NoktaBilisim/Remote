@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { Prisma } from "../../src/generated/prisma/client.ts";
 import { newId, sha256Hex } from "../../src/lib/ids.ts";
 import { createSupportSessionRow, createTenant, createUser, testDb } from "../helpers/app.ts";
+import { rejectsWith } from "../helpers/db-grants.ts";
 
 const HASH = sha256Hex("dosya içeriği");
 
@@ -37,17 +38,6 @@ const insertFile = (r: FileRow) =>
       result: r.result ?? "OK",
     },
   });
-
-/** Hata mesajında beklenen kısıt adı (CHECK 3819 / FK 1452 / yetki 1142). */
-async function rejectsWith(p: Promise<unknown>, needle: string | RegExp) {
-  const err = await p.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err, `reddedilmeliydi: ${String(needle)}`).toBeInstanceOf(Error);
-  const text = `${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`;
-  expect(text).toMatch(needle);
-}
 
 describe("P5 session_files", () => {
   it("AC-55: iki yön ve dört sonuç meta olarak yazılır; oturum detayında tenant filtresiyle okunur", async () => {

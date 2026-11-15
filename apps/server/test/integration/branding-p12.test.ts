@@ -4,17 +4,10 @@
 import { describe, expect, it } from "vitest";
 import type { Db } from "../../src/lib/db.ts";
 import { createTenant, createUser, testDb } from "../helpers/app.ts";
+import { errorText } from "../helpers/db-grants.ts";
 
 const app = () => testDb();
 
-async function errorText(p: Promise<unknown>): Promise<string> {
-  const err = await p.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err, "reddedilmeliydi").toBeInstanceOf(Error);
-  return `${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`;
-}
 const rejectsWith = async (p: Promise<unknown>, chk: string) => expect(await errorText(p)).toMatch(new RegExp(chk));
 
 const RND = "Ab_-0123456789xyz"; // 17 karakter [A-Za-z0-9_-]

@@ -1,6 +1,5 @@
 // P9 kullanıcı ve yetki yönetimi (AC-69, 71, 73, 74, 115; mimari-api "Yönetim"). Gerçek MySQL + fastify.inject;
 // canlı yansıma testleri gerçek dinleyen sunucu + WS istemcileriyle (signal-flow).
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import { PERMISSION_KEYS } from "@remote/contracts/permissions";
 import type { CreateUserResponse, UserDetail, UserListResponse } from "@remote/contracts/api/users";
 import type { FastifyInstance } from "fastify";
@@ -12,11 +11,11 @@ import {
   loginAs,
   loginRequest,
   makeApp,
-  ORIGIN,
   testDb,
   type Session,
   type TestUser,
 } from "../helpers/app.ts";
+import { signIn } from "../helpers/auth.ts";
 import { admitted, startLive, techSession, type Live } from "../helpers/signal-flow.ts";
 
 let app: FastifyInstance;
@@ -30,22 +29,13 @@ const db = () => testDb();
 
 let ipSeq = 0;
 /** Her giriş ayrı test IP'sinden (IP başına 20/dk giriş sınırı bu dosyanın toplam girişine takılmasın). */
-async function signIn(user: TestUser): Promise<Session> {
-  const res = await app.inject(
-    loginRequest(user.email, user.password, { remoteAddress: `10.9.${Math.floor(++ipSeq / 250)}.${(ipSeq % 250) + 1}` }),
-  );
-  if (res.statusCode !== 200) throw new Error(`login ${res.statusCode}`);
-  const jar = Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
-  const token = jar[SESSION_COOKIE] ?? "";
-  const csrf = jar[CSRF_COOKIE] ?? "";
-  return { token, headers: { cookie: `${SESSION_COOKIE}=${token}; ${CSRF_COOKIE}=${csrf}`, "x-csrf-token": csrf, origin: ORIGIN } };
-}
+const nextIp = () => `10.9.${Math.floor(++ipSeq / 250)}.${(ipSeq % 250) + 1}`;
 const ALL_TRUE = Object.fromEntries(PERMISSION_KEYS.map((k) => [k, true]));
 
 async function tenantWithAdmin(perms?: Record<string, boolean>) {
   const t = await createTenant();
   const admin = await createUser({ tenantId: t.id, role: "ADMIN", ...(perms ? { perms } : {}) });
-  return { tenantId: t.id, admin, s: await signIn(admin) };
+  return { tenantId: t.id, admin, s: await signIn(app, admin, nextIp()) };
 }
 
 /** P14a (AC-206): PATCH'ten önce güncel ETag okunup `If-Match` olarak gönderilir (P9 davranış testleri sürümden bağımsız). */
@@ -152,9 +142,9 @@ describe("P9 kullanıcı oluşturma", () => {
   it("users.create yetkisi yoksa 403; Super Admin firma seçmeden 403", async () => {
     const t = await createTenant();
     const u = await createUser({ tenantId: t.id, role: "USER", perms: { "users.view": true } });
-    expect((await create(await signIn(u), {})).statusCode).toBe(403);
+    expect((await create(await signIn(app, u, nextIp()), {})).statusCode).toBe(403);
     const sa = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
-    expect((await create(await signIn(sa), {})).statusCode).toBe(403);
+    expect((await create(await signIn(app, sa, nextIp()), {})).statusCode).toBe(403);
   });
 });
 
@@ -183,7 +173,7 @@ describe("P9 kullanıcı listesi", () => {
     const sa = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
     expect((await req(b.s, "GET", "/users?status=all")).body).not.toContain(sa.id);
     const plain = await createUser({ tenantId: a.tenantId, role: "USER" });
-    expect((await req(await signIn(plain), "GET", "/users")).statusCode).toBe(403);
+    expect((await req(await signIn(app, plain, nextIp()), "GET", "/users")).statusCode).toBe(403);
     const created = all.items.find((i) => i.id === a.admin.id);
     expect(created?.lastLoginAt).not.toBeNull();
   });
@@ -280,7 +270,7 @@ describe("P9 kullanıcı düzenleme ve yetki audit'i", () => {
     expect((await req(s, "PATCH", `/users/${u.id}`, {})).statusCode).toBe(400);
     expect((await req(s, "PATCH", `/users/${u.id}`, { email: other.email })).statusCode).toBe(409);
     const viewer = await createUser({ tenantId, role: "USER", perms: { "users.view": true } });
-    expect((await req(await signIn(viewer), "PATCH", `/users/${u.id}`, { fullName: "X Y" })).statusCode).toBe(403);
+    expect((await req(await signIn(app, viewer, nextIp()), "PATCH", `/users/${u.id}`, { fullName: "X Y" })).statusCode).toBe(403);
   });
 });
 
@@ -288,7 +278,7 @@ describe("P9 pasife alma / yeniden etkinleştirme", () => {
   it("AC-115/AC-65: pasife alınan kullanıcının oturumları iptal (401), giriş yapamaz, bekleyen kod oturumu CANCELLED(auth_revoked); tekrar → 409; reactivate → giriş açılır", async () => {
     const { s, tenantId } = await tenantWithAdmin();
     const u = await createUser({ tenantId, role: "USER", perms: { "sessions.view": true } });
-    const us = await signIn(u);
+    const us = await signIn(app, u, nextIp());
     const fresh = makeApp(); // giriş denemeleri ayrı IP kovasında (20/dk; dosyadaki diğer girişlerden bağımsız)
     await fresh.ready();
     const pending = await createSupportSessionRow({ tenantId, technicianId: u.id });

@@ -11,7 +11,8 @@ import { CONTROL_AUDIT } from "@remote/contracts/audit";
 import { CONTROL_DENY_COOLDOWN_MS } from "@remote/contracts/ws";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { newId, newRequestCode, newSecretToken, sha256Hex } from "../../src/lib/ids.ts";
-import { createTenant, createUser, loginAs, ORIGIN, testDb, type Session } from "../helpers/app.ts";
+import { createTenant, createUser, ORIGIN, testDb } from "../helpers/app.ts";
+import { login } from "../helpers/auth.ts";
 import { createRequestSettings, requestClient, waitMsg } from "../helpers/requests.ts";
 import { startLive, TECH_PERMS, type Live } from "../helpers/signal-flow.ts";
 import { connect, FakeClock, techHeaders } from "../helpers/ws.ts";
@@ -25,15 +26,6 @@ afterEach(async () => {
   await live?.close();
   live = undefined;
 });
-
-async function login(
-  app: Live["app"],
-  tenantId: string,
-  o: { role?: "ADMIN" | "USER"; perms?: Record<string, boolean> } = {},
-): Promise<{ id: string; s: Session }> {
-  const user = await createUser({ tenantId, role: o.role ?? "USER", ...(o.perms ? { perms: o.perms } : {}) });
-  return { id: user.id, s: await loginAs(app, user) };
-}
 
 describe("AC-156 talep oturumunda P7 kontrol akışı (regresyon)", () => {
   const controlConsents = (sessionId: string) =>
@@ -59,7 +51,7 @@ describe("AC-156 talep oturumunda P7 kontrol akışı (regresyon)", () => {
     const guest = await rc.guestWs(wsTicket);
     const hello = await guest.waitFor("hello");
     await tech.waitFor("peer.joined");
-    return { tenantId: t.id, techId: x.id, requestId: c.requestId, sessionId, tech, guest, hello, reqWs };
+    return { tenantId: t.id, techId: x.user.id, requestId: c.requestId, sessionId, tech, guest, hello, reqWs };
   }
 
   it("AC-156: ilk seviye VIEW; istenmemiş GRANTED kaydedilmez; control.request → ret DENIED + 30 sn bekleme → yeni istek → GRANTED (yalnız source=UI) → HOTKEY ile REVOKED", async () => {
@@ -259,7 +251,7 @@ describe("AC-146 liste performansı", () => {
       for (let i = 0; i < data.length; i += 500) await db.supportRequest.createMany({ data: data.slice(i, i + 500) });
     };
     const admin = await login(live.app, t.id, { role: "ADMIN" });
-    await rows(t.id, 1000, 40, admin.id);
+    await rows(t.id, 1000, 40, admin.user.id);
     await rows(noise.id, 1000, 0, (await createUser({ tenantId: noise.id, role: "ADMIN" })).id);
     expect(await db.supportRequest.count({ where: { tenantId: t.id } })).toBe(1000);
 

@@ -1,20 +1,10 @@
 // P9 Super Admin firma yönetimi, firma geçişi ve tenant ayarları (AC-70, AC-4, AC-115 tenant pasif, AC-145 servis yolu,
 // mimari-e10 §3.4 revokeForTenant). Gerçek MySQL + inject; canlı oda testi gerçek dinleyen sunucu + WS ile.
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import type { SwitchTenantResponse, TenantItem, TenantListResponse, TenantSettingsView } from "@remote/contracts/api/tenants";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import {
-  createSupportSessionRow,
-  createTenant,
-  createUser,
-  loginRequest,
-  makeApp,
-  ORIGIN,
-  testDb,
-  type Session,
-  type TestUser,
-} from "../helpers/app.ts";
+import { createSupportSessionRow, createTenant, createUser, loginRequest, makeApp, testDb, type Session } from "../helpers/app.ts";
+import { signIn } from "../helpers/auth.ts";
 import { createRequestRow } from "../helpers/requests.ts";
 import { admitted, startLive, techSession, type Live } from "../helpers/signal-flow.ts";
 import { newId, sha256Hex } from "../../src/lib/ids.ts";
@@ -28,20 +18,11 @@ afterAll(() => app.close());
 
 const db = () => testDb();
 let ipSeq = 0;
-async function signIn(user: TestUser, a: FastifyInstance = app): Promise<Session> {
-  const res = await a.inject(
-    loginRequest(user.email, user.password, { remoteAddress: `10.8.${Math.floor(++ipSeq / 250)}.${(ipSeq % 250) + 1}` }),
-  );
-  if (res.statusCode !== 200) throw new Error(`login ${res.statusCode}`);
-  const jar = Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
-  const token = jar[SESSION_COOKIE] ?? "";
-  const csrf = jar[CSRF_COOKIE] ?? "";
-  return { token, headers: { cookie: `${SESSION_COOKIE}=${token}; ${CSRF_COOKIE}=${csrf}`, "x-csrf-token": csrf, origin: ORIGIN } };
-}
+const nextIp = () => `10.8.${Math.floor(++ipSeq / 250)}.${(ipSeq % 250) + 1}`;
 const call = (s: Session, method: "GET" | "POST" | "PATCH" | "PUT", url: string, payload?: object, a: FastifyInstance = app) =>
   a.inject({ method, url: `/api/v1${url}`, headers: s.headers, ...(payload === undefined ? {} : { payload }) });
 
-const superAdmin = async () => signIn(await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+const superAdmin = async () => signIn(app, await createUser({ tenantId: null, role: "SUPER_ADMIN" }), nextIp());
 const slug = () => `p9-${newId().toLowerCase().slice(-10)}`;
 
 describe("AC-70 firma CRUD (Super Admin)", () => {
@@ -127,7 +108,7 @@ describe("AC-70 firma pasife alma", () => {
     const sa = await superAdmin();
     const t = await createTenant();
     const admin = await createUser({ tenantId: t.id, role: "ADMIN" });
-    const as = await signIn(admin);
+    const as = await signIn(app, admin, nextIp());
     const pending = await createSupportSessionRow({ tenantId: t.id, technicianId: admin.id });
     const done = await createSupportSessionRow({ tenantId: t.id, technicianId: admin.id, status: "ENDED" });
     const reqRow = await createRequestRow(t.id);
@@ -175,7 +156,7 @@ describe("AC-70 firma pasife alma", () => {
     live = await startLive();
     const t = await techSession(live);
     const g = await admitted(live, t);
-    const sa = await signIn(await createUser({ tenantId: null, role: "SUPER_ADMIN" }), live.app);
+    const sa = await signIn(live.app, await createUser({ tenantId: null, role: "SUPER_ADMIN" }), nextIp());
     expect((await call(sa, "POST", `/admin/tenants/${t.tenantId}/deactivate`, {}, live.app)).statusCode).toBe(200);
     expect((await g.guest.waitFor("session.ended", 5000)).reason).toBe("tenant_passive");
     expect((await t.ws.waitFor("session.ended", 5000)).reason).toBe("tenant_passive");
@@ -192,7 +173,7 @@ describe("AC-4 tenant ayarları", () => {
   it("AC-4: session_ttl_min 15–30 dışı → 400 fields.sessionTtlMin; aralık içi kaydedilir + audit eski → yeni; diğer aralıklar da 400", async () => {
     const t = await createTenant();
     const admin = await createUser({ tenantId: t.id, role: "ADMIN" });
-    const s = await signIn(admin);
+    const s = await signIn(app, admin, nextIp());
     expect((await call(s, "GET", "/settings/tenant")).json<TenantSettingsView>()).toEqual({
       logoUrl: null,
       sessionTtlMin: 15,
@@ -218,7 +199,7 @@ describe("AC-4 tenant ayarları", () => {
     expect(audit.newValue).toEqual({ sessionTtlMin: 30 });
     // yeni oturum yeni TTL ile
     const tech = await createUser({ tenantId: t.id, role: "USER", perms: { "sessions.create": true } });
-    const created = await call(await signIn(tech), "POST", "/sessions", {});
+    const created = await call(await signIn(app, tech, nextIp()), "POST", "/sessions", {});
     const row = await db().supportSession.findUniqueOrThrow({ where: { id: created.json<{ id: string }>().id } });
     expect(Math.round((row.expiresAt.getTime() - row.createdAt.getTime()) / 60_000)).toBe(30);
   });
@@ -226,11 +207,11 @@ describe("AC-4 tenant ayarları", () => {
   it("AC-4: settings.view / settings.edit yoksa 403; Super Admin firma seçmeden 403", async () => {
     const t = await createTenant();
     const viewer = await createUser({ tenantId: t.id, role: "USER", perms: { "settings.view": true } });
-    const vs = await signIn(viewer);
+    const vs = await signIn(app, viewer, nextIp());
     expect((await call(vs, "GET", "/settings/tenant")).statusCode).toBe(200);
     expect((await call(vs, "PUT", "/settings/tenant", { sessionTtlMin: 20 })).statusCode).toBe(403);
     const none = await createUser({ tenantId: t.id, role: "USER" });
-    expect((await call(await signIn(none), "GET", "/settings/tenant")).statusCode).toBe(403);
+    expect((await call(await signIn(app, none, nextIp()), "GET", "/settings/tenant")).statusCode).toBe(403);
     expect((await call(await superAdmin(), "GET", "/settings/tenant")).statusCode).toBe(403);
   });
 });

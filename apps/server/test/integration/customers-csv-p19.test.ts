@@ -4,7 +4,8 @@
 import { CUSTOMER_CSV_COLUMNS, type ImportPreview, type ImportResult } from "@remote/contracts/api/customers";
 import { csvRow } from "@remote/contracts/csv";
 import { afterEach, describe, expect, it } from "vitest";
-import { createTenant, createUser, loginAs, testDb, type Session } from "../helpers/app.ts";
+import { createTenant, testDb, type Session } from "../helpers/app.ts";
+import { login } from "../helpers/auth.ts";
 import { createCustomerRow } from "../helpers/requests.ts";
 import { startLive, type Live } from "../helpers/signal-flow.ts";
 
@@ -22,13 +23,9 @@ async function boot(): Promise<Live> {
   return live;
 }
 
-async function login(l: Live, tenantId: string, o: { role?: "ADMIN" | "USER"; perms?: Record<string, boolean> } = {}) {
-  const user = await createUser({ tenantId, role: o.role ?? "ADMIN", ...(o.perms ? { perms: o.perms } : {}) });
-  return { user, s: await loginAs(l.app, user) };
-}
 async function admin(l: Live) {
   const t = await createTenant();
-  return { tenantId: t.id, ...(await login(l, t.id)) };
+  return { tenantId: t.id, ...(await login(l.app, t.id, { role: "ADMIN" })) };
 }
 
 function multipart(data: Buffer | string) {
@@ -102,9 +99,9 @@ describe("AC-263 dışa aktarma", () => {
   it("AC-263: customers.export yoksa 403; 11. istek/dk 429", async () => {
     const l = await boot();
     const t = await createTenant();
-    const u = await login(l, t.id, { role: "USER", perms: { "customers.view": true } });
+    const u = await login(l.app, t.id, { role: "USER", perms: { "customers.view": true } });
     expect((await exportCsv(l, u.s)).statusCode).toBe(403);
-    const a = await login(l, t.id);
+    const a = await login(l.app, t.id, { role: "ADMIN" });
     for (let i = 0; i < 10; i++) expect((await exportCsv(l, a.s)).statusCode).toBe(200);
     expect((await exportCsv(l, a.s)).statusCode).toBe(429);
   });
@@ -180,14 +177,14 @@ describe("AC-263 S-P19-14 yetki bileşimi", () => {
   it("AC-263 S-P19-14: import açık + create kapalı → önizleme ve uygulama 403; view kapalı → önizleme 403; update + edit kapalı → 403", async () => {
     const l = await boot();
     const t = await createTenant();
-    const noCreate = await login(l, t.id, { role: "USER", perms: { "customers.view": true, "customers.import": true } });
+    const noCreate = await login(l.app, t.id, { role: "USER", perms: { "customers.view": true, "customers.import": true } });
     expect((await preview(l, noCreate.s, "Ad\r\nA Firma\r\n")).statusCode).toBe(403);
     expect((await commit(l, noCreate.s, "a".repeat(22), "skip")).statusCode).toBe(403);
-    const noView = await login(l, t.id, { role: "USER", perms: { "customers.create": true, "customers.import": true } });
+    const noView = await login(l.app, t.id, { role: "USER", perms: { "customers.create": true, "customers.import": true } });
     expect((await preview(l, noView.s, "Ad\r\nA Firma\r\n")).statusCode).toBe(403);
-    const noImport = await login(l, t.id, { role: "USER", perms: { "customers.view": true, "customers.create": true } });
+    const noImport = await login(l.app, t.id, { role: "USER", perms: { "customers.view": true, "customers.create": true } });
     expect((await preview(l, noImport.s, "Ad\r\nA Firma\r\n")).statusCode).toBe(403);
-    const noEdit = await login(l, t.id, {
+    const noEdit = await login(l.app, t.id, {
       role: "USER",
       perms: { "customers.view": true, "customers.create": true, "customers.import": true },
     });
@@ -305,7 +302,7 @@ describe("AC-263 içe aktarma uygulama", () => {
     const l = await boot();
     const a = await admin(l);
     const p = await previewOk(l, a.s, "Ad\r\nTek Firma\r\n");
-    const other = await login(l, a.tenantId);
+    const other = await login(l.app, a.tenantId, { role: "ADMIN" });
     expect((await commit(l, other.s, p.previewId, "skip")).statusCode).toBe(428);
     const b = await admin(l);
     expect((await commit(l, b.s, p.previewId, "skip")).statusCode).toBe(428);

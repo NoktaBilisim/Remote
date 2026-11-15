@@ -7,6 +7,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { createDb, type Db } from "../../src/lib/db.ts";
 import { newId } from "../../src/lib/ids.ts";
 import { testDb } from "../helpers/app.ts";
+import { errorText, inRolledBackTx } from "../helpers/db-grants.ts";
 import { textQuery } from "../helpers/text-sql.ts";
 
 const migratorUrl = process.env.TEST_MIGRATE_DATABASE_URL;
@@ -18,14 +19,6 @@ afterAll(async () => {
   await mig?.$disconnect();
 });
 
-async function errorText(p: Promise<unknown>): Promise<string> {
-  const err = await p.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err, "reddedilmeliydi").toBeInstanceOf(Error);
-  return `${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`;
-}
 /** Metin protokolüyle tek ifade (app) — ortak yardımcı `test/helpers/text-sql.ts` (prepared statement'ta 1295 sorunu). */
 const appText = (sql: string): Promise<unknown> => textQuery(process.env.TEST_DATABASE_URL, sql);
 
@@ -45,23 +38,6 @@ async function auditRowHours(ageHours: number): Promise<bigint> {
   return row.id;
 }
 const auditRow = (ageDays: number) => auditRowHours(ageDays * 24);
-
-/** Tek bağlantıda (etkileşimli TX) çalıştırır ve her durumda geri alır; oturum değişkenleri sıfırlanır. */
-async function inRolledBackTx(db: Db, fn: (tx: Pick<Db, "$executeRawUnsafe" | "$queryRawUnsafe">) => Promise<void>) {
-  const ROLLBACK = new Error("rollback");
-  await db
-    .$transaction(async (tx) => {
-      try {
-        await fn(tx);
-      } finally {
-        await tx.$executeRawUnsafe("SET TIMESTAMP = DEFAULT, time_zone = DEFAULT");
-      }
-      throw ROLLBACK;
-    })
-    .catch((e: unknown) => {
-      if (e !== ROLLBACK) throw e;
-    });
-}
 
 const APPEND_ONLY = /append-only: UPDATE denied/;
 const RETENTION = /older than 730 days/;
