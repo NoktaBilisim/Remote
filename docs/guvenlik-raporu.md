@@ -1,5 +1,41 @@
 # Güvenlik Raporu — P27a tasarım turu ("Bu cihazı 30 gün hatırla"; kod öncesi, 2026-11-15)
 
+## r2 teyidi (2026-11-15, `docs/mimari-p27a.md` r2 + `docs/gereksinimler.md` §11 r2; commit a63a72f)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 açık; tasarım turu bulgularının hepsi kapandı (D-P27a-1 farklı çözümle, kabul). Yeni bulgu: Orta 1 (engellemez).
+
+| Bulgu    | Karar                             | Kanıt / gerekçe                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Y-P27a-1 | **Kapandı**                       | Seçenek A üç katmanda: politika `rememberAllowed` SA → false (mimari-p27a K-P27a-2, §5.1 atlama koşulu), arayüz `rememberDeviceAvailable=false` (§4.1 `GET /auth/me`, §6), yapısal `trusted_devices.tenant_id NOT NULL` (§3.1). Mevcut çerez de atlatmaz (atlama koşulunda `rememberAllowed`). `rememberDevice:true` yok sayma (400 yerine) kabul: bilgi sızdırmaz, tek kural. AC-325/331 + §9 testi var.              |
+| O-P27a-1 | Kapandı (kısmi; bkz. O-P27a-r2-1) | K-P27a-11, §3.1 `prev_token_hash` UNIQUE, §5.1 koşullu UPDATE (`AND token_hash = :old`, 0 satır → reuse), AC-335b, `p27a-rotation` testi. Tek nesil eski özet tutulduğu için tespit yalnız ilk döndürmeden sonraki kullanımda çalışır.                                                                                                                                                                                 |
+| O-P27a-2 | Kapandı                           | K-P27a-10, §5.2 `trustedDeviceCreatedMail` + `trustedDeviceReuseMail`, commit sonrası, bağlantı/belirteç yok, `not_configured` kalıbı; AC-335a.                                                                                                                                                                                                                                                                        |
+| D-P27a-1 | **Kabul** (farklı çözüm)          | Gerekçe doğrulandı: `require_tech_2fa` varsayılanı TRUE (`apps/server/prisma/schema.prisma:53`, `migrations/20261111000000_p1_init/migration.sql:23`); `NOT require_tech_2fa` mevcut firmaların neredeyse tamamında özelliği kapatıp aynı ayarlı yeni firmada açık bırakırdı. Raporun ikinci yolu (CHANGELOG + sürüm notu) K-P27a-12, §7 K9, AC-331'de yazılı. Düşük risk; SA hariç ve step-up atlanmadığı için kabul. |
+| D-P27a-2 | Kapandı                           | §5.1 ham `Cookie` başlığından ≤ 2 değer, `^[A-Za-z0-9_-]{43}$`; silme yalnız host-only; runbook notu K6; AC-326.                                                                                                                                                                                                                                                                                                       |
+| D-P27a-3 | Kapandı                           | §5.1 adım 1–7 (kilit → şifre → geçici şifre → TX/`previousToken` → `consumeAtLogin` → `openSession` → `mfaStageOf`); `mustChangePassword`/`setup` atlanmaz; AC-326 entegrasyon testi.                                                                                                                                                                                                                                  |
+| D-P27a-4 | Kapandı                           | §4.3 `auth.login {mfa:"remembered"}`; §3.3/§3.4 `users/purge.ts purgeTx` DELETE; AC-334.                                                                                                                                                                                                                                                                                                                               |
+
+### [ORTA] O-P27a-r2-1 Yeniden kullanım tespiti tek nesil; ikinci döndürmeden sonra çalınan çerez fark edilmez, saldırganın oturumu düşmez — A07
+
+Yer: docs/mimari-p27a.md §3.1 (`prev_token_hash` tek sütun), §5.1 "Yeniden kullanım" ve "Diğer her durumda" maddeleri; AC-335b.
+Sorun: Yalnız bir önceki özet saklanıyor. Belirteç iki kez döndükten sonra ilk (çalınan/eski) değer ne `token_hash` ne
+`prev_token_hash` ile eşleşir; "bilinmeyen değer" dalına düşer: TOTP sorulur, çerez silinir, satırlar silinmez, audit/e-posta yok.
+Ayrıca reuse dalı yalnız `trusted_devices` satırlarını siler; o belirteçle zaten açılmış saldırgan oturumu (`auth_sessions`) açık kalır.
+İstismar senaryosu: Saldırgan kurbanın T0 çerezini ve şifresini alır (infostealer), iki kez giriş yapar (T0→T1→T2). Kurban daha sonra
+T0 ile girer: yalnız TOTP sorulur, tespit yok; saldırgan T2 ile kalan süre boyunca TOTP'siz girmeye devam eder. Kurbanın
+tarayıcısının kendisi de girmiş olsa bile tespit anında saldırganın açık oturumu sürer.
+Düzeltme (birini seçin; ikisi de bağımlılıksız):
+
+- Çerez değeri `<satır id>.<43 karakter gizli>` olsun; arama satır id ile, gizli değerin özeti `token_hash` ile karşılaştırılsın. Satır
+  kullanıcıya ait ve özet tutmuyorsa (her nesilde) = yeniden kullanım. `prev_token_hash` sütunu ve UNIQUE'i gereksizleşir.
+- Ya da reuse ve "kullanıcının kendi satırına ait olmayan, biçimi geçerli değer" ayrımı yapılamıyorsa en azından reuse dalında
+  `revokeUserSessions(tx, user.id)` çağrılsın (aile iptali; OAuth refresh-token kalıbı) ve audit `revokedSessions` yazsın.
+  Önerilen: ikisi birlikte (id'li çerez + reuse'ta oturum iptali). Engellemez (Orta); K1/K3 başlamadan mimara işlenmesi ucuz.
+  Atanan: mimar (r3 notu) → dba (K1), backend-dev (K3). Uygulanmazsa `docs/gereksinimler.md` §9'a "Sonra" satırı.
+
+Diğer kontroller (yeni Kritik/Yüksek yok): SA'nın firma geçişi oturum düzeyinde, `users.tenant_id` NULL kalır → NOT NULL güvencesi
+geçerli; reuse dalı doğru şifre ister (şifresiz DoS yok); döndürmede `expires_at` sabit, Max-Age kalan süre — süre uzatma yolu yok;
+step-up değişmezi korunuyor (AC-327).
+
 DURUM: DÜZELTİLMELİ — mimariye işlenmeli (Y-P27a-1: K-P27a-2 bu haliyle kabul edilmedi; `docs/mimari-p27a.md` r2 + kullanıcı kararı)
 Özet: Kritik 0 / Yüksek 1 / Orta 2 / Düşük 4
 Kapsam: `docs/mimari-p27a.md` (§3.4, §4, §5, K-P27a-1..10), `docs/gereksinimler.md` §11 AC-325..335; mevcut auth kodu (login, mfa
@@ -125,6 +161,53 @@ kullanıcı yazma uçları için doğru değil (Y-P27a-1).
 ---
 
 # Güvenlik Raporu — P27 tasarım turu (K11a, AC-290; kod öncesi tehdit modeli, 2026-11-15)
+
+## r2 teyidi (2026-11-15, `docs/mimari-p27.md` r2 §15 + K-P27-14..23, `docs/gereksinimler-kabul-kriterleri-e11-b.md` AC-336..342; commit e900186)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 açık; 15 bulgunun hepsi kapandı (D-P27-1 farklı çözümle, kabul). Yeni bulgu: Orta 1, Düşük 1
+(engellemez). **K11a kapısı açık: K2–K7 kodu birleştirilebilir**; doğrulama K11 kod turunda (Windows elle testleri K5/K6b dahil).
+
+| Bulgu   | Karar                               | Kanıt / gerekçe                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Y-P27-1 | **Kapandı** (kalan risk O-P27-r2-1) | Raporun 4 maddesi de var: contacts PUT `manage` + step-up + eski ∪ yeni adrese `UN_CONTACTS_CHANGED` (§4.2, §7.1); zincir 6b ve kayıt kodunda 409 `NOTIFY_CHANNEL_UNAVAILABLE` (§4.3, §4.2); etkin cihaz varken SMTP değişikliği step-up + audit `unattendedDevices` (§6 satır 536, K2 görevi); FAILED → `notify_failed_at` rozeti + audit (§7.1). AC-336/337. S-P27-4 kabulü artık geçerli.                                                                                              |
+| Y-P27-2 | **Kapandı**                         | §5.3 r2 (a)–(e): sahip/reparse denetimi + yeniden adlandırma, `CreateDirectory` + `SECURITY_ATTRIBUTES` tek çağrı (`O:BAD:P…`), `Gelen` AU yalnız okuma/çalıştırma, her açılışta fail-closed doğrulama (olay 1004), SYSTEM kullanıcı kapsamlı DPAPI; §5.6 `GetFinalPathNameByHandle`; Windows elle test. AC-340. Ayrıntı notu D-P27-r2-1.                                                                                                                                                 |
+| Y-P27-3 | **Kapandı**                         | §5.2 r2 1–4: `DISABLE_MAX_PRIVILEGE` (yalnız `SeChangeNotify`, açılışta kendi jetonunu denetler), job (aktif süreç 1, kill-on-close), `CHILD_PROCESS_RESTRICTED`, mitigasyon, `HANDLE_LIST` yalnız boru, `boundary_test.go` AST taraması; `dllsafe` ilk satır. Ayrı düşük bütünlüklü süreç Sonra — raporun 6. maddesiyle aynı. Kalan risk: yardımcı hâlâ SYSTEM SID'i taşır (dosya ACL'leri); pencere/kabuk yolu derleme sınırıyla, çocuk süreç job + politikayla kapalı → kabul. AC-341. |
+| O-P27-1 | Kapandı                             | §5.4 r2: `FIRST_PIPE_INSTANCE`, ≤ 4 örnek, 5 sn zaman aşımı, ANONYMOUS/NETWORK deny; istemci SQOS IDENTIFICATION + sunucu PID = SCM PID; "Kapalı" HKLM'den; olay 1003 kullanıcısı jetondan. AC-338.                                                                                                                                                                                                                                                                                       |
+| O-P27-2 | Kapandı                             | §4.3 r2 (a)–(h): cihaz `FOR UPDATE`, grant `FOR SHARE`, açık oturum yeniden sayımı, kilit sırası cihaz → teknisyen; revoke/grants/`device.state`/admit aynı kilit; kayıt kodu koşullu UPDATE count=1; servis `helperMu`. Testler `Promise.all`. AC-338.                                                                                                                                                                                                                                   |
+| O-P27-3 | Kapandı                             | §4.4 r2: `revalidateTech` UNATTENDED odalarında grant, `revoked_at`, `local_enabled`, `gate.allows`; sahte no-op `finishDevice` testi. AC-338.                                                                                                                                                                                                                                                                                                                                            |
+| O-P27-4 | Kapandı                             | §5.2/§5.5 r2: önce yakalama durur ve girdi düşürülür → gösterge doğrulanır → devam; 2 sn'de `indicator_failed`; birim test kare/girdi sayacı 0. UAC onayı kılavuz/DATASHEET/yönergede. AC-342.                                                                                                                                                                                                                                                                                            |
+| O-P27-5 | Kapandı                             | `UN_DEVICE_REGISTERED` müşteriye (outbox), `manage` sahiplerine iç e-posta (K-P27-20), `verified_at` rozeti, kayıt IP'si/zamanı. AC-337.                                                                                                                                                                                                                                                                                                                                                  |
+| O-P27-6 | Kapandı                             | §4.5 r2 / K-P27-22: `env.ts` NODE_ENV=production iken zorunlu ve varsayılansız; `unsigned` ⇔ staging; compose `${DEPLOY_ENV:?…}` yalnız server; TEST bandı; `env-deploy.test.ts`. Varsayımın yanlış olduğu açıkça yazılmış. AC-342.                                                                                                                                                                                                                                                       |
+| D-P27-1 | **Kabul** (farklı çözüm)            | K-P27-21: tavan env yerine sabit 1000 + IP başına 5 (raporun önerdiği değerler; env olmaması güvenliği değiştirmez). Register sistem tavanı yalnız başarısız denemeleri sayar ve geçerli kod tavan aşımında da kaydolur — raporun iki seçeneğinden biri; DoS kapanır, kaba kuvvet görünürlüğü alarmla kalır. Operasyon notu: NAT arkasında ≥ 6 cihaz sunucu yeniden başlangıcında 503 alır, üstel bekleme + titreşimle toparlanır (runbook'a bir satır önerilir). AC-339.                 |
+| D-P27-2 | Kapandı                             | Adres yalnız ldflags + AST testi; tırnaklı `ImagePath` + `trace-check.ps1 -Servis`. AC-340.                                                                                                                                                                                                                                                                                                                                                                                               |
+| D-P27-3 | Kapandı                             | `ipChanged` audit, 4409 sayacı, 10 dk'da > 3 `replacedAlert` + audit; anahtar döndürme Sonra (rapor kabulü). AC-339.                                                                                                                                                                                                                                                                                                                                                                      |
+| D-P27-4 | Kapandı                             | `selfGrant:true` + diğer `manage` sahiplerine e-posta. AC-339.                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| D-P27-5 | Kapandı (kabul)                     | §5.7 + K13 kılavuz notu.                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| D-P27-6 | Kapandı                             | `stepUpMethod` audit + `manage` sahiplerine e-posta. AC-339.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+
+### [ORTA] O-P27-r2-1 SMTP'yi Admin'in denetlediği bir aktarıcıya çevirmek müşteri bildirimini sessizce yutar — A04 (Y-P27-1 kalan riski)
+
+Yer: docs/mimari-p27.md §6 satır 536 ("SMTP" r2 satırı), §4.3 adım 6b, §7.1 (`notify_failed_at` yalnız FAILED'da); K-P27-23.
+Sorun: 6b yalnız "SMTP kaydı var mı" denetler; step-up'lı SMTP değişikliği yalnız audit'e düşer, kimseye bildirilmez. Kendi
+aktarıcısını (her iletiyi 250 OK ile kabul edip atan) giren Admin için `UNATTENDED_STARTED` satırları SENT olur; rozet de çıkmaz.
+İstismar senaryosu: Kötü niyetli Admin (TOTP'si elinde) SMTP sunucusunu kendi aktarıcısına çevirir (step-up), kendine grant verir
+(diğer `manage` sahiplerine e-posta gider — ama o da aynı aktarıcıdan geçer), mesai dışında bağlanır. Müşteriye ve firmadaki diğer
+yöneticilere hiçbir e-posta ulaşmaz; iz yalnız audit'te.
+Düzeltme: etkin gözetimsiz cihaz varken SMTP host/kullanıcı/gönderen değiştiğinde, değişiklik **commit edilmeden önce eski**
+yapılandırmayla firmadaki diğer `unattended.manage` ve `settings.edit` sahiplerine "Bildirim e-posta ayarı değişti: kim, saat,
+etkilenen cihaz sayısı" iç e-postası gönderilir (en iyi çaba, K-P27-20 kalıbı; eski yapılandırma yoksa atlanır). Müşteriye ayrı
+bildirim gerekmez. Alternatif: kılavuzda Müşteri BT'ye "her bağlantıda e-posta gelir; gelmiyorsa destek firmanızı arayın" notu
+(ADR-0028 güven modeli; Admin firma içinde güvenilir sayılır, D-P27-4 ile aynı ilke). Atanan: mimar (r3 notu) → backend-dev (K2),
+teknik-yazar (K13). Uygulanmazsa `docs/gereksinimler.md` §9'a "Sonra".
+
+### [DÜŞÜK] D-P27-r2-1 Klasör yeniden adlandırma ile oluşturma arasında yarış: `ERROR_ALREADY_EXISTS` davranışı yazılı değil — A01
+
+Yer: docs/mimari-p27.md §5.3 r2 (a)/(b).
+Sorun: (a)'da yeniden adlandırma sonrası standart kullanıcı klasörü tekrar oluşturabilir; (b)'deki `CreateDirectory` bu durumda
+`ERROR_ALREADY_EXISTS` döner. Kod bunu "klasör var, devam" diye yorumlarsa ACL'siz kullanıcı klasörüne yazılır. (d) her açılışta
+yakalayıp fail-closed bağlantıyı keser, yani etkisi kurulumun bozulmasıdır; ama `device.key.tmp` kurulum sırasında bu klasöre
+düşebilir. Düzeltme: (b) `ERROR_ALREADY_EXISTS` → kurulum hatası ("Klasör güvenli değil"), `device.key.tmp` yalnız (b) başarılıysa
+yazılır; K5 Windows testine "rename ile create arasında yeniden yaratma" adımı. Atanan: backend-dev Go (K5).
 
 DURUM: DÜZELTİLMELİ — mimariye işlenmeli (Y-P27-1..3, `docs/mimari-p27.md` r2; işlenmeden K2–K7 kodu birleştirilmez, §9 K11a)
 Özet: Kritik 0 / Yüksek 3 / Orta 6 / Düşük 6

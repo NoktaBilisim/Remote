@@ -350,7 +350,7 @@ yeniden düzeni (P23), contracts `api/requests.ts` bölünmesi (Sonra). Varsayı
 V-PT2: PT bitmeden P27 kodlanmaz (P27 tasarım ve güvenlik turu paralel yürüyebilir). Risk: davranışın gizlice
 değişmesi (R-PT1, mimari-temizlik §8) — önlem AC-317/318 ve mekanik dönüşüm kuralı.
 
-## 11. P27a — 2FA'da "Bu cihazı 30 gün hatırla" (AC-325..AC-335, AC-335a, AC-335b; 2026-11-15, r2)
+## 11. P27a — 2FA'da "Bu cihazı 30 gün hatırla" (AC-325..AC-335, AC-335a, AC-335b; 2026-11-15, r3)
 
 Kullanıcı isteği (2026-11-15): "Her loginde OTP kaydetmeme izin ver, sürekli sorması çok zor oluyor; en azından süreli,
 30 gün mesela." Tasarım: `/Users/mennan/Projeler/Remote/docs/mimari-p27a.md`. Sıra: PT → **P27a** → P27 (gözetimsiz
@@ -417,14 +417,18 @@ Max-Age=2592000`; DB'de `trusted_devices` satırı yalnız belirtecin SHA-256 ö
   değilseniz Hesabım → Hatırlanan cihazlar → Tümünü kaldır ve şifrenizi değiştirin". E-postada belirteç ve bağlantı
   yoktur. Firma SMTP'si yoksa e-posta gitmez, mevcut `mail.sent` `not_configured` audit'i yazılır; e-posta hatası
   doğrulama yanıtını bozmaz. Ayar/abonelik seçeneği yoktur.
-- AC-335b: (döndürme ve yeniden kullanım tespiti; r2, güvenlik O-P27a-1) Her başarılı atlamada (AC-326) belirteç
-  aynı işlemde yenilenir: yeni çerez yazılır (Max-Age = kalan süre, `expires_at` değişmez), eski özet
-  `prev_token_hash`'te tutulur. Daha önce döndürülmüş (eski) belirteçle doğru şifreyle giriş "yeniden kullanım"
-  sayılır: TOTP sorulur, kullanıcının **tüm** hatırlanan cihazları aynı işlemde silinir, audit
-  `auth.trusted_device_reuse` (`result: fail`, `{count}`) yazılır, yanıt çerezi siler ve kullanıcıya e-posta gider
-  (SMTP yoksa `not_configured`). Eski özet başka kullanıcıya aitse hiçbir şey silinmez. Eşzamanlı iki girişte birinin
-  yeniden kullanım sayılması kabul edilir (R-P27a-2). Entegrasyon testi: döndürülmüş eski çerezle giriş → TOTP sorulur
-  ve satırlar silinir.
+- AC-335b: (döndürme ve yeniden kullanım tespiti; r2, güvenlik O-P27a-1; r3, O-P27a-r2-1) Çerez değeri
+  `<satır id>.<gizli>` biçimindedir; satır id ile bulunur, gizli değerin SHA-256 özeti satırdaki özetle karşılaştırılır
+  (eski özet saklanmaz). Her başarılı atlamada (AC-326) gizli değer aynı işlemde yenilenir: yeni çerez yazılır
+  (aynı id, Max-Age = kalan süre, `expires_at` değişmez). Satır kullanıcıya ait ama özet tutmuyorsa (kaç nesil önce
+  döndürülmüş olursa olsun) doğru şifreyle giriş "yeniden kullanım" sayılır: TOTP sorulur; aynı işlemde kullanıcının
+  **tüm** hatırlanan cihazları silinir ve **tüm** açık oturumları kapatılır (bu girişin yeni oturumu hariç); audit
+  `auth.trusted_device_reuse` (`result: fail`, `{count, revokedSessions}`) yazılır, yanıt çerezi siler ve kullanıcıya
+  e-posta gider (SMTP yoksa `not_configured`). Satır yoksa, başka kullanıcıya aitse ya da değer biçimsizse "bilinmeyen
+  değer" sayılır: yalnız TOTP sorulur ve çerez silinir; hiçbir satır/oturum silinmez, audit yazılmaz. Eşzamanlı iki
+  girişte birinin yeniden kullanım sayılması kabul edilir (R-P27a-2). Entegrasyon testi: iki kez döndürülmüş en eski
+  çerezle giriş → TOTP sorulur, satırlar silinir ve en yeni çerezle açılmış oturum kapanır; başka kullanıcının satır
+  id'siyle giriş → hiçbir şey silinmez.
 
 Kapsam dışı (P27a): **Super Admin için cihaz hatırlama** (r2, kullanıcı kararı); cihaza ad verme; hatırlanan cihazla
 her girişte e-posta; döndürmede yeniden kullanım tolerans penceresi; süreyi firma bazında
