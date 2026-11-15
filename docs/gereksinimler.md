@@ -13,7 +13,8 @@ Tarih: 2026-11-12 Durum: TASLAK (2026-11-10: tam erişim MVP'de; 2026-11-11: `do
 > E11 (ertelenen ve kapsam dışı işlerin yol haritası, 2026-11-14): `/Users/mennan/Projeler/Remote/docs/gereksinimler-e11.md`; AC'ler `gereksinimler-kabul-kriterleri-e11.md` (AC-201..AC-244) ve `gereksinimler-kabul-kriterleri-e11-b.md` (AC-245..AC-297). Uygulama durumu (2026-11-15): AC-201..230 (P14a/P14b) kodlandı, QA denetimi sürüyor; AC-219 CI kararlılık koşusu bekliyor — ayrıntı e11 dosyasının "Uygulama durumu" tablosu.
 > P13b (prod açılışı, 2026-11-14; r2 2026-11-15): kapsam, revize AC'ler (AC-23, 91, 126, 200), yeni AC-298..AC-303 (AC-303: WhatsApp servis anahtarı, güvenlik S-P13b-3), K1/K3 kapanışı, riskler (R4 güncel, R34–R36, R38) ve ortamlar notu: `/Users/mennan/Projeler/Remote/docs/gereksinimler-p13b.md`. Tasarım: `docs/mimari-p13.md` §7, ADR-0018/0019/0020.
 > Lobi göstergesi (2026-11-15, kullanıcı kararı; staging olayı: müşteri bekleme odasında 75 sn bekledi, teknisyen göremedi): oturum listesi rozeti, "Oturumlar" menü sayacı, toast, sekme başlığı; yeni AC-304..AC-316, kapsam dışı/Sonra (OS bildirimi ve ses Sonra), varsayımlar V-L1..V-L8, riskler R-L1..R-L5: `/Users/mennan/Projeler/Remote/docs/gereksinimler-lobi-gostergesi.md`.
-> Toplam: **65 kullanıcı hikâyesi, 316 kabul kriteri** (AC-1..AC-316; AC-196 2026-11-13, E9 WhatsApp servisi sistem ayarı; AC-197..AC-200 2026-11-14, E7 saklama ve yedek — P13a; AC-201..AC-297 2026-11-14, E11; AC-298..AC-302 2026-11-14 ve AC-303 2026-11-15, P13b prod açılışı; AC-304..AC-316 2026-11-15, E4 lobi göstergesi).
+> PT — kod temizliği (2026-11-15, kullanıcı kararı; sıra P20 → PT → P27 → P28 → P21–P26): davranış değiştirmeyen temizlik, AC-317..AC-324 bu dosyanın §10'unda; tasarım `/Users/mennan/Projeler/Remote/docs/mimari-temizlik.md`.
+> Toplam: **65 kullanıcı hikâyesi, 324 kabul kriteri** (AC-1..AC-324; AC-317..AC-324 2026-11-15, PT kod temizliği; AC-196 2026-11-13, E9 WhatsApp servisi sistem ayarı; AC-197..AC-200 2026-11-14, E7 saklama ve yedek — P13a; AC-201..AC-297 2026-11-14, E11; AC-298..AC-302 2026-11-14 ve AC-303 2026-11-15, P13b prod açılışı; AC-304..AC-316 2026-11-15, E4 lobi göstergesi).
 
 ## 1. Amaç ve iş değeri
 
@@ -286,3 +287,41 @@ Kaynak: `~/.claude/checklists/tasarim-kontrol-listesi.md` bölüm 1, 5, 8, 9.
 ### Sonra / açık — P2..P8b-1 (2026-11-12)
 
 Tablolar içerik değiştirilmeden taşındı: `/Users/mennan/Projeler/Remote/docs/gereksinimler-sonra-acik.md`.
+
+## 10. PT — Kod temizliği (davranış değiştirmeyen; AC-317..AC-324; 2026-11-15)
+
+Amaç: P27/P28 öncesi sıcak bölgeleri (sinyalizasyon, konsol, Go `flow`/`signal`/`request`, talep servisi) okunur ve
+bölünebilir hale getirmek; kullanıcıya görünen hiçbir şey değişmez. Kapsam, ölçümler ve görevler:
+`docs/mimari-temizlik.md`. Ölçümler `scripts/pt-olcum.sh` ile alınır; baseline `docs/temizlik/baseline.md`,
+sonuç `docs/temizlik/sonuc.md`.
+
+- AC-317: (davranış eşdeğerliği) PT öncesi tüm otomatik testler (server unit + integration, web vitest, Playwright
+  desktop + mobile, Go linux + Windows CI) PT sonrasında yeşildir; test adları ve sayıları baseline listesiyle
+  aynıdır (yalnız AC-318'in yüzey testleri eklenir). Hiçbir assertion silinmez/gevşetilmez, `skip`/`only` eklenmez;
+  test dosyalarındaki değişiklik yalnız fikstür/yardımcı çağrısıdır (qa diff denetimi).
+- AC-318: (sözleşme) HTTP uç listesi (metot + yol), `@remote/contracts`'ın her dışa aktarım yolundaki ad kümesi,
+  WS/DC mesaj `type` listesi ve hata kodu listesi PT öncesi anlık görüntüyle aynıdır (otomatik test). DB şeması,
+  migration, `grants.sql`, env değişkenleri, Go istemci kayıt dosyası biçimi ve tel protokolü değişmez (diff boş).
+  `packages/contracts/src/api` içindeki import döngüleri (3) kırılır ve döngü sayısı 0 olur.
+- AC-319: (kapsam) Satır ve dal kapsamı her paket için (server, web, contracts; Go her paket) baseline'dan düşük
+  değildir.
+- AC-320: (boyut) `docs/mimari-temizlik.md` §5'te listelenen her üretim dosyası ≤ 300 satır, listelenen her işlev
+  ≤ 60 satır ve karmaşıklık ≤ 15'tir (görev başına en fazla 2 gerekçeli istisna). Üretimde > 500 satırlık dosya
+  sayısı 19'dan ≤ 5'e iner (kalanlar: contracts `api/requests.ts` ve Win32/medya bağlama dosyaları) ve yeni > 300
+  satırlık üretim dosyası oluşmaz.
+- AC-321: (ölü kod) knip "kullanılmayan export" ve "kullanılmayan dışa açık tip" sayıları (server + web) 93 + 93'ten
+  ≤ 10'a iner (kalanlar gerekçeli); Go `deadcode` (testler dahil) 0; yalnız testte erişilen Go üretim işlevi 0
+  (test dosyasına taşınır); kaynakta hiç geçmeyen ve dinamik önekle eşleşmeyen i18n anahtarı 0.
+- AC-322: (kopya) jscpd (≥ 8 satır, ≥ 70 belirteç) üretim kodu klonları 25'ten ≤ 5'e, toplam klon 70'ten ≤ 25'e
+  iner; e2e `desktopOnly` tek tanımdır; sunucu entegrasyon testlerinde `signIn`/`boot`/`errorText`/`login` dosya-yerel
+  tanımı kalmaz.
+- AC-323: (statik analiz) lint, typecheck, `format:check`, `go vet` (windows + linux) temiz; `staticcheck` 0 uyarı
+  ve Go CI'da koşar.
+- AC-324: (iz ve sınır) Her PT görevinin değiştirdiği dosyalar `docs/mimari-temizlik.md` §5'teki listesinin
+  alt kümesidir (+ `docs/implementation.md`); PT sırasında bulunan hatalar düzeltilmez, `docs/implementation.md`
+  "PT bulguları" altına yazılır; kapanış ölçüm raporu baseline'a karşı tüm AC'leri sayıyla gösterir.
+
+Kapsam dışı (PT): yeni özellik, hata düzeltmesi, UI görünüm değişikliği, test dosyası yeniden adlandırma, i18n anahtar
+yeniden düzeni (P23), contracts `api/requests.ts` bölünmesi (Sonra). Varsayım V-PT1: P20 qa GEÇTİ olmadan PT başlamaz;
+V-PT2: PT bitmeden P27 kodlanmaz (P27 tasarım ve güvenlik turu paralel yürüyebilir). Risk: davranışın gizlice
+değişmesi (R-PT1, mimari-temizlik §8) — önlem AC-317/318 ve mekanik dönüşüm kuralı.

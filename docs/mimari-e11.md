@@ -1700,7 +1700,7 @@ Karar değişmez; aşağıdaki kontroller **bağlayıcıdır** ve her biri bir s
 | `unattended.connect` yetkisi + cihaz başına grant (`unattended_device_grants`, varsayılan boş)                                                                                 | sunucu, bağlantı ucu; listede de süzülür                                                                                                                                                        | 404 (varlık sızmaz)                                                                                   | 273, 293 |
 | Step-up 2FA her bağlantıda (ADR-0022 guard; TOTP veya tüketilen kurtarma kodu, K-E11-1; pencere 5 dk, ayrıca bağlantı başına tek kullanım: `step_up_at` bağlantıyla tüketilir) | sunucu                                                                                                                                                                                          | 401 `MFA_STEP_UP_REQUIRED`                                                                            | 273      |
 | Müşteri firmasında ≥ 1 bildirim adresi (`customer_notify_contacts`, ≤ 5 e-posta)                                                                                               | sunucu, bağlantı öncesi                                                                                                                                                                         | bağlantı açılmaz                                                                                      | 296      |
-| Bildirim ≤ 60 sn (e-posta; tenant'ta açıksa SMS/WA — P19 altyapısı)                                                                                                            | sunucu outbox (P25)                                                                                                                                                                             | audit `fail`; bağlantı sürer (bildirim kuyruğu yeniden dener)                                         | 296      |
+| Bildirim ≤ 60 sn (e-posta; tenant'ta açıksa SMS/WA — P19 altyapısı)                                                                                                            | sunucu, P19 `notify` outbox'ı (§11.1)                                                                                                                                                           | audit `fail`; bağlantı sürer (bildirim kuyruğu yeniden dener)                                         | 296      |
 | Kapatılamayan gösterge, tüm monitörler + kilit ekranı                                                                                                                          | cihaz yardımcı süreci; `indicator.ready` gelmeden görüntü/kontrol kanalları açılmaz                                                                                                             | bağlantı açılmaz (fail-closed)                                                                        | 294      |
 | Yerel kapatma anahtarı (HKLM, ACL: kapatma Interactive kullanıcıya adlandırılmış boru ile, açma yerel yönetici)                                                                | cihaz servis; protokolde anahtarı değiştiren mesaj **yok**                                                                                                                                      | kapalıyken servis bağlantı isteğini reddeder, açık bağlantıyı ≤ 2 sn keser, durum sunucuya bildirilir | 295      |
 | İptal ≤ 10 sn, grant geri alma ≤ 5 sn                                                                                                                                          | sunucu `/ws/device` + oda `applyPermChange` kalıbı                                                                                                                                              | —                                                                                                     | 275, 293 |
@@ -1709,7 +1709,7 @@ Karar değişmez; aşağıdaki kontroller **bağlayıcıdır** ve her biri bir s
 
 Bileşenler: ayrı Go ikilisi `NoktaDestekServis.exe` (LocalSystem servis) + oturum içi yardımcı (`CreateProcessAsUser`, Winlogon masaüstü için Secure Desktop),
 kalıcı `wss /ws/device` (cihaz Ed25519 anahtarıyla imzalı meydan okuma; anahtar DPAPI makine kapsamı), tek kullanımlık kayıt kodu.
-Veri: `unattended_devices`, `unattended_device_grants`, `unattended_registration_codes`, `customer_notify_contacts`. Gözetimsiz bağlantı = `support_sessions` satırı `mode=UNATTENDED` (P26 sayımına girer, V38).
+Veri: `unattended_devices`, `unattended_device_grants`, `unattended_registration_codes`, `customer_notify_contacts`. Gözetimsiz bağlantı = `support_sessions` satırı `mode=UNATTENDED` (P26 sayımına girer, V38; P26 P27'den sonra geldiği için sayım P26'da `consumed_at`'ten geri doldurulur — §11.1).
 **Kalan risk:** imza listesi kontrolü cihazın kendi beyanına dayanır (değiştirilmiş istemci sahte hash gönderebilir); amaç prod kullanılabilirlik kapısı ve AV/EDR uyumu, kimlik doğrulama değil. P27 güvenlik tasarım turunda tehdit modeli eki zorunlu (AC-290).
 
 ### 10.2 S23 — Oturum başına lisans + Paraşüt taslak fatura (ADR-0027; AC-271, 272; R33)
@@ -1738,19 +1738,61 @@ Veri: `unattended_devices`, `unattended_device_grants`, `unattended_registration
 
 ## 11. Yol haritası — P18–P28+ (üst düzey)
 
-| Paket | Kapsam                                                                                                                                                         | Bağımlı                                      | Gereken ADR (kendi turunda)                                            | Büyük riskler                                                 |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
-| P18   | **Ayrıntı §8b.** Kabul öncesi mesajlaşma (WS, `session_messages.request_id`), atama (`assigned_to`), öncelik, SLA (müşteri varsayılanı), mesai + tatil tablosu | P15 (+ ADR-0025 tablosu P18'de açılır)       | — (ADR-0025 yeterli)                                                   | Kuyruk sıralamasının mevcut hub'a etkisi; mesai saat dilimi   |
-| P19   | **Ayrıntı §8c.** Web talep formu `/r/<ref>`, SMS/WA link, durum bildirimi (outbox), müşteri CSV içe/dışa                                                       | P18                                          | SMS ayarı (tenant, smsportal) — ADR gerekmez, §2.3 standardı           | Bot/spam (AC-143/144 + gizli alan); smsportal tek nokta (R31) |
-| P20   | **Ayrıntı §8d.** İstemci 0.12.0: tepsi + `HKCU\Run`, çoklu firma kaydı (≤ 5, `kayitlar.bin` v3), talep sohbeti WS (AC-255 Go ucu; oturum sohbeti P22, K-P20-1) | P17, SignPath sonucu (yoksa §8d.8 AV kapısı) | ADR-0004 r6                                                            | AV yanlış pozitif (R30); kayıt dosyası göçü                   |
-| P21   | Müşteri portalı (ayrı kimlik alanı `portal_users`, ayrı çerez adı, IDOR)                                                                                       | P19                                          | Portal kimliği ve oturum ayrımı                                        | Yeni kişisel veri; panel oturumuyla karışma                   |
-| P22   | Chat saklama + KVKK metni + onay satırı + oturum sohbeti WS (sunucu + Go ucu, K-P20-1)                                                                         | P18, P20 (istemci)                           | — (ADR-0025)                                                           | Eski istemcilerde chat kapanması; R27                         |
-| P23   | TR/EN (web anahtar tabanlı, mevcut `messages/tr.json` + `lib/i18n.ts` genişler; Go istemci kaynak tablosu)                                                     | P14b                                         | i18n kütüphanesi (mevcut çözüm mü next-intl mi)                        | Anahtar borcu; e-posta/PDF şablonları                         |
-| P24   | OIDC (Entra ID önce) + LDAPS, acil durum hesabı                                                                                                                | P15 (step-up)                                | SSO/LDAP kimlik eşlemesi                                               | Hesap ele geçirme (R28); sağlayıcı test ortamı                |
-| P25   | Public API + webhook + outbox (ITSM örneği)                                                                                                                    | P15                                          | — (ADR-0026) + OpenAPI üretim kütüphanesi seçimi                       | SSRF; anahtar sızıntısı                                       |
-| P26   | Kullanım sayımı + Paraşüt taslak fatura                                                                                                                        | P25                                          | — (ADR-0027)                                                           | Çift fatura; Paraşüt API değişikliği; sayım ihtilafı (R33)    |
-| P27   | Gözetimsiz erişim                                                                                                                                              | P17, P20, P26, SignPath (prod)               | ADR-0028 + tehdit modeli eki (zorunlu güvenlik turu)                   | R25, R30, R32; Session 0 / Secure Desktop karmaşıklığı        |
-| P28+  | macOS, Linux, Android/iOS, oturum kaydı, çoklu teknisyen, ses, pano, yazdırma, sunucuda dosya + ClamAV                                                         | P27'ye kadar                                 | her biri ayrı ADR; ClamAV ayrı konteyner (GPL, bağlanmaz, `clamd` TCP) | Kapsam; lisans; depolama/KVKK (kayıt, dosya)                  |
+**Uygulama sırası (kullanıcı kararı, 2026-11-15):** P20 → **PT** → P27 → P28 → P21 → P22 → P23 → P24 → P25 → P26. Tablo paket numarasına göre dizilidir; sıra değişikliğinin etkisi tablonun altında.
+
+| Paket | Kapsam                                                                                                                                                                                                     | Bağımlı                                      | Gereken ADR (kendi turunda)                                            | Büyük riskler                                                 |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
+| P18   | **Ayrıntı §8b.** Kabul öncesi mesajlaşma (WS, `session_messages.request_id`), atama (`assigned_to`), öncelik, SLA (müşteri varsayılanı), mesai + tatil tablosu                                             | P15 (+ ADR-0025 tablosu P18'de açılır)       | — (ADR-0025 yeterli)                                                   | Kuyruk sıralamasının mevcut hub'a etkisi; mesai saat dilimi   |
+| P19   | **Ayrıntı §8c.** Web talep formu `/r/<ref>`, SMS/WA link, durum bildirimi (outbox), müşteri CSV içe/dışa                                                                                                   | P18                                          | SMS ayarı (tenant, smsportal) — ADR gerekmez, §2.3 standardı           | Bot/spam (AC-143/144 + gizli alan); smsportal tek nokta (R31) |
+| P20   | **Ayrıntı §8d.** İstemci 0.12.0: tepsi + `HKCU\Run`, çoklu firma kaydı (≤ 5, `kayitlar.bin` v3), talep sohbeti WS (AC-255 Go ucu; oturum sohbeti P22, K-P20-1)                                             | P17, SignPath sonucu (yoksa §8d.8 AV kapısı) | ADR-0004 r6                                                            | AV yanlış pozitif (R30); kayıt dosyası göçü                   |
+| PT    | **Ayrıntı `docs/mimari-temizlik.md`.** Davranış değiştirmeyen kod temizliği: > 500 satır dosyalar, uzun/karmaşık işlevler, ölü export/i18n, kopya, test fikstürü, contracts import döngüleri (AC-317..324) | P20 (qa GEÇTİ)                               | — (karar tablosu mimari-temizlik §9)                                   | Gizli davranış değişikliği (R-PT1); P27 ile çakışma           |
+| P21   | Müşteri portalı (ayrı kimlik alanı `portal_users`, ayrı çerez adı, IDOR)                                                                                                                                   | P19                                          | Portal kimliği ve oturum ayrımı                                        | Yeni kişisel veri; panel oturumuyla karışma                   |
+| P22   | Chat saklama + KVKK metni + onay satırı + oturum sohbeti WS (sunucu + Go ucu, K-P20-1)                                                                                                                     | P18, P20 (istemci)                           | — (ADR-0025)                                                           | Eski istemcilerde chat kapanması; R27                         |
+| P23   | TR/EN (web anahtar tabanlı, mevcut `messages/tr.json` + `lib/i18n.ts` genişler; Go istemci kaynak tablosu)                                                                                                 | P14b                                         | i18n kütüphanesi (mevcut çözüm mü next-intl mi)                        | Anahtar borcu; e-posta/PDF şablonları                         |
+| P24   | OIDC (Entra ID önce) + LDAPS, acil durum hesabı                                                                                                                                                            | P15 (step-up)                                | SSO/LDAP kimlik eşlemesi                                               | Hesap ele geçirme (R28); sağlayıcı test ortamı                |
+| P25   | Public API + webhook + outbox (ITSM örneği)                                                                                                                                                                | P15                                          | — (ADR-0026) + OpenAPI üretim kütüphanesi seçimi                       | SSRF; anahtar sızıntısı                                       |
+| P26   | Kullanım sayımı + Paraşüt taslak fatura                                                                                                                                                                    | P25                                          | — (ADR-0027)                                                           | Çift fatura; Paraşüt API değişikliği; sayım ihtilafı (R33)    |
+| P27   | Gözetimsiz erişim (bildirim P19 `notify` outbox'ı ile; kullanım sayımı P26'ya bırakılır, aşağıdaki sıra değişikliği)                                                                                       | P17, P20, PT, SignPath (prod)                | ADR-0028 + tehdit modeli eki (zorunlu güvenlik turu)                   | R25, R30, R32; Session 0 / Secure Desktop karmaşıklığı        |
+| P28+  | macOS, Linux, Android/iOS, oturum kaydı, çoklu teknisyen, ses, pano, yazdırma, sunucuda dosya + ClamAV (P28 = macOS + Linux + kayıt + çoklu teknisyen/ses + pano/yazdırma/dosya-ClamAV; mobil Sonra)       | PT, P27                                      | her biri ayrı ADR; ClamAV ayrı konteyner (GPL, bağlanmaz, `clamd` TCP) | Kapsam; lisans; depolama/KVKK (kayıt, dosya)                  |
+
+### 11.1 Sıra değişikliği (2026-11-15): PT ve P27 öne, P21–P26 sona
+
+**P26 neden P27'nin bağımlısıydı:** (1) V38/AC-271 — gözetimsiz bağlantı da faturalanabilir oturumdur; §10.1
+gözetimsiz bağlantıyı `support_sessions` satırı (`mode=UNATTENDED`) olarak tanımlar ve bu satır P26'nın
+`billable_sessions` sayımına girer. (2) §10.1'deki "bildirim ≤ 60 sn" satırı outbox'ı "P25" olarak anıyordu
+(P26 → P25 zinciri). P27'nin güvenlik veya işlev açısından P26'ya ihtiyacı yoktur; bağımlılık yalnız sayımın eksiksiz
+olması içindi.
+
+**P27'de kullanım sayımı yerine ne yapılır (bağlayıcı, P27 tasarım turunda ayrıntılanır):**
+
+1. P27 sayım tablosu açmaz. Her gözetimsiz bağlantı, katılımlı akışla **aynı** `support_sessions` satır kuralını
+   izler: `mode='UNATTENDED'`, ACTIVE'e geçiş anı `consumed_at` (bugünkü "admit = tüketim = ACTIVE başlangıcı"
+   alanı), bitiş `ended_at`. ACTIVE'e geçiş tek bir sunucu işlevinden yapılır (katılımlı ve gözetimsiz ortak) — P26
+   `INSERT IGNORE billable_sessions`'ı **yalnız bu işleve** ekler (genişleme noktası).
+2. Bildirim (AC-296) P25'i beklemez: P19'un müşteri bildirim kuyruğu (`notify/outbox.ts`, e-posta/SMS/WA, 3 deneme,
+   kalıcı neden sınıflandırması) yeni bir bildirim türüyle kullanılır; P25 webhook outbox'ı ayrı kalır.
+3. P26 açılışında geri doldurma: P26 migration'ı açık ay (ve istenirse P26'dan önceki aylar) için
+   `INSERT IGNORE INTO billable_sessions SELECT id, tenant_id, DATE_FORMAT(CONVERT_TZ(consumed_at, '+00:00', 'Europe/Istanbul'), '%Y-%m'), consumed_at FROM
+support_sessions WHERE consumed_at IS NOT NULL` çalıştırır. Kayıp: saklama/kalıcı silme (P13a/P16) ile satırı
+   silinmiş eski oturumlar sayılmaz. Kabul gerekçesi: P26 öncesi dönem için fatura kesilmez; faturalama P26'nın
+   canlıya alındığı ayın tamamından başlar (P26 tasarım turunda kullanıcıya teyit ettirilecek varsayım).
+4. `gereksinimler-e11.md` paket tablosundaki P27 bağımlılık hücresi ("P26 (gözetimsiz oturum sayımı)") bu kararla
+   "PT; sayım P26'da geri doldurulur" olarak güncellenmelidir (proje-yöneticisi).
+
+**P28'in P21–P26'dan önce gelmesinin etkileri (P28 tasarım turunda ele alınır):**
+
+- **Oturum sohbeti (P22):** P22 sohbeti WS aktarımlı ve saklanan hale getirir (ADR-0025). P28 istemcileri bugünkü
+  oturum sohbeti yolunu kullanır; P22 Windows + macOS + Linux istemcilerini birlikte günceller (P22 kapsamı büyür).
+  Ortak Go paketleri (`flow`, `signal`, `request`) PT-K4/K6 ile platformdan bağımsız bölündüğü için değişiklik tek
+  yerde yapılır.
+- **Oturum kaydı (P28) ve KVKK:** kayıt için aydınlatma/onay satırı P22'nin onay mekanizmasını beklemez; P28 kendi
+  onay satırını mevcut aydınlatma metni + onay ekranı altyapısıyla (AC-292 form satırı kalıbı) getirir, P22 bunu
+  devralır. Kayıt saklama süresi retention işine (P13a) P28'de bağlanır.
+- **i18n (P23):** P28'in yeni istemci metinleri tek ileti tablosunda (`flow/messages.go` kalıbı) tutulur ki P23 üç
+  platformu tek seferde çevirebilsin.
+- **Çoklu teknisyen + gözetimsiz:** P27'nin oda/yetki modeli (`applyPermChange`, cihaz grant'ı) P28 çoklu teknisyende
+  genişletilir; bu nedenle P27 tasarımı odada "tek teknisyen" varsayımını sözleşmeye gömmez (genişleme noktası).
+- P21 (portal), P24 (SSO), P25 (API/webhook) P27/P28'den bağımsızdır; gecikmeleri yalnız iş değerini öteler.
 
 ## 12. Paralel çalışmayla çakışma (P13b şu an `deploy/`, `apps/server`, `docs/db-notlari.md`, `docs/implementation.md`)
 
@@ -1798,6 +1840,7 @@ Bu tasarım kod/dosya değiştirmez. P14a/P14b P13c'den sonra başladığı içi
 | 273–275, 293–297        | §10.1                                                                                           | P27                          |
 | 276–284                 | §11 P28+                                                                                        | P28+                         |
 | 285–290                 | ortak; her paketin DoD'u                                                                        | tümü                         |
+| 317–324                 | `docs/mimari-temizlik.md` §7                                                                    | PT K0–K17                    |
 
 ## 14. Kararlar (K-E11-1..6; K-E11-1, 4, 5, 6 kullanıcı kararıyla kapandı 2026-11-14)
 
