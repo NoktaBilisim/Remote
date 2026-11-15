@@ -26,10 +26,12 @@ type attrTagInfo struct {
 	ReparseTag uint32
 }
 
-// renameInfo FILE_RENAME_INFO (amd64: Flags@0, RootDirectory@8, FileNameLength@16, FileName@20). Ad yalnız dosya
-// adıdır (ayırıcı yok): NTFS aynı klasör içinde yeniden adlandırır, yol çözümlemesi yapılmaz.
+// renameInfo FILE_RENAME_INFORMATION (amd64: ReplaceIfExists@0, RootDirectory@8, FileNameLength@16 (bayt),
+// FileName@20). Ad yalnız dosya adıdır (ayırıcı yok) ve RootDirectory boştur: NtSetInformationFile bunu aynı klasör
+// içinde yeniden adlandırma olarak işler, yol çözümlemesi yapılmaz. kernel32 SetFileInformationByHandle(FileRenameInfo)
+// KULLANILMAZ: göreli adı geçerli çalışma klasörüne göre DOS yoluna çevirir (CI'da D:\ → ERROR_NOT_SAME_DEVICE).
 type renameInfo struct {
-	Flags   uint32 // FileRenameInfo'da ReplaceIfExists (BOOLEAN) ile aynı bayt
+	Flags   uint32 // ReplaceIfExists (BOOLEAN, ilk bayt) = 1
 	_       uint32
 	Root    windows.Handle
 	NameLen uint32
@@ -211,7 +213,8 @@ func (d *Dir) Open(name string, m Mode) (*os.File, error) {
 	return os.NewFile(uintptr(h), name), nil
 }
 
-// Rename klasör içinde from → to (handle üzerinden FileRenameInfo, var olan hedefin üzerine). Kaynak veya hedef
+// Rename klasör içinde from → to (handle üzerinden NtSetInformationFile(FileRenameInformation), var olan hedefin
+// üzerine; klasör sabit olduğundan hedef aynı klasördür). Kaynak veya hedef
 // reparse noktasıysa ErrReparse.
 func (d *Dir) Rename(from, to string) error {
 	src, err := d.child(from)
@@ -238,7 +241,12 @@ func (d *Dir) Rename(from, to string) error {
 	}
 	ri := renameInfo{Flags: 1, NameLen: uint32((len(name) - 1) * 2)}
 	copy(ri.Name[:], name)
-	return windows.SetFileInformationByHandle(h, windows.FileRenameInfo, (*byte)(unsafe.Pointer(&ri)), uint32(unsafe.Sizeof(ri)))
+	var iosb windows.IO_STATUS_BLOCK
+	size := uint32(unsafe.Offsetof(ri.Name)) + ri.NameLen
+	if st := windows.NtSetInformationFile(h, &iosb, (*byte)(unsafe.Pointer(&ri)), size, windows.FileRenameInformation); st != nil {
+		return &os.LinkError{Op: "rename", Old: from, New: to, Err: st}
+	}
+	return nil
 }
 
 // dispose handle'ı silinmek üzere işaretler: FileDispositionInfoEx (POSIX semantiği, Windows 10 1709+); desteklenmezse

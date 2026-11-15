@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"unsafe"
 )
 
 // AC-249 Windows birim testleri (CI windows-2025 job'u). Junction yönetici yetkisi istemez (mklink /J); dosya
@@ -196,5 +197,33 @@ func TestAC249RemoveIfEmptyKeepsNonEmpty(t *testing.T) {
 	d.RemoveIfEmpty()
 	if entries(t, dir) != 1 {
 		t.Fatal("dolu klasör kalmalı")
+	}
+}
+
+// FILE_RENAME_INFORMATION amd64 düzeni: ReplaceIfExists@0, RootDirectory@8, FileNameLength@16, FileName@20.
+func TestAC249RenameInfoLayout(t *testing.T) {
+	var ri renameInfo
+	if unsafe.Offsetof(ri.Root) != 8 || unsafe.Offsetof(ri.NameLen) != 16 || unsafe.Offsetof(ri.Name) != 20 {
+		t.Fatalf("düzen: %d %d %d", unsafe.Offsetof(ri.Root), unsafe.Offsetof(ri.NameLen), unsafe.Offsetof(ri.Name))
+	}
+}
+
+// Yeniden adlandırma çalışma klasöründen bağımsızdır (CI'da çalışma klasörü başka sürücüdeydi).
+func TestAC249RenameIndependentOfWorkingDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "NoktaDestek")
+	t.Chdir(t.TempDir())
+	d, err := OpenDir(dir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := os.WriteFile(filepath.Join(dir, "a"), []byte("v"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Rename("a", "b"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "b")); err != nil {
+		t.Fatal(err)
 	}
 }

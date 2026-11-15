@@ -6622,7 +6622,11 @@ zaten destekliyor.
   FILE_FLAG_BACKUP_SEMANTICS)` + `GetFileInformationByHandleEx(FileAttributeTagInfo)` ile reparse reddi; klasör zinciri
   (üst klasör = %LOCALAPPDATA% ve NoktaDestek) `FILE_SHARE_DELETE` olmadan açık tutulur; silme
   `SetFileInformationByHandle(FileDispositionInfoEx, DELETE|POSIX_SEMANTICS)` (desteklenmezse `FileDispositionInfo`);
-  yeniden adlandırma handle üzerinden `FileRenameInfo` (yalnız dosya adı, aynı klasör).
+  yeniden adlandırma handle üzerinden `NtSetInformationFile(FileRenameInformation)` (yalnız dosya adı, RootDirectory
+  boş → aynı klasör). Düzeltme (CI run 43684396978): ilk sürüm kernel32 `SetFileInformationByHandle(FileRenameInfo)`
+  kullanıyordu; kernel32 göreli adı çalışma klasörüne göre DOS yoluna çevirdiği için çalışma klasörü D:, geçici klasör
+  C: olan runner'da ERROR_NOT_SAME_DEVICE alındı. NT çağrısı bu çeviriyi yapmaz; `TestAC249RenameInfoLayout` (ofset
+  0/8/16/20) ve `TestAC249RenameIndependentOfWorkingDir` (t.Chdir) eklendi.
 - `internal/diag/reparse.go` (Windows dışı): aynı `Dir` API'si, `Lstat` mod biti denetimi (`isReparse` yalnız burada kaldı).
 - `internal/diag/diag.go`: `ErrReparse` (dışa açık), `Mode` (`ModeRead/ModeAppend/ModeCreate`); `Log.Write` `Dir`
   üzerinden (eski `safe` + yol ile `os.Rename/OpenFile` kaldırıldı).
