@@ -4,7 +4,7 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama) ve P27 (gözetimsiz erişim; prod'da kapalı) kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0), P18 (talep iletişimi), P19 (web talep formu, SMS, müşteri bildirimi, müşteri CSV) P20 (istemci 0.12.0), P27a (2FA'da cihaz hatırlama), P27 (gözetimsiz erişim; prod'da kapalı) ve P28a (pano paylaşımı + uzaktan yazdırma, istemci 0.13.0) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -260,6 +260,17 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   kaldır", Ayarlar → Güvenlik'te firma anahtarı "2FA cihaz hatırlama" (**mevcut firmalarda da varsayılan açık**).
 - Yeni cihaz hatırlanınca ve çalınmış çerez şüphesinde kullanıcıya e-posta; şifre değişimi, 2FA sıfırlama, tüm cihazlardan
   çıkış gibi olaylar hatırlamayı siler. Çerez `__Secure-rs_td` (`Path=/api/v1/auth`). Migration `20261121000000_p27a_trusted_devices`; yeni env yok.
+
+**P28a — pano paylaşımı ve uzaktan yazdırma, istemci 0.13.0** (AC-343..352, AC-404; kod tamam, qa GEÇTİ, güvenlik kod turu 1
+GEÇTİ; Windows elle turu bekliyor; staging'e çıkar, prod P28 sonunda)
+
+- Konsolda "Pano ve yazdırma" bölümü: **Panoyu gönder** / **Müşteri panosunu al** (düz metin ≤ 64 KB; kontrol izni + müşterinin
+  "Pano paylaşımına izin ver" kutusu) ve **Uzaktan yazdır** (PDF ≤ 20 MB, müşterinin varsayılan yazıcısına, her belgede müşteri onayı).
+- Windows istemci 0.13.0: oturum penceresinde pano kutusu, yazdırma onay penceresi, 3 sn bildirim; PDF Windows.Data.Pdf ile
+  yalıtılmış alt süreçte çizilir, GDI ile basılır (ADR-0031). İçerik sunucudan geçmez (DataChannel).
+- Yeni yetkiler `remote_control.clipboard`, `file_transfer.print`; audit `clipboard.consent`, `clipboard.transfer`, `print.job`.
+  Yeni env, tablo, migration yok. Gözetimsiz oturumda ve tarayıcı müşterisinde kullanılamaz. Protokol: `docs/api.md`
+  "Pano ve uzaktan yazdırma (P28a)"; metrik ve sorun giderme: [`docs/runbook.md`](docs/runbook.md) §28a.
 
 **P27 — gözetimsiz erişim** (AC-273..275, 293..297, 336..342; kod tamam, QA/güvenlik ve Windows elle turu sürüyor;
 **prod'da kapalı** — SignPath imzası gelene kadar `UNATTENDED_MODE=off`)
@@ -531,6 +542,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P20 (kod ✓, QA sürüyor)                                                           | G5-b Windows istemci 0.12.0: tepsi + Windows açılışında başlatma, 5 firmaya kadar kayıt, talep öncesi sohbet                                                                                                               |
 | P27a (kod ✓, QA sürüyor)                                                          | 2FA'da "Bu cihazı 30 gün hatırla" (Super Admin hariç), hatırlanan cihazlar, firma anahtarı                                                                                                                                 |
 | P27 (kod ✓, QA sürüyor; prod `off`)                                               | G7 gözetimsiz erişim: `NoktaDestekServis.exe`, kayıt kodu, cihaz başına yetki, bağlantı başına step-up, müşteri bildirimi, gösterge, yerel kapatma; runbook §27                                                            |
+| P28a (kod ✓, qa GEÇTİ; Windows elle turu bekliyor)                                | G8-a pano paylaşımı (düz metin ≤ 64 KB) ve uzaktan yazdırma (PDF, müşteri onayı), Windows istemci 0.13.0; runbook §28a                                                                                                     |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu
