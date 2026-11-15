@@ -119,6 +119,10 @@ func run() int {
 
 	// `--tray` (mimari-e11 §8d.3): dosya adı değerlendirilmez, ağ isteği yok; yalnız tepsi.
 	var trayIcon *tray.Icon
+	// S-P20-K3: tek örnek mutex'i süreç ömrü boyunca açıkça tutulur (GC/finalizer davranışına bağlı değil), run dönerken
+	// bırakılır (Release nil güvenli).
+	var trayLock *tray.Lock
+	defer func() { trayLock.Release() }()
 	trayBalloon := ""
 	if trayLaunch {
 		var st remember.LoadResult
@@ -132,15 +136,14 @@ func run() int {
 			_ = autorun.New().Disable()
 			return exitOK
 		}
-		if c, _ := autorun.New().Verify(); c.Removed { // G-P20-15
-			trayBalloon = tray.BalloonAutorunOff
-		}
-		icon, ok := acquireTray(writeDiag)
+		c, _ := autorun.New().Verify() // G-P20-15; eksik exe de silinir (S-P20-K1)
+		trayBalloon = tray.AutorunBalloon(c)
+		icon, lock, ok := acquireTray(writeDiag)
 		if !ok {
-			tray.SignalExisting() // ikinci örnek: ilkini öne getir ve çık
+			tray.SignalExisting() // ikinci örnek: ilkini öne getir ve çık (yalnız aynı kullanıcının penceresi, S-P20-K2)
 			return exitOK
 		}
-		trayIcon = icon
+		trayIcon, trayLock = icon, lock
 	}
 
 	u, err := ui.New(cfg.DisplayHost(), cfg.Version, fp, nil)
@@ -193,7 +196,7 @@ func run() int {
 		},
 		Ended: func(out flow.Outcome) {
 			if out.BindingChanged != "" {
-				u.EndedNote(launch.ChangedText(out.BindingChanged)) // AC-187
+				u.EndedNote(out.BindingChanged) // AC-187: keeper tam cümle üretir
 			}
 			u.Ended(out.Message)
 		},
@@ -212,16 +215,17 @@ func run() int {
 			return store.LoadState()
 		},
 		StartTray: func() (tray.IconAPI, bool) { // G-P20-13: X ile tepsiye inen süreç de mutex'i almak zorunda
-			icon, ok := acquireTray(writeDiag)
+			icon, lock, ok := acquireTray(writeDiag)
 			if !ok {
 				return nil, false
 			}
+			trayLock = lock
 			current.Store(icon)
 			return icon, true
 		},
-		Verify: func() bool {
+		Verify: func() string {
 			c, _ := autorun.New().Verify() // G-P20-15: tepsiden pencere açılışında
-			return c.Removed
+			return tray.AutorunBalloon(c)
 		},
 		Disable:    func() { _ = autorun.New().Disable() },
 		Raise:      u.Raise,
@@ -239,20 +243,22 @@ func run() int {
 	return exitOK
 }
 
-// acquireTray tek örnek mutex'i (G-P20-16 sahip denetimi) + simge. Başka sahipli mutex yok sayılır (diag).
-func acquireTray(writeDiag func(event, reason string)) (*tray.Icon, bool) {
-	_, r := tray.Acquire() // tutulan handle süreç ömrü boyunca açık kalır (işletim sistemi çıkışta bırakır)
+// acquireTray tek örnek mutex'i (G-P20-16 sahip denetimi) + simge. Başka sahipli mutex yok sayılır (diag; kilit nil).
+// Dönen kilidi çağıran süreç ömrü boyunca tutar ve çıkışta bırakır (S-P20-K3); simge eklenemezse kilit bırakılır.
+func acquireTray(writeDiag func(event, reason string)) (*tray.Icon, *tray.Lock, bool) {
+	lock, r := tray.Acquire()
 	switch r {
 	case tray.LockTaken:
-		return nil, false
+		return nil, nil, false
 	case tray.LockForeign:
 		writeDiag(eventTrayMutexForeign, "")
 	}
 	icon, err := tray.Start(ui.SystemLogo())
 	if err != nil {
-		return nil, false
+		lock.Release()
+		return nil, nil, false
 	}
-	return icon, true
+	return icon, lock, true
 }
 
 // launchDeps bir pencere kapsamının açılış bağımlılıkları (G-P20-5): izin kapısı, SendInput alıcısı ve kısayol bu

@@ -1,3 +1,99 @@
+# Güvenlik Raporu — P20 kod turu 1 (p20-wip 33c3176, 2026-11-15)
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0).
+Özet: Kritik 0 / Yüksek 0 / Orta 1 / Düşük 2.
+Kapsam: `apps/agent-win/internal/{autorun,remember,tray,launch,request/chat.go,flow/binding.go,ui/{chat,resident,request}_windows.go}`,
+`cmd/noktadestek/main.go`; `apps/server/src/{bindings/{service,repo}.ts,signaling/{binding,handlers,rooms,types}.ts,lib/{db,logger}.ts}`,
+`packages/contracts/src/ws.ts`. Windows'a özgü CI testleri (HKCU Run, gerçek `C:\` ACL, iki süreç kilidi) yerelde koşulmadı; Windows CI esas.
+
+## Bulgular (öncelik sırasıyla)
+
+### [ORTA] S-P20-K1 `Verify`: hedef exe yoksa Run değeri silinmiyor — eksik yol başka kullanıcı tarafından yeniden oluşturulup kurbanın oturumunda çalıştırılabilir — A01/A05 (CWE-427, CWE-732)
+
+Yer: `apps/agent-win/internal/autorun/autorun.go:333-337` (`errors.Is(ierr, os.ErrNotExist)` → `c.Missing = true`, değer korunur);
+`internal/launch/home.go:168-169` (yalnız bilgi satırı `NoticeRunMissing`).
+Sorun: ACL denetimi (G-P20-1/14) yalnız **var olan** bileşenleri değerlendirir. Run değeri kalırken exe veya üst klasörü silinirse
+Windows her oturum açılışında aynı yolu çalıştırmayı dener. Eksik ilk bileşenin üstündeki ata başka SID'e `FILE_ADD_SUBDIRECTORY`/
+`FILE_ADD_FILE` veriyorsa (varsayılan `C:\` ve ikincil sürücü kökleri: `Authenticated Users:(AD)`) herhangi bir yerel kullanıcı yolu
+yeniden kurabilir. Atalarda AD'nin ret nedeni sayılmaması (G-P20-14) var olan bileşen için doğrudur, **yok** olan bileşen için değildir.
+İstismar senaryosu: Paylaşılan PC. Kullanıcı A, kalıtımı kapatıp yalnız kendine izin verdiği `C:\NoktaDestek\NoktaDestek.exe`'de
+(denetimden geçer) "Windows açılışında başlat"ı açar; sonra klasörü siler (ya da programı başka yere taşır ve yeni kopyayı bir kez açar →
+`Verify` `Missing` der, değeri silmez). Kullanıcı B `C:\NoktaDestek\` oluşturup kendi `NoktaDestek.exe`'sini koyar; A'nın sonraki
+oturum açılışında B'nin kodu A'nın kimliğiyle çalışır (DPAPI sırları, `kayitlar.bin` anahtarları). Ön koşul nadir (profil dışı, elle
+sıkılaştırılmış klasör + silme) olduğu için Orta.
+Düzeltme: `Verify`'da `ErrNotExist` alındığında var olan en yakın atayı bulup ona `denyParent` maskesini (ekleme dahil) uygula; başka SID
+ekleme yapabiliyorsa ya da ata profil dışındaysa değeri **sil** (`Removed`, `ReasonWeakACL`). Daha basit alternatif: `Missing`'de her
+zaman sil ve "kutuyu yeniden işaretleyin" bilgisini göster (bugünkü `NoticeRunMissing` metni zaten bunu söylüyor). Birim testi:
+`C:\` AD fikstürü + eksik `C:\X\x.exe` → silinir; eksik `C:\Users\u\Downloads\x.exe` (profil, ekleme yok) → davranış belgelenir.
+Atanan: backend-dev (Go, K4); mimar §8d.3 "Missing" cümlesi.
+
+### [DÜŞÜK] S-P20-K2 `SignalExisting` pencereyi yalnız sınıf adıyla buluyor; sahibi doğrulanmadan `AllowSetForegroundWindow` veriliyor — A04 (UI spoofing)
+
+Yer: `apps/agent-win/internal/tray/tray_windows.go:342-355`.
+Sorun: Mutex sahibi doğrulanır (G-P20-16, `ownedBy`), fakat ardından `FindWindowW("NoktaDestekTray")` aynı masaüstündeki **ilk** eşleşen
+pencereyi döndürür; aynı oturumda `runas` ile çalışan başka kullanıcının süreci bu sınıfla pencere açabilir. İkinci örnek o sürece ön plana
+geçme izni verir ve "göster" iletisini ona yollar (veri yok).
+İstismar senaryosu: Saldırganın gizli penceresi ön plan iznini alıp kullanıcı Nokta Destek'i beklerken sahte bir "Nokta Destek" penceresini
+öne getirir (oltalama). Etki düşük; ileti veri taşımaz.
+Düzeltme: `GetWindowThreadProcessId` → `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` → belirteç kullanıcısı geçerli SID değilse
+izin verme/ileti gönderme; ya da `FindWindowEx` ile tüm eşleşmeleri gezip sahibi doğrulananı seç. Atanan: backend-dev (Go, K5).
+
+### [DÜŞÜK] S-P20-K3 Tepsi mutex `*Lock` değeri atılıyor; tutulma GC/finalizer davranışına örtük bağlı — A04 (sağlamlık)
+
+Yer: `cmd/noktadestek/main.go:244` (`_, r := tray.Acquire()`).
+Sorun: Bugün `Lock` finalizer'sız `windows.Handle` taşıdığı için handle süreç sonuna dek açık kalır (doğru). İleride `Lock`'a finalizer
+eklenirse (ör. `runtime.SetFinalizer(l, (*Lock).Release)`) GC mutex'i bırakır ve ikinci tepsi örneği başlar (G-P20-13 geri gelir).
+Düzeltme: Dönen `*Lock`'u paket düzeyi değişkende ya da `Resident`'ta tut, çıkışta `Release`. Atanan: backend-dev (Go, K5).
+
+## G-P20 maddelerinin kodda doğrulanması
+
+| Madde                                          | Durum                             | Kanıt                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G-P20-1/14 katmanlı ACL                        | Karşılandı (eksik yol: S-P20-K1)  | `autorun/acl.go:90-94` exe/üst/ata maskeleri; `:166-184` `INHERIT_ONLY` atlanır, sahip izinli olmalı, NULL DACL ret, tanınmayan ACE ret; `inspect_windows.go:86-118` her bileşen `FILE_FLAG_OPEN_REPARSE_POINT` handle'ıyla, `GetSecurityInfo(handle)`, kanonik yol `GetFinalPathNameByHandle`                                                          |
+| Reparse/junction                               | Karşılandı                        | `inspect_windows.go:88-99` başlatma yolu bileşenleri + `:127` kanonik zincir; `acl.go:137-147`                                                                                                                                                                                                                                                          |
+| Public/ProgramData/TEMP/zip/ağ                 | Karşılandı                        | `acl.go:124-132`, `:197-211`; `inspect_windows.go:109` DRIVE_FIXED                                                                                                                                                                                                                                                                                      |
+| Yükseltilmiş süreçte kalıcılık reddi           | Karşılandı                        | `autorun.go:205-207,262-264`; `tray/resident.go:44-45` (`StartQuit`, kayıt defterine dokunmaz), `:130`; `launch/home.go:409,437`                                                                                                                                                                                                                        |
+| G-P20-6 REG_SZ/önek/tırnak/`--tray`            | Karşılandı                        | `registry_windows.go:34` (EXPAND_SZ → KindOther → yeniden yazım), `autorun.go:134-148`, `ParseCommand` tam eşleşme; `tray/resident.go:15`                                                                                                                                                                                                               |
+| G-P20-15 `--tray`/tepside Verify               | Karşılandı                        | `main.go:135-137`, `:222-225`; `resident.go:160-162`                                                                                                                                                                                                                                                                                                    |
+| G-P20-2/16 kilit                               | Karşılandı                        | `remember/lock_windows.go:16-23` `LockFileEx` `kayitlar.lock` (handle kuralı, `diag.OpenDir`); her `update` kilit içinde yeniden okur (`remember.go:269-311`)                                                                                                                                                                                           |
+| G-P20-3/18 hata sınıfları                      | Karşılandı                        | `class.go:84-105`, `dpapi_windows.go:42-53` (`NTE_BAD_KEY_STATE` sınıf 2); `update` okunamazsa yazmaz (`remember.go:289-293`); sayaç + `SuggestForget` (`:237-250`); `ForgetAll` okumadan bağımsız (`:413-434`)                                                                                                                                         |
+| G-P20-4 bütçe                                  | Karşılandı                        | `plainMax` 32 KB / `sealedMax` 128 KB, `SetEscapeHTML(false)` (`data.go:375-381`); yazma hatası görünür (`keeper.go:143-146`, `home.go:287-290`)                                                                                                                                                                                                        |
+| G-P20-17 sayım                                 | Karşılandı                        | Yazımda `countOK` → `ErrLimit`; okumada `normalize` kırpar, dosya silinmez (`data.go:200-223,337-338`); `full` yalnız gömülü köken (`keeper.go:92`)                                                                                                                                                                                                     |
+| Başka firmanın kaydı REPLACED/silinmez         | Karşılandı                        | Sunucu: `repo.ts lockActiveByHashesForTenant` iki adımda `tenant_id = oturum tenant'ı`; fazlası yalnız aynı tenant'ta REPLACED (`service.ts` çoklu dal); `previousIndex` yalnız hedefin dizini. İstemci: eski sunucuda `previousKey` gönderilmez (`keeper.go:81-87`); `replaceKey` yalnız aynı köken (`remember.go:344`)                                |
+| G-P20-8 yalnız BINDING_INVALID siler           | Karşılandı                        | `home.go:258-271` (diğer kodlar silmez), silme isteği anındaki anahtarla (`:369-370`, `run.go:139-141`)                                                                                                                                                                                                                                                 |
+| Unutmada yalnız gömülü köken anahtarları (T43) | Karşılandı                        | `home.go:341-362` `ForOrigin(server)`; `BindingStatus` yalnız gömülü köken (`:251`)                                                                                                                                                                                                                                                                     |
+| G-P20-5 pencere başına kapsam                  | Karşılandı                        | `tray/resident.go:80-100` yeni `control.Gate` (kapalı), kısayol/kanca yalnız kapsamda, `gate.Close()`+`stop()`+`ResetScope(nil)`+`CloseIdleConnections`; `ui/resident_windows.go:25-43`; keeper/logo/flow deps `launch.Run` başına                                                                                                                      |
+| `--tray` boşta ağ/kanca/kısayol yok            | Karşılandı                        | `main.go:120-144` ağsız karar; `RunTray` ilk komuta kadar `Scope.Session` çağırmaz                                                                                                                                                                                                                                                                      |
+| G-P20-13/16 tek örnek, UIPI                    | Karşılandı (S-P20-K2, K3 notları) | `tray_windows.go:384-416` sahip denetimi; `ChangeWindowMessageFilterEx` yok; `WM_CLOSE` yok sayılır                                                                                                                                                                                                                                                     |
+| G-P20-7 sohbet                                 | Karşılandı                        | `request/chat.go:193-214` gönderim doğrulaması (sunucu sırası), `:238-248` gösterim süzgeci (Cc/Cf/Zl/Zp/U+FFFD), `:552-575` istemci öneki + girinti + `\r\n`, 200 mesaj / 256 K tavan; `ui/chat_windows.go:29-30` salt okunur EDIT, `EM_SETLIMITTEXT` 512 K; balon gövdesiz (`:74-78`); pencere başlığında yerel etiket (`request_windows.go:308-311`) |
+| Sunucu hız sınırı / şema                       | Karşılandı                        | `previousKeys` 1..5 benzersiz, `previousKey` ile birlikte VALIDATION (`contracts ws.ts`), oturum başına 3 istek (`binding.ts:46-51`), multi yalnız ≥ 0.12.0 teklifinde                                                                                                                                                                                  |
+| Loglarda anahtar                               | Karşılandı                        | `logger.ts` `*.previousKeys` redaksiyonu; audit'te anahtar/karşı tenant yok; istemci diag yalnız sınıf adı (`keeper.go:166-169`)                                                                                                                                                                                                                        |
+
+## Otomatik tarama çıktıları
+
+- `go test ./...` (golang:1.26, Linux): 21 paket **ok** (autorun, remember, tray, launch, request, flow, signal dahil). `GOOS=windows go vet ./...`: temiz.
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- `git grep` gizli bilgi kalıbı (`apps`, `packages`, test hariç): eşleşme yok.
+- `.env` git geçmişi: yalnız `.env.example`, `deploy/backup/backup.env.example`, `deploy/ops/watch.env.example`.
+- `govulncheck` yerelde koşulmadı (CI esas).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Yok. Tek sapma: §8d.3 "Missing → değer silinmez" kuralı tasarımdaydı; kod buna uyuyor ama kural güvenli değil (S-P20-K1).
+
+## Olumlu
+
+- ACL denetimi tasarım tur 2'deki katmanlı kurala birebir uyuyor; denetlenemeyen her durum (tanınmayan ACE, boş sahip, zincir uyuşmazlığı) **ret** — fail-closed.
+- Sunucu çoklu dalı başka tenant'ın satırını ne okuyor ne kilitliyor (iki adımlı sorgu, PK sırasıyla kilit); deadlock geçici hata olarak yeniden deneniyor.
+- Kayıt dosyası: kilit içinde yeniden okuma, sınıf-2'de yazma reddi, geri okuma doğrulamalı göç; sessiz veri kaybı yolu bulunamadı.
+- Sohbet: sunucuyla aynı doğrulama sırası, istemci üretimli önek + girinti ile sahte başlık üretilemiyor, balonda gövde/ad yok.
+
+## Gereksinimler §9 "Sonra" önerisi
+
+S-P20-K2, S-P20-K3 (Düşük). S-P20-K1 (Orta) prod açılışından (P10/P20 yayını) önce kapatılması önerilir.
+
+---
+
 # Güvenlik Raporu — P20 tasarım turu, Tur 2 (doğrulama) (p20-wip 5bdc6bf, 2026-11-15)
 
 DURUM: GEÇTİ (Kritik 0 / Yüksek 0). Yeni Orta 1'in (G-P20-14) K4 kodlanmadan önce §8d.3'te düzeltilmesi **önerilir**: kural yazıldığı

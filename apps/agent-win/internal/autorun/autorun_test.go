@@ -329,12 +329,30 @@ func TestAC253VerifyRemovesWeak(t *testing.T) {
 			}
 		}
 	})
-	t.Run("exe taşınmış: değer kalır, uyarı", func(t *testing.T) {
+	t.Run("S-P20-K1 exe taşınmış: değer silinir", func(t *testing.T) {
 		m, reg, _ := newManager(dl)
 		reg.vals[ValueName] = regValue{Command(dl), KindString}
 		c, err := m.Verify()
-		if err != nil || !c.Missing || c.Removed || reg.deletes != 0 {
+		if err != nil || !c.Removed || c.Reason != ReasonMissing || reg.deletes != 1 {
 			t.Fatalf("%+v %v", c, err)
+		}
+		if _, ok := reg.vals[ValueName]; ok {
+			t.Fatal("değer kalmamalı")
+		}
+	})
+	t.Run("S-P20-K1 yol bileşeni yok (C:\\ AD atası): değer silinir", func(t *testing.T) {
+		p := `C:\NoktaDestek\NoktaDestek.exe`
+		m, reg, pr := newManager(dl, downloadsTarget())
+		reg.vals[ValueName] = regValue{Command(p), KindString}
+		c, err := m.Verify()
+		if err != nil || !c.Present || !c.Removed || c.Reason != ReasonMissing || pr.inspects != 1 {
+			t.Fatalf("%+v %v", c, err)
+		}
+		if _, ok := reg.vals[ValueName]; ok {
+			t.Fatal("değer kalmamalı")
+		}
+		if msg := c.Reason.Message(); !strings.Contains(msg, "program bulunamadı") {
+			t.Fatalf("metin: %q", msg)
 		}
 	})
 	t.Run("denetlenemedi: silinir, hata döner", func(t *testing.T) {

@@ -312,6 +312,19 @@ func TestGP2018UnreadableOffersForgetAndNotices(t *testing.T) {
 	}
 }
 
+// TestAC253SPK1MissingTargetNotice S-P20-K1: Run değeri bulunamayan exe'yi gösteriyordu, Verify sildi → ana ekranda
+// "Windows açılışında başlatma kapatıldı: program bulunamadı; …" bilgi satırı.
+func TestAC253SPK1MissingTargetNotice(t *testing.T) {
+	h := homeSetup(t, bnd(server, 1, "A"))
+	h.as.verify = autorun.Check{Present: true, Removed: true, Reason: autorun.ReasonMissing}
+	Run(context.Background(), h.d)
+	want := NoticeRunRemoved + autorun.ReasonMissing.Message() + "."
+	if len(h.u.views) == 0 || !strings.Contains(h.u.views[0].Notice, want) ||
+		!strings.Contains(want, "kapatıldı: program bulunamadı") {
+		t.Fatalf("bilgi satırı: %+v", h.u.views)
+	}
+}
+
 // TestAC254CreateTouchesBinding kayıtla talep 201 → TouchBinding (yerel sıra); kayıtsız/başarısız talepte yok.
 func TestAC254CreateTouchesBinding(t *testing.T) {
 	var touched []string

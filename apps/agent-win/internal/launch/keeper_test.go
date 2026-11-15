@@ -198,3 +198,32 @@ func TestGP204KeeperWriteFailureVisible(t *testing.T) {
 		t.Fatalf("%v", events)
 	}
 }
+
+// keyLeakStore hata metnine anahtarı koyan depo: diag'a metin değil yalnız sınıf gittiğini sınar.
+type keyLeakStore struct{ *remember.Store }
+
+func (keyLeakStore) SaveBinding(b remember.Binding, replace string) error {
+	return fmt.Errorf("yazılamadı %s %s", b.Key, replace)
+}
+
+// TestAC254KeeperNeverLogsKeys qa önerisi 5 (Go tarafı): previousKeys gönderilen ve yazma hatası alan oturumda diag
+// olaylarına ve kullanıcı metinlerine hiçbir kayıt anahtarı (rsb_…) girmez; hata metni anahtar taşısa bile.
+func TestAC254KeeperNeverLogsKeys(t *testing.T) {
+	s := storeWith(t, bnd(server, 1, "A"), bnd(server, 2, "B"))
+	k := newKeeper(keyLeakStore{Store: s}, server, time.Now)
+	var out []string
+	k.diag = func(ev, class string) { out = append(out, ev, class) }
+	req, note, ok := k.Request(true)
+	if !ok || len(req.PreviousKeys) != 2 {
+		t.Fatalf("%#v", req)
+	}
+	out = append(out, note, k.Issued(issuedMsg(9, "X", intp(0))), k.Limited())
+	if len(out) < 5 || out[0] != eventStoreFailure {
+		t.Fatalf("diag olayı beklenirdi: %q", out)
+	}
+	for _, s := range out {
+		if strings.Contains(s, "rsb_") {
+			t.Fatalf("anahtar sızdı: %q", s)
+		}
+	}
+}

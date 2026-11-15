@@ -91,7 +91,6 @@ const (
 	// NoticeOldVersion G-P20-9 ek cümlesi.
 	NoticeOldVersion  = "Eski sürüm dosyasını açmayın; tam temizlik için bu programda Bu bilgisayarı unut'u kullanın."
 	NoticeRunRemoved  = "Windows açılışında başlatma kapatıldı: "
-	NoticeRunMissing  = "Windows açılışında başlatma kaydı artık bulunmayan bir program dosyasını gösteriyor; kutuyu yeniden işaretleyin."
 	NoticeRunNotFreed = "Windows açılışında başlatma kaydı silinemedi; kullanım kılavuzundaki elle kaldırma adımını uygulayın."
 	hintTrayFirst     = "Windows açılışında başlatmak için önce Tepside çalıştır'ı açın."
 	hintStateFailed   = "Windows açılışında başlatma durumu okunamadı."
@@ -161,13 +160,8 @@ func (d Deps) startupNotes(st remember.MigrateResult) []string {
 		n = append(n, BlockedText(request.Display(st.Blocked, "Firma")))
 	}
 	if d.Autostart != nil {
-		if c, err := d.Autostart.Verify(); err == nil || c.Removed {
-			switch {
-			case c.Removed:
-				n = append(n, NoticeRunRemoved+c.Reason.Message()+".")
-			case c.Missing:
-				n = append(n, NoticeRunMissing)
-			}
+		if c, _ := d.Autostart.Verify(); c.Removed { // eksik exe dahil (S-P20-K1): "… kapatıldı: program bulunamadı; …"
+			n = append(n, NoticeRunRemoved+c.Reason.Message()+".")
 		}
 	}
 	return n

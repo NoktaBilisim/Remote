@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"testing"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestAC253NotifyIconDataSize(t *testing.T) {
@@ -31,4 +33,22 @@ func TestAC253GP216SingleInstanceMutex(t *testing.T) {
 		t.Fatalf("bırakıldıktan sonra yeniden alınmalı: %v", r3)
 	}
 	l3.Release()
+}
+
+// S-P20-K2: pencere sahibi denetimi — kendi sürecimiz geçerli kullanıcıya ait; SYSTEM süreci (pid 4) değil; var
+// olmayan pid false.
+func TestAC253SPK2ProcessUserIs(t *testing.T) {
+	tu, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !processUserIs(windows.GetCurrentProcessId(), tu.User.Sid) {
+		t.Fatal("kendi süreç geçerli kullanıcıya ait olmalı")
+	}
+	if processUserIs(4, tu.User.Sid) {
+		t.Fatal("System süreci geçerli kullanıcı sayılmamalı")
+	}
+	if processUserIs(0xFFFFFFF0, tu.User.Sid) {
+		t.Fatal("var olmayan süreç false olmalı")
+	}
 }

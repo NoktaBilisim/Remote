@@ -8692,3 +8692,62 @@ Yeni bağımlılık yok.
   ağ yok; simgeye tıkla/Enter → ana ekran; sağ tık → 3 öğe; X → tepside kalır (ilk seferde balon); oturum sonu → 2,5 sn son
   ekran sonra tepside; oturum sürerken Çık → onay → teknisyende oturum biter; ikinci `--tray` → ilk örnek öne gelir, ikinci
   çıkar; Explorer yeniden başlatılınca simge geri gelir; açık/koyu tema ve %150 DPI'da simge okunaklı.
+
+## P20 K8 düzeltmeleri (backend-dev, Go istemci)
+
+Kaynak: `docs/guvenlik-raporu.md` "P20 kod turu 1" (S-P20-K1/K2/K3), `docs/qa-raporu.md` öneri 1 ve 5. Yalnız `apps/agent-win`.
+
+### Değişen dosyalar
+
+- `internal/autorun/autorun.go`: **S-P20-K1.** `Verify` hedef exe veya yol bileşenlerinden biri yoksa (`os.ErrNotExist`)
+  Run değerini **her zaman siler** (`Removed`, yeni `ReasonMissing`, metin "program bulunamadı; yeniden açmak için kutuyu
+  işaretleyin"). `Check.Missing` alanı kaldırıldı (artık `Reason == ReasonMissing`).
+- `internal/launch/home.go`: `NoticeRunMissing` kaldırıldı; bilgi satırı tek yol: `NoticeRunRemoved + Reason.Message()` →
+  "Windows açılışında başlatma kapatıldı: program bulunamadı; yeniden açmak için kutuyu işaretleyin."
+- `internal/tray/{tray.go,resident.go}`: `BalloonAutorunMissing` ("… kapatıldı (program bulunamadı)") ve
+  `AutorunBalloon(autorun.Check) string`. `Resident.Verify` artık `func() string` (balon metni; boşsa balon yok).
+  Böylece eksik exe için "(klasör izinleri)" balonu gösterilmez.
+- `internal/tray/tray_windows.go`: **S-P20-K2.** `SignalExisting`, `FindWindowExW` ile aynı sınıf adlı pencereleri
+  (en çok 32) gezer. Pencere sahibi süreç `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` → `OpenProcessToken(TOKEN_QUERY)`
+  → belirteç kullanıcısı geçerli SID değilse (ya da sorgulanamazsa, kendi süreciyse) atlanır. Sahibi doğrulanmayan pencereye
+  `AllowSetForegroundWindow` ya da ileti gönderilmez. Uygun pencere yoksa `false`; ikinci örnek yine çıkar.
+- `cmd/noktadestek/main.go`: **S-P20-K3.** `acquireTray` artık `*tray.Lock` döndürür. `run` bunu `trayLock` değişkeninde
+  süreç ömrü boyunca tutar ve `defer` ile bırakır (`Release` nil güvenli; `--tray` açılışı ve tepsiye iniş yollarının ikisinde de).
+  Simge eklenemezse kilit hemen bırakılır. qa öneri 1: `launch.ChangedText` silindi, `u.EndedNote(out.BindingChanged)`.
+- `internal/launch/keeper.go`: `ChangedText` kaldırıldı.
+
+### Tasarımdan sapmalar
+
+1. **§8d.3 / K4 sapması "Missing → değer silinmez" geri alındı** (S-P20-K1, raporun "basit alternatifi"). Eksik bileşenin
+   ACL'i denetlenemez. Atada başka SID'in ekleme hakkı varsa (varsayılan `C:\` `Authenticated Users:(AD)`) yol başka
+   kullanıcı tarafından yeniden kurulabilir. Profil içi yollar da aynı kuralla silinir: ayrım yapılmaz, kullanıcı kutuyu yeniden
+   işaretler. Mimar §8d.3 metnini buna göre güncellemeli. "En yakın atayı denetle" seçeneği uygulanmadı: daha karmaşık,
+   kazancı küçük.
+2. **Tepside eksik exe balonu ayrı metin** ("program bulunamadı"). Tasarımda yalnız "(klasör izinleri)" balonu vardı. Neden
+   yanlışsa kullanıcı yanıltılmasın diye ayrıldı. Balonda yol yok, sabit metin.
+3. **Simge eklenemezse kilit bırakılır** (S-P20-K3 ile birlikte). Önceden kilit tutulup tepsi yokken diğer örnekler
+   engelleniyordu.
+
+Yeni bağımlılık yok.
+
+### Testler
+
+- `internal/autorun/autorun_test.go` (`TestAC253VerifyRemovesWeak`): "S-P20-K1 exe taşınmış: değer silinir" (eski "değer kalır"
+  alt testi tersine çevrildi) ve "S-P20-K1 yol bileşeni yok (C:\ AD atası): değer silinir" (`C:\NoktaDestek\NoktaDestek.exe`,
+  `ReasonMissing`, değer yok, metin).
+- `internal/launch/home_test.go`: `TestAC253SPK1MissingTargetNotice` (ana ekran satırı).
+- `internal/tray/resident_test.go`: `TestAC253SPK1AutorunBalloonByReason`; metin uzunluk sınırına `BalloonAutorunMissing` eklendi.
+- `internal/tray/tray_windows_test.go` (Windows CI): `TestAC253SPK2ProcessUserIs` (kendi süreç → true, pid 4 / olmayan pid → false).
+- `internal/launch/keeper_test.go`: `TestAC254KeeperNeverLogsKeys` (qa öneri 5, Go tarafı). `previousKeys` gönderilen
+  ve hata metni anahtar taşıyan yazma hatasında, diag olayına ve kullanıcı metinlerine `rsb_…` girmediği doğrulanır. Sunucu
+  tarafı (`logger.ts` redaksiyonu) bu turun kapsamı dışında, dokunulmadı.
+- Komutlar: `docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 go test -race ./...` → 21 paketin tümü
+  `ok`. `-e GOOS=windows go vet ./...` temiz. `GOOS=windows go test -c ./internal/tray ./internal/autorun` derleniyor.
+  `gofmt -l .` boş.
+- Elle (test-operatoru, K9): ikinci kullanıcının `runas` ile açtığı `NoktaDestekTray` sınıflı pencere varken ikinci `--tray`
+  örneği o pencereyi öne getirmez. Run değeri silinmiş exe'yi gösterirken açılışta bilgi satırı ve tepside "(program bulunamadı)"
+  balonu görünür.
+
+### frontend-dev için
+
+Sözleşme değişikliği yok (yalnız Windows istemci).

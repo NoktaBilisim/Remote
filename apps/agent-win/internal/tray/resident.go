@@ -26,6 +26,19 @@ func Keep(r remember.LoadResult, origin string) bool {
 	return r.Status == remember.StatusUnreadable || Eligible(r, origin)
 }
 
+// AutorunBalloon Verify sonucunun balon metni: değer silinmediyse "", eksik exe (S-P20-K1) için "program bulunamadı",
+// diğer silmelerde "klasör izinleri" (G-P20-15). Balon sabit metindir, yol taşımaz.
+func AutorunBalloon(c autorun.Check) string {
+	switch {
+	case !c.Removed:
+		return ""
+	case c.Reason == autorun.ReasonMissing:
+		return BalloonAutorunMissing
+	default:
+		return BalloonAutorunOff
+	}
+}
+
 // StartMode `--tray` açılış kararı (ağsız; mimari-e11 §8d.3).
 type StartMode int
 
@@ -108,8 +121,9 @@ type Resident struct {
 	// State kayıt dosyasının güncel durumu ve gömülü köken (kapsam içinde tercih/kayıt değişebilir).
 	State  func() remember.LoadResult
 	Origin string
-	// Verify tepsiden pencere açılışında Run denetimi (G-P20-15, ağsız); true: değer silindi → balon.
-	Verify func() bool
+	// Verify tepsiden pencere açılışında Run denetimi (G-P20-15, ağsız); değer silindiyse balon metni (AutorunBalloon),
+	// silinmediyse "".
+	Verify func() string
 	// Disable tepsi koşulu kalmadığında Run değerini siler (idempotent).
 	Disable func()
 	// Raise açık kapsamın penceresini öne getirir; EndSession süren oturumu kullanıcı bitirmiş gibi sonlandırır.
@@ -157,8 +171,10 @@ func (r Resident) loop(ctx context.Context, ic IconAPI) {
 			if c == CmdExit {
 				return
 			}
-			if r.Verify != nil && r.Verify() {
-				ic.Balloon(BalloonAutorunOff)
+			if r.Verify != nil {
+				if b := r.Verify(); b != "" {
+					ic.Balloon(b)
+				}
 			}
 			if r.scope(ctx, ic, false) {
 				return

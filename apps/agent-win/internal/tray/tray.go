@@ -31,6 +31,8 @@ const (
 	BalloonResident = "Program tepside çalışmaya devam ediyor"
 	// BalloonAutorunOff G-P20-15: `--tray` açılışında veya tepsiden açılışta Run değeri zayıf izin nedeniyle silindi.
 	BalloonAutorunOff = "Windows açılışında başlatma kapatıldı (klasör izinleri)"
+	// BalloonAutorunMissing S-P20-K1: Run değeri bulunamayan exe'yi gösterdiği için silindi.
+	BalloonAutorunMissing = "Windows açılışında başlatma kapatıldı (program bulunamadı)"
 	// ExitConfirm "Çık" sırasında pencere/oturum açıkken onay metni.
 	ExitConfirm = "Nokta Destek penceresi açık. Çıkarsanız süren oturum veya destek talebi sonlanır. Çıkılsın mı?"
 

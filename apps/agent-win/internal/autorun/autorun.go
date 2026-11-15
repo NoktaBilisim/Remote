@@ -89,6 +89,8 @@ const (
 	ReasonWeakACL
 	// ReasonCheckFailed izinler okunamadı veya tanınmayan ACE (denetlenemeyen hedef reddedilir).
 	ReasonCheckFailed
+	// ReasonMissing yalnız Verify: değerin gösterdiği exe veya yol bileşenlerinden biri yok (S-P20-K1).
+	ReasonMissing
 )
 
 const moveHint = "programı İndirilenler'e veya kendi klasörünüze taşıyın"
@@ -108,6 +110,8 @@ func (r Reason) Message() string {
 		return "Bu klasöre başka kullanıcılar yazabiliyor; " + moveHint
 	case ReasonReparse:
 		return "Program bağlantılı bir klasörden çalışıyor; " + moveHint
+	case ReasonMissing:
+		return "program bulunamadı; yeniden açmak için kutuyu işaretleyin"
 	default:
 		return "Klasör izinleri denetlenemedi; Windows açılışında başlatma kullanılamıyor"
 	}
@@ -300,16 +304,15 @@ func (m *Manager) Disable() error { return m.Reg.Delete(m.name()) }
 type Check struct {
 	// Present değer vardı.
 	Present bool
-	// Removed değer zayıf/bozuk hedef nedeniyle silindi; normal açılışta ana ekran bilgisi, tepside balon
-	// "Windows açılışında başlatma kapatıldı (klasör izinleri)".
+	// Removed değer zayıf/bozuk/eksik hedef nedeniyle silindi; normal açılışta ana ekran bilgisi, tepside balon
+	// (metin Reason'a göre, tray.AutorunBalloon).
 	Removed bool
-	// Missing değerin gösterdiği exe yok (Windows atlar; ana ekran uyarır), değer silinmez.
-	Missing bool
 	// Reason Removed ise neden.
 	Reason Reason
 }
 
-// Verify (G-P20-1/15) mevcut değerin gösterdiği hedefi yerel ve ağsız olarak yeniden denetler; zayıfsa değeri siler.
+// Verify (G-P20-1/15) mevcut değerin gösterdiği hedefi yerel ve ağsız olarak yeniden denetler; zayıf, bozuk veya
+// yoksa (exe ya da yol bileşeni bulunamadı, S-P20-K1) değeri siler.
 // Değer yoksa hiçbir şey yapmaz. Yükseltilmişlik burada ret nedeni değildir (hedefin izinleri süreçten bağımsızdır).
 func (m *Manager) Verify() (Check, error) {
 	val, kind, err := m.Reg.Read(m.name())
@@ -332,8 +335,10 @@ func (m *Manager) Verify() (Check, error) {
 	}
 	_, reason, ierr := m.evaluate(p)
 	if errors.Is(ierr, os.ErrNotExist) {
-		c.Missing = true
-		return c, nil
+		// S-P20-K1: eksik bileşenin ACL'i denetlenemez; atada başka SID ekleme yapabiliyorsa (varsayılan `C:\`
+		// Authenticated Users:(AD)) yol yeniden kurulup kullanıcının oturumunda çalıştırılabilir. Değer her zaman silinir.
+		c.Reason = ReasonMissing
+		return m.remove(c, nil)
 	}
 	if reason == ReasonOK {
 		return c, nil

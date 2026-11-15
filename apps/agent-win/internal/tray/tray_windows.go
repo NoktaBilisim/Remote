@@ -25,7 +25,7 @@ var (
 	pAppendMenuW              = user32.NewProc("AppendMenuW")
 	pTrackPopupMenu           = user32.NewProc("TrackPopupMenu")
 	pDestroyMenu              = user32.NewProc("DestroyMenu")
-	pFindWindowW              = user32.NewProc("FindWindowW")
+	pFindWindowExW            = user32.NewProc("FindWindowExW")
 	pGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
 	pAllowSetForegroundWindow = user32.NewProc("AllowSetForegroundWindow")
 	pCreateIconIndirect       = user32.NewProc("CreateIconIndirect")
@@ -337,22 +337,55 @@ func iconFromImage(img image.Image) uintptr {
 	return h
 }
 
+// signalScanMax aynı sınıf adlı pencere taramasının üst sınırı (aynı masaüstünde sahte pencere seli döngüyü uzatmaz).
+const signalScanMax = 32
+
 // SignalExisting ikinci örnek: kullanıcının çalışan tepsi örneğini öne getirmesini ister ("göster" iletisi, veri
-// taşımaz) ve true döner; bulunamazsa false. Ön plana geçiş izni yalnız o sürece verilir.
+// taşımaz) ve true döner; bulunamazsa false. S-P20-K2: aynı sınıf adlı pencereler gezilir, yalnız süreç belirteci
+// kullanıcısı geçerli kullanıcının SID'i olan pencere seçilir (başka kullanıcının — ör. `runas` — sürecine ön plan
+// izni ve ileti verilmez). Ön plana geçiş izni yalnız o sürece verilir.
 func SignalExisting() bool {
-	h, _, _ := pFindWindowW.Call(uintptr(unsafe.Pointer(win.Str(WindowClass))), 0)
-	if h == 0 {
+	tu, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
 		return false
 	}
-	var pid uint32
-	_, _, _ = pGetWindowThreadProcessId.Call(h, uintptr(unsafe.Pointer(&pid)))
-	if pid != 0 {
+	user, self := tu.User.Sid, windows.GetCurrentProcessId()
+	cls := win.Str(WindowClass)
+	defer runtime.KeepAlive(cls)
+	var h uintptr
+	for range signalScanMax {
+		h, _, _ = pFindWindowExW.Call(0, h, uintptr(unsafe.Pointer(cls)), 0)
+		if h == 0 {
+			return false
+		}
+		var pid uint32
+		_, _, _ = pGetWindowThreadProcessId.Call(h, uintptr(unsafe.Pointer(&pid)))
+		if pid == 0 || pid == self || !processUserIs(pid, user) {
+			continue
+		}
 		_, _, _ = pAllowSetForegroundWindow.Call(uintptr(pid))
+		if m := registerMessage(ShowMessage); m != 0 {
+			win.PostMessage(h, m, 0, 0)
+		}
+		return true
 	}
-	if m := registerMessage(ShowMessage); m != 0 {
-		win.PostMessage(h, m, 0, 0)
+	return false
+}
+
+// processUserIs sürecin belirteç kullanıcısı user mı (açılamayan/sorgulanamayan süreç: false).
+func processUserIs(pid uint32, user *windows.SID) bool {
+	p, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return false
 	}
-	return true
+	defer func() { _ = windows.CloseHandle(p) }()
+	var tok windows.Token
+	if err := windows.OpenProcessToken(p, windows.TOKEN_QUERY, &tok); err != nil {
+		return false
+	}
+	defer func() { _ = tok.Close() }()
+	tu, err := tok.GetTokenUser()
+	return err == nil && tu.User.Sid.Equals(user)
 }
 
 // LockResult tek örnek mutex'inin sonucu.

@@ -35,11 +35,6 @@ func LimitText(firm string) string {
 // RenamedText G-P20-12: `status`/`issued` sonrası adı değişen öğede bir kez.
 func RenamedText(old, cur string) string { return "Firma adı değişti: " + old + " → " + cur }
 
-// ChangedText oturum sonu bilgisi. P20'de keeper tam cümle üretir (AddedText, LimitText, NoteWriteFailed …); bu işlev
-// `cmd/noktadestek/main.go`'nun mevcut `u.EndedNote(launch.ChangedText(out.BindingChanged))` çağrısı için metni
-// olduğu gibi döndürür (main.go K5 alanı; orada doğrudan EndedNote(out.BindingChanged) yapılınca kaldırılır).
-func ChangedText(note string) string { return note }
-
 // keeper flow.BindingHandler: çoklu firma kaydının istenmesi ve DPAPI dosyasına yazılması (mimari-e11 §8d.2). Oturum
 // kapsamlıdır (G-P20-5): her oturum için yeni keeper; slot bu oturumda yazılan yuva.
 type keeper struct {

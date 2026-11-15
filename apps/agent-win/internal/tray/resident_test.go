@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"remote-support/agent-win/internal/autorun"
 	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/remember"
@@ -199,9 +200,14 @@ func (f *fixture) resident() Resident {
 			}
 			return f.icon, true
 		},
-		State:      func() remember.LoadResult { f.mu.Lock(); defer f.mu.Unlock(); return f.st },
-		Origin:     origin,
-		Verify:     func() bool { return f.verify },
+		State:  func() remember.LoadResult { f.mu.Lock(); defer f.mu.Unlock(); return f.st },
+		Origin: origin,
+		Verify: func() string {
+			if f.verify {
+				return BalloonAutorunOff
+			}
+			return ""
+		},
 		Disable:    func() { f.mu.Lock(); f.disabled++; f.mu.Unlock() },
 		Raise:      func() { f.mu.Lock(); f.raised++; f.mu.Unlock() },
 		EndSession: func() { f.ended <- struct{}{} },
@@ -422,6 +428,24 @@ func TestAC253GP215VerifyOnTrayOpenBalloon(t *testing.T) {
 	}
 }
 
+func TestAC253SPK1AutorunBalloonByReason(t *testing.T) {
+	cases := []struct {
+		c    autorun.Check
+		want string
+	}{
+		{autorun.Check{}, ""},
+		{autorun.Check{Present: true}, ""},
+		{autorun.Check{Present: true, Removed: true, Reason: autorun.ReasonWeakACL}, BalloonAutorunOff},
+		{autorun.Check{Present: true, Removed: true, Reason: autorun.ReasonBadPath}, BalloonAutorunOff},
+		{autorun.Check{Present: true, Removed: true, Reason: autorun.ReasonMissing}, BalloonAutorunMissing},
+	}
+	for _, tc := range cases {
+		if got := AutorunBalloon(tc.c); got != tc.want {
+			t.Fatalf("%+v: %q", tc.c, got)
+		}
+	}
+}
+
 type recUI struct {
 	flow.UI
 	active []string
@@ -449,7 +473,7 @@ func TestAC253MutexNameAndTexts(t *testing.T) {
 	if strings.Contains(a, "1001") {
 		t.Fatal("ad SID'i açık taşımamalı (özet)")
 	}
-	for _, s := range []string{BalloonResident, BalloonAutorunOff, Tip, TipSession} {
+	for _, s := range []string{BalloonResident, BalloonAutorunOff, BalloonAutorunMissing, Tip, TipSession} {
 		if len(truncate(s, 64)) == 0 || len([]rune(s)) > 63 {
 			t.Fatalf("sabit metin sığmalı: %q", s)
 		}
