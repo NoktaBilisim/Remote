@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Building2, ChevronLeft, ChevronRight, History, Inbox } from "lucide-react";
+import { Building2, ChevronLeft, ChevronRight, History, Inbox, UserCheck, UserRoundX } from "lucide-react";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { LoadError } from "@/components/load-error";
 import { Alert } from "@/components/ui/alert";
@@ -12,6 +12,7 @@ import { t } from "@/lib/i18n";
 import { CLOSED_STATUSES, type RequestStatus, type SupportRequestList } from "@/lib/requests/contract";
 import { getMe, serverGet } from "@/lib/server-api";
 import { parseRequestCustomer } from "@/lib/customers/query";
+import { parseAssigned, type AssignedFilter } from "@/lib/requests/p18";
 import { RequestCustomerFilter } from "./customer-filter";
 import { RequestHistory } from "./request-history";
 import { RequestQueue } from "./request-queue";
@@ -23,11 +24,12 @@ type SP = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const PAGE_SIZE = 25;
 
-function href(tab: "pending" | "history", status?: string, page = 1, customer?: string) {
+function href(tab: "pending" | "history", status?: string, page = 1, customer?: string, assigned?: AssignedFilter) {
   const q = new URLSearchParams();
   if (tab === "history") q.set("tab", "history");
   if (status) q.set("status", status);
   if (customer) q.set("customer", customer);
+  if (assigned && tab === "pending") q.set("assigned", assigned);
   if (page > 1) q.set("page", String(page));
   const s = q.toString();
   return s ? `/requests?${s}` : "/requests";
@@ -54,6 +56,9 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
   const page = Number.isInteger(pageRaw) && pageRaw >= 1 && pageRaw <= 10_000 ? pageRaw : 1;
   const customer = parseRequestCustomer(sp.customer);
   const cq = customer ? `&customer=${encodeURIComponent(customer)}` : "";
+  // P18 (AC-256): bekleyenlerde atama filtresi
+  const assigned = tab === "pending" ? parseAssigned(sp.assigned) : undefined;
+  const aq = assigned ? `&assigned=${assigned}` : "";
 
   const header = (
     <>
@@ -93,7 +98,7 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
 
   const path =
     tab === "pending"
-      ? `/support-requests?tab=pending${cq}`
+      ? `/support-requests?tab=pending${cq}${aq}`
       : `/support-requests?tab=history${status ? `&status=${status}` : ""}${cq}&page=${page}&pageSize=${PAGE_SIZE}`;
   const res = await serverGet<SupportRequestList>(path);
   if (res.kind === "error" && res.status === 401) redirect(EXPIRED_LOGIN_PATH);
@@ -127,8 +132,33 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
       : undefined;
   const filter = (
     <div className="mt-4">
-      <RequestCustomerFilter value={customer} selectedName={selectedName} basePath={href(tab, tab === "history" ? status : undefined)} />
+      <RequestCustomerFilter
+        value={customer}
+        selectedName={selectedName}
+        basePath={href(tab, tab === "history" ? status : undefined, 1, undefined, assigned)}
+      />
     </div>
+  );
+  const assignedNav = tab === "pending" && (
+    <nav aria-label={t("rq.as.filter")} className="mt-4 flex flex-wrap gap-1" data-testid="assigned-filter">
+      {(
+        [
+          [undefined, t("rq.as.fAll"), Inbox],
+          ["me", t("rq.as.fMe"), UserCheck],
+          ["none", t("rq.as.fNone"), UserRoundX],
+        ] as const
+      ).map(([v, label, Icon]) => (
+        <Link
+          key={v ?? "all"}
+          href={href("pending", undefined, 1, customer, v)}
+          aria-current={assigned === v ? "page" : undefined}
+          className={`${tabCls(assigned === v)} border border-border`}
+        >
+          <Icon aria-hidden className="size-4" />
+          {label}
+        </Link>
+      ))}
+    </nav>
   );
   // B-P8c-3: sunucu revoke-binding için customers.edit + support_requests.view ister; menü de ikisini birden arar.
   const canRevoke = perms.includes("customers.edit") && perms.includes("support_requests.view");
@@ -141,6 +171,7 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
         {header}
         {tabs}
         {filter}
+        {assignedNav}
         <div className="mt-6 max-w-xl">
           {res.status === 403 ? (
             <Alert tone="warning" testId="requests-forbidden">
@@ -160,15 +191,20 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
         {header}
         {tabs}
         {filter}
+        {assignedNav}
         <section className="mt-6" aria-label={t("rq.tab.pending")}>
           <RequestQueue
-            key={customer ?? "all"}
+            key={`${customer ?? "all"}:${assigned ?? "all"}`}
             initial={res.data.items}
             canAccept={perms.includes("support_requests.accept")}
             canSettings={perms.includes("settings.edit")}
             canRevoke={canRevoke}
             canBlock={canBlock}
             customer={customer}
+            meId={me.me.user.id}
+            assigned={assigned}
+            canAssign={perms.includes("support_requests.assign")}
+            canMessage={perms.includes("support_requests.message")}
           />
         </section>
       </>

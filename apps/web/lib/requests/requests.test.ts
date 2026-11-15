@@ -131,6 +131,8 @@ describe("ayar formu", () => {
       mailEnabled: false,
       mailRecipients: [],
       acceptCode: false,
+      priority: "HIGH" as const,
+      slaMinutes: " 30 ",
     };
     expect(buildInput(st, base.email).input).toEqual({
       waitMinutes: 45,
@@ -138,6 +140,8 @@ describe("ayar formu", () => {
       whatsapp: { enabled: true, recipients: ["+905321112233"] },
       email: { enabled: false, recipients: [] },
       requireAcceptCode: false,
+      defaultPriority: "HIGH",
+      defaultSlaMinutes: 30,
     });
   });
   it("AC-239: kabul kodu anahtarı durumdan PUT gövdesine gider ve kirli sayılır", () => {
@@ -156,8 +160,11 @@ describe("ayar formu", () => {
       mailEnabled: false,
       mailRecipients: [],
       acceptCode: false,
+      priority: "NORMAL" as const,
+      slaMinutes: "4",
     };
     const { input, errors } = buildInput(st, base.email);
+    expect(errors.defaultSlaMinutes).toBe("sla");
     expect(input).toBeUndefined();
     expect(errors.waitMinutes).toBe("wait");
     expect(errors["whatsapp.recipients.0"]).toBe("phone");

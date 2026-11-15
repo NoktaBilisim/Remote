@@ -80,6 +80,7 @@ export function createMetrics(): Metrics {
   // P18 H3 sayaçları (kayıt H2'de; remote-watch H5 alarmları bu adlara bağlı): artıran kod H3 mesajlaşmasıdır.
   m.counter("rs_request_messages_total", "Kabul öncesi talep mesajları (P18 AC-255; sender: TECH|CUSTOMER)");
   m.counter("rs_request_messages_rejected_total", "Reddedilen talep mesajları (P18; reason: rate|cap|closed|unsupported|tenant_rate)");
+  m.counter("rs_request_messages_read_total", "Panelden talep mesajı okumaları (P18 S-P18-T10; PENDING okuma audit'siz)");
   m.counter("rs_crypto_decrypt_failures_total", "Alan şifresi çözülemeyen satırlar (P18 S-P18-T2; table) — alarm > 0");
   m.counter("rs_calendar_fallback_total", "Kurulamayan mesai takvimi → Europe/Istanbul + SLA yok (P18 S-P18-T12; tenant)");
   m.counter(

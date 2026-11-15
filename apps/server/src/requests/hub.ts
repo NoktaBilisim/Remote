@@ -2,8 +2,11 @@
 //  - `/ws/request`: talep başına tek soket (yeni bağlantı eskisini 4409 ile kapatır), ipKey başına açık soket sayımı,
 //    kuyruk değişince `request.state` (tenant başına ≤ 1/sn birleştirilir) + 10 sn yenileme (AC-139).
 //  - `/ws/panel`: tenant → kullanıcı soketleri (kullanıcı başına ≤ 5), olay yayını, `closeByUser`/`closeByAuthToken` (G-E9-14).
-// Çok instance genişlemesi: dışa yalnız publish/sendToUser/sendToRequest açılır (Redis pub/sub bu dosyanın arkasına).
-import type { PanelOutbound, RequestOutbound } from "@remote/contracts/ws-request";
+// Çok instance genişlemesi: dışa yalnız publish/sendToUser/sendToRequest/sendChat açılır (Redis pub/sub bu dosyanın arkasına).
+// P18 H3 (mimari-e11 §8b.3–8b.4): sohbet mesajları (`RequestChatOutbound`) yalnız `caps.chat` soketine `sendChat` ile gider;
+// `sendToRequest` tip düzeyinde yalnız eski birliği (`RequestOutbound`) taşır → ≤ 0.11.0 istemci bilinmeyen tip almaz.
+import type { CustomerChatState, MessageSender } from "@remote/contracts/api/requests";
+import type { PanelOutbound, RequestChatOutbound, RequestOutbound } from "@remote/contracts/ws-request";
 import { LEGACY_CANCEL_REASONS, WS_REQUEST_CLOSE } from "@remote/contracts/ws-request";
 import type { Clock } from "../signaling/types.ts";
 
@@ -14,7 +17,10 @@ export interface JsonPeer<T> {
 }
 
 export interface RequestConn {
-  peer: JsonPeer<RequestOutbound>;
+  /** Eski + sohbet birliği; doğrudan kullanılmaz — eski tipler `sendToRequest`, sohbet tipleri `sendChat` (yetenek kontrollü). */
+  peer: JsonPeer<RequestOutbound | RequestChatOutbound>;
+  /** P18: `Sec-WebSocket-Protocol` içinde `rs.cap.chat1` bildirdi mi (sürüme bakılmaz). */
+  caps: { chat: boolean };
   requestId: string;
   tenantId: string;
   ipKey: string;
@@ -46,6 +52,8 @@ export type RequestStatePayload = Omit<Extract<RequestOutbound, { t: "request.st
 export const PANEL_SOCKETS_PER_USER = 5;
 export const REQUEST_SOCKETS_PER_IP = 5;
 const COALESCE_MS = 1_000;
+/** S-P18-T4: `request.activity` talep başına en çok 1/sn (öncü gönderim + pencere sonunda son olay). */
+const ACTIVITY_MS = 1_000;
 const REFRESH_MS = 10_000;
 
 export class RequestHub {
@@ -54,6 +62,11 @@ export class RequestHub {
   private readonly panels = new Map<string, Set<PanelConn>>();
   private readonly disconnectTimers = new Map<string, unknown>();
   private readonly dirty = new Map<string, unknown>();
+  /** requestId → {pencere zamanlayıcısı, pencerede bekleyen son olay}. */
+  private readonly activityWin = new Map<
+    string,
+    { timer: unknown; tenantId: string; last: { sender: MessageSender; at: string } | null }
+  >();
   private readonly refresh: NodeJS.Timeout;
   private readonly clock: Clock;
   private readonly statesOf: (tenantId: string) => Promise<Map<string, RequestStatePayload>>;
@@ -127,6 +140,29 @@ export class RequestHub {
     return true;
   }
 
+  /** P18: yalnız `caps.chat` soketine; soket yok ya da yeteneksizse gönderilmez, false. */
+  sendChat(requestId: string, msg: RequestChatOutbound): boolean {
+    const c = this.requests.get(requestId);
+    if (!c?.caps.chat) return false;
+    c.peer.send(msg);
+    return true;
+  }
+
+  /** P18: sohbet kovası/saklama hatası (`error`, mevcut tip) — yalnız yetenekli sokete; eski istemci bu yoldan hiç mesaj almaz. */
+  sendChatError(requestId: string, code: "RATE_LIMITED" | "INTERNAL", message: string): boolean {
+    const c = this.requests.get(requestId);
+    if (!c?.caps.chat) return false;
+    c.peer.send({ t: "error", code, message });
+    return true;
+  }
+
+  /** Müşteri tarafı sohbet durumu (GET …/messages, POST 409 CHAT_UNSUPPORTED). */
+  chatState(requestId: string): CustomerChatState {
+    const c = this.requests.get(requestId);
+    if (!c) return "OFFLINE";
+    return c.caps.chat ? "SUPPORTED" : "UNSUPPORTED";
+  }
+
   /** Son mesaj sonrası kapatır (request.closed + 1000). */
   closeRequest(requestId: string, msg: RequestOutbound, code = 1000): void {
     const c = this.requests.get(requestId);
@@ -134,6 +170,7 @@ export class RequestHub {
     if (!c) return;
     this.requests.delete(requestId);
     this.release(c);
+    if (c.caps.chat) c.peer.send({ t: "request.chat", enabled: false } satisfies RequestChatOutbound);
     c.peer.send(c.legacy ? legacyClosed(msg) : msg);
     c.peer.close(code, "closed");
   }
@@ -210,6 +247,34 @@ export class RequestHub {
     for (const c of this.panels.get(tenantId) ?? []) c.peer.send(msg);
   }
 
+  /**
+   * P18 (S-P18-T4): `request.activity` (gövdesiz) talep başına ≤ 1/sn. Pencere boşsa hemen gönderilir; pencere içindeki
+   * olaylar birleşir, pencere sonunda son `sender`/`at` ile bir kez gider.
+   */
+  activity(tenantId: string, requestId: string, sender: MessageSender, at: string): void {
+    const w = this.activityWin.get(requestId);
+    if (w) {
+      w.last = { sender, at };
+      return;
+    }
+    this.publish(tenantId, { t: "request.activity", id: requestId, kind: "message", sender, at });
+    this.openActivityWindow(tenantId, requestId);
+  }
+
+  private openActivityWindow(tenantId: string, requestId: string): void {
+    const entry = {
+      tenantId,
+      last: null as { sender: MessageSender; at: string } | null,
+      timer: this.clock.setTimeout(() => {
+        this.activityWin.delete(requestId);
+        if (!entry.last) return;
+        this.publish(tenantId, { t: "request.activity", id: requestId, kind: "message", ...entry.last });
+        this.openActivityWindow(tenantId, requestId);
+      }, ACTIVITY_MS),
+    };
+    this.activityWin.set(requestId, entry);
+  }
+
   sendToUser(tenantId: string, userId: string, msg: PanelOutbound): void {
     for (const c of this.panels.get(tenantId) ?? []) if (c.userId === userId) c.peer.send(msg);
   }
@@ -249,7 +314,9 @@ export class RequestHub {
     clearInterval(this.refresh);
     for (const t of this.disconnectTimers.values()) this.clock.clearTimeout(t);
     for (const t of this.dirty.values()) this.clock.clearTimeout(t);
+    for (const w of this.activityWin.values()) this.clock.clearTimeout(w.timer);
     this.disconnectTimers.clear();
     this.dirty.clear();
+    this.activityWin.clear();
   }
 }

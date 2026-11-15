@@ -69,14 +69,23 @@ export async function armOrphanedPending(svc: RequestService): Promise<number> {
   return rows.length;
 }
 
-/** AC-159 / P13a: tek tenant için `retention_days`'ten eski talepler anonimleştirilir (1000'lik partiler; jobs/retention.ts tenant döngüsü). */
-export async function anonymizeRequestsOf(svc: RequestService, t: { tenantId: string; retentionDays: number }, now: Date): Promise<number> {
+/**
+ * AC-159 / P13a: tek tenant için `retention_days`'ten eski talepler anonimleştirilir (1000'lik partiler; jobs/retention.ts
+ * tenant döngüsü). P18 H3: aynı TX'te mesajları silinir; sayı `counts.messages`'a eklenir (`purgedMessages`).
+ */
+export async function anonymizeRequestsOf(
+  svc: RequestService,
+  t: { tenantId: string; retentionDays: number },
+  now: Date,
+  counts: { messages: number } = { messages: 0 },
+): Promise<number> {
   const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
   let total = 0;
   for (;;) {
     const n = await repo.anonymizeBatch(svc.d.db, t.tenantId, cutoff, ANON_BATCH);
-    total += n;
-    if (n < ANON_BATCH) return total;
+    total += n.requests;
+    counts.messages += n.messages;
+    if (n.requests < ANON_BATCH) return total;
   }
 }
 

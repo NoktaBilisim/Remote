@@ -161,6 +161,9 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   // P18 H2 (AC-256..258)
   "POST /api/v1/support-requests/:id/assign": "tenant",
   "POST /api/v1/support-requests/:id/priority": "tenant",
+  // P18 H3 (AC-255)
+  "GET /api/v1/support-requests/:id/messages": "tenant",
+  "POST /api/v1/support-requests/:id/messages": "tenant",
   "GET /api/v1/settings/business-hours": "scoped",
   "PUT /api/v1/settings/business-hours": "scoped",
   "GET /api/v1/settings/holidays": "scoped",
@@ -289,6 +292,19 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
   {
     route: "POST /api/v1/support-requests/:id/priority",
     request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/priority`, payload: { priority: "HIGH" } }),
+  },
+  // P18 H3 (AC-255): A'nın talebinin mesajlarını B okuyamaz / yazamaz → 404
+  {
+    route: "GET /api/v1/support-requests/:id/messages",
+    request: (fx) => ({ method: "GET", url: `/api/v1/support-requests/${fx.a.requestId}/messages` }),
+  },
+  {
+    route: "POST /api/v1/support-requests/:id/messages",
+    request: (fx) => ({
+      method: "POST",
+      url: `/api/v1/support-requests/${fx.a.requestId}/messages`,
+      payload: { body: "Merhaba", clientMsgId: "m-1" },
+    }),
   },
   {
     route: "DELETE /api/v1/settings/holidays/:id",

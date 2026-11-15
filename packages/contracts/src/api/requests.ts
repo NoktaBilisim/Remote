@@ -806,3 +806,84 @@ export interface HolidayImportResponse {
 }
 export const HOLIDAY_DAY_CONFLICT_MESSAGE = "Bu gün zaten tatil olarak ekli";
 export const HOLIDAYS_MAX_MESSAGE = `Firma başına en çok ${HOLIDAYS_MAX} tatil günü tanımlanabilir`;
+
+// ---------------------------------------------------------------------------------------------------------------
+// P18 H3 — kabul öncesi talep mesajları (mimari-e11 §8b.4–8b.6, §8b.13 S-P18-T3/T4/T8; AC-255)
+// ---------------------------------------------------------------------------------------------------------------
+
+export const MESSAGE_SENDERS = ["TECH", "CUSTOMER"] as const;
+export type MessageSender = (typeof MESSAGE_SENDERS)[number];
+/** Gövde: 1..1000 kod noktası, en çok 20 satır (DB `body_chars` CHECK ile aynı). */
+export const MESSAGE_BODY_MAX = 1000;
+export const MESSAGE_LINES_MAX = 20;
+/** S-P18-T4: talep başına gönderici başına tavan (CUSTOMER 200 / TECH 200). */
+export const MESSAGES_PER_SENDER_MAX = 200;
+/** AC-255: talep başına 1 msg/sn (WS ve REST aynı). */
+export const MESSAGE_RATE_PER_REQUEST_MS = 1_000;
+/** S-P18-T4 / K-P18-12: firma başına müşteri mesajı kovası (dakikada). */
+export const CUSTOMER_MESSAGES_PER_TENANT_MIN = 300;
+/** GET /support-requests/:id/messages sayfa üst sınırı; WS `request.messages` son 50. */
+export const MESSAGE_PAGE_MAX = 100;
+export const MESSAGE_HISTORY_WS = 50;
+/** Okunamayan (yanlış anahtar/AAD) gövdenin panel/istemci metni; öğe `body: null` döner. */
+export const MESSAGE_UNREADABLE_LABEL = "Mesaj okunamadı";
+
+/** `String.prototype.isWellFormed()` eşdeğeri (lib ES2023'te yok): eşleşmemiş vekil (surrogate) yok. */
+export const isWellFormedText = (v: string): boolean => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(v);
+/**
+ * S-P18-T8: Cc (yalnız `\n` serbest), U+2028/U+2029, Cf (yalnız ZWJ U+200D ve VS16 U+FE0F serbest — emoji); bidi
+ * (U+202A–202E, U+2066–2069) Cf olduğu için reddedilir. CGJ/Moğol ayırıcı da yasak (ad kuralıyla aynı).
+ */
+const UNSAFE_MESSAGE_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u034F\u180E]/u;
+/** İzinli istisnalar (`\n`, ZWJ, VS16) çıkarıldıktan sonra yasak karakter var mı. */
+export const hasUnsafeMessageChars = (v: string): boolean => UNSAFE_MESSAGE_CHARS.test(v.replace(/\n|\u200D|\uFE0F/gu, ""));
+const messageLines = (v: string): number => v.split(/\r\n|\n/).length;
+
+/**
+ * Mesaj gövdesi (WS `request.message` ve REST POST aynı şema): iyi biçimli UTF-16 → `\r\n` → `\n` → NFC → trim →
+ * yasak karakter yok → 1..1000 kod noktası → ≤ 20 satır. Ham uzunluk ön sınırı 4.000 UTF-16 birimi.
+ */
+export const requestMessageBodySchema = z
+  .string()
+  .max(4000, `Mesaj en çok ${MESSAGE_BODY_MAX} karakter olabilir`)
+  .refine(isWellFormedText, "Mesaj geçersiz karakter içeriyor")
+  .overwrite((v) => v.replace(/\r\n/g, "\n").normalize("NFC").trim())
+  .refine((v) => !hasUnsafeMessageChars(v), "Mesaj görünmez veya kontrol karakteri içeremez")
+  .refine((v) => codePoints(v) >= 1, "Mesaj boş olamaz")
+  .refine((v) => codePoints(v) <= MESSAGE_BODY_MAX, `Mesaj en çok ${MESSAGE_BODY_MAX} karakter olabilir`)
+  .refine((v) => messageLines(v) <= MESSAGE_LINES_MAX, `Mesaj en çok ${MESSAGE_LINES_MAX} satır olabilir`);
+
+/** İstemci mesaj kimliği (yeniden gönderim tekilliği; UQ(request_id, sender, client_msg_id)). */
+export const clientMsgIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,36}$/, "Geçersiz mesaj kimliği");
+
+/** POST /support-requests/:id/messages */
+export const sendRequestMessageInputSchema = z.strictObject({ body: requestMessageBodySchema, clientMsgId: clientMsgIdSchema });
+export type SendRequestMessageInput = z.input<typeof sendRequestMessageInputSchema>;
+export interface SendRequestMessageResponse {
+  id: string;
+  createdAt: string;
+}
+
+/** GET /support-requests/:id/messages?after=<ulid> */
+export const listRequestMessagesQuerySchema = z.strictObject({ after: z.string().regex(ULID, "Geçersiz mesaj").optional() });
+
+/**
+ * Müşteri tarafı sohbet durumu: SUPPORTED = bağlı soket `rs.cap.chat1` bildirdi; UNSUPPORTED = bağlı soket bildirmedi
+ * (gönder pasif; POST → 409 CHAT_UNSUPPORTED); OFFLINE = bağlı soket yok (mesaj saklanır, yeniden bağlantıda gider).
+ */
+export const CUSTOMER_CHAT_STATES = ["SUPPORTED", "UNSUPPORTED", "OFFLINE"] as const;
+export type CustomerChatState = (typeof CUSTOMER_CHAT_STATES)[number];
+
+export interface RequestMessageItem {
+  id: string;
+  sender: MessageSender;
+  /** Yalnız TECH'te (teknisyen adı); CUSTOMER'da null. */
+  senderName: string | null;
+  /** null = gövde çözülemedi (`MESSAGE_UNREADABLE_LABEL` gösterilir). React metin düğümü + `pre-wrap`; HTML yok. */
+  body: string | null;
+  createdAt: string;
+}
+export interface RequestMessageListResponse {
+  items: RequestMessageItem[];
+  customerChat: CustomerChatState;
+}

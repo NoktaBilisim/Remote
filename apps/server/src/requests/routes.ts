@@ -8,7 +8,9 @@ import { sendTenantTest } from "../tenants/smtp-routes.ts";
 import {
   acceptRequestInputSchema,
   assignRequestInputSchema,
+  listRequestMessagesQuerySchema,
   priorityInputSchema,
+  sendRequestMessageInputSchema,
   listRequestsQuerySchema,
   rejectRequestInputSchema,
   revokeBindingInputSchema,
@@ -16,6 +18,8 @@ import {
   updateRequestSettingsInputSchema,
   whatsappTestInputSchema,
   type AcceptRequestResponse,
+  type RequestMessageListResponse,
+  type SendRequestMessageResponse,
   type SupportRequestCountResponse,
   type SupportRequestItem,
   type SupportRequestListResponse,
@@ -45,6 +49,10 @@ import * as repo from "./repo.ts";
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 /** P18: atama/öncelik yazmaları kullanıcı başına dakikada 30 (mimari-e11 §8b.5). */
 export const ASSIGN_WRITES_PER_MIN = 30;
+/** P18 H3 (mimari-e11 §8b.5): mesaj okuma/yazma kovaları. */
+export const MESSAGE_READS_PER_MIN = 120;
+export const MESSAGE_WRITES_USER_PER_MIN = 60;
+export const MESSAGE_WRITES_TENANT_PER_MIN = 600;
 function idParam(req: FastifyRequest): string {
   const { id } = req.params as { id?: string };
   if (!id || !ULID.test(id)) throw new AppError("NOT_FOUND");
@@ -119,6 +127,43 @@ export async function supportRequestRoutes(app: FastifyInstance): Promise<void> 
     const { priority } = parseInput(priorityInputSchema, req.body);
     return changePriority(app.requests, auditContext(req), authOf(req), tenantId, id, priority);
   });
+
+  // P18 H3 (AC-255; S-P18-T3/T10): mesajlar — okuma view (120/dk/kullanıcı), yazma view + message (60/dk/kullanıcı,
+  // 600/dk/tenant; talep başına 1/sn servis içinde). Kova aşımı 429 + Retry-After.
+  const msgRead = new FixedWindowCounter(MESSAGE_READS_PER_MIN + 1, 60_000, 60_000);
+  const msgWriteUser = new FixedWindowCounter(MESSAGE_WRITES_USER_PER_MIN + 1, 60_000, 60_000);
+  const msgWriteTenant = new FixedWindowCounter(MESSAGE_WRITES_TENANT_PER_MIN + 1, 60_000, 60_000);
+  app.addHook("onClose", async () => {
+    msgRead.close();
+    msgWriteUser.close();
+    msgWriteTenant.close();
+  });
+  const take = (c: FixedWindowCounter, key: string): void => {
+    const wait = c.blockedFor(key);
+    if (wait > 0 || c.hit(key)) throw new AppError("RATE_LIMITED", { retryAfterSec: c.blockedFor(key) || 60 });
+  };
+
+  app.get("/:id/messages", view, async (req): Promise<RequestMessageListResponse> => {
+    const { tenantId } = tenantScope(req);
+    const id = idParam(req);
+    take(msgRead, authOf(req).user.id);
+    const { after } = parseInput(listRequestMessagesQuerySchema, req.query);
+    return app.requests.messages.list(tenantId, id, after);
+  });
+
+  app.post(
+    "/:id/messages",
+    { preHandler: [requirePerm("support_requests.view"), requirePerm("support_requests.message")] },
+    async (req, reply): Promise<SendRequestMessageResponse> => {
+      const { tenantId } = tenantScope(req);
+      const id = idParam(req);
+      const { body, clientMsgId } = parseInput(sendRequestMessageInputSchema, req.body);
+      take(msgWriteUser, authOf(req).user.id);
+      take(msgWriteTenant, tenantId);
+      const out = await app.requests.messages.fromTech(auditContext(req), authOf(req), tenantId, id, body, clientMsgId);
+      return reply.status(201).send(out);
+    },
+  );
 
   app.post("/:id/reject", acceptPerm, async (req, reply) => {
     const { tenantId } = tenantScope(req);

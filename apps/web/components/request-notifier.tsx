@@ -7,7 +7,8 @@ import { api } from "@/lib/api";
 import { formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { GENERAL_CUSTOMER_LABEL } from "@remote/contracts/labels";
-import { parsePanelMessage, type PanelMessage } from "@/lib/requests/contract";
+import { parsePanelMessage, type PanelMessage, type SupportRequestList } from "@/lib/requests/contract";
+import { formatRequestCode } from "@/lib/requests/source";
 import { panelCloseAction, panelRetryDelay } from "@/lib/requests/panel-socket";
 import { playChime, readSoundPref, writeSoundPref } from "@/lib/requests/sound";
 import { setTitlePart } from "@/lib/tab-title";
@@ -71,8 +72,22 @@ export function useRequestNotifier() {
   return { ...s, setSound, subscribe };
 }
 
-/** Panel kabuğunda bir kez; yalnız uyarı bandını çizer (içerik sarmaz). */
-export function RequestNotifier({ enabled }: { enabled: boolean }) {
+/*
+ * P18 (AC-256, K-P18-9): bana atanan bekleyen talepler. Bağlantıda REST'ten (`assigned=me`) tohumlanır; `request.updated`
+ * ile bana YENİ atanan talepte toast + ses. Kendi "Bana ata" işlemim bildirim üretmez (`markSelfAssigned`).
+ */
+const mine = new Set<string>();
+const selfAssigned = new Set<string>();
+export const markSelfAssigned = (id: string) => void selfAssigned.add(id);
+const loadMine = () =>
+  api<SupportRequestList>("GET", "/support-requests?tab=pending&assigned=me").then((r) => {
+    mine.clear();
+    for (const it of r.items) mine.add(it.id);
+    return r.items;
+  });
+
+/** Panel kabuğunda bir kez; yalnız uyarı bandını çizer (içerik sarmaz). `meId` → atama bildirimi (P18). */
+export function RequestNotifier({ enabled, meId }: { enabled: boolean; meId?: string }) {
   const toast = useToast();
   const { count } = useRequestNotifier();
   const [alertUntil, setAlertUntil] = useState<number | null>(null);
@@ -110,12 +125,36 @@ export function RequestNotifier({ enabled }: { enabled: boolean }) {
           setAlertUntil(Number.isFinite(until) ? until : Date.now() + 15 * 60_000);
           break;
         }
+        case "request.updated": {
+          if (m.assignedTo?.id !== meId || !meId) {
+            mine.delete(m.id);
+            break;
+          }
+          if (mine.has(m.id)) break;
+          mine.add(m.id);
+          if (selfAssigned.delete(m.id)) break;
+          const id = m.id;
+          const show = (code?: string) => {
+            toast(code ? t("rq.as.toastCode", { code: formatRequestCode(code) }) : t("rq.as.toast"), "info", {
+              action: { label: t("rq.toast.view"), href: `/requests?assigned=me#talep-${id}` },
+              durationMs: 8000,
+            });
+            if (snap.sound) void playChime();
+          };
+          loadMine()
+            .then((items) => show(items.find((x) => x.id === id)?.requestCode))
+            .catch(() => show());
+          break;
+        }
         case "request.removed":
+          mine.delete(m.id);
+          break;
+        case "request.activity":
           break;
       }
       emit(m);
     },
-    [toast],
+    [toast, meId],
   );
 
   // Soket yaşam döngüsü
@@ -146,6 +185,7 @@ export function RequestNotifier({ enabled }: { enabled: boolean }) {
         unopened = 0;
         setConnected(true);
         void refreshCount();
+        if (meId) void loadMine().catch(() => {});
         emit({ t: "resync" });
       };
       ws.onmessage = (e: MessageEvent) => {
@@ -172,7 +212,7 @@ export function RequestNotifier({ enabled }: { enabled: boolean }) {
         if (ws.readyState <= WebSocket.OPEN) ws.close(1000);
       }
     };
-  }, [enabled, onMessage]);
+  }, [enabled, onMessage, meId]);
 
   // Uyarı bandı süresi dolunca kalkar
   useEffect(() => {

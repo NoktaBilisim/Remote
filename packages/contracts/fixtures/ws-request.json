@@ -1,7 +1,14 @@
 {
-  "_doc": "/ws/request ve /ws/panel sözleşme örnekleri (mimari-protokol §5, P8b r2). valid.* şemadan geçmeli, invalid.* reddedilmeli. Go istemci (P8b-2) request.* örneklerini go test ile doğrular.",
+  "_doc": "/ws/request ve /ws/panel sözleşme örnekleri (mimari-protokol §5, P8b r2). valid.* şemadan geçmeli, invalid.* reddedilmeli. Go istemci (P8b-2) request.* örneklerini go test ile doğrular. P18 H3: sohbet mesajları ayrı anahtarlarda (requestChatInbound / requestChatOutbound) — yalnız rs.cap.chat1 soketleri; 0.11.0 ParseServer bunları reddeder (requestOutbound'a KONMAZ). P20 Go istemcisi bu anahtarları kullanır.",
   "valid": {
-    "requestInbound": [{ "t": "request.cancel" }, { "t": "request.decline" }],
+    "requestInbound": [
+      {
+        "t": "request.cancel"
+      },
+      {
+        "t": "request.decline"
+      }
+    ],
     "requestOutbound": [
       {
         "t": "request.state",
@@ -19,14 +26,35 @@
         "techVerifyCode": "4821",
         "ticketExpiresAt": "2026-11-12T10:02:05.000Z"
       },
-      { "t": "request.closed", "status": "EXPIRED" },
-      { "t": "request.closed", "status": "CANCELLED", "reason": "TENANT_PASSIVE" },
-      { "t": "request.closed", "status": "REJECTED", "message": "Şu an müsait değiliz, sizi arayacağız" },
-      { "t": "request.closed", "status": "CONNECT_FAILED" },
-      { "t": "error", "code": "RATE_LIMITED", "message": "Çok fazla istek." }
+      {
+        "t": "request.closed",
+        "status": "EXPIRED"
+      },
+      {
+        "t": "request.closed",
+        "status": "CANCELLED",
+        "reason": "TENANT_PASSIVE"
+      },
+      {
+        "t": "request.closed",
+        "status": "REJECTED",
+        "message": "Şu an müsait değiliz, sizi arayacağız"
+      },
+      {
+        "t": "request.closed",
+        "status": "CONNECT_FAILED"
+      },
+      {
+        "t": "error",
+        "code": "RATE_LIMITED",
+        "message": "Çok fazla istek."
+      }
     ],
     "panelOutbound": [
-      { "t": "queue.count", "pending": 0 },
+      {
+        "t": "queue.count",
+        "pending": 0
+      },
       {
         "t": "request.new",
         "id": "01JC0000000000000000000000",
@@ -50,27 +78,128 @@
         "networkMatch": "IP",
         "knownDevice": true,
         "createdAt": "2026-11-12T10:00:00.000Z",
-        "customerFirm": { "id": "01JC0000000000000000000002", "name": "Örnek Müşteri A.Ş." },
+        "customerFirm": {
+          "id": "01JC0000000000000000000002",
+          "name": "Örnek Müşteri A.Ş."
+        },
         "viaBinding": true,
         "bindingRevoked": false,
         "staleSource": false
       },
-      { "t": "request.removed", "id": "01JC0000000000000000000000", "status": "ACCEPTED" },
+      {
+        "t": "request.removed",
+        "id": "01JC0000000000000000000000",
+        "status": "ACCEPTED"
+      },
       {
         "t": "request.updated",
         "id": "01JC0000000000000000000000",
         "priority": "HIGH",
-        "assignedTo": { "id": "01JC0000000000000000000003", "name": "Mehmet Teknisyen" },
+        "assignedTo": {
+          "id": "01JC0000000000000000000003",
+          "name": "Mehmet Teknisyen"
+        },
         "slaDueAt": "2026-11-12T10:30:00.000Z"
       },
-      { "t": "request.updated", "id": "01JC0000000000000000000000", "priority": "LOW", "assignedTo": null, "slaDueAt": null },
-      { "t": "request.connect_failed", "id": "01JC0000000000000000000000", "sessionId": "01JC0000000000000000000001" },
-      { "t": "request.declined", "id": "01JC0000000000000000000000", "sessionId": "01JC0000000000000000000001" },
-      { "t": "queue.alert", "kind": "rate_limited", "until": "2026-11-12T11:00:00.000Z" }
+      {
+        "t": "request.updated",
+        "id": "01JC0000000000000000000000",
+        "priority": "LOW",
+        "assignedTo": null,
+        "slaDueAt": null
+      },
+      {
+        "t": "request.connect_failed",
+        "id": "01JC0000000000000000000000",
+        "sessionId": "01JC0000000000000000000001"
+      },
+      {
+        "t": "request.declined",
+        "id": "01JC0000000000000000000000",
+        "sessionId": "01JC0000000000000000000001"
+      },
+      {
+        "t": "queue.alert",
+        "kind": "rate_limited",
+        "until": "2026-11-12T11:00:00.000Z"
+      },
+      {
+        "t": "request.activity",
+        "id": "01JC0000000000000000000001",
+        "kind": "message",
+        "sender": "CUSTOMER",
+        "at": "2026-11-15T10:00:00.000Z"
+      }
+    ],
+    "requestChatInbound": [
+      {
+        "t": "request.cancel"
+      },
+      {
+        "t": "request.message",
+        "body": "Merhaba, yazıcı yine kağıt sıkıştırdı",
+        "clientMsgId": "m-1"
+      },
+      {
+        "t": "request.message",
+        "body": "iki\nsatır 👩‍💻 ❤️",
+        "clientMsgId": "A_b-9"
+      }
+    ],
+    "requestChatOutbound": [
+      {
+        "t": "request.message",
+        "id": "01JC0000000000000000000001",
+        "sender": "TECH",
+        "senderName": "Ali Teknisyen",
+        "body": "Birazdan bağlanıyorum",
+        "createdAt": "2026-11-15T10:00:00.000Z"
+      },
+      {
+        "t": "request.message",
+        "id": "01JC0000000000000000000002",
+        "sender": "CUSTOMER",
+        "body": "Tamam",
+        "createdAt": "2026-11-15T10:00:01.000Z",
+        "clientMsgId": "m-1"
+      },
+      {
+        "t": "request.messages",
+        "items": [
+          {
+            "id": "01JC0000000000000000000001",
+            "sender": "TECH",
+            "senderName": "Ali Teknisyen",
+            "body": "Birazdan bağlanıyorum",
+            "createdAt": "2026-11-15T10:00:00.000Z"
+          }
+        ]
+      },
+      {
+        "t": "request.messages",
+        "items": []
+      },
+      {
+        "t": "request.chat",
+        "enabled": false
+      }
     ]
   },
   "invalid": {
-    "requestInbound": [{ "t": "request.cancel", "extra": 1 }, { "t": "request.accept" }, { "t": "sdp.offer", "sdp": "v=0" }, {}],
+    "requestInbound": [
+      {
+        "t": "request.cancel",
+        "extra": 1
+      },
+      {
+        "t": "request.accept"
+      },
+      {
+        "t": "sdp.offer",
+        "sdp": "v=0"
+      },
+      {}
+    ],
     "requestOutbound": [
       {
         "t": "request.state",
@@ -106,9 +235,21 @@
         "techVerifyCode": "4821",
         "ticketExpiresAt": "2026-11-12T10:02:05.000Z"
       },
-      { "t": "request.closed", "status": "EXPIRED", "message": "mesaj yalnız ret" },
-      { "t": "request.closed", "status": "PENDING" },
-      { "t": "request.closed", "status": "REJECTED", "reason": "CUSTOMER", "message": "Şu an müsait değiliz" }
+      {
+        "t": "request.closed",
+        "status": "EXPIRED",
+        "message": "mesaj yalnız ret"
+      },
+      {
+        "t": "request.closed",
+        "status": "PENDING"
+      },
+      {
+        "t": "request.closed",
+        "status": "REJECTED",
+        "reason": "CUSTOMER",
+        "message": "Şu an müsait değiliz"
+      }
     ],
     "panelOutbound": [
       {
@@ -121,15 +262,119 @@
         "knownDevice": false,
         "createdAt": "2026-11-12T10:00:00.000Z"
       },
-      { "t": "queue.count", "pending": -1 },
-      { "t": "queue.alert", "kind": "other", "until": "2026-11-12T11:00:00.000Z" },
-      { "t": "request.updated", "id": "01JC0000000000000000000000", "priority": "URGENT", "assignedTo": null, "slaDueAt": null },
+      {
+        "t": "queue.count",
+        "pending": -1
+      },
+      {
+        "t": "queue.alert",
+        "kind": "other",
+        "until": "2026-11-12T11:00:00.000Z"
+      },
+      {
+        "t": "request.updated",
+        "id": "01JC0000000000000000000000",
+        "priority": "URGENT",
+        "assignedTo": null,
+        "slaDueAt": null
+      },
       {
         "t": "request.updated",
         "id": "01JC0000000000000000000000",
         "priority": "HIGH",
-        "assignedTo": { "id": "x", "name": "A" },
+        "assignedTo": {
+          "id": "x",
+          "name": "A"
+        },
         "slaDueAt": null
+      },
+      {
+        "t": "request.activity",
+        "id": "01JC0000000000000000000001",
+        "kind": "message",
+        "sender": "CUSTOMER",
+        "at": "2026-11-15T10:00:00.000Z",
+        "body": "sızıntı"
+      }
+    ],
+    "requestChatInbound": [
+      {
+        "t": "request.message",
+        "body": "",
+        "clientMsgId": "m-1"
+      },
+      {
+        "t": "request.message",
+        "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "clientMsgId": "m-1"
+      },
+      {
+        "t": "request.message",
+        "body": "bidi ‮ gizli",
+        "clientMsgId": "m-1"
+      },
+      {
+        "t": "request.message",
+        "body": "satır ayırıcı",
+        "clientMsgId": "m-1"
+      },
+      {
+        "t": "request.message",
+        "body": "tab\tkarakteri",
+        "clientMsgId": "m-1"
+      },
+      {
+        "t": "request.message",
+        "body": "a\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na\na",
+        "clientMsgId": "m-1"
+      },
+      {
+        "t": "request.message",
+        "body": "ok",
+        "clientMsgId": "bad id!"
+      },
+      {
+        "t": "request.message",
+        "body": "ok",
+        "clientMsgId": "m-1",
+        "requestId": "01JC0000000000000000000001"
+      },
+      {
+        "t": "request.message",
+        "body": "ok"
+      }
+    ],
+    "requestChatOutbound": [
+      {
+        "t": "request.message",
+        "id": "01JC0000000000000000000001",
+        "sender": "ADMIN",
+        "body": "x",
+        "createdAt": "2026-11-15T10:00:00.000Z"
+      },
+      {
+        "t": "request.chat"
+      },
+      {
+        "t": "request.messages",
+        "items": [
+          {
+            "t": "request.message",
+            "id": "01JC0000000000000000000001",
+            "sender": "TECH",
+            "senderName": "Ali Teknisyen",
+            "body": "Birazdan bağlanıyorum",
+            "createdAt": "2026-11-15T10:00:00.000Z"
+          }
+        ]
+      },
+      {
+        "t": "request.message",
+        "id": "01JC0000000000000000000001",
+        "sender": "TECH",
+        "body": "x",
+        "createdAt": "2026-11-15T10:00:00.000Z",
+        "tenantId": "01JC0000000000000000000002"
       }
     ]
   }

@@ -12,6 +12,16 @@ import {
   type SupportRequestSettingsInput,
 } from "./contract";
 import { checkCidr, normalizePhone } from "./validate";
+import { SLA_MINUTES_MAX, SLA_MINUTES_MIN, type RequestPriority } from "@remote/contracts/api/requests";
+
+/** P18 (AC-257): SLA dakikası metni → sayı; boş → null (SLA yok / varsayılan); geçersiz → undefined. */
+export function parseSlaMinutes(raw: string): number | null | undefined {
+  const v = raw.trim();
+  if (!v) return null;
+  if (!/^\d{1,4}$/.test(v)) return undefined;
+  const n = Number(v);
+  return n >= SLA_MINUTES_MIN && n <= SLA_MINUTES_MAX ? n : undefined;
+}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -25,6 +35,9 @@ export interface SettingsState {
   mailRecipients: string[];
   /** P15 (AC-239): "Talep kabulünde kabul kodu iste". */
   acceptCode: boolean;
+  /** P18 (AC-257): firma varsayılan önceliği ve SLA hedefi (boş = SLA yok). */
+  priority: RequestPriority;
+  slaMinutes: string;
 }
 
 /** Hata anahtarları sunucu `fields` yolu biçiminde: "waitMinutes", "whatsapp.recipients.1", "trustedCidrs.0" … */
@@ -40,6 +53,7 @@ export type SettingsErrorKey =
   | "email"
   | "emailDup"
   | "smtpRequired"
+  | "sla"
   | `msg:${string}`;
 
 export const toState = (s: SupportRequestSettings): SettingsState => ({
@@ -50,6 +64,8 @@ export const toState = (s: SupportRequestSettings): SettingsState => ({
   mailEnabled: s.email.enabled,
   mailRecipients: [...s.email.recipients],
   acceptCode: s.requireAcceptCode,
+  priority: s.defaultPriority ?? "NORMAL",
+  slaMinutes: s.defaultSlaMinutes == null ? "" : String(s.defaultSlaMinutes),
 });
 
 const norm = (st: SettingsState) =>
@@ -61,6 +77,8 @@ const norm = (st: SettingsState) =>
     me: st.mailEnabled,
     mr: st.mailRecipients.map((x) => x.trim().toLowerCase()).filter(Boolean),
     ac: st.acceptCode,
+    p: st.priority,
+    sla: st.slaMinutes.trim(),
   });
 
 export const isDirty = (a: SettingsState, b: SettingsState): boolean => norm(a) !== norm(b);
@@ -110,6 +128,9 @@ export function buildInput(
   });
   if (st.trustedCidrs.filter((r) => r.trim()).length > MAX_TRUSTED_CIDRS) errors.trustedCidrs = "cidrMax";
 
+  const sla = parseSlaMinutes(st.slaMinutes);
+  if (sla === undefined) errors.defaultSlaMinutes = "sla";
+
   if (Object.keys(errors).length) return { errors };
   return {
     errors,
@@ -119,6 +140,8 @@ export function buildInput(
       whatsapp: { enabled: st.waEnabled, recipients },
       email: { enabled: st.mailEnabled, recipients: mails },
       requireAcceptCode: st.acceptCode,
+      defaultPriority: st.priority,
+      defaultSlaMinutes: sla ?? null,
     },
   };
 }

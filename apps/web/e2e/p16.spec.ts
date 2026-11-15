@@ -170,7 +170,7 @@ test("AC-242: RUNNING adım çubuğu → yoklamayla DONE (firma satırı silinir
   await signIn(context, "p16sa");
   await page.goto(`/admin/tenants/${P16.T_RUN}`);
   await expect(page.getByTestId("purge-panel")).toHaveAttribute("data-state", "RUNNING");
-  await expect(page.getByTestId("purge-step")).toContainText(/Adım \d+\/17/);
+  await expect(page.getByTestId("purge-step")).toContainText(/Adım \d+\/18/);
   await expect(page.getByTestId("purge-banner").getByTestId("purge-banner-item").filter({ hasText: "Koşan Firma" })).toHaveAttribute(
     "data-state",
     "RUNNING",

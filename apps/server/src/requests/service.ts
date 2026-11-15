@@ -55,6 +55,8 @@ import { newRequestMail } from "../mail/templates.ts";
 import { HourCounter } from "./limits.ts";
 import { addBusinessMinutes, outsideHoursMessage } from "./calendar.ts";
 import { CalendarCache, openState, publicBusinessHours, type TenantCalendar } from "./hours.ts";
+import type { SecretBox } from "../lib/crypto.ts";
+import { RequestMessages } from "./messages.ts";
 
 /** S-P18-T7: `request.created fail {reason:"outside_hours"}` audit'i tenant başına bu pencerede en çok 1 satır. */
 const OUTSIDE_AUDIT_WINDOW_MS = 60_000;
@@ -88,6 +90,8 @@ export interface RequestServiceDeps {
   metrics: Metrics;
   clock: Clock;
   timing: Timing;
+  /** P18 H3: talep mesajı gövdesi alan şifrelemesi (mevcut anahtar halkası). */
+  secrets: SecretBox;
   /** Test için kapı ayarı (varsayılan `REQUEST_GATE`). */
   gate?: GateOptions;
 }
@@ -120,12 +124,15 @@ export class RequestService {
   readonly calendars: CalendarCache;
   /** S-P18-T7: tenant → {son audit anı, o andan beri bastırılan deneme sayısı}. */
   private readonly outsideAudit = new Map<string, { at: number; pending: number }>();
+  /** P18 H3 (AC-255): kabul öncesi mesajlaşma. */
+  readonly messages: RequestMessages;
 
   constructor(d: RequestServiceDeps) {
     this.d = d;
     this.calendars = new CalendarCache(d.db, () => d.clock.now(), d.metrics, d.log);
     this.gate = new ConcurrencyGate(d.gate ?? REQUEST_GATE);
     this.blocks = new RequestBlockCache(d.db, () => d.clock.now());
+    this.messages = new RequestMessages(this, d.secrets);
     d.rooms.requestHooks = {
       admitted: (requestId) => this.clearConnectTimer(requestId),
       failed: (requestId) =>
@@ -597,6 +604,8 @@ export class RequestService {
       priority: created.priority as RequestPriority,
       slaDueAt: created.slaDueAt?.toISOString() ?? null,
       afterHours: created.afterHours,
+      // H3: oluşturma anı tahmini (soket henüz yok); kesin durum GET …/messages `customerChat` (soket yeteneği).
+      customerChat: compareVersions(input.clientVersion, CHAT_MIN_CLIENT_VERSION) >= 0 ? "SUPPORTED" : "UNSUPPORTED",
     });
     this.d.hub.queueChanged(tenantId);
     await this.publishCount(tenantId);
@@ -818,6 +827,7 @@ export class RequestService {
   }
 
   shutdown(): void {
+    this.messages.close();
     for (const t of this.connectTimers.values()) this.d.clock.clearTimeout(t);
     this.connectTimers.clear();
   }

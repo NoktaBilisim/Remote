@@ -99,3 +99,31 @@ const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric",
 export function istanbulDay(at: number | Date = Date.now()): string {
   return dayFmt.format(at);
 }
+
+/**
+ * P18 (AC-258): firmanın mesai saat diliminde "11.11.2026 14:28 (GMT+3)" — sonraki açılış önizlemesi. Geçersiz dilimde
+ * Europe/Istanbul.
+ */
+export function formatDateTimeInZone(iso: string | number | Date, timeZone: string): string {
+  const opts: Intl.DateTimeFormatOptions = {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short",
+  };
+  try {
+    return new Intl.DateTimeFormat("tr-TR", { ...opts, timeZone }).format(new Date(iso));
+  } catch {
+    return new Intl.DateTimeFormat("tr-TR", { ...opts, timeZone: TZ }).format(new Date(iso));
+  }
+}
+
+/** "YYYY-MM-DD" yerel gün → "1 Ocak 2026 Perşembe" (gün adı takvimden; saat dilimi kayması yok). */
+export function formatDayLong(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Intl.DateTimeFormat("tr-TR", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric", weekday: "long" }).format(
+    new Date(Date.UTC(y ?? 2000, (m ?? 1) - 1, d ?? 1)),
+  );
+}

@@ -220,6 +220,15 @@ export const REQUEST_COMMS_AUDIT = {
   HOLIDAY_ADDED: "settings.holiday_added",
   HOLIDAY_REMOVED: "settings.holiday_removed",
   HOLIDAYS_IMPORTED: "settings.holidays_imported",
+  /** H3 (AC-255): `{sender, chars}` — gövde ASLA; müşteri mesajında user_id NULL (K-P18-11: her mesaj). */
+  MESSAGE_SENT: "request.message_sent",
+  /** H3: `{reason: "rate"|"cap"|"closed"|"unsupported"|"tenant_rate", sender}` — kaynak/pencere başına 1. */
+  MESSAGE_REJECTED: "request.message_rejected",
+} as const;
+
+/** P18 H3 (S-P18-T2b, K-P18-10): `cli crypto:rewrap` `{table, fromVer, toVer, rows}` (username `system:cli`). Entity tablo adı. */
+export const CRYPTO_AUDIT = {
+  REWRAP: "crypto.rewrap",
 } as const;
 
 /** P18 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */
@@ -230,6 +239,9 @@ export const P18_AUDIT_LABELS: Readonly<Record<string, string>> = {
   [REQUEST_COMMS_AUDIT.HOLIDAY_ADDED]: "Tatil günü eklendi",
   [REQUEST_COMMS_AUDIT.HOLIDAY_REMOVED]: "Tatil günü kaldırıldı",
   [REQUEST_COMMS_AUDIT.HOLIDAYS_IMPORTED]: "Resmî tatiller eklendi",
+  [REQUEST_COMMS_AUDIT.MESSAGE_SENT]: "Talep mesajı gönderildi",
+  [REQUEST_COMMS_AUDIT.MESSAGE_REJECTED]: "Talep mesajı reddedildi",
+  [CRYPTO_AUDIT.REWRAP]: "Mesajlar yeniden şifrelendi",
 };
 
 /** P16 eylemlerinin Türkçe etiketleri (web `AUDIT_ACTION_LABELS`'a yayılır). */

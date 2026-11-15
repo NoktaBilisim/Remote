@@ -52,6 +52,8 @@ const cust = (o) => ({
   passiveAt: null,
   anonymizedAt: null,
   createdAt: iso(-30 * 86_400_000),
+  defaultPriority: null, // P18 (AC-257)
+  slaMinutes: null,
   ...o,
 });
 

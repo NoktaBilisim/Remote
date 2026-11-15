@@ -2,7 +2,7 @@
 // tenant kapsamlı (AC-69, AC-148). Durum geçişleri tek koşullu UPDATE (count=1 kazanır, mimari-e9 §3.4); her geçiş aynı
 // UPDATE'te CHECK'lerin istediği alanları yazar (closed_at, cancel_reason, rejected_*).
 import { compareQueue } from "@remote/contracts/api/requests";
-import type { Prisma } from "../generated/prisma/client.ts";
+import { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 
 type DbOrTx = Db | Prisma.TransactionClient;
@@ -471,12 +471,29 @@ export function countAllPending(db: DbOrTx): Promise<number> {
  * damga S16-3 tetikleyicisinin `[UTC − 1 g, UTC + 1 dk]` aralığında kalır (uygulama saati ileride olsa da). Prisma
  * `@updatedAt` ham ifadede çalışmadığı için `updated_at` de DB saatiyle. IX(tenant_id, anonymized_at, created_at).
  */
-export async function anonymizeBatch(db: DbOrTx, tenantId: string, cutoff: Date, limit: number): Promise<number> {
-  return db.$executeRaw`UPDATE support_requests
-    SET customer_name = NULL, customer_phone = NULL, customer_email = NULL, description = NULL, ip = NULL, ip_key = NULL,
-        net_key = NULL, device_hash = NULL, anonymized_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3)
-    WHERE tenant_id = ${tenantId} AND anonymized_at IS NULL AND created_at < ${cutoff}
-    LIMIT ${limit}`;
+/**
+ * AC-159 / P18 H3 (ADR-0025 m.3, mimari-e11 §8b.1 Retention): parti kimlikleri kilitlenir → PII temizlenir → aynı TX'te
+ * o taleplerin `session_messages` satırları silinir (tetikleyici `anonymized_at` aynı TX'te yazıldığı için izin verir).
+ */
+export async function anonymizeBatch(
+  db: Db,
+  tenantId: string,
+  cutoff: Date,
+  limit: number,
+): Promise<{ requests: number; messages: number }> {
+  return db.$transaction(async (tx) => {
+    const ids = (
+      await tx.$queryRaw<{ id: string }[]>`SELECT id FROM support_requests
+        WHERE tenant_id = ${tenantId} AND anonymized_at IS NULL AND created_at < ${cutoff} LIMIT ${limit} FOR UPDATE`
+    ).map((r) => r.id);
+    if (ids.length === 0) return { requests: 0, messages: 0 };
+    const requests = await tx.$executeRaw`UPDATE support_requests
+      SET customer_name = NULL, customer_phone = NULL, customer_email = NULL, description = NULL, ip = NULL, ip_key = NULL,
+          net_key = NULL, device_hash = NULL, anonymized_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3)
+      WHERE tenant_id = ${tenantId} AND id IN (${Prisma.join(ids)}) AND anonymized_at IS NULL`;
+    const messages = (await tx.sessionMessage.deleteMany({ where: { tenantId, requestId: { in: ids } } })).count;
+    return { requests, messages };
+  });
 }
 
 export function retentionTenants(db: DbOrTx) {

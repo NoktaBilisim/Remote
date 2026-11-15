@@ -88,7 +88,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
               <SideNav permissions={permissions} role={user.role} />
             </aside>
             <main id="icerik" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 focus:outline-none sm:px-6 lg:px-8">
-              {notify && <RequestNotifier enabled />}
+              {notify && <RequestNotifier enabled meId={user.id} />}
               {lobby && <LobbyNotifier enabled scopeKey={`${user.id}:${(actingTenant ?? tenant)?.id ?? ""}`} />}
               <TabTitle />
               <SessionWatch />

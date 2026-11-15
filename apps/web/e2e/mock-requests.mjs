@@ -73,6 +73,12 @@ const item = (o) => ({
   viaBinding: false,
   bindingRevoked: false,
   staleSource: false,
+  // P18 (AC-256..258): sunucu her öğede gönderir
+  priority: "NORMAL",
+  assignedTo: null,
+  slaDueAt: null,
+  slaBreached: false,
+  afterHours: false,
   ...o,
 });
 
@@ -170,6 +176,8 @@ const settingsSeed = (kind) => ({
   // P10: rqmail = SMTP ayarlı firma (AC-151)
   email: { enabled: false, recipients: [], smtpConfigured: kind === "rqmail" },
   requireAcceptCode: false,
+  defaultPriority: "NORMAL",
+  defaultSlaMinutes: null,
 });
 
 const stores = new Map();
@@ -370,6 +378,8 @@ export async function handleRequests(req, res, { url, session, csrfOk, send, err
         whatsapp: { ...s.settings.whatsapp, ...parsed.data.whatsapp },
         email: { ...s.settings.email, ...parsed.data.email },
         ...(parsed.data.requireAcceptCode !== undefined ? { requireAcceptCode: parsed.data.requireAcceptCode } : {}),
+        ...(parsed.data.defaultPriority !== undefined ? { defaultPriority: parsed.data.defaultPriority } : {}),
+        ...(parsed.data.defaultSlaMinutes !== undefined ? { defaultSlaMinutes: parsed.data.defaultSlaMinutes } : {}),
       });
       return (send(res, 200, s.settings), true);
     }

@@ -45,6 +45,8 @@ export interface TenantCounts {
   purgedFiles: number;
   purgedRequests: number;
   purgedBindings: number;
+  /** P18 H3 (ADR-0025 m.3): anonimleştirmeyle aynı TX'te silinen talep mesajları (dry modda da silinir — anonimleştirme adımı). */
+  purgedMessages: number;
 }
 export interface GlobalCounts {
   audit: number;
@@ -78,6 +80,7 @@ const KINDS: Record<keyof (TenantCounts & GlobalCounts), string> = {
   purgedFiles: "purged_files",
   purgedRequests: "purged_requests",
   purgedBindings: "purged_bindings",
+  purgedMessages: "request_messages",
   audit: "audit",
   authSessions: "auth_sessions",
   resetTokens: "reset_tokens",
@@ -103,6 +106,7 @@ const zeroTenant = (): TenantCounts => ({
   purgedFiles: 0,
   purgedRequests: 0,
   purgedBindings: 0,
+  purgedMessages: 0,
 });
 const zeroGlobal = (): GlobalCounts => ({ audit: 0, authSessions: 0, resetTokens: 0, purgedJobs: 0 });
 const sum = (o: object): number => Object.values(o).reduce((a: number, b: unknown) => a + (typeof b === "number" ? b : 0), 0);
@@ -240,7 +244,12 @@ export class RetentionJob {
   /** Bir tenant'ın adımları; sayaçlar `c` üzerinde biriktirilir (hata anında o ana kadarkiler audit'e girer). */
   private async tenantSteps(t: { tenantId: string; retentionDays: number }, now: Date, c: TenantCounts): Promise<void> {
     const { svc } = this;
-    c.requests += await anonymizeRequestsOf(svc, t, now);
+    const msgs = { messages: 0 };
+    try {
+      c.requests += await anonymizeRequestsOf(svc, t, now, msgs);
+    } finally {
+      c.purgedMessages += msgs.messages;
+    }
     c.customers += await anonymizeCustomersOf(svc, t, now);
     c.bindings += await expireIdleBindingsOf(svc, t, now);
     c.blocks += await purgeExpiredBlocks(svc.d.db, t.tenantId, new Date(now.getTime() - REQUEST_BLOCK_EXPIRED_RETENTION_DAYS * DAY_MS));

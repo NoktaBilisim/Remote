@@ -23,3 +23,9 @@ sunucu içeriği görmez. Taraflardan birinin kopya göndermesi (ayna) kanıt de
 
 - Chat artık uçtan uca değil; aydınlatma metni ve onay satırı bunu açıkça söyler (AC-291/292). Sunucu yükü ihmal edilebilir (metin, 5/sn sınır).
 - Sunucu sızıntısında etki büyür (R27): alan şifreleme + anahtar rotasyonu runbook'ta.
+- **Append-only istisnası (P18 H3, K-P18-10, S-P18-T2b):** `session_messages` satırları uygulama tarafından güncellenmez
+  (`app`'e UPDATE yok). Tek istisna anahtar sızıntısı/emekliliği için yeniden şifrelemedir: `cli crypto:rewrap
+session_messages --from <ver> [--dry]` yalnız `migrate` servisinde migrator bağlantısıyla çalışır, yalnız `body_enc`'i aynı
+  AAD ile güncel anahtar sürümüne taşır ve `crypto.rewrap` audit'i yazar. Emeklilik ön koşulu `cli crypto:check-retire <ver>`
+  = 0 (runbook §25.5). Talep mesajlarının AAD'si `session_messages.body:<tenant>|<request_id>|<id>` (P22 oturum satırında
+  `session_id`).

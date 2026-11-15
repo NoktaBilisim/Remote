@@ -7286,3 +7286,162 @@ Yeni bağımlılık yok (saat dilimi `Intl` ile).
 - `pnpm -r run typecheck`, `pnpm -r run lint`, `pnpm format:check` → temiz
 - AC-256/257/258 ve S-P18-T3/T5/T6/T7/T12 adlı testler: `test/integration/p18-backend-h2.test.ts`, `test/unit/calendar-p18.test.ts`,
   `packages/contracts/test/p18-contracts.test.ts`. Test konteyneri kaldırıldı.
+
+## P18 H3 (backend)
+
+Kapsam: AC-255 (kabul öncesi mesajlaşma; sunucu + protokol + panel REST — müşteri arayüzü P19/P20, K-P18-1), S-P18-T1/T2/T3/T4/T5c/T8/T9/T10.
+
+### Uçlar
+
+| Uç                                                                 | Yetki / hız                                                                             | Not                                                                                                                                                                                                         |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/support-requests/:id/messages?after=<ulid>`           | view; 120/dk/kullanıcı                                                                  | 200 `{items ≤ 100 artan (created_at, id), customerChat}`; okunamayan gövde `body: null`; 404 yok/başka tenant; 409 `REQUEST_CLOSED`; audit yok, `rs_request_messages_read_total` (T10)                      |
+| `POST /api/v1/support-requests/:id/messages` `{body, clientMsgId}` | view + `support_requests.message`; 60/dk/kullanıcı, 600/dk/tenant, talep+gönderici 1/sn | 201 `{id, createdAt}`; 400 `VALIDATION`; 404; 409 `REQUEST_CLOSED` / `CHAT_UNSUPPORTED` (bağlı soket yeteneksiz); 429 (`RATE_LIMITED`; tavan 200'de ayrı mesaj); aynı `clientMsgId` → aynı kayıt (çift yok) |
+
+### WS (`/ws/request`, `/ws/panel`)
+
+- Yetenek: `Sec-WebSocket-Protocol: rs.v1, rs.req.<sır>, rs.cap.chat1` → `RequestConn.caps.chat`. Yanıt yine `rs.v1`.
+- İstemci → sunucu (yalnız `caps.chat`): `{t:"request.message", body, clientMsgId}`. İşleyici (T1): genel 5/sn kova + JSON +
+  şema sokete göre (`requestInboundChatSchema` / `requestInboundSchema`), `switch (msg.t)` exhaustive; yalnız cancel/decline
+  iptal yoluna. Sohbet kovası aşımı `error RATE_LIMITED`, soket açık. Yeteneksiz sokette `request.message` → 1008, satır 0.
+- Sunucu → müşteri (yalnız `hub.sendChat`, tip `RequestChatOutbound` — `sendToRequest` taşıyamaz): `request.message`
+  (TECH'te `senderName`, kendi yankısında `clientMsgId`), bağlantıda `request.messages` (son 50), kapanış/kabul öncesi
+  `request.chat {enabled:false}`. Hata için `hub.sendChatError` (mevcut `error` tipi, yalnız yetenekli soket).
+- Panel: `request.activity {id, kind:"message", sender, at}` gövdesiz, talep başına ≤ 1/sn (öncü + pencere sonu birleşik);
+  `request.new` += `customerChat` (oluşturma anı tahmini: `clientVersion >= CHAT_MIN_CLIENT_VERSION`); firma müşteri
+  kovası aşımında mevcut `queue.alert {kind:"rate_limited"}`.
+
+### Değişen / yeni dosyalar
+
+- Sözleşme: `packages/contracts/src/api/requests.ts` (mesaj şemaları/sabitler), `src/ws-request.ts`, `src/audit.ts`,
+  `fixtures/ws-request.json` (yeni anahtarlar `requestChatInbound` / `requestChatOutbound`; `requestOutbound` /
+  `requestInbound` dokunulmadı → Go `ParseServer` fikstür testi aynı girdiyi okur), yeni `test/p18-h3-contracts.test.ts`.
+- Sunucu: yeni `src/requests/messages.ts` (servis + repo), `src/cli/crypto.ts`, `src/cli/main.ts`; değişen
+  `src/requests/{hub,ws,routes,panel,service,repo,jobs}.ts`, `src/jobs/retention.ts`, `src/lib/{crypto,logger}.ts`,
+  `src/ops/metrics.ts`, `src/app.ts`, `package.json` (`cli` → `src/cli/main.ts`, önek yönlendirmesi; `erasure:*` aynen).
+- Dağıtım: `deploy/docker-compose.yml` `migrate` servisine `APP_ENCRYPTION_KEYS: ${APP_ENCRYPTION_KEYS:-}` (yeni değişken
+  değil; yalnız `crypto:rewrap` için). ADR-0025 "Sonuçlar"a append-only istisnası notu (K-P18-10).
+- Test: yeni `test/integration/p18-messages-h3.test.ts` (20), `test/unit/p18-h3.test.ts` (6); güncellenen
+  `test/helpers/tenant-matrix.ts` (2 uç + 2 çapraz tenant vakası), `retention-p13a-job.test.ts` (`purgedMessages`).
+
+### Kararlar ve sapmalar (gerekçeli)
+
+- **Hız sırası (REST):** perm → tenantScope → zod → kullanıcı/tenant kovası → servis (durum 404/409 → yetenek 409 →
+  talep+gönderici 1/sn → yinelenen clientMsgId → tavan → koşullu INSERT + audit tek TX). 1/sn **talep+gönderici** başına
+  (müşteri teknisyen kanalını kilitleyemez, T4 ruhuyla aynı).
+- **Retention:** `anonymizeBatch` artık kimlikleri `FOR UPDATE` seçip aynı TX'te PII temizler ve `session_messages`'ı siler;
+  sayaç `purgedMessages` (`rs_retention_rows_total{kind="request_messages"}`), dry modda da gerçek silme (anonimleştirme
+  adımının parçası; `purgeCandidates`'a girmez).
+- **Firma silme:** H1 `MESSAGES` adımı + `SETTINGS`'e `business_holidays` yeterli; yeni kod gerekmedi. `erasure:verify`
+  tablo listesi tutmaz (firma satırı varlığına bakar; FK RESTRICT nedeniyle firma satırı silinmişse iki tabloda satır
+  kalamaz) → değişiklik yok. Regresyon testi H3 dosyasında (önizleme = silinen, iki tablo 0).
+- **Metrikler:** `rs_request_messages_total{sender}`, `rs_request_messages_rejected_total{reason: rate|cap|closed|unsupported|tenant_rate}`,
+  `rs_crypto_decrypt_failures_total{table="session_messages"}` (+ `alarm: crypto_decrypt_failed` log, gövdesiz), yeni
+  `rs_request_messages_read_total`. Remote-watch sözleşmesi (H5) korunur.
+- **Audit:** `request.message_sent {sender, chars}` her mesajda (K-P18-11), `request.message_rejected {reason, sender}`
+  (talep+neden+gönderici başına dakikada 1), `crypto.rewrap {table, fromVer, toVer, rows, failed, dry}` (`system:cli`).
+- **CLI:** `cli crypto:check-retire <ver>` (0 satır → çıkış 0, aksi 1), `cli crypto:rewrap session_messages --from <ver> [--dry]`
+  (yalnız `MIGRATE_DATABASE_URL`; 500'lük id imleçli partiler, `FOR UPDATE`, aynı AAD; çözülemeyen satır sayılır → çıkış 1).
+  Adlar runbook §25.5 ile aynı.
+- **`isWellFormed`:** contracts `lib` ES2023 → `isWellFormedText` (eşleşmemiş vekil regex'i) eşdeğeri kullanıldı.
+- **`senderName`:** projede "Display" süzgeci yok; `displayName()` görünmez/kontrol karakterlerini ayıklar, ≤ 100 kod noktası.
+- **T5c:** TECH göndereni kendi tenant'ı ya da firma bağlamındaki Super Admin (açık kontrol + test).
+
+### frontend-dev için sözleşme değişiklikleri (`@remote/contracts`)
+
+- `api/requests`: `MESSAGE_SENDERS`, `MessageSender`, `MESSAGE_BODY_MAX` (1000), `MESSAGE_LINES_MAX` (20),
+  `MESSAGES_PER_SENDER_MAX`, `MESSAGE_RATE_PER_REQUEST_MS`, `MESSAGE_PAGE_MAX`, `MESSAGE_UNREADABLE_LABEL` ("Mesaj okunamadı"),
+  `requestMessageBodySchema`, `clientMsgIdSchema`, `sendRequestMessageInputSchema` / `SendRequestMessageInput` /
+  `SendRequestMessageResponse`, `listRequestMessagesQuerySchema`, `CUSTOMER_CHAT_STATES` / `CustomerChatState`,
+  `RequestMessageItem` (`body: string | null`), `RequestMessageListResponse`, `isWellFormedText`, `hasUnsafeMessageChars`.
+- `ws-request`: `WS_REQUEST_CAP_CHAT`, `requestInboundChatSchema`, `requestChatOutboundSchema` / `RequestChatOutbound`,
+  panel `request.activity` (yeni üye — `PanelOutbound` üzerindeki exhaustive switch'ler güncellenmeli), `request.new.customerChat?`.
+- `audit`: `REQUEST_COMMS_AUDIT.MESSAGE_SENT/MESSAGE_REJECTED`, `CRYPTO_AUDIT.REWRAP`; etiketler `P18_AUDIT_LABELS`'ta.
+- 429 gövde mesajları: `"Çok hızlı mesaj gönderiyorsunuz. Lütfen biraz bekleyin."` / tavan `"Bu talepte en çok 200 mesaj gönderilebilir."`.
+
+### Bağımlılık
+
+Yeni bağımlılık yok.
+
+### Test
+
+- İzole MySQL (`rs-mysql-test-h3-*`, port 33391, `--max-connections=300`) → `vitest run test/integration` **73 dosya / 723 test geçti**;
+  konteyner kaldırıldı.
+- Sunucu birim 410/410, contracts 133/133, web birim 368/368; `pnpm -r run typecheck`, `pnpm -r run lint`, `pnpm format:check` → temiz.
+- AC/S adlı testler: `p18-messages-h3.test.ts` (AC-255 çift yönlü, 1.001 → 400, < 1 sn → 429/RATE_LIMITED soket açık,
+  view yok 403, message yok 403, başka tenant 404, PENDING dışı 409, `body_enc` düz metin yok + AAD taşıma → null + metrik,
+  INSERT hatası → iletim yok, yeteneksiz soket 0 çerçeve + 409 CHAT_UNSUPPORTED + 1008, tavan 200, firma kovası + queue.alert,
+  retention aynı TX, firma silme, CLI), `p18-h3.test.ts` (hub ayrımı, activity birleştirme, logger T9, AAD),
+  `p18-h3-contracts.test.ts` (T8 gövde kuralları, fikstürler, eski şema geriye uyum).
+- Go testi bu makinede çalıştırılamadı (`go` yok); fikstürde Go'nun okuduğu anahtarlar değişmedi (contracts testi
+  `requestInbound` iki öğe ve `requestOutbound`'da sohbet tipi olmadığını doğrular). CI'daki Go işi teyit etmeli.
+
+## P18 H4 (frontend) — 2026-11-15
+
+Kapsam: mimari-e11 §8b.8 — AC-255 (panel yazışma), AC-256 (atama), AC-257 (öncelik/SLA/sıra), AC-258 (mesai + tatil),
+S-P18-T3 (gönder/atama yetkiye bağlı), S-P18-T8 (gövde metin düğümü). H3 contracts'ı birleştikten sonra geçici web tipleri
+kaldırıldı; mesaj tipleri/şemaları ve `request.activity` artık `@remote/contracts`'tan.
+
+### Rotalar
+
+| Yol                                        | Auth / yetki                                                         | Ne yapar                                                                                                                                                                           |
+| ------------------------------------------ | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/requests` (değişti)                      | oturum + `support_requests.view`                                     | Kuyruk `compareQueue` sırası; öncelik / mesai dışı / atanan / SLA rozetleri; menüde Ata…, Bana ata, Atamayı kaldır, Öncelik (`assign`); "Mesajlar" paneli; `request.updated` canlı |
+| `/requests?assigned=me` · `?assigned=none` | aynı                                                                 | "Bana atanan" / "Atanmamış" filtresi (müşteri filtresiyle birleşir)                                                                                                                |
+| `/settings/business-hours` (yeni)          | `settings.view` (görüntüle, salt okunur) / `settings.edit` (düzenle) | Mesai saatleri (aç/kapa, saat dilimi, mesai dışı modu, gün gün ≤ 2 aralık, "24:00", önizleme) + Tatiller (yıl, ekle, sil, TR resmî tatillerini ekle)                               |
+| `/settings/support-requests` (değişti)     | `settings.edit`                                                      | "Öncelik ve SLA" bölümü: varsayılan öncelik + SLA dakikası (boş = SLA yok)                                                                                                         |
+| `/customers` · `/customers/[id]` (değişti) | `customers.create/edit`                                              | Müşteri formunda varsayılan öncelik ("Firma varsayılanı") + SLA dakikası (boş = firma varsayılanı)                                                                                 |
+| `/users/[id]` (değişmedi)                  | `users.edit`                                                         | `support_requests.assign` ("Ata / öncelik") ve `.message` ("Mesaj yaz") toggle'ları tanımdan otomatik çıkar (birim testi)                                                          |
+
+### Değişen / yeni dosyalar
+
+- Yeni: `app/(panel)/requests/{assign-menu,request-badges,request-thread}.tsx`, `app/(panel)/settings/business-hours/{page,business-hours-form,holidays-section}.tsx`,
+  `lib/requests/{p18,thread,business-hours}.ts`, `lib/p18.test.ts`, `e2e/mock-p18.mjs`, `e2e/p18-h4.spec.ts`.
+- Değişen: `app/(panel)/requests/{page,request-queue,request-card}.tsx`, `app/(panel)/layout.tsx` (`RequestNotifier meId`),
+  `components/request-notifier.tsx` (atama toast'ı + ses, `request.activity`), `app/(panel)/settings/{settings-tabs.tsx,support-requests/settings-form.tsx}`,
+  `app/(panel)/customers/customer-form-dialog.tsx`, `lib/{format.ts (formatDateTimeInZone, formatDayLong),customers/form.ts,requests/{contract,settings-form}.ts}`,
+  `lib/requests/requests.test.ts`, `messages/tr.json`, `e2e/{mock-api,mock-ws,mock-requests,mock-customers}.mjs`, `e2e/p16.spec.ts` (adım sayısı 17 → 18:
+  H1 `MESSAGES` adımı sonrası takımda kırmızıydı), `DESIGN.md` (§6'ya 4 satır).
+
+### Davranış notları
+
+- **Sıra:** her liste/olay sonrası `sortQueue` = contracts `compareQueue`. `request.updated` yerelde uygulanır; filtreye uymayan düşer,
+  listede olmayıp filtreye giren talep için REST tazelenir.
+- **SLA sayacı:** sunucu saati ofseti yanıttaki `createdAt + waitSec`'ten (en büyük tahmin, > 1 gün yok sayılır). Aşım = sunucu
+  `slaBreached` veya `slaBreachedAt(item, now + ofset)` (tam hedef anı aşım değil). Hidrasyon öncesi yalnız hedef saati.
+- **Atama bildirimi (K-P18-9):** notifier bağlantıda `assigned=me` listesini tohumlar; `request.updated` ile bana YENİ atanan talepte
+  "Size bir talep atandı — 123 456" toast'ı (Görüntüle → `/requests?assigned=me#talep-…`) + mevcut ses tercihi. "Bana ata" bildirim üretmez.
+- **Kabul onayı (K-P18-3):** `assignedTo.id ≠ ben` → `alertdialog`, ilk odak Vazgeç.
+- **Yazışma:** iyimser gönderim (`clientMsgId`, POST 201 id'siyle onay; GET'te tekilleşir); 429 → `role=status` "Çok hızlı", metin
+  geri konur; 409 `CHAT_UNSUPPORTED` → uyarı + gönder pasif; 409 `REQUEST_CLOSED`/404 veya `request.removed` → salt okunur bant;
+  `body: null` → "Mesaj okunamadı". `request.activity` açık panelde `?after=` çeker, kapalıysa (yalnız CUSTOMER) okunmamış sayacı artar.
+  WS yokken açık panel 15 sn yoklar. Gövde ön kontrolü contracts `requestMessageBodySchema`.
+
+### Sapmalar (gerekçeli)
+
+- **Mobil alt panel Vaul yerine `Dialog`:** Vaul bağımlılık değil ve CSP (nonce'suz stil enjeksiyonu, Sonner ile aynı gerekçe, DESIGN §6
+  `ui/toast`). < lg yazışma mevcut `ui/dialog` içinde (odak tuzağı, Esc) açılır.
+- **Tatiller ayrı sekme değil, aynı sayfada ikinci bölüm kartı:** Ayarlar alt menüsü zaten 7 sekme; iç içe ikinci sekme çubuğu
+  dar ekranda yer kaplıyordu. Bölüm başlığı `CalendarOff` "Tatiller".
+- **Mesai saati alanları `type=time` değil metin (SS:DD, `inputMode=numeric`):** yerel saat seçici "24:00" (gün sonu) ifade edemez.
+- **Okunmamış sayısı istemcide** (mimari §8b.5 "okunmamış sayısını istemci tutar"): sayfa yenilenince sıfırlanır.
+- **Önizleme kaydedilmiş ayara göre** (sunucu `openNow`/`nextOpeningAt`); kirliyken "Önizleme kaydedilmiş ayara göredir" notu.
+- Tasarım skill'leri (`ui-ux-pro-max`, `framer-motion`) bu turda okunmadı: yeni animasyon yok, görünüm tamamen DESIGN.md primitifleri
+  ve token'larıyla (proje tasarım sistemi önceliklidir).
+
+### Test
+
+- `pnpm --filter @remote/web test` → 40 dosya / 368 test (yeni `lib/p18.test.ts`: AC-255/256/257/258, S-P18-T3 adlı).
+- `pnpm --filter @remote/web e2e` → tam takım 404 geçti, 0 kırmızı (yeni `e2e/p18-h4.spec.ts`: kuyruk sırası öncelikle değişir, ata →
+  çip + ikinci tarayıcıda "Atandı: <ad>", atanana toast, Bana ata, filtreler, K-P18-3 onayı, SLA due anında kırmızı (sahte saat),
+  yazışma 5 durumu + UNSUPPORTED + 429 + canlı müşteri mesajı + kapanış + XSS/bağlantı yok, yetkisiz kullanıcıda yazma alanı yok,
+  mesai kaydet/önizleme/24:00/alan hatası/saat dilimi, tatil ekle/409/sil/içe aktar/liste olmayan yıl, salt okunur mod, talep
+  ayarı ve müşteri formu alanları; axe 0 iki tema × 1280/390 px).
+- `pnpm -r`'de web için typecheck, lint temiz; `pnpm format:check` temiz.
+
+### Kalan işler / notlar
+
+- **H3 entegrasyonu:** sahte API (`e2e/mock-p18.mjs`) §8b.5 uç şekliyle; gerçek sunucuya karşı (staging, H7) uçtan uca doğrulanmadı.
+  `request.new.customerChat` kuyrukta henüz kullanılmıyor (yazışma paneli durumu GET yanıtından alır).
+- Müşteri arayüzü (tarayıcı bekleme sayfası P19, Go istemci P20) bu paketin dışında (K-P18-1).
+- `e2e/p16.spec.ts` "Adım n/17" beklentisi H1'in 18. adımıyla kırmızıydı; 18'e çekildi (test düzeltmesi, ürün kodu değil).

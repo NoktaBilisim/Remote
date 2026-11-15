@@ -5,7 +5,17 @@
 // (`LEGACY_CANCEL_REASONS`). `request.new` += `customerFirm`, `viaBinding`, `bindingRevoked`, `staleSource`.
 // G-E9-15 (koordinatör kararı a): `request.new` `knownNetwork` yerine `networkMatch` + `knownDevice` taşır.
 import { z } from "zod";
-import { CANCEL_REASONS, NETWORK_MATCHES, REQUEST_PRIORITIES, REQUEST_STATUSES } from "./api/requests.ts";
+import {
+  CANCEL_REASONS,
+  clientMsgIdSchema,
+  MESSAGE_BODY_MAX,
+  MESSAGE_HISTORY_WS,
+  MESSAGE_SENDERS,
+  NETWORK_MATCHES,
+  REQUEST_PRIORITIES,
+  REQUEST_STATUSES,
+  requestMessageBodySchema,
+} from "./api/requests.ts";
 
 /** `Sec-WebSocket-Protocol: rs.v1, rs.req.<requestSecret>` (yanıt yalnız `rs.v1`). */
 export const WS_REQUEST_PREFIX = "rs.req.";
@@ -45,6 +55,20 @@ export const requestCancelSchema = z.strictObject({ t: z.literal("request.cancel
 export const requestDeclineSchema = z.strictObject({ t: z.literal("request.decline") });
 export const requestInboundSchema = z.discriminatedUnion("t", [requestCancelSchema, requestDeclineSchema]);
 export type RequestInbound = z.infer<typeof requestInboundSchema>;
+
+/**
+ * P18 (mimari-e11 §8b.4; AC-255): yetenek bildirimi `Sec-WebSocket-Protocol: rs.v1, rs.req.<sır>, rs.cap.chat1` (yanıt yine
+ * yalnız `rs.v1`). Bildirmeyen soket (≤ 0.11.0 istemci) yeni tipte HİÇBİR mesaj almaz; `request.message` gönderirse 1008.
+ */
+export const WS_REQUEST_CAP_CHAT = "rs.cap.chat1";
+export const requestMessageInboundSchema = z.strictObject({
+  t: z.literal("request.message"),
+  body: requestMessageBodySchema,
+  clientMsgId: clientMsgIdSchema,
+});
+/** S-P18-T1: yalnız `caps.chat` soketinde kullanılır; yeteneksiz sokette `requestInboundSchema` (mesaj şema dışı → 1008). */
+export const requestInboundChatSchema = z.discriminatedUnion("t", [requestCancelSchema, requestDeclineSchema, requestMessageInboundSchema]);
+export type RequestInboundChat = z.output<typeof requestInboundChatSchema>;
 
 /** `request.closed` durumları (PENDING/ACCEPTED dışındaki son durumlar). */
 export const REQUEST_CLOSED_STATUSES = ["CANCELLED", "EXPIRED", "REJECTED", "CONNECT_FAILED"] as const;
@@ -93,6 +117,35 @@ export const requestOutboundSchema = z.discriminatedUnion("t", [
 ]);
 export type RequestOutbound = z.infer<typeof requestOutboundSchema>;
 
+/**
+ * P18: yalnız `rs.cap.chat1` soketlerine giden mesajlar. `requestOutboundSchema`'dan AYRI birlik (tip düzeyinde ayrım):
+ * hub `sendToRequest` bunları taşıyamaz, yalnız `sendChat` (yetenek kontrollü) taşır. Eski istemci (`ParseServer`
+ * DecodeStrict) bu tiplerde 1008 ile kapatır → talep iptal olur; bu yüzden fikstürde ayrı anahtarlar (`requestChat*`).
+ */
+const chatMessageFields = {
+  id: ulid,
+  sender: z.enum(MESSAGE_SENDERS),
+  /** Yalnız TECH'te (teknisyen adı, ≤ 100). */
+  senderName: z.string().min(1).max(100).optional(),
+  body: z
+    .string()
+    .min(1)
+    .max(MESSAGE_BODY_MAX * 2),
+  createdAt: iso,
+  /** Kendi mesajının yankısında (onay). */
+  clientMsgId: clientMsgIdSchema.optional(),
+};
+export const requestChatMessageSchema = z.strictObject({ t: z.literal("request.message"), ...chatMessageFields });
+export const requestChatOutboundSchema = z.discriminatedUnion("t", [
+  requestChatMessageSchema,
+  /** Bağlantı (ve yeniden bağlantı) sonrası son 50 mesaj, artan sıra. */
+  z.strictObject({ t: z.literal("request.messages"), items: z.array(z.strictObject(chatMessageFields)).max(MESSAGE_HISTORY_WS) }),
+  /** Talep PENDING dışına çıkınca `false` (sonra mevcut `request.accepted`/`request.closed`). */
+  z.strictObject({ t: z.literal("request.chat"), enabled: z.boolean() }),
+]);
+export type RequestChatOutbound = z.infer<typeof requestChatOutboundSchema>;
+export type RequestChatMessage = z.infer<typeof requestChatMessageSchema>;
+
 // --- /ws/panel: sunucu → panel (istemciden mesaj YOK; her mesaj 1008) ---
 export const panelOutboundSchema = z.discriminatedUnion("t", [
   z.strictObject({ t: z.literal("queue.count"), pending: z.number().int().min(0) }),
@@ -119,6 +172,11 @@ export const panelOutboundSchema = z.discriminatedUnion("t", [
     priority: z.enum(REQUEST_PRIORITIES).optional(),
     slaDueAt: iso.nullable().optional(),
     afterHours: z.boolean().optional(),
+    /**
+     * P18 H3 (AC-255): müşteri istemcisinin sohbet desteği (oluşturma anında `clientVersion >= CHAT_MIN_CLIENT_VERSION`
+     * tahmini; kesin durum `GET …/messages` `customerChat`'tedir — soket yeteneği). Şemada opsiyonel (eski fikstür/sekme).
+     */
+    customerChat: z.enum(["SUPPORTED", "UNSUPPORTED"]).optional(),
   }),
   z.strictObject({ t: z.literal("request.removed"), id: ulid, status: z.enum(REQUEST_STATUSES) }),
   /** Yalnız kabul eden kullanıcının soketlerine (AC-155). */
@@ -136,6 +194,11 @@ export const panelOutboundSchema = z.discriminatedUnion("t", [
     assignedTo: z.strictObject({ id: ulid, name: z.string().max(100) }).nullable(),
     slaDueAt: iso.nullable(),
   }),
+  /**
+   * P18 H3 (AC-255, S-P18-T4): talepte yeni mesaj — GÖVDE TAŞIMAZ (panel REST'ten `after=` ile çeker). Talep başına ≤ 1/sn
+   * birleştirilir (son sender/at). Tenant'ın bütün panel soketlerine.
+   */
+  z.strictObject({ t: z.literal("request.activity"), id: ulid, kind: z.literal("message"), sender: z.enum(MESSAGE_SENDERS), at: iso }),
   /** Tenant kovası aşıldı (r2, §13.6): panelde kalıcı uyarı bandı `until`'e kadar. */
   z.strictObject({ t: z.literal("queue.alert"), kind: z.literal("rate_limited"), until: iso }),
 ]);

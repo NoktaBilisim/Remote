@@ -2,6 +2,7 @@
 
 import {
   Copy,
+  Flag,
   KeyRound,
   Link2,
   Mail,
@@ -24,6 +25,7 @@ import { LeaveDialog } from "@/components/leave-dialog";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { SelectField } from "@/components/ui/select-field";
 import { Switch } from "@/components/ui/switch";
 import { TextField } from "@/components/ui/text-field";
 import { useToast } from "@/components/ui/toast";
@@ -41,6 +43,9 @@ import {
 } from "@/lib/requests/contract";
 import { buildInput, isDirty, toState, type SettingsErrorKey, type SettingsState } from "@/lib/requests/settings-form";
 import { normalizePhone } from "@/lib/requests/validate";
+import { REQUEST_PRIORITIES, type RequestPriority } from "@/lib/requests/p18";
+import { labelOf, PRIORITY_LABELS } from "@remote/contracts/labels";
+import { SLA_MINUTES_MAX, SLA_MINUTES_MIN } from "@remote/contracts/api/requests";
 import { useLeaveGuard } from "@/lib/use-leave-guard";
 import { copyText } from "@/lib/use-now";
 
@@ -292,6 +297,39 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
               error={errText(errors.waitMinutes)}
               hint={t("srs.wait.hint", { min: WAIT_MIN, max: WAIT_MAX })}
             />
+          </Section>
+
+          {/* P18 (AC-257): firma varsayılan önceliği ve SLA hedefi (müşteri tanımı öncelikli) */}
+          <Section id="prio" title={t("srs.prio.title")} Icon={Flag}>
+            <p className="text-sm text-fg-muted">{t("srs.prio.body")}</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <SelectField
+                label={t("srs.prio.label")}
+                value={st.priority}
+                onChange={(e) => set({ priority: e.target.value as RequestPriority })}
+                options={[...REQUEST_PRIORITIES].reverse().map((p) => ({ value: p, label: labelOf(PRIORITY_LABELS, p) }))}
+                data-testid="default-priority"
+              />
+              <TextField
+                label={t("srs.sla.label")}
+                type="number"
+                inputMode="numeric"
+                min={SLA_MINUTES_MIN}
+                max={SLA_MINUTES_MAX}
+                value={st.slaMinutes}
+                onChange={(e) => set({ slaMinutes: e.target.value })}
+                error={errText(errors.defaultSlaMinutes)}
+                hint={t("srs.sla.hint", { min: SLA_MINUTES_MIN, max: SLA_MINUTES_MAX })}
+                data-testid="default-sla"
+              />
+            </div>
+            <Link
+              href="/settings/business-hours"
+              className="inline-flex min-h-11 items-center gap-2 self-start rounded-md px-1 text-sm font-medium text-primary hover:underline"
+            >
+              <Timer aria-hidden className="size-4" />
+              {t("srs.sla.hoursLink")}
+            </Link>
           </Section>
 
           {/* P15 (AC-239): kabul kodu — açıkken kabul, müşteri ekranındaki 4 haneli kodla tamamlanır (AC-112) */}

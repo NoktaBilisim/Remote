@@ -14,6 +14,7 @@ import { randomBytes } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { SESSION_COOKIE as SESSION_COOKIE_NAME } from "@remote/contracts/api/auth";
 import { panelUpgrade } from "./mock-requests.mjs";
+import { p18PanelUpgrade } from "./mock-p18.mjs";
 import { byId, tickets, ulid } from "./mock-sessions.mjs";
 
 const wss = new WebSocketServer({ noServer: true, handleProtocols: (p) => (p.has("rs.v1") ? "rs.v1" : false) });
@@ -284,7 +285,9 @@ export function attachWs(srv) {
         .split(";")
         .map((p) => p.trim().split("="))
         .find(([k]) => k === SESSION_COOKIE_NAME)?.[1];
-      return panelUpgrade(req, sock, head, cookie ? decodeURIComponent(cookie) : undefined);
+      const c = cookie ? decodeURIComponent(cookie) : undefined;
+      if (p18PanelUpgrade(req, sock, head, c)) return;
+      return panelUpgrade(req, sock, head, c);
     }
     if (url.pathname === "/ws/tech") {
       const rec = byId.get(url.searchParams.get("sessionId"));

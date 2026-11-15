@@ -6,12 +6,15 @@ import { SESSION_COOKIE } from "@remote/contracts/api/auth";
 import { BINDING_MIN_CLIENT_VERSION } from "@remote/contracts/api/bindings";
 import { WS_SUBPROTOCOL } from "@remote/contracts/ws";
 import {
+  requestInboundChatSchema,
   requestInboundSchema,
+  WS_REQUEST_CAP_CHAT,
   WS_REQUEST_CLOSE,
   WS_REQUEST_PREFIX,
   WS_REQUEST_RATE_PER_SEC,
   panelRetryReason,
   type PanelOutbound,
+  type RequestChatOutbound,
   type RequestOutbound,
 } from "@remote/contracts/ws-request";
 import type { FastifyInstance } from "fastify";
@@ -91,10 +94,13 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
     if (!trusted && hub.ipFull(ip)) return { status: 429, reason: "ip_sockets" }; // G-E9-9; güvenilen CIDR muaf (G-E9-16)
     if (isOutdated(row.clientVersion, env.MIN_AGENT_VERSION)) return { status: 426, reason: "outdated" };
 
+    // P18 H3: yetenek bildirimi (sürüme bakılmaz; P19 tarayıcısının clientVersion'ı yok). Yanıt yine yalnız rs.v1.
+    const caps = { chat: protos.includes(WS_REQUEST_CAP_CHAT) };
     accept("request", (ws) => {
-      const peer = jsonPeer<RequestOutbound>(ws);
+      const peer = jsonPeer<RequestOutbound | RequestChatOutbound>(ws);
       const conn: RequestConn = {
         peer,
+        caps,
         requestId: row.id,
         tenantId: row.tenantId,
         ipKey: ip,
@@ -102,8 +108,10 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
         legacy: compareVersions(row.clientVersion, BINDING_MIN_CLIENT_VERSION) < 0,
       };
       hub.attachRequest(conn);
-      if (row.status === "PENDING") void hub.pushStates(row.tenantId);
-      else if (sess) {
+      if (row.status === "PENDING") {
+        void hub.pushStates(row.tenantId);
+        void svc.messages.sendHistory(conn).catch((err: unknown) => svc.logErr(err, "request_ws_history"));
+      } else if (sess) {
         const t = rooms.reissueRequestTicket(sess.id, row.id);
         if (t)
           peer.send({
@@ -120,6 +128,10 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
         const fresh = await repo.findById(db, row.id);
         if (fresh) await svc.customerCancel(ctx, fresh);
       };
+      // S-P18-T1 (bağlayıcı): (c) genel kova (5/sn; aşım 1008) → JSON → şema → sohbet kovaları (messages.ts; aşım
+      // `error RATE_LIMITED`, soket açık); (a) şema sokete göre — yeteneksiz sokette `request.message` şema dışı → 1008;
+      // (b) `switch (msg.t)`: yalnız cancel/decline iptal yoluna.
+      const inbound = caps.chat ? requestInboundChatSchema : requestInboundSchema;
       ws.on("message", (data: Buffer, isBinary: boolean) => {
         if (!hub.isAttached(conn)) return;
         let msg: unknown;
@@ -128,12 +140,25 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
         } catch {
           msg = null;
         }
-        const parsed = requestInboundSchema.safeParse(msg);
+        const parsed = inbound.safeParse(msg);
         if (!parsed.success) {
           rooms.metrics.inc("rs_ws_closed_policy_total", { reason: "request_invalid_message" });
           return void ws.close(1008, "policy");
         }
-        void cancel().catch((err: unknown) => svc.logErr(err, "request_ws_cancel")); // request.cancel ve request.decline aynı yol (§5.1)
+        const m = parsed.data;
+        switch (m.t) {
+          case "request.cancel":
+          case "request.decline": // §5.1: aynı yol
+            void cancel().catch((err: unknown) => svc.logErr(err, "request_ws_cancel"));
+            return;
+          case "request.message":
+            void svc.messages.fromCustomer(ctx, conn, m.body, m.clientMsgId).catch((err: unknown) => svc.logErr(err, "request_ws_message"));
+            return;
+          default: {
+            const never: never = m;
+            return never;
+          }
+        }
       });
       ws.on("close", (code: number) => {
         if (!hub.detachRequest(conn)) return;

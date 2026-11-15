@@ -5769,6 +5769,7 @@ DURUM: GEÇTİ — **kodlamaya geçilebilir** (Kritik 0 / Yüksek 0); mimara dö
 - S16-14, G1/G2 başlamadan backend-dev ve dba'ya iletilmeli. Aksi hâlde tetikleyici aralığı gevşetilebilir.
 - S16-13, S16-15 ve S17-3 (Düşük) ilgili görev paketlerine eklenebilir ya da `docs/gereksinimler.md` §9'a "Sonra" olarak yazılabilir.
 - S16-4 kullanıcı onayı bekleyen bir varsayım. Kullanıcı 24 saatlik beklemeyi reddederse S16-4 yeniden Orta olarak açılır.
+  **Kullanıcı kararı (2026-11-15):** 24 saatlik `SCHEDULED` + iptal penceresi onaylandı; S16-4 kesin kapandı.
 
 ## P15 — kod turu 1
 

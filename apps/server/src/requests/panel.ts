@@ -242,6 +242,7 @@ export async function acceptRequest(
     },
   );
   svc.d.hub.clearDisconnect(id);
+  svc.d.hub.sendChat(id, { t: "request.chat", enabled: false }); // P18 H3: yalnız yetenekli soket; kabul öncesi sohbet biter
   svc.d.hub.sendToRequest(id, {
     t: "request.accepted",
     wsTicket: ticket.wsTicket,

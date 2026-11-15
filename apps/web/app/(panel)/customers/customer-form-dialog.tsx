@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { FormError } from "@/components/form-error";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { SelectField } from "@/components/ui/select-field";
 import { TextField } from "@/components/ui/text-field";
 import { api, ApiError } from "@/lib/api";
 import { CUSTOMER_NOTE_MAX, suggestFileLabel, type CustomerDetail } from "@/lib/customers/contract";
@@ -23,6 +24,9 @@ import {
 import { toUiError, type UiError } from "@/lib/error-message";
 import { formatNumber } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { REQUEST_PRIORITIES } from "@/lib/requests/p18";
+import { labelOf, PRIORITY_LABELS } from "@remote/contracts/labels";
+import { SLA_MINUTES_MAX, SLA_MINUTES_MIN } from "@remote/contracts/api/requests";
 
 /**
  * Yeni müşteri / Düzenle (AC-167, AC-195). Doğrulama contracts zod şemasıyla (sunucuyla aynı); alan bazlı hata;
@@ -203,6 +207,32 @@ export function CustomerFormDialog({
                   {t("h.n.count", { n: formatNumber(noteLen), max: formatNumber(CUSTOMER_NOTE_MAX) })}
                 </p>
               </div>
+            </div>
+            {/* P18 (AC-257): müşteri varsayılan önceliği ve SLA hedefi — boş = firma varsayılanı */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <SelectField
+                label={t("cu.f.priority")}
+                value={d.defaultPriority}
+                onChange={set("defaultPriority")}
+                error={errors.defaultPriority}
+                options={[
+                  { value: "", label: t("cu.f.priorityDefault") },
+                  ...[...REQUEST_PRIORITIES].reverse().map((p) => ({ value: p, label: labelOf(PRIORITY_LABELS, p) })),
+                ]}
+                data-testid="cf-priority"
+              />
+              <TextField
+                label={t("cu.f.sla")}
+                type="number"
+                inputMode="numeric"
+                min={SLA_MINUTES_MIN}
+                max={SLA_MINUTES_MAX}
+                value={d.slaMinutes}
+                onChange={set("slaMinutes")}
+                error={errors.slaMinutes}
+                hint={t("cu.f.slaHint", { min: SLA_MINUTES_MIN, max: SLA_MINUTES_MAX })}
+                data-testid="cf-sla"
+              />
             </div>
             {customer && <p className="text-xs text-fg-muted">{t("cu.f.clearHint")}</p>}
           </fieldset>

@@ -227,6 +227,7 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
       customers: 0,
       bindings: 0,
       blocks: 0,
+      purgedMessages: 0, // P18 H3: anonimleştirmeyle aynı TX'te silinen talep mesajları (dry'da da gerçek silme)
       purgeCandidates: { sessions: 0, consents: 0, files: 0, requests: 0, bindings: 0 },
     });
   });

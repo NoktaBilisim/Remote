@@ -10,13 +10,25 @@ import {
   type CustomerDetail,
   type UpdateCustomerInput,
 } from "./contract";
+import { t } from "@/lib/i18n";
+import { REQUEST_PRIORITIES, type RequestPriority } from "@/lib/requests/p18";
+import { parseSlaMinutes } from "@/lib/requests/settings-form";
 
-export const CUSTOMER_FIELDS = ["name", "fileLabel", "contactName", "phone", "email", "note"] as const;
+export const CUSTOMER_FIELDS = ["name", "fileLabel", "contactName", "phone", "email", "note", "defaultPriority", "slaMinutes"] as const;
 export type CustomerField = (typeof CUSTOMER_FIELDS)[number];
 export type CustomerDraft = Record<CustomerField, string>;
 export type CustomerErrors = Partial<Record<CustomerField, string>>;
 
-export const emptyDraft = (): CustomerDraft => ({ name: "", fileLabel: "", contactName: "", phone: "", email: "", note: "" });
+export const emptyDraft = (): CustomerDraft => ({
+  name: "",
+  fileLabel: "",
+  contactName: "",
+  phone: "",
+  email: "",
+  note: "",
+  defaultPriority: "",
+  slaMinutes: "",
+});
 
 export function draftOf(c: CustomerDetail): CustomerDraft {
   return {
@@ -26,7 +38,20 @@ export function draftOf(c: CustomerDetail): CustomerDraft {
     phone: c.phone ?? "",
     email: c.email ?? "",
     note: c.note ?? "",
+    // P18 (AC-257): boş = firma varsayılanı
+    defaultPriority: c.defaultPriority ?? "",
+    slaMinutes: c.slaMinutes == null ? "" : String(c.slaMinutes),
   };
+}
+
+const priorityOf = (v: string): RequestPriority | null =>
+  (REQUEST_PRIORITIES as readonly string[]).includes(v) ? (v as RequestPriority) : null;
+
+/** P18 alanları: SLA metni geçersizse alan hatası. */
+function p18Of(d: CustomerDraft): { priority: RequestPriority | null; sla: number | null } | { error: string } {
+  const sla = parseSlaMinutes(d.slaMinutes);
+  if (sla === undefined) return { error: t("cu.f.slaErr") };
+  return { priority: priorityOf(d.defaultPriority), sla };
 }
 
 /** Zod hatası → alan başına ilk mesaj (bilinmeyen yol yok sayılır). */
@@ -60,6 +85,10 @@ export function buildCreate(d: CustomerDraft): FormResult<CreateCustomerInput> {
   if (d.phone.trim()) body.phone = d.phone;
   if (d.email.trim()) body.email = d.email;
   if (d.note.trim()) body.note = d.note;
+  const p = p18Of(d);
+  if ("error" in p) return { ok: false, errors: { slaMinutes: p.error } };
+  if (p.priority) body.defaultPriority = p.priority;
+  if (p.sla !== null) body.slaMinutes = p.sla;
   const r = createCustomerInputSchema.safeParse(body);
   return r.success ? { ok: true, body } : { ok: false, errors: errorsOf(r.error) };
 }
@@ -68,9 +97,14 @@ export function buildCreate(d: CustomerDraft): FormResult<CreateCustomerInput> {
 export function buildPatch(d: CustomerDraft, original: CustomerDetail): FormResult<UpdateCustomerInput> {
   const before = draftOf(original);
   const body: UpdateCustomerInput = {};
+  const p = p18Of(d);
+  if ("error" in p) return { ok: false, errors: { slaMinutes: p.error } };
   for (const k of CUSTOMER_FIELDS) {
     if (d[k] === before[k]) continue;
-    if (k === "name" || k === "fileLabel") body[k] = d[k].trim();
+    if (k === "defaultPriority") body.defaultPriority = p.priority;
+    else if (k === "slaMinutes") {
+      if (d.slaMinutes.trim() !== before.slaMinutes) body.slaMinutes = p.sla;
+    } else if (k === "name" || k === "fileLabel") body[k] = d[k].trim();
     else body[k] = d[k].trim() === "" ? null : d[k];
   }
   if (Object.keys(body).length === 0) return { ok: true, body };

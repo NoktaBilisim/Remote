@@ -297,6 +297,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     metrics,
     clock: rooms.clock,
     timing: rooms.timing,
+    secrets,
   });
   app.decorate("requests", requests);
   const retention = new RetentionJob(requests);

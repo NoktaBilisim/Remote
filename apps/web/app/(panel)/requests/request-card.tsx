@@ -6,6 +6,7 @@ import {
   Hourglass,
   Info,
   Mail,
+  MessageSquare,
   MonitorSmartphone,
   Phone,
   ShieldAlert,
@@ -35,6 +36,9 @@ import { formatDateTime, formatDuration } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { REQUEST_VERIFY_HINT, type RequestStatus, type SupportRequestItem } from "@/lib/requests/contract";
 import { formatRequestCode, sourceView } from "@/lib/requests/source";
+import { slaView } from "@/lib/requests/p18";
+import { AssignMenuItems, type AssignActions } from "./assign-menu";
+import { AfterHoursBadge, AssignedChip, PriorityBadge, SlaBadge } from "./request-badges";
 
 const STATUS_PILL: Record<RequestStatus, string> = {
   PENDING: "bg-primary-surface text-primary",
@@ -151,6 +155,11 @@ export function RequestCard({
   onReject,
   onRevokeBinding,
   onBlock,
+  meId,
+  offsetMs = 0,
+  assign,
+  onThread,
+  unread = 0,
 }: {
   item: SupportRequestItem;
   now?: number | null;
@@ -162,14 +171,24 @@ export function RequestCard({
   onRevokeBinding?: () => void;
   /** P15 (AC-235): verilirse kart menüsünde "Bu kaynağı engelle" (`support_requests.block`). */
   onBlock?: () => void;
+  /** P18: oturumdaki kullanıcı ("Size atandı" çipi, "Bana ata"). */
+  meId?: string;
+  /** P18: sunucu saati ofseti (SLA sayacı). */
+  offsetMs?: number;
+  /** P18 (AC-256, 257): verilirse menüde atama/öncelik öğeleri (`support_requests.assign`). */
+  assign?: AssignActions;
+  /** P18 (AC-255): verilirse "Mesajlar" düğmesi (kabul öncesi yazışma paneli). */
+  onThread?: () => void;
+  unread?: number;
 }) {
   const pending = item.status === "PENDING";
   const waitSec = pending && now ? Math.max(item.waitSec, Math.floor((now - Date.parse(item.createdAt)) / 1000)) : item.waitSec;
   const name = item.customerName ?? t("rq.anon");
   const titleId = `talep-${item.id}-t`;
   const canRevoke = Boolean(onRevokeBinding && item.viaBinding);
+  const assignItems = pending && assign ? <AssignMenuItems item={item} actions={assign} /> : null;
   const revokeMenu =
-    canRevoke || onBlock ? (
+    canRevoke || onBlock || assignItems ? (
       <Menu
         label={t("rq.more")}
         icon={<Ellipsis aria-hidden className="size-4" />}
@@ -177,6 +196,8 @@ export function RequestCard({
         testId="request-menu"
         panelLabel={t("rq.moreFor", { name })}
       >
+        {assignItems}
+        {assignItems && (onBlock || canRevoke) && <div aria-hidden className="my-1 border-t border-border" />}
         {onBlock && (
           <button
             type="button"
@@ -223,6 +244,7 @@ export function RequestCard({
             </h3>
             {!pending && <RequestStatusBadge status={item.status} />}
           </div>
+          <P18Badges item={item} pending={pending} now={now ?? null} meId={meId} offsetMs={offsetMs} />
           <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
             <div className="flex min-w-0 items-center gap-2 sm:col-span-2">
               <dt>
@@ -285,6 +307,26 @@ export function RequestCard({
             <Info aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
             {REQUEST_VERIFY_HINT}
           </p>
+          {onThread && (
+            <Button
+              variant="secondary"
+              onClick={onThread}
+              aria-label={unread > 0 ? t("th.openUnread", { name, n: unread }) : t("th.openFor", { name })}
+              data-testid="thread-open"
+              className="shrink-0"
+            >
+              <MessageSquare aria-hidden className="size-4" />
+              {t("th.open")}
+              {unread > 0 && (
+                <span
+                  data-testid="thread-unread"
+                  className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-on-primary tabular-nums"
+                >
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
+            </Button>
+          )}
           {revokeMenu}
           {canAccept && (
             <div className="flex flex-col-reverse gap-2 sm:flex-row">
@@ -305,9 +347,43 @@ export function RequestCard({
   );
 }
 
+/** P18 rozet satırı: öncelik, mesai dışı, atanan, SLA (bekleyen); kapalı talepte öncelik + SLA aşımı. */
+function P18Badges({
+  item,
+  pending,
+  now,
+  meId,
+  offsetMs,
+}: {
+  item: SupportRequestItem;
+  pending: boolean;
+  now: number | null;
+  meId?: string;
+  offsetMs: number;
+}) {
+  const sla = pending ? slaView(item, now, offsetMs) : item.slaBreached ? ({ kind: "breached" } as const) : ({ kind: "none" } as const);
+  if (!pending && item.priority === "NORMAL" && !item.afterHours && sla.kind === "none") return null;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="request-p18">
+      <PriorityBadge priority={item.priority} />
+      {item.afterHours && <AfterHoursBadge />}
+      {pending && item.assignedTo && <AssignedChip assignedTo={item.assignedTo} meId={meId} />}
+      <SlaBadge view={sla} />
+    </div>
+  );
+}
+
 function ClosedInfo({ item }: { item: SupportRequestItem }) {
   return (
     <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+      {item.slaDueAt && (
+        <>
+          <dt className="text-fg-muted">{t("rq.sla.target")}</dt>
+          <dd className="text-fg tabular-nums" data-testid="request-sla-target">
+            {formatDateTime(item.slaDueAt)} · {item.slaBreached ? t("rq.sla.missed") : t("rq.sla.met")}
+          </dd>
+        </>
+      )}
       {item.closedAt && (
         <>
           <dt className="text-fg-muted">{t("rq.closedAt")}</dt>

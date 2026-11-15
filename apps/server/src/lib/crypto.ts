@@ -20,7 +20,15 @@ export const aadFor = {
     `system_settings.secret_enc:mysql:${t.host.toLowerCase()}:${t.port}:${t.user}`,
   /** S-P13b-3: `whatsapp` satırı servis anahtarı, adresin kökenine (şema+host+port) bağlı — köken değişince çözülemez. */
   whatsappApiKey: (origin: string): string => `system_settings.secret_enc:whatsapp:${origin}`,
+  /**
+   * P18 H3 (mimari-e11 §8b.6): talep/oturum mesajı gövdesi satıra bağlı — `parent` = request_id ?? session_id. Başka satıra
+   * (ya da başka talebe/tenant'a) taşınan `body_enc` çözülemez.
+   */
+  sessionMessage: (tenantId: string, parentId: string, id: string): string => `session_messages.body:${tenantId}|${parentId}|${id}`,
 } as const;
+
+/** Şifreli değerin anahtar sürümü (ilk bayt; `crypto:check-retire` / `crypto:rewrap`). Boşsa 0. */
+export const keyVersionOf = (data: Uint8Array): number => data[0] ?? 0;
 
 /** HKDF amaç etiketleri (anahtar ayrımı). */
 export type MacPurpose = "recovery-code" | "avatar-url" | "purge-preview";
@@ -34,6 +42,15 @@ export class SecretBox {
     processKeys ??= new Map([[1, randomBytes(32)]]);
     this.keys = keys ?? processKeys;
     this.current = Math.max(...this.keys.keys());
+  }
+
+  /** Yeni yazımın anahtar sürümü (halkadaki en yüksek). */
+  get currentVersion(): number {
+    return this.current;
+  }
+
+  hasVersion(ver: number): boolean {
+    return this.keys.has(ver);
   }
 
   encrypt(plain: string, aad: string): Uint8Array<ArrayBuffer> {

@@ -2943,6 +2943,8 @@ geçirilmesi 386 çağrı kuralına zaten uymaz; 386 eklenirse önce backend-dev
 
 ### 24.7 `v1.0.0` etiketinin silinmesi (S-P17-6; kullanıcı/yönetici — ajanlar silmez)
 
+**Durum (2026-11-15):** `v1.0.0` etiketi kullanıcı tarafından silindi; run `43649073915` kullanıcı onayıyla iptal edildi (`cancelled`), Release oluşmadı. Staging'de docker build önbelleği kullanıcı onayıyla temizlendi (`docker builder prune -af`, 21,8 GB; disk %81 → %61).
+
 Run `43649073915` **Reject** edildikten sonra `v1.0.0` etiketi de silinmelidir: etiket kaldıkça aynı koşu "Re-run" ile
 yeniden `agent-release` onayına düşer ve yanlışlıkla onaylanabilir (P15 öncesi koddan istemci 1.0.0; ayrıntı §24.1/4). Bu
 koşu etiketin commit'indeki eski `agent-win.yml` ile çalışır (onay `release` işindedir, imza akışı yok). Tag ruleset silmeyi

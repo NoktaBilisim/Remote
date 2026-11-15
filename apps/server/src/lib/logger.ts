@@ -35,6 +35,10 @@ const REDACT_PATHS = [
   "*.phone",
   "*.email",
   "*.note",
+  // P18 H3 (S-P18-T9): talep mesajı gövdesi — hiçbir derinlikte loglanmaz (savunma; servis gövdeli nesne loglamaz).
+  "body",
+  "*.body",
+  "*.*.body",
 ];
 
 interface LoggableRequest {
