@@ -8129,3 +8129,15 @@ Sözleşme değişikliği yok. `formToken` opak; yalnız uzunluğu 78 → 88 kar
   `close` kancası ve test başına benzersiz `webformz…` ref'i (kancalar ref'teki tüm soketlere yayınladığı için paralel yalıtım).
   Akış testleri 8× tekrar ×2 → 80/80. Tüm web e2e (desktop + mobile) **422 geçti, 0 hata**; vitest 386/386; eslint/tsc temiz;
   `pnpm format:check` temiz.
+
+### 3) Bölüm 4 "relay -> 172.31.250.2:49990 (aralık içi) echo dönmedi" (43706534669 deneme 1)
+
+- Bulgu: testin aralık içi echo peer'ı (`turnutils_peer -p 49990`, coturn ağ ad alanında) sabit portta açılıyordu. Bölüm
+  1-3'ün allocation'ları 600 sn yaşar ve relay soketleri test ağında 49160-49999 aralığından rastgele port alır; biri
+  `172.31.250.2:49990`'ı tutuyorsa peer `0.0.0.0:49990`'a bağlanamayıp çıkar ve echo dönmez (uclient: "Total lost
+  packets 1 ... total send dropped 1"). Yerelde benzetimle aynı FAIL üretildi (peer başlamadan `172.31.250.2:49990`
+  tutuldu -> 64 PASS / 1 FAIL). Kusur testte; kural (aralık içi geçer, dışı düşer) doğru çalışıyor.
+- Düzeltme (`test-denied.sh` bölüm 4): peer'ın ağ ad alanında (`$FWX ss -Hlun`; staging'de host) `p` ve `p+1` boş olan
+  ilk port seçilir (INP, INP-3, ... en çok 20 aday, hepsi aralık içi), peer başlatılır ve dinlediği doğrulanır; dinlemiyorsa
+  sıradaki aday denenir. Aynı risk `test-local.sh`'taki bant/kapasite peer'ında (sabit 49991) da vardı: aynı yöntemle
+  `PEERP` seçilir. `host-firewall.sh` ve coturn yapılandırması değişmedi; aralık dışı/3478/53 düşme testleri aynen.

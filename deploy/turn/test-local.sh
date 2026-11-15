@@ -94,11 +94,22 @@ TURN_TEST_NETWORK=remote-turn-test_turntest TURN_HOST=172.31.250.2 \
 
 cred() { TU="$(( $(date +%s) + 900 )):t$$-$1"; TP="$(printf %s "$TU" | openssl dgst -sha1 -hmac "$TURN_SECRET" -binary | base64)"; }
 # Peer coturn ağ ad alanında, aralık İÇİ portta (host OUTPUT kuralı aralık dışını düşürür).
-docker run -d --rm --name remote-turn-test-xpeer --network "container:$CID" --entrypoint turnutils_peer "$IMAGE" -p 49991 >/dev/null
-sleep 1
+# test-denied.sh bölüm 1-3'ün allocation'ları (600 sn) aralık içi bir portu tutuyor olabilir (CI 43706534669'da 49990):
+# p ve p+1 boş ilk portu seç (49991, 49988, ...), başlat, dinlediğini doğrula (inrange: coturn ağ ad alanı).
+PEERP=""; cand=49991
+for _ in $(seq 20); do
+  if ! inrange | grep -Eq ":($cand|$((cand + 1)))\$"; then
+    docker run -d --rm --name remote-turn-test-xpeer --network "container:$CID" --entrypoint turnutils_peer "$IMAGE" -p "$cand" >/dev/null
+    sleep 1
+    if inrange | grep -q "^0\.0\.0\.0:$cand\$"; then PEERP="$cand"; break; fi
+    docker rm -f remote-turn-test-xpeer >/dev/null 2>&1 || true
+  fi
+  cand=$((cand - 3))
+done
+[ -n "$PEERP" ] || { echo "FAIL  echo peer için aralık içinde boş port bulunamadı"; exit 1; }
 # uclient <ad> [arg...] -> çıktı $TMP/<ad>.log
 uc() { local n="$1"; shift; cred "$n"; docker run --rm --name "remote-turn-test-x$n" --network remote-turn-test_turntest \
-  --entrypoint turnutils_uclient "$IMAGE" -u "$TU" -w "$TP" -c -e 172.31.250.2 -r 49991 "$@" 172.31.250.2 >"$TMP/$n.log" 2>&1 || true; }
+  --entrypoint turnutils_uclient "$IMAGE" -u "$TU" -w "$TP" -c -e 172.31.250.2 -r "$PEERP" "$@" 172.31.250.2 >"$TMP/$n.log" 2>&1 || true; }
 # Saniyelik ilerleme satırlarından (tot_*_bytes) sıfır olmayan tam saniyelerin medyanı (ilk/son kısmi saniye atılır).
 rate() { grep -o "tot_$2_bytes ~ [0-9]*" "$TMP/$1.log" | awk '{print $3}' | awk 'NR>1 {d=$1-p; if (d>0) print d} {p=$1}' \
   | sed '1d;$d' | sort -n | awk '{a[NR]=$1} END {print (NR ? a[int((NR+1)/2)] : 0)}'; }
@@ -147,7 +158,7 @@ if [ "${TURN_TEST_CAP:-1}" = 1 ]; then
   echo "== G-P13b-1 kapasite: bps-capacity=0 iken 63 açık allocation + 64. açılır (62500000 ile 63. 486 alıyordu)"
   for i in 1 2 3 4 5 6 7 8; do m=8; [ "$i" = 8 ] && m=7; cred "cap$i"
     docker run -d --name "remote-turn-test-xcap$i" --network remote-turn-test_turntest --entrypoint turnutils_uclient "$IMAGE" \
-      -u "$TU" -w "$TP" -c -h -m "$m" -n 1 -z 1000 -e 172.31.250.2 -r 49991 172.31.250.2 >/dev/null; done
+      -u "$TU" -w "$TP" -c -h -m "$m" -n 1 -z 1000 -e 172.31.250.2 -r "$PEERP" 172.31.250.2 >/dev/null; done
   sleep 12
   NA="$(docker run --rm --network remote-turn-test_turntest --entrypoint wget "$IMAGE" -qO- http://172.31.250.2:9641/metrics \
     | awk '$1 ~ /^turn_total_allocations/ {s+=$2} END {print s+0}')"

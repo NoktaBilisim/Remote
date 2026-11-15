@@ -122,9 +122,25 @@ if [ "${TURN_TEST_FW:-1}" = 1 ]; then
   # shellcheck disable=SC2086
   if $FWX $FWS check >"$OUT" 2>&1; then ok "host-firewall.sh check: kurallar yüklü"; else bad "host-firewall.sh check (kural yok/eksik; root?)"; fi
   P1="$(docker run -d --rm --network "$PNET" --entrypoint turnutils_peer "$IMAGE" -p "$OUTP")"
-  P2="$(docker run -d --rm --network "$PNET" --entrypoint turnutils_peer "$IMAGE" -p "$INP")"
-  trap 'rm -f "$OUT"; docker rm -f "$P1" "$P2" >/dev/null 2>&1' EXIT
-  sleep 1
+  # Aralık içi echo peer'ı: INP bölüm 1-3'ün allocation'larından birinin (600 sn yaşar) relay soketi olabilir
+  # (CI 43706534669: coturn 172.31.250.2:49990'ı tutunca peer 0.0.0.0:49990'a bağlanamayıp çıktı -> "echo dönmedi").
+  # Peer'ın ağ ad alanında p ve p+1 boş olan ilk portu seç (INP, INP-3, ... en çok 20 aday; hepsi aralık içi), başlat ve
+  # gerçekten dinlediğini doğrula; dinlemiyorsa (yarış) sıradakini dene. Kuralın kendisi (aralık içi geçer) değişmedi.
+  udp_busy() { $FWX ss -Hlun 2>/dev/null | awk -v a=":$1" -v b=":$(($1 + 1))" '{ for (i = 1; i <= NF; i++)
+    if ($i ~ /:[0-9]+$/) { if (substr($i, length($i) - length(a) + 1) == a || substr($i, length($i) - length(b) + 1) == b) f = 1; break } }
+    END { exit !f }'; }
+  P2=""; cand="$INP"
+  for _ in $(seq 20); do
+    if ! udp_busy "$cand"; then
+      P2="$(docker run -d --rm --network "$PNET" --entrypoint turnutils_peer "$IMAGE" -p "$cand")"
+      sleep 1
+      if udp_busy "$cand" && [ -n "$(docker ps -q --filter "id=$P2")" ]; then INP="$cand"; break; fi
+      docker rm -f "$P2" >/dev/null 2>&1; P2=""
+    fi
+    cand=$((cand - 3))
+  done
+  trap 'rm -f "$OUT"; docker rm -f "$P1" ${P2:+"$P2"} >/dev/null 2>&1' EXIT
+  [ -n "$P2" ] || echo "WARN  aralık içi echo peer'ı için boş port bulunamadı ($INP..$cand); sonraki test düşecek"
   delivered() { grep -Eq 'Total lost packets 0 ' "$OUT"; }
   uclient fwin "$TURN_SECRET" 600 -e "$SELF" -r "$INP"
   if [ "$rc" -eq 0 ] && delivered; then ok "relay -> $SELF:$INP (aralık içi, relay<->relay) echo döndü"; else bad "relay -> $SELF:$INP (aralık içi) echo dönmedi"; fi
