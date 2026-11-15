@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,14 +13,33 @@ import (
 const prevKey = "rsb_PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
 const newKey = "rsb_NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN"
 
+var multiTrue = true
+
 type fakeBinding struct {
 	mu      sync.Mutex
 	prev    string
 	issued  []signal.BindingIssued
 	changed string
+	multis  []bool
+	skip    string // doluysa Request ok=false ve bu not
+	limited string
 }
 
-func (b *fakeBinding) PreviousKey() string { return b.prev }
+func (b *fakeBinding) Request(multi bool) (signal.BindingRequest, string, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.multis = append(b.multis, multi)
+	if b.skip != "" {
+		return signal.BindingRequest{}, b.skip, false
+	}
+	r := signal.BindingRequest{T: "binding.request"}
+	if multi && b.prev != "" {
+		r.PreviousKeys = []string{b.prev}
+	}
+	return r, "", true
+}
+
+func (b *fakeBinding) Limited() string { return b.limited }
 func (b *fakeBinding) Issued(m signal.BindingIssued) string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -58,9 +78,9 @@ func TestAC181OfferRequestIssuedOnlyAfterAdmit(t *testing.T) {
 	c := recv(t, h.conns)
 	c.toClient <- hello(token)
 	recv(t, c.sent) // share.state
-	c.toClient <- signal.BindingOffer{T: "binding.offer"}
+	c.toClient <- signal.BindingOffer{T: "binding.offer", Multi: &multiTrue}
 	req, ok := recv(t, c.sent).(signal.BindingRequest)
-	if !ok || req.PreviousKey != prevKey {
+	if !ok || len(req.PreviousKeys) != 1 || req.PreviousKeys[0] != prevKey || req.PreviousKey != "" {
 		t.Fatalf("binding.request: %#v", req)
 	}
 	c.toClient <- issued()
@@ -191,5 +211,76 @@ func TestAC181LobbyCloseNoBinding(t *testing.T) {
 	recv(t, c.sent)
 	if o := recv(t, out); b.count() != 0 || o.BindingChanged != "" {
 		t.Fatal("onaysız oturumda kayıt olmamalı")
+	}
+}
+
+// TestAC254OldServerOfferPassesMultiFalse eski sunucu teklifi (`multi` yok) işleyiciye multi=false olarak iletilir;
+// işleyici `previousKey` üretmez (fake: yalnız multi'de anahtar) — 0.12 eski sunucuya önceki anahtar göndermez.
+func TestAC254OldServerOfferPassesMultiFalse(t *testing.T) {
+	h := newHarness(t)
+	b := &fakeBinding{prev: prevKey}
+	h.deps.Binding = b
+	out := start(h, "12345678")
+	c := recv(t, h.conns)
+	c.toClient <- hello(token)
+	recv(t, c.sent)
+	c.toClient <- signal.BindingOffer{T: "binding.offer"}
+	req := recv(t, c.sent).(signal.BindingRequest)
+	if req.PreviousKey != "" || req.PreviousKeys != nil || len(b.multis) != 1 || b.multis[0] {
+		t.Fatalf("%#v multis=%v", req, b.multis)
+	}
+	c.toClient <- signal.SessionEnded{T: "session.ended", Reason: "tech"}
+	recv(t, out)
+}
+
+// TestAC254RequestSkippedShowsNote işleyici istek vermezse (5 dolu + eski sunucu, üçüncü köken) hiçbir şey gönderilmez,
+// sonraki teklifler de yanıtlanmaz; not oturum sonunda.
+func TestAC254RequestSkippedShowsNote(t *testing.T) {
+	h := newHarness(t)
+	b := &fakeBinding{skip: "Bu bilgisayarda başka iki sunucunun kayıtları var."}
+	h.deps.Binding = b
+	out := start(h, "12345678")
+	c := recv(t, h.conns)
+	c.toClient <- hello(token)
+	recv(t, c.sent)
+	c.toClient <- signal.BindingOffer{T: "binding.offer"}
+	c.toClient <- signal.BindingOffer{T: "binding.offer", Multi: &multiTrue}
+	noMore(t, c.sent)
+	c.toClient <- signal.SessionEnded{T: "session.ended", Reason: "tech"}
+	if o := recv(t, out); o.BindingChanged != b.skip || len(b.multis) != 1 {
+		t.Fatalf("%+v multis=%v", o, b.multis)
+	}
+}
+
+// TestAC254BindingLimitSessionContinues `error BINDING_LIMIT` oturumu bitirmez, durum satırına yazılmaz, sonraki teklif
+// yanıtlanmaz; işleyicinin metni oturum sonunda.
+func TestAC254BindingLimitSessionContinues(t *testing.T) {
+	h := newHarness(t)
+	b := &fakeBinding{prev: prevKey, limited: "Bu bilgisayar 5 firmaya kayıtlı; Nokta için kayıt alınmadı."}
+	h.deps.Binding = b
+	out := start(h, "12345678")
+	c := recv(t, h.conns)
+	c.toClient <- hello(token)
+	recv(t, c.sent)
+	c.toClient <- signal.BindingOffer{T: "binding.offer", Multi: &multiTrue}
+	recv(t, c.sent)
+	c.toClient <- signal.ErrorMsg{T: "error", Code: "BINDING_LIMIT", Message: "Bu bilgisayar en çok 5 firmaya kayıtlı olabilir"}
+	c.toClient <- signal.BindingOffer{T: "binding.offer", Multi: &multiTrue}
+	noMore(t, c.sent)
+	c.toClient <- signal.SessionEnded{T: "session.ended", Reason: "tech"}
+	o := recv(t, out)
+	if o.BindingChanged != b.limited || b.count() != 0 {
+		t.Fatalf("%+v", o)
+	}
+	for {
+		select {
+		case call := <-h.ui.calls:
+			if strings.HasPrefix(call, "status:Bu bilgisayar en çok") {
+				t.Fatal("BINDING_LIMIT sunucu metni durum satırına yazılmamalı")
+			}
+			continue
+		default:
+		}
+		break
 	}
 }

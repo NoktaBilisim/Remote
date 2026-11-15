@@ -14,7 +14,6 @@ import (
 	"remote-support/agent-win/internal/flow"
 	"remote-support/agent-win/internal/remember"
 	"remote-support/agent-win/internal/request"
-	"remote-support/agent-win/internal/signal"
 )
 
 const (
@@ -239,9 +238,9 @@ func TestT43ForeignOriginBindingIgnoredNotDeleted(t *testing.T) {
 	if k := e.d.Flow.Binding; k != nil {
 		t.Fatal("Run kopya Deps alır; çağıranın Deps'i değişmemeli")
 	}
-	kp := newKeeper(e.s, server, binding("https://evil.example:443"), time.Now)
-	if kp.PreviousKey() != "" {
-		t.Fatal("previousKey yalnız aynı kökene")
+	kp := newKeeper(e.s, server, time.Now)
+	if req, _, ok := kp.Request(true); !ok || req.PreviousKeys != nil || req.Full {
+		t.Fatalf("previousKeys yalnız aynı kökenden: %#v", req)
 	}
 }
 
@@ -278,63 +277,6 @@ func TestAC186ForgetComputerDeletesThenRevokes(t *testing.T) {
 	}
 	if _, ok := e.s.Load(); ok {
 		t.Fatal("unut yabancı kaydı da yerelde siler")
-	}
-}
-
-func TestAC187KeeperSavesCanonicalAndReportsChange(t *testing.T) {
-	s := newStore(t, nil)
-	now := func() time.Time { return time.Date(2026, 11, 12, 10, 0, 0, 5, time.UTC) }
-	firm := "Yeni\u200b Müşteri"
-	k := newKeeper(s, server, nil, now)
-	if c := k.Issued(signal.BindingIssued{T: "binding.issued", BindingKey: key, TenantName: "Nokta", CustomerFirmName: &firm}); c != "" {
-		t.Fatalf("ilk kayıtta değişiklik bilgisi yok: %q", c)
-	}
-	d, _ := s.Load()
-	if len(d.Bindings) != 1 || d.Bindings[0].Server != server || d.Bindings[0].CustomerName != "Yeni Müşteri" || k.PreviousKey() != key {
-		t.Fatalf("%+v", d.Bindings)
-	}
-	if c := k.Issued(signal.BindingIssued{T: "binding.issued", BindingKey: key, TenantName: "Nokta", CustomerFirmName: &firm, Renewed: true}); c != "" {
-		t.Fatal("aynı firma/müşteri yenilemesi bilgi göstermez")
-	}
-	if c := k.Issued(signal.BindingIssued{T: "binding.issued", BindingKey: key, TenantName: "Başka"}); c != "Başka" ||
-		ChangedText(c) != "Bu bilgisayar artık Başka için kayıtlı." {
-		t.Fatalf("%q", c)
-	}
-	bad := newKeeper(&failStore{Store: s}, server, nil, now)
-	if c := bad.Issued(signal.BindingIssued{T: "binding.issued", BindingKey: key, TenantName: "X"}); c != "" {
-		t.Fatal("yazılamazsa sessiz")
-	}
-}
-
-// AC-251: değişim (köken, tenant kimliği) ile anlaşılır — sunucunun `renewed` kararı tenant kimliğiyle verilir.
-func TestAC251SameNameDifferentTenantShowsChange(t *testing.T) {
-	now := func() time.Time { return time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC) }
-	firm := "Örnek A.Ş."
-	prev := func(srv string) *remember.Binding {
-		return &remember.Binding{Server: srv, Key: key, TenantName: "Nokta", CustomerName: firm,
-			IssuedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)}
-	}
-	issue := func(tenant string, renewed bool) signal.BindingIssued {
-		return signal.BindingIssued{T: "binding.issued", BindingKey: key, TenantName: tenant, CustomerFirmName: &firm,
-			Renewed: renewed}
-	}
-	cases := []struct {
-		name    string
-		prevSrv string
-		tenant  string
-		renewed bool
-		want    string
-	}{
-		{"aynı ad + farklı tenant (sunucu yeni kayıt açtı)", server, "Nokta", false, "Nokta – Örnek A.Ş."},
-		{"aynı tenant + ad değişimi", server, "Nokta Bilişim", true, ""},
-		{"aynı tenant + aynı ad", server, "Nokta", true, ""},
-		{"farklı köken, aynı ad", "https://eski.example:443", "Nokta", true, "Nokta – Örnek A.Ş."},
-	}
-	for _, c := range cases {
-		k := newKeeper(newStore(t, nil), server, prev(c.prevSrv), now)
-		if got := k.Issued(issue(c.tenant, c.renewed)); got != c.want {
-			t.Errorf("AC-251 %s: %q, beklenen %q", c.name, got, c.want)
-		}
 	}
 }
 

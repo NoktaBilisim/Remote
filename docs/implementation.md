@@ -8501,3 +8501,194 @@ geçti; Windows dışında çıkış 2. Zorunlu-test grep mantığı sahte `go t
 PSScriptAnalyzer kurulamadı (izin yok). **Yapılmayan:** gerçek Windows CI koşusu (Go testleri K2/K4'te henüz yok → adım şu an
 "koşmadı" ile **kırmızı** olur; K2/K4 testleri gelince yeşil beklenir), 0.12.0 staging artifact'ı (K1–K6 + main birleşmesi
 sonrası §24.8), AV kapısı sonuç tablosu (Release adayı yokken doldurulamaz).
+
+## P20 K3 (çoklu firma) — backend-dev (Go) — 2026-11-15
+
+Kapsam: mimari-e11 §8d.2 istemci kuralı, §8d.3 ana ekran satırı, §8d.4 silme yolları, §8d.15 K3 maddeleri (G-P20-4/8/9/12/17/18),
+mimari-protokol §6.1. AC-253 (ana ekrandaki tepsi/başlatma kutuları), AC-254. `internal/request/*`, `cmd/noktadestek/main.go`,
+`ui/chat_windows.go`, `ui/request_windows.go`, `win/flash_windows.go`, `internal/tray`, `ui/resident_windows.go` dokunulmadı.
+
+### Değişen / yeni dosyalar
+
+| Dosya                                                 | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/signal/messages.go`                         | `BindingOffer.Multi` (`*bool`; alan varsa yalnız `true`, `null`/`false` red) + `IsMulti()`; `BindingRequest.PreviousKeys` (1..5, benzersiz, biçim) + `Full`, `previousKey` ile birlikte kodlanmaz; `BindingIssued.PreviousIndex` (`0..4`/null); `error` kod listesine `BINDING_LIMIT`; `BindingMaxPerOrigin = 5`                                                                                                                                                     |
+| `internal/flow/{flow.go,binding.go}`                  | `BindingHandler`: `PreviousKey()` → `Request(multi) (req, note, ok)`, `Issued` (tam cümle döner), yeni `Limited()`. Teklife istek yoksa not oturum sonuna, sonraki teklifler yanıtlanmaz; `BINDING_LIMIT` yutulur, oturum sürer, not oturum sonuna                                                                                                                                                                                                                   |
+| `internal/launch/keeper.go`                           | Çoklu firma keeper'ı (oturum kapsamlı): `multi` → aynı kökenin bütün anahtarları `previousKeys`, `full` yalnız gömülü köken 5 iken; eski sunucu → `previousKey` yok, 5 doluysa istek yok; üçüncü köken → istek yok + not; `issued` → bu oturumun yuvası / `previousIndex` yuvası / yeni yuva (5 doluysa yazılmaz); yenilemede ilk kayıt tarihi korunur; metinler `AddedText` (n/5), `LimitText`, `RenamedText`, `NoteWriteFailed` + diag `store_write_failed{class}` |
+| `internal/launch/decide.go`                           | `Input.Binding bool` → `Bindings int` (gömülü kökenli öğe sayısı)                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `internal/launch/run.go`                              | `Store` arayüzü (`LoadState`, `TouchBinding`, `SetPrefs`); `Deps.Home`, `Autostart`, `Startup`, `Diag`; açılış notları; SourceBinding → firma listeli ana ekran; API sarmalayıcısı                                                                                                                                                                                                                                                                                   |
+| `internal/launch/home.go` (yeni)                      | `HomeUI`/`FirmView`/`FirmAction`/`Toggles`; ana ekran döngüsü, status döngüsü, tek/tüm unut, `onBindingInvalid(key)`, tepsi/başlatma kutuları, `firmRequestUI`, `observedAPI` (BINDING_LIMIT metni için firma adı; kayıtla talep 201 → `TouchBinding`)                                                                                                                                                                                                               |
+| `internal/launch/autostart_{windows,other}.go` (yeni) | Varsayılan `autorun.New()` (Windows) / yok                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `internal/ui/home.go`, `ui/home_windows.go`           | `FirmHome` penceresi: ListBox (≤ 5 görünen satır) ya da tek kayıtta satır, "Başka sunucu (<host>) — talep için seçilemez" bloğu, dolandırıcılık uyarısı, bilgi satırı, düğmeler (Destek iste / Bağlantı kodum var / Bu firmayı unut (onay) / Bu bilgisayarı unut (tüm firmalar) (onay) / Kapat), onay kutuları **Tepside çalıştır**, **Windows açılışında başlat** + açıklama/hata satırı + bilgi metni                                                              |
+| Testler                                               | `signal/binding_test.go` (multi fikstürü), `flow/binding_test.go` (+3), `flow/p17_test.go` (AC-250 multi), `launch/keeper_test.go` (yeni, 7), `launch/home_test.go` (yeni, 10), `launch/decide_test.go` (çoklu satırlar), `launch/run_test.go` (keeper testleri yeni dosyaya), `ui/home_test.go` (+1)                                                                                                                                                                |
+
+### Davranış özeti
+
+- **Ana ekran (SourceBinding: Decide satır 2/5/7):** her gösterimde gömülü kökenli öğeler sırayla `bindings/status` (öğe
+  başına 5 sn); **yalnız `BINDING_INVALID`** o öğeyi siler (anahtarla); RATE_LIMITED, 5xx, CLIENT_OUTDATED, kodsuz 404 hiçbir
+  şey silmez; ağ/TLS hatasında kalan öğeler o gösterimde sorulmaz. Ad değiştiyse dosya güncellenir (anahtar, kayıt tarihi, son
+  kullanım aynı) ve bir kez "Firma adı değişti: eski → yeni". Gömülü kökende öğe kalmazsa kaynaksız ana ekran (bugünkü).
+- **Destek iste:** seçili firmanın anahtarıyla `request.Run`; talebin kendi ana ekranı otomatik geçilir (firma bilgisi alındıysa);
+  talep ana ekrana dönmek isterse (BINDING_INVALID) liste bilgi satırıyla yeniden açılır. `Registered` = seçilen firmanın
+  yerel etiketi (K6 bekleme başlığı). `OnBindingInvalid` kapanışı **talebin anahtarını** taşır (G-P20-8; sıra değişse de).
+- **Bu firmayı unut:** yerel silme → o anahtarla iptal (2 sn); gömülü kökende öğe kalmazsa Run silinir. **Bu bilgisayarı unut:**
+  `ForgetAll` (okuma durumundan bağımsız) → yalnız gömülü kökenin anahtarlarıyla iptal (toplam 2 sn; başka köken T43 gereği
+  gönderilmez) → Run silinir. Run silinemezse "kılavuzdaki elle kaldırma adımı" metni.
+- **Kutular:** "Tepside çalıştır" = `prefs.tray` (kapatınca Run silinir); "Windows açılışında başlat" yalnız tepsi açık ve
+  `State().Blocked == ReasonOK` iken etkin; yükseltilmiş süreçte ikisi pasif + açıklama; "Windows ayarlarında devre dışı";
+  ret nedeni `Reason.Message()`. Kutu değişimi pencereyi yeniden kurmaz (UI iş parçacığında yerel çağrı).
+- **Açılış notları:** salt-okunur (sınıf 2) → firma listesi yok, kaynaksız ana ekranda "Bu bilgisayarı unut" + açıklama;
+  `SuggestForget` → öneri metni; `Trimmed` → bir kez bilgi; göç `Blocked` → K-P20-5 metni + G-P20-9 cümlesi ("Eski sürüm
+  dosyasını açmayın; …"); `autorun.Verify()` (normal açılış, G-P20-15) → silindiyse/exe yoksa bilgi.
+
+### Tasarımdan sapmalar / yorumlar (gerekçeli)
+
+1. **Ana ekran `internal/request/home.go` yerine `launch/home.go`:** koordinatör kararıyla `internal/request/*` K6'ya ait
+   (paralel). Firma listesi launch katmanında ayrı ekran; `request.HomeView`/`HomeAction` değişmedi. Talebin ana ekranını
+   sarmalayıcı UI (`firmRequestUI`) otomatik geçer — kullanıcı tek ana ekran görür.
+2. **`request.Deps.OnBindingInvalid` imzası `func()` kaldı** (request kapsam dışı). G-P20-8 anlamı launch'ta sağlanır:
+   `Deps.onBindingInvalid(key, server)` anahtar alır; talep kapanışı talep başlarken anahtarı yakalar (test: talep sırasında
+   sıra değişse de talebin anahtarı silinir). İmza P21+'da request'e taşınabilir.
+3. **`launch.ChangedText` geçiş işlevi:** keeper artık tam cümle döndürür (`AddedText`, `LimitText`, …); main.go'nun
+   `EndedNote(launch.ChangedText(out.BindingChanged))` satırı değişmeden çalışsın diye `ChangedText` metni aynen döndürür.
+   K5 main.go'da doğrudan `out.BindingChanged` yazınca kaldırılmalı. Eski AC-187 "kayıt başka firmaya geçti" metni yok: çoklu
+   dalda başka firmanın kaydı değiştirilmez, eski sunucuya da `previousKey` gitmez.
+4. **Yenilemede kayıt tarihi korunur:** G-P20-12'deki tarih taklit firmayı ayırmak içindir; her oturumda güncellenseydi
+   meşru kayıt da "yeni" görünürdü. Tarih öğenin bu bilgisayardaki ilk kayıt anıdır; yenilemede yalnız anahtar/ad değişir.
+5. **Üçüncü köken kuralı `multi` olsun olmasın uygulanır** (§8d.2 metni "multi yoksa" maddesinde): yazımda zaten `ErrLimit`
+   olurdu; istek göndermemek sunucuda yetim kayıt oluşmasını önler. Metin: "Bu bilgisayarda başka iki sunucunun kayıtları var;
+   bu firma için kayıt alınmadı."
+6. **Eski sunucuda 5 dolu → istek yok** ve oturum sonunda `LimitText` (tasarım metin belirtmiyordu; kullanıcı açısından
+   BINDING_LIMIT ile aynı durum).
+7. **Status denetimi ana ekran gösterilmeden önce, sıralı** (mevcut `loadInfo` kalıbı); ağ yoksa ilk hatada durur (en çok
+   ≈ 5 sn gecikme). Talep seçilince `request.Run` aynı anahtarı bir kez daha sorar (≤ 6 istek/gösterim; 60/dk/IP sınırı yeterli).
+8. **Form kapatılınca süreç biter** (bugünkü AC-163 davranışı); listeye dönüş yalnız kayıt geçersizliğinde. Tepside kalma K5.
+9. **`HomeUI` yoksa** (yalnız eski birim testlerinin sahte UI'si) SourceBinding en son kullanılan kayıtla bugünkü talep ana
+   ekranını açar; Windows UI her zaman `FirmHome` uygular.
+10. Sürüm: `0.12.0` ldflags `config.version` ile etiketten (`v0.12.0`, K7 CI); kodda sürüm sabiti yok, değişiklik gerekmedi.
+
+Yeni bağımlılık yok.
+
+### K5 / K7 / K9 için
+
+- `remember.Migrate()` çağrısı K5'te (main.go `ld.Startup`); launch `Startup` nil ise `LoadState()` kullanır. `ld.Diag` K5'te
+  bağlandı (görüldü). main.go'da `ChangedText` sarmalı kaldırılabilir (madde 3).
+- Tepsi: `prefs.tray` ana ekrandan yazılır; tepsinin açılıp kapanması, X ile tepsiye inme ve tepside balon K5'te.
+- `launch.HomeUI` Windows'ta `(*ui.UI).FirmHome`; `Deps.Home` boşsa `Request.UI`'den tür doğrulamasıyla alınır.
+- Kılavuz (K9): firma listesi, kayıt tarihi, "Başka sunucu" bloğu (seçilemez; tümünü unut onları sunucuda iptal edemez), 5
+  sınırı köken başına, kutular ve açıklamalar, G-P20-9 cümlesi.
+
+### Test
+
+- `docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 go test ./...` → **tüm paketler ok** (K5'in süren
+  `internal/tray`/`ui/resident_windows.go`/main.go değişiklikleri dahil derleniyor).
+- `-race -count=1` launch/flow/signal/ui → ok. `GOOS=windows go vet ./...` → temiz; `GOOS=windows go test -c` launch, ui →
+  derleniyor. `gofmt -l .` → boş.
+- Yeni testler (AC numaralı): `TestAC254MultiServerMessagesFixture`, `TestAC254MultiRequestEncodeMatchesFixture`,
+  `TestAC254OldServerOfferPassesMultiFalse`, `TestAC254RequestSkippedShowsNote`, `TestAC254BindingLimitSessionContinues`,
+  `TestAC254KeeperMultiSendsSameOriginKeysAndFullOnlyFromEmbedded`, `TestAC254KeeperOldServerNeverSendsPreviousKey`,
+  `TestAC254KeeperThirdOriginNoRequest`, `TestAC254KeeperPreviousIndexUpdatesSlot`, `TestAC254KeeperRenameNote`,
+  `TestAC254KeeperFullNewSlotNotWritten`, `TestGP204KeeperWriteFailureVisible`,
+  `TestAC254HomeListsFirmsWithDateAndOtherOriginSeparately`, `TestGP208OnlyBindingInvalidDeletesItem`,
+  `TestGP208OnBindingInvalidUsesRequestKey`, `TestAC254SupportSelectedFirmSkipsRequestHome`,
+  `TestAC254ForgetOneRevokesOnlyThatKey`, `TestAC254ForgetAllRevokesOwnOriginOnly`, `TestGP2012StatusRenameUpdatesOnce`,
+  `TestAC253TogglesTrayGatesAutostart`, `TestGP2018UnreadableOffersForgetAndNotices`, `TestAC254CreateTouchesBinding`,
+  `TestAC254FirmHomeButtonsAndOthers`, `TestAC182AC183AC190AC254DecideTable`.
+- Windows elle (K9): FirmHome yerleşimi açık/koyu tema, 5 satır + başka köken bloğu taşmıyor, onay kutuları, onay diyalogları.
+
+## P20 K5 (tepsi + `--tray` yerleşik döngü) — backend-dev (Go) — 2026-11-15
+
+Kapsam: mimari-e11 §8d.3 tepsi + açılış satırları, §8d.4 tepsi sütunu, §8d.15 K5 maddeleri (G-P20-3 `--tray` kısmı,
+G-P20-5, G-P20-6 argüman, G-P20-13, G-P20-15 tepsi kısmı, G-P20-16 tepsi mutex'i), K-P20-7 (AC-107 istisnası), K-P20-8,
+K-P20-13. AC-253. K3 dosyalarına (`internal/launch/*`, `internal/signal*`, `flow`, `ui/home*`) dokunulmadı.
+
+### Değişen / yeni dosyalar
+
+| Dosya                                                                          | İçerik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/agent-win/internal/tray/tray.go` (yeni, platformsuz)                     | `Command` (`CmdOpen`, `CmdExit`), sabit metinler (ipucu, balonlar, menü, Çık onayı), `MutexName(sid)` = `Local\NoktaDestek.Tray.<SHA-256 ilk 16 hane>`, `IconPixels` (kare, oran korunur, saydam kenar, BGRA), UTF-16 kesme                                                                                                                                                                                                                                                                                                  |
+| `apps/agent-win/internal/tray/resident.go` (yeni, platformsuz)                 | `IsTrayLaunch` (G-P20-6), `Eligible` / `Keep` / `DecideStart` (ağsız `--tray` kararı), `Scope.Session` (kapsam başına yeni kapı + kısayol + akış; sonunda bırakma, `CloseIdleConnections`), `Resident.RunNormal` / `RunTray` (tepsi döngüsü, kapsam sürerken Aç → öne getir, Çık → onay → `session.end` → çıkış), `WithActive` (oturum başlayınca ipucu)                                                                                                                                                                     |
+| `apps/agent-win/internal/tray/tray_windows.go` (yeni)                          | `Shell_NotifyIconW` (uID, GUID yok, `NOTIFYICON_VERSION_4`: tıklama/Enter = Aç, sağ tık/menü tuşu = menü), menü yalnız **Destek iste / Aç / Çık**, `TaskbarCreated`'da yeniden ekleme, gövdesiz balon (`NIIF_RESPECT_QUIET_TIME`), kendi kilitli iş parçacığı + gizli `WS_EX_TOOLWINDOW` pencere; `Acquire` (mutex + `GetSecurityInfo(OWNER)` sahip denetimi), `SignalExisting` (`FindWindow` + `RegisterWindowMessage("NoktaDestek.Show")`, veri yok, `AllowSetForegroundWindow` yalnız o süreç; UIPI filtresi gevşetilmez) |
+| `apps/agent-win/internal/tray/resident_test.go`, `tray_windows_test.go` (yeni) | Testler (aşağıda)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `apps/agent-win/internal/ui/resident_windows.go` (yeni)                        | `ResetScope(gate, hotkey)` (tüm pencereler kapanır, oturum UI durumu ve bekleyen olaylar sıfırlanır, kapı/kısayol etiketi kapsamınki), `Raise`, `EndSession` (`EvEnd`), `SystemLogo`                                                                                                                                                                                                                                                                                                                                         |
+| `apps/agent-win/cmd/noktadestek/main.go`                                       | Aşağıdaki bağlamalar; kapsam başına `launchDeps`                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+
+Ortak dosyalarda (`ui/screens_windows.go`, `ui/form_windows.go`, `ui/logo.go`, `internal/win/*`) **değişiklik yok**; UI
+eklemeleri yeni dosyada, Win32 çağrıları `tray_windows.go` içindeki kendi `LazySystemDLL` tanımlarıyla.
+
+### Bağlamalar (main.go)
+
+- **(a) `remember.Migrate()`** açılışta, ilk okumadan önce bir kez; sonuç ilk kapsamda `launch.Deps.Startup`'a verilir (K3
+  `startupNotes` ana ekran bilgilerini — salt-okunur, silme önerisi, Trimmed, Blocked — gösterir), sonraki kapsamlarda `nil`
+  (K3 `LoadState()` kullanır). `StatusUnreadable` → diag `load_failed{Class}`; `Failed` → diag `migrate_failed`.
+  `launch.Deps.Diag` = aynı tanılama yazıcısı.
+- **(b) `autorun`:** normal açılıştaki `Verify()` K3'ün `launch.Run` → `startupNotes` içinde yapılıyor (ana ekran bilgisi);
+  K5 ikinci kez çağırmaz. `--tray` açılışında ve tepsiden her pencere açılışında `autorun.New().Verify()`; `Removed` →
+  balon "Windows açılışında başlatma kapatıldı (klasör izinleri)" (G-P20-15).
+- **(c) K6:** `u.SetRequestChatBalloon(...)` → o an tepsi simgesi varsa `Balloon(text)` (metin sabit, gövde yok).
+- **(d) Sürüm:** kodda sürüm sabiti yok; `cfg.Version` ldflags'tan (`build.sh <sunucu> <x.y.z>`), CI'da `inputs.version`
+  / etiket. 0.12.0 yayın girdisidir (K7 / runbook §24); kod değişikliği gerekmedi.
+
+### Davranış
+
+- **`--tray`** (yalnız `len(os.Args)==2 && os.Args[1]=="--tray"`): hata pencereleri gösterilmez; `DecideStart`:
+  yükseltilmiş → çıkış (kayıt defterine dokunulmaz, K-P20-8); dosya okunamıyor → tepsi, Run korunur (G-P20-3); gömülü
+  kökende kayıt + `prefs.tray` → tepsi; aksi → `autorun.Disable()` + çıkış. Mutex alınamazsa (aynı kullanıcının tepsi
+  örneği) `SignalExisting` + çıkış. Tepsi boştayken **pencere, ağ isteği, global kısayol, kanca yok**; dosya adı hiç
+  değerlendirilmez (sonraki kapsamlar `Exe=""`).
+- **Normal açılış:** ilk kapsam dosya adıyla (bugünkü akış). Kapsam bitince (X / oturum sonu) kod/ref dosyası değilse,
+  süreç yükseltilmiş değilse ve `Eligible` (okundu + kayıt + `prefs.tray`) ise tepsi mutex'i alınır; alınamazsa bugünkü
+  gibi çıkılır (G-P20-13); alınırsa süreç başına bir kez "Program tepside çalışmaya devam ediyor" balonu.
+- **Kapsam (G-P20-5):** her pencere açılışı yeni `control.Gate` (kapalı), yeni `input.Start` (kısayol + kapıya bağlı
+  kancalar), yeni `input.Applier`, yeni `flow.Deps` (keeper/logo/sohbet/PC `launch.Run`/`flow` içinde zaten kapsam
+  başına); `ui.ResetScope` önce ve sonra. Sonunda kapı kapanır, kısayol kaldırılır, `CloseIdleConnections`.
+- **AC-107 istisnası (K-P20-7):** tepsi modunda oturum sonu ekranı 2,5 sn gösterilir, pencere kapanır, süreç tepside kalır.
+  Kapsam sonunda `Keep` sağlanmıyorsa (son firma unutuldu, tepsi kapatıldı) `autorun.Disable()` ve çıkış.
+- **Etkin oturumda X (K-P20-13):** değişmedi (oturum penceresinin bitirme onayı; talep beklerken mevcut iptal onayı).
+  Tepsiye inme yalnız kapsam bitince.
+- **Tepsi komutları:** kapsam yokken Aç/Destek iste → Verify + yeni kapsam (ana ekran); kapsam varken → pencere öne gelir.
+  Çık: kapsam yoksa hemen; varsa onay ("Hayır" varsayılan) → `EvEnd` (`session.end`) → en çok 2 sn → bağlam iptali → çıkış.
+- **Mutex (G-P20-16):** `ERROR_ALREADY_EXISTS` + sahip geçerli kullanıcı → tek örnek; sahip başka / açılamadı → yok sayılır,
+  tepsi başlar, diag `tray_mutex_foreign`. Handle süreç ömrü boyunca açık.
+
+### Tasarımdan sapmalar / yorumlar (gerekçeli)
+
+1. **`resident.go` yeri:** §8d.3 `internal/launch/resident.go` diyor; K3 aynı anda `internal/launch`'ı yeniden yazdığı için
+   döngü `internal/tray/resident.go`'ya kondu ve `launch.Run`'a main'deki bir kapanışla bağlandı (paket `launch`'a bağımlı
+   değil; Linux'ta bağımsız test edilir). Davranış aynı.
+2. **Tepsi ipucu oturumda "Nokta Destek — oturum sürüyor"** (firma adı yok): §8d.3 "Oturum sürüyor — <firma>" diyor; seçili
+   firmanın adı K3'ün ana ekranında, akışa taşınmıyor. Sunucu kaynaklı metin ipucuna girmez (balon kuralıyla tutarlı). K3
+   seçili firma etiketini dışa verirse tek satırla eklenebilir.
+3. **Kısayol/kanca kapsamı:** "yalnız oturum süresince" pencere kapsamı (ana ekran → talep → oturum) olarak uygulandı;
+   tepside boştayken yok (S-P20-2'nin amacı). Kısayolun izin diyaloğundan önce kayıtlı olması gerekir (G-21).
+4. **Simge:** exe'de simge kaynağı yok (`build/winres.json`'da `RT_GROUP_ICON` yok); simge gömülü `nokta-kucuk.png`'den
+   çalışma anında `SM_CXSMICON` boyunda üretilir (kare, saydam kenar). Exe simgesi eklenmesi K7/build işi (tekrarlanabilirlik).
+5. **"İlk seferde bir kez balon"** süreç başına; kalıcı bayrak `Prefs` şemasında yok (K2), eklenmedi.
+6. **"Destek iste" menü öğesi** ana ekranı açar ("Aç" ile aynı; §8d.13 firma alt menüsü sonra).
+7. **İkinci örnek "göster" iletisi** yayın (broadcast) yerine `FindWindow(NoktaDestekTray)` ile tek pencereye gönderilir;
+   ön plan izni yalnız o süreç için verilir.
+8. **Kapsam içinde tepsi kapatılırsa** simge kapsam (pencere) bitince kalkar; "süreç pencerede kalır" (§8d.4) bu şekilde
+   karşılanır.
+
+Yeni bağımlılık yok.
+
+### Test
+
+- `docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 go test -race ./...` → tüm paketler `ok`
+  (`internal/tray` `-count=5` ile kararlı).
+- `-e GOOS=windows go vet ./...` (amd64 + 386) temiz; `GOOS=windows go build ./...` ve `go test -c ./internal/tray/` derleniyor;
+  `gofmt -l .` boş.
+- Yeni testler (`internal/tray/resident_test.go`): `TestAC253GP206TrayArgOnlyExact` (argüman tablosu),
+  `TestAC253DecideStart` (yükseltilmiş, okunamıyor → Run korunur, tepsi kapalı/kayıt yok/başka köken → Disable),
+  `TestAC253TrayLaunchNoNetworkUntilCommand` (`--tray` boşta akış çağrısı 0, kısayol 0), `TestAC253GP205ScopesResetPerSession`
+  (A'da kapı açıldı → B yeni ve kapalı kapı, kısayol yalnız kapsamda, UI sıfırlama, ipucu), `TestAC253NormalCloseGoesToTrayOnceBalloon`,
+  `TestAC107NormalExitWhenNotResident` (tepsi kapalı / okunamıyor / kod-ref / yükseltilmiş → çıkış), `TestAC253GP213SecondTrayInstanceExits`,
+  `TestAC253ExitDuringSessionConfirmsAndEnds` (Aç → öne getir; Çık hayır/evet → `session.end`), `TestAC253TrayClosesWhenNoLongerEligible`,
+  `TestAC253GP203UnreadableKeepsTray`, `TestAC253GP215VerifyOnTrayOpenBalloon`, `TestAC253WithActiveForwards`, mutex adı/metin sınırları,
+  `IconPixels`.
+- Windows (`tray_windows_test.go`, CI `test-windows`): `NOTIFYICONDATAW` boyu (976/956), aynı kullanıcıda ikinci `Acquire` →
+  `LockTaken`, bırakınca yeniden alınır. Başka SID sahipli mutex senaryosu (G-P20-16) ikinci kullanıcı gerektirir → elle.
+- **Elle duman (Windows 10/11, I6 kalıbı; test-operatoru):** `NoktaDestek.exe --tray` → yalnız simge, Kaynak İzleyicisi'nde
+  ağ yok; simgeye tıkla/Enter → ana ekran; sağ tık → 3 öğe; X → tepside kalır (ilk seferde balon); oturum sonu → 2,5 sn son
+  ekran sonra tepside; oturum sürerken Çık → onay → teknisyende oturum biter; ikinci `--tray` → ilk örnek öne gelir, ikinci
+  çıkar; Explorer yeniden başlatılınca simge geri gelir; açık/koyu tema ve %150 DPI'da simge okunaklı.

@@ -293,11 +293,19 @@ func (m EnvState) validate() error {
 
 // BindingRequest P8c (mimari-protokol §6): guest(AGENT) → S, yalnız `binding.offer` alındıktan sonra. PreviousKey
 // yalnız dosyadaki kaydın kanonik kökeni gömülü sunucu kökeniyle aynıysa doldurulur (T43, G-E10-6).
+// P20 (§6.1): `multi` teklifinde PreviousKey yerine PreviousKeys (aynı kökenin bütün anahtarları, 1..5, benzersiz) ve
+// gömülü kökenin 5 yuvası doluysa Full; ikisi PreviousKey ile birlikte gönderilemez. 0.12 istemci `multi`'siz teklife
+// PreviousKey göndermez (başka firmanın kaydı REPLACED olmasın).
 type BindingRequest struct {
-	T           string `json:"t"`
-	ID          string `json:"id,omitempty"`
-	PreviousKey string `json:"previousKey,omitempty"`
+	T            string   `json:"t"`
+	ID           string   `json:"id,omitempty"`
+	PreviousKey  string   `json:"previousKey,omitempty"`
+	PreviousKeys []string `json:"previousKeys,omitempty"`
+	Full         bool     `json:"full,omitempty"`
 }
+
+// BindingMaxPerOrigin contracts `BINDING_MAX_PER_DEVICE` (`previousKeys` üst sınırı, köken başına kayıt).
+const BindingMaxPerOrigin = 5
 
 func (m BindingRequest) validate() error {
 	if m.T != "binding.request" {
@@ -305,6 +313,19 @@ func (m BindingRequest) validate() error {
 	}
 	if m.PreviousKey != "" && !bindingKeyRe.MatchString(m.PreviousKey) {
 		return fail(m.T, "previousKey")
+	}
+	if len(m.PreviousKeys) > 0 { // boş dilim omitempty ile hiç gitmez
+		if m.PreviousKey != "" {
+			return fail(m.T, "previousKey ve previousKeys birlikte")
+		}
+		if len(m.PreviousKeys) > BindingMaxPerOrigin {
+			return fail(m.T, "previousKeys sayısı")
+		}
+		for i, k := range m.PreviousKeys {
+			if !bindingKeyRe.MatchString(k) || slices.Contains(m.PreviousKeys[:i], k) {
+				return fail(m.T, "previousKeys")
+			}
+		}
 	}
 	return checkID(m.T, m.ID)
 }
@@ -446,18 +467,25 @@ type CapsUpdate struct {
 }
 
 // BindingOffer P8c: sunucu bu misafire kayıt verebilir (yalnız ≥ 0.10.0 AGENT; admit/yeniden bağlanma hello'sundan
-// hemen sonra). Alan yok.
+// hemen sonra). P20 (§6.1): Multi yalnız ticket `clientVersion ≥ 0.12.0` ise ve yalnız `true` olarak gelir.
 type BindingOffer struct {
-	T string `json:"t"`
+	T     string `json:"t"`
+	Multi *bool  `json:"multi,omitempty"`
 }
 
+// IsMulti çoklu firma teklifi (sunucu `previousKeys` kabul eder).
+func (m BindingOffer) IsMulti() bool { return m.Multi != nil && *m.Multi }
+
 // BindingIssued P8c: kayıt anahtarı yalnız isteyen sokete. CustomerFirmName null = Genel (alan zorunlu).
+// P20: PreviousIndex yalnız `previousKeys`'li isteğe gelir — yenilenen anahtarın listedeki sırası (0..4); null/yok =
+// yeni yuva.
 type BindingIssued struct {
 	T                string  `json:"t"`
 	BindingKey       string  `json:"bindingKey"`
 	TenantName       string  `json:"tenantName"`
 	CustomerFirmName *string `json:"customerFirmName"`
 	Renewed          bool    `json:"renewed"`
+	PreviousIndex    *int    `json:"previousIndex,omitempty"`
 }
 
 func (m BindingOffer) Type() string  { return m.T }
@@ -487,7 +515,7 @@ var (
 	guestKinds    = []string{"BROWSER", "AGENT"}
 	caps          = []string{"remote_control", "file_transfer"}
 	endedReasons  = []string{"tech", "customer", "timeout", "max_duration", "cancelled", "tenant_passive", "server", "admin", "auth_revoked", "rejected", "lobby_timeout"}
-	wsErrorCodes  = []string{"ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND", "VALIDATION", "INTERNAL"}
+	wsErrorCodes  = []string{"ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND", "VALIDATION", "INTERNAL", "BINDING_LIMIT"}
 	techOnlyTypes = []string{"peer.pending", "peer.pending.left", "sdp.answer", "share.state", "control.state", "env.state",
 		"monitor.denied"}
 	revokeReasons = []string{"permission", "audit", "admin", "reconnect", "stale"}
@@ -591,11 +619,14 @@ func ParseServer(raw []byte) (Inbound, error) {
 	case "caps.update":
 		return decodeValid(raw, func(m *CapsUpdate) bool { return validCaps(m.Caps) })
 	case "binding.offer":
-		return decodeValid(raw, func(*BindingOffer) bool { return true })
+		// zod `z.literal(true).optional()`: alan varsa yalnız `true` (null/false red).
+		multiOK := literalTrueIfPresent(raw, "multi")
+		return decodeValid(raw, func(*BindingOffer) bool { return multiOK })
 	case "binding.issued":
 		return decodeValid(raw, func(m *BindingIssued) bool {
 			return bindingKeyRe.MatchString(m.BindingKey) && utf16Len(m.TenantName) <= tenantMax &&
-				(m.CustomerFirmName == nil || utf16Len(*m.CustomerFirmName) <= custFirmMax)
+				(m.CustomerFirmName == nil || utf16Len(*m.CustomerFirmName) <= custFirmMax) &&
+				(m.PreviousIndex == nil || (*m.PreviousIndex >= 0 && *m.PreviousIndex < BindingMaxPerOrigin))
 		})
 	case "error":
 		return decodeValid(raw, func(m *ErrorMsg) bool {
@@ -603,6 +634,16 @@ func ParseServer(raw []byte) (Inbound, error) {
 		})
 	}
 	return nil, fail(env.T, "bilinmeyen tip")
+}
+
+// literalTrueIfPresent nesnede alan yoksa veya değeri tam `true` ise doğru.
+func literalTrueIfPresent(raw []byte, field string) bool {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
+		return false
+	}
+	v, ok := obj[field]
+	return !ok || string(v) == "true"
 }
 
 func decodeValid[M Inbound](raw []byte, ok func(*M) bool) (Inbound, error) {

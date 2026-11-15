@@ -253,8 +253,8 @@ func TestAC250DisconnectResetsBindingPending(t *testing.T) {
 	c2 := recv(t, h.conns)
 	c2.toClient <- hello(token)
 	recv(t, c2.sent) // share.state
-	c2.toClient <- signal.BindingOffer{T: "binding.offer"}
-	if req, ok := recv(t, c2.sent).(signal.BindingRequest); !ok || req.PreviousKey != prevKey {
+	c2.toClient <- signal.BindingOffer{T: "binding.offer", Multi: &multiTrue}
+	if req, ok := recv(t, c2.sent).(signal.BindingRequest); !ok || len(req.PreviousKeys) != 1 || req.PreviousKeys[0] != prevKey {
 		t.Fatalf("AC-250: kopuştan sonra yeni teklife istek gitmeli: %#v", req)
 	}
 	c2.toClient <- signal.BindingOffer{T: "binding.offer"}

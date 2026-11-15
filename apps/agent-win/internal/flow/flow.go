@@ -63,12 +63,17 @@ type Welcome struct {
 }
 
 // BindingHandler P8c (ADR-0017, mimari-e10 §8.4): bilgisayar kaydının alınması. Uygulaması internal/launch'tadır.
+// P20 (mimari-e11 §8d.2, AC-254): çoklu firma kaydı; dönen metinler oturum sonu bilgi satırıdır (tam cümle).
 type BindingHandler interface {
-	// PreviousKey dosyadaki kaydın anahtarı; YALNIZ kaydın kanonik kökeni gömülü sunucununkiyle aynıysa (T43), yoksa "".
-	PreviousKey() string
-	// Issued anahtarı DPAPI dosyasına yazar (hata sessiz; oturum etkilenmez). Kayıt başka firma/müşteriye geçtiyse
-	// oturum sonu bilgisi için "<firma>[ – <müşteri>]" döner, değilse "".
+	// Request teklife verilecek `binding.request`. multi `binding.offer.multi`; ok=false ise istek gönderilmez (eski
+	// sunucuda 5 yuva dolu, üçüncü köken, kayıt dosyası okunamadı) ve note (boş olabilir) oturum sonunda gösterilir.
+	// Anahtarlar YALNIZ gömülü sunucunun kanonik kökenindendir (T43).
+	Request(multi bool) (req signal.BindingRequest, note string, ok bool)
+	// Issued anahtarı DPAPI dosyasına yazar (oturum etkilenmez); oturum sonu bilgisi döner (yeni yuva, ad değişimi,
+	// "Kayıt bu bilgisayara yazılamadı"), yoksa "".
 	Issued(m signal.BindingIssued) string
+	// Limited `error BINDING_LIMIT` (yalnız `full` isteğe): oturum sürer, oturum sonu bilgisi döner.
+	Limited() string
 }
 
 // UI akışın arayüzden beklediği işlemler. Engelleyen çağrılar (AskCode, Welcome, ChooseShare) yalnız oturum
@@ -180,7 +185,7 @@ type Outcome struct {
 	// Failed oturum bağlantı/protokol hatasıyla bitti (kullanıcı kararı veya sunucu son durumu değil). Talep modu bunu
 	// hello'dan önce `/ws/request`'i 1001 ile bırakmak için kullanır (CONNECT_FAILED, "vazgeçti" değil).
 	Failed bool
-	// BindingChanged AC-187: bu oturumda kayıt başka firma/müşteriye geçti ("<firma>[ – <müşteri>]"); yoksa boş.
+	// BindingChanged oturum sonu kayıt bilgisi (tam cümle; P20: BindingHandler'ın döndürdüğü metin); yoksa boş.
 	BindingChanged string
 }
 
@@ -535,6 +540,10 @@ func (s *session) onServer(ctx context.Context, m signal.Inbound) (Outcome, bool
 	case signal.ErrorMsg:
 		if s.bindingPending && slices.Contains(bindingErrorCodes, m.Code) { // kayıt reddi: oturum sürer, gösterilmez
 			s.bindingPending = false
+			if m.Code == "BINDING_LIMIT" { // P20: 5 firma dolu — yeni teklife istek yok, oturum sonu bilgisi
+				s.bindingDone = true
+				s.bindingChanged = s.d.Binding.Limited()
+			}
 			return Outcome{}, false
 		}
 		s.d.UI.Status(m.Message)

@@ -20,12 +20,15 @@ type API interface {
 	RevokeBinding(ctx context.Context, key string) error
 }
 
-// Store kayıt dosyası (remember.Store, `kayitlar.bin` v3). P20 K2 ara uyarlaması: çoklu firma akışı K3'te.
+// Store kayıt dosyası (remember.Store, `kayitlar.bin` v3; mimari-e11 §8d.1).
 type Store interface {
 	request.Remember
 	Load() (remember.Data, bool)
+	LoadState() remember.LoadResult
 	SaveBinding(b remember.Binding, replaceKey string) error
 	RemoveBinding(key string) error
+	TouchBinding(key string, t time.Time) error
+	SetPrefs(p remember.Prefs) error
 	ForgetAll() error
 }
 
@@ -38,6 +41,14 @@ type Deps struct {
 	Flow      flow.Deps
 	Request   request.Deps
 	Now       func() time.Time
+	// Home P20 firma listeli ana ekran; nil ise Request.UI HomeUI'yi uyguluyorsa o kullanılır.
+	Home HomeUI
+	// Autostart "Windows açılışında başlat" (internal/autorun); nil ise Windows'ta autorun.New(), başka yerde kapalı.
+	Autostart Autostart
+	// Startup açılıştaki remember.Migrate() sonucu (K5 main.go'da bir kez çağırır); nil ise Store.LoadState().
+	Startup *remember.MigrateResult
+	// Diag kişisel veri içermeyen tanılama olayı (`store_write_failed{class}`); nil olabilir.
+	Diag func(event, class string)
 }
 
 // Run açılış kararını verir ve seçilen akışı yürütür; dönen sonucun Message'ı son ekrandır (boşsa son ekran yok).
@@ -45,13 +56,33 @@ func Run(ctx context.Context, d Deps) flow.Outcome {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
+	if d.Autostart == nil {
+		d.Autostart = defaultAutostart()
+	}
+	if d.Home == nil {
+		d.Home, _ = d.Request.UI.(HomeUI)
+	}
+	obs := &observedAPI{API: d.API}
+	d.API = obs
 	server, serverOK := remember.CanonicalOrigin(d.ServerURL.String())
-	local := d.localBinding(server, serverOK)
+	st := d.startState()
+	notes := d.startupNotes(st)
 	if d.Store != nil && serverOK {
-		d.Flow.Binding = newKeeper(d.Store, server, local, d.Now)
+		k := newKeeper(d.Store, server, d.Now)
+		k.diag, k.tenant = d.Diag, obs.lastTenant
+		d.Flow.Binding = k
+		obs.touch = func(key string) {
+			if err := d.Store.TouchBinding(key, d.Now()); err != nil && d.Diag != nil {
+				d.Diag(eventStoreFailure, remember.ErrorClass(err))
+			}
+		}
+	}
+	var own []remember.Binding
+	if serverOK {
+		own = st.Data.ForOrigin(server)
 	}
 	d.Flow.API = d.API
-	in := Input{Binding: local != nil && local.Server == server}
+	in := Input{Bindings: len(own)}
 	var info *api.TenantRequestInfo
 	var infoErr error
 	ref, isRef := pairing.RefFromFileName(d.Exe)
@@ -78,59 +109,53 @@ func Run(ctx context.Context, d Deps) flow.Outcome {
 	if dec.Screen == ScreenCode {
 		return flow.Run(ctx, d.Flow, code)
 	}
-	rd := d.requestDeps(dec, ref, info, infoErr, local, server)
+	if dec.Source == SourceBinding && d.Home != nil {
+		return d.firmHome(ctx, server, joinNotes(append([]string{dec.Notice}, notes...)))
+	}
+	dec.Notice = joinNotes(append([]string{dec.Notice}, notes...))
+	rd := d.requestDeps(dec, ref, info, infoErr, own, server)
 	return d.runRequest(ctx, rd)
 }
 
-// localBinding dosyadaki kayıt (herhangi bir köken; AC-187 karşılaştırması için). Köken eşleşmesi Run'da yapılır;
-// eşleşmeyen kayıt yok sayılır, SİLİNMEZ (T43).
-func (d Deps) localBinding(server string, serverOK bool) *remember.Binding {
-	if d.Store == nil || !serverOK {
-		return nil
+// startState açılış okuma durumu (K5 Migrate sonucunu verirse o, değilse LoadState). Depo yoksa kayıtsız.
+func (d Deps) startState() remember.MigrateResult {
+	switch {
+	case d.Startup != nil:
+		return *d.Startup
+	case d.Store != nil:
+		return remember.MigrateResult{LoadResult: d.Store.LoadState()}
 	}
-	data, ok := d.Store.Load()
-	if !ok || len(data.Bindings) == 0 {
-		return nil
-	}
-	if own := data.ForOrigin(server); len(own) > 0 {
-		return &own[0]
-	}
-	return &data.Bindings[0]
+	return remember.MigrateResult{}
 }
 
-func (d Deps) requestDeps(dec Decision, ref string, info *api.TenantRequestInfo, infoErr error, local *remember.Binding, server string) request.Deps {
-	rd := d.Request
-	rd.API, rd.ServerURL, rd.Notice = d.API, d.ServerURL, dec.Notice
-	rd.BindingEnabled = d.Flow.Binding != nil // AC-188 satırı yalnız kayıt alınabiliyorsa
-	if d.Store != nil {
-		rd.Remember = d.Store
-	}
-	usable := local != nil && local.Server == server
+// requestDeps talep modu (firma dosyası, kaynaksız ekran; HomeUI yoksa en son kullanılan kayıt).
+func (d Deps) requestDeps(dec Decision, ref string, info *api.TenantRequestInfo, infoErr error, own []remember.Binding, server string) request.Deps {
+	rd := d.baseRequest(server)
+	rd.Notice = dec.Notice
 	switch dec.Source {
 	case SourceRef:
 		rd.Ref, rd.Info, rd.InfoErr = ref, info, infoErr
 	case SourceBinding:
-		rd.BindingKey = local.Key
+		rd.BindingKey = own[0].Key
+		key := own[0].Key
+		rd.OnBindingInvalid = func() { d.onBindingInvalid(key, server) }
 	}
-	if usable {
-		rd.Registered = request.Label(request.Display(local.TenantName, ""), request.Display(local.CustomerName, ""))
+	if len(own) > 0 {
+		rd.Registered = bindingLabel(own[0])
 	}
-	rd.OnBindingInvalid = func() {
-		if d.Store != nil && local != nil {
-			_ = d.Store.RemoveBinding(local.Key) // yalnız o öğe; kişisel bilgiler kalır (AC-185)
-		}
+	return rd
+}
+
+// baseRequest talep modunun ortak alanları.
+func (d Deps) baseRequest(server string) request.Deps {
+	rd := d.Request
+	rd.API, rd.ServerURL = d.API, d.ServerURL
+	rd.BindingEnabled = d.Flow.Binding != nil // AC-188 satırı yalnız kayıt alınabiliyorsa
+	if d.Store != nil {
+		rd.Remember = d.Store
 	}
 	rd.ForgetComputer = func(ctx context.Context) error {
-		var err error
-		if d.Store != nil {
-			err = d.Store.ForgetAll() // önce yerel silme (≤ 1 sn, AC-186)
-		}
-		if usable { // anahtar yalnız kendi sunucusuna; en iyi çaba, 2 sn
-			_ = d.API.RevokeBinding(ctx, local.Key)
-		}
-		if k, ok := d.Flow.Binding.(*keeper); ok {
-			k.forget()
-		}
+		_, err := d.forgetAll(ctx, server)
 		return err
 	}
 	return rd

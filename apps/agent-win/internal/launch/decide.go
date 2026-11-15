@@ -43,12 +43,13 @@ const (
 	NoticeRefBinding  = "Bu dosya artık geçerli değil; bu bilgisayarın kaydıyla destek isteyebilirsiniz."
 )
 
-// Input karar girdisi. Binding: yerel kayıt var VE kanonik kökeni gömülü sunucunun kökeniyle aynı (T43); sunucu
-// geçerliliği talep modunda `bindings/status` ile denetlenir (geçersizse satır 8 ekranı + AC-185).
+// Input karar girdisi. Bindings: kanonik kökeni gömülü sunucunun kökeniyle aynı yerel kayıt sayısı (T43; P20 0..5);
+// sunucu geçerliliği ana ekranda öğe öğe `bindings/status` ile denetlenir (geçersiz öğe silinir, AC-185).
+// SourceBinding (satır 2, 5, 7) firma listeli ana ekrandır (mimari-e11 §8d.3).
 type Input struct {
-	File    FileKind
-	Net     NetResult
-	Binding bool
+	File     FileKind
+	Net      NetResult
+	Bindings int
 	// GoneMessage süresi dolmuş/kullanılmış kodun bugünkü mesajı (satır 3).
 	GoneMessage string
 }
@@ -67,18 +68,18 @@ func Decide(in Input) Decision {
 		switch {
 		case in.Net != NetGone: // 1 (ve ağ hataları: bugünkü mesajlar)
 			return Decision{Screen: ScreenCode}
-		case in.Binding: // 2
+		case in.Bindings > 0: // 2
 			return Decision{Screen: ScreenRequest, Source: SourceBinding, Notice: NoticeCodeExpired}
 		}
 		return Decision{Screen: ScreenRequest, Source: SourceNone, Notice: in.GoneMessage} // 3
 	case FileRef:
-		if in.Net == NetGone && in.Binding { // 5 (K22)
+		if in.Net == NetGone && in.Bindings > 0 { // 5 (K22)
 			return Decision{Screen: ScreenRequest, Source: SourceBinding, Notice: NoticeRefBinding}
 		}
 		// 4 (tenant 200 → ref ana ekranı); 6 ve ağ hataları: ref'in ilk yanıtı talep modunda bugünkü engel ekranıyla
 		return Decision{Screen: ScreenRequest, Source: SourceRef}
 	}
-	if in.Binding { // 7
+	if in.Bindings > 0 { // 7
 		return Decision{Screen: ScreenRequest, Source: SourceBinding}
 	}
 	return Decision{Screen: ScreenRequest, Source: SourceNone} // 8
