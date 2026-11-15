@@ -1,0 +1,113 @@
+{
+  "toplam": {
+    "klon": 16,
+    "satir": 193,
+    "yuzde": 0.11
+  },
+  "uretim": {
+    "klon": 2,
+    "satir": 40
+  },
+  "test": {
+    "klon": 14,
+    "satir": 153
+  },
+  "klonlar": [
+    {
+      "a": "apps/web/app/globals.css:134-162",
+      "b": "apps/web/app/globals.css:104-133",
+      "lines": 29,
+      "test": false
+    },
+    {
+      "a": "apps/web/app/(panel)/admin/tenants/page.tsx:4-14",
+      "b": "apps/web/app/(panel)/users/(list)/page.tsx:4-14",
+      "lines": 11,
+      "test": false
+    },
+    {
+      "a": "apps/web/lib/dc/disk-sink.test.ts:74-88",
+      "b": "apps/web/lib/dc/p5.test.ts:15-29",
+      "lines": 15,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/db-busy-p8b.test.ts:23-37",
+      "b": "apps/server/test/integration/security-p8b-fix2.test.ts:22-36",
+      "lines": 15,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/account-p10.test.ts:322-334",
+      "b": "apps/server/test/integration/account-p10.test.ts:286-298",
+      "lines": 13,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/permissions-ac72-p9.test.ts:25-36",
+      "b": "apps/server/test/integration/system-logo-p15.test.ts:3-14",
+      "lines": 12,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/retention-p13a-job.test.ts:47-57",
+      "b": "apps/server/test/integration/retention-p16-purge.test.ts:16-26",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/p19-web-j2.test.ts:543-553",
+      "b": "apps/server/test/integration/p19-web-j2.test.ts:292-302",
+      "lines": 11,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p5-collab.spec.ts:552-561",
+      "b": "apps/web/e2e/p5-collab.spec.ts:243-252",
+      "lines": 10,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p5-collab.spec.ts:576-585",
+      "b": "apps/web/e2e/p5-collab.spec.ts:211-220",
+      "lines": 10,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p15.spec.ts:139-148",
+      "b": "apps/web/e2e/p17-console.spec.ts:9-18",
+      "lines": 10,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/requests-p8b-3.test.ts:150-159",
+      "b": "apps/server/test/integration/requests-p8b-3.test.ts:38-81",
+      "lines": 10,
+      "test": true
+    },
+    {
+      "a": "apps/web/e2e/p7-control.spec.ts:314-322",
+      "b": "apps/web/e2e/p7-control.spec.ts:299-307",
+      "lines": 9,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/tenant-purge-p16.test.ts:337-345",
+      "b": "apps/server/test/integration/tenant-purge-p16.test.ts:128-136",
+      "lines": 9,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/sessions-public.test.ts:181-189",
+      "b": "apps/server/test/integration/sessions-public.test.ts:117-125",
+      "lines": 9,
+      "test": true
+    },
+    {
+      "a": "apps/server/test/integration/p18-backend-h2.test.ts:435-443",
+      "b": "apps/server/test/integration/p19-web-j2.test.ts:161-169",
+      "lines": 9,
+      "test": true
+    }
+  ]
+}

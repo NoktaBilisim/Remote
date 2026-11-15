@@ -1,0 +1,460 @@
+{
+  "server.uretim": {
+    "dosya": 166,
+    "satir": 26178,
+    "ust300": 9,
+    "ust500": 0,
+    "liste300": [
+      {
+        "file": "apps/server/src/requests/service.ts",
+        "lines": 469
+      },
+      {
+        "file": "apps/server/src/signaling/rooms.ts",
+        "lines": 417
+      },
+      {
+        "file": "apps/server/src/requests/messages.ts",
+        "lines": 398
+      },
+      {
+        "file": "apps/server/src/notify/outbox.ts",
+        "lines": 387
+      },
+      {
+        "file": "apps/server/src/notify/whatsapp.ts",
+        "lines": 387
+      },
+      {
+        "file": "apps/server/src/requests/hours.ts",
+        "lines": 351
+      },
+      {
+        "file": "apps/server/src/settings/system.ts",
+        "lines": 339
+      },
+      {
+        "file": "apps/server/src/requests/blocks.ts",
+        "lines": 338
+      },
+      {
+        "file": "apps/server/src/requests/hub.ts",
+        "lines": 322
+      }
+    ]
+  },
+  "web.uretim": {
+    "dosya": 384,
+    "satir": 36376,
+    "ust300": 0,
+    "ust500": 0,
+    "liste300": []
+  },
+  "contracts.uretim": {
+    "dosya": 23,
+    "satir": 5854,
+    "ust300": 9,
+    "ust500": 1,
+    "liste300": [
+      {
+        "file": "packages/contracts/src/api/requests.ts",
+        "lines": 981
+      },
+      {
+        "file": "packages/contracts/src/api/sessions.ts",
+        "lines": 494
+      },
+      {
+        "file": "packages/contracts/src/api/tenants.ts",
+        "lines": 482
+      },
+      {
+        "file": "packages/contracts/src/api/customers.ts",
+        "lines": 451
+      },
+      {
+        "file": "packages/contracts/src/ws.ts",
+        "lines": 352
+      },
+      {
+        "file": "packages/contracts/src/labels.ts",
+        "lines": 338
+      },
+      {
+        "file": "packages/contracts/src/audit.ts",
+        "lines": 326
+      },
+      {
+        "file": "packages/contracts/src/api/system-settings.ts",
+        "lines": 308
+      },
+      {
+        "file": "packages/contracts/src/api/users.ts",
+        "lines": 308
+      }
+    ]
+  },
+  "go.uretim": {
+    "dosya": 136,
+    "satir": 21748,
+    "ust300": 9,
+    "ust500": 2,
+    "liste300": [
+      {
+        "file": "apps/agent-win/internal/win/win_windows.go",
+        "lines": 597
+      },
+      {
+        "file": "apps/agent-win/internal/capture/mf_windows.go",
+        "lines": 537
+      },
+      {
+        "file": "apps/agent-win/internal/tray/tray_windows.go",
+        "lines": 460
+      },
+      {
+        "file": "apps/agent-win/internal/capture/source_windows.go",
+        "lines": 441
+      },
+      {
+        "file": "apps/agent-win/internal/autorun/autorun.go",
+        "lines": 356
+      },
+      {
+        "file": "apps/agent-win/internal/rtc/rtc.go",
+        "lines": 345
+      },
+      {
+        "file": "apps/agent-win/internal/capture/dxgi_windows.go",
+        "lines": 344
+      },
+      {
+        "file": "apps/agent-win/internal/transfer/transfer.go",
+        "lines": 340
+      },
+      {
+        "file": "apps/agent-win/internal/capture/wgc_windows.go",
+        "lines": 306
+      }
+    ]
+  },
+  "server.test": {
+    "dosya": 121,
+    "satir": 26984,
+    "ust300": 30,
+    "ust500": 11,
+    "liste300": [
+      {
+        "file": "apps/server/test/integration/signaling-control-p7.test.ts",
+        "lines": 858
+      },
+      {
+        "file": "apps/server/test/integration/sessions-history-api-p8.test.ts",
+        "lines": 767
+      },
+      {
+        "file": "apps/server/test/integration/p15-backend.test.ts",
+        "lines": 725
+      },
+      {
+        "file": "apps/server/test/integration/bindings-p8c.test.ts",
+        "lines": 714
+      },
+      {
+        "file": "apps/server/test/integration/account-p10.test.ts",
+        "lines": 669
+      },
+      {
+        "file": "apps/server/test/integration/p18-messages-h3.test.ts",
+        "lines": 658
+      },
+      {
+        "file": "apps/server/test/integration/customers-p8c-api.test.ts",
+        "lines": 632
+      },
+      {
+        "file": "apps/server/test/integration/whatsapp-admin-p12b.test.ts",
+        "lines": 601
+      },
+      {
+        "file": "apps/server/test/integration/p19-notify-j3.test.ts",
+        "lines": 589
+      },
+      {
+        "file": "apps/server/test/integration/p19-web-j2.test.ts",
+        "lines": 561
+      },
+      {
+        "file": "apps/server/test/integration/p18-backend-h2.test.ts",
+        "lines": 560
+      },
+      {
+        "file": "apps/server/test/integration/retention-p13a-job.test.ts",
+        "lines": 492
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-2.test.ts",
+        "lines": 491
+      },
+      {
+        "file": "apps/server/test/integration/security-p14a-users.test.ts",
+        "lines": 474
+      },
+      {
+        "file": "apps/server/test/integration/branding-api-p12.test.ts",
+        "lines": 469
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-5.test.ts",
+        "lines": 439
+      },
+      {
+        "file": "apps/server/test/unit/security-p10.test.ts",
+        "lines": 429
+      },
+      {
+        "file": "apps/server/test/integration/settings-p11.test.ts",
+        "lines": 395
+      },
+      {
+        "file": "apps/server/test/helpers/tenant-matrix.ts",
+        "lines": 384
+      },
+      {
+        "file": "apps/server/test/integration/tenant-purge-meta-p16.test.ts",
+        "lines": 374
+      },
+      {
+        "file": "apps/server/test/integration/tenant-purge-p16.test.ts",
+        "lines": 369
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b.test.ts",
+        "lines": 368
+      },
+      {
+        "file": "apps/server/test/integration/users-p9.test.ts",
+        "lines": 363
+      },
+      {
+        "file": "apps/server/test/integration/users-delete-p16.test.ts",
+        "lines": 356
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-4.test.ts",
+        "lines": 346
+      },
+      {
+        "file": "apps/server/test/integration/customers-csv-p19.test.ts",
+        "lines": 343
+      },
+      {
+        "file": "apps/server/test/integration/signaling-collab-p5.test.ts",
+        "lines": 328
+      },
+      {
+        "file": "apps/server/test/integration/requests-p8b-3.test.ts",
+        "lines": 315
+      },
+      {
+        "file": "apps/server/test/integration/agent-download.test.ts",
+        "lines": 311
+      },
+      {
+        "file": "apps/server/test/integration/p14a-a3.test.ts",
+        "lines": 302
+      }
+    ]
+  },
+  "web.test": {
+    "dosya": 84,
+    "satir": 17251,
+    "ust300": 26,
+    "ust500": 2,
+    "liste300": [
+      {
+        "file": "apps/web/e2e/p5-collab.spec.ts",
+        "lines": 723
+      },
+      {
+        "file": "apps/web/e2e/mock-audit.mjs",
+        "lines": 553
+      },
+      {
+        "file": "apps/web/e2e/p9-users.spec.ts",
+        "lines": 460
+      },
+      {
+        "file": "apps/web/e2e/mock-p19.mjs",
+        "lines": 452
+      },
+      {
+        "file": "apps/web/e2e/p7-control.spec.ts",
+        "lines": 445
+      },
+      {
+        "file": "apps/web/e2e/p13bl-lobby.spec.ts",
+        "lines": 442
+      },
+      {
+        "file": "apps/web/e2e/p11-admin.spec.ts",
+        "lines": 441
+      },
+      {
+        "file": "apps/web/e2e/p10-account.spec.ts",
+        "lines": 427
+      },
+      {
+        "file": "apps/web/e2e/p8-history.spec.ts",
+        "lines": 415
+      },
+      {
+        "file": "apps/web/e2e/mock-requests.mjs",
+        "lines": 410
+      },
+      {
+        "file": "apps/web/e2e/p12-branding.spec.ts",
+        "lines": 393
+      },
+      {
+        "file": "apps/web/e2e/mock-history.mjs",
+        "lines": 392
+      },
+      {
+        "file": "apps/web/e2e/p14a-a4.spec.ts",
+        "lines": 376
+      },
+      {
+        "file": "apps/web/e2e/mock-p16.mjs",
+        "lines": 370
+      },
+      {
+        "file": "apps/web/e2e/mock-sessions.mjs",
+        "lines": 359
+      },
+      {
+        "file": "apps/web/e2e/customers.spec.ts",
+        "lines": 355
+      },
+      {
+        "file": "apps/web/e2e/mock-p18.mjs",
+        "lines": 355
+      },
+      {
+        "file": "apps/web/e2e/p19-j5.spec.ts",
+        "lines": 354
+      },
+      {
+        "file": "apps/web/e2e/p8b-requests.spec.ts",
+        "lines": 353
+      },
+      {
+        "file": "apps/web/e2e/p18-h4.spec.ts",
+        "lines": 351
+      },
+      {
+        "file": "apps/web/e2e/p15.spec.ts",
+        "lines": 348
+      },
+      {
+        "file": "apps/web/e2e/mock-users.mjs",
+        "lines": 342
+      },
+      {
+        "file": "apps/web/lib/control/machine.test.ts",
+        "lines": 334
+      },
+      {
+        "file": "apps/web/e2e/mock-ws.mjs",
+        "lines": 320
+      },
+      {
+        "file": "apps/web/e2e/p12b-whatsapp.spec.ts",
+        "lines": 319
+      },
+      {
+        "file": "apps/web/e2e/p4-media.spec.ts",
+        "lines": 313
+      }
+    ]
+  },
+  "contracts.test": {
+    "dosya": 18,
+    "satir": 1545,
+    "ust300": 0,
+    "ust500": 0,
+    "liste300": []
+  },
+  "go.test": {
+    "dosya": 63,
+    "satir": 13509,
+    "ust300": 16,
+    "ust500": 6,
+    "liste300": [
+      {
+        "file": "apps/agent-win/internal/remember/remember_test.go",
+        "lines": 739
+      },
+      {
+        "file": "apps/agent-win/internal/input/scope_test.go",
+        "lines": 669
+      },
+      {
+        "file": "apps/agent-win/internal/flow/flow_test.go",
+        "lines": 625
+      },
+      {
+        "file": "apps/agent-win/internal/request/chat_test.go",
+        "lines": 566
+      },
+      {
+        "file": "apps/agent-win/internal/flow/control_test.go",
+        "lines": 539
+      },
+      {
+        "file": "apps/agent-win/internal/tray/resident_test.go",
+        "lines": 539
+      },
+      {
+        "file": "apps/agent-win/internal/request/run_test.go",
+        "lines": 471
+      },
+      {
+        "file": "apps/agent-win/internal/input/input_test.go",
+        "lines": 442
+      },
+      {
+        "file": "apps/agent-win/internal/autorun/autorun_test.go",
+        "lines": 397
+      },
+      {
+        "file": "apps/agent-win/internal/control/control_test.go",
+        "lines": 392
+      },
+      {
+        "file": "apps/agent-win/internal/transfer/transfer_test.go",
+        "lines": 369
+      },
+      {
+        "file": "apps/agent-win/internal/launch/run_test.go",
+        "lines": 368
+      },
+      {
+        "file": "apps/agent-win/internal/signal/signal_test.go",
+        "lines": 366
+      },
+      {
+        "file": "apps/agent-win/internal/launch/home_test.go",
+        "lines": 342
+      },
+      {
+        "file": "apps/agent-win/internal/rtc/rtc_test.go",
+        "lines": 330
+      },
+      {
+        "file": "apps/agent-win/internal/capture/select_test.go",
+        "lines": 301
+      }
+    ]
+  }
+}
