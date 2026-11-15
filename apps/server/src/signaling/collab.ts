@@ -7,9 +7,18 @@ import { maxFileBytes } from "@remote/contracts/dc";
 import { sanitizeFileName } from "@remote/contracts/files";
 import type { FileMeta, QualitySummary } from "@remote/contracts/ws";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
-import { newId, sha256Hex } from "../lib/ids.ts";
+import { newId } from "../lib/ids.ts";
+import {
+  auditRateLimited,
+  recordFileMeta,
+  senderReportOnly,
+  type Actor,
+  type FileMetaResult,
+  type FileMetaWrite,
+  type Reporter,
+} from "./file-meta-store.ts";
 import type { Rooms } from "./rooms.ts";
-import type { FileMetaClass, Peer, Room } from "./types.ts";
+import type { FileMetaClass, Room } from "./types.ts";
 
 /** Ret/iptal (REJECTED/CANCELLED) raporları: taraf başına dakikada 20, oturum boyunca 500 (tablo şişirme koruması). */
 export const FILE_META_PER_MIN = 20;
@@ -20,8 +29,6 @@ export const FILE_META_ACCEPTED_PER_SESSION = 2000;
 /** Gönderen raporu (`file.transfer.sender_report`): sonuçtan bağımsız ayrı ve düşük kota; meşru akışta transfer başına 1 (S-P5-T2-3). */
 export const FILE_META_SENDER_PER_MIN = 10;
 export const FILE_META_SENDER_PER_SESSION = 200;
-/** `file.meta.rate_limited` audit'i oda + taraf + sınıf başına bu aralıkta en çok 1 kez (S-P5-T2-2). */
-export const FILE_META_RATE_AUDIT_MS = 60_000;
 /**
  * S-P13a-8 (KVKK): dosya aktarım audit'i (730 gün) dosya adı ve sha256 taşımaz — ad kişisel veri içerebilir, özet dosyayı
  * tanımlar; ikisi `session_files`'ta kalır ve saklama işiyle silinir. Audit'te yalnız uzantı: son noktadan sonrası,
@@ -51,8 +58,6 @@ const LIMITS: Record<FileMetaClass, { perMin: number; perSession: number }> = {
   declined: { perMin: FILE_META_PER_MIN, perSession: FILE_META_PER_SESSION },
   sender: { perMin: FILE_META_SENDER_PER_MIN, perSession: FILE_META_SENDER_PER_SESSION },
 };
-
-export type Reporter = { side: "tech"; peer: Peer } | { side: "guest"; peer: Peer };
 
 const classOf = (m: FileMeta, isSender: boolean): FileMetaClass => {
   if (isSender) return "sender";
@@ -87,32 +92,12 @@ export function isCheckViolation(err: unknown): boolean {
   return cause?.code === 3819 || cause?.originalCode === "3819";
 }
 
-export type FileMetaResult =
-  "recorded" | "sender_reported" | "duplicate" | "forbidden" | "rate_limited" | "too_large" | "rejected_by_db" | "error";
-
-/**
- * P15 (AC-238, db-notlari P15): aynı aktarımın iki taraf raporunu eşleyen anahtar. `fid` yoksa (0.10.x) eşleşme
- * olmasın diye satıra özgü rastgele bileşen kullanılır — anahtar yeni satırlarda her zaman dolu (down.sql buna dayanır).
- */
-export const fileMatchKey = (sessionId: string, m: FileMeta, fid: string): string =>
-  sha256Hex(`${sessionId}\n${m.direction}\n${fid}\n${m.sha256}\n${m.sizeBytes}`);
-
 /** Prisma P2002 (UQ session_id+match_key+reported_by): aynı taraf aynı aktarımı ikinci kez raporladı → yok sayılır. */
 const isDuplicate = (err: unknown): boolean => typeof err === "object" && err !== null && (err as { code?: unknown }).code === "P2002";
 
 export async function handleFileMeta(rooms: Rooms, room: Room, from: Reporter, m: FileMeta): Promise<FileMetaResult> {
-  // G-09/AC-119: teknisyenin dosya yetkisi yoksa (caps'te yok) meta da kabul edilmez.
-  if (!room.caps.includes("file_transfer")) {
-    from.peer.send({ t: "error", code: "FORBIDDEN", message: "Bu oturumda dosya transferi yetkisi yok." });
-    rooms.metrics.inc("rs_file_meta_total", { result: "forbidden" });
-    return "forbidden";
-  }
-  // AC-53: tenant sınırını aşan dosya OK olamaz (alıcı bayt sayacı iptal eder); sahte rapor reddedilir.
-  if (m.result === "OK" && m.sizeBytes > maxFileBytes(room.maxFileMb ?? 0)) {
-    from.peer.send({ t: "error", code: "FORBIDDEN", message: "Dosya boyutu tenant sınırını aşıyor." });
-    rooms.metrics.inc("rs_file_meta_total", { result: "too_large" });
-    return "too_large";
-  }
+  const refused = refuseFileMeta(rooms, room, from, m);
+  if (refused) return refused;
   const tech = room.tech;
   const actor = from.side === "tech" && tech ? { userId: tech.userId, username: tech.username } : { username: "customer" };
   const ctx = from.side === "tech" && tech ? tech.ctx : GUEST_CTX;
@@ -128,101 +113,54 @@ export async function handleFileMeta(rooms: Rooms, room: Room, from: Reporter, m
   }
 
   const fileName = sanitizeFileName(m.fileName);
-  const value = fileAuditValue(room.sessionId, m, fileName);
-  const outcome = m.result === "OK" ? "success" : "fail";
-  const isSender = from.side !== receiver;
+  const w: FileMetaWrite = {
+    from,
+    ctx,
+    actor,
+    m,
+    fileName,
+    value: fileAuditValue(room.sessionId, m, fileName),
+    outcome: m.result === "OK" ? "success" : "fail",
+    isSender: from.side !== receiver,
+  };
   try {
-    if (isSender && m.fid === undefined) {
-      // S-P5-3 (fid'siz 0.10.x istemci): gönderenin raporu session_files'a yazılmaz (eşlenemez), ama audit'te kalır.
-      await writeAudit(rooms.db, ctx, {
-        tenantId: room.tenantId,
-        ...actor,
-        action: "file.transfer.sender_report",
-        entity: "support_sessions",
-        entityId: room.sessionId,
-        result: outcome,
-        newValue: value,
-      });
-      rooms.metrics.inc("rs_file_meta_total", { result: "sender_reported" });
-      return "sender_reported";
-    }
-    // P15 (AC-238): fid varsa iki tarafın raporu da ayrı satır (`reported_by` = raporlayan bağlantının rolü).
-    const id = newId();
-    const reportedBy = from.side === "tech" ? "TECH" : "CUSTOMER";
-    const matchKey = fileMatchKey(room.sessionId, m, m.fid ?? `legacy:${id}`);
-    await rooms.db.$transaction(async (tx) => {
-      await tx.sessionFile.create({
-        data: {
-          id,
-          sessionId: room.sessionId,
-          tenantId: room.tenantId,
-          direction: m.direction,
-          fileName,
-          sizeBytes: BigInt(m.sizeBytes),
-          sha256: m.sha256,
-          result: m.result,
-          reportedBy,
-          matchKey,
-        },
-      });
-      await writeAudit(tx, ctx, {
-        tenantId: room.tenantId,
-        ...actor,
-        action: isSender ? "file.transfer.sender_report" : "file.transfer",
-        entity: "session_files",
-        entityId: id,
-        result: outcome,
-        newValue: { ...value, reportedBy },
-      });
-    });
+    // S-P5-3 (fid'siz 0.10.x istemci): gönderenin raporu session_files'a yazılmaz (eşlenemez), ama audit'te kalır.
+    if (w.isSender && m.fid === undefined) return await senderReportOnly(rooms, room, w);
+    await recordFileMeta(rooms, room, w);
   } catch (err) {
-    if (isDuplicate(err)) {
-      rooms.metrics.inc("rs_file_meta_total", { result: "duplicate" });
-      return "duplicate";
-    }
-    if (isCheckViolation(err)) return rejectedByDb(rooms, room, from, ctx, actor, m);
-    const ref = newId();
-    rooms.log.error({ err, ref, event: "file_meta_write_failed", sessionId: room.sessionId }, "file.meta yazılamadı");
-    rooms.metrics.inc("rs_file_meta_total", { result: "error" });
-    return "error";
+    return fileMetaFailed(rooms, room, w, err);
   }
-  rooms.metrics.inc("rs_file_meta_total", { result: isSender ? "sender_reported" : "recorded" });
-  return isSender ? "sender_reported" : "recorded";
+  rooms.metrics.inc("rs_file_meta_total", { result: w.isSender ? "sender_reported" : "recorded" });
+  return w.isSender ? "sender_reported" : "recorded";
 }
 
-type Actor = { userId?: string; username: string };
-
-/** S-P5-1: kota aşımı sessiz kalmaz — oda + taraf + sınıf başına dakikada en çok 1 audit satırı (S-P5-T2-2: bir tarafın
- * aşımı diğer tarafın aynı dakikadaki aşım kaydını bastıramaz). */
-async function auditRateLimited(
-  rooms: Rooms,
-  room: Room,
-  ctx: AuditContext,
-  actor: Actor,
-  side: Reporter["side"],
-  cls: FileMetaClass,
-): Promise<void> {
-  const now = rooms.clock.now();
-  const key = `${side}:${cls}`;
-  const last = room.fileMeta.auditAt.get(key);
-  if (last !== undefined && now - last < FILE_META_RATE_AUDIT_MS) return;
-  room.fileMeta.auditAt.set(key, now);
-  try {
-    await writeAudit(rooms.db, ctx, {
-      tenantId: room.tenantId,
-      ...actor,
-      action: "file.meta.rate_limited",
-      entity: "support_sessions",
-      entityId: room.sessionId,
-      result: "fail",
-      newValue: { sessionId: room.sessionId, side, class: cls },
-    });
-  } catch (err) {
-    rooms.log.error(
-      { err, ref: newId(), event: "file_meta_rate_audit_failed", sessionId: room.sessionId },
-      "file.meta.rate_limited audit yazılamadı",
-    );
+/** G-09/AC-119 yetki ve AC-53 boyut kapısı; geçerse null. */
+function refuseFileMeta(rooms: Rooms, room: Room, from: Reporter, m: FileMeta): FileMetaResult | null {
+  // G-09/AC-119: teknisyenin dosya yetkisi yoksa (caps'te yok) meta da kabul edilmez.
+  if (!room.caps.includes("file_transfer")) {
+    from.peer.send({ t: "error", code: "FORBIDDEN", message: "Bu oturumda dosya transferi yetkisi yok." });
+    rooms.metrics.inc("rs_file_meta_total", { result: "forbidden" });
+    return "forbidden";
   }
+  // AC-53: tenant sınırını aşan dosya OK olamaz (alıcı bayt sayacı iptal eder); sahte rapor reddedilir.
+  if (m.result === "OK" && m.sizeBytes > maxFileBytes(room.maxFileMb ?? 0)) {
+    from.peer.send({ t: "error", code: "FORBIDDEN", message: "Dosya boyutu tenant sınırını aşıyor." });
+    rooms.metrics.inc("rs_file_meta_total", { result: "too_large" });
+    return "too_large";
+  }
+  return null;
+}
+
+function fileMetaFailed(rooms: Rooms, room: Room, w: FileMetaWrite, err: unknown): FileMetaResult | Promise<FileMetaResult> {
+  if (isDuplicate(err)) {
+    rooms.metrics.inc("rs_file_meta_total", { result: "duplicate" });
+    return "duplicate";
+  }
+  if (isCheckViolation(err)) return rejectedByDb(rooms, room, w.from, w.ctx, w.actor, w.m);
+  const ref = newId();
+  rooms.log.error({ err, ref, event: "file_meta_write_failed", sessionId: room.sessionId }, "file.meta yazılamadı");
+  rooms.metrics.inc("rs_file_meta_total", { result: "error" });
+  return "error";
 }
 
 /** S-P5-8: JS ve MySQL Unicode sürüm farkıyla CHECK (3819) reddi sessiz kalmaz: audit (ad yok, yalnız uzantı) + VALIDATION. */

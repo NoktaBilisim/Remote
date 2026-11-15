@@ -24,73 +24,103 @@ function customerOf(g: Guest): { name: string | null; email: string | null } {
   return { name, email: name ? (g.email ?? null) : null };
 }
 
+type AuditTx = Parameters<typeof writeAudit>[0];
+
+/** Teknisyen etkin yetkilerinden oturum caps'i (bağlanma anı; sonra yalnız daralır). */
+const capsOf = (perms: ReadonlySet<string>): Room["caps"] => [
+  ...(perms.has("remote_control.use") ? (["remote_control"] as const) : []),
+  ...(perms.has("file_transfer.use") ? (["file_transfer"] as const) : []),
+];
+
+function auditAdmit(
+  rooms: Rooms,
+  room: Room,
+  tech: TechConn,
+  result: "success" | "fail",
+  newValue: Record<string, string>,
+  tx: AuditTx = rooms.db,
+) {
+  return writeAudit(tx, tech.ctx, {
+    tenantId: room.tenantId,
+    ...actor(tech),
+    action: result === "success" ? "guest.admitted" : "guest.admit",
+    entity: "support_sessions",
+    entityId: room.sessionId,
+    result,
+    newValue,
+  });
+}
+
+async function admitConflict(rooms: Rooms, room: Room, tech: TechConn, why: string): Promise<AdmitResult> {
+  tech.peer.send({ t: "error", code: "CONFLICT", message: "Katılımcı kabul edilemedi: oturum artık uygun durumda değil." });
+  await auditAdmit(rooms, room, tech, "fail", { reason: why });
+  rooms.metrics.inc("rs_admit_total", { result: "conflict" });
+  return "conflict";
+}
+
+async function codeMismatch(rooms: Rooms, room: Room, tech: TechConn): Promise<AdmitResult> {
+  room.admitFails += 1;
+  tech.peer.send({ t: "error", code: "ADMIT_CODE_INVALID", message: "Kod eşleşmedi. Müşterinin ekranındaki kodu tekrar sorun." });
+  await auditAdmit(rooms, room, tech, "fail", { reason: "code_mismatch", fails: String(room.admitFails) });
+  rooms.metrics.inc("rs_admit_total", { result: "invalid" });
+  if (room.admitFails >= ADMIT_FAIL_MAX) for (const g of [...room.lobby.values()]) rooms.leaveLobby(room, g, "rejected", "rejected");
+  return "invalid";
+}
+
+/** Tek atomik koşullu UPDATE + onay + audit (tek TX); count=0 → false (consent yazılmaz). */
+function consumeLobbyGuest(rooms: Rooms, room: Room, tech: TechConn, guest: Guest, now: Date): Promise<boolean> {
+  return rooms.db.$transaction(async (tx) => {
+    const keys = guest.netKey && guest.ipKey ? { guestIpKey: guest.ipKey, guestNetKey: guest.netKey } : {};
+    const rid = guest.requestId; // P15 (AC-239): kabul kodlu talep oturumu — tüketim `AND request_id = :rid`
+    const extra = rid ? { ...keys, requestId: rid } : keys;
+    if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest), extra)) !== 1) return false; // count=0 → consent yazılmaz
+    // Talep oturumunda onay kaydı bu bağlantının IP/UA'sıyla (admitRequestGuest ile aynı kural, §5.2 adım 2).
+    const c = rid
+      ? { ...guest.consent, at: now, ip: guest.ctx?.ip ?? "", userAgent: (guest.ctx?.userAgent ?? "").slice(0, 300) }
+      : guest.consent;
+    await recordViewConsent(tx, room.sessionId, room.tenantId, c, rid);
+    await auditAdmit(
+      rooms,
+      room,
+      tech,
+      "success",
+      {
+        guestId: guest.id,
+        guestKind: guest.kind,
+        consentTextId: c.textId,
+        consentVersion: String(c.version),
+        consentSha256: c.sha256,
+        ...(rid ? { via: "request", requestId: rid } : {}),
+      },
+      tx,
+    );
+    return true;
+  });
+}
+
+/** count=0: iptal / süre dolumu / başka admit kazandı (§3.2 adım 2). Oda iptalle kapanmış olabilir. */
+async function admitLost(rooms: Rooms, room: Room, tech: TechConn): Promise<AdmitResult> {
+  const row = await repo.findStatus(rooms.db, room.sessionId);
+  const reason: SessionEndedReason =
+    row?.status === "CANCELLED" ? "cancelled" : row?.status === "PENDING" || row?.status === "EXPIRED" ? "timeout" : "rejected";
+  if (rooms.live(room)) for (const g of [...room.lobby.values()]) rooms.leaveLobby(room, g, "rejected", reason);
+  return admitConflict(rooms, room, tech, `status_${row?.status ?? "missing"}`);
+}
+
 export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code: string): Promise<AdmitResult> {
-  const audit = (result: "success" | "fail", newValue: Record<string, string>, tx: Parameters<typeof writeAudit>[0] = rooms.db) =>
-    writeAudit(tx, tech.ctx, {
-      tenantId: room.tenantId,
-      ...actor(tech),
-      action: result === "success" ? "guest.admitted" : "guest.admit",
-      entity: "support_sessions",
-      entityId: room.sessionId,
-      result,
-      newValue,
-    });
-  const conflict = async (why: string): Promise<AdmitResult> => {
-    tech.peer.send({ t: "error", code: "CONFLICT", message: "Katılımcı kabul edilemedi: oturum artık uygun durumda değil." });
-    await audit("fail", { reason: why });
-    rooms.metrics.inc("rs_admit_total", { result: "conflict" });
-    return "conflict";
-  };
-  if (room.admitted || room.admitting) return conflict("already_admitted");
+  if (room.admitted || room.admitting) return admitConflict(rooms, room, tech, "already_admitted");
   const guest = [...room.lobby.values()].find((g) => g.state === "LOBBY" && safeEqual(g.admitHash, admitHash(g.id, code)));
-  if (!guest) {
-    room.admitFails += 1;
-    tech.peer.send({ t: "error", code: "ADMIT_CODE_INVALID", message: "Kod eşleşmedi. Müşterinin ekranındaki kodu tekrar sorun." });
-    await audit("fail", { reason: "code_mismatch", fails: String(room.admitFails) });
-    rooms.metrics.inc("rs_admit_total", { result: "invalid" });
-    if (room.admitFails >= ADMIT_FAIL_MAX) for (const g of [...room.lobby.values()]) rooms.leaveLobby(room, g, "rejected", "rejected");
-    return "invalid";
-  }
+  if (!guest) return codeMismatch(rooms, room, tech);
 
   room.admitting = true; // aynı odada ikinci admit DB'ye gitmeden CONFLICT alır
   const now = new Date(rooms.clock.now());
   let ok = false;
   try {
-    ok = await rooms.db.$transaction(async (tx) => {
-      const keys = guest.netKey && guest.ipKey ? { guestIpKey: guest.ipKey, guestNetKey: guest.netKey } : {};
-      const rid = guest.requestId; // P15 (AC-239): kabul kodlu talep oturumu — tüketim `AND request_id = :rid`
-      const extra = rid ? { ...keys, requestId: rid } : keys;
-      if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest), extra)) !== 1) return false; // count=0 → consent yazılmaz
-      // Talep oturumunda onay kaydı bu bağlantının IP/UA'sıyla (admitRequestGuest ile aynı kural, §5.2 adım 2).
-      const c = rid
-        ? { ...guest.consent, at: now, ip: guest.ctx?.ip ?? "", userAgent: (guest.ctx?.userAgent ?? "").slice(0, 300) }
-        : guest.consent;
-      await recordViewConsent(tx, room.sessionId, room.tenantId, c, rid);
-      await audit(
-        "success",
-        {
-          guestId: guest.id,
-          guestKind: guest.kind,
-          consentTextId: c.textId,
-          consentVersion: String(c.version),
-          consentSha256: c.sha256,
-          ...(rid ? { via: "request", requestId: rid } : {}),
-        },
-        tx,
-      );
-      return true;
-    });
+    ok = await consumeLobbyGuest(rooms, room, tech, guest, now);
   } finally {
     room.admitting = false;
   }
-  if (!ok) {
-    // count=0: iptal / süre dolumu / başka admit kazandı (§3.2 adım 2). Oda iptalle kapanmış olabilir.
-    const row = await repo.findStatus(rooms.db, room.sessionId);
-    const reason: SessionEndedReason =
-      row?.status === "CANCELLED" ? "cancelled" : row?.status === "PENDING" || row?.status === "EXPIRED" ? "timeout" : "rejected";
-    if (rooms.live(room)) for (const g of [...room.lobby.values()]) rooms.leaveLobby(room, g, "rejected", reason);
-    return conflict(`status_${row?.status ?? "missing"}`);
-  }
+  if (!ok) return admitLost(rooms, room, tech);
   if (!rooms.live(room)) return "conflict"; // pratikte olmaz: ACTIVE'e geçen oturumu iptal edemez
 
   rooms.clock.clearTimeout(guest.timer);
@@ -98,10 +128,7 @@ export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code:
   for (const g of [...room.lobby.values()]) rooms.leaveLobby(room, g, "rejected", "rejected");
   guest.state = "ADMITTED";
   room.admitted = guest;
-  room.caps = [
-    ...(tech.permissions.has("remote_control.use") ? (["remote_control"] as const) : []),
-    ...(tech.permissions.has("file_transfer.use") ? (["file_transfer"] as const) : []),
-  ];
+  room.caps = capsOf(tech.permissions);
   if (guest.requestId) rooms.requestHooks?.admitted(guest.requestId); // P15 (AC-239): bağlanma zamanlayıcısı durur
   const limits = await repo.activeLimits(rooms.db, room.tenantId);
   room.maxFileMb = limits.maxFileMb;
@@ -140,6 +167,55 @@ export async function rejectGuest(rooms: Rooms, room: Room, tech: TechConn, gues
  * S8b-2: aynı misafire eşzamanlı iki /ws/guest (eski + yeni kuşak ticket) gelebilir. `room.admitting` ilk await'ten
  * önce kurulur; `guest.peer` yalnız admit kazanılınca bu bağlantıya atanır; kaybeden yalnız kendi soketini kapatır.
  */
+/** Teknisyenin DB'deki etkin yetkileri; kullanıcı/tenant pasif ya da yoksa null. */
+async function activeTechPerms(rooms: Rooms, room: Room): Promise<Set<string> | null> {
+  const tech = await rooms.db.user.findUnique({
+    where: { id: room.technicianId },
+    select: {
+      role: true,
+      status: true,
+      deletedAt: true,
+      tenantId: true,
+      tenant: { select: { status: true, deletedAt: true } },
+      permissions: { select: { permKey: true, granted: true } },
+    },
+  });
+  const active =
+    tech &&
+    tech.status === "ACTIVE" &&
+    tech.deletedAt === null &&
+    (tech.tenantId === null || (tech.tenant?.status === "ACTIVE" && tech.tenant.deletedAt === null));
+  if (!tech || !active) return null;
+  return new Set(effectivePermissions(tech.role as Role, tech.permissions));
+}
+
+/** Tüketim `AND request_id = :rid` + onay (bu bağlantının IP/UA'sı) + audit tek TX; count=0 → false. */
+function consumeRequestGuest(rooms: Rooms, room: Room, guest: Guest, ctx: AuditContext, requestId: string, now: Date): Promise<boolean> {
+  return rooms.db.$transaction(async (tx) => {
+    const keys = { guestIpKey: ipKey(ctx.ip), guestNetKey: netKey(ctx.ip) };
+    if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest), { ...keys, requestId })) !== 1) return false;
+    const consent = { ...guest.consent, at: now, ip: ctx.ip, userAgent: ctx.userAgent.slice(0, 300) };
+    await recordViewConsent(tx, room.sessionId, room.tenantId, consent, requestId);
+    await writeAudit(tx, ctx, {
+      tenantId: room.tenantId,
+      username: "customer",
+      action: "guest.admitted",
+      entity: "support_sessions",
+      entityId: room.sessionId,
+      result: "success",
+      newValue: {
+        via: "request",
+        requestId,
+        acceptedBy: room.technicianId,
+        guestKind: guest.kind,
+        consentTextId: consent.textId,
+        consentSha256: consent.sha256,
+      },
+    });
+    return true;
+  });
+}
+
 export async function admitRequestGuest(rooms: Rooms, room: Room, guest: Guest, peer: Peer, ctx: AuditContext): Promise<AdmitResult> {
   const requestId = guest.requestId;
   if (!requestId || room.admitted || room.admitting) {
@@ -154,54 +230,16 @@ export async function admitRequestGuest(rooms: Rooms, room: Room, guest: Guest, 
   room.admitting = true; // ilk await'ten önce: ikinci bağlantı DB'ye gitmeden yukarıda reddedilir
   const now = new Date(rooms.clock.now());
   let ok = false;
-  let perms: Set<string>;
+  let perms: Set<string> | null;
   try {
-    const tech = await rooms.db.user.findUnique({
-      where: { id: room.technicianId },
-      select: {
-        role: true,
-        status: true,
-        deletedAt: true,
-        tenantId: true,
-        tenant: { select: { status: true, deletedAt: true } },
-        permissions: { select: { permKey: true, granted: true } },
-      },
-    });
-    const active =
-      tech &&
-      tech.status === "ACTIVE" &&
-      tech.deletedAt === null &&
-      (tech.tenantId === null || (tech.tenant?.status === "ACTIVE" && tech.tenant.deletedAt === null));
-    if (!tech || !active) {
+    perms = await activeTechPerms(rooms, room);
+    if (!perms) {
       endGuest("auth_revoked");
       rooms.requestHooks?.failed(requestId);
       rooms.metrics.inc("rs_admit_total", { result: "request_auth_revoked" });
       return "conflict";
     }
-    perms = new Set(effectivePermissions(tech.role as Role, tech.permissions));
-    ok = await rooms.db.$transaction(async (tx) => {
-      const keys = { guestIpKey: ipKey(ctx.ip), guestNetKey: netKey(ctx.ip) };
-      if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest), { ...keys, requestId })) !== 1) return false;
-      const consent = { ...guest.consent, at: now, ip: ctx.ip, userAgent: ctx.userAgent.slice(0, 300) };
-      await recordViewConsent(tx, room.sessionId, room.tenantId, consent, requestId);
-      await writeAudit(tx, ctx, {
-        tenantId: room.tenantId,
-        username: "customer",
-        action: "guest.admitted",
-        entity: "support_sessions",
-        entityId: room.sessionId,
-        result: "success",
-        newValue: {
-          via: "request",
-          requestId,
-          acceptedBy: room.technicianId,
-          guestKind: guest.kind,
-          consentTextId: consent.textId,
-          consentSha256: consent.sha256,
-        },
-      });
-      return true;
-    });
+    ok = await consumeRequestGuest(rooms, room, guest, ctx, requestId, now);
   } finally {
     room.admitting = false;
   }
@@ -214,15 +252,24 @@ export async function admitRequestGuest(rooms: Rooms, room: Room, guest: Guest, 
     peer.close(1000, "ended");
     return "conflict";
   }
+  return activateRequestGuest(rooms, room, guest, peer, requestId, perms, now);
+}
+
+async function activateRequestGuest(
+  rooms: Rooms,
+  room: Room,
+  guest: Guest,
+  peer: Peer,
+  requestId: string,
+  perms: ReadonlySet<string>,
+  now: Date,
+): Promise<AdmitResult> {
   rooms.requestHooks?.admitted(requestId);
   room.lobby.delete(guest.id);
   guest.state = "ADMITTED";
   guest.peer = peer; // S8b-2: yalnız kazanan bağlantı
   room.admitted = guest;
-  room.caps = [
-    ...(perms.has("remote_control.use") ? (["remote_control"] as const) : []),
-    ...(perms.has("file_transfer.use") ? (["file_transfer"] as const) : []),
-  ];
+  room.caps = capsOf(perms);
   const limits = await repo.activeLimits(rooms.db, room.tenantId);
   room.maxFileMb = limits.maxFileMb;
   rooms.startActive(room, guest, now.getTime(), limits.maxActiveHours);

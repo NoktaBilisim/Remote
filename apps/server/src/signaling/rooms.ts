@@ -18,7 +18,8 @@ import { OneTimeStore } from "./store.ts";
 import type { TurnConfig } from "./turn.ts";
 import { DEFAULT_TIMING, LOBBY_MAX, realClock, type Clock, type Guest, type Peer, type Room, type TechConn, type Timing } from "./types.ts";
 import { scheduleActive, sendGuestJoined, sendHelloGuest, sendHelloTech, syncDisconnect } from "./active.ts";
-import { closeControlOnEnd, narrowCaps, newControl, resetOnGuestGone, revokeOnTechChange } from "./control.ts";
+import { newControl } from "./control.ts";
+import { closeControlOnEnd, narrowCaps, resetOnGuestGone, revokeOnTechChange } from "./control-revoke.ts";
 
 export interface RoomsDeps {
   db: Db;

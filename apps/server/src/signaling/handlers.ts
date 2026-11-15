@@ -25,7 +25,7 @@ import {
 } from "./control.ts";
 import { handleBindingRequest } from "./binding.ts";
 import type { Rooms } from "./rooms.ts";
-import type { Clock, Guest, Peer, Room } from "./types.ts";
+import type { Clock, Guest, Peer, Room, TechConn } from "./types.ts";
 
 export class TokenBucket {
   private tokens: number;
@@ -83,6 +83,9 @@ export function parseFrame<T extends z.ZodType>(
   return soft?.(json) ? null : fail("ws_invalid_message");
 }
 
+type TechMsg = z.infer<typeof techInboundSchema>;
+type GuestMsg = z.infer<typeof guestInboundSchema>;
+
 export async function onTechMessage(
   rooms: Rooms,
   room: Room,
@@ -95,27 +98,40 @@ export async function onTechMessage(
   if (!rooms.live(room) || tech?.peer !== peer) return;
   const m = parseFrame(rooms, peer, bucket, techInboundSchema, data, isBinary);
   if (!m) return;
-  const guest = room.admitted?.peer;
   if ((m.t === "guest.admit" || m.t === "guest.reject") && room.requestId && !room.acceptCode) {
     // P8b §5.2 adım 5: talep oturumunda lobi yok.
     tech.peer.send({ t: "error", code: "CONFLICT", message: "Talep oturumunda lobi yok; müşteri onayıyla otomatik bağlanır." });
     return;
   }
+  if (relayToGuest(room, m)) return;
+  await techAction(rooms, room, tech, peer, m);
+}
+
+/** Teknisyen → misafir SDP/ICE iletimi (alanlar yeniden kurulur). İletim mesajı değilse false. */
+function relayToGuest(room: Room, m: TechMsg): boolean {
+  const guest = room.admitted?.peer;
+  switch (m.t) {
+    case "sdp.offer":
+      guest?.send({ t: "sdp.offer", sdp: m.sdp });
+      return true;
+    case "ice":
+      guest?.send(iceOut(m));
+      return true;
+    case "ice.restart":
+      guest?.send({ t: "ice.restart" });
+      return true;
+    default:
+      return false;
+  }
+}
+
+async function techAction(rooms: Rooms, room: Room, tech: TechConn, peer: Peer, m: TechMsg): Promise<void> {
   switch (m.t) {
     case "guest.admit":
       await admitGuest(rooms, room, tech, m.admitCode);
       return;
     case "guest.reject":
       await rejectGuest(rooms, room, tech, m.guestId);
-      return;
-    case "sdp.offer":
-      guest?.send({ t: "sdp.offer", sdp: m.sdp });
-      return;
-    case "ice":
-      guest?.send(iceOut(m));
-      return;
-    case "ice.restart":
-      guest?.send({ t: "ice.restart" });
       return;
     case "file.meta":
       if (room.admitted) await handleFileMeta(rooms, room, { side: "tech", peer }, m);
@@ -169,6 +185,10 @@ export async function onGuestMessage(
     }
     return;
   }
+  await guestAction(rooms, room, guest, peer, m);
+}
+
+async function guestAction(rooms: Rooms, room: Room, guest: Guest, peer: Peer, m: GuestMsg): Promise<void> {
   const tech = room.tech?.peer;
   switch (m.t) {
     case "sdp.answer":
@@ -177,20 +197,9 @@ export async function onGuestMessage(
     case "ice":
       tech?.send(iceOut(m));
       return;
-    case "share.state": {
-      const snap = {
-        state: m.state,
-        ...(m.monitors ? { monitors: m.monitors } : {}),
-        ...(m.activeMonitor !== undefined ? { activeMonitor: m.activeMonitor } : {}),
-        // P15 (AC-234): neden kodu + yöntem (0.11+ istemci); alanlar yeniden kurulur, gelen nesne aktarılmaz.
-        ...(m.reason !== undefined ? { reason: m.reason } : {}),
-        ...(m.method !== undefined ? { method: m.method } : {}),
-      };
-      room.share = snap; // QA-P4-12: teknisyen yeniden bağlanınca hello.share
-      relayShareState(rooms, room);
-      await onShareMonitor(rooms, room, guest, m.activeMonitor); // P7: karşılanan monitör isteği → monitor.granted
+    case "share.state":
+      await onShareState(rooms, room, guest, m);
       return;
-    }
     case "control.state":
       await handleControlState(rooms, room, guest, { state: m.state, source: m.source });
       return;
@@ -210,6 +219,20 @@ export async function onGuestMessage(
       await handleBindingRequest(rooms, room, guest, peer, m);
       return;
   }
+}
+
+async function onShareState(rooms: Rooms, room: Room, guest: Guest, m: Extract<GuestMsg, { t: "share.state" }>): Promise<void> {
+  const snap = {
+    state: m.state,
+    ...(m.monitors ? { monitors: m.monitors } : {}),
+    ...(m.activeMonitor !== undefined ? { activeMonitor: m.activeMonitor } : {}),
+    // P15 (AC-234): neden kodu + yöntem (0.11+ istemci); alanlar yeniden kurulur, gelen nesne aktarılmaz.
+    ...(m.reason !== undefined ? { reason: m.reason } : {}),
+    ...(m.method !== undefined ? { method: m.method } : {}),
+  };
+  room.share = snap; // QA-P4-12: teknisyen yeniden bağlanınca hello.share
+  relayShareState(rooms, room);
+  await onShareMonitor(rooms, room, guest, m.activeMonitor); // P7: karşılanan monitör isteği → monitor.granted
 }
 
 /**
