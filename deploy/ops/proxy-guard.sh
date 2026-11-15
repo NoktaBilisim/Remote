@@ -26,6 +26,8 @@
 # Girdi (env > /etc/default/remote-proxy-guard; kurulu kopya yalnız dosyayı okur):
 #   PROXY_GUARD_PORT=4451  PROXY_GUARD_USERS="root www-data"  PROXY_GUARD_DST4="127.0.0.0/8,172.30.0.0/24"
 #   (edge ağı deploy/docker-compose.yml networks.edge ile aynı)  PROXY_GUARD_VERIFY_USER=nobody
+#   P13c ikinci yığın (staging, runbook §21): PROXY_GUARD_PORT="4451,4461" (virgüllü, en çok 4) ve
+#   PROXY_GUARD_DST4="127.0.0.0/8,172.30.0.0/24,172.30.1.0/24". Tek port verildiğinde kural metni öncekiyle aynıdır.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 SELF_PATH="$DIR/$(basename "$0")"
@@ -53,7 +55,10 @@ fi
 PORT="${PROXY_GUARD_PORT:-4451}"
 USERS="${PROXY_GUARD_USERS:-root www-data}"
 DST4="${PROXY_GUARD_DST4:-127.0.0.0/8,172.30.0.0/24}"
-[[ "$PORT" =~ ^[1-9][0-9]{0,4}$ ]] && [ "$PORT" -le 65535 ] || die "PROXY_GUARD_PORT geçersiz: $PORT"
+[[ "$PORT" =~ ^[1-9][0-9]{0,4}(,[1-9][0-9]{0,4}){0,3}$ ]] || die "PROXY_GUARD_PORT geçersiz: $PORT"
+for _p in ${PORT//,/ }; do [ "$_p" -le 65535 ] || die "PROXY_GUARD_PORT geçersiz: $PORT"; done
+# nft eşleşmesi: tek port "4451" (önceki kural metniyle aynı), birden çok "{ 4451, 4461 }".
+case "$PORT" in *,*) DPORT="{ ${PORT//,/, } }" ;; *) DPORT="$PORT" ;; esac
 [[ "$DST4" =~ ^[0-9./,]{7,200}$ ]] || die "PROXY_GUARD_DST4 geçersiz (virgüllü IPv4/CIDR)"
 [[ "$USERS" =~ ^[a-z_][a-z0-9_.\ -]{0,200}$ ]] || die "PROXY_GUARD_USERS geçersiz"
 
@@ -76,8 +81,8 @@ delete table inet $TABLE
 table inet $TABLE {
   chain output {
     type filter hook output priority filter; policy accept;
-    tcp dport $PORT ip daddr { $DST4 } ct state new meta skuid != { $u } counter reject with tcp reset comment "$sig"
-    tcp dport $PORT ip6 daddr ::1 ct state new meta skuid != { $u } counter reject with tcp reset comment "$sig"
+    tcp dport $DPORT ip daddr { $DST4 } ct state new meta skuid != { $u } counter reject with tcp reset comment "$sig"
+    tcp dport $DPORT ip6 daddr ::1 ct state new meta skuid != { $u } counter reject with tcp reset comment "$sig"
   }
 }
 EOF
@@ -104,15 +109,17 @@ do_check() {
 do_remove() { nft delete table inet "$TABLE" 2>/dev/null || true; log "kaldırıldı (inet $TABLE)"; }
 # Canlı sınama: dinleyici gerektirmez. RST (reddedildi) -> "Connection refused"; izinli kullanıcıda bağlantı ya kurulur
 # ya da dinleyici yoksa yine refused olur -> root sınaması yalnız dinleyici varsa anlamlıdır (prod: Caddy 4451'de).
-probe() {  # <kullanıcı> -> 0 bağlandı
+probe() {  # <kullanıcı> <port> -> 0 bağlandı
   setpriv --reuid="$(id -u "$1")" --regid="$(id -g "$1")" --clear-groups \
-    bash -c "exec 3<>/dev/tcp/127.0.0.1/$PORT" 2>/dev/null
+    bash -c "exec 3<>/dev/tcp/127.0.0.1/$2" 2>/dev/null
 }
 do_verify() {
-  local vu="${PROXY_GUARD_VERIFY_USER:-nobody}"
+  local vu="${PROXY_GUARD_VERIFY_USER:-nobody}" p
   command -v setpriv >/dev/null 2>&1 || die "setpriv yok (util-linux)"
-  probe root || die "verify: root 127.0.0.1:$PORT'a bağlanamadı (Caddy 4451 dinlemiyor mu?) — sınama anlamsız"
-  if probe "$vu"; then die "verify: '$vu' 127.0.0.1:$PORT'a BAĞLANABİLDİ — koruma çalışmıyor"; fi
+  for p in ${PORT//,/ }; do
+    probe root "$p" || die "verify: root 127.0.0.1:$p'a bağlanamadı (Caddy $p'de dinlemiyor mu?) — sınama anlamsız"
+    if probe "$vu" "$p"; then die "verify: '$vu' 127.0.0.1:$p'a BAĞLANABİLDİ — koruma çalışmıyor"; fi
+  done
   log "verify OK: root bağlandı, '$vu' reddedildi (tcp/$PORT)"
 }
 do_install() {

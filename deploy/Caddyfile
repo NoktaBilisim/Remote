@@ -46,7 +46,8 @@
 	# gelen bağlantı userland-proxy üzerinden bu adresten görünür. Başka adres (edge konteynerleri) güvenilmez.
 	# strict: XFF sağdan okunur, ilk güvenilmeyen adres istemcidir (nginx XFF'i zaten $remote_addr ile yeniden yazar).
 	servers :4451 {
-		trusted_proxies static 172.30.0.128/32
+		# P13c: staging katmanı CADDY_TRUSTED_PROXIES verir (172.30.1.128/32); yoksa prod değeri (adapt çıktısı aynı).
+		trusted_proxies static {$CADDY_TRUSTED_PROXIES:172.30.0.128/32}
 		trusted_proxies_strict
 		client_ip_headers X-Forwarded-For
 		protocols h1
@@ -78,6 +79,21 @@
 		X-Content-Type-Options "nosniff"
 	}
 	file_server
+}
+
+# P13c (mimari-e11 §3.1): arama motoru dışı bırakma yalnız staging'de. ROBOTS_NOINDEX ayrıştırma anında okunur
+# (docker-compose.staging.yml "1" verir): robots_0 boş -> prod adapt çıktısı değişmez; 0/1 dışı değer = Caddy açılmaz.
+(robots_0) {
+}
+(robots_1) {
+	header X-Robots-Tag "noindex, nofollow"
+	handle /robots.txt {
+		header Content-Type "text/plain; charset=utf-8"
+		respond <<TXT
+			User-agent: *
+			Disallow: /
+			TXT 200
+	}
 }
 
 # Ortak site gövdesi. XFF: `header_up X-Forwarded-For {client_ip}` -> server/web tek değer görür (G-11).
@@ -121,6 +137,7 @@
 		?X-Content-Type-Options "nosniff"
 		?Referrer-Policy "no-referrer"
 	}
+	import robots_{$ROBOTS_NOINDEX:0}
 
 	# /internal/*: server'ın forward_auth iç ucu (S6-2) — dışarıdan erişilemez.
 	@ops path /health /health/* /ready /ready/* /metrics /metrics/* /internal /internal/*

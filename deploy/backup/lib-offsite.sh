@@ -37,7 +37,7 @@ write_status() {  # <last_run_ok>; atomik (aynı dizinde geçici dosya + mv)
 # `backup.sh --alert` (OnFailure birimi): journal + BACKUP_ALERT_CMD. Komut metninde sır varsa ÇALIŞTIRILMAZ (G-P13b-7).
 alert_mode() {
   local msg rc
-  msg="remote-backup: FAILED host=$(hostname) zaman=$(ts) — ayrıntı: journalctl -u remote-backup.service -n 50"
+  msg="remote-backup: FAILED host=$(hostname) zaman=$(ts) — ayrıntı: journalctl -u ${BACKUP_UNIT_NAME:-remote-backup.service} -n 50"
   printf '%s\n' "$msg" >&2
   [ "$ENV_OK" = 1 ] || { log "backup.env güvensiz — BACKUP_ALERT_CMD ÇALIŞTIRILMADI"; return 1; }
   [ -n "${BACKUP_ALERT_CMD:-}" ] || return 0

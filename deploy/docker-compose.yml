@@ -2,6 +2,10 @@
 # Kullanım:  cd deploy && cp ../.env.example .env && (değerleri doldur) && docker compose up -d
 # Değişkenler deploy/.env'den okunur (git-ignore). Her servise yalnız ihtiyaç duyduğu değişkenler
 # açıkça verilir (env_file yok): server MIGRATE_DATABASE_URL / root parolasını göremez (G-15).
+# P13c (mimari-e11 §3.1-3.2, ADR-0019 m.5): aynı sunucuda ikinci yığın (staging, /opt/remote-stg) için yerleşim değerleri
+# env'den gelir; VARSAYILANLAR PROD DEĞERLERİDİR (prod .env'e yeni satır gerekmez, `docker compose config` çıktısı aynı).
+# Staging .env: COMPOSE_PROJECT_NAME=remote-stg (bu `name:`'i ezer -> volume/ağ/konteyner adları remote-stg_*),
+# COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml (Caddy staging katmanı), EDGE_* / CADDY_*_PORT (runbook §21).
 name: remote
 
 x-node: &node
@@ -92,7 +96,9 @@ services:
       DATABASE_URL: mysql://app:${MYSQL_APP_PASSWORD}@mysql:3306/${MYSQL_DATABASE}?allowPublicKeyRetrieval=true
       # G-11: güvenilen proxy'ler = caddy (172.30.0.2) + web (172.30.0.3; müşteri sayfası resolve'u
       # Caddy'nin XFF'ini iletir). /31 tam bu iki adresi kapsar; edge'in dinamik aralığı (.128/25) dışında.
-      TRUSTED_PROXY_CIDR: 172.30.0.2/31
+      # P13c: EDGE_CADDY_IP/EDGE_WEB_IP değişirse bu da değişir (staging 172.30.1.2/31). .env'deki TRUSTED_PROXY_CIDR
+      # (compose dışı yerel çalıştırma) burada KULLANILMAZ; ayrı ad, prod .env'deki eski bir değer edge'i bozmasın diye.
+      TRUSTED_PROXY_CIDR: ${EDGE_TRUSTED_PROXY_CIDR:-172.30.0.2/31}
       # sessionRef HMAC anahtarı; compose'da zorunlu (boşsa her restart'ta eski bağlantılar 404 olur)
       SESSION_REF_KEY: ${SESSION_REF_KEY:?SESSION_REF_KEY gerekli (openssl rand -base64 48)}
       # TURN (ADR-0007, mimari §8.1/§8.3.1): coturn deploy/turn'de ayrı compose; secret iki tarafta aynı.
@@ -151,7 +157,7 @@ services:
     # Sabit adres: server TRUSTED_PROXY_CIDR (172.30.0.2/31) bu adresi güvenilen proxy sayar (G-11).
     # Port yayımlanmaz; web'e yalnız Caddy ulaşır, XFF'i Caddy yeniden yazar.
     networks:
-      edge: { ipv4_address: 172.30.0.3 }
+      edge: { ipv4_address: "${EDGE_WEB_IP:-172.30.0.3}" }
     depends_on:
       server: { condition: service_healthy }
 
@@ -169,18 +175,22 @@ services:
       # 4450 (tls internal, IP ile tanı girişi). PROD: CADDY_BIND=127.0.0.1 (mimari-p13 §7.2/7.9) -> yalnız sunucudan
       # tanı amaçlı erişilir; Docker yayımladığı portta UFW'yi atlar, kapatan kontrol UFW değil bu değerdir (G-P13b-9;
       # kanıt: ss -tlnp | grep 4450 yalnız 127.0.0.1). Boşsa 0.0.0.0 (yalnız staging/yerel geçmiş davranışı).
-      - "${CADDY_BIND:-0.0.0.0}:4450:4450/tcp"
+      # P13c: host portu CADDY_TLS_PORT (prod 4450, staging 4460); konteyner içi port 4450 sabit (Caddyfile değişmez).
+      - "${CADDY_BIND:-0.0.0.0}:${CADDY_TLS_PORT:-4450}:4450/tcp"
       # Host nginx (TLS, remote.noktabilisim.net) -> düz HTTP; YALNIZ loopback (ADR-0015). Caddy bu dinleyicide
       # yalnız edge ağ geçidinden (172.30.0.128, userland-proxy) gelen XFF'e güvenir. 0.0.0.0'a AÇILMAZ.
-      - "127.0.0.1:4451:4451/tcp"
+      # P13c: host portu CADDY_HTTP_PORT (prod 4451, staging 4461; nginx vhost proxy_pass ve proxy-guard bu portu kullanır).
+      - "127.0.0.1:${CADDY_HTTP_PORT:-4451}:4451/tcp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
       # P6: /downloads/{NoktaDestek,Destek-<kod>}.exe → tek jenerik ikili (Caddyfile @agentExe)
       - agent_downloads:/srv/downloads:ro
+    # Caddy'ye özgü staging değerleri (CADDY_TRUSTED_PROXIES, ROBOTS_NOINDEX) burada DEĞİL docker-compose.staging.yml'de:
+    # buraya eklenen her anahtar prod `config` çıktısını değiştirirdi (P13c kabul ölçütü: fark 0).
     networks:
-      edge: { ipv4_address: 172.30.0.2 }
+      edge: { ipv4_address: "${EDGE_CADDY_IP:-172.30.0.2}" }
     depends_on:
       server: { condition: service_healthy }
       web: { condition: service_healthy }
@@ -192,7 +202,8 @@ networks:
   edge:
     ipam:
       # Dinamik adresler .128/25'ten dağıtılır; sabit adresler (caddy .2, web .3) ile çakışmaz.
-      config: [{ subnet: 172.30.0.0/24, ip_range: 172.30.0.128/25 }]
+      # P13c: staging 172.30.1.0/24 + 172.30.1.128/25 (iki yığının alt ağı çakışırsa Docker ağı oluşturmaz).
+      config: [{ subnet: "${EDGE_SUBNET:-172.30.0.0/24}", ip_range: "${EDGE_IP_RANGE:-172.30.0.128/25}" }]
   db:
     internal: true
 

@@ -31,7 +31,9 @@ audit_find_prev() {
   if [ -n "$PREV_DIR" ]; then
     PREV_RUN="${PREV_DIR##*/}"
     # Sıra numarası: en yeni yayımlanmış manifestten (FAILED olsa da) +1; tazelik kanıtı (G-P13b-8).
-    newest="$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*Z' | LC_ALL=C sort -r | head -n 1)"
+    # QA-P13c-2: `| head -n 1` erken kapanır -> sort SIGPIPE (rc 141) -> pipefail + set -e ile yedek FAILED. awk girdinin
+    # tamamını okur.
+    newest="$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*Z' | LC_ALL=C sort -r | awk 'NR == 1')"
     PREV_SEQ="$(jq -r '.seq // 0' "$newest/manifest.json" 2>/dev/null || echo 0)"
     case "$PREV_SEQ" in ''|*[!0-9]*) PREV_SEQ=0 ;; esac
   fi
@@ -44,8 +46,12 @@ audit_measure() {
     [[ "$pday" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ && "$puntil" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}$ ]] \
       || { pday=""; puntil=""; }
   fi
-  AUDIT_JSON="$({ [ -z "$pday" ] || printf "SET @rs_prev_tail_day = '%s', @rs_prev_tail_until = '%s';\n" "$pday" "$puntil"
-    cat "$SQL_DIR/audit-continuity.sql"; } | sql_backup)"
+  # QA-P13c-2: SQL önce değişkene alınır, here-string ile verilir (yazan ayrı süreç yok -> mysql/docker girdiyi erken
+  # kapatsa da printf/cat SIGPIPE ile boru hattını düşürmez).
+  local sql
+  sql="$( [ -z "$pday" ] || printf "SET @rs_prev_tail_day = '%s', @rs_prev_tail_until = '%s';\n" "$pday" "$puntil"
+    cat "$SQL_DIR/audit-continuity.sql")"
+  AUDIT_JSON="$(sql_backup <<<"$sql")"
   jq -e '.format == 2 and (.maxId | type == "number")' <<<"$AUDIT_JSON" >/dev/null 2>&1 || die "audit-continuity.sql çıktısı okunamadı"
 }
 

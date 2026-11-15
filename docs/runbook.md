@@ -125,7 +125,7 @@ DB parolası değişimi: `ALTER USER 'app'@'%' IDENTIFIED BY '...'` (root ile), 
   varsa `down.sql` atomik başarısız olur, bu satırlar KVKK kanıtıdır ve silinmez (`docs/db-notlari.md` P7).
 - Elle: `docker compose run --rm migrate` · seed: `docker compose --profile setup run --rm seed`.
 - Geri alma (veri kaybı olur, önce yedek): `docker compose run --rm migrate pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/<ad>/down.sql`, sonra önceki imaj etiketiyle `up -d` (ayrıntı `docs/db-notlari.md`).
-- `app` yetki sınırı kontrolü: `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD CONTAINER=remote-mysql-1 DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh`.
+- `app` yetki sınırı kontrolü: `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD CONTAINER=$(docker compose ps -q mysql) DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh`.
 - **Staging teknisyen hesapları** (gereksinimler §9; P9'dan sonra kullanıcılar panelden eklenir — §14.1, betik yalnız staging test hesapları için): `bash staging-users.sh`
   (`deploy/` içinde, yığın ayakta). Demo tenant'ı (seed `NODE_ENV=production`'da oluşturmaz) ve bir ADMIN + bir
   USER oluşturur. Hash server konteynerinde `src/auth/password.ts` (`ARGON2_OPTIONS`, argon2id) ile, SQL
@@ -283,6 +283,7 @@ ssh root@185.126.217.99 'cd /opt/remote/deploy && docker compose cp caddy:/data/
 | 2026-11-15 | P13b | `e865e19` (server + web + migrate; caddy yeniden yaratıldı) | `20261115090000_whatsapp_api_key` | Yedek `/root/remote-pre-p13b-20261114T215824Z.sql.gz` + uploads `/root/remote-uploads-pre-p13b-20261114T215824Z.tgz` (volume boş); `.env` yedeği `/root/.env.bak.p13b.20261114T215824Z`; `.env`: `DEPLOY_ENV=staging`, `WHATSAPP_SERVICE_API_KEY` eklendi (değer kasadan, ekrana basılmadı); migrate OK; seed değişiklik yok; grants **387/387 PASS**; Caddyfile HSTS `includeSubDomains` (admin API kapalı → `up -d --force-recreate caddy`; başlık doğrulandı). Yedek imzası (§18.9/1): `/etc/remote-backup/manifest_ed25519` (root 600) + `allowed_signers`, `remote-offsite` kullanıcısı, birimler (TimeoutStartUSec=2h); ilk imzalı yedek `20261114T220144Z` OK (`env=staging seq=1`, `audit-sureklilik: ilk`, `OFFSITE-UNCONFIGURED`), `ssh-keygen -Y verify` → Good signature, `status.prom` run_ok 1. `remote-watch` kuruldu (10 dk; `WATCH_ALERT_CMD` boş — alarm kanalı kararı bekliyor); ilk koşu: `cert:turn-le` yok (LE `remote-turn` henüz alınmadı), disk %84 → eski 12 imaj etiketi silindi (%75), offsite uyarısı. WhatsApp: panel kaydı yok + `WHATSAPP_SERVICE_URL` boş → kanal kapalı (K13/TLS kararı). Duman: 4450 `/login` ve `/ready` 200; 4451 (alan adı) `/login` 200, oturumsuz WhatsApp ayarı 401. **Yapılmadı (kullanıcı onayı/ağ adımı):** TURN güncellemesi (yeni relay aralığı 49160–49479 + `host-firewall.sh` hashlimit; çalışan coturn eski yapılandırmada), proxy-guard (nftables, §20.9), TURN LE sertifikası + kanca (§20.5), pfSense relay NAT |
 | 2026-11-15 | P13b ağ/TURN | `19f952b` (kod değişmedi; coturn yeniden yaratıldı, server yeniden başlatıldı) | — | **TURN sertifikası (§20.5):** `cert-deploy-hook.sh install`; LE `--cert-name remote-turn` (`-d remote.noktabilisim.net`, `--duplicate`), `/etc/remote/turn-certs` (crt 0444, key 65534:65533 0400); kanca SIGUSR2 OK, `check OK`, `certbot renew --dry-run` başarılı; 5349 sunulan: LE YE1, bitiş 2027-02-12. **TURN (§20.2/6):** `deploy/turn/.env` yedeği `/root/turn.env.bak.p13b.*`; `TURN_REALM=remote.noktabilisim.net`, `TURN_MAX_BPS=1000000`, `TURN_BPS_CAPACITY=0`, `TURN_FW_RELAY_MAX_BPS=62500000`, `TURN_CERT_DIR=/etc/remote/turn-certs`; secret eş; `host-firewall.sh preflight` OK → `install` (49160-49199 reserved ports geri alındı, `ip_local_reserved_ports` 49160-49479, hashlimit 3, `check` OK, kurulu kopya güncel); UFW `49160:49479/udp` eklendi, `49160:49199/udp` silindi (**4450 açık kaldı** — staging; P2 terfi sonrası); coturn `--force-recreate` healthy (min/max-port 49160/49479, total-quota 300, max-bps 1000000, relay-ip 192.168.25.10, 5766 yok, 9641 yalnız 127.0.0.1); `test-denied.sh` **66 PASS / 0 FAIL**. `deploy/.env` `TURN_URLS` IP → `remote.noktabilisim.net` (LE sertifikası ad doğrular), `up -d server` healthy. **proxy-guard (§20.9):** nftables 1.0.9 (nftables.service etkinleştirilmedi); `install` → uid {0,33}, `check` OK, `verify OK` (root bağlandı, nobody reddedildi), nginx→4451 `/login` 200, timer active, `Before=docker.service`; docker grubu boş. `remote-watch`: 22 kontrol OK + offsite uyarısı. **Kalan:** pfSense P1 (WAN UDP 49160–49479 → 192.168.25.10, 1:1; şu an dışarıdan yalnız 49160–49199 ulaşır), eski özel CA/sertifikalar `deploy/turn/certs/` henüz silinmedi (§20.5 son satırı; test makinelerindeki kök kaldırılabilir), `WATCH_ALERT_CMD` boş |
 | 2026-11-15 | Düzeltme (Oturumlar, firma seçmemiş Super Admin) | `a71d80e` (web; server/migrate aynı kod, yeni etiket) | — | Yedek `/root/remote-pre-a71d80e-20261114T225117Z.sql.gz`; migrate değişiklik yok; Super Admin firma seçmeden "Yeni destek oturumu" → 403 "Önce bir firma seçin." (ref `01M7E3VHE3JX32DX85YWH867B8`) yerine oluştur/iptal/sonlandır gizlenir + bilgi notu. Duman: 4450 `/login` ve `/ready` 200; 4451 `/login` 200, oturumsuz `/sessions` 307; yeni bileşen web derlemesinde. Eski `b7b4891` imajları silindi (disk %72) |
+| 2026-11-15 | P13b-L (bekleme odası göstergesi, AC-304..316) | `0ecbc03` (server + web; migrate yok) | — | Yedek `/root/remote-pre-0ecbc03-20261114T234124Z.sql.gz`; migrate değişiklik yok. Duman: 4450 `/login` ve `/ready` 200; 4451 `/login` 200, oturumsuz `GET /api/v1/sessions/waiting` 401. Eski `a0265be` imajları silindi (disk %72). AC-316 (Windows istemcisiyle uçtan uca) kullanıcı testini bekliyor |
 
   Rollback hedefi: bir önceki satırdaki `IMAGE_TAG`; şema geri alması gerekiyorsa §6.
 
@@ -650,19 +651,35 @@ docker run --rm -v "$PWD:/repo" rhysd/actionlint:latest       # workflow sözdiz
 `ssh root@185.126.217.99 tail -3 /opt/remote/deploy/agent/PUBLISHED.log`. agent-watch eski Release ile eşleşmeyi kabul eder
 (uyarı verir, alarm üretmez).
 
-### 11.5 Staging test yayını (Release'siz, main artifact'i)
-`gh run list --repo NoktaBilisim/Remote --workflow agent-win.yml --branch main --event push -L 5` → run-id →
-`deploy/agent/verify-and-publish.sh --run <run-id> --ssh root@185.126.217.99` (attestation `--source-ref refs/heads/main`).
-Yalnız main push koşuları kabul edilir. Koşu `success` değilse (ör. govulncheck kırmızı) **reddedilir** (S6-5); yalnız
-staging için bilerek: `--allow-failed-run` (etiket `run-<id>-failedrun` olarak `PUBLISHED.log`'a yazılır) — prod'a asla.
-Not: PR ve elle tetiklenen (`workflow_dispatch`) derlemelerde exe'ye yer tutucu `https://destek.example.invalid:4450`
-gömülür; gerçek `AGENT_SERVER_URL` yalnız main/etiket push'unda (S6-4). Bu yüzden staging'e yalnız main push artifact'i konur.
+### 11.5 Staging ve yerel test yayını (P13c ortam kilidi)
+`verify-and-publish.sh --apply` hedefin `.env` `DEPLOY_ENV`'ine ve compose proje adına göre kilitlidir (fail-closed):
 
-### 11.6 Repo private iken (geçici, yalnız staging)
-Attestation üretilemez/doğrulanamaz. `--dir` (yerel exe+SHA256SUMS) ile `--no-attestation` birlikte kökeni hiç kanıtlanmamış
-dosya demektir; betik bunu yalnız açık `ALLOW_UNATTESTED=staging` ile kabul eder (etiket `dir-<zaman>-unattested`). Staging için: `ALLOW_UNATTESTED=staging deploy/agent/verify-and-publish.sh --run <id>
---ssh root@185.126.217.99 --no-attestation` (köken = GitHub'dan kimlikli indirme + SHA256SUMS; etiket `-unattested` ekiyle
-kaydedilir). Prod açılışı (P10/P13) öncesi repo public yapılır ve bu yol kullanılmaz.
+| Hedef `DEPLOY_ENV` | Kabul edilen kaynak | Proje adı |
+|---|---|---|
+| `production` (`/opt/remote/deploy`) | yalnız `--tag vX.Y.Z` (onaylı Release, §11.3) | `remote` olmalı |
+| `staging` (`/opt/remote-stg/deploy`) | `--stg-run <run-id>` (§21.3/10) ya da `--dir` (elle derlenmiş staging adresli exe) | `remote` OLAMAZ — istisna: tek yığın staging (proje `remote`; §20 terfisi öncesi sunucu, §20.8) yalnız `--tag` kabul eder |
+| `development` (yerel compose) | `--run`, `--dir`, `--tag` (prova); `--stg-run` hayır | kontrol yok |
+| boş / başka | hiçbiri | — |
+
+- **Staging:** Actions → agent-win → Run workflow (dal **main**, `server_url=https://stg.remote.noktabilisim.net`, `version=x.y.z`) →
+  `gh run list --repo NoktaBilisim/Remote --workflow agent-win.yml --branch main --event workflow_dispatch -L 5` → run-id →
+  `deploy/agent/verify-and-publish.sh --stg-run <run-id> --ssh root@185.126.217.99` (hedef varsayılanı `/opt/remote-stg/deploy`;
+  attestation `--source-ref refs/heads/main`). Main push ve Release exe'lerinde **prod adresi** gömülüdür; staging'e yazılmaz.
+- **Yerel prova (main push artifact'i):** `deploy/agent/verify-and-publish.sh --run <run-id> --local` (hedef `deploy/` ve
+  `DEPLOY_ENV=development`). Yalnız main push koşuları kabul edilir; koşu `success` değilse **reddedilir** (S6-5). Bilerek
+  denemek için yalnız yerelde: `--run <id> --local --allow-failed-run` (etiket `run-<id>-failedrun`). Prod ve staging hedefi
+  `run-*` etiketini zaten reddeder.
+- Not: PR ve `server_url=yer-tutucu` ile elle tetiklenen derlemelerde exe'ye `https://destek.example.invalid:4450` gömülür;
+  gerçek `AGENT_SERVER_URL` yalnız main/etiket push'unda, staging adresi yalnız main'de elle tetiklemede (S6-4).
+
+### 11.6 Attestation'sız yayın (repo private dönemi; artık yalnız yerel/staging istisnası)
+Repo public (U1); normal yol attestation'lıdır. `--no-attestation` yalnız `ALLOW_UNATTESTED=staging` ile ve yalnız `--run`/`--dir`
+ile çalışır (`--tag`/`--stg-run` ile kullanılmaz). Hedef kilidi ayrıca uygulanır:
+- Yerel: `ALLOW_UNATTESTED=staging deploy/agent/verify-and-publish.sh --run <id> --local --no-attestation` (köken = GitHub'dan
+  kimlikli indirme + SHA256SUMS; etiket `-unattested`).
+- Staging (yalnız elle derlenmiş staging adresli exe): `ALLOW_UNATTESTED=staging deploy/agent/verify-and-publish.sh --dir <klasör>
+  --no-attestation --ssh root@185.126.217.99 --deploy-dir /opt/remote-stg/deploy` (köken kanıtı YOK; etiket `dir-<zaman>-unattested`).
+- Prod: **hiçbir koşulda** (`DEPLOY_ENV=production` yalnız `vX.Y.Z` kabul eder).
 
 ### 11.7 Alarm: istemci bütünlüğü (agent-watch issue / server `alarm: "agent_binary"` `mismatch`)
 Güvenlik olayıdır. 1) Volume'a elle dokunmayın; kanıt için hash alın: `docker compose exec server sha256sum /data/downloads/NoktaDestek.exe`.
@@ -677,7 +694,13 @@ agent-watch'u elle tetikleyin, yeşilse issue'yu kapatın. 503 ise yukarıdaki b
 | `agent-win` `test-windows` kırmızı: "İZ BULUNDU" | trace-check (AC-108) istemciye ait yeni girdi buldu; koşu çıktısındaki satır kategori + yolu gösterir (§11.8) |
 | `test-windows` uyarı "WM_CLOSE ile kapanmadı" | runner'da etkileşimli masaüstü yok, istemci zorla kapatıldı; iz testi yine koşar ama kapanış yolu sınanmamıştır → §11.8 elle test |
 | `build` kırmızı: "etiket derlemesi yalnız etiket push'unda" | etiket üzerinde elle tetikleme; Release yalnız etiket push'uyla (S6-4) |
-| `--run` "koşu sonucu 'failure' … yayınlanmadı" | S6-5: önce koşuyu yeşile çekin; yalnız staging'de bilerek `--allow-failed-run` |
+| `--run` "koşu sonucu 'failure' … yayınlanmadı" | S6-5: önce koşuyu yeşile çekin; yalnız yerelde bilerek `--run <id> --local --allow-failed-run` |
+| "DEPLOY_ENV=production hedefe yalnız Release etiketi (vX.Y.Z) yayınlanır" | prod'a `--run`/`--dir`/`--stg-run` denendi → §11.3 `--tag` |
+| "DEPLOY_ENV=staging hedefe yalnız --stg-run (ya da --dir) exe'si yayınlanır" | staging'e Release/main push exe'si (prod adresi gömülü) denendi → §11.5 `--stg-run` |
+| "staging exe (stg-…) yalnız DEPLOY_ENV=staging hedefe yayınlanır" | `--deploy-dir` prod/yerel klasörü gösteriyor → `/opt/remote-stg/deploy` (varsayılan) |
+| "… DEPLOY_ENV development\|staging\|production olmalı … yayın yapılmaz" | hedef `.env`'de `DEPLOY_ENV` boş/yanlış → düzeltin (prod `production`, staging `staging`) |
+| "DEPLOY_ENV=production ama compose projesi '…'" / "DEPLOY_ENV=staging ama compose projesi 'remote' (tek yığın: yalnız Release …)" | ikinci yığında `COMPOSE_PROJECT_NAME`/`COMPOSE_FILE` eksik (§21.1); tek yığın staging'de yalnız `--tag` kullanılır |
+| "agent_downloads volume adı compose'dan çözülemedi" | `docker compose config` hedef klasörde başarısız (`.env` eksik değer) → `cd <deploy> && docker compose config --quiet` |
 | `agent-win` `check` kırmızı: govulncheck | Go/x/net zafiyeti; go.mod `toolchain` + bağımlılık yükseltilir, `GO_IMAGE`/`GO_VERSION` (agent-win.yml, agent-watch.yml) aynı sürüme |
 | `check`: "imaj goX, go.mod goY" | go.mod toolchain değişti; iki workflow'daki imaj etiketi + digest güncellenir (`docker buildx imagetools inspect golang:<sürüm>-bookworm`) |
 | `tekrarlanabilirlik` kırmızı | build.sh/winres/zaman damgası kaynağı; iki artifact'i indirip `cmp -l` ile fark bulun |
@@ -771,6 +794,7 @@ Prova: dba 2026-11-12 geçici DB'de guard + temiz geri alma + yeniden migrate de
 | `increase(rs_request_gate_rejected_total[5m]) > 0` (`reason="full"` veya `"timeout"`) | **Uyarı** | Talep oluşturma kapısı doldu (S8b-5: firma başına 2, toplam 4 eşzamanlı; kuyruk 16/64, bekleme 5 sn) → müşteriye 503 `NOT_READY` + `Retry-After: 5`. Ani talep yığılması veya yavaş DB. `db_busy` satırıyla birlikte değerlendirin; sürekli artış havuz/DB kaynak yetersizliğidir. Firma dağılımı: `docker compose logs server --since 15m \| grep '"alarm":"request_gate_busy"' \| grep -o '"tenantId":"[^"]*"' \| sort \| uniq -c` |
 | server log `alarm:"request_gate_busy"` (10 sn'de en çok 1; `reason`, `tenantId`; PII yok) | Uyarı | Yukarıdaki metriğin log karşılığı; metrik toplanmıyorsa log sayımı: `docker compose logs server --since 5m \| grep -c '"alarm":"request_gate_busy"'` > 0 |
 | server log `alarm:"auth_fail_counter_fallback"` (`userId`, `code`, `lockedNow`) | **Uyarı** | Başarısız giriş sayacı DB'ye yazılamadı; hesap kilidi bellek içi yedek kovayla uygulandı (S8b-6, fail-closed). Tekil olay: DB çekişmesi (`db_busy` ile aynı pencere). Aynı `userId` için tekrar ediyorsa kaba kuvvet denemesi + DB sorunu birlikte: §7 DB kontrolleri, kullanıcı audit kaydı. Server yeniden başlarsa yedek kova sıfırlanır |
+| "Müşteri bekliyor" rozeti / "Oturumlar" sayacı yeniden başlatma sonrası 0 (P13b-L) | **Bilgi** | Beklenen: lobi göstergesi (`GET /api/v1/sessions/waiting`, liste `waitingGuests`) bellekten okunur (ADR-0029, tek instance); server yeniden başlarsa odalar boşalır, sayı 0'a iner, misafirler yeniden katılınca ≤ 10 sn içinde görünür. Env/migration/grant yok; rollback önceki imaja dönmektir. Kullanıcıya 429 dönüyorsa (60/dk/kullanıcı) çok sayıda açık sekme vardır, sonraki yoklamada düzelir |
 | server log `alarm:"auth_fail_unrecorded"` (`userId`, `pairLocked`/`locked`, `lockedNow`, `code`) | **Uyarı** | Başarısız giriş veya kilit audit'e yazılamadı (yanıt yine 401/423; S8b-6/S8b-7). Audit eksikliği demektir: olay zamanını ve `userId`'yi not edin, DB sorunu giderilince güvenlik ekibine bildirin. 5 dk'da > 5 ise DB'yi kontrol edin (§7, `db_busy`) |
 Kabul süresi (ayrı metrik yok): `SELECT DATE(created_at) g, COUNT(*), AVG(TIMESTAMPDIFF(SECOND, created_at, accepted_at)) ort_sn FROM support_requests WHERE accepted_at IS NOT NULL AND created_at > NOW() - INTERVAL 7 DAY GROUP BY g`.
 
@@ -1085,7 +1109,7 @@ docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroo
    olarak kalır; bir sonraki `up -d mysql`'de zaten uygulanır.
 4. **Build + migrate + server:** `docker compose build && docker compose up -d` → `docker compose logs --since 5m migrate`
    ("All migrations have been successfully applied"). Ardından `docker compose --profile setup run --rm seed` (zararsız).
-5. **Yetki sınırı:** `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD CONTAINER=remote-mysql-1 DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh | tail -3; echo rc=$?`
+5. **Yetki sınırı:** `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD CONTAINER=$(docker compose ps -q mysql) DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh | tail -3; echo rc=$?`
    → **320/320 PASS**, `rc=0` (302 + 18 P11: tetikleyici sayısı 2, `app`'te TRIGGER/ALTER/DROP/CREATE/INDEX yok, audit_logs
    yalnız SELECT/INSERT, system_settings izin + 4 CHECK). Betik root kontrollerini konteynerin `MYSQL_ROOT_PASSWORD`
    env'iyle yapar; parola çıktıya düşmez. Kontrol: `... check-app-grants.sh | grep -c PASS` = 320, `grep -c FAIL` = 0.
@@ -1561,7 +1585,7 @@ docker compose exec -T mysql sh -c 'h() { printf %s "$1" | od -An -tx1 | tr -d "
 5. **Build + migrate + grants:** `docker compose build && docker compose up -d` → `docker compose logs --since 5m migrate`
    ("All migrations have been successfully applied"; `20261114120000_p13a_retention`). Guard 3819 (P3018) ile durursa
    `docs/db-notlari.md` P13a "Up guard" kurtarması. Ardından `docker compose --profile setup run --rm seed` (zararsız).
-6. **Yetki sınırı:** `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD BACKUP_PW=$MYSQL_BACKUP_PASSWORD CONTAINER=remote-mysql-1 DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh | tail -3`
+6. **Yetki sınırı:** `set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD BACKUP_PW=$MYSQL_BACKUP_PASSWORD CONTAINER=$(docker compose ps -q mysql) DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh | tail -3`
    → **373/373 PASS**, `grep -c FAIL` = 0 (tetikleyici 3, backup hesabı dahil).
 7. **AC-88 kaydı:** staging'de yığın zaten kurulu olduğundan temiz kurulum ölçümü burada yapılmaz; §2 "Temiz kurulum kaydı"
    yöntemi ayrı temiz VM/dind'de (veya staging'de geçici compose projesi `-p remote-ac88`, farklı port ve volume'larla, ölçüm
@@ -1865,7 +1889,7 @@ chmod 600 $D/$R/*; chmod 700 $D/$R $D                  # izinleri geri al
      `comparedWith` = son İYİ run. Değişen gün için iki manifesti karşılaştırın:
      `jq --arg d <gün> '.audit.days[$d]' /var/backups/remote/{<comparedWith>,$R}/manifest.json` (n ve h).
   2. Kim/ne zaman: Audit ekranı (o gün, `retention.run`, `backup.audit_baseline_reset`), `docker compose logs mysql --since 48h`,
-     `journalctl _COMM=sshd --since -3d`, `last -F | head`, `docker events --since 48h --until now --filter container=remote-mysql-1` (kısa tutun).
+     `journalctl _COMM=sshd --since -3d`, `last -F | head`, `docker events --since 48h --until now --filter container=$(docker compose ps -q mysql)` (kısa tutun).
      Sıfırlama kaydı gerçekten yapıldı mı: Audit ekranında "Yedek audit taban çizgisi sıfırlandı" kaydının operatörü ve gerekçesi.
   3. Kanıt: FAILED run'ları ve `comparedWith` run'ı **silmeyin/taşımayın** (imzalı kanıt; rotasyon referansı korur). Gerekirse
      iş istasyonunda iki run'ı scratch'e açıp (§18.4 A, `--keep`) ilgili günün satırlarını karşılaştırın (dba).
@@ -2000,7 +2024,7 @@ until docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/ready'
 echo "AC-88: $(( $(date +%s) - t0 )) sn"                 # ≤ 120 → §2 "Temiz kurulum kaydı" tablosuna
 docker compose --profile setup run --rm seed           # Super Admin + varsayılanlar
 set -a; . ./.env; set +a; APP_PW=$MYSQL_APP_PASSWORD BACKUP_PW=$MYSQL_BACKUP_PASSWORD MIGRATOR_PW=$MYSQL_MIGRATOR_PASSWORD \
-  CONTAINER=remote-mysql-1 DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh | tail -3; set +a
+  CONTAINER=$(docker compose ps -q mysql) DB=$MYSQL_DATABASE bash mysql/check-app-grants.sh | tail -3; set +a
 #   384/384 PASS (P13b; anon=0, migratorExtra=0 dahil), grep -c FAIL = 0
 ss -tlnp | grep -E ':445[01] '                         # yalnız 127.0.0.1:4450 ve 127.0.0.1:4451
 curl -sI https://remote.noktabilisim.net/login | grep -i strict-transport   # max-age=31536000; includeSubDomains
@@ -2144,6 +2168,16 @@ backup/restore.sh --identity /dev/shm/rb.key --allowed-signers /root/allowed_sig
 - TURN: `deploy/turn/.env` önceki hâli (staging realm/secret), `TURN_CERT_DIR` boş → `./gen-cert.sh 185.126.217.99` → 
   `docker compose -p remote-turn up -d --force-recreate`; UFW: `ufw allow 4450/tcp` (relay aralığı geniş kalabilir).
 - pfSense 4450 NAT henüz kaldırılmadığı için (P2 imzadan sonra) staging erişimi döner. `CADDY_BIND` staging-final'deki değerdir.
+- **P13c kilitleri ve geri dönüş (2026-11-15):** dönülen yerleşim P13c öncesi staging'dir (`/opt/remote`, proje `remote`,
+  `DEPLOY_ENV=staging`). (a) **Yedek yolları:** değişiklik GEREKMEZ. Yol koruması (S13C-2) yalnız aynı sunucudaki ikinci
+  yığında çalışır (compose projesi `remote` değil ya da birim `remote-backup@<örnek>`); tek yığın staging (proje `remote`,
+  şablonsuz `remote-backup.service`) prod varsayılan yollarıyla (`/var/backups/remote`, `/var/lib/remote-backup/status.prom`,
+  `/etc/remote-backup/manifest_ed25519`) yedek almaya devam eder (S13C-13). Bugünkü sunucu da (§20 terfisi öncesi) böyledir.
+  (b) **İstemci:** `remote_agent_downloads`
+  silindiği için yeniden yayın gerekir. Release exe'sinde gömülü ad (`remote.noktabilisim.net`) geri dönüşte bu staging'i gösterir;
+  tek yığın staging (proje `remote`) için kilit bayraksız yalnız Release kabul eder (S13C-13):
+  `deploy/agent/verify-and-publish.sh --tag v<son Release> --ssh root@185.126.217.99` (attestation'lı). `--run`/`--stg-run`/`--dir`
+  bu yerleşimde reddedilir (bugünkü sunucuda da, §20 terfisine kadar, aynı kural geçerlidir).
 
 ### 20.9 proxy-guard — 127.0.0.1:4451'e yerel bağlantı kısıtı (G-P13b-3; `deploy/ops/proxy-guard.sh`)
 Sorun: host'tan yayımlanan 4451'e yapılan her yerel bağlantı Caddy'ye güvenilen 172.30.0.128'den görünür; VM'deki başka bir
@@ -2190,3 +2224,118 @@ systemctl is-active remote-proxy-guard.timer                          # active
 | Y2 | **Sonra** — G-P13b-13 / S-P13b-4 yedek tarafı: `remote-backup.service` hâlâ git ağacındaki `/opt/remote/deploy/backup/backup.sh`'i çalıştırıyor, kurulu kopyadan (`/usr/local/lib/remote/`) çalışmıyor. Geçişte `backup.sh`, `restore.sh`, `lib*.sh` ve `../mysql/*.sql` birlikte kurulmalı; `sql_dir` yolu ve restore'un `backup.sh` çağrısı uyarlanmalı | O zamana kadar `remote-watch` `tree-perms` (root dışı sahip, o+w, root dışı gruba yazılabilir) ağacı izliyor |
 | Y3 | G-P13b-10: `reset-superadmin` sarmalayıcı host betiği (rc 0 → alarm kanalına parola içermeyen bildirim) | §20.6 son madde elle yapılır |
 | Y4 | Site dışı hedef seçimi (K-P13b-4) → §18.9/4 | `remote-watch` hatırlatması kendiliğinden susar |
+
+## 21. P13c — ayrı staging kurulumu (`remote-stg`; mimari-e11 §3, ADR-0019 m.5, ADR-0021) — TASLAK
+
+> **Durum: BEKLİYOR — kurulum yapılmadı.** Ön koşullar: (1) kullanıcı Cloudflare'de `stg.remote.noktabilisim.net` A kaydını
+> açar (**DNS only**, gri bulut; proxy açık olursa LE HTTP-01 ve WebSocket bozulur); (2) §20 prod terfisi imzalı. Kod/yapılandırma
+> kısmı (C1, C2, C4) hazır ve yerelde denendi (`docs/implementation.md` "P13c — devops (kod kısmı)"). Kurulum yapılınca bu
+> bölüm "taslak"tan çıkarılır, ölçümler ve komut çıktıları yazılır.
+
+### 21.1 Yerleşim (prod ile yan yana, aynı sunucu)
+| Öğe | Prod | Staging |
+|---|---|---|
+| Ağaç / deploy dizini | `/opt/remote` · `/opt/remote/deploy` | `/opt/remote-stg` · `/opt/remote-stg/deploy` (ayrı `git clone`, root sahibi) |
+| Compose projesi | `remote` (compose `name:`) | `remote-stg` (`.env` `COMPOSE_PROJECT_NAME`) → volume/ağ/konteyner `remote-stg_*`, `remote-stg-mysql-1` |
+| Compose dosyaları | `docker-compose.yml` | `COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml` (Caddy `CADDY_TRUSTED_PROXIES` + `ROBOTS_NOINDEX=1`) |
+| Caddy host portları | `127.0.0.1:4451` (nginx), `127.0.0.1:4450` (tanı) | `127.0.0.1:4461`, `127.0.0.1:4460` (`CADDY_HTTP_PORT`, `CADDY_TLS_PORT`, `CADDY_BIND=127.0.0.1`) |
+| edge ağı | `172.30.0.0/24`, aralık `.128/25`, caddy `.2`, web `.3` | `EDGE_SUBNET=172.30.1.0/24`, `EDGE_IP_RANGE=172.30.1.128/25`, `EDGE_CADDY_IP=172.30.1.2`, `EDGE_WEB_IP=172.30.1.3` |
+| Güvenilen proxy | server `172.30.0.2/31`, Caddy 4451 `172.30.0.128/32` | `EDGE_TRUSTED_PROXY_CIDR=172.30.1.2/31`, `CADDY_TRUSTED_PROXIES=172.30.1.128/32` |
+| `DEPLOY_ENV` | `production` | `staging` |
+| Sırlar | prod kasası | **hepsi yeni üretilir** (MySQL parolaları, `SESSION_REF_KEY`, `EDGE_PROXY_SECRET`, `APP_ENCRYPTION_KEYS`, `METRICS_TOKEN`, `TURN_SECRET` kullanılmaz) |
+| TURN | prod coturn | `TURN_URLS=stun:remote.noktabilisim.net:3478` (kimliksiz STUN). `TURN_SECRET` compose'da zorunlu olduğu için **staging'e özgü rastgele** değer verilir (prod coturn'ünkiyle aynı OLMAZ → staging relay kimliği üretemez) |
+| Yedek | `remote-backup.timer` 02:00, `/var/backups/remote`, 14 g | `remote-backup@stg.timer` 03:30, `/var/backups/remote-stg`, **ayrı age çifti + ayrı imza anahtarı**, 3 g |
+| İzleme | `remote-watch.timer` | `remote-watch@stg.timer` (`/etc/remote-watch/stg.env`; alarm metni `remote-watch[stg]`) |
+| İmajlar | `remote-server:<IMAGE_TAG>` | **aynı ad** (compose `image:`). Etiket = commit kısa SHA olduğundan aynı etiket aynı kaynaktır; staging'de prod'un çalıştırdığı etiketle *farklı kaynaktan* build ALINMAZ. `docker image prune` iki yığın ayaktayken çalıştırılabilir (kullanılan imaj silinmez) |
+
+Değişkenlerin anlamı `.env.example` "P13c ikinci yığın" bölümünde; prod `.env`'e **hiçbiri eklenmez** (varsayılanlar prod
+değerleri; `COMPOSE_FILE=` gibi **boş** bir satır compose'u durdurur — prod'da satır hiç olmaz).
+
+### 21.2 Kaynak ölçümü (kurulumdan ÖNCE ve SONRA; kabul: disk < %80, boş RAM ≥ 1 GB)
+```sh
+free -m; df -h / /var/lib/docker /var/backups; docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' | sort
+```
+Önce/sonra değerleri buraya yazılır (tarih, `free -m` "available", `df` Use%). Eşik aşılırsa staging MySQL sınırlanır:
+`docker-compose.staging.yml`'e `mysql: { command: ["--default-time-zone=+00:00", "--log-bin-trust-function-creators=1",
+"--innodb-buffer-pool-size=256M"] }` (ana dosyadaki iki bayrak **aynen** tekrarlanır; liste birleşmez, değiştirilir).
+
+### 21.3 Kurulum adımları (root; her adım komut → beklenen)
+1. **DNS (kullanıcı):** `dig +short stg.remote.noktabilisim.net` → `185.126.217.99`.
+2. **Ağaç:** `git clone <repo> /opt/remote-stg && chown -R root:root /opt/remote-stg && chmod -R go-w /opt/remote-stg`;
+   `git -C /opt/remote-stg checkout <prod ile aynı ya da test edilecek commit>`.
+3. **`.env`:** `cd /opt/remote-stg/deploy && cp ../.env.example .env && chmod 600 .env`; doldur: §21.1 staging sütunu +
+   `COMPOSE_PROJECT_NAME=remote-stg`, `COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml`, `DEPLOY_ENV=staging`,
+   `PUBLIC_BASE_URL=https://stg.remote.noktabilisim.net`, `SITE_HOST=stg.remote.noktabilisim.net`, `CADDY_BIND=127.0.0.1`,
+   yeni sırlar (`openssl rand …`, §3), `IMAGE_TAG=$(git rev-parse --short HEAD)`, `MIN_AGENT_VERSION=` boş (staging exe sürümü
+   §21.5), `WHATSAPP_SERVICE_URL=` boş. Kontrol:
+   `docker compose config | grep -E '^name:|published:|ipv4_address|subnet|ip_range|TRUSTED_PROXY_CIDR|CADDY_TRUSTED_PROXIES|ROBOTS_NOINDEX'`
+   → `name: remote-stg`, `4460`/`4461`, `172.30.1.*`, `ROBOTS_NOINDEX: "1"`. Prod'da aynı komut `name: remote`, `4450/4451`,
+   `172.30.0.*` göstermeli ve ROBOTS satırı **olmamalı**.
+4. **Ayağa kaldır:** `docker compose build && docker compose up -d && docker compose --profile setup run --rm seed`
+   → `docker compose ps` dört servis healthy; `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4461/login` → 200.
+   Prod kesintisiz (adım boyunca): `curl -s -o /dev/null -w "%{http_code}\n" https://remote.noktabilisim.net/login` → 200 (`/ready` dışarıya kapalı).
+5. **nginx vhost:** `deploy/nginx/remote.noktabilisim.net.conf` kopyalanır → `/etc/nginx/sites-available/stg.remote.noktabilisim.net.conf`;
+   `server_name stg.remote.noktabilisim.net;`, `proxy_pass http://127.0.0.1:4461;`, sertifika yolları `…/live/stg.remote.noktabilisim.net/`.
+   Önce yalnız 80 + ACME bloğu ile: `nginx -t && systemctl reload nginx`;
+   `certbot certonly --webroot -w <acme kökü> -d stg.remote.noktabilisim.net` (prod ile aynı yöntem, §8.3) → 443 bloğu açılır,
+   `nginx -t && systemctl reload nginx`. Beklenen: `curl -sI https://stg.remote.noktabilisim.net/login` → 200 +
+   `x-robots-tag: noindex, nofollow`; `curl -s https://stg.remote.noktabilisim.net/robots.txt` → `Disallow: /`;
+   `curl -sI https://remote.noktabilisim.net/login | grep -ci x-robots-tag` → **0** (prod etkilenmedi).
+6. **proxy-guard (4461 de korunmalı):** `cd /opt/remote/deploy/ops && PROXY_GUARD_PORT=4451,4461
+   PROXY_GUARD_DST4=127.0.0.0/8,172.30.0.0/24,172.30.1.0/24 ./proxy-guard.sh install && remote-proxy-guard verify`
+   → `verify OK … (tcp/4451,4461)`. (Prod ağacındaki kopya kurulur; tek tablo iki portu korur.)
+7. **Yedek (ayrı anahtarlar):** kullanıcı **yeni** age çifti üretir (özel anahtar kasaya, sunucuya değil; §18.1).
+   `install -d -m 700 /etc/remote-backup-stg && ssh-keygen -t ed25519 -N '' -C remote-backup-stg@$(hostname -s) -f /etc/remote-backup-stg/manifest_ed25519`;
+   `/etc/remote-backup-stg/allowed_signers` (644). `/opt/remote-stg/deploy/backup/backup.env` (root 600): `BACKUP_DIR=/var/backups/remote-stg`,
+   `BACKUP_AGE_RECIPIENT=<stg age1…>`, `BACKUP_KEEP_DAYS=3`, `BACKUP_SIGNING_KEY=/etc/remote-backup-stg/manifest_ed25519`,
+   `BACKUP_STATUS_FILE=/var/lib/remote-backup-stg/status.prom`, `BACKUP_ALERT_CMD` (§18.3; metinde `stg` geçsin). Bu üç yol
+   `remote-backup@.service` / `remote-backup-failed@.service` içinde `Environment=` ile **zorlanır** (S13C-2; `backup.env` farklı
+   yazsa da birim değeri geçerlidir); `backup.sh` ikinci yığında (proje `remote` dışı ya da şablon örneği) prod varsayılan
+   yollarını görürse status yazmadan durur. Tek yığın (proje `remote`) bu korumadan etkilenmez (S13C-13). Backup kullanıcısı
+   `.env` `MYSQL_BACKUP_PASSWORD` ile ilk açılışta oluşur. Birimler:
+   `cp /opt/remote-stg/deploy/backup/remote-backup@.service /opt/remote-stg/deploy/backup/remote-backup@.timer /opt/remote-stg/deploy/backup/remote-backup-failed@.service /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now remote-backup@stg.timer`;
+   ilk koşu `systemctl start remote-backup@stg.service && journalctl -u remote-backup@stg -n 5` → `remote-backup: OK`, manifest `env staging`.
+8. **İzleme:** `/opt/remote/deploy/ops/remote-watch.sh install stg` (**prod ağacından**, S13C-5: kurulu kopya
+   `/usr/local/lib/remote/remote-watch.sh` iki örnekte ortaktır; staging ağacından kurulursa denetlenmemiş staging commit'i root
+   olarak prod izlemesini de değiştirir. Staging dalındaki watch değişikliği önce prod ağacına terfi eder.) →
+   `/etc/remote-watch/stg.env` (600) doldurulur:
+   `WATCH_PUBLIC_HOST=stg.remote.noktabilisim.net`, `WATCH_ALERT_CMD` (prod ile aynı kanal; mesaj `remote-watch[stg] …`).
+   Diğerleri örnek adından türer (proje `remote-stg`, yedek `/var/lib/remote-backup-stg/status.prom`, zamanlayıcı
+   `remote-backup@stg.timer`, coturn kontrolü yok — prod örneği izler). `systemctl start remote-watch@stg.service &&
+   journalctl -u remote-watch@stg -n 3` → `remote-watch-stg: OK (<n> kontrol)`. Prod örneği `@` birimlerini saymaz.
+9. **Geri yükleme provası (haftalık, staging'de):** `RESTORE_EXPECT_PROJECT=remote-stg /opt/remote-stg/deploy/backup/restore.sh
+   --identity <stg age anahtarı> --allowed-signers /etc/remote-backup-stg/allowed_signers --target staging
+   --confirm <db>@$(hostname -s) /var/backups/remote-stg/<run>` → `restore-verify: OK`. Ortam kilidi: staging yedeği prod
+   dizininde (`--target staging` ya da `production`) ve prod yedeği staging dizininde **reddedilir** (yerel test
+   `deploy/backup/test-backup.sh` bölüm H). İmza anahtarları ayrı olduğundan prod `allowed_signers` staging yedeğini zaten kabul etmez.
+10. **İstemci (C4):** GitHub Actions → agent-win → Run workflow (dal **main**), `server_url = https://stg.remote.noktabilisim.net`,
+    `version = x.y.z` → artifact `agent-win-stg` (`NoktaDestek-stg-<sürüm>.exe`, attestation), **Release yok**. Yayın:
+    `deploy/agent/verify-and-publish.sh --stg-run <run-id> --ssh root@185.126.217.99` (hedef vars. `/opt/remote-stg/deploy`;
+    koşu main + workflow_dispatch + success + build-meta adresi staging olmalı; `gh attestation verify --source-ref refs/heads/main`).
+    Betik ortam kilidi: `stg-` etiketli exe yalnız `DEPLOY_ENV=staging` hedefe; `DEPLOY_ENV=production` hedefe yalnız `vX.Y.Z`
+    Release; staging hedefe Release/main push exe'si (prod adresi gömülü) yazılmaz.
+11. **Duman testi (C5, test-operatoru):** login, oturum, tarayıcı modu STUN ile aynı ağda görüntü; konsol hatası 0.
+12. **C6 (kullanıcı):** proje `CLAUDE.md` staging satırı `stg.remote.noktabilisim.net`.
+
+### 21.4 Yayın akışı (P13c sonrası)
+Staging yayını = `/opt/remote-stg`'de `git pull` → `IMAGE_TAG` → `docker compose build && docker compose up -d` (§8 aynı adımlar,
+`cd /opt/remote-stg/deploy`). Prod'a terfi = §20 düzeltme yolu (aynı commit, imzalı Release). Rollback: staging'de önceki
+`IMAGE_TAG`; prod etkilenmez.
+
+### 21.5 Geri alma (staging'i tamamen kaldırmak)
+`systemctl disable --now remote-watch@stg.timer remote-backup@stg.timer`; `cd /opt/remote-stg/deploy && docker compose down`
+(volume'lar `-v` olmadan kalır; kalıcı silme bilinçli: `docker compose down -v`); nginx vhost silinir + `nginx -t && systemctl reload nginx`;
+proxy-guard tek port: `PROXY_GUARD_PORT=4451 PROXY_GUARD_DST4=127.0.0.0/8,172.30.0.0/24 ./proxy-guard.sh install`;
+`certbot delete --cert-name stg.remote.noktabilisim.net`. Prod'a dokunulmaz (ayrı proje adı, ağ, port, volume).
+
+### 21.6 Sorun giderme
+| Belirti | Neden / çözüm |
+|---|---|
+| `docker compose up` "Pool overlaps with other one on this address space" | `EDGE_SUBNET` prod'la (172.30.0.0/24) çakışıyor → staging `.env` 172.30.1.0/24 |
+| `compose file "" set by COMPOSE_FILE … is invalid` | `.env`'de boş `COMPOSE_FILE=` satırı → satırı silin (prod) ya da doldurun (staging) |
+| `required variable CADDY_TRUSTED_PROXIES is missing` | staging katmanı yüklü ama değer yok → `CADDY_TRUSTED_PROXIES=172.30.1.128/32` |
+| Staging'de tüm istemciler aynı IP (ağ geçidi) görünüyor, giriş kilitleri ortak | `CADDY_TRUSTED_PROXIES` yanlış/katman yüklenmemiş → `docker compose config | grep CADDY_TRUSTED`; ağ geçidi `docker network inspect remote-stg_edge` |
+| Staging yanıtında `x-robots-tag` yok | `COMPOSE_FILE` staging katmanını içermiyor → §21.3/3 kontrolü; `docker compose up -d caddy` |
+| `verify-and-publish`: "staging exe … yalnız DEPLOY_ENV=staging" | yanlış `--deploy-dir` (prod) → `--deploy-dir /opt/remote-stg/deploy` ya da varsayılan |
+| `restore.sh`: "compose projesi 'remote-stg', beklenen 'remote'" | staging'de `RESTORE_EXPECT_PROJECT=remote-stg` verilmedi (bilinçli: varsayılan prod adı) |
+| `remote-backup@stg` "prod varsayılan yollarını kullanıyor" | birim dışından (elle) çalıştırıldı ya da şablon eski → `systemctl start remote-backup@stg` ya da üç yolu `backup.env`'e yazın |

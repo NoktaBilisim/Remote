@@ -1,0 +1,16 @@
+# P13c staging katmanı (mimari-e11 §3.1, runbook §21). YALNIZ /opt/remote-stg/deploy/.env'de
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.staging.yml
+# ile yüklenir; prod'da yüklenmez (prod `docker compose config` çıktısı bu dosyadan etkilenmez).
+# Burada yalnız Caddy'ye özgü staging farkları durur: ana dosyaya eklenen her anahtar prod çıktısını değiştirirdi.
+# Doğrulama (staging deploy/ içinde): docker compose config | grep -E 'CADDY_TRUSTED_PROXIES|ROBOTS_NOINDEX'
+# S13C-1: katman yüklüyse proje adı .env COMPOSE_PROJECT_NAME unutulsa da remote-stg (prod volume'larına düşülmez).
+# (COMPOSE_PROJECT_NAME verilirse o geçerlidir; ikisi aynı tutulur.)
+name: remote-stg
+services:
+  caddy:
+    environment:
+      # 4451 dinleyicisinin güvendiği docker ağ geçidi = EDGE_IP_RANGE'in ilk adresi (staging 172.30.1.128/32).
+      # Yanlışsa XFF'e güvenilmez -> herkes ağ geçidi IP'si görünür (giriş limitleri ortaklaşır); boşsa compose durur.
+      CADDY_TRUSTED_PROXIES: ${CADDY_TRUSTED_PROXIES:?CADDY_TRUSTED_PROXIES gerekli (staging 172.30.1.128/32; runbook §21)}
+      # Arama motoru dışı: her yanıta X-Robots-Tag "noindex, nofollow", /robots.txt "Disallow: /" (Caddyfile robots_1).
+      ROBOTS_NOINDEX: "1"

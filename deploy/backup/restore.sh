@@ -241,7 +241,8 @@ SEC_LIVE_BEFORE="$(sec_snapshot "$LIVE")"
 sec_precondition "canlı hesap koşulu" "$SEC_LIVE_BEFORE"
 [ "$FAILS" -eq 0 ] || { log "canlı yetki durumu beklenmedik — DB'ye DOKUNULMADI, server DURDURULMUŞ (runbook §19)"; verdict; }
 log "veritabanı migrator ile boşaltılıyor ($DB_NAME; deploy/mysql/restore-reset-db.sql)"
-reset_out="$({ printf "SET @rs_confirm_db = '%s';\n" "$DB_NAME"; cat "$SQL_DIR/restore-reset-db.sql"; } | sql_migrator "$LIVE")" \
+reset_sql="$(printf "SET @rs_confirm_db = '%s';\n" "$DB_NAME"; cat "$SQL_DIR/restore-reset-db.sql")"   # QA-P13c-2: boru yok
+reset_out="$(sql_migrator "$LIVE" <<<"$reset_sql")" \
   || die "restore-reset-db.sql başarısız — DB değişmedi (guard) ya da yok kaldı: runbook §19 'Veri bozuldu'"
 case "$reset_out" in "restore-reset: OK $DB_NAME "*) log "$reset_out" ;; *) die "beklenmeyen reset çıktısı" ;; esac
 log "döküm migrator ile yükleniyor"

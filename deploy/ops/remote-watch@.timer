@@ -1,0 +1,12 @@
+# remote-watch@<örnek> 10 dakikada bir (P13c, runbook §21). Kurulum: remote-watch.sh install <örnek>.
+[Unit]
+Description=Remote Support izleme zamanlayicisi (ornek %i, 10 dk)
+
+[Timer]
+OnBootSec=4min
+OnUnitActiveSec=10min
+AccuracySec=30s
+Unit=remote-watch@%i.service
+
+[Install]
+WantedBy=timers.target

@@ -2,6 +2,19 @@
 Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (bölüm 9'un devamıdır, ayrılmaz parçasıdır). Boyut nedeniyle 2026-11-12'de ana dosyadan taşındı; P2..P8 tabloları içerik değiştirilmeden taşındı, yeni paketlerin tabloları en üste eklenir.
 Not — 2026-11-14: P13 → P13a/P13b bölündü (`docs/mimari-p13.md` §6).
 
+### Sonra / açık — P13c kod kısmından (2026-11-15)
+Kaynak: `docs/guvenlik-raporu.md` (P13c kod turu 1–2), `docs/qa-raporu.md` (P13c Tur 1–2 öneriler). Kritik/Yüksek/Orta açık yok.
+
+| Madde | Ne yapılacak | Sahip | Ne zaman |
+|---|---|---|---|
+| S13C-4 (Düşük) | İki yığın aynı imaj adı/etiketini paylaşıyor; imaj adı `${COMPOSE_PROJECT_NAME:-remote}-server`, staging'de `IMAGE_TAG` zorunlu | devops | C3 kurulumundan önce |
+| S13C-6 (Düşük) | proxy-guard'ın 4461'i kapsadığını izleyen alarm; o zamana kadar §21.3/6 iki port doğrulaması elle | devops | C3 kurulumu |
+| S13C-12 (Bilgi) | Guard yollarında `realpath -m` (S13C-11 bayrak kaldırıldığı için kapandı) | devops | Sonra |
+| S13C-13 (Bilgi) | Giderildi (devops düzeltme turu 2): guard yalnız ikinci yığında; tek yığın staging ayar değişmeden yedek alır | — | Kapandı |
+| S13C-14/15 (Bilgi) | Giderildi (düzeltme turu 3, `stg_name_guard`) | — | Kapandı |
+| S13C-16 (Bilgi) | `stg.` önek eşleşmesi büyük/küçük harfe duyarsız yapılsın | devops | Sonra |
+| QA önerileri | `agent-win.yml` concurrency grubunu stg dispatch için ayır; `--stg-run --local` hedef dizini; `test-caddy.sh` benzersiz konteyner adı | devops | Sonra |
+
 ### Sonra / açık — P13b tasarımından (2026-11-14)
 Kaynak: `docs/mimari-p13.md` §7.1 (kapsam dışı), §7.11, §7.15, §7.17; ADR-0018, ADR-0019, ADR-0020; `docs/gereksinimler-p13b.md`.
 

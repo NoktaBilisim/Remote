@@ -5,30 +5,42 @@
 # eşitliğini yeniden kontrol eder (ele geçirilmiş sunucu kendi doğrulamasını atlayabilir — G-07).
 #
 # Kullanım (repo kökünden veya herhangi bir yerden):
-#   deploy/agent/verify-and-publish.sh --tag v0.6.0 --ssh root@185.126.217.99      # Release (prod/staging)
-#   deploy/agent/verify-and-publish.sh --run <run-id> --ssh root@185.126.217.99    # main push artifact'i (staging)
-#   deploy/agent/verify-and-publish.sh --dir <klasör> --local                     # indirilmiş exe+SHA256SUMS, yerel compose
+#   deploy/agent/verify-and-publish.sh --tag v0.6.0 --ssh root@185.126.217.99      # Release -> YALNIZ prod
+#   deploy/agent/verify-and-publish.sh --stg-run <run-id> --ssh root@185.126.217.99 # P13c staging exe (workflow_dispatch
+#       server_url=https://stg.remote.noktabilisim.net, main, artifact agent-win-stg); hedef vars. /opt/remote-stg/deploy
+#   deploy/agent/verify-and-publish.sh --run <run-id> --local                     # main push artifact'i -> YALNIZ yerel
+#   deploy/agent/verify-and-publish.sh --dir <klasör> --local                     # indirilmiş exe+SHA256SUMS -> yerel
+#       (--dir staging hedefe de yazılabilir: elle derlenmiş staging adresli exe; prod'a ASLA)
 # Seçenekler:
-#   --deploy-dir <yol>   hedefteki deploy klasörü (varsayılan /opt/remote/deploy; --local'de bu betiğin üst klasörü)
+#   --deploy-dir <yol>   hedefteki deploy klasörü (varsayılan /opt/remote/deploy, --stg-run'da /opt/remote-stg/deploy;
+#                        --local'de bu betiğin üst klasörü)
 #   --dry-run            yalnız indir + doğrula, yayınlama
 #   --allow-failed-run   (--run) sonucu success olmayan koşunun artifact'ini yine de yayınla. Varsayılan: REDDEDİLİR
-#                        (S6-5). Yalnız staging; etiket `-failedrun` ekiyle PUBLISHED.log'a yazılır.
-#   --no-attestation     attestation doğrulamasını atla. YALNIZ staging ve repo private iken (GitHub, private repoda
-#                        attestation'ı Enterprise Cloud dışında desteklemez). ALLOW_UNATTESTED=staging ortam değişkeni
-#                        de verilmelidir. Prod'da KULLANILMAZ (runbook §11.6). --dir ile birlikte kökeni kanıtsız
-#                        yerel dosya demektir; yalnız açık ALLOW_UNATTESTED=staging ile kabul edilir (S6-5).
+#                        (S6-5). Yalnız yerel (DEPLOY_ENV=development) hedef; etiket `-failedrun` ekiyle PUBLISHED.log'a.
+#   --no-attestation     attestation doğrulamasını atla (--run/--dir; --tag/--stg-run ile değil). Prod'da KULLANILMAZ
+#                        (runbook §11.6). ALLOW_UNATTESTED=staging ortam değişkeni de verilmelidir (adı tarihseldir; hedef
+#                        kilidi ayrıca uygulanır: --run yalnız yerel, --dir yerel/staging). --dir ile birlikte kökeni
+#                        kanıtsız yerel dosya demektir (S6-5).
 # Ortam: AGENT_REPO (varsayılan NoktaBilisim/Remote), AGENT_PUBLISH_RESTART=0 (compose'a dokunma; test için).
 # Çıkış: 0 tamam · 1 doğrulama/yayın hatası · 2 kullanım hatası.
 # İç mod (sunucuda, betiğin kendisi ssh ile gönderilir): --apply <deploy-dir> <sha256> <etiket> <dosya>
+# Ortam kilidi (P13c, apply; hedef .env DEPLOY_ENV, fail-closed):
+#   production  -> yalnız Release etiketi vX.Y.Z (--tag)
+#   staging     -> yalnız stg-* (--stg-run) ya da dir-* (--dir); Release/main push exe'sinde prod adresi gömülü olduğundan RET
+#   development -> stg-* dışında hepsi (--run, --dir, --tag; yerel prova)
+#   boş/başka   -> RET (DEPLOY_ENV development|staging|production olmalı)
+#   Ayrıca (S13C-1) hedefin compose proje adı: production = `remote`, staging ≠ `remote`; uyuşmazsa RET. Tek istisna
+#   (S13C-13) tek yığın staging (proje remote; §20 terfisi öncesi sunucu, §20.8 geri dönüşü): bayraksız, yalnız vX.Y.Z.
 set -euo pipefail
 umask 077
 REPO="${AGENT_REPO:-NoktaBilisim/Remote}"
 WORKFLOW=".github/workflows/agent-win.yml"
 MAX_BYTES=41943040
 EXE=NoktaDestek.exe
+STG_SERVER_URL=https://stg.remote.noktabilisim.net
 
 die() { echo "HATA: $*" >&2; exit 1; }
-usage() { sed -n '2,24p' "$0" >&2; exit 2; }
+usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d' >&2; exit 2; }
 sha() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 fsize() { wc -c < "$1" | tr -d ' '; }
 
@@ -39,14 +51,51 @@ apply() {
   [[ "$label" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || die "geçersiz etiket"
   [ -f "$dir/.env" ] && [ -f "$dir/docker-compose.yml" ] || die "$dir bir deploy klasörü değil (.env / docker-compose.yml yok)"
   [ "$(sha "$file")" = "$want" ] || die "aktarılan dosyanın SHA-256'sı beklenenden farklı"
+  # S13C-3: deploy/backup/lib.sh deploy_env_of ile aynı ayrıştırma (betik sunucuya tek başına gider, lib.sh kaynaklanamaz).
+  local denv proj
+  denv="$(awk -F= '$1 == "DEPLOY_ENV" {sub(/^[^=]*=/, ""); v=$0} END {print v}' "$dir/.env" 2>/dev/null || true)"
+  denv="${denv%$'\r'}"; denv="${denv#\"}"; denv="${denv%\"}"; denv="${denv#\'}"; denv="${denv%\'}"
+  # S13C-1: çözülen compose proje adı ortamla eşleşmeli (prod = remote; staging remote OLAMAZ -> prod volume'una yazılmaz).
+  proj="$(cd "$dir" && docker compose config --no-interpolate 2>/dev/null | sed -n '1s/^name: //p')" || proj=""
+  [ -n "$proj" ] || die "compose proje adı çözülemedi ($dir: docker compose config)"
+  # S13C-15: proje remote iken genel ad staging ise (stg.*) yığın yanlış kurulmuş: prod volume'una yazılmaz. Sırsız: yalnız
+  # PUBLIC_BASE_URL ve SITE_HOST satırları okunur (lib.sh stg_name_guard ile aynı kural).
+  if [ "$proj" = remote ]; then
+    local pub site
+    pub="$(awk -F= '$1 == "PUBLIC_BASE_URL" {sub(/^[^=]*=/, ""); v=$0} END {print v}' "$dir/.env")"
+    site="$(awk -F= '$1 == "SITE_HOST" {sub(/^[^=]*=/, ""); v=$0} END {print v}' "$dir/.env")"
+    pub="${pub%$'\r'}"; pub="${pub#[\"\']}"; pub="${pub#*://}"; site="${site%$'\r'}"; site="${site#[\"\']}"
+    case "$pub" in stg.*) die "compose projesi 'remote' ama PUBLIC_BASE_URL staging (stg.*) — COMPOSE_PROJECT_NAME/COMPOSE_FILE eksik" ;; esac
+    case "$site" in stg.*) die "compose projesi 'remote' ama SITE_HOST staging (stg.*) — COMPOSE_PROJECT_NAME/COMPOSE_FILE eksik" ;; esac
+  fi
+  case "$denv" in
+    production)
+      [ "$proj" = remote ] || die "DEPLOY_ENV=production ama compose projesi '$proj' (beklenen 'remote')"
+      [[ "$label" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "DEPLOY_ENV=production hedefe yalnız Release etiketi (vX.Y.Z) yayınlanır (bulunan: $label)" ;;
+    staging)
+      if [ "$proj" = remote ]; then
+        # S13C-13: tek yığın staging (§20 terfisi öncesi sunucu ve §20.8 geri dönüşü; proje remote, ad remote.noktabilisim.net)
+        # bayraksız devam eder ama YALNIZ Release (vX.Y.Z; attestation'lı, gömülü ad bu sunucu). run-*/stg-*/dir-* RET:
+        # yanlış kurulmuş ikinci yığın prod volume'una staging/main exe'si yazamaz.
+        [[ "$label" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+          || die "DEPLOY_ENV=staging ama compose projesi 'remote' (tek yığın: yalnız Release vX.Y.Z; ikinci yığınsa COMPOSE_PROJECT_NAME/COMPOSE_FILE eksik)"
+        echo "UYARI: tek yığın staging (proje remote; runbook §20.8) — yalnız Release $label" >&2
+        denv=legacy-staging
+      fi
+      [ "$denv" = legacy-staging ] || case "$label" in stg-*|dir-*) ;; *) die "DEPLOY_ENV=staging hedefe yalnız --stg-run (ya da --dir) exe'si yayınlanır (bulunan: $label)" ;; esac ;;
+    development)
+      case "$label" in stg-*) die "staging exe ($label) yalnız DEPLOY_ENV=staging hedefe yayınlanır (bulunan: 'development')" ;; esac ;;
+    *) die "$dir/.env DEPLOY_ENV development|staging|production olmalı (bulunan: '${denv}'); ortamı bilinmeyen hedefe yayın yapılmaz" ;;
+  esac
   local ts; ts=$(date -u +%Y%m%dT%H%M%SZ)
   # 1) Volume'a yaz (compose `agent_downloads` → remote_agent_downloads; server/caddy salt okunur bağlar).
   #    Yardımcı konteyner: compose'daki sabit digest'li caddy imajı (sh/cp/sha256sum var), ağsız.
   if [ "${AGENT_PUBLISH_RESTART:-1}" = 1 ]; then
     local vol img stage
-    vol="$(cd "$dir" && docker compose config --format json | sed -n 's/.*"name": *"\([^"]*agent_downloads\)".*/\1/p' | head -1)"
-    [ -n "$vol" ] || vol=remote_agent_downloads
-    img="$(cd "$dir" && docker compose config --images | grep -m1 '^caddy:')" || die "caddy imajı bulunamadı"
+    vol="$(cd "$dir" && docker compose config --format json | sed -n 's/.*"name": *"\([^"]*agent_downloads\)".*/\1/p' | awk 'NR == 1')"
+    # P13c: sabit ad yedeği YOK (staging dizininden prod volume'una yazılmasın); çözülemezse dur.
+    [ -n "$vol" ] || die "agent_downloads volume adı compose'dan çözülemedi ($dir)"
+    img="$(cd "$dir" && docker compose config --images | awk '/^caddy:/ && !n++')" && [ -n "$img" ] || die "caddy imajı bulunamadı"
     stage=$(dirname "$file")
     docker volume create "$vol" >/dev/null
     docker run --rm --network none -v "$vol:/dst" -v "$stage:/src:ro" "$img" sh -euc '
@@ -99,11 +148,12 @@ apply() {
 if [ "${1:-}" = --apply ]; then [ $# -eq 5 ] || usage; apply "$2" "$3" "$4" "$5"; exit 0; fi
 
 # ---------- operatör tarafı ----------
-TAG="" RUN="" SRC_DIR="" SSH="" LOCAL=0 DRY=0 NOATT=0 DEPLOY_DIR="" ALLOW_FAILED=0
+TAG="" RUN="" STG_RUN="" SRC_DIR="" SSH="" LOCAL=0 DRY=0 NOATT=0 DEPLOY_DIR="" ALLOW_FAILED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --tag) TAG="${2:?}"; shift 2 ;;
     --run) RUN="${2:?}"; shift 2 ;;
+    --stg-run) STG_RUN="${2:?}"; shift 2 ;;
     --dir) SRC_DIR="${2:?}"; shift 2 ;;
     --ssh) SSH="${2:?}"; shift 2 ;;
     --local) LOCAL=1; shift ;;
@@ -115,8 +165,10 @@ while [ $# -gt 0 ]; do
     *) echo "bilinmeyen argüman: $1" >&2; usage ;;
   esac
 done
-n=0; for x in "$TAG" "$RUN" "$SRC_DIR"; do [ -n "$x" ] && n=$((n+1)); done
-[ "$n" -eq 1 ] || { echo "--tag, --run veya --dir'den tam biri verilmeli" >&2; usage; }
+n=0; for x in "$TAG" "$RUN" "$STG_RUN" "$SRC_DIR"; do [ -n "$x" ] && n=$((n+1)); done
+[ "$n" -eq 1 ] || { echo "--tag, --run, --stg-run veya --dir'den tam biri verilmeli" >&2; usage; }
+[ -z "$STG_RUN" ] || [[ "$STG_RUN" =~ ^[0-9]+$ ]] || die "run-id sayı olmalı"
+[ -z "$STG_RUN" ] || [ "$NOATT" = 0 ] || die "--stg-run attestation'sız kullanılmaz"
 [ "$DRY" = 1 ] || [ -n "$SSH" ] || [ "$LOCAL" = 1 ] || { echo "--ssh <hedef>, --local veya --dry-run gerekli" >&2; usage; }
 [ -z "$SSH" ] || [ "$LOCAL" = 0 ] || usage
 [ -z "$TAG" ] || [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "etiket vX.Y.Z olmalı"
@@ -143,6 +195,23 @@ elif [ -n "$RUN" ]; then
     echo "UYARI: koşu sonucu '$concl'; --allow-failed-run ile devam (yalnız staging, PUBLISHED.log'a '-failedrun' notu)" >&2
     LABEL="$LABEL-failedrun"
   fi
+elif [ -n "$STG_RUN" ]; then
+  # P13c (mimari-e11 §3.3, runbook §21): yalnız main dalında elle tetiklenmiş, başarılı, staging adresli derleme.
+  gh run download "$STG_RUN" --repo "$REPO" -n agent-win-stg -D "$WORK/stg"
+  meta=$(gh run view "$STG_RUN" --repo "$REPO" --json headBranch,event,conclusion,workflowName --jq '[.headBranch,.event,.conclusion,.workflowName]|join(" ")')
+  echo "run: $meta"
+  read -r br ev concl wf <<<"$meta"
+  [ "$ev" = workflow_dispatch ] && [ "$br" = main ] && [ "$wf" = agent-win ] || die "staging exe yalnız main workflow_dispatch koşusundan (bulunan: $br/$ev/$wf)"
+  [ "$concl" = success ] || die "koşu sonucu '$concl' (success değil)"
+  [ "$(sed -n 1p "$WORK/stg/build-meta.txt")" = "$STG_SERVER_URL" ] || die "build-meta sunucu adresi $STG_SERVER_URL değil"
+  stg_exe=$(cd "$WORK/stg" && find . -maxdepth 1 -name 'NoktaDestek-stg-*.exe' | sed 's#^\./##')
+  [[ "$stg_exe" =~ ^NoktaDestek-stg-[0-9]+\.[0-9]+\.[0-9]+\.exe$ ]] || die "artifact'ta tek NoktaDestek-stg-<sürüm>.exe yok"
+  stg_want=$(awk -v e="$stg_exe" '$2==e || $2=="*"e {print $1}' "$WORK/stg/SHA256SUMS")
+  [[ "$stg_want" =~ ^[0-9a-f]{64}$ ]] || die "SHA256SUMS'ta $stg_exe satırı yok"
+  # Volume'da ad NoktaDestek.exe (Caddy yolu); içerik aynı bayt, SHA256SUMS bu ada yeniden yazılır, attestation özetle bağlı.
+  cp "$WORK/stg/$stg_exe" "$WORK/$EXE"; printf '%s  %s\n' "$stg_want" "$EXE" >"$WORK/SHA256SUMS"
+  ver="${stg_exe#NoktaDestek-stg-}"; LABEL="stg-run-$STG_RUN-v${ver%.exe}"; SRC_REF="refs/heads/main"
+  DEPLOY_DIR="${DEPLOY_DIR:-/opt/remote-stg/deploy}"
 else
   cp "$SRC_DIR/$EXE" "$SRC_DIR/SHA256SUMS" "$WORK/"; LABEL="dir-$(date -u +%Y%m%d%H%M%S)"; SRC_REF=""
   [ "$NOATT" = 0 ] || echo "UYARI: --dir + --no-attestation: bu dosyanın CI kökeni HİÇ doğrulanmıyor (yalnız staging)" >&2

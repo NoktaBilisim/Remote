@@ -9,6 +9,19 @@ on:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      # P13c (mimari-e11 §3.3, ADR-0021): staging exe. Yalnız bu iki değer kabul edilir (choice; betik ayrıca doğrular).
+      # "yer-tutucu" = eski davranış (çözülmeyen adres). Staging adresi yalnız main dalında; çıktı Release'e GİTMEZ,
+      # artifact `agent-win-stg` (NoktaDestek-stg-<sürüm>.exe + SHA256SUMS + build-meta), attestation üretilir.
+      server_url:
+        description: "Gömülecek sunucu adresi (staging yalnız main dalında)"
+        type: choice
+        options: ["yer-tutucu", "https://stg.remote.noktabilisim.net"]
+        default: "yer-tutucu"
+      version:
+        description: "Staging exe sürümü x.y.z (MIN_AGENT_VERSION'dan düşük olmamalı)"
+        type: string
+        default: "0.0.0"
 permissions:
   contents: read
 concurrency:
@@ -23,6 +36,9 @@ env:
   # workflow_dispatch ve test-windows iz testi bu adresi kullanır: .invalid TLD çözülmez, exe hiçbir sunucuya bağlanamaz
   # (ldflags; config yalnız https://host[:port] kabul eder).
   PLACEHOLDER_SERVER_URL: https://destek.example.invalid:4450
+  # P13c: elle tetiklemede gömülebilecek TEK gerçek adres (staging). Başka adres kabul edilmez (S6-4 korunur: main dalı =
+  # incelenmiş kod; staging sunucusu prod verisine erişemez).
+  STG_SERVER_URL: https://stg.remote.noktabilisim.net
 
 jobs:
   check:
@@ -128,6 +144,9 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           VAR_SERVER_URL: ${{ vars.AGENT_SERVER_URL }}
+          GIT_REF: ${{ github.ref }}
+          IN_SERVER_URL: ${{ inputs.server_url }}
+          IN_VERSION: ${{ inputs.version }}
         run: |
           if [ "$REF_TYPE" = tag ] && [ "$EVENT" != push ]; then
             echo "::error::etiket derlemesi yalnız etiket push'unda (elle tetiklemede Release exe'si üretilmez)"; exit 1
@@ -142,6 +161,13 @@ jobs:
           # S6-4: incelenmemiş kod (PR, elle tetikleme) gerçek adrese bağlanan exe üretmez.
           server="$PLACEHOLDER_SERVER_URL"
           if [ "$EVENT" = push ] && [ -n "$VAR_SERVER_URL" ]; then server="$VAR_SERVER_URL"; fi
+          # P13c: elle tetikleme + staging adresi -> yalnız main dalı, yalnız STG_SERVER_URL, sürüm x.y.z.
+          if [ "$EVENT" = workflow_dispatch ] && [ -n "$IN_SERVER_URL" ] && [ "$IN_SERVER_URL" != yer-tutucu ]; then
+            [ "$IN_SERVER_URL" = "$STG_SERVER_URL" ] || { echo "::error::server_url yalnız $STG_SERVER_URL olabilir"; exit 1; }
+            [ "$GIT_REF" = refs/heads/main ] || { echo "::error::staging exe yalnız main dalından ($GIT_REF)"; exit 1; }
+            printf '%s' "$IN_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::version x.y.z olmalı"; exit 1; }
+            server="$STG_SERVER_URL"; version="$IN_VERSION"
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "server=$server" >> "$GITHUB_OUTPUT"
       - name: build/build.sh
@@ -167,6 +193,9 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      artifact: ${{ steps.name.outputs.artifact }}
+      exe: ${{ steps.name.outputs.exe }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { pattern: agent-win-build-*, path: builds }
@@ -181,12 +210,23 @@ jobs:
           [ "$size" -le 41943040 ] || { echo "::error::exe 40 MB'ı aşıyor (AC-96)"; exit 1; }
           [ "$(head -c2 "$f")" = MZ ] || { echo "::error::PE değil"; exit 1; }
           if grep -aq 'UPX!' "$f"; then echo "::error::UPX/packer izi (ADR-0010)"; exit 1; fi
-          mkdir dist && cp "$f" builds/agent-win-build-1/build-meta.txt dist/
-          (cd dist && sha256sum NoktaDestek.exe > SHA256SUMS && cat SHA256SUMS)
-          { echo "### NoktaDestek.exe"; echo '```'; cat dist/SHA256SUMS; cat dist/build-meta.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: artifact adı (P13c — staging adresli derleme ayrı ad, Release'e gitmez)
+        id: name
+        run: |
+          meta=builds/agent-win-build-1/build-meta.txt
+          if [ "$(sed -n 1p "$meta")" = "$STG_SERVER_URL" ]; then
+            exe="NoktaDestek-stg-$(sed -n 2p "$meta").exe"; artifact=agent-win-stg
+          else
+            exe=NoktaDestek.exe; artifact=agent-win
+          fi
+          printf '%s' "$exe" | grep -Eq '^NoktaDestek(-stg-[0-9]+\.[0-9]+\.[0-9]+)?\.exe$' || { echo "::error::exe adı $exe"; exit 1; }
+          mkdir dist && cp builds/agent-win-build-1/NoktaDestek.exe "dist/$exe" && cp "$meta" dist/
+          (cd dist && sha256sum "$exe" > SHA256SUMS && cat SHA256SUMS)
+          { echo "### $exe ($artifact)"; echo '```'; cat dist/SHA256SUMS; cat dist/build-meta.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "exe=$exe" >> "$GITHUB_OUTPUT"; echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: agent-win
+          name: ${{ steps.name.outputs.artifact }}
           path: dist/
           if-no-files-found: error
           retention-days: 30
@@ -205,10 +245,10 @@ jobs:
       attestations: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with: { name: agent-win, path: dist }
+        with: { name: "${{ needs.reproducible.outputs.artifact }}", path: dist }
       - run: cd dist && sha256sum -c SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with: { subject-path: dist/NoktaDestek.exe }
+        with: { subject-path: "dist/${{ needs.reproducible.outputs.exe }}" }
 
   release:
     name: GitHub Release (korumalı v* etiketi)

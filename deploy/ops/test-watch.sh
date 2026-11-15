@@ -4,7 +4,8 @@
 # (senaryo dosyalarından okur), openssl/df/find/timeout/date gerçek. Coturn 5349 yerine openssl s_server.
 # Doğrulananlar: her kontrol için olumsuz durum -> `ALERT check=<ad>` + alarm komutu; tekrar bastırma; tekrar süresi
 # dolunca yeniden; düzelince bir kez DUZELDI; watch.env 644 / bağlantı / root dışı sahip -> çalışmaz; sır içeren alarm
-# komutu çalıştırılmaz; site dışı hatırlatma 7 günde bir; install/uninstall (kurulu kopya root 0755, watch.env 600).
+# komutu çalıştırılmaz; site dışı hatırlatma 7 günde bir; install/uninstall (kurulu kopya root 0755, watch.env 600);
+# P13c ikinci örnek `stg` (ayrı env/durum, [stg] alarm adı, coturn kontrolü yok, @stg birimleri yalnız stg'de sayılır).
 # Kullanım: deploy/ops/test-watch.sh   Çıkış 0 = tüm beklentiler tuttu.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -184,6 +185,31 @@ chown 0 /etc/rw/watch.env; ln -s /etc/rw/watch.env /etc/rw/link.env
 WATCH_ENV_FILE=/etc/rw/link.env bash $W run >/out/o 2>&1; RC=$?
 [ "$RC" = 1 ] && grep -q 'normal dosya değil' /out/o && ok "watch.env sembolik bağlantı -> çalışmaz" || no "symlink: rc=$RC"
 good; run
+# 5b) P13c ikinci örnek (stg): ayrı env/durum, kendi zamanlayıcısı, coturn kontrolü yok, alarm adında [stg]
+SH=stg.remote.test; mkc /le/$SH/fullchain.pem 90
+cat >/etc/rw/stg.env <<E
+WATCH_ALERT_CMD=cat >>/out/alerts
+WATCH_PUBLIC_HOST=$SH
+WATCH_LE_DIR=/le
+E
+chmod 600 /etc/rw/stg.env
+srun() { : >/out/alerts; WATCH_ENV_FILE=/etc/rw/stg.env WATCH_STATE_DIR=/var/lib/rw-stg WATCH_TREE_DIR=/opt/tree bash $W run stg >/out/o 2>&1; RC=$?; }
+good; printf 'remote-backup@stg.timer\n' >/scn/timers_active; echo unhealthy >/scn/turn_health; kill "$(cat /run/srv.pid)" 2>/dev/null
+srun
+[ "$RC" = 0 ] && grep -q '^remote-watch-stg: OK' /out/o && ! grep -q 'coturn\|turn-served\|turn-le' /var/lib/rw-stg/status.prom \
+  && ok "stg: OK, journal etiketi remote-watch-stg, coturn/turn sertifika kontrolü yok (prod coturn'ü prod örneği izler)" || no "stg temiz: rc=$RC $(cat /out/o)"
+grep -q 'check="timer:remote-backup@stg.timer"' /var/lib/rw-stg/status.prom && [ ! -e /var/lib/rw/status.prom.stg ] \
+  && ok "stg: varsayılan zamanlayıcı remote-backup@stg.timer, durum ayrı dizinde" || no "stg timer: $(cat /var/lib/rw-stg/status.prom)"
+echo 'remote-backup@stg.service loaded failed failed Remote' >/scn/failed; srun
+grep -q 'ALERT check=systemd-failed remote-backup@stg.service' /out/o && alerted 'remote-watch\[stg\] .*: ALERT systemd-failed' \
+  && ok "stg: kendi başarısız birimi -> ALERT, alarm metninde [stg]" || no "stg failed: $(cat /out/o) / $(cat /out/alerts)"
+good; srv /tc/turn.crt; echo 'remote-backup@stg.service loaded failed failed Remote' >/scn/failed; run
+! grep -q 'systemd-failed' /out/o && ok "prod örneği staging (@stg) birim hatasını saymaz" || no "prod stg birimi saydı: $(cat /out/o)"
+sed -i '/^WATCH_PUBLIC_HOST=/d' /etc/rw/stg.env; srun
+[ "$RC" = 1 ] && grep -q 'WATCH_PUBLIC_HOST zorunlu' /out/o && ok "stg: WATCH_PUBLIC_HOST yok -> çalışmaz (prod adına düşmez)" || no "stg host: rc=$RC $(cat /out/o)"
+bash $W run 'Stg;x' >/out/o 2>&1; [ $? = 2 ] && ok "geçersiz örnek adı -> rc 2" || no "örnek adı: $(cat /out/o)"
+good; run
+
 # 6) install / uninstall (G-P13b-13)
 mkdir -p /src && cp /w/remote-watch.sh /w/remote-watch.service /w/remote-watch.timer /w/watch.env.example /src/
 mkdir -p /etc/systemd/system
@@ -194,6 +220,12 @@ grep -q '^ExecStart=/usr/local/lib/remote/remote-watch.sh run' /etc/systemd/syst
   && grep -q 'enable --now remote-watch.timer' /scn/systemctl.log && ok "birimler kuruldu, ExecStart kurulu kopya, timer etkin" || no "birimler"
 WATCH_ENV_FILE=/etc/rw/watch.env WATCH_STATE_DIR=/tmp/xx WATCH_PUBLIC_HOST=$H WATCH_LE_DIR=/le /usr/local/lib/remote/remote-watch.sh run >/out/o 2>&1
 [ -f /var/lib/remote-watch/status.prom ] && [ ! -e /tmp/xx ] && ok "kurulu kopya sabit durum dizini (WATCH_STATE_DIR yok sayıldı)" || no "kurulu kopya yollar"
+cp /w/remote-watch@.service /w/remote-watch@.timer /src/
+bash /src/remote-watch.sh install stg >/out/o 2>&1 && [ "$(stat -c '%u %a' /etc/remote-watch/stg.env)" = "0 600" ] \
+  && grep -q '^ExecStart=/usr/local/lib/remote/remote-watch.sh run %i' /etc/systemd/system/remote-watch@.service \
+  && grep -q 'enable --now remote-watch@stg.timer' /scn/systemctl.log && ok "install stg: şablon birimler, stg.env 600, remote-watch@stg.timer etkin" || no "install stg: $(cat /out/o)"
+bash /src/remote-watch.sh uninstall stg >/dev/null 2>&1; grep -q 'disable --now remote-watch@stg.timer' /scn/systemctl.log && [ -f /usr/local/lib/remote/remote-watch.sh ] \
+  && ok "uninstall stg: yalnız örnek zamanlayıcısı kapandı, prod kopyası kaldı" || no "uninstall stg"
 bash /src/remote-watch.sh uninstall >/dev/null 2>&1
 [ ! -e /usr/local/lib/remote/remote-watch.sh ] && [ ! -e /etc/systemd/system/remote-watch.timer ] && [ -f /etc/remote-watch/watch.env ] \
   && ok "uninstall: kopya + birimler silindi, watch.env korundu" || no "uninstall"

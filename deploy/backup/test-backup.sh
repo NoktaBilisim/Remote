@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# backup.sh / restore.sh uçtan uca yerel testi (P13b T1; AC-298, AC-300, AC-301; S-P13b-1/2/6). Sunucuya bağlanmaz, dind YOK.
+# backup.sh / restore.sh uçtan uca yerel testi (P13b T1; AC-298, AC-300, AC-301; S-P13b-1/2/6; P13c iki yığın ortam kilidi). Sunucuya bağlanmaz, dind YOK.
 # Kurulum (hepsi geçici, benzersiz ad, trap ile silinir):
 #   - compose projesi rstb<rand>: mysql (compose imajı + deploy/mysql/init) + sahte server (/ready 200, uploads volume) + web;
 #   - migration'lar host'tan `pnpm db:migrate` ile (apps/server/scripts/test-db.sh yolu; 127.0.0.1:<rastgele port>);

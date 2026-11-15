@@ -3957,3 +3957,185 @@ Yok.
 - Tek başlık yazıcısı (`TabTitle`), iki bildiricinin birbirinin önekini silmesini önlüyor.
 
 DURUM: GEÇTİ (Kritik 0 / Yüksek 0). S13L-1 (Düşük) `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmeli ya da AC-314 metni netleştirilmeli.
+
+---
+
+## P13c (kod kısmı) — kod turu 1
+Tarih: 2026-11-15 · Kapsam: commit edilmemiş C1/C2/C4 değişiklikleri (`deploy/`, `.github/workflows/agent-win.yml`, `ci.yml`, `.env.example`, `deploy/agent/verify-and-publish.sh`, `deploy/ops/*`, `deploy/backup/*`, yeni şablon birimler, `docker-compose.staging.yml`). Kaynak: `docs/mimari-e11.md` §3, ADR-0019 m.5, ADR-0021, `docs/implementation.md` "P13c — devops (kod kısmı)", `docs/runbook.md` §21. Staging'e bağlanılmadı.
+Özet: Kritik 0 / Yüksek 0 / Orta 2 / Düşük 4 / Bilgi 4
+
+### Tasarım vaadi → kod doğrulaması
+| Vaat | Kod | Sonuç |
+|---|---|---|
+| Prod `docker compose config` farkı 0 | HEAD ile çalışma ağacı compose'u aynı `.env` ile `config` alındı | **Aynı** (yerelde diff 0) |
+| Caddy `trusted_proxies` env, varsayılan prod | `Caddyfile:58`. HEAD/yeni Caddyfile `caddy adapt` JSON'u (`jq -S`) karşılaştırıldı | **Aynı** (48 158 bayt, diff 0) |
+| Staging katmanında `CADDY_TRUSTED_PROXIES` zorunlu | `docker-compose.staging.yml:11` `:?` | Var. Boş/eksikse compose duruyor (denendi) |
+| `ROBOTS_NOINDEX` yalnız staging | `staging.yml:13` sabit `"1"`, `.env`'den okunmaz. `Caddyfile:88` `robots_{0,1}` | Var. `ROBOTS_NOINDEX=2` → Caddy açılmıyor (fail-closed, denendi) |
+| stg exe yalnız main + yalnız stg adresi, Release'e gitmez | `agent-win.yml:140-172` (girdiler `env:` üzerinden, `run` içinde `${{ inputs.* }}` yok), `:213-226` exe adı regex, `release` `:253-265` yalnız `agent-win` artifact'ini indiriyor | Var |
+| Attestation | `attest` job'u `workflow_dispatch`'te de çalışıyor, `subject-path` regex'ten geçmiş ad | Var |
+| Volume adı çözülemezse dur | `verify-and-publish.sh:65` sabit ad yedeği kaldırılmış | Var |
+| Ortam kilidi (stg ↔ prod exe) | `verify-and-publish.sh:49-56` | Var ama yalnız `DEPLOY_ENV`'e dayanıyor (S13C-1, S13C-3) |
+| proxy-guard çok port, tek port geriye uyumlu | `proxy-guard.sh:58-61`, `:81-85` (tek portta `DPORT=$PORT`, imza `rpg:4451:…` değişmiyor) | Var |
+| `remote-watch@` örneği prod adlarına düşmez | `remote-watch.sh:41-46` (örnek adı `^[a-z][a-z0-9]{0,15}$`), `:351-353` `WATCH_PUBLIC_HOST` zorunlu, `:416-418` başarısız birim ayrımı | Var |
+| Staging yedeği prod'a geri yüklenemez (ve tersi) | `restore.sh` manifest env + `RESTORE_EXPECT_PROJECT` (mevcut). Test `test-backup-inner.sh` bölüm H | Var. Yedek *alma* tarafında karışma riski var (S13C-2) |
+
+### Bulgular
+
+#### [ORTA] S13C-1 Staging `.env`'de `COMPOSE_PROJECT_NAME` eksikse staging dizini prod projesini yönetiyor; yayın kilidi bunu yakalamıyor — A05 Güvenlik Yanlış Yapılandırması / A04 Güvensiz Tasarım
+Yer: `deploy/agent/verify-and-publish.sh:49-56` (kilit yalnız `DEPLOY_ENV`), `:63-65` (volume adı), `:89` (`docker compose up -d --no-deps server`). `deploy/docker-compose.yml:138` `name: remote`. `deploy/docker-compose.staging.yml` (proje adı yok).
+Sorun: Proje adı yalnız staging `.env`'deki `COMPOSE_PROJECT_NAME` satırından geliyor. Satır unutulursa (ya da yanlış yazılırsa) `/opt/remote-stg/deploy` içinde compose projesi `remote` olur. Yerelde doğrulandı: `COMPOSE_FILE` + `DEPLOY_ENV=staging` var, `COMPOSE_PROJECT_NAME` yok → `docker compose config` çıktısı `name: remote` ve volume `remote_agent_downloads`. Ortam kilidi `DEPLOY_ENV=staging` gördüğü için `stg-` etiketini kabul ediyor.
+İstismar senaryosu (operatör hatası): `verify-and-publish.sh --stg-run <id>` → staging adresli exe **prod** `remote_agent_downloads` volume'una yazılır → prod müşterileri `stg.remote…`'a bağlanan istemciyi indirir (destek oturumları ve müşteri bilgileri staging'e gider). Ardından `docker compose up -d --no-deps server` prod `remote-server-1` konteynerini staging `.env` sırlarıyla yeniden yaratır, bu da prod kesintisi demek. Aynı durum staging'de yapılan her `docker compose up/down` için de geçerli. Runbook §21.3/3'teki `config | grep '^name:'` kontrolü elle yapılıyor, zorlanmıyor.
+Düzeltme: (1) `apply()` içinde `docker compose config --format json | jq -r .name` ile çözülen proje adını `DEPLOY_ENV` ile eşleştirin: `production` ⇒ `remote`, `staging` ⇒ `remote` dışında bir ad (ör. `remote-stg`). Uymuyorsa durun. (2) `docker-compose.staging.yml`'e `name: remote-stg` ekleyin. Sonraki dosyadaki `name` geçerli oluyor (yerelde denendi: `COMPOSE_PROJECT_NAME` olmadan da `name: remote-stg`). Prod çıktısı değişmez, çünkü katman prod'da yüklenmiyor. (3) `test-backup`/`ci.yml` benzeri bir sınama: staging katmanı yüklü, proje adı yok → ad `remote-stg`. Atanan ajan: devops.
+
+#### [ORTA] S13C-2 `remote-backup@` şablonu eksik `backup.env` anahtarlarında prod yollarına düşüyor: prod yedekleri silinebilir, prod izleme maskelenebilir — A05 / A08 Veri Bütünlüğü
+Yer: `deploy/backup/remote-backup@.service:14` (yalnız `ExecStart`, `Environment=` yok), `deploy/backup/backup.sh:90` (`BACKUP_SIGNING_KEY` varsayılanı `/etc/remote-backup/manifest_ed25519`), `deploy/backup/lib-offsite.sh:6` (`BACKUP_STATUS_FILE` varsayılanı `/var/lib/remote-backup/status.prom`), `deploy/backup/lib.sh:234-243` (`rotate_runs` dizindeki bütün çalıştırmaları ada/yaşa göre siler, manifest `env`'ine bakmaz).
+Sorun: Staging yedeğinin prod'dan ayrılması tamamen staging `backup.env`'inin doğru doldurulmasına bağlı. Runbook §21.3/7 doğru değerleri listeliyor ama kod zorlamıyor. Prod `backup.env`'i kopyalanıp düzenlenirse ya da anahtar unutulursa:
+- `BACKUP_DIR=/var/backups/remote` kalırsa `BACKUP_KEEP_DAYS=3` ile staging koşusu **prod'un 3 günden eski yedeklerini siler** (14 günlük saklama 3 güne iner). Ayrıca prod `seq/prevRun` zinciri staging manifestleriyle karışır.
+- `BACKUP_STATUS_FILE` eksikse staging, prod'un `status.prom` dosyasını yazar. Prod `remote-watch` (`remote-watch.sh:156,220-228`) staging'in başarılı zaman damgasını görür. Prod zamanlayıcısı hiç tetiklenmezse `backup-age` alarmı gelmez.
+- `BACKUP_SIGNING_KEY` eksikse staging yedekleri prod anahtarıyla imzalanır. Prod `allowed_signers` bunları geçerli sayar. Geri yüklemede manifest env kilidi engelliyor ama ADR-0021'in "ayrı imza anahtarı" vaadi sessizce bozulur.
+Düzeltme: Şablon birim ortamı zorlasın (betikte "ortam dosyayı ezer" kuralı zaten var): `Environment=BACKUP_DIR=/var/backups/remote-%i BACKUP_STATUS_FILE=/var/lib/remote-backup-%i/status.prom BACKUP_SIGNING_KEY=/etc/remote-backup-%i/manifest_ed25519`. Aynı ortam `remote-backup-failed@.service`'e de verilmeli. Ek olarak `backup.sh`'ta `DEPLOY_ENV != production` iken `BACKUP_DIR`, `STATUS_FILE` ve `SIGN_KEY` prod varsayılan yollarındaysa durulsun (fail-closed). Bir de `rotate_runs` ve `PREV_M` seçimi, manifest `env`'i bu çalıştırmanınkinden farklı dizinleri atlasın. Atanan ajan: devops.
+
+#### [DÜŞÜK] S13C-3 `verify-and-publish.sh` `DEPLOY_ENV` ayrıştırması fail-open — A04
+Yer: `deploy/agent/verify-and-publish.sh:49`. `sed -n 's/^DEPLOY_ENV=//p' | tr -d "\"'\r"`.
+Sorun: `DEPLOY_ENV=production  # prod` (satır içi yorum), `export DEPLOY_ENV=production` ya da `Production` gibi değerlerde `denv` `production` olmuyor. Bu durumda prod hedefine `run-…`, `dir-…`, `-unattested`, `-failedrun` etiketli exe yazılabilir. Aynı dosyada `backup.sh` bu değerlerde zaten başarısız olur (`lib.sh:163-168` `deploy_env_of`), yani durum görünür olur. Risk bu yüzden düşük.
+Düzeltme: `lib.sh` içindeki `deploy_env_of` mantığını kullanın (ya da kopyalayın). Değer `development|staging|production` dışındaysa `die`. Atanan ajan: devops.
+
+#### [DÜŞÜK] S13C-4 İki yığın aynı imaj adını/etiketini paylaşıyor — A08
+Yer: `deploy/docker-compose.yml:57,70,89,149` (`remote-{migrate,server,web}:${IMAGE_TAG:-local}`), runbook §21.1 "İmajlar" satırı.
+Sorun: Staging'de `docker compose build`, prod'un kullandığı etiketi aynı ada yeniden yazar. `IMAGE_TAG` boş kalırsa iki yığın da `:local` kullanır. O zaman staging'de derlenen (test edilecek commit) imaj, prod'da sonraki `up -d` ya da `verify-and-publish` server yeniden yaratmasında prod'a girer. Kısa SHA kuralı riski azaltıyor ama zorlamıyor. Prod geri alma ("önceki `IMAGE_TAG`") da staging'in yeniden derlediği imajı alabilir.
+Düzeltme: `image: ${COMPOSE_PROJECT_NAME:-remote}-server:${IMAGE_TAG:-local}` (prod çıktısı değişmez: `remote-server`). Staging katmanında `IMAGE_TAG` `:?` ile zorunlu olsun. Atanan ajan: devops.
+
+#### [DÜŞÜK] S13C-5 `remote-watch.sh install stg` staging ağacından çalıştırılınca prod ile paylaşılan kurulu kopyayı ezer — A08
+Yer: `deploy/ops/remote-watch.sh:303-307` (`install … "$SELF" "$INSTALLED"`), runbook §21.3/8 (`/opt/remote-stg/deploy/ops/remote-watch.sh install stg`).
+Sorun: `/usr/local/lib/remote/remote-watch.sh` prod ve stg örneklerinde ortak ve root olarak çalışıyor. Staging ağacı "test edilecek commit"te olabileceği için prod izleme kodu incelenmemiş/terfi etmemiş sürümle değişir. proxy-guard için runbook bilerek prod ağacını kullanıyor (§21.3/6). İzleme için de aynısı yapılmalı.
+Düzeltme: Runbook §21.3/8 komutunu `/opt/remote/deploy/ops/remote-watch.sh install stg` yapın. Ya da `do_install_inst` yalnız şablon birimleri + `<örnek>.env` kursun, kurulu kopyaya dokunmasın. Atanan ajan: devops.
+
+#### [DÜŞÜK] S13C-6 proxy-guard'ın 4461'i kapsadığı izlenmiyor — A05
+Yer: `deploy/ops/remote-watch.sh` (proxy-guard kontrolü yok), runbook §21.3/6.
+Sorun: Staging ayağa kalkar ama §21.3/6 atlanırsa (ya da §21.5 geri alma sonrası yanlış sırayla yeniden kurulursa) `127.0.0.1:4461`'e bağlanan her yerel süreç Caddy'ye `172.30.1.128` olarak görünür ve sahte `X-Forwarded-For` ile staging giriş limitlerini ve audit IP'sini atlatır. Bu sunucuda başka web servisleri (php-fpm vb.) de var. Hiçbir alarm bunu yakalamıyor. Yalnız staging verisi etkilenir.
+Düzeltme: `remote-watch` (örnekte) `nft list table inet remote_proxy_guard` çıktısında kendi Caddy host portunun (`docker compose port caddy 4451` ya da `WATCH_PROXY_PORT`) bulunduğunu kontrol etsin. Yoksa `proxy-guard` ALERT. Atanan ajan: devops.
+
+#### [BİLGİ] S13C-7 Caddyfile env yerleştirmesi direktif enjeksiyonuna açık; değer doğrulanmıyor
+Yer: `deploy/Caddyfile:58`. Yerelde denendi: `CADDY_TRUSTED_PROXIES=$'172.30.1.128/32\n}\nservers :4450 {'` → adapt başarılı ve `:4450` sunucusuna `client_ip_headers`/`trusted_proxies_strict` taşındı. `0.0.0.0/0` de kabul ediliyor. Kaynak root 600 `.env` olduğu için saldırı yüzeyi yok (yazabilen zaten root). nginx XFF'i `$remote_addr` ile yeniden yazdığından geniş bir değer de yalnız proxy-guard dışı yerel süreçlere fayda sağlar. Öneri: runbook §21.3/3 kontrolüne `CADDY_TRUSTED_PROXIES` için `^172\.30\.[0-9]+\.128/32$` beklentisi yazılsın. İsteğe bağlı olarak `test-caddy.sh`'a da eklenebilir (devops, Sonra).
+
+#### [BİLGİ] S13C-8 `workflow_dispatch` dal kısıtının asıl dayanağı yayın betiği
+`agent-win.yml:167` main kontrolü, dispatch edilen dalın kendi workflow dosyasında. Yazma yetkili biri dalda bu satırı silip stg (ya da başka) adresli artifact üretebilir. Ama `verify-and-publish.sh --stg-run` `headBranch=main`, `event=workflow_dispatch`, `success`, `workflowName=agent-win` ve `gh attestation verify --source-ref refs/heads/main --signer-workflow …agent-win.yml --deny-self-hosted-runners` istiyor. Böyle bir artifact yayımlanamaz. Release job'u değişmedi (`agent-win` adını indiriyor, yalnız etiket push'u). `AGENT_SERVER_URL` yanlışlıkla stg adresine ayarlanırsa Release job'u artifact bulamayıp düşer (fail-closed). Ayrıca `concurrency` grubu main push ile ortak (`cancel-in-progress`): stg dispatch'i süren main push koşusunu iptal edebilir, bu yalnız erişilebilirlik etkisi. İşlem gerekmiyor.
+
+#### [BİLGİ] S13C-9 `--dir` staging'e adres denetimsiz
+`verify-and-publish.sh:55` `dir-*` etiketi staging'e izinli. Prod adresli bir exe `--dir` ile staging'e yazılırsa staging istemcisi prod'a bağlanır. Klasörde `build-meta.txt` varsa 1. satırın `STG_SERVER_URL` olduğu kontrol edilebilir (devops, Sonra).
+
+#### [BİLGİ] S13C-10 shellcheck bu makinede kurulu değil
+Değişen betikler (`verify-and-publish.sh`, `proxy-guard.sh`, `remote-watch.sh`, `test-caddy.sh`, `test-backup-inner.sh`) yerelde shellcheck'ten geçirilemedi. CI shellcheck adımının yeşil olduğu commit öncesi doğrulanmalı.
+
+### Otomatik tarama çıktıları
+- gitleaks v8.30.1 (`dir /repo/deploy /repo/.github --redact --config .gitleaks.toml`). Komut tüm çalışma ağacını taradı (216 MB). 13 bulgunun **hepsi** git-ignore'lu `apps/web/.next/` derleme çıktısında (`preview-props.json`, `prerender-manifest.json`, `.previewinfo`, `.rscinfo`, `server-reference-manifest.json`; Next.js önizleme/şifreleme anahtarları, `generic-api-key`). `deploy/`, `.github/`, `.env.example`, runbook ve implementation.md'de bulgu **0**. `.next` repoda değil (`git check-ignore apps/web/.next` → ignored). Yerel derleme artığı, işlem gerekmiyor.
+- `git grep` gizli bilgi deseni (`deploy .github .env.example`): eşleşme yok.
+- `deploy/.env`, `deploy/backup/backup.env` git-ignore'lu (`.gitignore:6,50`), git'te izlenmiyor.
+- Yerel doğrulamalar: prod compose `config` diff 0; prod `caddy adapt` diff 0; staging katmanı + `CADDY_TRUSTED_PROXIES` yok → compose hata; proje adı yok → `name: remote` / `remote_agent_downloads` (S13C-1 kanıtı); `name: remote-stg` staging katmanına eklenince `COMPOSE_PROJECT_NAME`'siz `name: remote-stg`; `ROBOTS_NOINDEX=2` → Caddy açılmıyor; çok satırlı `CADDY_TRUSTED_PROXIES` → direktif enjeksiyonu (S13C-7).
+- Bağımlılık değişikliği yok, `pnpm audit` bu turda tekrarlanmadı.
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+- ADR-0021 / mimari-e11 §3.1 "staging ayrı imza anahtarı ve ayrı yedek dizini" vaadi kodda zorlanmıyor, yalnız `backup.env` içeriğine bırakılmış (S13C-2).
+- §3.1 "Volume'lar `remote-stg_*` (otomatik ön ek)" yalnız `.env` satırına bağlı. Kodda bir güvence yok (S13C-1).
+
+### Olumlu
+- Workflow girdileri yalnız `env:` üzerinden kabuğa geçiyor. `server_url` `choice` ile ve betikte tam eşitlikle, `version` regex ile doğrulanıyor. `with:` alanlarına giren çıktılar (artifact/exe adı) regex'ten geçmiş değerler. Script injection yüzeyi yok.
+- stg exe ayrı artifact adı (`agent-win-stg`) ve ayrı dosya adı taşıyor. Release job'u ve `--run` yolu ona erişemiyor. Attestation stg exe için de üretiliyor ve yayın betiği `--no-attestation` ile `--stg-run`'ı birlikte kabul etmiyor.
+- Volume adı için sabit `remote_agent_downloads` yedeği kaldırılmış: çözülemezse dur.
+- Prod çıktısı (compose ve Caddy JSON) bayt düzeyinde değişmedi. Staging'e özgü Caddy anahtarları ayrı katmanda.
+- proxy-guard tek portta kural metni ve imzası birebir aynı. Çok portta `verify` her portu ayrı sınıyor. Port listesi en çok 4, sayısal ve ≤ 65535.
+- `remote-watch` örnek adı regex'le sınırlı. Örnek `.env`'i root 600 kontrolünden geçiyor ve `source` edilmiyor. `WATCH_PUBLIC_HOST` örnekte zorunlu. Başarısız birimler ortamlar arasında ayrılıyor.
+- Geri yükleme ortam kilidi iki yönde de testle güvenceye alınmış (`test-backup-inner.sh` bölüm H).
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0). S13C-1 ve S13C-2 (Orta) C3 kurulumundan **önce** devops'un düzeltmesi önerilir, çünkü ikisi de tek bir `.env`/`backup.env` satırı eksikliğinde prod'u etkiliyor. Düşük bulgular `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmeli.
+
+---
+
+## P13c (kod kısmı) — kod turu 2
+Tarih: 2026-11-15 · Kapsam: `docs/implementation.md` "P13c — devops düzeltme turu 1" (S13C-1/2/3/5). Kod değiştirilmedi, staging'e bağlanılmadı.
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 2 (S13C-4, S13C-6; "Sonra", değişmedi) / Bilgi 3 yeni
+
+### Düzeltme doğrulaması
+| Bulgu | Kod | Doğrulama | Sonuç |
+|---|---|---|---|
+| S13C-1 (Orta) | `deploy/docker-compose.staging.yml:8` `name: remote-stg`. `verify-and-publish.sh:55-83` çözülen proje adı ↔ `DEPLOY_ENV` (`production` ⇒ `remote`, `staging` ⇒ `remote` değil), ad çözülemezse `die` | Yerelde `docker compose config --no-interpolate` 1. satırı: (A) staging `.env`'de ne `COMPOSE_FILE` ne `COMPOSE_PROJECT_NAME` → `remote` → **ret**. (B) yalnız `COMPOSE_FILE` → `remote-stg`. (C) yalnız `COMPOSE_PROJECT_NAME` → `remote-stg`. (D) prod → `remote`. `deploy/agent/test-publish-lock.sh` → GEÇTİ (reddedilen hedeflere dosya yazılmadı) | **Kapandı** |
+| S13C-2 (Orta) | `remote-backup@.service:16-19` ve `remote-backup-failed@.service:43-46` `Environment=` ile `-%i` yolları (`load_env_file` ortamdaki değeri ezmiyor: `lib.sh` `[ -z "${!key+x}" ]`, yani birim değeri kazanıyor). `lib.sh:172-183` `nonprod_paths_guard`, `backup.sh:53-56` trap/status yazımından önce çağrılıyor | Fonksiyon tek başına sınandı: `production` → 0; `staging`/`development`/boş + prod `BACKUP_DIR` (sondaki `/` dahil) ya da varsayılan status/imza yolu → 1 ve hangi anahtar olduğu yazılıyor; üç ayrı yol → 0. `test-backup-inner.sh` bölüm I mevcut | **Kapandı** |
+| S13C-3 (Düşük) | `verify-and-publish.sh:55-57` `deploy_env_of` ile aynı ayrıştırma, `:80` bilinmeyen/boş → `die` | `DEPLOY_ENV=production # yorum` artık `production` değil ve bilinmeyen sayılıyor → ret (fail-closed). Test "DEPLOY_ENV satırı yok → ret" geçti | **Kapandı** |
+| S13C-5 (Düşük) | runbook §21.3/8 `/opt/remote/deploy/ops/remote-watch.sh install stg` + gerekçe | Metin doğru | **Kapandı** |
+
+### `AGENT_PUBLISH_LEGACY_STAGING=1` istisnasının değerlendirmesi — **kabul edilebilir**
+Gerekçe:
+- Dar kapsamlı. Dört koşulun hepsi aynı anda gerekiyor: `DEPLOY_ENV=staging`, proje `remote`, hedefin root 600 `.env` dosyasında tam olarak `AGENT_PUBLISH_LEGACY_STAGING=1` (awk `$2` tam eşitlik; `1 # not` kabul edilmez) ve etiket `^v\d+\.\d+\.\d+$`.
+- Yayımlanabilecek tek şey, prod ile aynı korumalı yoldan gelen Release exe'si: `--tag` ile `gh release download`, `--source-ref refs/tags/vX` attestation'ı, `agent-release` ortam onayı. Bu exe'ye gömülü `remote.noktabilisim.net`, §20.8 geri dönüşünde o yığının kendi adı. Yani istisna yanlış adrese bağlanan bir istemci üretmiyor.
+- stg exe, `run-`, `dir-`, `-unattested` ve `-failedrun` etiketleri bu yoldan geçemiyor.
+- Bayrak `DEPLOY_ENV=production`'da hiç okunmuyor. Yeniden terfide unutulsa bile etkisiz.
+- Kalan teorik risk: Bayrak yanlışlıkla `/opt/remote-stg/.env`'e kopyalanır ve aynı dosyada **hem** `COMPOSE_FILE` **hem** `COMPOSE_PROJECT_NAME` eksik olursa, Release exe'si prod volume'una yazılır (prod'un zaten alacağı dosya). Asıl zarar `docker compose up -d --no-deps server` adımının prod server'ını staging `.env`'iyle yeniden yaratması olur. Üç bağımsız yapılandırma hatası gerekiyor, Bilgi düzeyi (S13C-11).
+
+### Yeni gözlemler (Bilgi)
+- **S13C-11** Legacy bayrağı için ek sertleştirme (isteğe bağlı, devops, Sonra): istisnada ek olarak `dir` = `/opt/remote/deploy` şartı aranabilir. `DEPLOY_ENV=production` hedefte bayrak görülürse uyarı basılabilir. Runbook §20 yeniden terfi adımında "bayrağı sil" maddesi yer alabilir.
+- **S13C-12** `nonprod_paths_guard` metin karşılaştırması yapıyor. `/var/backups//remote` ya da `/var/backups/remote/.` gibi eşdeğer yazımlar yakalanmıyor. Şablon birim yolları zorladığı için pratikte yalnız elle `backup.sh` çağrısında önemli. İsteğe bağlı: `realpath -m` ile normalize edilebilir (devops, Sonra).
+- **S13C-13** Dağıtım sırası uyarısı: guard, `DEPLOY_ENV=staging` olan ve prod varsayılan yollarını kullanan **mevcut** bir kurulumda (P13c öncesi `/opt/remote` hâlâ staging ise ya da §20.8 geri dönüşü yapıldıysa) yedeği durdurur. Fail-closed ve görünür: birim başarısız olur, `OnFailure` alarmı gelir. Runbook §20.8 (a) bu yolları tarif ediyor. Bu değişiklik sunucuya alınmadan önce `/opt/remote/deploy/.env` `DEPLOY_ENV` değerine bakılmalı.
+
+### Otomatik / yerel çıktılar
+- `bash deploy/agent/test-publish-lock.sh` → SONUÇ: GEÇTİ.
+- Proje adı çözümü dört `.env` biçimiyle yerelde sınandı (yukarıdaki tablo).
+- `nonprod_paths_guard` beş girdiyle tek başına sınandı.
+- Bağımlılık ve sır değişikliği yok. gitleaks/audit tekrarlanmadı (değişen dosyalar betik, birim ve runbook).
+
+### Açık kalanlar
+- S13C-4 (Düşük, ortak imaj adı/etiketi) ve S13C-6 (Düşük, proxy-guard 4461 izlemesi) devops tarafından "Sonra" olarak bırakıldı. `docs/gereksinimler.md` §9'da yer almaları gerekiyor. C3 kurulumunda runbook §21.3/6 (proxy-guard iki port) elle doğrulanmalı.
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0; Orta 0).
+
+---
+
+## P13c (kod kısmı) — kod turu 3
+Tarih: 2026-11-15 · Kapsam: `docs/implementation.md` "P13c — devops düzeltme turu 2" (S13C-13 regresyonu, legacy bayrağının kaldırılması). Kod değiştirilmedi.
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 yeni / Bilgi 2 yeni (S13C-4, S13C-6 Düşük "Sonra" olarak açık)
+
+### 1. `nonprod_paths_guard` ölçütü (`deploy/backup/lib.sh:178-193`, `backup.sh:53-56`) — **güvenli**
+- İki ölçüt var, biri yetiyor. (1) `BACKUP_UNIT_NAME=remote-backup@…`: şablon birim `Environment=` ile veriyor ve aynı birim yolları da zaten `-%i`'ye zorluyor. (2) Compose proje adı `remote` değil.
+- Proje adı çözülemezse ikinci yığın sayılıyor (fail-closed).
+- `BACKUP_PRIMARY_PROJECT` `BACKUP_ENV_KEYS` içinde değil (`lib.sh:9-10`). `backup.env` üzerinden ölçüt gevşetilemiyor, yalnız süreç ortamından verilebiliyor (root).
+- Gerçek ikinci yığın (`remote-backup@stg`) iki bağımsız katmanla korunuyor: zorlanan yollar ve şablon ölçütü. Önceki turun asıl riski (S13C-2) kapalı kalıyor.
+- Tek yığın staging (bugünkü `/opt/remote`, şablonsuz birim, proje `remote`) prod yollarıyla yedek almaya devam ediyor. S13C-13 regresyonu giderildi.
+- **Kalan dar boşluk (S13C-14, Bilgi):** Bu senaryo için üç koşul birlikte gerekiyor. (a) İkinci yığın `.env`'inde **hem** `COMPOSE_FILE` **hem** `COMPOSE_PROJECT_NAME` eksik, yani proje `remote`. (b) `backup.sh` şablon birim dışında elle çalıştırılıyor. (c) Staging `backup.env` prod yollarını taşıyor. Bu durumda guard geçer. Ama bu durumda `docker compose ps` zaten **prod** MySQL'ini bulur, yani yığın kurulumda prod'u ele geçirmiş olurdu. Sorun yedek guard'ından önce, kurulumda görünür. İsteğe bağlı sertleştirme: proje `remote` iken `.env` `PUBLIC_BASE_URL`/`SITE_HOST` `stg.` ile başlıyorsa ikinci yığın sayılsın (sırsız ve ucuz). devops, Sonra.
+
+### 2. Bayraksız tek yığın staging yayını (`verify-and-publish.sh:66-75`) — **güvenli**
+- `DEPLOY_ENV=staging` ve proje `remote` olduğunda yalnız `^v\d+\.\d+\.\d+$` kabul ediliyor. `run-`, `stg-`, `dir-`, `-unattested` ve `-failedrun` reddediliyor. `test-publish-lock.sh` yeniden koşuldu: GEÇTİ.
+- Bu yoldan geçebilen tek şey Release exe'si. Prod ile aynı korumalı zincirden geliyor (etiket, `agent-release` onayı, `--source-ref refs/tags/vX` attestation'ı). Gömülü adres tek yığın sunucunun kendi adı. Bayrağın kaldırılması korumayı zayıflatmadı, çünkü önceki turda bayrağın açtığı küme de tam olarak buydu. Unutulacak/sızacak bir ayar da artık yok.
+- **Kalan dar boşluk (S13C-15, Bilgi):** S13C-14'teki çift eksik yapılandırmada, yanlış kurulmuş ikinci yığına `--tag` ile yayın yapılırsa iki şey olur. Release exe'si prod volume'una yazılır (prod'un da kabul ettiği sınıftan bir dosya). Ayrıca `docker compose up -d --no-deps server` prod server'ını staging `.env`'iyle yeniden yaratır. Ön koşul yine yığının kurulumda prod'u ele geçirmiş olması. Aynı sertleştirme burada da işe yarar: proje `remote` + `PUBLIC_BASE_URL` = `STG_SERVER_URL` ise `die`. devops, Sonra.
+
+### Otomatik / yerel çıktılar
+- `bash deploy/agent/test-publish-lock.sh` → SONUÇ: GEÇTİ.
+- Bağımlılık ve sır değişikliği yok.
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 0). S13C-14/15 (Bilgi), S13C-4 ve S13C-6 (Düşük) `docs/gereksinimler.md` §9 "Sonra" listesinde izlenmeli.
+
+---
+
+## P13c (kod kısmı) — kod turu 4
+Tarih: 2026-11-15 · Kapsam: `docs/implementation.md` "P13c — devops düzeltme turu 3" (SIGPIPE: boru → here-string/awk; S13C-14/15 `stg_name_guard`). Kod değiştirilmedi.
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 yeni / Bilgi 1 yeni
+
+### 1. SQL'in değişkene alınıp here-string ile verilmesi — **risk yok**
+- `lib-audit.sh` (audit-continuity), `restore.sh` (`reset_sql`) ve `lib-restore.sh` (4 sabit sorgu). SQL metni ve içine giren değerler öncekiyle aynı.
+  - `pday`/`puntil` tarih regex'iyle doğrulanıyor (`lib-audit.sh:46-47`), uymazsa boşaltılıyor.
+  - `DB_NAME` imza doğrulamasından sonra `^[A-Za-z0-9_]{1,64}$` ile kontrol ediliyor (`restore.sh:112-113`).
+  - Öteki dört sorgu sabit metin.
+  - Yeni enjeksiyon yüzeyi oluşmadı.
+- **argv/ps:** SQL komut satırı argümanı olarak geçmiyor. `<<<` stdin'e veriliyor (bash geçici dosya ya da boru kullanır), dolayısıyla `ps`'te görünmüyor. SQL metninde sır da yok. Parolalar eskisi gibi konteyner ortamından okunuyor. `backup` birimleri `PrivateTmp=true` + `UMask=0077` ile çalıştığı için olası geçici dosya da başka süreçlere kapalı.
+- Davranış farkı yok: `$(…)` sondaki satır sonunu atıyor, here-string tek `\n` geri ekliyor. Son ifade `;` ile bittiği için mysql istemcisi sorguyu aynı biçimde çalıştırıyor. `test-backup.sh` 3 ardışık koşuda 73/73 sonucu (implementation.md) bunu destekliyor.
+
+### 2. `verify_manifest_sig` (`lib.sh:247-259`) — **zayıflama yok**
+- Tek değişiklik `| head -n 1` → `| awk 'NR == 1'`. İkisi de "ilk satır" seçiyor, anlam aynı. awk girdinin tamamını okuduğu için `ssh-keygen` SIGPIPE almıyor. Önceki sürümün bu yüzden ara sıra **yanlış FAIL** verme riski kalktı. Bu, kullanılabilirlikle ilgili bir düzeltme. Güvenlik yönünde etkisi yok, çünkü SIGPIPE yalnız reddetmeye yol açıyordu.
+- Hata yolları korunuyor: `restore.sh:34` `set -euo pipefail`, yani `ssh-keygen find-principals` başarısızsa boru hattı yine sıfırdan farklı döner ve `|| return 1` çalışır. Principal regex'i değişmedi. Asıl kriptografik kontrol hâlâ ayrı `ssh-keygen -Y verify -I "$principal" -n remote-backup` çağrısı ve dönüş kodu değişmedi. Parmak izi boşsa `return 1`.
+
+### 3. `stg_name_guard` (S13C-14/15) — **kapandı**
+- `lib.sh:180-191` ve `backup.sh:57` (`--alert` dışında, trap/status yazımından önce). `verify-and-publish.sh:61-69` aynı kuralı uyguluyor: proje `remote` ve `PUBLIC_BASE_URL` host'u ya da `SITE_HOST` `stg.` ile başlıyorsa dur.
+- `.env` source edilmiyor. Yalnız iki anahtar satırı awk ile okunuyor, sır okunmuyor. Proje adı sırsız çözülüyor (`compose_project_of`, `config --no-interpolate`).
+- Prod (`remote.noktabilisim.net`) ve tek yığın staging etkilenmiyor. Gerçek ikinci yığın (proje `remote-stg`) bu guard'ı atlıyor ve `nonprod_paths_guard` kapsamında kalıyor.
+- `bash deploy/agent/test-publish-lock.sh` → SONUÇ: GEÇTİ (24/24).
+- **S13C-16 (Bilgi):** Eşleşme büyük/küçük harfe duyarlı ve yalnız `stg.` önekini tanıyor. `STG.remote…` ya da başka bir staging adı (ör. `staging.`) yakalanmaz. Adlandırma runbook §21'de sabit olduğu için pratik etkisi yok. İsteğe bağlı: küçük harfe çevirip karşılaştırmak (devops, Sonra).
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 0). S13C-14/15 kapandı. Açık kalanlar: S13C-4, S13C-6 (Düşük) ve S13C-11/12/16 (Bilgi), `docs/gereksinimler.md` §9 "Sonra".

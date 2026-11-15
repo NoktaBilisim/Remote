@@ -1,0 +1,17 @@
+# remote-backup@<örnek>.service başarısız olunca (OnFailure). O ağacın backup.env BACKUP_ALERT_CMD'si (P13c, runbook §21).
+[Unit]
+Description=Remote Support yedegi BASARISIZ alarmi (ornek %i)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/remote-%i/deploy/backup/backup.sh --alert
+# S13C-2: örnek yolları birimde ZORLANIR (systemd Environment, backup.env'deki aynı anahtarı ezer); prod yollarına düşülmez.
+Environment=BACKUP_DIR=/var/backups/remote-%i
+Environment=BACKUP_STATUS_FILE=/var/lib/remote-backup-%i/status.prom
+Environment=BACKUP_SIGNING_KEY=/etc/remote-backup-%i/manifest_ed25519
+Environment=BACKUP_UNIT_NAME=remote-backup@%i.service
+User=root
+TimeoutStartSec=2min
+NoNewPrivileges=true
+PrivateTmp=true
+SyslogIdentifier=remote-backup-%i

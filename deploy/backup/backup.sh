@@ -50,6 +50,13 @@ load_env_file "${BACKUP_ENV_FILE:-$SCRIPT_DIR/backup.env}" || ENV_OK=0
 . "$SCRIPT_DIR/lib-offsite.sh"
 HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
 
+# S13C-2/S13C-13: ikinci yığın prod yedek yollarını kullanamaz (tek yığın staging etkilenmez). trap/status'tan ÖNCE:
+# prod status.prom'a yazılmaz.
+if [ "${1:-}" != --alert ]; then
+  nonprod_paths_guard "$(deploy_env_of "$DEPLOY_DIR")" "$DEPLOY_DIR" || exit 1
+  stg_name_guard "$DEPLOY_DIR" || exit 1   # S13C-14
+fi
+
 case "${1:-}" in
   --alert) [ $# -eq 1 ] || die "kullanım: backup.sh --alert"; alert_mode; exit $? ;;
   --reset-audit-baseline)
@@ -266,7 +273,7 @@ STEP=rotasyon
 rotate_runs "$RUN" "$PREV_RUN"
 
 # --- 8. Site dışı kanca (lib-offsite.sh) ------------------------------------------------------------------------------
-STEP=site-disi
+STEP="site-disi"
 offsite_run "$RUN"
 
 # Audit taban çizgisi sıfırlandıysa: host işareti imzalı manifestte, dosya tüketilir; uyarı alarmı (birim başarılı).

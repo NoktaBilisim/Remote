@@ -8,6 +8,13 @@
 #                               systemd remote-watch.service + .timer (enable --now). Betik değişince yeniden çalıştırılır.
 #   remote-watch.sh uninstall   timer/service + kurulu kopyayı siler (watch.env ve /var/lib/remote-watch kalır).
 #   remote-watch.sh [run]       bütün kontrolleri bir kez çalıştırır.
+#   İkinci örnek (P13c, mimari-e11 §3.1; ör. staging `stg`): install|uninstall|run <örnek>. Örnek adı [a-z][a-z0-9]{0,15}.
+#     Birimler remote-watch@.service/.timer (şablon; remote-watch@<örnek>.timer), yapılandırma /etc/remote-watch/<örnek>.env,
+#     durum /var/lib/remote-watch/<örnek>/, journal etiketi remote-watch-<örnek>, alarm metni "remote-watch[<örnek>] ...".
+#     Örnekte varsayılanlar: WATCH_PROJECT remote-<örnek>, WATCH_DEPLOY_DIR /opt/remote-<örnek>/deploy, WATCH_TREE_DIR
+#     /opt/remote-<örnek>, WATCH_BACKUP_DIR /var/backups/remote-<örnek>, WATCH_BACKUP_STATUS
+#     /var/lib/remote-backup-<örnek>/status.prom, WATCH_TIMERS remote-backup@<örnek>.timer, WATCH_TURN_CHECKS 0 (coturn
+#     prod örneğinde izlenir); WATCH_PUBLIC_HOST ZORUNLU (prod adına düşmez).
 # Yapılandırma: /etc/remote-watch/watch.env (root sahibi, tam 600/400, normal dosya; değilse ÇALIŞMAZ, çıkış 1). Dosya source
 #   EDİLMEZ; yalnız WATCH_* anahtarları okunur, ortamdaki değer dosyadakini ezer (test/elle). Anahtarlar: watch.env.example.
 # Çıktı (journal, SyslogIdentifier=remote-watch): `remote-watch: OK (<n> kontrol)` ya da her bozuk kontrol için
@@ -28,7 +35,14 @@ TAG=remote-watch
 
 WATCH_ENV_KEYS="WATCH_ALERT_CMD WATCH_REPEAT_MIN WATCH_DISK_MAX_PCT WATCH_CERT_MIN_DAYS WATCH_DEPLOY_DIR WATCH_PUBLIC_HOST
 WATCH_SERVICES WATCH_PROJECT WATCH_TURN_CONTAINER WATCH_TURN_TLS WATCH_TURN_CERT_FILE WATCH_LE_DIR WATCH_BACKUP_STATUS
-WATCH_BACKUP_DIR WATCH_DISK_PATHS WATCH_OFFSITE_REMIND_DAYS WATCH_TREE_DIR WATCH_TIMERS"
+WATCH_BACKUP_DIR WATCH_DISK_PATHS WATCH_OFFSITE_REMIND_DAYS WATCH_TREE_DIR WATCH_TIMERS WATCH_TURN_CHECKS"
+
+# P13c: isteğe bağlı örnek adı (2. argüman). Boş = prod (bugünkü adlar/yollar birebir).
+INST="${2:-}"
+if [ -n "$INST" ]; then
+  [[ "$INST" =~ ^[a-z][a-z0-9]{0,15}$ ]] || { printf '%s: HATA: örnek adı geçersiz: %s\n' "$TAG" "$INST" >&2; exit 2; }
+  TAG="remote-watch-$INST"
+fi
 
 ERRP=""; [ -n "${INVOCATION_ID:-}" ] && ERRP="<3>"
 log() { printf '%s: %s\n' "$TAG" "$*"; }
@@ -62,6 +76,7 @@ do_install() {
   [ "$(id -u)" = 0 ] || die "root gerekli"
   [ "$SELF" != "$INSTALLED" ] || die "install repo kopyasından çalıştırılır (deploy/ops/remote-watch.sh install)"
   local src; src="$(dirname "$SELF")"
+  if [ -n "$INST" ]; then do_install_inst "$src"; return $?; fi
   for f in remote-watch.service remote-watch.timer watch.env.example; do [ -f "$src/$f" ] || die "$src/$f yok"; done
   install -d -o root -g root -m 0755 "$INSTALL_DIR"
   install -o root -g root -m 0755 "$SELF" "$INSTALLED.tmp.$$" && mv -f "$INSTALLED.tmp.$$" "$INSTALLED"
@@ -75,8 +90,28 @@ do_install() {
   systemctl daemon-reload && systemctl enable --now remote-watch.timer >/dev/null || die "systemctl enable başarısız"
   log "kuruldu: $INSTALLED (0755), $CONF_DIR/watch.env, remote-watch.service + .timer (10 dk). İlk koşu: systemctl start remote-watch.service"
 }
+# P13c ikinci örnek: şablon birimler + /etc/remote-watch/<örnek>.env. Kurulu kopya prod ile ortaktır (aynı betik).
+do_install_inst() {
+  local src="$1" f
+  for f in remote-watch@.service remote-watch@.timer watch.env.example; do [ -f "$src/$f" ] || die "$src/$f yok"; done
+  install -d -o root -g root -m 0755 "$INSTALL_DIR"
+  install -o root -g root -m 0755 "$SELF" "$INSTALLED.tmp.$$" && mv -f "$INSTALLED.tmp.$$" "$INSTALLED"
+  install -d -o root -g root -m 0700 "$CONF_DIR"
+  if [ ! -e "$CONF_DIR/$INST.env" ]; then
+    install -o root -g root -m 0600 "$src/watch.env.example" "$CONF_DIR/$INST.env"
+    log "$CONF_DIR/$INST.env örnekten oluşturuldu (600) — WATCH_PUBLIC_HOST ve WATCH_ALERT_CMD'yi doldurun"
+  fi
+  install -o root -g root -m 0644 "$src/remote-watch@.service" "$UNIT_DIR/remote-watch@.service"
+  install -o root -g root -m 0644 "$src/remote-watch@.timer" "$UNIT_DIR/remote-watch@.timer"
+  systemctl daemon-reload && systemctl enable --now "remote-watch@$INST.timer" >/dev/null || die "systemctl enable başarısız"
+  log "kuruldu: remote-watch@$INST.timer (10 dk), $CONF_DIR/$INST.env. İlk koşu: systemctl start remote-watch@$INST.service"
+}
 do_uninstall() {
   [ "$(id -u)" = 0 ] || die "root gerekli"
+  if [ -n "$INST" ]; then
+    systemctl disable --now "remote-watch@$INST.timer" >/dev/null 2>&1 || true
+    log "remote-watch@$INST.timer kapatıldı (şablon birimler, kurulu kopya, $CONF_DIR/$INST.env korunur)"; return 0
+  fi
   systemctl disable --now remote-watch.timer >/dev/null 2>&1 || true
   rm -f "$UNIT_DIR/remote-watch.service" "$UNIT_DIR/remote-watch.timer" "$INSTALLED"
   systemctl daemon-reload 2>/dev/null || true
@@ -94,30 +129,38 @@ esac
 [ "$(id -u)" = 0 ] || die "root gerekli (docker, /etc/letsencrypt, watch.env)"
 ENV_FILE="$CONF_DIR/watch.env"
 # Test: yalnız repo kopyası başka yapılandırma/durum dizini kullanabilir; kurulu kopya sabit yolları kullanır.
-if [ "$SELF" != "$INSTALLED" ]; then ENV_FILE="${WATCH_ENV_FILE:-$ENV_FILE}"; STATE_DIR="${WATCH_STATE_DIR:-/var/lib/remote-watch}"
-else STATE_DIR=/var/lib/remote-watch; fi
+BASE_STATE=/var/lib/remote-watch
+if [ -n "$INST" ]; then ENV_FILE="$CONF_DIR/$INST.env"; BASE_STATE="$BASE_STATE/$INST"; fi
+if [ "$SELF" != "$INSTALLED" ]; then ENV_FILE="${WATCH_ENV_FILE:-$ENV_FILE}"; STATE_DIR="${WATCH_STATE_DIR:-$BASE_STATE}"
+else STATE_DIR="$BASE_STATE"; fi
 if [ -e "$ENV_FILE" ] || [ -L "$ENV_FILE" ]; then load_env_file "$ENV_FILE" || exit 1
 else err "UYARI: $ENV_FILE yok — varsayılanlarla, alarm komutu olmadan çalışılıyor (yalnız journal)"; fi
 
 REPEAT_MIN="${WATCH_REPEAT_MIN:-360}"
 DISK_MAX="${WATCH_DISK_MAX_PCT:-80}"
 CERT_DAYS="${WATCH_CERT_MIN_DAYS:-14}"
+# P13c: örnekte prod adlarına DÜŞÜLMEZ (S = "-<örnek>" son eki; prod'da boş -> bugünkü değerler).
+S="${INST:+-$INST}"
 # WATCH_DEPLOY_DIR (tasarım anahtarı) bilgi amaçlıdır: servis durumu compose dosyası çözülmeden etiketlerden okunur.
 # shellcheck disable=SC2034
-DEPLOY_DIR="${WATCH_DEPLOY_DIR:-/opt/remote/deploy}"
-HOSTN="${WATCH_PUBLIC_HOST:-remote.noktabilisim.net}"
-PROJECT="${WATCH_PROJECT:-remote}"
+DEPLOY_DIR="${WATCH_DEPLOY_DIR:-/opt/remote$S/deploy}"
+if [ -n "$INST" ]; then
+  HOSTN="${WATCH_PUBLIC_HOST:-}"; [ -n "$HOSTN" ] || die "örnek $INST: WATCH_PUBLIC_HOST zorunlu ($ENV_FILE)"
+else HOSTN="${WATCH_PUBLIC_HOST:-remote.noktabilisim.net}"; fi
+PROJECT="${WATCH_PROJECT:-remote$S}"
 SERVICES="${WATCH_SERVICES:-mysql server web caddy}"
 TURN_C="${WATCH_TURN_CONTAINER:-remote-turn-coturn-1}"
 TURN_TLS="${WATCH_TURN_TLS:-127.0.0.1:5349}"
 TURN_CERT="${WATCH_TURN_CERT_FILE:-/etc/remote/turn-certs/turn.crt}"
 LE_DIR="${WATCH_LE_DIR:-/etc/letsencrypt/live}"
-BSTATUS="${WATCH_BACKUP_STATUS:-/var/lib/remote-backup/status.prom}"
-BDIR="${WATCH_BACKUP_DIR:-/var/backups/remote}"
+BSTATUS="${WATCH_BACKUP_STATUS:-/var/lib/remote-backup$S/status.prom}"
+BDIR="${WATCH_BACKUP_DIR:-/var/backups/remote$S}"
 DISKS="${WATCH_DISK_PATHS:-/ /var/lib/docker $BDIR}"
 REMIND_DAYS="${WATCH_OFFSITE_REMIND_DAYS:-7}"
-TREE="${WATCH_TREE_DIR-/opt/remote}"
-TIMERS="${WATCH_TIMERS:-remote-turn-fw.timer remote-backup.timer}"
+TREE="${WATCH_TREE_DIR-/opt/remote$S}"
+if [ -n "$INST" ]; then TIMERS="${WATCH_TIMERS:-remote-backup@$INST.timer}"; TURN_CHECKS="${WATCH_TURN_CHECKS:-0}"
+else TIMERS="${WATCH_TIMERS:-remote-turn-fw.timer remote-backup.timer}"; TURN_CHECKS="${WATCH_TURN_CHECKS:-1}"; fi
+case "$TURN_CHECKS" in 0|1) ;; *) die "WATCH_TURN_CHECKS 0 ya da 1 olmalı" ;; esac
 for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS; do
   case "${!v}" in ''|*[!0-9]*) die "WATCH_${v} sayı olmalı (bulunan: ${!v})" ;; esac
 done
@@ -139,7 +182,7 @@ ps_out="$(timeout 20 docker ps -a --filter "label=com.docker.compose.project=$PR
 svc_name() { awk -F'|' -v s="$1" '$1 == s && $2 == "running" {print $4; exit}' <<<"$ps_out"; }
 for s in $SERVICES; do
   seen "compose:$s"
-  line="$(awk -F'|' -v s="$s" '$1 == s' <<<"$ps_out" | head -1)"
+  line="$(awk -F'|' -v s="$s" '$1 == s {print; exit}' <<<"$ps_out")"
   if [ -z "$line" ]; then fail "compose:$s" "konteyner yok"; continue; fi
   IFS='|' read -r _ st status _ <<<"$line"
   if [ "$st" != running ]; then fail "compose:$s" "durum=$st"
@@ -158,10 +201,12 @@ seen nginx-login
 code="$(curl -sS -o /dev/null -w '%{http_code}' -m 15 --resolve "$HOSTN:443:127.0.0.1" "https://$HOSTN/login" 2>/dev/null)" || true
 [ "$code" = 200 ] || fail nginx-login "https://$HOSTN/login (nginx yolu) -> ${code:-bağlantı yok}"
 
+if [ "$TURN_CHECKS" = 1 ]; then
 seen coturn
 th="$(timeout 10 docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$TURN_C" 2>/dev/null)" || th=""
 if [ "$th" != healthy ]; then fail coturn "sağlık=${th:-konteyner yok}"
 elif ! timeout 15 docker exec "$TURN_C" turnutils_stunclient -p 3478 127.0.0.1 >/dev/null 2>&1; then fail coturn "STUN 127.0.0.1:3478 yanıt yok"; fi
+fi
 
 for t in $TIMERS; do
   seen "timer:$t"
@@ -201,16 +246,20 @@ fi
 # Sertifikalar: LE web (nginx), LE remote-turn, coturn'ün dağıtılmış dosyası ve 5349'dan sunulan.
 cert_left_ok() { openssl x509 -noout -checkend $((CERT_DAYS * DAY)) >/dev/null 2>&1; }
 fp_of() { openssl x509 -noout -fingerprint -sha256 2>/dev/null | sed 's/.*=//'; }
-for pair in "cert:web|$LE_DIR/$HOSTN/fullchain.pem" "cert:turn-le|$LE_DIR/remote-turn/fullchain.pem"; do
+CERT_PAIRS=("cert:web|$LE_DIR/$HOSTN/fullchain.pem")
+[ "$TURN_CHECKS" = 0 ] || CERT_PAIRS+=("cert:turn-le|$LE_DIR/remote-turn/fullchain.pem")
+for pair in "${CERT_PAIRS[@]}"; do
   n="${pair%%|*}"; f="${pair#*|}"; seen "$n"
   if [ ! -f "$f" ]; then fail "$n" "$f yok"; elif ! cert_left_ok <"$f"; then fail "$n" "$CERT_DAYS günden az kaldı"; fi
 done
+if [ "$TURN_CHECKS" = 1 ]; then
 seen cert:turn-served
 served="$(timeout 10 openssl s_client -connect "$TURN_TLS" -servername "$HOSTN" </dev/null 2>/dev/null | openssl x509 2>/dev/null)" || served=""
 if [ -z "$served" ]; then fail cert:turn-served "$TURN_TLS TLS el sıkışması yok"
 elif ! cert_left_ok <<<"$served"; then fail cert:turn-served "sunulan sertifikada $CERT_DAYS günden az kaldı"
 elif [ -f "$TURN_CERT" ] && [ "$(fp_of <<<"$served")" != "$(fp_of <"$TURN_CERT")" ]; then
   fail cert:turn-served "sunulan != $TURN_CERT (deploy hook / SIGUSR2 başarısız?)"
+fi
 fi
 
 for d in $DISKS; do
@@ -221,7 +270,9 @@ for d in $DISKS; do
 done
 
 seen systemd-failed
-failed_units="$(systemctl list-units --failed --plain --no-legend --no-pager 'remote-*' 2>/dev/null | awk '{print $1}' | tr '\n' ' ')"
+# P13c: prod örneği şablon (@) birimlerini, ikinci örnek yalnız kendi @<örnek> birimlerini sayar (alarm ortamlar arası karışmaz).
+failed_units="$(systemctl list-units --failed --plain --no-legend --no-pager 'remote-*' 2>/dev/null \
+  | awk -v i="$INST" 'i == "" && $1 !~ /@/ {print $1} i != "" && index($1, "@" i ".") {print $1}' | tr '\n' ' ')"
 [ -z "${failed_units// /}" ] || fail systemd-failed "${failed_units% }"
 
 # G-P13b-13: root birimlerinin okuduğu ağaçta root dışı sahip / herkese yazılabilir dosya olmamalı.
@@ -280,11 +331,11 @@ for n in $prev_fail; do case " $cur " in *" $n "*) ;; *) fixed="${fixed:+$fixed 
 # denenir (alarm komutu geçici olarak çalışmıyorsa mesaj kaybolmaz).
 keep="$cur"
 if [ -n "$cur" ] && { [ -n "$new" ] || [ $((NOW - last_sent)) -ge $((REPEAT_MIN * 60)) ]; }; then
-  if send "remote-watch $H: ALERT ${cur// /,}"; then last_sent="$NOW"
+  if send "remote-watch${INST:+[$INST]} $H: ALERT ${cur// /,}"; then last_sent="$NOW"
   else keep=""; for n in $cur; do case " $new " in *" $n "*) ;; *) keep="${keep:+$keep }$n" ;; esac; done; fi
 fi
 if [ -n "$fixed" ]; then
-  if send "remote-watch $H: DUZELDI ${fixed// /,}"; then [ -n "$cur" ] || last_sent=0
+  if send "remote-watch${INST:+[$INST]} $H: DUZELDI ${fixed// /,}"; then [ -n "$cur" ] || last_sent=0
   else keep="${keep:+$keep }$fixed"; fi
 fi
 
@@ -292,7 +343,7 @@ fi
 if [ -f "$BSTATUS" ] && [ "$(prom remote_backup_offsite_configured)" = 0 ]; then
   log "UYARI check=offsite-unconfigured site dışı yedek kopyası yok (ADR-0020)"
   if [ $((NOW - remind)) -ge $((REMIND_DAYS * DAY)) ]; then
-    send "remote-watch $H: HATIRLATMA site-disi-yedek-yapilandirilmamis" && remind="$NOW"
+    send "remote-watch${INST:+[$INST]} $H: HATIRLATMA site-disi-yedek-yapilandirilmamis" && remind="$NOW"
   fi
 fi
 
@@ -301,7 +352,7 @@ printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nre
   "$keep" "$last_sent" "$remind" "${prev_rfc:-}" "${prev_rfa:-}" >"$tmp" && mv -f "$tmp" "$STATE"
 tmp="$STATE_DIR/status.prom.tmp.$$"
 {
-  echo "# remote-watch (mimari-p13 §7.8); sır yok"
+  echo "# $TAG (mimari-p13 §7.8); sır yok"
   echo "remote_watch_last_run_timestamp_seconds $NOW"
   echo "remote_watch_ok $([ -z "$cur" ] && echo 1 || echo 0)"
   echo "remote_watch_failing_checks $(wc -w <<<"$cur" | tr -d ' ')"

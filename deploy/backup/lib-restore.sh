@@ -15,9 +15,9 @@ start_scratch() {
   local deadline=$(( $(date -u +%s) + READY_TIMEOUT ))
   while [ "$(date -u +%s)" -lt "$deadline" ]; do
     [ "$(docker inspect -f '{{.State.Running}}' "$SCRATCH" 2>/dev/null)" = true ] || { docker logs --tail 20 "$SCRATCH" >&2; die "scratch MySQL durdu"; }
-    if docker logs "$SCRATCH" 2>&1 | grep -q 'mysqld: ready for connections.*port: 3306[^0-9]' &&
+    if docker logs "$SCRATCH" 2>&1 | grep 'mysqld: ready for connections.*port: 3306[^0-9]' >/dev/null &&
        docker exec "$SCRATCH" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -h127.0.0.1 -NBe "SELECT 1"' >/dev/null 2>&1 &&
-       echo "SELECT 1;" | sql_migrator "$SCRATCH" >/dev/null 2>&1; then
+       sql_migrator "$SCRATCH" <<<"SELECT 1;" >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
@@ -72,13 +72,13 @@ checksum_check() {  # <ad> <dosya-a> <dosya-b>: farkta yalnız tablo adı
 
 verify_db() {  # $1 = konteyner (migrator ile okur)
   local c="$1" q got trg
-  trg="$(echo "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE();" | sql_migrator "$c")"
+  trg="$(sql_migrator "$c" <<<"SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE();")"
   check "tetikleyici sayısı (manifest)" "$(jq -r '.triggers' "$MANIFEST")" "$trg"
   check "tetikleyici sayısı (beklenen)" "$EXPECTED_TRIGGERS" "$trg"
   check "son migration" "$(jq -r '.lastMigration' "$MANIFEST")" \
-    "$(echo "SELECT COALESCE(MAX(migration_name), '') FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;" | sql_migrator "$c")"
+    "$(sql_migrator "$c" <<<"SELECT COALESCE(MAX(migration_name), '') FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;")"
   check "tablo kümesi" "$(jq -r '.tables | keys | join(",")' "$MANIFEST")" \
-    "$(echo "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY TABLE_NAME SEPARATOR ',') FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE';" | sql_migrator "$c")"
+    "$(sql_migrator "$c" <<<"SELECT GROUP_CONCAT(TABLE_NAME ORDER BY TABLE_NAME SEPARATOR ',') FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE';")"
   # Ters tırnaklar SQL tanımlayıcısıdır (kabuk genişletmesi değil):
   # shellcheck disable=SC2016
   q="$(jq -r '.tables | keys | map("SELECT \"" + . + "\", COUNT(*) FROM `" + . + "`") | join(" UNION ALL ") + ";"' "$MANIFEST")"

@@ -5,7 +5,8 @@
 #   - apply sonrası: root ve www-data bağlanır; nobody / başka kullanıcı RST alır; aynı kural 172.30.0.2:4451 (edge ağı,
 #     doğrudan) ve DNAT ile 127.0.0.1:4451 -> 172.30.0.2:4451 (Docker userland-proxy kapalı yolu: output + skuid NAT'tan
 #     sonra) için de geçerli; kapsam dışı (4450, başka adres) etkilenmez; ::1;
-#   - idempotent apply, check/ensure onarımı, hatalı kullanıcı adında mevcut tablo korunur, verify, UYARI, install/uninstall.
+#   - idempotent apply, check/ensure onarımı, hatalı kullanıcı adında mevcut tablo korunur, verify, UYARI, install/uninstall;
+#   - P13c çok port (4451,4461 + 172.30.1.0/24 staging edge); tek port kural metni değişmedi.
 # Kullanım: deploy/ops/test-proxy-guard.sh   Çıkış 0 = tüm beklentiler tuttu.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -82,6 +83,22 @@ setpriv --reuid="$WU" --regid="$WU" --clear-groups sleep 30 & SP=$!; sleep 0.3
 bash $G check >/tmp/o 2>&1; grep -q "UYARI: www-data ile nginx dışı süreç (4451'e bağlanabilir): sleep" /tmp/o && ok "check: www-data ile çalışan nginx dışı süreç UYARI" || no "uyarı: $(cat /tmp/o)"
 kill $SP 2>/dev/null
 bash $G remove >/dev/null 2>&1; bash $G verify >/tmp/o 2>&1 && no "remove sonrası verify geçti" || { grep -q 'BAĞLANABİLDİ' /tmp/o && ok "remove sonrası verify -> rc 1 (koruma yok)"; }
+
+# P13c: ikinci yığın (staging Caddy 127.0.0.1:4461, edge 172.30.1.0/24) aynı tabloda, çok portlu
+ip addr add 172.30.1.2/32 dev lo; lis 127.0.0.1 4461; lis 172.30.1.2 4461; lis 127.0.0.1 4462; sleep 0.3
+export PROXY_GUARD_PORT=4451,4461 PROXY_GUARD_DST4=127.0.0.0/8,172.30.0.0/24,172.30.1.0/24
+bash $G print 2>/dev/null | grep -q 'tcp dport { 4451, 4461 } ip daddr' && ok "çok port: print 'tcp dport { 4451, 4461 }'" || no "çok port print"
+bash $G apply >/tmp/o 2>&1 && bash $G check >/dev/null 2>&1 && ok "çok port: apply + check -> 0" || no "çok port apply: $(cat /tmp/o)"
+exp ret "stg: nobody -> 127.0.0.1:4461 REDDEDİLDİ" nobody 127.0.0.1 4461
+exp ret "stg: nobody -> 172.30.1.2:4461 (stg edge) REDDEDİLDİ" nobody 172.30.1.2 4461
+exp ok  "stg: www-data -> 127.0.0.1:4461 bağlanır" www-data 127.0.0.1 4461
+exp ok  "stg: root -> 127.0.0.1:4461 bağlanır" root 127.0.0.1 4461
+exp ret "prod portu hâlâ korunuyor: nobody -> 127.0.0.1:4451 REDDEDİLDİ" nobody 127.0.0.1 4451
+exp ok  "kapsam dışı: nobody -> 127.0.0.1:4462 etkilenmez" nobody 127.0.0.1 4462
+bash $G verify >/tmp/o 2>&1 && grep -q 'tcp/4451,4461' /tmp/o && ok "çok port: verify her portu sınadı" || no "çok port verify: $(cat /tmp/o)"
+PROXY_GUARD_PORT=4451,70000 bash $G print >/tmp/o 2>&1; [ $? = 1 ] && grep -q 'PROXY_GUARD_PORT geçersiz' /tmp/o && ok "geçersiz port listesi -> rc 1" || no "port listesi: $(cat /tmp/o)"
+unset PROXY_GUARD_PORT PROXY_GUARD_DST4; bash $G apply >/dev/null 2>&1
+bash $G print 2>/dev/null | grep -q 'tcp dport 4451 ip daddr { 127.0.0.0/8,172.30.0.0/24 }' && ok "tek port (varsayılan): kural metni P13b ile aynı" || no "tek port metni"
 
 # install / uninstall (systemctl taslağı)
 mkdir -p /stub /units /src && printf '#!/bin/sh\necho "systemctl $*" >>/tmp/sysctl.log\n' >/stub/systemctl && chmod 755 /stub/systemctl

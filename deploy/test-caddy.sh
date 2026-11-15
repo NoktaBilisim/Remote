@@ -6,6 +6,7 @@
 # adı sorgu dizesiz iletir; kapı 404/503 dönerse dosya sunulmaz; biçim dışı adlar server'a hiç gitmez; P6 yolları
 # (NoktaDestek.exe, Destek-<8 hane>.exe) server'a maskeli gider; /ws/request ve /ws/panel yükseltilir; /internal/* 404;
 # Caddy erişim/hata logunda ref, sorgu dizesi ve WS subprotocol (talep sırrı) yok (G-10, G-E9-8, T31).
+# P13c: ROBOTS_NOINDEX yokken (prod) X-Robots-Tag / robots.txt Disallow yok; staging katmanı değerleriyle noindex + trusted_proxies.
 # Kullanım: deploy/test-caddy.sh   ·   KEEP=1 (konteynerleri bırak)   ·   uzun WS bağlantısı (HTTP zaman aşımlarından etkilenmiyor mu, ~40 sn):
 #           CADDY_TEST_WS_HOLD=1 deploy/test-caddy.sh
 set -euo pipefail
@@ -15,7 +16,7 @@ NODE_IMAGE="$(sed -n 's/^ARG NODE_IMAGE=//p' ../apps/server/Dockerfile)"
 [ -n "$CADDY_IMAGE" ] && [ -n "$NODE_IMAGE" ] || { echo "imaj adı bulunamadı"; exit 2; }
 P=remote-caddy-test
 TMP="$(mktemp -d)"
-cleanup() { docker rm -f "$P-caddy" "$P-server" >/dev/null 2>&1 || true; docker network rm "$P" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
+cleanup() { docker rm -f "$P-caddy" "$P-caddy-stg" "$P-server" >/dev/null 2>&1 || true; docker network rm "$P" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
 if [ "${KEEP:-0}" = 1 ]; then trap - EXIT; fi   # KEEP=1: konteynerler incelemek için kalır (sonra elle rm)
 FAILS=0
@@ -162,6 +163,26 @@ for u in /internal/agent-ready /metrics /ready; do
   CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Forwarded-Method: GET' "$B$u")"
   [ "$CODE" = 404 ] && pass "$u → 404" || fail "$u → $CODE"
 done
+
+echo "== P13c arama motoru kuralı: prod (ROBOTS_NOINDEX yok) etkilenmez, staging katmanında noindex"
+H="$(curl -s -D - -o "$TMP/out" "$B/robots.txt")"
+printf '%s' "$H" | grep -qi '^x-robots-tag:' && fail "prod: X-Robots-Tag var" || pass "prod: X-Robots-Tag yok"
+grep -q 'Disallow' "$TMP/out" && fail "prod: /robots.txt Disallow döndü" || pass "prod: /robots.txt Caddy'de yanıtlanmaz (web'e gider)"
+docker run -d --name "$P-caddy-stg" --network "$P" -p 127.0.0.1::4451 \
+  -e SITE_HOST=localhost -e EDGE_PROXY_SECRET=test-only-edge-secret-0123456789abcdef \
+  -e ROBOTS_NOINDEX=1 -e CADDY_TRUSTED_PROXIES=172.30.1.128/32 \
+  -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$TMP/dl:/srv/downloads:ro" "$CADDY_IMAGE" >/dev/null
+SB="http://127.0.0.1:$(docker port "$P-caddy-stg" 4451/tcp | head -1 | sed 's/.*://')"
+for _ in $(seq 1 50); do curl -s -o /dev/null "$SB/downloads/x" && break; sleep 0.2; done
+H="$(curl -s -D - -o "$TMP/out" "$SB/robots.txt")"
+printf '%s' "$H" | tr -d '\r' | grep -qi '^x-robots-tag: noindex, nofollow$' && pass "staging: /robots.txt X-Robots-Tag noindex, nofollow" || fail "staging robots başlık"
+[ "$(printf '%s' "$H" | head -1 | awk '{print $2}')" = 200 ] && grep -qx 'Disallow: /' "$TMP/out" && grep -qx 'User-agent: \*' "$TMP/out" \
+  && pass "staging: /robots.txt 200 'Disallow: /'" || fail "staging robots gövde: $(cat "$TMP/out")"
+H="$(curl -s -D - -o /dev/null "$SB/api/v1/files/avatar/T1/abcdefghijklmnop.webp")"
+printf '%s' "$H" | tr -d '\r' | grep -qi '^x-robots-tag: noindex, nofollow$' && pass "staging: proxy yanıtında (/api) X-Robots-Tag" || fail "staging /api başlık"
+docker exec "$P-caddy-stg" caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null | grep -q '"172.30.1.128/32"' \
+  && pass "staging: 4451 trusted_proxies = CADDY_TRUSTED_PROXIES" || fail "staging trusted_proxies"
+docker rm -f "$P-caddy-stg" >/dev/null
 
 echo "== server erişilemez → 502, dosya sunulmaz (hata logu da maskeli olmalı)"
 docker stop -t 1 "$P-server" >/dev/null

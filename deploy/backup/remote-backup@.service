@@ -1,0 +1,34 @@
+# P13c ikinci yığın yedeği (ör. remote-backup@stg -> /opt/remote-stg/deploy/backup/backup.sh; runbook §21). O ağacın
+# backup.env'i (ayrı age çifti, BACKUP_DIR=/var/backups/remote-stg, BACKUP_KEEP_DAYS=3, BACKUP_STATUS_FILE=/var/lib/remote-backup-stg/
+# status.prom, BACKUP_SIGNING_KEY=/etc/remote-backup-stg/manifest_ed25519) ve deploy/.env DEPLOY_ENV=staging okunur.
+[Unit]
+Description=Remote Support yedegi (ornek %i)
+Documentation=file:///opt/remote-%i/docs/runbook.md
+Requires=docker.service
+After=docker.service network-online.target
+# Hata (rc != 0, zaman aşımı, öldürülme) -> journal'a "remote-backup: FAILED" + BACKUP_ALERT_CMD
+OnFailure=remote-backup-failed@%i.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/remote-%i/deploy/backup/backup.sh
+# S13C-2: örnek yolları birimde ZORLANIR (systemd Environment, backup.env'deki aynı anahtarı ezer); prod yollarına düşülmez.
+Environment=BACKUP_DIR=/var/backups/remote-%i
+Environment=BACKUP_STATUS_FILE=/var/lib/remote-backup-%i/status.prom
+Environment=BACKUP_SIGNING_KEY=/etc/remote-backup-%i/manifest_ed25519
+Environment=BACKUP_UNIT_NAME=remote-backup@%i.service
+User=root
+UMask=0077
+# G-P13b-6: döküm üst sınırı + site dışı kanca (≤ 1800 sn, bütçeye göre kırpılır) + 10 dk pay. backup.env
+# BACKUP_UNIT_TIMEOUT_SEC ile aynı tutun (sn).
+TimeoutStartSec=2h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+SyslogIdentifier=remote-backup-%i

@@ -1,0 +1,12 @@
+# remote-backup@<örnek> her gün 03:30 (prod 02:00'den ayrık; P13c, runbook §21). Kurulum: systemctl enable --now remote-backup@stg.timer
+[Unit]
+Description=Remote Support gunluk yedek zamanlayicisi (ornek %i)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Europe/Istanbul
+Persistent=true
+RandomizedDelaySec=5min
+Unit=remote-backup@%i.service
+
+[Install]
+WantedBy=timers.target

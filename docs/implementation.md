@@ -4515,3 +4515,190 @@ Sunucuya bağlanılmadı, dind kullanılmadı, docker prune yapılmadı; test ko
   - Unit: contracts 78/78, web 253/253, server 354/354.
   - Temiz DB'de `test:int` **541/541**.
   - Geçici konteyner `rs-p13b-be-ca3127` silindi.
+
+## P13b-L — backend (backend-dev, 2026-11-15)
+Kapsam: `docs/mimari-lobi.md` §10.1 L-B (ADR-0029; AC-304..315 sunucu yüzü).
+
+- **Değişen dosyalar**
+  - `packages/contracts/src/api/sessions.ts`: §4.3 aynen — `LOBBY_GUEST_MAX`, `LOBBY_POLL_MS`, `SESSIONS_WAITING_PER_MIN`, `waitingSessionsResponseSchema` (strict), `WaitingSessionsResponse`; `SessionListItem.waitingGuests: number`; `SessionHistoryDetail extends Omit<SessionListItem, "waitingGuests">`.
+  - `apps/server/src/signaling/types.ts`: `Room.lobbyArrivals`; `LOBBY_MAX = LOBBY_GUEST_MAX` (tek kaynak).
+  - `apps/server/src/signaling/rooms.ts`: `getOrCreate` → `lobbyArrivals: 0`; `attachGuest` → `++`; `waitingIn(id)`, `waitingFor(tenantId, techId)` (LOBBY durumlu misafir; `!ending && !admitted && expiresAt > now`; `id` sıralı).
+  - `apps/server/src/sessions/lobby.ts` (yeni): `LobbyCounts`, `getWaitingSessions` (count = Σ waiting).
+  - `apps/server/src/sessions/history.ts`: `toListBase` (ortak alanlar) + `toListItem(..., lobby?)` → `waitingGuests` (PENDING değilse/lobi yoksa 0); detay `toListBase` kullanır, alan taşımaz; `listHistorySessions(..., lobby?)`.
+  - `apps/server/src/sessions/routes.ts`: `GET /waiting` (`requireAuth` → `requirePerm("sessions.view")` → `tenantScope` → `FixedWindowCounter(61, 60 sn, 60 sn)` anahtar `user.id` → servis; `no-store`; `onClose` ile sayaç kapanır); liste `app.rooms` geçirir.
+  - Testler: `test/unit/lobby-count-p13bl.test.ts` (13), `test/integration/sessions-lobby-p13bl.test.ts` (12, perf dahil), `sessions-history-api-p8.test.ts` (liste `waitingGuests` = 0, detayda alan yok), `test/helpers/tenant-matrix.ts` (yeni uç `scoped` sınıfı — AC-69 matrisi sınıfsız ucu kırmızı yapar).
+  - Doküman: `docs/mimari-api.md` (uç satırı + `SessionListItem` notu), `docs/runbook.md` (§ alarm/bilgi tablosu: restart sonrası 0 beklenen).
+- **Tasarımdan sapmalar**
+  1. `apps/server/src/customers/service.ts` (plan dışı, tek satır): `GET /customers/:id/sessions` da `SessionListItem` döndürür; alan zorunlu olduğundan `svc.d.rooms` geçirildi. Böylece aynı tipte PENDING satırın değeri iki uçta tutarlıdır (0 sabiti yanlış bilgi olurdu).
+  2. Perf testi (§9.1 "1000 ardışık inject, ölçüm kullanıcısının 3 odası"): 60/dk kullanıcı sınırı tek kullanıcıyla 1000 isteğe izin vermez. 1000 istek 20 ölçüm kullanıcısına bölündü (her biri 50 istek, 3 oda); 40 oda başka teknisyende → toplam 100 oda / 300 LOBBY misafir. Oturum çerezleri giriş IP sınırına (20/dk) takılmamak için `openSession` ile doğrudan açıldı. Ölçüm `onResponse` `reply.elapsedTime` (auth DB doğrulaması dahil).
+  3. Hız sınırı mevcut kalıpla handler'da (settings/routes.ts gibi) uygulanır; iş mantığı `lobby.ts`'te.
+- **Bağımlılık:** yok. **Env/migration/grant:** yok.
+- **frontend-dev için sözleşme:** §4.3 aynen; `SessionHistoryDetail` artık `waitingGuests` içermez (Omit). 403 iki durumda gelir: `sessions.view` yok veya firma seçmemiş Super Admin (mesaj "Önce bir firma seçin."). 429'da `Retry-After` saniye.
+- **Test (Node 22, pnpm 9):**
+  - `pnpm -r run lint`, `pnpm -r run typecheck`: temiz.
+  - Unit: server 367/367, contracts 78/78.
+  - `test-db.sh up` (benzersiz konteyner `rs-p13bl-be-90271`, port 33417) + `pnpm --filter @remote/server test:int`: **553/553** (55 dosya). Konteyner `down` ile silindi.
+  - AC-314 perf çıktısı (tam koşu, yük altında): `GET /sessions/waiting 1000 istek, 100 oda/300 misafir: p50=6.48 ms p95=12.35 ms` (tek başına koşu: p50 2.40 / p95 3.05 ms). test-operatoru `docs/test-raporu.md`'ye aktarır.
+
+## P13b-L — frontend (frontend-dev, 2026-11-15)
+Kapsam: mimari-lobi §10.2 (L-F), AC-304..315 web tarafı. Sözleşme `@remote/contracts/api/sessions`'tan (`waitingSessionsResponseSchema`, `LOBBY_POLL_MS`, `SessionListItem.waitingGuests`); yerel tip yok.
+
+### Rotalar
+| Yol | Auth | Ne değişti |
+|---|---|---|
+| `/sessions` | Evet (`sessions.view`) | PENDING satırda "Müşteri bekliyor (n)" rozeti (`BellRing`): kendi oturumumda konsola bağlantı, ADMIN'de başkasının satırında ve firma seçmemiş Super Admin'de bilgi amaçlı. n = 0 iken görünmez yuva. Firma seçmemiş SA'da "Konsolu aç" da gizlendi (a71d80e davranışı korunur, AC-310) |
+| Tüm panel sayfaları (`(panel)` kabuğu) | Evet | "Oturumlar" menü öğesinde lobi sayacı (yalnız kendi oturumlarım), yeni gelişte toast, gizli sekmede başlık öneki "(n) Müşteri bekliyor — ". `sessions.view` + (SA ise firma seçili) koşulu; `support_requests.view` gerekmez |
+| `/sessions/:id/console` | Evet | Değişmedi; lobi paneli 1280×800'de ilk ekranda (e2e `toBeInViewport`) → `#bekleme-odasi` çapası gerekmedi |
+
+### Dosyalar
+- Yeni: `apps/web/components/lobby-notifier.tsx` (`LobbyNotifier`, `LobbyCountBadge`, `useLobby`), `apps/web/components/tab-title.tsx`, `apps/web/lib/tab-title.ts` (+ `.test.ts`), `apps/web/lib/lobby/diff.ts` (+ `.test.ts`), `apps/web/app/(panel)/sessions/waiting-badge.tsx`, `apps/web/e2e/p13bl-lobby.spec.ts`.
+- Değişen: `components/request-notifier.tsx` (başlık efekti → `setTitlePart("requests", n)`; MutationObserver `TabTitle`'a taşındı), `components/ui/toast.tsx` (bölgeye `role="status"`), `app/(panel)/layout.tsx` (`lobby` koşulu, `<LobbyNotifier scopeKey>`, `<TabTitle />`), `app/(panel)/side-nav.tsx`, `app/(panel)/sessions/session-list.tsx` (tip `SessionListItem`, `pickTenant`), `sessions-view.tsx`, `messages/tr.json` (`s.lobby.*`), `e2e/mock-sessions.mjs` (waiting ucu, `/__e2e/lobby`, `/__e2e/lobby-calls`, `/__e2e/lobby-extra`, senaryolar `u-lob*`, `u-noreq-`, `u-lobadm-`, `u-sa-`, `u-sat-`, `u-lobbyfail-`, `u-lobbyrate-`; liste öğelerine `waitingGuests`), `e2e/mock-api.mjs` (`resolveMe` ile `/auth/me` ve waiting ucu tek çözücü; kancalar), `e2e/sessions.spec.ts` (bir seçici), `DESIGN.md` (ikon + 4 bileşen satırı).
+
+### Sapmalar / notlar
+- **Toast bölgesi `role="status"`** (mimari §6.7): diyalog içindeki toast bölgesi de artık `status` rolünde; `sessions.spec.ts`'te `dlg.getByRole("status")` metinle süzüldü (davranış değişikliği değil, seçici belirsizliği).
+- **Sahte API'de waiting ucu tüm sahte kullanıcılar için** `mock-api.mjs`'te erken yönlendirilir (panel kabuğu her sayfada yokladığı için); P10/P12 hesap/marka kullanıcıları (`resolveMe` → null) boş yanıt alır.
+- `/__e2e/lobby` "restart": sorgusuz çağrı yalnız o oturumun kaydını siler (paralel testler birbirinin durumunu silmesin diye, tasarımdaki "sıfırla" yerine oda başına).
+- `/__e2e/lobby-extra/<çerez>` (tasarımda yok): talep + lobi başlık sırası e2e'si için; talep kullanıcısının (`u-rqadm-`) oturum listesi ayrı sahte modülde olduğu için o çerezin "kendi oturumu" kaydı buradan verilir.
+- Satır rozeti n = 0 yuvası kartta da ayrı satırı kaplar (tasarım §6.5 "yer kayması yok" kuralı; PENDING kartı ~44 px uzar).
+- 429 sonrası görünürlük olayı ek yoklama yapmaz (`Retry-After` dolana kadar).
+- `LobbyDot` (mobil açılır menü düğmesi) P14b'ye kaldı (mimari K-L3); bugün 360 px'te sayaç "Oturumlar" öğesinde görünür (e2e).
+- Tasarım skill'i (`ui-ux-pro-max`) okunmadı: görünüm tamamen DESIGN.md token/primitifleri ve mimari-lobi §6.4–6.5 ile tanımlıydı.
+
+### P13b-L QA Tur 1 #1 (frontend, 2026-11-15)
+`e2e/p13bl-lobby.spec.ts` AC-312 testi genişletildi: rozet görünürken `/sessions` desktop projesinde 1280 ve 360 px'te, mobile projesinde 360 px'te açılır. Her genişlikte iki temada axe 0 ihlal ve yatay taşma yok kontrol edilir. Rozete artık `focus()` ile değil, sayfa başlığından Tab tuşuyla ulaşılır ve Enter konsolu açar. UI düzeltmesi gerekmedi: 360 px kart görünümünde taşma ya da axe ihlali çıkmadı.
+
+### P13b-L — backend düzeltme turu 1 (QA madde 2, güvenlik S13L-1)
+- **QA 2 (dosya boyutu):** Lobi sayımı `signaling/lobby-count.ts`'e (yeni) taşındı: `waitingIn(rooms, id)`, `waitingFor(rooms, tenantId, techId)`, `LobbyRooms` yapısal arayüzü (`get`, `values`, `clock`). Liste `waitingGuests` eki `sessions/lobby.ts` `withWaitingGuests`'e taşındı; `history.ts` önceki haline döndü (yalnız `toListItem`/`listHistorySessions` dönüş tipleri `Omit<…, "waitingGuests">` oldu). Satır: `history.ts` 419 → **419**; `rooms.ts` 327 → **329** (+2). Taşınamayan 2 satır: (a) `attachGuest` içindeki `room.lobbyArrivals++` — sayaç LOBBY geçişinin olduğu tek yerde artmalı (kanca/olay eklemek daha fazla satır ve dolaylılık getirirdi); (b) özel `rooms` haritasının salt okunur `values()` erişimcisi — haritayı `public` yapmak yerine tek satırlık gezinme. `Room` literaline `lobbyArrivals: 0` mevcut satırda.
+- **S13L-1:** `withWaitingGuests` kullanıcıda `sessions.view` yoksa her satırda `waitingGuests = 0` döner; `GET /sessions` (routes.ts) ve `GET /customers/:id/sessions` (customers/service.ts) aynı fonksiyonu kullanır. Test: entegrasyon "AC-314/S13L-1" (yalnız `session_history.view` + `customers.view` kullanıcısının kendi PENDING oturumunda 2 bekleyen → iki uçta 0; ADMIN aynı satırda 2), unit "AC-305/S13L-1".
+- **Test:** lint + typecheck temiz; server unit **368/368**; temiz konteynerde (`rs-p13bl-be2-97011`, 33418) `test:int` **554/554**, konteyner silindi. Perf: p50=5.53 ms, p95=9.11 ms (tam koşu).
+
+
+## P13c — devops (kod kısmı: C1, C2, C4; devops, 2026-11-15)
+Kaynak: `docs/mimari-e11.md` §3, ADR-0019 m.5, ADR-0021. Kurulum (C3) **yapılmadı**: DNS kaydı ve §20 terfisi bekleniyor →
+`docs/runbook.md` §21 (taslak). Sunucuya bağlanılmadı. `apps/` ve `env.ts` değişmedi (server env'ine yeni değişken yok).
+
+**C1 — compose/Caddy parametreleri (varsayılanlar = prod)**
+- `deploy/docker-compose.yml`: `EDGE_SUBNET`, `EDGE_IP_RANGE`, `EDGE_CADDY_IP`, `EDGE_WEB_IP`, `EDGE_TRUSTED_PROXY_CIDR` (server
+  `TRUSTED_PROXY_CIDR`), `CADDY_TLS_PORT` (4450), `CADDY_HTTP_PORT` (4451). Konteyner içi portlar sabit; yalnız host portu değişir.
+  Proje adı `name: remote` kalır; staging `.env` `COMPOSE_PROJECT_NAME=remote-stg` ile ezer (denendi: volume/ağ `remote-stg_*`).
+- Yeni `deploy/docker-compose.staging.yml` (yalnız staging `.env` `COMPOSE_FILE` ile yüklenir): caddy `CADDY_TRUSTED_PROXIES`
+  (zorunlu) + `ROBOTS_NOINDEX: "1"`. **Sapma (gerekçe):** mimari Caddy değişkenlerini ana dosyada varsayardı; ana dosyadaki caddy
+  `environment`'a eklenen her anahtar prod `config` çıktısını değiştirirdi (kabul ölçütü fark 0). Katman dosyası bu yüzden seçildi.
+- `deploy/Caddyfile`: `trusted_proxies static {$CADDY_TRUSTED_PROXIES:172.30.0.128/32}`; `import robots_{$ROBOTS_NOINDEX:0}` —
+  `robots_0` boş, `robots_1` = her yanıta `X-Robots-Tag: noindex, nofollow` + `/robots.txt` 200 `Disallow: /`. Ayrıştırma anında
+  seçildiği için prod adapt JSON'u değişmez; 0/1 dışı değer Caddy'yi açtırmaz.
+- `.env.example`: yeni anahtarlar boş + açıklamalı. **Sapma:** görevde `deploy/.env.example` geçiyor; repoda yok, deploy `.env`'i kök
+  `.env.example`'dan üretilir (compose başlığı, CI). `COMPOSE_PROJECT_NAME`/`COMPOSE_FILE` **yorum satırı**: boş `COMPOSE_FILE=`
+  satırı compose'u durdurur (denendi: "compose file "" … is invalid"); CI `.env.example`'ı kopyaladığı için kırılırdı.
+- `ci.yml` compose adımı: staging katmanı `config --quiet` + prod çıktısında `ROBOTS_NOINDEX` olmadığı kontrolü.
+- **Fark 0 kanıtı (yerel, `docker compose config`):** değişiklik öncesi dosyalar scratch'e kopyalandı; `.env.example`'dan sahte
+  (sır olmayan) değerlerle iki `.env` (CI biçimi; prod biçimi: `CADDY_BIND=127.0.0.1`, `DEPLOY_ENV=production`, `IMAGE_TAG`, `SITE_HOST`).
+  Eski compose + eski örnek ↔ yeni compose + yeni örnek (`deploy/.env` ile varsayılan yükleme ve `--env-file`): **iki biçimde de
+  `diff` boş (258 satır)**; eski compose + yeni `.env` de aynı. Caddy `caddy adapt` (prod env) öncesi/sonrası JSON `diff` boş
+  (1318 satır). Staging `.env` ile: `name: remote-stg`, 4460/4461, 172.30.1.x, `CADDY_TRUSTED_PROXIES`, `ROBOTS_NOINDEX: "1"`;
+  `CADDY_TRUSTED_PROXIES` eksikse compose durur.
+
+**C2 — betiklerde proje adı, ortam kilidi, ikinci izleme örneği**
+- `backup.sh`/`restore.sh` zaten `docker compose ps -q mysql` ile çözüyordu (sabit ad yok); değişmedi. `RESTORE_EXPECT_PROJECT`
+  (vars. `remote`) ve `DEPLOY_ENV` = `--target` = manifest env kilidi korunur. Sabit `remote-mysql-1` yalnız runbook komutlarındaydı
+  → `CONTAINER=$(docker compose ps -q mysql)` (5 yer). `check-app-grants.sh` `CONTAINER` girdisi zaten parametreli.
+- Yeni şablon birimler `deploy/backup/remote-backup@.service`, `remote-backup@.timer` (03:30), `remote-backup-failed@.service`
+  (`/opt/remote-%i/deploy/backup/backup.sh`, `SyslogIdentifier=remote-backup-%i`). Prod birimleri değişmedi.
+- `test-backup-inner.sh` bölüm **H**: staging dizini (compose `name:` bilerek yanlış, `.env` `COMPOSE_PROJECT_NAME` doğru) yedek alır;
+  staging yedeği prod dizininde `--target staging` ve `--target production` ile, prod yedeği staging dizininde **reddedilir**,
+  canlıya dokunulmaz.
+- `remote-watch.sh`: `install|uninstall|run <örnek>`; şablon `remote-watch@.service/.timer`; `/etc/remote-watch/<örnek>.env`,
+  durum `/var/lib/remote-watch/<örnek>/`, etiket `remote-watch-<örnek>`, alarm metni `remote-watch[<örnek>] …`. Örnekte
+  varsayılanlar örnek adından türer; `WATCH_PUBLIC_HOST` zorunlu; yeni `WATCH_TURN_CHECKS` (örnekte 0: coturn prod'da izlenir).
+  `systemd-failed`: prod örneği `@` birimlerini, örnek yalnız `@<örnek>.` birimlerini sayar (alarm karışmaz). Prod örneğinin
+  davranışı ve mesajları değişmedi (mevcut testler aynen geçti).
+- **Ek (mimaride yoktu, gerekçe G-P13b-3):** staging Caddy `127.0.0.1:4461` de XFF'e güvenir → yerel süreçler sahteleyebilirdi.
+  `proxy-guard.sh` `PROXY_GUARD_PORT` virgüllü liste (en çok 4) kabul eder; tek port kural metni öncekiyle aynı (testle kanıt).
+- **Ek (C4 yayın yolu):** `verify-and-publish.sh` `--stg-run <run-id>` (artifact `agent-win-stg`, main + workflow_dispatch + success,
+  build-meta adresi staging, attestation `--source-ref refs/heads/main`; volume'a `NoktaDestek.exe` adıyla). `apply` ortam kilidi:
+  `stg-` etiketi yalnız `DEPLOY_ENV=staging`; `DEPLOY_ENV=production` hedefe yalnız `vX.Y.Z`; staging hedefe Release/main push exe'si
+  (prod adresi gömülü) yazılmaz. `agent_downloads` volume adı çözülemezse artık **durur** (eskiden `remote_agent_downloads`'a
+  düşerdi: staging dizininden prod volume'una yazma riski). **Davranış değişikliği:** prod'a `--run`/`--dir` yayını artık reddedilir
+  (runbook prod akışı zaten yalnız `--tag`).
+
+**C4 — `agent-win.yml`**
+- `workflow_dispatch` girdileri: `server_url` (choice: `yer-tutucu` | `https://stg.remote.noktabilisim.net`, vars. yer-tutucu = eski
+  davranış) ve `version` (x.y.z). Betik ayrıca doğrular: adres yalnız `STG_SERVER_URL`, ref yalnız `refs/heads/main`, sürüm x.y.z.
+  Girdiler `env:` ile verilir (ifade enjeksiyonu yok). S6-4 korunur: PR ve main dışı dallar gerçek adres üretmez.
+- `reproducible` job build-meta'ya bakar: staging adresi → `NoktaDestek-stg-<sürüm>.exe`, artifact `agent-win-stg`; değilse
+  `NoktaDestek.exe`/`agent-win` (değişmedi). `attest` job artifact/exe adını `needs.reproducible.outputs`'tan alır.
+  `release` job (`if: github.ref_type == 'tag'`, `agent-win` artifact'ı) **değişmedi**; dispatch dal ref'inde koştuğu için Release'e
+  hiç girmez. Yeni action yok. actionlint (rhysd/actionlint 1.7.7, shellcheck dahil) `agent-win.yml` + `ci.yml`: 0 bulgu.
+
+**Doğrulama (yerel, 2026-11-15)**
+- shellcheck (`koalaman/shellcheck:stable`, `-S warning`): değişen/yeni betiklerde 0 uyarı; bilgi notları mevcut stille aynı türde.
+- `deploy/test-caddy.sh` 66/66 (yeni: prod'da X-Robots-Tag/robots Disallow yok; staging katmanında başlık, `/robots.txt`, proxy
+  yanıtında başlık, `trusted_proxies` = 172.30.1.128/32). `deploy/ops/test-watch.sh` 57/57 (yeni stg örneği 8 madde).
+  `deploy/ops/test-proxy-guard.sh` 44/44 (yeni çok port 10 madde). `deploy/backup/test-backup.sh` 60/60 (yeni bölüm H 4 madde).
+  `verify-and-publish.sh --apply` ortam kilidi `AGENT_PUBLISH_RESTART=0` ile 6 durumda elle denendi.
+- Test konteynerleri benzersiz adlı (`rs-p13c-*`, `rstb*`, `rs-pguard-test-*`, `rs-watch-test-*`, `remote-caddy-test*`), bitince silindi.
+
+**Kalan / bekleyen:** C3 kurulum, kaynak ölçümü (§21.2), C5 duman testi, C6 `CLAUDE.md` satırı (kullanıcı).
+
+### P13c — devops düzeltme turu 1 (QA Tur 1 + güvenlik S13C-1/2/3/5; 2026-11-15)
+- **QA 1 (runbook):** §11.5/§11.6 P13c kilidine göre yeniden yazıldı (prod yalnız `--tag`; staging `--stg-run`/`--dir`; `--run` ve
+  `--allow-failed-run` yalnız `--local`); §11.7 tablosuna 7 yeni ret mesajı; §20.8 geri dönüşüne istemci ve yedek yolu notu.
+- **QA 2 (betik metni):** `verify-and-publish.sh` kullanım metni kilitle uyumlu; `usage()` artık `set -euo`'ya kadar tüm başlığı basar.
+- **S13C-3 (fail-closed):** `apply` `DEPLOY_ENV`'i `lib.sh deploy_env_of` ile aynı mantıkla ayrıştırır (betik sunucuya tek başına
+  gittiği için kopya); boş/bilinmeyen/satır yok → RET. `development` `stg-*` dışında hepsini kabul eder (yerel prova).
+- **S13C-1:** `docker-compose.staging.yml` `name: remote-stg`. `apply` hedefin compose proje adını (`docker compose config
+  --no-interpolate`, sır gerekmez) ortamla eşleştirir: production ⇒ `remote`, staging ⇒ `remote` değil. **Tek istisna (gerekçe):**
+  §20.8 geri dönüşü P13c öncesi staging'i proje `remote` ile geri getirir; kilit orada istemci yayınını tamamen engellerdi. Hedef
+  `.env`'de bilinçli `AGENT_PUBLISH_LEGACY_STAGING=1` varken staging + `remote` yalnız `vX.Y.Z` Release kabul eder (uyarı basar).
+  Prod `docker compose config` farkı yine 0 (yeni `.env.example` ile CI ve prod biçimi).
+- **S13C-2:** `remote-backup@.service` ve `remote-backup-failed@.service` `Environment=` ile `BACKUP_DIR`, `BACKUP_STATUS_FILE`,
+  `BACKUP_SIGNING_KEY` (`-%i` yolları) ve `BACKUP_UNIT_NAME` zorlar (systemd ortamı `backup.env`'i ezer). `lib.sh`
+  `nonprod_paths_guard`: `DEPLOY_ENV != production` iken prod varsayılan yollarından biri görülürse `backup.sh` (normal ve
+  `--reset-audit-baseline`) trap/status'tan **önce** durur → prod `status.prom`'a yazılmaz. `--alert` metni `BACKUP_UNIT_NAME`'e
+  işaret eder (önceki "Sonra" notu kapandı). **Davranış etkisi:** test ortamı (`DEPLOY_ENV=staging`) artık `-t` yollarını kullanır.
+- **S13C-5:** runbook §21.3/8 `remote-watch.sh install stg` prod ağacından (`/opt/remote/deploy/ops`).
+- **Test:** yeni `deploy/agent/test-publish-lock.sh` (konteynersiz, `docker compose config` + `AGENT_PUBLISH_RESTART=0`) 20/20;
+  `deploy/backup/test-backup.sh` bölüm I (S13C-2) eklendi; shellcheck `-S warning` 0. S13C-4 ve S13C-6 "Sonra".
+
+### P13c — devops düzeltme turu 2 (S13C-13 regresyonu; 2026-11-15)
+- **Sorun:** `nonprod_paths_guard` `DEPLOY_ENV != production` iken her zaman çalışıyordu. Bugünkü tek sunucu (§20 terfisine kadar
+  `/opt/remote/deploy`, `DEPLOY_ENV=staging`, proje `remote`, şablonsuz `remote-backup.service`, prod varsayılan yolları) gecelik
+  yedeği durdururdu.
+- **Düzeltme:** koruma yalnız **ikinci yığında** çalışır. Ölçütlerden biri yeterli: (1) birim şablon örneği
+  (`BACKUP_UNIT_NAME=remote-backup@…`, şablon `Environment=` ile verir); (2) compose projesi birincil ad (`remote`) değil.
+  Proje adı sırsız çözülür (`docker compose config --no-interpolate`, verify-and-publish ile aynı); çözülemezse ikinci yığın sayılır
+  (fail-closed). **Gerekçe:** birincil ölçüt proje adı. Elle `backup.sh`/`restore.sh` çalıştırmada birim adı yoktur, dizin yolu
+  ise taşınabilir; proje adı ise yedeğin hangi yığının konteynerinden alındığını belirleyen değerin kendisidir (`docker compose ps`
+  aynı adı kullanır). Şablon ölçütü bunu tamamlar: proje adı yanlış ayarlanmış (remote) bir staging örneği de prod yollarına düşemez.
+  `BACKUP_PRIMARY_PROJECT` (vars. `remote`) yalnız test içindir (bu makinede gerçek `remote` projesi başlatılmaz).
+- **Publish ile tutarlılık:** önceki turdaki `AGENT_PUBLISH_LEGACY_STAGING=1` bayrağı **kaldırıldı**. Tek yığın staging (proje
+  `remote`) bayraksız yalnız `vX.Y.Z` Release kabul eder; `run-*`/`stg-*`/`dir-*` reddedilir. Bugünkü sunucu hiçbir ayar
+  değişikliği olmadan yedek almaya ve `--tag` ile istemci yayınına devam eder. (Not: `docs/guvenlik-raporu.md` bayraklı hâli
+  değerlendirmişti; bayraksız hâl güvenlik tarafından yeniden görülmeli.) `.env.example`'daki yorum satırı silindi.
+- **Test:** `test-backup.sh` bölüm I'ya iki madde: şablon örneği + prod yolları (proje birincil olsa da) → ret; legacy staging
+  (proje birincil, şablonsuz, prod yolları) → yedek geçer, prod `status.prom` yazılır. `test-publish-lock.sh` legacy maddeleri
+  bayraksız hâle getirildi. shellcheck `-S warning` 0. Runbook §20.8(a)/(b), §21.3/7, §11.5 tablosu ve §11.7 satırı güncellendi.
+
+### P13c — devops düzeltme turu 3 (QA Tur 2 SIGPIPE + güvenlik S13C-14/15; 2026-11-15)
+- **Kök neden (QA 2-1, ara ara 69/70, `adım=audit-sureklilik`):** `set -euo pipefail` altında okuyucusu erken kapanan boru hattı.
+  `lib-audit.sh` `find | sort -r | head -n 1`: `head` ilk satırdan sonra çıkar, `sort` kalan çıktıyı yazarken SIGPIPE alır (rc 141),
+  pipefail bunu `$(…)` atamasının sonucu yapar, `set -e` betiği `audit-sureklilik` adımında düşürür. Yarış koşulu: sort'un tek
+  `write`'ı head kapanmadan biterse sorun çıkmaz; dizin sayısı arttıkça (gecelik yedek, 14 gün saklama) olasılık artar → sunucuda da
+  aynı risk. `{ printf; cat sql; } | sql_backup` aynı sınıftan (mysql/docker girdiyi erken kapatırsa yazıcı SIGPIPE).
+- **Düzeltme (yalnız akış, davranış aynı):** `| head -n 1` → `| awk 'NR == 1'` (girdinin tamamını okur): `lib-audit.sh` (en yeni
+  çalıştırma), `lib.sh` `verify_manifest_sig` (2 yer; SIGPIPE imza doğrulamasını yanlışlıkla FAIL yapabilirdi),
+  `verify-and-publish.sh` volume adı; `grep -m1 '^caddy:'` → `awk '/^caddy:/ && !n++'`. SQL besleyen borular → önce değişken,
+  sonra here-string (`sql_backup <<<"$sql"`; ayrı yazıcı süreç yok): `lib-audit.sh` audit-continuity, `restore.sh`
+  restore-reset-db, `lib-restore.sh` 4 `echo … | sql_migrator`. `lib-restore.sh` hazır bekleme `docker logs | grep -q` → `grep … >/dev/null`
+  (döngüde gereksiz yeniden deneme). `remote-watch.sh` `awk | head -1` → `awk '{print; exit}' <<<` (`set -e` yok, risk düşük; tutarlılık).
+  Taranan: `deploy/backup`, `deploy/ops`, `deploy/agent`, `deploy/mysql/check-app-grants.sh`; dosya üzerinde `grep -q` (boru yok)
+  ve test betikleri (pipefail/`-e` olmadan `&&` zinciri) bırakıldı.
+- **S13C-14/15:** compose projesi birincil ad (`remote`) iken `PUBLIC_BASE_URL` host'u ya da `SITE_HOST` `stg.` ile başlıyorsa yığın
+  yanlış kurulmuştur (staging `.env`'inde `COMPOSE_PROJECT_NAME`/`COMPOSE_FILE` unutulmuş → prod volume'ları). `backup.sh`
+  (`lib.sh stg_name_guard`, `--alert` hariç, trap/status'tan önce) ve `verify-and-publish.sh apply` durur. Değerler sırsız okunur:
+  yalnız bu iki anahtar satırı (`env_value_of`, `.env` source edilmez); proje adı `compose_project_of` (`config --no-interpolate`).
+  `deploy_env_of` ve `nonprod_paths_guard` aynı yardımcıları kullanır.
+- `backup.sh` `STEP=site-disi` tırnaklandı (shellcheck SC2100 yanlış pozitif; değer aynı).
+- **Test:** `test-publish-lock.sh` 24/24 (yeni S13C-15 4 madde); `test-backup.sh` bölüm I'ya S13C-14 3 madde; **arka arkaya 3 koşu**
+  (sonuçlar aşağıda); `test-watch.sh` GEÇTİ; shellcheck `-S warning` 0.
+- **Sonuç:** `test-backup.sh` arka arkaya 3 koşu: 73/73, 73/73, 73/73 (rc 0). Test konteynerleri silindi.

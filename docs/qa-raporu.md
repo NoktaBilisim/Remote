@@ -322,3 +322,162 @@ Yok.
 ### Olumlu
 - S13L-1 tek fonksiyonda çözülmüş ve iki uç aynı yolu kullanıyor; yetki kontrolü arka uçta, testle sabit.
 - `lobby-count.ts` saf ve `Rooms`'tan bağımsız; `rooms.ts` yalnız 2 satır büyüdü.
+
+## P13c (kod kısmı) — Tur 1
+Tarih: 2026-11-15 · Denetçi: qa-denetci · Kapsam: C1, C2, C4 (commit edilmemiş değişiklikler). C3 kurulum, C5 duman testi ve C6 bilerek kapsam dışı (DNS + §20 terfisi bekleniyor). Staging'e bağlanılmadı.
+DURUM: DÜZELTİLMELİ
+
+### Test sonucu
+| Komut | Sonuç |
+|---|---|
+| `deploy/test-caddy.sh` | 66 PASS / 0 FAIL / 0 skip, rc 0 |
+| `deploy/ops/test-watch.sh` | 57 PASS / 0 FAIL / 0 skip, rc 0 |
+| `deploy/ops/test-proxy-guard.sh` | 44 PASS / 0 FAIL / 0 skip, rc 0 |
+| `deploy/backup/test-backup.sh` | 60 PASS / 0 FAIL / 0 skip, rc 0 (bölüm H: 4 yeni madde) |
+| shellcheck (`koalaman/shellcheck:stable -S warning`): değişen 8 betik | 0 uyarı. Değişmeyen `backup.sh`/`restore.sh`'teki SC2034/SC2154 uyarıları, kaynak alınan lib dosyalarından gelen yanlış alarmlar; P13c'den önce de vardı |
+| actionlint `rhysd/actionlint:1.7.7` (`agent-win.yml`, `ci.yml`) | 0 bulgu |
+| **C1 fark 0 (QA yeniden üretti, scratch, sahte değerler)** | `HEAD` compose + `HEAD` `.env.example` ↔ yeni compose + yeni `.env.example` (prod biçimi: `CADDY_BIND=127.0.0.1`, `DEPLOY_ENV=production`, `IMAGE_TAG`, `SITE_HOST`): 258/258 satır, dizin yolu normalleştirilince `diff` boş. Yeni compose + **eski** `.env` (prod `.env` değişmeden): `diff` boş. `caddy adapt` (prod env, HEAD ↔ yeni Caddyfile): 1318/1318 satır, `diff` boş. Staging `.env`: `name: remote-stg`, 4460/4461, 172.30.1.2/.3, subnet/ip_range 172.30.1.x, `TRUSTED_PROXY_CIDR 172.30.1.2/31`, `CADDY_TRUSTED_PROXIES`, `ROBOTS_NOINDEX: "1"`, volume'lar `remote-stg_*`. `CADDY_TRUSTED_PROXIES` eksik olunca compose duruyor |
+Konteynerler: `rs-qa-p13c-*` (`--rm`) ve testlerin kendi konteynerleri (`remote-caddy-test*`, `rstb*`) silindi; kalıntı yok. `anomali-*`, `pam-*` ve `rs-mysql-test` konteynerlerine dokunulmadı, prune yapılmadı.
+
+### Kabul ölçütleri (mimari-e11 §3.4)
+| Ölçüt | Durum | Kanıt / eksik |
+|---|---|---|
+| C1: prod `.env` ile `docker compose config` farkı 0 | ✅ | Yukarıdaki QA yeniden üretimi (iki biçim + eski `.env`) ve `caddy adapt` farkı 0. CI adımı `ci.yml:117-122`: staging katmanı geçerli, prod çıktısında `ROBOTS_NOINDEX` yok |
+| C1: shellcheck temiz | ✅ | Değişen betiklerde 0 uyarı |
+| C2: staging yedeği prod'da reddedilir | ✅ | `test-backup-inner.sh` H: prod dizininde `--target staging` → ret (DEPLOY_ENV), `--target production` → ret (manifest `env=staging`). Ters yönde de ret (prod yedeği staging dizininde). Canlıya dokunulmuyor (`restore-reset`/`durduruluyor` yok). Proje adı `.env` `COMPOSE_PROJECT_NAME` ile çözülüyor; compose `name:` bilerek yanlış verilerek sınandı |
+| C2: betiklerde sabit `remote-mysql-1` yok | ✅ | `backup.sh`/`restore.sh` zaten `docker compose ps -q mysql` kullanıyordu. Runbook'taki 5 sabit ad `$(docker compose ps -q mysql)` ile değiştirildi |
+| C2 (ek): `remote-watch@stg` ve `proxy-guard` çok port | ✅ | test-watch 5b (8 madde: ayrı env/durum, `[stg]` alarm, coturn kontrolü yok, `@stg` birimi prod'da sayılmaz, `WATCH_PUBLIC_HOST` zorunlu). test-proxy-guard P13c (10 madde; tek port kural metni P13b ile aynı) |
+| C4: stg artifact Release'de görünmez | ✅ (statik) | `release` job `if: github.ref_type == 'tag'` ve `name: agent-win` değişmedi. Staging adresi yalnız `workflow_dispatch` + `refs/heads/main` ile gömülüyor; etikette dispatch build adımında reddediliyor; artifact `agent-win-stg`. GitHub üzerinde gerçek dispatch koşusu yapılmadı (kapsam: yerel) |
+| C4: prod Release akışı değişmez | ✅ | Etiket push'unda `server=$VAR_SERVER_URL`, artifact/exe adı `agent-win`/`NoktaDestek.exe`; `attest` ad çıktısını aynı değerle alıyor; `release` job diff'te yok |
+| C4: S6-4 korunur | ✅ | PR ve main dışı dallar yer tutucu adresle derleniyor; dispatch'te `choice` + betik içi tam eşitlik (`STG_SERVER_URL`), ref ve sürüm regex'i var. Girdiler `env:` ile veriliyor (ifade enjeksiyonu yok) |
+| C4: stg exe stg sunucusuna bağlanır | — kapsam dışı | Çalışma anı kanıtı C3/C5'te |
+
+### Proje CLAUDE.md değişmez kuralları
+| Kural | Durum | Not |
+|---|---|---|
+| Yeni env → `.env.example` (boş) + `env.ts` + compose + runbook | ✅ | Yeni anahtarlar server env'i değil (mimari §3.2 "env.ts değişmez"). `.env.example` (boş + açıklamalı; `COMPOSE_*` bilinçli olarak yorum satırı, gerekçeli), compose ve runbook §21.1 tamam. `deploy/.env.example` yerine kök `.env.example` kullanılması gerekçeli bir sapma |
+| Action'lar SHA ile sabit, `permissions` en az | ✅ | Yeni action yok; mevcut `uses` satırları SHA'lı; izinler değişmedi |
+| Caddy log / CSP | ✅ | Log maskesi testleri geçiyor (test-caddy) |
+| Yeni bağımlılık | ✅ | Yok |
+
+### Düzeltilmeli
+1. **[devops] `docs/runbook.md:653-659` (§11.5) ve `:661-665` (§11.6), ayrıca `:680` sorun giderme satırı.** Bu bölümler hâlâ `verify-and-publish.sh --run <id> --ssh root@185.126.217.99`'u "staging test yayını" olarak anlatıyor (hedef varsayılanı `/opt/remote/deploy`). Oysa yeni `apply` ortam kilidi `run-*` etiketini hem `DEPLOY_ENV=production` hem `DEPLOY_ENV=staging` hedefte reddediyor (`verify-and-publish.sh:50-57`). Sonuç: §11.5 yolu, `--allow-failed-run` ve §11.6'daki `--run … --no-attestation` örneği sunucuda artık çalışmıyor. Bugünkü sunucu §20 terfisine kadar `DEPLOY_ENV=staging` olduğundan, §11.5 terfiden önce de reddediliyor. **Beklenen:** §11.5 ve §11.6 yeni davranışa göre yeniden yazılsın: staging exe yalnız `--stg-run` ile (§21.3/10); `--run`/`--dir` yalnız yerel/development hedef; prod'a yalnız `--tag`. Sorun giderme tablosuna "DEPLOY_ENV=production hedefe yalnız Release etiketi" ve "staging hedefe yalnız --stg-run" ret mesajları eklensin. §20 geri dönüş yolunda (`:2136`, `.env` yeniden `DEPLOY_ENV=staging` olur) istemci yeniden yayınının hangi bayrakla yapılacağı bir cümleyle yazılsın.
+2. **[devops] `deploy/agent/verify-and-publish.sh:8-9, 17-18, 36`.** Kullanım metni yeni davranışla çelişiyor. `--tag … # Release (prod/staging)`: staging hedef artık Release'i reddediyor. `--run … # main push artifact'i (staging)`: staging de reddediyor. `--allow-failed-run … Yalnız staging`: staging'de ulaşılamaz. Ayrıca `usage()` yalnız `sed -n '2,24p'` basıyor, yeni "Ortam kilidi" satırları (26-28) yardım çıktısına girmiyor. **Beklenen:** Başlık yorumları kilitle tutarlı olsun (`--run`/`--dir`: yalnız development/yerel; `--tag`: yalnız production; `--stg-run`: yalnız staging), `usage` aralığı kilit açıklamasını da kapsasın. Davranış değişmeyecek, yalnız metin düzeltilecek.
+
+### Definition of Done (P13c kod kısmı)
+| Madde | ✅/❌ | Not |
+|---|---|---|
+| Testler yeşil (4 betik) | ✅ | 66 + 57 + 44 + 60 |
+| Lint (shellcheck, actionlint) | ✅ | 0 |
+| §3.4 C1/C2/C4 ölçütleri kanıtlı | ✅ | Yukarıda |
+| Tasarımdan sapmalar `implementation.md`'de gerekçeli | ✅ | Staging katman dosyası, kök `.env.example`, `EDGE_TRUSTED_PROXY_CIDR` adı, `COMPOSE_*` yorum satırı, `verify-and-publish` ek kilit ve proxy-guard çok port |
+| Runbook davranışla tutarlı | ❌ | Madde 1 ve 2 |
+| Gizli bilgi repoda yok | ✅ | `.env.example` boş; staging sırlarının ayrı üretileceği runbook'ta yazılı |
+| Kapsam dışı iş yok (spekülatif kod) | ✅ | `remote-watch` örnek desteği ve proxy-guard çok port C3 için gerekli ve gerekçeli |
+
+### Öneriler (zorunlu değil)
+- `agent-win.yml:27-29` concurrency grubu `agent-win-${{ github.ref }}`, `cancel-in-progress` main'de açık. Main'de yapılan staging dispatch'i süren bir main push koşusunu (ya da tersini) iptal eder. Grup adına `github.event_name` eklenmesi düşünülebilir.
+- `verify-and-publish.sh` `apply`: hedef `.env`'de `DEPLOY_ENV` boş ya da yoksa `run-*`/`dir-*` etiketleri kabul ediliyor (fail-open). Prod'da `DEPLOY_ENV` yedek için zaten zorunlu, risk düşük. Yine de `--ssh` hedefinde boş değer için ret düşünülebilir.
+- `--stg-run --local` birlikte verilince hedef `/opt/remote-stg/deploy` oluyor, betiğin üst klasörü değil. Fail-closed (klasör yoksa "deploy klasörü değil" hatası), ama beklenmedik. Ya `--local` ile birlikte reddedilsin ya da varsayılan yalnız `--ssh` için atansın.
+- `deploy/test-caddy.sh` sabit `remote-caddy-test` adı kullanıyor (P13c öncesinden). Paralel koşularda çakışmaması için rastgele bir ek düşünülebilir.
+- `remote-backup-failed@.service` alarm metni `remote-backup.service`'e işaret ediyor. Runbook §21.6'da belgelenmiş, ama örnek adının metne geçirilmesi daha temiz olur.
+
+### Olumlu
+- Fark 0 ölçütü katman dosyası seçimiyle gerçekten sağlanmış: compose ve `caddy adapt` çıktıları birebir aynı. `robots_{$ROBOTS_NOINDEX:0}` ayrıştırma anı seçimi prod JSON'una dokunmuyor.
+- `agent_downloads` volume adının sabit değere geri düşmesi kaldırılmış; staging dizininden prod volume'una yazma riski kapandı.
+- Ortamlar arası geri yükleme kilidi iki yönde de testli. Prod `remote-watch` ile staging `@stg` birim alarmları birbirine karışmıyor.
+- C4'te ifade enjeksiyonu yok, girdi hem `choice` hem betik içinde doğrulanıyor, Release job'una dokunulmamış.
+
+## P13c (kod kısmı) — Tur 2
+Tarih: 2026-11-15 · Denetçi: qa-denetci · Kapsam: devops düzeltme turu 1 (QA Tur 1 maddeleri 1-2, güvenlik S13C-1/2/3/5) ve düzeltme turu 2 (S13C-13). Değerlendirilen ağaç, son değişiklik saatleri 03:06–03:07 olan sürüm. Staging'e bağlanılmadı, prettier çalıştırılmadı.
+DURUM: DÜZELTİLMELİ
+
+### Test sonucu (son ağaç)
+| Komut | Sonuç |
+|---|---|
+| `deploy/agent/test-publish-lock.sh` | **20/20**, rc 0 |
+| `deploy/backup/test-backup.sh` | Kararlı ağaçta 2 koşu yapıldı. Koşu A: **69 PASS / 1 FAIL**, rc 1 (`sıfırlama sonrası uyarı + rc 0, fark yalnız bilgi (S-P13b-10)`; çıktı `FAILED adım=audit-sureklilik rc=141`). Koşu B: **70/70**, rc 0. Bu denetimin ilk koşusu devops'un eşzamanlı düzenleme ve test koşusuyla çakıştığı için sayılmadı |
+| `deploy/ops/test-watch.sh` | 57/57 |
+| `deploy/ops/test-proxy-guard.sh` | 44/44 |
+| `deploy/test-caddy.sh` | 66/66 |
+| shellcheck `-S warning` (değişen/yeni 11 betik, `lib.sh` ve `lib-offsite.sh` dahil) | 0 |
+| actionlint 1.7.7 (`agent-win.yml`, `ci.yml`) | 0 |
+| C1 prod `docker compose config` farkı (QA yeniden üretimi) | HEAD ↔ son ağaç (yeni `.env.example` ve eski `.env` ile): 258/258 satır, `diff` **0**. `caddy adapt` (prod env): 1318 satır, `diff` **0** |
+Konteyner ve volume kalıntısı yok (`rstb*`, `rs-qa-p13c2-*`, `remote-caddy-test*`). `anomali-*`, `pam-*` ve `rs-mysql-test` konteynerlerine dokunulmadı, prune yapılmadı.
+
+### Tur 1 maddeleri
+| # | Durum | Kanıt |
+|---|---|---|
+| 1 runbook §11.5/§11.6/§11.7 | ✅ | §11.5 kilit tablosu (prod yalnız `--tag`, staging `--stg-run`/`--dir`, tek yığın staging yalnız `--tag`, development yerel); §11.6 yerel/staging/prod ayrımı; §11.7'de ret mesajları; §20.8(a)/(b) geri dönüşte yedek ve istemci yolu. Kodla tutarlı (`verify-and-publish.sh` `apply`, test-publish-lock) |
+| 2 betik kullanım metni | ✅ | `--help` çıktısı kilit açıklamasını kapsıyor; `--tag` "YALNIZ prod", `--run` "YALNIZ yerel", `--allow-failed-run` "yalnız development" |
+
+### Güvenlik düzeltmelerinin davranışa etkisi
+| Madde | Durum | Not |
+|---|---|---|
+| S13C-1: proje adı kilidi | ✅ | prod + proje `remote-stg` → ret; staging + proje `remote` → yalnız `vX.Y.Z` (tek yığın: bugünkü sunucu ve §20.8 geri dönüşü). `AGENT_PUBLISH_LEGACY_STAGING` bayrağı kaldırıldı; repoda kalan referans yok. `docker-compose.staging.yml` `name: remote-stg` prod çıktısını etkilemiyor (fark 0) |
+| S13C-2: `remote-backup@` yolları + `nonprod_paths_guard` | ✅ | Şablon birimler üç yolu ve `BACKUP_UNIT_NAME`'i `Environment=` ile zorluyor. test-backup I: ikinci yığın + prod yolları → status yazılmadan ret; production'da koruma devre dışı; `--alert` metni örnek birimine işaret ediyor |
+| S13C-13: regresyon (bugünkü tek yığın staging gecelik yedeği) | ✅ | Tur 2 ara durumunda bulduğum bir sorun devops'un düzeltme turu 2'siyle kapandı: koruma `DEPLOY_ENV != production` iken her zaman çalışıyordu ve §20 terfisi öncesi sunucunun (`/opt/remote`, `DEPLOY_ENV=staging`, prod yolları) gecelik yedeğini ve §20.2/2 "son staging yedeği" adımını durduracaktı. Artık yalnız ikinci yığında (proje ≠ `remote` ya da şablon örneği) çalışıyor; test-backup I "legacy staging → yedek geçer" kanıtlıyor |
+| S13C-3: `DEPLOY_ENV` fail-closed | ✅ | Boş, bilinmeyen değer ya da satırın hiç olmaması → ret; reddedilen hedefe dosya yazılmıyor (test-publish-lock) |
+| S13C-5: watch kurulumu prod ağacından | ✅ | runbook §21.3/8 |
+
+### Düzeltilmeli
+1. **[devops] `deploy/backup/test-backup.sh` kararsız; kök neden P13b yedek kodunda (`deploy/backup/lib-audit.sh`, `backup.sh:169-176` "audit-sureklilik" adımı).** Değişmemiş ağaçta iki koşudan biri `remote-backup: FAILED adım=audit-sureklilik rc=141` (SIGPIPE) ile kırmızı. Bu kod P13c'de değişmedi, ama aynı durum sunucuda gecelik yedeği ara ara FAILED yapabilir. `set -euo pipefail` altında SIGPIPE'a açık iki yer var: `lib-audit.sh:34` (`find … | LC_ALL=C sort -r | head -n 1`; `head` erken kapanınca `sort` 141 alır) ve `lib-audit.sh:47-48` (`{ printf …; cat audit-continuity.sql; } | sql_backup`; `mysql` girdiyi bitirmeden çıkarsa yazan taraf 141 alır). **Beklenen:** kök neden belirlensin ve giderilsin; örneğin `head -n 1` yerine girdinin tamamını okuyan `sed -n 1p` ya da `awk 'NR==1'` kullanılsın, ya da boru durumu açıkça ele alınsın. Ardından `test-backup.sh` **arka arkaya 3 koşuda 70/70** yeşil olsun ve sonuç `implementation.md`'ye yazılsın.
+
+### Definition of Done (P13c kod kısmı)
+| Madde | ✅/❌ | Not |
+|---|---|---|
+| Testler yeşil | ❌ | test-backup kararsız (madde 1); diğerleri yeşil |
+| shellcheck / actionlint | ✅ | 0 / 0 |
+| C1 fark 0, C2 ret, C4 Release ayrımı | ✅ | Tur 1 kanıtları geçerli; C1 ve `adapt` yeniden üretildi |
+| Runbook davranışla tutarlı | ✅ | Tur 1 maddeleri 1-2 kapandı; S13C-13 sonrası §20.8 ve §21.3/7 güncel |
+| Sapmalar gerekçeli | ✅ | implementation.md düzeltme turu 1-2 |
+
+### Öneriler (zorunlu değil)
+- **Güvenlik yeniden bakmalı (devops da not etmiş):** Bayrak kaldırılınca tek yığın istisnası koşulsuz oldu. Proje adı yanlış ayarlanmış bir ikinci yığına (`/opt/remote-stg`, `COMPOSE_PROJECT_NAME`/`COMPOSE_FILE` unutulmuş, `DEPLOY_ENV=staging`) `--tag … --deploy-dir /opt/remote-stg/deploy` verilirse `apply` kabul ediyor. Volume adı `remote_agent_downloads` (prod) çözülüyor, prod volume'una yazılıyor ve `AGENT_SHA256` staging `.env`'ine gidiyor; prod'da `mismatch` alarmı çıkabilir. Kötü niyet değil, yapılandırma hatası senaryosu. Yedek tarafındaki gibi şablon/dizin ölçütüyle sınırlama düşünülebilir (ör. `dir` `/opt/remote/deploy` değilse ve proje `remote` ise ret).
+- Tur 1 önerileri (concurrency grubu, `--stg-run --local`, `test-caddy` sabit konteyner adı) açık; zorunlu değil.
+
+### Olumlu
+- test-publish-lock konteynersiz ve hızlı; kilidin tüm dallarını (ret mesajları dahil) kapsıyor.
+- Yedek yol koruması status yazmadan önce duruyor; prod `status.prom` kirlenmiyor ve bu testle kanıtlı.
+- S13C-13 regresyonu QA raporuna gelmeden devops tarafından yakalanıp testle kapatılmış.
+
+## P13c (kod kısmı) — Tur 3
+Tarih: 2026-11-15 · Denetçi: qa-denetci · Kapsam: devops düzeltme turu 3 (QA Tur 2 madde 1 SIGPIPE + güvenlik S13C-14/15). Odaklı tur. Staging'e bağlanılmadı.
+DURUM: GEÇTİ
+
+### Test sonucu
+| Komut | Sonuç |
+|---|---|
+| `deploy/backup/test-backup.sh` arka arkaya 2 koşu | **73/73** ve **73/73**, ikisi de rc 0 (yeni S13C-14 maddeleri 3) |
+| `deploy/agent/test-publish-lock.sh` | **24/24** (yeni S13C-15 maddeleri 4) |
+| `deploy/ops/test-watch.sh` | **57/57** |
+| shellcheck `-S warning` (13 betik: `lib.sh`, `lib-audit.sh`, `lib-restore.sh`, `lib-offsite.sh`, `verify-and-publish.sh`, `remote-watch.sh` dahil) | **0**. `backup.sh`/`restore.sh` `-x` ile bakıldığında yalnız eski, değişmemiş SC2034/SC2154 yanlış alarmları var (Tur 1'den beri aynı) |
+Kalıntı yok: `rstb*` konteyner/volume 0, `rs-qa-p13c3-*` `--rm` ile silindi. Diğer projelerin konteynerlerine dokunulmadı.
+
+### Tur 2 madde 1 (SIGPIPE) — ✅
+- Kök neden doğru tespit edilmiş: `pipefail` + `set -e` altında erken kapanan okuyucu. `lib-audit.sh:34` `head -n 1` → `awk 'NR == 1'` (girdinin tamamını okuyor). SQL besleyen borular önce değişkene alınıp here-string ile veriliyor; ayrı bir yazıcı süreç kalmadı: `lib-audit.sh` audit-continuity, `restore.sh` reset, `lib-restore.sh` 4 sorgu. `lib.sh` imza doğrulamasındaki iki `head` ve `verify-and-publish.sh` volume/imaj seçimi de aynı yöntemle düzeltilmiş.
+- Tarama: üretim betiklerinde (`backup.sh`, `restore.sh`, `lib*.sh`, `verify-and-publish.sh`, `remote-watch.sh`, `proxy-guard.sh`) `| head`, `| grep -q`, `| grep -m` kalmadı.
+- **Davranış eşdeğerliği (restore dahil):** Komut ikamesi sondaki yeni satırları siliyor, here-string tek `\n` ekliyor; SQL içeriği ve sonucu aynı. `cat` hatası `set -e` ile yine durduruyor. Restore yolu testle kanıtlı: scratch geri yükleme `restore-verify: OK`; canlı geri yükleme (reset migrator, CHECKSUM canlı = scratch, `/ready`); host işareti; staging hedefinde scratch FAIL olunca canlıya dokunulmuyor; yanlış proje ve ortam kilitleri reddediyor; kalıcı iz yok. İki koşuda da yeşil.
+
+### S13C-14/15 — ✅
+- `stg_name_guard` (yedek) ve `apply` (yayın): proje `remote` iken `PUBLIC_BASE_URL` host'u ya da `SITE_HOST` `stg.` ile başlıyorsa ret. Tırnaklı değerler soyuluyor. Proje ≠ `remote` (gerçek ikinci yığın) etkilenmiyor. Prod ve bugünkü tek yığın staging (`stg.` adı yok) etkilenmiyor. Tur 2 önerisindeki "yanlış kurulmuş ikinci yığına `--tag`" senaryosu böylece kapanmış.
+- `deploy_env_of` ortak `env_value_of` yardımcısına taşınmış; tırnak ve CR soyma korunuyor (test-publish-lock'taki tırnaklı `DEPLOY_ENV` maddesi yeşil).
+
+### Düzeltilmeli
+Yok.
+
+### Definition of Done (P13c kod kısmı: C1, C2, C4)
+| Madde | ✅/❌ | Not |
+|---|---|---|
+| Testler yeşil | ✅ | test-backup 2/2 koşu tam; publish-lock, watch yeşil. caddy ve proxy-guard Tur 2'de yeşildi, bu turda değişmediler |
+| shellcheck / actionlint | ✅ | 0 / 0 (workflow'lar Tur 2'den beri değişmedi) |
+| C1 fark 0, C2 ret, C4 Release ayrımı | ✅ | Tur 1-2 kanıtları. Bu tur compose, Caddyfile ve workflow'lara dokunmadı |
+| Runbook ve implementation tutarlı | ✅ | Düzeltme turu 1-3 gerekçeli |
+| Kapsam dışı bekleyenler | — | C3 kurulum, C5 duman testi, C6 `CLAUDE.md` (DNS + §20 terfisi sonrası) |
+
+### Öneriler (zorunlu değil)
+- `stg_name_guard`/`apply` yalnız `stg.` önekine bakıyor. Staging için başka bir ad seçilirse kural sessizce devre dışı kalır; ad tek yerde (ör. `STG_SERVER_URL` ile aynı kaynak) tutulabilir.
+- Tur 1 önerileri hâlâ açık: `agent-win` concurrency grubu, `--stg-run --local`, `test-caddy` sabit konteyner adı.
+
+### Olumlu
+- SIGPIPE düzeltmesi tek noktayla sınırlı kalmamış; aynı sınıftaki bütün üretim borularını taramış, imza doğrulamasındaki gizli bir yanlış FAIL olasılığını da kapatmış.

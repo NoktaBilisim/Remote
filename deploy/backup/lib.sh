@@ -161,10 +161,55 @@ dump_client_command_count() {
 # deploy/.env'den DEPLOY_ENV (dosya `source` edilmez; son tanım geçerli, çevreleyen tırnak atılır). Ortam değişkeni
 # DİKKATE ALINMAZ: ortam kilidi (S-P13a-6) yığının kendi yapılandırmasından gelir. stdout: değer (geçersiz/boşsa boş).
 deploy_env_of() {
-  local v
-  v="$(awk -F= '$1 == "DEPLOY_ENV" {sub(/^[^=]*=/, ""); v=$0} END {print v}' "$1/.env" 2>/dev/null || true)"
-  v="${v%$'\r'}"; v="${v#\"}"; v="${v%\"}"; v="${v#\'}"; v="${v%\'}"
+  local v; v="$(env_value_of "$1" DEPLOY_ENV)"
   case "$v" in development|staging|production) printf '%s\n' "$v" ;; *) printf '\n' ;; esac
+}
+# <deploy_dir> <anahtar>: .env'deki son değer (çevreleyen tırnak/CR atılır). Dosya source EDİLMEZ; sır okunmaz (yalnız bu anahtar).
+env_value_of() {
+  local v
+  v="$(awk -F= -v k="$2" '$1 == k {sub(/^[^=]*=/, ""); v=$0} END {print v}' "$1/.env" 2>/dev/null || true)"
+  v="${v%$'\r'}"; v="${v#\"}"; v="${v%\"}"; v="${v#\'}"; v="${v%\'}"
+  printf '%s\n' "$v"
+}
+# <deploy_dir>: compose proje adı, sırsız (`config --no-interpolate`; verify-and-publish ile aynı). Çözülemezse boş.
+compose_project_of() {
+  (cd "$1" 2>/dev/null && docker compose config --no-interpolate 2>/dev/null | sed -n '1s/^name: //p') || true
+}
+# S13C-14/15: proje birincil ad (`remote`) iken genel ad staging ise (PUBLIC_BASE_URL / SITE_HOST `stg.` ile başlıyor) yığın
+# yanlış kurulmuştur (staging .env'inde COMPOSE_PROJECT_NAME/COMPOSE_FILE unutulmuş -> prod volume'ları). <deploy_dir>; 1 = dur.
+stg_name_guard() {
+  local proj pub site
+  proj="$(compose_project_of "$1")"
+  [ "$proj" = "${BACKUP_PRIMARY_PROJECT:-remote}" ] || return 0
+  pub="$(env_value_of "$1" PUBLIC_BASE_URL)"; pub="${pub#*://}"; site="$(env_value_of "$1" SITE_HOST)"
+  case "$pub" in stg.*) ;; *) case "$site" in stg.*) ;; *) return 0 ;; esac ;; esac
+  log "HATA: compose projesi '$proj' (prod adı) ama genel ad staging (PUBLIC_BASE_URL/SITE_HOST stg.*) — COMPOSE_PROJECT_NAME/COMPOSE_FILE eksik (runbook §21.3/3)"
+  return 1
+}
+
+# S13C-2 (P13c) + S13C-13: AYNI SUNUCUDAKİ İKİNCİ YIĞIN prod'un varsayılan yedek yollarını kullanamaz (yedek dizini, durum
+# dosyası — prod remote-watch okur — ve imza anahtarı ayrı olmalı). İkinci yığın ölçütü (biri yeter):
+#   (1) birim şablon örneği: BACKUP_UNIT_NAME = remote-backup@<örnek>.service (şablon Environment= ile verir);
+#   (2) compose projesi birincil ad (BACKUP_PRIMARY_PROJECT, vars. `remote`) DEĞİL — sırsız: `docker compose config
+#       --no-interpolate` (verify-and-publish ile aynı yöntem); çözülemezse ikinci yığın sayılır (fail-closed).
+# Proje adı birincil ölçüttür: elle `backup.sh` çalıştırmada birim adı yoktur ama proje adı her zaman yığını gösterir.
+# Tek yığın (proje `remote`, şablonsuz) staging ve production prod yollarıyla devam eder (§20 terfisi öncesi sunucu; ayar gerekmez).
+# <deploy_env> <deploy_dir>; ihlalde mesaj basar, 1 döner.
+nonprod_paths_guard() {
+  [ "$1" = production ] && return 0
+  local proj why="" bd="${BACKUP_DIR:-}" st="${BACKUP_STATUS_FILE:-/var/lib/remote-backup/status.prom}"
+  local sk="${BACKUP_SIGNING_KEY:-/etc/remote-backup/manifest_ed25519}" bad=""
+  case "${BACKUP_UNIT_NAME:-}" in remote-backup@*) why="birim ${BACKUP_UNIT_NAME}" ;; esac
+  proj="$(compose_project_of "$2")"
+  [ "$proj" = "${BACKUP_PRIMARY_PROJECT:-remote}" ] || why="${why:+$why, }compose projesi '${proj:-çözülemedi}'"
+  [ -n "$why" ] || return 0
+  bd="${bd%/}"
+  [ "$bd" != /var/backups/remote ] || bad="BACKUP_DIR=$bd"
+  [ "$st" != /var/lib/remote-backup/status.prom ] || bad="${bad:+$bad, }BACKUP_STATUS_FILE=$st"
+  [ "$sk" != /etc/remote-backup/manifest_ed25519 ] || bad="${bad:+$bad, }BACKUP_SIGNING_KEY=$sk"
+  [ -z "$bad" ] && return 0
+  log "HATA: ikinci yığın ($why; DEPLOY_ENV=${1:-?}) prod varsayılan yollarını kullanıyor ($bad) — ayrı yollar gerekir (runbook §21.3/7; remote-backup@<örnek> birimi zorlar)"
+  return 1
 }
 
 # Dosya sahibi root (uid 0) ve izni 600/400 mü (imza anahtarı). 0 = evet.
@@ -204,11 +249,11 @@ verify_manifest_sig() {
   [ -f "$manifest" ] && [ -f "$sig" ] && [ -f "$allowed" ] || return 1
   created="$(jq -r '.createdUtc // empty' "$manifest" 2>/dev/null || true)"
   vt="$(sig_time_of "$created")"; [ -n "$vt" ] || return 1
-  principal="$(ssh-keygen -Y find-principals -s "$sig" -f "$allowed" -Overify-time="$vt" 2>/dev/null | head -n 1)" || return 1
+  principal="$(ssh-keygen -Y find-principals -s "$sig" -f "$allowed" -Overify-time="$vt" 2>/dev/null | awk 'NR == 1')" || return 1
   [[ "$principal" =~ ^[A-Za-z0-9@._+-]{1,128}$ ]] || return 1
   out="$(ssh-keygen -Y verify -f "$allowed" -I "$principal" -n remote-backup -s "$sig" -Overify-time="$vt" \
     < "$manifest" 2>&1)" || return 1
-  fp="$(printf '%s\n' "$out" | grep -Eo 'SHA256:[A-Za-z0-9+/]{43}' | head -n 1)"
+  fp="$(printf '%s\n' "$out" | grep -Eo 'SHA256:[A-Za-z0-9+/]{43}' | awk 'NR == 1')"
   [ -n "$fp" ] || return 1
   printf '%s\n' "$fp"
 }
