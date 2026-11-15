@@ -14,33 +14,60 @@ type bindingFixture struct {
 	Invalid     map[string][]json.RawMessage `json:"invalid"`
 }
 
-func loadBindings(t *testing.T) bindingFixture {
+// readBindings contracts `bindings.json` fikstürünü dst'ye çözer.
+func readBindings(t *testing.T, dst any) {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packages", "contracts", "fixtures", "bindings.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var f bindingFixture
-	if err := json.Unmarshal(b, &f); err != nil {
+	if err := json.Unmarshal(b, dst); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func loadBindings(t *testing.T) bindingFixture {
+	t.Helper()
+	var f bindingFixture
+	readBindings(t, &f)
 	return f
+}
+
+// expectServerParse fikstürün geçerli sunucu mesajları ayrışır, geçersizleri reddedilir.
+func expectServerParse(t *testing.T, valid, invalid []json.RawMessage) {
+	t.Helper()
+	for _, raw := range valid {
+		if _, err := ParseServer(raw); err != nil {
+			t.Errorf("geçerli mesaj reddedildi %s: %v", raw, err)
+		}
+	}
+	for _, raw := range invalid {
+		if _, err := ParseServer(raw); err == nil {
+			t.Errorf("geçersiz mesaj kabul edildi: %s", raw)
+		}
+	}
+}
+
+// expectRequestRoundTrip fikstürün geçerli binding.request'leri Go tipinden birebir aynı JSON'a kodlanır.
+func expectRequestRoundTrip(t *testing.T, valid []json.RawMessage) {
+	t.Helper()
+	for _, raw := range valid {
+		var m BindingRequest
+		if err := decodeStrict(raw, &m); err != nil {
+			t.Fatal(err)
+		}
+		out, err := Encode(m)
+		if err != nil || !jsonEqual(t, raw, out) {
+			t.Errorf("%s → %s %v", raw, out, err)
+		}
+	}
 }
 
 // TestAC181BindingServerMessagesStrict ortak fixture: binding.offer/issued sıkı ayrıştırılır (bilinmeyen/eksik alan,
 // biçimsiz anahtar red); bilinmeyen tip yine hata (mevcut davranış).
 func TestAC181BindingServerMessagesStrict(t *testing.T) {
 	f := loadBindings(t)
-	for _, raw := range f.Valid["serverOutbound"] {
-		if _, err := ParseServer(raw); err != nil {
-			t.Errorf("geçerli mesaj reddedildi %s: %v", raw, err)
-		}
-	}
-	for _, raw := range f.Invalid["serverOutbound"] {
-		if _, err := ParseServer(raw); err == nil {
-			t.Errorf("geçersiz mesaj kabul edildi: %s", raw)
-		}
-	}
+	expectServerParse(t, f.Valid["serverOutbound"], f.Invalid["serverOutbound"])
 	m, err := ParseServer([]byte(`{"t":"binding.issued","bindingKey":"` + f.ValidKeys[0] + `","tenantName":"N","customerFirmName":null,"renewed":true}`))
 	if err != nil {
 		t.Fatal(err)
@@ -61,16 +88,7 @@ func TestAC181BindingServerMessagesStrict(t *testing.T) {
 
 func TestAC181BindingRequestEncodeMatchesFixture(t *testing.T) {
 	f := loadBindings(t)
-	for _, raw := range f.Valid["guestInbound"] {
-		var m BindingRequest
-		if err := decodeStrict(raw, &m); err != nil {
-			t.Fatal(err)
-		}
-		out, err := Encode(m)
-		if err != nil || !jsonEqual(t, raw, out) {
-			t.Errorf("%s → %s %v", raw, out, err)
-		}
-	}
+	expectRequestRoundTrip(t, f.Valid["guestInbound"])
 	for _, k := range f.InvalidKeys {
 		if _, err := Encode(BindingRequest{T: "binding.request", PreviousKey: k}); err == nil {
 			t.Errorf("geçersiz previousKey kodlandı: %s", k)
@@ -98,14 +116,8 @@ type multiFixture struct {
 
 func loadMulti(t *testing.T) multiFixture {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "packages", "contracts", "fixtures", "bindings.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	var f multiFixture
-	if err := json.Unmarshal(b, &f); err != nil {
-		t.Fatal(err)
-	}
+	readBindings(t, &f)
 	return f
 }
 
@@ -116,16 +128,7 @@ func TestAC254MultiServerMessagesFixture(t *testing.T) {
 	if f.Constants.MaxPerDevice != BindingMaxPerOrigin {
 		t.Fatalf("maxPerDevice %d ≠ %d", f.Constants.MaxPerDevice, BindingMaxPerOrigin)
 	}
-	for _, raw := range f.Valid["serverOutbound"] {
-		if _, err := ParseServer(raw); err != nil {
-			t.Errorf("geçerli mesaj reddedildi %s: %v", raw, err)
-		}
-	}
-	for _, raw := range f.Invalid["serverOutbound"] {
-		if _, err := ParseServer(raw); err == nil {
-			t.Errorf("geçersiz mesaj kabul edildi: %s", raw)
-		}
-	}
+	expectServerParse(t, f.Valid["serverOutbound"], f.Invalid["serverOutbound"])
 	for _, s := range []string{`{"t":"binding.offer","multi":null}`, `{"t":"binding.offer","multi":"true"}`,
 		`{"t":"binding.offer","Multi":true}`} {
 		if _, err := ParseServer([]byte(s)); err == nil {
@@ -153,16 +156,7 @@ func TestAC254MultiServerMessagesFixture(t *testing.T) {
 // sunucunun reddettiği biçimler (boş/6 öğe/yinelenen/biçimsiz) ve `previousKey`+`previousKeys` hiç kodlanmaz.
 func TestAC254MultiRequestEncodeMatchesFixture(t *testing.T) {
 	f := loadMulti(t).Multi
-	for _, raw := range f.Valid["guestInbound"] {
-		var m BindingRequest
-		if err := decodeStrict(raw, &m); err != nil {
-			t.Fatal(err)
-		}
-		out, err := Encode(m)
-		if err != nil || !jsonEqual(t, raw, out) {
-			t.Errorf("%s → %s %v", raw, out, err)
-		}
-	}
+	expectRequestRoundTrip(t, f.Valid["guestInbound"])
 	for _, raw := range append(f.Invalid["guestInbound"], f.Exclusive...) {
 		var m BindingRequest
 		if err := decodeStrict(raw, &m); err != nil {

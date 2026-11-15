@@ -82,36 +82,49 @@ func (s *session) onControlServer(ctx context.Context, m signal.Inbound) {
 	case signal.MonitorRequest:
 		s.onMonitorRequest(m.MonitorID)
 	case signal.ControlRelease, signal.ControlCancel:
-		// K1/K2: durumdan bağımsız kapı ve kontrol diyaloğu kapanır; yanıt yok (sunucu zaten VIEW).
-		c := s.closeControl(ctx, "", false)
-		switch {
-		case c.granted:
-			s.d.UI.Status(statusControlReleased)
-		case c.ctlPrompt:
-			s.d.UI.Status(statusControlCancel)
-		}
+		s.onControlRelease(ctx)
 	case signal.ControlRevoke:
-		// G-04/G-15/K3: her reason için kapı kapanır (açamaz), kontrol ve monitör diyaloğu kapanır; kapı açıktıysa
-		// control.state{VIEW, SYSTEM}.
-		c := s.closeControl(ctx, "SYSTEM", true)
-		switch {
-		case m.Reason == "reconnect":
-			if c.any() {
-				s.d.UI.Status(statusControlTechLost)
-				s.techLost = true // ardından gelen peer.left/joined{tech} bu metni ezmesin
-			}
-		case c.granted:
-			s.d.UI.Status(statusControlRevoked)
-		}
+		s.onControlRevoke(ctx, m.Reason)
 	case signal.CapsUpdate:
-		s.caps = append([]string(nil), m.Caps...)
-		if s.peer != nil {
-			s.peer.SetCaps(s.caps)
+		s.onCapsUpdate(ctx, m.Caps)
+	}
+}
+
+// onControlRelease K1/K2: durumdan bağımsız kapı ve kontrol diyaloğu kapanır; yanıt yok (sunucu zaten VIEW).
+func (s *session) onControlRelease(ctx context.Context) {
+	c := s.closeControl(ctx, "", false)
+	switch {
+	case c.granted:
+		s.d.UI.Status(statusControlReleased)
+	case c.ctlPrompt:
+		s.d.UI.Status(statusControlCancel)
+	}
+}
+
+// onControlRevoke G-04/G-15/K3: her reason için kapı kapanır (açamaz), kontrol ve monitör diyaloğu kapanır; kapı
+// açıktıysa control.state{VIEW, SYSTEM}.
+func (s *session) onControlRevoke(ctx context.Context, reason string) {
+	c := s.closeControl(ctx, "SYSTEM", true)
+	switch {
+	case reason == "reconnect":
+		if c.any() {
+			s.d.UI.Status(statusControlTechLost)
+			s.techLost = true // ardından gelen peer.left/joined{tech} bu metni ezmesin
 		}
-		if !s.hasCap(capRemoteControl) {
-			if c := s.closeControl(ctx, "SYSTEM", false); c.granted {
-				s.d.UI.Status(statusControlRevoked)
-			}
+	case c.granted:
+		s.d.UI.Status(statusControlRevoked)
+	}
+}
+
+// onCapsUpdate G-09: yetenekler değişti; uzaktan kontrol yeteneği gittiyse kapı kapanır.
+func (s *session) onCapsUpdate(ctx context.Context, caps []string) {
+	s.caps = append([]string(nil), caps...)
+	if s.peer != nil {
+		s.peer.SetCaps(s.caps)
+	}
+	if !s.hasCap(capRemoteControl) {
+		if c := s.closeControl(ctx, "SYSTEM", false); c.granted {
+			s.d.UI.Status(statusControlRevoked)
 		}
 	}
 }
@@ -120,16 +133,7 @@ func (s *session) onControlUser(ctx context.Context, ev Event) {
 	now := s.d.Now()
 	switch ev.Kind {
 	case EvControlGrant:
-		// Son savunma: bekleyen istek, yetenek, etkin oturum ve kapatma kısayolu (G-21) şart.
-		if !s.ctlReq.Pending() || s.phase != phActive || !s.hasCap(capRemoteControl) || s.d.Hotkey == "" {
-			s.ctlReq.Cancel()
-			return
-		}
-		s.ctlReq.Granted()
-		s.gate.Open()
-		s.granted = true
-		s.d.UI.ControlState(true, s.d.Hotkey)
-		s.sendControl(ctx, "GRANTED", "UI")
+		s.grantControl(ctx)
 	case EvControlDeny:
 		if s.ctlReq.Pending() {
 			s.ctlReq.Denied(now)
@@ -158,6 +162,19 @@ func (s *session) onControlUser(ctx context.Context, ev Event) {
 			s.send(ctx, signal.MonitorDenied{T: "monitor.denied", MonitorID: id})
 		}
 	}
+}
+
+// grantControl yerel "İzin ver". Son savunma: bekleyen istek, yetenek, etkin oturum ve kapatma kısayolu (G-21) şart.
+func (s *session) grantControl(ctx context.Context) {
+	if !s.ctlReq.Pending() || s.phase != phActive || !s.hasCap(capRemoteControl) || s.d.Hotkey == "" {
+		s.ctlReq.Cancel()
+		return
+	}
+	s.ctlReq.Granted()
+	s.gate.Open()
+	s.granted = true
+	s.d.UI.ControlState(true, s.d.Hotkey)
+	s.sendControl(ctx, "GRANTED", "UI")
 }
 
 // onMonitorRequest AC-43: yalnız çoklu monitörde, farklı ve bilinen kimlik için diyalog (G-03 kuralları).
