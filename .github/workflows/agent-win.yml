@@ -100,7 +100,15 @@ jobs:
         with: { persist-credentials: false }
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with: { go-version: "${{ env.GO_VERSION }}", cache: false }
-      - run: go test -count=1 ./...
+      # internal/remember'ın 2 süreçli kilit testi (G-P20-2/16, lockWait 2 sn) P28a yazdırma/PDF testleriyle paralel
+      # koşarken runner yükünde lock_timeout ile kararsızlaştı; paket ayrı ve seri koşar (kapsam aynı).
+      - name: go test (internal/remember hariç, paralel)
+        shell: bash
+        run: |
+          mapfile -t pkgs < <(go list ./... | grep -v '/internal/remember$')
+          go test -count=1 "${pkgs[@]}"
+      - name: go test internal/remember (seri)
+        run: go test -count=1 -p 1 ./internal/remember/
       # P17 QA Tur 1 / devops 1: AC-248/249 testleri günlükte PASS/SKIP olarak görünür koşar. WGC duman testi (gerçek kare
       # alımının tek otomatik kanıtı) SKIP olursa uyarı basılır; iş kırmızı olmaz (runner oturumu WGC desteklemeyebilir,
       # kanıt o durumda Windows VM elle turundan gelir — runbook §24).
