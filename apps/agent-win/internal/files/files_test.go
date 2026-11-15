@@ -80,6 +80,10 @@ func TestAC54AvailableNameNoOverwrite(t *testing.T) {
 	if got, _ := AvailableName("README", func(n string) bool { return n == "README" }); got != "README (1)" {
 		t.Fatalf("uzantısız: %q", got)
 	}
+	longExt := "a." + strings.Repeat("x", extKeepMax) // uzantı (nokta dahil) > extKeepMax → bütün ad gövde sayılır
+	if got, _ := AvailableName(longExt, func(n string) bool { return n == longExt }); got != longExt+" (1)" {
+		t.Fatalf("uzun uzantı: %q", got)
+	}
 	if _, err := AvailableName("x.txt", func(string) bool { return true }); err == nil {
 		t.Fatal("hepsi doluyken hata beklenirdi")
 	}

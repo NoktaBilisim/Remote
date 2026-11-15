@@ -67,8 +67,10 @@ func TestTagKeepsOpAndHRAndHidesForeignText(t *testing.T) {
 	}
 }
 
-// fakeGrabber sırayla verilen acquire sonuçlarını döndürür; her çağrıda sahte saati ilerletir.
+// fakeGrabber sırayla verilen acquire sonuçlarını döndürür; her çağrıda sahte saati ilerletir. rotation/cursor
+// testlerde çağrılmaz (yalnız Windows kaynak döngüsü çağırır); gömülü nil arayüz onları sağlar, çağrılırsa panikler.
 type fakeGrabber struct {
+	grabber
 	results []fakeAcq
 	clk     *fakeClock
 	closed  int
@@ -95,9 +97,7 @@ func (g *fakeGrabber) acquire(_ uint32, fn func([]byte, int, int, int) error) (b
 	return r.ok, r.err
 }
 
-func (g *fakeGrabber) rotation() Rotation { return RotNone }
-func (g *fakeGrabber) cursor() *Cursor    { return nil }
-func (g *fakeGrabber) close()             { g.closed++ }
+func (g *fakeGrabber) close() { g.closed++ }
 
 type fakeClock struct{ t time.Time }
 

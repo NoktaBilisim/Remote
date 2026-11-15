@@ -57,4 +57,13 @@ func TestAC98FitBGRNilAndSmall(t *testing.T) {
 	if out[3*stride] != 255 || out[3*stride+2*3] != 0 { // y=3 satırı: x=0 logo, x=2 boş
 		t.Fatalf("küçük logo büyütülmemeli")
 	}
+	tall := image.NewNRGBA(image.Rect(0, 0, 10, 40)) // yükseklik sınırlıyor → 5×20, soldan hizalı
+	for i := range tall.Pix {
+		tall.Pix[i] = 255
+	}
+	out = fitBGR(tall, 20, 20, color.RGBA{})
+	stride = (20*3 + 3) &^ 3
+	if out[19*stride] != 255 || out[19*stride+4*3] != 255 || out[19*stride+5*3] != 0 {
+		t.Fatalf("uzun logo 5 px genişliğe sığmalı")
+	}
 }

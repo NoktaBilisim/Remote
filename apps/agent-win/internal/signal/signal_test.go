@@ -169,12 +169,15 @@ func TestServerMessageStrictness(t *testing.T) {
 }
 
 func TestEncodeRejectsInvalidOutbound(t *testing.T) {
-	idx := 17
+	idx, badMon := 17, monitorIDMax+1
 	for _, m := range []Outbound{
 		SdpAnswer{T: "sdp.answer"},
 		SdpAnswer{T: "sdp.offer", SDP: "v=0"},
 		Ice{T: "ice", SdpMLineIndex: &idx},
 		ShareState{T: "share.state", State: "paused"},
+		ShareState{T: "share.state", State: "sharing", Monitors: make([]Monitor, monitorsMax+1)},
+		ShareState{T: "share.state", State: "sharing", Monitors: []Monitor{{ID: 0, Name: "A", W: 0, H: 1}}},
+		ShareState{T: "share.state", State: "sharing", ActiveMonitor: &badMon},
 		FileMeta{T: "file.meta", Direction: "TO_TECH", FileName: "a", SizeBytes: 1, SHA256: strings.Repeat("A", 64), Result: "OK"},
 		SessionEnd{T: "session.end", ID: strings.Repeat("x", 27)},
 	} {
