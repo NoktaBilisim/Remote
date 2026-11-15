@@ -28,9 +28,9 @@ import {
 } from "./hours.ts";
 import { ensureSettings } from "./panel.ts";
 
-export const BUSINESS_HOURS_WRITES_PER_MIN = 30;
-export const HOLIDAY_WRITES_PER_MIN = 60;
-export const HOLIDAY_IMPORTS_PER_MIN = 10;
+const BUSINESS_HOURS_WRITES_PER_MIN = 30;
+const HOLIDAY_WRITES_PER_MIN = 60;
+const HOLIDAY_IMPORTS_PER_MIN = 10;
 
 /** Kullanıcı başına sabit pencere kovası (P15 engel kalıbı); aşım 429 + Retry-After. */
 function userLimit(app: FastifyInstance, perMin: number): (req: FastifyRequest) => Promise<void> {

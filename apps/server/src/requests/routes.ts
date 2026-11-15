@@ -48,11 +48,11 @@ import * as repo from "./repo.ts";
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 /** P18: atama/öncelik yazmaları kullanıcı başına dakikada 30 (mimari-e11 §8b.5). */
-export const ASSIGN_WRITES_PER_MIN = 30;
+const ASSIGN_WRITES_PER_MIN = 30;
 /** P18 H3 (mimari-e11 §8b.5): mesaj okuma/yazma kovaları. */
-export const MESSAGE_READS_PER_MIN = 120;
-export const MESSAGE_WRITES_USER_PER_MIN = 60;
-export const MESSAGE_WRITES_TENANT_PER_MIN = 600;
+const MESSAGE_READS_PER_MIN = 120;
+const MESSAGE_WRITES_USER_PER_MIN = 60;
+const MESSAGE_WRITES_TENANT_PER_MIN = 600;
 function idParam(req: FastifyRequest): string {
   const { id } = req.params as { id?: string };
   if (!id || !ULID.test(id)) throw new AppError("NOT_FOUND");

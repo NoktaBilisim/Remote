@@ -79,8 +79,8 @@ export const TENANT_KNOWN_PER_HOUR = 120;
 export const TENANT_WEB_PER_HOUR = 60;
 export const WEB_PENDING_MAX = 30;
 /** S-P19-K1: `GET /public/web-requests/form` önek ve /48 kovaları (dakikalık; aşımda 15 dk 429). */
-export const WEB_FORM_PREFIX_PER_MIN = 120;
-export const WEB_FORM_NET48_PER_MIN = 240;
+const WEB_FORM_PREFIX_PER_MIN = 120;
+const WEB_FORM_NET48_PER_MIN = 240;
 
 export function createRequestLimits(): RequestLimits {
   return {

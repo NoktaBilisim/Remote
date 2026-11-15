@@ -9,7 +9,7 @@ const BATCH = 500;
 const ANON_BATCH = 1000;
 const DAY_MS = 86_400_000;
 
-export interface SweepResult {
+interface SweepResult {
   expired: number;
   connectFailed: number;
   tenantPassive: number;

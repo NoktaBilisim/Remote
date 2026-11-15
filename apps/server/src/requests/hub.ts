@@ -49,8 +49,8 @@ export interface PanelConn {
 
 export type RequestStatePayload = Omit<Extract<RequestOutbound, { t: "request.state" }>, "t" | "serverTime">;
 
-export const PANEL_SOCKETS_PER_USER = 5;
-export const REQUEST_SOCKETS_PER_IP = 5;
+const PANEL_SOCKETS_PER_USER = 5;
+const REQUEST_SOCKETS_PER_IP = 5;
 const COALESCE_MS = 1_000;
 /** S-P18-T4: `request.activity` talep başına en çok 1/sn (öncü gönderim + pencere sonunda son olay). */
 const ACTIVITY_MS = 1_000;

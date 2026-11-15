@@ -36,7 +36,7 @@ export const OPEN_CALENDAR: Calendar = {
 };
 
 export const hhmmToMinutes = (v: string): number => Number(v.slice(0, 2)) * 60 + Number(v.slice(3, 5));
-export const minutesToHhmm = (m: number): string => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const minutesToHhmm = (m: number): string => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 function offsetFormatter(tz: string): Intl.DateTimeFormat {
@@ -59,7 +59,7 @@ export function timeZoneUsable(tz: string): boolean {
 }
 
 /** UTC anındaki ofset (ms; yerel = utc + ofset). "GMT" → 0, "GMT+03:00" → 3 sa, "GMT-04:00" → −4 sa. */
-export function offsetMs(tz: string, utcMs: number): number {
+function offsetMs(tz: string, utcMs: number): number {
   const name = offsetFormatter(tz)
     .formatToParts(utcMs)
     .find((p) => p.type === "timeZoneName")?.value;

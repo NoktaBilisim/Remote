@@ -38,11 +38,11 @@ const TABLE = "session_messages";
 export const RATE_MESSAGE = "Çok hızlı mesaj gönderiyorsunuz. Lütfen biraz bekleyin.";
 export const CAP_MESSAGE = `Bu talepte en çok ${MESSAGES_PER_SENDER_MAX} mesaj gönderilebilir.`;
 
-export type RejectReason = "rate" | "cap" | "closed" | "unsupported" | "tenant_rate";
+type RejectReason = "rate" | "cap" | "closed" | "unsupported" | "tenant_rate";
 
 // ------------------------------------------------------------------ repo
 
-export interface MessageInsert {
+interface MessageInsert {
   id: string;
   tenantId: string;
   requestId: string;
@@ -55,7 +55,7 @@ export interface MessageInsert {
 }
 
 /** Koşullu INSERT (talep PENDING ise 1, değilse 0) — `SELECT … FOR UPDATE` yok (§8b.4). */
-export async function insertIfPending(tx: DbOrTx, m: MessageInsert): Promise<number> {
+async function insertIfPending(tx: DbOrTx, m: MessageInsert): Promise<number> {
   return tx.$executeRaw`INSERT INTO session_messages
       (id, tenant_id, request_id, session_id, sender, sender_user_id, client_msg_id, body_enc, body_chars, created_at)
     SELECT ${m.id}, ${m.tenantId}, ${m.requestId}, NULL, ${m.sender}, ${m.senderUserId}, ${m.clientMsgId}, ${Buffer.from(m.bodyEnc)},
@@ -64,12 +64,12 @@ export async function insertIfPending(tx: DbOrTx, m: MessageInsert): Promise<num
 }
 
 /** Gönderici tavanı sayımı (UQ(request_id, sender, client_msg_id) öneki — S-P18-T4). */
-export async function countBySender(db: DbOrTx, tenantId: string, requestId: string, sender: MessageSender): Promise<number> {
+async function countBySender(db: DbOrTx, tenantId: string, requestId: string, sender: MessageSender): Promise<number> {
   return db.sessionMessage.count({ where: { requestId, tenantId, sender } });
 }
 
 /** Yeniden gönderim: aynı (talep, gönderici, clientMsgId) varsa aynı kayıt döner (çift kayıt yok). */
-export function findByClientMsgId(db: DbOrTx, tenantId: string, requestId: string, sender: MessageSender, clientMsgId: string) {
+function findByClientMsgId(db: DbOrTx, tenantId: string, requestId: string, sender: MessageSender, clientMsgId: string) {
   return db.sessionMessage.findFirst({ where: { requestId, tenantId, sender, clientMsgId }, select: rowSelect });
 }
 
@@ -86,7 +86,7 @@ const rowSelect = {
 type Row = Prisma.SessionMessageGetPayload<{ select: typeof rowSelect }>;
 
 /** Artan sıra (created_at, id); `after` verilirse o mesajdan sonrakiler. */
-export async function listRows(db: DbOrTx, tenantId: string, requestId: string, take: number, after?: string): Promise<Row[]> {
+async function listRows(db: DbOrTx, tenantId: string, requestId: string, take: number, after?: string): Promise<Row[]> {
   let where: Prisma.SessionMessageWhereInput = { requestId, tenantId };
   if (after) {
     const a = await db.sessionMessage.findFirst({ where: { id: after, requestId, tenantId }, select: { createdAt: true } });

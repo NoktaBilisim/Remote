@@ -2,12 +2,17 @@
 // tenant kapsamlı (AC-69, AC-148). Durum geçişleri tek koşullu UPDATE (count=1 kazanır, mimari-e9 §3.4); her geçiş aynı
 // UPDATE'te CHECK'lerin istediği alanları yazar (closed_at, cancel_reason, rejected_*).
 import { compareQueue } from "@remote/contracts/api/requests";
-import { Prisma } from "../generated/prisma/client.ts";
+import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 
 type DbOrTx = Db | Prisma.TransactionClient;
+// PT-K9: panel liste/atama sorguları `repo-panel.ts`, süpürücü/anonimleştirme sorguları `repo-sweep.ts`'de; adlar buradan
+// yeniden dışa verilir (çağıranlar ve testlerin `vi.mock("…/requests/repo.ts")` yolu değişmez).
+export * from "./repo-panel.ts";
+export * from "./repo-sweep.ts";
+
 const DAY_MS = 86_400_000;
-export const KNOWN_WINDOW_DAYS = 90;
+const KNOWN_WINDOW_DAYS = 90;
 
 // ---------------- Ayarlar ----------------
 
@@ -54,7 +59,7 @@ const customerRefSelect = {
   requestRef: true,
   tenant: { select: { requestSettings: { select: settingsSelect } } },
 } as const;
-export type CustomerRefRow = Prisma.CustomerGetPayload<{ select: typeof customerRefSelect }>;
+type CustomerRefRow = Prisma.CustomerGetPayload<{ select: typeof customerRefSelect }>;
 
 export function customerByRef(db: DbOrTx, requestRef: string): Promise<CustomerRefRow | null> {
   return db.customer.findUnique({ where: { requestRef }, select: customerRefSelect });
@@ -211,111 +216,7 @@ export function countPending(db: DbOrTx, tenantId: string): Promise<number> {
   return db.supportRequest.count({ where: { tenantId, status: "PENDING" } });
 }
 
-const itemSelect = {
-  id: true,
-  requestCode: true,
-  networkMatch: true,
-  knownDevice: true,
-  status: true,
-  cancelReason: true,
-  createdAt: true,
-  closedAt: true,
-  acceptedAt: true,
-  customerName: true,
-  customerPhone: true,
-  customerEmail: true,
-  description: true,
-  clientVersion: true,
-  source: true,
-  rejectMessage: true,
-  acceptor: { select: { id: true, fullName: true } },
-  session: { select: { id: true } },
-  // P8c (AC-176, §15.1): müşteri firma + kayıt durumu (tek ek IN sorgusu; N+1 yok)
-  bindingId: true,
-  binding: { select: { revokedAt: true } },
-  customer: { select: { id: true, name: true, status: true, refRotatedAt: true } },
-  // P18 (AC-256..258)
-  priority: true,
-  assignee: { select: { id: true, fullName: true } },
-  slaDueAt: true,
-  afterHours: true,
-} as const;
-export type ItemRow = Prisma.SupportRequestGetPayload<{ select: typeof itemSelect }>;
-
-/** P8c müşteri filtresi: `general` → customer_id IS NULL; ULID → o müşteri (tenant ile birlikte → IX(tenant_id, customer_id, …)). */
-const customerWhere = (customer: string | undefined): Prisma.SupportRequestWhereInput =>
-  customer === undefined ? {} : { customerId: customer === "general" ? null : customer };
-
-/** P18 (AC-256): `me` → bana atananlar (IX(assigned_to, tenant_id, status)), `none` → atanmamış. */
-const assignedWhere = (assigned: { mode: "me" | "none"; userId: string } | undefined): Prisma.SupportRequestWhereInput =>
-  assigned === undefined ? {} : { assignedTo: assigned.mode === "me" ? assigned.userId : null };
-
-export async function listPending(
-  db: DbOrTx,
-  tenantId: string,
-  customer?: string,
-  assigned?: { mode: "me" | "none"; userId: string },
-  source?: string,
-): Promise<{ rows: ItemRow[]; total: number }> {
-  const where: Prisma.SupportRequestWhereInput = {
-    tenantId,
-    status: "PENDING",
-    ...customerWhere(customer),
-    ...assignedWhere(assigned),
-    ...(source ? { source } : {}),
-  };
-  const [rows, total] = await Promise.all([
-    db.supportRequest.findMany({ where, select: itemSelect, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 200 }),
-    db.supportRequest.count({ where }),
-  ]);
-  return { rows: rows.sort(compareQueue), total };
-}
-
-export async function listHistory(
-  db: DbOrTx,
-  tenantId: string,
-  since: Date,
-  status: string | undefined,
-  page: { skip: number; take: number },
-  customer?: string,
-  source?: string,
-) {
-  const where: Prisma.SupportRequestWhereInput = {
-    tenantId,
-    closedAt: { gte: since },
-    ...(status ? { status } : {}),
-    ...customerWhere(customer),
-    ...(source ? { source } : {}),
-  };
-  const [rows, total] = await Promise.all([
-    db.supportRequest.findMany({ where, select: itemSelect, orderBy: [{ closedAt: "desc" }, { id: "desc" }], ...page }),
-    db.supportRequest.count({ where }),
-  ]);
-  return { rows, total };
-}
-
-/** P8c müşteri detayı "Talepler" sekmesi (AC-178): tüm durumlar, yeniden eskiye; IX(tenant_id, customer_id, created_at). */
-export async function listByCustomer(db: DbOrTx, tenantId: string, customerId: string, page: { skip: number; take: number }) {
-  const where: Prisma.SupportRequestWhereInput = { tenantId, customerId };
-  const [rows, total] = await Promise.all([
-    db.supportRequest.findMany({ where, select: itemSelect, orderBy: [{ createdAt: "desc" }, { id: "desc" }], ...page }),
-    db.supportRequest.count({ where }),
-  ]);
-  return { rows, total };
-}
-
-export function findItem(db: DbOrTx, tenantId: string, id: string): Promise<ItemRow | null> {
-  return db.supportRequest.findFirst({ where: { id, tenantId }, select: itemSelect });
-}
-
-export function findStatusInTenant(db: DbOrTx, tenantId: string, id: string) {
-  return db.supportRequest.findFirst({
-    where: { id, tenantId },
-    select: { status: true, acceptedBy: true, customerId: true, clientVersion: true, source: true },
-  });
-}
-
-// ---------------- P18 öncelik / SLA / atama (mimari-e11 §8b.2, §8b.5; S-P18-T5) ----------------
+// ---------------- P18 öncelik / SLA (mimari-e11 §8b.2) ----------------
 
 /** Oluşturma TX'inde (ayar kilidi altında) öncelik/SLA varsayılanları: müşteri ?? firma. */
 export async function requestPolicy(tx: DbOrTx, tenantId: string, customerId: string | null) {
@@ -326,50 +227,6 @@ export async function requestPolicy(tx: DbOrTx, tenantId: string, customerId: st
       : Promise.resolve(null),
   ]);
   return { priority: c?.defaultPriority ?? s?.defaultPriority ?? "NORMAL", slaMinutes: c?.slaMinutes ?? s?.defaultSlaMinutes ?? null };
-}
-
-/** Atama/öncelik TX'i: talep satırı kilidi (tenant kapsamlı; yoksa null). Kilit sırası users → support_requests. */
-export async function lockRequest(tx: Prisma.TransactionClient, tenantId: string, id: string) {
-  const rows = await tx.$queryRaw<
-    { status: string; assigned_to: string | null; priority: string }[]
-  >`SELECT status, assigned_to, priority FROM support_requests WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`;
-  return rows[0] ?? null;
-}
-
-export async function setAssignee(tx: DbOrTx, tenantId: string, id: string, userId: string | null, now: Date): Promise<number> {
-  const r = await tx.supportRequest.updateMany({
-    where: { id, tenantId, status: "PENDING" },
-    data: { assignedTo: userId, assignedAt: userId ? now : null },
-  });
-  return r.count;
-}
-
-export async function setPriority(tx: DbOrTx, tenantId: string, id: string, priority: string): Promise<number> {
-  const r = await tx.supportRequest.updateMany({ where: { id, tenantId, status: "PENDING" }, data: { priority } });
-  return r.count;
-}
-
-/**
- * S-P18-T5 (a): kullanıcı pasif/silinme/yetki kaybı ya da firma pasifinde o kullanıcıya (ya da `userId` verilmezse firmanın
- * tümüne) atanmış BEKLEYEN taleplerin ataması aynı TX'te kalkar. Kapalı taleplerde atama tarih olarak kalır.
- */
-export async function unassignPending(tx: DbOrTx, where: { userId?: string; tenantId?: string }) {
-  const filter: Prisma.SupportRequestWhereInput = {
-    status: "PENDING",
-    ...(where.userId ? { assignedTo: where.userId } : { assignedTo: { not: null } }),
-    ...(where.tenantId ? { tenantId: where.tenantId } : {}),
-  };
-  const rows = await tx.supportRequest.findMany({
-    where: filter,
-    select: { id: true, tenantId: true, priority: true, slaDueAt: true, assignedTo: true },
-    take: 1000,
-  });
-  if (rows.length === 0) return [];
-  await tx.supportRequest.updateMany({
-    where: { id: { in: rows.map((r) => r.id) }, status: "PENDING" },
-    data: { assignedTo: null, assignedAt: null },
-  });
-  return rows;
 }
 
 // ---------------- Geçişler (§3.4) ----------------
@@ -436,99 +293,4 @@ export async function cancelRequestSession(
     data: { status: "CANCELLED", endedAt: now, endedBy, endReason },
   });
   return r.count;
-}
-
-// ---------------- Süpürücü ----------------
-
-export function findExpired(db: DbOrTx, now: Date, take: number) {
-  return db.supportRequest.findMany({
-    where: { status: "PENDING", expiresAt: { lte: now } },
-    select: { id: true, tenantId: true },
-    orderBy: { expiresAt: "asc" },
-    take,
-  });
-}
-
-/** Kabul edilmiş ama bağlanmamış: oturum PENDING ve süresi dolmuş ya da tüketilmeden kapanmış (teknisyen iptali vb.). */
-export function findConnectDue(db: DbOrTx, now: Date, take: number) {
-  return db.supportRequest.findMany({
-    where: {
-      status: "ACCEPTED",
-      session: {
-        is: { consumedAt: null, OR: [{ status: "PENDING", expiresAt: { lte: now } }, { status: { in: ["CANCELLED", "EXPIRED"] } }] },
-      },
-    },
-    select: { id: true, tenantId: true },
-    take,
-  });
-}
-
-/** Pasif/silinmiş tenant'ın bekleyenleri (AC-145). */
-export function findPassivePending(db: DbOrTx, take: number) {
-  return db.supportRequest.findMany({
-    where: { status: "PENDING", tenant: { is: { OR: [{ status: { not: "ACTIVE" } }, { deletedAt: { not: null } }] } } },
-    select: { id: true, tenantId: true },
-    take,
-  });
-}
-
-/** P8c (AC-171): pasif müşterinin bekleyenleri (süpürücü yedek yolu; servis yolu deactivate sonrası). */
-export function findCustomerPassivePending(db: DbOrTx, take: number) {
-  return db.supportRequest.findMany({
-    where: { status: "PENDING", customer: { is: { status: "PASSIVE" } } },
-    select: { id: true, tenantId: true },
-    take,
-  });
-}
-
-export function findPendingOfCustomer(db: DbOrTx, tenantId: string, customerId: string) {
-  return db.supportRequest.findMany({ where: { tenantId, customerId, status: "PENDING" }, select: { id: true, tenantId: true } });
-}
-
-export function findAllPending(db: DbOrTx, take: number) {
-  return db.supportRequest.findMany({ where: { status: "PENDING" }, select: { id: true, tenantId: true }, take });
-}
-
-export function countAllPending(db: DbOrTx): Promise<number> {
-  return db.supportRequest.count({ where: { status: "PENDING" } });
-}
-
-// ---------------- Anonimleştirme (AC-159) ----------------
-
-/**
- * S16-14 (P16 G2): `anonymized_at` DB saatiyle (`UTC_TIMESTAMP(3)`) yazılır — iş mantıksal saatle (`cutoff`) aday seçer,
- * damga S16-3 tetikleyicisinin `[UTC − 1 g, UTC + 1 dk]` aralığında kalır (uygulama saati ileride olsa da). Prisma
- * `@updatedAt` ham ifadede çalışmadığı için `updated_at` de DB saatiyle. IX(tenant_id, anonymized_at, created_at).
- */
-/**
- * AC-159 / P18 H3 (ADR-0025 m.3, mimari-e11 §8b.1 Retention): parti kimlikleri kilitlenir → PII temizlenir → aynı TX'te
- * o taleplerin `session_messages` satırları silinir (tetikleyici `anonymized_at` aynı TX'te yazıldığı için izin verir).
- * P19: aynı TX'te `notification_outbox` satırları da silinir (sayıya katılmaz; metrik J3'te).
- */
-export async function anonymizeBatch(
-  db: Db,
-  tenantId: string,
-  cutoff: Date,
-  limit: number,
-): Promise<{ requests: number; messages: number }> {
-  return db.$transaction(async (tx) => {
-    const ids = (
-      await tx.$queryRaw<{ id: string }[]>`SELECT id FROM support_requests
-        WHERE tenant_id = ${tenantId} AND anonymized_at IS NULL AND created_at < ${cutoff} LIMIT ${limit} FOR UPDATE`
-    ).map((r) => r.id);
-    if (ids.length === 0) return { requests: 0, messages: 0 };
-    const requests = await tx.$executeRaw`UPDATE support_requests
-      SET customer_name = NULL, customer_phone = NULL, customer_email = NULL, description = NULL, ip = NULL, ip_key = NULL,
-          net_key = NULL, device_hash = NULL, anonymized_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3)
-      WHERE tenant_id = ${tenantId} AND id IN (${Prisma.join(ids)}) AND anonymized_at IS NULL`;
-    const messages = (await tx.sessionMessage.deleteMany({ where: { tenantId, requestId: { in: ids } } })).count;
-    // P19 (§8c.1 Retention, B2): bildirim kuyruğu satırları (recipient_hash kişisel veri) aynı TX'te silinir; aksi hâlde
-    // purgeAnonymized'in talep silmesi FK RESTRICT'e takılırdı. UQ(request_id, tenant_id, …) aralığı.
-    await tx.notificationOutbox.deleteMany({ where: { tenantId, requestId: { in: ids } } });
-    return { requests, messages };
-  });
-}
-
-export function retentionTenants(db: DbOrTx) {
-  return db.tenantSettings.findMany({ select: { tenantId: true, retentionDays: true } });
 }

@@ -15,7 +15,7 @@ import { FixedWindowCounter } from "../lib/rate.ts";
 import { createBlock, deleteBlock, listBlocks, type BlockDeps } from "./blocks.ts";
 
 /** Yazma uçları kullanıcı başına dakikada 30 (P14a `/users*` kalıbı). */
-export const REQUEST_BLOCK_WRITES_PER_MIN = 30;
+const REQUEST_BLOCK_WRITES_PER_MIN = 30;
 
 export async function requestBlockRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", requireAuth);

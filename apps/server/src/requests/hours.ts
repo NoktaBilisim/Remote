@@ -49,7 +49,7 @@ interface CalendarLog {
   warn(obj: object, msg: string): void;
 }
 
-export interface HoursRow {
+interface HoursRow {
   timeZone: string;
   hoursEnabled: boolean;
   businessHours: Prisma.JsonValue;

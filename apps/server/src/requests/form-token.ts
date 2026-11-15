@@ -15,11 +15,11 @@ const NONCE = PART + 8;
 const MAC = NONCE + 16;
 const TOKEN_BYTES = MAC + 32;
 /** ADR-0005 tek instance: kullanılmış nonce kümesi toplam üst sınırı (30 dk TTL; bellek tavanı, S-P19-K1 öncesiyle aynı). */
-export const FORM_NONCE_MAX = 100_000;
+const FORM_NONCE_MAX = 100_000;
 /** S-P19-K1: firma başı üst sınır — bir firmanın bölmesi dolarsa yalnız o firmanın formu reddeder. */
-export const FORM_NONCE_TENANT_MAX = 10_000;
+const FORM_NONCE_TENANT_MAX = 10_000;
 
-export type FormTokenCheck =
+type FormTokenCheck =
   | { ok: true; part: string; nonce: string; expiresAt: number }
   | { ok: false; reason: "token" }
   | { ok: false; reason: "fast"; retryAfterMs: number };

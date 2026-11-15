@@ -11,52 +11,38 @@ import type {
   CancelReason,
   SupportRequestItem,
   SupportRequestListResponse,
-  SupportRequestSettings,
-  UpdateRequestSettingsData,
-  WhatsappTestResponse,
 } from "@remote/contracts/api/requests";
-import {
-  ACCEPT_CODE_MIN_CLIENT_VERSION,
-  ASSIGNEE_INVALID_MESSAGE,
-  slaBreachedAt,
-  REQUEST_CONNECT_WINDOW_SEC,
-  REQUEST_HISTORY_DAYS,
-  SMTP_REQUIRED_MESSAGE,
-} from "@remote/contracts/api/requests";
-import { maskPhone } from "../audit/mask.ts";
+import { ASSIGNEE_INVALID_MESSAGE, slaBreachedAt, REQUEST_HISTORY_DAYS } from "@remote/contracts/api/requests";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import { AppError } from "../lib/errors.ts";
 import type { CustomerStatus } from "@remote/contracts/api/customers";
 import { REQUEST_COMMS_AUDIT } from "@remote/contracts/audit";
 import { effectivePermissions, type Role } from "@remote/contracts/permissions";
-import { countRevoked } from "../bindings/service.ts";
-import * as brepo from "../bindings/repo.ts";
-import * as crepo from "../customers/repo.ts";
 import type { Prisma } from "../generated/prisma/client.ts";
-import { conflictIndex } from "../lib/db.ts";
-import { newId, newSecretToken, newTenantRef, sha256Hex } from "../lib/ids.ts";
-import { compareVersions } from "../lib/version.ts";
-import { newTechVerifyCode } from "../sessions/codes.ts";
-import * as srepo from "../sessions/repo.ts";
-import { fileLabelOf, requestDownloadUrl, requestFileName } from "./ref.ts";
+import { acceptTx, afterAccept } from "./panel-accept.ts";
+import { who } from "./panel-settings.ts";
 import * as repo from "./repo.ts";
-import type { ChannelAvailability, RequestService } from "./service.ts";
+import type { RequestService } from "./service.ts";
 
 const DAY_MS = 86_400_000;
-const REF_ATTEMPTS = 5;
 
-const who = (auth: AuthContext, tenantId: string) => ({ tenantId, userId: auth.user.id, username: auth.user.email });
 const sec = (ms: number): number => Math.max(0, Math.floor(ms / 1000));
+
+/** Kayıt etkin mi + kaynak bayat mı (aşağıdaki `toItem` notu). */
+function sourceState(r: repo.ItemRow, generalRotatedAt: Date | null): { bindingActive: boolean; staleSource: boolean } {
+  const bindingActive = r.bindingId !== null && r.binding?.revokedAt === null;
+  const rotatedAt = r.customer ? r.customer.refRotatedAt : generalRotatedAt;
+  const staleSource = r.bindingId !== null ? !bindingActive : rotatedAt !== null && r.createdAt.getTime() < rotatedAt.getTime();
+  return { bindingActive, staleSource };
+}
 
 /**
  * `generalRotatedAt`: tenant Genel ref'inin son yenilenmesi (staleSource, §15.1). Müşteri ref'inde müşterinin
  * `refRotatedAt`'i; kayıtla açılanda kayıt geçersizse bayat.
  */
 export function toItem(r: repo.ItemRow, now: number, generalRotatedAt: Date | null): SupportRequestItem {
-  const bindingActive = r.bindingId !== null && r.binding?.revokedAt === null;
-  const rotatedAt = r.customer ? r.customer.refRotatedAt : generalRotatedAt;
-  const staleSource = r.bindingId !== null ? !bindingActive : rotatedAt !== null && r.createdAt.getTime() < rotatedAt.getTime();
+  const { bindingActive, staleSource } = sourceState(r, generalRotatedAt);
   const end = r.status === "PENDING" ? now : (r.acceptedAt ?? r.closedAt ?? r.createdAt).getTime();
   return {
     id: r.id,
@@ -139,7 +125,7 @@ async function acceptLimit(svc: RequestService, ctx: AuditContext, auth: AuthCon
   await svc.limit(ctx, tenantId, "accept", "req.accept", "user", auth.user.id);
 }
 
-/** POST /support-requests/:id/accept (AC-153, 154). */
+/** POST /support-requests/:id/accept (AC-153, 154). TX ve commit sonrası adımlar panel-accept.ts. */
 export async function acceptRequest(
   svc: RequestService,
   ctx: AuditContext,
@@ -151,127 +137,15 @@ export async function acceptRequest(
   if (auth.user.tenantId !== tenantId) throw new AppError("FORBIDDEN", { message: "Talep yalnız kendi firmanızda kabul edilebilir." });
   await acceptLimit(svc, ctx, auth, tenantId);
   const { db } = svc.d;
-  const res = await db.$transaction(async (tx) => {
-    // S-P19-T12 kilit sırası: ayarlar → teknisyen → müşteri → talep (oluşturma/ret/süre dolumu ile aynı; 1213 yok).
-    await repo.lockSettings(tx, tenantId);
-    await srepo.lockTechnician(tx, auth.user.id);
-    const settings = await srepo.sessionSettings(tx, tenantId);
-    if (!settings) throw new Error("tenant_settings satırı yok");
-    const now = new Date(svc.d.clock.now());
-    if ((await srepo.countOpen(tx, auth.user.id, now)) >= settings.maxOpenSessions) throw new AppError("OPEN_SESSION_LIMIT");
-    // B-P8c-1: müşterili talepte müşteri, talep satırından ÖNCE paylaşımlı kilitlenir (pasife alma ile aynı sıra:
-    // customers → support_requests; kilitlenme yok). Pasifse kabul edilmez; talep commit sonrası CUSTOMER_PASSIVE iptal.
-    const head = await repo.findStatusInTenant(tx, tenantId, id);
-    if (head?.status === "PENDING" && head.customerId && (await crepo.shareStatus(tx, tenantId, head.customerId)) !== "ACTIVE")
-      return "customer_passive" as const;
-    // P15 (AC-239, S15-6): kabul kodu ayarı kabul TX'inde okunur. Ayar açıkken kodu desteklemeyen (istemci beyanı
-    // < ACCEPT_CODE_MIN_CLIENT_VERSION) talep kabul edilmez (fail-closed): düşük sürüm beyanı doğrulamayı atlatamaz.
-    // Talep PENDING kalır (kuyruktan düşmez); yalnız fail audit'i commit edilir.
-    const acceptCode = (await repo.settingsByTenant(tx, tenantId))?.requireAcceptCode === true;
-    // P19 (S-P19-13, T2): sürüm kapısı yalnız AGENT dalında. WEB (tarayıcı) kabul kodunu destekler sayılır → asla
-    // client_unsupported almaz; AGENT satırında client_version DB CHECK'i gereği NULL olamaz (NULL ise yine fail-closed).
-    if (
-      head?.status === "PENDING" &&
-      head.source === "AGENT" &&
-      acceptCode &&
-      (head.clientVersion === null || compareVersions(head.clientVersion, ACCEPT_CODE_MIN_CLIENT_VERSION) < 0)
-    ) {
-      await writeAudit(tx, ctx, {
-        ...who(auth, tenantId),
-        action: "request.accepted",
-        entity: "support_requests",
-        entityId: id,
-        result: "fail",
-        // Anahtar adı "code" içermez: audit maskesi (MASKED_KEY) onu "***" yapardı.
-        newValue: { acceptVerification: false, reason: "client_unsupported", clientVersion: head.clientVersion },
-      });
-      return "client_unsupported" as const;
-    }
-    if ((await repo.acceptPending(tx, tenantId, id, auth.user.id, now)) === 0) return null;
-    const r = await repo.findById(tx, id);
-    if (!r) throw new Error("request_missing_after_accept");
-    const sessionId = newId();
-    const techVerifyCode = newTechVerifyCode();
-    // P15 (AC-239): kod penceresi aynı 60 sn (DB `support_sessions_ttl_chk` talep oturumunu 55..65 sn'ye bağlar); kodun
-    // bu sürede girilmesi gerekir (implementation.md P15 sapma notu).
-    await srepo.insertSession(tx, {
-      id: sessionId,
-      tenantId,
-      technicianId: auth.user.id,
-      tokenHash: sha256Hex(newSecretToken()), // hiç döndürülmez (§3.3)
-      activeCode: null,
-      techVerifyCode,
-      status: "PENDING",
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + REQUEST_CONNECT_WINDOW_SEC * 1000),
-      requestId: id,
-      customerName: r.customerName,
-      customerEmail: r.customerEmail,
-      customerId: r.customerId, // P8c AC-177: talebin müşterisi oturuma kopyalanır (aynı tenant — bileşik FK)
-    });
-    const waitSec = sec(now.getTime() - r.createdAt.getTime());
-    await writeAudit(tx, ctx, {
-      ...who(auth, tenantId),
-      action: "request.accepted",
-      entity: "support_requests",
-      entityId: id,
-      result: "success",
-      oldValue: { status: "PENDING" },
-      newValue: {
-        status: "ACCEPTED",
-        sessionId,
-        waitSec,
-        // Anahtar adı "code" içermez: audit maskesi (MASKED_KEY) onu "***" yapardı.
-        ...(acceptCode ? { acceptVerification: true } : {}),
-      },
-    });
-    await svc.d.outbox.enqueue(tx, tenantId, id, "REQ_ACCEPTED"); // P19 (AC-261): aynı TX, lockSettings'ten sonra (T12)
-    return { r, sessionId, techVerifyCode, now, acceptCode };
-  });
+  const res = await db.$transaction((tx) => acceptTx({ svc, ctx, auth, tenantId, id }, tx));
   if (res === "customer_passive") {
     await svc.cancelSystem(id, "CUSTOMER_PASSIVE");
     throw new AppError("REQUEST_CLOSED");
   }
   if (res === "client_unsupported") throw new AppError("ACCEPT_CODE_CLIENT_UNSUPPORTED");
   if (!res) throw await lostRace(svc, tenantId, id);
-
-  // commit sonrası (§3.4): ön-kabullü misafir + ticket → bekleyen istemciye; panellere kaldırma; 60 sn penceresi.
-  const { r, sessionId, techVerifyCode, now, acceptCode } = res;
-  const ticket = svc.d.rooms.preAdmitGuest(
-    {
-      id: sessionId,
-      tenantId,
-      technicianId: auth.user.id,
-      technician: { fullName: auth.user.fullName },
-      expiresAt: new Date(now.getTime() + REQUEST_CONNECT_WINDOW_SEC * 1000),
-    },
-    {
-      requestId: id,
-      // P19 (§8c.2 m.5): WEB talebi tarayıcı modunda ön-kabul (input kanalı yok); AGENT yolu değişmez.
-      kind: r.source === "WEB" ? "BROWSER" : "AGENT",
-      name: r.customerName ?? "Müşteri",
-      ...(r.customerEmail ? { email: r.customerEmail } : {}),
-      clientVersion: r.clientVersion,
-      consent: { textId: r.consentTextId, version: r.consentText.version, sha256: r.consentSha256, at: now, ip: "", userAgent: "" },
-      acceptCode,
-    },
-  );
-  svc.d.hub.clearDisconnect(id);
-  svc.d.hub.sendChat(id, { t: "request.chat", enabled: false }); // P18 H3: yalnız yetenekli soket; kabul öncesi sohbet biter
-  svc.d.hub.sendToRequest(id, {
-    t: "request.accepted",
-    wsTicket: ticket.wsTicket,
-    technicianName: auth.user.fullName.slice(0, 100),
-    techVerifyCode,
-    ticketExpiresAt: new Date(ticket.expiresAt).toISOString(),
-    ...(ticket.admitCode ? { admitCode: ticket.admitCode } : {}),
-  });
-  svc.d.hub.publish(tenantId, { t: "request.removed", id, status: "ACCEPTED" });
-  svc.countSlaBreach(id);
-  svc.d.hub.queueChanged(tenantId);
-  await svc.publishCount(tenantId);
-  svc.startConnectTimer(id);
-  return { sessionId, consoleUrl: `/sessions/${sessionId}/console` };
+  await afterAccept({ svc, auth, tenantId, id }, res);
+  return { sessionId: res.sessionId, consoleUrl: `/sessions/${res.sessionId}/console` };
 }
 
 /** POST /support-requests/:id/reject (AC-157). */
@@ -396,233 +270,4 @@ export async function changePriority(
   return changed ? publishUpdated(svc, tenantId, id) : getRequest(svc, tenantId, id);
 }
 
-// ------------------------------------------------------------------ ayarlar (settings.edit)
-
-const isRefConflict = (err: unknown): boolean => conflictIndex(err) !== null;
-
-/**
- * Tembel oluşturma (mimari-e9 §3.1): satır yoksa yeni ref (çakışmada 5 deneme). Eşzamanlı oluşturmada mevcut satır okunur.
- * P8c (ADR-0006 r5): ref önce tek ad alanına (`request_refs`), aynı TX'te ayar satırı.
- */
-export async function ensureSettings(svc: RequestService, tenantId: string): Promise<repo.SettingsRow> {
-  const { db } = svc.d;
-  for (let attempt = 1; ; attempt++) {
-    const existing = await repo.settingsByTenant(db, tenantId);
-    if (existing) return existing;
-    const tenant = await db.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
-    if (!tenant) throw new AppError("NOT_FOUND");
-    try {
-      const ref = newTenantRef();
-      await db.$transaction(async (tx) => {
-        await repo.insertRequestRef(tx, { ref, tenantId, customerId: null, createdAt: new Date(svc.d.clock.now()) });
-        await repo.insertSettings(tx, tenantId, ref, fileLabelOf(tenant.name));
-      });
-    } catch (err) {
-      if (attempt < REF_ATTEMPTS && isRefConflict(err)) continue;
-      throw err;
-    }
-  }
-}
-
-/** P19 (AC-259): `${PUBLIC_BASE_URL}/r/<ref>` — müşteriye paylaşılan web talep formu adresi. */
-export const webFormUrl = (base: string, ref: string): string => `${base.replace(/\/+$/, "")}/r/${ref}`;
-
-function settingsView(svc: RequestService, s: repo.SettingsRow, avail: ChannelAvailability): SupportRequestSettings {
-  const smtpConfigured = avail.smtp;
-  const n = svc.d.notifier;
-  const enabled = { sms: s.notifySmsEnabled, whatsapp: s.notifyWhatsappEnabled, email: s.notifyEmailEnabled };
-  const available = svc.channelsOf(s, avail);
-  return {
-    downloadUrl: requestDownloadUrl(svc.d.env.PUBLIC_BASE_URL, s.requestRef),
-    fileName: requestFileName(s.fileLabel, s.requestRef),
-    refPrefix: s.requestRef.slice(0, 4),
-    refRotatedAt: s.refRotatedAt?.toISOString() ?? null,
-    waitMinutes: s.waitMinutes,
-    trustedCidrs: repo.jsonStrings(s.trustedCidrs),
-    whatsapp: { enabled: s.waEnabled, recipients: repo.jsonStrings(s.waRecipients), serviceConfigured: n.configured, insecure: n.insecure },
-    email: { enabled: s.emailEnabled, recipients: repo.jsonStrings(s.emailRecipients), smtpConfigured },
-    requireAcceptCode: s.requireAcceptCode,
-    defaultPriority: s.defaultPriority as RequestPriority,
-    defaultSlaMinutes: s.defaultSlaMinutes,
-    webFormEnabled: s.webFormEnabled,
-    webFormUrl: webFormUrl(svc.d.env.PUBLIC_BASE_URL, s.requestRef),
-    notifySmsEnabled: s.notifySmsEnabled,
-    notifyWhatsappEnabled: s.notifyWhatsappEnabled,
-    notifyEmailEnabled: s.notifyEmailEnabled,
-    channelWarnings: (["sms", "whatsapp", "email"] as const).filter((k) => enabled[k] && !available[k]),
-  };
-}
-
-export async function getSettings(svc: RequestService, tenantId: string): Promise<SupportRequestSettings> {
-  const row = await ensureSettings(svc, tenantId);
-  return settingsView(svc, row, await svc.channelAvailability(tenantId));
-}
-
-const auditShape = (s: {
-  waitMinutes: number;
-  trustedCidrs: string[];
-  waEnabled: boolean;
-  waRecipients: string[];
-  emailEnabled: boolean;
-  emailRecipients: string[];
-  requireAcceptCode: boolean;
-  defaultPriority: string;
-  defaultSlaMinutes: number | null;
-  webFormEnabled: boolean;
-  notifySmsEnabled: boolean;
-  notifyWhatsappEnabled: boolean;
-  notifyEmailEnabled: boolean;
-}) => ({
-  waitMinutes: s.waitMinutes,
-  trustedCidrs: s.trustedCidrs,
-  waEnabled: s.waEnabled,
-  waRecipients: s.waRecipients.map(maskPhone),
-  emailEnabled: s.emailEnabled,
-  emailRecipients: s.emailRecipients,
-  requireAcceptCode: s.requireAcceptCode,
-  defaultPriority: s.defaultPriority,
-  defaultSlaMinutes: s.defaultSlaMinutes,
-  webFormEnabled: s.webFormEnabled,
-  notifySmsEnabled: s.notifySmsEnabled,
-  notifyWhatsappEnabled: s.notifyWhatsappEnabled,
-  notifyEmailEnabled: s.notifyEmailEnabled,
-});
-
-/** PUT /settings/support-requests (AC-142, 151, 152): SMTP ayarlı değilse e-posta kanalı açılamaz. Audit eski→yeni (alıcılar maskeli). */
-export async function updateSettings(
-  svc: RequestService,
-  ctx: AuditContext,
-  auth: AuthContext,
-  tenantId: string,
-  input: UpdateRequestSettingsData,
-): Promise<SupportRequestSettings> {
-  if (input.email.enabled && (await svc.d.mail.configFor(tenantId)) === null)
-    throw new AppError("VALIDATION", { fields: { "email.enabled": SMTP_REQUIRED_MESSAGE } });
-  await ensureSettings(svc, tenantId);
-  await svc.d.db.$transaction(async (tx) => {
-    const before = await repo.settingsByTenant(tx, tenantId);
-    if (!before) throw new Error("settings_missing");
-    const p19 = {
-      webFormEnabled: input.webFormEnabled ?? before.webFormEnabled,
-      notifySmsEnabled: input.notifySmsEnabled ?? before.notifySmsEnabled,
-      notifyWhatsappEnabled: input.notifyWhatsappEnabled ?? before.notifyWhatsappEnabled,
-      notifyEmailEnabled: input.notifyEmailEnabled ?? before.notifyEmailEnabled,
-    };
-    await repo.updateSettings(tx, tenantId, {
-      ...p19,
-      waitMinutes: input.waitMinutes,
-      trustedCidrs: input.trustedCidrs,
-      waEnabled: input.whatsapp.enabled,
-      waRecipients: input.whatsapp.recipients,
-      emailEnabled: input.email.enabled,
-      emailRecipients: input.email.recipients,
-      requireAcceptCode: input.requireAcceptCode ?? before.requireAcceptCode,
-      defaultPriority: input.defaultPriority ?? before.defaultPriority,
-      defaultSlaMinutes: input.defaultSlaMinutes === undefined ? before.defaultSlaMinutes : input.defaultSlaMinutes,
-    });
-    const old = {
-      waitMinutes: before.waitMinutes,
-      trustedCidrs: repo.jsonStrings(before.trustedCidrs),
-      waEnabled: before.waEnabled,
-      waRecipients: repo.jsonStrings(before.waRecipients),
-      emailEnabled: before.emailEnabled,
-      emailRecipients: repo.jsonStrings(before.emailRecipients),
-      requireAcceptCode: before.requireAcceptCode,
-      defaultPriority: before.defaultPriority,
-      defaultSlaMinutes: before.defaultSlaMinutes,
-      webFormEnabled: before.webFormEnabled,
-      notifySmsEnabled: before.notifySmsEnabled,
-      notifyWhatsappEnabled: before.notifyWhatsappEnabled,
-      notifyEmailEnabled: before.notifyEmailEnabled,
-    };
-    const next = {
-      waitMinutes: input.waitMinutes,
-      trustedCidrs: input.trustedCidrs,
-      waEnabled: input.whatsapp.enabled,
-      waRecipients: input.whatsapp.recipients,
-      emailEnabled: input.email.enabled,
-      emailRecipients: input.email.recipients,
-      requireAcceptCode: input.requireAcceptCode ?? before.requireAcceptCode,
-      defaultPriority: input.defaultPriority ?? before.defaultPriority,
-      defaultSlaMinutes: input.defaultSlaMinutes === undefined ? before.defaultSlaMinutes : input.defaultSlaMinutes,
-      ...p19,
-    };
-    await writeAudit(tx, ctx, {
-      ...who(auth, tenantId),
-      action: "settings.support_requests.updated",
-      entity: "tenant_request_settings",
-      entityId: tenantId,
-      result: "success",
-      oldValue: auditShape(old),
-      newValue: auditShape(next),
-    });
-  });
-  return getSettings(svc, tenantId);
-}
-
-/**
- * POST /settings/support-requests/rotate-ref (AC-131): eski ref anında geçersiz; bekleyen talepler etkilenmez.
- * P8c (AC-185, mimari-e10 §3.4): aynı TX'te yeni ref ad alanına yazılır ve Genel kayıtlar `GENERAL_ROTATED` olur.
- */
-export async function rotateRef(
-  svc: RequestService,
-  ctx: AuditContext,
-  auth: AuthContext,
-  tenantId: string,
-): Promise<SupportRequestSettings> {
-  await ensureSettings(svc, tenantId);
-  let revoked = 0;
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await svc.d.db.$transaction(async (tx) => {
-        const before = await repo.settingsByTenant(tx, tenantId);
-        if (!before) throw new Error("settings_missing");
-        const ref = newTenantRef();
-        const now = new Date(svc.d.clock.now());
-        await repo.insertRequestRef(tx, { ref, tenantId, customerId: null, createdAt: now });
-        await repo.updateSettings(tx, tenantId, { requestRef: ref, fileLabel: fileLabelOf(before.tenant.name), refRotatedAt: now });
-        revoked = await brepo.revokeForOwner(tx, tenantId, null, "GENERAL_ROTATED", now);
-        await writeAudit(tx, ctx, {
-          ...who(auth, tenantId),
-          action: "settings.support_requests.ref_rotated",
-          entity: "tenant_request_settings",
-          entityId: tenantId,
-          result: "success",
-          oldValue: { refPrefix: before.requestRef.slice(0, 4) },
-          newValue: { refPrefix: ref.slice(0, 4), revokedBindings: revoked },
-        });
-      });
-      countRevoked(svc, "GENERAL_ROTATED", revoked);
-      break;
-    } catch (err) {
-      if (attempt < REF_ATTEMPTS && isRefConflict(err)) continue;
-      throw err;
-    }
-  }
-  return getSettings(svc, tenantId);
-}
-
-/** POST /settings/support-requests/whatsapp/test (AC-152): tenant 5/dk; yapılandırılmamış/güvensiz → 502 UPSTREAM. */
-export async function whatsappTest(
-  svc: RequestService,
-  ctx: AuditContext,
-  auth: AuthContext,
-  tenantId: string,
-  phone: string,
-): Promise<WhatsappTestResponse> {
-  await svc.limit(ctx, tenantId, "waTest", "req.wa_test", "tenant", tenantId);
-  const n = svc.d.notifier;
-  if (!n.configured) throw new AppError("UPSTREAM", { message: "Servis yapılandırılmamış." });
-  if (n.insecure) throw new AppError("UPSTREAM", { message: "Servis güvenli yapılandırılmamış." });
-  const out = await n.test(phone);
-  await writeAudit(svc.d.db, ctx, {
-    ...who(auth, tenantId),
-    action: "settings.whatsapp.test",
-    entity: "tenant_request_settings",
-    entityId: tenantId,
-    result: out.ok ? "success" : "fail",
-    newValue: { recipient: maskPhone(phone), result: out.ok ? "success" : "fail" },
-  });
-  svc.d.metrics.inc("rs_request_notify_total", { channel: "whatsapp_test", result: out.ok ? "ok" : "failed" });
-  return { ok: out.ok, message: out.message }; // AC-152: adres/neden tenant yanıtına girmez
-}
+export { ensureSettings, getSettings, rotateRef, updateSettings, webFormUrl, whatsappTest } from "./panel-settings.ts";
