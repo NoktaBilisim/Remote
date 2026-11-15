@@ -313,6 +313,11 @@ sonuç `docs/temizlik/sonuc.md`.
 - AC-321: (ölü kod) knip "kullanılmayan export" ve "kullanılmayan dışa açık tip" sayıları (server + web) 93 + 93'ten
   ≤ 10'a iner (kalanlar gerekçeli); Go `deadcode` (testler dahil) 0; yalnız testte erişilen Go üretim işlevi 0
   (test dosyasına taşınır); kaynakta hiç geçmeyen ve dinamik önekle eşleşmeyen i18n anahtarı 0.
+  - _Revizyon 2026-11-15 (PT-K0 baseline, `docs/temizlik/baseline.md`):_ tekrarlanabilir ölçümle (`scripts/pt-olcum.sh`,
+    c661ea0) üretim kodunda kullanılmayan export 197 (server 96 + web 101), kullanılmayan tip 155 (83 + 72) çıktı; 93 + 93
+    elle ölçümdü. Hedef: K17 kapanışında her iki sayı baseline'ın **%10'unun altına** iner (export ≤ 19, tip ≤ 15) ve
+    kalanların her biri `docs/temizlik/sonuc.md`'de gerekçelidir. i18n dinamik aday listesi (145) K15'te tek tek
+    doğrulanır; ölü sayılan anahtar 0.
 - AC-322: (kopya) jscpd (≥ 8 satır, ≥ 70 belirteç) üretim kodu klonları 25'ten ≤ 5'e, toplam klon 70'ten ≤ 25'e
   iner; e2e `desktopOnly` tek tanımdır; sunucu entegrasyon testlerinde `signIn`/`boot`/`errorText`/`login` dosya-yerel
   tanımı kalmaz.
