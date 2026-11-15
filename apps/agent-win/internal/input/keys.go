@@ -3,6 +3,8 @@ package input
 import (
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf16"
 )
 
 // vkInfo sanal tuş kodu ve genişletilmiş (E0) bayrağı.
@@ -59,3 +61,77 @@ func charKey(code string) bool {
 // Kısayol niteliği taşıyan değiştiriciler basılıyken harf tuşu VK olarak gönderilir (Ctrl+C, Win+E …). AltRight
 // (AltGr) bu listede yok: AltGr ile üretilen karakter (@, €) Unicode gider.
 var shortcutMods = []string{"ControlLeft", "ControlRight", "AltLeft", "MetaLeft", "MetaRight"}
+
+func (a *Applier) modHeld(names ...string) bool {
+	for _, n := range names {
+		if _, ok := a.keys[n]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// blocked AC-48: Ctrl+Alt+Del ve Win+L iletilmez (Ctrl+Alt+Del zaten SendInput ile üretilemez; Win+L kilitler).
+func (a *Applier) blocked(code string) bool {
+	ctrl := a.modHeld("ControlLeft", "ControlRight")
+	alt := a.modHeld("AltLeft", "AltRight")
+	win := a.modHeld("MetaLeft", "MetaRight")
+	return (code == "Delete" || code == "NumpadDecimal") && ctrl && alt || code == "KeyL" && win
+}
+
+func (a *Applier) key(m Msg) []Event {
+	vk, ok := codeVK[m.Code]
+	if !ok {
+		return nil
+	}
+	if !*m.Down {
+		k, held := a.keys[m.Code]
+		if !held {
+			return nil
+		}
+		delete(a.keys, m.Code)
+		return keyEvents(k, false)
+	}
+	if a.blocked(m.Code) {
+		return nil
+	}
+	k := heldKey{vk: vk}
+	if prev, held := a.keys[m.Code]; held {
+		k = prev // otomatik tekrar: aynı yöntemle yeniden bas
+	} else if uni := unicodeOf(m); uni != nil && charKey(m.Code) && !a.modHeld(shortcutMods...) {
+		k.uni = uni
+	}
+	a.keys[m.Code] = k
+	return keyEvents(k, true)
+}
+
+// unicodeOf `key` tek yazdırılabilir karakterse UTF-16 birimleri.
+func unicodeOf(m Msg) []uint16 {
+	if m.Key == nil {
+		return nil
+	}
+	r := []rune(*m.Key)
+	if len(r) != 1 || !unicode.IsPrint(r[0]) || r[0] == ' ' {
+		return nil
+	}
+	return utf16.Encode(r)
+}
+
+func keyEvents(k heldKey, down bool) []Event {
+	var up uint32
+	if !down {
+		up = KeyUp
+	}
+	if k.uni != nil {
+		evs := make([]Event, 0, len(k.uni))
+		for _, u := range k.uni {
+			evs = append(evs, Event{Scan: u, Flags: KeyUnicode | up})
+		}
+		return evs
+	}
+	f := up
+	if k.vk.ext {
+		f |= KeyExtended
+	}
+	return []Event{{VK: k.vk.vk, Flags: f}}
+}

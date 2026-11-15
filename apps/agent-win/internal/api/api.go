@@ -147,23 +147,29 @@ func (c *Client) Resolve(ctx context.Context, code string) (*ResolveResult, erro
 		ClientVersion string `json:"clientVersion"`
 	}{code, clientKindAgent, c.version}
 	var out ResolveResult
+	if err := withRetry(ctx, func() error { return c.post(ctx, "resolve", body, &out) }); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// withRetry yan etkisiz çağrıyı en çok resolveAttempts kez dener: yalnız Retryable *Error'da, artan bekleme ile.
+// Bekleme sırasında ctx biterse ctx.Err() döner; aksi halde son denemenin hatası (Resolve/TenantInfo/BindingStatus).
+func withRetry(ctx context.Context, call func() error) error {
 	var err error
 	for attempt := 1; attempt <= resolveAttempts; attempt++ {
-		err = c.post(ctx, "resolve", body, &out)
+		err = call()
 		var ae *Error
 		if err == nil || !errors.As(err, &ae) || !ae.Retryable() || attempt == resolveAttempts {
 			break
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ctx.Err()
 		case <-time.After(retryBackoff * time.Duration(attempt)):
 		}
 	}
-	if err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return err
 }
 
 // Join tek kullanımlık nonce'u tüketir; yeniden DENENMEZ (gönderilmiş istek nonce'u harcamış olabilir).
@@ -217,6 +223,11 @@ func (c *Client) do(ctx context.Context, method string, ref *url.URL, body []byt
 		}
 		return nil
 	}
+	return errorEnvelope(resp, data)
+}
+
+// errorEnvelope 2xx dışı yanıtı *Error'a çevirir: zarfta kod varsa alanlar ondan, yoksa UNKNOWN; Retry-After saniye.
+func errorEnvelope(resp *http.Response, data []byte) *Error {
 	var env struct {
 		Error struct {
 			Code      string            `json:"code"`

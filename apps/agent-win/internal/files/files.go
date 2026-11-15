@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 )
 
 const (
@@ -73,11 +72,6 @@ func truncate(name string) string {
 		return Fallback
 	}
 	return trimTrailing(string(cps[:NameMax-len(ext)])) + string(ext)
-}
-
-// IsSanitized: ad temizlenmiş ve 1..255 karakter (sunucu DB CHECK ile aynı koşul).
-func IsSanitized(name string) bool {
-	return name != "" && utf8.ValidString(name) && SanitizeFileName(name) == name
 }
 
 // dangerousExt AC-36 (rev.) + S-P5-7 + S6-8 listesi; contracts `DANGEROUS_EXT` ile birebir aynı

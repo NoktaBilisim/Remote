@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/url"
 	"time"
@@ -54,19 +53,9 @@ type CreateRequestResult struct {
 func (c *Client) TenantInfo(ctx context.Context, ref string) (*TenantRequestInfo, error) {
 	q := url.Values{"ref": {ref}}
 	var out TenantRequestInfo
-	var err error
-	for attempt := 1; attempt <= resolveAttempts; attempt++ {
-		err = c.do(ctx, http.MethodGet, &url.URL{Path: requestsPath + "/tenant", RawQuery: q.Encode()}, nil, &out)
-		var ae *Error
-		if err == nil || !errors.As(err, &ae) || !ae.Retryable() || attempt == resolveAttempts {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(retryBackoff * time.Duration(attempt)):
-		}
-	}
+	err := withRetry(ctx, func() error {
+		return c.do(ctx, http.MethodGet, &url.URL{Path: requestsPath + "/tenant", RawQuery: q.Encode()}, nil, &out)
+	})
 	if err != nil {
 		return nil, err
 	}

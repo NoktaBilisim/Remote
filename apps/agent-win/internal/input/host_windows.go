@@ -107,62 +107,77 @@ func Start(g *control.Gate, onHotkey func()) *Host {
 	callbacks()
 	h := &Host{done: make(chan struct{})}
 	ready := make(chan struct{})
-	go func() {
-		runtime.LockOSThread()
-		defer close(h.done)
-		h.tid = windows.GetCurrentThreadId()
-		h.Hotkey, h.HotkeyErr = control.RegisterHotkey(func(k control.Hotkey) error {
-			r, _, err := pRegisterHotKey.Call(0, hotkeyID, modControl|modShift|modNoRepeat, uintptr(k.VK))
-			if r == 0 {
-				return err
-			}
-			return nil
-		})
-		close(ready)
-		var hm, hk uintptr
-		unhook := func() {
-			for _, x := range []*uintptr{&hm, &hk} {
-				if *x != 0 {
-					_, _, _ = pUnhookWindowsHook.Call(*x)
-					*x = 0
-				}
-			}
-		}
-		var msg [48]byte // MSG (amd64)
-		for {
-			r, _, _ := pGetMessageW.Call(uintptr(unsafe.Pointer(&msg[0])), 0, 0, 0)
-			if int32(r) <= 0 {
-				break
-			}
-			switch *(*uint32)(unsafe.Pointer(&msg[8])) {
-			case wmHotkey:
-				g.Shut(onHotkey)
-			case wmHooksOn:
-				if g.IsOpen() { // açılış mesajı kuyruktayken kapı kapandıysa kurma
-					if hm == 0 {
-						hm = hook(whMouseLL, mouseCB)
-					}
-					if hk == 0 {
-						hk = hook(whKeyboardLL, kbdCB)
-					}
-				}
-			case wmHooksOff:
-				// S7-16: Shut'ın goroutine'inden gecikmiş gelen kaldırma isteği, arada yeniden açılmış kapının
-				// kancalarını kaldırmaz; yalnız kapanan nesil hâlâ geçerliyse (kapı kapalı, yeniden açılmamış) uygulanır.
-				if g.StillClosed(uint64(*(*uintptr)(unsafe.Pointer(&msg[16])))) { // MSG.wParam (amd64)
-					unhook()
-				}
-			}
-		}
-		if h.HotkeyErr == nil {
-			_, _, _ = pUnregisterHotKey.Call(0, hotkeyID)
-		}
-		unhook()
-	}()
+	go h.run(g, onHotkey, ready)
 	<-ready
 	g.OnOpen(func() { h.post(wmHooksOn, 0) })
 	g.OnCloseGen(func(gen uint64) { h.post(wmHooksOff, uintptr(gen)) })
 	return h
+}
+
+// run Host iş parçacığı: kısayolu kaydeder (sonra ready kapanır), GetMessage döngüsünü işletir; çıkışta kısayolu ve
+// kancaları kaldırır.
+func (h *Host) run(g *control.Gate, onHotkey func(), ready chan<- struct{}) {
+	runtime.LockOSThread()
+	defer close(h.done)
+	h.tid = windows.GetCurrentThreadId()
+	h.Hotkey, h.HotkeyErr = control.RegisterHotkey(registerHotkey)
+	close(ready)
+	var hooks llHooks
+	var msg [48]byte // MSG (amd64)
+	for {
+		r, _, _ := pGetMessageW.Call(uintptr(unsafe.Pointer(&msg[0])), 0, 0, 0)
+		if int32(r) <= 0 {
+			break
+		}
+		hooks.dispatch(g, onHotkey, &msg)
+	}
+	if h.HotkeyErr == nil {
+		_, _, _ = pUnregisterHotKey.Call(0, hotkeyID)
+	}
+	hooks.unhook()
+}
+
+func registerHotkey(k control.Hotkey) error {
+	r, _, err := pRegisterHotKey.Call(0, hotkeyID, modControl|modShift|modNoRepeat, uintptr(k.VK))
+	if r == 0 {
+		return err
+	}
+	return nil
+}
+
+// llHooks Host iş parçacığının kurduğu LL fare/klavye kancaları (yalnız o iş parçacığında kullanılır).
+type llHooks struct{ mouse, kbd uintptr }
+
+// dispatch Host mesajı: kısayol → kapıyı kapat; wmHooksOn/wmHooksOff → kancaları kur/kaldır.
+func (k *llHooks) dispatch(g *control.Gate, onHotkey func(), msg *[48]byte) {
+	switch *(*uint32)(unsafe.Pointer(&msg[8])) {
+	case wmHotkey:
+		g.Shut(onHotkey)
+	case wmHooksOn:
+		if g.IsOpen() { // açılış mesajı kuyruktayken kapı kapandıysa kurma
+			if k.mouse == 0 {
+				k.mouse = hook(whMouseLL, mouseCB)
+			}
+			if k.kbd == 0 {
+				k.kbd = hook(whKeyboardLL, kbdCB)
+			}
+		}
+	case wmHooksOff:
+		// S7-16: Shut'ın goroutine'inden gecikmiş gelen kaldırma isteği, arada yeniden açılmış kapının
+		// kancalarını kaldırmaz; yalnız kapanan nesil hâlâ geçerliyse (kapı kapalı, yeniden açılmamış) uygulanır.
+		if g.StillClosed(uint64(*(*uintptr)(unsafe.Pointer(&msg[16])))) { // MSG.wParam (amd64)
+			k.unhook()
+		}
+	}
+}
+
+func (k *llHooks) unhook() {
+	for _, x := range []*uintptr{&k.mouse, &k.kbd} {
+		if *x != 0 {
+			_, _, _ = pUnhookWindowsHook.Call(*x)
+			*x = 0
+		}
+	}
 }
 
 // post LL kancalarını kurma/kaldırma isteğini Host iş parçacığına iletir (bloklamaz; kanca kuran iş parçacığı o).

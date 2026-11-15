@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/url"
 	"time"
@@ -36,18 +35,9 @@ func (c *Client) BindingStatus(ctx context.Context, key string) (*BindingInfo, e
 		return nil, err
 	}
 	var out BindingInfo
-	for attempt := 1; attempt <= resolveAttempts; attempt++ {
-		err = c.do(ctx, http.MethodPost, &url.URL{Path: bindingsPath + "/status"}, b, &out)
-		var ae *Error
-		if err == nil || !errors.As(err, &ae) || !ae.Retryable() || attempt == resolveAttempts {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(retryBackoff * time.Duration(attempt)):
-		}
-	}
+	err = withRetry(ctx, func() error {
+		return c.do(ctx, http.MethodPost, &url.URL{Path: bindingsPath + "/status"}, b, &out)
+	})
 	if err != nil {
 		return nil, err
 	}

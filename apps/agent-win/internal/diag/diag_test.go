@@ -45,9 +45,7 @@ func TestFormatContainsOnlyAllowedKeys(t *testing.T) {
 	}
 	key := regexp.MustCompile(`([a-z_]+)=`)
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if strings.HasPrefix(line, "--- ") {
-			line = line[4:]
-		}
+		line = strings.TrimPrefix(line, "--- ")
 		for _, m := range key.FindAllStringSubmatch(line, -1) {
 			if !allowed[m[1]] {
 				t.Errorf("izinsiz anahtar %q: %s", m[1], line)

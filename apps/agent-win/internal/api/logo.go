@@ -35,11 +35,8 @@ var (
 // `//` değil) veya şema + host + port'u gömülü adresle birebir aynı mutlak URL; kullanıcı bilgisi ve fragment yok.
 // Başka her köken reddedilir — istemci yalnız kendi sunucusuna bağlanır (AC-109).
 func (c *Client) LogoURL(raw string) (*url.URL, error) {
-	if raw == "" || len(raw) > 2048 || strings.ContainsAny(raw, "\\\x00\r\n\t ") {
-		return nil, ErrLogo
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.User != nil || u.Fragment != "" || u.Opaque != "" {
+	u, ok := parseLogoRef(raw)
+	if !ok {
 		return nil, ErrLogo
 	}
 	switch {
@@ -56,6 +53,19 @@ func (c *Client) LogoURL(raw string) (*url.URL, error) {
 		return nil, ErrLogo
 	}
 	return r, nil
+}
+
+// parseLogoRef ham değerin biçim denetimi: boş değil, ≤ 2048, ters bölü/NUL/boşluk/satır sonu yok; ayrışır ve
+// kullanıcı bilgisi, fragment, opak kısım taşımaz.
+func parseLogoRef(raw string) (*url.URL, bool) {
+	if raw == "" || len(raw) > 2048 || strings.ContainsAny(raw, "\\\x00\r\n\t ") {
+		return nil, false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.User != nil || u.Fragment != "" || u.Opaque != "" {
+		return nil, false
+	}
+	return u, true
 }
 
 // Logo firma logosunu aynı TLS doğrulamalı istemciyle (yönlendirme izlenmez) indirir ve çözer. Yalnız 200,

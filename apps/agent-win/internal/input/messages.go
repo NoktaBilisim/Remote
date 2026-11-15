@@ -100,9 +100,11 @@ func (m Msg) valid() bool {
 	case "m.btn":
 		return (m.B == "l" || m.B == "r" || m.B == "m") && unit(m.X) && unit(m.Y)
 	case "m.wheel":
-		return *m.DX >= -wheelMax && *m.DX <= wheelMax && *m.DY >= -wheelMax && *m.DY <= wheelMax
+		return wheelOK(*m.DX) && wheelOK(*m.DY)
 	case "k":
 		return codeRe.MatchString(m.Code) && (m.Key == nil || (*m.Key != "" && utf16Len(*m.Key) <= keyMaxU16))
 	}
 	return true // k.release_all
 }
+
+func wheelOK(v int) bool { return v >= -wheelMax && v <= wheelMax }

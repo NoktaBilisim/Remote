@@ -10,6 +10,7 @@ package diag
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -220,24 +221,34 @@ func (l *Log) Write(r Report) error {
 		return err
 	}
 	defer d.Close()
-	f, err := d.Open(FileName, ModeAppend)
+	f, err := openRotated(d, int64(len(rec)), limit)
 	if err != nil {
 		return err
+	}
+	_, werr := f.WriteString(rec)
+	return errors.Join(werr, f.Close())
+}
+
+// openRotated logu sona ekleme kipinde açar; n bayt eklenince limit aşılacaksa dosyayı kapatıp `.1`'e döndürür ve
+// yenisini açar. Hata yolunda açık dosya kalmaz.
+func openRotated(d *Dir, n, limit int64) (*os.File, error) {
+	f, err := d.Open(FileName, ModeAppend)
+	if err != nil {
+		return nil, err
 	}
 	st, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
-		return err
+		return nil, err
 	}
-	if st.Size()+int64(len(rec)) > limit {
+	if st.Size()+n > limit {
 		_ = f.Close()
 		if err := d.Rename(FileName, OldName); err != nil {
-			return err
+			return nil, err
 		}
 		if f, err = d.Open(FileName, ModeAppend); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	_, werr := f.WriteString(rec)
-	return errors.Join(werr, f.Close())
+	return f, nil
 }
