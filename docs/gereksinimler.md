@@ -350,7 +350,7 @@ yeniden düzeni (P23), contracts `api/requests.ts` bölünmesi (Sonra). Varsayı
 V-PT2: PT bitmeden P27 kodlanmaz (P27 tasarım ve güvenlik turu paralel yürüyebilir). Risk: davranışın gizlice
 değişmesi (R-PT1, mimari-temizlik §8) — önlem AC-317/318 ve mekanik dönüşüm kuralı.
 
-## 11. P27a — 2FA'da "Bu cihazı 30 gün hatırla" (AC-325..AC-335; 2026-11-15)
+## 11. P27a — 2FA'da "Bu cihazı 30 gün hatırla" (AC-325..AC-335, AC-335a, AC-335b; 2026-11-15, r2)
 
 Kullanıcı isteği (2026-11-15): "Her loginde OTP kaydetmeme izin ver, sürekli sorması çok zor oluyor; en azından süreli,
 30 gün mesela." Tasarım: `/Users/mennan/Projeler/Remote/docs/mimari-p27a.md`. Sıra: PT → **P27a** → P27 (gözetimsiz
@@ -358,19 +358,26 @@ erişim) → P28. Küçük paket; P27'den önce kapanır.
 
 Hikâye: Teknisyen/Admin olarak, aynı tarayıcıdan her girişte doğrulama kodu girmek istemiyorum; girişteki kod adımında
 "Bu cihazı 30 gün hatırla" kutusunu işaretlersem 30 gün boyunca bu tarayıcıda yalnız şifre sorulsun. Hassas işlemlerde
-(step-up) kod yine sorulsun; şüphelendiğimde hatırlanan cihazları profilimden silebileyim.
+(step-up) kod yine sorulsun; şüphelendiğimde hatırlanan cihazları profilimden silebileyim. (r2: Super Admin hesapları
+hariçtir — kullanıcı kararı 2026-11-15, güvenlik bulgusu Y-P27a-1.)
 
-- AC-325: (seçenek) Girişteki 2FA sayfasında, **doğrulama kodu (TOTP) modunda** ve politika izin veriyorsa (AC-331)
-  "Bu cihazı 30 gün hatırla" onay kutusu görünür, **varsayılan işaretsizdir**. Kurtarma kodu modunda kutu görünmez ve
+- AC-325: (seçenek) Girişteki 2FA sayfasında, **doğrulama kodu (TOTP) modunda** ve politika izin veriyorsa (AC-331;
+  Super Admin'de hiçbir zaman) "Bu cihazı 30 gün hatırla" onay kutusu görünür, **varsayılan işaretsizdir**. Kurtarma kodu modunda kutu görünmez ve
   sunucu `rememberDevice` alanını kurtarma koduyla kabul etmez (400). Kutu işaretli + doğru kodla: yanıt
   `deviceRemembered: true`, `Set-Cookie: __Secure-rs_td=…; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth;
 Max-Age=2592000`; DB'de `trusted_devices` satırı yalnız belirtecin SHA-256 özetiyle oluşur (`expires_at` = oluşturma +
   30 gün); audit `auth.trusted_device_created` yazılır. İşaretsizse çerez/satır oluşmaz (`deviceRemembered: false`).
+  Super Admin'in gönderdiği `rememberDevice: true` hata vermeden yok sayılır (200, `deviceRemembered: false`, satır
+  oluşmaz).
 - AC-326: (kullanım) Hatırlanan tarayıcıdan 30 gün içinde **doğru şifreyle** giriş TOTP sormadan tam oturum açar
-  (`mfaRequired: false`); audit `auth.trusted_device_used`, satırda `last_used_at` ve `ip` güncellenir; `expires_at`
-  **uzamaz** (sabit 30 gün). Şifre hatalıysa çerez hiçbir şeyi değiştirmez: hata sayacı/kilit (AC-65) aynen işler,
+  (`mfaRequired: false`); audit `auth.trusted_device_used` ve `auth.login` success satırında `newValue.mfa =
+"remembered"`; satırda `last_used_at` ve `ip` güncellenir, belirteç döndürülür (AC-335b); `expires_at` **uzamaz**
+  (sabit 30 gün). Şifre hatalıysa çerez hiçbir şeyi değiştirmez: hata sayacı/kilit (AC-65) aynen işler,
   kilitli hesap çerezle de 423 alır. Süresi dolmuş, silinmiş veya bilinmeyen belirteçte TOTP adımı gelir ve yanıt çerezi
-  siler. Başka kullanıcıya ait geçerli belirteç yok sayılır (TOTP sorulur) ve silinmez.
+  siler. Başka kullanıcıya ait geçerli belirteç yok sayılır (TOTP sorulur) ve silinmez. Aynı adla iki çerez gelirse
+  ikisi de denenir (en çok 2); çerez silme yalnız host-only çereze yazılır. Sıra: kilit → şifre → geçici şifre süresi →
+  belirteç; hatırlanan cihaz zorunlu şifre değişimini (`mustChangePassword`) ve 2FA kurulum aşamasını atlamaz
+  (entegrasyon testi).
 - AC-327: (step-up asla atlanmaz) Hatırlanan cihazla açılan oturumda `step_up_at` NULL'dur; `requireStepUp` korumalı her
   uç (ADR-0022; sistem ayarları, API anahtarı, Super Admin kurtarma, P27'de her gözetimsiz bağlantı) TOTP/kurtarma kodu
   girilmeden 401 `MFA_STEP_UP_REQUIRED` döner. Şifre her girişte sorulur; hatırlama yalnız giriş TOTP adımını atlar.
@@ -392,22 +399,40 @@ Max-Age=2592000`; DB'de `trusted_devices` satırı yalnız belirtecin SHA-256 ö
   `settings.edit`). Kapalıyken 2FA sayfasında kutu görünmez, `rememberDevice: true` yok sayılır
   (`deviceRemembered: false`), o firmanın tüm hatırlanan cihazları aynı TX'te silinir ve mevcut belirteçler TOTP'yi
   atlatmaz; ayar değişikliği audit'e eski→yeni ve silinen sayıyla yazılır. Yeniden açmak eski cihazları geri getirmez.
-  Super Admin hesapları firma ayarından etkilenmez ve cihaz hatırlayabilir (gerekçe mimari-p27a §1 K-P27a-2).
+  Mevcut firmalar da migration ile açık başlar (CHANGELOG/sürüm notunda firma Admin'lerine bildirilir; mimari-p27a
+  K-P27a-12). **Super Admin hesapları cihaz hatırlayamaz** (r2, kullanıcı kararı 2026-11-15; mimari-p27a K-P27a-2):
+  kutu gösterilmez, `rememberDevice: true` yok sayılır, mevcut çerez TOTP'yi atlatmaz.
 - AC-332: (üst sınır) Kullanıcı başına en çok 10 hatırlanan cihaz; 11.'si oluşturulurken en eski (`created_at`) aynı
   TX'te silinir (audit `revoked {reason: "limit"}`); paralel iki doğrulamada da sınır aşılmaz (kullanıcı satırı kilidi).
 - AC-333: (gizlilik) Belirteç `crypto.randomBytes(32)` (base64url, 43 karakter); düz değer yalnız çerezde, DB'de
   yalnız SHA-256; belirteç ve özeti log/audit/yanıt gövdesinde yer almaz (test log yakalamasıyla); tam User-Agent
   saklanmaz, yalnız ≤ 80 karakter özet.
 - AC-334: (veri yaşam döngüsü) Saklama işi süresi dolmuş satırları siler; firma kalıcı silme (P16 `USER_CHILDREN`) ve
-  KVKK silme CLI'si (`cli/erasure.ts`) kullanıcının satırlarını siler; `prisma/sql/grants.sql` `app` kullanıcısına
+  KVKK silme CLI'si (`cli/erasure.ts`) ve kullanıcı kalıcı silme (`users/purge.ts`) kullanıcının satırlarını siler; `prisma/sql/grants.sql` `app` kullanıcısına
   SELECT/INSERT/UPDATE/DELETE verir; firma silme meta-testi yeni tabloyu kapsar.
 - AC-335: (gerileme) P10/P14a/P15 auth testleri (giriş, kilit, 2FA doğrulama, step-up, tüm cihazlardan çıkış) değişmeden
   yeşil; lint, typecheck, format:check, unit + integration + e2e (desktop + mobile) yeşil.
+- AC-335a: (yeni cihaz bildirimi; r2, güvenlik O-P27a-2) Cihaz hatırlandığında (AC-325) işlem tamamlandıktan sonra
+  kullanıcıya e-posta gider: "Yeni cihaz hatırlandı" — tarayıcı · işletim sistemi özeti, IP, saat (tr-TR) ve "Siz
+  değilseniz Hesabım → Hatırlanan cihazlar → Tümünü kaldır ve şifrenizi değiştirin". E-postada belirteç ve bağlantı
+  yoktur. Firma SMTP'si yoksa e-posta gitmez, mevcut `mail.sent` `not_configured` audit'i yazılır; e-posta hatası
+  doğrulama yanıtını bozmaz. Ayar/abonelik seçeneği yoktur.
+- AC-335b: (döndürme ve yeniden kullanım tespiti; r2, güvenlik O-P27a-1) Her başarılı atlamada (AC-326) belirteç
+  aynı işlemde yenilenir: yeni çerez yazılır (Max-Age = kalan süre, `expires_at` değişmez), eski özet
+  `prev_token_hash`'te tutulur. Daha önce döndürülmüş (eski) belirteçle doğru şifreyle giriş "yeniden kullanım"
+  sayılır: TOTP sorulur, kullanıcının **tüm** hatırlanan cihazları aynı işlemde silinir, audit
+  `auth.trusted_device_reuse` (`result: fail`, `{count}`) yazılır, yanıt çerezi siler ve kullanıcıya e-posta gider
+  (SMTP yoksa `not_configured`). Eski özet başka kullanıcıya aitse hiçbir şey silinmez. Eşzamanlı iki girişte birinin
+  yeniden kullanım sayılması kabul edilir (R-P27a-2). Entegrasyon testi: döndürülmüş eski çerezle giriş → TOTP sorulur
+  ve satırlar silinir.
 
-Kapsam dışı (P27a): cihaza ad verme; yeni cihaz hatırlandığında e-posta bildirimi (Sonra, S-P27a-1); süreyi firma bazında
+Kapsam dışı (P27a): **Super Admin için cihaz hatırlama** (r2, kullanıcı kararı); cihaza ad verme; hatırlanan cihazla
+her girişte e-posta; döndürmede yeniden kullanım tolerans penceresi; süreyi firma bazında
 ayarlama (30 gün sabit); kayan süre (kullanımda uzama); step-up veya gözetimsiz bağlantı için hatırlama; kurtarma
 koduyla hatırlama; sistem (Super Admin) geneli ayrı kapatma anahtarı; WebAuthn/passkey; aynı tarayıcıda birden çok
 hesabın aynı anda hatırlanması (tek çerez; son hatırlanan geçerli). Varsayım V-P27a-1: kullanıcıların çoğu kişisel
 cihaz kullanır; paylaşılan bilgisayarda kutu işaretlenmez (kutu varsayılan işaretsiz + yardım metni). Risk R-P27a-1:
 çalınan cihaz + bilinen şifre ile 30 gün TOTP'siz giriş → önlem: profil/Admin kaldırma, tüm geçersiz kılma olayları,
-step-up'ın atlanmaması, audit.
+step-up'ın atlanmaması, audit, yeni cihaz e-postası (AC-335a), döndürme + yeniden kullanım tespiti (AC-335b). Risk
+R-P27a-2: yarışan iki sekme veya kaybolan yanıt yeniden kullanım yanlış alarmı üretebilir → bedeli tüm cihazların
+silinmesi + bir TOTP + bir e-posta; kabul edildi.
