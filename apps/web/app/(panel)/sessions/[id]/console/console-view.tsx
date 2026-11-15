@@ -27,43 +27,17 @@ export function ConsoleView({ session, canFiles, canControl }: { session: Sessio
   const [tab, setTab] = useState<CollabTab>("chat");
   const [tool, setTool] = useState<DrawTool | null>(null);
   const [color, setColor] = useState<AnnotColor>("red");
-  const collab = useCollab(ts.channels, {
-    inbound: "TO_TECH",
-    filesAllowed: canFiles,
-    chatVisible: tab === "chat",
-    receiveAnnot: false,
-    sendMeta: ts.send,
-    maxFileMb: ts.maxFileMb,
-  });
+  const collab = useCollab(ts.channels, collabOptions(ts, canFiles, tab));
   const quality = useQuality(ts.pc, ts.send);
   const now = useNow();
   const toast = useToast();
-  const [confirm, setConfirm] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { confirm, setConfirm, busy, confirmEnd } = useEndConfirm(session.id, state.phase === "live", quality, ts.end, toast);
   const controlHint = useId();
   const live = state.phase === "live";
   const name = state.guest?.name ?? t("c.customer");
 
   const releaseRef = useRef<HTMLButtonElement>(null);
   useControlToasts(control, toast);
-
-  const confirmEnd = async () => {
-    if (live) {
-      // AC-46: oturum sonunda son kalite özeti (session.end'den önce)
-      quality.flush();
-      ts.end();
-      return setConfirm(false);
-    }
-    setBusy(true);
-    try {
-      await api("POST", `/sessions/${session.id}/cancel`);
-      setConfirm(false); // sunucu odaya session.ended{cancelled} yollar → "bitti" ekranı
-    } catch (e) {
-      toast(toUiError(e).message, "danger");
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <div className="flex flex-col gap-3" data-testid="console" data-phase={state.phase}>
@@ -81,10 +55,7 @@ export function ConsoleView({ session, canFiles, canControl }: { session: Sessio
             ts={ts}
             session={session}
             collab={collab}
-            tool={tool}
-            color={color}
-            onTool={setTool}
-            onColor={setColor}
+            draw={{ tool, color, onTool: setTool, onColor: setColor }}
             canControl={canControl}
             now={now}
             releaseRef={releaseRef}
@@ -96,4 +67,48 @@ export function ConsoleView({ session, canFiles, canControl }: { session: Sessio
       <ConfirmEndDialog open={confirm} live={live} busy={busy} onClose={() => setConfirm(false)} onConfirm={confirmEnd} />
     </div>
   );
+}
+
+/** Konsol tarafı işbirliği seçenekleri (gelen yön TO_TECH; okunmamış sayacı sohbet sekmesi açıkken sıfırlanır). */
+function collabOptions(ts: ReturnType<typeof useTechSession>, canFiles: boolean, tab: CollabTab) {
+  return {
+    inbound: "TO_TECH" as const,
+    filesAllowed: canFiles,
+    chatVisible: tab === "chat",
+    receiveAnnot: false,
+    sendMeta: ts.send,
+    maxFileMb: ts.maxFileMb,
+  };
+}
+
+/**
+ * Bitir / iptal onayı. Canlıda: son kalite özeti (AC-46, session.end'den önce) + session.end. Beklemede: REST iptal;
+ * sunucu odaya session.ended{cancelled} yollar → "bitti" ekranı.
+ */
+function useEndConfirm(
+  sessionId: string,
+  live: boolean,
+  quality: ReturnType<typeof useQuality>,
+  end: () => void,
+  toast: ReturnType<typeof useToast>,
+) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const confirmEnd = async () => {
+    if (live) {
+      quality.flush();
+      end();
+      return setConfirm(false);
+    }
+    setBusy(true);
+    try {
+      await api("POST", `/sessions/${sessionId}/cancel`);
+      setConfirm(false);
+    } catch (e) {
+      toast(toUiError(e).message, "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { confirm, setConfirm, busy, confirmEnd };
 }

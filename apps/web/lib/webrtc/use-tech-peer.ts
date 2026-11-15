@@ -35,19 +35,7 @@ export function useTechPeer(peerRef: RefObject<PeerLink | null>, send: (m: Param
     const p = new PeerLink(ice.current, send, kind.current === "AGENT");
     peerRef.current = p;
     setPc(p.pc);
-    p.onChannels = (c) => peerRef.current === p && setChannels(c);
-    p.onInput = (c) => {
-      if (peerRef.current !== p) return;
-      inputRef.current = c;
-      setInput(c);
-    };
-    p.pc.oniceconnectionstatechange = () => {
-      if (p.pc.iceConnectionState === "failed" && peerRef.current === p) void p.offer(true).catch(() => undefined);
-    };
-    void p.offer().then(
-      (s) => peerRef.current === p && setStream(s),
-      () => undefined,
-    );
+    wirePeer(p, peerRef, inputRef, { setChannels, setInput, setStream });
   }, [peerRef, resetPeer, send]);
 
   const onIceServers = useCallback(
@@ -65,28 +53,55 @@ export function useTechPeer(peerRef: RefObject<PeerLink | null>, send: (m: Param
 
   const onPeerMsg = useCallback(
     (m: ServerOutbound, start: boolean) => {
-      if (m.t === "hello") {
+      if (m.t === "hello" || (m.t === "peer.joined" && m.role === "guest")) {
+        // Misafir türü (input kanalı yalnız AGENT'a) ve dosya sınırı; hello ICE listesini de taşır
         kind.current = m.guestKind ?? kind.current;
-        ice.current = m.iceServers;
+        if (m.t === "hello") ice.current = m.iceServers;
         if (m.maxFileMb) setMaxFileMb(m.maxFileMb);
         if (start) startPeer();
-      } else if (m.t === "ice.servers") {
-        onIceServers(m.iceServers, start);
-      } else if (m.t === "peer.joined" && m.role === "guest") {
-        kind.current = m.guestKind ?? kind.current;
-        if (m.maxFileMb) setMaxFileMb(m.maxFileMb);
-        if (start) startPeer();
-      } else if (m.t === "peer.left" && m.role === "guest") {
-        resetPeer();
-      } else if (m.t === "sdp.answer") {
-        void peerRef.current?.acceptAnswer(m.sdp).catch(() => undefined);
-      } else if (m.t === "ice") {
-        const { candidate, sdpMid, sdpMLineIndex } = m;
-        void peerRef.current?.addIce({ candidate, sdpMid, sdpMLineIndex });
-      }
+      } else if (m.t === "ice.servers") onIceServers(m.iceServers, start);
+      else linkMsg(m, peerRef, resetPeer);
     },
     [onIceServers, peerRef, resetPeer, startPeer],
   );
 
   return { stream, channels, pc, maxFileMb, input, inputRef, resetPeer, onPeerMsg };
+}
+
+/** Yeni PeerLink'in olayları: yalnız güncel peer'e aitse durum güncellenir; ICE "failed" → ICE restart teklifi. */
+function wirePeer(
+  p: PeerLink,
+  peerRef: RefObject<PeerLink | null>,
+  inputRef: RefObject<RTCDataChannel | null>,
+  set: {
+    setChannels: (c: Channels | null) => void;
+    setInput: (c: RTCDataChannel | null) => void;
+    setStream: (s: MediaStream | null) => void;
+  },
+) {
+  p.onChannels = (c) => peerRef.current === p && set.setChannels(c);
+  p.onInput = (c) => {
+    if (peerRef.current !== p) return;
+    inputRef.current = c;
+    set.setInput(c);
+  };
+  p.pc.oniceconnectionstatechange = () => {
+    if (p.pc.iceConnectionState === "failed" && peerRef.current === p) void p.offer(true).catch(() => undefined);
+  };
+  void p.offer().then(
+    (s) => peerRef.current === p && set.setStream(s),
+    () => undefined,
+  );
+}
+
+/** Kurulu bağlantıya ait mesajlar: müşteri ayrıldı → peer sıfırlanır; SDP yanıtı ve ICE adayı peer'e iletilir. */
+function linkMsg(m: ServerOutbound, peerRef: RefObject<PeerLink | null>, resetPeer: () => void) {
+  if (m.t === "peer.left" && m.role === "guest") {
+    resetPeer();
+  } else if (m.t === "sdp.answer") {
+    void peerRef.current?.acceptAnswer(m.sdp).catch(() => undefined);
+  } else if (m.t === "ice") {
+    const { candidate, sdpMid, sdpMLineIndex } = m;
+    void peerRef.current?.addIce({ candidate, sdpMid, sdpMLineIndex });
+  }
 }

@@ -31,71 +31,84 @@ function stageControl(ts: Tech, canControl: boolean, releaseRef: RefObject<HTMLB
   };
 }
 
-/**
- * Konsol sahnesi: lobi, işaretleme, P7 kontrol çubuğu/monitör seçimi (yalnız Hızlı Destek misafiri +
- * remote_control.use; AC-34, 51). İşaretleme ve kontrol çakışmaz: kontrol yakalanırken çizim aracı etkisiz.
- */
-export function ConsoleStage({
-  ts,
-  session,
-  collab,
-  tool,
-  color,
-  onTool,
-  onColor,
-  canControl,
-  now,
-  releaseRef,
-}: {
-  ts: Tech;
-  session: SessionView;
-  collab: Collab;
+/** İşaretleme aracı/rengi ve değiştiricileri. */
+export interface DrawState {
   tool: DrawTool | null;
   color: AnnotColor;
   onTool: (t: DrawTool | null) => void;
   onColor: (c: AnnotColor) => void;
+}
+
+interface ConsoleStageProps {
+  ts: Tech;
+  session: SessionView;
+  collab: Collab;
+  draw: DrawState;
   canControl: boolean;
   now: number | null;
   releaseRef: RefObject<HTMLButtonElement | null>;
-}) {
+}
+
+/** Özel tuş birleşimi (Ctrl+Alt+Del vb.) yalnız yakalama sürerken `input` kanalına gider. */
+function comboSender(input: RTCDataChannel | null, capturing: boolean) {
+  return (id: SpecialComboId) => {
+    const c = SPECIAL_COMBOS.find((x) => x.id === id);
+    if (!c || !capturing) return;
+    for (const m of comboMsgs(c.codes)) sendInput(input, m);
+  };
+}
+
+/** P7 kontrol çubuğu (yalnız Hızlı Destek misafiri). */
+function controlBar(p: ConsoleStageProps, showing: boolean, capturing: boolean) {
+  const { ts } = p;
+  return (
+    <ConsoleControlBar
+      canControl={p.canControl}
+      control={ts.control}
+      now={p.now}
+      available={showing}
+      onKeys={comboSender(ts.input, capturing)}
+      releaseRef={p.releaseRef}
+      onRequest={ts.requestControl}
+      onRelease={ts.releaseControl}
+      onCancel={ts.cancelControl}
+    />
+  );
+}
+
+/** "%100" = görüntülenen monitörün pikselleriyle 1:1 (TEST-P7-1); tarayıcı paylaşımında monitör bilgisi yok. */
+function nativeSizeOf(c: ControlState) {
+  const m = c.monitors.find((x) => x.id === c.activeMonitor) ?? null;
+  return m ? { w: m.w, h: m.h } : null;
+}
+
+/**
+ * Konsol sahnesi: lobi, işaretleme, P7 kontrol çubuğu/monitör seçimi (yalnız Hızlı Destek misafiri +
+ * remote_control.use; AC-34, 51). İşaretleme ve kontrol çakışmaz: kontrol yakalanırken çizim aracı etkisiz.
+ */
+export function ConsoleStage(p: ConsoleStageProps) {
+  const { ts, session, collab, draw, now } = p;
   const { state, control } = ts;
   const live = state.phase === "live";
   const agent = live && state.guest?.kind === "AGENT";
   const capturing = isCapturing(control);
   const showing = live && state.share === "sharing" && state.peerLostSince === null && state.reconnectSince === null;
-  const drawTool = capturing ? null : tool;
-  // "%100" = görüntülenen monitörün pikselleriyle 1:1 (TEST-P7-1); tarayıcı paylaşımında monitör bilgisi yok
-  const activeMon = control.monitors.find((m) => m.id === control.activeMonitor) ?? null;
-  const sendKeys = (id: SpecialComboId) => {
-    const c = SPECIAL_COMBOS.find((x) => x.id === id);
-    if (!c || !capturing) return;
-    for (const m of comboMsgs(c.codes)) sendInput(ts.input, m);
-  };
-  const bar = { control, now, available: showing, onKeys: sendKeys, releaseRef };
+  const drawTool = capturing ? null : draw.tool;
+  const tools = <ConsoleAnnotTools collab={collab} {...draw} tool={drawTool} capturing={capturing} />;
   return (
     <Stage
       state={state}
       stream={ts.stream}
       verifyCode={session.techVerifyCode}
       sessionCode={session.code}
-      lobby={<LobbyPanel state={state} onAdmit={ts.admit} onReject={(p) => ts.reject(p.guestId)} />}
-      annot={annotInput(collab, drawTool, color)}
-      tools={<ConsoleAnnotTools collab={collab} tool={drawTool} color={color} onTool={onTool} onColor={onColor} capturing={capturing} />}
-      controlBar={
-        agent ? (
-          <ConsoleControlBar
-            canControl={canControl}
-            {...bar}
-            onRequest={ts.requestControl}
-            onRelease={ts.releaseControl}
-            onCancel={ts.cancelControl}
-          />
-        ) : null
-      }
+      lobby={<LobbyPanel state={state} onAdmit={ts.admit} onReject={(g) => ts.reject(g.guestId)} />}
+      annot={annotInput(collab, drawTool, draw.color)}
+      tools={tools}
+      controlBar={agent ? controlBar(p, showing, capturing) : null}
       monitors={agent && control.monitors.length > 1 ? <MonitorPicker s={control} now={now} onRequest={ts.requestMonitor} /> : null}
       monitorBusy={control.monitorPending !== null}
-      nativeSize={agent && activeMon ? { w: activeMon.w, h: activeMon.h } : null}
-      control={agent ? stageControl(ts, canControl, releaseRef) : null}
+      nativeSize={agent ? nativeSizeOf(control) : null}
+      control={agent ? stageControl(ts, p.canControl, p.releaseRef) : null}
     />
   );
 }

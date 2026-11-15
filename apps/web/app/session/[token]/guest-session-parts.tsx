@@ -15,21 +15,19 @@ import type { AnnotState } from "@/lib/dc/annot";
 import type { GuestState } from "@/lib/webrtc/guest-machine";
 import type { ShareResult } from "@/lib/webrtc/use-guest-session";
 
-interface ResumeInfo {
-  storeKey: string | null;
-  phase: GuestState["phase"];
-  reconnectToken: string | null;
-  technicianName: string;
-  customerName: string;
-  verifyCode: string;
-  sessionRef: string;
-}
-
 /**
  * F5 dönüş kaydı (TEST-P4-1): her yeni reconnectToken yazılır, oturum bitince silinir. S-P4-T3-1: kayıt 120 sn'den
  * eskiyse okunmaz → canlı oturumda damga 30 sn'de bir ve sayfa kapanırken tazelenir.
  */
-export function useResumeStore({ storeKey, phase, reconnectToken, technicianName, customerName, verifyCode, sessionRef }: ResumeInfo) {
+export function useResumeStore(
+  storeKey: string | null,
+  state: Pick<GuestState, "phase" | "reconnectToken">,
+  join: { technicianName: string; customerName: string },
+  verifyCode: string,
+  sessionRef: string,
+) {
+  const { phase, reconnectToken } = state;
+  const { technicianName, customerName } = join;
   useEffect(() => {
     if (!storeKey || phase !== "live" || !reconnectToken) return;
     const save = () =>

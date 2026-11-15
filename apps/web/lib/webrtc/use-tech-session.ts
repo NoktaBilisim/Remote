@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useReducer, useRef, type RefObject } from "react";
 import type { ServerOutbound } from "@remote/contracts/ws";
-import { isUnexpectedGrant, type ControlEvent } from "../control/machine";
+import { isUnexpectedGrant, type ControlEvent, type ControlState } from "../control/machine";
 import { backoff, RECONNECT_WINDOW_MS, Signal, wsUrl } from "./signal";
 import { iceGate, initialIceGate, initialTech, techReducer, type IceGate, type TechEvent, type TechState } from "./tech-machine";
 import type { PeerLink } from "./peer";
@@ -65,18 +65,8 @@ export function useTechSession(sessionId: string) {
 
   const onMessage = useCallback(
     (m: ServerOutbound) => {
-      const g = iceGate(gate.current, m);
-      gate.current = g.gate;
-      if (m.t === "hello") retry.current.attempt = 0;
-      onPeerMsg(m, g.start);
-      if (m.t === "hello" && m.maxEndsAt !== null) {
-        dispatch({ type: "msg", m, now: Date.now() });
-        return dispatch({ type: "restoreName", name: readName(sessionId) });
-      }
-      dispatch({ type: "msg", m, now: Date.now() });
-      // S7-2 / K2: istemediğimiz izinle yakalama başlamaz; sunucu ve müşteri kapısı da kapansın diye bırakılır
-      if (isUnexpectedGrant(ctl.current, m)) sig.current?.send({ t: "control.release" });
-      dispatchCtl({ type: "msg", m, now: Date.now() });
+      const refs = { gateRef: gate, retryRef: retry, sigRef: sig, ctlRef: ctl };
+      handleMessage(m, refs, { onPeerMsg, dispatch, dispatchCtl, sessionId });
     },
     [ctl, dispatchCtl, onPeerMsg, sessionId],
   );
@@ -111,11 +101,7 @@ export function useTechSession(sessionId: string) {
   useGuestNameStore(sessionId, state.guest?.name ?? null, state.phase);
 
   useEffect(() => {
-    if (state.phase !== "ended") return;
-    clearTimeout(retry.current.timer);
-    closeSignal(sig, true);
-    peer.current?.close();
-    peer.current = null;
+    if (state.phase === "ended") closeOnEnd(retry, sig, peer);
   }, [state.phase]);
 
   const lobby = useLobbyActions(dispatch, send);
@@ -186,4 +172,39 @@ function handleClose(
   if (s.phase === "ended" || s.reconnectSince === null) return;
   if (now - s.reconnectSince > RECONNECT_WINDOW_MS) return dispatch({ type: "giveUp" });
   r.retryRef.current.timer = setTimeout(() => r.reconnectRef.current(), backoff(r.retryRef.current.attempt++));
+}
+
+/** Oturum bitti: yeniden deneme durur, WS (önce referans boşaltılarak) ve PeerConnection kapanır. */
+function closeOnEnd(retryRef: RefObject<Retry>, sigRef: RefObject<Signal | null>, peerRef: RefObject<PeerLink | null>) {
+  clearTimeout(retryRef.current.timer);
+  closeSignal(sigRef, true);
+  peerRef.current?.close();
+  peerRef.current = null;
+}
+
+/**
+ * Sunucu mesajı: ICE kapısı → peer işleri → makineler. Etkin `hello` sonrası ad sekme belleğinden geri yüklenir ve kontrol
+ * makinesine iletilmez. S7-2 / K2: istemediğimiz izinle yakalama başlamaz; sunucu ve müşteri kapısı da kapansın diye bırakılır.
+ */
+function handleMessage(
+  m: ServerOutbound,
+  r: { gateRef: RefObject<IceGate>; retryRef: RefObject<Retry>; sigRef: RefObject<Signal | null>; ctlRef: RefObject<ControlState> },
+  h: {
+    onPeerMsg: (m: ServerOutbound, start: boolean) => void;
+    dispatch: (e: TechEvent) => void;
+    dispatchCtl: (e: ControlEvent) => void;
+    sessionId: string;
+  },
+) {
+  const g = iceGate(r.gateRef.current, m);
+  r.gateRef.current = g.gate;
+  if (m.t === "hello") r.retryRef.current.attempt = 0;
+  h.onPeerMsg(m, g.start);
+  if (m.t === "hello" && m.maxEndsAt !== null) {
+    h.dispatch({ type: "msg", m, now: Date.now() });
+    return h.dispatch({ type: "restoreName", name: readName(h.sessionId) });
+  }
+  h.dispatch({ type: "msg", m, now: Date.now() });
+  if (isUnexpectedGrant(r.ctlRef.current, m)) r.sigRef.current?.send({ t: "control.release" });
+  h.dispatchCtl({ type: "msg", m, now: Date.now() });
 }

@@ -8,71 +8,87 @@ import { t } from "@/lib/i18n";
 
 export type ViewMode = "fit" | "actual";
 
+/** Şeridin içeriği (çağıranın verdiği düğümler). */
+export interface StripContent {
+  tools: ReactNode;
+  controlBar: ReactNode;
+  shareMethod: string | null;
+  monitors: ReactNode;
+  monitorBusy: boolean;
+}
+/** Görünüm (Sığdır / %100) ve tam ekran durumu. */
+export interface StripView {
+  mode: ViewMode;
+  onMode: (m: ViewMode) => void;
+  full: boolean;
+  onToggleFull: () => void;
+}
+/** Şerit ölçümü (`useStripFit`). */
+export interface StripFit {
+  compact: boolean;
+  tight: boolean;
+}
+
 /**
  * Sahnenin üst araç şeridi (görüntünün dışında — QA görsel bulgu: P5'te sağ üstte görüntünün ~60 px'ini kapatıyordu):
  * işaretleme araçları, kontrol çubuğu, pencere modu rozeti, monitör seçimi, görünüm + tam ekran (dar sahnede menüde).
  */
 export function StageStrip({
   stripRef,
-  compact,
-  tight,
+  fit,
+  view,
+  content: c,
   showing,
   capturing,
-  tools,
-  controlBar,
-  shareMethod,
-  monitors,
-  monitorBusy,
-  mode,
-  onMode,
-  full,
-  onToggleFull,
 }: {
   stripRef: RefObject<HTMLDivElement | null>;
-  compact: boolean;
-  tight: boolean;
+  fit: StripFit;
+  view: StripView;
+  content: StripContent;
   showing: boolean;
   capturing: boolean;
-  tools: ReactNode;
-  controlBar: ReactNode;
-  shareMethod: string | null;
-  monitors: ReactNode;
-  monitorBusy: boolean;
-  mode: ViewMode;
-  onMode: (m: ViewMode) => void;
-  full: boolean;
-  onToggleFull: () => void;
 }) {
-  const viewSeg = <ViewSegment mode={mode} onMode={onMode} />;
-  const fullBtn = <FullscreenButton full={full} onToggle={onToggleFull} />;
   return (
     <div
       ref={stripRef}
       className="relative z-20 flex flex-wrap items-center gap-2 border-b border-border bg-surface p-2"
       data-testid="stage-tools"
-      data-compact={compact}
-      data-tight={tight}
+      data-compact={fit.compact}
+      data-tight={fit.tight}
     >
       {/* Kontrol sırasında işaretleme zaten pasif: şeritte yer kaplamaz (TEST-P7-2) */}
-      {showing && mode !== "actual" && !capturing && tools}
-      {controlBar}
-      {showing && shareMethod === "WGC" && <WindowShareBadge method={shareMethod} />}
-      {!compact && monitors}
-      {showing && !compact && (
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          {viewSeg}
-          {fullBtn}
-        </div>
-      )}
-      {compact && (showing || monitors) && (
-        <div className="ml-auto shrink-0">
-          <ViewMenu tight={tight} monitorBusy={monitorBusy}>
-            {monitors}
-            {showing && viewSeg}
-            {showing && fullBtn}
-          </ViewMenu>
-        </div>
-      )}
+      {showing && view.mode !== "actual" && !capturing && c.tools}
+      {c.controlBar}
+      {showing && c.shareMethod === "WGC" && <WindowShareBadge method={c.shareMethod} />}
+      <StripViewArea fit={fit} view={view} content={c} showing={showing} />
+    </div>
+  );
+}
+
+/** Monitör seçimi + görünüm + tam ekran: geniş sahnede satır içi, dar sahnede tek "Görünüm" menüsünde. */
+function StripViewArea({ fit, view, content: c, showing }: { fit: StripFit; view: StripView; content: StripContent; showing: boolean }) {
+  const viewSeg = <ViewSegment mode={view.mode} onMode={view.onMode} />;
+  const fullBtn = <FullscreenButton full={view.full} onToggle={view.onToggleFull} />;
+  if (!fit.compact)
+    return (
+      <>
+        {c.monitors}
+        {showing && (
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {viewSeg}
+            {fullBtn}
+          </div>
+        )}
+      </>
+    );
+  if (!showing && !c.monitors) return null;
+  return (
+    <div className="ml-auto shrink-0">
+      <ViewMenu tight={fit.tight} monitorBusy={c.monitorBusy}>
+        {c.monitors}
+        {showing && viewSeg}
+        {showing && fullBtn}
+      </ViewMenu>
     </div>
   );
 }

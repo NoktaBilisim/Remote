@@ -9,8 +9,8 @@ import { useRemoteInput } from "@/lib/control/use-remote-input";
 import type { AnnotState } from "@/lib/dc/annot";
 import type { TechState } from "@/lib/webrtc/tech-machine";
 import { useFullscreen, useStageVideo, useStripFit } from "./stage-hooks";
-import { stageOverlay } from "./stage-overlay";
-import { StageStrip, type ViewMode } from "./stage-strip";
+import { stageOverlay, type OverlayInput } from "./stage-overlay";
+import { StageStrip, type StripContent, type ViewMode } from "./stage-strip";
 
 type StageAnnot = { state: AnnotState; input: DrawInput | null } | null;
 
@@ -56,7 +56,7 @@ interface StageProps {
  * kontrol modunda üst kenardaki başlık çubuğu/menüler tıklanabilir kalır).
  */
 export function Stage(p: StageProps) {
-  const { state, controlBar, monitors, control } = p;
+  const { state, control } = p;
   const ref = useRef<HTMLVideoElement>(null);
   const box = useRef<HTMLElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
@@ -64,31 +64,19 @@ export function Stage(p: StageProps) {
   const [mode, setMode] = useState<ViewMode>("fit");
   const actual = mode === "actual";
   useStageVideo(ref, p.stream, p.nativeSize ?? null, actual);
-  const { compact, tight, stripRef } = useStripFit(box);
+  const { stripRef, compact, tight } = useStripFit(box);
   const { full, toggleFull } = useFullscreen(box);
-
-  const live = state.phase === "live";
-  const overlay = stageOverlay({
-    state,
-    now,
-    lobby: p.lobby,
-    verifyCode: p.verifyCode,
-    sessionCode: p.sessionCode,
-    endedNote: control?.endedNote,
-    secureDesktop: control?.secureDesktop,
-  });
-  const showing = live && state.share === "sharing" && state.peerLostSince === null;
-  const capturing = Boolean(control?.active && showing && !control.secureDesktop && state.reconnectSince === null);
+  const overlay = stageOverlay(overlayInput(p, now));
+  const f = stageFlags(state, control, Boolean(p.controlBar));
   useRemoteInput({
-    active: capturing,
+    active: f.capturing,
     channel: control?.channel ?? null,
     target: scroll,
     video: ref,
     fullscreen: full,
     onKeyboardRelease: () => control?.onKeyboardRelease(),
   });
-  const strip = showing || (controlBar && live && state.peerLostSince === null && state.reconnectSince === null);
-
+  const view = { mode, onMode: setMode, full, onToggleFull: toggleFull };
   return (
     <section
       ref={box}
@@ -98,33 +86,25 @@ export function Stage(p: StageProps) {
       data-share={state.share}
       data-mode={mode}
       data-fullscreen={full}
-      data-control={capturing ? "on" : "off"}
+      data-control={f.capturing ? "on" : "off"}
       className="relative flex min-h-[60vh] flex-1 flex-col overflow-hidden rounded-lg bg-stage"
     >
-      {strip && (
+      {f.strip && (
         <StageStrip
           stripRef={stripRef}
-          compact={compact}
-          tight={tight}
-          showing={showing}
-          capturing={capturing}
-          tools={p.tools}
-          controlBar={controlBar}
-          shareMethod={state.shareMethod}
-          monitors={monitors}
-          monitorBusy={p.monitorBusy ?? false}
-          mode={mode}
-          onMode={setMode}
-          full={full}
-          onToggleFull={toggleFull}
+          fit={{ compact, tight }}
+          view={view}
+          content={stripContent(p)}
+          showing={f.showing}
+          capturing={f.capturing}
         />
       )}
-      <StageBanners selfElevated={control?.selfElevated} elevated={showing && control?.elevated} />
+      <StageBanners selfElevated={control?.selfElevated} elevated={f.showing && control?.elevated} />
       <StageView
         videoRef={ref}
         scrollRef={scroll}
-        capturing={capturing}
-        showing={showing}
+        capturing={f.capturing}
+        showing={f.showing}
         actual={actual}
         guestName={state.guest?.name ?? t("c.customer")}
         annot={p.annot}
@@ -132,6 +112,40 @@ export function Stage(p: StageProps) {
       />
     </section>
   );
+}
+
+/**
+ * Sahne kararları: görüntü gösteriliyor mu, girdi yakalanıyor mu (kontrol izni + görüntü + güvenli masaüstü değil +
+ * kendi WS'imiz bağlı), şerit görünür mü (görüntü varken ya da kontrol çubuğu varken canlı ve bağlıyken).
+ */
+function stageFlags(state: TechState, control: StageControl | null | undefined, hasControlBar: boolean) {
+  const live = state.phase === "live";
+  const showing = live && state.share === "sharing" && state.peerLostSince === null;
+  const capturing = Boolean(control?.active && showing && !control.secureDesktop && state.reconnectSince === null);
+  const strip = showing || (hasControlBar && live && state.peerLostSince === null && state.reconnectSince === null);
+  return { showing, capturing, strip };
+}
+
+function overlayInput(p: StageProps, now: number | null): OverlayInput {
+  return {
+    state: p.state,
+    now,
+    lobby: p.lobby,
+    verifyCode: p.verifyCode,
+    sessionCode: p.sessionCode,
+    endedNote: p.control?.endedNote,
+    secureDesktop: p.control?.secureDesktop,
+  };
+}
+
+function stripContent(p: StageProps): StripContent {
+  return {
+    tools: p.tools,
+    controlBar: p.controlBar,
+    shareMethod: p.state.shareMethod,
+    monitors: p.monitors,
+    monitorBusy: p.monitorBusy ?? false,
+  };
 }
 
 /** K8 / S7-9 kalıcı yönetici uyarısı ve yükseltilmiş ön plan uyarısı (kontrolü engellemez). */

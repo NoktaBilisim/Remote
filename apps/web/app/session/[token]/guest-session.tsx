@@ -41,54 +41,57 @@ interface GuestInfo {
   admitCode: string | null;
 }
 
-/**
- * Lobi (admitCode, AC-112/113) → tarayıcı modu oturumu (paylaş/durdur/yeniden, bitir; AC-28..33, 59).
- * `storeKey`: F5 dönüş kaydı (TEST-P4-1) — her yeni reconnectToken yazılır, oturum bitince silinir.
- */
-export function GuestSession({
-  info: join,
-  verifyCode,
-  sessionRef,
-  cred,
-  storeKey,
-}: {
+interface GuestSessionProps {
   info: GuestInfo;
   verifyCode: string;
   sessionRef: string;
   cred: GuestCred;
   storeKey: string | null;
-}) {
-  const { state, preview, channels, caps, maxFileMb, send, startShare, stopShare, end } = useGuestSession(cred, sessionRef);
+}
+
+type ShareControls = { busy: boolean; shareErr: ShareResult | null; onStart: () => void; onStop: () => void };
+
+/** Paylaşımı başlat/durdur: başlatma sürerken meşgul; reddedilir/desteklenmezse neden gösterilir (AC-28..30). */
+function useShareControls(startShare: () => Promise<ShareResult>, stopShare: () => void): ShareControls {
+  const [busy, setBusy] = useState(false);
+  const [shareErr, setShareErr] = useState<ShareResult | null>(null);
+  const onStart = async () => {
+    setBusy(true);
+    const r = await startShare();
+    setBusy(false);
+    setShareErr(r === "ok" ? null : r);
+  };
+  return { busy, shareErr, onStart, onStop: stopShare };
+}
+
+/**
+ * Lobi (admitCode, AC-112/113) → tarayıcı modu oturumu (paylaş/durdur/yeniden, bitir; AC-28..33, 59).
+ * `storeKey`: F5 dönüş kaydı (TEST-P4-1) — her yeni reconnectToken yazılır, oturum bitince silinir.
+ */
+export function GuestSession({ info: join, verifyCode, sessionRef, cred, storeKey }: GuestSessionProps) {
+  const g = useGuestSession(cred, sessionRef);
+  const { state, end } = g;
   const [chatOpen, setChatOpen] = useState(true);
-  const filesAllowed = caps.includes("file_transfer");
-  const collab = useCollab(channels, {
+  const filesAllowed = g.caps.includes("file_transfer");
+  const collab = useCollab(g.channels, {
     inbound: "TO_CUSTOMER",
     filesAllowed,
     chatVisible: chatOpen,
     receiveAnnot: true,
-    sendMeta: send,
-    maxFileMb,
+    sendMeta: g.send,
+    maxFileMb: g.maxFileMb,
   });
   const pip = usePip();
   const now = useNow();
-  const [busy, setBusy] = useState(false);
-  const [shareErr, setShareErr] = useState<ShareResult | null>(null);
+  const share = useShareControls(g.startShare, g.stopShare);
   const [confirm, setConfirm] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    if (video.current) video.current.srcObject = state.share === "sharing" ? preview : null;
-  }, [preview, state.share, pip.win]);
+    if (video.current) video.current.srcObject = state.share === "sharing" ? g.preview : null;
+  }, [g.preview, state.share, pip.win]);
 
-  useResumeStore({
-    storeKey,
-    phase: state.phase,
-    reconnectToken: state.reconnectToken,
-    technicianName: join.technicianName,
-    customerName: join.customerName,
-    verifyCode,
-    sessionRef,
-  });
+  useResumeStore(storeKey, state, join, verifyCode, sessionRef);
 
   if (state.phase === "ended") return <GuestEnded end={state.end} />;
   if (state.phase === "connecting" && state.resuming) return <GuestResuming />;
@@ -103,51 +106,16 @@ export function GuestSession({
         onLeave={end}
       />
     );
-
-  const onStart = async () => {
-    setBusy(true);
-    const r = await startShare();
-    setBusy(false);
-    setShareErr(r === "ok" ? null : r);
-  };
-
-  return (
-    <GuestLive
-      state={state}
-      now={now}
-      techName={join.technicianName}
-      share={{ busy, shareErr, onStart, onStop: stopShare }}
-      video={video}
-      collab={collab}
-      pip={pip}
-      filesAllowed={filesAllowed}
-      onChatVisible={setChatOpen}
-      confirm={confirm}
-      onConfirm={setConfirm}
-      onEnd={end}
-    />
-  );
+  const live = { state, now, techName: join.technicianName, share, video, collab, pip };
+  const dialog = { confirm, onConfirm: setConfirm, onEnd: end };
+  return <GuestLive {...live} {...dialog} filesAllowed={filesAllowed} onChatVisible={setChatOpen} />;
 }
 
-/** Canlı oturum: paylaşım şeridi, uyarılar, önizleme (+PiP), sohbet/dosyalar, yalnız izleme notu, bitir onayı (AC-28..33, 59). */
-function GuestLive({
-  state,
-  now,
-  techName,
-  share,
-  video,
-  collab,
-  pip,
-  filesAllowed,
-  onChatVisible,
-  confirm,
-  onConfirm,
-  onEnd,
-}: {
+interface GuestLiveProps {
   state: GuestState;
   now: number | null;
   techName: string;
-  share: { busy: boolean; shareErr: ShareResult | null; onStart: () => void; onStop: () => void };
+  share: ShareControls;
   video: RefObject<HTMLVideoElement | null>;
   collab: Collab;
   pip: ReturnType<typeof usePip>;
@@ -156,36 +124,40 @@ function GuestLive({
   confirm: boolean;
   onConfirm: (v: boolean) => void;
   onEnd: () => void;
-}) {
+}
+
+/** Canlı oturum: paylaşım şeridi, uyarılar, önizleme (+PiP), sohbet/dosyalar, yalnız izleme notu, bitir onayı (AC-28..33, 59). */
+function GuestLive(p: GuestLiveProps) {
+  const { state, share, collab, pip, onConfirm } = p;
   const strip = state.reconnectSince !== null ? "reconnecting" : state.share;
   return (
     <div className="-mx-4 -mt-2 flex flex-col gap-4">
       <ShareStrip
         state={strip}
-        techName={techName}
+        techName={p.techName}
         busy={share.busy}
         onStart={share.onStart}
         onStop={share.onStop}
         onEnd={() => onConfirm(true)}
       />
       <div className="flex flex-col gap-4 px-4">
-        <GuestLiveAlerts state={state} now={now} shareErr={share.shareErr} busy={share.busy} onRetry={share.onStart} />
+        <GuestLiveAlerts state={state} now={p.now} shareErr={share.shareErr} busy={share.busy} onRetry={share.onStart} />
         <section aria-labelledby="on-t" className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 shadow-sm">
           <h1 id="on-t" className="text-lg font-semibold text-fg">
             {t("gs.previewTitle")}
           </h1>
-          <GuestPreview video={video} share={state.share} annot={collab.annot} pipWin={pip.win} />
+          <GuestPreview video={p.video} share={state.share} annot={collab.annot} pipWin={pip.win} />
           {state.share === "sharing" && <PipButton pip={pip} />}
         </section>
-        <GuestCollab collab={collab} filesAllowed={filesAllowed} techName={techName} onChatVisible={onChatVisible} />
+        <GuestCollab collab={collab} filesAllowed={p.filesAllowed} techName={p.techName} onChatVisible={p.onChatVisible} />
         <ViewOnlyNote />
       </div>
       <GuestEndDialog
-        open={confirm}
+        open={p.confirm}
         onClose={() => onConfirm(false)}
         onEnd={() => {
           onConfirm(false);
-          onEnd();
+          p.onEnd();
         }}
       />
     </div>
