@@ -38,7 +38,7 @@ const TTL_MS = TENANT_PURGE_PREVIEW_TTL_MIN * 60_000;
 const PREVIEW_UQ = "tenant_purge_jobs_preview_hash_key";
 const OPEN_UQ = "tenant_purge_jobs_one_open_uq";
 
-export interface PurgeDeps {
+interface PurgeDeps {
   secrets: SecretBox;
   store: UploadStore;
 }

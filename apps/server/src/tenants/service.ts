@@ -8,7 +8,6 @@
 import type {
   CreateTenantData,
   ListTenantsQuery,
-  SmtpSecurity,
   TenantOptionsQuery,
   TenantOptionsResponse,
   SwitchTenantResponse,
@@ -19,27 +18,25 @@ import type {
   UpdateTenantData,
   UpdateTenantSettingsData,
 } from "@remote/contracts/api/tenants";
-import { aadFor, type SecretBox } from "../lib/crypto.ts";
+import type { SecretBox } from "../lib/crypto.ts";
 import type { NetGuard } from "../lib/netguard.ts";
 import {
   TENANT_REACTIVATE_PURGE_PARTIAL_MESSAGE,
   TENANT_REACTIVATE_PURGE_SCHEDULED_MESSAGE,
   TENANT_SLUG_CONFLICT_MESSAGE,
 } from "@remote/contracts/api/tenants";
-import { BINDING_AUDIT, TENANT_AUDIT } from "@remote/contracts/audit";
-import { revokeForTenant as revokeTenantBindings } from "../bindings/repo.ts";
+import { TENANT_AUDIT } from "@remote/contracts/audit";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import { conflictIndex, type Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import { createInitialConsent } from "../public/consent.ts";
-import { tenantLogoUrl } from "../uploads/urls.ts";
 import * as purgeRepo from "../jobs/tenant-purge-repo.ts";
-import { unassignWithAudit } from "../requests/assign.ts";
+import { ENTITY, actor, afterDeactivate, deactivateTx } from "./deactivate.ts";
 import * as repo from "./repo.ts";
+import { settingsTx, settingsView } from "./settings.ts";
 
-const ENTITY = "tenants";
 const SLUG_UQ = "tenants_slug_key";
 
 export interface TenantLiveEffects {
@@ -51,8 +48,6 @@ export interface TenantLiveEffects {
   bindingsRevoked(count: number): void;
   log: { error(obj: object, msg: string): void; info(obj: object, msg: string): void };
 }
-
-const actor = (auth: AuthContext) => ({ userId: auth.user.id, username: auth.user.email });
 
 const slugConflict = (): AppError =>
   new AppError("CONFLICT", { message: TENANT_SLUG_CONFLICT_MESSAGE, fields: { slug: TENANT_SLUG_CONFLICT_MESSAGE } });
@@ -145,9 +140,6 @@ export async function updateTenant(db: Db, ctx: AuditContext, auth: AuthContext,
   return getOrThrow(db, id);
 }
 
-/** Kayıt geçersizleştirme parti boyutu (bindings süpürücüsüyle aynı). */
-const BINDING_BATCH = 1000;
-
 /** POST /admin/tenants/:id/deactivate (AC-70, AC-115, AC-145, P14a AC-205). Zaten pasif → 409. */
 export async function deactivateTenant(
   db: Db,
@@ -156,76 +148,9 @@ export async function deactivateTenant(
   auth: AuthContext,
   id: string,
 ): Promise<TenantItem> {
-  const done = await db.$transaction(async (tx) => {
-    const cur = await repo.lockTenant(tx, id);
-    if (!cur) throw new AppError("NOT_FOUND");
-    if (cur.status === "PASSIVE") throw new AppError("CONFLICT", { message: "Firma zaten pasif." });
-    const now = new Date();
-    await repo.updateTenant(tx, id, { status: "PASSIVE" });
-    const revokedSessions = await repo.revokeTenantSessions(tx, id, now);
-    const cancelledSessions = await repo.cancelTenantPending(tx, id, now);
-    // S-P18-T5: firma pasifinde bekleyen taleplerin ataması aynı TX'te kalkar (talepler ardından TENANT_PASSIVE iptal; panel
-    // soketleri kapanacağı için `request.updated` yayını yok).
-    await unassignWithAudit(tx, ctx, actor(auth), { tenantId: id });
-    const requestIds = await repo.cancelTenantRequests(tx, id, now);
-    let revokedBindings = 0;
-    for (;;) {
-      const n = await revokeTenantBindings(tx, id, now, BINDING_BATCH);
-      revokedBindings += n;
-      if (n < BINDING_BATCH) break;
-    }
-    for (const requestId of requestIds)
-      await writeAudit(tx, ctx, {
-        tenantId: id,
-        ...actor(auth),
-        action: "request.cancelled",
-        entity: "support_requests",
-        entityId: requestId,
-        result: "success",
-        oldValue: { status: "PENDING" },
-        newValue: { status: "CANCELLED", reason: "TENANT_PASSIVE" },
-      });
-    if (revokedBindings > 0)
-      await writeAudit(tx, ctx, {
-        tenantId: id,
-        ...actor(auth),
-        action: BINDING_AUDIT.REVOKED,
-        entity: "device_bindings",
-        result: "success",
-        newValue: { reason: "TENANT_PASSIVE", count: revokedBindings },
-      });
-    await writeAudit(tx, ctx, {
-      tenantId: id,
-      ...actor(auth),
-      action: TENANT_AUDIT.DEACTIVATED,
-      entity: ENTITY,
-      entityId: id,
-      result: "success",
-      oldValue: { status: "ACTIVE" },
-      newValue: { status: "PASSIVE", revokedSessions, cancelledSessions, cancelledRequests: requestIds.length, revokedBindings },
-    });
-    return { requestIds, revokedBindings };
-  });
+  const done = await db.$transaction(async (tx) => deactivateTx(tx, ctx, auth, id));
   await afterDeactivate(fx, id, done);
   return getOrThrow(db, id);
-}
-
-/** Yalnız bildirimler; her adım ayrı (biri düşse de diğerleri çalışır), hata loglanır — DB durumu zaten commit'te. */
-async function afterDeactivate(fx: TenantLiveEffects, id: string, done: { requestIds: string[]; revokedBindings: number }): Promise<void> {
-  const step = async (name: string, run: () => Promise<unknown>): Promise<void> => {
-    try {
-      await run();
-    } catch (err) {
-      fx.log.error(
-        { err, alarm: "tenant_passive_effect", step: name, tenantId: id },
-        "firma pasife alma sonrası bildirim başarısız (yedek yol devralır)",
-      );
-    }
-  };
-  await step("rooms", () => fx.rooms.endByTenant(id));
-  await step("panels", async () => fx.hub.closeByTenant(id));
-  for (const requestId of done.requestIds) await step("requests", () => fx.requestClosed(id, requestId));
-  await step("bindings", async () => fx.bindingsRevoked(done.revokedBindings));
 }
 
 /** GET /admin/tenants/options (P14b, AC-226). */
@@ -301,52 +226,9 @@ export async function switchTenant(
 
 // --- tenant ayarları (AC-4; P10: AC-67 requireTech2fa, AC-78/79/122 SMTP) ---
 
-function settingsView(r: repo.SettingsRow): TenantSettingsView {
-  const logoUrl = tenantLogoUrl(r.tenant.logoPath);
-  const { sessionTtlMin, maxOpenSessions, maxActiveHours, maxFileMb, retentionDays, requireTech2fa } = r;
-  const smtp =
-    r.smtpHost && r.smtpPort && r.smtpSecurity && r.smtpFromEmail
-      ? {
-          host: r.smtpHost,
-          port: r.smtpPort,
-          security: r.smtpSecurity as SmtpSecurity,
-          user: r.smtpUser,
-          fromName: r.smtpFromName,
-          fromEmail: r.smtpFromEmail,
-          hasPassword: r.smtpPassEnc !== null,
-        }
-      : null;
-  return { logoUrl, sessionTtlMin, maxOpenSessions, maxActiveHours, maxFileMb, retentionDays, requireTech2fa, smtp };
-}
-
 export async function getTenantSettings(db: Db, tenantId: string): Promise<TenantSettingsView> {
   return settingsView(await repo.ensureSettings(db, tenantId));
 }
-
-const SCALARS = ["sessionTtlMin", "maxOpenSessions", "maxActiveHours", "maxFileMb", "retentionDays", "requireTech2fa"] as const;
-type SmtpAudit = {
-  host: string | null;
-  port: number | null;
-  security: string | null;
-  user: string | null;
-  fromName: string | null;
-  fromEmail: string | null;
-};
-const smtpAudit = (r: {
-  smtpHost: string | null;
-  smtpPort: number | null;
-  smtpSecurity: string | null;
-  smtpUser: string | null;
-  smtpFromName: string | null;
-  smtpFromEmail: string | null;
-}): SmtpAudit => ({
-  host: r.smtpHost,
-  port: r.smtpPort,
-  security: r.smtpSecurity,
-  user: r.smtpUser,
-  fromName: r.smtpFromName,
-  fromEmail: r.smtpFromEmail,
-});
 
 /**
  * PUT /settings/tenant: aralıklar zod'da (400); yalnız değişen alanlar yazılır ve audit'e eski → yeni girer.
@@ -362,55 +244,5 @@ export async function updateTenantSettings(
   input: UpdateTenantSettingsData,
 ): Promise<TenantSettingsView> {
   if (input.smtp) await sec.netguard.resolve(input.smtp.host);
-  return db.$transaction(async (tx) => {
-    const cur = await repo.lockSettings(tx, tenantId);
-    const next: Record<string, unknown> = {};
-    const old: Record<string, unknown> = {};
-    for (const k of SCALARS) {
-      const v = input[k];
-      if (v !== undefined && v !== cur[k]) [next[k], old[k]] = [v, cur[k]];
-    }
-    const data: Record<string, unknown> = { ...next };
-    if (input.smtp !== undefined) {
-      const before = smtpAudit(cur);
-      const s = input.smtp;
-      const passEnc =
-        s === null || s.user === null
-          ? null
-          : s.password !== undefined
-            ? sec.secrets.encrypt(s.password, aadFor.smtpPassword(tenantId))
-            : cur.smtpPassEnc;
-      const after: SmtpAudit =
-        s === null
-          ? { host: null, port: null, security: null, user: null, fromName: null, fromEmail: null }
-          : { host: s.host, port: s.port, security: s.security, user: s.user, fromName: s.fromName, fromEmail: s.fromEmail };
-      const passChanged = (s?.password !== undefined && s.user !== null) || (passEnc === null && cur.smtpPassEnc !== null);
-      if (JSON.stringify(before) !== JSON.stringify(after) || passChanged) {
-        Object.assign(data, {
-          smtpHost: after.host,
-          smtpPort: after.port,
-          smtpSecurity: after.security,
-          smtpUser: after.user,
-          smtpFromName: after.fromName,
-          smtpFromEmail: after.fromEmail,
-          smtpPassEnc: passEnc,
-        });
-        old.smtp = before;
-        next.smtp = passChanged ? { ...after, smtpPassword: "***" } : after;
-      }
-    }
-    if (Object.keys(data).length === 0) return settingsView(cur);
-    const saved = await repo.updateSettings(tx, tenantId, data);
-    await writeAudit(tx, ctx, {
-      tenantId,
-      ...actor(auth),
-      action: TENANT_AUDIT.SETTINGS_UPDATED,
-      entity: "tenant_settings",
-      entityId: tenantId,
-      result: "success",
-      oldValue: old as never,
-      newValue: next as never,
-    });
-    return settingsView(saved);
-  });
+  return db.$transaction(async (tx) => settingsTx(tx, sec.secrets, ctx, auth, tenantId, input));
 }

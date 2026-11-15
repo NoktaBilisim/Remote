@@ -19,7 +19,7 @@ import type { NetGuard } from "../lib/netguard.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import { renderMailHtml, type MailContent } from "./templates.ts";
 
-export const MAIL_TIMEOUT_MS = 10_000;
+const MAIL_TIMEOUT_MS = 10_000;
 /** Deneme başına mutlak tavan (yavaş damlatan sunucu dahil) = etkileşimli başarısızlık yanıt tabanı. */
 export const MAIL_ATTEMPT_CAP_MS = 12_000;
 
@@ -35,13 +35,13 @@ export interface SmtpConfig {
 
 /** Sunucu içi hata sınıfı (log/audit/metrik); kullanıcıya gösterilmez (SMTP_SEND_FAILED_MESSAGE). */
 export type SmtpFailure = "connect" | "auth" | "tls" | "rejected" | "port_not_allowed" | "insecure_auth";
-export type MailFailure = SmtpFailure | "not_configured";
-export type SendOutcome = { ok: true } | { ok: false; reason: MailFailure };
+type MailFailure = SmtpFailure | "not_configured";
+type SendOutcome = { ok: true } | { ok: false; reason: MailFailure };
 
 /** Test/enjeksiyon: nodemailer taşıyıcısı yerine. */
 export type TransportFactory = (opts: Record<string, unknown>) => { sendMail(m: Record<string, unknown>): Promise<unknown>; close(): void };
 
-export interface MailDeps {
+interface MailDeps {
   db: Db;
   secrets: SecretBox;
   netguard: NetGuard;

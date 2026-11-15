@@ -17,7 +17,7 @@ export const agentDownloadLocation = (code: string): string => `/downloads/Deste
 
 const UNAVAILABLE = "İndirme şu anda kullanılamıyor. Biraz sonra tekrar deneyin ya da tarayıcıdan paylaşımı kullanın.";
 
-export interface AgentDownloadDeps {
+interface AgentDownloadDeps {
   db: Db;
   limits: PublicLimits;
   refKey: string;

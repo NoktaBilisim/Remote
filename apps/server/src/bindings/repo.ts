@@ -153,12 +153,6 @@ export async function revokeById(tx: DbOrTx, id: string, tenantId: string, reaso
   return r.count;
 }
 
-/** "Bu bilgisayarı unut" (§3.4): anahtar özetiyle; satır yoksa 0. */
-export async function revokeByHash(tx: DbOrTx, keyHash: string, reason: BindingRevokeReason, now: Date): Promise<number> {
-  const r = await tx.deviceBinding.updateMany({ where: { keyHash, revokedAt: null }, data: revokeData(reason, now) });
-  return r.count;
-}
-
 /** Müşteri (customerId) ya da Genel (null) kayıtları toplu — IX(tenant_id, customer_id, revoked_at). */
 export async function revokeForOwner(
   tx: DbOrTx,

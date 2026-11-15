@@ -38,7 +38,7 @@ import { originOf, SmsClient, tenantUrlPortOk } from "../notify/sms.ts";
 const MIN_MS = 60_000;
 const HOUR_MS = 3_600_000;
 
-export interface SmsSettingsDeps {
+interface SmsSettingsDeps {
   db: Db;
   sms: SmsClient;
   secrets: SecretBox;
@@ -47,7 +47,7 @@ export interface SmsSettingsDeps {
   production: boolean;
 }
 
-export async function getSmsSettings(d: SmsSettingsDeps, tenantId: string): Promise<SmsSettingsView> {
+async function getSmsSettings(d: SmsSettingsDeps, tenantId: string): Promise<SmsSettingsView> {
   const s = await d.sms.state(tenantId);
   return {
     url: s.tenantUrl ? s.url : null,
@@ -61,7 +61,7 @@ export async function getSmsSettings(d: SmsSettingsDeps, tenantId: string): Prom
   };
 }
 
-export async function updateSmsSettings(
+async function updateSmsSettings(
   d: SmsSettingsDeps,
   ctx: AuditContext,
   auth: AuthContext,
@@ -119,13 +119,13 @@ export async function updateSmsSettings(
   return getSmsSettings(d, tenantId);
 }
 
-export interface SmsTestLimits {
+interface SmsTestLimits {
   user: FixedWindowCounter;
   tenant: FixedWindowCounter;
   recipient: FixedWindowCounter;
 }
 
-export async function testSms(
+async function testSms(
   d: SmsSettingsDeps,
   limits: SmsTestLimits,
   ctx: AuditContext,

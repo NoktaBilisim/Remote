@@ -156,11 +156,59 @@ export const mysqlFailureClass = (r: MysqlTestReason): "connect" | "auth" | "tls
   r === "connect" || r === "auth" || r === "tls" || r === "timeout" ? r : "other";
 
 /** Test hız kovaları: kişi başı (AC-77, 5/dk) + tüm Super Admin'ler için ortak (B-P11-4, 20/dk). */
-export interface MysqlTestLimits {
+interface MysqlTestLimits {
   perUser: FixedWindowCounter;
   global: FixedWindowCounter;
 }
 export const GLOBAL_KEY = "all";
+
+/** Kişi başı + global test kovası (biri kilitliyse ya da bu istek doldurursa 429). */
+function hitTestLimits(limits: MysqlTestLimits, userId: string): void {
+  const wait = Math.max(limits.perUser.blockedFor(userId), limits.global.blockedFor(GLOBAL_KEY));
+  if (wait > 0 || limits.perUser.hit(userId) || limits.global.hit(GLOBAL_KEY))
+    throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
+}
+
+/** Boş şifre: yalnız aynı hedefe ait kayıtlı (panel) ya da env şifresi; ikisi de yoksa 400, çözülemezse `unreadable`. */
+async function testPassword(
+  d: SystemDeps,
+  core: MysqlCore,
+  given: string | undefined,
+): Promise<{ password: string | undefined; unreadable: boolean }> {
+  let password = given;
+  let unreadable = false;
+  if (password === undefined) {
+    const rec = await readMysql(d.db);
+    if (rec?.secretEnc) {
+      if (sameTarget(rec.core, core)) {
+        const stored = openMysqlSecret(d, rec.core, rec.secretEnc);
+        if (stored === null) unreadable = true;
+        else password = stored;
+      }
+    } else {
+      const running = mysqlFromUrl(d.databaseUrl);
+      if (sameTarget(running, core)) password = running.password;
+    }
+    if (password === undefined && !unreadable) throw new AppError("VALIDATION", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } });
+  }
+  return { password, unreadable };
+}
+
+/** Ham sürücü hatası yalnız loga (kısaltılmış mesaj + ref); şifre alanı yok. */
+function logProbeFailure(d: SystemDeps, reason: MysqlTestReason, err: unknown): void {
+  const e = err as { errno?: unknown; code?: unknown; message?: unknown };
+  d.log.warn(
+    {
+      event: "mysql_test_failed",
+      ref: newId(),
+      reason,
+      errno: e.errno,
+      code: e.code,
+      msg: typeof e.message === "string" ? e.message.slice(0, 300) : undefined,
+    },
+    "MySQL bağlantı testi başarısız",
+  );
+}
 
 /**
  * POST /admin/settings/mysql/test. Şifre boşsa kayıtlı (panel) ya da env şifresi — YALNIZ hedef host/port/kullanıcı o
@@ -177,45 +225,15 @@ export async function testMysql(
   limits: MysqlTestLimits,
   probe: (t: ProbeTarget) => Promise<ProbeResult> = probeMysql,
 ): Promise<MysqlTestResponse> {
-  const wait = Math.max(limits.perUser.blockedFor(auth.user.id), limits.global.blockedFor(GLOBAL_KEY));
-  if (wait > 0 || limits.perUser.hit(auth.user.id) || limits.global.hit(GLOBAL_KEY))
-    throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
+  hitTestLimits(limits, auth.user.id);
   const core: MysqlCore = { host: input.host, port: input.port, database: input.database, user: input.user, requireTls: input.requireTls };
-  let password = input.password;
-  let unreadable = false;
-  if (password === undefined) {
-    const rec = await readMysql(d.db);
-    if (rec?.secretEnc) {
-      if (sameTarget(rec.core, core)) {
-        const stored = openMysqlSecret(d, rec.core, rec.secretEnc);
-        if (stored === null) unreadable = true;
-        else password = stored;
-      }
-    } else {
-      const running = mysqlFromUrl(d.databaseUrl);
-      if (sameTarget(running, core)) password = running.password;
-    }
-    if (password === undefined && !unreadable) throw new AppError("VALIDATION", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } });
-  }
+  const { password, unreadable } = await testPassword(d, core, input.password);
   const out: ProbeResult =
     unreadable || password === undefined
       ? { ok: false, reason: "secret_unreadable", latencyMs: 0, err: null }
       : await probe({ ...core, password });
   if (!out.ok) d.metrics.inc("rs_mysql_test_failed_total", { class: mysqlFailureClass(out.reason) });
-  if (!out.ok && out.err) {
-    const e = out.err as { errno?: unknown; code?: unknown; message?: unknown };
-    d.log.warn(
-      {
-        event: "mysql_test_failed",
-        ref: newId(),
-        reason: out.reason,
-        errno: e.errno,
-        code: e.code,
-        msg: typeof e.message === "string" ? e.message.slice(0, 300) : undefined,
-      },
-      "MySQL bağlantı testi başarısız",
-    );
-  }
+  if (!out.ok && out.err) logProbeFailure(d, out.reason, out.err);
   await writeAudit(d.db, ctx, {
     ...who(auth),
     action: SYSTEM_AUDIT.MYSQL_TEST,

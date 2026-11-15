@@ -23,7 +23,7 @@ import { ConcurrencyGate, GateBusyError } from "../lib/gate.ts";
 export type ImageKind = "logo" | "avatar";
 
 /** ~24 MP (ör. 6000×4000). 2 MB'lık sıkıştırılmış dosya çok daha büyük tuvale açılabilir (decompression bomb). */
-export const MAX_INPUT_PIXELS = 24_000_000;
+const MAX_INPUT_PIXELS = 24_000_000;
 
 const ACCEPTED_MIME: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/webp"]);
 const ACCEPTED_FORMAT: ReadonlySet<string> = new Set(["png", "jpeg", "webp"]);
@@ -31,7 +31,7 @@ const ACCEPTED_FORMAT: ReadonlySet<string> = new Set(["png", "jpeg", "webp"]);
 /** Eşzamanlı resim kod çözme (libvips + libuv havuzu argon2 ile ortak; girişleri geciktirmesin). */
 export const IMAGE_CONCURRENCY = 2;
 export const IMAGE_MAX_WAITING = 4;
-export const IMAGE_WAIT_MS = 10_000;
+const IMAGE_WAIT_MS = 10_000;
 export const IMAGE_BUSY_RETRY_SEC = 5;
 const GATE_KEY = "image";
 
@@ -63,7 +63,7 @@ export function dimensionsOk(width: number | undefined, height: number | undefin
   return lo >= IMAGE_MIN_EDGE_PX && hi <= lo * (kind === "logo" ? LOGO_MAX_ASPECT : AVATAR_MAX_ASPECT);
 }
 
-export interface ProcessedImage {
+interface ProcessedImage {
   data: Buffer;
   ext: "png" | "webp";
   width: number;

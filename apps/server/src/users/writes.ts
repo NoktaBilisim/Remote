@@ -39,7 +39,7 @@ export interface WriteCtx {
   hooks: LockHooks;
 }
 
-export interface UpdateOutcome {
+interface UpdateOutcome {
   roleChanged: boolean;
   before: Set<PermissionKey>;
   after: Set<PermissionKey>;

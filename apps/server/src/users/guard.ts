@@ -33,7 +33,7 @@ export class DeniedError extends AppError {
 }
 
 /** TX içinde yeniden okunan aktör (AC-202). */
-export interface Actor {
+interface Actor {
   role: Role;
   permissions: ReadonlySet<PermissionKey>;
 }

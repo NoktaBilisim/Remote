@@ -19,7 +19,7 @@ import { superadminTempPasswordExpired } from "./superadmin-reset.ts";
 import { canSignIn, mfaStageOf, openSession, toAuthUser, type AuthContext } from "./session.ts";
 
 /** P10 (AC-65): hesap geneli kilit konduğunda hesap sahibine bildirim (asenkron; SMTP yoksa yalnız audit). */
-export type LockNotifier = (user: { id: string; tenantId: string | null; email: string }) => void;
+type LockNotifier = (user: { id: string; tenantId: string | null; email: string }) => void;
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;

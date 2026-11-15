@@ -21,7 +21,7 @@ const TMP_NAME_RE = /^[A-Za-z0-9_-]{16,100}\.(png|jpg|webp)\.[0-9a-f]{12}\.tmp$/
 /** P16 (AC-243): yetim taraması durum dosyası (kök altında; öndek klasörü değil → hiçbir zaman sunulmaz/taranmaz). */
 const ORPHANS_FILE = ".orphans.json";
 
-export interface UploadListing {
+interface UploadListing {
   /** Geçerli göreli yollu düzenli dosyalar (`öndek/ad.uzantı`) ve değişiklik zamanı. */
   files: { rel: string; mtimeMs: number }[];
   /** `save()` geçici dosya artıkları (`öndek/…tmp`). */

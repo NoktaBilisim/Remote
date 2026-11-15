@@ -20,7 +20,7 @@ import { canViewAvatar, effectiveLogoUrl, systemLogoPath, systemLogoUrl } from "
 
 const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", webp: "image/webp" };
 /** Public marka ucu: 60/dk/IP (61. → 429, 1 dk). */
-export const BRANDING_PER_MIN = 60;
+const BRANDING_PER_MIN = 60;
 
 function relOf(req: FastifyRequest, ext: string): string {
   const p = req.params as { tenantId?: string; file?: string };

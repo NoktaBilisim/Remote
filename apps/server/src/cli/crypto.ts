@@ -19,7 +19,7 @@ import { aadFor, NOTIFY_RECIPIENT_KEY_VERSION, SecretBox } from "../lib/crypto.t
 import { Prisma } from "../generated/prisma/client.ts";
 import { createDb, type Db } from "../lib/db.ts";
 
-export const EXIT = { OK: 0, PENDING: 1, USAGE: 2, ERROR: 5 } as const;
+const EXIT = { OK: 0, PENDING: 1, USAGE: 2, ERROR: 5 } as const;
 export const REWRAP_BATCH = 500;
 export const CLI_ACTOR = "system:cli";
 // P19 J3 (S-P19-T6): firma SMS anahtarı da yeniden şifrelenir (AAD etkin kökene bağlı; `sms_url` NULL satırlarda köken
@@ -32,7 +32,7 @@ const verSchema = z.coerce.number().int().min(1).max(255);
 const urlSchema = z.string().regex(/^mysql:\/\/.+/);
 
 /** S-P18-T2a: sürümle şifrelenmiş satır sayısı (emeklilik ön koşulu: 0). */
-export async function countByVersion(db: Db, ver: number): Promise<number> {
+async function countByVersion(db: Db, ver: number): Promise<number> {
   const r = await db.$queryRaw<{ n: bigint | number }[]>`SELECT COUNT(*) AS n FROM session_messages WHERE ASCII(body_enc) = ${ver}`;
   return Number(r[0]?.n ?? 0);
 }
@@ -52,7 +52,7 @@ export async function countAllByVersion(db: Db, ver: number): Promise<Record<str
 }
 
 /** S-P19-T6: `tenant_settings.sms_api_key_enc` yeniden şifreleme (aynı AAD; köken tenant `sms_url` ?? `envSmsUrl`). */
-export async function rewrapSmsKeys(db: Db, box: SecretBox, fromVer: number, dry: boolean, envSmsUrl: string): Promise<RewrapResult> {
+async function rewrapSmsKeys(db: Db, box: SecretBox, fromVer: number, dry: boolean, envSmsUrl: string): Promise<RewrapResult> {
   const toVer = box.currentVersion;
   const out: RewrapResult = { rows: 0, failed: 0, toVer, batches: 0 };
   let errorName: string | null = null;
@@ -103,7 +103,7 @@ export async function rewrapSmsKeys(db: Db, box: SecretBox, fromVer: number, dry
   return out;
 }
 
-export interface RewrapResult {
+interface RewrapResult {
   /** Commit edilmiş partilerde yeniden şifrelenen (dry: çözülebilen) satır. */
   rows: number;
   failed: number;

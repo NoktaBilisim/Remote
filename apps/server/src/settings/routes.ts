@@ -160,7 +160,7 @@ export async function adminSettingsRoutes(
 }
 
 /** P13a (B-P12b-5): sistem ayarı PUT/DELETE üst sınırı (kullanıcı başına, dakika; üç ayar toplamı). */
-export const SYSTEM_SETTINGS_WRITES_PER_MIN = 10;
+const SYSTEM_SETTINGS_WRITES_PER_MIN = 10;
 
 /** B-P11-6: aydınlatma metni kaydı tenant başına 10/saat (11. → 429); geçerli her PUT sayılır (`changed:false` dahil). */
 export const CONSENT_SAVE_PER_HOUR = 10;

@@ -103,7 +103,7 @@ async function replayTenant(db: Db, id: string): Promise<Outcome> {
   });
 }
 
-export interface ReplayResult {
+interface ReplayResult {
   users: number;
   tenants: number;
   rejectedUsers: number;
@@ -136,7 +136,7 @@ export async function replay(db: Db, ledgerPath: string = ERASURE_LEDGER_PATH): 
   return result;
 }
 
-export interface VerifyResult {
+interface VerifyResult {
   pendingUsers: number;
   pendingTenants: number;
   rejectedUsers: number;

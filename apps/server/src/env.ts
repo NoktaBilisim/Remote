@@ -33,7 +33,7 @@ export function parseEncryptionKeys(raw: string): Map<number, Buffer> | null {
 }
 
 /** S14-7: herkesçe bilinen/zayıf anahtar — tüm baytları aynı (CI'daki 32 sıfır bayt dahil). Production'da reddedilir. */
-export const isWeakEncryptionKey = (key: Buffer): boolean => key.every((b) => b === key[0]);
+const isWeakEncryptionKey = (key: Buffer): boolean => key.every((b) => b === key[0]);
 
 const schema = z
   .object({

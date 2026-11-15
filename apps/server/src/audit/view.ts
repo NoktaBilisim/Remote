@@ -42,7 +42,7 @@ function projectOutbound(v: JsonValue): AuditJson {
 }
 
 /** `AUDIT_IDENTITY_KEYS` anahtarlarının değeri (iç içe dahil) `"***"`; null kalır. */
-export function maskIdentityKeys(v: JsonValue): JsonValue {
+function maskIdentityKeys(v: JsonValue): JsonValue {
   if (Array.isArray(v)) return v.map(maskIdentityKeys);
   if (v === null || typeof v !== "object") return v;
   const out: { [k: string]: JsonValue } = {};
@@ -63,13 +63,13 @@ export function auditValueView(action: string, raw: unknown, identityMasked = fa
 }
 
 /** Kimlik kararı için kullanıcı bilgisi (satırı olmayan id haritada yoktur). */
-export interface IdentityUser {
+interface IdentityUser {
   fullName: string;
   status: string;
 }
 
 /** Kullanıcı satırı yok ya da mezar taşı → silinmiş sayılır (fail-closed). */
-export const userGone = (id: string, users: ReadonlyMap<string, IdentityUser>): boolean => {
+const userGone = (id: string, users: ReadonlyMap<string, IdentityUser>): boolean => {
   const u = users.get(id);
   return !u || u.status === "DELETED";
 };
@@ -80,7 +80,7 @@ export function actorLabelOf(id: string, users: ReadonlyMap<string, IdentityUser
   return u && u.status !== "DELETED" ? u.fullName : deletedUserLabel(id);
 }
 
-export interface IdentityRow {
+interface IdentityRow {
   userId: string | null;
   username: string | null;
   entity: string;
@@ -90,7 +90,7 @@ export interface IdentityRow {
   tenantName: string | null;
 }
 
-export interface IdentityResult {
+interface IdentityResult {
   masked: boolean;
   username: string | null;
   actorLabel: string | null;

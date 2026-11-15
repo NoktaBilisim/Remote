@@ -128,7 +128,7 @@ export async function abuseEmail(db: DbOrTx, src: AbuseEmailSource): Promise<str
   return u?.email ?? null;
 }
 
-export interface PublishedConsent {
+interface PublishedConsent {
   id: string;
   version: number;
   sha256: string;

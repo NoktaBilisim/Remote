@@ -51,7 +51,14 @@ function idParam(req: FastifyRequest): string {
 
 export async function sessionRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", requireAuth);
+  createRoute(app);
+  listRoutes(app);
+  detailRoutes(app);
+  sendLinkRoutes(app);
+  endRoutes(app);
+}
 
+function createRoute(app: FastifyInstance): void {
   app.post("", { preHandler: requirePerm("sessions.create") }, async (req, reply): Promise<CreateSessionResponse> => {
     const { tenantId } = tenantScope(req);
     const { customerId } = parseInput(createSessionInputSchema, req.body);
@@ -69,7 +76,10 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
     void reply.status(201).header("Cache-Control", "no-store");
     return created;
   });
+}
 
+/** Liste, bekleyen lobiler ve CSV — statik yollar `/:id`'den önce kaydedilir. */
+function listRoutes(app: FastifyInstance): void {
   // S8-3: müşteri araması 60/dk/kullanıcı (61. istek 429).
   const customerSearchLimit = new FixedWindowCounter(61, MIN_MS, MIN_MS);
   app.addHook("onClose", async () => customerSearchLimit.close());
@@ -106,7 +116,9 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
       .header("X-Content-Type-Options", "nosniff");
     return reply.send(out.body);
   });
+}
 
+function detailRoutes(app: FastifyInstance): void {
   app.get("/:id", { preHandler: requirePerm("sessions.view") }, async (req): Promise<SessionView> => {
     return getSession(app.db, authOf(req), idParam(req));
   });
@@ -133,7 +145,9 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
     await emailSessionLink(app.mail, app.env.PUBLIC_BASE_URL, auditContext(req), authOf(req), tenantId, id, input);
     return { sent: true };
   });
+}
 
+function sendLinkRoutes(app: FastifyInstance): void {
   // P19 J3 (AC-260): bağlantıyı SMS/WhatsApp ile gönder — sessions.create + sessions.send_link; 20/sa/kullanıcı (audit).
   const sendLimits = createSendLinkLimits();
   app.addHook("onClose", async () => closeSendLinkLimits(sendLimits));
@@ -160,7 +174,9 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
     void reply.header("Cache-Control", "no-store");
     return sendLinkOptions(sendDeps(), authOf(req), tenantId, idParam(req));
   });
+}
 
+function endRoutes(app: FastifyInstance): void {
   app.post("/:id/cancel", { preHandler: requirePerm("sessions.delete") }, async (req): Promise<CancelSessionResponse> => {
     const { tenantId } = tenantScope(req);
     await cancelSession(app.db, auditContext(req), authOf(req), tenantId, idParam(req), app.rooms);

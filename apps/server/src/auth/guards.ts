@@ -14,7 +14,7 @@ export function checkOrigin(req: FastifyRequest): void {
   if (!origin || !req.server.env.allowedOrigins.includes(origin)) throw new AppError("CSRF_INVALID");
 }
 
-export type PublicClientKind = "BROWSER" | "AGENT";
+type PublicClientKind = "BROWSER" | "AGENT";
 
 /**
  * Public istemci türü kuralı (ADR-0012, mimari-api "Public istemci türü"): Origin varsa allowlist + BROWSER;

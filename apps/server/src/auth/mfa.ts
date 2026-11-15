@@ -6,8 +6,8 @@ import type { SecretBox } from "../lib/crypto.ts";
 import { base32Lower, safeEqual } from "../lib/ids.ts";
 
 export const TOTP_STEP_SEC = 30;
-export const TOTP_DIGITS = 6;
-export const TOTP_ISSUER = "Nokta Destek";
+const TOTP_DIGITS = 6;
+const TOTP_ISSUER = "Nokta Destek";
 
 export function base32Decode(s: string): Buffer {
   const A = "abcdefghijklmnopqrstuvwxyz234567";

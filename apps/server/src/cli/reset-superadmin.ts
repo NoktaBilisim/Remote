@@ -33,7 +33,7 @@ const USAGE = "kullanım: node src/cli/reset-superadmin.ts --email <e-posta> [--
 const emailSchema = z.string().trim().min(3).max(190).includes("@");
 
 /** Argümanlar: yalnız bilinen bayraklar, konumsal argüman yok, `--email` bir kez ve '@' içeren değer. */
-export function parseCliArgs(argv: string[]): SuperadminResetInput | null {
+function parseCliArgs(argv: string[]): SuperadminResetInput | null {
   try {
     const { values } = parseArgs({
       args: argv,

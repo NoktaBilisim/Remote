@@ -11,14 +11,14 @@ import { AppError } from "./errors.ts";
 import type { NetGuard } from "./netguard.ts";
 
 export type OutboundOutcome = "ok" | "timeout" | "unreachable" | "unauthorized" | "http_error" | "redirect" | "host_not_allowed";
-export type PublicOutcome = Exclude<OutboundOutcome, "timeout">;
+type PublicOutcome = Exclude<OutboundOutcome, "timeout">;
 
 const MAX_BODY_BYTES = 4 * 1024;
 
 /** S-P19-T7: dış hostta kör port taraması sinyali olmasın — zaman aşımı ile bağlantı reddi dışarıda aynı. */
 export const publicReason = (o: Exclude<OutboundOutcome, "ok">): Exclude<PublicOutcome, "ok"> => (o === "timeout" ? "unreachable" : o);
 
-export interface PostJsonOptions {
+interface PostJsonOptions {
   headers?: Record<string, string>;
   timeoutMs: number;
   guard: NetGuard | null;

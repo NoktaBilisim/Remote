@@ -21,7 +21,7 @@ export interface AuditCursor {
   id: bigint;
 }
 
-export function auditWhere(scope: AuditScope, f: AuditFilter, after: AuditCursor | null): Prisma.AuditLogWhereInput {
+function auditWhere(scope: AuditScope, f: AuditFilter, after: AuditCursor | null): Prisma.AuditLogWhereInput {
   const and: Prisma.AuditLogWhereInput[] = [{ createdAt: { gte: f.from, lt: f.to } }];
   if (scope.kind === "tenant") and.push({ tenantId: scope.tenantId });
   else if (f.tenantId) and.push({ tenantId: f.tenantId });

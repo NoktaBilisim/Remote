@@ -33,7 +33,7 @@ const DAY_MS = 86_400_000;
 const EXPORT_BATCH = 1000;
 const istanbulDayStart = (day: string): Date => new Date(`${day}T00:00:00+03:00`);
 
-export function auditScope(auth: AuthContext): repo.AuditScope {
+function auditScope(auth: AuthContext): repo.AuditScope {
   if (auth.user.role === "SUPER_ADMIN" && !auth.tenantId) return { kind: "all" };
   if (!auth.tenantId) throw new AppError("FORBIDDEN");
   return { kind: "tenant", tenantId: auth.tenantId };
@@ -117,7 +117,7 @@ export async function listAuditItems(db: Db, auth: AuthContext, q: ListAuditQuer
 
 // ---- CSV (AC-124) ----
 
-export interface AuditCsvExport {
+interface AuditCsvExport {
   filename: string;
   body: Readable;
 }

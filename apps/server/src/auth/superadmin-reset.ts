@@ -9,11 +9,11 @@ import { newId, newTemporaryPassword } from "../lib/ids.ts";
 import { hashPassword } from "./password.ts";
 
 /** Geçici parola uzunluğu (karışmayan 56 sembol × 20 ≈ 116 bit; politika ≥ 12). */
-export const SUPERADMIN_TEMP_PASSWORD_LENGTH = 20;
-export const CLI_USERNAME = "cli";
-export const CLI_USER_AGENT = "reset-superadmin-cli";
+const SUPERADMIN_TEMP_PASSWORD_LENGTH = 20;
+const CLI_USERNAME = "cli";
+const CLI_USER_AGENT = "reset-superadmin-cli";
 /** G-P13b-10: CLI geçici parolasının ömrü; aşılınca giriş reddedilir, CLI yeniden çalıştırılır. */
-export const SUPERADMIN_TEMP_TTL_MS = 24 * 3_600_000;
+const SUPERADMIN_TEMP_TTL_MS = 24 * 3_600_000;
 
 export interface SuperadminResetInput {
   /** Login ile aynı normalizasyon: trim + küçük harf (S1-8: '@' içeren girdi yalnız e-posta). */
@@ -22,12 +22,12 @@ export interface SuperadminResetInput {
   dryRun: boolean;
 }
 
-export type SuperadminResetResult =
+type SuperadminResetResult =
   | { kind: "not_found" }
   | { kind: "dry_run"; userId: string }
   | { kind: "reset"; userId: string; tempPassword: string; revokedSessions: number; mfaReset: boolean };
 
-export const normalizeLoginEmail = (email: string): string => email.trim().toLowerCase();
+const normalizeLoginEmail = (email: string): string => email.trim().toLowerCase();
 
 /** Sistem aktörü bağlamı: IP yok (audit ekranında boş), UA sabit; correlation = çalıştırma kimliği. */
 export const cliAuditContext = (): AuditContext => ({ ip: "", userAgent: CLI_USER_AGENT, requestId: newId() });
@@ -35,14 +35,14 @@ export const cliAuditContext = (): AuditContext => ({ ip: "", userAgent: CLI_USE
 const eligible = { role: "SUPER_ADMIN", deletedAt: null, status: "ACTIVE" } as const;
 
 /** Audit aktörü: CLI (`username="cli"`, user_id NULL) ya da panel (P15: işlemi yapan Super Admin). */
-export interface ResetActor {
+interface ResetActor {
   userId: string | null;
   username: string;
   via: "cli" | "panel";
 }
 const CLI_ACTOR: ResetActor = { userId: null, username: CLI_USERNAME, via: "cli" };
 
-export type ResetCoreResult = { kind: "not_found" } | { kind: "reset"; tempPassword: string; revokedSessions: number };
+type ResetCoreResult = { kind: "not_found" } | { kind: "reset"; tempPassword: string; revokedSessions: number };
 
 /**
  * Ortak çekirdek (CLI + P15 panel ucu; kopya yok): tek TX'te parola + `must_change_password` + kilit sayaçları, açık

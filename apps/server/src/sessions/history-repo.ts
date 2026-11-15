@@ -225,7 +225,7 @@ const auditSelect = {
   newValue: true,
   result: true,
 } as const;
-export type HistoryAuditRow = Prisma.AuditLogGetPayload<{ select: typeof auditSelect }>;
+type HistoryAuditRow = Prisma.AuditLogGetPayload<{ select: typeof auditSelect }>;
 
 /** IX(tenant_id, entity, entity_id, created_at) (dba P8). IP/UA seçilmez. */
 export function auditsOf(

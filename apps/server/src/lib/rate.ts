@@ -13,7 +13,7 @@ interface Entry {
   blockedUntil: number;
 }
 
-export interface CounterOptions {
+interface CounterOptions {
   maxEntries?: number;
   sweepIntervalMs?: number;
   now?: () => number;

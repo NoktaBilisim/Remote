@@ -41,7 +41,7 @@ const BLOCKED_V6 = new BlockList();
 for (const [n, b] of V6_DENY_IN_GLOBAL) BLOCKED_V6.addSubnet(n, b, "ipv6");
 
 /** IPv6 metni → 16 bayt (sonda noktalı IPv4 desteklenir); geçersiz ya da bölge kimlikli (%eth0) ise null. */
-export function parseIpv6(ip: string): number[] | null {
+function parseIpv6(ip: string): number[] | null {
   if (isIP(ip) !== 6 || ip.includes("%")) return null;
   let s = ip.toLowerCase();
   let tail: number[] = [];
@@ -112,7 +112,7 @@ for (const [n, b] of [
   PRIVATE.addSubnet(n, b, "ipv4");
 PRIVATE.addSubnet("fc00::", 7, "ipv6");
 
-export type HostClass = "loopback" | "private" | "public" | "unresolved";
+type HostClass = "loopback" | "private" | "public" | "unresolved";
 
 const familyOf = (ip: string): "ipv4" | "ipv6" => (isIP(ip) === 6 ? "ipv6" : "ipv4");
 
@@ -153,11 +153,11 @@ export interface NetGuard {
   resolve(host: string): Promise<string>;
 }
 
-export const HOST_NOT_ALLOWED_MESSAGE = "Bu sunucu adresi kullanılamaz.";
+const HOST_NOT_ALLOWED_MESSAGE = "Bu sunucu adresi kullanılamaz.";
 
 const bare = (h: string): string => h.replace(/^\[|\]$/g, "").toLowerCase();
 
-export interface NetGuardOptions {
+interface NetGuardOptions {
   lookupAll?: (host: string) => Promise<string[]>;
   isBlocked?: (ip: string) => boolean;
   /** Kendi adlarımız (PUBLIC_BASE_URL hostu); çözümlenen IP'ler hedef olamaz. */

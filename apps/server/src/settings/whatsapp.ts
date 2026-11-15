@@ -42,7 +42,7 @@ const envKeyActive = (d: Pick<SystemDeps, "whatsappEnvUrl" | "whatsappEnvApiKey"
   d.whatsappEnvUrl !== "" && Boolean(d.whatsappEnvApiKey);
 
 /** Etkin hedef (notifier'a uygulanır): adres ve onunla birlikte gelen anahtar. Anahtar asla dönmez/loglanmaz. */
-export interface WhatsappTarget {
+interface WhatsappTarget {
   url: string;
   apiKey: string | null;
 }
@@ -155,7 +155,7 @@ export async function deleteWhatsappSettings(d: SystemDeps, ctx: AuditContext, a
 }
 
 /** Test hız kovaları: kişi başı (AC-196, 5/dk) + tüm Super Admin'ler için ortak (B-P12b-5, 20/dk; MySQL testi kalıbı). */
-export interface WhatsappTestLimits {
+interface WhatsappTestLimits {
   perUser: FixedWindowCounter;
   global: FixedWindowCounter;
 }

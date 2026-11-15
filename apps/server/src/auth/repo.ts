@@ -88,7 +88,7 @@ const sessionInclude = {
   actingTenant: tenantRef,
 } as const;
 
-export type SessionWithUser = Prisma.AuthSessionGetPayload<{ include: typeof sessionInclude }>;
+type SessionWithUser = Prisma.AuthSessionGetPayload<{ include: typeof sessionInclude }>;
 
 export function findSessionByHash(db: DbOrTx, tokenHash: string): Promise<SessionWithUser | null> {
   return db.authSession.findUnique({ where: { tokenHash }, include: sessionInclude });

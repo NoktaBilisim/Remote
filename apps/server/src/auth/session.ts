@@ -8,8 +8,8 @@ import { newId, newSecretToken, sha256Hex } from "../lib/ids.ts";
 import { avatarUrlFor } from "../uploads/urls.ts";
 import { createSession, findSessionByHash, touchSession, type LoginUser } from "./repo.ts";
 
-export const SESSION_ABSOLUTE_MS = 8 * 60 * 60 * 1000;
-export const SESSION_IDLE_MS = 30 * 60 * 1000;
+const SESSION_ABSOLUTE_MS = 8 * 60 * 60 * 1000;
+const SESSION_IDLE_MS = 30 * 60 * 1000;
 const TOUCH_INTERVAL_MS = 60 * 1000;
 
 export interface AuthContext {
@@ -33,7 +33,7 @@ export interface AuthContext {
 }
 
 /** AC-67: SUPER_ADMIN/ADMIN her zaman; USER tenant `require_tech_2fa` ile (ayar satırı yoksa varsayılan true). */
-export function mfaRequiredFor(u: LoginUser): boolean {
+function mfaRequiredFor(u: LoginUser): boolean {
   if (u.role !== "USER") return true;
   return u.tenant?.settings?.requireTech2fa ?? true;
 }

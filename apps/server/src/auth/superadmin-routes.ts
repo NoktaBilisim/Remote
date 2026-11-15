@@ -16,7 +16,7 @@ import { authOf, requireAuth, requireStepUp, requireSuperAdmin } from "./guards.
 import { resetSuperadminById } from "./superadmin-reset.ts";
 
 /** Panel sıfırlama: kullanıcı başına dakikada 5 (geçici parola üretimi + argon2). */
-export const SUPERADMIN_RESETS_PER_MIN = 5;
+const SUPERADMIN_RESETS_PER_MIN = 5;
 
 export async function superadminRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", requireAuth);

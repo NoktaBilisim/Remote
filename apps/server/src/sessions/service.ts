@@ -16,7 +16,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const HOURLY_CREATE_LIMIT = 20; // AC-12
 const CODE_ATTEMPTS = 5;
 
-export interface CodeGenerators {
+interface CodeGenerators {
   token: () => string;
   code: () => string;
   verify: () => string;

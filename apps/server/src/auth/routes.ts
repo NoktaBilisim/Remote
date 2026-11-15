@@ -74,6 +74,16 @@ function clearSessionCookies(reply: FastifyReply): void {
 }
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
+  loginRoute(app);
+  mfaRoutes(app);
+  passwordRoutes(app);
+  logoutRoute(app);
+  profileRoutes(app);
+  meRoute(app);
+}
+
+/** Giriş (public, Origin zorunlu). */
+function loginRoute(app: FastifyInstance): void {
   app.post("/login", async (req, reply): Promise<LoginResponse> => {
     checkOrigin(req);
     const input = parseInput(loginInputSchema, req.body);
@@ -97,7 +107,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       mustChangePassword: result.user.mustChangePassword,
     };
   });
+}
 
+function mfaRoutes(app: FastifyInstance): void {
   // --- P10: 2FA (AC-67) ---
   app.post(
     "/mfa/verify",
@@ -138,7 +150,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     noStore(reply);
     return { codes: await regenerateRecoveryCodes(app.account, auditContext(req), authOf(req), code) };
   });
+}
 
+/** Tüm cihazlardan çıkış + şifre sıfırlama (P10). */
+function passwordRoutes(app: FastifyInstance): void {
   // --- P10: tüm cihazlardan çıkış (AC-68, 115) ---
   app.post("/logout-all", { preHandler: requireAuth }, async (req): Promise<LogoutAllResponse> => {
     parseInput(logoutAllInputSchema, req.body);
@@ -159,7 +174,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     await resetPassword(app.account, auditContext(req), input);
     return reply.status(204).send();
   });
+}
 
+/** Çıkış (S1-10, G-E9-14). */
+function logoutRoute(app: FastifyInstance): void {
   // Doğrulama/CSRF hatasında da çerezleri temizleyen yanıt döner; sunucu oturumu yalnız geçerli istekte iptal edilir (S1-10).
   const logoutGuard = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     try {
@@ -178,7 +196,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     clearSessionCookies(reply);
     return reply.status(204).send();
   });
+}
 
+/** Şifre değişimi ve tema tercihi. */
+function profileRoutes(app: FastifyInstance): void {
   app.post(
     "/password/change",
     { config: { allowPasswordChangePending: true, mfaSetupStage: true }, preHandler: requireAuth },
@@ -202,7 +223,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return { theme };
     },
   );
+}
 
+function meRoute(app: FastifyInstance): void {
   app.get("/me", pendingOk, async (req, reply): Promise<MeResponse> => {
     const auth = authOf(req);
     const ok = auth.mfaStage === "ok";

@@ -20,8 +20,8 @@ import type { Clock } from "../signaling/types.ts";
 import { isInsecureServiceUrl, isParsableServiceUrl, keyOverPlainHttp } from "./service-url.ts";
 
 export const WA_TIMEOUT_MS = 8_000;
-export const WA_RETRY_DELAYS_MS = [0, 5_000, 20_000] as const;
-export const WA_LIMITS = { tenantPerHour: 30, recipientPerHour: 10, globalPerHour: 300 } as const;
+const WA_RETRY_DELAYS_MS = [0, 5_000, 20_000] as const;
+const WA_LIMITS = { tenantPerHour: 30, recipientPerHour: 10, globalPerHour: 300 } as const;
 const HOUR_MS = 3_600_000;
 const FIRM_MAX = 60;
 
@@ -36,7 +36,7 @@ interface Log {
   error(obj: object, msg: string): void;
 }
 
-export interface WhatsappDeps {
+interface WhatsappDeps {
   /** Başlangıç adresi (env `WHATSAPP_SERVICE_URL`); panel kaydı `setUrl` ile uygulanır. */
   url: string;
   /** S-P13b-3: başlangıç anahtarı (env `WHATSAPP_SERVICE_API_KEY`); varsa her istekte `x-api-key`. */
@@ -51,7 +51,7 @@ export interface WhatsappDeps {
 }
 
 /** Firma adı: tek satır, WhatsApp biçim karakterleri (`* _ ~ \``) yok, ≤ 60 karakter. */
-export function firmLabel(name: string): string {
+function firmLabel(name: string): string {
   return [
     ...name
       .replace(/[*_~`]/g, "")
@@ -63,11 +63,11 @@ export function firmLabel(name: string): string {
 }
 
 /** Kişisel verisiz şablon (§13.5): satır 1 firma + talep kodu, satır 2 sabit panel bağlantısı. */
-export function newRequestMessage(firm: string, requestCode: string, publicBaseUrl: string): string {
+function newRequestMessage(firm: string, requestCode: string, publicBaseUrl: string): string {
   return `Yeni destek talebi – ${firmLabel(firm)} – panelde görüntüleyin. Talep kodu: ${requestCode}\n${panelLink(publicBaseUrl)}`;
 }
 
-export function summaryMessage(firm: string, count: number, publicBaseUrl: string): string {
+function summaryMessage(firm: string, count: number, publicBaseUrl: string): string {
   return `Son 1 saatte ${count} yeni destek talebi daha – ${firmLabel(firm)} – panelde görüntüleyin.\n${panelLink(publicBaseUrl)}`;
 }
 
@@ -87,10 +87,9 @@ interface Window {
   globalAlarmed: boolean;
 }
 
-export type SendResult = "success" | "fail";
 /** Tek çağrı sonucu: başarı ya da sınıflandırılmış neden (ayrıntı yalnız log). */
-export type PostOutcome = "ok" | Exclude<WhatsappTestReason, "unconfigured" | "insecure">;
-export interface WhatsappTestOutcome {
+type PostOutcome = "ok" | Exclude<WhatsappTestReason, "unconfigured" | "insecure">;
+interface WhatsappTestOutcome {
   ok: boolean;
   message: string;
   reason: WhatsappTestReason | null;

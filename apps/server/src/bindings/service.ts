@@ -3,7 +3,6 @@
 // Anahtar yalnız `binding.issued` mesajında döner; DB'de SHA-256; log/audit'te asla (logger REDACT `*.bindingKey`).
 import type { BindingInfo, BindingRevokeReason } from "@remote/contracts/api/bindings";
 import {
-  BINDING_DENIED_MESSAGE,
   BINDING_LIMIT_MESSAGE,
   bindingKeySchema,
   bindingRevokeInputSchema,
@@ -11,27 +10,23 @@ import {
 } from "@remote/contracts/api/bindings";
 import { RETENTION_DEFAULT_DAYS } from "@remote/contracts/api/tenants";
 import { BINDING_AUDIT } from "@remote/contracts/audit";
-import type { ServerOutbound } from "@remote/contracts/ws";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import { conflictIndex, isTransientDbError, REQUEST_TX_OPTIONS } from "../lib/db.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
-import { newBindingKey, newId, sha256Hex } from "../lib/ids.ts";
+import { newBindingKey, sha256Hex } from "../lib/ids.ts";
 import { ipKey } from "../lib/ip.ts";
 import { isOutdated } from "../lib/version.ts";
 import { outdated } from "../sessions/public.ts";
 import { ensureSettings } from "../requests/panel.ts";
-import * as crepo from "../customers/repo.ts";
 import * as rrepo from "../requests/repo.ts";
 import { CUSTOMER, SYSTEM, SYSTEM_CTX, type RequestService } from "../requests/service.ts";
+import { Denied, ENTITY, denied, issueWrite, tenantActive, type IssueInput, type IssueResult } from "./issue-tx.ts";
 import * as repo from "./repo.ts";
 
 const DAY_MS = 86_400_000;
 const ACTIVE_SESSION_UQ = "device_bindings_active_session_id_key";
-const ENTITY = "device_bindings";
 const BATCH = 1000;
-
-const tenantActive = (t: { status: string; deletedAt: Date | null }): boolean => t.status === "ACTIVE" && t.deletedAt === null;
 
 /** Kullanım koşulları (§3.4): tenant aktif, müşteri yok ya da aktif, son kullanımdan saklama süresi geçmemiş, ayar satırı var. */
 function usable(row: repo.BindingUseRow, now: number): boolean {
@@ -98,42 +93,6 @@ export async function bindingRevoke(svc: RequestService, ctx: AuditContext, body
 
 // ------------------------------------------------------------------ verme (WS binding.request)
 
-/** Ret nedeni yalnız sunucuda (audit `binding.denied{reason}` + `rs_binding_denied_total{reason}`); istemciye tek mesaj. */
-
-class Denied extends Error {
-  readonly reason: "stale_source" | "inactive" | "capacity";
-  readonly requestId: string | null;
-  constructor(reason: "stale_source" | "inactive" | "capacity", requestId: string | null = null) {
-    super("binding_denied");
-    this.reason = reason;
-    this.requestId = requestId;
-  }
-}
-
-export type IssueResult =
-  { ok: true; msg: Extract<ServerOutbound, { t: "binding.issued" }> } | { ok: false; code: "CONFLICT" | "BINDING_LIMIT"; message: string };
-
-/** WS `binding.request` girdisi. `previousKeys` (P20 çoklu dal) ile `previousKey` (eski dal) birlikte gelmez (şema). */
-export type IssueInput = {
-  sessionId: string;
-  clientVersion: string;
-  previousKey?: string | undefined;
-  previousKeys?: readonly string[] | undefined;
-  full?: boolean | undefined;
-};
-const denied = { ok: false, code: "CONFLICT", message: BINDING_DENIED_MESSAGE } as const;
-
-const sessionSelect = {
-  tenantId: true,
-  customerId: true,
-  requestId: true,
-  tenant: { select: { name: true, status: true, deletedAt: true, requestSettings: { select: { refRotatedAt: true } } } },
-  customer: { select: { name: true } },
-  request: {
-    select: { createdAt: true, bindingId: true, binding: { select: { revokedAt: true } }, customer: { select: { refRotatedAt: true } } },
-  },
-} as const;
-
 /**
  * Verme TX'i (§3.4 + §15.1 bayat kaynak + §15.3 adım sırası + §15.4 müşteri ataması). Kabul koşulları: oturum ACTIVE +
  * mode AGENT, tenant aktif, oturumun müşterisi varsa aktif (satır FOR SHARE → eşzamanlı pasife alma bekler).
@@ -178,103 +137,7 @@ async function issueTx(svc: RequestService, ctx: AuditContext, a: IssueInput): P
   const key = newBindingKey();
   const keyHash = sha256Hex(key);
   const hashes = a.previousKeys?.map(sha256Hex);
-  const out = await db.$transaction(async (tx) => {
-    const now = new Date(svc.d.clock.now());
-    const s = await tx.supportSession.findFirst({ where: { id: a.sessionId, status: "ACTIVE", mode: "AGENT" }, select: sessionSelect });
-    if (!s || !tenantActive(s.tenant)) throw new Denied("inactive");
-    // Durum kilitli okumanın kendisinden (anlık görüntü değil): eşzamanlı pasife alma commit'i kaçmaz (B-P8c-1).
-    if (s.customerId && (await crepo.shareStatus(tx, s.tenantId, s.customerId)) !== "ACTIVE") throw new Denied("inactive");
-    // §15.1 bayat kaynak: talepten doğan oturum. Kod yolu (requestId NULL) muaf.
-    if (s.requestId && s.request) {
-      const r = s.request;
-      const stale = r.bindingId
-        ? r.binding?.revokedAt !== null
-        : r.createdAt.getTime() < ((r.customer ? r.customer.refRotatedAt : s.tenant.requestSettings?.refRotatedAt)?.getTime() ?? 0);
-      if (stale) throw new Denied("stale_source", s.requestId);
-    }
-
-    // §15.3 adım 1–2
-    const cur = await repo.lockActiveOfSession(tx, a.sessionId);
-    let prev: repo.IssueRow | null = null;
-    let target: repo.IssueRow | null;
-    let sameTenantReplaced = 0;
-    if (hashes) {
-      // P20 çoklu dal (§8d.2, S-P20-4): yalnız oturum tenant'ının satırları; başka tenant'ın satırı asla iptal edilmez.
-      const mine = cur ? [] : await repo.lockActiveByHashesForTenant(tx, s.tenantId, hashes);
-      target = cur ?? mine[0] ?? null;
-      if (!target && a.full) throw new Denied("capacity");
-      for (const r of mine.slice(1)) {
-        // §8d.2 adım 4: aynı tenant fazlası REPLACED (aynı tenant; karşı tenant bilgisi yok).
-        if ((await repo.revokeById(tx, r.id, s.tenantId, "REPLACED", now)) === 0) continue;
-        sameTenantReplaced++;
-        await writeAudit(tx, ctx, {
-          tenantId: s.tenantId,
-          ...CUSTOMER,
-          action: BINDING_AUDIT.REVOKED,
-          entity: ENTITY,
-          entityId: r.id,
-          result: "success",
-          newValue: { reason: "REPLACED" },
-        });
-      }
-    } else {
-      prev = !cur && a.previousKey ? await repo.lockActiveByHash(tx, sha256Hex(a.previousKey)) : null;
-      target = cur ?? (prev && prev.tenantId === s.tenantId ? prev : null);
-    }
-    const previousIndex = hashes ? (target?.keyHash ? hashes.indexOf(target.keyHash) : -1) : undefined;
-    let bindingId: string;
-    let customerId: string | null = s.customerId;
-    let replaced: { id: string; tenantId: string } | null = null;
-    if (target) {
-      // §15.4: müşterisiz oturum aynı tenant kaydının müşteri bağını korur (müşteri hâlâ aktifse).
-      if (!s.customerId && target.customerId) {
-        customerId = (await crepo.shareStatus(tx, s.tenantId, target.customerId)) === "ACTIVE" ? target.customerId : null;
-      }
-      await repo.renew(tx, target.id, { keyHash, customerId, sessionId: a.sessionId, clientVersion: a.clientVersion, now });
-      bindingId = target.id;
-    } else {
-      if (prev) {
-        // §15.3 adım 5 + G-E10-4: başka tenant'ın kaydı REPLACED; karşı tenant kimliği hiçbir tarafta yazılmaz.
-        await repo.revokeById(tx, prev.id, prev.tenantId, "REPLACED", now);
-        await writeAudit(tx, ctx, {
-          tenantId: prev.tenantId,
-          ...CUSTOMER,
-          action: BINDING_AUDIT.REVOKED,
-          entity: ENTITY,
-          entityId: prev.id,
-          result: "success",
-          newValue: { reason: "REPLACED" },
-        });
-        replaced = prev;
-      }
-      bindingId = newId();
-      await repo.insertBinding(tx, {
-        id: bindingId,
-        tenantId: s.tenantId,
-        customerId,
-        keyHash,
-        sessionId: a.sessionId,
-        clientVersion: a.clientVersion,
-        now,
-      });
-    }
-    const renewed = target !== null;
-    await writeAudit(tx, ctx, {
-      tenantId: s.tenantId,
-      ...CUSTOMER,
-      action: BINDING_AUDIT.ISSUED,
-      entity: ENTITY,
-      entityId: bindingId,
-      result: "success",
-      newValue: { customerId, renewed, replacedOtherTenant: replaced !== null, ...(hashes ? { multi: true } : {}) },
-    });
-    const firm = customerId
-      ? customerId === s.customerId
-        ? (s.customer?.name ?? null)
-        : ((await tx.customer.findUnique({ where: { id: customerId }, select: { name: true } }))?.name ?? null)
-      : null;
-    return { renewed, replaced: (replaced ? 1 : 0) + sameTenantReplaced, tenantName: s.tenant.name, firm, previousIndex };
-  }, REQUEST_TX_OPTIONS);
+  const out = await db.$transaction(async (tx) => issueWrite(svc, tx, ctx, a, keyHash, hashes), REQUEST_TX_OPTIONS);
   svc.d.metrics.inc("rs_bindings_issued_total", { renewed: String(out.renewed), multi: String(hashes !== undefined) });
   countRevoked(svc, "REPLACED", out.replaced);
   return {
@@ -347,7 +210,7 @@ export function countRevoked(svc: RequestService, reason: BindingRevokeReason, n
 // ------------------------------------------------------------------ işler
 
 /** Pasif tenant'ın etkin kayıtları → TENANT_PASSIVE (P9 `revokeForTenant` + 30 sn süpürücü yedeği). Tenant başına tek özet audit. */
-export async function revokeForTenant(svc: RequestService, tenantId: string): Promise<number> {
+async function revokeForTenant(svc: RequestService, tenantId: string): Promise<number> {
   let total = 0;
   const now = new Date(svc.d.clock.now());
   for (;;) {

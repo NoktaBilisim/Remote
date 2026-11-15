@@ -14,16 +14,16 @@ import { postJson, type OutboundOutcome } from "../lib/outbound.ts";
 import type { Metrics } from "../ops/metrics.ts";
 import { isInsecureServiceTarget, isParsableServiceUrl } from "./service-url.ts";
 
-export const SMS_TIMEOUT_MS = 8_000;
+const SMS_TIMEOUT_MS = 8_000;
 const HOUR_MS = 3_600_000;
 
-export type SmsOutcome = OutboundOutcome | "unconfigured" | "invalid_phone";
+type SmsOutcome = OutboundOutcome | "unconfigured" | "invalid_phone";
 
 interface Log {
   warn(obj: object, msg: string): void;
 }
 
-export interface SmsDeps {
+interface SmsDeps {
   db: Pick<Db, "tenantSettings">;
   secrets: SecretBox;
   guard: NetGuard;
@@ -35,7 +35,7 @@ export interface SmsDeps {
   now?: () => number;
 }
 
-export interface SmsState {
+interface SmsState {
   url: string | null;
   /** Etkin adres tenant kaydı mı (netguard + 443 kuralı yalnız onda). */
   tenantUrl: boolean;

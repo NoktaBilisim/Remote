@@ -143,7 +143,7 @@ export async function adminTenantRoutes(app: FastifyInstance): Promise<void> {
 }
 
 /** P14a (AC-203): `/admin/tenants*` ve `/admin/switch-tenant` yazma üst sınırı (kullanıcı başına, dakika). */
-export const ADMIN_WRITES_PER_MIN = 30;
+const ADMIN_WRITES_PER_MIN = 30;
 
 export async function tenantSettingsRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", requireAuth);

@@ -30,13 +30,13 @@ import type { SmsClient } from "./sms.ts";
 import { statusMail, statusMessage } from "./templates.ts";
 import type { WhatsappNotifier } from "./whatsapp.ts";
 
-export const OUTBOX_RETRY_DELAYS_MS = [0, 10_000, 30_000] as const;
-export const OUTBOX_MAX_ATTEMPTS = OUTBOX_RETRY_DELAYS_MS.length;
+const OUTBOX_RETRY_DELAYS_MS = [0, 10_000, 30_000] as const;
+const OUTBOX_MAX_ATTEMPTS = OUTBOX_RETRY_DELAYS_MS.length;
 export const OUTBOX_POLL_MS = 2_000;
-export const OUTBOX_BATCH = 20;
-export const OUTBOX_STALE_SENDING_MS = 60_000;
-export const OUTBOX_RETENTION_MS = 7 * 86_400_000;
-export const OUTBOX_CLEANUP_BATCH = 1000;
+const OUTBOX_BATCH = 20;
+const OUTBOX_STALE_SENDING_MS = 60_000;
+const OUTBOX_RETENTION_MS = 7 * 86_400_000;
+const OUTBOX_CLEANUP_BATCH = 1000;
 const CLEANUP_EVERY_MS = 3_600_000;
 const VOLUME_EVERY_MS = 300_000;
 const HOUR_MS = 3_600_000;
@@ -53,7 +53,7 @@ interface Log {
   error(obj: object, msg: string): void;
 }
 
-export interface OutboxDeps {
+interface OutboxDeps {
   db: Db;
   secrets: SecretBox;
   sms: SmsClient;
