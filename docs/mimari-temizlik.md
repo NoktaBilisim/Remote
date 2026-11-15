@@ -292,8 +292,9 @@ Bu nedenle `docs/tasarim-kontrol.md` güncellenmedi.
 - K-PT-2: PT-D1 bağımlılığının kalıcı olması (sonraki paketlerin DoD'sine "kapsam düşmez" eklenmesi). Varsayılan: evet,
   ölçüm raporu olarak; eşik koymadan.
 - K-PT-3 (karar, 2026-11-15): AC-322 fikstür maddesi revize edildi (gereksinimler §10): gövdesi birebir aynı kopyalar
-  tek tanım; gövdesi farklı olan sunucu entegrasyon `boot` ×7 (5 farklı gövde, her biri kendi dosyasının `live`
-  değişkenine atar) ve `signIn` ×2 (`account-p10`, `p15-backend`; gövde ve dönüş farklı) gerekçeli yerel kalır
+  tek tanım; gövdesi farklı olan sunucu entegrasyon `boot` ×7 (6 farklı gövde, her biri kendi dosyasının `live`
+  değişkenine atar) `signIn` ×2 (`account-p10`, `p15-backend`; gövde ve dönüş farklı) ve `login` ×2 (`branding-api-p12`,
+  `p19-notify-j3`) gerekçeli yerel kalır
   (`docs/temizlik/PT-K2.md`). Neden: parametreli ortak yardımcı yalnız belgeyi tutturmak için soyutlama ekler,
   okunurluğu düşürür (sadelik ilkesi).
 - K-PT-4 (karar, 2026-11-15): K8 Windows elle duman testi (`docs/temizlik/PT-K8.md` A–H) PT birleştirmesini

@@ -334,7 +334,7 @@ sonuç `docs/temizlik/sonuc.md`.
   - _Revizyon 2026-11-15 (QA PT tur 1, Düzeltilmeli 2 — yol (a)):_ fikstür maddesi şöyle okunur: "Sunucu entegrasyon
     testlerinde gövdesi birebir aynı olan `signIn`/`boot`/`errorText`/`login` kopyaları tek tanımdır
     (`test/helpers/*`); gövdesi farklı olanlar gerekçeli olarak dosya-yerel kalır (`docs/temizlik/PT-K2.md`)." Yerel
-    kalanlar: `boot` ×7 (5 farklı gövde; her biri kendi dosyasının `live` değişkenine atama yapar) ve `signIn` ×2
+    kalanlar: `boot` ×7 (6 farklı gövde; her biri kendi dosyasının `live` değişkenine atama yapar) ve `signIn` ×2
     (`account-p10`, `p15-backend`; gövde ve dönüş değeri farklı) ve `login` ×2 (`branding-api-p12`, `p19-notify-j3`;
     gövde farklı). Gerekçe: bunları birleştirmek için gereken
     parametreli yardımcı yalnız ölçütü tutturmak için soyutlama ekler, test okunurluğunu düşürür (sadelik ilkesi);

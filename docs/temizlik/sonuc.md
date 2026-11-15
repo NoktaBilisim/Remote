@@ -5,14 +5,11 @@ Tarih: 2026-11-15 · Ölçülen kod: K17 ara ölçümü **`440aa07`**, K18 sonra
 (`docs/temizlik/baseline.md`, `baseline/*.json`) · Betik: `scripts/pt-olcum.sh` (tüm adımlar, çıkış 0) + `karsilastir` modu ·
 Ham veri: `docs/temizlik/sonuc/*.json` · Tasarım: `docs/mimari-temizlik.md` §5, §7 · AC: `docs/gereksinimler.md` §10.
 
-> **Durum (QA tur 1 sonrası, 2026-11-15):** ölçüm sayıları tamam; AC kararları QA tur 1'in (`docs/qa-raporu.md`,
-> DÜZELTİLMELİ) belge düzeltmelerine bağlı. K17 ölçümü `440aa07` üzerinde; AC-319 ve AC-321 K17'de **KALDI** idi,
-> **PT-K18 düzeltmesiyle GEÇTİ** (`1374d99` Go, `e280551` web/server). K17'de "yapılmadı" kalan tam koşular K18'de
-> koşuldu ve QA `e280551`'de bağımsız tekrarladı (aşağıda "Test koşuları"). Açık kalanlar: AC-317 ve AC-324 için K18 test
-> istisnası ve §5 K18 satırı (mimar, `mimari-temizlik.md` / `gereksinimler.md`); AC-322 sunucu entegrasyon testlerinde
-> kalan dosya-yerel `boot`/`signIn`/`login` tanımları (mimar kararı: AC revizyonu ya da taşıma — QA Düzeltilmeli 2);
-> HEAD için GitHub CI kanıtı (QA Düzeltilmeli 5). PT sonrası `64e6301` (`fix(jobs)`, PT-K11-B1) PT ölçümüne dahil değildir:
-> server unit'e bir regresyon testi ekler (434 → 435); PT test listesi karşılaştırması `e280551`'e göredir.
+> **Durum (QA tur 2 sonrası, 2026-11-15):** AC-317..324 **GEÇTİ**. K17 ölçümü `440aa07`; AC-319/321 K18 ile kapandı
+> (`1374d99` Go, `e280551` web/server). AC-317 K18 test istisnası (mimari-temizlik §1-2, gereksinimler AC-317 revizyonu),
+> AC-322 revize metin (K-PT-3), AC-324 §5 K18 satırı işlendi. K8 Windows elle duman testi PT birleştirmesini engellemez;
+> bir sonraki istemci exe'sinin yayın kapısıdır (K-PT-4). PT sonrası `64e6301` (`fix(jobs)`, PT-K11-B1) PT ölçümüne dahil
+> değildir: server unit'e bir regresyon testi ekler (434 → 435); PT test listesi karşılaştırması `e280551`'e göredir.
 
 Yöntem: `test-db.sh up` ile kendi MySQL 8.4 konteyneri (`rs-pt-k17-2950ee`, `--max-connections=300`, iş sonunda silindi);
 `TEST_DATABASE_URL` verildiği için betik kendi konteynerini açmadı. Kapsam adımı server (unit + entegrasyon), web vitest ve
@@ -20,16 +17,16 @@ contracts testlerini v8 kapsamıyla koşturdu; hepsi geçti.
 
 ## Özet
 
-| AC     | Konu                  | Sonuç                         | Kısa kanıt                                                                                           |
-| ------ | --------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------- |
-| AC-317 | Test listesi eşitliği | **GEÇTİ** (liste); belge ⚠️   | vitest 1230/386/142, playwright 643, Go `Test` 397 linux / 423 windows — ad farkı 0; e2e 443/0 (K18) |
-| AC-318 | Sözleşme yüzeyi       | **GEÇTİ**                     | `pt-surface` testleri yeşil; `prisma/` diff boş; `contracts/src` diff boş (K1 baseline'da)           |
-| AC-319 | Kapsam düşmez         | **GEÇTİ** (K18)               | server/web/contracts satır, dal, işlev, ifade ≥ baseline; Go her paket ≥ baseline (K18, `1374d99`)   |
-| AC-320 | Boyut / işlev / cx    | **GEÇTİ**                     | > 500 üretim 19 → 3 (contracts `requests.ts` + 2 Win32/medya); §5 hedef öğelerinin tamamı ≤ 60/cx 15 |
-| AC-321 | Ölü kod               | **GEÇTİ** (K18)               | knip export 22 → **0**, tip 20 → **0** (hedef ≤ 19 / ≤ 15); Go deadcode windows **0**; i18n ölü 0    |
-| AC-322 | Kopya                 | **GEÇTİ** (revize AC)         | üretim klonu 25 → 2, toplam 70 → 16; dosya-yerel `boot` 7, `signIn` 2, `login` 2 dosya kaldı         |
-| AC-323 | Statik analiz         | **GEÇTİ**                     | staticcheck 10 → 0 (linux + windows), go vet 0/0, CI'da (K16); lint/typecheck/format temiz (K18)     |
-| AC-324 | İz ve sınır           | **4 sapma; K18 §5 satırı ⚠️** | 33 commit; liste dışı: K1 ignore dosyaları, `DESIGN.md`, `gereksinimler.md`, K18 (24 üretim dosyası) |
+| AC     | Konu                  | Sonuç                       | Kısa kanıt                                                                                           |
+| ------ | --------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| AC-317 | Test listesi eşitliği | **GEÇTİ** (K18 istisnası)   | vitest 1230/386/142, playwright 643, Go `Test` 397 linux / 423 windows — ad farkı 0; e2e 443/0 (K18) |
+| AC-318 | Sözleşme yüzeyi       | **GEÇTİ**                   | `pt-surface` testleri yeşil; `prisma/` diff boş; `contracts/src` diff boş (K1 baseline'da)           |
+| AC-319 | Kapsam düşmez         | **GEÇTİ** (K18)             | server/web/contracts satır, dal, işlev, ifade ≥ baseline; Go her paket ≥ baseline (K18, `1374d99`)   |
+| AC-320 | Boyut / işlev / cx    | **GEÇTİ**                   | > 500 üretim 19 → 3 (contracts `requests.ts` + 2 Win32/medya); §5 hedef öğelerinin tamamı ≤ 60/cx 15 |
+| AC-321 | Ölü kod               | **GEÇTİ** (K18)             | knip export 22 → **0**, tip 20 → **0** (hedef ≤ 19 / ≤ 15); Go deadcode windows **0**; i18n ölü 0    |
+| AC-322 | Kopya                 | **GEÇTİ** (revize AC)       | üretim klonu 25 → 2, toplam 70 → 16; dosya-yerel `boot` 7, `signIn` 2, `login` 2 dosya kaldı         |
+| AC-323 | Statik analiz         | **GEÇTİ**                   | staticcheck 10 → 0 (linux + windows), go vet 0/0, CI'da (K16); lint/typecheck/format temiz (K18)     |
+| AC-324 | İz ve sınır           | **GEÇTİ** (gerekçeli sapma) | 33 commit; liste dışı: K1 ignore dosyaları, `DESIGN.md`, `gereksinimler.md`, K18 (24 üretim dosyası) |
 
 ## AC-317 — davranış eşdeğerliği (test listeleri)
 
@@ -280,14 +277,13 @@ dışı olanlar:
   dosyasına** (K10, K11, K13, K14, K15 dosyaları) yalnız `export` anahtar sözcüğünü kaldırma (knip 22 + 20 → 0) ve K2/K3
   dışındaki test dosyalarına kapsam telafisi (mevcut `it`/`Test` gövdelerine assertion ve tablo satırı; yeni test adı yok,
   mevcut assertion'a dokunulmadı). Değişiklikler sıralı yapıldı, eşzamanlı görevle çakışma yok. Mimari §6 "mimara dön,
-  tabloya işle" adımı sonradan yapılıyor: §5'e K18 satırı ve §1-2'ye K18 test istisnası mimar tarafından ekleniyor
-  (QA Düzeltilmeli 1); o güncelleme girene kadar AC-317 ve AC-324 ⚠️.
+  tabloya işle" adımı sonradan yapıldı: §5 K18 satırı ve §1-2 K18 test istisnası eklendi.
 
 PT bulguları her görev notunda "PT bulguları" başlığıyla yazıldı (aşağıda toplu) ve `docs/implementation.md` "PT — kod
 temizliği" bölümünde özetlendi; PT commit'lerinde hiçbiri düzeltilmedi (R-PT9). PT-K11-B1 PT sonrası ayrı `fix:` commit'iyle
 (`64e6301`) kapandı.
 
-## PT bulguları (toplu; düzeltilmedi — ayrı `fix:` işi)
+## PT bulguları (toplu; PT commit'lerinde düzeltilmedi — ayrı `fix:` işi)
 
 | #          | Bulgu                                                                                                                                                             | Kaynak       | Öneri / sahip                              |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ------------------------------------------ |
@@ -296,22 +292,22 @@ temizliği" bölümünde özetlendi; PT commit'lerinde hiçbiri düzeltilmedi (R
 | Kararsız-1 | e2e `p13bl-lobby.spec.ts` AC-305 — ara sıra kırmızı (mobile/desktop); `--repeat-each=3` 1/6 kırmızı                                                               | PT-K14, K15b | test kararlılığı işi                       |
 | Kararsız-2 | e2e `p5-collab` TEST-P5-1 (`desktop-rtc`, dosya teklifi `offered` yerine `rejected`) — tekrar koşuda 3/3 geçti                                                    | PT-K15c      | test kararlılığı işi                       |
 | Kararsız-3 | entegrasyon `customers-csv-p19` AC-263 (5 000 satır ≤ 30 sn) — yük altında 33–35 sn; bu ölçümde geçti                                                             | PT-K9        | perf eşiği / CI makinesi                   |
-| Elle test  | Windows duman testi (K8): `--tray` açılışı ve ikinci örnek, tepsi kutuları, çoklu firma ana ekranı, talep formu + bekleme, logo/tema, kod oturumu ekranları       | PT-K8.md     | test-operatoru (Windows VM, A–H grupları)  |
+| Elle test  | Windows duman testi (K8): `--tray` açılışı ve ikinci örnek, tepsi kutuları, çoklu firma ana ekranı, talep formu + bekleme, logo/tema, kod oturumu ekranları       | PT-K8.md     | istemci yayın kapısı (K-PT-4), kullanıcı   |
 
 ## Test koşuları
 
-| Koşu                                              | K17 (`440aa07`)                                 | K18 (`e280551`, geliştirici)                        | QA tur 1 (`e280551`, bağımsız)                                         |
-| ------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
-| server unit + entegrasyon (MySQL 8.4)             | 1 230 / 1 230 (v8 kapsamlı, `rs-pt-k17-2950ee`) | 1 230 / 1 230                                       | unit 434 / 434 + entegrasyon 796 / 796 (`rs-qa-pt-b13d72`, silindi)    |
-| web vitest                                        | 386 / 386                                       | 386 / 386                                           | 386 / 386                                                              |
-| contracts vitest                                  | 142 / 142                                       | 142 / 142                                           | 142 / 142                                                              |
-| `pnpm -r run lint` / `typecheck` / `format:check` | yapılmadı                                       | temiz                                               | temiz                                                                  |
-| web e2e Playwright tam koşu (desktop + mobile)    | yapılmadı (yalnız `--list` 643)                 | 443 geçti / 0 kırmızı / 200 atlandı (`desktopOnly`) | yapılmadı (tur sınırı) — HEAD CI kanıtı bekleniyor (QA Düzeltilmeli 5) |
-| Go `go test ./...` (linux, golang:1.26)           | `-cover` geçti (betik çıkışı 0)                 | `-race` 21 paket ok                                 | `-count=1` 21 paket ok                                                 |
-| Go vet / staticcheck (linux + windows)            | 0 / 0 (ölçüm adımı)                             | 0 / 0                                               | vet 0 / 0, staticcheck v0.8.2 0 / 0                                    |
-| Go deadcode windows `-test`                       | 2                                               | 0                                                   | 0                                                                      |
-| Go `GOOS=windows go test` derlemesi               | —                                               | —                                                   | derlendi (`-exec /bin/true`, çıkış 0); Windows'ta çalıştırma CI'da     |
-| Go test listesi (`Test` işlevi, linux / windows)  | —                                               | —                                                   | 397 / 423 = baseline (devops, QA düzeltmesi; AC-317 "Go test sayısı")  |
+| Koşu                                              | K17 (`440aa07`)                                 | K18 (`e280551`, geliştirici)                        | QA tur 1 (`e280551`, bağımsız)                                        |
+| ------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------- |
+| server unit + entegrasyon (MySQL 8.4)             | 1 230 / 1 230 (v8 kapsamlı, `rs-pt-k17-2950ee`) | 1 230 / 1 230                                       | unit 434 / 434 + entegrasyon 796 / 796 (`rs-qa-pt-b13d72`, silindi)   |
+| web vitest                                        | 386 / 386                                       | 386 / 386                                           | 386 / 386                                                             |
+| contracts vitest                                  | 142 / 142                                       | 142 / 142                                           | 142 / 142                                                             |
+| `pnpm -r run lint` / `typecheck` / `format:check` | yapılmadı                                       | temiz                                               | temiz                                                                 |
+| web e2e Playwright tam koşu (desktop + mobile)    | yapılmadı (yalnız `--list` 643)                 | 443 geçti / 0 kırmızı / 200 atlandı (`desktopOnly`) | CI `e280551` e2e job yeşil (43727719947)                              |
+| Go `go test ./...` (linux, golang:1.26)           | `-cover` geçti (betik çıkışı 0)                 | `-race` 21 paket ok                                 | `-count=1` 21 paket ok                                                |
+| Go vet / staticcheck (linux + windows)            | 0 / 0 (ölçüm adımı)                             | 0 / 0                                               | vet 0 / 0, staticcheck v0.8.2 0 / 0                                   |
+| Go deadcode windows `-test`                       | 2                                               | 0                                                   | 0                                                                     |
+| Go `GOOS=windows go test` derlemesi               | —                                               | —                                                   | derlendi (`-exec /bin/true`, çıkış 0); Windows'ta çalıştırma CI'da    |
+| Go test listesi (`Test` işlevi, linux / windows)  | —                                               | —                                                   | 397 / 423 = baseline (devops, QA düzeltmesi; AC-317 "Go test sayısı") |
 
 ## Kalan iş (K17'yi kapatmak için)
 
@@ -322,6 +318,6 @@ temizliği" bölümünde özetlendi; PT commit'lerinde hiçbiri düzeltilmedi (R
 4. ~~AC-322 grep teyidi~~ — yapıldı; sonuç: `boot` 7, `signIn` 2, `login` 2 dosya (AC-322 bölümü). Karar: AC revize (K-PT-3), GEÇTİ.
 5. ~~Go test sayısı çelişkisi (397/398/424/458)~~ — tek yöntem, 397 / 423 (AC-317).
 6. ~~"Yeni > 300 dosya yok" teyidi~~ — dosya dosya yapıldı, yeni yok (AC-320).
-7. ~~§5 K18 satırı + §1-2 K18 test istisnası + AC-317 revizyonu; AC-322 kararı~~ — mimar yaptı. Açık:
-   HEAD için GitHub `ci` + `agent-win` yeşil koşu bağlantıları (QA Düzeltilmeli 5); K8 Windows elle duman testi
-   (test-operatoru, QA Düzeltilmeli 6).
+7. ~~§5 K18 satırı + §1-2 K18 test istisnası + AC-317 revizyonu; AC-322 kararı~~ — mimar yaptı.
+8. ~~HEAD CI~~ — `e280551`: ci 43727719947, agent-win 43727719960 yeşil; `259a6f0` agent-win 43728760055 yeşil, ci
+   koşusu bu belgenin commit'inde yeniden doğrulanır. K8 Windows elle testi yayın kapısı (K-PT-4).

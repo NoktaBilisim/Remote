@@ -1,6 +1,93 @@
-# QA Raporu — PT (kod temizliği) Tur 1
+# QA Raporu — PT (kod temizliği) Tur 2
 
 DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-15 · Dal `pt-wip` @ `259a6f0` (temiz) · Kapsam: yalnız Tur 1 "Düzeltilmeli" 1–6 ve `64e6301`
+(`fix(jobs)` PT-K11-B1). Baştan tam denetim yapılmadı. Kod değiştirilmedi, staging'e bağlanılmadı, ACCESS.txt okunmadı.
+
+Özet: Tur 1'in esas maddeleri kapandı. AC-317 için K18 istisnası, AC-322 revizyonu (K-PT-3), §5 K18 satırı,
+`implementation.md` PT bölümü ve K8 kararı (K-PT-4) yazıldı. `64e6301` düzeltmesi doğru ve regresyon testi gerçekten
+koruyor: test eski kodda kırmızı, yeni kodda yeşil. DÜZELTİLMELİ kararının iki nedeni var. (1) Aynı commit'te güncellenen
+`sonuc.md` ve `implementation.md`'de, yeni kararlarla çelişen eski durum satırları kalmış. Örneğin K8 testi bir yerde
+"PT kapanış koşulu", K-PT-4'te "PT'yi engellemez" diye geçiyor. (2) HEAD'in CI koşusu denetim sırasında bitmedi.
+Kalan iş yalnız belge ve CI kanıtı. Kod tarafında açık bulgu yok.
+
+## Test sonucu (Tur 2)
+
+| Komut                                                                                      | Sonuç                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @remote/server exec vitest run test/unit/scheduler.test.ts`                 | 4/4 geçti                                                                                                                                                                                                                                                                             |
+| Mutasyon sağlaması: scratch worktree'de `64e6301` testleri + `e280551`'in `scheduler.ts`'i | yeni test **kırmızı**: `expected "vi.fn()" to be called 1 times, but got 2 times` (`scheduler.test.ts:90`). Diğer 3 test yeşil. Worktree kaldırıldı                                                                                                                                   |
+| `pnpm --filter @remote/server run test` (unit)                                             | 30 dosya, **435/435**. 434'e eklenen tek test PT-K11-B1. PT dışı `fix:` olarak belgelenmiş (sonuc.md, PT liste karşılaştırması `e280551`'e göre)                                                                                                                                      |
+| server `typecheck` / `lint`, kök `pnpm format:check`                                       | temiz / temiz / temiz                                                                                                                                                                                                                                                                 |
+| GitHub `e280551` (PT'nin son commit'i)                                                     | `ci` 43727719947 **success**: lint/type, test MySQL 8.4, web e2e Playwright, build, audit/gitleaks, coturn, shellcheck. `agent-win` 43727719960 **success**: go test Windows, `-race`/vet/govulncheck, build, SHA256SUMS. Yalnız etiketle çalışan yayın işleri tasarım gereği atlandı |
+| GitHub HEAD `259a6f0` (`64e6301` dahil)                                                    | `agent-win` 43728760055 **success** (son kontrol). `ci` 43728760018 rapor anında **in_progress**                                                                                                                                                                                      |
+
+Entegrasyon, e2e ve Go yerelde yeniden koşulmadı. `64e6301` yalnız `scheduler.ts` ile unit testine dokunuyor; Tur 2'deki
+belge commit'i kod içermiyor.
+
+## Tur 1 maddelerinin durumu
+
+| Tur 1 maddesi                                           | Durum | Kanıt / eksik                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. §5 K18 satırı, §1-2 test istisnası, AC-317 revizyonu | ✅    | `mimari-temizlik.md:21-25` istisna (yalnız K18; yeni ad yok, assertion silinmez). `:207` K18 satırında dosya listesi `e280551`/`1374d99` ile uyumlu. `gereksinimler.md` AC-317 altında tarihli _Revizyon_ var.                                                                                                                                                                                                                           |
+| 2. AC-322 (`boot`/`signIn` yerel)                       | ✅    | Yol (a) seçilmiş: AC-322 _Revizyon_ ve K-PT-3 (`mimari-temizlik.md:294`). QA grep'i: `boot` 7 dosya. `requests-p8b-5` ile `customers-p8c-api` gövdeleri metin olarak aynı, ama her biri kendi dosyasının `live` değişkenine atıyor; revizyon bunu açıkça gerekçe sayıyor. Küçük yanlışlık: K-PT-3 "5 farklı gövde" diyor, metin olarak 6 farklı gövde var. K-PT-3'te `login` ×2 geçmiyor (gereksinimler'de geçiyor). Öneri, engel değil. |
+| 3. `sonuc.md` tutarlılığı                               | ⚠️    | Kapananlar: Go sayısı tek yöntemle 397/423, 398/424/458'in kaynağı açıklandı, baseline.md düzeltildi. Başlık `e280551`/33 commit. Test koşuları tablosu güncel. > 300 dosya dosya dosya teyit edildi (`sonuc.md:165-182`). K1 ignore ve K18 sapma listesinde. **Kalan:** durum notu ve özet tabloda eski "açık" ifadeleri duruyor (Düzeltilmeli 1).                                                                                      |
+| 4. `implementation.md` PT bölümü                        | ⚠️    | Bölüm var (görev notları, bulgular, sapmalar, `docs/temizlik/` gerekçesi). PT-K11-B1 "kapandı" olarak işaretli. **Kalan:** üç satırda eski durum yazıyor (Düzeltilmeli 1).                                                                                                                                                                                                                                                               |
+| 5. HEAD için CI yeşil                                   | ⚠️    | `e280551` için `ci` ve `agent-win` tamamen yeşil; bu, Tur 1'in istediği SHA'ydı. HEAD `259a6f0` `64e6301` kod değişikliğini içeriyor ve koşusu sürüyor. Koşu bağlantıları sonuc.md'ye yazılmamış (Düzeltilmeli 2).                                                                                                                                                                                                                       |
+| 6. K8 Windows elle testi                                | ✅    | K-PT-4 (`mimari-temizlik.md:299-302`, mimar kararı): test PT birleştirmesini değil, bir sonraki istemci sürümünün yayınını engeller. Gerekçe: staging deploy'u exe yayınlamıyor. Takip satırı `docs/test-raporu.md` "PT — Windows elle duman testi" (sonuç sütunu boş, bekliyor). QA bu kararı kabul eder.                                                                                                                               |
+| PT-K11-B1 (`64e6301`)                                   | ✅    | `TimedJob.stoppable` kaldırıldı. `startTimedJob.arm` her işte `isStopped()` denetliyor. Aralık, ilk tetik ve log davranışı aynı. Regresyon testi sürmekte olan saklama turunda `stop()` ve `release()` sonrası 3 gün ilerletiyor: `run` 1 kez çağrılıyor, `getTimerCount() === 0`. Mutasyonla kanıtlandı (eski kodda 2 kez). PT-K11.md'deki "P27/P28 sınırları" `stoppable`'sız güncellendi.                                             |
+
+## Kabul kriterleri (Tur 2)
+
+| AC     | Durum | Kanıt veya eksik                                                                                                                                                                                                                                        |
+| ------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-317 | ✅    | Revize metne göre: test adları ve sayıları `e280551`'de baseline'la aynı (Tur 1: 1230/386/142, Go 397/423). K18 gövde eklemeleri istisna kapsamında. `e280551` CI e2e ve Go Windows yeşil. 435. test PT sonrası `fix:` ve ayrıca belgelenmiş.           |
+| AC-318 | ✅    | Tur 1, değişiklik yok.                                                                                                                                                                                                                                  |
+| AC-319 | ✅    | Tur 1'deki tek engel yöntemin kabulüydü; §1-2 istisnası ve AC-317 revizyonu bunu çözdü. Sayılar `sonuc.md`'den alındı; QA kapsamı yeniden ölçmedi.                                                                                                      |
+| AC-320 | ✅    | Tur 1 + `sonuc.md` dosya dosya > 300 teyidi.                                                                                                                                                                                                            |
+| AC-321 | ✅    | Tur 1, değişiklik yok.                                                                                                                                                                                                                                  |
+| AC-322 | ✅    | Revize metne göre (K-PT-3). Klon hedefleri 2/16.                                                                                                                                                                                                        |
+| AC-323 | ✅    | Tur 1 + Tur 2 server lint/typecheck/format.                                                                                                                                                                                                             |
+| AC-324 | ⚠️    | Gereken belgeler var (§5 tam, `implementation.md` "PT bulguları", kapanış raporu). Ancak kapanış raporunun özet tablosu AC-317'yi hâlâ "belge ⚠️", AC-324'ü "K18 §5 satırı ⚠️" gösteriyor. "Tüm AC'leri gösteren kapanış raporu" kendi içinde tutarsız. |
+
+## Düzeltilmeli
+
+1. **[devops]** Belge durum satırlarını `259a6f0`'daki kararlara göre güncelle. Yalnız metin değişikliği; sayılar doğru.
+   - `docs/temizlik/sonuc.md:8-14` durum notu: "Açık kalanlar: AC-317 ve AC-324 için K18 test istisnası ve §5 K18 satırı …; AC-322 … (mimar kararı …)" yazıyor. Bunlar yapıldı. Açık kalan yalnız HEAD CI ve K8 yayın kapısı olmalı (K-PT-4).
+   - `sonuc.md:25` AC-317 "belge ⚠️" → GEÇTİ (revize AC). `sonuc.md:32` AC-324 "K18 §5 satırı ⚠️" → "4 sapma, gerekçeli; GEÇTİ".
+   - `sonuc.md:283-284` "§5'e K18 satırı … mimar tarafından ekleniyor … o güncelleme girene kadar AC-317 ve AC-324 ⚠️" → "eklendi (`mimari-temizlik.md` §1-2, §5)".
+   - `sonuc.md:326-327` ("Kalan iş" 7): K8 için "QA Düzeltilmeli 6" yerine "istemci yayın kapısı (K-PT-4), PT'yi engellemez" yaz. `sonuc.md` "PT bulguları" tablosundaki "Elle test" satırına da aynı notu ekle.
+   - `docs/implementation.md` "Gerekçeli sapmalar" K18 satırı: "§5 K18 satırı ve §1-2 test istisnası mimar tarafından ekleniyor (QA Düzeltilmeli 1)" → "eklendi". AC-322 satırı: "AC metniyle çelişiyor, karar mimar → proje-yoneticisinde" → "AC revize edildi (K-PT-3)". "PT bulguları" tablosundaki "Elle test" satırı: "PT kapanış koşulu (QA Düzeltilmeli 6)" → "istemci yayın kapısı (K-PT-4), `docs/test-raporu.md`".
+   - (isteğe bağlı) `mimari-temizlik.md` K-PT-3: "5 farklı gövde" → 6 (metin olarak; ya da "`live` ataması nedeniyle hepsi dosyaya bağlı"); `login` ×2'yi gereksinimlerdeki gibi ekle.
+2. **[devops]** HEAD'in (`259a6f0` ya da Düzeltilmeli 1'den sonraki SHA) `ci` ve `agent-win` koşuları **yeşil** bitmeli. Koşu numaraları ve sonuçları `sonuc.md` "Test koşuları" tablosuna yazılmalı. `e280551` için: `ci` 43727719947 ve `agent-win` 43727719960, ikisi de success. Kırmızı biterse R-PT8 (3 tekrar, kararsız test listesiyle karşılaştırma) uygulanmalı.
+
+## Definition of Done (Tur 2)
+
+| Madde                                                     | ✅/❌ | Not                                                                               |
+| --------------------------------------------------------- | ----- | --------------------------------------------------------------------------------- |
+| Lint / typecheck / format temiz                           | ✅    | Tur 1 tümü + Tur 2 server ve format                                               |
+| Unit + entegrasyon testleri yeşil                         | ✅    | Tur 1 + server unit 435/435 (`64e6301` dahil)                                     |
+| Go test + vet + staticcheck (linux + windows)             | ✅    | Tur 1 + `e280551` agent-win (Windows go test, `-race`) success                    |
+| e2e (Playwright) yeşil                                    | ✅    | `e280551` ci "web e2e (Playwright, mock API)" success. `64e6301` web'e dokunmuyor |
+| HEAD CI yeşil                                             | ❌    | `259a6f0` agent-win success, ci sürüyor — Düzeltilmeli 2                          |
+| Her AC ✅                                                 | ❌    | AC-324 ⚠️ (kapanış raporunda tutarsız durum) — Düzeltilmeli 1                     |
+| Tasarım ↔ kod uyumu (dosya sahipliği, sapmalar gerekçeli) | ✅    | §5 K18 satırı, K1 ignore notu, K-PT-3/4                                           |
+| Davranış değişmedi (PT) / bilinçli düzeltme ayrı commit   | ✅    | `64e6301` ayrı `fix:` commit'i, belgelenmiş, regresyon testli                     |
+| Yeni bağımlılık yok                                       | ✅    | `64e6301`/`259a6f0` paket dosyalarına dokunmuyor                                  |
+| `implementation.md` kaydı / PT bulguları                  | ✅    | Bölüm var; eski durum satırları Düzeltilmeli 1'de                                 |
+
+## Olumlu
+
+- PT-K11-B1 düzeltmesi en küçük doğru değişiklik: bayrak kaldırıldı ve dört iş tek kurala bağlandı. Test sahte
+  zamanlayıcıyla sürmekte olan tur senaryosunu tam kuruyor. Ayrıca bekleyen zamanlayıcı kalmadığını
+  (`getTimerCount() === 0`) da doğruluyor.
+- Go test sayısı çelişkisinin kökü (Benchmark ve derleyici kapanışları) belgelendi; baseline da aynı yöntemle düzeltildi.
+- K8 için verilen karar (yayın kapısı) somut bir takip satırına bağlandı. Belirsiz bir "sonra" olarak bırakılmadı.
+
+---
+
+# Tur 1 (önceki tur, arşiv)
 
 Tarih: 2026-11-15 · Dal `pt-wip` @ `e280551` (temiz) · Aralık `14b2629..pt-wip` (33 commit) · Denetçi: qa-denetci (kod değiştirilmedi)
 
