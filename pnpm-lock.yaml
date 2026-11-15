@@ -75,9 +75,6 @@ importers:
       '@types/qrcode':
         specifier: 1.5.6
         version: 1.5.6
-      '@types/smtp-server':
-        specifier: 3.5.13
-        version: 3.5.13
       '@types/ws':
         specifier: 8.18.1
         version: 8.18.1
@@ -1200,9 +1197,6 @@ packages:
   '@types/node@24.19.2':
     resolution: {integrity: sha512-93d49wCWJkCyN87MxLpNN6KXPCwFw7bVUg79mGUV1OS40JGWwVCr8n61DXCSqz7CV6/VfPkb7xec7uP2M+QHWQ==}
 
-  '@types/nodemailer@8.0.2':
-    resolution: {integrity: sha512-c7M5ox8p0nEOfbJ2E9Qcmt8/QCu/VzsiAhzBiZbvky2PhKZDHpKB3sQHBM5MEZNkCfBOaS6S9//AGPRTNB7IaA==}
-
   '@types/qrcode@1.5.6':
     resolution: {integrity: sha512-te7NQcV2BOvdj2b1hCAHzAoMNuj65kNBMz0KBaxM6c3VGBOhU0dURQKOtH8CFNI/dsKkwlv32p26qYQTWoB5bw==}
 
@@ -1213,9 +1207,6 @@ packages:
 
   '@types/react@19.3.0':
     resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
-
-  '@types/smtp-server@3.5.13':
-    resolution: {integrity: sha512-S3rGl2KbViH+98/CgHipPIWgtAFnjxLsppxIRbgJHNuZL7Y+py+7kZjT7xS+wOmCxYTn4O7IqLqkvekg99MDVQ==}
 
   '@types/ws@8.18.1':
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
@@ -4302,10 +4293,6 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
-  '@types/nodemailer@8.0.2':
-    dependencies:
-      '@types/node': 24.19.2
-
   '@types/qrcode@1.5.6':
     dependencies:
       '@types/node': 24.19.2
@@ -4317,11 +4304,6 @@ snapshots:
   '@types/react@19.3.0':
     dependencies:
       csstype: 3.2.3
-
-  '@types/smtp-server@3.5.13':
-    dependencies:
-      '@types/node': 24.19.2
-      '@types/nodemailer': 8.0.2
 
   '@types/ws@8.18.1':
     dependencies:

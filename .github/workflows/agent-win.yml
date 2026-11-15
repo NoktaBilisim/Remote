@@ -72,6 +72,13 @@ jobs:
         run: |
           GOFLAGS='' go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
           GOFLAGS='' go install github.com/google/go-licenses/v2@v2.0.1
+          GOFLAGS='' go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
+      # PT-K16: go.mod değişmez (araç modül dışı, @sürüm sabit). `GOOS=windows go run …` aracı windows exe olarak derler ve
+      # linux'ta koşamaz; bu yüzden araç host için bir kez kurulur, hedef GOOS ile paket yüklemesi seçilir. Uyarı 0 olmalı.
+      - name: staticcheck (linux + windows/amd64)
+        run: |
+          staticcheck ./...
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 staticcheck ./...
       - name: govulncheck (windows/amd64 + linux; erişilebilir zafiyet 0)
         run: |
           GOOS=windows GOARCH=amd64 govulncheck ./...
