@@ -8217,3 +8217,287 @@ env dosyası oturum scratchpad'inde), iş bitince silindi.
     anlamları aynı.
   - Fikstür: `packages/contracts/fixtures/bindings.json` → `multi` (constants.minVersion/maxPerDevice, errorCode, valid, invalid,
     exclusive). Go testleri bu bölümü okuyabilir.
+
+## P20 K4 (autorun) — backend-dev (Go) — 2026-11-15
+
+Kapsam: yalnız `apps/agent-win/internal/autorun` (yeni paket). Başka pakete bağlama yapılmadı (bağlama K5 `launch/resident.go`,
+`cmd/noktadestek/main.go` ve K3 `home_windows.go` işidir). Tasarım: mimari-e11 §8d.3 (r3), §8d.9, §8d.15 (G-P20-1/6/14/15),
+ADR-0004 r6 eki, K-P20-11.
+
+### Değişen / yeni dosyalar
+
+| Dosya                                             | İçerik                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/autorun/autorun.go`                     | Sabitler (`NoktaDestek`, Run / StartupApproved anahtarları, `--tray`), `Registry` + `Prober` arayüzleri, `Command`/`ParseCommand` (`"<yol>" --tray`, tam biçim), `NormalizePath` (`\\?\` atılır; `\\?\UNC\`, `\\`, `"`, denetim karakteri, sürücü harfsiz yol → `ErrBadPath`), `Components`, `Manager{Enable, Disable, State, Verify}`, `Reason` + Türkçe `Message()` |
+| `internal/autorun/acl.go`                         | Saf kural `Evaluate(Target, Env) Reason`: biçim → `DRIVE_FIXED` → geçici konum (%TEMP%, `INetCache`, `Temporary Internet Files`, `*.zip` klasör bileşeni) → paylaşılan konum (`%ProgramData%`, `C:\Users\Public`) → reparse (başlatma yolu veya kanonik zincir) → her bileşende sahip + katmanlı ACL                                                                  |
+| `internal/autorun/registry_windows.go`            | `New()`; `x/sys/windows/registry` ile HKCU Run oku/REG_SZ yaz/sil, StartupApproved yalnız oku                                                                                                                                                                                                                                                                         |
+| `internal/autorun/inspect_windows.go`             | `sysProber`: bileşenler `CreateFile(FILE_FLAG_OPEN_REPARSE_POINT                                                                                                                                                                                                                                                                                                      | BACKUP_SEMANTICS)`ile açılır, reparse`FileAttributeTagInfo`, kanonik yol `GetFinalPathNameByHandleW(VOLUME_NAME_DOS)`, sahip+DACL `GetSecurityInfo(handle)`, ACE çevirimi, `GetDriveTypeW`, yükseltilmişlik ve kullanıcı SID'i belirteçten, Temp/ProgramData/Public kanonik |
+| `internal/autorun/acl_test.go`, `autorun_test.go` | Linux birim testleri (aşağıda)                                                                                                                                                                                                                                                                                                                                        |
+| `internal/autorun/autorun_windows_test.go`        | Windows CI (`test-windows` iş zaten `go test ./...` koşar): gerçek HKCU yaz/oku/sil (geçici değer adı), `icacls *S-1-5-32-545:(M)` klasör reddi + Verify ile değerin silinmesi, gerçek `C:\` ACL'i (İndirilenler kabul, kök altı klasör ret, Public ret), junction üzerinden başlatma ret                                                                             |
+
+### ACL kuralı (G-P20-1 + G-P20-14) — uygulanan biçim
+
+- İzinli SID: geçerli kullanıcı, `S-1-5-18`, `S-1-5-32-544`, TrustedInstaller (`S-1-5-80-956008885-…-2271478464`). Diğer her SID
+  (Users, Authenticated Users, Everyone, INTERACTIVE, başka kullanıcı) "başka".
+- Yalnız izin veren ACE'ler (`ACCESS_ALLOWED` + callback eşi); `INHERIT_ONLY_ACE` atlanır, devralınmış etkili ACE sayılır;
+  `GENERIC_*` dosya eşlemesine çevrilir (`FILE_GENERIC_*`, `FILE_ALL_ACCESS`). Ret (deny) ACE'leri değerlendirilmez (yalnız
+  reddi artırabilir; tutucu).
+- Maskeler: exe `WRITE_DATA|APPEND_DATA|DELETE|WRITE_DAC|WRITE_OWNER`; doğrudan üst + `FILE_DELETE_CHILD` (ve `ADD_FILE`/
+  `ADD_SUBDIRECTORY` aynı bitler); atalar (birim kökü dahil) `FILE_DELETE_CHILD|DELETE|WRITE_DAC|WRITE_OWNER` (`GENERIC_ALL`
+  eşlemeyle kapsanır; `GENERIC_WRITE` atada ret değildir).
+- Sahip her bileşende izinli dört SID'den biri olmalı. NULL DACL → ret.
+
+### Tasarımdan sapmalar / yorumlar (gerekçeli)
+
+1. **Dosya bölümü:** §8d.3 `autorun.go, registry_windows.go` diyor; saf ACL kuralı `acl.go`, Windows dosya sistemi okuması
+   `inspect_windows.go` olarak ayrıldı (Linux birim testinin platformsuz derlenmesi için; davranış değişikliği yok).
+2. **Denetlenemeyen hedef reddedilir:** sahip okunamazsa, tanınmayan ACE türü (object ACE vb.) varsa, ortam (SID/Public/
+   ProgramData) okunamazsa `ReasonCheckFailed`: Enable yazmaz, Verify değeri siler (hata da döner, tanılama için). Gerekçe: tutucu
+   (fail-closed) — denetlenemeyen hedef Run'a bağlanmaz.
+3. **Verify bozuk değeri siler:** `NoktaDestek` değeri REG_SZ değilse, tam `"<yol>" --tray` biçiminde değilse veya yol
+   `NormalizePath`'ten değişmeden geçmiyorsa (`\\?\`, UNC) `ReasonBadPath` ile silinir. Gerekçe: G-P20-6 biçimi dışındaki
+   değer denetlenemez; kendi değer adımız olduğundan silmek güvenli tarafta kalır.
+4. **Verify değerin gösterdiği yolu denetler** (yalnız çalışan exe'yi değil): "son açan kazanır" ile değer başka konumdaki eski
+   sürümü gösterebilir; Windows o yolu başlatacağı için denetlenen de o yoldur. Exe yoksa (`Missing`) değer silinmez (ADR-0004
+   r6 "Windows atlar; ana ekran uyarır").
+5. **Enable reddinde silme:** ret durumunda değer yalnız bu exe'yi (veya bozuk biçimi) gösteriyorsa silinir; başka geçerli yolu
+   gösteren değere Verify karar verir. Yükseltilmiş süreçte Enable kayıt defterine hiç dokunmaz (yanlış hive olabilir). Verify'da
+   yükseltilmişlik ret nedeni değildir (hedefin izinleri süreçten bağımsız).
+6. **Ek geçici konumlar:** `%SystemRoot%\Temp`, `%SystemRoot%\SystemTemp` ve `Temporary Internet Files` bileşeni de geçici
+   sayıldı (§8d.3 "`%TEMP%`, `INetCache`, `*.zip`-geçici" listesinin aynı sınıftaki eşleri).
+
+### K5 / K3 için sözleşme (bağlama)
+
+```go
+m := autorun.New()                 // yalnız Windows
+st, err := m.State()               // st.On, st.Other, st.DisabledInWindows, st.Blocked (≠ReasonOK → onay kutusu pasif + st.Blocked.Message())
+r, err := m.Enable()               // açık kullanıcı eylemi; r ≠ ReasonOK → r.Message() göster
+err = m.Disable()                  // yoksa nil; "Bu bilgisayarı unut" / son firma unutulunca / tepsi kapatılınca
+c, err := m.Verify()               // normal açılış, `--tray` açılışı, tepsiden pencere açılışı (G-P20-15); ağsız
+// c.Removed → normal açılışta ana ekran bilgisi c.Reason.Message(); tepside balon "Windows açılışında başlatma kapatıldı (klasör izinleri)"
+// c.Missing → ana ekran uyarısı (exe taşınmış/silinmiş); err yalnız tanılama logu içindir (yol/SID loglanmaz)
+```
+
+Yeni bağımlılık yok (`golang.org/x/sys/windows/registry` mevcut `x/sys` modülünün alt paketi).
+
+### Test
+
+- `docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 go test ./...` → `internal/autorun ok`. Linux birim:
+  gerçek `C:\` fikstürleri (İndirilenler kabul; `C:\Araclar` devralınmış Authenticated Users:M → `WeakACL`; `C:\Users\Public` →
+  `SharedLocation`), 33 katman/ACE durumu (exe / doğrudan üst / ata, `INHERIT_ONLY` atlama, devralınmış etkili, deny yok sayma,
+  tanınmayan ACE, GENERIC eşleme), her bileşende sahip, NULL DACL, reparse (bileşen + başlatma yolu), konum kuralları, komut
+  biçimi (boşluk ve `%`), `\\?\` öneki, UNC/tırnak reddi, REG_SZ dışı türün silinip yeniden yazılması, "son açan kazanır",
+  StartupApproved (0x03/0x07 kapalı, 0x02/0x06 açık; State yazmaz), Verify (yok / sağlam / zayıflamış / başka konum / Public /
+  bozuk biçim / exe yok / denetlenemedi / yükseltilmiş / kayıt defteri okunamadı).
+- `-e GOOS=windows go vet ./internal/autorun` (amd64 ve 386) temiz; Windows test ikilisi derleniyor (`go test -c`). `gofmt -l
+internal/autorun` boş.
+- Windows testleri (`autorun_windows_test.go`) yerelde koşturulamadı; CI `test-windows` işinde koşar.
+- Aynı koşuda `internal/remember` (`TestAC254GP204WorstCaseBudgetFixture`) ve `internal/request` (`TestAC255Chat*`) kırmızı;
+  `cmd/noktadestek` ve `remember/reparse_windows_test.go` Windows vet'te derlenmiyor — bunlar paralel K2/K6 ajanlarının yarım
+  değişiklikleri, K4 dosyalarına bağlı değil.
+
+## P20 K2 (Go kayıt dosyası) — backend-dev (Go) — 2026-11-15
+
+Kapsam: mimari-e11 §8d.1, §8d.4 (yerel silme sütunu), §8d.9 `remember` satırı, §8d.15 K2 maddeleri (G-P20-2/3/4/16/17/18/19),
+ADR-0004 r6. AC-254 (kayıt dosyası ve göç). K3/K4/K5/K6 dosyalarına dokunulmadı.
+
+### Değişen / yeni dosyalar
+
+- `apps/agent-win/internal/remember/data.go` — v3 şema (`Bindings []Binding`, `Prefs`, `Binding.LastUsedAt`), katı çözme
+  (bilinmeyen alan + fazladan veri reddi), `normalize` (okumada sayım ihlali: yinelenen anahtarda ilki, en eskiden atma, köken
+  başına 5 / en çok 2 köken), `countOK` (yazımda kesin ret → `ErrLimit`), `encode` (`SetEscapeHTML(false)`), `Data.ForOrigin`,
+  v1/v2 yalnız göç için `decodeLegacy`.
+- `remember/remember.go` — `kayitlar.bin`, 32 KB / 128 KB, `kayitlar.lock` kilidi (50 ms yoklama, 2 sn), `LoadState`
+  (`StatusAbsent/OK/Unreadable`, `Class`, `Trimmed`, `SuggestForget`), `update` her zaman kilit içinde yeniden okur ve sınıf-2
+  okumada yazmaz, API: `Load`, `LoadState`, `SaveBinding(b, replaceKey)`, `RemoveBinding(key)`, `TouchBinding(key, t)`,
+  `SetPrefs`, `SavePersonal`, `ClearPersonal`, `ForgetAll`, `Persistent`, `LoadPersonal`.
+- `remember/migrate.go` (yeni) — `Migrate()` (§8d.1 adım 1–4; yaz → geri oku → encode eşitliği; tutmazsa geri alma; 5 doluyken
+  `hatirla.bin` korunur, `Blocked` = firma adı).
+- `remember/class.go` (yeni) — hata sınıfları ve `Error{Class}`, `ErrorClass(err)`; diag olay sınıf adları.
+- `remember/lock_windows.go` (yeni, `LockFileEx` EXCLUSIVE|FAIL_IMMEDIATELY), `remember/lock_other.go` (yeni, Linux/macOS `flock`).
+- `remember/dpapi_windows.go` — yeni entropi `NoktaDestek.kayit.v3`, `UnprotectLegacy` (eski entropi), `dpapiClass`:
+  `ERROR_INVALID_DATA`/`NTE_BAD_DATA` → sınıf 1, `NTE_BAD_KEY_STATE` → sınıf 2 (`key_state`), diğerleri sınıf 2 (`dpapi`).
+- Testler: `remember/remember_test.go` (yeniden yazıldı), `remember/migrate_test.go` (yeni), `remember/store_windows_test.go`
+  (yeni: iki süreç × 100 tur, DPAPI gidiş-dönüş + sınıflar, gerçek DPAPI ile göç), `remember/reparse_windows_test.go` (imza).
+- **`remember` dışı zorunlu en küçük uyarlamalar:**
+  - `internal/diag/{diag.go,reparse.go,reparse_windows.go}`: yeni `diag.ModeLock` (okuma+yazma, OPEN_ALWAYS, paylaşım
+    READ|WRITE; tek bağ ve reparse denetimi aynen). Kilit dosyası AC-249 handle kuralıyla açılabilsin diye; mevcut kipler değişmedi.
+  - `internal/launch/run.go`: `Store` arayüzü `SaveBinding(b, replaceKey)`, `ClearBinding()` → `RemoveBinding(key)`;
+    `localBinding` gömülü kökenin ilk (en son kullanılan) öğesini, yoksa ilk öğeyi döner; `OnBindingInvalid` yalnız o anahtarı siler.
+  - `internal/launch/keeper.go`: `SaveBinding(b, prev.Key)` (prev aynı kökense) — tek yuva davranışı K3'e kadar korunur.
+  - `internal/launch/run_test.go`: yeni imza/alan adları.
+
+### Tasarımdan sapmalar / yorumlar (gerekçeli)
+
+1. **U+2028/2029:** Go `encoding/json` bu iki karakteri `SetEscapeHTML(false)` iken de **koşulsuz** ` ` olarak kaçışlar
+   (§8d.1'deki "şişmez" ifadesi yalnız `< > &` için doğru). En kötü durum fikstürü (10 öğe × 253 baytlık host + azami port,
+   120/100 rune `&😀< ` ad, 80 rune ad, 254 `&` e-posta, tercih) ≈ 19 KB ölçüldü; 32 KB sınırı içinde, sınır değişmedi.
+2. **Sayaç baytı biçimi (G-P20-18):** "aynı kod" koşulu için tek bayt = yüksek 4 bit sınıf kodu (io 1, key_state 2, sharing 3,
+   dpapi 4, reparse 5) + düşük 4 bit sayı (≤ 15). Sayaç yalnız `Migrate` (açılışta bir kez) ilerletir; her başarılı okuma 0 yazar.
+   Kilit zaman aşımında sayaç yazılamaz (kodsuz).
+3. **3. köken okumada:** hangi kökenin kalacağı için en son kullanılan iki köken tutulur (`remember` gömülü kökeni bilmez; gömülü
+   köken pratikte en son kullanılandır). `full` kararı K3'te `ForOrigin(gömülü)` sayısıyla verilir.
+4. **Sınıf 1 silme kapsamı:** bozuk `kayitlar.bin` + tmp silinir; `hatirla.bin` yoksa tanılama logu da (kalıcı mod kapandı).
+   `kayitlar.lock` ve klasör kalır (kişisel veri yok; "Bu bilgisayarı unut" siler).
+5. **`ForgetAll` kilit alınamazsa** (2 sn) kilitsiz devam eder (kullanıcının açık isteği, G-P20-18 "okuma durumundan bağımsız");
+   kilit dosyası diğer süreçte açıksa (Windows paylaşım ihlali) yalnız o dosya kalabilir, hata dönmez.
+6. **Fake `Unprotect`'in sınıflandırılmamış hatası** sınıf 2 sayılır (eski davranış: silme). Windows'ta yalnız `dpapiClass`'ın
+   sınıf 1 dediği kodlar siler.
+7. **Göçte `kayitlar.bin` sayım ihlalliyse** birleştirme yazımıyla düzeltilir (eski dosya yoksa yazım yapılmaz, sonraki yazım düzeltir).
+8. Yeni bağımlılık yok.
+
+### K3 / K5 için sözleşme (bağlama — yapılmadı, kapsam dışı)
+
+- **`remember.Migrate()` henüz hiçbir yerden çağrılmıyor** (`cmd/noktadestek/main.go` K5 alanı): açılışta bir kez, ilk okumadan
+  önce çağrılmalı; dönen `MigrateResult` açılışın okuma durumudur (`Status`, `Class`, `Trimmed`, `SuggestForget`, `Blocked`, `Failed`).
+  Çağrılmadan 0.11.x kullanıcısı kayıtsız görünür.
+- `StatusUnreadable` → salt-okunur açılış (yazma yok, `-tray`'de Run silinmez, "kayıt yok" kararı yok), "Bu bilgisayarı unut"
+  her zaman sunulur; diag `load_failed{Class}`. `SuggestForget` → silme önerisi metni. `Trimmed` → bir kez bilgi satırı.
+  `Blocked` → "Eski sürümden kalan bir kayıt (<firma>) eklenemedi; 5 firma sınırı…" + G-P20-9 cümlesi. `Failed` → diag `migrate_failed`.
+- Yazma hataları sessiz değildir: `SaveBinding/TouchBinding/RemoveBinding/SetPrefs` hata döner; `remember.ErrorClass(err)` →
+  diag `store_write_failed{class}`, oturum sonu "Kayıt bu bilgisayara yazılamadı". `ErrLimit` (sınıf `limit`) yazımda sayım reddi.
+- `SaveBinding(b, replaceKey)`: `previousIndex` ile seçilen yuvanın anahtarı `replaceKey` olarak verilir (yalnız aynı kökende
+  değiştirir); `null` → `""` (yeni öğe). `TouchBinding` kayıtla talep 201'de çağrılır. `Data.ForOrigin(server)` ekran ve `full`.
+- `LoadPersonal`/`SavePersonal`/`ClearPersonal` imzaları değişmedi (`request` paketi etkilenmedi).
+
+### Test
+
+- `docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 go test -race ./...` → remember, launch, diag dahil tüm
+  paketler `ok` (remember `-count=3` ile de yeşil).
+- `GOOS=windows go vet ./internal/remember/ ./internal/launch/ ./internal/diag/ ./internal/request/ ./internal/flow/` ve
+  `GOOS=windows go test -c ./internal/remember/ ./internal/launch/` temiz; `GOOS=windows GOARCH=386 go vet ./internal/remember/
+./internal/diag/` temiz. `gofmt -l` K2 dosyalarında temiz.
+- Windows'a özgü testler (`store_windows_test.go`, `reparse_windows_test.go`) CI `test-windows`'ta koşar; burada yalnız derlendi.
+- Not (K2 dışı, paralel iş): `GOOS=windows go vet ./...` şu an `internal/ui/chat_windows.go` (`u.reqChat`) ve `cmd/noktadestek/main.go`
+  (`RequestChat`) nedeniyle düşüyor; `internal/request/chat_test.go` gofmt'sız — K6'nın süren işi.
+
+## P20 K6 (talep sohbeti) — backend-dev (Go) — 2026-11-15
+
+Kapsam: AC-255 Go ucu, kabul öncesi talep sohbeti (`/ws/request` `rs.cap.chat1`; mimari-protokol §5.4, mimari-e11 §8d.3
+sohbet satırı, G-P20-7, S-P20-6/7, K-P20-1, K-P20-9). Oturum sohbeti (DC `chat`) değişmedi (P22).
+
+### Değişen / yeni dosyalar
+
+| Dosya                                                 | Değişiklik                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/agent-win/internal/request/chat.go` (yeni)      | Sohbet tipleri (`ChatMessage`, `ChatHistory`, `ChatToggle`) + sıkı ayrıştırma (`items[]` öğesi ayrı `DecodeStrict`, `t` yok); `ChatBody` (§5.4.4 sırası); `EncodeMessage`; `ChatDisplayBody` gövde süzgeci; `Chat` durum modeli (tek onaylanmamış mesaj, 1 msg/sn, yeniden deneme, gösterim tavanı, önek + girinti) |
+| `apps/agent-win/internal/request/ws.go`               | `Dial` alt protokole `rs.cap.chat1`; `ParseServer` üç sohbet tipini `parseChat`'e yönlendirir; `WSConn.SendMessage`                                                                                                                                                                                                 |
+| `apps/agent-win/internal/request/types.go`            | `Conn.SendMessage`; `UI.RequestChat`, `UI.RequestChatSends`; `WaitView.Label` (yerel firma etiketi)                                                                                                                                                                                                                 |
+| `apps/agent-win/internal/request/wait.go`             | Bekleme döngüsüne sohbet: `onChat`, `sendChat`, `showChat`, sohbet zamanlayıcısı; bağlanma/kopma/kabulde `Chat.Online/OnAccepted`; `Label: r.registered`                                                                                                                                                            |
+| `apps/agent-win/internal/ui/chat_windows.go` (yeni)   | Sohbet alanı (salt okunur geçmiş EDIT, `EM_SETLIMITTEXT` 512 K; giriş + **Gönder**, Enter = Gönder; durum satırı), `RequestChat`, `RequestChatSends`, `SetRequestChatBalloon`                                                                                                                                       |
+| `apps/agent-win/internal/ui/request_windows.go`       | Bekleme penceresi 440×576; sohbet alanı + başlıkta yerel etiket; ilk odak giriş kutusu                                                                                                                                                                                                                              |
+| `apps/agent-win/internal/ui/screens_windows.go`       | Yalnız 3 satır: `UI` alanları `reqChat`, `reqChatBalloon` + `New`'de `reqChat` kanalı                                                                                                                                                                                                                               |
+| `apps/agent-win/internal/win/flash_windows.go` (yeni) | `FlashUntilFocus` (`FlashWindowEx` FLASHW_ALL\|FLASHW_TIMERNOFG); çakışmasın diye ayrı dosya                                                                                                                                                                                                                        |
+| `apps/agent-win/internal/request/run_test.go`         | Sahteler: `fakeConn.SendMessage`, `fakeUI.RequestChat/RequestChatSends`                                                                                                                                                                                                                                             |
+| `apps/agent-win/internal/request/chat_test.go` (yeni) | Testler (aşağıda)                                                                                                                                                                                                                                                                                                   |
+
+`remember`, `autorun`, `tray`, `launch`, `cmd/noktadestek/main.go` dosyalarına dokunulmadı.
+
+### Davranış özeti
+
+- Gönderim: trim, `\r\n`→`\n`, Cc (`\n` hariç) / Cf (ZWJ hariç) / Zl/Zp / U+034F / U+180E ret, 1..1000 kod noktası,
+  ≤ 20 satır, ham ≤ 4000 UTF-16. Hata metinleri contracts ile aynı. `clientMsgId` 16 bayt rastgele base64url.
+- En çok bir onaylanmamış mesaj; "Gönder" 1 sn pasif; yankı gelene kadar "Siz (gönderiliyor…)".
+- `RATE_LIMITED`: aynı `clientMsgId` ile 1/2/4/8 sn sonra en çok 4 yeniden deneme, sonra "gönderilemedi". Tavan iletisi
+  (`Bu talepte en çok 200 mesaj gönderilebilir.`) → yeniden deneme yok, giriş kapanır. `INTERNAL`/`VALIDATION` →
+  "gönderilemedi"; metin giriş kutusuna geri konur (boşsa). Aynı metin yeniden gönderilirse aynı `clientMsgId`.
+- Kopma: gönderim kapanır; yeniden bağlanınca `request.messages` gelmeden gönderilmez; uçuştaki mesaj listede yoksa aynı
+  `clientMsgId` ile yeniden gönderilir, varsa onaylanır (çift satır yok).
+- `request.chat false` / kabul → giriş pasif, bekleyen mesaj "gönderilemedi" + metin geri.
+- Gösterim (G-P20-7): `ChatDisplayBody` + `"[SS:DD] Teknisyen <ad>:"` / `"Siz:"` (önek istemcinin; ad `Display`
+  süzgecinden), gövdenin her satırı 4 boşluk girintili, `\r\n`; 200 mesaj ve 256 K UTF-16 tavanı, en eski blok bütün düşer.
+- Bildirim: yeni teknisyen mesajında pencere önde değilse `FlashWindowEx`; pencere gizliyse (tepside) ve balon işlevi
+  verildiyse yalnız sabit `"Teknisyenden yeni mesaj"` (gövde/ad yok).
+
+### Tasarımdan sapmalar / yorumlar (gerekçeli)
+
+1. **Gövde süzgeci tüm Cf'yi atar** (tasarım listesi U+200B–200F, 202A–202E, 2066–2069, FEFF): liste alt küme olarak
+   karşılanır; ek olarak U+00AD vb. de atılır. Listedeki U+200D (ZWJ) zaten aralıktadır, emoji birleşimleri gösterimde
+   ayrık görünür (kabul).
+2. **Eşlenmemiş vekil**: `encoding/json` tek vekili U+FFFD'ye çevirir; süzgeç U+FFFD'yi ve geçersiz UTF-8 baytlarını atar.
+3. **NFC istemcide yok** (tasarım: "NFC sunucuda"); `golang.org/x/text` eklenmedi. Uzunluk kontrolü NFC öncesi metinde
+   yapılır; sunucu yetkilidir, yankıdaki gövde esas alınır.
+4. **Yetenek onayı**: giriş, bağlantıdaki ilk `request.messages`'a kadar pasif ("Bağlantı bekleniyor") — §5.4.1
+   "istemci yeteneği `request.messages` gelmesinden anlar".
+5. **Balon**: K-P20-13 / G-P20-5'e göre talep beklerken pencere tepsiye inmez; bu yüzden balon yolu pratikte ancak
+   pencere gizliyken çalışır. Tepsi simgesi K5'te olduğu için K6 yalnız `(*ui.UI).SetRequestChatBalloon(func(text string))`
+   kancasını verir; **bağlama K5'te** (bir satır, `main.go`). Kanca hiçbir zaman gövde almaz.
+6. `RATE_LIMITED` için yeniden deneme sayısı 4 ile sınırlandı (tasarım "≥ 1 sn bekle, yeniden gönder" diyor, üst sınır
+   söylemiyor): firma kovası (300/dk) aynı iletiyi döndürdüğü için sonsuz döngü olmasın.
+
+Yeni bağımlılık yok.
+
+### K3 / K5 / K7 için sözleşme
+
+- `request.UI` arayüzüne `RequestChat(ChatView)` ve `RequestChatSends() <-chan string` eklendi; `request.Conn`'a
+  `SendMessage`. Başka sahte `request.UI`/`Conn` yazan paket bunları eklemeli.
+- `WaitView.Label` = `runner.registered` (yerel kayıt etiketi). Çoklu firma seçimi (K3) seçilen firmanın etiketini
+  `Deps.Registered`'a koyarsa başlık kendiliğinden doğru olur.
+- K5: tepsi balonu için `u.SetRequestChatBalloon(tray.Balloon)` benzeri bir satır.
+- K7 / sürüm: panel kartının doğru "sohbet destekleniyor" göstermesi için yayın `clientVersion ≥ 0.12.0` olmalı
+  (ldflags `cfg.Version`); K6 sürüm numarasını değiştirmedi.
+- `ui/request_windows.go` bekleme penceresi düzeni değişti (yükseklik 576); K3 `home_windows.go`'ya dokunulmadı.
+
+### Test
+
+`docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 go test -race ./...` → tüm paketler `ok`;
+`-e GOOS=windows … go vet ./...` → temiz; `gofmt -l .` → boş. Adı geçen iki test (`GivesUpAfterRetries`,
+`FlowThroughWait`) `-count=50 -race` ile kararlı.
+
+Yeni testler (`internal/request/chat_test.go`): fikstür `requestChatOutbound` valid/invalid (ParseServer) ve
+`requestChatInbound` valid (gövde + birebir JSON) / invalid (istemci kuralları üretemez); sıkı ayrıştırma (null/eksik
+`items`, öğede `t`/harf duyarlılığı, boş `senderName`, 2001 karakter, 50/51 öğe); gövde kuralları tablosu; gösterim
+süzgeci; önek + girinti (sahte başlık üretilemez); 200 mesaj / 256 K tavanı; tek bekleyen + 1 msg/sn; RATE_LIMITED aynı
+kimlik + tavan; INTERNAL/VALIDATION metin korunur; yeniden bağlantıda koşullu yeniden gönderim; `request.chat` + kabul;
+balon metni gövdesiz; bekleme akışı uçtan uca (sahte soket); başlıkta yerel etiket; gerçek WS (httptest TLS):
+`rs.v1, rs.req.<sır>, rs.cap.chat1` bildirimi, giden çerçeve birebir, şema dışı sohbet mesajında 1008.
+
+Elle (K9 / test-operatoru): staging panel ↔ istemci sohbet gidiş-dönüşü, açık/koyu tema, Enter = Gönder, uzun geçmişte
+kaydırma, pencere arka plandayken yanıp sönme. Bu turda staging'e bağlanılmadı.
+
+## P20 K7 (devops) — 2026-11-15
+
+Kapsam: mimari-e11 §8d.8, §8d.9 (Go Windows + iz testi satırları), §8d.11 K7, §8d.15 (G-P20-1/2/10/14/16 CI ve operasyon kısmı).
+Go kaynağına dokunulmadı (K2/K4/K5 paralel).
+
+- `.github/workflows/agent-win.yml` `test-windows` (izin değişmedi `contents: read`; yeni action yok; süre 20 → 25 dk):
+  - **ACL tanılama:** `icacls` C:\, C:\Users, profil, İndirilenler, Public + bütünlük düzeyi (runner yükseltilmiş yönetici).
+  - **AC-253/254 testleri (-v):** `go test -count=1 -v -run 'TestAC253|TestAC254' ./internal/...` (tee, AC-248 kalıbı);
+    zorunlu PASS listesi SKIP/yok ise kırmızı, diğer SKIP uyarı.
+  - **HKCU Run'da test değeri kalmadı:** `NoktaDestek*` değer kalırsa siler ve kırmızı.
+  - **trace-check -Tray/-Autostart öz testi:** sahte `kayitlar.bin`/`kayitlar.lock` + gerçek HKCU Run değeriyle 10 beklenen
+    çıkış kodu (izinli, iz, REG_EXPAND_SZ reddi, değer yok, `hatirla.bin` kalmış, unut sonrası temiz / `kayitlar.lock` kalmış);
+    `finally` ile temizlik.
+- `apps/agent-win/test/trace-check.ps1`: `-Tray on|off`, `-Autostart on|off`; yeni saf fonksiyon `Get-TraceAllowance`
+  (izinli girdiler + eksik + uyarı). `-Remember/-Binding on` artık `hatirla.bin` **veya** `kayitlar.bin` + `kayitlar.lock`
+  kabul eder (ikisi birden → uyarı); `-Tray on` yalnız `kayitlar.bin`/`.lock` (kayitlar.bin zorunlu, `hatirla.bin` iz),
+  tepside çalışan süreç bilgi; `-Autostart on` yalnız `HKCU\…\Run\NoktaDestek` = `"<ExePath>" --tray`, REG_SZ denetimi,
+  `-Tray on` + `-ExePath` yoksa çıkış 2. Varsayılanlar (hepsi off) davranışı değişmedi. İşletim sistemi tepsi geçmişi ve
+  StartupApproved istisnası yardım metninde. UTF-8 BOM korundu.
+- `docs/runbook.md`: §24.8 (0.12.0 staging artifact; sürüm ldflags'tan — kodda sabit yok), §24.9 (CI kanıt tablosu + elle
+  tepsi/Run iz testi), §24.10 AV kapısı (Defender W10/W11 + 24 sa, VirusTotal önce hash araması, büyük motor 0 / toplam ≤ 2,
+  WDSI, yalnız nötr adlı Release artifact'ı — G-P20-10, sonuç tablosu, ilk müdahale), §24.11 Run elle kaldırma + 0.12 → 0.11
+  geri alma; §11.8 parametre notu ve `C:\iz<TAB>race-check.ps1` yazım hatası (2 yer) düzeltildi; sorun tablosuna 2 satır.
+
+**Sürüm 0.12.0:** kaynakta sabit yok — `build.sh` ldflags `config.version` + go-winres sürüm bayrakları; `build/winres.json`
+`0.0.0.0` yer tutucu. Staging: dispatch `version=0.12.0`; Release: `v0.12.0` etiketi. Değiştirilecek dosya yok.
+
+**K2/K4 için test adı sözleşmesi (CI zorunlu PASS; `_windows_test.go`):**
+
+| Test                                        | Paket               | İçerik                                                                                                                                                                                                            |
+| ------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TestAC253WindowsRegistryRoundTrip`         | `internal/autorun`  | gerçek HKCU Run yaz/oku/sil, geçici ad `NoktaDestekTest-<rastgele>`, REG_SZ; `t.Cleanup` ile silinir (gerçek `NoktaDestek` adına asla yazılmaz)                                                                   |
+| `TestAC253WindowsUsersModifyFolderRejected` | `internal/autorun`  | `t.TempDir()` altı klasör + exe, `icacls <klasör> /grant *S-1-5-32-545:(OI)(CI)M` → etkinleştirme reddi (`ReasonWeakACL`) ve mevcut değerin Verify ile silinmesi (G-P20-1)                                        |
+| `TestAC253WindowsRealCDriveACL`             | `internal/autorun`  | gerçek ACL: `%USERPROFILE%\Downloads\x.exe` kabul (klasör yoksa oluştur), `C:\Araclar-<rastgele>\x.exe` (devralınmış Authenticated Users:M) ret, `C:\Users\Public\…\x.exe` ret; oluşturulanlar silinir (G-P20-14) |
+| `TestAC254GP2016TwoProcessesNoLostUpdate`   | `internal/remember` | test ikilisini alt süreç olarak yeniden çalıştırır; 2 süreç × 100 tur eşzamanlı Save/Touch (`kayitlar.lock` + `LockFileEx`) → son dosyada kayıp yok (G-P20-2/16)                                                  |
+
+Runner yönetici ve **yükseltilmiş** belirteçle koşar: autorun testleri `Enable`'ın yükseltilmiş süreç reddine takılmamak için
+sahte `Prober.Elevated()=false` ya da doğrudan `Inspect` + `Evaluate` kullanmalı. Ad değişirse ya iş akışındaki liste ya da test
+adı birlikte değişir. Tepsi testleri `TestAC253*` önekiyle `internal/tray` içinde de olabilir (otomatik koşar; SKIP uyarıdır).
+
+**Doğrulama (yerel):** actionlint 1.7.8 (CI imajı, içinde shellcheck) 0 bulgu; `trace-check.ps1` pwsh 7 ayrıştırma 0 hata,
+`Get-TraceAllowance` + `Compare-TraceSnapshot` için 16 senaryoluk nokta-kaynak birim denemesi (scratch, repoya girmedi) hepsi
+geçti; Windows dışında çıkış 2. Zorunlu-test grep mantığı sahte `go test -v` çıktısıyla denendi (PASS / SKIP / alt test / yok).
+PSScriptAnalyzer kurulamadı (izin yok). **Yapılmayan:** gerçek Windows CI koşusu (Go testleri K2/K4'te henüz yok → adım şu an
+"koşmadı" ile **kırmızı** olur; K2/K4 testleri gelince yeşil beklenir), 0.12.0 staging artifact'ı (K1–K6 + main birleşmesi
+sonrası §24.8), AV kapısı sonuç tablosu (Release adayı yokken doldurulamaz).

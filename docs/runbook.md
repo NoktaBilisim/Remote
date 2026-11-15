@@ -774,6 +774,8 @@ agent-watch'u elle tetikleyin, yeşilse issue'yu kapatın. 503 ise yukarıdaki b
 | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `agent-win` `test-windows` kırmızı: "İZ BULUNDU"                                                                                  | trace-check (AC-108) istemciye ait yeni girdi buldu; koşu çıktısındaki satır kategori + yolu gösterir (§11.8)                              |
 | `test-windows` uyarı "WM_CLOSE ile kapanmadı"                                                                                     | runner'da etkileşimli masaüstü yok, istemci zorla kapatıldı; iz testi yine koşar ama kapanış yolu sınanmamıştır → §11.8 elle test          |
+| `test-windows` kırmızı: "TestAC25x… koşmadı" / "SKIP"                                                                             | P20 zorunlu Windows testi adı değişti ya da test atlandı; ad sözleşmesi implementation.md "P20 K7", §24.9                                  |
+| `test-windows` kırmızı: "testler HKCU Run'da değer bıraktı"                                                                       | autorun testi geçici değeri silmedi (adım siler); testin `t.Cleanup`'ı düzeltilir (§24.9)                                                  |
 | `build` kırmızı: "etiket derlemesi yalnız etiket push'unda"                                                                       | etiket üzerinde elle tetikleme; Release yalnız etiket push'uyla (S6-4)                                                                     |
 | `--run` "koşu sonucu 'failure' … yayınlanmadı"                                                                                    | S6-5: önce koşuyu yeşile çekin; yalnız yerelde bilerek `--run <id> --local --allow-failed-run`                                             |
 | "DEPLOY_ENV=production hedefe yalnız Release etiketi (vX.Y.Z) yayınlanır"                                                         | prod'a `--run`/`--dir`/`--stg-run` denendi → §11.3 `--tag`                                                                                 |
@@ -805,6 +807,11 @@ klasörü (.lnk hedefi), `%APPDATA%`, `%LOCALAPPDATA%`, `%TEMP%`, İndirilenler 
 
 Çıkış kodu: **0** temiz · **1** iz bulundu · **2** kullanım/ortam hatası (Windows değil, snapshot okunamadı).
 
+Kalıcı mod parametreleri: `-Remember on` / `-Binding on` (izinli: `hatirla.bin` ≤ 0.11.x veya `kayitlar.bin` + `kayitlar.lock`
+≥ 0.12.0; biri olmalı), `-Tray on` (yalnız `kayitlar.bin` + `kayitlar.lock`; tepside çalışan süreç bilgi), `-Autostart on`
+(`-Tray on` + `-ExePath` ister; yalnız `HKCU\…\Run\NoktaDestek` = `"<exe>" --tray`, REG_SZ). Varsayılanların hepsi `off` =
+"Bu bilgisayarı unut" sonrası hiçbir iz. 0.12.0 senaryosu §24.9.
+
 **CI:** `agent-win.yml` → `test-windows` job'u her PR/push'ta yer tutucu adresli exe'yi `Destek-12345678.exe` adıyla
 başlatır (resolve ağ hatası → kod penceresi; hiçbir sunucuya istek gitmez), 15 sn sonra `WM_CLOSE` ile kapatır ve Compare
 koşar. Oturum, dosya aktarımı ve ekran yakalama CI'da yoktur; bunlar için aşağıdaki elle test **zorunludur** (DoD).
@@ -812,10 +819,10 @@ koşar. Oturum, dosya aktarımı ve ekran yakalama CI'da yoktur; bunlar için a�
 **Elle test (temiz Windows 10 22H2 / 11 VM, standart kullanıcı):**
 
 1. Repo'yu ya da yalnız `trace-check.ps1`'i VM'e kopyalayın (ör. `C:\iz\`). PowerShell 7 yoksa `powershell -ExecutionPolicy Bypass -File ...`.
-2. `pwsh -File C:\iz	race-check.ps1 -Mode Snapshot -SnapshotPath C:\iz\once.json`
+2. `pwsh -File C:\iz\trace-check.ps1 -Mode Snapshot -SnapshotPath C:\iz\once.json`
 3. Exe'yi tarayıcıdan indirin (`Destek-<kod>.exe`), implementation.md "Windows'ta elle doğrulanacaklar" 1-12 akışını yapın:
    oturum, sohbet, bir dosya kabul, bir aktarımı yarıda iptal, "Oturumu bitir" → program kapanır.
-4. `pwsh -File C:\iz	race-check.ps1 -Mode Compare -SnapshotPath C:\iz\once.json -ExePath "$env:USERPROFILE\Downloads\Destek-<kod>.exe"`
+4. `pwsh -File C:\iz\trace-check.ps1 -Mode Compare -SnapshotPath C:\iz\once.json -ExePath "$env:USERPROFILE\Downloads\Destek-<kod>.exe"`
 5. Beklenen: `TEMİZ` ve çıkış 0. Kabul edilen dosya ile exe'nin kendisi iz sayılmaz. "İNCELEYİN" listesindeki girdileri
    gözden geçirin (Defender/Windows Update kaynaklı olabilir). Sonucu ve çıktının ekran görüntüsünü `docs/test-raporu.md`'ye ekleyin.
 6. Ayrıca görev yöneticisiyle sonlandırma (zorla kapatma) senaryosunda adım 2-4'ü tekrarlayın: yarım `.part` kalırsa iz olarak raporlanır.
@@ -2967,6 +2974,108 @@ git ls-remote --tags origin v1.0.0            # boş çıktı = silindi
 
 Release oluşmuşsa (onaylandıysa) önce `gh release delete v1.0.0 --repo NoktaBilisim/Remote --yes`, indirilen exe yayına
 alındıysa §24.5 / §11.4. Reject ve silme (tarih, etiket commit'i, kim) §8 yayın geçmişine bir satır olarak yazılır.
+
+### 24.8 P20 — istemci 0.12.0 staging artifact'ı (devops K7, 2026-11-15; mimari-e11 §8d.8)
+
+Sürüm numarası kodda **yoktur**: `build.sh <adres> <sürüm>` → ldflags `config.version` + go-winres `--product-version`/
+`--file-version` (`build/winres.json`'daki `0.0.0.0` yer tutucudur, derlemede ezilir). 0.12.0 için kaynakta değiştirilecek sabit
+yok; sürüm dispatch girdisinden (staging) veya `v0.12.0` etiketinden (Release) gelir.
+
+Sıra (bağlayıcı): **K1 sunucu eki staging'de** (çoklu firma `binding.offer.multi` yalnız ≥ 0.12.0 teklifine) → P20 main'e
+birleşti ve `agent-win` main push koşusu yeşil (AC-253/254 adımı dahil, §24.9) → staging exe:
+
+1. `gh workflow run agent-win.yml --repo NoktaBilisim/Remote --ref main -f server_url=https://stg.remote.noktabilisim.net -f version=0.12.0`
+2. Artifact `agent-win-stg`: `NoktaDestek-stg-0.12.0.exe` + `SHA256SUMS` + `build-meta.txt` (Release'e gitmez).
+3. `deploy/agent/verify-and-publish.sh --stg-run <run-id> --ssh root@185.126.217.99` (hedef `/opt/remote-stg/deploy`, §11.5).
+4. Duman (test-operatoru, Windows 10 + 11): 3 firmaya kayıt, seçerek talep, 6. firma `BINDING_LIMIT` metni, tepsi menüsü 3 öğe,
+   Run aç → oturum kapat/aç → tepside başlar, ağ yok; talep sohbeti panel ↔ istemci; "Bu bilgisayarı unut" sonrası §24.9 iz
+   testi temiz. Sonuç `docs/test-raporu.md` + §8 yayın geçmişi satırı (staging, 0.12.0, SHA-256).
+5. `MIN_AGENT_VERSION` yükseltilmez (0.10.x/0.11.x eski tek kayıt dalıyla çalışır, §8d.2).
+
+Sıra bozulursa (sunucu eki yokken 0.12.0) güvenlidir: istemci `previousKey` göndermez, yeni kayıt ekler; yine de 1. adım K1
+staging'de değilken yapılmaz (çoklu dal sınanamaz).
+
+### 24.9 P20 — CI kanıtı ve tepsi / Windows açılışı iz testi (AC-253/254; G-P20-1/2/14/16)
+
+**CI (`agent-win.yml` → `test-windows`, her PR/push):**
+
+| Adım                                  | Ne kanıtlar                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ACL tanılama                          | `icacls` C:\\, C:\\Users, profil, İndirilenler, Public + bütünlük düzeyi (runner yükseltilmiş). Gerçek C:\\ testi kırmızıysa önce buna bakın                                                                                                                                                                                                                            |
+| AC-253/254 testleri (-v)              | `go test -count=1 -v -run 'TestAC253\|TestAC254' ./internal/...`; **zorunlu PASS** (SKIP/yok = kırmızı): `TestAC253RunValueRoundTrip` (gerçek HKCU Run, geçici `NoktaDestekTest-<rastgele>`, REG_SZ), `TestAC253IcaclsUsersModifyRefused` (G-P20-1), `TestAC253RealCDriveACL` (G-P20-14), `TestAC254TwoProcessLock` (G-P20-2/16, 2 süreç × 100 tur). Diğer SKIP = uyarı |
+| HKCU Run'da test değeri kalmadı       | Testler `NoktaDestek*` adlı değer bırakmadı (bırakırsa silinir ve iş kırmızı)                                                                                                                                                                                                                                                                                           |
+| trace-check -Tray/-Autostart öz testi | `kayitlar.bin`/`kayitlar.lock` + Run değeri elle oluşturulur; izinli / iz / REG_EXPAND_SZ reddi / değer yok / `hatirla.bin` kalmış / unut sonrası temiz / unut sonrası `kayitlar.lock` kalmış durumlarının çıkış kodları denetlenir                                                                                                                                     |
+
+Tepsi duman testi ve istemcinin Run'ı **kendisinin** yazması UI ister → aşağıdaki elle test (CI'da yok).
+
+**Elle iz testi (Windows 10 22H2 + 11 VM, standart kullanıcı; §11.8 ön adımları):**
+
+1. `pwsh -File C:\iz\trace-check.ps1 -Mode Snapshot -SnapshotPath C:\iz\once.json`
+2. Staging exe'yi (§24.8) İndirilenler'e indirin, kayıt alın, **Tepside çalıştır** ve **Windows açılışında başlat** açın,
+   pencereyi X ile kapatın (tepsiye iner), oturumu kapatıp açın (tepside başlamalı).
+3. `pwsh -File C:\iz\trace-check.ps1 -Mode Compare -SnapshotPath C:\iz\once.json -Binding on -Tray on -Autostart on -ExePath "$env:USERPROFILE\Downloads\<exe adı>"`
+   → `TEMİZ`. İzinli: `%LOCALAPPDATA%\NoktaDestek\{kayitlar.bin, kayitlar.lock, tanilama.log*}` ve yalnız
+   `HKCU\…\Run\NoktaDestek` = `"<exe tam yolu>" --tray` (REG_SZ). Tepside çalışan süreç "BİLGİ" satırıdır, iz değil.
+4. Tepsi menüsü → **Aç** → **Bu bilgisayarı unut (tüm firmalar)** → onay; ardından tepsiden **Çık**.
+5. `pwsh -File C:\iz\trace-check.ps1 -Mode Compare -SnapshotPath C:\iz\once.json -ExePath "$env:USERPROFILE\Downloads\<exe adı>"`
+   (varsayılanlar `-Binding off -Remember off -Tray off -Autostart off`) → `TEMİZ`: klasör, `kayitlar.*`, `hatirla.bin`, Run
+   değeri yok, süreç yok.
+6. İstisna (Windows'un yazdığı, istemcinin değil; taranmaz): `HKCU\Control Panel\NotifyIconSettings\*`, `…\TrayNotify`
+   IconStreams/PastIconsStream, Görev Yöneticisi'nin `…\Explorer\StartupApproved\Run\NoktaDestek` değeri.
+
+### 24.10 P20 — AV kapısı ("AV yanlış pozitif"; imza yokken bağlayıcı, K-P20-3, R30, G-P20-10)
+
+0.12.0 imzasızdır (ADR-0010) ve kendini `HKCU\Run`'a yazan imzasız exe sezgisel tespit riskini artırır. **Bu kapı geçmeden prod
+Release onaylanmaz** (`agent-release` onayında Reject); staging sürer. Prod'da tepsi/Run seçenekleri varsayılan kapalıdır.
+
+**Örnek dosya kuralı (G-P20-10):** AV'ye/VirusTotal'a/WDSI'ya yalnız CI'nin ürettiği **nötr adlı** dosya gider: etiket koşusunun
+`agent-win` artifact'indeki `NoktaDestek.exe` (Release adayı; onay beklerken `reproducible` işi bitmiştir), gerekirse
+`NoktaDestek-0.12.0.exe` adına kopyalanır. Müşterinin indirdiği `NoktaDestek-<etiket>-<ref>.exe` / `Destek-<kod>.exe` kopyası
+(dosya adı `ref`/kod taşır) **asla** yüklenmez ve gönderilmez — hash Release'le aynıysa gerek de yoktur. Depo açık kaynaktır.
+
+1. Adayı indirin ve hash'i alın:
+   `gh run download <etiket-run-id> --repo NoktaBilisim/Remote -n agent-win -D av-0.12.0 && (cd av-0.12.0 && sha256sum -c SHA256SUMS)`
+2. **Defender (Windows 10 ve 11, güncel tanım):**
+   `& "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -SignatureUpdate` →
+   `& "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File <yol>\NoktaDestek-0.12.0.exe -DisableRemediation`
+   → "found no threats". Ayrıca aynı commit'in staging exe'siyle (§24.8) tepsi + Run açık **24 sa** izleme:
+   `Get-MpThreatDetection` boş, Defender geçmişi temiz.
+3. **VirusTotal:** önce **hash araması** (`https://www.virustotal.com/gui/file/<sha256>`; dosya yüklenmez). Kayıt yoksa
+   yalnız 1. adımdaki nötr adlı dosya yüklenir. Kabul: büyük motorlar (Microsoft, Kaspersky, ESET, Bitdefender, Sophos, Trend
+   Micro) **0**, toplam **≤ 2**.
+4. **Tespit varsa:** Microsoft WDSI (`https://www.microsoft.com/en-us/wdsi/filesubmission` → Software developer → "Incorrectly
+   detected", aynı nötr adlı dosya) + ilgili satıcının yanlış pozitif formu. Çözülene dek **prod Release yok** (Reject),
+   staging sürer; gönderim numarası ve tarih aşağıdaki tabloya.
+5. Sonuç tablosu bu bölüme ve Release notuna eklenir (Release işi notu otomatik yazar; yönetici sonra ekler:
+   `gh release view v0.12.0 --repo NoktaBilisim/Remote --json body -q .body > notes.md`, tabloyu ekleyin,
+   `gh release edit v0.12.0 --repo NoktaBilisim/Remote --notes-file notes.md`).
+
+| Tarih | Sürüm  | SHA-256 (ilk 16) | Defender W10 | Defender W11 | 24 sa izleme | VT büyük motor | VT toplam | WDSI/satıcı gönderimi | Karar |
+| ----- | ------ | ---------------- | ------------ | ------------ | ------------ | -------------- | --------- | --------------------- | ----- |
+| —     | 0.12.0 | (bekliyor)       | —            | —            | —            | —              | —         | —                     | —     |
+
+**İlk müdahale — "program silindi / karantinaya alındı" (destek talebi, remote-watch geri bildirimi):** (1) müşteriden dosya
+istemeyin; Release `SHA256SUMS` ile sunucudaki exe'yi doğrulayın (§11.7 komutu) — farklıysa bütünlük olayıdır (§11.7);
+(2) hash Release ile aynıysa yukarıdaki 4. adım (nötr adlı Release dosyasıyla WDSI); (3) müşteriye tarayıcı modu / P19 talep
+bağlantısı gönderilir; (4) tespit yaygınsa §24.5 ile önceki sürüme dönülür ve tablo güncellenir.
+
+### 24.11 P20 — Windows açılışından elle kaldırma ve 0.12.0 geri alma
+
+İstemci Run değerini silemezse (izin, AV kilidi; ekranda hata + bu adıma yönlendirme) ya da 0.11.x'e dönüldüyse Run değeri
+0.12 exe'sini göstermeye devam eder. Kullanıcı kendi oturumunda (yönetici gerekmez):
+
+```bat
+reg query  HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v NoktaDestek
+reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v NoktaDestek /f
+```
+
+ya da Görev Yöneticisi → Başlangıç uygulamaları → Nokta Destek → Devre dışı bırak (yalnız devre dışı bırakır; değer kalır, iz
+testinde görünür). Tepside çalışan süreç: tepsi simgesi → **Çık**. Kayıtları da silmek için 0.12 exe'sinde "Bu bilgisayarı
+unut"; exe yoksa `%LOCALAPPDATA%\NoktaDestek` klasörü elle silinir (sunucu anahtarları teknisyen panelinden iptal edilir).
+
+**Geri alma 0.12.0 → 0.11.x:** §24.5 (`verify-and-publish.sh --tag v0.11.0`). 0.11 `kayitlar.bin`'i görmez (kayıtsız gibi
+davranır, veri silinmez); yeniden 0.12'ye geçişte kayıtlar geri gelir. Run değeri olan müşterilere yukarıdaki kaldırma adımı
+iletilir. Sunucu eki (K1) geri alınırsa 0.12 eski tek kayıt dalına düşer, veri kaybı yok (§8d.2).
 
 ## 25. P18 — talep iletişimi yayını, alarmlar, anahtar emekliliği (devops H5, 2026-11-15; mimari-e11 §8b.10/§8b.13, AC-255..258)
 

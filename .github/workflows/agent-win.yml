@@ -82,7 +82,7 @@ jobs:
   test-windows:
     name: go test (Windows)
     runs-on: windows-2025
-    timeout-minutes: 20
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: apps/agent-win
@@ -107,6 +107,51 @@ jobs:
           if grep -- '--- SKIP: TestAC249' "$RUNNER_TEMP/ac248-249.txt"; then
             echo "::warning::AC-249 testlerinden SKIP olan var (yukarıdaki satırlar)"
           fi
+      # P20 K7 (mimari-e11 §8d.8/§8d.9; G-P20-1/14 tanılaması): runner'ın gerçek ACL'leri ve süreç bütünlük düzeyi günlüğe
+      # yazılır. Runner yönetici + yükseltilmiş belirteçle koşar; autorun testleri yükseltilmiş süreç reddini (Enable) değil
+      # Inspect + Evaluate kararını sınar. Gerçek C:\ fikstürü kırmızıysa önce bu çıktı varsayılan Windows ACL'iyle karşılaştırılır.
+      - name: ACL tanılama (icacls C:\, profil, İndirilenler, Public; bütünlük düzeyi)
+        shell: pwsh
+        run: |
+          whoami /groups | Select-String 'Mandatory Label'
+          $dl = Join-Path $env:USERPROFILE 'Downloads'
+          foreach ($p in 'C:\', 'C:\Users', $env:USERPROFILE, $dl, 'C:\Users\Public') {
+            if (Test-Path -LiteralPath $p) { icacls $p } else { Write-Output "(yok) $p" }
+          }
+      # P20 K7 (AC-253/254; G-P20-1/2/14/16): autorun + remember (+ tray) Windows testleri günlükte PASS/SKIP olarak görünür.
+      # ZORUNLU testler bu runner'da gerçekten koşmalı (PASS); SKIP veya hiç koşmaması = kırmızı (ad sözleşmesi:
+      # docs/implementation.md "P20 K7"). Gerçek HKCU Run testi geçici `NoktaDestekTest-<rastgele>` adıyla yazar ve siler;
+      # tepsi duman testi etkileşimsiz oturumda koşmaz (elle test, runbook §24.9) — diğer SKIP'ler uyarıdır.
+      - name: AC-253/254 testleri (-v; HKCU Run, icacls Users:M reddi, gerçek C:\ ACL, 2 süreç × 100 tur kilit)
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/ac253-254.txt"
+          go test -count=1 -v -run 'TestAC253|TestAC254' ./internal/... | tee "$out"
+          bad=0
+          for t in TestAC253WindowsRegistryRoundTrip TestAC253WindowsUsersModifyFolderRejected TestAC253WindowsRealCDriveACL TestAC254GP2016TwoProcessesNoLostUpdate; do
+            if grep -q -- "--- PASS: $t (" "$out"; then continue; fi
+            if grep -q -- "--- SKIP: $t (" "$out"; then
+              echo "::error::$t SKIP: bu kanıt yalnız Windows CI'dan gelir, SKIP kabul edilmez"
+            else
+              echo "::error::$t koşmadı (ad değişti mi? sözleşme: docs/implementation.md P20 K7)"
+            fi
+            bad=1
+          done
+          if grep -- '--- SKIP: TestAC25[34]' "$out"; then
+            echo "::warning::AC-253/254 testlerinden SKIP olan var (yukarıdaki satırlar; tepsi duman testi elle turda)"
+          fi
+          exit "$bad"
+      - name: HKCU Run'da test değeri kalmadı
+        shell: pwsh
+        run: |
+          $k = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+          $left = @((Get-Item -LiteralPath $k).GetValueNames() | Where-Object { $_ -like 'NoktaDestek*' })
+          if ($left.Count -gt 0) {
+            Write-Output "::error::testler HKCU Run'da değer bıraktı: $($left -join ', ')"
+            foreach ($n in $left) { Remove-ItemProperty -LiteralPath $k -Name $n }
+            exit 1
+          }
+          Write-Output 'HKCU Run temiz (NoktaDestek* değer yok)'
       # AC-108 / P6 DoD "trace-check.ps1 temiz": yer tutucu adresli exe (gerçek sunucuya istek atmaz) dosya adından kodla
       # açılır → resolve ağ hatası → kod penceresi → WM_CLOSE ile kapatılır → önce/sonra farkı. Dosya aktarımı ve oturum
       # akışı burada yok; tam senaryo Windows VM elle testinde (runbook §11.8).
@@ -144,6 +189,60 @@ jobs:
           Start-Sleep -Seconds 2
           ./test/trace-check.ps1 -Mode Compare -SnapshotPath $snap -ExePath $exe
           exit $LASTEXITCODE
+      # P20 K7 (AC-253/254, mimari-e11 §8d.3/§8d.9): trace-check `-Tray`/`-Autostart` kuralları gerçek Windows'ta sınanır.
+      # İstemcinin tepsi + Windows açılışı izi (kayitlar.bin, kayitlar.lock, HKCU Run `NoktaDestek` = "<exe>" --tray) elle
+      # oluşturulur, beklenen çıkış kodları denetlenir, "Bu bilgisayarı unut" sonrası (hepsi silinmiş) temiz olmalı.
+      # Tepsi/Run'ı istemcinin kendisinin yazması UI ister → elle iz testi (runbook §24.9). Değerler finally'de silinir.
+      - name: trace-check -Tray/-Autostart öz testi (P20)
+        shell: pwsh
+        run: |
+          $dir   = Join-Path $env:RUNNER_TEMP 'trace'
+          $exe   = Join-Path $dir 'Destek-12345678.exe'
+          $snap  = Join-Path $dir 'once-p20.json'
+          $store = Join-Path $env:LOCALAPPDATA 'NoktaDestek'
+          $runK  = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+          $tc    = Join-Path $PWD 'test/trace-check.ps1'
+          if (Test-Path -LiteralPath $store) { Write-Output "::error::$store öz testten önce var (kod modu iz bıraktı?)"; exit 1 }
+          if ($null -ne (Get-ItemProperty -LiteralPath $runK -Name NoktaDestek -ErrorAction SilentlyContinue)) {
+            Write-Output "::error::HKCU Run NoktaDestek öz testten önce var"; exit 1
+          }
+          pwsh -NoProfile -File $tc -Mode Snapshot -SnapshotPath $snap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $script:bad = 0
+          function Expect([int]$want, [string]$label, [string[]]$tcArgs) {
+            Write-Output "--- $label (beklenen çıkış $want)"
+            pwsh -NoProfile -File $tc -Mode Compare -SnapshotPath $snap -ExePath $exe @tcArgs
+            if ($LASTEXITCODE -ne $want) { Write-Output "::error::$label — çıkış $LASTEXITCODE, beklenen $want"; $script:bad++ }
+          }
+          $cmd = '"' + [IO.Path]::GetFullPath($exe) + '" --tray'
+          try {
+            New-Item -ItemType Directory -Path $store | Out-Null
+            Set-Content -LiteralPath (Join-Path $store 'kayitlar.bin') -Value 'x'
+            Set-Content -LiteralPath (Join-Path $store 'kayitlar.lock') -Value ''
+            New-ItemProperty -LiteralPath $runK -Name NoktaDestek -PropertyType String -Value $cmd | Out-Null
+            Expect 0 'tepsi + Windows açılışı açık: yalnız kayitlar.bin/lock + Run' @('-Binding', 'on', '-Tray', 'on', '-Autostart', 'on')
+            Expect 1 'Run değeri -Autostart off iken iz' @('-Binding', 'on', '-Tray', 'on')
+            Expect 2 '-Autostart on tepsisiz = kullanım hatası' @('-Binding', 'on', '-Autostart', 'on')
+            Remove-ItemProperty -LiteralPath $runK -Name NoktaDestek
+            New-ItemProperty -LiteralPath $runK -Name NoktaDestek -PropertyType ExpandString -Value $cmd | Out-Null
+            Expect 1 'REG_EXPAND_SZ Run değeri reddi (G-P20-6)' @('-Binding', 'on', '-Tray', 'on', '-Autostart', 'on')
+            Remove-ItemProperty -LiteralPath $runK -Name NoktaDestek
+            Expect 1 '-Autostart on ama Run değeri yok' @('-Binding', 'on', '-Tray', 'on', '-Autostart', 'on')
+            Expect 0 'tepsi açık, Windows açılışı kapalı' @('-Binding', 'on', '-Tray', 'on')
+            Set-Content -LiteralPath (Join-Path $store 'hatirla.bin') -Value 'x'
+            Expect 1 'tepside hatirla.bin kalmış (göç silmeli)' @('-Binding', 'on', '-Tray', 'on')
+            Expect 0 '-Binding on: 0.11 + 0.12 dosyası birlikte izinli (uyarı)' @('-Binding', 'on')
+            Remove-Item -LiteralPath $store -Recurse -Force
+            Expect 0 'Bu bilgisayarı unut sonrası temiz' @()
+            New-Item -ItemType Directory -Path $store | Out-Null
+            Set-Content -LiteralPath (Join-Path $store 'kayitlar.lock') -Value ''
+            Expect 1 'unut sonrası kayitlar.lock kalmış' @()
+          } finally {
+            Remove-ItemProperty -LiteralPath $runK -Name NoktaDestek -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $store -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          if ($script:bad -gt 0) { exit 1 }
+          Write-Output 'trace-check P20 öz testi: tüm beklenen çıkış kodları tuttu'
 
   build:
     name: build ${{ matrix.n }}/2
