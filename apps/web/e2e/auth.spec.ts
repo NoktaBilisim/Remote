@@ -1,20 +1,12 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { guardConsole } from "./helpers";
 
 const sessionCookie = (value: string) => ({ name: SESSION_COOKIE, value, domain: "localhost", path: "/", secure: true });
 
-const errors: string[] = [];
-test.beforeEach(({ page }) => {
-  errors.length = 0;
-  // Beklenen API hata yanıtları (401/423/500 …) tarayıcının ağ kaydıdır, uygulama hatası değil
-  const expectedNet = /^Failed to load resource: the server responded with a status of (400|401|404|423|500)/;
-  page.on("console", (m) => {
-    if ((m.type() === "error" || m.type() === "warning") && !expectedNet.test(m.text())) errors.push(m.text());
-  });
-  page.on("pageerror", (e) => errors.push(e.message));
-});
-test.afterEach(() => expect(errors, "konsolda hata/uyarı olmamalı").toEqual([]));
+// Beklenen API hata yanıtları (401/423/500 …) tarayıcının ağ kaydıdır, uygulama hatası değil
+guardConsole(/^Failed to load resource: the server responded with a status of (400|401|404|423|500)/);
 
 /**
  * Kararlı axe taraması: hareket kapalı (geçiş/pulse animasyonu ara renk üretmez), işaretçi

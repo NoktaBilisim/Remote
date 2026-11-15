@@ -1,21 +1,11 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
-import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
+import { expect, test, type Page } from "@playwright/test";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 
 // P11 audit log, sistem ayarları (MySQL/TURN) ve aydınlatma metni — panel (AC-76, 77, 78, 124). Sahte API: e2e/mock-audit.mjs
 // (u-auadm-* ADMIN tüm yetkiler, u-auview-* USER audit.view + settings.view, u-aunone-* yetkisiz, u-auempty/aubroken durumlar,
 // u-ausa-* SUPER_ADMIN).
 guardConsole();
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 
-async function signInAu(context: BrowserContext, scenario: string) {
-  const value = `u-${scenario}-${Math.random().toString(36).slice(2)}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
-}
 const rows = (p: Page) => p.locator('[data-testid="audit-row"], [data-testid="audit-card"]').filter({ visible: true });
 const nav = (p: Page) => p.getByRole("navigation", { name: "Ana menü" });
 
@@ -24,7 +14,7 @@ test("AC-76 kritik akış: audit listesi → daha fazla yükle → detay (JSON m
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "auadm");
+  await signIn(context, "auadm");
   await page.goto("/audit");
   await expect(page).toHaveTitle(/Audit log/);
   await expect(nav(page).getByRole("link", { name: "Audit log" })).toHaveAttribute("aria-current", "page");
@@ -85,7 +75,7 @@ test("AC-76 filtreler URL'de: işlem grubu + sonuç + kullanıcı; temizle; geç
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "auadm");
+  await signIn(context, "auadm");
   await page.goto("/audit?result=hepsi");
   await expect(page.getByTestId("filters-ignored")).toContainText("Sonuç");
   const f = page.getByTestId("audit-filters");
@@ -120,12 +110,12 @@ test("AC-76 filtreler URL'de: işlem grubu + sonuç + kullanıcı; temizle; geç
 });
 
 test("audit: yalnız görüntüleme → CSV yok; yetkisiz → menüde yok, sayfa 403 durumu", async ({ page, context }) => {
-  await signInAu(context, "auview");
+  await signIn(context, "auview");
   await page.goto("/audit");
   await expect(rows(page)).toHaveCount(50);
   await expect(page.getByTestId("audit-export")).toHaveCount(0);
   await context.clearCookies();
-  await signInAu(context, "aunone");
+  await signIn(context, "aunone");
   await page.goto("/");
   await expect(nav(page).getByRole("link", { name: "Audit log" })).toHaveCount(0);
   await page.goto("/audit");
@@ -134,12 +124,12 @@ test("audit: yalnız görüntüleme → CSV yok; yetkisiz → menüde yok, sayfa
 });
 
 test("audit: boş durum; liste hatası → Tekrar dene; 'Daha fazla yükle' hatası yeniden denenir", async ({ page, context }) => {
-  await signInAu(context, "auempty");
+  await signIn(context, "auempty");
   await page.goto("/audit");
   await expect(page.getByTestId("audit-empty")).toContainText("Bu aralıkta kayıt yok");
   await expect(page.getByTestId("audit-export")).toHaveCount(0);
   await context.clearCookies();
-  await signInAu(context, "aubroken");
+  await signIn(context, "aubroken");
   await page.goto("/audit");
   await expect(page.getByTestId("load-error")).toBeVisible();
   await page.getByRole("button", { name: "Tekrar dene" }).click();
@@ -153,7 +143,7 @@ test("audit: boş durum; liste hatası → Tekrar dene; 'Daha fazla yükle' hata
 
 test("audit mobil: kart görünümü, taşma yok, kart detayı açar", async ({ page, context }, info) => {
   test.skip(info.project.name !== "mobile", "mobil düzen");
-  await signInAu(context, "auadm");
+  await signIn(context, "auadm");
   await page.goto("/audit");
   await expect(page.getByTestId("audit-table")).toBeHidden();
   await expect(rows(page)).toHaveCount(50);
@@ -168,7 +158,7 @@ test("AC-77/78 Super Admin MySQL: test başarı/hata/429, şifre forma yazılmaz
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "ausa");
+  await signIn(context, "ausa");
   await page.goto("/");
   await nav(page).getByRole("link", { name: "Sistem ayarları" }).click();
   await expect(page).toHaveURL(/\/admin\/settings\/mysql$/);
@@ -249,7 +239,7 @@ test("AC-77/78 Super Admin MySQL: test başarı/hata/429, şifre forma yazılmaz
 
 test("AC-78 TURN: satır ekle/kaldır, satır hatası, secret maskeli, ortam değerlerine dön (onaylı)", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "ausa");
+  await signIn(context, "ausa");
   await page.goto("/admin/settings/turn");
   await expect(page.getByTestId("turn-form")).toHaveAttribute("data-ready", "true");
   await expect(page.getByTestId("turn-secret-warning")).toContainText("static-auth-secret ile aynı olmalı");
@@ -287,7 +277,7 @@ test("AC-78 TURN: satır ekle/kaldır, satır hatası, secret maskeli, ortam de�
 });
 
 test("sistem ayarları yalnız Super Admin: Admin'de menüde yok, sayfa yetkisiz durumu", async ({ page, context }) => {
-  await signInAu(context, "auadm");
+  await signIn(context, "auadm");
   for (const path of ["/admin/settings", "/admin/settings/mysql", "/admin/settings/turn"]) {
     await page.goto(path);
     await expect(page.getByTestId("system-forbidden")).toBeVisible();
@@ -299,7 +289,7 @@ test("sistem ayarları yalnız Super Admin: Admin'de menüde yok, sayfa yetkisiz
 
 test("Super Admin audit: firma filtresi /admin/tenants'tan", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "ausa");
+  await signIn(context, "ausa");
   await page.goto("/audit");
   const tenant = page.getByTestId("audit-filters").getByLabel("Firma");
   await expect(tenant.locator("option")).toHaveText(["Tümü", "Acme Bilişim", "Demo Firma"]);
@@ -312,7 +302,7 @@ test("Super Admin audit: firma filtresi /admin/tenants'tan", async ({ page, cont
 
 test("aydınlatma metni: sayaç, doğrulama, onaylı yeni sürüm, sürüm geçmişi", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "auadm");
+  await signIn(context, "auadm");
   await page.goto("/settings/consent-text");
   await expect(page.getByTestId("consent-form")).toHaveAttribute("data-ready", "true"); // hidrasyon bitmeden yazma (QA P12 Tur 2)
   await expect(page).toHaveTitle(/Aydınlatma metni/);
@@ -350,7 +340,7 @@ test("aydınlatma metni: PUT 429 (10 sürüm/saat) → kilit uyarısı süreyle,
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "auadm");
+  await signIn(context, "auadm");
   await page.goto("/settings/consent-text");
   await expect(page.getByTestId("consent-form")).toHaveAttribute("data-ready", "true"); // hidrasyon bitmeden yazma (QA P12 Tur 2)
   const area = page.getByTestId("consent-body");
@@ -377,7 +367,7 @@ test("aydınlatma metni: PUT 429 (10 sürüm/saat) → kilit uyarısı süreyle,
 });
 
 test("aydınlatma metni: settings.edit yoksa salt okunur", async ({ page, context }) => {
-  await signInAu(context, "auview");
+  await signIn(context, "auview");
   await page.goto("/settings/consent-text");
   await expect(page.getByTestId("consent-form")).toHaveAttribute("data-ready", "true"); // hidrasyon bitmeden yazma (QA P12 Tur 2)
   await expect(page.getByTestId("settings-readonly")).toBeVisible();
@@ -398,7 +388,7 @@ for (const scheme of ["light", "dark"] as const) {
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: width > 600 ? 800 : 844 });
       await context.clearCookies();
-      await signInAu(context, "auadm");
+      await signIn(context, "auadm");
       await page.goto("/audit");
       await expect(rows(page).first()).toBeVisible();
       // Tema gerçekten uygulandı mı (kullanıcı tercihi "Sistem" → prefers-color-scheme)
@@ -423,7 +413,7 @@ for (const scheme of ["light", "dark"] as const) {
       expect(await axeScan(page), `aydınlatma ${width}`).toEqual([]);
 
       await context.clearCookies();
-      await signInAu(context, "ausa");
+      await signIn(context, "ausa");
       // Sayfa testi bulgusu: Super Admin görünümü (Firma sütunu) 1280 px'te taşıyordu
       await page.goto("/audit");
       await expect(rows(page).first()).toBeVisible();

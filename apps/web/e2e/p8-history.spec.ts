@@ -1,13 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
-import { axeScan, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 
 // P8 oturum geçmişi (AC-60..63, 124). Sahte API: e2e/mock-history.mjs (u-h<senaryo>-*).
 guardConsole();
 const RICH = "01JHXST0000000000000000000";
 const BROWSER = "01JHXSTBRWSR00000000000002";
 const rows = (p: Page) => p.locator('[data-testid="history-row"], [data-testid="history-card"]').filter({ visible: true });
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 
 test("AC-60: liste, sayfalama (25 varsayılan) ve sayfa boyutu URL'de; kenar menüsü öğesi", async ({ page, context }, info) => {
   desktopOnly(info.project.name);

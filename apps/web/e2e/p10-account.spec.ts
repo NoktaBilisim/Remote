@@ -1,11 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SESSION_COOKIE } from "@remote/contracts/api/auth";
-import { axeScan, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 
 // P10 hesap güvenliği + SMTP — AC-10, 66, 67, 68, 79, 80, 115, 122, 151. Sahte API: e2e/mock-account.mjs
 // (mfa@ / zorunlu@ girişleri; u-acc / u-nosmtp / u-accro çerezleri), mock-requests (u-rqmail), mock-users (reset-mfa).
 guardConsole();
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 const PASSWORD = "DogruSifre123!";
 const RESET_OK = "r".repeat(43);
 

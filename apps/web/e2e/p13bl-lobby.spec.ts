@@ -1,37 +1,15 @@
-import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@remote/contracts/api/auth";
-import { axeScan, noHorizontalOverflow } from "./helpers";
+import { expect, test, type Browser, type Page } from "@playwright/test";
+import { axeScan, desktopOnly, guardConsole, newSession, noHorizontalOverflow, signIn } from "./helpers";
 
 // P13b-L bekleme odası (lobi) göstergesi (AC-304..315; mimari-lobi §9.3). Sahte API: e2e/mock-sessions.mjs (lobi kancası).
-// Bekleme için page.clock (gerçek 10 sn beklenmez). Konsol bekçisi yerel: kesilen istek (route.abort) tarayıcıda
+// Bekleme için page.clock (gerçek 10 sn beklenmez). Konsol bekçisi dosyaya özgü desenle: kesilen istek (route.abort) tarayıcıda
 // "net::ERR_FAILED" kaynak satırı üretir; uygulama kaynaklı console.error/warn ve pageerror yine 0 olmalı (AC-315).
 const MOCK = "http://127.0.0.1:4217";
 const WAITING = "/api/v1/sessions/waiting";
 const OWNER = "01JUSER0000000000000000009";
 const GUEST = "Ayşe Yılmaz";
 
-const errors: string[] = [];
-test.beforeEach(({ page }) => {
-  errors.length = 0;
-  const net = /^Failed to load resource: (the server responded with a status of (400|401|403|404|409|410|429|500|503)|net::ERR_FAILED)/;
-  page.on("console", (m) => {
-    if ((m.type() === "error" || m.type() === "warning") && !net.test(m.text())) errors.push(m.text());
-  });
-  page.on("pageerror", (e) => errors.push(e.message));
-});
-test.afterEach(() => expect(errors, "konsolda hata/uyarı olmamalı").toEqual([]));
-
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
-
-async function signInAs(context: BrowserContext, scenario: string): Promise<string> {
-  const value = `u-${scenario}-${Math.random().toString(36).slice(2)}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
-  return value;
-}
+guardConsole(/^Failed to load resource: (the server responded with a status of (400|401|403|404|409|410|429|500|503)|net::ERR_FAILED)/);
 
 const setLobby = async (page: Page, id: string, waiting: number, arrivals = waiting) =>
   expect((await page.request.get(`${MOCK}/__e2e/lobby/${id}?waiting=${waiting}&arrivals=${arrivals}`)).ok()).toBe(true);
@@ -75,14 +53,6 @@ async function setHidden(page: Page, hidden: boolean) {
 
 const navSessions = (page: Page) => page.getByRole("navigation", { name: "Ana menü" }).getByRole("link", { name: /Oturumlar/ });
 const toasts = (page: Page) => page.getByTestId("toast");
-async function newSession(page: Page) {
-  const r = await page.request.post("/api/v1/sessions", {
-    headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" },
-    data: {},
-  });
-  expect(r.status()).toBe(201);
-  return (await r.json()) as { id: string; link: string };
-}
 async function guestJoins(browser: Browser, link: string) {
   const ctx = await browser.newContext();
   const g = await ctx.newPage();
@@ -103,7 +73,7 @@ test("AC-304/305/307/311: liste açıkken misafir gelir → ≤ 10 sn rozet + to
   desktopOnly(info.project.name);
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.clock.install();
-  await signInAs(context, "lob");
+  await signIn(context, "lob");
   const s = await newSession(page);
   await openAt(page, "/sessions");
   await expect(page.getByTestId("waiting-badge")).toHaveCount(0);
@@ -142,7 +112,7 @@ test("AC-304/305/307/311: liste açıkken misafir gelir → ≤ 10 sn rozet + to
 
 test("AC-305: waiting 3 → (3); 0 → rozet kaybolur (yuva kalır); ACTIVE/EXPIRED satırda yuva yok", async ({ page, context }) => {
   await page.clock.install();
-  await signInAs(context, "lob");
+  await signIn(context, "lob");
   await page.goto("/");
   const [a] = await ownPending(page);
   await openAt(page, "/sessions");
@@ -155,7 +125,7 @@ test("AC-305: waiting 3 → (3); 0 → rozet kaybolur (yuva kalır); ACTIVE/EXPI
   await expect(page.getByTestId("waiting-slot").filter({ visible: false }).first()).toBeAttached();
 
   const ctx2 = context;
-  await signInAs(ctx2, "admin");
+  await signIn(ctx2, "admin");
   await page.goto("/sessions");
   for (const label of ["Aktif", "Süresi doldu"]) {
     await expect(
@@ -173,7 +143,7 @@ test("AC-306/312: support_requests.view olmayan kullanıcı başka sayfadayken s
   context,
 }) => {
   await page.clock.install();
-  await signInAs(context, "noreq");
+  await signIn(context, "noreq");
   await page.goto("/");
   const [a] = await ownPending(page);
   await page.setViewportSize({ width: 360, height: 740 });
@@ -203,7 +173,7 @@ test("AC-307: tek toast; ikinci yoklamada yeni toast yok (≥ 10 sn kalır); rel
 }, info) => {
   desktopOnly(info.project.name);
   await page.clock.install();
-  await signInAs(context, "lob");
+  await signIn(context, "lob");
   await page.goto("/");
   const [a, b] = await ownPending(page);
   await openAt(page, "/");
@@ -233,7 +203,7 @@ test("AC-307: tek toast; ikinci yoklamada yeni toast yok (≥ 10 sn kalır); rel
 test("AC-306/307: o oturumun konsolundayken toast yok, menü sayacı var", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
   await page.clock.install();
-  await signInAs(context, "lob");
+  await signIn(context, "lob");
   await page.goto("/");
   const [a] = await ownPending(page);
   await openAt(page, `/sessions/${a}/console`);
@@ -246,7 +216,7 @@ test("AC-306/307: o oturumun konsolundayken toast yok, menü sayacı var", async
 test("AC-308: gizli sekmede başlık öneki; görünürde yok; talep + lobi sırası", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
   await page.clock.install();
-  const cookie = await signInAs(context, "rqadm");
+  const cookie = await signIn(context, "rqadm");
   await openAt(page, "/requests");
   await expect(page).toHaveTitle(/^\(3\) Talepler · /);
   expect((await page.request.get(`${MOCK}/__e2e/lobby-extra/${cookie}?id=01JXBEXTRA0000000000000001&waiting=1&arrivals=1`)).ok()).toBe(
@@ -262,7 +232,7 @@ test("AC-308: gizli sekmede başlık öneki; görünürde yok; talep + lobi sır
 test("AC-308: yalnız lobi — gizli sekmede önek, görünür olunca kalkar", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
   await page.clock.install();
-  await signInAs(context, "lob");
+  await signIn(context, "lob");
   await page.goto("/");
   const [a] = await ownPending(page);
   await openAt(page, "/sessions");
@@ -278,7 +248,7 @@ test("AC-308: yalnız lobi — gizli sekmede önek, görünür olunca kalkar", a
 test("AC-309: ADMIN — başkasının satırında bağlantısız rozet; sayaç yalnız kendi", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
   await page.clock.install();
-  await signInAs(context, "lobadm");
+  await signIn(context, "lobadm");
   const r = await page.request.get("/api/v1/sessions?pageSize=100");
   const items = ((await r.json()) as { items: Item[] }).items;
   const other = items.find((s) => s.technician.id !== OWNER)!;
@@ -301,7 +271,7 @@ test("AC-310: firma seçmemiş Super Admin — rozet var, bağlantı yok, sayaç
   desktopOnly(info.project.name);
   const waitingReqs: string[] = [];
   page.on("request", (q) => q.url().endsWith(WAITING) && waitingReqs.push(q.url()));
-  await signInAs(context, "sa");
+  await signIn(context, "sa");
   const items = ((await (await page.request.get("/api/v1/sessions?pageSize=100")).json()) as { items: Item[] }).items;
   await setLobby(page, items.find((s) => s.technician.id === OWNER)!.id, 1);
   await page.goto("/sessions");
@@ -313,7 +283,7 @@ test("AC-310: firma seçmemiş Super Admin — rozet var, bağlantı yok, sayaç
   expect(waitingReqs).toEqual([]);
 
   const ctx = await browser.newContext({ baseURL: info.project.use.baseURL });
-  await signInAs(ctx, "sat");
+  await signIn(ctx, "sat");
   const p = await ctx.newPage();
   await p.clock.install();
   await p.goto("/");
@@ -331,7 +301,7 @@ test("AC-312: /sessions 360 + 1280 px, iki tema axe 0 + taşma yok; rozete Tab i
   context,
 }, info) => {
   await page.clock.install();
-  await signInAs(context, "lob");
+  await signIn(context, "lob");
   await page.goto("/");
   const [a] = await ownPending(page);
   await openAt(page, "/sessions");
@@ -388,7 +358,7 @@ test("AC-313: belirme yalnız opacity/transform ≤ 200 ms; sonsuz animasyon yok
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInAs(context, "lob");
+  await signIn(context, "lob");
   await page.goto("/");
   const [a] = await ownPending(page);
   await setLobby(page, a!, 1);
@@ -422,7 +392,7 @@ test("AC-313: belirme yalnız opacity/transform ≤ 200 ms; sonsuz animasyon yok
 
 test("AC-315: 500 → son değer korunur, toast/console hatası yok", async ({ page, context }) => {
   await page.clock.install();
-  await signInAs(context, "lobbyfail");
+  await signIn(context, "lobbyfail");
   const [a] = await ownPending(page);
   await setLobby(page, a!, 1);
   await openAt(page, "/");
@@ -435,7 +405,7 @@ test("AC-315: 500 → son değer korunur, toast/console hatası yok", async ({ p
 
 test("AC-315: ağ kesilir → son değer; sunucu yeniden başlar (oda yok) → ≤ 10 sn sayaç 0", async ({ page, context }) => {
   await page.clock.install();
-  await signInAs(context, "lob");
+  await signIn(context, "lob");
   await page.goto("/");
   const [a] = await ownPending(page);
   await setLobby(page, a!, 1);
@@ -460,7 +430,7 @@ test("AC-315: ağ kesilir → son değer; sunucu yeniden başlar (oda yok) → �
 test("AC-314/315: 429 → Retry-After (30 sn) beklenir, araya yoklama girmez", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
   await page.clock.install();
-  const cookie = await signInAs(context, "lobbyrate");
+  const cookie = await signIn(context, "lobbyrate");
   await openAt(page, "/");
   await tick(page); // 2. çağrı → 429
   expect(await calls(page, cookie)).toBe(2);

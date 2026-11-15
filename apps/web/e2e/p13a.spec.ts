@@ -1,23 +1,13 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
-import { axeScan, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
+import { expect, test, type Page } from "@playwright/test";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 
 // P13a — frontend (AC-197, AC-199; T-P12b reason etiketleri; P12b sayfa testi: kaynak rozeti + büyük harfli şema).
 // Sahte API: e2e/mock-history.mjs (u-hu-*; ANON_ID anonim oturum, ticket "ANON-409" → 409 yarışı) ve e2e/mock-audit.mjs
 // (u-auadm-* retention.run + settings.whatsapp.test kaydı; u-ausadef-* WhatsApp adres yok (yapılandırılmamış)).
 guardConsole();
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 const ANON = "01JHXSTAN0N000000000000048";
 const OTHER = "01JHXST0000000000000000004"; // USER'ın kendi, anonim olmayan bitmiş oturumu (i=4)
 
-async function signInAu(context: BrowserContext, scenario: string) {
-  const value = `u-${scenario}-${Math.random().toString(36).slice(2)}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
-}
 const historyRows = (p: Page) => p.locator('[data-testid="history-row"], [data-testid="history-card"]').filter({ visible: true });
 const auditRows = (p: Page) => p.locator('[data-testid="audit-row"], [data-testid="audit-card"]').filter({ visible: true });
 
@@ -72,7 +62,7 @@ test("AC-199 + T-P12b: audit'te retention.run Türkçe etiket ve grup filtresi; 
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "auadm");
+  await signIn(context, "auadm");
   await page.goto("/audit");
   const ret = auditRows(page).filter({ hasText: "Saklama süresi işi" });
   await expect(ret).toHaveCount(1);
@@ -102,7 +92,7 @@ test("P13a WhatsApp: adres yokken 'yapılandırılmamış' durumu; büyük harfl
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "ausadef");
+  await signIn(context, "ausadef");
   await page.goto("/admin/settings/whatsapp");
   await expect(page.getByTestId("wa-svc-form")).toHaveAttribute("data-ready", "true");
   await expect(page.getByTestId("wa-svc-empty")).toContainText("yapılandırılmamış");
@@ -141,7 +131,7 @@ for (const scheme of ["light", "dark"] as const) {
 }
 
 test("S-P13a: müşteri kaynaklı audit kaydı — IP ağ öneki (/24, /48) ve boş UA görünümü bozmaz", async ({ page, context }) => {
-  await signInAu(context, "auadm");
+  await signIn(context, "auadm");
   await page.goto("/audit");
   const v4 = auditRows(page).filter({ hasText: "203.0.113.0/24" });
   await expect(v4).toHaveCount(1);

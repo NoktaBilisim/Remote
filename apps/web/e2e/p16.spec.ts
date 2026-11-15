@@ -1,5 +1,5 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
-import { axeScan, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
+import { expect, test, type Page } from "@playwright/test";
+import { desktopOnly, guardConsole, scanBoth, signIn } from "./helpers";
 
 // Kimlikler e2e/mock-p16.mjs `P16` ile aynı (.mjs tür bildirimi yok → burada tekrar)
 const P16 = {
@@ -15,25 +15,11 @@ const P16 = {
 
 // P16 arayüz (AC-241 kullanıcı kalıcı silme, AC-242 firma silme işi, S16-1 maskeli audit). Sahte API: e2e/mock-p16.mjs.
 guardConsole();
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 
 async function stepUp(page: Page) {
   await expect(page.getByTestId("step-up-dialog")).toBeVisible();
   await page.getByTestId("step-up-code").fill("123456");
   await page.getByTestId("step-up-submit").click();
-}
-
-async function scanBoth(browser: Browser, scenario: string, path: string, width: number, ready: (p: Page) => Promise<void>) {
-  for (const scheme of ["light", "dark"] as const) {
-    const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: scheme, reducedMotion: "reduce" });
-    await signIn(ctx, scenario);
-    const p = await ctx.newPage();
-    await p.goto(path);
-    await ready(p);
-    await noHorizontalOverflow(p);
-    expect(await axeScan(p), `${path} ${scheme} ${width}`).toEqual([]);
-    await ctx.close();
-  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------

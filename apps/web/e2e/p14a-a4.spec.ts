@@ -1,6 +1,6 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
-import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
+import { expect, test, type Page } from "@playwright/test";
+import { SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 
 // P14a A4 + P14b B3 bölüm 2 (AC-206, 211, 215, 216, 225, 226). Sahte API: mock-audit (u-ausasu-*: step-up),
 // mock-users (u-usadm-*: If-Match/sürüm, u-ussa-*), mock-requests (u-rqadm-*: /ws/panel 4429 kancası),
@@ -8,17 +8,6 @@ import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
 guardConsole();
 const MOCK = "http://127.0.0.1:4217";
 const CAN = "01JKS00000000000000000000B";
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
-
-async function signInAs(context: BrowserContext, scenario: string): Promise<string> {
-  const value = `u-${scenario}-${Math.random().toString(36).slice(2)}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
-  return value;
-}
 
 const isMysqlPut = (r: { method(): string; url(): string }) => r.method() === "PUT" && r.url().endsWith("/api/v1/admin/settings/mysql");
 
@@ -33,7 +22,7 @@ test.describe("AC-215 step-up", () => {
     context,
   }, info) => {
     desktopOnly(info.project.name);
-    await signInAs(context, "ausasu");
+    await signIn(context, "ausasu");
     await openMysql(page);
     const puts: unknown[] = [];
     page.on("request", (r) => {
@@ -92,7 +81,7 @@ test.describe("AC-215 step-up", () => {
     context,
   }, info) => {
     desktopOnly(info.project.name);
-    await signInAs(context, "ausasu");
+    await signIn(context, "ausasu");
     await openMysql(page);
     await page.getByTestId("mysql-database").fill("remote2");
     await page.getByTestId("save-bar-save").click();
@@ -117,7 +106,7 @@ test.describe("AC-215 step-up", () => {
     test(`AC-215: step-up diyaloğu 390 px taşma yok + axe 0 (${scheme})`, async ({ page, context }) => {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.emulateMedia({ colorScheme: scheme });
-      await signInAs(context, "ausasu");
+      await signIn(context, "ausasu");
       await openMysql(page);
       await noHorizontalOverflow(page);
       expect(await axeScan(page)).toEqual([]);
@@ -137,7 +126,7 @@ test("AC-211: kayıtlı 'TLS gerekli' forma yüklenir ve kayıtta korunur (false
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInAs(context, "ausasu");
+  await signIn(context, "ausasu");
   await openMysql(page);
   const sw = page.getByTestId("mysql-require-tls");
   await expect(sw).toHaveAttribute("aria-checked", "true");
@@ -168,7 +157,7 @@ test.describe("AC-206 kullanıcı düzenleyici", () => {
 
   test("AC-206: rol değiştirilip kaydetmeden geri alınınca kayıtlı ezmeler geri gelir", async ({ page, context }, info) => {
     desktopOnly(info.project.name);
-    await signInAs(context, "usadm");
+    await signIn(context, "usadm");
     await page.goto(`/users/${CAN}`);
     await expect(sw(page, "remote_control.use")).toHaveAttribute("aria-checked", "true");
     await expect(sw(page, "users.view")).toHaveAttribute("aria-checked", "false");
@@ -184,7 +173,7 @@ test.describe("AC-206 kullanıcı düzenleyici", () => {
 
   test("AC-206: PATCH If-Match taşır; araya giren değişiklikte 409 mesajı + 'Yeniden yükle'", async ({ page, context }, info) => {
     desktopOnly(info.project.name);
-    const cookie = await signInAs(context, "usadm");
+    const cookie = await signIn(context, "usadm");
     await page.goto(`/users/${CAN}`);
     await page.getByTestId("ue-name").fill("Can Aydın Yeni");
     const patch = page.waitForRequest((r) => r.method() === "PATCH" && r.url().endsWith(`/api/v1/users/${CAN}`));
@@ -221,7 +210,7 @@ test.describe("AC-216 panel WS", () => {
 
   test("AC-216: 4429 retry=<sn> → bekleyip sessizce yeniden bağlanır (konsol hatası 0)", async ({ page, context }, info) => {
     desktopOnly(info.project.name);
-    const cookie = await signInAs(context, "rqadm");
+    const cookie = await signIn(context, "rqadm");
     await page.request.get(`${MOCK}/__e2e/rq/limit4429/${cookie}?n=1`);
     const t0 = Date.now();
     await page.goto("/requests");
@@ -233,7 +222,7 @@ test.describe("AC-216 panel WS", () => {
 
   test("AC-216: 12 sayfa/dk istemci içi gezintide tek bağlantı, yeniden açılmaz; konsol hatası 0", async ({ page, context }, info) => {
     desktopOnly(info.project.name);
-    const cookie = await signInAs(context, "rqadm");
+    const cookie = await signIn(context, "rqadm");
     await page.goto("/requests");
     await expect.poll(() => openSockets(page, cookie)).toBe(1);
     const nav = page.getByRole("navigation", { name: "Ana menü" });
@@ -253,7 +242,7 @@ test.describe("AC-216 panel WS", () => {
 test.describe("AC-225/226 seçenek uçları", () => {
   test("AC-225: teknisyen seçenekleri /users/options'tan tam liste (150 teknisyen → 150 seçenek)", async ({ page, context }, info) => {
     desktopOnly(info.project.name);
-    await signInAs(context, "hadm");
+    await signIn(context, "hadm");
     await page.goto("/history");
     const sel = page.getByTestId("history-tech");
     // "Tümü" + 150
@@ -267,7 +256,7 @@ test.describe("AC-225/226 seçenek uçları", () => {
     page,
     context,
   }) => {
-    await signInAs(context, "hsa");
+    await signIn(context, "hsa");
     const optionCalls: string[] = [];
     page.on("request", (r) => {
       if (r.url().includes("/api/v1/users/options")) optionCalls.push(r.url());
@@ -314,7 +303,7 @@ test.describe("AC-225/226 seçenek uçları", () => {
     context,
   }, info) => {
     desktopOnly(info.project.name);
-    await signInAs(context, "hsa");
+    await signIn(context, "hsa");
     await page.goto("/history");
     const calls: { url: string; ms: number }[] = [];
     const started = new Map<string, number>();
@@ -353,7 +342,7 @@ test.describe("AC-225/226 seçenek uçları", () => {
 
   test("AC-226: üst menü firma seçici klavyeyle — yaz, ↓, Enter; Esc listeyi kapatır, menü açık kalır", async ({ page, context }, info) => {
     desktopOnly(info.project.name);
-    await signInAs(context, "ussa");
+    await signIn(context, "ussa");
     await page.goto("/admin/tenants");
     const switcher = page.getByTestId("tenant-switcher");
     await switcher.locator("summary").click();
@@ -376,7 +365,7 @@ test.describe("AC-225/226 seçenek uçları", () => {
     test(`AC-225/226: geçmiş filtreleri 390 px taşma yok + axe 0, açık firma listesiyle (${scheme})`, async ({ page, context }) => {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.emulateMedia({ colorScheme: scheme });
-      await signInAs(context, "hsa");
+      await signIn(context, "hsa");
       await page.goto("/history");
       await page.getByTestId("history-filters").getByRole("combobox", { name: "Firma", exact: true }).click();
       await expect(page.getByTestId("history-tenant-combobox").getByRole("option").first()).toBeVisible();

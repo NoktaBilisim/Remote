@@ -1,21 +1,10 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
-import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
+import { expect, test, type Page } from "@playwright/test";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 
 // P8c-1 müşteri firmalar — panel (AC-165..171, 174..176, 178, 180, 194; r2 §15.2). Sahte API: e2e/mock-customers.mjs
 // (u-rqcu-* ADMIN + customers.*, u-rqcuro-* USER yalnız customers.view + talepler).
 guardConsole();
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 
-async function signInCu(context: BrowserContext, scenario = "rqcu"): Promise<string> {
-  const value = `u-${scenario}-${Math.random().toString(36).slice(2)}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
-  return value;
-}
 const cards = (p: Page) => p.getByTestId("request-card");
 
 test("AC-166/169/176 kritik akış: müşteri oluştur → bağlantıyı kopyala → talep listesinde müşteri filtresi", async ({
@@ -24,7 +13,7 @@ test("AC-166/169/176 kritik akış: müşteri oluştur → bağlantıyı kopyala
 }, info) => {
   desktopOnly(info.project.name);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await signInCu(context);
+  await signIn(context, "rqcu");
   await page.goto("/customers");
   const nav = page.getByRole("navigation", { name: "Ana menü" });
   await expect(nav.getByRole("link", { name: "Müşteriler" })).toHaveAttribute("aria-current", "page");
@@ -82,7 +71,7 @@ test("AC-167 form: alan bazlı hata, 409 ad çakışması, not alanında sekme y
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context);
+  await signIn(context, "rqcu");
   await page.goto("/customers");
   await page.getByTestId("customer-new").click();
   const form = page.getByTestId("customer-form");
@@ -118,7 +107,7 @@ test("AC-170/171: bağlantıyı yenile ve pasife al onayları (odak Vazgeç), pa
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context);
+  await signIn(context, "rqcu");
   await page.goto("/customers/01JC5ST0000000000000000001");
   const before = await page.getByTestId("customer-download-url").textContent();
   await page.getByTestId("customer-rotate").click();
@@ -152,7 +141,7 @@ test("AC-170/171: bağlantıyı yenile ve pasife al onayları (odak Vazgeç), pa
 
 test("AC-169: pano API'si reddederse bağlantı seçili metin olarak gösterilir", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context);
+  await signIn(context, "rqcu");
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", { value: { writeText: () => Promise.reject(new Error("denied")) }, configurable: true });
   });
@@ -166,7 +155,7 @@ test("AC-169: pano API'si reddederse bağlantı seçili metin olarak gösterilir
 
 test("AC-166 arama: 2 karakter, Türkçe karakter duyarsız; sonuç yok durumu", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context);
+  await signIn(context, "rqcu");
   await page.goto("/customers?status=all");
   await expect(page.getByTestId("customer-row")).toHaveCount(2);
   await page.getByTestId("customer-search").fill("ş");
@@ -180,7 +169,7 @@ test("AC-166 arama: 2 karakter, Türkçe karakter duyarsız; sonuç yok durumu",
 
 test("AC-174/194: yardım klavyeyle açılır, Esc kapatır ve odak döner; axe açık/koyu tema 0 ihlal", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context);
+  await signIn(context, "rqcu");
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
     await page.goto("/customers");
@@ -218,7 +207,7 @@ test("AC-174/194: yardım klavyeyle açılır, Esc kapatır ve odak döner; axe 
 
 test("AC-178/K23: detay sekmeleri — Talepler listesi tutarlı, Oturumlar yetkisizse kilitli durum", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context, "rqcuro");
+  await signIn(context, "rqcuro");
   await page.goto("/customers/01JC5ST0000000000000000001");
   await expect(page.getByTestId("customer-edit")).toHaveCount(0);
   await expect(page.getByTestId("customer-rotate")).toHaveCount(0);
@@ -231,7 +220,7 @@ test("AC-178/K23: detay sekmeleri — Talepler listesi tutarlı, Oturumlar yetki
 
 test("r2 §15.2: talep kartı menüsünden bilgisayar kaydını iptal et (onay, odak Vazgeç)", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context);
+  await signIn(context, "rqcu");
   await page.goto("/requests");
   const ali = cards(page).filter({ hasText: "Ali Demir" });
   await expect(cards(page).filter({ hasText: "Ayşe Yılmaz" }).getByTestId("request-menu")).toHaveCount(0);
@@ -251,7 +240,7 @@ test("r2 §15.2: talep kartı menüsünden bilgisayar kaydını iptal et (onay, 
 
 test("AC-180: Yeni Destek Oturumu — isteğe bağlı müşteri seçimi, oluşturulan kartta firma", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context);
+  await signIn(context, "rqcu");
   await page.goto("/customers"); // müşteri deposunu tohumla
   await page.goto("/sessions");
   await page
@@ -272,7 +261,7 @@ test("AC-180: Yeni Destek Oturumu — isteğe bağlı müşteri seçimi, oluştu
 
 test("AC-194: 390 px — liste ve detayda yatay taşma yok, kart görünümü", async ({ page, context }, info) => {
   test.skip(info.project.name !== "mobile", "mobil");
-  await signInCu(context);
+  await signIn(context, "rqcu");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/customers?status=all");
   await expect(page.getByTestId("customer-card")).toHaveCount(2);
@@ -288,7 +277,7 @@ const openSockets = async (page: Page, cookie: string) =>
 
 test("AC-176: müşteri ref'iyle gelen yeni talep toast'ında firma adı (tam metin)", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  const cookie = await signInCu(context);
+  const cookie = await signIn(context, "rqcu");
   await page.goto("/customers");
   await expect(page.getByTestId("customer-row")).toHaveCount(1);
   await expect.poll(() => openSockets(page, cookie)).toBeGreaterThanOrEqual(1);
@@ -302,7 +291,7 @@ test("AC-176: müşteri ref'iyle gelen yeni talep toast'ında firma adı (tam me
 
 test("AC-166: müşterisiz firma — boş durum yönlendirir (Yeni müşteri + yardım)", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context, "rqcuempty");
+  await signIn(context, "rqcuempty");
   await page.goto("/customers");
   const empty = page.getByTestId("customers-empty");
   await expect(empty).toContainText("Henüz müşteri yok");
@@ -324,7 +313,7 @@ test("AC-166/178: hata durumları — liste 500 ve detay Talepler sekmesi 500 �
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context, "rqcubroken");
+  await signIn(context, "rqcubroken");
   await page.goto("/customers");
   const err = page.getByTestId("load-error");
   await expect(err).toContainText("Bir şeyler ters gitti");
@@ -343,7 +332,7 @@ test("AC-166/178: hata durumları — liste 500 ve detay Talepler sekmesi 500 �
 
 test("AC-178: detay sekmeleri boş durumu — talebi/oturumu olmayan müşteri", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context);
+  await signIn(context, "rqcu");
   await page.goto("/customers/01JC5ST0000000000000000002"); // Eski Firma A.Ş. (talep yok)
   await expect(page.getByTestId("customer-requests-empty")).toContainText("Bu müşteriden talep yok");
   await page.getByRole("button", { name: "Oturumlar" }).click();
@@ -352,7 +341,7 @@ test("AC-178: detay sekmeleri boş durumu — talebi/oturumu olmayan müşteri",
 
 test("AC-166/178: yükleniyor — liste ve Talepler sekmesi iskeleti, sonra içerik", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInCu(context, "rqcuslow"); // mock: liste ve sekme uçları 1,5 sn gecikir
+  await signIn(context, "rqcuslow"); // mock: liste ve sekme uçları 1,5 sn gecikir
   await page.goto("/customers", { waitUntil: "commit" });
   await expect(page.getByTestId("customers-loading")).toBeVisible();
   await expect(page.getByTestId("customers-loading")).toHaveAttribute("aria-busy", "true");

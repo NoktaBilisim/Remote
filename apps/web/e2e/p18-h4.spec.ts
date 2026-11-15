@@ -1,6 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
-import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, sessionCookies, signIn } from "./helpers";
 
 // P18 H4 panel ekranları (AC-255..258, S-P18-T3/T8). Sahte API + sahte /ws/panel: e2e/mock-p18.mjs (u-p18<rol>-<oda>).
 guardConsole();
@@ -10,21 +9,12 @@ const P = {
   B: "01JRQP1800000000000000000B",
   C: "01JRQP1800000000000000000C",
 };
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 const newRoom = () => Math.random().toString(36).slice(2, 10);
 const cards = (p: Page) => p.getByTestId("request-card");
 const card = (p: Page, name: string) => cards(p).filter({ has: p.getByRole("heading", { name }) });
 const names = (p: Page) => cards(p).getByRole("heading", { level: 3 }).allTextContents();
 
-async function signInP18(context: BrowserContext, role: "p18adm" | "p18usr", room: string): Promise<string> {
-  const value = `u-${role}-${room}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
-  return value;
-}
+const signInP18 = (context: BrowserContext, role: "p18adm" | "p18usr", room: string) => sessionCookies(context, `u-${role}-${room}`);
 const openSockets = async (page: Page, cookie: string) =>
   ((await (await page.request.get(`http://127.0.0.1:4217/__e2e/p18/sockets/${cookie}`)).json()) as { open: number }).open;
 const hook = (page: Page, ev: string, room: string, q: string) => page.request.get(`http://127.0.0.1:4217/__e2e/p18/${ev}/${room}?${q}`);
@@ -313,12 +303,7 @@ test("AC-258: settings.view yetkili kullanıcıda mesai ekranı salt okunur", as
 
 test("AC-257: talep ayarlarında varsayılan öncelik ve SLA; geçersiz SLA alan hatası", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  const value = `u-rqadm-${Math.random().toString(36).slice(2)}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
+  await signIn(context, "rqadm");
   await page.goto("/settings/support-requests");
   await page.getByLabel("Varsayılan öncelik").selectOption("HIGH");
   await page.getByLabel("SLA hedefi (dakika)").fill("2");
@@ -334,12 +319,7 @@ test("AC-257: talep ayarlarında varsayılan öncelik ve SLA; geçersiz SLA alan
 
 test("AC-257: müşteri formunda varsayılan öncelik ('Firma varsayılanı') ve SLA", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  const value = `u-rqcu-${Math.random().toString(36).slice(2)}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
+  await signIn(context, "rqcu");
   await page.goto("/customers");
   await page.getByTestId("customer-new").click();
   const form = page.getByTestId("customer-form");

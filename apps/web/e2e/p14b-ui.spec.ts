@@ -1,10 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { axeScan, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 
 // P14b G2 UI/a11y (AC-220, 222, 223, 224, 228; mimari-e11 §5.1). Sahte API çerez senaryoları: u-usadm-* (kullanıcılar),
 // u-rqcu-* / u-rqcuempty-* (müşteriler), u-acc-* / u-accro-* / u-accbad-* (ayarlar, mock-account), u-hu-* (geçmiş notu).
 guardConsole();
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 const SCHEMES = ["light", "dark"] as const;
 
 test("AC-220: olmayan kullanıcı/müşteri id'si → belge yanıtı HTTP 404, sayfada tek h1 '… bulunamadı'", async ({ page, context }, info) => {

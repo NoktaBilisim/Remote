@@ -1,26 +1,11 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { CSRF_HEADER } from "@remote/contracts/api/auth";
 import { agentSend, startFakeAgent } from "./fake-agent";
-import { axeScan, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, newSession, noHorizontalOverflow, scanBoth, signIn } from "./helpers";
 
 // P15 arayüz (AC-231..239). Sahte API: e2e/mock-p15.mjs (Super Admin'ler, Engellenenler), mock-account (kurtarma kodları),
 // mock-branding (sistem logosu, AC-233 → p12-branding.spec.ts), mock-requests (rqblk kısayolu, kabul kodu ayarı),
 // mock-history (AC-238 → p8-history.spec.ts), mock-sessions ("V" teknisyen avatarı), mock-ws (share.state reason/method).
 guardConsole();
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
-
-async function scanBoth(browser: Browser, scenario: string, path: string, width: number, ready: (p: Page) => Promise<void>) {
-  for (const scheme of ["light", "dark"] as const) {
-    const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: scheme, reducedMotion: "reduce" });
-    await signIn(ctx, scenario);
-    const p = await ctx.newPage();
-    await p.goto(path);
-    await ready(p);
-    await noHorizontalOverflow(p);
-    expect(await axeScan(p), `${path} ${scheme} ${width}`).toEqual([]);
-    await ctx.close();
-  }
-}
 
 // ---------------------------------------------------------------------------------------------------------------
 test("AC-231: Hesabım — kurtarma kodlarını yenile: TOTP ister, hatalı kod alan hatası, 10 kod bir kez, Kaydettim'siz kapanmaz", async ({
@@ -152,12 +137,7 @@ for (const width of [1280, 390]) {
 
 // ---------------------------------------------------------------------------------------------------------------
 async function liveAgent(page: Page, browser: Browser) {
-  const r = await page.request.post("/api/v1/sessions", {
-    headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" },
-    data: {},
-  });
-  expect(r.status()).toBe(201);
-  const { id } = (await r.json()) as { id: string };
+  const { id } = await newSession(page);
   await page.goto(`/sessions/${id}/console`);
   await expect(page.getByTestId("console")).toHaveAttribute("data-phase", "waiting");
   const a = await startFakeAgent(browser, id);

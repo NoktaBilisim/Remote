@@ -1,20 +1,13 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { CSRF_HEADER } from "@remote/contracts/api/auth";
 import { agentSend, startFakeAgent } from "./fake-agent";
-import { axeScan, guardConsole, signIn } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, newSession, signIn } from "./helpers";
 
 // P17 konsol (AC-248 "teknisyen konsolunda mod görünür", AC-234 pencere nedenleri). Sahte istemci: e2e/fake-agent.ts,
 // mock-ws.mjs `share.state` reason/method'u sunucu gibi aynen iletir.
 guardConsole();
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 
 async function liveAgent(page: Page, browser: Browser) {
-  const r = await page.request.post("/api/v1/sessions", {
-    headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" },
-    data: {},
-  });
-  expect(r.status()).toBe(201);
-  const { id } = (await r.json()) as { id: string };
+  const { id } = await newSession(page);
   await page.goto(`/sessions/${id}/console`);
   await expect(page.getByTestId("console")).toHaveAttribute("data-phase", "waiting");
   const a = await startFakeAgent(browser, id);

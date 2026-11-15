@@ -1,7 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { CSRF_HEADER } from "@remote/contracts/api/auth";
 import { agentLog, agentSend, startFakeAgent } from "./fake-agent";
-import { axeScan, guardConsole, signIn } from "./helpers";
+import { axeScan, guardConsole, newSession, signIn } from "./helpers";
 
 // P7 konsol uzaktan kontrol (AC-43, 47–51, 99, 105, 115, 116). Sahte API + sahte WS + sahte Hızlı Destek istemcisi
 // (e2e/fake-agent.ts, gerçek WebRTC + input DC). Senaryo çerezleri: u-p7-* remote_control.use yetkili, u-p7np-* yetkisiz.
@@ -12,12 +11,7 @@ test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop", "konsol
 const MOCK = "http://127.0.0.1:4217";
 
 async function liveAgent(page: Page, browser: Browser) {
-  const r = await page.request.post("/api/v1/sessions", {
-    headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" },
-    data: {},
-  });
-  expect(r.status()).toBe(201);
-  const { id } = (await r.json()) as { id: string };
+  const { id } = await newSession(page);
   await page.goto(`/sessions/${id}/console`);
   await expect(page.getByTestId("console")).toHaveAttribute("data-phase", "waiting"); // teknisyen WS hello aldı
   const a = await startFakeAgent(browser, id);

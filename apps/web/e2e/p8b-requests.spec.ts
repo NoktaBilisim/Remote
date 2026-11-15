@@ -1,24 +1,13 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { expect, test, type Page } from "@playwright/test";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 
 // P8b-1 müşteri destek talepleri — panel (AC-146..149, 152, 153, 157, 158, 164). Sahte API: e2e/mock-requests.mjs (u-rq<senaryo>-*).
 guardConsole();
 const A = "01JRQ00000000000000000000A";
 const B = "01JRQ00000000000000000000B";
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 const cards = (p: Page) => p.getByTestId("request-card");
 const card = (p: Page, name: string) => cards(p).filter({ has: p.getByRole("heading", { name }) });
 
-async function signInRq(context: BrowserContext, scenario: string): Promise<string> {
-  const value = `u-${scenario}-${Math.random().toString(36).slice(2)}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
-  return value;
-}
 /** QA-P8b-12: mock olayı yalnız açık soketlere iter — olaydan önce /ws/panel bağlantısı beklenir (rozet REST'ten gelir, senkron noktası değil). */
 const openSockets = async (page: Page, cookie: string) =>
   ((await (await page.request.get(`http://127.0.0.1:4217/__e2e/rq/sockets/${cookie}`)).json()) as { open: number }).open;
@@ -30,7 +19,7 @@ test("AC-146: kuyruk eskiden yeniye; kart: kod, ipucu, bilinen kaynak, düz meti
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInRq(context, "rqadm");
+  await signIn(context, "rqadm");
   await page.goto("/requests");
   const nav = page.getByRole("navigation", { name: "Ana menü" });
   await expect(nav.getByRole("link", { name: /Talepler/ })).toHaveAttribute("aria-current", "page");
@@ -70,7 +59,7 @@ test("AC-149: /ws/panel — yeni talep toast + Görüntüle, rozet, liste; kald�
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  const cookie = await signInRq(context, "rqadm");
+  const cookie = await signIn(context, "rqadm");
   await page.goto("/sessions");
   await expect(page.getByTestId("requests-badge")).toContainText("3");
   await expect.poll(() => openSockets(page, cookie)).toBeGreaterThanOrEqual(1);
@@ -103,7 +92,7 @@ test("AC-149: /ws/panel — yeni talep toast + Görüntüle, rozet, liste; kald�
 
 test("AC-149: ses tercihi kapatılabilir ve saklanır", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInRq(context, "rqadm");
+  await signIn(context, "rqadm");
   await page.goto("/requests");
   const sw = page.getByTestId("sound-toggle");
   await expect(sw).toHaveAttribute("aria-checked", "true");
@@ -115,7 +104,7 @@ test("AC-149: ses tercihi kapatılabilir ve saklanır", async ({ page, context }
 
 test("AC-153: kabul konsola geçirir; başkası aldıysa 409 mesajı ve kart düşer", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInRq(context, "rqadm");
+  await signIn(context, "rqadm");
   await page.goto("/requests");
   await card(page, "Ali Demir").getByRole("button", { name: "Kabul et: Ali Demir" }).click();
   await expect(page.getByTestId("toast").filter({ hasText: "Talep başka bir teknisyen tarafından alındı" })).toBeVisible();
@@ -126,7 +115,7 @@ test("AC-153: kabul konsola geçirir; başkası aldıysa 409 mesajı ve kart dü
 
 test("TEST-P8b-2: kabul → konsol → geri: kabul edilen talep kuyrukta yeniden görünmez", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInRq(context, "rqadm");
+  await signIn(context, "rqadm");
   await page.goto("/requests");
   await expect(cards(page)).toHaveCount(3);
   await card(page, "Can Öz").getByRole("button", { name: "Kabul et: Can Öz" }).click();
@@ -142,7 +131,7 @@ test("AC-157: ret — hazır mesaj varsayılan; 'Diğer'de bağlantı/telefon re
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInRq(context, "rqadm");
+  await signIn(context, "rqadm");
   await page.goto("/requests");
   await card(page, "Can Öz").getByRole("button", { name: "Reddet: Can Öz" }).click();
   const dlg = page.getByTestId("reject-dialog");
@@ -170,7 +159,7 @@ test("AC-146: geçmiş sekmesi + durum filtresi; boş ve hata durumları; yetki 
   browser,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInRq(context, "rqadm");
+  await signIn(context, "rqadm");
   await page.goto("/requests?tab=history");
   await expect(cards(page)).toHaveCount(3);
   await page.getByTestId("history-status-filter").getByRole("link", { name: "Reddedildi" }).click();
@@ -197,7 +186,7 @@ test("AC-146: geçmiş sekmesi + durum filtresi; boş ve hata durumları; yetki 
     ],
   ] as const) {
     const ctx = await browser.newContext({ baseURL: info.project.use.baseURL });
-    await signInRq(ctx, scenario);
+    await signIn(ctx, scenario);
     const p = await ctx.newPage();
     await p.goto("/requests");
     await check(p);
@@ -209,7 +198,7 @@ test("Super Admin firma seçmeden /sessions: liste görünür, oluştur/iptal/so
   context,
   page,
 }) => {
-  await signInRq(context, "rqsa");
+  await signIn(context, "rqsa");
   await page.goto("/sessions");
   await expect(page.getByTestId("sessions-pick-tenant")).toContainText("üst menüden bir firma seçin");
   await expect(page.getByRole("button", { name: "Yeni destek oturumu" })).toHaveCount(0);
@@ -222,7 +211,7 @@ test("AC-129/131/152: ayarlar — bağlantı kopyala, onaylı yenile, alan hatal
 }, info) => {
   desktopOnly(info.project.name);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await signInRq(context, "rqadm");
+  await signIn(context, "rqadm");
   await page.goto("/settings/support-requests");
   await expect(page).toHaveTitle(/Destek talepleri ayarları/);
   await expect(page.getByTestId("save-bar")).toHaveCount(0);
@@ -272,7 +261,7 @@ test("AC-129/131/152: ayarlar — bağlantı kopyala, onaylı yenile, alan hatal
 
 test("TEST-P8b-1: ayarlar — kaydedilmemiş değişiklikte menü bağlantısı ve geri tuşu onay ister", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInRq(context, "rqadm");
+  await signIn(context, "rqadm");
   await page.goto("/requests");
   await page.goto("/settings/support-requests");
   const wait = page.getByLabel("Talep bekleme süresi (dakika)");
@@ -305,12 +294,7 @@ test("TEST-P8b-1: ayarlar — kaydedilmemiş değişiklikte menü bağlantısı 
 
 test("AC-158: oturum geçmişinde kaynak filtresi, bekleme süresi ve 'Destek talebi' bölümü", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  const value = `u-hu-${Math.random().toString(36).slice(2)}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
+  await signIn(context, "hu");
   await page.goto("/history");
   await page.getByTestId("history-filters").getByLabel("Kaynak").selectOption("REQUEST");
   await page.getByTestId("filter-apply").click();
@@ -328,7 +312,7 @@ test("AC-158: oturum geçmişinde kaynak filtresi, bekleme süresi ve 'Destek ta
 for (const scheme of ["light", "dark"] as const) {
   test(`AC-164: Talepler ve Ayarlar — axe 0 ihlal (${scheme}), 1280/1440/390 taşma yok`, async ({ page, context }, info) => {
     desktopOnly(info.project.name);
-    await signInRq(context, "rqadm");
+    await signIn(context, "rqadm");
     await page.emulateMedia({ colorScheme: scheme });
     for (const width of [1280, 1440, 390]) {
       await page.setViewportSize({ width, height: 900 });
@@ -344,7 +328,7 @@ for (const scheme of ["light", "dark"] as const) {
 
 test("mobil: kart düzeni ve dokunma hedefleri (390)", async ({ page, context }, info) => {
   test.skip(info.project.name !== "mobile", "mobil");
-  await signInRq(context, "rqadm");
+  await signIn(context, "rqadm");
   await page.goto("/requests");
   await expect(cards(page)).toHaveCount(3);
   await noHorizontalOverflow(page);
@@ -355,7 +339,7 @@ test("mobil: kart düzeni ve dokunma hedefleri (390)", async ({ page, context },
 
 test("TEST-P8b-3: mobil ayarlar — kaydet çubuğu yalnız değişiklikte ve tek satır (390)", async ({ page, context }, info) => {
   test.skip(info.project.name !== "mobile", "mobil");
-  await signInRq(context, "rqadm");
+  await signIn(context, "rqadm");
   await page.goto("/settings/support-requests");
   await expect(page.getByTestId("save-bar")).toHaveCount(0);
   await page.getByLabel("Talep bekleme süresi (dakika)").fill("45");

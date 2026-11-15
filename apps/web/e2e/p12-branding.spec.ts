@@ -1,22 +1,13 @@
-import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 import { DEFAULT_LOGO_URL } from "@remote/contracts/api/branding";
 import sharp from "sharp";
-import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, sessionCookies, signIn } from "./helpers";
 
 // P12 marka ve kişiselleştirme (AC-81, 82, 83, 85, 87). Sahte API: e2e/mock-branding.mjs
 // (u-br-* ADMIN "Demo Firma", u-brfail-* tema kaydı 500, u-brsa-* SUPER_ADMIN).
 guardConsole();
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 
 const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-async function signInBr(context: BrowserContext, scenario: string, value = `u-${scenario}-${Math.random().toString(36).slice(2)}`) {
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
-  return value;
-}
 const menu = (p: Page) => p.getByTestId("user-menu");
 async function openMenu(p: Page) {
   await menu(p).locator("summary").click();
@@ -38,7 +29,7 @@ test("AC-85 kritik akış: tema menüden seçilir → anında uygulanır → yen
   browser,
 }, info) => {
   desktopOnly(info.project.name);
-  const sid = await signInBr(context, "br");
+  const sid = await signIn(context, "br");
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/");
   await expect(page.locator("html")).not.toHaveClass(/\b(light|dark)\b/); // varsayılan Sistem: sınıf yok
@@ -58,7 +49,7 @@ test("AC-85 kritik akış: tema menüden seçilir → anında uygulanır → yen
 
   // Başka cihaz: yalnız aynı oturum çerezi (rs_theme yok) → DB tercihi ilk HTML'de
   const other = await browser.newContext();
-  await signInBr(other, "br", sid);
+  await sessionCookies(other, sid);
   const p2 = await other.newPage();
   expect(await firstPaintClass(p2)).toMatch(/class="dark"/);
   await p2.goto("/account");
@@ -73,7 +64,7 @@ test("AC-85 kritik akış: tema menüden seçilir → anında uygulanır → yen
 
 test("AC-85: kayıt başarısızsa tema geri alınır ve kullanıcıya söylenir", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInBr(context, "brfail");
+  await signIn(context, "brfail");
   await page.goto("/");
   await openMenu(page);
   await menu(page).getByTestId("user-menu-theme").getByRole("button", { name: "Koyu" }).click();
@@ -93,7 +84,7 @@ test("AC-83 kritik akış: avatar yükle (kare kırp) → üst menüde görünü
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInBr(context, "br");
+  await signIn(context, "br");
   await page.goto("/account");
   const up = page.getByTestId("avatar-uploader");
   await expect(up).toHaveAttribute("data-ready", "true");
@@ -143,7 +134,7 @@ test("AC-81 kritik akış: firma logosu önizleme → kaydet → üst menüde; s
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInBr(context, "br");
+  await signIn(context, "br");
   await page.goto("/settings/logo");
   await expect(page).toHaveTitle(/Logo/);
   await expect(page.getByTestId("settings-tabs").getByRole("link", { name: "Logo" })).toHaveAttribute("aria-current", "page");
@@ -190,7 +181,7 @@ test("Sayfa testi bulgusu: boyut/oran reddi doğru mesajla — logo ve avatar 30
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInBr(context, "br");
+  await signIn(context, "br");
   await page.goto("/settings/logo");
   await expect(page.getByTestId("logo-uploader")).toHaveAttribute("data-ready", "true");
   const logoIn = page.getByTestId("logo-uploader-input");
@@ -266,7 +257,7 @@ test("AC-81 (QA-2): müşteri karşılama ekranı firmanın logosunu gösterir; 
 
 test("AC-82: Super Admin sistem logosunu değiştirir (Sistem ayarları sekmesi)", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInBr(context, "brsa");
+  await signIn(context, "brsa");
   await page.goto("/admin/settings/system-logo");
   await expect(page.getByTestId("system-tabs").getByRole("link", { name: "Sistem logosu" })).toHaveAttribute("aria-current", "page");
   const up = page.getByTestId("system-logo-uploader");
@@ -283,7 +274,7 @@ test("AC-82: Super Admin sistem logosunu değiştirir (Sistem ayarları sekmesi)
 
 test("AC-233: Super Admin sistem logosunu kaldırır (onay → varsayılan Nokta logosu, login de döner)", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInBr(context, "brsa");
+  await signIn(context, "brsa");
   await page.goto("/admin/settings/system-logo");
   const up = page.getByTestId("system-logo-uploader");
   await expect(up).toHaveAttribute("data-ready", "true");
@@ -314,7 +305,7 @@ test("AC-233: Super Admin sistem logosunu kaldırır (onay → varsayılan Nokta
 async function scanBothThemes(browser: Browser, scenario: string, path: string, width: number) {
   for (const scheme of ["light", "dark"] as const) {
     const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: scheme, reducedMotion: "reduce" });
-    await signInBr(ctx, scenario);
+    await signIn(ctx, scenario);
     const p = await ctx.newPage();
     await p.goto(path);
     await expect(p.locator("h1")).toBeVisible();
@@ -340,7 +331,7 @@ for (const width of [1280, 390]) {
 
 test("AC-87: menü, sekme ve hesap menüsü bağlantılarının hepsinde ikon var", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInBr(context, "br");
+  await signIn(context, "br");
   await page.goto("/settings/logo");
   await openMenu(page);
   const items = page.locator(
@@ -354,7 +345,7 @@ test("AC-87: menü, sekme ve hesap menüsü bağlantılarının hepsinde ikon va
 test("AC-87: prefers-reduced-motion açıkken hareket animasyonu yok, yalnız opaklık", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await signInBr(context, "br");
+  await signIn(context, "br");
   await page.goto("/account");
   const btn = page.getByTestId("acc-logout-all");
   expect(await btn.evaluate((e) => getComputedStyle(e).transitionProperty)).toBe("opacity");
@@ -374,7 +365,7 @@ test("AC-87: prefers-reduced-motion açıkken hareket animasyonu yok, yalnız op
 
 test("AC-229: file.type boş gelen .webp istemcide reddedilmez; sunucu magic bytes ile kabul eder", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInBr(context, "br");
+  await signIn(context, "br");
   await page.goto("/settings/logo");
   await expect(page.getByTestId("logo-uploader")).toHaveAttribute("data-ready", "true");
   const input = page.getByTestId("logo-uploader-input");

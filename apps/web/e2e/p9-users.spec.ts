@@ -1,30 +1,20 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
-import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
+import { expect, test, type Page } from "@playwright/test";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 
 // P9 kullanıcı/yetki/firma yönetimi — panel (AC-70..74). Sahte API: e2e/mock-users.mjs (u-usadm-* ADMIN audit.export hariç,
 // u-usro-* USER yalnız users.view, u-usempty/usbroken/usslow durumlar, u-ussa-* SUPER_ADMIN).
 guardConsole();
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 const CAN = "01JKS00000000000000000000B";
 const ELIF = "01JKS00000000000000000000C";
 const SELF = "01JKS00000000000000000000A";
 
-async function signInUs(context: BrowserContext, scenario = "usadm") {
-  const value = `u-${scenario}-${Math.random().toString(36).slice(2)}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
-}
 const rows = (p: Page) => p.locator('[data-testid="user-row"], [data-testid="user-card"]').filter({ visible: true });
 const sw = (p: Page, key: string) => p.getByTestId(`perm-${key}`).filter({ visible: true });
 
 test("AC-71/73 kritik akış: kullanıcı oluştur → geçici şifre bir kez → yetki ekranı", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await signInUs(context);
+  await signIn(context, "usadm");
   await page.goto("/users");
   await expect(page).toHaveTitle(/Kullanıcılar/);
   const nav = page.getByRole("navigation", { name: "Ana menü" });
@@ -77,7 +67,7 @@ test("AC-71/73 kritik akış: kullanıcı oluştur → geçici şifre bir kez �
 
 test("geçici şifre kopyalanmadan kapatılırsa uyarı; 'Yine de kapat' sonrası liste yenilenir", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInUs(context);
+  await signIn(context, "usadm");
   await page.goto("/users");
   await page.getByTestId("user-new").click();
   const form = page.getByTestId("user-form");
@@ -99,7 +89,7 @@ test("geçici şifre kopyalanmadan kapatılırsa uyarı; 'Yine de kapat' sonras�
 
 test("AC-71 grup 'Tümünü aç/kapat' (mixed), kayıt, kaydedilmemiş değişiklik uyarısı", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInUs(context);
+  await signIn(context, "usadm");
   await page.goto(`/users/${CAN}`);
   await expect(page).toHaveTitle(/Can Aydın/);
   await expect(page.getByRole("navigation", { name: "Konum" })).toContainText("Kullanıcılar");
@@ -158,7 +148,7 @@ test("AC-71 grup 'Tümünü aç/kapat' (mixed), kayıt, kaydedilmemiş değişik
 
 test("AC-73 Admin sahip olmadığı yetki kilitli; geniş yetkili hesap salt okunur; kendi hesabı", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInUs(context);
+  await signIn(context, "usadm");
   await page.goto(`/users/${CAN}`);
   const lockedSw = sw(page, "audit.export");
   await expect(lockedSw).toHaveAttribute("aria-disabled", "true");
@@ -203,7 +193,7 @@ test("AC-73 rol yükseltme: kilitli anahtarı olan Admin USER→ADMIN kaydeder (
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInUs(context); // usadm: audit.export yok → kilitli
+  await signIn(context, "usadm"); // usadm: audit.export yok → kilitli
   await page.goto(`/users/${CAN}`);
   await expect(sw(page, "audit.export")).toHaveAttribute("aria-disabled", "true");
   // Sahte API sunucu kuralıyla aynı: gövdede olmayan anahtar YENİ rol varsayılanını alır → yalnız rol gönderilirse
@@ -242,7 +232,7 @@ test("AC-73 rol yükseltme: kilitli anahtarı olan Admin USER→ADMIN kaydeder (
 
 test("pasife alma: onay diyaloğu (odak Vazgeç, oturum uyarısı) → Pasif, yeniden etkinleştir", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInUs(context);
+  await signIn(context, "usadm");
   await page.goto(`/users/${CAN}`);
   await page.getByTestId("user-deactivate").click();
   const dlg = page.getByTestId("user-deactivate-dialog");
@@ -272,7 +262,7 @@ test("pasife alma: onay diyaloğu (odak Vazgeç, oturum uyarısı) → Pasif, ye
 
 test("liste: arama/rol filtresi, eşleşme yok, kapsam dışı id → bulunamadı", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInUs(context);
+  await signIn(context, "usadm");
   await page.goto("/users");
   await page.getByTestId("user-search").fill("e");
   await expect(page.getByText("Aramak için en az 2 karakter yazın.")).toBeVisible();
@@ -292,27 +282,27 @@ test("liste: arama/rol filtresi, eşleşme yok, kapsam dışı id → bulunamad�
 
 test("5 durum: boş, hata + tekrar dene, yükleniyor, salt okunur yetki", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInUs(context, "usempty");
+  await signIn(context, "usempty");
   await page.goto("/users");
   await expect(page.getByTestId("users-empty")).toContainText("Henüz kullanıcı yok");
   await expect(page.getByTestId("user-new-empty")).toBeVisible();
 
   await context.clearCookies();
-  await signInUs(context, "usbroken");
+  await signIn(context, "usbroken");
   await page.goto("/users");
   await expect(page.getByTestId("load-error")).toBeVisible();
   await page.getByRole("button", { name: "Tekrar dene" }).click();
   await expect(rows(page)).toHaveCount(3);
 
   await context.clearCookies();
-  await signInUs(context, "usslow");
+  await signIn(context, "usslow");
   await page.goto("/users", { waitUntil: "commit" });
   await expect(page.getByTestId("users-loading")).toHaveAttribute("aria-busy", "true");
   await expect(rows(page)).toHaveCount(3, { timeout: 10_000 });
   await expect(page.getByTestId("users-loading")).toHaveCount(0);
 
   await context.clearCookies();
-  await signInUs(context, "usro");
+  await signIn(context, "usro");
   await page.goto("/users");
   await expect(rows(page)).toHaveCount(3);
   await expect(page.getByTestId("user-new")).toHaveCount(0);
@@ -324,7 +314,7 @@ test("5 durum: boş, hata + tekrar dene, yükleniyor, salt okunur yetki", async 
 
 test("AC-70 Super Admin: firma seç → kullanıcılar; firma oluştur; pasife al (etkiler + kısa ad onayı)", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInUs(context, "ussa");
+  await signIn(context, "ussa");
   await page.goto("/users");
   await expect(page.getByTestId("users-pick-tenant")).toBeVisible();
   const switcher = page.getByTestId("tenant-switcher");
@@ -397,7 +387,7 @@ test("AC-70 Super Admin: firma seç → kullanıcılar; firma oluştur; pasife a
 
 test("firma düzenle: kısa ad değişince uyarı, kaydedilmemiş formda kapatma onayı", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInUs(context, "ussa");
+  await signIn(context, "ussa");
   await page.goto("/admin/tenants");
   await page.getByRole("button", { name: "Düzenle: Acme Bilişim" }).click();
   const form = page.getByTestId("tenant-form");
@@ -416,7 +406,7 @@ test("firma düzenle: kısa ad değişince uyarı, kaydedilmemiş formda kapatma
 
 test("Firmalar sayfası Admin'e kapalı", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInUs(context);
+  await signIn(context, "usadm");
   await page.goto("/admin/tenants");
   await expect(page.getByTestId("tenants-forbidden")).toBeVisible();
   await expect(page.getByTestId("tenant-switcher")).toHaveCount(0);
@@ -425,7 +415,7 @@ test("Firmalar sayfası Admin'e kapalı", async ({ page, context }, info) => {
 for (const scheme of ["light", "dark"] as const) {
   test(`mobil/masaüstü yerleşim + erişilebilirlik (${scheme})`, async ({ page, context }) => {
     await page.emulateMedia({ colorScheme: scheme });
-    await signInUs(context);
+    await signIn(context, "usadm");
     await page.goto("/users");
     await expect(rows(page)).toHaveCount(3);
     await noHorizontalOverflow(page);
@@ -442,7 +432,7 @@ for (const scheme of ["light", "dark"] as const) {
 
 test("TO-P9-1/6: Super Admin üst menüsü 375 px — taşma yok, çıkış tam görünür, etkin firma adı görünür", async ({ page, context }) => {
   await page.setViewportSize({ width: 375, height: 800 });
-  await signInUs(context, "ussa");
+  await signIn(context, "ussa");
   await page.goto("/admin/tenants");
   await expect(page.getByTestId("tenant-card").first()).toBeVisible(); // 375 px → kart görünümü
   const switcher = page.getByTestId("tenant-switcher");

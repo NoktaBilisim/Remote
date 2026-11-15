@@ -1,22 +1,12 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { expect, test, type Page } from "@playwright/test";
 import { WA_INSECURE_WARNING } from "@remote/contracts/api/system-settings";
-import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
 
 // P12b — Sistem ayarları > WhatsApp servisi (AC-196). Sahte API: e2e/mock-audit.mjs (u-ausa-* env kaynaklı,
 // u-ausawa0-* hiç yapılandırılmamış, u-ausains-* panelde güvensiz http:// adres, u-ausabrk-* ilk GET 500, u-auadm-* Admin).
 guardConsole();
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "masaüstü akışı");
 const API = "/api/v1/admin/settings/whatsapp";
 
-async function signInAu(context: BrowserContext, scenario: string) {
-  const value = `u-${scenario}-${Math.random().toString(36).slice(2)}`;
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
-}
 async function open(page: Page) {
   await page.goto("/admin/settings/whatsapp");
   await expect(page.getByTestId("wa-svc-form")).toHaveAttribute("data-ready", "true"); // hidrasyon bitmeden yazma
@@ -27,7 +17,7 @@ test("AC-196 kritik akış: env kaynağı → ön kontrol → kaydet (Panel) →
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "ausa");
+  await signIn(context, "ausa");
   await page.goto("/admin/settings/mysql");
   // Kararsız test (P16 düzeltme turu 1): akış tamamlanmadan sekmeye tıklanırsa, React'in henüz yerleştirmediği akışlı
   // içerik (`<div hidden id="S:0">` içinde mysql-form + setting-source) DOM'da yetim kalır → strict mode 2 öğe görür
@@ -130,7 +120,7 @@ test("AC-196 kritik akış: env kaynağı → ön kontrol → kaydet (Panel) →
 
 test("AC-196 test 5/dk sınırı: 6. deneme 429 mesajı (kilit tonu)", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "ausa");
+  await signIn(context, "ausa");
   await open(page);
   await page.getByTestId("wa-test-phone").fill("05320000000");
   const result = page.getByTestId("wa-test-result");
@@ -147,7 +137,7 @@ test("AC-196 test 5/dk sınırı: 6. deneme 429 mesajı (kilit tonu)", async ({ 
 
 test("AC-196 güvensiz adres: uyarı kutusu; test isteği gönderilmeden hata", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "ausains");
+  await signIn(context, "ausains");
   await open(page);
   // AC-196 metni (sözleşme sabiti) ilk cümle, TLS/özel ağ ipucu ikinci cümle
   await expect(page.getByTestId("wa-svc-insecure")).toHaveText(`${WA_INSECURE_WARNING}. Kalıcı çözüm TLS veya özel ağ.`);
@@ -165,7 +155,7 @@ test("AC-196 güvensiz adres: uyarı kutusu; test isteği gönderilmeden hata", 
 
 test("AC-196 boş durum: servis yapılandırılmamış → yönlendirici bilgi, test pasif; kayıtla etkinleşir", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "ausawa0");
+  await signIn(context, "ausawa0");
   await open(page);
   await expect(page.getByTestId("wa-svc-empty")).toContainText("yapılandırılmamış");
   await expect(page.getByTestId("wa-svc-effective")).toHaveText("Yapılandırılmamış");
@@ -182,7 +172,7 @@ test("AC-196 boş durum: servis yapılandırılmamış → yönlendirici bilgi, 
 });
 
 test("AC-196 hata durumu: yükleme hatası → Tekrar dene", async ({ page, context }) => {
-  await signInAu(context, "ausabrk");
+  await signIn(context, "ausabrk");
   await page.goto("/admin/settings/whatsapp");
   await expect(page.getByTestId("load-error")).toBeVisible();
   await page.getByRole("button", { name: "Tekrar dene" }).click();
@@ -191,7 +181,7 @@ test("AC-196 hata durumu: yükleme hatası → Tekrar dene", async ({ page, cont
 });
 
 test("AC-196 yalnız Super Admin: Admin'de sekme/form yok, yetkisiz durumu", async ({ page, context }) => {
-  await signInAu(context, "auadm");
+  await signIn(context, "auadm");
   await page.goto("/admin/settings/whatsapp");
   await expect(page.getByTestId("system-forbidden")).toBeVisible();
   await expect(page.getByTestId("system-tabs")).toHaveCount(0);
@@ -202,7 +192,7 @@ for (const scheme of ["light", "dark"] as const) {
   test(`AC-196 axe (${scheme}) + 1280/390 px taşma: WhatsApp servisi (güvensiz + test sonucu)`, async ({ page, context }, info) => {
     desktopOnly(info.project.name);
     await page.emulateMedia({ colorScheme: scheme });
-    await signInAu(context, "ausains");
+    await signIn(context, "ausains");
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: width > 600 ? 800 : 844 });
       await open(page);
@@ -226,7 +216,7 @@ for (const scheme of ["light", "dark"] as const) {
 
 test("S-P13b-3 servis anahtarı: env kaynaklı rozet, kaldırma yok", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "ausa");
+  await signIn(context, "ausa");
   await open(page);
   await expect(page.getByTestId("wa-key-source")).toHaveText("Kayıtlı (env)");
   await expect(page.getByTestId("wa-key-remove")).toHaveCount(0);
@@ -235,7 +225,7 @@ test("S-P13b-3 servis anahtarı: env kaynaklı rozet, kaldırma yok", async ({ p
 
 test("S-P13b-3 servis anahtarı: kayıt, geri yazılmaz, hata, kaldırma onayı, 401 testi", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "ausawa0");
+  await signIn(context, "ausawa0");
   await open(page);
   const key = page.getByTestId("wa-key-input");
   const badge = page.getByTestId("wa-key-source");
@@ -296,7 +286,7 @@ test("S-P13b-3 servis anahtarı: adres kökeni değişince anahtar yeniden isten
   context,
 }, info) => {
   desktopOnly(info.project.name);
-  await signInAu(context, "ausains");
+  await signIn(context, "ausains");
   await open(page);
   // Panel adresi + panel anahtarı yok → "Tanımlı değil" ve env anahtarının kullanılmadığı ipucu
   await expect(page.getByTestId("wa-key-source")).toHaveText("Tanımlı değil");

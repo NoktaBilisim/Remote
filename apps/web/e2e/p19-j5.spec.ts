@@ -1,12 +1,11 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
-import { axeScan, guardConsole, noHorizontalOverflow } from "./helpers";
+import { axeScan, desktopOnly, guardConsole, noHorizontalOverflow, sessionCookies } from "./helpers";
 
 // P19 J5 (AC-259, 261, 263, AC-292 form satırı, S-P19-14, S-P19-T4, B1). Sahte API + sahte /ws/request: e2e/mock-p19.mjs.
 guardConsole();
 const REF = "webformaaaaaaaaa";
 const MOCK = "http://127.0.0.1:4217";
-const desktopOnly = (name: string) => test.skip(name !== "desktop", "paylaşılan sahte durum: tek proje");
+const P19_ONLY = "paylaşılan sahte durum: tek proje";
 const newRoom = () => Math.random().toString(36).slice(2, 10);
 /** Benzersiz web formu ref'i (mock-p19 `webformz` + 8 karakter a-z2-7). */
 const uniqueRef = () =>
@@ -19,11 +18,7 @@ const stats = async (page: Page, ref: string) =>
   };
 
 async function signInP19(context: BrowserContext, role: "p19adm" | "p19noimp" | "p19tech" | "p19technl") {
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value: `u-${role}-${newRoom()}`, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
+  await sessionCookies(context, `u-${role}-${newRoom()}`);
 }
 
 async function fillForm(page: Page) {
@@ -65,7 +60,7 @@ test("AC-259: geçersiz ref → tek tip bulunamadı ekranı", async ({ page }) =
 });
 
 test("AC-259: kutucuklar işaretsiz, 2 sn sayacı, gönderim → bekleme → sohbet → kabul (doğrulama + kabul kodu)", async ({ page }, info) => {
-  desktopOnly(info.project.name);
+  desktopOnly(info.project.name, P19_ONLY);
   const REF = uniqueRef();
   await page.goto(`/r/${REF}`);
   await expect(page.getByTestId("wr-form")).toBeVisible();
@@ -112,7 +107,7 @@ test("AC-259: kutucuklar işaretsiz, 2 sn sayacı, gönderim → bekleme → soh
 });
 
 test("AC-259: talebi iptal et → kapanış + yeni talep", async ({ page }, info) => {
-  desktopOnly(info.project.name);
+  desktopOnly(info.project.name, P19_ONLY);
   await page.goto("/r/webformcancelx22");
   await fillForm(page);
   await expect(page.getByTestId("wr-submit")).toBeEnabled({ timeout: 5000 });
@@ -129,7 +124,7 @@ for (const [status, reason, testId, text, ref] of [
   ["CANCELLED", "TENANT_PASSIVE", "wr-end-closed", "Talebiniz kapatıldı", "webformclosec222"],
 ] as const)
   test(`AC-259: sunucu kapanışı ${status} → talep metni (oturum metni değil)`, async ({ page }, info) => {
-    desktopOnly(info.project.name);
+    desktopOnly(info.project.name, P19_ONLY);
     await page.goto(`/r/${ref}`);
     await fillForm(page);
     await expect(page.getByTestId("wr-submit")).toBeEnabled({ timeout: 5000 });
@@ -156,7 +151,7 @@ for (const [ref, text] of [
   ["webformtokenbadx", "Formun süresi doldu, sayfayı yenileyin."],
 ] as const)
   test(`S-P19-T4: ${ref} → mesaj, yeni token + 2 sn sayacı yeniden, ikinci deneme kabul`, async ({ page }, info) => {
-    desktopOnly(info.project.name);
+    desktopOnly(info.project.name, P19_ONLY);
     await page.goto(`/r/${ref}`);
     await fillForm(page);
     await expect(page.getByTestId("wr-submit")).toBeEnabled({ timeout: 5000 });
@@ -338,11 +333,7 @@ test("AC-260: send_link yetkisi yoksa düğme yok", async ({ page, context }) =>
 });
 
 test("S-P19-T5: kurala uymayan kayıtlı WhatsApp adresi → 'yeniden kaydedin' bandı", async ({ page, context }) => {
-  const base = { domain: "localhost", path: "/", secure: true, sameSite: "Strict" as const };
-  await context.addCookies([
-    { ...base, name: SESSION_COOKIE, value: `u-ausarsv-${newRoom()}`, httpOnly: true },
-    { ...base, name: CSRF_COOKIE, value: "csrf-test-token" },
-  ]);
+  await sessionCookies(context, `u-ausarsv-${newRoom()}`);
   await page.goto("/admin/settings/whatsapp");
   await expect(page.getByTestId("wa-svc-resave")).toContainText("Adresi yeniden kaydedin");
 });

@@ -1,18 +1,8 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { CSRF_HEADER } from "@remote/contracts/api/auth";
-import { axeScan, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
+import { axeScan, guardConsole, newSession, noHorizontalOverflow, signIn } from "./helpers";
 
 // P4 tarayıcı modu medya hattı (AC-26..33, 59, 112–114, 125, 127). Sahte API + sahte WS (e2e/mock-ws.mjs).
 guardConsole();
-
-async function newSession(page: Page) {
-  const r = await page.request.post("/api/v1/sessions", {
-    headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" },
-    data: {},
-  });
-  expect(r.status()).toBe(201);
-  return (await r.json()) as { id: string; link: string };
-}
 
 async function openGuest(browser: Browser, link: string, scheme: "light" | "dark" = "light") {
   const ctx = await browser.newContext({ colorScheme: scheme });

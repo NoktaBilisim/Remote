@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { CSRF_HEADER } from "@remote/contracts/api/auth";
-import { axeScan, guardConsole, noHorizontalOverflow, signIn } from "./helpers";
+import { axeScan, guardConsole, newSession, noHorizontalOverflow, signIn } from "./helpers";
 
 // P5 konsol işbirliği (AC-35..37, 44..46, 52..57, 117, 119). Sahte API + sahte WS; DC'ler gerçek P2P (localhost).
 // Senaryo çerezleri (e2e/mock-sessions.mjs): u-p5-* file_transfer yetkili, u-p5nf-* yetkisiz; ikisinde maxFileMb = 1.
@@ -26,12 +25,7 @@ const wsLog = async (page: Page, id: string) => (await (await page.request.get(`
 
 /** Oturum aç → müşteri katılır → kabul → paylaşım → iki tarafta DC hazır. */
 async function live(page: Page, browser: Browser, scheme: "light" | "dark" = "light", guestInit?: () => void) {
-  const r = await page.request.post("/api/v1/sessions", {
-    headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" },
-    data: {},
-  });
-  expect(r.status()).toBe(201);
-  const s = (await r.json()) as { id: string; link: string };
+  const s = await newSession(page);
   await page.emulateMedia({ colorScheme: scheme });
   await page.goto(`/sessions/${s.id}/console`);
   const ctx = await browser.newContext({ colorScheme: scheme });
