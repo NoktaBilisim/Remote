@@ -97,7 +97,7 @@ Dizgi sabitleri (audit eylemi, metrik adı, log mesajı, hata kodu, yol) kümesi
 3. **Mock uyumu.** Entegrasyon testleri `jobs/retention-repo.ts` ve `requests/repo.ts`'i `vi.mock` ile sarıyor; bu
    modüllerin işlevleri taşınmadı, çağıranlar aynı modül yolundan import eder (mock etkisi aynı).
 4. **Zamanlayıcı iş tablosu** (`scheduler.ts`): saklama işinin yeniden kurulumu `stopped` denetlemiyordu; tabloda
-   `stoppable: false` ile **aynen korundu** (bkz. PT bulguları). Açılış adımları (`orphanScan.init` → kur,
+   PT içinde aynen korundu; sonra `64e6301` ile düzeltildi (bkz. PT bulguları). Açılış adımları (`orphanScan.init` → kur,
    `tenantPurge.refreshMetrics` + hemen kur, `outbox.recover` → kur) ve sıra (saklama, yetim, firma silme, outbox,
    sonra 30 sn aralığı) aynı. `startScheduler` imzası (testler konumsal argümanla çağırır) değişmedi.
 5. **Bağlam nesneleri** (`Wiring`/`RequestWiring` — app.ts/app-hooks.ts; `RecordState` — csv.ts; `PreviewAcc` —
@@ -107,11 +107,11 @@ Dizgi sabitleri (audit eylemi, metrik adı, log mesajı, hata kodu, yol) kümesi
 
 ## P27 / P28 için sınırlar
 
-- Yeni periyodik iş → `scheduler.ts` tablosuna bir `TimedJob` satırı (`start`/`tick`/`delay`/`stoppable`).
+- Yeni periyodik iş → `scheduler.ts` tablosuna bir `TimedJob` satırı (`start`/`tick`/`delay`).
 - Yeni servis/decorate → `app.ts` (`decorate*`) ya da `app-hooks.ts` (talep/iş tarafı); yeni rota → `app-routes.ts`
   (sıra önemli: `registerCoreRoutes`/`registerAdminRoutes` içinde ilgili yere).
 
-## PT bulguları (düzeltilmedi, R-PT9)
+## PT bulguları (R-PT9)
 
 - **PT-K11-B1 (düşük):** `jobs/scheduler.ts` saklama işi `stop()` sonrası yeniden kurulabiliyor: `stop()` yalnız bekleyen
   zamanlayıcıyı iptal eder; o anda bir saklama turu sürüyorsa turun `.finally`'si yeni (unref'li) zamanlayıcı kurar —

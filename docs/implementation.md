@@ -8954,3 +8954,57 @@ pnpm format:check                                               # temiz
 Ana çalışma kopyasında `lint`/`typecheck`/`format:check` kırmızısı yalnız paralel K6/K9/K10/K14 görevlerinin yarım
 dosyalarından (`apps/web/lib/webrtc/*`, `apps/server/src/requests/*`, `signaling/*`, `docs/temizlik/PT-K6.md`); K0
 dosyaları temiz.
+
+## PT — kod temizliği: görev notları, PT bulguları, gerekçeli sapmalar — devops — 2026-11-15
+
+QA tur 1 (`docs/qa-raporu.md`, Düzeltilmeli 4) gereği AC-324'ün istediği `implementation.md` kaydı. Tasarım:
+`docs/mimari-temizlik.md` (§5 görev listesi, §6 akış), AC: `docs/gereksinimler.md` §10 (AC-317..324). PT'nin son commit'i
+`e280551` (`14b2629..e280551` 33 commit); sonraki `64e6301` PT dışı `fix:` commit'idir.
+
+**Görev notları neden `docs/temizlik/` altında:** PT'de 18 görev birbirine paralel yürüdü. Her görevin kendi notu
+(`PT-Kn.md`) ayrı dosyada tutuldu ki eşzamanlı ajanlar aynı dosyada çakışmasın ve her görev notu kendi commit'iyle
+birlikte girsin. Bu koordinatör kararıdır (PT-K9.md "koordinatör talimatı"). PT-K0 ve PT-K1 kayıtları bu dosyada
+yukarıdadır. Bu bölüm notlara giriş noktasıdır; ayrıntı notlardadır.
+
+### Görev notları
+
+| Görev          | Not                                                                                                                                                                                                       | Konu                                                                                                   |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| PT-K0          | [baseline.md](temizlik/baseline.md), yukarıdaki "PT-K0" bölümü                                                                                                                                            | ölçüm betiği `scripts/pt-olcum.sh`, baseline `c661ea0`, `test:cov`                                     |
+| PT-K1          | yukarıdaki "PT-K1" bölümü                                                                                                                                                                                 | contracts import döngüleri + sözleşme korkuluğu (`pt-surface`)                                         |
+| PT-K2          | [PT-K2.md](temizlik/PT-K2.md)                                                                                                                                                                             | sunucu entegrasyon test fikstürleri                                                                    |
+| PT-K3          | [PT-K3.md](temizlik/PT-K3.md)                                                                                                                                                                             | e2e fikstürleri (`desktopOnly` tek tanım)                                                              |
+| PT-K4..K8      | [K4](temizlik/PT-K4.md) · [K5](temizlik/PT-K5.md) · [K6](temizlik/PT-K6.md) · [K7](temizlik/PT-K7.md) · [K8](temizlik/PT-K8.md)                                                                           | Go istemci (`request`, `launch`/`remember`, `flow`/`signal`, `api`/`input`/`files`/`diag`, Windows UI) |
+| PT-K9..K12     | [K9](temizlik/PT-K9.md) · [K10](temizlik/PT-K10.md) · [K11](temizlik/PT-K11.md) · [K12](temizlik/PT-K12.md)                                                                                               | sunucu (`requests`, sinyalizasyon/WS, `app`/`jobs`/`customers`, servis modülleri)                      |
+| PT-K13..K15    | [K13](temizlik/PT-K13.md) · [K13c](temizlik/PT-K13c.md) · [K13d](temizlik/PT-K13d.md) · [K14](temizlik/PT-K14.md) · [K15](temizlik/PT-K15.md) · [K15b](temizlik/PT-K15b.md) · [K15c](temizlik/PT-K15c.md) | web (talepler/ayarlar, web talep, konsol/WebRTC/DC, kalan web)                                         |
+| PT-K16         | [PT-K16.md](temizlik/PT-K16.md)                                                                                                                                                                           | Go CI'a staticcheck, `@types/smtp-server` kaldırma                                                     |
+| PT-K17, PT-K18 | [sonuc.md](temizlik/sonuc.md)                                                                                                                                                                             | kapanış ölçümü; K18: knip 0/0 + kapsam telafisi (ayrı `PT-K18.md` yok)                                 |
+
+Ham ölçüm: `docs/temizlik/baseline/*.json`, `docs/temizlik/sonuc/*.json`.
+
+### PT bulguları (R-PT9: PT commit'lerinde düzeltilmedi)
+
+| #          | Bulgu                                                                                                              | Kaynak          | Durum / sahip                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ | --------------- | ----------------------------------------------------------------------------------------------------- |
+| PT-K11-B1  | `jobs/scheduler.ts` saklama işi, `stop()` anında süren turun `.finally`'sinde zamanlayıcıyı yeniden kuruyor. Düşük | PT-K11.md       | **Kapandı:** `64e6301` `fix(jobs)` + regresyon testi `scheduler.test.ts` "PT-K11-B1: …" (backend-dev) |
+| PT-K15c-B1 | `ConsentForm` 400 `body` hatasında textarea o an `disabled` olduğundan odak etkisiz kalıyor (a11y)                 | PT-K15c.md      | **Sonra:** frontend-dev `fix:`; bir sonraki test-operatoru taramasında kontrol edilir                 |
+| Kararsız-1 | e2e `p13bl-lobby` AC-305 ara sıra kırmızı (`--repeat-each=3` 1/6); `11dd81e`, `1bb205f` CI'ı kırdı                 | PT-K14, PT-K15b | test kararlılığı işi (öncelikli)                                                                      |
+| Kararsız-2 | e2e `p5-collab` TEST-P5-1 (`offered` yerine `rejected`), tekrar koşuda 3/3 geçti                                   | PT-K15c         | test kararlılığı işi (frontend-dev)                                                                   |
+| Kararsız-3 | entegrasyon `customers-csv-p19` AC-263 (5 000 satır ≤ 30 sn) yük altında 33–35 sn                                  | PT-K9           | eşik ya da CI makinesi kararı (proje-yoneticisi)                                                      |
+| Elle test  | K8 Windows UI otomatik testsiz bölündü (R-PT2): A–H duman testi                                                    | PT-K8.md        | test-operatoru; PT kapanış koşulu (QA Düzeltilmeli 6)                                                 |
+
+Kararsız testlerde kural R-PT8: kırmızıda 3 tekrar; baseline'da da kararsız olan test gerileme sayılmaz.
+
+### Gerekçeli sapmalar (özet)
+
+| Sapma                                                                                                                            | Gerekçe ve yer                                                                                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PT-D1: yeni geliştirme bağımlılığı `@vitest/coverage-v8` (MIT)                                                                   | kapsam ölçümü (AC-319) için; yukarıdaki PT-K0 "Bağımlılık gerekçesi"                                                                                             |
+| K1 `.gitignore` ve `.prettierignore`'a `graphify-out/` (§5 listesi dışı)                                                         | graphify yerel çıktısı git ve prettier dışında; uygulama/CI davranışı değişmez (sonuc.md AC-324)                                                                 |
+| `DESIGN.md` (K13, K15c) ve `docs/gereksinimler.md` (K0 AC-321 eşik revizyonu, `8a520c7`)                                         | ortak standart 1.8 (yeni bileşen → DESIGN.md); knip yöntem farkı (baseline.md)                                                                                   |
+| K18: §5 dışında 24 üretim dosyasında yalnız `export` kaldırma; K2/K3 dışındaki testlerde mevcut gövdelere assertion/tablo satırı | AC-321 (knip 0/0) ve AC-319 (kapsam ≥ baseline) kapanışı; yeni test adı yok. §5 K18 satırı ve §1-2 test istisnası mimar tarafından ekleniyor (QA Düzeltilmeli 1) |
+| K6 `flow/messages.go` `classify` cx 17 (> 15)                                                                                    | PT-K6.md                                                                                                                                                         |
+| K9 `requests/service.ts` 469 satır (> 300)                                                                                       | PT-K9.md                                                                                                                                                         |
+| AC-322: sunucu entegrasyon testlerinde dosya-yerel `boot` 7, `signIn` 2, `login` 2 dosya                                         | gövde farkı (PT-K2.md); AC metniyle çelişiyor, karar mimar → proje-yoneticisinde (QA Düzeltilmeli 2)                                                             |
+| Go test sayısı: betik `Test+Benchmark` sayar (398/424), geçerli sayı `Test` işlevi 397 / 423                                     | sonuc.md AC-317 "Go test sayısı" (yöntem ve 458'in kaynağı)                                                                                                      |
+| K0: vitest listesi `vitest list` yerine kapsam koşusu JSON'undan; testsiz Go `deadcode` yalnız windows; knip/jscpd `pnpm dlx`    | yukarıdaki PT-K0 "Sapmalar"                                                                                                                                      |

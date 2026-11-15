@@ -71,13 +71,13 @@ uyarlanması mimarın kararıdır (açık nokta, aşağıda).
 
 ### Testler (AC-317) ve kapsam (AC-319)
 
-| Paket               |    Test sayısı (hepsi geçti) |                                 Satır % | Dal % | İşlev % | İfade % |
-| ------------------- | ---------------------------: | --------------------------------------: | ----: | ------: | ------: |
-| server (unit + int) |                        1 230 |                                   94,87 | 86,69 |   93,77 |   92,18 |
-| web (vitest, lib)   |                          386 |                                   64,09 | 66,49 |   64,41 |   63,36 |
-| contracts           |                          142 |                                   86,27 | 60,75 |   70,95 |   84,11 |
-| Playwright (liste)  |                          643 |                                       — |     — |       — |       — |
-| Go linux / windows  | 398 / 424 (`func Test…` adı) | paket başına `kapsam.json` (78,3 – 100) |
+| Paket               |                                                    Test sayısı (hepsi geçti) |                                 Satır % | Dal % | İşlev % | İfade % |
+| ------------------- | ---------------------------------------------------------------------------: | --------------------------------------: | ----: | ------: | ------: |
+| server (unit + int) |                                                                        1 230 |                                   94,87 | 86,69 |   93,77 |   92,18 |
+| web (vitest, lib)   |                                                                          386 |                                   64,09 | 66,49 |   64,41 |   63,36 |
+| contracts           |                                                                          142 |                                   86,27 | 60,75 |   70,95 |   84,11 |
+| Playwright (liste)  |                                                                          643 |                                       — |     — |       — |       — |
+| Go linux / windows  | 397 / 423 (`func Test…` adı; 398/424 Benchmark dahil sayımdı, bkz. sonuc.md) | paket başına `kapsam.json` (78,3 – 100) |
 
 Kapsam kapsamı: server `src/**`, web `lib/**`, contracts `src/**` (testi olmayan dosyalar %0 olarak dahil). Go yalnız
 linux (Windows'a özgü dosyalar ölçülmez; Windows CI testleri koşar).

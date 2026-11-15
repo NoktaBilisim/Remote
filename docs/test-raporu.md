@@ -2,6 +2,24 @@
 
 Önceki paketlerin sayfa testi raporları `docs/arsiv/*-test-raporu.md` ve `docs/test-raporu/` altındadır.
 
+## PT — Windows elle duman testi (istemci yayın kapısı, bekliyor)
+
+**Durum:** istemci yayın kapısı, kullanıcı tarafında bekliyor (koşulmadı). PT-K8 Win32 ekranlarını (`internal/ui`,
+`tray/tray.go`, `cmd/noktadestek`) otomatik testsiz böldü (R-PT2); duman testi gerekiyor.
+
+**Karar (mimar, 2026-11-15, `docs/mimari-temizlik.md` §11 K-PT-4):** PT birleştirmesini **engellemez**. Staging deploy'u
+sunucu ve web'i günceller, Windows istemci exe'sini yayınlamaz. Bir sonraki istemci sürümü (0.12.0 ve sonrası) bu test
+geçmeden yayınlanmaz.
+
+**Liste:** `docs/temizlik/PT-K8.md` "Elle Windows testi" tablosu (değişen kod → kontrol → grup). Adımlar aşağıdaki P20
+listesinin **A–H** gruplarıdır (A tepsi ve `--tray`, B Windows açılışında başlat, C çoklu firma ana ekranı, D talep
+formu ve bekleme, E başka kullanıcının mutex'i, F logo/tema ve AV, G firma dosyasıyla açılış ve kod oturumu, H kod
+oturumu bitince tepsi). Aynı tabloya PT sonrası exe ile koşulur; sonuç, tarih, sürüm ve SHA-256 buraya yazılır.
+
+| Kapsam                                          | Sonuç | Tarih / sürüm / SHA-256 |
+| ----------------------------------------------- | ----- | ----------------------- |
+| PT-K8 duman testi (P20 A–H, PT sonrası exe ile) |       |                         |
+
 ## P20 — Windows elle test listesi (bekliyor)
 
 **Durum:** koşulmadı. test-operatoru Windows'ta koşamıyor; bu liste gerçek Windows 10 ve Windows 11 bilgisayarda (standart
