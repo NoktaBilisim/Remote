@@ -1,13 +1,90 @@
 # Güvenlik Raporu — P19 tasarım turu (2026-11-15)
 
-DURUM: DÜZELTİLMELİ (tasarım; J1–J3 başlamadan §8c güncellenmeli)
-Özet: Kritik 0 / Yüksek 1 / Orta 2 / Düşük 6 (+2 bilgi)
+DURUM: GEÇTİ (Tur 2, 26f4bbf). Tur 1: DÜZELTİLMELİ.
+Özet (Tur 2): Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4 (yeni). Tur 1: Kritik 0 / Yüksek 1 / Orta 2 / Düşük 6 (+2 bilgi), hepsi kapandı.
 
 Kapsam: `docs/mimari-e11.md` §8c (877–1221), `docs/tasarim-kontrol.md` P19 tablosu (658–679). P19 kodu yok. Tasarımın dayandığı
 mevcut kod doğrulandı: `auth/guards.ts:23-35`, `requests/ws.ts:69-110`, `requests/panel.ts:162-176, 227-241`,
 `signaling/rooms.ts:164-199`, `requests/service.ts:145, 249-269, 608`, `requests/limits.ts`, `lib/netguard.ts`, `lib/csv.ts`,
 `lib/version.ts`, `audit/mask.ts:42-51`, `notify/whatsapp.ts:23`, `cli/crypto.ts`, `customers/routes.ts`, `apps/web/proxy.ts`.
 Kod değiştirilmedi. Staging'e bağlanılmadı, ACCESS.txt okunmadı.
+
+## Tur 2 (doğrulama) — 26f4bbf, 2026-11-15
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4 (yeni; P19 kod turunda doğrulanır) + 1 bilgi. Tur 1'in T1–T9 ve B1–B2 maddeleri kapandı.
+
+Kapsam: `git show 26f4bbf -- docs/mimari-e11.md docs/tasarim-kontrol.md`. Okunanlar: §8c.1 outbox satırı (:902), §8c.2 m.1–m.8
+(:925–990), §8c.3 şablon ve tavanlar (:1024–1075), §8c.4 (:1105–1135), §8c.5 yetki (:1142), §8c.9 S-P19-12..15 (:1259–1262),
+§8c.13 K-P19-7..10, §8c.14. Kilit sırası `requests/service.ts:494` ve `repo.ts:79` üzerinden karşılaştırıldı. Kod değiştirilmedi,
+commit yapılmadı, staging'e bağlanılmadı.
+
+### Tur 1 bulgularının durumu
+
+| Bulgu                          | Durum   | Gerekçe                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T1 Yüksek: bildirim istismarı  | KAPANDI | `recipient_hash` HMAC olarak tanımlandı, düz SHA-256 ile eşit olmadığı test edilecek. Kuyruğa alma aynı TX'te DB sayımıyla yapılıyor: alıcı × kanal firma içi 3/24 sa, sistem 5/24 sa; firma × kanal SMS 100, WA 60, e-posta 100/sa. Aşımda satır gönderilmeden FAILED `rate_limited` olur ve audit'e yazılır. `rate_limited` satırları sayıma girmez, saldırgan pencereyi uzatamaz. WA bellek kovası 600/60/3 ikinci hat. Firma başı hacim alarmı ekli. Senaryo hesabı: tek kurban numarasına günde en çok 5 mesaj/kanal (tur 1'de saatte ~180). Tek firma WA kovasının en çok %10'unu tüketebilir. |
+| T2 Orta: `client_version` NULL | KAPANDI | Kural `source`'a bağlandı. WEB kabul kodunu destekler, `acceptCode` aynen geçer, `client_unsupported` WEB'de üretilemez. Tipe `string \| null` yazıldı, `isOutdated` imzası daraltıldı, `?? "0.0.0"` yasaklandı (TS strict derlemede yakalar). Regresyon testi (AGENT 0.10.x → 409) var.                                                                                                                                                                                                                                                                                                             |
+| T3 Orta: CSV yetkisi           | KAPANDI | Önizleme import + create + view, uygulama import + create (+ edit). Uçta `requirePerm` zinciriyle zorlanıyor, 403 testleri var.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| T4 Form token                  | KAPANDI | `bootId` HMAC girdisinde. Tüketim senkron ve ilk `await`'ten önce. < 2 sn'de token harcanmıyor. Küme dolarsa fail-closed. Aynı token 10 paralel istekte tek başarı testi S-P19-1'de.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| T5 URL'de sır                  | KAPANDI | `serviceUrlSchema` (userinfo, `@`, `?`, `#` reddi) + DB CHECK. WA sistem URL'si dahil; uymayan eski değer maskelenir.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| T6 AAD / emeklilik             | KAPANDI | Çözülemeyen anahtar `unconfigured` olur (500 yok), ayrı uyarı alır. `check-retire` üç sütunu, `rewrap` SMS anahtarını kapsıyor. Runbook'a `SMSPORTAL_URL` değişim adımı eklendi.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| T7 Test ucu / port             | KAPANDI | Test ucunda alıcı başına 3/sa. Production'da tenant URL'si yalnız 443. Dışa giden yanıtta `timeout` ile `unreachable` birleşik.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| T8 Şablon ad enjeksiyonu       | KAPANDI | `sanitizeTemplateName` (NFKC, bidi/sıfır genişlik, şema, `www.`, TLD noktası) tüm kanallarda uygulanıyor; teknisyen adı "Ad S.". Tam genişlik nokta NFKC ile yakalanıyor.                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| T9 Form spam'i kilidi          | KAPANDI | `tenantWebAll` ayrı, WEB bekleyen alt tavanı 30, toplam 50 aynı. AGENT'a en az 20 yer kalıyor. AC-144 yorumu K-P19-8'de kullanıcı onayına bağlı.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| B1 CSP                         | KAPANDI | Doküman koda uyduruldu. `PUBLIC_PATHS += "/r/"` ve başlık e2e'si J5'e eklendi.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| B2 KVKK                        | KAPANDI | `recipient_hash` kişisel veri sayılıyor, 7 gün temizlik ve anonimleştirme silmesine dahil.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+
+### Yeni kararların getirdiği açıklar (hepsi Düşük; kod turunda doğrulanır)
+
+**[DÜŞÜK] S-P19-T10 Bekleyen talep bastırması kurbanın bildirimini susturabiliyor — A04**
+Yer: `docs/mimari-e11.md` §8c.2 m.2 "Aynı numarayla ikinci bildirim yok" (:945–951).
+İstismar: Saldırgan kurbanın numarasıyla bir WEB talebi açıp PENDING tutar. Kurbanın aynı firmaya kendi talebi açılır, ama
+bildirim bayrakları 0 yazılır. Kabul, ret ya da süre dolumu SMS'i gitmez; saldırganın talebi için ise kurbana mesaj gider (tavanlı).
+Etki düşük: kurban bekleme sayfasını zaten açık tutuyor ve bildirim kolaylık amaçlı. Saldırganın talebi en çok bekleme süresi
+kadar yaşar. 409 yerine bastırma seçilmesi doğru (aksi hâlde talep tümden engellenirdi).
+Düzeltme (öneri, zorunlu değil): bastırma yalnız aynı `client_instance`'tan ya da aynı ağ önekinden gelen ikinci talepte
+uygulanabilir; farklı kaynaktan gelen talepte bildirim korunur, alıcı tavanı (3/24 sa) yine sınırlar. Ya da kabul edilen risk
+olarak §8c.13'e yazılır. (mimar)
+
+**[DÜŞÜK] S-P19-T11 Sistem geneli alıcı tavanı firmalar arası tüketilebiliyor; e-posta takma adları tavanı aşıyor — A04**
+Yer: §8c.3 tavan tablosu (:1055–1068), §8c.1 `recipient_hash` normalizasyonu (:902; e-posta `NFC + trim + toLowerCase`).
+Sorun: (a) Saldırgan A firmasının formuyla kurbanın 5/24 sa sistem kotasını doldurursa, kurbanın gerçekten müşterisi olduğu B
+firmasının meşru bildirimi 24 saat gitmez. (b) `ad+1@`, `ad+2@` takma adları farklı hash üretir, aynı kutuya alıcı tavanı aşılır.
+Bekleyen talep bastırması da birebir eşitlik kullandığı için atlatılır. Firma × kanal 100/sa tavanı üst sınır olarak kalıyor.
+Düzeltme: e-posta için yalnız tavan anahtarında yerel kısımdaki `+…` eki atılır (gönderim adresi değişmez). Sistem geneli
+kota tükenmesi kabul edilen risk olarak §8c.13'e yazılır; isteğe bağlı olarak sistem tavanı yalnız WEB kaynaklı satırları
+sayar. (mimar, backend-dev J3)
+
+**[DÜŞÜK] S-P19-T12 Bildirim tavanı kilidi kilit sırasını tersine çeviriyor — A04 (kullanılabilirlik)**
+Yer: §8c.3 "Eşzamanlılık: sayımdan önce `tenant_request_settings` satırı `FOR UPDATE`" (:1063). Mevcut kural:
+`requests/service.ts:494` `lockSettings` "ilk ifade (G-E9-10)".
+Sorun: Talep oluşturma önce ayar satırını kilitliyor. Kabul/ret/süpürücü ise önce teknisyen, müşteri ve talep satırlarını
+kilitleyip ayar satırını en sonda istiyor. Bu tasarım kilit sırasını tersine çeviriyor. Aynı firmada eşzamanlı oluşturma ve
+kabulde deadlock (1213) olur, `withTxRetry` yoksa kabul 500 döner. Güvenlik açığı değil, kullanılabilirlik ve tutarlılık riski.
+Düzeltme: Kabul, ret ve süpürücü TX'inde `lockSettings` G-E9-10'a uygun olarak ilk ifade olmalı (kabulde teknisyen kilidinden
+önce ya da tüm yollarda tek belgelenmiş sıra). Entegrasyon testi: aynı firmada eşzamanlı 20 oluşturma + 5 kabul → 1213 yok.
+(mimar §8c.3 cümle, backend-dev J2/J3)
+
+**[DÜŞÜK] S-P19-T13 `recipient_hash` anahtar sürümü tanımsız — A02**
+Yer: §8c.1 (:902) "HKDF `remote-support/notify-recipient/v1`".
+Sorun: HKDF'nin hangi halka sürümünden türetildiği yazmıyor. Etkin anahtardan türetilirse rotasyon anında 24 sa sayımları
+sıfırlanır (bir pencerelik ek kota) ve anonimleştirme/temizlik hash eşleşmesine dayanan bir iş varsa kaçırır.
+Düzeltme: Türetme sabit bir sürümden yapılmalı (form token anahtarıyla aynı kural) ya da "rotasyonda sayım sıfırlanır, kabul"
+diye yazılmalı. (mimar, backend-dev J3)
+
+### Bilgi
+
+- B3: `rate_limited` satırları için audit hacmi talep oluşturma kovalarıyla sınırlı (firma başına ≤ 120 talep/sa × 3 kanal).
+  Kabul edilebilir. Audit `scope` alanı alıcı göstermiyor (mask var).
+
+### Karar
+
+Kritik/Yüksek 0 → **GEÇTİ**. P19 J1–J6 başlayabilir. T10–T13 kod turundan önce §8c'ye bir cümleyle işlenmeli ya da kabul edilen
+risk olarak yazılmalı. Sonra listesi (`docs/gereksinimler.md` §9): T10 kaynak bazlı bastırma, T11 sistem tavanının yalnız WEB'i
+sayması.
+
+## Tur 1 (2026-11-15)
 
 ## Bulgular (öncelik sırasıyla)
 
