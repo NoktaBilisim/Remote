@@ -7588,3 +7588,47 @@ coturn / `host-firewall.sh` kusuru değil. Yalnız `deploy/turn/test-local.sh` d
   "preflight: aralık boş -> çıkış 0" PASS.
 - DNS benzetimi (geçici kopya, fw konteynerinde `nc -u -l -s 127.0.0.11 -p 49415`): BİLGİ satırı, apply/check PASS,
   65 PASS / 0 FAIL. Geçici kopya silindi.
+
+## P19 J1 (dba) — 2026-11-15
+
+Ayrıntı: `docs/db-notlari.md` "P19"; mimari-e11 §8c.1, §8c.9 (S-P19-12, T5), §8c.14 (J1 satırları).
+
+- **Migration** `apps/server/prisma/migrations/20261120000000_p19_web_requests/{migration.sql,down.sql}`: `support_requests`
+  += `source` (AGENT|WEB) + `notify_sms/whatsapp/email`, `client_version` NULL (CHECK `source_version_chk`: WEB ⇔ NULL);
+  `tenant_request_settings` += `web_form_enabled`, `notify_*_enabled`; `tenant_settings` += `sms_url` (CHECK: userinfo/sorgu/
+  parça/boşluk/kontrol karakteri yok), `sms_api_key_enc`, `sms_header`; yeni `notification_outbox` (CHECK'ler, UQ, 3 IX,
+  bileşik request FK). Tetikleyici yok → **23** (lib.sh değişmedi), audit-continuity sabiti değişmedi. Korumalı down
+  (`p19_down_guard_chk`: WEB talebi ya da outbox satırı varsa 3819).
+- **Sapmalar (gerekçe migration.sql + db-notlari):** (1) UQ(`request_id`,`tenant_id`,`kind`,`channel`) — mimarideki
+  UQ(request_id, kind, channel) bileşik FK'yi karşılamaz. (2) `client_version` MODIFY ayrı INPLACE değil, CHECK'lerle tek COPY
+  ALTER (CHECK eklemek 8.4'te yalnız COPY; ölçüldü — iki yeniden yazım yerine bir). (3) Ek daraltıcı CHECK'ler: SENT ⇔
+  `sent_at`, FAILED ⇒ `last_reason`, `last_reason` kod biçimi `^[a-z][a-z0-9_]{0,29}$`, `attempts ≤ 3`, şifreli alanlar > 29
+  bayt, `recipient_mask` boş/kontrol karakteri değil. (4) `sms_header` 12 karakter CHECK'ten önce sütun uzunluğuna takılır
+  (1406 "Data too long"); negatif buna göre.
+- **Yetki:** `grants.sql` `notification_outbox` SELECT/INSERT/UPDATE/DELETE (+ DDL REVOKE).
+- **Kontrol betiği:** `deploy/mysql/check-app-grants.sh` +65 P19 satırı (§8c.1 negatiflerinin hepsi + enum varyantları),
+  DELETE kümesi += notification_outbox → **626/626 PASS**.
+- **KVKK/silme yolları (J3 tekrar etmez):** `jobs/tenant-purge-repo.ts` `DATA_STEPS.MESSAGES += notification_outbox` (talepten
+  önce; adım listesi değişmedi); `requests/repo.ts anonymizeBatch` aynı TX'te talebin outbox satırlarını siler. **J3'e kalan:**
+  7 gün temizlik işi (`state IN (SENT,FAILED) AND updated_at < now−7 g`, ≤ 1000/parti), `crypto:check-retire/rewrap`
+  kapsamına `sms_api_key_enc` + `recipient_enc`, silinen outbox sayısı metriği.
+- **Derlemeyi korumak için zorunlu en küçük uyarlamalar (iş mantığı J2/J3/J5'te):** `clientVersion` artık `string | null`.
+  `contracts/api/requests.ts` DTO `clientVersion: string | null`; `requests/ws.ts` NULL sürümlü satır → 403 `client_kind`
+  (J2 öncesi WEB satırı yok; J2 `source` kuralına çevirir); `requests/panel.ts` kabul kodu denetiminde NULL fail-closed
+  (J2: WEB kabul kodunu destekler, S-P19-13); `signaling/rooms.ts preAdmitGuest` `clientVersion: string | null` (NULL'da alan
+  yazılmaz); web `requests/request-card.tsx` sürüm satırı NULL'da gizli ("Web" etiketi J5).
+- **Seed:** demo talep ayarında `webFormEnabled: true` (yalnız yeni satır; bildirim kanalları kapalı).
+- **Testler:** yeni `test/integration/p19-schema-j1.test.ts` (9: source/sürüm CHECK, SMS URL/başlık, outbox yaşam döngüsü +
+  CHECK negatifleri + NULL hash 1048 + çapraz tenant FK, anonimleştirme silmesi, DATA_STEPS, yetki + tetikleyici 23, EXPLAIN);
+  güncellenen `session-history-p8` (ikili CHECK 42 → 50), `p18-messages-h3` (MESSAGES önizleme 1 → 2 + outbox 0),
+  `helpers/tenant-purge.ts` (outbox fikstürü + sayım), `helpers/requests.ts` (`source` seçeneği).
+  Sonuç (geçici `rs-p19j1-dd7b1d`, mysql 8.4.13, silindi): `test:int` **735/735** (74 dosya), server unit 410/410, web
+  371/371, `pnpm -r typecheck` temiz, up/down/up drift 0.
+- **Backend (J2/J3) için:** Prisma modeli `NotificationOutbox` (`tenant.notifications`, `supportRequest.notifications`);
+  idempotent anahtar `requestId_tenantId_kind_channel` (`INSERT IGNORE` ya da `upsert`); `state` varsayılanı PENDING,
+  `nextAt` varsayılanı now. Son duruma geçişte aynı UPDATE'te `recipientEnc = null` (+ SENT'te `sentAt`, FAILED'de
+  `lastReason`) yazılmalı, aksi hâlde 3819. `last_reason` yalnız küçük harf kod. Tavan sayımı sorguları db-notlari "P19"
+  EXPLAIN tablosundaki biçimde yazılmalı (`tenant_id` + `recipient_hash` + `channel`; firma/kanal `tenant_id, channel,
+created_at`). `SupportRequest.source/notifySms/notifyWhatsapp/notifyEmail`, `TenantRequestSettings.webFormEnabled/
+notify*Enabled`, `TenantSettings.smsUrl/smsApiKeyEnc/smsHeader`.
+- **Ölçülmedi:** `support_requests` COPY süresi staging'de ölçülmeli (dba staging'e bağlanmadı) — J6/J8 deploy notuna.

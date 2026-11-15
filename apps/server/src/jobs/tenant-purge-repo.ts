@@ -66,7 +66,9 @@ const unlinkBindings: TablePart = {
 export const DATA_STEPS: Readonly<Partial<Record<TenantPurgeStep, readonly TablePart[]>>> = {
   SESSION_FILES: [byTenant("session_files")],
   SESSION_CONSENTS: [byTenant("session_consents")],
-  MESSAGES: [byTenant("session_messages")], // P18: IX(tenant_id, created_at)
+  // P18: IX(tenant_id, created_at). P19 (§8c.1): notification_outbox aynı adımda (yeni adım yok; IX(tenant_id, channel, created_at)
+  // öneki; tetikleyicisiz) — support_requests'ten (REQUESTS) önce silinmeli (bileşik FK RESTRICT).
+  MESSAGES: [byTenant("session_messages"), byTenant("notification_outbox")],
   REQUEST_UNLINK: [unlinkBindings],
   BINDINGS: [byTenant("device_bindings")],
   SESSIONS: [byTenant("support_sessions")],

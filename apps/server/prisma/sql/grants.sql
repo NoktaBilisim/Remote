@@ -119,3 +119,9 @@ REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON session_mess
 -- Firma silmede SETTINGS adımında silinir (tetikleyicisiz; satır firma ayarıdır, kişisel veri yok).
 GRANT SELECT, INSERT, DELETE ON business_holidays TO 'app'@'%';
 REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON business_holidays FROM 'app'@'%';
+
+-- P19 notification_outbox (mimari-e11 §8c.1, §8c.3; AC-261; S-P19-12): müşteri durum bildirimi kuyruğu. INSERT (kuyruğa alma,
+-- talep durum geçişi TX'i), UPDATE (işçi: PENDING → SENDING → SENT/FAILED, kurtarma, son durumda recipient_enc NULL), DELETE
+-- (7 gün temizlik, anonimleştirme aynı TX, firma silme MESSAGES adımı). Tetikleyici yok; kurallar CHECK'lerde. DDL yok.
+GRANT SELECT, INSERT, UPDATE, DELETE ON notification_outbox TO 'app'@'%';
+REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON notification_outbox FROM 'app'@'%';

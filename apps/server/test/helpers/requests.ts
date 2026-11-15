@@ -63,6 +63,8 @@ export async function createRequestRow(
     customerEmail?: string;
     description?: string;
     deviceHash?: string;
+    /** P19: WEB talebi (tarayıcı formu) — client_version NULL (CHECK source_version_chk). */
+    source?: "AGENT" | "WEB";
   } = {},
 ) {
   const db = testDb();
@@ -78,7 +80,8 @@ export async function createRequestRow(
       requestCode: newRequestCode(),
       secretHash: sha256Hex(secret),
       clientInstance: newSecretToken().slice(0, 22),
-      clientVersion: "0.9.0",
+      clientVersion: o.source === "WEB" ? null : "0.9.0",
+      ...(o.source ? { source: o.source } : {}),
       customerName: o.customerName ?? "Ayşe Müşteri",
       customerPhone: "+905321234567",
       customerEmail: o.customerEmail ?? null,

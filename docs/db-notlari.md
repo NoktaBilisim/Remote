@@ -1208,3 +1208,58 @@ istemci `id` ile kararlı sıralar); gönderici başına tavan (S-P18-T4) `reque
 - Seed (boş DB) OK (demo `business_hours` CHECK'ten geçti).
 - Server `test` 383/383, contracts 103/103, web `p16.test` 10/10; temiz DB'de `test:int` **686/686** (71 dosya; yeni
   `p18-schema-h1.test.ts` 7 test).
+
+## P19 — web talepleri, SMS ayarı, notification_outbox (J1, 2026-11-15)
+
+Migration `apps/server/prisma/migrations/20261120000000_p19_web_requests/{migration.sql,down.sql}`. Mimari-e11 §8c.1, S-P19-12,
+S-P19-T5, B2. Veri taşıma yok: eski talepler `source='AGENT'` (sürüm dolu), bayraklar 0; firma ayarlarında web formu ve
+bildirim kapalı, SMS ayarı boş.
+
+### Şema
+
+| Değişiklik                   | Ayrıntı                                                                                                                                                                                                                                                  |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `support_requests` +=        | `source` (AGENT/WEB, ikili CHECK), `notify_sms/whatsapp/email`; `client_version` NULL; `source_version_chk`: WEB ⇔ NULL                                                                                                                                  |
+| `tenant_request_settings` += | `web_form_enabled`, `notify_sms_enabled`, `notify_whatsapp_enabled`, `notify_email_enabled`                                                                                                                                                              |
+| `tenant_settings` +=         | `sms_url` (`^https?://[^\s/?#@\p{Cc}]{1,253}(/[^\s?#@\p{Cc}]*)?\z`, 'i'), `sms_api_key_enc` (> 29 bayt), `sms_header` (`^[A-Za-z0-9 .-]{1,11}\z`)                                                                                                        |
+| `notification_outbox` (yeni) | kind/channel/state ikili enum; `attempts ≤ 3`; `recipient_hash` `^[0-9a-f]{64}\z` NOT NULL; son durum ⇔ `recipient_enc` NULL (dolu ise > 29 bayt); SENT ⇔ `sent_at`; FAILED ⇒ `last_reason`; `last_reason` `^[a-z][a-z0-9_]{0,29}\z`; mask boş/Cc/Cf yok |
+
+İndeksler: UQ(request_id, tenant_id, kind, channel) (idempotent + bileşik FK; **sapma**: mimarideki UQ(request_id, kind,
+channel) FK'yi karşılamaz), IX(state, next_at), IX(recipient_hash, created_at), IX(tenant_id, channel, created_at) (tenant FK
+öneki). FK'ler RESTRICT.
+
+### Sorgu planları (EXPLAIN, 8.4.13; `p19-schema-j1.test.ts` ile sabitlendi)
+
+| Sorgu                                                                                       | Plan                                    |
+| ------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Alıcı tavanı: `tenant_id=? AND recipient_hash=? AND channel=? AND created_at > −24 sa`      | IX(recipient_hash, created_at)          |
+| Firma × kanal: `tenant_id=? AND channel=? AND created_at > −1 sa`                           | IX(tenant_id, channel, created_at)      |
+| İşçi: `state='PENDING' AND next_at <= now ORDER BY next_at LIMIT 20 FOR UPDATE SKIP LOCKED` | IX(state, next_at) (sıralama yok)       |
+| Anonimleştirme silmesi: `tenant_id=? AND request_id IN (…)`                                 | UQ(request_id, tenant_id, …) aralık     |
+| Firma silme partisi: `tenant_id=? LIMIT n`                                                  | IX(tenant_id, channel, created_at) önek |
+
+7 gün temizlik (J3): `state IN ('SENT','FAILED') AND updated_at < ?` IX(state, next_at) önekini kullanır, `updated_at`
+süzgeçtir; son durumdaki satırlar en çok 7 günlüktür (sınırlı tarama). Sistem geneli alıcı sayımı firmalar arası kilitsiz.
+
+### Kilit ve geri alma
+
+- INSTANT: üç tablodaki sütun eklemeleri. COPY: `support_requests` (MODIFY NULL + 2 CHECK tek ALTER — CHECK eklemek 8.4'te
+  INPLACE/INSTANT desteklemez, 1845 ölçüldü; mimarideki "ayrı INPLACE" iki yeniden yazım olurdu), `tenant_settings` (3 CHECK,
+  küçük). Yeni tablo boş. **Staging süresi ölçülmedi** (dba staging'e bağlanmadı) — deploy öncesi `SELECT COUNT(*) FROM
+support_requests` ile kestirilir; COPY süresince talep yazımı bekler.
+- Tetikleyici/yordam yok → 23 (lib.sh, audit-continuity sabiti, check-app-grants değişmedi); adım listesi değişmedi → ön
+  kontrol yok.
+- `down.sql`: `p19_down_guard_chk` (WEB talebi ya da outbox satırı) → hiçbir şey değişmeden 3819 (test edildi). Sonra REVOKE,
+  DROP TABLE, CHECK/sütunlar, `client_version` NOT NULL, migration kaydı. **Önce P19 kodu ve grants.sql geri alınmalı.**
+
+### Yetkiler ve silme yolları
+
+`notification_outbox`: SELECT/INSERT/UPDATE/DELETE, DDL REVOKE. Firma silme `MESSAGES` adımına parça (talepten önce);
+anonimleştirme aynı TX'te siler (`anonymizeBatch`); 7 gün temizlik J3. `recipient_hash` kişisel veridir (B2).
+
+### Test (2026-11-15, geçici `rs-p19j1-dd7b1d`, mysql 8.4.13 binlog açık + bayrak, silindi)
+
+- Temiz up (P1→P19) OK; `migrate diff --exit-code` 0; tetikleyici 23. `check-app-grants.sh` **626/626 PASS** (+65 P19).
+- Dolu DB'de down → `p19_down_guard_chk` 3819, değişiklik yok. Temiz DB'de down → P18 şemasına diff 0, tables_priv satırı
+  yok, `client_version` NOT NULL, tetikleyici 23; yeniden up → drift 0, grants 626/626.
+- Seed iki kez (created/exists). `test:int` **735/735**, server unit 410/410, web 371/371, typecheck temiz.

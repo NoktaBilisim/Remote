@@ -163,7 +163,13 @@ export async function acceptRequest(
     // < ACCEPT_CODE_MIN_CLIENT_VERSION) talep kabul edilmez (fail-closed): düşük sürüm beyanı doğrulamayı atlatamaz.
     // Talep PENDING kalır (kuyruktan düşmez); yalnız fail audit'i commit edilir.
     const acceptCode = (await repo.settingsByTenant(tx, tenantId))?.requireAcceptCode === true;
-    if (head?.status === "PENDING" && acceptCode && compareVersions(head.clientVersion, ACCEPT_CODE_MIN_CLIENT_VERSION) < 0) {
+    // P19 J1 köprüsü (fail-closed): client_version NULL yalnız WEB talebinde olur; WEB yolu J2'de `source`'a bağlanır
+    // (S-P19-13: WEB kabul kodunu destekler). J2 öncesi WEB satırı üretilmez.
+    if (
+      head?.status === "PENDING" &&
+      acceptCode &&
+      (head.clientVersion === null || compareVersions(head.clientVersion, ACCEPT_CODE_MIN_CLIENT_VERSION) < 0)
+    ) {
       await writeAudit(tx, ctx, {
         ...who(auth, tenantId),
         action: "request.accepted",

@@ -95,6 +95,19 @@ export async function seedPurgeTenant(app: FastifyInstance): Promise<PurgeFixtur
       bodyChars: 2,
     },
   });
+  // P19: durum bildirimi kuyruğu satırı (MESSAGES adımı; alıcı sahte şifreli blob, PENDING ⇒ dolu).
+  await db.notificationOutbox.create({
+    data: {
+      id: newId(),
+      tenantId: t.id,
+      requestId: request.id,
+      kind: "REQ_ACCEPTED",
+      channel: "SMS",
+      recipientEnc: new Uint8Array(45),
+      recipientMask: "+90 5** *** ** 67",
+      recipientHash: sha256Hex(newId()),
+    },
+  });
   await db.businessHoliday.create({
     data: { id: newId(), tenantId: t.id, day: new Date("2026-04-23T00:00:00Z"), name: "Ulusal Egemenlik", createdBy: admin.id },
   });
@@ -122,6 +135,7 @@ const TENANT_TABLES = [
   "session_files",
   "session_consents",
   "session_messages",
+  "notification_outbox",
   "device_bindings",
   "support_sessions",
   "support_requests",

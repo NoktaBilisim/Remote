@@ -163,7 +163,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
    */
   preAdmitGuest(
     row: RoomRow,
-    g: { requestId: string; name: string; email?: string; clientVersion: string; consent: GuestConsent; acceptCode?: boolean },
+    g: { requestId: string; name: string; email?: string; clientVersion: string | null; consent: GuestConsent; acceptCode?: boolean },
   ): { wsTicket: string; expiresAt: number; admitCode?: string } {
     const room = this.getOrCreate(row);
     room.requestId = g.requestId;
@@ -186,7 +186,7 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
         state: "TICKETED",
         since: this.clock.now(),
         requestId: g.requestId,
-        clientVersion: g.clientVersion,
+        ...(g.clientVersion !== null ? { clientVersion: g.clientVersion } : {}), // P19: WEB talebinde sürüm yok
         ticketGen: 0,
       };
       room.lobby.set(guest.id, guest);

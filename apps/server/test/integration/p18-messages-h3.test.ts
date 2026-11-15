@@ -493,7 +493,7 @@ describe("AC-255 → AC-264 retention ve firma silme", () => {
     const p = await live.app.inject({ method: "POST", url, headers: sa.headers, payload: { dryRun: true } });
     expect(p.statusCode, p.body).toBe(200);
     const pv = p.json<TenantPurgePreviewResponse>();
-    expect(pv.counts.MESSAGES).toBe(1);
+    expect(pv.counts.MESSAGES).toBe(2); // P19: fikstür mesajı + notification_outbox satırı (aynı adım)
     const sc = await live.app.inject({
       method: "POST",
       url,
@@ -514,6 +514,7 @@ describe("AC-255 → AC-264 retention ve firma silme", () => {
     const rows = await tenantRowCounts(f.tenantId);
     expect(rows.session_messages).toBe(0);
     expect(rows.business_holidays).toBe(0);
+    expect(rows.notification_outbox).toBe(0);
     const st = await live.app.inject({ method: "GET", url, headers: sa.headers });
     expect(st.json<{ counts: Record<string, number> }>().counts.MESSAGES).toBe(pv.counts.MESSAGES);
   });

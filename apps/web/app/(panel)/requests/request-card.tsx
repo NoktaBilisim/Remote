@@ -284,7 +284,9 @@ export function RequestCard({
                 <span className="sr-only">{t("rq.version")}</span>
               </dt>
               <dd className="text-fg-muted">
-                {t("rq.versionValue", { v: item.clientVersion })} · {formatDateTime(item.createdAt)}
+                {/* P19: WEB talebinde sürüm yok (null); "Web" kaynak etiketi J5'te. */}
+                {item.clientVersion !== null ? `${t("rq.versionValue", { v: item.clientVersion })} · ` : ""}
+                {formatDateTime(item.createdAt)}
               </dd>
             </div>
           </dl>

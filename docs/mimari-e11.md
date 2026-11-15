@@ -910,6 +910,11 @@ toplu sözleşme, kalan Düşükler ve şemaya dokunan kararlar yer alıyor.
 `docs/db-notlari.md` "P19": `client_version` NULL'a çevirme INPLACE (tablo yeniden yazılır; talep tablosu küçük — staging
 süresi ölçülüp yazılır), worker sorgusu EXPLAIN'i (`state, next_at`).
 
+**dba sapma notu (J1, 2026-11-15; db-notlari "P19"):** UQ(`request_id`,`tenant_id`,`kind`,`channel`) — UQ(`request_id`,`kind`,
+`channel`) bileşik FK'yi karşılamaz (tekillik anlamı aynı). `client_version` NULL'a çevirme, CHECK'lerle tek COPY ALTER'da
+(8.4'te CHECK eklemek yalnız COPY; ayrı INPLACE ikinci yeniden yazım olurdu). Ek CHECK'ler: SENT ⇔ `sent_at`, FAILED ⇒
+`last_reason`, `last_reason` kod biçimi, `attempts ≤ 3`. `sms_header` 12 karakter CHECK'ten önce 1406 ile reddedilir.
+
 ### 8c.2 Web talep formu ve bekleme sayfası (AC-259, AC-143/144, AC-292 form satırı)
 
 **Akış:** `GET /r/<ref>` (Next, panel düzeni dışında) → `GET /api/v1/public/web-requests/form?ref=` → form → `POST

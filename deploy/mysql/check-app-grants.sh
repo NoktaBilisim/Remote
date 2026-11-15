@@ -392,7 +392,7 @@ run_root 0 "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHER
 run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\") + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE IN ('TRIGGER','ALTER','DROP','CREATE','INDEX','REFERENCES','GRANT OPTION'))" "app: global/DB yetkisi yok, hiçbir tabloda TRIGGER/ALTER/DROP/CREATE/INDEX yok"
 run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT','DELETE')" "app: audit_logs yalnız SELECT/INSERT/DELETE (DELETE P13a)"
 # P13a (K27) + P16 (ADR-0030 m.3): DELETE yetkisi tam olarak bu tablolarda; P16'nın 8 tablosunda koşul tetikleyicide.
-run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customers,device_bindings,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
+run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customers,device_bindings,notification_outbox,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
 run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent)"
 run_root 0 "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs'" "app: audit_logs sütun düzeyi UPDATE yok"
 run DENIED "DROP TRIGGER audit_logs_force_created_at" "denied"
@@ -668,6 +668,71 @@ run OK     "$TX DELETE FROM session_messages WHERE tenant_id='$GW'; $R"
 run OK     "$TX $UJ step='REQUEST_UNLINK' $WJ; $R"   # MESSAGES → REQUEST_UNLINK (+1)
 run DENIED "$UJ step='BINDINGS' $WJ" "p16: tenant_purge_jobs step"
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE id=$GJ; DELETE FROM session_messages WHERE id=$GM; DELETE FROM support_requests WHERE id=$GRR; DELETE FROM consent_texts WHERE tenant_id='$GW'; DELETE FROM tenants WHERE id='$GW'"
+# P19 (mimari-e11 §8c.1; AC-259..261; S-P19-12, S-P19-T5): support_requests.source + bildirim bayrakları (WEB ⇔
+# client_version NULL), tenant_request_settings web formu/bildirim anahtarları, tenant_settings SMS sütunları ve CHECK'leri,
+# notification_outbox (SELECT/INSERT/UPDATE/DELETE; tetikleyici yok) ve CHECK/UQ/FK'leri. Tümü geri alınan TX'te.
+OB="INSERT INTO notification_outbox (id,tenant_id,request_id,kind,channel,recipient_enc,recipient_mask,recipient_hash,state,attempts,last_reason,sent_at,updated_at) VALUES"
+GO="'00000000000000000000GRANTO'"
+O1V="$GO,'$GT',$GRR,'REQ_ACCEPTED','SMS',RANDOM_BYTES(45),'+90 5** *** ** 33',$H1,'PENDING',0,NULL,NULL,NOW(3)"
+O1="$OB ($O1V)"
+ob() { echo "$OB (${O1V/$1/$2})"; }  # $1 → $2 değiştir
+UO="UPDATE notification_outbox SET"; WO="WHERE id=$GO"
+RQW="$CT1; INSERT INTO support_requests ($RQC,source,notify_sms,notify_whatsapp,notify_email) VALUES ('00000000000000000000GRANTR',$(c="'0.9.0'"; echo "${RQV/$c/NULL}"),'WEB',1,1,0)"
+US19="UPDATE tenant_settings SET"; WT19="WHERE tenant_id='$GT'"
+run OK     "SELECT COUNT(*) FROM notification_outbox"
+run OK     "$TX $RQW; $R"                                                                                  # WEB talebi, sürüm NULL
+run OK     "$TX $RQ; $UR notify_sms=1,notify_email=1 $WR; $R"
+run OK     "$TX $RS1; $URS web_form_enabled=1,notify_sms_enabled=1,notify_whatsapp_enabled=1,notify_email_enabled=1 $WRS; $R"
+run OK     "$TX $US19 sms_url='https://sms.example.com/api',sms_api_key_enc=RANDOM_BYTES(60),sms_header='NOKTA BLSM' $WT19; $US19 sms_url='http://10.0.0.5:3001',sms_header=NULL $WT19; $US19 sms_url=NULL,sms_api_key_enc=NULL $WT19; $R"
+run OK     "$TX $RQ; $O1; $UO state='SENDING',attempts=1 $WO; $UO state='PENDING',next_at=NOW(3)+INTERVAL 10 SECOND,last_reason='unreachable' $WO; $UO state='SENT',attempts=2,recipient_enc=NULL,sent_at=NOW(3),last_reason=NULL $WO; DELETE FROM notification_outbox $WO; $R"
+run OK     "$TX $RQ; $(ob "RANDOM_BYTES(45)" "NULL" | sed "s/'PENDING',0,NULL/'FAILED',0,'rate_limited'/"); $R"   # tavan aşımı: FAILED, alıcı yok
+run OK     "$TX $RQ; $O1; $(ob "'SMS'" "'EMAIL'" | sed "s/$GO/'00000000000000000000GRANTP'/"); $R"             # aynı talep, başka kanal
+run OK     "$TX $RQ; $O1; $RANON; DELETE FROM notification_outbox WHERE tenant_id='$GT' AND request_id IN ($GRR); $R"   # anonimleştirme aynı TX
+run DENIED "ALTER TABLE notification_outbox ADD COLUMN x INT" "denied"
+run DENIED "DROP TABLE notification_outbox" "denied"
+run DENIED "CREATE TRIGGER t_x BEFORE INSERT ON notification_outbox FOR EACH ROW SET @a=1" "denied"
+# §8c.1 negatifleri
+enum_case support_requests_source_chk AGENT agent "CONCAT($AA,'GENT')" "$TX $RQ; $UR source=@V@ $WR; $R"
+run DENIED "$TX $RQ; $UR source='KIOSK' $WR; $R" support_requests_source_chk
+run DENIED "$TX $RQ; $UR source='WEB' $WR; $R" support_requests_source_version_chk                      # WEB + '0.9.0'
+run DENIED "$TX $RQ; $UR client_version=NULL $WR; $R" support_requests_source_version_chk               # AGENT + NULL
+run DENIED "$TX $(echo "$RQW" | sed "s/,NULL,'Ayse/,'0.12.0','Ayse/"); $R" support_requests_source_version_chk   # WEB + sürüm
+enum_case notification_outbox_channel_chk SMS sms "CONCAT('SM',CONVERT(X'C59E' USING utf8mb4))" "$TX $RQ; $(ob "'SMS'" "@V@"); $R"
+enum_case notification_outbox_kind_chk REQ_ACCEPTED req_accepted "CONCAT('REQ_',$AA,'CCEPTED')" "$TX $RQ; $(ob "'REQ_ACCEPTED'" "@V@"); $R"
+enum_case notification_outbox_state_chk PENDING pending "CONCAT('P',$EA,'NDING')" "$TX $RQ; $(ob "'PENDING'" "@V@"); $R"
+run DENIED "$TX $RQ; $(ob "'SMS'" "'FAX'"); $R" notification_outbox_channel_chk
+run DENIED "$TX $RQ; $(ob "'REQ_ACCEPTED'" "'ASSIGNED'"); $R" notification_outbox_kind_chk               # K-P18-9: eklenmez
+run DENIED "$TX $RQ; $(ob "'PENDING',0,NULL,NULL" "'SENT',1,NULL,NOW(3)"); $R" notification_outbox_recipient_enc_chk   # SENT + alıcı dolu
+run DENIED "$TX $RQ; $(ob "RANDOM_BYTES(45)" "NULL"); $R" notification_outbox_recipient_enc_chk           # PENDING + alıcı yok
+run DENIED "$TX $RQ; $(ob "RANDOM_BYTES(45)" "'+905301112233'"); $R" notification_outbox_recipient_enc_chk   # düz metin alıcı
+run DENIED "$TX $RQ; $(ob "$H1" "'abc'"); $R" notification_outbox_recipient_hash_chk
+run DENIED "$TX $RQ; $(ob "$H1" "REPEAT('A',64)"); $R" notification_outbox_recipient_hash_chk            # büyük harf hex
+run DENIED "$TX $RQ; $(ob "$H1" "CONCAT(REPEAT('a',63),CHAR(10))"); $R" notification_outbox_recipient_hash_chk
+run DENIED "$TX $RQ; $(ob "$H1" "NULL"); $R" "cannot be null"                                             # 1048
+run DENIED "$TX $RQ; $(ob "'+90 5** *** ** 33'" "''"); $R" notification_outbox_recipient_mask_chk
+run DENIED "$TX $RQ; $(ob "'+90 5** *** ** 33'" "CONCAT('+90',CHAR(10),'5**')"); $R" notification_outbox_recipient_mask_chk
+run DENIED "$TX $RQ; $(ob "'PENDING',0" "'PENDING',4"); $R" notification_outbox_attempts_chk
+run DENIED "$TX $RQ; $O1; $UO state='SENT',recipient_enc=NULL $WO; $R" notification_outbox_sent_chk     # SENT + sent_at yok
+run DENIED "$TX $RQ; $O1; $UO sent_at=NOW(3) $WO; $R" notification_outbox_sent_chk                      # PENDING + sent_at
+run DENIED "$TX $RQ; $O1; $UO state='FAILED',recipient_enc=NULL $WO; $R" notification_outbox_last_reason_chk   # FAILED + neden yok
+run DENIED "$TX $RQ; $O1; $UO last_reason='ECONNREFUSED 10.0.0.1' $WO; $R" notification_outbox_last_reason_chk   # ham hata
+run DENIED "$TX $RQ; $O1; $UO last_reason=REPEAT('x',31) $WO; $R" "Data too long"                            # VARCHAR(30)
+run DENIED "$TX $RQ; $O1; $UO last_reason='Rate_Limited' $WO; $R" notification_outbox_last_reason_chk
+run DENIED "$TX $RQ; $O1; $(ob "$GO" "'00000000000000000000GRANTP'"); $R" "Duplicate"                    # UQ(talep, tenant, tür, kanal)
+run DENIED "$TX $GX; $RQ; $(ob "'$GT'" "'00000000000000000000GRANTX'"); $R" "foreign key"                # başka tenant'ın talebi
+run DENIED "$TX $(ob "$GRR" "'00000000000000000000NOREQ0'"); $R" "foreign key"                           # talep yok
+run DENIED "$TX $US19 sms_header='ABCDEFGHIJKL' $WT19; $R" "Data too long"                                # 12 karakter: VARCHAR(11) (1406) CHECK'ten önce
+run DENIED "$TX $US19 sms_header='' $WT19; $R" tenant_settings_sms_header_chk
+run DENIED "$TX $US19 sms_header='NOKTA_BLSM' $WT19; $R" tenant_settings_sms_header_chk
+run DENIED "$TX $US19 sms_header=CONCAT('NOKTA',CHAR(10)) $WT19; $R" tenant_settings_sms_header_chk
+run DENIED "$TX $US19 sms_url='https://u:p@sms.example.com' $WT19; $R" tenant_settings_sms_url_chk       # S-P19-T5 userinfo
+run DENIED "$TX $US19 sms_url='https://sms.example.com/x?apikey=1' $WT19; $R" tenant_settings_sms_url_chk   # sorgu
+run DENIED "$TX $US19 sms_url='https://sms.example.com/#k' $WT19; $R" tenant_settings_sms_url_chk        # parça
+run DENIED "$TX $US19 sms_url='https://sms.example.com/a@b' $WT19; $R" tenant_settings_sms_url_chk       # yolda @
+run DENIED "$TX $US19 sms_url=CONCAT('https://sms.example.com',CHAR(10)) $WT19; $R" tenant_settings_sms_url_chk
+run DENIED "$TX $US19 sms_url='ftp://sms.example.com' $WT19; $R" tenant_settings_sms_url_chk
+run DENIED "$TX $US19 sms_url='https:///api' $WT19; $R" tenant_settings_sms_url_chk                     # boş host
+run DENIED "$TX $US19 sms_api_key_enc='duz-anahtar' $WT19; $R" tenant_settings_sms_api_key_enc_chk
 # Temizlik (FK sırasıyla)
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.

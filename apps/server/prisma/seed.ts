@@ -134,6 +134,9 @@ async function seedDemoRequestSettings(prisma: PrismaClient): Promise<"created" 
         // P18 (AC-258): mesai ekranı boş gelmesin — hafta içi 09:00–18:00 (öğle arası 12:30–13:30). Takvim kapalı
         // (hours_enabled=false) → geliştirmede talep akışı saatten bağımsız kalır.
         businessHours: DEMO_BUSINESS_HOURS,
+        // P19 (AC-259): geliştirmede /r/<ref> web formu hazır olsun. Bildirim kanalları kapalı (SMS/WA/SMTP seed'lenmez;
+        // açık kanal yapılandırmasız `unconfigured` FAILED üretirdi).
+        webFormEnabled: true,
       },
     }),
   ]);

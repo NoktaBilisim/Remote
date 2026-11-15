@@ -474,6 +474,7 @@ export function countAllPending(db: DbOrTx): Promise<number> {
 /**
  * AC-159 / P18 H3 (ADR-0025 m.3, mimari-e11 §8b.1 Retention): parti kimlikleri kilitlenir → PII temizlenir → aynı TX'te
  * o taleplerin `session_messages` satırları silinir (tetikleyici `anonymized_at` aynı TX'te yazıldığı için izin verir).
+ * P19: aynı TX'te `notification_outbox` satırları da silinir (sayıya katılmaz; metrik J3'te).
  */
 export async function anonymizeBatch(
   db: Db,
@@ -492,6 +493,9 @@ export async function anonymizeBatch(
           net_key = NULL, device_hash = NULL, anonymized_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3)
       WHERE tenant_id = ${tenantId} AND id IN (${Prisma.join(ids)}) AND anonymized_at IS NULL`;
     const messages = (await tx.sessionMessage.deleteMany({ where: { tenantId, requestId: { in: ids } } })).count;
+    // P19 (§8c.1 Retention, B2): bildirim kuyruğu satırları (recipient_hash kişisel veri) aynı TX'te silinir; aksi hâlde
+    // purgeAnonymized'in talep silmesi FK RESTRICT'e takılırdı. UQ(request_id, tenant_id, …) aralığı.
+    await tx.notificationOutbox.deleteMany({ where: { tenantId, requestId: { in: ids } } });
     return { requests, messages };
   });
 }

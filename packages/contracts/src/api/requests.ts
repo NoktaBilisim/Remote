@@ -533,7 +533,8 @@ export interface SupportRequestItem {
   customerPhone: string | null;
   customerEmail: string | null;
   description: string | null;
-  clientVersion: string;
+  /** P19: WEB (tarayıcı formu) talebinde null — sürüm yalnız AGENT'ta anlamlıdır (mimari-e11 §8c.2 m.1). */
+  clientVersion: string | null;
   acceptedBy: { id: string; name: string } | null;
   rejectMessage: string | null;
   sessionId: string | null;

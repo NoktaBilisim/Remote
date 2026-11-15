@@ -39,6 +39,7 @@ model Tenant {
   requestBlocks   RequestBlock[]
   messages        SessionMessage[]
   holidays        BusinessHoliday[]
+  notifications   NotificationOutbox[]
 
   @@map("tenants")
 }
@@ -58,6 +59,11 @@ model TenantSettings {
   smtpPassEnc     Bytes?   @map("smtp_pass_enc") @db.VarBinary(512) // AES-256-GCM, §3.2
   smtpFromName    String?  @map("smtp_from_name") @db.VarChar(100)
   smtpFromEmail   String?  @map("smtp_from_email") @db.VarChar(190)
+  // P19 (mimari-e11 §8c.1, §8c.4; AC-260; S-P19-T5): smsportal. CHECK'ler migration.sql'de (elle): sms_url yalnız köken + yol
+  // (userinfo `@`, sorgu `?`, parça `#`, boşluk/kontrol karakteri yok); sms_header NetGSM başlığı biçimi.
+  smsUrl          String?  @map("sms_url") @db.VarChar(255) // NULL = sistem varsayılanı (env SMSPORTAL_URL)
+  smsApiKeyEnc    Bytes?   @map("sms_api_key_enc") @db.VarBinary(512) // AES-256-GCM, AAD `tenant_settings.sms_api_key:<tenantId>|<etkin URL kökeni>`
+  smsHeader       String?  @map("sms_header") @db.VarChar(11) // ^[A-Za-z0-9 .-]{1,11}$
   createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
 
@@ -368,27 +374,33 @@ model SessionFile {
 // app SELECT/INSERT/UPDATE (DELETE yok). Elle (migration.sql): request_ref/file_label biçimi, wait_minutes 10..120,
 // JSON dizileri JSON_SCHEMA_VALID (wa ≤ 5 E.164, email ≤ 5, trusted_cidrs ≤ 10; tekil), kanal açık ⇒ ≥ 1 alıcı.
 model TenantRequestSettings {
-  tenantId          String    @id @map("tenant_id") @db.Char(26)
-  requestRef        String    @unique @map("request_ref") @db.Char(16) // [a-z2-7]{16} (80 bit); gizli değil, tahmin edilemez
-  refRotatedAt      DateTime? @map("ref_rotated_at") @db.DateTime(3)
-  fileLabel         String    @map("file_label") @db.VarChar(20) // [A-Za-z0-9]{1,20} — dosya adındaki firma kısa adı (AC-130)
-  waitMinutes       Int       @default(30) @map("wait_minutes") // 10..120 (AC-142)
-  waEnabled         Boolean   @default(false) @map("wa_enabled")
-  waRecipients      Json      @map("wa_recipients") // string[] E.164, ≤ 5 (uygulama `[]` yazar; MySQL JSON varsayılanı Prisma'da yok)
-  emailEnabled      Boolean   @default(false) @map("email_enabled") // P10'a kadar sunucu true'yu reddeder
-  emailRecipients   Json      @map("email_recipients") // string[] e-posta, ≤ 5 (P10)
-  trustedCidrs      Json      @map("trusted_cidrs") // string[] CIDR, ≤ 10 (§13.6; genişlik/özel aralık kuralı zod'da)
-  requireAcceptCode Boolean   @default(false) @map("require_accept_code") // P15 (AC-239): kabulde 4 haneli kod
+  tenantId              String    @id @map("tenant_id") @db.Char(26)
+  requestRef            String    @unique @map("request_ref") @db.Char(16) // [a-z2-7]{16} (80 bit); gizli değil, tahmin edilemez
+  refRotatedAt          DateTime? @map("ref_rotated_at") @db.DateTime(3)
+  fileLabel             String    @map("file_label") @db.VarChar(20) // [A-Za-z0-9]{1,20} — dosya adındaki firma kısa adı (AC-130)
+  waitMinutes           Int       @default(30) @map("wait_minutes") // 10..120 (AC-142)
+  waEnabled             Boolean   @default(false) @map("wa_enabled")
+  waRecipients          Json      @map("wa_recipients") // string[] E.164, ≤ 5 (uygulama `[]` yazar; MySQL JSON varsayılanı Prisma'da yok)
+  emailEnabled          Boolean   @default(false) @map("email_enabled") // P10'a kadar sunucu true'yu reddeder
+  emailRecipients       Json      @map("email_recipients") // string[] e-posta, ≤ 5 (P10)
+  trustedCidrs          Json      @map("trusted_cidrs") // string[] CIDR, ≤ 10 (§13.6; genişlik/özel aralık kuralı zod'da)
+  requireAcceptCode     Boolean   @default(false) @map("require_accept_code") // P15 (AC-239): kabulde 4 haneli kod
   // P18 (mimari-e11 §8b.1; AC-257, 258). CHECK'ler migration.sql'de (elle): öncelik/mod ikili enum, SLA 5..1440, saat dilimi
   // biçimi, business_hours JSON şeması + gün içi sıra/örtüşme, hours_enabled ⇒ business_hours dolu.
-  defaultPriority   String    @default("NORMAL") @map("default_priority") @db.VarChar(20) // LOW | NORMAL | HIGH
-  defaultSlaMinutes Int?      @map("default_sla_minutes") @db.UnsignedSmallInt // 5..1440; NULL = SLA yok
-  timeZone          String    @default("Europe/Istanbul") @map("time_zone") @db.VarChar(40) // IANA adı (geçerlilik zod'da)
-  hoursEnabled      Boolean   @default(false) @map("hours_enabled")
-  businessHours     Json?     @map("business_hours") // 7 gün (Pazartesi=0) × ≤ 2 aralık {from,to} "HH:MM"; to ≤ "24:00"
-  afterHoursMode    String    @default("ACCEPT") @map("after_hours_mode") @db.VarChar(20) // ACCEPT | REJECT
-  createdAt         DateTime  @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt         DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  defaultPriority       String    @default("NORMAL") @map("default_priority") @db.VarChar(20) // LOW | NORMAL | HIGH
+  defaultSlaMinutes     Int?      @map("default_sla_minutes") @db.UnsignedSmallInt // 5..1440; NULL = SLA yok
+  timeZone              String    @default("Europe/Istanbul") @map("time_zone") @db.VarChar(40) // IANA adı (geçerlilik zod'da)
+  hoursEnabled          Boolean   @default(false) @map("hours_enabled")
+  businessHours         Json?     @map("business_hours") // 7 gün (Pazartesi=0) × ≤ 2 aralık {from,to} "HH:MM"; to ≤ "24:00"
+  afterHoursMode        String    @default("ACCEPT") @map("after_hours_mode") @db.VarChar(20) // ACCEPT | REJECT
+  // P19 (mimari-e11 §8c.1; AC-259, 261): web talep formu anahtarı (kapalı → /r/<ref> tek tip 404; spam kill switch) ve firmanın
+  // müşteriye sunduğu durum bildirimi kanalları.
+  webFormEnabled        Boolean   @default(false) @map("web_form_enabled")
+  notifySmsEnabled      Boolean   @default(false) @map("notify_sms_enabled")
+  notifyWhatsappEnabled Boolean   @default(false) @map("notify_whatsapp_enabled")
+  notifyEmailEnabled    Boolean   @default(false) @map("notify_email_enabled")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
@@ -409,7 +421,7 @@ model SupportRequest {
   requestCode    String    @map("request_code") @db.Char(6) // §13.1 gösterim kodu; tenant'ın bekleyenleri arasında tekil (fonksiyonel UQ)
   secretHash     String    @unique @map("secret_hash") @db.Char(64) // SHA-256(talep sırrı) hex; düz sır DB'de yok
   clientInstance String    @map("client_instance") @db.Char(22) // AC-143 örnek başına 1 bekleyen
-  clientVersion  String    @map("client_version") @db.VarChar(20)
+  clientVersion  String?   @map("client_version") @db.VarChar(20) // P19: WEB'de NULL (CHECK source_version_chk: WEB ⇔ NULL)
   customerName   String?   @map("customer_name") @db.VarChar(80)
   customerPhone  String?   @map("customer_phone") @db.VarChar(16) // E.164
   customerEmail  String?   @map("customer_email") @db.VarChar(254)
@@ -439,19 +451,26 @@ model SupportRequest {
   slaMinutes     Int?      @map("sla_minutes") @db.UnsignedSmallInt // 5..1440 (oluşturma anındaki kopya); NULL = SLA yok
   slaDueAt       DateTime? @map("sla_due_at") @db.DateTime(3) // NULL: SLA yok ya da takvimde açık an yok (sla_minutes NULL ⇒ NULL)
   afterHours     Boolean   @default(false) @map("after_hours") // mesai dışında (ACCEPT modunda) açıldı
+  // P19 (mimari-e11 §8c.1; AC-259, 261): kaynak ve müşterinin formda seçtiği bildirim kanalları (kişisel veri değil;
+  // anonimleştirmede kalır). CHECK'ler migration.sql'de (elle): source ikili enum, WEB ⇔ client_version NULL.
+  source         String    @default("AGENT") @db.VarChar(20) // AGENT | WEB
+  notifySms      Boolean   @default(false) @map("notify_sms")
+  notifyWhatsapp Boolean   @default(false) @map("notify_whatsapp")
+  notifyEmail    Boolean   @default(false) @map("notify_email")
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
-  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  consentText ConsentText      @relation(fields: [consentTextId, tenantId, consentSha256], references: [id, tenantId, sha256], onDelete: Restrict, onUpdate: Restrict)
-  acceptor    User?            @relation("RequestAcceptor", fields: [acceptedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  rejector    User?            @relation("RequestRejector", fields: [rejectedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  assignee    User?            @relation("RequestAssignee", fields: [assignedTo, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  customer    Customer?        @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  binding     DeviceBinding?   @relation(fields: [bindingId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  session     SupportSession?
-  consents    SessionConsent[]
-  messages    SessionMessage[]
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  consentText   ConsentText          @relation(fields: [consentTextId, tenantId, consentSha256], references: [id, tenantId, sha256], onDelete: Restrict, onUpdate: Restrict)
+  acceptor      User?                @relation("RequestAcceptor", fields: [acceptedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  rejector      User?                @relation("RequestRejector", fields: [rejectedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  assignee      User?                @relation("RequestAssignee", fields: [assignedTo, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  customer      Customer?            @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  binding       DeviceBinding?       @relation(fields: [bindingId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session       SupportSession?
+  consents      SessionConsent[]
+  messages      SessionMessage[]
+  notifications NotificationOutbox[]
 
   @@unique([id, tenantId]) // support_sessions/session_consents (request_id, tenant_id) bileşik FK hedefi
   @@index([tenantId, status, createdAt]) // kuyruk (asc) + sıra hesabı + pasif tenant süpürücüsü + tenant FK
@@ -697,4 +716,37 @@ model BusinessHoliday {
   @@unique([tenantId, day]) // aynı gün tek satır + tenant FK + yıl listesi (day aralığı)
   @@index([createdBy]) // FK
   @@map("business_holidays")
+}
+
+// P19 (mimari-e11 §8c.1, §8c.3; AC-261; S-P19-12, B2): müşteriye durum bildirimi kuyruğu (outbox). app SELECT/INSERT/UPDATE/
+// DELETE. Alıcı yalnız şifreli (`recipient_enc`, AAD `notification_outbox.recipient:<tenant>|<id>`), son durumda (SENT/FAILED)
+// NULL'lanır; `recipient_hash` HMAC (HKDF `notify-recipient`) tavan sayımı için kalır — kişisel veridir: 7 gün temizlik,
+// anonimleştirme silmesi (aynı TX) ve firma silme `MESSAGES` adımı. Elle CHECK'ler: kind/channel/state ikili enum, attempts
+// 0..3, recipient_hash `^[0-9a-f]{64}$`, son durum ⇔ recipient_enc NULL, SENT ⇔ sent_at, FAILED ⇒ last_reason, last_reason
+// sınıflandırılmış kod (`^[a-z][a-z0-9_]{0,29}$`, ham hata metni yazılamaz), recipient_enc en az şifreli başlık uzunluğu.
+model NotificationOutbox {
+  id            String    @id @db.Char(26)
+  tenantId      String    @map("tenant_id") @db.Char(26)
+  requestId     String    @map("request_id") @db.Char(26)
+  kind          String    @db.VarChar(20) // REQ_ACCEPTED | REQ_REJECTED | REQ_EXPIRED
+  channel       String    @db.VarChar(20) // SMS | WHATSAPP | EMAIL
+  recipientEnc  Bytes?    @map("recipient_enc") @db.VarBinary(600) // ver | iv | tag | E.164 ya da e-posta; son durumda NULL
+  recipientMask String    @map("recipient_mask") @db.VarChar(64) // maskPhone / maskEmail (audit, ekran)
+  recipientHash String    @map("recipient_hash") @db.Char(64) // küçük harf hex HMAC-SHA256 (normalize alıcı); düz SHA-256 DEĞİL
+  state         String    @default("PENDING") @db.VarChar(20) // PENDING | SENDING | SENT | FAILED
+  attempts      Int       @default(0) @db.UnsignedTinyInt // 0..3
+  nextAt        DateTime  @default(now()) @map("next_at") @db.DateTime(3)
+  lastReason    String?   @map("last_reason") @db.VarChar(30) // sınıflandırılmış neden (rate_limited, unconfigured, …)
+  sentAt        DateTime? @map("sent_at") @db.DateTime(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  request SupportRequest @relation(fields: [requestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([requestId, tenantId, kind, channel]) // idempotent kuyruğa alma (talep/tür/kanal başına tek satır) + bileşik request FK (dba sapma: tenant_id ikinci sütun)
+  @@index([state, nextAt]) // işçi (PENDING, next_at ≤ now), SENDING kurtarma, 7 gün temizlik
+  @@index([recipientHash, createdAt]) // S-P19-12 alıcı × kanal tavanı (firma içi 3 / sistem 5 / 24 sa)
+  @@index([tenantId, channel, createdAt]) // tenant FK + firma × kanal saatlik tavan + hacim gauge + firma silme partisi
+  @@map("notification_outbox")
 }
