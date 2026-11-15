@@ -1263,3 +1263,17 @@ anonimleştirme aynı TX'te siler (`anonymizeBatch`); 7 gün temizlik J3. `recip
 - Dolu DB'de down → `p19_down_guard_chk` 3819, değişiklik yok. Temiz DB'de down → P18 şemasına diff 0, tables_priv satırı
   yok, `client_version` NOT NULL, tetikleyici 23; yeniden up → drift 0, grants 626/626.
 - Seed iki kez (created/exists). `test:int` **735/735**, server unit 410/410, web 371/371, typecheck temiz.
+
+### J2 — `20261120010000_p19_request_session_mode` (2026-11-15)
+
+| Konu           | Ayrıntı                                                                                                                                                                                                                                                                                                                       |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Amaç           | Web talebi kabulünde oturum `mode='BROWSER'` (AC-259, mimari-e11 §8c.2 m.5). P8b `support_sessions_request_mode_chk` (talep oturumu yalnız AGENT) düşürülür; `support_sessions_mode_chk` (NULL/AGENT/BROWSER) değer kümesini korur. Talep kaynağı ↔ mod eşleşmesi tablo arası → servis kuralı (CHECK ile ifade edilemez).     |
+| Kilit          | `DROP CHECK` yalnız meta veri: 8.4.13'te `ALGORITHM=INSTANT` kabul edildi (ölçüldü; migration yorumundaki "INPLACE" daha temkinli ifade, ikisi de yeniden yazımsız). Tetikleyici/yetki değişmez → 23, grants.sql aynı.                                                                                                        |
+| Geri alma      | `down.sql`: CHECK geri eklenir (8.4'te COPY — `support_sessions` yeniden yazılır, süresince yazım bekler; 1845 ölçüldü) + migration kaydı silinir. Koruma doğal: talebe bağlı BROWSER oturumu varsa ADD CONSTRAINT 3819, hiçbir şey değişmez (oturum geçmişi silinmez). Sıra: önce J2 kodu, sonra bu down, sonra P19 J1 down. |
+| dba düzeltmesi | Teslim edilen `down.sql` `_prisma_migrations` kaydını silmiyordu → down sonrası `migrate deploy` migration'ı atlıyor, kısıt geri dönmüş hâlde "uygulanmış" görünüyordu. Diğer 22 down.sql ile aynı `DELETE` eklendi (yalnız down.sql; `migration.sql` checksum'ı değişmedi).                                                  |
+
+Test (geçici `rs-p19j2-575f81`, mysql 8.4.13, `--max-connections=300`, silindi): temiz up (23 migration) → `migrate diff
+--exit-code` 0, tetikleyici 23, `check-app-grants.sh` **627/627 PASS** (+1: BROWSER talep oturumu OK, KIOSK `mode_chk` DENIED).
+Dolu DB (talebe bağlı BROWSER oturumu) down → 3819, kısıt yok + kayıt duruyor (değişiklik yok). Fikstür silinip boş DB down →
+kısıt geri, kayıt silindi, tetikleyici 23; yeniden up → migration yeniden uygulandı, diff 0, grants 627/627.
