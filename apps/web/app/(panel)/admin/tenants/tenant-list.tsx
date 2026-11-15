@@ -99,27 +99,33 @@ function TenantTable({ items, ...rest }: ViewProps) {
         </thead>
         <tbody className="divide-y divide-border">
           {items.map((x) => (
-            <tr key={x.id} data-testid="tenant-row" className="hover:bg-surface-muted">
-              <td className="max-w-72 px-3 py-2">
-                <NameCell x={x} actingId={rest.actingId} />
-              </td>
-              <td className="px-3 py-2 font-mono text-xs text-fg">{x.slug}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-fg">{formatNumber(x.activeUserCount)}</td>
-              <td className="px-3 py-2 whitespace-nowrap tabular-nums text-fg">{formatDateTime(x.createdAt)}</td>
-              <td className="px-3 py-2">
-                <span className="flex flex-col items-start gap-1">
-                  <StatusPill status={x.status} testId="tenant-status" />
-                  {x.purge && <PurgeBadge purge={x.purge} />}
-                </span>
-              </td>
-              <td className="px-3 py-2">
-                <TenantActions x={x} {...rest} />
-              </td>
-            </tr>
+            <TenantRow key={x.id} x={x} {...rest} />
           ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function TenantRow({ x, ...rest }: Omit<ViewProps, "items"> & { x: TenantItem }) {
+  return (
+    <tr data-testid="tenant-row" className="hover:bg-surface-muted">
+      <td className="max-w-72 px-3 py-2">
+        <NameCell x={x} actingId={rest.actingId} />
+      </td>
+      <td className="px-3 py-2 font-mono text-xs text-fg">{x.slug}</td>
+      <td className="px-3 py-2 text-right tabular-nums text-fg">{formatNumber(x.activeUserCount)}</td>
+      <td className="px-3 py-2 whitespace-nowrap tabular-nums text-fg">{formatDateTime(x.createdAt)}</td>
+      <td className="px-3 py-2">
+        <span className="flex flex-col items-start gap-1">
+          <StatusPill status={x.status} testId="tenant-status" />
+          {x.purge && <PurgeBadge purge={x.purge} />}
+        </span>
+      </td>
+      <td className="px-3 py-2">
+        <TenantActions x={x} {...rest} />
+      </td>
+    </tr>
   );
 }
 

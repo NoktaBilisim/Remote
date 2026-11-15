@@ -16,6 +16,16 @@ type F = { f: CustomerFormState };
 
 /** Ad, dosya etiketi, yetkili, telefon, e-posta. */
 export function ContactFields({ f }: F) {
+  return (
+    <>
+      <NameFields f={f} />
+      <ReachFields f={f} />
+    </>
+  );
+}
+
+/** Ad + dosya etiketi (öneri ipucuyla). */
+function NameFields({ f }: F) {
   const { d, errors, set } = f;
   return (
     <>
@@ -41,6 +51,15 @@ export function ContactFields({ f }: F) {
         hint={t("cu.f.fileLabelHint", { label: d.fileLabel || "…" })}
         data-testid="cf-label"
       />
+    </>
+  );
+}
+
+/** Yetkili + telefon (yan yana), e-posta. */
+function ReachFields({ f }: F) {
+  const { d, errors, set } = f;
+  return (
+    <>
       <div className="grid gap-4 sm:grid-cols-2">
         <TextField
           label={t("cu.f.contact")}

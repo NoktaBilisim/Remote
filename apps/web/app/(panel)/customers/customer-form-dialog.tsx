@@ -9,22 +9,20 @@ import { useFocusFirstError } from "@/lib/use-focus-error";
 import { ContactFields, NoteField, SlaFields } from "./customer-form-fields";
 import { useCustomerForm } from "./use-customer-form";
 
+type Props = {
+  /** Verilirse düzenleme. */
+  customer?: CustomerDetail;
+  onClose: () => void;
+  onSaved: (c: CustomerDetail) => void;
+};
+
 /**
  * Yeni müşteri / Düzenle (AC-167, AC-195). Doğrulama contracts zod şemasıyla (sunucuyla aynı); alan bazlı hata;
  * 409 → ad altında "Bu adla bir müşteri zaten var"; gönderimde alanlar pasif. Dosya etiketi adı yazarken önerilir,
  * elle düzenlenince öneri durur. Düzenlemede boşaltılan kişisel alan `null` gider. Kaydedilmemiş değişiklikte
  * kapatma (Esc, X, Vazgeç) onay ister; varsayılan odak "Düzenlemeye dön".
  */
-export function CustomerFormDialog({
-  customer,
-  onClose,
-  onSaved,
-}: {
-  /** Verilirse düzenleme. */
-  customer?: CustomerDetail;
-  onClose: () => void;
-  onSaved: (c: CustomerDetail) => void;
-}) {
+export function CustomerFormDialog({ customer, onClose, onSaved }: Props) {
   const { formRef, focusError } = useFocusFirstError();
   const f = useCustomerForm(customer, onClose, onSaved, focusError);
   return (

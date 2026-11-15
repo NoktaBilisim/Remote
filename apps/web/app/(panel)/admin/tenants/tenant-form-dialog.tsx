@@ -45,19 +45,13 @@ function TenantFields({ f }: { f: ReturnType<typeof useTenantForm> }) {
   );
 }
 
+type Props = { tenant?: TenantItem; onClose: () => void; onSaved: (x: TenantItem) => void };
+
 /**
  * Yeni firma / Düzenle (AC-70). Kısa ad yeni firmada addan önerilir (elle düzenlenince öneri durur); düzenlemede
  * değiştirmenin etkisi (eski giriş bağlantıları) uyarılır. 409 → kısa ad altında. Kirli formda kapatma onayı.
  */
-export function TenantFormDialog({
-  tenant,
-  onClose,
-  onSaved,
-}: {
-  tenant?: TenantItem;
-  onClose: () => void;
-  onSaved: (x: TenantItem) => void;
-}) {
+export function TenantFormDialog({ tenant, onClose, onSaved }: Props) {
   const { formRef, focusError } = useFocusFirstError();
   const f = useTenantForm(tenant, onClose, onSaved, focusError);
   return (

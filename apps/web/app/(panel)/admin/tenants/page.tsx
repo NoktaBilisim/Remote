@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { Building, SearchX } from "lucide-react";
+import { BeyondEmpty } from "@/components/beyond-empty";
 import { LinkEmpty, ListFooter, ListNotice, ListPageHeader } from "@/components/list-page";
 import { LoadError } from "@/components/load-error";
 import { Alert } from "@/components/ui/alert";
@@ -24,17 +25,7 @@ function tenantsBody(data: TenantListResponse, params: TenantListParams, pages: 
   const { items, total } = data;
   const filtered = Boolean(params.q) || params.status !== "all";
   if (items.length > 0) return <TenantList items={items} actingId={actingId} />;
-  if (total > 0)
-    return (
-      <LinkEmpty
-        Icon={SearchX}
-        title={t("us.beyond", { pages })}
-        body={t("us.beyondBody")}
-        testId="tenants-beyond"
-        href={tenantsHref({ ...params, page: 1 })}
-        label={t("h.firstPage")}
-      />
-    );
+  if (total > 0) return <BeyondEmpty pages={pages} testId="tenants-beyond" href={tenantsHref({ ...params, page: 1 })} />;
   if (filtered)
     return (
       <LinkEmpty
@@ -85,7 +76,12 @@ export default async function TenantsPage({ searchParams }: { searchParams: Prom
     if (res.status === 403) return forbidden;
     return notice(<LoadError />);
   }
-  const { total, pageSize } = res.data;
+  return tenantsLoaded(header, res.data, params, me.me.actingTenant?.id ?? null);
+}
+
+/** Başarılı yanıt: başlık + filtreler + gövde + (kayıt varsa) liste altı. */
+function tenantsLoaded(header: ReactNode, data: TenantListResponse, params: TenantListParams, actingId: string | null) {
+  const { total, pageSize } = data;
   const pages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <>
@@ -94,7 +90,7 @@ export default async function TenantsPage({ searchParams }: { searchParams: Prom
         <TenantFilters params={params} />
       </div>
       <section className="mt-4" aria-label={t("tn.title")}>
-        {tenantsBody(res.data, params, pages, me.me.actingTenant?.id ?? null)}
+        {tenantsBody(data, params, pages, actingId)}
         {total > 0 && (
           <ListFooter
             count={t("tn.count", { n: formatNumber(total) })}

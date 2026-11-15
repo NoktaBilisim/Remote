@@ -14,19 +14,7 @@ const ROLE_OPTIONS = () => [
   { value: "ADMIN", label: t("us.role.ADMIN") },
 ];
 
-/**
- * Kullanıcı profil alanları (ad, e-posta, rol) — yeni kullanıcı diyaloğu (`mode="new"`: zorunlu, ilk alana odak,
- * `uf-*`) ve düzenleyici (`mode="edit"`: `ue-*`, rol kilitlenebilir) aynı alanları kullanır.
- */
-export function UserFields({
-  mode,
-  d,
-  errors,
-  set,
-  onRole,
-  roleHint,
-  roleDisabled,
-}: {
+type Props = {
   mode: "new" | "edit";
   d: UserDraft;
   errors: Errors<UserField>;
@@ -34,7 +22,33 @@ export function UserFields({
   onRole: (role: ManagedRole) => void;
   roleHint: string;
   roleDisabled?: boolean;
-}) {
+};
+
+/**
+ * Kullanıcı profil alanları (ad, e-posta, rol) — yeni kullanıcı diyaloğu (`mode="new"`: zorunlu, ilk alana odak,
+ * `uf-*`) ve düzenleyici (`mode="edit"`: `ue-*`, rol kilitlenebilir) aynı alanları kullanır.
+ */
+export function UserFields(props: Props) {
+  const { mode, d, errors, onRole, roleHint, roleDisabled } = props;
+  return (
+    <>
+      <IdentityFields {...props} />
+      <SelectField
+        label={t("us.f.role")}
+        value={d.role}
+        disabled={roleDisabled}
+        onChange={(e) => onRole(e.target.value as ManagedRole)}
+        options={ROLE_OPTIONS()}
+        error={errors.role}
+        hint={roleHint}
+        data-testid={`${mode === "new" ? "uf" : "ue"}-role`}
+      />
+    </>
+  );
+}
+
+/** Ad + e-posta (yeni kullanıcıda zorunlu, ad alanı ilk odak). */
+function IdentityFields({ mode, d, errors, set }: Props) {
   const p = mode === "new" ? "uf" : "ue";
   const isNew = mode === "new";
   return (
@@ -61,16 +75,6 @@ export function UserFields({
         spellCheck={false}
         required={isNew || undefined}
         data-testid={`${p}-email`}
-      />
-      <SelectField
-        label={t("us.f.role")}
-        value={d.role}
-        disabled={roleDisabled}
-        onChange={(e) => onRole(e.target.value as ManagedRole)}
-        options={ROLE_OPTIONS()}
-        error={errors.role}
-        hint={roleHint}
-        data-testid={`${p}-role`}
       />
     </>
   );

@@ -80,12 +80,22 @@ function useImportCommit({ preview, mode, setBusy, setStep, setPreview, setFileE
   return { commitError, setCommitError, result, setResult, commit };
 }
 
+/** Oturum düştüyse girişe yönlendirir ve `true` döner. */
+function useUnauth() {
+  const router = useRouter();
+  return (e: unknown) => {
+    if (!isUnauthenticated(e)) return false;
+    router.replace(EXPIRED_LOGIN_PATH);
+    return true;
+  };
+}
+
 /**
  * İçe aktarma sihirbazı durumu (AC-263): dosya → önizleme → sonuç. Önizlemedeyken (gönderim yokken) ayrılma uyarısı.
  * `inputRef` bileşende tutulur (React Compiler: ref kanca sonucunda dönmez); "Başka dosya" seçimi temizler.
  */
 export function useImportWizard(inputRef: RefObject<HTMLInputElement | null>) {
-  const router = useRouter();
+  const unauth = useUnauth();
   const [step, setStep] = useState<Step>("file");
   const fl = useImportFile();
   const { file, setFileError } = fl;
@@ -93,11 +103,6 @@ export function useImportWizard(inputRef: RefObject<HTMLInputElement | null>) {
   const [drag, setDrag] = useState(false);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [mode, setMode] = useState<CustomerImportConflictMode>("skip");
-  const unauth = (e: unknown) => {
-    if (!isUnauthenticated(e)) return false;
-    router.replace(EXPIRED_LOGIN_PATH);
-    return true;
-  };
   const cm = useImportCommit({ preview, mode, setBusy, setStep, setPreview, setFileError, unauth });
   const guard = useLeaveGuard(step === "preview" && !busy);
 

@@ -10,67 +10,82 @@ import type { TenantItem } from "@/lib/users/contract";
 
 export type Action = { kind: "edit" | "deactivate" | "reactivate"; tenant: TenantItem };
 
-/** Satır eylemleri: Düzenle, Bu firmaya geç (aktif ve etkin olmayan), Pasife al / Yeniden etkinleştir. */
-export function TenantActions({
-  x,
-  actingId,
-  switching,
-  onSwitch,
-  onAction,
-}: {
+type ActionProps = {
   x: TenantItem;
   actingId: string | null;
   switching: string | null;
   onSwitch: (x: TenantItem) => void;
   onAction: (a: Action) => void;
-}) {
+};
+
+/** Satır eylemleri: Düzenle, Bu firmaya geç (aktif ve etkin olmayan), Pasife al / Yeniden etkinleştir. */
+export function TenantActions(p: ActionProps) {
+  const { x, actingId } = p;
   const active = x.status === "ACTIVE";
   return (
     <div className="flex flex-wrap gap-2">
-      <Button
-        variant="secondary"
-        onClick={() => onAction({ kind: "edit", tenant: x })}
-        aria-label={t("tn.editFor", { name: x.name })}
-        data-testid="tenant-edit"
-      >
-        <PenLine aria-hidden className="size-4" />
-        <span aria-hidden>{t("tn.edit")}</span>
-      </Button>
-      {active && x.id !== actingId && (
-        <Button
-          variant="secondary"
-          loading={switching === x.id}
-          disabled={switching !== null}
-          onClick={() => onSwitch(x)}
-          aria-label={t("tn.switchFor", { name: x.name })}
-          data-testid="tenant-switch"
-        >
-          {switching !== x.id && <ArrowRightLeft aria-hidden className="size-4" />}
-          <span aria-hidden>{t("tn.switch")}</span>
-        </Button>
-      )}
-      {active ? (
-        <Button
-          variant="danger-ghost"
-          onClick={() => onAction({ kind: "deactivate", tenant: x })}
-          aria-label={t("tn.deactFor", { name: x.name })}
-          data-testid="tenant-deactivate"
-        >
-          <Archive aria-hidden className="size-4" />
-          <span aria-hidden>{t("tn.deact")}</span>
-        </Button>
-      ) : (
-        <Button
-          variant="secondary"
-          onClick={() => onAction({ kind: "reactivate", tenant: x })}
-          aria-label={t("tn.rFor", { name: x.name })}
-          data-testid="tenant-reactivate"
-        >
-          <ArchiveRestore aria-hidden className="size-4" />
-          <span aria-hidden>{t("tn.r")}</span>
-        </Button>
-      )}
+      <EditButton {...p} />
+      {active && x.id !== actingId && <SwitchButton {...p} />}
+      {active ? <DeactivateButton {...p} /> : <ReactivateButton {...p} />}
     </div>
+  );
+}
+
+function EditButton({ x, onAction }: ActionProps) {
+  return (
+    <Button
+      variant="secondary"
+      onClick={() => onAction({ kind: "edit", tenant: x })}
+      aria-label={t("tn.editFor", { name: x.name })}
+      data-testid="tenant-edit"
+    >
+      <PenLine aria-hidden className="size-4" />
+      <span aria-hidden>{t("tn.edit")}</span>
+    </Button>
+  );
+}
+
+function SwitchButton({ x, switching, onSwitch }: ActionProps) {
+  return (
+    <Button
+      variant="secondary"
+      loading={switching === x.id}
+      disabled={switching !== null}
+      onClick={() => onSwitch(x)}
+      aria-label={t("tn.switchFor", { name: x.name })}
+      data-testid="tenant-switch"
+    >
+      {switching !== x.id && <ArrowRightLeft aria-hidden className="size-4" />}
+      <span aria-hidden>{t("tn.switch")}</span>
+    </Button>
+  );
+}
+
+function DeactivateButton({ x, onAction }: ActionProps) {
+  return (
+    <Button
+      variant="danger-ghost"
+      onClick={() => onAction({ kind: "deactivate", tenant: x })}
+      aria-label={t("tn.deactFor", { name: x.name })}
+      data-testid="tenant-deactivate"
+    >
+      <Archive aria-hidden className="size-4" />
+      <span aria-hidden>{t("tn.deact")}</span>
+    </Button>
+  );
+}
+
+function ReactivateButton({ x, onAction }: ActionProps) {
+  return (
+    <Button
+      variant="secondary"
+      onClick={() => onAction({ kind: "reactivate", tenant: x })}
+      aria-label={t("tn.rFor", { name: x.name })}
+      data-testid="tenant-reactivate"
+    >
+      <ArchiveRestore aria-hidden className="size-4" />
+      <span aria-hidden>{t("tn.r")}</span>
+    </Button>
   );
 }
 

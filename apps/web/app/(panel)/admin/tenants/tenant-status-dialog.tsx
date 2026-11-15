@@ -16,14 +16,46 @@ import type { TenantItem } from "@/lib/users/contract";
 
 export type StatusAction = { kind: "deactivate" | "reactivate"; tenant: TenantItem };
 
+/** Kısa ad onay alanı: yazınca hata temizlenir. */
+function useTypedSlug() {
+  const [typed, setTyped] = useState("");
+  const [typedErr, setTypedErr] = useState<string | undefined>();
+  const onTyped = (v: string) => {
+    setTyped(v);
+    setTypedErr(undefined);
+  };
+  return { typed, typedErr, setTyped, setTypedErr, onTyped };
+}
+
+type FailDeps = {
+  router: ReturnType<typeof useRouter>;
+  toast: ReturnType<typeof useToast>;
+  deact: boolean;
+  onClose: () => void;
+  setError: (e: UiError) => void;
+};
+
+/** 401 → giriş; silme işi çakışması diyalogda; diğer 409 → "zaten" bildirimi + kapat + yenile; kalanlar diyalogda. */
+function statusFail({ router, toast, deact, onClose, setError }: FailDeps) {
+  return (e: unknown) => {
+    if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
+    // P16 (AC-242): açık silme işi varken yeniden etkinleştirme 409 → neden diyalogda (iş iptal edilmeli / tamamlanmalı)
+    if (isReactivatePurgeConflict(e)) setError({ message: e.message, tone: "danger", requestId: e.requestId });
+    else if (e instanceof ApiError && e.status === 409) {
+      toast(t(deact ? "tn.d.already" : "tn.r.already"), "danger");
+      onClose();
+      router.refresh();
+    } else setError(toUiError(e));
+  };
+}
+
 /** Durum değişikliği: pasife almada kısa ad onayı; 409 → "zaten" bildirimi, silme işi çakışması diyalogda. */
 function useStatusAction(action: StatusAction | null, onClose: () => void) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
-  const [typed, setTyped] = useState("");
-  const [typedErr, setTypedErr] = useState<string | undefined>();
+  const { typed, typedErr, setTyped, setTypedErr, onTyped } = useTypedSlug();
   const deact = action?.kind === "deactivate";
   const x = action?.tenant;
 
@@ -34,16 +66,7 @@ function useStatusAction(action: StatusAction | null, onClose: () => void) {
     setError(null);
     onClose();
   };
-  const fail = (e: unknown) => {
-    if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
-    // P16 (AC-242): açık silme işi varken yeniden etkinleştirme 409 → neden diyalogda (iş iptal edilmeli / tamamlanmalı)
-    if (isReactivatePurgeConflict(e)) setError({ message: e.message, tone: "danger", requestId: e.requestId });
-    else if (e instanceof ApiError && e.status === 409) {
-      toast(t(deact ? "tn.d.already" : "tn.r.already"), "danger");
-      onClose();
-      router.refresh();
-    } else setError(toUiError(e));
-  };
+  const fail = statusFail({ router, toast, deact, onClose, setError });
   const run = async () => {
     if (!action || !x) return;
     if (deact && typed.trim() !== x.slug) return setTypedErr(t("tn.d.typeMismatch"));
@@ -60,10 +83,6 @@ function useStatusAction(action: StatusAction | null, onClose: () => void) {
     } finally {
       setBusy(false);
     }
-  };
-  const onTyped = (v: string) => {
-    setTyped(v);
-    setTypedErr(undefined);
   };
   return { busy, error, typed, typedErr, deact, x, close, run, onTyped };
 }

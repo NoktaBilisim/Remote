@@ -70,14 +70,38 @@ function useSaveError(draft: Draft, setStale: (v: boolean) => void, focusError: 
   };
 }
 
+/** Güncel kaydı alır; taslak (kaydedilmemiş değişiklikler) atılır — üzerine yazmak yerine kullanıcı yeniden düzenler. */
+function useUserReload(draft: Draft, setStale: (v: boolean) => void) {
+  const router = useRouter();
+  const toast = useToast();
+  const [reloading, setReloading] = useState(false);
+  const reload = async () => {
+    setReloading(true);
+    try {
+      draft.adopt(await api<UserDetail>("GET", `/users/${draft.saved.id}`));
+      draft.setErrors({});
+      draft.setFormError(null);
+      setStale(false);
+      toast(t("us.e.reloaded"));
+      router.refresh();
+    } catch (err) {
+      if (isUnauthenticated(err)) return router.replace(EXPIRED_LOGIN_PATH);
+      draft.setFormError(toUiError(err, { 404: t("us.nf.body") }));
+    } finally {
+      setReloading(false);
+    }
+  };
+  return { reloading, reload };
+}
+
 /** Kaydet (iyimser kilit `If-Match`, AC-206) ve bayat kayıtta "Yeniden yükle". */
 function useUserSave(draft: Draft, editable: boolean, focusError: () => void) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
-  const [reloading, setReloading] = useState(false);
   const onSaveError = useSaveError(draft, setStale, focusError);
+  const { reloading, reload } = useUserReload(draft, setStale);
   const id = draft.saved.id;
 
   const submit = async (e: FormEvent) => {
@@ -104,24 +128,6 @@ function useUserSave(draft: Draft, editable: boolean, focusError: () => void) {
       onSaveError(err);
     } finally {
       setBusy(false);
-    }
-  };
-
-  /** Güncel kaydı alır; taslak (kaydedilmemiş değişiklikler) atılır — üzerine yazmak yerine kullanıcı yeniden düzenler. */
-  const reload = async () => {
-    setReloading(true);
-    try {
-      draft.adopt(await api<UserDetail>("GET", `/users/${id}`));
-      draft.setErrors({});
-      draft.setFormError(null);
-      setStale(false);
-      toast(t("us.e.reloaded"));
-      router.refresh();
-    } catch (err) {
-      if (isUnauthenticated(err)) return router.replace(EXPIRED_LOGIN_PATH);
-      draft.setFormError(toUiError(err, { 404: t("us.nf.body") }));
-    } finally {
-      setReloading(false);
     }
   };
   return { busy, stale, reloading, submit, reload };

@@ -1,6 +1,6 @@
 "use client";
 
-import { Save } from "lucide-react";
+import { Save, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -62,17 +62,19 @@ export function FormLeaveDialog({
   );
 }
 
-/** Diyalog formu alt çubuğu: "Vazgeç" (kapatma nöbetçisi) + kaydet/oluştur (gönderimde bekleme çarkı). */
+/** Diyalog formu alt çubuğu: "Vazgeç" (kapatma nöbetçisi) + kaydet/oluştur (gönderimde bekleme çarkı; ikon varsayılan `Save`). */
 export function FormDialogActions({
   busy,
   onCancel,
   submitLabel,
   submitTestId,
+  Icon = Save,
 }: {
   busy: boolean;
   onCancel: () => void;
   submitLabel: string;
   submitTestId: string;
+  Icon?: LucideIcon;
 }) {
   return (
     <div className="flex flex-col-reverse gap-2 border-t border-border pt-3 sm:flex-row sm:justify-end">
@@ -80,7 +82,7 @@ export function FormDialogActions({
         {t("rq.rj.cancel")}
       </Button>
       <Button type="submit" loading={busy} data-testid={submitTestId}>
-        {!busy && <Save aria-hidden className="size-4" />}
+        {!busy && <Icon aria-hidden className="size-4" />}
         {submitLabel}
       </Button>
     </div>

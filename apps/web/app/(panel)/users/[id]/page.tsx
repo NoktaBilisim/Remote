@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { notFound, redirect } from "next/navigation";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { LoadError } from "@/components/load-error";
@@ -18,6 +19,24 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: r.kind === "ok" ? `${r.data.fullName} · ${t("nav.users")}` : t("nav.users") };
 }
 
+const crumbs = (name?: string) => <Breadcrumb items={[{ label: t("nav.users"), href: "/users" }, { label: name ?? t("us.title") }]} />;
+
+const forbidden = () => (
+  <Alert tone="warning" testId="users-forbidden">
+    {t("us.forbidden")}
+  </Alert>
+);
+
+/** Breadcrumb + dar uyarı / hata alanı. */
+function notice(body: ReactNode) {
+  return (
+    <>
+      {crumbs()}
+      <div className="max-w-xl">{body}</div>
+    </>
+  );
+}
+
 /** /users/[id] — kullanıcı düzenleme + yetki toggle ekranı (AC-71..74, 115). Kapsam dışı/yok id → 404 (tek mesaj). */
 export default async function UserPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -25,38 +44,13 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
   if (me.kind !== "ok") redirect(EXPIRED_LOGIN_PATH);
   const perms = me.me.permissions as readonly string[];
   if (!ULID.test(id)) notFound();
-  const crumbs = (name?: string) => <Breadcrumb items={[{ label: t("nav.users"), href: "/users" }, { label: name ?? t("us.title") }]} />;
 
-  if (!perms.includes("users.view")) {
-    return (
-      <>
-        {crumbs()}
-        <div className="max-w-xl">
-          <Alert tone="warning" testId="users-forbidden">
-            {t("us.forbidden")}
-          </Alert>
-        </div>
-      </>
-    );
-  }
+  if (!perms.includes("users.view")) return notice(forbidden());
   const r = await serverGet<UserDetail>(`/users/${id}`);
   if (r.kind === "error") {
     if (r.status === 401) redirect(EXPIRED_LOGIN_PATH);
     if (r.status === 404) notFound();
-    return (
-      <>
-        {crumbs()}
-        <div className="max-w-xl">
-          {r.status === 403 ? (
-            <Alert tone="warning" testId="users-forbidden">
-              {t("us.forbidden")}
-            </Alert>
-          ) : (
-            <LoadError />
-          )}
-        </div>
-      </>
-    );
+    return notice(r.status === 403 ? forbidden() : <LoadError />);
   }
   return (
     <>

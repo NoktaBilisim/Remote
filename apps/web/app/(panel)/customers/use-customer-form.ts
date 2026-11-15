@@ -23,7 +23,33 @@ function useCustomerDraft(customer: CustomerDetail | undefined) {
   const [base] = useState<CustomerDraft>(() => (customer ? draftOf(customer) : emptyDraft()));
   const [d, setD] = useState<CustomerDraft>(base);
   const [errors, setErrors] = useState<CustomerErrors>({});
-  return { base, d, setD, errors, setErrors };
+  const [labelTouched, setLabelTouched] = useState(Boolean(customer));
+  const set = (k: CustomerField) => (e: { target: { value: string } }) => {
+    const v = e.target.value;
+    setD((x) => {
+      const next = { ...x, [k]: v };
+      if (k === "name" && !labelTouched) next.fileLabel = v.trim() ? suggestFileLabel(v) : "";
+      return next;
+    });
+    if (k === "fileLabel") setLabelTouched(true);
+    setErrors((x) => ({ ...x, [k]: undefined, ...(k === "name" && !labelTouched ? { fileLabel: undefined } : {}) }));
+  };
+  return { base, d, errors, setErrors, set };
+}
+
+/** Kayıt hatası → 400/409 alan hataları (+ kalan form hatası), alansız 409 → ad altında, diğerleri form hatası. */
+function failHandler(setErrors: (e: CustomerErrors) => void, setFormError: (e: UiError) => void, focusError: () => void) {
+  return (err: unknown) => {
+    if (err instanceof ApiError && (err.status === 400 || err.status === 409) && err.fields) {
+      const { errors: fe, rest } = serverFieldErrors(err.fields);
+      setErrors(fe);
+      focusError();
+      if (rest.length) setFormError({ message: rest.join(" "), tone: "danger", requestId: err.requestId });
+    } else if (err instanceof ApiError && err.status === 409) {
+      setErrors({ name: err.message || t("cu.f.conflict") });
+      focusError();
+    } else setFormError(toUiError(err, { 404: t("cu.notFoundBody") }));
+  };
 }
 
 /**
@@ -36,33 +62,11 @@ export function useCustomerForm(
   onSaved: (c: CustomerDetail) => void,
   focusError: () => void,
 ) {
-  const { base, d, setD, errors, setErrors } = useCustomerDraft(customer);
+  const { base, d, errors, setErrors, set } = useCustomerDraft(customer);
   const [formError, setFormError] = useState<UiError | null>(null);
   const [busy, setBusy] = useState(false);
-  const [labelTouched, setLabelTouched] = useState(Boolean(customer));
   const guard = useCloseGuard(isDirty(d, base), busy, onClose);
-
-  const set = (k: CustomerField) => (e: { target: { value: string } }) => {
-    const v = e.target.value;
-    setD((x) => {
-      const next = { ...x, [k]: v };
-      if (k === "name" && !labelTouched) next.fileLabel = v.trim() ? suggestFileLabel(v) : "";
-      return next;
-    });
-    if (k === "fileLabel") setLabelTouched(true);
-    setErrors((x) => ({ ...x, [k]: undefined, ...(k === "name" && !labelTouched ? { fileLabel: undefined } : {}) }));
-  };
-  const fail = (err: unknown) => {
-    if (err instanceof ApiError && (err.status === 400 || err.status === 409) && err.fields) {
-      const { errors: fe, rest } = serverFieldErrors(err.fields);
-      setErrors(fe);
-      focusError();
-      if (rest.length) setFormError({ message: rest.join(" "), tone: "danger", requestId: err.requestId });
-    } else if (err instanceof ApiError && err.status === 409) {
-      setErrors({ name: err.message || t("cu.f.conflict") });
-      focusError();
-    } else setFormError(toUiError(err, { 404: t("cu.notFoundBody") }));
-  };
+  const fail = failHandler(setErrors, setFormError, focusError);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setFormError(null);

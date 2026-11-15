@@ -48,23 +48,37 @@ function useStatusRun(action: UserAction | null, user: UserDetail, onClose: () =
   return { busy, error, setError, deact, mfa, k, run };
 }
 
-/**
- * Pasife al / yeniden etkinleştir onayı (`alertdialog`, varsayılan odak "Vazgeç"). Pasife alma metni etkisini söyler:
- * tüm oturumlar kapanır, açık destek oturumları sonlanır (AC-115). Başarıda güncel kayıt GET ile alınır.
- */
-export function StatusDialog({
-  action,
-  user,
-  onClose,
-  onDone,
-}: {
+type StatusProps = {
   action: UserAction | null;
   user: UserDetail;
   onClose: () => void;
   onDone: (u: UserDetail) => void;
-}) {
-  const { busy, error, setError, deact, mfa, k, run } = useStatusRun(action, user, onClose, onDone);
+};
+
+/** "Vazgeç" (varsayılan odak) + eyleme göre ikonlu onay düğmesi. */
+function StatusFooter({ s, onClose }: { s: ReturnType<typeof useStatusRun>; onClose: () => void }) {
+  const { busy, deact, mfa, k, run } = s;
   const Icon = mfa ? KeyRound : deact ? Archive : ArchiveRestore;
+  return (
+    <>
+      <Button variant="secondary" data-autofocus onClick={onClose} disabled={busy} className="sm:ml-auto">
+        {t("rq.rj.cancel")}
+      </Button>
+      <Button variant={deact || mfa ? "danger" : "primary"} loading={busy} onClick={() => void run()} data-testid="user-action-confirm">
+        {!busy && <Icon aria-hidden className="size-4" />}
+        {t(`${k}.confirm` as "us.d.confirm")}
+      </Button>
+    </>
+  );
+}
+
+/**
+ * Pasife al / yeniden etkinleştir onayı (`alertdialog`, varsayılan odak "Vazgeç"). Pasife alma metni etkisini söyler:
+ * tüm oturumlar kapanır, açık destek oturumları sonlanır (AC-115). Başarıda güncel kayıt GET ile alınır.
+ */
+export function StatusDialog({ action, user, onClose, onDone }: StatusProps) {
+  const s = useStatusRun(action, user, onClose, onDone);
+  const { busy, error, setError, k } = s;
   return (
     <Dialog
       open={action !== null}
@@ -79,24 +93,7 @@ export function StatusDialog({
       testId={action ? `user-${action}-dialog` : undefined}
       title={action ? t(`${k}.title` as "us.d.title", { name: user.fullName }) : ""}
       description={action ? t(`${k}.body` as "us.d.body") : undefined}
-      footer={
-        action && (
-          <>
-            <Button variant="secondary" data-autofocus onClick={onClose} disabled={busy} className="sm:ml-auto">
-              {t("rq.rj.cancel")}
-            </Button>
-            <Button
-              variant={deact || mfa ? "danger" : "primary"}
-              loading={busy}
-              onClick={() => void run()}
-              data-testid="user-action-confirm"
-            >
-              {!busy && <Icon aria-hidden className="size-4" />}
-              {t(`${k}.confirm` as "us.d.confirm")}
-            </Button>
-          </>
-        )
-      }
+      footer={action && <StatusFooter s={s} onClose={onClose} />}
     >
       {error && <FormError error={error} />}
     </Dialog>

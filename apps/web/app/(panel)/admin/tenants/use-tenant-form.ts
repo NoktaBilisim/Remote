@@ -34,6 +34,21 @@ function useTenantDraft(tenant: TenantItem | undefined) {
   return { base, d, errors, setErrors, setName, setSlug };
 }
 
+/** Kayıt hatası → 400/409 alan hataları (+ kalan form hatası), alansız 409 → kısa ad altında, diğerleri form hatası. */
+function failHandler(setErrors: (e: Errors<TenantField>) => void, setFormError: (e: UiError) => void, focusError: () => void) {
+  return (err: unknown) => {
+    if (err instanceof ApiError && (err.status === 400 || err.status === 409) && err.fields) {
+      const { errors: fe, rest } = splitServerFields(err.fields, TENANT_FIELDS);
+      setErrors(fe);
+      focusError();
+      if (rest.length) setFormError({ message: rest.join(" "), tone: "danger", requestId: err.requestId });
+    } else if (err instanceof ApiError && err.status === 409) {
+      setErrors({ slug: TENANT_SLUG_CONFLICT_MESSAGE });
+      focusError();
+    } else setFormError(toUiError(err));
+  };
+}
+
 /**
  * Yeni firma / Düzenle formu durumu (AC-70): istemci doğrulaması, değişiklik yoksa kapatma, sunucu alan hataları;
  * 409 → kısa ad altında. `focusError` bileşendeki `useFocusFirstError`'dan gelir (React Compiler: ref kanca dışında).
@@ -50,17 +65,7 @@ export function useTenantForm(
   const [busy, setBusy] = useState(false);
   const guard = useCloseGuard(d.name !== base.name || d.slug !== base.slug, busy, onClose);
 
-  const fail = (err: unknown) => {
-    if (err instanceof ApiError && (err.status === 400 || err.status === 409) && err.fields) {
-      const { errors: fe, rest } = splitServerFields(err.fields, TENANT_FIELDS);
-      setErrors(fe);
-      focusError();
-      if (rest.length) setFormError({ message: rest.join(" "), tone: "danger", requestId: err.requestId });
-    } else if (err instanceof ApiError && err.status === 409) {
-      setErrors({ slug: TENANT_SLUG_CONFLICT_MESSAGE });
-      focusError();
-    } else setFormError(toUiError(err));
-  };
+  const fail = failHandler(setErrors, setFormError, focusError);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setFormError(null);

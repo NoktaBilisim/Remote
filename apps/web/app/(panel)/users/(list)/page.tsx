@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { Building, SearchX, Users } from "lucide-react";
+import { BeyondEmpty } from "@/components/beyond-empty";
 import { LinkEmpty, ListFooter, ListNotice, ListPageHeader } from "@/components/list-page";
 import { LoadError } from "@/components/load-error";
 import { Alert } from "@/components/ui/alert";
@@ -20,6 +21,7 @@ export const metadata: Metadata = { title: t("nav.users") };
 
 type SP = Record<string, string | string[] | undefined>;
 type Actor = { role: string; permissions: readonly string[] };
+type BodyCtx = { selfId: string; canCreate: boolean; actor: Actor };
 
 const forbidden = (
   <Alert tone="warning" testId="users-forbidden">
@@ -28,23 +30,12 @@ const forbidden = (
 );
 
 /** Liste gövdesi: satırlar; yoksa sırayla sayfa dışı / arama eşleşmesi yok / filtre boş / hiç kullanıcı yok. */
-function usersBody(data: UserListResponse, params: UserListParams, ctx: { selfId: string; canCreate: boolean; actor: Actor }): ReactNode {
+function usersBody(data: UserListResponse, params: UserListParams, ctx: BodyCtx): ReactNode {
   const { items, total } = data;
   const filtered = params.role !== "all" || params.status !== "active";
   if (items.length > 0) return <UserList items={items} selfId={ctx.selfId} />;
-  if (total > 0) {
-    const pages = userPageCount(total, data.pageSize);
-    return (
-      <LinkEmpty
-        Icon={SearchX}
-        title={t("us.beyond", { pages })}
-        body={t("us.beyondBody")}
-        testId="users-beyond"
-        href={usersHref({ ...params, page: 1 })}
-        label={t("h.firstPage")}
-      />
-    );
-  }
+  if (total > 0)
+    return <BeyondEmpty pages={userPageCount(total, data.pageSize)} testId="users-beyond" href={usersHref({ ...params, page: 1 })} />;
   if (params.q)
     return (
       <LinkEmpty
@@ -112,7 +103,12 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
   if (res.kind === "error" && res.status === 401) redirect(EXPIRED_LOGIN_PATH);
   if (res.kind === "error") return withHeader(header, <ListNotice>{res.status === 403 ? forbidden : <LoadError />}</ListNotice>);
 
-  const { total } = res.data;
+  return usersLoaded(header, res.data, params, { selfId: me.me.user.id, canCreate, actor });
+}
+
+/** Başarılı yanıt: başlık + filtreler + gövde + (kayıt varsa) liste altı. */
+function usersLoaded(header: ReactNode, data: UserListResponse, params: UserListParams, ctx: BodyCtx) {
+  const { total } = data;
   return (
     <>
       {header}
@@ -120,13 +116,13 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         <UserFilters params={params} />
       </div>
       <section className="mt-4" aria-label={t("us.title")}>
-        {usersBody(res.data, params, { selfId: me.me.user.id, canCreate, actor })}
+        {usersBody(data, params, ctx)}
         {total > 0 && (
           <ListFooter
             count={t("us.count", { n: formatNumber(total) })}
             countTestId="users-count"
             page={params.page}
-            pages={userPageCount(total, res.data.pageSize)}
+            pages={userPageCount(total, data.pageSize)}
             hrefFor={(page) => usersHref({ ...params, page })}
           />
         )}
