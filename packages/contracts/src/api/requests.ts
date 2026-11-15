@@ -5,8 +5,15 @@
 // P8c (mimari-api "Müşteriler ve bilgisayar kaydı", mimari-e10 §15): `ref` | `bindingKey`, iptal nedenleri, müşteri filtresi,
 // `customerFirm`/`viaBinding`/`bindingRevoked`/`staleSource`, tek kayıt iptali.
 import { z } from "zod";
-import type { CustomerFirmRef } from "./customers.ts";
-import { UNSAFE_NAME_CHARS } from "./sessions.ts";
+import {
+  normalizePhone,
+  REQUEST_PRIORITIES,
+  SLA_MINUTES_MAX,
+  SLA_MINUTES_MIN,
+  UNSAFE_NAME_CHARS,
+  type CustomerFirmRef,
+  type RequestPriority,
+} from "./shared.ts";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Enum'lar ve durum makinesi
@@ -49,12 +56,8 @@ export const REQUEST_TRANSITIONS: Readonly<Record<RequestStatus, readonly Reques
 };
 
 // P18 (mimari-e11 §8b.3; AC-257): öncelik ve kuyruk sırası — TEK karşılaştırıcı (sunucu kuyruk/sıra + web kuyruğu).
-export const REQUEST_PRIORITIES = ["LOW", "NORMAL", "HIGH"] as const;
-export type RequestPriority = (typeof REQUEST_PRIORITIES)[number];
+export { REQUEST_PRIORITIES, SLA_MINUTES_MAX, SLA_MINUTES_MIN, type RequestPriority } from "./shared.ts";
 export const PRIORITY_RANK: Readonly<Record<RequestPriority, number>> = { HIGH: 3, NORMAL: 2, LOW: 1 };
-/** SLA hedefi sınırları (dakika; DB CHECK 5..1440 ile aynı). */
-export const SLA_MINUTES_MIN = 5;
-export const SLA_MINUTES_MAX = 1440;
 
 const timeOf = (v: string | Date): number => (typeof v === "string" ? Date.parse(v) : v.getTime());
 
@@ -171,14 +174,7 @@ export const customerNameSchema = z
 
 const PHONE_INVALID = "Telefon numarası geçersiz";
 
-/** Telefon → E.164 (`+905xxxxxxxxx`) ya da null (AC-134). Boşluk, `-`, `(`, `)` yok sayılır. */
-export function normalizePhone(raw: string): string | null {
-  const s = raw.trim().replace(/[\s\-()]/g, "");
-  const tr = /^(?:\+90|0)?(5\d{9})$/.exec(s);
-  if (tr?.[1]) return `+90${tr[1]}`;
-  const intl = /^\+?([1-9]\d{7,14})$/.exec(s);
-  return intl?.[1] ? `+${intl[1]}` : null;
-}
+export { normalizePhone } from "./shared.ts";
 
 export const phoneSchema = z
   .string()

@@ -4,7 +4,7 @@
 // P8c (mimari-api "Mevcut uçlara ekler"): POST /sessions `customerId`, `customerFirm` alanları, geçmiş müşteri firma filtresi + CSV.
 // P13b-L (mimari-lobi §4.3): lobi göstergesi — GET /sessions/waiting, SessionListItem.waitingGuests.
 import { z } from "zod";
-import type { CustomerFirmRef } from "./customers.ts";
+import { UNSAFE_NAME_CHARS, type CustomerFirmRef } from "./shared.ts";
 import { FILE_DIRECTIONS, FILE_RESULTS, qualitySummarySchema, type QualitySummary } from "../ws.ts";
 
 export const SESSION_STATUSES = ["PENDING", "ACTIVE", "ENDED", "EXPIRED", "CANCELLED"] as const;
@@ -112,13 +112,7 @@ export interface ResolveSessionResponse {
   abuseEmail: string | null;
 }
 
-/**
- * Misafir adında yasak karakterler (S-P4-3, S-P4-T2-1): Unicode kategori tabanlı — Cc (C0/C1 kontrol), Cf (biçim:
- * U+00AD, U+061C, U+200B–200F, bidi U+202A–202E/2066–2069, U+2060–2064, U+FEFF, U+FFF9–FFFB, etiketler U+E0000–E007F),
- * Zl/Zp (U+2028/2029) + U+034F (CGJ, Mn) ve U+180E. Ad teknisyen ekranında ve audit'te görünür; yön/görünmez
- * karakterle sahte ad üretimi engellenir. ZWJ'li emoji desteklenmez (bilinçli).
- */
-export const UNSAFE_NAME_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u034F\u180E]/u;
+export { UNSAFE_NAME_CHARS } from "./shared.ts";
 
 /** POST /public/sessions/join (mimari-api.md). `consentTextId` oturumun tenant'ının güncel sürümü değilse 400 VALIDATION, fields.consentTextId (G-24, AC-127). */
 export const joinSessionInputSchema = z.strictObject({

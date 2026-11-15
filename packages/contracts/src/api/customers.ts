@@ -2,8 +2,17 @@
 // Tek kaynak: sunucu girdileri bu şemalarla doğrular, web aynı tipleri ve `foldKey`/`suggestFileLabel`'ı kullanır.
 // DB'deki ikinci emniyet: migration `20261112120000_p8c_customers` CHECK'leri (not alanında `\t` de yasak — db-notlari P8c).
 import { z } from "zod";
-import { normalizePhone, REQUEST_PRIORITIES, SLA_MINUTES_MAX, SLA_MINUTES_MIN, type RequestPriority } from "./requests.ts";
-import { UNSAFE_NAME_CHARS } from "./sessions.ts";
+import {
+  CUSTOMER_STATUSES,
+  normalizePhone,
+  REQUEST_PRIORITIES,
+  SLA_MINUTES_MAX,
+  SLA_MINUTES_MIN,
+  UNSAFE_NAME_CHARS,
+  type CustomerFirmRef,
+  type CustomerStatus,
+  type RequestPriority,
+} from "./shared.ts";
 
 export { customerFilterSchema, type CustomerFilter } from "./requests.ts";
 export { sessionCustomerFilterSchema, type SessionCustomerFilter } from "./sessions.ts";
@@ -12,8 +21,7 @@ export { sessionCustomerFilterSchema, type SessionCustomerFilter } from "./sessi
 // Sabitler
 // ---------------------------------------------------------------------------------------------------------------
 
-export const CUSTOMER_STATUSES = ["ACTIVE", "PASSIVE"] as const;
-export type CustomerStatus = (typeof CUSTOMER_STATUSES)[number];
+export { CUSTOMER_STATUSES, type CustomerFirmRef, type CustomerStatus } from "./shared.ts";
 
 /** Liste durum filtresi (AC-166): vars. `active`. */
 export const CUSTOMER_STATUS_FILTERS = ["active", "passive", "all"] as const;
@@ -286,13 +294,6 @@ export const customerIdSchema = z.string().regex(ULID, "Geçersiz kimlik");
 // ---------------------------------------------------------------------------------------------------------------
 // Yanıt tipleri
 // ---------------------------------------------------------------------------------------------------------------
-
-/** Talep/oturum/seçim kutusundaki müşteri firma özeti. */
-export interface CustomerFirmRef {
-  id: string;
-  name: string;
-  status: CustomerStatus;
-}
 
 /** Liste öğesi (AC-166). Kişisel alanlar listede YOK (yalnız detayda). Sayaçlar türetilir (tüm durumlar). */
 export interface CustomerListItem {

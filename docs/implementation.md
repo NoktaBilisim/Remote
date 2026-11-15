@@ -8846,3 +8846,58 @@ satırı üstte, tepsi kutuları), kod oturumu sonrası tepsi.
 
 - Kayıtlı firma satırı metni "Bu bilgisayar … için kayıtlı" yerine "Kayıtlı firma: <ad>" (`ui/home.go` `singlePrefix`); çoklu firma listesinde tutarlı kısa biçim. AC-182 metni revize edildi (`gereksinimler-kabul-kriterleri-e10.md`, revizyon notu).
 - "Kötüye kullanımı bildir" ana ekrandan kaldırıldı, yalnız talep formunda; AC-189 revizyon notu eklendi (K-P20-14 sadelik).
+
+## PT-K1 (contracts import döngüleri + sözleşme korkuluğu) — backend-dev — 2026-11-15
+
+Tasarım: `docs/mimari-temizlik.md` §5 K1, §3.7-1; AC-318 (AC-317 izinli ek: yüzey testleri). Davranış değişmez.
+
+### Değişen / yeni dosyalar
+
+- Yeni `packages/contracts/src/api/shared.ts` (iç modül, package.json `exports`'una **eklenmedi**): `CUSTOMER_STATUSES`,
+  `CustomerStatus`, `CustomerFirmRef` (customers'tan), `REQUEST_PRIORITIES`, `RequestPriority`, `SLA_MINUTES_MIN/MAX`,
+  `normalizePhone` (requests'ten), `UNSAFE_NAME_CHARS` (sessions'tan). Tanımlar birebir taşındı (gövde/regex diff'i boş).
+- `packages/contracts/src/api/{customers,requests,sessions}.ts`: yalnız import satırları `./shared.ts`'e döndü, taşınan
+  tanımların yerinde aynı adla `export { … } from "./shared.ts"` kaldı. `requests.ts` artık `sessions.ts`/`customers.ts`'i,
+  `sessions.ts` `customers.ts`'i import etmiyor; `customers.ts`'in bugünkü `customerFilterSchema` /
+  `sessionCustomerFilterSchema` yeniden dışa aktarımları (tek yön) aynen duruyor.
+- Yeni `packages/contracts/test/pt-surface.test.ts` + `test/__snapshots__/pt-surface.test.ts.snap`: (1) her `exports`
+  yolunun ad kümesi (TypeScript checker; yalnız tip olanlar "(tip)" ekiyle, yeniden dışa aktarımlar asıl sembole
+  çözülür), (2) `ws.ts`/`ws-request.ts`/`dc.ts` `t: z.literal(...)` mesaj listesi, (3) `ERROR_STATUS` kod → durum,
+  (4) `src/` import grafiğinde (tip importları ve `export … from` dahil) basit döngü listesi `[]`.
+- Yeni `apps/server/test/integration/pt-surface.test.ts` + `__snapshots__/pt-surface.test.ts.snap`: Fastify rota tablosu
+  (metot + yol + `schema` varlığı; onRoute, `makeApp()`), entegrasyon (gerçek MySQL).
+
+### Kanıt (önce/sonra)
+
+- Anlık görüntüler değişiklikten **önce** HEAD kodu üzerinde yazıldı; döngü testi HEAD'de tam 3 döngüyü raporladı
+  (`customers↔requests`, `customers↔sessions`, `customers→requests→sessions`). Sonra: döngü 0, contracts anlık görüntüsü
+  bayt bayt aynı (diff boş), sunucu rota anlık görüntüsü HEAD contracts dosyalarıyla yazılıp yeni dosyalarla yeşil.
+- Korkuluk sağlaması: `sessions.ts`'e geçici fazladan `normalizePhone` yeniden dışa aktarımı → yüzey testi kırıldı; geri alındı.
+- `packages/contracts/fixtures/` değişmedi.
+
+### Sapmalar / bağımlılık
+
+- Yeni bağımlılık yok: grafik ve ad kümesi contracts'ın mevcut `typescript` devDep'i ile (madge vb. eklenmedi). Contracts
+  `@types/node` kullanmadığı için test dosya erişimini `ts.sys` ile yapar; kök = çalışma dizini (paket adı doğrulanır,
+  `pnpm --filter @remote/contracts test` / `pnpm -r run test` paket dizininden koşar).
+- Sunucu rota testi `pnpm --filter @remote/server test` (unit) kapsamında değil; `test:int` ile koşar (CI entegrasyon işi).
+
+### Doğrulama (2026-11-15)
+
+```
+pnpm -r run typecheck                        # 3 paket Done
+pnpm -r run lint                             # 3 paket Done
+pnpm --filter @remote/contracts test         # 18 dosya, 142 test geçti (4'ü yeni)
+pnpm --filter @remote/server test            # 30 dosya, 434 test geçti
+pnpm --filter @remote/web test               # 43 dosya, 386 test geçti
+vitest run test/integration/pt-surface.test.ts (geçici MySQL, test-db.sh)   # 1 geçti
+prettier --check <değişen 6 dosya + snapshot'lar>   # temiz
+```
+
+`pnpm format:check` kökte yalnız yerel `graphify-out/` (275 dosya; `.git/info/exclude` ile git dışı, `.prettierignore`'da
+yok) yüzünden kırmızı; bu görevin dosyaları temiz. Repoda/CI'da bu klasör yok.
+
+### frontend-dev için
+
+Sözleşme değişikliği yok: tüm adlar aynı yollardan aynı biçimde (değer/tip) alınmaya devam eder; `api/shared` dışa açık
+değildir, doğrudan import edilmez.
