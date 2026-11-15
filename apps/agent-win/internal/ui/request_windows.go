@@ -52,6 +52,7 @@ type reqForm struct {
 type reqWait struct {
 	f                       *form
 	code, pos, elapsed, msg *ctrl
+	chat                    *chatPane // P20 K6 talep sohbeti (chat_windows.go)
 }
 
 // RequestEvents bekleme/onay ekranı eylemleri (request.Deps.Events).
@@ -304,7 +305,11 @@ func (u *UI) RequestWaiting(v request.WaitView) {
 	u.t.Do(func() {
 		w := u.reqWait
 		if w == nil {
-			f := u.t.newForm(appTitle+" — Talebiniz iletildi", 440, 330, false)
+			title := appTitle + " — Talebiniz iletildi"
+			if l := request.Display(v.Label, ""); l != "" { // G-P20-7: seçili firmanın yerel etiketi
+				title = appTitle + " — " + l
+			}
+			f := u.t.newForm(title, 440, 576, false)
 			w = &reqWait{f: f}
 			logo := v.Logo
 			if logo == nil {
@@ -319,14 +324,19 @@ func (u *UI) RequestWaiting(v request.WaitView) {
 			w.pos = f.label("", 16, 172, 408, 20, fontBold)
 			w.elapsed = f.label("", 16, 196, 408, 20, fontNormal)
 			w.msg = f.danger("", 16, 222, 408, 36, fontNormal)
-			cancel := f.button("Talebi iptal et", idCancel, 16, 270, 150, false)
+			var y int32
+			w.chat, y = newChatPane(f, 266)
+			f.button("Talebi iptal et", idCancel, 16, y+8, 150, false)
 			f.command = func(id, _ int) {
-				if id == idCancel {
+				switch id {
+				case idCancel:
 					u.reqEmit(request.UserCancel)
+				case idReqChatSend:
+					u.chatSubmit(w.chat)
 				}
 			}
 			f.close = func() { u.reqEmit(request.UserClose) } // AC-163: kapatma iptal eder, süreç biter
-			f.show(win.WorkAreaAt(win.CursorPos()), true, cancel)
+			f.show(win.WorkAreaAt(win.CursorPos()), true, w.chat.input)
 			u.reqWait = w
 		}
 		win.SetText(w.code.h, codeText(v.Code))

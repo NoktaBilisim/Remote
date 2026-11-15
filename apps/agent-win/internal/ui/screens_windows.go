@@ -77,6 +77,9 @@ type UI struct {
 	reqAccept *consentDlg
 	// reqAcceptKey açık onay diyaloğunun teknisyen adı + doğrulama kodu (S8b2-3, S8b2-4).
 	reqAcceptKey acceptKey
+	// P20 K6 talep sohbeti (chat_windows.go): "Gönder" metinleri ve tepsideyken gövdesiz balon.
+	reqChat        chan string
+	reqChatBalloon func(text string)
 }
 
 type sessionWin struct {
@@ -105,7 +108,8 @@ func New(host, version, fingerprint string, gate *control.Gate) (*UI, error) {
 		return nil, err
 	}
 	return &UI{t: t, events: make(chan flow.Event, 16), gate: gate, reqEvents: make(chan request.UserAction, 8),
-		footer: fmt.Sprintf("Sunucu: %s  ·  Sürüm %s  ·  Parmak izi %s", host, version, fingerprint)}, nil
+		reqChat: make(chan string, 4),
+		footer:  fmt.Sprintf("Sunucu: %s  ·  Sürüm %s  ·  Parmak izi %s", host, version, fingerprint)}, nil
 }
 
 // Events kullanıcı olayları (flow.Deps.Events).

@@ -100,7 +100,8 @@ func validAdmitCode(raw []byte, code string) bool {
 
 func bad(t, why string) error { return fmt.Errorf("request: %s: %s", t, why) }
 
-// ParseServer requestOutboundSchema eşi: strictObject + alan kuralları.
+// ParseServer requestOutboundSchema + requestChatOutboundSchema (P20, yalnız rs.cap.chat1 soketi) eşi: strictObject +
+// alan kuralları.
 func ParseServer(raw []byte) (Inbound, error) {
 	var head struct {
 		T string `json:"t"`
@@ -155,6 +156,8 @@ func ParseServer(raw []byte) (Inbound, error) {
 		}
 		m.Message = Display(m.Message, "")
 		return m, nil
+	case "request.message", "request.messages", "request.chat": // P20 K6: rs.cap.chat1 birliği (chat.go)
+		return parseChat(head.T, raw)
 	}
 	return nil, bad(head.T, "bilinmeyen tip")
 }
@@ -196,8 +199,9 @@ type WSConn struct {
 	ws *websocket.Conn
 }
 
-// Dial `wss://<host>/ws/request`'e (sorgu dizesi yok, Origin yok) `rs.v1, rs.req.<sır>` ile bağlanır. Sır yalnız
-// subprotocol'de taşınır; hata metinlerine/loga girmez.
+// Dial `wss://<host>/ws/request`'e (sorgu dizesi yok, Origin yok) `rs.v1, rs.req.<sır>, rs.cap.chat1` ile bağlanır
+// (P20: sohbet yeteneği her zaman bildirilir; yanıt yine yalnız `rs.v1`, §5.4.1). Sır yalnız subprotocol'de taşınır;
+// hata metinlerine/loga girmez.
 func Dial(ctx context.Context, httpClient *http.Client, server *url.URL, secret string) (*WSConn, error) {
 	if !secretRe.MatchString(secret) {
 		return nil, errors.New("request: geçersiz talep sırrı")
@@ -205,7 +209,7 @@ func Dial(ctx context.Context, httpClient *http.Client, server *url.URL, secret 
 	u := url.URL{Scheme: "wss", Host: server.Host, Path: wsPath}
 	ws, resp, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{
 		HTTPClient:   httpClient,
-		Subprotocols: []string{signal.Subprotocol, secretPrefix + secret},
+		Subprotocols: []string{signal.Subprotocol, secretPrefix + secret, CapChat},
 	})
 	status, after := 0, time.Duration(0)
 	if resp != nil {
@@ -249,6 +253,15 @@ func (c *WSConn) Read(ctx context.Context) (Inbound, error) {
 // Send `request.cancel` / `request.decline`.
 func (c *WSConn) Send(ctx context.Context, m Outbound) error {
 	b, err := Encode(m)
+	if err != nil {
+		return err
+	}
+	return c.ws.Write(ctx, websocket.MessageText, b)
+}
+
+// SendMessage `request.message` (P20 talep sohbeti; gövde ChatBody'den geçmiş).
+func (c *WSConn) SendMessage(ctx context.Context, body, clientMsgID string) error {
+	b, err := EncodeMessage(body, clientMsgID)
 	if err != nil {
 		return err
 	}

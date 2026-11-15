@@ -91,12 +91,14 @@ func (f *fakeAPI) CancelRequest(context.Context, string) error {
 type fakeConn struct {
 	in     chan Inbound
 	sent   chan Outbound
+	msgs   chan ChatSend // P20 sohbet çerçeveleri
 	closed chan bool
 	once   sync.Once
 }
 
 func newConn() *fakeConn {
-	return &fakeConn{in: make(chan Inbound, 8), sent: make(chan Outbound, 8), closed: make(chan bool, 1)}
+	return &fakeConn{in: make(chan Inbound, 8), sent: make(chan Outbound, 8), msgs: make(chan ChatSend, 8),
+		closed: make(chan bool, 1)}
 }
 
 func (c *fakeConn) Read(ctx context.Context) (Inbound, error) {
@@ -108,6 +110,10 @@ func (c *fakeConn) Read(ctx context.Context) (Inbound, error) {
 	}
 }
 func (c *fakeConn) Send(_ context.Context, m Outbound) error { c.sent <- m; return nil }
+func (c *fakeConn) SendMessage(_ context.Context, body, id string) error {
+	c.msgs <- ChatSend{Body: body, ClientMsgID: id}
+	return nil
+}
 func (c *fakeConn) Close(normal bool) error {
 	c.once.Do(func() { c.closed <- normal })
 	return nil
@@ -127,10 +133,13 @@ type fakeUI struct {
 	accepted chan AcceptView
 	waiting  chan WaitView
 	opened   []string
+	chats    chan ChatView // P20 sohbet görünümleri
+	chatIn   chan string
 }
 
 func newUI() *fakeUI {
-	return &fakeUI{accepted: make(chan AcceptView, 8), waiting: make(chan WaitView, 64)}
+	return &fakeUI{accepted: make(chan AcceptView, 8), waiting: make(chan WaitView, 64), chats: make(chan ChatView, 256),
+		chatIn: make(chan string, 8)}
 }
 
 func (u *fakeUI) RequestHome(_ context.Context, v HomeView) HomeAction {
@@ -181,7 +190,14 @@ func (u *fakeUI) RequestWaiting(v WaitView) {
 func (u *fakeUI) RequestAccepted(v AcceptView)      { u.accepted <- v }
 func (u *fakeUI) RequestAcceptedTick(time.Duration) {}
 func (u *fakeUI) RequestWaitClose()                 {}
-func (u *fakeUI) OpenURL(s string)                  { u.mu.Lock(); u.opened = append(u.opened, s); u.mu.Unlock() }
+func (u *fakeUI) RequestChatSends() <-chan string   { return u.chatIn }
+func (u *fakeUI) RequestChat(v ChatView) {
+	select {
+	case u.chats <- v:
+	default:
+	}
+}
+func (u *fakeUI) OpenURL(s string) { u.mu.Lock(); u.opened = append(u.opened, s); u.mu.Unlock() }
 func (u *fakeUI) RequestClosed(_ context.Context, v ClosedView) ClosedAction {
 	u.mu.Lock()
 	defer u.mu.Unlock()

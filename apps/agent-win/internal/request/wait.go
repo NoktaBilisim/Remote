@@ -39,17 +39,23 @@ type waiter struct {
 	baseAt  time.Time     // o mesajın yerel alınma anı
 	offset  time.Duration // serverTime − yerel saat
 	cancelC <-chan time.Time
+	// P20 K6 talep sohbeti (chat.go): chatC sıradaki sohbet zaman olayı (1 sn kilidi / yeniden gönderim), chatAt anı.
+	chat   *Chat
+	chatC  <-chan time.Time
+	chatAt time.Time
 }
 
 // wait back=true → forma dön (iptal sonrası veya "Yeniden talep oluştur").
 func (r *runner) wait(ctx context.Context, c *api.CreateRequestResult) (bool, *Outcome) {
 	wctx, wcancel := context.WithCancel(ctx)
 	w := &waiter{r: r, wctx: wctx, secret: c.RequestSecret, in: make(chan readRes, 8), redial: make(chan dialRes, 1),
-		sentAt: r.d.Now()}
+		sentAt: r.d.Now(), chat: NewChat(nil)}
 	w.view = WaitView{Tenant: r.info.Tenant.Name, Logo: r.logo, Code: c.RequestCode, Position: c.Position,
-		Warning: r.forgetWarn}
+		Warning: r.forgetWarn, Label: r.registered}
 	r.d.UI.RequestFormClose()
 	r.d.UI.RequestWaiting(w.view)
+	w.showChat(r.d.Now())
+	sends := r.d.UI.RequestChatSends()
 	w.startDial(r.d.Now(), 0) // ilk bağlantı da yeniden bağlanma yoluyla: hata → aynı süre içinde tekrar
 	tick := time.NewTicker(r.d.TickEvery)
 	defer tick.Stop()
@@ -73,6 +79,9 @@ func (r *runner) wait(ctx context.Context, c *api.CreateRequestResult) (bool, *O
 				}
 				continue
 			}
+			if w.onChat(rr.m) {
+				continue
+			}
 			st = w.m.OnServer(rr.m)
 		case dr := <-w.redial:
 			w.dialing = false
@@ -86,6 +95,17 @@ func (r *runner) wait(ctx context.Context, c *api.CreateRequestResult) (bool, *O
 		case <-w.cancelC:
 			w.cancelC = nil
 			st = w.m.OnCancelTimeout()
+		case text := <-sends:
+			now := r.d.Now()
+			w.sendChat(w.chat.Submit(text, now))
+			w.showChat(now)
+			continue
+		case <-w.chatC:
+			w.chatC = nil
+			now := maxTime(r.d.Now(), w.chatAt) // zamanlayıcı olayın anına ulaşıldı demektir
+			w.sendChat(w.chat.Due(now))
+			w.showChat(now)
+			continue
 		}
 		if st.Share != nil {
 			r.d.UI.RequestWaitClose()
@@ -171,6 +191,8 @@ func (w *waiter) dialed(ctx context.Context, dr dialRes) (bool, bool, *Outcome) 
 		w.conn = dr.c
 		w.gen++
 		w.read(dr.c, w.gen)
+		w.chat.Online(true)
+		w.showChat(w.r.d.Now())
 		if w.view.Notice != "" {
 			w.view.Notice = ""
 			w.r.d.UI.RequestWaiting(w.view)
@@ -220,6 +242,8 @@ func (w *waiter) lost(ctx context.Context, err error) (bool, bool, *Outcome) {
 	}
 	w.view.Notice = noticeReconnect
 	w.r.d.UI.RequestWaiting(w.view)
+	w.chat.Online(false)
+	w.showChat(w.r.d.Now())
 	w.startDial(w.r.d.Now(), w.r.d.Jitter(retryJitter))
 	return false, false, nil
 }
@@ -308,6 +332,8 @@ func (w *waiter) apply(ctx context.Context, st Step) (bool, bool, *Outcome) {
 		d.UI.RequestWaiting(w.view)
 	}
 	if a := st.Accept; a != nil {
+		w.chat.OnAccepted()
+		w.showChat(now)
 		d.UI.RequestAccepted(AcceptView{Tenant: w.view.Tenant, Logo: w.view.Logo, TechName: a.TechnicianName,
 			TechVerifyCode: a.TechVerifyCode, RequestCode: w.view.Code, Remaining: w.remaining(now), AdmitCode: a.AdmitCode})
 	}
@@ -378,4 +404,41 @@ func closedView(c Closed) ClosedView {
 		return ClosedView{Message: Message{"Talebiniz iptal edildi", "Bağlantı uzun süre koptuğu için talebiniz iptal edildi. İsterseniz yeniden talep oluşturabilirsiniz."}, Recreate: true}
 	}
 	return ClosedView{Message: Message{"Talebiniz iptal edildi", "İsterseniz yeniden talep oluşturabilirsiniz."}, Recreate: true}
+}
+
+// onChat P20 sohbet mesajları ve `error` (sohbetten doğar; bekleme makinesi `error`'ı zaten yok sayar).
+func (w *waiter) onChat(m Inbound) bool {
+	now := w.r.d.Now()
+	switch v := m.(type) {
+	case ChatMessage:
+		w.chat.OnMessage(v.ChatItem)
+	case ChatHistory:
+		w.sendChat(w.chat.OnHistory(v.Items, now))
+	case ChatToggle:
+		w.chat.OnToggle(*v.Enabled)
+	case ErrorMsg:
+		w.chat.OnError(v, now)
+	default:
+		return false
+	}
+	w.showChat(now)
+	return true
+}
+
+// sendChat yazım hatası kopma gibi ele alınır (yeniden bağlantıdaki `request.messages` ile denetlenir).
+func (w *waiter) sendChat(s *ChatSend) {
+	if s == nil {
+		return
+	}
+	if w.conn == nil || w.conn.SendMessage(w.wctx, s.Body, s.ClientMsgID) != nil {
+		w.chat.SendFailed()
+	}
+}
+
+// showChat sohbet alanını çizer ve sıradaki sohbet zaman olayını kurar.
+func (w *waiter) showChat(now time.Time) {
+	w.r.d.UI.RequestChat(w.chat.View(now))
+	if t := w.chat.Wake(now); !t.IsZero() && (w.chatC == nil || !t.Equal(w.chatAt)) {
+		w.chatAt, w.chatC = t, w.r.d.After(max(t.Sub(now), 0))
+	}
 }

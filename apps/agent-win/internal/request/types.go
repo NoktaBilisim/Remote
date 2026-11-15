@@ -22,6 +22,8 @@ type API interface {
 type Conn interface {
 	Read(ctx context.Context) (Inbound, error)
 	Send(ctx context.Context, m Outbound) error
+	// SendMessage P20 talep sohbeti `request.message`.
+	SendMessage(ctx context.Context, body, clientMsgID string) error
 	Close(normal bool) error
 }
 
@@ -113,6 +115,9 @@ type WaitView struct {
 	Notice   string
 	// Warning kalıcı uyarı (QA-P8b2-2: hatırlama dosyası silinemedi); Notice'ten bağımsız, yeniden bağlanmada silinmez.
 	Warning string
+	// Label P20 (G-P20-7): seçili firmanın YEREL etiketi (kayıttan; sunucu metni değil) — pencere başlığında. Boşsa
+	// başlık "Talebiniz iletildi".
+	Label string
 }
 
 // AcceptView "<Teknisyen> bağlanmak istiyor" onay ekranı (AC-154, §13.3).
@@ -156,6 +161,10 @@ type UI interface {
 	RequestAccepted(v AcceptView)
 	RequestAcceptedTick(remaining time.Duration)
 	RequestWaitClose() // bekleme penceresi + onay diyaloğu kapanır
+	// RequestChat P20 talep sohbeti alanını günceller (bekleme penceresi açıkken; değilse yok sayılır).
+	RequestChat(v ChatView)
+	// RequestChatSends müşterinin "Gönder" ile verdiği ham metinler (bekleme penceresi).
+	RequestChatSends() <-chan string
 	RequestClosed(ctx context.Context, v ClosedView) ClosedAction
 	OpenURL(u string)
 }
