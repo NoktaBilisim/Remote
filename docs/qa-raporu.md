@@ -8,25 +8,25 @@ Tarih: 2026-11-15 · Dal `p27-wip`, commit edilmemiş çalışma ağacı. Kod de
 
 ## Test sonucu
 
-| Komut | Sonuç |
-| --- | --- |
-| `pnpm -r run lint` | yeşil (çıkış 0) |
-| `pnpm -r run typecheck` | yeşil (çıkış 0) |
-| `pnpm -r run test` | contracts 173/173, web 411/411, server 484/484; skip 0 |
-| Entegrasyon `lg-send` + `p19-notify-j3` + `tenant-isolation` (ayrı konteyner `rs-qa2-lg-3006bc`, `test-db.sh` aynı kabukta; iş sonunda silindi, `rs-mysql-test`'e dokunulmadı) | **45/45, 3 dosya**, skip 0 |
-| Playwright `lg-send.spec.ts` | 7 geçti / 0 kaldı / 5 skip (skip'ler `desktopOnly`/`mobileOnly` proje ayrımı; tur 1 ile aynı desen) |
+| Komut                                                                                                                                                                          | Sonuç                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint`                                                                                                                                                             | yeşil (çıkış 0)                                                                                     |
+| `pnpm -r run typecheck`                                                                                                                                                        | yeşil (çıkış 0)                                                                                     |
+| `pnpm -r run test`                                                                                                                                                             | contracts 173/173, web 411/411, server 484/484; skip 0                                              |
+| Entegrasyon `lg-send` + `p19-notify-j3` + `tenant-isolation` (ayrı konteyner `rs-qa2-lg-3006bc`, `test-db.sh` aynı kabukta; iş sonunda silindi, `rs-mysql-test`'e dokunulmadı) | **45/45, 3 dosya**, skip 0                                                                          |
+| Playwright `lg-send.spec.ts`                                                                                                                                                   | 7 geçti / 0 kaldı / 5 skip (skip'ler `desktopOnly`/`mobileOnly` proje ayrımı; tur 1 ile aynı desen) |
 
 ## Tur 1 maddelerinin durumu
 
-| Madde | Durum | Kanıt |
-| --- | --- | --- |
-| 1. AC-411 testi | ✅ | `lg-send.test.ts` "AC-411…": ikili kapısı açık uygulamada gönderilen WhatsApp metni = önizleme; metinden `agent/download?ref=` çıkarılıyor; PENDING'de 302 `/downloads/Destek-*.exe`; `createdAt/expiresAt` geriye çekilince aynı URL 410 |
-| 2. E-posta gönderilen = önizleme | ✅ | MIME çözücü (iç içe multipart, QP/base64, kodlanmış konu) `lg-send.test.ts:116-160`; K2 `:194-195` ve K1 `:422-423` `mail.text`/`mail.subject` `toBe(preview…)` |
-| 3. AC-406 kanal matrisi | ✅ | "AC-406 kanal kombinasyonu matrisi" 4 test: WA `usable=false` ve SMS yok → `unconfigured`; `settings.view` yok → `settingsHref:null`; WA ayar bağlantısı yalnız Super Admin; K2 `no_recipient`; K2 ikili kapısı kapalı → EMAIL `unconfigured`; hiç kullanılabilir kanal yok → `previews` boş + gönderim 409. "Boş `channels`" yerine yetkili kanal yoksa 403 dönüyor; bu davranış testte kanıtlı ve implementation.md'de gerekçeli, kabul |
-| 4. AC-419 iptal edilmiş kod | ✅ | Tek tip 404 testinde `DELETE /registration-codes/:id` → 204, ardından aynı 404 gövdesi (`bodies.size === 1`) |
-| 5. AC-410 karar | ✅ | `gereksinimler-link-gonderme.md:76` metni güncellendi: e-postada süzülmüş tam ad, SMS'te istemci satırı yok (koordinatör kararı). Kod değişmedi, AC ile kod artık tutarlı |
-| 6. Dokümantasyon (AC-428) | ✅ | Kılavuz "Teknisyen ve Admin için: Müşteriye gönder" (`:2544-2676`): üç akış, kanal koşulları, K2'nin yalnız e-postayla gitmesi ve gerekçesi, kodun yeniden gönderilemeyeceği, kod başına 3 hak, public indirme bağlantısı, sınırlar, rol ayrımı, mesaj tablosu. `api.md` `:241-243`, `:3095-3213` (iki uç + public indirme), `:2897` K1 SMS farkı. CHANGELOG "Eklendi — Müşteriye bağlantı gönderme". Runbook §12.3 K13 bitiş koşulu ve K3 riski. PDF'ler md'lerden sonra üretilmiş (23:41:56); `KULLANIM_KILAVUZU.pdf` 89 sayfa, "Müşteriye gönder", "SMS'te yoktur", "en çok 3 kez" metinleri pypdf ile bulundu |
-| 7. SMS ≤ 3 parça | ✅ (kabul) | `customer-templates.ts:72-77` `sessionSms`: istemci satırı ve uyarı satırı yok. Mimari §5.1 sapma notu (`:273`), AC-410 metni ve implementation.md güncellendi. Birim `p19-notify-j3` ≤ 3×67 ve SMS'te `agent/download` yok. **Uyarı satırının çıkarılması kabul edilebilir.** Gerekçe: en kötü durumda metin 201 karakter sınırına zaten dayanıyor, yer kalmıyor. Gönderen firma ve teknisyen adı SMS'te duruyor. WhatsApp ve e-postada uyarı korunuyor. Kısa uyarı ekleyen eski P19 SMS'iyle fark bilinçli ve belgeli. Etkisi Öneri 1'de |
+| Madde                            | Durum      | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. AC-411 testi                  | ✅         | `lg-send.test.ts` "AC-411…": ikili kapısı açık uygulamada gönderilen WhatsApp metni = önizleme; metinden `agent/download?ref=` çıkarılıyor; PENDING'de 302 `/downloads/Destek-*.exe`; `createdAt/expiresAt` geriye çekilince aynı URL 410                                                                                                                                                                                                                                                                                                                                                                         |
+| 2. E-posta gönderilen = önizleme | ✅         | MIME çözücü (iç içe multipart, QP/base64, kodlanmış konu) `lg-send.test.ts:116-160`; K2 `:194-195` ve K1 `:422-423` `mail.text`/`mail.subject` `toBe(preview…)`                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 3. AC-406 kanal matrisi          | ✅         | "AC-406 kanal kombinasyonu matrisi" 4 test: WA `usable=false` ve SMS yok → `unconfigured`; `settings.view` yok → `settingsHref:null`; WA ayar bağlantısı yalnız Super Admin; K2 `no_recipient`; K2 ikili kapısı kapalı → EMAIL `unconfigured`; hiç kullanılabilir kanal yok → `previews` boş + gönderim 409. "Boş `channels`" yerine yetkili kanal yoksa 403 dönüyor; bu davranış testte kanıtlı ve implementation.md'de gerekçeli, kabul                                                                                                                                                                         |
+| 4. AC-419 iptal edilmiş kod      | ✅         | Tek tip 404 testinde `DELETE /registration-codes/:id` → 204, ardından aynı 404 gövdesi (`bodies.size === 1`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 5. AC-410 karar                  | ✅         | `gereksinimler-link-gonderme.md:76` metni güncellendi: e-postada süzülmüş tam ad, SMS'te istemci satırı yok (koordinatör kararı). Kod değişmedi, AC ile kod artık tutarlı                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 6. Dokümantasyon (AC-428)        | ✅         | Kılavuz "Teknisyen ve Admin için: Müşteriye gönder" (`:2544-2676`): üç akış, kanal koşulları, K2'nin yalnız e-postayla gitmesi ve gerekçesi, kodun yeniden gönderilemeyeceği, kod başına 3 hak, public indirme bağlantısı, sınırlar, rol ayrımı, mesaj tablosu. `api.md` `:241-243`, `:3095-3213` (iki uç + public indirme), `:2897` K1 SMS farkı. CHANGELOG "Eklendi — Müşteriye bağlantı gönderme". Runbook §12.3 K13 bitiş koşulu ve K3 riski. PDF'ler md'lerden sonra üretilmiş (23:41:56); `KULLANIM_KILAVUZU.pdf` 89 sayfa, "Müşteriye gönder", "SMS'te yoktur", "en çok 3 kez" metinleri pypdf ile bulundu |
+| 7. SMS ≤ 3 parça                 | ✅ (kabul) | `customer-templates.ts:72-77` `sessionSms`: istemci satırı ve uyarı satırı yok. Mimari §5.1 sapma notu (`:273`), AC-410 metni ve implementation.md güncellendi. Birim `p19-notify-j3` ≤ 3×67 ve SMS'te `agent/download` yok. **Uyarı satırının çıkarılması kabul edilebilir.** Gerekçe: en kötü durumda metin 201 karakter sınırına zaten dayanıyor, yer kalmıyor. Gönderen firma ve teknisyen adı SMS'te duruyor. WhatsApp ve e-postada uyarı korunuyor. Kısa uyarı ekleyen eski P19 SMS'iyle fark bilinçli ve belgeli. Etkisi Öneri 1'de                                                                        |
 
 ## Kabul kriterleri
 
@@ -38,21 +38,22 @@ Yok.
 
 ## Definition of Done
 
-| Madde | ✅/❌ | Not |
-| --- | --- | --- |
-| Lint / typecheck / unit / int / e2e yeşil | ✅ | Yukarıdaki tablo; tam `test:int` bu turda koşulmadı (dar kapsam), tur 1'de 945/945 idi |
-| Her AC'nin kanıtı var | ✅ | AC-405..428 |
-| Tasarım-kod uyumu | ✅ | SMS sapması mimari §5.1'de kayıtlı |
-| Dokümantasyon (kılavuz, api.md, CHANGELOG, runbook, PDF) | ✅ | Madde 6 |
-| Diğer DoD maddeleri | ✅ | Tur 1'den değişiklik yok |
+| Madde                                                    | ✅/❌ | Not                                                                                    |
+| -------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------- |
+| Lint / typecheck / unit / int / e2e yeşil                | ✅    | Yukarıdaki tablo; tam `test:int` bu turda koşulmadı (dar kapsam), tur 1'de 945/945 idi |
+| Her AC'nin kanıtı var                                    | ✅    | AC-405..428                                                                            |
+| Tasarım-kod uyumu                                        | ✅    | SMS sapması mimari §5.1'de kayıtlı                                                     |
+| Dokümantasyon (kılavuz, api.md, CHANGELOG, runbook, PDF) | ✅    | Madde 6                                                                                |
+| Diğer DoD maddeleri                                      | ✅    | Tur 1'den değişiklik yok                                                               |
 
 ## Öneriler (zorunlu değil)
 
 1. SMS uzunluk testi (`p19-notify-j3.test.ts:43`) kaynak olarak 26 karakterlik `https://remote.example.com` kullanıyor. Prod alan adı `https://remote.noktabilisim.net` 31 karakter. Elle hesap (ölçülmedi): firma 30 + kısa ad 20 olan en kötü durumda metin yaklaşık 200 karakterden 205'e çıkar ve 4. parçaya taşabilir. Öneri:
    - testi prod uzunluğunda kökenle koşmak;
    - gerekirse `Son geçerlilik:` ifadesini kısaltmak (ör. `Son:`).
-   
+
    Bu kısaltmayla açılan yere "Paylaşmayın." uyarısı da sığabilir.
+
 2. Tur 1 öneri 2–4 (targets.ts başlık yorumu, kova geri alma, anonim müşteri K3 409 testi) açık; bu turun kapsamı dışında.
 
 ## Olumlu
@@ -74,42 +75,42 @@ Kaynak: `docs/gereksinimler-link-gonderme.md` (AC-405..428), `docs/mimari-link-g
 
 ## Test sonucu
 
-| Komut | Sonuç |
-| --- | --- |
-| `pnpm -r run lint` | yeşil, uyarı 0 |
-| `pnpm -r run typecheck` | yeşil |
-| `pnpm -r run test` | contracts 173/173, web 411/411, server 484/484 |
-| `pnpm test:int` (ayrı konteyner `rs-qa-lg-681dcc`, port 33419; iş sonunda silindi, `rs-mysql-test`'e dokunulmadı) | **945/945, 93 dosya**, skip 0. Tenant-matrix düzeltmesinden sonra tam takım yeşil (AC-69 dahil) |
-| Playwright: `lg-send`, `p10-account`, `p19-j5`, `unattended`, `customers` | 97 geçti / 0 kaldı / 37 skip. Skip'ler `desktopOnly` ayrımından geliyor; önceki turlardakiyle aynı desen |
+| Komut                                                                                                             | Sonuç                                                                                                    |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint`                                                                                                | yeşil, uyarı 0                                                                                           |
+| `pnpm -r run typecheck`                                                                                           | yeşil                                                                                                    |
+| `pnpm -r run test`                                                                                                | contracts 173/173, web 411/411, server 484/484                                                           |
+| `pnpm test:int` (ayrı konteyner `rs-qa-lg-681dcc`, port 33419; iş sonunda silindi, `rs-mysql-test`'e dokunulmadı) | **945/945, 93 dosya**, skip 0. Tenant-matrix düzeltmesinden sonra tam takım yeşil (AC-69 dahil)          |
+| Playwright: `lg-send`, `p10-account`, `p19-j5`, `unattended`, `customers`                                         | 97 geçti / 0 kaldı / 37 skip. Skip'ler `desktopOnly` ayrımından geliyor; önceki turlardakiyle aynı desen |
 
 ## Kabul kriterleri
 
-| AC | Durum | Kanıt veya eksik |
-| --- | --- | --- |
-| 405 | ✅ | e2e `lg-send` "AC-405…": düğme sayısı 1, eski test-id'ler 0. Aynı bileşen `code-dialog` ve `customers/[id]` içinde kullanılıyor; eski iki bileşen silindi |
-| 406 | ⚠️ | Entegrasyonda yalnız 3 durum var: K2 yalnız EMAIL, K3 SMTP yok, K1 tüm kanallar ve yetki varyantı. AC'nin istediği "her kanal kombinasyonu" matrisi yok (madde 3) |
-| 407 | ⚠️ | WhatsApp için birebir eşitlik kanıtlı (K1, K3 entegrasyon `toBe(preview)`). E-postada eşitlik kanıtlanmadı: K2 testi yalnız kod ve belirteç `toContain` yapıyor; K1 e-posta hiç karşılaştırılmıyor. e2e eşitliği mock-lg'nin kendi `render`ından geldiği için totolojik (madde 2) |
-| 408 | ✅ | e2e K1: 502 genel metin (ham "relay" yok), 409, 429 geri sayım, başarı satırı, diyalog açık kalıyor. Ayrı testte hata + tekrar dene ve boş durum |
-| 409 | ✅ | Entegrasyon "AC-409" (`fields.to`); e2e istemci e-posta hatası ve E.164 önizlemesi |
-| 410 | ⚠️ | Birim "AC-410" alanları doğruluyor. Ancak K1 e-postası `techShortName` yerine süzülmüş tam ad kullanıyor (implementation.md sapma 2). AC metni "her kanalda kısa ad" diyor; karar gerekiyor (madde 5) |
-| 411 | ⚠️ | Mesajdaki bağlantının `public/agent/download?ref=` olduğu kodda doğru (`agentLinkFor`). AC'nin istediği "gönderilen bağlantı süresi dolunca 410" testi yok; mevcut `agent-download.test.ts` gönderilen mesajın ref'ini kullanmıyor (madde 1) |
-| 412 | ✅ | Birim "AC-412": e-postada SHA, "Destek-", "Windows 10 / 11" var; kısa metinde SHA yok; `agent:null` iken "download" yok |
-| 413 | ✅ | Entegrasyon "AC-413/414": send_link yoksa yalnız EMAIL ve WA 403, başka teknisyen 404, yanlış bağlantı 400 `fields.link` |
-| 414 | ✅ | Audit `session.email` ve `session.link_sent` doğru. P10/P19 entegrasyon dosyaları değişmedi ve yeşil. Birimde yalnız şablon beklentileri güncellendi (`p19-notify-j3`, `security-p10`; izinli) |
-| 415 | ✅ | Entegrasyon "AC-415/416/D-LG-5": başka kodun metni 400 `fields.code`, tüketilmiş 409, iptal 409 |
-| 416 | ✅ | Aynı test: başka kullanıcı, başka firma ve manage'siz durumlar 404; kapı kapalı 409 `UNATTENDED_DISABLED` |
-| 417 | ✅ | "AC-417": listede olmayan alıcı 400, inbox sayısı değişmiyor; WA 400 `fields.channel` |
-| 418 | ✅ | Birim "AC-418" |
-| 419 | ⚠️ | 200, başlıklar, 503 sırası, IP 20/dk, O-LG-2 ve tek tip 404 kanıtlı (kullanılmış, süresi dolmuş, müşteri pasif, firma pasif, kapı kapalı). AC'deki dört durumdan **iptal edilmiş kod** testte yok; mimari §12 de istiyor (madde 4) |
-| 420 | ✅ | "AC-407/418/420": 4. gönderim 429, `sent_count`=3, audit'te kod ve belirteç yok; havuz K1 ile ortak ("AC-420/423") |
-| 421 | ✅ | Pasif müşteri 409 (entegrasyon); düğme yetkiye bağlı (e2e). Aktif müşteride `downloadUrl` hep dolu olduğu için "bağlantısız" dalı pratikte erişilmez |
-| 422 | ✅ | Ref yenilendikten sonra önizleme yeni ref'i içeriyor; uyarı metni birim testte |
-| 423 | ✅ | send_link yoksa 403; audit maskeli, URL ve ref yok, `links:["download"]`; ortak havuzda 429 |
-| 424 | ✅ | Birim "AC-424 / D-LG-4": üç şablon × EMAIL/WA, subject, text ve HTML'de `evil.com` ve `<b>x` yok |
-| 425 | ✅ | "AC-425 log" telefon, e-posta, `download?t=`, oturum token'ı ve kayıt kodu desenini arıyor, bulamıyor. Redact yolları eklendi |
-| 426 | ✅ | e2e iki tema axe 0, 360 px taşma yok, Esc (iç diyalog), ok tuşu; ikonlar `Mail`/`MessageCircle`/`MessageSquareText` |
-| 427 | ✅ (not) | Üç akış e2e'de yeşil. Mock-API deseni mimari §12 ile uyumlu; gerçek metin eşitliği AC-407 kapsamında |
-| 428 | ❌ | `KULLANIM_KILAVUZU.md` içinde "Müşteriye gönder" yok; `api.md` içinde `customer-send` yok (LG-5 teknik-yazar, madde 6) |
+| AC  | Durum    | Kanıt veya eksik                                                                                                                                                                                                                                                                  |
+| --- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 405 | ✅       | e2e `lg-send` "AC-405…": düğme sayısı 1, eski test-id'ler 0. Aynı bileşen `code-dialog` ve `customers/[id]` içinde kullanılıyor; eski iki bileşen silindi                                                                                                                         |
+| 406 | ⚠️       | Entegrasyonda yalnız 3 durum var: K2 yalnız EMAIL, K3 SMTP yok, K1 tüm kanallar ve yetki varyantı. AC'nin istediği "her kanal kombinasyonu" matrisi yok (madde 3)                                                                                                                 |
+| 407 | ⚠️       | WhatsApp için birebir eşitlik kanıtlı (K1, K3 entegrasyon `toBe(preview)`). E-postada eşitlik kanıtlanmadı: K2 testi yalnız kod ve belirteç `toContain` yapıyor; K1 e-posta hiç karşılaştırılmıyor. e2e eşitliği mock-lg'nin kendi `render`ından geldiği için totolojik (madde 2) |
+| 408 | ✅       | e2e K1: 502 genel metin (ham "relay" yok), 409, 429 geri sayım, başarı satırı, diyalog açık kalıyor. Ayrı testte hata + tekrar dene ve boş durum                                                                                                                                  |
+| 409 | ✅       | Entegrasyon "AC-409" (`fields.to`); e2e istemci e-posta hatası ve E.164 önizlemesi                                                                                                                                                                                                |
+| 410 | ⚠️       | Birim "AC-410" alanları doğruluyor. Ancak K1 e-postası `techShortName` yerine süzülmüş tam ad kullanıyor (implementation.md sapma 2). AC metni "her kanalda kısa ad" diyor; karar gerekiyor (madde 5)                                                                             |
+| 411 | ⚠️       | Mesajdaki bağlantının `public/agent/download?ref=` olduğu kodda doğru (`agentLinkFor`). AC'nin istediği "gönderilen bağlantı süresi dolunca 410" testi yok; mevcut `agent-download.test.ts` gönderilen mesajın ref'ini kullanmıyor (madde 1)                                      |
+| 412 | ✅       | Birim "AC-412": e-postada SHA, "Destek-", "Windows 10 / 11" var; kısa metinde SHA yok; `agent:null` iken "download" yok                                                                                                                                                           |
+| 413 | ✅       | Entegrasyon "AC-413/414": send_link yoksa yalnız EMAIL ve WA 403, başka teknisyen 404, yanlış bağlantı 400 `fields.link`                                                                                                                                                          |
+| 414 | ✅       | Audit `session.email` ve `session.link_sent` doğru. P10/P19 entegrasyon dosyaları değişmedi ve yeşil. Birimde yalnız şablon beklentileri güncellendi (`p19-notify-j3`, `security-p10`; izinli)                                                                                    |
+| 415 | ✅       | Entegrasyon "AC-415/416/D-LG-5": başka kodun metni 400 `fields.code`, tüketilmiş 409, iptal 409                                                                                                                                                                                   |
+| 416 | ✅       | Aynı test: başka kullanıcı, başka firma ve manage'siz durumlar 404; kapı kapalı 409 `UNATTENDED_DISABLED`                                                                                                                                                                         |
+| 417 | ✅       | "AC-417": listede olmayan alıcı 400, inbox sayısı değişmiyor; WA 400 `fields.channel`                                                                                                                                                                                             |
+| 418 | ✅       | Birim "AC-418"                                                                                                                                                                                                                                                                    |
+| 419 | ⚠️       | 200, başlıklar, 503 sırası, IP 20/dk, O-LG-2 ve tek tip 404 kanıtlı (kullanılmış, süresi dolmuş, müşteri pasif, firma pasif, kapı kapalı). AC'deki dört durumdan **iptal edilmiş kod** testte yok; mimari §12 de istiyor (madde 4)                                                |
+| 420 | ✅       | "AC-407/418/420": 4. gönderim 429, `sent_count`=3, audit'te kod ve belirteç yok; havuz K1 ile ortak ("AC-420/423")                                                                                                                                                                |
+| 421 | ✅       | Pasif müşteri 409 (entegrasyon); düğme yetkiye bağlı (e2e). Aktif müşteride `downloadUrl` hep dolu olduğu için "bağlantısız" dalı pratikte erişilmez                                                                                                                              |
+| 422 | ✅       | Ref yenilendikten sonra önizleme yeni ref'i içeriyor; uyarı metni birim testte                                                                                                                                                                                                    |
+| 423 | ✅       | send_link yoksa 403; audit maskeli, URL ve ref yok, `links:["download"]`; ortak havuzda 429                                                                                                                                                                                       |
+| 424 | ✅       | Birim "AC-424 / D-LG-4": üç şablon × EMAIL/WA, subject, text ve HTML'de `evil.com` ve `<b>x` yok                                                                                                                                                                                  |
+| 425 | ✅       | "AC-425 log" telefon, e-posta, `download?t=`, oturum token'ı ve kayıt kodu desenini arıyor, bulamıyor. Redact yolları eklendi                                                                                                                                                     |
+| 426 | ✅       | e2e iki tema axe 0, 360 px taşma yok, Esc (iç diyalog), ok tuşu; ikonlar `Mail`/`MessageCircle`/`MessageSquareText`                                                                                                                                                               |
+| 427 | ✅ (not) | Üç akış e2e'de yeşil. Mock-API deseni mimari §12 ile uyumlu; gerçek metin eşitliği AC-407 kapsamında                                                                                                                                                                              |
+| 428 | ❌       | `KULLANIM_KILAVUZU.md` içinde "Müşteriye gönder" yok; `api.md` içinde `customer-send` yok (LG-5 teknik-yazar, madde 6)                                                                                                                                                            |
 
 ## Düzeltilmeli
 
@@ -129,29 +130,31 @@ Kaynak: `docs/gereksinimler-link-gonderme.md` (AC-405..428), `docs/mimari-link-g
    - (b) [backend-dev] `customer-templates.ts:84` `fullName` yerine `T()` kullanılır ve AC-10 beklentisi güncellenir.
 
    Karar implementation.md'ye yazılır.
+
 6. [teknik-yazar] AC-428 için `docs/KULLANIM_KILAVUZU.md`'ye "Müşteriye gönder" bölümü eklenmeli. İçeriği:
    - üç akış
    - kanal koşulları; K2'nin yalnız e-postayla gittiği (O-LG-3)
    - kayıt kodunun yeniden gönderilemeyeceği, kod başına 3 hak
 
    Ayrıca `docs/api.md` güncellenmeli: `POST /customer-send/options`, `POST /customer-send`, `GET|HEAD /public/unattended/download` ve K1 metin değişikliği. Ardından CHANGELOG ve PDF yeniden üretilir. Not: mimari §13 bu işi LG-4 GEÇTİ'den sonraya koyuyor. 1–5 kapandığında bu madde tek açık kalırsa koordinatör doküman turunu başlatabilir; AC-428 ✅ ancak bu iş tamamlanınca olur.
+
 7. [mimar] SMS uzunluğu sapması: K1 SMS'i UCS-2'de 6–7 parça, mimari §5.1 "2–3 parça" diyor. Maliyet 2–3 kat artıyor ve tenant tavanı 200/sa. Kısaltma kararı ya da §5.1 metninin güncellenmesi gerekiyor; seçenekler: ref'i kısaltmak, SMS'te istemci satırını düşürmek. Karar implementation.md'ye yazılır.
 
 ## Definition of Done
 
-| Madde | ✅/❌ | Not |
-| --- | --- | --- |
-| Lint / typecheck / unit / int / e2e yeşil | ✅ | Yukarıdaki tablo |
-| Her AC'nin kanıtı var | ❌ | 406, 407, 411, 419 ⚠️; 410 karar bekliyor; 428 ❌ |
-| Tasarım-kod uyumu | ⚠️ | Sözleşme §4.1, uçlar, hata sırası, audit eylemleri ve kovalar uyumlu. Sapmalar gerekçeli: `customer-actions.tsx` yerine `page.tsx`, radyo grubu, `sms_tr_only` bloğu üretilmiyor (400 `fields.to` ile karşılanıyor, kabul edilebilir). SMS parça sayısı kararı açık (madde 7) |
-| Tenant izolasyonu | ✅ | Tüm sorgularda `tenantId` var; tenant-matrix'e yeni uçlar eklendi, AC-69 yeşil |
-| Yetki arka uçta | ✅ | `targets.ts` K1 403/404, K2 404, K3 403 |
-| Audit + maskeleme | ✅ | `unattended.code.sent`, `customer.link_sent`, `unattended.code.downloaded`; web etiketleri `LG_AUDIT_LABELS` |
-| Log/metrikte PII yok | ✅ | AC-425 testi; metrik etiketleri `kind/channel/result` |
-| Migration + grants | ✅ | `20261122000000_link_send`; `lg-schema.test.ts` CHECK, UNIQUE ve koşullu artışı doğruluyor |
-| Yeni bağımlılık | ✅ | Yok |
-| 5 durum + a11y + iki tema + 360 px | ✅ | e2e |
-| Dokümantasyon (kılavuz, api.md, CHANGELOG, PDF) | ❌ | Madde 6 |
+| Madde                                           | ✅/❌ | Not                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lint / typecheck / unit / int / e2e yeşil       | ✅    | Yukarıdaki tablo                                                                                                                                                                                                                                                              |
+| Her AC'nin kanıtı var                           | ❌    | 406, 407, 411, 419 ⚠️; 410 karar bekliyor; 428 ❌                                                                                                                                                                                                                             |
+| Tasarım-kod uyumu                               | ⚠️    | Sözleşme §4.1, uçlar, hata sırası, audit eylemleri ve kovalar uyumlu. Sapmalar gerekçeli: `customer-actions.tsx` yerine `page.tsx`, radyo grubu, `sms_tr_only` bloğu üretilmiyor (400 `fields.to` ile karşılanıyor, kabul edilebilir). SMS parça sayısı kararı açık (madde 7) |
+| Tenant izolasyonu                               | ✅    | Tüm sorgularda `tenantId` var; tenant-matrix'e yeni uçlar eklendi, AC-69 yeşil                                                                                                                                                                                                |
+| Yetki arka uçta                                 | ✅    | `targets.ts` K1 403/404, K2 404, K3 403                                                                                                                                                                                                                                       |
+| Audit + maskeleme                               | ✅    | `unattended.code.sent`, `customer.link_sent`, `unattended.code.downloaded`; web etiketleri `LG_AUDIT_LABELS`                                                                                                                                                                  |
+| Log/metrikte PII yok                            | ✅    | AC-425 testi; metrik etiketleri `kind/channel/result`                                                                                                                                                                                                                         |
+| Migration + grants                              | ✅    | `20261122000000_link_send`; `lg-schema.test.ts` CHECK, UNIQUE ve koşullu artışı doğruluyor                                                                                                                                                                                    |
+| Yeni bağımlılık                                 | ✅    | Yok                                                                                                                                                                                                                                                                           |
+| 5 durum + a11y + iki tema + 360 px              | ✅    | e2e                                                                                                                                                                                                                                                                           |
+| Dokümantasyon (kılavuz, api.md, CHANGELOG, PDF) | ❌    | Madde 6                                                                                                                                                                                                                                                                       |
 
 ## Öneriler (zorunlu değil)
 

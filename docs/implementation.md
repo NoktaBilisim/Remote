@@ -10467,7 +10467,6 @@ başına koşuda yeşil, yük altında kararsız). E2E (Playwright) koşulmadı.
 - Açılışta tek `warn {alarm:"whatsapp_insecure_http_allowed"}` (adres/anahtar yok). Sözleşme: `WhatsappSettingsView.insecureAllowed`; web sarı uyarı `wa-svc-insecure-allowed`.
 - Tasarımdan sapma (mimari §13.5 / S-P13b-8): production'da düz http yalnız bu bayrakla bilinçli açılır. Kaldırma koşulu: whatsapp-bildirim servisinin HTTPS'e geçmesi (kullanıcı: sunucu değişikliğinde). Yeni bağımlılık yok.
 
-
 ## LG-3 — Müşteriye gönder diyaloğu (frontend-dev, 2026-11-15)
 
 Kaynak: `docs/mimari-link-gonderme.md` §4.1, §9 (+ r2 O-LG-3: kayıt kodu yalnız e-posta). AC-405..409, 415, 417, 421, 423, 426, 427.
@@ -10477,11 +10476,11 @@ Kaynak: `docs/mimari-link-gonderme.md` §4.1, §9 (+ r2 O-LG-3: kayıt kodu yaln
 
 **Rotalar:** yeni rota yok. Diyalog üç yerden açılır:
 
-| Yer | Yol | Auth | Görünürlük |
-| --- | --- | --- | --- |
-| Oluşturulan oturum kartı | `/sessions` → "Yeni destek oturumu" | evet | her zaman (`sessions.create` zaten gerekli); kanallar sunucudan |
-| Kayıt kodu gösterimi | `/unattended/codes` → "Kayıt kodu oluştur" → kod adımı | evet (`unattended.manage`) | yalnız tek gösterimde |
-| Müşteri ayrıntısı | `/customers/[id]` "Bağlantı" bölümü | evet | ACTIVE + anonim değil + (`downloadUrl` ya da `webFormUrl`) + `customers.view` + `sessions.send_link` |
+| Yer                      | Yol                                                    | Auth                       | Görünürlük                                                                                           |
+| ------------------------ | ------------------------------------------------------ | -------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Oluşturulan oturum kartı | `/sessions` → "Yeni destek oturumu"                    | evet                       | her zaman (`sessions.create` zaten gerekli); kanallar sunucudan                                      |
+| Kayıt kodu gösterimi     | `/unattended/codes` → "Kayıt kodu oluştur" → kod adımı | evet (`unattended.manage`) | yalnız tek gösterimde                                                                                |
+| Müşteri ayrıntısı        | `/customers/[id]` "Bağlantı" bölümü                    | evet                       | ACTIVE + anonim değil + (`downloadUrl` ya da `webFormUrl`) + `customers.view` + `sessions.send_link` |
 
 **Dosyalar:** yeni `apps/web/components/send-to-customer/{send-to-customer-dialog.tsx,use-send-to-customer.ts}`, `apps/web/lib/customer-send.ts` (+ `.test.ts`),
 `apps/web/e2e/{lg-send.spec.ts,mock-lg.mjs}`. Değişen: `sessions/{created-session,new-session-dialog,sessions-view,page}.tsx` (`canSendLink` zinciri kalktı),
@@ -10494,6 +10493,7 @@ kısmi (kullanılamayan kanallar neden + ayar bağlantısıyla altta listelenir,
 429 geri sayım, 409 `CHANNEL_UNAVAILABLE` sabit metin, 502 tek genel metin. K2 `remainingSends` başarıda istemcide azalır, 0'da Gönder pasif.
 
 **Sapmalar / notlar:**
+
 - Kanal seçimi: `Segmented` (aria-pressed) yerine yerel radyo grubu (`fieldset`+`legend`), ok tuşlarıyla değişim için (AC-426). Tek kanal varsa (K2) seçim yok, bilgi satırı.
 - Diyalog `document.body`'ye portal ile taşınır (kod diyaloğu / oturum diyaloğu içinde iç içe DOM ve form olmasın).
 - `Dialog` primitifi: iç içe diyalogda React olayları üst diyaloğa taşındığı için `close`/`cancel`/Tab tuzağı yalnız kendi hedefini işler (davranış değişikliği yok).
@@ -10508,20 +10508,23 @@ kısmi (kullanılamayan kanallar neden + ayar bağlantısıyla altta listelenir,
 Kaynak: `docs/mimari-link-gonderme.md` r2 (§0 güvenlik notları dahil), AC-405..428, `docs/guvenlik-raporu.md` "LG — Tasarım turu".
 
 **Yeni dosyalar**
+
 - `apps/server/src/customer-send/{targets,service,routes}.ts` — `POST /api/v1/customer-send/options`, `POST /api/v1/customer-send`.
 - `apps/server/src/notify/customer-templates.ts` — tek `renderFor(channel, input)` (K1/K2/K3 × kanal); önizleme ve gönderim buradan.
 - `apps/server/src/unattended/public-download.ts` — `GET /api/v1/public/unattended/download?t=` (ayrı oturumsuz eklenti) + `HEAD` → gövdesiz 404.
 - Testler: `test/unit/lg-send.test.ts` (13), `test/integration/lg-send.test.ts` (17).
 
 **Değişen dosyalar**
+
 - contracts: `api/customer-send.ts` (O-LG-3: `UNATTENDED_CODE: ["EMAIL"]`), `audit.ts` (`unattended.code.sent`, `unattended.code.downloaded`, `customer.link_sent`, `LG_AUDIT_LABELS`), `permissions.ts` (send_link açıklaması).
 - `lib/crypto.ts` (`unattended-download` amacı, `macBytesAt`), `unattended/registration.ts` (`downloadToken`, `downloadTokenHash`, ortak `usableCodeWhere`; `createCode` hash yazar; `lockValidCode` yüklemi kullanır → firma pasif de geçersiz), `notify/whatsapp.ts` (`transportEncrypted`), `notify/service-url.ts` (`isLoopbackHost` export).
 - K1: `sessions/send-link.ts` (activeCode + yeni şablon; ortak `assertLinkPool` 3 eylem; `hitSendBuckets`), `sessions/email.ts` (istemci satırı), `sessions/routes.ts` (paylaşılan `app.sendLinkLimits`, `agentDeps`), `public/agent.ts` (`agentLinkFor`), `notify/templates.ts` (`linkMessage` kaldırıldı), `mail/templates.ts` (`sessionLinkMail` → `renderFor`).
 - `app-hooks.ts`/`app.ts`: `sendLinkLimits` ve `unattendedBinary` tek örnek decorate; `unattended/routes.ts` oturumlu indirme bunu kullanır. `app-routes.ts` iki eklenti. `ops/metrics.ts` (`rs_unattended_download_total`; `rs_link_send_total`'a `kind`). `lib/logger.ts` redact (`body.to`, `body.target.code|link`, `*.target.code|link`).
 
-**Güvenlik turu uygulaması:** O-LG-1 (`transportEncrypted`, 4 durum birim testi), O-LG-2 (kod+ipKey saatte 1, kod başına 10, HEAD audit yok; test), O-LG-3 (K2 yalnız EMAIL), D-LG-1 (no-store onSend), D-LG-2 (ayrı eklenti, `usableCodeWhere` registerTx ile ortak, firma pasif 404, sıra biçim→IP→yüklem→SHA; test), D-LG-3 (ham 32 bayt base64url, normalize kod, amaç ayrımı testi), D-LG-4 (ad değişkeninden `* _ ~ \` < >` ve ≥5 haneli rakam dizileri süzülür; tenant adını yalnız Super Admin değiştirebiliyor — `adminTenantRoutes` `requireSuperAdmin`), D-LG-5 (iptal→409 yalnız `manage` + tenant + user + entity kapsamından sonra; test). D-LG-6 devops.
+**Güvenlik turu uygulaması:** O-LG-1 (`transportEncrypted`, 4 durum birim testi), O-LG-2 (kod+ipKey saatte 1, kod başına 10, HEAD audit yok; test), O-LG-3 (K2 yalnız EMAIL), D-LG-1 (no-store onSend), D-LG-2 (ayrı eklenti, `usableCodeWhere` registerTx ile ortak, firma pasif 404, sıra biçim→IP→yüklem→SHA; test), D-LG-3 (ham 32 bayt base64url, normalize kod, amaç ayrımı testi), D-LG-4 (ad değişkeninden `* _ ~ \` < >`ve ≥5 haneli rakam dizileri süzülür; tenant adını yalnız Super Admin değiştirebiliyor —`adminTenantRoutes` `requireSuperAdmin`), D-LG-5 (iptal→409 yalnız `manage` + tenant + user + entity kapsamından sonra; test). D-LG-6 devops.
 
 **Sapmalar (gerekçeli)**
+
 - K1 SMS metni (qa LG tur 1 madde 7, koordinatör kararı): SMS'te istemci indirme satırı ve uyarı satırı yok; metin `{F} uzak destek ({T}):` + oturum bağlantısı + kod/son geçerlilik → en kötü durumda (firma 30, kısa ad 20) UCS-2 ≤ 3 parça (201). WhatsApp ve e-posta istemci satırını korur (mimari §5.1 kısa metin). Birim: `p19-notify-j3` ≤ 3×67, `lg-send` AC-410 (SMS'te `agent/download` yok).
 - K1 e-postasında teknisyen adı kısa ad değil süzülmüş tam ad (P10 gövdesi korunur; AC-424 süzgeci uygulanır). Ad değişkenindeki `<`/`>` artık atılıyor → `security-p10.test.ts` AC-10 beklentisi ("&#60;x&#62;" → süzülmüş) güncellendi (AC-414 izinli şablon beklentisi).
 - `options` ucunda kanal blokları: `no_recipient` yalnız kilitli alıcıda (K2) üretilir; `sms_tr_only` üretilmez (SMS yurt dışı kuralı gönderimde 400 `fields.to`).
@@ -10530,12 +10533,14 @@ Kaynak: `docs/mimari-link-gonderme.md` r2 (§0 güvenlik notları dahil), AC-405
 **Bağımlılık:** yok.
 
 **frontend-dev için sözleşme notları**
+
 - `CHANNELS_BY_KIND.UNATTENDED_CODE = ["EMAIL"]` (WhatsApp K2'de yok).
 - Audit etiketleri: `LG_AUDIT_LABELS` (`@remote/contracts/audit`) web `AUDIT_ACTION_LABELS`'a yayılmalı (`apps/web/lib/audit/actions.ts` — dokunulmadı).
 - Yetki etiketi `perm.a.send_link` (`apps/web/messages/tr.json`) "Müşteriye bağlantı gönder" olmalı (mimari §6; web dosyası olduğundan dokunulmadı).
 - Hata alanları: `fields.to`, `fields.channel`, `fields.link`, `fields.code`; 409 `CHANNEL_UNAVAILABLE` / `UNATTENDED_DISABLED` / `CONFLICT`; 429 `Retry-After`.
 
 **Test komutları ve sonuç**
+
 - `pnpm -r run typecheck` yeşil, `pnpm -r run lint` yeşil, `vitest run test/unit` 484/484.
 - Entegrasyon (ayrı konteyner `rs-lg2-d347c7`, iş sonunda silindi): `lg-send.test.ts` 17/17; tam takım 945 testte tek kırmızı AC-69 (yeni uçlar sınıflandırılmamıştı) → `test/helpers/tenant-matrix.ts`'e eklendi, `tenant-isolation.test.ts` 5/5. Rota anlık görüntüsü (`pt-surface`) 4 yeni uçla güncellendi.
 
@@ -10548,4 +10553,3 @@ Kaynak: `docs/mimari-link-gonderme.md` r2 (§0 güvenlik notları dahil), AC-405
 - Madde 7: yukarıdaki LG-2 sapma notu; `customer-templates.ts` `sessionSms`.
 - Öneri 1: `service.ts` ulaşılamayan K2/K3 SMS dalı kaldırıldı (kanal `CHANNELS_BY_KIND` kontrolüyle daraltıldı).
 - Madde 5: koda dokunulmadı (AC-410 metni güncellendi).
-
