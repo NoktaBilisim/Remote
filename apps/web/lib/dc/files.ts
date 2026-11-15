@@ -34,7 +34,6 @@ export {
   sha256Hex,
   type FileChannelLike,
   type Transfer,
-  type TransferStatus,
 } from "./file-model";
 export { BIG_MEM_WARN_BYTES, canStreamToDisk, DISK_MIN_BYTES, diskSink, shouldWarnLargeWrite, type WritableLike } from "./file-disk";
 

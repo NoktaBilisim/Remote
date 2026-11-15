@@ -54,7 +54,7 @@ export class TokenBucket {
  * Ham çerçeveyi doğrular; geçersizse bağlantıyı 1008 ile kapatır ve null döner. `soft` şema hatasında çağrılır; true
  * dönerse (çağıran `error` gönderdi) bağlantı açık kalır.
  */
-export function parseFrame<T extends z.ZodType>(
+function parseFrame<T extends z.ZodType>(
   rooms: Rooms,
   peer: Peer,
   bucket: TokenBucket,

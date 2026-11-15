@@ -22,7 +22,7 @@ import { setTitlePart } from "@/lib/tab-title";
  * Yeniden bağlanınca sayı REST'ten (`/support-requests/count`) tazelenir ve abonelere "resync" iletilir
  * (kaçırılan olayların kaynağı REST). Etkin değilse (yetki yok / Super Admin firma seçmemiş) soket açılmaz.
  */
-export type NotifierEvent = PanelMessage | { t: "resync" };
+type NotifierEvent = PanelMessage | { t: "resync" };
 
 /*
  * Durum kenar çubuğu (rozet) ve Talepler ekranı tarafından okunur. RequestNotifier sayfa içeriğini SARMAZ

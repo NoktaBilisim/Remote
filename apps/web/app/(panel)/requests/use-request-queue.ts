@@ -37,7 +37,7 @@ export function useWide(): boolean {
 
 const prepare = (xs: SupportRequestItem[]) => sortQueue(xs.filter((x) => !acceptedHere.has(x.id)).map(withP18Defaults));
 
-export interface QueueFilter {
+interface QueueFilter {
   customer?: string;
   assigned?: AssignedFilter;
   source?: RequestSource;

@@ -12,7 +12,7 @@ import type { Room } from "./types.ts";
  * Sunucu kaynaklı kapatma (A5, AC-115, G-04): misafire `control.revoke` (istemci kapıyı kapatır, açamaz), teknisyene
  * `control.state{VIEW, SYSTEM}`. Kontrol açıktıysa REVOKED/SYSTEM kaydı yazılır.
  */
-export async function revokeControl(rooms: Rooms, room: Room, reason: ControlRevokeReason): Promise<void> {
+async function revokeControl(rooms: Rooms, room: Room, reason: ControlRevokeReason): Promise<void> {
   const r = closeState(room.control);
   if (!r) return;
   room.admitted?.peer?.send({ t: "control.revoke", reason });

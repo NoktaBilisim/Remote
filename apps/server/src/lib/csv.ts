@@ -4,7 +4,7 @@
 
 import { CSV_BOM as CSV_BOM_CHAR } from "@remote/contracts/csv";
 
-export { CSV_BOM, CSV_SEPARATOR, csvCell, csvRow, csvUnescapeCell } from "@remote/contracts/csv";
+export { CSV_BOM, csvCell, csvRow, csvUnescapeCell } from "@remote/contracts/csv";
 
 const istanbulFmt = new Intl.DateTimeFormat("sv-SE", {
   timeZone: "Europe/Istanbul",

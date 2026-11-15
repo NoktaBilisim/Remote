@@ -75,6 +75,12 @@ describe("TEST-P5-1 teklif kilidi", () => {
     c.t = SELF_OFFER_LIMIT.windowMs;
     expect(await r.a.send(f("d5.txt"))).toBe("ok");
     expect(r.inc.at(-1)).toMatchObject({ name: "d5.txt", status: "pending" });
+    const sent = r.sent.length;
+    r.a.cancel("yok", "out"); // bilinmeyen teklif: etkisiz
+    expect(r.sent).toHaveLength(sent);
+    r.a.dispose(); // bağlantı koptu: bekleyen teklifin zaman aşımı da temizlenir
+    vi.advanceTimersByTime(OFFER_TIMEOUT_MS * 2);
+    expect(r.out.at(-1)?.status).not.toBe("timeout");
   });
 
   it("alıcı teklifi düşürürse gönderen OFFER_TIMEOUT_MS sonra 'timeout' olur, iptal + CANCELLED raporu gider, kilit açılır", async () => {

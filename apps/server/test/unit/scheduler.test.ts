@@ -2,6 +2,8 @@ import type { FastifyBaseLogger } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startScheduler, type Scheduler } from "../../src/jobs/scheduler.ts";
 import type { Db } from "../../src/lib/db.ts";
+import { OUTBOX_POLL_MS, type NotifyOutbox } from "../../src/notify/outbox.ts";
+import type { TenantPurgeRunner } from "../../src/jobs/tenant-purge.ts";
 
 // Sahte db: expireDue yalnız supportSession.findMany'yi çağırır (boş liste → oturum yok).
 function fakeDb(findMany: () => Promise<unknown[]>) {
@@ -58,5 +60,17 @@ describe("jobs/scheduler (QA-P2-8)", () => {
     jobs.stop();
     await vi.advanceTimersByTimeAsync(5_000);
     expect(findMany).toHaveBeenCalledTimes(1);
+    // tablo işleri (outbox, firma silme): açılış adımı, aralıkta tur, stop sonrası yeniden kurulmaz
+    const outbox = { recover: vi.fn(() => Promise.resolve()), tick: vi.fn(() => Promise.resolve()) };
+    const purge = { refreshMetrics: vi.fn(() => Promise.resolve()), tick: vi.fn(() => Promise.resolve("idle")) };
+    const table = [undefined, undefined, undefined, purge as unknown as TenantPurgeRunner, outbox as unknown as NotifyOutbox] as const;
+    jobs = startScheduler(fakeDb(() => Promise.resolve([])).db, fakeLog().log, undefined, 60_000, ...table);
+    await vi.advanceTimersByTimeAsync(OUTBOX_POLL_MS);
+    expect(outbox.recover).toHaveBeenCalledTimes(1);
+    expect(purge.refreshMetrics).toHaveBeenCalledTimes(1);
+    expect(outbox.tick).toHaveBeenCalledTimes(1);
+    jobs.stop();
+    await vi.advanceTimersByTimeAsync(OUTBOX_POLL_MS * 3);
+    expect(outbox.tick).toHaveBeenCalledTimes(1);
   });
 });

@@ -13,7 +13,7 @@ import { t } from "@/lib/i18n";
  */
 type Tone = "success" | "danger" | "info";
 /** P8b-1: isteğe bağlı eylem bağlantısı (ör. yeni talep → "Görüntüle") ve süre (vars. 4 sn). */
-export interface ToastOptions {
+interface ToastOptions {
   action?: { label: string; href: string };
   durationMs?: number;
 }

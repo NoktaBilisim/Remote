@@ -31,7 +31,7 @@ interface OrphanScanResult {
   pending: number;
 }
 
-export interface OrphanScanDeps {
+interface OrphanScanDeps {
   db: Db;
   store: UploadStore;
   metrics: Metrics;

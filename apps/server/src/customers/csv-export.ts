@@ -24,7 +24,7 @@ import * as repo from "./repo.ts";
 const BATCH = 500;
 
 /** Tek satır (sütun sırası `CUSTOMER_CSV_COLUMNS`). İçe aktarma aynı biçimi okur (gidiş-dönüş). */
-export function customerCsvCells(c: repo.CustomerExportRow): string[] {
+function customerCsvCells(c: repo.CustomerExportRow): string[] {
   const pii = (v: string | null): string => (c.anonymizedAt ? "" : (v ?? ""));
   return [
     c.name,

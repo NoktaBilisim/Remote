@@ -33,7 +33,7 @@ const subscribe = (fn: () => void) => {
   return () => void listeners.delete(fn);
 };
 
-export function useLobby(): Snapshot {
+function useLobby(): Snapshot {
   return useSyncExternalStore(
     subscribe,
     () => snap,

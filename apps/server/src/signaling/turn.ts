@@ -16,7 +16,7 @@ export interface IceGrant {
   expiresAt: number | null;
 }
 
-export function turnCredential(secret: string, username: string): string {
+function turnCredential(secret: string, username: string): string {
   return createHmac("sha1", secret).update(username).digest("base64");
 }
 

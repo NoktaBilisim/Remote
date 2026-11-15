@@ -12,8 +12,8 @@ import { applyThemeToDocument, cookieToTheme, THEME_COOKIE, THEMES, type Theme }
 type Ctx = { theme: Theme; setTheme: (next: Theme) => void; pending: boolean };
 const ThemeCtx = createContext<Ctx | null>(null);
 
-export const THEME_ICONS: Record<Theme, LucideIcon> = { LIGHT: Sun, DARK: Moon, SYSTEM: Laptop };
-export const themeOptions = () => THEMES.map((v) => ({ value: v, label: t(`theme.${v}`), Icon: THEME_ICONS[v] }));
+const THEME_ICONS: Record<Theme, LucideIcon> = { LIGHT: Sun, DARK: Moon, SYSTEM: Laptop };
+const themeOptions = () => THEMES.map((v) => ({ value: v, label: t(`theme.${v}`), Icon: THEME_ICONS[v] }));
 
 /**
  * Kullanıcı tema tercihi (AC-85). İlk değer sunucudan (/auth/me, DB); kök layout aynı değerle `<html>` sınıfını zaten
@@ -58,7 +58,7 @@ export function ThemeProvider({ initial, children }: { initial: Theme; children:
   return <ThemeCtx.Provider value={{ theme, setTheme, pending }}>{children}</ThemeCtx.Provider>;
 }
 
-export function useTheme(): Ctx {
+function useTheme(): Ctx {
   const c = useContext(ThemeCtx);
   if (!c) throw new Error("ThemeProvider eksik");
   return c;

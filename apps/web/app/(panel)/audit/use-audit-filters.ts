@@ -5,7 +5,7 @@ import { useState, useTransition, type FormEvent } from "react";
 import { auditHref, rangeError, type AuditFilters } from "@/lib/audit/query";
 import { t } from "@/lib/i18n";
 
-export type Draft = Record<"from" | "to" | "tenantId" | "userId" | "action" | "result", string>;
+type Draft = Record<"from" | "to" | "tenantId" | "userId" | "action" | "result", string>;
 type RangeErrors = Partial<Record<"from" | "to", string>>;
 
 const toDraft = (f: AuditFilters): Draft => ({

@@ -22,10 +22,10 @@ import type { FileMetaClass, Room } from "./types.ts";
 
 /** Ret/iptal (REJECTED/CANCELLED) raporları: taraf başına dakikada 20, oturum boyunca 500 (tablo şişirme koruması). */
 export const FILE_META_PER_MIN = 20;
-export const FILE_META_PER_SESSION = 500;
+const FILE_META_PER_SESSION = 500;
 /** Kabul edilmiş transferin sonucu (OK/CORRUPT): ayrı ve yüksek kota; ret seli bunu tüketemez (S-P5-1). */
 export const FILE_META_ACCEPTED_PER_MIN = 60;
-export const FILE_META_ACCEPTED_PER_SESSION = 2000;
+const FILE_META_ACCEPTED_PER_SESSION = 2000;
 /** Gönderen raporu (`file.transfer.sender_report`): sonuçtan bağımsız ayrı ve düşük kota; meşru akışta transfer başına 1 (S-P5-T2-3). */
 export const FILE_META_SENDER_PER_MIN = 10;
 export const FILE_META_SENDER_PER_SESSION = 200;
@@ -48,9 +48,9 @@ const fileAuditValue = (sessionId: string, m: FileMeta, name: string) => ({
   result: m.result,
 });
 /** `quality.summary` DB yazımları arası en kısa süre (istemci 60 sn'de bir + oturum sonunda gönderir). */
-export const QUALITY_MIN_INTERVAL_MS = 5_000;
+const QUALITY_MIN_INTERVAL_MS = 5_000;
 /** DB CHECK `JSON_STORAGE_SIZE(quality_summary) ≤ 4096` ile aynı tavan (metin uzunluğu üstten sınırlar). */
-export const QUALITY_MAX_BYTES = 4096;
+const QUALITY_MAX_BYTES = 4096;
 
 const GUEST_CTX: AuditContext = { ip: "", userAgent: "signaling", requestId: "" };
 const LIMITS: Record<FileMetaClass, { perMin: number; perSession: number }> = {
@@ -85,7 +85,7 @@ function takeFileMetaSlot(rooms: Rooms, room: Room, side: Reporter["side"], cls:
 }
 
 /** MySQL 3819 (CHECK ihlali) — Prisma 7 + mariadb adaptörü: meta.driverAdapterError.cause.code (db-notlari P5). */
-export function isCheckViolation(err: unknown): boolean {
+function isCheckViolation(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
   const cause = (err as { meta?: { driverAdapterError?: { cause?: { code?: unknown; originalCode?: unknown } } } }).meta?.driverAdapterError
     ?.cause;
@@ -194,7 +194,7 @@ async function rejectedByDb(
   return "rejected_by_db";
 }
 
-export type QualityResult = "written" | "throttled" | "too_large" | "not_active" | "error";
+type QualityResult = "written" | "throttled" | "too_large" | "not_active" | "error";
 
 export async function handleQualitySummary(rooms: Rooms, room: Room, q: QualitySummary): Promise<QualityResult> {
   if (!room.admitted) return "not_active";

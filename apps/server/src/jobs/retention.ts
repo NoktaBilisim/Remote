@@ -44,7 +44,7 @@ interface RetentionResult {
 const ENTITY = "retention";
 
 /** Sınıflandırma (log/metrik; mesaj metni dışarı çıkmaz). */
-export const failureClass = (err: unknown): RetentionFailureClass => (isP16Signal(err) ? "db_signal" : "other");
+const failureClass = (err: unknown): RetentionFailureClass => (isP16Signal(err) ? "db_signal" : "other");
 
 /** Tek süreç (ADR-0005) içinde tek örnek; `run` eşzamanlı çağrılırsa ikincisi çalışmadan `null` döner. */
 export class RetentionJob {

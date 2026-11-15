@@ -23,7 +23,7 @@ import type { Rooms } from "./rooms.ts";
 import type { Guest, Peer, Room } from "./types.ts";
 
 /** S-P4-T3-2: `reconnect.conflict` audit'i oda başına bu aralıkta en çok 1 kez. */
-export const RECONNECT_CONFLICT_AUDIT_MS = 60_000;
+const RECONNECT_CONFLICT_AUDIT_MS = 60_000;
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;

@@ -32,7 +32,7 @@ function stageControl(ts: Tech, canControl: boolean, releaseRef: RefObject<HTMLB
 }
 
 /** İşaretleme aracı/rengi ve değiştiricileri. */
-export interface DrawState {
+interface DrawState {
   tool: DrawTool | null;
   color: AnnotColor;
   onTool: (t: DrawTool | null) => void;

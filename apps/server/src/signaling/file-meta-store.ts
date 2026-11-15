@@ -8,7 +8,7 @@ import type { Rooms } from "./rooms.ts";
 import type { FileMetaClass, Peer, Room } from "./types.ts";
 
 /** `file.meta.rate_limited` audit'i oda + taraf + sınıf başına bu aralıkta en çok 1 kez (S-P5-T2-2). */
-export const FILE_META_RATE_AUDIT_MS = 60_000;
+const FILE_META_RATE_AUDIT_MS = 60_000;
 export type Reporter = { side: "tech"; peer: Peer } | { side: "guest"; peer: Peer };
 
 export type FileMetaResult =
@@ -78,7 +78,7 @@ export async function recordFileMeta(rooms: Rooms, room: Room, w: FileMetaWrite)
  * P15 (AC-238, db-notlari P15): aynı aktarımın iki taraf raporunu eşleyen anahtar. `fid` yoksa (0.10.x) eşleşme
  * olmasın diye satıra özgü rastgele bileşen kullanılır — anahtar yeni satırlarda her zaman dolu (down.sql buna dayanır).
  */
-export const fileMatchKey = (sessionId: string, m: FileMeta, fid: string): string =>
+const fileMatchKey = (sessionId: string, m: FileMeta, fid: string): string =>
   sha256Hex(`${sessionId}\n${m.direction}\n${fid}\n${m.sha256}\n${m.sizeBytes}`);
 
 /** S-P5-1: kota aşımı sessiz kalmaz — oda + taraf + sınıf başına dakikada en çok 1 audit satırı (S-P5-T2-2: bir tarafın

@@ -49,7 +49,7 @@ export async function tenantFiles(store: UploadStore, tenantId: string): Promise
   return { count, bytes };
 }
 
-export interface TenantPurgeDeps {
+interface TenantPurgeDeps {
   db: Db;
   store: UploadStore;
   ledger: { append(e: ErasureEntry): Promise<void> };

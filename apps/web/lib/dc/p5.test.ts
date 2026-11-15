@@ -64,6 +64,12 @@ describe("dosya transferi (AC-36, 53, 54, 117, 119)", () => {
     expect(r.list[0]?.status).toBe("ok");
     expect(r.ctl.at(-1)).toEqual({ t: "file.result", fid: "f1", ok: true });
     expect(r.meta.at(-1)).toMatchObject({ result: "OK", direction: "TO_CUSTOMER", sizeBytes: 7 });
+    const url = r.list[0]?.url;
+    expect(url).toBeTruthy();
+    const revoke = vi.spyOn(URL, "revokeObjectURL");
+    r.ft.dispose(); // bağlantı koptu: indirme adresi serbest
+    expect(revoke).toHaveBeenCalledWith(url);
+    revoke.mockRestore();
   });
   it("file.done son parçadan önce gelirse (ayrı DC) parçalar tamamlanınca doğrular", async () => {
     const r = rig();
@@ -97,6 +103,20 @@ describe("dosya transferi (AC-36, 53, 54, 117, 119)", () => {
     expect(r.list[0]?.status).toBe("tooLarge");
     expect(r.ctl.at(-1)).toEqual({ t: "file.cancel", fid: "f3" });
     expect(r.meta.at(-1)?.result).toBe("CANCELLED");
+    // kullanıcı iptali (gelen yön): alım durur, iptal + CANCELLED
+    await r.ft.onCtl({ t: "file.offer", fid: "f3b", idx: 1, name: "b.bin", size: 2, sha256: "a".repeat(64) });
+    r.ft.accept("f3b");
+    r.ft.onFrame(frame(1, 0, enc("a")));
+    r.ft.cancel("f3b", "in");
+    expect(r.list.find((x) => x.fid === "f3b")?.status).toBe("cancelled");
+    expect(r.ctl.at(-1)).toEqual({ t: "file.cancel", fid: "f3b" });
+    expect(r.meta.at(-1)).toMatchObject({ result: "CANCELLED" });
+    const sent = r.ctl.length;
+    r.ft.cancel("f3b", "in"); // bitmiş alım: ikinci iptal, kabul ve ret etkisiz
+    await r.ft.accept("f3b");
+    r.ft.reject("f3b");
+    r.ft.dispose();
+    expect(r.ctl).toHaveLength(sent);
   });
   it("sıra dışı parça → transfer bozuk sayılır", async () => {
     const r = rig();

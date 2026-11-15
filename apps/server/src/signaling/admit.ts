@@ -11,7 +11,7 @@ import { admitHash, type Rooms } from "./rooms.ts";
 import { ADMIT_FAIL_MAX, type Guest, type Peer, type Room, type TechConn } from "./types.ts";
 import { safeEqual } from "../lib/ids.ts";
 
-export type AdmitResult = "admitted" | "invalid" | "conflict";
+type AdmitResult = "admitted" | "invalid" | "conflict";
 
 const actor = (t: TechConn) => ({ userId: t.userId, username: t.username });
 

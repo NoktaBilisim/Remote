@@ -8,7 +8,7 @@ import type { Sink } from "./file-disk";
 import type { CtlMessage, FileDirection, FileMetaMsg } from "./ctl";
 import { Sha256 } from "./sha256";
 
-export const DEFAULT_MAX_FILE_BYTES = maxFileBytes(DEFAULT_MAX_FILE_MB);
+const DEFAULT_MAX_FILE_BYTES = maxFileBytes(DEFAULT_MAX_FILE_MB);
 
 /** Ad için tehlike sınıfı (contracts `fileNameWarning`): tehlikeli uzantı ve/veya çift uzantı (`fatura.pdf.exe`). */
 export function fileRisk(name: string): { dangerous: boolean; double: boolean } {

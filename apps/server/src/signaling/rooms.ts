@@ -21,7 +21,7 @@ import { scheduleActive, sendGuestJoined, sendHelloGuest, sendHelloTech, syncDis
 import { newControl } from "./control.ts";
 import { closeControlOnEnd, narrowCaps, resetOnGuestGone, revokeOnTechChange } from "./control-revoke.ts";
 
-export interface RoomsDeps {
+interface RoomsDeps {
   db: Db;
   log: FastifyBaseLogger;
   turn: TurnConfig;
@@ -39,7 +39,7 @@ const SYSTEM_CTX: AuditContext = { ip: "", userAgent: "signaling", requestId: ""
  * (P9 deaktivasyon/yetki/rol, P10 logout-all/reset-mfa) commit sonrası `app.rooms` üzerinden doğrudan çağırır;
  * /ws/tech 60 sn yeniden doğrulaması yalnız yedek yoldur.
  */
-export interface TechnicianLiveControl {
+interface TechnicianLiveControl {
   /** Teknisyenin tüm odaları `session.ended{auth_revoked}` ile biter (teknisyen soketi 4401). */
   endByTechnician(userId: string): Promise<void>;
   /** Yeni etkin yetkiler: caps daralırsa `caps.update`, `remote_control` düştüyse `control.revoke{permission}`. */

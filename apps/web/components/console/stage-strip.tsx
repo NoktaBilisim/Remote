@@ -17,14 +17,14 @@ export interface StripContent {
   monitorBusy: boolean;
 }
 /** Görünüm (Sığdır / %100) ve tam ekran durumu. */
-export interface StripView {
+interface StripView {
   mode: ViewMode;
   onMode: (m: ViewMode) => void;
   full: boolean;
   onToggleFull: () => void;
 }
 /** Şerit ölçümü (`useStripFit`). */
-export interface StripFit {
+interface StripFit {
   compact: boolean;
   tight: boolean;
 }

@@ -9,7 +9,7 @@ export interface LobbyRooms {
   values(): Iterable<Room>;
 }
 
-export interface WaitingSession {
+interface WaitingSession {
   id: string;
   waiting: number;
   arrivals: number;

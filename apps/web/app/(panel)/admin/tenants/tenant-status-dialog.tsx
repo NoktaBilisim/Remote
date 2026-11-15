@@ -14,7 +14,7 @@ import { t } from "@/lib/i18n";
 import { isReactivatePurgeConflict } from "@/lib/tenants/purge";
 import type { TenantItem } from "@/lib/users/contract";
 
-export type StatusAction = { kind: "deactivate" | "reactivate"; tenant: TenantItem };
+type StatusAction = { kind: "deactivate" | "reactivate"; tenant: TenantItem };
 
 /** Kısa ad onay alanı: yazınca hata temizlenir. */
 function useTypedSlug() {

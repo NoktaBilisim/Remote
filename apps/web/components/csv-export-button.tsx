@@ -11,7 +11,7 @@ import { retryMinutes } from "@/lib/format";
 import { t } from "@/lib/i18n";
 
 /** Content-Disposition'dan dosya adı; yoksa `fallback`. Yol/ayraç karakterleri atılır. */
-export function fileNameFrom(header: string | null, fallback = "oturumlar.csv"): string {
+function fileNameFrom(header: string | null, fallback = "oturumlar.csv"): string {
   const m = header ? /filename="?([^";]+)"?/i.exec(header) : null;
   const name = m?.[1]?.replace(/[\\/:*?"<>|]/g, "").trim();
   return name || fallback;

@@ -22,7 +22,7 @@ export function CustomerStatusBadge({ status }: { status: CustomerStatus }) {
 }
 
 /** İndirme bağlantısı hücresi (AC-169): aktifte Kopyala + dosya adı; pasifte bağlantı gösterilmez. */
-export function LinkCell({ c }: { c: Pick<CustomerListItem, "name" | "downloadUrl" | "fileName" | "status"> }) {
+function LinkCell({ c }: { c: Pick<CustomerListItem, "name" | "downloadUrl" | "fileName" | "status"> }) {
   if (c.status === "PASSIVE" || !c.downloadUrl) {
     return (
       <span className="text-sm text-fg-muted" data-testid="customer-link-passive">

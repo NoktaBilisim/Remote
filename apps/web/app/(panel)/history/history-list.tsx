@@ -25,7 +25,7 @@ const customer = (s: SessionListItem) =>
   isAnonymized(s) ? <AnonymizedBadge /> : (s.customerName ?? <span className="text-fg-muted italic">{t("h.noCustomer")}</span>);
 const mode = (s: SessionListItem) => (s.mode ? labelOf(SESSION_MODE_LABELS, s.mode) : t("h.mode.none"));
 /** P8b (AC-158): talepten doğan oturumda kaynak + bekleme süresi (TECH'te gösterilmez — varsayılan yol). */
-export function SourceNote({ s, compact = false }: { s: Pick<SessionListItem, "source" | "waitSec">; compact?: boolean }) {
+function SourceNote({ s, compact = false }: { s: Pick<SessionListItem, "source" | "waitSec">; compact?: boolean }) {
   if (s.source !== "REQUEST") return null;
   const wait = s.waitSec !== null ? t("h.waitShort", { d: formatDuration(s.waitSec) }) : null;
   return (

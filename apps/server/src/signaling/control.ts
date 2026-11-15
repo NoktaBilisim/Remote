@@ -18,7 +18,7 @@ export { CONTROL_AUDIT_TIMEOUT_MS } from "./control-record.ts";
 export function newControl(): ControlRoom {
   return { state: "VIEW", granting: false, epoch: 0, requests: 0, monitorRequests: 0, chain: Promise.resolve() };
 }
-export type RequestResult =
+type RequestResult =
   | "forwarded"
   | "forbidden"
   | "browser"
