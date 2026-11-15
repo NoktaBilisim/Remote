@@ -81,35 +81,46 @@ type held struct {
 }
 
 // acquire klasörü açar (create: yoksa oluşturur), `kayitlar.lock`'u handle kuralıyla açar ve özel kilidi 50 ms
-// aralıkla en çok 2 sn yoklar. Klasör yoksa os.ErrNotExist; zaman aşımında ErrLockTimeout.
+// aralıkla en çok 2 sn yoklar. Klasör veya kilit dosyası açılışındaki paylaşım ihlali (başka sürecin wipe'ı kilit
+// dosyasını ya da boş klasörü silmek için kısa süre DELETE erişimiyle açık tutar; AV) aynı süre içinde yeniden denenir:
+// henüz hiçbir dosya okunmadığı ve yazılmadığı için geçici sınıfın "dosyaya dokunma" kuralı (G-P20-18) korunur; süre
+// dolarsa paylaşım hatası (sınıf 2, ClassSharing) döner. Klasör yoksa os.ErrNotExist; kilit zaman aşımında
+// ErrLockTimeout.
 func (s *Store) acquire(create bool) (*held, error) {
+	deadline := time.Now().Add(lockWait)
+	for {
+		h, retry, err := s.tryAcquire(create)
+		if !retry {
+			return h, err
+		}
+		if time.Now().After(deadline) {
+			if err == nil {
+				err = ErrLockTimeout
+			}
+			return nil, err
+		}
+		time.Sleep(lockPoll)
+	}
+}
+
+// tryAcquire tek deneme. retry: kilit başkasında (err nil) veya paylaşım ihlali (err dolu); handle'lar kapatılmıştır.
+func (s *Store) tryAcquire(create bool) (*held, bool, error) {
 	dir, err := diag.OpenDir(s.Dir, create)
 	if err != nil {
-		return nil, err
+		return nil, isSharing(err), err
 	}
 	f, err := dir.Open(lockName, diag.ModeLock)
 	if err != nil {
 		dir.Close()
-		return nil, err
+		return nil, isSharing(err), err
 	}
-	deadline := time.Now().Add(lockWait)
-	for {
-		ok, err := tryLock(f)
-		if err != nil {
-			_ = f.Close()
-			dir.Close()
-			return nil, err
-		}
-		if ok {
-			return &held{dir: dir, lock: f}, nil
-		}
-		if time.Now().After(deadline) {
-			_ = f.Close()
-			dir.Close()
-			return nil, ErrLockTimeout
-		}
-		time.Sleep(lockPoll)
+	ok, err := tryLock(f)
+	if ok {
+		return &held{dir: dir, lock: f}, false, nil
 	}
+	_ = f.Close()
+	dir.Close()
+	return nil, err == nil, err
 }
 
 // unlock kilidi bırakır ve kilit dosyasını kapatır (klasör açık kalır).

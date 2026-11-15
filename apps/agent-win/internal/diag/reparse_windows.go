@@ -51,7 +51,6 @@ type Dir struct {
 	path   string
 	parent windows.Handle
 	h      windows.Handle
-	delOK  bool // h DELETE erişimiyle açıldı (RemoveIfEmpty)
 }
 
 func open(path string, access, share, disposition uint32) (windows.Handle, error) {
@@ -131,12 +130,11 @@ func OpenDir(path string, create bool) (*Dir, error) {
 			return nil, err
 		}
 	}
-	// DELETE erişimi yalnız RemoveIfEmpty için; başka bir süreç klasörü paylaşımsız tutuyorsa onsuz denenir.
-	d.h, err = openChecked(path, dirAccess|windows.DELETE, shareNoDel, windows.OPEN_EXISTING, true)
-	d.delOK = err == nil
-	if errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_ACCESS_DENIED) {
-		d.h, err = openChecked(path, dirAccess, shareNoDel, windows.OPEN_EXISTING, true)
-	}
+	// Sabitleme handle'ı DELETE erişimi İSTEMEZ: FILE_SHARE_DELETE vermeyen eşzamanlı her açılış (aynı süreçte başka
+	// Store, tepsi + kod süreci, tanılama logu) DELETE erişimli bir handle varken ERROR_SHARING_VIOLATION alır
+	// (CreateFile paylaşım denetimi iki yönlüdür: yeni isteğin erişimi mevcutların paylaşımına, yeni isteğin
+	// paylaşımı mevcutların erişimine uymalı). DELETE yalnız RemoveIfEmpty'de kısa ömürlü handle ile istenir.
+	d.h, err = openChecked(path, dirAccess, shareNoDel, windows.OPEN_EXISTING, true)
 	if err != nil {
 		d.Close()
 		if notExist(err) {
@@ -144,17 +142,24 @@ func OpenDir(path string, create bool) (*Dir, error) {
 		}
 		return nil, err
 	}
-	pf, err1 := finalPath(parent)
-	cf, err2 := finalPath(d.h)
-	if err := errors.Join(err1, err2); err != nil {
+	if err := d.pinned(d.h); err != nil {
 		d.Close()
 		return nil, err
 	}
-	if !strings.EqualFold(cf, strings.TrimSuffix(pf, `\`)+`\`+filepath.Base(path)) {
-		d.Close()
-		return nil, ErrReparse
-	}
 	return d, nil
+}
+
+// pinned h'nin gerçek yolu, açık tutulan üst klasörün gerçek yolu + klasör adı olmalı; değilse ErrReparse.
+func (d *Dir) pinned(h windows.Handle) error {
+	pf, err1 := finalPath(d.parent)
+	cf, err2 := finalPath(h)
+	if err := errors.Join(err1, err2); err != nil {
+		return err
+	}
+	if !strings.EqualFold(cf, strings.TrimSuffix(pf, `\`)+`\`+filepath.Base(d.path)) {
+		return ErrReparse
+	}
+	return nil
 }
 
 // Close handle'ları bırakır (nil güvenli, birden çok kez çağrılabilir).
@@ -286,10 +291,23 @@ func (d *Dir) Remove(name string) error {
 	return errors.Join(err, windows.CloseHandle(h))
 }
 
-// RemoveIfEmpty klasörü yalnız boşsa (handle üzerinden) siler ve Dir'i kapatır; dolu klasörde sessizce kalır.
+// RemoveIfEmpty klasörü yalnız boşsa (handle üzerinden) siler ve Dir'i kapatır; dolu klasörde ya da klasör başka bir
+// handle'da açıkken (FILE_SHARE_DELETE verilmediğinden ERROR_SHARING_VIOLATION) sessizce kalır. Kendi sabitleme
+// handle'ımız da FILE_SHARE_DELETE vermediği için önce kapatılır; üst klasör açık kalır ve DELETE erişimli yeni handle
+// aynı reparse ve gerçek yol denetiminden geçer.
 func (d *Dir) RemoveIfEmpty() {
-	if d.delOK && d.h != windows.InvalidHandle {
-		_ = dispose(d.h) // dolu klasörde ERROR_DIR_NOT_EMPTY: silinmez
+	defer d.Close()
+	if d.h == windows.InvalidHandle || d.parent == windows.InvalidHandle {
+		return
 	}
-	d.Close()
+	_ = windows.CloseHandle(d.h)
+	d.h = windows.InvalidHandle
+	h, err := openChecked(d.path, dirAccess|windows.DELETE, shareNoDel, windows.OPEN_EXISTING, true)
+	if err != nil {
+		return
+	}
+	defer func() { _ = windows.CloseHandle(h) }()
+	if d.pinned(h) == nil {
+		_ = dispose(h) // dolu klasörde ERROR_DIR_NOT_EMPTY: silinmez
+	}
 }

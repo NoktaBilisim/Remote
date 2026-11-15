@@ -11,7 +11,7 @@ import (
 // `store_write_failed{class}`) kullanılır; içerik (ad, telefon, anahtar) taşımaz.
 const (
 	// ClassFormat sınıf 1 — kesin biçim hatası (katı çözme, bilinmeyen sürüm, boyut aşımı, DPAPI
-	// ERROR_INVALID_DATA/NTE_BAD_DATA): dosya silinir.
+	// ERROR_INVALID_DATA/NTE_BAD_DATA/ERROR_INVALID_PARAMETER): dosya silinir.
 	ClassFormat = "format"
 	// Sınıf 2 — geçici: dosyaya dokunulmaz, açılış salt-okunur.
 	ClassIO       = "io"
@@ -28,7 +28,8 @@ const (
 )
 
 var (
-	// errCorrupt Unprotect'in kesin biçim hatası (Windows: ERROR_INVALID_DATA, NTE_BAD_DATA; dpapi_windows.go).
+	// errCorrupt Unprotect'in kesin biçim hatası (Windows: ERROR_INVALID_DATA, NTE_BAD_DATA, ERROR_INVALID_PARAMETER;
+	// dpapi_windows.go).
 	errCorrupt = errors.New("remember: korunan veri bozuk")
 	// errKeyState NTE_BAD_KEY_STATE (sınıf 2, G-P20-18).
 	errKeyState = errors.New("remember: DPAPI anahtar durumu geçersiz")

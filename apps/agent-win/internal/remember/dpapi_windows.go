@@ -37,13 +37,16 @@ func takeBlob(out *windows.DataBlob) []byte {
 	return append([]byte(nil), unsafe.Slice(out.Data, out.Size)...)
 }
 
-// dpapiClass G-P20-3/18: ERROR_INVALID_DATA ve NTE_BAD_DATA kesin biçim hatası (sınıf 1, dosya silinir);
-// NTE_BAD_KEY_STATE ve diğerleri geçici (sınıf 2, dokunulmaz).
+// dpapiClass G-P20-3/18: ERROR_INVALID_DATA, NTE_BAD_DATA ve ERROR_INVALID_PARAMETER kesin biçim hatası (sınıf 1,
+// dosya silinir); NTE_BAD_KEY_STATE ve diğerleri geçici (sınıf 2, dokunulmaz). ERROR_INVALID_PARAMETER:
+// CryptUnprotectData DPAPI zarf başlığını (sürüm + sağlayıcı GUID + uzunluklar) ayrıştıramadığında, ör. kısa/kırpılmış
+// mühürde döner (Windows CI, "bozuk" girdisi). Diğer argümanlar sabit ve geçerli (blob(), CRYPTPROTECT_UI_FORBIDDEN)
+// olduğundan bu kod yalnız mühür içeriğinden doğabilir; geçici bir kaynağı yoktur.
 func dpapiClass(err error) error {
 	var en syscall.Errno
 	if errors.As(err, &en) {
 		switch uint32(en) {
-		case uint32(windows.ERROR_INVALID_DATA), nteBadData:
+		case uint32(windows.ERROR_INVALID_DATA), nteBadData, uint32(windows.ERROR_INVALID_PARAMETER):
 			return fmt.Errorf("%w: %w", errCorrupt, err)
 		case nteBadKeyState:
 			return fmt.Errorf("%w: %w", errKeyState, err)

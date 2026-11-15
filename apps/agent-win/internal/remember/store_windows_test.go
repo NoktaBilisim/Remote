@@ -3,6 +3,7 @@
 package remember
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"os/exec"
@@ -44,18 +45,24 @@ func TestAC254GP2016TwoProcessesNoLostUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cmds []*exec.Cmd
+	var outs []*bytes.Buffer
 	for w := 0; w < 2; w++ {
 		c := exec.Command(os.Args[0], "-test.run=^TestGP2016HelperWorker$", "-test.count=1")
 		c.Env = append(os.Environ(), envWorker+"="+dir)
+		out := new(bytes.Buffer)
+		c.Stdout, c.Stderr = out, out
 		if err := c.Start(); err != nil {
 			t.Fatal(err)
 		}
-		cmds = append(cmds, c)
+		cmds, outs = append(cmds, c), append(outs, out)
 	}
-	for _, c := range cmds {
+	for i, c := range cmds {
 		if err := c.Wait(); err != nil {
-			t.Fatal("yardımcı süreç:", err)
+			t.Errorf("yardımcı süreç %d: %v\n%s", i, err, outs[i])
 		}
+	}
+	if t.Failed() {
+		t.FailNow()
 	}
 	d, ok := s.Load()
 	if !ok || d.Bindings[0].CustomerName != strconv.Itoa(2*rounds) {
@@ -80,7 +87,7 @@ func TestAC254DPAPIRoundTripAndClasses(t *testing.T) {
 	}
 	for code, want := range map[uint32]string{
 		uint32(windows.ERROR_INVALID_DATA): ClassFormat, nteBadData: ClassFormat, nteBadKeyState: ClassKeyState,
-		uint32(windows.ERROR_ACCESS_DENIED): ClassDPAPI,
+		uint32(windows.ERROR_INVALID_PARAMETER): ClassFormat, uint32(windows.ERROR_ACCESS_DENIED): ClassDPAPI,
 	} {
 		if got := classify(dpapiClass(syscall.Errno(code))); got != want {
 			t.Errorf("0x%08X → %s, beklenen %s", code, got, want)

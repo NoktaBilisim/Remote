@@ -414,6 +414,11 @@ func (l *Lock) Release() {
 
 // Acquire `Local\NoktaDestek.Tray.<SID özeti>` mutex'ini oluşturur. Var olan mutex'in sahibi geçerli kullanıcı değilse
 // (başka kullanıcının önceden oluşturduğu ad — DoS) LockForeign döner.
+//
+// Mutex sahibi oluşturulurken açıkça kullanıcı SID'i yapılır ("O:<SID>"; DACL verilmez → belirtecin varsayılan
+// DACL'i). Güvenlik tanımlayıcısız (nil) oluşturmada sahip belirtecin TokenOwner'ıdır; yükseltilmiş yönetici
+// belirtecinde bu BUILTIN\Administrators olduğundan aynı kullanıcının ikinci örneği sahibi "başkası" sanıp
+// LockForeign alırdı (Windows CI). Kullanıcı SID'i her belirteçte geçerli sahiptir (ayrıcalık gerekmez).
 func Acquire() (*Lock, LockResult) {
 	tu, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
@@ -424,7 +429,13 @@ func Acquire() (*Lock, LockResult) {
 	if err != nil {
 		return nil, LockForeign
 	}
-	h, err := windows.CreateMutex(nil, false, name)
+	sd, err := windows.SecurityDescriptorFromString("O:" + user.String())
+	if err != nil {
+		return nil, LockForeign
+	}
+	sa := windows.SecurityAttributes{SecurityDescriptor: sd}
+	sa.Length = uint32(unsafe.Sizeof(sa))
+	h, err := windows.CreateMutex(&sa, false, name)
 	switch {
 	case err == nil:
 		return &Lock{h: h}, LockAcquired
