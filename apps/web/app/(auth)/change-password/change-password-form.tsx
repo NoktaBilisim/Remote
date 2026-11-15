@@ -1,28 +1,37 @@
 "use client";
 
-import { KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent, type RefObject } from "react";
 import { FormError } from "@/components/form-error";
 import { Alert } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/text-field";
 import { api, ApiError, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
 import { parsePasswordChange } from "@/lib/auth-schema";
 import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
+import { focusFirstField, NewPasswordFields, PasswordSubmit } from "../password-fields";
 
-/**
- * AC-66: POST /auth/password/change { current, next } → 204 (+ yeni oturum çerezi; diğer oturumlar kapanır).
- * `onDone` verilirse (P10 Hesap güvenliği sayfası) yönlendirme yerine form temizlenir ve çağıran bildirim gösterir.
- */
-export function ChangePasswordForm({ onDone }: { onDone?: () => void } = {}) {
+function useChangePassword(formRef: RefObject<HTMLFormElement | null>, onDone?: () => void) {
   const router = useRouter();
-  const formRef = useRef<HTMLFormElement>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<UiError | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+
+  function onError(err: unknown) {
+    // Sözleşme: yanlış mevcut şifre → 400 (fields.current); 401 → oturum düşmüş
+    if (isUnauthenticated(err)) {
+      router.replace(EXPIRED_LOGIN_PATH);
+      return;
+    }
+    if (err instanceof ApiError && err.status === 400) {
+      setErrors(err.fields ?? { current: t("pw.error.current") });
+      setSubmitting(false);
+      return;
+    }
+    setServerError(toUiError(err));
+    setSubmitting(false);
+  }
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -32,8 +41,7 @@ export function ChangePasswordForm({ onDone }: { onDone?: () => void } = {}) {
     if (!parsed.ok) {
       const fe = parsed.errors;
       setErrors(fe);
-      const first = ["current", "next", "confirm"].find((k) => fe[k]);
-      if (first) formRef.current?.querySelector<HTMLInputElement>(`[name="${first}"]`)?.focus();
+      focusFirstField(formRef, ["current", "next", "confirm"], fe);
       return;
     }
     setErrors({});
@@ -50,20 +58,20 @@ export function ChangePasswordForm({ onDone }: { onDone?: () => void } = {}) {
       router.replace("/");
       router.refresh();
     } catch (err) {
-      // Sözleşme: yanlış mevcut şifre → 400 (fields.current); 401 → oturum düşmüş
-      if (isUnauthenticated(err)) {
-        router.replace(EXPIRED_LOGIN_PATH);
-        return;
-      }
-      if (err instanceof ApiError && err.status === 400) {
-        setErrors(err.fields ?? { current: t("pw.error.current") });
-        setSubmitting(false);
-        return;
-      }
-      setServerError(toUiError(err));
-      setSubmitting(false);
+      onError(err);
     }
   }
+
+  return { errors, serverError, submitting, done, onSubmit };
+}
+
+/**
+ * AC-66: POST /auth/password/change { current, next } → 204 (+ yeni oturum çerezi; diğer oturumlar kapanır).
+ * `onDone` verilirse (P10 Hesap güvenliği sayfası) yönlendirme yerine form temizlenir ve çağıran bildirim gösterir.
+ */
+export function ChangePasswordForm({ onDone }: { onDone?: () => void } = {}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const { errors, serverError, submitting, done, onSubmit } = useChangePassword(formRef, onDone);
 
   if (done) return <Alert tone="success">{t("pw.success")}</Alert>;
 
@@ -80,32 +88,8 @@ export function ChangePasswordForm({ onDone }: { onDone?: () => void } = {}) {
         disabled={submitting}
         error={errors.current}
       />
-      <TextField
-        name="next"
-        type="password"
-        label={t("pw.next")}
-        hint={t("pw.nextHint")}
-        autoComplete="new-password"
-        minLength={12}
-        required
-        revealable
-        disabled={submitting}
-        error={errors.next}
-      />
-      <TextField
-        name="confirm"
-        type="password"
-        label={t("pw.confirm")}
-        autoComplete="new-password"
-        required
-        revealable
-        disabled={submitting}
-        error={errors.confirm}
-      />
-      <Button type="submit" loading={submitting} className="mt-2 w-full">
-        {!submitting && <KeyRound aria-hidden className="size-4" />}
-        {submitting ? t("pw.submitting") : t("pw.submit")}
-      </Button>
+      <NewPasswordFields submitting={submitting} errors={errors} />
+      <PasswordSubmit submitting={submitting} label={t("pw.submit")} />
     </form>
   );
 }
