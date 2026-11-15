@@ -1,3 +1,69 @@
+# QA Raporu — PT (kod temizliği) Tur 4
+
+DURUM: GEÇTİ
+
+Tarih: 2026-11-15 · Dal `pt-wip` @ `e219894` (temiz) · Kapsam: yalnız Tur 3 "Düzeltilmeli" 1 (HEAD CI kanıtı). Kod
+değişmedi, yerelde test koşulmadı, staging'e bağlanılmadı.
+
+Özet: Tur 3'ün tek açık maddesi kapandı. Son kod değişikliğini (`64e6301`) içeren `90dfe1d` için `ci` ve `agent-win`
+koşularının tüm işleri **success**. Bu işler arasında Tur 3'te iptal olan `test (MySQL 8.4)` ve `web e2e` de var.
+`e219894` yalnız belge değiştiriyor. Onun koşuları rapor anında hâlâ sürüyordu (aşağıdaki birleştirme koşuluna bakın).
+
+## Test sonucu (Tur 4)
+
+| SHA              | `ci`                                                                                                                                                | `agent-win`                                                                                                                                                                              |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `90dfe1d`        | 43729189569 **success**: lint + type-check, test (MySQL 8.4), web e2e (Playwright), build (+ Docker), audit + lisans + gitleaks, coturn, shellcheck | 43729189584 **success**: gofmt + vet + test -race + govulncheck, go test (Windows), build 1/2 ve 2/2, tekrarlanabilirlik. SignPath, ONAY, attestation, Release: skipped (PR'da beklenen) |
+| `e219894` (HEAD) | 43729991671 rapor anında **in_progress**                                                                                                            | 43729991799 rapor anında **in_progress**                                                                                                                                                 |
+
+`git diff 90dfe1d e219894` `docs/` dışında boş, yani kod `90dfe1d` ile aynı. `e219894`'ün değiştirdiği iki belge
+(`docs/qa-raporu.md`, `docs/temizlik/sonuc.md`) yerelde `prettier --check` ile temiz. Bu yüzden `e219894` CI'ında
+format kaynaklı bir kırılma beklenmiyor.
+
+## Tur 3 maddesinin durumu
+
+| Tur 3 maddesi                     | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                     |
+| --------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — HEAD `ci` + `agent-win` yeşil | ✅    | `gh run view` ile iş bazında doğrulandı: 43729189569 ve 43729189584, headSha `90dfe1d`. `sonuc.md:322-325` Kalan iş 8 bu numaraları ve sonuçları doğru yazıyor. `259a6f0` ci 43728760018 "cancelled (yeni push)" olarak düzeltildi. Seçim yazılmış: kanıt `90dfe1d`'ye bağlanır, belge commit'inin CI'ı birleştirmeden önce yeşil görülür |
+
+## Kabul kriterleri
+
+| AC             | Durum | Kanıt veya eksik                                                     |
+| -------------- | ----- | -------------------------------------------------------------------- |
+| AC-317..AC-324 | ✅    | Tur 2-3'teki gibi. Artık CI kanıtı da var (`90dfe1d` ci + agent-win) |
+
+## Düzeltilmeli
+
+Yok.
+
+Birleştirme koşulu (madde değil, `sonuc.md`'deki kendi taahhüdü): `e219894` ci 43729991671 ve agent-win 43729991799
+`main`'e birleştirmeden önce success görülmeli. Kırmızı biterse kod aynı olduğu için R-PT8 (kararsız test
+karşılaştırması) uygulanır.
+
+## Definition of Done (Tur 4)
+
+| Madde                                         | ✅/❌ | Not                                                        |
+| --------------------------------------------- | ----- | ---------------------------------------------------------- |
+| Lint / typecheck / format temiz               | ✅    | `90dfe1d` ci lint + type-check success                     |
+| Unit + entegrasyon testleri yeşil             | ✅    | `90dfe1d` ci test (MySQL 8.4) success                      |
+| Go test + vet + staticcheck (linux + windows) | ✅    | `90dfe1d` agent-win success (go test Windows dahil)        |
+| e2e (Playwright) yeşil                        | ✅    | `90dfe1d` ci web e2e success                               |
+| Güvenlik taraması (audit, gitleaks, lisans)   | ✅    | `90dfe1d` ci audit + lisans + gitleaks success             |
+| Belgeler güncel ve tutarlı                    | ✅    | `sonuc.md` Kalan iş 8, `implementation.md` PT bölümü       |
+| K8 Windows elle testi                         | ✅    | Kapsam dışı: istemci yayın kapısı (K-PT-4), PT'yi bağlamaz |
+
+## Öneriler (zorunlu değil)
+
+- `sonuc.md` "Test koşuları" tablosu hâlâ yalnız `e280551` koşusunu gösteriyor. `90dfe1d` numaraları yalnız Kalan iş
+  8'de var. Bir sonraki belge düzenlemesinde tabloya da eklenebilir.
+
+## Olumlu
+
+- Tur 3'teki "kapanmamış işi kapalı gösterme" sorunu düzeltildi. Üstü çizili gösterim artık gerçek yeşil koşulara
+  dayanıyor.
+
+---
+
 # QA Raporu — PT (kod temizliği) Tur 3
 
 DURUM: DÜZELTİLMELİ
