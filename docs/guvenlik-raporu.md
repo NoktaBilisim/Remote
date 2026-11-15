@@ -1,3 +1,180 @@
+# Güvenlik Raporu — P19 tasarım turu (2026-11-15)
+
+DURUM: DÜZELTİLMELİ (tasarım; J1–J3 başlamadan §8c güncellenmeli)
+Özet: Kritik 0 / Yüksek 1 / Orta 2 / Düşük 6 (+2 bilgi)
+
+Kapsam: `docs/mimari-e11.md` §8c (877–1221), `docs/tasarim-kontrol.md` P19 tablosu (658–679). P19 kodu yok. Tasarımın dayandığı
+mevcut kod doğrulandı: `auth/guards.ts:23-35`, `requests/ws.ts:69-110`, `requests/panel.ts:162-176, 227-241`,
+`signaling/rooms.ts:164-199`, `requests/service.ts:145, 249-269, 608`, `requests/limits.ts`, `lib/netguard.ts`, `lib/csv.ts`,
+`lib/version.ts`, `audit/mask.ts:42-51`, `notify/whatsapp.ts:23`, `cli/crypto.ts`, `customers/routes.ts`, `apps/web/proxy.ts`.
+Kod değiştirilmedi. Staging'e bağlanılmadı, ACCESS.txt okunmadı.
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] S-P19-T1 Durum bildirimi doğrulanmamış alıcıya gidiyor, alıcı/firma tavanı yok — A04 Insecure Design (kötüye kullanım)
+
+Yer: `docs/mimari-e11.md:1006-1017` (outbox), `:983` (`customerGlobalPerHour: 600`), `:1090` (form girdisi `phone`, `email`, `notify`).
+
+Sorun: Public form (kimliksiz, bot kapısı yalnız 2 sn + gizli alan) istenen herhangi bir telefon/e-posta ile talep açar ve
+SMS/WA/e-posta bildirimi seçer. Numara doğrulanmaz. `REQ_EXPIRED` insan eylemi olmadan süpürücüyle üretilir. Outbox için
+alıcı başına, firma başına ya da kanal başına bir tavan tanımlanmamış (send-link'teki 5/sa/alıcı ve 200/sa/tenant outbox'ta yok).
+WA müşteri tavanı (600/sa) **sistem genelinde tek kova**, firma payı yok.
+
+İstismar senaryosu: Saldırgan bir firmanın sitesindeki Genel `/r/<ref>`'i alır. Dağıtık IP'lerle (AC-144: IP 5/sa, firma 60/sa
+bilinmeyen kaynak, 50 bekleyen) kurbanın numarasıyla saatte ~60 talep açar, üç kanalı da seçer. Talepler süresi dolunca saatte
+~180 mesaj gider: (a) firmanın SMS kontörü yanar, (b) kurban taciz edilir, (c) tüm firmaların paylaştığı **sistem WhatsApp
+numarası** spam şikâyetiyle kapatılabilir; bu personel bildirimlerini de (P12b) düşürür. (d) 600/sa sistem kovası tek firmadan
+tüketildiğinde diğer firmaların meşru müşteri bildirimleri gitmez (firmalar arası DoS). (e) Tenant SMTP'nin itibarı düşer.
+
+Düzeltme:
+
+1. `notification_outbox` += `recipient_hash` CHAR(64) = HMAC-SHA256(HKDF `purpose="notify-recipient"`, normalize alıcı) + IX
+   (`recipient_hash`, `created_at`). Düz SHA-256 değil: telefon uzayı küçük, HMAC'siz özet tersine çevrilir. (dba)
+2. Kuyruğa almada (aynı TX, DB sayımı, yeniden başlatmaya dayanıklı): alıcı başına **firma içi 3/24 sa, sistem geneli 5/24 sa**;
+   firma başına kanal başına saatlik tavan (ör. 100/sa). Aşımda satır `FAILED`, `last_reason='rate_limited'`, audit
+   `request.customer_notify` fail. (backend-dev J3)
+3. WA müşteri kovasına firma payı (ör. 60/sa/tenant) + alıcı 3/sa. Sistem tavanı ayrı kalsın. (backend-dev J3)
+4. Talep oluşturmada aynı `recipient_hash` ile aynı firmada PENDING WEB talebi varsa yeni bildirim satırı üretilmesin (ya da
+   form 409 dönsün). Böylece tek numaraya çoklu talep bombası tek bildirime iner. (mimar karar, backend-dev J2)
+5. Alarm: firma başına outbox hacmi ve `rate_limited` oranı (devops J6). S-P19-1 testlerine "aynı numara 4. talep → bildirim
+   yok" eklenir. §8c.9 tablosuna S-P19-12 olarak yazılsın. (mimar)
+
+### [ORTA] S-P19-T2 `client_version = NULL`: P15 kabul kodu ve sürüm kapıları için kural eksik — A04 / A07
+
+Yer: `apps/server/src/requests/panel.ts:166` (`compareVersions(head.clientVersion, "0.11.0") < 0` → `client_unsupported`),
+`requests/ws.ts:96` (`isOutdated(row.clientVersion, MIN_AGENT_VERSION)`), `lib/version.ts:18` (`version ?? "0.0.0"`),
+`requests/service.ts:145, 250, 608`, `signaling/rooms.ts:166` (`clientVersion: string`). Tasarım `docs/mimari-e11.md:929` yalnız
+`isOutdated` ve `legacy` için "atlanır" diyor. Kabul kodu kapısından söz etmiyor.
+
+Sorun: Kodda NULL'ı `"0.0.0"`'a düşürme kalıbı yerleşik (`service.ts:145`, `isOutdated`). Geliştirici aynı kalıbı kullanırsa
+şunlar olur:
+
+- `requireAcceptCode` açık firmada her WEB talebi kalıcı 409 `client_unsupported` alır. Hata metni Admin'e "kabul kodu ayarını
+  kapatın" diyor (`contracts/api/requests.ts:612`). Yani Admin bir güvenlik kontrolünü kapatmaya yönlendirilir.
+- `ws.ts:96`'da `isOutdated(undefined, min)` true döner. WEB soketi 426 alır ya da geliştirici kapıyı NULL için koşulsuz atlar.
+- Ters yönde, kontrol "NULL ise atla" diye yazılır ve `preAdmitGuest`'e `acceptCode` WEB'de geçirilmezse kabul kodu WEB'de
+  sessizce devre dışı kalır. Müşteri, ekran paylaşımını teknisyenin kimliğini kodla doğrulamadan açar (AC-239 atlatma).
+
+Düzeltme: Kural `source`'a bağlanmalı, NULL'a değil. `source === "WEB"` → kabul kodu **destekli** sayılır, `acceptCode`
+`preAdmitGuest`'e aynen geçer, bekleme sayfası `admitCode`'u gösterir. `compareVersions`/`isOutdated` yalnız `source === "AGENT"`
+dalında çağrılır. NULL hiçbir yerde `"0.0.0"`'a düşürülmez (tip `string | null`, AGENT dalında daraltma). Testler: kabul kodu
+açık + WEB → 200 + `admitCode` + kodsuz admit reddi; AGENT 0.10.x → 409 (regresyon); WEB soketi 426 almaz. (mimar §8c.2 m.5'e
+cümle; backend-dev J2)
+
+### [ORTA] S-P19-T3 İçe aktarma `customers.create`'i atlıyor; önizleme ad varlığını sızdırıyor — A01 Broken Access Control
+
+Yer: `docs/mimari-e11.md:1057, 1070, 1100`. Mevcut oluşturma `customers/routes.ts:69` `requirePerm("customers.create")`.
+
+Sorun: Commit yalnız `customers.import` (+ update'te `customers.edit`) istiyor. Önizleme yalnız `customers.import` istiyor ama
+`conflict` sınıfı firmadaki pasifler dahil ad varlığını döndürüyor.
+
+İstismar senaryosu: `customers.import` açık, `customers.create`/`customers.view` kapalı bir User 5.000 müşteri yaratır (her
+biri yeni bir public ref, yani yeni bir form girişi). Ayrıca aday ad listesiyle önizleme yaparak müşteri adlarını numaralandırır.
+
+Düzeltme: Önizleme `customers.import` + `customers.create` + `customers.view`. Commit `customers.import` + `customers.create`
+(+ `customers.edit` update'te). "Admin sahip olmadığını veremez" testi bu bileşime de uygulanır. (mimar §8c.6, backend-dev J4)
+
+### [DÜŞÜK] S-P19-T4 Form token tek kullanımının tüketim anı tanımsız; yeniden başlatmada token'lar yeniden geçerli — A04
+
+Yer: `docs/mimari-e11.md:938-940`.
+Sorun: "Nonce kullanılmamış" denetimi ile kümeye ekleme arasında `await` olursa aynı token paralel N POST'ta geçer. Yeniden
+başlatmada son 30 dk'nın token'ları bir kez daha kullanılabilir. Küme dolunca (100 000) davranış tanımsız.
+Etki IP/firma kovalarıyla sınırlı.
+Düzeltme: Denetim ve ekleme ilk `await`'ten önce aynı senkron adımda yapılır (`OneTimeStore` kalıbı). HMAC anahtarı HKDF'ye
+süreç açılış kimliği (bootId, rastgele 16 B) katılarak türetilir. Böylece önceki süreç token'ları açılışta geçersizdir,
+kullanıcı sayfayı yeniler. Küme doluysa fail-closed 400 `FORM_TOKEN_INVALID`. Test: aynı token 10 paralel → 1 başarılı.
+(backend-dev J2)
+
+### [DÜŞÜK] S-P19-T5 `sms_url` userinfo/sorgu dizesi kabul ediyor → sır URL'de açık kalır — A02 / A09
+
+Yer: `docs/mimari-e11.md:901` (CHECK `^https?://[^\s]{1,247}\z`), `:1034` (GET `url` döner), `:1040` (audit eski→yeni `url`).
+Sorun: Admin `https://u:p@host` ya da `?apikey=…` yazarsa sır şifresiz DB'de kalır, `settings.view` ile okunur ve audit'e açık
+düşer. Anahtar alanının `***` maskesi böylece boşa çıkar.
+Düzeltme: zod ve CHECK'te userinfo, `?` ve `#` reddedilir (yalnız köken + yol). Mevcut WA URL'sinde de aynı kural doğrulanır.
+(backend-dev J3, dba J1)
+
+### [DÜŞÜK] S-P19-T6 Sistem varsayılan URL'sine bağlı AAD ve anahtar emekliliği kapsamı — A02
+
+Yer: `docs/mimari-e11.md:901` (AAD `…|<etkin URL kökeni>`, NULL = env `SMSPORTAL_URL`), `apps/server/src/cli/crypto.ts:33`
+(`check-retire` yalnız `session_messages`).
+Sorun: (a) Devops `SMSPORTAL_URL`'i değiştirirse varsayılanı kullanan tüm firmaların anahtarı çözülemez. Bu tasarımda bir
+güvenlik özelliği (anahtar yeni adrese taşınmaz), ama çözme hatası sınıflandırılmazsa 500/log gürültüsü çıkar. (b) Yeni şifreli
+sütunlar (`sms_api_key_enc`, `recipient_enc`) anahtar emekliliği ön kontrolünde yok.
+Düzeltme: Çözme hatası → `unconfigured` + ayar ekranında "anahtarı yeniden girin". Runbook "SMSPORTAL_URL değişimi" adımı.
+Anahtar emekliliği runbook'una iki sütunun sürüm sayımı eklenir; outbox 7 günde kendiliğinden boşalır. (backend-dev J3, devops J6)
+
+### [DÜŞÜK] S-P19-T7 SMS test ucunda alıcı tavanı yok; dış hedefte port serbest — A04 / A10
+
+Yer: `docs/mimari-e11.md:1042` (5/dk/kullanıcı + 20/dk/firma), `:980-982`.
+Sorun: Ele geçmiş bir Admin hesabı test ucuyla saatte 1.200 SMS'i keyfi numaralara atabilir. Tenant URL'si genel IP'de her
+porta işaret edebilir ve sınıflandırılmış nedenler (`timeout`/`unreachable`/`http_error`) dış hostlarda kör port taraması sağlar
+(5/dk ile yavaş).
+Düzeltme: Testte alıcı başına 3/sa. Production'da tenant URL'si yalnız 443 (ya da açık izin listesi). Test yanıtında
+`timeout` ve `unreachable` tek "ulaşılamadı" sınıfında birleşir; ayrıntı yalnız metrikte kalır. (backend-dev J3)
+
+### [DÜŞÜK] S-P19-T8 Şablona giren firma/teknisyen adı ile içerik enjeksiyonu — A03 (içerik) / oltalama
+
+Yer: `docs/mimari-e11.md:984`.
+Sorun: Şablonlar sabit, bağlantı `token_hash` ile kendi alan adına bağlı (iyi). Ancak `firmLabel` (≤ 30) ve teknisyen adı
+firma tarafından yazılır. "Ziraat destek www.x.tld" gibi bir ad, paylaşılan Nokta WA numarasından giden mesaja ikinci bir
+alan adı sokar.
+Düzeltme: Şablona girerken ad süzülür: `://`, `www.`, `\.[a-z]{2,}\b` desenleri ve kontrol/bidi karakterleri atılır.
+Teknisyen adı "Ad S." biçiminde kısaltılır. Birim testi S-P19-11'e eklenir. (backend-dev J3)
+
+### [DÜŞÜK] S-P19-T9 Tek firma bilinmeyen kaynak kovası form spam'iyle meşru müşteriyi kilitler — A04 (kullanılabilirlik)
+
+Yer: `apps/server/src/requests/limits.ts` (`tenantAll` 60/sa), `docs/mimari-e11.md:933`.
+Sorun: Web formu, AC-144 firma kovasını ajan yoluyla paylaşıyor. Form spam'i aynı firmanın Windows istemcisinden gelen meşru
+taleplerini de 429'a düşürür. Mevcut kabul edilmiş riskin (AC-143) genişlemesi.
+Düzeltme: WEB ve AGENT için firma kovaları ayrılır (WEB kendi 60/sa'sı). Kill switch olarak `web_form_enabled` ve ref
+yenileme (`customers/routes.ts:84`, `requests/routes.ts:191`) kılavuzda "spam altında ne yapılır" başlığıyla anlatılır.
+(mimar karar, backend-dev J2, teknik-yazar J9)
+
+### [BİLGİ] B1 CSP metni koddan gevşek yazılmış
+
+`docs/mimari-e11.md:959` `connect-src 'self' wss:` diyor. Kod (`apps/web/proxy.ts:26`) daha sıkı: `wss://${host}`. Kod
+korunmalı, doküman düzeltilmeli (mimar). `/r/*` proxy matcher kapsamında (`proxy.ts:76`): CSP nonce, `frame-ancestors 'none'`
+(:29) ve `Referrer-Policy: no-referrer` (:69) zaten uygulanıyor. "Ekranımı paylaş" düğmesine clickjacking yok.
+
+### [BİLGİ] B2 KVKK
+
+Onay kaydı (AC-135), AC-292 satırı (düğme pasif kapısı + prod kapısı), varsayılanı işaretsiz kutular, outbox alıcısının
+şifrelenip son durumda NULL'lanması, 7 günlük temizlik, anonimleştirmede aynı TX'te silme ve maskeli audit (`maskPhone` ilk 3
+
+- son 4, `maskEmail` `m***@alan`) yeterli. T1'deki `recipient_hash` HMAC'li olduğu için kişisel veri sayılır ve aynı
+  silme/anonimleştirme yollarına dahildir. Bildirim kutusu açık rıza değil, hizmet bildirimi tercihi (ticari ileti değil, İYS
+  gerekmez). Kılavuzda böyle anlatılmalı (teknik-yazar).
+
+## Otomatik tarama çıktıları
+
+- Gizli bilgi taraması (`git grep` kalıbı, test/e2e/md hariç): 0 eşleşme.
+- `.env*` git geçmişi: yalnız `.env.example`.
+- `pnpm audit`: tasarım turu, bağımlılık değişikliği yok (P19 yeni bağımlılık getirmiyor). Çalıştırılmadı, kod turunda koşulacak.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+P19 kodu henüz yok, dolayısıyla bu turda beklenen bir eksik yok. Tasarımın dayandığı mevcut kod yerinde:
+`publicClientAllowed`/`checkPublicClient` (`guards.ts:23-35`), `NetGuard` (`lib/netguard.ts`; IPv4/IPv6, mapped, rebinding, denyHosts),
+`csvCell` formül kaçışı (`lib/csv.ts:12-19`), `maskPhone`/`maskEmail`, `sessions/email.ts` 20/sa audit sayımı kalıbı,
+`cli crypto:rewrap` (T6 kapsam notu hariç). Yeni olacaklar: `lib/outbound.ts`, `parseCsv`, `notify/sms.ts`, `form-token.ts`.
+
+## Olumlu
+
+- Public uçlarda id yok. Ref (80 bit) ve talep sırrı SHA-256 ile saklanıyor. Form yanıtı müşteri adı döndürmüyor. Üç 404
+  durumu bayt eşit.
+- WS'te tür ↔ `source` eşleşmesi (ajan sırrı tarayıcıdan, web sırrı ajandan kullanılamaz). Çerezsiz public POST, CORS yok.
+- send-link yalnız oturumun kendi `token_hash` bağlantısını gönderebiliyor (oltalama aracı olmuyor). Sayaç rezervasyonu
+  yeniden başlatmaya dayanıklı.
+- `lib/outbound.ts`: IP sabitleme, yönlendirme yok, gövde ≤ 4 KB atılıyor, ham hata dönmüyor. Tenant URL'si kayıtta ve
+  gönderimde denetleniyor. Anahtar kökene bağlı AAD ile korunuyor, köken değişince yeniden giriş isteniyor.
+- Outbox UQ ile idempotent. Alıcı şifreli, son durumda NULL (CHECK ile zorunlu), firma silmede ve anonimleştirmede kapsanıyor.
+  Tetikleyici sayısı değişmiyor.
+- CSV: ref dışa aktarılmıyor, içe aktarma mevcut zod şemalarından geçiyor, boyut/satır sınırları var, önizleme kullanıcı +
+  firmaya bağlı.
+- Yeni yetkiler tek tanımdan geliyor, varsayılan USER kapalı.
+
+---
+
 # Güvenlik Raporu — P18 kod turu 2 (2026-11-15)
 
 DURUM: GEÇTİ
