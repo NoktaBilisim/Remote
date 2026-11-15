@@ -1,3 +1,111 @@
+# Güvenlik Raporu — P20 tasarım turu, Tur 2 (doğrulama) (p20-wip 5bdc6bf, 2026-11-15)
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0). Yeni Orta 1'in (G-P20-14) K4 kodlanmadan önce §8d.3'te düzeltilmesi **önerilir**: kural yazıldığı
+gibi uygulanırsa güvenlik kontrolü ya her makinede yanlış ret verir ya da geliştirici onu gevşetir.
+Özet (Tur 2): Kritik 0 / Yüksek 0 / Orta 1 (yeni) / Düşük 5 (yeni). Tur 1: 13 bulgunun 13'ü tasarımda karşılandı (G-P20-11 "Sonra").
+Kaynak: `docs/mimari-e11.md` §8d.1, §8d.3, §8d.7, §8d.8, §8d.9, §8d.11, §8d.15; ADR-0004 r6 eki; K-P20-11..13.
+
+## Tur 1 bulgularının durumu
+
+| Bulgu                           | Durum                                                | Not                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G-P20-1 Run hedefi ACL (Yüksek) | **Kapandı** (kural düzeltilmeli: G-P20-14, G-P20-15) | DACL + sahip denetimi, devralınan ACE dahil, Public/ProgramData ret, handle ile okuma, zayıfta Run silme, CI `icacls` testi. Sahiplik eklenmiş (sahip örtük WRITE_DAC'i kapsanır). Junction/symlink: mevcut "yol veya klasör reparse → ret" + `GetFinalPathNameByHandleW` kanonik yol; saldırganın yazma hakkı yokken bileşen değiştirme yarışı (TOCTOU) mümkün değil — hak varsa zaten ret. Sert bağlantı: DACL dosya nesnesine aittir, ek açık yok |
+| G-P20-2 süreçler arası kilit    | **Kapandı** (ad alanı notu G-P20-16)                 | Kilit içinde yeniden okuma, `WAIT_ABANDONED` kabulü (atomik rename yarım yazımı önler), zaman aşımı = görünür hata                                                                                                                                                                                                                                                                                                                                   |
+| G-P20-3 geçici hatada silme     | **Kapandı** (kalıcı geçici durum notu G-P20-18)      | Hata sınıfları, `update` okuma hatasında yazmaz, `--tray`'de Run korunur                                                                                                                                                                                                                                                                                                                                                                             |
+| G-P20-4 8 KB bütçe              | **Kapandı**                                          | 32/128 KB, `SetEscapeHTML(false)`, 10 öğe en kötü durum fikstürü, görünür yazma hatası                                                                                                                                                                                                                                                                                                                                                               |
+| G-P20-5 oturum kapsamı, X       | **Kapandı**                                          | Oturum başına yeni `flow.Deps`, gate kapalı başlar, kısayol/kanca yalnız oturumda, etkin oturumda X = bitirme onayı, tepsi ipucunda firma; aynı süreçte A→B testi                                                                                                                                                                                                                                                                                    |
+| G-P20-6 Run biçimi              | **Kapandı**                                          | REG_SZ, `VOLUME_NAME_DOS`, `\\?\UNC\` ve `"` ret, REG_SZ değilse yeniden yazım, `--tray` tam eşleşme                                                                                                                                                                                                                                                                                                                                                 |
+| G-P20-7 sohbet görünümü         | **Kapandı**                                          | K6 kapsamında                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| G-P20-8 status silme yarışı     | **Kapandı**                                          | `OnBindingInvalid(key)`, silmeyen kodlar testli                                                                                                                                                                                                                                                                                                                                                                                                      |
+| G-P20-9 karışık sürüm           | **Kapandı**                                          | Ana ekran cümlesi + kılavuz                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| G-P20-10 AV örneğinde ref       | **Kapandı**                                          | §8d.8 m.2: hash araması, yalnız nötr adlı Release artifact'ı                                                                                                                                                                                                                                                                                                                                                                                         |
+| G-P20-11 deviceKey              | **Sonra**                                            | gereksinimler §9                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| G-P20-12 ad taklidi/köken       | **Kapandı** (sayım notu G-P20-17)                    | Her satırda tarih, ad değişimi bilgisi, köken başına 5, başka köken seçilemez                                                                                                                                                                                                                                                                                                                                                                        |
+| G-P20-13 tek örnek X yolu       | **Kapandı** (mutex sahipliği notu G-P20-16)          |                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+## Yeni bulgular (Tur 2)
+
+### [ORTA] G-P20-14 ACL kuralı "kökten exe'ye kadar her klasörde FILE_ADD_SUBDIRECTORY" her makinede yanlış ret verir — A05 (kontrol tasarım hatası)
+
+Yer: `docs/mimari-e11.md` §8d.3 `internal/autorun` satırı, "r2 (G-P20-1, bağlayıcı)" cümlesi.
+Sorun: Windows varsayılan `C:\` DACL'i `NT AUTHORITY\Authenticated Users:(AD)` (bu klasörde FILE_APPEND_DATA = FILE_ADD_SUBDIRECTORY)
+ve `Authenticated Users:(OI)(CI)(IO)(M)` (yalnız devralma) içerir. Kural "kökten exe'ye kadar her klasörde başka SID'e
+`FILE_ADD_FILE`/`FILE_ADD_SUBDIRECTORY` → ret" dediği için `C:\Users\<kullanıcı>\Downloads\…` dahil **her** yol reddedilir; ayrıca
+yalnız-devralma (IO) ACE'leri "devralınan ACE'ler dahil" ifadesiyle yanlışlıkla sayılabilir. Sonuç: özellik hiç çalışmaz, ya da
+geliştirici kuralı kodlarken körlemesine gevşetir (ör. kök klasörü atlar ve asıl riskli `FILE_DELETE_CHILD`'ı da atlar).
+İstismar senaryosu: Doğrudan istismar değil; kontrolün yanlış tanımı, uygulamada kontrolün devre dışı kalmasına yol açar
+(G-P20-1'in yeniden açılması).
+Düzeltme (kural, bağlayıcı yazılmalı):
+
+- `INHERIT_ONLY_ACE` bayraklı ACE'ler o nesne için **atlanır** (yalnız etkili ACE'ler değerlendirilir; devralınmış ama etkili ACE'ler sayılır).
+- **Exe dosyası:** başka SID'e `FILE_WRITE_DATA`, `FILE_APPEND_DATA`, `WRITE_DAC`, `WRITE_OWNER`, `DELETE`, `GENERIC_WRITE/ALL` → ret.
+- **Doğrudan üst klasör:** başka SID'e `FILE_ADD_FILE`, `FILE_ADD_SUBDIRECTORY`, `FILE_DELETE_CHILD`, `WRITE_DAC`, `WRITE_OWNER`,
+  `DELETE`, `GENERIC_WRITE/ALL` → ret (exe değiştirme + yanına DLL bırakma).
+- **Daha üstteki ataların her biri:** yalnız yol bileşenini değiştirmeye yarayan haklar — başka SID'e `FILE_DELETE_CHILD`,
+  `WRITE_DAC`, `WRITE_OWNER`, `GENERIC_ALL` (atada) ve bir alt bileşen üzerinde `DELETE` → ret. `FILE_ADD_SUBDIRECTORY`/`FILE_ADD_FILE`
+  atalarda ret nedeni **değildir** (var olan `C:\Users` bileşenini değiştirmez).
+- Sahip denetimi her bileşende kalır (C:\ sahibi TrustedInstaller/SYSTEM, profil klasörü sahibi kullanıcıdır — geçer).
+- Test fikstürü: gerçek varsayılan `C:\` ACL'i (AD + IO M) ile `C:\Users\<u>\Downloads\x.exe` **kabul**; `C:\Araclar\x.exe` (Users:M devralınmış)
+  **ret**; `C:\Users\Public\x.exe` ret. CI'da gerçek `C:\` üzerinde kabul testi (kuralın yanlış ret vermediğinin kanıtı).
+  Atanan: mimar (§8d.3 cümlesi) → backend-dev (Go, K4).
+
+### [DÜŞÜK] G-P20-15 ACL denetimi `--tray` ve tepside "Aç"/"Destek iste" yolunda yapılmıyor
+
+Yer: §8d.3 autorun ("`--tray` açılışında denetim anlamsızdır").
+Sorun: Gerekçe yalnız exe zaten değiştirilmişse doğrudur. Exe meşruyken (çoğu durum) `--tray` açılışında yapılan yerel denetim,
+sonradan zayıflamış izni (klasör taşındı, başka yönetici izin verdi) saldırgan exe'yi değiştirmeden **önce** yakalar. Yalnız tepsi
+kullanan müşteri hiç "normal açılış" yapmayabilir; denetim bir daha çalışmaz.
+Düzeltme: `--tray` açılışında ve tepsiden pencere açıldığında da aynı yerel denetim (ağsız, ucuz); zayıfsa Run silinir, tepsi
+balonu "Windows açılışında başlatma kapatıldı (klasör izinleri)". Atanan: backend-dev (Go, K4/K5).
+
+### [DÜŞÜK] G-P20-16 `Local\` mutex: farklı oturumlarda etkisiz, başka kullanıcı tarafından önceden oluşturulabilir
+
+Yer: §8d.1 "Süreçler arası kilit", §8d.3 tray tek örnek mutex'i.
+Sorun: `Local\` ad alanı oturum (terminal session) başınadır: aynı kullanıcı iki oturumda (konsol + RDP, Windows Server/çok
+oturumlu) aynı `%LOCALAPPDATA%` dosyasını yazar ama farklı mutex görür — G-P20-2 yarışı geri gelir. Aynı oturumda `runas` ile çalışan
+başka bir kullanıcı adı tahmin edilebilen (SID özeti) mutex'i kısıtlayıcı DACL ile önceden oluşturabilir → kurbanın her yazımı
+zaman aşımına düşer / tepsi hiç başlamaz (DoS; veri kaybı yok, G-P20-3 sınıf 2 sayesinde).
+Düzeltme: Store kilidi için mutex yerine kullanıcının kendi klasöründe `kayitlar.lock` + `LockFileEx` (AC-249 handle kuralıyla açılır;
+başka kullanıcı bu klasöre yazamaz, oturumlar arası geçerli). Tray tek örnek mutex'i açılınca sahibi `GetSecurityInfo` ile geçerli
+kullanıcı değilse yok sayılır (tek örnek kuralı yerine tepsi yine başlar) ve diag olayı yazılır. Atanan: mimar → backend-dev (Go, K2/K5).
+
+### [DÜŞÜK] G-P20-17 Köken başına 5 / toplam 10: sayım ihlali okumada "kesin biçim hatası" → tüm dosya silinir; 3. köken kilitlenir
+
+Yer: §8d.1 şema (`bindings?` köken başına 0..5, toplam ≤ 10), "Hata sınıfları" (1).
+Sorun: Strict decode sayım ihlalini (bir birleştirme/yarış hatasıyla 6. öğe ya da 11. öğe) biçim hatası sayarsa 10 firma + kişisel
+bilgi tek seferde silinir. Toplam 10 tavanı üçüncü bir kökeni (ör. müşteriye özel sunucu) sayısı 0 iken bile engeller; `full`
+bayrağı köken başına hesaplandığı için sunucuya yanlış bilgi gider.
+Düzeltme: Yazımda sayım kesin reddedilir; okumada sayım ihlali dosyayı silmez — fazla öğeler (`lastUsedAt` en eski) bellekte atılır ve
+bilgi satırı gösterilir. `full` yalnız gömülü kökenin sayısından hesaplanır; toplam tavan yerine köken sayısı tavanı (ör. ≤ 2 köken)
+ya da toplam tavanın ekranda açıklanması. Atanan: mimar → backend-dev (Go, K2/K3).
+
+### [DÜŞÜK] G-P20-18 Kalıcı "geçici" DPAPI hatasında çıkış yolu tanımsız
+
+Yer: §8d.1 "Hata sınıfları" (2).
+Sorun: Yönetici parola sıfırlaması sonrası DPAPI ana anahtarı kaybolursa `CryptUnprotectData` `NTE_BAD_KEY_STATE` vb. döner (sınıf 2);
+dosya kalıcı olarak okunamaz, her açılış salt-okunur kalır, yazma reddedildiği için yeni kayıt da alınamaz.
+Düzeltme: Salt-okunur bilgi satırında "Bu bilgisayarı unut" sunulur ve `ForgetAll` okuma durumundan bağımsız siler (handle kuralıyla);
+ardışık N (ör. 3) açılışta aynı sınıf-2 kodu → kullanıcıya silme önerisi (sessiz silme yok). `NTE_BAD_KEY_STATE` sınıf listesinde
+açıkça adlandırılsın. Atanan: mimar → backend-dev (Go, K2/K3).
+
+### [DÜŞÜK] G-P20-19 §8d.9 test tablosunda eski sınırlar
+
+Yer: §8d.9 Go birim satırı: "6. öğe reddi", "≤ 8 KB" — r2 ile çelişir (köken başına 5/toplam 10, 32 KB). Test yazarı eski değeri
+kodlarsa G-P20-4 geri gelir. Düzeltme: satır r2 değerleriyle güncellenir. Atanan: mimar.
+
+## Otomatik tarama çıktıları
+
+Tur 1'den bu yana yalnız doküman değişti (`git diff afda867 5bdc6bf --stat`: 5 doküman dosyası); tarama tekrarlanmadı.
+
+## Olumlu (Tur 2)
+
+- Mimar her bulguyu dosya/paket/test düzeyinde eşledi (§8d.15); kararlar test planına (Linux birim + Windows CI) bağlandı.
+- G-P20-5 düzeltmesi tasarımın en önemli kazanımı: süreç ömrü = oturum ömrü varsayımı açıkça oturum kapsamına çevrildi, boşta
+  kısayol/kanca kaldırıldı (hem güvenlik hem R30).
+- ACL denetimine sahiplik ve REG_SZ/önek kuralları eklenmiş; zayıfta Run'ın silinmesi doğru varsayılan.
+
+---
+
 # Güvenlik Raporu — P20 tasarım turu (p20-wip afda867, 2026-11-15)
 
 DURUM: DÜZELTİLMELİ (Yüksek 1 — tasarım düzeltmesi; kod yazılmadan mimar §8d.3/§8d.7'yi günceller).

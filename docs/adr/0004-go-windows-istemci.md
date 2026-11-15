@@ -107,13 +107,18 @@ kayıt" kuralı bu iki AC ile çelişir. Kod imzası (SignPath) henüz yok (ADR-
   ekleme/silme) veren ACE varsa, ya da konum `C:\Users\Public` / `%ProgramData%` altındaysa başlangıç kaydı yazılmaz; her normal
   açılışta denetim tekrarlanır ve zayıf izinde mevcut değer silinir. "Aynı kullanıcıdaki zararlı kapsam dışı" ilkesi başka yerel
   kullanıcıya uygulanmaz.
+- **ACL kuralının kesin biçimi (Tur 2, G-P20-14, 15):** yalnız etkili ACE'ler (`INHERIT_ONLY_ACE` atlanır); haklar katmanlı — exe
+  dosyasında yazma/silme/izin değiştirme, doğrudan üst klasörde dosya/alt klasör ekleme ve silme, daha üst atalarda yalnız yol
+  bileşenini değiştiren haklar (`FILE_DELETE_CHILD`, `WRITE_DAC`, `WRITE_OWNER`, `GENERIC_ALL`, bileşende `DELETE`); atalarda
+  `FILE_ADD_*` ret nedeni değildir (varsayılan `C:\` izinleriyle İndirilenler kabul edilir). Denetim `--tray` açılışında ve tepsiden
+  pencere açılışında da yapılır.
 - **Değer biçimi (G-P20-6):** REG_SZ (REG_EXPAND_SZ yasak), `\\?\` öneksiz DOS yolu, UNC ve `"` içeren yol ret; `--tray` yalnız
   tek ve tam argüman.
-- **Dosya (G-P20-2/3/4):** süreçler arası adlandırılmış mutex (kullanıcı SID özeti) altında oku-değiştir-yaz; geçici G/Ç/DPAPI
+- **Dosya (G-P20-2/3/4; Tur 2 G-P20-16/17/18):** kullanıcı klasöründe `kayitlar.lock` + `LockFileEx` altında oku-değiştir-yaz (adlandırılmış mutex oturumlar arası geçersiz ve başka kullanıcıca önceden oluşturulabilir olduğu için kullanılmaz); okumada sayım ihlali dosyayı silmez (fazla öğe atılır), en çok 2 köken; kalıcı DPAPI hatasında "Bu bilgisayarı unut" okuma durumundan bağımsız siler; geçici G/Ç/DPAPI
   hatasında dosyaya dokunulmaz (yalnız kesin biçim hatası siler); düz metin ≤ 32 KB, HTML kaçışı kapalı, yazma hatası kullanıcıya
   görünür. 5 sınırı köken başına.
 - **Yerleşik süreç (G-P20-5, 13):** oturum kapsamlı durum her oturumda sıfırdan kurulur; global kısayol ve düşük seviye kancalar
-  yalnız oturum süresince; etkin oturumda pencere kapatma bugünkü onaylı davranıştır; tek yerleşik örnek, UIPI filtresi gevşetilmez.
+  yalnız oturum süresince; etkin oturumda pencere kapatma bugünkü onaylı davranıştır; tek yerleşik örnek, UIPI filtresi gevşetilmez; tepsi mutex'inin sahibi geçerli kullanıcı değilse yok sayılır (G-P20-16).
 
 **Alternatifler:** Exe'yi `%LOCALAPPDATA%`'ya kopyalayıp Run'ı ona bağlamak — kalıcı ama klasik "dropper" örüntüsü, AV riski
 (R30) ve kurulum anlamı; reddedildi. Zamanlanmış görev — daha görünmez, AV riski; reddedildi. Aynı `hatirla.bin` adıyla `v:3`
