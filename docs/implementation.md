@@ -7548,3 +7548,43 @@ Sapma yok; yeni bağımlılık yok. Liste/CSV değişmedi (CSV hücresi sunucuda
   desktop projesinde viewport ile).
 - `pnpm format:check`: bu turda değişen dosyalar temiz; tek uyarı `docs/runbook.md` (bu turda dokunulmadı, çalışma ağacında başka
   bir değişiklikten).
+
+## CI: coturn bant testi sağlamlaştırma (devops, P19)
+
+CI işi `coturn (yapılandırma + HMAC + denied-peer-ip)` iki ayrı nedenle aralıklı düşüyordu; ikisi de **test** kusuru,
+coturn / `host-firewall.sh` kusuru değil. Yalnız `deploy/turn/test-local.sh` değişti; üretim betikleri ve eşikler aynı.
+
+### 1) AC-21 / G-P13b-12 "2 allocation ~2 MB/s" (43689643033, 43696731001 deneme 1)
+
+- Bulgu: `turnutils_uclient -m 2` iki allocation'ı eşzamanlı sürmeyi garanti etmiyor. Saniyelik seri
+  `0 748800 1004400 1003200 1005600 1924800 2008800 2007600 2008800 1394400 1004400 ...`: tavan allocation başına doğru
+  uygulanıyor (iki akış birlikteyken ~2 MB/s), ama tüm koşunun medyanı tek akışlı saniyelere düşüyordu (teklif medyanı
+  1208400 = tek akış).
+- Düzeltme: ilerleme satırından aynı saniyeye ait `teklif teslim` çiftleri okunur (`pairs`); yalnız **iki akışın da
+  sürüldüğü** saniyeler (teklif >= 2,2 MB/s) ölçülür ve bu penceredeki teslim medyanı >= 1,8 MB/s olmalı. Pencere < 3 sn
+  ise ölçüm **geçersiz** sayılır ve en çok `TURN_TEST_BPS_TRIES` (vars. 3) kez yeniden koşulur; tükenirse "tavan
+  ölçülemedi" FAIL. Eşik altı teslim (credential başına tavan ~1 MB/s) yeniden denenmez, doğrudan FAIL: doğrulanan
+  özellik korunur, yanlış negatif kalkar. FAIL'de saniyelik `teklif/teslim` serisi yazılır.
+
+### 2) host-firewall preflight (43696731001 deneme 2)
+
+- Bulgu: "relay aralığı 49160:49999 içinde başka süreç UDP dinliyor: 49415". Bridge test ağında Docker gömülü DNS'i
+  (127.0.0.11) konteyner ağ ad alanında çekirdeğin geçici aralığından rastgele bir UDP portunda dinler (yerelde
+  `netstat -uln`: `127.0.0.11:36125`); port relay aralığına düşünce (~%3) apply'ın preflight'ı haklı olarak çıkış 1 verdi.
+  Staging/prod coturn host ağında çalışır; bu soket orada yoktur.
+- Düzeltme (test): `inrange` ile ağ ad alanında aralıktaki UDP dinleyiciler listelenir (önce test aracının 49300
+  dinleyicisinin kapanması beklenir). Aralık boşsa preflight'ın **0 döndüğü** ayrıca doğrulanır (yeni PASS: pozitif yol)
+  ve apply preflight ile koşar; yalnız `127.0.0.11:*` varsa BİLGİ satırı yazılır ve test apply'ı
+  `TURN_FW_SKIP_PREFLIGHT=1` ile koşar; başka yabancı dinleyici varsa test FAIL. Negatif yol (aralıkta yabancı
+  dinleyici -> çıkış 1) 49300 ile her koşuda doğrulanmaya devam eder. `host-firewall.sh` değişmedi (fail-closed aynen).
+- Ek: satır 68'deki `A && B || C` (SC2015) `if` yapısına çevrildi.
+
+### Doğrulama (yerel, Docker Desktop, CI ile aynı `./test-local.sh`)
+
+- `shellcheck test-local.sh test-denied.sh`: temiz (`koalaman/shellcheck:stable`). `host-firewall.sh`'taki önceden var
+  olan `note` düzeyi uyarılara (SC2031/SC2094/SC2086) dokunulmadı.
+- Tam koşu x3 (1. yalnız bant düzeltmesiyle, 2-3. son hal): her birinde 65 PASS / 0 FAIL + AC-21 tek allocation PASS +
+  2 allocation PASS (hep ilk denemede, örtüşme penceresi 6 sn, teslim ~1,99-2,00 MB/s) + kapasite PASS; son halde
+  "preflight: aralık boş -> çıkış 0" PASS.
+- DNS benzetimi (geçici kopya, fw konteynerinde `nc -u -l -s 127.0.0.11 -p 49415`): BİLGİ satırı, apply/check PASS,
+  65 PASS / 0 FAIL. Geçici kopya silindi.
