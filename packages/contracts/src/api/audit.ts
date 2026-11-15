@@ -138,6 +138,9 @@ export const AUDIT_ACTION_GROUPS: readonly { prefix: string; label: string }[] =
   { prefix: "control.*", label: "Uzaktan kontrol" },
   { prefix: "monitor.*", label: "Monitör" },
   { prefix: "file.*", label: "Dosya transferi" },
+  // P28a (mimari-p28 §8.1): `clipboard.consent`, `clipboard.transfer`, `print.job`
+  { prefix: "clipboard.*", label: "Pano paylaşımı" },
+  { prefix: "print.*", label: "Uzaktan yazdırma" },
   { prefix: "request.*", label: "Destek talebi" },
   { prefix: "customer.*", label: "Müşteri" },
   { prefix: "binding.*", label: "Kayıtlı bilgisayar" },

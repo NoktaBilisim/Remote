@@ -21,6 +21,7 @@ import { createGate } from "../unattended/gate.ts";
 import { admitRequestGuest } from "./admit.ts";
 import { admitDeviceGuest } from "./admit-device.ts";
 import { onGuestMessage, onTechMessage, TokenBucket } from "./handlers.ts";
+import { featuresOf } from "./rooms-features.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Guest, Peer, Room } from "./types.ts";
 
@@ -212,13 +213,22 @@ async function auditReconnectConflict(u: UpgradeCtx, room: Room, ctx: AuditConte
 }
 
 function openGuest(u: UpgradeCtx, c: GuestConn, room: Room, g: Guest, attach: (peer: Peer) => void): void {
-  u.accept(c.req, c.socket, c.head, "guest", (ws, peer) => bindGuest(u, ws, peer, room, g, c.ctx, () => attach(peer)));
+  const protocols = offeredProtocols(c.req);
+  u.accept(c.req, c.socket, c.head, "guest", (ws, peer) => bindGuest(u, ws, peer, { room, g, ctx: c.ctx, protocols }, () => attach(peer)));
 }
 
-function bindGuest(u: UpgradeCtx, ws: WebSocket, peer: Peer, room: Room, g: Guest, ctx: AuditContext, attach: () => void): void {
+function bindGuest(
+  u: UpgradeCtx,
+  ws: WebSocket,
+  peer: Peer,
+  bind: { room: Room; g: Guest; ctx: AuditContext; protocols: readonly string[] },
+  attach: () => void,
+): void {
+  const { room, g, ctx, protocols } = bind;
   const { rooms } = u;
   if (!rooms.live(room)) return void ws.close(1000, "ended");
   g.ctx = ctx; // P7: kontrol onayı kaydı bu bağlantının ip/user_agent'ı ile
+  peer.features = featuresOf(protocols, room, g); // P28a §4.2: soket başına; gözetimsiz odada okunmaz (O-P28a-4)
   attach();
   const bucket = new TokenBucket(rooms.clock);
   ws.on(

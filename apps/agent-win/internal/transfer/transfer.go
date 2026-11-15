@@ -325,6 +325,9 @@ func (m *Manager) CancelLocal() *Result {
 	return m.abort("CANCELLED")
 }
 
+// Busy teklif soruluyor veya alım sürüyor (P28a: yön başına tek TO_CUSTOMER aktarım, yazdırma BUSY döner).
+func (m *Manager) Busy() bool { return m.asking != nil || m.cur != nil }
+
 // Pending teklif diyaloğu açıkken teklif geri çekildiyse UI diyaloğu kapatır.
 func (m *Manager) Pending() string {
 	if m.asking == nil {

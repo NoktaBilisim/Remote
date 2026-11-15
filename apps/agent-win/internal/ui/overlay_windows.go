@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	colorBar = win.RGB(185, 28, 28)
+	colorBar = colorRef(indicatorBg)
 	colorKey = win.RGB(255, 0, 255) // işaretleme katmanında saydam renk
 	annotRGB = map[string]uint32{
 		"red": win.RGB(239, 68, 68), "yellow": win.RGB(234, 179, 8),
@@ -25,6 +25,8 @@ type indicator struct {
 	bars   []*form
 	labels []*form
 	text   string
+	notes  []*form // P28a bildirim satırı (notify)
+	note   string
 }
 
 func newIndicator(t *thread, text string) *indicator {
@@ -62,7 +64,7 @@ func newBar(t *thread, x, y, w, h int32, text *string) *form {
 			ft := win.Font(f.s(-15), win.FW_SEMIBOLD)
 			old := win.SelectObject(dc, ft)
 			win.SetBkMode(dc, win.TRANSPARENT)
-			win.SetTextColor(dc, win.RGB(255, 255, 255))
+			win.SetTextColor(dc, colorRef(indicatorText))
 			win.DrawText(dc, *text, &r, win.DT_CENTER|win.DT_VCENTER|win.DT_SINGLELINE|win.DT_NOPREFIX)
 			win.SelectObject(dc, old)
 			win.DeleteObject(ft)
@@ -80,13 +82,36 @@ func (ind *indicator) setText(text string) {
 	}
 }
 
+// notify P28a (AC-346): her monitörde etiketin altında 3 sn bildirim satırı (tıklama geçirgen, odak almaz, yakalamadan
+// hariç); yeni bildirim öncekinin yerini alır.
+func (ind *indicator) notify(t *thread, text string) {
+	ind.dropNotes()
+	ind.note = text
+	for _, m := range win.Monitors() {
+		r := m.Rect
+		ind.notes = append(ind.notes, newBar(t, r.Left+(r.Right-r.Left-460)/2, r.Top+36, 460, 28, &ind.note))
+	}
+	if len(ind.notes) > 0 {
+		ind.notes[0].timer = func(uintptr) { ind.dropNotes() }
+		win.SetTimer(ind.notes[0].h, timerNotice, 3000)
+	}
+}
+
+func (ind *indicator) dropNotes() {
+	for _, n := range ind.notes {
+		n.destroy()
+	}
+	ind.notes = nil
+}
+
 func (ind *indicator) raise() {
-	for _, b := range ind.bars {
+	for _, b := range append(ind.bars[:len(ind.bars):len(ind.bars)], ind.notes...) {
 		win.SetWindowPos(b.h, win.HWND_TOPMOST, 0, 0, 0, 0, win.SWP_NOMOVE|win.SWP_NOSIZE|win.SWP_NOACTIVATE|win.SWP_SHOWWINDOW)
 	}
 }
 
 func (ind *indicator) close() {
+	ind.dropNotes()
 	for _, b := range ind.bars {
 		b.destroy()
 	}
@@ -106,7 +131,7 @@ type overlay struct {
 	laserAt time.Time
 }
 
-const timerLaser = 3
+const timerLaser, timerNotice = 3, 8
 
 func newOverlay(t *thread, r win.RECT) *overlay {
 	o := &overlay{}

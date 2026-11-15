@@ -90,8 +90,9 @@ describe("PT-K1 contracts yüzeyi", () => {
     expect(surface).toMatchSnapshot();
   });
 
-  it("AC-318: ws.ts / ws-request.ts / ws-device.ts / dc.ts mesaj `t` listesi anlık görüntüyle aynı", () => {
-    const types = Object.fromEntries(["ws.ts", "ws-request.ts", "ws-device.ts", "dc.ts"].map((f) => [f, messageTypes(`src/${f}`)]));
+  it("AC-318: ws.ts / ws-request.ts / ws-device.ts / ws-clip-print.ts / dc.ts / dc-clip-print.ts mesaj `t` listesi anlık görüntüyle aynı", () => {
+    const files = ["ws.ts", "ws-request.ts", "ws-device.ts", "ws-clip-print.ts", "dc.ts", "dc-clip-print.ts"];
+    const types = Object.fromEntries(files.map((f) => [f, messageTypes(`src/${f}`)]));
     expect(types).toMatchSnapshot();
   });
 

@@ -121,6 +121,8 @@ export interface TransferDeps {
   offerTimeoutMs?: () => number;
   /** false → gönderenin kendi teklif sınırı atlanır (yalnız e2e: alıcıda düşme + zaman aşımı yolu). */
   selfThrottle?: () => boolean;
+  /** P28a: giden yönde başka aktarım (uzaktan yazdırma) sürüyor → dosya teklifi "busy". */
+  extBusy?: () => boolean;
 }
 
 /** Gönderen ve alan tarafın ortak kayıtları: Map'ler + gösterilen liste (değişince `onChange`). */
@@ -130,10 +132,16 @@ export class TransferStore {
   list: Transfer[] = [];
   readonly max: number;
   readonly now: () => number;
+  /** Giden `fidIndex` sayacı — dosya ve yazdırma tek ortak sayaç (r2 O-P28a-2); uint16'da sarar. */
+  private outIdx = 0;
 
   constructor(readonly d: TransferDeps) {
     this.max = d.maxBytes ?? DEFAULT_MAX_FILE_BYTES;
     this.now = d.now ?? Date.now;
+  }
+
+  nextIdx(): number {
+    return this.outIdx++ & 0xffff;
   }
 
   put(t: Transfer) {

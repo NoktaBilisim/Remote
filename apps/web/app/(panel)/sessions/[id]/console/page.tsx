@@ -57,6 +57,8 @@ export default async function ConsolePage({ params }: { params: Promise<{ id: st
           session={res.data}
           canFiles={me.me.permissions.includes("file_transfer.use")}
           canControl={me.me.permissions.includes("remote_control.use")}
+          canClip={me.me.permissions.includes("remote_control.clipboard")}
+          canPrint={me.me.permissions.includes("file_transfer.print")}
         />
       )}
     </div>

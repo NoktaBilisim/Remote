@@ -4,7 +4,17 @@
 // P5: quality.summary, file.meta (+ hello/peer.joined `maxFileMb`). P7: control.request/state/revoke, monitor.request,
 // env.state, caps.update (mimari-protokol §3, akış A3/A5). P7 düzeltme 1 (§3.3, ADR-0013): control.release/cancel,
 // monitor.denied, kaynak `TECH`, revoke nedenleri `reconnect`/`stale`, misafir kaynak kısıtı.
+// P28a (mimari-p28 §4.2–4.3): pano/yazdırma tipleri `ws-clip-print.ts`'te; burada yalnız birlik bağlantısı + `CAPS` +
+// `guestFeatures`/`clipConsent` alanları.
 import { z } from "zod";
+import {
+  GUEST_FEATURES,
+  guestClipInbound,
+  guestPrintInbound,
+  serverClipPrintOutbound,
+  techClipPrintInbound,
+  type GuestFeature,
+} from "./ws-clip-print.ts";
 
 export const WS_SUBPROTOCOL = "rs.v1";
 export const WS_TICKET_PREFIX = "rs.ticket.";
@@ -54,7 +64,11 @@ export const WS_ERROR_CODES = [
 ] as const;
 export type WsErrorCode = (typeof WS_ERROR_CODES)[number];
 
-export const CAPS = ["remote_control", "file_transfer"] as const;
+/**
+ * P28a (§4.1, G-09): `clipboard` ← `remote_control.clipboard`, `print` ← `file_transfer.print`. Misafire giden `hello.caps` /
+ * `caps.update` yeni değerleri yalnız misafir ilgili özelliği bildirdiyse içerir (eski istemciye bugünkü iki değer).
+ */
+export const CAPS = ["remote_control", "file_transfer", "clipboard", "print"] as const;
 export type Cap = (typeof CAPS)[number];
 
 const id = z.string().max(26).optional();
@@ -227,6 +241,7 @@ export const techInboundSchema = z.discriminatedUnion("t", [
   monitorRequestSchema,
   controlReleaseSchema,
   controlCancelSchema,
+  ...techClipPrintInbound,
 ]);
 export type TechInbound = z.infer<typeof techInboundSchema>;
 
@@ -264,7 +279,7 @@ export const bindingRequestSchema = bindingRequestEnvelopeSchema.superRefine((m,
 });
 
 /** Misafirden kabul edilen mesajlar (lobideyken yalnız `session.end`, mimari-protokol §3.1). */
-export const guestInboundSchema = z.discriminatedUnion("t", [
+const guestInboundBase = [
   sdpAnswerSchema,
   iceSchema,
   shareStateSchema,
@@ -274,8 +289,30 @@ export const guestInboundSchema = z.discriminatedUnion("t", [
   envStateSchema,
   monitorDeniedSchema,
   bindingRequestSchema,
-]);
+] as const;
+export const guestInboundSchema = z.discriminatedUnion("t", [...guestInboundBase]);
 export type GuestInbound = z.infer<typeof guestInboundSchema>;
+
+const guestClipSchema = z.discriminatedUnion("t", [...guestInboundBase, ...guestClipInbound]);
+const guestPrintSchema = z.discriminatedUnion("t", [...guestInboundBase, ...guestPrintInbound]);
+const guestClipPrintSchema = z.discriminatedUnion("t", [...guestInboundBase, ...guestClipInbound, ...guestPrintInbound]);
+export type GuestInboundFull = z.infer<typeof guestClipPrintSchema>;
+/**
+ * P28a (§4.3, S-P18-T1 kalıbı): misafir şeması soketin bildirdiği özelliğe göre seçilir — `clip.*` yalnız `clipboard`,
+ * `print.report` yalnız `print` bildiren sokette şemadadır; yeteneksiz sokette bu tipler şema dışı → 1008.
+ */
+export function guestInboundSchemaFor(features: ReadonlySet<GuestFeature>): z.ZodType<GuestInboundFull> {
+  const clip = features.has("clipboard");
+  const print = features.has("print");
+  if (clip && print) return guestClipPrintSchema;
+  if (clip) return guestClipSchema;
+  if (print) return guestPrintSchema;
+  return guestInboundSchema;
+}
+const guestFeatures = z
+  .array(z.enum(GUEST_FEATURES))
+  .max(GUEST_FEATURES.length)
+  .refine((a) => new Set(a).size === a.length, { message: "Özellikler benzersiz olmalı" });
 
 // --- Sunucu → istemci ---
 export const iceServerSchema = z.strictObject({
@@ -308,6 +345,10 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     share: shareStateSchema.omit({ t: true, id: true }).optional(),
     /** P27 (§4.6): yalnız role=tech hello'sunda, gözetimsiz odada — konsol "Gözetimsiz" rozeti + cihaz adı. */
     unattended: z.strictObject({ deviceId: ulid, deviceName: z.string().min(1).max(64) }).optional(),
+    /** P28a (§4.2): yalnız role=tech hello'sunda — bağlı misafirin bildirdiği özellikler (yoksa `[]`). */
+    guestFeatures: guestFeatures.optional(),
+    /** P28a (§4.2): yalnız role=tech hello'sunda — müşteri pano anahtarı (sunucu aynası). */
+    clipConsent: z.boolean().optional(),
   }),
   z.strictObject({ t: z.literal("lobby.wait"), expiresAt: iso }),
   z.strictObject({ t: z.literal("peer.pending"), guestId: ulid, name: z.string().max(100), guestKind: z.enum(GUEST_KINDS), since: iso }),
@@ -323,6 +364,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     maxEndsAt: iso.optional(),
     /** P5: role=guest (teknisyene giden) mesajda tenant dosya üst sınırı (MB). */
     maxFileMb: z.number().int().min(1).max(2048).optional(),
+    /** P28a (§4.2): role=guest (teknisyene giden) mesajda misafirin bildirdiği özellikler (yoksa `[]`). */
+    guestFeatures: guestFeatures.optional(),
   }),
   z.strictObject({ t: z.literal("peer.left"), role: z.enum(["tech", "guest"]), reason: z.enum(["disconnect", "ended"]).optional() }),
   z.strictObject({ t: z.literal("sdp.offer"), sdp }),
@@ -361,6 +404,8 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
       .nullable()
       .optional(),
   }),
+  // P28a (§4.3): pano/yazdırma iletimi (misafire) ve durum (teknisyene).
+  ...serverClipPrintOutbound,
 ]);
 export type ServerOutbound = z.infer<typeof serverOutboundSchema>;
 /** Odada saklanan son paylaşım durumu (teknisyen hello `share` alanı). */

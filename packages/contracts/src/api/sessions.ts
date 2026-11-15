@@ -342,6 +342,10 @@ export const TIMELINE_DETAIL_KEYS = {
   "session.expired": [],
   "session.terminated": ["reason"],
   "session.ended": ["reason", "endedBy"],
+  // P28a (mimari-p28 §8.1): içerik/dosya adı/hash yok — yalnız sayılar ve sonuç.
+  "clipboard.consent": ["on", "by", "reason"],
+  "clipboard.transfer": ["direction", "bytes", "result"],
+  "print.job": ["decision", "pages", "sizeBytes", "result"],
 } as const satisfies Record<string, readonly string[]>;
 export type TimelineAction = keyof typeof TIMELINE_DETAIL_KEYS;
 export const TIMELINE_ACTIONS = Object.keys(TIMELINE_DETAIL_KEYS) as TimelineAction[];

@@ -10553,3 +10553,346 @@ Kaynak: `docs/mimari-link-gonderme.md` r2 (§0 güvenlik notları dahil), AC-405
 - Madde 7: yukarıdaki LG-2 sapma notu; `customer-templates.ts` `sessionSms`.
 - Öneri 1: `service.ts` ulaşılamayan K2/K3 SMS dalı kaldırıldı (kanal `CHANNELS_BY_KIND` kontrolüyle daraltıldı).
 - Madde 5: koda dokunulmadı (AC-410 metni güncellendi).
+
+## P28a K1 — contracts: pano + uzaktan yazdırma (backend-dev, 2026-11-16)
+
+Tasarım: `docs/mimari-p28.md` (r2) §4, §8, §10 K1, §14. AC-343..352, 404.
+
+**Yeni dosyalar:** `packages/contracts/src/ws-clip-print.ts` (WS tipleri, sabitler, sonuç kümeleri), `src/dc-clip-print.ts`
+(5 DC tipi), `fixtures/clip-print.json` (Go K3 ile ortak: valid/invalid tech/guest/server/dc, `guestNoFeature`, `constants`,
+`results`, `texts` — ç ğ ı ö ş ü İ / emoji / `\r\n` / parça sınırında çok baytlı karakter; 8 KB base64 parçaları), `test/clip-print-p28a.test.ts`.
+
+**Değişen:** `permissions.ts` (`remote_control.clipboard`, `file_transfer.print` + açıklama; ADMIN varsayılan açık / USER kapalı
+mevcut kuraldan), `ws.ts` (`CAPS` + `clipboard`/`print`; `techInboundSchema` + 4 tip; `serverOutboundSchema` + 7 tip; `hello`
+`guestFeatures?`/`clipConsent?`, `peer.joined` `guestFeatures?`; `guestInboundSchemaFor(features)`), `dc.ts` (birlik + `ctlAllowed`
+clip/print yetenek filtresi), `audit.ts` (`CLIP_PRINT_AUDIT`, `CLIP_PRINT_AUDIT_LABELS`), `api/audit.ts` (`clipboard.*`, `print.*`
+filtre grupları), `api/sessions.ts` (`TIMELINE_DETAIL_KEYS` + 3 eylem — §8.1 "zaman çizelgesi gösterir"; yalnız sayı/sonuç anahtarları),
+`labels.ts` (`CLIP_RESULT_LABELS`, `PRINT_RESULT_LABELS`, `PRINT_DECISION_LABELS`, zaman çizelgesi metinleri), `package.json`
+exports (`./ws-clip-print`, `./dc-clip-print`), `pt-surface` testi (yeni dosyaların `t` listesi) + anlık görüntü (yalnız ekleme).
+Yayılım: `apps/web/lib/audit/actions.ts` (etiketler), `apps/web/messages/tr.json` (`perm.a.clipboard`, `perm.a.print`),
+`apps/web/lib/users/users.test.ts` (remote_control satırı beklentisi), `apps/server/src/signaling/control-revoke.ts`
+(`CAP_PERM` yeni `Cap` değerleri — tip gereği; §4.1 eşlemesi, davranış K2'de).
+
+**Sapmalar (gerekçeli):**
+
+1. Sonuç kümeleri `ws.ts` yerine `ws-clip-print.ts`'te (K1 satırı: yeni tipler ayrı dosyada; `ws.ts` → `ws-clip-print.ts` tek yön, döngü yok).
+2. `CLIP_GUEST_RESULTS` `TIMEOUT` içerir: §4.3 "son ikisi yalnız sunucu" der, ancak r2 O-P28a-1 m.1 misafirin 8 sn son tarihinde
+   `report{TIMEOUT}` göndermesini ister; r2 bağlayıcı kabul edildi. Misafirden `DISCONNECTED`/`ABANDONED` şema dışı (1008).
+3. Misafir mesajlarına mevcut kalıpla `id?` eklendi (diğer inbound tipler gibi).
+4. `clip.data.b64` standart base64 (dolgulu) — §4.4 "base64" der; ≤ 10 924 karakter.
+
+**Dışa açılan adlar (diğer paketler için):** `@remote/contracts/ws-clip-print`: `WS_GUEST_CAP_CLIP`, `WS_GUEST_CAP_PRINT`,
+`GUEST_FEATURES`, `GuestFeature`, `GUEST_FEATURE_BY_SUBPROTOCOL`, sabitler (`CLIP_MAX_BYTES`, `CLIP_CHUNK_BYTES`, `CLIP_MAX_CHUNKS`,
+`CLIP_PER_MIN`, `CLIP_PENDING_TIMEOUT_MS`, `CLIP_CONSENT_PER_MIN`, `CLIP_GUEST_DEADLINE_MS`, `PRINT_MAX_BYTES`, `PRINT_MIN_BYTES`,
+`PDF_MAGIC`, `PRINT_CONSENT_TIMEOUT_MS`, `PRINT_PENDING_TIMEOUT_MS`, `PRINT_PER_SESSION`, `PRINT_DENY_COOLDOWN_MS`,
+`PRINT_GUEST_TRANSFER_DEADLINE_MS`, `ID_REUSE_WINDOW`, `PRINT_RENDER_MAX_PX`, `PRINT_PIPE_FRAME_MAX`, `PRINT_MAX_PAGES`,
+`CLIP_PRINT_ID_PATTERN`), `CLIP_DIRECTIONS`, `CLIP_RESULTS`, `CLIP_GUEST_RESULTS`, `PRINT_RESULTS`, `PRINT_GUEST_RESULTS`,
+`PRINT_DECISIONS`, `CLIP_CONSENT_REASONS` (+ tipler), şemalar `clipPushSchema`, `clipPullSchema`, `printRequestSchema`,
+`printCancelSchema`, `clipConsentSchema`, `clipReportSchema`, `printReportSchema`. `@remote/contracts/ws`: `guestInboundSchemaFor`,
+`GuestInboundFull`. `@remote/contracts/dc-clip-print`: `clipReadySchema`, `clipDataSchema`, `printReadySchema`, `printOfferSchema`,
+`printDoneSchema`, `CLIP_CHUNK_B64_MAX`, `CLIP_CTL_TYPES`, `PRINT_CTL_TYPES`.
+
+**Frontend-dev için:** `CtlMessage` birliği 5 yeni tip içerir; `ServerOutbound`'da `clip.consent/push/pull/status`,
+`print.request/cancel/status`; `hello.guestFeatures`/`clipConsent`, `peer.joined.guestFeatures`. Sonuç metinleri `@remote/contracts/labels`.
+Ara durum: K2 öncesi sunucu yeni teknisyen mesajlarını şemada kabul eder ama işlemez (sessiz yok sayılır, iletim yok).
+
+**Komutlar:** `pnpm --filter @remote/contracts lint|typecheck|test` → yeşil (21 dosya, 186 test); `pnpm --filter @remote/web
+typecheck|lint|test` → yeşil (47 dosya, 411 test); `apps/server` `tsc --noEmit` 0 hata, `vitest run test/unit` 35 dosya / 484 test yeşil.
+Yeni bağımlılık, env, migration yok.
+
+## P28a K0 — Windows yazdırma prototipi (backend-dev, 2026-11-16)
+
+Tasarım: `docs/mimari-p28.md` r2 §5.1–5.3, §10 K0; ADR-0031. Bu makinede Windows yok: **asıl kanıt GitHub Actions
+`agent-win` / `test-windows` (windows-2025) koşusundan** gelir. Commit yapılmadı.
+
+**Yazılanlar (`apps/agent-win`)**
+
+| Dosya                                                           | İçerik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `internal/printing/doc.go`                                      | Paket açıklaması (platformdan bağımsız; linux `go vet/test ./...` paketi görür)                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `internal/printing/proto.go` (+ `proto_test.go`)                | Boru protokolü (uzunluk önekli ikili): `inspect`/`render` istek–yanıt; r2 O-P28a-3 doğrulaması — PDF ≤ 20 MiB, sayfa 1..100000, render yanıtında `w,h` hedefle birebir, `stride == align4(w*3)`, `len == stride*h`, ≤ 40 Mpx ve ≤ 64 MiB (uint64'te hesap, taşma yok); doğrulamadan önce yük okunmaz                                                                                                                                                                                                                                                         |
+| `internal/printing/com_windows.go`                              | CGO'suz COM/WinRT yardımcıları (`capture/com_windows.go` kalıbı: `comObj.call`/`procHR` `//go:uintptrescapes`, S6-1 taraması yeşil), `RoInitialize(MTA)`, `RoGetActivationFactory`, `RoActivateInstance`, `IAsyncInfo.Status` yoklaması (10 ms, zaman aşımında `Cancel`)                                                                                                                                                                                                                                                                                     |
+| `internal/printing/winrt_pdf_windows.go`                        | `PdfDocument.LoadFromStreamAsync` (InMemoryRandomAccessStream; baytlar shcore `CreateStreamOverRandomAccessStream` IStream görünümüyle yazılır — IBuffer gerekmez) → `GetPage` → `RenderWithOptionsToStreamAsync` (DestinationWidth/Height, varsayılan PNG kodlayıcı) → stdlib `image/png` → hedef w×h, oran korunarak beyaz zemine ortalanmış 24 bit BGR. Parola korumalı/bozuk belge → `ErrInvalidPDF`                                                                                                                                                     |
+| `internal/printing/gdi_windows.go`                              | `DefaultPrinter` (`GetDefaultPrinterW`; yoksa `ErrNoPrinter`), `OpenPrinter` (varsayılan DEVMODE + `dmCopies=1`/`DM_COPIES`, `DocumentPropertiesW` birleştirme), `Target` (yazdırılabilir alan, DPI ≤ 300), `Print` (`StartDocW` sabit belge adı "NoktaDestek uzaktan yazdırma", sayfa başına `StretchDIBits`, hata → `AbortDoc`). `output` parametresi yalnız test içindir (Microsoft Print to PDF kayıt diyaloğu açılmasın); üretimde boş                                                                                                                  |
+| `internal/printing/worker_windows.go`                           | İşleyici kipi `RunWorker` (kilitli iş parçacığı + WinRT MTA; yalnız stdin/stdout; EOF'ta 0) ve üst süreç `Worker` (`Inspect` 15 sn, `Render` sayfa başına 15 sn; okuma ayrı goroutine'de, zaman aşımında veya geçersiz PDF dışı her hatada işleyici durdurulur)                                                                                                                                                                                                                                                                                              |
+| `internal/printing/launch_windows.go`                           | `StartWorker`: kendi jetonun `CreateRestrictedToken(DISABLE_MAX_PRIVILEGE)` kopyası (+ isteğe bağlı düşük bütünlük S-1-16-4096), `CREATE_SUSPENDED` → job (`ACTIVE_PROCESS=1`, `PROCESS_MEMORY=512 MB`, `KILL_ON_JOB_CLOSE`, `DIE_ON_UNHANDLED_EXCEPTION`, 8 UI kısıtı) → `ResumeThread`; öznitelikler `HANDLE_LIST` (yalnız iki boru ucu), alt süreç yasağı, mitigation (görüntü yükleme üçlüsü her zaman; `BLOCK_NON_MICROSOFT_BINARIES` ve `PROHIBIT_DYNAMIC_CODE` K0 ölçümü için `Isolation` ile ayrı ayrı açılabilir; `FullIsolation` = tasarım hedefi) |
+| `cmd/noktadestek/main.go`                                       | `--pdf-isleyici` (tek ve tam argüman) dalı: `dllsafe.Harden` → `printing.RunWorker`; yapılandırma/kimlik/arayüz yüklenmez                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `internal/printing/printing_windows_test.go`, `testdata/k0.pdf` | Windows testleri; fikstür 2 sayfa (A4 dikey + yatay; çerçeve, Helvetica metin, mavi dikdörtgen), elle üretildi (998 bayt)                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+**Testler (yalnız Windows; `TestMain` `--pdf-isleyici` argümanında test ikilisini işleyici yapar)**
+
+- `TestP28aK0InProcessRender` — (a) aynı süreçte yükle + 2 sayfa render (boyut, mürekkep, mavi piksel) + bozuk PDF → `ErrInvalidPDF`.
+- `TestP28aK0WorkerIsolation` — (b) işleyici süreçte yükle + 2 sayfa render + bozuk PDF + temiz çıkış; alt testler:
+  `kısıtlı jeton + job` (**zorunlu**, kırmızı olabilir), `+ düşük bütünlük`, `+ yalnız Microsoft imzalı görüntü`,
+  `+ dinamik kod yasak`, `tam (tasarım r2)` (bu dördü yalnız raporlar, iş kırmızı olmaz). Her satırda işleyicinin
+  **gerçek** bütünlük SID'i (üst süreçten `TokenIntegrityLevel` okunur) ve başarısızlıkta çıkış kodu yazılır.
+- `TestP28aK0PrintToPDF` — (c) varsayılan yazıcı adı raporlanır; "Microsoft Print to PDF" varsa iki sayfa dosyaya basılır
+  (çıktının `%PDF…%%EOF` olması beklenir); yazıcı yoksa SKIP.
+- Platformdan bağımsız: `proto_test.go` (çerçeve sınırları, yanıt doğrulaması).
+
+**CI'da neye bakılacak.** `agent-win.yml` `test-windows` işinin `go test -count=1 ./...` adımı paketi zaten kapsıyor;
+workflow'a dokunulmadı. `-v` olmadığı için `t.Log` satırları başarılı koşuda görünmez; bu yüzden testler sonuçları
+**koşu özetine** (`$GITHUB_STEP_SUMMARY`, başlık "P28a K0 — Windows.Data.Pdf / işleyici yalıtımı / GDI") tablo olarak
+yazar. K-P28a-4 kararı bu tablodan okunur:
+
+- `(b) işleyici [+ düşük bütünlük]` ÇALIŞIYOR ve bütünlük `S-1-16-4096` → tasarım aynen (düşük bütünlük kalır).
+  ÇALIŞMIYOR → koordinatör kararı: düşük bütünlük kaldırılır, kısıtlı jeton + job kalır; güvenlik turuna bildirilir.
+- `[+ yalnız Microsoft imzalı görüntü]` / `[+ dinamik kod yasak]` ayrı ayrı ölçülür; çalışmayan bayrak K4'te
+  uygulanmaz ve gerekçesi buraya yazılır. Çıkış kodu `0xC0000428` (STATUS_INVALID_IMAGE_HASH) imza politikasının
+  ana ikiliyi ya da bir DLL'i reddettiğini gösterir.
+- `(c)` satırı GDI yolunun (DEVMODE tek kopya, StartDoc, StretchDIBits) çalıştığının kanıtıdır. Fiziksel/ağ yazıcısı
+  denemesi (§10 K0) runner'da yoktur; Windows elle turuna (K9, D-P28a listesi) kalır.
+- Runner yönetici + yükseltilmiş belirteçle koşar; üretimde istemci orta bütünlükte çalışır. Düşük bütünlüğe iniş her
+  iki durumda da aynı API ile yapıldığından sonuç aktarılabilir, ancak elle turda bir kez orta bütünlükten doğrulanmalı.
+
+**Tasarımdan sapmalar / K4'e devir (gerekçeli)**
+
+- COM yardımcıları (`comObj`, `procHR`, `guid`) `capture`'daki paket içi eşin küçük kopyası: capture'ınki dışa açık değil ve
+  hata türü `capture.Error`'a bağlı. Ortak bir `internal/winrt` paketi K4 (veya temizlik) kararıdır — mimari §10'da
+  yer almadığı için K0'da açılmadı.
+- Job/jeton/öznitelik kodu `servis/launch_windows.go` kalıbının eşidir (kopya K0 taslağı); §5.2'deki
+  `internal/proclimit` taşıması K4'ün işi olarak bırakıldı. Farklar: kendi jetonundan (SYSTEM değil) kısıtlama, iki boru
+  `HANDLE_LIST`, 512 MB bellek, UI kısıtları, imza/dinamik kod mitigation'ları.
+- İşleyici `desktop` ataması yapılmaz (üst sürecin masaüstünü devralır); UI kısıtları job'da. K4 gerekirse ayrı masaüstü.
+- Sayfa yönü (`ResetDCW` + `DMORIENT_*`) K4'e kaldı; K0'da bitmap yazdırılabilir alanın oranında render edilir.
+- 64 bit değer argümanları (`IRandomAccessStream.Seek`) tek yazmaçla geçirilir: yalnız 64 bit Windows doğru
+  (hedef yalnız windows/amd64, build.sh); `capture/wgc_windows.go` ile aynı varsayım.
+- PNG → BGR dönüşümü `image.At` ile (yavaş ama güvenli); büyük sayfada süre K4'te ölçülüp gerekirse hızlı yol eklenir.
+- Yeni bağımlılık yok (yalnız `golang.org/x/sys/windows` + stdlib `image/png`).
+
+**Yerel doğrulama (macOS, Docker `golang:1.26`)**
+
+`docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 sh -c 'GOOS=windows go vet ./... && GOOS=windows go build ./... && go test ./...'`
+→ tüm paketler `ok` (printing dahil; Windows testleri linux'ta derlenmez, `GOOS=windows go test -c ./internal/printing`
+derlemesi temiz). `gofmt -l .` boş; staticcheck v0.8.2 linux + `GOOS=windows GOARCH=amd64` uyarı 0.
+
+## P28a K2 — sunucu: pano + uzaktan yazdırma kapısı (backend-dev, 2026-11-16)
+
+Tasarım: `docs/mimari-p28.md` r2 §4, §7, §8, §9, §10 K2, §14. AC-343..352, 404.
+
+**Yeni:** `apps/server/src/signaling/clip-print.ts` (kapı, bekleyen işler, zaman aşımları, audit + metrik, yaşam döngüsü kancaları),
+`signaling/rooms-features.ts` (`capsOf`, `capsFor`, `featuresOf`, `guestFeatures`), `test/unit/clip-print.test.ts` (19 test),
+`test/integration/clip-print-ws.test.ts` (5 test, gerçek WS + MySQL).
+
+**Değişen:** `types.ts` (`Peer.features`, `ClipPrintRoom`, `Room.clipPrint`), `rooms.ts` (`newClipPrint`), `handlers.ts` (7 tipin dağıtımı;
+misafir şeması `guestInboundSchemaFor(peer.features)` → yeteneksiz sokette `clip.*`/`print.report` 1008), `ws-auth.ts` (`rs.cap.*` soket
+başına okunur), `active.ts` (misafir `hello.caps` = `capsFor`; teknisyen `hello` `guestFeatures` + `clipConsent`, `peer.joined` `guestFeatures`),
+`admit.ts` (yerel `capsOf` → ortak `capsOf`; artık `clipboard`/`print` de üretilir), `control-revoke.ts` (`narrowCaps` misafire
+yalnız görünür liste değişince `caps.update` + `onCapsNarrowed`; `revokeControl`/`revokeOnTechChange` → `onControlClosed`;
+`resetOnGuestGone` → `onGuestGone("disconnect")`; `closeControlOnEnd` → `onGuestGone("session_ended")`), `control.ts`
+(`handleControlClose` → `onControlClosed`), `control-grant.ts` (`onView` → `onControlClosed`), `ops/metrics.ts`
+(`rs_clipboard_transfer_total{direction,result}`, `rs_print_job_total{result}`, `rs_clip_print_denied_total{kind,reason}`).
+
+**Kapı sırası (§4.3):** pano: yetki+caps (`actorMay`) → misafir bağlı → AGENT + `clipboard` özelliği → kontrol GRANTED → müşteri izni →
+bekleyen iş → 30/dk → kimlik yeniden kullanımı (VALIDATION). Yazdırma: yetki+caps → misafir → AGENT + `print` → GRANTED (3b) →
+bekleyen → 30 sn bekleme → 20/oturum → kimlik. Ret: `error{code}` + metrik + oda başına dakikada 1 log (`ws_clip_print_denied`, yalnız neden); audit yok (K-P28a-8).
+
+**Sapmalar (gerekçeli):**
+
+1. Kapı sırası koordinatör özetindeki (yetki → kontrol → yetenek) değil, mimari §4.3'teki sıra (yetki → misafir → yetenek → kontrol → izin);
+   hepsi FORBIDDEN, yalnız mesaj farklı; tek kaynak mimari.
+2. `Room.guestFeatures` alanı yerine özellik **soketin üzerinde** (`Peer.features`) tutulur, oda değeri `guestFeatures(room)` ile
+   bağlı ADMITTED misafirin soketinden okunur — misafir ayrılınca ayrıca temizlik gerekmez, eski değer kalamaz (§3 "yeniden bağlanan
+   soketin kendisinden okunur" ile aynı anlam). Diğer §3 alanları `Room.clipPrint` altında toplandı.
+3. `featuresOf` gözetimsiz odaya (O-P28a-4) ek olarak **tarayıcı misafirinde** de özellikleri boş sayar (tarayıcı alt protokol ekleyebilir; pano/yazdırma yalnız Windows istemci).
+4. `clip.consent` hız sınırı (6/dk) yalnız **açma** yönüne uygulanır; kapatma her zaman işlenir (fail-closed: sınırda kapatmayı yok
+   saymak sunucu aynasını açık bırakırdı). Değişimler dönüşümlü olduğundan pratikte üst sınır aynı; AC-347 testi (7 → 6) geçer.
+5. `print.job.sizeBytes` misafir beyanı değil, sunucunun `print.request`'te yetkilediği boyuttur.
+6. Kontrol kapanış kancası `control-grant.ts onView`'a da eklendi (müşterinin kendi kapatması da VIEW geçişidir; §2 "her geçişte").
+7. Teknisyen koptuğunda/değiştiğinde (`revokeOnTechChange`) bekleyen yazdırma `CANCELLED` ile iptal edilir (§4.3 K3 simetriği).
+8. Oturum sonunda bekleyen işler audit'e `DISCONNECTED` (reportedBy server), açık izin `reason:"session_ended"` yazılır.
+
+**frontend-dev için:** `hello`/`peer.joined` `guestFeatures` alanı yalnız misafir özellik bildirdiyse gelir (yoksa `[]` say);
+`clipConsent` yalnız `guestFeatures` varken `hello`'da. Kapı ret mesajları: "Pano yetkiniz yok.", "Müşteri bağlı değil.",
+"Müşterinin uygulaması bu özelliği desteklemiyor — güncel sürümü indirmesini isteyin.", "Önce uzaktan kontrol izni alın.",
+"Müşteri pano iznini açmadı.", "Önceki pano işlemi sürüyor." / "Önceki yazdırma işi sürüyor.", RATE_LIMITED metinleri, VALIDATION
+"Bu işlem kimliği daha önce kullanıldı.". Kontrol VIEW'a dönünce konsola `print.status{CANCELLED}` + `clip.consent{on:false}` gelir.
+
+**Testler:** `pnpm --filter @remote/server typecheck` 0 hata, `lint` temiz; `test` (unit) 36 dosya / 503 test yeşil; `test:int`
+(geçici konteyner `rs-p28a-k2-*`, iş sonunda silindi) **94 dosya / 955 test yeşil**, regresyon yok.
+
+**Kalan / eksik:** AC-352'nin gözetimsiz cihaz bileti soketi (`rs.cap.clip1, rs.cap.print1` → `guestFeatures=[]`, 403) için gerçek WS
+entegrasyon testi yazılmadı; kural `featuresOf` birim testiyle (gözetimsiz oda → boş küme) ve kapı birim testleriyle (özellik yok →
+FORBIDDEN) kapsanıyor. `scripts/log-scan` CI adımı (§9 tablosu) K7/devops ile birlikte; bu turda tarama entegrasyon testinin içinde
+(sunucu logu + audit satırları + `/metrics`, `P28A-ISARET-` / `gizli-ad-` 0 eşleşme). Yeni bağımlılık, env, migration yok.
+
+## P28a K6 — konsol: pano + uzaktan yazdırma (frontend-dev, 2026-11-16)
+
+Tasarım: `docs/mimari-p28.md` r2 §4.3–4.5, §6, §10 K6, §14. AC-343..352, AC-404. Tasarım skill dosyaları okunmadı (tur sınırı); DESIGN.md esas alındı.
+
+**Rotalar:** yeni rota yok. Değişen ekran: `/sessions/[id]/console` (auth gerekir; teknisyen konsolu) — yan panelin altında
+"Pano ve yazdırma" bölümü (`data-testid="clip-print"`). Yetkiler: `remote_control.clipboard` (pano düğmeleri), `file_transfer.print` (yazdır).
+
+**Yeni dosyalar (apps/web):**
+
+- `components/collab/clip-print-panel.tsx` — bölüm UI (5 durum: iskelet / müşteri yok nedeni / sonuç–alan hatası / kısmi / başarılı).
+- `lib/clip/feature-state.ts` — saf `featureState` (neden önceliği §6; r2 yazdırma için de "Önce uzaktan kontrol izni alın").
+- `lib/clip/clipboard.ts` — `readClipboard`/`writeClipboard` ret dalları + `ClipJobs` (push/pull akışı, yöne bağlı tek kullanımlık cid, 5 sn hata eşleme, yerel 15 sn emniyet).
+- `lib/clip/chunks.ts` — UTF-8 bayt, 8 KB base64 parçalama/birleştirme (seq, 64 KB, fatal UTF-8, U+0000), `newCpId` (16 bayt base64url).
+- `lib/print/pdf-check.ts` — `%PDF-` öneki + ≤ 20 MiB.
+- `lib/print/print-send.ts` — `PrintJobs` (request → ready → tek offer + parçalar + done → onay bekleme (kalan sn) → status; Vazgeç = `print.cancel`; VIEW → "Kontrol izni kapandı, yazdırma iptal edildi"; REJECTED/TIMEOUT → 30 sn yerel bekleme).
+- `lib/dc/chunk-sender.ts` — `file` kanalı ortak parça pompası (çerçeve + `bufferedAmount` akış kontrolü); `file-send.ts` artık bunu kullanır.
+- `lib/clip/use-clip-print.ts` — React bağlayıcı (listede yoktu; `use-collab.ts`'i büyütmemek için ayrı): WS aboneliği, DC ctl dinleyici, toast eşlemesi.
+- Testler: `lib/clip/clip-print-p28a.test.ts` (20 test), `e2e/p28a-clip-print.spec.ts` (3 test, desktop).
+
+**Değişen:** `lib/dc/file-model.ts` (`TransferStore.nextIdx` — dosya + yazdırma **ortak idx sayacı**, O-P28a-2; `extBusy`), `file-send.ts`
+(ortak pompa + sayaç; yazdırma aktarımı sürerken dosya teklifi "busy"), `files.ts` (`nextIdx`, `outBusy`), `use-collab.ts` (`printBusy`
+seçeneği, `nextIdx`, `fileOutBusy`), `lib/webrtc/tech-machine.ts` (`guestFeatures` — alan yoksa `[]`; `clipConsent` — `clip.consent`, VIEW ve
+müşteri ayrılınca false), `use-tech-session.ts` (`subscribe` — sunucu mesajı aboneleri), `components/console/collab-side.tsx`,
+`console-view.tsx`, `console/page.tsx` (`canClip`/`canPrint` yetkiden), `messages/tr.json` (`cp.*`), `DESIGN.md` (bileşen satırı).
+e2e sahteleri: `mock-ws.mjs` (K2 asgari taklidi: kapı, iletim, rapor → status, VIEW'da iptal; `rs.cap.*` okuma), `mock-sessions.mjs`
+(`u-p28-*` senaryosu), `fake-agent.ts` (özellik belirteçleri, `p28` günlüğü, `print.cancel` → `report{CANCELLED}`).
+
+**Sapmalar / notlar:**
+
+1. Sunucu `error`'u zarf kimliği taşımaz → yalnız son istekten 5 sn içinde ve iş "requested" iken pano/yazdırma işine eşlenir (P7 kalıbı); metin sunucunun (K2 ret metinleri) aynen gösterilir.
+2. Sunucu VIEW'da `print.status{CANCELLED}`'ı `control.state{VIEW}`'dan önce veya sonra yollayabilir; konsol iki sırada da "Kontrol izni kapandı, yazdırma iptal edildi" gösterir (2 sn içinde gelen sunucu iptali yeniden etiketlenir; kullanıcının "Vazgeç"i etkilenmez).
+3. "Vazgeç" yerelde hemen "Yazdırma iptal edildi" gösterir; misafir `report{CANCELLED}` gönderene kadar sunucu yeni isteğe `CONFLICT` ("Önceki yazdırma işi sürüyor.") döner — metin aynen gösterilir.
+4. Onay bekleme sayacı `print.done` anından başlar (misafirin inceleme süresi dahil değil) — gösterge yaklaşık, sonuç sunucudan.
+5. AC-349 e2e'si `page.clock` yerine misafirin `report{TIMEOUT}` göndermesiyle sınanır (60 sn misafir istemcide; konsol sonucu ve 30 sn beklemeyi gösterir).
+6. R-P28a-3: Firefox/Safari'de `readText` "Yapıştır" onayı ister; panelde ipucu metni, ret metni "adres çubuğundaki site izinlerinden açın". `writeText` (Al) Firefox/Safari'de kullanıcı etkinliği (~5 sn) aşılırsa "Tarayıcı panoya yazmaya izin vermedi" — kılavuz notu K10.
+7. Pano içeriği state/DOM/console'a girmez; bayt tamponları gönderimden/birleştirmeden sonra sıfırlanır. Tam DC uçtan uca (clip.data / file parçaları) e2e'de değil birimde sınanır; gerçek akış K9 Windows elle turunda.
+
+**Komutlar:** `pnpm -r run lint` · `pnpm -r run typecheck` → yeşil; `pnpm --filter @remote/web test` → 48 dosya / 431 test yeşil;
+`playwright test e2e/p28a-clip-print.spec.ts e2e/p7-control.spec.ts e2e/p5-collab.spec.ts e2e/p17-console.spec.ts e2e/p4-media.spec.ts` → yeşil
+(p28a 3/3). Yeni bağımlılık, env, migration yok. Sunucu ve Go koduna dokunulmadı.
+
+## P28a K3 — Go protokol + akış: pano + uzaktan yazdırma (backend-dev, 2026-11-16)
+
+Tasarım: `docs/mimari-p28.md` r2 §4, §5, §10 K3, §14 (O-P28a-1/2, Y-P28a-1, D-P28a-3). Fikstür: `packages/contracts/fixtures/clip-print.json`.
+
+**Yeni dosyalar:** `apps/agent-win/internal/signal/clipprint.go` (+ `clipprint_test.go`), `internal/dc/ctl_clip_print.go`
+(+ `ctl_clip_print_test.go`), `internal/flow/clipprint.go`, `internal/flow/clipprint_print.go`, `internal/flow/messages_p28.go`,
+`internal/flow/clipprint_test.go`, `internal/flow/clipprint_session_test.go`.
+
+**Değişen:** `signal/conn.go` (`Dial(..., features []string)`; yalnız `rs.cap.clip1`/`rs.cap.print1`, tekrarsız),
+`signal/inbound.go` (`caps` + `clipboard`/`print`; 5 yeni sunucu tipi; `clip.status`/`print.status` teknisyene özgü;
+`hello`/`peer.joined` `guestFeatures?`, `hello.clipConsent?` katı doğrulama), `dc/ctl.go` (Ctl alanları `cid/pid/seq/last/b64`,
+5 tip, `Allowed`: `clip.*`←clipboard, `print.*`←print), `transfer/transfer.go` (`Busy()`), `flow/flow.go` (Deps
+`Clipboard`/`Printer`/`ClipPrintUI`; Event `On`/`PID`; `EvClipConsent`/`EvPrintApprove`/`EvPrintReject`), `flow/session.go`,
+`session_server.go`, `session_media.go`, `control.go` (kancalar: hello/caps → `capsChanged`, kopma/yeni soket → `reset`,
+`closeControl` → `controlClosed`, `grantControl` → `controlOpened`, `file.offer` idx denetimi, `file` çerçevesi yönlendirme),
+`cmd/noktadestek/deps.go` (`signal.Dial(..., flow.Features(d))`), `internal/unattended/helper/main_windows.go` (`features=nil`),
+`signal_test.go`/`p17_test.go` (Dial imzası).
+
+**Akış kuralları (clipprint):** misafir son tarihi pano 8 sn (`TIMEOUT`), yazdırma aktarım+inceleme 8 dk (offer yoksa
+`TIMEOUT`, aktarım/incelemede `ERROR`), diyalog 60 sn (`TIMEOUT/TIMEOUT`); yön bağı (push cid'i yalnız gelen `clip.data`);
+son 64 cid/pid tek kullanım (`DENIED`, yazdırmada `ERROR`); WS kopması/yeni hello → raporsuz temizlik, anahtar kapanır,
+işlem iptal, diyalog kapanır; pid başına tek offer, done sonrası çerçeve → `ERROR`, değişmez tampon (inceleme ve basma
+aynı dilim), iş sonunda sıfırlama; `idx` sahipliği (yazdırma çerçevesi dosya alıcısına gitmez; etkin yazdırma idx'iyle
+`file.offer` → `file.reject`; son 64 idx'te offer → `ERROR`); kontrol kapanınca yazdırma `CANCELLED` + durum satırı
+(Y-P28a-1), anahtar yerelde kapanır, WS `clip.consent` gönderilmez; panoya yazma/okuma ve basmadan hemen önce kapı +
+anahtar yeniden denetlenir (AC-344).
+
+**K4'ün uygulayacağı arayüzler (`internal/flow/clipprint.go`):**
+
+- `flow.Clipboard { Read() ([]byte, error); Write(text []byte) error }` — hatalar `flow.ErrClipEmpty`, `flow.ErrClipSensitive`,
+  `flow.ErrClipTooLarge` (diğerleri ERROR). Akış döngüsünden çağrılır; 2 sn sınır uygulamada.
+- `flow.Printer { DefaultPrinter() (string, bool); Inspect(ctx, pdf []byte) (int, error); Print(ctx, pdf []byte, pages int) error }`
+  — döngü dışı goroutine'de; ctx iptali işleyici job'unu kapatmalı; hatalar `flow.ErrPrintInvalidPDF`, `flow.ErrNoPrinter`.
+  pdf değişmez; diske yazılmaz.
+- Bağlama: `cmd/noktadestek/deps.go` `flowDeps` içinde `d.Clipboard`, `d.Printer` (ve K5 `d.ClipPrintUI`) atanınca
+  `flow.Features(d)` belirteçleri otomatik bildirir. Üçü atanmadan istemci özellik bildirmez (bu turdaki durum).
+
+**K5'in uygulayacağı arayüz:** `flow.ClipPrintUI { ClipSwitch(ClipSwitchState{Visible, Enabled, On}); PrintPrompt(PrintPrompt{PID,
+TechName, FileName, Pages, Printer, Deadline}); PrintPromptClosed(pid string); Notice(text string) }`; kullanıcı olayları
+`Event{Kind: EvClipConsent, On}` (yalnız gerçek yerel girdi, D-P28a-1) ve `Event{Kind: EvPrintApprove|EvPrintReject, PID}`
+(G-03). Metin tablosu `flow.ClipPrintTexts` (`messages_p28.go`). `PrintPromptClosed` yalnız akış kapattığında çağrılır
+(kullanıcı kararında diyalog kendini kapatır). `FileName` temizlenmiş + gösterim süzgecinden geçmiş gelir.
+
+**Sapmalar (gerekçeli):**
+
+1. Gösterim süzgeci `flow.displayText` (request.Display eşi): `internal/request` gözetimsiz yardımcının bağımlılık
+   sınırında yasak (`TestAC341HelperDependencyBoundary`), akış onu içe aktaramaz.
+2. Yazdırma için `DENIED` sonucu sözleşmede yok: yeniden kullanılan pid / yetenek yok → `ERROR`, kontrol kapısı kapalı →
+   `CANCELLED`, dosya aktarımı/başka iş sürüyor → `BUSY` (karar `NONE`).
+3. `print.report.sizeBytes` = alınan bayt (≤ yetkilenen boyut; offer öncesi 0).
+4. `flow/clipprint.go` 470 satır civarı (< 500); yazdırma kısmı `clipprint_print.go`'ya bölündü.
+5. Oturum sonunda goroutine'de süren inceleme/basma tamponu, dönüş kapanışı çalışamazsa GC'ye bırakılır (diske yazılmaz).
+
+**Testler:** AC-343/344/345/348/349/352, O-P28a-1/2, Y-P28a-1, D-P28a-3 adlı testler (fikstür valid/invalid guest/server/tech/dc,
+sabitler, sonuç kümeleri, `texts` birebir parça/birleştirme; içerik ve dosya adı işaretçisi WS/durum/bildirimde yok + kaynak
+içe aktarma sınırı). Yeni bağımlılık, env, migration yok.
+
+## P28a K4 — Go: gerçek pano + yazdırma, `internal/proclimit` (backend-dev, 2026-11-16)
+
+Tasarım: `docs/mimari-p28.md` r2 §5.2–5.3, §10 K4, §14 (O-P28a-3, D-P28a-2). K0 taslağının üstüne kuruldu. Commit yapılmadı.
+
+**Dosyalar (`apps/agent-win/internal`)**
+
+| Dosya                                                    | İçerik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `proclimit/{doc.go, proclimit_windows.go}` (yeni)        | Servis `launch_windows.go`'dan taşınan ortak kod: `Restrict` (DISABLE_MAX_PRIVILEGE + isteğe bağlı düşük bütünlük), `Spawn(Spec)` (job: tek süreç, kill-on-close, istisnada ölüm, isteğe bağlı bellek/UI sınırı; öznitelik: HANDLE_LIST, alt süreç yasağı, mitigation; CREATE_SUSPENDED → job → resume), `CurrentDesktop`                                                                                                                                                              |
+| `servis/launch_windows.go`                               | `helperJob`/`helperAttrs`/`create` kaldırıldı, `proclimit.Restrict` + `proclimit.Spawn` çağrılır. Davranış aynı: SYSTEM kopyası, konsol oturumu, `winsta0\default`, HANDLE_LIST = girdi borusu, yalnız görüntü yükleme mitigation'ı, bellek/UI sınırı yok                                                                                                                                                                                                                              |
+| `servis/core_test.go`                                    | Yarış düzeltmesi (aşağıda)                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `clip/{clip.go, clip_windows.go, clip_other.go}` (yeni)  | Pano: ayrı kilitli iş parçacığı + HWND_MESSAGE gizli pencere (STATIC), iş başına 2 sn; tek `OpenClipboard…CloseClipboard` içinde dört SENSITIVE biçimi → `CF_UNICODETEXT` → `GlobalSize` > 131 074 ise kopyalamadan TOO_LARGE → kopya (RtlMoveMemory). Yazma: `EmptyClipboard` + `CanIncludeInClipboardHistory=0` + `CanUploadToCloudClipboard=0` + metin aynı oturumda; biri konamazsa pano boşaltılır. UTF-16↔UTF-8 kayıpsız (eşsiz vekil INVALID, UTF-8 > 64 KB TOO_LARGE, NUL yok) |
+| `printing/printing.go` (yeni)                            | `printing.Printer` / `printing.Job` arayüzleri, hata değerleri, `printPages` (sayfa yönü → hedef → render → bas → bitmap sıfırla)                                                                                                                                                                                                                                                                                                                                                      |
+| `printing/worker.go` (yeni, platformdan bağımsız)        | İşleyici `serve` döngüsü + üst süreç `Worker`: her istek ayrı goroutine'de, adım 15 sn ve toplam 10 dk sınırıyla; zaman aşımı/iptal/protokol hatasında işleyici durdurulur (job kapanır); render/size yalnız inspect'in döndürdüğü dizinler ve ≤ 40 Mpx hedef için gönderilir                                                                                                                                                                                                          |
+| `printing/proto.go`                                      | Yeni `OpPageSize` (sayfa DIP ölçüsü; yalnız yön için, 1..2^20). Boş yük yazılmaz (boş Write borularda karşı okumayı bekliyordu)                                                                                                                                                                                                                                                                                                                                                        |
+| `printing/render.go` (yeni)                              | `targetSize` (DPI ≤ 300; 40 Mpx / 64 MiB'a oran korunarak küçültme — büyük çizicide hata yerine ölçek), `compose` (NRGBA/RGBA hızlı yol; K0'daki `image.At` 40 Mpx'te sayfa sınırına yaklaşıyordu)                                                                                                                                                                                                                                                                                     |
+| `printing/gdi_windows.go`                                | `device`: `Orient` (`ResetDCW`, `DMORIENT_PORTRAIT/LANDSCAPE`, sürücü reddederse mevcut yönde devam), `Target`, `begin/Page/end/abort` (sayfa sayfa basma)                                                                                                                                                                                                                                                                                                                             |
+| `printing/launch_windows.go`                             | `StartWorker` → `proclimit`; `DefaultIsolation = FullIsolation` (düşük bütünlük + yalnız Microsoft imzalı + dinamik kod yasak)                                                                                                                                                                                                                                                                                                                                                         |
+| `printing/printer_windows.go`, `printer_other.go` (yeni) | `printing.New(exe)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `printing/winrt_pdf_windows.go`, `worker_windows.go`     | `pageSize`/`pageCount`; `RunWorker` ortak `serve`'ü kullanır                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `clipprint/clipprint.go` (yeni)                          | flow (K3) arayüzlerine uyarlayıcı + hata eşlemesi                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+**K3 arayüz uyumu.** flow K3 `flow.Clipboard{Read() ([]byte, error); Write([]byte) error}` ve `flow.Printer{DefaultPrinter() (string, bool); Inspect(ctx, pdf) (int, error); Print(ctx, pdf, pages) error}` tanımladı. `clip`/`printing` flow'u içe aktarmaz (PDF işleyici kipi akış kodunu çekmesin); uyarlama `internal/clipprint`'te:
+
+- **Kurucular (K5 `cmd/noktadestek/deps.go`'da bağlar):** `clipprint.NewClipboard() (*clipprint.Clipboard, error)` (Close ile kapatılır; Windows dışında hata) ve `clipprint.NewPrinter(exe string) *clipprint.Printer` (`exe` = `os.Executable()`).
+- Hata eşlemesi: `clip.ErrEmpty/ErrSensitive/ErrTooLarge` → `flow.ErrClipEmpty/ErrClipSensitive/ErrClipTooLarge`; `printing.ErrNoPrinter` → `flow.ErrNoPrinter`; `printing.ErrInvalidPDF` ve `ErrTooLarge` → `flow.ErrPrintInvalidPDF`. Diğerleri sarılmadan döner (flow ERROR sayar).
+- `Printer` durumsuz: `Inspect` işleyiciyi sayfa sayısını okuyunca kapatır (60 sn onay diyaloğu boyunca süreç beklemez); `Print` aynı değişmez dilimi yeni işleyicide açar, sayfa sayısı onaylananla aynı değilse ERROR. Bedel: belge iki kez ayrıştırılır (≤ 15 sn); karşılığında bekleyen/sahipsiz işleyici süreç olmaz. ctx iptali her iki adımda job'u kapatır.
+
+**0xC0000142 düzeltmesi (K0 CI, PR #11, `kısıtlı jeton + job` varyantı).** Neden: test ikilisi konsol alt sistemlidir; `CREATE_NO_WINDOW` bile `conhost.exe` açar, conhost aynı job'a girer ve `ACTIVE_PROCESS=1` + alt süreç yasağı altında açılamaz → kernelbase konsol başlatması `STATUS_DLL_INIT_FAILED` ile düşer. Servis yardımcısı GUI alt sistemli olduğu için aynı kalıpta düşmüyordu. Değişiklik: `DETACHED_PROCESS` (konsol yok; borular `STARTF_USESTDHANDLES` ile devralınır) + `lpDesktop` açıkça üst sürecin `istasyon\masaüstü` adı (`proclimit.CurrentDesktop`). Koordinatörün maddeleri: (1) kısıtlayıcı SID listesi kullanılmıyor (yalnız DISABLE_MAX_PRIVILEGE; kısıtlı SID yok), logon/RESTRICTED SID gerekmiyor; (2) UI kısıtlarının etkisini ayırmak için yeni rapor varyantı `kısıtlı jeton + job, UI kısıtı yok` (`Isolation.SkipUILimits`, yalnız ölçüm); (3) lpDesktop artık açık; (4) işleyici kodu user32'yi doğrudan yüklemez (clip/printing lazy DLL'leri yalnız çağrıda yüklenir, işleyici yolu yalnız combase/shcore WinRT çağırır); Windows.Data.Pdf'in dolaylı yüklediği DLL'ler bizim denetimimizde değil. **Bu makinede Windows yok: doğrulama bir sonraki `agent-win` / `test-windows` koşusundadır** (`TestP28aK0WorkerIsolation`; temel varyant zorunlu, diğerleri rapor; özet başlığı "P28a K0/K4"). Temel varyant hâlâ düşerse UI-kısıtsız satırı sebebi ayırır.
+
+**Mitigation / düşük bütünlük.** `DefaultIsolation` tasarım hedefidir (üçü açık). CI'da `+ yalnız Microsoft imzalı görüntü` / `+ dinamik kod yasak` / `+ düşük bütünlük` satırlarından biri ÇALIŞMIYOR çıkarsa koordinatör yalnız `printing/launch_windows.go` `DefaultIsolation`'da o bayrağı kapatır (K-P28a-4). `TestP28aK0PrintToPDF` artık üretim yolunu (`New`→`Inspect`→`Print`, iki sayfa dikey + yatay ResetDCW) sınar; tam yalıtım açılmazsa temel düzeyle GDI yolunu yine dener.
+
+**Servis `TestAC338SecondConnectBusyAndNoConsole` yarışı (Linux `-race`).** `Core.watch` kaydı (`c.cur = nil`) `Closed` gönderilmeden önce temizler; `waitInactive` dönünce üçüncü `Connect`'in `ConnectResult`'ı `Closed`'dan önce sıraya girebiliyordu → son mesaj `*Closed`, tip doğrulaması panik. Üretim davranışı doğru (sunucu sırası önemsiz); test düzeltildi: `waitSent` ile `Closed` beklenir, tip doğrulamaları `, ok` biçiminde. Aynı kalıp `TestAC294IndicatorFailedReportsConnectResult` ve `TestDisconnectAndKillReasons`'ta da vardı (indeks/tip paniği olabilirdi), ikisi de düzeltildi. `go test -race -count=3 ./internal/servis` yeşil.
+
+**Testler**
+
+- Platformdan bağımsız: `printing/boundary_test.go` (sahte işleyici borusu: 4 GiB / 64 MiB+1 önek, hedeften büyük/küçük önek, başka boyut, hizasız stride, bilinmeyen durum, hata+yük, kesik başlık, yarım yük, sayfa 0 / 100001, inspect/size yük taşır, geçersiz size → reddedilir ve işleyici durur; dizin dışı / 40 Mpx üstü / 20 MiB üstü istek işleyiciye hiç gitmez; zaman aşımı ve ctx iptali işleyiciyi durdurur; geçersiz PDF durdurmaz; yasak sembol taraması: `net*`, `os/exec`, `ShellExecute`, `CreateProcess`, `CreateFile`, `os.Create/WriteFile/OpenFile/Open`, `Getenv`, `fmt/log.Print*`), `printing_test.go` (serve döngüsü, yön + hedef + bitmap sıfırlama, iptal, `targetSize`, `compose`), `proto_test.go` (+size), `clip/clip_test.go` (dört biçim, okunamayan değer = gizli, GlobalSize sınırı, kayıpsız dönüşüm, eşsiz vekil, UTF-8 64 KB sınırı, yazma doğrulaması), `clipprint/clipprint_test.go` (hata eşlemesi, durumsuz yazıcı, sayfa sayısı farkı).
+- Windows (`//go:build windows`): `printing/printing_windows_test.go` (K0 ölçümleri + `TestP28aK4PrintCancelled`), `clip/clip_windows_test.go` (yazılan metin geri okununca SENSITIVE; etkileşimsiz oturumda SKIP).
+
+**Yerel doğrulama (macOS, Docker `golang:1.26`, repo kökünden)**
+`go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...` → tüm paketler `ok`; `go test -race -count=3 ./internal/servis ./internal/printing ./internal/clip` → `ok`; `gofmt -l .` boş; staticcheck v0.8.2 linux + `GOOS=windows GOARCH=amd64` uyarı 0; `GOOS=windows go test -c` (clip, printing, servis) derlemesi temiz.
+
+**Sapmalar (gerekçeli).** (1) Protokole `OpPageSize` eklendi: §5.3 ResetDCW için sayfa yönü üst süreçte bilinmeli; ölçü PDF'ten değil işleyiciden gelir ve yalnız oran için kullanılır (hedef piksel yine üst süreçten). (2) Uzunluk öneki kuralı "≤ w*h*3+64" yerine daha sıkı "tam stride*h" uygulanır. (3) Yazdırılabilir alan 40 Mpx'i aşarsa hata yerine oran korunarak küçültülür. (4) Uyarlayıcı paket `internal/clipprint` §10 dosya listesinde yok: flow arayüzleri K3'te paket hatalarıyla tanımlandı; import yönünü korumak için ayrı paket. (5) `internal/winrt` açılmadı (zorunlu değil; capture/printing COM eşi küçük). Yeni bağımlılık yok, env yok.
+
+## P28a K5 — Windows müşteri arayüzü + bağlama (backend-dev/Go, 2026-11-16)
+
+Tasarım: `docs/mimari-p28.md` r2 §5.3, §10 K5, §14 (D-P28a-1, Y-P28a-1). Arayüz: "P28a K3" (`flow.ClipPrintUI`).
+
+**Yeni:** `apps/agent-win/internal/ui/print_windows.go` — `PrintPrompt` (ortak `consentDlg`: Reddet varsayılan/odakta,
+"&Yazdır" 1,5 sn kilitli, Enter/Space tetiklemez, enjekte tıklama yok sayılır, imleç dışında açılır; gövde teknisyen,
+dosya, sayfa · boyut, yazıcı, kalan süre — saniyede bir; son tarihte kararsız kapanır, akış TIMEOUT bildirir; aynı anda
+tek), `PrintPromptClosed(pid)` (yalnız eşleşen pid; kontrol kapısı kapanışı Y-P28a-1 dahil), `Notice`.
+
+**Değişen:**
+
+- `ui/session_windows.go`: "Pano paylaşımına izin ver" `BS_CHECKBOX` (otomatik değil), yetenek gelene kadar gizli,
+  kapı kapalıyken devre dışı, kapalı başlar. `BN_CLICKED` → `clipClicked`: yalnız `thread.userInput(oturum formu)`
+  (gerçek yerel tıklama / Space) mantığı çevirir ve `EvClipConsent{On}` yayar; aksi hâlde (SendInput, `BM_CLICK`, UIA
+  Invoke) görünüm `BM_SETCHECK(mantık)` ile geri çekilir. `ClipSwitch` görünür/etkin/işaretli durumu yalnız mantıktan
+  yazar. Pencere 32 px uzadı (anahtar satırı y=380; alttaki düğmeler kaydı).
+- `ui/thread_windows.go`: `WM_KEYUP` girdi kaynağı izlenir (onay kutusunun Space `BN_CLICKED`'i bırakmada gelir;
+  basış veya bırakma enjekteyse enjekte — §5.3 "gerçek klavye Space kabul edilir"). Onay diyaloğu "İzin ver" düğmesi
+  `noKey` olduğundan Space zaten yutulur; davranışı değişmez.
+- `ui/overlay_windows.go` (+25 net satır): `indicator.notify` — her monitörde etiketin altında 3 sn bildirim satırı
+  (tıklama geçirgen, odak almaz, yakalamadan hariç), `close`/`raise` kapsar. Renkler `theme.go`
+  `indicatorBg/indicatorText`'e taşındı (değer aynı).
+- `ui/ui_windows.go` (alanlar, `idClipSwitch=43`), `control_windows.go` (`closePrompts` yazdırma diyaloğu),
+  `resident_windows.go` (`ResetScope` sıfırlama), `ended_windows.go` (son ekranda anahtar kapalı + devre dışı),
+  `theme_windows.go` (`BS_CHECKBOX` → `kindCheck`, koyu tema), `win/win_windows.go` (`BS_CHECKBOX`).
+- `cmd/noktadestek/deps.go`: `ClipPrintUI: u`, `Printer: clipprint.NewPrinter(a.exe)` (`a.exe` = `os.Executable`),
+  `Clipboard` = `a.clipboard()` (süreç ömründe bir kez `clipprint.NewClipboard`; hata → nil, özellik bildirilmez);
+  `main.go`: `app.clipOnce/clip`, `run` dönüşünde `Close`.
+
+**Sapma (gerekçeli):** Diyalogda "Boyut" istendiği için `flow.PrintPrompt`'a `Size int64` (alınan bayt) ve
+`flow.ClipPrintTexts.PromptSize` ("Boyut: ") eklendi; mimari §5.3 gövdesinde boyut satırı yoktu — "Sayfa: n · Boyut: x"
+tek satır. Diğer flow davranışı değişmedi.
+
+**Test:** `TestAC247IndicatorNoticeContrast` (gösterge/bildirim beyaz/kırmızı ≥ 4,5:1, iki temada aynı); mevcut AC-247
+tabloları yeşil. D-P28a-1 enjeksiyon (`SendInput`, `BM_CLICK`, UIA) ve 60 sn diyalog Windows elle / windows CI testi
+(mimari §9) — Linux konteynerinde çalıştırılamaz.
+Komut: `docker run … golang:1.26 sh -c 'go test ./... && GOOS=windows go vet ./... && GOOS=windows go build ./...'` →
+29 paket ok, vet/build temiz; `staticcheck` v0.8.2 (linux + windows) temiz; `gofmt -l` boş. Yeni bağımlılık yok.

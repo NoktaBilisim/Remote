@@ -54,6 +54,8 @@ export function useTechSession(sessionId: string) {
   /** İlk teklif admit sonrası ICE listesi gelene kadar ertelenir (TURN'süz ilk teklif düzeltmesi, tech-machine `iceGate`). */
   const gate = useRef<IceGate>(initialIceGate);
   const reconnect = useRef<() => void>(() => undefined);
+  /** P28a: pano/yazdırma gibi ayrı kancaların sunucu mesajı aboneleri (makine dışı yan etkiler). */
+  const subs = useRef(new Set<(m: ServerOutbound) => void>());
 
   useEffect(() => {
     st.current = state;
@@ -67,6 +69,7 @@ export function useTechSession(sessionId: string) {
     (m: ServerOutbound) => {
       const refs = { gateRef: gate, retryRef: retry, sigRef: sig, ctlRef: ctl };
       handleMessage(m, refs, { onPeerMsg, dispatch, dispatchCtl, sessionId });
+      for (const fn of subs.current) fn(m);
     },
     [ctl, dispatchCtl, onPeerMsg, sessionId],
   );
@@ -107,8 +110,13 @@ export function useTechSession(sessionId: string) {
   const lobby = useLobbyActions(dispatch, send);
   const actions = useControlActions(ctl, dispatchCtl, send, link.inputRef, control.monitorPending?.at);
 
+  const subscribe = useCallback((fn: (m: ServerOutbound) => void) => {
+    subs.current.add(fn);
+    return () => void subs.current.delete(fn);
+  }, []);
+
   const { stream, channels, pc, maxFileMb, input } = link;
-  return { state, stream, channels, pc, send, maxFileMb, ...lobby, control, input, ...actions };
+  return { state, stream, channels, pc, send, subscribe, maxFileMb, ...lobby, control, input, ...actions };
 }
 
 function useLobbyActions(dispatch: (e: { type: "admit" } | { type: "reject" }) => void, send: (m: Parameters<Signal["send"]>[0]) => void) {

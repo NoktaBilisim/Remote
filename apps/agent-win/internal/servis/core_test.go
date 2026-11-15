@@ -137,17 +137,33 @@ func TestAC338SecondConnectBusyAndNoConsole(t *testing.T) {
 	c, l, _, out, _ := newCore(true)
 	c.Connect(connectMsg())
 	c.Connect(connectMsg())
-	if r := out.all()[0].(*ConnectResult); r.Reason != RejectBusy {
-		t.Fatalf("ikinci istek = %+v", r)
+	if r, ok := out.all()[0].(*ConnectResult); !ok || r.Reason != RejectBusy {
+		t.Fatalf("ikinci istek = %+v", out.all())
 	}
 	l.procs[0].exit(helperio.ExitEnded)
 	waitInactive(t, c)
+	// watch kaydı Closed gönderilmeden önce temizler: Closed'ı bekle, yoksa üçüncü isteğin yanıtıyla yarışır.
+	waitSent(t, out, func(m any) bool { _, ok := m.(*Closed); return ok })
 	l.err = ErrNoConsole
 	c.Connect(connectMsg())
 	msgs := out.all()
-	if r := msgs[len(msgs)-1].(*ConnectResult); r.Reason != helperio.ReasonNoConsole {
-		t.Fatalf("konsolsuz = %+v", r)
+	if r, ok := msgs[len(msgs)-1].(*ConnectResult); !ok || r.Reason != helperio.ReasonNoConsole {
+		t.Fatalf("konsolsuz = %+v", msgs)
 	}
+}
+
+// waitSent match eden bir mesaj gönderilene kadar bekler (≤ 1 sn).
+func waitSent(t *testing.T, out *sent, match func(any) bool) {
+	t.Helper()
+	for i := 0; i < 200; i++ {
+		for _, m := range out.all() {
+			if match(m) {
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("beklenen mesaj gelmedi: %+v", out.all())
 }
 
 func TestAC294IndicatorFailedReportsConnectResult(t *testing.T) {
@@ -155,6 +171,7 @@ func TestAC294IndicatorFailedReportsConnectResult(t *testing.T) {
 	c.Connect(connectMsg())
 	l.procs[0].exit(helperio.ExitIndicatorFailed)
 	waitInactive(t, c)
+	waitSent(t, out, func(m any) bool { _, ok := m.(*Closed); return ok })
 	msgs := out.all()
 	r, ok1 := msgs[0].(*ConnectResult)
 	cl, ok2 := msgs[1].(*Closed)
@@ -243,9 +260,10 @@ func TestDisconnectAndKillReasons(t *testing.T) {
 	}
 	c.Disconnect(&Disconnect{SessionID: sid, Reason: "device_revoked"})
 	waitInactive(t, c)
+	waitSent(t, out, func(m any) bool { _, ok := m.(*Closed); return ok })
 	msgs := out.all()
-	if cl := msgs[len(msgs)-1].(*Closed); cl.Reason != KillServer {
-		t.Fatalf("neden = %s", cl.Reason)
+	if cl, ok := msgs[len(msgs)-1].(*Closed); !ok || cl.Reason != KillServer {
+		t.Fatalf("mesajlar = %+v", msgs)
 	}
 	if st, tech := c.Status(); st != "offline" || tech != "" {
 		t.Fatalf("status = %s %s", st, tech)

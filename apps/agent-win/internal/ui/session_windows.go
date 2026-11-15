@@ -25,7 +25,7 @@ func (u *UI) Active(techName string, mon signal.Monitor) {
 		u.techName = techName
 		s := u.newSessionWin(watchText)
 		f := s.f
-		f.command = func(id, _ int) { u.sessionCommand(s, id) }
+		f.command = func(id, code int) { u.sessionCommand(s, id, code) }
 		f.close = func() { u.confirmEnd(s) }
 		f.activate = func(on bool) {
 			s.active = on
@@ -48,9 +48,9 @@ func (u *UI) Active(techName string, mon signal.Monitor) {
 
 // newSessionWin oturum penceresinin denetimleri (gösterilmeden önce).
 func (u *UI) newSessionWin(watchText string) *sessionWin {
-	height, endY := int32(500), int32(456)
+	height, endY := int32(532), int32(488)
 	if u.elevated {
-		height, endY = 552, 508
+		height, endY = 584, 540
 	}
 	f := u.t.newForm(appTitle+" — Oturum", 440, height, false)
 	s := &sessionWin{f: f}
@@ -64,24 +64,33 @@ func (u *UI) newSessionWin(watchText string) *sessionWin {
 	s.fileBtn = f.button("Aktarımı iptal et", idFileCancel, 284, 340, 140, false)
 	// AC-100: "Erişime izin ver", "Kontrolü kapat", "Oturumu bitir" her zaman görünür, klavyeyle erişilir.
 	// S7-6: "Erişime izin ver" izin vermez; bekleyen kontrol diyaloğunu imleç dışında, 1,5 sn kilitle öne getirir.
-	s.grantBtn = f.button("Erişime &izin ver", idGrant, 16, 380, 200, false)
-	s.closeBtn = f.button("&Kontrolü kapat", idCtlClose, 224, 380, 200, false)
-	s.hotkey = f.label(hotkeyText(u.hotkeyLabel), 16, 416, 408, 36, fontNormal)
+	// P28a D-P28a-1: BS_CHECKBOX (otomatik değil); yetenek gelene kadar gizli, kapı açılana kadar devre dışı, kapalı başlar.
+	s.clipChk = f.add("BUTTON", flow.ClipPrintTexts.ClipSwitch, win.WS_TABSTOP|win.BS_CHECKBOX, 0, idClipSwitch,
+		16, 380, 408, 24, fontNormal)
+	s.grantBtn = f.button("Erişime &izin ver", idGrant, 16, 412, 200, false)
+	s.closeBtn = f.button("&Kontrolü kapat", idCtlClose, 224, 412, 200, false)
+	s.hotkey = f.label(hotkeyText(u.hotkeyLabel), 16, 448, 408, 36, fontNormal)
 	if u.elevated {
-		f.danger(elevatedText, 16, 456, 408, 48, fontNormal)
+		f.danger(elevatedText, 16, 488, 408, 48, fontNormal)
 	}
 	s.endBtn = f.button("Oturumu bitir", idEndSession, 16, endY, 160, false)
 	win.EnableWindow(s.grantBtn.h, false)
 	win.EnableWindow(s.closeBtn.h, false)
+	win.EnableWindow(s.clipChk.h, false)
+	win.ShowWindow(s.clipChk.h, win.SW_HIDE)
 	f.noKey = s.grantBtn.h // G-03: Enter/Space bu düğmeyi de tetiklemez
 	win.ShowWindow(s.fileBtn.h, win.SW_HIDE)
 	return s
 }
 
 // sessionCommand oturum penceresi düğmeleri: sohbet gönder, aktarımı iptal, izin diyaloğunu öne getir, kontrolü
-// kapat, oturumu bitir.
-func (u *UI) sessionCommand(s *sessionWin, id int) {
+// kapat, pano anahtarı, oturumu bitir.
+func (u *UI) sessionCommand(s *sessionWin, id, code int) {
 	switch id {
+	case idClipSwitch:
+		if code == win.BN_CLICKED {
+			u.clipClicked(s)
+		}
 	case idOK:
 		text := strings.TrimSpace(win.GetText(s.input.h))
 		if text != "" && !s.finished {
@@ -154,5 +163,34 @@ func (u *UI) Annot(m dc.Ctl) {
 		if u.ov != nil {
 			u.ov.apply(m)
 		}
+	})
+}
+
+// clipClicked D-P28a-1: mantık yalnız bu pencereye gelen gerçek yerel tıklama / Space ile çevrilir (thread.userInput,
+// S7-5); teknisyenin SendInput'u, BM_CLICK ve UIA Invoke yalnız görünümü mantığa geri çeker. Akış ClipSwitch ile son
+// sözü söyler (reddedilen açma isteğinde mantık geri gelir).
+func (u *UI) clipClicked(s *sessionWin) {
+	if s.clipEnabled && !s.finished && u.t.userInput(s.f) {
+		s.clipOn = !s.clipOn
+		u.emit(flow.Event{Kind: flow.EvClipConsent, On: s.clipOn})
+	}
+	setChecked(s.clipChk, s.clipOn)
+}
+
+// ClipSwitch flow.ClipPrintUI: görünür/etkin/işaretli durum; görünüm yalnız mantıktan yazılır (BM_SETCHECK).
+func (u *UI) ClipSwitch(st flow.ClipSwitchState) {
+	u.t.Do(func() {
+		s := u.sess
+		if s == nil || s.finished {
+			return
+		}
+		s.clipOn, s.clipEnabled = st.On && st.Visible && st.Enabled, st.Visible && st.Enabled
+		setChecked(s.clipChk, s.clipOn)
+		win.EnableWindow(s.clipChk.h, s.clipEnabled)
+		show := win.SW_HIDE
+		if st.Visible {
+			show = win.SW_SHOWNOACTIVATE
+		}
+		win.ShowWindow(s.clipChk.h, show)
 	})
 }

@@ -89,7 +89,7 @@ func (t *thread) handle(m *win.MSG) {
 
 // track S7-5/S7-12: form penceresine gelen girdi mesajının kaynağını (GetCurrentInputMessageSource) kaydeder; karar
 // control.OriginInjected'dadır (yalnız IMO_HARDWARE yerel, gerisi enjekte — fail-closed). Fare tıklaması = basış +
-// bırakma; ikisinden biri enjekteyse tıklama enjekte sayılır. Erişim tuşu (Alt+İ) WM_SYSCHAR ile gelir; kaynağı
+// bırakma; ikisinden biri enjekteyse tıklama enjekte sayılır (tuş bırakma da aynı kuralla). Erişim tuşu (Alt+İ) WM_SYSCHAR ile gelir; kaynağı
 // bilinmiyorsa onu üreten tuş basışının kararı kullanılır (control.CharInjected).
 func (t *thread) track(m *win.MSG) {
 	t.cur = inputMark{}
@@ -107,6 +107,8 @@ func (t *thread) track(m *win.MSG) {
 	case win.WM_KEYDOWN, win.WM_SYSKEYDOWN:
 		f.keyInjected = inj
 		t.cur = inputMark{f: f, msg: m.Message, injected: f.keyInjected}
+	case win.WM_KEYUP: // P28a D-P28a-1: onay kutusu BN_CLICKED'i Space bırakılınca gelir; basış da yerel olmalı
+		t.cur = inputMark{f: f, msg: m.Message, injected: inj || f.keyInjected}
 	case win.WM_CHAR, win.WM_SYSCHAR:
 		t.cur = inputMark{f: f, msg: m.Message, injected: control.CharInjected(f.keyInjected, origin, ok)}
 	}

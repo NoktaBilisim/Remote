@@ -3,6 +3,7 @@
 import { CONTROL_AUDIT } from "@remote/contracts/audit";
 import type { ControlSource } from "@remote/contracts/ws";
 import { writeAudit } from "../audit/service.ts";
+import { onControlClosed } from "./clip-print.ts";
 import {
   CONTROL_AUDIT_TIMEOUT_MS,
   CUSTOMER,
@@ -99,6 +100,7 @@ export async function onView(rooms: Rooms, room: Room, guest: Guest, source: Con
   const was = c.state;
   c.state = "VIEW";
   c.epoch += 1;
+  onControlClosed(rooms, room); // P28a (Y-P28a-1): müşteri kontrolü kapattı
   room.tech?.peer.send({ t: "control.state", state: "VIEW", source });
   if (was === "REQUESTED") {
     // §3.3 K6: bekleyen istek müşteri kararı olmadan istemcide kapandı (ör. PeerConnection koptu). Consent yok (müşteriye

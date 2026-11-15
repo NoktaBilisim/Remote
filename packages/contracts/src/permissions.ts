@@ -6,8 +6,10 @@ export const PERMISSION_MODULES = [
   // P19 (AC-260): send_link = oturum bağlantısını müşteriye SMS/WhatsApp ile gönder (+ sessions.create). LG (V-LG3): K3 müşteri
   // bağlantıları da bu anahtarla (+ customers.view) — etiket "Müşteriye bağlantı gönder".
   { key: "sessions", actions: ["view", "create", "edit", "delete", "terminate", "send_link"] },
-  { key: "remote_control", actions: ["use"] },
-  { key: "file_transfer", actions: ["use"] },
+  // P28a (AC-343, 348, 404; mimari-p28 §4.1): clipboard = düz metin pano gönder/al (kontrol GRANTED + müşteri izni);
+  // print = PDF'i müşterinin varsayılan yazıcısına gönder — `file_transfer.use`'dan BAĞIMSIZ (yalnız Windows istemci).
+  { key: "remote_control", actions: ["use", "clipboard"] },
+  { key: "file_transfer", actions: ["use", "print"] },
   { key: "session_history", actions: ["view", "edit", "export"] },
   // P8b (AC-147): view = kuyruk, geçmiş, panel bildirimi; accept = kabul VE ret (sessions.create gerekmez, mimari-e9 §4).
   // P15 (AC-235): block = talep engelleri (IP/önek, cihaz) listele/ekle/kaldır.
@@ -66,6 +68,8 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
   // P27 (§4.1): cihaz yetkisi olmadan `connect` tek başına bağlantı açmaz (AC-293).
   "unattended.connect":
     "Yetki verilmiş gözetimsiz cihazlara müşteri onayı olmadan bağlanır. Her bağlantıda iki adımlı doğrulama kodu istenir; cihaz bazında yetki ayrıca verilmelidir.",
+  "remote_control.clipboard": "Kontrol izni verilmiş oturumda, müşteri ayrıca izin verirse düz metin panosunu gönderir ve alır.",
+  "file_transfer.print": "Müşterinin onayıyla PDF belgeyi müşterinin varsayılan yazıcısına gönderir (yalnız Windows uygulaması).",
   "unattended.manage":
     "Tüm gözetimsiz cihazları görür; kayıt kodu üretir, teknisyenlere cihaz yetkisi verir/alır, cihazı iptal eder ve müşteri bildirim adreslerini düzenler.",
 };

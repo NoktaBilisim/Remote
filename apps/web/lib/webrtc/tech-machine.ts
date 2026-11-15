@@ -12,6 +12,7 @@ import {
   type SessionEndedReason,
   type ShareMethod,
 } from "@remote/contracts/ws";
+import type { GuestFeature } from "@remote/contracts/ws-clip-print";
 import { applyMsg, type MsgOf, type MsgTable } from "./msg-table";
 
 export interface Pending {
@@ -55,6 +56,10 @@ export interface TechState {
   end: TechEnd | null;
   /** P27 (mimari-p27 §4.6): gözetimsiz odada sunucu `hello{unattended}` gönderir → konsol rozeti + cihaz adı. */
   unattended: { deviceId: string; deviceName: string } | null;
+  /** P28a (§4.2): bağlı misafirin bildirdiği özellikler (`hello`/`peer.joined` `guestFeatures`; eski istemci → []). */
+  guestFeatures: GuestFeature[];
+  /** P28a: müşteri pano anahtarı (sunucu aynası `clip.consent`; kontrol VIEW'a dönünce / müşteri ayrılınca kapalı). */
+  clipConsent: boolean;
 }
 
 export type TechEvent =
@@ -83,6 +88,8 @@ export const initialTech: TechState = {
   lastError: null,
   end: null,
   unattended: null,
+  guestFeatures: [],
+  clipConsent: false,
 };
 
 /**
@@ -164,8 +171,18 @@ const ON_MSG: MsgTable<TechState> = {
   "peer.joined": onPeerJoined,
   "peer.left": (s, m, now) => {
     if (m.role !== "guest" || s.phase !== "live") return s;
-    return { ...s, peerLostSince: s.peerLostSince ?? now, share: "unknown", shareFail: null, shareMethod: null };
+    return {
+      ...s,
+      peerLostSince: s.peerLostSince ?? now,
+      share: "unknown",
+      shareFail: null,
+      shareMethod: null,
+      guestFeatures: [],
+      clipConsent: false,
+    };
   },
+  "clip.consent": (s, m) => ({ ...s, clipConsent: m.on }),
+  "control.state": (s, m) => (m.state === "VIEW" ? { ...s, clipConsent: false } : s),
   "share.state": (s, m) => ({
     ...s,
     share: m.state,
@@ -194,6 +211,8 @@ function onHello(s: TechState, m: MsgOf<"hello">, now: number): TechState {
     guest: active ? { ...prev, name: x.guestName ?? prev.name } : null,
     peerLostSince: active && !m.peerPresent ? (s.peerLostSince ?? now) : null,
     unattended: m.unattended ?? s.unattended,
+    guestFeatures: active && m.peerPresent ? [...(m.guestFeatures ?? [])] : [],
+    clipConsent: active && m.peerPresent ? (m.clipConsent ?? false) : false,
     ...helloShare(s, x, active && m.peerPresent),
   };
 }
@@ -218,6 +237,8 @@ function onPeerJoined(s: TechState, m: MsgOf<"peer.joined">): TechState {
     share: "unknown",
     shareFail: null,
     shareMethod: null,
+    guestFeatures: [...(m.guestFeatures ?? [])],
+    clipConsent: false,
     // TEST-P4-2: canlı kabulde kalan süre sayacı sunucunun bildirdiği üst sınırla başlar (opsiyonel alan)
     maxEndsAt: joinedMaxEndsAt(m) ?? s.maxEndsAt,
   };

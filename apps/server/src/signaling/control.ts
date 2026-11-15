@@ -8,6 +8,7 @@
 import { CONTROL_AUDIT } from "@remote/contracts/audit";
 import { CONTROL_DENY_COOLDOWN_MS, CONTROL_REQUEST_MAX, type ControlSource } from "@remote/contracts/ws";
 import { writeAudit } from "../audit/service.ts";
+import { onControlClosed } from "./clip-print.ts";
 import { onGranted, onView } from "./control-grant.ts";
 import { auditBeforeForward, CUSTOMER, enqueue, guestCtx, logFail, recordClose, techActor, unexpected } from "./control-record.ts";
 import type { Rooms } from "./rooms.ts";
@@ -98,6 +99,7 @@ export function handleControlClose(rooms: Rooms, room: Room, tech: TechConn, kin
   const opened = c.state === "GRANTED" || granting;
   c.state = "VIEW";
   c.epoch += 1;
+  onControlClosed(rooms, room); // P28a (Y-P28a-1)
   const guest = room.admitted?.peer;
   if (!opened) {
     guest?.send({ t: "control.cancel" });
