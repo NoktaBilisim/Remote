@@ -5,6 +5,92 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P27 gözetimsiz erişim (AC-273..275, 293..297, 336..342; **prod'da kapalı**, SignPath imzası gelene kadar)
+
+- Yeni Windows ikilisi `NoktaDestekServis.exe` (ayrı ürün yolu; `NoktaDestek.exe` değişmedi). Tek ayar penceresi: kur,
+  güncelle, gözetimsiz erişimi kapat/aç, kaldır. Yönetici yetkisiyle kurulur, SYSTEM hizmeti olarak çalışır, tek kullanımlık
+  kayıt koduyla (16 karakter, 24 saat) firmaya bağlanır. Yeniden başlatmadan sonra en geç 2 dakikada çevrimiçi olur.
+- Bağlantıda cihazda onay istenmez; teknisyen görüntü, kontrol ve teknisyenden cihaza dosya gönderimi alır (dosyalar
+  `%ProgramData%\NoktaDestek Servis\Gelen\`). Giriş ekranı, kilit ekranı ve UAC penceresi de görünür ve kullanılır
+  (fiziksel konsol oturumu; RDP ve Ctrl+Alt+Del gönderimi yok).
+- Cihazda her monitörde kapatılamayan "Uzaktan bağlantı: <teknisyen> — <destek firması>" göstergesi; gösterge çizilemezse
+  bağlantı açılmaz. Tepside durum simgesi; standart kullanıcı "Gözetimsiz erişimi kapat" ile bağlantıyı en geç 2 saniyede keser,
+  yeniden açmak yerel yönetici ister. Kaldırma Windows "Uygulamalar"dan iz bırakmadan yapılır. Olaylar Windows olay günlüğüne
+  (kaynak `NoktaDestek`) de yazılır.
+- Panel: kenar çubuğunda "Gözetimsiz cihazlar" (`/unattended`): cihaz listesi (çevrimiçi/çevrimdışı, yerel olarak kapalı,
+  imzasız rozetleri, 15 sn'de bir tazelenir), "Kayıt kodları" sekmesi, cihaz ayrıntısı (teknisyen yetkileri, son 20 oturum,
+  cihazı iptal et). Müşteri ayrıntısında "Gözetimsiz bildirim adresleri" (en çok 5 e-posta + isteğe bağlı telefon).
+  Konsolda "Gözetimsiz" rozeti, geçmişte "Gözetimsiz" mod filtresi.
+- Yeni yetkiler `unattended.connect` (yetki verilen cihaza bağlan) ve `unattended.manage` (cihaz, kod, yetki, adres yönetimi);
+  kullanıcı düzenleme ekranındaki toggle listesine otomatik eklendi.
+- Müşteriye e-posta: her gözetimsiz bağlantı başlangıcı (en geç 60 sn; firmada açıksa SMS/WhatsApp), bildirim adresi
+  değişikliği (eski ve yeni adreslerin hepsine), yeni cihaz kaydı. Firma yöneticilerine e-posta: yeni cihaz kaydı, birinin
+  kendine cihaz yetkisi vermesi, kurtarma koduyla gözetimsiz bağlantı.
+- Cihaz rozetleri: "Yeni — doğrulanmadı" (ilk teknisyen yetkisi verilene kadar), "Son bildirim gönderilemedi",
+  "Anahtar başka yerden kullanılıyor olabilir".
+
+### Güvenlik — P27
+
+- Her gözetimsiz bağlantı kimlik doğrulaması (TOTP veya kurtarma kodu) ister ve bu doğrulamayı **tüketir**: bir doğrulama tek
+  bağlantı açar. Yan etki: aynı oturumdaki diğer hassas işlemler de yeniden kod sorar.
+- Yeni cihazda hiçbir teknisyenin yetkisi yoktur; yetkisiz teknisyen cihazı görmez (404). Yetki geri alma açık bağlantıyı en
+  geç 5 sn'de, cihaz iptali en geç 10 sn'de keser; anlık kesme çalışmazsa 60 sn'lik yeniden denetim keser.
+- Firmanın kendi SMTP kaydı yoksa kayıt kodu üretilemez ve bağlantı açılamaz (409 `NOTIFY_CHANNEL_UNAVAILABLE`, "Bildirim
+  e-postası yapılandırılmamış — Ayarlar → SMTP"). Müşteride bildirim adresi yoksa bağlantı 409 `NOTIFY_CONTACT_REQUIRED`.
+  Etkin cihaz varken SMTP ayarını kaydetmek ve bildirim adreslerini değiştirmek kimlik doğrulaması ister.
+- Cihaz kimliği Ed25519 meydan okumasıyla doğrulanır (`/ws/device`, alt protokol `rs.device.v1`); anahtarı yalnız cihazdaki
+  SYSTEM çözebilir. Kimliksiz soket tavanı süreç başına 1000, IP başına 5. Kayıt ucu IP başına 10/sa; sistem tavanı (100/sa)
+  yalnız başarısız denemeleri sayar.
+- Windows tarafı: yardımcı süreç ayrıcalıkları kaldırılmış jetonla, çocuk süreç açamayan bir job içinde başlar; kurulum
+  klasörleri korumalı ACL ile yeniden oluşturulur ve her açılışta doğrulanır; `Gelen` klasörüne junction ile yönlendirme
+  reddedilir; hizmet yolu tırnaklı; sunucu adresi yalnız derlemede gömülü.
+- **Bilinen risk:** Windows'ta oturum açmış kullanıcı yöneticiyse teknisyen UAC onayı verebilir. Müşteri bilgisayarlarında
+  standart kullanıcı hesabı önerilir (kılavuz, DATASHEET ve kayıt kodu yönergesinde yazılı).
+- İmza kapısı cihazın kendi beyanına dayanır; kimlik doğrulama değil, imzasız yapının prod'a çıkmasını önleyen bir kapıdır.
+
+### Operasyon — P27
+
+- Yeni env: `UNATTENDED_MODE` (`off` varsayılan | `unsigned` yalnız staging | `signed`), `UNATTENDED_SIGNED_SHA256`,
+  `UNATTENDED_AGENT_SHA256` (yayın betiği yazar). `DEPLOY_ENV` artık `server` konteynerine de verilir: boşsa compose durur,
+  `NODE_ENV=production` iken tanımsızsa server açılmaz; `unsigned` başka ortamda açılış hatasıdır. Staging'de panelde
+  "TEST ortamı — imzasız servis" bandı ve cihaz göstergesinde "TEST" ibaresi.
+- Migration `20261121010000_p27_unattended` (yeni tablolar `unattended_devices`, `unattended_device_grants`, `unattended_registration_codes`,
+  `customer_notify_contacts`; `support_sessions.device_id`; `notification_outbox` `session_id`/`event_id`). CHECK
+  değişiklikleri tabloyu kopyalayarak değiştirir — bakım penceresinde uygulanır.
+- CI ikinci ikiliyi tekrarlanabilir derler, `SHA256SUMS` iki satır; `trace-check.ps1 -Servis` profili. Yayın betiği
+  `deploy/agent/publish-servis.sh`. Açılış logu `unattended.mode=<mod> deployEnv=<değer>`. Yeni metrikler `rs_unattended_*`
+  ve alarm eşikleri. Ayrıntı: runbook §27.
+
+### Eklendi — P27a: 2FA'da "Bu cihazı 30 gün hatırla" (AC-325..335, 335a, 335b)
+
+- Girişteki doğrulama kodu adımında "Bu cihazı 30 gün hatırla" kutusu (varsayılan işaretsiz; kurtarma kodu modunda yok).
+  İşaretlenirse o tarayıcıda 30 gün boyunca yalnız şifre sorulur. Süre kullanımla uzamaz. Kullanıcı başına en çok 10 cihaz;
+  11.'sinde en eski düşer.
+- Hesabım → "Hatırlanan cihazlar": tarayıcı · işletim sistemi, hatırlanma tarihi, son kullanım, son IP, bitiş; "Bu cihaz"
+  rozeti; tek tek "Kaldır" ve onaylı "Tümünü kaldır".
+- Kullanıcı düzenleme ekranında (Admin) hatırlanan cihaz sayısı ve "Hatırlanan cihazları kaldır".
+- Ayarlar → Güvenlik: "2FA cihaz hatırlama" firma anahtarı. Kapatmak firmadaki tüm hatırlanan cihazları hemen siler.
+- Yeni cihaz hatırlanınca kullanıcıya "Yeni cihaz hatırlandı" e-postası (firma SMTP'si varsa).
+
+### Değişti — P27a
+
+- **Firma Admin'lerine:** "2FA cihaz hatırlama" **mevcut firmalarda da varsayılan açıktır**. İstemiyorsanız Ayarlar →
+  Güvenlik'ten kapatın.
+- **Super Admin hesapları cihaz hatırlayamaz**; her girişte kod sorulur.
+- `POST /auth/logout-all` yanıtına `revokedTrustedDevices`, `POST /auth/mfa/verify` yanıtına `deviceRemembered`,
+  `GET /auth/me` `mfa` nesnesine `rememberDeviceAvailable`, `GET /users/:id` yanıtına `trustedDeviceCount` eklendi.
+
+### Güvenlik — P27a
+
+- Hassas işlemlerde (step-up) ve her gözetimsiz bağlantıda kod hatırlanan cihazda da sorulur; şifre her girişte sorulur.
+- Çerez `__Secure-rs_td` (HttpOnly, Secure, SameSite=Strict, `Path=/api/v1/auth`); DB'de yalnız SHA-256 özeti. Belirteç her
+  kullanımda yenilenir. Eski bir belirteç yeniden kullanılırsa kullanıcının tüm hatırlanan cihazları silinir, tüm açık
+  oturumları kapatılır ve kullanıcıya e-posta gider.
+- Hatırlamayı silen olaylar: şifre değişimi ve sıfırlama, Admin'in 2FA sıfırlaması, 2FA'nın yeniden etkinleştirilmesi,
+  "Tüm cihazlardan çıkış" (bu cihaz dahil), kullanıcının veya firmanın pasife alınması, firma anahtarının kapatılması.
+- Giriş işlemi kullanıcı satırını kilitler; şifre arada değişirse oturum açılmaz (401, audit `credentials_changed`).
+- Migration `20261121000000_p27a_trusted_devices` (yeni tablo `trusted_devices`, `tenant_settings.mfa_remember_device`). Yeni env yok.
+
 ### Eklendi — istemci 0.12.0 (Windows; P20, AC-253, AC-254, AC-255 müşteri ucu)
 
 - **Tepside çalıştır ve Windows açılışında başlat** (AC-253): firma listeli ana ekranda iki onay kutusu; ikisi de varsayılan

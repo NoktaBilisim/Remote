@@ -2,8 +2,8 @@
 // Kod: 16 karakter Crockford base32 (80 bit), DB'de yalnız HMAC (`unattended-code`); düz kod yalnız üretim yanıtında.
 // Kayıt TX'i (O-P27-2): kod FOR UPDATE (kullanılmamış ∧ süresi dolmamış) → cihaz INSERT → koşullu kod tüketimi (count=1)
 // → müşteri adreslerine `UN_DEVICE_REGISTERED` outbox → audit. Commit sonrası `manage` sahiplerine iç e-posta (O-P27-5).
+// Cihaz ucunun HTTP katmanı (kovalar, tek 404) register.ts.
 import { randomBytes } from "node:crypto";
-import type { FastifyRequest } from "fastify";
 import {
   REGISTRATION_CODE_ALPHABET,
   REGISTRATION_CODE_LENGTH,
@@ -15,15 +15,13 @@ import {
   type RegistrationCodeListResponse,
 } from "@remote/contracts/api/unattended";
 import { UNATTENDED_AUDIT } from "@remote/contracts/audit";
-import { auditContext, writeAudit, type AuditContext } from "../audit/service.ts";
-import { checkPublicClient } from "../auth/guards.ts";
+import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import type { SecretBox } from "../lib/crypto.ts";
-import type { FixedWindowCounter } from "../lib/rate.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import type { Metrics } from "../ops/metrics.ts";
-import { customerExists, enqueueEventMails } from "./contacts.ts";
+import { customerStatusShared, enqueueEventMails } from "./contacts.ts";
 import { deviceRegisteredMail, sendInternalNotice } from "./mail.ts";
 import type { UnattendedDeps } from "./service.ts";
 
@@ -72,7 +70,12 @@ export async function listCodes(d: RegistrationDeps, tenantId: string): Promise<
   };
 }
 
-/** POST /unattended/registration-codes (step-up routes'ta): 404 müşteri → 409 mod → 409 adres → 409 SMTP (AC-336). */
+const passiveCustomer = () => new AppError("CONFLICT", { message: "Müşteri pasif; kayıt kodu oluşturulamaz." });
+
+/**
+ * POST /unattended/registration-codes (step-up routes'ta): 404 müşteri → 409 pasif müşteri (D-P27-K2) → 409 mod → 409 adres →
+ * 409 SMTP (AC-336). Pasif denetimi TX içinde müşteri FOR SHARE ile yinelenir (eşzamanlı pasife alma).
+ */
 export async function createCode(
   d: RegistrationDeps,
   ctx: AuditContext,
@@ -80,7 +83,9 @@ export async function createCode(
   tenantId: string,
   customerId: string,
 ): Promise<CreatedRegistrationCode> {
-  if (!(await customerExists(d.db, tenantId, customerId))) throw new AppError("NOT_FOUND");
+  const customer = await d.db.customer.findFirst({ where: { id: customerId, tenantId, anonymizedAt: null }, select: { status: true } });
+  if (!customer) throw new AppError("NOT_FOUND");
+  if (customer.status !== "ACTIVE") throw passiveCustomer();
   if (!d.gate.status().available) throw new AppError("UNATTENDED_DISABLED");
   if ((await d.db.customerNotifyContact.count({ where: { tenantId, customerId } })) === 0) throw new AppError("NOTIFY_CONTACT_REQUIRED");
   if (!(await d.mail.configFor(tenantId))) throw new AppError("NOTIFY_CHANNEL_UNAVAILABLE");
@@ -89,6 +94,7 @@ export async function createCode(
   const expiresAt = new Date(now.getTime() + REGISTRATION_CODE_TTL_HOURS * 3_600_000);
   const id = newId();
   await d.db.$transaction(async (tx) => {
+    if ((await customerStatusShared(tx, tenantId, customerId)) !== "ACTIVE") throw passiveCustomer();
     await tx.unattendedRegistrationCode.create({
       data: { id, tenantId, customerId, codeHash: codeHash(d.secrets, code), createdBy: auth.user.id, expiresAt, createdAt: now },
     });
@@ -125,7 +131,7 @@ export async function cancelCode(d: RegistrationDeps, ctx: AuditContext, auth: A
   });
 }
 
-interface Registered {
+export interface Registered {
   deviceId: string;
   tenantId: string;
   tenantName: string;
@@ -157,46 +163,73 @@ function insertDevice(
   });
 }
 
+interface CodeRow {
+  id: string;
+  tenant_id: string;
+  customer_id: string;
+  created_by: string | null;
+}
+
+/**
+ * Geçerli kodu kilitler. Kilit sırası müşteri (FOR SHARE) → kod (FOR UPDATE): müşteri pasifi (müşteri X → kodları siler)
+ * ile aynı sıra, kilitlenme yok. D-P27-K2: müşteri pasif/anonim → null (geçersiz kodla aynı tek 404).
+ */
+async function lockValidCode(tx: Tx, hash: string, now: Date): Promise<CodeRow | null> {
+  const peek = await tx.unattendedRegistrationCode.findFirst({
+    where: { codeHash: hash, usedAt: null, expiresAt: { gt: now } },
+    select: { tenantId: true, customerId: true },
+  });
+  if (!peek || (await customerStatusShared(tx, peek.tenantId, peek.customerId)) !== "ACTIVE") return null;
+  const rows = await tx.$queryRaw<CodeRow[]>`SELECT id, tenant_id, customer_id, created_by FROM unattended_registration_codes
+    WHERE code_hash = ${hash} AND used_at IS NULL AND expires_at > ${now} AND customer_id = ${peek.customerId} FOR UPDATE`;
+  return rows[0] ?? null;
+}
+
+/** Müşteri adreslerine `UN_DEVICE_REGISTERED` (aynı TX) + başarı audit'i. */
+async function registeredEvents(
+  tx: Tx,
+  d: RegistrationDeps,
+  ctx: AuditContext,
+  c: CodeRow,
+  deviceId: string,
+  input: RegisterDeviceData,
+  now: Date,
+) {
+  const contacts = await tx.customerNotifyContact.findMany({
+    where: { tenantId: c.tenant_id, customerId: c.customer_id },
+    select: { email: true },
+  });
+  const eventId = newId();
+  const emails = contacts.map((x) => x.email);
+  await enqueueEventMails(tx, d.secrets, { tenantId: c.tenant_id, eventId, kind: "UN_DEVICE_REGISTERED", emails, now });
+  await writeAudit(tx, ctx, {
+    tenantId: c.tenant_id,
+    username: "device",
+    action: UNATTENDED_AUDIT.DEVICE_REGISTERED,
+    entity: "unattended_devices",
+    entityId: deviceId,
+    result: "success",
+    newValue: { customerId: c.customer_id, name: input.name, version: input.version, signed: input.signed, ip: ctx.ip, eventId },
+  });
+}
+
 /** Kayıt TX'i; kod geçersizse null (çağıran hız kovalarını sayar). Kapı reddi → 409 UNATTENDED_DISABLED. */
 export async function registerTx(d: RegistrationDeps, ctx: AuditContext, input: RegisterDeviceData): Promise<Registered | null> {
   const now = new Date(d.now());
   const hash = codeHash(d.secrets, input.code);
   return d.db.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<{ id: string; tenant_id: string; customer_id: string; created_by: string | null }[]>`SELECT id,
-      tenant_id, customer_id, created_by FROM unattended_registration_codes
-      WHERE code_hash = ${hash} AND used_at IS NULL AND expires_at > ${now} FOR UPDATE`;
-    const c = rows[0];
+    const c = await lockValidCode(tx, hash, now);
     if (!c) return null;
     if (!d.gate.allows({ signed: input.signed, sha256: input.sha256 })) throw new AppError("UNATTENDED_DISABLED");
     const deviceId = newId();
-    const dev = await insertDevice(
-      tx,
-      { id: deviceId, tenantId: c.tenant_id, customerId: c.customer_id, registeredBy: c.created_by },
-      input,
-      ctx.ip,
-      now,
-    );
+    const k = { id: deviceId, tenantId: c.tenant_id, customerId: c.customer_id, registeredBy: c.created_by };
+    const dev = await insertDevice(tx, k, input, ctx.ip, now);
     const used = await tx.unattendedRegistrationCode.updateMany({
       where: { id: c.id, usedAt: null, expiresAt: { gt: now } },
       data: { usedAt: now, deviceId },
     });
     if (used.count !== 1) throw new AppError("REGISTRATION_CODE_INVALID");
-    const contacts = await tx.customerNotifyContact.findMany({
-      where: { tenantId: c.tenant_id, customerId: c.customer_id },
-      select: { email: true },
-    });
-    const eventId = newId();
-    const emails = contacts.map((x) => x.email);
-    await enqueueEventMails(tx, d.secrets, { tenantId: c.tenant_id, eventId, kind: "UN_DEVICE_REGISTERED", emails, now });
-    await writeAudit(tx, ctx, {
-      tenantId: c.tenant_id,
-      username: "device",
-      action: UNATTENDED_AUDIT.DEVICE_REGISTERED,
-      entity: "unattended_devices",
-      entityId: deviceId,
-      result: "success",
-      newValue: { customerId: c.customer_id, name: input.name, version: input.version, signed: input.signed, ip: ctx.ip, eventId },
-    });
+    await registeredEvents(tx, d, ctx, c, deviceId, input, now);
     return { deviceId, tenantId: c.tenant_id, tenantName: dev.tenant.name, customerName: dev.customer.name };
   });
 }
@@ -222,72 +255,3 @@ export const toRegisterResponse = (r: Registered): RegisterDeviceResponse => ({
   tenantName: r.tenantName,
   customerName: r.customerName,
 });
-
-// ------------------------------------------------------------------------------------------- POST /register (cihaz)
-
-/** IP 10/sa; IP başına 5 yanlış kodda 15 dk kilit; sistem geneli yalnız BAŞARISIZ denemeler 100/sa (D-P27-1, K-P27-21). */
-export interface RegisterLimits {
-  perIp: FixedWindowCounter;
-  badCode: FixedWindowCounter;
-  globalFail: FixedWindowCounter;
-}
-
-const GLOBAL = "global";
-
-function limited(d: RegistrationDeps, result: string, retryAfterSec: number): AppError {
-  d.metrics.inc("rs_unattended_register_total", { result });
-  return new AppError("RATE_LIMITED", { retryAfterSec: retryAfterSec || 60 });
-}
-
-async function failAudit(d: RegistrationDeps, ctx: AuditContext, reason: string): Promise<void> {
-  await writeAudit(d.db, ctx, {
-    username: "device",
-    action: UNATTENDED_AUDIT.DEVICE_REGISTERED,
-    entity: "unattended_devices",
-    result: "fail",
-    newValue: { reason, ip: ctx.ip },
-  });
-}
-
-/** Geçersiz kod yolu: sayaçlar → (tavan aşıldıysa) 429, değilse tek gövde 404 (yok/kullanılmış/süresi dolmuş ayrımı yok). */
-async function invalidCode(d: RegistrationDeps, limits: RegisterLimits, ctx: AuditContext): Promise<AppError> {
-  limits.badCode.hit(ctx.ip);
-  const capped = limits.globalFail.blockedFor(GLOBAL) > 0 || limits.globalFail.hit(GLOBAL);
-  await failAudit(d, ctx, capped ? "cap" : "invalid_code");
-  if (capped) return limited(d, "cap", limits.globalFail.blockedFor(GLOBAL));
-  d.metrics.inc("rs_unattended_register_total", { result: "invalid_code" });
-  return new AppError("REGISTRATION_CODE_INVALID");
-}
-
-const isUniqueViolation = (err: unknown): boolean => (err as { code?: unknown } | null)?.code === "P2002";
-
-export async function registerDevice(
-  d: RegistrationDeps,
-  limits: RegisterLimits,
-  req: FastifyRequest,
-  parse: () => RegisterDeviceData,
-): Promise<RegisterDeviceResponse> {
-  checkPublicClient(req, "AGENT");
-  const ctx = auditContext(req);
-  const locked = limits.badCode.blockedFor(ctx.ip);
-  if (locked > 0) throw limited(d, "rate", locked);
-  if (limits.perIp.hit(ctx.ip)) throw limited(d, "rate", limits.perIp.blockedFor(ctx.ip));
-  const input = parse();
-  if (!d.gate.status().available) {
-    d.metrics.inc("rs_unattended_register_total", { result: "disabled" });
-    throw new AppError("UNATTENDED_DISABLED");
-  }
-  let out: Registered | null;
-  try {
-    out = await registerTx(d, ctx, input);
-  } catch (err) {
-    if (err instanceof AppError && err.code === "UNATTENDED_DISABLED")
-      d.metrics.inc("rs_unattended_register_total", { result: "disabled" });
-    if (isUniqueViolation(err)) throw new AppError("CONFLICT", { message: "Bu cihaz anahtarı zaten kayıtlı." });
-    throw err;
-  }
-  if (!out) throw await invalidCode(d, limits, ctx);
-  d.metrics.inc("rs_unattended_register_total", { result: "ok" });
-  notifyRegistered(d, ctx, out, input);
-  return toRegisterResponse(out);
-}

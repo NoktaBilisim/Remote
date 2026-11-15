@@ -15,12 +15,14 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   ekranı gelmiyorsa (paylaşım hata nedeni)
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, web talep formu bağlantısı, kayıtlı
   bilgisayarlar, CSV dışa/içe aktarma)
+- **Admin, teknisyen ve müşteri BT için:** Gözetimsiz erişim (SMTP ön koşulu, bildirim adresleri, kayıt kodu, teknisyen
+  yetkisi, bağlanma, cihaz rozetleri, iptal; müşteri tarafında servisi kurma, gösterge, tepsi, yerel kapatma, kaldırma)
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
-  kodları ve kurtarma kodlarını yenileme, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış, kritik ayarlarda kimliğinizi yeniden doğrulama;
+  kodları ve kurtarma kodlarını yenileme, "Bu cihazı 30 gün hatırla" ve hatırlanan cihazlar, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış, kritik ayarlarda kimliğinizi yeniden doğrulama;
   hesap menüsü, profil resmi ve tema; giriş ekranında firma logosu
 - **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama ve kullanıcıyı kalıcı silme dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
   yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Destek talepleri (web talep formu, form spam'i altında ne yapılır, müşteriye durum bildirimi, e-posta bildirimi, kabul kodu, öncelik ve SLA dahil), Ayarlar > Mesai saatleri ve Tatiller, Ayarlar > E-posta (SMTP), Ayarlar > SMS, Audit log, Ayarlar >
-  Aydınlatma metni, Ayarlar > Güvenlik, Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
+  Aydınlatma metni, Ayarlar > Güvenlik (2FA cihaz hatırlama, kullanıcının hatırlanan cihazlarını kaldırma), Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
   anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs), ağ gereksinimleri
   (güvenlik duvarı izin listesi)
 - **Super Admin için:** Firmalar ve aranabilir firma seçici, firmayı kalıcı silme (24 saat iptal penceresi), tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
@@ -71,6 +73,52 @@ etkinleştirildi" e-postası alırsınız; bu işlemi siz yapmadıysanız hemen 
 Aynı kodu iki kez kullanamazsınız; yeni kodun gelmesini bekleyin. Çok sayıda hatalı denemede kısa süreli bekleme gelir
 (aynı yerden 5 hata → 5 dk; toplam 15 hata → 15 dk).
 
+### "Bu cihazı 30 gün hatırla" (Admin ve teknisyen için)
+
+Her girişte kod yazmak istemiyorsanız, **kendi** bilgisayarınızdaki tarayıcıyı 30 gün hatırlatabilirsiniz.
+
+1. E-posta ve şifrenizle giriş yapın.
+2. Kod ekranında 6 haneli kodu yazın ve **Bu cihazı 30 gün hatırla** kutusunu işaretleyin.
+3. **Doğrula**'ya basın.
+
+Sonraki 30 gün bu tarayıcıda yalnız şifre sorulur. Bilmeniz gerekenler:
+
+- Kutu varsayılan olarak **işaretsizdir**. Ortak kullanılan bilgisayarlarda işaretlemeyin.
+- Şifre her girişte sorulur. Kritik ayarlarda ("Kimliğinizi doğrulayın" penceresi) ve her gözetimsiz bağlantıda kod
+  **yine sorulur**.
+- Süre 30 gündür, kullandıkça uzamaz. Süre dolunca bir kez kod girersiniz; isterseniz kutuyu yeniden işaretlersiniz.
+- Kutu yalnız uygulamadaki kodla girişte vardır; **Kurtarma kodu kullan** ekranında görünmez.
+- Bir hesapta en çok 10 tarayıcı hatırlanır; 11.'si eklenince en eskisi düşer.
+- Aynı tarayıcıda yalnız bir hesap hatırlanır; ikinci hesabı hatırlatırsanız ilki o tarayıcıda unutulur.
+- Kutu görünmüyorsa firmanızın yöneticisi bu özelliği kapatmıştır (Ayarlar → Güvenlik → **2FA cihaz hatırlama**).
+- **Super Admin hesaplarında bu kutu yoktur**; Super Admin her girişte kod girer.
+
+**Yeni cihaz e-postası.** Bir tarayıcı hatırlandığında size "Yeni cihaz hatırlandı" e-postası gelir (tarayıcı, işletim
+sistemi, IP, saat). Bu işlemi siz yapmadıysanız Hesabım → **Hatırlanan cihazlar** → **Tümünü kaldır** yapın ve şifrenizi
+değiştirin. E-posta yalnız firmanızın SMTP ayarı varsa gider.
+
+**Kopyalanmış hatırlama bilgisi.** Hatırlanan bir tarayıcının bilgisi başka bir yerde kullanılırsa sistem bunu fark eder:
+tüm hatırlanan cihazlarınız silinir, diğer tüm açık oturumlarınız kapanır, kod sorulur ve size e-posta gelir. Aynı
+tarayıcıda iki sekmeden aynı anda giriş yapmak da nadiren bu uyarıyı tetikleyebilir; o durumda kodu girip devam edin.
+
+**Hatırlamanın kendiliğinden silindiği durumlar** (sonraki girişte kod sorulur):
+
+- Şifrenizi değiştirdiğinizde veya "Şifremi unuttum" ile sıfırladığınızda,
+- Admin 2FA'nızı sıfırladığında ya da 2FA'yı yeniden kurduğunuzda,
+- **Tüm cihazlardan çıkış** yaptığınızda (kullandığınız tarayıcı dahil),
+- Hesabınız veya firmanız pasife alındığında,
+- Firma yöneticisi **2FA cihaz hatırlama** ayarını kapattığında.
+
+### Hatırlanan cihazlarımı nasıl görür ve kaldırırım?
+
+1. Hesap menüsü → **Hesabım** → **Hatırlanan cihazlar** bölümü.
+2. Her satırda tarayıcı · işletim sistemi, hatırlanma tarihi, son kullanım, son IP ve bitiş tarihi görünür. Şu an
+   kullandığınız tarayıcıda **Bu cihaz** etiketi vardır.
+3. Tek bir cihaz için **Kaldır**'a, hepsi için **Tümünü kaldır**'a basın (Tümünü kaldır onay ister).
+
+Kaldırılan tarayıcıda bir sonraki girişte kod sorulur. Açık oturumlar kapanmaz; onları kapatmak için **Tüm cihazlardan
+çıkış**'ı kullanın. Bölüm Super Admin hesabında görünmez.
+
 ### Kurtarma kodlarım biterse ya da telefonumu kaybedersem?
 
 - **Hesabım** sayfası kalan kurtarma kodu sayısını gösterir; 3 veya daha azsa uyarı çıkar.
@@ -111,6 +159,7 @@ sorun. Bağlantı "geçersiz veya süresi dolmuş" diyorsa **Yeni bağlantı ist
 - **Görünüm:** tema seçimi (Açık / Koyu / Sistem),
 - **Şifre değiştir** (mevcut şifre + yeni şifre iki kez),
 - 2FA durumu ("Etkin" / kurulum bağlantısı), kullanılmamış kurtarma kodu sayısı ve **Kurtarma kodlarını yenile**,
+- **Hatırlanan cihazlar** (yalnız Admin ve teknisyen; bkz. "Bu cihazı 30 gün hatırla"),
 - **Tüm cihazlardan çıkış**.
 
 ### Tüm cihazlardan çıkış
@@ -120,6 +169,7 @@ Başka bir bilgisayarda oturumunuzu açık unuttuysanız veya şüpheli bir duru
 1. Hesabım → **Tüm cihazlardan çıkış** → onaylayın.
 2. Kaç oturumun kapatıldığı gösterilir. Şu an kullandığınız oturum açık kalır; diğer cihazlar birkaç saniye içinde
    giriş ekranına düşer ve o cihazlardaki açık destek oturumları sonlanır.
+3. Hatırlanan tüm cihazlarınız da silinir (bu tarayıcı dahil); sonraki girişlerde kod sorulur.
 
 ### Kritik bir ayarı değiştirirken "Kimliğinizi doğrulayın" penceresi
 
@@ -2441,6 +2491,27 @@ Bu sayfada ayrıca **Veri saklama** bölümü vardır (bkz. "Kişisel verilerin 
 - Açıkken 2FA kurmamış teknisyenler sonraki girişte kurulum ekranına yönlendirilir.
 - Admin ve Super Admin için 2FA bu ayardan bağımsız olarak her zaman zorunludur.
 
+### 2FA cihaz hatırlama
+
+Aynı sayfadaki ikinci anahtar **2FA cihaz hatırlama**dır. Açıkken firmanızdaki Admin ve teknisyenler giriş kodunda
+"Bu cihazı 30 gün hatırla"yı seçebilir (bkz. Herkes için bölümü). Super Admin hesapları her durumda hariçtir.
+
+- **Varsayılan açıktır** — bu sürümden önce oluşturulmuş firmalarda da. Kurumunuz her girişte kod istiyorsa kapatın.
+- Kapatmak onay ister: firmanızdaki **tüm** hatırlanan cihazlar hemen silinir, herkes bir sonraki girişte kod girer.
+- Yeniden açmak silinen cihazları geri getirmez; kullanıcılar kutuyu yeniden işaretler.
+- Değişiklik audit log'a eski → yeni değer ve silinen cihaz sayısıyla yazılır.
+
+### Bir kullanıcının hatırlanan cihazlarını kaldırma
+
+Kullanıcının bilgisayarı çalındıysa ya da kullanıcı ayrılıyorsa:
+
+1. **Kullanıcılar** → kullanıcıya tıklayın.
+2. Hesap bilgilerinde **Hatırlanan cihazlar** satırında kaç cihaz olduğu görünür.
+3. **Hatırlanan cihazları kaldır** → onaylayın.
+
+Kullanıcının bir sonraki girişinde kod sorulur; açık oturumları kapanmaz (gerekirse pasife alın). Düğme sayı 0 iken pasiftir,
+kendi hesabınızda ve sizden geniş yetkili hesaplarda görünmez (kendi cihazlarınız için Hesabım'ı kullanın).
+
 ## Admin için: Kullanıcının 2FA'sını sıfırlama
 
 Telefonunu kaybeden veya kurtarma kodları biten kullanıcı için:
@@ -2637,6 +2708,229 @@ Bilmeniz gerekenler:
   kurmak gerekmez.
 - Tablo bu kılavuzu müşterinin BT sorumlusuna iletmeniz için hazırlanmıştır. Görüntü gelmiyorsa önce "Teknisyen için:
   Müşterinin ekranı gelmiyorsa" bölümüne bakın.
+
+## Gözetimsiz erişim (Admin, teknisyen ve müşteri BT için)
+
+Gözetimsiz erişim, başında kimse olmayan müşteri bilgisayarlarına (sunucu, kiosk, kasa bilgisayarı vb.) bağlanmanızı
+sağlar. Müşteri bilgisayarına bir kez **Nokta Destek — Gözetimsiz Erişim** servisi (`NoktaDestekServis.exe`) kurulur;
+sonra yetkili teknisyen panelden **Bağlan** der. Bağlantıda cihazda onay sorulmaz; teknisyen ekranı görür, fare ve
+klavyeyi kullanır, cihaza dosya gönderebilir. Bu güç nedeniyle her bağlantı ek kimlik doğrulaması ister, müşteriye
+e-postayla bildirilir ve cihazda kapatılamayan bir gösterge çıkar.
+
+### Önce: firmanızın SMTP ayarı zorunlu
+
+Gözetimsiz erişim, **firmanızın kendi SMTP (e-posta) ayarı kaydedilmeden kullanılamaz**: kayıt kodu üretilemez, kayıtlı
+cihaza bağlanılamaz. Sistemin genel bir e-posta sunucusuna geri dönülmez. Bu durumda **Bağlan** ve **Kayıt kodu oluştur**
+düğmeleri pasiftir, üzerlerine gelince şu neden görünür:
+
+> Bildirim e-postası yapılandırılmamış — Ayarlar → SMTP
+
+Ne yapmalı: **Ayarlar → E-posta (SMTP)**'de ayarı kaydedin ve **Test Maili Gönder** ile deneyin (bkz. "Admin için: Ayarlar >
+E-posta (SMTP)").
+
+- SMTP kaydı silinirse kayıtlı cihazlar silinmez; yalnız yeni bağlantı açılamaz, süren bağlantı devam eder. SMTP yeniden
+  kaydedilince bağlantı hemen mümkün olur.
+- E-posta sunucusu geçici olarak yanıt vermezse bağlantı yine açılır; cihazda **Son bildirim gönderilemedi** rozeti çıkar.
+  SMTP test düğmesiyle sorunu kontrol edin.
+- Firmanızda kayıtlı en az bir gözetimsiz cihaz varken SMTP ayarını değiştirmek "Kimliğinizi doğrulayın" penceresi açar.
+  Kayıttan önce firmanızdaki diğer yöneticilere (eski ayarla) bilgi e-postası gider.
+- Müşteri onaylı normal destek oturumları bu koşuldan etkilenmez.
+
+### Kim ne yapar?
+
+| Rol / yetki                                      | Yapabildikleri                                                                                                                                                 |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Gözetimsiz erişim → Yönet** (Admin varsayılan) | Tüm cihazları görür, kayıt kodu üretir ve iptal eder, bildirim adreslerini düzenler, teknisyen yetkisi verir, cihazı iptal eder, servis programını indirir     |
+| **Gözetimsiz erişim → Bağlan**                   | Yalnız kendisine **cihaz yetkisi** verilmiş cihazları görür ve bağlanır                                                                                        |
+| Super Admin                                      | Üst menüden bir firma seçerek o firmanın cihazlarını yönetir. Kendisine cihaz yetkisi verilemez, bu yüzden bağlanamaz; bağlanacak kişi firmanın kullanıcısıdır |
+
+İki yetki Kullanıcılar → kullanıcı → yetki listesinde **Gözetimsiz erişim** grubundadır. "Bağlan" yetkisi tek başına
+yetmez: Admin dahil herkes, bağlanmak için o cihazda ayrıca yetkili olmalıdır. Yeni kayıtlı cihazda **kimsenin** yetkisi yoktur.
+
+### Admin için: ilk kurulum sırası
+
+1. **Ayarlar → E-posta (SMTP):** kaydedin ve test maili gönderin.
+2. **Müşteriler → müşteri → Gözetimsiz bildirim adresleri:** en az bir e-posta adresi ekleyin.
+3. **Gözetimsiz cihazlar → Kayıt kodları → Kayıt kodu oluştur:** müşteriyi seçin, kodu kopyalayın.
+4. Müşteri bilgisayarına servisi kurun ve kodu girin (bkz. "Müşteri BT için: servisi kurma").
+5. **Gözetimsiz cihazlar → cihaz → Teknisyen yetkileri:** müşteriyle kaydı doğrulayın, bağlanacak teknisyenleri açın, kaydedin.
+
+### Admin için: müşteri bildirim adresleri
+
+Her gözetimsiz bağlantı başladığında bu adreslere e-posta gider (cihaz adı, teknisyen, destek firması, başlangıç saati).
+
+1. **Müşteriler** → müşteriye tıklayın → **Gözetimsiz bildirim adresleri** bölümü.
+2. **Adres ekle** ile en çok 5 e-posta girin. Telefon isteğe bağlıdır; firmanızda SMS veya WhatsApp bildirimi açıksa
+   bağlantı bildirimi o numaraya da gider.
+3. **Kaydet** → "Kimliğinizi doğrulayın" penceresinde kodunuzu girin.
+
+- Adres listesi değişince **eski ve yeni** adreslerin hepsine "bildirim adresleri değişti" e-postası gider (maskeli fark,
+  değiştiren kişi, saat). Böylece müşteri haberi olmadan adresinin çıkarıldığını görür.
+- Adres yokken bu müşterinin cihazlarına bağlanılamaz ve kayıt kodu üretilemez.
+
+### Admin için: kayıt kodu oluşturma
+
+1. Kenar çubuğu → **Gözetimsiz cihazlar** → **Kayıt kodları** sekmesi → **Kayıt kodu oluştur**.
+2. Müşteriyi seçin → **Kodu oluştur**. "Kimliğinizi doğrulayın" penceresi açılabilir.
+3. Kod `ABCD-1234-EFGH-5678` biçiminde **yalnız bir kez** gösterilir. Kopyalayın veya not edin.
+4. Aynı pencerede **Servis programını indir** ile `NoktaDestekServis.exe`'yi indirin ve kısa yönergeyi uygulayın:
+   1. Servis programını müşteri bilgisayarında yönetici hesabıyla çalıştırıp kurun.
+   2. Kurulum penceresine bu kayıt kodunu girin.
+   3. Cihaz listede "Yeni — doğrulanmadı" olarak görünür; müşteriyle doğrulayıp teknisyen yetkisi verin.
+   4. Oturumdaki kullanıcı yöneticiyse teknisyen yönetici onayı (UAC) verebilir; standart kullanıcı hesabı önerilir.
+
+Kod **24 saat** geçerlidir ve tek kullanımlıktır. Kullanılmamış kodlar listede görünür (kodun kendisi değil; müşteri,
+oluşturan, geçerlilik sonu); gerekmiyorsa **İptal et** ile geçersiz kılın. Kullanılan veya süresi dolan kodlar listeden düşer.
+
+Yeni cihaz kaydolunca müşterinin bildirim adreslerine ("yeni cihaz kaydedildi": cihaz adı, IP, saat) ve firmanızdaki
+gözetimsiz erişim yöneticilerine e-posta gider. Siz başlatmadığınız bir kayıt görürseniz cihazı hemen iptal edin.
+
+### Admin için: teknisyen yetkisi verme
+
+1. **Gözetimsiz cihazlar** → cihaz adına tıklayın.
+2. **Teknisyen yetkileri** bölümünün üstünde "Bu cihaz <tarih> tarihinde <IP> adresinden kaydedildi — müşteriyle
+   doğruladınız mı?" satırı vardır. Kaydın gerçekten müşterinizce yapıldığını doğrulayın.
+3. Bağlanacak teknisyenlerin anahtarını açın (**Tümünü kapat** hepsini kapatır) → **Kaydet**. Yeni yetki eklemek
+   "Kimliğinizi doğrulayın" ister.
+
+- Listede yalnız firmanızın etkin ve **Bağlan** yetkisi olan kullanıcıları görünür.
+- İlk yetki kaydedilince **Yeni — doğrulanmadı** rozeti kalkar.
+- Yetkisi kaldırılan teknisyenin açık bağlantısı en geç 5 saniyede kesilir.
+- Kendinize yetki verirseniz firmanızdaki diğer yöneticilere bilgi e-postası gider.
+- Her değişiklik audit log'a "kim, kime, eski → yeni" olarak yazılır.
+
+### Cihaz listesi ve rozetler
+
+**Gözetimsiz cihazlar → Cihazlar** sekmesinde arama (cihaz veya müşteri adı), müşteri ve durum (Tümü / Çevrimiçi /
+Çevrimdışı) süzgeçleri vardır. Tabloda cihaz, müşteri, durum rozetleri, son görülme, son bağlantı ve yetkili teknisyen
+sayısı görünür. Liste 15 saniyede bir kendiliğinden yenilenir.
+
+| Rozet                                      | Anlamı ve yapılacak                                                                                                                                          |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Çevrimiçi / Çevrimdışı                     | Servis sunucuya bağlı mı. Yeniden başlatılan cihaz en geç 2 dakikada çevrimiçi olur                                                                          |
+| Yerel olarak kapalı                        | Müşteri cihazda gözetimsiz erişimi kapattı. Panelden açılamaz; müşterinin bilgisayar yöneticisi açar                                                         |
+| İmzasız                                    | Servis programı kod imzası denetiminden geçmedi; bağlanılamaz                                                                                                |
+| Yeni — doğrulanmadı                        | Henüz kimseye yetki verilmedi. Kaydı müşteriyle doğrulayıp yetki verin                                                                                       |
+| Son bildirim gönderilemedi                 | Son bağlantı e-postası müşteriye ulaşmadı. SMTP ayarını test edin; sonraki başarılı bildirimde rozet kalkar                                                  |
+| Anahtar başka yerden kullanılıyor olabilir | Cihaz 10 dakikada 3'ten fazla kez yeniden bağlandı; cihaz kimliği kopyalanmış olabilir. Müşteriyle kontrol edin, şüphe varsa cihazı iptal edip yeniden kurun |
+
+Teknisyende liste yalnız yetkili olduğu cihazları gösterir; hiç yoksa "Size yetki verilmiş cihaz yok" yazar.
+
+### Teknisyen için: cihaza nasıl bağlanırım?
+
+1. **Gözetimsiz cihazlar** → cihaz satırında **Bağlan**.
+2. "Kimliğinizi doğrulayın" penceresinde uygulamadaki kodu (ya da bir kurtarma kodunu) girin.
+3. Konsol açılır, "Cihaz bağlanıyor…" görünür; cihaz katılınca ekran gelir. Başlıkta **Gözetimsiz** rozeti ve cihaz adı vardır.
+4. Kontrol için konsoldaki **Kontrol iste** düğmesini kullanın; cihazda onay sorulmaz. Dosya gönderebilirsiniz; dosya
+   cihazda `C:\ProgramData\NoktaDestek Servis\Gelen\` klasörüne düşer. Cihazdan dosya çekme ve sohbet yoktur.
+5. Bitirmek için oturumu normal şekilde sonlandırın.
+
+- **Kod her bağlantıda yeniden sorulur.** Bir doğrulama tek bağlantı açar; "Bu cihazı 30 gün hatırla" bunu atlatmaz.
+  Bağlandıktan sonra aynı oturumda başka bir kritik ayar değiştirirseniz kod yeniden sorulur.
+- Kurtarma koduyla bağlanırsanız size "Kurtarma kodunuz kullanıldı" e-postası, firmanızdaki diğer yöneticilere de bilgi
+  e-postası gider.
+- **Bağlan** pasifse üzerine gelin; neden yazar (yetkiniz yok, cihaz çevrimdışı, yerel olarak kapalı, müşterinin bildirim
+  adresi yok, SMTP yapılandırılmamış, imza).
+- Giriş ekranı, kilit ekranı ve yönetici onayı (UAC) penceresi de görünür ve fare/klavyeyle kullanılır. Ctrl+Alt+Del
+  gönderilemez; etki alanı politikasıyla kilit ekranında Ctrl+Alt+Del zorunlu kılınmış bilgisayarlarda kilit açılamaz.
+- Yalnız bilgisayarın kendi ekranındaki (fiziksel) Windows oturumu görünür; uzak masaüstü (RDP) oturumlarına bağlanılamaz.
+- Bir cihazda aynı anda tek gözetimsiz bağlantı olur.
+- Geçmişte bu bağlantılar **Gözetimsiz** mod süzgeciyle bulunur; cihaz ayrıntısında son 20 bağlantı listelenir.
+
+**Bağlantının kendiliğinden kapandığı durumlar** (konsolda yazan metin):
+
+| Konsol mesajı                                                      | Neden                                                       |
+| ------------------------------------------------------------------ | ----------------------------------------------------------- |
+| Bu cihaza bağlanma yetkiniz kaldırıldı.                            | Admin cihaz yetkinizi veya Bağlan yetkinizi kaldırdı        |
+| Cihaz iptal edildi.                                                | Admin cihazı iptal etti                                     |
+| Gözetimsiz erişim cihazda yerel olarak kapatıldı.                  | Müşteri cihazdaki anahtarı kapattı (en geç 2 sn'de kesilir) |
+| Cihazda bağlantı göstergesi gösterilemediği için bağlantı kapandı. | Gösterge çizilemedi; güvenlik gereği bağlantı açık kalmaz   |
+| Cihaz yanıt vermedi.                                               | Cihaz 60 saniye içinde katılmadı                            |
+| Cihazda Windows oturumu değişti; yeniden bağlanın.                 | Cihazda kullanıcı değiştirildi; yeniden **Bağlan** deyin    |
+
+Cihaz yeniden başlatılırsa bağlantı biter; cihaz çevrimiçi olunca yeniden bağlanın.
+
+### Admin için: cihazı iptal etme ve yetki geri alma
+
+- **Cihazı iptal et:** cihaz ayrıntısı → **Cihazı iptal et** → onaylayın. İptal edilen cihaza artık bağlanılamaz, açık
+  bağlantı en geç 10 saniyede kesilir. Cihazdaki pencere "İptal edildi" der. Yeniden eklemek için servisi kaldırıp yeni
+  kayıt koduyla kurun.
+- **Tek teknisyenin erişimini kaldırmak:** Teknisyen yetkileri → anahtarı kapatın → Kaydet (en geç 5 sn'de kesilir).
+- **Teknisyenin tüm gözetimsiz erişimini kaldırmak:** Kullanıcılar → kullanıcı → **Gözetimsiz erişim → Bağlan** yetkisini kapatın.
+- Müşteri pasife alınınca o müşterinin cihazları kendiliğinden iptal edilir.
+
+### Müşteri BT için: servisi kurma
+
+Kurulumu bilgisayarın yöneticisi yapar. Destek firmanızdan `NoktaDestekServis.exe` dosyasını ve 16 karakterlik kayıt
+kodunu alın.
+
+1. `NoktaDestekServis.exe`'yi çalıştırın. **Nokta Destek — Gözetimsiz Erişim** penceresi "Kurulu değil" der.
+2. **Kur…** → Windows yönetici onayı (UAC) → **Evet**.
+3. Kayıt kodunu yazın (tire ve boşluk önemsiz) → **Kur**.
+4. Pencere "Kuruldu — çevrimiçi." gösterir. Bildirim adreslerinize "yeni cihaz kaydedildi" e-postası gelir.
+
+Servis Windows açılışında kendiliğinden başlar; bilgisayara kimse giriş yapmamışken de çalışır. Yeni sürüm geldiğinde
+pencerede **Güncelle…** çıkar; güncelleme kaydı korur.
+
+**Önemli — yönetici hesabı uyarısı.** Bağlantı sırasında bilgisayarda oturum açmış Windows kullanıcısı **yöneticiyse**,
+teknisyen ekrana gelen yönetici onayı (UAC) pencerelerini onaylayabilir. Bu bilgisayarlarda günlük kullanım için
+**standart kullanıcı hesabı** öneririz.
+
+### Müşteri BT için: bağlantıyı nasıl anlarım, nasıl kapatırım?
+
+- **Gösterge:** bağlantı süresince her monitörün kenarında kırmızı çerçeve ve üstte "Uzaktan bağlantı: <teknisyen adı> —
+  <destek firması>" yazısı durur. Kapatılamaz, kilit ekranında da görünür. Gösterge çizilemezse bağlantı hiç açılmaz.
+- **E-posta:** her gözetimsiz bağlantıda tanımlı adreslere e-posta gelir. Bağlantı gördüğünüz halde e-posta gelmiyorsa
+  destek firmanıza sorun.
+- **Tepsi simgesi:** saatin yanındaki simgenin ipucu "Gözetimsiz erişim: Açık / Kapalı / Bağlantı var: <teknisyen>"
+  gösterir. Menüde durum, **Gözetimsiz erişimi kapat** (ya da **Gözetimsiz erişimi aç…**) ve **Ayarlar…** vardır. Simgeyi
+  kapatma seçeneği yoktur; Windows ayarlarından gizleyebilirsiniz.
+- **Kapatma:** tepsi menüsünden veya ayar penceresinden **Gözetimsiz erişimi kapat**. Standart kullanıcı da kapatabilir;
+  açık bağlantı en geç 2 saniyede kesilir ve destek firmanız panelde "Yerel olarak kapalı" görür. Destek firması bunu
+  uzaktan açamaz.
+- **Yeniden açma:** **Gözetimsiz erişimi aç…** → yönetici onayı (UAC). Yalnız yerel yönetici açabilir.
+
+Ayar penceresinde durum (Kurulu değil / Çevrimiçi / Bağlanamıyor / Yerel olarak kapalı / İptal edildi / Bağlantı var),
+destek firması, müşteri adı ve cihaz kimliğinin ilk 8 karakteri görünür. Pencere "Servis doğrulanamadı" derse bu
+bilgisayardaki servis beklenen servis değildir; bilgisayar yöneticinize başvurun. "Program klasörünün izinleri bozuk" derse
+servis güvenlik gereği bağlanmaz; servisi kaldırıp yeniden kurun.
+
+**Gelen dosyalar:** teknisyenin gönderdiği dosyalar `C:\ProgramData\NoktaDestek Servis\Gelen\` klasörüne yazılır. Bu
+klasörü bilgisayardaki tüm kullanıcılar okuyabilir; servis kaldırılınca silinir.
+
+**Olay günlüğü:** bağlantı başlangıcı ve bitişi, yerel anahtar değişikliği, reddedilen bağlantılar ve iptal Windows Olay
+Görüntüleyicisi → Uygulama günlüğüne **NoktaDestek** kaynağıyla yazılır (1001 başladı, 1002 bitti, 1003 yerel anahtar,
+1004 reddedildi, 1005 iptal/kaldırma). Bu kayıt yardımcı kanıttır; yerel yönetici silebilir. **Yetkili kayıt destek
+firmanızın sunucusundaki audit log'dur.**
+
+### Müşteri BT için: servisi kaldırma
+
+1. Windows **Ayarlar → Uygulamalar** → **Nokta Destek — Gözetimsiz Erişim** → **Kaldır** (ya da ayar penceresinde **Kaldır…**).
+2. Onaylayın ("Gelen dosyalar klasörü de silinir").
+
+Servis, kayıt defteri girdileri, program ve veri klasörleri iz bırakmadan silinir; cihaz destek firmasının panelinde iptal
+edilir (bilgisayar o an çevrimdışıysa cihaz panelde çevrimdışı kalır, Admin iptal eder).
+
+### Ortam bantları: "TEST ortamı" ve "kod imzası olmadan kullanılamaz"
+
+- **"Gözetimsiz erişim kod imzası olmadan kullanılamaz"** bandı: özellik bu sunucuda kapalıdır; **Bağlan** ve **Kayıt kodu
+  oluştur** pasiftir. Canlı ortamda servis programı için kod imzası alınana kadar gözetimsiz erişim **kapalıdır**; imza
+  gelince sunucu yöneticisi açar.
+- **"TEST ortamı — imzasız servis. Gerçek müşteri cihazı kaydetmeyin."** bandı: test sunucusundasınız; servis imzasızdır
+  ve cihazdaki göstergede "TEST" ibaresi bulunur. Yalnız deneme bilgisayarları kaydedin.
+
+### Sık karşılaşılan mesajlar (Gözetimsiz erişim)
+
+| Mesaj                                                                                | Ne yapmalı                                                                            |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Bildirim e-postası yapılandırılmamış — Ayarlar → SMTP                                | Firmanızın SMTP ayarını kaydedip test edin                                            |
+| Müşterinin bildirim adresi yok — adres yokken bu müşterinin cihazlarına bağlanılamaz | Müşteri ayrıntısında en az bir bildirim adresi ekleyin                                |
+| Gözetimsiz erişim kod imzası olmadan kullanılamaz                                    | Özellik bu sunucuda kapalı; sunucu yöneticinize başvurun                              |
+| Cihaz çevrimdışı                                                                     | Bilgisayar kapalı ya da internete bağlı değil; açılınca en geç 2 dk'da çevrimiçi olur |
+| Cihazda başka bir gözetimsiz bağlantı var                                            | Diğer bağlantı bitince yeniden deneyin                                                |
+| Yerel olarak kapalı                                                                  | Müşteri cihazda kapattı; açmak için müşterinin bilgisayar yöneticisine başvurun       |
+| Cihaz bulunamadı ya da bu cihaz için yetkiniz yok.                                   | Admin'den o cihaz için teknisyen yetkisi isteyin                                      |
+| Kayıt kodu geçersiz, kullanılmış ya da süresi dolmuş (servis kurulumunda)            | Destek firmasından yeni kod isteyin; kod 24 saat geçerli ve tek kullanımlıktır        |
 
 ## Super Admin için: Firmalar ve firma geçişi
 

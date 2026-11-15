@@ -27,7 +27,7 @@ import { FixedWindowCounter } from "../lib/rate.ts";
 import { jsonPeer, offeredProtocols } from "../lib/ws-upgrade.ts";
 import { TokenBucket } from "../signaling/handlers.ts";
 import type { DeviceChannel } from "../signaling/ws.ts";
-import { authenticateDevice, type AuthDeps } from "./device-auth.ts";
+import { authenticateDevice, deviceLiveState, type AuthDeps } from "./device-auth.ts";
 import { onDeviceMessage } from "./device-msg.ts";
 import { createGate } from "./gate.ts";
 import type { DeviceConn, DeviceHub } from "./hub.ts";
@@ -44,6 +44,16 @@ interface Ctx {
   ipBucket: FixedWindowCounter;
   unauth: { total: number; perIp: Map<string, number>; max: number; maxPerIp: number };
   missed: WeakMap<WebSocket, number>;
+  /** Yalnız testler (D-P27-K1 yarışı): kimlik doğrulandıktan sonra, hub'a eklemeden önce. */
+  beforeAttach?: ((deviceId: string) => Promise<void>) | undefined;
+}
+
+type Peer = ReturnType<typeof jsonPeer<DeviceOutbound>>;
+
+/** Soket başına kimlik durumu (open ↔ beginAuth). */
+interface SockState {
+  conn: DeviceConn | undefined;
+  authing: boolean;
 }
 
 function reject(socket: Duplex, status: number): void {
@@ -102,43 +112,48 @@ function open(c: Ctx, ws: WebSocket, ctx: AuditContext, release: () => void): vo
   const peer = jsonPeer<DeviceOutbound>(ws);
   const nonce = randomBytes(32).toString("base64url");
   const bucket = new TokenBucket(c.app.rooms.clock, WS_DEVICE_RATE_PER_SEC);
-  let conn: DeviceConn | undefined;
-  let authing = false;
+  const s: SockState = { conn: undefined, authing: false };
   const clock = c.app.rooms.clock;
   const timer = clock.setTimeout(() => {
-    if (!conn) ws.close(WS_DEVICE_CLOSE.AUTH_FAILED, "auth_timeout");
+    if (!s.conn) ws.close(WS_DEVICE_CLOSE.AUTH_FAILED, "auth_timeout");
   }, DEVICE_AUTH_TIMEOUT_MS);
   peer.send({ t: "device.hello", v: WS_DEVICE_PROTOCOL_VERSION, nonce });
   ws.on("message", (data: Buffer, isBinary: boolean) => {
     if (isBinary || !bucket.take()) return ws.close(1008, isBinary ? "binary" : "rate");
     const json = parseJson(data);
-    if (!conn) {
-      const m = deviceAuthSchema.safeParse(json);
-      if (!m.success || authing) return ws.close(1008, "invalid");
-      authing = true;
-      void authenticate(c, ws, peer, ctx, nonce, m.data)
-        .then((ok) => {
-          conn = ok;
-          if (ok) release();
-        })
-        .catch((err: unknown) => {
-          c.app.log.error({ err }, "cihaz kimlik doğrulaması başarısız");
-          ws.close(1011, "error");
-        });
-      return;
-    }
+    if (!s.conn) return beginAuth(c, ws, peer, { ctx, nonce, json, s, release });
     const m = deviceInboundSchema.safeParse(json);
     if (!m.success) return ws.close(1008, "invalid");
-    const live = conn;
-    void onDeviceMessage({ rooms: c.app.rooms, hub: c.hub, now: Date.now }, live, ctx, m.data).catch((err: unknown) =>
+    void onDeviceMessage({ rooms: c.app.rooms, hub: c.hub, now: Date.now }, s.conn, ctx, m.data).catch((err: unknown) =>
       c.app.log.error({ err, t: m.data.t }, "cihaz mesajı işlenemedi"),
     );
   });
   ws.on("close", () => {
     clock.clearTimeout(timer);
     release();
-    if (conn && c.hub.detach(conn)) void touchLastSeen(c, conn.deviceId);
+    if (s.conn && c.hub.detach(s.conn)) void touchLastSeen(c, s.conn.deviceId);
   });
+}
+
+/** Kimliksiz sokette tek izinli mesaj `device.auth` (ikincisi / biçim dışı → 1008). */
+function beginAuth(
+  c: Ctx,
+  ws: WebSocket,
+  peer: Peer,
+  a: { ctx: AuditContext; nonce: string; json: unknown; s: SockState; release: () => void },
+): void {
+  const m = deviceAuthSchema.safeParse(a.json);
+  if (!m.success || a.s.authing) return ws.close(1008, "invalid");
+  a.s.authing = true;
+  void authenticate(c, ws, peer, a.ctx, a.nonce, m.data)
+    .then((ok) => {
+      a.s.conn = ok;
+      if (ok) a.release();
+    })
+    .catch((err: unknown) => {
+      c.app.log.error({ err }, "cihaz kimlik doğrulaması başarısız");
+      ws.close(1011, "error");
+    });
 }
 
 function parseJson(data: Buffer): unknown {
@@ -152,12 +167,13 @@ function parseJson(data: Buffer): unknown {
 async function authenticate(
   c: Ctx,
   ws: WebSocket,
-  peer: ReturnType<typeof jsonPeer<DeviceOutbound>>,
+  peer: Peer,
   ctx: AuditContext,
   nonce: string,
   m: Parameters<typeof authenticateDevice>[3],
 ): Promise<DeviceConn | undefined> {
   const out = await authenticateDevice(c.auth, ctx, nonce, m);
+  if (out.ok) await c.beforeAttach?.(m.deviceId);
   if (ws.readyState !== WebSocket.OPEN) return undefined;
   if (!out.ok) {
     if (out.revoked) peer.send({ t: "revoked" });
@@ -165,9 +181,24 @@ async function authenticate(
     return undefined;
   }
   const conn: DeviceConn = { deviceId: m.deviceId, tenantId: out.tenantId, ip: ctx.ip, send: peer.send, close: peer.close };
-  c.hub.attach(conn);
+  if (!(await confirmAttached(c, ws, peer, conn))) return undefined;
   peer.send({ t: "device.ready", tenantName: out.tenantName.slice(0, 120), customerName: out.customerName.slice(0, 120) });
   return conn;
+}
+
+/**
+ * D-P27-K1: hub'a ekle → durumu yeniden oku. Okuma ile ekleme arasında iptal / firma pasifi commit edildiyse (hub çağrısı
+ * soketi henüz bulamamıştı) burada `revoked{}` + 4401 / 4401 ile kapanır; hub zaten kapattıysa (detach false) dokunulmaz.
+ */
+async function confirmAttached(c: Ctx, ws: WebSocket, peer: Peer, conn: DeviceConn): Promise<boolean> {
+  c.hub.attach(conn);
+  const state = await deviceLiveState(c.auth.db, conn.deviceId);
+  if (state === "ok" && ws.readyState === WebSocket.OPEN && c.hub.get(conn.deviceId) === conn) return true;
+  if (!c.hub.detach(conn)) return false;
+  if (state !== "ok") c.app.metrics.inc("rs_unattended_device_auth_total", { result: state });
+  if (state === "revoked") peer.send({ t: "revoked" });
+  ws.close(WS_DEVICE_CLOSE.AUTH_FAILED, state);
+  return false;
 }
 
 async function touchLastSeen(c: Ctx, deviceId: string): Promise<void> {
@@ -195,7 +226,7 @@ function startPing(c: Ctx, pingMs: number): NodeJS.Timeout {
 export function createDeviceChannel(
   app: FastifyInstance,
   hub: DeviceHub,
-  opts: { pingMs?: number; unauth?: { max: number; perIp: number } } = {},
+  opts: { pingMs?: number; unauth?: { max: number; perIp: number }; beforeAttach?: (deviceId: string) => Promise<void> } = {},
 ): DeviceChannel & { unauthCount(): number } {
   const wss = new WebSocketServer({
     noServer: true,
@@ -213,6 +244,7 @@ export function createDeviceChannel(
     ipBucket: new FixedWindowCounter(31, 60_000, 60_000),
     unauth: { total: 0, perIp: new Map(), max: opts.unauth?.max ?? UNAUTH_MAX, maxPerIp: opts.unauth?.perIp ?? UNAUTH_PER_IP },
     missed: new WeakMap(),
+    beforeAttach: opts.beforeAttach,
   };
   const ping = startPing(c, opts.pingMs ?? 30_000);
   return {

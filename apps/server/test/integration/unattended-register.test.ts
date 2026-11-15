@@ -148,6 +148,43 @@ describe("P27-K2 POST /unattended/register", () => {
   });
 });
 
+describe("P27 düzeltme turu 1 — pasif müşteri ve IPv6 kovası (D-P27-K2, D-P27-K3)", () => {
+  it("AC-339 D-P27-K3: aynı IPv6 /64'ten farklı adreslerle 5 yanlış kod → aynı /64'ün başka adresi 429; başka /64 etkilenmez", async () => {
+    const net = `2001:db8:${(++ipSeq).toString(16)}:7`;
+    for (let i = 1; i <= 5; i++) expect(code(await register(body(WRONG), `${net}::${i}`))).toBe("404 REGISTRATION_CODE_INVALID");
+    expect(code(await register(body(WRONG), `${net}:abcd::99`))).toBe("429 RATE_LIMITED");
+    expect(code(await register(body(WRONG), `2001:db8:${(++ipSeq).toString(16)}:8::1`))).toBe("404 REGISTRATION_CODE_INVALID");
+  });
+
+  it("AC-275 D-P27-K2: pasif müşteriye kayıt kodu üretilmez (409 CONFLICT); pasife almada bekleyen kodlar silinir + audit sayısı, kod 404", async () => {
+    const f = await firm();
+    const c = await codeFor(f);
+    const s = await loginStepUp(app, f.admin);
+    const off = await app.inject({ method: "POST", url: `/api/v1/customers/${f.customerId}/deactivate`, headers: s.headers, payload: {} });
+    expect(off.statusCode).toBe(200);
+    expect(await testDb().unattendedRegistrationCode.count({ where: { customerId: f.customerId } })).toBe(0);
+    const a = await testDb().auditLog.findFirstOrThrow({ where: { entityId: f.customerId, action: "customer.deactivated" } });
+    expect(a.newValue).toMatchObject({ cancelledRegistrations: 1 });
+    expect(code(await register(body(c), nextIp()))).toBe("404 REGISTRATION_CODE_INVALID");
+    const again = await app.inject({
+      method: "POST",
+      url: "/api/v1/unattended/registration-codes",
+      headers: s.headers,
+      payload: { customerId: f.customerId },
+    });
+    expect(code(again)).toBe("409 CONFLICT");
+  });
+
+  it("AC-275 D-P27-K2: kod duruyor ama müşteri pasifse kayıt 404, kod tüketilmez ve cihaz oluşmaz", async () => {
+    const f = await firm();
+    const c = await codeFor(f);
+    await testDb().customer.update({ where: { id: f.customerId }, data: { status: "PASSIVE", passiveAt: new Date() } });
+    expect(code(await register(body(c), nextIp()))).toBe("404 REGISTRATION_CODE_INVALID");
+    expect(await testDb().unattendedRegistrationCode.count({ where: { customerId: f.customerId, usedAt: null } })).toBe(1);
+    expect(await testDb().unattendedDevice.count({ where: { customerId: f.customerId } })).toBe(0);
+  });
+});
+
 describe("P27-K2 kayıt sistem tavanı (D-P27-1)", () => {
   it("AC-339: sistem tavanı yalnız başarısızları sayar — 100 başarısızdan sonra yanlış kod 429 (audit cap), geçerli kod yine kaydolur", async () => {
     const capApp = makeApp({ env: { ...UNSIGNED_ENV } });

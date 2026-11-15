@@ -60,6 +60,16 @@ export async function customerExists(db: Db, tenantId: string, customerId: strin
   return (await db.customer.count({ where: { id: customerId, tenantId, anonymizedAt: null } })) === 1;
 }
 
+/**
+ * D-P27-K2: müşteri durumu paylaşımlı kilitle (anonimleşmiş/yok → null). Müşteri pasifi (`deactivateTx`) satırı X kilitler;
+ * kod üretimi ve cihaz kaydı bu kilitten sonra pasifi görür, pasiften önce yazılan kod pasif TX'inde silinir.
+ */
+export async function customerStatusShared(tx: Tx, tenantId: string, customerId: string): Promise<string | null> {
+  const rows = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM customers
+    WHERE id = ${customerId} AND tenant_id = ${tenantId} AND anonymized_at IS NULL FOR SHARE`;
+  return rows[0]?.status ?? null;
+}
+
 const view = (rows: { email: string; phone: string | null }[]): NotifyContact[] => rows.map((r) => ({ email: r.email, phone: r.phone }));
 const ORDER = [{ createdAt: "asc" as const }, { id: "asc" as const }];
 
@@ -78,6 +88,22 @@ export interface ContactsDeps {
   now: () => number;
 }
 
+/** Tam küme yazımı: DELETE + INSERT (sıra `createdAt` + i ms ile korunur). */
+async function replaceContacts(tx: Tx, tenantId: string, customerId: string, next: NotifyContact[], now: Date): Promise<void> {
+  await tx.customerNotifyContact.deleteMany({ where: { tenantId, customerId } });
+  if (next.length === 0) return;
+  await tx.customerNotifyContact.createMany({
+    data: next.map((c, i) => ({
+      id: newId(),
+      tenantId,
+      customerId,
+      email: c.email,
+      phone: c.phone,
+      createdAt: new Date(now.getTime() + i),
+    })),
+  });
+}
+
 /** PUT contacts (step-up guard'ı routes'ta; tüketmez). */
 export async function putContacts(
   d: ContactsDeps,
@@ -93,18 +119,7 @@ export async function putContacts(
     const old = view(await tx.customerNotifyContact.findMany({ where: { tenantId, customerId }, orderBy: ORDER }));
     if (old.map(sig).sort().join("\n") === next.map(sig).sort().join("\n")) return { items: old };
     const now = new Date(d.now());
-    await tx.customerNotifyContact.deleteMany({ where: { tenantId, customerId } });
-    if (next.length > 0)
-      await tx.customerNotifyContact.createMany({
-        data: next.map((c, i) => ({
-          id: newId(),
-          tenantId,
-          customerId,
-          email: c.email,
-          phone: c.phone,
-          createdAt: new Date(now.getTime() + i),
-        })),
-      });
+    await replaceContacts(tx, tenantId, customerId, next, now);
     const eventId = newId();
     const emails = [...old, ...next].map((c) => c.email);
     await enqueueEventMails(tx, d.secrets, { tenantId, eventId, kind: "UN_CONTACTS_CHANGED", emails, now });

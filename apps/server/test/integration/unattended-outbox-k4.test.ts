@@ -4,13 +4,15 @@
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SMTPServer } from "smtp-server";
+import { maskPhone } from "../../src/audit/mask.ts";
 import { anonymizeCustomersOf } from "../../src/customers/service.ts";
 import { deleteOldRegistrationCodes, deleteRevokedDevices } from "../../src/jobs/unattended-cleanup.ts";
+import { newId } from "../../src/lib/ids.ts";
 import { outboxContent } from "../../src/notify/outbox-content.ts";
 import { enqueueStarted } from "../../src/unattended/notify.ts";
 import { createTenant, createUser, loginAs, loginStepUp, makeApp, testDb } from "../helpers/app.ts";
 import { closeSmtp, inboxTransport, loopbackNetguard, startInboxSmtp } from "../helpers/mail-tls.ts";
-import { createCustomerRow } from "../helpers/requests.ts";
+import { createCustomerRow, createRequestSettings } from "../helpers/requests.ts";
 import { codeRow, contactRow, createDeviceRow, deviceSessionRow, setSmtp } from "../helpers/unattended.ts";
 import { FakeClock } from "../helpers/ws.ts";
 
@@ -77,6 +79,35 @@ describe("P27-K4 outbox — gözetimsiz türlerin teslimi", () => {
     const a = await testDb().auditLog.findFirstOrThrow({ where: { tenantId: f.tenantId, action: "request.customer_notify" } });
     expect(a).toMatchObject({ entity: "support_sessions", entityId: sessionId, result: "success" });
     expect(await failedAt(f.deviceId)).toBeNull();
+  });
+
+  it("AC-296: firmada SMS/WhatsApp açık + telefonlu adres → EMAIL + SMS + WHATSAPP; kapalı ya da telefonsuzda yalnız EMAIL; aynı numara bir kez", async () => {
+    const f = await firm(); // telefonsuz tek adres, talep ayarı satırı yok
+    const sessions: string[] = [];
+    const channels = async (): Promise<string[]> => {
+      sessions.push(await started(f));
+      const rows = await rowsOf({ sessionId: sessions.at(-1) });
+      return rows.map((r) => `${r.channel}:${r.recipientMask}`).sort();
+    };
+    const setFlags = (on: boolean) =>
+      testDb().tenantRequestSettings.update({
+        where: { tenantId: f.tenantId },
+        data: { notifySmsEnabled: on, notifyWhatsappEnabled: on },
+      });
+    expect((await channels()).map((c) => c.split(":")[0])).toEqual(["EMAIL"]);
+    await createRequestSettings(f.tenantId);
+    await setFlags(true);
+    expect((await channels()).map((c) => c.split(":")[0])).toEqual(["EMAIL"]); // açık ama telefon yok
+    const phone = "+905301112233";
+    for (const email of ["b@musteri.test", "c@musteri.test"])
+      await testDb().customerNotifyContact.create({ data: { id: newId(), tenantId: f.tenantId, customerId: f.customerId, email, phone } });
+    const masked = maskPhone(phone);
+    expect((await channels()).filter((c) => !c.startsWith("EMAIL"))).toEqual([`SMS:${masked}`, `WHATSAPP:${masked}`]);
+    expect((await rowsOf({ sessionId: sessions.at(-1) })).filter((r) => r.channel === "EMAIL")).toHaveLength(3);
+    await setFlags(false);
+    expect((await channels()).map((c) => c.split(":")[0])).toEqual(["EMAIL", "EMAIL", "EMAIL"]);
+    // paylaşılan kuyruk: teslim edilmeyen SMS/WA satırları başka dosyaların işçisine kalmasın
+    await testDb().notificationOutbox.deleteMany({ where: { sessionId: { in: sessions } } });
   });
 
   it("AC-296: içerik cihaz adı + teknisyen + destek firması; bağlantı/URL yok", async () => {

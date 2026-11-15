@@ -28,7 +28,8 @@ import { connectDevice } from "./connect.ts";
 import { putContacts, getContacts } from "./contacts.ts";
 import { sendServiceBinary, serviceBinary } from "./download.ts";
 import { createGate, unattendedStatus } from "./gate.ts";
-import { cancelCode, createCode, listCodes, registerDevice, type RegisterLimits, type RegistrationDeps } from "./registration.ts";
+import { registerDevice, type RegisterLimits } from "./register.ts";
+import { cancelCode, createCode, listCodes, type RegistrationDeps } from "./registration.ts";
 import { getDevice, listDevices, OFFLINE_LINK, putGrants, revokeDevice, type DeviceLink } from "./service.ts";
 
 const WRITES_PER_MIN = 30;
@@ -63,82 +64,95 @@ function writeLimit(app: FastifyInstance): void {
   });
 }
 
-export async function unattendedRoutes(app: FastifyInstance, opts: UnattendedRouteOptions): Promise<void> {
-  app.addHook("preHandler", requireAuth);
-  app.addHook("onSend", async (_req, reply) => {
-    void reply.header("Cache-Control", "no-store");
-  });
-  writeLimit(app);
-  const d = depsOf(app, opts.link ?? app.unattendedHub ?? OFFLINE_LINK);
-  const connectLimit = new FixedWindowCounter(CONNECTS_PER_HOUR + 1, 3_600_000, 3_600_000);
-  app.addHook("onClose", async () => connectLimit.close());
-  const anyPerm = { preHandler: requireAnyPerm("unattended.connect", "unattended.manage") };
-  const manage = { preHandler: requirePerm("unattended.manage") };
-  const stepUp = requireStepUp();
-  const manageStepUp = { preHandler: [requirePerm("unattended.manage"), stepUp] };
+/** Panel eklentisinin ortak bağlamı (kancalar kurulduktan sonra rota gruplarına verilir). */
+interface Panel {
+  app: FastifyInstance;
+  d: () => RegistrationDeps;
+  stepUp: ReturnType<typeof requireStepUp>;
+  connectLimit: FixedWindowCounter;
+}
 
-  app.get("/status", anyPerm, async (req): Promise<UnattendedStatus> => unattendedStatus(d().gate, app.mail, authOf(req).tenantId));
+const anyPerm = () => ({ preHandler: requireAnyPerm("unattended.connect", "unattended.manage") });
+const manage = () => ({ preHandler: requirePerm("unattended.manage") });
+const manageStepUp = (p: Panel) => ({ preHandler: [requirePerm("unattended.manage"), p.stepUp] });
 
-  app.get("/devices", anyPerm, async (req): Promise<DeviceListResponse> =>
+/** Durum + cihaz uçları (liste, ayrıntı, yetkiler, iptal, bağlan). */
+function deviceRoutes(p: Panel): void {
+  const { app, d } = p;
+  app.get("/status", anyPerm(), async (req): Promise<UnattendedStatus> => unattendedStatus(d().gate, app.mail, authOf(req).tenantId));
+  app.get("/devices", anyPerm(), async (req): Promise<DeviceListResponse> =>
     listDevices(d(), authOf(req), tenantScope(req).tenantId, parseInput(listDevicesQuerySchema, req.query)),
   );
-
-  app.get("/devices/:id", anyPerm, async (req): Promise<DeviceDetail> =>
+  app.get("/devices/:id", anyPerm(), async (req): Promise<DeviceDetail> =>
     getDevice(d(), authOf(req), tenantScope(req).tenantId, idParam(req)),
   );
-
-  app.put("/devices/:id/grants", manage, async (req): Promise<DeviceGrantsResponse> => {
+  app.put("/devices/:id/grants", manage(), async (req): Promise<DeviceGrantsResponse> => {
     const { tenantId } = tenantScope(req);
     const id = idParam(req);
     const { userIds } = parseInput(putDeviceGrantsInputSchema, req.body);
-    return putGrants(d(), auditContext(req), authOf(req), tenantId, id, userIds, () => stepUp(req));
+    return putGrants(d(), auditContext(req), authOf(req), tenantId, id, userIds, () => p.stepUp(req));
   });
-
-  app.post("/devices/:id/revoke", manage, async (req, reply) => {
+  app.post("/devices/:id/revoke", manage(), async (req, reply) => {
     const { tenantId } = tenantScope(req);
     await revokeDevice(d(), auditContext(req), authOf(req), tenantId, idParam(req));
     return reply.status(204).send();
   });
-
   app.post("/devices/:id/connect", async (req): Promise<UnattendedConnectResponse> => {
     const { tenantId } = tenantScope(req);
     const id = idParam(req);
-    const c = { ...d(), hub: app.unattendedHub, rooms: app.rooms, metrics: app.metrics, limit: connectLimit };
+    const c = { ...d(), hub: app.unattendedHub, rooms: app.rooms, metrics: app.metrics, limit: p.connectLimit };
     return connectDevice(c, auditContext(req), authOf(req), tenantId, id);
   });
+}
 
-  app.get("/registration-codes", manage, async (req): Promise<RegistrationCodeListResponse> => listCodes(d(), tenantScope(req).tenantId));
-
-  app.post("/registration-codes", manageStepUp, async (req, reply): Promise<CreatedRegistrationCode> => {
+/** Kayıt kodları + müşteri bildirim adresleri. */
+function codeAndContactRoutes(p: Panel): void {
+  const { app, d } = p;
+  app.get("/registration-codes", manage(), async (req): Promise<RegistrationCodeListResponse> => listCodes(d(), tenantScope(req).tenantId));
+  app.post("/registration-codes", manageStepUp(p), async (req, reply): Promise<CreatedRegistrationCode> => {
     const { tenantId } = tenantScope(req);
     const { customerId } = parseInput(createRegistrationCodeInputSchema, req.body);
     return reply.status(201).send(await createCode(d(), auditContext(req), authOf(req), tenantId, customerId));
   });
-
-  app.delete("/registration-codes/:id", manage, async (req, reply) => {
+  app.delete("/registration-codes/:id", manage(), async (req, reply) => {
     const { tenantId } = tenantScope(req);
     await cancelCode(d(), auditContext(req), authOf(req), tenantId, idParam(req));
     return reply.status(204).send();
   });
-
-  app.get("/customers/:customerId/contacts", manage, async (req): Promise<NotifyContactsResponse> =>
+  app.get("/customers/:customerId/contacts", manage(), async (req): Promise<NotifyContactsResponse> =>
     getContacts(app.db, tenantScope(req).tenantId, idParam(req, "customerId")),
   );
-
-  app.put("/customers/:customerId/contacts", manageStepUp, async (req): Promise<NotifyContactsResponse> => {
+  app.put("/customers/:customerId/contacts", manageStepUp(p), async (req): Promise<NotifyContactsResponse> => {
     const { tenantId } = tenantScope(req);
     const customerId = idParam(req, "customerId");
     const input = parseInput(putNotifyContactsInputSchema, req.body);
     return putContacts({ db: app.db, secrets: app.secrets, now: Date.now }, auditContext(req), authOf(req), tenantId, customerId, input);
   });
+}
 
+/** Servis ikilisi indirme (yalnız `manage`; SHA uyuşmazsa 503). */
+function downloadRoute(app: FastifyInstance): void {
   const bin = serviceBinary(app.env.UNATTENDED_AGENT_PATH, app.env.UNATTENDED_AGENT_SHA256, (state) =>
     app.log.warn(
       { alarm: "unattended_binary", state },
       "Gözetimsiz servis ikilisi indirilemez (yapılandırma eksik, dosya yok veya SHA-256 uyuşmuyor)",
     ),
   );
-  app.get("/download", manage, async (_req, reply) => sendServiceBinary(bin, app.env.UNATTENDED_AGENT_PATH, reply));
+  app.get("/download", manage(), async (_req, reply) => sendServiceBinary(bin, app.env.UNATTENDED_AGENT_PATH, reply));
+}
+
+export async function unattendedRoutes(app: FastifyInstance, opts: UnattendedRouteOptions): Promise<void> {
+  app.addHook("preHandler", requireAuth);
+  app.addHook("onSend", async (_req, reply) => {
+    void reply.header("Cache-Control", "no-store");
+  });
+  writeLimit(app);
+  const connectLimit = new FixedWindowCounter(CONNECTS_PER_HOUR + 1, 3_600_000, 3_600_000);
+  app.addHook("onClose", async () => connectLimit.close());
+  const p: Panel = { app, d: depsOf(app, opts.link ?? app.unattendedHub ?? OFFLINE_LINK), stepUp: requireStepUp(), connectLimit };
+  deviceRoutes(p);
+  codeAndContactRoutes(p);
+  downloadRoute(app);
 }
 
 /** Cihaz kayıt ucu (kimliksiz; ayrı eklenti — panel kancaları uygulanmaz). */

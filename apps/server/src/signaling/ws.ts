@@ -25,6 +25,8 @@ export interface SignalingOptions {
   revalidateMs?: number;
   /** Yalnız testler: `/ws/device` kimliksiz soket tavanları (varsayılan K-P27-21 sabitleri 1000 / IP başına 5). */
   deviceUnauth?: { max: number; perIp: number };
+  /** Yalnız testler (D-P27-K1): `/ws/device` kimlik doğrulandıktan sonra, hub'a eklemeden önce beklenen kanca. */
+  deviceBeforeAttach?: (deviceId: string) => Promise<void>;
 }
 
 type Role = "tech" | "guest" | "request" | "panel";

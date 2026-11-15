@@ -199,6 +199,24 @@ async function assertGrantable(tx: Parameters<Parameters<Db["$transaction"]>[0]>
     throw new AppError("VALIDATION", { fields: { userIds: "Kullanıcı bu firmada etkin değil ya da gözetimsiz bağlanma yetkisi yok." } });
 }
 
+type Tx = Parameters<Parameters<Db["$transaction"]>[0]>[0];
+
+/** Ekleme: step-up (tüketmez) → aday denetimi → INSERT; ilk grant `verified_at` yazar (O-P27-5). */
+async function addGrants(
+  tx: Tx,
+  d: UnattendedDeps,
+  auth: AuthContext,
+  g: { tenantId: string; id: string; verified: boolean; added: string[] },
+  assertStepUp: () => Promise<void>,
+): Promise<void> {
+  await assertStepUp();
+  await assertGrantable(tx, g.tenantId, g.added);
+  await tx.unattendedDeviceGrant.createMany({
+    data: g.added.map((userId) => ({ id: newId(), tenantId: g.tenantId, deviceId: g.id, userId, createdBy: auth.user.id })),
+  });
+  if (!g.verified) await tx.unattendedDevice.update({ where: { id: g.id }, data: { verifiedAt: new Date(d.now()) } });
+}
+
 export interface GrantChange {
   added: string[];
   removed: string[];
@@ -225,14 +243,7 @@ export async function putGrants(
     const added = userIds.filter((u) => !cur.includes(u));
     const removed = cur.filter((u) => !userIds.includes(u));
     if (added.length === 0 && removed.length === 0) return { added, removed, deviceName: dev.name };
-    if (added.length > 0) {
-      await assertStepUp();
-      await assertGrantable(tx, tenantId, added);
-      await tx.unattendedDeviceGrant.createMany({
-        data: added.map((userId) => ({ id: newId(), tenantId, deviceId: id, userId, createdBy: auth.user.id })),
-      });
-      if (!dev.verified_at) await tx.unattendedDevice.update({ where: { id }, data: { verifiedAt: new Date(d.now()) } });
-    }
+    if (added.length > 0) await addGrants(tx, d, auth, { tenantId, id, verified: dev.verified_at !== null, added }, assertStepUp);
     if (removed.length > 0) await tx.unattendedDeviceGrant.deleteMany({ where: { tenantId, deviceId: id, userId: { in: removed } } });
     const selfGrant = added.includes(auth.user.id);
     await writeAudit(tx, ctx, {

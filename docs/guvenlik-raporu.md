@@ -1,3 +1,96 @@
+## P27 — kod turu 1 (K11; 2026-11-15, dal p27-wip, HEAD c05f8b9)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 4 (+2 bilgi)
+Kapsam: `apps/server/src/unattended/*`, `signaling/{admit-device,rooms-device,ws-auth,ws,control,control-grant,active}.ts`,
+`notify/{outbox-content,templates}.ts`, `tenants/routes.ts` (SMTP koruması), `auth/{service,repo}.ts` (login kilidi), `env.ts`,
+`deploy/docker-compose.yml`, `deploy/agent/publish-servis.sh`, `.github/workflows/agent-win.yml`, Go `internal/servis/{acl,key,pipe,pipeclient,launch}_windows.go`,
+`internal/unattended/helper/incoming_windows.go`, `internal/desktop/gated.go`. Kod değiştirilmedi; entegrasyon testleri (DB) çalıştırılmadı; staging'e bağlanılmadı.
+
+### Tasarım turu bulgularının kodda karşılanması
+
+| Bulgu                                       | Durum                        | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Y-P27-1 (bildirim etkisizleştirme)          | Karşılandı                   | contacts PUT `manageStepUp` (routes.ts:128) + eski ∪ yeni adreslere `UN_CONTACTS_CHANGED` aynı TX (contacts.ts:109-110); zincir 6b `configFor===null` → 409 (connect.ts:55), kod üretiminde aynı (registration.ts:86); SMTP değişikliği etkin cihaz varken step-up (tenants/routes.ts:178-180); FAILED → `notify_failed_at` + audit (outbox-settle.ts:21-37). Kalan: D-P27-K4                                 |
+| Y-P27-2 (klasör squatting)                  | Karşılandı                   | varsa yeniden adlandır → `CreateDirectory`+SDDL tek çağrı (acl_windows.go:27-66); açılışta `VerifyDataDir` reparse/sahip/DACL (:70-); SYSTEM kullanıcı kapsamlı DPAPI (key_windows.go:42-61); `Gelen` `GetFinalPathNameByHandle` + reparse reddi (incoming_windows.go:83-87)                                                                                                                                  |
+| Y-P27-3 (SYSTEM yardımcı)                   | Karşılandı                   | `DISABLE_MAX_PRIVILEGE`, `CHILD_PROCESS_RESTRICTED`, `HANDLE_LIST` (launch_windows.go:17-27, :176), job `ACTIVE_PROCESS                                                                                                                                                                                                                                                                                       | KILL_ON_JOB_CLOSE`(:194-195); AST sınır testi`servis/boundary_test.go`, `helper/boundary_test.go` |
+| O-P27-1 (boru)                              | Karşılandı                   | `FIRST_PIPE_INSTANCE` + `PIPE_REJECT_REMOTE_CLIENTS` (pipe_windows.go:72-75); istemci SQOS IDENTIFICATION + `GetNamedPipeServerProcessId` = SCM PID (pipeclient_windows.go:35, :65); olay kullanıcısı istemci süreç jetonundan (pipe_windows.go:174-196)                                                                                                                                                      |
+| O-P27-2 (TX içi yeniden denetim)            | Karşılandı                   | connect TX: cihaz `FOR UPDATE` → iptal/yerel → grant `FOR SHARE` → meşgul → `lockTechnician` → PENDING → koşullu step-up tüketimi (connect-tx.ts:43-62); revoke/grants/device.state/unregister aynı `lockDevice` (service.ts:168,222; device-msg.ts:45,61); admit aynı kilit + kapı (admit-device.ts:32-40); kayıt kodu `FOR UPDATE` + koşullu UPDATE count=1 + cihaz INSERT tek TX (registration.ts:164-183) |
+| O-P27-3 (yedek yeniden doğrulama)           | Karşılandı                   | `startDeviceRevalidation` teknisyenden bağımsız, `rooms.clock` (ws.ts); `revalidateDevice` grant/iptal/yerel/kapı (rooms-device.ts:90-108)                                                                                                                                                                                                                                                                    |
+| O-P27-4 (gösterge doğrulanmadan kare/girdi) | Karşılandı                   | `desktop/gated.go` kapı kapalıyken kare beklenir, dönem değişince kare düşürülür + kaynak yeniden açılır; `Input` kapalıyken düşürür                                                                                                                                                                                                                                                                          |
+| O-P27-5 (sessiz kayıt)                      | Karşılandı                   | `UN_DEVICE_REGISTERED` outbox (registration.ts:190) + commit sonrası `manage` e-postası (:205-218); `verified_at` ilk grant'ta (service.ts:234); `registeredIp/At` yalnız `manage` (service.ts:151-153)                                                                                                                                                                                                       |
+| O-P27-6 (`DEPLOY_ENV`)                      | Karşılandı                   | env.ts:39-49 (prod'da zorunlu, `unsigned` ⇔ staging, `signed` → SHA listesi zorunlu); compose `${DEPLOY_ENV:?}` yalnız server (docker-compose.yml:146); TEST öneki `deviceIndicatorText(..., mode==="unsigned")` (connect.ts:126)                                                                                                                                                                             |
+| D-P27-1 (tavanlar)                          | Karşılandı                   | `/ws/device` kimliksiz 1000 + IP başına 5 → 503 (device-ws.ts:36-37, :60-63), auth başarısında/kapanışta tek kez düşer (:68-80); register sistem tavanı yalnız başarısız yolda (registration.ts:253-260), geçerli kod tavandan önce aranır                                                                                                                                                                    |
+| D-P27-2 (sabit adres, ImagePath)            | Kısmen doğrulandı            | publish/CI tarafı tamam; `ImagePath` tırnağı `trace-check.ps1 -Servis` Windows elle testine bağlı (bu turda çalıştırılamaz)                                                                                                                                                                                                                                                                                   |
+| D-P27-3 (ipChanged / 4409)                  | Karşılandı                   | device-auth.ts:103-106; hub.ts:77-105 (10 dk kayan sayaç, > 3 audit, 10 dk'da ≤ 1)                                                                                                                                                                                                                                                                                                                            |
+| D-P27-4 (selfGrant)                         | Karşılandı                   | service.ts:237-251                                                                                                                                                                                                                                                                                                                                                                                            |
+| D-P27-6 (stepUpMethod)                      | Karşılandı                   | connect.ts:63-71, connect-tx.ts:100, kurtarma e-postası connect.ts:142-157                                                                                                                                                                                                                                                                                                                                    |
+| O-P27-r2-1 (Admin SMTP aktarıcısı)          | Karşılandı (kalan: D-P27-K4) | kayıttan önce ESKİ `cfg` ile `unattended.manage`+`settings.edit` sahiplerine (tenants/routes.ts:172-196)                                                                                                                                                                                                                                                                                                      |
+| D-P27-r2-1 (rename↔create yarışı)           | Karşılandı                   | `ERROR_ALREADY_EXISTS` → `ErrFolderUnsafe`, yeniden deneme yok (acl_windows.go:37-40)                                                                                                                                                                                                                                                                                                                         |
+| D-P27a-K3 (login yarışı)                    | **Kapandı**                  | login TX ilk ifade `lockUserForLogin` `FOR UPDATE` (auth/repo.ts:88-94); şifre özeti/durum/silinme değiştiyse oturum yok + fail audit, `totpEnabled` kilitli satırdan (auth/service.ts:200-206). `enableTx`/şifre değişimi aynı satırı X kilitlediği için iki yön serileşir                                                                                                                                   |
+
+Odak maddeleri (kanıtlı): Origin/sorgu/alt protokol reddi (device-ws.ts:56-58); nonce soket başına 32 bayt, imza dizesi bağlam + nonce + deviceId + PUBLIC_BASE_URL origin (ws-device.ts:35-37) → replay ve sunucular arası yeniden kullanım yok; imza iptal/tenant bilgisinden ÖNCE doğrulanır (device-auth.ts:77-80); kimliksiz soket yalnız `device.auth` kabul eder, ikinci auth 1008 (device-ws.ts:115-118); 4 KB / 5 msg/sn; cihaz mesajı yalnız kendi odasına etki eder (device-msg.ts:29-32); `control.state{UNATTENDED}` yalnız `room.unattended`+GRANTED, aksi 1008 + fail audit (control.ts:266-286); cihaz bileti yalnız `room.unattended` odasında, kuşak eşleşmeli (ws-auth.ts:140, :173-182); grant EXISTS `g.tenant_id = d.tenant_id` (repo.ts:133-137), tüm repo sorguları tenant kapsamlı, `idParam` ULID, grant'sız ayrıntı 404; audit'te adresler maskeli (contacts.ts:73, :119-120), e-posta içerikleri bağlantısız, `esc` + `sanitizeTemplateName` (templates.ts:79-130; unattended/mail.ts:11-24); indirme yalnız `manage`, SHA uyuşmazsa 503, salt-okunur volume ve Caddy'ye bağlanmıyor (docker-compose.yml:150-155, Caddyfile'da yol yok); publish-servis.sh prod hedefe yalnız `vX.Y.Z` etiketi, attestation'sız etiket `-unattested` olur ve prod kalıbına uymaz (publish-servis.sh:38-42, :106-135); Action'lar SHA ile sabit.
+
+### [DÜŞÜK] D-P27-K1 Kimlik doğrulama ile iptal/firma pasifi yarışında iptal edilmiş cihaz hub'a bağlanır — A04
+
+Yer: apps/server/src/unattended/device-auth.ts:71-95 (kilitsiz `findUnique`, `update where:{id}`); device-ws.ts:167-168 (`hub.attach`).
+Sorun: `authenticateDevice` cihazı kilitsiz okur; okuma ile `hub.attach` arasında revoke (service.ts:166-186) ya da firma pasifi commit edilip
+`hub.revoked`/`closeByTenant` çalışırsa (o an bağlantı hub'da yok) soket yine eklenir, `revoked{}` gönderilmez ve TX iptal edilmiş satıra
+beyan/IP yazar. Cihaz "çevrimiçi" kalır; servis iptal edildiğini öğrenmez, bir sonraki yeniden bağlanmaya kadar soket açık durur.
+İstismar: bağlantı açılmaz (connect/admit TX'leri `revoked_at`'ı kilitli okur) — etkisi yanlış durum ve iptal kanıtının (AC-275 "≤ 10 sn soket kapanır") nadiren tutmaması.
+Düzeltme: auth TX'inde `lockDevice` (FOR UPDATE) ile `revoked_at`/firma durumunu yeniden denetle, ya da `updateMany({where:{id, revokedAt:null}})` count≠1 → `revoked{}`+4401; `hub.attach` sonrası `revokedAt` tekrar okunup gerekiyorsa `hub.revoked`. Test: auth'u kancayla bekletip revoke commit → soket 4401. Atanan: backend-dev.
+
+### [DÜŞÜK] D-P27-K2 Pasif müşteri için kayıt kodu üretilebiliyor ve bekleyen kod müşteri pasifinden sonra da cihaz kaydediyor — A04
+
+Yer: apps/server/src/unattended/contacts.ts:59-61 (`customerExists` yalnız `anonymizedAt` bakar, `status` yok); registration.ts:83, :165-183 (kayıt TX'i müşteri durumunu denetlemez); customer-passive.ts:8-34 (bekleyen kodlar silinmiyor).
+Sorun: Müşteri pasife alınınca cihazları iptal edilir (§3.6) ama (a) pasif müşteriye yeni kod üretilebilir, (b) pasiften önce üretilmiş/sızmış kod 24 sa boyunca kayıt yapmaya devam eder.
+İstismar: Sözleşmesi biten müşterinin eski çalışanı elindeki kodla makineyi kaydeder; Admin farkında olmadan grant verirse pasif müşteriye gözetimsiz erişim açılır (yeni kayıt e-postası/"doğrulanmadı" rozeti tek uyarı).
+Düzeltme: `customerExists`'e `status:"ACTIVE"` (kod üretimi 404/409); kayıt TX'inde müşteri satırı `status='ACTIVE'` değilse `REGISTRATION_CODE_INVALID`; `revokeCustomerDevicesTx` aynı TX'te müşterinin bekleyen kodlarını siler + audit sayısı. Atanan: backend-dev.
+
+### [DÜŞÜK] D-P27-K3 Kayıt ucu hız kovaları ham IP ile tutuluyor (IPv6 /64 normalize edilmiyor) — A07
+
+Yer: apps/server/src/unattended/registration.ts:254, :272, :274 (`ctx.ip`); karşılaştırma device-ws.ts:83 ve login `ipKey` (lib/ip.ts:14-20).
+Sorun: IPv6'da istemci her istekte /64 içinden yeni adres seçerek IP başına 10/sa ve 5 hatalı kod/15 dk kilidini atlar. 80 bit kod nedeniyle kaba kuvvet yine pratik değil; sistem geneli başarısız tavanı (100/sa) tek /64'ten daha kolay doldurulur (geçerli kodlar etkilenmez, ama `cap` alarmı gürültü üretir).
+Düzeltme: üç kovada `ipKey(ctx.ip)`. Atanan: backend-dev.
+
+### [DÜŞÜK] D-P27-K4 SMTP değişikliğinde alıcı yoksa audit `smtpChangeNotice:"sent"` yazıyor — A09 (O-P27-r2-1 kalan riski)
+
+Yer: apps/server/src/tenants/routes.ts:181-195; unattended/mail.ts:75-86 (alıcı yoksa `{sent:0, failed:0}`).
+Sorun: Firmada `unattended.manage`/`settings.edit` sahibi tek kişi değiştirenin kendisiyse kimseye e-posta gitmez ama audit "sent" der; olay incelemesinde bildirim yapıldı sanılır. Ayrıca ESKİ yapılandırma yoksa (`cfg` null) gönderim güncel kayda düşer.
+Düzeltme: `sent===0 && failed===0` → `"no_recipients"`; `cfg===null` ise gönderim atlanıp `"no_previous_config"` yazılsın. Atanan: backend-dev.
+
+### [BİLGİ] Login kilidi ile firma pasifi arasında nadir 1213
+
+Yer: auth/service.ts:200-203 (users X kilidi → `auth_sessions` INSERT); tenants/repo.ts:66-68 (`authSession.updateMany` `user:{is:{tenantId}}` — sorgu users satırlarını S kilitle okur, `auth_sessions` aralık kilitlerini tutar).
+Değerlendirme: Kilit sırası ters (login: users → auth_sessions; pasif: auth_sessions → users), eşzamanlı giriş ile firma pasifinde kilitlenme olabilir. InnoDB birini kurban seçer; `lib/errors.ts:110` geçici hatayı 503 + Retry-After'a çevirir, login'de yeniden deneme yok. Güvenlik etkisi yok (iki işlem de atomik geri alınır; pasif TX kurban seçilirse Super Admin yeniden dener, login kurban seçilirse bir sonraki denemede firma pasif). Kabul edilebilir; istenirse `revokeTenantSessions` öncesi `SELECT id FROM users WHERE tenant_id=? ORDER BY id FOR UPDATE` ile sıra eşitlenir. `enableTx`/şifre değişimi ↔ login aynı satırı önce X kilitlediği için kilitlenmez.
+
+### [BİLGİ] İmza kapısı beyana dayanıyor (tasarım kabulü S-P27-4)
+
+`gate.allows` cihazın `signed`/`sha256` beyanına bakar (gate.ts:29-33); güvenlik grant + step-up + bildirim + göstergeye dayanır. Değişiklik gerekmez.
+
+### Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: `No known vulnerabilities found`.
+- `govulncheck ./...` (docker `golang:1.26`, `GOOS=windows`, apps/agent-win): `No vulnerabilities found.`
+- Gizli bilgi `git grep` kalıbı (test/doküman hariç): eşleşme yok. `git log --all -- '*.env' '.env*'` (`.env.example` hariç): kayıt yok.
+
+### Bu turda incelenmeyenler (sonraki turda)
+
+- Web `/unattended` sayfaları (XSS/yetki gizleme) — `dangerouslySetInnerHTML` taraması yapılmadı.
+- Go `helper/follow.go` masaüstü izleme aralığı (geçiş tespiti gecikmesi; kapı mantığı incelendi, yoklama süresi değil), `indicator_windows.go`, `servisui/*`, `uninstall_windows.go`, `wsdevice*.go` yeniden bağlanma/`revoked` davranışı.
+- `notify/outbox.ts` işçi teslim döngüsü ayrıntısı, `jobs/unattended-cleanup.ts`, `retention` değişiklikleri.
+- Windows elle testleri (K5/K6b: squatting, junction, boru squatting, `ImagePath`) — ortam gerektirir.
+- Entegrasyon testleri (`unattended-*.test.ts`, `p27a-login-race.test.ts`) çalıştırılmadı (DB gerekir; qa/CI).
+
+### Olumlu
+
+- Tüm yetkili kararlar kilitli TX içinde, kilit sırası her yerde cihaz → teknisyen; step-up en sonda koşullu tüketiliyor.
+- `/ws/device` meydan okuması doğru: soket başına nonce, alan ayırıcı önek, origin bağlama; imza durumu sızdırmadan önce doğrulanıyor.
+- Grant sorgularında bileşik tenant eşlemesi, varlık sızdırmayan 404'ler, `manage` olmayana IP/kayıt bilgisi verilmiyor.
+- Go tarafında tasarımın tüm sınırlandırmaları (kısıtlı jeton, job, HANDLE_LIST, FIRST_PIPE_INSTANCE, ACL tek çağrı, DPAPI kullanıcı kapsamı) kodda.
+- Gereksinimler §9 "Sonra" önerisi: D-P27-K1..K4 (engellemez).
+
+---
+
 ## P27a — kod turu 2 (2026-11-15, dal p27-wip, çalışma ağacı; düzeltme turu 1 doğrulaması)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 1 / Düşük 1

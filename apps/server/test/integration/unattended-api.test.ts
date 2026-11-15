@@ -266,4 +266,30 @@ describe("P27-K2 bildirim adresleri ve SMTP değişikliği", () => {
     });
     expect((await call(await loginAs(app, g.admin), req)).statusCode).toBe(200); // etkin cihaz yok → step-up yok
   });
+
+  it("AC-336 D-P27-K4: bildirim alıcısı yoksa audit smtpChangeNotice no_recipients; eski SMTP kaydı yoksa no_previous_config (gönderim yok)", async () => {
+    const smtpBody = { smtp: { host: "smtp.test", port: 2525, security: "NONE", fromEmail: "yeni@firma.test" } };
+    const req = { method: "PUT" as const, url: "/api/v1/settings/tenant", payload: smtpBody };
+    const notice = async (tenantId: string) =>
+      (await testDb().auditLog.findFirstOrThrow({ where: { tenantId, action: "tenant_settings.updated" } })).newValue;
+    // Dosyanın giriş kovası (IP 20/dk) dolmasın: ayrı uygulama örneği
+    const own = makeApp({
+      env: { ...UNSIGNED_ENV },
+      p10: { netguard: loopbackNetguard(), mailTransport: inboxTransport(() => smtpPort), mfaSetupEnforcement: false },
+    });
+    await own.ready();
+    try {
+      const f = await firm(); // tek manage/settings.edit sahibi değiştirenin kendisi
+      expect((await call(await loginStepUp(own, f.admin), req, own)).statusCode).toBe(200);
+      expect(await notice(f.tenantId)).toMatchObject({ unattendedDevices: 1, smtpChangeNotice: "no_recipients" });
+      const g = await firm({ smtp: false });
+      await createUser({ tenantId: g.tenantId, role: "ADMIN" });
+      const before = inbox.length;
+      expect((await call(await loginStepUp(own, g.admin), req, own)).statusCode).toBe(200);
+      expect(await notice(g.tenantId)).toMatchObject({ unattendedDevices: 1, smtpChangeNotice: "no_previous_config" });
+      expect(inbox.length).toBe(before);
+    } finally {
+      await own.close();
+    }
+  });
 });

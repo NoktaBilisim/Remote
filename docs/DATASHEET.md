@@ -20,6 +20,10 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - **Program indirmeden destek talebi** — müşteri firmanın web formu bağlantısından tarayıcıyla talep açar, beklerken
   teknisyenle yazışır, kabulde ekranını paylaşır. İsterse talebinin kabul/ret/süre dolumu bilgisini SMS, WhatsApp veya
   e-postayla alır (yalnız hizmet bildirimi; reklam yok). İstenmeyen talep yağarsa form tek tuşla kapanır.
+- **Gözetimsiz erişim** — sunucu ve kiosk gibi başında kimse olmayan müşteri bilgisayarlarına, kayıtlı servis
+  programı üzerinden bağlanma; giriş ekranı, kilit ekranı ve yönetici onayı (UAC) penceresi dahil. Her bağlantı ayrı
+  2FA doğrulaması ister ve müşteriye e-postayla bildirilir; cihazda kapatılamayan "Uzaktan bağlantı" göstergesi çıkar,
+  müşteri tek tıkla kapatabilir. Kod imzası alındıktan sonra canlı ortamda açılır.
 - **İzinli uzaktan kontrol** — her kontrol isteğini müşteri onaylar, tek tuşla geri alır; uzaktan tıklama izin sayılmaz.
 - **Zorlu donanımda da görüntü** — ekran üç farklı yöntemle okunur (HDR ve çift ekran kartlı dizüstüler dahil);
   okunamazsa müşteri ekranında kısa bir neden kodu ve ne yapacağı yazar; yeni sürüm programla neden teknisyen konsoluna
@@ -31,7 +35,8 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - **Kullanıcı ve yetki yönetimi** — teknisyen ekleme, modül bazlı aç/kapa yetkileri, pasife alma; değişiklik açık
   oturumlara anında yansır.
 - **İki adımlı doğrulama ve e-posta** — yöneticilerde zorunlu, teknisyenlerde firma ayarıyla 2FA; şifremi unuttum,
-  tüm cihazlardan çıkış; firmanın kendi SMTP'siyle bildirimler.
+  tüm cihazlardan çıkış; firmanın kendi SMTP'siyle bildirimler. Kullanıcı isterse kişisel tarayıcısını 30 gün
+  hatırlatır; hassas işlemlerde kod yine sorulur.
 - **Oturum geçmişi ve CSV** — filtreli liste, onay ve kontrol kayıtları, ticket/not, Excel uyumlu dışa aktarma.
 - **Değiştirilemez denetim kaydı** — kim, ne zaman, ne yaptı: filtreli ekran ve CSV; kayıtlar uygulamadan da
   veritabanından da düzenlenemez, silinemez.
@@ -62,12 +67,14 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 | Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", 5 firmaya kadar kayıt ve firma seçimi, firma/bilgisayar unutma, beklerken sohbet, isteğe bağlı tepsi ve Windows açılışında başlatma, onay ve izin diyalogları; yalnız bir pencereyi paylaşma, açık/koyu tema                                                                                                 |
 | Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi, kaynak engelleme (Engellenenler ekranı), isteğe bağlı kabul kodu, atama, öncelik ve SLA, mesai saatleri ve tatiller, web talep formu ve "Web" kaynak süzgeci                                                                                                                          |
 | Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı ve web formu bağlantısı (kopyala, yenile), pasife alma, talep ve oturum geçmişi, CSV dışa/içe aktarma                                                                                                                                                                                                                    |
+| Gözetimsiz cihazlar              | Kayıt kodu ile cihaz ekleme, cihaz listesi (çevrimiçi, yerel olarak kapalı, doğrulanmadı, bildirim gönderilemedi rozetleri), cihaz başına teknisyen yetkisi, bağlan, cihazı iptal et; müşteri başına bildirim adresleri                                                                                                                                             |
+| Gözetimsiz servis (Windows)      | Müşteri bilgisayarına yöneticiyle kurulan servis: kayıt kodu, tepside durum, "Gözetimsiz erişimi kapat", her monitörde bağlantı göstergesi, Windows "Uygulamalar"dan iz bırakmadan kaldırma                                                                                                                                                                         |
 | Oturum geçmişi                   | Filtreli liste, ayrıntı, ticket/not, dosya doğrulama etiketi, CSV                                                                                                                                                                                                                                                                                                   |
 | Kullanıcılar                     | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme, kalıcı silme                                                                                                                                                                                                                                                 |
 | Firmalar (Süper Yönetici)        | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş, kalıcı silme (önizleme, 24 saat iptal penceresi, ilerleme)                                                                                                                                                                                                                                           |
 | Audit log                        | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV                                                                                                                                                                                                                                                                         |
 | Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi (isteğe bağlı zorunlu TLS ve sertifika doğrulaması), TURN sunucuları ve gizli anahtar, sistem logosu (yükleme/kaldırma), Süper Yönetici şifre sıfırlama, WhatsApp servis adresi + test mesajı                                                                                                                               |
-| Hesabım                          | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu, kurtarma kodları ve yenilenmesi, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış                                                                                                                                                                                                           |
+| Hesabım                          | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu, kurtarma kodları ve yenilenmesi, hatırlanan cihazlar, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış                                                                                                                                                                                      |
 | Ayarlar                          | Genel sınırlar (kod geçerliliği, en uzun oturum, teknisyen başına açık oturum, dosya boyutu), destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, SMS + test SMS, web talep formu aç/kapa ve müşteriye durum bildirimi kanalları, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni, firma logosu |
 
 ## Güvenlik ve yönetim
@@ -115,6 +122,16 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   dakika içinde yeniden 2FA kodu (veya kurtarma kodu) istenir. Kurtarma kodu kullanılınca kullanıcıya e-posta gider, kod
   azaldığında uyarı çıkar. SMTP ve veritabanı şifreleri, TURN anahtarı ve 2FA sırları şifreli saklanır; e-posta yalnız internetteki SMTP sunucularına,
   sertifika doğrulamalı gönderilir.
+- 2FA cihaz hatırlama (firma ayarıyla kapatılabilir): yalnız kodla doğrulamada, en çok 30 gün, kullanıcı başına 10
+  tarayıcı; Süper Yönetici hesaplarında yoktur. Şifre her girişte, hassas işlemlerde kod yine sorulur. Yeni cihaz
+  hatırlanınca e-posta gider; kopyalanmış hatırlama bilgisi kullanılırsa tüm hatırlanan cihazlar ve açık oturumlar
+  kapanır. Şifre değişimi, 2FA sıfırlama ve tüm cihazlardan çıkış hatırlamayı siler.
+- Gözetimsiz erişim: bağlantıda cihazda onay sorulmaz, bu yüzden telafi kontrolleri zorunludur — her bağlantı ayrı 2FA
+  doğrulaması ister; yeni cihazda hiçbir teknisyenin yetkisi yoktur, yönetici cihaz başına açar; her bağlantı müşterinin
+  tanımlı adreslerine e-postayla bildirilir (firmanın SMTP ayarı yoksa özellik kullanılamaz); cihazda kapatılamayan
+  gösterge vardır, çizilemezse bağlantı açılmaz; müşteri yerel anahtarla 2 saniyede keser; yönetici cihazı iptal edince
+  bağlantı 10 saniyede kesilir. Olaylar denetim kaydına ve cihazın Windows olay günlüğüne yazılır. **Not:** cihazda oturum
+  açmış Windows kullanıcısı yöneticiyse teknisyen yönetici onayı (UAC) verebilir; standart kullanıcı hesabı önerilir.
 - Müşteri programı yalnız kendi sunucusuna bağlanır; bütünlüğü SHA-256 ve tekrarlanabilir derlemeyle doğrulanır.
   Hatırlanan bilgiler Windows hesabına bağlı şifreyle (DPAPI) saklanır, tek tıkla silinir. Tanılama dosyası kişisel
   veri içermez. Windows açılışında başlatma yalnız kullanıcı seçerse açılır; program başkalarının yazabildiği klasörden
@@ -131,7 +148,7 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   adresi ve servis anahtarı Süper Yönetici panelinden yeniden başlatmadan değiştirilir; güvensiz adreste kanal kendiliğinden
   kapanır.
 - E-posta (firmanın kendi SMTP sunucusu): şifre sıfırlama, güvenlik bildirimleri, yeni talep bildirimi, oturum
-  bağlantısını müşteriye gönderme; test butonu.
+  bağlantısını müşteriye gönderme, gözetimsiz bağlantı bildirimi; test butonu.
 - MySQL: bağlantı bilgisi yönetim panelinde, "Bağlantıyı Test Et" ile; geçiş sunucu yapılandırmasıyla yapılır.
 - SMS (Nokta Bilişim smsportal servisi, arka planda NetGSM): oturum bağlantısını ve talep durumunu müşteriye SMS ile
   gönderme; firma başına adres, şifreli API anahtarı, başlık ve test SMS butonu. Türkiye cep numaralarına gider.
@@ -146,6 +163,7 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 | Kurulum                 | Docker Compose, kurum sunucusunda; TURN ayrı compose                                       |
 | Görüntü                 | WebRTC, eşler arası; H.264, en çok 1920×1080, hedef 30 fps                                 |
 | Müşteri işletim sistemi | Windows 10 / 11 (64 bit); tarayıcı modu için ekran paylaşımı destekleyen masaüstü tarayıcı |
+| Gözetimsiz erişim       | Windows 10 / 11 (64 bit), fiziksel konsol oturumu (uzak masaüstü oturumu desteklenmez)     |
 | Teknisyen tarayıcısı    | Chrome, Edge (güncel)                                                                      |
 | Dil / tema              | Türkçe / kullanıcı başına Açık, Koyu veya Sistem                                           |
 

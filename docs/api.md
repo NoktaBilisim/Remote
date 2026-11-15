@@ -1,4 +1,4 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b, P15, P16, P18, P19, P20)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b, P15, P16, P18, P19, P20, P27a, P27)
 
 Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b, P13a, P13b ve P13b-L'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
@@ -57,11 +57,12 @@ P20: `signaling/{binding,handlers,rooms,types}.ts`, `bindings/{service,repo}.ts`
 
 ### Çerezler
 
-| Çerez               | Öznitelikler                                                                                 | Amaç                                                                                                                                                                          |
-| ------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `__Host-rs_session` | HttpOnly, Secure, SameSite=Strict, Path=/, Domain yok                                        | Opak oturum token'ı (DB'de yalnız SHA-256)                                                                                                                                    |
-| `__Host-rs_csrf`    | Secure, SameSite=Strict, Path=/, Domain yok, **HttpOnly değil**                              | CSRF double-submit değeri; JS okur                                                                                                                                            |
-| `rs_theme` (P12)    | SameSite=Lax, Path=/, Max-Age 1 yıl, **HttpOnly değil**, Secure yalnız `NODE_ENV=production` | Tema tercihi `light`/`dark`/`system`; web ilk HTML'i doğru temayla çizer. Login, `GET /auth/me` ve `PATCH /auth/me/preferences` yazar; çıkışta silinmez. Gizli değer değildir |
+| Çerez                   | Öznitelikler                                                                                 | Amaç                                                                                                                                                                               |
+| ----------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `__Host-rs_session`     | HttpOnly, Secure, SameSite=Strict, Path=/, Domain yok                                        | Opak oturum token'ı (DB'de yalnız SHA-256)                                                                                                                                         |
+| `__Host-rs_csrf`        | Secure, SameSite=Strict, Path=/, Domain yok, **HttpOnly değil**                              | CSRF double-submit değeri; JS okur                                                                                                                                                 |
+| `rs_theme` (P12)        | SameSite=Lax, Path=/, Max-Age 1 yıl, **HttpOnly değil**, Secure yalnız `NODE_ENV=production` | Tema tercihi `light`/`dark`/`system`; web ilk HTML'i doğru temayla çizer. Login, `GET /auth/me` ve `PATCH /auth/me/preferences` yazar; çıkışta silinmez. Gizli değer değildir      |
+| `__Secure-rs_td` (P27a) | HttpOnly, Secure, SameSite=Strict, `Path=/api/v1/auth`, Domain yok, Max-Age ≤ 30 gün         | "Bu cihazı 30 gün hatırla" belirteci, değer `<satır id>.<gizli>`; yalnız auth uçlarına gider, her kullanımda yenilenir. DB'de yalnız SHA-256. Ayrıntı "2FA cihaz hatırlama (P27a)" |
 
 Oturum mutlak **8 saat**, boşta **30 dakika** sonra düşer; sonraki istek 401 alır. Çerez adları
 `@remote/contracts/api/auth` sabitlerinden (`SESSION_COOKIE`, `CSRF_COOKIE`, `CSRF_HEADER`) gelir.
@@ -2943,6 +2944,130 @@ token_store_full; IP anahtarı başına dakikada 1); `request.customer_notify` (
 `{url, header, apiKeySet}`, anahtar `***`); `settings.sms_test`; `customer.exported` `{count, status}`; `customer.imported`
 `{total, created, updated, skipped, failed, onConflict}` + satır başına `customer.created/updated` (`source: "import"`).
 Ref, form token'ı, talep sırrı, gizli alan ve mesaj gövdesi hiçbir kayda yazılmaz.
+
+## 2FA cihaz hatırlama (P27a)
+
+Kaynak: `apps/server/src/auth/{trusted-device,trusted-device-repo,trusted-device-routes,service,account,routes}.ts`,
+`users/{routes,writes,service}.ts`, `tenants/settings.ts`, `packages/contracts/src/api/{auth,users,tenants}.ts`. Tasarım
+`docs/mimari-p27a.md`. Yeni hata kodu ve env yok.
+
+### Mevcut uçlarda değişenler
+
+| Uç                         | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/login`         | Girdi aynı; `__Secure-rs_td` çerezi (en çok 2 değer) **yalnız şifre doğrulandıktan sonra** okunur. Geçerli belirteçte `mfaRequired: false`, yeni belirteçle `Set-Cookie` (Max-Age = kalan süre), audit `auth.trusted_device_used` + `auth.login {mfa:"remembered"}`. Bilinmeyen/süresi dolmuş/izinsiz belirteçte TOTP adımı ve çerez silinir. Eski nesil belirteç (yeniden kullanım): TOTP adımı, kullanıcının tüm hatırlanan cihazları silinir ve diğer tüm oturumları kapanır, audit `auth.trusted_device_reuse` (`fail`), e-posta. Zorunlu şifre değişimi ve 2FA kurulumu atlanmaz. |
+| `POST /auth/mfa/verify`    | `{ "code": "123456", "rememberDevice": true }`. Kurtarma koduyla `rememberDevice` → 400 `VALIDATION`. Yanıta `deviceRemembered: boolean`. Firma anahtarı kapalıysa veya kullanıcı Super Admin ise `true` hata vermeden yok sayılır (`deviceRemembered: false`). Başarıda audit `auth.trusted_device_created` ve "Yeni cihaz hatırlandı" e-postası (SMTP yoksa `mail.sent` `not_configured`).                                                                                                                                                                                           |
+| `GET /auth/me`             | `mfa.rememberDeviceAvailable` — aşama `verify`, TOTP etkin ve izin varsa `true`; Super Admin'de her zaman `false`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `POST /auth/logout-all`    | Yanıt `{ "revokedSessions": 2, "revokedTrustedDevices": 1 }`; bu tarayıcının hatırlama çerezi de silinir.                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `GET/PUT /settings/tenant` | `mfaRememberDevice: boolean` (varsayılan `true`; yetki `settings.edit`). `false` yazmak firmanın tüm hatırlanan cihazlarını aynı işlemde siler; audit'e `revokedTrustedDevices`.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `GET /users/:id`           | `trustedDeviceCount: number`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+Hatırlamayı silen diğer olaylar (aynı işlemde; ilgili audit satırına `revokedTrustedDevices`): şifre değişimi ve sıfırlama,
+Super Admin sıfırlaması, Admin 2FA sıfırlaması, 2FA'nın yeniden etkinleştirilmesi, kullanıcı veya firma pasifi.
+
+### GET /api/v1/auth/trusted-devices
+
+Tam oturum, yalnız kendi cihazları (en yeni önce, en çok 10). Yarım (2FA bekleyen) oturumda 403 `MFA_REQUIRED`, oturumsuz 401.
+
+```json
+{ "items": [ { "id": "01K…", "uaSummary": "Chrome · Windows", "ip": "203.0.113.7", "createdAt": "2026-11-15T08:00:00.000Z",
+               "lastUsedAt": "2026-11-16T07:55:00.000Z", "expiresAt": "2026-12-15T08:00:00.000Z", "current": true } ] }
+```
+
+### DELETE /api/v1/auth/trusted-devices/:id · DELETE /api/v1/auth/trusted-devices
+
+Tam oturum + CSRF. Yanıt `{ "revoked": 1, "currentCleared": true }` (`currentCleared` → bu tarayıcının çerezi de silindi).
+Başkasına ait ya da olmayan id 404, biçimsiz id 400. Audit `auth.trusted_device_revoked {reason:"user", count}`.
+
+### POST /api/v1/users/:id/forget-devices
+
+Yetki `users.edit`; gövde `{}`. Yanıt `{ "revoked": 3 }`. Kendi hesabı 403 (profil yolu kullanılır), daha geniş yetkili hesap
+403, başka firma 404. Audit `auth.trusted_device_revoked {reason:"admin", count}`.
+
+## Gözetimsiz erişim (P27)
+
+Kaynak: `apps/server/src/unattended/{routes,service,connect,registration,contacts,gate,download,hub,device-ws}.ts`,
+`signaling/admit-device.ts`, `packages/contracts/src/{api/unattended.ts,ws-device.ts,errors.ts,permissions.ts,audit.ts}`.
+Tasarım `docs/mimari-p27.md`; operasyon runbook §27. Yetkiler `unattended.connect`, `unattended.manage`. Tüm uçlar firma
+kapsamlıdır (Super Admin bir firma seçmelidir); başka firmanın kaydı 404.
+
+**İmza kapısı (`UNATTENDED_MODE`):** `off` (varsayılan) → kayıt kodu, kayıt ve bağlantı 409 `UNATTENDED_DISABLED`;
+`unsigned` yalnız `DEPLOY_ENV=staging`; `signed` → cihaz imzalı ve SHA-256'sı `UNATTENDED_SIGNED_SHA256`'da olmalı.
+
+### Uçlar (`/api/v1/unattended`)
+
+| Uç                                             | Yetki                                               | Girdi                                                                                          | Çıktı                                                                                                | Hatalar                                                                                       |
+| ---------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `GET /status`                                  | `connect` ∨ `manage`                                | —                                                                                              | `{ mode, available, notifyChannel }`                                                                 | —                                                                                             |
+| `GET /devices`                                 | `connect` ∨ `manage`                                | `q?` (≤ 64), `customerId?`, `state` `online\|offline\|all`, `cursor?`, `limit` 1–100 (50)      | `{ items: DeviceListItem[], nextCursor }`; `manage` yoksa yalnız yetkili cihazlar                    | 400                                                                                           |
+| `GET /devices/:id`                             | yetkili `connect` ∨ `manage`                        | —                                                                                              | `DeviceDetail` (`lastIp`, `registeredIp`, `registeredAt`, `grants` yalnız `manage`'de dolu)          | 404                                                                                           |
+| `PUT /devices/:id/grants`                      | `manage` (+ ekleme varsa step-up)                   | `{ "userIds": ["01K…"] }` (tam küme, ≤ 200; boş = tümünü kapat)                                | `{ grants }`                                                                                         | 400 (`fields.userIds`: başka firma/pasif/`connect` yetkisiz), 401 `MFA_STEP_UP_REQUIRED`, 404 |
+| `POST /devices/:id/revoke`                     | `manage`                                            | `{}`                                                                                           | 204; açık bağlantı ≤ 10 sn'de kesilir                                                                | 404, 409 (zaten iptal)                                                                        |
+| `POST /devices/:id/connect`                    | `connect` + cihaz yetkisi + step-up (**tüketilir**) | `{}`                                                                                           | `{ "sessionId": "01K…" }` → konsol `/sessions/:id/console`                                           | aşağıdaki zincir                                                                              |
+| `GET /registration-codes`                      | `manage`                                            | —                                                                                              | bekleyen kodlar `{ id, customerId, customerName, createdBy, expiresAt }` (kod yok)                   | —                                                                                             |
+| `POST /registration-codes`                     | `manage` + step-up                                  | `{ "customerId": "01K…" }`                                                                     | `{ id, code: "ABCD-1234-EFGH-5678", expiresAt, downloadUrl }` (kod **bir kez**; 24 sa, tek kullanım) | 404, 409 `UNATTENDED_DISABLED` / `NOTIFY_CONTACT_REQUIRED` / `NOTIFY_CHANNEL_UNAVAILABLE`     |
+| `DELETE /registration-codes/:id`               | `manage`                                            | —                                                                                              | 204                                                                                                  | 404                                                                                           |
+| `GET /customers/:customerId/contacts`          | `manage`                                            | —                                                                                              | `{ items: [{ email, phone }] }`                                                                      | 404                                                                                           |
+| `PUT /customers/:customerId/contacts`          | `manage` + step-up                                  | `{ "items": [{ "email": "bt@musteri.com.tr", "phone": "05321234567" }] }` (0–5, tekil e-posta) | `{ items }`; fark varsa eski ve yeni adreslerin hepsine değişiklik e-postası                         | 400, 401 `MFA_STEP_UP_REQUIRED`, 404                                                          |
+| `GET /download`                                | `manage`                                            | —                                                                                              | `NoktaDestekServis.exe`                                                                              | 503 (SHA uyuşmazlığı / yayın yok)                                                             |
+| `POST /register` (cihaz; çerezsiz, Origin'siz) | kayıt kodu                                          | `{ code, publicKey, name, osVersion, version, sha256, signed }`                                | `{ deviceId, tenantName, customerName }`                                                             | 404 `REGISTRATION_CODE_INVALID`, 409 `UNATTENDED_DISABLED`, 429                               |
+
+`DeviceListItem`: `{ id, name, customerId, customerName, online, localEnabled, signatureOk, lastSeenAt, lastSessionAt,
+grantCount, canConnect, connectBlockedReason, verified, notifyFailed, replacedAlert }`. `connectBlockedReason`:
+`no_grant` | `unsigned` | `offline` | `local_disabled` | `no_contacts` | `smtp` | `null`. Panel listeyi 15 sn'de bir yoklar.
+Ayrıca `GET /sessions?deviceId=` ve `GET /users/options?unattendedGrantable=1` (`manage`) eklendi. Etkin cihaz varken
+SMTP alanını değiştiren `PUT /settings/tenant` step-up ister (401 `MFA_STEP_UP_REQUIRED`); kayıttan önce firmadaki diğer
+`unattended.manage` / `settings.edit` sahiplerine eski ayarla bilgi e-postası gider.
+
+### Bağlantı ön koşul zinciri (ilk başarısız olan döner)
+
+| #   | Denetim                                              | Hata                                                                                     |
+| --- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 1   | Oturum + firma etkin                                 | 401 / 403                                                                                |
+| 2   | `unattended.connect`                                 | 403 `FORBIDDEN`                                                                          |
+| 3   | Cihaz bu firmada, iptal edilmemiş, cihaz yetkisi var | 404 `NOT_FOUND`                                                                          |
+| 4   | Son 5 dk içinde step-up                              | 401 `MFA_STEP_UP_REQUIRED` / 403 `MFA_SETUP_REQUIRED`                                    |
+| 5   | Cihazda yerel anahtar açık                           | 409 `DEVICE_LOCAL_DISABLED` "Yerel olarak kapalı"                                        |
+| 6   | Müşteride ≥ 1 bildirim adresi                        | 409 `NOTIFY_CONTACT_REQUIRED`                                                            |
+| 6b  | Firmanın SMTP kaydı var                              | 409 `NOTIFY_CHANNEL_UNAVAILABLE` "Bildirim e-postası yapılandırılmamış — Ayarlar → SMTP" |
+| 7   | İmza kapısı                                          | 409 `UNATTENDED_DISABLED` "Gözetimsiz erişim kod imzası olmadan kullanılamaz"            |
+| 8   | Cihaz çevrimiçi                                      | 409 `DEVICE_OFFLINE`                                                                     |
+| 9   | Cihazda başka gözetimsiz bağlantı yok                | 409 `DEVICE_BUSY`                                                                        |
+| 10  | Açık oturum sınırı; step-up tüketimi                 | 409 `OPEN_SESSION_LIMIT`, 401 `MFA_STEP_UP_REQUIRED`                                     |
+
+Bir doğrulama tek bağlantı açar; aynı step-up ile ikinci bağlantı 401. Hız sınırı: bağlantı kullanıcı başına 20/sa; kayıt IP
+başına 10/sa, yanlış kodda IP başına 5 hatada 15 dk kilit. Cihaz 60 sn'de katılmazsa oturum `CANCELLED(device_timeout)`.
+
+```bash
+curl -sk -X POST https://localhost:4450/api/v1/unattended/devices/01K…/connect \
+  -H 'Content-Type: application/json' -H 'Origin: https://localhost:4450' -H "X-CSRF-Token: $CSRF" \
+  -b "__Host-rs_session=$SESSION; __Host-rs_csrf=$CSRF" -d '{}'
+```
+
+### WebSocket `/ws/device` (yalnız servis)
+
+`wss://<host>/ws/device`, alt protokol `rs.device.v1`, sorgu dizesi yok, `Origin` başlığı **olmamalı** (tarayıcıdan açılamaz).
+Kimliksiz soket tavanı süreç başına 1000, IP başına 5 (aşımda 503). Mesaj ≤ 4 KB.
+
+| Yön   | Mesaj                                                                                      | Anlam                                                                                                 |
+| ----- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| S → C | `device.hello{v, nonce}`                                                                   | Açılış; 10 sn içinde `device.auth` gelmezse 4401                                                      |
+| C → S | `device.auth{deviceId, sig, version, sha256, signed, localEnabled, osVersion}`             | Ed25519 imza: `"rs-device-auth-v1\n" + nonce + "\n" + deviceId + "\n" + PUBLIC_BASE_URL kökeni`       |
+| S → C | `device.ready{tenantName, customerName}`                                                   | Başarı. Kapanış 4401 (imza/iptal/firma pasif), 4403 (imza kapısı), 4409 (aynı cihaz yeniden bağlandı) |
+| S → C | `connect{sessionId, ticket, techName, tenantName, techIp, expiresInSec}`                   | Bağlantı isteği; yardımcı süreç `/ws/guest`'e biletle katılır                                         |
+| C → S | `connect.result{sessionId, ok, reason?}`                                                   | `local_disabled` \| `indicator_failed` \| `helper_failed` \| `no_console` \| `busy`                   |
+| S → C | `disconnect{sessionId, reason}` · `revoked{}`                                              | Sunucu tarafı bitiş · Admin iptali (ardından 4401)                                                    |
+| C → S | `device.state{localEnabled}` · `session.closed{sessionId, reason}` · `device.unregister{}` | Yerel anahtar değişti · yardımcı çıktı · kaldırma                                                     |
+
+Sunucudan yerel anahtarı değiştiren mesaj yoktur. Konsol bitiş nedenlerine `device_revoked`, `local_disabled`,
+`indicator_failed`, `device_timeout`, `session_changed` eklendi; kontrol kaynağı `UNATTENDED`.
+
+### Audit ve metrik
+
+Audit eylemleri `unattended.code.created/cancelled`, `unattended.device.registered/revoked/auth/replaced`,
+`unattended.grant.changed` (`selfGrant`), `unattended.contacts.changed` (maskeli), `unattended.notify.failed`,
+`unattended.connect` (`stepUpMethod`), `unattended.session.started/ended`, `unattended.local_state`. Kayıt kodu, bilet, nonce
+ve anahtar yazılmaz. Metrikler `rs_unattended_*` (runbook §27.8).
 
 ## Saklama ve anonimleştirme (P13a)
 

@@ -61,6 +61,27 @@ async function consumeStepUp(tx: Tx, auth: AuthContext, now: Date): Promise<void
   if (r.count !== 1) throw no("step_up", "MFA_STEP_UP_REQUIRED");
 }
 
+/** PENDING cihaz oturumu satırı (kod yok; belirteç hiç döndürülmez). */
+async function insertPending(
+  tx: Tx,
+  o: { id: string; tenantId: string; technicianId: string; dev: repo.DeviceRow; now: Date; expiresAt: Date },
+): Promise<void> {
+  await srepo.insertSession(tx, {
+    id: o.id,
+    tenantId: o.tenantId,
+    technicianId: o.technicianId,
+    tokenHash: sha256Hex(newSecretToken()),
+    activeCode: null,
+    techVerifyCode: newTechVerifyCode(),
+    status: "PENDING",
+    createdAt: o.now,
+    expiresAt: o.expiresAt,
+    deviceId: o.dev.id,
+    customerId: o.dev.customerId,
+    customerName: o.dev.name,
+  });
+}
+
 export function openDeviceSession(
   d: ConnectDeps,
   ctx: AuditContext,
@@ -74,20 +95,7 @@ export function openDeviceSession(
     await recheck(tx, d, auth, tenantId, dev.id, now);
     const sessionId = newId();
     const expiresAt = new Date(now.getTime() + DEVICE_CONNECT_WINDOW_MS);
-    await srepo.insertSession(tx, {
-      id: sessionId,
-      tenantId,
-      technicianId: auth.user.id,
-      tokenHash: sha256Hex(newSecretToken()), // hiç döndürülmez
-      activeCode: null,
-      techVerifyCode: newTechVerifyCode(),
-      status: "PENDING",
-      createdAt: now,
-      expiresAt,
-      deviceId: dev.id,
-      customerId: dev.customerId,
-      customerName: dev.name,
-    });
+    await insertPending(tx, { id: sessionId, tenantId, technicianId: auth.user.id, dev, now, expiresAt });
     await consumeStepUp(tx, auth, now);
     await writeAudit(tx, ctx, {
       tenantId,

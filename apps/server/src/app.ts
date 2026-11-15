@@ -252,6 +252,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const deviceChannel = createDeviceChannel(app, devices, {
     ...(sig.pingMs ? { pingMs: sig.pingMs } : {}),
     ...(sig.deviceUnauth ? { unauth: sig.deviceUnauth } : {}),
+    ...(sig.deviceBeforeAttach ? { beforeAttach: sig.deviceBeforeAttach } : {}),
   });
   const counts = () => ({ request: r.hub.requestCount, panel: r.hub.panelCount, device: devices.size });
   attachSignaling(app, rooms, sig, requestChannels(app, r.requests, sig.revalidateMs), counts, deviceChannel);

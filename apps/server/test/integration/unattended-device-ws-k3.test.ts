@@ -15,15 +15,34 @@ let live: Live;
 let capped: Live;
 let signed: Live;
 let faked: Live;
+let raced: Live;
 const clock = new FakeClock();
+/** D-P27-K1: kimlik doğrulandıktan sonra hub'a eklemeden önce bekletilen cihazlar. */
+const holds = new Map<string, { entered: () => void; go: Promise<void> }>();
+
+function hold(deviceId: string): { entered: Promise<void>; release: () => void } {
+  let entered = (): void => undefined;
+  let release = (): void => undefined;
+  const e = new Promise<void>((r) => (entered = r));
+  const go = new Promise<void>((r) => (release = r));
+  holds.set(deviceId, { entered, go });
+  return { entered: e, release };
+}
 beforeAll(async () => {
   live = await startLive({ env: { ...UNSIGNED_ENV } });
   capped = await startLive({ env: { ...UNSIGNED_ENV, ...PROXY }, signaling: { deviceUnauth: { max: 7, perIp: 5 } } });
   signed = await startLive({ env: { UNATTENDED_MODE: "signed", DEPLOY_ENV: "staging", UNATTENDED_SIGNED_SHA256: SHA } });
   faked = await startLive({ env: { ...UNSIGNED_ENV }, signaling: { clock } });
+  const deviceBeforeAttach = async (id: string): Promise<void> => {
+    const h = holds.get(id);
+    if (!h) return;
+    h.entered();
+    await h.go;
+  };
+  raced = await startLive({ env: { ...UNSIGNED_ENV }, signaling: { deviceBeforeAttach } });
 });
 afterAll(async () => {
-  await Promise.all([live, capped, signed, faked].map((l) => l.close()));
+  await Promise.all([live, capped, signed, faked, raced].map((l) => l.close()));
 });
 
 const audits = (entityId: string, action: string) => testDb().auditLog.findMany({ where: { entityId, action }, orderBy: { id: "asc" } });
@@ -154,6 +173,42 @@ describe("P27-K3 /ws/device kimlik doğrulaması", () => {
     expect(await testDb().unattendedDeviceGrant.count({ where: { deviceId: f.dev.id } })).toBe(0);
     expect((await audits(f.dev.id, "unattended.device.revoked"))[0]?.newValue).toMatchObject({ reason: "UNINSTALLED", removedGrants: 1 });
     expect(live.app.unattendedHub.isOnline(f.dev.id)).toBe(false);
+  });
+});
+
+describe("P27 D-P27-K1 kimlik doğrulama ile iptal / firma pasifi yarışı", () => {
+  it("AC-275 D-P27-K1: iptal, kimlik okunduktan sonra ama hub'a eklemeden önce commit edilirse revoked{} + 4401; cihaz çevrimdışı", async () => {
+    const f = await freshDevice();
+    const admin = await createUser({ tenantId: f.tenantId, role: "ADMIN" });
+    const s = await loginAs(raced.app, admin);
+    const h = hold(f.dev.id);
+    const { c, nonce } = await rawDevice(raced);
+    c.send(authMsg(f.dev, nonce));
+    await h.entered;
+    const r = await raced.app.inject({ method: "POST", url: `/api/v1/unattended/devices/${f.dev.id}/revoke`, headers: s.headers });
+    expect(r.statusCode).toBe(204);
+    h.release();
+    await c.waitFor("revoked" as never);
+    expect((await c.closed).code).toBe(4401);
+    expect(raced.app.unattendedHub.isOnline(f.dev.id)).toBe(false);
+    expect(metric(raced, 'rs_unattended_device_auth_total{result="revoked"}')).toBeGreaterThanOrEqual(1);
+  });
+
+  it("AC-275 D-P27-K1: aynı pencerede firma pasife alınırsa 4401 tenant_passive (device.ready yok); yarış yoksa normal device.ready", async () => {
+    const f = await freshDevice();
+    const h = hold(f.dev.id);
+    const { c, nonce } = await rawDevice(raced);
+    c.send(authMsg(f.dev, nonce));
+    await h.entered;
+    await testDb().tenant.update({ where: { id: f.tenantId }, data: { status: "PASSIVE" } });
+    raced.app.unattendedHub.closeByTenant(f.tenantId); // deactivate.ts commit sonrası çağrısı — soket henüz hub'da değil
+    h.release();
+    expect(await c.closed).toEqual({ code: 4401, reason: "tenant_passive" });
+    expect(raced.app.unattendedHub.isOnline(f.dev.id)).toBe(false);
+    const g = await freshDevice();
+    const ok = await onlineDevice(raced, g.dev);
+    expect(raced.app.unattendedHub.isOnline(g.dev.id)).toBe(true);
+    ok.ws.close();
   });
 });
 

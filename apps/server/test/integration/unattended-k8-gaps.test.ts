@@ -1,5 +1,5 @@
-// P27 kapanış — K8 sözleşme boşlukları: `GET /sessions?deviceId=` (cihaz ayrıntısı "son 20 gözetimsiz oturum", AC-339) ve
-// `GET /users/options?unattendedGrantable=1` (yetki ekranı; yalnız `unattended.manage`). Gerçek MySQL (app kullanıcısı).
+// P27 kapanış — K8 sözleşme boşlukları: `GET /sessions?deviceId=` (cihaz ayrıntısı "son 20 gözetimsiz oturum", AC-275) ve
+// `GET /users/options?unattendedGrantable=1` (yetki ekranı, AC-293; yalnız `unattended.manage`). Gerçek MySQL (app kullanıcısı).
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTenant, createUser, loginAs, makeApp, type Session, type TestUser } from "../helpers/app.ts";
@@ -38,7 +38,7 @@ async function firm(): Promise<Firm> {
 const devUrl = (deviceId: string) => `/api/v1/sessions?mode=UNATTENDED&deviceId=${deviceId}&pageSize=20`;
 
 describe("P27 kapanış: GET /sessions deviceId filtresi", () => {
-  it("AC-339: yalnız o cihazın oturumları (200); USER yalnız kendininkini görür; başka firma aynı kimlikle boş liste", async () => {
+  it("AC-275: yalnız o cihazın oturumları (200); USER yalnız kendininkini görür; başka firma aynı kimlikle boş liste", async () => {
     const f = await firm();
     const byAdmin = await deviceSessionRow(f.tenantId, f.admin.id, f.deviceId);
     const byTech = await deviceSessionRow(f.tenantId, f.tech.id, f.deviceId);
@@ -53,7 +53,7 @@ describe("P27 kapanış: GET /sessions deviceId filtresi", () => {
     expect(other.json<{ items: unknown[]; total: number }>()).toMatchObject({ items: [], total: 0 });
   });
 
-  it("AC-339: geçersiz deviceId 400; cihazın oturumu yoksa boş liste", async () => {
+  it("AC-275: geçersiz deviceId 400; cihazın oturumu yoksa boş liste", async () => {
     const f = await firm();
     const s = await loginAs(app, f.admin);
     expect((await get(s, "/api/v1/sessions?deviceId=abc")).statusCode).toBe(400);
@@ -62,7 +62,7 @@ describe("P27 kapanış: GET /sessions deviceId filtresi", () => {
 });
 
 describe("P27 kapanış: GET /users/options?unattendedGrantable=1", () => {
-  it("AC-339: yalnız manage sahibi (USER dahil) — etkin, connect yetkili, kendi firması; alanlar id/ad/durum", async () => {
+  it("AC-293: yalnız manage sahibi (USER dahil) — etkin, connect yetkili, kendi firması; alanlar id/ad/durum", async () => {
     const f = await firm();
     const manager = await createUser({ tenantId: f.tenantId, role: "USER", perms: { "unattended.manage": true } });
     const plain = await createUser({ tenantId: f.tenantId, role: "USER" });
@@ -77,7 +77,7 @@ describe("P27 kapanış: GET /users/options?unattendedGrantable=1", () => {
     for (const i of items) expect(Object.keys(i).sort()).toEqual(["fullName", "id", "status"]);
   });
 
-  it("AC-339 en az yetki: manage yoksa grantable 403; yalnız manage ile genel liste 403; tenantId parametresi kapsamı aşamaz", async () => {
+  it("AC-293 en az yetki: manage yoksa grantable 403; yalnız manage ile genel liste 403; tenantId parametresi kapsamı aşamaz", async () => {
     const f = await firm();
     const g = await firm();
     const manager = await createUser({ tenantId: f.tenantId, role: "USER", perms: { "unattended.manage": true } });

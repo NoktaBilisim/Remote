@@ -167,17 +167,20 @@ export async function tenantSettingsRoutes(app: FastifyInstance): Promise<void> 
 /**
  * P27 (AC-336, O-P27-r2-1; mimari-p27 §7.2 r2, r3): firmada iptal edilmemiş gözetimsiz cihaz varken SMTP değişikliği step-up ister
  * ve kayıttan ÖNCE ESKİ yapılandırmayla diğer `unattended.manage` / `settings.edit` sahiplerine iç e-posta gider (gönderilemezse
- * kayıt yine yapılır). Dönen alanlar mevcut ayar audit'ine eklenir: `unattendedDevices`, `smtpChangeNotice`.
+ * kayıt yine yapılır). Dönen alanlar mevcut ayar audit'ine eklenir: `unattendedDevices`, `smtpChangeNotice` — D-P27-K4: alıcı yoksa
+ * `no_recipients`, eski yapılandırma yoksa gönderim denenmez `no_previous_config`.
  */
 async function smtpChangeGuard(
   app: FastifyInstance,
   req: FastifyRequest,
   tenantId: string,
   smtp: SmtpInput | null,
-): Promise<{ unattendedDevices: number; smtpChangeNotice: "sent" | "failed" } | undefined> {
+): Promise<{ unattendedDevices: number; smtpChangeNotice: SmtpChangeNotice } | undefined> {
   const devices = await activeDeviceCount(app.db, tenantId);
   if (devices === 0 || !(await smtpWillChange(app.db, tenantId, smtp))) return undefined;
   await requireStepUp()(req);
+  const cfg = await app.mail.configFor(tenantId);
+  if (!cfg) return { unattendedDevices: devices, smtpChangeNotice: "no_previous_config" };
   const auth = authOf(req);
   const out = await sendInternalNotice({
     db: app.db,
@@ -190,7 +193,10 @@ async function smtpChangeGuard(
     entity: "tenant_settings",
     entityId: tenantId,
     content: smtpChangeNoticeMail({ user: auth.user.fullName, devices, at: new Date() }),
-    cfg: await app.mail.configFor(tenantId),
+    cfg,
   });
-  return { unattendedDevices: devices, smtpChangeNotice: out.failed > 0 ? "failed" : "sent" };
+  const notice = out.failed > 0 ? "failed" : out.sent > 0 ? "sent" : "no_recipients";
+  return { unattendedDevices: devices, smtpChangeNotice: notice };
 }
+
+type SmtpChangeNotice = "sent" | "failed" | "no_recipients" | "no_previous_config";

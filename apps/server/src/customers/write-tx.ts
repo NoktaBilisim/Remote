@@ -14,7 +14,7 @@ import * as rrepo from "../requests/repo.ts";
 import type { RequestService } from "../requests/service.ts";
 import * as repo from "./repo.ts";
 import { auditFields, ENTITY, who } from "./view.ts";
-import { revokeCustomerDevicesTx } from "../unattended/customer-passive.ts";
+import { customerPassiveUnattendedTx } from "../unattended/customer-passive.ts";
 
 type Tx = Prisma.TransactionClient;
 
@@ -212,13 +212,10 @@ export async function deactivateTx(
   if (!c) throw new AppError("NOT_FOUND");
   if (c.status !== "ACTIVE") throw new AppError("CONFLICT", { message: "Müşteri zaten pasif." });
   const now = new Date(svc.d.clock.now());
-  await repo.update(tx, tenantId, id, {
-    status: "PASSIVE",
-    passiveAt: now,
-  });
+  await repo.update(tx, tenantId, id, { status: "PASSIVE", passiveAt: now });
   const n = await brepo.revokeForOwner(tx, tenantId, id, "CUSTOMER_PASSIVE", now);
   const ids = await cancelPendingTx(tx, ctx, auth, tenantId, id, now);
-  const devices = await revokeCustomerDevicesTx(
+  const un = await customerPassiveUnattendedTx(
     tx,
     ctx,
     { userId: auth.user.id, username: auth.user.email },
@@ -235,10 +232,11 @@ export async function deactivateTx(
       ...customerAuditView({ status: "PASSIVE", refPrefix: c.requestRef }),
       revokedBindings: n,
       cancelledRequests: ids.length,
-      revokedDevices: devices.length,
+      revokedDevices: un.devices.length,
+      cancelledRegistrations: un.codes,
     },
   });
-  return { revoked: n, cancelled: ids, devices };
+  return { revoked: n, cancelled: ids, devices: un.devices };
 }
 
 /** Yeniden aktif etme: kilit → YENİ ref (request_refs → customers) → audit. */

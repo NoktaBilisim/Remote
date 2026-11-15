@@ -10281,3 +10281,66 @@ Kaynak: P27-K8 "backend-dev'e notlar" (1–3) + koordinatör kapanış listesi. 
    alır. Başka uygulamanın taşıyıcısıyla teslim edilen ya da başarısız olan satır bu beklentiyi kırar. Öneri: test satır
    durumunu değil varlığını doğrulasın. Teslim için ya satırı yalnız bu firmaya bağlayan bir test kancası eklensin ya da
    outbox kullanan dosyalar `describe.sequential`/ayrı havuzda koşsun. Davranış değiştirilmemeli.
+
+## P27 — düzeltme turu 1 (backend-dev, 2026-11-15)
+
+Kaynak: `docs/qa-raporu.md` "P27 — kod turu 1" madde 1–2 + öneri (test adları), `docs/guvenlik-raporu.md` "P27 — kod turu 1"
+D-P27-K1..K4. Yeni bağımlılık yok, migration yok, yeni env yok.
+
+### Değişen dosyalar
+
+| Dosya                                                                         | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/server/src/unattended/device-auth.ts`                                   | D-P27-K1: başarı yazımı `updateMany({id, revokedAt:null})` (okuma ↔ yazma arasında iptal → `revoked{}` + 4401, iptal satırına beyan/IP yazılmaz); yeni `deviceLiveState(db, id)` (`ok`/`revoked`/`tenant_passive`)                                                                                                                                                                                |
+| `apps/server/src/unattended/device-ws.ts`                                     | D-P27-K1: `confirmAttached` — hub'a ekle → durumu yeniden oku; iptal/firma pasifi görülürse detach + (`revoked{}`) + 4401 (`reason` = durum) + metrik `rs_unattended_device_auth_total{result}`. İptal/pasif hub çağrısı commit'ten sonra geldiği için iki yoldan biri soketi mutlaka kapatır. `open` (42) → `open` + `beginAuth` (≤ 40). Yalnız testler için `beforeAttach` kancası              |
+| `apps/server/src/signaling/ws.ts`, `src/app.ts`                               | `SignalingOptions.deviceBeforeAttach` (yalnız test; env/HTTP yolu yok — `deviceUnauth` kalıbı)                                                                                                                                                                                                                                                                                                    |
+| `apps/server/src/unattended/contacts.ts`                                      | `customerStatusShared` (müşteri `FOR SHARE`); `putContacts` (43) → `replaceContacts` yardımcısı                                                                                                                                                                                                                                                                                                   |
+| `apps/server/src/unattended/registration.ts`                                  | D-P27-K2: kod üretimi pasif müşteride 409 `CONFLICT` ("Müşteri pasif; kayıt kodu oluşturulamaz."), TX içinde müşteri `FOR SHARE` ile yinelenir. Kayıt TX'i: kilit sırası müşteri `FOR SHARE` → kod `FOR UPDATE` (müşteri pasifiyle aynı sıra; kilitlenme yok), müşteri pasif/anonim → `null` = aynı tek 404 `REGISTRATION_CODE_INVALID`. `registerTx` (42) → `lockValidCode` + `registeredEvents` |
+| `apps/server/src/unattended/register.ts` (yeni)                               | `POST /register` HTTP katmanı registration.ts'ten taşındı (dosya 319 → 246 + 79; ≤ 300). D-P27-K3: üç kova `ipKey(ctx.ip)` (IPv4 adres, IPv6 /64). Audit'teki `ip` ham kalır                                                                                                                                                                                                                      |
+| `apps/server/src/unattended/customer-passive.ts`, `src/customers/write-tx.ts` | D-P27-K2: `customerPassiveUnattendedTx` = cihaz iptali + bekleyen (kullanılmamış) kayıt kodlarının silinmesi aynı TX'te; müşteri pasif audit'ine `cancelledRegistrations` (anahtar adında `code` geçmez — audit maskesi `***` yapardı). `deactivateTx` ≤ 40 korundu                                                                                                                               |
+| `apps/server/src/tenants/routes.ts`                                           | D-P27-K4: `smtpChangeNotice` = `sent` \| `failed` \| `no_recipients` (alıcı yok) \| `no_previous_config` (eski SMTP kaydı yok → gönderim denenmez)                                                                                                                                                                                                                                                |
+| `apps/server/src/unattended/routes.ts`                                        | `unattendedRoutes` (65) → `deviceRoutes` + `codeAndContactRoutes` + `downloadRoute` (davranış/sıra/guard aynı)                                                                                                                                                                                                                                                                                    |
+| `apps/server/src/unattended/service.ts`                                       | `putGrants` (42) → `addGrants` yardımcısı                                                                                                                                                                                                                                                                                                                                                         |
+| `apps/server/src/unattended/connect-tx.ts`                                    | `openDeviceSession` (41) → `insertPending` yardımcısı                                                                                                                                                                                                                                                                                                                                             |
+
+Ölçüm (`eslint max-lines-per-function 40`, pt-olcum kuralı, prettier sonrası): `src/unattended/**` 0 aşım; dokunulan
+`customers/write-tx.ts` `deactivateTx` 40. Kalan uyarılar bu turdan önce de vardı (P27 dışı baseline). Dosyalar: hepsi ≤ 300
+(en büyük `customers/write-tx.ts` 281, `unattended/service.ts` 279).
+
+### Testler (adı AC içerir)
+
+| Dosya                             | Test                                                                                                                                                                                                                                         |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unattended-outbox-k4.test.ts`    | "AC-296: firmada SMS/WhatsApp açık + telefonlu adres → EMAIL + SMS + WHATSAPP; kapalı ya da telefonsuzda yalnız EMAIL; aynı numara bir kez" (iki adres aynı telefon → SMS/WA birer satır; satırlar test sonunda silinir — paylaşılan kuyruk) |
+| `unattended-device-ws-k3.test.ts` | "AC-275 D-P27-K1: iptal … hub'a eklemeden önce commit edilirse revoked{} + 4401"; "AC-275 D-P27-K1: firma pasifi … 4401 tenant_passive; yarış yoksa normal device.ready" (kanca ile auth bekletilir)                                         |
+| `unattended-register.test.ts`     | "AC-339 D-P27-K3: aynı IPv6 /64 … 429; başka /64 etkilenmez"; "AC-275 D-P27-K2: pasif müşteriye kod 409; pasife almada kodlar silinir + audit, kod 404"; "AC-275 D-P27-K2: kod duruyor ama müşteri pasifse kayıt 404, kod tüketilmez"        |
+| `unattended-api.test.ts`          | "AC-336 D-P27-K4: … no_recipients; … no_previous_config (gönderim yok)" (giriş kovası dolmasın diye ayrı uygulama örneği)                                                                                                                    |
+| `unattended-k8-gaps.test.ts`      | adlar AC-339 → AC-275 (deviceId geçmiş filtresi) / AC-293 (`unattendedGrantable`)                                                                                                                                                            |
+
+### Tasarımdan sapmalar
+
+1. Pasif müşteriye kayıt kodu: 409 `CONFLICT` (mevcut kod; mimari-p27 §4.2 tablosunda yoktu). 404 seçilmedi: müşteri vardır ve
+   Admin'e neden gösterilmelidir; firma içi uç olduğundan varlık sızıntısı yok. Cihaz kayıt ucunda ise pasif müşteri geçersiz
+   kodla aynı 404 (tek gövde kuralı, sayaçlara da sayılır).
+2. D-P27-K1 kilitli okuma yerine "ekle → yeniden oku" seçildi: auth TX'inde `FOR UPDATE` revoke'u bekletir ama commit sonrası
+   `hub.revoked` yine eklemeden önce koşabilirdi; yeniden okuma her sıralamada kapanışı garanti eder.
+
+### frontend-dev için sözleşme notları
+
+- `POST /unattended/registration-codes`: yeni hata 409 `CONFLICT` (message "Müşteri pasif; kayıt kodu oluşturulamaz.").
+  Genel hata gösterimi yeterli; müşteri seçicisi pasifleri zaten göstermiyorsa değişiklik gerekmez.
+- Audit `tenant_settings.updated.newValue.smtpChangeNotice` iki yeni değer alabilir: `no_recipients`, `no_previous_config`
+  (Audit Log ekranı ham JSON gösteriyorsa iş yok). Müşteri pasif audit'inde yeni alan `cancelledRegistrations`.
+
+### Doğrulama
+
+Geçici `rs-p27-fix1-db` (mysql 8.4.13, `--max-connections=300 --log-bin-trust-function-creators=1`, `deploy/mysql/init/01-users.sh`,
+`apps/server/scripts/test-db.sh`); iş sonunda silindi. Staging'e bağlanılmadı, commit yok.
+
+| Komut                                                                                                            | Sonuç                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run typecheck` · `pnpm -r run lint`                                                                     | temiz                                                                                                                                                                                                                                                                                               |
+| `pnpm run format:check`                                                                                          | yalnız `docs/guvenlik-raporu.md` (güvenlik ajanının dosyası, bu tur dokunulmadı)                                                                                                                                                                                                                    |
+| `pnpm -r run test` (unit)                                                                                        | contracts 173/173 · web 402/402 · server 461/461                                                                                                                                                                                                                                                    |
+| Etkilenen dosyalar ×2 (glob genişlemediği için vitest tüm sunucu testlerini koştu: unit + entegrasyon 124 dosya) | 1384/1384 · 1384/1384                                                                                                                                                                                                                                                                               |
+| `pnpm --filter @remote/server test:int`                                                                          | 1. koşu 922/923 — `unattended-connect-k3` "§2 adım 8 … device_timeout" 10 sn test zaman aşımı (gerçek saatli pencere, yük altında; dosya tek başına 3/3 yeşil, önceki iki tam koşuda yeşil; bu tur o yola dokunmadı — `openDeviceSession` yalnız yardımcıya bölündü). 2. koşu **923/923**, 91 dosya |

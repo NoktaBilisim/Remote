@@ -78,9 +78,16 @@ export async function authenticateDevice(d: AuthDeps, ctx: AuditContext, nonce: 
   if (dev.revokedAt) return reject("revoked", WS_DEVICE_CLOSE.AUTH_FAILED, true);
   if (dev.tenant.status !== "ACTIVE" || dev.tenant.deletedAt) return reject("tenant_passive");
   if (!d.gate.allows({ signed: m.signed, sha256: m.sha256 })) return reject("gate", WS_DEVICE_CLOSE.GATE);
-  await d.db.$transaction(async (tx) => {
-    await tx.unattendedDevice.update({
-      where: { id: dev.id },
+  if (!(await recordAuth(d, ctx, dev, m))) return reject("revoked", WS_DEVICE_CLOSE.AUTH_FAILED, true);
+  d.metrics.inc("rs_unattended_device_auth_total", { result: "ok" });
+  return { ok: true, tenantId: dev.tenantId, tenantName: dev.tenant.name, customerName: dev.customer.name };
+}
+
+/** Beyan alanları + son görülme; D-P27-K1: yalnız iptal edilmemiş satıra yazılır (okuma ile yazma arasında iptal → false). */
+async function recordAuth(d: AuthDeps, ctx: AuditContext, dev: Dev, m: DeviceAuth): Promise<boolean> {
+  return d.db.$transaction(async (tx) => {
+    const r = await tx.unattendedDevice.updateMany({
+      where: { id: dev.id, revokedAt: null },
       data: {
         agentVersion: m.version,
         binarySha256: m.sha256,
@@ -91,10 +98,25 @@ export async function authenticateDevice(d: AuthDeps, ctx: AuditContext, nonce: 
         lastIp: ctx.ip.slice(0, 45),
       },
     });
+    if (r.count !== 1) return false;
     await successAudits(tx, ctx, dev, m);
+    return true;
   });
-  d.metrics.inc("rs_unattended_device_auth_total", { result: "ok" });
-  return { ok: true, tenantId: dev.tenantId, tenantName: dev.tenant.name, customerName: dev.customer.name };
+}
+
+export type LiveState = "ok" | "revoked" | "tenant_passive";
+
+/**
+ * D-P27-K1: hub'a eklendikten SONRA cihaz/firma durumu yeniden okunur. İptal ve firma pasifi commit'ten sonra hub'ı kapatır;
+ * bu okuma iptali görmüyorsa iptalin hub çağrısı eklemeden sonra gelir — iki yoldan biri soketi mutlaka kapatır.
+ */
+export async function deviceLiveState(db: Db, deviceId: string): Promise<LiveState> {
+  const dev = await db.unattendedDevice.findUnique({
+    where: { id: deviceId },
+    select: { revokedAt: true, tenant: { select: { status: true, deletedAt: true } } },
+  });
+  if (!dev || dev.revokedAt) return "revoked";
+  return dev.tenant.status !== "ACTIVE" || dev.tenant.deletedAt ? "tenant_passive" : "ok";
 }
 
 type Dev = { id: string; tenantId: string; lastIp: string | null; localEnabled: boolean };
