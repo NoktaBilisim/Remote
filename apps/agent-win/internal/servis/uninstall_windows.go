@@ -126,10 +126,12 @@ func relaunch(exe, verb string) int {
 	v, err1 := windows.UTF16PtrFromString(verb)
 	f, err2 := windows.UTF16PtrFromString(exe)
 	a, err3 := windows.UTF16PtrFromString("--uninstall")
-	if errors.Join(err1, err2, err3) != nil {
+	// Çalışma dizini ikilinin klasörü: devralınan dizin (ör. Program Files) kopya süreçte tutulup iz bırakmasın.
+	d, err4 := windows.UTF16PtrFromString(filepath.Dir(exe))
+	if errors.Join(err1, err2, err3, err4) != nil {
 		return 1
 	}
-	if err := windows.ShellExecute(0, v, f, a, nil, windows.SW_SHOWNORMAL); err != nil {
+	if err := windows.ShellExecute(0, v, f, a, d, windows.SW_SHOWNORMAL); err != nil {
 		return 1
 	}
 	return 0

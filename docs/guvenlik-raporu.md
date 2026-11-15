@@ -1,3 +1,49 @@
+## P27 — kod turu 3 (2026-11-15, dal p27-wip, HEAD 9f12760; D-P27-K5 kapanışı + K12 web hızlı bakış)
+
+DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (+2 bilgi)
+Kapsam: `apps/agent-win/internal/servis/{uninstall.go, uninstall_copy_windows.go, uninstall_windows.go, acl_windows.go (createSecureDir/verifyDir)}`,
+`internal/diag/reparse_windows.go` (`OpenDir`, `Dir.Open`), `test/trace-check.ps1`, `.github/workflows/agent-win.yml` (öz test); web
+`components/list-search.tsx`, `app/(panel)/unattended/{(list)/*, not-found.tsx, device-filters.tsx, [id]/page.tsx}`,
+`components/console/stage-overlay.tsx`, `sessions/[id]/console/console-header.tsx`, `lib/module-icons.ts`, `side-nav.tsx`,
+`permission-matrix.tsx`. Kod değiştirilmedi; Windows elle testi (implementation.md "P27 — düzeltme turu 2" 1–4) çalıştırılmadı;
+staging'e bağlanılmadı.
+
+### Tur 2 bulgusunun kapanışı
+
+| Bulgu    | Durum       | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| -------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-P27-K5 | **Kapandı** | Konum `KnownFolderPath(FOLDERID_Windows)\Temp` (ortam değişkeni okunmaz; uninstall_copy_windows.go:35-41), ad 8 bayt `crypto/rand` (:50-54). Klasör `CreateDirectory`+SDDL `O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)` tek çağrıda; var ise `ERROR_ALREADY_EXISTS` → hata, yeniden deneme yok (acl_windows.go:27-44) → ad önceden açma (squatting) yalnız hataya düşer. `diag.OpenDir(dir,false)` üst klasör + klasörü `shareNoDel` ile sabitler, gerçek yol = üst + ad değilse `ErrReparse` (reparse_windows.go:102-145); ACL `verifyDir` ile yeniden okunur (sahip SY/BA, korumalı, ACE kümesi birebir). Kopya `Dir.Open(ModeCreate)` = `CREATE_NEW` + yalnız `FILE_SHARE_READ` + `NumberOfLinks==1` (reparse_windows.go:185-207); kapatılıp `ModeRead` (`GENERIC_READ`, yalnız `FILE_SHARE_READ`) ile yeniden açılır ve SHA-256 kaynakla karşılaştırılır (uninstall_copy_windows.go:80-121). Kapatma ile yeniden açma arasında orta bütünlükteki süreç DACL nedeniyle dosyayı açamaz; açık tanıtıcı yazma/silme/yeniden adlandırma paylaşımı vermez; `ShellExecute("open")` dönünce görüntü bölümü eşlendiği için dosya yazılamaz (uninstall_windows.go:67-79). DLL bırakma: klasöre yalnız SY/BA yazar + `dllsafe.Harden` ilk satırda (cmd/noktadestek-servis/main.go:40). Başarısızlıkta klasör silinir (:60, :76); kopyadan çalışan süreç her çıkış yolunda (`defer`, onay reddi ve servis hatası dahil) dosya → klasör sırasıyla `MOVEFILE_DELAY_UNTIL_REBOOT` (:126-131; uninstall_windows.go:48-50). `trace-check.ps1` yalnız `NoktaDestekServis-kaldir-*` adını tarar, `PendingFileRenameOperations`'ta kayıtlıysa UYARI, değilse iz; CI öz testi iki durumu da sınıyor. |
+
+### [BİLGİ] Kopya sürecin çalışma dizini devralınıyor
+
+Yer: uninstall_windows.go:132 (`ShellExecute(0, v, f, a, nil, …)` — `lpDirectory` nil).
+Durum: Tam yol `lpFile`'a ayrı parametre olarak geçiyor (tırnak gerekmez, `lpParameters` sabit `--uninstall`; komut satırı enjeksiyonu yok). Çalışma dizini üst süreçten devralınır; `SetDllDirectory("")` + `LOAD_LIBRARY_SEARCH_SYSTEM32` nedeniyle DLL arama için güvenlik etkisi yok. İşlevsel yan etki: kaldırıcı Program Files klasörü çalışma dizini iken açıldıysa (ör. Explorer'dan elle), kopya süreç o klasörü tanıtıcı olarak tuttuğu için `removeProgramDir` ~6 sn sonra pes eder ve klasör iz olarak kalabilir. Öneri (zorunlu değil): `lpDirectory` = kopya klasörü. Windows elle testinde (adım 3) gözlenebilir. Atanan: backend-dev (Go), "Sonra".
+
+### [BİLGİ] Kopya dosyanın sahibi belirteç varsayılanından gelir
+
+Klasörün sahibi SDDL ile açıkça BA; dosyanın sahibi oluşturan belirtecin varsayılan sahibidir (yükseltilmiş yönetici belirtecinde normalde BUILTIN\Administrators). "Varsayılan sahip: nesneyi oluşturan" ilkesi uygulanmış makinede sahip kullanıcı SID'i olabilir ve orta bütünlükteki aynı kullanıcı `WRITE_DAC` alabilir; ancak kopya `ShellExecute` dönene dek yazma paylaşımı vermeyen tanıtıcıyla açık, sonra çalışan görüntü olarak kilitli, klasöre (sahibi BA) yeni dosya eklenemez → istismar yolu yok. Değişiklik gerekmez.
+
+### K12 web — hızlı güvenlik bakışı
+
+- XSS: değişen dosyalarda `dangerouslySetInnerHTML`/`innerHTML` yok; tüm metinler `t()` sözlüğünden ya da React metin düğümü. `not-found.tsx` bağlantısı sabit `/unattended`.
+- 404 varlık sızdırmıyor: `[id]` ULID değilse `notFound()`, sunucu 404 → `notFound()`, 401 → giriş, diğer hatalar genel `LoadError` ([id]/page.tsx:147-160). Yok / başka tenant / iptal / grant'sız hepsi tek metin "Cihaz bulunamadı" + aynı gövde (tr.json `un.nf.*`); sunucu bu durumları zaten tek 404'te birleştiriyor (tur 1/2). `[id]/loading.tsx` silinmesi yalnız akış davranışını değiştirir; `gateBody` yetki kapısı `notFound`'dan önce, değişmedi.
+- Yetki gizleme: `side-nav.tsx` ve `permission-matrix.tsx`'te yalnız ikon kaynağı değişti; `perm`/`anyPerm` değerleri birebir aynı (diff). `module-icons.ts` yalnız ikon eşlemesi, yetki mantığı yok.
+- Konsol: gözetimsizde doğrulama kodu ve kod geçerliliği gizlenmesi yalnız sunum; kod sunucu verisi olarak zaten yalnız oturum sahibine gidiyor, gizleme yeni yüzey açmıyor.
+- Arama: `maxLength=64` (UTF-16) + `deviceSearchTerm` (2..64 kod noktası, `UNSAFE_NAME_CHARS` reddi) hem girişte hem URL ayrıştırmada (lib/unattended/query.ts:18-35); sunucu sınırı ayrıca geçerli.
+
+### Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: `No known vulnerabilities found`.
+- Gizli bilgi `git grep` kalıbı (değişen dokümanlar + servis/web dosyaları): tek eşleşme runbook.md:2351 — sır tarama komutunun kendisi (yanlış pozitif).
+- `git log --all -- '*.env' '.env*'` (`.env.example` hariç): kayıt yok.
+- `go.mod`/`go.sum`/`package.json`/lockfile bu commit'te değişmedi; `govulncheck` yeniden çalıştırılmadı.
+
+### Öneri
+
+P27 güvenlik açısından kapanabilir. İki BİLGİ maddesi zorunlu değil; ilki `docs/gereksinimler.md` §9'a "Sonra" olarak eklenebilir. Windows elle testi (implementation.md "P27 — düzeltme turu 2" adım 1–4) prod öncesi kontrol listesinde kalmalı.
+
+---
+
 ## P27 — kod turu 2 (2026-11-15, dal p27-wip, HEAD 81568e5; düzeltme turu 1 doğrulaması + tur 1'de incelenmeyen alanlar)
 
 DURUM: GEÇTİ — Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 (+3 bilgi)

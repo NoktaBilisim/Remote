@@ -2,6 +2,56 @@
 
 Önceki paketlerin sayfa testi raporları `docs/arsiv/*-test-raporu.md` ve `docs/test-raporu/` altındadır.
 
+## P27a + P27 — sayfa testi tur 2
+
+DURUM: GEÇTİ (tur 1 bulgularının tamamı kapandı; yeni bulgu yok)
+Ortam: üretim derlemesi (standalone, bu tur yeniden derlendi) `http://localhost:3217` + sahte API `apps/web/e2e/mock-api.mjs` :4217.
+Dal `p27-wip`, HEAD `9f12760`, tarih 2026-11-15. Gerçek sunucu ve staging kullanılmadı.
+Betikler: `docs/test-raporu/e2e/p27-k12/tur2-dogrulama.spec.ts` (hedefli doğrulama), `tur2-tarama.spec.ts` (tur 1 taramasının
+kopyası, ayrı çıktı); ham sonuçlar `dogrulama-tur2.jsonl`, `sonuc-tur2.jsonl`. Seçilmiş ekranlar `docs/img/p27-k12-tur2/`.
+Not: betikler `apps/web` altından koşulmalı (`@playwright/test` çözümü); geçici kopya koşu sonrası silindi.
+
+### Özet
+
+| Ölçüt                | Sonuç                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| Taranan görünüm      | 116 (29 ekran/durum × açık/koyu × 1440 / 390 px) + 8 konsol (gözetimsiz/katılımlı × 2 × 2) |
+| Konsol / JS hatası   | 0 (yalnız `account-td-hata` senaryosunun bilerek döndürülen 500'ü, tur 1'le aynı)          |
+| 4xx/5xx              | yalnız beklenen: 3 × `/unattended/<yok/bozuk/yetkisiz>` 404 (artık doğru), `tdbad` 500     |
+| axe (wcag2a/aa/21aa) | 0 ihlal, 116/116                                                                           |
+| 390 px yatay taşma   | 0                                                                                          |
+| Doğrulama spec'i     | 18/18 geçti (desktop + mobile)                                                             |
+
+### Tur 1 bulgularının doğrulaması
+
+| Tur 1 bulgusu                                   | Sonuç | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [ORTA] Gözetimsiz konsolda "Müşteri bekleniyor" | ✅    | Gözetimsiz: sahne `stage-unattended-wait` "Cihaz bağlanıyor… Cihazdaki servis oturuma katıldığında…", durum "Cihaz bağlanıyor…", "Müşteri bekleniyor"/doğrulama kodu metni yok, `console-verify-code` 0, `console-left` 0. Katılımlı (gerileme): "Bekliyor", "Müşteri bekleniyor" + doğrulama/oturum kodu, "Kod geçerliliği 15:00" aynen duruyor. 4 kombinasyon × 2 tür, taşma 0. `konsol-gozetimsiz-desktop-dark.png`, `konsol-katilimli-mobile-light.png` |
+| [DÜŞÜK] Arama 64 sınırı                         | ✅    | `maxlength=64`; 300 karakter yapıştırma ve 70 tuş → 64; ipucu "2–64 karakter; Enter ile hemen ara."; 64 karakter Enter → URL'de `q`, "Filtreye uyan cihaz yok" boş durumu; `?q=<70>` → kutu boş, 4 cihaz (filtre yok sayıldı, kullanıcı yanılmaz); `?q=<64>` → kutu 64, 0 sonuç; `depo` → 1 sonuç                                                                                                                                                           |
+| [DÜŞÜK] `/unattended/<yok>` HTTP 200            | ✅    | Olmayan ULID, `abc`, teknisyene yetkisiz D3 → **404**, tek h1 "Cihaz bulunamadı", açıklama + "Gözetimsiz cihazlara dön"; veri sızmıyor. Var olan D1 → 200; `/unattended`, `/unattended/codes` → 200 (URL değişmedi). `un-detail-yok-404-desktop-dark.png`                                                                                                                                                                                                   |
+| [DÜŞÜK] Filtre satırı hizası                    | ✅    | 1440: arama, Müşteri, durum düğmesi üçü de `y=376`, yükseklik 44 (ipucu altta, hizayı bozmuyor). 390: arama ve Müşteri genişliği 358 = 358, durum grubu gerilmiyor. `filtre-desktop.png`, `filtre-mobile.png`                                                                                                                                                                                                                                               |
+| [DÜŞÜK] "Hatırlanan cihazları kaldır" 3 satır   | ✅    | Masaüstü ve mobilde düğme yüksekliği 44 (= "2FA'yı sıfırla"), metin taşmıyor (`scrollWidth = clientWidth`), ekran görüntüsünde tek satır, ikon hizalı. `user-edit-td-desktop-light.png`                                                                                                                                                                                                                                                                     |
+| [DÜŞÜK] Modül ikonu tutarsız                    | ✅    | Yetki tablosu/kartı ve yan menü aynı ikon: unattended `monitor-cog`, sessions `monitor-smartphone`, customers `building-complex`, session_history `rotate-ccw-clock`, settings `settings`, audit `scroll-text`, users `users` (DOM sınıflarıyla karşılaştırıldı; masaüstü + mobil)                                                                                                                                                                          |
+| [DÜŞÜK, test verisi] Çelişkili "Pasif" uyarısı  | ✅    | Acme ve Beta (ACTIVE): "Aktif" rozeti + indirme bağlantısı + dosya adı, "Pasif — bağlantı geçersiz" yok. `customer-beta-mobile-light.png`                                                                                                                                                                                                                                                                                                                   |
+
+### Bulgular
+
+Yok. (Bilgi: 404 sayfasının `<title>`'ı "Cihaz ayrıntısı" kalıyor — implementation.md'de bilinçli sapma olarak yazılmış, h1
+doğru; bulgu sayılmadı.)
+
+### Görsel gözlemler
+
+- Gözetimsiz bekleme katmanı `MonitorCog` ikonu + iki satır açıklama; sahne tasarım gereği iki temada koyu (DESIGN.md "Konsol koyu teması").
+  Mobilde durum rozeti ile "Oturumu iptal et" aynı satırda, sıkışma yok.
+- Liste mobil koyu: filtreler tam genişlik, kartlar ve rozetler okunaklı; TEST bandı ve pasif "Bağlan" nedenleri yerinde.
+- 404 sayfası panel düzeni içinde, kesik çizgili boş durum kartı, breadcrumb "Cihaz bulunamadı".
+- Kullanıcı düzenleme: "2FA'yı sıfırla" ve "Hatırlanan cihazları kaldır" kendi satırlarında, sol sütun dengeli.
+
+### Test edilmeyenler
+
+- Gerçek sunucu akışı (`real-flow.mts`) bu turda koşulmadı: değişiklikler yalnız `apps/web` + sahte veri; tur 1'de 27/27 PASS.
+- Mevcut e2e takımı yeniden koşulmadı (frontend-dev 182 geçti raporladı); Windows elle testi hâlâ bekliyor (tur 1 listesi).
+
 ## P27a + P27 — sayfa testi
 
 DURUM: GEÇTİ (web + sunucu kapsamı; Windows elle testi kullanıcıda bekliyor, aşağıda)
