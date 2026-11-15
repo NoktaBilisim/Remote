@@ -1,0 +1,6 @@
+# git blame bu commit'leri atlar (ADR-0024, P14a A0).
+# Yerelde bir kez:  git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub bu dosyayı kök dizinde otomatik tanır.
+#
+# P14a A0 — tek seferlik Prettier biçimlendirmesi (yalnız biçim, davranış değişikliği yok)
+cfd9fdbce6f9f4c6bd6cb1785555af7ba154f0b5
