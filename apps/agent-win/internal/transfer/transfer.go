@@ -44,6 +44,9 @@ type Deps struct {
 	// After d sonra fid için DoneTimeout'un Manager'ı kullanan döngüden çağrılmasını planlar; dönen fonksiyon
 	// zamanlayıcıyı durdurur. Geç tetiklenen zamanlayıcı etkisizdir (DoneTimeout bekleyen done yoksa nil döner).
 	After func(d time.Duration, fid string) (stop func() bool)
+	// CheckDir P27 (Y-P27-2 m.3): nil değilse her `.part` açılışından ve yerleştirmeden önce Dir'in gerçek yolunu
+	// denetler (gözetimsiz yardımcı: GetFinalPathNameByHandle + reparse reddi); hata → aktarım reddedilir.
+	CheckDir func() error
 }
 
 type offer struct {
@@ -126,6 +129,9 @@ func (m *Manager) Decide(fid string, accept bool) (*Result, error) {
 		m.reply("file.reject", fid)
 		m.meta(*o, "REJECTED")
 		return &Result{Name: o.name, Status: "REJECTED"}, nil
+	}
+	if err := m.checkDir(); err != nil {
+		return m.failOffer(*o, err)
 	}
 	final, err := m.availableName(o.name)
 	if err != nil {
@@ -260,8 +266,19 @@ var errExists = errors.New("transfer: hedef var")
 // placeAttempts aynı anda oluşan dosyalarla yarışta yeni ad deneme sayısı.
 const placeAttempts = 5
 
+// checkDir Deps.CheckDir (yoksa denetim yok — katılımlı oturum, İndirilenler).
+func (m *Manager) checkDir() error {
+	if m.d.CheckDir == nil {
+		return nil
+	}
+	return m.d.CheckDir()
+}
+
 // place `.part`'ı üzerine yazmadan nihai ada taşır; ad doluysa (alım sırasında oluşmuşsa) ` (n)` ekli ad seçer.
 func (m *Manager) place(part, name string) (string, error) {
+	if err := m.checkDir(); err != nil {
+		return "", err
+	}
 	cand := name
 	for i := 0; i < placeAttempts; i++ {
 		dst := filepath.Join(m.d.Dir, cand)

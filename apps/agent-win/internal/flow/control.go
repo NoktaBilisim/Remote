@@ -78,6 +78,10 @@ func (s *session) onControlServer(ctx context.Context, m signal.Inbound) {
 		if s.phase != phActive || s.granted || !s.hasCap(capRemoteControl) || !s.ctlReq.Admit(s.d.Now()) {
 			return
 		}
+		if s.d.Unattended { // P27 (mimari-p27 §5.6): arayüz yok, anında GRANTED{UNATTENDED}
+			s.grantControl(ctx)
+			return
+		}
 		s.d.UI.ControlRequest(ControlPrompt{TechName: s.techName, Hotkey: s.d.Hotkey})
 	case signal.MonitorRequest:
 		s.onMonitorRequest(m.MonitorID)
@@ -165,8 +169,9 @@ func (s *session) onControlUser(ctx context.Context, ev Event) {
 }
 
 // grantControl yerel "İzin ver". Son savunma: bekleyen istek, yetenek, etkin oturum ve kapatma kısayolu (G-21) şart.
+// P27 gözetimsiz kipte kısayol yerine cihazın yerel anahtarı geçerlidir (§5.6); kaynak UNATTENDED.
 func (s *session) grantControl(ctx context.Context) {
-	if !s.ctlReq.Pending() || s.phase != phActive || !s.hasCap(capRemoteControl) || s.d.Hotkey == "" {
+	if !s.ctlReq.Pending() || s.phase != phActive || !s.hasCap(capRemoteControl) || (s.d.Hotkey == "" && !s.d.Unattended) {
 		s.ctlReq.Cancel()
 		return
 	}
@@ -174,7 +179,11 @@ func (s *session) grantControl(ctx context.Context) {
 	s.gate.Open()
 	s.granted = true
 	s.d.UI.ControlState(true, s.d.Hotkey)
-	s.sendControl(ctx, "GRANTED", "UI")
+	source := "UI"
+	if s.d.Unattended {
+		source = "UNATTENDED"
+	}
+	s.sendControl(ctx, "GRANTED", source)
 }
 
 // onMonitorRequest AC-43: yalnız çoklu monitörde, farklı ve bilinen kimlik için diyalog (G-03 kuralları).

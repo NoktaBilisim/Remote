@@ -160,9 +160,10 @@ func (s *session) initFiles(ctx context.Context) (Outcome, bool) {
 			}
 			return s.peer.SendCtl(b)
 		},
-		Meta: func(m signal.FileMeta) { s.send(ctx, m) },
-		MOTW: s.d.MOTW,
-		Now:  s.d.Now,
+		Meta:     func(m signal.FileMeta) { s.send(ctx, m) },
+		MOTW:     s.d.MOTW,
+		CheckDir: s.d.CheckDir,
+		Now:      s.d.Now,
 		After: func(d time.Duration, fid string) func() bool {
 			return time.AfterFunc(d, func() {
 				select {

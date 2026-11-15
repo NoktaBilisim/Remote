@@ -140,6 +140,8 @@ type Deps struct {
 	Capture                    func(monitorID int) (rtc.Source, error)
 	DownloadDir                func() (string, error)
 	MOTW                       func(path string) error
+	// CheckDir P27: nil değilse her dosya yazımından önce DownloadDir'in gerçek yolu denetlenir (transfer.Deps.CheckDir).
+	CheckDir func() error
 	// Logo `tenant.logoUrl`'i indirir (api.Client.Logo: yalnız gömülü sunucu kökeni, PNG/JPG, ≤ 2 MB). nil olabilir.
 	Logo   func(ctx context.Context, logoURL string) (image.Image, error)
 	UI     UI
@@ -168,6 +170,9 @@ type Deps struct {
 	ReconnectEvery time.Duration
 	// Binding P8c: nil ise `binding.offer` yok sayılır (kayıt istenmez) ve AC-188 satırı gösterilmez.
 	Binding BindingHandler
+	// Unattended P27 (mimari-p27 §5.6): gözetimsiz yardımcı. control.request kullanıcıya sorulmadan GRANTED{UNATTENDED}
+	// ile kabul edilir; kapatma kısayolu gerekmez (yerel anahtar geçerlidir). Yalnız internal/unattended/helper açar.
+	Unattended bool
 	// Admitted P8b-2: ilk `hello` geldiğinde bir kez çağrılır (talep modu `/ws/request`'i 1000 ile ancak bundan sonra
 	// kapatır; öncesindeki 1000 sunucuda "vazgeçme" sayılır). nil olabilir.
 	Admitted func()
