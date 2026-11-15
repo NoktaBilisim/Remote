@@ -20,6 +20,7 @@ import (
 	"remote-support/agent-win/internal/diag"
 	"remote-support/agent-win/internal/dllsafe"
 	"remote-support/agent-win/internal/env"
+	"remote-support/agent-win/internal/printing"
 	"remote-support/agent-win/internal/remember"
 	"remote-support/agent-win/internal/tray"
 	"remote-support/agent-win/internal/ui"
@@ -49,7 +50,19 @@ const exitGrace = 2 * time.Second
 const closeDelay = 2500 * time.Millisecond
 
 func main() {
+	// P28a (mimari-p28 §5.2): `--pdf-isleyici` tek ve tam argümanla PDF işleyici kipi; yapılandırma/kimlik/arayüz yok.
+	if printing.IsWorkerLaunch(os.Args) {
+		os.Exit(runPDFWorker())
+	}
 	os.Exit(run())
+}
+
+// runPDFWorker işleyici kipi: ilk iş DLL sertleştirme (AC-341 kalıbı), sonra yalnız boru döngüsü.
+func runPDFWorker() int {
+	if err := dllsafe.Harden(); err != nil {
+		return exitDLLHarden
+	}
+	return printing.RunWorker()
 }
 
 // app açılışta bir kez kurulan süreç durumu (setup). trayLock tek örnek mutex'idir: süreç ömrü boyunca açıkça tutulur
