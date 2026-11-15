@@ -291,9 +291,8 @@ Gelen her çerçeve için sunucu sırası (ilk tutan döner):
 4. Gövde (`body`) §5.4.4 kurallarına uymuyor (S-P18-K1): yetenekli sokette zarf `requestMessageEnvelopeSchema` ile geçerliyse
    (`t: "request.message"`, `body` herhangi bir **string**, geçerli `clientMsgId`, fazla alan yok) →
    `error{VALIDATION, message: <ilk zod iletisi, ≤ 300>}`, **soket açık kalır**, talep PENDING kalır, satır yazılmaz, sohbet
-   kovası harcanmaz (genel 5/sn kovası harcanmıştır). `body` string değilse ya da zarf bozuksa adım 3 (1008). Not: düzeltme
-   `p18-wip` çalışma ağacında (backend, 2026-11-15); birleşmeden önceki kod gövde hatasında da 1008 kapatır. İstemci her
-   durumda gövdeyi göndermeden önce **aynı kurallarla yerelde doğrular** (§5.4.4).
+   kovası harcanmaz (genel 5/sn kovası harcanmıştır). `body` string değilse ya da zarf bozuksa adım 3 (1008) (S-P18-K1,
+   P18 ile birlikte yayında). İstemci her durumda gövdeyi göndermeden önce **aynı kurallarla yerelde doğrular** (§5.4.4).
 5. Dağıtım `switch (msg.t)`: `request.cancel`/`request.decline` iptal yoluna (§5.1), `request.message` mesaj servisine.
 6. Sohbet kovaları (aşımda `error{RATE_LIMITED}`, **soket açık**, satır yazılmaz, `request.message_rejected` audit'i talep+neden
    başına dakikada 1):

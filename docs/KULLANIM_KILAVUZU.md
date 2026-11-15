@@ -7,14 +7,15 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   ("Bağlantı kodum var", "Bu bilgisayarı unut"), uzaktan kontrol izni, ekran görüntüsü alınamazsa ne yapılır,
   bilgisayarda ne kalır (iz ve gizlilik)
 - **Teknisyen için:** Oturumlar ve bekleme odası ("Müşteri bekliyor" rozeti, menü sayacı, bildirim), Uzaktan kontrol
-  (konsol; "Pencere paylaşımı" rozeti dahil), Oturum geçmişi (dosyalarda "Doğrulanmış / Müşteri bildirimi"), Destek talepleri ("Bu kaynağı engelle"),
+  (konsol; "Pencere paylaşımı" rozeti dahil), Oturum geçmişi (dosyalarda "Doğrulanmış / Müşteri bildirimi", talepte SLA satırı), Destek talepleri ("Bu kaynağı engelle"; öncelik, atama,
+  SLA rozetleri, kabul öncesi mesajlaşma),
   Engellenenler, müşterinin ekranı gelmiyorsa (paylaşım hata nedeni)
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, kayıtlı bilgisayarlar)
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
   kodları ve kurtarma kodlarını yenileme, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış, kritik ayarlarda kimliğinizi yeniden doğrulama;
   hesap menüsü, profil resmi ve tema; giriş ekranında firma logosu
 - **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama ve kullanıcıyı kalıcı silme dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
-  yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Destek talepleri (e-posta bildirimi ve kabul kodu dahil), Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
+  yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Destek talepleri (e-posta bildirimi, kabul kodu, öncelik ve SLA dahil), Ayarlar > Mesai saatleri ve Tatiller, Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
   Aydınlatma metni, Ayarlar > Güvenlik, Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
   anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs), ağ gereksinimleri
   (güvenlik duvarı izin listesi)
@@ -1038,6 +1039,10 @@ Satıra tıklayınca oturum ayrıntısı açılır:
   - **Müşteri bildirimi:** aktarımı yalnız müşterinin programı bildirdi, teknisyen tarafından doğrulanmadı. Örneğin
     konsol aktarım sırasında kapandıysa böyle görünür.
 
+- **Destek talebi:** oturum bir talepten doğduysa talep zamanı, kabul zamanı, bekleme süresi ve SLA tanımlıysa **SLA
+  hedefi** satırı: hedef tarih/saat ve yanında "SLA aşıldı" (kırmızı) ya da "SLA içinde" (yeşil). SLA'sız talepte satır
+  görünmez.
+
 "Oturum bulunamadı" görürseniz oturum sizin değildir, silinmiştir ya da bağlantı hatalıdır.
 
 ### "Anonimleştirildi" rozeti ne demek?
@@ -1084,8 +1089,9 @@ kendiliğinden silinir. Bu oturumlar listede ve ayrıntıda **Anonimleştirildi*
    Türkiye saatidir.
 
 - Dosyada: oturum no, oluşturma/başlangıç/bitiş, süre, durum, mod, kaynak, müşteri firma, bekleme, teknisyen, müşteri,
-  ticket no, sonlandıran, bitiş nedeni, not ve **Dosyalar**. "Dosyalar" sütununda aktarılan dosya sayısı yazar (ör.
-  `2 doğrulanmış; 1 müşteri bildirimi`); dosya yoksa boştur. E-posta ve onay kayıtları dosyaya girmez.
+  ticket no, sonlandıran, bitiş nedeni, not, **Dosyalar** ve **SLA aşıldı**. "Dosyalar" sütununda aktarılan dosya sayısı yazar (ör.
+  `2 doğrulanmış; 1 müşteri bildirimi`); dosya yoksa boştur. "SLA aşıldı" sütununda `Evet` / `Hayır` yazar; talepsiz oturumda ya da SLA'sız talepte boştur.
+  E-posta ve onay kayıtları dosyaya girmez.
 - `=`, `+`, `-`, `@` ile başlayan değerlerin başında `'` görebilirsiniz. Bu bilerek eklenir; hücre formül olarak
   çalışmaz, metin kalır.
 - Sütunlar tek sütunda toplanırsa Excel'in liste ayracı `;` değildir: **Veri → Metni Sütunlara Dönüştür** ile ayraç
@@ -1114,7 +1120,8 @@ isteyin. Kabul ve ret için ayrıca "Destek talepleri → Kabul et" yetkisi gere
 
 ### Kuyruk nasıl çalışır?
 
-1. Kenar menüsünden **Talepler**'i açın. **Bekleyenler** sekmesi en eski talep en üstte olacak şekilde sıralanır.
+1. Kenar menüsünden **Talepler**'i açın. **Bekleyenler** sekmesi önce önceliğe (Yüksek → Normal → Düşük), aynı
+   öncelikte geliş sırasına göre dizilir: en eski talep en üsttedir, ama sonradan gelen Yüksek öncelikli talep öne geçer.
 2. Menüdeki rozet bekleyen talep sayısını gösterir. Sekme arka plandaysa tarayıcı sekmesinin başlığında da sayı görünür.
 3. Liste kendiliğinden güncellenir. Bağlantı koparsa sayfanın üstünde "Liste güncellenemedi; gösterilen bilgiler eski
    olabilir." yazar; liste 15 saniyede bir yeniden yoklanır.
@@ -1166,6 +1173,101 @@ Olası mesajlar:
   Yöneticinize haber verin; gerekirse indirme bağlantısını yeniler.
 - Firmanız WhatsApp bildirimini açtıysa kayıtlı numaralara da kısa mesaj gider (müşteri bilgisi içermez; talep kodu
   ve panel bağlantısı).
+
+### Kartta öncelik, atama ve SLA işaretleri
+
+| Kartta görünen                     | Anlamı                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| **Yüksek** / Normal / **Düşük**    | Talebin önceliği. Yüksek öncelikli talep kuyrukta öne geçer                                 |
+| **Atandı: <ad>** · **Size atandı** | Talep bir teknisyene atanmış. Atama yalnız işaret ve bildirimdir; kabulü engellemez         |
+| **SLA: 25 dk kaldı**               | Talebin kabul edilmesi gereken süreden kalan zaman. Süre yalnız mesai saatleri içinde işler |
+| **SLA aşıldı** (kırmızı)           | Kabul hedef saatinde yapılmadı                                                              |
+| **Mesai dışı**                     | Talep firmanın mesai saatleri dışında geldi; SLA süresi ilk açılış saatinde başlar          |
+
+Öncelik ve SLA talep açılırken müşterinin (yoksa firmanın) varsayılanından gelir ve o talep için **sabitlenir**; ayarı
+sonradan değiştirmek bekleyen talepleri etkilemez. SLA ayarlanmamışsa SLA rozeti görünmez.
+
+### Talebi nasıl atarım ya da önceliğini değiştiririm?
+
+Bunun için "Destek talepleri → Ata / öncelik" yetkiniz olmalıdır (Admin'de açık, teknisyende kapalı başlar).
+
+1. Talep kartındaki menüyü açın.
+2. **Ata…** ile listeden bir teknisyen seçip **Ata**'ya basın; ya da **Bana ata** ile talebi kendinize alın.
+   Listede yalnız talebi kabul edebilecek, etkin iş arkadaşlarınız görünür. Super Admin atama yapabilir, kendisine
+   talep atanamaz.
+3. Atamayı geri almak için **Atamayı kaldır**.
+4. **Öncelik** ile Düşük / Normal / Yüksek seçin. Kuyruk hemen yeniden sıralanır; SLA hedefi değişmez.
+
+- Atanan teknisyen panel açıksa "Size bir talep atandı — <talep kodu>" bildirimini ve sesi alır (**Bana ata** bildirim
+  üretmez). Panel kapalıysa bildirim gitmez; e-posta/WhatsApp ile atama bildirimi yoktur.
+- Diğer teknisyenler kartta "Atandı: <ad>" çipini anında görür.
+- Bir kullanıcı pasife alınırsa ya da talep yetkileri kaldırılırsa üzerindeki atamalar kendiliğinden kalkar.
+- Atama ve öncelik değişiklikleri denetim kaydına "eski → yeni" olarak yazılır.
+
+### "Bana atanan" ve "Atanmamış" filtresi
+
+**Bekleyenler** sekmesindeki **Atama filtresi** ile **Tümü**, **Bana atanan** veya **Atanmamış** talepleri görün.
+Müşteri firma filtresiyle birlikte kullanılabilir. Filtreye uyan talep yoksa "Size atanmış bekleyen talep yok" ya da
+"Atanmamış bekleyen talep yok" yazar; **Tüm bekleyen talepler** ile filtreyi kaldırın.
+
+### Başkasına atanmış talebi kabul etmek
+
+Atanmış bir talebi de kabul edebilirsiniz (ör. atanan kişi meşgulse). **Kabul et**'e basınca "Bu talep başkasına atandı"
+onayı çıkar: "Bu talep <ad> adlı teknisyene atandı. Yine de kabul etmek istiyor musunuz?" **Yine de kabul et** ile devam
+edin, **Vazgeç** ile geri dönün.
+
+### Kabul etmeden önce müşteriye nasıl mesaj yazarım? ("Mesajlar" paneli)
+
+Talebi kabul etmeden önce müşteriye kısa bir not yazabilirsiniz (ör. "Birkaç dakika içinde bağlanacağım").
+
+> **Bu sürümde müşteri tarafı yok.** Müşterinin mesajları görüp yanıtlayabilmesi için tarayıcı bekleme sayfası (P19) ve
+> Hızlı Destek 0.12.0 (P20) gereklidir. Bugünkü Hızlı Destek (0.11 ve öncesi) mesajlaşmayı desteklemez; bu durumda panel
+> bunu söyler ve gönderim kapalı olur. Müşteriye telefonla ulaşın.
+
+**Kim okur, kim yazar?**
+
+- "Destek talepleri → Görüntüle" yetkisi olan herkes yazışmayı okur.
+- Yazmak için ayrıca "Destek talepleri → Mesaj yaz" yetkisi gerekir. Yetkiniz yoksa panelde "Müşteriye mesaj yazma
+  yetkiniz yok; yazışmayı yalnız görüntüleyebilirsiniz." yazar.
+
+**Adımlar**
+
+1. Talep kartında **Mesajlar**'a basın. Masaüstünde sağda panel, dar ekranda pencere açılır. Müşteriden okunmamış mesaj
+   varsa düğmede sayı görünür (sayı yalnız bu tarayıcıda tutulur, sayfa yenilenince sıfırlanır).
+2. Mesajınızı yazın. **Enter** gönderir, **Shift+Enter** yeni satır ekler.
+3. Gönderdiğiniz mesaj önce "gönderiliyor…" olarak görünür, sunucu kaydedince onaylanır.
+
+**Sınırlar**
+
+- Mesaj en çok 1.000 karakter ve 20 satır. Görünmez/yön değiştiren özel karakterler kabul edilmez.
+- Aynı talepte saniyede en çok 1 mesaj: hızlı gönderirseniz "Çok hızlı: mesaj gönderilmedi. Bir saniye bekleyip yeniden
+  deneyin." yazar, metniniz kutuda kalır.
+- Bir talepte kişi başına en çok 200 mesaj.
+- Mesajlar yalnız talep beklerken yazılır. Talep kabul edilir, reddedilir ya da kapanırsa panel "Talep kapandı. Yazışma salt
+  okunur; yeni mesaj gönderilemez." bandını gösterir. Kapanmış talebin yazışması bu sürümde görüntülenmez.
+- **Sohbete şifre yazmayın.** Mesajlar sunucuda şifreli saklanır, ama talep kaydıyla birlikte saklama süresi boyunca durur.
+
+**Panelde görebileceğiniz durumlar**
+
+| Ekranda                                                                                          | Anlamı / ne yapmalı                                           |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| Henüz mesaj yok                                                                                  | Yazışma boş; ilk mesajı siz yazabilirsiniz                    |
+| Müşteri şu an bağlı değil. Yazdığınız mesaj saklanır ve müşteri yeniden bağlanınca iletilir.     | Müşterinin programı kapalı ya da bağlantısı koptu             |
+| Müşterinin programı mesajlaşmayı desteklemiyor; güncellemesi gerekir. Telefonla ulaşabilirsiniz. | Müşterinin Hızlı Destek sürümü eski; **Gönder** pasiftir      |
+| Mesaj okunamadı                                                                                  | Mesaj teknik nedenle çözülemedi; sistem yöneticinize bildirin |
+| Yazışma yüklenemedi.                                                                             | Bağlantınızı kontrol edip **Tekrar dene**'ye basın            |
+
+Mesaj içeriği bildirimlere, WhatsApp/e-posta uyarılarına ve denetim kaydına yazılmaz; denetim kaydında yalnız mesajın
+gönderildiği ve uzunluğu görünür.
+
+### Mesai dışında gelen talepler
+
+Firmanız mesai saatlerini açtıysa (bkz. "Admin için: Ayarlar > Mesai saatleri ve Tatiller"):
+
+- Mod **Talebi al** ise mesai dışında gelen talep kuyruğa düşer ve "Mesai dışı" rozetini taşır; SLA süresi ilk açılış
+  saatinde başlar.
+- Mod **Reddet ve sonraki açılışı göster** ise talep açılmaz; müşteri "Mesai dışındayız. Sonraki açılış: <tarih saat>"
+  mesajını görür. Eski Hızlı Destek sürümleri de aynı mesajı gösterir.
 
 ### İstenmeyen talepleri nasıl engellerim? ("Bu kaynağı engelle")
 
@@ -1246,6 +1348,10 @@ Super Admin müşterileri bir firma seçtikten sonra görür.
    - **Dosya etiketi:** dosya adında görünen kısa ad (`NoktaDestek-<etiket>-….exe`). Adı yazarken kendiliğinden
      önerilir; yalnız harf ve rakam, en çok 20 karakter.
    - **Yetkili kişi, Telefon, E-posta, Not** (isteğe bağlı): kişisel veridir. Not düz metindir.
+   - **Varsayılan öncelik** (isteğe bağlı): bu müşteriden gelen taleplerin önceliği. **Firma varsayılanı** seçiliyse
+     Ayarlar > Destek talepleri'ndeki değer uygulanır.
+   - **SLA hedefi (dakika)** (isteğe bağlı): 5–1440 dakika. Boş bırakılırsa firma varsayılanı uygulanır. Örneğin
+     sözleşmeli bir müşteri için 30 dakika girebilirsiniz. Değişiklik yalnız yeni taleplere uygulanır.
 3. **Müşteriyi ekle**'ye tıklayın. Müşterinin detay sayfası açılır ve "<ad> eklendi" bildirimi çıkar.
 
 ### Bağlantıyı müşteriye nasıl gönderirim?
@@ -1402,7 +1508,10 @@ Not: "Kullanıcılar → Sil" anahtarı **pasif kullanıcıyı kalıcı silme** 
 alınamaz)"); bkz. "Kullanıcıyı kalıcı silme". Yönetici rolünde varsayılan açık, teknisyende kapalıdır. Bu sürümle
 birlikte bütün kullanıcılarda bu anahtar rol varsayılanına döndürüldü; daha önce bir teknisyene elle açılmışsa yeniden
 açılması gerekir. Pasife alma "Düzenle" yetkisiyle yapılır. "Destek talepleri → Engelle" anahtarı talep engellerini
-(Engellenenler ekranı ve "Bu kaynağı engelle") açar.
+(Engellenenler ekranı ve "Bu kaynağı engelle") açar. **"Destek talepleri → Ata / öncelik"** talebi teknisyene atamayı,
+atamayı kaldırmayı ve önceliği değiştirmeyi; **"Destek talepleri → Mesaj yaz"** bekleyen talepte müşteriye mesaj yazmayı
+açar. İkisi de Admin'de açık, teknisyende kapalı başlar. Bir teknisyene talep atanabilmesi için onda "Görüntüle" ve "Kabul
+et" açık olmalıdır; bunlardan biri kapatılırsa üzerindeki atamalar kalkar.
 
 ### Kilitli yetkiler
 
@@ -1646,12 +1755,87 @@ bkz. "Bekleyen müşteriyi nasıl kabul ederim?"). Kapalıyken müşteri onay ve
   uyarısı çıkar, talep kuyrukta bekler. Müşteriden Hızlı Destek'i güncellemesini isteyin ya da ayarı kapatın.
   Müşterilerinizin hepsi **0.11** veya sonrasına geçene kadar bu ayarı **kapalı** tutmanız önerilir.
 
+### Öncelik ve SLA
+
+Müşteri kaydında ayrı bir değer yoksa yeni taleplere bu öncelik ve SLA hedefi uygulanır.
+
+1. **Öncelik ve SLA** bölümünde **Varsayılan öncelik**'i seçin (Düşük / Normal / Yüksek; başlangıç Normal).
+2. **SLA hedefi (dakika)** alanına talebin en geç kaç dakikada kabul edilmesi gerektiğini yazın (5–1440). Boş
+   bırakırsanız SLA takibi yapılmaz.
+3. **Kaydet**'e basın.
+
+- SLA yalnız mesai saatleri içinde işler. Mesai takvimi kapalıysa süre kesintisiz sayılır. Mesai saatlerini
+  **Mesai saatlerini düzenle** bağlantısından ayarlayın.
+- Değer talep açılırken sabitlenir; değişiklik bekleyen talepleri etkilemez.
+- Müşteriye özel değer için bkz. "Nasıl müşteri eklerim?" (Varsayılan öncelik, SLA hedefi).
+
 ### Yetkiler ve kayıtlar
 
 - **Destek talepleri → Görüntüle** (`support_requests.view`) kuyruğu, **Kabul et** (`support_requests.accept`) kabul ve
-  reddi, **Engelle** (`support_requests.block`) talep engellerini açar. Admin'de varsayılan açık, User'da kapalıdır; **Kullanıcılar** ekranındaki yetki tablosundan açılır.
-- Kabul, ret, iptal, süre dolumu, ayar değişikliği (eski → yeni), bağlantı yenileme, WhatsApp gönderimi ve testi
-  denetim kaydına yazılır. Müşteri adı, telefonu ve açıklaması denetim kaydına yazılmaz.
+  reddi, **Engelle** (`support_requests.block`) talep engellerini, **Ata / öncelik** (`support_requests.assign`) atama ve öncelik
+  değişikliğini, **Mesaj yaz** (`support_requests.message`) kabul öncesi mesajlaşmayı açar. Admin'de varsayılan açık, User'da kapalıdır; **Kullanıcılar** ekranındaki yetki tablosundan açılır.
+- Kabul, ret, iptal, süre dolumu, ayar değişikliği (eski → yeni), bağlantı yenileme, WhatsApp gönderimi ve testi,
+  atama, öncelik değişikliği, gönderilen mesaj (içeriksiz, yalnız uzunluk) ve mesai dışı ret denetim kaydına yazılır. Müşteri adı, telefonu ve açıklaması denetim kaydına yazılmaz.
+
+## Admin için: Ayarlar > Mesai saatleri ve Tatiller
+
+**Ayarlar → Mesai saatleri** (takvim simgesi) firmanızın talep kabul saatlerini, mesai dışında ne olacağını ve tatil
+günlerini tutar. SLA süreleri yalnız mesai içinde işler. Görmek için "Ayarlar → Görüntüle", değiştirmek için "Ayarlar →
+Düzenle" yetkisi gerekir; yalnız görüntüleme yetkiniz varsa sayfa salt okunur açılır. Super Admin önce üst menüden firma
+seçer.
+
+### Mesai saatlerini nasıl ayarlarım?
+
+1. **Mesai takvimini kullan** anahtarını açın. Kapalıyken talepler her zaman alınır ve SLA kesintisiz işler.
+2. **Saat dilimi**'ni seçin (varsayılan Europe/Istanbul). Saatler bu dilimde, yaz saati uygulaması dahil yorumlanır.
+3. **Günler** bölümünde her gün için çalışma aralığını girin:
+   - Saatler SS:DD biçiminde yazılır (ör. `09:00`). Gün sonuna kadar açık için bitişe `24:00` yazın.
+   - Öğle arası için **Aralık ekle** ile ikinci aralık girin (gün başına en çok 2 aralık; aralıklar örtüşemez).
+   - Aralığı olmayan gün **Kapalı**'dır.
+   - **Pazartesiyi hafta içine kopyala** Pazartesi saatlerini Salı–Cuma'ya aktarır.
+4. **Mesai dışında gelen talep** için seçin:
+   - **Talebi al:** talep kuyruğa düşer, "Mesai dışı" olarak işaretlenir; SLA ilk açılışta başlar.
+   - **Reddet ve sonraki açılışı göster:** talep açılmaz; müşteri "Mesai dışındayız. Sonraki açılış: …" mesajını görür.
+5. **Kaydet**'e basın. "Mesai saatleri kaydedildi." yazar.
+
+Sayfadaki önizleme "Şu an: Açık" ya da "Şu an: Kapalı — sonraki açılış <tarih saat>" gösterir. Önizleme
+kaydedilmiş ayara göredir; değişikliği kaydedince güncellenir.
+
+### Tatil günü nasıl eklerim?
+
+Tatil günlerinde mesai kapalı sayılır. Firma başına en çok 200 tatil günü tanımlanabilir.
+
+1. Aynı sayfadaki **Tatiller** bölümünde **Yıl**'ı seçin.
+2. **Tatil ekle**'ye basın; **Tarih** ve **Ad** girin.
+3. Yarım gün çalışılacaksa (ör. arife) **Kapanış saati**'ne o güne kadar açık kalınacak saati yazın (ör. `13:00`). Boş
+   bırakırsanız gün tam kapalıdır.
+4. **Ekle**'ye basın.
+
+Tatili değiştirmek için silip yeniden ekleyin. Silmek için satırdaki sil düğmesine basıp onaylayın; o gün normal mesai
+saatleri uygulanır.
+
+### Türkiye resmî tatillerini tek tuşla eklemek
+
+1. **Tatiller** bölümünde **Yıl**'ı seçin.
+2. **Resmî tatilleri ekle (<yıl>)**'a basın. Sonuç: "<n> tatil eklendi, <m> gün zaten vardı."
+
+- Liste bu sürümde **2026 ve 2027** için hazırdır; arifeler 13:00'e kadar açık eklenir. Başka bir yıl seçiliyse düğme
+  pasiftir ve "Resmî tatil listesi şu yıllar için hazır: 2026, 2027." notu görünür.
+- Zaten ekli günler atlanır; firmaya özel tatilleriniz silinmez.
+- **Her yıl güncelleyin:** dinî bayram tarihleri her yıl değişir. Aralık ayında ertesi yılın listesini ekleyin; yeni yıl
+  listesi programın güncellenmesiyle gelir. Eski yılların tatilleri silinmez (geçmiş SLA hesapları için gereklidir).
+
+### Sık karşılaşılan mesajlar (Mesai saatleri ve Tatiller)
+
+| Mesaj                                                   | Ne yapmalı                                                                       |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Mesai açıkken en az bir gün için saat aralığı girin     | Takvim açıkken en az bir gün için çalışma saati girin ya da takvimi kapatın      |
+| Bitiş başlangıçtan sonra olmalı · Aralıklar örtüşemez   | Aralık saatlerini düzeltin; gece yarısını aşan aralık girilemez (iki güne bölün) |
+| Bu gün zaten tatil olarak ekli                          | O gün için tatil var; değiştirmek için önce silin                                |
+| Firma başına en çok 200 tatil günü tanımlanabilir       | Gereksiz tatil günlerini silin                                                   |
+| Şu an: Kapalı — önümüzdeki bir yıl içinde açık saat yok | Haftada hiç açık aralık kalmamış ya da tüm günler tatil; saatleri kontrol edin   |
+
+Mesai ayarı ve tatil değişiklikleri (ekleme, silme, içe aktarma) denetim kaydına yazılır.
 
 ## Admin için: Ayarlar > E-posta (SMTP)
 

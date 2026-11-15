@@ -3093,7 +3093,7 @@ batches, error}` yazılır. Sorun giderilince **aynı komut yeniden çalıştır
 ### 25.6 Resmî tatil listesi — yıllık güncelleme (AC-258)
 
 Tatiller firma bazındadır (`business_holidays`, firma başına ≤ 200). Dinî bayram tarihleri her yıl değişir; sistem kendisi
-eklemez. **Her yıl Aralık ayının ilk haftası:** firma Admin'lerine (ya da Super Admin firma bağlamında) "Ayarlar → Mesai →
-Tatiller → İçe aktar" ile ertesi yılın listesinin yüklenmesi hatırlatılır (audit `settings.holidays_imported`). Kontrol:
+eklemez. **Her yıl Aralık ayının ilk haftası:** firma Admin'lerine (ya da Super Admin firma bağlamında) "Ayarlar → Mesai saatleri →
+Tatiller → Resmî tatilleri ekle (yıl)" ile ertesi yılın listesinin yüklenmesi hatırlatılır (audit `settings.holidays_imported`). Kontrol:
 `SELECT tenant_id, COUNT(*) FROM business_holidays WHERE day >= '<yıl+1>-01-01' GROUP BY tenant_id` — mesai açık
 (`hours_enabled = 1`) olup satırı olmayan firma eksik demektir. Geçmiş yılların satırları silinmez (SLA geçmişi).

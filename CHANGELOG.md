@@ -5,6 +5,77 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P18 (talep iletişimi: kabul öncesi mesajlaşma, atama, öncelik, SLA, mesai/tatil; AC-255–258)
+
+- **Kabul öncesi mesajlaşma** (AC-255): Talepler ekranında her kartta **Mesajlar** paneli (masaüstünde sağ panel, dar
+  ekranda pencere). Teknisyen bekleyen talebin müşterisine kısa mesaj yazar; mesajlar sunucuda alan bazında şifreli
+  saklanır, talep saklama süresi dolunca talep anonimleştirmesiyle aynı işlemde silinir. Sınırlar: mesaj 1–1.000
+  karakter, en çok 20 satır; talep ve gönderici başına saniyede 1 mesaj, en çok 200 mesaj; firma başına müşteri mesajı
+  dakikada 300. Müşterinin programı mesajlaşmayı desteklemiyorsa panel bunu söyler, gönderim kapalıdır. **Müşteri tarafı
+  bu sürümde yok:** tarayıcı bekleme sayfası P19'da, Windows istemci (0.12.0) P20'de gelir. Uçlar
+  `GET|POST /api/v1/support-requests/:id/messages`; WS eki `rs.cap.chat1` (`docs/mimari-protokol.md` §5.4).
+- **Atama** (AC-256): kart menüsünde **Ata…**, **Bana ata**, **Atamayı kaldır**; kartta "Atandı: <ad>" çipi; kuyrukta
+  **Bana atanan / Atanmamış** filtresi. Atanan teknisyene panelde "Size bir talep atandı — <kod>" bildirimi ve ses.
+  Başkasına atanmış talep kabul edilebilir; önce onay sorulur. Kullanıcı pasife alınınca ya da talep yetkisi kalkınca
+  ataması kendiliğinden kalkar. Uç `POST /api/v1/support-requests/:id/assign`, `GET /api/v1/users/options?assignable=1`.
+- **Öncelik ve SLA** (AC-257): Düşük / Normal / Yüksek öncelik; kuyruk önce önceliğe, sonra geliş sırasına göre dizilir.
+  Firma varsayılanı (Ayarlar → Destek talepleri → "Öncelik ve SLA") ve müşteri bazında varsayılan öncelik + SLA dakikası
+  (5–1440). SLA ilk yanıt (kabul) süresidir, yalnız mesai içinde işler, talep açılırken dondurulur. Kartta kalan süre
+  rozeti, aşımda "SLA aşıldı". Oturum geçmişi ayrıntısında "SLA hedefi" satırı; geçmiş CSV'sine son sütun **"SLA aşıldı"**
+  (Evet / Hayır / boş). Uç `POST /api/v1/support-requests/:id/priority`.
+- **Mesai saatleri ve tatiller** (AC-258): yeni **Ayarlar → Mesai saatleri** sekmesi: takvimi aç/kapa, saat dilimi, gün
+  başına en çok 2 aralık ("24:00" gün sonu), mesai dışı davranışı (**Talebi al** → "Mesai dışı" rozeti, SLA ilk açılışta
+  başlar; **Reddet ve sonraki açılışı göster** → talep açılmaz), "Şu an: Açık/Kapalı" önizlemesi. Aynı sayfada
+  **Tatiller**: elle ekleme (yarım gün için kapanış saati), silme, **Resmî tatilleri ekle (yıl)** (2026 ve 2027 listesi).
+  Uçlar `GET|PUT /api/v1/settings/business-hours`, `GET|POST|DELETE /api/v1/settings/holidays`,
+  `POST /api/v1/settings/holidays/import-tr`.
+- **Yeni yetkiler:** `support_requests.assign` ("Ata / öncelik") ve `support_requests.message` ("Mesaj yaz"). Kullanıcı
+  yetki tablosunda kendiliğinden çıkar; Admin'de açık, User'da kapalı başlar.
+- **CLI:** `cli crypto:check-retire <ver>` (emekli edilecek anahtar sürümüyle şifreli mesaj kaldı mı) ve
+  `cli crypto:rewrap session_messages --from <ver> [--dry]` (mesajları güncel anahtarla yeniden şifreler; yalnız `migrate`
+  servisinde, migrator kullanıcısıyla). Runbook §25.5.
+- **Audit:** `request.message_sent` (gövde değil uzunluk), `request.message_rejected`, `request.assigned`,
+  `request.priority_changed`, `request.created` `fail` (`outside_hours`), `settings.business_hours_updated`,
+  `settings.holiday_added|removed`, `settings.holidays_imported`, `crypto.rewrap` (başarısızlıkta da `result:"fail"`).
+
+### Değişti — P18
+
+- **Talep oluşturma:** mesai dışında ve "Reddet" modunda `409 OUTSIDE_HOURS` + `fields.nextOpeningAt`, mesaj "Mesai
+  dışındayız. Sonraki açılış: …". **Eski istemci maskesi:** istemci sürümü 0.12.0'dan eskiyse aynı mesaj
+  `429 QUEUE_FULL` koduyla döner (0.9–0.11 yalnız bu kodlarda sunucu mesajını gösterir); `Retry-After` yoktur, hız sınırı
+  sayaçlarına ve alarmına girmez. `GET /public/requests/tenant` yanıtına `businessHours` eklendi.
+- `GET /api/v1/support-requests` öğelerine `priority`, `assignedTo`, `slaDueAt`, `slaBreached`, `afterHours`; bekleyen
+  sekmede `?assigned=me|none`. Panel WS'e `request.updated` ve gövdesiz `request.activity`; `request.new` ek alanlar.
+- `GET /api/v1/sessions/:id/history` → `request.slaDueAt`, `request.slaBreached`.
+- Müşteri (`POST|PATCH /api/v1/customers`) ve talep ayarı (`PUT /api/v1/settings/support-requests`) yeni alanlar:
+  `defaultPriority`, `slaMinutes` / `defaultSlaMinutes`.
+- Firma silme 18 adım (yeni `MESSAGES` adımı; tatiller `SETTINGS` adımında silinir).
+
+### Güvenlik — P18
+
+- Mesaj gövdesi AES-GCM ile şifreli (`session_messages.body:<tenant>|<talep>|<id>` bağlamı); okunamayan mesaj "Mesaj
+  okunamadı" olarak görünür ve `rs_crypto_decrypt_failures_total` artar. Gövde loga, audit'e ve bildirimlere yazılmaz;
+  panelde düz metin gösterilir (HTML ve otomatik bağlantı yok). Kontrol ve yön karakterleri reddedilir.
+- Uygulama DB kullanıcısının `session_messages` üzerinde UPDATE yetkisi yok (append-only); yeniden şifreleme yalnız
+  migrator ile. `migrate` servisinin ortamında `APP_ENCRYPTION_KEYS` tutulmaz; anahtar yalnız rewrap koşusunda tek
+  seferlik verilir (S-P18-K3).
+- Yetenekli müşteri soketinde gövde kuralı ihlali soketi kapatmaz: `error VALIDATION` döner, talep düşmez (S-P18-K1).
+- Atanacak kişi aynı firmada, etkin ve talep görüntüleme + kabul yetkili olmalı; aksi 400 (varlık sızdırmamak için 404
+  değil). Super Admin atanamaz.
+
+### Operasyon — P18
+
+- Migration `20261119000000_p18_request_comms` ön kontrollü (`P18_PRECHECK purge_jobs_open|binlog_flag`). Yeni
+  tetikleyici `session_messages_delete_guard`: **toplam 23**. Beklenen sayı tek kaynakta (`deploy/backup/lib.sh`
+  `REMOTE_EXPECTED_TRIGGERS=23`); `backup.env` içinde `BACKUP_EXPECTED_TRIGGERS` boş bırakılır. P18 öncesi yedekler
+  `RESTORE_EXPECTED_TRIGGERS=22` ile geri yüklenir. `check-app-grants.sh` 561 kontrol.
+- `remote-watch` yeni kontroller: `crypto-decrypt` (Kritik), `calendar-fallback`, `msg-tenant-rate`, `p18-metrics`.
+  Yeni metrikler: `rs_request_messages_total`, `rs_request_messages_rejected_total{reason}`,
+  `rs_request_messages_read_total`, `rs_crypto_decrypt_failures_total`, `rs_calendar_fallback_total`,
+  `rs_requests_outside_hours_total`, `rs_request_sla_breached_total`.
+- Resmî tatil listesi her yıl kodla uzatılır, dinî bayramlar Diyanet takvimiyle doğrulanır (runbook §25.6).
+- Yeni ortam değişkeni ve yeni bağımlılık yok. Ayrıntı runbook §25.
+
 ### Eklendi — istemci 0.11.0 (Windows; P17, AC-234 istemci, AC-239 istemci, AC-245–252)
 
 - **Yalnız bir pencere paylaş** (AC-248, Windows.Graphics.Capture): paylaşım başlarken "Tüm ekran / Yalnız bir pencere"

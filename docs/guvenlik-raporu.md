@@ -1,3 +1,70 @@
+# Güvenlik Raporu — P18 kod turu 2 (2026-11-15)
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 0 (+2 bilgi). Tur 1'deki K1, K2 ve K3 kapandı. K4 (kabul edilmiş risk) ile K5 ve K6 (bilgi) aynen geçerli.
+
+Kapsam: `p18-wip` 80e07cc (`git show 80e07cc`). İncelenenler: `requests/ws.ts`, `requests/hub.ts`, `contracts/ws-request.ts`, `contracts/api/requests.ts`
+(gövde şeması), `cli/crypto.ts`, `cli/main.ts`, `deploy/docker-compose.yml`, `docs/runbook.md` §25.5, `sessions/history{,-repo}.ts`,
+`contracts/api/sessions.ts`, `prisma/schema.prisma` (request ilişkisi) ve ilgili testler (`p18-messages-h3` K1/K2). Kod değiştirilmedi.
+Staging'e ve dind'e bağlanılmadı, ACCESS.txt okunmadı. Testler çalıştırılmadı, doğrulama kodu okuyarak yapıldı.
+
+## Tur 1 bulgularının doğrulanması
+
+| Madde                                 | Durum   | Kanıt                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P18-K1 VALIDATION soketi kapatmıyor | KAPANDI | Ayrıntı aşağıda.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| S-P18-K2 rewrap hata yolunda audit    | KAPANDI | `cli/crypto.ts:55-107`: döngü `try/catch/finally` içinde ve `writeAudit` `finally`'de, yani başarı ve hata yolunda her zaman yazılıyor. `result` değeri hata varsa veya `failed > 0` ise `fail`. `newValue` yalnız `{table, fromVer, toVer, rows, failed, batches, dry, error:<err.name>}` içeriyor; gövde, düz metin, anahtar ve hata mesajı yok. Sayaçlar yalnız commit edilen partiden sonra artıyor (`batch.done`). Böylece geri alınan parti `rows`'a sayılmıyor. CLI çıktısı da yalnız `err.name` gösteriyor (`:165`). Test: `p18-messages-h3` "S-P18-K2" (2. partide hata → `fail` + rows/batches; yeniden koşu kalanı taşıyor). Runbook §25.5'e "çıkış 5 → aynı komut" notu eklendi. |
+| S-P18-K3 migrate ortamında anahtar    | KAPANDI | `docker-compose.yml:63-64`: migrate servisinde yalnız açıklama satırı var. Anahtar sadece server servisinde (`:133`, `:?` zorunlu). Runbook §25.5'te `docker compose run --rm -e APP_ENCRYPTION_KEYS migrate …` değersiz `-e` ile çalıştırılıyor, değer kabuk/.env'den geliyor. Ön kontrol yalnız uzunluğu yazdırıyor. B yolunda alt kabukta `sed` ile tek satır okunup `export` ediliyor; değer ne komut satırında (`ps`) ne kabuk geçmişinde görünüyor. Runbook `-e KEY=<değer>` biçimini ve `echo`'yu yasaklıyor. Koşu sonrası `migrate-run` kalıntı kontrolü ve `rm -f` adımı var. `check-retire` anahtarsız çalışıyor.                                                                  |
+
+### K1 ayrıntı (`apps/server/src/requests/ws.ts:136-154`)
+
+- **Sıra korunmuş:** önce genel kova (`bucket.take()`, 5/sn), sonra JSON ve tam şema. Kova aşılırsa veya çerçeve ikiliyse `msg = null` oluyor. `null` zarf şemasını da geçemediğinden 1008 dönüyor. Yani VALIDATION yolu genel kovayı **harcıyor**, kovayı atlamanın bir yolu yok.
+- **Sohbet kovaları harcanmıyor:** VALIDATION dalı `svc.messages.fromCustomer`'dan önce `return` ediyor. Talep/gönderici, firma (300/dk) ve tavan sayaçlarına dokunulmuyor, DB'ye yazılmıyor, audit kaydı oluşmuyor.
+- **DoS ve iptal yolu yok:** Hatalı gövde gönderen bir istemci soket başına en çok 5 VALIDATION/sn alabiliyor. Bunun karşılığında DB, audit veya log işi yok, giden çerçeve ≤ 300 bayt. Soket sayısı mevcut IP ve upgrade sınırlarıyla kısıtlı (`ws.ts:94-95`). Zarf şeması `t: z.literal("request.message")` olduğu için cancel/decline bu dala giremiyor, iptal yolu değişmedi. Bu dal kapanma veya `DISCONNECTED` zamanlayıcısı tetiklemiyor.
+- **Gövde sızmıyor:** Yanıttaki `message`, zod issue metninden geliyor. `requestMessageBodySchema`'nın tüm mesajları sabit metin (`contracts/api/requests.ts:842-849`), girdiyi yansıtmıyor. Zarf `strictObject` ve `clientMsgId` zarfta doğrulandığı için ilk issue her zaman gövdeyle ilgili. Uzunluk `slice(0,300)` ile sınırlı. Log ve metrik yazılmıyor.
+- **1008 korunmuş:** JSON geçersizse, zarf geçersizse (`clientMsgId` hatalı, fazla alan, `body` metin değil) veya soket yeteneksizse (`caps.chat` koşulu) 1008 dönüyor. Yeteneksiz soketin bu yolla hiç `error` almadığı `hub.sendChatError` → `caps.chat` kontrolüyle iki kez güvenceye alınmış. Test: "S-P18-K1" (21 satır / yumuşak tire / bidi → VALIDATION, soket açık; hatalı `clientMsgId` → 1008).
+- Zarftaki `body: z.string()` uzunluk sınırı koymuyor ama çerçeve `WS_MAX_PAYLOAD` ile sınırlı (`signaling/ws.ts:72`, aşım 1009). Ek bir yük yok.
+
+### Geçmiş SLA alanlarının tenant kapsamı
+
+`getHistoryDetail` → `hrepo.findHistory` → `historyWhere(scope)`: Admin/User için `tenantId` (ve gerekirse `technicianId`) koşulu var, kapsam dışı kayıt 404 dönüyor.
+`slaDueAt`/`status`/`closedAt`, `detailSelect.request` ilişkisinden okunuyor. Bu ilişki bileşik FK `(requestId, tenantId) → (id, tenantId)` (`schema.prisma:258`)
+olduğundan başka tenant'ın talebine bağlanamıyor. Yanıta yalnız `slaDueAt` ve `slaBreached` ekleniyor; `status`/`closedAt` yanıtta yok. Yeni bir uç veya yetki
+değişikliği de yok (mevcut `sessions.history` yetkisi geçerli). Sızıntı veya IDOR yok.
+
+## Bulgular
+
+### [BİLGİ] S-P18-K7 VALIDATION yolunun metriği yok
+
+Yer: `apps/server/src/requests/ws.ts:145-150`
+Gövde hatası artık soketi kapatmadığı için `rs_ws_closed_policy_total` de artmıyor. Bu yüzden istemci tarafındaki doğrulama açığı (P19) sessiz kalıyor. Bu bir güvenlik açığı değil.
+Öneri: `rs_request_messages_rejected_total{reason="validation"}` (etiketsiz gövde) eklenebilir. (atanan: backend-dev, isteğe bağlı)
+
+### [BİLGİ] S-P18-K8 DB tamamen koparsa `finally` audit'i de yazılamaz
+
+Yer: `apps/server/src/cli/crypto.ts:89-107`
+`writeAudit` `finally` içinde hata verirse asıl hatanın yerine geçiyor. Çıkış kodu yine 5 olur ve stderr'e yalnız hata adı yazılır. Bu durumda audit izi kalmıyor, ama bağlantı
+olmadan bunun bir önlemi yok. Runbook'taki "aynı komutu yeniden çalıştır" adımı ikinci koşuda audit'i üretiyor. Eylem gerekmiyor.
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate` → `No known vulnerabilities found`.
+- Gizli bilgi kalıbı (`git grep`, 80e07cc, testler hariç) → tek eşleşme `docs/runbook.md:2332`. Bu bir kontrol listesi metni (`grep` komut örneği), değer içermiyor. Yanlış pozitif.
+- `.env` geçmişi (`git log --all -- '*.env'`) → boş.
+- Yeni bağımlılık yok.
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+Yok. mimari-protokol §5 `error` kodlarında zaten `VALIDATION` vardı. Yeni davranış protokol eki §5.4 ve `ws-request.ts` açıklamasıyla tutarlı.
+
+## Olumlu
+
+- K1 en dar biçimde uygulanmış: ayrı zarf şeması kullanılıyor, yalnız yetenekli sokette ve yalnız `request.message` için çalışıyor, genel kovanın arkasında duruyor.
+- K2'de sayaçlar commit'e bağlanmış. Audit'teki `rows`, gerçekten kalıcı olan satır sayısını gösteriyor.
+- K3 runbook'u değer sızıntısı yollarını (`ps`, geçmiş, `inspect`, kalıntı konteyner) tek tek kapatıyor.
+
+---
+
 # Güvenlik Raporu — P18 kod turu 1 (2026-11-15)
 
 DURUM: GEÇTİ

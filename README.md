@@ -4,7 +4,7 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16 ve P17 (istemci 0.11.0) kodlandı (QA sürüyor)
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b, P15, P16, P17 (istemci 0.11.0) ve P18 (talep iletişimi) kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -252,6 +252,15 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   kişisel veri yok; kod modunda ve yönetici olarak çalışırken yazılmaz). SHA-256
   `85142c14bf6941c2d5c3803b2818f0b1645c95b77704e640c8ff49d4059687bc`.
 
+**P18 — talep iletişimi** (AC-255..258; kod tamam, düzeltme turu 1 bitti, QA/güvenlik yeniden denetimi ve staging testi bekliyor)
+
+- Kabul öncesi mesajlaşma (teknisyen paneli; şifreli saklama, mesaj başına 1.000 karakter, talep başına 200 mesaj). Müşteri
+  tarafı P19 (tarayıcı) ve P20 (Windows istemci 0.12.0) ile gelir.
+- Talep atama ("Bana atanan / Atanmamış" filtresi, atanana bildirim), Düşük/Normal/Yüksek öncelik, SLA (ilk yanıt, yalnız
+  mesai içinde işler; geçmiş ayrıntısında ve CSV'de "SLA aşıldı").
+- Ayarlar → Mesai saatleri ve Tatiller (TR resmî tatilleri tek tuşla); mesai dışı talebi al ya da reddet. Yeni yetkiler
+  `support_requests.assign`, `support_requests.message`. Tetikleyici sayısı 23; ayrıntı `CHANGELOG.md`, runbook §25.
+
 **P17 — Windows istemci 0.11.0** (kod tamam, güvenlik tur 2 Kritik/Yüksek 0; Windows elle turu ve Release bekliyor)
 
 - "Yalnız bir pencere" paylaşımı (Windows.Graphics.Capture); kontrol pencereyle sınırlı, kabuk kısayolları ve
@@ -469,6 +478,7 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P14b (kod ✓, QA sürüyor)                                                          | G2 UI/a11y: 404 sayfaları, anahtar kontrastı, mobil menü, Ayarlar > Genel, aranabilir firma seçici, sohbet hız sınırı                                                                                                      |
 | P15 (kod ✓, QA sürüyor)                                                           | G3: kurtarma kodu yenileme, Super Admin şifre sıfırlama, sistem logosu kaldırma, talep engelleri, paylaşım hata nedeni, teknisyen fotoğrafı, dosya doğrulama, talep kabul kodu                                             |
 | P16 (kod ✓, QA sürüyor)                                                           | G4: kullanıcı ve firma kalıcı silme (24 sa iptal penceresi), gece kalıcı silme, yetim dosya taraması, imha defteri ve geri yükleme sonrası yeniden silme                                                                   |
+| P18 (kod ✓, QA sürüyor)                                                           | G6-a talep iletişimi: kabul öncesi mesajlaşma (panel), atama, öncelik, SLA, mesai saatleri ve tatiller                                                                                                                     |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu

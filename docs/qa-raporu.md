@@ -1429,3 +1429,61 @@ T9 log, T10 metrik, T11 tetikleyici, T12 fallback + tatil kilidi).
 - DST, var olmayan/iki kez yaşanan saat ve 366 gün sınırı tablo testleriyle; mesai reddi ref ve bindingKey yollarında aynı sırada.
 - Saklama-önce-iletim, AAD bağlama, retention aynı TX ve firma silme regresyonu gerçek DB'de test ediliyor; tetikleyici
   sayısı (23) tek kaynaktan backup/ops testlerine kadar tutarlı.
+
+# P18 — Tur 2
+
+DURUM: GEÇTİ
+
+Kapsam: dal `p18-wip` @ `80e07cc` ("P18 düzeltme turu 1"); QA Tur 1 maddeleri 1–2 ve güvenlik S-P18-K1..K3 düzeltmeleri;
+implementation.md "P18 düzeltme turu 1 (devops/backend/frontend)".
+
+## Test sonucu
+
+| Komut                                                                | Sonuç                                                                                                   |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint` / `pnpm -r run typecheck` / `pnpm format:check`   | temiz (çıkış 0)                                                                                         |
+| `pnpm -r run test`                                                   | contracts 133/133 · web 371/371 (+3 `closedSlaView`) · server birim 410/410; skip 0                     |
+| server `test:int` (geçici DB `rs-mysql-qa-p18-t2`, migrate + grants) | 73 dosya / **726/726** (+3: SLA detay, K1, K2); skip 0; konteyner silindi                               |
+| `pnpm --filter @remote/web e2e p8-history p18-h4 p16`                | **48 geçti, 0 kırmızı, 34 skip** (mobil projede `desktopOnly`; 390 px kontrolü desktop'ta viewport ile) |
+
+Go, ops ve backup testleri bu turda koşulmadı (değişen dosyalar onları etkilemiyor; fikstür ve tetikleyici değişmedi).
+
+## Önceki tur maddeleri ve güvenlik düzeltmeleri
+
+| Madde                                    | Durum | Kanıt                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| QA-1 geçmiş detayında SLA satırı         | ✅    | `SessionRequestInfo.slaDueAt/slaBreached` (`history.ts` CSV ile aynı `slaBreachedAt`); int `p18-backend-h2` "AC-257 / §8b.8" aşıldı=true, içinde=false, SLA'sız null/null, talepsiz `request` null. Web `RequestInfo` satırı + `SlaBadge met`; e2e `p8-history` "AC-257: geçmiş detayı SLA satırı" aşıldı/içinde/SLA'sız satır yok, iki tema axe 0, 390 px taşma yok |
+| QA-2 `mimari-protokol.md` §5 P18 eki     | ✅    | §5.4.1–5.4.6: yetenek bildirimi, ek mesajlar, işleme sırası (K1 dahil), gövde kuralları, panel ekleri, P19/P20 kontrol listesi                                                                                                                                                                                                                                       |
+| S-P18-K1 gövde hatası soketi kapatmaz    | ✅    | `ws.ts` zarf geçerli + gövde geçersiz → `error VALIDATION`; int "S-P18-K1": 21 satır/yumuşak tire/bidi → VALIDATION, mesaj gövdeyi içermez, soket açık, satır 0, PENDING; ardından geçerli mesaj iletilir; zarf bozuk → 1008                                                                                                                                         |
+| S-P18-K2 rewrap hata yolunda audit       | ✅    | `crypto.ts` `finally` audit; int "S-P18-K2": 2. partide simüle DB hatası → audit `fail` `{rows:500, batches:1, error:"SimulatedDbError"}`, gövde yok; yeniden çalıştırma kalan 1 satırı taşır, check-retire 0                                                                                                                                                        |
+| S-P18-K3 anahtar migrate ortamında değil | ✅    | `docker-compose.yml` migrate'te `APP_ENCRYPTION_KEYS` yok (server `:?` aynı); runbook §25.5 tek seferlik `-e`; `crypto.ts` baş yorumu hizalı. Otomatik test yok (compose yapılandırması; devops `docker compose config` doğrulaması implementation.md'de)                                                                                                            |
+
+AC-255..258 durumları Tur 1'deki gibi ✅; regresyon yok.
+
+## Düzeltilmeli
+
+Yok.
+
+## Definition of Done
+
+| Madde                                     | ✅/❌ | Not                                                                     |
+| ----------------------------------------- | ----- | ----------------------------------------------------------------------- |
+| Testler yeşil (unit, int, ilgili e2e)     | ✅    | Skip'ler gerekçeli (mobil proje)                                        |
+| Lint / typecheck / format                 | ✅    |                                                                         |
+| Yeni davranışların testi                  | ✅    | SLA detay (int + birim + e2e), K1, K2                                   |
+| `any` / boş `catch` / gövde log           | ✅    | K1 yolunda gövde loglanmıyor; rewrap `catch` yeniden fırlatır           |
+| Sözleşme ↔ kod ↔ belge uyumu              | ✅    | contracts `SessionRequestInfo`, `requestMessageEnvelopeSchema` ↔ §5.4.3 |
+| Erişilebilirlik / iki tema / ikon / token | ✅    | axe 0; `CircleCheck` + `success` tokenları                              |
+
+## Öneriler (zorunlu değil)
+
+1. [mimar] `docs/mimari-protokol.md` §5.4.3 madde 4'teki "düzeltme `p18-wip` çalışma ağacında… birleşmeden önceki kod gövde
+   hatasında da 1008 kapatır" notu `80e07cc` ile commit edildiği için artık geçici; P18 kapanışında sadeleştirilebilir
+   (§5.4.6 son madde eski istemci/sunucu uyumu için yeterli).
+2. [backend-dev] K1 yolunda VALIDATION çerçeveleri yalnız genel 5/sn kovasıyla sınırlı (belgeli). Gözlemlenebilirlik için
+   `request_message_rejected{reason:"validation"}` benzeri bir sayaç düşünülebilir.
+
+## Olumlu
+
+- K2 testi Proxy ile gerçek bir ara parti hatası üretip audit içeriğini birebir doğruluyor; idempotent yeniden koşu da test ediliyor.
+- SLA kararı tek kaynakta (`slaBreachedAt`) — CSV ve detay ayrışamaz; web sunucu kararını aynen kullanıyor.

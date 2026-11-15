@@ -1,4 +1,4 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b, P15, P16)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b, P15, P16, P18)
 
 Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b, P13a, P13b ve P13b-L'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
@@ -35,6 +35,9 @@ P16: `users/{routes,service,repo}.ts` (`DELETE /users/:id`), `tenants/{routes,pu
 tenant-purge-repo,retention,orphan-scan}.ts`, `audit/{read,view,repo}.ts`, `ops/erasure-ledger.ts`, `cli/erasure.ts`,
 `packages/contracts/src/{errors.ts,audit.ts,permissions.ts,api/users.ts,api/tenants.ts,api/audit.ts}`. Özet: "Kalıcı silme
 (P16)" bölümü.
+P18: `requests/{assign,calendar,hours,hours-routes,messages,routes,service,ws,hub,panel}.ts`, `sessions/{history,history-repo}.ts`,
+`users/{routes,repo}.ts`, `cli/crypto.ts`, `packages/contracts/src/{errors.ts,permissions.ts,ws-request.ts,holidays-tr.ts,
+api/requests.ts,api/sessions.ts,api/customers.ts}`. Özet: "Talep iletişimi (P18)" bölümü.
 
 ## Genel kurallar
 
@@ -122,7 +125,9 @@ stack, SQL veya iç ayrıntı içermez.
 | `OPEN_SESSION_LIMIT`             | 409  | Teknisyenin açık oturum sınırı dolu (P8b: talep kabulünde talep beklemede kalır)                                                                                                                                                                                                                                                                                         |
 | `REQUEST_PENDING`                | 409  | P8b: bu istemci örneğinin zaten bekleyen talebi var                                                                                                                                                                                                                                                                                                                      |
 | `REQUEST_TAKEN`                  | 409  | P8b: talebi başka teknisyen kabul etti                                                                                                                                                                                                                                                                                                                                   |
-| `REQUEST_CLOSED`                 | 409  | P8b: talep iptal, süre dolumu veya ret ile kapandı                                                                                                                                                                                                                                                                                                                       |
+| `REQUEST_CLOSED`                 | 409  | P8b: talep iptal, süre dolumu veya ret ile kapandı; P18: mesaj, atama ve öncelik uçlarında talep artık PENDING değil                                                                                                                                                                                                                                                     |
+| `OUTSIDE_HOURS`                  | 409  | P18: firmada mesai takvimi açık, şu an mesai dışı ve mod "Reddet"; talep açılmaz. `fields.nextOpeningAt` (ISO; bir yıl içinde açık an yoksa yok). Yalnız 0.12.0 ve sonrası istemciye; eskisine `QUEUE_FULL`                                                                                                                                                              |
+| `CHAT_UNSUPPORTED`               | 409  | P18: `POST /support-requests/:id/messages` — müşterinin bağlı programı mesajlaşmayı desteklemiyor (`rs.cap.chat1` bildirmedi). Müşteri bağlı değilse hata yok; mesaj saklanır                                                                                                                                                                                            |
 | `SESSION_ANONYMIZED`             | 409  | P13a: oturum saklama süresi dolduğu için anonimleştirildi, ticket/not yazılamaz ("Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.")                                                                                                                                                                                                                |
 | `SESSION_EXPIRED`                | 410  | Oturum linkinin/kodunun süresi dolmuş                                                                                                                                                                                                                                                                                                                                    |
 | `SESSION_CONSUMED`               | 410  | Link/kod kullanılmış (müşteri kabul edilmiş)                                                                                                                                                                                                                                                                                                                             |
@@ -134,7 +139,7 @@ stack, SQL veya iç ayrıntı içermez.
 | `PAYLOAD_TOO_LARGE`              | 413  | P12: yüklenen dosya 2 MB'tan büyük ("Dosya en çok 2 MB olabilir.")                                                                                                                                                                                                                                                                                                       |
 | `METHOD_NOT_ALLOWED`             | 405  | P11: audit uçlarına POST/PUT/PATCH/DELETE (`Allow` başlığıyla); audit kayıtları salt okunurdur                                                                                                                                                                                                                                                                           |
 | `RATE_LIMITED`                   | 429  | Hız sınırı aşıldı (giriş, oturum oluşturma, public uçlar, P8 müşteri araması ve CSV dışa aktarma; P11 audit CSV, MySQL testi, aydınlatma metni kaydı; P12 resim yükleme 20/sa/kullanıcı, resim işleme kuyruğu dolu, `/public/branding` 60/dk/IP; P13a sistem ayarı PUT/DELETE 10/dk/kullanıcı; P13b-L `GET /sessions/waiting` 60/dk/kullanıcı); `Retry-After` ile        |
-| `QUEUE_FULL`                     | 429  | P8b: firmada 50 bekleyen talep, ya da ≥ 40 iken bilinmeyen kaynak ("Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.")                                                                                                                                                                                                                                              |
+| `QUEUE_FULL`                     | 429  | P8b: firmada 50 bekleyen talep, ya da ≥ 40 iken bilinmeyen kaynak ("Şu an çok yoğunuz, lütfen firmanızı telefonla arayın."). P18: 0.12.0'dan eski istemciye mesai dışı reddi de bu kodla döner (mesaj "Mesai dışındayız…", `Retry-After` yok)                                                                                                                            |
 | `INTERNAL`                       | 500  | Beklenmeyen hata                                                                                                                                                                                                                                                                                                                                                         |
 | `UPSTREAM`                       | 502  | P8b: WhatsApp test ucu — servis yapılandırılmamış veya production'da güvensiz adres. P10: SMTP yok ("Önce SMTP ayarlarını yapın") veya gönderim başarısız (tek genel mesaj "E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.")                                                                                                          |
 | `NOT_READY`                      | 503  | `/ready`: DB'ye ulaşılamıyor veya migration yok; P6: Windows istemci ikilisi yok, yapılandırılmamış veya SHA-256'sı `AGENT_SHA256` ile uyuşmuyor. **P8b-1:** herhangi bir uçta geçici DB çekişmesi (Prisma P2028/P2034, MySQL 1205/1213/45028) veya talep kapısı dolu → `Retry-After: 5`, mesaj "Sunucu şu an yoğun…"; yazma geri alındığından yeniden deneme güvenlidir |
@@ -2550,6 +2555,161 @@ sayıları eklenir. Pazar 04:30 (TR) yetim dosya taraması `uploads.orphan_scan`
 `rs_retention_failures_total{class}`, `rs_tenant_purge_jobs{role="<STATE>"}`, `rs_tenant_purge_rows_total{table}`,
 `rs_tenant_purge_last_heartbeat_seconds`, `rs_orphan_files_total{action}`, `rs_orphan_scan_last_success_timestamp_seconds`,
 `rs_erasure_ledger_write_failed_total`. Alarm ve operasyon: `docs/runbook.md` §23.
+
+## Talep iletişimi (P18)
+
+AC-255..258; tasarım `docs/mimari-e11.md` §8b. Bütün panel uçları oturum + CSRF (yazma) + yetki + `tenantScope` zincirini
+kullanır; Super Admin önce firma seçer. Başka firmanın kaydı 404. Yanıtlar `Cache-Control: no-store`.
+
+**Yeni yetkiler** (`packages/contracts/src/permissions.ts`; yetki tablosunda kendiliğinden çıkar, Admin açık / User kapalı):
+
+| Anahtar                    | Ekranda       | Açar                                                      |
+| -------------------------- | ------------- | --------------------------------------------------------- |
+| `support_requests.assign`  | Ata / öncelik | Talebi teknisyene atama, atamayı kaldırma, öncelik        |
+| `support_requests.message` | Mesaj yaz     | Bekleyen talepte müşteriye mesaj yazma (okuma `view` ile) |
+
+### GET /api/v1/support-requests — eklenenler
+
+Öğeye `priority` (`LOW`|`NORMAL`|`HIGH`), `assignedTo` (`{id, name}` | null), `slaDueAt` (ISO | null), `slaBreached`
+(boolean), `afterHours` (boolean). Bekleyen sekmede yeni süzgeç `assigned=me|none` (yalnız `tab=pending`; aksi 400).
+Bekleyen sıra: öncelik (Yüksek önce) → geliş zamanı → id (`compareQueue`).
+
+```json
+{ "id": "01K…", "requestCode": "482913", "status": "PENDING", "priority": "HIGH",
+  "assignedTo": { "id": "01K…", "name": "Ayşe Teknisyen" }, "slaDueAt": "2026-11-16T07:30:00.000Z",
+  "slaBreached": false, "afterHours": true, "…": "…" }
+```
+
+`slaBreached`: SLA ilk yanıt (kabul) süresidir; bitiş = bekliyorsa şimdi, değilse kabul ya da kapanış anı. Tam hedef anı
+aşım sayılmaz. SLA'sız talepte `slaDueAt: null`, `slaBreached: false`.
+
+### POST /api/v1/support-requests/:id/assign
+
+Yetki `support_requests.view` + `support_requests.assign`; 30/dk/kullanıcı (öncelik ucuyla ortak).
+
+```http
+POST /api/v1/support-requests/01K…/assign
+Content-Type: application/json
+X-CSRF-Token: …
+
+{ "userId": "01K…" }
+```
+
+200 → güncel `SupportRequestItem`. `"userId": null` atamayı kaldırır. Atanabilir kişi: aynı firmada, etkin, Admin ya da
+User, etkin `support_requests.view` + `accept` yetkili. Super Admin atama yapabilir, atanamaz. Değişiklik yoksa audit
+yazılmaz. Başarıda panellere `request.updated` gider.
+Hatalar: 400 `VALIDATION` (`fields.userId`: "Bu kullanıcıya talep atanamaz (aynı firmada, etkin ve talep kabul yetkisi
+olmalı)."), 403, 404, 409 `REQUEST_CLOSED`, 429.
+
+Başkasına atanmış talep `POST /support-requests/:id/accept` ile yine kabul edilebilir; panel önce onay ister.
+
+### POST /api/v1/support-requests/:id/priority
+
+Yetki ve sayaç assign ile aynı. Gövde `{ "priority": "LOW" | "NORMAL" | "HIGH" }` → 200 `SupportRequestItem`. Öncelik
+değişimi SLA'yı değiştirmez (talep açılırken dondurulur). Hatalar: 400, 403, 404, 409 `REQUEST_CLOSED`, 429.
+
+### GET /api/v1/users/options?assignable=1
+
+Mevcut uca (P14b) süzgeç: yalnız atanabilir kullanıcılar. `support_requests.assign` yetkisi olmayan User yalnız kendini
+görür ("Bana ata" için).
+
+### GET /api/v1/support-requests/:id/messages?after=<ulid>
+
+Yetki `support_requests.view`; 120/dk/kullanıcı. Yalnız bekleyen (PENDING) talep. `after` verilirse o mesajdan sonrakiler.
+
+```json
+{ "items": [
+    { "id": "01K…", "sender": "TECH", "senderName": "Ayşe Teknisyen", "body": "Birkaç dakika içinde bağlanacağım",
+      "createdAt": "2026-11-15T09:01:02.000Z" },
+    { "id": "01K…", "sender": "CUSTOMER", "senderName": null, "body": null, "createdAt": "…" } ],
+  "customerChat": "SUPPORTED" }
+```
+
+En çok 100 öğe, eskiden yeniye. `body: null` = gövde çözülemedi (panel "Mesaj okunamadı" yazar). `customerChat`:
+`SUPPORTED` (müşteri programı bağlı ve mesajlaşmayı destekliyor), `UNSUPPORTED` (bağlı ama desteklemiyor), `OFFLINE`
+(bağlı değil; yazılan mesaj saklanır, bağlanınca gider). Okuma audit'e yazılmaz (metrik `rs_request_messages_read_total`).
+Hatalar: 400, 403, 404, 409 `REQUEST_CLOSED` (kapalı talebin yazışması P22'de açılacak), 429.
+
+### POST /api/v1/support-requests/:id/messages
+
+Yetki `support_requests.view` + `support_requests.message`. Hız: 60/dk/kullanıcı, 600/dk/firma, talep ve gönderici
+başına 1/sn; talep başına gönderici tavanı 200 mesaj.
+
+```http
+POST /api/v1/support-requests/01K…/messages
+Content-Type: application/json
+X-CSRF-Token: …
+
+{ "body": "Birkaç dakika içinde bağlanacağım", "clientMsgId": "m-01K…" }
+```
+
+201 `{ "id": "01K…", "createdAt": "…" }`. Aynı `clientMsgId` yeniden gönderilirse aynı kayıt döner (çift yok).
+Gövde kuralları (`requestMessageBodySchema`): satır sonu normalleştirme, NFC, baş/son boşluk kırpma; 1–1.000 kod noktası,
+en çok 20 satır; `\n` dışındaki kontrol karakterleri, biçim (Cf; ZWJ ve VS16 hariç) ve yön karakterleri ret.
+`clientMsgId` `^[A-Za-z0-9_-]{1,36}$`. Mesaj şifreli saklanır, sonra müşteriye iletilir; gövde loga/audit'e yazılmaz
+(audit `request.message_sent {sender, chars}`).
+Hatalar: 400 `VALIDATION`, 403, 404, 409 `REQUEST_CLOSED` / `CHAT_UNSUPPORTED`, 429 `RATE_LIMITED` ("Çok hızlı mesaj
+gönderiyorsunuz. Lütfen biraz bekleyin." · tavan: "Bu talepte en çok 200 mesaj gönderilebilir.").
+
+### GET / PUT /api/v1/settings/business-hours
+
+GET `settings.view`, PUT `settings.edit` (30/dk/kullanıcı).
+
+```json
+{ "enabled": true, "timeZone": "Europe/Istanbul", "afterHoursMode": "ACCEPT",
+  "week": [[{ "from": "09:00", "to": "12:30" }, { "from": "13:30", "to": "18:00" }],
+           [{ "from": "09:00", "to": "18:00" }], [], [], [], [], []],
+  "openNow": false, "nextOpeningAt": "2026-11-16T06:00:00.000Z" }
+```
+
+PUT gövdesi `openNow`/`nextOpeningAt` olmadan aynı şekil. `week` 7 gün, Pazartesi = 0; gün başına en çok 2 aralık,
+`from` 00:00–23:59, `to` 00:01–24:00 (`24:00` gün sonu), `from < to`, aralıklar örtüşmez, gece yarısını aşan aralık yok.
+`enabled: true` iken en az bir aralık zorunlu. `timeZone` geçerli IANA adı. `afterHoursMode`: `ACCEPT` (talep alınır,
+`afterHours: true`, SLA ilk açılışta başlar) | `REJECT` (talep `OUTSIDE_HOURS` ile reddedilir). `nextOpeningAt` açıkken
+şimdiki an, bir yıl içinde açık an yoksa null. Hatalar: 400 (`fields["week.0.1.to"]` gibi), 403, 429.
+
+### GET · POST · DELETE /api/v1/settings/holidays
+
+- `GET /settings/holidays?year=2026` (`settings.view`; `year` 2000–2100) → `{ "items": [{ "id", "day": "2026-10-28",
+"name": "Cumhuriyet Bayramı arifesi", "openUntil": "13:00" }] }`.
+- `POST /settings/holidays` (`settings.edit`; 60/dk) gövde `{ "day": "YYYY-MM-DD", "name": "…", "openUntil": "HH:MM" | null }`
+  → 201 öğe. `day` firma saat diliminde yerel gün; `openUntil` doluysa o gün bu saate kadar açık (yarım gün), null tam gün
+  kapalı. `name` 1–100 karakter.
+- `DELETE /settings/holidays/:id` (`settings.edit`) → 204. Değiştirme = sil + ekle.
+
+Hatalar: 400, 403, 404, 409 `CONFLICT` ("Bu gün zaten tatil olarak ekli" — `fields.day`; ya da "Firma başına en çok 200
+tatil günü tanımlanabilir"), 429.
+
+### POST /api/v1/settings/holidays/import-tr
+
+`settings.edit`; 10/dk. Gövde `{ "year": 2027 }` → 200 `{ "added": 14, "skipped": 1 }`. Liste koddadır
+(`packages/contracts/src/holidays-tr.ts`; bugün 2026 ve 2027; arifeler `openUntil: "13:00"`). Zaten olan günler atlanır;
+200 tavanı aşılacaksa hiçbiri eklenmez (409 `CONFLICT`). Listede olmayan yıl 400. Dinî bayram tarihleri yıllık
+doğrulanır (runbook §25.6).
+
+### Mevcut uçlarda değişenler (P18)
+
+| Uç                                                       | Değişiklik                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET / PUT /api/v1/settings/support-requests`            | += `defaultPriority` (varsayılan `NORMAL`), `defaultSlaMinutes` (5–1440 \| null = SLA yok); PUT'ta opsiyonel                                                                                                                                                                                                                             |
+| `POST /api/v1/customers` · `PATCH /api/v1/customers/:id` | += `defaultPriority` (null = firma varsayılanı), `slaMinutes` (5–1440 \| null = firma varsayılanı)                                                                                                                                                                                                                                       |
+| `POST /api/v1/public/requests`                           | Mesai dışı + `REJECT` → 409 `OUTSIDE_HOURS` + `fields.nextOpeningAt`, mesaj "Mesai dışındayız. Sonraki açılış: gg.aa.yyyy SS:dd (…)". İstemci < 0.12.0 → aynı mesaj **429 `QUEUE_FULL`** (eski istemci yalnız bu kodda sunucu mesajını gösterir), `Retry-After` yok, hız sınırı alarmını beslemez. Kontrol geçerli ref'ten sonra yapılır |
+| `GET /api/v1/public/requests/tenant`                     | += `businessHours: { openNow, nextOpeningAt, afterHoursMode }` (takvim kapalıysa `openNow: true`)                                                                                                                                                                                                                                        |
+| `GET /api/v1/sessions/:id/history` (ve `PATCH` yanıtı)   | `request` nesnesine `slaDueAt` (ISO \| null), `slaBreached` (boolean \| null; SLA yoksa null). Anonimleştirilmiş oturumda da dolu                                                                                                                                                                                                        |
+| `GET /api/v1/sessions/export.csv`                        | Son sütun **"SLA aşıldı"**: `Evet` / `Hayır` / boş (talepsiz oturum ya da SLA'sız talep)                                                                                                                                                                                                                                                 |
+
+Talep oluşturulurken öncelik = müşteri varsayılanı ?? firma varsayılanı; SLA dakikası aynı sırayla; değerler dondurulur.
+
+### WebSocket ekleri
+
+Ayrıntılı ve bağlayıcı sözleşme: `docs/mimari-protokol.md` §5.4. Özet:
+
+- `/ws/request`: müşteri programı `Sec-WebSocket-Protocol`'e `rs.cap.chat1` eklerse mesajlaşma açılır (`request.message`
+  her iki yönde, bağlantıda son 50 mesaj `request.messages`, kapanış/kabulde `request.chat {enabled:false}`). Yeteneksiz
+  sokete (≤ 0.11.x) yeni tipte çerçeve gitmez. Yetenekli sokette gövde kuralı ihlali `error VALIDATION` döner, soket açık
+  kalır; hız aşımı `error RATE_LIMITED`.
+- `/ws/panel`: `request.updated {id, priority, assignedTo, slaDueAt}` (atama/öncelik), `request.activity {id, kind:"message",
+sender, at}` (gövdesiz, talep başına ≤ 1/sn), `request.new` += `priority`, `slaDueAt`, `afterHours`, `customerChat`.
 
 ## Saklama ve anonimleştirme (P13a)
 
