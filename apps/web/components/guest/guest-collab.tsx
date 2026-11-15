@@ -1,9 +1,10 @@
 "use client";
 
-import { MessageSquare, Paperclip, PictureInPicture2, X } from "lucide-react";
+import { PictureInPicture2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { ChatPanel } from "@/components/collab/chat-panel";
 import { FilesPanel } from "@/components/collab/files-panel";
+import { chatFilesOptions } from "@/components/collab/tab-options";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import type { Collab } from "@/lib/dc/use-collab";
@@ -42,22 +43,7 @@ export function GuestCollab({
       <h2 id="iletisim-t" className="text-lg font-semibold text-fg">
         {t("p5.g.collab")}
       </h2>
-      {filesAllowed && (
-        <Segmented<Tab>
-          label={t("p5.side")}
-          value={cur}
-          onChange={setTab}
-          options={[
-            {
-              value: "chat",
-              label: t("p5.tab.chat"),
-              icon: <MessageSquare aria-hidden className="size-4" />,
-              ...(collab.chat.unread ? { count: collab.chat.unread } : {}),
-            },
-            { value: "files", label: t("p5.tab.files"), icon: <Paperclip aria-hidden className="size-4" /> },
-          ]}
-        />
-      )}
+      {filesAllowed && <Segmented<Tab> label={t("p5.side")} value={cur} onChange={setTab} options={chatFilesOptions(collab.chat.unread)} />}
       {cur === "chat" ? (
         <ChatPanel collab={collab} peerName={techName} />
       ) : (

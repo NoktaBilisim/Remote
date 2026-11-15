@@ -7,7 +7,7 @@
 import { contentRect } from "@/lib/dc/annot";
 import { WHEEL_MAX, type InputMsg, type MouseButton } from "./protocol";
 
-export interface Box {
+interface Box {
   left: number;
   top: number;
   width: number;
@@ -69,7 +69,7 @@ export function wheelMsg(deltaX: number, deltaY: number, deltaMode: number): Inp
   return dx === 0 && dy === 0 ? null : { t: "m.wheel", dx: dx || 0, dy: dy || 0 };
 }
 
-export interface KeyLike {
+interface KeyLike {
   type: string;
   code: string;
   key: string;
@@ -83,7 +83,7 @@ export function printableKey(key: string): boolean {
 }
 
 /** Sözleşme (contracts dc.ts `keySchema`, Go istemci): `code` yalnız harf/rakam, 1..32. */
-export const KEY_CODE = /^[A-Za-z0-9]{1,32}$/;
+const KEY_CODE = /^[A-Za-z0-9]{1,32}$/;
 
 /** KeyboardEvent → `k`. IME birleştirmesi ve kodsuz olay (sanal klavye) gönderilmez. */
 export function keyMsg(e: KeyLike): InputMsg | null {

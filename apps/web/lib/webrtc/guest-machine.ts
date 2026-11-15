@@ -23,7 +23,7 @@ export interface GuestState {
   resuming: boolean;
 }
 
-export type GuestEvent =
+type GuestEvent =
   | { type: "msg"; m: ServerOutbound }
   | { type: "closed"; code: number; now: number }
   | { type: "share"; on: boolean }
@@ -67,15 +67,19 @@ export function guestReducer(s: GuestState, e: GuestEvent): GuestState {
     case "share":
       return s.phase === "live" ? { ...s, share: e.on ? "sharing" : "stopped" } : s;
     case "closed":
-      // Dönüş reddedildi (403 → 1006, 4401 vb.): token geçersiz/oturum bitmiş → "zaten kullanıldı"
-      if (s.resuming && s.phase === "connecting") return finish(s, "resumeFailed");
-      if (e.code === WS_CLOSE.POLICY || e.code === WS_CLOSE.TOO_BIG) return finish(s, "error");
-      // Yalnız kabul edilmiş misafir reconnectToken ile döner; lobide kopan ticket tek kullanımlıktır
-      if (s.phase === "live" && s.reconnectToken) return { ...s, reconnectSince: s.reconnectSince ?? e.now };
-      return finish(s, "lost");
+      return onClosed(s, e.code, e.now);
     case "msg":
       return onMsg(s, e.m);
   }
+}
+
+function onClosed(s: GuestState, code: number, now: number): GuestState {
+  // Dönüş reddedildi (403 → 1006, 4401 vb.): token geçersiz/oturum bitmiş → "zaten kullanıldı"
+  if (s.resuming && s.phase === "connecting") return finish(s, "resumeFailed");
+  if (code === WS_CLOSE.POLICY || code === WS_CLOSE.TOO_BIG) return finish(s, "error");
+  // Yalnız kabul edilmiş misafir reconnectToken ile döner; lobide kopan ticket tek kullanımlıktır
+  if (s.phase === "live" && s.reconnectToken) return { ...s, reconnectSince: s.reconnectSince ?? now };
+  return finish(s, "lost");
 }
 
 function onMsg(s: GuestState, m: ServerOutbound): GuestState {

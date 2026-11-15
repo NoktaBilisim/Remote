@@ -19,8 +19,8 @@ import { api, ApiError } from "../api";
  * kesin sonlarda (4401/1008, session.ended, oturum ACTIVE değil/404) dur. S-P4-T3-2: pencere sunucunun ölü soket
  * süresini (ping 30 sn × 3 ≈ 90 sn) + pay kapsar: 35 × 3 sn = 105 sn ≥ 100 sn, 120 sn yeniden bağlanma penceresi içinde.
  */
-export const RESUME_RETRY_MS = 3_000;
-export const RESUME_MAX_ATTEMPTS = 35;
+const RESUME_RETRY_MS = 3_000;
+const RESUME_MAX_ATTEMPTS = 35;
 
 /** Oturum hâlâ aktif mi? Ağ hatasında belirsiz → true (yeniden denemeye devam). */
 async function stillActive(sessionRef: string): Promise<boolean> {

@@ -19,7 +19,7 @@ type SignalOut =
   | { t: "sdp.answer"; sdp: string }
   | { t: "ice"; candidate: string; sdpMid?: string; sdpMLineIndex?: number };
 
-export const toRtcIce = (s: IceServer[]): RTCIceServer[] =>
+const toRtcIce = (s: IceServer[]): RTCIceServer[] =>
   s.map((x) => ({ urls: x.urls, ...(x.username ? { username: x.username } : {}), ...(x.credential ? { credential: x.credential } : {}) }));
 
 export class PeerLink {

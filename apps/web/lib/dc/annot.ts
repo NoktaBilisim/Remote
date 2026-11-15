@@ -23,9 +23,9 @@ export interface AnnotState {
 }
 export const initialAnnot: AnnotState = { strokes: [], laser: null };
 
-export const MAX_PTS = 500;
-export const MAX_STROKES = 200;
-export const LASER_FADE_MS = 1000;
+const MAX_PTS = 500;
+const MAX_STROKES = 200;
+const LASER_FADE_MS = 1000;
 export const LASER_INTERVAL_MS = 1000 / 30;
 
 /** Video kutusunda object-contain ile görünen içerik dikdörtgeni. */

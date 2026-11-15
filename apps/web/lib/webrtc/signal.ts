@@ -42,7 +42,7 @@ export function parseServerMessage(data: unknown): ServerOutbound | null {
   return r.success ? r.data : null;
 }
 
-export interface SignalHandlers {
+interface SignalHandlers {
   onMessage: (m: ServerOutbound) => void;
   onClose: (code: number) => void;
   onOpen?: () => void;

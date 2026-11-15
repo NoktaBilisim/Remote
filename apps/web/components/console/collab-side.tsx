@@ -1,9 +1,10 @@
 "use client";
 
-import { CircleDot, Eraser, MessageSquare, MoveUpRight, Paperclip, PenLine, Signal, Square, Undo2 } from "lucide-react";
+import { CircleDot, Eraser, MoveUpRight, PenLine, Signal, Square, Undo2 } from "lucide-react";
 import { useEffect } from "react";
 import { ChatPanel } from "@/components/collab/chat-panel";
 import { FilesPanel } from "@/components/collab/files-panel";
+import { chatFilesOptions } from "@/components/collab/tab-options";
 import type { DrawTool } from "@/components/collab/annot-layer";
 import { QualityPanel } from "@/components/console/quality-panel";
 import { Segmented } from "@/components/ui/segmented";
@@ -46,13 +47,7 @@ export function CollabSide({
         value={tab}
         onChange={onTab}
         options={[
-          {
-            value: "chat",
-            label: t("p5.tab.chat"),
-            icon: <MessageSquare aria-hidden className="size-4" />,
-            ...(collab.chat.unread ? { count: collab.chat.unread } : {}),
-          },
-          { value: "files", label: t("p5.tab.files"), icon: <Paperclip aria-hidden className="size-4" /> },
+          ...chatFilesOptions(collab.chat.unread),
           { value: "quality", label: t("p5.tab.quality"), icon: <Signal aria-hidden className="size-4" /> },
         ]}
       />

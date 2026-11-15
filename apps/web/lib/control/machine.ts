@@ -12,10 +12,12 @@
  * Sunucu otoritedir (≤5 istek, 30 sn); istemci sayaçları yalnız butonu önceden pasifler.
  */
 import type { ServerOutbound } from "@remote/contracts/ws";
+import { applyMsg, type MsgOf, type MsgTable } from "../webrtc/msg-table";
+import { later, num, ts } from "./counters";
 import { CONTROL_DENY_COOLDOWN_MS, CONTROL_REQUEST_MAX } from "./protocol";
 
 export const MAX_CONTROL_REQUESTS = CONTROL_REQUEST_MAX;
-export const DENY_COOLDOWN_MS = CONTROL_DENY_COOLDOWN_MS;
+const DENY_COOLDOWN_MS = CONTROL_DENY_COOLDOWN_MS;
 /** Monitör isteğine yanıt (share.state.activeMonitor değişimi) gelmezse "onaylanmadı" sayılır. */
 export const MONITOR_TIMEOUT_MS = 30_000;
 /** Sunucunun `error`'u yalnız son gönderilen istekle eşlenir (zarf id'si hataya yansımaz). */
@@ -103,9 +105,6 @@ export interface ControlCounters {
   monitorRequests: number;
   monitorBlockedUntil: number | null;
 }
-const num = (v: unknown, max: number): number => (typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(0, v)) : 0);
-const ts = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null);
-const later = (a: number | null, b: number | null): number | null => (a === null ? b : b === null ? a : Math.max(a, b));
 
 export const cooldownLeft = (s: ControlState, now: number): number =>
   s.phase === "denied" && s.deniedAt !== null ? Math.max(0, s.deniedAt + DENY_COOLDOWN_MS - now) : 0;
@@ -151,10 +150,6 @@ function stop(s: ControlState, cause: ControlEndCause, now: number, phase: Contr
   };
 }
 
-function shareInfo(m: { monitors?: Monitor[] | undefined; activeMonitor?: number | undefined }) {
-  return { monitors: m.monitors, activeMonitor: m.activeMonitor };
-}
-
 export function controlReducer(s: ControlState, e: ControlEvent): ControlState {
   switch (e.type) {
     case "request":
@@ -165,14 +160,7 @@ export function controlReducer(s: ControlState, e: ControlEvent): ControlState {
     case "cancel":
       return canCancel(s) ? { ...stop(s, "cancel", e.now), lastSent: null } : s;
     case "monitor":
-      if (!canRequestMonitor(s, e.now) || e.id === s.activeMonitor || !s.monitors.some((x) => x.id === e.id)) return s;
-      return {
-        ...s,
-        monitorPending: { id: e.id, at: e.now },
-        monitorRequests: s.monitorRequests + 1,
-        monitorOutcome: null,
-        lastSent: { kind: "monitor", at: e.now },
-      };
+      return onMonitorRequest(s, e.id, e.now);
     case "monitorTimeout":
       return s.monitorPending && e.now - s.monitorPending.at >= MONITOR_TIMEOUT_MS
         ? { ...s, monitorPending: null, monitorOutcome: "noAnswer", monitorBlockedUntil: e.now + MONITOR_BLOCK_MS }
@@ -180,113 +168,132 @@ export function controlReducer(s: ControlState, e: ControlEvent): ControlState {
     case "closed":
       // Kendi WS'imiz koptu: sunucu yeniden bağlanmada kontrolü VIEW yapar (§3 son paragraf)
       return { ...stop(s, "reconnect", e.now, "idle"), monitorPending: null, env: initialControl.env };
-    case "restore": {
-      // Birleştirme hep büyük olanı alır (yarışta geri sayım/hak geri gitmez); bozuk depo değeri 0/null olur
-      const deniedAt = later(s.deniedAt, ts(e.saved.deniedAt));
-      const cooling = deniedAt !== null && deniedAt + DENY_COOLDOWN_MS > e.now && (s.phase === "idle" || s.phase === "denied");
-      return {
-        ...s,
-        requests: Math.max(s.requests, num(e.saved.requests, MAX_CONTROL_REQUESTS)),
-        deniedAt,
-        phase: cooling ? "denied" : s.phase,
-        monitorRequests: Math.max(s.monitorRequests, num(e.saved.monitorRequests, MAX_CONTROL_REQUESTS)),
-        monitorBlockedUntil: later(s.monitorBlockedUntil, ts(e.saved.monitorBlockedUntil)),
-      };
-    }
+    case "restore":
+      return onRestore(s, e.saved, e.now);
     case "msg":
       return onMsg(s, e.m, e.now);
   }
 }
 
-function onMsg(s: ControlState, m: ServerOutbound, now: number): ControlState {
-  switch (m.t) {
-    case "hello": {
-      const sh = m.share ? shareInfo(m.share) : null;
-      return {
-        ...stop(s, "reconnect", now, "idle"),
-        monitorPending: null,
-        env: initialControl.env,
-        monitors: sh?.monitors ?? s.monitors,
-        activeMonitor: sh?.activeMonitor ?? s.activeMonitor,
-      };
-    }
-    case "peer.joined":
-      if (m.role !== "guest") return s;
-      // Yeni PeerConnection: müşteri kapısı kapalı başlar (AC-24)
-      return { ...stop(s, "reconnect", now, "idle"), monitorPending: null, env: initialControl.env, monitors: [], activeMonitor: null };
-    case "peer.left":
-      if (m.role !== "guest") return s;
-      return { ...stop(s, "peer", now, "idle"), monitorPending: null, env: initialControl.env };
-    case "session.ended":
-      return { ...stop(s, "system", now, "idle"), monitorPending: null };
-    case "share.state": {
-      // P17 (AC-248): pencere modunda (WGC) istemci monitör listesi göndermez ve `monitor.request`i yok sayar —
-      // önceki listeden kalan monitör seçici gösterilmez, bekleyen istek kapanır.
-      if (m.state === "sharing" && m.method === "WGC") return { ...s, monitors: [], activeMonitor: null, monitorPending: null };
-      const monitors = m.monitors ?? s.monitors;
-      const activeMonitor = m.activeMonitor ?? s.activeMonitor;
-      const hit = s.monitorPending !== null && activeMonitor === s.monitorPending.id;
-      return { ...s, monitors, activeMonitor, ...(hit ? { monitorPending: null, monitorOutcome: "switched" as const } : {}) };
-    }
-    case "control.state":
-      if (m.state === "GRANTED") {
-        // Yalnız bekleyen istek izne döner (S7-2); beklenmeyen GRANTED durumu değiştirmez
-        return s.phase === "requested" && !s.forbidden
-          ? { ...s, phase: "granted", error: null, notice: null, endedBy: null, endedAt: null }
-          : s;
-      }
-      if (m.source === "DENIED") return { ...s, phase: "denied", deniedAt: now };
-      if (m.source === "RECONNECT") return stop(s, "reconnect", now, "idle");
-      // {VIEW, TECH}: bırakma/iptalin sunucu onayı — konsol zaten kapattı, sessiz geçer.
-      // `requested`'de gelen TECH onayı her zaman ÖNCEKİ Vazgeç/Bırak'a aittir (sunucu sırayla işler: iptal onayı
-      // yeni isteğin iletilmesinden önce gönderilir); yeni bekleyen isteği kapatmaz (QA-P8b-13, hızlı Vazgeç → yeniden iste).
-      if (m.source === "TECH") return s.phase === "requested" ? s : stop(s, "tech", now);
-      // K6: bekleyen istek müşteri tarafında kapandı (PeerConnection koptu) — ret değil, bekleme yok, hemen yeniden istenebilir
-      if (m.source === "SYSTEM" && s.phase === "requested") return { ...stop(s, "agent", now), lastSent: null };
-      return stop(s, m.source === "HOTKEY" ? "hotkey" : m.source === "SYSTEM" ? "system" : "customer", now);
-    case "control.revoke":
-      // Protokolde S→guest; konsola gelirse de kapatma yönünde işlenir (reconnect = bağlantı yenilendi)
-      if (m.reason === "reconnect") return stop(s, "reconnect", now, "idle");
-      return { ...stop(s, "system", now), forbidden: s.forbidden || m.reason === "permission" };
-    case "monitor.denied":
-      // K4: müşteri reddetti — 30 sn beklemeden hemen yazılır; başka monitöre ait geç ret yok sayılır
-      return s.monitorPending?.id === m.monitorId
-        ? { ...s, monitorPending: null, monitorOutcome: "denied", monitorBlockedUntil: now + MONITOR_BLOCK_MS }
-        : s;
-    case "caps.update":
-      return m.caps.includes("remote_control") ? s : { ...stop(s, "system", now), forbidden: true };
-    case "env.state":
-      return { ...s, env: { elevated: m.elevatedForeground, secure: m.secureDesktop, self: m.selfElevated } };
-    case "error": {
-      // G-15: GRANTED audit'i yazılamadı → sunucu kontrolü geri alır, teknisyene INTERNAL (fail-closed)
-      if (m.code === "INTERNAL" && (s.phase === "granted" || s.phase === "requested")) return stop(s, "system", now);
-      const last = s.lastSent;
-      if (!last || now - last.at > ERROR_WINDOW_MS || !MAPPED_ERRORS.has(m.code)) return s;
-      if (last.kind === "control" && s.phase === "requested") {
-        // K7: CONFLICT normalde oluşmaz (düğme requested'de pasif); gelirse faz değişmez, yalnız sunucunun metni
-        if (m.code === "CONFLICT") return { ...s, notice: m.message, lastSent: null };
-        if (m.code === "VALIDATION") return s;
-        // İstek iletilmedi: sayaç geri alınır; ret bekleme süresi sürüyorsa "denied"e döner
-        const back: ControlPhase = s.deniedAt !== null && now - s.deniedAt < DENY_COOLDOWN_MS ? "denied" : "idle";
-        return {
-          ...s,
-          phase: back,
-          requests: Math.max(0, s.requests - 1),
-          lastSent: null,
-          forbidden: s.forbidden || m.code === "FORBIDDEN",
-          error: m.code === "RATE_LIMITED" ? "rate" : null,
-        };
-      }
-      if (last.kind === "monitor" && s.monitorPending) {
-        // İstek iletilmedi → bekleme kapanır, sayaç geri alınır. S7-15: zaten paylaşılan monitör (VALIDATION) bekleme
-        // başlatmaz; K7: RATE_LIMITED/CONFLICT (ve FORBIDDEN) sunucu beklemesi bitene kadar düğmeyi pasifler.
-        const base = { ...s, monitorPending: null, monitorRequests: Math.max(0, s.monitorRequests - 1), lastSent: null };
-        if (m.code === "VALIDATION") return { ...base, monitorOutcome: "already" };
-        return { ...base, monitorOutcome: "rate", monitorBlockedUntil: now + MONITOR_BLOCK_MS };
-      }
-      return s;
-    }
-    default:
-      return s;
+function onMonitorRequest(s: ControlState, id: number, now: number): ControlState {
+  if (!canRequestMonitor(s, now) || id === s.activeMonitor || !s.monitors.some((x) => x.id === id)) return s;
+  return {
+    ...s,
+    monitorPending: { id, at: now },
+    monitorRequests: s.monitorRequests + 1,
+    monitorOutcome: null,
+    lastSent: { kind: "monitor", at: now },
+  };
+}
+
+function onRestore(s: ControlState, saved: Partial<ControlCounters>, now: number): ControlState {
+  // Birleştirme hep büyük olanı alır (yarışta geri sayım/hak geri gitmez); bozuk depo değeri 0/null olur
+  const deniedAt = later(s.deniedAt, ts(saved.deniedAt));
+  const cooling = deniedAt !== null && deniedAt + DENY_COOLDOWN_MS > now && (s.phase === "idle" || s.phase === "denied");
+  return {
+    ...s,
+    requests: Math.max(s.requests, num(saved.requests, MAX_CONTROL_REQUESTS)),
+    deniedAt,
+    phase: cooling ? "denied" : s.phase,
+    monitorRequests: Math.max(s.monitorRequests, num(saved.monitorRequests, MAX_CONTROL_REQUESTS)),
+    monitorBlockedUntil: later(s.monitorBlockedUntil, ts(saved.monitorBlockedUntil)),
+  };
+}
+
+const ON_MSG: MsgTable<ControlState> = {
+  hello: (s, m, now) => {
+    const sh = m.share ? { monitors: m.share.monitors, activeMonitor: m.share.activeMonitor } : null;
+    return {
+      ...stop(s, "reconnect", now, "idle"),
+      monitorPending: null,
+      env: initialControl.env,
+      monitors: sh?.monitors ?? s.monitors,
+      activeMonitor: sh?.activeMonitor ?? s.activeMonitor,
+    };
+  },
+  "peer.joined": (s, m, now) => {
+    if (m.role !== "guest") return s;
+    // Yeni PeerConnection: müşteri kapısı kapalı başlar (AC-24)
+    return { ...stop(s, "reconnect", now, "idle"), monitorPending: null, env: initialControl.env, monitors: [], activeMonitor: null };
+  },
+  "peer.left": (s, m, now) => {
+    if (m.role !== "guest") return s;
+    return { ...stop(s, "peer", now, "idle"), monitorPending: null, env: initialControl.env };
+  },
+  "session.ended": (s, _m, now) => ({ ...stop(s, "system", now, "idle"), monitorPending: null }),
+  "share.state": (s, m) => {
+    // P17 (AC-248): pencere modunda (WGC) istemci monitör listesi göndermez ve `monitor.request`i yok sayar —
+    // önceki listeden kalan monitör seçici gösterilmez, bekleyen istek kapanır.
+    if (m.state === "sharing" && m.method === "WGC") return { ...s, monitors: [], activeMonitor: null, monitorPending: null };
+    const monitors = m.monitors ?? s.monitors;
+    const activeMonitor = m.activeMonitor ?? s.activeMonitor;
+    const hit = s.monitorPending !== null && activeMonitor === s.monitorPending.id;
+    return { ...s, monitors, activeMonitor, ...(hit ? { monitorPending: null, monitorOutcome: "switched" as const } : {}) };
+  },
+  "control.state": onControlState,
+  "control.revoke": (s, m, now) => {
+    // Protokolde S→guest; konsola gelirse de kapatma yönünde işlenir (reconnect = bağlantı yenilendi)
+    if (m.reason === "reconnect") return stop(s, "reconnect", now, "idle");
+    return { ...stop(s, "system", now), forbidden: s.forbidden || m.reason === "permission" };
+  },
+  "monitor.denied": (s, m, now) =>
+    // K4: müşteri reddetti — 30 sn beklemeden hemen yazılır; başka monitöre ait geç ret yok sayılır
+    s.monitorPending?.id === m.monitorId
+      ? { ...s, monitorPending: null, monitorOutcome: "denied", monitorBlockedUntil: now + MONITOR_BLOCK_MS }
+      : s,
+  "caps.update": (s, m, now) => (m.caps.includes("remote_control") ? s : { ...stop(s, "system", now), forbidden: true }),
+  "env.state": (s, m) => ({ ...s, env: { elevated: m.elevatedForeground, secure: m.secureDesktop, self: m.selfElevated } }),
+  error: onError,
+};
+
+const onMsg = (s: ControlState, m: ServerOutbound, now: number): ControlState => applyMsg(ON_MSG, s, m, now);
+
+function onControlState(s: ControlState, m: MsgOf<"control.state">, now: number): ControlState {
+  if (m.state === "GRANTED") {
+    // Yalnız bekleyen istek izne döner (S7-2); beklenmeyen GRANTED durumu değiştirmez
+    return s.phase === "requested" && !s.forbidden
+      ? { ...s, phase: "granted", error: null, notice: null, endedBy: null, endedAt: null }
+      : s;
   }
+  if (m.source === "DENIED") return { ...s, phase: "denied", deniedAt: now };
+  if (m.source === "RECONNECT") return stop(s, "reconnect", now, "idle");
+  // {VIEW, TECH}: bırakma/iptalin sunucu onayı — konsol zaten kapattı, sessiz geçer.
+  // `requested`'de gelen TECH onayı her zaman ÖNCEKİ Vazgeç/Bırak'a aittir (sunucu sırayla işler: iptal onayı
+  // yeni isteğin iletilmesinden önce gönderilir); yeni bekleyen isteği kapatmaz (QA-P8b-13, hızlı Vazgeç → yeniden iste).
+  if (m.source === "TECH") return s.phase === "requested" ? s : stop(s, "tech", now);
+  // K6: bekleyen istek müşteri tarafında kapandı (PeerConnection koptu) — ret değil, bekleme yok, hemen yeniden istenebilir
+  if (m.source === "SYSTEM" && s.phase === "requested") return { ...stop(s, "agent", now), lastSent: null };
+  return stop(s, m.source === "HOTKEY" ? "hotkey" : m.source === "SYSTEM" ? "system" : "customer", now);
+}
+
+function onError(s: ControlState, m: MsgOf<"error">, now: number): ControlState {
+  // G-15: GRANTED audit'i yazılamadı → sunucu kontrolü geri alır, teknisyene INTERNAL (fail-closed)
+  if (m.code === "INTERNAL" && (s.phase === "granted" || s.phase === "requested")) return stop(s, "system", now);
+  const last = s.lastSent;
+  if (!last || now - last.at > ERROR_WINDOW_MS || !MAPPED_ERRORS.has(m.code)) return s;
+  if (last.kind === "control" && s.phase === "requested") return controlRequestError(s, m, now);
+  if (last.kind === "monitor" && s.monitorPending) {
+    // İstek iletilmedi → bekleme kapanır, sayaç geri alınır. S7-15: zaten paylaşılan monitör (VALIDATION) bekleme
+    // başlatmaz; K7: RATE_LIMITED/CONFLICT (ve FORBIDDEN) sunucu beklemesi bitene kadar düğmeyi pasifler.
+    const base = { ...s, monitorPending: null, monitorRequests: Math.max(0, s.monitorRequests - 1), lastSent: null };
+    if (m.code === "VALIDATION") return { ...base, monitorOutcome: "already" };
+    return { ...base, monitorOutcome: "rate", monitorBlockedUntil: now + MONITOR_BLOCK_MS };
+  }
+  return s;
+}
+
+function controlRequestError(s: ControlState, m: MsgOf<"error">, now: number): ControlState {
+  // K7: CONFLICT normalde oluşmaz (düğme requested'de pasif); gelirse faz değişmez, yalnız sunucunun metni
+  if (m.code === "CONFLICT") return { ...s, notice: m.message, lastSent: null };
+  if (m.code === "VALIDATION") return s;
+  // İstek iletilmedi: sayaç geri alınır; ret bekleme süresi sürüyorsa "denied"e döner
+  const back: ControlPhase = s.deniedAt !== null && now - s.deniedAt < DENY_COOLDOWN_MS ? "denied" : "idle";
+  return {
+    ...s,
+    phase: back,
+    requests: Math.max(0, s.requests - 1),
+    lastSent: null,
+    forbidden: s.forbidden || m.code === "FORBIDDEN",
+    error: m.code === "RATE_LIMITED" ? "rate" : null,
+  };
 }

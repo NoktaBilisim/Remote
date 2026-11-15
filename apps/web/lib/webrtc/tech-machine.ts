@@ -12,6 +12,7 @@ import {
   type SessionEndedReason,
   type ShareMethod,
 } from "@remote/contracts/ws";
+import { applyMsg, type MsgOf, type MsgTable } from "./msg-table";
 
 export interface Pending {
   guestId: string;
@@ -111,7 +112,7 @@ export function sharingMethodOf(state: unknown, method: unknown): ShareMethod | 
 }
 
 /** P15 (AC-234): `share.state.reason/method` → konsol metni (yalnız dize değerler; diğerleri yok sayılır). */
-export function shareFailOf(reason: unknown, method: unknown): string | null {
+function shareFailOf(reason: unknown, method: unknown): string | null {
   return describeShareFailure(typeof reason === "string" ? reason : null, typeof method === "string" ? method : null);
 }
 
@@ -137,70 +138,85 @@ export function techReducer(s: TechState, e: TechEvent): TechState {
       // Konsol yenilendiğinde protokol adı yeniden göndermez (hello/peer.joined'da ad yok); sekme belleğinden
       return s.guest && !s.guest.name && e.name ? { ...s, guest: { ...s.guest, name: e.name } } : s;
     case "closed":
-      if (e.code === WS_CLOSE.AUTH_REVOKED) return finish(s, "auth_revoked");
-      if (e.code === WS_CLOSE.REPLACED) return finish(s, "replaced");
-      if (e.code === WS_CLOSE.POLICY || e.code === WS_CLOSE.TOO_BIG) return finish(s, "protocol");
-      return { ...s, reconnectSince: s.reconnectSince ?? e.now, admitBusy: false };
+      return onClosed(s, e.code, e.now);
     case "msg":
       return onMsg(s, e.m, e.now);
   }
 }
 
-function onMsg(s: TechState, m: ServerOutbound, now: number): TechState {
-  switch (m.t) {
-    case "hello": {
-      const active = m.maxEndsAt !== null;
-      const x = extras(m);
-      const prev = s.guest ?? { name: null, kind: m.guestKind ?? null };
-      return {
-        ...s,
-        phase: active ? "live" : "waiting",
-        reconnectSince: null,
-        maxEndsAt: m.maxEndsAt,
-        guest: active ? { ...prev, name: x.guestName ?? prev.name } : null,
-        peerLostSince: active && !m.peerPresent ? (s.peerLostSince ?? now) : null,
-        share: active && m.peerPresent && x.share ? x.share : s.share,
-        shareFail: active && m.peerPresent && x.share ? x.shareFail : s.shareFail,
-        shareMethod: active && m.peerPresent && x.share ? x.shareMethod : s.shareMethod,
-      };
-    }
-    case "peer.pending":
-      if (s.pending.some((p) => p.guestId === m.guestId)) return s;
-      return { ...s, pending: [...s.pending, { guestId: m.guestId, name: m.name, guestKind: m.guestKind, since: m.since }] };
-    case "peer.pending.left":
-      return { ...s, pending: s.pending.filter((p) => p.guestId !== m.guestId) };
-    case "peer.joined":
-      if (m.role !== "guest") return s;
-      return {
-        ...s,
-        phase: "live",
-        pending: [],
-        admitBusy: false,
-        lastError: null,
-        // Ad önce sunucudan; yoksa yalnız tek bekleyen varken kabul edilenin adı (tahmin yok), yoksa "Müşteri"
-        guest: { name: extras(m).guestName ?? s.guest?.name ?? s.admitName, kind: m.guestKind ?? s.guest?.kind ?? null },
-        peerLostSince: null,
-        share: "unknown",
-        shareFail: null,
-        shareMethod: null,
-        // TEST-P4-2: canlı kabulde kalan süre sayacı sunucunun bildirdiği üst sınırla başlar (opsiyonel alan)
-        maxEndsAt: joinedMaxEndsAt(m) ?? s.maxEndsAt,
-      };
-    case "peer.left":
-      if (m.role !== "guest" || s.phase !== "live") return s;
-      return { ...s, peerLostSince: s.peerLostSince ?? now, share: "unknown", shareFail: null, shareMethod: null };
-    case "share.state":
-      return { ...s, share: m.state, shareFail: shareFailOf(m.reason, m.method), shareMethod: sharingMethodOf(m.state, m.method) };
-    case "session.warning":
-      return { ...s, warnEndsAt: m.endsAt };
-    case "session.ended":
-      return finish(s, m.reason);
-    case "error":
-      if (m.code === "ADMIT_CODE_INVALID") return { ...s, admitBusy: false, wrongCodes: s.wrongCodes + 1, lastError: "ADMIT_CODE_INVALID" };
-      return { ...s, admitBusy: false, lastError: m.code === "CONFLICT" ? "CONFLICT" : "OTHER" };
-    default:
-      return s;
-  }
+function onClosed(s: TechState, code: number, now: number): TechState {
+  if (code === WS_CLOSE.AUTH_REVOKED) return finish(s, "auth_revoked");
+  if (code === WS_CLOSE.REPLACED) return finish(s, "replaced");
+  if (code === WS_CLOSE.POLICY || code === WS_CLOSE.TOO_BIG) return finish(s, "protocol");
+  return { ...s, reconnectSince: s.reconnectSince ?? now, admitBusy: false };
+}
+
+const ON_MSG: MsgTable<TechState> = {
+  hello: onHello,
+  "peer.pending": (s, m) => {
+    if (s.pending.some((p) => p.guestId === m.guestId)) return s;
+    return { ...s, pending: [...s.pending, { guestId: m.guestId, name: m.name, guestKind: m.guestKind, since: m.since }] };
+  },
+  "peer.pending.left": (s, m) => ({ ...s, pending: s.pending.filter((p) => p.guestId !== m.guestId) }),
+  "peer.joined": onPeerJoined,
+  "peer.left": (s, m, now) => {
+    if (m.role !== "guest" || s.phase !== "live") return s;
+    return { ...s, peerLostSince: s.peerLostSince ?? now, share: "unknown", shareFail: null, shareMethod: null };
+  },
+  "share.state": (s, m) => ({
+    ...s,
+    share: m.state,
+    shareFail: shareFailOf(m.reason, m.method),
+    shareMethod: sharingMethodOf(m.state, m.method),
+  }),
+  "session.warning": (s, m) => ({ ...s, warnEndsAt: m.endsAt }),
+  "session.ended": (s, m) => finish(s, m.reason),
+  error: (s, m) => {
+    if (m.code === "ADMIT_CODE_INVALID") return { ...s, admitBusy: false, wrongCodes: s.wrongCodes + 1, lastError: "ADMIT_CODE_INVALID" };
+    return { ...s, admitBusy: false, lastError: m.code === "CONFLICT" ? "CONFLICT" : "OTHER" };
+  },
+};
+
+const onMsg = (s: TechState, m: ServerOutbound, now: number): TechState => applyMsg(ON_MSG, s, m, now);
+
+function onHello(s: TechState, m: MsgOf<"hello">, now: number): TechState {
+  const active = m.maxEndsAt !== null;
+  const x = extras(m);
+  const prev = s.guest ?? { name: null, kind: m.guestKind ?? null };
+  return {
+    ...s,
+    phase: active ? "live" : "waiting",
+    reconnectSince: null,
+    maxEndsAt: m.maxEndsAt,
+    guest: active ? { ...prev, name: x.guestName ?? prev.name } : null,
+    peerLostSince: active && !m.peerPresent ? (s.peerLostSince ?? now) : null,
+    ...helloShare(s, x, active && m.peerPresent),
+  };
+}
+
+/** `hello` içindeki son paylaşım durumu yalnız canlı oturumda ve müşteri bağlıyken alınır; aksi halde mevcut korunur. */
+function helloShare(s: TechState, x: ReturnType<typeof extras>, on: boolean): Pick<TechState, "share" | "shareFail" | "shareMethod"> {
+  if (on && x.share) return { share: x.share, shareFail: x.shareFail, shareMethod: x.shareMethod };
+  return { share: s.share, shareFail: s.shareFail, shareMethod: s.shareMethod };
+}
+
+function onPeerJoined(s: TechState, m: MsgOf<"peer.joined">): TechState {
+  if (m.role !== "guest") return s;
+  return {
+    ...s,
+    phase: "live",
+    pending: [],
+    admitBusy: false,
+    lastError: null,
+    // Ad önce sunucudan; yoksa yalnız tek bekleyen varken kabul edilenin adı (tahmin yok), yoksa "Müşteri"
+    guest: { name: extras(m).guestName ?? s.guest?.name ?? s.admitName, kind: m.guestKind ?? s.guest?.kind ?? null },
+    peerLostSince: null,
+    share: "unknown",
+    shareFail: null,
+    shareMethod: null,
+    // TEST-P4-2: canlı kabulde kalan süre sayacı sunucunun bildirdiği üst sınırla başlar (opsiyonel alan)
+    maxEndsAt: joinedMaxEndsAt(m) ?? s.maxEndsAt,
+  };
 }
 
 /**

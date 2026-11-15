@@ -1,0 +1,118 @@
+import type { SessionView } from "@remote/contracts/api/sessions";
+import { ArrowLeft, CircleX, MousePointer2, Power } from "lucide-react";
+import Link from "next/link";
+import { Avatar } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { CodeDisplay } from "@/components/ui/code-display";
+import { formatRemaining } from "@/lib/format";
+import { t } from "@/lib/i18n";
+import type { TechState } from "@/lib/webrtc/tech-machine";
+
+const pill = "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap";
+
+function statusOf(state: TechState): { cls: string; label: string } {
+  if (state.phase === "ended") return { cls: "bg-surface-muted text-fg-muted", label: t("c.st.ended") };
+  if (state.reconnectSince !== null || state.peerLostSince !== null) return { cls: "bg-danger-surface text-danger", label: t("c.st.lost") };
+  if (state.phase === "live") return { cls: "bg-success-surface text-success", label: t("c.st.live") };
+  return state.pending.length
+    ? { cls: "bg-warning-surface text-warning", label: t("c.st.lobby") }
+    : { cls: "bg-primary-surface text-primary", label: t("c.st.waiting") };
+}
+
+/** Konsol üst barı: geri, müşteri, durum, kalan süre, doğrulama kodu, (tarayıcı modunda pasif kontrol), bitir/iptal. */
+export function ConsoleHeader({
+  session,
+  state,
+  name,
+  now,
+  controlHint,
+  onConfirm,
+}: {
+  session: SessionView;
+  state: TechState;
+  name: string;
+  now: number | null;
+  controlHint: string;
+  onConfirm: () => void;
+}) {
+  const live = state.phase === "live";
+  const status = statusOf(state);
+  const until = live ? state.maxEndsAt : session.expiresAt;
+  const left = until && now !== null ? formatRemaining(Date.parse(until) - now) : "—";
+  return (
+    <header className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg xl:flex-nowrap border border-border bg-surface px-3 py-2">
+      <Link
+        href="/sessions"
+        aria-label={t("c.back")}
+        className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-fg-muted hover:bg-surface-muted hover:text-fg"
+      >
+        <ArrowLeft aria-hidden className="size-5" />
+      </Link>
+      <div className="flex min-w-0 items-center gap-2">
+        <Avatar name={name} />
+        <div className="min-w-0">
+          <h1 className="truncate font-semibold text-fg" data-testid="console-guest">
+            {name}
+          </h1>
+          <p className="text-xs text-fg-muted">{t(state.guest?.kind === "AGENT" ? "cl.kindAgent" : "c.kindBrowser")}</p>
+        </div>
+      </div>
+      <span role="status" data-testid="console-status" className={`${pill} shrink-0 ${status.cls}`}>
+        <span aria-hidden className="size-1.5 rounded-full bg-current" />
+        {status.label}
+      </span>
+      {state.phase !== "ended" && (
+        <div className="shrink-0 text-xs text-fg-muted">
+          <span className="block">{live ? t("c.maxLeft") : t("c.codeLeft")}</span>
+          <b className="text-sm tabular-nums text-fg" data-testid="console-left">
+            {left}
+          </b>
+        </div>
+      )}
+      <div className="shrink-0 text-xs text-fg-muted">
+        <span className="block">{t("cs.verify")}</span>
+        <CodeDisplay code={session.techVerifyCode} size="sm" testId="console-verify-code" />
+      </div>
+      <span className="flex-1" />
+      {live && state.guest?.kind === "BROWSER" && <BrowserControlHint id={controlHint} />}
+      <HeaderActions phase={state.phase} onConfirm={onConfirm} />
+    </header>
+  );
+}
+
+/**
+ * AC-34: tarayıcı modunda kontrol yok — buton pasif, nedeni yanında (AGENT'ta etkin akış: ControlButton, P7).
+ * TEST-P4-4: dar masaüstünde (1280 px) açıklama satır kırarak daralır; "Oturumu bitir" aynı satırda kalır.
+ */
+function BrowserControlHint({ id }: { id: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <Button variant="secondary" disabled className="shrink-0" aria-describedby={id} data-testid="console-control">
+        <MousePointer2 aria-hidden className="size-4" />
+        {t("c.control")}
+      </Button>
+      <p id={id} className="min-w-20 max-w-48 text-xs text-fg-muted" data-testid="console-control-hint">
+        {t("c.controlBrowser")}
+      </p>
+    </div>
+  );
+}
+
+function HeaderActions({ phase, onConfirm }: { phase: TechState["phase"]; onConfirm: () => void }) {
+  return (
+    <>
+      {phase === "live" && (
+        <Button variant="danger" onClick={onConfirm} data-testid="console-end" className="shrink-0">
+          <Power aria-hidden className="size-4" />
+          {t("c.end")}
+        </Button>
+      )}
+      {phase === "waiting" && (
+        <Button variant="danger-ghost" onClick={onConfirm} data-testid="console-cancel" className="shrink-0">
+          <CircleX aria-hidden className="size-4" />
+          {t("c.cancel")}
+        </Button>
+      )}
+    </>
+  );
+}

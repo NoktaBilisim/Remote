@@ -4,22 +4,22 @@
  */
 import { CHAT_MAX, newId } from "./ctl";
 
-export interface ChatItem {
+interface ChatItem {
   id: string;
   from: "me" | "peer";
   text: string;
   ts: number;
 }
-export interface ChatState {
+interface ChatState {
   items: ChatItem[];
   unread: number;
 }
 export const initialChat: ChatState = { items: [], unread: 0 };
 
 /** Tutulan en çok mesaj (bellek sınırı); eskiler düşer. */
-export const CHAT_KEEP = 500;
+const CHAT_KEEP = 500;
 
-export type ChatAction =
+type ChatAction =
   | { type: "in"; id: string; text: string; ts: number; visible: boolean }
   | { type: "out"; item: ChatItem }
   | { type: "read" }

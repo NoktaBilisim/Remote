@@ -27,13 +27,15 @@ export interface Prev {
 type Rec = Record<string, unknown> & { type: string; id: string };
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-/** RTCStatsReport (veya düz dizi) → örnek. `prev` bitrate/kayıp farkı için güncellenir. */
-export function sampleFromStats(report: Iterable<Rec> | Map<string, Rec>, prev: Prev, at: number): Sample {
-  // RTCStatsReport Map örneği değildir (maplike): düz yayma [anahtar, değer] çiftleri verir → values() kullanılır
+/** RTCStatsReport Map örneği değildir (maplike): düz yayma [anahtar, değer] çiftleri verir → values() kullanılır. */
+function records(report: Iterable<Rec> | Map<string, Rec>): Rec[] {
   const vals = (report as Map<string, Rec>).values;
-  const all: Rec[] = typeof vals === "function" ? [...vals.call(report)] : [...(report as Iterable<Rec>)];
+  return typeof vals === "function" ? [...vals.call(report)] : [...(report as Iterable<Rec>)];
+}
+
+/** Seçili aday çifti ve yerel adayın türü (relay / srflx / host). */
+function selectedPair(all: Rec[]): { pair: Rec | undefined; connType: ConnType | null } {
   const byId = new Map(all.map((r) => [r.id, r]));
-  const inV = all.find((r) => r.type === "inbound-rtp" && r.kind === "video");
   const transport = all.find((r) => r.type === "transport");
   const pair =
     (transport && byId.get(String(transport.selectedCandidatePairId))) ??
@@ -41,18 +43,28 @@ export function sampleFromStats(report: Iterable<Rec> | Map<string, Rec>, prev: 
   const local = pair ? byId.get(String(pair.localCandidateId)) : undefined;
   const ct = local?.candidateType;
   const connType: ConnType | null = ct === "relay" ? "relay" : ct === "srflx" || ct === "prflx" ? "srflx" : ct === "host" ? "host" : null;
+  return { pair, connType };
+}
+
+/** Önceki sayaçlara göre bit hızı ve kayıp yüzdesi; ölçülemiyorsa null. */
+function rates(c: Counters | null, p: Counters | null): { kbps: number | null; lossPct: number | null } {
+  if (!c || !p || c.at <= p.at) return { kbps: null, lossPct: null };
+  const kbps = Math.max(0, ((c.bytes - p.bytes) * 8) / (c.at - p.at));
+  const lost = c.lost - p.lost;
+  const tot = lost + (c.recv - p.recv);
+  return { kbps, lossPct: tot > 0 ? Math.max(0, (lost / tot) * 100) : 0 };
+}
+
+/** RTCStatsReport (veya düz dizi) → örnek. `prev` bitrate/kayıp farkı için güncellenir. */
+export function sampleFromStats(report: Iterable<Rec> | Map<string, Rec>, prev: Prev, at: number): Sample {
+  const all = records(report);
+  const inV = all.find((r) => r.type === "inbound-rtp" && r.kind === "video");
+  const { pair, connType } = selectedPair(all);
   const rtt = num(pair?.currentRoundTripTime);
   const c: Counters | null = inV
     ? { at, bytes: num(inV.bytesReceived) ?? 0, lost: num(inV.packetsLost) ?? 0, recv: num(inV.packetsReceived) ?? 0 }
     : null;
-  let kbps: number | null = null;
-  let lossPct: number | null = null;
-  if (c && prev.c && c.at > prev.c.at) {
-    kbps = Math.max(0, ((c.bytes - prev.c.bytes) * 8) / (c.at - prev.c.at));
-    const lost = c.lost - prev.c.lost;
-    const tot = lost + (c.recv - prev.c.recv);
-    lossPct = tot > 0 ? Math.max(0, (lost / tot) * 100) : 0;
-  }
+  const { kbps, lossPct } = rates(c, prev.c);
   prev.c = c;
   return {
     at,
@@ -68,7 +80,7 @@ export function sampleFromStats(report: Iterable<Rec> | Map<string, Rec>, prev: 
 
 export type Level = "ok" | "warn" | "bad";
 export type Issue = "rtt" | "loss" | "fps";
-export const SUSTAIN_MS = 3000;
+const SUSTAIN_MS = 3000;
 const WARN = { rtt: 300, loss: 5, fps: 5 };
 const BAD = { rtt: 600, loss: 10, fps: 2 };
 

@@ -8,7 +8,7 @@ import { GuestWelcome } from "./guest-welcome";
 import type { ResolveData } from "./join-form";
 
 /** Bu sekmenin F5 dönüş anahtarı (`rs.resume.<özet>`, TEST-P4-1); hesaplanana / desteklenmezse null. */
-export function useResumeKey(): string | null {
+function useResumeKey(): string | null {
   const [key, setKey] = useState<string | null>(null);
   useEffect(() => {
     const tk = linkTokenFromPath();

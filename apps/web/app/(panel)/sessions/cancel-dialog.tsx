@@ -2,16 +2,14 @@
 
 import type { CancelSessionResponse, SessionView } from "@remote/contracts/api/sessions";
 import { CircleX } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { FormError } from "@/components/form-error";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
-import { api, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
-import { toUiError, type UiError } from "@/lib/error-message";
+import { api } from "@/lib/api";
 import { formatSessionCode } from "@/lib/format";
 import { t } from "@/lib/i18n";
+import { useSessionAction } from "./use-session-action";
 
 /** Yıkıcı onay (AC-8): odak "Vazgeç"te; başarıda toast + liste yenilenir. */
 export function CancelDialog({
@@ -24,29 +22,13 @@ export function CancelDialog({
   onDone: () => void;
 }) {
   const toast = useToast();
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<UiError | null>(null);
-
-  const close = () => {
-    if (busy) return;
-    setError(null);
-    onClose();
-  };
+  const { busy, error, close, run } = useSessionAction(onClose, onDone, () => t("c.conflict"));
   const confirm = async () => {
     if (!session) return;
-    setBusy(true);
-    setError(null);
-    try {
+    await run(async () => {
       await api<CancelSessionResponse>("POST", `/sessions/${encodeURIComponent(session.id)}/cancel`);
       toast(t("toast.cancelled"));
-      onDone();
-    } catch (e) {
-      if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
-      setError(toUiError(e, { 409: t("c.conflict"), 404: t("c.conflict") }));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (

@@ -2,7 +2,7 @@ import { CircleStop, LoaderCircle, Power, ScreenShare, ScreenShareOff } from "lu
 import { Button } from "@/components/ui/button";
 import { t } from "@/lib/i18n";
 
-export type StripState = "idle" | "sharing" | "stopped" | "reconnecting";
+type StripState = "idle" | "sharing" | "stopped" | "reconnecting";
 
 /** Müşteri üst şeridi (DESIGN.md §6.1): paylaşılıyor / durdu / koptu + eylemler. Yapışkan, her genişlikte görünür. */
 export function ShareStrip({

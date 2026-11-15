@@ -13,7 +13,7 @@ import { parseCtl, type CtlMessage, type FileDirection, type FileMetaMsg } from 
 import { FileTransfers, type Transfer } from "./files";
 import { chatSendLimiter, inboundLimiter } from "./rate";
 
-export interface CollabOptions {
+interface CollabOptions {
   inbound: FileDirection;
   /** `file_transfer` yeteneği (müşteri: hello.caps; konsol: kullanıcının yetkisi). */
   filesAllowed: boolean;
@@ -38,7 +38,7 @@ const e2eSelfThrottle = () =>
   !(process.env.NEXT_PUBLIC_RS_E2E === "1" && (globalThis as { __rsNoSelfThrottle?: boolean }).__rsNoSelfThrottle);
 
 /** `sendChat` sonucu: gönderildi / hız sınırı (AC-227) / kanal kapalı veya geçersiz metin. */
-export type ChatSendResult = "sent" | "rate" | "error";
+type ChatSendResult = "sent" | "rate" | "error";
 
 export function useCollab(ch: Channels | null, o: CollabOptions) {
   const [chat, chatDispatch] = useReducer(chatReducer, initialChat);

@@ -2,15 +2,13 @@
 
 import type { SessionView, TerminateSessionResponse } from "@remote/contracts/api/sessions";
 import { Power } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { FormError } from "@/components/form-error";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
-import { api, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
-import { toUiError, type UiError } from "@/lib/error-message";
+import { api } from "@/lib/api";
 import { t } from "@/lib/i18n";
+import { useSessionAction } from "./use-session-action";
 
 /** Admin "Zorla sonlandır" (AC-114, G-04): yıkıcı onay, odak "Vazgeç"te; 409 = oturum artık aktif değil. */
 export function TerminateDialog({
@@ -23,29 +21,13 @@ export function TerminateDialog({
   onDone: () => void;
 }) {
   const toast = useToast();
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<UiError | null>(null);
-
-  const close = () => {
-    if (busy) return;
-    setError(null);
-    onClose();
-  };
+  const { busy, error, close, run } = useSessionAction(onClose, onDone, () => t("st.notActive"));
   const confirm = async () => {
     if (!session) return;
-    setBusy(true);
-    setError(null);
-    try {
+    await run(async () => {
       await api<TerminateSessionResponse>("POST", `/sessions/${session.id}/terminate`, {});
       toast(t("st.done"), "success");
-      onDone();
-    } catch (e) {
-      if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
-      setError(toUiError(e, { 409: t("st.notActive"), 404: t("st.notActive") }));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
