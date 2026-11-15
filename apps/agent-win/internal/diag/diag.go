@@ -192,6 +192,7 @@ const (
 	ModeRead   Mode = iota // var olan dosyayı okuma
 	ModeAppend             // sona ekleme (yoksa oluşturur)
 	ModeCreate             // yalnız yeni dosya (varsa os.ErrExist)
+	ModeLock               // okuma+yazma, yoksa oluşturur; başka handle'larla okuma/yazma paylaşımlı (remember kilit dosyası, P20 G-P20-16)
 )
 
 // Write kaydı dosyanın sonuna ekler; sınır aşılacaksa önce mevcut dosya `.1`'e döner. Klasör zinciri, dosya ve dönen

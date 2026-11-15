@@ -78,6 +78,8 @@ func (d *Dir) Open(name string, m Mode) (*os.File, error) {
 		flag = os.O_WRONLY | os.O_CREATE | os.O_APPEND
 	case ModeCreate:
 		flag = os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	case ModeLock:
+		flag = os.O_RDWR | os.O_CREATE
 	default:
 		return nil, errors.New("diag: geçersiz kip")
 	}

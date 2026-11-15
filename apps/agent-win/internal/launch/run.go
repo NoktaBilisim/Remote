@@ -20,12 +20,12 @@ type API interface {
 	RevokeBinding(ctx context.Context, key string) error
 }
 
-// Store hatırlama dosyası (remember.Store, format v2).
+// Store kayıt dosyası (remember.Store, `kayitlar.bin` v3). P20 K2 ara uyarlaması: çoklu firma akışı K3'te.
 type Store interface {
 	request.Remember
 	Load() (remember.Data, bool)
-	SaveBinding(b remember.Binding) error
-	ClearBinding() error
+	SaveBinding(b remember.Binding, replaceKey string) error
+	RemoveBinding(key string) error
 	ForgetAll() error
 }
 
@@ -89,10 +89,13 @@ func (d Deps) localBinding(server string, serverOK bool) *remember.Binding {
 		return nil
 	}
 	data, ok := d.Store.Load()
-	if !ok || data.Binding == nil {
+	if !ok || len(data.Bindings) == 0 {
 		return nil
 	}
-	return data.Binding
+	if own := data.ForOrigin(server); len(own) > 0 {
+		return &own[0]
+	}
+	return &data.Bindings[0]
 }
 
 func (d Deps) requestDeps(dec Decision, ref string, info *api.TenantRequestInfo, infoErr error, local *remember.Binding, server string) request.Deps {
@@ -113,8 +116,8 @@ func (d Deps) requestDeps(dec Decision, ref string, info *api.TenantRequestInfo,
 		rd.Registered = request.Label(request.Display(local.TenantName, ""), request.Display(local.CustomerName, ""))
 	}
 	rd.OnBindingInvalid = func() {
-		if d.Store != nil {
-			_ = d.Store.ClearBinding() // kişisel bilgiler kalır (AC-185)
+		if d.Store != nil && local != nil {
+			_ = d.Store.RemoveBinding(local.Key) // yalnız o öğe; kişisel bilgiler kalır (AC-185)
 		}
 	}
 	rd.ForgetComputer = func(ctx context.Context) error {

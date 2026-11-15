@@ -184,6 +184,7 @@ func (d *Dir) Open(name string, m Mode) (*os.File, error) {
 		return nil, err
 	}
 	var access, disp uint32
+	share := uint32(windows.FILE_SHARE_READ)
 	switch m {
 	case ModeRead:
 		access, disp = windows.GENERIC_READ, windows.OPEN_EXISTING
@@ -191,10 +192,12 @@ func (d *Dir) Open(name string, m Mode) (*os.File, error) {
 		access, disp = windows.FILE_APPEND_DATA|windows.FILE_READ_ATTRIBUTES|windows.SYNCHRONIZE, windows.OPEN_ALWAYS
 	case ModeCreate:
 		access, disp = windows.GENERIC_WRITE|windows.FILE_READ_ATTRIBUTES, windows.CREATE_NEW
+	case ModeLock: // süreçler arası kilit (LockFileEx) için; diğer süreçler aynı dosyayı açabilmeli
+		access, disp, share = windows.GENERIC_READ|windows.GENERIC_WRITE, windows.OPEN_ALWAYS, shareNoDel
 	default:
 		return nil, errors.New("diag: geçersiz kip")
 	}
-	h, err := openChecked(path, access, windows.FILE_SHARE_READ, disp, false)
+	h, err := openChecked(path, access, share, disp, false)
 	if err != nil {
 		if notExist(err) {
 			return nil, os.ErrNotExist

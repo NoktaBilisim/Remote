@@ -44,12 +44,16 @@ func (k *keeper) Issued(m signal.BindingIssued) string {
 	}
 	b := remember.Binding{Server: k.server, Key: m.BindingKey, TenantName: request.Display(m.TenantName, "Firma"),
 		CustomerName: customer, IssuedAt: k.now().UTC().Truncate(time.Second)}
-	if k.store.SaveBinding(b) != nil {
-		return ""
-	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	prev := k.prev
+	replace := ""
+	if prev != nil && prev.Server == k.server {
+		replace = prev.Key
+	}
+	if k.store.SaveBinding(b, replace) != nil {
+		return ""
+	}
 	k.prev = &b
 	if prev == nil || remember.SameRegistration(*prev, b.Server, m.Renewed, b.CustomerName) {
 		return ""

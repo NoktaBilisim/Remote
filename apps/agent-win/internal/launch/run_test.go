@@ -131,7 +131,7 @@ func xor(b []byte) ([]byte, error) {
 func newStore(t *testing.T, b *remember.Binding) *remember.Store {
 	s := &remember.Store{Dir: filepath.Join(t.TempDir(), "NoktaDestek"), Protect: xor, Unprotect: xor}
 	if b != nil {
-		if err := s.SaveBinding(*b); err != nil {
+		if err := s.SaveBinding(*b, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -233,7 +233,7 @@ func TestT43ForeignOriginBindingIgnoredNotDeleted(t *testing.T) {
 	if v := e.ru.hviews[0]; v.Support || v.Registered != "" || len(e.a.statusKeys) != 0 {
 		t.Fatalf("%+v", v)
 	}
-	if d, ok := e.s.Load(); !ok || d.Binding == nil {
+	if d, ok := e.s.Load(); !ok || len(d.Bindings) == 0 {
 		t.Fatal("yabancı kayıt silinmemeli")
 	}
 	if k := e.d.Flow.Binding; k != nil {
@@ -251,7 +251,7 @@ func TestAC185StatusInvalidClearsBindingKeepsPersonal(t *testing.T) {
 	e.a.statusErr = &api.Error{Status: 404, Code: "BINDING_INVALID"}
 	Run(context.Background(), e.d)
 	d, ok := e.s.Load()
-	if !ok || d.Binding != nil || d.Personal == nil {
+	if !ok || len(d.Bindings) != 0 || d.Personal == nil {
 		t.Fatalf("kayıt silinmeli, kişisel kalmalı: %+v", d)
 	}
 	if v := e.ru.hviews[0]; v.Notice != request.MsgBindingInvalid || v.Support {
@@ -290,8 +290,8 @@ func TestAC187KeeperSavesCanonicalAndReportsChange(t *testing.T) {
 		t.Fatalf("ilk kayıtta değişiklik bilgisi yok: %q", c)
 	}
 	d, _ := s.Load()
-	if d.Binding == nil || d.Binding.Server != server || d.Binding.CustomerName != "Yeni Müşteri" || k.PreviousKey() != key {
-		t.Fatalf("%+v", d.Binding)
+	if len(d.Bindings) != 1 || d.Bindings[0].Server != server || d.Bindings[0].CustomerName != "Yeni Müşteri" || k.PreviousKey() != key {
+		t.Fatalf("%+v", d.Bindings)
 	}
 	if c := k.Issued(signal.BindingIssued{T: "binding.issued", BindingKey: key, TenantName: "Nokta", CustomerFirmName: &firm, Renewed: true}); c != "" {
 		t.Fatal("aynı firma/müşteri yenilemesi bilgi göstermez")
@@ -340,7 +340,7 @@ func TestAC251SameNameDifferentTenantShowsChange(t *testing.T) {
 
 type failStore struct{ *remember.Store }
 
-func (failStore) SaveBinding(remember.Binding) error { return errors.New("disk") }
+func (failStore) SaveBinding(remember.Binding, string) error { return errors.New("disk") }
 
 // TestNoStoreDisablesBinding LocalAppData yoksa kayıt kapalı (teklif yok sayılır, AC-188 satırı yok).
 func TestNoStoreDisablesBinding(t *testing.T) {

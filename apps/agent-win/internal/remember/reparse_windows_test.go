@@ -13,7 +13,7 @@ import (
 	"remote-support/agent-win/internal/diag"
 )
 
-// AC-249 Windows birim testleri (CI windows-2025): hatirla.bin yazma/okuma/silme junction ve bağlantıları izlemez;
+// AC-249 Windows birim testleri (CI windows-2025): kayitlar.bin yazma/okuma/silme junction ve bağlantıları izlemez;
 // hedef dışı dosya değişmez (SHA-256 eşit).
 
 func mkJunction(t *testing.T, link, target string) {
@@ -32,7 +32,7 @@ func fileSum(t *testing.T, path string) [32]byte {
 	return sha256.Sum256(b)
 }
 
-// target içinde hatirla.bin adında kurban dosya: bağlantı izlenseydi üzerine yazılır/silinirdi.
+// target içinde kayitlar.bin adında kurban dosya: bağlantı izlenseydi üzerine yazılır/silinirdi.
 func plantVictim(t *testing.T, target string) (string, [32]byte) {
 	t.Helper()
 	if err := os.MkdirAll(target, 0o700); err != nil {
@@ -52,7 +52,7 @@ func TestAC249JunctionStoreDirWriteLoadForgetRefused(t *testing.T) {
 	link := filepath.Join(base, "NoktaDestek")
 	mkJunction(t, link, target)
 	s := &Store{Dir: link, Protect: xorSeal, Unprotect: xorSeal}
-	if err := s.SaveBinding(sampleBinding()); !errors.Is(err, diag.ErrReparse) {
+	if err := s.SaveBinding(sampleBinding(), ""); !errors.Is(err, diag.ErrReparse) {
 		t.Fatalf("junction klasörüne yazılmamalı: %v", err)
 	}
 	if _, ok := s.Load(); ok {
@@ -114,7 +114,7 @@ func TestAC249SymlinkFileNotFollowed(t *testing.T) {
 	}
 }
 
-// Silme handle üzerinden: hatirla.bin kurbanın sabit bağıysa unutma yalnız bağı kaldırır, kurban kalır.
+// Silme handle üzerinden: kayitlar.bin kurbanın sabit bağıysa unutma yalnız bağı kaldırır, kurban kalır.
 func TestAC249HardLinkForgetRemovesOnlyLink(t *testing.T) {
 	base := t.TempDir()
 	v, sum := plantVictim(t, filepath.Join(base, "hedef"))
