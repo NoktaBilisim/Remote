@@ -54,7 +54,13 @@ export function SessionList({ items, showTechnician, canCancel, onCancel, meId, 
     return (
       <div className="flex justify-end gap-1">
         {open && mine && (
-          <Link href={`/sessions/${s.id}/console`} className={iconBtn} aria-label={t("s.openConsole")} title={t("s.openConsole")} data-testid="open-console">
+          <Link
+            href={`/sessions/${s.id}/console`}
+            className={iconBtn}
+            aria-label={t("s.openConsole")}
+            title={t("s.openConsole")}
+            data-testid="open-console"
+          >
             <Monitor aria-hidden className="size-4" />
           </Link>
         )}
@@ -69,7 +75,14 @@ export function SessionList({ items, showTechnician, canCancel, onCancel, meId, 
           </button>
         )}
         {terminate && (
-          <button type="button" className={dangerBtn} aria-label={t("s.terminateRow", { name: s.technician.name })} title={t("st.action")} onClick={() => onTerminate(s)} data-testid="terminate">
+          <button
+            type="button"
+            className={dangerBtn}
+            aria-label={t("s.terminateRow", { name: s.technician.name })}
+            title={t("st.action")}
+            onClick={() => onTerminate(s)}
+            data-testid="terminate"
+          >
             <Power aria-hidden className="size-4" />
           </button>
         )}
@@ -102,12 +115,26 @@ export function SessionList({ items, showTechnician, canCancel, onCancel, meId, 
         <table className="w-full text-left text-sm" data-testid="sessions-table">
           <thead className="bg-surface-muted text-xs text-fg-muted">
             <tr>
-              <th scope="col" className="px-4 py-3 font-medium">{t("s.col.status")}</th>
-              <th scope="col" className="px-4 py-3 font-medium">{t("s.col.code")}</th>
-              {showTechnician && <th scope="col" className="px-4 py-3 font-medium">{t("s.col.tech")}</th>}
-              <th scope="col" className="px-4 py-3 font-medium">{t("s.col.created")}</th>
-              <th scope="col" className="px-4 py-3 font-medium">{t("s.col.time")}</th>
-              <th scope="col" className="px-4 py-3 font-medium"><span className="sr-only">{t("s.col.actions")}</span></th>
+              <th scope="col" className="px-4 py-3 font-medium">
+                {t("s.col.status")}
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium">
+                {t("s.col.code")}
+              </th>
+              {showTechnician && (
+                <th scope="col" className="px-4 py-3 font-medium">
+                  {t("s.col.tech")}
+                </th>
+              )}
+              <th scope="col" className="px-4 py-3 font-medium">
+                {t("s.col.created")}
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium">
+                {t("s.col.time")}
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium">
+                <span className="sr-only">{t("s.col.actions")}</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">

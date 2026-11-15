@@ -13,18 +13,34 @@ const headers = { origin: ORIGIN, "x-forwarded-for": "203.0.113.61", "user-agent
 const ABUSE = "abuse@example.test";
 
 async function resolve(l: Live, t: Pick<TechSide, "token">) {
-  const r = await l.app.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers, payload: { token: t.token, clientKind: "BROWSER" } });
+  const r = await l.app.inject({
+    method: "POST",
+    url: "/api/v1/public/sessions/resolve",
+    headers,
+    payload: { token: t.token, clientKind: "BROWSER" },
+  });
   expect(r.statusCode).toBe(200);
-  return r.json<{ joinNonce: string; consentText: { id: string; version: number; body: string; sha256: string }; abuseEmail: string | null }>();
+  return r.json<{
+    joinNonce: string;
+    consentText: { id: string; version: number; body: string; sha256: string };
+    abuseEmail: string | null;
+  }>();
 }
 
 const join = (l: Live, joinNonce: string, extra: Record<string, unknown>) =>
-  l.app.inject({ method: "POST", url: "/api/v1/public/sessions/join", headers, payload: { joinNonce, customerName: "Ayşe Müşteri", consentAccepted: true, ...extra } });
+  l.app.inject({
+    method: "POST",
+    url: "/api/v1/public/sessions/join",
+    headers,
+    payload: { joinNonce, customerName: "Ayşe Müşteri", consentAccepted: true, ...extra },
+  });
 
 /** v1 eski, v2 güncel metinli tenant (app kullanıcısı is_current UPDATE edemez — P11; doğrudan iki sürüm). */
 async function tenantWithOldVersion() {
   const id = newId();
-  await testDb().tenant.create({ data: { id, name: `Firma ${id.slice(-6)}`, slug: `t-${id.toLowerCase()}`, status: "ACTIVE", settings: { create: {} } } });
+  await testDb().tenant.create({
+    data: { id, name: `Firma ${id.slice(-6)}`, slug: `t-${id.toLowerCase()}`, status: "ACTIVE", settings: { create: {} } },
+  });
   const v1 = await createConsentText(id, { version: 1, isCurrent: false });
   const v2 = await createConsentText(id, { version: 2, isCurrent: true });
   return { id, v1, v2 };
@@ -52,7 +68,10 @@ describe("P4 karşılama onayı ve consent kaydı", () => {
     for (const bad of [ten.v1.id, otherText.id, newId()]) {
       const res = await join(live, (await resolve(live, t)).joinNonce, { consentTextId: bad });
       expect(res.statusCode).toBe(400);
-      expect(res.json<{ error: { code: string; fields: Record<string, string> } }>().error).toMatchObject({ code: "VALIDATION", fields: { consentTextId: expect.any(String) } });
+      expect(res.json<{ error: { code: string; fields: Record<string, string> } }>().error).toMatchObject({
+        code: "VALIDATION",
+        fields: { consentTextId: expect.any(String) },
+      });
     }
     const r = await resolve(live, t);
     const ok = await join(live, r.joinNonce, { consentTextId: r.consentText.id });
@@ -66,10 +85,21 @@ describe("P4 karşılama onayı ve consent kaydı", () => {
     live = await startLive();
     const t = await techSession(live);
     await admitted(live, t);
-    const rows = await testDb().sessionConsent.findMany({ where: { sessionId: t.sessionId, tenantId: t.tenantId }, orderBy: { createdAt: "asc" } });
+    const rows = await testDb().sessionConsent.findMany({
+      where: { sessionId: t.sessionId, tenantId: t.tenantId },
+      orderBy: { createdAt: "asc" },
+    });
     const text = await testDb().consentText.findUniqueOrThrow({ where: { id: t.consentTextId } });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ level: "VIEW", decision: "GRANTED", source: "UI", consentTextId: text.id, consentSha256: text.sha256, ip: "127.0.0.1", userAgent: expect.any(String) }); // TRUSTED_PROXY_CIDR yok → soket IP
+    expect(rows[0]).toMatchObject({
+      level: "VIEW",
+      decision: "GRANTED",
+      source: "UI",
+      consentTextId: text.id,
+      consentSha256: text.sha256,
+      ip: "127.0.0.1",
+      userAgent: expect.any(String),
+    }); // TRUSTED_PROXY_CIDR yok → soket IP
     const s = await testDb().supportSession.findUniqueOrThrow({ where: { id: t.sessionId } });
     expect(rows[0]?.createdAt.getTime()).toBeLessThanOrEqual(s.consumedAt?.getTime() ?? 0); // join anı ≤ admit anı
     const audit = await testDb().auditLog.findFirstOrThrow({ where: { entityId: t.sessionId, action: "guest.admitted" } });
@@ -95,7 +125,10 @@ describe("P4 karşılama onayı ve consent kaydı", () => {
     guest.send({ t: "session.end" });
     expect((await t.ws.waitFor("session.ended")).reason).toBe("customer");
     expect((await guest.waitFor("session.ended")).reason).toBe("customer");
-    expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: t.sessionId } })).toMatchObject({ status: "ENDED", endedBy: "CUSTOMER" });
+    expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: t.sessionId } })).toMatchObject({
+      status: "ENDED",
+      endedBy: "CUSTOMER",
+    });
   });
 
   it("AC-114: başka tenant'ın Admin'i zorla sonlandıramaz (404), oturum ACTIVE kalır; USER 403", async () => {
@@ -115,14 +148,34 @@ describe("P4 düzeltme turu 1", () => {
   it("S-P4-3/S-P4-T2-1: customerName'de kontrol/bidi/sıfır genişlikli karakter ve trim sonrası boş/kısa ad 400 fields.customerName", async () => {
     live = await startLive();
     const t = await techSession(live);
-    const bad = ["Ay\u0000şe", "Ayşe\u0007", "Ay\u0085şe", "\u202EesyA", "Ayşe\u2066x\u2069", "Ay\u200Bşe", "Ay\u200Fşe", "\uFEFFAyşe", "Ayşe\n", "   ", " a ",
+    const bad = [
+      "Ay\u0000şe",
+      "Ayşe\u0007",
+      "Ay\u0085şe",
+      "\u202EesyA",
+      "Ayşe\u2066x\u2069",
+      "Ay\u200Bşe",
+      "Ay\u200Fşe",
+      "\uFEFFAyşe",
+      "Ayşe\n",
+      "   ",
+      " a ",
       // S-P4-T2-1: Cf/Zl/Zp kategori tabanlı
-      "Ah\u00ADmet", "\u061CAhmet", "Ahmet\u2028", "Ahmet\u2060", "Ah\u2064met", "Ahmet\u{E0041}"];
+      "Ah\u00ADmet",
+      "\u061CAhmet",
+      "Ahmet\u2028",
+      "Ahmet\u2060",
+      "Ah\u2064met",
+      "Ahmet\u{E0041}",
+    ];
     for (const customerName of bad) {
       const r = await resolve(live, t);
       const res = await join(live, r.joinNonce, { consentTextId: r.consentText.id, customerName });
       expect(res.statusCode, JSON.stringify(customerName)).toBe(400);
-      expect(res.json<{ error: { code: string; fields: Record<string, string> } }>().error).toMatchObject({ code: "VALIDATION", fields: { customerName: expect.any(String) } });
+      expect(res.json<{ error: { code: string; fields: Record<string, string> } }>().error).toMatchObject({
+        code: "VALIDATION",
+        fields: { customerName: expect.any(String) },
+      });
     }
     const r = await resolve(live, t);
     expect((await join(live, r.joinNonce, { consentTextId: r.consentText.id, customerName: "  Çağrı Öztürk  " })).statusCode).toBe(200);
@@ -130,7 +183,11 @@ describe("P4 düzeltme turu 1", () => {
 
   it("AC-125/S-P4-1: dev/test'te ABUSE_EMAIL yoksa ilk aktif Super Admin e-postasına düşer", async () => {
     live = await startLive();
-    const sa = await testDb().user.findFirst({ where: { role: "SUPER_ADMIN", status: "ACTIVE" }, orderBy: { createdAt: "asc" }, select: { email: true } });
+    const sa = await testDb().user.findFirst({
+      where: { role: "SUPER_ADMIN", status: "ACTIVE" },
+      orderBy: { createdAt: "asc" },
+      select: { email: true },
+    });
     const t = await techSession(live);
     expect((await resolve(live, t)).abuseEmail).toBe(sa?.email ?? null);
   });
@@ -143,7 +200,14 @@ describe("P4 düzeltme turu 1", () => {
     await t.ws.waitFor("peer.pending");
     t.ws.send({ t: "guest.admit", admitCode: g.admitCode });
     await g.ws.waitFor("hello");
-    expect(await t.ws.waitFor("peer.joined")).toEqual({ t: "peer.joined", role: "guest", guestKind: "BROWSER", guestName: "Ayşe Müşteri", maxEndsAt: expect.any(String), maxFileMb: 100 });
+    expect(await t.ws.waitFor("peer.joined")).toEqual({
+      t: "peer.joined",
+      role: "guest",
+      guestKind: "BROWSER",
+      guestName: "Ayşe Müşteri",
+      maxEndsAt: expect.any(String),
+      maxFileMb: 100,
+    });
 
     const share = { state: "sharing", monitors: [{ id: 0, name: "Ekran 1", w: 1920, h: 1080, primary: true }], activeMonitor: 0 } as const;
     g.ws.send({ t: "share.state", ...share });

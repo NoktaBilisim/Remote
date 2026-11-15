@@ -83,7 +83,14 @@ export async function listRequests(svc: RequestService, tenantId: string, q: Lis
     return { items: rows.map((r) => toItem(r, now, rotated)), page: 1, pageSize: rows.length, total };
   }
   const since = new Date(now - REQUEST_HISTORY_DAYS * DAY_MS);
-  const { rows, total } = await repo.listHistory(svc.d.db, tenantId, since, q.status, { skip: (q.page - 1) * q.pageSize, take: q.pageSize }, q.customer);
+  const { rows, total } = await repo.listHistory(
+    svc.d.db,
+    tenantId,
+    since,
+    q.status,
+    { skip: (q.page - 1) * q.pageSize, take: q.pageSize },
+    q.customer,
+  );
   return { items: rows.map((r) => toItem(r, now, rotated)), page: q.page, pageSize: q.pageSize, total };
 }
 
@@ -97,7 +104,8 @@ export async function getRequest(svc: RequestService, tenantId: string, id: stri
 async function lostRace(svc: RequestService, tenantId: string, id: string): Promise<AppError> {
   const r = await repo.findStatusInTenant(svc.d.db, tenantId, id);
   if (!r) return new AppError("NOT_FOUND");
-  if (r.status === "ACCEPTED" || r.status === "CONNECT_FAILED" || (r.status === "CANCELLED" && r.acceptedBy)) return new AppError("REQUEST_TAKEN");
+  if (r.status === "ACCEPTED" || r.status === "CONNECT_FAILED" || (r.status === "CANCELLED" && r.acceptedBy))
+    return new AppError("REQUEST_TAKEN");
   return new AppError("REQUEST_CLOSED");
 }
 
@@ -106,7 +114,13 @@ async function acceptLimit(svc: RequestService, ctx: AuditContext, auth: AuthCon
 }
 
 /** POST /support-requests/:id/accept (AC-153, 154). */
-export async function acceptRequest(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string): Promise<AcceptRequestResponse> {
+export async function acceptRequest(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+): Promise<AcceptRequestResponse> {
   // Oturum yalnız teknisyenin kendi tenant'ında açılır (P2 kuralı; Super Admin seçili firmada görüntüler, kabul edemez).
   if (auth.user.tenantId !== tenantId) throw new AppError("FORBIDDEN", { message: "Talep yalnız kendi firmanızda kabul edilebilir." });
   await acceptLimit(svc, ctx, auth, tenantId);
@@ -120,7 +134,8 @@ export async function acceptRequest(svc: RequestService, ctx: AuditContext, auth
     // B-P8c-1: müşterili talepte müşteri, talep satırından ÖNCE paylaşımlı kilitlenir (pasife alma ile aynı sıra:
     // customers → support_requests; kilitlenme yok). Pasifse kabul edilmez; talep commit sonrası CUSTOMER_PASSIVE iptal.
     const head = await repo.findStatusInTenant(tx, tenantId, id);
-    if (head?.status === "PENDING" && head.customerId && (await crepo.shareStatus(tx, tenantId, head.customerId)) !== "ACTIVE") return "customer_passive" as const;
+    if (head?.status === "PENDING" && head.customerId && (await crepo.shareStatus(tx, tenantId, head.customerId)) !== "ACTIVE")
+      return "customer_passive" as const;
     if ((await repo.acceptPending(tx, tenantId, id, auth.user.id, now)) === 0) return null;
     const r = await repo.findById(tx, id);
     if (!r) throw new Error("request_missing_after_accept");
@@ -142,7 +157,15 @@ export async function acceptRequest(svc: RequestService, ctx: AuditContext, auth
       customerId: r.customerId, // P8c AC-177: talebin müşterisi oturuma kopyalanır (aynı tenant — bileşik FK)
     });
     const waitSec = sec(now.getTime() - r.createdAt.getTime());
-    await writeAudit(tx, ctx, { ...who(auth, tenantId), action: "request.accepted", entity: "support_requests", entityId: id, result: "success", oldValue: { status: "PENDING" }, newValue: { status: "ACCEPTED", sessionId, waitSec } });
+    await writeAudit(tx, ctx, {
+      ...who(auth, tenantId),
+      action: "request.accepted",
+      entity: "support_requests",
+      entityId: id,
+      result: "success",
+      oldValue: { status: "PENDING" },
+      newValue: { status: "ACCEPTED", sessionId, waitSec },
+    });
     return { r, sessionId, techVerifyCode, now };
   });
   if (res === "customer_passive") {
@@ -154,7 +177,13 @@ export async function acceptRequest(svc: RequestService, ctx: AuditContext, auth
   // commit sonrası (§3.4): ön-kabullü misafir + ticket → bekleyen istemciye; panellere kaldırma; 60 sn penceresi.
   const { r, sessionId, techVerifyCode, now } = res;
   const ticket = svc.d.rooms.preAdmitGuest(
-    { id: sessionId, tenantId, technicianId: auth.user.id, technician: { fullName: auth.user.fullName }, expiresAt: new Date(now.getTime() + REQUEST_CONNECT_WINDOW_SEC * 1000) },
+    {
+      id: sessionId,
+      tenantId,
+      technicianId: auth.user.id,
+      technician: { fullName: auth.user.fullName },
+      expiresAt: new Date(now.getTime() + REQUEST_CONNECT_WINDOW_SEC * 1000),
+    },
     {
       requestId: id,
       name: r.customerName ?? "Müşteri",
@@ -164,7 +193,13 @@ export async function acceptRequest(svc: RequestService, ctx: AuditContext, auth
     },
   );
   svc.d.hub.clearDisconnect(id);
-  svc.d.hub.sendToRequest(id, { t: "request.accepted", wsTicket: ticket.wsTicket, technicianName: auth.user.fullName.slice(0, 100), techVerifyCode, ticketExpiresAt: new Date(ticket.expiresAt).toISOString() });
+  svc.d.hub.sendToRequest(id, {
+    t: "request.accepted",
+    wsTicket: ticket.wsTicket,
+    technicianName: auth.user.fullName.slice(0, 100),
+    techVerifyCode,
+    ticketExpiresAt: new Date(ticket.expiresAt).toISOString(),
+  });
   svc.d.hub.publish(tenantId, { t: "request.removed", id, status: "ACCEPTED" });
   svc.d.hub.queueChanged(tenantId);
   await svc.publishCount(tenantId);
@@ -173,14 +208,29 @@ export async function acceptRequest(svc: RequestService, ctx: AuditContext, auth
 }
 
 /** POST /support-requests/:id/reject (AC-157). */
-export async function rejectRequest(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string, message: string): Promise<void> {
+export async function rejectRequest(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  message: string,
+): Promise<void> {
   // AC-148 / sapma 2: Super Admin (firma seçmiş olsa da) ret yapamaz — acceptRequest ile aynı kural.
   if (auth.user.tenantId !== tenantId) throw new AppError("FORBIDDEN", { message: "Talep yalnız kendi firmanızda reddedilebilir." });
   await acceptLimit(svc, ctx, auth, tenantId);
   const ok = await svc.d.db.$transaction(async (tx) => {
     const now = new Date(svc.d.clock.now());
     if ((await repo.rejectPending(tx, tenantId, id, auth.user.id, message, now)) === 0) return false;
-    await writeAudit(tx, ctx, { ...who(auth, tenantId), action: "request.rejected", entity: "support_requests", entityId: id, result: "success", oldValue: { status: "PENDING" }, newValue: { status: "REJECTED", message } });
+    await writeAudit(tx, ctx, {
+      ...who(auth, tenantId),
+      action: "request.rejected",
+      entity: "support_requests",
+      entityId: id,
+      result: "success",
+      oldValue: { status: "PENDING" },
+      newValue: { status: "REJECTED", message },
+    });
     return true;
   });
   if (!ok) throw await lostRace(svc, tenantId, id);
@@ -237,7 +287,14 @@ export async function getSettings(svc: RequestService, tenantId: string): Promis
   return settingsView(svc, row, (await svc.d.mail.configFor(tenantId)) !== null);
 }
 
-const auditShape = (s: { waitMinutes: number; trustedCidrs: string[]; waEnabled: boolean; waRecipients: string[]; emailEnabled: boolean; emailRecipients: string[] }) => ({
+const auditShape = (s: {
+  waitMinutes: number;
+  trustedCidrs: string[];
+  waEnabled: boolean;
+  waRecipients: string[];
+  emailEnabled: boolean;
+  emailRecipients: string[];
+}) => ({
   waitMinutes: s.waitMinutes,
   trustedCidrs: s.trustedCidrs,
   waEnabled: s.waEnabled,
@@ -247,8 +304,15 @@ const auditShape = (s: { waitMinutes: number; trustedCidrs: string[]; waEnabled:
 });
 
 /** PUT /settings/support-requests (AC-142, 151, 152): SMTP ayarlı değilse e-posta kanalı açılamaz. Audit eski→yeni (alıcılar maskeli). */
-export async function updateSettings(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string, input: UpdateRequestSettingsData): Promise<SupportRequestSettings> {
-  if (input.email.enabled && (await svc.d.mail.configFor(tenantId)) === null) throw new AppError("VALIDATION", { fields: { "email.enabled": SMTP_REQUIRED_MESSAGE } });
+export async function updateSettings(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  input: UpdateRequestSettingsData,
+): Promise<SupportRequestSettings> {
+  if (input.email.enabled && (await svc.d.mail.configFor(tenantId)) === null)
+    throw new AppError("VALIDATION", { fields: { "email.enabled": SMTP_REQUIRED_MESSAGE } });
   await ensureSettings(svc, tenantId);
   await svc.d.db.$transaction(async (tx) => {
     const before = await repo.settingsByTenant(tx, tenantId);
@@ -261,9 +325,31 @@ export async function updateSettings(svc: RequestService, ctx: AuditContext, aut
       emailEnabled: input.email.enabled,
       emailRecipients: input.email.recipients,
     });
-    const old = { waitMinutes: before.waitMinutes, trustedCidrs: repo.jsonStrings(before.trustedCidrs), waEnabled: before.waEnabled, waRecipients: repo.jsonStrings(before.waRecipients), emailEnabled: before.emailEnabled, emailRecipients: repo.jsonStrings(before.emailRecipients) };
-    const next = { waitMinutes: input.waitMinutes, trustedCidrs: input.trustedCidrs, waEnabled: input.whatsapp.enabled, waRecipients: input.whatsapp.recipients, emailEnabled: input.email.enabled, emailRecipients: input.email.recipients };
-    await writeAudit(tx, ctx, { ...who(auth, tenantId), action: "settings.support_requests.updated", entity: "tenant_request_settings", entityId: tenantId, result: "success", oldValue: auditShape(old), newValue: auditShape(next) });
+    const old = {
+      waitMinutes: before.waitMinutes,
+      trustedCidrs: repo.jsonStrings(before.trustedCidrs),
+      waEnabled: before.waEnabled,
+      waRecipients: repo.jsonStrings(before.waRecipients),
+      emailEnabled: before.emailEnabled,
+      emailRecipients: repo.jsonStrings(before.emailRecipients),
+    };
+    const next = {
+      waitMinutes: input.waitMinutes,
+      trustedCidrs: input.trustedCidrs,
+      waEnabled: input.whatsapp.enabled,
+      waRecipients: input.whatsapp.recipients,
+      emailEnabled: input.email.enabled,
+      emailRecipients: input.email.recipients,
+    };
+    await writeAudit(tx, ctx, {
+      ...who(auth, tenantId),
+      action: "settings.support_requests.updated",
+      entity: "tenant_request_settings",
+      entityId: tenantId,
+      result: "success",
+      oldValue: auditShape(old),
+      newValue: auditShape(next),
+    });
   });
   return getSettings(svc, tenantId);
 }
@@ -272,7 +358,12 @@ export async function updateSettings(svc: RequestService, ctx: AuditContext, aut
  * POST /settings/support-requests/rotate-ref (AC-131): eski ref anında geçersiz; bekleyen talepler etkilenmez.
  * P8c (AC-185, mimari-e10 §3.4): aynı TX'te yeni ref ad alanına yazılır ve Genel kayıtlar `GENERAL_ROTATED` olur.
  */
-export async function rotateRef(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string): Promise<SupportRequestSettings> {
+export async function rotateRef(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+): Promise<SupportRequestSettings> {
   await ensureSettings(svc, tenantId);
   let revoked = 0;
   for (let attempt = 1; ; attempt++) {
@@ -285,7 +376,15 @@ export async function rotateRef(svc: RequestService, ctx: AuditContext, auth: Au
         await repo.insertRequestRef(tx, { ref, tenantId, customerId: null, createdAt: now });
         await repo.updateSettings(tx, tenantId, { requestRef: ref, fileLabel: fileLabelOf(before.tenant.name), refRotatedAt: now });
         revoked = await brepo.revokeForOwner(tx, tenantId, null, "GENERAL_ROTATED", now);
-        await writeAudit(tx, ctx, { ...who(auth, tenantId), action: "settings.support_requests.ref_rotated", entity: "tenant_request_settings", entityId: tenantId, result: "success", oldValue: { refPrefix: before.requestRef.slice(0, 4) }, newValue: { refPrefix: ref.slice(0, 4), revokedBindings: revoked } });
+        await writeAudit(tx, ctx, {
+          ...who(auth, tenantId),
+          action: "settings.support_requests.ref_rotated",
+          entity: "tenant_request_settings",
+          entityId: tenantId,
+          result: "success",
+          oldValue: { refPrefix: before.requestRef.slice(0, 4) },
+          newValue: { refPrefix: ref.slice(0, 4), revokedBindings: revoked },
+        });
       });
       countRevoked(svc, "GENERAL_ROTATED", revoked);
       break;
@@ -298,13 +397,26 @@ export async function rotateRef(svc: RequestService, ctx: AuditContext, auth: Au
 }
 
 /** POST /settings/support-requests/whatsapp/test (AC-152): tenant 5/dk; yapılandırılmamış/güvensiz → 502 UPSTREAM. */
-export async function whatsappTest(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string, phone: string): Promise<WhatsappTestResponse> {
+export async function whatsappTest(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  phone: string,
+): Promise<WhatsappTestResponse> {
   await svc.limit(ctx, tenantId, "waTest", "req.wa_test", "tenant", tenantId);
   const n = svc.d.notifier;
   if (!n.configured) throw new AppError("UPSTREAM", { message: "Servis yapılandırılmamış." });
   if (n.insecure) throw new AppError("UPSTREAM", { message: "Servis güvenli yapılandırılmamış." });
   const out = await n.test(phone);
-  await writeAudit(svc.d.db, ctx, { ...who(auth, tenantId), action: "settings.whatsapp.test", entity: "tenant_request_settings", entityId: tenantId, result: out.ok ? "success" : "fail", newValue: { recipient: maskPhone(phone), result: out.ok ? "success" : "fail" } });
+  await writeAudit(svc.d.db, ctx, {
+    ...who(auth, tenantId),
+    action: "settings.whatsapp.test",
+    entity: "tenant_request_settings",
+    entityId: tenantId,
+    result: out.ok ? "success" : "fail",
+    newValue: { recipient: maskPhone(phone), result: out.ok ? "success" : "fail" },
+  });
   svc.d.metrics.inc("rs_request_notify_total", { channel: "whatsapp_test", result: out.ok ? "ok" : "failed" });
   return { ok: out.ok, message: out.message }; // AC-152: adres/neden tenant yanıtına girmez
 }

@@ -72,7 +72,11 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
     return (
       <>
         {header}
-        <div className="mt-6 max-w-xl"><Alert tone="warning" testId="requests-forbidden">{t("rq.forbidden")}</Alert></div>
+        <div className="mt-6 max-w-xl">
+          <Alert tone="warning" testId="requests-forbidden">
+            {t("rq.forbidden")}
+          </Alert>
+        </div>
       </>
     );
   }
@@ -96,18 +100,31 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
 
   const tabs = (
     <nav aria-label={t("rq.tabs")} className="mt-6 inline-flex rounded-md border border-border bg-surface p-1 shadow-sm">
-      <Link href={href("pending", undefined, 1, customer)} aria-current={tab === "pending" ? "page" : undefined} className={tabCls(tab === "pending")}>
+      <Link
+        href={href("pending", undefined, 1, customer)}
+        aria-current={tab === "pending" ? "page" : undefined}
+        className={tabCls(tab === "pending")}
+      >
         <Inbox aria-hidden className="size-4" />
         {t("rq.tab.pending")}
       </Link>
-      <Link href={href("history", undefined, 1, customer)} aria-current={tab === "history" ? "page" : undefined} className={tabCls(tab === "history")}>
+      <Link
+        href={href("history", undefined, 1, customer)}
+        aria-current={tab === "history" ? "page" : undefined}
+        className={tabCls(tab === "history")}
+      >
         <History aria-hidden className="size-4" />
         {t("rq.tab.history")}
       </Link>
     </nav>
   );
 
-  const selectedName = customer && customer !== "general" ? res.kind === "ok" ? res.data.items.find((i) => i.customerFirm?.id === customer)?.customerFirm?.name : undefined : undefined;
+  const selectedName =
+    customer && customer !== "general"
+      ? res.kind === "ok"
+        ? res.data.items.find((i) => i.customerFirm?.id === customer)?.customerFirm?.name
+        : undefined
+      : undefined;
   const filter = (
     <div className="mt-4">
       <RequestCustomerFilter value={customer} selectedName={selectedName} basePath={href(tab, tab === "history" ? status : undefined)} />
@@ -123,7 +140,13 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
         {tabs}
         {filter}
         <div className="mt-6 max-w-xl">
-          {res.status === 403 ? <Alert tone="warning" testId="requests-forbidden">{t("rq.forbidden")}</Alert> : <LoadError />}
+          {res.status === 403 ? (
+            <Alert tone="warning" testId="requests-forbidden">
+              {t("rq.forbidden")}
+            </Alert>
+          ) : (
+            <LoadError />
+          )}
         </div>
       </>
     );
@@ -178,7 +201,10 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
               testId="requests-history-empty"
               action={
                 (status || customer) && (
-                  <Link href={href("history")} className="inline-flex min-h-11 items-center text-sm font-medium text-primary hover:underline">
+                  <Link
+                    href={href("history")}
+                    className="inline-flex min-h-11 items-center text-sm font-medium text-primary hover:underline"
+                  >
                     {t("rq.h.all")}
                   </Link>
                 )
@@ -191,18 +217,28 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
         {total > PAGE_SIZE && (
           <nav aria-label={t("rq.h.pages")} className="mt-4 flex items-center justify-between gap-2 text-sm text-fg-muted">
             {page > 1 ? (
-              <Link href={href("history", status, page - 1, customer)} className="inline-flex min-h-11 items-center gap-1 font-medium text-primary">
+              <Link
+                href={href("history", status, page - 1, customer)}
+                className="inline-flex min-h-11 items-center gap-1 font-medium text-primary"
+              >
                 <ChevronLeft aria-hidden className="size-4" />
                 {t("h.prev")}
               </Link>
-            ) : <span />}
+            ) : (
+              <span />
+            )}
             <span className="tabular-nums">{t("rq.h.page", { page, pages })}</span>
             {page < pages ? (
-              <Link href={href("history", status, page + 1, customer)} className="inline-flex min-h-11 items-center gap-1 font-medium text-primary">
+              <Link
+                href={href("history", status, page + 1, customer)}
+                className="inline-flex min-h-11 items-center gap-1 font-medium text-primary"
+              >
                 {t("h.next")}
                 <ChevronRight aria-hidden className="size-4" />
               </Link>
-            ) : <span />}
+            ) : (
+              <span />
+            )}
           </nav>
         )}
       </section>

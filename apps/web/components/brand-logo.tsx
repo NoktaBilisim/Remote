@@ -25,7 +25,17 @@ export function BrandLogo({ variant }: { variant: "full" | "mark" }) {
  * okunur, std. §1.5). Varsayılan logo URL'sinde ya da logo yokken Nokta logosu (`BrandLogo`). Boyut sabit kutu +
  * `object-contain` (oran korunur, CSP: satır içi stil yok).
  */
-export function LogoImage({ url, alt, variant, testId }: { url: string | null | undefined; alt: string; variant: "full" | "mark"; testId?: string }) {
+export function LogoImage({
+  url,
+  alt,
+  variant,
+  testId,
+}: {
+  url: string | null | undefined;
+  alt: string;
+  variant: "full" | "mark";
+  testId?: string;
+}) {
   if (!url || url === DEFAULT_LOGO_URL) {
     return (
       <span data-testid={testId} data-logo="system" className="inline-flex">

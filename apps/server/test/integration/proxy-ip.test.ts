@@ -7,7 +7,12 @@ afterEach(() => app.close());
 
 let n = 0; // her denemede farklı hesap: hesap+IP kilidi değil yalnız IP limiti ölçülür
 const attempt = (xff: string, remoteAddress = "127.0.0.1") =>
-  app.inject(loginRequest(`yok${++n}@example.test`, "x-yanlis", { remoteAddress, headers: { origin: "https://rs.test:4450", "x-forwarded-for": xff } }));
+  app.inject(
+    loginRequest(`yok${++n}@example.test`, "x-yanlis", {
+      remoteAddress,
+      headers: { origin: "https://rs.test:4450", "x-forwarded-for": xff },
+    }),
+  );
 
 describe("gerçek istemci IP'si", () => {
   it("AC-121: proxy güvenilir değilken sahte X-Forwarded-For IP limitini atlatamaz", async () => {
@@ -19,7 +24,9 @@ describe("gerçek istemci IP'si", () => {
   it("AC-121: yalnız güvenilen proxy'den gelen XFF okunur; zincire eklenen sahte değer etkisiz", async () => {
     app = makeApp({ env: { TRUSTED_PROXY_CIDR: "127.0.0.1/32" } });
     const u = await createUser({ tenantId: (await createTenant()).id });
-    const res = await app.inject(loginRequest(u.email, u.password, { headers: { origin: "https://rs.test:4450", "x-forwarded-for": "6.6.6.6, 198.51.100.5" } }));
+    const res = await app.inject(
+      loginRequest(u.email, u.password, { headers: { origin: "https://rs.test:4450", "x-forwarded-for": "6.6.6.6, 198.51.100.5" } }),
+    );
     expect(res.statusCode).toBe(200);
     const row = await testDb().auditLog.findFirstOrThrow({ where: { userId: u.id, result: "success" } });
     expect(row.ipAddress).toBe("198.51.100.5");

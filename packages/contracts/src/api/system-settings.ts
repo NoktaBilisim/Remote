@@ -22,8 +22,16 @@ export const MYSQL_TEST_TIMEOUT_MS = 10_000;
  */
 export const mysqlSettingsInputSchema = z.strictObject({
   host: smtpHostSchema,
-  port: z.number({ error: "Port 1-65535 arası olmalı" }).int("Port 1-65535 arası olmalı").min(1, "Port 1-65535 arası olmalı").max(65535, "Port 1-65535 arası olmalı").default(MYSQL_DEFAULT_PORT),
-  database: z.string().trim().regex(/^[A-Za-z0-9_$-]{1,64}$/, "Veritabanı adı 1-64 karakter; harf, rakam, _ $ - içerebilir"),
+  port: z
+    .number({ error: "Port 1-65535 arası olmalı" })
+    .int("Port 1-65535 arası olmalı")
+    .min(1, "Port 1-65535 arası olmalı")
+    .max(65535, "Port 1-65535 arası olmalı")
+    .default(MYSQL_DEFAULT_PORT),
+  database: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_$-]{1,64}$/, "Veritabanı adı 1-64 karakter; harf, rakam, _ $ - içerebilir"),
   user: z
     .string()
     .trim()
@@ -49,7 +57,8 @@ export interface MysqlSettingsView {
 }
 
 /** ADR-0003: canlı geçiş yok — kayıt bilgi amaçlıdır. */
-export const MYSQL_APPLY_NOTE = "Ayar kaydedildi. Uygulamak için sunucudaki .env (DATABASE_URL) güncellenip servis yeniden başlatılmalıdır.";
+export const MYSQL_APPLY_NOTE =
+  "Ayar kaydedildi. Uygulamak için sunucudaki .env (DATABASE_URL) güncellenip servis yeniden başlatılmalıdır.";
 
 export interface MysqlSettingsSaveResponse extends MysqlSettingsView {
   restartRequired: true;
@@ -106,7 +115,10 @@ export const turnUrlSchema = z
  * coturn `static-auth-secret`: 32..256 yazdırılabilir ASCII (env TURN_SECRET ≥ 32 kuralı). Boş → kayıtlı korunur. */
 export const turnSettingsInputSchema = z
   .strictObject({
-    urls: z.array(turnUrlSchema).min(1, "En az bir adres girin (env ayarına dönmek için \"Varsayılana dön\")").max(TURN_URLS_MAX, `En çok ${TURN_URLS_MAX} adres girilebilir`),
+    urls: z
+      .array(turnUrlSchema)
+      .min(1, 'En az bir adres girin (env ayarına dönmek için "Varsayılana dön")')
+      .max(TURN_URLS_MAX, `En çok ${TURN_URLS_MAX} adres girilebilir`),
     secret: z.preprocess(
       blankToUndefined,
       z
@@ -119,7 +131,8 @@ export const turnSettingsInputSchema = z
     ),
   })
   .superRefine((o, ctx) => {
-    if (new Set(o.urls).size !== o.urls.length) ctx.addIssue({ code: "custom", path: ["urls"], message: "Aynı adres birden çok kez girilmiş" });
+    if (new Set(o.urls).size !== o.urls.length)
+      ctx.addIssue({ code: "custom", path: ["urls"], message: "Aynı adres birden çok kez girilmiş" });
   });
 export type TurnSettingsInput = z.input<typeof turnSettingsInputSchema>;
 export type TurnSettingsData = z.output<typeof turnSettingsInputSchema>;

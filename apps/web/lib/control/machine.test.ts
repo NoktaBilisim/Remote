@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
 import type { ServerOutbound } from "@remote/contracts/ws";
-import { canCancel, canRelease, canRequest, canRequestMonitor, controlReducer, cooldownLeft, initialControl, isCapturing, isUnexpectedGrant, MONITOR_BLOCK_MS, monitorBlockLeft, MONITOR_TIMEOUT_MS, requestsLeft, type ControlEvent, type ControlState } from "./machine";
+import {
+  canCancel,
+  canRelease,
+  canRequest,
+  canRequestMonitor,
+  controlReducer,
+  cooldownLeft,
+  initialControl,
+  isCapturing,
+  isUnexpectedGrant,
+  MONITOR_BLOCK_MS,
+  monitorBlockLeft,
+  MONITOR_TIMEOUT_MS,
+  requestsLeft,
+  type ControlEvent,
+  type ControlState,
+} from "./machine";
 
 const msg = (m: ServerOutbound, now = 1000): ControlEvent => ({ type: "msg", m, now });
 const run = (evs: ControlEvent[], s: ControlState = initialControl) => evs.reduce(controlReducer, s);
@@ -103,7 +119,11 @@ describe("P7 kontrol makinesi", () => {
   });
 
   it("AC-50: müşteri kapatırsa / kısayol / sistem → yakalama anında biter, neden yazılır", () => {
-    for (const [source, cause] of [["UI", "customer"], ["HOTKEY", "hotkey"], ["SYSTEM", "system"]] as const) {
+    for (const [source, cause] of [
+      ["UI", "customer"],
+      ["HOTKEY", "hotkey"],
+      ["SYSTEM", "system"],
+    ] as const) {
       const s = run([req(), granted, msg({ t: "control.state", state: "VIEW", source }, 2000)]);
       expect(isCapturing(s)).toBe(false);
       expect(s.phase).toBe("ended");
@@ -284,7 +304,11 @@ describe("P7 kontrol makinesi", () => {
   });
 
   it("TEST-P7-3: yenileme sonrası sayaçlar geri yüklenir (büyük olan kazanır), izin asla geri yüklenmez", () => {
-    const s = controlReducer(initialControl, { type: "restore", saved: { requests: 3, deniedAt: 10_000, monitorRequests: 2, monitorBlockedUntil: 50_000 }, now: 20_000 });
+    const s = controlReducer(initialControl, {
+      type: "restore",
+      saved: { requests: 3, deniedAt: 10_000, monitorRequests: 2, monitorBlockedUntil: 50_000 },
+      now: 20_000,
+    });
     expect(s.requests).toBe(3);
     expect(requestsLeft(s)).toBe(2);
     expect(s.phase).toBe("denied"); // ret beklemesi sürüyor
@@ -295,7 +319,11 @@ describe("P7 kontrol makinesi", () => {
     // StrictMode çift efektinde sıfırlı ikinci geri yükleme geri götürmez
     expect(controlReducer(s, { type: "restore", saved: { requests: 0 }, now: 20_000 }).requests).toBe(3);
     // Bozuk / sınır dışı değerler
-    const b = controlReducer(initialControl, { type: "restore", saved: { requests: 99, deniedAt: -5, monitorRequests: Number.NaN }, now: 1 });
+    const b = controlReducer(initialControl, {
+      type: "restore",
+      saved: { requests: 99, deniedAt: -5, monitorRequests: Number.NaN },
+      now: 1,
+    });
     expect(b.requests).toBe(5);
     expect(b.deniedAt).toBeNull();
     expect(b.monitorRequests).toBe(0);

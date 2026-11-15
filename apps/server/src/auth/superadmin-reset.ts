@@ -62,7 +62,16 @@ export async function resetSuperadmin(db: Db, ctx: AuditContext, input: Superadm
     await tx.passwordResetToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: now } });
     if (input.resetMfa) await tx.recoveryCode.deleteMany({ where: { userId: user.id } });
     const newValue = { mustChangePassword: true, mfaReset: input.resetMfa, revokedSessions: sessions.count };
-    await writeAudit(tx, ctx, { tenantId: null, userId: null, username: CLI_USERNAME, action: AUTH_AUDIT.SUPERADMIN_RESET, entity: "users", entityId: user.id, result: "success", newValue });
+    await writeAudit(tx, ctx, {
+      tenantId: null,
+      userId: null,
+      username: CLI_USERNAME,
+      action: AUTH_AUDIT.SUPERADMIN_RESET,
+      entity: "users",
+      entityId: user.id,
+      result: "success",
+      newValue,
+    });
     return sessions.count;
   });
   if (out === null) {
@@ -87,5 +96,14 @@ export async function superadminTempPasswordExpired(db: Db | Prisma.TransactionC
 }
 
 function auditNotFound(db: Db, ctx: AuditContext): Promise<void> {
-  return writeAudit(db, ctx, { tenantId: null, userId: null, username: CLI_USERNAME, action: AUTH_AUDIT.SUPERADMIN_RESET, entity: "users", entityId: null, result: "fail", newValue: { reason: "not_found" } });
+  return writeAudit(db, ctx, {
+    tenantId: null,
+    userId: null,
+    username: CLI_USERNAME,
+    action: AUTH_AUDIT.SUPERADMIN_RESET,
+    entity: "users",
+    entityId: null,
+    result: "fail",
+    newValue: { reason: "not_found" },
+  });
 }

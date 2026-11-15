@@ -58,22 +58,40 @@ const peerOf = (ws: WebSocket): Peer => ({
   isOpen: () => ws.readyState === WebSocket.OPEN,
 });
 
-export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: SignalingOptions = {}, channels?: RequestChannels, panelCount?: () => { request: number; panel: number }): void {
+export function attachSignaling(
+  app: FastifyInstance,
+  rooms: Rooms,
+  opts: SignalingOptions = {},
+  channels?: RequestChannels,
+  panelCount?: () => { request: number; panel: number },
+): void {
   const { env, db } = app;
   const policy = { setupEnforced: app.mfaSetupEnforced };
-  const wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD, perMessageDeflate: false, handleProtocols: (p) => (p.has(WS_SUBPROTOCOL) ? WS_SUBPROTOCOL : false) });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: WS_MAX_PAYLOAD,
+    perMessageDeflate: false,
+    handleProtocols: (p) => (p.has(WS_SUBPROTOCOL) ? WS_SUBPROTOCOL : false),
+  });
   const trusted = cidrMatcher(env.TRUSTED_PROXY_CIDR);
   // S-P2/S-P3-7: upgrade IP limiti (31/dk, 60 sn kilit) DB'ye gitmeden önce; teknisyen ve misafir ayrı sayılır.
   // Aşan çerçeve (> WS_MAX_PAYLOAD) ws kütüphanesince 1009 ile kapatılır (S-P3-1).
   const guestIp = new FixedWindowCounter(31, 60_000, 60_000);
   const techIp = new FixedWindowCounter(31, 60_000, 60_000);
   // Etiketsiz seri: toplam; P8b `role="request"|"panel"` serileri (devops metrik adı).
-  rooms.metrics.gauge("rs_ws_connections", "Açık WS bağlantıları (anlık)", () => ({ "": wss.clients.size, ...(panelCount ? panelCount() : {}) }));
+  rooms.metrics.gauge("rs_ws_connections", "Açık WS bağlantıları (anlık)", () => ({
+    "": wss.clients.size,
+    ...(panelCount ? panelCount() : {}),
+  }));
   const missed = new WeakMap<WebSocket, number>();
 
   /** Fastify trustProxy ile aynı kural: güvenilen proxy zincirinden ilk güvenilmeyen adres (G-11). */
   const clientIp = (req: IncomingMessage): string => {
-    const xff = String(req.headers["x-forwarded-for"] ?? "").split(",").map((s) => s.trim()).filter(Boolean).reverse();
+    const xff = String(req.headers["x-forwarded-for"] ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .reverse();
     let ip = req.socket.remoteAddress ?? "";
     for (const next of xff) {
       if (!trusted(ip)) break;
@@ -81,9 +99,19 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
     }
     return ip;
   };
-  const ctxOf = (req: IncomingMessage): AuditContext => ({ ip: clientIp(req), userAgent: String(req.headers["user-agent"] ?? ""), requestId: newId() });
+  const ctxOf = (req: IncomingMessage): AuditContext => ({
+    ip: clientIp(req),
+    userAgent: String(req.headers["user-agent"] ?? ""),
+    requestId: newId(),
+  });
 
-  const accept = (req: IncomingMessage, socket: Duplex, head: Buffer, role: "tech" | "guest" | "request" | "panel", onOpen: (ws: WebSocket, peer: Peer) => void): void => {
+  const accept = (
+    req: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    role: "tech" | "guest" | "request" | "panel",
+    onOpen: (ws: WebSocket, peer: Peer) => void,
+  ): void => {
     wss.handleUpgrade(req, socket, head, (ws) => {
       missed.set(ws, 0);
       ws.on("pong", () => missed.set(ws, 0));
@@ -106,13 +134,28 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
     if (!auth || auth.user.mustChangePassword) return { status: 403, reason: "auth" };
     const row = await repo.findForSignal(db, sessionId);
     // AC-15: yalnız oturum sahibi (Admin dahil başkası hayır); PENDING (süresi dolmamış) ya da odası canlı ACTIVE.
-    const open = row && ((row.status === "PENDING" && row.expiresAt.getTime() > Date.now()) || (row.status === "ACTIVE" && rooms.get(row.id)));
+    const open =
+      row && ((row.status === "PENDING" && row.expiresAt.getTime() > Date.now()) || (row.status === "ACTIVE" && rooms.get(row.id)));
     if (!row || row.technicianId !== auth.user.id || !open) return { status: 403, reason: "session" };
     accept(req, socket, head, "tech", (ws, peer) => {
-      const conn = { peer, userId: auth.user.id, username: auth.user.email, authToken: token, permissions: auth.permissions, role: auth.user.role, ctx: ctxOf(req) };
+      const conn = {
+        peer,
+        userId: auth.user.id,
+        username: auth.user.email,
+        authToken: token,
+        permissions: auth.permissions,
+        role: auth.user.role,
+        ctx: ctxOf(req),
+      };
       const room = rooms.attachTech(row, conn);
       const bucket = new TokenBucket(rooms.clock);
-      ws.on("message", (data: Buffer, bin) => void onTechMessage(rooms, room, peer, bucket, data, bin).catch((err: unknown) => app.log.error({ err }, "ws teknisyen mesajı işlenemedi")));
+      ws.on(
+        "message",
+        (data: Buffer, bin) =>
+          void onTechMessage(rooms, room, peer, bucket, data, bin).catch((err: unknown) =>
+            app.log.error({ err }, "ws teknisyen mesajı işlenemedi"),
+          ),
+      );
       ws.on("close", () => rooms.detachTech(room, peer));
     });
     return null;
@@ -123,7 +166,9 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
     const ctx = ctxOf(req);
     const key = ipKey(ctx.ip);
     if (guestIp.blockedFor(key) > 0 || guestIp.hit(key)) return { status: 429, reason: "rate" };
-    const protos = String(req.headers["sec-websocket-protocol"] ?? "").split(",").map((s) => s.trim());
+    const protos = String(req.headers["sec-websocket-protocol"] ?? "")
+      .split(",")
+      .map((s) => s.trim());
     const creds = protos.filter((p) => p.startsWith(WS_TICKET_PREFIX) || p.startsWith(WS_RECONNECT_PREFIX));
     const cred = creds[0];
     if (!protos.includes(WS_SUBPROTOCOL) || creds.length !== 1 || !cred) return { status: 403, reason: "protocol" };
@@ -146,7 +191,17 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
         if (t?.gen !== g.ticketGen) return { status: 403, reason: "ticket" };
         // S8b-2: g.peer burada atanmaz (eşzamanlı ikinci bağlantı ezmesin); admitRequestGuest kazanınca atar.
         accept(req, socket, head, "guest", (ws, peer) =>
-          bindGuest(ws, peer, r, g, ctx, () => void admitRequestGuest(rooms, r, g, peer, ctx).catch((err: unknown) => app.log.error({ err }, "talep misafiri kabul edilemedi"))),
+          bindGuest(
+            ws,
+            peer,
+            r,
+            g,
+            ctx,
+            () =>
+              void admitRequestGuest(rooms, r, g, peer, ctx).catch((err: unknown) =>
+                app.log.error({ err }, "talep misafiri kabul edilemedi"),
+              ),
+          ),
         );
         return null;
       }
@@ -164,7 +219,14 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
       const now = rooms.clock.now();
       if (room.reconnectConflictAuditAt === undefined || now - room.reconnectConflictAuditAt >= RECONNECT_CONFLICT_AUDIT_MS) {
         room.reconnectConflictAuditAt = now;
-        await writeAudit(db, ctx, { tenantId: room.tenantId, username: "customer", action: "reconnect.conflict", entity: "support_sessions", entityId: room.sessionId, result: "fail" });
+        await writeAudit(db, ctx, {
+          tenantId: room.tenantId,
+          username: "customer",
+          action: "reconnect.conflict",
+          entity: "support_sessions",
+          entityId: room.sessionId,
+          result: "fail",
+        });
       }
       return { status: 403, reason: "reconnect_conflict" };
     }
@@ -178,21 +240,39 @@ export function attachSignaling(app: FastifyInstance, rooms: Rooms, opts: Signal
     g.ctx = ctx; // P7: kontrol onayı kaydı bu bağlantının ip/user_agent'ı ile
     attach();
     const bucket = new TokenBucket(rooms.clock);
-    ws.on("message", (data: Buffer, bin) => void onGuestMessage(rooms, room, g, peer, bucket, data, bin).catch((err: unknown) => app.log.error({ err }, "ws misafir mesajı işlenemedi")));
+    ws.on(
+      "message",
+      (data: Buffer, bin) =>
+        void onGuestMessage(rooms, room, g, peer, bucket, data, bin).catch((err: unknown) =>
+          app.log.error({ err }, "ws misafir mesajı işlenemedi"),
+        ),
+    );
     ws.on("close", () => rooms.detachGuest(room, g, peer));
   }
 
   app.server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(req.url ?? "/", "http://x");
-    const role = url.pathname === "/ws/tech" ? "tech" : url.pathname === "/ws/guest" ? "guest" : url.pathname === "/ws/request" && channels ? "request" : url.pathname === "/ws/panel" && channels ? "panel" : null;
+    const role =
+      url.pathname === "/ws/tech"
+        ? "tech"
+        : url.pathname === "/ws/guest"
+          ? "guest"
+          : url.pathname === "/ws/request" && channels
+            ? "request"
+            : url.pathname === "/ws/panel" && channels
+              ? "panel"
+              : null;
     if (!role) return reject(socket, 404);
     socket.on("error", () => socket.destroy());
-    const channelAccept = (r: "request" | "panel", onOpen: (ws: WebSocket) => void): void => accept(req, socket, head, r, (ws) => onOpen(ws));
+    const channelAccept = (r: "request" | "panel", onOpen: (ws: WebSocket) => void): void =>
+      accept(req, socket, head, r, (ws) => onOpen(ws));
     const run = (): Promise<Reject | null> => {
       if (role === "tech") return tech(req, url, socket, head);
       if (role === "guest") return guest(req, url, socket, head);
       if (!channels) return Promise.resolve({ status: 404, reason: "path" });
-      return role === "request" ? channels.request(req, url, ctxOf(req), channelAccept) : channels.panel(req, url, ctxOf(req), channelAccept);
+      return role === "request"
+        ? channels.request(req, url, ctxOf(req), channelAccept)
+        : channels.panel(req, url, ctxOf(req), channelAccept);
     };
     run()
       .then((r) => {

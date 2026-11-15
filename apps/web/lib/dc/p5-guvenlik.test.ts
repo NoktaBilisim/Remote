@@ -5,7 +5,8 @@ import { Sha256 } from "./sha256";
 import { inboundLimiter, IN_LIMITS } from "./rate";
 import type { CtlMessage, FileMetaMsg } from "./ctl";
 
-const hexOf = async (u: Uint8Array) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", u.slice()))].map((b) => b.toString(16).padStart(2, "0")).join("");
+const hexOf = async (u: Uint8Array) =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", u.slice()))].map((b) => b.toString(16).padStart(2, "0")).join("");
 const frame = (idx: number, seq: number, p: Uint8Array) => encodeFileChunk(idx, seq, p).slice().buffer as ArrayBuffer;
 const SHA = "a".repeat(64);
 
@@ -13,9 +14,31 @@ function rig(clock: { t: number }, inbound: "TO_CUSTOMER" | "TO_TECH" = "TO_CUST
   const ctl: CtlMessage[] = [];
   const meta: FileMetaMsg[] = [];
   let list: Transfer[] = [];
-  const file: FileChannelLike = { readyState: "open", bufferedAmount: 0, bufferedAmountLowThreshold: 0, send: () => undefined, addEventListener: () => undefined, removeEventListener: () => undefined };
-  const ft = new FileTransfers({ inbound, file, sendCtl: (m) => ctl.push(m), sendMeta: (m) => meta.push(m), onChange: (l) => (list = l), allowed: () => true, now: () => clock.t });
-  return { ft, ctl, meta, get list() { return list; } };
+  const file: FileChannelLike = {
+    readyState: "open",
+    bufferedAmount: 0,
+    bufferedAmountLowThreshold: 0,
+    send: () => undefined,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  };
+  const ft = new FileTransfers({
+    inbound,
+    file,
+    sendCtl: (m) => ctl.push(m),
+    sendMeta: (m) => meta.push(m),
+    onChange: (l) => (list = l),
+    allowed: () => true,
+    now: () => clock.t,
+  });
+  return {
+    ft,
+    ctl,
+    meta,
+    get list() {
+      return list;
+    },
+  };
 }
 type Offer = Extract<CtlMessage, { t: "file.offer" }>;
 const offer = (fid: string, idx = 0, size = 1, sha = SHA): Offer => ({ t: "file.offer", fid, idx, name: `${fid}.txt`, size, sha256: sha });
@@ -101,7 +124,15 @@ describe("S-P5-3 gönderen raporu", () => {
     await r.ft.onCtl({ t: "file.accept", fid });
     await r.ft.onCtl({ t: "file.result", fid, ok: true });
     await r.ft.onCtl({ t: "file.result", fid, ok: true }); // yineleme → ikinci rapor yok
-    expect(r.meta).toEqual([expect.objectContaining({ direction: "TO_CUSTOMER", fileName: "a.txt", sizeBytes: 3, result: "OK", sha256: await sha256Hex(new Blob(["abc"])) })]);
+    expect(r.meta).toEqual([
+      expect.objectContaining({
+        direction: "TO_CUSTOMER",
+        fileName: "a.txt",
+        sizeBytes: 3,
+        result: "OK",
+        sha256: await sha256Hex(new Blob(["abc"])),
+      }),
+    ]);
     c.t += 1;
     await r.ft.send(new File(["x"], "b.txt"));
     const fid2 = (r.ctl.filter((m) => m.t === "file.offer").at(-1) as { fid: string }).fid;

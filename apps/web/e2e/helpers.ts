@@ -51,5 +51,4 @@ export async function noHorizontalOverflow(page: Page) {
 }
 
 /** Masaüstünde tablo satırı, mobilde kart — görünür olan. */
-export const rows = (page: Page) =>
-  page.locator('[data-testid="session-row"], [data-testid="session-card"]').filter({ visible: true });
+export const rows = (page: Page) => page.locator('[data-testid="session-row"], [data-testid="session-card"]').filter({ visible: true });

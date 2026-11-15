@@ -21,7 +21,15 @@ export function testEnv(extra: Record<string, string> = {}): Env {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) throw new Error("TEST_DATABASE_URL tanımlı değil (scripts/test-db.sh up)");
   // WHATSAPP_SERVICE_URL varsayılanı canlı servis; testler ASLA ona gitmemeli → kapalı yerel port (discard, 9).
-  return loadEnv({ NODE_ENV: "test", PUBLIC_BASE_URL: ORIGIN, DATABASE_URL: url, LOG_LEVEL: "silent", WHATSAPP_SERVICE_URL: "http://127.0.0.1:9", UPLOADS_DIR: TEST_UPLOADS_DIR, ...extra });
+  return loadEnv({
+    NODE_ENV: "test",
+    PUBLIC_BASE_URL: ORIGIN,
+    DATABASE_URL: url,
+    LOG_LEVEL: "silent",
+    WHATSAPP_SERVICE_URL: "http://127.0.0.1:9",
+    UPLOADS_DIR: TEST_UPLOADS_DIR,
+    ...extra,
+  });
 }
 
 let db: Db | undefined;
@@ -44,10 +52,26 @@ export function testFixtureDb(): Db {
 }
 
 /** P10: zorunlu 2FA kurulum aşaması varsayılan KAPALI (P1–P9 testleri); P10 testleri `p10: { ... }` ile açar. */
-export function makeApp(opts: { env?: Record<string, string>; logger?: Logger; signaling?: AppDeps["signaling"]; p10?: Pick<AppDeps, "netguard" | "mailTransport" | "mfaSetupEnforcement">; p11?: Pick<AppDeps, "mysqlProbe"> } = {}): FastifyInstance {
+export function makeApp(
+  opts: {
+    env?: Record<string, string>;
+    logger?: Logger;
+    signaling?: AppDeps["signaling"];
+    p10?: Pick<AppDeps, "netguard" | "mailTransport" | "mfaSetupEnforcement">;
+    p11?: Pick<AppDeps, "mysqlProbe">;
+  } = {},
+): FastifyInstance {
   const env = testEnv(opts.env);
   // B-P10-3: production modlu testlerde zorunlu 2FA kurulumu kapatılamaz (buildApp reddeder) → gerçek kural uygulanır.
-  return buildApp({ env, db: testDb(), mfaSetupEnforcement: env.NODE_ENV === "production", ...opts.p10, ...opts.p11, ...(opts.logger ? { logger: opts.logger } : {}), ...(opts.signaling ? { signaling: opts.signaling } : {}) });
+  return buildApp({
+    env,
+    db: testDb(),
+    mfaSetupEnforcement: env.NODE_ENV === "production",
+    ...opts.p10,
+    ...opts.p11,
+    ...(opts.logger ? { logger: opts.logger } : {}),
+    ...(opts.signaling ? { signaling: opts.signaling } : {}),
+  });
 }
 
 /** Tenant + ayarlar + güncel KVKK metni v1 (P4: resolve/join metin ister — seed'in tenant başına v1 kuralı). */
@@ -63,7 +87,9 @@ export async function createTenant(status = "ACTIVE") {
 /** Doğrudan DB'ye aydınlatma metni; sha256 DB CHECK'i için gövdenin UTF-8 SHA-256'sı. */
 export async function createConsentText(tenantId: string, o: { version: number; isCurrent: boolean; body?: string }) {
   const body = o.body ?? `Test aydınlatma metni v${o.version} — çğıöşü İ.`;
-  return testDb().consentText.create({ data: { id: newId(), tenantId, version: o.version, body, sha256: sha256Hex(body), isCurrent: o.isCurrent } });
+  return testDb().consentText.create({
+    data: { id: newId(), tenantId, version: o.version, body, sha256: sha256Hex(body), isCurrent: o.isCurrent },
+  });
 }
 
 /** Tenant'ın güncel metninin id'si (join gövdesi için). */
@@ -124,13 +150,15 @@ export async function loginAs(app: FastifyInstance, user: TestUser, password = u
   const jar = Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
   const session = jar[SESSION_COOKIE] ?? "";
   const csrf = jar[CSRF_COOKIE] ?? "";
-  return { token: session, headers: { cookie: `${SESSION_COOKIE}=${session}; ${CSRF_COOKIE}=${csrf}`, "x-csrf-token": csrf, origin: ORIGIN } };
+  return {
+    token: session,
+    headers: { cookie: `${SESSION_COOKIE}=${session}; ${CSRF_COOKIE}=${csrf}`, "x-csrf-token": csrf, origin: ORIGIN },
+  };
 }
 
 let codeSeq = 0;
 /** Testlere özgü (çakışmasız) 8 haneli kod: süreç + sayaç tabanlı. */
-export const uniqueCode = (): string =>
-  String((process.pid * 7919 + Date.now() + ++codeSeq * 104_729) % 100_000_000).padStart(8, "0");
+export const uniqueCode = (): string => String((process.pid * 7919 + Date.now() + ++codeSeq * 104_729) % 100_000_000).padStart(8, "0");
 
 /** Doğrudan DB'ye destek oturumu (API dışı kurulum). Varsayılan PENDING, 15 dk TTL. */
 export async function createSupportSessionRow(o: {

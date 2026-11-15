@@ -28,8 +28,16 @@ export function CreatedSession({ data, cancelled }: { data: CreateSessionRespons
 
   return (
     <div className="flex flex-col gap-4">
-      {cancelled && <Alert tone="danger" testId="dialog-cancelled">{t("d.cancelled")}</Alert>}
-      {!cancelled && expired && <Alert tone="warning" testId="dialog-expired">{t("d.expired")}</Alert>}
+      {cancelled && (
+        <Alert tone="danger" testId="dialog-cancelled">
+          {t("d.cancelled")}
+        </Alert>
+      )}
+      {!cancelled && expired && (
+        <Alert tone="warning" testId="dialog-expired">
+          {t("d.expired")}
+        </Alert>
+      )}
       {data.customerFirm && (
         <p className="flex items-center gap-2 text-sm text-fg" data-testid="session-customer-firm">
           <Building2 aria-hidden className="size-4 text-fg-muted" />
@@ -66,17 +74,27 @@ export function CreatedSession({ data, cancelled }: { data: CreateSessionRespons
 
       <div className="grid gap-3 sm:grid-cols-2">
         <section aria-labelledby={`${id}-code`} className="flex flex-col gap-2 rounded-lg border border-border bg-surface-muted p-4">
-          <h3 id={`${id}-code`} className="text-sm font-medium text-fg">{t("d.code")}</h3>
+          <h3 id={`${id}-code`} className="text-sm font-medium text-fg">
+            {t("d.code")}
+          </h3>
           <CodeDisplay code={data.code} testId="session-code" />
           {/* TO-P2-2: link "Kopyala" ile aynı varyant (secondary) */}
-          <Button variant="secondary" onClick={() => copy(data.code)} disabled={invalid} aria-label={t("d.copyCode")} className="self-start">
+          <Button
+            variant="secondary"
+            onClick={() => copy(data.code)}
+            disabled={invalid}
+            aria-label={t("d.copyCode")}
+            className="self-start"
+          >
             <Copy aria-hidden className="size-4" />
             {t("d.copy")}
           </Button>
           <p className="text-xs text-fg-muted">{t("d.codeHint")}</p>
         </section>
         <section aria-labelledby={`${id}-verify`} className="flex flex-col gap-2 rounded-lg border border-border bg-surface-muted p-4">
-          <h3 id={`${id}-verify`} className="text-sm font-medium text-fg">{t("d.verify")}</h3>
+          <h3 id={`${id}-verify`} className="text-sm font-medium text-fg">
+            {t("d.verify")}
+          </h3>
           <CodeDisplay code={data.techVerifyCode} testId="verify-code" />
           <p className="text-xs text-fg-muted">{t("d.verifyHint")}</p>
         </section>

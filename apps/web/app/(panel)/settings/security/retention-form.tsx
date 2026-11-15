@@ -85,7 +85,11 @@ export function RetentionForm({ initial, canEdit }: { initial: number; canEdit: 
   };
 
   return (
-    <section aria-labelledby="ret-h" className="flex max-w-3xl flex-col gap-4 rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-6" data-testid="retention-section">
+    <section
+      aria-labelledby="ret-h"
+      className="flex max-w-3xl flex-col gap-4 rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-6"
+      data-testid="retention-section"
+    >
       <h2 id="ret-h" className="flex items-center gap-2 text-base font-semibold text-fg">
         <CalendarClock aria-hidden className="size-5 text-fg-muted" />
         {t("ret.title")}
@@ -124,17 +128,36 @@ export function RetentionForm({ initial, canEdit }: { initial: number; canEdit: 
         description={confirm !== null ? t("ret.confirmBody", { from: formatNumber(saved), to: formatNumber(confirm) }) : undefined}
         footer={
           <>
-            <Button variant="secondary" data-autofocus disabled={busy} className="sm:ml-auto" onClick={() => setConfirm(null)} data-testid="retention-confirm-cancel">
+            <Button
+              variant="secondary"
+              data-autofocus
+              disabled={busy}
+              className="sm:ml-auto"
+              onClick={() => setConfirm(null)}
+              data-testid="retention-confirm-cancel"
+            >
               {t("rq.rj.cancel")}
             </Button>
-            <Button variant="danger" loading={busy} onClick={() => confirm !== null && void save(confirm)} data-testid="retention-confirm-ok">
+            <Button
+              variant="danger"
+              loading={busy}
+              onClick={() => confirm !== null && void save(confirm)}
+              data-testid="retention-confirm-ok"
+            >
               {!busy && <TriangleAlert aria-hidden className="size-4" />}
               {t("ret.confirmOk")}
             </Button>
           </>
         }
       />
-      <SaveBar dirty={dirty && confirm === null} busy={busy} formId={FORM_ID} onReset={reset} message={t("ret.unsaved")} leaveBody={t("ret.leaveBody")} />
+      <SaveBar
+        dirty={dirty && confirm === null}
+        busy={busy}
+        formId={FORM_ID}
+        onReset={reset}
+        message={t("ret.unsaved")}
+        leaveBody={t("ret.leaveBody")}
+      />
     </section>
   );
 }

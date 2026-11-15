@@ -15,7 +15,17 @@ export default async function MysqlSettingsPage() {
   const res = await serverGet<MysqlSettingsView>("/admin/settings/mysql");
   if (res.kind === "error") {
     if (res.status === 401) redirect(EXPIRED_LOGIN_PATH);
-    return <div className="max-w-xl">{res.status === 403 ? <Alert tone="warning" testId="system-forbidden">{t("sys.forbidden")}</Alert> : <LoadError />}</div>;
+    return (
+      <div className="max-w-xl">
+        {res.status === 403 ? (
+          <Alert tone="warning" testId="system-forbidden">
+            {t("sys.forbidden")}
+          </Alert>
+        ) : (
+          <LoadError />
+        )}
+      </div>
+    );
   }
   return <MysqlForm initial={res.data} />;
 }

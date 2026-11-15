@@ -1,14 +1,17 @@
 # Remote Support — Nokta Bilişim Uzaktan Destek Platformu
+
 > Kendi sunucunuzda çalışan, çok firmalı uzaktan destek: teknisyen müşterinin ekranını görür, izinle kontrol eder;
 > onaylar ve işlemler kayıt altında kalır.
 
 ## Ne işe yarar
+
 Uzaktan destek çoğu zaman dışarıdaki bir hizmete bağlıdır; veriler ve kayıtlar başka yerde tutulur. Remote Support
 kurumun kendi sunucusunda çalışır. Teknisyen web konsolundan oturum açar; müşteri tek dosyalık Windows programıyla veya
 tarayıcıyla katılır ya da programdan kendisi destek ister. Görüntü iki taraf arasında doğrudan akar; sunucuda yalnız
 oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 
 ## Öne çıkan özellikler
+
 - **Kurulumsuz müşteri programı** — tek dosya, yönetici yetkisi istemez; kod ile bağlanan bilgisayarda iz bırakmaz.
 - **Müşteri başlatmalı destek** — müşteri programdan "Destek iste" der; talep canlı kuyruğa düşer, teknisyen tek
   tıkla kabul eder. Bir kez destek alan bilgisayar firmayı hatırlar, yeni link gerekmez.
@@ -34,27 +37,30 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   profil resmini ve açık/koyu temasını seçer.
 
 ## Kimler için
+
 - Kurum içi BT destek ekipleri ve yardım masaları
 - Birden çok müşteri firmaya hizmet veren BT hizmet sağlayıcıları
 - Destek kayıtlarını KVKK kapsamında kendi sunucusunda tutmak isteyen kurumlar
 
 ## Modüller
-| Modül | Ne yapar |
-|---|---|
-| Destek oturumları | Tek kullanımlık link ve 8 haneli kod, bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma; müşteri beklerken panelin her sayfasında sayaç ve bildirim |
-| Teknisyen konsolu | Canlı ekran, uzaktan kontrol, monitör değiştirme, sohbet, dosya, işaretleme, kalite paneli |
-| Hızlı Destek (Windows) | Müşteri programı: "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut", onay ve izin diyalogları |
-| Destek talepleri | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi |
-| Müşteriler | Müşteri firma kaydı, firma başına bağlantı (kopyala, yenile), pasife alma, talep ve oturum geçmişi |
-| Oturum geçmişi | Filtreli liste, ayrıntı, ticket/not, CSV |
-| Kullanıcılar | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme |
-| Firmalar (Süper Yönetici) | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş |
-| Audit log | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV |
-| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi, TURN sunucuları ve gizli anahtar, sistem logosu, WhatsApp servis adresi + test mesajı |
-| Hesabım | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu ve kurtarma kodları, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış |
-| Ayarlar | Destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni, firma logosu |
+
+| Modül                            | Ne yapar                                                                                                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Destek oturumları                | Tek kullanımlık link ve 8 haneli kod, bekleme odası, teknisyen kabulü, iptal, zorla sonlandırma; müşteri beklerken panelin her sayfasında sayaç ve bildirim                           |
+| Teknisyen konsolu                | Canlı ekran, uzaktan kontrol, monitör değiştirme, sohbet, dosya, işaretleme, kalite paneli                                                                                            |
+| Hızlı Destek (Windows)           | Müşteri programı: "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut", onay ve izin diyalogları                                                                                |
+| Destek talepleri                 | Canlı kuyruk, bildirim ve ses, kabul/ret, firma filtresi, son 30 gün geçmişi                                                                                                          |
+| Müşteriler                       | Müşteri firma kaydı, firma başına bağlantı (kopyala, yenile), pasife alma, talep ve oturum geçmişi                                                                                    |
+| Oturum geçmişi                   | Filtreli liste, ayrıntı, ticket/not, CSV                                                                                                                                              |
+| Kullanıcılar                     | Kullanıcı ekleme (tek seferlik geçici şifre), rol, yetki tablosu, pasife alma / yeniden etkinleştirme                                                                                 |
+| Firmalar (Süper Yönetici)        | Firma oluşturma, düzenleme, pasife alma, firmalar arası geçiş                                                                                                                         |
+| Audit log                        | Salt okunur denetim kaydı: tarih, kullanıcı, işlem, sonuç ve firma filtreleri, ayrıntı, CSV                                                                                           |
+| Sistem ayarları (Süper Yönetici) | MySQL bağlantı bilgisi + bağlantı testi, TURN sunucuları ve gizli anahtar, sistem logosu, WhatsApp servis adresi + test mesajı                                                        |
+| Hesabım                          | Profil resmi (kare kırpma), tema (Açık / Koyu / Sistem), 2FA kurulumu ve kurtarma kodları, şifre değiştirme/sıfırlama, tüm cihazlardan çıkış                                          |
+| Ayarlar                          | Destek talebi bağlantısı, bekleme süresi, WhatsApp ve e-posta bildirimi + test, güvenilen ağlar, SMTP + test maili, teknisyen 2FA zorunluluğu, sürümlü aydınlatma metni, firma logosu |
 
 ## Güvenlik ve yönetim
+
 - Roller (Teknisyen / Yönetici / Süper Yönetici) ve modül bazlı yetki anahtarları; kimse sahip olmadığı yetkiyi veremez.
   Yetki her işlemde sunucuda denetlenir.
 - Çoklu firma: bir firmanın kullanıcısı başka firmanın kaydını göremez; firma pasife alınınca oturumları, talepleri
@@ -90,6 +96,7 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
   görünür, müşteriye gösterilmez.
 
 ## Entegrasyonlar
+
 - TURN sunucusu (coturn): güvenlik duvarı arkasındaki müşteriler için görüntü aktarımı; adres ve anahtar panelden
   yönetilebilir. Kısıtlı ağlarda şifreli TURN (5349/TCP) ile bağlanır.
 - WhatsApp (Nokta Bilişim whatsapp-bildirim servisi): yeni talepte kişisel veri içermeyen bildirim; test butonu. Servis
@@ -101,32 +108,36 @@ oturum bilgisi, KVKK onayları ve denetim kayıtları kalır.
 - SMS bildirimi bu sürümde yoktur.
 
 ## Teknik özellikler
-| Başlık | Değer |
-|---|---|
-| Çalışma şekli | Web tabanlı teknisyen konsolu; müşteri için Windows programı veya tarayıcı |
-| Sunucu / veritabanı | Node.js 22 (Fastify), Next.js arayüz / MySQL 8.4 |
-| Kurulum | Docker Compose, kurum sunucusunda; TURN ayrı compose |
-| Görüntü | WebRTC, eşler arası; H.264, en çok 1920×1080, hedef 30 fps |
+
+| Başlık                  | Değer                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| Çalışma şekli           | Web tabanlı teknisyen konsolu; müşteri için Windows programı veya tarayıcı                 |
+| Sunucu / veritabanı     | Node.js 22 (Fastify), Next.js arayüz / MySQL 8.4                                           |
+| Kurulum                 | Docker Compose, kurum sunucusunda; TURN ayrı compose                                       |
+| Görüntü                 | WebRTC, eşler arası; H.264, en çok 1920×1080, hedef 30 fps                                 |
 | Müşteri işletim sistemi | Windows 10 / 11 (64 bit); tarayıcı modu için ekran paylaşımı destekleyen masaüstü tarayıcı |
-| Teknisyen tarayıcısı | Chrome, Edge (güncel) |
-| Dil / tema | Türkçe / kullanıcı başına Açık, Koyu veya Sistem |
+| Teknisyen tarayıcısı    | Chrome, Edge (güncel)                                                                      |
+| Dil / tema              | Türkçe / kullanıcı başına Açık, Koyu veya Sistem                                           |
 
 ## Sistem gereksinimleri (öneri)
-| | Minimum | Önerilen |
-|---|---|---|
-| CPU / RAM | 2 çekirdek / 4 GB | 4 çekirdek / 8 GB |
-| Disk | 20 GB | 50 GB (kayıt saklama süresine ve 14 günlük yedeğe göre) |
-| Ağ | Tek HTTPS portu; TURN için 3478/5349 ve UDP röle aralığı | Genel IP, alan adı ve genel sertifika |
+
+|           | Minimum                                                  | Önerilen                                                |
+| --------- | -------------------------------------------------------- | ------------------------------------------------------- |
+| CPU / RAM | 2 çekirdek / 4 GB                                        | 4 çekirdek / 8 GB                                       |
+| Disk      | 20 GB                                                    | 50 GB (kayıt saklama süresine ve 14 günlük yedeğe göre) |
+| Ağ        | Tek HTTPS portu; TURN için 3478/5349 ve UDP röle aralığı | Genel IP, alan adı ve genel sertifika                   |
 
 **Müşteri ve teknisyen ağında izin verilmesi gereken çıkışlar** (hedef: destek sunucusu)
-| Port | Protokol | Amaç |
-|---|---|---|
-| 443 | TCP | Web konsolu, müşteri sayfası, müşteri programı (HTTPS) |
-| 3478 | UDP + TCP | Görüntü bağlantısı kurma (STUN/TURN) |
-| 5349 | TCP | Şifreli görüntü aktarımı (TURN-TLS), UDP kapalı ağlar için |
-| 49160–49479 | UDP | Görüntü aktarımı (TURN relay aralığı) |
+
+| Port        | Protokol  | Amaç                                                       |
+| ----------- | --------- | ---------------------------------------------------------- |
+| 443         | TCP       | Web konsolu, müşteri sayfası, müşteri programı (HTTPS)     |
+| 3478        | UDP + TCP | Görüntü bağlantısı kurma (STUN/TURN)                       |
+| 5349        | TCP       | Şifreli görüntü aktarımı (TURN-TLS), UDP kapalı ağlar için |
+| 49160–49479 | UDP       | Görüntü aktarımı (TURN relay aralığı)                      |
 
 Yalnız 443/TCP'nin açık olduğu ağlarda görüntü aktarımı desteklenmez.
 
 ## Destek ve iletişim
+
 Nokta Bilişim Danışmanlık ve Elektronik San. Tic. Ltd. Şti.

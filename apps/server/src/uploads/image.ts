@@ -36,14 +36,21 @@ export const IMAGE_BUSY_RETRY_SEC = 5;
 const GATE_KEY = "image";
 
 /** Süreç geneli tek kapı (tek instance, ADR-0005). Test erişimi için dışa açık. */
-export const imageGate = new ConcurrencyGate({ perKey: IMAGE_CONCURRENCY, global: IMAGE_CONCURRENCY, maxWaitingPerKey: IMAGE_MAX_WAITING, maxWaiting: IMAGE_MAX_WAITING, waitMs: IMAGE_WAIT_MS });
+export const imageGate = new ConcurrencyGate({
+  perKey: IMAGE_CONCURRENCY,
+  global: IMAGE_CONCURRENCY,
+  maxWaitingPerKey: IMAGE_MAX_WAITING,
+  maxWaiting: IMAGE_MAX_WAITING,
+  waitMs: IMAGE_WAIT_MS,
+});
 
 /** Kapı içinde çalıştırır; dolu/zaman aşımı → 429 `RATE_LIMITED`. */
 export async function withImageSlot<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await imageGate.run(GATE_KEY, fn);
   } catch (err) {
-    if (err instanceof GateBusyError) throw new AppError("RATE_LIMITED", { message: IMAGE_BUSY_MESSAGE, retryAfterSec: IMAGE_BUSY_RETRY_SEC });
+    if (err instanceof GateBusyError)
+      throw new AppError("RATE_LIMITED", { message: IMAGE_BUSY_MESSAGE, retryAfterSec: IMAGE_BUSY_RETRY_SEC });
     throw err;
   }
 }
@@ -83,8 +90,14 @@ export async function processImage(input: Buffer, kind: ImageKind): Promise<Proc
     const out = await withImageSlot(() => {
       const base = pipeline(input).rotate();
       return kind === "logo"
-        ? base.resize(LOGO_MAX_PX, LOGO_MAX_PX, { fit: "inside", withoutEnlargement: true }).png({ compressionLevel: 9 }).toBuffer({ resolveWithObject: true })
-        : base.resize(AVATAR_PX, AVATAR_PX, { fit: "cover", position: "centre" }).webp({ quality: 85 }).toBuffer({ resolveWithObject: true });
+        ? base
+            .resize(LOGO_MAX_PX, LOGO_MAX_PX, { fit: "inside", withoutEnlargement: true })
+            .png({ compressionLevel: 9 })
+            .toBuffer({ resolveWithObject: true })
+        : base
+            .resize(AVATAR_PX, AVATAR_PX, { fit: "cover", position: "centre" })
+            .webp({ quality: 85 })
+            .toBuffer({ resolveWithObject: true });
     });
     return { data: out.data, ext: kind === "logo" ? "png" : "webp", width: out.info.width, height: out.info.height };
   } catch (err) {

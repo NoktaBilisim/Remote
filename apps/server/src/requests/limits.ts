@@ -95,7 +95,8 @@ export function closeRequestLimits(l: RequestLimits): void {
   for (const v of Object.values(l)) if (v instanceof FixedWindowCounter) v.close();
 }
 
-export const rateLimited = (sec: number, message?: string): AppError => new AppError("RATE_LIMITED", { retryAfterSec: Math.max(1, Math.ceil(sec)), ...(message ? { message } : {}) });
+export const rateLimited = (sec: number, message?: string): AppError =>
+  new AppError("RATE_LIMITED", { retryAfterSec: Math.max(1, Math.ceil(sec)), ...(message ? { message } : {}) });
 
 /** Kilitliyse kalan saniye; değilse 0 (sayım yok). */
 export const blocked = (c: FixedWindowCounter, key: string): number => c.blockedFor(key);

@@ -1,8 +1,4 @@
-import {
-  loginInputSchema,
-  passwordChangeInputSchema,
-  PASSWORD_MIN,
-} from "@remote/contracts/api/auth";
+import { loginInputSchema, passwordChangeInputSchema, PASSWORD_MIN } from "@remote/contracts/api/auth";
 import type { z } from "zod";
 import { t } from "@/lib/i18n";
 

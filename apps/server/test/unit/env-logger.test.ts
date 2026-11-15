@@ -5,7 +5,11 @@ import { abuseEmail } from "../../src/public/consent.ts";
 import { FAKE_APP_ENCRYPTION_KEYS } from "../helpers/secrets.ts";
 
 const refKey = "k".repeat(32);
-const base = { PUBLIC_BASE_URL: "https://rs.test:4450", DATABASE_URL: "mysql://app:gizli@db/remote", APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS };
+const base = {
+  PUBLIC_BASE_URL: "https://rs.test:4450",
+  DATABASE_URL: "mysql://app:gizli@db/remote",
+  APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS,
+};
 
 describe("env", () => {
   it("AC-78: production'da APP_ENCRYPTION_KEYS zorunlu; hatalı biçim reddedilir, değer mesajda yok", () => {
@@ -34,7 +38,15 @@ describe("env", () => {
 
 describe("boş env değeri = tanımsız (compose `${X:-}`)", () => {
   it("B-P12b-3: WHATSAPP_SERVICE_URL panel kuralıyla (waServiceUrlSchema) doğrulanır; uymazsa açılış durur, değer mesajda yok", () => {
-    for (const v of ["http://kullanici:sifre@wa.test", "http://wa.test/?k=v", "http://wa.test#f", "ftp://wa.test", "http://wa\u200b.test", `https://${"a".repeat(193)}`, "wa.test:3000"]) {
+    for (const v of [
+      "http://kullanici:sifre@wa.test",
+      "http://wa.test/?k=v",
+      "http://wa.test#f",
+      "ftp://wa.test",
+      "http://wa\u200b.test",
+      `https://${"a".repeat(193)}`,
+      "wa.test:3000",
+    ]) {
       let msg = "";
       try {
         loadEnv({ ...base, WHATSAPP_SERVICE_URL: v });
@@ -70,9 +82,21 @@ describe("boş env değeri = tanımsız (compose `${X:-}`)", () => {
   });
 
   it("opsiyonel alanlar boş/boşluk dizeyle hata vermez ve varsayılana düşer", () => {
-    const env = loadEnv({ ...base, METRICS_TOKEN: "", ABUSE_EMAIL: "  ", TURN_URLS: "", TURN_SECRET: "", TURN_CRED_TTL_MIN: "", ALLOWED_ORIGINS: " ", TRUSTED_PROXY_CIDR: "", SESSION_REF_KEY: "", LOG_LEVEL: "" });
+    const env = loadEnv({
+      ...base,
+      METRICS_TOKEN: "",
+      ABUSE_EMAIL: "  ",
+      TURN_URLS: "",
+      TURN_SECRET: "",
+      TURN_CRED_TTL_MIN: "",
+      ALLOWED_ORIGINS: " ",
+      TRUSTED_PROXY_CIDR: "",
+      SESSION_REF_KEY: "",
+      LOG_LEVEL: "",
+    });
     expect(env).toMatchObject({ TURN_CRED_TTL_MIN: 20, LOG_LEVEL: "info", turnUrls: [], allowedOrigins: ["https://rs.test:4450"] });
-    for (const k of ["METRICS_TOKEN", "ABUSE_EMAIL", "TURN_SECRET", "SESSION_REF_KEY", "TRUSTED_PROXY_CIDR"] as const) expect(env[k]).toBeUndefined();
+    for (const k of ["METRICS_TOKEN", "ABUSE_EMAIL", "TURN_SECRET", "SESSION_REF_KEY", "TRUSTED_PROXY_CIDR"] as const)
+      expect(env[k]).toBeUndefined();
   });
 
   it("production'da zorunlu alanlar boşken yine hata; dolu ama geçersiz değer yine hata", () => {
@@ -87,7 +111,9 @@ describe("boş env değeri = tanımsız (compose `${X:-}`)", () => {
 describe("ABUSE_EMAIL (S-P4-1)", () => {
   const dbWith = (email: string | null) => {
     const calls: unknown[] = [];
-    const db = { user: { findFirst: async (q: unknown) => (calls.push(q), email ? { email } : null) } } as unknown as Parameters<typeof abuseEmail>[0];
+    const db = { user: { findFirst: async (q: unknown) => (calls.push(q), email ? { email } : null) } } as unknown as Parameters<
+      typeof abuseEmail
+    >[0];
     return { db, calls };
   };
 

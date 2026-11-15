@@ -91,7 +91,10 @@ export interface MeResponse {
 // ---------------------------------------------------------------------------------------------------------------
 
 export const RECOVERY_CODE_COUNT = 10;
-export const totpCodeSchema = z.string().trim().regex(/^\d{6}$/, "Kod 6 haneli olmalı");
+export const totpCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, "Kod 6 haneli olmalı");
 /**
  * Kurtarma kodu `xxxxx-xxxxx` (10 base32 karakter). Önce normalize (tüm boşluklar silinir, büyük harf; `ABCDE - 23456`
  * → `ABCDE-23456`), sonra biçim: 5+5 base32, ortada isteğe bağlı tek tire. Sunucu `normalizeRecoveryCode` tireyi de
@@ -103,7 +106,10 @@ export const recoveryCodeSchema = z
   .pipe(z.string().regex(/^[A-Z2-7]{5}-?[A-Z2-7]{5}$/, "Kurtarma kodu geçersiz"));
 
 /** POST /auth/mfa/verify — `code` veya `recoveryCode` (ikisi birden değil). 5 deneme / 5 dk / kullanıcı → 429. */
-export const mfaVerifyInputSchema = z.union([z.strictObject({ code: totpCodeSchema }), z.strictObject({ recoveryCode: recoveryCodeSchema })]);
+export const mfaVerifyInputSchema = z.union([
+  z.strictObject({ code: totpCodeSchema }),
+  z.strictObject({ recoveryCode: recoveryCodeSchema }),
+]);
 export type MfaVerifyInput = z.infer<typeof mfaVerifyInputSchema>;
 
 /** POST /auth/mfa/setup — gövde `{}` veya boş. 2FA etkinse 409. */

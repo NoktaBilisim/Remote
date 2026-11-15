@@ -19,13 +19,30 @@ export const GUEST_KINDS = ["BROWSER", "AGENT"] as const;
 export type GuestKind = (typeof GUEST_KINDS)[number];
 
 export const SESSION_ENDED_REASONS = [
-  "tech", "customer", "timeout", "max_duration", "cancelled", "tenant_passive",
-  "server", "admin", "auth_revoked", "rejected", "lobby_timeout",
+  "tech",
+  "customer",
+  "timeout",
+  "max_duration",
+  "cancelled",
+  "tenant_passive",
+  "server",
+  "admin",
+  "auth_revoked",
+  "rejected",
+  "lobby_timeout",
 ] as const;
 export type SessionEndedReason = (typeof SESSION_ENDED_REASONS)[number];
 
 /** P7: `INTERNAL` — sunucu kaydı yazamadı (ör. kontrol verme audit'i; fail-closed, G-15). Mesaj referans kimliği taşır. */
-export const WS_ERROR_CODES = ["ADMIT_CODE_INVALID", "CONFLICT", "FORBIDDEN", "RATE_LIMITED", "NOT_FOUND", "VALIDATION", "INTERNAL"] as const;
+export const WS_ERROR_CODES = [
+  "ADMIT_CODE_INVALID",
+  "CONFLICT",
+  "FORBIDDEN",
+  "RATE_LIMITED",
+  "NOT_FOUND",
+  "VALIDATION",
+  "INTERNAL",
+] as const;
 export type WsErrorCode = (typeof WS_ERROR_CODES)[number];
 
 export const CAPS = ["remote_control", "file_transfer"] as const;
@@ -55,7 +72,15 @@ export const shareStateSchema = z.strictObject({
   id,
   state: z.enum(["sharing", "stopped"]),
   monitors: z
-    .array(z.strictObject({ id: z.number().int().min(0).max(64), name: z.string().max(64), w: z.number().int().min(1).max(16384), h: z.number().int().min(1).max(16384), primary: z.boolean() }))
+    .array(
+      z.strictObject({
+        id: z.number().int().min(0).max(64),
+        name: z.string().max(64),
+        w: z.number().int().min(1).max(16384),
+        h: z.number().int().min(1).max(16384),
+        primary: z.boolean(),
+      }),
+    )
     .max(16)
     .optional(),
   activeMonitor: z.number().int().min(0).max(64).optional(),
@@ -85,7 +110,8 @@ export const fileMetaSchema = z.strictObject({
 });
 export type FileMeta = z.infer<typeof fileMetaSchema>;
 
-const stat = (max: number) => z.strictObject({ avg: z.number().min(0).max(max), min: z.number().min(0).max(max), max: z.number().min(0).max(max) });
+const stat = (max: number) =>
+  z.strictObject({ avg: z.number().min(0).max(max), min: z.number().min(0).max(max), max: z.number().min(0).max(max) });
 /** AC-46: oturum kalite özeti; teknisyen 60 sn'de bir ve oturum sonunda gönderir, sunucu üzerine yazar. */
 export const qualitySummarySchema = z.strictObject({
   t: z.literal("quality.summary"),
@@ -141,10 +167,29 @@ export const controlStateSchema = z
 export const monitorDeniedSchema = z.strictObject({ t: z.literal("monitor.denied"), id, monitorId });
 /** guest(AGENT) → S → tech (AC-105). */
 /** AC-105; `selfElevated` zorunlu (§3.3 K8, S7-9): istemci süreci yönetici belirteciyle mi çalışıyor. */
-export const envStateSchema = z.strictObject({ t: z.literal("env.state"), id, elevatedForeground: z.boolean(), secureDesktop: z.boolean(), selfElevated: z.boolean() });
+export const envStateSchema = z.strictObject({
+  t: z.literal("env.state"),
+  id,
+  elevatedForeground: z.boolean(),
+  secureDesktop: z.boolean(),
+  selfElevated: z.boolean(),
+});
 
 /** Teknisyenden kabul edilen mesajlar. */
-export const techInboundSchema = z.discriminatedUnion("t", [guestAdmitSchema, guestRejectSchema, sdpOfferSchema, iceSchema, iceRestartSchema, sessionEndSchema, fileMetaSchema, qualitySummarySchema, controlRequestSchema, monitorRequestSchema, controlReleaseSchema, controlCancelSchema]);
+export const techInboundSchema = z.discriminatedUnion("t", [
+  guestAdmitSchema,
+  guestRejectSchema,
+  sdpOfferSchema,
+  iceSchema,
+  iceRestartSchema,
+  sessionEndSchema,
+  fileMetaSchema,
+  qualitySummarySchema,
+  controlRequestSchema,
+  monitorRequestSchema,
+  controlReleaseSchema,
+  controlCancelSchema,
+]);
 export type TechInbound = z.infer<typeof techInboundSchema>;
 
 // --- P8c: bilgisayar kaydı (mimari-protokol §6, ADR-0017) ---
@@ -157,7 +202,17 @@ const bindingKey = z.string().regex(/^rsb_[A-Za-z0-9_-]{43}$/);
 export const bindingRequestSchema = z.strictObject({ t: z.literal("binding.request"), id, previousKey: bindingKey.optional() });
 
 /** Misafirden kabul edilen mesajlar (lobideyken yalnız `session.end`, mimari-protokol §3.1). */
-export const guestInboundSchema = z.discriminatedUnion("t", [sdpAnswerSchema, iceSchema, shareStateSchema, sessionEndSchema, fileMetaSchema, controlStateSchema, envStateSchema, monitorDeniedSchema, bindingRequestSchema]);
+export const guestInboundSchema = z.discriminatedUnion("t", [
+  sdpAnswerSchema,
+  iceSchema,
+  shareStateSchema,
+  sessionEndSchema,
+  fileMetaSchema,
+  controlStateSchema,
+  envStateSchema,
+  monitorDeniedSchema,
+  bindingRequestSchema,
+]);
 export type GuestInbound = z.infer<typeof guestInboundSchema>;
 
 // --- Sunucu → istemci ---
@@ -181,7 +236,10 @@ export const serverOutboundSchema = z.discriminatedUnion("t", [
     caps: z.array(z.enum(CAPS)).optional(),
     /** P5: tenant dosya üst sınırı (MB, AC-53); ACTIVE oturumda iki tarafa (teknisyene ayrıca peer.joined'da). */
     maxFileMb: z.number().int().min(1).max(2048).optional(),
-    reconnectToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional(),
+    reconnectToken: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{43}$/)
+      .optional(),
     /** Yalnız role=tech hello'sunda, ACTIVE oturumda kabul edilmiş misafirin adı (QA-P4-12, yeniden bağlanma). */
     guestName: z.string().max(100).optional(),
     /** Yalnız role=tech hello'sunda: misafirden gelen son paylaşım durumu (misafir ayrıldıysa "stopped"). */

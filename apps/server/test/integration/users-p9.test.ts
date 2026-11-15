@@ -5,7 +5,18 @@ import { PERMISSION_KEYS } from "@remote/contracts/permissions";
 import type { CreateUserResponse, UserDetail, UserListResponse } from "@remote/contracts/api/users";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { createSupportSessionRow, createTenant, createUser, loginAs, loginRequest, makeApp, ORIGIN, testDb, type Session, type TestUser } from "../helpers/app.ts";
+import {
+  createSupportSessionRow,
+  createTenant,
+  createUser,
+  loginAs,
+  loginRequest,
+  makeApp,
+  ORIGIN,
+  testDb,
+  type Session,
+  type TestUser,
+} from "../helpers/app.ts";
 import { admitted, startLive, techSession, type Live } from "../helpers/signal-flow.ts";
 
 let app: FastifyInstance;
@@ -20,7 +31,9 @@ const db = () => testDb();
 let ipSeq = 0;
 /** Her giriş ayrı test IP'sinden (IP başına 20/dk giriş sınırı bu dosyanın toplam girişine takılmasın). */
 async function signIn(user: TestUser): Promise<Session> {
-  const res = await app.inject(loginRequest(user.email, user.password, { remoteAddress: `10.9.${Math.floor(++ipSeq / 250)}.${(ipSeq % 250) + 1}` }));
+  const res = await app.inject(
+    loginRequest(user.email, user.password, { remoteAddress: `10.9.${Math.floor(++ipSeq / 250)}.${(ipSeq % 250) + 1}` }),
+  );
   if (res.statusCode !== 200) throw new Error(`login ${res.statusCode}`);
   const jar = Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
   const token = jar[SESSION_COOKIE] ?? "";
@@ -50,7 +63,8 @@ describe("P9 kullanıcı oluşturma", () => {
     const u = (await create(s, { role: "USER" })).json<CreateUserResponse>();
     expect(Object.keys(u.user.permissions).sort()).toEqual([...PERMISSION_KEYS].sort());
     expect(Object.values(u.user.permissions).every((v) => v === false)).toBe(true);
-    for (const k of ["sessions.terminate", "support_requests.view", "support_requests.accept", "customers.view", "customers.delete"]) expect(u.user.permissions).toHaveProperty(k, false);
+    for (const k of ["sessions.terminate", "support_requests.view", "support_requests.accept", "customers.view", "customers.delete"])
+      expect(u.user.permissions).toHaveProperty(k, false);
     const a = (await create(s, { role: "ADMIN" })).json<CreateUserResponse>();
     expect(Object.values(a.user.permissions).every((v) => v === true)).toBe(true);
     // normalize: varsayılana eşit satır saklanmaz
@@ -104,7 +118,11 @@ describe("P9 kullanıcı oluşturma", () => {
     const ok = await create(s, { role: "ADMIN", permissions: { "audit.export": false } });
     expect(ok.statusCode).toBe(201);
     expect(ok.json<CreateUserResponse>().user.permissions["audit.export"]).toBe(false);
-    expect(await db().user.count({ where: { email: { contains: "p9-" }, role: "ADMIN", permissions: { some: { permKey: "audit.export", granted: true } } } })).toBe(0);
+    expect(
+      await db().user.count({
+        where: { email: { contains: "p9-" }, role: "ADMIN", permissions: { some: { permKey: "audit.export", granted: true } } },
+      }),
+    ).toBe(0);
   });
 
   it("users.create yetkisi yoksa 403; Super Admin firma seçmeden 403", async () => {
@@ -158,16 +176,38 @@ describe("P9 kullanıcı düzenleme ve yetki audit'i", () => {
   it("AC-74: her yetki değişikliği ayrı audit satırı — kim (user_id), kime (entity_id), permKey, eski → yeni; değişmeyen anahtar yazılmaz", async () => {
     const { s, admin, tenantId } = await tenantWithAdmin();
     const u = (await create(s, { permissions: { "sessions.view": true } })).json<CreateUserResponse>().user;
-    const res = await req(s, "PATCH", `/users/${u.id}`, { permissions: { ...u.permissions, "sessions.view": false, "remote_control.use": true, "audit.view": true } });
+    const res = await req(s, "PATCH", `/users/${u.id}`, {
+      permissions: { ...u.permissions, "sessions.view": false, "remote_control.use": true, "audit.view": true },
+    });
     expect(res.statusCode).toBe(200);
     const d = res.json<UserDetail>();
     expect(d.permissions).toMatchObject({ "sessions.view": false, "remote_control.use": true, "audit.view": true });
     const rows = await db().auditLog.findMany({ where: { entityId: u.id, action: "user.permission_changed" }, orderBy: { id: "asc" } });
-    const changes = rows.slice(1).map((r) => ({ old: r.oldValue, next: r.newValue, userId: r.userId, tenantId: r.tenantId, entity: r.entity }));
+    const changes = rows
+      .slice(1)
+      .map((r) => ({ old: r.oldValue, next: r.newValue, userId: r.userId, tenantId: r.tenantId, entity: r.entity }));
     expect(changes).toEqual([
-      { old: { permKey: "sessions.view", granted: true }, next: { permKey: "sessions.view", granted: false }, userId: admin.id, tenantId, entity: "users" },
-      { old: { permKey: "remote_control.use", granted: false }, next: { permKey: "remote_control.use", granted: true }, userId: admin.id, tenantId, entity: "users" },
-      { old: { permKey: "audit.view", granted: false }, next: { permKey: "audit.view", granted: true }, userId: admin.id, tenantId, entity: "users" },
+      {
+        old: { permKey: "sessions.view", granted: true },
+        next: { permKey: "sessions.view", granted: false },
+        userId: admin.id,
+        tenantId,
+        entity: "users",
+      },
+      {
+        old: { permKey: "remote_control.use", granted: false },
+        next: { permKey: "remote_control.use", granted: true },
+        userId: admin.id,
+        tenantId,
+        entity: "users",
+      },
+      {
+        old: { permKey: "audit.view", granted: false },
+        next: { permKey: "audit.view", granted: true },
+        userId: admin.id,
+        tenantId,
+        entity: "users",
+      },
     ]);
     // aynı harita tekrar → değişiklik yok, yeni satır yok
     await req(s, "PATCH", `/users/${u.id}`, { permissions: d.permissions });
@@ -232,7 +272,12 @@ describe("P9 pasife alma / yeniden etkinleştirme", () => {
     expect(res.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: us.headers })).statusCode).toBe(401);
     expect((await fresh.inject(loginRequest(u.email, u.password))).statusCode).toBe(401);
-    expect(await db().supportSession.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "CANCELLED", endedBy: "SYSTEM", endReason: "auth_revoked", activeCode: null });
+    expect(await db().supportSession.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({
+      status: "CANCELLED",
+      endedBy: "SYSTEM",
+      endReason: "auth_revoked",
+      activeCode: null,
+    });
     const audit = await db().auditLog.findFirstOrThrow({ where: { entityId: u.id, action: "user.deactivated" } });
     expect(audit.newValue).toMatchObject({ status: "PASSIVE", revokedSessions: 1, cancelledSessions: 1 });
     expect((await req(s, "POST", `/users/${u.id}/deactivate`, {})).statusCode).toBe(409);
@@ -254,7 +299,8 @@ describe("P9 canlı yansıma (AC-115, G-04)", () => {
     const admin = await createUser({ tenantId, role: "ADMIN" });
     return { admin, s: await loginAs(l.app, admin) };
   }
-  const call = (l: Live, s: Session, method: "POST" | "PATCH", url: string, payload: object) => l.app.inject({ method, url: `/api/v1${url}`, headers: s.headers, payload });
+  const call = (l: Live, s: Session, method: "POST" | "PATCH", url: string, payload: object) =>
+    l.app.inject({ method, url: `/api/v1${url}`, headers: s.headers, payload });
 
   it("AC-115: teknisyen pasife alınınca etkin oturum 5 sn içinde biter — iki tarafa session.ended{auth_revoked}, teknisyen 4401, DB ENDED", async () => {
     live = await startLive();
@@ -265,7 +311,10 @@ describe("P9 canlı yansıma (AC-115, G-04)", () => {
     expect((await g.guest.waitFor("session.ended", 5000)).reason).toBe("auth_revoked");
     expect((await t.ws.waitFor("session.ended", 5000)).reason).toBe("auth_revoked");
     expect((await t.ws.closed).code).toBe(4401);
-    expect(await db().supportSession.findUniqueOrThrow({ where: { id: t.sessionId } })).toMatchObject({ status: "ENDED", endReason: "auth_revoked" });
+    expect(await db().supportSession.findUniqueOrThrow({ where: { id: t.sessionId } })).toMatchObject({
+      status: "ENDED",
+      endReason: "auth_revoked",
+    });
   });
 
   it("AC-115: file_transfer.use kaldırılınca caps.update; remote_control.use kaldırılınca caps daralır; oturum sürer", async () => {

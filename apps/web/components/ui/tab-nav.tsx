@@ -11,7 +11,15 @@ const COLS: Record<number, string> = { 2: "grid-cols-2", 3: "grid-cols-3", 4: "g
  * `aria-current`, anında geçiş (animasyonsuz). Dar ekranda (< sm) eşit sütunlar, ikon üstte + etiket alt alta sarar →
  * kaydırma/kırpma yok, tüm sekmeler her genişlikte görünür. sm+ yatay tek satır. En çok 5 sekme (P12).
  */
-export function TabNav({ tabs, label, testId }: { tabs: readonly { href: string; label: string; Icon: LucideIcon }[]; label: string; testId?: string }) {
+export function TabNav({
+  tabs,
+  label,
+  testId,
+}: {
+  tabs: readonly { href: string; label: string; Icon: LucideIcon }[];
+  label: string;
+  testId?: string;
+}) {
   const pathname = usePathname();
   return (
     <nav aria-label={label} className="mb-6 border-b border-border" data-testid={testId}>

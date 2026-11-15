@@ -6,10 +6,11 @@ const json = (status: number, code: string, headers: Record<string, string> = {}
     status,
     headers: { "Content-Type": "application/json", ...headers },
   });
-const fake = (r: Response | Error) => (async () => {
-  if (r instanceof Error) throw r;
-  return r;
-}) as unknown as typeof fetch;
+const fake = (r: Response | Error) =>
+  (async () => {
+    if (r instanceof Error) throw r;
+    return r;
+  }) as unknown as typeof fetch;
 
 describe("probeAgentDownload (AC-27)", () => {
   it("adres opak ref'i kodlar, aynı origin /api/v1", () =>
@@ -26,7 +27,9 @@ describe("probeAgentDownload (AC-27)", () => {
   });
 
   it("302 (Node fetch) → ok", async () =>
-    expect(await probeAgentDownload("ref", fake(new Response(null, { status: 302, headers: { Location: "/downloads/Destek-12345678.exe" } })))).toEqual({ kind: "ok" }));
+    expect(
+      await probeAgentDownload("ref", fake(new Response(null, { status: 302, headers: { Location: "/downloads/Destek-12345678.exe" } }))),
+    ).toEqual({ kind: "ok" }));
 
   it("503 NOT_READY → notReady (tarayıcı moduna öner)", async () =>
     expect(await probeAgentDownload("ref", fake(json(503, "NOT_READY")))).toEqual({ kind: "notReady" }));
@@ -36,13 +39,17 @@ describe("probeAgentDownload (AC-27)", () => {
     ["SESSION_CANCELLED", "cancelled"],
     ["SESSION_CONSUMED", "consumed"],
   ] as const)("410 %s → %s", async (code, end) =>
-    expect(await probeAgentDownload("ref", fake(json(410, code)))).toEqual({ kind: "end", end }));
+    expect(await probeAgentDownload("ref", fake(json(410, code)))).toEqual({ kind: "end", end }),
+  );
 
   it("404 → notFound", async () =>
     expect(await probeAgentDownload("ref", fake(json(404, "NOT_FOUND")))).toEqual({ kind: "end", end: "notFound" }));
 
   it("429 → rate + Retry-After", async () =>
-    expect(await probeAgentDownload("ref", fake(json(429, "RATE_LIMITED", { "Retry-After": "900" })))).toEqual({ kind: "rate", retryAfter: 900 }));
+    expect(await probeAgentDownload("ref", fake(json(429, "RATE_LIMITED", { "Retry-After": "900" })))).toEqual({
+      kind: "rate",
+      retryAfter: 900,
+    }));
 
   it("500 → error + requestId; ağ hatası → error", async () => {
     expect(await probeAgentDownload("ref", fake(json(500, "INTERNAL")))).toEqual({ kind: "error", requestId: "01JREQ" });

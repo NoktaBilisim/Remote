@@ -57,10 +57,22 @@ export function parseAuditParams(sp: SP, opts: { allowTenant: boolean; today: st
   };
   take("from", isCalendarDay, (v) => (f.from = v));
   take("to", isCalendarDay, (v) => (f.to = v));
-  take("tenantId", (v) => opts.allowTenant && ULID.test(v), (v) => (f.tenantId = v));
-  take("userId", (v) => ULID.test(v), (v) => (f.userId = v));
+  take(
+    "tenantId",
+    (v) => opts.allowTenant && ULID.test(v),
+    (v) => (f.tenantId = v),
+  );
+  take(
+    "userId",
+    (v) => ULID.test(v),
+    (v) => (f.userId = v),
+  );
   take("action", isAuditAction, (v) => (f.action = v));
-  take("result", (v) => (AUDIT_RESULTS as readonly string[]).includes(v), (v) => (f.result = v as AuditResult));
+  take(
+    "result",
+    (v) => (AUDIT_RESULTS as readonly string[]).includes(v),
+    (v) => (f.result = v as AuditResult),
+  );
   const err = rangeError(f.from, f.to, opts.today);
   if (err === "order") {
     delete f.to;

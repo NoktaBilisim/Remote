@@ -22,13 +22,18 @@ export const sessionCodeSchema = z.string().regex(/^\d{8}$/, "Kod 8 haneli olmal
 
 /** P8c (AC-180): `customerId` verilirse `customers.view` + aynı tenant'ın AKTİF müşterisi olmalı (yoksa 404). */
 export const createSessionInputSchema = z.strictObject({
-  customerId: z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Geçersiz müşteri").optional(),
+  customerId: z
+    .string()
+    .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Geçersiz müşteri")
+    .optional(),
 });
 export type CreateSessionInput = z.infer<typeof createSessionInputSchema>;
 
-
 /** P8b r2 (§13.4, G-E9-4): AGENT istemci sürümü; yoksa sunucu `0.0.0` sayar (MIN_AGENT_VERSION doluysa 426). */
-const resolveClientVersion = z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/, "Geçersiz istemci sürümü").optional();
+const resolveClientVersion = z
+  .string()
+  .regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/, "Geçersiz istemci sürümü")
+  .optional();
 export const resolveSessionInputSchema = z.union([
   z.object({ token: sessionTokenSchema, clientKind: z.enum(["BROWSER", "AGENT"]), clientVersion: resolveClientVersion }),
   z.object({ code: sessionCodeSchema, clientKind: z.enum(["BROWSER", "AGENT"]), clientVersion: resolveClientVersion }),

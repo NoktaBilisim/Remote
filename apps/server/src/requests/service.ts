@@ -20,7 +20,15 @@ import { outdated } from "../sessions/public.ts";
 import type { Rooms } from "../signaling/rooms.ts";
 import type { Clock, Timing } from "../signaling/types.ts";
 import type { RequestHub, RequestStatePayload } from "./hub.ts";
-import { blocked, hitBlocked, rateLimited, RATE_BLOCK_SEC, TENANT_KNOWN_PER_HOUR, TENANT_UNKNOWN_PER_HOUR, type RequestLimits } from "./limits.ts";
+import {
+  blocked,
+  hitBlocked,
+  rateLimited,
+  RATE_BLOCK_SEC,
+  TENANT_KNOWN_PER_HOUR,
+  TENANT_UNKNOWN_PER_HOUR,
+  type RequestLimits,
+} from "./limits.ts";
 import { bindingInvalid, issueBinding, resolveUsable } from "../bindings/service.ts";
 import * as brepo from "../bindings/repo.ts";
 import * as crepo from "../customers/repo.ts";
@@ -93,11 +101,16 @@ export class RequestService {
     this.gate = new ConcurrencyGate(d.gate ?? REQUEST_GATE);
     d.rooms.requestHooks = {
       admitted: (requestId) => this.clearConnectTimer(requestId),
-      failed: (requestId) => void this.connectTimeout(requestId, "auth_revoked").catch((err: unknown) => this.logErr(err, "request_auth_revoked")),
+      failed: (requestId) =>
+        void this.connectTimeout(requestId, "auth_revoked").catch((err: unknown) => this.logErr(err, "request_auth_revoked")),
     };
     // P8c (ADR-0017): admit edilmiş AGENT misafirin `binding.request`'i → verme TX'i (müşteri istemciden değil oturumdan).
     d.rooms.bindingIssuer = (room, guest, previousKey) =>
-      issueBinding(this, guest.ctx ?? { ...SYSTEM_CTX, userAgent: "signaling" }, { sessionId: room.sessionId, clientVersion: guest.clientVersion ?? "0.0.0", previousKey });
+      issueBinding(this, guest.ctx ?? { ...SYSTEM_CTX, userAgent: "signaling" }, {
+        sessionId: room.sessionId,
+        clientVersion: guest.clientVersion ?? "0.0.0",
+        previousKey,
+      });
   }
 
   /** P8c `rs_customers_active` (gauge, açılış + günlük iş + durum değişimi). */
@@ -155,7 +168,9 @@ export class RequestService {
    * Ref → aktif tenant'ın ayarı + (müşteri ref'iyse) aktif müşteri; değilse null (AC-131, 168, 191). Genel ve müşteri
    * sorguları PARALEL (mimari-e10 §5.2): biri boş döner, süre farkı yok. Yanıt şekli iki türde aynıdır.
    */
-  async resolveRef(ref: unknown): Promise<{ s: repo.SettingsRow; customer: { id: string; name: string; fileLabel: string } | null } | null> {
+  async resolveRef(
+    ref: unknown,
+  ): Promise<{ s: repo.SettingsRow; customer: { id: string; name: string; fileLabel: string } | null } | null> {
     if (typeof ref !== "string" || !/^[a-z2-7]{16}$/.test(ref)) return null;
     const [general, c] = await Promise.all([repo.settingsByRef(this.d.db, ref), repo.customerByRef(this.d.db, ref)]);
     if (general) return tenantActive(general.tenant) ? { s: general, customer: null } : null;
@@ -171,7 +186,13 @@ export class RequestService {
       abuseEmail(this.d.db, { fromEnv: this.d.env.ABUSE_EMAIL, superAdminFallback: this.d.env.NODE_ENV !== "production" }),
       effectiveLogoUrl(this.d.db, tenant.logoPath), // P12 (AC-81)
     ]);
-    return { tenant: { name: tenant.name, logoUrl }, consentText, waitMinutes, abuseEmail: abuse, minAgentVersion: this.d.env.MIN_AGENT_VERSION ?? null };
+    return {
+      tenant: { name: tenant.name, logoUrl },
+      consentText,
+      waitMinutes,
+      abuseEmail: abuse,
+      minAgentVersion: this.d.env.MIN_AGENT_VERSION ?? null,
+    };
   }
 
   /** Aşım audit'i `request.rate_limited{bucket, keyType}` kaynak başına dakikada en çok 1 (AC-144) + metrik. */
@@ -179,10 +200,24 @@ export class RequestService {
     this.d.metrics.inc("rs_request_rate_limited_total", { bucket });
     const k = `${bucket}|${key}`;
     if (this.d.limits.rateAudit.blockedFor(k) > 0 || this.d.limits.rateAudit.hit(k)) return;
-    await writeAudit(this.d.db, ctx, { tenantId, ...CUSTOMER, action: "request.rate_limited", entity: "support_requests", result: "fail", newValue: { bucket, keyType } });
+    await writeAudit(this.d.db, ctx, {
+      tenantId,
+      ...CUSTOMER,
+      action: "request.rate_limited",
+      entity: "support_requests",
+      result: "fail",
+      newValue: { bucket, keyType },
+    });
   }
 
-  async limit(ctx: AuditContext, tenantId: string | null, counter: CounterKey, bucket: string, keyType: string, key: string): Promise<void> {
+  async limit(
+    ctx: AuditContext,
+    tenantId: string | null,
+    counter: CounterKey,
+    bucket: string,
+    keyType: string,
+    key: string,
+  ): Promise<void> {
     const wait = hitBlocked(this.d.limits[counter], key);
     if (wait === 0) return;
     await this.rateAudit(ctx, tenantId, bucket, keyType, key);
@@ -194,7 +229,12 @@ export class RequestService {
   }
 
   /** Kapanış sonrası ortak bellek adımları (commit sonrası). P8c tek kayıt iptali de kullanır. */
-  async closedAfterCommit(tenantId: string, requestId: string, status: "CANCELLED" | "EXPIRED" | "REJECTED", extra: { reason?: CancelReason; message?: string } = {}): Promise<void> {
+  async closedAfterCommit(
+    tenantId: string,
+    requestId: string,
+    status: "CANCELLED" | "EXPIRED" | "REJECTED",
+    extra: { reason?: CancelReason; message?: string } = {},
+  ): Promise<void> {
     this.d.hub.closeRequest(requestId, { t: "request.closed", status, ...extra });
     this.d.hub.publish(tenantId, { t: "request.removed", id: requestId, status });
     this.d.hub.queueChanged(tenantId);
@@ -205,7 +245,16 @@ export class RequestService {
   async statesOf(tenantId: string): Promise<Map<string, RequestStatePayload>> {
     const q = await repo.pendingQueue(this.d.db, tenantId);
     return new Map(
-      q.map((r, i) => [r.id, { status: "PENDING" as const, requestCode: r.requestCode, position: i + 1, createdAt: r.createdAt.toISOString(), expiresAt: r.expiresAt.toISOString() }]),
+      q.map((r, i) => [
+        r.id,
+        {
+          status: "PENDING" as const,
+          requestCode: r.requestCode,
+          position: i + 1,
+          createdAt: r.createdAt.toISOString(),
+          expiresAt: r.expiresAt.toISOString(),
+        },
+      ]),
     );
   }
 
@@ -265,9 +314,15 @@ export class RequestService {
     const tenantId = s.tenantId;
     const via = binding ? "binding" : "ref";
 
-    const consent = await this.d.db.consentText.findFirst({ where: { id: input.consentTextId, tenantId, isCurrent: true }, select: { id: true, sha256: true } });
+    const consent = await this.d.db.consentText.findFirst({
+      where: { id: input.consentTextId, tenantId, isCurrent: true },
+      select: { id: true, sha256: true },
+    });
     if (!consent) {
-      throw new AppError("VALIDATION", { message: "Aydınlatma metni güncel değil.", fields: { consentTextId: "Aydınlatma metni güncellendi; pencereyi yeniden açıp tekrar onaylayın." } });
+      throw new AppError("VALIDATION", {
+        message: "Aydınlatma metni güncel değil.",
+        fields: { consentTextId: "Aydınlatma metni güncellendi; pencereyi yeniden açıp tekrar onaylayın." },
+      });
     }
 
     const now = new Date(this.d.clock.now());
@@ -286,7 +341,10 @@ export class RequestService {
     const created = await this.gated(tenantId, async () => {
       // Tenant kovası (§13.6): kilitlenmez; 60/sa sonrası yalnız bilinmeyen kaynak reddi, bilinen tavanı 120/sa.
       const { tenantAll, tenantKnown } = this.d.limits;
-      if ((!privileged && tenantAll.count(tenantId) >= TENANT_UNKNOWN_PER_HOUR) || (privileged && tenantKnown.count(tenantId) >= TENANT_KNOWN_PER_HOUR)) {
+      if (
+        (!privileged && tenantAll.count(tenantId) >= TENANT_UNKNOWN_PER_HOUR) ||
+        (privileged && tenantKnown.count(tenantId) >= TENANT_KNOWN_PER_HOUR)
+      ) {
         const until = tenantAll.windowEnds(tenantId);
         if (this.alerted.get(tenantId) !== until) {
           this.alerted.set(tenantId, until);
@@ -308,7 +366,8 @@ export class RequestService {
             await repo.lockSettings(tx, tenantId); // ilk ifade (G-E9-10)
             // B-P8c-1: müşteri TX içinde FOR SHARE ile yeniden doğrulanır; peek ile INSERT arasında pasife alma commit
             // olduysa talep yazılmaz (tek 404). Pasife alma bu TX'i beklerse bekleyeni kendi TX'inde iptal eder.
-            if (customerId && (await crepo.shareStatus(tx, tenantId, customerId)) !== "ACTIVE") throw binding ? bindingInvalid(this, ip) : this.refInvalid(ip);
+            if (customerId && (await crepo.shareStatus(tx, tenantId, customerId)) !== "ACTIVE")
+              throw binding ? bindingInvalid(this, ip) : this.refInvalid(ip);
             if (binding) {
               // §3.4 Kullanım: koşullu UPDATE (count 0 → BINDING_INVALID, ROLLBACK); kayıt başına 1 bekleyen.
               if ((await brepo.touchForRequest(tx, binding.id, binding.keyHash, now)) === 0) throw new AppError("BINDING_INVALID");
@@ -358,12 +417,21 @@ export class RequestService {
               bindingId: binding?.id ?? null,
             });
             // S8b-3: IP yalnız audit `ip_address` sütununda. P8c §5.7: via + customerId (ref/anahtar değeri asla).
-            await writeAudit(tx, ctx, { tenantId, ...CUSTOMER, action: "request.created", entity: "support_requests", entityId: id, result: "success", newValue: { clientVersion: input.clientVersion, via, customerId } });
+            await writeAudit(tx, ctx, {
+              tenantId,
+              ...CUSTOMER,
+              action: "request.created",
+              entity: "support_requests",
+              entityId: id,
+              result: "success",
+              newValue: { clientVersion: input.clientVersion, via, customerId },
+            });
             return { code, position: c.tenant + 1 };
           }, REQUEST_TX_OPTIONS);
         } catch (err) {
           if (attempt < CODE_ATTEMPTS && isUniqueConflict(err, PENDING_CODE_INDEX)) continue;
-          if (err instanceof AppError && pendingHit) await this.rateAudit(ctx, tenantId, pendingHit.bucket, pendingHit.keyType, pendingHit.key);
+          if (err instanceof AppError && pendingHit)
+            await this.rateAudit(ctx, tenantId, pendingHit.bucket, pendingHit.keyType, pendingHit.key);
           throw err;
         }
       }
@@ -390,10 +458,20 @@ export class RequestService {
     this.d.hub.queueChanged(tenantId);
     await this.publishCount(tenantId);
     // İstemci /ws/request'e hiç bağlanmazsa 120 sn sonra DISCONNECTED (AC-141); bağlanınca iptal edilir.
-    this.d.hub.setDisconnect(id, () => void this.cancelSystem(id, "DISCONNECTED").catch((e: unknown) => this.logErr(e, "request_disconnect")), this.d.timing.requestDisconnectMs);
+    this.d.hub.setDisconnect(
+      id,
+      () => void this.cancelSystem(id, "DISCONNECTED").catch((e: unknown) => this.logErr(e, "request_disconnect")),
+      this.d.timing.requestDisconnectMs,
+    );
     if (s.waEnabled) this.d.notifier.notifyNewRequest(tenantId, s.tenant.name, repo.jsonStrings(s.waRecipients), created.code);
     if (s.emailEnabled) this.notifyEmail(tenantId, s.tenant.name, repo.jsonStrings(s.emailRecipients), created.code);
-    return { requestId: id, requestSecret: secret, requestCode: created.code, expiresAt: expiresAt.toISOString(), position: created.position };
+    return {
+      requestId: id,
+      requestSecret: secret,
+      requestCode: created.code,
+      expiresAt: expiresAt.toISOString(),
+      position: created.position,
+    };
   }
 
   /**
@@ -412,9 +490,22 @@ export class RequestService {
           this.d.metrics.inc("rs_request_notify_total", { channel: "email", result: "suppressed" });
           continue;
         }
-        const out = await this.d.mail.sendForTenant(ctx, { tenantId, kind: "request_notify", entity: "support_requests" }, to, content, cfg);
+        const out = await this.d.mail.sendForTenant(
+          ctx,
+          { tenantId, kind: "request_notify", entity: "support_requests" },
+          to,
+          content,
+          cfg,
+        );
         this.d.metrics.inc("rs_request_notify_total", { channel: "email", result: out.ok ? "ok" : "failed" });
-        await writeAudit(this.d.db, ctx, { tenantId, username: "system", action: "request.notify", entity: "support_requests", result: out.ok ? "success" : "fail", newValue: { channel: "email", recipient: maskEmail(to), result: out.ok ? "success" : "fail", attempts: 1 } });
+        await writeAudit(this.d.db, ctx, {
+          tenantId,
+          username: "system",
+          action: "request.notify",
+          entity: "support_requests",
+          result: out.ok ? "success" : "fail",
+          newValue: { channel: "email", recipient: maskEmail(to), result: out.ok ? "success" : "fail", attempts: 1 },
+        });
       }
     })().catch((e: unknown) => this.logErr(e, "request_notify_email"));
   }
@@ -436,7 +527,16 @@ export class RequestService {
     if (row.status === "PENDING") {
       const ok = await this.d.db.$transaction(async (tx) => {
         if ((await repo.cancelPending(tx, row.id, "CUSTOMER", now)) === 0) return false;
-        await writeAudit(tx, ctx, { tenantId: row.tenantId, ...CUSTOMER, action: "request.cancelled", entity: "support_requests", entityId: row.id, result: "success", oldValue: { status: "PENDING" }, newValue: { status: "CANCELLED", reason: "CUSTOMER" } });
+        await writeAudit(tx, ctx, {
+          tenantId: row.tenantId,
+          ...CUSTOMER,
+          action: "request.cancelled",
+          entity: "support_requests",
+          entityId: row.id,
+          result: "success",
+          oldValue: { status: "PENDING" },
+          newValue: { status: "CANCELLED", reason: "CUSTOMER" },
+        });
         return true;
       });
       if (ok) await this.closedAfterCommit(row.tenantId, row.id, "CANCELLED", { reason: "CUSTOMER" });
@@ -448,7 +548,16 @@ export class RequestService {
     const ok = await this.d.db.$transaction(async (tx) => {
       if ((await repo.cancelRequestSession(tx, row.id, now, "CUSTOMER", "customer_declined")) === 0) return false;
       if ((await repo.cancelAccepted(tx, row.id)) === 0) throw new Error("request_decline_state");
-      await writeAudit(tx, ctx, { tenantId: row.tenantId, ...CUSTOMER, action: "request.cancelled", entity: "support_requests", entityId: row.id, result: "success", oldValue: { status: "ACCEPTED" }, newValue: { status: "CANCELLED", reason: "CUSTOMER", phase: "accepted", sessionId } });
+      await writeAudit(tx, ctx, {
+        tenantId: row.tenantId,
+        ...CUSTOMER,
+        action: "request.cancelled",
+        entity: "support_requests",
+        entityId: row.id,
+        result: "success",
+        oldValue: { status: "ACCEPTED" },
+        newValue: { status: "CANCELLED", reason: "CUSTOMER", phase: "accepted", sessionId },
+      });
       return true;
     });
     if (!ok) return;
@@ -461,7 +570,8 @@ export class RequestService {
   /** Yarışta kaybeden müşteri isteği: güncel son durumu bildir (ör. süre doldu). */
   private async resendFinal(requestId: string): Promise<void> {
     const r = await repo.findById(this.d.db, requestId);
-    if (r && (r.status === "EXPIRED" || r.status === "CANCELLED")) this.d.hub.closeRequest(requestId, { t: "request.closed", status: r.status });
+    if (r && (r.status === "EXPIRED" || r.status === "CANCELLED"))
+      this.d.hub.closeRequest(requestId, { t: "request.closed", status: r.status });
   }
 
   /** Sistem iptali: DISCONNECTED (120 sn kopma) / TENANT_PASSIVE (AC-141, 145). */
@@ -470,7 +580,16 @@ export class RequestService {
     const row = await this.d.db.$transaction(async (tx) => {
       const r = await repo.findById(tx, requestId);
       if (!r || (await repo.cancelPending(tx, requestId, reason, now)) === 0) return null;
-      await writeAudit(tx, SYSTEM_CTX, { tenantId: r.tenantId, ...SYSTEM, action: "request.cancelled", entity: "support_requests", entityId: requestId, result: "success", oldValue: { status: "PENDING" }, newValue: { status: "CANCELLED", reason } });
+      await writeAudit(tx, SYSTEM_CTX, {
+        tenantId: r.tenantId,
+        ...SYSTEM,
+        action: "request.cancelled",
+        entity: "support_requests",
+        entityId: requestId,
+        result: "success",
+        oldValue: { status: "PENDING" },
+        newValue: { status: "CANCELLED", reason },
+      });
       return r;
     });
     if (!row) return false;
@@ -494,7 +613,9 @@ export class RequestService {
     if (!r) throw this.refInvalid(ip);
     await assertReady();
     // AC-168: dosya adı sahibin etiketi + ref (G-E10-8 şerhi: yalnız ref'i bilen görür).
-    return r.customer ? requestDownloadLocation(r.customer.fileLabel, ref as string) : requestDownloadLocation(r.s.fileLabel, r.s.requestRef);
+    return r.customer
+      ? requestDownloadLocation(r.customer.fileLabel, ref as string)
+      : requestDownloadLocation(r.s.fileLabel, r.s.requestRef);
   }
 
   /** forward_auth firma yolu (G-E9-11): ref aktif ve label güncel file_label → true; aksi false (tek 404). */
@@ -540,12 +661,22 @@ export class RequestService {
       if (!sess || sess.consumedAt) return null;
       if (sess.status === "PENDING") await repo.cancelRequestSession(tx, requestId, now, "SYSTEM", endReason);
       if ((await repo.connectFailed(tx, requestId)) === 0) return null;
-      await writeAudit(tx, SYSTEM_CTX, { tenantId: r.tenantId, ...SYSTEM, action: "request.connect_failed", entity: "support_requests", entityId: requestId, result: "success", oldValue: { status: "ACCEPTED" }, newValue: { status: "CONNECT_FAILED", sessionId: sess.id, reason: endReason } });
+      await writeAudit(tx, SYSTEM_CTX, {
+        tenantId: r.tenantId,
+        ...SYSTEM,
+        action: "request.connect_failed",
+        entity: "support_requests",
+        entityId: requestId,
+        result: "success",
+        oldValue: { status: "ACCEPTED" },
+        newValue: { status: "CONNECT_FAILED", sessionId: sess.id, reason: endReason },
+      });
       return { r, sessionId: sess.id };
     });
     if (!res) return false;
     this.d.rooms.closeSession(res.sessionId, endReason === "auth_revoked" ? "cancelled" : "timeout");
-    if (res.r.acceptedBy) this.d.hub.sendToUser(res.r.tenantId, res.r.acceptedBy, { t: "request.connect_failed", id: requestId, sessionId: res.sessionId });
+    if (res.r.acceptedBy)
+      this.d.hub.sendToUser(res.r.tenantId, res.r.acceptedBy, { t: "request.connect_failed", id: requestId, sessionId: res.sessionId });
     this.d.hub.closeRequest(requestId, { t: "request.closed", status: "CONNECT_FAILED" });
     return true;
   }

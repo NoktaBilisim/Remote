@@ -5,7 +5,14 @@ import type { IncomingMessage } from "node:http";
 import { SESSION_COOKIE } from "@remote/contracts/api/auth";
 import { BINDING_MIN_CLIENT_VERSION } from "@remote/contracts/api/bindings";
 import { WS_SUBPROTOCOL } from "@remote/contracts/ws";
-import { requestInboundSchema, WS_REQUEST_CLOSE, WS_REQUEST_PREFIX, WS_REQUEST_RATE_PER_SEC, type PanelOutbound, type RequestOutbound } from "@remote/contracts/ws-request";
+import {
+  requestInboundSchema,
+  WS_REQUEST_CLOSE,
+  WS_REQUEST_PREFIX,
+  WS_REQUEST_RATE_PER_SEC,
+  type PanelOutbound,
+  type RequestOutbound,
+} from "@remote/contracts/ws-request";
 import type { FastifyInstance } from "fastify";
 import { WebSocket } from "ws";
 import type { AuditContext } from "../audit/service.ts";
@@ -59,7 +66,9 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
     if (!publicClientAllowed(req.headers, env.allowedOrigins, "AGENT")) return { status: 403, reason: "client_kind" };
     const ip = ipKey(ctx.ip);
     if (hitBlocked(limits.wsUpgrade, ip) > 0 || blocked(limits.refInvalid, ip) > 0) return { status: 429, reason: "rate" };
-    const protos = String(req.headers["sec-websocket-protocol"] ?? "").split(",").map((s) => s.trim());
+    const protos = String(req.headers["sec-websocket-protocol"] ?? "")
+      .split(",")
+      .map((s) => s.trim());
     const creds = protos.filter((p) => p.startsWith(WS_REQUEST_PREFIX));
     const secret = creds[0]?.slice(WS_REQUEST_PREFIX.length) ?? "";
     if (!protos.includes(WS_SUBPROTOCOL) || creds.length !== 1 || !SECRET.test(secret)) return { status: 403, reason: "protocol" };
@@ -80,12 +89,26 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
 
     accept("request", (ws) => {
       const peer = jsonPeer<RequestOutbound>(ws);
-      const conn: RequestConn = { peer, requestId: row.id, tenantId: row.tenantId, ipKey: ip, trusted, legacy: compareVersions(row.clientVersion, BINDING_MIN_CLIENT_VERSION) < 0 };
+      const conn: RequestConn = {
+        peer,
+        requestId: row.id,
+        tenantId: row.tenantId,
+        ipKey: ip,
+        trusted,
+        legacy: compareVersions(row.clientVersion, BINDING_MIN_CLIENT_VERSION) < 0,
+      };
       hub.attachRequest(conn);
       if (row.status === "PENDING") void hub.pushStates(row.tenantId);
       else if (sess) {
         const t = rooms.reissueRequestTicket(sess.id, row.id);
-        if (t) peer.send({ t: "request.accepted", wsTicket: t.wsTicket, technicianName: sess.technician.fullName.slice(0, 100), techVerifyCode: sess.techVerifyCode, ticketExpiresAt: new Date(t.expiresAt).toISOString() });
+        if (t)
+          peer.send({
+            t: "request.accepted",
+            wsTicket: t.wsTicket,
+            technicianName: sess.technician.fullName.slice(0, 100),
+            techVerifyCode: sess.techVerifyCode,
+            ticketExpiresAt: new Date(t.expiresAt).toISOString(),
+          });
       }
       const bucket = new TokenBucket(rooms.clock, WS_REQUEST_RATE_PER_SEC);
       const cancel = async (): Promise<void> => {
@@ -113,7 +136,11 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
         // Kopma: PENDING ise 120 sn tolerans (AC-141); ACCEPTED talepte 60 sn bağlanma penceresi geçerli.
         void repo.findById(db, row.id).then((fresh) => {
           if (fresh?.status === "PENDING" && !hub.isAttached(conn)) {
-            hub.setDisconnect(row.id, () => void svc.cancelSystem(row.id, "DISCONNECTED").catch((e: unknown) => svc.logErr(e, "request_disconnect")), svc.d.timing.requestDisconnectMs);
+            hub.setDisconnect(
+              row.id,
+              () => void svc.cancelSystem(row.id, "DISCONNECTED").catch((e: unknown) => svc.logErr(e, "request_disconnect")),
+              svc.d.timing.requestDisconnectMs,
+            );
           }
         });
       });
@@ -149,7 +176,8 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
     for (const c of hub.panelConns()) {
       void resolveSession(db, c.token, new Date(), policy)
         .then((a) => {
-          if (!a || a.user.mustChangePassword || !a.permissions.has("support_requests.view") || a.tenantId !== c.tenantId) hub.closePanel(c);
+          if (!a || a.user.mustChangePassword || !a.permissions.has("support_requests.view") || a.tenantId !== c.tenantId)
+            hub.closePanel(c);
         })
         .catch((err: unknown) => svc.logErr(err, "panel_revalidate"));
     }

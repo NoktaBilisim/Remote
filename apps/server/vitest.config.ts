@@ -20,7 +20,15 @@ export default defineConfig({
     // sağlanınca hemen döner, yalnız tavan uzar.
     expect: { poll: { timeout: 10_000 } },
     projects: [
-      { extends: true, test: { name: "main", include: ["test/**/*.test.ts"], exclude: [...configDefaults.exclude, ...SERIAL], sequence: { groupOrder: 0 } } },
+      {
+        extends: true,
+        test: {
+          name: "main",
+          include: ["test/**/*.test.ts"],
+          exclude: [...configDefaults.exclude, ...SERIAL],
+          sequence: { groupOrder: 0 },
+        },
+      },
       { extends: true, test: { name: "serial-system-settings", include: WHATSAPP_SERIAL, sequence: { groupOrder: 1 } } },
       { extends: true, test: { name: "serial-bindings", include: BINDINGS_SERIAL, sequence: { groupOrder: 2 } } },
       { extends: true, test: { name: "serial-retention", include: RETENTION_SERIAL, sequence: { groupOrder: 3 } } },

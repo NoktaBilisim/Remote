@@ -51,7 +51,11 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
     return (
       <>
         {header}
-        <div className="mt-6 max-w-xl"><Alert tone="warning" testId="users-forbidden">{t("us.forbidden")}</Alert></div>
+        <div className="mt-6 max-w-xl">
+          <Alert tone="warning" testId="users-forbidden">
+            {t("us.forbidden")}
+          </Alert>
+        </div>
       </>
     );
   }
@@ -59,7 +63,9 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
     return (
       <>
         {header}
-        <div className="mt-6"><EmptyState Icon={Building} title={t("us.pickTenantTitle")} body={t("us.pickTenantBody")} testId="users-pick-tenant" /></div>
+        <div className="mt-6">
+          <EmptyState Icon={Building} title={t("us.pickTenantTitle")} body={t("us.pickTenantBody")} testId="users-pick-tenant" />
+        </div>
       </>
     );
   }
@@ -72,7 +78,13 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
       <>
         {header}
         <div className="mt-6 max-w-xl">
-          {res.status === 403 ? <Alert tone="warning" testId="users-forbidden">{t("us.forbidden")}</Alert> : <LoadError />}
+          {res.status === 403 ? (
+            <Alert tone="warning" testId="users-forbidden">
+              {t("us.forbidden")}
+            </Alert>
+          ) : (
+            <LoadError />
+          )}
         </div>
       </>
     );
@@ -91,7 +103,11 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         title={t("us.beyond", { pages })}
         body={t("us.beyondBody")}
         testId="users-beyond"
-        action={<Link href={usersHref({ ...params, page: 1 })} className={linkCls}>{t("h.firstPage")}</Link>}
+        action={
+          <Link href={usersHref({ ...params, page: 1 })} className={linkCls}>
+            {t("h.firstPage")}
+          </Link>
+        }
       />
     );
   else if (params.q)
@@ -101,7 +117,11 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         title={t("us.noMatch")}
         body={t("us.noMatchBody", { q: params.q })}
         testId="users-no-match"
-        action={<Link href={usersHref({})} className={linkCls}>{t("us.clear")}</Link>}
+        action={
+          <Link href={usersHref({})} className={linkCls}>
+            {t("us.clear")}
+          </Link>
+        }
       />
     );
   else if (filtered)
@@ -111,7 +131,11 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         title={t("us.emptyFilter")}
         body={t("us.emptyFilterBody")}
         testId="users-empty-filter"
-        action={<Link href={usersHref({})} className={linkCls}>{t("us.clear")}</Link>}
+        action={
+          <Link href={usersHref({})} className={linkCls}>
+            {t("us.clear")}
+          </Link>
+        }
       />
     );
   else
@@ -128,12 +152,16 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
   return (
     <>
       {header}
-      <div className="mt-6"><UserFilters params={params} /></div>
+      <div className="mt-6">
+        <UserFilters params={params} />
+      </div>
       <section className="mt-4" aria-label={t("us.title")}>
         {body}
         {total > 0 && (
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-fg-muted tabular-nums" role="status" data-testid="users-count">{t("us.count", { n: formatNumber(total) })}</p>
+            <p className="text-sm text-fg-muted tabular-nums" role="status" data-testid="users-count">
+              {t("us.count", { n: formatNumber(total) })}
+            </p>
             {pages > 1 && (
               <nav aria-label={t("h.pager")} className="flex items-center gap-2 text-sm">
                 {page > 1 ? (
@@ -142,7 +170,9 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
                     {t("h.prev")}
                   </Link>
                 ) : null}
-                <span className="px-1 tabular-nums text-fg" aria-current="page">{t("h.pageOf", { page: formatNumber(page), pages: formatNumber(pages) })}</span>
+                <span className="px-1 tabular-nums text-fg" aria-current="page">
+                  {t("h.pageOf", { page: formatNumber(page), pages: formatNumber(pages) })}
+                </span>
                 {page < pages ? (
                   <Link href={usersHref({ ...params, page: page + 1 })} rel="next" className={linkCls}>
                     {t("h.next")}

@@ -21,11 +21,15 @@ export function CustomerFilters({ params }: { params: CustomerListParams }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const id = useId();
 
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
 
-  const go = (p: Partial<CustomerListParams>) => start(() => router.replace(customersHref({ q: params.q, status: params.status, ...p, page: 1 })));
+  const go = (p: Partial<CustomerListParams>) =>
+    start(() => router.replace(customersHref({ q: params.q, status: params.status, ...p, page: 1 })));
 
   const onText = (v: string) => {
     setText(v);

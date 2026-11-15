@@ -9,12 +9,18 @@ guardConsole();
 test.beforeEach(({}, info) => test.skip(!info.project.name.startsWith("desktop"), "konsol + müşteri masaüstü akışı"));
 
 const MOCK = "http://127.0.0.1:4217";
-type LogEntry = { from: "tech" | "guest"; m: { t: string; result?: string; direction?: string; fileName?: string; sizeBytes?: number; sha256?: string; fps?: { avg: number } } };
+type LogEntry = {
+  from: "tech" | "guest";
+  m: { t: string; result?: string; direction?: string; fileName?: string; sizeBytes?: number; sha256?: string; fps?: { avg: number } };
+};
 const wsLog = async (page: Page, id: string) => (await (await page.request.get(`${MOCK}/__e2e/ws-log/${id}`)).json()) as LogEntry[];
 
 /** Oturum aç → müşteri katılır → kabul → paylaşım → iki tarafta DC hazır. */
 async function live(page: Page, browser: Browser, scheme: "light" | "dark" = "light", guestInit?: () => void) {
-  const r = await page.request.post("/api/v1/sessions", { headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" }, data: {} });
+  const r = await page.request.post("/api/v1/sessions", {
+    headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" },
+    data: {},
+  });
   expect(r.status()).toBe(201);
   const s = (await r.json()) as { id: string; link: string };
   await page.emulateMedia({ colorScheme: scheme });
@@ -129,12 +135,18 @@ test("AC-35/52: sohbet iki yön; HTML/XSS denemesi düz metin kalır, betik çal
   await g.getByTestId("chat-input").fill("İkinci mesaj");
   await g.keyboard.press("Enter");
   await expect(side(page).getByRole("button", { name: /Sohbet\s*1/ })).toBeVisible();
-  await side(page).getByRole("button", { name: /Sohbet/ }).click();
+  await side(page)
+    .getByRole("button", { name: /Sohbet/ })
+    .click();
   await expect(side(page).getByRole("button", { name: "Sohbet" })).toHaveAttribute("aria-pressed", "true");
   await g.context().close();
 });
 
-test("AC-36/53/117: dosya iki yön — kabul diyaloğu, ilerleme, alıcıda indirme, file.meta OK; tehlikeli uzantı uyarısı", async ({ page, context, browser }) => {
+test("AC-36/53/117: dosya iki yön — kabul diyaloğu, ilerleme, alıcıda indirme, file.meta OK; tehlikeli uzantı uyarısı", async ({
+  page,
+  context,
+  browser,
+}) => {
   await signIn(context, "p5");
   const { g, id } = await live(page, browser);
   const body = Buffer.alloc(900 * 1024, "nokta-");
@@ -155,27 +167,53 @@ test("AC-36/53/117: dosya iki yön — kabul diyaloğu, ilerleme, alıcıda indi
   expect(dl.suggestedFilename()).toBe("rapor.txt");
   expect((await readFile((await dl.path())!)).equals(body)).toBe(true);
   // Alıcı (müşteri) + gönderen (teknisyen, S-P5-3) raporu; sıra iki ayrı WS'e bağlı
-  await expect.poll(async () => (await wsLog(page, id)).filter((e) => e.m.t === "file.meta").sort((a, b) => a.from.localeCompare(b.from))).toEqual([
-    { from: "guest", m: expect.objectContaining({ direction: "TO_CUSTOMER", fileName: "rapor.txt", sizeBytes: body.length, result: "OK" }) },
-    { from: "tech", m: expect.objectContaining({ direction: "TO_CUSTOMER", fileName: "rapor.txt", sizeBytes: body.length, result: "OK" }) },
-  ]);
+  await expect
+    .poll(async () => (await wsLog(page, id)).filter((e) => e.m.t === "file.meta").sort((a, b) => a.from.localeCompare(b.from)))
+    .toEqual([
+      {
+        from: "guest",
+        m: expect.objectContaining({ direction: "TO_CUSTOMER", fileName: "rapor.txt", sizeBytes: body.length, result: "OK" }),
+      },
+      {
+        from: "tech",
+        m: expect.objectContaining({ direction: "TO_CUSTOMER", fileName: "rapor.txt", sizeBytes: body.length, result: "OK" }),
+      },
+    ]);
 
   // Müşteri → teknisyen: çift uzantı uyarısı, reddet
-  await g.getByTestId("file-input").setInputFiles({ name: "fatura.pdf.exe", mimeType: "application/octet-stream", buffer: Buffer.from("MZ") });
+  await g
+    .getByTestId("file-input")
+    .setInputFiles({ name: "fatura.pdf.exe", mimeType: "application/octet-stream", buffer: Buffer.from("MZ") });
   await expect(page.getByTestId("file-offer")).toBeVisible();
   await expect(page.getByTestId("file-danger")).toContainText("çift uzantı");
   await expect(page.getByTestId("file-reject")).toBeEnabled();
   await page.getByTestId("file-reject").click();
   await expect(g.getByTestId("file-row").filter({ hasText: "fatura.pdf.exe" })).toHaveAttribute("data-status", "rejected");
-  await expect.poll(async () => (await wsLog(page, id)).filter((e) => e.m.t === "file.meta" && e.m.direction === "TO_TECH").map((e) => [e.from, e.m.result]).sort()).toEqual([["guest", "REJECTED"], ["tech", "REJECTED"]]);
+  await expect
+    .poll(async () =>
+      (await wsLog(page, id))
+        .filter((e) => e.m.t === "file.meta" && e.m.direction === "TO_TECH")
+        .map((e) => [e.from, e.m.result])
+        .sort(),
+    )
+    .toEqual([
+      ["guest", "REJECTED"],
+      ["tech", "REJECTED"],
+    ]);
   await g.context().close();
 });
 
-test("AC-36/117: müşteriden teknisyene dosya + tek uzantılı tehlikeli dosya uyarısı; teknisyende indirme", async ({ page, context, browser }) => {
+test("AC-36/117: müşteriden teknisyene dosya + tek uzantılı tehlikeli dosya uyarısı; teknisyende indirme", async ({
+  page,
+  context,
+  browser,
+}) => {
   await signIn(context, "p5");
   const { g, id } = await live(page, browser);
   await guestSide(g).getByRole("button", { name: "Dosyalar" }).click();
-  await g.getByTestId("file-input").setInputFiles({ name: "kurulum.exe", mimeType: "application/octet-stream", buffer: Buffer.from("MZ-test") });
+  await g
+    .getByTestId("file-input")
+    .setInputFiles({ name: "kurulum.exe", mimeType: "application/octet-stream", buffer: Buffer.from("MZ-test") });
   // Konsol Sohbet sekmesindeyken teklif → Dosyalar'a geçer
   await expect(side(page).getByRole("button", { name: "Dosyalar" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("file-danger")).toContainText("program çalıştırabilir");
@@ -183,7 +221,17 @@ test("AC-36/117: müşteriden teknisyene dosya + tek uzantılı tehlikeli dosya 
   await expect(page.getByTestId("file-row")).toHaveAttribute("data-status", "ok");
   const [dl] = await Promise.all([page.waitForEvent("download"), page.getByTestId("file-download").click()]);
   expect(dl.suggestedFilename()).toBe("kurulum.exe");
-  await expect.poll(async () => (await wsLog(page, id)).filter((e) => e.m.t === "file.meta").map((e) => [e.from, e.m.direction, e.m.result]).sort()).toEqual([["guest", "TO_TECH", "OK"], ["tech", "TO_TECH", "OK"]]);
+  await expect
+    .poll(async () =>
+      (await wsLog(page, id))
+        .filter((e) => e.m.t === "file.meta")
+        .map((e) => [e.from, e.m.direction, e.m.result])
+        .sort(),
+    )
+    .toEqual([
+      ["guest", "TO_TECH", "OK"],
+      ["tech", "TO_TECH", "OK"],
+    ]);
   await g.context().close();
 });
 
@@ -191,7 +239,9 @@ test("AC-53: tenant sınırı (1 MB) üstü dosya gönderilmez — teklif çıkm
   await signIn(context, "p5");
   const { g, id } = await live(page, browser);
   await side(page).getByRole("button", { name: "Dosyalar" }).click();
-  await page.getByTestId("file-input").setInputFiles({ name: "buyuk.bin", mimeType: "application/octet-stream", buffer: Buffer.alloc(1024 * 1024 + 1) });
+  await page
+    .getByTestId("file-input")
+    .setInputFiles({ name: "buyuk.bin", mimeType: "application/octet-stream", buffer: Buffer.alloc(1024 * 1024 + 1) });
   await expect(page.getByTestId("file-error")).toHaveText("Dosya 1 MB sınırını aşıyor.");
   await expect(page.getByTestId("file-row")).toHaveCount(0);
   await expect(g.getByTestId("file-offer")).toHaveCount(0);
@@ -212,7 +262,17 @@ test("AC-54: SHA-256 uyuşmazlığı → 'Dosya bozuk', indirme sunulmaz, file.m
   await expect(row).toContainText("Dosya bozuk");
   await expect(g.getByTestId("file-download")).toHaveCount(0);
   await expect(page.getByTestId("file-row")).toHaveAttribute("data-status", "corrupt");
-  await expect.poll(async () => (await wsLog(page, id)).filter((e) => e.m.t === "file.meta").map((e) => [e.from, e.m.result]).sort()).toEqual([["guest", "CORRUPT"], ["tech", "CORRUPT"]]);
+  await expect
+    .poll(async () =>
+      (await wsLog(page, id))
+        .filter((e) => e.m.t === "file.meta")
+        .map((e) => [e.from, e.m.result])
+        .sort(),
+    )
+    .toEqual([
+      ["guest", "CORRUPT"],
+      ["tech", "CORRUPT"],
+    ]);
   await g.context().close();
 });
 
@@ -227,7 +287,11 @@ async function offerAndCancel(g: Page, page: Page, name: string) {
   await expect(page.getByTestId("file-offer")).toBeHidden();
 }
 
-test("TEST-P5-1: 10 sn'de 4. teklif — gönderen kendi sınırıyla hemen uyarılır, pencere dolunca yeni gönderim çalışır", async ({ page, context, browser }) => {
+test("TEST-P5-1: 10 sn'de 4. teklif — gönderen kendi sınırıyla hemen uyarılır, pencere dolunca yeni gönderim çalışır", async ({
+  page,
+  context,
+  browser,
+}) => {
   test.setTimeout(60_000);
   await signIn(context, "p5");
   const { g } = await live(page, browser);
@@ -245,7 +309,11 @@ test("TEST-P5-1: 10 sn'de 4. teklif — gönderen kendi sınırıyla hemen uyar�
   await g.context().close();
 });
 
-test("TEST-P5-1: alıcı 4. teklifi düşürürse gönderen 30 sn içinde 'Yanıt yok' ile çözülür, sonra yeni gönderim çalışır", async ({ page, context, browser }) => {
+test("TEST-P5-1: alıcı 4. teklifi düşürürse gönderen 30 sn içinde 'Yanıt yok' ile çözülür, sonra yeni gönderim çalışır", async ({
+  page,
+  context,
+  browser,
+}) => {
   test.setTimeout(60_000);
   await signIn(context, "p5");
   const { g, id } = await live(page, browser);
@@ -261,7 +329,13 @@ test("TEST-P5-1: alıcı 4. teklifi düşürürse gönderen 30 sn içinde 'Yanı
   await expect(row.getByRole("status")).toHaveText(/^Yanıt yok/);
   await expect(row.getByTestId("file-cancel")).toHaveCount(0);
   await expect(page.getByTestId("file-offer")).toBeHidden(); // alıcıda diyalog hiç açılmadı
-  await expect.poll(async () => (await wsLog(page, id)).some((e) => e.from === "guest" && e.m.t === "file.meta" && e.m.fileName === "y.scr" && e.m.result === "CANCELLED")).toBe(true);
+  await expect
+    .poll(async () =>
+      (await wsLog(page, id)).some(
+        (e) => e.from === "guest" && e.m.t === "file.meta" && e.m.fileName === "y.scr" && e.m.result === "CANCELLED",
+      ),
+    )
+    .toBe(true);
   await page.waitForTimeout(Math.max(0, 10_500 - (Date.now() - t0)));
   await g.getByTestId("file-input").setInputFiles({ name: "z.txt", mimeType: "text/plain", buffer: Buffer.from("z") });
   await expect(g.getByTestId("file-error")).toHaveCount(0);
@@ -283,7 +357,9 @@ test("AC-44/46: kalite paneli değerleri görünür; oturum bitince quality.summ
   await page.getByTestId("console-end").click();
   await page.getByTestId("console-confirm-ok").click();
   await expect(g.getByTestId("guest-finished")).toBeVisible();
-  await expect.poll(async () => (await wsLog(page, id)).filter((e) => e.m.t === "quality.summary" && e.from === "tech").length).toBeGreaterThan(0);
+  await expect
+    .poll(async () => (await wsLog(page, id)).filter((e) => e.m.t === "quality.summary" && e.from === "tech").length)
+    .toBeGreaterThan(0);
   await g.context().close();
 });
 
@@ -323,7 +399,11 @@ test("AC-56/57: işaretleme ve lazer müşteri önizlemesinde görünür; geri a
   await g.context().close();
 });
 
-test("AC-119/G-09: file_transfer yetkisi yok → müşteride Dosyalar sekmesi yok, konsolda gönderim pasif", async ({ page, context, browser }) => {
+test("AC-119/G-09: file_transfer yetkisi yok → müşteride Dosyalar sekmesi yok, konsolda gönderim pasif", async ({
+  page,
+  context,
+  browser,
+}) => {
   await signIn(context, "p5nf");
   const { g } = await live(page, browser);
   await expect(guestSide(g).getByRole("button", { name: "Dosyalar" })).toHaveCount(0);
@@ -380,7 +460,9 @@ for (const scheme of ["light", "dark"] as const) {
     await noHorizontalOverflow(g);
     // Kabul diyaloğu (tehlikeli dosya uyarısıyla) da 375 px'te erişilebilir
     await side(page).getByRole("button", { name: "Dosyalar" }).click();
-    await page.getByTestId("file-input").setInputFiles({ name: "arac.bat", mimeType: "application/octet-stream", buffer: Buffer.from("@echo off") });
+    await page
+      .getByTestId("file-input")
+      .setInputFiles({ name: "arac.bat", mimeType: "application/octet-stream", buffer: Buffer.from("@echo off") });
     await expect(g.getByTestId("file-danger")).toBeVisible();
     await expect(g.getByTestId("file-reject")).toBeEnabled();
     // ARM_MS sonrası "Kabul et" opaklık geçişi (150 ms) tarama ortasına denk gelirse ara renk ölçülür → kararlı hâli tara
@@ -400,7 +482,11 @@ for (const scheme of ["light", "dark"] as const) {
 /** Göndereni parça başına yavaşlatır (yalnız NEXT_PUBLIC_RS_E2E derlemesi; lib/dc/use-collab.ts). */
 const slowSend = (p: Page, ms = 60) => p.evaluate((v) => ((globalThis as { __rsSlowFileMs?: number }).__rsSlowFileMs = v), ms);
 
-test("AC-53: aktarım sürerken alıcı ve gönderen iptal eder — iki tarafta 'İptal edildi', indirme yok, file.meta CANCELLED", async ({ page, context, browser }) => {
+test("AC-53: aktarım sürerken alıcı ve gönderen iptal eder — iki tarafta 'İptal edildi', indirme yok, file.meta CANCELLED", async ({
+  page,
+  context,
+  browser,
+}) => {
   await signIn(context, "p5");
   const { g, id } = await live(page, browser);
   const body = Buffer.alloc(900 * 1024, "iptal-");
@@ -421,10 +507,17 @@ test("AC-53: aktarım sürerken alıcı ve gönderen iptal eder — iki tarafta 
   await expect(gIn.getByRole("status")).toHaveText("İptal edildi");
   await expect(tOut.getByRole("status")).toHaveText("İptal edildi");
   await expect(g.getByTestId("file-download")).toHaveCount(0);
-  await expect.poll(async () => (await wsLog(page, id)).filter((e) => e.m.t === "file.meta").map((e) => [e.from, e.m.direction, e.m.result]).sort()).toEqual([
-    ["guest", "TO_CUSTOMER", "CANCELLED"],
-    ["tech", "TO_CUSTOMER", "CANCELLED"],
-  ]);
+  await expect
+    .poll(async () =>
+      (await wsLog(page, id))
+        .filter((e) => e.m.t === "file.meta")
+        .map((e) => [e.from, e.m.direction, e.m.result])
+        .sort(),
+    )
+    .toEqual([
+      ["guest", "TO_CUSTOMER", "CANCELLED"],
+      ["tech", "TO_CUSTOMER", "CANCELLED"],
+    ]);
 
   // 2) Müşteri → teknisyen; GÖNDEREN (müşteri) iptal eder
   await slowSend(g);
@@ -438,10 +531,17 @@ test("AC-53: aktarım sürerken alıcı ve gönderen iptal eder — iki tarafta 
   await expect(gOut).toHaveAttribute("data-status", "cancelled");
   await expect(tIn).toHaveAttribute("data-status", "cancelled");
   await expect(page.getByTestId("file-download")).toHaveCount(0);
-  await expect.poll(async () => (await wsLog(page, id)).filter((e) => e.m.t === "file.meta" && e.m.direction === "TO_TECH").map((e) => [e.from, e.m.result]).sort()).toEqual([
-    ["guest", "CANCELLED"],
-    ["tech", "CANCELLED"],
-  ]);
+  await expect
+    .poll(async () =>
+      (await wsLog(page, id))
+        .filter((e) => e.m.t === "file.meta" && e.m.direction === "TO_TECH")
+        .map((e) => [e.from, e.m.result])
+        .sort(),
+    )
+    .toEqual([
+      ["guest", "CANCELLED"],
+      ["tech", "CANCELLED"],
+    ]);
   // Geç gelen parça/`file.done` durumu değiştirmez
   await page.waitForTimeout(1_000);
   await expect(tIn).toHaveAttribute("data-status", "cancelled");
@@ -482,9 +582,13 @@ test("AC-57: teknisyen→müşteri çizim gecikmesi p95 < 200 ms (20 çizgi)", a
   await page.evaluate(() => {
     const w = window as unknown as W;
     w.__rsT = [];
-    window.addEventListener("pointerup", (e) => {
-      if ((e.target as HTMLElement).dataset?.testid === "annot-layer") w.__rsT.push(performance.timeOrigin + performance.now());
-    }, true);
+    window.addEventListener(
+      "pointerup",
+      (e) => {
+        if ((e.target as HTMLElement).dataset?.testid === "annot-layer") w.__rsT.push(performance.timeOrigin + performance.now());
+      },
+      true,
+    );
   });
   await g.evaluate(() => {
     const w = window as unknown as W;
@@ -513,57 +617,64 @@ test("AC-57: teknisyen→müşteri çizim gecikmesi p95 < 200 ms (20 çizgi)", a
   expect(shown).toHaveLength(N);
   const lat = sent.map((s, i) => shown[i]! - s).sort((a, b) => a - b);
   const p95 = lat[Math.ceil(0.95 * N) - 1]!;
-  test.info().annotations.push({ type: "AC-57", description: `p50=${lat[N / 2]!.toFixed(1)} ms p95=${p95.toFixed(1)} ms max=${lat.at(-1)!.toFixed(1)} ms` });
+  test.info().annotations.push({
+    type: "AC-57",
+    description: `p50=${lat[N / 2]!.toFixed(1)} ms p95=${p95.toFixed(1)} ms max=${lat.at(-1)!.toFixed(1)} ms`,
+  });
   console.log(`[AC-57] çizim gecikmesi ms: ${lat.map((x) => x.toFixed(1)).join(" ")} | p95=${p95.toFixed(1)}`);
   expect(lat[0]!).toBeGreaterThanOrEqual(0);
   expect(p95).toBeLessThan(200);
   await g.context().close();
 });
 
-test("AC-41: 1920x1080 kaynak → teknisyende 1920 genişlik ve FPS ≥ 15 (getStats/kalite paneli)", { tag: "@perf" }, async ({ page, context, browser }) => {
-  test.setTimeout(90_000);
-  await signIn(context, "p5");
-  // getDisplayMedia stub: 1080p canvas, 30 fps captureStream; her karede içerik değişir (kodlayıcı kare atlamasın)
-  const { g } = await live(page, browser, "light", () => {
-    const md = navigator.mediaDevices;
-    if (!md) return;
-    md.getDisplayMedia = async () => {
-      const c = document.createElement("canvas");
-      c.width = 1920;
-      c.height = 1080;
-      const x = c.getContext("2d")!;
-      let f = 0;
-      setInterval(() => {
-        f++;
-        x.fillStyle = `hsl(${(f * 7) % 360} 60% 50%)`;
-        x.fillRect(0, 0, 1920, 1080);
-        x.fillStyle = "#fff";
-        x.font = "120px sans-serif";
-        x.fillText(`kare ${f}`, 200 + ((f * 13) % 800), 540);
-      }, 33);
-      return c.captureStream(30);
-    };
-  });
-  await side(page).getByRole("button", { name: "Kalite" }).click();
-  const panel = page.getByTestId("quality-panel");
-  await expect(panel).toContainText("1920×1080", { timeout: 30_000 });
-  const fpsCell = panel.locator("dd").first();
-  const readFps = async () => Number(/^(\d+) FPS$/.exec((await fpsCell.textContent()) ?? "")?.[1] ?? 0);
-  // Isınma: bant genişliği tahmini düşük başlar; contentHint "detail" çözünürlüğü korur, FPS'i düşürür.
-  // Kararlı duruma (ilk ≥ 15 okuması) en çok 30 sn; ardından 6 sn'lik pencerenin medyanı ölçülür.
-  const t0 = Date.now();
-  await expect.poll(readFps, { timeout: 30_000, intervals: [500] }).toBeGreaterThanOrEqual(15);
-  const warmupMs = Date.now() - t0;
-  const fps: number[] = [];
-  for (let i = 0; i < 6; i++) {
-    await page.waitForTimeout(1_000);
-    fps.push(await readFps());
-  }
-  const sorted = [...fps].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-  console.log(`[AC-41] 1080p ısınma ${warmupMs} ms; FPS örnekleri: ${fps.join(" ")} | medyan=${median}`);
-  test.info().annotations.push({ type: "AC-41", description: `ısınma ${warmupMs} ms; FPS ${fps.join(",")} medyan ${median}` });
-  await expect(panel).toContainText("1920×1080");
-  expect(median).toBeGreaterThanOrEqual(15);
-  await g.context().close();
-});
+test(
+  "AC-41: 1920x1080 kaynak → teknisyende 1920 genişlik ve FPS ≥ 15 (getStats/kalite paneli)",
+  { tag: "@perf" },
+  async ({ page, context, browser }) => {
+    test.setTimeout(90_000);
+    await signIn(context, "p5");
+    // getDisplayMedia stub: 1080p canvas, 30 fps captureStream; her karede içerik değişir (kodlayıcı kare atlamasın)
+    const { g } = await live(page, browser, "light", () => {
+      const md = navigator.mediaDevices;
+      if (!md) return;
+      md.getDisplayMedia = async () => {
+        const c = document.createElement("canvas");
+        c.width = 1920;
+        c.height = 1080;
+        const x = c.getContext("2d")!;
+        let f = 0;
+        setInterval(() => {
+          f++;
+          x.fillStyle = `hsl(${(f * 7) % 360} 60% 50%)`;
+          x.fillRect(0, 0, 1920, 1080);
+          x.fillStyle = "#fff";
+          x.font = "120px sans-serif";
+          x.fillText(`kare ${f}`, 200 + ((f * 13) % 800), 540);
+        }, 33);
+        return c.captureStream(30);
+      };
+    });
+    await side(page).getByRole("button", { name: "Kalite" }).click();
+    const panel = page.getByTestId("quality-panel");
+    await expect(panel).toContainText("1920×1080", { timeout: 30_000 });
+    const fpsCell = panel.locator("dd").first();
+    const readFps = async () => Number(/^(\d+) FPS$/.exec((await fpsCell.textContent()) ?? "")?.[1] ?? 0);
+    // Isınma: bant genişliği tahmini düşük başlar; contentHint "detail" çözünürlüğü korur, FPS'i düşürür.
+    // Kararlı duruma (ilk ≥ 15 okuması) en çok 30 sn; ardından 6 sn'lik pencerenin medyanı ölçülür.
+    const t0 = Date.now();
+    await expect.poll(readFps, { timeout: 30_000, intervals: [500] }).toBeGreaterThanOrEqual(15);
+    const warmupMs = Date.now() - t0;
+    const fps: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      await page.waitForTimeout(1_000);
+      fps.push(await readFps());
+    }
+    const sorted = [...fps].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+    console.log(`[AC-41] 1080p ısınma ${warmupMs} ms; FPS örnekleri: ${fps.join(" ")} | medyan=${median}`);
+    test.info().annotations.push({ type: "AC-41", description: `ısınma ${warmupMs} ms; FPS ${fps.join(",")} medyan ${median}` });
+    await expect(panel).toContainText("1920×1080");
+    expect(median).toBeGreaterThanOrEqual(15);
+    await g.context().close();
+  },
+);

@@ -60,7 +60,11 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
     return (
       <>
         {header}
-        <div className="mt-6 max-w-xl"><Alert tone="warning" testId="history-forbidden">{t("h.forbidden")}</Alert></div>
+        <div className="mt-6 max-w-xl">
+          <Alert tone="warning" testId="history-forbidden">
+            {t("h.forbidden")}
+          </Alert>
+        </div>
       </>
     );
   }
@@ -73,7 +77,13 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
       <>
         {header}
         <div className="mt-6 max-w-xl">
-          {res.status === 403 ? <Alert tone="warning" testId="history-forbidden">{t("h.forbidden")}</Alert> : <LoadError />}
+          {res.status === 403 ? (
+            <Alert tone="warning" testId="history-forbidden">
+              {t("h.forbidden")}
+            </Alert>
+          ) : (
+            <LoadError />
+          )}
         </div>
       </>
     );
@@ -118,7 +128,14 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
               title={t("h.beyond", { pages })}
               body={t("h.emptyFilterBody")}
               testId="history-beyond"
-              action={<Link href={historyHref({ ...filters, page: 1 })} className="inline-flex min-h-11 items-center text-sm font-medium text-primary hover:underline">{t("h.firstPage")}</Link>}
+              action={
+                <Link
+                  href={historyHref({ ...filters, page: 1 })}
+                  className="inline-flex min-h-11 items-center text-sm font-medium text-primary hover:underline"
+                >
+                  {t("h.firstPage")}
+                </Link>
+              }
             />
           ) : filtered ? (
             <EmptyState
@@ -126,7 +143,14 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
               title={t("h.emptyFilterTitle")}
               body={t("h.emptyFilterBody")}
               testId="history-empty-filter"
-              action={<Link href={historyHref({ pageSize: filters.pageSize })} className="inline-flex min-h-11 items-center text-sm font-medium text-primary hover:underline">{t("h.f.clear")}</Link>}
+              action={
+                <Link
+                  href={historyHref({ pageSize: filters.pageSize })}
+                  className="inline-flex min-h-11 items-center text-sm font-medium text-primary hover:underline"
+                >
+                  {t("h.f.clear")}
+                </Link>
+              }
             />
           ) : (
             <EmptyState
@@ -136,7 +160,10 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
               testId="history-empty"
               action={
                 perms.includes("sessions.view") && (
-                  <Link href="/sessions" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary hover:underline">
+                  <Link
+                    href="/sessions"
+                    className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary hover:underline"
+                  >
                     <MonitorSmartphone aria-hidden className="size-4" />
                     {t("h.emptyAction")}
                   </Link>

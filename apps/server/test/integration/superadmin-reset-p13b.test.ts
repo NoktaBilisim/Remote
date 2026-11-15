@@ -42,7 +42,16 @@ const tempPasswordOf = (out: string): string => /Geçici şifre \(yalnız bir ke
 const userRow = (id: string) =>
   testDb().user.findUniqueOrThrow({
     where: { id },
-    select: { passwordHash: true, mustChangePassword: true, failedLoginCount: true, failedWindowAt: true, lockedUntil: true, totpEnabled: true, totpSecretEnc: true, totpLastStep: true },
+    select: {
+      passwordHash: true,
+      mustChangePassword: true,
+      failedLoginCount: true,
+      failedWindowAt: true,
+      lockedUntil: true,
+      totpEnabled: true,
+      totpSecretEnc: true,
+      totpLastStep: true,
+    },
   });
 
 const resetAudits = (where: { entityId?: string | null; result?: string } = {}) =>
@@ -55,10 +64,19 @@ async function preparedSuperAdmin(): Promise<{ user: TestUser; cookie: string }>
   const db = testDb();
   await db.user.update({
     where: { id: user.id },
-    data: { totpEnabled: true, totpSecretEnc: Buffer.alloc(48, 7), totpLastStep: 123n, failedLoginCount: 4, failedWindowAt: new Date(), lockedUntil: new Date(Date.now() + 15 * 60_000) },
+    data: {
+      totpEnabled: true,
+      totpSecretEnc: Buffer.alloc(48, 7),
+      totpLastStep: 123n,
+      failedLoginCount: 4,
+      failedWindowAt: new Date(),
+      lockedUntil: new Date(Date.now() + 15 * 60_000),
+    },
   });
   await db.recoveryCode.createMany({ data: [1, 2].map(() => ({ id: newId(), userId: user.id, codeHash: sha256Hex(newId()) })) });
-  await db.passwordResetToken.create({ data: { id: newId(), userId: user.id, tokenHash: sha256Hex(newId()), expiresAt: new Date(Date.now() + 30 * 60_000) } });
+  await db.passwordResetToken.create({
+    data: { id: newId(), userId: user.id, tokenHash: sha256Hex(newId()), expiresAt: new Date(Date.now() + 30 * 60_000) },
+  });
   return { user, cookie: `${SESSION_COOKIE}=${session.token}` };
 }
 
@@ -97,7 +115,14 @@ describe("P13b reset-superadmin CLI (§7.7)", () => {
 
     const audits = await resetAudits({ entityId: user.id });
     expect(audits).toHaveLength(1);
-    expect(audits[0]).toMatchObject({ userId: null, username: "cli", tenantId: null, entity: "users", userAgent: "reset-superadmin-cli", result: "success" });
+    expect(audits[0]).toMatchObject({
+      userId: null,
+      username: "cli",
+      tenantId: null,
+      entity: "users",
+      userAgent: "reset-superadmin-cli",
+      result: "success",
+    });
     expect(audits[0]?.ipAddress ?? "").toBe("");
     expect(audits[0]?.newValue).toEqual({ mustChangePassword: true, mfaReset: false, revokedSessions: 1 });
     const auditText = JSON.stringify(audits, (_k, v: unknown) => (typeof v === "bigint" ? String(v) : v));
@@ -135,18 +160,39 @@ describe("P13b reset-superadmin CLI (§7.7)", () => {
     // 25 saat önce verilmiş geçici parola: audit append-only (UPDATE tetikleyiciyle yasak) → geçmiş tarihli kayıt yalnız
     // migrator fikstürüyle eklenir (force_created_at muafiyeti). Parolası bilinen, değişim bekleyen ayrı bir Super Admin.
     const old = await createUser({ tenantId: null, role: "SUPER_ADMIN", mustChangePassword: true });
-    await testFixtureDb().auditLog.create({ data: { action: AUTH_AUDIT.SUPERADMIN_RESET, entity: "users", entityId: old.id, username: "cli", result: "success", createdAt: new Date(Date.now() - 25 * 3_600_000) } });
+    await testFixtureDb().auditLog.create({
+      data: {
+        action: AUTH_AUDIT.SUPERADMIN_RESET,
+        entity: "users",
+        entityId: old.id,
+        username: "cli",
+        result: "success",
+        createdAt: new Date(Date.now() - 25 * 3_600_000),
+      },
+    });
     const expired = await app.inject(loginRequest(old.email, old.password));
     expect(expired.statusCode).toBe(401);
     expect(expired.json().error.message).toContain("Geçici şifrenin süresi doldu");
-    const fail = await testDb().auditLog.findFirst({ where: { action: "auth.login", entityId: old.id, result: "fail" }, orderBy: { id: "desc" } });
+    const fail = await testDb().auditLog.findFirst({
+      where: { action: "auth.login", entityId: old.id, result: "fail" },
+      orderBy: { id: "desc" },
+    });
     expect(fail?.newValue).toEqual({ reason: "temp_password_expired" });
     // Yanlış parola yine genel mesaj (süre bilgisi parolayı bilmeyene sızmaz)
     const wrong = await app.inject(loginRequest(old.email, "Yanlis-Parola-123"));
     expect(wrong.json().error.message).not.toContain("Geçici");
     // 23 saatlik kayıt hâlâ geçerli; CLI ile verilmemiş (audit yok) değişim bekleyen parola etkilenmez
     const fresh = await createUser({ tenantId: null, role: "SUPER_ADMIN", mustChangePassword: true });
-    await testFixtureDb().auditLog.create({ data: { action: AUTH_AUDIT.SUPERADMIN_RESET, entity: "users", entityId: fresh.id, username: "cli", result: "success", createdAt: new Date(Date.now() - 23 * 3_600_000) } });
+    await testFixtureDb().auditLog.create({
+      data: {
+        action: AUTH_AUDIT.SUPERADMIN_RESET,
+        entity: "users",
+        entityId: fresh.id,
+        username: "cli",
+        result: "success",
+        createdAt: new Date(Date.now() - 23 * 3_600_000),
+      },
+    });
     expect((await app.inject(loginRequest(fresh.email, fresh.password))).statusCode).toBe(200);
     const seeded = await createUser({ tenantId: null, role: "SUPER_ADMIN", mustChangePassword: true });
     expect((await app.inject(loginRequest(seeded.email, seeded.password))).statusCode).toBe(200);
@@ -202,17 +248,31 @@ describe("P13b reset-superadmin CLI (§7.7)", () => {
 
     // Gerçek giriş noktası: stdout pipe → 4; argüman hatası TTY'den önce → 2. DB'ye hiç bağlanılmaz (env bile yok).
     const env = { PATH: process.env.PATH ?? "" };
-    const piped = spawnSync(process.execPath, ["src/cli/reset-superadmin.ts", "--email", user.email], { cwd: SERVER_DIR, env, encoding: "utf8" });
+    const piped = spawnSync(process.execPath, ["src/cli/reset-superadmin.ts", "--email", user.email], {
+      cwd: SERVER_DIR,
+      env,
+      encoding: "utf8",
+    });
     expect(piped.status).toBe(EXIT.NO_TTY);
     expect(piped.stdout).toBe("");
     expect(piped.stderr).toContain("terminal değil");
-    const usage = spawnSync(process.execPath, ["src/cli/reset-superadmin.ts", "--email", "e-posta-degil"], { cwd: SERVER_DIR, env, encoding: "utf8" });
+    const usage = spawnSync(process.execPath, ["src/cli/reset-superadmin.ts", "--email", "e-posta-degil"], {
+      cwd: SERVER_DIR,
+      env,
+      encoding: "utf8",
+    });
     expect(usage.status).toBe(EXIT.USAGE);
     expect(await userRow(user.id)).toEqual(before);
   });
 
   it("AC-yeni(b): kullanım hataları → 2 (bilinmeyen bayrak, konumsal argüman, eksik/çift e-posta)", async () => {
-    for (const argv of [[], ["--email"], ["--email", "a@b.c", "--force"], ["--email", "a@b.c", "fazla"], ["--email", "a@b.c", "--email", "d@e.f"]]) {
+    for (const argv of [
+      [],
+      ["--email"],
+      ["--email", "a@b.c", "--force"],
+      ["--email", "a@b.c", "fazla"],
+      ["--email", "a@b.c", "--email", "d@e.f"],
+    ]) {
       const r = await runCli(argv);
       expect(r.code, argv.join(" ")).toBe(EXIT.USAGE);
       expect(r.err).toContain("kullanım:");
@@ -221,7 +281,9 @@ describe("P13b reset-superadmin CLI (§7.7)", () => {
 
   it("AC-90: DB'ye ulaşılamazsa çıkış 5, referans ID; SQL/bağlantı ayrıntısı ekrana sızmaz", async () => {
     const db = createDb("mysql://app:yanlis@127.0.0.1:1/remote?connectTimeout=300&acquireTimeout=800");
-    const r = await runCli(["--email", "a@b.c"], { runtime: () => ({ db, logger: createLogger("silent"), close: () => db.$disconnect() }) });
+    const r = await runCli(["--email", "a@b.c"], {
+      runtime: () => ({ db, logger: createLogger("silent"), close: () => db.$disconnect() }),
+    });
     expect(r.code).toBe(EXIT.DB);
     expect(r.err).toMatch(/veritabanı hatası \(ref [0-9A-Z]{26}\)/);
     expect(r.err).not.toMatch(/127\.0\.0\.1|yanlis|ECONN|SELECT/);

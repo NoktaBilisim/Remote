@@ -3,7 +3,12 @@ import { forgetResume, linkTokenFromPath, readResume, resumeKey, writeResume } f
 
 function fake() {
   const m = new Map<string, string>();
-  return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k), m };
+  return {
+    getItem: (k: string) => m.get(k) ?? null,
+    setItem: (k: string, v: string) => void m.set(k, v),
+    removeItem: (k: string) => void m.delete(k),
+    m,
+  };
 }
 const rec = { reconnectToken: "r".repeat(43), technicianName: "Mehmet", customerName: "Ayşe", verifyCode: "1234", sessionRef: "ref1" };
 

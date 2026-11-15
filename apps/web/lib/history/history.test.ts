@@ -5,10 +5,20 @@ import { checkCustomer, exportApiPath, historyHref, isCalendarDay, listApiPath, 
 
 describe("AC-60 filtre URL durumu", () => {
   it("geçerli değerler okunur, varsayılanlar URL'e yazılmaz", () => {
-    const { filters, ignored } = parseFilters({ status: "ENDED", mode: "AGENT", from: "2026-11-01", to: "2026-11-10", customer: "  Ayşe ", page: "2", pageSize: "50" });
+    const { filters, ignored } = parseFilters({
+      status: "ENDED",
+      mode: "AGENT",
+      from: "2026-11-01",
+      to: "2026-11-10",
+      customer: "  Ayşe ",
+      page: "2",
+      pageSize: "50",
+    });
     expect(ignored).toEqual([]);
     expect(filters).toMatchObject({ status: "ENDED", mode: "AGENT", customer: "Ayşe", page: 2, pageSize: 50 });
-    expect(historyHref({ ...filters, page: 1, pageSize: 25 })).toBe("/history?from=2026-11-01&to=2026-11-10&status=ENDED&mode=AGENT&customer=Ay%C5%9Fe");
+    expect(historyHref({ ...filters, page: 1, pageSize: 25 })).toBe(
+      "/history?from=2026-11-01&to=2026-11-10&status=ENDED&mode=AGENT&customer=Ay%C5%9Fe",
+    );
     expect(listApiPath(parseFilters({}).filters)).toBe("/sessions?page=1&pageSize=25");
   });
   it("geçersiz değerler yok sayılır (sunucu strict 400 vermesin)", () => {

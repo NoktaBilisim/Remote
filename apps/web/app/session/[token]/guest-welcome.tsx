@@ -39,9 +39,17 @@ export function GuestWelcome({
   const now = useNow();
   const left = now === null ? null : Date.parse(data.expiresAt) - now;
   // AC-33: sunucuda bilinmez (null) → form; istemcide mobil/API yoksa form yerine "desteklenmiyor"
-  const supported = useSyncExternalStore(noop, () => isScreenShareSupported(readSupportEnv()), () => null);
+  const supported = useSyncExternalStore(
+    noop,
+    () => isScreenShareSupported(readSupportEnv()),
+    () => null,
+  );
   // AC-27: indirme yalnız Windows masaüstünde; sunucuda bilinmez → yalnız tarayıcı modu (hidrasyon sonrası karar)
-  const windows = useSyncExternalStore(noop, () => isWindowsDesktop(readSupportEnv()), () => false);
+  const windows = useSyncExternalStore(
+    noop,
+    () => isWindowsDesktop(readSupportEnv()),
+    () => false,
+  );
 
   useEffect(() => {
     if (end) return;
@@ -50,10 +58,7 @@ export function GuestWelcome({
     const poll = async () => {
       let wait = POLL_MS;
       try {
-        const r = await api<PublicSessionStatusResponse>(
-          "GET",
-          `/public/sessions/status?ref=${encodeURIComponent(data.sessionRef)}`,
-        );
+        const r = await api<PublicSessionStatusResponse>("GET", `/public/sessions/status?ref=${encodeURIComponent(data.sessionRef)}`);
         const next = END[r.status];
         if (next && !stopped) return setEnd(next);
       } catch (e) {
@@ -87,7 +92,9 @@ export function GuestWelcome({
         <div className="flex min-w-0 items-center gap-3">
           <Avatar name={data.technician.name} size="lg" />
           <div className="min-w-0">
-            <p className="truncate font-semibold text-fg" data-testid="guest-tech">{data.technician.name}</p>
+            <p className="truncate font-semibold text-fg" data-testid="guest-tech">
+              {data.technician.name}
+            </p>
             <p className="truncate text-sm text-fg-muted">{t("g.techRole", { tenant: data.tenant.name })}</p>
           </div>
         </div>
@@ -117,24 +124,28 @@ export function GuestWelcome({
 
       {supported === false ? (
         <>
-        {windows && (
-          <section aria-labelledby="yol-t" className="flex flex-col gap-3">
-            <h2 id="yol-t" className="text-lg font-semibold text-fg">{t("gj.howTitle")}</h2>
-            <AgentDownload sessionRef={data.sessionRef} verifyCode={data.techVerifyCode} onEnd={setEnd} />
+          {windows && (
+            <section aria-labelledby="yol-t" className="flex flex-col gap-3">
+              <h2 id="yol-t" className="text-lg font-semibold text-fg">
+                {t("gj.howTitle")}
+              </h2>
+              <AgentDownload sessionRef={data.sessionRef} verifyCode={data.techVerifyCode} onEnd={setEnd} />
+            </section>
+          )}
+          <section
+            role="status"
+            aria-labelledby="desteklenmiyor-t"
+            data-testid="guest-unsupported"
+            className="flex gap-3 rounded-lg border border-border bg-surface p-4 shadow-sm"
+          >
+            <MonitorX aria-hidden className="mt-0.5 size-6 shrink-0 text-fg-muted" />
+            <div>
+              <h2 id="desteklenmiyor-t" className="font-semibold text-fg">
+                {t("g.unsupportedTitle")}
+              </h2>
+              <p className="mt-1 text-sm text-fg-muted">{t("g.unsupportedBody")}</p>
+            </div>
           </section>
-        )}
-        <section
-          role="status"
-          aria-labelledby="desteklenmiyor-t"
-          data-testid="guest-unsupported"
-          className="flex gap-3 rounded-lg border border-border bg-surface p-4 shadow-sm"
-        >
-          <MonitorX aria-hidden className="mt-0.5 size-6 shrink-0 text-fg-muted" />
-          <div>
-            <h2 id="desteklenmiyor-t" className="font-semibold text-fg">{t("g.unsupportedTitle")}</h2>
-            <p className="mt-1 text-sm text-fg-muted">{t("g.unsupportedBody")}</p>
-          </div>
-        </section>
         </>
       ) : (
         <JoinForm data={data} windows={windows} onJoined={onJoined} onEnd={setEnd} />

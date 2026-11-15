@@ -5,14 +5,33 @@
 // (newfirm: müşteri firmalı request.new — AC-176).
 // GET /__e2e/rq/sockets/<çerez> → { open } açık soket sayısı (olay öncesi senkron noktası, QA-P8b-12).
 import { WebSocketServer } from "ws";
-import { emailTestInputSchema, rejectMessageSchema, updateRequestSettingsInputSchema, whatsappTestInputSchema } from "@remote/contracts/api/requests";
+import {
+  emailTestInputSchema,
+  rejectMessageSchema,
+  updateRequestSettingsInputSchema,
+  whatsappTestInputSchema,
+} from "@remote/contracts/api/requests";
 import { SMTP_SEND_FAILED_MESSAGE } from "@remote/contracts/api/tenants";
 
-const ADMIN_P = ["sessions.view", "sessions.create", "session_history.view", "support_requests.view", "support_requests.accept", "settings.view", "settings.edit"];
+const ADMIN_P = [
+  "sessions.view",
+  "sessions.create",
+  "session_history.view",
+  "support_requests.view",
+  "support_requests.accept",
+  "settings.view",
+  "settings.edit",
+];
 const TENANT = { id: "01JTENA0000000000000000001", name: "Demo Firma" };
 const now = () => Date.now();
 const iso = (ms) => new Date(ms).toISOString();
-export const RQ = { A: "01JRQ00000000000000000000A", B: "01JRQ00000000000000000000B", C: "01JRQ00000000000000000000C", NEW: "01JRQ0000000000000000000NW", NEWFIRM: "01JRQ0000000000000000000NF" };
+export const RQ = {
+  A: "01JRQ00000000000000000000A",
+  B: "01JRQ00000000000000000000B",
+  C: "01JRQ00000000000000000000C",
+  NEW: "01JRQ0000000000000000000NW",
+  NEWFIRM: "01JRQ0000000000000000000NF",
+};
 export const RQ_SESSION = "01JRQSES000000000000000001";
 
 export function requestUser(cookie) {
@@ -59,14 +78,80 @@ function seed(kind) {
   const t0 = now();
   return {
     pending: [
-      item({ id: RQ.A, requestCode: "123456", networkMatch: "NONE", createdAt: iso(t0 - 9 * 60_000), waitSec: 540, customerName: "Ayşe Yılmaz", customerPhone: "+905321112233", customerEmail: "ayse@ornek.com", description: "Yazıcı çalışmıyor, bkz. https://kotu.example/x <b>kalın</b>" }),
-      item({ id: RQ.B, requestCode: "654321", networkMatch: "TRUSTED", knownDevice: true, createdAt: iso(t0 - 4 * 60_000), waitSec: 240, customerName: "Ali Demir", customerPhone: "+905301112233", description: "Muhasebe programı açılmıyor" }),
-      item({ id: RQ.C, requestCode: "111222", networkMatch: "PREFIX", createdAt: iso(t0 - 60_000), waitSec: 60, customerName: "Can Öz", customerPhone: "+905051112233", description: "E-posta gönderilemiyor" }),
+      item({
+        id: RQ.A,
+        requestCode: "123456",
+        networkMatch: "NONE",
+        createdAt: iso(t0 - 9 * 60_000),
+        waitSec: 540,
+        customerName: "Ayşe Yılmaz",
+        customerPhone: "+905321112233",
+        customerEmail: "ayse@ornek.com",
+        description: "Yazıcı çalışmıyor, bkz. https://kotu.example/x <b>kalın</b>",
+      }),
+      item({
+        id: RQ.B,
+        requestCode: "654321",
+        networkMatch: "TRUSTED",
+        knownDevice: true,
+        createdAt: iso(t0 - 4 * 60_000),
+        waitSec: 240,
+        customerName: "Ali Demir",
+        customerPhone: "+905301112233",
+        description: "Muhasebe programı açılmıyor",
+      }),
+      item({
+        id: RQ.C,
+        requestCode: "111222",
+        networkMatch: "PREFIX",
+        createdAt: iso(t0 - 60_000),
+        waitSec: 60,
+        customerName: "Can Öz",
+        customerPhone: "+905051112233",
+        description: "E-posta gönderilemiyor",
+      }),
     ],
     history: [
-      item({ id: "01JRQH0000000000000000000A", requestCode: "222333", networkMatch: "IP", status: "ACCEPTED", createdAt: iso(t0 - 86_400_000), closedAt: iso(t0 - 86_000_000), waitSec: 400, customerName: "Fatma Şahin", customerPhone: "+905441112233", description: "Ekran donuyor", acceptedBy: { id: "01JUSRQ0000000000000000001", name: "Selin Teknik" }, sessionId: "01JHXST0000000000000000000" }),
-      item({ id: "01JRQH0000000000000000000B", requestCode: "444555", networkMatch: "NONE", status: "REJECTED", createdAt: iso(t0 - 2 * 86_400_000), closedAt: iso(t0 - 2 * 86_400_000 + 300_000), waitSec: 300, customerName: "Mert Kara", customerPhone: "+905441112244", description: "Program kurulumu", rejectMessage: "Mesai saatleri dışındayız, sizi arayacağız" }),
-      item({ id: "01JRQH0000000000000000000C", requestCode: "666777", networkMatch: "NONE", status: "CANCELLED", cancelReason: "CUSTOMER", createdAt: iso(t0 - 3 * 86_400_000), closedAt: iso(t0 - 3 * 86_400_000 + 60_000), waitSec: 60, customerName: null, customerPhone: null, description: null }),
+      item({
+        id: "01JRQH0000000000000000000A",
+        requestCode: "222333",
+        networkMatch: "IP",
+        status: "ACCEPTED",
+        createdAt: iso(t0 - 86_400_000),
+        closedAt: iso(t0 - 86_000_000),
+        waitSec: 400,
+        customerName: "Fatma Şahin",
+        customerPhone: "+905441112233",
+        description: "Ekran donuyor",
+        acceptedBy: { id: "01JUSRQ0000000000000000001", name: "Selin Teknik" },
+        sessionId: "01JHXST0000000000000000000",
+      }),
+      item({
+        id: "01JRQH0000000000000000000B",
+        requestCode: "444555",
+        networkMatch: "NONE",
+        status: "REJECTED",
+        createdAt: iso(t0 - 2 * 86_400_000),
+        closedAt: iso(t0 - 2 * 86_400_000 + 300_000),
+        waitSec: 300,
+        customerName: "Mert Kara",
+        customerPhone: "+905441112244",
+        description: "Program kurulumu",
+        rejectMessage: "Mesai saatleri dışındayız, sizi arayacağız",
+      }),
+      item({
+        id: "01JRQH0000000000000000000C",
+        requestCode: "666777",
+        networkMatch: "NONE",
+        status: "CANCELLED",
+        cancelReason: "CUSTOMER",
+        createdAt: iso(t0 - 3 * 86_400_000),
+        closedAt: iso(t0 - 3 * 86_400_000 + 60_000),
+        waitSec: 60,
+        customerName: null,
+        customerPhone: null,
+        description: null,
+      }),
     ],
   };
 }
@@ -84,7 +169,8 @@ const settingsSeed = (kind) => ({
 });
 
 const stores = new Map();
-export const store = (cookie, kind) => stores.get(cookie) ?? stores.set(cookie, { ...seed(kind), settings: settingsSeed(kind) }).get(cookie);
+export const store = (cookie, kind) =>
+  stores.get(cookie) ?? stores.set(cookie, { ...seed(kind), settings: settingsSeed(kind) }).get(cookie);
 const sockets = new Map(); // çerez → Set<ws>
 const pushTo = (cookie, m) => {
   for (const ws of sockets.get(cookie) ?? []) if (ws.readyState === 1) ws.send(JSON.stringify(m));
@@ -117,24 +203,68 @@ export function panelUpgrade(req, sock, head, session) {
 function e2eHook(url, send, res) {
   // QA-P8b-12: senkron noktası — o çerezin AÇIK /ws/panel soket sayısı (olay itmeden önce testte beklenir)
   const sk = url.match(/^\/__e2e\/rq\/sockets\/([^?]+)$/);
-  if (sk) return send(res, 200, { open: [...(sockets.get(sk[1]) ?? [])].filter((ws) => ws.readyState === 1).length }), true;
+  if (sk) return (send(res, 200, { open: [...(sockets.get(sk[1]) ?? [])].filter((ws) => ws.readyState === 1).length }), true);
   const m = url.match(/^\/__e2e\/rq\/(new|newfirm|removed|alert|declined|close4401)\/([^?]+)(?:\?id=([0-9A-Z]{26}))?$/);
   if (!m) return false;
   const [, ev, cookie, id] = m;
   const s = stores.get(cookie);
-  if (!s) return send(res, 404, {}), true;
+  if (!s) return (send(res, 404, {}), true);
   if (ev === "new") {
-    const it = item({ id: RQ.NEW, requestCode: "777888", networkMatch: "NONE", createdAt: iso(now()), waitSec: 0, customerName: "Yeni Müşteri", customerPhone: "+905551112233", description: "Bilgisayar çok yavaş" });
+    const it = item({
+      id: RQ.NEW,
+      requestCode: "777888",
+      networkMatch: "NONE",
+      createdAt: iso(now()),
+      waitSec: 0,
+      customerName: "Yeni Müşteri",
+      customerPhone: "+905551112233",
+      description: "Bilgisayar çok yavaş",
+    });
     s.pending.push(it);
-    pushTo(cookie, { t: "request.new", id: it.id, requestCode: it.requestCode, customerName: it.customerName, preview: it.description, networkMatch: "NONE", knownDevice: false, createdAt: it.createdAt, customerFirm: null, viaBinding: false, bindingRevoked: false, staleSource: false });
+    pushTo(cookie, {
+      t: "request.new",
+      id: it.id,
+      requestCode: it.requestCode,
+      customerName: it.customerName,
+      preview: it.description,
+      networkMatch: "NONE",
+      knownDevice: false,
+      createdAt: it.createdAt,
+      customerFirm: null,
+      viaBinding: false,
+      bindingRevoked: false,
+      staleSource: false,
+    });
     count(cookie);
   } else if (ev === "newfirm") {
     // AC-176: müşteri ref'iyle açılmış talep — toast'ta firma adı
     const firm = { id: "01JC5ST0000000000000000001", name: "Şişli Bilişim Ltd.", status: "ACTIVE" };
-    const it = item({ id: RQ.NEWFIRM, requestCode: "999000", networkMatch: "NONE", createdAt: iso(now()), waitSec: 0, customerName: "Firma Müşterisi", customerPhone: "+905551112244", description: "Sunucuya erişilemiyor", customerFirm: firm });
+    const it = item({
+      id: RQ.NEWFIRM,
+      requestCode: "999000",
+      networkMatch: "NONE",
+      createdAt: iso(now()),
+      waitSec: 0,
+      customerName: "Firma Müşterisi",
+      customerPhone: "+905551112244",
+      description: "Sunucuya erişilemiyor",
+      customerFirm: firm,
+    });
     s.pending.push(it);
-    pushTo(cookie, { t: "request.new", id: it.id, requestCode: it.requestCode, customerName: it.customerName, preview: it.description, networkMatch: "NONE", knownDevice: false, createdAt: it.createdAt, customerFirm: { id: firm.id, name: firm.name }, // ws-request: strictObject {id,name}
-      viaBinding: false, bindingRevoked: false, staleSource: false });
+    pushTo(cookie, {
+      t: "request.new",
+      id: it.id,
+      requestCode: it.requestCode,
+      customerName: it.customerName,
+      preview: it.description,
+      networkMatch: "NONE",
+      knownDevice: false,
+      createdAt: it.createdAt,
+      customerFirm: { id: firm.id, name: firm.name }, // ws-request: strictObject {id,name}
+      viaBinding: false,
+      bindingRevoked: false,
+      staleSource: false,
+    });
     count(cookie);
   } else if (ev === "removed") {
     s.pending = s.pending.filter((x) => x.id !== id);
@@ -159,50 +289,57 @@ export async function handleRequests(req, res, { url, session, csrfOk, send, err
   const s = store(session, who.kind);
   const can = (p) => who.permissions.includes(p);
   const write = req.method !== "GET";
-  if (write && !csrfOk) return send(res, 403, err("CSRF_INVALID", "CSRF doğrulaması başarısız.")), true;
+  if (write && !csrfOk) return (send(res, 403, err("CSRF_INVALID", "CSRF doğrulaması başarısız.")), true);
 
-  if (path === "/api/v1/support-requests/count" && req.method === "GET") return send(res, 200, { pending: s.pending.length }), true;
+  if (path === "/api/v1/support-requests/count" && req.method === "GET") return (send(res, 200, { pending: s.pending.length }), true);
   if (path === "/api/v1/support-requests" && req.method === "GET") {
-    if (!can("support_requests.view")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
-    if (who.kind === "rqbroken") return send(res, 500, err("INTERNAL", "Sunucu hatası.")), true;
+    if (!can("support_requests.view")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+    if (who.kind === "rqbroken") return (send(res, 500, err("INTERNAL", "Sunucu hatası.")), true);
     const cf = q.get("customer");
     const byFirm = (x) => !cf || (cf === "general" ? x.customerFirm === null : x.customerFirm?.id === cf);
     if (q.get("tab") === "history") {
       const items = s.history.filter((x) => (!q.get("status") || x.status === q.get("status")) && byFirm(x));
-      return send(res, 200, { items, page: 1, pageSize: 25, total: items.length }, [], { "Cache-Control": "no-store" }), true;
+      return (send(res, 200, { items, page: 1, pageSize: 25, total: items.length }, [], { "Cache-Control": "no-store" }), true);
     }
     const pend = s.pending.filter(byFirm);
-    return send(res, 200, { items: pend, page: 1, pageSize: 50, total: pend.length }, [], { "Cache-Control": "no-store" }), true;
+    return (send(res, 200, { items: pend, page: 1, pageSize: 50, total: pend.length }, [], { "Cache-Control": "no-store" }), true);
   }
   const am = path.match(/^\/api\/v1\/support-requests\/([0-9A-Z]{26})\/(accept|reject)$/);
   if (am && req.method === "POST") {
-    if (!can("support_requests.accept")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
+    if (!can("support_requests.accept")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
     const it = s.pending.find((x) => x.id === am[1]);
-    if (!it) return send(res, 409, err("REQUEST_CLOSED", "Talep kapandı.")), true;
+    if (!it) return (send(res, 409, err("REQUEST_CLOSED", "Talep kapandı.")), true);
     if (am[2] === "accept") {
-      if (it.id === RQ.B) return send(res, 409, err("REQUEST_TAKEN", "Talep başka bir teknisyen tarafından alındı")), true;
+      if (it.id === RQ.B) return (send(res, 409, err("REQUEST_TAKEN", "Talep başka bir teknisyen tarafından alındı")), true);
       s.pending = s.pending.filter((x) => x.id !== it.id);
       count(session);
-      return send(res, 200, { sessionId: RQ_SESSION, consoleUrl: `/sessions/${RQ_SESSION}/console` }), true;
+      return (send(res, 200, { sessionId: RQ_SESSION, consoleUrl: `/sessions/${RQ_SESSION}/console` }), true);
     }
     const body = await readJson(req);
     const parsed = rejectMessageSchema.safeParse(body.message);
-    if (!parsed.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { message: parsed.error.issues[0]?.message } })), true;
+    if (!parsed.success)
+      return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { message: parsed.error.issues[0]?.message } })), true);
     s.pending = s.pending.filter((x) => x.id !== it.id);
     s.history.unshift({ ...it, status: "REJECTED", rejectMessage: parsed.data, closedAt: iso(now()) });
     count(session);
-    return send(res, 204, undefined), true;
+    return (send(res, 204, undefined), true);
   }
 
   if (path.startsWith("/api/v1/settings/support-requests")) {
-    if (!can("settings.edit")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
-    if (path === "/api/v1/settings/support-requests" && req.method === "GET") return send(res, 200, s.settings), true;
+    if (!can("settings.edit")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+    if (path === "/api/v1/settings/support-requests" && req.method === "GET") return (send(res, 200, s.settings), true);
     if (path === "/api/v1/settings/support-requests" && req.method === "PUT") {
       const parsed = updateRequestSettingsInputSchema.safeParse(await readJson(req));
-      if (!parsed.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(parsed.error) })), true;
-      if (parsed.data.waitMinutes === 99) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { waitMinutes: "Sunucu bu süreyi reddetti" } })), true;
-      Object.assign(s.settings, { waitMinutes: parsed.data.waitMinutes, trustedCidrs: parsed.data.trustedCidrs, whatsapp: { ...s.settings.whatsapp, ...parsed.data.whatsapp }, email: { ...s.settings.email, ...parsed.data.email } });
-      return send(res, 200, s.settings), true;
+      if (!parsed.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(parsed.error) })), true);
+      if (parsed.data.waitMinutes === 99)
+        return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { waitMinutes: "Sunucu bu süreyi reddetti" } })), true);
+      Object.assign(s.settings, {
+        waitMinutes: parsed.data.waitMinutes,
+        trustedCidrs: parsed.data.trustedCidrs,
+        whatsapp: { ...s.settings.whatsapp, ...parsed.data.whatsapp },
+        email: { ...s.settings.email, ...parsed.data.email },
+      });
+      return (send(res, 200, s.settings), true);
     }
     if (path === "/api/v1/settings/support-requests/rotate-ref" && req.method === "POST") {
       Object.assign(s.settings, {
@@ -211,20 +348,20 @@ export async function handleRequests(req, res, { url, session, csrfOk, send, err
         refPrefix: "zyxw",
         refRotatedAt: iso(now()),
       });
-      return send(res, 200, s.settings), true;
+      return (send(res, 200, s.settings), true);
     }
     if (path === "/api/v1/settings/support-requests/whatsapp/test" && req.method === "POST") {
       const parsed = whatsappTestInputSchema.safeParse(await readJson(req));
-      if (!parsed.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(parsed.error) })), true;
-      if (parsed.data.phone === "+905009999999") return send(res, 502, err("UPSTREAM", "WhatsApp servisine ulaşılamadı.")), true;
-      return send(res, 200, { ok: true, message: "Test mesajı gönderildi." }), true;
+      if (!parsed.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(parsed.error) })), true);
+      if (parsed.data.phone === "+905009999999") return (send(res, 502, err("UPSTREAM", "WhatsApp servisine ulaşılamadı.")), true);
+      return (send(res, 200, { ok: true, message: "Test mesajı gönderildi." }), true);
     }
     if (path === "/api/v1/settings/support-requests/email/test" && req.method === "POST") {
       const parsed = emailTestInputSchema.safeParse(await readJson(req));
-      if (!parsed.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(parsed.error) })), true;
-      if (!s.settings.email.smtpConfigured) return send(res, 502, err("UPSTREAM", "Önce SMTP ayarlarını yapın")), true;
-      if (parsed.data.to === "fail@ornek.com") return send(res, 200, { ok: false, message: SMTP_SEND_FAILED_MESSAGE }), true;
-      return send(res, 200, { ok: true, message: "Test maili gönderildi." }), true;
+      if (!parsed.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(parsed.error) })), true);
+      if (!s.settings.email.smtpConfigured) return (send(res, 502, err("UPSTREAM", "Önce SMTP ayarlarını yapın")), true);
+      if (parsed.data.to === "fail@ornek.com") return (send(res, 200, { ok: false, message: SMTP_SEND_FAILED_MESSAGE }), true);
+      return (send(res, 200, { ok: true, message: "Test maili gönderildi." }), true);
     }
   }
   return false;

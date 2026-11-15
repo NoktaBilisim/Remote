@@ -6,7 +6,15 @@ import { guestInboundSchema, techInboundSchema, WS_CLOSE, WS_MAX_PAYLOAD } from 
 import type { z } from "zod";
 import { admitGuest, rejectGuest } from "./admit.ts";
 import { handleFileMeta, handleQualitySummary } from "./collab.ts";
-import { handleControlClose, handleControlRequest, handleControlState, handleEnvState, handleMonitorDenied, handleMonitorRequest, onShareMonitor } from "./control.ts";
+import {
+  handleControlClose,
+  handleControlRequest,
+  handleControlState,
+  handleEnvState,
+  handleMonitorDenied,
+  handleMonitorRequest,
+  onShareMonitor,
+} from "./control.ts";
 import { handleBindingRequest } from "./binding.ts";
 import type { Rooms } from "./rooms.ts";
 import type { Clock, Guest, Peer, Room } from "./types.ts";
@@ -35,7 +43,14 @@ export class TokenBucket {
 }
 
 /** Ham çerçeveyi doğrular; geçersizse bağlantıyı 1008 ile kapatır ve null döner. */
-export function parseFrame<T extends z.ZodType>(rooms: Rooms, peer: Peer, bucket: TokenBucket, schema: T, data: Buffer, isBinary: boolean): z.infer<T> | null {
+export function parseFrame<T extends z.ZodType>(
+  rooms: Rooms,
+  peer: Peer,
+  bucket: TokenBucket,
+  schema: T,
+  data: Buffer,
+  isBinary: boolean,
+): z.infer<T> | null {
   const fail = (reason: string): null => {
     rooms.log.warn({ event: reason }, "ws mesajı reddedildi");
     rooms.metrics.inc("rs_ws_closed_policy_total", { reason });
@@ -55,7 +70,14 @@ export function parseFrame<T extends z.ZodType>(rooms: Rooms, peer: Peer, bucket
   return parsed.success ? parsed.data : fail("ws_invalid_message");
 }
 
-export async function onTechMessage(rooms: Rooms, room: Room, peer: Peer, bucket: TokenBucket, data: Buffer, isBinary: boolean): Promise<void> {
+export async function onTechMessage(
+  rooms: Rooms,
+  room: Room,
+  peer: Peer,
+  bucket: TokenBucket,
+  data: Buffer,
+  isBinary: boolean,
+): Promise<void> {
   const tech = room.tech;
   if (!rooms.live(room) || tech?.peer !== peer) return;
   const m = parseFrame(rooms, peer, bucket, techInboundSchema, data, isBinary);
@@ -108,7 +130,15 @@ export async function onTechMessage(rooms: Rooms, room: Room, peer: Peer, bucket
   }
 }
 
-export async function onGuestMessage(rooms: Rooms, room: Room, guest: Guest, peer: Peer, bucket: TokenBucket, data: Buffer, isBinary: boolean): Promise<void> {
+export async function onGuestMessage(
+  rooms: Rooms,
+  room: Room,
+  guest: Guest,
+  peer: Peer,
+  bucket: TokenBucket,
+  data: Buffer,
+  isBinary: boolean,
+): Promise<void> {
   if (!rooms.live(room) || guest.peer !== peer) return;
   const m = parseFrame(rooms, peer, bucket, guestInboundSchema, data, isBinary);
   if (!m) return;
@@ -130,7 +160,11 @@ export async function onGuestMessage(rooms: Rooms, room: Room, guest: Guest, pee
       tech?.send(iceOut(m));
       return;
     case "share.state": {
-      const snap = { state: m.state, ...(m.monitors ? { monitors: m.monitors } : {}), ...(m.activeMonitor !== undefined ? { activeMonitor: m.activeMonitor } : {}) };
+      const snap = {
+        state: m.state,
+        ...(m.monitors ? { monitors: m.monitors } : {}),
+        ...(m.activeMonitor !== undefined ? { activeMonitor: m.activeMonitor } : {}),
+      };
       room.share = snap; // QA-P4-12: teknisyen yeniden bağlanınca hello.share
       tech?.send({ t: "share.state", ...snap });
       await onShareMonitor(rooms, room, guest, m.activeMonitor); // P7: karşılanan monitör isteği → monitor.granted
@@ -158,4 +192,9 @@ export async function onGuestMessage(rooms: Rooms, room: Room, guest: Guest, pee
 }
 
 const iceOut = (m: { candidate: string; sdpMid?: string | undefined; sdpMLineIndex?: number | undefined }) =>
-  ({ t: "ice", candidate: m.candidate, ...(m.sdpMid !== undefined ? { sdpMid: m.sdpMid } : {}), ...(m.sdpMLineIndex !== undefined ? { sdpMLineIndex: m.sdpMLineIndex } : {}) }) as const;
+  ({
+    t: "ice",
+    candidate: m.candidate,
+    ...(m.sdpMid !== undefined ? { sdpMid: m.sdpMid } : {}),
+    ...(m.sdpMLineIndex !== undefined ? { sdpMLineIndex: m.sdpMLineIndex } : {}),
+  }) as const;

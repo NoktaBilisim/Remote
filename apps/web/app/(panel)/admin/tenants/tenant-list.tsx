@@ -70,23 +70,45 @@ export function TenantList({ items, actingId }: { items: TenantItem[]; actingId:
 
   const actions = (x: TenantItem): ReactNode => (
     <div className="flex flex-wrap gap-2">
-      <Button variant="secondary" onClick={() => setAction({ kind: "edit", tenant: x })} aria-label={t("tn.editFor", { name: x.name })} data-testid="tenant-edit">
+      <Button
+        variant="secondary"
+        onClick={() => setAction({ kind: "edit", tenant: x })}
+        aria-label={t("tn.editFor", { name: x.name })}
+        data-testid="tenant-edit"
+      >
         <PenLine aria-hidden className="size-4" />
         <span aria-hidden>{t("tn.edit")}</span>
       </Button>
       {x.status === "ACTIVE" && x.id !== actingId && (
-        <Button variant="secondary" loading={switching === x.id} disabled={switching !== null} onClick={() => void switchTo(x)} aria-label={t("tn.switchFor", { name: x.name })} data-testid="tenant-switch">
+        <Button
+          variant="secondary"
+          loading={switching === x.id}
+          disabled={switching !== null}
+          onClick={() => void switchTo(x)}
+          aria-label={t("tn.switchFor", { name: x.name })}
+          data-testid="tenant-switch"
+        >
           {switching !== x.id && <ArrowRightLeft aria-hidden className="size-4" />}
           <span aria-hidden>{t("tn.switch")}</span>
         </Button>
       )}
       {x.status === "ACTIVE" ? (
-        <Button variant="danger-ghost" onClick={() => setAction({ kind: "deactivate", tenant: x })} aria-label={t("tn.deactFor", { name: x.name })} data-testid="tenant-deactivate">
+        <Button
+          variant="danger-ghost"
+          onClick={() => setAction({ kind: "deactivate", tenant: x })}
+          aria-label={t("tn.deactFor", { name: x.name })}
+          data-testid="tenant-deactivate"
+        >
           <Archive aria-hidden className="size-4" />
           <span aria-hidden>{t("tn.deact")}</span>
         </Button>
       ) : (
-        <Button variant="secondary" onClick={() => setAction({ kind: "reactivate", tenant: x })} aria-label={t("tn.rFor", { name: x.name })} data-testid="tenant-reactivate">
+        <Button
+          variant="secondary"
+          onClick={() => setAction({ kind: "reactivate", tenant: x })}
+          aria-label={t("tn.rFor", { name: x.name })}
+          data-testid="tenant-reactivate"
+        >
           <ArchiveRestore aria-hidden className="size-4" />
           <span aria-hidden>{t("tn.r")}</span>
         </Button>
@@ -96,9 +118,14 @@ export function TenantList({ items, actingId }: { items: TenantItem[]; actingId:
   const nameCell = (x: TenantItem) => (
     <span className="flex min-w-0 items-center gap-2">
       <Building aria-hidden className="size-4 shrink-0 text-fg-muted" />
-      <span className="truncate font-medium text-fg" title={x.name}>{x.name}</span>
+      <span className="truncate font-medium text-fg" title={x.name}>
+        {x.name}
+      </span>
       {x.id === actingId && (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium text-primary" data-testid="tenant-current">
+        <span
+          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium text-primary"
+          data-testid="tenant-current"
+        >
           <Check aria-hidden className="size-3.5" />
           {t("tn.current")}
         </span>
@@ -108,17 +135,34 @@ export function TenantList({ items, actingId }: { items: TenantItem[]; actingId:
 
   return (
     <>
-      <div className="hidden overflow-x-auto rounded-lg border border-border bg-surface md:block" tabIndex={0} role="region" aria-label={t("tn.tableRegion")}>
+      <div
+        className="hidden overflow-x-auto rounded-lg border border-border bg-surface md:block"
+        tabIndex={0}
+        role="region"
+        aria-label={t("tn.tableRegion")}
+      >
         <table className="w-full text-left text-sm" data-testid="tenants-table">
           <caption className="sr-only">{t("tn.title")}</caption>
           <thead className="bg-surface-muted text-xs text-fg-muted">
             <tr>
-              <th scope="col" className="px-3 py-3 font-medium">{t("tn.col.name")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("tn.col.slug")}</th>
-              <th scope="col" className="px-3 py-3 text-right font-medium">{t("tn.col.users")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("tn.col.created")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("tn.col.status")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("tn.col.actions")}</th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("tn.col.name")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("tn.col.slug")}
+              </th>
+              <th scope="col" className="px-3 py-3 text-right font-medium">
+                {t("tn.col.users")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("tn.col.created")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("tn.col.status")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("tn.col.actions")}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -128,7 +172,9 @@ export function TenantList({ items, actingId }: { items: TenantItem[]; actingId:
                 <td className="px-3 py-2 font-mono text-xs text-fg">{x.slug}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-fg">{formatNumber(x.activeUserCount)}</td>
                 <td className="px-3 py-2 whitespace-nowrap tabular-nums text-fg">{formatDateTime(x.createdAt)}</td>
-                <td className="px-3 py-2"><StatusPill status={x.status} testId="tenant-status" /></td>
+                <td className="px-3 py-2">
+                  <StatusPill status={x.status} testId="tenant-status" />
+                </td>
                 <td className="px-3 py-2">{actions(x)}</td>
               </tr>
             ))}
@@ -165,7 +211,12 @@ export function TenantList({ items, actingId }: { items: TenantItem[]; actingId:
           }}
         />
       )}
-      <StatusDialog action={action && (action.kind === "deactivate" || action.kind === "reactivate") ? { kind: action.kind, tenant: action.tenant } : null} onClose={() => setAction(null)} />
+      <StatusDialog
+        action={
+          action && (action.kind === "deactivate" || action.kind === "reactivate") ? { kind: action.kind, tenant: action.tenant } : null
+        }
+        onClose={() => setAction(null)}
+      />
     </>
   );
 }
@@ -173,7 +224,13 @@ export function TenantList({ items, actingId }: { items: TenantItem[]; actingId:
 /**
  * Pasife al (etkiler listesi + kısa adı yazarak onay; odak "Vazgeç") / Yeniden etkinleştir onayı. `alertdialog`.
  */
-function StatusDialog({ action, onClose }: { action: { kind: "deactivate" | "reactivate"; tenant: TenantItem } | null; onClose: () => void }) {
+function StatusDialog({
+  action,
+  onClose,
+}: {
+  action: { kind: "deactivate" | "reactivate"; tenant: TenantItem } | null;
+  onClose: () => void;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -222,11 +279,13 @@ function StatusDialog({ action, onClose }: { action: { kind: "deactivate" | "rea
       size="sm"
       testId={action ? `tenant-${action.kind}-dialog` : undefined}
       title={x ? t(deact ? "tn.d.title" : "tn.r.title", { name: x.name }) : ""}
-      description={x ? (deact ? <span id={listId}>{t("tn.d.intro")}</span> : t("tn.r.body")) : undefined}
+      description={x ? deact ? <span id={listId}>{t("tn.d.intro")}</span> : t("tn.r.body") : undefined}
       footer={
         action && (
           <>
-            <Button variant="secondary" data-autofocus onClick={close} disabled={busy} className="sm:ml-auto">{t("rq.rj.cancel")}</Button>
+            <Button variant="secondary" data-autofocus onClick={close} disabled={busy} className="sm:ml-auto">
+              {t("rq.rj.cancel")}
+            </Button>
             <Button variant={deact ? "danger" : "primary"} loading={busy} onClick={() => void run()} data-testid="tenant-action-confirm">
               {!busy && (deact ? <Archive aria-hidden className="size-4" /> : <ArchiveRestore aria-hidden className="size-4" />)}
               {t(deact ? "tn.d.confirm" : "tn.r.confirm")}
@@ -240,7 +299,11 @@ function StatusDialog({ action, onClose }: { action: { kind: "deactivate" | "rea
           {error && <FormError error={error} />}
           {deact && x && (
             <>
-              <ul className="flex list-disc flex-col gap-1 pl-5 text-sm text-fg" aria-labelledby={listId} data-testid="tenant-deactivate-effects">
+              <ul
+                className="flex list-disc flex-col gap-1 pl-5 text-sm text-fg"
+                aria-labelledby={listId}
+                data-testid="tenant-deactivate-effects"
+              >
                 <li>{t("tn.d.e1")}</li>
                 <li>{t("tn.d.e2")}</li>
                 <li>{t("tn.d.e3")}</li>

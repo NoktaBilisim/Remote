@@ -29,7 +29,10 @@ describe("P10 sözleşme — kurtarma kodu (AC-67)", () => {
   });
 
   it("verify gövdesi: kod ya da kurtarma kodu, ikisi birden değil", () => {
-    expect(mfaVerifyInputSchema.safeParse({ recoveryCode: "ABCDE - 23456" })).toMatchObject({ success: true, data: { recoveryCode: "ABCDE-23456" } });
+    expect(mfaVerifyInputSchema.safeParse({ recoveryCode: "ABCDE - 23456" })).toMatchObject({
+      success: true,
+      data: { recoveryCode: "ABCDE-23456" },
+    });
     expect(mfaVerifyInputSchema.safeParse({ code: " 123456 " })).toMatchObject({ success: true, data: { code: "123456" } });
     expect(mfaVerifyInputSchema.safeParse({ code: "123456", recoveryCode: "abcde-23456" }).success).toBe(false);
   });

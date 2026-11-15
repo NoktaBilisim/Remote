@@ -32,7 +32,9 @@ export function Section({ id, title, children, aside }: { id: string; title: str
   return (
     <section aria-labelledby={id} className="border-t border-border pt-6" data-testid={`section-${id}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id={id} className="text-lg font-semibold text-fg">{title}</h2>
+        <h2 id={id} className="text-lg font-semibold text-fg">
+          {title}
+        </h2>
         {aside}
       </div>
       <div className="mt-4">{children}</div>
@@ -41,7 +43,9 @@ export function Section({ id, title, children, aside }: { id: string; title: str
 }
 
 const Muted = ({ children, testId }: { children: ReactNode; testId?: string }) => (
-  <p className="text-sm text-fg-muted" data-testid={testId}>{children}</p>
+  <p className="text-sm text-fg-muted" data-testid={testId}>
+    {children}
+  </p>
 );
 
 function Rows({ rows }: { rows: [MessageKey, ReactNode][] }) {
@@ -80,9 +84,18 @@ export function Summary({ s, showTenant, canCustomers = false }: { s: D; showTen
       "h.d.firm",
       s.customerFirm ? (
         canCustomers ? (
-          <Link key="cf" href={`/customers/${s.customerFirm.id}`} className="font-medium text-primary hover:underline" data-testid="history-detail-firm">{s.customerFirm.name}</Link>
+          <Link
+            key="cf"
+            href={`/customers/${s.customerFirm.id}`}
+            className="font-medium text-primary hover:underline"
+            data-testid="history-detail-firm"
+          >
+            {s.customerFirm.name}
+          </Link>
         ) : (
-          <span key="cf" data-testid="history-detail-firm">{s.customerFirm.name}</span>
+          <span key="cf" data-testid="history-detail-firm">
+            {s.customerFirm.name}
+          </span>
         )
       ) : (
         none
@@ -105,7 +118,16 @@ export function RequestInfo({ r }: { r: NonNullable<D["request"]> }) {
     ["h.r.name", r.customerName ?? none],
     ["h.r.phone", r.customerPhone ?? none],
     ["h.r.email", r.customerEmail ?? none],
-    ["h.r.description", r.description ? <span className="whitespace-pre-wrap" data-testid="history-request-description">{r.description}</span> : none],
+    [
+      "h.r.description",
+      r.description ? (
+        <span className="whitespace-pre-wrap" data-testid="history-request-description">
+          {r.description}
+        </span>
+      ) : (
+        none
+      ),
+    ],
   ];
   return <Rows rows={rows} />;
 }
@@ -124,18 +146,46 @@ interface Col<T> {
  * Ayrıntı tablosu (TEST-P8-1): ≥ xl tablo (tam genişlik bölümde; yine taşarsa odaklanabilir yatay kaydırma kabı),
  * daha dar alanda (kenar menüsüyle 1024 px'te tablo sığmıyor) aynı veri kart ızgarası (`<dl>`, sm+ iki sütun) — iç kaydırma yok.
  */
-function DataTable<T extends { id: string }>({ label, testId, rowTestId, items, cols }: { label: string; testId: string; rowTestId: string; items: T[]; cols: Col<T>[] }) {
+function DataTable<T extends { id: string }>({
+  label,
+  testId,
+  rowTestId,
+  items,
+  cols,
+}: {
+  label: string;
+  testId: string;
+  rowTestId: string;
+  items: T[];
+  cols: Col<T>[];
+}) {
   return (
     <>
-      <div className="hidden overflow-x-auto rounded-lg border border-border bg-surface focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring xl:block" tabIndex={0} role="region" aria-label={label} data-testid={`${testId}-scroll`}>
+      <div
+        className="hidden overflow-x-auto rounded-lg border border-border bg-surface focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring xl:block"
+        tabIndex={0}
+        role="region"
+        aria-label={label}
+        data-testid={`${testId}-scroll`}
+      >
         <table className="w-full text-left text-sm" data-testid={testId}>
           <thead className="bg-surface-muted text-xs text-fg-muted">
-            <tr>{cols.map((c) => <th key={c.head} scope="col" className={th}>{c.head}</th>)}</tr>
+            <tr>
+              {cols.map((c) => (
+                <th key={c.head} scope="col" className={th}>
+                  {c.head}
+                </th>
+              ))}
+            </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {items.map((x) => (
               <tr key={x.id} data-testid={rowTestId}>
-                {cols.map((c) => <td key={c.head} className={`${td} ${c.className ?? ""}`}>{c.cell(x)}</td>)}
+                {cols.map((c) => (
+                  <td key={c.head} className={`${td} ${c.className ?? ""}`}>
+                    {c.cell(x)}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -178,7 +228,9 @@ export function ConsentsList({ s }: { s: D }) {
             {t("h.c.textVersion", { version: c.consentText.version })}{" "}
             <span className="font-mono text-xs text-fg-muted">{c.consentText.sha256.slice(0, 12)}…</span>
           </span>
-        ) : none,
+        ) : (
+          none
+        ),
     },
   ];
   return <DataTable label={t("h.c.title")} testId="consents" rowTestId="consent-row" items={s.consents} cols={cols} />;
@@ -187,7 +239,10 @@ export function ConsentsList({ s }: { s: D }) {
 function Elevated({ v }: { v: boolean | null }) {
   if (v === true)
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-warning-surface px-2.5 py-0.5 text-xs font-medium text-warning" data-testid="self-elevated">
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full bg-warning-surface px-2.5 py-0.5 text-xs font-medium text-warning"
+        data-testid="self-elevated"
+      >
         <ShieldUser aria-hidden className="size-4" />
         {SELF_ELEVATED_WARNING}
       </span>
@@ -252,16 +307,25 @@ export function Timeline({ s }: { s: D }) {
   if (s.timeline.length === 0) return <Muted testId="timeline-empty">{t("h.t.empty")}</Muted>;
   return (
     <>
-      {s.timelineTruncated && <p className="mb-3 text-sm font-medium text-warning" role="status" data-testid="timeline-truncated">{t("h.t.truncated")}</p>}
+      {s.timelineTruncated && (
+        <p className="mb-3 text-sm font-medium text-warning" role="status" data-testid="timeline-truncated">
+          {t("h.t.truncated")}
+        </p>
+      )}
       <ol className="relative flex flex-col gap-3 border-l border-border pl-4" data-testid="timeline">
         {s.timeline.map((e, i) => {
           const v = describeTimelineEvent(e);
           const who = `${labelOf(SESSION_ENDED_BY_LABELS, e.actor)}${e.actorName ? ` · ${e.actorName}` : ""}`;
           return (
             <li key={`${e.at}-${i}`} className="text-sm" data-testid="timeline-event" data-action={e.action}>
-              <span aria-hidden className={`absolute -left-1.5 mt-1.5 size-3 rounded-full border-2 border-surface ${e.result === "fail" ? "bg-danger" : "bg-primary"}`} />
+              <span
+                aria-hidden
+                className={`absolute -left-1.5 mt-1.5 size-3 rounded-full border-2 border-surface ${e.result === "fail" ? "bg-danger" : "bg-primary"}`}
+              />
               <p className="flex flex-wrap items-baseline gap-x-2">
-                <time dateTime={e.at} className="tabular-nums text-fg-muted">{formatTimeSeconds(e.at)}</time>
+                <time dateTime={e.at} className="tabular-nums text-fg-muted">
+                  {formatTimeSeconds(e.at)}
+                </time>
                 <span className="font-medium text-fg">{v.label}</span>
                 {e.result === "fail" && <span className="text-xs font-medium text-danger">({t("h.t.fail")})</span>}
               </p>
@@ -304,23 +368,39 @@ export function Quality({ s }: { s: D }) {
 export function Files({ s }: { s: D }) {
   if (s.files.length === 0) return <Muted testId="files-empty">{t(isAnonymized(s) ? "h.anon.files" : "h.file.empty")}</Muted>;
   const cols: Col<FileMeta>[] = [
-    { head: t("h.file.at"), cell: (f) => <span className="tabular-nums">{formatDateTime(f.createdAt)}</span>, className: "whitespace-nowrap" },
+    {
+      head: t("h.file.at"),
+      cell: (f) => <span className="tabular-nums">{formatDateTime(f.createdAt)}</span>,
+      className: "whitespace-nowrap",
+    },
     {
       head: t("h.file.dir"),
       className: "whitespace-nowrap",
       cell: (f) => (
         <span className="inline-flex items-center gap-1.5">
-          {f.direction === "TO_CUSTOMER" ? <Upload aria-hidden className="size-4 text-fg-muted" /> : <Download aria-hidden className="size-4 text-fg-muted" />}
+          {f.direction === "TO_CUSTOMER" ? (
+            <Upload aria-hidden className="size-4 text-fg-muted" />
+          ) : (
+            <Download aria-hidden className="size-4 text-fg-muted" />
+          )}
           {labelOf(FILE_DIRECTION_LABELS, f.direction)}
         </span>
       ),
     },
     // Sığmayan uzun ad sözcük sınırında, gerekirse içinde kırılır; sütun hiç 1 harfe inmez (min-w-48).
     { head: t("h.file.name"), cell: (f) => <span data-testid="file-name">{f.fileName}</span>, className: "min-w-48 wrap-break-word" },
-    { head: t("h.file.size"), cell: (f) => <span className="tabular-nums">{formatBytes(f.sizeBytes)}</span>, className: "whitespace-nowrap" },
+    {
+      head: t("h.file.size"),
+      cell: (f) => <span className="tabular-nums">{formatBytes(f.sizeBytes)}</span>,
+      className: "whitespace-nowrap",
+    },
     {
       head: t("h.file.result"),
-      cell: (f) => <span className={f.result === "OK" ? "text-success" : f.result === "CORRUPT" ? "text-danger" : "text-fg"}>{labelOf(FILE_RESULT_LABELS, f.result)}</span>,
+      cell: (f) => (
+        <span className={f.result === "OK" ? "text-success" : f.result === "CORRUPT" ? "text-danger" : "text-fg"}>
+          {labelOf(FILE_RESULT_LABELS, f.result)}
+        </span>
+      ),
     },
     { head: t("h.file.sha"), cell: (f) => <CopyHash value={f.sha256} testId="file-sha" />, className: "whitespace-nowrap" },
   ];

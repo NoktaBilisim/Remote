@@ -43,13 +43,7 @@ export function LogoutButton({ userName }: { userName: string }) {
           {t("panel.logoutFailed")}
         </span>
       )}
-      <Button
-        variant="ghost"
-        onClick={logout}
-        loading={pending}
-        aria-label={`${t("panel.logout")} (${userName})`}
-        className="px-3"
-      >
+      <Button variant="ghost" onClick={logout} loading={pending} aria-label={`${t("panel.logout")} (${userName})`} className="px-3">
         {!pending && <LogOut aria-hidden className="size-4" />}
         <span className="hidden sm:inline">{pending ? t("panel.loggingOut") : t("panel.logout")}</span>
       </Button>

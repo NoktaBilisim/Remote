@@ -55,7 +55,10 @@ export function simplify(pts: Pt[], max = MAX_PTS): Pt[] {
 export function annotReducer(s: AnnotState, m: CtlMessage, now = Date.now()): AnnotState {
   switch (m.t) {
     case "annot.stroke":
-      return { ...s, strokes: [...s.strokes.filter((x) => x.id !== m.id), { id: m.id, tool: m.tool, color: m.color, pts: m.pts }].slice(-MAX_STROKES) };
+      return {
+        ...s,
+        strokes: [...s.strokes.filter((x) => x.id !== m.id), { id: m.id, tool: m.tool, color: m.color, pts: m.pts }].slice(-MAX_STROKES),
+      };
     case "annot.undo":
       return { ...s, strokes: m.id ? s.strokes.filter((x) => x.id !== m.id) : s.strokes.slice(0, -1) };
     case "annot.clear":
@@ -85,7 +88,13 @@ export function throttle<A extends unknown[]>(fn: (...a: A) => void, ms: number,
 export function annotPalette(el: Element): Record<AnnotColor | "laser", string> {
   const cs = getComputedStyle(el);
   const v = (n: string) => cs.getPropertyValue(n).trim();
-  return { red: v("--rs-annot-red"), yellow: v("--rs-annot-yellow"), green: v("--rs-annot-green"), blue: v("--rs-annot-blue"), laser: v("--rs-annotate") };
+  return {
+    red: v("--rs-annot-red"),
+    yellow: v("--rs-annot-yellow"),
+    green: v("--rs-annot-green"),
+    blue: v("--rs-annot-blue"),
+    laser: v("--rs-annotate"),
+  };
 }
 
 export function drawAnnotations(

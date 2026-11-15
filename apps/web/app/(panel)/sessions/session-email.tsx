@@ -45,7 +45,10 @@ export function SessionEmail({ sessionId, link, disabled }: { sessionId: string;
       if (err instanceof ApiError && err.status === 400 && err.fields?.to) setError(err.fields.to);
       else {
         const ui = toUiError(err, { 404: t("d.mail.gone"), 410: t("d.mail.gone") });
-        setResult({ tone: ui.tone, message: err instanceof ApiError && err.status === 502 ? err.message || t("d.mail.failed") : ui.message });
+        setResult({
+          tone: ui.tone,
+          message: err instanceof ApiError && err.status === 502 ? err.message || t("d.mail.failed") : ui.message,
+        });
       }
     } finally {
       setBusy(false);
@@ -72,13 +75,30 @@ export function SessionEmail({ sessionId, link, disabled }: { sessionId: string;
   return (
     <form noValidate onSubmit={send} className="flex flex-col gap-2" data-testid="session-email-form" aria-label={t("d.mail.open")}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-        <TextField ref={inputRef} label={t("d.mail.to")} type="email" value={to} onChange={(e) => setTo(e.target.value)} error={error} hint={t("d.mail.hint")} autoComplete="off" spellCheck={false} disabled={busy || disabled} className="min-w-0 flex-1" data-testid="session-email-to" />
+        <TextField
+          ref={inputRef}
+          label={t("d.mail.to")}
+          type="email"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          error={error}
+          hint={t("d.mail.hint")}
+          autoComplete="off"
+          spellCheck={false}
+          disabled={busy || disabled}
+          className="min-w-0 flex-1"
+          data-testid="session-email-to"
+        />
         <Button type="submit" loading={busy} disabled={disabled} className="shrink-0 sm:mt-7" data-testid="session-email-send">
           {!busy && <Send aria-hidden className="size-4" />}
           {t("d.mail.send")}
         </Button>
       </div>
-      {result && <Alert tone={result.tone} testId="session-email-result">{result.message}</Alert>}
+      {result && (
+        <Alert tone={result.tone} testId="session-email-result">
+          {result.message}
+        </Alert>
+      )}
     </form>
   );
 }

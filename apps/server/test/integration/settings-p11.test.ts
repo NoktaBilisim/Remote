@@ -11,10 +11,25 @@ import { createTenant, createUser, loginAs, makeApp, testDb, type Session, type 
 import { FAKE_P11_TURN_SECRET as SECRET } from "../helpers/secrets.ts";
 
 const dbUrl = new URL(process.env.TEST_DATABASE_URL ?? "mysql://x@127.0.0.1/x");
-const REAL = { host: dbUrl.hostname, port: Number(dbUrl.port), database: dbUrl.pathname.slice(1), user: decodeURIComponent(dbUrl.username) };
+const REAL = {
+  host: dbUrl.hostname,
+  port: Number(dbUrl.port),
+  database: dbUrl.pathname.slice(1),
+  user: decodeURIComponent(dbUrl.username),
+};
 const REAL_PW = decodeURIComponent(dbUrl.password);
 const TURN_ENV = { TURN_URLS: "stun:env.p11.test:3478,turn:env.p11.test:3478", TURN_SECRET: "e".repeat(40) };
-const failingProbe = (sink: ProbeTarget[]) => async (t: ProbeTarget): Promise<ProbeResult> => (sink.push(t), { ok: false, reason: "connect", latencyMs: 3, err: Object.assign(new Error("connect ECONNREFUSED 10.0.0.1:3306 secret-detail"), { code: "ECONNREFUSED" }) });
+const failingProbe =
+  (sink: ProbeTarget[]) =>
+  async (t: ProbeTarget): Promise<ProbeResult> => (
+    sink.push(t),
+    {
+      ok: false,
+      reason: "connect",
+      latencyMs: 3,
+      err: Object.assign(new Error("connect ECONNREFUSED 10.0.0.1:3306 secret-detail"), { code: "ECONNREFUSED" }),
+    }
+  );
 
 let app: FastifyInstance;
 let fakeApp: FastifyInstance;
@@ -43,7 +58,8 @@ afterAll(async () => {
 
 const req = (a: FastifyInstance, s: Session, method: "GET" | "PUT" | "POST" | "DELETE", url: string, payload?: object) =>
   a.inject({ method, url: `/api/v1${url}`, headers: s.headers, ...(payload ? { payload } : {}) });
-const lastAudit = (action: string) => testDb().auditLog.findFirstOrThrow({ where: { action, userId: superAdmin.id }, orderBy: { id: "desc" } });
+const lastAudit = (action: string) =>
+  testDb().auditLog.findFirstOrThrow({ where: { action, userId: superAdmin.id }, orderBy: { id: "desc" } });
 
 describe("MySQL ayarları (AC-77, AC-78)", () => {
   it("AC-77: kayıt yokken görünüm DATABASE_URL'den (source env); şifre dönmez", async () => {
@@ -56,10 +72,25 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
 
   it("AC-78: PUT şifreyi AES-256-GCM (AAD mysql + hedef) saklar, geri yazmaz; boş şifre korur; audit maskeli; yeniden başlatma bilgisi", async () => {
     const pw = "Panel-Sifre-p11-1";
-    const res = await req(app, sSuper, "PUT", "/admin/settings/mysql", { host: "Db.Internal.Test", port: 3307, database: "rapor_db", user: "rapor", password: pw });
+    const res = await req(app, sSuper, "PUT", "/admin/settings/mysql", {
+      host: "Db.Internal.Test",
+      port: 3307,
+      database: "rapor_db",
+      user: "rapor",
+      password: pw,
+    });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body).toMatchObject({ host: "db.internal.test", port: 3307, database: "rapor_db", user: "rapor", hasPassword: true, source: "panel", matchesRunning: false, restartRequired: true });
+    expect(body).toMatchObject({
+      host: "db.internal.test",
+      port: 3307,
+      database: "rapor_db",
+      user: "rapor",
+      hasPassword: true,
+      source: "panel",
+      matchesRunning: false,
+      restartRequired: true,
+    });
     expect(body.message).toMatch(/\.env.*yeniden başlatılmalıdır/);
     expect(res.body).not.toContain(pw);
     const row = await testDb().systemSetting.findUniqueOrThrow({ where: { key: "mysql" } });
@@ -69,14 +100,25 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
     expect(app.secrets.decrypt(row.secretEnc ?? new Uint8Array(), aadFor.mysqlSecret(target))).toBe(pw);
     expect(() => app.secrets.decrypt(row.secretEnc ?? new Uint8Array(), aadFor.systemSecret("turn"))).toThrow();
     // B-P11-1 (savunma derinliği): başka hedefin bağlamıyla çözülemez
-    for (const t of [{ ...target, host: "evil.p11.test" }, { ...target, port: 3306 }, { ...target, user: "root" }]) expect(() => app.secrets.decrypt(row.secretEnc ?? new Uint8Array(), aadFor.mysqlSecret(t))).toThrow();
+    for (const t of [
+      { ...target, host: "evil.p11.test" },
+      { ...target, port: 3306 },
+      { ...target, user: "root" },
+    ])
+      expect(() => app.secrets.decrypt(row.secretEnc ?? new Uint8Array(), aadFor.mysqlSecret(t))).toThrow();
     const audit = await lastAudit("settings.mysql.updated");
     expect(audit).toMatchObject({ tenantId: null, entity: "system_settings", entityId: "mysql", result: "success" });
     expect(audit.newValue).toMatchObject({ host: "db.internal.test", password: "***" });
     expect(JSON.stringify([audit.oldValue, audit.newValue])).not.toContain(pw);
 
     // aynı hedef (host/port/kullanıcı), farklı veritabanı + boş şifre → kayıtlı şifre korunur
-    const again = await req(app, sSuper, "PUT", "/admin/settings/mysql", { host: "db.internal.test", port: 3307, database: "rapor_db2", user: "rapor", password: "" });
+    const again = await req(app, sSuper, "PUT", "/admin/settings/mysql", {
+      host: "db.internal.test",
+      port: 3307,
+      database: "rapor_db2",
+      user: "rapor",
+      password: "",
+    });
     expect(again.statusCode).toBe(200);
     expect(JSON.parse(again.body)).toMatchObject({ port: 3307, database: "rapor_db2", hasPassword: true });
     const row2 = await testDb().systemSetting.findUniqueOrThrow({ where: { key: "mysql" } });
@@ -97,7 +139,9 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
     expect(ok).toEqual({ ok: true, message: "Bağlantı başarılı.", latencyMs: expect.any(Number) });
     const auth = JSON.parse((await req(app, s, "POST", "/admin/settings/mysql/test", { ...REAL, password: "yanlis-sifre" })).body);
     expect(auth).toMatchObject({ ok: false, message: expect.stringMatching(/Kimlik reddedildi/) });
-    const nodb = JSON.parse((await req(app, s, "POST", "/admin/settings/mysql/test", { ...REAL, database: "p11_yok_db", password: REAL_PW })).body);
+    const nodb = JSON.parse(
+      (await req(app, s, "POST", "/admin/settings/mysql/test", { ...REAL, database: "p11_yok_db", password: REAL_PW })).body,
+    );
     expect(nodb).toMatchObject({ ok: false, message: expect.stringMatching(/Veritabanı bulunamadı/) });
     const conn = JSON.parse((await req(app, s, "POST", "/admin/settings/mysql/test", { ...REAL, port: 9, password: "x" })).body);
     // B-P11-4: başarısızlıkta süre dönmez (port tarama sinyali)
@@ -107,7 +151,10 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
     expect(audit).toMatchObject({ result: "fail", entityId: "mysql" });
     expect(audit.newValue).toMatchObject({ reason: "connect", port: 9, result: "fail" });
     expect(audit.newValue).not.toHaveProperty("latencyMs");
-    const all = await testDb().auditLog.findMany({ where: { action: "settings.mysql.test", userId: superAdmin.id }, select: { newValue: true } });
+    const all = await testDb().auditLog.findMany({
+      where: { action: "settings.mysql.test", userId: superAdmin.id },
+      select: { newValue: true },
+    });
     expect(JSON.stringify(all)).not.toContain(REAL_PW);
     expect(JSON.stringify(all)).not.toContain("yanlis-sifre");
   });
@@ -150,10 +197,15 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
     expect(t2.statusCode).toBe(200);
     expect(JSON.parse(t2.body)).toEqual({ ok: false, message: expect.stringMatching(/Kayıtlı şifre okunamadı/), latencyMs: null });
     expect(probes).toHaveLength(0);
-    expect(JSON.parse((await req(app, s, "GET", "/admin/settings/mysql")).body)).toMatchObject({ host: "evil.p11.test", hasPassword: false });
+    expect(JSON.parse((await req(app, s, "GET", "/admin/settings/mysql")).body)).toMatchObject({
+      host: "evil.p11.test",
+      hasPassword: false,
+    });
 
     // Yeni hedef için şifre girilince yalnız O şifre kullanılır; kayıtlı eski şifre yeni hosta gitmez
-    expect((await req(app, s, "PUT", "/admin/settings/mysql", { ...REAL, host: "evil.p11.test", password: "yeni-hedef-sifresi" })).statusCode).toBe(200);
+    expect(
+      (await req(app, s, "PUT", "/admin/settings/mysql", { ...REAL, host: "evil.p11.test", password: "yeni-hedef-sifresi" })).statusCode,
+    ).toBe(200);
     expect((await req(fakeApp, sf, "POST", "/admin/settings/mysql/test", { ...REAL, host: "evil.p11.test" })).statusCode).toBe(200);
     expect(probes).toEqual([{ ...REAL, host: "evil.p11.test", password: "yeni-hedef-sifresi" }]);
     expect(JSON.stringify(probes)).not.toContain(REAL_PW);
@@ -166,9 +218,12 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
     const g = makeApp({ env: TURN_ENV, p11: { mysqlProbe: failingProbe(sink) } });
     await g.ready();
     try {
-      const sessions = await Promise.all(Array.from({ length: 6 }, async () => loginAs(g, await createUser({ tenantId: null, role: "SUPER_ADMIN" }))));
+      const sessions = await Promise.all(
+        Array.from({ length: 6 }, async () => loginAs(g, await createUser({ tenantId: null, role: "SUPER_ADMIN" }))),
+      );
       const body = { host: "10.0.0.2", database: "d", user: "u", password: "p" };
-      for (const s of sessions.slice(0, 5)) for (let i = 0; i < 4; i++) expect((await req(g, s, "POST", "/admin/settings/mysql/test", body)).statusCode).toBe(200);
+      for (const s of sessions.slice(0, 5))
+        for (let i = 0; i < 4; i++) expect((await req(g, s, "POST", "/admin/settings/mysql/test", body)).statusCode).toBe(200);
       const last = sessions[5];
       if (!last) throw new Error("oturum yok");
       const res = await req(g, last, "POST", "/admin/settings/mysql/test", body);
@@ -186,7 +241,12 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
     probes = [];
     const codes: number[] = [];
     for (let i = 0; i < 6; i++) {
-      const res = await req(fakeApp, s, "POST", "/admin/settings/mysql/test", { host: "10.0.0.1", database: "d", user: "u", password: "p" });
+      const res = await req(fakeApp, s, "POST", "/admin/settings/mysql/test", {
+        host: "10.0.0.1",
+        database: "d",
+        user: "u",
+        password: "p",
+      });
       codes.push(res.statusCode);
       expect(res.body).not.toContain("ECONNREFUSED");
       expect(res.body).not.toContain("secret-detail");
@@ -199,7 +259,14 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
   it("AC-77/AC-69: yalnız SUPER_ADMIN — Admin 403", async () => {
     const t = await createTenant();
     const s = await loginAs(app, await createUser({ tenantId: t.id, role: "ADMIN" }));
-    for (const [m, u] of [["GET", "/admin/settings/mysql"], ["PUT", "/admin/settings/mysql"], ["POST", "/admin/settings/mysql/test"], ["GET", "/admin/settings/turn"], ["PUT", "/admin/settings/turn"], ["DELETE", "/admin/settings/turn"]] as const) {
+    for (const [m, u] of [
+      ["GET", "/admin/settings/mysql"],
+      ["PUT", "/admin/settings/mysql"],
+      ["POST", "/admin/settings/mysql/test"],
+      ["GET", "/admin/settings/turn"],
+      ["PUT", "/admin/settings/turn"],
+      ["DELETE", "/admin/settings/turn"],
+    ] as const) {
       expect((await req(app, s, m, u, m === "GET" || m === "DELETE" ? undefined : {})).statusCode, `${m} ${u}`).toBe(403);
     }
   });
@@ -213,7 +280,8 @@ describe("TURN ayarları (AC-78, G-13)", () => {
     const noSecret = await req(app, sSuper, "PUT", "/admin/settings/turn", { urls: ["turn:turn.p11.test:3478"] });
     expect(noSecret.statusCode).toBe(400);
     expect(JSON.parse(noSecret.body).error.fields.secret).toMatch(/gizli anahtar/);
-    for (const bad of [{ urls: [] }, { urls: ["http://x.test"] }, { urls: ["turn:a.test", "turn:a.test"], secret: SECRET }]) expect((await req(app, sSuper, "PUT", "/admin/settings/turn", bad)).statusCode).toBe(400);
+    for (const bad of [{ urls: [] }, { urls: ["http://x.test"] }, { urls: ["turn:a.test", "turn:a.test"], secret: SECRET }])
+      expect((await req(app, sSuper, "PUT", "/admin/settings/turn", bad)).statusCode).toBe(400);
 
     const urls = ["stun:stun.p11.test:3478", "turn:turn.p11.test:3478"];
     const put = await req(app, sSuper, "PUT", "/admin/settings/turn", { urls, secret: SECRET });
@@ -279,7 +347,8 @@ describe("Aydınlatma metni (AC-29, AC-127)", () => {
     const t = await createTenant();
     const other = await createTenant();
     const s = await loginAs(app, await createUser({ tenantId: t.id, role: "ADMIN" }));
-    for (const b of [{ body: "kısa" }, { body: `${"a".repeat(60)}\u202E` }, { body: "a".repeat(20_001) }, {}]) expect((await req(app, s, "PUT", "/settings/consent-text", b)).statusCode).toBe(400);
+    for (const b of [{ body: "kısa" }, { body: `${"a".repeat(60)}\u202E` }, { body: "a".repeat(20_001) }, {}])
+      expect((await req(app, s, "PUT", "/settings/consent-text", b)).statusCode).toBe(400);
     const viewer = await loginAs(app, await createUser({ tenantId: t.id, perms: { "settings.view": true } }));
     expect((await req(app, viewer, "GET", "/settings/consent-text")).statusCode).toBe(200);
     expect((await req(app, viewer, "PUT", "/settings/consent-text", { body: BODY("x") })).statusCode).toBe(403);
@@ -293,7 +362,8 @@ describe("Aydınlatma metni (AC-29, AC-127)", () => {
     const other = await createTenant();
     const s = await loginAs(app, await createUser({ tenantId: t.id, role: "ADMIN" }));
     const s2 = await loginAs(app, await createUser({ tenantId: t.id, role: "ADMIN" })); // aynı tenant, başka kullanıcı
-    for (let i = 0; i < CONSENT_SAVE_PER_HOUR; i++) expect((await req(app, i % 2 ? s2 : s, "PUT", "/settings/consent-text", { body: BODY(`rl-${i}`) })).statusCode, `#${i}`).toBe(200);
+    for (let i = 0; i < CONSENT_SAVE_PER_HOUR; i++)
+      expect((await req(app, i % 2 ? s2 : s, "PUT", "/settings/consent-text", { body: BODY(`rl-${i}`) })).statusCode, `#${i}`).toBe(200);
     const over = await req(app, s, "PUT", "/settings/consent-text", { body: BODY("rl-over") });
     expect(over.statusCode).toBe(429);
     expect(over.headers["retry-after"]).toBeDefined();
@@ -305,7 +375,10 @@ describe("Aydınlatma metni (AC-29, AC-127)", () => {
   it("AC-29/AC-127: eşzamanlı iki kayıt — tek güncel sürüm, sürüm numaraları tekil (kaybeden 409 veya sıralı)", async () => {
     const t = await createTenant();
     const s = await loginAs(app, await createUser({ tenantId: t.id, role: "ADMIN" }));
-    const res = await Promise.all([req(app, s, "PUT", "/settings/consent-text", { body: BODY("a") }), req(app, s, "PUT", "/settings/consent-text", { body: BODY("b") })]);
+    const res = await Promise.all([
+      req(app, s, "PUT", "/settings/consent-text", { body: BODY("a") }),
+      req(app, s, "PUT", "/settings/consent-text", { body: BODY("b") }),
+    ]);
     for (const r of res) expect([200, 409]).toContain(r.statusCode);
     expect(res.some((r) => r.statusCode === 200)).toBe(true);
     expect(await testDb().consentText.count({ where: { tenantId: t.id, isCurrent: true } })).toBe(1);

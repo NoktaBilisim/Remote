@@ -78,7 +78,10 @@ function ListEditor({
   return (
     <fieldset className="flex flex-col gap-2" data-testid={testId} aria-describedby={listErr ? `${listId}-e` : undefined}>
       <legend className="mb-1 text-sm font-medium text-fg">
-        {label} <span className="font-normal text-fg-muted tabular-nums">({values.length}/{max})</span>
+        {label}{" "}
+        <span className="font-normal text-fg-muted tabular-nums">
+          ({values.length}/{max})
+        </span>
       </legend>
       {values.map((v, i) => (
         <div key={i} className="flex items-start gap-2">
@@ -103,8 +106,18 @@ function ListEditor({
           </button>
         </div>
       ))}
-      {listErr && <p id={`${listId}-e`} className="text-xs font-medium text-danger">{listErr}</p>}
-      <Button type="button" variant="ghost" className="self-start" disabled={disabled || values.length >= max} onClick={() => onChange([...values, ""])}>
+      {listErr && (
+        <p id={`${listId}-e`} className="text-xs font-medium text-danger">
+          {listErr}
+        </p>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        className="self-start"
+        disabled={disabled || values.length >= max}
+        onClick={() => onChange([...values, ""])}
+      >
         <Plus aria-hidden className="size-4" />
         {addLabel}
       </Button>
@@ -177,7 +190,13 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
     setRotateError(null);
     try {
       const next = await api<SupportRequestSettings>("POST", "/settings/support-requests/rotate-ref", {});
-      setSaved((s) => ({ ...s, downloadUrl: next.downloadUrl, fileName: next.fileName, refPrefix: next.refPrefix, refRotatedAt: next.refRotatedAt }));
+      setSaved((s) => ({
+        ...s,
+        downloadUrl: next.downloadUrl,
+        fileName: next.fileName,
+        refPrefix: next.refPrefix,
+        refRotatedAt: next.refRotatedAt,
+      }));
       setRotateOpen(false);
       toast(t("srs.dl.rotated"));
     } catch (err) {
@@ -218,7 +237,10 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
       <Section id="dl" title={t("srs.dl.title")} Icon={Link2}>
         <p className="text-sm text-fg-muted">{t("srs.dl.body")}</p>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <code data-testid="download-url" className="min-w-0 flex-1 rounded-md border border-border bg-canvas px-3 py-2.5 font-mono text-sm text-fg break-all">
+          <code
+            data-testid="download-url"
+            className="min-w-0 flex-1 rounded-md border border-border bg-canvas px-3 py-2.5 font-mono text-sm text-fg break-all"
+          >
             {saved.downloadUrl}
           </code>
           <Button type="button" variant="secondary" onClick={() => void copy()} className="shrink-0">
@@ -228,7 +250,9 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
         </div>
         <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
           <dt className="text-fg-muted">{t("srs.dl.fileName")}</dt>
-          <dd className="font-mono text-fg break-all" data-testid="download-file-name">{saved.fileName}</dd>
+          <dd className="font-mono text-fg break-all" data-testid="download-file-name">
+            {saved.fileName}
+          </dd>
           <dt className="text-fg-muted">{t("srs.dl.rotatedAt")}</dt>
           <dd className="text-fg tabular-nums">{saved.refRotatedAt ? formatDateTime(saved.refRotatedAt) : t("srs.dl.never")}</dd>
         </dl>
@@ -257,8 +281,16 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
           </Section>
 
           <Section id="wa" title={t("srs.notify.title")} Icon={MessageSquare}>
-            {saved.whatsapp.insecure && <Alert tone="warning" testId="wa-insecure">{t("srs.wa.insecure")}</Alert>}
-            {!saved.whatsapp.serviceConfigured && <Alert tone="warning" testId="wa-unconfigured">{t("srs.wa.unconfigured")}</Alert>}
+            {saved.whatsapp.insecure && (
+              <Alert tone="warning" testId="wa-insecure">
+                {t("srs.wa.insecure")}
+              </Alert>
+            )}
+            {!saved.whatsapp.serviceConfigured && (
+              <Alert tone="warning" testId="wa-unconfigured">
+                {t("srs.wa.unconfigured")}
+              </Alert>
+            )}
             <Switch
               label={t("srs.wa.label")}
               checked={st.waEnabled}
@@ -315,7 +347,11 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
               />
               {errText(errors["email.enabled"]) && <p className="text-xs font-medium text-danger">{errText(errors["email.enabled"])}</p>}
               {!saved.email.smtpConfigured && (
-                <Link href="/settings/smtp" className="inline-flex min-h-11 items-center gap-2 self-start rounded-md px-1 text-sm font-medium text-primary hover:underline" data-testid="mail-smtp-link">
+                <Link
+                  href="/settings/smtp"
+                  className="inline-flex min-h-11 items-center gap-2 self-start rounded-md px-1 text-sm font-medium text-primary hover:underline"
+                  data-testid="mail-smtp-link"
+                >
                   <Mail aria-hidden className="size-4" />
                   {t("srs.mail.goSmtp")}
                 </Link>
@@ -333,7 +369,14 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
                 disabled={saving}
                 testId="mail-recipients"
               />
-              <Button type="button" variant="secondary" className="self-start" disabled={!saved.email.smtpConfigured} onClick={() => setMailTestOpen(true)} data-testid="mail-test-open">
+              <Button
+                type="button"
+                variant="secondary"
+                className="self-start"
+                disabled={!saved.email.smtpConfigured}
+                onClick={() => setMailTestOpen(true)}
+                data-testid="mail-test-open"
+              >
                 <Send aria-hidden className="size-4" />
                 {t("srs.mail.test")}
               </Button>
@@ -360,8 +403,13 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
 
         {/* TEST-P8b-3: çubuk yalnız kaydedilmemiş değişiklikte (veya kayıt sürerken); mobilde tek satır, geri al ikon. */}
         {(dirty || saving) && (
-          <div className="sticky bottom-0 z-10 flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 shadow-lg sm:px-4 sm:py-3" data-testid="save-bar">
-            <p className="min-w-0 flex-1 text-xs font-medium text-warning sm:text-sm" role="status">{t("srs.dirty")}</p>
+          <div
+            className="sticky bottom-0 z-10 flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 shadow-lg sm:px-4 sm:py-3"
+            data-testid="save-bar"
+          >
+            <p className="min-w-0 flex-1 text-xs font-medium text-warning sm:text-sm" role="status">
+              {t("srs.dirty")}
+            </p>
             <Button
               type="button"
               variant="ghost"
@@ -407,7 +455,14 @@ export function SettingsForm({ initial }: { initial: SupportRequestSettings }) {
         {rotateError && <FormError error={rotateError} />}
       </Dialog>
       <LeaveDialog guard={guard} body={t("srs.leaveBody")} />
-      <MailTestDialog open={mailTestOpen} onClose={() => setMailTestOpen(false)} path="/settings/support-requests/email/test" title={t("srs.mail.test")} body={t("srs.mail.testBody")} testId="mail-test-dialog" />
+      <MailTestDialog
+        open={mailTestOpen}
+        onClose={() => setMailTestOpen(false)}
+        path="/settings/support-requests/email/test"
+        title={t("srs.mail.test")}
+        body={t("srs.mail.testBody")}
+        testId="mail-test-dialog"
+      />
     </div>
   );
 }

@@ -19,8 +19,46 @@ import { ulid } from "ulid";
 import { PrismaClient, type Prisma } from "../src/generated/prisma/client.ts";
 
 const DAY = 86_400_000;
-const FIRST = ["Ayşe", "Mehmet", "Fatma", "Ali", "Zeynep", "Mustafa", "Emine", "Hüseyin", "Hatice", "İbrahim", "Elif", "Ömer", "Şule", "Çağrı", "Gülşen", "Ümit", "Özge", "Ilgaz"];
-const LAST = ["Yılmaz", "Kaya", "Demir", "Şahin", "Çelik", "Yıldız", "Öztürk", "Aydın", "Özdemir", "Arslan", "Doğan", "Kılıç", "Aslan", "Çetin", "Kara", "Koç", "Kurt", "Güneş"];
+const FIRST = [
+  "Ayşe",
+  "Mehmet",
+  "Fatma",
+  "Ali",
+  "Zeynep",
+  "Mustafa",
+  "Emine",
+  "Hüseyin",
+  "Hatice",
+  "İbrahim",
+  "Elif",
+  "Ömer",
+  "Şule",
+  "Çağrı",
+  "Gülşen",
+  "Ümit",
+  "Özge",
+  "Ilgaz",
+];
+const LAST = [
+  "Yılmaz",
+  "Kaya",
+  "Demir",
+  "Şahin",
+  "Çelik",
+  "Yıldız",
+  "Öztürk",
+  "Aydın",
+  "Özdemir",
+  "Arslan",
+  "Doğan",
+  "Kılıç",
+  "Aslan",
+  "Çetin",
+  "Kara",
+  "Koç",
+  "Kurt",
+  "Güneş",
+];
 
 /** Tekrarlanabilir veri için küçük PRNG (mulberry32). Güvenlik amaçlı değildir. */
 export function prng(seed: number): () => number {
@@ -47,7 +85,10 @@ export async function seedPerfSessions(db: PrismaClient, o: PerfSeedOptions) {
   const now = o.now ?? new Date();
   const tenant =
     (await db.tenant.findUnique({ where: { slug: o.slug }, select: { id: true } })) ??
-    (await db.tenant.create({ data: { id: ulid(), name: `Perf ${o.slug}`, slug: o.slug, settings: { create: {} } }, select: { id: true } }));
+    (await db.tenant.create({
+      data: { id: ulid(), name: `Perf ${o.slug}`, slug: o.slug, settings: { create: {} } },
+      select: { id: true },
+    }));
 
   const techIds: string[] = [];
   for (let i = 1; i <= o.technicians; i++) {
@@ -55,7 +96,15 @@ export async function seedPerfSessions(db: PrismaClient, o: PerfSeedOptions) {
     const u =
       (await db.user.findUnique({ where: { email }, select: { id: true } })) ??
       (await db.user.create({
-        data: { id: ulid(), tenantId: tenant.id, email, fullName: `Perf Teknisyen ${i}`, role: "USER", passwordHash: "!perf-no-login", mustChangePassword: false },
+        data: {
+          id: ulid(),
+          tenantId: tenant.id,
+          email,
+          fullName: `Perf Teknisyen ${i}`,
+          role: "USER",
+          passwordHash: "!perf-no-login",
+          mustChangePassword: false,
+        },
         select: { id: true },
       }));
     techIds.push(u.id);
@@ -100,7 +149,12 @@ export async function seedPerfSessions(db: PrismaClient, o: PerfSeedOptions) {
           note: rnd() < 0.2 ? `Yazıcı sürücüsü güncellendi; ${name} ile görüşüldü.\nKontrol tamam.` : null,
         });
       } else {
-        rows.push({ ...base, endedAt: status === "EXPIRED" ? expiresAt : createdAt, endedBy: status === "EXPIRED" ? "SYSTEM" : "TECH", endReason: status === "EXPIRED" ? "expired" : "cancelled" });
+        rows.push({
+          ...base,
+          endedAt: status === "EXPIRED" ? expiresAt : createdAt,
+          endedBy: status === "EXPIRED" ? "SYSTEM" : "TECH",
+          endReason: status === "EXPIRED" ? "expired" : "cancelled",
+        });
       }
     }
     await db.supportSession.createMany({ data: rows });
@@ -124,7 +178,13 @@ const listSelect = {
 
 export async function listPage(db: PrismaClient, where: Prisma.SupportSessionWhereInput, page = 1, pageSize = 25) {
   const [rows, total] = await Promise.all([
-    db.supportSession.findMany({ where, select: listSelect, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * pageSize, take: pageSize }),
+    db.supportSession.findMany({
+      where,
+      select: listSelect,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
     db.supportSession.count({ where }),
   ]);
   return { rows, total };
@@ -142,7 +202,17 @@ export function scenarios(tenantId: string, techId: string, now: Date) {
     { name: "müşteri contains 'Yılmaz'", where: { tenantId, customerName: { contains: "Yılmaz" } } },
     { name: "müşteri contains 'zzqx' (0 eşleşme)", where: { tenantId, customerName: { contains: "zzqx" } } },
     { name: "SUPER_ADMIN tüm tenant'lar (kapsamsız)", where: {} },
-    { name: "teknisyen + durum=ENDED + mod=BROWSER + 90 gün + müşteri 'ay'", where: { tenantId, technicianId: techId, status: "ENDED", mode: "BROWSER", createdAt: { gte: d(90), lt: now }, customerName: { contains: "ay" } } },
+    {
+      name: "teknisyen + durum=ENDED + mod=BROWSER + 90 gün + müşteri 'ay'",
+      where: {
+        tenantId,
+        technicianId: techId,
+        status: "ENDED",
+        mode: "BROWSER",
+        createdAt: { gte: d(90), lt: now },
+        customerName: { contains: "ay" },
+      },
+    },
   ] satisfies { name: string; where: Prisma.SupportSessionWhereInput }[];
 }
 
@@ -152,7 +222,8 @@ async function time<T>(fn: () => Promise<T>): Promise<[number, T]> {
   return [performance.now() - t0, r];
 }
 
-const SQL_COLS = "s.id, s.status, s.mode, s.created_at, s.consumed_at, s.ended_at, s.ended_by, s.customer_name, s.ticket_no, s.technician_id";
+const SQL_COLS =
+  "s.id, s.status, s.mode, s.created_at, s.consumed_at, s.ended_at, s.ended_by, s.customer_name, s.ticket_no, s.technician_id";
 const EXPLAIN_SQL: Record<string, string> = {
   "filtresiz (Admin, tenant kapsamı)": "s.tenant_id = ?",
   "USER kapsamı (technician_id)": "s.tenant_id = ? AND s.technician_id = ?",
@@ -164,10 +235,16 @@ const EXPLAIN_SQL: Record<string, string> = {
 
 export async function measure(db: PrismaClient, slug: string, runs: number) {
   const tenant = await db.tenant.findUniqueOrThrow({ where: { slug }, select: { id: true } });
-  const tech = await db.user.findFirstOrThrow({ where: { tenantId: tenant.id, email: { startsWith: "perf-tech-1@" } }, select: { id: true } });
+  const tech = await db.user.findFirstOrThrow({
+    where: { tenantId: tenant.id, email: { startsWith: "perf-tech-1@" } },
+    select: { id: true },
+  });
   const now = new Date();
   const out: string[] = [];
-  const all = [...scenarios(tenant.id, tech.id, now).map((s) => ({ ...s, page: 1 })), { name: "derin sayfa (page=400, skip 9975)", where: { tenantId: tenant.id }, page: 400 }];
+  const all = [
+    ...scenarios(tenant.id, tech.id, now).map((s) => ({ ...s, page: 1 })),
+    { name: "derin sayfa (page=400, skip 9975)", where: { tenantId: tenant.id }, page: 400 },
+  ];
   for (const s of all) {
     await listPage(db, s.where, s.page); // ısınma (bağlantı + plan önbelleği)
     const ms: number[] = [];
@@ -182,7 +259,9 @@ export async function measure(db: PrismaClient, slug: string, runs: number) {
     const max = ms.at(-1) ?? 0;
     out.push(`${s.name.padEnd(62)} total=${String(total).padStart(5)}  medyan=${med.toFixed(1)} ms  maks=${max.toFixed(1)} ms`);
   }
-  const [tExport, rows] = await time(() => db.supportSession.findMany({ where: { tenantId: tenant.id }, select: listSelect, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }));
+  const [tExport, rows] = await time(() =>
+    db.supportSession.findMany({ where: { tenantId: tenant.id }, select: listSelect, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }),
+  );
   out.push(`${"CSV ön ölçüm: tüm tenant tek findMany (akışsız)".padEnd(62)} rows=${rows.length}  ${tExport.toFixed(1)} ms`);
 
   for (const [name, where] of Object.entries(EXPLAIN_SQL)) {
@@ -190,8 +269,16 @@ export async function measure(db: PrismaClient, slug: string, runs: number) {
     const sql = `EXPLAIN ANALYZE SELECT ${SQL_COLS} FROM support_sessions s WHERE ${where} ORDER BY s.created_at DESC, s.id DESC LIMIT 25 OFFSET 0`;
     const plan = await db.$queryRawUnsafe<Record<string, string>[]>(sql, ...params);
     out.push(`\n-- EXPLAIN ANALYZE: ${name}\n${Object.values(plan[0] ?? {})[0] ?? ""}`);
-    const cnt = await db.$queryRawUnsafe<Record<string, string>[]>(`EXPLAIN ANALYZE SELECT COUNT(*) FROM support_sessions s WHERE ${where}`, ...params);
-    out.push(`-- COUNT: ${String(Object.values(cnt[0] ?? {})[0] ?? "").split("\n").slice(0, 3).join(" | ")}`);
+    const cnt = await db.$queryRawUnsafe<Record<string, string>[]>(
+      `EXPLAIN ANALYZE SELECT COUNT(*) FROM support_sessions s WHERE ${where}`,
+      ...params,
+    );
+    out.push(
+      `-- COUNT: ${String(Object.values(cnt[0] ?? {})[0] ?? "")
+        .split("\n")
+        .slice(0, 3)
+        .join(" | ")}`,
+    );
   }
   // Detay zaman çizelgesi (mimari-api P8 §3): audit_logs IX(tenant_id, entity, entity_id, created_at).
   const sess = await db.supportSession.findFirstOrThrow({ where: { tenantId: tenant.id }, select: { id: true } });

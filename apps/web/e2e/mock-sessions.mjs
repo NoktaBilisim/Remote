@@ -10,7 +10,13 @@ const TECH = { id: "01JUSER0000000000000000009", name: "Mehmet Kaya" };
 // P13b-L: aynı firmada başka teknisyen (ADMIN / Super Admin listesinde görünür; lobi sayacına girmez)
 const OTHER_TECH = { id: "01JUSER0000000000000000010", name: "Zeynep Ak" };
 const LOBBY_TENANT = { id: "01JTENANT", name: "Demo Firma" };
-export const ulid = () => "01J" + randomBytes(16).toString("hex").toUpperCase().replace(/[ILOU]/g, "A").slice(0, 23);
+export const ulid = () =>
+  "01J" +
+  randomBytes(16)
+    .toString("hex")
+    .toUpperCase()
+    .replace(/[ILOU]/g, "A")
+    .slice(0, 23);
 const token = () => randomBytes(32).toString("base64url");
 const code = () => String(10_000_000 + Math.floor(Math.random() * 89_999_999));
 const iso = (ms) => new Date(Date.now() + ms).toISOString();
@@ -21,7 +27,12 @@ const byRef = new Map(); // ref → kayıt
 export const byId = new Map(); // id → kayıt (konsol, WS)
 export const tickets = new Map(); // wsTicket → { rec, name, admitCode } (P4 join)
 const nonces = new Map(); // joinNonce → kayıt
-const CONSENT = { id: "01JCQNSENT0000000000000003", version: 3, sha256: "a".repeat(64), body: "Nokta Bilişim destek oturumu boyunca adınızı, IP adresinizi ve tarayıcı bilginizi oturum kaydı amacıyla işler. Ekran görüntünüz kaydedilmez." };
+const CONSENT = {
+  id: "01JCQNSENT0000000000000003",
+  version: 3,
+  sha256: "a".repeat(64),
+  body: "Nokta Bilişim destek oturumu boyunca adınızı, IP adresinizi ve tarayıcı bilginizi oturum kaydı amacıyla işler. Ekran görüntünüz kaydedilmez.",
+};
 const listCalls = new Map(); // çerez → GET /sessions sayısı (u-flaky-*: ilki 200, sonrakiler 500)
 const dead = new Set(); // u-expire-*: ilk 401'den sonra çerez geçersiz (/auth/me de 401)
 const SLOW_MS = 1500; // u-slow-*: liste ve oluşturma gecikmesi (loading iskeleti testleri)
@@ -40,8 +51,22 @@ export function sessionUser(cookie) {
   const sa = cookie.startsWith("u-sa-") || cookie.startsWith("u-sat-");
   const admin = cookie.startsWith("u-admin-") || cookie.startsWith("u-lobadm-") || sa;
   return {
-    user: { id: TECH.id, email: "mehmet@ornek.com", fullName: TECH.name, role: sa ? "SUPER_ADMIN" : admin ? "ADMIN" : "USER", mustChangePassword: false },
-    permissions: cookie.startsWith("u-noperm-") ? [] : admin ? [...ALL, "sessions.terminate"] : cookie.startsWith("u-p5-") ? [...ALL, "file_transfer.use"] : cookie.startsWith("u-p7-") ? [...ALL, "remote_control.use"] : ALL,
+    user: {
+      id: TECH.id,
+      email: "mehmet@ornek.com",
+      fullName: TECH.name,
+      role: sa ? "SUPER_ADMIN" : admin ? "ADMIN" : "USER",
+      mustChangePassword: false,
+    },
+    permissions: cookie.startsWith("u-noperm-")
+      ? []
+      : admin
+        ? [...ALL, "sessions.terminate"]
+        : cookie.startsWith("u-p5-")
+          ? [...ALL, "file_transfer.use"]
+          : cookie.startsWith("u-p7-")
+            ? [...ALL, "remote_control.use"]
+            : ALL,
     ...(sa ? { tenant: null, actingTenant: cookie.startsWith("u-sat-") ? LOBBY_TENANT : null } : {}),
   };
 }
@@ -93,7 +118,8 @@ export function handleLobby(res, { session, me, send, err }) {
   if (me.user.role === "SUPER_ADMIN" && !me.actingTenant) return send(res, 403, err("FORBIDDEN", "Önce bir firma seçin."), [], H);
   const n = lobbyCalls.get(session);
   if (session.startsWith("u-lobbyfail-") && n > 1) return send(res, 500, err("INTERNAL", "Sunucu hatası."), [], H);
-  if (session.startsWith("u-lobbyrate-") && n > 1) return send(res, 429, err("RATE_LIMITED", "Çok fazla istek."), [], { ...H, "Retry-After": "30" });
+  if (session.startsWith("u-lobbyrate-") && n > 1)
+    return send(res, 429, err("RATE_LIMITED", "Çok fazla istek."), [], { ...H, "Retry-After": "30" });
   const sessions = (lists.get(session) ?? [])
     .map((r) => r.view)
     .filter((v) => v.technician.id === me.user.id && waitingOf(v) > 0)
@@ -163,7 +189,6 @@ byToken.set(fixed("G"), Object.assign(newSession("PENDING"), { agent: "gone" }))
 // Gerçek sunucu 302 → /downloads/Destek-<kod>.exe (Caddy, attachment). E2E'de Caddy yok: aynı yolu sahte API sunar.
 const DOWNLOAD_BASE = `http://127.0.0.1:${process.env.MOCK_API_PORT ?? 4010}`;
 
-
 /** true → istek işlendi. */
 export async function handleSessions(req, res, { url, session, csrfOk, send, err, readJson }) {
   const path = url.split("?")[0];
@@ -171,15 +196,16 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
 
   if (path === "/api/v1/public/sessions/resolve" && req.method === "POST") {
     const { token: tk, clientKind } = await readJson(req);
-    if (clientKind !== "BROWSER") return send(res, 400, err("VALIDATION", "Geçersiz istek.")), true;
+    if (clientKind !== "BROWSER") return (send(res, 400, err("VALIDATION", "Geçersiz istek.")), true);
     const fe = FIXED_ERR[tk];
-    if (fe) return send(res, fe[0], err(fe[1], fe[2]), [], fe[0] === 429 ? { "Retry-After": "900" } : {}), true;
+    if (fe) return (send(res, fe[0], err(fe[1], fe[2]), [], fe[0] === 429 ? { "Retry-After": "900" } : {}), true);
     const rec = byToken.get(tk);
-    if (!rec) return send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true;
-    if (rec.view.status === "CANCELLED") return send(res, 410, err("SESSION_CANCELLED", "Oturum iptal edildi.")), true;
-    if (rec.view.status === "EXPIRED") return send(res, 410, err("SESSION_EXPIRED", "Süresi doldu.")), true;
+    if (!rec) return (send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true);
+    if (rec.view.status === "CANCELLED") return (send(res, 410, err("SESSION_CANCELLED", "Oturum iptal edildi.")), true);
+    if (rec.view.status === "EXPIRED") return (send(res, 410, err("SESSION_EXPIRED", "Süresi doldu.")), true);
     // Gerçek sunucu gibi: kabul edilmiş/bitmiş oturumun linki tekrar açılamaz (F5 dönüşü rs.reconnect.* ile)
-    if (rec.view.status === "ACTIVE" || rec.view.status === "ENDED") return send(res, 410, err("SESSION_CONSUMED", "Bu bağlantı zaten kullanıldı.")), true;
+    if (rec.view.status === "ACTIVE" || rec.view.status === "ENDED")
+      return (send(res, 410, err("SESSION_CONSUMED", "Bu bağlantı zaten kullanıldı.")), true);
     const body = {
       sessionRef: rec.ref,
       tenant: { name: "Demo Firma", logoUrl: rec.tenantLogo ?? null },
@@ -192,29 +218,40 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
       abuseEmail: rec.noAbuse ? null : "kotuye-kullanim@ornek.com",
     };
     nonces.set(body.joinNonce, rec);
-    return send(res, 200, body), true;
+    return (send(res, 200, body), true);
   }
   if (path === "/api/v1/public/sessions/join" && req.method === "POST") {
     const b = await readJson(req);
     const rec = nonces.get(b.joinNonce);
-    if (!rec) return send(res, 410, err("NONCE_INVALID", "İstek süresi doldu.")), true;
+    if (!rec) return (send(res, 410, err("NONCE_INVALID", "İstek süresi doldu.")), true);
     nonces.delete(b.joinNonce);
-    if (b.consentAccepted !== true || b.consentTextId !== CONSENT.id) return send(res, 400, err("VALIDATION", "Doğrulama hatası")), true;
+    if (b.consentAccepted !== true || b.consentTextId !== CONSENT.id) return (send(res, 400, err("VALIDATION", "Doğrulama hatası")), true);
     const name = String(b.customerName ?? "").trim();
-    if (name.length < 2) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { customerName: "Ad en az 2 karakter olmalı" } })), true;
+    if (name.length < 2)
+      return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { customerName: "Ad en az 2 karakter olmalı" } })), true);
     const wsTicket = token();
     const admitCode = String(1000 + Math.floor(Math.random() * 8999));
     tickets.set(wsTicket, { rec, name, admitCode });
-    return send(res, 200, { wsTicket, admitCode, technicianName: rec.view.technician.name }), true;
+    return (send(res, 200, { wsTicket, admitCode, technicianName: rec.view.technician.name }), true);
   }
   if (path === "/api/v1/public/agent/download" && req.method === "GET") {
     const rec = byRef.get(q.get("ref") ?? "");
-    if (!rec) return send(res, 404, err("NOT_FOUND", "Bulunamadı."), [], { "Cache-Control": "no-store" }), true;
+    if (!rec) return (send(res, 404, err("NOT_FOUND", "Bulunamadı."), [], { "Cache-Control": "no-store" }), true);
     if (rec.agent === "notReady")
-      return send(res, 503, err("NOT_READY", "İndirme şu anda kullanılamıyor. Biraz sonra tekrar deneyin ya da tarayıcıdan paylaşımı kullanın."), [], { "Cache-Control": "no-store" }), true;
-    if (rec.agent === "gone" || rec.view.status === "CANCELLED") return send(res, 410, err("SESSION_CANCELLED", "Oturum iptal edildi.")), true;
-    if (rec.view.status === "EXPIRED") return send(res, 410, err("SESSION_EXPIRED", "Süresi doldu.")), true;
-    if (rec.view.status !== "PENDING") return send(res, 410, err("SESSION_CONSUMED", "Bu bağlantı zaten kullanıldı.")), true;
+      return (
+        send(
+          res,
+          503,
+          err("NOT_READY", "İndirme şu anda kullanılamıyor. Biraz sonra tekrar deneyin ya da tarayıcıdan paylaşımı kullanın."),
+          [],
+          { "Cache-Control": "no-store" },
+        ),
+        true
+      );
+    if (rec.agent === "gone" || rec.view.status === "CANCELLED")
+      return (send(res, 410, err("SESSION_CANCELLED", "Oturum iptal edildi.")), true);
+    if (rec.view.status === "EXPIRED") return (send(res, 410, err("SESSION_EXPIRED", "Süresi doldu.")), true);
+    if (rec.view.status !== "PENDING") return (send(res, 410, err("SESSION_CONSUMED", "Bu bağlantı zaten kullanıldı.")), true);
     res.writeHead(302, { Location: `${DOWNLOAD_BASE}/downloads/Destek-${rec.view.code}.exe`, "Cache-Control": "no-store" });
     res.end();
     return true;
@@ -227,69 +264,80 @@ export async function handleSessions(req, res, { url, session, csrfOk, send, err
   }
   if (path === "/api/v1/public/sessions/status" && req.method === "GET") {
     const rec = byRef.get(q.get("ref") ?? "");
-    if (!rec) return send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true;
-    return send(res, 200, { status: rec.view.status }), true;
+    if (!rec) return (send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true);
+    return (send(res, 200, { status: rec.view.status }), true);
   }
 
   if (!path.startsWith("/api/v1/sessions")) return false;
   const who = sessionUser(session);
-  if (!who) return send(res, 401, err("UNAUTHENTICATED", "Oturum gerekli.")), true;
-  if (!who.permissions.length) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
+  if (!who) return (send(res, 401, err("UNAUTHENTICATED", "Oturum gerekli.")), true);
+  if (!who.permissions.length) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
   const list = listFor(session);
 
   if (path === "/api/v1/sessions" && req.method === "GET") {
-    if (session.startsWith("u-broken-")) return send(res, 500, err("INTERNAL", "Sunucu hatası.")), true;
+    if (session.startsWith("u-broken-")) return (send(res, 500, err("INTERNAL", "Sunucu hatası.")), true);
     const n = (listCalls.get(session) ?? 0) + 1;
     listCalls.set(session, n);
-    if (session.startsWith("u-flaky-") && n > 1) return send(res, 500, err("INTERNAL", "Sunucu hatası.")), true;
+    if (session.startsWith("u-flaky-") && n > 1) return (send(res, 500, err("INTERNAL", "Sunucu hatası.")), true);
     if (session.startsWith("u-slow-")) await sleep(SLOW_MS);
     const items = list.map((r) => ({ ...r.view, waitingGuests: waitingOf(r.view) })).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return send(res, 200, { items, page: 1, pageSize: Number(q.get("pageSize") ?? 25), total: items.length }), true;
+    return (send(res, 200, { items, page: 1, pageSize: Number(q.get("pageSize") ?? 25), total: items.length }), true);
   }
   const one = path.match(/^\/api\/v1\/sessions\/([0-9A-Z]{26})$/);
   if (one && req.method === "GET") {
     const rec = list.find((r) => r.view.id === one[1]);
-    return rec ? send(res, 200, rec.view) : send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true;
+    return (rec ? send(res, 200, rec.view) : send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true);
   }
-  if (!csrfOk) return send(res, 403, err("CSRF_INVALID", "CSRF doğrulaması başarısız.")), true;
-  if (session.startsWith("u-expire-")) return dead.add(session), send(res, 401, err("UNAUTHENTICATED", "Oturum gerekli.")), true;
+  if (!csrfOk) return (send(res, 403, err("CSRF_INVALID", "CSRF doğrulaması başarısız.")), true);
+  if (session.startsWith("u-expire-")) return (dead.add(session), send(res, 401, err("UNAUTHENTICATED", "Oturum gerekli.")), true);
   if (path === "/api/v1/sessions" && req.method === "POST") {
     if (session.startsWith("u-limit-"))
-      return send(res, 409, err("OPEN_SESSION_LIMIT", "Açık oturum sınırına ulaştınız. Yeni oturum için bekleyen bir oturumu iptal edin.")), true;
-    if (session.startsWith("u-rate-"))
-      return send(res, 429, err("RATE_LIMITED", "Çok fazla istek."), [], { "Retry-After": "600" }), true;
+      return (
+        send(res, 409, err("OPEN_SESSION_LIMIT", "Açık oturum sınırına ulaştınız. Yeni oturum için bekleyen bir oturumu iptal edin.")),
+        true
+      );
+    if (session.startsWith("u-rate-")) return (send(res, 429, err("RATE_LIMITED", "Çok fazla istek."), [], { "Retry-After": "600" }), true);
     if (session.startsWith("u-slow-")) await sleep(SLOW_MS);
     // P8c (AC-180): customerId → aynı kullanıcının aktif müşterisi; yoksa 404
     const { customerId } = await readJson(req);
     const firm = customerId ? customerRef(session, customerId) : null;
-    if (customerId && !firm) return send(res, 404, err("NOT_FOUND", "Müşteri bulunamadı.")), true;
+    if (customerId && !firm) return (send(res, 404, err("NOT_FOUND", "Müşteri bulunamadı.")), true);
     const rec = newSession();
     // P5: sunucu hello/peer.joined'a caps + maxFileMb koyar (küçük sınır: 100 MB'lık dosya üretmeden sınır testi)
     if (session.startsWith("u-p5")) Object.assign(rec, { caps: session.startsWith("u-p5-") ? ["file_transfer"] : [], maxFileMb: 1 });
-    if (session.startsWith("u-p7")) Object.assign(rec, { caps: session.startsWith("u-p7-") ? ["remote_control"] : [], canControl: session.startsWith("u-p7-") });
+    if (session.startsWith("u-p7"))
+      Object.assign(rec, { caps: session.startsWith("u-p7-") ? ["remote_control"] : [], canControl: session.startsWith("u-p7-") });
     list.push(rec);
     const v = rec.view;
-    const body = { id: v.id, link: `${BASE}/session/${rec.token}`, code: v.code, techVerifyCode: v.techVerifyCode, expiresAt: v.expiresAt, status: "PENDING", customerFirm: firm };
-    return send(res, 201, body), true;
+    const body = {
+      id: v.id,
+      link: `${BASE}/session/${rec.token}`,
+      code: v.code,
+      techVerifyCode: v.techVerifyCode,
+      expiresAt: v.expiresAt,
+      status: "PENDING",
+      customerFirm: firm,
+    };
+    return (send(res, 201, body), true);
   }
   const term = path.match(/^\/api\/v1\/sessions\/([^/]+)\/terminate$/);
   if (term && req.method === "POST") {
-    if (!who.permissions.includes("sessions.terminate")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
+    if (!who.permissions.includes("sessions.terminate")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
     const rec = list.find((r) => r.view.id === term[1]);
-    if (!rec) return send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true;
-    if (rec.view.status !== "ACTIVE") return send(res, 409, err("CONFLICT", "Oturum aktif değil.")), true;
+    if (!rec) return (send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true);
+    if (rec.view.status !== "ACTIVE") return (send(res, 409, err("CONFLICT", "Oturum aktif değil.")), true);
     Object.assign(rec.view, { status: "ENDED", endedAt: iso(0), endedBy: "ADMIN", endReason: "admin" });
     endRoom(rec.view.id, "admin");
-    return send(res, 200, { status: "ENDED", endedBy: "ADMIN" }), true;
+    return (send(res, 200, { status: "ENDED", endedBy: "ADMIN" }), true);
   }
   const m = path.match(/^\/api\/v1\/sessions\/([^/]+)\/cancel$/);
   if (m && req.method === "POST") {
     const rec = list.find((r) => r.view.id === m[1]);
-    if (!rec) return send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true;
-    if (rec.view.status !== "PENDING") return send(res, 409, err("CONFLICT", "Oturum bekleme durumunda değil.")), true;
+    if (!rec) return (send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true);
+    if (rec.view.status !== "PENDING") return (send(res, 409, err("CONFLICT", "Oturum bekleme durumunda değil.")), true);
     Object.assign(rec.view, { status: "CANCELLED", code: null, endedAt: iso(0), endedBy: "TECH" });
     endRoom(rec.view.id, "cancelled");
-    return send(res, 200, { status: "CANCELLED" }), true;
+    return (send(res, 200, { status: "CANCELLED" }), true);
   }
   return false;
 }

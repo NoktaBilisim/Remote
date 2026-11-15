@@ -1,4 +1,18 @@
-import { CircleAlert, CircleCheck, CircleX, Hourglass, Link2Off, Lock, LogOut, SearchX, ShieldCheck, Timer, UserX, WifiOff, type LucideIcon } from "lucide-react";
+import {
+  CircleAlert,
+  CircleCheck,
+  CircleX,
+  Hourglass,
+  Link2Off,
+  Lock,
+  LogOut,
+  SearchX,
+  ShieldCheck,
+  Timer,
+  UserX,
+  WifiOff,
+  type LucideIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { LogoImage } from "@/components/brand-logo";
 import { t, type MessageKey } from "@/lib/i18n";
@@ -11,7 +25,12 @@ export function GuestShell({ children, tenant }: { children: ReactNode; tenant?:
   return (
     <div className="group mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-6 px-4 py-6 sm:py-8">
       <header className="flex flex-wrap items-center gap-3">
-        <LogoImage variant="full" url={tenant?.logoUrl} alt={tenant ? t("lg.alt", { name: tenant.name }) : t("app.systemLogoAlt")} testId="guest-logo" />
+        <LogoImage
+          variant="full"
+          url={tenant?.logoUrl}
+          alt={tenant ? t("lg.alt", { name: tenant.name }) : t("app.systemLogoAlt")}
+          testId="guest-logo"
+        />
         <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-fg-muted">
           <Lock aria-hidden className="size-4" />
           {t("g.secure")}
@@ -30,8 +49,18 @@ export function GuestShell({ children, tenant }: { children: ReactNode; tenant?:
 }
 
 export type GuestEnd =
-  | "expired" | "cancelled" | "consumed" | "ended" | "notFound" | "rate" | "error"
-  | "finished" | "rejected" | "lobbyTimeout" | "left" | "lost";
+  | "expired"
+  | "cancelled"
+  | "consumed"
+  | "ended"
+  | "notFound"
+  | "rate"
+  | "error"
+  | "finished"
+  | "rejected"
+  | "lobbyTimeout"
+  | "left"
+  | "lost";
 
 const ends: Record<GuestEnd, { Icon: LucideIcon; title: MessageKey; body: MessageKey }> = {
   expired: { Icon: Hourglass, title: "g.expiredTitle", body: "g.expiredBody" },

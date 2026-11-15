@@ -43,13 +43,16 @@ export function auditScope(auth: AuthContext): repo.AuditScope {
 export function resolveAuditFilter(scope: repo.AuditScope, q: ListAuditQuery, now: Date): repo.AuditFilter {
   const to = q.to ? new Date(istanbulDayStart(q.to).getTime() + DAY_MS) : now;
   const from = q.from ? istanbulDayStart(q.from) : new Date(to.getTime() - AUDIT_DEFAULT_RANGE_DAYS * DAY_MS);
-  if (to.getTime() - from.getTime() > AUDIT_MAX_RANGE_DAYS * DAY_MS) throw new AppError("VALIDATION", { fields: { from: AUDIT_RANGE_TOO_LONG } });
+  if (to.getTime() - from.getTime() > AUDIT_MAX_RANGE_DAYS * DAY_MS)
+    throw new AppError("VALIDATION", { fields: { from: AUDIT_RANGE_TOO_LONG } });
   return {
     from,
     to,
     ...(q.tenantId && scope.kind === "all" ? { tenantId: q.tenantId } : {}),
     ...(q.userId ? { userId: q.userId } : {}),
-    ...(q.action ? { action: q.action.endsWith(".*") ? { value: q.action.slice(0, -1), prefix: true } : { value: q.action, prefix: false } } : {}),
+    ...(q.action
+      ? { action: q.action.endsWith(".*") ? { value: q.action.slice(0, -1), prefix: true } : { value: q.action, prefix: false } }
+      : {}),
     ...(q.result ? { result: q.result } : {}),
   };
 }
@@ -95,10 +98,16 @@ export async function listAuditItems(db: Db, auth: AuthContext, q: ListAuditQuer
   const filter = resolveAuditFilter(scope, q, now);
   const rows = await repo.listAudit(db, scope, filter, q.cursor ? decodeCursor(q.cursor) : null, AUDIT_PAGE_SIZE + 1);
   const page = rows.slice(0, AUDIT_PAGE_SIZE);
-  const names = await repo.userNames(db, page.flatMap((r) => (r.userId ? [r.userId] : [])));
+  const names = await repo.userNames(
+    db,
+    page.flatMap((r) => (r.userId ? [r.userId] : [])),
+  );
   const last = page[page.length - 1];
   const viewer: AvatarViewer = { role: auth.user.role, tenantId: auth.user.tenantId };
-  return { items: page.map((r) => toItem(r, names, viewer)), nextCursor: rows.length > AUDIT_PAGE_SIZE && last ? encodeCursor(last) : null };
+  return {
+    items: page.map((r) => toItem(r, names, viewer)),
+    nextCursor: rows.length > AUDIT_PAGE_SIZE && last ? encodeCursor(last) : null,
+  };
 }
 
 // ---- CSV (AC-124) ----
@@ -136,7 +145,15 @@ const exportFilename = (now: Date): string => {
  * GET /audit/export.csv: hız sınırı (5/dk/kullanıcı) → üst sınırlı sayım (> 50.000 → 400, yarım dosya yok) → audit
  * `audit.exported` (filtre özeti) → keyset partileriyle akış. Akış hatası: log + ref, bağlantı kesilir.
  */
-export async function exportAuditCsv(db: Db, log: { error(o: object, m: string): void }, ctx: AuditContext, auth: AuthContext, q: ListAuditQuery, limiter: FixedWindowCounter, now = new Date()): Promise<AuditCsvExport> {
+export async function exportAuditCsv(
+  db: Db,
+  log: { error(o: object, m: string): void },
+  ctx: AuditContext,
+  auth: AuthContext,
+  q: ListAuditQuery,
+  limiter: FixedWindowCounter,
+  now = new Date(),
+): Promise<AuditCsvExport> {
   const wait = limiter.blockedFor(auth.user.id);
   if (wait > 0 || limiter.hit(auth.user.id)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
   const scope = auditScope(auth);
@@ -170,7 +187,10 @@ export async function exportAuditCsv(db: Db, log: { error(o: object, m: string):
       while (written < AUDIT_EXPORT_MAX_ROWS) {
         const batch = await repo.listAudit(db, scope, filter, after, Math.min(EXPORT_BATCH, AUDIT_EXPORT_MAX_ROWS - written));
         if (batch.length === 0) return;
-        const names = await repo.userNames(db, batch.flatMap((r) => (r.userId ? [r.userId] : [])));
+        const names = await repo.userNames(
+          db,
+          batch.flatMap((r) => (r.userId ? [r.userId] : [])),
+        );
         yield batch.map((r) => csvRow(csvCells(toItem(r, names), withTenant))).join("");
         written += batch.length;
         const last = batch[batch.length - 1];

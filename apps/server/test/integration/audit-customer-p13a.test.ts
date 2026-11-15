@@ -28,12 +28,20 @@ describe("S-P13a-1 müşteri audit kayıtlarında ad / tam IP / UA yok", () => {
   it("S-P13a-1: writeAudit — customer aktöründe IPv4 /24, IPv6 /48 öneki ve UA NULL; çalışan kaydı değişmez", async () => {
     const t = await createTenant();
     const write = (username: string, ip: string) =>
-      writeAudit(testDb(), { ip, userAgent: "Mozilla/5.0 (Windows NT 10.0)", requestId: newId() }, { tenantId: t.id, username, action: "p13a.customer", entity: "support_sessions", entityId: newId(), result: "success" });
+      writeAudit(
+        testDb(),
+        { ip, userAgent: "Mozilla/5.0 (Windows NT 10.0)", requestId: newId() },
+        { tenantId: t.id, username, action: "p13a.customer", entity: "support_sessions", entityId: newId(), result: "success" },
+      );
     await write("customer", "203.0.113.77");
     await write("customer", "2001:db8:1234:5678::9");
     await write("customer", "::ffff:198.51.100.9");
     await write("tech@example.test", "198.51.100.5");
-    const rows = await testDb().auditLog.findMany({ where: { tenantId: t.id, action: "p13a.customer" }, orderBy: { id: "asc" }, select: { username: true, ipAddress: true, userAgent: true } });
+    const rows = await testDb().auditLog.findMany({
+      where: { tenantId: t.id, action: "p13a.customer" },
+      orderBy: { id: "asc" },
+      select: { username: true, ipAddress: true, userAgent: true },
+    });
     expect(rows).toEqual([
       { username: "customer", ipAddress: "203.0.113.0/24", userAgent: null },
       { username: "customer", ipAddress: "2001:0db8:1234::/48", userAgent: null },
@@ -90,13 +98,28 @@ describe("S-P13a-5 anonim oturumda sonlandırma gerekçesi", () => {
     const mk = async (anonymized: boolean) => {
       const { id } = await createSupportSessionRow({ tenantId: t.id, technicianId: admin.id, status: "ENDED" });
       if (anonymized) await testDb().supportSession.update({ where: { id }, data: { anonymizedAt: new Date() } });
-      await writeAudit(testDb(), { ip: "", userAgent: "", requestId: newId() }, { tenantId: t.id, userId: admin.id, username: admin.email, action: "session.terminated", entity: "support_sessions", entityId: id, result: "success", newValue: { reason: "Ayşe Hanım'ın isteğiyle" } });
+      await writeAudit(
+        testDb(),
+        { ip: "", userAgent: "", requestId: newId() },
+        {
+          tenantId: t.id,
+          userId: admin.id,
+          username: admin.email,
+          action: "session.terminated",
+          entity: "support_sessions",
+          entityId: id,
+          result: "success",
+          newValue: { reason: "Ayşe Hanım'ın isteğiyle" },
+        },
+      );
       return id;
     };
     const plain = await mk(false);
     const anon = await mk(true);
     const reasonOf = async (id: string) =>
-      (await l.app.inject({ method: "GET", url: `/api/v1/sessions/${id}/history`, headers: s.headers })).json<SessionHistoryDetail>().timeline.find((e) => e.action === "session.terminated")?.details;
+      (await l.app.inject({ method: "GET", url: `/api/v1/sessions/${id}/history`, headers: s.headers }))
+        .json<SessionHistoryDetail>()
+        .timeline.find((e) => e.action === "session.terminated")?.details;
     expect(await reasonOf(plain)).toMatchObject({ reason: "Ayşe Hanım'ın isteğiyle" });
     const anonDetails = await reasonOf(anon);
     expect(anonDetails).toBeDefined();

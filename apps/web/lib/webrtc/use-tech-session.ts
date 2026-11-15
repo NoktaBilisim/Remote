@@ -10,7 +10,19 @@
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { GuestKind, ServerOutbound } from "@remote/contracts/ws";
-import { canCancel, canRelease, canRequest, canRequestMonitor, controlReducer, initialControl, isUnexpectedGrant, MONITOR_TIMEOUT_MS, type ControlCounters, type ControlEvent, type ControlState } from "../control/machine";
+import {
+  canCancel,
+  canRelease,
+  canRequest,
+  canRequestMonitor,
+  controlReducer,
+  initialControl,
+  isUnexpectedGrant,
+  MONITOR_TIMEOUT_MS,
+  type ControlCounters,
+  type ControlEvent,
+  type ControlState,
+} from "../control/machine";
 import { sendInput } from "../control/use-remote-input";
 import { PeerLink, type Channels } from "./peer";
 import { backoff, RECONNECT_WINDOW_MS, Signal, wsUrl } from "./signal";
@@ -110,7 +122,10 @@ export function useTechSession(sessionId: string) {
     p.pc.oniceconnectionstatechange = () => {
       if (p.pc.iceConnectionState === "failed" && peer.current === p) void p.offer(true).catch(() => undefined);
     };
-    void p.offer().then((s) => peer.current === p && setStream(s), () => undefined);
+    void p.offer().then(
+      (s) => peer.current === p && setStream(s),
+      () => undefined,
+    );
   }, [resetPeer, send]);
 
   const onMessage = useCallback(
@@ -196,7 +211,8 @@ export function useTechSession(sessionId: string) {
   const { requests, deniedAt, monitorRequests, monitorBlockedUntil } = control;
   useEffect(() => {
     if (state.phase === "ended") return writeCounters(sessionId, null);
-    if (requests || monitorRequests || deniedAt || monitorBlockedUntil) writeCounters(sessionId, { requests, deniedAt, monitorRequests, monitorBlockedUntil });
+    if (requests || monitorRequests || deniedAt || monitorBlockedUntil)
+      writeCounters(sessionId, { requests, deniedAt, monitorRequests, monitorBlockedUntil });
   }, [deniedAt, monitorBlockedUntil, monitorRequests, requests, sessionId, state.phase]);
 
   // Kabul edilen müşterinin adı yalnız bu sekmede (sessionStorage) tutulur; konsol yenilenince geri yüklenir, bitişte silinir
@@ -216,14 +232,20 @@ export function useTechSession(sessionId: string) {
     peer.current = null;
   }, [state.phase]);
 
-  const admit = useCallback((admitCode: string) => {
-    dispatch({ type: "admit" });
-    send({ t: "guest.admit", admitCode });
-  }, [send]);
-  const reject = useCallback((guestId: string) => {
-    dispatch({ type: "reject" });
-    send({ t: "guest.reject", guestId });
-  }, [send]);
+  const admit = useCallback(
+    (admitCode: string) => {
+      dispatch({ type: "admit" });
+      send({ t: "guest.admit", admitCode });
+    },
+    [send],
+  );
+  const reject = useCallback(
+    (guestId: string) => {
+      dispatch({ type: "reject" });
+      send({ t: "guest.reject", guestId });
+    },
+    [send],
+  );
   const end = useCallback(() => send({ t: "session.end" }), [send]);
 
   // P7: istek yalnız makine kabul ederse gönderilir (≤5, ret sonrası 30 sn; sunucu yine otorite)
@@ -233,13 +255,16 @@ export function useTechSession(sessionId: string) {
     dispatchCtl({ type: "request", now });
     send({ t: "control.request" });
   }, [dispatchCtl, send]);
-  const requestMonitor = useCallback((monitorId: number) => {
-    const c = ctl.current;
-    const now = Date.now();
-    if (!canRequestMonitor(c, now) || monitorId === c.activeMonitor || !c.monitors.some((x) => x.id === monitorId)) return;
-    dispatchCtl({ type: "monitor", id: monitorId, now });
-    send({ t: "monitor.request", monitorId });
-  }, [dispatchCtl, send]);
+  const requestMonitor = useCallback(
+    (monitorId: number) => {
+      const c = ctl.current;
+      const now = Date.now();
+      if (!canRequestMonitor(c, now) || monitorId === c.activeMonitor || !c.monitors.some((x) => x.id === monitorId)) return;
+      dispatchCtl({ type: "monitor", id: monitorId, now });
+      send({ t: "monitor.request", monitorId });
+    },
+    [dispatchCtl, send],
+  );
   // K1: bırakma = müşteri kapısını kapat. Takılı tuş kalmasın diye `k.release_all` kapı kapanmadan önce gider;
   // yakalama makine `granted`'dan çıkınca söker (use-remote-input temizliği). Devam = yeni `control.request`.
   const releaseControl = useCallback(() => {
@@ -258,9 +283,28 @@ export function useTechSession(sessionId: string) {
   const pendingAt = control.monitorPending?.at;
   useEffect(() => {
     if (pendingAt === undefined) return;
-    const id = setTimeout(() => dispatchCtl({ type: "monitorTimeout", now: Date.now() }), Math.max(0, pendingAt + MONITOR_TIMEOUT_MS - Date.now()));
+    const id = setTimeout(
+      () => dispatchCtl({ type: "monitorTimeout", now: Date.now() }),
+      Math.max(0, pendingAt + MONITOR_TIMEOUT_MS - Date.now()),
+    );
     return () => clearTimeout(id);
   }, [dispatchCtl, pendingAt]);
 
-  return { state, stream, channels, pc, send, maxFileMb, admit, reject, end, control, input, requestControl, requestMonitor, releaseControl, cancelControl };
+  return {
+    state,
+    stream,
+    channels,
+    pc,
+    send,
+    maxFileMb,
+    admit,
+    reject,
+    end,
+    control,
+    input,
+    requestControl,
+    requestMonitor,
+    releaseControl,
+    cancelControl,
+  };
 }

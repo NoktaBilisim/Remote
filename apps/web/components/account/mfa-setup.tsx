@@ -18,10 +18,7 @@ import { t } from "@/lib/i18n";
 import { copyText } from "@/lib/use-now";
 
 type Step =
-  | { kind: "loading" }
-  | { kind: "error"; error: UiError }
-  | { kind: "scan"; data: MfaSetupResponse }
-  | { kind: "codes"; codes: string[] };
+  { kind: "loading" } | { kind: "error"; error: UiError } | { kind: "scan"; data: MfaSetupResponse } | { kind: "codes"; codes: string[] };
 
 /**
  * 2FA kurulumu (AC-67): POST /auth/mfa/setup → QR + elle anahtar → 6 haneli kodla POST /auth/mfa/enable → 10 kurtarma
@@ -112,7 +109,9 @@ export function MfaSetup({ gate, account, doneHref }: { gate: boolean; account: 
   if (step.kind === "codes") {
     return (
       <div className="flex flex-col gap-4">
-        <Alert tone="success" testId="mfa-enabled">{t("mfa.s.enabled")}</Alert>
+        <Alert tone="success" testId="mfa-enabled">
+          {t("mfa.s.enabled")}
+        </Alert>
         <h2 className="text-base font-semibold text-fg">{t("mfa.rc.title")}</h2>
         <p className="text-sm text-fg-muted">{t("mfa.rc.body")}</p>
         <RecoveryCodes
@@ -145,9 +144,15 @@ export function MfaSetup({ gate, account, doneHref }: { gate: boolean; account: 
       </div>
       {secret && (
         <div className="flex flex-col gap-1.5">
-          <p className="text-sm font-medium text-fg" id="mfa-key-l">{t("mfa.s.manual")}</p>
+          <p className="text-sm font-medium text-fg" id="mfa-key-l">
+            {t("mfa.s.manual")}
+          </p>
           <div className="flex items-stretch gap-2">
-            <code aria-labelledby="mfa-key-l" className="min-w-0 flex-1 rounded-md border border-border bg-canvas px-3 py-2.5 text-center font-mono text-sm break-all text-fg" data-testid="mfa-secret">
+            <code
+              aria-labelledby="mfa-key-l"
+              className="min-w-0 flex-1 rounded-md border border-border bg-canvas px-3 py-2.5 text-center font-mono text-sm break-all text-fg"
+              data-testid="mfa-secret"
+            >
               {groupSecret(secret)}
             </code>
             <Button
@@ -160,7 +165,9 @@ export function MfaSetup({ gate, account, doneHref }: { gate: boolean; account: 
               {keyCopied ? <Check aria-hidden className="size-4" /> : <Copy aria-hidden className="size-4" />}
             </Button>
           </div>
-          <p role="status" className="text-xs text-success">{keyCopied ? t("mfa.s.keyCopied") : ""}</p>
+          <p role="status" className="text-xs text-success">
+            {keyCopied ? t("mfa.s.keyCopied") : ""}
+          </p>
         </div>
       )}
       <FormError error={submitError} />
@@ -185,7 +192,10 @@ export function MfaSetup({ gate, account, doneHref }: { gate: boolean; account: 
       {gate ? (
         <AuthExit disabled={busy} />
       ) : (
-        <Link href="/account" className="inline-flex min-h-11 items-center justify-center rounded-md px-3 text-sm font-medium text-primary hover:underline">
+        <Link
+          href="/account"
+          className="inline-flex min-h-11 items-center justify-center rounded-md px-3 text-sm font-medium text-primary hover:underline"
+        >
           {t("mfa.s.cancel")}
         </Link>
       )}

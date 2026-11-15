@@ -16,7 +16,15 @@ vi.mock("@remote/contracts/files", async (orig) => {
 
 const SHA = "cd".repeat(32);
 const EXT = null; // "unicode-farki." → sondaki noktadan sonra uzantı yok
-const meta = (o: Partial<FileMeta> = {}): FileMeta => ({ t: "file.meta", direction: "TO_CUSTOMER", fileName: DRIFT, sizeBytes: 10, sha256: SHA, result: "OK", ...o });
+const meta = (o: Partial<FileMeta> = {}): FileMeta => ({
+  t: "file.meta",
+  direction: "TO_CUSTOMER",
+  fileName: DRIFT,
+  sizeBytes: 10,
+  sha256: SHA,
+  result: "OK",
+  ...o,
+});
 
 describe("S-P5-8 file.meta DB CHECK reddi", () => {
   it("AC-55/S-P5-8: CHECK 3819 → audit file.meta.rejected_by_db (S-P13a-8: ad ve sha256 yok, yalnız uzantı), VALIDATION; sonraki kayıt etkilenmez", async () => {

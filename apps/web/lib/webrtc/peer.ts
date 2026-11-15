@@ -32,7 +32,11 @@ export class PeerLink {
   onInput: ((c: RTCDataChannel | null) => void) | null = null;
   private input: RTCDataChannel | null = null;
 
-  constructor(iceServers: IceServer[], private send: (m: SignalOut) => void, private withInput = false) {
+  constructor(
+    iceServers: IceServer[],
+    private send: (m: SignalOut) => void,
+    private withInput = false,
+  ) {
     this.pc = new RTCPeerConnection({ iceServers: toRtcIce(iceServers) });
     this.pc.ondatachannel = (e) => this.adopt(e.channel);
     this.pc.onicecandidate = (e) => {

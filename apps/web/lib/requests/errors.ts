@@ -18,4 +18,3 @@ export function requestErrorMessage(e: unknown): string {
   }
   return toUiError(e).message;
 }
-

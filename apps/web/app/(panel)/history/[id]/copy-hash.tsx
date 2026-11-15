@@ -16,7 +16,9 @@ export function CopyHash({ value, testId }: { value: string; testId?: string }) 
   // -my-2.5: 44 px dokunma hedefi satır yüksekliğini büyütmesin, kod metniyle hizalı kalsın.
   return (
     <span className="-my-2.5 inline-flex items-center gap-1 whitespace-nowrap" data-testid={testId}>
-      <code className="font-mono text-xs text-fg-muted" title={value}>{short}</code>
+      <code className="font-mono text-xs text-fg-muted" title={value}>
+        {short}
+      </code>
       <button
         type="button"
         onClick={copy}

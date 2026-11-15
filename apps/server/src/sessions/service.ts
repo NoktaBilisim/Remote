@@ -58,8 +58,7 @@ export function toView(r: repo.SessionRow, viewerId: string): SessionView {
   };
 }
 
-const sessionLink = (publicBaseUrl: string, token: string): string =>
-  `${publicBaseUrl.replace(/\/+$/, "")}/session/${token}`;
+const sessionLink = (publicBaseUrl: string, token: string): string => `${publicBaseUrl.replace(/\/+$/, "")}/session/${token}`;
 
 export async function createSupportSession(
   db: Db,
@@ -91,12 +90,28 @@ export async function createSupportSession(
           throw new AppError("RATE_LIMITED", { retryAfterSec: Math.max(1, Math.ceil(waitMs / 1000)) });
         }
         // P8c (AC-180): müşteri aynı tenant'ın AKTİF müşterisi olmalı (pasif/başka tenant/yok → 404, varlık sızmaz).
-        const firm = customerId ? await tx.customer.findFirst({ where: { id: customerId, tenantId, status: "ACTIVE" }, select: { id: true, name: true, status: true } }) : null;
+        const firm = customerId
+          ? await tx.customer.findFirst({
+              where: { id: customerId, tenantId, status: "ACTIVE" },
+              select: { id: true, name: true, status: true },
+            })
+          : null;
         if (customerId && !firm) throw new AppError("NOT_FOUND", { message: "Müşteri bulunamadı." });
         const id = newId();
         const expiresAt = new Date(now.getTime() + settings.sessionTtlMin * 60_000); // createdAt ile aynı now (CHECK)
         const techVerifyCode = gen.verify();
-        await repo.insertSession(tx, { id, tenantId, technicianId, tokenHash: sha256Hex(token), activeCode: code, techVerifyCode, status: "PENDING", expiresAt, createdAt: now, customerId: firm?.id ?? null });
+        await repo.insertSession(tx, {
+          id,
+          tenantId,
+          technicianId,
+          tokenHash: sha256Hex(token),
+          activeCode: code,
+          techVerifyCode,
+          status: "PENDING",
+          expiresAt,
+          createdAt: now,
+          customerId: firm?.id ?? null,
+        });
         await writeAudit(tx, ctx, {
           ...who(auth, tenantId),
           action: "session.created",
@@ -105,7 +120,15 @@ export async function createSupportSession(
           result: "success",
           newValue: { status: "PENDING", expiresAt: expiresAt.toISOString(), ttlMin: settings.sessionTtlMin, customerId: firm?.id ?? null },
         });
-        return { id, link: sessionLink(publicBaseUrl, token), code, techVerifyCode, expiresAt: expiresAt.toISOString(), status: "PENDING" as const, customerFirm: firm ? { id: firm.id, name: firm.name, status: firm.status as CustomerStatus } : null };
+        return {
+          id,
+          link: sessionLink(publicBaseUrl, token),
+          code,
+          techVerifyCode,
+          expiresAt: expiresAt.toISOString(),
+          status: "PENDING" as const,
+          customerFirm: firm ? { id: firm.id, name: firm.name, status: firm.status as CustomerStatus } : null,
+        };
       });
     } catch (err) {
       if (attempt < CODE_ATTEMPTS && isActiveCodeConflict(err)) continue;
@@ -122,7 +145,14 @@ export async function getSession(db: Db, auth: AuthContext, id: string): Promise
 }
 
 /** İptal (AC-8): tek koşullu UPDATE → link ve kod aynı anda geçersiz. Başka tenant/sahiplik → 404, PENDING değil → 409. */
-export async function cancelSession(db: Db, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string, rooms?: RoomNotifier): Promise<void> {
+export async function cancelSession(
+  db: Db,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  rooms?: RoomNotifier,
+): Promise<void> {
   const scope = sessionScope(auth, tenantId);
   await db.$transaction(async (tx) => {
     const now = new Date();
@@ -185,7 +215,15 @@ export interface RoomNotifier {
  * Zorla sonlandırma (A5, AC-114, G-04): tek koşullu UPDATE + audit aynı TX; commit sonrası iki tarafa
  * `session.ended{admin}`. Başka tenant → 404, ACTIVE değil → 409.
  */
-export async function terminateSession(db: Db, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string, reason: string | undefined, rooms?: RoomNotifier): Promise<void> {
+export async function terminateSession(
+  db: Db,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  reason: string | undefined,
+  rooms?: RoomNotifier,
+): Promise<void> {
   await db.$transaction(async (tx) => {
     const now = new Date();
     if ((await repo.terminateActive(tx, tenantId, id, now, auth.user.id)) === 0) {

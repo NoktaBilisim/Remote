@@ -23,7 +23,9 @@ import { PERMISSION_KEYS, effectivePermissions } from "@remote/contracts/permiss
 import { panelOutboundSchema, requestInboundSchema, requestOutboundSchema } from "@remote/contracts/ws-request";
 
 type Case = { in: string; out: string | null; valid?: boolean };
-const form = JSON.parse(readFileSync(new URL("../../../../packages/contracts/fixtures/request-form.json", import.meta.url), "utf8")) as Record<string, Case[]>;
+const form = JSON.parse(
+  readFileSync(new URL("../../../../packages/contracts/fixtures/request-form.json", import.meta.url), "utf8"),
+) as Record<string, Case[]>;
 const ws = JSON.parse(readFileSync(new URL("../../../../packages/contracts/fixtures/ws-request.json", import.meta.url), "utf8")) as {
   valid: Record<string, unknown[]>;
   invalid: Record<string, unknown[]>;
@@ -77,7 +79,17 @@ describe("talep formu alanları (AC-134)", () => {
 describe("ret mesajı (AC-157, G-E9-12)", () => {
   it("AC-157: hazır metinler geçer; 5..200; bağlantı/e-posta/telefon/alan adı reddedilir", () => {
     for (const p of REQUEST_REJECT_PRESETS) expect(rejectMessageSchema.safeParse(p).success, p).toBe(true);
-    const bad = ["kısa", "x".repeat(201), "bakınız https://kotu.example", "www.kotu", "kotu.com adresine girin", "mail: a@b", "Bizi 0532 123 45 67 arayın", "satır\nsonu", "gizli​karakter"];
+    const bad = [
+      "kısa",
+      "x".repeat(201),
+      "bakınız https://kotu.example",
+      "www.kotu",
+      "kotu.com adresine girin",
+      "mail: a@b",
+      "Bizi 0532 123 45 67 arayın",
+      "satır\nsonu",
+      "gizli​karakter",
+    ];
     for (const b of bad) expect(rejectMessageSchema.safeParse(b).success, b).toBe(false);
     expect(rejectMessageSchema.safeParse("  Yarın 10.30'da arayacağız  ").success).toBe(true);
   });
@@ -88,13 +100,33 @@ describe("güvenilen CIDR (AC-152, §13.6)", () => {
     expect(checkTrustedCidr("203.0.113.77/24")).toEqual({ ok: true, cidr: "203.0.113.0/24" });
     expect(checkTrustedCidr("2001:db8:abcd:12::1/48")).toEqual({ ok: true, cidr: "2001:db8:abcd::/48" });
     expect(checkTrustedCidr("2001:DB8::/32")).toEqual({ ok: true, cidr: "2001:db8::/32" });
-    for (const b of ["203.0.0.0/15", "2001::/31", "10.1.0.0/16", "192.168.1.0/24", "127.0.0.1/32", "fe80::/64", "fd00::/48", "::1/128", "1.2.3.4", "1.2.3.4/33", "01.2.3.4/24", "abc/24"]) {
+    for (const b of [
+      "203.0.0.0/15",
+      "2001::/31",
+      "10.1.0.0/16",
+      "192.168.1.0/24",
+      "127.0.0.1/32",
+      "fe80::/64",
+      "fd00::/48",
+      "::1/128",
+      "1.2.3.4",
+      "1.2.3.4/33",
+      "01.2.3.4/24",
+      "abc/24",
+    ]) {
       expect(checkTrustedCidr(b).ok, b).toBe(false);
     }
   });
   it("AC-152: ayar gövdesi — tekil liste, ≤ 10 CIDR, ≤ 5 alıcı, kanal açık ⇒ ≥ 1 alıcı, bekleme 10..120", () => {
-    const base = { waitMinutes: 30, trustedCidrs: [], whatsapp: { enabled: false, recipients: [] }, email: { enabled: false, recipients: [] } };
-    expect(updateRequestSettingsInputSchema.parse({ ...base, whatsapp: { enabled: true, recipients: ["0532 123 45 67"] } }).whatsapp.recipients).toEqual(["+905321234567"]);
+    const base = {
+      waitMinutes: 30,
+      trustedCidrs: [],
+      whatsapp: { enabled: false, recipients: [] },
+      email: { enabled: false, recipients: [] },
+    };
+    expect(
+      updateRequestSettingsInputSchema.parse({ ...base, whatsapp: { enabled: true, recipients: ["0532 123 45 67"] } }).whatsapp.recipients,
+    ).toEqual(["+905321234567"]);
     const bad = [
       { ...base, waitMinutes: 9 },
       { ...base, waitMinutes: 121 },
@@ -110,8 +142,16 @@ describe("güvenilen CIDR (AC-152, §13.6)", () => {
 
 describe("durum makinesi (AC-140)", () => {
   it("AC-140: yalnız tanımlı geçişler; tüm (kaynak, hedef) çiftleri", () => {
-    const allowed = new Set(["PENDING>ACCEPTED", "PENDING>REJECTED", "PENDING>CANCELLED", "PENDING>EXPIRED", "ACCEPTED>CONNECT_FAILED", "ACCEPTED>CANCELLED"]);
-    for (const from of REQUEST_STATUSES) for (const to of REQUEST_STATUSES) expect(canTransition(from, to), `${from}>${to}`).toBe(allowed.has(`${from}>${to}`));
+    const allowed = new Set([
+      "PENDING>ACCEPTED",
+      "PENDING>REJECTED",
+      "PENDING>CANCELLED",
+      "PENDING>EXPIRED",
+      "ACCEPTED>CONNECT_FAILED",
+      "ACCEPTED>CANCELLED",
+    ]);
+    for (const from of REQUEST_STATUSES)
+      for (const to of REQUEST_STATUSES) expect(canTransition(from, to), `${from}>${to}`).toBe(allowed.has(`${from}>${to}`));
     expect(Object.keys(REQUEST_TRANSITIONS).sort()).toEqual([...REQUEST_STATUSES].sort());
   });
   it("AC-146 (G-E9-15): rozet yalnız IP/TRUSTED; PREFIX uyarıyı kaldırmaz", () => {
@@ -137,7 +177,11 @@ describe("yetkiler (AC-147)", () => {
 });
 
 describe("WS sözleşme örnekleri (mimari-protokol §5)", () => {
-  const schemas = { requestInbound: requestInboundSchema, requestOutbound: requestOutboundSchema, panelOutbound: panelOutboundSchema } as const;
+  const schemas = {
+    requestInbound: requestInboundSchema,
+    requestOutbound: requestOutboundSchema,
+    panelOutbound: panelOutboundSchema,
+  } as const;
   it("AC-139/141/149: valid geçer, invalid reddedilir (G-E9-15: knownNetwork alanı artık geçersiz)", () => {
     for (const [k, schema] of Object.entries(schemas)) {
       for (const m of ws.valid[k] ?? []) expect(schema.safeParse(m).success, `${k} ${JSON.stringify(m)}`).toBe(true);

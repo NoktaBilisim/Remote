@@ -20,7 +20,12 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
       <div className="w-full max-w-sm">
         <div className="mb-8 flex justify-center">
           {brand ? (
-            <LogoImage variant="full" url={brand.logoUrl} alt={brand.name ? t("lg.alt", { name: brand.name }) : t("app.systemLogoAlt")} testId="login-logo" />
+            <LogoImage
+              variant="full"
+              url={brand.logoUrl}
+              alt={brand.name ? t("lg.alt", { name: brand.name }) : t("app.systemLogoAlt")}
+              testId="login-logo"
+            />
           ) : (
             <span data-testid="login-logo" data-logo="system" className="inline-flex">
               <BrandLogo variant="full" />

@@ -71,7 +71,11 @@ export class RetentionJob {
   constructor(svc: RequestService) {
     this.svc = svc;
     const m = svc.d.metrics;
-    m.gauge("rs_retention_last_success_timestamp_seconds", "Saklama işinin son hatasız turunun bitişi (unix sn; P13a AC-199)", () => this.lastSuccessSeconds);
+    m.gauge(
+      "rs_retention_last_success_timestamp_seconds",
+      "Saklama işinin son hatasız turunun bitişi (unix sn; P13a AC-199)",
+      () => this.lastSuccessSeconds,
+    );
   }
 
   get isRunning(): boolean {
@@ -103,11 +107,21 @@ export class RetentionJob {
       } catch (err) {
         failed = true;
         failures++;
-        this.svc.d.log.error({ err, job: "retention", tenantId: t.tenantId }, "saklama işi: firma adımı başarısız, sonraki firmaya geçildi");
+        this.svc.d.log.error(
+          { err, job: "retention", tenantId: t.tenantId },
+          "saklama işi: firma adımı başarısız, sonraki firmaya geçildi",
+        );
       }
       for (const k of Object.keys(c) as (keyof TenantCounts)[]) totals[k] += c[k];
       if (sum(c) > 0 || failed) {
-        await writeAudit(db, ctx, { tenantId: t.tenantId, ...SYSTEM, action: RETENTION_AUDIT.RUN, entity: ENTITY, result: failed ? "fail" : "success", newValue: { ...c } }).catch((err: unknown) => {
+        await writeAudit(db, ctx, {
+          tenantId: t.tenantId,
+          ...SYSTEM,
+          action: RETENTION_AUDIT.RUN,
+          entity: ENTITY,
+          result: failed ? "fail" : "success",
+          newValue: { ...c },
+        }).catch((err: unknown) => {
           failures += failed ? 0 : 1;
           this.svc.d.log.error({ err, job: "retention", tenantId: t.tenantId }, "saklama işi: audit yazılamadı");
         });
@@ -124,12 +138,20 @@ export class RetentionJob {
     }
     Object.assign(totals, g);
     if (sum(g) > 0 || globalFailed) {
-      await writeAudit(db, ctx, { tenantId: null, ...SYSTEM, action: RETENTION_AUDIT.RUN, entity: ENTITY, result: globalFailed ? "fail" : "success", newValue: { ...g } }).catch((err: unknown) => {
+      await writeAudit(db, ctx, {
+        tenantId: null,
+        ...SYSTEM,
+        action: RETENTION_AUDIT.RUN,
+        entity: ENTITY,
+        result: globalFailed ? "fail" : "success",
+        newValue: { ...g },
+      }).catch((err: unknown) => {
         failures += globalFailed ? 0 : 1;
         this.svc.d.log.error({ err, job: "retention" }, "saklama işi: audit yazılamadı");
       });
     }
-    for (const [k, kind] of Object.entries(KINDS) as [keyof typeof totals, string][]) if (totals[k] > 0) metrics.inc("rs_retention_rows_total", { kind }, totals[k]);
+    for (const [k, kind] of Object.entries(KINDS) as [keyof typeof totals, string][])
+      if (totals[k] > 0) metrics.inc("rs_retention_rows_total", { kind }, totals[k]);
     if (failures > 0) metrics.inc("rs_retention_failures_total", {}, failures);
     else this.lastSuccessSeconds = Math.floor(this.svc.d.clock.now() / 1000);
     this.svc.refreshCustomersGauge();

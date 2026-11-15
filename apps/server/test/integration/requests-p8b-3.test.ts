@@ -93,7 +93,12 @@ describe("P8b-1 zamanlayıcılar ve süpürücü", () => {
     expect((await reqRow(c.requestId)).status).toBe("ACCEPTED");
     clock.advance(1);
     await expect.poll(async () => (await reqRow(c.requestId)).status).toBe("CONNECT_FAILED");
-    expect(await sessRow(c.requestId)).toMatchObject({ id: sessionId, status: "CANCELLED", endReason: "connect_timeout", endedBy: "SYSTEM" });
+    expect(await sessRow(c.requestId)).toMatchObject({
+      id: sessionId,
+      status: "CANCELLED",
+      endReason: "connect_timeout",
+      endedBy: "SYSTEM",
+    });
     expect(await waitMsg(px, "request.connect_failed")).toEqual({ t: "request.connect_failed", id: c.requestId, sessionId });
     expect(await waitMsg(ws, "request.closed")).toMatchObject({ status: "CONNECT_FAILED" });
     await tick();
@@ -109,7 +114,10 @@ describe("P8b-1 zamanlayıcılar ve süpürücü", () => {
     const x = await tech(l.app, t.id);
     expect((await rc.accept(x.s.headers, id)).statusCode).toBe(200);
     l.app.requests.clearConnectTimer(id); // bellek zamanlayıcısı kaybolmuş (ör. yeniden başlatma) varsayımı
-    await testDb().supportSession.updateMany({ where: { requestId: id }, data: { createdAt: new Date(Date.now() - 61_000), expiresAt: new Date(Date.now() - 1000) } });
+    await testDb().supportSession.updateMany({
+      where: { requestId: id },
+      data: { createdAt: new Date(Date.now() - 61_000), expiresAt: new Date(Date.now() - 1000) },
+    });
     const out = await sweepRequests(l.app.requests);
     expect(out.connectFailed).toBeGreaterThanOrEqual(1);
     expect((await reqRow(id)).status).toBe("CONNECT_FAILED");
@@ -226,7 +234,10 @@ describe("P8b-1 ön-kabullü talep misafiri (§13.2)", () => {
 
   it("§13.2: caps kabul anındaki değil admit anındaki DB yetkilerinden — file_transfer.use kaldırılınca hello.caps = [remote_control]", async () => {
     const { x, rc, wsTicket } = await acceptedTicket();
-    await testDb().userPermission.update({ where: { userId_permKey: { userId: x.id, permKey: "file_transfer.use" } }, data: { granted: false } });
+    await testDb().userPermission.update({
+      where: { userId_permKey: { userId: x.id, permKey: "file_transfer.use" } },
+      data: { granted: false },
+    });
     const g = await rc.guestWs(wsTicket);
     expect(await waitMsg(g, "hello")).toMatchObject({ role: "guest", guestKind: "AGENT", caps: ["remote_control"], peerPresent: false });
   });
@@ -246,7 +257,12 @@ describe("P8b-1 asgari istemci sürümü — 426 CLIENT_OUTDATED (§13.4)", () =
     const { live: l } = await boot({ env: MIN });
     const t = await techSession(l);
     const resolve = (payload: object, headers: Record<string, string> = {}) =>
-      l.app.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers: { "x-forwarded-for": nextIp(), ...headers }, payload: { token: t.token, ...payload } });
+      l.app.inject({
+        method: "POST",
+        url: "/api/v1/public/sessions/resolve",
+        headers: { "x-forwarded-for": nextIp(), ...headers },
+        payload: { token: t.token, ...payload },
+      });
     for (const body of [{ clientKind: "AGENT" }, { clientKind: "AGENT", clientVersion: "0.9.9" }]) {
       const r = await resolve(body);
       expect(r.statusCode).toBe(426);
@@ -263,7 +279,12 @@ describe("P8b-1 asgari istemci sürümü — 426 CLIENT_OUTDATED (§13.4)", () =
     const rooms = l.app.requests.d.rooms;
     const join = (clientVersion: string) => {
       const { token } = rooms.nonces.issue({ sessionId: t.sessionId, kind: "AGENT", clientVersion });
-      return l.app.inject({ method: "POST", url: "/api/v1/public/sessions/join", headers: { "x-forwarded-for": nextIp() }, payload: { joinNonce: token, customerName: "Ayşe Müşteri", consentAccepted: true, consentTextId: t.consentTextId } });
+      return l.app.inject({
+        method: "POST",
+        url: "/api/v1/public/sessions/join",
+        headers: { "x-forwarded-for": nextIp() },
+        payload: { joinNonce: token, customerName: "Ayşe Müşteri", consentAccepted: true, consentTextId: t.consentTextId },
+      });
     };
     const old = await join("0.9.0");
     expect(old.statusCode).toBe(426);

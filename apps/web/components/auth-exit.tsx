@@ -21,7 +21,15 @@ export function AuthExit({ disabled }: { disabled?: boolean }) {
     router.refresh();
   };
   return (
-    <Button type="button" variant="ghost" onClick={() => void exit()} loading={pending} disabled={disabled} className="w-full" data-testid="auth-exit">
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={() => void exit()}
+      loading={pending}
+      disabled={disabled}
+      className="w-full"
+      data-testid="auth-exit"
+    >
       {!pending && <LogOut aria-hidden className="size-4" />}
       {t("mfa.exit")}
     </Button>

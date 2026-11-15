@@ -22,11 +22,21 @@ export interface MysqlState {
 }
 
 export function toMysqlState(v: MysqlSettingsView | null): MysqlState {
-  return { host: v?.host ?? "", port: String(v?.port ?? MYSQL_DEFAULT_PORT), database: v?.database ?? "", user: v?.user ?? "", password: "" };
+  return {
+    host: v?.host ?? "",
+    port: String(v?.port ?? MYSQL_DEFAULT_PORT),
+    database: v?.database ?? "",
+    user: v?.user ?? "",
+    password: "",
+  };
 }
 
 export const mysqlDirty = (a: MysqlState, b: MysqlState): boolean =>
-  a.host.trim() !== b.host.trim() || a.port.trim() !== b.port.trim() || a.database.trim() !== b.database.trim() || a.user.trim() !== b.user.trim() || a.password !== "";
+  a.host.trim() !== b.host.trim() ||
+  a.port.trim() !== b.port.trim() ||
+  a.database.trim() !== b.database.trim() ||
+  a.user.trim() !== b.user.trim() ||
+  a.password !== "";
 
 /** Alan hatalarını (ilk mesaj) toplar. Sunucu `fields` anahtarları da aynı adlarla gelir. */
 function fieldErrors<F extends string>(issues: readonly { path: readonly PropertyKey[]; message: string }[], known: readonly F[]) {
@@ -41,7 +51,8 @@ function fieldErrors<F extends string>(issues: readonly { path: readonly Propert
 const MYSQL_FIELDS: readonly MysqlField[] = ["host", "port", "database", "user", "password"];
 
 /** Port metni → sayı (boş → varsayılan 3306; sayı değilse NaN → şema hatası). */
-const portOf = (v: string): number | undefined => (v.trim() === "" ? undefined : /^\d{1,5}$/.test(v.trim()) ? Number(v.trim()) : Number.NaN);
+const portOf = (v: string): number | undefined =>
+  v.trim() === "" ? undefined : /^\d{1,5}$/.test(v.trim()) ? Number(v.trim()) : Number.NaN;
 
 export function buildMysqlInput(s: MysqlState): { input?: MysqlSettingsData; errors: Partial<Record<MysqlField, string>> } {
   const raw = { host: s.host, port: portOf(s.port), database: s.database, user: s.user, ...(s.password ? { password: s.password } : {}) };
@@ -51,7 +62,10 @@ export function buildMysqlInput(s: MysqlState): { input?: MysqlSettingsData; err
 }
 
 /** Sunucu `fields` → alan hataları + alana bağlanamayanlar (form üstü). */
-export function splitServerFields<F extends string>(fields: Record<string, string>, known: readonly F[]): { errors: Partial<Record<F, string>>; rest: string[] } {
+export function splitServerFields<F extends string>(
+  fields: Record<string, string>,
+  known: readonly F[],
+): { errors: Partial<Record<F, string>>; rest: string[] } {
   const errors: Partial<Record<F, string>> = {};
   const rest: string[] = [];
   for (const [k, msg] of Object.entries(fields)) {

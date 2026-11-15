@@ -54,7 +54,15 @@ describe("B-P10-11 SMTP deneme tavanı soketi kapatır", () => {
       fallbackLogoUrl: "https://rs.test/img/logo.png",
       transport: (o) => nodemailer.createTransport({ ...o, port } as Parameters<typeof nodemailer.createTransport>[0]),
     });
-    const cfg: SmtpConfig = { host: "drip.test", port: 25, security: "NONE", user: null, pass: null, fromName: null, fromEmail: "destek@firma.test" };
+    const cfg: SmtpConfig = {
+      host: "drip.test",
+      port: 25,
+      security: "NONE",
+      user: null,
+      pass: null,
+      fromName: null,
+      fromEmail: "destek@firma.test",
+    };
     const t0 = Date.now();
     const out = await svc.deliver(cfg, "a@alici.test", { subject: "s", text: "t", bodyHtml: "<p>t</p>" }, 1);
     const returnedAt = Date.now();

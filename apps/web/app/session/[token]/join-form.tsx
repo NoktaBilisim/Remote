@@ -45,7 +45,11 @@ export function JoinForm({
   const nameRef = useRef<HTMLInputElement>(null);
   const browserRef = useRef<HTMLButtonElement>(null);
   // Hidrasyon öncesi tıklama yerel form gönderimi (sayfa yenileme) yapmasın
-  const hydrated = useSyncExternalStore(noop, () => true, () => false);
+  const hydrated = useSyncExternalStore(
+    noop,
+    () => true,
+    () => false,
+  );
   const ready = hydrated && name.trim().length >= 2 && consent;
 
   const submit = async () => {
@@ -116,7 +120,9 @@ export function JoinForm({
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4" data-testid="join-form" data-ready={hydrated || undefined}>
       <section aria-labelledby="bilgi-t" className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4 shadow-sm">
-        <h2 id="bilgi-t" className="text-lg font-semibold text-fg">{t("gj.infoTitle")}</h2>
+        <h2 id="bilgi-t" className="text-lg font-semibold text-fg">
+          {t("gj.infoTitle")}
+        </h2>
         {formErr && <FormError error={formErr} />}
         <TextField
           label={t("gj.name")}
@@ -142,21 +148,22 @@ export function JoinForm({
           />
           <span>{t("gj.consent")}</span>
         </label>
-        {(
+        {
           <details className="rounded-md border border-border bg-canvas px-3 py-2 text-sm" data-testid="consent-text">
             <summary className="min-h-11 cursor-pointer py-2 font-medium text-primary">
-              {t("gj.consentRead")} <span className="font-normal text-fg-muted">{t("gj.consentVersion", { v: data.consentText.version })}</span>
+              {t("gj.consentRead")}{" "}
+              <span className="font-normal text-fg-muted">{t("gj.consentVersion", { v: data.consentText.version })}</span>
             </summary>
             <p className="pb-2 whitespace-pre-line text-fg-muted">{data.consentText.body}</p>
           </details>
-        )}
+        }
       </section>
 
       <section aria-labelledby="yol-t" className="flex flex-col gap-3">
-        <h2 id="yol-t" className="text-lg font-semibold text-fg">{t("gj.howTitle")}</h2>
-        {windows && (
-          <AgentDownload sessionRef={data.sessionRef} verifyCode={data.techVerifyCode} onEnd={onEnd} onBrowser={toBrowser} />
-        )}
+        <h2 id="yol-t" className="text-lg font-semibold text-fg">
+          {t("gj.howTitle")}
+        </h2>
+        {windows && <AgentDownload sessionRef={data.sessionRef} verifyCode={data.techVerifyCode} onEnd={onEnd} onBrowser={toBrowser} />}
         <button
           ref={browserRef}
           type="submit"
@@ -173,7 +180,9 @@ export function JoinForm({
           <span className="text-sm text-fg-muted">{t(windows ? "gj.browserWinBody" : "gj.browserBody")}</span>
         </button>
         {!ready && (
-          <p id={hintId} className="text-xs text-fg-muted">{t("gj.missing")}</p>
+          <p id={hintId} className="text-xs text-fg-muted">
+            {t("gj.missing")}
+          </p>
         )}
       </section>
     </form>

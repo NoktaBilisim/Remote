@@ -12,7 +12,10 @@ test.beforeEach(({}, info) => test.skip(info.project.name !== "desktop", "konsol
 const MOCK = "http://127.0.0.1:4217";
 
 async function liveAgent(page: Page, browser: Browser) {
-  const r = await page.request.post("/api/v1/sessions", { headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" }, data: {} });
+  const r = await page.request.post("/api/v1/sessions", {
+    headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" },
+    data: {},
+  });
   expect(r.status()).toBe(201);
   const { id } = (await r.json()) as { id: string };
   await page.goto(`/sessions/${id}/console`);
@@ -20,7 +23,9 @@ async function liveAgent(page: Page, browser: Browser) {
   const a = await startFakeAgent(browser, id);
   await expect(page.getByTestId("console-status")).toHaveText("Aktif");
   await expect(page.getByTestId("stage")).toHaveAttribute("data-share", "sharing");
-  await expect.poll(() => page.getByTestId("console-video").evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 15_000 }).toBeGreaterThan(0);
+  await expect
+    .poll(() => page.getByTestId("console-video").evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 15_000 })
+    .toBeGreaterThan(0);
   return { a, id };
 }
 
@@ -39,7 +44,9 @@ const grant = async (a: Page) => {
 const inputs = async (a: Page) => (await agentLog(a)).inputs;
 /** Teknisyenin sahte sunucuya gönderdiği kontrol mesajları (sırayla). */
 const techSent = async (p: Page, id: string) =>
-  ((await (await p.request.get(`${MOCK}/__e2e/ws-log/${id}`)).json()) as { from: string; m: { t: string } }[]).filter((x) => x.from === "tech" && x.m.t.startsWith("control.")).map((x) => x.m.t);
+  ((await (await p.request.get(`${MOCK}/__e2e/ws-log/${id}`)).json()) as { from: string; m: { t: string } }[])
+    .filter((x) => x.from === "tech" && x.m.t.startsWith("control."))
+    .map((x) => x.m.t);
 
 async function clickVideo(p: Page, fx = 0.5, fy = 0.5) {
   const b = (await p.getByTestId("console-video").boundingBox())!;
@@ -50,7 +57,11 @@ async function clickVideo(p: Page, fx = 0.5, fy = 0.5) {
   await p.mouse.click(b.x + (b.width - w) / 2 + w * fx, b.y + (b.height - h) / 2 + h * fy);
 }
 
-test("AC-47/48/49/99/50: kontrol iste → izin → fare/klavye input DC'ye → bırak/devam → müşteri kapatır", async ({ page, context, browser }) => {
+test("AC-47/48/49/99/50: kontrol iste → izin → fare/klavye input DC'ye → bırak/devam → müşteri kapatır", async ({
+  page,
+  context,
+  browser,
+}) => {
   await signIn(context, "p7");
   const { a, id } = await liveAgent(page, browser);
   await expect(req(page)).toBeEnabled();
@@ -127,7 +138,9 @@ test("AC-47/48/49/99/50: kontrol iste → izin → fare/klavye input DC'ye → b
   expect((await inputs(a)).slice(before).some((m) => m.t === "k.release_all")).toBe(true);
   expect(await techSent(page, id)).toEqual(["control.request", "control.release"]);
   await expect(page.getByTestId("control-bar")).toHaveAttribute("data-phase", "ended");
-  await expect(note(page)).toHaveText(/^Kontrolü bıraktınız; devam etmek için müşteri yeniden onaylamalı · \d{2}:\d{2} · bu oturumda 4 istek hakkı kaldı$/);
+  await expect(note(page)).toHaveText(
+    /^Kontrolü bıraktınız; devam etmek için müşteri yeniden onaylamalı · \d{2}:\d{2} · bu oturumda 4 istek hakkı kaldı$/,
+  );
   await expect(req(page)).toHaveText("Kontrole devam");
   await expect(req(page)).toBeFocused(); // bırak düğmesi kalktı, odak kaybolmaz
   await expect(page.getByText("Kontrolü bıraktınız", { exact: false })).toHaveCount(1); // kendi bırakması bildirim üretmez (yalnız not)
@@ -161,7 +174,11 @@ test("AC-47/48/49/99/50: kontrol iste → izin → fare/klavye input DC'ye → b
   await a.context().close();
 });
 
-test("K2/S7-2: Vazgeç → control.cancel; geç izin ve istenmemiş izin yakalama başlatmaz; teknisyen yenilenince kapı kapanır", async ({ page, context, browser }) => {
+test("K2/S7-2: Vazgeç → control.cancel; geç izin ve istenmemiş izin yakalama başlatmaz; teknisyen yenilenince kapı kapanır", async ({
+  page,
+  context,
+  browser,
+}) => {
   await signIn(context, "p7");
   const { a, id } = await liveAgent(page, browser);
   await req(page).click();
@@ -202,7 +219,11 @@ test("K2/S7-2: Vazgeç → control.cancel; geç izin ve istenmemiş izin yakalam
   await a.context().close();
 });
 
-test("K6: bekleyen istek müşteri tarafında kapanır → 'bağlantı kesildi; istek kapandı', hemen yeniden istenebilir", async ({ page, context, browser }) => {
+test("K6: bekleyen istek müşteri tarafında kapanır → 'bağlantı kesildi; istek kapandı', hemen yeniden istenebilir", async ({
+  page,
+  context,
+  browser,
+}) => {
   await signIn(context, "p7");
   const { a } = await liveAgent(page, browser);
   await req(page).click();
@@ -292,7 +313,9 @@ test("TEST-P7-3: yenileme sonrası hak sayacı korunur (sunucuyla aynı 5 sını
   await page.reload();
   // Gerçek sunucu gibi hello guestKind taşır → Hızlı Destek misafiri, kontrol düğmesi kalır
   await expect(page.getByTestId("stage")).toHaveAttribute("data-share", "sharing");
-  await expect.poll(() => page.getByTestId("console-video").evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 15_000 }).toBeGreaterThan(0);
+  await expect
+    .poll(() => page.getByTestId("console-video").evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 15_000 })
+    .toBeGreaterThan(0);
   await expect(note(page)).toContainText("bu oturumda 3 istek hakkı kaldı");
   for (let i = 3; i <= 5; i++) {
     await req(page).click();
@@ -375,7 +398,11 @@ test("AC-51: remote_control.use yoksa 'Kontrol iste' görünmez", async ({ page,
   await a.context().close();
 });
 
-test("AC-43/105: monitör değişikliği müşteri onayıyla; yükseltilmiş pencere ve güvenli masaüstü uyarıları", async ({ page, context, browser }) => {
+test("AC-43/105: monitör değişikliği müşteri onayıyla; yükseltilmiş pencere ve güvenli masaüstü uyarıları", async ({
+  page,
+  context,
+  browser,
+}) => {
   await signIn(context, "p7");
   const { a } = await liveAgent(page, browser);
   await openViewMenu(page);
@@ -393,7 +420,9 @@ test("AC-43/105: monitör değişikliği müşteri onayıyla; yükseltilmiş pen
   await expect(page.getByTestId("monitor-note")).toHaveText("Ekran 1 için müşteri onayı bekleniyor…");
   await expect.poll(async () => (await agentLog(a)).monitorRequests).toEqual([1, 0]);
   await agentSend(a, { t: "monitor.denied", monitorId: 0 });
-  await expect(page.getByTestId("monitor-note")).toHaveText(/^Müşteri monitör değişikliğini reddetti · yeni istek 0:3[01] sonra$/, { timeout: 2000 });
+  await expect(page.getByTestId("monitor-note")).toHaveText(/^Müşteri monitör değişikliğini reddetti · yeni istek 0:3[01] sonra$/, {
+    timeout: 2000,
+  });
   await expect(picker.getByRole("button", { name: "Ekran 2" })).toHaveAttribute("aria-pressed", "true");
   // K7: sunucu beklemesi (30 sn + 1 sn pay) sürerken seçim pasif, geri sayım ilerler
   await expect(picker.getByRole("button", { name: "Ekran 1" })).toBeDisabled();
@@ -401,10 +430,14 @@ test("AC-43/105: monitör değişikliği müşteri onayıyla; yükseltilmiş pen
 
   // K8 / S7-9: istemci yönetici olarak çalışıyor → kalıcı uyarı rozeti (kontrolü engellemez)
   await agentSend(a, { t: "env.state", elevatedForeground: false, secureDesktop: false, selfElevated: true });
-  await expect(page.getByTestId("stage-self-elevated")).toHaveText("Müşteri istemcisi yönetici olarak çalışıyor — yükseltilmiş pencereler ve UAC ekranı denetlenebilir");
+  await expect(page.getByTestId("stage-self-elevated")).toHaveText(
+    "Müşteri istemcisi yönetici olarak çalışıyor — yükseltilmiş pencereler ve UAC ekranı denetlenebilir",
+  );
 
   await agentSend(a, { t: "env.state", elevatedForeground: true, secureDesktop: false, selfElevated: true });
-  await expect(page.getByTestId("stage-elevated")).toHaveText("Yükseltilmiş pencere — kontrol edilemiyor. Müşteriden onaylamasını isteyin.");
+  await expect(page.getByTestId("stage-elevated")).toHaveText(
+    "Yükseltilmiş pencere — kontrol edilemiyor. Müşteriden onaylamasını isteyin.",
+  );
   await expect(page.getByTestId("stage-self-elevated")).toBeVisible();
   expect(await axeScan(page)).toEqual([]);
   await agentSend(a, { t: "env.state", elevatedForeground: false, secureDesktop: true, selfElevated: false });

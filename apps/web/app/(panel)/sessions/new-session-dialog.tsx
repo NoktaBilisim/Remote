@@ -46,26 +46,29 @@ export function NewSessionDialog({
   const started = useRef(false);
   const router = useRouter();
 
-  const create = useCallback(async (customerId?: string) => {
-    setState({ kind: "creating" });
-    try {
-      const data = await api<CreateSessionResponse>("POST", "/sessions", customerId ? { customerId } : {});
-      const ttlMinutes = Math.max(1, Math.round((Date.parse(data.expiresAt) - Date.now()) / 60_000));
-      setState({ kind: "ok", data, ttlMinutes, cancelled: false });
-      onChanged();
-    } catch (e) {
-      if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
-      // AC-180: pasif / başka firmanın müşterisi → 404; seçime geri dönülür
-      if (customerId && e instanceof ApiError && (e.status === 404 || e.status === 403)) {
-        setCustomerError(e.status === 404 ? t("d.customerGone") : t("d.customerForbidden"));
-        setState({ kind: "pick" });
-        return;
+  const create = useCallback(
+    async (customerId?: string) => {
+      setState({ kind: "creating" });
+      try {
+        const data = await api<CreateSessionResponse>("POST", "/sessions", customerId ? { customerId } : {});
+        const ttlMinutes = Math.max(1, Math.round((Date.parse(data.expiresAt) - Date.now()) / 60_000));
+        setState({ kind: "ok", data, ttlMinutes, cancelled: false });
+        onChanged();
+      } catch (e) {
+        if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
+        // AC-180: pasif / başka firmanın müşterisi → 404; seçime geri dönülür
+        if (customerId && e instanceof ApiError && (e.status === 404 || e.status === 403)) {
+          setCustomerError(e.status === 404 ? t("d.customerGone") : t("d.customerForbidden"));
+          setState({ kind: "pick" });
+          return;
+        }
+        if (e instanceof ApiError && e.code === "OPEN_SESSION_LIMIT") setState({ kind: "limit", message: e.message });
+        else if (e instanceof ApiError && e.status === 429) setState({ kind: "rate", minutes: retryMinutes(e.retryAfter) });
+        else setState({ kind: "error", error: toUiError(e) });
       }
-      if (e instanceof ApiError && e.code === "OPEN_SESSION_LIMIT") setState({ kind: "limit", message: e.message });
-      else if (e instanceof ApiError && e.status === 429) setState({ kind: "rate", minutes: retryMinutes(e.retryAfter) });
-      else setState({ kind: "error", error: toUiError(e) });
-    }
-  }, [onChanged, router]);
+    },
+    [onChanged, router],
+  );
 
   // Tek istek: StrictMode'daki çift efekt çalıştırmasında ref korunur (çift oturum açılmaz)
   useEffect(() => {
@@ -101,7 +104,11 @@ export function NewSessionDialog({
                 {t("err.retry")}
               </Button>
             )}
-            <Button variant={ok || state.kind === "pick" ? "secondary" : "primary"} onClick={onClose} className={state.kind === "error" ? "" : "sm:ml-auto"}>
+            <Button
+              variant={ok || state.kind === "pick" ? "secondary" : "primary"}
+              onClick={onClose}
+              className={state.kind === "error" ? "" : "sm:ml-auto"}
+            >
               {state.kind === "pick" ? t("rq.rj.cancel") : t("d.close")}
             </Button>
             {state.kind === "pick" && (
@@ -138,7 +145,9 @@ export function NewSessionDialog({
         )}
         {state.kind === "creating" && (
           <div aria-busy="true" data-testid="creating">
-            <p className="sr-only" role="status">{t("d.creating")}</p>
+            <p className="sr-only" role="status">
+              {t("d.creating")}
+            </p>
             <Skeleton className="h-4 w-28" />
             <Skeleton className="mt-2 h-11 w-full" />
             <div className="mt-4 grid gap-3 sm:grid-cols-2">

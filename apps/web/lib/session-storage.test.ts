@@ -21,6 +21,14 @@ describe("clearSessionData (S-P4-4)", () => {
   });
   it("depolama yoksa/hata verirse sessiz", () => {
     expect(() => clearSessionData(undefined)).not.toThrow();
-    expect(() => clearSessionData({ length: 1, key: () => { throw new Error("x"); }, removeItem: () => undefined })).not.toThrow();
+    expect(() =>
+      clearSessionData({
+        length: 1,
+        key: () => {
+          throw new Error("x");
+        },
+        removeItem: () => undefined,
+      }),
+    ).not.toThrow();
   });
 });

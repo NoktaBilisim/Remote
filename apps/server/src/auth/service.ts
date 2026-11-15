@@ -69,7 +69,17 @@ function fallbackFailure(limits: AuthLimits, user: repo.LoginUser, now: Date): b
 
 const errCode = (err: unknown): unknown => (typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined);
 
-async function recordFailure(db: Db, limits: AuthLimits, ctx: AuditContext, log: FastifyBaseLogger, user: repo.LoginUser | null, login: string, pairLocked: boolean, now: Date, onLock?: LockNotifier) {
+async function recordFailure(
+  db: Db,
+  limits: AuthLimits,
+  ctx: AuditContext,
+  log: FastifyBaseLogger,
+  user: repo.LoginUser | null,
+  login: string,
+  pairLocked: boolean,
+  now: Date,
+  onLock?: LockNotifier,
+) {
   let lockedNow: boolean;
   if (!user) lockedNow = limits.ghostAccount.hit(sha256Hex(login));
   else {
@@ -77,19 +87,32 @@ async function recordFailure(db: Db, limits: AuthLimits, ctx: AuditContext, log:
       lockedNow = await repo.bumpAccountFailures(db, user.id, ACCOUNT_LIMIT, LOCK_MIN);
     } catch (err) {
       lockedNow = fallbackFailure(limits, user, now);
-      log.warn({ alarm: "auth_fail_counter_fallback", userId: user.id, code: errCode(err), lockedNow }, "hesap sayacı DB'ye yazılamadı; bellek kovası kullanıldı");
+      log.warn(
+        { alarm: "auth_fail_counter_fallback", userId: user.id, code: errCode(err), lockedNow },
+        "hesap sayacı DB'ye yazılamadı; bellek kovası kullanıldı",
+      );
     }
   }
   const base = { ...who(user, login), entity: "users", entityId: user?.id ?? null };
   try {
     await db.$transaction(async (tx) => {
       await writeAudit(tx, ctx, { ...base, action: "auth.login", result: "fail", newValue: { reason: "invalid_credentials" } });
-      if (pairLocked) await writeAudit(tx, ctx, { ...base, action: "auth.locked", result: "success", newValue: { scope: "account_ip", minutes: LOCK_MIN } });
-      if (lockedNow) await writeAudit(tx, ctx, { ...base, action: "auth.locked", result: "success", newValue: { scope: "account", minutes: LOCK_MIN } });
+      if (pairLocked)
+        await writeAudit(tx, ctx, {
+          ...base,
+          action: "auth.locked",
+          result: "success",
+          newValue: { scope: "account_ip", minutes: LOCK_MIN },
+        });
+      if (lockedNow)
+        await writeAudit(tx, ctx, { ...base, action: "auth.locked", result: "success", newValue: { scope: "account", minutes: LOCK_MIN } });
     });
   } catch (err) {
     // Audit yazılamadı: karar (401/423) yine verilir; olay en az log'a düşer (login/IP/şifre yok).
-    log.warn({ alarm: "auth_fail_unrecorded", userId: user?.id ?? null, pairLocked, lockedNow, code: errCode(err) }, "başarısız giriş audit'e yazılamadı");
+    log.warn(
+      { alarm: "auth_fail_unrecorded", userId: user?.id ?? null, pairLocked, lockedNow, code: errCode(err) },
+      "başarısız giriş audit'e yazılamadı",
+    );
   }
   // Bildirim yalnız kilidi BU isteğin koyduğu durumda (bumpAccountFailures true → bir kez).
   if (lockedNow && user && onLock) onLock({ id: user.id, tenantId: user.tenantId, email: user.email });
@@ -103,7 +126,16 @@ function accountWait(limits: AuthLimits, user: repo.LoginUser | null, login: str
 }
 
 /** `previousToken`: aynı tarayıcıdan gelen eski oturum çerezi; başarılı girişte iptal edilir (S1-10). */
-export async function login(db: Db, limits: AuthLimits, ctx: AuditContext, log: FastifyBaseLogger, input: LoginInput, setupEnforced: boolean, previousToken?: string, onLock?: LockNotifier) {
+export async function login(
+  db: Db,
+  limits: AuthLimits,
+  ctx: AuditContext,
+  log: FastifyBaseLogger,
+  input: LoginInput,
+  setupEnforced: boolean,
+  previousToken?: string,
+  onLock?: LockNotifier,
+) {
   const ip = ipKey(ctx.ip);
   const ipWait = limits.ip.blockedFor(ip);
   if (ipWait > 0 || limits.ip.hit(ip)) throw new AppError("RATE_LIMITED", { retryAfterSec: ipWait || 60 });
@@ -119,10 +151,20 @@ export async function login(db: Db, limits: AuthLimits, ctx: AuditContext, log: 
 
   if (pairWait > 0 || accWait > 0) {
     try {
-      await writeAudit(db, ctx, { ...who(user, login), action: "auth.login", entity: "users", entityId: user?.id ?? null, result: "fail", newValue: { reason: "locked" } });
+      await writeAudit(db, ctx, {
+        ...who(user, login),
+        action: "auth.login",
+        entity: "users",
+        entityId: user?.id ?? null,
+        result: "fail",
+        newValue: { reason: "locked" },
+      });
     } catch (err) {
       // S8b-7: audit düşse de yanıt 423 (kilit durumu 5xx ile sızmaz); olay en az log'a düşer (login/IP/şifre yok).
-      log.warn({ alarm: "auth_fail_unrecorded", userId: user?.id ?? null, locked: true, code: errCode(err) }, "kilitli hesap girişi audit'e yazılamadı");
+      log.warn(
+        { alarm: "auth_fail_unrecorded", userId: user?.id ?? null, locked: true, code: errCode(err) },
+        "kilitli hesap girişi audit'e yazılamadı",
+      );
     }
     throw locked(Math.max(pairWait, accWait));
   }
@@ -134,7 +176,14 @@ export async function login(db: Db, limits: AuthLimits, ctx: AuditContext, log: 
 
   // G-P13b-10: CLI ile verilen geçici Super Admin parolası 24 saat geçerli (parolayı bilen kişiye özel mesaj; oracle değil).
   if (user.mustChangePassword && user.role === "SUPER_ADMIN" && (await superadminTempPasswordExpired(db, user.id, now))) {
-    await writeAudit(db, ctx, { ...who(user, login), action: "auth.login", entity: "users", entityId: user.id, result: "fail", newValue: { reason: "temp_password_expired" } });
+    await writeAudit(db, ctx, {
+      ...who(user, login),
+      action: "auth.login",
+      entity: "users",
+      entityId: user.id,
+      result: "fail",
+      newValue: { reason: "temp_password_expired" },
+    });
     throw new AppError("UNAUTHENTICATED", { message: TEMP_PASSWORD_EXPIRED });
   }
 
@@ -156,7 +205,13 @@ const authWho = (auth: AuthContext) => ({ tenantId: auth.user.tenantId, userId: 
 export async function logout(db: Db, ctx: AuditContext, auth: AuthContext): Promise<void> {
   await db.$transaction(async (tx) => {
     await repo.revokeSession(tx, auth.sessionId, new Date());
-    await writeAudit(tx, ctx, { ...authWho(auth), action: "auth.logout", entity: "auth_sessions", entityId: auth.sessionId, result: "success" });
+    await writeAudit(tx, ctx, {
+      ...authWho(auth),
+      action: "auth.logout",
+      entity: "auth_sessions",
+      entityId: auth.sessionId,
+      result: "success",
+    });
   });
 }
 

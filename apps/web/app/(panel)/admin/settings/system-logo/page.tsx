@@ -16,7 +16,11 @@ export default async function SystemLogoPage() {
   const res = await serverGet<PublicBrandingResponse>("/public/branding");
   if (res.kind === "error") {
     if (res.status === 401) redirect(EXPIRED_LOGIN_PATH);
-    return <div className="max-w-xl"><LoadError /></div>;
+    return (
+      <div className="max-w-xl">
+        <LoadError />
+      </div>
+    );
   }
   return (
     <div className="max-w-3xl">

@@ -31,8 +31,12 @@ export function ShareStrip({
       }`}
     >
       <span className="inline-flex min-w-0 items-center gap-2 font-semibold">
-        {state === "sharing" && <span aria-hidden className="size-2.5 shrink-0 animate-pulse rounded-full bg-danger motion-reduce:animate-none" />}
-        {state === "reconnecting" && <LoaderCircle aria-hidden className="size-4 shrink-0 animate-spin text-warning motion-reduce:animate-none" />}
+        {state === "sharing" && (
+          <span aria-hidden className="size-2.5 shrink-0 animate-pulse rounded-full bg-danger motion-reduce:animate-none" />
+        )}
+        {state === "reconnecting" && (
+          <LoaderCircle aria-hidden className="size-4 shrink-0 animate-spin text-warning motion-reduce:animate-none" />
+        )}
         {(state === "stopped" || state === "idle") && <ScreenShareOff aria-hidden className="size-4 shrink-0 text-warning" />}
         {t(`gs.strip.${state}`)}
       </span>

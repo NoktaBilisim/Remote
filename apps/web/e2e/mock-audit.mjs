@@ -12,7 +12,16 @@
 //   ausadef  SUPER_ADMIN, WhatsApp servisi panel yok + env yok → adres null, source "env" (yapılandırılmamış)
 import { PERMISSION_KEYS } from "@remote/contracts/permissions";
 import { listAuditQuerySchema } from "@remote/contracts/api/audit";
-import { MYSQL_PASSWORD_REQUIRED_MESSAGE, WA_API_KEY_REENTER, WA_TEST_MESSAGES, consentTextInputSchema, mysqlSettingsInputSchema, turnSettingsInputSchema, whatsappAdminTestInputSchema, whatsappSettingsInputSchema } from "@remote/contracts/api/system-settings";
+import {
+  MYSQL_PASSWORD_REQUIRED_MESSAGE,
+  WA_API_KEY_REENTER,
+  WA_TEST_MESSAGES,
+  consentTextInputSchema,
+  mysqlSettingsInputSchema,
+  turnSettingsInputSchema,
+  whatsappAdminTestInputSchema,
+  whatsappSettingsInputSchema,
+} from "@remote/contracts/api/system-settings";
 
 export const AU = {
   SELF: "01JAV00000000000000000000A",
@@ -33,7 +42,16 @@ export function auditUser(cookie) {
   const permissions =
     kind === "auview" ? ["audit.view", "settings.view", "sessions.view"] : kind === "aunone" ? ["sessions.view"] : ALL_NO_WS;
   return {
-    user: { id: AU.SELF, email: "derya@ornek.com", username: null, fullName: "Derya Kaya", role, tenantId: role === "SUPER_ADMIN" ? null : AU.T1, theme: "SYSTEM", mustChangePassword: false },
+    user: {
+      id: AU.SELF,
+      email: "derya@ornek.com",
+      username: null,
+      fullName: "Derya Kaya",
+      role,
+      tenantId: role === "SUPER_ADMIN" ? null : AU.T1,
+      theme: "SYSTEM",
+      mustChangePassword: false,
+    },
     permissions,
     tenant: role === "SUPER_ADMIN" ? null : { id: AU.T1, name: "Demo Firma", slug: "demo" },
     actingTenant: null,
@@ -63,8 +81,26 @@ const base = (o) => ({
 function seedItems(kind) {
   if (kind === "auempty") return [];
   const items = [
-    base({ id: "1060", createdAt: iso(60_000), action: "auth.login", entity: "auth_sessions", entityId: null, newValue: { method: "password" } }),
-    base({ id: "1059", createdAt: iso(120_000), action: "auth.login", result: "fail", userId: null, username: "kotu@ornek.com", userFullName: null, entity: "auth_sessions", entityId: null, newValue: { reason: "bad_password" } }),
+    base({
+      id: "1060",
+      createdAt: iso(60_000),
+      action: "auth.login",
+      entity: "auth_sessions",
+      entityId: null,
+      newValue: { method: "password" },
+    }),
+    base({
+      id: "1059",
+      createdAt: iso(120_000),
+      action: "auth.login",
+      result: "fail",
+      userId: null,
+      username: "kotu@ornek.com",
+      userFullName: null,
+      entity: "auth_sessions",
+      entityId: null,
+      newValue: { reason: "bad_password" },
+    }),
     base({
       id: "1058",
       createdAt: iso(180_000),
@@ -76,17 +112,80 @@ function seedItems(kind) {
       oldValue: { fullName: "Can Aydin" },
       newValue: { fullName: "<img src=x onerror=alert(1)>Can" },
     }),
-    base({ id: "1057", createdAt: iso(240_000), action: "mail.sent", entity: "mail", entityId: null, result: "fail", newValue: { reason: "auth", kind: "session_link" } }),
+    base({
+      id: "1057",
+      createdAt: iso(240_000),
+      action: "mail.sent",
+      entity: "mail",
+      entityId: null,
+      result: "fail",
+      newValue: { reason: "auth", kind: "session_link" },
+    }),
     base({ id: "1056", createdAt: iso(300_000), action: "yeni.bilinmeyen_olay", entity: "misc", entityId: null }),
     // P13a: saklama işi (sistem, yalnız sayılar) + WhatsApp test reason kodu (Türkçe etiket)
-    base({ id: "1055b", createdAt: iso(330_000), action: "retention.run", userId: null, username: "system", userFullName: null, ipAddress: null, userAgent: null, entity: "retention", entityId: null, newValue: { sessions: 3, consents: 4, files: 1, requests: 0, customers: 0, bindings: 0 } }),
+    base({
+      id: "1055b",
+      createdAt: iso(330_000),
+      action: "retention.run",
+      userId: null,
+      username: "system",
+      userFullName: null,
+      ipAddress: null,
+      userAgent: null,
+      entity: "retention",
+      entityId: null,
+      newValue: { sessions: 3, consents: 4, files: 1, requests: 0, customers: 0, bindings: 0 },
+    }),
     // P13a güvenlik turu (backend): müşteri kaynaklı kayıtlarda IP yalnız ağ öneki (/24, IPv6 /48), UA boş
-    base({ id: "1055d", createdAt: iso(370_000), action: "guest.pending", userId: null, username: "customer", userFullName: null, ipAddress: "203.0.113.0/24", userAgent: null, entity: "support_sessions", entityId: "01JHXST0000000000000000004", newValue: { mode: "BROWSER" } }),
-    base({ id: "1055c", createdAt: iso(380_000), action: "request.created", userId: null, username: "customer", userFullName: null, ipAddress: "2001:db8:1234::/48", userAgent: null, entity: "support_requests", entityId: "01JREQH0000000000000000001", newValue: { status: "PENDING" } }),
-    base({ id: "1055a", createdAt: iso(360_000), action: "settings.whatsapp.test", entity: "system_settings", entityId: null, result: "fail", newValue: { recipient: "90532*****00", result: "fail", reason: "unreachable" } }),
+    base({
+      id: "1055d",
+      createdAt: iso(370_000),
+      action: "guest.pending",
+      userId: null,
+      username: "customer",
+      userFullName: null,
+      ipAddress: "203.0.113.0/24",
+      userAgent: null,
+      entity: "support_sessions",
+      entityId: "01JHXST0000000000000000004",
+      newValue: { mode: "BROWSER" },
+    }),
+    base({
+      id: "1055c",
+      createdAt: iso(380_000),
+      action: "request.created",
+      userId: null,
+      username: "customer",
+      userFullName: null,
+      ipAddress: "2001:db8:1234::/48",
+      userAgent: null,
+      entity: "support_requests",
+      entityId: "01JREQH0000000000000000001",
+      newValue: { status: "PENDING" },
+    }),
+    base({
+      id: "1055a",
+      createdAt: iso(360_000),
+      action: "settings.whatsapp.test",
+      entity: "system_settings",
+      entityId: null,
+      result: "fail",
+      newValue: { recipient: "90532*****00", result: "fail", reason: "unreachable" },
+    }),
   ];
   for (let i = 0; i < 51; i++) {
-    items.push(base({ id: String(1055 - i), createdAt: iso(400_000 + i * 3_600_000), action: i % 3 === 0 ? "session.created" : "customer.updated", entity: i % 3 === 0 ? "support_sessions" : "customers", entityId: "01JCU00000000000000000000A", result: i % 7 === 0 ? "fail" : "success", tenantId: i % 2 ? AU.T2 : AU.T1, tenantName: i % 2 ? "Acme Bilişim" : "Demo Firma" }));
+    items.push(
+      base({
+        id: String(1055 - i),
+        createdAt: iso(400_000 + i * 3_600_000),
+        action: i % 3 === 0 ? "session.created" : "customer.updated",
+        entity: i % 3 === 0 ? "support_sessions" : "customers",
+        entityId: "01JCU00000000000000000000A",
+        result: i % 7 === 0 ? "fail" : "success",
+        tenantId: i % 2 ? AU.T2 : AU.T1,
+        tenantName: i % 2 ? "Acme Bilişim" : "Demo Firma",
+      }),
+    );
   }
   return items;
 }
@@ -94,10 +193,25 @@ function seedItems(kind) {
 const stores = new Map();
 // P12b (AC-196): WhatsApp servis adresi — sözleşme docs/mimari-api.md "Yönetim" whatsapp satırları
 const WA_ENV_URL = "http://10.20.0.5:3000";
-const waEnv = (kind) => ({ url: kind === "ausawa0" ? null : WA_ENV_URL, source: "env", insecure: false, updatedAt: null, apiKeySet: kind === "ausa", apiKeySource: kind === "ausa" ? "env" : null });
+const waEnv = (kind) => ({
+  url: kind === "ausawa0" ? null : WA_ENV_URL,
+  source: "env",
+  insecure: false,
+  updatedAt: null,
+  apiKeySet: kind === "ausa",
+  apiKeySource: kind === "ausa" ? "env" : null,
+});
 function waInitial(kind) {
   if (kind === "ausadef") return { url: null, source: "env", insecure: false, updatedAt: null, apiKeySet: false, apiKeySource: null };
-  if (kind === "ausains") return { url: "http://203.0.113.50:3000", source: "panel", insecure: true, updatedAt: iso(3_600_000), apiKeySet: false, apiKeySource: null };
+  if (kind === "ausains")
+    return {
+      url: "http://203.0.113.50:3000",
+      source: "panel",
+      insecure: true,
+      updatedAt: iso(3_600_000),
+      apiKeySet: false,
+      apiKeySource: null,
+    };
   return waEnv(kind);
 }
 /** Sunucunun `isInsecureServiceUrl(url, production)` taklidi: canlı ortam varsayımı, http:// + özel ağ dışı → güvensiz. */
@@ -118,13 +232,41 @@ function astore(cookie, kind) {
   s = {
     items: seedItems(kind),
     fails: new Set(),
-    mysql: { host: "mysql", port: 3306, database: "remote", user: "app", hasPassword: true, updatedAt: null, source: "env", matchesRunning: true },
+    mysql: {
+      host: "mysql",
+      port: 3306,
+      database: "remote",
+      user: "app",
+      hasPassword: true,
+      updatedAt: null,
+      source: "env",
+      matchesRunning: true,
+    },
     wa: waInitial(kind),
     waTests: [],
-    turn: { urls: ["turn:turn.ornek.com:3478", "turns:turn.ornek.com:443?transport=tcp"], hasSecret: true, source: "panel", updatedAt: iso(86_400_000) },
+    turn: {
+      urls: ["turn:turn.ornek.com:3478", "turns:turn.ornek.com:443?transport=tcp"],
+      hasSecret: true,
+      source: "panel",
+      updatedAt: iso(86_400_000),
+    },
     consent: [
-      { id: "01JCT00000000000000000000B", version: 2, sha256: "b".repeat(64), createdAt: iso(2 * 86_400_000), createdByName: "Derya Kaya", body: "Bu oturumda teknisyen ekranınızı görüntüleyebilir. Onayınızla uzaktan kontrol alabilir. Kayıtlar 730 gün saklanır." },
-      { id: "01JCT00000000000000000000A", version: 1, sha256: "a".repeat(64), createdAt: iso(30 * 86_400_000), createdByName: null, body: "Sistem varsayılan aydınlatma metni — ekran paylaşımı yalnız sizin onayınızla başlar ve istediğiniz an durur." },
+      {
+        id: "01JCT00000000000000000000B",
+        version: 2,
+        sha256: "b".repeat(64),
+        createdAt: iso(2 * 86_400_000),
+        createdByName: "Derya Kaya",
+        body: "Bu oturumda teknisyen ekranınızı görüntüleyebilir. Onayınızla uzaktan kontrol alabilir. Kayıtlar 730 gün saklanır.",
+      },
+      {
+        id: "01JCT00000000000000000000A",
+        version: 1,
+        sha256: "a".repeat(64),
+        createdAt: iso(30 * 86_400_000),
+        createdByName: null,
+        body: "Sistem varsayılan aydınlatma metni — ekran paylaşımı yalnız sizin onayınızla başlar ve istediğiniz an durur.",
+      },
     ],
   };
   stores.set(cookie, s);
@@ -133,7 +275,16 @@ function astore(cookie, kind) {
 
 const fieldsOf = (error) => Object.fromEntries(error.issues.map((i) => [i.path.length ? i.path.join(".") : "_", i.message]));
 const day = (isoStr) => new Date(isoStr).toISOString().slice(0, 10);
-const consentView = (s) => ({ current: s.consent[0] ?? null, versions: s.consent.map((c) => ({ id: c.id, version: c.version, sha256: c.sha256, createdAt: c.createdAt, createdByName: c.createdByName })) });
+const consentView = (s) => ({
+  current: s.consent[0] ?? null,
+  versions: s.consent.map((c) => ({
+    id: c.id,
+    version: c.version,
+    sha256: c.sha256,
+    createdAt: c.createdAt,
+    createdByName: c.createdByName,
+  })),
+});
 
 export async function handleAudit(req, res, { url, session, csrfOk, send, err, readJson }) {
   const who = auditUser(session);
@@ -148,32 +299,42 @@ export async function handleAudit(req, res, { url, session, csrfOk, send, err, r
   const s = astore(session, who.kind);
   const can = (p) => who.permissions.includes(p);
   const isSa = who.user.role === "SUPER_ADMIN";
-  if (req.method !== "GET" && !csrfOk) return send(res, 403, err("CSRF_INVALID", "CSRF doğrulaması başarısız.")), true;
+  if (req.method !== "GET" && !csrfOk) return (send(res, 403, err("CSRF_INVALID", "CSRF doğrulaması başarısız.")), true);
 
   if (isUsers) {
-    if (!can("users.view") || isSa) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
+    if (!can("users.view") || isSa) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
     const users = [
       { id: AU.SELF, fullName: "Derya Kaya", email: "derya@ornek.com" },
       { id: AU.CAN, fullName: "Can Aydın", email: "can.aydin@ornek.com" },
       { id: AU.ELIF, fullName: "Elif Yönetici", email: "elif@ornek.com" },
-    ].map((u) => ({ ...u, username: null, role: "USER", status: "ACTIVE", mustChangePassword: false, totpEnabled: false, lastLoginAt: null, createdAt: iso(0) }));
-    return send(res, 200, { items: users, page: 1, pageSize: 100, total: users.length }), true;
+    ].map((u) => ({
+      ...u,
+      username: null,
+      role: "USER",
+      status: "ACTIVE",
+      mustChangePassword: false,
+      totpEnabled: false,
+      lastLoginAt: null,
+      createdAt: iso(0),
+    }));
+    return (send(res, 200, { items: users, page: 1, pageSize: 100, total: users.length }), true);
   }
   if (isTenants) {
-    if (!isSa) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
+    if (!isSa) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
     const items = [
       { id: AU.T2, name: "Acme Bilişim", slug: "acme" },
       { id: AU.T1, name: "Demo Firma", slug: "demo" },
     ].map((x) => ({ ...x, status: "ACTIVE", activeUserCount: 2, createdAt: iso(0), updatedAt: iso(0) }));
-    return send(res, 200, { items, page: 1, pageSize: 100, total: items.length }), true;
+    return (send(res, 200, { items, page: 1, pageSize: 100, total: items.length }), true);
   }
 
   if (isAudit) {
     // AC-76: salt okunur — değiştiren yöntemler 405
-    if (req.method !== "GET") return send(res, 405, err("METHOD_NOT_ALLOWED", "Audit kayıtları salt okunurdur; değiştirilemez veya silinemez.")), true;
-    if (!can("audit.view")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
+    if (req.method !== "GET")
+      return (send(res, 405, err("METHOD_NOT_ALLOWED", "Audit kayıtları salt okunurdur; değiştirilemez veya silinemez.")), true);
+    if (!can("audit.view")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
     const p = listAuditQuerySchema.safeParse(Object.fromEntries(new URLSearchParams(qs)));
-    if (!p.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true;
+    if (!p.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true);
     const q = p.data;
     const rows = s.items.filter(
       (a) =>
@@ -185,119 +346,164 @@ export async function handleAudit(req, res, { url, session, csrfOk, send, err, r
         (!q.to || day(a.createdAt) <= q.to),
     );
     if (path === "/api/v1/audit/export.csv") {
-      if (!can("audit.export")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
+      if (!can("audit.export")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
       const csv = "﻿Tarih;Kullanıcı;İşlem\r\n" + rows.map((a) => `${a.createdAt};${a.username ?? ""};${a.action}`).join("\r\n");
-      res.writeHead(200, { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="audit-2026-11-12.csv"' });
+      res.writeHead(200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="audit-2026-11-12.csv"',
+      });
       res.end(csv);
       return true;
     }
-    if (path !== "/api/v1/audit") return send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true;
+    if (path !== "/api/v1/audit") return (send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true);
     if (who.kind === "aubroken" && !s.fails.has(q.cursor ? "more" : "list")) {
       s.fails.add(q.cursor ? "more" : "list");
-      return send(res, 500, err("INTERNAL", "Sunucu hatası.")), true;
+      return (send(res, 500, err("INTERNAL", "Sunucu hatası.")), true);
     }
     const offset = q.cursor ? Number(q.cursor.slice(3)) : 0;
     const page = rows.slice(offset, offset + 50);
     const next = offset + 50 < rows.length ? `cur${String(offset + 50).padStart(3, "0")}` : null;
-    return send(res, 200, { items: page, nextCursor: next }), true;
+    return (send(res, 200, { items: page, nextCursor: next }), true);
   }
 
   if (isConsent) {
-    if (isSa) return send(res, 403, err("FORBIDDEN", "Önce firma seçin.")), true;
+    if (isSa) return (send(res, 403, err("FORBIDDEN", "Önce firma seçin.")), true);
     if (req.method === "GET") {
-      if (!can("settings.view") && !can("settings.edit")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
-      return send(res, 200, consentView(s)), true;
+      if (!can("settings.view") && !can("settings.edit")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+      return (send(res, 200, consentView(s)), true);
     }
     if (req.method === "PUT") {
-      if (!can("settings.edit")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
+      if (!can("settings.edit")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
       const p = consentTextInputSchema.safeParse(await readJson(req));
-      if (!p.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true;
+      if (!p.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true);
       // Tenant başına 10/saat (B-P11-6) — e2e tetikleyicisi: gövdede "[hiz-siniri]"
-      if (p.data.body.includes("[hiz-siniri]")) return send(res, 429, err("RATE_LIMITED", "Çok fazla istek. Lütfen biraz sonra tekrar deneyin."), [], { "Retry-After": "1500" }), true;
+      if (p.data.body.includes("[hiz-siniri]"))
+        return (
+          send(res, 429, err("RATE_LIMITED", "Çok fazla istek. Lütfen biraz sonra tekrar deneyin."), [], { "Retry-After": "1500" }),
+          true
+        );
       const cur = s.consent[0];
-      if (cur && cur.body === p.data.body) return send(res, 200, { ...consentView(s), changed: false }), true;
+      if (cur && cur.body === p.data.body) return (send(res, 200, { ...consentView(s), changed: false }), true);
       const v = (cur?.version ?? 0) + 1;
-      s.consent.unshift({ id: `01JCT0000000000000000000${String(v).padStart(2, "0")}`, version: v, sha256: String(v).repeat(64).slice(0, 64), createdAt: new Date().toISOString(), createdByName: who.user.fullName, body: p.data.body });
-      return send(res, 200, { ...consentView(s), changed: true }), true;
+      s.consent.unshift({
+        id: `01JCT0000000000000000000${String(v).padStart(2, "0")}`,
+        version: v,
+        sha256: String(v).repeat(64).slice(0, 64),
+        createdAt: new Date().toISOString(),
+        createdByName: who.user.fullName,
+        body: p.data.body,
+      });
+      return (send(res, 200, { ...consentView(s), changed: true }), true);
     }
     return false;
   }
 
   // Sistem ayarları — yalnız SUPER_ADMIN (rol kontrolü)
-  if (!isSa) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
-  if (path === "/api/v1/admin/settings/mysql" && req.method === "GET") return send(res, 200, s.mysql), true;
+  if (!isSa) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+  if (path === "/api/v1/admin/settings/mysql" && req.method === "GET") return (send(res, 200, s.mysql), true);
   if (path === "/api/v1/admin/settings/mysql" && req.method === "PUT") {
     const body = await readJson(req);
     const p = mysqlSettingsInputSchema.safeParse(body);
-    if (!p.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true;
+    if (!p.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true);
     const { password, ...rest } = p.data;
     // Kayıtlı şifre yalnız aynı host + port + kullanıcı için (backend kuralı)
     if (!password && (rest.host !== s.mysql.host || rest.port !== s.mysql.port || rest.user !== s.mysql.user))
-      return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } })), true;
-    s.mysql = { ...rest, hasPassword: s.mysql.hasPassword || Boolean(password), updatedAt: new Date().toISOString(), source: "panel", matchesRunning: rest.host === "mysql" };
-    return send(res, 200, { ...s.mysql, restartRequired: true, message: "Ayar kaydedildi. Uygulamak için sunucudaki .env (DATABASE_URL) güncellenip servis yeniden başlatılmalıdır." }), true;
+      return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } })), true);
+    s.mysql = {
+      ...rest,
+      hasPassword: s.mysql.hasPassword || Boolean(password),
+      updatedAt: new Date().toISOString(),
+      source: "panel",
+      matchesRunning: rest.host === "mysql",
+    };
+    return (
+      send(res, 200, {
+        ...s.mysql,
+        restartRequired: true,
+        message: "Ayar kaydedildi. Uygulamak için sunucudaki .env (DATABASE_URL) güncellenip servis yeniden başlatılmalıdır.",
+      }),
+      true
+    );
   }
   if (path === "/api/v1/admin/settings/mysql/test" && req.method === "POST") {
     const p = mysqlSettingsInputSchema.safeParse(await readJson(req));
-    if (!p.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true;
+    if (!p.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true);
     if (!p.data.password && (p.data.host !== s.mysql.host || p.data.user !== s.mysql.user) && !p.data.host.endsWith(".example"))
-      return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } })), true;
-    if (p.data.host === "rate.example") return send(res, 429, err("RATE_LIMITED", "Çok fazla test. Bir dakika sonra tekrar deneyin."), [], { "Retry-After": "42" }), true;
+      return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } })), true);
+    if (p.data.host === "rate.example")
+      return (send(res, 429, err("RATE_LIMITED", "Çok fazla test. Bir dakika sonra tekrar deneyin."), [], { "Retry-After": "42" }), true);
     if (p.data.host === "slow.example") await new Promise((r) => setTimeout(r, 1200));
-    if (p.data.host === "bad.example") return send(res, 200, { ok: false, message: "Sunucuya bağlanılamadı." }), true;
-    return send(res, 200, { ok: true, message: "Bağlantı başarılı.", latencyMs: 12 }), true;
+    if (p.data.host === "bad.example") return (send(res, 200, { ok: false, message: "Sunucuya bağlanılamadı." }), true);
+    return (send(res, 200, { ok: true, message: "Bağlantı başarılı.", latencyMs: 12 }), true);
   }
   if (path === "/api/v1/admin/settings/whatsapp" && req.method === "GET") {
     if (who.kind === "ausabrk" && !s.fails.has("wa")) {
       s.fails.add("wa");
-      return send(res, 500, err("INTERNAL", "Sunucu hatası.")), true;
+      return (send(res, 500, err("INTERNAL", "Sunucu hatası.")), true);
     }
-    return send(res, 200, s.wa), true;
+    return (send(res, 200, s.wa), true);
   }
   if (path === "/api/v1/admin/settings/whatsapp" && req.method === "PUT") {
     const p = waParse(await readJson(req));
-    if (p.fields) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: p.fields })), true;
+    if (p.fields) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: p.fields })), true);
     const url = p.url;
     // S-P13b-3: yok/"" → koru; null → sil; dolu → yeni. Köken değişip anahtar verilmezse yeniden giriş istenir.
     const origin = (u) => new URL(u).origin;
     const prevKey = s.wa.apiKeySource === "panel";
     if (p.apiKey === undefined || p.apiKey === "") {
-      if (prevKey && s.wa.url && origin(s.wa.url) !== origin(url)) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { apiKey: WA_API_KEY_REENTER } })), true;
+      if (prevKey && s.wa.url && origin(s.wa.url) !== origin(url))
+        return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { apiKey: WA_API_KEY_REENTER } })), true);
     }
     const keySet = p.apiKey === null ? false : p.apiKey ? true : prevKey;
-    s.wa = { url, source: "panel", insecure: waInsecure(url), updatedAt: new Date().toISOString(), apiKeySet: keySet, apiKeySource: keySet ? "panel" : null };
-    return send(res, 200, s.wa), true;
+    s.wa = {
+      url,
+      source: "panel",
+      insecure: waInsecure(url),
+      updatedAt: new Date().toISOString(),
+      apiKeySet: keySet,
+      apiKeySource: keySet ? "panel" : null,
+    };
+    return (send(res, 200, s.wa), true);
   }
   if (path === "/api/v1/admin/settings/whatsapp" && req.method === "DELETE") {
     s.wa = who.kind === "ausadef" ? waInitial(who.kind) : waEnv(who.kind);
-    return send(res, 200, s.wa), true; // sunucu: 200 + güncel (env) görünüm
+    return (send(res, 200, s.wa), true); // sunucu: 200 + güncel (env) görünüm
   }
   if (path === "/api/v1/admin/settings/whatsapp/test" && req.method === "POST") {
     const tp = whatsappAdminTestInputSchema.safeParse(await readJson(req));
-    if (!tp.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(tp.error) })), true;
+    if (!tp.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(tp.error) })), true);
     const phone = tp.data.phoneNumber;
     // 5/dk/kullanıcı → 6. istek 429
     const now = Date.now();
     s.waTests = s.waTests.filter((x) => now - x < 60_000);
-    if (s.waTests.length >= 5) return send(res, 429, err("RATE_LIMITED", "Çok fazla test denendi. Bir dakika sonra tekrar deneyin."), [], { "Retry-After": "60" }), true;
+    if (s.waTests.length >= 5)
+      return (
+        send(res, 429, err("RATE_LIMITED", "Çok fazla test denendi. Bir dakika sonra tekrar deneyin."), [], { "Retry-After": "60" }),
+        true
+      );
     s.waTests.push(now);
     // Sunucunun sabit mesajları (contracts WA_TEST_MESSAGES); güvensiz adreste istek gönderilmez.
-    if (!s.wa.url) return send(res, 200, { ok: false, message: WA_TEST_MESSAGES.unconfigured }), true;
-    if (s.wa.insecure) return send(res, 200, { ok: false, message: WA_TEST_MESSAGES.insecure }), true;
-    if (phone.endsWith("8888888")) return send(res, 200, { ok: false, message: WA_TEST_MESSAGES.unauthorized }), true; // servis 401
-    if (phone.endsWith("9999999")) return send(res, 200, { ok: false, message: WA_TEST_MESSAGES.unreachable }), true;
-    return send(res, 200, { ok: true, message: WA_TEST_MESSAGES.ok }), true;
+    if (!s.wa.url) return (send(res, 200, { ok: false, message: WA_TEST_MESSAGES.unconfigured }), true);
+    if (s.wa.insecure) return (send(res, 200, { ok: false, message: WA_TEST_MESSAGES.insecure }), true);
+    if (phone.endsWith("8888888")) return (send(res, 200, { ok: false, message: WA_TEST_MESSAGES.unauthorized }), true); // servis 401
+    if (phone.endsWith("9999999")) return (send(res, 200, { ok: false, message: WA_TEST_MESSAGES.unreachable }), true);
+    return (send(res, 200, { ok: true, message: WA_TEST_MESSAGES.ok }), true);
   }
-  if (path === "/api/v1/admin/settings/turn" && req.method === "GET") return send(res, 200, s.turn), true;
+  if (path === "/api/v1/admin/settings/turn" && req.method === "GET") return (send(res, 200, s.turn), true);
   if (path === "/api/v1/admin/settings/turn" && req.method === "PUT") {
     const p = turnSettingsInputSchema.safeParse(await readJson(req));
-    if (!p.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true;
-    s.turn = { urls: p.data.urls, hasSecret: s.turn.hasSecret || Boolean(p.data.secret), source: "panel", updatedAt: new Date().toISOString() };
-    return send(res, 200, s.turn), true;
+    if (!p.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true);
+    s.turn = {
+      urls: p.data.urls,
+      hasSecret: s.turn.hasSecret || Boolean(p.data.secret),
+      source: "panel",
+      updatedAt: new Date().toISOString(),
+    };
+    return (send(res, 200, s.turn), true);
   }
   if (path === "/api/v1/admin/settings/turn" && req.method === "DELETE") {
     s.turn = { urls: ["stun:stun.ornek.com:3478"], hasSecret: true, source: "env", updatedAt: null };
-    return send(res, 204, undefined), true;
+    return (send(res, 204, undefined), true);
   }
   return false;
 }

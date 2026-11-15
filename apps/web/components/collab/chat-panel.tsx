@@ -38,31 +38,54 @@ export function ChatPanel({ collab, peerName }: { collab: Collab; peerName: stri
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2" data-testid="chat-panel">
       {items.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-8 text-center text-sm text-fg-muted" data-testid="chat-empty">
+        <div
+          className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-8 text-center text-sm text-fg-muted"
+          data-testid="chat-empty"
+        >
           <MessageSquare aria-hidden className="size-6" />
           <p>{t("p5.chat.empty", { name: peerName })}</p>
         </div>
       ) : (
         // role=log liste semantiğini ezmesin diye kapsayıcıda (axe: listitem ebeveyni ol olmalı)
         // TEST-P5-2: kaydırılabilir bölge klavyeyle odaklanır (axe scrollable-region-focusable); halka içe, kesilmesin
-        <div ref={list} role="log" aria-live="polite" aria-label={t("p5.chat.log")} tabIndex={0} className="flex max-h-80 min-h-40 flex-1 flex-col overflow-y-auto rounded-md pr-1 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring" data-testid="chat-log">
-        <ol className="flex flex-col gap-2">
-          {items.map((m) => (
-            <li key={`${m.from}.${m.id}`} className={`flex min-w-0 max-w-[85%] flex-col gap-0.5 ${m.from === "me" ? "self-end items-end" : "self-start items-start"}`}>
-              <span className="text-xs text-fg-muted">
-                {m.from === "me" ? t("p5.chat.me") : peerName} · <time dateTime={new Date(m.ts).toISOString()}>{formatTime(m.ts)}</time>
-              </span>
-              <p data-testid="chat-msg" className={`rounded-lg px-3 py-2 text-sm max-w-full whitespace-pre-wrap wrap-anywhere text-fg ${m.from === "me" ? "bg-primary-surface" : "bg-surface-muted"}`}>
-                {m.text}
-              </p>
-            </li>
-          ))}
-        </ol>
+        <div
+          ref={list}
+          role="log"
+          aria-live="polite"
+          aria-label={t("p5.chat.log")}
+          tabIndex={0}
+          className="flex max-h-80 min-h-40 flex-1 flex-col overflow-y-auto rounded-md pr-1 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+          data-testid="chat-log"
+        >
+          <ol className="flex flex-col gap-2">
+            {items.map((m) => (
+              <li
+                key={`${m.from}.${m.id}`}
+                className={`flex min-w-0 max-w-[85%] flex-col gap-0.5 ${m.from === "me" ? "self-end items-end" : "self-start items-start"}`}
+              >
+                <span className="text-xs text-fg-muted">
+                  {m.from === "me" ? t("p5.chat.me") : peerName} · <time dateTime={new Date(m.ts).toISOString()}>{formatTime(m.ts)}</time>
+                </span>
+                <p
+                  data-testid="chat-msg"
+                  className={`rounded-lg px-3 py-2 text-sm max-w-full whitespace-pre-wrap wrap-anywhere text-fg ${m.from === "me" ? "bg-primary-surface" : "bg-surface-muted"}`}
+                >
+                  {m.text}
+                </p>
+              </li>
+            ))}
+          </ol>
         </div>
       )}
-      {err && <p role="alert" className="text-sm text-danger">{t("p5.chat.sendError")}</p>}
+      {err && (
+        <p role="alert" className="text-sm text-danger">
+          {t("p5.chat.sendError")}
+        </p>
+      )}
       <form onSubmit={submit} className="flex items-end gap-2">
-        <label htmlFor={inputId} className="sr-only">{t("p5.chat.input")}</label>
+        <label htmlFor={inputId} className="sr-only">
+          {t("p5.chat.input")}
+        </label>
         <textarea
           id={inputId}
           data-testid="chat-input"
@@ -76,10 +99,18 @@ export function ChatPanel({ collab, peerName }: { collab: Collab; peerName: stri
           className="min-h-11 flex-1 resize-none rounded-md border border-border bg-surface px-3 py-2 text-base text-fg shadow-sm placeholder:text-fg-muted disabled:opacity-60 sm:text-sm"
         />
         <Button type="submit" aria-label={t("p5.chat.send")} disabled={!collab.ready || !text.trim()} data-testid="chat-send">
-          {collab.ready ? <Send aria-hidden className="size-4" /> : <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />}
+          {collab.ready ? (
+            <Send aria-hidden className="size-4" />
+          ) : (
+            <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+          )}
         </Button>
       </form>
-      {text.length > CHAT_MAX - 200 && <p className="text-right text-xs tabular-nums text-fg-muted">{text.length}/{CHAT_MAX}</p>}
+      {text.length > CHAT_MAX - 200 && (
+        <p className="text-right text-xs tabular-nums text-fg-muted">
+          {text.length}/{CHAT_MAX}
+        </p>
+      )}
     </div>
   );
 }

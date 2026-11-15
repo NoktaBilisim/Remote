@@ -41,7 +41,11 @@ async function session(status: St = "PENDING", createdAt?: Date) {
 }
 const past = () => new Date(Date.now() - 16 * 60_000);
 const download = (ref: string | null, ip: string, a: FastifyInstance = app) =>
-  a.inject({ method: "GET", url: `/api/v1/public/agent/download${ref === null ? "" : `?ref=${encodeURIComponent(ref)}`}`, remoteAddress: ip });
+  a.inject({
+    method: "GET",
+    url: `/api/v1/public/agent/download${ref === null ? "" : `?ref=${encodeURIComponent(ref)}`}`,
+    remoteAddress: ip,
+  });
 const errCode = (r: LightMyRequestResponse) => r.json<{ error: { code: string } }>().error.code;
 /** HMAC'i geçerli biçimde ama yanlış (başka anahtar) → 404. */
 const forgedRef = (id: string) => sessionRef("x".repeat(40), id);
@@ -145,7 +149,11 @@ describe("GET /public/agent/download", () => {
 
   it("AC-96, G-07: ikili hash'i AGENT_SHA256 ile uyuşmaz veya yapılandırma yoksa 503 NOT_READY; geçersiz ref yine 404", async () => {
     const s = await session();
-    for (const env of [{ ...agentEnv(), AGENT_SHA256: "0".repeat(64) }, { SESSION_REF_KEY: REF_KEY }, { ...agentEnv(), AGENT_BINARY_PATH: join(dir, "yok.exe") }]) {
+    for (const env of [
+      { ...agentEnv(), AGENT_SHA256: "0".repeat(64) },
+      { SESSION_REF_KEY: REF_KEY },
+      { ...agentEnv(), AGENT_BINARY_PATH: join(dir, "yok.exe") },
+    ]) {
       const a = makeApp({ env });
       await a.ready();
       try {
@@ -218,7 +226,11 @@ describe("GET /internal/agent-ready (S6-2: Caddy forward_auth bütünlük kapıs
   });
 
   it("AC-96, G-07: uyuşmazlık / dosya yok / yapılandırma yok → 503 NOT_READY (Caddy bunu istemciye döner)", async () => {
-    for (const env of [{ ...agentEnv(), AGENT_SHA256: "0".repeat(64) }, { ...agentEnv(), AGENT_BINARY_PATH: join(dir, "yok.exe") }, { SESSION_REF_KEY: REF_KEY }]) {
+    for (const env of [
+      { ...agentEnv(), AGENT_SHA256: "0".repeat(64) },
+      { ...agentEnv(), AGENT_BINARY_PATH: join(dir, "yok.exe") },
+      { SESSION_REF_KEY: REF_KEY },
+    ]) {
       const a = withProxy(env);
       await a.ready();
       try {
@@ -252,12 +264,22 @@ describe("GET /internal/agent-ready (S6-2: Caddy forward_auth bütünlük kapıs
     const a = withProxy(agentEnv());
     await a.ready();
     try {
-      for (const res of [await ready(a, { ip: "203.0.113.9" }), await ready(a, { ip: "172.30.0.129" }), await ready(a, { fwd: false }), await ready(a, { ip: "127.0.0.1" })]) {
+      for (const res of [
+        await ready(a, { ip: "203.0.113.9" }),
+        await ready(a, { ip: "172.30.0.129" }),
+        await ready(a, { fwd: false }),
+        await ready(a, { ip: "127.0.0.1" }),
+      ]) {
         expect(res.statusCode).toBe(404);
         expect(errCode(res)).toBe("NOT_FOUND");
       }
       // XFF ile proxy taklidi işe yaramaz: soket adresi esas alınır.
-      const spoof = await a.inject({ method: "GET", url: "/internal/agent-ready", remoteAddress: "203.0.113.9", headers: { "x-forwarded-method": "GET", "x-forwarded-for": PROXY } });
+      const spoof = await a.inject({
+        method: "GET",
+        url: "/internal/agent-ready",
+        remoteAddress: "203.0.113.9",
+        headers: { "x-forwarded-method": "GET", "x-forwarded-for": PROXY },
+      });
       expect(spoof.statusCode).toBe(404);
     } finally {
       await a.close();

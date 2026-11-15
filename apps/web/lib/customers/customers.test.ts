@@ -71,12 +71,21 @@ describe("AC-167 müşteri formu", () => {
     expect(isDirty({ ...draftOf(detail), email: "a@b.co" }, draftOf(detail))).toBe(true);
   });
   it("sunucu alan hataları forma, tanınmayanlar form üstüne", () => {
-    expect(serverFieldErrors({ name: "Bu adla bir müşteri zaten var", x: "?" })).toEqual({ errors: { name: "Bu adla bir müşteri zaten var" }, rest: ["?"] });
+    expect(serverFieldErrors({ name: "Bu adla bir müşteri zaten var", x: "?" })).toEqual({
+      errors: { name: "Bu adla bir müşteri zaten var" },
+      rest: ["?"],
+    });
   });
 });
 
 describe("combobox klavye (WAI-ARIA)", () => {
-  const s = (o: Partial<{ open: boolean; active: number; count: number; hasText: boolean }>) => ({ open: true, active: -1, count: 3, hasText: true, ...o });
+  const s = (o: Partial<{ open: boolean; active: number; count: number; hasText: boolean }>) => ({
+    open: true,
+    active: -1,
+    count: 3,
+    hasText: true,
+    ...o,
+  });
   it("↓/↑ kapalıyken açar, açıkken dolaşır ve uçlarda döner", () => {
     expect(comboKey("ArrowDown", s({ open: false }))).toEqual({ kind: "open" });
     expect(comboKey("ArrowDown", s({ active: -1 }))).toEqual({ kind: "move", to: 0 });

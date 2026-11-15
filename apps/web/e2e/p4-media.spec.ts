@@ -32,7 +32,11 @@ async function joinLobby(g: Page, name = "Ayşe Yılmaz") {
   return (label ?? "").replace(/\s/g, "");
 }
 
-test("AC-28..33, 59, 112: karşılama → KVKK → lobi → kabul → paylaşım → teknisyen video → durdur → bitir", async ({ page, context, browser }, info) => {
+test("AC-28..33, 59, 112: karşılama → KVKK → lobi → kabul → paylaşım → teknisyen video → durdur → bitir", async ({
+  page,
+  context,
+  browser,
+}, info) => {
   test.skip(info.project.name !== "desktop", "konsol masaüstü akışı");
   await signIn(context, "p4");
   const s = await newSession(page);
@@ -59,7 +63,9 @@ test("AC-28..33, 59, 112: karşılama → KVKK → lobi → kabul → paylaşım
   await expect(g.getByTestId("share-strip")).toHaveAttribute("data-state", "sharing");
   await expect(page.getByTestId("stage")).toHaveAttribute("data-share", "sharing");
   await expect
-    .poll(() => page.getByTestId("console-video").evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.videoWidth > 0), { timeout: 15_000 })
+    .poll(() => page.getByTestId("console-video").evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.videoWidth > 0), {
+      timeout: 15_000,
+    })
     .toBe(true);
 
   await g.getByTestId("share-stop").click();
@@ -174,7 +180,11 @@ test("AC-26/125: karşılamadaki doğrulama kodu = konsoldaki kod; bildir bağla
   await g.context().close();
 });
 
-test("AC-30: paylaşım reddedilirse 'Paylaşım başlatılmadı' + 'Tekrar dene' → ikinci denemede paylaşım", async ({ page, context, browser }, info) => {
+test("AC-30: paylaşım reddedilirse 'Paylaşım başlatılmadı' + 'Tekrar dene' → ikinci denemede paylaşım", async ({
+  page,
+  context,
+  browser,
+}, info) => {
   test.skip(info.project.name !== "desktop", "konsol masaüstü akışı");
   await signIn(context, "p4d");
   const g = await liveSession(page, browser, () => {
@@ -217,7 +227,11 @@ test("AC-34: tarayıcı modunda 'Uzaktan kontrol' pasif ve nedeni açıklanır",
   await g.context().close();
 });
 
-test("TEST-P4-1: müşteri aktif oturumda sayfayı yeniler → 'kullanıldı' değil, aynı oturuma döner; bitince link kullanılmış", async ({ page, context, browser }, info) => {
+test("TEST-P4-1: müşteri aktif oturumda sayfayı yeniler → 'kullanıldı' değil, aynı oturuma döner; bitince link kullanılmış", async ({
+  page,
+  context,
+  browser,
+}, info) => {
   test.skip(info.project.name !== "desktop", "konsol masaüstü akışı");
   await signIn(context, "p4r");
   const g = await liveSession(page, browser);
@@ -250,7 +264,11 @@ test("TEST-P4-1: müşteri aktif oturumda sayfayı yeniler → 'kullanıldı' de
   await g.context().close();
 });
 
-test("TEST-P4-1: oturum bittikten sonra kalan dönüş kaydı → kayıt silinir, 'kullanıldı' ekranı", async ({ page, context, browser }, info) => {
+test("TEST-P4-1: oturum bittikten sonra kalan dönüş kaydı → kayıt silinir, 'kullanıldı' ekranı", async ({
+  page,
+  context,
+  browser,
+}, info) => {
   test.skip(info.project.name !== "desktop", "konsol masaüstü akışı");
   await signIn(context, "p4x");
   const g = await liveSession(page, browser);

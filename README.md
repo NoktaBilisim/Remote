@@ -5,6 +5,7 @@ oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tara
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
 ## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır
+
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
 turu GEÇTİ), sayfa testi gerçek server ile GEÇTİ, QA Tur 2'nin tek maddesi (P11'e ait kararsız e2e testi) düzeltildi
@@ -22,6 +23,7 @@ içinde yerinde prod'a terfi eder; IP girişi `https://185.126.217.99:4450` aç�
 P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) denenir.
 
 **P1 — ince iskelet**
+
 - E-posta veya kullanıcı adı + şifre ile giriş, çıkış, ilk girişte zorunlu şifre değişimi.
 - Hatalı giriş kilidi: aynı hesap+IP 5 hata → 15 dk kilit; hesap geneli 1 saatte 20 hata → 15 dk kilit;
   IP başına dakikada 20 deneme sınırı.
@@ -32,6 +34,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 - Docker Compose yığını (Caddy, web, server, MySQL), CI (lint, tip, test, e2e, build, tedarik zinciri).
 
 **P2 — destek oturumları**
+
 - Teknisyen "Oturumlar" ekranından yeni destek oturumu açar: tek kullanımlık link (yalnız oluşturma anında
   gösterilir), 8 haneli oturum kodu (`4829 1376` biçiminde), teknisyen doğrulama kodu ve geçerlilik süresi
   (tenant ayarı, varsayılan 15 dk).
@@ -44,6 +47,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   (link token'ı ve kod loga/audit'e yazılmaz).
 
 **P3 — sinyalizasyon + TURN** (sunucu tarafı)
+
 - Müşteri katılımı: resolve yanıtındaki tek kullanımlık `joinNonce` ile `join` → müşteri bekleme odasına (lobi) girer
   ve 4 haneli bir kabul kodu görür. Teknisyen kodu girince oturum ACTIVE olur (tek atomik UPDATE; iptal ve süre
   dolumuyla yarışta tek kazanan). Lobi en çok 3 misafir, 5 dk; teknisyen bir misafiri reddedebilir.
@@ -56,6 +60,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   host güvenlik duvarı betiği). İç metrik ucu `/metrics` (`METRICS_TOKEN` ile).
 
 **P4 — KVKK onayı + tarayıcıdan ekran paylaşımı**
+
 - Müşteri karşılama sayfası tam akış: teknisyen kartı ve doğrulama kodu, dolandırıcılık uyarısı ve
   "Kötüye kullanımı bildir" bağlantısı (`ABUSE_EMAIL`), ad + KVKK aydınlatma metni onayı → bekleme odası (4 haneli
   kabul kodu, kalan süre, "Vazgeç ve çık") → ekranı paylaş / durdur / yeniden paylaş, önizleme, onaylı bitirme →
@@ -71,6 +76,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 - Görüntü tek yönlüdür: teknisyen yalnız alır, müşteri yalnız ekran gönderir; ses, kamera ve mikrofon kullanılmaz.
 
 **P5 — konsol işbirliği** (yeni rota yok; konsol ve müşteri sayfasına eklendi)
+
 - Teknisyen konsolunda yan panel: **Sohbet / Dosyalar / Kalite**. Müşteri sayfasında "Teknisyenle iletişim" bölümü
   (Sohbet; teknisyenin dosya yetkisi varsa Dosyalar).
 - **Sohbet:** iki yönlü, mesaj başına en çok 2000 karakter, zaman damgası, okunmamış sayacı. Mesaj düz metin
@@ -93,6 +99,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 - Migration `20261111040000_p5_session_files`; yeni ortam değişkeni yok.
 
 **P6 — Windows istemci ("Hızlı Destek", `apps/agent-win`)**
+
 - Tek dosyalık, kurulumsuz Windows 10/11 programı (Go, CGO'suz, `asInvoker`: yönetici yetkisi istemez). Sunucu adresi
   ve sürüm derlemede ikiliye gömülür; başka bir sunucuya bağlanamaz. İmzasızdır (ADR-0010): bütünlük SHA-256,
   tekrarlanabilir derleme ve GitHub build attestation ile kanıtlanır.
@@ -118,6 +125,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   döner); istemci arayüzü yalnız açık temadadır. (Fare imleci P8'de görüntüye eklendi.)
 
 **P7 — uzaktan kontrol** (yalnız Hızlı Destek istemcisi; tarayıcı misafiri yalnız görüntüler)
+
 - Konsolda **Kontrol iste** → müşteride izin diyaloğu. "Reddet" varsayılan ve odakta; "İzin ver" 1,5 sn sonra
   etkinleşir; Enter/Space izin vermez; teknisyenin uzaktan (enjekte) tıklaması izin sayılmaz; diyalog fare imlecinin
   altında açılmaz. Ret sonrası 30 sn yeni istek iletilmez; oturum başına en çok 5 istek.
@@ -144,6 +152,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   ürettiği girdi gerçek kullanıcı girdisinden ayırt edilemez (kapsam dışı, `docs/implementation.md` Agent P7 tur 2).
 
 **P8 — oturum geçmişi** (sürüm 0.8.0)
+
 - Kenar menüsünde **Oturum geçmişi** (`/history`): tarih aralığı (Türkiye saatiyle gün), durum, bağlantı
   (İstemci/Tarayıcı), teknisyen, müşteri adı ve (Super Admin) firma filtreleri; 10/25/50/100 kayıtlık sayfalar.
   Filtreler adres çubuğunda kalır. USER yalnız kendi oturumlarını, ADMIN firmasının tümünü, Super Admin tüm firmaları
@@ -166,6 +175,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   tablosu dar ekranda sıkışık (TEST-P8-1).
 
 **P8b-1 — müşteri destek talebi (sunucu + panel; ADR-0016)**
+
 - Her firmaya özel indirme bağlantısı ve dosya (`NoktaDestek-<firma>-<ref>.exe`, aynı imzasız ikili). Müşteri bu
   dosyadan ad, telefon, açıklama ve KVKK onayıyla talep gönderir (müşteri ekranı istemci 0.9.0'da, aşağıda P8b-2).
 - Kenar menüsünde **Talepler** (`/requests`, `support_requests.view`): canlı kuyruk, bekleyen sayısı rozeti, yeni
@@ -180,6 +190,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   değişkenleri `WHATSAPP_SERVICE_URL`, `MIN_AGENT_VERSION`. Yayın ve geri alma: `docs/runbook.md` §12.
 
 **P8b-2 — Windows istemci 0.9.0: "Destek iste" (ADR-0016, mimari-e9 §13)**
+
 - Firma dosyası (`NoktaDestek-<firma>-<ref>.exe`) açılınca firma penceresi gelir: firma adı yalnız sunucudan, alt
   satırda sunucu · sürüm · parmak izi, dolandırıcılık uyarısı, (tanımlıysa) "Kötüye kullanımı bildir". Form: ad soyad,
   telefon, e-posta (isteğe bağlı), sorun, aydınlatma metni + onay kutusu; Enter = **Destek iste**, hatada ilk hatalı
@@ -201,6 +212,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 - Sunucu ve panelde değişiklik yok; yeni bağımlılık yok. Yayın: runbook §11 (`build.sh … 0.9.0`).
 
 **P8c-1 — müşteri firmalar ve bilgisayar kaydı (sunucu + panel; ADR-0017, `docs/mimari-e10.md`)**
+
 - **Müşteriler** ekranı (`/customers`, menüde Talepler'den sonra): müşteri firma ekle/düzenle, arama (ad, yetkili kişi,
   telefon), Aktif/Pasif/Tümü filtresi. Silme yok; **Pasife al** ve **Yeniden aktif et** var. Ad firma içinde tekildir.
 - Her müşteriye kalıcı indirme bağlantısı ve `NoktaDestek-<etiket>-<ref>.exe` dosyası ("Kopyala"). Bu dosyadan gelen
@@ -218,6 +230,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 - Migration `20261112120000_p8c_customers`, yeni aydınlatma metni sürümü (seed). Yeni env yok. Yayın: runbook §13.
 
 **P8c-2 — Windows istemci 0.10.0: kalıcı "Destek iste" (bilgisayar kaydı)**
+
 - Bir kez başarılı oturum yapılan bilgisayar firmayı hatırlar: kayıt `%LOCALAPPDATA%\NoktaDestek\hatirla.bin`'e (DPAPI,
   format v2) yazılır. Sonraki açılışta hangi NoktaDestek dosyası olursa olsun ana ekran açılır.
 - Ana ekran: **Destek iste** (birincil) · **Bağlantı kodum var** (8 haneli kod) · **Bu bilgisayarı unut** · **Kötüye
@@ -230,6 +243,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   §11 (`build.sh … 0.10.0`), §13.7.
 
 **İstemci 0.10.1 / 0.10.2 (düzeltmeler)**
+
 - 0.10.1: teknisyenin gönderdiği dosyalar geç gelen son parçalar yüzünden "Dosya bozuk" olabiliyordu; istemci son
   parçaları en çok 10 sn bekler.
 - 0.10.2: ekran yakalama sırayla DXGI → DXGI `DuplicateOutput1` (HDR) → GDI (10 fps) dener. Hepsi başarısız olursa
@@ -239,6 +253,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   `85142c14bf6941c2d5c3803b2818f0b1645c95b77704e640c8ff49d4059687bc`.
 
 **P9 — kullanıcı, yetki ve firma yönetimi**
+
 - **Kullanıcılar** (`/users`): arama, rol/durum filtresi; **Yeni kullanıcı** geçici şifreyi yalnız bir kez gösterir,
   kullanıcı ilk girişte şifresini değiştirir. Detayda profil, rol, hesap durumu ve modül bazlı **yetki toggle'ları**
   ("Tümünü aç/kapat"). Yetki listesi tek tanımdan gelir (`packages/contracts/src/permissions.ts`); yeni modül eklenince
@@ -253,6 +268,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 - Şema, migration, yeni env yok. Firma oluşturma öncesi doğrulama: runbook §14.1.
 
 **P10 — hesap güvenliği ve e-posta (SMTP)**
+
 - **İki adımlı doğrulama (2FA, TOTP):** Google Authenticator, Microsoft Authenticator gibi uygulamalarla. Kurulum
   (`/2fa/setup`): QR veya elle anahtar → 6 haneli kod → 10 tek kullanımlık kurtarma kodu (yalnız bir kez gösterilir;
   kopyala / `.txt` indir; "Kaydettim" işaretlenmeden devam yok). Super Admin ve Admin için **zorunlu**; teknisyenler
@@ -276,6 +292,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   bağımlılıklar `nodemailer` 10.5.0 (MIT-0), `qrcode` 1.5.4 (MIT); geliştirme: `smtp-server` (MIT-0, testte sahte SMTP).
 
 **P11 — audit log ekranı, sistem ayarları, aydınlatma metni**
+
 - **Audit log** (`/audit`, menüde kaydırma kâğıdı simgesi; `audit.view`): salt okunur liste, filtreler (tarih aralığı —
   varsayılan son 30 gün, en çok 731 gün —, kullanıcı, işlem/işlem grubu, sonuç; firma seçmemiş Super Admin için firma),
   "Daha fazla yükle" ile 50'şer kayıt, ayrıntı penceresi (eski → yeni değer; gizli değerler maskeli, e-posta/test
@@ -292,6 +309,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   bağımlılık yok.
 
 **P12 — marka ve kişiselleştirme**
+
 - **Hesap menüsü** (üst menüde avatar): Hesabım, Şifre değiştir, Tema (Açık / Koyu / Sistem), Çıkış. `/account` sayfasının
   adı **Hesabım**; Profil (profil resmi) ve Görünüm (tema) bölümleri eklendi.
 - **Profil resmi (avatar):** kullanıcı kendi resmini yükler (tarayıcıda kare kırpma + önizleme), değiştirir, kaldırır (onaylı).
@@ -313,6 +331,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   Sunucu CPU'su x86-64-v2 olmalı (runbook §16.1/0).
 
 **P12b — WhatsApp servisi sistem ayarı (AC-196)**
+
 - **Sistem ayarları > WhatsApp servisi** (`/admin/settings/whatsapp`, yalnız Super Admin): etkin servis adresi, kaynak
   rozeti (**Panel** / **Ortam değişkeni**), servis URL'sini kaydetme (yeniden başlatma yok), **Ortam değişkenine dön**,
   **Test Mesajı Gönder** (sonuç ekranda; kişi başı 5/dk, tüm Super Admin'ler 20/dk). Güvensiz adreste kalıcı uyarı.
@@ -321,6 +340,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 - Migration `20261114090000_whatsapp_service_setting` (yalnız CHECK). Yeni ortam değişkeni, volume ve bağımlılık yok.
 
 **P13a — saklama, yedek ve geri yükleme (AC-88, 91, 92, 93, 197–200)**
+
 - **Saklama süresi işi** (her gün 03:30): bitmiş oturumlarda firma saklama süresinden (`retentionDays`, varsayılan 365 gün)
   sonra müşteri adı, e-posta, not, onay IP/tarayıcı bilgisi ve dosya kayıtları silinir, oturum "Anonimleştirildi" olur.
   Süre **Ayarlar › Güvenlik › Veri saklama** ekranından değişir (90–730 gün, `settings.edit`). Audit 730 gün, giriş
@@ -336,6 +356,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
   `age`, `jq`).
 
 **P13b — prod açılışı (AC-23, 91, 126, 200 revize; AC-298–302)**
+
 - Prod adresi `https://remote.noktabilisim.net`; HSTS `max-age=31536000; includeSubDomains`; 4450 yalnız `127.0.0.1`.
 - TURN-TLS 5349/TCP (Let's Encrypt, yenileme kancası), relay aralığı 49160–49479/udp, allocation başına 8 Mbit/s,
   host toplam tavanı (`TURN_FW_RELAY_MAX_BPS`).
@@ -351,6 +372,7 @@ P13c'ye kadar ayrı staging yoktur; yeni kod yerelde (`scripts/e2e-real.sh`) den
 gönderir, konsol liste gelmeden teklif üretmez (`6701567`).
 
 **P13b-L — bekleme odası göstergesi (AC-304–315, ADR-0029)**
+
 - Oturumlar listesinde bekleyen oturumun satırında **"Müşteri bekliyor (n)"** rozeti; kendi oturumunuzda tıklanınca konsol açılır.
 - Kenar menüde "Oturumlar" öğesinde bekleyen müşteri sayacı (panelin her sayfasında), yeni gelişte "Bekleme odasında
   müşteri var" bildirimi ve "Konsolu aç" eylemi, sekme arka plandayken başlıkta "({n}) Müşteri bekliyor — " ön eki.
@@ -373,46 +395,49 @@ telefonda bir doğrulama uygulaması hazır olmalı, 10 kurtarma kodu parola kas
 görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanılabilir (`docs/runbook.md` §6).
 
 ## Yol haritası
-| Paket | Kapsam |
-|---|---|
-| P2 ✓ | Destek oturumu oluşturma (8 haneli kod), liste, iptal, karşılama sayfası iskeleti |
-| P3 ✓ | Sinyalizasyon sunucusu (WebSocket), lobi + teknisyen kabulü, TURN (coturn), `/metrics` |
-| P4 ✓ | Tarayıcı modu ekran paylaşımı, KVKK onayı, teknisyen konsolu video |
-| P5 ✓ | Sohbet, dosya transferi, ekran üzerine işaretleme + lazer + yüzen pencere, kalite paneli |
-| P6 ✓ | Windows istemci (Go, imzasız; SHA-256 + build attestation) |
-| P7 ✓ | Uzaktan kontrol (izin diyaloğu, klavye/fare, monitör değiştirme) |
-| P8 ✓ | Oturum geçmişi, not/ticket, CSV dışa aktarma, istemcide fare imleci |
-| P8b-1 ✓ | Müşteri destek talebi: sunucu uçları, panel kuyruğu, ayarlar, WhatsApp bildirimi |
-| P8b-2 (kod ✓, Windows elle test bekliyor) | Windows istemci 0.9.0: "Destek iste" formu, bekleme ekranı, 503 yeniden deneme |
-| P8c-1 ✓ | Müşteri firmalar (Müşteriler modülü), müşteri başına kalıcı bağlantı, bilgisayar kaydı (sunucu + panel) |
-| P8c-2 (kod ✓, Windows elle test bekliyor) | Windows istemci 0.10.0: kalıcı "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut" |
-| P9 ✓ | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi |
-| P10 ✓ | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış, e-posta bildirimleri |
-| P11 ✓ | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri, aydınlatma metni düzenleme |
-| P12 ✓ | Firma/sistem logosu, avatar yükleme, kullanıcı tema tercihi, hesap menüsü, token lint kuralı |
-| P12b ✓ | Super Admin "WhatsApp servisi" sistem ayarı: servis adresi, kaynak rozeti, test mesajı |
-| P13a ✓ | Saklama işi (anonimleştirme, audit 730 g), şifreli yedek/geri yükleme, runbook senaryo dizini, kılavuz, datasheet, PDF'ler |
-| P13b (kod ✓, prod terfisi runbook §20) | Prod açılışı: `remote.noktabilisim.net`, TURN-TLS 5349 + LE sertifika kancası, imzalı yedek + site dışı kanca + audit süreklilik denetimi, `reset-superadmin` CLI, `remote-watch`, `proxy-guard`, WhatsApp servis anahtarı |
-| P13b-L (kod ✓, qa GEÇTİ, güvenlik Kritik/Yüksek 0; staging testi AC-316 bekliyor) | Bekleme odası göstergesi: liste rozeti, "Oturumlar" menü sayacı, bildirim, sekme başlığı, `GET /sessions/waiting` |
-| P13c | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce |
+
+| Paket                                                                             | Kapsam                                                                                                                                                                                                                     |
+| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P2 ✓                                                                              | Destek oturumu oluşturma (8 haneli kod), liste, iptal, karşılama sayfası iskeleti                                                                                                                                          |
+| P3 ✓                                                                              | Sinyalizasyon sunucusu (WebSocket), lobi + teknisyen kabulü, TURN (coturn), `/metrics`                                                                                                                                     |
+| P4 ✓                                                                              | Tarayıcı modu ekran paylaşımı, KVKK onayı, teknisyen konsolu video                                                                                                                                                         |
+| P5 ✓                                                                              | Sohbet, dosya transferi, ekran üzerine işaretleme + lazer + yüzen pencere, kalite paneli                                                                                                                                   |
+| P6 ✓                                                                              | Windows istemci (Go, imzasız; SHA-256 + build attestation)                                                                                                                                                                 |
+| P7 ✓                                                                              | Uzaktan kontrol (izin diyaloğu, klavye/fare, monitör değiştirme)                                                                                                                                                           |
+| P8 ✓                                                                              | Oturum geçmişi, not/ticket, CSV dışa aktarma, istemcide fare imleci                                                                                                                                                        |
+| P8b-1 ✓                                                                           | Müşteri destek talebi: sunucu uçları, panel kuyruğu, ayarlar, WhatsApp bildirimi                                                                                                                                           |
+| P8b-2 (kod ✓, Windows elle test bekliyor)                                         | Windows istemci 0.9.0: "Destek iste" formu, bekleme ekranı, 503 yeniden deneme                                                                                                                                             |
+| P8c-1 ✓                                                                           | Müşteri firmalar (Müşteriler modülü), müşteri başına kalıcı bağlantı, bilgisayar kaydı (sunucu + panel)                                                                                                                    |
+| P8c-2 (kod ✓, Windows elle test bekliyor)                                         | Windows istemci 0.10.0: kalıcı "Destek iste", "Bağlantı kodum var", "Bu bilgisayarı unut"                                                                                                                                  |
+| P9 ✓                                                                              | Kullanıcı/yetki toggle'ları, tenant yönetimi, Super Admin tenant geçişi                                                                                                                                                    |
+| P10 ✓                                                                             | 2FA (TOTP), şifre sıfırlama e-postası, SMTP ayarı + test, tüm cihazlardan çıkış, e-posta bildirimleri                                                                                                                      |
+| P11 ✓                                                                             | MySQL/TURN ayarları + test, audit log ekranı, audit tetikleyicileri, aydınlatma metni düzenleme                                                                                                                            |
+| P12 ✓                                                                             | Firma/sistem logosu, avatar yükleme, kullanıcı tema tercihi, hesap menüsü, token lint kuralı                                                                                                                               |
+| P12b ✓                                                                            | Super Admin "WhatsApp servisi" sistem ayarı: servis adresi, kaynak rozeti, test mesajı                                                                                                                                     |
+| P13a ✓                                                                            | Saklama işi (anonimleştirme, audit 730 g), şifreli yedek/geri yükleme, runbook senaryo dizini, kılavuz, datasheet, PDF'ler                                                                                                 |
+| P13b (kod ✓, prod terfisi runbook §20)                                            | Prod açılışı: `remote.noktabilisim.net`, TURN-TLS 5349 + LE sertifika kancası, imzalı yedek + site dışı kanca + audit süreklilik denetimi, `reset-superadmin` CLI, `remote-watch`, `proxy-guard`, WhatsApp servis anahtarı |
+| P13b-L (kod ✓, qa GEÇTİ, güvenlik Kritik/Yüksek 0; staging testi AC-316 bekliyor) | Bekleme odası göstergesi: liste rozeti, "Oturumlar" menü sayacı, bildirim, sekme başlığı, `GET /sessions/waiting`                                                                                                          |
+| P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu
 müşteri ağları desteklenmez (ADR-0018 risk kabulü); gereken portlar kullanım kılavuzunda "Ağ gereksinimleri" bölümündedir.
 
 ## Teknoloji yığını
-| Katman | Teknoloji |
-|---|---|
-| Server | Node.js ≥ 22.18 (yerleşik TypeScript type stripping, derleme adımı yok), Fastify 5, Prisma 7, zod, pino, argon2id, nodemailer (SMTP), qrcode (2FA QR) |
-| Web | Next.js 16 (App Router), React 19, Tailwind 4, lucide-react |
-| Ortak | `packages/contracts` (zod şemaları, yetki listesi, hata kodları) |
-| DB | MySQL 8.4 |
-| Giriş | Caddy 2.11 (TLS, ters vekil, log filtresi) |
-| Sinyalizasyon / TURN | `ws` 8.21 (Fastify sunucusunda), coturn 4.18 (ayrı compose) |
-| Windows istemci | Go 1.26 (CGO'suz), Pion WebRTC v4, `coder/websocket`, `golang.org/x/sys`; Win32 arayüz |
-| Test | Vitest, Playwright + axe, `go test -race` |
-| Paket yöneticisi | pnpm 9 (corepack), monorepo |
+
+| Katman               | Teknoloji                                                                                                                                             |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server               | Node.js ≥ 22.18 (yerleşik TypeScript type stripping, derleme adımı yok), Fastify 5, Prisma 7, zod, pino, argon2id, nodemailer (SMTP), qrcode (2FA QR) |
+| Web                  | Next.js 16 (App Router), React 19, Tailwind 4, lucide-react                                                                                           |
+| Ortak                | `packages/contracts` (zod şemaları, yetki listesi, hata kodları)                                                                                      |
+| DB                   | MySQL 8.4                                                                                                                                             |
+| Giriş                | Caddy 2.11 (TLS, ters vekil, log filtresi)                                                                                                            |
+| Sinyalizasyon / TURN | `ws` 8.21 (Fastify sunucusunda), coturn 4.18 (ayrı compose)                                                                                           |
+| Windows istemci      | Go 1.26 (CGO'suz), Pion WebRTC v4, `coder/websocket`, `golang.org/x/sys`; Win32 arayüz                                                                |
+| Test                 | Vitest, Playwright + axe, `go test -race`                                                                                                             |
+| Paket yöneticisi     | pnpm 9 (corepack), monorepo                                                                                                                           |
 
 ## Gereksinimler
+
 - Node.js **≥ 22.18** (CI ve imajlar 22.23.4 kullanır), pnpm 9 (`corepack enable` ile `packageManager` sürümü gelir).
 - Docker Engine 27+ ve Docker Compose v2 (yığın ve entegrasyon testi için).
 - MySQL 8.4 (compose içinde gelir; ayrı kurulum gerekmez).
@@ -420,6 +445,7 @@ müşteri ağları desteklenmez (ADR-0018 risk kabulü); gereken portlar kullan�
 - Müşteri tarafı: Windows 10 / 11 (64 bit). Windows N sürümlerinde Media Feature Pack gerekir; yoksa görüntü gönderilemez.
 
 ## Kurulum (geliştirme)
+
 ```bash
 corepack enable
 pnpm install --frozen-lockfile
@@ -427,7 +453,9 @@ pnpm db:generate              # Prisma istemcisini üretir
 ```
 
 ## Yığını çalıştırma (Docker Compose)
+
 `deploy/.env` dosyasını `.env.example`'dan oluşturun ve değerleri doldurun (dosya git'e girmez):
+
 ```bash
 cd deploy
 cp ../.env.example .env && chmod 600 .env
@@ -436,6 +464,7 @@ docker compose up -d                          # mysql -> migrate -> server -> we
 docker compose --profile setup run --rm seed  # ilk Super Admin (bir kez; tekrar çalıştırmak zararsız)
 docker compose ps
 ```
+
 Tarayıcı: `https://<SITE_HOST>:4450`. Caddy `tls internal` kullanır; kök sertifikanın test makinesine
 kurulması `docs/runbook.md` §2'de anlatılır.
 
@@ -444,51 +473,54 @@ isteğe bağlı `SEED_SUPERADMIN_NAME` ile hesabı oluşturur. İlk girişte şi
 hesabın şifresi ezilmez. `NODE_ENV` production değilse `demo` adlı bir örnek tenant da oluşturulur.
 
 ### Ortam değişkenleri (`deploy/.env`)
-| Değişken | Zorunlu | Açıklama |
-|---|---|---|
-| `MYSQL_ROOT_PASSWORD`, `MYSQL_APP_PASSWORD`, `MYSQL_MIGRATOR_PASSWORD` | Evet | `openssl rand -hex 24`; yalnız harf/rakam |
-| `MYSQL_DATABASE` | Evet | Veritabanı adı (ör. `remote`) |
-| `MYSQL_BACKUP_PASSWORD` | Yedek için | P13a: `backup` MySQL kullanıcısının parolası, ≥ 16 karakter (`openssl rand -hex 24`). Yalnız `mysql` servisine verilir; server okumaz. Boşsa kullanıcı oluşturulmaz ve yedek hata verir (runbook §3, §18) |
-| `PUBLIC_BASE_URL` | Evet | Dış adres, port dahil (ör. `https://localhost:4450`) |
-| `SITE_HOST` | Hayır | Caddy site adı/sertifika adı (varsayılan `localhost`) |
-| `SEED_SUPERADMIN_EMAIL`, `SEED_SUPERADMIN_PASSWORD`, `SEED_SUPERADMIN_NAME` | Seed için | Boşluklu değer tırnaklanır; seed sonrası silinebilir |
-| `NODE_ENV`, `LOG_LEVEL` | Hayır | Varsayılan `production`, `info` |
-| `ALLOWED_ORIGINS` | Hayır | CSRF/Origin listesi (virgülle); boşsa `PUBLIC_BASE_URL` |
-| `SESSION_REF_KEY` | Evet | Müşteri durum yoklamasındaki `sessionRef`'in HMAC anahtarı, ≥ 32 karakter (`openssl rand -base64 48`). Production'da zorunlu; değişirse açık oturumların yoklaması 404 olur |
-| `EDGE_PROXY_SECRET` | Evet | Caddy → web paylaşılan sırrı (`X-Edge-Auth`), ≥ 32 karakter (`openssl rand -base64 32`). Caddy ve web'e aynı değer gider; web production'da sır yoksa açılmaz |
-| `CADDY_BIND`, `IMAGE_TAG` | Hayır | 4450'nin dinlendiği arayüz (varsayılan `0.0.0.0`; **prod `127.0.0.1`**, 4450 dışarı kapalı), imaj etiketi (varsayılan `local`) |
-| `DEPLOY_ENV` | Evet (yedek için) | P13b: `development`, `staging` veya `production`. Hiçbir konteyner okumaz; yalnız `backup.sh` (manifest `env`) ve `restore.sh` (ortam kilidi) `deploy/.env`'den okur. Boşsa yedek `FAILED adım=önkoşul` |
-| `TURN_URLS` | Evet | Virgüllü `stun:`/`turn:`/`turns:` adres listesi (staging değeri `.env.example`'da) |
-| `TURN_SECRET` | Evet | TURN credential HMAC sırrı, ≥ 32 karakter (`openssl rand -hex 32`); coturn ile **aynı** değer |
-| `TURN_CRED_TTL_MIN` | Hayır | TURN credential ömrü, dk (5–60, varsayılan 20) |
-| `METRICS_TOKEN` | Hayır | `/metrics` Bearer token'ı, ≥ 16 karakter; boşsa `/metrics` 404 |
-| `AGENT_SHA256` | İndirme için | Yayındaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). Elle yazılmaz; `deploy/agent/verify-and-publish.sh` doğrulamadan sonra yazar. Boşsa istemci indirmesi 503 döner, server yine açılır |
-| `AGENT_BINARY_PATH` | Compose dışı | İkilinin mutlak yolu. Compose `/data/downloads/NoktaDestek.exe` verir; yalnız yerel `pnpm` çalıştırmada gerekir |
-| `ABUSE_EMAIL` | Önerilir | Müşteri ekranındaki "Kötüye kullanımı bildir" adresi (ör. `abuse@<alan-adı>`). Production'da boşsa bağlantı gizlenir; Super Admin e-postası kullanılmaz. Boş bırakmak güvenlidir; dolu ama geçersiz adres server'ı açtırmaz |
-| `WHATSAPP_SERVICE_URL` | Hayır | P8b: whatsapp-bildirim servis adresi (sistem düzeyi; ör. `http://<whatsapp-servis>:3000`). **P12b'den beri yalnız yedek:** Sistem ayarları > WhatsApp servisi'nde panel kaydı varsa o geçerlidir. **P13b'den beri yerleşik varsayılan yok:** env ve panel kaydı boşsa kanal kapalıdır (gönderim yok, test "Servis yapılandırılmamış."). Değer kanonik biçime çevrilir (P13a). Kural: `http://`/`https://`, kullanıcı:şifre, `?`, `#`, boşluk ve görünmez karakter yok, ≤ 200 karakter; **uymazsa server açılmaz** (runbook §17.1). Production'da şifresiz + genel adres → kanal kapalı başlar (runbook §12.3) |
-| `WHATSAPP_SERVICE_API_KEY` | Hayır | P13b: servis anahtarı (`x-api-key` başlığı), 16–256 karakter, boşluksuz; uymazsa server açılmaz. Yalnız `WHATSAPP_SERVICE_URL` adresine gönderilir; panelde adres kayıtlıysa yalnız panel anahtarı kullanılır. Boş = başlık gönderilmez. Loglanmaz |
-| `APP_ENCRYPTION_KEYS` | Evet | P10: SMTP şifresi ve 2FA sırlarının AES-256-GCM anahtarı, `v1:<base64 32 bayt>`. Üretim: `echo "v1:$(openssl rand -base64 32)"`. Production'da yoksa server açılmaz. **Parola kasasında yedeklenmeli**: kaybolursa SMTP şifreleri yeniden girilir, tüm kullanıcıların 2FA'sı sıfırlanır. Rotasyonda eski sürüm silinmez (`v1:…,v2:…`); runbook §3 ve §14 P10 |
-| `MIN_AGENT_VERSION` | Hayır | P8b: asgari Windows istemci sürümü `x.y.z`; boş = kontrol yok. Müşterilerin tamamı 0.9.0 firma dosyasına geçene kadar boş bırakın (runbook §12.4) |
-| `UPLOADS_DIR` | Compose dışı | P12: logo/avatar dosyalarının kökü, **mutlak yol**. Compose sabit `/data/uploads` verir (volume `remote_uploads`); boşsa `/data/uploads`. Yedeği DB ile aynı pencerede alınır (runbook §16.3) |
-| `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `TRUSTED_PROXY_CIDR`, `API_INTERNAL_URL` | Compose dışı | Compose bunları kendisi üretir; yalnız yerel `pnpm` çalıştırmada gerekir |
+
+| Değişken                                                                         | Zorunlu           | Açıklama                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MYSQL_ROOT_PASSWORD`, `MYSQL_APP_PASSWORD`, `MYSQL_MIGRATOR_PASSWORD`           | Evet              | `openssl rand -hex 24`; yalnız harf/rakam                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `MYSQL_DATABASE`                                                                 | Evet              | Veritabanı adı (ör. `remote`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `MYSQL_BACKUP_PASSWORD`                                                          | Yedek için        | P13a: `backup` MySQL kullanıcısının parolası, ≥ 16 karakter (`openssl rand -hex 24`). Yalnız `mysql` servisine verilir; server okumaz. Boşsa kullanıcı oluşturulmaz ve yedek hata verir (runbook §3, §18)                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `PUBLIC_BASE_URL`                                                                | Evet              | Dış adres, port dahil (ör. `https://localhost:4450`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `SITE_HOST`                                                                      | Hayır             | Caddy site adı/sertifika adı (varsayılan `localhost`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `SEED_SUPERADMIN_EMAIL`, `SEED_SUPERADMIN_PASSWORD`, `SEED_SUPERADMIN_NAME`      | Seed için         | Boşluklu değer tırnaklanır; seed sonrası silinebilir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `NODE_ENV`, `LOG_LEVEL`                                                          | Hayır             | Varsayılan `production`, `info`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `ALLOWED_ORIGINS`                                                                | Hayır             | CSRF/Origin listesi (virgülle); boşsa `PUBLIC_BASE_URL`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `SESSION_REF_KEY`                                                                | Evet              | Müşteri durum yoklamasındaki `sessionRef`'in HMAC anahtarı, ≥ 32 karakter (`openssl rand -base64 48`). Production'da zorunlu; değişirse açık oturumların yoklaması 404 olur                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `EDGE_PROXY_SECRET`                                                              | Evet              | Caddy → web paylaşılan sırrı (`X-Edge-Auth`), ≥ 32 karakter (`openssl rand -base64 32`). Caddy ve web'e aynı değer gider; web production'da sır yoksa açılmaz                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `CADDY_BIND`, `IMAGE_TAG`                                                        | Hayır             | 4450'nin dinlendiği arayüz (varsayılan `0.0.0.0`; **prod `127.0.0.1`**, 4450 dışarı kapalı), imaj etiketi (varsayılan `local`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `DEPLOY_ENV`                                                                     | Evet (yedek için) | P13b: `development`, `staging` veya `production`. Hiçbir konteyner okumaz; yalnız `backup.sh` (manifest `env`) ve `restore.sh` (ortam kilidi) `deploy/.env`'den okur. Boşsa yedek `FAILED adım=önkoşul`                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `TURN_URLS`                                                                      | Evet              | Virgüllü `stun:`/`turn:`/`turns:` adres listesi (staging değeri `.env.example`'da)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `TURN_SECRET`                                                                    | Evet              | TURN credential HMAC sırrı, ≥ 32 karakter (`openssl rand -hex 32`); coturn ile **aynı** değer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `TURN_CRED_TTL_MIN`                                                              | Hayır             | TURN credential ömrü, dk (5–60, varsayılan 20)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `METRICS_TOKEN`                                                                  | Hayır             | `/metrics` Bearer token'ı, ≥ 16 karakter; boşsa `/metrics` 404                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `AGENT_SHA256`                                                                   | İndirme için      | Yayındaki `NoktaDestek.exe`'nin SHA-256'sı (64 hex). Elle yazılmaz; `deploy/agent/verify-and-publish.sh` doğrulamadan sonra yazar. Boşsa istemci indirmesi 503 döner, server yine açılır                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `AGENT_BINARY_PATH`                                                              | Compose dışı      | İkilinin mutlak yolu. Compose `/data/downloads/NoktaDestek.exe` verir; yalnız yerel `pnpm` çalıştırmada gerekir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `ABUSE_EMAIL`                                                                    | Önerilir          | Müşteri ekranındaki "Kötüye kullanımı bildir" adresi (ör. `abuse@<alan-adı>`). Production'da boşsa bağlantı gizlenir; Super Admin e-postası kullanılmaz. Boş bırakmak güvenlidir; dolu ama geçersiz adres server'ı açtırmaz                                                                                                                                                                                                                                                                                                                                                                                   |
+| `WHATSAPP_SERVICE_URL`                                                           | Hayır             | P8b: whatsapp-bildirim servis adresi (sistem düzeyi; ör. `http://<whatsapp-servis>:3000`). **P12b'den beri yalnız yedek:** Sistem ayarları > WhatsApp servisi'nde panel kaydı varsa o geçerlidir. **P13b'den beri yerleşik varsayılan yok:** env ve panel kaydı boşsa kanal kapalıdır (gönderim yok, test "Servis yapılandırılmamış."). Değer kanonik biçime çevrilir (P13a). Kural: `http://`/`https://`, kullanıcı:şifre, `?`, `#`, boşluk ve görünmez karakter yok, ≤ 200 karakter; **uymazsa server açılmaz** (runbook §17.1). Production'da şifresiz + genel adres → kanal kapalı başlar (runbook §12.3) |
+| `WHATSAPP_SERVICE_API_KEY`                                                       | Hayır             | P13b: servis anahtarı (`x-api-key` başlığı), 16–256 karakter, boşluksuz; uymazsa server açılmaz. Yalnız `WHATSAPP_SERVICE_URL` adresine gönderilir; panelde adres kayıtlıysa yalnız panel anahtarı kullanılır. Boş = başlık gönderilmez. Loglanmaz                                                                                                                                                                                                                                                                                                                                                            |
+| `APP_ENCRYPTION_KEYS`                                                            | Evet              | P10: SMTP şifresi ve 2FA sırlarının AES-256-GCM anahtarı, `v1:<base64 32 bayt>`. Üretim: `echo "v1:$(openssl rand -base64 32)"`. Production'da yoksa server açılmaz. **Parola kasasında yedeklenmeli**: kaybolursa SMTP şifreleri yeniden girilir, tüm kullanıcıların 2FA'sı sıfırlanır. Rotasyonda eski sürüm silinmez (`v1:…,v2:…`); runbook §3 ve §14 P10                                                                                                                                                                                                                                                  |
+| `MIN_AGENT_VERSION`                                                              | Hayır             | P8b: asgari Windows istemci sürümü `x.y.z`; boş = kontrol yok. Müşterilerin tamamı 0.9.0 firma dosyasına geçene kadar boş bırakın (runbook §12.4)                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `UPLOADS_DIR`                                                                    | Compose dışı      | P12: logo/avatar dosyalarının kökü, **mutlak yol**. Compose sabit `/data/uploads` verir (volume `remote_uploads`); boşsa `/data/uploads`. Yedeği DB ile aynı pencerede alınır (runbook §16.3)                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `DATABASE_URL`, `MIGRATE_DATABASE_URL`, `TRUSTED_PROXY_CIDR`, `API_INTERNAL_URL` | Compose dışı      | Compose bunları kendisi üretir; yalnız yerel `pnpm` çalıştırmada gerekir                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 TURN sunucusu (`deploy/turn`, ayrı compose projesi) şu değişkenleri okur:
-| Değişken | Zorunlu | Açıklama |
-|---|---|---|
-| `TURN_SECRET` | Evet | Server ile aynı sır |
-| `TURN_SECRET_PREVIOUS` | Hayır | Kesintisiz sır değişimi sırasında eski sır (runbook §9.6) |
-| `TURN_REALM` | Evet | coturn realm (prod: `remote.noktabilisim.net`) |
-| `TURN_EXTERNAL_IP` | Evet | `<public IP>/<iç IP>` (NAT arkasında) veya yalnız public IP |
-| `TURN_MAX_BPS`, `TURN_BPS_CAPACITY` | Hayır | Bayt/sn. `TURN_MAX_BPS`: allocation başına, yön başına tavan (vars. **1000000** = 8 Mbit/s, AC-21; P13b ölçümü). `TURN_BPS_CAPACITY`: **0 bırakın** (vars. 0); ayarlanırsa her allocation rezerve edilir ve 63. allocation reddedilir |
-| `TURN_FW_RELAY_MAX_BPS` | Hayır | P13b: host toplam relay tavanı, bayt/sn (`host-firewall.sh` hashlimit; prod `62500000` = 500 Mbit/s). Boş/0 = kapalı. Değişince `sudo ./host-firewall.sh install` |
-| `TURN_CERT_DIR` | Prod'da evet | P13b: TURN-TLS sertifika dizini; compose bağlar, sertifika kancası yazar. Prod `/etc/remote/turn-certs` (git dışı); boşsa `./certs` (yerel) |
-| `TURN_PROMETHEUS_ADDRESS` | Hayır | coturn metrik dinleme adresi (varsayılan `127.0.0.1`) |
-| `TURN_LISTEN_IPS` | Önerilir | 3478/5349 dinleme adresleri. Staging/prod: `auto` (özel relay IPv4 + `127.0.0.1`); virgüllü IPv4 listesi de olur. Boşsa tüm arayüzlerde dinler ve uyarı yazar |
+
+| Değişken                            | Zorunlu      | Açıklama                                                                                                                                                                                                                              |
+| ----------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TURN_SECRET`                       | Evet         | Server ile aynı sır                                                                                                                                                                                                                   |
+| `TURN_SECRET_PREVIOUS`              | Hayır        | Kesintisiz sır değişimi sırasında eski sır (runbook §9.6)                                                                                                                                                                             |
+| `TURN_REALM`                        | Evet         | coturn realm (prod: `remote.noktabilisim.net`)                                                                                                                                                                                        |
+| `TURN_EXTERNAL_IP`                  | Evet         | `<public IP>/<iç IP>` (NAT arkasında) veya yalnız public IP                                                                                                                                                                           |
+| `TURN_MAX_BPS`, `TURN_BPS_CAPACITY` | Hayır        | Bayt/sn. `TURN_MAX_BPS`: allocation başına, yön başına tavan (vars. **1000000** = 8 Mbit/s, AC-21; P13b ölçümü). `TURN_BPS_CAPACITY`: **0 bırakın** (vars. 0); ayarlanırsa her allocation rezerve edilir ve 63. allocation reddedilir |
+| `TURN_FW_RELAY_MAX_BPS`             | Hayır        | P13b: host toplam relay tavanı, bayt/sn (`host-firewall.sh` hashlimit; prod `62500000` = 500 Mbit/s). Boş/0 = kapalı. Değişince `sudo ./host-firewall.sh install`                                                                     |
+| `TURN_CERT_DIR`                     | Prod'da evet | P13b: TURN-TLS sertifika dizini; compose bağlar, sertifika kancası yazar. Prod `/etc/remote/turn-certs` (git dışı); boşsa `./certs` (yerel)                                                                                           |
+| `TURN_PROMETHEUS_ADDRESS`           | Hayır        | coturn metrik dinleme adresi (varsayılan `127.0.0.1`)                                                                                                                                                                                 |
+| `TURN_LISTEN_IPS`                   | Önerilir     | 3478/5349 dinleme adresleri. Staging/prod: `auto` (özel relay IPv4 + `127.0.0.1`); virgüllü IPv4 listesi de olur. Boşsa tüm arayüzlerde dinler ve uyarı yazar                                                                         |
 
 Boş bırakılan değerler (`ANAHTAR=`) tanımsız sayılır; varsayılanı olan alan varsayılana düşer, zorunlu alan yine hata verir.
 Ayrıntı ve üretim yöntemi: `docs/runbook.md` §3 (uygulama) ve §9 (TURN).
 
 ## Test
+
 ```bash
 pnpm -r run lint
 pnpm -r run typecheck
@@ -503,29 +535,36 @@ apps/server/scripts/test-db.sh down
 pnpm --filter @remote/web exec playwright install chromium
 pnpm --filter @remote/web e2e
 ```
+
 TURN (coturn) testleri Docker ile yerelde koşar: `cd deploy/turn && ./test-local.sh` (runbook §9.7).
 
 Windows istemci testleri (Go kurulu olması gerekmez; CI ile aynı imaj, repo kökünden):
+
 ```bash
 IMG=golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
 docker run --rm -v "$PWD":/src -v remote-gomod:/go/pkg/mod -w /src/apps/agent-win -e GOFLAGS=-mod=readonly $IMG sh -c '
   test -z "$(gofmt -l .)" && go vet ./... && go test -race -count=1 ./... &&
   GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...'
 ```
+
 Win32/DXGI/MOTW'a dokunan testler yalnız Windows'ta koşar (CI `agent-win.yml` → `test-windows`).
 
 ### Gerçek sunucu e2e (P4 regresyonu)
+
 Varsayılan e2e sahte API/WS'ye karşı koşar. `e2e/p4-real.spec.ts` ise gerçek server + MySQL ile uçtan uca akışı
 (KVKK → lobi → kabul → ekran paylaşımı → bitiş, ret, zorla sonlandırma, konsol yenileme) dener. CI'da koşmaz.
 Tek komut (Docker gerekir; yalnız yerel, canlı DB'ye asla bağlanmaz):
+
 ```bash
 scripts/e2e-real.sh
 ```
+
 Betik sırasıyla: kodun anlık görüntüsünü geçici dizine alır → geçici MySQL (`rs-mysql-e2e-real`, 127.0.0.1:33317)
-+ migrate + grants → seed (`SEED_SUPERADMIN_EMAIL` / `SEED_SUPERADMIN_PASSWORD` betikte rastgele üretilir) →
-`e2e:real:users` (demo tenant'ta iki ADMIN; parolalar rastgele) → server :3302 → `e2e:real` (web standalone
-derlemesi, :3218) → temizlik. Parolalar ekrana veya dosyaya yazılmaz; Playwright izi varsayılan kapalıdır
-(`E2E_REAL_TRACE=1` ile açılır, iz o koşunun parolasını içerir).
+
+- migrate + grants → seed (`SEED_SUPERADMIN_EMAIL` / `SEED_SUPERADMIN_PASSWORD` betikte rastgele üretilir) →
+  `e2e:real:users` (demo tenant'ta iki ADMIN; parolalar rastgele) → server :3302 → `e2e:real` (web standalone
+  derlemesi, :3218) → temizlik. Parolalar ekrana veya dosyaya yazılmaz; Playwright izi varsayılan kapalıdır
+  (`E2E_REAL_TRACE=1` ile açılır, iz o koşunun parolasını içerir).
 
 Çıkış kodu: 0 geçti, 1 test kırmızı, 2 ön koşul eksik, 3 kurulum (DB/seed/server) hatası. Ayarlar: `E2E_DB_CONTAINER`,
 `E2E_DB_PORT`, `E2E_SERVER_PORT`, `E2E_KEEP_LOGS=1`, `E2E_REAL_REF=<git ref>` (çalışma ağacı yerine commit'lenmiş sürümü
@@ -538,91 +577,100 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
 ### Son test sonuçları (P13b, 2026-11-15)
-| Takım | Sonuç |
-|---|---|
-| Birim (`pnpm -r run test`) | 681: server 351, web 252, contracts 78 |
-| Server entegrasyon (`test:int`, temiz DB) | 541 (54 dosya); P13b: `superadmin-reset-p13b`, `whatsapp-admin-p12b` (servis anahtarı), `signaling-lifecycle` (TURN credential önbelleği) |
-| `deploy/backup/test-backup.sh` | 55/55 PASS (imza, ortam kilidi, kurcalanmış döküm, audit süreklilik, kanca) |
-| `deploy/ops/test-watch.sh` · `test-proxy-guard.sh` | 49/49 · 34/34 PASS |
-| `deploy/turn/test-cert-hook.sh` · `test-local.sh` | 14 + 25 PASS · test-denied 65 PASS + aralık/kapasite bölümleri |
+
+| Takım                                              | Sonuç                                                                                                                                     |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Birim (`pnpm -r run test`)                         | 681: server 351, web 252, contracts 78                                                                                                    |
+| Server entegrasyon (`test:int`, temiz DB)          | 541 (54 dosya); P13b: `superadmin-reset-p13b`, `whatsapp-admin-p12b` (servis anahtarı), `signaling-lifecycle` (TURN credential önbelleği) |
+| `deploy/backup/test-backup.sh`                     | 55/55 PASS (imza, ortam kilidi, kurcalanmış döküm, audit süreklilik, kanca)                                                               |
+| `deploy/ops/test-watch.sh` · `test-proxy-guard.sh` | 49/49 · 34/34 PASS                                                                                                                        |
+| `deploy/turn/test-cert-hook.sh` · `test-local.sh`  | 14 + 25 PASS · test-denied 65 PASS + aralık/kapasite bölümleri                                                                            |
 
 Prod ölçümleri (AC-23 TURN-TLS 5349, AC-91/200 geri yükleme provası) açılış kontrol listesindedir (runbook §20.3).
 
 #### Önceki paket (P13a, 2026-11-14)
-| Takım | Sonuç |
-|---|---|
-| Birim (`pnpm -r run test`) | 676: server 349, web 249, contracts 78 |
+
+| Takım                                     | Sonuç                                                                                                                       |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Birim (`pnpm -r run test`)                | 676: server 349, web 249, contracts 78                                                                                      |
 | Server entegrasyon (`test:int`, temiz DB) | 529 (53 dosya); P13a: `retention-p13a-job`, `retention-p13a-db`, `audit-customer-p13a`, `whatsapp-admin-p12b` (P13a ekleri) |
-| Web e2e (sahte API/WS, tüm projeler) | 305 geçti, 0 hata; P13a spec'i `e2e/p13a.spec.ts` |
-| `deploy/mysql/check-app-grants.sh` | 373/373 PASS (tetikleyici 3, backup hesabı dahil) |
+| Web e2e (sahte API/WS, tüm projeler)      | 305 geçti, 0 hata; P13a spec'i `e2e/p13a.spec.ts`                                                                           |
+| `deploy/mysql/check-app-grants.sh`        | 373/373 PASS (tetikleyici 3, backup hesabı dahil)                                                                           |
 
 Staging ölçümleri (AC-88 temiz kurulum, AC-91/200 yedek ve geri yükleme provası) runbook §18.7'de bekliyor.
 
 #### Önceki paket (P12b, 2026-11-13)
-| Takım | Sonuç |
-|---|---|
-| Birim (`pnpm -r run test`) | 665: server 347, web 243, contracts 75 |
+
+| Takım                           | Sonuç                                                                                                                                          |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Birim (`pnpm -r run test`)      | 665: server 347, web 243, contracts 75                                                                                                         |
 | Server entegrasyon (`test:int`) | 491 (50 dosya); P12b: `whatsapp-admin-p12b` (paylaşılan ayar satırı nedeniyle ayrı vitest projesinde, en sonda), `whatsapp-setting` (DB CHECK) |
-| Web e2e (sahte API/WS) | P12b spec'i `e2e/p12b-whatsapp.spec.ts` + `p11-admin`, `p8b-requests` regresyonu: 42 geçti, 0 hata, 30 atlandı (masaüstü-yalnız) |
+| Web e2e (sahte API/WS)          | P12b spec'i `e2e/p12b-whatsapp.spec.ts` + `p11-admin`, `p8b-requests` regresyonu: 42 geçti, 0 hata, 30 atlandı (masaüstü-yalnız)               |
 
 QA Tur 3 GEÇTİ (`docs/qa-raporu.md`); güvenlik Kritik/Yüksek/Orta 0, Düşük 1 açık (B-P12b-4, Sonra).
 
 #### Önceki paket (P12, 2026-11-13)
-| Takım | Sonuç |
-|---|---|
-| Birim (`pnpm -r run test`) | 648: server 339, web 238, contracts 71 |
-| Server entegrasyon (`test:int`) | 471 (48 dosya); P12: `branding-api-p12`, `branding-p12` (DB CHECK), tenant matrisi +10 uç |
-| Web e2e (sahte API/WS) | 281 geçti + 106 atlandı (masaüstü/mobil proje filtreleri), art arda 3 koşuda 0 hata; P12 spec'i `e2e/p12-branding.spec.ts` |
+
+| Takım                           | Sonuç                                                                                                                      |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Birim (`pnpm -r run test`)      | 648: server 339, web 238, contracts 71                                                                                     |
+| Server entegrasyon (`test:int`) | 471 (48 dosya); P12: `branding-api-p12`, `branding-p12` (DB CHECK), tenant matrisi +10 uç                                  |
+| Web e2e (sahte API/WS)          | 281 geçti + 106 atlandı (masaüstü/mobil proje filtreleri), art arda 3 koşuda 0 hata; P12 spec'i `e2e/p12-branding.spec.ts` |
 
 Sayfa testi (`docs/arsiv/p12-test-raporu.md`): gerçek server + MySQL ile 20 akış adımının 20'si geçti; 136 görünüm (açık/koyu,
 1280/390 px), axe 0 ihlal, JS hatası 0, kırık iç bağlantı 0. P11'den kalan gerçek-server akışları (Super Admin girişi + 2FA,
 audit 405, CSV formül kaçışı) da doğrulandı.
 
 #### Önceki paket (P11, 2026-11-13)
-| Takım | Sonuç |
-|---|---|
-| Birim (`pnpm -r run test`) | 613: server 324, web 218, contracts 71 |
+
+| Takım                           | Sonuç                                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Birim (`pnpm -r run test`)      | 613: server 324, web 218, contracts 71                                                                                   |
 | Server entegrasyon (`test:int`) | 445 (46 dosya); P11: `audit-p11`, `settings-p11`, `audit-immutability-p11`, `db-grants`. MySQL'de binlog bayrağı gerekir |
-| Web e2e (sahte API/WS) | 264 geçti + 95 atlandı (masaüstü/mobil proje filtreleri); P11 spec'i `e2e/p11-admin.spec.ts` (iki tema, 1280/390 px) |
+| Web e2e (sahte API/WS)          | 264 geçti + 95 atlandı (masaüstü/mobil proje filtreleri); P11 spec'i `e2e/p11-admin.spec.ts` (iki tema, 1280/390 px)     |
 
 Sayfa testi (`docs/arsiv/p11-test-raporu.md`): 6 senaryo × 22 rota × açık/koyu × 1280/390 = 88 görünüm, axe 0 ihlal, JS
 hatası 0; gerçek server ile akışlar staging'de elle doğrulanacak.
 
 #### Önceki paket (P10, 2026-11-12)
-| Takım | Sonuç |
-|---|---|
-| Birim (`pnpm -r run test`) | 586: server 310, web 205, contracts 71 |
-| Server entegrasyon (`test:int`) | 409 (43 dosya); P10: `account-p10`, `mail-tls-p10` (openssl ister), `mail-cap-p10`, süreç içi sahte SMTP |
-| Web e2e (sahte API/WS) | 243 geçti + 84 atlandı (masaüstü/mobil proje filtreleri, `p4-real`); P10 spec'i `e2e/p10-account.spec.ts` |
-| gitleaks | `apps/server/src`, `apps/server/test`, `apps/web`, `packages`, `docs`: çıkış 0 |
+
+| Takım                           | Sonuç                                                                                                     |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Birim (`pnpm -r run test`)      | 586: server 310, web 205, contracts 71                                                                    |
+| Server entegrasyon (`test:int`) | 409 (43 dosya); P10: `account-p10`, `mail-tls-p10` (openssl ister), `mail-cap-p10`, süreç içi sahte SMTP  |
+| Web e2e (sahte API/WS)          | 243 geçti + 84 atlandı (masaüstü/mobil proje filtreleri, `p4-real`); P10 spec'i `e2e/p10-account.spec.ts` |
+| gitleaks                        | `apps/server/src`, `apps/server/test`, `apps/web`, `packages`, `docs`: çıkış 0                            |
 
 Sayfa testi (`docs/arsiv/p10-test-raporu.md`): gerçek sunucu + MySQL + sahte SMTP ile 13 rota × açık/koyu × 1366/375,
 26 akış adımı, axe 0 ihlal, JS hatası 0.
 
 #### Önceki paket (P9, 2026-11-12)
-| Takım | Sonuç |
-|---|---|
-| Birim (`pnpm -r run test`) | 546: server 285, web 193, contracts 68 |
-| Server entegrasyon (`test:int`) | 384 (40 dosya) |
-| Web e2e (sahte API/WS) | 221 geçti + 78 atlandı |
+
+| Takım                           | Sonuç                                  |
+| ------------------------------- | -------------------------------------- |
+| Birim (`pnpm -r run test`)      | 546: server 285, web 193, contracts 68 |
+| Server entegrasyon (`test:int`) | 384 (40 dosya)                         |
+| Web e2e (sahte API/WS)          | 221 geçti + 78 atlandı                 |
 
 #### Önceki paket (P8, 2026-11-11)
-| Takım | Sonuç |
-|---|---|
-| Birim (`pnpm -r run test`) | 442: server 256, web 136, contracts 50 |
-| Server entegrasyon (`test:int`) | 216 (25 dosya) |
-| Web e2e (sahte API/WS) | 174 geçti + 54 atlandı |
+
+| Takım                                       | Sonuç                                                                       |
+| ------------------------------------------- | --------------------------------------------------------------------------- |
+| Birim (`pnpm -r run test`)                  | 442: server 256, web 136, contracts 50                                      |
+| Server entegrasyon (`test:int`)             | 216 (25 dosya)                                                              |
+| Web e2e (sahte API/WS)                      | 174 geçti + 54 atlandı                                                      |
 | AC-60 performans (10.000 oturum, ilk sayfa) | ADMIN 2,4 ms · USER 2,2 ms · Super Admin 2,0 ms · API 6,7 ms (sınır 500 ms) |
 
 #### Önceki paketler (P7, 2026-11-11)
-| Takım | Sonuç |
-|---|---|
-| Windows istemci (`go test -race`, linux) | 15/15 paket ok (yeni: control, env, input); `GOOS=windows go vet` temiz; govulncheck 0 erişilebilir zafiyet; iki derleme aynı SHA-256 |
-| Birim (`pnpm -r run test`) | 415: server 244, web 128, contracts 43 |
-| Server entegrasyon (`test:int`) | 186 (23 dosya) |
-| Web e2e (sahte API/WS) | 153 geçti + 45 atlandı (masaüstü akışlarının mobil kopyaları); P7 spec'i `e2e/p7-control.spec.ts` (11 test) dahil |
-| Gerçek sunucu e2e (`scripts/e2e-real.sh`) | 5/5 (P5'ten değişmedi) |
-| TURN (`deploy/turn/test-local.sh`) | 62 kontrol (P4'ten değişmedi) |
+
+| Takım                                     | Sonuç                                                                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows istemci (`go test -race`, linux)  | 15/15 paket ok (yeni: control, env, input); `GOOS=windows go vet` temiz; govulncheck 0 erişilebilir zafiyet; iki derleme aynı SHA-256 |
+| Birim (`pnpm -r run test`)                | 415: server 244, web 128, contracts 43                                                                                                |
+| Server entegrasyon (`test:int`)           | 186 (23 dosya)                                                                                                                        |
+| Web e2e (sahte API/WS)                    | 153 geçti + 45 atlandı (masaüstü akışlarının mobil kopyaları); P7 spec'i `e2e/p7-control.spec.ts` (11 test) dahil                     |
+| Gerçek sunucu e2e (`scripts/e2e-real.sh`) | 5/5 (P5'ten değişmedi)                                                                                                                |
+| TURN (`deploy/turn/test-local.sh`)        | 62 kontrol (P4'ten değişmedi)                                                                                                         |
 
 P7 e2e'si sahte bir Hızlı Destek istemcisiyle (`e2e/fake-agent.ts`, gerçek WebRTC + `input` kanalı) koşar: istek →
 bekleme/Vazgeç → izin → tık/klavye/Alt+Tab → bırak/devam → müşteri kısayolu; ret + 30 sn; 5 hak (sekme yenilense de);
@@ -640,6 +688,7 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
 ölçümü staging'de yapılacak.
 
 ## Deploy
+
 - Tek sunucu, Docker Compose. MySQL portu yayımlanmaz; server portu host'a açılmaz.
 - Prod: **`https://remote.noktabilisim.net`** — host nginx (Let's Encrypt) → Caddy `127.0.0.1:4451` (ADR-0015, ADR-0019,
   runbook §20). Prod'da `CADDY_BIND=127.0.0.1` olur; `https://185.126.217.99:4450` açılış imzasından sonra dışarıdan kapanır.
@@ -667,6 +716,7 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
   satır elle düzeltilmez (KVKK kanıtı), mimara bildirilir. Komutlar ve geri dönüş: `docs/runbook.md` §6.1.
 
 ### Yedek, geri yükleme ve saklama (P13a; runbook §18)
+
 - **Ne yedeklenir:** MySQL dökümü (`backup` kullanıcısı, yalnız okuma) ve `uploads` volume'u (logo/avatar), aynı
   çalıştırmada. Her çalıştırma bir `manifest.json` üretir (son migration, tablo satır sayıları, SHA-256'lar).
 - **Ne zaman / ne kadar:** her gün 02:00 (systemd `remote-backup.timer`), 14 gün saklanır (RPO ≤ 24 sa).
@@ -688,6 +738,7 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
   runbook §18.6. Anonimleştirilen veri yedeklerde en çok 14 gün daha kalır.
 
 **P13b eklemeleri (runbook §18.9, ADR-0020):**
+
 - **İmzalı manifest:** her yedeğin `manifest.json`'u sunucudaki ed25519 anahtarıyla imzalanır (`manifest.json.sig`;
   anahtar `/etc/remote-backup/manifest_ed25519`, root 600). Manifest ortamı (`env`), sunucuyu (`host`), sırayı (`seq`) ve
   audit süreklilik ölçümünü taşır. Önkoşul: `apt-get install -y age jq openssh-client util-linux` (OpenSSH ≥ 8.9).
@@ -711,9 +762,11 @@ teklif sınırı ve zaman aşımı, yetkisiz kullanıcı, işaretleme ve lazer, 
 - **Durum dosyası:** `/var/lib/remote-backup/status.prom` (son başarı, site dışı durumu, audit süreklilik); `remote-watch` okur.
 
 ### Windows istemciyi derleme ve yayınlama (runbook §11)
+
 **Derleme** — `apps/agent-win/build/build.sh <https://alan-adı[:port]> <sürüm x.y.z> [çıktı]`. Betik go-winres ile
 manifest ve sürüm bilgisini ekler, sunucu adresini ve sürümü `-ldflags` ile gömer. Makinede Go yoksa Docker'daki
 `golang` imajıyla, temiz bir checkout'ta (repo kökünden):
+
 ```bash
 IMG=golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
 mkdir -p /tmp/b1
@@ -721,43 +774,50 @@ docker run --rm -v "$PWD":/src -v /tmp/b1:/out -w /src -e GOFLAGS=-mod=readonly 
   sh -c 'git config --global --add safe.directory /src; apps/agent-win/build/build.sh https://<adres>:4450 <x.y.z> /out/NoktaDestek.exe'
 shasum -a 256 /tmp/b1/NoktaDestek.exe
 ```
+
 Derleme tekrarlanabilirdir: aynı commit, adres ve sürümle iki derlemenin SHA-256'sı aynıdır. Exe'ye gömülü adres
 alan adı olmalı ve sertifikası Windows'un güvendiği köklerden gelmelidir (istemci sertifika sabitleme yapmaz,
 geçersiz sertifikayı reddeder).
 
 **Yayın** — CI (`.github/workflows/agent-win.yml`) iki ayrı runner'da derler, hash eşitliğini doğrular, `SHA256SUMS` ve
 build attestation üretir; `v*` etiketinde onaylı Release açar. Sunucuya yayın operatör makinesinden yapılır:
+
 ```bash
 deploy/agent/verify-and-publish.sh --tag vX.Y.Z --ssh root@185.126.217.99      # önce --dry-run ile yalnız doğrulama
 ```
+
 Betik `SHA256SUMS` + `gh attestation verify` doğrular, exe'yi `agent_downloads` volume'una koyar, `deploy/.env`
 içindeki `AGENT_SHA256`'yı yazar, server'ı yeniden başlatır ve Caddy üzerinden hash'i kontrol eder. Rollback, staging
 (Release'siz) yayını, private repo yolu ve bütünlük alarmı: runbook §11.3–§11.7. Günlük dış gözcü: `agent-watch.yml`.
+
 - Günlük işlemler, loglar, sorun giderme: [`docs/runbook.md`](docs/runbook.md).
 
 ### Prod işletim araçları (P13b; runbook §20)
+
 Hepsi host'ta root ile kurulur; kurulu kopya git ağacından değil kendi yerinden çalışır. Betik değişince `install` yeniden
 çalıştırılır.
 
-| Araç | Ne yapar | Kurulum / kullanım |
-|---|---|---|
-| `reset-superadmin` CLI | Super Admin şifresini (isteğe bağlı 2FA'sını) sunucudan sıfırlar. Geçici şifre yalnız terminale bir kez yazılır, **24 saat** geçerlidir, ilk girişte değişim zorunludur; açık oturumlar kapanır. Audit: "Super Admin şifresi sunucudan sıfırlandı" (`auth.superadmin_reset`, şifre yok). Terminal yoksa çalışmaz (çıkış kodu 4) | `cd /opt/remote/deploy && docker compose exec server node src/cli/reset-superadmin.ts --email <e-posta> [--reset-mfa] [--dry-run]` (`-T` verilmez; runbook §20.6) |
-| `remote-watch` | 10 dakikada bir servisleri, `/ready`'yi, nginx, coturn (STUN + 5349), zamanlayıcıları, yedek yaşını ve audit sürekliliğini, sertifika sürelerini, disk ve dosya izinlerini denetler. Bozulunca alarm komutunu çağırır; aynı alarmı en çok 6 saatte bir tekrarlar, düzelince bir kez "DUZELDI" bildirir | `sudo deploy/ops/remote-watch.sh install` → `/etc/remote-watch/watch.env` (600) içinde `WATCH_ALERT_CMD` (örnek `deploy/ops/watch.env.example`; mesaj stdin'den gelir, token komut metnine yazılmaz) (runbook §20.4) |
-| `proxy-guard` | nftables kuralıyla host'tan Caddy'nin yerel 4451 girişine yalnız `root` ve nginx kullanıcısının (`www-data`) bağlanmasına izin verir; başka yerel süreçler sahte istemci IP'si gönderemez | `sudo apt install nftables` → `sudo deploy/ops/proxy-guard.sh install` → `sudo remote-proxy-guard check` ve `verify` (5 dk'da bir `ensure`; geri alma `uninstall`) |
-| TURN sertifika kancası | Let's Encrypt `remote-turn` sertifikası yenilenince coturn'e kopyalar, SIGUSR2 ile yükletir, 5349'da sunulan parmak izini doğrular; olmazsa konteyneri yeniden başlatır, yine olmazsa hata döner | `sudo deploy/turn/cert-deploy-hook.sh install` → `certbot certonly … --cert-name remote-turn --deploy-hook /usr/local/sbin/remote-turn-cert-deploy` → `/usr/local/sbin/remote-turn-cert-deploy check` (runbook §20.5) |
+| Araç                   | Ne yapar                                                                                                                                                                                                                                                                                                                        | Kurulum / kullanım                                                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reset-superadmin` CLI | Super Admin şifresini (isteğe bağlı 2FA'sını) sunucudan sıfırlar. Geçici şifre yalnız terminale bir kez yazılır, **24 saat** geçerlidir, ilk girişte değişim zorunludur; açık oturumlar kapanır. Audit: "Super Admin şifresi sunucudan sıfırlandı" (`auth.superadmin_reset`, şifre yok). Terminal yoksa çalışmaz (çıkış kodu 4) | `cd /opt/remote/deploy && docker compose exec server node src/cli/reset-superadmin.ts --email <e-posta> [--reset-mfa] [--dry-run]` (`-T` verilmez; runbook §20.6)                                                     |
+| `remote-watch`         | 10 dakikada bir servisleri, `/ready`'yi, nginx, coturn (STUN + 5349), zamanlayıcıları, yedek yaşını ve audit sürekliliğini, sertifika sürelerini, disk ve dosya izinlerini denetler. Bozulunca alarm komutunu çağırır; aynı alarmı en çok 6 saatte bir tekrarlar, düzelince bir kez "DUZELDI" bildirir                          | `sudo deploy/ops/remote-watch.sh install` → `/etc/remote-watch/watch.env` (600) içinde `WATCH_ALERT_CMD` (örnek `deploy/ops/watch.env.example`; mesaj stdin'den gelir, token komut metnine yazılmaz) (runbook §20.4)  |
+| `proxy-guard`          | nftables kuralıyla host'tan Caddy'nin yerel 4451 girişine yalnız `root` ve nginx kullanıcısının (`www-data`) bağlanmasına izin verir; başka yerel süreçler sahte istemci IP'si gönderemez                                                                                                                                       | `sudo apt install nftables` → `sudo deploy/ops/proxy-guard.sh install` → `sudo remote-proxy-guard check` ve `verify` (5 dk'da bir `ensure`; geri alma `uninstall`)                                                    |
+| TURN sertifika kancası | Let's Encrypt `remote-turn` sertifikası yenilenince coturn'e kopyalar, SIGUSR2 ile yükletir, 5349'da sunulan parmak izini doğrular; olmazsa konteyneri yeniden başlatır, yine olmazsa hata döner                                                                                                                                | `sudo deploy/turn/cert-deploy-hook.sh install` → `certbot certonly … --cert-name remote-turn --deploy-hook /usr/local/sbin/remote-turn-cert-deploy` → `/usr/local/sbin/remote-turn-cert-deploy check` (runbook §20.5) |
 
 Yerel testler (Docker gerekir, sunucuya bağlanmaz): `deploy/backup/test-backup.sh`, `deploy/ops/test-watch.sh`,
 `deploy/ops/test-proxy-guard.sh`, `deploy/turn/test-cert-hook.sh`.
 
 ## Kullanılan ortak servisler
-| Servis | Ne için | Bağlantı |
-|---|---|---|
+
+| Servis                                                          | Ne için                                                                                                | Bağlantı                                                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | whatsapp-bildirim (Nokta Bilişim, `Projeler/whatsapp-bildirim`) | Destek talebi WhatsApp bildirimi ve test mesajları (`POST {url}/send-message`, `POST {url}/test-send`) | Adres ve servis anahtarı Super Admin → Sistem ayarları → **WhatsApp servisi**'nden yönetilir; panel kaydı yoksa `WHATSAPP_SERVICE_URL` + `WHATSAPP_SERVICE_API_KEY`. Yerleşik varsayılan adres yoktur; ikisi de boşsa kanal kapalıdır. Anahtar `x-api-key` başlığıyla gider. Production'da `https://` veya özel ağ adresi gerekir (runbook §12.3, §17) |
-| SMTP (firmanın kendi sunucusu) | Şifre sıfırlama, kilit, oturum bağlantısı ve talep e-postaları | Firma başına Ayarlar > E-posta (SMTP); şifre AES-256-GCM ile saklanır |
+| SMTP (firmanın kendi sunucusu)                                  | Şifre sıfırlama, kilit, oturum bağlantısı ve talep e-postaları                                         | Firma başına Ayarlar > E-posta (SMTP); şifre AES-256-GCM ile saklanır                                                                                                                                                                                                                                                                                  |
 
 SMS (smsportal) ve Paraşüt entegrasyonu yoktur.
 
 ## Klasör yapısı
+
 ```
 apps/server/        Fastify API (src/), Prisma şeması ve migration'lar (prisma/), testler (test/)
 apps/web/           Next.js arayüzü (app/, components/, lib/), e2e testleri (e2e/)
@@ -777,6 +837,7 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 ```
 
 ## Güvenlik özeti
+
 - Şifreler argon2id ile hash'lenir; oturum token'ı DB'de yalnız SHA-256 olarak tutulur.
 - Çerezler `__Host-` önekli, Secure, SameSite=Strict; oturum çerezi HttpOnly.
 - DB'de iki kullanıcı: `migrator` (yalnız migrate servisi) ve `app` (server; `audit_logs` üzerinde yalnız SELECT/INSERT).
@@ -834,6 +895,7 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 - Ayrıntı: `docs/guvenlik-raporu.md`, ADR'ler `docs/adr/`.
 
 ## Katkı
+
 - Kurallar: [`CLAUDE.md`](CLAUDE.md) (paket kuralları, değişmez kurallar), UI: [`DESIGN.md`](DESIGN.md).
 - Yeni ortam değişkeni → `.env.example` (boş) + `apps/server/src/env.ts` + `deploy/docker-compose.yml` + runbook.
 - Yeni tablo → `apps/server/prisma/sql/grants.sql`'e yetki satırı.
@@ -841,4 +903,5 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 - Doküman PDF'leri (`docs/pdf/` README, KULLANIM_KILAVUZU, DATASHEET): `pnpm docs:pdf` (`scripts/build-docs.sh`; ortak araç yolu `DOCS_PDF_TOOL` ile değiştirilebilir).
 
 ## Lisans
+
 Apache License 2.0 — bkz. [`LICENSE`](LICENSE).

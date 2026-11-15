@@ -6,13 +6,23 @@ import { avatarPathSchema, logoPathSchema, systemLogoValueSchema, themeCookieVal
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppError } from "../../src/lib/errors.ts";
-import { IMAGE_BUSY_RETRY_SEC, IMAGE_CONCURRENCY, IMAGE_MAX_WAITING, dimensionsOk, imageGate, processImage, withImageSlot } from "../../src/uploads/image.ts";
+import {
+  IMAGE_BUSY_RETRY_SEC,
+  IMAGE_CONCURRENCY,
+  IMAGE_MAX_WAITING,
+  dimensionsOk,
+  imageGate,
+  processImage,
+  withImageSlot,
+} from "../../src/uploads/image.ts";
 import { UploadStore, isRelPath } from "../../src/uploads/store.ts";
 import { avatarUrlFor, canViewAvatar } from "../../src/uploads/urls.ts";
 
 const T = "01HZZZZZZZZZZZZZZZZZZZZZZZ";
 const solid = (w: number, h: number) => sharp({ create: { width: w, height: h, channels: 3, background: { r: 200, g: 30, b: 30 } } });
-const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>alert(1)</script><rect width="10" height="10"/></svg>');
+const SVG = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>alert(1)</script><rect width="10" height="10"/></svg>',
+);
 
 async function rejected(p: Promise<unknown>): Promise<string> {
   try {
@@ -43,7 +53,9 @@ describe("AC-84 resim işleme", () => {
 
   it("AC-84: SVG, uzantısı .png yapılmış SVG/HTML, metin ve boş veri reddedilir (INVALID_IMAGE)", async () => {
     expect(await rejected(processImage(SVG, "logo"))).toBe("INVALID_IMAGE");
-    expect(await rejected(processImage(Buffer.from("<!doctype html><html><script>alert(1)</script></html>"), "avatar"))).toBe("INVALID_IMAGE");
+    expect(await rejected(processImage(Buffer.from("<!doctype html><html><script>alert(1)</script></html>"), "avatar"))).toBe(
+      "INVALID_IMAGE",
+    );
     expect(await rejected(processImage(Buffer.from("GIF89a..."), "logo"))).toBe("INVALID_IMAGE");
     expect(await rejected(processImage(Buffer.alloc(0), "logo"))).toBe("INVALID_IMAGE");
     // GIF / TIFF gerçek resim olsa da kabul listesinde değil
@@ -79,10 +91,18 @@ describe("AC-84 resim işleme", () => {
 
 describe("AC-84 / B-P12-2 boyut, oran ve eşzamanlılık sınırı", () => {
   it("AC-84/B-P12-2: 1×N ve N×1 PNG (logo ve avatar) kod çözülmeden INVALID_IMAGE + boyut mesajı", async () => {
-    for (const [w, h] of [[1, 100_000], [100_000, 1], [2, 50_000], [15, 15]] as const) {
+    for (const [w, h] of [
+      [1, 100_000],
+      [100_000, 1],
+      [2, 50_000],
+      [15, 15],
+    ] as const) {
       const input = await solid(w, h).png({ compressionLevel: 9 }).toBuffer();
       for (const kind of ["logo", "avatar"] as const) {
-        const err = await processImage(input, kind).then(() => null, (e: unknown) => e);
+        const err = await processImage(input, kind).then(
+          () => null,
+          (e: unknown) => e,
+        );
         expect(err, `${w}×${h} ${kind}`).toBeInstanceOf(AppError);
         expect((err as AppError).code).toBe("INVALID_IMAGE");
         expect((err as AppError).message).toContain("16 px");
@@ -130,7 +150,10 @@ describe("AC-84 / B-P12-2 boyut, oran ve eşzamanlılık sınırı", () => {
     const busy = Array.from({ length: IMAGE_CONCURRENCY + IMAGE_MAX_WAITING }, () => withImageSlot(() => hold));
     expect([imageGate.running, imageGate.waiting]).toEqual([IMAGE_CONCURRENCY, IMAGE_MAX_WAITING]);
     const input = await solid(64, 64).png().toBuffer();
-    const err = await processImage(input, "avatar").then(() => null, (e: unknown) => e);
+    const err = await processImage(input, "avatar").then(
+      () => null,
+      (e: unknown) => e,
+    );
     expect(err).toBeInstanceOf(AppError);
     expect([(err as AppError).code, (err as AppError).retryAfterSec]).toEqual(["RATE_LIMITED", IMAGE_BUSY_RETRY_SEC]);
     // geçersiz resim kapıya hiç girmez: kuyruk doluyken de 400
@@ -163,7 +186,18 @@ describe("AC-84 depo ve yol kuralları", () => {
 
   it("AC-84: path traversal ve biçim dışı yollar okunmaz/silinmez", async () => {
     const store = new UploadStore(dir);
-    for (const bad of ["../etc/passwd", `${T}/../x.png`, `${T}/..%2fx.png`, "/etc/passwd", `${T}/kisa.png`, `${T}/${"a".repeat(20)}.svg`, `${T}/${"a".repeat(20)}.PNG`, `uploads/${T}/${"a".repeat(20)}.png`, `${T}/sub/${"a".repeat(20)}.png`, `${T.toLowerCase()}/${"a".repeat(20)}.png`]) {
+    for (const bad of [
+      "../etc/passwd",
+      `${T}/../x.png`,
+      `${T}/..%2fx.png`,
+      "/etc/passwd",
+      `${T}/kisa.png`,
+      `${T}/${"a".repeat(20)}.svg`,
+      `${T}/${"a".repeat(20)}.PNG`,
+      `uploads/${T}/${"a".repeat(20)}.png`,
+      `${T}/sub/${"a".repeat(20)}.png`,
+      `${T.toLowerCase()}/${"a".repeat(20)}.png`,
+    ]) {
       expect(isRelPath(bad), bad).toBe(false);
       expect(await store.read(bad)).toBeNull();
     }

@@ -94,7 +94,19 @@ export interface AuditListResponse {
 }
 
 /** CSV sütunları (sıra sabit). Firma seçmemiş Super Admin'de 2. sütun `AUDIT_CSV_TENANT_COLUMN`. */
-export const AUDIT_CSV_COLUMNS = ["Tarih", "Kullanıcı", "Ad Soyad", "İşlem", "Varlık", "Kayıt", "Sonuç", "IP adresi", "Tarayıcı", "Eski değer", "Yeni değer"] as const;
+export const AUDIT_CSV_COLUMNS = [
+  "Tarih",
+  "Kullanıcı",
+  "Ad Soyad",
+  "İşlem",
+  "Varlık",
+  "Kayıt",
+  "Sonuç",
+  "IP adresi",
+  "Tarayıcı",
+  "Eski değer",
+  "Yeni değer",
+] as const;
 export const AUDIT_CSV_TENANT_COLUMN = "Firma";
 
 export const AUDIT_RESULT_LABELS: Readonly<Record<AuditResult, string>> = {

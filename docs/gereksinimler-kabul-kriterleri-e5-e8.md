@@ -1,8 +1,10 @@
 # Kabul Kriterleri — Remote Support — Bölüm 2/2 (E5–E8)
+
 Ana dosya: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri.md`. Tarih: 2026-11-11. Durum: TASLAK. r (2026-11-14, P13a, mimar kararı + kullanıcı kararı 2026-11-13 P13 bölünmesi): E7'ye AC-197..AC-200 eklendi (veri saklama NFR ve AC-91 ölçülebilir hale getirildi; `docs/mimari-p13.md`).
 Kaynak notu: parantez içindeki kod (G-nn) `docs/guvenlik-raporu.md` bulgusunu, (Kn) `docs/mimari.md` §12 kararını gösterir. Notsuz AC'ler 2026-11-10 metnidir.
 
 ## E5 — Oturum geçmişi
+
 - AC-60: Oturum listesi tarih aralığı, teknisyen, durum, müşteri adı ve mod (istemci/tarayıcı) ile filtrelenir; sayfalı (varsayılan 25, üst sınır 100); 10.000 kayıtta ilk sayfa < 500 ms.
 - AC-61: User yalnız kendi oturumlarını listeler, detayını görür, düzenler ve dışa aktarır; Admin kendi tenant'ının, Super Admin tüm oturumları görür; başka tenant'ın veya (User için) başka teknisyenin oturum ID'si 404 döner. (G-22)
 - AC-62: Detayda başlangıç/bitiş, süre, müşteri adı/e-posta, onay kayıtları, kontrol verilme/geri alınma zamanları, kalite özeti, dosya meta verisi ve sonlandıran taraf görünür.
@@ -10,6 +12,7 @@ Kaynak notu: parantez içindeki kod (G-nn) `docs/guvenlik-raporu.md` bulgusunu, 
 - AC-124: CSV dışa aktarmada `=`, `+`, `-`, `@`, sekme veya satır başı ile başlayan hücreler `'` önekiyle yazılır (oturum ve audit CSV'si; test). (G-16)
 
 ## E6 — Ortak platform standartları (/Users/mennan/Projeler/CLAUDE.md)
+
 - AC-64: Giriş e-posta/kullanıcı adı + şifreyle yapılır; şifreler argon2id veya bcrypt (cost ≥ 12) ile hash'lenir; şifre en az 12 karakterdir.
 - AC-65: Aynı hesap + IP ikilisi için 5 hatalı denemede o ikili 15 dk kilitlenir; IP'den bağımsız 1 saatte 20 hatalı denemede hesap 15 dk tamamen kilitlenir ve (SMTP ayarlıysa) hesap sahibine bildirim e-postası gider; başarılı/başarısız giriş, kilit ve çıkış audit log'a yazılır. (G-23)
 - AC-66: Yeni kullanıcı ilk girişte şifre değiştirmeden başka sayfaya geçemez; şifre değiştirme ve e-posta ile sıfırlama (link 30 dk geçerli, tek kullanımlık) çalışır.
@@ -41,6 +44,7 @@ Kaynak notu: parantez içindeki kod (G-nn) `docs/guvenlik-raporu.md` bulgusunu, 
 - AC-126: Yanıt başlıkları: CSP `connect-src` uygulama portunu içerir, `worker-src`/`manifest-src 'self'`, `upgrade-insecure-requests`, `Cross-Origin-Resource-Policy` bulunur; `Server` ve `X-Powered-By` başlıkları yoktur; CSP'de `'unsafe-inline'` yoktur (e2e). `Strict-Transport-Security: max-age=31536000; includeSubDomains` başlığı bulunur (rev. 2026-11-14, P13b). (G-19)
 
 ## E7 — Operasyon ve dokümantasyon
+
 - AC-88: `docker compose up -d` temiz sunucuda uygulama, coturn ve MySQL'i ayağa kaldırır; `/ready` 120 sn içinde 200 döner.
 - AC-89: `/health`, `/ready`, `/metrics` uçları vardır; `/metrics` aktif oturum, WS bağlantı ve TURN tahsis sayısını verir ve dışarıya kimlik doğrulamasız açık değildir.
 - AC-90: Loglar JSON'dur, korelasyon ID içerir; token, nonce, şifre ve TURN secret loglarda görünmez (log tarama testi).
@@ -54,6 +58,7 @@ Kaynak notu: parantez içindeki kod (G-nn) `docs/guvenlik-raporu.md` bulgusunu, 
 - AC-200: Yedek betiği MySQL dökümünü ve logo/avatar dosyalarını aynı çalıştırmada alır. İkisini de `age` açık anahtarıyla şifreler (çözme anahtarı sunucuda bulunmaz) ve dosya izinlerini 600 yapar. Her çalıştırma için son migration, tablo satır sayıları ve dosya özetlerini içeren bir manifest yazılır. 14 günden eski yedekler silinir. Başarısız çalıştırma (DB erişilemez, boş ya da bozuk çıktı) hata durumuyla biter, sistem günlüğüne yazılır ve tanımlıysa alarm komutunu çağırır (test: MySQL durdurularak). Geri yükleme doğrulaması yedeği geçici bir MySQL'e yükler; tetikleyici sayısı, son migration, satır sayıları ve dosya özetleri manifestle eşleşince `restore-verify: OK` yazar. Prod provasının süresi (RTO hedefi ≤ 60 dk) runbook'a kaydedilir. (P13a; prova P13b'de prod'da — rev. 2026-11-14; imza ve kanca AC-298, AC-300)
 
 ## E8 — Hızlı Destek istemcisi (Windows)
+
 - AC-95: İstemci standart (admin olmayan) kullanıcıyla Windows 10 22H2 ve Windows 11 x64'te UAC istemi çıkmadan çalışır.
 - AC-96: Tek dosyadır, ≤ 40 MB'tır, imzasızdır; SHA-256'sı GitHub Release'deki `SHA256SUMS` ile eşleşir ve `gh attestation verify` başarılıdır; çift tıktan karşılama ekranına ≤ 5 sn. (K8, G-07)
 - AC-97: İstemci 8 haneli kısa kodu dosya adından okur; okuyamazsa kod giriş alanı gösterir; geçersiz/süresi dolmuş kodda AC-5/AC-7 mesajlarını gösterir. (G-02)

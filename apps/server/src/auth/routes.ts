@@ -17,7 +17,14 @@ import {
   type MfaSetupResponse,
   type MfaVerifyResponse,
 } from "@remote/contracts/api/auth";
-import { THEME_COOKIE, THEME_COOKIE_MAX_AGE_SEC, preferencesInputSchema, themeCookieValue, type PreferencesResponse, type ThemeValue } from "@remote/contracts/api/branding";
+import {
+  THEME_COOKIE,
+  THEME_COOKIE_MAX_AGE_SEC,
+  preferencesInputSchema,
+  themeCookieValue,
+  type PreferencesResponse,
+  type ThemeValue,
+} from "@remote/contracts/api/branding";
 import type { CookieSerializeOptions } from "@fastify/cookie";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
@@ -46,7 +53,13 @@ function setSessionCookies(reply: FastifyReply, s: { token: string; csrfToken: s
  */
 function setThemeCookie(reply: FastifyReply, theme: ThemeValue): void {
   const secure = reply.server.env.NODE_ENV === "production";
-  void reply.setCookie(THEME_COOKIE, themeCookieValue(theme), { path: "/", sameSite: "lax", secure, httpOnly: false, maxAge: THEME_COOKIE_MAX_AGE_SEC });
+  void reply.setCookie(THEME_COOKIE, themeCookieValue(theme), {
+    path: "/",
+    sameSite: "lax",
+    secure,
+    httpOnly: false,
+    maxAge: THEME_COOKIE_MAX_AGE_SEC,
+  });
 }
 
 function clearSessionCookies(reply: FastifyReply): void {
@@ -59,20 +72,38 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     checkOrigin(req);
     const input = parseInput(loginInputSchema, req.body);
     const ctx = auditContext(req);
-    const result = await login(app.db, app.authLimits, ctx, req.log, input, app.mfaSetupEnforced, req.cookies[SESSION_COOKIE], lockNotifier(app.account, ctx));
+    const result = await login(
+      app.db,
+      app.authLimits,
+      ctx,
+      req.log,
+      input,
+      app.mfaSetupEnforced,
+      req.cookies[SESSION_COOKIE],
+      lockNotifier(app.account, ctx),
+    );
     setSessionCookies(reply, result);
     setThemeCookie(reply, result.user.theme);
-    return { user: result.user, mfaRequired: result.mfaStage === "verify", mfaSetupRequired: result.mfaStage === "setup", mustChangePassword: result.user.mustChangePassword };
+    return {
+      user: result.user,
+      mfaRequired: result.mfaStage === "verify",
+      mfaSetupRequired: result.mfaStage === "setup",
+      mustChangePassword: result.user.mustChangePassword,
+    };
   });
 
   // --- P10: 2FA (AC-67) ---
-  app.post("/mfa/verify", { config: { allowPasswordChangePending: true, mfaVerifyStage: true }, preHandler: requireAuth }, async (req, reply): Promise<MfaVerifyResponse> => {
-    const input = parseInput(mfaVerifyInputSchema, req.body);
-    const out = await mfaVerify(app.account, auditContext(req), authOf(req), input);
-    setSessionCookies(reply, out.session);
-    noStore(reply);
-    return { user: out.user, recoveryCodesLeft: out.recoveryCodesLeft };
-  });
+  app.post(
+    "/mfa/verify",
+    { config: { allowPasswordChangePending: true, mfaVerifyStage: true }, preHandler: requireAuth },
+    async (req, reply): Promise<MfaVerifyResponse> => {
+      const input = parseInput(mfaVerifyInputSchema, req.body);
+      const out = await mfaVerify(app.account, auditContext(req), authOf(req), input);
+      setSessionCookies(reply, out.session);
+      noStore(reply);
+      return { user: out.user, recoveryCodesLeft: out.recoveryCodesLeft };
+    },
+  );
 
   app.post("/mfa/setup", setupStage, async (req, reply): Promise<MfaSetupResponse> => {
     parseInput(mfaSetupInputSchema, req.body);
@@ -128,21 +159,29 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(204).send();
   });
 
-  app.post("/password/change", { config: { allowPasswordChangePending: true, mfaSetupStage: true }, preHandler: requireAuth }, async (req, reply) => {
-    const input = parseInput(passwordChangeInputSchema, req.body);
-    setSessionCookies(reply, await changePassword(app.db, app.authLimits, auditContext(req), authOf(req), input));
-    app.requestHub.closeByUser(authOf(req).user.id); // G-E9-14: eski oturumların panel soketleri 4401 (yeni çerezle yeniden bağlanır)
-    return reply.status(204).send();
-  });
+  app.post(
+    "/password/change",
+    { config: { allowPasswordChangePending: true, mfaSetupStage: true }, preHandler: requireAuth },
+    async (req, reply) => {
+      const input = parseInput(passwordChangeInputSchema, req.body);
+      setSessionCookies(reply, await changePassword(app.db, app.authLimits, auditContext(req), authOf(req), input));
+      app.requestHub.closeByUser(authOf(req).user.id); // G-E9-14: eski oturumların panel soketleri 4401 (yeni çerezle yeniden bağlanır)
+      return reply.status(204).send();
+    },
+  );
 
   // P12 (AC-85): tema tercihi; şifre değişimi / 2FA kurulumu bekleyen oturumda da (doğrulama aşamasında değil).
-  app.patch("/me/preferences", { config: { allowPasswordChangePending: true, mfaSetupStage: true }, preHandler: requireAuth }, async (req, reply): Promise<PreferencesResponse> => {
-    const { theme } = parseInput(preferencesInputSchema, req.body);
-    await setTheme(app.db, auditContext(req), authOf(req), theme);
-    setThemeCookie(reply, theme);
-    noStore(reply);
-    return { theme };
-  });
+  app.patch(
+    "/me/preferences",
+    { config: { allowPasswordChangePending: true, mfaSetupStage: true }, preHandler: requireAuth },
+    async (req, reply): Promise<PreferencesResponse> => {
+      const { theme } = parseInput(preferencesInputSchema, req.body);
+      await setTheme(app.db, auditContext(req), authOf(req), theme);
+      setThemeCookie(reply, theme);
+      noStore(reply);
+      return { theme };
+    },
+  );
 
   app.get("/me", pendingOk, async (req, reply): Promise<MeResponse> => {
     const auth = authOf(req);
@@ -154,7 +193,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       permissions: ok ? [...auth.permissions] : [],
       tenant: auth.tenant,
       actingTenant: ok ? auth.actingTenant : null,
-      mfa: { enabled: auth.totpEnabled, required: auth.mfaRequired, stage: auth.mfaStage, recoveryCodesLeft: auth.totpEnabled && ok ? await recoveryCodesLeft(app.db, auth.user.id) : 0 },
+      mfa: {
+        enabled: auth.totpEnabled,
+        required: auth.mfaRequired,
+        stage: auth.mfaStage,
+        recoveryCodesLeft: auth.totpEnabled && ok ? await recoveryCodesLeft(app.db, auth.user.id) : 0,
+      },
       // Yarım oturumda seçili firma bilgisi verilmez → kullanıcının kendi firması / sistem logosu.
       logoUrl: await effectiveLogoUrl(app.db, ok || auth.tenant ? auth.logoPath : null),
     };

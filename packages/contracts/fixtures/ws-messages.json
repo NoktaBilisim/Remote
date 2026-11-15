@@ -179,22 +179,16 @@
         "guestKind": "AGENT",
         "iceServers": [
           {
-            "urls": [
-              "stun:turn.example:3478"
-            ]
+            "urls": ["stun:turn.example:3478"]
           },
           {
-            "urls": [
-              "turn:turn.example:3478?transport=udp"
-            ],
+            "urls": ["turn:turn.example:3478?transport=udp"],
             "username": "1700003600:01JC0000000000000000000000",
             "credential": "c2VjcmV0"
           }
         ],
         "maxEndsAt": "2026-11-11T12:00:00.000Z",
-        "caps": [
-          "remote_control"
-        ],
+        "caps": ["remote_control"],
         "reconnectToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
       },
       {
@@ -267,9 +261,7 @@
       },
       {
         "t": "caps.update",
-        "caps": [
-          "file_transfer"
-        ]
+        "caps": ["file_transfer"]
       },
       {
         "t": "caps.update",

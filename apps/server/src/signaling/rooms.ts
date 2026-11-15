@@ -85,7 +85,9 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
     for (const r of this.rooms.values()) if (r.admitted && !r.ending) n++;
     return n;
   }
-  values(): IterableIterator<Room> { return this.rooms.values(); } // P13b-L salt okuma (lobby-count.ts)
+  values(): IterableIterator<Room> {
+    return this.rooms.values();
+  } // P13b-L salt okuma (lobby-count.ts)
   get(sessionId: string): Room | undefined {
     return this.rooms.get(sessionId);
   }
@@ -96,24 +98,56 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   private getOrCreate(row: RoomRow): Room {
     let room = this.rooms.get(row.id);
     if (!room) {
-      room = { sessionId: row.id, tenantId: row.tenantId, technicianId: row.technicianId, technicianName: row.technician.fullName, expiresAt: row.expiresAt.getTime(), lobby: new Map(), admitting: false, admitFails: 0, rejectedIps: new Set(), caps: [], fileMeta: { quotas: new Map(), auditAt: new Map() }, control: newControl(), timers: {}, ending: false, lobbyArrivals: 0 };
+      room = {
+        sessionId: row.id,
+        tenantId: row.tenantId,
+        technicianId: row.technicianId,
+        technicianName: row.technician.fullName,
+        expiresAt: row.expiresAt.getTime(),
+        lobby: new Map(),
+        admitting: false,
+        admitFails: 0,
+        rejectedIps: new Set(),
+        caps: [],
+        fileMeta: { quotas: new Map(), auditAt: new Map() },
+        control: newControl(),
+        timers: {},
+        ending: false,
+        lobbyArrivals: 0,
+      };
       this.rooms.set(row.id, room);
     }
     return room;
   }
 
   /** Lobiye (TICKETED) misafir ekler — join (A1). Ret listesi → 403, lobi dolu → 409 LOBBY_FULL. */
-  addGuest(row: RoomRow, g: { name: string; email?: string; kind: GuestKind; ipKey: string; netKey?: string; clientVersion?: string; consent: GuestConsent }): { guestId: string; admitCode: string; wsTicket: string } {
+  addGuest(
+    row: RoomRow,
+    g: { name: string; email?: string; kind: GuestKind; ipKey: string; netKey?: string; clientVersion?: string; consent: GuestConsent },
+  ): { guestId: string; admitCode: string; wsTicket: string } {
     const room = this.getOrCreate(row);
     if (room.admitted) throw new AppError("SESSION_CONSUMED");
-    if (room.rejectedIps.has(g.ipKey)) throw new AppError("FORBIDDEN", { message: "Bu oturuma katılımınız teknisyen tarafından reddedildi." });
+    if (room.rejectedIps.has(g.ipKey))
+      throw new AppError("FORBIDDEN", { message: "Bu oturuma katılımınız teknisyen tarafından reddedildi." });
     if (room.lobby.size >= LOBBY_MAX) throw new AppError("LOBBY_FULL");
     const id = newId();
     // Lobide kod tekil olmalı: aksi halde teknisyenin girdiği kod iki misafirle eşleşebilir.
     const taken = (c: string): boolean => [...room.lobby.values()].some((o) => o.admitHash === admitHash(o.id, c));
     let code = String(randomInt(0, 10_000)).padStart(4, "0");
     while (taken(code)) code = String(randomInt(0, 10_000)).padStart(4, "0");
-    const guest: Guest = { id, name: g.name, ...(g.email ? { email: g.email } : {}), kind: g.kind, ipKey: g.ipKey, ...(g.netKey ? { netKey: g.netKey } : {}), ...(g.clientVersion ? { clientVersion: g.clientVersion } : {}), admitHash: admitHash(id, code), consent: g.consent, state: "TICKETED", since: this.clock.now() };
+    const guest: Guest = {
+      id,
+      name: g.name,
+      ...(g.email ? { email: g.email } : {}),
+      kind: g.kind,
+      ipKey: g.ipKey,
+      ...(g.netKey ? { netKey: g.netKey } : {}),
+      ...(g.clientVersion ? { clientVersion: g.clientVersion } : {}),
+      admitHash: admitHash(id, code),
+      consent: g.consent,
+      state: "TICKETED",
+      since: this.clock.now(),
+    };
     guest.timer = this.clock.setTimeout(() => {
       if (guest.state === "TICKETED" && room.lobby.get(id) === guest) this.dropRoomIfIdle(room, id);
     }, this.timing.ticketMs);
@@ -127,12 +161,28 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
    * ticket. Lobi/admitCode yok; bağlama talep sırrıyla (ticket yalnız sır sahibinin /ws/request soketine iletilir). Ömür
    * talep servisinin 60 sn bağlanma zamanlayıcısına bağlıdır (oturum iptalinde oda kapanır).
    */
-  preAdmitGuest(row: RoomRow, g: { requestId: string; name: string; email?: string; clientVersion: string; consent: GuestConsent }): { wsTicket: string; expiresAt: number } {
+  preAdmitGuest(
+    row: RoomRow,
+    g: { requestId: string; name: string; email?: string; clientVersion: string; consent: GuestConsent },
+  ): { wsTicket: string; expiresAt: number } {
     const room = this.getOrCreate(row);
     room.requestId = g.requestId;
     let guest = [...room.lobby.values()].find((x) => x.requestId === g.requestId);
     if (!guest) {
-      guest = { id: newId(), name: g.name, ...(g.email ? { email: g.email } : {}), kind: "AGENT", ipKey: "", admitHash: "", consent: g.consent, state: "TICKETED", since: this.clock.now(), requestId: g.requestId, clientVersion: g.clientVersion, ticketGen: 0 };
+      guest = {
+        id: newId(),
+        name: g.name,
+        ...(g.email ? { email: g.email } : {}),
+        kind: "AGENT",
+        ipKey: "",
+        admitHash: "",
+        consent: g.consent,
+        state: "TICKETED",
+        since: this.clock.now(),
+        requestId: g.requestId,
+        clientVersion: g.clientVersion,
+        ticketGen: 0,
+      };
       room.lobby.set(guest.id, guest);
     }
     guest.ticketGen = (guest.ticketGen ?? 0) + 1; // önceki ticket geçersiz (yeniden bağlanan /ws/request)
@@ -252,15 +302,32 @@ export class Rooms implements RoomNotifier, TechnicianLiveControl {
   }
 
   /** Oturumu bitirir: ACTIVE ise DB ENDED + audit (tek TX), sonra tüm taraflara session.ended ve kapanış. */
-  async finish(room: Room, reason: SessionEndedReason, endedBy: "TECH" | "CUSTOMER" | "SYSTEM", ctx: AuditContext = SYSTEM_CTX): Promise<void> {
+  async finish(
+    room: Room,
+    reason: SessionEndedReason,
+    endedBy: "TECH" | "CUSTOMER" | "SYSTEM",
+    ctx: AuditContext = SYSTEM_CTX,
+  ): Promise<void> {
     if (!this.live(room)) return;
     room.ending = true;
     if (room.admitted) {
       try {
         await this.db.$transaction(async (tx) => {
           if ((await repo.endActive(tx, room.sessionId, new Date(this.clock.now()), endedBy, reason)) === 0) return;
-          const actor = endedBy === "TECH" && room.tech ? { userId: room.tech.userId, username: room.tech.username } : { username: endedBy === "CUSTOMER" ? "customer" : "system" };
-          await writeAudit(tx, ctx, { tenantId: room.tenantId, ...actor, action: "session.ended", entity: "support_sessions", entityId: room.sessionId, result: "success", oldValue: { status: "ACTIVE" }, newValue: { status: "ENDED", endedBy, reason } });
+          const actor =
+            endedBy === "TECH" && room.tech
+              ? { userId: room.tech.userId, username: room.tech.username }
+              : { username: endedBy === "CUSTOMER" ? "customer" : "system" };
+          await writeAudit(tx, ctx, {
+            tenantId: room.tenantId,
+            ...actor,
+            action: "session.ended",
+            entity: "support_sessions",
+            entityId: room.sessionId,
+            result: "success",
+            oldValue: { status: "ACTIVE" },
+            newValue: { status: "ENDED", endedBy, reason },
+          });
         });
       } catch (err) {
         this.log.error({ err, sessionId: room.sessionId }, "oturum bitişi DB'ye yazılamadı");

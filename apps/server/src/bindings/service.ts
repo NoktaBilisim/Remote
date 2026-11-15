@@ -2,7 +2,12 @@
 // Kayıt YALNIZ talep açar: oturum, ticket, reconnect ve TURN uçları bu modüle bakmaz (AC-184).
 // Anahtar yalnız `binding.issued` mesajında döner; DB'de SHA-256; log/audit'te asla (logger REDACT `*.bindingKey`).
 import type { BindingInfo, BindingRevokeReason } from "@remote/contracts/api/bindings";
-import { BINDING_DENIED_MESSAGE, bindingKeySchema, bindingRevokeInputSchema, bindingStatusInputSchema } from "@remote/contracts/api/bindings";
+import {
+  BINDING_DENIED_MESSAGE,
+  bindingKeySchema,
+  bindingRevokeInputSchema,
+  bindingStatusInputSchema,
+} from "@remote/contracts/api/bindings";
 import { BINDING_AUDIT } from "@remote/contracts/audit";
 import type { ServerOutbound } from "@remote/contracts/ws";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
@@ -75,7 +80,15 @@ export async function bindingRevoke(svc: RequestService, ctx: AuditContext, body
   const done = await svc.d.db.$transaction(async (tx) => {
     const row = await tx.deviceBinding.findFirst({ where: { keyHash, revokedAt: null }, select: { id: true, tenantId: true } });
     if (!row || (await repo.revokeById(tx, row.id, row.tenantId, "FORGOTTEN", now)) === 0) return false;
-    await writeAudit(tx, ctx, { tenantId: row.tenantId, ...CUSTOMER, action: BINDING_AUDIT.REVOKED, entity: ENTITY, entityId: row.id, result: "success", newValue: { reason: "FORGOTTEN" } });
+    await writeAudit(tx, ctx, {
+      tenantId: row.tenantId,
+      ...CUSTOMER,
+      action: BINDING_AUDIT.REVOKED,
+      entity: ENTITY,
+      entityId: row.id,
+      result: "success",
+      newValue: { reason: "FORGOTTEN" },
+    });
     return true;
   });
   if (done) svc.d.metrics.inc("rs_bindings_revoked_total", { reason: "FORGOTTEN" });
@@ -103,7 +116,9 @@ const sessionSelect = {
   requestId: true,
   tenant: { select: { name: true, status: true, deletedAt: true, requestSettings: { select: { refRotatedAt: true } } } },
   customer: { select: { name: true } },
-  request: { select: { createdAt: true, bindingId: true, binding: { select: { revokedAt: true } }, customer: { select: { refRotatedAt: true } } } },
+  request: {
+    select: { createdAt: true, bindingId: true, binding: { select: { revokedAt: true } }, customer: { select: { refRotatedAt: true } } },
+  },
 } as const;
 
 /**
@@ -111,7 +126,11 @@ const sessionSelect = {
  * mode AGENT, tenant aktif, oturumun müşterisi varsa aktif (satır FOR SHARE → eşzamanlı pasife alma bekler).
  * UQ(active_session_id) ihlali ya da kilitlenme (eşzamanlı iki istek) → TX bir kez yeniden denenir.
  */
-export async function issueBinding(svc: RequestService, ctx: AuditContext, a: { sessionId: string; clientVersion: string; previousKey?: string | undefined }): Promise<IssueResult> {
+export async function issueBinding(
+  svc: RequestService,
+  ctx: AuditContext,
+  a: { sessionId: string; clientVersion: string; previousKey?: string | undefined },
+): Promise<IssueResult> {
   const head = await svc.d.db.supportSession.findFirst({ where: { id: a.sessionId }, select: { tenantId: true } });
   if (!head) {
     svc.d.metrics.inc("rs_binding_denied_total", { reason: "inactive" });
@@ -125,7 +144,14 @@ export async function issueBinding(svc: RequestService, ctx: AuditContext, a: { 
       if (err instanceof Denied) {
         // B-P8c-4: her ret nedeni audit + metrik (oturum başına en çok 3 istek → audit seli yok).
         svc.d.metrics.inc("rs_binding_denied_total", { reason: err.reason });
-        await writeAudit(svc.d.db, ctx, { tenantId: head.tenantId, ...CUSTOMER, action: BINDING_AUDIT.DENIED, entity: ENTITY, result: "fail", newValue: { reason: err.reason, ...(err.requestId ? { requestId: err.requestId } : {}) } });
+        await writeAudit(svc.d.db, ctx, {
+          tenantId: head.tenantId,
+          ...CUSTOMER,
+          action: BINDING_AUDIT.DENIED,
+          entity: ENTITY,
+          result: "fail",
+          newValue: { reason: err.reason, ...(err.requestId ? { requestId: err.requestId } : {}) },
+        });
         return { ok: false, message: BINDING_DENIED_MESSAGE };
       }
       // Eşzamanlı iki istek: ikisi de yok olan `active_session_id` aralığını FOR UPDATE ile kilitleyip INSERT eder →
@@ -137,7 +163,11 @@ export async function issueBinding(svc: RequestService, ctx: AuditContext, a: { 
   }
 }
 
-async function issueTx(svc: RequestService, ctx: AuditContext, a: { sessionId: string; clientVersion: string; previousKey?: string | undefined }): Promise<IssueResult> {
+async function issueTx(
+  svc: RequestService,
+  ctx: AuditContext,
+  a: { sessionId: string; clientVersion: string; previousKey?: string | undefined },
+): Promise<IssueResult> {
   const { db } = svc.d;
   const key = newBindingKey();
   const keyHash = sha256Hex(key);
@@ -174,11 +204,27 @@ async function issueTx(svc: RequestService, ctx: AuditContext, a: { sessionId: s
       if (prev) {
         // §15.3 adım 5 + G-E10-4: başka tenant'ın kaydı REPLACED; karşı tenant kimliği hiçbir tarafta yazılmaz.
         await repo.revokeById(tx, prev.id, prev.tenantId, "REPLACED", now);
-        await writeAudit(tx, ctx, { tenantId: prev.tenantId, ...CUSTOMER, action: BINDING_AUDIT.REVOKED, entity: ENTITY, entityId: prev.id, result: "success", newValue: { reason: "REPLACED" } });
+        await writeAudit(tx, ctx, {
+          tenantId: prev.tenantId,
+          ...CUSTOMER,
+          action: BINDING_AUDIT.REVOKED,
+          entity: ENTITY,
+          entityId: prev.id,
+          result: "success",
+          newValue: { reason: "REPLACED" },
+        });
         replaced = prev;
       }
       bindingId = newId();
-      await repo.insertBinding(tx, { id: bindingId, tenantId: s.tenantId, customerId, keyHash, sessionId: a.sessionId, clientVersion: a.clientVersion, now });
+      await repo.insertBinding(tx, {
+        id: bindingId,
+        tenantId: s.tenantId,
+        customerId,
+        keyHash,
+        sessionId: a.sessionId,
+        clientVersion: a.clientVersion,
+        now,
+      });
     }
     const renewed = target !== null;
     await writeAudit(tx, ctx, {
@@ -190,31 +236,70 @@ async function issueTx(svc: RequestService, ctx: AuditContext, a: { sessionId: s
       result: "success",
       newValue: { customerId, renewed, replacedOtherTenant: replaced !== null },
     });
-    const firm = customerId ? (customerId === s.customerId ? (s.customer?.name ?? null) : ((await tx.customer.findUnique({ where: { id: customerId }, select: { name: true } }))?.name ?? null)) : null;
+    const firm = customerId
+      ? customerId === s.customerId
+        ? (s.customer?.name ?? null)
+        : ((await tx.customer.findUnique({ where: { id: customerId }, select: { name: true } }))?.name ?? null)
+      : null;
     return { renewed, replaced, tenantName: s.tenant.name, firm };
   }, REQUEST_TX_OPTIONS);
   svc.d.metrics.inc("rs_bindings_issued_total", { renewed: String(out.renewed) });
   if (out.replaced) svc.d.metrics.inc("rs_bindings_revoked_total", { reason: "REPLACED" });
-  return { ok: true, msg: { t: "binding.issued", bindingKey: key, tenantName: out.tenantName.slice(0, 120), customerFirmName: out.firm?.slice(0, 100) ?? null, renewed: out.renewed } };
+  return {
+    ok: true,
+    msg: {
+      t: "binding.issued",
+      bindingKey: key,
+      tenantName: out.tenantName.slice(0, 120),
+      customerFirmName: out.firm?.slice(0, 100) ?? null,
+      renewed: out.renewed,
+    },
+  };
 }
 
 // ------------------------------------------------------------------ panel: tek kayıt iptali (§15.2)
 
 /** POST /support-requests/:id/revoke-binding (G-E10-2): kayıt talebin `binding_id`'sinden; istemciden kimlik alınmaz. */
-export async function revokeRequestBinding(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string, requestId: string): Promise<void> {
+export async function revokeRequestBinding(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  requestId: string,
+): Promise<void> {
   await svc.limit(ctx, tenantId, "customersWrite", "customers.write", "user", auth.user.id);
   const now = new Date(svc.d.clock.now());
   const cancelled = await svc.d.db.$transaction(async (tx) => {
     const r = await tx.supportRequest.findFirst({ where: { id: requestId, tenantId }, select: { bindingId: true } });
     if (!r?.bindingId) throw new AppError("NOT_FOUND");
-    if ((await repo.revokeById(tx, r.bindingId, tenantId, "ADMIN_REVOKED", now)) === 0) throw new AppError("CONFLICT", { message: "Bu bilgisayarın kaydı zaten geçersiz." });
+    if ((await repo.revokeById(tx, r.bindingId, tenantId, "ADMIN_REVOKED", now)) === 0)
+      throw new AppError("CONFLICT", { message: "Bu bilgisayarın kaydı zaten geçersiz." });
     const ids: string[] = [];
     for (const p of await repo.pendingOfBinding(tx, tenantId, r.bindingId)) {
       if ((await rrepo.cancelPending(tx, p.id, "BINDING_REVOKED", now)) === 0) continue;
       ids.push(p.id);
-      await writeAudit(tx, ctx, { tenantId, userId: auth.user.id, username: auth.user.email, action: "request.cancelled", entity: "support_requests", entityId: p.id, result: "success", oldValue: { status: "PENDING" }, newValue: { status: "CANCELLED", reason: "BINDING_REVOKED" } });
+      await writeAudit(tx, ctx, {
+        tenantId,
+        userId: auth.user.id,
+        username: auth.user.email,
+        action: "request.cancelled",
+        entity: "support_requests",
+        entityId: p.id,
+        result: "success",
+        oldValue: { status: "PENDING" },
+        newValue: { status: "CANCELLED", reason: "BINDING_REVOKED" },
+      });
     }
-    await writeAudit(tx, ctx, { tenantId, userId: auth.user.id, username: auth.user.email, action: BINDING_AUDIT.REVOKED, entity: ENTITY, entityId: r.bindingId, result: "success", newValue: { reason: "ADMIN_REVOKED", requestId, cancelledRequests: ids.length } });
+    await writeAudit(tx, ctx, {
+      tenantId,
+      userId: auth.user.id,
+      username: auth.user.email,
+      action: BINDING_AUDIT.REVOKED,
+      entity: ENTITY,
+      entityId: r.bindingId,
+      result: "success",
+      newValue: { reason: "ADMIN_REVOKED", requestId, cancelledRequests: ids.length },
+    });
     return ids;
   });
   svc.d.metrics.inc("rs_bindings_revoked_total", { reason: "ADMIN_REVOKED" });
@@ -238,7 +323,14 @@ export async function revokeForTenant(svc: RequestService, tenantId: string): Pr
     if (n < BATCH) break;
   }
   if (total > 0) {
-    await writeAudit(svc.d.db, SYSTEM_CTX, { tenantId, ...SYSTEM, action: BINDING_AUDIT.REVOKED, entity: ENTITY, result: "success", newValue: { reason: "TENANT_PASSIVE", count: total } });
+    await writeAudit(svc.d.db, SYSTEM_CTX, {
+      tenantId,
+      ...SYSTEM,
+      action: BINDING_AUDIT.REVOKED,
+      entity: ENTITY,
+      result: "success",
+      newValue: { reason: "TENANT_PASSIVE", count: total },
+    });
     countRevoked(svc, "TENANT_PASSIVE", total);
   }
   return total;
@@ -258,7 +350,11 @@ export async function expireIdleBindings(svc: RequestService, now = new Date(svc
 }
 
 /** P13a: tek tenant için boşta kayıt dolumu (saklama işinin tenant döngüsü; fail-soft tenant başına). */
-export async function expireIdleBindingsOf(svc: RequestService, t: { tenantId: string; retentionDays: number }, now: Date): Promise<number> {
+export async function expireIdleBindingsOf(
+  svc: RequestService,
+  t: { tenantId: string; retentionDays: number },
+  now: Date,
+): Promise<number> {
   const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
   let n = 0;
   for (;;) {
@@ -266,7 +362,15 @@ export async function expireIdleBindingsOf(svc: RequestService, t: { tenantId: s
     n += k;
     if (k < BATCH) break;
   }
-  if (n > 0) await writeAudit(svc.d.db, SYSTEM_CTX, { tenantId: t.tenantId, ...SYSTEM, action: BINDING_AUDIT.REVOKED, entity: ENTITY, result: "success", newValue: { reason: "EXPIRED", count: n } });
+  if (n > 0)
+    await writeAudit(svc.d.db, SYSTEM_CTX, {
+      tenantId: t.tenantId,
+      ...SYSTEM,
+      action: BINDING_AUDIT.REVOKED,
+      entity: ENTITY,
+      result: "success",
+      newValue: { reason: "EXPIRED", count: n },
+    });
   countRevoked(svc, "EXPIRED", n);
   return n;
 }

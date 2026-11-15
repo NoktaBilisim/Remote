@@ -3,7 +3,17 @@ import type { FastifyInstance } from "fastify";
 import { resolveSession } from "../../src/auth/session.ts";
 import { sha256Hex } from "../../src/lib/ids.ts";
 import { createSupportSession } from "../../src/sessions/service.ts";
-import { ORIGIN, createSupportSessionRow, createTenant, createUser, loginAs, makeApp, testDb, uniqueCode, type Session } from "../helpers/app.ts";
+import {
+  ORIGIN,
+  createSupportSessionRow,
+  createTenant,
+  createUser,
+  loginAs,
+  makeApp,
+  testDb,
+  uniqueCode,
+  type Session,
+} from "../helpers/app.ts";
 
 let app: FastifyInstance;
 beforeAll(async () => {

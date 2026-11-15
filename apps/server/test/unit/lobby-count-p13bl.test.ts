@@ -20,7 +20,13 @@ const noDb = {} as Db;
 function setup() {
   const clock = new FakeClock();
   const rooms = new Rooms({ db: noDb, log: silentLog, turn: TURN, metrics: createMetrics(), clock });
-  const rowOf = (tenantId: string, technicianId: string, ttlMs = 15 * 60_000) => ({ id: newId(), tenantId, technicianId, technician: { fullName: "T" }, expiresAt: new Date(clock.now() + ttlMs) });
+  const rowOf = (tenantId: string, technicianId: string, ttlMs = 15 * 60_000) => ({
+    id: newId(),
+    tenantId,
+    technicianId,
+    technician: { fullName: "T" },
+    expiresAt: new Date(clock.now() + ttlMs),
+  });
   type Row = ReturnType<typeof rowOf>;
   /** join (TICKETED) — WS'e bağlanmaz. */
   const ticketed = (row: Row, ip: string) => rooms.addGuest(row, { name: "Ayşe Yılmaz", kind: "BROWSER", ipKey: ip, consent });
@@ -181,8 +187,12 @@ describe("P13b-L getWaitingSessions", () => {
 
   it("AC-311: şema ek alanı (ad/e-posta) reddeder", () => {
     const id = newId();
-    expect(waitingSessionsResponseSchema.safeParse({ count: 1, sessions: [{ id, waiting: 1, arrivals: 1, name: "X" }] }).success).toBe(false);
-    expect(waitingSessionsResponseSchema.safeParse({ count: 1, sessions: [{ id, waiting: 1, arrivals: 1 }], email: "a@b" }).success).toBe(false);
+    expect(waitingSessionsResponseSchema.safeParse({ count: 1, sessions: [{ id, waiting: 1, arrivals: 1, name: "X" }] }).success).toBe(
+      false,
+    );
+    expect(waitingSessionsResponseSchema.safeParse({ count: 1, sessions: [{ id, waiting: 1, arrivals: 1 }], email: "a@b" }).success).toBe(
+      false,
+    );
     expect(waitingSessionsResponseSchema.safeParse({ count: 4, sessions: [{ id, waiting: 4, arrivals: 4 }] }).success).toBe(false);
   });
 
@@ -190,7 +200,13 @@ describe("P13b-L getWaitingSessions", () => {
     const { rooms, rowOf, join } = setup();
     const row = rowOf("T1", "U1");
     join(row, "198.51.100.95");
-    const res = { items: [{ id: row.id, status: "PENDING" as const }, { id: newId(), status: "ENDED" as const }], page: 1 };
+    const res = {
+      items: [
+        { id: row.id, status: "PENDING" as const },
+        { id: newId(), status: "ENDED" as const },
+      ],
+      page: 1,
+    };
     type Base = Parameters<typeof withWaitingGuests>[0]["items"][number];
     const asBase = res as unknown as { items: Base[]; page: number };
     const withView = { user: { id: "U1" }, permissions: new Set(["sessions.view"]) } as unknown as AuthContext;

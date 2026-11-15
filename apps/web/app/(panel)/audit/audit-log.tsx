@@ -39,8 +39,14 @@ function UserCell({ a }: { a: AuditItem }) {
     <span className="flex min-w-0 items-center gap-2">
       <Avatar name={name} src={a.avatarUrl} size="sm" testId="audit-avatar" />
       <span className="min-w-0">
-        <span className="block truncate text-fg" title={name}>{name}</span>
-        {sub && <span className="block truncate text-xs text-fg-muted" title={sub}>{sub}</span>}
+        <span className="block truncate text-fg" title={name}>
+          {name}
+        </span>
+        {sub && (
+          <span className="block truncate text-xs text-fg-muted" title={sub}>
+            {sub}
+          </span>
+        )}
       </span>
     </span>
   );
@@ -50,8 +56,14 @@ function ActionCell({ action }: { action: string }) {
   const label = actionLabel(action);
   return (
     <span className="flex min-w-0 flex-col">
-      <span className="truncate text-fg" title={label}>{label}</span>
-      {label !== action && <span className="truncate font-mono text-xs text-fg-muted" title={action}>{action}</span>}
+      <span className="truncate text-fg" title={label}>
+        {label}
+      </span>
+      {label !== action && (
+        <span className="truncate font-mono text-xs text-fg-muted" title={action}>
+          {action}
+        </span>
+      )}
     </span>
   );
 }
@@ -103,14 +115,32 @@ export function AuditLog({ initial, filters, showTenant }: { initial: AuditListR
           <caption className="sr-only">{t("au.title")}</caption>
           <thead className="bg-surface-muted text-xs text-fg-muted">
             <tr>
-              <th scope="col" className="px-3 py-3 font-medium">{t("au.col.time")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("au.col.user")}</th>
-              {showTenant && <th scope="col" className="px-3 py-3 font-medium">{t("au.col.tenant")}</th>}
-              <th scope="col" className="px-3 py-3 font-medium">{t("au.col.action")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("au.col.entity")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("au.col.result")}</th>
-              <th scope="col" className={`px-3 py-3 font-medium ${ipCol}`}>{t("au.col.ip")}</th>
-              <th scope="col" className="sticky right-0 bg-surface-muted px-3 py-3 text-right font-medium"><span className="sr-only">{t("au.col.detail")}</span></th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("au.col.time")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("au.col.user")}
+              </th>
+              {showTenant && (
+                <th scope="col" className="px-3 py-3 font-medium">
+                  {t("au.col.tenant")}
+                </th>
+              )}
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("au.col.action")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("au.col.entity")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("au.col.result")}
+              </th>
+              <th scope="col" className={`px-3 py-3 font-medium ${ipCol}`}>
+                {t("au.col.ip")}
+              </th>
+              <th scope="col" className="sticky right-0 bg-surface-muted px-3 py-3 text-right font-medium">
+                <span className="sr-only">{t("au.col.detail")}</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -119,13 +149,30 @@ export function AuditLog({ initial, filters, showTenant }: { initial: AuditListR
                 <td className="px-3 py-2 whitespace-nowrap tabular-nums text-fg">
                   <time dateTime={a.createdAt}>{formatDateTime(a.createdAt)}</time>
                 </td>
-                <td className="max-w-48 px-3 py-2"><UserCell a={a} /></td>
-                {showTenant && <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={a.tenantName ?? undefined}>{a.tenantName ?? <span className="text-fg-muted">—</span>}</td>}
-                <td className="max-w-60 px-3 py-2"><ActionCell action={a.action} /></td>
-                <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg-muted" title={a.entity}>{a.entity}</td>
-                <td className="px-3 py-2"><ResultBadge result={a.result} /></td>
+                <td className="max-w-48 px-3 py-2">
+                  <UserCell a={a} />
+                </td>
+                {showTenant && (
+                  <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={a.tenantName ?? undefined}>
+                    {a.tenantName ?? <span className="text-fg-muted">—</span>}
+                  </td>
+                )}
+                <td className="max-w-60 px-3 py-2">
+                  <ActionCell action={a.action} />
+                </td>
+                <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg-muted" title={a.entity}>
+                  {a.entity}
+                </td>
+                <td className="px-3 py-2">
+                  <ResultBadge result={a.result} />
+                </td>
                 {/* IPv6 / ağ öneki (S-P13a: müşteri kaydında `…/24`, `…::/48`) tabloyu genişletmesin: dar sütunda kırpılır, tam değer title + ayrıntıda */}
-                <td className={`max-w-32 truncate px-3 py-2 font-mono text-xs whitespace-nowrap text-fg-muted ${ipCol}`} title={a.ipAddress ?? undefined}>{a.ipAddress ?? "—"}</td>
+                <td
+                  className={`max-w-32 truncate px-3 py-2 font-mono text-xs whitespace-nowrap text-fg-muted ${ipCol}`}
+                  title={a.ipAddress ?? undefined}
+                >
+                  {a.ipAddress ?? "—"}
+                </td>
                 <td className="sticky right-0 bg-surface px-3 py-1 text-right group-hover:bg-surface-muted">{detailBtn(a)}</td>
               </tr>
             ))}
@@ -236,33 +283,53 @@ function AuditDetailDialog({ item, onClose }: { item: AuditItem | null; onClose:
         <div className="flex flex-col gap-4">
           <dl className="flex flex-col gap-2">
             <Row term={t("au.col.time")}>
-              <time dateTime={item.createdAt} className="tabular-nums">{formatDateTime(item.createdAt)} ({formatTimeSeconds(item.createdAt)})</time>
+              <time dateTime={item.createdAt} className="tabular-nums">
+                {formatDateTime(item.createdAt)} ({formatTimeSeconds(item.createdAt)})
+              </time>
             </Row>
             <Row term={t("au.col.user")}>
               <UserCell a={item} />
             </Row>
             {item.tenantName && <Row term={t("au.col.tenant")}>{item.tenantName}</Row>}
-            <Row term={t("au.col.action")}><ActionCell action={item.action} /></Row>
+            <Row term={t("au.col.action")}>
+              <ActionCell action={item.action} />
+            </Row>
             <Row term={t("au.col.entity")}>{item.entity}</Row>
-            {item.entityId && <Row term={t("au.d.entityId")}><span className="font-mono text-xs">{item.entityId}</span></Row>}
-            <Row term={t("au.col.result")}><ResultBadge result={item.result} /></Row>
-            <Row term={t("au.col.ip")}><span className="font-mono text-xs">{item.ipAddress ?? "—"}</span></Row>
-            {item.userAgent && <Row term={t("au.d.ua")}><span className="text-xs">{item.userAgent}</span></Row>}
-            <Row term={t("au.d.id")}><span className="font-mono text-xs">{item.id}</span></Row>
+            {item.entityId && (
+              <Row term={t("au.d.entityId")}>
+                <span className="font-mono text-xs">{item.entityId}</span>
+              </Row>
+            )}
+            <Row term={t("au.col.result")}>
+              <ResultBadge result={item.result} />
+            </Row>
+            <Row term={t("au.col.ip")}>
+              <span className="font-mono text-xs">{item.ipAddress ?? "—"}</span>
+            </Row>
+            {item.userAgent && (
+              <Row term={t("au.d.ua")}>
+                <span className="text-xs">{item.userAgent}</span>
+              </Row>
+            )}
+            <Row term={t("au.d.id")}>
+              <span className="font-mono text-xs">{item.id}</span>
+            </Row>
           </dl>
           {payload.kind === "reason" ? (
             <section aria-label={t("au.d.reason")} className="flex flex-col gap-2" data-testid="audit-detail-reason">
               <dl>
-              <Row term={t("au.d.reason")}>
-                {payload.reason === null ? (
-                  <span className="text-fg-muted">{t("au.d.noReason")}</span>
-                ) : (
-                  <span className="flex min-w-0 flex-col" data-testid="audit-reason">
-                    <span>{reasonLabel(payload.reason)}</span>
-                    {reasonLabel(payload.reason) !== payload.reason && <span className="font-mono text-xs text-fg-muted">{payload.reason}</span>}
-                  </span>
-                )}
-              </Row>
+                <Row term={t("au.d.reason")}>
+                  {payload.reason === null ? (
+                    <span className="text-fg-muted">{t("au.d.noReason")}</span>
+                  ) : (
+                    <span className="flex min-w-0 flex-col" data-testid="audit-reason">
+                      <span>{reasonLabel(payload.reason)}</span>
+                      {reasonLabel(payload.reason) !== payload.reason && (
+                        <span className="font-mono text-xs text-fg-muted">{payload.reason}</span>
+                      )}
+                    </span>
+                  )}
+                </Row>
               </dl>
               <p className="flex items-start gap-2 text-xs text-fg-muted">
                 <Info aria-hidden className="mt-0.5 size-4 shrink-0" />

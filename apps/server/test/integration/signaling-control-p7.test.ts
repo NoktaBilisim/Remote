@@ -7,14 +7,24 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Db } from "../../src/lib/db.ts";
 import { createMetrics } from "../../src/ops/metrics.ts";
 import { admitGuest } from "../../src/signaling/admit.ts";
-import { CONTROL_AUDIT_TIMEOUT_MS, handleControlClose, handleControlRequest, handleControlState, handleEnvState, handleMonitorDenied, handleMonitorRequest, onShareMonitor } from "../../src/signaling/control.ts";
+import {
+  CONTROL_AUDIT_TIMEOUT_MS,
+  handleControlClose,
+  handleControlRequest,
+  handleControlState,
+  handleEnvState,
+  handleMonitorDenied,
+  handleMonitorRequest,
+  onShareMonitor,
+} from "../../src/signaling/control.ts";
 import { Rooms } from "../../src/signaling/rooms.ts";
 import { ORIGIN, testDb } from "../helpers/app.ts";
 import { startLive, TECH_PERMS, techSession, type Live, type TechSide } from "../helpers/signal-flow.ts";
 import { connect, FakeClock, fakePeer, makeRooms, roomFixture, silentLog, TURN, type WsClient } from "../helpers/ws.ts";
 
 const ALL = ["sessions.create", "remote_control.use", "file_transfer.use"] as const;
-const consents = (sessionId: string) => testDb().sessionConsent.findMany({ where: { sessionId, level: "CONTROL" }, orderBy: { createdAt: "asc" } });
+const consents = (sessionId: string) =>
+  testDb().sessionConsent.findMany({ where: { sessionId, level: "CONTROL" }, orderBy: { createdAt: "asc" } });
 const audits = (sessionId: string, action: string) => testDb().auditLog.findMany({ where: { entityId: sessionId, action } });
 
 /** AGENT misafirli ACTIVE oda (sahte Peer). */
@@ -147,7 +157,10 @@ describe("P7 control.state kayıt zaman çizelgesi", () => {
     await handleControlState(rooms, fx.room, fx.g.entry, { state: "VIEW", source: "HOTKEY" });
     expect(fx.techPeer.of("control.state").at(-1)).toEqual({ t: "control.state", state: "VIEW", source: "HOTKEY" });
     const rows = await consents(fx.session.id);
-    expect(rows.map((r) => [r.decision, r.source])).toEqual([["GRANTED", "UI"], ["REVOKED", "HOTKEY"]]);
+    expect(rows.map((r) => [r.decision, r.source])).toEqual([
+      ["GRANTED", "UI"],
+      ["REVOKED", "HOTKEY"],
+    ]);
     expect(rows[0]?.ip).toBe(fx.consent.ip);
     expect(await audits(fx.session.id, CONTROL_AUDIT.GRANTED)).toHaveLength(1);
     const revoked = await audits(fx.session.id, CONTROL_AUDIT.REVOKED);
@@ -194,7 +207,10 @@ describe("P7 control.state kayıt zaman çizelgesi", () => {
     await fx.room.control.chain;
     expect(fx.room.control.state).toBe("VIEW");
     expect(fx.techPeer.of("control.state").at(-1)).toEqual({ t: "control.state", state: "VIEW", source: "RECONNECT" });
-    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source])).toEqual([["GRANTED", "UI"], ["REVOKED", "RECONNECT"]]);
+    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source])).toEqual([
+      ["GRANTED", "UI"],
+      ["REVOKED", "RECONNECT"],
+    ]);
     const { fakePeer } = await import("../helpers/ws.ts");
     const again = fakePeer();
     rooms.reattachGuest(fx.room, again);
@@ -207,7 +223,15 @@ describe("P7 monitor.request ve env.state", () => {
   it("AC-43 (G-03): yalnız AGENT; tek bekleyen istek (ikincisi CONFLICT); share.state ile karşılanınca monitor.granted + yeni istek iletilir", async () => {
     const rooms = makeRooms();
     const fx = await agentRoom(rooms);
-    fx.room.share = { state: "sharing", monitors: [{ id: 0, name: "A", w: 1920, h: 1080, primary: true }, { id: 1, name: "B", w: 1280, h: 1024, primary: false }, { id: 2, name: "C", w: 1280, h: 1024, primary: false }], activeMonitor: 0 };
+    fx.room.share = {
+      state: "sharing",
+      monitors: [
+        { id: 0, name: "A", w: 1920, h: 1080, primary: true },
+        { id: 1, name: "B", w: 1280, h: 1024, primary: false },
+        { id: 2, name: "C", w: 1280, h: 1024, primary: false },
+      ],
+      activeMonitor: 0,
+    };
     expect(await handleMonitorRequest(rooms, fx.room, fx.tech, 7)).toBe("invalid_monitor");
     expect(await handleMonitorRequest(rooms, fx.room, fx.tech, 0)).toBe("already_active"); // S7-15: etkin monitör → VALIDATION, sayaç düşmez
     expect(fx.techPeer.of("error").at(-1)).toMatchObject({ code: "VALIDATION" });
@@ -220,7 +244,9 @@ describe("P7 monitor.request ve env.state", () => {
     await onShareMonitor(rooms, fx.room, fx.g.entry, 1);
     fx.room.share.activeMonitor = 1; // handlers share.state ile aynı
     expect(fx.room.control.monitorPending).toBeUndefined();
-    expect(await audits(fx.session.id, CONTROL_AUDIT.MONITOR_GRANTED)).toMatchObject([{ username: "customer", newValue: { monitorId: "1" } }]);
+    expect(await audits(fx.session.id, CONTROL_AUDIT.MONITOR_GRANTED)).toMatchObject([
+      { username: "customer", newValue: { monitorId: "1" } },
+    ]);
     expect(await handleMonitorRequest(rooms, fx.room, fx.tech, 0)).toBe("forwarded");
     expect(await audits(fx.session.id, CONTROL_AUDIT.MONITOR_REQUESTED)).toHaveLength(2);
 
@@ -238,7 +264,7 @@ describe("P7 monitor.request ve env.state", () => {
     expect(fx.room.guestEnv).toBeUndefined();
   });
 
-  it("S7-9/K8: GRANTED audit'inde selfElevated — env.state gelmediyse \"unknown\", geldiyse son değer", async () => {
+  it('S7-9/K8: GRANTED audit\'inde selfElevated — env.state gelmediyse "unknown", geldiyse son değer', async () => {
     const rooms = makeRooms();
     const fx = await agentRoom(rooms);
     await handleControlRequest(rooms, fx.room, fx.tech);
@@ -248,7 +274,10 @@ describe("P7 monitor.request ve env.state", () => {
     await handleControlRequest(rooms, fx.room, fx.tech);
     await handleControlState(rooms, fx.room, fx.g.entry, { state: "GRANTED", source: "UI" });
     await fx.room.control.chain;
-    const granted = await testDb().auditLog.findMany({ where: { entityId: fx.session.id, action: CONTROL_AUDIT.GRANTED }, orderBy: { id: "asc" } });
+    const granted = await testDb().auditLog.findMany({
+      where: { entityId: fx.session.id, action: CONTROL_AUDIT.GRANTED },
+      orderBy: { id: "asc" },
+    });
     expect(granted.map((r) => r.newValue)).toEqual([
       { decision: "GRANTED", source: "UI", selfElevated: "unknown" },
       { decision: "GRANTED", source: "UI", selfElevated: "true" },
@@ -266,7 +295,10 @@ describe("P7 / S-P3-8 yetki daralması (oda katmanı)", () => {
     expect(fx.g.peer.of("caps.update")).toEqual([{ t: "caps.update", caps: ["file_transfer"] }]);
     expect(fx.g.peer.of("control.revoke")).toEqual([{ t: "control.revoke", reason: "permission" }]);
     expect(fx.techPeer.of("control.state").at(-1)).toEqual({ t: "control.state", state: "VIEW", source: "SYSTEM" });
-    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source, r.ip])).toEqual([["GRANTED", "UI", fx.consent.ip], ["REVOKED", "SYSTEM", null]]);
+    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source, r.ip])).toEqual([
+      ["GRANTED", "UI", fx.consent.ip],
+      ["REVOKED", "SYSTEM", null],
+    ]);
     expect(await audits(fx.session.id, CONTROL_AUDIT.CAPS_CHANGED)).toHaveLength(1);
     expect(await handleControlRequest(rooms, fx.room, fx.tech)).toBe("forbidden");
     // müşteri yine de izin verirse kapı hemen kapatılır (bekleyen istek yok → stale, kayıt yok)
@@ -323,8 +355,13 @@ describe("P7 §3.3 K1 — control.release (S7-1)", () => {
     const rooms = makeRooms();
     const fx = await grantedRoom(rooms);
     await handleControlClose(rooms, fx.room, fx.tech, "release");
-    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source, r.ip])).toEqual([["GRANTED", "UI", fx.consent.ip], ["REVOKED", "TECH", null]]);
-    expect(await audits(fx.session.id, CONTROL_AUDIT.RELEASED)).toMatchObject([{ userId: fx.user.id, result: "success", newValue: { decision: "REVOKED", source: "TECH", via: "release" } }]);
+    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source, r.ip])).toEqual([
+      ["GRANTED", "UI", fx.consent.ip],
+      ["REVOKED", "TECH", null],
+    ]);
+    expect(await audits(fx.session.id, CONTROL_AUDIT.RELEASED)).toMatchObject([
+      { userId: fx.user.id, result: "success", newValue: { decision: "REVOKED", source: "TECH", via: "release" } },
+    ]);
     // misafirin geç gelen {VIEW, SYSTEM} onayı ek kayıt üretmez
     await handleControlState(rooms, fx.room, fx.g.entry, { state: "VIEW", source: "SYSTEM" });
     expect(await consents(fx.session.id)).toHaveLength(2);
@@ -358,7 +395,10 @@ describe("P7 §3.3 K1 — control.release (S7-1)", () => {
     await fx.room.control.chain;
     expect(fx.techPeer.of("control.state").map((m) => m.state)).toEqual(["VIEW"]);
     expect(fx.room.control.state).toBe("VIEW");
-    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source])).toEqual([["GRANTED", "UI"], ["REVOKED", "TECH"]]);
+    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source])).toEqual([
+      ["GRANTED", "UI"],
+      ["REVOKED", "TECH"],
+    ]);
     expect(await audits(fx.session.id, CONTROL_AUDIT.RELEASED)).toHaveLength(1);
   });
 });
@@ -387,7 +427,9 @@ describe("P7 §3.3 K2 — control.cancel ve geç GRANTED (S7-2, QA-P7-4)", () =>
       expect(fx.room.control.state).toBe("VIEW");
       expect(fx.techPeer.of("control.state").at(-1)).toEqual({ t: "control.state", state: "VIEW", source });
       expect(await consents(fx.session.id)).toHaveLength(0);
-      await expect.poll(() => audits(fx.session.id, CONTROL_AUDIT.CANCELLED)).toMatchObject([{ username: "customer", result: "success", newValue: { by: "agent", source } }]);
+      await expect
+        .poll(() => audits(fx.session.id, CONTROL_AUDIT.CANCELLED))
+        .toMatchObject([{ username: "customer", result: "success", newValue: { by: "agent", source } }]);
       expect(fx.room.control.deniedAt).toBeUndefined();
       expect(await handleControlRequest(rooms, fx.room, fx.tech)).toBe("forwarded");
       expect(fx.room.control.requests).toBe(2);
@@ -435,7 +477,10 @@ describe("P7 §3.3 K2 — control.cancel ve geç GRANTED (S7-2, QA-P7-4)", () =>
     await handleControlClose(rooms, fx.room, fx.tech, "cancel");
     expect(fx.g.peer.of("control.release")).toHaveLength(1);
     expect(fx.g.peer.of("control.cancel")).toHaveLength(0);
-    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source])).toEqual([["GRANTED", "UI"], ["REVOKED", "TECH"]]);
+    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source])).toEqual([
+      ["GRANTED", "UI"],
+      ["REVOKED", "TECH"],
+    ]);
     expect(await audits(fx.session.id, CONTROL_AUDIT.RELEASED)).toMatchObject([{ newValue: { via: "cancel" } }]);
   });
 });
@@ -453,7 +498,10 @@ describe("P7 §3.3 K3 — teknisyen kopması / sekme değişimi (S7-4)", () => {
     expect(fx.room.control.state).toBe("VIEW");
     expect(fx.room.control.monitorPending).toBeUndefined();
     await fx.room.control.chain;
-    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source])).toEqual([["GRANTED", "UI"], ["REVOKED", "RECONNECT"]]);
+    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source])).toEqual([
+      ["GRANTED", "UI"],
+      ["REVOKED", "RECONNECT"],
+    ]);
   });
 
   it("S7-4: yeni konsol sekmesi (VIEW'da bile) misafire önce control.revoke{reconnect}, sonra peer.joined{tech}; ek kayıt yok", async () => {
@@ -477,7 +525,10 @@ describe("P7 §3.3 K5-d — oturum sonu", () => {
     await rooms.finish(fx.room, "tech", "TECH", fx.tech.ctx);
     expect(fx.g.peer.of("session.ended")).toHaveLength(1);
     await fx.room.control.chain;
-    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source])).toEqual([["GRANTED", "UI"], ["REVOKED", "SYSTEM"]]);
+    expect((await consents(fx.session.id)).map((r) => [r.decision, r.source])).toEqual([
+      ["GRANTED", "UI"],
+      ["REVOKED", "SYSTEM"],
+    ]);
     const rows = await audits(fx.session.id, CONTROL_AUDIT.REVOKED);
     expect(rows).toMatchObject([{ username: "system", newValue: { source: "SYSTEM", reason: "session_ended" } }]);
   });
@@ -505,7 +556,14 @@ describe("P7 §3.3 K5-d — oturum sonu", () => {
 });
 
 describe("P7 §3.3 K4 — monitor.denied", () => {
-  const MONITORS = { state: "sharing" as const, monitors: [{ id: 0, name: "A", w: 1920, h: 1080, primary: true }, { id: 1, name: "B", w: 1280, h: 1024, primary: false }], activeMonitor: 0 };
+  const MONITORS = {
+    state: "sharing" as const,
+    monitors: [
+      { id: 0, name: "A", w: 1920, h: 1080, primary: true },
+      { id: 1, name: "B", w: 1280, h: 1024, primary: false },
+    ],
+    activeMonitor: 0,
+  };
 
   it("AC-43 (K4): ret yalnız bekleyen kimlik için — temizlenir, teknisyene iletilir, audit monitor.denied, 30 sn bekleme", async () => {
     const clock = new FakeClock();
@@ -519,7 +577,9 @@ describe("P7 §3.3 K4 — monitor.denied", () => {
     await handleMonitorDenied(rooms, fx.room, fx.g.entry, 1);
     expect(fx.techPeer.of("monitor.denied")).toEqual([{ t: "monitor.denied", monitorId: 1 }]);
     expect(fx.room.control.monitorPending).toBeUndefined();
-    expect(await audits(fx.session.id, CONTROL_AUDIT.MONITOR_DENIED)).toMatchObject([{ username: "customer", newValue: { monitorId: "1" } }]);
+    expect(await audits(fx.session.id, CONTROL_AUDIT.MONITOR_DENIED)).toMatchObject([
+      { username: "customer", newValue: { monitorId: "1" } },
+    ]);
     expect(await consents(fx.session.id)).toHaveLength(0);
     await handleMonitorDenied(rooms, fx.room, fx.g.entry, 1); // tekrar → kayıt şişmez
     expect(await audits(fx.session.id, CONTROL_AUDIT.MONITOR_DENIED)).toHaveLength(1);
@@ -598,10 +658,20 @@ async function agentAdmitted(l: Live, t: TechSide, ip = "203.0.113.30"): Promise
 /** agentAdmitted + misafir hello (yeniden bağlanma belirteci için). */
 async function agentAdmittedHello(l: Live, t: TechSide, ip = "203.0.113.30") {
   const headers = { "x-forwarded-for": ip };
-  const r = await l.app.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers, payload: { token: t.token, clientKind: "AGENT" } });
+  const r = await l.app.inject({
+    method: "POST",
+    url: "/api/v1/public/sessions/resolve",
+    headers,
+    payload: { token: t.token, clientKind: "AGENT" },
+  });
   if (r.statusCode !== 200) throw new Error(`resolve ${r.statusCode} ${r.body}`);
   const { joinNonce, consentText } = r.json<{ joinNonce: string; consentText: { id: string } }>();
-  const j = await l.app.inject({ method: "POST", url: "/api/v1/public/sessions/join", headers, payload: { joinNonce, customerName: "Mehmet Müşteri", consentAccepted: true, consentTextId: consentText.id } });
+  const j = await l.app.inject({
+    method: "POST",
+    url: "/api/v1/public/sessions/join",
+    headers,
+    payload: { joinNonce, customerName: "Mehmet Müşteri", consentAccepted: true, consentTextId: consentText.id },
+  });
   if (j.statusCode !== 200) throw new Error(`join ${j.statusCode} ${j.body}`);
   const { wsTicket, admitCode } = j.json<{ wsTicket: string; admitCode: string }>();
   const g = await connect(`${l.base}/ws/guest`, ["rs.v1", `rs.ticket.${wsTicket}`]);
@@ -623,7 +693,10 @@ describe("P7 / S-P3-8 uçtan uca", () => {
     g.send({ t: "control.state", state: "GRANTED", source: "UI" });
     expect(await t.ws.waitFor("control.state")).toMatchObject({ state: "GRANTED", source: "UI" });
 
-    await testDb().userPermission.update({ where: { userId_permKey: { userId: t.tech.id, permKey: "remote_control.use" } }, data: { granted: false } });
+    await testDb().userPermission.update({
+      where: { userId_permKey: { userId: t.tech.id, permKey: "remote_control.use" } },
+      data: { granted: false },
+    });
     expect(await g.waitFor("control.revoke")).toEqual({ t: "control.revoke", reason: "permission" });
     expect(await g.waitFor("caps.update")).toEqual({ t: "caps.update", caps: ["file_transfer"] });
     expect(await t.ws.waitFor("control.state")).toMatchObject({ state: "VIEW", source: "SYSTEM" });
@@ -631,7 +704,12 @@ describe("P7 / S-P3-8 uçtan uca", () => {
     g.send({ t: "control.state", state: "VIEW", source: "SYSTEM" });
     t.ws.send({ t: "control.request" });
     expect(await t.ws.waitFor("error")).toMatchObject({ code: "FORBIDDEN" });
-    await expect.poll(async () => (await consents(t.sessionId)).map((r) => [r.decision, r.source])).toEqual([["GRANTED", "UI"], ["REVOKED", "SYSTEM"]]);
+    await expect
+      .poll(async () => (await consents(t.sessionId)).map((r) => [r.decision, r.source]))
+      .toEqual([
+        ["GRANTED", "UI"],
+        ["REVOKED", "SYSTEM"],
+      ]);
   });
 
   it("AC-115: pasifleştirilen teknisyenin tüm odaları (teknisyeni kopuk oda dahil) auth_revoked ile biter, 4401", async () => {
@@ -652,7 +730,10 @@ describe("P7 / S-P3-8 uçtan uca", () => {
     for (const ws of [a.ws, ga, gb]) expect((await ws.waitFor("session.ended", 3000)).reason).toBe("auth_revoked");
     expect((await a.ws.closed).code).toBe(4401);
     for (const id of [a.sessionId, b.sessionId]) {
-      expect(await testDb().supportSession.findUniqueOrThrow({ where: { id } })).toMatchObject({ status: "ENDED", endReason: "auth_revoked" });
+      expect(await testDb().supportSession.findUniqueOrThrow({ where: { id } })).toMatchObject({
+        status: "ENDED",
+        endReason: "auth_revoked",
+      });
     }
     expect(live.app.rooms.size).toBe(0);
   });
@@ -685,7 +766,12 @@ describe("P7 §3.3 uçtan uca (gerçek WS)", () => {
     t.ws.send({ t: "control.release" });
     expect(await g.waitFor("control.release")).toEqual({ t: "control.release" });
     expect(await t.ws.waitFor("control.state")).toEqual({ t: "control.state", state: "VIEW", source: "TECH" });
-    await expect.poll(async () => (await consents(t.sessionId)).map((r) => [r.decision, r.source])).toEqual([["GRANTED", "UI"], ["REVOKED", "TECH"]]);
+    await expect
+      .poll(async () => (await consents(t.sessionId)).map((r) => [r.decision, r.source]))
+      .toEqual([
+        ["GRANTED", "UI"],
+        ["REVOKED", "TECH"],
+      ]);
     // teknisyen sekmesi kapanınca misafire revoke{reconnect}
     t.ws.ws.close();
     expect(await g.waitFor("control.revoke")).toEqual({ t: "control.revoke", reason: "reconnect" });
@@ -696,7 +782,10 @@ describe("P7 §3.3 uçtan uca (gerçek WS)", () => {
     live = await startLive();
     const t = await techSession(live);
     const { g, hello } = await agentAdmittedHello(live, t);
-    const monitors = [{ id: 0, name: "A", w: 1920, h: 1080, primary: true }, { id: 1, name: "B", w: 1280, h: 1024, primary: false }];
+    const monitors = [
+      { id: 0, name: "A", w: 1920, h: 1080, primary: true },
+      { id: 1, name: "B", w: 1280, h: 1024, primary: false },
+    ];
     g.send({ t: "share.state", state: "sharing", monitors, activeMonitor: 0 });
     await t.ws.waitFor("share.state");
     t.ws.send({ t: "monitor.request", monitorId: 1 });
@@ -725,7 +814,9 @@ describe("P7 §3.3 uçtan uca (gerçek WS)", () => {
     expect(await t.ws.waitFor("control.state")).toEqual({ t: "control.state", state: "VIEW", source: "SYSTEM" });
     t.ws.send({ t: "control.request" });
     expect(await g.waitFor("control.request")).toEqual({ t: "control.request" });
-    await expect.poll(() => audits(t.sessionId, CONTROL_AUDIT.CANCELLED)).toMatchObject([{ username: "customer", newValue: { by: "agent", source: "SYSTEM" } }]);
+    await expect
+      .poll(() => audits(t.sessionId, CONTROL_AUDIT.CANCELLED))
+      .toMatchObject([{ username: "customer", newValue: { by: "agent", source: "SYSTEM" } }]);
     expect(await consents(t.sessionId)).toHaveLength(0);
     g.ws.close();
   });
@@ -735,7 +826,12 @@ describe("P7 §3.3 uçtan uca (gerçek WS)", () => {
     const t = await techSession(live);
     const g = await agentAdmitted(live, t);
     g.send({ t: "env.state", elevatedForeground: false, secureDesktop: false, selfElevated: true });
-    expect(await t.ws.waitFor("env.state")).toEqual({ t: "env.state", elevatedForeground: false, secureDesktop: false, selfElevated: true });
+    expect(await t.ws.waitFor("env.state")).toEqual({
+      t: "env.state",
+      elevatedForeground: false,
+      secureDesktop: false,
+      selfElevated: true,
+    });
     t.ws.send({ t: "control.request" });
     await g.waitFor("control.request");
     g.send({ t: "control.state", state: "GRANTED", source: "UI" });

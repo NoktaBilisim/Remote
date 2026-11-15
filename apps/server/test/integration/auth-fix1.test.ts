@@ -72,9 +72,16 @@ describe("giriş araması ve oturumlar", () => {
     const s = await loginAs(app, user);
     const bad = await app.inject({ method: "POST", url: "/api/v1/auth/logout", headers: { cookie: s.headers.cookie, origin: ORIGIN } });
     expect(bad.statusCode).toBe(403);
-    expect(bad.cookies.map((c) => [c.name, c.value])).toEqual([["__Host-rs_session", ""], ["__Host-rs_csrf", ""]]);
+    expect(bad.cookies.map((c) => [c.name, c.value])).toEqual([
+      ["__Host-rs_session", ""],
+      ["__Host-rs_csrf", ""],
+    ]);
     expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: s.headers.cookie } })).statusCode).toBe(200);
-    const ok = await app.inject({ method: "POST", url: "/api/v1/auth/logout", headers: { ...s.headers, "content-type": "application/json" } });
+    const ok = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/logout",
+      headers: { ...s.headers, "content-type": "application/json" },
+    });
     expect(ok.statusCode).toBe(204);
   });
 });

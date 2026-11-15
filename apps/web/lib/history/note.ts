@@ -26,4 +26,3 @@ export function validateNote(patch: UpdateSessionInput): Errors {
   }
   return e;
 }
-

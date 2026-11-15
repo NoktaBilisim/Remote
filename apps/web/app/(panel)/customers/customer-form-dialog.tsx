@@ -119,7 +119,17 @@ export function CustomerFormDialog({
         <form ref={formRef} onSubmit={submit} noValidate className="flex flex-col gap-4">
           {formError && <FormError error={formError} />}
           <fieldset disabled={busy} className="flex flex-col gap-4">
-            <TextField label={t("cu.f.name")} value={d.name} onChange={set("name")} error={errors.name} maxLength={100} autoComplete="organization" required data-autofocus data-testid="cf-name" />
+            <TextField
+              label={t("cu.f.name")}
+              value={d.name}
+              onChange={set("name")}
+              error={errors.name}
+              maxLength={100}
+              autoComplete="organization"
+              required
+              data-autofocus
+              data-testid="cf-name"
+            />
             <TextField
               label={t("cu.f.fileLabel")}
               value={d.fileLabel}
@@ -132,12 +142,41 @@ export function CustomerFormDialog({
               data-testid="cf-label"
             />
             <div className="grid gap-4 sm:grid-cols-2">
-              <TextField label={t("cu.f.contact")} value={d.contactName} onChange={set("contactName")} error={errors.contactName} maxLength={80} autoComplete="name" data-testid="cf-contact" />
-              <TextField label={t("cu.f.phone")} type="tel" value={d.phone} onChange={set("phone")} error={errors.phone} maxLength={40} autoComplete="tel" hint={t("cu.f.phoneHint")} data-testid="cf-phone" />
+              <TextField
+                label={t("cu.f.contact")}
+                value={d.contactName}
+                onChange={set("contactName")}
+                error={errors.contactName}
+                maxLength={80}
+                autoComplete="name"
+                data-testid="cf-contact"
+              />
+              <TextField
+                label={t("cu.f.phone")}
+                type="tel"
+                value={d.phone}
+                onChange={set("phone")}
+                error={errors.phone}
+                maxLength={40}
+                autoComplete="tel"
+                hint={t("cu.f.phoneHint")}
+                data-testid="cf-phone"
+              />
             </div>
-            <TextField label={t("cu.f.email")} type="email" value={d.email} onChange={set("email")} error={errors.email} maxLength={254} autoComplete="email" data-testid="cf-email" />
+            <TextField
+              label={t("cu.f.email")}
+              type="email"
+              value={d.email}
+              onChange={set("email")}
+              error={errors.email}
+              maxLength={254}
+              autoComplete="email"
+              data-testid="cf-email"
+            />
             <div className="flex flex-col gap-1.5">
-              <label htmlFor={noteId} className="text-sm font-medium text-fg">{t("cu.f.note")}</label>
+              <label htmlFor={noteId} className="text-sm font-medium text-fg">
+                {t("cu.f.note")}
+              </label>
               <textarea
                 id={noteId}
                 rows={4}
@@ -149,8 +188,18 @@ export function CustomerFormDialog({
                 className={`w-full resize-y rounded-md border bg-surface px-3 py-2 text-base text-fg shadow-sm focus-visible:border-ring disabled:opacity-60 sm:text-sm ${errors.note || noteOver ? "border-danger" : "border-border"}`}
               />
               <div className="flex flex-wrap justify-between gap-2 text-xs">
-                {errors.note ? <p id={`${noteId}-e`} className="font-medium text-danger">{errors.note}</p> : <span className="text-fg-muted">{t("cu.f.noteHint")}</span>}
-                <p id={`${noteId}-c`} className={`tabular-nums ${noteOver ? "font-medium text-danger" : "text-fg-muted"}`} aria-live={noteLen > CUSTOMER_NOTE_MAX - 100 ? "polite" : "off"}>
+                {errors.note ? (
+                  <p id={`${noteId}-e`} className="font-medium text-danger">
+                    {errors.note}
+                  </p>
+                ) : (
+                  <span className="text-fg-muted">{t("cu.f.noteHint")}</span>
+                )}
+                <p
+                  id={`${noteId}-c`}
+                  className={`tabular-nums ${noteOver ? "font-medium text-danger" : "text-fg-muted"}`}
+                  aria-live={noteLen > CUSTOMER_NOTE_MAX - 100 ? "polite" : "off"}
+                >
                   {t("h.n.count", { n: formatNumber(noteLen), max: formatNumber(CUSTOMER_NOTE_MAX) })}
                 </p>
               </div>
@@ -158,7 +207,9 @@ export function CustomerFormDialog({
             {customer && <p className="text-xs text-fg-muted">{t("cu.f.clearHint")}</p>}
           </fieldset>
           <div className="flex flex-col-reverse gap-2 border-t border-border pt-3 sm:flex-row sm:justify-end">
-            <Button type="button" variant="secondary" onClick={requestClose} disabled={busy}>{t("rq.rj.cancel")}</Button>
+            <Button type="button" variant="secondary" onClick={requestClose} disabled={busy}>
+              {t("rq.rj.cancel")}
+            </Button>
             <Button type="submit" loading={busy} data-testid="cf-submit">
               {!busy && <Save aria-hidden className="size-4" />}
               {customer ? t("cu.f.save") : t("cu.f.create")}
@@ -176,8 +227,18 @@ export function CustomerFormDialog({
         description={t("cu.f.leaveBody")}
         footer={
           <>
-            <Button variant="secondary" data-autofocus onClick={() => setConfirmClose(false)} className="sm:ml-auto">{t("cu.f.stay")}</Button>
-            <Button variant="danger-ghost" onClick={() => { setConfirmClose(false); onClose(); }}>{t("h.n.discard")}</Button>
+            <Button variant="secondary" data-autofocus onClick={() => setConfirmClose(false)} className="sm:ml-auto">
+              {t("cu.f.stay")}
+            </Button>
+            <Button
+              variant="danger-ghost"
+              onClick={() => {
+                setConfirmClose(false);
+                onClose();
+              }}
+            >
+              {t("h.n.discard")}
+            </Button>
           </>
         }
       />

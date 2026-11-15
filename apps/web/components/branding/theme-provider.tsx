@@ -68,7 +68,13 @@ export function useTheme(): Ctx {
 export function ThemePicker({ compact = false, testId = "theme-picker" }: { compact?: boolean; testId?: string }) {
   const { theme, setTheme } = useTheme();
   return (
-    <div role="group" aria-label={t("theme.label")} data-testid={testId} data-value={theme} className={`grid grid-cols-3 gap-1 rounded-md border border-border bg-surface p-1 ${compact ? "" : "max-w-sm shadow-sm"}`}>
+    <div
+      role="group"
+      aria-label={t("theme.label")}
+      data-testid={testId}
+      data-value={theme}
+      className={`grid grid-cols-3 gap-1 rounded-md border border-border bg-surface p-1 ${compact ? "" : "max-w-sm shadow-sm"}`}
+    >
       {themeOptions().map(({ value, label, Icon }) => {
         const active = value === theme;
         return (

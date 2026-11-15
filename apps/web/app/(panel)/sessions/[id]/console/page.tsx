@@ -43,7 +43,9 @@ export default async function ConsolePage({ params }: { params: Promise<{ id: st
     <div className="theme-dark flex flex-col gap-4">
       {crumbs}
       {res.kind === "error" ? (
-        <div className="max-w-xl"><LoadError /></div>
+        <div className="max-w-xl">
+          <LoadError />
+        </div>
       ) : blocked ? (
         <div className="flex max-w-xl flex-col gap-3">
           <h1 className="text-2xl font-semibold text-fg">{t("c.title")}</h1>

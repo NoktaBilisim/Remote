@@ -24,7 +24,11 @@ export default async function SystemSettingsLayout({ children }: { children: Rea
     return (
       <>
         {header}
-        <div className="max-w-xl"><Alert tone="warning" testId="system-forbidden">{t("sys.forbidden")}</Alert></div>
+        <div className="max-w-xl">
+          <Alert tone="warning" testId="system-forbidden">
+            {t("sys.forbidden")}
+          </Alert>
+        </div>
       </>
     );
   }

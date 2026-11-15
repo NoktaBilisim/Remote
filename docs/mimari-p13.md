@@ -1,30 +1,33 @@
 # Mimari — P13a / P13b (operasyon, saklama, yedek, dokümantasyon)
+
 Ana belge: `docs/mimari.md` (§3.4, §8.3, §10.2, §10.3, §10.5, §11, §12). Tarih: 2026-11-14. Kullanıcı kararı (2026-11-13):
 P13 ikiye bölündü. **P13a** şimdi ve yalnız staging'de yapılır. **P13b** prod açılışıdır. **2026-11-14:** K1 (`remote.noktabilisim.net`) ve K3 (aynı sunucu, ayrı IP yok) kapandı → tasarım **§7** (ADR-0018, ADR-0019, ADR-0020).
 
 ## 1. Kapsam
-| Paket | AC | Ortam |
-|---|---|---|
-| P13a | 88 (doğrulama, staging/temiz kurulum), 91, 92 (rev.), 93, **197–200** (yeni), veri saklama NFR | staging (185.126.217.99:4450 / remote.noktabilisim.net) |
-| P13b | 23 (5349'a revize, ADR-0018), 88 + 91/200 prod tekrarı, §6'daki prod maddeleri — **§7** | prod (`remote.noktabilisim.net`, staging'in yerinde terfisi) |
+
+| Paket | AC                                                                                             | Ortam                                                        |
+| ----- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| P13a  | 88 (doğrulama, staging/temiz kurulum), 91, 92 (rev.), 93, **197–200** (yeni), veri saklama NFR | staging (185.126.217.99:4450 / remote.noktabilisim.net)      |
+| P13b  | 23 (5349'a revize, ADR-0018), 88 + 91/200 prod tekrarı, §6'daki prod maddeleri — **§7**        | prod (`remote.noktabilisim.net`, staging'in yerinde terfisi) |
 
 ## 2. Saklama (retention) — P13a kararları (AC-197..199)
+
 Kaynaklar: gereksinimler NFR "Veri saklama", AC-159, AC-195, mimari §3.4, mimari-e9 §3.6, mimari-e10 §3.8. Süreler gereksinimlerde
 zaten tanımlı. Yeni süre uydurulmadı; yalnız "hard delete" kararı değişti (aşağıda K-P13-1).
 
-| Veri | Süre (başlangıç) | P13a işlemi | Durum |
-|---|---|---|---|
-| `support_sessions` (bitmiş: ENDED/EXPIRED/CANCELLED) | tenant `retention_days` (90–730, vars. 365), `created_at` | `customer_name, customer_email, note, guest_net_key, guest_ip_key → NULL`, `anonymized_at = now` | **yeni** |
-| `session_consents` (o oturumların) | aynı | `ip, user_agent → NULL` (karar, seviye, kaynak, metin sürümü/özeti **kalır**: KVKK onay kanıtı) | **yeni** |
-| `session_files` (o oturumların) | aynı | **satır silinir** (anonimleştirme anında) | **yeni**. P5 CHECK çelişkisinin çözümü, K-P13-2 |
-| `support_requests` | aynı | anonimleştirme (P8b-1'de var, AC-159) | değişmez |
-| `customers` (pasif) | `passive_at` + `retention_days` | anonimleştirme (P8c-1'de var, AC-195) | değişmez |
-| `device_bindings` | `last_used_at` + `retention_days` | `EXPIRED` + `key_hash NULL` (P8c-1'de var) | değişmez |
-| `audit_logs` | 730 gün (sabit, tenant değiştiremez) | hard delete (tetikleyici 730 günden yeniyi reddeder) | **yeni** |
-| `auth_sessions` | `max(expires_at, revoked_at)` + 7 gün | hard delete | **yeni** |
-| `password_reset_tokens` | `expires_at` + 7 gün | hard delete | **yeni** |
-| Yedek dosyaları | 14 gün (AC-91) | `backup.sh` rotasyonu | **yeni**. Anonimleştirilen veri yedeklerde en çok 14 gün daha kalır (runbook notu, B-P12-3) |
-| coturn logları | runbook §9.8.1 | değişmez | — |
+| Veri                                                 | Süre (başlangıç)                                          | P13a işlemi                                                                                      | Durum                                                                                       |
+| ---------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `support_sessions` (bitmiş: ENDED/EXPIRED/CANCELLED) | tenant `retention_days` (90–730, vars. 365), `created_at` | `customer_name, customer_email, note, guest_net_key, guest_ip_key → NULL`, `anonymized_at = now` | **yeni**                                                                                    |
+| `session_consents` (o oturumların)                   | aynı                                                      | `ip, user_agent → NULL` (karar, seviye, kaynak, metin sürümü/özeti **kalır**: KVKK onay kanıtı)  | **yeni**                                                                                    |
+| `session_files` (o oturumların)                      | aynı                                                      | **satır silinir** (anonimleştirme anında)                                                        | **yeni**. P5 CHECK çelişkisinin çözümü, K-P13-2                                             |
+| `support_requests`                                   | aynı                                                      | anonimleştirme (P8b-1'de var, AC-159)                                                            | değişmez                                                                                    |
+| `customers` (pasif)                                  | `passive_at` + `retention_days`                           | anonimleştirme (P8c-1'de var, AC-195)                                                            | değişmez                                                                                    |
+| `device_bindings`                                    | `last_used_at` + `retention_days`                         | `EXPIRED` + `key_hash NULL` (P8c-1'de var)                                                       | değişmez                                                                                    |
+| `audit_logs`                                         | 730 gün (sabit, tenant değiştiremez)                      | hard delete (tetikleyici 730 günden yeniyi reddeder)                                             | **yeni**                                                                                    |
+| `auth_sessions`                                      | `max(expires_at, revoked_at)` + 7 gün                     | hard delete                                                                                      | **yeni**                                                                                    |
+| `password_reset_tokens`                              | `expires_at` + 7 gün                                      | hard delete                                                                                      | **yeni**                                                                                    |
+| Yedek dosyaları                                      | 14 gün (AC-91)                                            | `backup.sh` rotasyonu                                                                            | **yeni**. Anonimleştirilen veri yedeklerde en çok 14 gün daha kalır (runbook notu, B-P12-3) |
+| coturn logları                                       | runbook §9.8.1                                            | değişmez                                                                                         | —                                                                                           |
 
 **K-P13-1 (hard delete ertelendi):** mimari §3.4'teki "anonimleştirmeden 30 gün sonra hard delete" (oturum, onay, talep, kayıt) P13a'dan
 **çıkarıldı**. Gerekçe: `device_bindings.first/last_session_id → support_sessions`, `support_requests.binding_id → device_bindings`,
@@ -63,9 +66,10 @@ döküm `mysql` ile yüklenemez. Ayrıntı ve kanıt: `docs/db-notlari.md` P13a.
 
 **İş tanımı (`apps/server/src/jobs/retention.ts`):** Mevcut 03:30 Europe/Istanbul zamanlayıcısı (`requests/jobs.ts dailyRetention`)
 **genişletilir**, ikinci bir zamanlayıcı kurulmaz. Sıra:
+
 1. Talep, müşteri ve kayıt adımları (mevcut).
 2. Oturumlar: tenant döngüsü, 1000'lik partiler, parti başına tek TX. TX içinde aday id'ler (`status IN (ENDED,EXPIRED,CANCELLED)
-   AND anonymized_at IS NULL AND created_at < cutoff`) seçilir, ardından `DELETE session_files` → `UPDATE session_consents` →
+AND anonymized_at IS NULL AND created_at < cutoff`) seçilir, ardından `DELETE session_files` → `UPDATE session_consents` →
    `UPDATE support_sessions … WHERE id IN (…) AND anonymized_at IS NULL`.
 3. Global adımlar: `audit_logs` (`created_at < now − 730 g`, 5000'lik partiler), `auth_sessions`, `password_reset_tokens`.
 
@@ -73,6 +77,7 @@ Kurallar: tenant'ta hata olursa loglanır, sonraki tenant'a geçilir (fail-soft)
 çalıştırma 0 satır değiştirir. Kaçırılan gün telafi edilmez; bir sonraki tur aynı kesme noktasıyla işi tamamlar.
 
 **Gözlemlenebilirlik (AC-199):**
+
 - Değişiklik olan her tenant için tek audit kaydı yazılır: `action=retention.run`, `entity=retention`, `user_id NULL`,
   `username=system`, `new_value={sessions, consents, files, requests, customers, bindings}` (yalnız sayılar).
 - Global adımlar `tenant_id NULL` olan bir `retention.run` kaydıyla yazılır: `{audit, authSessions, resetTokens}`.
@@ -83,19 +88,21 @@ Kurallar: tenant'ta hata olursa loglanır, sonraki tenant'a geçilir (fail-soft)
 - Alarm (runbook): `time() − last_success > 26 sa` ve süreç çalışma süresi > 26 sa; ya da `increase(failures[1d]) > 0`.
 
 ## 3. API / sözleşme değişiklikleri (P13a)
-| Yer | Değişiklik | Hata / yetki |
-|---|---|---|
-| `SessionListItem`, `SessionHistoryDetail` (mimari-api P8) | `+ anonymized: boolean` (`anonymized_at IS NOT NULL`). Anonimse `customerName`, `customerEmail`, `note` null; `files` boş; zaman çizelgesinde ad yok (K-P13-3) | kırılmaz ek alan |
-| PATCH `/sessions/:id` | Anonimleştirilmiş oturumda **409 `SESSION_ANONYMIZED`** (kişisel veri yeniden yazılamaz). `contracts/errors.ts` += kod, TR mesaj "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez." | session_history.edit |
-| CSV export | Şema değişmez; anonim satırda müşteri hücreleri boştur | — |
-| PUT/DELETE `/admin/settings/{mysql,turn,whatsapp}` (B-P12b-5) | Kullanıcı başına **10/dk** (`lib/rate.ts`), aşımda 429 `RATE_LIMITED` + `Retry-After`. Değer değişmediyse 200 döner, audit yazılmaz | SUPER_ADMIN |
-| `/admin/settings/whatsapp` (B-P12b-4, sayfa testi) | Adres **WHATWG kanonik** biçimde saklanır (`new URL()`; şema/host küçük harf, ondalık/onaltılı IPv4 noktalı biçime, IDN punycode'a çevrilir; kök yolda sondaki `/` atılır). `\p{Cc}\p{Cf}\p{Zl}\p{Zp}` reddedilir. Büyük harfli şema reddedilmez, kanonikleşir. Yanıt `source: "panel" \| "env" \| "default"` döner (küçük harf, mevcut sözleşmeyle aynı: `contracts/src/api/system-settings.ts`; env açıkça verilmemişse `default`, rozet "Varsayılan") | 400 `VALIDATION fields.url` |
-| K13 sınıflaması (T33) | `169.254.0.0/16` ve `fe80::/10` "özel ağ" **sayılmaz**: canlı ortamda `http://` + link-local adres girilirse kanal kapalı kalır ve uyarı gösterilir. `[::1]` ve `127.0.0.0/8` loopback olarak özel sayılır (bugünkü davranış). SMTP/MySQL netguard'ı değişmez (link-local orada zaten yasak) | — |
-| Audit etiketleri | `retention.run` → "Saklama süresi işi". Dış gönderim `reason` kodlarının Türkçe etiketleri (`unreachable`, `timeout`, `http_error`, `invalid_response`, `other` …) tek tabloda: `contracts/src/labels.ts` | — |
+
+| Yer                                                           | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                               | Hata / yetki                |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `SessionListItem`, `SessionHistoryDetail` (mimari-api P8)     | `+ anonymized: boolean` (`anonymized_at IS NOT NULL`). Anonimse `customerName`, `customerEmail`, `note` null; `files` boş; zaman çizelgesinde ad yok (K-P13-3)                                                                                                                                                                                                                                                                                           | kırılmaz ek alan            |
+| PATCH `/sessions/:id`                                         | Anonimleştirilmiş oturumda **409 `SESSION_ANONYMIZED`** (kişisel veri yeniden yazılamaz). `contracts/errors.ts` += kod, TR mesaj "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez."                                                                                                                                                                                                                                                 | session_history.edit        |
+| CSV export                                                    | Şema değişmez; anonim satırda müşteri hücreleri boştur                                                                                                                                                                                                                                                                                                                                                                                                   | —                           |
+| PUT/DELETE `/admin/settings/{mysql,turn,whatsapp}` (B-P12b-5) | Kullanıcı başına **10/dk** (`lib/rate.ts`), aşımda 429 `RATE_LIMITED` + `Retry-After`. Değer değişmediyse 200 döner, audit yazılmaz                                                                                                                                                                                                                                                                                                                      | SUPER_ADMIN                 |
+| `/admin/settings/whatsapp` (B-P12b-4, sayfa testi)            | Adres **WHATWG kanonik** biçimde saklanır (`new URL()`; şema/host küçük harf, ondalık/onaltılı IPv4 noktalı biçime, IDN punycode'a çevrilir; kök yolda sondaki `/` atılır). `\p{Cc}\p{Cf}\p{Zl}\p{Zp}` reddedilir. Büyük harfli şema reddedilmez, kanonikleşir. Yanıt `source: "panel" \| "env" \| "default"` döner (küçük harf, mevcut sözleşmeyle aynı: `contracts/src/api/system-settings.ts`; env açıkça verilmemişse `default`, rozet "Varsayılan") | 400 `VALIDATION fields.url` |
+| K13 sınıflaması (T33)                                         | `169.254.0.0/16` ve `fe80::/10` "özel ağ" **sayılmaz**: canlı ortamda `http://` + link-local adres girilirse kanal kapalı kalır ve uyarı gösterilir. `[::1]` ve `127.0.0.0/8` loopback olarak özel sayılır (bugünkü davranış). SMTP/MySQL netguard'ı değişmez (link-local orada zaten yasak)                                                                                                                                                             | —                           |
+| Audit etiketleri                                              | `retention.run` → "Saklama süresi işi". Dış gönderim `reason` kodlarının Türkçe etiketleri (`unreachable`, `timeout`, `http_error`, `invalid_response`, `other` …) tek tabloda: `contracts/src/labels.ts`                                                                                                                                                                                                                                                | —                           |
 
 **Uygulama notu (backend-dev, 2026-11-14):** `source` mevcut sözleşmeye uygun küçük harfle (`"panel" | "env" | "default"`) uygulandı. CSV'de sütun kümesi değişmedi; anonim satırda "Müşteri" hücresine `Anonimleştirildi` yazılır (AC-197), "Not" boş kalır. Hata olan tenant için de `retention.run` yazılır (`result: fail`). Gerekçeler `docs/implementation.md` "P13a — Backend" bölümünde.
 
 ## 4. Yedek ve geri yükleme (AC-91, AC-200)
+
 - **Araç:** host'ta systemd timer (`remote-backup.timer`, 02:00 Europe/Istanbul) → `deploy/backup/backup.sh`. Uygulama
   konteynerine eklenen bir şey yoktur.
 - **Kullanıcı:** `'backup'@'localhost'` (yalnız mysql konteyneri içinden, soketle; TCP ile 1045). Yetkiler yalnız
@@ -143,6 +150,7 @@ Kurallar: tenant'ta hata olursa loglanır, sonraki tenant'a geçilir (fail-soft)
   **P13b**'dedir.
 
 ## 5. AC-88 doğrulaması (P13a)
+
 - **Yorum (K26, §12):** ADR-0007 gereği coturn ayrı compose'dadır (`deploy/turn`). AC-88'in "coturn" kısmı, aynı temiz makinede
   `deploy/turn` içinde `docker compose up -d` ile karşılanır. Prod'da coturn ayrı VM'dedir (P13b).
 - **Ölçüm:** imaj önbelleği ve volume'u olmayan temiz bir Ubuntu 24.04 VM (yoksa `docker:dind` kabı) kullanılır.
@@ -151,34 +159,36 @@ Kurallar: tenant'ta hata olursa loglanır, sonraki tenant'a geçilir (fail-soft)
   denenir. Sonuç (süre, sürüm, komut çıktısı) `docs/runbook.md` §2 "Temiz kurulum kaydı"na yazılır.
 
 ## 6. "Sonra" maddelerinin sınıflandırılması (`docs/gereksinimler-sonra-acik.md`'de Ne zaman = P13 / "en geç P13" / "P13 öncesi" / "P12/P13")
-| Madde (kaynak tablo) | Karar | Gerekçe |
-|---|---|---|
-| B-P12b-4 WhatsApp URL kanonik + `\p{Cf}` (P12b) | **P13a** (backend + dba) | Küçük; dba P13a migration'ı zaten açıyor |
-| B-P12b-5 kalan: sistem ayarı PUT/DELETE hız sınırı (P12b) | **P13a** (backend) | `rate.ts` var; birkaç satır |
-| T33: link-local "genel" (P12b) | **P13a** (backend) | Tek sınıflama değişikliği |
-| T33: bildirim hedefi değişiminde step-up 2FA | **Sonra** | Yeni yeniden doğrulama akışı (uç + UI + AC) gerekir; tek kullanıcı Super Admin ve zaten 2FA'lı. Genişleme noktası `auth/mfa.ts` `requireFreshMfa()` |
-| T-P12b: audit `reason` Türkçe etiketleri (P12b) | **P13a** (frontend) | Etiket tablosu |
-| Sayfa testi: büyük harfli şema, kaynak rozeti, IDN/`[::1]` (P12b) | **P13a** (backend + frontend) | Kanonikleştirme ile birlikte çözülür (§3) |
-| Test yarışı `bindings-p8c` ↔ `settings-p11` (P12b) | **P13a** (backend) | "Ayrı proje, en sona" kalıbı; CI kararlılığı |
-| B-P12-3: silinen kullanıcı/firma dosyaları (P12) | **Kısmen P13a**: yalnız runbook notu (yedekten düşme süresi 14 gün, devops). **Sonra**: dosya silme + yetim tarama | Kalıcı kullanıcı/firma silme yok (yalnız pasife alma), yani tetikleyici olay yok. Kalıcı silme kapsamına alındığında `uploads/` temizliği o akışa bağlanır |
-| I-P11-1 audit'in harici append-only kopyası (P11) | **P13b** | Harici hedef (WORM/log toplayıcı/site dışı) prod altyapı kararına bağlı |
-| I-P11-3 `created_at` zorlama (P11) | **P13a** (dba) | DELETE yetkisiyle aynı migration'da olmak zorunda (K-P13-4) |
-| govulncheck çağrılmayan kayıtlar + x/net v0.62 (P6/P7, "en geç P13") | **P13a** (backend-dev Go) | Yalnız `go get` + `go test` + govulncheck; istemci sürümü yayımlanmaz, bir sonraki sürüm taşır |
-| TEST-NAT-1 genel CA'lı TURN-TLS sertifikası | **P13b** | Alan adı (K1) gerekir |
-| Donanım MFT yedeği ("en geç P13") | **Sonra** (Windows elle test bulgusuna bağlı) | Sahada hata gözlenmedi; Go + MF kod yüzeyi büyük; istemci yayını + attestation gerekir |
-| Koyu tema (Windows istemci) | **Sonra** (bir sonraki istemci sürümü) | Win32 ortak denetimlerinde resmi koyu tema API'si yok; kod yüzeyi büyük, önemi düşük; istemci yayını gerekir |
-| S-P5-T2-4 `reporter` kolonu (risk kabulü, "P12/P13") | **Sonra** | Risk kabulü geçerli (etki yalnız meta kaydı); protokol + dba + backend değişikliği gerekir |
-| S-P5-T2-1 kalanı: kayıt diyaloğu öncesi uyarı metni ("P13 öncesi") | **P13a** (frontend); gerçek tarayıcı doğrulaması test-operatoru | Tek metin |
-| QA-P4-10: AC-23 443 doğrulaması | **P13b** | 443 ayrı IP (K3) |
-| S-P3-3 prod IPv6 | **P13b** | Prod ağı |
-| S-P13a-2 yedek bütünlüğü (manifest imzası, `--system-command=OFF`, migrator ile yükleme) | **P13b ön koşulu** (site dışı yedekten önce) | Bugün yedek dizinine yazmak root gerektirir; risk site dışı hedefle doğar |
-| (Prod öncesi) Super Admin şifre kurtarma CLI (P10) | **P13b** | "Prod açılışından önce" |
-| (Prod öncesi) staging'de denenmeyen SMTP/oturum akışları (P10) | **P13b** (test-operatoru) | Prod açılış kontrol listesi |
-| K13 WhatsApp prod ön koşulu (mimari-e9 §12) | **P13b** | Prod listesi |
-| Hard delete (anonim oturum/talep/kayıt) | **Sonra** (yeni, K-P13-1) | FK döngüsü; KVKK anonimleştirmeyle karşılanıyor |
-| Çok süreç WhatsApp yayılımı | Değişmez ("Ölçekleme kararıyla") | — |
+
+| Madde (kaynak tablo)                                                                     | Karar                                                                                                              | Gerekçe                                                                                                                                                    |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B-P12b-4 WhatsApp URL kanonik + `\p{Cf}` (P12b)                                          | **P13a** (backend + dba)                                                                                           | Küçük; dba P13a migration'ı zaten açıyor                                                                                                                   |
+| B-P12b-5 kalan: sistem ayarı PUT/DELETE hız sınırı (P12b)                                | **P13a** (backend)                                                                                                 | `rate.ts` var; birkaç satır                                                                                                                                |
+| T33: link-local "genel" (P12b)                                                           | **P13a** (backend)                                                                                                 | Tek sınıflama değişikliği                                                                                                                                  |
+| T33: bildirim hedefi değişiminde step-up 2FA                                             | **Sonra**                                                                                                          | Yeni yeniden doğrulama akışı (uç + UI + AC) gerekir; tek kullanıcı Super Admin ve zaten 2FA'lı. Genişleme noktası `auth/mfa.ts` `requireFreshMfa()`        |
+| T-P12b: audit `reason` Türkçe etiketleri (P12b)                                          | **P13a** (frontend)                                                                                                | Etiket tablosu                                                                                                                                             |
+| Sayfa testi: büyük harfli şema, kaynak rozeti, IDN/`[::1]` (P12b)                        | **P13a** (backend + frontend)                                                                                      | Kanonikleştirme ile birlikte çözülür (§3)                                                                                                                  |
+| Test yarışı `bindings-p8c` ↔ `settings-p11` (P12b)                                       | **P13a** (backend)                                                                                                 | "Ayrı proje, en sona" kalıbı; CI kararlılığı                                                                                                               |
+| B-P12-3: silinen kullanıcı/firma dosyaları (P12)                                         | **Kısmen P13a**: yalnız runbook notu (yedekten düşme süresi 14 gün, devops). **Sonra**: dosya silme + yetim tarama | Kalıcı kullanıcı/firma silme yok (yalnız pasife alma), yani tetikleyici olay yok. Kalıcı silme kapsamına alındığında `uploads/` temizliği o akışa bağlanır |
+| I-P11-1 audit'in harici append-only kopyası (P11)                                        | **P13b**                                                                                                           | Harici hedef (WORM/log toplayıcı/site dışı) prod altyapı kararına bağlı                                                                                    |
+| I-P11-3 `created_at` zorlama (P11)                                                       | **P13a** (dba)                                                                                                     | DELETE yetkisiyle aynı migration'da olmak zorunda (K-P13-4)                                                                                                |
+| govulncheck çağrılmayan kayıtlar + x/net v0.62 (P6/P7, "en geç P13")                     | **P13a** (backend-dev Go)                                                                                          | Yalnız `go get` + `go test` + govulncheck; istemci sürümü yayımlanmaz, bir sonraki sürüm taşır                                                             |
+| TEST-NAT-1 genel CA'lı TURN-TLS sertifikası                                              | **P13b**                                                                                                           | Alan adı (K1) gerekir                                                                                                                                      |
+| Donanım MFT yedeği ("en geç P13")                                                        | **Sonra** (Windows elle test bulgusuna bağlı)                                                                      | Sahada hata gözlenmedi; Go + MF kod yüzeyi büyük; istemci yayını + attestation gerekir                                                                     |
+| Koyu tema (Windows istemci)                                                              | **Sonra** (bir sonraki istemci sürümü)                                                                             | Win32 ortak denetimlerinde resmi koyu tema API'si yok; kod yüzeyi büyük, önemi düşük; istemci yayını gerekir                                               |
+| S-P5-T2-4 `reporter` kolonu (risk kabulü, "P12/P13")                                     | **Sonra**                                                                                                          | Risk kabulü geçerli (etki yalnız meta kaydı); protokol + dba + backend değişikliği gerekir                                                                 |
+| S-P5-T2-1 kalanı: kayıt diyaloğu öncesi uyarı metni ("P13 öncesi")                       | **P13a** (frontend); gerçek tarayıcı doğrulaması test-operatoru                                                    | Tek metin                                                                                                                                                  |
+| QA-P4-10: AC-23 443 doğrulaması                                                          | **P13b**                                                                                                           | 443 ayrı IP (K3)                                                                                                                                           |
+| S-P3-3 prod IPv6                                                                         | **P13b**                                                                                                           | Prod ağı                                                                                                                                                   |
+| S-P13a-2 yedek bütünlüğü (manifest imzası, `--system-command=OFF`, migrator ile yükleme) | **P13b ön koşulu** (site dışı yedekten önce)                                                                       | Bugün yedek dizinine yazmak root gerektirir; risk site dışı hedefle doğar                                                                                  |
+| (Prod öncesi) Super Admin şifre kurtarma CLI (P10)                                       | **P13b**                                                                                                           | "Prod açılışından önce"                                                                                                                                    |
+| (Prod öncesi) staging'de denenmeyen SMTP/oturum akışları (P10)                           | **P13b** (test-operatoru)                                                                                          | Prod açılış kontrol listesi                                                                                                                                |
+| K13 WhatsApp prod ön koşulu (mimari-e9 §12)                                              | **P13b**                                                                                                           | Prod listesi                                                                                                                                               |
+| Hard delete (anonim oturum/talep/kayıt)                                                  | **Sonra** (yeni, K-P13-1)                                                                                          | FK döngüsü; KVKK anonimleştirmeyle karşılanıyor                                                                                                            |
+| Çok süreç WhatsApp yayılımı                                                              | Değişmez ("Ölçekleme kararıyla")                                                                                   | —                                                                                                                                                          |
 
 **P13b kapsamı (özet; tarihsel — bağlayıcı tasarım §7, 2026-11-14):**
+
 - **ön koşul (güvenlik S-P13a-2), site dışı yedekten önce:** manifest imzası (`ssh-keygen -Y sign` / minisign; doğrulama anahtarı yönetici tarafında, `restore.sh` imzasız yedeği çözmez), yükleme `mysql --system-command=OFF` ile ve root yerine `migrator` ile, yükleme öncesi/sonrası `mysql.user`/`ROUTINES`/`EVENTS` karşılaştırması (devops + dba)
 - prod compose ve alan adı, Let's Encrypt, HSTS `includeSubDomains`
 - TURN ayrı IP/443 (ADR-0007), genel CA'lı TURN-TLS, AC-23 443 ölçümü
@@ -189,7 +199,9 @@ Kurallar: tenant'ta hata olursa loglanır, sonraki tenant'a geçilir (fail-soft)
 - `PUBLIC_BASE_URL`/`ALLOWED_ORIGINS` prod değerleri ve istemci ldflags sunucu adresi (yeni istemci sürümü)
 
 ## 7. P13b tasarımı — prod açılışı (2026-11-14)
+
 Bu bölüm bağlayıcıdır. Kullanıcı kararları (2026-11-14):
+
 - **K1:** prod adresi `https://remote.noktabilisim.net`.
 - **K3:** aynı sunucu (185.126.217.99, VM 192.168.25.10, hostname `develop`); ayrı IP yok.
 - **Site dışı yedek hedefi:** belli değil. Bu pakette yalnız hedeften bağımsız altyapı kurulur.
@@ -198,23 +210,25 @@ ADR'ler: ADR-0018 (TURN 5349, risk kabulü), ADR-0019 (yerinde terfi), ADR-0020 
 Yukarıdaki "P13b kapsamı (özet)" listesinin yerine bu bölüm geçer.
 
 ### 7.1 Kapsam
-| Kalem | Kaynak | Karar |
-|---|---|---|
-| Prod yerleşimi, IP:4450'nin kapanması, sırların yenilenmesi | K1, ADR-0015 | §7.2, ADR-0019 |
-| TURN prod (5349, 443 yok), genel CA sertifikası, relay kapasitesi | K3, TEST-NAT-1, QA-P4-10 | §7.4, ADR-0018 |
-| AC-23 | QA-P4-10 | ölçüt 5349'a revize edilir (gereksinim talebi, §7.15) |
-| HSTS `includeSubDomains` | G-19 | §7.5: eklenir |
-| S-P13a-2 kalanı: imza, migrator, CHECKSUM; `--target production` (S-P13a-6) | güvenlik raporu P13a | §7.6, ADR-0020 |
-| Site dışı kanca + I-P11-1 | P11, P13a | §7.6: kanca + audit süreklilik denetimi; WORM hedef Sonra |
-| `reset-superadmin` CLI | P10 Sonra | §7.7 |
-| Prod izleme (alarm kurallarının gerçekten çalışması) | runbook §18.3 "prod izleme P13b" | §7.8 `remote-watch` |
-| Env / config prod değerleri | — | §7.9 |
-| Windows istemci prod sürümü, repo public, attestation | P6 §11.6, sonra-acik "Repo görünürlüğü" | §7.10 |
-| K13 WhatsApp, IPv6 (S-P3-3, S-P2-5), S-P13a-8, anonim MySQL hesabı | mimari-e9 §12, P3, P13a | §7.11 |
-| Prod açılış sırası, AC-88 ve AC-91 prod tekrarı | AC-88, AC-91, AC-200 | §7.12 |
-| İmzalı prod açılış kontrol listesi (P10 elle testleri, Windows 0.10.2 elle testleri dahil) | P9, P10 Sonra | §7.13 |
+
+| Kalem                                                                                      | Kaynak                                  | Karar                                                     |
+| ------------------------------------------------------------------------------------------ | --------------------------------------- | --------------------------------------------------------- |
+| Prod yerleşimi, IP:4450'nin kapanması, sırların yenilenmesi                                | K1, ADR-0015                            | §7.2, ADR-0019                                            |
+| TURN prod (5349, 443 yok), genel CA sertifikası, relay kapasitesi                          | K3, TEST-NAT-1, QA-P4-10                | §7.4, ADR-0018                                            |
+| AC-23                                                                                      | QA-P4-10                                | ölçüt 5349'a revize edilir (gereksinim talebi, §7.15)     |
+| HSTS `includeSubDomains`                                                                   | G-19                                    | §7.5: eklenir                                             |
+| S-P13a-2 kalanı: imza, migrator, CHECKSUM; `--target production` (S-P13a-6)                | güvenlik raporu P13a                    | §7.6, ADR-0020                                            |
+| Site dışı kanca + I-P11-1                                                                  | P11, P13a                               | §7.6: kanca + audit süreklilik denetimi; WORM hedef Sonra |
+| `reset-superadmin` CLI                                                                     | P10 Sonra                               | §7.7                                                      |
+| Prod izleme (alarm kurallarının gerçekten çalışması)                                       | runbook §18.3 "prod izleme P13b"        | §7.8 `remote-watch`                                       |
+| Env / config prod değerleri                                                                | —                                       | §7.9                                                      |
+| Windows istemci prod sürümü, repo public, attestation                                      | P6 §11.6, sonra-acik "Repo görünürlüğü" | §7.10                                                     |
+| K13 WhatsApp, IPv6 (S-P3-3, S-P2-5), S-P13a-8, anonim MySQL hesabı                         | mimari-e9 §12, P3, P13a                 | §7.11                                                     |
+| Prod açılış sırası, AC-88 ve AC-91 prod tekrarı                                            | AC-88, AC-91, AC-200                    | §7.12                                                     |
+| İmzalı prod açılış kontrol listesi (P10 elle testleri, Windows 0.10.2 elle testleri dahil) | P9, P10 Sonra                           | §7.13                                                     |
 
 **Kapsam dışı (P13b):**
+
 - Ayrı staging ortamı: P13c, ADR-0019 m.5.
 - 443 TURN: risk kabulü; ek IP gelirse ADR-0018 m.6.
 - Site dışı hedefin seçimi ve kurulumu: hedef belli olunca, kabul şartları ADR-0020 m.4.
@@ -222,14 +236,17 @@ Yukarıdaki "P13b kapsamı (özet)" listesinin yerine bu bölüm geçer.
 - ICE başarısızlığında kullanıcıya "kurumsal güvenlik duvarı" tanı mesajı: Sonra (E11 G2'ye önerilir).
 
 ### 7.2 Prod / staging yerleşimi (ADR-0019)
+
 **Karar:** Staging yığını `/opt/remote` içinde, compose proje adı `remote` korunarak **yerinde prod'a terfi eder**. Terfi temiz
 kurulumdur:
+
 - yeni volume'lar,
 - yeni sırlar,
 - `DEPLOY_ENV=production`,
 - `CADDY_BIND=127.0.0.1`.
 
 Staging, prod açılışından sonra **P13c** olarak ayrı compose projesinde kurulur:
+
 - `remote-stg`, `stg.remote.noktabilisim.net`;
 - portlar 127.0.0.1:4460/4461, edge 172.30.1.0/24;
 - ayrı DB, sır ve yedek;
@@ -267,20 +284,23 @@ flowchart LR
 ```
 
 ### 7.3 Port / vhost tablosu (prod)
-| Dış (185.126.217.99) | İç (VM) | Proto | Dinleyen | Değişiklik (staging → prod) |
-|---|---|---|---|---|
-| 80, 443 | 80, 443 | TCP | host nginx (paylaşımlı); vhost `remote.noktabilisim.net` → `127.0.0.1:4451` | yok (vhost aynen) |
-| 4450 | — | TCP | Caddy `tls internal`, **yalnız 127.0.0.1** | pfSense NAT kaldırılır, UFW `4450/tcp` silinir, `CADDY_BIND=127.0.0.1` |
-| — | 127.0.0.1:4451 | TCP | Caddy düz HTTP (nginx arkası) | yok |
-| 3478 | 3478 | UDP+TCP | coturn STUN/TURN | yok |
-| 5349 | 5349 | TCP | coturn TURN-TLS (LE sertifikası) | sertifika özel CA'dan LE'ye geçer |
-| 49160–49479 | aynı (1:1) | UDP | coturn relay | **aralık 49160–49199'dan genişler** (pfSense + UFW + `host-firewall.sh` + base.conf) |
-| — | 127.0.0.1:9641 | TCP | coturn Prometheus | yok |
-| 22 | 22 | TCP | ssh | yok |
-| — | yayımlanmaz | TCP | MySQL 3306 | yok |
+
+| Dış (185.126.217.99) | İç (VM)        | Proto   | Dinleyen                                                                    | Değişiklik (staging → prod)                                                          |
+| -------------------- | -------------- | ------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 80, 443              | 80, 443        | TCP     | host nginx (paylaşımlı); vhost `remote.noktabilisim.net` → `127.0.0.1:4451` | yok (vhost aynen)                                                                    |
+| 4450                 | —              | TCP     | Caddy `tls internal`, **yalnız 127.0.0.1**                                  | pfSense NAT kaldırılır, UFW `4450/tcp` silinir, `CADDY_BIND=127.0.0.1`               |
+| —                    | 127.0.0.1:4451 | TCP     | Caddy düz HTTP (nginx arkası)                                               | yok                                                                                  |
+| 3478                 | 3478           | UDP+TCP | coturn STUN/TURN                                                            | yok                                                                                  |
+| 5349                 | 5349           | TCP     | coturn TURN-TLS (LE sertifikası)                                            | sertifika özel CA'dan LE'ye geçer                                                    |
+| 49160–49479          | aynı (1:1)     | UDP     | coturn relay                                                                | **aralık 49160–49199'dan genişler** (pfSense + UFW + `host-firewall.sh` + base.conf) |
+| —                    | 127.0.0.1:9641 | TCP     | coturn Prometheus                                                           | yok                                                                                  |
+| 22                   | 22             | TCP     | ssh                                                                         | yok                                                                                  |
+| —                    | yayımlanmaz    | TCP     | MySQL 3306                                                                  | yok                                                                                  |
+
 DNS: `remote.noktabilisim.net` A → 185.126.217.99, Cloudflare "DNS only". **AAAA kaydı yoktur** (§7.11). Yeni DNS kaydı açılmaz.
 
 ### 7.4 TURN prod (ADR-0018)
+
 - **Yapılandırma (`turnserver.base.conf`):**
   - `min-port=49160`, `max-port=49479`, `total-quota=300`; `user-quota=8` değişmez.
   - `deploy/turn/.env`: `TURN_REALM=remote.noktabilisim.net`, `TURN_EXTERNAL_IP=185.126.217.99/192.168.25.10` (değişmez),
@@ -322,13 +342,16 @@ DNS: `remote.noktabilisim.net` A → 185.126.217.99, Cloudflare "DNS only". **AA
   Kök sertifika kurulmaz. Kayıt `docs/test-raporu.md`'ye yazılır.
 
 ### 7.5 HSTS `includeSubDomains`
+
 **Karar: eklenir, `preload` yok.**
+
 - HSTS yalnız başlığı gönderen ad için ve onun alt alanları için geçerlidir. Yani `remote.noktabilisim.net` ve
   `*.remote.noktabilisim.net`. `noktabilisim.net` altındaki kardeş servislere (ör. `support.noktabilisim.net`) **etkisi yoktur**.
 - `*.remote.noktabilisim.net` altında bugün ad yok. P13c'deki `stg.remote…` HTTPS olacak.
 - TURN (HTTP değil) ve ACME HTTP-01 (tarayıcı değil) etkilenmez.
 
 **Değişiklikler:**
+
 - `apps/server/src/app.ts` helmet: `includeSubDomains: true`.
 - `deploy/Caddyfile`: `?Strict-Transport-Security "max-age=31536000; includeSubDomains"`.
 - nginx başlık eklemez (ADR-0015, değişmez).
@@ -337,7 +360,9 @@ DNS: `remote.noktabilisim.net` A → 185.126.217.99, Cloudflare "DNS only". **AA
 **Test:** AC-126 e2e başlık testi değeri doğrular.
 
 ### 7.6 Yedek bütünlüğü ve site dışı kanca (ADR-0020; AC-91, AC-200, S-P13a-2/6, I-P11-1)
+
 **`backup.sh` eklemeleri** (sıra: döküm → manifest → imza → `.partial` adından son adına taşıma → rotasyon → kanca → durum dosyası):
+
 1. **Manifest yeni alanları:**
    - `env` (`deploy/.env` `DEPLOY_ENV`; boşsa FAILED `adım=önkoşul`) ve `host` (`hostname -s`).
    - `signer`: imza anahtarının SHA256 parmak izi.
@@ -373,6 +398,7 @@ DNS: `remote.noktabilisim.net` A → 185.126.217.99, Cloudflare "DNS only". **AA
    FAILED yolunda da yazılır (`last_run_ok 0`).
 
 **`restore.sh` değişiklikleri:**
+
 1. **Seçenekler:** `--allowed-signers <dosya>` (varsayılan `/etc/remote-backup/allowed_signers`; yoksa ret). Ortamı tanımlamak için
    `--target scratch|staging|production`.
 2. **İlk adım imzadır:** `ssh-keygen -Y find-principals -s manifest.json.sig -f <allowed>` → principal → `ssh-keygen -Y verify -n remote-backup`.
@@ -392,6 +418,7 @@ DNS: `remote.noktabilisim.net` A → 185.126.217.99, Cloudflare "DNS only". **AA
    - Satır sayıları ve tetikleyici sayısı = manifest (P13a).
 
 **dba notu (P13b D1/D2 + G-P13b-5, 2026-11-14):** SQL arayüzü `deploy/mysql/{restore-sec-snapshot,restore-reset-db,checksum-tables,audit-continuity,audit-baseline-reset}.sql`. Ayrıntı `docs/db-notlari.md` "P13b".
+
 - m.1'deki `audit.days` biçimi `{gün: n}` iken `{gün: {n, h}}` oldu (`format: 2`).
 - Eklenen alanlar: tetikleyici gövde özeti (`triggers.ok`), `tail`/`prevTail` (son 48 saat), `baseline` (elle ya da geri yükleme sonrası sıfırlama, audit'li) ve `instanceId`.
 
@@ -400,6 +427,7 @@ saklama 14 + 1 gün; yurt içi tercih edilir. Hedef kurulduğunda `remote-watch`
 susturur.
 
 ### 7.7 `reset-superadmin` CLI (AC önerisi §7.15-b)
+
 - **Dosyalar:**
   - `apps/server/src/cli/reset-superadmin.ts`: argüman ayrıştırma ve TTY kontrolü; ≤ 150 satır.
   - `apps/server/src/auth/superadmin-reset.ts`: servis; tek TX.
@@ -434,7 +462,9 @@ susturur.
   - TTY yokken 4.
 
 ### 7.8 Prod izleme: `remote-watch` (host systemd; yeni bağımlılık yok)
+
 Runbook'taki alarm kuralları bugün Prometheus olmadığı için elle izleniyor. Prod'da kritik olanlar otomatik çalışır.
+
 - **Dosyalar:**
   - `deploy/ops/remote-watch.sh` (root): `load_env_file` kalıbıyla çalışır; `watch.env` root sahibi ve 600 değilse çalışmaz.
   - `deploy/ops/remote-watch.service` + `remote-watch.timer`: 10 dakikada bir.
@@ -464,29 +494,32 @@ Runbook'taki alarm kuralları bugün Prometheus olmadığı için elle izleniyor
 - **Dış gözcü:** GitHub `agent-watch` günlük çalışır ve aynen kalır. Host tamamen düşerse (`remote-watch` de düşer) haberi o verir.
 
 ### 7.9 Env / config (prod değerleri; değerler dokümana yazılmaz)
-| Değişken | Dosya | Prod | Not |
-|---|---|---|---|
-| `DEPLOY_ENV` **(yeni)** | `deploy/.env` (+ `.env.example`, compose'a girmez) | `production` | Yalnız `backup.sh`/`restore.sh` okur. Server okumadığı için `env.ts`'e girmez (gerekçeli istisna, ADR-0019) |
-| `NODE_ENV` | deploy/.env | `production` | — |
-| `PUBLIC_BASE_URL` | deploy/.env | `https://remote.noktabilisim.net` | değişmez |
-| `ALLOWED_ORIGINS` | deploy/.env | `https://remote.noktabilisim.net` | IP origin'i çıkar |
-| `CADDY_BIND` | deploy/.env | `127.0.0.1` | 4450 dışarı kapanır |
-| `SITE_HOST` | deploy/.env | değişmez | 4450 site adı; yalnız loopback tanı |
-| `TURN_URLS`, `TURN_SECRET` (yeni), `TURN_CRED_TTL_MIN` (20) | deploy/.env | §7.4 | panel TURN boş |
-| `MIN_AGENT_VERSION` | deploy/.env | prod Release sürümü (§7.10) | eski ve attestation'sız istemciler 426 alır |
-| `ABUSE_EMAIL` | deploy/.env | kullanıcı kararı (K10); önerilen: gerçekten okunan bir kutu (ör. `abuse@noktabilisim.net`) | boşsa bağlantı gizlenir |
-| `WHATSAPP_SERVICE_URL` | deploy/.env | boş (panel) | K13, §7.11 |
-| MySQL parolaları, `SESSION_REF_KEY`, `EDGE_PROXY_SECRET`, `APP_ENCRYPTION_KEYS`, `METRICS_TOKEN`, `SEED_SUPERADMIN_*` | deploy/.env | **hepsi yeniden üretilir** | parola kasasına; staging değerleri imha edilir |
-| `TURN_REALM`, `TURN_BPS_CAPACITY`, `TURN_MAX_BPS`, `TURN_FW_RELAY_MAX_BPS` | deploy/turn/.env | `remote.noktabilisim.net`, `0`, `1000000`, `62500000` (host hashlimit) | §7.4 |
-| `BACKUP_SIGNING_KEY` **(yeni)**, `BACKUP_OFFSITE_CMD` **(yeni)**, `BACKUP_OFFSITE_TIMEOUT_SEC` **(yeni)** | deploy/backup/backup.env | anahtar yolu varsayılan; kanca boş; 1800 | `backup.env.example` güncellenir |
-| `BACKUP_AGE_RECIPIENT` | backup.env | **prod için yeni age çifti** (önerilir; staging anahtarı test verisini açar) | özel anahtar ve `allowed_signers` kasada |
-| `WATCH_*` **(yeni)** | deploy/ops/watch.env | §7.8 | root 600 |
-| `TURN_CERT_DIR`, `TURN_CONTAINER`, `TURN_TLS_NAME` **(yeni)** | /etc/default/remote-turn-cert (install yazar) | §7.4 | elle düzenlenmez |
-| `AGENT_SERVER_URL` | GitHub repo değişkeni | `https://remote.noktabilisim.net` (zaten) | — |
-| `AGENT_WATCH_URL` / `AGENT_WATCH_CA_PEM` | GitHub | `https://remote.noktabilisim.net/downloads/NoktaDestek.exe` / boş | — |
+
+| Değişken                                                                                                              | Dosya                                              | Prod                                                                                       | Not                                                                                                         |
+| --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `DEPLOY_ENV` **(yeni)**                                                                                               | `deploy/.env` (+ `.env.example`, compose'a girmez) | `production`                                                                               | Yalnız `backup.sh`/`restore.sh` okur. Server okumadığı için `env.ts`'e girmez (gerekçeli istisna, ADR-0019) |
+| `NODE_ENV`                                                                                                            | deploy/.env                                        | `production`                                                                               | —                                                                                                           |
+| `PUBLIC_BASE_URL`                                                                                                     | deploy/.env                                        | `https://remote.noktabilisim.net`                                                          | değişmez                                                                                                    |
+| `ALLOWED_ORIGINS`                                                                                                     | deploy/.env                                        | `https://remote.noktabilisim.net`                                                          | IP origin'i çıkar                                                                                           |
+| `CADDY_BIND`                                                                                                          | deploy/.env                                        | `127.0.0.1`                                                                                | 4450 dışarı kapanır                                                                                         |
+| `SITE_HOST`                                                                                                           | deploy/.env                                        | değişmez                                                                                   | 4450 site adı; yalnız loopback tanı                                                                         |
+| `TURN_URLS`, `TURN_SECRET` (yeni), `TURN_CRED_TTL_MIN` (20)                                                           | deploy/.env                                        | §7.4                                                                                       | panel TURN boş                                                                                              |
+| `MIN_AGENT_VERSION`                                                                                                   | deploy/.env                                        | prod Release sürümü (§7.10)                                                                | eski ve attestation'sız istemciler 426 alır                                                                 |
+| `ABUSE_EMAIL`                                                                                                         | deploy/.env                                        | kullanıcı kararı (K10); önerilen: gerçekten okunan bir kutu (ör. `abuse@noktabilisim.net`) | boşsa bağlantı gizlenir                                                                                     |
+| `WHATSAPP_SERVICE_URL`                                                                                                | deploy/.env                                        | boş (panel)                                                                                | K13, §7.11                                                                                                  |
+| MySQL parolaları, `SESSION_REF_KEY`, `EDGE_PROXY_SECRET`, `APP_ENCRYPTION_KEYS`, `METRICS_TOKEN`, `SEED_SUPERADMIN_*` | deploy/.env                                        | **hepsi yeniden üretilir**                                                                 | parola kasasına; staging değerleri imha edilir                                                              |
+| `TURN_REALM`, `TURN_BPS_CAPACITY`, `TURN_MAX_BPS`, `TURN_FW_RELAY_MAX_BPS`                                            | deploy/turn/.env                                   | `remote.noktabilisim.net`, `0`, `1000000`, `62500000` (host hashlimit)                     | §7.4                                                                                                        |
+| `BACKUP_SIGNING_KEY` **(yeni)**, `BACKUP_OFFSITE_CMD` **(yeni)**, `BACKUP_OFFSITE_TIMEOUT_SEC` **(yeni)**             | deploy/backup/backup.env                           | anahtar yolu varsayılan; kanca boş; 1800                                                   | `backup.env.example` güncellenir                                                                            |
+| `BACKUP_AGE_RECIPIENT`                                                                                                | backup.env                                         | **prod için yeni age çifti** (önerilir; staging anahtarı test verisini açar)               | özel anahtar ve `allowed_signers` kasada                                                                    |
+| `WATCH_*` **(yeni)**                                                                                                  | deploy/ops/watch.env                               | §7.8                                                                                       | root 600                                                                                                    |
+| `TURN_CERT_DIR`, `TURN_CONTAINER`, `TURN_TLS_NAME` **(yeni)**                                                         | /etc/default/remote-turn-cert (install yazar)      | §7.4                                                                                       | elle düzenlenmez                                                                                            |
+| `AGENT_SERVER_URL`                                                                                                    | GitHub repo değişkeni                              | `https://remote.noktabilisim.net` (zaten)                                                  | —                                                                                                           |
+| `AGENT_WATCH_URL` / `AGENT_WATCH_CA_PEM`                                                                              | GitHub                                             | `https://remote.noktabilisim.net/downloads/NoktaDestek.exe` / boş                          | —                                                                                                           |
+
 Server'a yeni env eklenmez. `env.ts` ve compose `server` servisi değişmez.
 
 ### 7.10 Windows istemci prod sürümü, repo görünürlüğü
+
 1. **Repo public olmadan önce (kullanıcı + güvenlik):**
    - `gitleaks detect --log-opts="--all"` tüm geçmişte 0 bulgu vermeli.
    - Altyapı ayrıntıları gözden geçirilir. Örnek: eski bir mimari sürümünde Proxmox yönetim IP'si geçiyordu; bu revizyonda K3
@@ -500,6 +533,7 @@ Server'a yeni env eklenmez. `env.ts` ve compose `server` servisi değişmez.
 5. **Windows elle testleri** (0.10.2 adım 1–7 + AC-95/96/128) bu Release ile yapılır (§7.13).
 
 ### 7.11 K13, IPv6, S-P13a-8, anonim hesap
+
 - **K13 (WhatsApp):** Prod açılışı WhatsApp'a **bağlı değildir**. Kod zaten fail-closed çalışır. Kontrol listesinde iki kabul edilebilir
   sonuç vardır:
   - (a) Servis TLS (`https://…`) ya da özel ağ arkasındadır, servis API anahtarı tanımlıdır (`X-API-Key`; servis 2026-11-15'ten beri anahtarsız
@@ -511,6 +545,7 @@ Server'a yeni env eklenmez. `env.ts` ve compose `server` servisi değişmez.
   Not: whatsapp-bildirim servisini başka projeler ve kullanıcının kendi bildirimleri de kullanıyor. "Yalnız Remote IP'sine aç"
   kısıtı onları keser. Kimlik doğrulama artık API anahtarıyla sağlanır; anahtarın düz HTTP'de açıkta gitmemesi için TLS ters vekil
   önerisi sürer (kullanıcı kararı, §7.16).
+
 - **IPv6 (S-P3-3, S-P2-5):** Prod = aynı VM. Açılışta şunlar kayda geçer:
   - `ip -6 addr show scope global` boş;
   - `dig +short AAAA remote.noktabilisim.net` boş;
@@ -518,6 +553,7 @@ Server'a yeni env eklenmez. `env.ts` ve compose `server` servisi değişmez.
 
   VM'e global IPv6 eklenirse runbook §9.2.2 adımları (denied listesine /64, `TURN_FW_SELF_IPS`) ve S-P2-5 IPv6 doğrulaması **o
   değişiklikten önce** yapılır. Değişiklik yönetimi kuralı runbook'a girer.
+
 - **S-P13a-8 (Orta, prod öncesi):** `file.transfer` ve `file.transfer.sender_report` audit kayıtlarına `fileName` yerine yalnız
   uzantı yazılır (`ext`, ≤ 10 karakter, küçük harf; yoksa `null`) ve `sizeBytes`. `sha256` audit'ten çıkar. Zaman çizelgesi
   `session_files`'tan okumaya devam eder.
@@ -526,7 +562,9 @@ Server'a yeni env eklenmez. `env.ts` ve compose `server` servisi değişmez.
   denetimi bu riski izler.
 
 ### 7.12 Prod açılış sırası (runbook §20'de komutlarıyla yazılır — devops)
+
 **Ön koşullar:**
+
 - P13b paketleri staging'de yayında (ADR-0019 sıra A).
 - qa GEÇTİ, güvenlik Kritik/Yüksek 0.
 - Kullanıcı adımları (§7.16) tamam.
@@ -534,6 +572,7 @@ Server'a yeni env eklenmez. `env.ts` ve compose `server` servisi değişmez.
   yapılabilir.
 
 **Sıra B (terfi):**
+
 1. Duyuru. Staging test kullanıcılarına kapanış bildirilir.
 2. **Son staging yedeği:** `systemctl start remote-backup.service` (imzalı, `env=staging`), ardından scratch doğrulaması
    `restore-verify: OK`. Run dizini `/var/backups/remote-staging-final/`'a taşınır ve 14 gün sonra silinir.
@@ -571,6 +610,7 @@ Server'a yeni env eklenmez. `env.ts` ve compose `server` servisi değişmez.
 Relay aralığı geniş kalabilir.
 
 ### 7.13 Prod açılış kontrol listesi (imzalı; runbook §20.3'te tablo: madde · kanıt · sonuç · yapan · tarih; sonda "Onay: ad, tarih")
+
 1. AC-88 kaydı ≤ 120 sn. AC-91/AC-200 prod provası OK ve RTO ≤ 60 dk. İmza olumsuz testi FAIL verir.
 2. AC-23: UDP kapalı, yalnız 443 + 5349/TCP açık ağda `relay/tls` adayıyla görüntü geliyor. Kök sertifika kurulmamış (§7.4).
    AC-21 tavanı ölçüldü (§7.4).
@@ -597,24 +637,26 @@ Relay aralığı geniş kalabilir.
 14. "Nokta Test" firması pasif. Dokümanlar (README, kılavuz, DATASHEET ağ gereksinimleri) ve PDF'ler güncel.
 
 ### 7.14 AC eşlemesi (P13b)
-| AC | Karşılık | Paket |
-|---|---|---|
-| 23 (revize, §7.15) | coturn 5349 + LE `remote-turn` + `cert-deploy-hook.sh`; ölçüm §7.4 | T2, R1 |
-| 21, 22 | relay aralığı/kota/bps (§7.4), `test-denied.sh` yeni aralık | T2, R1 |
-| 88 | §7.12/7 prod ölçümü | T6 |
-| 90 | CLI parolası loga ve audit'e düşmez; kanca komut metni loglanmaz | B1, T1 |
-| 91, 200 (prod) | imzalı yedek, migrator yükleme, CHECKSUM, `--target production`, prod provası | D1, D2, T1, T6 |
-| 94, 96, 128 | attestation'lı Release, repo public, `verify-and-publish` (`--no-attestation` yok) | U1, T6, R1 |
-| 126 | HSTS `includeSubDomains` (§7.5) | B2, T3 |
-| 150, 196 | K13 kayıt (§7.11) | R1 |
-| 67, 64–66, 68, 10 (P10 elle) | §7.13/6 | R1 |
-| yeni (a) imza | ADR-0020 m.1–3 | T1, D1, D2 |
-| yeni (b) CLI | §7.7 | B1 |
-| yeni (c) site dışı kanca | §7.6/4–5 | T1 |
-| yeni (d) audit süreklilik | §7.6/3 | D2, T1 |
-| yeni (e) prod izleme | §7.8 | T4 |
+
+| AC                           | Karşılık                                                                           | Paket          |
+| ---------------------------- | ---------------------------------------------------------------------------------- | -------------- |
+| 23 (revize, §7.15)           | coturn 5349 + LE `remote-turn` + `cert-deploy-hook.sh`; ölçüm §7.4                 | T2, R1         |
+| 21, 22                       | relay aralığı/kota/bps (§7.4), `test-denied.sh` yeni aralık                        | T2, R1         |
+| 88                           | §7.12/7 prod ölçümü                                                                | T6             |
+| 90                           | CLI parolası loga ve audit'e düşmez; kanca komut metni loglanmaz                   | B1, T1         |
+| 91, 200 (prod)               | imzalı yedek, migrator yükleme, CHECKSUM, `--target production`, prod provası      | D1, D2, T1, T6 |
+| 94, 96, 128                  | attestation'lı Release, repo public, `verify-and-publish` (`--no-attestation` yok) | U1, T6, R1     |
+| 126                          | HSTS `includeSubDomains` (§7.5)                                                    | B2, T3         |
+| 150, 196                     | K13 kayıt (§7.11)                                                                  | R1             |
+| 67, 64–66, 68, 10 (P10 elle) | §7.13/6                                                                            | R1             |
+| yeni (a) imza                | ADR-0020 m.1–3                                                                     | T1, D1, D2     |
+| yeni (b) CLI                 | §7.7                                                                               | B1             |
+| yeni (c) site dışı kanca     | §7.6/4–5                                                                           | T1             |
+| yeni (d) audit süreklilik    | §7.6/3                                                                             | D2, T1         |
+| yeni (e) prod izleme         | §7.8                                                                               | T4             |
 
 ### 7.15 Gereksinim tarafına önerilen değişiklikler (proje-yoneticisi işler; mimar `gereksinimler*.md`'ye dokunmadı)
+
 - **AC-23 revize:** "UDP'nin kapalı olduğu ve yalnız 443/TCP ile 5349/TCP çıkışına izin verilen ağda bağlantı TURN-TLS (5349) ile
   kurulur. Müşteri makinesine kök sertifika kurulmaz (prod ölçümü). Yalnız 443/TCP açık ağlar desteklenmez (ADR-0018 risk kabulü)."
 - **AC-91:** "staging'de" → "prod'da (P13b; sonraki aylarda aylık prova)".
@@ -649,7 +691,9 @@ Relay aralığı geniş kalabilir.
   E11 öncesi ön koşul olduğu not edilir.
 
 ### 7.16 Görev paketleri ve sahipleri
+
 Sıra:
+
 1. **dba** (D1 ‖ D2)
 2. **backend-dev** (B1–B3) ‖ **devops** (T1–T5). T2, T3 ve T4 D'ye bağlı değildir, ilk günden başlar. T1, D1/D2 SQL arayüzüne bağlıdır.
 3. staging yayını (sıra A)
@@ -661,31 +705,32 @@ Sıra:
 
 Kullanıcı ön koşulları (U) paralel yürür.
 
-| # | Sahip | İş | Dosyalar | Kabul ölçütü |
-|---|---|---|---|---|
-| D1 | dba | Geri yüklemede migrator: scratch'te `app`/`migrator` kurulumu; canlıda DB'yi migrator yetkisiyle boşaltma yöntemi (DROP/CREATE DATABASE ya da tablo/tetikleyici düşürme; gerekçeli); tetikleyici DEFINER; `force_created_at` muafiyetiyle `created_at` korunması | `deploy/mysql/restore-load.sql` (veya `lib.sh` fonksiyon girdisi), `docs/db-notlari.md` P13b | Meşru döküm migrator ile yüklenir, tetikleyici 3, audit `created_at` korunur. Kurcalanmış döküm (`CREATE USER`, `GRANT … ON *.*`, `SET PERSIST`, `INSTALL COMPONENT`, `USE mysql; INSERT`) → yükleme FAIL (1044/1227/1142) ve kalıcı iz bırakmaz |
-| D2 | dba | `CHECKSUM TABLE` listesi (uygulama tabloları; `_prisma_migrations` dahil); yetki anlık görüntüsüne anonim hesap; `check-app-grants.sh` += `user=''` = 0; audit süreklilik SQL'i (gün histogramı + maxId; backup kullanıcısıyla); CLI için `app` yetkilerinin yeterliliği (users/auth_sessions/password_reset_tokens UPDATE, recovery_codes DELETE) | `deploy/mysql/check-app-grants.sh`, `docs/db-notlari.md` P13b | PASS sayısı güncel; histogram sorgusu 730 günlük sahte veride < 2 sn (IX created_at); yeni grant gerekmiyorsa kayıt "değişiklik yok" |
-| B1 | backend-dev | `reset-superadmin` CLI (§7.7) | `apps/server/src/cli/reset-superadmin.ts`, `src/auth/superadmin-reset.ts`, `test/integration/superadmin-reset-p13b.test.ts`, `contracts/src/labels.ts` (audit etiketi "Super Admin şifresi sunucudan sıfırlandı") | §7.7 test listesi yeşil; lint/typecheck temiz; dosya ≤ 300 satır |
-| B2 | backend-dev | HSTS `includeSubDomains: true` | `apps/server/src/app.ts`, ilgili başlık testi | AC-126 testinde HSTS değeri |
-| B3 | backend-dev | S-P13a-8: `file.transfer*` audit'inde `ext` + `sizeBytes`; `fileName` ve `sha256` yok | `apps/server/src/signaling/collab.ts`, audit view/etiket (gerekirse), testler | Entegrasyon: audit `new_value`'da ad ve sha256 yok; zaman çizelgesi değişmedi |
-| T1 | devops | `backup.sh` (env/host/signer/audit alanları, imza, süreklilik, kanca, `status.prom`); `restore.sh` (`--allowed-signers`, imza-önce, `DEPLOY_ENV` kilidi, `--target production` + TTY, migrator yükleme D1, CHECKSUM D2); `backup.env.example`; `.env.example` `DEPLOY_ENV`; shellcheck | `deploy/backup/{backup.sh,restore.sh,lib.sh,backup.env.example}`, `.env.example`, runbook §18 | Yerel Linux root konteynerinde olumsuz testler: imzasız / bozuk imza / değiştirilmiş manifest → FAIL (çözme yok); yanlış `DEPLOY_ENV`, `production` + TTY yok, `env=staging` yedek → prod hedefi ret; kanca rc≠0 → `OFFSITE-FAILED` + alarm, birim OK; kanca tanımsız → uyarı; TRUNCATE / tek DELETE → `FAILED adım=audit-sureklilik`; meşru akış `restore-verify: OK`; shellcheck temiz |
-| T2 | devops | TURN prod: base.conf aralık/kota; `host-firewall.sh` aralık ve reserved ports; `test-denied.sh` 320 port/49479; `cert-deploy-hook.sh` (install/uninstall kalıbı); SIGUSR2 doğrulaması; `TURN_MAX_BPS` birim ölçümü | `deploy/turn/{turnserver.base.conf,host-firewall.sh,test-denied.sh,test-local.sh,cert-deploy-hook.sh,docker-compose.yml(yorum)}`, `.env.example` TURN yorumları, runbook §9 | `test-local.sh` 0 FAIL; hook yerelde sahte lineage ile atomik kopya + izinler + parmak izi doğrulaması; uclient ile oturum başına ~8 Mbit/s tavanı ölçüldü |
-| T3 | devops | Caddyfile HSTS; compose `CADDY_BIND` yorumu; `test-caddy.sh` başlık kontrolü | `deploy/Caddyfile`, `deploy/docker-compose.yml` (yorum), `deploy/test-caddy.sh` | `test-caddy.sh` HSTS değeri PASS |
-| T4 | devops | `remote-watch` (§7.8) | `deploy/ops/{remote-watch.sh,remote-watch.service,remote-watch.timer,watch.env.example}`, `.gitignore` (`deploy/ops/watch.env`), runbook §20.4 | Her kontrol için olumsuz test (servis durdur, sahte eski `status.prom`, sertifika süresi taklidi, disk eşiği düşürme) → ALERT + tekrar bastırma + "düzeldi"; `watch.env` 644 → çalışmaz |
-| T5 | devops | Runbook §20 (prod: açılış sırası §7.12, geri dönüş, kontrol listesi şablonu §7.13, pfSense/UFW talepleri, IPv6 değişiklik kuralı); §8 staging bölümü "arşiv" notu; §14 SQL → CLI; §18 imza/kanca/prod hedefi; §19 senaryolarına "site dışı kanca başarısız", "audit süreklilik alarmı" | `docs/runbook.md` | Her adımda komut + beklenen çıktı; sır yok |
-| T6 | devops | Staging yayını (sıra A), qa/güvenlik GEÇTİ sonrası prod terfisi (§7.12 1–11) | sunucu; runbook §8/§20 kayıtları | §7.13 madde 1, 3, 4, 11, 13 kanıtları runbook'ta |
-| R1 | test-operatoru (+ kullanıcı: Windows, ağ) | §7.13 kontrol listesi prod'da | `docs/test-raporu.md`, runbook §20.3 tablosu | 14 madde sonuçlu; kullanıcı imzası |
-| W1 | teknik-yazar | README (prod adres, yedek imza/kanca, `reset-superadmin`, `remote-watch`), kılavuz (Super Admin kurtarma: "sunucu yöneticisine başvurun"; Admin için **ağ gereksinimleri/allowlist**: 443, 3478 UDP/TCP, 5349 TCP, 49160–49479 UDP), DATASHEET (aynı ağ gereksinimi, yedek imzası), CHANGELOG, PDF | `README.md`, `docs/{KULLANIM_KILAVUZU,DATASHEET}.md`, `CHANGELOG.md`, `docs/pdf/*` | AC-93; kodda olmayan özellik yok; gitleaks temiz |
-| U1 | kullanıcı | Repo public (gitleaks tüm geçmiş + altyapı bilgisi incelemesi), `agent-release` onayı + `v*` ruleset, Release etiketi (öneri `v1.0.0`) | GitHub | §7.10 |
-| U2 | kullanıcı / ağ yöneticisi | pfSense: relay NAT 49160–49479 (önce), 4450 NAT kaldırma (imzadan sonra) | pfSense | §7.3 |
-| U3 | kullanıcı | Prod age çifti ve `allowed_signers` kasada; Super Admin e-postası; `ABUSE_EMAIL`; K13 seçimi (a/b); site dışı hedef (geldiğinde) | parola kasası | §7.9, §7.11 |
+| #   | Sahip                                     | İş                                                                                                                                                                                                                                                                                                                                                 | Dosyalar                                                                                                                                                                                                          | Kabul ölçütü                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | dba                                       | Geri yüklemede migrator: scratch'te `app`/`migrator` kurulumu; canlıda DB'yi migrator yetkisiyle boşaltma yöntemi (DROP/CREATE DATABASE ya da tablo/tetikleyici düşürme; gerekçeli); tetikleyici DEFINER; `force_created_at` muafiyetiyle `created_at` korunması                                                                                   | `deploy/mysql/restore-load.sql` (veya `lib.sh` fonksiyon girdisi), `docs/db-notlari.md` P13b                                                                                                                      | Meşru döküm migrator ile yüklenir, tetikleyici 3, audit `created_at` korunur. Kurcalanmış döküm (`CREATE USER`, `GRANT … ON *.*`, `SET PERSIST`, `INSTALL COMPONENT`, `USE mysql; INSERT`) → yükleme FAIL (1044/1227/1142) ve kalıcı iz bırakmaz                                                                                                                                         |
+| D2  | dba                                       | `CHECKSUM TABLE` listesi (uygulama tabloları; `_prisma_migrations` dahil); yetki anlık görüntüsüne anonim hesap; `check-app-grants.sh` += `user=''` = 0; audit süreklilik SQL'i (gün histogramı + maxId; backup kullanıcısıyla); CLI için `app` yetkilerinin yeterliliği (users/auth_sessions/password_reset_tokens UPDATE, recovery_codes DELETE) | `deploy/mysql/check-app-grants.sh`, `docs/db-notlari.md` P13b                                                                                                                                                     | PASS sayısı güncel; histogram sorgusu 730 günlük sahte veride < 2 sn (IX created_at); yeni grant gerekmiyorsa kayıt "değişiklik yok"                                                                                                                                                                                                                                                     |
+| B1  | backend-dev                               | `reset-superadmin` CLI (§7.7)                                                                                                                                                                                                                                                                                                                      | `apps/server/src/cli/reset-superadmin.ts`, `src/auth/superadmin-reset.ts`, `test/integration/superadmin-reset-p13b.test.ts`, `contracts/src/labels.ts` (audit etiketi "Super Admin şifresi sunucudan sıfırlandı") | §7.7 test listesi yeşil; lint/typecheck temiz; dosya ≤ 300 satır                                                                                                                                                                                                                                                                                                                         |
+| B2  | backend-dev                               | HSTS `includeSubDomains: true`                                                                                                                                                                                                                                                                                                                     | `apps/server/src/app.ts`, ilgili başlık testi                                                                                                                                                                     | AC-126 testinde HSTS değeri                                                                                                                                                                                                                                                                                                                                                              |
+| B3  | backend-dev                               | S-P13a-8: `file.transfer*` audit'inde `ext` + `sizeBytes`; `fileName` ve `sha256` yok                                                                                                                                                                                                                                                              | `apps/server/src/signaling/collab.ts`, audit view/etiket (gerekirse), testler                                                                                                                                     | Entegrasyon: audit `new_value`'da ad ve sha256 yok; zaman çizelgesi değişmedi                                                                                                                                                                                                                                                                                                            |
+| T1  | devops                                    | `backup.sh` (env/host/signer/audit alanları, imza, süreklilik, kanca, `status.prom`); `restore.sh` (`--allowed-signers`, imza-önce, `DEPLOY_ENV` kilidi, `--target production` + TTY, migrator yükleme D1, CHECKSUM D2); `backup.env.example`; `.env.example` `DEPLOY_ENV`; shellcheck                                                             | `deploy/backup/{backup.sh,restore.sh,lib.sh,backup.env.example}`, `.env.example`, runbook §18                                                                                                                     | Yerel Linux root konteynerinde olumsuz testler: imzasız / bozuk imza / değiştirilmiş manifest → FAIL (çözme yok); yanlış `DEPLOY_ENV`, `production` + TTY yok, `env=staging` yedek → prod hedefi ret; kanca rc≠0 → `OFFSITE-FAILED` + alarm, birim OK; kanca tanımsız → uyarı; TRUNCATE / tek DELETE → `FAILED adım=audit-sureklilik`; meşru akış `restore-verify: OK`; shellcheck temiz |
+| T2  | devops                                    | TURN prod: base.conf aralık/kota; `host-firewall.sh` aralık ve reserved ports; `test-denied.sh` 320 port/49479; `cert-deploy-hook.sh` (install/uninstall kalıbı); SIGUSR2 doğrulaması; `TURN_MAX_BPS` birim ölçümü                                                                                                                                 | `deploy/turn/{turnserver.base.conf,host-firewall.sh,test-denied.sh,test-local.sh,cert-deploy-hook.sh,docker-compose.yml(yorum)}`, `.env.example` TURN yorumları, runbook §9                                       | `test-local.sh` 0 FAIL; hook yerelde sahte lineage ile atomik kopya + izinler + parmak izi doğrulaması; uclient ile oturum başına ~8 Mbit/s tavanı ölçüldü                                                                                                                                                                                                                               |
+| T3  | devops                                    | Caddyfile HSTS; compose `CADDY_BIND` yorumu; `test-caddy.sh` başlık kontrolü                                                                                                                                                                                                                                                                       | `deploy/Caddyfile`, `deploy/docker-compose.yml` (yorum), `deploy/test-caddy.sh`                                                                                                                                   | `test-caddy.sh` HSTS değeri PASS                                                                                                                                                                                                                                                                                                                                                         |
+| T4  | devops                                    | `remote-watch` (§7.8)                                                                                                                                                                                                                                                                                                                              | `deploy/ops/{remote-watch.sh,remote-watch.service,remote-watch.timer,watch.env.example}`, `.gitignore` (`deploy/ops/watch.env`), runbook §20.4                                                                    | Her kontrol için olumsuz test (servis durdur, sahte eski `status.prom`, sertifika süresi taklidi, disk eşiği düşürme) → ALERT + tekrar bastırma + "düzeldi"; `watch.env` 644 → çalışmaz                                                                                                                                                                                                  |
+| T5  | devops                                    | Runbook §20 (prod: açılış sırası §7.12, geri dönüş, kontrol listesi şablonu §7.13, pfSense/UFW talepleri, IPv6 değişiklik kuralı); §8 staging bölümü "arşiv" notu; §14 SQL → CLI; §18 imza/kanca/prod hedefi; §19 senaryolarına "site dışı kanca başarısız", "audit süreklilik alarmı"                                                             | `docs/runbook.md`                                                                                                                                                                                                 | Her adımda komut + beklenen çıktı; sır yok                                                                                                                                                                                                                                                                                                                                               |
+| T6  | devops                                    | Staging yayını (sıra A), qa/güvenlik GEÇTİ sonrası prod terfisi (§7.12 1–11)                                                                                                                                                                                                                                                                       | sunucu; runbook §8/§20 kayıtları                                                                                                                                                                                  | §7.13 madde 1, 3, 4, 11, 13 kanıtları runbook'ta                                                                                                                                                                                                                                                                                                                                         |
+| R1  | test-operatoru (+ kullanıcı: Windows, ağ) | §7.13 kontrol listesi prod'da                                                                                                                                                                                                                                                                                                                      | `docs/test-raporu.md`, runbook §20.3 tablosu                                                                                                                                                                      | 14 madde sonuçlu; kullanıcı imzası                                                                                                                                                                                                                                                                                                                                                       |
+| W1  | teknik-yazar                              | README (prod adres, yedek imza/kanca, `reset-superadmin`, `remote-watch`), kılavuz (Super Admin kurtarma: "sunucu yöneticisine başvurun"; Admin için **ağ gereksinimleri/allowlist**: 443, 3478 UDP/TCP, 5349 TCP, 49160–49479 UDP), DATASHEET (aynı ağ gereksinimi, yedek imzası), CHANGELOG, PDF                                                 | `README.md`, `docs/{KULLANIM_KILAVUZU,DATASHEET}.md`, `CHANGELOG.md`, `docs/pdf/*`                                                                                                                                | AC-93; kodda olmayan özellik yok; gitleaks temiz                                                                                                                                                                                                                                                                                                                                         |
+| U1  | kullanıcı                                 | Repo public (gitleaks tüm geçmiş + altyapı bilgisi incelemesi), `agent-release` onayı + `v*` ruleset, Release etiketi (öneri `v1.0.0`)                                                                                                                                                                                                             | GitHub                                                                                                                                                                                                            | §7.10                                                                                                                                                                                                                                                                                                                                                                                    |
+| U2  | kullanıcı / ağ yöneticisi                 | pfSense: relay NAT 49160–49479 (önce), 4450 NAT kaldırma (imzadan sonra)                                                                                                                                                                                                                                                                           | pfSense                                                                                                                                                                                                           | §7.3                                                                                                                                                                                                                                                                                                                                                                                     |
+| U3  | kullanıcı                                 | Prod age çifti ve `allowed_signers` kasada; Super Admin e-postası; `ABUSE_EMAIL`; K13 seçimi (a/b); site dışı hedef (geldiğinde)                                                                                                                                                                                                                   | parola kasası                                                                                                                                                                                                     | §7.9, §7.11                                                                                                                                                                                                                                                                                                                                                                              |
 
 ### 7.17 Açık kararlar (P13b)
-| # | Konu | Varsayılan | Sahibi |
-|---|---|---|---|
-| K-P13b-1 | Prod Release sürüm numarası | `v1.0.0` | kullanıcı |
-| K-P13b-2 | K13 yolu | (b) kanal kapalı açılış; TLS ters vekil kurulunca (a) | kullanıcı |
-| K-P13b-3 | `ABUSE_EMAIL` | okunan bir kutu verilirse doldurulur; yoksa boş (bağlantı gizli) | kullanıcı |
-| K-P13b-4 | Site dışı hedef | belirsiz; ADR-0020 m.4 şartlarıyla seçilir | kullanıcı |
-| K-P13b-5 | P13c (ayrı staging) zamanı | prod açılışından hemen sonra, E11 kod paketlerinden önce | kullanıcı + mimar |
+
+| #        | Konu                                             | Varsayılan                                                                                | Sahibi            |
+| -------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------- | ----------------- |
+| K-P13b-1 | Prod Release sürüm numarası                      | `v1.0.0`                                                                                  | kullanıcı         |
+| K-P13b-2 | K13 yolu                                         | (b) kanal kapalı açılış; TLS ters vekil kurulunca (a)                                     | kullanıcı         |
+| K-P13b-3 | `ABUSE_EMAIL`                                    | okunan bir kutu verilirse doldurulur; yoksa boş (bağlantı gizli)                          | kullanıcı         |
+| K-P13b-4 | Site dışı hedef                                  | belirsiz; ADR-0020 m.4 şartlarıyla seçilir                                                | kullanıcı         |
+| K-P13b-5 | P13c (ayrı staging) zamanı                       | prod açılışından hemen sonra, E11 kod paketlerinden önce                                  | kullanıcı + mimar |
 | K-P13b-6 | Staging istemcilerinin ve test verisinin akıbeti | son staging yedeği 14 gün sonra silinir; eski istemciler `MIN_AGENT_VERSION` ile 426 alır | — (karar verildi) |

@@ -104,7 +104,17 @@ test("AC-71 grup 'Tümünü aç/kapat' (mixed), kayıt, kaydedilmemiş değişik
   await expect(page).toHaveTitle(/Can Aydın/);
   await expect(page.getByRole("navigation", { name: "Konum" })).toContainText("Kullanıcılar");
   // Tüm modüller tanımdan (AC-71: en az 7 modül + talepler + müşteriler)
-  for (const m of ["Oturumlar", "Uzaktan kontrol", "Dosya transferi", "Oturum geçmişi", "Destek talepleri", "Müşteriler", "Kullanıcılar", "Ayarlar", "Audit log"])
+  for (const m of [
+    "Oturumlar",
+    "Uzaktan kontrol",
+    "Dosya transferi",
+    "Oturum geçmişi",
+    "Destek talepleri",
+    "Müşteriler",
+    "Kullanıcılar",
+    "Ayarlar",
+    "Audit log",
+  ])
     await expect(page.getByTestId("permission-table").getByRole("rowheader", { name: m })).toBeVisible();
   await expect(sw(page, "sessions.terminate")).toHaveAccessibleName("Oturumlar — Zorla sonlandır");
   const group = page.getByTestId("perm-group-sessions").filter({ visible: true });
@@ -112,7 +122,8 @@ test("AC-71 grup 'Tümünü aç/kapat' (mixed), kayıt, kaydedilmemiş değişik
   await expect(page.getByTestId("save-bar")).toHaveCount(0);
   await group.click();
   await expect(group).toHaveAttribute("aria-checked", "true");
-  for (const k of ["view", "create", "edit", "delete", "terminate"]) await expect(sw(page, `sessions.${k}`)).toHaveAttribute("aria-checked", "true");
+  for (const k of ["view", "create", "edit", "delete", "terminate"])
+    await expect(sw(page, `sessions.${k}`)).toHaveAttribute("aria-checked", "true");
   await group.click();
   await expect(group).toHaveAttribute("aria-checked", "false");
   await expect(page.getByTestId("save-bar")).toBeVisible();
@@ -135,7 +146,9 @@ test("AC-71 grup 'Tümünü aç/kapat' (mixed), kayıt, kaydedilmemiş değişik
 
   const patch = page.waitForRequest((r) => r.method() === "PATCH");
   await page.getByTestId("save-bar-save").click();
-  expect((await patch).postDataJSON()).toEqual({ permissions: { "users.view": true, "users.create": true, "users.edit": true, "users.delete": true } });
+  expect((await patch).postDataJSON()).toEqual({
+    permissions: { "users.view": true, "users.create": true, "users.edit": true, "users.delete": true },
+  });
   await expect(page.getByText("Can Aydın kaydedildi · yetki değişiklikleri audit log'a yazıldı")).toBeVisible();
   await expect(page.getByTestId("save-bar")).toHaveCount(0);
   await page.reload();
@@ -185,7 +198,10 @@ test("AC-73 Admin sahip olmadığı yetki kilitli; geniş yetkili hesap salt oku
   await expect(page.getByTestId("user-deactivate")).toHaveCount(0);
 });
 
-test("AC-73 rol yükseltme: kilitli anahtarı olan Admin USER→ADMIN kaydeder (200), kilitli yetki kapalı kalır", async ({ page, context }, info) => {
+test("AC-73 rol yükseltme: kilitli anahtarı olan Admin USER→ADMIN kaydeder (200), kilitli yetki kapalı kalır", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInUs(context); // usadm: audit.export yok → kilitli
   await page.goto(`/users/${CAN}`);
@@ -194,7 +210,11 @@ test("AC-73 rol yükseltme: kilitli anahtarı olan Admin USER→ADMIN kaydeder (
   // audit.export açılır ve 403 fields["permissions.audit.export"] döner (eski istemci davranışı).
   const bare = await page.evaluate(async (id) => {
     const csrf = document.cookie.match(/(?:^|; )__Host-rs_csrf=([^;]*)/)?.[1] ?? "";
-    const r = await fetch(`/api/v1/users/${id}`, { method: "PATCH", headers: { "content-type": "application/json", "x-csrf-token": csrf }, body: JSON.stringify({ role: "ADMIN" }) });
+    const r = await fetch(`/api/v1/users/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-csrf-token": csrf },
+      body: JSON.stringify({ role: "ADMIN" }),
+    });
     return { status: r.status, body: (await r.json()) as { error?: { fields?: Record<string, string> } } };
   }, CAN);
   expect(bare.status).toBe(403);
@@ -356,7 +376,11 @@ test("AC-70 Super Admin: firma seç → kullanıcılar; firma oluştur; pasife a
   await expect(sisli.getByTestId("tenant-status")).toHaveText("Pasif");
 
   // Satırdan geçiş + bağlamdan çıkış
-  await page.getByTestId("tenant-row").filter({ hasText: "Acme Bilişim" }).getByRole("button", { name: "Bu firmaya geç: Acme Bilişim" }).click();
+  await page
+    .getByTestId("tenant-row")
+    .filter({ hasText: "Acme Bilişim" })
+    .getByRole("button", { name: "Bu firmaya geç: Acme Bilişim" })
+    .click();
   await expect(switcher).toHaveAttribute("data-acting", "01JTN00000000000000000000B");
   await switcher.locator("summary").click();
   await switcher.getByTestId("tenant-switcher-clear").click();

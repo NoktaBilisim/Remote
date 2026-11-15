@@ -13,7 +13,19 @@ import { copyText } from "@/lib/use-now";
  * AC-67: 10 kurtarma kodu — yalnız bir kez gösterilir. Kopyala / .txt indir; "Kaydettim" işaretlenmeden devam edilemez
  * (yanlışlıkla kapatmaya karşı). Kodlar listede mono, `aria-label` ile tek tek okunur; sayfa yenilenirse bir daha gelmez.
  */
-export function RecoveryCodes({ codes, account, onDone, doneLabel, testId = "recovery-codes" }: { codes: string[]; account: string; onDone: () => void; doneLabel: string; testId?: string }) {
+export function RecoveryCodes({
+  codes,
+  account,
+  onDone,
+  doneLabel,
+  testId = "recovery-codes",
+}: {
+  codes: string[];
+  account: string;
+  onDone: () => void;
+  doneLabel: string;
+  testId?: string;
+}) {
   const id = useId();
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState<"idle" | "ok" | "fail">("idle");

@@ -31,7 +31,11 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
     return (
       <>
         {crumbs()}
-        <div className="max-w-xl"><Alert tone="warning" testId="users-forbidden">{t("us.forbidden")}</Alert></div>
+        <div className="max-w-xl">
+          <Alert tone="warning" testId="users-forbidden">
+            {t("us.forbidden")}
+          </Alert>
+        </div>
       </>
     );
   }
@@ -43,7 +47,13 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
       <>
         {crumbs()}
         <div className="max-w-xl">
-          {r.status === 403 ? <Alert tone="warning" testId="users-forbidden">{t("us.forbidden")}</Alert> : <LoadError />}
+          {r.status === 403 ? (
+            <Alert tone="warning" testId="users-forbidden">
+              {t("us.forbidden")}
+            </Alert>
+          ) : (
+            <LoadError />
+          )}
         </div>
       </>
     );

@@ -62,7 +62,10 @@ export function RequestQueue({
     const my = ++seq.current;
     setRefreshing(true);
     try {
-      const r = await api<SupportRequestList>("GET", `/support-requests?tab=pending${customer ? `&customer=${encodeURIComponent(customer)}` : ""}`);
+      const r = await api<SupportRequestList>(
+        "GET",
+        `/support-requests?tab=pending${customer ? `&customer=${encodeURIComponent(customer)}` : ""}`,
+      );
       if (my !== seq.current) return;
       setItems(r.items.filter((x) => !acceptedHere.has(x.id)));
       setStale(false);
@@ -117,14 +120,18 @@ export function RequestQueue({
     <>
       {stale && (
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Alert tone="warning" testId="queue-stale">{t("rq.stale")}</Alert>
+          <Alert tone="warning" testId="queue-stale">
+            {t("rq.stale")}
+          </Alert>
           <Button variant="secondary" onClick={() => void refresh()} loading={refreshing} className="shrink-0">
             {!refreshing && <RotateCw aria-hidden className="size-4" />}
             {t("err.retry")}
           </Button>
         </div>
       )}
-      <p className="sr-only" aria-live="polite" data-testid="queue-count-live">{t("rq.countLive", { n: items.length })}</p>
+      <p className="sr-only" aria-live="polite" data-testid="queue-count-live">
+        {t("rq.countLive", { n: items.length })}
+      </p>
       {items.length === 0 ? (
         <EmptyState
           Icon={Inbox}
@@ -133,7 +140,10 @@ export function RequestQueue({
           testId="requests-empty"
           action={
             canSettings && (
-              <Link href="/settings/support-requests" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary hover:underline">
+              <Link
+                href="/settings/support-requests"
+                className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary hover:underline"
+              >
                 <Settings aria-hidden className="size-4" />
                 {t("rq.emptyAction")}
               </Link>

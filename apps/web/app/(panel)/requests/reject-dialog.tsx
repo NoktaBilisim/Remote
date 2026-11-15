@@ -94,7 +94,10 @@ export function RejectDialog({
         <fieldset className="flex flex-col gap-1">
           <legend className="mb-1 text-sm font-medium text-fg">{t("rq.rj.legend")}</legend>
           {[...REJECT_PRESETS, OTHER].map((p, i) => (
-            <label key={p} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm text-fg hover:bg-surface-muted">
+            <label
+              key={p}
+              className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-sm text-fg hover:bg-surface-muted"
+            >
               <input
                 type="radio"
                 name={name}

@@ -31,7 +31,11 @@ beforeAll(async () => {
 afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
-const agentEnv = () => ({ SESSION_REF_KEY: "r".repeat(40), AGENT_BINARY_PATH: exePath, AGENT_SHA256: createHash("sha256").update(EXE).digest("hex") });
+const agentEnv = () => ({
+  SESSION_REF_KEY: "r".repeat(40),
+  AGENT_BINARY_PATH: exePath,
+  AGENT_SHA256: createHash("sha256").update(EXE).digest("hex"),
+});
 
 let live: Live | undefined;
 afterEach(async () => {
@@ -51,7 +55,8 @@ describe("P8b-1 talep oluşturma hız kovaları (AC-144)", () => {
     const { live: l, rc } = await boot();
     const t = await createTenant();
     const ref = await createRequestSettings(t.id);
-    const bad = (ip: string) => l.app.inject({ method: "POST", url: "/api/v1/public/requests", headers: { "x-forwarded-for": ip }, payload: { ref } });
+    const bad = (ip: string) =>
+      l.app.inject({ method: "POST", url: "/api/v1/public/requests", headers: { "x-forwarded-for": ip }, payload: { ref } });
     const ip = "198.51.100.10";
     for (let i = 0; i < 5; i++) expect((await bad(ip)).statusCode).toBe(400);
     const blocked = await bad(ip);
@@ -68,7 +73,8 @@ describe("P8b-1 talep oluşturma hız kovaları (AC-144)", () => {
     const { live: l } = await boot();
     const t = await createTenant();
     const ref = await createRequestSettings(t.id);
-    const bad = (ip: string) => l.app.inject({ method: "POST", url: "/api/v1/public/requests", headers: { "x-forwarded-for": ip }, payload: { ref } });
+    const bad = (ip: string) =>
+      l.app.inject({ method: "POST", url: "/api/v1/public/requests", headers: { "x-forwarded-for": ip }, payload: { ref } });
     for (let h = 1; h <= 4; h++) for (let i = 0; i < 5; i++) expect((await bad(`198.51.101.${h}`)).statusCode).toBe(400);
     const r = await bad("198.51.101.5");
     expect(r.statusCode).toBe(429);
@@ -80,7 +86,8 @@ describe("P8b-1 talep oluşturma hız kovaları (AC-144)", () => {
     const { live: l } = await boot();
     const t = await createTenant();
     const ref = await createRequestSettings(t.id);
-    const bad = (ip: string) => l.app.inject({ method: "POST", url: "/api/v1/public/requests", headers: { "x-forwarded-for": ip }, payload: { ref } });
+    const bad = (ip: string) =>
+      l.app.inject({ method: "POST", url: "/api/v1/public/requests", headers: { "x-forwarded-for": ip }, payload: { ref } });
     const v6 = (p56: number, p64: number) => `2001:db8:4801:${p56.toString(16).padStart(2, "0")}${p64.toString(16).padStart(2, "0")}::1`;
     for (let p = 0; p < 8; p++) for (let i = 0; i < 5; i++) expect((await bad(v6(p, i))).statusCode).toBe(400);
     const r = await bad(v6(9, 0));
@@ -100,7 +107,10 @@ describe("P8b-1 talep oluşturma hız kovaları (AC-144)", () => {
     expect(r.statusCode).toBe(429);
     expect(Number(r.headers["retry-after"])).toBeGreaterThan(800);
     expect((await rc.tenantInfo(ref, ip)).statusCode).toBe(429);
-    expect((await l.app.inject({ method: "GET", url: `/api/v1/public/agent/request-download?ref=${ref}`, headers: { "x-forwarded-for": ip } })).statusCode).toBe(429);
+    expect(
+      (await l.app.inject({ method: "GET", url: `/api/v1/public/agent/request-download?ref=${ref}`, headers: { "x-forwarded-for": ip } }))
+        .statusCode,
+    ).toBe(429);
     expect((await rc.createReq(ref, ip, { consentTextId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })).statusCode).toBe(429);
     await expect(rc.reqWs("A".repeat(43), { "x-forwarded-for": ip })).rejects.toThrow("HTTP 429");
     expect((await rc.tenantInfo(ref, "198.51.103.8")).statusCode).toBe(200);
@@ -133,7 +143,9 @@ describe("P8b-1 talep oluşturma hız kovaları (AC-144)", () => {
 
     const trusted = await rc.createReq(ref, "192.0.2.10", { consentTextId });
     expect(trusted.statusCode).toBe(201);
-    expect(await testDb().supportRequest.findUniqueOrThrow({ where: { id: trusted.json<{ requestId: string }>().requestId } })).toMatchObject({ networkMatch: "TRUSTED" });
+    expect(
+      await testDb().supportRequest.findUniqueOrThrow({ where: { id: trusted.json<{ requestId: string }>().requestId } }),
+    ).toMatchObject({ networkMatch: "TRUSTED" });
     // bilinen tavanı: 120/sa (sayaç doğrudan doldurulur; 119 ek kabul ile aynı durum)
     for (let i = 0; i < 119; i++) l.app.requests.d.limits.tenantKnown.add(t.id);
     const cap = await rc.createReq(ref, "192.0.2.11", { consentTextId });
@@ -159,7 +171,9 @@ describe("P8b-1 bilinen kaynak ayrıcalığı (AC-143, G-E9-15)", () => {
     const { wsTicket } = await waitMsg<{ wsTicket: string }>(ws, "request.accepted");
     const g = await connect(`${l.base}/ws/guest`, ["rs.v1", `rs.ticket.${wsTicket}`], { "x-forwarded-for": knownIp });
     await waitMsg(g, "hello");
-    await expect.poll(async () => (await testDb().supportSession.findFirstOrThrow({ where: { requestId: c.requestId } })).consumedAt).not.toBeNull();
+    await expect
+      .poll(async () => (await testDb().supportSession.findFirstOrThrow({ where: { requestId: c.requestId } })).consumedAt)
+      .not.toBeNull();
 
     // 2) Tenant'ı 40 bekleyene doldur (farklı IP'ler)
     for (let i = 0; i < 40; i++) await createRequestRow(t.id, { ip: `203.0.113.${i + 10}` });
@@ -174,7 +188,10 @@ describe("P8b-1 bilinen kaynak ayrıcalığı (AC-143, G-E9-15)", () => {
 
     const dev = await rc.createReq(ref, "198.51.122.5", { consentTextId, deviceKey });
     expect(dev.statusCode).toBe(201);
-    expect(await testDb().supportRequest.findUniqueOrThrow({ where: { id: dev.json<{ requestId: string }>().requestId } })).toMatchObject({ knownDevice: true, networkMatch: "NONE" });
+    expect(await testDb().supportRequest.findUniqueOrThrow({ where: { id: dev.json<{ requestId: string }>().requestId } })).toMatchObject({
+      knownDevice: true,
+      networkMatch: "NONE",
+    });
     // bilinmeyen cihaz anahtarı ayrıcalık getirmez
     const otherDev = await rc.createReq(ref, "198.51.123.5", { consentTextId, deviceKey: fakeDeviceKey() });
     expect(errCode(otherDev)).toBe("QUEUE_FULL");
@@ -184,7 +201,8 @@ describe("P8b-1 bilinen kaynak ayrıcalığı (AC-143, G-E9-15)", () => {
 describe("P8b-1 WebSocket soket sınırları (G-E9-9, G-E9-16)", () => {
   async function pendingSecrets(rc: ReturnType<typeof requestClient>, ref: string, n: number, base: number) {
     const out: string[] = [];
-    for (let i = 0; i < n; i++) out.push((await rc.createReq(ref, `198.51.${base}.${i + 1}`)).json<{ requestSecret: string }>().requestSecret);
+    for (let i = 0; i < n; i++)
+      out.push((await rc.createReq(ref, `198.51.${base}.${i + 1}`)).json<{ requestSecret: string }>().requestSecret);
     return out;
   }
 
@@ -201,7 +219,16 @@ describe("P8b-1 WebSocket soket sınırları (G-E9-9, G-E9-16)", () => {
     if (!first) throw new Error("soket yok");
     first.ws.terminate();
     await first.closed;
-    await expect.poll(async () => rc.reqWs(secrets[5] ?? "", shared).then((w) => (open.push(w), "ok"), (e: Error) => e.message), { interval: 50 }).toBe("ok");
+    await expect
+      .poll(
+        async () =>
+          rc.reqWs(secrets[5] ?? "", shared).then(
+            (w) => (open.push(w), "ok"),
+            (e: Error) => e.message,
+          ),
+        { interval: 50 },
+      )
+      .toBe("ok");
 
     const b = await createTenant();
     const refB = await createRequestSettings(b.id, { trustedCidrs: ["192.0.2.0/24"] });
@@ -234,19 +261,26 @@ describe("P8b-1 WebSocket soket sınırları (G-E9-9, G-E9-16)", () => {
     // biri kapanınca yeni soket açılabilir
     socks[0]?.ws.close();
     await socks[0]?.closed;
-    await expect.poll(async () => {
-      const p = await rc.panelWs(u1.token);
-      const r = await Promise.race([waitMsg(p, "queue.count", 500).then(() => "ok"), p.closed.then((c) => String(c.code))]);
-      if (r === "ok") socks.push(p);
-      return r;
-    }).toBe("ok");
+    await expect
+      .poll(async () => {
+        const p = await rc.panelWs(u1.token);
+        const r = await Promise.race([waitMsg(p, "queue.count", 500).then(() => "ok"), p.closed.then((c) => String(c.code))]);
+        if (r === "ok") socks.push(p);
+        return r;
+      })
+      .toBe("ok");
     for (const s of [...socks, other]) s.ws.close();
   });
 });
 
 describe("P8b-1 firma indirme yolu (AC-130, AC-132, G-E9-11)", () => {
   const ready = (app: Live["app"], uri: string) =>
-    app.inject({ method: "GET", url: "/internal/agent-ready", remoteAddress: "127.0.0.1", headers: { "x-forwarded-method": "GET", "x-forwarded-uri": uri } });
+    app.inject({
+      method: "GET",
+      url: "/internal/agent-ready",
+      remoteAddress: "127.0.0.1",
+      headers: { "x-forwarded-method": "GET", "x-forwarded-uri": uri },
+    });
 
   it("G-E9-11: forward_auth — aktif ref + güncel label 204; yanlış label, yenilenmiş ref, pasif tenant, bilinmeyen ref → aynı 404 gövdesi", async () => {
     const { live: l } = await boot(agentEnv());
@@ -261,7 +295,12 @@ describe("P8b-1 firma indirme yolu (AC-130, AC-132, G-E9-11)", () => {
     const unknown = await ready(l.app, "/downloads/NoktaDestek-TestFirma-abcdefghijklmnop.exe");
     expect(unknown.statusCode).toBe(404);
     const bodies = [unknown.body];
-    for (const uri of [`/downloads/NoktaDestek-BaskaFirma-${ref}.exe`, `/downloads/NoktaDestek-TestFirma-${ref}.exe.bak`, `/downloads/NoktaDestek--${ref}.exe`, "/downloads/NoktaDestek-x"]) {
+    for (const uri of [
+      `/downloads/NoktaDestek-BaskaFirma-${ref}.exe`,
+      `/downloads/NoktaDestek-TestFirma-${ref}.exe.bak`,
+      `/downloads/NoktaDestek--${ref}.exe`,
+      "/downloads/NoktaDestek-x",
+    ]) {
       const r = await ready(l.app, uri);
       expect(r.statusCode, uri).toBe(404);
       bodies.push(r.body);
@@ -282,7 +321,8 @@ describe("P8b-1 firma indirme yolu (AC-130, AC-132, G-E9-11)", () => {
     const { live: l } = await boot(agentEnv());
     const t = await createTenant();
     const ref = await createRequestSettings(t.id);
-    const dl = (ip: string) => l.app.inject({ method: "GET", url: `/api/v1/public/agent/request-download?ref=${ref}`, headers: { "x-forwarded-for": ip } });
+    const dl = (ip: string) =>
+      l.app.inject({ method: "GET", url: `/api/v1/public/agent/request-download?ref=${ref}`, headers: { "x-forwarded-for": ip } });
     const r = await dl("198.51.150.1");
     expect(r.statusCode).toBe(302);
     expect(r.headers.location).toBe(`/downloads/NoktaDestek-TestFirma-${ref}.exe`);
@@ -295,7 +335,11 @@ describe("P8b-1 firma indirme yolu (AC-130, AC-132, G-E9-11)", () => {
     await l.close();
 
     live = await startLive({ env: PROXY }); // ikili yapılandırılmamış
-    const nr = await live.app.inject({ method: "GET", url: `/api/v1/public/agent/request-download?ref=${ref}`, headers: { "x-forwarded-for": "198.51.150.3" } });
+    const nr = await live.app.inject({
+      method: "GET",
+      url: `/api/v1/public/agent/request-download?ref=${ref}`,
+      headers: { "x-forwarded-for": "198.51.150.3" },
+    });
     expect(nr.statusCode).toBe(503);
     expect(errCode(nr)).toBe("NOT_READY");
   });

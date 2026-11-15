@@ -16,7 +16,10 @@ export const parseCtl = parseCtlMessage;
 /** Kısa rastgele kimlik (≤ 26). */
 export const newId = (): string => {
   const b = crypto.getRandomValues(new Uint8Array(12));
-  return [...b].map((x) => x.toString(36).padStart(2, "0")).join("").slice(0, 24);
+  return [...b]
+    .map((x) => x.toString(36).padStart(2, "0"))
+    .join("")
+    .slice(0, 24);
 };
 
 export type FileMetaMsg = FileMeta;

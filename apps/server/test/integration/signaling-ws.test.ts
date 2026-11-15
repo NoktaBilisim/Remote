@@ -17,13 +17,24 @@ describe("P3 sinyalizasyon — iki istemci", () => {
   it("AC-20: offer/answer/ICE yalnız aynı odanın karşı tarafına, alanlar yeniden kurularak aktarılır", async () => {
     const t = await techSession(live);
     const { guest, hello } = await admitted(live, t);
-    expect(hello).toMatchObject({ role: "guest", sessionId: t.sessionId, peerPresent: true, guestKind: "BROWSER", caps: ["remote_control", "file_transfer"] });
+    expect(hello).toMatchObject({
+      role: "guest",
+      sessionId: t.sessionId,
+      peerPresent: true,
+      guestKind: "BROWSER",
+      caps: ["remote_control", "file_transfer"],
+    });
     t.ws.send({ t: "sdp.offer", id: "1", sdp: OFFER });
     expect(await guest.waitFor("sdp.offer")).toEqual({ t: "sdp.offer", sdp: OFFER });
     guest.send({ t: "sdp.answer", sdp: "answer-sdp" });
     expect(await t.ws.waitFor("sdp.answer")).toEqual({ t: "sdp.answer", sdp: "answer-sdp" });
     t.ws.send({ t: "ice", candidate: "candidate:1 1 udp 1 10.0.0.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0 });
-    expect(await guest.waitFor("ice")).toEqual({ t: "ice", candidate: "candidate:1 1 udp 1 10.0.0.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0 });
+    expect(await guest.waitFor("ice")).toEqual({
+      t: "ice",
+      candidate: "candidate:1 1 udp 1 10.0.0.1 9 typ host",
+      sdpMid: "0",
+      sdpMLineIndex: 0,
+    });
     guest.send({ t: "ice", candidate: "c2" });
     expect(await t.ws.waitFor("ice")).toEqual({ t: "ice", candidate: "c2" });
     guest.send({ t: "share.state", state: "sharing" });
@@ -59,7 +70,12 @@ describe("P3 sinyalizasyon — iki istemci", () => {
       [(s) => s("{bozuk"), 1008],
       [(s) => s(JSON.stringify({ t: "sdp.answer", sdp: "x", extra: 1 })), 1008],
       [(s) => s(JSON.stringify({ t: "ice", candidate: "a".repeat(WS_MAX_PAYLOAD) })), 1009],
-      [(s) => { for (let i = 0; i < 80; i++) s(JSON.stringify({ t: "ice", candidate: "c" })); }, 1008],
+      [
+        (s) => {
+          for (let i = 0; i < 80; i++) s(JSON.stringify({ t: "ice", candidate: "c" }));
+        },
+        1008,
+      ],
     ];
     for (const [c, code] of cases) {
       const { guest } = await admitted(live, t);
@@ -77,14 +93,39 @@ describe("P3 upgrade doğrulaması (G-10, AC-14, AC-15, ADR-0012)", () => {
   it("AC-14: sorgu dizesi, rs.v1 eksik, tekrar kullanılan ticket ve izinsiz Origin → 403", async () => {
     const t = await techSession(live);
     const headers = { origin: ORIGIN };
-    const r = await live.app.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers, payload: { token: t.token, clientKind: "BROWSER" } });
-    const j = await live.app.inject({ method: "POST", url: "/api/v1/public/sessions/join", headers, payload: { joinNonce: r.json<{ joinNonce: string }>().joinNonce, customerName: "Ali", consentAccepted: true, consentTextId: t.consentTextId } });
+    const r = await live.app.inject({
+      method: "POST",
+      url: "/api/v1/public/sessions/resolve",
+      headers,
+      payload: { token: t.token, clientKind: "BROWSER" },
+    });
+    const j = await live.app.inject({
+      method: "POST",
+      url: "/api/v1/public/sessions/join",
+      headers,
+      payload: {
+        joinNonce: r.json<{ joinNonce: string }>().joinNonce,
+        customerName: "Ali",
+        consentAccepted: true,
+        consentTextId: t.consentTextId,
+      },
+    });
     const ticket = `rs.ticket.${j.json<{ wsTicket: string }>().wsTicket}`;
     await expect(connect(`${live.base}/ws/guest?ticket=x`, ["rs.v1", ticket], headers)).rejects.toThrow("HTTP 403");
     await expect(connect(`${live.base}/ws/guest`, [ticket], headers)).rejects.toThrow("HTTP 403");
     await expect(connect(`${live.base}/ws/guest`, ["rs.v1", ticket], { origin: "https://evil.test" })).rejects.toThrow("HTTP 403");
     await expect(connect(`${live.base}/ws/guest`, ["rs.v1", ticket], headers)).rejects.toThrow("HTTP 403"); // tek kullanımlık
-    const again = await live.app.inject({ method: "POST", url: "/api/v1/public/sessions/join", headers, payload: { joinNonce: r.json<{ joinNonce: string }>().joinNonce, customerName: "Ali", consentAccepted: true, consentTextId: t.consentTextId } });
+    const again = await live.app.inject({
+      method: "POST",
+      url: "/api/v1/public/sessions/join",
+      headers,
+      payload: {
+        joinNonce: r.json<{ joinNonce: string }>().joinNonce,
+        customerName: "Ali",
+        consentAccepted: true,
+        consentTextId: t.consentTextId,
+      },
+    });
     expect(again.json<{ error: { code: string } }>().error.code).toBe("NONCE_INVALID");
   });
 
@@ -107,10 +148,25 @@ describe("P3 upgrade doğrulaması (G-10, AC-14, AC-15, ADR-0012)", () => {
     const ok = await resolve({}, "AGENT");
     expect(ok.statusCode).toBe(200);
     const nonce = ok.json<{ joinNonce: string }>().joinNonce;
-    const join = (headers: Record<string, string>) => live.app.inject({ method: "POST", url: "/api/v1/public/sessions/join", headers, payload: { joinNonce: nonce, customerName: "Ali", consentAccepted: true, consentTextId: t.consentTextId } });
+    const join = (headers: Record<string, string>) =>
+      live.app.inject({
+        method: "POST",
+        url: "/api/v1/public/sessions/join",
+        headers,
+        payload: { joinNonce: nonce, customerName: "Ali", consentAccepted: true, consentTextId: t.consentTextId },
+      });
     expect((await join({ origin: ORIGIN })).statusCode).toBe(403); // nonce kind=AGENT; Origin'li istek reddedilir (nonce da yanar)
     const ok2 = await resolve({}, "AGENT");
-    const j = await live.app.inject({ method: "POST", url: "/api/v1/public/sessions/join", payload: { joinNonce: ok2.json<{ joinNonce: string }>().joinNonce, customerName: "Ali", consentAccepted: true, consentTextId: t.consentTextId } });
+    const j = await live.app.inject({
+      method: "POST",
+      url: "/api/v1/public/sessions/join",
+      payload: {
+        joinNonce: ok2.json<{ joinNonce: string }>().joinNonce,
+        customerName: "Ali",
+        consentAccepted: true,
+        consentTextId: t.consentTextId,
+      },
+    });
     expect(j.statusCode).toBe(200);
     const ws = await connect(`${live.base}/ws/guest`, ["rs.v1", `rs.ticket.${j.json<{ wsTicket: string }>().wsTicket}`]);
     expect((await ws.waitFor("lobby.wait")).t).toBe("lobby.wait");

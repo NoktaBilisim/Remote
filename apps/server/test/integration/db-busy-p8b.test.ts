@@ -44,7 +44,9 @@ describe("QA-P8b-1 yük altında talep oluşturma", () => {
     const hold = holdSettingsLock(t.id, 3_000); // eski varsayılan maxWait (2 sn) bu beklemede P2028 → 500 veriyordu
     await hold.locked;
     // S8b-5 kapısı: tenant başına 2 TX kilitte bekler, 16'sı kuyrukta, fazlası hemen 503 + Retry-After (bağlantı tutmaz).
-    const res = await Promise.all(Array.from({ length: 60 }, (_, i) => retryNotReady(() => rc.createReq(ref, `203.0.113.${i + 1}`, { consentTextId }))));
+    const res = await Promise.all(
+      Array.from({ length: 60 }, (_, i) => retryNotReady(() => rc.createReq(ref, `203.0.113.${i + 1}`, { consentTextId }))),
+    );
     await hold.done;
     const codes = res.map((r) => r.statusCode);
     expect(codes.filter((c) => c >= 500)).toEqual([]);
@@ -76,7 +78,11 @@ describe("QA-P8b-1 yük altında talep oluşturma", () => {
     );
     try {
       await held;
-      const r = await app.inject({ method: "GET", url: `/api/v1/public/requests/tenant?ref=${ref}`, headers: { "x-forwarded-for": "198.51.100.77" } });
+      const r = await app.inject({
+        method: "GET",
+        url: `/api/v1/public/requests/tenant?ref=${ref}`,
+        headers: { "x-forwarded-for": "198.51.100.77" },
+      });
       expect(r.statusCode).toBe(503);
       expect(r.headers["retry-after"]).toBe(String(DB_BUSY_RETRY_SEC));
       expect(errCode(r)).toBe("NOT_READY");
@@ -89,7 +95,11 @@ describe("QA-P8b-1 yük altında talep oluşturma", () => {
     }
     // havuz serbest kalınca aynı istek başarılı (yeniden deneme güvenli)
     const again = buildApp({ mfaSetupEnforcement: false, env: testEnv(PROXY), db: testDb() });
-    const ok = await again.inject({ method: "GET", url: `/api/v1/public/requests/tenant?ref=${ref}`, headers: { "x-forwarded-for": "198.51.100.78" } });
+    const ok = await again.inject({
+      method: "GET",
+      url: `/api/v1/public/requests/tenant?ref=${ref}`,
+      headers: { "x-forwarded-for": "198.51.100.78" },
+    });
     expect(ok.statusCode).toBe(200);
     await again.close();
   }, 30_000);

@@ -6,6 +6,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 ## [Unreleased]
 
 ### Eklendi — P13b-L (bekleme odası göstergesi; AC-304–315, ADR-0029)
+
 - **"Müşteri bekliyor (n)" rozeti:** Oturumlar listesinde bekleyen (PENDING) oturumun "Durum" hücresinde, bekleme
   odasındaki müşteri sayısıyla birlikte (zil ikonu). Kendi oturumunuzda rozete tıklamak konsolu açar. Admin'in başka
   teknisyene ait satırında ve firma seçmemiş Super Admin'de rozet yalnız bilgi verir, tıklanmaz.
@@ -26,16 +27,19 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Migration, yeni yetki anahtarı, yeni ortam değişkeni ve yeni bağımlılık yok.
 
 ### Değişti — P13b-L
+
 - `SessionHistoryDetail` artık `waitingGuests` taşımaz (geçmiş ayrıntısı canlı durum göstermez).
 - Destek talebi sekme başlığı sayacı lobi ön ekiyle aynı yazıcıdan üretilir; iki sayaç birbirini silmez.
 - Bildirim alanı (`ToastViewport`) `role="status"` taşır.
 
 ### Düzeltildi
+
 - **Oturumlar, firma seçmemiş Super Admin** (`a71d80e`): "Yeni destek oturumu" düğmesi 403 "Önce bir firma seçin."
   ile dönüyordu. Artık liste tüm firmaları göstermeye devam eder; oluştur, iptal et, sonlandır ve konsol eylemleri
   gizlenir, yerine "üst menüden bir firma seçin" notu çıkar.
 
 ### Eklendi — P13b (prod açılışı; AC-23, 91, 126, 200 revize; AC-298–302)
+
 - **Prod adresi** `https://remote.noktabilisim.net` (Let's Encrypt, host nginx → Caddy `127.0.0.1:4451`); staging yığını yerinde
   terfi eder (ADR-0019), prod'da `CADDY_BIND=127.0.0.1`. Açılış sırası ve imzalı kontrol listesi runbook §20.
 - **Yedek imzası** (ADR-0020): manifest `format: 2` (`env`, `host`, `signer`, `seq`, `prevRun`, `audit`) ed25519 ile
@@ -43,8 +47,8 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   yedek çözülmez. Ortam kilidi (`DEPLOY_ENV` = `--target` = manifest `env`, `--confirm`, production'da TTY), migrator ile
   `--system-command=OFF` yükleme, `CHECKSUM TABLE` eşitliği, tazelik/replay denetimi.
 - **Audit süreklilik denetimi** (AC-301): geçmiş gün sayısı/özeti değişirse veya en büyük id azalırsa `FAILED adım=audit-sureklilik`
-  + alarm; meşru sıfırlama `backup.sh --reset-audit-baseline "<gerekçe>"` ve host işareti. Audit etiketi "Yedek audit taban
-  çizgisi sıfırlandı", audit filtresinde yeni **Yedekleme** grubu.
+  - alarm; meşru sıfırlama `backup.sh --reset-audit-baseline "<gerekçe>"` ve host işareti. Audit etiketi "Yedek audit taban
+    çizgisi sıfırlandı", audit filtresinde yeni **Yedekleme** grubu.
 - **Site dışı kanca** (AC-300): `BACKUP_OFFSITE_CMD`, ayrı `remote-offsite` kullanıcısı, süre sınırı; `OFFSITE-FAILED` alarmı,
   tanımsızsa `OFFSITE-UNCONFIGURED`. `/var/lib/remote-backup/status.prom`.
 - **`reset-superadmin` CLI** (AC-299): `node src/cli/reset-superadmin.ts --email … [--reset-mfa] [--dry-run]`; geçici şifre
@@ -61,6 +65,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Kılavuz: Admin için ağ gereksinimleri (443/TCP, 3478 UDP/TCP, 5349/TCP, 49160–49479/UDP), Super Admin kurtarma, servis anahtarı.
 
 ### Değişti — P13b
+
 - HSTS `max-age=31536000; includeSubDomains` (helmet ve Caddy).
 - TURN: relay aralığı 49160–49479/udp, `total-quota=300`, `TURN_MAX_BPS` varsayılanı 1000000 bayt/sn (8 Mbit/s, ölçüldü),
   `TURN_BPS_CAPACITY=0`; host toplam tavanı hashlimit ile. TURN-TLS 5349 (443 kullanılmaz, ADR-0018).
@@ -68,15 +73,18 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Yedek betikleri bölündü (`lib-audit.sh`, `lib-offsite.sh`, `lib-restore.sh`); birim `TimeoutStartSec=2h`.
 
 ### Kaldırıldı — P13b
+
 - WhatsApp için yerleşik varsayılan servis adresi ve "Varsayılan" rozeti (G-P13b-2). Env ve panel kaydı boşsa kanal kapalıdır.
   API `source` artık yalnız `panel` | `env`.
 
 ### Güvenlik — P13b
+
 - Dokümanlardaki gerçek WhatsApp servis adresi yer tutucuyla değiştirildi (`http://<whatsapp-servis>:3000`).
 - `file.transfer*` audit kayıtlarında dosya adı/sha256 yok (S-P13a-8, doğrulandı); `check-app-grants.sh` anonim hesap ve
   migrator fazlalığı kontrolleri (384 kontrol).
 
 ### Eklendi — P13a (saklama, yedek/geri yükleme, dokümantasyon; AC-88, 91, 92, 93, 197–200)
+
 - **Saklama süresi işi** (`apps/server/src/jobs/retention.ts`, her gün 03:30 Europe/Istanbul; mevcut zamanlayıcı genişletildi):
   - Bitmiş oturumlar firma saklama süresinden (`retentionDays`, varsayılan 365) sonra anonimleştirilir: müşteri adı, e-posta,
     not, ağ anahtarları silinir; onay kayıtlarında IP/tarayıcı silinir (karar ve metin sürümü kalır); dosya kayıtları silinir.
@@ -105,6 +113,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Tarayıcıda 256 MB üstü dosya alırken kayıt penceresinden **önce** "Var olan bir dosyanın üzerine yazmayın" uyarısı.
 
 ### Değişti — P13a
+
 - Migration `20261114120000_p13a_retention`: `support_sessions.anonymized_at` + CHECK + indeks; `audit_logs` için
   `created_at`'i veritabanı saatine zorlayan tetikleyici (yalnız `app`); P11 `audit_logs_no_update` tetikleyicisi bileşik
   gövdeyle yeniden kuruldu (döküm `mysql` ile yüklenebilsin); WhatsApp CHECK'i görünmez karakterleri reddeder.
@@ -120,6 +129,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Go: `golang.org/x/net` v0.62.0, `x/crypto` v0.59.0 doğrulandı (govulncheck temiz); istemci sürümü yayımlanmadı.
 
 ### Güvenlik — P13a
+
 - Müşteri kaynaklı audit kayıtlarında müşteri adı yazılmaz; IP yerine ağ öneki (IPv4 /24, IPv6 /48), tarayıcı bilgisi yok
   (S-P13a-1). Anonim oturumun zaman çizelgesinde ad ve sonlandırma gerekçesi gösterilmez (S-P13a-5).
 - Dosya aktarım audit kayıtlarına (`file.transfer`, `file.transfer.sender_report`, `file.meta.rejected_by_db`) dosya adı
@@ -131,6 +141,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   `--target staging` açık onay (`--confirm`) ister, `production` hedefi reddedilir (S-P13a-2..7).
 
 ### Eklendi — P12b (WhatsApp servisi sistem ayarı, AC-196)
+
 - **Sistem ayarları > WhatsApp servisi** (`/admin/settings/whatsapp`, yalnız Super Admin; 4. sekme): etkin servis adresi,
   kaynak rozeti (**Panel** / **Ortam değişkeni**), son güncelleme. **Servis URL'si** kaydedilir, yeniden başlatma gerekmez;
   kayıttan sonraki ilk bildirim ve test yeni adrese gider. **Ortam değişkenine dön** (onaylı) panel kaydını kaldırır.
@@ -143,6 +154,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   Yeni ortam değişkeni, volume ve bağımlılık yok. Yayın ve geri alma: runbook §17.
 
 ### Değişti — P12b
+
 - `WHATSAPP_SERVICE_URL` açılışta panel kuralıyla doğrulanır (`http://`/`https://`, kullanıcı:şifre, `?`, `#`, boşluk yok,
   ≤ 200 karakter; sondaki `/` kırpılır). **Uymayan değerde server açılmaz**; yayından önce `.env` değerini kontrol edin
   (runbook §17.2/3). Boş değer varsayılana düşer.
@@ -151,6 +163,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   içinde yanıt vermedi (zaman aşımı).").
 
 ### Güvenlik — P12b
+
 - Güvensiz adres (production'da `http://` + genel adres) veya ayrıştırılamayan adres → kanal kapalı, testler servise istek
   göndermez; ekranda kalıcı uyarı, logda `alarm: whatsapp_insecure` / `whatsapp_invalid_url` (adres loga yazılmaz).
 - Test yanıtı sabit mesajdır; servis gövdesi, adres ve iç hata dönmez. Yönlendirme (3xx) izlenmez, başarısız sayılır.
@@ -160,10 +173,12 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Güvenlik denetimi: Kritik/Yüksek/Orta 0; QA Tur 3 GEÇTİ.
 
 ### Bilinen sınırlamalar — P12b
+
 - Adres normalize edilmeden saklanır (görünmez karakter reddi dahil, B-P12b-4) ve PUT/DELETE'te hız sınırı yoktur; ikisi
   "Sonra" (`docs/guvenlik-raporu.md`). Adres değişikliği yalnız tek sunucu sürecine uygulanır (ADR-0005).
 
 ### Eklendi — P12 (marka ve kişiselleştirme)
+
 - **Hesap menüsü** (üst menüde avatar): Hesabım, Şifre değiştir, Tema (Açık / Koyu / Sistem), Çıkış; klavyeyle kullanılabilir
   (Esc kapatır). `/account` sayfasına **Profil** (profil resmi) ve **Görünüm** (tema) bölümleri eklendi.
 - **Profil resmi (avatar):** yükle (tarayıcıda kare kırpma + önizleme) / değiştir / kaldır (onaylı). Admin, kullanıcı
@@ -190,6 +205,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   `react-easy-crop` 6.2.5. Sunucu CPU'su x86-64-v2 olmalı (runbook §16).
 
 ### Güvenlik — P12
+
 - Resim türü yalnız içerikten (magic bytes + sharp çift kontrol; SVG/HTML/GIF ret), 2 MB, 24 MP, kenar ≥ 16 px, oran logo
   ≤ 20:1 / avatar ≤ 4:1 (kod çözmeden önce; B-P12-2). Yeniden kodlama, EXIF/ICC/XMP silme, rastgele ad, atomik yazım.
 - Dosya yalnız DB'de o anda kayıtlı yolsa sunulur; avatar oturumlu, başka firma 404, `private, no-cache` (B-P12-4); logolar
@@ -200,6 +216,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Teknisyen avatarı müşteriye açılmaz (KVKK); müşteri ekranında baş harf. Güvenlik denetimi: Kritik/Yüksek 0.
 
 ### Düzeltildi — P12
+
 - Super Admin `/audit` 1280 px'te yatay kayma (P11 sayfa testi bulgusu) giderildi.
 - Logo/profil resmi yüklemede boyut/oran reddi artık sunucunun gerçek nedenini gösteriyor ("Resim boyutları uygun değil…");
   önceden geçerli PNG'ye "Yalnız PNG, JPG veya WEBP" deniyordu.
@@ -207,6 +224,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - P11 aydınlatma metni, MySQL ve TURN formlarına hidrasyon işareti (`data-ready`); yük altında kararsız e2e giderildi.
 
 ### Bilinen sınırlamalar — P12
+
 - Sistem logosu kaldırılamaz, yalnız değiştirilir.
 - Pasife alınan kullanıcı/firmanın resim dosyaları korunur; kalıcı silmede dosya temizliği P13 retention işinde (B-P12-3).
 - Hızlı Destek (Windows) istemcisi P6'dan beri sunucunun verdiği firma logosunu gösterir; P12 ile bu alan dolu gelir.
@@ -214,6 +232,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Açık maddeler: `docs/gereksinimler-sonra-acik.md` "P12'den".
 
 ### Eklendi — P11 (audit log ekranı, sistem ayarları, aydınlatma metni)
+
 - **Audit log** (`/audit`, menüde "Audit log"; `audit.view`): salt okunur liste, 50'şer kayıt + "Daha fazla yükle",
   filtreler URL'de (başlangıç/bitiş günü — boşsa son 30 gün, en çok 731 gün —, kullanıcı, işlem veya işlem grubu, sonuç;
   firma seçmemiş Super Admin için firma). Ayrıntı penceresi: eski/yeni değer düz metin, e-posta ve test kayıtlarında yalnız
@@ -237,9 +256,10 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   1419 ile durur, kurtarma runbook §15). Yeni ortam değişkeni ve bağımlılık yok.
 
 ### Güvenlik — P11
+
 - Audit değiştirilemezliği: API'de yazma 405 (kimlik doğrulamadan önce); `app` kullanıcısında `audit_logs` UPDATE/DELETE/
   TRIGGER/DDL yok; tetikleyiciler UPDATE'i ve 730 günden yeni satırın silinmesini reddeder (`SYSDATE` + UTC; `SET
-  TIMESTAMP` ile atlatılamaz).
+TIMESTAMP` ile atlatılamaz).
 - Okumada maske yeniden uygulanır; dış gönderim kayıtlarında ham hata, SMTP yanıt kodu ve banner dönmez (P10 koşulu).
 - MySQL şifresi ve TURN secret'ı AES-256-GCM; MySQL şifresi hedefe (host + port + kullanıcı) bağlı AAD ile saklanır ve
   başka sunucuya gönderilmez — hedef değişirse şifre zorunlu (B-P11-1). Çözülemeyen kayıt "şifre yok" sayılır.
@@ -248,10 +268,12 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   (B-P11-5). Güvenlik denetimi: Kritik/Yüksek 0.
 
 ### Düzeltildi — P11
+
 - 375–390 px'te Ayarlar alt menüsü "Güvenlik"i kırpıyordu (P10 sayfa testi); alt menü artık dört sekmeyi eşit
   sütunlarda tam gösteriyor.
 
 ### Bilinen sınırlamalar — P11
+
 - MySQL bağlantı testi TLS kullanmaz (arayüzde kalıcı uyarı); sunucu tarafı TLS seçeneği "Sonra".
 - Panel MySQL ayarı canlı geçiş yapmaz; `.env` güncellenip servis yeniden başlatılmalı.
 - Avatar resmi P12'ye kadar yok (baş harf rozeti; P12'de eklendi). Firma seçmemiş Super Admin'de kullanıcı filtresi yalnız yüklü
@@ -260,6 +282,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   ≥ 1366 px'te sorun yok. Açık maddeler: `docs/gereksinimler-sonra-acik.md` "P11'den".
 
 ### Eklendi — P10 (hesap güvenliği + SMTP)
+
 - **İki adımlı doğrulama (2FA, TOTP):** Google Authenticator, Microsoft Authenticator vb. ile. Kurulum ekranı
   (`/2fa/setup`): QR + elle anahtar (kopyala) → 6 haneli kod → 10 tek kullanımlık kurtarma kodu (bir kez gösterilir;
   kopyala / `.txt` indir; "Kaydettim" işaretlenmeden devam yok). Super Admin ve Admin için zorunlu; teknisyenler (User)
@@ -289,6 +312,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   `nodemailer` 10.5.0 (MIT-0), `qrcode` 1.5.4 (MIT); geliştirme `smtp-server` 3.21.4 (MIT-0).
 
 ### Güvenlik — P10
+
 - SMTP şifresi ve TOTP sırrı AES-256-GCM, sürümlü anahtar (`APP_ENCRYPTION_KEYS`) ve kayda bağlı AAD ile saklanır.
   Kurtarma kodları HMAC-SHA-256 (HKDF ile türetilmiş anahtar), sıfırlama token'ı SHA-256; düz değerler loga/audit'e girmez.
 - TOTP tekrar oynatma koruması (aynı/eski zaman adımı reddedilir), kurtarma kodu tek kullanım (koşullu UPDATE).
@@ -304,6 +328,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   kapandı, Kritik/Yüksek 0.
 
 ### Bilinen sınırlamalar — P10
+
 - Kurtarma kodlarını kullanıcı kendisi yenileyemez, 2FA'sını kendisi kapatamaz; kodlar biterse Admin "2FA'yı sıfırla"
   yapar.
 - Super Admin'in firması ve SMTP'si yoktur: şifre sıfırlama/kilit e-postası gönderilmez, kurtarma sunucuda yapılır
@@ -315,9 +340,11 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   görüyor. Açık maddeler: `docs/gereksinimler-sonra-acik.md` "P10'dan".
 
 ### Düzeltildi — P10
+
 - Kurtarma kodu tire çevresinde boşlukla yazıldığında istemcide reddediliyordu; artık boşluklar silinip doğrulanıyor.
 
 ### Eklendi — P9 (kullanıcı, yetki ve firma yönetimi)
+
 - **Kullanıcılar** ekranı (`/users`, menüde kişi ikonu; `users.view`): arama (ad/e-posta), rol ve durum filtresi,
   sayfalama. **Yeni kullanıcı** (`users.create`): ad soyad, e-posta, rol (Teknisyen / Yönetici). 16 karakterlik geçici
   şifre yalnız bir kez gösterilir; kopyalanmadan kapatılırsa uyarı çıkar. Kullanıcı ilk girişte şifresini değiştirir.
@@ -338,13 +365,14 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   `/admin/switch-tenant`, `GET/PUT /settings/tenant` (oturum süresi, açık oturum sınırı, etkin oturum süresi, dosya
   sınırı, saklama süresi; bu ayarın web ekranı henüz yok). Ayrıntı `docs/api.md`.
 - Audit: `user.created/updated/permission_changed/deactivated/reactivated`, `tenant.created/updated/deactivated/
-  reactivated/switched`, `tenant_settings.updated`. Yetki değişikliği anahtar başına ayrı satırdır (kim, kime, eski → yeni).
+reactivated/switched`, `tenant_settings.updated`. Yetki değişikliği anahtar başına ayrı satırdır (kim, kime, eski → yeni).
 - Firma pasife alınınca tek işlemde kullanıcı oturumları ve bekleyen kod oturumları iptal edilir; ardından açık destek
   oturumları sonlanır, bekleyen talepler iptal olur ve kayıtlı bilgisayarlar geçersizleşir. Firma oluşturma öncesi
   doğrulama adımları: runbook §14.1.
 - Şema, migration, yeni ortam değişkeni ve yeni bağımlılık yok.
 
 ### Bilinen sınırlamalar — P9
+
 - Olmayan veya başka firmaya ait kullanıcı sayfası "Kullanıcı bulunamadı" gösterir ama HTTP durumu 200'dür.
 - Açık temada kapalı ve kilitli anahtarların kontrastı zayıf; mobilde etkin menü öğesi görünür alana kaydırılmıyor.
 - Firma seçici ilk 100 aktif firmayı listeler, arama yok.
@@ -352,6 +380,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   `docs/gereksinimler-sonra-acik.md` "P9'dan".
 
 ### Düzeltildi — istemci 0.10.2 (Windows; ekran yakalama)
+
 - Bazı bilgisayarlarda (özellikle hibrit ekran kartlı veya HDR/gelişmiş renk açık notebook'larda) istemci "Ekran
   görüntüsü alınamadı" diyordu ve hatanın nedeni hiçbir yerde görünmüyordu. İstemci artık sırayla üç yöntemi
   deniyor: DXGI masaüstü çoğaltma, açılamazsa HDR uyumlu DXGI `DuplicateOutput1` (BGRA), o da olmazsa GDI yedek
@@ -378,6 +407,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Tekrarlanabilir derleme SHA-256: `85142c14bf6941c2d5c3803b2818f0b1645c95b77704e640c8ff49d4059687bc`.
 
 ### Düzeltildi — istemci 0.10.1 (Windows; teknisyenden müşteriye dosya alımı)
+
 - Teknisyenin müşteriye gönderdiği dosyalar Windows istemcisinde zaman zaman "Dosya bozuk" sonucuyla
   reddediliyordu (staging'de 270 KB ve 989 KB PNG). Nedeni şuydu: "gönderim bitti" bildirimi, özellikle TURN/relay
   gecikmesinde, son dosya parçalarından önce ulaşıyordu. İstemci artık web alıcısında olduğu gibi son parçaları en çok
@@ -386,6 +416,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Tekrarlanabilir derleme SHA-256: `81acc316c58c751eaca3e0bce4536a490aaee5d8ee4313dbcbb2226f573f0284`.
 
 ### Eklendi — P8c-2 (Windows istemci 0.10.0: kalıcı istemci / bilgisayar kaydı; ADR-0017, mimari-e10 §8)
+
 - **Bilgisayar kaydı:** başarılı bir oturumda (müşteri ekran paylaşımına onay verdikten sonra) istemci sunucudan bu
   bilgisayar için bir kayıt alır ve mevcut DPAPI dosyasına (`hatirla.bin`, format v2; v1 dosyalar otomatik okunur)
   yazar. Kayıt yalnız talep açar; oturum veya uzaktan erişim yetkisi vermez. Anahtar yalnız kaydı veren sunucuya
@@ -400,6 +431,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   geçtiyse bilgi verilir. Müşteri pasife alındı / kayıt iptal edildi kapanışları genel metinle gösterilir.
 
 ### Güvenlik — P8c-2
+
 - Kayıt anahtarı yalnız kaydı veren sunucunun kanonik kökenine (`https://host:port`) gönderilir; farklı kökenli kayıt
   kullanılmaz ve silinmez. Unicode (IDN) sunucu adresiyle derlenen ikilide kayıt özelliği kapalıdır (fail-closed).
 - Kayıt yalnız sunucu `BINDING_INVALID` döndüğünde silinir; kodsuz 404 (proxy, geri alınmış sunucu) kaydı korur ve
@@ -409,11 +441,13 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Tekrarlanabilir derleme SHA-256: `5255edc87840f18b28eb608c705bf2c16230a3a7cb0da49145a46e5ecbf721f3`.
 
 ### Bilinen sınırlamalar — P8c-2
+
 - Kayıt isteği gönderilip yanıt gelmeden bağlantı koparsa o oturumda kayıt alınamaz (B-P8c2-4, güvenli taraf; sonraki
   başarılı oturumda alınır).
 - Gerçek Windows'ta elle testler (implementation.md "P8c-2" adım 1–16) ve AC-192 staging ölçümü bekliyor.
 
 ### Eklendi — P8c-1 (müşteri firmalar ve bilgisayar kaydı: sunucu + panel; ADR-0017, mimari-e10)
+
 - **Müşteriler modülü** (`/customers`, menüde Talepler'den sonra): müşteri firma ekleme/düzenleme, arama (ad, yetkili
   kişi, telefon; büyük/küçük harf ve Türkçe karakter duyarsız), Aktif/Pasif/Tümü filtresi, 50'lik sayfalama. Silme yok;
   **pasife alma** ve **yeniden aktif etme** var. Ad tenant içinde tekildir (409 "Bu adla bir müşteri zaten var").
@@ -440,12 +474,14 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   `customer_id`), yeni aydınlatma metni sürümü (seed).
 
 ### Değişti — P8c-1
+
 - İptal nedenlerine `CUSTOMER_PASSIVE` ("Müşteri pasife alındı") ve `BINDING_REVOKED` ("Bilgisayar kaydı iptal
   edildi") eklendi; 0.9.x istemciye `TENANT_PASSIVE` olarak iletilir.
 - `POST /sessions` gövdesi isteğe bağlı `customerId` alır.
 - Genel bağlantıyı yenilemek tenant'ın Genel kayıtlı bilgisayarlarını da geçersiz kılar.
 
 ### Güvenlik — P8c-1
+
 - Kayıt anahtarı (`rsb_…`, 256 bit) sunucuda yalnız SHA-256 özetiyle tutulur; log ve audit'e yazılmaz; yalnız talep açar
   (oturum, TURN, ticket yetkisi vermez). Her başarılı oturumda döndürülür.
 - Geçersiz ref ve geçersiz kayıt tek tip 404 döner (`REQUEST_REF_INVALID` / `BINDING_INVALID`), aynı hız kovasına sayılır.
@@ -455,19 +491,23 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   anonimleştirilir.
 
 ### Bilinen sınırlamalar — P8c-1
+
 - Var olmayan müşteri detayı ekranda "Müşteri bulunamadı" gösterir ama HTTP durumu 200'dür.
 - "Tümü" filtresinde müşteri yokken boş durum metni filtre değiştirmeyi önerir; boş durumda "Yeni müşteri" düğmesi yok.
 
 ### Düzeltildi — talepten doğan oturumda siyah ekran (TURN'süz ilk teklif)
+
 - Sunucu, misafir kabul edildikten sonra teknisyene `ice.servers`'ı `peer.joined`'dan **önce** gönderir; konsol, ICE
   listesi gelmeden teklif üretmez. Farklı NAT'lardaki müşterilerde görüntünün uzun süre siyah kalması giderildi.
   Sözleşme değişmedi.
 
 ### Düzeltildi — istemci 0.9.1
+
 - Windows istemcisi GUI alt sistemiyle derlenir (`-H=windowsgui`): açılışta çıkan boş siyah konsol penceresi kalktı
   (0.6.0'dan beri vardı).
 
 ### Eklendi — P8b-2 (Windows istemci 0.9.0: müşteri "Destek iste"; ADR-0016, mimari-e9 §13)
+
 - **Firma dosyasıyla açılış:** `NoktaDestek-<firma>-<ref>.exe` açılınca istemci firma bilgisini sunucudan alır
   (`GET /public/requests/tenant`). Pencerede firma adı (yalnız sunucudan), bekleme süresi, dolandırıcılık uyarısı,
   (tanımlıysa) "Kötüye kullanımı bildir" ve alt satırda sunucu · sürüm · parmak izi görünür. Ağ ve sertifika hatası
@@ -498,6 +538,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   yeniden bağlanması 2→4→8→15 sn artan aralıkla, `Retry-After`'a uyarak (≤ 60 sn) yapılır.
 
 ### Güvenlik — P8b-2
+
 - Hatırlanan bilgi DPAPI (CurrentUser) ile şifreli; başka Windows kullanıcısına kopyalanan dosya okunmaz ve silinir.
   `deviceKey` yalnız hatırla açıkken üretilir ve gönderilir; kişi değişince yeni anahtar (S8b2-1).
 - Sunucudan gelen metinler (firma adı, teknisyen adı, ret ve hata mesajları) tek süzgeçten geçer: satır sonu, sekme,
@@ -508,10 +549,12 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   bağlanamadı" yazar, "vazgeçti" değil).
 
 ### Güvenlik — P8b-2 (düzeltme turu 2)
+
 - S8b2-4: onay diyaloğu teknisyen adı + doğrulama koduyla eşleşir; kod değişirse diyalog yeniden açılır ve 1,5 sn kilit
   yeniden başlar. Kopmadan sonraki ilk yeniden bağlanmaya 0–1 sn rastgele bekleme eklendi.
 
 ### Bilinen sınırlamalar — P8b-2
+
 - Gerçek Windows'ta elle testler (Win10/Win11, implementation.md "Backend (Go) P8b-2" adım 1–20 + a–c) yapılmadı.
 - Firma logosu henüz sunucudan gelmez; pencerelerde Nokta Bilişim logosu görünür.
 - S8b-8'in sunucu yarısı (503'te IP kovası iadesi) ve S8b2-2'nin sunucu yarısı (güvenilen ağı `/ws/request` hız
@@ -519,6 +562,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - `MIN_AGENT_VERSION=0.9.0` müşterilerin tamamı 0.9.0 firma dosyasına geçene kadar açılmamalıdır.
 
 ### Eklendi — P8b-1 (müşteri destek talebi: sunucu + panel; ADR-0016)
+
 - **Müşteri başlatmalı destek talebi (sunucu):** müşteri, firmaya özel Hızlı Destek dosyasından ad, telefon, isteğe
   bağlı e-posta ve açıklamayla talep gönderir; talep o firmanın kuyruğuna düşer. Public uçlar
   `GET /api/v1/public/requests/tenant`, `POST /api/v1/public/requests`, `POST /api/v1/public/requests/cancel`,
@@ -556,6 +600,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   `db_busy`, `request_gate_busy`, `auth_fail_counter_fallback`, `auth_fail_unrecorded` (runbook §12.5).
 
 ### Değişti — P8b-1
+
 - **Aşırı yükte 500 yerine 503:** geçici DB çekişmesi (TX başlatılamadı, deadlock, kilit bekleme, havuz zaman aşımı)
   artık her uçta 503 `NOT_READY` + `Retry-After: 5` döner; yazma geri alındığından yeniden deneme güvenlidir.
 - **Talep oluşturma kapısı:** eşzamanlı talep işlemleri anahtar başına 2, toplam 4 ile sınırlı; DB havuzunun en az 6
@@ -566,6 +611,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Çıkış ve şifre değişimi açık `/ws/panel` soketlerini anında kapatır (4401).
 
 ### Güvenlik — P8b-1
+
 - WhatsApp istemcisi yönlendirme izlemez (`redirect: "error"`, S8b-1).
 - Talepten doğan oturumda eşzamanlı iki misafir bağlantısı yarışı kapatıldı (S8b-2); `request.created` audit'inde
   yalnız istemci sürümü, `guest.admitted`'da ad yok (S8b-3, QA-P8b-11).
@@ -574,12 +620,14 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   yoktu).
 
 ### Düzeltildi
+
 - **P7 kontrol konsolu (QA-P8b-13):** "Vazgeç"ten hemen sonra yeniden "Kontrol iste" denince geç gelen eski onay yeni
   isteği yerelde bitiriyor, "Vazgeç" düğmesi kayboluyordu. İstek bekleme fazında eski onay artık yok sayılır.
 - **Diyalog yarışı:** kapanan diyaloğun gecikmiş "close" olayı hemen yeniden açılan diyaloğu kapatıyordu (geçmiş
   ayrıntısında "Sayfada kal" + ikinci geri tuşu). `onClose` yalnız diyalog gerçekten kapalıyken çağrılır.
 
 ### Bilinen sınırlamalar — P8b-1
+
 - Müşteri tarafı (Hızlı Destek'te "Destek iste" formu ve bekleme ekranı) istemci 0.9.0 (P8b-2) ile geldi;
   `MIN_AGENT_VERSION` müşterilerin tamamı 0.9.0'a geçene kadar boş kalmalıdır.
 - AC-149 (talep → panel bildirimi ≤ 3 sn) yalnız yerelde ölçüldü; staging ölçümü yayın sonrası.
@@ -589,10 +637,12 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 ## [0.8.2] — 2026-11-12 — Staging alan adı + Windows istemci
 
 ### Eklendi
+
 - **Staging alan adı `https://remote.noktabilisim.net`** (ADR-0015): host nginx (Let's Encrypt) TLS'i sonlandırır,
   Caddy yalnız `127.0.0.1:4451`'de dinler. `https://185.126.217.99:4450` geçiş süresince çalışmaya devam eder.
 
 ### Değişti
+
 - **Windows istemci 0.8.2:** yeni adres gömülü; kök sertifika kurulumu gerekmez. IP:4450 gömülü eski istemciler
   (≤ 0.8.1) çalışmaya devam eder, onlar için kök sertifika gerekir.
 - gitleaks: RFC 6455 örnek WebSocket anahtarı istisnası; runbook rastgele anahtar kullanır.
@@ -600,6 +650,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 ## [0.8.1] — 2026-11-12 — Windows istemci
 
 ### Değişti
+
 - **Windows istemci — izin diyalogları (kontrol, ekran değiştirme, dosya kabulü):** uzak bağlantı veya yazılım
   üzerinden gelen (enjekte) tıklama artık sessizce yok sayılmıyor; diyalogda bir kez kırmızı uyarı satırı gösterilir
   ("Bu tıklama uzak bağlantı veya yazılım üzerinden geldiği için kabul edilmedi…"). Diyalog açık kalır, izin yine
@@ -608,6 +659,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 ## [0.8.0] — 2026-11-11 — P8 (oturum geçmişi)
 
 ### Eklendi — P8
+
 - **Oturum geçmişi ekranı `/history`** (kenar menüsünde "Oturum geçmişi", yetki `session_history.view`): tarih aralığı
   (Türkiye saatiyle gün), durum, bağlantı (İstemci/Tarayıcı), teknisyen, müşteri adı ve (yalnız Super Admin) firma
   filtreleri; sayfa başına 10/25/50/100 kayıt; filtreler adres çubuğunda kalır, sayfa yenilense de korunur. Bağlantıdaki
@@ -640,6 +692,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   sayısı; müşteri arama metni yazılmaz, yalnız `customerFilter: true|false`).
 
 ### Değişti — P8
+
 - `GET /api/v1/sessions` artık `sessions.view` **veya** `session_history.view` ile çağrılabilir; bilinmeyen sorgu
   parametresi 400 döner. Liste, `:id`, `:id/history`, PATCH ve CSV tek kapsam fonksiyonunu (`historyScope`) kullanır.
 - Super Admin firma seçmeden bu beş uçta tüm firmaların oturumlarını görür (yanıtta ve CSV'de "Firma" sütunu). Diğer
@@ -652,6 +705,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   (yük altında 40/40 geçti).
 
 ### Güvenlik — P8
+
 - **IDOR (AC-61, G-22):** kapsam dışı veya olmayan oturum her uçta 404; USER'ın gönderdiği `technicianId` ve Super Admin
   olmayanın gönderdiği `tenantId` kapsamı genişletemez. Tüm-tenant kapsamını yalnız `historyScope` üretebilir (markalı tip).
 - **Veri en aza indirme:** liste e-posta ve not içermez; detay API'si onay kayıtlarının IP ve tarayıcı bilgisini
@@ -666,6 +720,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   maskeli kalır).
 
 ### Bilinen sınırlamalar — P8
+
 - Teknisyen ve firma filtresinin seçenekleri o sayfadaki kayıtlardan gelir; tam kullanıcı/firma listesi P9'da.
 - Detayda Dosyalar tablosu dar: uzun dosya adı satır satır kırılır, SHA-256 sütunu kesik görünür (TEST-P8-1). Super
   Admin listesi 1280 px'te tabloyu 17 px aşar (TEST-P8-2).
@@ -678,6 +733,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 ## P2–P7 (sürüm etiketi yok; P7 istemcisi 0.7.0)
 
 ### Eklendi — P7 (uzaktan kontrol)
+
 - **WS sözleşmesi (`packages/contracts/src/ws.ts`, ADR-0013, mimari-protokol §3/§3.3):** teknisyen → `control.request`,
   `control.cancel`, `control.release`, `monitor.request`; misafir (yalnız Hızlı Destek) → `control.state`,
   `monitor.denied`, `env.state{elevatedForeground, secureDesktop, selfElevated}`; sunucu → misafire `control.revoke`
@@ -690,7 +746,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   bekleyen istek, etkin monitör `VALIDATION`; misafir/teknisyen kopması, sekme değişimi ve oturum sonunda kontrolün
   kapatılması; 60 sn teknisyen yeniden doğrulamasında yetki daralması → `caps.update` + `control.revoke{permission}`
   (S-P3-8 / AC-115 yedek yolu). Audit adları tek kaynak `packages/contracts/src/audit.ts` (`control.requested/granted/
-  denied/revoked/released/cancelled`, `monitor.requested/granted/denied`, `session.caps_changed`). Metrik
+denied/revoked/released/cancelled`, `monitor.requested/granted/denied`, `session.caps_changed`). Metrik
   `rs_control_total{event}`.
 - **Windows istemci (`apps/agent-win`):** izin kapısı (`internal/control`, varsayılan kapalı, her `SendInput`'tan önce
   atomik denetim); ortak izin diyaloğu (kontrol, monitör, dosya kabulü: "Reddet" odakta, "İzin ver" 1,5 sn kilitli,
@@ -709,6 +765,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   P7 server'ından önce uygulanmalı; geri alma için önce P7 kodu, `TECH` satırı varsa `down.sql` atomik başarısız olur.
 
 ### Değişti — P7
+
 - Konsol "%100" görünümü artık müşteri monitörünün piksel boyutunda (1:1) çizilir; önceden düşük çözünürlüklü akışta
   tıklamalar kayıyordu (TEST-P7-1).
 - Sahne 960 px'ten darsa monitör seçimi, Sığdır/%100 ve Tam ekran **Görünüm** menüsünde toplanır; kontrol şeridi
@@ -718,6 +775,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Müşteri kopunca bekleyen monitör isteği temizlenir; yeniden bağlanan istemcinin ilk `share.state`'i onay sayılmaz (S7-15).
 
 ### Güvenlik — P7
+
 - **Fail-closed açma (G-15, AC-111):** `control.granted` kaydı (consent + audit tek TX) hata verir ya da 800 ms'de
   bitmezse misafire `control.revoke{audit}`, teknisyene `error{INTERNAL}` (ref ile); kontrol açılmaz.
 - **S7-1/S7-2 (ADR-0013 K1/K2):** "Kontrolü bırak" müşteri kapısını kapatır; vazgeçilen isteğin geç onayı
@@ -735,6 +793,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - **S7-10:** misafir `RECONNECT`/`TECH` kaynağı gönderemez (şema hatası → 1008).
 
 ### Bilinen sınırlamalar — P7
+
 - Gerçek Windows'ta elle doğrulama (implementation.md "Agent P7" adım 25–42: Türkçe karakter, Alt+Tab, DPI, UAC,
   kısayol, enjekte tıklama) henüz yapılmadı; P8 kod turundan önce yapılacak.
 - UIAccess yetkili yerel bir programın `SendInput`'u donanım girdisi gibi görünür; teknisyen bu yolu kullanamaz,
@@ -745,6 +804,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Monitör isteği için iptal mesajı yok; yanıtsız istek 30 sn sonra düşer.
 
 ### Eklendi — P6 (Windows istemci "Hızlı Destek")
+
 - **Windows istemci (`apps/agent-win`, Go 1.26, CGO'suz, ADR-0010):** tek dosya, kurulumsuz, `asInvoker` (UAC yok),
   PerMonitorV2 DPI, Türkçe Win32 arayüz. Sunucu adresi ve sürüm yalnız `-ldflags` ile gömülür; `https://host[:port]`
   dışı adres reddedilir (AC-109). Pencere alt satırında sunucu, sürüm ve parmak izi (exe SHA-256'sının ilk 8 hanesi,
@@ -789,6 +849,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Yeni ortam değişkenleri: `AGENT_SHA256`, `AGENT_BINARY_PATH`. Compose: `agent_downloads` volume'u. Runbook §11.
 
 ### Değişti — P6
+
 - `packages/contracts/src/files.ts` `DANGEROUS_EXT`: `one onepkg wsc sct diagcab website ade adp mde mshxml jnlp cab`
   eklendi (S6-8); Go listesi testle birebir eşlenir.
 - Resolve kod yolundaki kilit kontrolü ve başarısız sayım ortak fonksiyonlara alındı (`assertLookupAllowed`,
@@ -798,6 +859,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   sayar); iç uç satırı. ADR-0004 r2 (%TEMP% yazımı yok, İndirilenler + `.part`), ADR-0006 r3, ADR-0010 r3 (proxy).
 
 ### Güvenlik — P6
+
 - **S6-1:** Win32/COM çağrılarında `uintptr(unsafe.Pointer)` dönüşümleri yalnız çağrı argümanında; `//go:uintptrescapes`
   zorunlu. AST testi tüm modülü tarar.
 - **S6-2:** `/downloads/*` artık sunulmadan önce server bütünlük kapısından geçer (`forward_auth`); server erişilemezse
@@ -814,6 +876,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Go 1.26.11 + `golang.org/x/net` v0.60.0: govulncheck 0 erişilebilir zafiyet.
 
 ### Düzeltildi — P6 (QA)
+
 - **QA-P6-1:** karşılamada logo (firma logosu / Nokta amblemi) eklendi.
 - **QA-P6-2:** iz testi betiği ve CI adımı eklendi.
 - **QA-P6-3:** web karşılamada indirme seçeneği ve SmartScreen rehberi (AC-27).
@@ -821,6 +884,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - **QA-P6-5:** `mimari-api.md` ve ADR'ler kodla eşitlendi.
 
 ### Bilinen sınırlamalar — P6
+
 - Firma logosu: sunucu resolve yanıtında `logoUrl` değerini P9'a kadar `null` döner; istemci sistem logosunu (Nokta
   amblemi) gösterir.
 - Fare imleci görüntüye çizilmez; teknisyen müşterinin imlecini göremez.
@@ -836,6 +900,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Oturum ortasında gelen `peer.joined.maxFileMb` alım sınırını güncellemez; `caps.update`/`control.*` WS tipleri P7'de.
 
 ### Eklendi — P5 (konsol işbirliği)
+
 - **Teknisyen konsolu yan paneli:** Sohbet / Dosyalar / Kalite (`collab-side`); sahnede işaretleme araç çubuğu.
   **Müşteri sayfası:** "Teknisyenle iletişim" (Sohbet; `caps.file_transfer` varsa Dosyalar). Yeni rota yok.
 - **Sohbet (AC-35, 52):** iki yön, 2000 karakter, zaman damgası, okunmamış sayacı; düz metin (HTML yorumlanmaz).
@@ -865,6 +930,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   (art arda 5 koşu yeşil), gerçek sunucu e2e 5/5.
 
 ### Değişti — P5
+
 - `apps/server/Dockerfile`: `apps/server/scripts/` (`e2e-real-users.ts`, `test-db.sh`) prod imajına girmez (S-P4-T2-2 kalanı).
 - `reconnect.conflict` audit'i oda başına 60 sn'de en çok 1 kayıt (S-P4-T3-2); misafir yeniden bağlanma denemesi
   35 × 3 sn = 105 sn. Misafirin `rs.resume.*` kaydı 120 sn'den eskiyse okunmaz (S-P4-T3-1).
@@ -873,6 +939,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   diyaloğu, işaretleme araç çubuğu, müşteri iletişim bölümü ve PiP.
 
 ### Güvenlik — P5
+
 - **S-P5-1 (Yüksek):** Teklif seliyle `file.meta` kotası doldurulup gerçek transferin kaydı düşürülebiliyordu. Kota artık
   raporlayan taraf × sonuç sınıfı başına (`accepted` 60/dk, 2000/oturum; `declined` 20/dk, 500/oturum); aşımda
   `error{RATE_LIMITED}` + audit `file.meta.rate_limited`. Alıcı tarayıcı 10 sn'de en çok 3 teklif işler; karşı tarafın
@@ -894,6 +961,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - `pnpm audit` temiz; yeni bağımlılık yok (SHA-256 bağımlılıksız TS ile yazıldı).
 
 ### Düzeltildi — P5 (QA ve sayfa testi)
+
 - **QA-P5-1:** AC-53 iptal e2e'si (alıcı ve gönderen iptali, iki tarafta "İptal edildi", meta CANCELLED).
 - **QA-P5-2:** AC-37 PiP e2e'si (destek varsa açılır/kapanır, yoksa düğme yok).
 - **QA-P5-3:** AC-57 işaretleme gecikmesi ölçümü (20 çizgi, p95 < 200 ms; yerel).
@@ -913,6 +981,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   görünmüyordu; sınır metni tenant ayarı yerine sabit "100 MB" idi.
 
 ### Bilinen sınırlamalar — P5
+
 - AC-41 (1080p ≥ 15 FPS) ve AC-57 (işaretleme p95 < 200 ms) yalnız yerelde ölçüldü; gerçek ağ/TURN ölçümü staging'de,
   NAT yönlendirmesi açılınca (en geç P6 başlamadan).
 - **S-P5-T2-4 (risk kabulü):** `session_files` satırı raporlayan tarafı taşımıyor, gönderen ve alıcı raporları
@@ -925,6 +994,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - `caps.update` (teknisyen yetkisi oturum sırasında değişirse) web'de henüz işlenmiyor.
 
 ### Eklendi — P4 (KVKK onayı + tarayıcıdan ekran paylaşımı)
+
 - **Müşteri karşılama akışı (`/session/<token>`):** teknisyen kartı + doğrulama kodu, dolandırıcılık uyarısı,
   "Kötüye kullanımı bildir" (`mailto:`, adres yoksa gizli), ad + KVKK aydınlatma metni onayı, "Yalnız ekranımı
   tarayıcıdan paylaş" → lobi (4 haneli kabul kodu, kalan bekleme, "Vazgeç ve çık") → oturum (paylaş / durdur /
@@ -951,9 +1021,10 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - **Gerçek sunucu e2e:** `e2e/p4-real.spec.ts` + `playwright.real.config.ts`; `pnpm --filter @remote/web e2e:real:users`
   (demo tenant'ta iki ADMIN) ve `pnpm --filter @remote/web e2e:real`. CI'da koşmaz (README "Gerçek sunucu e2e").
 - **Testler:** birim 146 (server 78, web 44, contracts 24), server entegrasyon 103, TURN 62 kontrol, web e2e 116 geçti
-  + 8 atlandı, gerçek sunucu e2e 5/5.
+  - 8 atlandı, gerçek sunucu e2e 5/5.
 
 ### Değişti — P4
+
 - Boş ortam değişkeni (`ANAHTAR=`) tanımsız sayılır; varsayılanlı alan varsayılana düşer, zorunlu alan yine hata
   verir. Compose'da boş geçen `ABUSE_EMAIL`/`METRICS_TOKEN` server'ı durdurmaz.
 - coturn yalnız `TURN_LISTEN_IPS` adreslerinde dinler; boşsa eski davranış (tüm arayüzler) + uyarı.
@@ -962,6 +1033,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   teması, cihaz desteklenmiyor ve paylaşım reddedildi durumları.
 
 ### Güvenlik — P4
+
 - **S-P4-1:** Production'da `ABUSE_EMAIL` yoksa resolve `abuseEmail: null` döner, Super Admin e-postası hiç
   sorgulanmaz (önceden platformun en yetkili hesabının e-postası her bağlantı sahibine gidiyordu). `ABUSE_EMAIL`
   `.env.example`, compose ve runbook'a eklendi.
@@ -978,6 +1050,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - coturn `TURN_LISTEN_IPS` değerleri IPv4 olarak tam doğrulanır, satır sonu reddedilir (yapılandırma enjeksiyonu yok).
 
 ### Düzeltildi — P4 (QA)
+
 - QA-P4-2..5: pasif "Uzaktan kontrol" (AC-34), cihaz desteklenmiyor ekranı (AC-33), paylaşım reddinde tekrar dene
   (AC-30), konsol görüntü modları ve tam ekran (AC-43).
 - QA-P4-6: `ABUSE_EMAIL` env zinciri (`.env.example`, compose, runbook).
@@ -990,6 +1063,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Gerçek sunucu e2e'sinin bulduğu: teknisyen yeniden bağlanınca misafir paylaşım durumunu yeniden bildirir.
 
 ### Bilinen sınırlamalar — P4
+
 - Staging NAT/TURN-TLS ölçümleri (AC-23, 40, 42) üst NAT yönlendirmesi açılınca yapılacak, en geç P6 öncesi.
 - Müşteri adı DB'ye yazılmaz (lobide bellekte ve audit'te); oturum listesinde müşteri adı yok (P8).
 - Onay zaman çizelgesi (AC-62) P8'de. KVKK metninin yeni sürümünü yayımlama ekranı henüz yok; metin seed ile gelir.
@@ -998,6 +1072,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - `e2e-real-users.ts` server imajında bulunuyor; imajdan çıkarılması devops işi olarak açık.
 
 ### Eklendi — P3 (sinyalizasyon + TURN)
+
 - **Müşteri katılımı:** `POST /api/v1/public/sessions/join` (`joinNonce` + ad + onay → `wsTicket`, 4 haneli
   `admitCode`, teknisyen adı). Resolve yanıtına `joinNonce` ve `nonceExpiresAt` eklendi (tek kullanımlık, 60 sn).
 - **WebSocket sinyalizasyonu:** `/ws/tech?sessionId=` (çerez + Origin, yalnız oturum sahibi) ve `/ws/guest`
@@ -1023,9 +1098,10 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   `TURN_PROMETHEUS_ADDRESS` (`.env.example`, compose, runbook §9).
 - **Bağımlılık:** `ws` 8.21.0, `@types/ws` (dev).
 - **Testler:** birim 94 (server 69, web 23, contracts 2), server entegrasyon 93, TURN 62 kontrol, web e2e 97 geçti
-  + 1 atlandı.
+  - 1 atlandı.
 
 ### Değişti — P3
+
 - Public resolve ve join ADR-0012 kuralını uygular: `Origin` varsa izinli olmalı ve tür `BROWSER`; yoksa yalnız
   `AGENT` (Windows istemcisi). Join'de tür `joinNonce` kaydından gelir.
 - `POST /sessions/:id/cancel` artık bağlı teknisyen ve lobi misafirlerine `session.ended{cancelled}` gönderir.
@@ -1035,6 +1111,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Staging ADMIN/USER hesabı `deploy/staging-users.sh` ile eklenir (runbook §6).
 
 ### Güvenlik — P3
+
 - Token'lar URL'de taşınmaz: misafir kimliği WS subprotocol'ünde; URL'de ticket görülürse bağlantı 403.
   `joinNonce`, `wsTicket`, `reconnectToken`, `admitCode` ve TURN credential'ı log/audit'e yazılmaz (testle doğrulandı).
 - Misafir, teknisyen kabul etmeden TURN bilgisi ve `reconnectToken` almaz; kabul kodu yalnız o misafire gösterilir,
@@ -1050,12 +1127,14 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - Test sırları tek dosyada (`apps/server/test/helpers/secrets.ts`), gitleaks allowlist'i yalnız o dosya.
 
 ### Bilinen sınırlamalar — P3
+
 - Ekran paylaşımı ve teknisyen konsolu video arayüzü P4'te; KVKK metni doğrulaması (`consentTextId`) P4'te zorunlu olur (P4'te kapandı).
 - Yetki daraltması/pasifleştirme aktif oturumu henüz sonlandırmaz (S-P3-8, P7 giriş şartı).
 - Staging'de TURN'ün dışarıdan çalışması üst NAT yönlendirmesine bağlı (runbook §9.3). Prod IPv6 relay doğrulaması P13.
 - `host-firewall.sh` sertleştirmeleri (S-P3-T2-1, S-P3-T2-2) prod açılışından önce kapanacak.
 
 ### Eklendi — P2 (destek oturumları)
+
 - **Oturum uçları:** `POST /api/v1/sessions` (link + 8 haneli kod + teknisyen doğrulama kodu; link yalnız bu
   yanıtta), `GET /api/v1/sessions` (sayfalı, `status`/`technicianId` filtresi, en çok 100),
   `GET /api/v1/sessions/:id`, `POST /api/v1/sessions/:id/cancel` (yalnız PENDING). Ayrıntı `docs/api.md`.
@@ -1081,6 +1160,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - **Testler:** birim 51 (server 26, web 23, contracts 2), server entegrasyon 62, web e2e 97 geçti + 1 atlandı.
 
 ### Değişti — P2
+
 - Compose: web sabit adres `172.30.0.3`, server `TRUSTED_PROXY_CIDR=172.30.0.2/31` (Caddy → web → server zinciri);
   `SESSION_REF_KEY` (server) ve `EDGE_PROXY_SECRET` (caddy, web) zorunlu.
 - Web 401 → giriş yönlendirmesi tek yardımcıda (`lib/api.ts` `isUnauthenticated`, `EXPIRED_LOGIN_PATH`).
@@ -1089,6 +1169,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   yeni kayıt eklemez ve isteği engeller (fail-closed). P1'deki "etkin kilit atılabilir" sınırlaması kapandı.
 
 ### Güvenlik — P2
+
 - Link token'ı 32 bayt rastgele, DB'de yalnız SHA-256; token ve kod log/audit'e yazılmaz (testle doğrulandı).
 - Public kod denemesi IP başına 10/dk ve /24 (IPv6 /56) önek başına 30/dk; aşan anahtar 15 dk 429. Token 30/dk/IP,
   durum yoklaması 60/dk/IP. Başarısız kod toplamı 60 sn'de 100'ü aşınca `warn` alarmı (engellemez).
@@ -1102,6 +1183,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
   sınıfıyla genişletildi).
 
 ### Bilinen sınırlamalar — P2
+
 - Tenant logosu ve teknisyen avatarı `null` (P9/P12); TTL ve açık oturum sınırı ayar ekranı P9/P10.
 - Super Admin tenant seçmeden destek oturumu açamaz (P9). Seed teknisyen oluşturmaz; staging'de teknisyen
   hesabı P9'a kadar SQL ile eklenir.
@@ -1110,6 +1192,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 ## P1 (ince iskelet, sürüm etiketi yok)
 
 ### Eklendi — P1 (ince iskelet)
+
 - **Monorepo:** pnpm 9 workspace; `apps/server`, `apps/web`, `packages/contracts`.
 - **Contracts:** tek yetki tanımı (`permissions.ts`, rol varsayılanları: Super Admin tümü, Admin varsayılan
   açık, User varsayılan kapalı), hata kodu → HTTP eşlemesi ve hata zarfı (`errors.ts`), auth girdi şemaları
@@ -1137,6 +1220,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - **Belgeler:** `README.md`, `docs/api.md`, `docs/runbook.md`, `docs/db-notlari.md`, bu dosya, `LICENSE`.
 
 ### Güvenlik
+
 - Şifreler argon2id (m=19456, t=2, p=1); oturum token'ı DB'de yalnız SHA-256.
 - Çerezler `__Host-rs_session` (HttpOnly) ve `__Host-rs_csrf`; ikisi Secure, SameSite=Strict, Path=/, Domain yok.
 - CSRF: durum değiştiren isteklerde `Origin` allowlist zorunlu (login dahil) + `X-CSRF-Token` double-submit.
@@ -1158,6 +1242,7 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 - `minimatch` GHSA-g3hv-75wg-m249 için `pnpm.overrides` (^11.0.1).
 
 ### Bilinen sınırlamalar
+
 - Hesap kilidi bildirim e-postası, 2FA ve tüm cihazlardan çıkış P10'da.
 - Kullanıcı tema tercihi P12'de; P1 yalnız işletim sistemi temasına uyar.
 - Yönetim ekranları (kullanıcı, yetki, tenant, ayarlar, audit log) P9–P11'de.

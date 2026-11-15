@@ -1,8 +1,11 @@
 # ADR-0019 — Prod yerleşimi: staging yığını yerinde prod'a terfi eder (temiz kurulum), ayrı staging sonra
+
 Tarih: 2026-11-14 · Durum: Kabul · İlgili: ADR-0015, ADR-0018, ADR-0020, K1, K3, `docs/mimari-p13.md` §7.2, runbook §8, §20
 
 ## Bağlam
+
 K1 (2026-11-14): prod adresi `https://remote.noktabilisim.net`. Bu adreste bugün staging yayında. Yerleşim şöyle:
+
 - host nginx → `127.0.0.1:4451`, compose projesi `remote`, dizin `/opt/remote/deploy`, ayrıca IP girişi `0.0.0.0:4450`.
 - K3: aynı sunucu, ayrı IP yok.
 - Sunucu paylaşımlı. Disk geçmişte %83'e çıktı.
@@ -15,6 +18,7 @@ Betikler `remote` proje adına bağlı: `remote-mysql-1`, `RESTORE_EXPECT_PROJEC
 4450/4451 portları. Bu yüzden aynı makinede ikinci bir yığın, parametreleştirme olmadan çalışamaz.
 
 ## Karar
+
 1. **Yerinde terfi:** Prod, aynı dizinde (`/opt/remote`) ve aynı compose proje adıyla (`remote`) kurulur. Betikler ve runbook
    komutları değişmez. Terfi **temiz kurulumdur**:
    - Staging'in son yedeği (P13b koduyla imzalı) alınır ve scratch'te doğrulanır.
@@ -46,6 +50,7 @@ Betikler `remote` proje adına bağlı: `remote-mysql-1`, `RESTORE_EXPECT_PROJEC
    - Kaynak kontrolü (RAM, disk) P13c tasarımında yapılır.
 
 ## Alternatifler
+
 - **Aynı sunucuda ayrı prod projesi (`remote-prod`) + staging'i yeni alt alana taşımak:** İki MySQL ve iki yığın gerekir; compose ve
   Caddy'deki sabit ağ/port değerleri, yedek konteyner adı ve TURN paylaşımı şimdi değişmek zorunda kalır. Prod açılışının yüzeyini
   büyütür ve disk riski yaratır. Reddedildi, P13c'ye bırakıldı.
@@ -54,6 +59,7 @@ Betikler `remote` proje adına bağlı: `remote-mysql-1`, `RESTORE_EXPECT_PROJEC
 - **Prod için yeni VM:** K3 kararıyla yok.
 
 ## Sonuçlar
+
 - Prod açılışından P13c'ye kadar staging yoktur. Paket akışındaki "staging yayını" adımı bu sürede yerel ortamda yapılır:
   `scripts/e2e-real.sh` ve yerel compose `rsp13ae2e` kalıbı. Prod'a yalnız düzeltme ve operasyon değişikliği çıkar; yeni özellik
   (E11) P13c kurulmadan prod'a çıkmaz.

@@ -13,8 +13,27 @@ const consents = (sessionId: string) => testDb().sessionConsent.count({ where: {
 
 function authOf(u: { id: string; email: string; username: string }, tenantId: string): AuthContext {
   return {
-    sessionId: "s", expiresAt: new Date(Date.now() + 3_600_000), tenantId, tenant: null, actingTenant: null, mfaStage: "ok" as const, mfaRequired: false, totpEnabled: false, logoPath: null, permissions: new Set(["sessions.delete"]),
-    user: { id: u.id, email: u.email, username: u.username, fullName: "T", role: "USER", tenantId, theme: "SYSTEM", avatarUrl: null, mustChangePassword: false },
+    sessionId: "s",
+    expiresAt: new Date(Date.now() + 3_600_000),
+    tenantId,
+    tenant: null,
+    actingTenant: null,
+    mfaStage: "ok" as const,
+    mfaRequired: false,
+    totpEnabled: false,
+    logoPath: null,
+    permissions: new Set(["sessions.delete"]),
+    user: {
+      id: u.id,
+      email: u.email,
+      username: u.username,
+      fullName: "T",
+      role: "USER",
+      tenantId,
+      theme: "SYSTEM",
+      avatarUrl: null,
+      mustChangePassword: false,
+    },
   };
 }
 
@@ -72,7 +91,9 @@ describe("P3 lobi + admit (oda katmanı)", () => {
     const fx = await roomFixture(rooms);
     const [g0, g1, g2] = [fx.guest("198.51.100.1"), fx.guest("198.51.100.2"), fx.guest("198.51.100.3")];
     expect(new Set([g0.admitCode, g1.admitCode, g2.admitCode]).size).toBe(3);
-    expect(() => rooms.addGuest(fx.row, { name: "X", kind: "BROWSER", ipKey: "198.51.100.4", consent: fx.consent })).toThrow(expect.objectContaining({ code: "LOBBY_FULL" }));
+    expect(() => rooms.addGuest(fx.row, { name: "X", kind: "BROWSER", ipKey: "198.51.100.4", consent: fx.consent })).toThrow(
+      expect.objectContaining({ code: "LOBBY_FULL" }),
+    );
     expect(await admitGuest(rooms, fx.room, fx.tech, g1.admitCode)).toBe("admitted");
     expect(g0.peer.of("session.ended")[0]?.reason).toBe("rejected");
     expect(g2.peer.of("session.ended")[0]?.reason).toBe("rejected");
@@ -86,7 +107,9 @@ describe("P3 lobi + admit (oda katmanı)", () => {
     await rejectGuest(rooms, fx.room, fx.tech, g.guestId);
     expect(g.peer.of("session.ended")[0]?.reason).toBe("rejected");
     expect(fx.techPeer.of("peer.pending.left")[0]).toMatchObject({ guestId: g.guestId, reason: "rejected" });
-    expect(() => rooms.addGuest(fx.row, { name: "Y", kind: "BROWSER", ipKey: "192.0.2.9", consent: fx.consent })).toThrow(expect.objectContaining({ code: "FORBIDDEN" }));
+    expect(() => rooms.addGuest(fx.row, { name: "Y", kind: "BROWSER", ipKey: "192.0.2.9", consent: fx.consent })).toThrow(
+      expect.objectContaining({ code: "FORBIDDEN" }),
+    );
     const other = fx.guest("192.0.2.10");
     expect(await admitGuest(rooms, fx.room, fx.tech, other.admitCode)).toBe("admitted");
     expect(await audits(fx.session.id, "guest.rejected")).toBe(1);
@@ -111,53 +134,74 @@ describe("P3 lobi + admit (oda katmanı)", () => {
 const LOOP_TIMEOUT = 60_000;
 
 describe("P3 giriş şartı 2 — atomik tüketim yarışları (mimari-protokol §3.2)", () => {
-  it("AC-7: repo admit‖admit 50 kez → her turda tam bir kazanan", async () => {
-    const t = await createTenant();
-    const u = await createUser({ tenantId: t.id });
-    for (let i = 0; i < 50; i++) {
-      const s = await createSupportSessionRow({ tenantId: t.id, technicianId: u.id });
-      const now = new Date();
-      const counts = await Promise.all([repo.consumeForAdmit(testDb(), s.id, now, "BROWSER", { name: "Ayşe", email: null }), repo.consumeForAdmit(testDb(), s.id, now, "AGENT", { name: "Ali Veli", email: null })]);
-      expect(counts.reduce((a, b) => a + b, 0)).toBe(1);
-    }
-  }, LOOP_TIMEOUT);
+  it(
+    "AC-7: repo admit‖admit 50 kez → her turda tam bir kazanan",
+    async () => {
+      const t = await createTenant();
+      const u = await createUser({ tenantId: t.id });
+      for (let i = 0; i < 50; i++) {
+        const s = await createSupportSessionRow({ tenantId: t.id, technicianId: u.id });
+        const now = new Date();
+        const counts = await Promise.all([
+          repo.consumeForAdmit(testDb(), s.id, now, "BROWSER", { name: "Ayşe", email: null }),
+          repo.consumeForAdmit(testDb(), s.id, now, "AGENT", { name: "Ali Veli", email: null }),
+        ]);
+        expect(counts.reduce((a, b) => a + b, 0)).toBe(1);
+      }
+    },
+    LOOP_TIMEOUT,
+  );
 
-  it("AC-7: oda admit‖admit 50 kez → tek admitted, tek guest.admitted audit'i, kaybedene CONFLICT", async () => {
-    for (let i = 0; i < 50; i++) {
-      const rooms = makeRooms();
-      const fx = await roomFixture(rooms);
-      const g = fx.guest();
-      const r = await Promise.all([admitGuest(rooms, fx.room, fx.tech, g.admitCode), admitGuest(rooms, fx.room, fx.tech, g.admitCode)]);
-      expect(r.filter((x) => x === "admitted")).toHaveLength(1);
-      expect(r.filter((x) => x === "conflict")).toHaveLength(1);
-      expect(await audits(fx.session.id, "guest.admitted")).toBe(1);
-      expect(fx.techPeer.of("error").map((e) => e.code)).toEqual(["CONFLICT"]);
-      expect(await consents(fx.session.id)).toBe(1); // P4 AC-29: kaybeden admit consent yazmaz
-    }
-  }, LOOP_TIMEOUT);
+  it(
+    "AC-7: oda admit‖admit 50 kez → tek admitted, tek guest.admitted audit'i, kaybedene CONFLICT",
+    async () => {
+      for (let i = 0; i < 50; i++) {
+        const rooms = makeRooms();
+        const fx = await roomFixture(rooms);
+        const g = fx.guest();
+        const r = await Promise.all([admitGuest(rooms, fx.room, fx.tech, g.admitCode), admitGuest(rooms, fx.room, fx.tech, g.admitCode)]);
+        expect(r.filter((x) => x === "admitted")).toHaveLength(1);
+        expect(r.filter((x) => x === "conflict")).toHaveLength(1);
+        expect(await audits(fx.session.id, "guest.admitted")).toBe(1);
+        expect(fx.techPeer.of("error").map((e) => e.code)).toEqual(["CONFLICT"]);
+        expect(await consents(fx.session.id)).toBe(1); // P4 AC-29: kaybeden admit consent yazmaz
+      }
+    },
+    LOOP_TIMEOUT,
+  );
 
-  it("AC-6/AC-8: admit‖cancel 50 kez → tek kazanan; iptal kazanırsa misafire cancelled, admit audit'i yok", async () => {
-    for (let i = 0; i < 50; i++) {
-      const rooms = makeRooms();
-      const fx = await roomFixture(rooms);
-      const g = fx.guest();
-      const ctx = { ip: "10.0.0.2", userAgent: "t", requestId: "r" };
-      const [a, c] = await Promise.allSettled([admitGuest(rooms, fx.room, fx.tech, g.admitCode), cancelSession(testDb(), ctx, authOf(fx.user, fx.tenant.id), fx.tenant.id, fx.session.id, rooms)]);
-      const st = await status(fx.session.id);
-      const adm = a.status === "fulfilled" && a.value === "admitted";
-      expect(adm).toBe(st === "ACTIVE");
-      expect(c.status === "fulfilled").toBe(st === "CANCELLED");
-      expect(await audits(fx.session.id, "guest.admitted")).toBe(adm ? 1 : 0);
-      expect(await consents(fx.session.id)).toBe(adm ? 1 : 0); // P4: TX geri alınınca onay kaydı yok
-      if (!adm) expect(g.peer.of("session.ended")[0]?.reason).toBe("cancelled");
-    }
-  }, LOOP_TIMEOUT);
+  it(
+    "AC-6/AC-8: admit‖cancel 50 kez → tek kazanan; iptal kazanırsa misafire cancelled, admit audit'i yok",
+    async () => {
+      for (let i = 0; i < 50; i++) {
+        const rooms = makeRooms();
+        const fx = await roomFixture(rooms);
+        const g = fx.guest();
+        const ctx = { ip: "10.0.0.2", userAgent: "t", requestId: "r" };
+        const [a, c] = await Promise.allSettled([
+          admitGuest(rooms, fx.room, fx.tech, g.admitCode),
+          cancelSession(testDb(), ctx, authOf(fx.user, fx.tenant.id), fx.tenant.id, fx.session.id, rooms),
+        ]);
+        const st = await status(fx.session.id);
+        const adm = a.status === "fulfilled" && a.value === "admitted";
+        expect(adm).toBe(st === "ACTIVE");
+        expect(c.status === "fulfilled").toBe(st === "CANCELLED");
+        expect(await audits(fx.session.id, "guest.admitted")).toBe(adm ? 1 : 0);
+        expect(await consents(fx.session.id)).toBe(adm ? 1 : 0); // P4: TX geri alınınca onay kaydı yok
+        if (!adm) expect(g.peer.of("session.ended")[0]?.reason).toBe("cancelled");
+      }
+    },
+    LOOP_TIMEOUT,
+  );
 
   it("AC-5/7: süresi dolmuş oturumda admit count=0 → misafire timeout, teknisyene CONFLICT", async () => {
     const rooms = makeRooms();
     const fx = await roomFixture(rooms);
     const g = fx.guest();
-    await testDb().supportSession.update({ where: { id: fx.session.id }, data: { createdAt: new Date(Date.now() - 20 * 60_000), expiresAt: new Date(Date.now() - 1000) } });
+    await testDb().supportSession.update({
+      where: { id: fx.session.id },
+      data: { createdAt: new Date(Date.now() - 20 * 60_000), expiresAt: new Date(Date.now() - 1000) },
+    });
     expect(await admitGuest(rooms, fx.room, fx.tech, g.admitCode)).toBe("conflict");
     expect(g.peer.of("session.ended")[0]?.reason).toBe("timeout");
     expect(await status(fx.session.id)).toBe("PENDING");

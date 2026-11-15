@@ -1,8 +1,10 @@
 # Kabul kriterleri — E11 (bölüm B: G5–G8 + ortak, AC-245..AC-297)
-Tarih: 2026-11-14   Durum: ONAYLANDI (kullanıcı kararları 2026-11-14, gereksinimler-e11 §8; mimari-e11 sonrası revizyon r2: AC-264, 271, 272, 273, 292, 297; AC-273 ADR-0022 r2). Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e11.md`. Bölüm A: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e11.md`. Tasarım: `docs/mimari-e11.md`, ADR-0021..0028.
+
+Tarih: 2026-11-14 Durum: ONAYLANDI (kullanıcı kararları 2026-11-14, gereksinimler-e11 §8; mimari-e11 sonrası revizyon r2: AC-264, 271, 272, 273, 292, 297; AC-273 ADR-0022 r2). Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e11.md`. Bölüm A: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e11.md`. Tasarım: `docs/mimari-e11.md`, ADR-0021..0028.
 G8 AC'leri **çerçeve AC**'dir: her biri ayrı tasarım turunda proje-yoneticisi tarafından ayrıntılandırılır.
 
 ## G5 — Windows istemci 0.11.x (Go)
+
 - AC-245: Donanım H.264 MFT oturum sırasında hata verir veya 3 sn kare üretmezse istemci yazılım MFT'ye geçer; görüntü ≤ 5 sn içinde geri gelir, oturum kopmaz, yerel loga neden yazılır (hata enjeksiyonlu birim testi + Windows elle testi).
 - AC-246: Dirty-rect ile yalnız değişen bölgeler dönüştürülür; 1080p durağan masaüstünde CPU kullanımı 0.10.x'e göre ≥ %40 düşer, hareketli içerikte görüntü bozulması yoktur (Windows ölçümü).
 - AC-247: Windows "Uygulama modu: Koyu" iken istemci pencereleri koyu renkte açılır, tüm metinler ≥ 4.5:1 kontrast verir; açık modda bugünkü görünüm değişmez.
@@ -15,6 +17,7 @@ G8 AC'leri **çerçeve AC**'dir: her biri ayrı tasarım turunda proje-yoneticis
 - AC-254: Bir bilgisayar en çok 5 destek firmasına kayıtlı olabilir; ana ekranda firma seçilerek talep açılır; "Bu bilgisayarı unut" tek firma veya tümü için çalışır; 0.10.x kayıt dosyası kayıpsız taşınır.
 
 ## G6 — Talep ve müşteri iletişimi
+
 - AC-255: Bekleyen talepte teknisyen ve müşteri kabulden önce yazışabilir (metin, ≤ 1.000 karakter, saniyede 1 mesaj); `support_requests.view` yetkisi gerekir. Mesajlar talep kaydıyla birlikte saklanır ve chat saklama kuralına (AC-264) tabidir.
 - AC-256: Talep bir teknisyene atanabilir (`support_requests.assign`); atanan teknisyen bildirimi alır, diğerleri talebi "Atandı: <ad>" ile görür; atama değişimi audit'e yazılır.
 - AC-257: Talebin önceliği (Düşük/Normal/Yüksek) vardır, kuyruk öncelik + bekleme süresine göre sıralanır; müşteri için varsayılan öncelik ve SLA hedefi (dakika) tanımlanır; SLA'yı aşan talep kırmızı rozetle işaretlenir ve geçmiş CSV'sinde "SLA aşıldı" sütunu bulunur.
@@ -26,6 +29,7 @@ G8 AC'leri **çerçeve AC**'dir: her biri ayrı tasarım turunda proje-yoneticis
 - AC-263: Müşteriler CSV dışa aktarılır (`;`, BOM, formül kaçışı) ve içe aktarılır: önizleme, satır bazlı hata raporu, ad çakışmasında "atla/güncelle", ≤ 5.000 satır ≤ 30 sn, audit; içe aktarmada her müşteriye yeni ref üretilir.
 
 ## G7 — Büyük entegrasyonlar
+
 - AC-264: (S25 kararı: her zaman saklanır; r2 — ADR-0025, K-E11-6) Tüm tenant'larda oturum sohbeti (ve AC-255 talep mesajları) sinyalizasyon WS'i üzerinden **sunucu aktarımlı** iletilir: sunucu mesajı önce kaydeder, sonra karşı tarafa iletir; DataChannel `chat` mesajı yeni istemcilerde kullanılmaz. Mesajlar alan düzeyinde şifreli saklanır; ayar yoktur, kapatılamaz. Oturum detayında yalnız `sessions.view_chat` yetkili kişiye (Admin varsayılan açık, User yalnız kendi oturumunda) gösterilir, görüntüleme audit'e yazılır. Sohbet, oturum saklama süresi (90–730 gün) dolup oturum anonimleştirildiğinde aynı işte silinir; anonim oturumda sohbet satırı sayısı 0 (entegrasyon testi, sahte saat). **Eski istemci** (WS chat desteklemeyen Windows istemci sürümü) bağlıyken chat iki tarafta da kapalıdır: teknisyen konsolunda "Müşterinin istemcisi eski; sohbet için güncellemesi gerekir", müşteri tarafında "Sohbet için programı güncelleyin" mesajı görünür; DC üzerinden gelen chat mesajı sunucuya ulaşmadığı için gösterilmez (entegrasyon + e2e).
 - AC-265: Arayüz Türkçe/İngilizce seçilebilir (kullanıcı tercihi, DB'de); web ve istemci metinleri anahtar tabanlıdır, eksik anahtar CI'da hata verir; tarih/sayı biçimi dile göre değişir; müşteri karşılama sayfası tarayıcı diline göre açılır.
 - AC-266: SSO: tenant bir OIDC sağlayıcısı tanımlar (önce Entra ID; Google Workspace ve Keycloak ile test edilir); kullanıcı doğrulanmış e-posta eşleşmesiyle girer, ilk girişte hesap oluşturma tenant ayarına bağlıdır, rol/yetki toggle'ları yerel kalır; SSO zorunlu tenant'ta yerel şifre yalnız Admin'in "acil durum" hesabına açıktır; "Bağlantıyı Test Et" vardır; client secret şifreli saklanır.
@@ -40,6 +44,7 @@ G8 AC'leri **çerçeve AC**'dir: her biri ayrı tasarım turunda proje-yoneticis
 - AC-275: Gözetimsiz cihazlar listesinde çevrimiçi durumu, son bağlantı, yerel anahtar durumu (AC-295) ve yetkili teknisyenler görünür; Admin cihazı iptal eder, iptalden sonra ≤ 10 sn içinde bağlantı kurulamaz ve açık bağlantı kesilir.
 
 ### Gözetimsiz erişim telafi kontrolleri (bağlayıcı; kullanıcı kararını değiştirmez, R32)
+
 - AC-293: Cihaz başına erişim, Admin'in açıp kapattığı teknisyen–cihaz yetkisiyle verilir; yeni kayıtlı cihazda hiçbir teknisyenin yetkisi yoktur (varsayılan kapalı); yetkisiz teknisyen cihazı listede görmez ve bağlantı ucu 404 döner; yetki değişikliği audit'e eski→yeni yazılır ve açık bağlantıyı ≤ 5 sn içinde keser.
 - AC-294: Gözetimsiz bağlantı süresince cihazın tüm monitörlerinde her zaman üstte, kapatılamayan "Uzaktan bağlantı: <teknisyen adı> — <destek firması>" göstergesi bulunur; kilit ekranında da görünür; gösterge çizilemezse bağlantı açılmaz (fail-closed testi).
 - AC-295: Cihazda yerel "Gözetimsiz erişimi kapat" anahtarı vardır (tepside ve servis ayar penceresinde; standart kullanıcı kapatabilir, yeniden açmak yerel yönetici ister); kapalıyken sunucu bağlanamaz, açık bağlantı ≤ 2 sn içinde kesilir, durum panelde "Yerel olarak kapalı" görünür; sunucudan bu anahtar değiştirilemez.
@@ -47,6 +52,7 @@ G8 AC'leri **çerçeve AC**'dir: her biri ayrı tasarım turunda proje-yoneticis
 - AC-297: (r2) Prod ortamında (`NODE_ENV=production`) gözetimsiz erişim, istemci servisi SignPath (veya eşdeğer güvenilir) Authenticode imzası taşımadıkça kapalıdır: servis kayıtta ve her bağlanışta kendi imza durumunu beyan eder; imzasız beyanda kayıt ve bağlantı reddedilir, panelde "Gözetimsiz erişim kod imzası olmadan kullanılamaz" gösterilir. Staging'de imzasız çalışır. **Not:** bu kontrol cihazın kendi beyanına dayanır; değiştirilmiş bir istemci yanlış beyan verebilir. Bu nedenle bir **kimlik doğrulama değil, kullanılabilirlik kapısıdır** (imzasız yapının yanlışlıkla prod'da dağıtılmasını önler); güvenlik AC-273 ve AC-293..296'ya dayanır.
 
 ## G8 — Ürün genişlemeleri (en sona; her biri ayrı tasarım turu — S28 kararı)
+
 - AC-276: macOS istemci (Developer ID + notarization): Ekran Kaydı ve Erişilebilirlik izni rehberli istenir; görüntü + kontrol + chat + dosya Windows istemciyle aynı AC'leri (E8 eşdeğeri) karşılar.
 - AC-277: Linux istemci (X11 + Wayland portal onayı): görüntü + chat + dosya; kontrol X11'de, Wayland'de portal izin verirse.
 - AC-278: (S26 kararı) Mobil müşteri: Android'de ekran paylaşımı (MediaProjection) ile görüntü + chat; iOS'ta yalnız chat + "masaüstünden bağlanın" yönlendirmesi.
@@ -58,6 +64,7 @@ G8 AC'leri **çerçeve AC**'dir: her biri ayrı tasarım turunda proje-yoneticis
 - AC-284: Sunucuda dosya saklama + virüs taraması: tenant ayarıyla aktarılan dosyalar sunucuda şifreli tutulur (≤ 7 gün), ClamAV ile taranır, enfekte dosya teslim edilmez ve iki tarafa bildirilir.
 
 ## Ortak (tüm E11 paketleri)
+
 - AC-285: Her yeni yetki anahtarı tek `permissions` tanımından gelir ve toggle ekranında görünür (AC-72 testi yeşil).
 - AC-286: Her yeni dış servis ayarında test düğmesi vardır, gizli değerler maskeli ve şifreli saklanır, değişiklik audit'e yazılır (Projeler/CLAUDE.md §3).
 - AC-287: Her yeni ekran 5 durumu karşılar, iki temada axe 0, 390 px'te yatay taşma yoktur, menü/link öğelerinde anlamlı `lucide-react` ikonu vardır.
@@ -66,5 +73,6 @@ G8 AC'leri **çerçeve AC**'dir: her biri ayrı tasarım turunda proje-yoneticis
 - AC-290: Her paket qa GEÇTİ + güvenlik Kritik/Yüksek 0 ile kapanır; G7/G8 paketleri ayrıca tasarım güvenlik turundan (tehdit modeli eki) geçer.
 
 ## Chat saklama KVKK (S25 kararıyla eklendi)
+
 - AC-291: Aydınlatma metninin yeni sürümü (seed + tenant düzenleme ekranı) sohbetin ve talep mesajlarının sunucuda şifreli saklandığını, saklama süresini (tenant'ın oturum saklama süresi) ve anonimleştirmede silindiğini açıkça yazar; yeni sürüm yayımlanınca eski sürümle onay alınamaz (AC-127 sürüm kuralı).
 - AC-292: (r2) Müşteri onay ekranında (tarayıcı karşılama sayfası, Windows istemci karşılama ve talep formu) onay düğmesinin hemen üstünde "Sohbet mesajları kayıt altına alınır ve <N> gün saklanır" satırı görünür (N tenant ayarından); satır olmadan onay düğmesi etkinleşmez (e2e + istemci birim testi). Aydınlatma metni (AC-291) ayrıca, sohbetin artık **uçtan uca şifreli olmadığını** (sunucu üzerinden iletildiğini ve sunucunun içeriği okuyabildiğini) açıkça yazar; görüntü, kontrol ve dosya aktarımı uçtan uca kalır. Eski istemcide chat kapalıdır ve "Sohbet için programı güncelleyin" mesajı görünür (AC-264).

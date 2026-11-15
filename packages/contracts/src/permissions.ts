@@ -41,7 +41,7 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Partial<Record<PermissionKey, str
     "Talep kabul et — kabul edilen talep için oturum açar (Oturum oluşturma yetkisi gerekmez; açık oturum sınırı geçerlidir). Reddetme de bu yetkiyle yapılır.",
   "customers.delete": "Müşteriyi pasife alır (kalıcı silme yoktur).",
   "users.edit": "Kullanıcı bilgilerini, rolünü ve yetkilerini değiştirir; kullanıcıyı pasife alır veya yeniden etkinleştirir.",
-  "users.delete": "Kullanıcı kalıcı olarak silinmez; pasife alma \"Düzenle\" yetkisiyle yapılır.",
+  "users.delete": 'Kullanıcı kalıcı olarak silinmez; pasife alma "Düzenle" yetkisiyle yapılır.',
 };
 
 export const ROLES = ["SUPER_ADMIN", "ADMIN", "USER"] as const;
@@ -62,7 +62,11 @@ export function effectivePermissions(role: Role, overrides: readonly PermissionO
 }
 
 /** `effectivePermissions`'ın verilen anahtar listesiyle çalışan hâli (AC-72 testi geçici anahtarla aynı kuralı kullanır). */
-export function effectivePermissionsFrom(keys: readonly PermissionKey[], role: Role, overrides: readonly PermissionOverride[]): PermissionKey[] {
+export function effectivePermissionsFrom(
+  keys: readonly PermissionKey[],
+  role: Role,
+  overrides: readonly PermissionOverride[],
+): PermissionKey[] {
   if (role === "SUPER_ADMIN") return [...keys];
   const byKey = new Map(overrides.map((o) => [o.permKey, o.granted]));
   const defaultGranted = role === "ADMIN";

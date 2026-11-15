@@ -35,7 +35,10 @@ describe("P7 session_consents.source", () => {
   it("küme dışı kaynak CHECK ile reddedilir", async () => {
     const s = await activeSession();
     for (const bad of ["TECHNICIAN", "DENIED", "ADMIN", ""]) {
-      const err = await insertConsent(s, bad).then(() => null, (e: unknown) => e);
+      const err = await insertConsent(s, bad).then(
+        () => null,
+        (e: unknown) => e,
+      );
       expect(err, `reddedilmeliydi: ${bad}`).toBeInstanceOf(Error);
       expect(`${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`).toMatch(/session_consents_source_chk/);
     }

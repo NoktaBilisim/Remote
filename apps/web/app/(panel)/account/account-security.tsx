@@ -17,7 +17,11 @@ import { t } from "@/lib/i18n";
 
 function Section({ id, title, Icon, children }: { id: string; title: string; Icon: typeof KeyRound; children: ReactNode }) {
   return (
-    <section aria-labelledby={`${id}-h`} className="rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-6" data-testid={`acc-${id}`}>
+    <section
+      aria-labelledby={`${id}-h`}
+      className="rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-6"
+      data-testid={`acc-${id}`}
+    >
       <h2 id={`${id}-h`} className="flex items-center gap-2 text-base font-semibold text-fg">
         <Icon aria-hidden className="size-5 text-fg-muted" />
         {title}
@@ -70,13 +74,21 @@ export function AccountSecurity({ mfa }: { mfa: MfaStatus | null }) {
               <ShieldCheck aria-hidden className="size-4" />
               {t("acc.mfaOn")}
             </p>
-            <p className="text-sm text-fg-muted" data-testid="acc-rc-left">{t("acc.rcLeft", { n: left })}</p>
-            {left <= RECOVERY_LOW && <Alert tone="warning" testId="acc-rc-low">{t("acc.rcLow")}</Alert>}
+            <p className="text-sm text-fg-muted" data-testid="acc-rc-left">
+              {t("acc.rcLeft", { n: left })}
+            </p>
+            {left <= RECOVERY_LOW && (
+              <Alert tone="warning" testId="acc-rc-low">
+                {t("acc.rcLow")}
+              </Alert>
+            )}
             <p className="text-sm text-fg-muted">{t(mfa.required ? "acc.mfaRequiredNote" : "acc.mfaResetNote")}</p>
           </>
         ) : (
           <>
-            <p className="text-sm text-fg-muted" data-testid="acc-mfa-off">{t("acc.mfaOff")}</p>
+            <p className="text-sm text-fg-muted" data-testid="acc-mfa-off">
+              {t("acc.mfaOff")}
+            </p>
             <Link
               href="/2fa/setup"
               className="inline-flex min-h-11 items-center gap-2 self-start rounded-md bg-primary px-4 text-sm font-medium text-on-primary shadow-sm hover:bg-primary-hover active:scale-[0.97]"

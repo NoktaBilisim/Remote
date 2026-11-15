@@ -121,7 +121,10 @@ export function findStatus(db: DbOrTx, id: string) {
 
 /** Agent indirme ucu (P6): dosya adı için yalnız PENDING iken dolu olan kısa kod. */
 export function findForDownload(db: DbOrTx, id: string) {
-  return db.supportSession.findUnique({ where: { id }, select: { id: true, tenantId: true, status: true, expiresAt: true, activeCode: true } });
+  return db.supportSession.findUnique({
+    where: { id },
+    select: { id: true, tenantId: true, status: true, expiresAt: true, activeCode: true },
+  });
 }
 
 // --- P3: admit tüketimi ve ACTIVE oturum bitişi (mimari-protokol §3.2, db-notlari P3) ---
@@ -143,13 +146,30 @@ export async function consumeForAdmit(
   const r = await db.supportSession.updateMany({
     where: { id, status: "PENDING", expiresAt: { gt: now }, consumedAt: null, requestId: extra.requestId ?? null },
     // P8: müşteri adı/e-postası aynı atomik UPDATE'te (customer_consumed_chk: yalnız consumed_at ile birlikte).
-    data: { status: "ACTIVE", consumedAt: now, activeCode: null, mode, customerName: customer.name, customerEmail: customer.email, ...keys },
+    data: {
+      status: "ACTIVE",
+      consumedAt: now,
+      activeCode: null,
+      mode,
+      customerName: customer.name,
+      customerEmail: customer.email,
+      ...keys,
+    },
   });
   return r.count;
 }
 
-export async function endActive(db: DbOrTx, id: string, now: Date, endedBy: "TECH" | "CUSTOMER" | "SYSTEM", endReason: string): Promise<number> {
-  const r = await db.supportSession.updateMany({ where: { id, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now, endedBy, endReason } });
+export async function endActive(
+  db: DbOrTx,
+  id: string,
+  now: Date,
+  endedBy: "TECH" | "CUSTOMER" | "SYSTEM",
+  endReason: string,
+): Promise<number> {
+  const r = await db.supportSession.updateMany({
+    where: { id, status: "ACTIVE" },
+    data: { status: "ENDED", endedAt: now, endedBy, endReason },
+  });
   return r.count;
 }
 

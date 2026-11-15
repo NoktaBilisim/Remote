@@ -82,7 +82,10 @@ export const annotStrokeSchema = z.strictObject({
   id: msgId,
   tool: z.enum(ANNOT_TOOLS),
   color: z.enum(ANNOT_COLORS),
-  pts: z.array(z.tuple([unit, unit])).min(1).max(ANNOT_MAX_POINTS),
+  pts: z
+    .array(z.tuple([unit, unit]))
+    .min(1)
+    .max(ANNOT_MAX_POINTS),
 });
 export const annotLaserSchema = z.strictObject({ t: z.literal("annot.laser"), x: unit, y: unit });
 export const annotUndoSchema = z.strictObject({ t: z.literal("annot.undo"), id: msgId.optional() });
@@ -109,14 +112,31 @@ export const fileResultSchema = z.strictObject({ t: z.literal("file.result"), fi
 export const pingSchema = z.strictObject({ t: z.literal("ping"), id: msgId.optional() });
 
 export const ctlMessageSchema = z.discriminatedUnion("t", [
-  chatSchema, annotStrokeSchema, annotLaserSchema, annotUndoSchema, annotClearSchema,
-  fileOfferSchema, fileAcceptSchema, fileRejectSchema, fileCancelSchema, fileDoneSchema, fileResultSchema, pingSchema,
+  chatSchema,
+  annotStrokeSchema,
+  annotLaserSchema,
+  annotUndoSchema,
+  annotClearSchema,
+  fileOfferSchema,
+  fileAcceptSchema,
+  fileRejectSchema,
+  fileCancelSchema,
+  fileDoneSchema,
+  fileResultSchema,
+  pingSchema,
 ]);
 export type CtlMessage = z.infer<typeof ctlMessageSchema>;
 export type CtlType = CtlMessage["t"];
 
 /** G-09/AC-119: `file_transfer` yeteneğine bağlı ctl tipleri; misafir caps'te yoksa `file.offer` → otomatik `file.reject`, diğerleri düşer. */
-export const FILE_CTL_TYPES: ReadonlySet<CtlType> = new Set(["file.offer", "file.accept", "file.reject", "file.cancel", "file.done", "file.result"]);
+export const FILE_CTL_TYPES: ReadonlySet<CtlType> = new Set([
+  "file.offer",
+  "file.accept",
+  "file.reject",
+  "file.cancel",
+  "file.done",
+  "file.result",
+]);
 
 /** Ham `ctl` çerçevesi → tipli mesaj; boyut/JSON/şema hatasında null (alıcı düşürür). */
 export function parseCtlMessage(raw: unknown): CtlMessage | null {
@@ -213,11 +233,22 @@ export const mouseWheelSchema = z.strictObject({
  * `code` = KeyboardEvent.code (yalnız harf/rakam, ≤ 32 — Go `internal/input` ile aynı, QA-P7-3); `key` yalnız
  * yazdırılabilir karakter için (Türkçe → KEYEVENTF_UNICODE).
  */
-export const keySchema = z.strictObject({ t: z.literal("k"), code: z.string().regex(/^[A-Za-z0-9]{1,32}$/), down: z.boolean(), key: z.string().min(1).max(4).optional() });
+export const keySchema = z.strictObject({
+  t: z.literal("k"),
+  code: z.string().regex(/^[A-Za-z0-9]{1,32}$/),
+  down: z.boolean(),
+  key: z.string().min(1).max(4).optional(),
+});
 /** Odak kaybında takılı tuş önleme. */
 export const keyReleaseAllSchema = z.strictObject({ t: z.literal("k.release_all") });
 
-export const inputMessageSchema = z.discriminatedUnion("t", [mouseMoveSchema, mouseButtonSchema, mouseWheelSchema, keySchema, keyReleaseAllSchema]);
+export const inputMessageSchema = z.discriminatedUnion("t", [
+  mouseMoveSchema,
+  mouseButtonSchema,
+  mouseWheelSchema,
+  keySchema,
+  keyReleaseAllSchema,
+]);
 export type InputMessage = z.infer<typeof inputMessageSchema>;
 
 /** Ham `input` çerçevesi → tipli mesaj; boyut/JSON/şema hatasında null (alıcı düşürür). */

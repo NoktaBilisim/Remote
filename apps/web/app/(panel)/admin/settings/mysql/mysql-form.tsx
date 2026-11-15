@@ -9,7 +9,12 @@ import { Button } from "@/components/ui/button";
 import { SaveBar } from "@/components/ui/save-bar";
 import { TextField } from "@/components/ui/text-field";
 import { useToast } from "@/components/ui/toast";
-import { MYSQL_APPLY_NOTE, type MysqlSettingsSaveResponse, type MysqlSettingsView, type MysqlTestResponse } from "@/lib/admin-settings/contract";
+import {
+  MYSQL_APPLY_NOTE,
+  type MysqlSettingsSaveResponse,
+  type MysqlSettingsView,
+  type MysqlTestResponse,
+} from "@/lib/admin-settings/contract";
 import { buildMysqlInput, mysqlDirty, mysqlServerFields, toMysqlState, type MysqlField, type MysqlState } from "@/lib/admin-settings/forms";
 import { api, ApiError, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
 import { toUiError, withoutLeadingTitle, type UiError } from "@/lib/error-message";
@@ -109,7 +114,11 @@ export function MysqlForm({ initial }: { initial: MysqlSettingsView }) {
       const r = await api<MysqlTestResponse>("POST", "/admin/settings/mysql/test", input);
       // Süre yalnız başarıda gösterilir: başarısız denemede sunucu süre dönmez (B-P11-4, port tarama oracle'ı)
       const latencyMs = r.ok && typeof r.latencyMs === "number" ? r.latencyMs : undefined;
-      setResult(r.ok ? { tone: "success", title: t("my.testOk"), message: r.message, latencyMs } : { tone: "danger", title: t("my.testFail"), message: r.message });
+      setResult(
+        r.ok
+          ? { tone: "success", title: t("my.testOk"), message: r.message, latencyMs }
+          : { tone: "danger", title: t("my.testFail"), message: r.message },
+      );
     } catch (err) {
       if (err instanceof ApiError && err.status === 400 && err.fields) onApiError(err);
       else if (isUnauthenticated(err)) onApiError(err);
@@ -126,13 +135,32 @@ export function MysqlForm({ initial }: { initial: MysqlSettingsView }) {
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       {saved.source === "env" ? (
-        <Alert tone="info" testId="mysql-env-source">{t("my.envSource")}</Alert>
+        <Alert tone="info" testId="mysql-env-source">
+          {t("my.envSource")}
+        </Alert>
       ) : (
-        !saved.matchesRunning && !applyNote && <Alert tone="warning" testId="mysql-mismatch">{t("my.mismatch")}</Alert>
+        !saved.matchesRunning &&
+        !applyNote && (
+          <Alert tone="warning" testId="mysql-mismatch">
+            {t("my.mismatch")}
+          </Alert>
+        )
       )}
-      {applyNote && <Alert tone="warning" testId="mysql-restart">{applyNote}</Alert>}
+      {applyNote && (
+        <Alert tone="warning" testId="mysql-restart">
+          {applyNote}
+        </Alert>
+      )}
       {formError && <FormError error={formError} />}
-      <form id={FORM_ID} ref={formRef} onSubmit={submit} noValidate className="flex flex-col gap-6" data-testid="mysql-form" data-ready={ready ? "true" : "false"}>
+      <form
+        id={FORM_ID}
+        ref={formRef}
+        onSubmit={submit}
+        noValidate
+        className="flex flex-col gap-6"
+        data-testid="mysql-form"
+        data-ready={ready ? "true" : "false"}
+      >
         <fieldset disabled={busy} className="flex flex-col gap-6">
           <Section
             id="my-srv"
@@ -141,14 +169,55 @@ export function MysqlForm({ initial }: { initial: MysqlSettingsView }) {
             aside={<SourceBadge source={saved.source} panel={t("sys.sourcePanelBadge")} env={t("sys.sourceEnvBadge")} />}
           >
             <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
-              <TextField label={t("my.host")} value={st.host} onChange={set("host")} error={errors.host} placeholder="db.ornek.local" autoComplete="off" spellCheck={false} autoCapitalize="none" maxLength={253} data-testid="mysql-host" />
-              <TextField label={t("my.port")} value={st.port} onChange={set("port")} error={errors.port} hint={t("my.portHint")} inputMode="numeric" autoComplete="off" maxLength={5} data-testid="mysql-port" />
+              <TextField
+                label={t("my.host")}
+                value={st.host}
+                onChange={set("host")}
+                error={errors.host}
+                placeholder="db.ornek.local"
+                autoComplete="off"
+                spellCheck={false}
+                autoCapitalize="none"
+                maxLength={253}
+                data-testid="mysql-host"
+              />
+              <TextField
+                label={t("my.port")}
+                value={st.port}
+                onChange={set("port")}
+                error={errors.port}
+                hint={t("my.portHint")}
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={5}
+                data-testid="mysql-port"
+              />
             </div>
-            <TextField label={t("my.database")} value={st.database} onChange={set("database")} error={errors.database} autoComplete="off" spellCheck={false} autoCapitalize="none" maxLength={64} data-testid="mysql-database" />
+            <TextField
+              label={t("my.database")}
+              value={st.database}
+              onChange={set("database")}
+              error={errors.database}
+              autoComplete="off"
+              spellCheck={false}
+              autoCapitalize="none"
+              maxLength={64}
+              data-testid="mysql-database"
+            />
             {saved.updatedAt && <p className="text-xs text-fg-muted">{t("sys.updatedAt", { at: formatDateTime(saved.updatedAt) })}</p>}
           </Section>
           <Section id="my-auth" title={t("my.auth")} Icon={Lock}>
-            <TextField label={t("my.user")} value={st.user} onChange={set("user")} error={errors.user} autoComplete="off" spellCheck={false} autoCapitalize="none" maxLength={32} data-testid="mysql-user" />
+            <TextField
+              label={t("my.user")}
+              value={st.user}
+              onChange={set("user")}
+              error={errors.user}
+              autoComplete="off"
+              spellCheck={false}
+              autoCapitalize="none"
+              maxLength={32}
+              data-testid="mysql-user"
+            />
             <TextField
               label={t("my.password")}
               type="password"
@@ -167,9 +236,22 @@ export function MysqlForm({ initial }: { initial: MysqlSettingsView }) {
       </form>
 
       <Section id="my-test" title={t("my.testTitle")} Icon={PlugZap}>
-        <p className="text-sm text-fg-muted" id="mysql-test-note">{t("my.testBody")}</p>
-        <Alert tone="warning" testId="mysql-tls-note">{t("my.tlsNote")}</Alert>
-        <Button type="button" variant="secondary" className="self-start" loading={testing} disabled={busy} aria-describedby="mysql-test-note" onClick={test} data-testid="mysql-test">
+        <p className="text-sm text-fg-muted" id="mysql-test-note">
+          {t("my.testBody")}
+        </p>
+        <Alert tone="warning" testId="mysql-tls-note">
+          {t("my.tlsNote")}
+        </Alert>
+        <Button
+          type="button"
+          variant="secondary"
+          className="self-start"
+          loading={testing}
+          disabled={busy}
+          aria-describedby="mysql-test-note"
+          onClick={test}
+          data-testid="mysql-test"
+        >
           {!testing && <PlugZap aria-hidden className="size-4" />}
           {t("my.test")}
         </Button>
@@ -182,8 +264,14 @@ export function MysqlForm({ initial }: { initial: MysqlSettingsView }) {
         {result && (
           <Alert tone={result.tone} testId="mysql-test-result">
             <p className="font-medium">{result.title}</p>
-            {withoutLeadingTitle(result.message, result.title) && <p className="mt-1">{withoutLeadingTitle(result.message, result.title)}</p>}
-            {result.latencyMs !== undefined && <p className="mt-1 tabular-nums" data-testid="mysql-test-latency">{t("my.latency", { ms: formatNumber(result.latencyMs) })}</p>}
+            {withoutLeadingTitle(result.message, result.title) && (
+              <p className="mt-1">{withoutLeadingTitle(result.message, result.title)}</p>
+            )}
+            {result.latencyMs !== undefined && (
+              <p className="mt-1 tabular-nums" data-testid="mysql-test-latency">
+                {t("my.latency", { ms: formatNumber(result.latencyMs) })}
+              </p>
+            )}
           </Alert>
         )}
       </Section>

@@ -103,7 +103,7 @@ export class ConcurrencyGate {
     if (n > 0) this.activeByKey.set(key, n);
     else this.activeByKey.delete(key);
     // FIFO: çalışabilecek ilk bekleyenleri başlat (başka anahtarın sınırı dolu olanı atla).
-    for (let i = 0; i < this.queue.length && this.active < this.o.global; ) {
+    for (let i = 0; i < this.queue.length && this.active < this.o.global;) {
       const w = this.queue[i];
       if (w && this.canRun(w.key)) {
         clearTimeout(w.timer);

@@ -43,50 +43,55 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   return (
     // P9: sağlayıcı tüm kabuğu sarar (üst menüdeki firma geçişi de toast gösterir)
     <ToastProvider>
-    <ThemeProvider initial={resolveTheme({ user: user.theme })}>
-    <div className="flex min-h-dvh flex-col">
-      <a
-        href="#icerik"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2"
-      >
-        {t("panel.skip")}
-      </a>
-      <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-border bg-surface px-4 sm:px-6">
-        {/* P12 (AC-81): etkin firmanın logosu, yoksa sistem logosu (sunucu çözer, `me.logoUrl` her zaman dolu) */}
-        <LogoImage variant="mark" url={logoUrl} alt={logoOwner ? t("lg.alt", { name: logoOwner.name }) : t("app.systemLogoAlt")} testId="header-logo" />
-        {/* TO-P9-1: Super Admin'de dar ekranda yer etkin firma adına ayrılır (uygulama adı sm+); sağ grupta yalnız seçici
+      <ThemeProvider initial={resolveTheme({ user: user.theme })}>
+        <div className="flex min-h-dvh flex-col">
+          <a
+            href="#icerik"
+            className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2"
+          >
+            {t("panel.skip")}
+          </a>
+          <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-border bg-surface px-4 sm:px-6">
+            {/* P12 (AC-81): etkin firmanın logosu, yoksa sistem logosu (sunucu çözer, `me.logoUrl` her zaman dolu) */}
+            <LogoImage
+              variant="mark"
+              url={logoUrl}
+              alt={logoOwner ? t("lg.alt", { name: logoOwner.name }) : t("app.systemLogoAlt")}
+              testId="header-logo"
+            />
+            {/* TO-P9-1: Super Admin'de dar ekranda yer etkin firma adına ayrılır (uygulama adı sm+); sağ grupta yalnız seçici
             daralır (ad kısaltılır), avatar ve çıkış sabit genişlikte kalır → 375 px'te taşma yok */}
-        <span className={`truncate text-sm font-semibold text-fg sm:inline sm:text-base ${isSa ? "hidden" : ""}`}>{t("app.name")}</span>
-        <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
-          {/* P9 (AC-70): Super Admin firma geçişi + etkin firma göstergesi */}
-          {isSa && <TenantSwitcher acting={actingTenant} />}
-          {/* TO-P2-3: avatar her genişlikte görünür; ad/rol/firma mobilde yalnız ekran okuyucuya (sr-only), sm+ görünür */}
-          <div className="sr-only min-w-0 text-right sm:not-sr-only" data-testid="current-user">
-            <p className="truncate text-sm font-medium text-fg">{user.fullName}</p>
-            <p className="truncate text-xs text-fg-muted">
-              {t(`role.${user.role}`)}
-              {tenant ? ` · ${tenant.name}` : ""}
-            </p>
+            <span className={`truncate text-sm font-semibold text-fg sm:inline sm:text-base ${isSa ? "hidden" : ""}`}>{t("app.name")}</span>
+            <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
+              {/* P9 (AC-70): Super Admin firma geçişi + etkin firma göstergesi */}
+              {isSa && <TenantSwitcher acting={actingTenant} />}
+              {/* TO-P2-3: avatar her genişlikte görünür; ad/rol/firma mobilde yalnız ekran okuyucuya (sr-only), sm+ görünür */}
+              <div className="sr-only min-w-0 text-right sm:not-sr-only" data-testid="current-user">
+                <p className="truncate text-sm font-medium text-fg">{user.fullName}</p>
+                <p className="truncate text-xs text-fg-muted">
+                  {t(`role.${user.role}`)}
+                  {tenant ? ` · ${tenant.name}` : ""}
+                </p>
+              </div>
+              {/* P12: avatar → hesap menüsü (Hesabım, Şifre değiştir, Tema, Çıkış); tek dokunuşla çıkış düğmesi yanında kalır */}
+              <UserMenu name={user.fullName} email={user.email} avatarUrl={user.avatarUrl ?? null} />
+              <LogoutButton userName={user.fullName} />
+            </div>
+          </header>
+          <div className="flex flex-1 flex-col md:flex-row">
+            <aside className="border-b border-border bg-surface md:w-60 md:shrink-0 md:border-r md:border-b-0">
+              <SideNav permissions={permissions} role={user.role} />
+            </aside>
+            <main id="icerik" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 focus:outline-none sm:px-6 lg:px-8">
+              {notify && <RequestNotifier enabled />}
+              {lobby && <LobbyNotifier enabled scopeKey={`${user.id}:${(actingTenant ?? tenant)?.id ?? ""}`} />}
+              <TabTitle />
+              <SessionWatch />
+              {children}
+            </main>
           </div>
-          {/* P12: avatar → hesap menüsü (Hesabım, Şifre değiştir, Tema, Çıkış); tek dokunuşla çıkış düğmesi yanında kalır */}
-          <UserMenu name={user.fullName} email={user.email} avatarUrl={user.avatarUrl ?? null} />
-          <LogoutButton userName={user.fullName} />
         </div>
-      </header>
-      <div className="flex flex-1 flex-col md:flex-row">
-        <aside className="border-b border-border bg-surface md:w-60 md:shrink-0 md:border-r md:border-b-0">
-          <SideNav permissions={permissions} role={user.role} />
-        </aside>
-        <main id="icerik" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 focus:outline-none sm:px-6 lg:px-8">
-          {notify && <RequestNotifier enabled />}
-          {lobby && <LobbyNotifier enabled scopeKey={`${user.id}:${(actingTenant ?? tenant)?.id ?? ""}`} />}
-          <TabTitle />
-          <SessionWatch />
-          {children}
-        </main>
-      </div>
-    </div>
-    </ThemeProvider>
+      </ThemeProvider>
     </ToastProvider>
   );
 }

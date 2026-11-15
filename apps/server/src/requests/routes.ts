@@ -68,13 +68,17 @@ export async function supportRequestRoutes(app: FastifyInstance): Promise<void> 
 
   // r2 (§15.2, G-E10-2): tek kayıt iptali — customers.edit + (B-P8c-3) support_requests.view; kayıt talebin
   // binding_id'sinden (istemciden kimlik alınmaz).
-  app.post("/:id/revoke-binding", { preHandler: [requirePerm("support_requests.view"), requirePerm("customers.edit")] }, async (req, reply) => {
-    const { tenantId } = tenantScope(req);
-    const id = idParam(req);
-    parseInput(revokeBindingInputSchema, req.body);
-    await revokeRequestBinding(app.requests, auditContext(req), authOf(req), tenantId, id);
-    return reply.status(204).send();
-  });
+  app.post(
+    "/:id/revoke-binding",
+    { preHandler: [requirePerm("support_requests.view"), requirePerm("customers.edit")] },
+    async (req, reply) => {
+      const { tenantId } = tenantScope(req);
+      const id = idParam(req);
+      parseInput(revokeBindingInputSchema, req.body);
+      await revokeRequestBinding(app.requests, auditContext(req), authOf(req), tenantId, id);
+      return reply.status(204).send();
+    },
+  );
 
   app.post("/:id/reject", acceptPerm, async (req, reply) => {
     const { tenantId } = tenantScope(req);
@@ -109,7 +113,17 @@ export async function requestSettingsRoutes(app: FastifyInstance): Promise<void>
   app.post("/email/test", async (req): Promise<EmailTestResponse> => {
     const { tenantId } = tenantScope(req);
     const { to } = parseInput(emailTestInputSchema, req.body);
-    const out = await sendTenantTest({ mail: app.mail, limit: app.smtpTestLimit, ctx: auditContext(req), auth: authOf(req), tenantId, to, action: MAIL_AUDIT.EMAIL_TEST, entity: "tenant_request_settings", content: (firm) => newRequestMail({ publicBaseUrl: app.env.PUBLIC_BASE_URL, firm, requestCode: "123456" }) });
+    const out = await sendTenantTest({
+      mail: app.mail,
+      limit: app.smtpTestLimit,
+      ctx: auditContext(req),
+      auth: authOf(req),
+      tenantId,
+      to,
+      action: MAIL_AUDIT.EMAIL_TEST,
+      entity: "tenant_request_settings",
+      content: (firm) => newRequestMail({ publicBaseUrl: app.env.PUBLIC_BASE_URL, firm, requestCode: "123456" }),
+    });
     return out.ok ? { ok: true, message: "Test e-postası gönderildi." } : { ok: false, message: SMTP_SEND_FAILED_MESSAGE };
   });
 

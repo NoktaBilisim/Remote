@@ -73,9 +73,30 @@ describe("kabul → disk yolu (FileTransfers)", () => {
   function rig() {
     const ctl: CtlMessage[] = [];
     let list: Transfer[] = [];
-    const file: FileChannelLike = { readyState: "open", bufferedAmount: 0, bufferedAmountLowThreshold: 0, send: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() };
-    const ft = new FileTransfers({ inbound: "TO_CUSTOMER", file, sendCtl: (m) => ctl.push(m), sendMeta: () => undefined, onChange: (l) => (list = l), allowed: () => true, maxBytes: 2 * DISK_MIN_BYTES });
-    return { ft, ctl, get list() { return list; } };
+    const file: FileChannelLike = {
+      readyState: "open",
+      bufferedAmount: 0,
+      bufferedAmountLowThreshold: 0,
+      send: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const ft = new FileTransfers({
+      inbound: "TO_CUSTOMER",
+      file,
+      sendCtl: (m) => ctl.push(m),
+      sendMeta: () => undefined,
+      onChange: (l) => (list = l),
+      allowed: () => true,
+      maxBytes: 2 * DISK_MIN_BYTES,
+    });
+    return {
+      ft,
+      ctl,
+      get list() {
+        return list;
+      },
+    };
   }
   const offer = { t: "file.offer", fid: "big", idx: 0, name: "yedek.zip", size: DISK_MIN_BYTES + 1, sha256: "a".repeat(64) } as const;
 

@@ -22,8 +22,7 @@ const GONE: Record<string, AgentEnd> = {
 };
 
 /** İndirme ucunun adresi (aynı origin; ref opak sessionRef, kodu taşımaz). */
-export const agentDownloadUrl = (sessionRef: string): string =>
-  `${API_BASE}/public/agent/download?ref=${encodeURIComponent(sessionRef)}`;
+export const agentDownloadUrl = (sessionRef: string): string => `${API_BASE}/public/agent/download?ref=${encodeURIComponent(sessionRef)}`;
 
 export async function probeAgentDownload(sessionRef: string, doFetch: typeof fetch = (...a) => fetch(...a)): Promise<AgentProbe> {
   let res: Response;

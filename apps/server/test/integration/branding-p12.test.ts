@@ -8,7 +8,10 @@ import { createTenant, createUser, testDb } from "../helpers/app.ts";
 const app = () => testDb();
 
 async function errorText(p: Promise<unknown>): Promise<string> {
-  const err = await p.then(() => null, (e: unknown) => e);
+  const err = await p.then(
+    () => null,
+    (e: unknown) => e,
+  );
   expect(err, "reddedilmeliydi").toBeInstanceOf(Error);
   return `${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`;
 }
@@ -16,8 +19,10 @@ const rejectsWith = async (p: Promise<unknown>, chk: string) => expect(await err
 
 const RND = "Ab_-0123456789xyz"; // 17 karakter [A-Za-z0-9_-]
 
-const setLogo = (tenantId: string, path: string | null) => app().$executeRawUnsafe("UPDATE tenants SET logo_path = ? WHERE id = ?", path, tenantId);
-const setAvatar = (userId: string, path: string | null) => app().$executeRawUnsafe("UPDATE users SET avatar_path = ? WHERE id = ?", path, userId);
+const setLogo = (tenantId: string, path: string | null) =>
+  app().$executeRawUnsafe("UPDATE tenants SET logo_path = ? WHERE id = ?", path, tenantId);
+const setAvatar = (userId: string, path: string | null) =>
+  app().$executeRawUnsafe("UPDATE users SET avatar_path = ? WHERE id = ?", path, userId);
 
 /** Geçersiz yol örnekleri; `own` satırın kendi öndeki (tenant id veya `system`). */
 const badPaths = (own: string, other: string) => [
@@ -76,7 +81,8 @@ describe("P12 users.avatar_path CHECK (AC-83, AC-84)", () => {
     const t = await createTenant();
     const sa = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
     expect(await setAvatar(sa.id, `system/${RND}.jpg`)).toBe(1);
-    for (const p of [...badPaths("system", t.id), `SYSTEM/${RND}.png`, `System/${RND}.png`]) await rejectsWith(setAvatar(sa.id, p), "users_avatar_path_chk");
+    for (const p of [...badPaths("system", t.id), `SYSTEM/${RND}.png`, `System/${RND}.png`])
+      await rejectsWith(setAvatar(sa.id, p), "users_avatar_path_chk");
     expect(await setAvatar(sa.id, null)).toBe(1);
   });
 
@@ -93,20 +99,27 @@ describe("P12 users.theme CHECK (AC-85, ADR-0014)", () => {
     const t = await createTenant();
     const u = await createUser({ tenantId: t.id });
     expect((await app().user.findUniqueOrThrow({ where: { id: u.id } })).theme).toBe("SYSTEM");
-    for (const v of ["LIGHT", "DARK", "SYSTEM"]) expect(await app().$executeRawUnsafe("UPDATE users SET theme = ? WHERE id = ?", v, u.id)).toBe(1);
-    for (const v of ["dark", "Dark", "DARK ", "AUTO", ""]) await rejectsWith(app().$executeRawUnsafe("UPDATE users SET theme = ? WHERE id = ?", v, u.id), "users_theme_chk");
+    for (const v of ["LIGHT", "DARK", "SYSTEM"])
+      expect(await app().$executeRawUnsafe("UPDATE users SET theme = ? WHERE id = ?", v, u.id)).toBe(1);
+    for (const v of ["dark", "Dark", "DARK ", "AUTO", ""])
+      await rejectsWith(app().$executeRawUnsafe("UPDATE users SET theme = ? WHERE id = ?", v, u.id), "users_theme_chk");
   });
 });
 
-const UPSERT = "INSERT INTO system_settings (`key`, value_json, secret_enc, updated_at) VALUES (?, ?, ?, NOW(3)) ON DUPLICATE KEY UPDATE value_json = VALUES(value_json), secret_enc = VALUES(secret_enc), updated_at = NOW(3)";
+const UPSERT =
+  "INSERT INTO system_settings (`key`, value_json, secret_enc, updated_at) VALUES (?, ?, ?, NOW(3)) ON DUPLICATE KEY UPDATE value_json = VALUES(value_json), secret_enc = VALUES(secret_enc), updated_at = NOW(3)";
 
 async function upsert(key: string, value: unknown, secret: Buffer | null = null) {
   const ROLLBACK = new Error("rollback");
   let out: unknown = null;
-  await app().$transaction(async (tx: Pick<Db, "$executeRawUnsafe">) => {
-    out = await tx.$executeRawUnsafe(UPSERT, key, value === null ? null : JSON.stringify(value), secret);
-    throw ROLLBACK;
-  }).catch((e: unknown) => { if (e !== ROLLBACK) throw e; });
+  await app()
+    .$transaction(async (tx: Pick<Db, "$executeRawUnsafe">) => {
+      out = await tx.$executeRawUnsafe(UPSERT, key, value === null ? null : JSON.stringify(value), secret);
+      throw ROLLBACK;
+    })
+    .catch((e: unknown) => {
+      if (e !== ROLLBACK) throw e;
+    });
   return out;
 }
 const ok = async (key: string, value: unknown) => expect(await upsert(key, value)).toBeGreaterThanOrEqual(1);
@@ -118,7 +131,8 @@ describe("P12 system_settings `system_logo` (AC-81, AC-82)", () => {
   });
 
   it("anahtar ikili (ADR-0014); P11 anahtarları geçerli kalır", async () => {
-    for (const k of ["SYSTEM_LOGO", "System_logo", "system_logo ", "system-logo", "logo", "WHATSAPP", "whatsapp ", "whats_app"]) await bad(k, { path: `system/${RND}.png` }, "system_settings_key_chk");
+    for (const k of ["SYSTEM_LOGO", "System_logo", "system_logo ", "system-logo", "logo", "WHATSAPP", "whatsapp ", "whats_app"])
+      await bad(k, { path: `system/${RND}.png` }, "system_settings_key_chk");
     await ok("turn", { urls: ["stun:stun.example.com:3478"] });
   });
 
@@ -139,7 +153,12 @@ describe("P12 CHECK tanımları", () => {
     const rows = await app().$queryRaw<{ name: string; clause: string }[]>`
       SELECT CONSTRAINT_NAME AS name, CHECK_CLAUSE AS clause FROM information_schema.CHECK_CONSTRAINTS
       WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME IN ('tenants_logo_path_chk', 'users_avatar_path_chk', 'system_settings_system_logo_chk', 'system_settings_key_chk')`;
-    expect(rows.map((r) => r.name).sort()).toEqual(["system_settings_key_chk", "system_settings_system_logo_chk", "tenants_logo_path_chk", "users_avatar_path_chk"]);
+    expect(rows.map((r) => r.name).sort()).toEqual([
+      "system_settings_key_chk",
+      "system_settings_system_logo_chk",
+      "tenants_logo_path_chk",
+      "users_avatar_path_chk",
+    ]);
     expect(rows.find((r) => r.name === "system_settings_key_chk")?.clause).toContain("system_logo");
   });
 });

@@ -21,7 +21,10 @@ async function signInAu(context: BrowserContext, scenario: string) {
 const historyRows = (p: Page) => p.locator('[data-testid="history-row"], [data-testid="history-card"]').filter({ visible: true });
 const auditRows = (p: Page) => p.locator('[data-testid="audit-row"], [data-testid="audit-card"]').filter({ visible: true });
 
-test("AC-197: listede 'Anonimleştirildi' rozeti; detayda bilgi notu, ad yok, düzenleme formu yok, dosya kaydı silindi", async ({ page, context }) => {
+test("AC-197: listede 'Anonimleştirildi' rozeti; detayda bilgi notu, ad yok, düzenleme formu yok, dosya kaydı silindi", async ({
+  page,
+  context,
+}) => {
   await signIn(context, "hu");
   await page.goto("/history");
   const anonRow = historyRows(page).filter({ has: page.getByTestId("anonymized-badge") });
@@ -45,7 +48,10 @@ test("AC-197: listede 'Anonimleştirildi' rozeti; detayda bilgi notu, ad yok, d�
   expect(await axeScan(page, "#icerik")).toEqual([]);
 });
 
-test("AC-197: sayfa açıkken anonimleştirilen oturumda kaydet → 409 SESSION_ANONYMIZED mesajı, form kilitlenir/salt okunura geçer", async ({ page, context }, info) => {
+test("AC-197: sayfa açıkken anonimleştirilen oturumda kaydet → 409 SESSION_ANONYMIZED mesajı, form kilitlenir/salt okunura geçer", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signIn(context, "hu");
   await page.goto(`/history/${OTHER}`);
@@ -61,7 +67,10 @@ test("AC-197: sayfa açıkken anonimleştirilen oturumda kaydet → 409 SESSION_
   await expect(page).toHaveURL(/\/history$/);
 });
 
-test("AC-199 + T-P12b: audit'te retention.run Türkçe etiket ve grup filtresi; dış gönderim reason Türkçe etiket + kod", async ({ page, context }, info) => {
+test("AC-199 + T-P12b: audit'te retention.run Türkçe etiket ve grup filtresi; dış gönderim reason Türkçe etiket + kod", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInAu(context, "auadm");
   await page.goto("/audit");
@@ -88,7 +97,10 @@ test("AC-199 + T-P12b: audit'te retention.run Türkçe etiket ve grup filtresi; 
   await expect(f.getByLabel("İşlem").locator("option:checked")).toHaveText("Veri saklama — tümü");
 });
 
-test("P13a WhatsApp: adres yokken 'yapılandırılmamış' durumu; büyük harfli şema kanonik biçimde kaydedilir", async ({ page, context }, info) => {
+test("P13a WhatsApp: adres yokken 'yapılandırılmamış' durumu; büyük harfli şema kanonik biçimde kaydedilir", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInAu(context, "ausadef");
   await page.goto("/admin/settings/whatsapp");
@@ -157,7 +169,10 @@ test("S-P13a-5: ticket no alanında 'kişisel veri yazmayın' ipucu", async ({ p
   await expect(page.locator(`[id="${described!.split(" ")[0]}"]`)).toContainText("yazmayın");
 });
 
-test("AC-197 firma saklama süresi: Güvenlik sekmesinde alan, ipucu, aralık kontrolü (istek yok), sunucu alan hatası, kayıt", async ({ page, context }, info) => {
+test("AC-197 firma saklama süresi: Güvenlik sekmesinde alan, ipucu, aralık kontrolü (istek yok), sunucu alan hatası, kayıt", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signIn(context, "acc");
   await page.goto("/settings/security");
@@ -196,7 +211,9 @@ test("AC-197 firma saklama süresi: Güvenlik sekmesinde alan, ipucu, aralık ko
   await page.getByTestId("save-bar-save").click();
   const dlg = page.getByTestId("retention-confirm");
   await expect(dlg).toHaveJSProperty("open", true);
-  await expect(dlg).toContainText("Saklama süresini 365 günden 180 güne düşürüyorsunuz. Bu gece 180 günden eski oturum, onay ve talep kayıtları geri alınamaz biçimde anonimleştirilir.");
+  await expect(dlg).toContainText(
+    "Saklama süresini 365 günden 180 güne düşürüyorsunuz. Bu gece 180 günden eski oturum, onay ve talep kayıtları geri alınamaz biçimde anonimleştirilir.",
+  );
   await expect(dlg.getByRole("button", { name: "Vazgeç" })).toBeFocused();
   expect(await axeScan(page, '[data-testid="retention-confirm"]')).toEqual([]);
   await dlg.getByRole("button", { name: "Vazgeç" }).click();

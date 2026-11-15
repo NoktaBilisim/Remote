@@ -53,12 +53,18 @@ export function customerByRef(db: DbOrTx, requestRef: string): Promise<CustomerR
 }
 
 /** P8c tek ref ad alanı (ADR-0006 r5): append-only; PK çakışması (P2002 `PRIMARY`) → çağıran yeni ref ile yeniden dener. */
-export async function insertRequestRef(db: DbOrTx, data: { ref: string; tenantId: string; customerId: string | null; createdAt: Date }): Promise<void> {
+export async function insertRequestRef(
+  db: DbOrTx,
+  data: { ref: string; tenantId: string; customerId: string | null; createdAt: Date },
+): Promise<void> {
   await db.requestRef.create({ data, select: { ref: true } });
 }
 
 export async function insertSettings(db: DbOrTx, tenantId: string, requestRef: string, fileLabel: string): Promise<void> {
-  await db.tenantRequestSettings.create({ data: { tenantId, requestRef, fileLabel, waRecipients: [], emailRecipients: [], trustedCidrs: [] }, select: { tenantId: true } });
+  await db.tenantRequestSettings.create({
+    data: { tenantId, requestRef, fileLabel, waRecipients: [], emailRecipients: [], trustedCidrs: [] },
+    select: { tenantId: true },
+  });
 }
 
 export async function updateSettings(db: DbOrTx, tenantId: string, data: Prisma.TenantRequestSettingsUpdateInput): Promise<void> {
@@ -80,7 +86,10 @@ export const jsonStrings = (v: Prisma.JsonValue): string[] => (Array.isArray(v) 
  * kodlar) yerine 1 gidiş-dönüş — seri kuyrukta TX süresini ve havuz beklemesini kısaltır.
  */
 export async function pendingSnapshot(tx: DbOrTx, tenantId: string, k: { clientInstance: string; ipKey: string; netKey: string }) {
-  const rows = await tx.supportRequest.findMany({ where: { tenantId, status: "PENDING" }, select: { clientInstance: true, ipKey: true, netKey: true, requestCode: true } });
+  const rows = await tx.supportRequest.findMany({
+    where: { tenantId, status: "PENDING" },
+    select: { clientInstance: true, ipKey: true, netKey: true, requestCode: true },
+  });
   return {
     instance: rows.filter((r) => r.clientInstance === k.clientInstance).length,
     ip: rows.filter((r) => r.ipKey === k.ipKey).length,
@@ -95,17 +104,28 @@ export async function insertRequest(tx: DbOrTx, data: Prisma.SupportRequestUnche
 }
 
 /** Bilinen ağ (G-E9-15): tam ipKey → IP, yoksa ağ öneki → PREFIX; son 90 günde admit edilmiş oturum. */
-export async function networkSeen(db: DbOrTx, tenantId: string, ipKey: string, netKey: string, now: Date): Promise<"IP" | "PREFIX" | "NONE"> {
+export async function networkSeen(
+  db: DbOrTx,
+  tenantId: string,
+  ipKey: string,
+  netKey: string,
+  now: Date,
+): Promise<"IP" | "PREFIX" | "NONE"> {
   const since = new Date(now.getTime() - KNOWN_WINDOW_DAYS * DAY_MS);
-  if (await db.supportSession.findFirst({ where: { tenantId, guestIpKey: ipKey, consumedAt: { gte: since } }, select: { id: true } })) return "IP";
-  if (await db.supportSession.findFirst({ where: { tenantId, guestNetKey: netKey, consumedAt: { gte: since } }, select: { id: true } })) return "PREFIX";
+  if (await db.supportSession.findFirst({ where: { tenantId, guestIpKey: ipKey, consumedAt: { gte: since } }, select: { id: true } }))
+    return "IP";
+  if (await db.supportSession.findFirst({ where: { tenantId, guestNetKey: netKey, consumedAt: { gte: since } }, select: { id: true } }))
+    return "PREFIX";
   return "NONE";
 }
 
 /** known_device (G-E9-17): aynı device_hash'li talep son 90 günde oturuma bağlanmış. */
 export async function deviceSeen(db: DbOrTx, tenantId: string, deviceHash: string, now: Date): Promise<boolean> {
   const since = new Date(now.getTime() - KNOWN_WINDOW_DAYS * DAY_MS);
-  const r = await db.supportRequest.findFirst({ where: { tenantId, deviceHash, session: { is: { consumedAt: { gte: since } } } }, select: { id: true } });
+  const r = await db.supportRequest.findFirst({
+    where: { tenantId, deviceHash, session: { is: { consumedAt: { gte: since } } } },
+    select: { id: true },
+  });
   return r !== null;
 }
 
@@ -191,8 +211,20 @@ export async function listPending(db: DbOrTx, tenantId: string, customer?: strin
   return { rows, total };
 }
 
-export async function listHistory(db: DbOrTx, tenantId: string, since: Date, status: string | undefined, page: { skip: number; take: number }, customer?: string) {
-  const where: Prisma.SupportRequestWhereInput = { tenantId, closedAt: { gte: since }, ...(status ? { status } : {}), ...customerWhere(customer) };
+export async function listHistory(
+  db: DbOrTx,
+  tenantId: string,
+  since: Date,
+  status: string | undefined,
+  page: { skip: number; take: number },
+  customer?: string,
+) {
+  const where: Prisma.SupportRequestWhereInput = {
+    tenantId,
+    closedAt: { gte: since },
+    ...(status ? { status } : {}),
+    ...customerWhere(customer),
+  };
   const [rows, total] = await Promise.all([
     db.supportRequest.findMany({ where, select: itemSelect, orderBy: [{ closedAt: "desc" }, { id: "desc" }], ...page }),
     db.supportRequest.count({ where }),
@@ -239,12 +271,18 @@ export async function rejectPending(tx: DbOrTx, tenantId: string, id: string, us
 export type SystemCancelReason = "DISCONNECTED" | "TENANT_PASSIVE" | "CUSTOMER_PASSIVE" | "BINDING_REVOKED";
 
 export async function cancelPending(tx: DbOrTx, id: string, reason: "CUSTOMER" | SystemCancelReason, now: Date): Promise<number> {
-  const r = await tx.supportRequest.updateMany({ where: { id, status: "PENDING" }, data: { status: "CANCELLED", cancelReason: reason, closedAt: now } });
+  const r = await tx.supportRequest.updateMany({
+    where: { id, status: "PENDING" },
+    data: { status: "CANCELLED", cancelReason: reason, closedAt: now },
+  });
   return r.count;
 }
 
 export async function cancelAccepted(tx: DbOrTx, id: string): Promise<number> {
-  const r = await tx.supportRequest.updateMany({ where: { id, status: "ACCEPTED" }, data: { status: "CANCELLED", cancelReason: "CUSTOMER" } });
+  const r = await tx.supportRequest.updateMany({
+    where: { id, status: "ACCEPTED" },
+    data: { status: "CANCELLED", cancelReason: "CUSTOMER" },
+  });
   return r.count;
 }
 
@@ -254,22 +292,39 @@ export async function connectFailed(tx: DbOrTx, id: string): Promise<number> {
 }
 
 export async function expireOne(tx: DbOrTx, id: string, now: Date): Promise<number> {
-  const r = await tx.supportRequest.updateMany({ where: { id, status: "PENDING", expiresAt: { lte: now } }, data: { status: "EXPIRED", closedAt: now } });
+  const r = await tx.supportRequest.updateMany({
+    where: { id, status: "PENDING", expiresAt: { lte: now } },
+    data: { status: "EXPIRED", closedAt: now },
+  });
   return r.count;
 }
 
 // --- talep oturumu (support_sessions.request_id) ---
 
 /** Oturum PENDING → CANCELLED (müşteri vazgeçti / bağlanamadı / yetki); talep oturumunda kod yoktur (CHECK). */
-export async function cancelRequestSession(tx: DbOrTx, requestId: string, now: Date, endedBy: "CUSTOMER" | "SYSTEM", endReason: string): Promise<number> {
-  const r = await tx.supportSession.updateMany({ where: { requestId, status: "PENDING", consumedAt: null }, data: { status: "CANCELLED", endedAt: now, endedBy, endReason } });
+export async function cancelRequestSession(
+  tx: DbOrTx,
+  requestId: string,
+  now: Date,
+  endedBy: "CUSTOMER" | "SYSTEM",
+  endReason: string,
+): Promise<number> {
+  const r = await tx.supportSession.updateMany({
+    where: { requestId, status: "PENDING", consumedAt: null },
+    data: { status: "CANCELLED", endedAt: now, endedBy, endReason },
+  });
   return r.count;
 }
 
 // ---------------- Süpürücü ----------------
 
 export function findExpired(db: DbOrTx, now: Date, take: number) {
-  return db.supportRequest.findMany({ where: { status: "PENDING", expiresAt: { lte: now } }, select: { id: true, tenantId: true }, orderBy: { expiresAt: "asc" }, take });
+  return db.supportRequest.findMany({
+    where: { status: "PENDING", expiresAt: { lte: now } },
+    select: { id: true, tenantId: true },
+    orderBy: { expiresAt: "asc" },
+    take,
+  });
 }
 
 /** Kabul edilmiş ama bağlanmamış: oturum PENDING ve süresi dolmuş ya da tüketilmeden kapanmış (teknisyen iptali vb.). */
@@ -277,7 +332,9 @@ export function findConnectDue(db: DbOrTx, now: Date, take: number) {
   return db.supportRequest.findMany({
     where: {
       status: "ACCEPTED",
-      session: { is: { consumedAt: null, OR: [{ status: "PENDING", expiresAt: { lte: now } }, { status: { in: ["CANCELLED", "EXPIRED"] } }] } },
+      session: {
+        is: { consumedAt: null, OR: [{ status: "PENDING", expiresAt: { lte: now } }, { status: { in: ["CANCELLED", "EXPIRED"] } }] },
+      },
     },
     select: { id: true, tenantId: true },
     take,
@@ -295,7 +352,11 @@ export function findPassivePending(db: DbOrTx, take: number) {
 
 /** P8c (AC-171): pasif müşterinin bekleyenleri (süpürücü yedek yolu; servis yolu deactivate sonrası). */
 export function findCustomerPassivePending(db: DbOrTx, take: number) {
-  return db.supportRequest.findMany({ where: { status: "PENDING", customer: { is: { status: "PASSIVE" } } }, select: { id: true, tenantId: true }, take });
+  return db.supportRequest.findMany({
+    where: { status: "PENDING", customer: { is: { status: "PASSIVE" } } },
+    select: { id: true, tenantId: true },
+    take,
+  });
 }
 
 export function findPendingOfCustomer(db: DbOrTx, tenantId: string, customerId: string) {
@@ -319,7 +380,17 @@ export function countAllPending(db: DbOrTx): Promise<number> {
 export async function anonymizeBatch(db: DbOrTx, tenantId: string, cutoff: Date, now: Date, limit: number): Promise<number> {
   const r = await db.supportRequest.updateMany({
     where: { tenantId, anonymizedAt: null, createdAt: { lt: cutoff } },
-    data: { customerName: null, customerPhone: null, customerEmail: null, description: null, ip: null, ipKey: null, netKey: null, deviceHash: null, anonymizedAt: now },
+    data: {
+      customerName: null,
+      customerPhone: null,
+      customerEmail: null,
+      description: null,
+      ip: null,
+      ipKey: null,
+      netKey: null,
+      deviceHash: null,
+      anonymizedAt: now,
+    },
     limit,
   });
   return r.count;

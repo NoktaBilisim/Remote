@@ -6,7 +6,6 @@ import { createRequestRow, createRequestSettings, retryNotReady } from "../helpe
 import { startLive, TECH_PERMS, type Live } from "../helpers/signal-flow.ts";
 import { connect, techHeaders } from "../helpers/ws.ts";
 
-
 const PROXY = { TRUSTED_PROXY_CIDR: "127.0.0.1/32" };
 const REQ_PERMS = { ...TECH_PERMS, "support_requests.view": true, "support_requests.accept": true };
 const errCode = (r: { json: <T>() => T }) => r.json<{ error: { code: string } }>().error.code;
@@ -18,7 +17,7 @@ beforeEach(async () => {
 afterEach(async () => live.close());
 
 let ipSeq = 0;
-const nextIp = () => `203.0.${113 + Math.floor(ipSeq / 250) % 3}.${(ipSeq++ % 250) + 1}`;
+const nextIp = () => `203.0.${113 + (Math.floor(ipSeq / 250) % 3)}.${(ipSeq++ % 250) + 1}`;
 const instance = () => newSecretToken().slice(0, 22);
 
 async function tenantWithRef(o: { trustedCidrs?: string[] } = {}) {
@@ -38,7 +37,16 @@ async function createReq(ref: string, o: { ip?: string; version?: string; consen
     method: "POST",
     url: "/api/v1/public/requests",
     headers: { "x-forwarded-for": ip },
-    payload: { ref, clientInstanceId: o.instance ?? instance(), clientVersion: o.version ?? "0.9.0", customerName: "Ayşe Müşteri", phone: "0532 123 45 67", description: "Yazıcı çalışmıyor lütfen yardım", consentTextId, consentAccepted: true },
+    payload: {
+      ref,
+      clientInstanceId: o.instance ?? instance(),
+      clientVersion: o.version ?? "0.9.0",
+      customerName: "Ayşe Müşteri",
+      phone: "0532 123 45 67",
+      description: "Yazıcı çalışmıyor lütfen yardım",
+      consentTextId,
+      consentAccepted: true,
+    },
   });
 }
 
@@ -47,8 +55,10 @@ async function tech(tenantId: string, perms: Record<string, boolean> = REQ_PERMS
   return { user, s: await loginAs(live.app, user) };
 }
 
-const accept = (s: Session, id: string) => live.app.inject({ method: "POST", url: `/api/v1/support-requests/${id}/accept`, headers: s.headers, payload: {} });
-const reqWs = (secret: string, headers: Record<string, string> = {}) => connect(`${live.base}/ws/request`, ["rs.v1", `rs.req.${secret}`], headers);
+const accept = (s: Session, id: string) =>
+  live.app.inject({ method: "POST", url: `/api/v1/support-requests/${id}/accept`, headers: s.headers, payload: {} });
+const reqWs = (secret: string, headers: Record<string, string> = {}) =>
+  connect(`${live.base}/ws/request`, ["rs.v1", `rs.req.${secret}`], headers);
 
 describe("P8b-1 public talep uçları", () => {
   it("AC-134/135: talep oluşturulur (201, sır yalnız yanıtta), DB'de PENDING + audit PII'siz", async () => {
@@ -79,9 +89,18 @@ describe("P8b-1 public talep uçları", () => {
     expect(strip(unknown.body)).toBe(strip(malformed.body));
     const { ref } = await tenantWithRef();
     const consentTextId = (await tenantInfo(ref)).json<{ consentText: { id: string } }>().consentText.id;
-    const browser = await live.app.inject({ method: "POST", url: "/api/v1/public/requests", headers: { origin: ORIGIN }, payload: { ref, consentTextId } });
+    const browser = await live.app.inject({
+      method: "POST",
+      url: "/api/v1/public/requests",
+      headers: { origin: ORIGIN },
+      payload: { ref, consentTextId },
+    });
     expect(browser.statusCode).toBe(403);
-    const dl = await live.app.inject({ method: "GET", url: "/api/v1/public/agent/request-download?ref=abcdefghijklmnop", headers: { "x-forwarded-for": nextIp() } });
+    const dl = await live.app.inject({
+      method: "GET",
+      url: "/api/v1/public/agent/request-download?ref=abcdefghijklmnop",
+      headers: { "x-forwarded-for": nextIp() },
+    });
     expect(dl.statusCode).toBe(404);
     expect(strip(dl.body)).toBe(strip(unknown.body));
   });
@@ -107,9 +126,19 @@ describe("P8b-1 public talep uçları", () => {
   it("AC-141: iptal ucu her durumda 204; geçerli sır → CANCELLED", async () => {
     const { ref } = await tenantWithRef();
     const c = (await createReq(ref)).json<{ requestId: string; requestSecret: string }>();
-    const fake = await live.app.inject({ method: "POST", url: "/api/v1/public/requests/cancel", headers: { "x-forwarded-for": nextIp() }, payload: { requestSecret: newSecretToken() } });
+    const fake = await live.app.inject({
+      method: "POST",
+      url: "/api/v1/public/requests/cancel",
+      headers: { "x-forwarded-for": nextIp() },
+      payload: { requestSecret: newSecretToken() },
+    });
     expect(fake.statusCode).toBe(204);
-    const ok = await live.app.inject({ method: "POST", url: "/api/v1/public/requests/cancel", headers: { "x-forwarded-for": nextIp() }, payload: { requestSecret: c.requestSecret } });
+    const ok = await live.app.inject({
+      method: "POST",
+      url: "/api/v1/public/requests/cancel",
+      headers: { "x-forwarded-for": nextIp() },
+      payload: { requestSecret: c.requestSecret },
+    });
     expect(ok.statusCode).toBe(204);
     expect((await testDb().supportRequest.findUniqueOrThrow({ where: { id: c.requestId } })).status).toBe("CANCELLED");
   });
@@ -118,7 +147,9 @@ describe("P8b-1 public talep uçları", () => {
     const { ref } = await tenantWithRef({ trustedCidrs: ["203.0.112.0/22"] }); // ayrıcalıklı kaynak: 40 eşiği ve IP/net sınırları uygulanmaz
     const consentTextId = (await tenantInfo(ref)).json<{ consentText: { id: string } }>().consentText.id;
     // Kapı (S8b-5) ve yük altında kontrollü 503 NOT_READY gelebilir; istemci gibi Retry-After'a uyup yeniden dener.
-    const res = await Promise.all(Array.from({ length: 60 }, (_, i) => retryNotReady(() => createReq(ref, { consentTextId, ip: `203.0.113.${(i % 200) + 1}` }))));
+    const res = await Promise.all(
+      Array.from({ length: 60 }, (_, i) => retryNotReady(() => createReq(ref, { consentTextId, ip: `203.0.113.${(i % 200) + 1}` }))),
+    );
     const codes = res.map((r) => r.statusCode);
     expect(codes.filter((c) => c >= 500)).toEqual([]);
     expect(codes.filter((c) => c === 201)).toHaveLength(50);
@@ -145,7 +176,10 @@ describe("P8b-1 kabul / ret", () => {
       const sessions = await testDb().supportSession.findMany({ where: { requestId: id } });
       expect(sessions).toHaveLength(1);
       // açık oturum sınırına takılmamak için kazananın oturumunu süresi dolmuş say
-      await testDb().supportSession.updateMany({ where: { requestId: id }, data: { createdAt: new Date(Date.now() - 61_000), expiresAt: new Date(Date.now() - 1000) } });
+      await testDb().supportSession.updateMany({
+        where: { requestId: id },
+        data: { createdAt: new Date(Date.now() - 61_000), expiresAt: new Date(Date.now() - 1000) },
+      });
     }
   }, 120_000);
 
@@ -170,7 +204,9 @@ describe("P8b-1 kabul / ret", () => {
     expect((await live.app.inject({ method: "GET", url: "/api/v1/support-requests", headers: noPerm.s.headers })).statusCode).toBe(403);
     const bt = await tech(b.id);
     expect((await accept(bt.s, ra.id)).statusCode).toBe(404);
-    expect((await live.app.inject({ method: "GET", url: `/api/v1/support-requests/${ra.id}`, headers: bt.s.headers })).statusCode).toBe(404);
+    expect((await live.app.inject({ method: "GET", url: `/api/v1/support-requests/${ra.id}`, headers: bt.s.headers })).statusCode).toBe(
+      404,
+    );
     const list = await live.app.inject({ method: "GET", url: "/api/v1/support-requests", headers: bt.s.headers });
     expect(list.statusCode).toBe(200);
     expect(list.body).toContain(rb.id);
@@ -185,9 +221,19 @@ describe("P8b-1 kabul / ret", () => {
     const ws = await reqWs(c.requestSecret);
     await ws.waitFor("request.state" as never);
     const x = await tech(tenantId);
-    const bad = await live.app.inject({ method: "POST", url: `/api/v1/support-requests/${c.requestId}/reject`, headers: x.s.headers, payload: { message: "Beni 0532 123 45 67'den arayın" } });
+    const bad = await live.app.inject({
+      method: "POST",
+      url: `/api/v1/support-requests/${c.requestId}/reject`,
+      headers: x.s.headers,
+      payload: { message: "Beni 0532 123 45 67'den arayın" },
+    });
     expect(bad.statusCode).toBe(400);
-    const ok = await live.app.inject({ method: "POST", url: `/api/v1/support-requests/${c.requestId}/reject`, headers: x.s.headers, payload: { message: "Şu an müsait değiliz" } });
+    const ok = await live.app.inject({
+      method: "POST",
+      url: `/api/v1/support-requests/${c.requestId}/reject`,
+      headers: x.s.headers,
+      payload: { message: "Şu an müsait değiliz" },
+    });
     expect(ok.statusCode).toBe(204);
     const closed = (await ws.waitFor("request.closed" as never)) as unknown as { status: string; message: string };
     expect(closed).toMatchObject({ status: "REJECTED", message: "Şu an müsait değiliz" });
@@ -319,4 +365,3 @@ describe("P8b-1 süpürücü / anonimleştirme / geçmiş", () => {
     expect(detail.json<{ request: { id: string } | null }>().request).toMatchObject({ id });
   });
 });
-

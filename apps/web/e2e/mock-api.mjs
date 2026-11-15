@@ -17,8 +17,20 @@ const PORT = Number(process.env.MOCK_API_PORT ?? 4010);
 const CSRF = "csrf-test-token";
 
 const users = {
-  "s-ok": { id: "01JUSER0000000000000000001", email: "teknisyen@ornek.com", fullName: "Ayşe Teknisyen", role: "USER", mustChangePassword: false },
-  "s-must": { id: "01JUSER0000000000000000002", email: "yeni@ornek.com", fullName: "Yeni Kullanıcı", role: "ADMIN", mustChangePassword: true },
+  "s-ok": {
+    id: "01JUSER0000000000000000001",
+    email: "teknisyen@ornek.com",
+    fullName: "Ayşe Teknisyen",
+    role: "USER",
+    mustChangePassword: false,
+  },
+  "s-must": {
+    id: "01JUSER0000000000000000002",
+    email: "yeni@ornek.com",
+    fullName: "Yeni Kullanıcı",
+    role: "ADMIN",
+    mustChangePassword: true,
+  },
 };
 const accounts = {
   "teknisyen@ornek.com": { password: "DogruSifre123!", session: "s-ok" },
@@ -29,10 +41,13 @@ const err = (code, message, extra = {}) => ({ error: { code, message, requestId:
 
 function cookies(req) {
   return Object.fromEntries(
-    (req.headers.cookie ?? "").split(";").filter(Boolean).map((p) => {
-      const [k, ...v] = p.trim().split("=");
-      return [k, decodeURIComponent(v.join("="))];
-    }),
+    (req.headers.cookie ?? "")
+      .split(";")
+      .filter(Boolean)
+      .map((p) => {
+        const [k, ...v] = p.trim().split("=");
+        return [k, decodeURIComponent(v.join("="))];
+      }),
   );
 }
 
@@ -97,7 +112,8 @@ const srv = createServer(async (req, res) => {
   const lh = req.method === "GET" && lobbyHook(url);
   if (lh) return send(res, lh.status, lh.body);
   // P13b-L: panel geneli lobi sayacı ucu — tüm sahte kullanıcılar için (panel kabuğu her sayfada yoklar)
-  if (req.method === "GET" && url.split("?")[0] === "/api/v1/sessions/waiting") return handleLobby(res, { session, me: resolveMe(session), send, err });
+  if (req.method === "GET" && url.split("?")[0] === "/api/v1/sessions/waiting")
+    return handleLobby(res, { session, me: resolveMe(session), send, err });
   const csrfOk = req.headers[CSRF_HEADER.toLowerCase()] === CSRF && c[CSRF_COOKIE] === CSRF;
   // Backend gibi: durum değiştiren isteklerde Origin allowlist'te olmalı (ADR-0008)
   if (req.method !== "GET" && req.headers.origin !== (process.env.MOCK_ALLOWED_ORIGIN ?? "http://localhost:3217"))
@@ -116,8 +132,7 @@ const srv = createServer(async (req, res) => {
       });
     if (login === "hata500@ornek.com") return send(res, 500, err("INTERNAL", "Sunucu hatası oluştu."));
     const acc = accounts[login.toLowerCase()];
-    if (!acc || acc.password !== password)
-      return send(res, 401, err("UNAUTHENTICATED", "Giriş bilgileri hatalı."));
+    if (!acc || acc.password !== password) return send(res, 401, err("UNAUTHENTICATED", "Giriş bilgileri hatalı."));
     const user = users[acc.session];
     return send(res, 200, { user, mfaRequired: false, mustChangePassword: user.mustChangePassword }, sessionCookies(acc.session));
   }

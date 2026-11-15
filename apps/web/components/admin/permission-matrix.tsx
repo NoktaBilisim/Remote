@@ -88,13 +88,25 @@ export function PermissionMatrix({ value, onChange, locked, disabled = false, mo
       testId={`perm-group-${r.module}`}
     />
   );
-  const na = <span className="inline-flex min-h-11 min-w-11 items-center justify-center text-fg-muted" aria-label={t("perm.na")}>—</span>;
+  const na = (
+    <span className="inline-flex min-h-11 min-w-11 items-center justify-center text-fg-muted" aria-label={t("perm.na")}>
+      —
+    </span>
+  );
   const Icon = (m: string) => ICONS[m] ?? ShieldCheck;
   // Alt yetki açıklamaları (contracts PERMISSION_DESCRIPTIONS; yalnız adından anlaşılmayan anahtarlar)
   const notes = rows.flatMap((r) =>
     r.keys.flatMap((k) => {
       const text = (PERMISSION_DESCRIPTIONS as Readonly<Record<string, string | undefined>>)[k];
-      return text ? [{ key: k, label: t("perm.itemLabel", { module: moduleLabel(r.module), action: actionLabel(k.slice(r.module.length + 1)) }), text }] : [];
+      return text
+        ? [
+            {
+              key: k,
+              label: t("perm.itemLabel", { module: moduleLabel(r.module), action: actionLabel(k.slice(r.module.length + 1)) }),
+              text,
+            },
+          ]
+        : [];
     }),
   );
 
@@ -110,12 +122,20 @@ export function PermissionMatrix({ value, onChange, locked, disabled = false, mo
           <caption className="sr-only">{t("perm.caption")}</caption>
           <thead className="border-y border-border bg-surface-muted text-xs text-fg-muted">
             <tr>
-              <th scope="col" className="px-4 py-2 font-medium sm:px-6">{t("perm.col.module")}</th>
-              <th scope="col" className="px-2 py-2 text-center font-medium">{t("perm.col.all")}</th>
+              <th scope="col" className="px-4 py-2 font-medium sm:px-6">
+                {t("perm.col.module")}
+              </th>
+              <th scope="col" className="px-2 py-2 text-center font-medium">
+                {t("perm.col.all")}
+              </th>
               {STANDARD_ACTIONS.map((a) => (
-                <th key={a} scope="col" className="px-2 py-2 text-center font-medium">{actionLabel(a)}</th>
+                <th key={a} scope="col" className="px-2 py-2 text-center font-medium">
+                  {actionLabel(a)}
+                </th>
               ))}
-              <th scope="col" className="px-2 py-2 font-medium">{t("perm.col.other")}</th>
+              <th scope="col" className="px-2 py-2 font-medium">
+                {t("perm.col.other")}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -168,7 +188,9 @@ export function PermissionMatrix({ value, onChange, locked, disabled = false, mo
               <div className="flex items-center gap-2">
                 <I aria-hidden className="size-5 shrink-0 text-fg-muted" />
                 <h3 className="min-w-0 flex-1 text-sm font-semibold text-fg">{moduleLabel(r.module)}</h3>
-                <span className="text-xs text-fg-muted" aria-hidden>{t("perm.col.all")}</span>
+                <span className="text-xs text-fg-muted" aria-hidden>
+                  {t("perm.col.all")}
+                </span>
                 {groupSwitch(r)}
               </div>
               <ul className="mt-1 grid grid-cols-1 gap-x-4 sm:grid-cols-2">
@@ -186,7 +208,9 @@ export function PermissionMatrix({ value, onChange, locked, disabled = false, mo
 
       {notes.length > 0 && (
         <section aria-labelledby={`${reasonId}-n`} className="border-t border-border px-4 py-3 sm:px-6" data-testid="permission-notes">
-          <h3 id={`${reasonId}-n`} className="text-xs font-medium text-fg-muted">{t("perm.notes")}</h3>
+          <h3 id={`${reasonId}-n`} className="text-xs font-medium text-fg-muted">
+            {t("perm.notes")}
+          </h3>
           <dl className="mt-1 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-[auto_1fr]">
             {notes.map((n) => (
               <div key={n.key} className="contents">

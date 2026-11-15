@@ -13,7 +13,6 @@ import { NextResponse, type NextRequest } from "next/server";
 // P10: /forgot-password, /reset-password (AC-66; token URL parçasında — sunucuya/loga gitmez)
 const PUBLIC_PATHS = ["/login", "/session/", "/forgot-password", "/reset-password"];
 
-
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => (p.endsWith("/") ? pathname.startsWith(p) : pathname === p || pathname.startsWith(`${p}/`)));
 }

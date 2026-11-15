@@ -34,7 +34,11 @@ const subscribe = (fn: () => void) => {
 };
 
 export function useLobby(): Snapshot {
-  return useSyncExternalStore(subscribe, () => snap, () => EMPTY);
+  return useSyncExternalStore(
+    subscribe,
+    () => snap,
+    () => EMPTY,
+  );
 }
 
 /** Sekme gizliyken ve bekleyen varken lobi başlık öneki (AC-308); aksi halde 0. */
@@ -82,7 +86,8 @@ export function LobbyNotifier({ enabled, scopeKey }: { enabled: boolean; scopeKe
         toastRef.current(n.n === 1 ? t("s.lobby.toastOne") : t("s.lobby.toastMany", { n: n.n }), "info", { action, durationMs: 15_000 });
       }
       // AC-312: canlı bölge yalnız sayı değişince (temel çizgide yazılmaz)
-      if (lastCount !== null && lastCount !== data.count) setLive(data.count > 0 ? t("s.lobby.navSr", { n: data.count }) : t("s.lobby.liveNone"));
+      if (lastCount !== null && lastCount !== data.count)
+        setLive(data.count > 0 ? t("s.lobby.navSr", { n: data.count }) : t("s.lobby.liveNone"));
       lastCount = data.count;
       prev = toPrev(data.sessions);
       patch({ count: data.count, sessions: data.sessions });

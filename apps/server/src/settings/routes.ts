@@ -72,7 +72,10 @@ export async function applyTurn(app: FastifyInstance): Promise<void> {
   app.rooms.turn = await effectiveTurn(systemDeps(app));
 }
 
-export async function adminSettingsRoutes(app: FastifyInstance, opts: { mysqlProbe?: (t: ProbeTarget) => Promise<ProbeResult> }): Promise<void> {
+export async function adminSettingsRoutes(
+  app: FastifyInstance,
+  opts: { mysqlProbe?: (t: ProbeTarget) => Promise<ProbeResult> },
+): Promise<void> {
   app.addHook("preHandler", requireAuth);
   app.addHook("preHandler", requireSuperAdmin);
   app.addHook("onSend", noStore);
@@ -109,7 +112,9 @@ export async function adminSettingsRoutes(app: FastifyInstance, opts: { mysqlPro
     writeGuard(req);
     return saveMysqlSettings(d, auditContext(req), authOf(req), input);
   });
-  app.post("/mysql/test", async (req): Promise<MysqlTestResponse> => testMysql(d, auditContext(req), authOf(req), parseInput(mysqlSettingsInputSchema, req.body), testLimits, opts.mysqlProbe));
+  app.post("/mysql/test", async (req): Promise<MysqlTestResponse> =>
+    testMysql(d, auditContext(req), authOf(req), parseInput(mysqlSettingsInputSchema, req.body), testLimits, opts.mysqlProbe),
+  );
 
   app.get("/turn", async (): Promise<TurnSettingsView> => getTurnSettings(d));
   app.put("/turn", async (req): Promise<TurnSettingsView> => {
@@ -161,7 +166,9 @@ export async function consentTextRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("onSend", noStore);
   const saveLimit = new FixedWindowCounter(CONSENT_SAVE_PER_HOUR + 1, 3_600_000, 3_600_000);
   app.addHook("onClose", async () => saveLimit.close());
-  app.get("", { preHandler: requirePerm("settings.view") }, async (req): Promise<ConsentTextSettings> => getConsentSettings(app.db, tenantScope(req).tenantId));
+  app.get("", { preHandler: requirePerm("settings.view") }, async (req): Promise<ConsentTextSettings> =>
+    getConsentSettings(app.db, tenantScope(req).tenantId),
+  );
   app.put("", { preHandler: requirePerm("settings.edit") }, async (req): Promise<ConsentTextSaveResponse> => {
     const { tenantId } = tenantScope(req);
     const { body } = parseInput(consentTextInputSchema, req.body);

@@ -1,17 +1,22 @@
 # Gereksinimler — Bekleme odası (lobi) göstergesi ve bildirimi
-Tarih: 2026-11-15   Durum: TASLAK (kullanıcı kararı 2026-11-15: oturum listesine "müşteri bekliyor" göstergesi + bildirim). Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (ayrılmaz parçasıdır). Epik: E4 Teknisyen konsolu (ek). Tasarım: mimar tarafından yazılacak (bu dosya mekanizma seçmez, davranışı bağlar).
+
+Tarih: 2026-11-15 Durum: TASLAK (kullanıcı kararı 2026-11-15: oturum listesine "müşteri bekliyor" göstergesi + bildirim). Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler.md` (ayrılmaz parçasıdır). Epik: E4 Teknisyen konsolu (ek). Tasarım: mimar tarafından yazılacak (bu dosya mekanizma seçmez, davranışı bağlar).
 
 ## 1. Amaç
+
 Staging'de (2026-11-15) müşteri Hızlı Destek ile oturuma katıldı ve 75 sn bekleme odasında kaldı (audit `guest.pending`). Teknisyen bunu göremedi, çünkü bekleme odası yalnız oturum konsolunda (`/sessions/:id/console`, "Bekleme odası (n)") görünüyor. "Talepler" ekranını boş buldu ve oturumu iptal etti. Amaç: müşteri bekleme odasına girdiğinde teknisyen panelin hangi sayfasında olursa olsun bunu **en geç 10 sn içinde** görsün ve konsola tek tıkla geçebilsin.
 
 ## 2. Mevcut durum (çift iş açılmaz)
+
 - Konsoldaki lobi listesi (ad, mod, bekleme süresi, kabul kodu, Kabul et/Reddet; AC-112, AC-113) **değişmez**. Müşteri adı yalnız orada görünmeye devam eder.
 - Oturum listesi (`GET /sessions`, `SessionListItem`) 10 sn'de bir yenilenir ("Son güncelleme"). Yeni gösterge bu yenilemeye eklenir; ayrı bir liste ekranı açılmaz.
 - Destek talepleri için aynı desen zaten var: menü rozeti (`GET /support-requests/count` ilk yükleme, sonra `/ws/panel` `queue.count`), toast (`rq.toast.*`), sekme başlığı sayacı, ekran okuyucu metni `rq.badgeSr`. Yeni gösterge bu desenin bileşenlerini (rozet, toast, başlık sayacı) yeniden kullanır; ikinci bir toast/başlık altyapısı yazılmaz.
 - **Kısıt:** `/ws/panel` yalnız `support_requests.view` yetkisi olan kullanıcıya açılır (mimari-protokol §5.3). Oturum açabilen her teknisyende bu yetki bulunmayabilir. Gösterge bu yetkiye bağlı olamaz (AC-306). Taşıma yolunu (yoklama, `/ws/panel` genişletmesi ya da ikisi) mimar seçer.
 
 ## 3. Kapsam
+
 ### Kapsamda
+
 1. Oturum listesinde PENDING oturum satırında "Müşteri bekliyor (n)" rozeti ve kendi oturumunda tek tıkla konsola geçiş (AC-304, 305).
 2. Liste yanıtında satır başına bekleyen misafir sayısı (AC-305).
 3. Panel genelinde "Oturumlar" menü öğesinde sayaç (her sayfada; 360 px dahil) (AC-306).
@@ -23,6 +28,7 @@ Staging'de (2026-11-15) müşteri Hızlı Destek ile oturuma katıldı ve 75 sn 
 9. Olayı yeniden üreten uçtan uca senaryo (AC-316).
 
 ### Kapsam DIŞI (açıkça)
+
 1. **Tarayıcı (işletim sistemi) bildirimi ve sesli uyarı** → **Sonra** (kullanıcı tercihiyle açılır biçimde; izin isteme akışı, profil ayarı ve tercih saklaması gerekir; §6 L-S1).
 2. Admin veya Super Admin'in başka teknisyenin lobisinden müşteri kabul etmesi. Mevcut kural değişmez: yalnız oturumun teknisyeni kabul eder (mimari.md "Teknisyen–oturum sahipliği" satırı, G-04: Admin/Super Admin "odaya katılamaz").
 3. Lobi kurallarının değişmesi: en çok 3 misafir, 5 dk bekleme, 5 hatalı kodda boşaltma (AC-113) aynen kalır.
@@ -32,6 +38,7 @@ Staging'de (2026-11-15) müşteri Hızlı Destek ile oturuma katıldı ve 75 sn 
 7. PENDING durum etiketinin ("Bekliyor") yeniden adlandırılması ve "Talepler" boş ekranına yönlendirme satırı → **Sonra** (§6 L-S2, L-S3).
 
 ## 4. Kabul kriterleri
+
 Tanımlar: **Bekleyen misafir** = bir oturumun bekleme odasında olan, henüz kabul edilmemiş, reddedilmemiş, çıkmamış ve 5 dk süresi dolmamış misafir (audit `guest.pending` yazılmış, `guest.admitted`/`guest.rejected`/çıkış/zaman aşımı olmamış). **Kendi oturumu** = `technician_id = oturum açan kullanıcı` olan, `status = PENDING` ve `expires_at > now` oturum. **Gösterge** = liste rozeti, menü sayacı, toast ve sekme başlığı sayacının toplamı.
 
 - **AC-304:** (liste rozeti, kendi oturumu) Teknisyen oturum listesindeyken kendi PENDING oturumuna bir misafir bekleme odasına girdiğinde, en geç 10 sn içinde o satırda "Müşteri bekliyor (n)" rozeti görünür (n = o oturumdaki bekleyen misafir sayısı, 1..3). Rozete ya da satırdaki "Konsolu aç" düğmesine tek tıklama `/sessions/:id/console` sayfasını açar ve "Bekleme odası (n)" bölümü ilk ekranda görünür. (e2e: misafir join → ≤ 10 sn rozet → tık → konsol URL'si ve lobi bölümü görünür.)
@@ -49,23 +56,26 @@ Tanımlar: **Bekleyen misafir** = bir oturumun bekleme odasında olan, henüz ka
 - **AC-316:** (olayın yeniden üretimi, staging testi) Teknisyen yeni oturum açıp "Talepler" sayfasına geçer. Müşteri Hızlı Destek (Windows) ile kodu girip bekleme odasına düşer. En geç 10 sn içinde menü sayacı "1" olur ve toast görünür. Teknisyen toast'taki "Konsolu aç" ile tek tıkla konsola geçer, kabul kodunu girer ve oturum ACTIVE olur. Sayaç ve rozet en geç 10 sn içinde kaybolur. Aynı test tarayıcı modundaki misafirle de tekrarlanır. Ölçülen süreler `docs/test-raporu.md`'ye yazılır.
 
 ## 5. Riskler
-| # | Risk | Etki | Azaltma | Sahibi |
-|---|---|---|---|---|
-| R-L1 | Lobi durumu tek server instance'ın belleğinde. İkinci instance eklenirse sayım yanlış olur | Orta (bugün tek instance) | Mimari kayda "tek instance varsayımı" düşülür; çok instance'a geçişte paylaşımlı durum (ör. pub/sub) zorunlu ön koşul olur | mimar |
-| R-L2 | Yoklama ile 10 sn gecikme: müşteri bu sürede "bekliyor" ekranında kalır | Düşük | 10 sn üst sınır AC'de; mimar `/ws/panel` genişletmesini seçerse gecikme ~3 sn'ye iner (AC-149 düzeyi). İkisi de AC'yi karşılar | mimar |
+
+| #    | Risk                                                                                             | Etki                                   | Azaltma                                                                                                                                | Sahibi                   |
+| ---- | ------------------------------------------------------------------------------------------------ | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| R-L1 | Lobi durumu tek server instance'ın belleğinde. İkinci instance eklenirse sayım yanlış olur       | Orta (bugün tek instance)              | Mimari kayda "tek instance varsayımı" düşülür; çok instance'a geçişte paylaşımlı durum (ör. pub/sub) zorunlu ön koşul olur             | mimar                    |
+| R-L2 | Yoklama ile 10 sn gecikme: müşteri bu sürede "bekliyor" ekranında kalır                          | Düşük                                  | 10 sn üst sınır AC'de; mimar `/ws/panel` genişletmesini seçerse gecikme ~3 sn'ye iner (AC-149 düzeyi). İkisi de AC'yi karşılar         | mimar                    |
 | R-L3 | Liste satırında "Bekliyor" (PENDING etiketi) ile "Müşteri bekliyor" yan yana durunca karışabilir | Orta (olayın kök nedeni anlaşılmazlık) | Rozet farklı metin, ikon ve renk token'ıyla ayrılır (AC-312). Etiketin "Müşteri bekleniyor" olarak yeniden adlandırılması Sonra (L-S2) | frontend-dev + kullanıcı |
-| R-L4 | Çok sekmede aynı toast birden çok kez görünür | Düşük | Kabul edildi: her sekme kendi toast'ını gösterir. Sekmeler arası tekilleştirme Sonra | — |
-| R-L5 | Yoklama kullanıcı başına yük ekler | Düşük | Değer bellekten gelir, DB'ye gitmez (hedef); hız sınırı ve p95 AC-314'te | backend-dev |
+| R-L4 | Çok sekmede aynı toast birden çok kez görünür                                                    | Düşük                                  | Kabul edildi: her sekme kendi toast'ını gösterir. Sekmeler arası tekilleştirme Sonra                                                   | —                        |
+| R-L5 | Yoklama kullanıcı başına yük ekler                                                               | Düşük                                  | Değer bellekten gelir, DB'ye gitmez (hedef); hız sınırı ve p95 AC-314'te                                                               | backend-dev              |
 
 ## 6. Sonra (unutulmasın)
-| # | Madde | Not |
-|---|---|---|
-| L-S1 | Tarayıcı (OS) bildirimi ve sesli uyarı, kullanıcı tercihiyle (profilde aç/kapa, izin akışı, varsayılan kapalı) | İlk kullanım geri bildirimine göre; sekme başlığı ve toast yetmezse öne çekilir |
-| L-S2 | PENDING durum etiketi "Bekliyor" → "Müşteri bekleniyor" (liste, geçmiş, CSV `labels.ts`) | Metin değişikliği; geçmiş ve CSV etkisi değerlendirilmeli |
+
+| #    | Madde                                                                                                                | Not                                                                                           |
+| ---- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| L-S1 | Tarayıcı (OS) bildirimi ve sesli uyarı, kullanıcı tercihiyle (profilde aç/kapa, izin akışı, varsayılan kapalı)       | İlk kullanım geri bildirimine göre; sekme başlığı ve toast yetmezse öne çekilir               |
+| L-S2 | PENDING durum etiketi "Bekliyor" → "Müşteri bekleniyor" (liste, geçmiş, CSV `labels.ts`)                             | Metin değişikliği; geçmiş ve CSV etkisi değerlendirilmeli                                     |
 | L-S3 | "Talepler" boşken ve kullanıcının bekleyen lobisi varken bilgi satırı: "Bekleme odasında müşteriniz var — Oturumlar" | Olaydaki yanlış yöne bakmayı doğrudan kapatır; menü sayacı (AC-306) çoğunu çözdüğü için Sonra |
-| L-S4 | Sekmeler arası toast tekilleştirme (BroadcastChannel) | R-L4 |
+| L-S4 | Sekmeler arası toast tekilleştirme (BroadcastChannel)                                                                | R-L4                                                                                          |
 
 ## 7. Varsayımlar (kullanıcıya sorulmadı; koordinatör talimatıyla makul varsayım)
+
 - V-L1: Gecikme üst sınırı **10 sn**'dir (mevcut liste yenileme aralığı). Daha hızlı yol (WS) serbesttir ama zorunlu değildir.
 - V-L2: Menü sayacı, toast ve sekme başlığı **yalnız kendi oturumlarını** sayar. ADMIN başkasının lobisinden kabul yapamadığı için kendi sayacına başkasının misafiri eklenmez; liste rozeti ise ADMIN'e bilgi verir.
 - V-L3: Firma seçmemiş Super Admin'de liste rozeti var (bilgi), sayaç/toast/başlık yok. Gerekçe: bu modda eylem yok (commit a71d80e notu) ve tüm firmaların lobileri gürültü üretir.

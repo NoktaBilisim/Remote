@@ -16,13 +16,22 @@ const ACTIVE = new Set(["hashing", "offered", "sending", "receiving", "verifying
 
 function Row({ x, mb, onCancel }: { x: Transfer; mb: number; onCancel: () => void }) {
   const pct = x.size ? Math.floor((x.done / x.size) * 100) : 100;
-  const tone = x.status === "ok" ? "text-success" : ["corrupt", "tooLarge"].includes(x.status) ? "text-danger" : x.status === "timeout" ? "text-warning" : "text-fg-muted";
+  const tone =
+    x.status === "ok"
+      ? "text-success"
+      : ["corrupt", "tooLarge"].includes(x.status)
+        ? "text-danger"
+        : x.status === "timeout"
+          ? "text-warning"
+          : "text-fg-muted";
   const Icon = x.dir === "out" ? Upload : Download;
   return (
     <li className="flex flex-col gap-1 rounded-md border border-border p-3" data-testid="file-row" data-status={x.status} data-dir={x.dir}>
       <div className="flex items-center gap-2">
         <Icon aria-hidden className="size-4 shrink-0 text-fg-muted" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg" title={x.name}>{x.name}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg" title={x.name}>
+          {x.name}
+        </span>
         <span className="shrink-0 text-xs tabular-nums text-fg-muted">{formatBytes(x.size)}</span>
         {ACTIVE.has(x.status) && (
           <Button variant="ghost" aria-label={t("p5.files.cancel", { name: x.name })} onClick={onCancel} data-testid="file-cancel">
@@ -46,7 +55,12 @@ function Row({ x, mb, onCancel }: { x: Transfer; mb: number; onCancel: () => voi
           </span>
         )}
         {x.dir === "in" && x.status === "ok" && x.url && (
-          <a href={x.url} download={x.name} className="ml-auto inline-flex min-h-11 items-center gap-1 font-medium text-primary hover:underline" data-testid="file-download">
+          <a
+            href={x.url}
+            download={x.name}
+            className="ml-auto inline-flex min-h-11 items-center gap-1 font-medium text-primary hover:underline"
+            data-testid="file-download"
+          >
             <Download aria-hidden className="size-4" />
             {t("p5.files.download")}
           </a>
@@ -81,10 +95,20 @@ export function FilesPanel({ collab, allowed, peerName }: { collab: Collab; allo
   return (
     <div className="flex flex-col gap-3" data-testid="files-panel">
       {!allowed ? (
-        <Alert tone="warning" testId="files-denied">{t("p5.files.noCap")}</Alert>
+        <Alert tone="warning" testId="files-denied">
+          {t("p5.files.noCap")}
+        </Alert>
       ) : (
         <div className="flex flex-col gap-1">
-          <input ref={input} type="file" className="sr-only" tabIndex={-1} aria-hidden data-testid="file-input" onChange={(e) => void pick(e.target.files?.[0])} />
+          <input
+            ref={input}
+            type="file"
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden
+            data-testid="file-input"
+            onChange={(e) => void pick(e.target.files?.[0])}
+          />
           <Button variant="secondary" disabled={!collab.ready} onClick={() => input.current?.click()} data-testid="file-send">
             <Upload aria-hidden className="size-4" />
             {t("p5.files.send")}
@@ -92,7 +116,11 @@ export function FilesPanel({ collab, allowed, peerName }: { collab: Collab; allo
           <p className="text-xs text-fg-muted">{t("p5.files.limit", { mb: collab.maxMb })}</p>
         </div>
       )}
-      {msg && <Alert tone="danger" testId="file-error">{t(`p5.files.err.${msg}`, { mb: collab.maxMb })}</Alert>}
+      {msg && (
+        <Alert tone="danger" testId="file-error">
+          {t(`p5.files.err.${msg}`, { mb: collab.maxMb })}
+        </Alert>
+      )}
       {collab.transfers.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-fg-muted" data-testid="files-empty">
           <Paperclip aria-hidden className="size-6" />
@@ -112,10 +140,22 @@ export function FilesPanel({ collab, allowed, peerName }: { collab: Collab; allo
         role="alertdialog"
         size="sm"
         testId="file-offer"
-        description={pending ? <span className="break-all"><b>{pending.name}</b> · {formatBytes(pending.size)}</span> : null}
+        description={
+          pending ? (
+            <span className="break-all">
+              <b>{pending.name}</b> · {formatBytes(pending.size)}
+            </span>
+          ) : null
+        }
         footer={
           <>
-            <Button variant="secondary" data-autofocus onClick={() => pending && collab.reject(pending.fid)} className="sm:ml-auto" data-testid="file-reject">
+            <Button
+              variant="secondary"
+              data-autofocus
+              onClick={() => pending && collab.reject(pending.fid)}
+              className="sm:ml-auto"
+              data-testid="file-reject"
+            >
               <UserX aria-hidden className="size-4" />
               {t("p5.files.reject")}
             </Button>
@@ -130,15 +170,22 @@ export function FilesPanel({ collab, allowed, peerName }: { collab: Collab; allo
           // S-P5-T2-1 (P13a): tarayıcı kayıt penceresi seçilen dosyayı hemen oluşturur/boşaltır → uyarı diyalogdan ÖNCE
           <Alert tone="warning" testId="file-big">
             <span className="block">{t("p5.files.bigDisk")}</span>
-            <span className="mt-1 block font-semibold" data-testid="file-big-overwrite">{t("p5.files.bigDiskWarn")}</span>
+            <span className="mt-1 block font-semibold" data-testid="file-big-overwrite">
+              {t("p5.files.bigDiskWarn")}
+            </span>
           </Alert>
         )}
         {pending && pending.size > BIG_MEM_WARN_BYTES && !canStreamToDisk() && (
-          <Alert tone="warning" testId="file-big">{t("p5.files.bigMem")}</Alert>
+          <Alert tone="warning" testId="file-big">
+            {t("p5.files.bigMem")}
+          </Alert>
         )}
         {pending?.dangerous && (
           <Alert tone="danger" testId="file-danger">
-            <span className="inline-flex items-center gap-1.5 font-semibold"><ShieldAlert aria-hidden className="size-4" />{t("p5.files.dangerTitle")}</span>
+            <span className="inline-flex items-center gap-1.5 font-semibold">
+              <ShieldAlert aria-hidden className="size-4" />
+              {t("p5.files.dangerTitle")}
+            </span>
             <span className="block">{t(pending.double ? "p5.files.double" : "p5.files.danger")}</span>
           </Alert>
         )}

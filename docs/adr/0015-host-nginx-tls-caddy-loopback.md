@@ -1,12 +1,15 @@
 # ADR-0015 — Alan adı: host nginx TLS sonlandırır, Caddy'ye loopback HTTP (4451)
+
 Durum: Kabul · Tarih: 2026-11-12 · İlgili: ADR-0002 (tek TLS girişi), G-10 (log), G-11 (istemci IP), runbook §8.3
 
 ## Bağlam
+
 Staging `https://remote.noktabilisim.net` (portsuz, Let's Encrypt) üzerinden yayınlanacak. 80/443'ü paylaşımlı
 sunucunun host nginx'i tutuyor (başka siteler, certbot). Caddy 443'ü alamaz; ACME HTTP-01/TLS-ALPN Caddy'ye ulaşamaz.
 Mevcut IP girişi `https://185.126.217.99:4450` (`tls internal`) geçiş süresince çalışmaya devam etmeli.
 
 ## Karar
+
 - nginx (yalnız yeni vhost `remote.noktabilisim.net`) TLS'i sonlandırır; sertifika `certbot certonly --webroot`
   (`/var/www/remote-acme`, deploy hook `nginx -t && systemctl reload nginx`). Diğer vhost'lara dokunulmaz.
 - nginx → `http://127.0.0.1:4451`. Caddy'de ikinci site `http://:4451`; compose bu portu **yalnız** `127.0.0.1`'e yayımlar.
@@ -23,6 +26,7 @@ Mevcut IP girişi `https://185.126.217.99:4450` (`tls internal`) geçiş süresi
   geçiş süresince iki origin'i içerir.
 
 ## Sonuçlar
+
 - Windows istemci ve tarayıcılar için kök sertifika kurulumu gerekmez (alan adı üzerinden).
 - Ağ geçidi değişirse (ağ yeniden yaratılıp farklı geçit alırsa) gerçek IP kaybolur, tüm istemciler geçit adresinden
   görünür (sahtecilik değil, ortak limit). Kontrol runbook §8.3. Cloudflare kaydı "proxied" yapılırsa istemci IP'si

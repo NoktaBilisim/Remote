@@ -26,7 +26,11 @@ async function boot() {
   return { l: live, rc: requestClient(live.app, live.base) };
 }
 
-async function login(app: Live["app"], tenantId: string | null, o: { role?: "SUPER_ADMIN" | "ADMIN" | "USER"; perms?: Record<string, boolean> } = {}) {
+async function login(
+  app: Live["app"],
+  tenantId: string | null,
+  o: { role?: "SUPER_ADMIN" | "ADMIN" | "USER"; perms?: Record<string, boolean> } = {},
+) {
   const user = await createUser({ tenantId, role: o.role ?? "USER", ...(o.perms ? { perms: o.perms } : {}) });
   return { user, s: await loginAs(app, user) };
 }
@@ -51,7 +55,9 @@ describe("AC-135 onay kaydı", () => {
     expect(errOf(stale)).toMatchObject({ code: "VALIDATION" });
     expect(errOf(stale).fields?.consentTextId).toBeTruthy();
     const other = await createTenant(); // başka tenant'ın güncel metni de geçersiz
-    const foreign = await rc.createReq(ref, ip, { consentTextId: (await testDb().consentText.findFirstOrThrow({ where: { tenantId: other.id, isCurrent: true } })).id });
+    const foreign = await rc.createReq(ref, ip, {
+      consentTextId: (await testDb().consentText.findFirstOrThrow({ where: { tenantId: other.id, isCurrent: true } })).id,
+    });
     expect(foreign.statusCode).toBe(400);
     const notAccepted = await rc.createReq(ref, ip, { extra: { consentAccepted: false } });
     expect(notAccepted.statusCode).toBe(400);
@@ -88,7 +94,16 @@ describe("AC-135 onay kaydı", () => {
     const consent = await testDb().consentText.findFirstOrThrow({ where: { tenantId: t.id, isCurrent: true } });
     await expect
       .poll(() => testDb().sessionConsent.findMany({ where: { sessionId } }))
-      .toMatchObject([{ level: "VIEW", decision: "GRANTED", source: "UI", requestId: c.requestId, consentTextId: consent.id, consentSha256: consent.sha256 }]);
+      .toMatchObject([
+        {
+          level: "VIEW",
+          decision: "GRANTED",
+          source: "UI",
+          requestId: c.requestId,
+          consentTextId: consent.id,
+          consentSha256: consent.sha256,
+        },
+      ]);
     guest.ws.close();
     techWs.ws.close();
     ws.ws.close();
@@ -121,12 +136,14 @@ describe("AC-147 / AC-148 yetki ve Super Admin bağlamı", () => {
     const { id } = await createRequestRow(t.id);
     const a = await login(l.app, t.id, { perms: { ...TECH_PERMS, "support_requests.accept": true } });
     expect((await api(l.app, a.s, "GET", "/api/v1/support-requests")).statusCode).toBe(403);
-    expect((await api(l.app, a.s, "POST", `/api/v1/support-requests/${id}/reject`, { message: "Şu an müsait değiliz" })).statusCode).toBe(403);
+    expect((await api(l.app, a.s, "POST", `/api/v1/support-requests/${id}/reject`, { message: "Şu an müsait değiliz" })).statusCode).toBe(
+      403,
+    );
     expect((await api(l.app, a.s, "POST", `/api/v1/support-requests/${id}/accept`, {})).statusCode).toBe(403);
     expect((await testDb().supportRequest.findUniqueOrThrow({ where: { id } })).status).toBe("PENDING");
   });
 
-  it("AC-148: Super Admin firma seçmeden tüm talep ve ayar uçlarında 403 \"Önce bir firma seçin.\"", async () => {
+  it('AC-148: Super Admin firma seçmeden tüm talep ve ayar uçlarında 403 "Önce bir firma seçin."', async () => {
     const { l } = await boot();
     const t = await createTenant();
     const { id } = await createRequestRow(t.id);
@@ -188,7 +205,12 @@ describe("AC-157 / AC-160 kabul-ret audit ve PII", () => {
     const t = await createTenant();
     const ref = await createRequestSettings(t.id);
     const ip = "198.51.111.9";
-    const extra = { customerName: "Zeliha Testoğlu", phone: "0532 987 65 43", email: "zeliha.p8b5@qx7-musteri.test", description: "Benzersiz-aciklama-QX7 ekran donuyor" };
+    const extra = {
+      customerName: "Zeliha Testoğlu",
+      phone: "0532 987 65 43",
+      email: "zeliha.p8b5@qx7-musteri.test",
+      description: "Benzersiz-aciklama-QX7 ekran donuyor",
+    };
     const mk = async () => (await rc.createReq(ref, ip, { extra })).json<{ requestId: string; requestSecret: string }>();
     const r1 = await mk();
     const r2 = await mk();
@@ -202,16 +224,43 @@ describe("AC-157 / AC-160 kabul-ret audit ve PII", () => {
     expect((await rc.cancel(r3.requestSecret, ip)).statusCode).toBe(204);
 
     const accepted = await testDb().auditLog.findFirstOrThrow({ where: { entityId: r1.requestId, action: "request.accepted" } });
-    expect(accepted).toMatchObject({ tenantId: t.id, userId: x.user.id, entity: "support_requests", result: "success", oldValue: { status: "PENDING" }, newValue: { status: "ACCEPTED", sessionId } });
+    expect(accepted).toMatchObject({
+      tenantId: t.id,
+      userId: x.user.id,
+      entity: "support_requests",
+      result: "success",
+      oldValue: { status: "PENDING" },
+      newValue: { status: "ACCEPTED", sessionId },
+    });
     expect(typeof (accepted.newValue as { waitSec?: unknown }).waitSec).toBe("number");
     const rejected = await testDb().auditLog.findFirstOrThrow({ where: { entityId: r2.requestId, action: "request.rejected" } });
-    expect(rejected).toMatchObject({ tenantId: t.id, userId: x.user.id, entity: "support_requests", result: "success", newValue: { status: "REJECTED", message } });
+    expect(rejected).toMatchObject({
+      tenantId: t.id,
+      userId: x.user.id,
+      entity: "support_requests",
+      result: "success",
+      newValue: { status: "REJECTED", message },
+    });
 
     const rows = await testDb().auditLog.findMany({ where: { tenantId: t.id, action: { startsWith: "request." } } });
-    expect(new Set(rows.map((r) => r.action))).toEqual(new Set(["request.created", "request.accepted", "request.rejected", "request.cancelled"]));
+    expect(new Set(rows.map((r) => r.action))).toEqual(
+      new Set(["request.created", "request.accepted", "request.rejected", "request.cancelled"]),
+    );
     for (const r of rows) {
       const text = json(r);
-      for (const pii of ["Zeliha", "Testoğlu", "9876543", "987 65 43", "zeliha.p8b5", "qx7-musteri", "Benzersiz-aciklama-QX7", "ekran donuyor", r1.requestSecret, r2.requestSecret, r3.requestSecret]) {
+      for (const pii of [
+        "Zeliha",
+        "Testoğlu",
+        "9876543",
+        "987 65 43",
+        "zeliha.p8b5",
+        "qx7-musteri",
+        "Benzersiz-aciklama-QX7",
+        "ekran donuyor",
+        r1.requestSecret,
+        r2.requestSecret,
+        r3.requestSecret,
+      ]) {
         expect(text, `${r.action} içinde ${pii}`).not.toContain(pii);
       }
       if (r.action !== "request.created") expect(json(r.newValue), r.action).not.toContain(ip);
@@ -290,7 +339,11 @@ describe("AC-129 tenantRef ve ayar uçları yetkisi", () => {
       const user = await login(l.app, t.id, { perms: { ...REQ_PERMS, "settings.view": true } });
       const calls: [method: "GET" | "POST" | "PUT", url: string, payload?: unknown][] = [
         ["GET", "/api/v1/settings/support-requests"],
-        ["PUT", "/api/v1/settings/support-requests", { waitMinutes: 30, trustedCidrs: [], whatsapp: { enabled: false, recipients: [] }, email: { enabled: false, recipients: [] } }],
+        [
+          "PUT",
+          "/api/v1/settings/support-requests",
+          { waitMinutes: 30, trustedCidrs: [], whatsapp: { enabled: false, recipients: [] }, email: { enabled: false, recipients: [] } },
+        ],
         ["POST", "/api/v1/settings/support-requests/rotate-ref", {}],
         ["POST", "/api/v1/settings/support-requests/whatsapp/test", { phone: "05321234567" }],
       ];
@@ -312,7 +365,12 @@ describe("AC-158 / AC-159 geçmiş ve anonimleştirme", () => {
     const x = await login(l.app, t.id, { perms: REQ_PERMS });
     const createdAt = new Date(Date.now() - 90_000);
     const name = '=HYPERLINK("http://x")';
-    const { id } = await createRequestRow(t.id, { createdAt, customerName: name, customerEmail: "musteri@example.test", description: "+cmd yazıcı çalışmıyor lütfen" });
+    const { id } = await createRequestRow(t.id, {
+      createdAt,
+      customerName: name,
+      customerEmail: "musteri@example.test",
+      description: "+cmd yazıcı çalışmıyor lütfen",
+    });
     const acc = await rc.accept(x.s.headers, id);
     expect(acc.statusCode).toBe(200);
     const { sessionId } = acc.json<{ sessionId: string }>();
@@ -321,7 +379,14 @@ describe("AC-158 / AC-159 geçmiş ve anonimleştirme", () => {
     const detail = await api(l.app, admin.s, "GET", `/api/v1/sessions/${sessionId}/history`);
     expect(detail.statusCode).toBe(200);
     const req = detail.json<{ request: Record<string, unknown> }>().request;
-    expect(req).toMatchObject({ id, createdAt: createdAt.toISOString(), customerName: name, customerPhone: "+905321234567", customerEmail: "musteri@example.test", description: "+cmd yazıcı çalışmıyor lütfen" });
+    expect(req).toMatchObject({
+      id,
+      createdAt: createdAt.toISOString(),
+      customerName: name,
+      customerPhone: "+905321234567",
+      customerEmail: "musteri@example.test",
+      description: "+cmd yazıcı çalışmıyor lütfen",
+    });
     expect(typeof req.acceptedAt).toBe("string");
     expect(req.waitSec).toBeGreaterThanOrEqual(89);
     expect(req.waitSec).toBeLessThanOrEqual(95);
@@ -329,7 +394,7 @@ describe("AC-158 / AC-159 geçmiş ve anonimleştirme", () => {
     const csv = await api(l.app, admin.s, "GET", "/api/v1/sessions/export.csv?source=REQUEST");
     expect(csv.statusCode, csv.body).toBe(200);
     const lines = csv.rawPayload.toString("utf8").slice(1).split("\r\n").filter(Boolean);
-    expect(lines[0]).toContain(";Mod;Kaynak;Müşteri firma;Bekleme;") // P8c AC-179: Kaynak'tan sonra "Müşteri firma";
+    expect(lines[0]).toContain(";Mod;Kaynak;Müşteri firma;Bekleme;"); // P8c AC-179: Kaynak'tan sonra "Müşteri firma";
     const row = lines.find((ln) => ln.startsWith(sessionId));
     expect(row).toBeDefined();
     expect(row).toMatch(/;Talep;;00:01:(29|3\d);/);
@@ -355,7 +420,16 @@ describe("AC-158 / AC-159 geçmiş ve anonimleştirme", () => {
     const mid730 = await mk(long.id, 400);
     const old730 = await mk(long.id, 740);
     await anonymizeRequests(l.app.requests);
-    const pii = { customerName: null, customerPhone: null, customerEmail: null, description: null, ip: null, ipKey: null, netKey: null, deviceHash: null };
+    const pii = {
+      customerName: null,
+      customerPhone: null,
+      customerEmail: null,
+      description: null,
+      ip: null,
+      ipKey: null,
+      netKey: null,
+      deviceHash: null,
+    };
     for (const id of [old90, old730]) {
       const row = await testDb().supportRequest.findUniqueOrThrow({ where: { id } });
       expect(row).toMatchObject(pii);

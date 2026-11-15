@@ -125,7 +125,12 @@ export function exportBatch(
       }
     : null;
   const where = historyWhere(scope, f);
-  return db.supportSession.findMany({ where: cursor ? { AND: [where, cursor] } : where, select: exportSelect, orderBy: orderOf(sort), take });
+  return db.supportSession.findMany({
+    where: cursor ? { AND: [where, cursor] } : where,
+    select: exportSelect,
+    orderBy: orderOf(sort),
+    take,
+  });
 }
 
 const detailSelect = {
@@ -135,7 +140,17 @@ const detailSelect = {
   note: true,
   terminatedBy: true,
   qualitySummary: true,
-  request: { select: { id: true, createdAt: true, acceptedAt: true, customerName: true, customerPhone: true, customerEmail: true, description: true } },
+  request: {
+    select: {
+      id: true,
+      createdAt: true,
+      acceptedAt: true,
+      customerName: true,
+      customerPhone: true,
+      customerEmail: true,
+      description: true,
+    },
+  },
 } as const;
 
 export type HistoryDetailRow = Prisma.SupportSessionGetPayload<{ select: typeof detailSelect }>;
@@ -148,7 +163,14 @@ export function findHistory(db: DbOrTx, scope: HistoryScope, id: string): Promis
 export function consentsOf(db: DbOrTx, s: { id: string; tenantId: string }, take: number) {
   return db.sessionConsent.findMany({
     where: { sessionId: s.id, tenantId: s.tenantId },
-    select: { id: true, createdAt: true, level: true, decision: true, source: true, consentText: { select: { id: true, version: true, sha256: true } } },
+    select: {
+      id: true,
+      createdAt: true,
+      level: true,
+      decision: true,
+      source: true,
+      consentText: { select: { id: true, version: true, sha256: true } },
+    },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take,
   });
@@ -163,11 +185,25 @@ export function filesOf(db: DbOrTx, s: { id: string; tenantId: string }, take: n
   });
 }
 
-const auditSelect = { id: true, createdAt: true, userId: true, username: true, action: true, oldValue: true, newValue: true, result: true } as const;
+const auditSelect = {
+  id: true,
+  createdAt: true,
+  userId: true,
+  username: true,
+  action: true,
+  oldValue: true,
+  newValue: true,
+  result: true,
+} as const;
 export type HistoryAuditRow = Prisma.AuditLogGetPayload<{ select: typeof auditSelect }>;
 
 /** IX(tenant_id, entity, entity_id, created_at) (dba P8). IP/UA seçilmez. */
-export function auditsOf(db: DbOrTx, s: { id: string; tenantId: string }, actions: readonly string[], take: number): Promise<HistoryAuditRow[]> {
+export function auditsOf(
+  db: DbOrTx,
+  s: { id: string; tenantId: string },
+  actions: readonly string[],
+  take: number,
+): Promise<HistoryAuditRow[]> {
   return db.auditLog.findMany({
     where: { tenantId: s.tenantId, entity: "support_sessions", entityId: s.id, action: { in: [...actions] } },
     select: auditSelect,
@@ -177,12 +213,19 @@ export function auditsOf(db: DbOrTx, s: { id: string; tenantId: string }, action
 }
 
 export function userNames(db: DbOrTx, ids: readonly string[]) {
-  return ids.length === 0 ? Promise.resolve([]) : db.user.findMany({ where: { id: { in: [...ids] } }, select: { id: true, fullName: true } });
+  return ids.length === 0
+    ? Promise.resolve([])
+    : db.user.findMany({ where: { id: { in: [...ids] } }, select: { id: true, fullName: true } });
 }
 
 /** Kapsam koşulu UPDATE'in kendisinde (§4); count 0 → 404. */
 /** P13a: `anonymized_at IS NULL` koşulu — eşzamanlı anonimleştirmeden sonra 0 satır (servis 409 döner, DB 3819'a gitmez). */
-export async function updateNotes(db: DbOrTx, scope: HistoryScope, id: string, data: { ticketNo?: string | null; note?: string | null }): Promise<number> {
+export async function updateNotes(
+  db: DbOrTx,
+  scope: HistoryScope,
+  id: string,
+  data: { ticketNo?: string | null; note?: string | null },
+): Promise<number> {
   const r = await db.supportSession.updateMany({ where: { ...historyWhere(scope), id, anonymizedAt: null }, data });
   return r.count;
 }

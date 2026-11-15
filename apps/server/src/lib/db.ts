@@ -29,7 +29,8 @@ function withPoolDefaults(databaseUrl: string): string {
   return url.toString();
 }
 
-export const createDb = (databaseUrl: string): Db => new PrismaClient({ adapter: new PrismaMariaDb(withPoolDefaults(databaseUrl)), transactionOptions: TX_OPTIONS });
+export const createDb = (databaseUrl: string): Db =>
+  new PrismaClient({ adapter: new PrismaMariaDb(withPoolDefaults(databaseUrl)), transactionOptions: TX_OPTIONS });
 
 /** Geçici DB çekişmesi: TX başlatılamadı/zaman aşımı (P2028), deadlock (P2034 / 1213), kilit bekleme (1205), havuz zaman aşımı (45028). */
 const TRANSIENT_PRISMA = new Set(["P2028", "P2034"]);

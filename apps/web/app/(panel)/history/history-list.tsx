@@ -29,7 +29,11 @@ export function SourceNote({ s, compact = false }: { s: Pick<SessionListItem, "s
   if (s.source !== "REQUEST") return null;
   const wait = s.waitSec !== null ? t("h.waitShort", { d: formatDuration(s.waitSec) }) : null;
   return (
-    <span data-testid="history-source" title={wait ?? undefined} className="inline-flex items-center gap-1 rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium whitespace-nowrap text-primary">
+    <span
+      data-testid="history-source"
+      title={wait ?? undefined}
+      className="inline-flex items-center gap-1 rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium whitespace-nowrap text-primary"
+    >
       {labelOf(SESSION_SOURCE_LABELS, s.source)}
       {wait && <span className={compact ? "sr-only" : "font-normal"}>· {wait}</span>}
     </span>
@@ -52,15 +56,39 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
           <caption className="sr-only">{t("h.title")}</caption>
           <thead className="bg-surface-muted text-xs text-fg-muted">
             <tr>
-              <th scope="col" className="px-3 py-3 font-medium">{t("h.col.created")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("h.col.customer")}</th>
-              {showFirm && <th scope="col" className="px-3 py-3 font-medium">{t("h.col.firm")}</th>}
-              {showTenant && <th scope="col" className="px-3 py-3 font-medium">{t("h.col.tenant")}</th>}
-              {showTechnician && <th scope="col" className="px-3 py-3 font-medium">{t("h.col.tech")}</th>}
-              <th scope="col" className="px-3 py-3 font-medium">{t("h.col.status")}</th>
-              <th scope="col" className={`px-3 py-3 font-medium ${modeCol}`}>{t("h.col.mode")}</th>
-              <th scope="col" className="px-3 py-3 text-right font-medium">{t("h.col.duration")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("h.col.ticket")}</th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("h.col.created")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("h.col.customer")}
+              </th>
+              {showFirm && (
+                <th scope="col" className="px-3 py-3 font-medium">
+                  {t("h.col.firm")}
+                </th>
+              )}
+              {showTenant && (
+                <th scope="col" className="px-3 py-3 font-medium">
+                  {t("h.col.tenant")}
+                </th>
+              )}
+              {showTechnician && (
+                <th scope="col" className="px-3 py-3 font-medium">
+                  {t("h.col.tech")}
+                </th>
+              )}
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("h.col.status")}
+              </th>
+              <th scope="col" className={`px-3 py-3 font-medium ${modeCol}`}>
+                {t("h.col.mode")}
+              </th>
+              <th scope="col" className="px-3 py-3 text-right font-medium">
+                {t("h.col.duration")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("h.col.ticket")}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -76,15 +104,40 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
                     <span className="truncate">{customer(s)}</span>
                   </Link>
                 </td>
-                {showFirm && <td className="max-w-40 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.customerFirm?.name} data-testid="history-firm">{s.customerFirm?.name ?? ""}</td>}
-                {showTenant && <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.tenant?.name}>{s.tenant?.name ?? "—"}</td>}
-                {showTechnician && <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.technician.name}>{s.technician.name}</td>}
-                <td className="px-3 py-2"><StatusBadge status={s.status} /></td>
-                <td className={`px-3 py-2 whitespace-nowrap text-fg ${modeCol}`}>
-                  <div className="flex flex-col items-start gap-1">{mode(s)}<SourceNote s={s} compact /></div>
+                {showFirm && (
+                  <td
+                    className="max-w-40 truncate px-3 py-2 whitespace-nowrap text-fg"
+                    title={s.customerFirm?.name}
+                    data-testid="history-firm"
+                  >
+                    {s.customerFirm?.name ?? ""}
+                  </td>
+                )}
+                {showTenant && (
+                  <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.tenant?.name}>
+                    {s.tenant?.name ?? "—"}
+                  </td>
+                )}
+                {showTechnician && (
+                  <td className="max-w-36 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.technician.name}>
+                    {s.technician.name}
+                  </td>
+                )}
+                <td className="px-3 py-2">
+                  <StatusBadge status={s.status} />
                 </td>
-                <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums text-fg"><DurationCell s={s} /></td>
-                <td className="max-w-32 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.ticketNo ?? undefined}>{s.ticketNo ?? <span className="text-fg-muted">—</span>}</td>
+                <td className={`px-3 py-2 whitespace-nowrap text-fg ${modeCol}`}>
+                  <div className="flex flex-col items-start gap-1">
+                    {mode(s)}
+                    <SourceNote s={s} compact />
+                  </div>
+                </td>
+                <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums text-fg">
+                  <DurationCell s={s} />
+                </td>
+                <td className="max-w-32 truncate px-3 py-2 whitespace-nowrap text-fg" title={s.ticketNo ?? undefined}>
+                  {s.ticketNo ?? <span className="text-fg-muted">—</span>}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -104,13 +157,22 @@ export function HistoryList({ items, showTechnician, showTenant }: Props) {
                   <span className="truncate font-medium text-fg">{customer(s)}</span>
                   <StatusBadge status={s.status} />
                 </div>
-                {s.source === "REQUEST" && <div className="mt-1"><SourceNote s={s} /></div>}
+                {s.source === "REQUEST" && (
+                  <div className="mt-1">
+                    <SourceNote s={s} />
+                  </div>
+                )}
                 <p className="mt-1 text-xs tabular-nums text-fg-muted">
                   {formatDateTime(s.createdAt)} · {mode(s)} · <DurationCell s={s} />
                 </p>
                 {(showTechnician || showTenant || s.ticketNo || s.customerFirm) && (
                   <p className="mt-1 truncate text-xs text-fg-muted">
-                    {[s.customerFirm?.name ?? null, showTenant ? s.tenant?.name : null, showTechnician ? s.technician.name : null, s.ticketNo ? `#${s.ticketNo}` : null]
+                    {[
+                      s.customerFirm?.name ?? null,
+                      showTenant ? s.tenant?.name : null,
+                      showTechnician ? s.technician.name : null,
+                      s.ticketNo ? `#${s.ticketNo}` : null,
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>

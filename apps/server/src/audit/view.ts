@@ -11,7 +11,19 @@ export function isOutboundAction(action: string): boolean {
 }
 
 /** Dış gönderim kayıtlarında açık kalan alanlar (ilkel değerler; iç içe nesne/dizi düşer). */
-const OUTBOUND_KEYS: ReadonlySet<string> = new Set(["kind", "recipient", "subject", "result", "reason", "channel", "latencyMs", "host", "port", "database", "user"]);
+const OUTBOUND_KEYS: ReadonlySet<string> = new Set([
+  "kind",
+  "recipient",
+  "subject",
+  "result",
+  "reason",
+  "channel",
+  "latencyMs",
+  "host",
+  "port",
+  "database",
+  "user",
+]);
 const REASON_CLASS = /^[a-z_]{1,40}$/;
 
 function projectOutbound(v: JsonValue): AuditJson {

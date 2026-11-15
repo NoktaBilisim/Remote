@@ -54,23 +54,42 @@ describe("P7 WS kontrol mesajları", () => {
   it("AC-43/AC-105/S7-9: monitor.request monitör kimliği 0..64; env.state üç zorunlu bool (selfElevated, K8)", () => {
     expect(techInboundSchema.safeParse({ t: "monitor.request", monitorId: 2 }).success).toBe(true);
     expect(techInboundSchema.safeParse({ t: "monitor.request", monitorId: -1 }).success).toBe(false);
-    expect(guestInboundSchema.safeParse({ t: "env.state", elevatedForeground: true, secureDesktop: false, selfElevated: false }).success).toBe(true);
-    expect(guestInboundSchema.safeParse({ t: "env.state", elevatedForeground: "yes", secureDesktop: false, selfElevated: false }).success).toBe(false);
+    expect(
+      guestInboundSchema.safeParse({ t: "env.state", elevatedForeground: true, secureDesktop: false, selfElevated: false }).success,
+    ).toBe(true);
+    expect(
+      guestInboundSchema.safeParse({ t: "env.state", elevatedForeground: "yes", secureDesktop: false, selfElevated: false }).success,
+    ).toBe(false);
     expect(guestInboundSchema.safeParse({ t: "env.state", elevatedForeground: true, secureDesktop: false }).success).toBe(false); // alan eksik
-    expect(guestInboundSchema.safeParse({ t: "env.state", elevatedForeground: true, secureDesktop: false, selfElevated: null }).success).toBe(false);
-    expect(serverOutboundSchema.safeParse({ t: "env.state", elevatedForeground: false, secureDesktop: false, selfElevated: true }).success).toBe(true);
+    expect(
+      guestInboundSchema.safeParse({ t: "env.state", elevatedForeground: true, secureDesktop: false, selfElevated: null }).success,
+    ).toBe(false);
+    expect(
+      serverOutboundSchema.safeParse({ t: "env.state", elevatedForeground: false, secureDesktop: false, selfElevated: true }).success,
+    ).toBe(true);
     expect(serverOutboundSchema.safeParse({ t: "env.state", elevatedForeground: false, secureDesktop: false }).success).toBe(false);
   });
 
   it("AC-115/AC-24: sunucu control.revoke (permission|audit|admin|reconnect|stale) ve caps.update gönderir", () => {
-    for (const reason of ["permission", "audit", "admin", "reconnect", "stale"]) expect(serverOutboundSchema.safeParse({ t: "control.revoke", reason }).success).toBe(true);
+    for (const reason of ["permission", "audit", "admin", "reconnect", "stale"])
+      expect(serverOutboundSchema.safeParse({ t: "control.revoke", reason }).success).toBe(true);
     expect(serverOutboundSchema.safeParse({ t: "control.revoke", reason: "bored" }).success).toBe(false);
     expect(serverOutboundSchema.safeParse({ t: "caps.update", caps: [] }).success).toBe(true);
     expect(serverOutboundSchema.safeParse({ t: "caps.update", caps: ["admin"] }).success).toBe(false);
   });
 
   it("AC-111: audit action adları tek kaynaktan", () => {
-    expect(Object.values(CONTROL_AUDIT)).toEqual(expect.arrayContaining(["control.granted", "control.denied", "control.revoked", "control.released", "control.cancelled", "monitor.granted", "monitor.denied"]));
+    expect(Object.values(CONTROL_AUDIT)).toEqual(
+      expect.arrayContaining([
+        "control.granted",
+        "control.denied",
+        "control.revoked",
+        "control.released",
+        "control.cancelled",
+        "monitor.granted",
+        "monitor.denied",
+      ]),
+    );
   });
 });
 

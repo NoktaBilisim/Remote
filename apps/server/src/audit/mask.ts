@@ -32,8 +32,7 @@ const ALLOWED_KEYS: ReadonlySet<string> = new Set([
   "apiKeyChanged",
 ]);
 
-const MASKED_KEY =
-  /pass|secret|token|key|nonce|totp|code|ticket|credential|recovery|cookie|authorization|sdp|candidate|admit/i;
+const MASKED_KEY = /pass|secret|token|key|nonce|totp|code|ticket|credential|recovery|cookie|authorization|sdp|candidate|admit/i;
 
 export const MASK = "***";
 

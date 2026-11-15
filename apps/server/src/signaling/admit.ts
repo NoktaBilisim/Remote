@@ -26,7 +26,15 @@ function customerOf(g: Guest): { name: string | null; email: string | null } {
 
 export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code: string): Promise<AdmitResult> {
   const audit = (result: "success" | "fail", newValue: Record<string, string>, tx: Parameters<typeof writeAudit>[0] = rooms.db) =>
-    writeAudit(tx, tech.ctx, { tenantId: room.tenantId, ...actor(tech), action: result === "success" ? "guest.admitted" : "guest.admit", entity: "support_sessions", entityId: room.sessionId, result, newValue });
+    writeAudit(tx, tech.ctx, {
+      tenantId: room.tenantId,
+      ...actor(tech),
+      action: result === "success" ? "guest.admitted" : "guest.admit",
+      entity: "support_sessions",
+      entityId: room.sessionId,
+      result,
+      newValue,
+    });
   const conflict = async (why: string): Promise<AdmitResult> => {
     tech.peer.send({ t: "error", code: "CONFLICT", message: "Katılımcı kabul edilemedi: oturum artık uygun durumda değil." });
     await audit("fail", { reason: why });
@@ -53,7 +61,11 @@ export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code:
       if ((await repo.consumeForAdmit(tx, room.sessionId, now, guest.kind, customerOf(guest), keys)) !== 1) return false; // count=0 → consent yazılmaz
       await recordViewConsent(tx, room.sessionId, room.tenantId, guest.consent);
       const c = guest.consent;
-      await audit("success", { guestId: guest.id, guestKind: guest.kind, consentTextId: c.textId, consentVersion: String(c.version), consentSha256: c.sha256 }, tx);
+      await audit(
+        "success",
+        { guestId: guest.id, guestKind: guest.kind, consentTextId: c.textId, consentVersion: String(c.version), consentSha256: c.sha256 },
+        tx,
+      );
       return true;
     });
   } finally {
@@ -62,7 +74,8 @@ export async function admitGuest(rooms: Rooms, room: Room, tech: TechConn, code:
   if (!ok) {
     // count=0: iptal / süre dolumu / başka admit kazandı (§3.2 adım 2). Oda iptalle kapanmış olabilir.
     const row = await repo.findStatus(rooms.db, room.sessionId);
-    const reason: SessionEndedReason = row?.status === "CANCELLED" ? "cancelled" : row?.status === "PENDING" || row?.status === "EXPIRED" ? "timeout" : "rejected";
+    const reason: SessionEndedReason =
+      row?.status === "CANCELLED" ? "cancelled" : row?.status === "PENDING" || row?.status === "EXPIRED" ? "timeout" : "rejected";
     if (rooms.live(room)) for (const g of [...room.lobby.values()]) rooms.leaveLobby(room, g, "rejected", reason);
     return conflict(`status_${row?.status ?? "missing"}`);
   }
@@ -93,7 +106,15 @@ export async function rejectGuest(rooms: Rooms, room: Room, tech: TechConn, gues
   }
   room.rejectedIps.add(guest.ipKey);
   rooms.leaveLobby(room, guest, "rejected", "rejected");
-  await writeAudit(rooms.db, tech.ctx, { tenantId: room.tenantId, ...actor(tech), action: "guest.rejected", entity: "support_sessions", entityId: room.sessionId, result: "success", newValue: { guestId } }); // S-P13a-1: ad yok
+  await writeAudit(rooms.db, tech.ctx, {
+    tenantId: room.tenantId,
+    ...actor(tech),
+    action: "guest.rejected",
+    entity: "support_sessions",
+    entityId: room.sessionId,
+    result: "success",
+    newValue: { guestId },
+  }); // S-P13a-1: ad yok
 }
 
 /**
@@ -124,9 +145,20 @@ export async function admitRequestGuest(rooms: Rooms, room: Room, guest: Guest, 
   try {
     const tech = await rooms.db.user.findUnique({
       where: { id: room.technicianId },
-      select: { role: true, status: true, deletedAt: true, tenantId: true, tenant: { select: { status: true, deletedAt: true } }, permissions: { select: { permKey: true, granted: true } } },
+      select: {
+        role: true,
+        status: true,
+        deletedAt: true,
+        tenantId: true,
+        tenant: { select: { status: true, deletedAt: true } },
+        permissions: { select: { permKey: true, granted: true } },
+      },
     });
-    const active = tech && tech.status === "ACTIVE" && tech.deletedAt === null && (tech.tenantId === null || (tech.tenant?.status === "ACTIVE" && tech.tenant.deletedAt === null));
+    const active =
+      tech &&
+      tech.status === "ACTIVE" &&
+      tech.deletedAt === null &&
+      (tech.tenantId === null || (tech.tenant?.status === "ACTIVE" && tech.tenant.deletedAt === null));
     if (!tech || !active) {
       endGuest("auth_revoked");
       rooms.requestHooks?.failed(requestId);
@@ -146,7 +178,14 @@ export async function admitRequestGuest(rooms: Rooms, room: Room, guest: Guest, 
         entity: "support_sessions",
         entityId: room.sessionId,
         result: "success",
-        newValue: { via: "request", requestId, acceptedBy: room.technicianId, guestKind: "AGENT", consentTextId: consent.textId, consentSha256: consent.sha256 },
+        newValue: {
+          via: "request",
+          requestId,
+          acceptedBy: room.technicianId,
+          guestKind: "AGENT",
+          consentTextId: consent.textId,
+          consentSha256: consent.sha256,
+        },
       });
       return true;
     });
@@ -167,7 +206,10 @@ export async function admitRequestGuest(rooms: Rooms, room: Room, guest: Guest, 
   guest.state = "ADMITTED";
   guest.peer = peer; // S8b-2: yalnız kazanan bağlantı
   room.admitted = guest;
-  room.caps = [...(perms.has("remote_control.use") ? (["remote_control"] as const) : []), ...(perms.has("file_transfer.use") ? (["file_transfer"] as const) : [])];
+  room.caps = [
+    ...(perms.has("remote_control.use") ? (["remote_control"] as const) : []),
+    ...(perms.has("file_transfer.use") ? (["file_transfer"] as const) : []),
+  ];
   const limits = await repo.activeLimits(rooms.db, room.tenantId);
   room.maxFileMb = limits.maxFileMb;
   rooms.startActive(room, guest, now.getTime(), limits.maxActiveHours);

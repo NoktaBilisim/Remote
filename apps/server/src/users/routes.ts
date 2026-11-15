@@ -14,7 +14,16 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
 import { authOf, requireAuth, requirePerm, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
-import { createUser, deactivateUser, getUser, listUsers, reactivateUser, resetUserMfa, updateUser, type UserLiveEffects } from "./service.ts";
+import {
+  createUser,
+  deactivateUser,
+  getUser,
+  listUsers,
+  reactivateUser,
+  resetUserMfa,
+  updateUser,
+  type UserLiveEffects,
+} from "./service.ts";
 
 function idParam(req: FastifyRequest): string {
   const r = userIdSchema.safeParse((req.params as { id?: string }).id);

@@ -18,8 +18,12 @@ export function LeaveDialog({ guard, body }: { guard: ReturnType<typeof useLeave
       description={body}
       footer={
         <>
-          <Button variant="secondary" data-autofocus onClick={guard.stay} className="sm:ml-auto">{t("h.n.stay")}</Button>
-          <Button variant="danger-ghost" onClick={guard.leave}>{t("h.n.discard")}</Button>
+          <Button variant="secondary" data-autofocus onClick={guard.stay} className="sm:ml-auto">
+            {t("h.n.stay")}
+          </Button>
+          <Button variant="danger-ghost" onClick={guard.leave}>
+            {t("h.n.discard")}
+          </Button>
         </>
       }
     />

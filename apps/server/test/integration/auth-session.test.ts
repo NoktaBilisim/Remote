@@ -80,7 +80,9 @@ describe("ilk giriş şifre değişimi", () => {
     const jar = Object.fromEntries(changed.cookies.map((c) => [c.name, c.value]));
     const fresh = { ...s.headers, cookie: `__Host-rs_session=${jar["__Host-rs_session"]}; __Host-rs_csrf=${jar["__Host-rs_csrf"]}` };
     expect((await probe(fresh)).statusCode).toBe(200);
-    expect((await app.inject(loginRequest(u.email, "Yeni-Sifre-12345", { remoteAddress: "192.0.2.9" }))).json().mustChangePassword).toBe(false);
+    expect((await app.inject(loginRequest(u.email, "Yeni-Sifre-12345", { remoteAddress: "192.0.2.9" }))).json().mustChangePassword).toBe(
+      false,
+    );
     const rows = await testDb().auditLog.findMany({ where: { userId: u.id, action: "auth.password_change" } });
     expect(rows.map((r) => r.result).sort()).toEqual(["fail", "success"]);
   });

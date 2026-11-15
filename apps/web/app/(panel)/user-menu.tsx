@@ -49,8 +49,19 @@ export function UserMenu({ name, email, avatarUrl }: { name: string; email: stri
         <ThemePicker compact testId="user-menu-theme" />
       </div>
       <div className="border-t border-border pt-1">
-        {failed && <p role="alert" className="px-3 py-1 text-xs font-medium text-danger">{t("panel.logoutFailed")}</p>}
-        <button type="button" className={itemCls} onClick={() => void logout()} disabled={pending} aria-busy={pending || undefined} data-testid="user-menu-logout">
+        {failed && (
+          <p role="alert" className="px-3 py-1 text-xs font-medium text-danger">
+            {t("panel.logoutFailed")}
+          </p>
+        )}
+        <button
+          type="button"
+          className={itemCls}
+          onClick={() => void logout()}
+          disabled={pending}
+          aria-busy={pending || undefined}
+          data-testid="user-menu-logout"
+        >
           <LogOut aria-hidden className="size-4" />
           {pending ? t("panel.loggingOut") : t("panel.logout")}
         </button>

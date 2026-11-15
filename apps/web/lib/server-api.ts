@@ -60,8 +60,7 @@ export const getMe = cache(async (): Promise<MeState> => {
 });
 
 export type ServerResult<T> =
-  | { kind: "ok"; data: T; /** Yanıt zamanı (ms) */ at: number }
-  | { kind: "error"; status: number; code: string; retryAfter?: number };
+  { kind: "ok"; data: T; /** Yanıt zamanı (ms) */ at: number } | { kind: "error"; status: number; code: string; retryAfter?: number };
 
 async function cookieHeader(): Promise<string> {
   const jar = await cookies();

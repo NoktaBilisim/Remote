@@ -25,7 +25,8 @@ const extraApps: FastifyInstance[] = [];
 const call = (a: FastifyInstance, s: Session | null, method: "GET" | "PUT" | "POST" | "DELETE", url: string, payload?: unknown) =>
   a.inject({ method, url, headers: s?.headers ?? {}, ...(payload !== undefined ? { payload: payload as object } : {}) });
 const view = (r: { json: <T>() => T }) => r.json<WhatsappSettingsView>();
-const audits = (action: string, userId = superAdmin.id) => testDb().auditLog.findMany({ where: { action, userId, entity: "system_settings" }, orderBy: { id: "asc" } });
+const audits = (action: string, userId = superAdmin.id) =>
+  testDb().auditLog.findMany({ where: { action, userId, entity: "system_settings" }, orderBy: { id: "asc" } });
 const resetRow = () => mig?.$executeRawUnsafe("DELETE FROM system_settings WHERE `key` = 'whatsapp'");
 const testSends = (f: FakeWhatsapp) => f.hits.filter((h) => h.path === "/test-send");
 
@@ -74,7 +75,13 @@ describe("P12b WhatsApp servis adresi (AC-196)", () => {
     expect((await testDb().systemSetting.findUniqueOrThrow({ where: { key: "whatsapp" } })).valueJson).toEqual({ url: panelFake.url });
     expect(view(await call(app, sSuper, "GET", W))).toEqual(v);
     const [a] = await audits("settings.whatsapp.updated");
-    expect(a).toMatchObject({ tenantId: null, entityId: "whatsapp", result: "success", oldValue: { url: envFake.url, source: "env" }, newValue: { url: panelFake.url, source: "panel" } });
+    expect(a).toMatchObject({
+      tenantId: null,
+      entityId: "whatsapp",
+      result: "success",
+      oldValue: { url: envFake.url, source: "env" },
+      newValue: { url: panelFake.url, source: "panel" },
+    });
 
     // kayıttan sonraki ilk bildirim (gerçek talep akışı) yeni adrese
     const t = await createTenant();
@@ -86,7 +93,16 @@ describe("P12b WhatsApp servis adresi (AC-196)", () => {
       method: "POST",
       url: "/api/v1/public/requests",
       headers: { "x-forwarded-for": ip },
-      payload: { ref, clientInstanceId: "B".repeat(22), clientVersion: "0.9.0", customerName: "Ayşe Müşteri", phone: "0532 123 45 67", description: "Yazıcı çalışmıyor lütfen yardım", consentTextId, consentAccepted: true },
+      payload: {
+        ref,
+        clientInstanceId: "B".repeat(22),
+        clientVersion: "0.9.0",
+        customerName: "Ayşe Müşteri",
+        phone: "0532 123 45 67",
+        description: "Yazıcı çalışmıyor lütfen yardım",
+        consentTextId,
+        consentAccepted: true,
+      },
     });
     expect(created.statusCode, created.body).toBe(201);
     await expect.poll(() => panelFake.hits.filter((h) => h.path === "/send-message").length).toBe(1);
@@ -134,12 +150,30 @@ describe("P12b WhatsApp servis adresi (AC-196)", () => {
 
   it("AC-196: geçersiz adres 400 VALIDATION fields.url (kayıt değişmez)", async () => {
     const before = await audits("settings.whatsapp.updated");
-    for (const url of ["ftp://x", "http://wa\u200b.test", "http://u:p@wa.test", "http://wa.test?a=1", "http://wa.test#f", "http://wa test", "http://wa.test\n", "http://", "http:///", "", `https://${"a".repeat(193)}`, 5, null]) {
+    for (const url of [
+      "ftp://x",
+      "http://wa\u200b.test",
+      "http://u:p@wa.test",
+      "http://wa.test?a=1",
+      "http://wa.test#f",
+      "http://wa test",
+      "http://wa.test\n",
+      "http://",
+      "http:///",
+      "",
+      `https://${"a".repeat(193)}`,
+      5,
+      null,
+    ]) {
       const r = await call(app, sSuper, "PUT", W, { url });
       expect(r.statusCode, JSON.stringify(url)).toBe(400);
-      expect(r.json<{ error: { code: string; fields: Record<string, string> } }>().error).toMatchObject({ code: "VALIDATION", fields: { url: WA_URL_MESSAGE } });
+      expect(r.json<{ error: { code: string; fields: Record<string, string> } }>().error).toMatchObject({
+        code: "VALIDATION",
+        fields: { url: WA_URL_MESSAGE },
+      });
     }
-    for (const payload of [{}, { url: "http://wa.test", extra: 1 }]) expect((await call(app, sSuper, "PUT", W, payload)).statusCode).toBe(400);
+    for (const payload of [{}, { url: "http://wa.test", extra: 1 }])
+      expect((await call(app, sSuper, "PUT", W, payload)).statusCode).toBe(400);
     expect(await audits("settings.whatsapp.updated")).toHaveLength(before.length);
     expect(view(await call(app, sSuper, "GET", W)).source).toBe("env");
   });
@@ -147,8 +181,16 @@ describe("P12b WhatsApp servis adresi (AC-196)", () => {
   it("AC-196: Admin ve User 403, oturumsuz 401, CSRF başlığı olmadan 403 — uçların hiçbiri çalışmaz", async () => {
     const t = await createTenant();
     const admin = await loginAs(app, await createUser({ tenantId: t.id, role: "ADMIN" }));
-    const user = await loginAs(app, await createUser({ tenantId: t.id, role: "USER", perms: { "settings.view": true, "settings.edit": true } }));
-    const calls = [["GET", W, undefined], ["PUT", W, { url: "http://wa.test" }], ["DELETE", W, undefined], ["POST", `${W}/test`, { phoneNumber: PHONE }]] as const;
+    const user = await loginAs(
+      app,
+      await createUser({ tenantId: t.id, role: "USER", perms: { "settings.view": true, "settings.edit": true } }),
+    );
+    const calls = [
+      ["GET", W, undefined],
+      ["PUT", W, { url: "http://wa.test" }],
+      ["DELETE", W, undefined],
+      ["POST", `${W}/test`, { phoneNumber: PHONE }],
+    ] as const;
     for (const s of [admin, user]) {
       for (const [m, u, p] of calls) {
         const r = await call(app, s, m, u, p);
@@ -191,7 +233,11 @@ describe("P12b WhatsApp servis adresi (AC-196)", () => {
       expect(bad.json<{ error: { fields: Record<string, string> } }>().error.fields).toHaveProperty("phoneNumber");
 
       const rows = await audits("settings.whatsapp.test", tester.id);
-      expect(rows.map((a) => [a.result, (a.newValue as { reason?: string }).reason])).toEqual([["fail", "http_error"], ["fail", "redirect"], ["fail", "unreachable"]]);
+      expect(rows.map((a) => [a.result, (a.newValue as { reason?: string }).reason])).toEqual([
+        ["fail", "http_error"],
+        ["fail", "redirect"],
+        ["fail", "unreachable"],
+      ]);
       for (const a of rows) expect(a.newValue).toMatchObject({ recipient: "+90******2233" }); // QA: tenant testiyle aynı anahtar
       for (const a of rows) expect(a.newValue).not.toHaveProperty("phone");
       expect(JSON.stringify(rows.map((a) => [a.oldValue, a.newValue]))).not.toContain("5321112233");
@@ -233,17 +279,27 @@ describe("P12b düzeltme turu 1 (B-P12b-1, -2, -5)", () => {
   });
 
   it("B-P12b-1: DB'de ayrıştırılamayan panel adresi (CHECK'ten geçen) → açılışta kanal kapalı (fail-closed), GET 200 insecure, test istek göndermez", async () => {
-    await mig?.$executeRawUnsafe("INSERT INTO system_settings (`key`, value_json, secret_enc, updated_at) VALUES ('whatsapp', ?, NULL, NOW(3)) ON DUPLICATE KEY UPDATE value_json = VALUES(value_json), updated_at = NOW(3)", JSON.stringify({ url: "http://a:99999" }));
+    await mig?.$executeRawUnsafe(
+      "INSERT INTO system_settings (`key`, value_json, secret_enc, updated_at) VALUES ('whatsapp', ?, NULL, NOW(3)) ON DUPLICATE KEY UPDATE value_json = VALUES(value_json), updated_at = NOW(3)",
+      JSON.stringify({ url: "http://a:99999" }),
+    );
     try {
       const a2 = makeApp({ env: { WHATSAPP_SERVICE_URL: envFake.url } });
       extraApps.push(a2);
       await a2.ready();
-      expect({ url: a2.whatsapp.effectiveUrl, insecure: a2.whatsapp.insecure, usable: a2.whatsapp.usable }).toEqual({ url: "http://a:99999", insecure: true, usable: false });
+      expect({ url: a2.whatsapp.effectiveUrl, insecure: a2.whatsapp.insecure, usable: a2.whatsapp.usable }).toEqual({
+        url: "http://a:99999",
+        insecure: true,
+        usable: false,
+      });
       const s = await loginAs(a2, superAdmin);
       const g = await call(a2, s, "GET", W);
       expect(g.statusCode).toBe(200);
       expect(view(g)).toMatchObject({ source: "panel", insecure: true });
-      expect((await call(a2, s, "POST", `${W}/test`, { phoneNumber: PHONE })).json()).toEqual({ ok: false, message: WA_TEST_MESSAGES.insecure });
+      expect((await call(a2, s, "POST", `${W}/test`, { phoneNumber: PHONE })).json()).toEqual({
+        ok: false,
+        message: WA_TEST_MESSAGES.insecure,
+      });
       expect(envFake.hits).toEqual([]);
     } finally {
       await resetRow();
@@ -254,9 +310,12 @@ describe("P12b düzeltme turu 1 (B-P12b-1, -2, -5)", () => {
     const a3 = makeApp({ env: { WHATSAPP_SERVICE_URL: envFake.url } });
     extraApps.push(a3);
     await a3.ready();
-    const sessions = await Promise.all(Array.from({ length: 5 }, async () => loginAs(a3, await createUser({ tenantId: null, role: "SUPER_ADMIN" }))));
+    const sessions = await Promise.all(
+      Array.from({ length: 5 }, async () => loginAs(a3, await createUser({ tenantId: null, role: "SUPER_ADMIN" }))),
+    );
     const codes: number[] = [];
-    for (const s of sessions) for (let i = 0; i < 5; i++) codes.push((await call(a3, s, "POST", `${W}/test`, { phoneNumber: PHONE })).statusCode);
+    for (const s of sessions)
+      for (let i = 0; i < 5; i++) codes.push((await call(a3, s, "POST", `${W}/test`, { phoneNumber: PHONE })).statusCode);
     expect(codes.filter((c) => c === 200)).toHaveLength(20);
     expect(codes.slice(20)).toEqual([429, 429, 429, 429, 429]);
     expect(testSends(envFake)).toHaveLength(20);
@@ -274,7 +333,15 @@ describe("P12b WhatsApp güvensiz adres — production (AC-196, AC-150, K13)", (
   }
 
   it("AC-196: http + genel adres kaydedilir ama insecure=true, kanal kapalı, test istek göndermeden ok:false; tenant yanıtı insecure, adres yok; https'e geçince açılır", async () => {
-    const prod = makeApp({ env: { ...PROXY, NODE_ENV: "production", SESSION_REF_KEY: "k".repeat(40), APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS, WHATSAPP_SERVICE_URL: envFake.url } });
+    const prod = makeApp({
+      env: {
+        ...PROXY,
+        NODE_ENV: "production",
+        SESSION_REF_KEY: "k".repeat(40),
+        APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS,
+        WHATSAPP_SERVICE_URL: envFake.url,
+      },
+    });
     extraApps.push(prod);
     await prod.ready();
     const s = await prodSuper(prod);
@@ -287,7 +354,10 @@ describe("P12b WhatsApp güvensiz adres — production (AC-196, AC-150, K13)", (
       const tr = await call(prod, s, "POST", `${W}/test`, { phoneNumber: PHONE });
       expect(tr.statusCode).toBe(200);
       expect(tr.json()).toEqual({ ok: false, message: "Servis güvenli yapılandırılmamış." });
-      const a = await testDb().auditLog.findFirstOrThrow({ where: { action: "settings.whatsapp.test", entity: "system_settings" }, orderBy: { id: "desc" } });
+      const a = await testDb().auditLog.findFirstOrThrow({
+        where: { action: "settings.whatsapp.test", entity: "system_settings" },
+        orderBy: { id: "desc" },
+      });
       expect(a.newValue).toMatchObject({ result: "fail", reason: "insecure" });
 
       const t = await createTenant();
@@ -316,7 +386,9 @@ describe("P13a sistem ayarları (B-P12b-4, B-P12b-5, T33; mimari-p13 §3)", () =
       const up = await call(app, s, "PUT", W, { url: "HTTPS://WA.P13A.Test/" });
       expect(up.statusCode, up.body).toBe(200);
       expect(view(up)).toMatchObject({ url: "https://wa.p13a.test", source: "panel" });
-      expect((await testDb().systemSetting.findUniqueOrThrow({ where: { key: "whatsapp" } })).valueJson).toEqual({ url: "https://wa.p13a.test" });
+      expect((await testDb().systemSetting.findUniqueOrThrow({ where: { key: "whatsapp" } })).valueJson).toEqual({
+        url: "https://wa.p13a.test",
+      });
       expect(view(await call(app, s, "PUT", W, { url: "http://3232235777:3000" })).url).toBe("http://192.168.1.1:3000");
       for (const url of ["http://wa​.p13a.test", "http://wa.p13a.test/a‮b", "http://wa.p13a.test "]) {
         const r = await call(app, s, "PUT", W, { url });
@@ -349,9 +421,15 @@ describe("P13a sistem ayarları (B-P12b-4, B-P12b-5, T33; mimari-p13 §3)", () =
     try {
       expect((await call(app, a, "PUT", W, { url: "ftp://x" })).statusCode).toBe(400);
       const codes: number[] = [];
-      for (let i = 0; i < 10; i++) codes.push((await call(app, a, i % 2 ? "DELETE" : "PUT", W, i % 2 ? undefined : { url: `https://rl${i}.p13a.test` })).statusCode);
+      for (let i = 0; i < 10; i++)
+        codes.push((await call(app, a, i % 2 ? "DELETE" : "PUT", W, i % 2 ? undefined : { url: `https://rl${i}.p13a.test` })).statusCode);
       expect(codes).toEqual(Array(10).fill(200));
-      for (const [m, u, p] of [["PUT", W, { url: "https://rl.p13a.test" }], ["DELETE", W, undefined], ["DELETE", "/api/v1/admin/settings/turn", undefined], ["PUT", "/api/v1/admin/settings/mysql", { host: "db.p13a.test", port: 3306, database: "x", user: "u", password: "p" }]] as const) {
+      for (const [m, u, p] of [
+        ["PUT", W, { url: "https://rl.p13a.test" }],
+        ["DELETE", W, undefined],
+        ["DELETE", "/api/v1/admin/settings/turn", undefined],
+        ["PUT", "/api/v1/admin/settings/mysql", { host: "db.p13a.test", port: 3306, database: "x", user: "u", password: "p" }],
+      ] as const) {
         const r = await call(app, a, m, u, p);
         expect(r.statusCode, `${m} ${u}`).toBe(429);
         expect(r.json<{ error: { code: string } }>().error.code).toBe("RATE_LIMITED");
@@ -364,23 +442,36 @@ describe("P13a sistem ayarları (B-P12b-4, B-P12b-5, T33; mimari-p13 §3)", () =
     }
   });
 
-  it("G-P13b-2: env verilmemiş ve panel kaydı yoksa yerleşik adres yok → url null, kaynak `env`, test istek atmadan \"yapılandırılmamış\"", async () => {
+  it('G-P13b-2: env verilmemiş ve panel kaydı yoksa yerleşik adres yok → url null, kaynak `env`, test istek atmadan "yapılandırılmamış"', async () => {
     const def = makeApp({ env: { WHATSAPP_SERVICE_URL: "" } });
     extraApps.push(def);
     await def.ready();
     const s = await loginAs(def, superAdmin);
     expect(view(await call(def, s, "GET", W))).toMatchObject({ url: null, source: "env", insecure: false });
-    expect((await call(def, s, "POST", `${W}/test`, { phoneNumber: PHONE })).json()).toEqual({ ok: false, message: WA_TEST_MESSAGES.unconfigured });
+    expect((await call(def, s, "POST", `${W}/test`, { phoneNumber: PHONE })).json()).toEqual({
+      ok: false,
+      message: WA_TEST_MESSAGES.unconfigured,
+    });
     expect(view(await call(app, sSuper, "GET", W)).source).toBe("env");
   });
 
   it("T33: canlıda http:// + link-local (169.254.169.254, [fe80::1]) güvensiz → kanal kapalı", async () => {
-    const prod = makeApp({ env: { ...PROXY, NODE_ENV: "production", SESSION_REF_KEY: "k".repeat(40), APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS, WHATSAPP_SERVICE_URL: envFake.url } });
+    const prod = makeApp({
+      env: {
+        ...PROXY,
+        NODE_ENV: "production",
+        SESSION_REF_KEY: "k".repeat(40),
+        APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS,
+        WHATSAPP_SERVICE_URL: envFake.url,
+      },
+    });
     extraApps.push(prod);
     await prod.ready();
     const s = await loginAs(prod, await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
     const setup = (await call(prod, s, "POST", "/api/v1/auth/mfa/setup", {})).json<{ secret: string }>();
-    expect((await call(prod, s, "POST", "/api/v1/auth/mfa/enable", { code: hotp(base32Decode(setup.secret), stepOf(Date.now())) })).statusCode).toBe(200);
+    expect(
+      (await call(prod, s, "POST", "/api/v1/auth/mfa/enable", { code: hotp(base32Decode(setup.secret), stepOf(Date.now())) })).statusCode,
+    ).toBe(200);
     try {
       for (const url of ["http://169.254.169.254", "http://[fe80::1]:3000"]) {
         const put = await call(prod, s, "PUT", W, { url });
@@ -468,14 +559,25 @@ describe("S-P13b-3 WhatsApp servis anahtarı (x-api-key)", () => {
     expect(testSends(envFake).at(-1)?.apiKey).toBe(ENV_KEY);
   });
 
-  it("S-P13b-3: servis 401 → test yanıtı \"Servis anahtarı reddetti.\" + audit reason unauthorized; geçersiz anahtar 400", async () => {
+  it('S-P13b-3: servis 401 → test yanıtı "Servis anahtarı reddetti." + audit reason unauthorized; geçersiz anahtar 400', async () => {
     const { a, s } = await keyedApp();
     envFake.plan = () => 401;
-    expect((await call(a, s, "POST", `${W}/test`, { phoneNumber: PHONE })).json()).toEqual({ ok: false, message: WA_TEST_MESSAGES.unauthorized });
+    expect((await call(a, s, "POST", `${W}/test`, { phoneNumber: PHONE })).json()).toEqual({
+      ok: false,
+      message: WA_TEST_MESSAGES.unauthorized,
+    });
     expect(WA_TEST_MESSAGES.unauthorized).toBe("Servis anahtarı reddetti.");
     const [t] = (await audits("settings.whatsapp.test")).slice(-1);
     expect(t?.newValue).toMatchObject({ result: "fail", reason: "unauthorized" });
-    for (const apiKey of ["kisa", "bosluklu anahtar 0123456789", "ç".repeat(20), `${"a".repeat(20)}\u200B`, `a${"\u0007"}${"b".repeat(20)}`, "x".repeat(257), 12345]) {
+    for (const apiKey of [
+      "kisa",
+      "bosluklu anahtar 0123456789",
+      "ç".repeat(20),
+      `${"a".repeat(20)}\u200B`,
+      `a${"\u0007"}${"b".repeat(20)}`,
+      "x".repeat(257),
+      12345,
+    ]) {
       const r = await call(a, s, "PUT", W, { url: panelFake.url, apiKey });
       expect(r.statusCode, String(apiKey)).toBe(400);
       expect(r.json<ErrBody>().error.fields).toHaveProperty("apiKey");

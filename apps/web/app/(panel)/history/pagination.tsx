@@ -11,7 +11,8 @@ import { t } from "@/lib/i18n";
 
 const pagerBtn =
   "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border bg-surface px-3 text-sm font-medium text-fg shadow-sm hover:bg-surface-muted";
-const pagerOff = "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium text-fg-muted cursor-not-allowed";
+const pagerOff =
+  "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium text-fg-muted cursor-not-allowed";
 
 /** Sayfa bilgisi + önceki/sonraki bağlantıları + sayfa boyutu (25 varsayılan, ≤ 100; AC-60). Hepsi URL'de. */
 export function Pagination({ filters, total, shown }: { filters: HistoryFilters; total: number; shown: number }) {
@@ -19,7 +20,9 @@ export function Pagination({ filters, total, shown }: { filters: HistoryFilters;
   const [pending, start] = useTransition();
   const pages = pageCount(total, filters.pageSize);
   const first = (filters.page - 1) * filters.pageSize + 1;
-  const sizes = PAGE_SIZES.includes(filters.pageSize as (typeof PAGE_SIZES)[number]) ? PAGE_SIZES : [...PAGE_SIZES, filters.pageSize].sort((a, b) => a - b);
+  const sizes = PAGE_SIZES.includes(filters.pageSize as (typeof PAGE_SIZES)[number])
+    ? PAGE_SIZES
+    : [...PAGE_SIZES, filters.pageSize].sort((a, b) => a - b);
   const prev = filters.page > 1 ? historyHref({ ...filters, page: Math.min(filters.page - 1, pages) }) : null;
   const next = filters.page < pages ? historyHref({ ...filters, page: filters.page + 1 }) : null;
 

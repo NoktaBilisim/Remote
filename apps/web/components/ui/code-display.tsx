@@ -4,15 +4,7 @@ import { formatSessionCode } from "@/lib/format";
  * Kod gösterimi (DESIGN.md §6.1): 8 haneli oturum kodu 4+4 gruplu, 4 haneli doğrulama kodu,
  * `xl`: müşteri lobisindeki 4 haneli kabul kodu kutuları (P4). Ekran okuyucu rakamları tek tek okur.
  */
-export function CodeDisplay({
-  code,
-  size = "lg",
-  testId,
-}: {
-  code: string;
-  size?: "sm" | "lg" | "xl";
-  testId?: string;
-}) {
+export function CodeDisplay({ code, size = "lg", testId }: { code: string; size?: "sm" | "lg" | "xl"; testId?: string }) {
   const label = code.split("").join(" ");
   if (size === "xl") {
     return (

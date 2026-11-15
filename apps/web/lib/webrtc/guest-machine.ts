@@ -5,8 +5,7 @@
  */
 import { WS_CLOSE, type IceServer, type ServerOutbound } from "@remote/contracts/ws";
 
-export type GuestEnd =
-  | "ended" | "rejected" | "lobbyTimeout" | "cancelled" | "expired" | "left" | "lost" | "error" | "resumeFailed";
+export type GuestEnd = "ended" | "rejected" | "lobbyTimeout" | "cancelled" | "expired" | "left" | "lost" | "error" | "resumeFailed";
 
 export interface GuestState {
   phase: "connecting" | "lobby" | "live" | "ended";

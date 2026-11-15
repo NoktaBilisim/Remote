@@ -88,7 +88,6 @@ async function seedDemoTenant(prisma: PrismaClient): Promise<"created" | "exists
   return "created";
 }
 
-
 // P8b-1 (mimari-e9 §3.1): yalnız geliştirmede demo tenant'ın talep ayarı (indirme bağlantısı hazır olsun). Üretimde
 // satır tembel oluşturulur (Admin ayar ekranı). Ref = 10 rastgele bayt → RFC 4648 base32 küçük harf (16 karakter, 80 bit).
 function randomTenantRef(): string {

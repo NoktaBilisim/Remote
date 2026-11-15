@@ -97,7 +97,10 @@ export function TurnForm({ initial }: { initial: TurnSettingsView }) {
       setFocusErr((n) => n + 1);
       return;
     }
-    const sentRows = st.urls.map((u, i) => ({ u: u.trim(), i })).filter((x) => x.u !== "").map((x) => x.i);
+    const sentRows = st.urls
+      .map((u, i) => ({ u: u.trim(), i }))
+      .filter((x) => x.u !== "")
+      .map((x) => x.i);
     setBusy(true);
     setFormError(null);
     try {
@@ -143,13 +146,34 @@ export function TurnForm({ initial }: { initial: TurnSettingsView }) {
   const filled = st.urls.filter((u) => u.trim() !== "").length;
   return (
     <div className="flex max-w-3xl flex-col gap-6">
-      {saved.source === "env" && <Alert tone="info" testId="turn-env-source">{t("tu.envSource")}</Alert>}
-      <Alert tone="warning" testId="turn-secret-warning">{t("tu.secretWarn")}</Alert>
+      {saved.source === "env" && (
+        <Alert tone="info" testId="turn-env-source">
+          {t("tu.envSource")}
+        </Alert>
+      )}
+      <Alert tone="warning" testId="turn-secret-warning">
+        {t("tu.secretWarn")}
+      </Alert>
       {formError && <FormError error={formError} />}
-      <form id={FORM_ID} ref={formRef} onSubmit={submit} noValidate className="flex flex-col gap-6" data-testid="turn-form" data-ready={ready ? "true" : "false"}>
+      <form
+        id={FORM_ID}
+        ref={formRef}
+        onSubmit={submit}
+        noValidate
+        className="flex flex-col gap-6"
+        data-testid="turn-form"
+        data-ready={ready ? "true" : "false"}
+      >
         <fieldset disabled={busy} className="flex flex-col gap-6">
-          <Section id="tu-urls" title={t("tu.urls")} Icon={Waypoints} aside={<SourceBadge source={saved.source} panel={t("sys.sourcePanelBadge")} env={t("sys.sourceEnvBadge")} />}>
-            <p className="text-sm text-fg-muted" id="turn-urls-hint">{t("tu.urlsHint")}</p>
+          <Section
+            id="tu-urls"
+            title={t("tu.urls")}
+            Icon={Waypoints}
+            aside={<SourceBadge source={saved.source} panel={t("sys.sourcePanelBadge")} env={t("sys.sourceEnvBadge")} />}
+          >
+            <p className="text-sm text-fg-muted" id="turn-urls-hint">
+              {t("tu.urlsHint")}
+            </p>
             <ol className="flex flex-col gap-3" data-testid="turn-urls">
               {st.urls.map((u, i) => (
                 <li key={i} className="flex items-start gap-2">
@@ -166,15 +190,38 @@ export function TurnForm({ initial }: { initial: TurnSettingsView }) {
                     maxLength={255}
                     data-testid="turn-url"
                   />
-                  <Button type="button" variant="ghost" className="mt-6 w-11 shrink-0 px-0 text-danger" aria-label={t("tu.remove", { n: i + 1 })} onClick={() => removeRow(i)} data-testid="turn-url-remove">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="mt-6 w-11 shrink-0 px-0 text-danger"
+                    aria-label={t("tu.remove", { n: i + 1 })}
+                    onClick={() => removeRow(i)}
+                    data-testid="turn-url-remove"
+                  >
                     <Trash2 aria-hidden className="size-4" />
                   </Button>
                 </li>
               ))}
             </ol>
-            {errors.urls && <p className="text-xs font-medium text-danger" role="alert" data-testid="turn-urls-error">{errors.urls}</p>}
-            {filled === 0 && <p className="text-sm text-fg-muted" data-testid="turn-no-urls">{t("tu.noUrls")}</p>}
-            <Button ref={addRef} type="button" variant="secondary" className="self-start" disabled={st.urls.length >= TURN_URLS_MAX} onClick={addRow} data-testid="turn-url-add">
+            {errors.urls && (
+              <p className="text-xs font-medium text-danger" role="alert" data-testid="turn-urls-error">
+                {errors.urls}
+              </p>
+            )}
+            {filled === 0 && (
+              <p className="text-sm text-fg-muted" data-testid="turn-no-urls">
+                {t("tu.noUrls")}
+              </p>
+            )}
+            <Button
+              ref={addRef}
+              type="button"
+              variant="secondary"
+              className="self-start"
+              disabled={st.urls.length >= TURN_URLS_MAX}
+              onClick={addRow}
+              data-testid="turn-url-add"
+            >
               <Plus aria-hidden className="size-4" />
               {t("tu.add")}
             </Button>
@@ -210,7 +257,14 @@ export function TurnForm({ initial }: { initial: TurnSettingsView }) {
         </div>
       )}
 
-      <SaveBar dirty={dirty && !confirmReset} busy={busy} formId={FORM_ID} onReset={reset} message={t("tu.unsaved")} leaveBody={t("tu.leaveBody")} />
+      <SaveBar
+        dirty={dirty && !confirmReset}
+        busy={busy}
+        formId={FORM_ID}
+        onReset={reset}
+        message={t("tu.unsaved")}
+        leaveBody={t("tu.leaveBody")}
+      />
 
       <Dialog
         open={confirmReset}

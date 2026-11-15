@@ -18,7 +18,13 @@ export function offerBinding(rooms: Rooms, guest: Guest): void {
   guest.peer.send({ t: "binding.offer" });
 }
 
-export async function handleBindingRequest(rooms: Rooms, room: Room, guest: Guest, peer: Peer, previousKey: string | undefined): Promise<void> {
+export async function handleBindingRequest(
+  rooms: Rooms,
+  room: Room,
+  guest: Guest,
+  peer: Peer,
+  previousKey: string | undefined,
+): Promise<void> {
   if (guest.kind !== "AGENT") {
     rooms.metrics.inc("rs_binding_denied_total", { reason: "browser" });
     peer.send({ t: "error", code: "FORBIDDEN", message: "Bilgisayar kaydı yalnız istemci uygulamasında verilir." });
@@ -37,7 +43,8 @@ export async function handleBindingRequest(rooms: Rooms, room: Room, guest: Gues
   }
   try {
     const out = await rooms.bindingIssuer(room, guest, previousKey);
-    if (out.ok) peer.send(out.msg); // yalnız isteyen sokete; anahtar başka mesajda/logda yok
+    if (out.ok)
+      peer.send(out.msg); // yalnız isteyen sokete; anahtar başka mesajda/logda yok
     else peer.send({ t: "error", code: "CONFLICT", message: out.message });
   } catch (err) {
     rooms.log.error({ err, event: "binding_issue" }, "kayıt verilemedi");

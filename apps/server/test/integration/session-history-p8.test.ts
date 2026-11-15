@@ -18,7 +18,10 @@ const patch = (s: { id: string; tenantId: string }, data: P8) =>
   testDb().supportSession.updateMany({ where: { id: s.id, tenantId: s.tenantId }, data });
 
 async function rejectsWith(p: Promise<unknown>, needle: string | RegExp) {
-  const err = await p.then(() => null, (e: unknown) => e);
+  const err = await p.then(
+    () => null,
+    (e: unknown) => e,
+  );
   expect(err, `reddedilmeliydi: ${String(needle)}`).toBeInstanceOf(Error);
   const text = `${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`;
   expect(text).toMatch(needle);
@@ -31,7 +34,10 @@ describe("P8 support_sessions geçmiş alanları", () => {
     const note = `${"ç".repeat(3990)}\nSatır 2\t.`; // 4000 karakter, satır sonu/sekme serbest
     expect(note.length).toBe(4000);
     await patch(s, { customerName: name, customerEmail: "ayse@example.test", ticketNo: "INC-ÇĞ-".padEnd(50, "9"), note });
-    const row = await testDb().supportSession.findFirstOrThrow({ where: { id: s.id, tenantId: s.tenantId }, select: { customerName: true, customerEmail: true, ticketNo: true, note: true } });
+    const row = await testDb().supportSession.findFirstOrThrow({
+      where: { id: s.id, tenantId: s.tenantId },
+      select: { customerName: true, customerEmail: true, ticketNo: true, note: true },
+    });
     expect(row).toEqual({ customerName: name, customerEmail: "ayse@example.test", ticketNo: "INC-ÇĞ-".padEnd(50, "9"), note });
     // Temizleme = NULL (boş metin saklanmaz).
     await patch(s, { ticketNo: null, note: null });
@@ -70,7 +76,14 @@ describe("P8 support_sessions geçmiş alanları", () => {
     const now = new Date();
     const r = await testDb().supportSession.updateMany({
       where: { id: p.id, tenantId: p.tenantId, status: "PENDING", expiresAt: { gt: now } },
-      data: { status: "ACTIVE", activeCode: null, consumedAt: now, mode: "BROWSER", customerName: "Ayşe Yılmaz", customerEmail: "ayse@example.test" },
+      data: {
+        status: "ACTIVE",
+        activeCode: null,
+        consumedAt: now,
+        mode: "BROWSER",
+        customerName: "Ayşe Yılmaz",
+        customerEmail: "ayse@example.test",
+      },
     });
     expect(r.count).toBe(1);
   });
@@ -126,7 +139,9 @@ describe("P8 performans seed betiği (scripts/perf-sessions.ts)", () => {
 
     // Üretilen veri: geçmişte yalnız bitmiş durumlar; müşteri bilgisi yalnız tüketilmiş oturumda.
     const statuses = await testDb().supportSession.groupBy({ by: ["status"], where: { tenantId: a.tenantId }, _count: true });
-    expect(statuses.map((s) => s.status).sort()).toEqual(["CANCELLED", "ENDED", "EXPIRED"].filter((x) => statuses.some((s) => s.status === x)));
+    expect(statuses.map((s) => s.status).sort()).toEqual(
+      ["CANCELLED", "ENDED", "EXPIRED"].filter((x) => statuses.some((s) => s.status === x)),
+    );
     expect(await testDb().supportSession.count({ where: { tenantId: a.tenantId, customerName: { not: null }, consumedAt: null } })).toBe(0);
 
     // Prisma 7 (MySQL) `contains` LIKE jokerlerini (% _ \) KAÇIŞLAMAZ: "%" her adı eşler. Backend müşteri filtresinde
@@ -152,7 +167,9 @@ describe("ADR-0014 enum CHECK ikili karşılaştırma", () => {
       await rejectsWith(testDb().supportSession.updateMany({ where: { id: s.id }, data: { mode: bad } }), /support_sessions_mode_chk/);
     }
     const consent = (source: string) =>
-      testDb().sessionConsent.create({ data: { id: newId(), sessionId: s.id, tenantId: s.tenantId, level: "CONTROL", decision: "REVOKED", source } });
+      testDb().sessionConsent.create({
+        data: { id: newId(), sessionId: s.id, tenantId: s.tenantId, level: "CONTROL", decision: "REVOKED", source },
+      });
     await consent("TECH");
     for (const bad of ["tech", "TECH ", "T\u00C9CH"]) await rejectsWith(consent(bad), /session_consents_source_chk/);
     const clauses = await testDb().$queryRaw<{ n: bigint }[]>`

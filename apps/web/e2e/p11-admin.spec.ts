@@ -19,7 +19,10 @@ async function signInAu(context: BrowserContext, scenario: string) {
 const rows = (p: Page) => p.locator('[data-testid="audit-row"], [data-testid="audit-card"]').filter({ visible: true });
 const nav = (p: Page) => p.getByRole("navigation", { name: "Ana menü" });
 
-test("AC-76 kritik akış: audit listesi → daha fazla yükle → detay (JSON metin olarak) → CSV; düzenle/sil yok", async ({ page, context }, info) => {
+test("AC-76 kritik akış: audit listesi → daha fazla yükle → detay (JSON metin olarak) → CSV; düzenle/sil yok", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInAu(context, "auadm");
   await page.goto("/audit");
@@ -77,7 +80,10 @@ test("AC-76 kritik akış: audit listesi → daha fazla yükle → detay (JSON m
   expect((await req).url()).not.toContain("cursor");
 });
 
-test("AC-76 filtreler URL'de: işlem grubu + sonuç + kullanıcı; temizle; geçersiz URL değeri ve 731 gün sınırı", async ({ page, context }, info) => {
+test("AC-76 filtreler URL'de: işlem grubu + sonuç + kullanıcı; temizle; geçersiz URL değeri ve 731 gün sınırı", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInAu(context, "auadm");
   await page.goto("/audit?result=hepsi");
@@ -157,7 +163,10 @@ test("audit mobil: kart görünümü, taşma yok, kart detayı açar", async ({ 
   await noHorizontalOverflow(page);
 });
 
-test("AC-77/78 Super Admin MySQL: test başarı/hata/429, şifre forma yazılmaz, kayıtta yeniden başlatma uyarısı", async ({ page, context }, info) => {
+test("AC-77/78 Super Admin MySQL: test başarı/hata/429, şifre forma yazılmaz, kayıtta yeniden başlatma uyarısı", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInAu(context, "ausa");
   await page.goto("/");
@@ -207,7 +216,10 @@ test("AC-77/78 Super Admin MySQL: test başarı/hata/429, şifre forma yazılmaz
   await expect(page.getByTestId("setting-source").first()).toHaveText("Panelde kayıtlı");
   await expect(pw).toHaveValue("");
   // QA-1: port veya kullanıcı değişip şifre boşsa → 400 fields.password şifre alanının altında (kayıtlı şifre yeni hedefe taşınmaz)
-  for (const [id, changed, original] of [["mysql-port", "3307", "3306"], ["mysql-user", "app2", "app"]] as const) {
+  for (const [id, changed, original] of [
+    ["mysql-port", "3307", "3306"],
+    ["mysql-user", "app2", "app"],
+  ] as const) {
     await page.getByTestId(id).fill(changed);
     const bad = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().endsWith("/api/v1/admin/settings/mysql"));
     await page.getByTestId("save-bar-save").click();
@@ -333,7 +345,10 @@ test("aydınlatma metni: sayaç, doğrulama, onaylı yeni sürüm, sürüm geçm
   expect(await axeScan(page, "#icerik")).toEqual([]);
 });
 
-test("aydınlatma metni: PUT 429 (10 sürüm/saat) → kilit uyarısı süreyle, metin korunur, yeniden denenebilir", async ({ page, context }, info) => {
+test("aydınlatma metni: PUT 429 (10 sürüm/saat) → kilit uyarısı süreyle, metin korunur, yeniden denenebilir", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInAu(context, "auadm");
   await page.goto("/settings/consent-text");

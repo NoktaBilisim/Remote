@@ -7,7 +7,17 @@ import { initials } from "@/lib/format";
  * Avatar: `src` varsa sabit boyutlu `<img>` (next/image değil — CSP, DESIGN §5), yüklenemezse veya yoksa baş harf rozeti
  * (std. §1.5). Ad her zaman yanında metin olarak yazıldığından dekoratiftir (`alt=""`, `aria-hidden`). Yükleme P12.
  */
-export function Avatar({ name, size = "md", src, testId }: { name: string; size?: "sm" | "md" | "lg"; src?: string | null; testId?: string }) {
+export function Avatar({
+  name,
+  size = "md",
+  src,
+  testId,
+}: {
+  name: string;
+  size?: "sm" | "md" | "lg";
+  src?: string | null;
+  testId?: string;
+}) {
   const [broken, setBroken] = useState<string | null>(null);
   const cls = size === "lg" ? "size-16 text-xl" : size === "sm" ? "size-8 text-xs" : "size-9 text-sm";
   if (src && broken !== src) {

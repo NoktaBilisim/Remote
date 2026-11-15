@@ -15,10 +15,34 @@ import { CustomerFormDialog } from "../customer-form-dialog";
 
 type Action = "rotate" | "deactivate" | "reactivate";
 
-const ACTION: Record<Action, { title: MessageKey; body: MessageKey; confirm: MessageKey; done: MessageKey; conflict: MessageKey; danger: boolean }> = {
-  rotate: { title: "cu.rotate.title", body: "cu.rotate.body", confirm: "cu.rotate.confirm", done: "cu.rotate.done", conflict: "cu.err.passive", danger: true },
-  deactivate: { title: "cu.deact.title", body: "cu.deact.body", confirm: "cu.deact.confirm", done: "cu.deact.done", conflict: "cu.err.alreadyPassive", danger: true },
-  reactivate: { title: "cu.react.title", body: "cu.react.body", confirm: "cu.react.confirm", done: "cu.react.done", conflict: "cu.err.alreadyActive", danger: false },
+const ACTION: Record<
+  Action,
+  { title: MessageKey; body: MessageKey; confirm: MessageKey; done: MessageKey; conflict: MessageKey; danger: boolean }
+> = {
+  rotate: {
+    title: "cu.rotate.title",
+    body: "cu.rotate.body",
+    confirm: "cu.rotate.confirm",
+    done: "cu.rotate.done",
+    conflict: "cu.err.passive",
+    danger: true,
+  },
+  deactivate: {
+    title: "cu.deact.title",
+    body: "cu.deact.body",
+    confirm: "cu.deact.confirm",
+    done: "cu.deact.done",
+    conflict: "cu.err.alreadyPassive",
+    danger: true,
+  },
+  reactivate: {
+    title: "cu.react.title",
+    body: "cu.react.body",
+    confirm: "cu.react.confirm",
+    done: "cu.react.done",
+    conflict: "cu.err.alreadyActive",
+    danger: false,
+  },
 };
 
 const ICON: Record<Action, ReactNode> = {
@@ -28,7 +52,21 @@ const ICON: Record<Action, ReactNode> = {
 };
 
 /** Onay diyaloğu (AC-170, AC-171): `alertdialog`, varsayılan odak "Vazgeç". */
-function ConfirmDialog({ action, name, onClose, onConfirm, busy, error }: { action: Action | null; name: string; onClose: () => void; onConfirm: () => void; busy: boolean; error: UiError | null }) {
+function ConfirmDialog({
+  action,
+  name,
+  onClose,
+  onConfirm,
+  busy,
+  error,
+}: {
+  action: Action | null;
+  name: string;
+  onClose: () => void;
+  onConfirm: () => void;
+  busy: boolean;
+  error: UiError | null;
+}) {
   const a = action ? ACTION[action] : null;
   return (
     <Dialog
@@ -43,7 +81,9 @@ function ConfirmDialog({ action, name, onClose, onConfirm, busy, error }: { acti
         action &&
         a && (
           <>
-            <Button variant="secondary" data-autofocus onClick={onClose} disabled={busy} className="sm:ml-auto">{t("rq.rj.cancel")}</Button>
+            <Button variant="secondary" data-autofocus onClick={onClose} disabled={busy} className="sm:ml-auto">
+              {t("rq.rj.cancel")}
+            </Button>
             <Button variant={a.danger ? "danger" : "primary"} loading={busy} onClick={onConfirm} data-testid="customer-action-confirm">
               {!busy && ICON[action]}
               {t(a.confirm)}
@@ -61,7 +101,17 @@ function ConfirmDialog({ action, name, onClose, onConfirm, busy, error }: { acti
  * Müşteri detay eylemleri: Düzenle (`customers.edit`), Bağlantıyı yenile (`edit`, yalnız aktif), Pasife al
  * (`customers.delete`) / Yeniden aktif et (`edit`). Başarıda toast + sunucudan yeniden çizim.
  */
-export function CustomerActions({ customer, canEdit, canDelete, only }: { customer: CustomerDetail; canEdit: boolean; canDelete: boolean; only?: "rotate" }) {
+export function CustomerActions({
+  customer,
+  canEdit,
+  canDelete,
+  only,
+}: {
+  customer: CustomerDetail;
+  canEdit: boolean;
+  canDelete: boolean;
+  only?: "rotate";
+}) {
   const router = useRouter();
   const toast = useToast();
   const [action, setAction] = useState<Action | null>(null);
@@ -98,7 +148,14 @@ export function CustomerActions({ customer, canEdit, canDelete, only }: { custom
 
   const dialogs = (
     <>
-      <ConfirmDialog action={action} name={customer.name} busy={busy} error={error} onClose={() => setAction(null)} onConfirm={() => void run()} />
+      <ConfirmDialog
+        action={action}
+        name={customer.name}
+        busy={busy}
+        error={error}
+        onClose={() => setAction(null)}
+        onConfirm={() => void run()}
+      />
       {editing && (
         <CustomerFormDialog
           customer={customer}

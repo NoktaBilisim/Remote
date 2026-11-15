@@ -15,7 +15,17 @@ export default async function WhatsappSettingsPage() {
   const res = await serverGet<WhatsappServiceView>("/admin/settings/whatsapp");
   if (res.kind === "error") {
     if (res.status === 401) redirect(EXPIRED_LOGIN_PATH);
-    return <div className="max-w-xl">{res.status === 403 ? <Alert tone="warning" testId="system-forbidden">{t("sys.forbidden")}</Alert> : <LoadError />}</div>;
+    return (
+      <div className="max-w-xl">
+        {res.status === 403 ? (
+          <Alert tone="warning" testId="system-forbidden">
+            {t("sys.forbidden")}
+          </Alert>
+        ) : (
+          <LoadError />
+        )}
+      </div>
+    );
   }
   return <WhatsappForm initial={res.data} />;
 }

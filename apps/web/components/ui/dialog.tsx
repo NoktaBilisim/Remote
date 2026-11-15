@@ -105,9 +105,7 @@ export function Dialog({
           </div>
           {children && <div className="px-4 py-4 sm:px-6">{children}</div>}
           {footer && (
-            <div className="flex flex-col-reverse gap-2 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:px-6">
-              {footer}
-            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:px-6">{footer}</div>
           )}
           <ToastViewport />
         </>

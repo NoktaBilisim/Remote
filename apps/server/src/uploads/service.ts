@@ -33,20 +33,39 @@ async function dropFile(d: BrandingDeps, rel: string | null): Promise<void> {
 }
 
 /** Ham yüklemeyi doğrular/kodlar; ret → `upload.rejected` audit + aynı hata. */
-async function encode(d: BrandingDeps, ctx: AuditContext, auth: AuthContext, tenantId: string | null, kind: ImageKind | "system_logo", read: () => Promise<Buffer>) {
+async function encode(
+  d: BrandingDeps,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string | null,
+  kind: ImageKind | "system_logo",
+  read: () => Promise<Buffer>,
+) {
   try {
     return await processImage(await read(), kind === "system_logo" ? "logo" : kind);
   } catch (err) {
     if (err instanceof AppError && (err.code === "INVALID_IMAGE" || err.code === "PAYLOAD_TOO_LARGE")) {
       const reason = err.code === "INVALID_IMAGE" ? "invalid_image" : "too_large";
-      await writeAudit(d.db, ctx, { tenantId, ...actor(auth), action: BRANDING_AUDIT.UPLOAD_REJECTED, entity: "uploads", result: "fail", newValue: { kind, reason } });
+      await writeAudit(d.db, ctx, {
+        tenantId,
+        ...actor(auth),
+        action: BRANDING_AUDIT.UPLOAD_REJECTED,
+        entity: "uploads",
+        result: "fail",
+        newValue: { kind, reason },
+      });
     }
     throw err;
   }
 }
 
 /** Yeni dosyayı yazar, TX'te yolu değiştirir; eski yolu (varsa) commit sonrası siler. */
-async function swap(d: BrandingDeps, prefix: string, img: { data: Buffer; ext: "png" | "webp" }, write: (tx: Tx, rel: string) => Promise<string | null>): Promise<string> {
+async function swap(
+  d: BrandingDeps,
+  prefix: string,
+  img: { data: Buffer; ext: "png" | "webp" },
+  write: (tx: Tx, rel: string) => Promise<string | null>,
+): Promise<string> {
   const rel = await d.store.save(prefix, img.ext, img.data);
   let old: string | null;
   try {
@@ -60,25 +79,44 @@ async function swap(d: BrandingDeps, prefix: string, img: { data: Buffer; ext: "
 }
 
 async function lockTenantLogo(tx: Tx, tenantId: string): Promise<string | null> {
-  const rows = await tx.$queryRaw<{ logo_path: string | null }[]>`SELECT logo_path FROM tenants WHERE id = ${tenantId} AND deleted_at IS NULL FOR UPDATE`;
+  const rows = await tx.$queryRaw<
+    { logo_path: string | null }[]
+  >`SELECT logo_path FROM tenants WHERE id = ${tenantId} AND deleted_at IS NULL FOR UPDATE`;
   if (rows.length === 0) throw new AppError("NOT_FOUND");
   return rows[0]?.logo_path ?? null;
 }
 
 async function lockAvatar(tx: Tx, userId: string): Promise<string | null> {
-  const rows = await tx.$queryRaw<{ avatar_path: string | null }[]>`SELECT avatar_path FROM users WHERE id = ${userId} AND deleted_at IS NULL FOR UPDATE`;
+  const rows = await tx.$queryRaw<
+    { avatar_path: string | null }[]
+  >`SELECT avatar_path FROM users WHERE id = ${userId} AND deleted_at IS NULL FOR UPDATE`;
   if (rows.length === 0) throw new AppError("NOT_FOUND");
   return rows[0]?.avatar_path ?? null;
 }
 
 // --- firma logosu (AC-81) ---
 
-export async function uploadTenantLogo(d: BrandingDeps, ctx: AuditContext, auth: AuthContext, tenantId: string, read: () => Promise<Buffer>): Promise<LogoResponse> {
+export async function uploadTenantLogo(
+  d: BrandingDeps,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  read: () => Promise<Buffer>,
+): Promise<LogoResponse> {
   const img = await encode(d, ctx, auth, tenantId, "logo", read);
   const rel = await swap(d, tenantId, img, async (tx, next) => {
     const old = await lockTenantLogo(tx, tenantId);
     await tx.tenant.update({ where: { id: tenantId }, data: { logoPath: next } });
-    await writeAudit(tx, ctx, { tenantId, ...actor(auth), action: BRANDING_AUDIT.LOGO_UPDATED, entity: "tenants", entityId: tenantId, result: "success", oldValue: { path: old }, newValue: { path: next, width: img.width, height: img.height } });
+    await writeAudit(tx, ctx, {
+      tenantId,
+      ...actor(auth),
+      action: BRANDING_AUDIT.LOGO_UPDATED,
+      entity: "tenants",
+      entityId: tenantId,
+      result: "success",
+      oldValue: { path: old },
+      newValue: { path: next, width: img.width, height: img.height },
+    });
     return old;
   });
   return { logoUrl: tenantLogoUrl(rel) };
@@ -90,7 +128,16 @@ export async function removeTenantLogo(d: BrandingDeps, ctx: AuditContext, auth:
     const cur = await lockTenantLogo(tx, tenantId);
     if (cur === null) return null;
     await tx.tenant.update({ where: { id: tenantId }, data: { logoPath: null } });
-    await writeAudit(tx, ctx, { tenantId, ...actor(auth), action: BRANDING_AUDIT.LOGO_REMOVED, entity: "tenants", entityId: tenantId, result: "success", oldValue: { path: cur }, newValue: { path: null } });
+    await writeAudit(tx, ctx, {
+      tenantId,
+      ...actor(auth),
+      action: BRANDING_AUDIT.LOGO_REMOVED,
+      entity: "tenants",
+      entityId: tenantId,
+      result: "success",
+      oldValue: { path: cur },
+      newValue: { path: null },
+    });
     return cur;
   });
   await dropFile(d, old);
@@ -105,12 +152,27 @@ export interface AvatarTarget {
   tenantId: string | null;
 }
 
-export async function uploadAvatar(d: BrandingDeps, ctx: AuditContext, auth: AuthContext, target: AvatarTarget, read: () => Promise<Buffer>): Promise<AvatarResponse> {
+export async function uploadAvatar(
+  d: BrandingDeps,
+  ctx: AuditContext,
+  auth: AuthContext,
+  target: AvatarTarget,
+  read: () => Promise<Buffer>,
+): Promise<AvatarResponse> {
   const img = await encode(d, ctx, auth, target.tenantId, "avatar", read);
   const rel = await swap(d, target.tenantId ?? SYSTEM_PREFIX, img, async (tx, next) => {
     const old = await lockAvatar(tx, target.id);
     await tx.user.update({ where: { id: target.id }, data: { avatarPath: next } });
-    await writeAudit(tx, ctx, { tenantId: target.tenantId, ...actor(auth), action: BRANDING_AUDIT.AVATAR_UPDATED, entity: "users", entityId: target.id, result: "success", oldValue: { path: old }, newValue: { path: next } });
+    await writeAudit(tx, ctx, {
+      tenantId: target.tenantId,
+      ...actor(auth),
+      action: BRANDING_AUDIT.AVATAR_UPDATED,
+      entity: "users",
+      entityId: target.id,
+      result: "success",
+      oldValue: { path: old },
+      newValue: { path: next },
+    });
     return old;
   });
   return { avatarUrl: avatarUrlFor(rel) };
@@ -121,7 +183,16 @@ export async function removeAvatar(d: BrandingDeps, ctx: AuditContext, auth: Aut
     const cur = await lockAvatar(tx, target.id);
     if (cur === null) return null;
     await tx.user.update({ where: { id: target.id }, data: { avatarPath: null } });
-    await writeAudit(tx, ctx, { tenantId: target.tenantId, ...actor(auth), action: BRANDING_AUDIT.AVATAR_REMOVED, entity: "users", entityId: target.id, result: "success", oldValue: { path: cur }, newValue: { path: null } });
+    await writeAudit(tx, ctx, {
+      tenantId: target.tenantId,
+      ...actor(auth),
+      action: BRANDING_AUDIT.AVATAR_REMOVED,
+      entity: "users",
+      entityId: target.id,
+      result: "success",
+      oldValue: { path: cur },
+      newValue: { path: null },
+    });
     return cur;
   });
   await dropFile(d, old);
@@ -130,7 +201,12 @@ export async function removeAvatar(d: BrandingDeps, ctx: AuditContext, auth: Aut
 
 // --- sistem logosu (AC-82; kaldırma yok — app'in system_settings DELETE yetkisi yok, db-notlari P12 açık nokta 1) ---
 
-export async function uploadSystemLogo(d: BrandingDeps, ctx: AuditContext, auth: AuthContext, read: () => Promise<Buffer>): Promise<SystemLogoResponse> {
+export async function uploadSystemLogo(
+  d: BrandingDeps,
+  ctx: AuditContext,
+  auth: AuthContext,
+  read: () => Promise<Buffer>,
+): Promise<SystemLogoResponse> {
   const img = await encode(d, ctx, auth, null, "system_logo", read);
   await swap(d, SYSTEM_PREFIX, img, async (tx, next) => {
     await tx.$queryRaw`SELECT \`key\` FROM system_settings WHERE \`key\` = ${SYSTEM_LOGO_KEY} FOR UPDATE`;
@@ -140,7 +216,16 @@ export async function uploadSystemLogo(d: BrandingDeps, ctx: AuditContext, auth:
       create: { key: SYSTEM_LOGO_KEY, valueJson: { path: next }, updatedBy: auth.user.id },
       update: { valueJson: { path: next }, updatedBy: auth.user.id },
     });
-    await writeAudit(tx, ctx, { tenantId: null, ...actor(auth), action: BRANDING_AUDIT.SYSTEM_LOGO_UPDATED, entity: "system_settings", entityId: SYSTEM_LOGO_KEY, result: "success", oldValue: { path: old }, newValue: { path: next, width: img.width, height: img.height } });
+    await writeAudit(tx, ctx, {
+      tenantId: null,
+      ...actor(auth),
+      action: BRANDING_AUDIT.SYSTEM_LOGO_UPDATED,
+      entity: "system_settings",
+      entityId: SYSTEM_LOGO_KEY,
+      result: "success",
+      oldValue: { path: old },
+      newValue: { path: next, width: img.width, height: img.height },
+    });
     return old;
   });
   return { logoUrl: await systemLogoUrl(d.db) };
@@ -154,6 +239,15 @@ export async function setTheme(db: Db, ctx: AuditContext, auth: AuthContext, the
     const cur = await tx.user.findUniqueOrThrow({ where: { id: auth.user.id }, select: { theme: true } });
     if (cur.theme === theme) return;
     await tx.user.update({ where: { id: auth.user.id }, data: { theme } });
-    await writeAudit(tx, ctx, { tenantId: auth.user.tenantId, ...actor(auth), action: BRANDING_AUDIT.THEME_CHANGED, entity: "users", entityId: auth.user.id, result: "success", oldValue: { theme: cur.theme }, newValue: { theme } });
+    await writeAudit(tx, ctx, {
+      tenantId: auth.user.tenantId,
+      ...actor(auth),
+      action: BRANDING_AUDIT.THEME_CHANGED,
+      entity: "users",
+      entityId: auth.user.id,
+      result: "success",
+      oldValue: { theme: cur.theme },
+      newValue: { theme },
+    });
   });
 }

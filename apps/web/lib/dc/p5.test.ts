@@ -14,19 +14,47 @@ function rig(opts: { allowed?: boolean; max?: number; now?: () => number } = {})
   const ctl: CtlMessage[] = [];
   const meta: FileMetaMsg[] = [];
   let list: Transfer[] = [];
-  const file: FileChannelLike = { readyState: "open", bufferedAmount: 0, bufferedAmountLowThreshold: 0, send: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() };
+  const file: FileChannelLike = {
+    readyState: "open",
+    bufferedAmount: 0,
+    bufferedAmountLowThreshold: 0,
+    send: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  };
   const ft = new FileTransfers({
-    inbound: "TO_CUSTOMER", file, sendCtl: (m) => ctl.push(m), sendMeta: (m) => meta.push(m),
-    onChange: (l) => (list = l), allowed: () => opts.allowed ?? true, maxBytes: opts.max, now: opts.now,
+    inbound: "TO_CUSTOMER",
+    file,
+    sendCtl: (m) => ctl.push(m),
+    sendMeta: (m) => meta.push(m),
+    onChange: (l) => (list = l),
+    allowed: () => opts.allowed ?? true,
+    maxBytes: opts.max,
+    now: opts.now,
   });
-  return { ft, ctl, meta, file, get list() { return list; } };
+  return {
+    ft,
+    ctl,
+    meta,
+    file,
+    get list() {
+      return list;
+    },
+  };
 }
 
 describe("dosya transferi (AC-36, 53, 54, 117, 119)", () => {
   it("teklifin idx alanıyla eşler, SHA-256 doğrular, meta OK", async () => {
     const r = rig();
     const data = enc("merhaba");
-    await r.ft.onCtl({ t: "file.offer", fid: "f1", idx: 7, name: "../../a‮txt.exe", size: data.length, sha256: await sha256Hex(data.slice().buffer) });
+    await r.ft.onCtl({
+      t: "file.offer",
+      fid: "f1",
+      idx: 7,
+      name: "../../a‮txt.exe",
+      size: data.length,
+      sha256: await sha256Hex(data.slice().buffer),
+    });
     expect(r.list[0]?.name).toBe("atxt.exe");
     expect(r.list[0]?.dangerous).toBe(true);
     r.ft.accept("f1");
@@ -140,7 +168,16 @@ describe("işaretleme (AC-56, 57)", () => {
 });
 
 describe("kalite (AC-44..46)", () => {
-  const smp = (at: number, rttMs: number, fps = 30): Sample => ({ at, fps, kbps: 1000, rttMs, lossPct: 0, width: 1920, height: 1080, connType: "relay" });
+  const smp = (at: number, rttMs: number, fps = 30): Sample => ({
+    at,
+    fps,
+    kbps: 1000,
+    rttMs,
+    lossPct: 0,
+    width: 1920,
+    height: 1080,
+    connType: "relay",
+  });
   it("3 sn süren eşik aşımı uyarı, kısa sıçrama değil", () => {
     expect(evaluate([smp(0, 50), smp(1000, 50), smp(2000, 400)]).level).toBe("ok");
     expect(evaluate([0, 1000, 2000, 3000].map((t) => smp(t, 400)))).toEqual({ level: "warn", issues: ["rtt"] });
@@ -151,14 +188,30 @@ describe("kalite (AC-44..46)", () => {
     expect(a.summary()).toBeNull();
     a.add(smp(0, 100, 10));
     a.add(smp(1, 200, 30));
-    expect(a.summary()).toEqual({ t: "quality.summary", fps: { avg: 20, min: 10, max: 30 }, kbps: { avg: 1000, min: 1000, max: 1000 }, rttMs: { avg: 150, min: 100, max: 200 }, connType: "relay" });
+    expect(a.summary()).toEqual({
+      t: "quality.summary",
+      fps: { avg: 20, min: 10, max: 30 },
+      kbps: { avg: 1000, min: 1000, max: 1000 },
+      rttMs: { avg: 150, min: 100, max: 200 },
+      connType: "relay",
+    });
   });
 });
 
 describe("kalite örneği — RTCStatsReport (Map olmayan maplike)", () => {
   it("values() ile okunur; FPS, RTT, çözünürlük, bağlantı tipi", () => {
     const recs = [
-      { id: "v", type: "inbound-rtp", kind: "video", framesPerSecond: 30, bytesReceived: 1000, packetsLost: 0, packetsReceived: 10, frameWidth: 1280, frameHeight: 720 },
+      {
+        id: "v",
+        type: "inbound-rtp",
+        kind: "video",
+        framesPerSecond: 30,
+        bytesReceived: 1000,
+        packetsLost: 0,
+        packetsReceived: 10,
+        frameWidth: 1280,
+        frameHeight: 720,
+      },
       { id: "t", type: "transport", selectedCandidatePairId: "p" },
       { id: "p", type: "candidate-pair", localCandidateId: "l", currentRoundTripTime: 0.012 },
       { id: "l", type: "local-candidate", candidateType: "host" },
@@ -174,7 +227,11 @@ describe("kalite örneği — RTCStatsReport (Map olmayan maplike)", () => {
 describe("S-P4-T3-1 dönüş kaydı yaşı", () => {
   it("120 sn'den eski kayıt okunmaz", () => {
     const m = new Map<string, string>();
-    const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) };
+    const s = {
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+      removeItem: (k: string) => void m.delete(k),
+    };
     const rec = { reconnectToken: "x".repeat(43), technicianName: "T", customerName: "C", verifyCode: "1234", sessionRef: "r" };
     writeResume("k", rec, s, 1_000);
     expect(readResume("k", s, 100_000)).toEqual(rec);

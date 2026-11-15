@@ -21,7 +21,14 @@ const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
  * İstemci koordinatı → normalize nokta. `clamp=false` iken içerik alanı dışı → null (hareket/tık gönderilmez);
  * `clamp=true` (sürükleme, bırakma) sınıra kırpılır — takılı düğme kalmasın.
  */
-export function pointFromClient(clientX: number, clientY: number, video: Box, vidW: number, vidH: number, clamp = false): [number, number] | null {
+export function pointFromClient(
+  clientX: number,
+  clientY: number,
+  video: Box,
+  vidW: number,
+  vidH: number,
+  clamp = false,
+): [number, number] | null {
   const r = contentRect(video.width, video.height, vidW, vidH);
   if (r.w <= 0 || r.h <= 0) return null;
   const x = (clientX - video.left - r.x) / r.w;
@@ -138,5 +145,8 @@ export type SpecialComboId = (typeof SPECIAL_COMBOS)[number]["id"];
 
 /** Kombinasyon → sırayla basış, ters sırayla bırakış (`key` yok: istemci sanal tuş kodunu kullanır). */
 export function comboMsgs(codes: readonly string[]): InputMsg[] {
-  return [...codes.map((code) => ({ t: "k" as const, code, down: true })), ...[...codes].reverse().map((code) => ({ t: "k" as const, code, down: false }))];
+  return [
+    ...codes.map((code) => ({ t: "k" as const, code, down: true })),
+    ...[...codes].reverse().map((code) => ({ t: "k" as const, code, down: false })),
+  ];
 }

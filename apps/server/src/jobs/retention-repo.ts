@@ -55,7 +55,10 @@ export async function deleteOldAudit(db: Db, cutoff: Date, limit: number): Promi
 
 /** Süresi ve (varsa) iptal zamanı `cutoff`'tan eski giriş oturumları: max(expires_at, revoked_at) + 7 g. */
 export async function deleteOldAuthSessions(db: Db, cutoff: Date, limit: number): Promise<number> {
-  const r = await db.authSession.deleteMany({ where: { expiresAt: { lt: cutoff }, OR: [{ revokedAt: null }, { revokedAt: { lt: cutoff } }] }, limit });
+  const r = await db.authSession.deleteMany({
+    where: { expiresAt: { lt: cutoff }, OR: [{ revokedAt: null }, { revokedAt: { lt: cutoff } }] },
+    limit,
+  });
   return r.count;
 }
 

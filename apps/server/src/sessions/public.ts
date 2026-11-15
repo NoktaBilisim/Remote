@@ -3,7 +3,12 @@
 // token yolu 30/dk/ipKey; durum yoklaması 60/dk/ipKey. Resolve oturumu tüketmez (tüketim P3 admit TX'i).
 // Global başarısız kod sayacı yalnız alarm üretir, engellemez (G-02, mimari §11: > 100/dk).
 import type { FastifyBaseLogger } from "fastify";
-import type { PublicSessionStatusResponse, ResolveSessionInput, ResolveSessionResponse, SessionStatus } from "@remote/contracts/api/sessions";
+import type {
+  PublicSessionStatusResponse,
+  ResolveSessionInput,
+  ResolveSessionResponse,
+  SessionStatus,
+} from "@remote/contracts/api/sessions";
 import type { ErrorCode } from "@remote/contracts/errors";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { abuseEmail, currentConsentText, type AbuseEmailSource } from "../public/consent.ts";
@@ -131,7 +136,10 @@ export const createPublicLimits = (log: FastifyBaseLogger, trustedProxyCidr?: st
   goneAudit: new FixedWindowCounter(2, 10 * MIN, 10 * MIN),
   resolveFailed: new ResolveFailedAlarm((s) => log.warn({ alarm: "resolve_failed", ...s }, "global başarısız kod eşiği aşıldı")),
   clientIpIsProxy: new ClientIpIsProxyAlarm(trustedProxyCidr, () =>
-    log.warn({ alarm: "client_ip_is_proxy" }, "public resolve istemci IP'si güvenilen proxy adresi: X-Forwarded-For gelmiyor (edge sırrı?)"),
+    log.warn(
+      { alarm: "client_ip_is_proxy" },
+      "public resolve istemci IP'si güvenilen proxy adresi: X-Forwarded-For gelmiyor (edge sırrı?)",
+    ),
   ),
 });
 
@@ -172,7 +180,15 @@ export const GONE: Partial<Record<string, ErrorCode>> = {
 async function goneAudit(db: Db, limits: PublicLimits, ctx: AuditContext, s: repo.PublicSessionRow, code: ErrorCode): Promise<void> {
   const key = `${s.id}:${code}`;
   if (limits.goneAudit.blockedFor(key) > 0 || limits.goneAudit.hit(key)) return;
-  await writeAudit(db, ctx, { tenantId: s.tenantId, username: "customer", action: "session.resolve", entity: "support_sessions", entityId: s.id, result: "fail", newValue: { reason: code } });
+  await writeAudit(db, ctx, {
+    tenantId: s.tenantId,
+    username: "customer",
+    action: "session.resolve",
+    entity: "support_sessions",
+    entityId: s.id,
+    result: "fail",
+    newValue: { reason: code },
+  });
 }
 
 export async function resolvePublicSession(
@@ -181,7 +197,11 @@ export async function resolvePublicSession(
   refKey: string,
   ctx: AuditContext,
   input: ResolveSessionInput,
-  issueNonce: (sessionId: string, kind: ResolveSessionInput["clientKind"], clientVersion?: string) => { joinNonce: string; nonceExpiresAt: string },
+  issueNonce: (
+    sessionId: string,
+    kind: ResolveSessionInput["clientKind"],
+    clientVersion?: string,
+  ) => { joinNonce: string; nonceExpiresAt: string },
   abuseSrc: AbuseEmailSource,
   minAgentVersion?: string,
 ): Promise<ResolveSessionResponse> {
@@ -217,7 +237,11 @@ export async function resolvePublicSession(
     await goneAudit(db, limits, ctx, row, gone);
     throw new AppError(gone);
   }
-  const [consentText, abuse, logoUrl] = await Promise.all([currentConsentText(db, row.tenantId), abuseEmail(db, abuseSrc), effectiveLogoUrl(db, row.tenant.logoPath)]);
+  const [consentText, abuse, logoUrl] = await Promise.all([
+    currentConsentText(db, row.tenantId),
+    abuseEmail(db, abuseSrc),
+    effectiveLogoUrl(db, row.tenant.logoPath),
+  ]);
   return {
     sessionRef: sessionRef(refKey, row.id),
     tenant: { name: row.tenant.name, logoUrl }, // P12: firma → sistem → Nokta logosu (public URL)
@@ -232,7 +256,13 @@ export async function resolvePublicSession(
 }
 
 /** Karşılama sayfası iptal/expiry yoklaması (AC-8). Geçersiz ref → 404. */
-export async function publicSessionStatus(db: Db, limits: PublicLimits, refKey: string, ctx: AuditContext, ref: string): Promise<PublicSessionStatusResponse> {
+export async function publicSessionStatus(
+  db: Db,
+  limits: PublicLimits,
+  refKey: string,
+  ctx: AuditContext,
+  ref: string,
+): Promise<PublicSessionStatusResponse> {
   consume(limits.statusIp, ipKey(ctx.ip), 60);
   const id = parseSessionRef(refKey, ref);
   const row = id ? await repo.findStatus(db, id) : null;

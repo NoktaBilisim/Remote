@@ -8,7 +8,12 @@ export interface MailContent {
 }
 
 const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const oneLine = (s: string): string => s.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 150);
+const oneLine = (s: string): string =>
+  s
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 150);
 const base = (u: string): string => u.replace(/\/+$/, "");
 
 /** Tam HTML: mutlak logo adresi + gövde. */
@@ -17,7 +22,14 @@ export function renderMailHtml(logoUrl: string, bodyHtml: string): string {
 }
 
 const istanbul = (d: Date): string =>
-  new Intl.DateTimeFormat("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(d);
+  new Intl.DateTimeFormat("tr-TR", {
+    timeZone: "Europe/Istanbul",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
 
 /** AC-10: logo, teknisyen adı, link, kısa kod, son geçerlilik (Europe/Istanbul). */
 export function sessionLinkMail(o: { firm: string; technician: string; link: string; code: string; expiresAt: Date }): MailContent {
@@ -48,8 +60,10 @@ export function accountLockedMail(o: { minutes: number }): MailContent {
 /** B-P10-6: 2FA etkinleştirme bildirimi (hesabı şifreyle ele geçiren kendi TOTP'sini bağlarsa gerçek sahip haberdar olur). */
 export function mfaEnabledMail(): MailContent {
   const subject = "İki adımlı doğrulama etkinleştirildi";
-  const text = "Hesabınızda iki adımlı doğrulama etkinleştirildi ve diğer oturumlarınız kapatıldı.\n\nBu işlemi siz yapmadıysanız hemen yöneticinize başvurun; yönetici iki adımlı doğrulamayı sıfırlayabilir.";
-  const bodyHtml = "<p>Hesabınızda <b>iki adımlı doğrulama etkinleştirildi</b> ve diğer oturumlarınız kapatıldı.</p><p>Bu işlemi siz yapmadıysanız hemen yöneticinize başvurun; yönetici iki adımlı doğrulamayı sıfırlayabilir.</p>";
+  const text =
+    "Hesabınızda iki adımlı doğrulama etkinleştirildi ve diğer oturumlarınız kapatıldı.\n\nBu işlemi siz yapmadıysanız hemen yöneticinize başvurun; yönetici iki adımlı doğrulamayı sıfırlayabilir.";
+  const bodyHtml =
+    "<p>Hesabınızda <b>iki adımlı doğrulama etkinleştirildi</b> ve diğer oturumlarınız kapatıldı.</p><p>Bu işlemi siz yapmadıysanız hemen yöneticinize başvurun; yönetici iki adımlı doğrulamayı sıfırlayabilir.</p>";
   return { subject, text, bodyHtml };
 }
 
@@ -65,5 +79,9 @@ export function newRequestMail(o: { publicBaseUrl: string; firm: string; request
   const firm = oneLine(o.firm).slice(0, 60);
   const subject = oneLine(`Yeni destek talebi – ${firm}`);
   const text = `Yeni destek talebi – ${firm} – panelde görüntüleyin. Talep kodu: ${o.requestCode}\n${panel}`;
-  return { subject, text, bodyHtml: `<p>Yeni destek talebi – ${esc(firm)} – panelde görüntüleyin. Talep kodu: <b>${esc(o.requestCode)}</b></p><p><a href="${esc(panel)}">${esc(panel)}</a></p>` };
+  return {
+    subject,
+    text,
+    bodyHtml: `<p>Yeni destek talebi – ${esc(firm)} – panelde görüntüleyin. Talep kodu: <b>${esc(o.requestCode)}</b></p><p><a href="${esc(panel)}">${esc(panel)}</a></p>`,
+  };
 }

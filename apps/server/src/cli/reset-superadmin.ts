@@ -39,7 +39,11 @@ export function parseCliArgs(argv: string[]): SuperadminResetInput | null {
       args: argv,
       strict: true,
       allowPositionals: false,
-      options: { email: { type: "string", multiple: true }, "reset-mfa": { type: "boolean", default: false }, "dry-run": { type: "boolean", default: false } },
+      options: {
+        email: { type: "string", multiple: true },
+        "reset-mfa": { type: "boolean", default: false },
+        "dry-run": { type: "boolean", default: false },
+      },
     });
     if (values.email?.length !== 1) return null;
     const email = emailSchema.safeParse(values.email[0]);
@@ -79,7 +83,10 @@ export async function runResetSuperadmin(argv: string[], io: CliIo, openRuntime:
   try {
     const r = await resetSuperadmin(rt.db, ctx, input);
     if (r.kind === "not_found") {
-      rt.logger.warn({ event: "superadmin_reset", result: "not_found", dryRun: input.dryRun, runId: ctx.requestId }, "reset-superadmin: hesap bulunamadı");
+      rt.logger.warn(
+        { event: "superadmin_reset", result: "not_found", dryRun: input.dryRun, runId: ctx.requestId },
+        "reset-superadmin: hesap bulunamadı",
+      );
       io.err("Super Admin bulunamadı.\n");
       return EXIT.NOT_FOUND;
     }
@@ -87,7 +94,17 @@ export async function runResetSuperadmin(argv: string[], io: CliIo, openRuntime:
       io.out("Dry-run: DB bağlantısı tamam, Super Admin hesabı bulundu. Değişiklik yapılmadı.\n");
       return EXIT.OK;
     }
-    rt.logger.info({ event: "superadmin_reset", result: "success", userId: r.userId, mfaReset: r.mfaReset, revokedSessions: r.revokedSessions, runId: ctx.requestId }, "reset-superadmin tamamlandı");
+    rt.logger.info(
+      {
+        event: "superadmin_reset",
+        result: "success",
+        userId: r.userId,
+        mfaReset: r.mfaReset,
+        revokedSessions: r.revokedSessions,
+        runId: ctx.requestId,
+      },
+      "reset-superadmin tamamlandı",
+    );
     io.out(
       [
         "Super Admin şifresi sıfırlandı.",

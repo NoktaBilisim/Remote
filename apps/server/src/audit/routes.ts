@@ -28,7 +28,9 @@ export async function auditRoutes(app: FastifyInstance): Promise<void> {
     void reply.header("Cache-Control", "no-store");
   });
 
-  app.get("", { preHandler: requirePerm("audit.view") }, async (req): Promise<AuditListResponse> => listAuditItems(app.db, authOf(req), parseInput(listAuditQuerySchema, req.query)));
+  app.get("", { preHandler: requirePerm("audit.view") }, async (req): Promise<AuditListResponse> =>
+    listAuditItems(app.db, authOf(req), parseInput(listAuditQuerySchema, req.query)),
+  );
 
   // AC-124: 5/dk/kullanıcı (6. istek 429). Statik yol.
   const exportLimit = new FixedWindowCounter(6, MIN_MS, MIN_MS);

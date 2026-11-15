@@ -23,6 +23,11 @@ export class RateWindow {
 export const IN_LIMITS = { chat: 5, annot: 30, laser: 30 } as const;
 
 export function inboundLimiter(now: () => number = Date.now) {
-  const w = { chat: new RateWindow(IN_LIMITS.chat, 1000, now), annot: new RateWindow(IN_LIMITS.annot, 1000, now), laser: new RateWindow(IN_LIMITS.laser, 1000, now) };
-  return (t: string): boolean => (t === "chat" ? w.chat.take() : t === "annot.laser" ? w.laser.take() : t.startsWith("annot.") ? w.annot.take() : true);
+  const w = {
+    chat: new RateWindow(IN_LIMITS.chat, 1000, now),
+    annot: new RateWindow(IN_LIMITS.annot, 1000, now),
+    laser: new RateWindow(IN_LIMITS.laser, 1000, now),
+  };
+  return (t: string): boolean =>
+    t === "chat" ? w.chat.take() : t === "annot.laser" ? w.laser.take() : t.startsWith("annot.") ? w.annot.take() : true;
 }

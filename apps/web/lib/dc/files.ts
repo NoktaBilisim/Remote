@@ -272,7 +272,10 @@ export class FileTransfers {
     const drop = new Set<string>();
     const auto = this.list.filter((x) => x.auto);
     for (const x of auto.slice(0, Math.max(0, auto.length - AUTO_KEEP))) drop.add(`${x.dir}.${x.fid}`);
-    for (const [dir, m] of [["in", this.inc], ["out", this.out]] as const) {
+    for (const [dir, m] of [
+      ["in", this.inc],
+      ["out", this.out],
+    ] as const) {
       let n = m.size;
       for (const [fid, s] of m) {
         if (n <= KEEP) break;
@@ -297,7 +300,14 @@ export class FileTransfers {
     this.put(st.t);
   }
   private meta(st: InState, result: FileResult) {
-    this.d.sendMeta({ t: "file.meta", direction: this.d.inbound, fileName: st.t.name, sizeBytes: Math.min(st.t.size, 2 ** 31), sha256: st.sha, result });
+    this.d.sendMeta({
+      t: "file.meta",
+      direction: this.d.inbound,
+      fileName: st.t.name,
+      sizeBytes: Math.min(st.t.size, 2 ** 31),
+      sha256: st.sha,
+      result,
+    });
   }
   /**
    * Karşı tarafın tetiklediği (kullanıcı kararı olmadan) REJECTED/CANCELLED raporu: aynı ad/boyut/özet dakikada bir,

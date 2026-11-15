@@ -1,6 +1,18 @@
 "use client";
 
-import { Building, Building2, History, House, Inbox, MonitorSmartphone, ScrollText, ServerCog, Settings, Users, type LucideIcon } from "lucide-react";
+import {
+  Building,
+  Building2,
+  History,
+  House,
+  Inbox,
+  MonitorSmartphone,
+  ScrollText,
+  ServerCog,
+  Settings,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LobbyCountBadge } from "@/components/lobby-notifier";

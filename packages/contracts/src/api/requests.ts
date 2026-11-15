@@ -78,7 +78,8 @@ export const REQUEST_REJECT_PRESETS = [
 ] as const;
 
 /** Kalıcı panel ipucu (§13.1, AC-146). */
-export const REQUEST_VERIFY_HINT = "Müşteriyi firmanın kayıtlı numarasından arayın (talepteki numaradan değil) ve ekrandaki talep kodunu sorun.";
+export const REQUEST_VERIFY_HINT =
+  "Müşteriyi firmanın kayıtlı numarasından arayın (talepteki numaradan değil) ve ekrandaki talep kodunu sorun.";
 
 /** Müşteri metni (AC-143): kuyruk dolu / yeni kaynak eşiği / bekleyen sınırı. */
 export const REQUEST_BUSY_MESSAGE = "Şu an çok yoğunuz, lütfen firmanızı telefonla arayın.";
@@ -160,7 +161,11 @@ export const optionalEmailSchema = z
   .optional();
 
 /** Açıklamayı tek satıra indirir (r2, G-E9-5): CR/LF/TAB ve tüm boşluk dizileri → tek boşluk, trim. */
-export const normalizeDescription = (v: string): string => v.replace(/[\r\n\t]/g, " ").replace(/\s+/g, " ").trim();
+export const normalizeDescription = (v: string): string =>
+  v
+    .replace(/[\r\n\t]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
 /** Sorun açıklaması (AC-134): normalize sonra 10..500 kod noktası; Cc ve bidi/sıfır genişlik Cf yasak. */
 export const descriptionSchema = z
@@ -224,7 +229,7 @@ function parseIPv6(s: string): number[] | null {
 function formatIPv6(g: number[]): string {
   let bestStart = -1;
   let bestLen = 0;
-  for (let i = 0; i < 8; ) {
+  for (let i = 0; i < 8;) {
     if (g[i] !== 0) {
       i++;
       continue;
@@ -282,7 +287,8 @@ export type CidrCheck = { ok: true; cidr: string } | { ok: false; message: strin
 export function checkTrustedCidr(raw: string): CidrCheck {
   const v = raw.trim();
   const [addr = "", bitsRaw, ...rest] = v.split("/");
-  if (bitsRaw === undefined || rest.length > 0 || !/^\d{1,3}$/.test(bitsRaw)) return { ok: false, message: "CIDR biçiminde olmalı (ör. 203.0.113.0/24)" };
+  if (bitsRaw === undefined || rest.length > 0 || !/^\d{1,3}$/.test(bitsRaw))
+    return { ok: false, message: "CIDR biçiminde olmalı (ör. 203.0.113.0/24)" };
   const bits = Number(bitsRaw);
   const v4 = parseIPv4(addr);
   if (v4) {
@@ -363,7 +369,8 @@ export const createRequestInputSchema = z
     deviceKey: deviceKeySchema.optional(),
   })
   .superRefine((b, ctx) => {
-    if ((b.ref === undefined) === (b.bindingKey === undefined)) ctx.addIssue({ code: "custom", path: ["ref"], message: "Firma bağlantısı ya da bilgisayar kaydından tam biri gerekli" });
+    if ((b.ref === undefined) === (b.bindingKey === undefined))
+      ctx.addIssue({ code: "custom", path: ["ref"], message: "Firma bağlantısı ya da bilgisayar kaydından tam biri gerekli" });
   });
 export type CreateRequestInput = z.input<typeof createRequestInputSchema>;
 export type CreateRequestData = z.output<typeof createRequestInputSchema>;
@@ -399,7 +406,8 @@ export const listRequestsQuerySchema = z
     pageSize: z.coerce.number().int().min(1).max(REQUEST_PAGE_SIZE_MAX).default(25),
   })
   .superRefine((q, ctx) => {
-    if (q.status && q.tab !== "history") ctx.addIssue({ code: "custom", path: ["status"], message: "Durum filtresi yalnız geçmiş sekmesinde kullanılır" });
+    if (q.status && q.tab !== "history")
+      ctx.addIssue({ code: "custom", path: ["status"], message: "Durum filtresi yalnız geçmiş sekmesinde kullanılır" });
   });
 export type ListRequestsQuery = z.infer<typeof listRequestsQuerySchema>;
 
@@ -475,7 +483,11 @@ export interface SupportRequestSettings {
 /** PUT /settings/support-requests (AC-142, 152). Mevcut bekleyenlerin `expires_at`'i değişmez. */
 export const updateRequestSettingsInputSchema = z
   .strictObject({
-    waitMinutes: z.number().int("Tam sayı olmalı").min(REQUEST_WAIT_MIN, `En az ${REQUEST_WAIT_MIN} dakika`).max(REQUEST_WAIT_MAX, `En çok ${REQUEST_WAIT_MAX} dakika`),
+    waitMinutes: z
+      .number()
+      .int("Tam sayı olmalı")
+      .min(REQUEST_WAIT_MIN, `En az ${REQUEST_WAIT_MIN} dakika`)
+      .max(REQUEST_WAIT_MAX, `En çok ${REQUEST_WAIT_MAX} dakika`),
     trustedCidrs: uniqueList(trustedCidrSchema, REQUEST_TRUSTED_CIDRS_MAX, "aralık"),
     whatsapp: z.strictObject({ enabled: z.boolean(), recipients: uniqueList(phoneSchema, REQUEST_RECIPIENTS_MAX, "alıcı") }),
     email: z.strictObject({
@@ -484,8 +496,10 @@ export const updateRequestSettingsInputSchema = z
     }),
   })
   .superRefine((s, ctx) => {
-    if (s.whatsapp.enabled && s.whatsapp.recipients.length === 0) ctx.addIssue({ code: "custom", path: ["whatsapp", "recipients"], message: "Kanal açıkken en az bir alıcı girin" });
-    if (s.email.enabled && s.email.recipients.length === 0) ctx.addIssue({ code: "custom", path: ["email", "recipients"], message: "Kanal açıkken en az bir alıcı girin" });
+    if (s.whatsapp.enabled && s.whatsapp.recipients.length === 0)
+      ctx.addIssue({ code: "custom", path: ["whatsapp", "recipients"], message: "Kanal açıkken en az bir alıcı girin" });
+    if (s.email.enabled && s.email.recipients.length === 0)
+      ctx.addIssue({ code: "custom", path: ["email", "recipients"], message: "Kanal açıkken en az bir alıcı girin" });
   });
 export type UpdateRequestSettingsInput = z.input<typeof updateRequestSettingsInputSchema>;
 export type UpdateRequestSettingsData = z.output<typeof updateRequestSettingsInputSchema>;

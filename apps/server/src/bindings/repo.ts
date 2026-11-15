@@ -15,7 +15,16 @@ const useSelect = {
   tenantId: true,
   customerId: true,
   lastUsedAt: true,
-  tenant: { select: { name: true, logoPath: true, status: true, deletedAt: true, settings: { select: { retentionDays: true } }, requestSettings: { select: { waitMinutes: true, trustedCidrs: true, waEnabled: true, waRecipients: true } } } },
+  tenant: {
+    select: {
+      name: true,
+      logoPath: true,
+      status: true,
+      deletedAt: true,
+      settings: { select: { retentionDays: true } },
+      requestSettings: { select: { waitMinutes: true, trustedCidrs: true, waEnabled: true, waRecipients: true } },
+    },
+  },
   customer: { select: { id: true, name: true, status: true } },
 } as const;
 export type BindingUseRow = Prisma.DeviceBindingGetPayload<{ select: typeof useSelect }>;
@@ -43,7 +52,8 @@ export function pendingOfBinding(tx: DbOrTx, tenantId: string, bindingId: string
 export type IssueRow = { id: string; tenantId: string; customerId: string | null; keyHash: string | null };
 
 type LockedRow = { id: string; tenant_id: string; customer_id: string | null; key_hash: string | null };
-const toIssueRow = (r: LockedRow | undefined): IssueRow | null => (r ? { id: r.id, tenantId: r.tenant_id, customerId: r.customer_id, keyHash: r.key_hash } : null);
+const toIssueRow = (r: LockedRow | undefined): IssueRow | null =>
+  r ? { id: r.id, tenantId: r.tenant_id, customerId: r.customer_id, keyHash: r.key_hash } : null;
 
 /**
  * Adım 1: oturumun etkin kaydı (en çok 1, UQ active_session_id) — satır kilidi. Sütunlar KİLİTLİ okumanın kendisinden
@@ -51,30 +61,58 @@ const toIssueRow = (r: LockedRow | undefined): IssueRow | null => (r ? { id: r.i
  * denemesinde kazananın satırını göremez (→ P2002; §15.3 eşzamanlı test).
  */
 export async function lockActiveOfSession(tx: Prisma.TransactionClient, sessionId: string): Promise<IssueRow | null> {
-  const rows = await tx.$queryRaw<LockedRow[]>`SELECT id, tenant_id, customer_id, key_hash FROM device_bindings WHERE active_session_id = ${sessionId} FOR UPDATE`;
+  const rows = await tx.$queryRaw<
+    LockedRow[]
+  >`SELECT id, tenant_id, customer_id, key_hash FROM device_bindings WHERE active_session_id = ${sessionId} FOR UPDATE`;
   return toIssueRow(rows[0]);
 }
 
 /** Adım 2: `previousKey`'in etkin satırı — satır kilidi (sütunlar kilitli okumadan). */
 export async function lockActiveByHash(tx: Prisma.TransactionClient, keyHash: string): Promise<IssueRow | null> {
-  const rows = await tx.$queryRaw<LockedRow[]>`SELECT id, tenant_id, customer_id, key_hash FROM device_bindings WHERE key_hash = ${keyHash} AND revoked_at IS NULL FOR UPDATE`;
+  const rows = await tx.$queryRaw<
+    LockedRow[]
+  >`SELECT id, tenant_id, customer_id, key_hash FROM device_bindings WHERE key_hash = ${keyHash} AND revoked_at IS NULL FOR UPDATE`;
   return toIssueRow(rows[0]);
 }
 
 /** Yerinde güncelleme (yeni anahtar, oturum, son kullanım, sayaç). `last_session_id` = oturum → UQ'ya girer. */
-export async function renew(tx: DbOrTx, id: string, d: { keyHash: string; customerId: string | null; sessionId: string; clientVersion: string; now: Date }): Promise<void> {
+export async function renew(
+  tx: DbOrTx,
+  id: string,
+  d: { keyHash: string; customerId: string | null; sessionId: string; clientVersion: string; now: Date },
+): Promise<void> {
   // updateMany = tek UPDATE (son commit'i okur). Prisma `update` MySQL'de önce anlık görüntüden SELECT yapar; eşzamanlı
   // isteğin yeniden denemesinde kazananın satırını bulamaz (P2025).
   const r = await tx.deviceBinding.updateMany({
     where: { id, revokedAt: null },
-    data: { keyHash: d.keyHash, customerId: d.customerId, lastSessionId: d.sessionId, lastUsedAt: d.now, clientVersion: d.clientVersion, issueCount: { increment: 1 } },
+    data: {
+      keyHash: d.keyHash,
+      customerId: d.customerId,
+      lastSessionId: d.sessionId,
+      lastUsedAt: d.now,
+      clientVersion: d.clientVersion,
+      issueCount: { increment: 1 },
+    },
   });
   if (r.count !== 1) throw new Error("binding_renew_missing");
 }
 
-export async function insertBinding(tx: DbOrTx, d: { id: string; tenantId: string; customerId: string | null; keyHash: string; sessionId: string; clientVersion: string; now: Date }): Promise<void> {
+export async function insertBinding(
+  tx: DbOrTx,
+  d: { id: string; tenantId: string; customerId: string | null; keyHash: string; sessionId: string; clientVersion: string; now: Date },
+): Promise<void> {
   await tx.deviceBinding.create({
-    data: { id: d.id, tenantId: d.tenantId, customerId: d.customerId, keyHash: d.keyHash, clientVersion: d.clientVersion, firstSessionId: d.sessionId, lastSessionId: d.sessionId, lastUsedAt: d.now, createdAt: d.now },
+    data: {
+      id: d.id,
+      tenantId: d.tenantId,
+      customerId: d.customerId,
+      keyHash: d.keyHash,
+      clientVersion: d.clientVersion,
+      firstSessionId: d.sessionId,
+      lastSessionId: d.sessionId,
+      lastUsedAt: d.now,
+      createdAt: d.now,
+    },
     select: { id: true },
   });
 }
@@ -93,7 +131,13 @@ export async function revokeByHash(tx: DbOrTx, keyHash: string, reason: BindingR
 }
 
 /** Müşteri (customerId) ya da Genel (null) kayıtları toplu — IX(tenant_id, customer_id, revoked_at). */
-export async function revokeForOwner(tx: DbOrTx, tenantId: string, customerId: string | null, reason: BindingRevokeReason, now: Date): Promise<number> {
+export async function revokeForOwner(
+  tx: DbOrTx,
+  tenantId: string,
+  customerId: string | null,
+  reason: BindingRevokeReason,
+  now: Date,
+): Promise<number> {
   const r = await tx.deviceBinding.updateMany({ where: { tenantId, customerId, revokedAt: null }, data: revokeData(reason, now) });
   return r.count;
 }
@@ -116,6 +160,10 @@ export async function passiveTenantsWithBindings(db: DbOrTx, take: number): Prom
 
 /** Boşta kalma (V28): son kullanımdan `retention_days` geçmiş etkin kayıtlar — IX(revoked_at, last_used_at), partili. */
 export async function expireIdle(db: DbOrTx, tenantId: string, cutoff: Date, now: Date, limit: number): Promise<number> {
-  const r = await db.deviceBinding.updateMany({ where: { tenantId, revokedAt: null, lastUsedAt: { lte: cutoff } }, data: revokeData("EXPIRED", now), limit });
+  const r = await db.deviceBinding.updateMany({
+    where: { tenantId, revokedAt: null, lastUsedAt: { lte: cutoff } },
+    data: revokeData("EXPIRED", now),
+    limit,
+  });
   return r.count;
 }

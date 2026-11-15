@@ -3,7 +3,13 @@
  * Oluşturmada boş isteğe bağlı alan gönderilmez; düzenlemede yalnız değişen alanlar gider, boşaltılan alan `null` olur.
  */
 import type { z } from "zod";
-import { createCustomerInputSchema, updateCustomerInputSchema, type CreateCustomerInput, type CustomerDetail, type UpdateCustomerInput } from "./contract";
+import {
+  createCustomerInputSchema,
+  updateCustomerInputSchema,
+  type CreateCustomerInput,
+  type CustomerDetail,
+  type UpdateCustomerInput,
+} from "./contract";
 
 export const CUSTOMER_FIELDS = ["name", "fileLabel", "contactName", "phone", "email", "note"] as const;
 export type CustomerField = (typeof CUSTOMER_FIELDS)[number];
@@ -28,7 +34,8 @@ export function errorsOf(error: z.ZodError): CustomerErrors {
   const out: CustomerErrors = {};
   for (const i of error.issues) {
     const k = i.path[0];
-    if (typeof k === "string" && (CUSTOMER_FIELDS as readonly string[]).includes(k) && !out[k as CustomerField]) out[k as CustomerField] = i.message;
+    if (typeof k === "string" && (CUSTOMER_FIELDS as readonly string[]).includes(k) && !out[k as CustomerField])
+      out[k as CustomerField] = i.message;
   }
   return out;
 }

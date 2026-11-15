@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import bindingsFixture from "../fixtures/bindings.json" with { type: "json" };
 import customersFixture from "../fixtures/customers.json" with { type: "json" };
-import { bindingRevokeInputSchema, bindingStatusInputSchema, bindingKeySchema, BINDING_FORGOTTEN_MESSAGE, BINDING_INVALID_MESSAGE, BINDING_NO_SOURCE_MESSAGE } from "../src/api/bindings.ts";
+import {
+  bindingRevokeInputSchema,
+  bindingStatusInputSchema,
+  bindingKeySchema,
+  BINDING_FORGOTTEN_MESSAGE,
+  BINDING_INVALID_MESSAGE,
+  BINDING_NO_SOURCE_MESSAGE,
+} from "../src/api/bindings.ts";
 import {
   createCustomerInputSchema,
   customerFirmNameSchema,
@@ -156,8 +163,25 @@ describe("P8c contracts — bilgisayar kaydı", () => {
   });
 
   it("AC-176: request.new müşteri firma + rozet alanları zorunlu", () => {
-    const base = { t: "request.new", id: "01JC0000000000000000000000", requestCode: "123456", customerName: "A", preview: "x", networkMatch: "NONE", knownDevice: false, createdAt: "2026-11-12T10:00:00.000Z" };
+    const base = {
+      t: "request.new",
+      id: "01JC0000000000000000000000",
+      requestCode: "123456",
+      customerName: "A",
+      preview: "x",
+      networkMatch: "NONE",
+      knownDevice: false,
+      createdAt: "2026-11-12T10:00:00.000Z",
+    };
     expect(panelOutboundSchema.safeParse(base).success).toBe(false);
-    expect(panelOutboundSchema.safeParse({ ...base, customerFirm: { id: "01JC0000000000000000000001", name: "F" }, viaBinding: true, bindingRevoked: false, staleSource: false }).success).toBe(true);
+    expect(
+      panelOutboundSchema.safeParse({
+        ...base,
+        customerFirm: { id: "01JC0000000000000000000001", name: "F" },
+        viaBinding: true,
+        bindingRevoked: false,
+        staleSource: false,
+      }).success,
+    ).toBe(true);
   });
 });

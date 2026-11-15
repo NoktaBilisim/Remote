@@ -39,11 +39,13 @@ describe("S8b-5 talep oluşturma kapısı", () => {
     const a = makeApp({ env: PROXY });
     app = a;
     const rc = requestClient(a, "");
-    const tenants = await Promise.all([0, 1].map(async () => {
-      const t = await createTenant();
-      const ref = await createRequestSettings(t.id, { trustedCidrs: ["203.0.112.0/22"] });
-      return { id: t.id, ref, consentTextId: await rc.consentId(ref, "203.0.113.1") };
-    }));
+    const tenants = await Promise.all(
+      [0, 1].map(async () => {
+        const t = await createTenant();
+        const ref = await createRequestSettings(t.id, { trustedCidrs: ["203.0.112.0/22"] });
+        return { id: t.id, ref, consentTextId: await rc.consentId(ref, "203.0.113.1") };
+      }),
+    );
     const user = await createUser({ tenantId: tenants[0]?.id ?? null });
     const holds = tenants.map((t) => holdSettingsLock(t.id, HOLD_MS));
     let holdsOpen = true;
@@ -62,7 +64,10 @@ describe("S8b-5 talep oluşturma kapısı", () => {
         const t = tenants[i % 2];
         if (!t) throw new Error("tenant yok");
         // Kilit 6 sn: kuyruk dolu → anında 503 ile her deneme ~250 ms; 30 deneme kilit bitmeden tükenebilirdi.
-        return retryNotReady(() => rc.createReq(t.ref, `203.0.113.${i + 1}`, { consentTextId: t.consentTextId }), { attempts: 200, signal: stop.signal });
+        return retryNotReady(() => rc.createReq(t.ref, `203.0.113.${i + 1}`, { consentTextId: t.consentTextId }), {
+          attempts: 200,
+          signal: stop.signal,
+        });
       }),
     );
     const floodSettled = Promise.allSettled([flood]);
@@ -163,7 +168,8 @@ function captureLogs(): { logger: Logger; lines: Record<string, unknown>[] } {
   return { logger, lines };
 }
 
-const wrongFrom = (a: FastifyInstance, u: TestUser, i: number) => a.inject(loginRequest(u.email, "yanlis-sifre-000", { remoteAddress: `198.18.${Math.floor(i / 200)}.${(i % 200) + 1}` }));
+const wrongFrom = (a: FastifyInstance, u: TestUser, i: number) =>
+  a.inject(loginRequest(u.email, "yanlis-sifre-000", { remoteAddress: `198.18.${Math.floor(i / 200)}.${(i % 200) + 1}` }));
 
 describe("S8b-6 geçici DB hatasında hesap kilidi", () => {
   it("AC-65/S8b-6: sayaç ve audit yazılamazken 20 hatalı deneme (çok IP) → hesap yine kilitlenir (423), doğru şifre de 423; alarm logu PII'siz", async () => {
@@ -209,7 +215,11 @@ describe("S8b-6 geçici DB hatasında hesap kilidi", () => {
 
   it("AC-65: başarılı giriş yedek kovayı sıfırlar", async () => {
     const user = await createUser({ tenantId: (await createTenant()).id });
-    const faulty = buildApp({ mfaSetupEnforcement: false, env: testEnv({ LOG_LEVEL: "silent" }), db: faultyDb({ counter: true, tx: false }) });
+    const faulty = buildApp({
+      mfaSetupEnforcement: false,
+      env: testEnv({ LOG_LEVEL: "silent" }),
+      db: faultyDb({ counter: true, tx: false }),
+    });
     for (let i = 0; i < 3; i++) await wrongFrom(faulty, user, i);
     expect(faulty.authLimits.accountFallback.count(user.id)).toBe(3);
     await loginAs(faulty, user);

@@ -21,7 +21,9 @@ function Row({ label, children, testId }: { label: string; children: React.React
   return (
     <>
       <dt className="text-fg-muted">{label}</dt>
-      <dd className="min-w-0 text-fg wrap-anywhere" data-testid={testId}>{children}</dd>
+      <dd className="min-w-0 text-fg wrap-anywhere" data-testid={testId}>
+        {children}
+      </dd>
     </>
   );
 }
@@ -41,7 +43,11 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
       <>
         <Breadcrumb items={[...crumbs, { label: t("cu.detailTitle") }]} />
         <h1 className="text-2xl font-semibold text-fg">{t("cu.detailTitle")}</h1>
-        <div className="mt-6 max-w-xl"><Alert tone="warning" testId="customers-forbidden">{t("cu.forbidden")}</Alert></div>
+        <div className="mt-6 max-w-xl">
+          <Alert tone="warning" testId="customers-forbidden">
+            {t("cu.forbidden")}
+          </Alert>
+        </div>
       </>
     );
   }
@@ -54,14 +60,23 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
       <>
         <Breadcrumb items={[...crumbs, { label: t("cu.detailTitle") }]} />
         <h1 className="text-2xl font-semibold text-fg">{t("cu.detailTitle")}</h1>
-        <div className="mt-6 max-w-xl">{res.status === 403 ? <Alert tone="warning" testId="customers-forbidden">{t("cu.forbidden")}</Alert> : <LoadError />}</div>
+        <div className="mt-6 max-w-xl">
+          {res.status === 403 ? (
+            <Alert tone="warning" testId="customers-forbidden">
+              {t("cu.forbidden")}
+            </Alert>
+          ) : (
+            <LoadError />
+          )}
+        </div>
       </>
     );
   }
   const c = res.data;
   const canEdit = perms.includes("customers.edit");
   const anon = Boolean(c.anonymizedAt);
-  const pii = (v: string | null) => (v ?? (anon ? <span className="italic text-fg-muted">{t("cu.anonymized")}</span> : <span className="text-fg-muted">—</span>));
+  const pii = (v: string | null) =>
+    v ?? (anon ? <span className="italic text-fg-muted">{t("cu.anonymized")}</span> : <span className="text-fg-muted">—</span>);
 
   return (
     <>
@@ -72,7 +87,9 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
             <h1 className="text-2xl font-semibold text-fg wrap-anywhere">{c.name}</h1>
             <CustomerStatusBadge status={c.status} />
           </div>
-          {c.status === "PASSIVE" && c.passiveAt && <p className="mt-1 text-sm text-fg-muted">{t("cu.passiveSince", { at: formatDateTime(c.passiveAt) })}</p>}
+          {c.status === "PASSIVE" && c.passiveAt && (
+            <p className="mt-1 text-sm text-fg-muted">{t("cu.passiveSince", { at: formatDateTime(c.passiveAt) })}</p>
+          )}
         </div>
         <CustomerActions customer={c} canEdit={canEdit} canDelete={perms.includes("customers.delete")} />
       </div>
@@ -85,16 +102,25 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
           </h2>
           {c.status === "ACTIVE" && c.downloadUrl ? (
             <>
-              <code data-testid="customer-download-url" className="rounded-md border border-border bg-canvas px-3 py-2.5 font-mono text-sm text-fg break-all">{c.downloadUrl}</code>
+              <code
+                data-testid="customer-download-url"
+                className="rounded-md border border-border bg-canvas px-3 py-2.5 font-mono text-sm text-fg break-all"
+              >
+                {c.downloadUrl}
+              </code>
               <CopyLink url={c.downloadUrl} srLabel={t("cu.copyFor", { name: c.name })} testId="customer-copy" />
               <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
-                <Row label={t("srs.dl.fileName")} testId="customer-file-name"><span className="font-mono">{c.fileName}</span></Row>
+                <Row label={t("srs.dl.fileName")} testId="customer-file-name">
+                  <span className="font-mono">{c.fileName}</span>
+                </Row>
                 <Row label={t("srs.dl.rotatedAt")}>{c.refRotatedAt ? formatDateTime(c.refRotatedAt) : t("srs.dl.never")}</Row>
               </dl>
               <CustomerActions customer={c} canEdit={canEdit} canDelete={false} only="rotate" />
             </>
           ) : (
-            <Alert tone="warning" testId="customer-link-passive">{t("cu.linkPassiveLong")}</Alert>
+            <Alert tone="warning" testId="customer-link-passive">
+              {t("cu.linkPassiveLong")}
+            </Alert>
           )}
         </section>
 
@@ -103,22 +129,46 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
             <UserRound aria-hidden className="size-5 text-primary" />
             {t("cu.info")}
           </h2>
-          {anon && <div className="mt-3"><Alert tone="warning" testId="customer-anonymized">{t("cu.anonymizedNote", { at: formatDateTime(c.anonymizedAt ?? c.createdAt) })}</Alert></div>}
+          {anon && (
+            <div className="mt-3">
+              <Alert tone="warning" testId="customer-anonymized">
+                {t("cu.anonymizedNote", { at: formatDateTime(c.anonymizedAt ?? c.createdAt) })}
+              </Alert>
+            </div>
+          )}
           <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_1fr]">
             <Row label={t("cu.f.contact")}>{pii(c.contactName)}</Row>
-            <Row label={t("cu.f.phone")}><span className="tabular-nums">{pii(c.phone)}</span></Row>
+            <Row label={t("cu.f.phone")}>
+              <span className="tabular-nums">{pii(c.phone)}</span>
+            </Row>
             <Row label={t("cu.f.email")}>{pii(c.email)}</Row>
-            <Row label={t("cu.f.note")} testId="customer-note"><span className="whitespace-pre-wrap">{pii(c.note)}</span></Row>
-            <Row label={t("cu.f.fileLabel")}><span className="font-mono">{c.fileLabel}</span></Row>
-            <Row label={t("cu.col.created")}><span className="tabular-nums">{formatDateTime(c.createdAt)}</span></Row>
-            <Row label={t("cu.col.lastRequest")}><span className="tabular-nums">{c.lastRequestAt ? formatDateTime(c.lastRequestAt) : "—"}</span></Row>
-            <Row label={t("cu.col.requests")} testId="customer-detail-count"><span className="tabular-nums">{formatNumber(c.requestCount)}</span></Row>
-            <Row label={t("cu.sessionCount")}><span className="tabular-nums">{formatNumber(c.sessionCount)}</span></Row>
+            <Row label={t("cu.f.note")} testId="customer-note">
+              <span className="whitespace-pre-wrap">{pii(c.note)}</span>
+            </Row>
+            <Row label={t("cu.f.fileLabel")}>
+              <span className="font-mono">{c.fileLabel}</span>
+            </Row>
+            <Row label={t("cu.col.created")}>
+              <span className="tabular-nums">{formatDateTime(c.createdAt)}</span>
+            </Row>
+            <Row label={t("cu.col.lastRequest")}>
+              <span className="tabular-nums">{c.lastRequestAt ? formatDateTime(c.lastRequestAt) : "—"}</span>
+            </Row>
+            <Row label={t("cu.col.requests")} testId="customer-detail-count">
+              <span className="tabular-nums">{formatNumber(c.requestCount)}</span>
+            </Row>
+            <Row label={t("cu.sessionCount")}>
+              <span className="tabular-nums">{formatNumber(c.sessionCount)}</span>
+            </Row>
           </dl>
         </section>
       </div>
 
-      <CustomerTabs customerId={c.id} canRequests={perms.includes("support_requests.view")} canSessions={perms.includes("session_history.view")} />
+      <CustomerTabs
+        customerId={c.id}
+        canRequests={perms.includes("support_requests.view")}
+        canSessions={perms.includes("session_history.view")}
+      />
     </>
   );
 }

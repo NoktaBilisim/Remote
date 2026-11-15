@@ -29,7 +29,10 @@ export function HelpDialog({ open, onClose }: { open: boolean; onClose: () => vo
       <ol className="flex flex-col gap-3">
         {STEPS.map((k, i) => (
           <li key={k} className="flex items-start gap-3 text-sm text-fg">
-            <span aria-hidden className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-surface text-xs font-semibold text-primary tabular-nums">
+            <span
+              aria-hidden
+              className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary-surface text-xs font-semibold text-primary tabular-nums"
+            >
               {i + 1}
             </span>
             <span className="pt-0.5">{t(k)}</span>

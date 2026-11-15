@@ -23,11 +23,15 @@ export function UserFilters({ params }: { params: UserListParams }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const id = useId();
 
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
 
-  const go = (p: Partial<UserListParams>) => start(() => router.replace(usersHref({ q: params.q, role: params.role, status: params.status, ...p, page: 1 })));
+  const go = (p: Partial<UserListParams>) =>
+    start(() => router.replace(usersHref({ q: params.q, role: params.role, status: params.status, ...p, page: 1 })));
 
   const onText = (v: string) => {
     setText(v);
@@ -42,7 +46,9 @@ export function UserFilters({ params }: { params: UserListParams }) {
   return (
     <div className="flex flex-col gap-3 lg:flex-row lg:items-end" data-testid="user-filters">
       <div className="flex w-full max-w-md flex-col gap-1.5">
-        <label htmlFor={id} className="text-sm font-medium text-fg">{t("us.search")}</label>
+        <label htmlFor={id} className="text-sm font-medium text-fg">
+          {t("us.search")}
+        </label>
         <div className="relative">
           <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-muted" />
           <input

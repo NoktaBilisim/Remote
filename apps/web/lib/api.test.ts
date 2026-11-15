@@ -51,8 +51,21 @@ describe("lib/api", () => {
     const o = "https://destek.example:4450";
     expect(safeNext("/x?y", o)).toBe("/x?y");
     expect(safeNext("/sessions", o)).toBe("/sessions");
-    for (const bad of ["%2F%09%2Fevil.example", "/\t/evil.example", "/%0a/evil", "/\n/evil", "/%0d/evil", "/%09/evil",
-      "//evil", "/\\evil", "https://evil", "/%2F/evil", "", null, undefined])
+    for (const bad of [
+      "%2F%09%2Fevil.example",
+      "/\t/evil.example",
+      "/%0a/evil",
+      "/\n/evil",
+      "/%0d/evil",
+      "/%09/evil",
+      "//evil",
+      "/\\evil",
+      "https://evil",
+      "/%2F/evil",
+      "",
+      null,
+      undefined,
+    ])
       expect(safeNext(bad, o), String(bad)).toBe("/");
   });
 });

@@ -21,9 +21,7 @@ export default async function ChangePasswordPage() {
   return (
     <>
       <h1 className="text-xl font-semibold text-fg">{t("pw.title")}</h1>
-      <p className="mt-1 mb-6 text-sm text-fg-muted">
-        {state.me.user.mustChangePassword ? t("pw.subtitle") : t("pw.nextHint")}
-      </p>
+      <p className="mt-1 mb-6 text-sm text-fg-muted">{state.me.user.mustChangePassword ? t("pw.subtitle") : t("pw.nextHint")}</p>
       <ChangePasswordForm />
     </>
   );

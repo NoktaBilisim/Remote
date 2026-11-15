@@ -25,10 +25,20 @@ describe("P3 düzeltme 1 — audit", () => {
     live = await startLive();
     const t = await techSession(live);
     const headers = { origin: ORIGIN, "x-forwarded-for": "203.0.113.50" };
-    const r = await live.app.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers, payload: { token: t.token, clientKind: "BROWSER" } });
+    const r = await live.app.inject({
+      method: "POST",
+      url: "/api/v1/public/sessions/resolve",
+      headers,
+      payload: { token: t.token, clientKind: "BROWSER" },
+    });
     const { joinNonce } = r.json<{ joinNonce: string }>();
     await admitted(live, t); // oturum ACTIVE
-    const j = await live.app.inject({ method: "POST", url: "/api/v1/public/sessions/join", headers, payload: { joinNonce, customerName: "Geç Kalan", consentAccepted: true, consentTextId: t.consentTextId } });
+    const j = await live.app.inject({
+      method: "POST",
+      url: "/api/v1/public/sessions/join",
+      headers,
+      payload: { joinNonce, customerName: "Geç Kalan", consentAccepted: true, consentTextId: t.consentTextId },
+    });
     expect(j.statusCode).toBe(410);
     expect(j.json<{ error: { code: string } }>().error.code).toBe("SESSION_CONSUMED");
     const logs = await testDb().auditLog.findMany({ where: { entityId: t.sessionId, action: "session.join" } });
@@ -77,7 +87,9 @@ describe("P3 düzeltme 1 — bağlantı ve oda ömrü", () => {
     live = await startLive({ signaling: { pingMs: 50 } });
     const ok = await techSession(live);
     const t = await techSession(live);
-    const raw = await connect(`${live.base}/ws/tech?sessionId=${t.sessionId}`, ["rs.v1"], techHeaders(t.techAuth.token, ORIGIN), { autoPong: false });
+    const raw = await connect(`${live.base}/ws/tech?sessionId=${t.sessionId}`, ["rs.v1"], techHeaders(t.techAuth.token, ORIGIN), {
+      autoPong: false,
+    });
     const started = Date.now();
     expect((await raw.closed).code).toBe(1006); // terminate: kapanış çerçevesi yok
     expect(Date.now() - started).toBeGreaterThanOrEqual(100);
@@ -129,9 +141,19 @@ describe("P3 düzeltme 1 — log tarama (AC-120, QA-P3-2b)", () => {
     live = await startLive({ logger: createLogger("trace", sink) });
     const t = await techSession(live);
     const headers = { origin: ORIGIN, "x-forwarded-for": "203.0.113.60" };
-    const r = await live.app.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers, payload: { token: t.token, clientKind: "BROWSER" } });
+    const r = await live.app.inject({
+      method: "POST",
+      url: "/api/v1/public/sessions/resolve",
+      headers,
+      payload: { token: t.token, clientKind: "BROWSER" },
+    });
     const { joinNonce } = r.json<{ joinNonce: string }>();
-    const j = await live.app.inject({ method: "POST", url: "/api/v1/public/sessions/join", headers, payload: { joinNonce, customerName: "Ayşe", consentAccepted: true, consentTextId: t.consentTextId } });
+    const j = await live.app.inject({
+      method: "POST",
+      url: "/api/v1/public/sessions/join",
+      headers,
+      payload: { joinNonce, customerName: "Ayşe", consentAccepted: true, consentTextId: t.consentTextId },
+    });
     const { wsTicket, admitCode } = j.json<{ wsTicket: string; admitCode: string }>();
     await expect(connect(`${live.base}/ws/guest?ticket=${wsTicket}`, ["rs.v1"], { origin: ORIGIN })).rejects.toThrow("HTTP 403");
     const guest = await connect(`${live.base}/ws/guest`, ["rs.v1", `rs.ticket.${wsTicket}`], { origin: ORIGIN });

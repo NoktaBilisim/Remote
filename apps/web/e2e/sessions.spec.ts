@@ -205,7 +205,10 @@ test("401: yeni oturum oluştururken oturum düşmüşse /login?reason=expired",
 test("401: iptal onayında oturum düşmüşse /login?reason=expired", async ({ page, context }) => {
   await signIn(context, "expire");
   await page.goto("/sessions");
-  await rows(page).filter({ hasText: "Bekliyor" }).getByRole("button", { name: /Oturumu iptal et/ }).click();
+  await rows(page)
+    .filter({ hasText: "Bekliyor" })
+    .getByRole("button", { name: /Oturumu iptal et/ })
+    .click();
   await page.getByTestId("cancel-dialog").getByRole("button", { name: "Evet, iptal et" }).click();
   await expect(page).toHaveURL(/\/login\?reason=expired$/);
   await expect(page.getByText("Oturumunuz sona erdi")).toBeVisible();

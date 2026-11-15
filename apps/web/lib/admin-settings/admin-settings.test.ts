@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { buildMysqlInput, buildTurnInput, mysqlDirty, mysqlServerFields, needsTurnSecret, toMysqlState, toTurnState, turnDirty } from "./forms";
+import {
+  buildMysqlInput,
+  buildTurnInput,
+  mysqlDirty,
+  mysqlServerFields,
+  needsTurnSecret,
+  toMysqlState,
+  toTurnState,
+  turnDirty,
+} from "./forms";
 
-const view = { host: "db.local", port: 3306, database: "remote", user: "app", hasPassword: true, updatedAt: null, source: "panel" as const, matchesRunning: true };
+const view = {
+  host: "db.local",
+  port: 3306,
+  database: "remote",
+  user: "app",
+  hasPassword: true,
+  updatedAt: null,
+  source: "panel" as const,
+  matchesRunning: true,
+};
 
 describe("MySQL formu (AC-77, 78)", () => {
   it("kayıtlı şifre forma yazılmaz; boş şifre gönderilmez (korunur)", () => {

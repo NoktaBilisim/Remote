@@ -124,8 +124,14 @@ test("AC-79/80/122 SMTP ayarları: port önerisi, maskeli şifre, iç ağ reddi,
   await signIn(context, "acc");
   await page.goto("/settings/smtp");
   await expect(page).toHaveTitle(/E-posta \(SMTP\) ayarları/);
-  await expect(page.getByRole("navigation", { name: "Ayarlar menüsü" }).getByRole("link", { name: "E-posta (SMTP)" })).toHaveAttribute("aria-current", "page");
-  await expect(page.getByRole("navigation", { name: "Ana menü" }).getByRole("link", { name: "Ayarlar" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "Ayarlar menüsü" }).getByRole("link", { name: "E-posta (SMTP)" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(page.getByRole("navigation", { name: "Ana menü" }).getByRole("link", { name: "Ayarlar" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
   const pw = page.getByTestId("smtp-password");
   await expect(pw).toHaveValue("");
   await expect(page.getByText("Kayıtlı bir şifre var; değiştirmek için yazın.")).toBeVisible();
@@ -195,7 +201,9 @@ test("AC-79/80/122 SMTP ayarları: port önerisi, maskeli şifre, iç ağ reddi,
   await dlg.getByLabel("Alıcı e-posta adresi").fill("fail@ornek.com");
   await dlg.getByTestId("mail-test-send").click();
   // B-P10-1: tek genel mesaj (hata sınıfı yok)
-  await expect(dlg.getByTestId("mail-test-result")).toContainText("E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.");
+  await expect(dlg.getByTestId("mail-test-result")).toContainText(
+    "E-posta gönderilemedi. Sunucu, port, güvenlik ve kimlik bilgilerini kontrol edin.",
+  );
   await dlg.getByLabel("Alıcı e-posta adresi").fill("bt@ornek.com");
   await dlg.getByTestId("mail-test-send").click();
   await expect(dlg.getByTestId("mail-test-result")).toContainText("bt@ornek.com adresine gönderildi");
@@ -382,7 +390,10 @@ test("AC-80/151 test maili sürerken Esc diyaloğu kapatmaz, bekleme metni gör�
 test("Ayarlar alt menüsü 375 px'te taşmaz; üç sekme ve etkin sekme tam görünür", async ({ page, context }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   await signIn(context, "acc");
-  for (const [path, active] of [["/settings/smtp", "E-posta (SMTP)"], ["/settings/security", "Güvenlik"]] as const) {
+  for (const [path, active] of [
+    ["/settings/smtp", "E-posta (SMTP)"],
+    ["/settings/security", "Güvenlik"],
+  ] as const) {
     await page.goto(path);
     const nav = page.getByTestId("settings-tabs");
     await expect(nav.getByRole("link", { name: active })).toHaveAttribute("aria-current", "page");
@@ -398,14 +409,19 @@ test("Ayarlar alt menüsü 375 px'te taşmaz; üç sekme ve etkin sekme tam gör
   }
 });
 
-test("/login/2fa: hiç giriş yapmamış ziyaretçi nötr girişe, geçersiz yarı oturum 'süresi doldu'ya gider", async ({ page, context }, info) => {
+test("/login/2fa: hiç giriş yapmamış ziyaretçi nötr girişe, geçersiz yarı oturum 'süresi doldu'ya gider", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await page.goto("/login/2fa");
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("button", { name: "Giriş yap" })).toBeVisible();
   await expect(page.getByText("Oturumunuz sona erdi")).toHaveCount(0);
 
-  await context.addCookies([{ domain: "localhost", path: "/", secure: true, sameSite: "Strict", name: SESSION_COOKIE, value: "s-gecersiz", httpOnly: true }]);
+  await context.addCookies([
+    { domain: "localhost", path: "/", secure: true, sameSite: "Strict", name: SESSION_COOKIE, value: "s-gecersiz", httpOnly: true },
+  ]);
   await page.goto("/login/2fa");
   await expect(page).toHaveURL("/login?reason=expired");
   await expect(page.getByRole("status")).toContainText("Oturumunuz sona erdi");

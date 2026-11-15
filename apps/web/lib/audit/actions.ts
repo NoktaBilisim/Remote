@@ -3,7 +3,18 @@
  * (`@remote/contracts/audit`) ve sunucunun yazdığı diğer adlardan gelir; bilinmeyen ad HAM gösterilir (labels.ts kuralı).
  * Grup = adın ilk bölümü (`auth.login` → `auth`); grup filtresi API'ye `auth.*` öneki olarak gider.
  */
-import { AUTH_AUDIT, BACKUP_AUDIT, BINDING_AUDIT, CONTROL_AUDIT, CUSTOMER_AUDIT, MAIL_AUDIT, RETENTION_AUDIT, SYSTEM_AUDIT, TENANT_AUDIT, USER_AUDIT } from "@remote/contracts/audit";
+import {
+  AUTH_AUDIT,
+  BACKUP_AUDIT,
+  BINDING_AUDIT,
+  CONTROL_AUDIT,
+  CUSTOMER_AUDIT,
+  MAIL_AUDIT,
+  RETENTION_AUDIT,
+  SYSTEM_AUDIT,
+  TENANT_AUDIT,
+  USER_AUDIT,
+} from "@remote/contracts/audit";
 import { AUDIT_ACTION_GROUPS } from "./contract";
 import { labelOf, OUTBOUND_REASON_LABELS, TIMELINE_ACTION_LABELS } from "@remote/contracts/labels";
 
@@ -84,7 +95,9 @@ export { OUTBOUND_REASON_LABELS };
 export const reasonLabel = (reason: string): string => labelOf(OUTBOUND_REASON_LABELS, reason);
 
 /** Grup (adın ilk bölümü) → Türkçe başlık: contracts `AUDIT_ACTION_GROUPS` (`auth.*` → "Giriş ve hesap güvenliği"). */
-export const AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = { ...Object.fromEntries(AUDIT_ACTION_GROUPS.map((g) => [g.prefix.slice(0, -2), g.label])) };
+export const AUDIT_GROUP_LABELS: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(AUDIT_ACTION_GROUPS.map((g) => [g.prefix.slice(0, -2), g.label])),
+};
 
 export const groupOf = (action: string): string => action.split(".")[0] ?? action;
 export const actionLabel = (action: string): string => labelOf(AUDIT_ACTION_LABELS, action);
@@ -125,7 +138,8 @@ export function actionOptionGroups(selected?: string, extra: readonly string[] =
  * (sunucu da süzer; arayüz ek alan basmaz — alıcı, konu, ham hata ekrana gelmez).
  */
 const MAIL_ACTIONS: ReadonlySet<string> = new Set(Object.values(MAIL_AUDIT));
-export const isMailAction = (action: string): boolean => MAIL_ACTIONS.has(action) || groupOf(action) === "mail" || /^settings\.[a-z_]+\.test$/.test(action);
+export const isMailAction = (action: string): boolean =>
+  MAIL_ACTIONS.has(action) || groupOf(action) === "mail" || /^settings\.[a-z_]+\.test$/.test(action);
 
 export type AuditPayload = { kind: "json"; oldValue: string | null; newValue: string | null } | { kind: "reason"; reason: string | null };
 

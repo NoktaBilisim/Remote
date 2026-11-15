@@ -7,7 +7,16 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { openSession } from "../../src/auth/session.ts";
 import type { GuestConsent } from "../../src/public/consent.ts";
 import * as repo from "../../src/sessions/repo.ts";
-import { createSupportSessionRow, createTenant, createUser, loginAs, makeApp, testDb, type Session, type TestUser } from "../helpers/app.ts";
+import {
+  createSupportSessionRow,
+  createTenant,
+  createUser,
+  loginAs,
+  makeApp,
+  testDb,
+  type Session,
+  type TestUser,
+} from "../helpers/app.ts";
 import { createCustomerRow } from "../helpers/requests.ts";
 import { fakePeer } from "../helpers/ws.ts";
 
@@ -20,7 +29,13 @@ async function seatGuests(app: FastifyInstance, sessionId: string, n: number, ip
   const row = await repo.findForSignal(testDb(), sessionId);
   if (!row) throw new Error("oturum yok");
   for (let i = 0; i < n; i++) {
-    const g = app.rooms.addGuest(row, { name: "Ayşe Yılmaz", email: "ayse@example.test", kind: "BROWSER", ipKey: `198.51.${ipBase}.${i + 1}`, consent });
+    const g = app.rooms.addGuest(row, {
+      name: "Ayşe Yılmaz",
+      email: "ayse@example.test",
+      kind: "BROWSER",
+      ipKey: `198.51.${ipBase}.${i + 1}`,
+      consent,
+    });
     const room = app.rooms.get(sessionId);
     const t = app.rooms.tickets.take(g.wsTicket);
     const entry = t ? room?.lobby.get(t.guestId) : undefined;
@@ -67,7 +82,10 @@ describe("P13b-L GET /sessions/waiting + GET /sessions waitingGuests", () => {
     userB = await createUser({ tenantId: A, perms: TECH });
     userC = await createUser({ tenantId: B, perms: TECH });
     const adminA = await createUser({ tenantId: A, role: "ADMIN" });
-    const histOnly = await createUser({ tenantId: A, perms: { "sessions.view": false, "session_history.view": true, "customers.view": true } });
+    const histOnly = await createUser({
+      tenantId: A,
+      perms: { "sessions.view": false, "session_history.view": true, "customers.view": true },
+    });
     histUser = histOnly;
     sa = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
     sA1 = (await createSupportSessionRow({ tenantId: A, technicianId: userA.id })).id;
@@ -81,7 +99,15 @@ describe("P13b-L GET /sessions/waiting + GET /sessions waitingGuests", () => {
     await seatGuests(app, sB, 2, 3);
     await seatGuests(app, sC, 1, 4);
     await seatGuests(app, sSa, 1, 5);
-    for (const [k, u] of [["a", userA], ["b", userB], ["c", userC], ["admin", adminA], ["hist", histOnly], ["sa", sa]] as const) sess[k] = await loginAs(app, u);
+    for (const [k, u] of [
+      ["a", userA],
+      ["b", userB],
+      ["c", userC],
+      ["admin", adminA],
+      ["hist", histOnly],
+      ["sa", sa],
+    ] as const)
+      sess[k] = await loginAs(app, u);
   });
   afterAll(async () => {
     await app.close();
@@ -125,7 +151,14 @@ describe("P13b-L GET /sessions/waiting + GET /sessions waitingGuests", () => {
   it("AC-306/309: USER yalnız kendi oturumlarını sayar; id sıralı, count = Σ waiting; B ve C'nin misafiri yok", async () => {
     const a = await waiting("a");
     expect(a.count).toBe(4);
-    expect(a.sessions).toEqual([...[{ id: sA1, waiting: 1, arrivals: 1 }, { id: sA3, waiting: 3, arrivals: 3 }]].sort((x, y) => (x.id < y.id ? -1 : 1)));
+    expect(a.sessions).toEqual(
+      [
+        ...[
+          { id: sA1, waiting: 1, arrivals: 1 },
+          { id: sA3, waiting: 3, arrivals: 3 },
+        ],
+      ].sort((x, y) => (x.id < y.id ? -1 : 1)),
+    );
     expect(await waiting("b")).toEqual({ count: 2, sessions: [{ id: sB, waiting: 2, arrivals: 2 }] });
     expect(await waiting("c")).toEqual({ count: 1, sessions: [{ id: sC, waiting: 1, arrivals: 1 }] });
   });
@@ -156,7 +189,8 @@ describe("P13b-L GET /sessions/waiting + GET /sessions waitingGuests", () => {
 
   it("AC-310/309: Super Admin firma A'da kendi oturumu sayılır, firma B'ye geçince sayılmaz", async () => {
     const own = await loginAs(app, sa); // ayrı oturum: diğer testlerin firma seçmemiş "sa" oturumu bozulmaz
-    const sw = (tenantId: string) => app.inject({ method: "POST", url: "/api/v1/admin/switch-tenant", headers: own.headers, payload: { tenantId } });
+    const sw = (tenantId: string) =>
+      app.inject({ method: "POST", url: "/api/v1/admin/switch-tenant", headers: own.headers, payload: { tenantId } });
     expect((await sw(A)).statusCode).toBe(200);
     const inA = await app.inject({ method: "GET", url: URL_WAITING, headers: own.headers });
     expect(inA.json()).toEqual({ count: 1, sessions: [{ id: sSa, waiting: 1, arrivals: 1 }] });
@@ -238,7 +272,11 @@ describe("P13b-L performans (AC-314)", () => {
         await seatGuests(app, s.id, 3, ipBase++ % 250);
       }
       // Giriş IP sınırına (20/dk) takılmamak için oturumlar doğrudan açılır (login akışı başka testlerde).
-      const cookies = await Promise.all(users.map(async (u) => `${SESSION_COOKIE}=${(await openSession(testDb(), u.id, { ip: "127.0.0.1", userAgent: "perf" }, new Date())).token}`));
+      const cookies = await Promise.all(
+        users.map(
+          async (u) => `${SESSION_COOKIE}=${(await openSession(testDb(), u.id, { ip: "127.0.0.1", userAgent: "perf" }, new Date())).token}`,
+        ),
+      );
       for (const cookie of cookies) await app.inject({ method: "GET", url: URL_WAITING, headers: { cookie } }); // ısınma
       elapsed.length = 0;
       for (let i = 0; i < 1000; i++) {
@@ -251,7 +289,9 @@ describe("P13b-L performans (AC-314)", () => {
       const sorted = [...elapsed].sort((x, y) => x - y);
       const p95 = sorted[Math.ceil(sorted.length * 0.95) - 1] ?? Infinity;
       const p50 = sorted[Math.ceil(sorted.length * 0.5) - 1] ?? Infinity;
-      process.stdout.write(`[AC-314 perf] GET /sessions/waiting 1000 istek, 100 oda/300 misafir: p50=${p50.toFixed(2)} ms p95=${p95.toFixed(2)} ms\n`);
+      process.stdout.write(
+        `[AC-314 perf] GET /sessions/waiting 1000 istek, 100 oda/300 misafir: p50=${p50.toFixed(2)} ms p95=${p95.toFixed(2)} ms\n`,
+      );
       expect(p95).toBeLessThanOrEqual(100);
     } finally {
       await app.close();

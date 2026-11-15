@@ -28,7 +28,11 @@ const userSelect = {
 
 export type UserRow = Prisma.UserGetPayload<{ select: typeof userSelect }>;
 
-const scoped = (scope: TenantScope): Prisma.UserWhereInput => ({ tenantId: scope.tenantId, deletedAt: null, role: { in: ["ADMIN", "USER"] } });
+const scoped = (scope: TenantScope): Prisma.UserWhereInput => ({
+  tenantId: scope.tenantId,
+  deletedAt: null,
+  role: { in: ["ADMIN", "USER"] },
+});
 
 function listWhere(scope: TenantScope, q: ListUsersQuery): Prisma.UserWhereInput {
   return {
@@ -41,7 +45,8 @@ function listWhere(scope: TenantScope, q: ListUsersQuery): Prisma.UserWhereInput
 
 export async function listUsers(db: DbOrTx, scope: TenantScope, q: ListUsersQuery): Promise<{ rows: UserRow[]; total: number }> {
   const where = listWhere(scope, q);
-  const orderBy: Prisma.UserOrderByWithRelationInput[] = q.sort === "createdAt:desc" ? [{ createdAt: "desc" }, { id: "desc" }] : [{ fullName: "asc" }, { id: "asc" }];
+  const orderBy: Prisma.UserOrderByWithRelationInput[] =
+    q.sort === "createdAt:desc" ? [{ createdAt: "desc" }, { id: "desc" }] : [{ fullName: "asc" }, { id: "asc" }];
   const [rows, total] = await Promise.all([
     db.user.findMany({ where, select: userSelect, orderBy, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
     db.user.count({ where }),
@@ -69,7 +74,11 @@ export async function updateUser(tx: Prisma.TransactionClient, id: string, data:
 }
 
 /** Ezme satırlarını verilen kümeyle değiştirir (tanım dışı eski anahtarlar da temizlenir). */
-export async function replacePermissions(tx: Prisma.TransactionClient, userId: string, rows: readonly { permKey: string; granted: boolean }[]): Promise<void> {
+export async function replacePermissions(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  rows: readonly { permKey: string; granted: boolean }[],
+): Promise<void> {
   await tx.userPermission.deleteMany({ where: { userId } });
   if (rows.length > 0) await tx.userPermission.createMany({ data: rows.map((r) => ({ userId, permKey: r.permKey, granted: r.granted })) });
 }
@@ -83,7 +92,12 @@ export async function revokeUserSessions(tx: Prisma.TransactionClient, userId: s
  * Pasife alınan teknisyenin bekleyen KOD oturumları → CANCELLED(auth_revoked). Talep oturumları (request_id dolu)
  * hariç: onları admit kontrolü (teknisyen pasif → CANCELLED + CONNECT_FAILED) ve talep süpürücüsü kapatır.
  */
-export async function cancelPendingOfTechnician(tx: Prisma.TransactionClient, scope: TenantScope, technicianId: string, at: Date): Promise<number> {
+export async function cancelPendingOfTechnician(
+  tx: Prisma.TransactionClient,
+  scope: TenantScope,
+  technicianId: string,
+  at: Date,
+): Promise<number> {
   const r = await tx.supportSession.updateMany({
     where: { tenantId: scope.tenantId, technicianId, status: "PENDING", requestId: null },
     data: { status: "CANCELLED", activeCode: null, endedAt: at, endedBy: "SYSTEM", endReason: "auth_revoked" },

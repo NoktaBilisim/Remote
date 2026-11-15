@@ -32,7 +32,13 @@ export function fileExtOf(name: string): string | null {
 }
 
 /** Audit `newValue` (file.transfer, sender_report, rejected_by_db): yön, uzantı, boyut, sonuç. */
-const fileAuditValue = (sessionId: string, m: FileMeta, name: string) => ({ sessionId, direction: m.direction, ext: fileExtOf(name), sizeBytes: String(m.sizeBytes), result: m.result });
+const fileAuditValue = (sessionId: string, m: FileMeta, name: string) => ({
+  sessionId,
+  direction: m.direction,
+  ext: fileExtOf(name),
+  sizeBytes: String(m.sizeBytes),
+  result: m.result,
+});
 /** `quality.summary` DB yazımları arası en kısa süre (istemci 60 sn'de bir + oturum sonunda gönderir). */
 export const QUALITY_MIN_INTERVAL_MS = 5_000;
 /** DB CHECK `JSON_STORAGE_SIZE(quality_summary) ≤ 4096` ile aynı tavan (metin uzunluğu üstten sınırlar). */
@@ -75,7 +81,8 @@ function takeFileMetaSlot(rooms: Rooms, room: Room, side: Reporter["side"], cls:
 /** MySQL 3819 (CHECK ihlali) — Prisma 7 + mariadb adaptörü: meta.driverAdapterError.cause.code (db-notlari P5). */
 export function isCheckViolation(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
-  const cause = (err as { meta?: { driverAdapterError?: { cause?: { code?: unknown; originalCode?: unknown } } } }).meta?.driverAdapterError?.cause;
+  const cause = (err as { meta?: { driverAdapterError?: { cause?: { code?: unknown; originalCode?: unknown } } } }).meta?.driverAdapterError
+    ?.cause;
   return cause?.code === 3819 || cause?.originalCode === "3819";
 }
 
@@ -115,16 +122,41 @@ export async function handleFileMeta(rooms: Rooms, room: Room, from: Reporter, m
     if (from.side !== receiver) {
       // S-P5-3: gönderenin raporu session_files'a yazılmaz (tek kaynak alıcı), ama audit'te kalır — TO_TECH'te teknisyen
       // raporlamasa da müşteri tarafının izi olur.
-      await writeAudit(rooms.db, ctx, { tenantId: room.tenantId, ...actor, action: "file.transfer.sender_report", entity: "support_sessions", entityId: room.sessionId, result: outcome, newValue: value });
+      await writeAudit(rooms.db, ctx, {
+        tenantId: room.tenantId,
+        ...actor,
+        action: "file.transfer.sender_report",
+        entity: "support_sessions",
+        entityId: room.sessionId,
+        result: outcome,
+        newValue: value,
+      });
       rooms.metrics.inc("rs_file_meta_total", { result: "sender_reported" });
       return "sender_reported";
     }
     const id = newId();
     await rooms.db.$transaction(async (tx) => {
       await tx.sessionFile.create({
-        data: { id, sessionId: room.sessionId, tenantId: room.tenantId, direction: m.direction, fileName, sizeBytes: BigInt(m.sizeBytes), sha256: m.sha256, result: m.result },
+        data: {
+          id,
+          sessionId: room.sessionId,
+          tenantId: room.tenantId,
+          direction: m.direction,
+          fileName,
+          sizeBytes: BigInt(m.sizeBytes),
+          sha256: m.sha256,
+          result: m.result,
+        },
       });
-      await writeAudit(tx, ctx, { tenantId: room.tenantId, ...actor, action: "file.transfer", entity: "session_files", entityId: id, result: outcome, newValue: value });
+      await writeAudit(tx, ctx, {
+        tenantId: room.tenantId,
+        ...actor,
+        action: "file.transfer",
+        entity: "session_files",
+        entityId: id,
+        result: outcome,
+        newValue: value,
+      });
     });
   } catch (err) {
     if (isCheckViolation(err)) return rejectedByDb(rooms, room, from, ctx, actor, m);
@@ -141,30 +173,63 @@ type Actor = { userId?: string; username: string };
 
 /** S-P5-1: kota aşımı sessiz kalmaz — oda + taraf + sınıf başına dakikada en çok 1 audit satırı (S-P5-T2-2: bir tarafın
  * aşımı diğer tarafın aynı dakikadaki aşım kaydını bastıramaz). */
-async function auditRateLimited(rooms: Rooms, room: Room, ctx: AuditContext, actor: Actor, side: Reporter["side"], cls: FileMetaClass): Promise<void> {
+async function auditRateLimited(
+  rooms: Rooms,
+  room: Room,
+  ctx: AuditContext,
+  actor: Actor,
+  side: Reporter["side"],
+  cls: FileMetaClass,
+): Promise<void> {
   const now = rooms.clock.now();
   const key = `${side}:${cls}`;
   const last = room.fileMeta.auditAt.get(key);
   if (last !== undefined && now - last < FILE_META_RATE_AUDIT_MS) return;
   room.fileMeta.auditAt.set(key, now);
   try {
-    await writeAudit(rooms.db, ctx, { tenantId: room.tenantId, ...actor, action: "file.meta.rate_limited", entity: "support_sessions", entityId: room.sessionId, result: "fail", newValue: { sessionId: room.sessionId, side, class: cls } });
+    await writeAudit(rooms.db, ctx, {
+      tenantId: room.tenantId,
+      ...actor,
+      action: "file.meta.rate_limited",
+      entity: "support_sessions",
+      entityId: room.sessionId,
+      result: "fail",
+      newValue: { sessionId: room.sessionId, side, class: cls },
+    });
   } catch (err) {
-    rooms.log.error({ err, ref: newId(), event: "file_meta_rate_audit_failed", sessionId: room.sessionId }, "file.meta.rate_limited audit yazılamadı");
+    rooms.log.error(
+      { err, ref: newId(), event: "file_meta_rate_audit_failed", sessionId: room.sessionId },
+      "file.meta.rate_limited audit yazılamadı",
+    );
   }
 }
 
 /** S-P5-8: JS ve MySQL Unicode sürüm farkıyla CHECK (3819) reddi sessiz kalmaz: audit (ad yok, yalnız uzantı) + VALIDATION. */
-async function rejectedByDb(rooms: Rooms, room: Room, from: Reporter, ctx: AuditContext, actor: Actor, m: FileMeta): Promise<FileMetaResult> {
+async function rejectedByDb(
+  rooms: Rooms,
+  room: Room,
+  from: Reporter,
+  ctx: AuditContext,
+  actor: Actor,
+  m: FileMeta,
+): Promise<FileMetaResult> {
   rooms.metrics.inc("rs_file_meta_total", { result: "rejected_by_db" });
   rooms.log.warn({ event: "file_meta_rejected_by_db", sessionId: room.sessionId }, "file.meta DB CHECK reddi");
   try {
     await writeAudit(rooms.db, ctx, {
-      tenantId: room.tenantId, ...actor, action: "file.meta.rejected_by_db", entity: "support_sessions", entityId: room.sessionId, result: "fail",
+      tenantId: room.tenantId,
+      ...actor,
+      action: "file.meta.rejected_by_db",
+      entity: "support_sessions",
+      entityId: room.sessionId,
+      result: "fail",
       newValue: fileAuditValue(room.sessionId, m, sanitizeFileName(m.fileName)),
     });
   } catch (err) {
-    rooms.log.error({ err, ref: newId(), event: "file_meta_rejected_audit_failed", sessionId: room.sessionId }, "file.meta.rejected_by_db audit yazılamadı");
+    rooms.log.error(
+      { err, ref: newId(), event: "file_meta_rejected_audit_failed", sessionId: room.sessionId },
+      "file.meta.rejected_by_db audit yazılamadı",
+    );
   }
   from.peer.send({ t: "error", code: "VALIDATION", message: "Dosya adı kaydedilemedi." });
   return "rejected_by_db";
@@ -180,7 +245,10 @@ export async function handleQualitySummary(rooms: Rooms, room: Room, q: QualityS
   if (JSON.stringify(summary).length > QUALITY_MAX_BYTES) return "too_large";
   room.qualityAt = now;
   try {
-    const r = await rooms.db.supportSession.updateMany({ where: { id: room.sessionId, tenantId: room.tenantId, consumedAt: { not: null } }, data: { qualitySummary: summary } });
+    const r = await rooms.db.supportSession.updateMany({
+      where: { id: room.sessionId, tenantId: room.tenantId, consumedAt: { not: null } },
+      data: { qualitySummary: summary },
+    });
     return r.count === 1 ? "written" : "not_active";
   } catch (err) {
     const ref = newId();

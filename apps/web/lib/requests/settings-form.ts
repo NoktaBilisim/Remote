@@ -3,7 +3,14 @@
  * İstemci doğrulaması sunucuyla aynı kural (sunucu son söz; 400 `fields` aynı anahtarlarla forma yansır):
  * waitMinutes 10..120 tam sayı; WhatsApp alıcıları ≤ 5, E.164, tekil, açıkken ≥ 1; güvenilen CIDR ≤ 10, tekil.
  */
-import { MAX_RECIPIENTS, MAX_TRUSTED_CIDRS, WAIT_MAX, WAIT_MIN, type SupportRequestSettings, type SupportRequestSettingsInput } from "./contract";
+import {
+  MAX_RECIPIENTS,
+  MAX_TRUSTED_CIDRS,
+  WAIT_MAX,
+  WAIT_MIN,
+  type SupportRequestSettings,
+  type SupportRequestSettingsInput,
+} from "./contract";
 import { checkCidr, normalizePhone } from "./validate";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -20,7 +27,18 @@ export interface SettingsState {
 
 /** Hata anahtarları sunucu `fields` yolu biçiminde: "waitMinutes", "whatsapp.recipients.1", "trustedCidrs.0" … */
 /** Hata değeri: i18n anahtarı (`st.err.*`) ya da sözleşmenin hazır Türkçe mesajı (`msg:` önekli). */
-export type SettingsErrorKey = "wait" | "phone" | "phoneDup" | "recipientsRequired" | "recipientsMax" | "cidrDup" | "cidrMax" | "email" | "emailDup" | "smtpRequired" | `msg:${string}`;
+export type SettingsErrorKey =
+  | "wait"
+  | "phone"
+  | "phoneDup"
+  | "recipientsRequired"
+  | "recipientsMax"
+  | "cidrDup"
+  | "cidrMax"
+  | "email"
+  | "emailDup"
+  | "smtpRequired"
+  | `msg:${string}`;
 
 export const toState = (s: SupportRequestSettings): SettingsState => ({
   waitMinutes: String(s.waitMinutes),

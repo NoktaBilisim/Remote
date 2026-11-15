@@ -52,7 +52,12 @@ const ROW_SELECT = {
 export type AuditRow = Prisma.AuditLogGetPayload<{ select: typeof ROW_SELECT }>;
 
 export function listAudit(db: Db, scope: AuditScope, f: AuditFilter, after: AuditCursor | null, take: number): Promise<AuditRow[]> {
-  return db.auditLog.findMany({ where: auditWhere(scope, f, after), orderBy: [{ createdAt: "desc" }, { id: "desc" }], take, select: ROW_SELECT });
+  return db.auditLog.findMany({
+    where: auditWhere(scope, f, after),
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take,
+    select: ROW_SELECT,
+  });
 }
 
 /** `limit + 1`'e kadar sayar (tüm aralığı taramaz). */
@@ -68,6 +73,9 @@ export interface AuditUserInfo {
 
 export async function userNames(db: Db, ids: readonly string[]): Promise<Map<string, AuditUserInfo>> {
   if (ids.length === 0) return new Map();
-  const users = await db.user.findMany({ where: { id: { in: [...new Set(ids)] } }, select: { id: true, fullName: true, avatarPath: true } });
+  const users = await db.user.findMany({
+    where: { id: { in: [...new Set(ids)] } },
+    select: { id: true, fullName: true, avatarPath: true },
+  });
   return new Map(users.map((u) => [u.id, { fullName: u.fullName, avatarPath: u.avatarPath }]));
 }

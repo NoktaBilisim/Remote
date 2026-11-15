@@ -49,7 +49,15 @@ describe("S8b-1 WhatsApp istemcisi yönlendirme izlemez", () => {
     const t = await createTenant();
     const clock = new FakeClock();
     const log = { info: () => undefined, warn: () => undefined, error: () => undefined };
-    const n = new WhatsappNotifier({ url: redirector.url, production: false, publicBaseUrl: ORIGIN, db: testDb(), log, metrics: createMetrics(), clock });
+    const n = new WhatsappNotifier({
+      url: redirector.url,
+      production: false,
+      publicBaseUrl: ORIGIN,
+      db: testDb(),
+      log,
+      metrics: createMetrics(),
+      clock,
+    });
     expect(await n.test("+905321112233")).toMatchObject({ ok: false });
     n.notifyNewRequest(t.id, "Firma", ["+905321112234"], "123456");
     await expect.poll(() => redirector.paths.filter((p) => p === "/send-message").length).toBe(1);
@@ -89,13 +97,20 @@ describe("S8b-3 / QA-P8b-11 talep audit'leri", () => {
     expect(a.userAgent).toBeNull();
   });
 
-  it("AC-160 / QA-P8b-11: guest.admitted{via:\"request\"} yalnız requestId/acceptedBy + onay özeti taşır; müşteri adı yok", async () => {
+  it('AC-160 / QA-P8b-11: guest.admitted{via:"request"} yalnız requestId/acceptedBy + onay özeti taşır; müşteri adı yok', async () => {
     const { rc, c, tech, wsTicket, sessionId } = await acceptedTicket();
     const g = await rc.guestWs(wsTicket);
     await waitMsg(g, "hello");
     const a = await testDb().auditLog.findFirstOrThrow({ where: { entityId: sessionId, action: "guest.admitted" } });
     expect(a.newValue).toMatchObject({ via: "request", requestId: c.requestId, acceptedBy: tech.id });
-    expect(Object.keys(a.newValue as object).sort()).toEqual(["acceptedBy", "consentSha256", "consentTextId", "guestKind", "requestId", "via"]);
+    expect(Object.keys(a.newValue as object).sort()).toEqual([
+      "acceptedBy",
+      "consentSha256",
+      "consentTextId",
+      "guestKind",
+      "requestId",
+      "via",
+    ]);
     expect(JSON.stringify(a.newValue)).not.toContain("Ayşe");
   });
 });
@@ -165,7 +180,9 @@ describe("AC-143 bekleyen sınır aşımı audit'i (düzeltme turu 1)", () => {
     const t = await createTenant();
     const ref = await createRequestSettings(t.id);
     const rateAudits = async () =>
-      (await testDb().auditLog.findMany({ where: { tenantId: t.id, action: "request.rate_limited" }, orderBy: { id: "asc" } })).map((a) => a.newValue);
+      (await testDb().auditLog.findMany({ where: { tenantId: t.id, action: "request.rate_limited" }, orderBy: { id: "asc" } })).map(
+        (a) => a.newValue,
+      );
 
     for (let i = 0; i < 3; i++) expect((await rc.createReq(ref, "198.51.131.7")).statusCode).toBe(201);
     expect((await rc.createReq(ref, "198.51.131.7")).statusCode).toBe(429);

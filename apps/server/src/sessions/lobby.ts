@@ -18,7 +18,11 @@ type ListBase = Omit<SessionListItem, "waitingGuests">;
  * Liste yanıtına `waitingGuests` (AC-305): PENDING satırda lobiden, diğerlerinde 0. S13L-1: `sessions.view` yoksa (yalnız
  * `session_history.view`) her satır 0 — lobi sayısı geçmiş yetkisiyle okunamaz (AC-314).
  */
-export function withWaitingGuests<T extends { items: ListBase[] }>(res: T, rooms: LobbyRooms, auth: AuthContext): Omit<T, "items"> & { items: SessionListItem[] } {
+export function withWaitingGuests<T extends { items: ListBase[] }>(
+  res: T,
+  rooms: LobbyRooms,
+  auth: AuthContext,
+): Omit<T, "items"> & { items: SessionListItem[] } {
   const canSee = auth.permissions.has("sessions.view");
   return { ...res, items: res.items.map((i) => ({ ...i, waitingGuests: canSee && i.status === "PENDING" ? waitingIn(rooms, i.id) : 0 })) };
 }

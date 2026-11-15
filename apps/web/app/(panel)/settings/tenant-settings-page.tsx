@@ -38,10 +38,18 @@ export async function TenantSettingsPage<T = TenantSettingsView>({
   );
   const forbidden = (
     <div className="mt-6 max-w-xl">
-      <Alert tone="warning" testId="settings-forbidden">{t("srs.forbidden")}</Alert>
+      <Alert tone="warning" testId="settings-forbidden">
+        {t("srs.forbidden")}
+      </Alert>
     </div>
   );
-  if (!perms.includes("settings.view") && !perms.includes("settings.edit")) return <>{header}{forbidden}</>;
+  if (!perms.includes("settings.view") && !perms.includes("settings.edit"))
+    return (
+      <>
+        {header}
+        {forbidden}
+      </>
+    );
   if (me.me.user.role === "SUPER_ADMIN" && !me.me.actingTenant) {
     return (
       <>
@@ -58,7 +66,13 @@ export async function TenantSettingsPage<T = TenantSettingsView>({
     return (
       <>
         {header}
-        {res.status === 403 ? forbidden : <div className="mt-6 max-w-xl"><LoadError /></div>}
+        {res.status === 403 ? (
+          forbidden
+        ) : (
+          <div className="mt-6 max-w-xl">
+            <LoadError />
+          </div>
+        )}
       </>
     );
   }

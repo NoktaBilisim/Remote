@@ -23,14 +23,27 @@ const GONE: Partial<Record<string, ErrorCode>> = {
 };
 
 /** Resolve başarılıysa çağrılır: 60 sn'lik, istemci türüne bağlı nonce (ADR-0012). */
-export function issueJoinNonce(rooms: Rooms, sessionId: string, kind: GuestKind, clientVersion?: string): { joinNonce: string; nonceExpiresAt: string } {
+export function issueJoinNonce(
+  rooms: Rooms,
+  sessionId: string,
+  kind: GuestKind,
+  clientVersion?: string,
+): { joinNonce: string; nonceExpiresAt: string } {
   const { token, expiresAt } = rooms.nonces.issue({ sessionId, kind, ...(clientVersion ? { clientVersion } : {}) });
   return { joinNonce: token, nonceExpiresAt: new Date(expiresAt).toISOString() };
 }
 
 /** AC-7: join'de 410 → audit `session.join` result=fail (yalnız neden kodu; token/kod/ad yok). Nonce tek kullanımlık ve IP limitli olduğundan tekilleştirme gerekmez. */
 async function goneAudit(db: Db, ctx: AuditContext, row: { id: string; tenantId: string }, code: ErrorCode): Promise<AppError> {
-  await writeAudit(db, ctx, { tenantId: row.tenantId, username: "customer", action: "session.join", entity: "support_sessions", entityId: row.id, result: "fail", newValue: { reason: code } });
+  await writeAudit(db, ctx, {
+    tenantId: row.tenantId,
+    username: "customer",
+    action: "session.join",
+    entity: "support_sessions",
+    entityId: row.id,
+    result: "fail",
+    newValue: { reason: code },
+  });
   return new AppError(code);
 }
 
@@ -61,7 +74,15 @@ export async function joinPublicSession(
 
   let g: ReturnType<Rooms["addGuest"]>;
   try {
-    g = rooms.addGuest(row, { name: input.customerName, ...(input.customerEmail ? { email: input.customerEmail } : {}), kind: nonce.kind, ipKey: ip, netKey: netKey(ctx.ip), ...(nonce.clientVersion ? { clientVersion: nonce.clientVersion } : {}), consent });
+    g = rooms.addGuest(row, {
+      name: input.customerName,
+      ...(input.customerEmail ? { email: input.customerEmail } : {}),
+      kind: nonce.kind,
+      ipKey: ip,
+      netKey: netKey(ctx.ip),
+      ...(nonce.clientVersion ? { clientVersion: nonce.clientVersion } : {}),
+      consent,
+    });
   } catch (err) {
     if (err instanceof AppError && err.code === "SESSION_CONSUMED") throw await goneAudit(db, ctx, row, err.code);
     throw err;

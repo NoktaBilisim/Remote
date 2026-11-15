@@ -68,17 +68,33 @@ function Pager({ page, total, onPage }: { page: number; total: number; onPage: (
   );
 }
 
-function TabBody<T>({ state, retry, empty, render }: { state: State<T>; retry: () => void; empty: React.ReactNode; render: (d: Page<T>) => React.ReactNode }) {
+function TabBody<T>({
+  state,
+  retry,
+  empty,
+  render,
+}: {
+  state: State<T>;
+  retry: () => void;
+  empty: React.ReactNode;
+  render: (d: Page<T>) => React.ReactNode;
+}) {
   if (state.kind === "loading")
     return (
       <div aria-busy="true" data-testid="customer-tab-loading">
-        <span className="sr-only" role="status">{t("panel.loading")}</span>
-        {[0, 1, 2].map((i) => <Skeleton key={i} className="mb-2 h-14 w-full" />)}
+        <span className="sr-only" role="status">
+          {t("panel.loading")}
+        </span>
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="mb-2 h-14 w-full" />
+        ))}
       </div>
     );
   if (state.kind === "error")
     return state.forbidden ? (
-      <Alert tone="locked" testId="customer-tab-forbidden">{t("cu.tab.forbidden")}</Alert>
+      <Alert tone="locked" testId="customer-tab-forbidden">
+        {t("cu.tab.forbidden")}
+      </Alert>
     ) : (
       <div className="flex flex-col gap-3" data-testid="customer-tab-error">
         <Alert tone="danger">{t("cu.tab.error")}</Alert>
@@ -103,10 +119,16 @@ function RequestsTab({ customerId }: { customerId: string }) {
         <>
           <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface" data-testid="customer-requests">
             {d.items.map((r) => (
-              <li key={r.id} className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:items-center sm:gap-4" data-testid="customer-request-row">
+              <li
+                key={r.id}
+                className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:items-center sm:gap-4"
+                data-testid="customer-request-row"
+              >
                 <RequestStatusBadge status={r.status} />
                 <span className="text-sm tabular-nums text-fg">{formatDateTime(r.createdAt)}</span>
-                <span className="min-w-0 flex-1 truncate text-sm text-fg">{r.customerName ?? <span className="text-fg-muted italic">{t("cu.anonymized")}</span>}</span>
+                <span className="min-w-0 flex-1 truncate text-sm text-fg">
+                  {r.customerName ?? <span className="text-fg-muted italic">{t("cu.anonymized")}</span>}
+                </span>
                 <span className="text-sm tabular-nums text-fg-muted">{t("rq.waited", { d: formatDuration(r.waitSec) })}</span>
               </li>
             ))}
@@ -125,15 +147,27 @@ function SessionsTab({ customerId }: { customerId: string }) {
     <TabBody
       state={state}
       retry={retry}
-      empty={<EmptyState Icon={MonitorSmartphone} title={t("cu.tab.sesEmpty")} body={t("cu.tab.sesEmptyBody")} testId="customer-sessions-empty" />}
+      empty={
+        <EmptyState
+          Icon={MonitorSmartphone}
+          title={t("cu.tab.sesEmpty")}
+          body={t("cu.tab.sesEmptyBody")}
+          testId="customer-sessions-empty"
+        />
+      }
       render={(d) => (
         <>
           <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface" data-testid="customer-sessions">
             {d.items.map((s) => (
               <li key={s.id} data-testid="customer-session-row">
-                <Link href={`/history/${s.id}`} className="flex min-h-11 flex-col gap-1 px-3 py-2 hover:bg-surface-muted sm:flex-row sm:items-center sm:gap-4">
+                <Link
+                  href={`/history/${s.id}`}
+                  className="flex min-h-11 flex-col gap-1 px-3 py-2 hover:bg-surface-muted sm:flex-row sm:items-center sm:gap-4"
+                >
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-primary">{s.technician.name}</span>
-                  <span className="text-sm tabular-nums text-fg">{s.startedAt ? formatDateTime(s.startedAt) : formatDateTime(s.createdAt)}</span>
+                  <span className="text-sm tabular-nums text-fg">
+                    {s.startedAt ? formatDateTime(s.startedAt) : formatDateTime(s.createdAt)}
+                  </span>
                   <span className="text-sm tabular-nums text-fg">{s.durationSec !== null ? formatDuration(s.durationSec) : "—"}</span>
                   <span className="text-sm text-fg-muted">{labelOf(SESSION_SOURCE_LABELS, s.source)}</span>
                   <ChevronRight aria-hidden className="hidden size-4 text-fg-muted sm:block" />
@@ -157,7 +191,9 @@ export function CustomerTabs({ customerId, canRequests, canSessions }: { custome
   const allowed = tab === "requests" ? canRequests : canSessions;
   return (
     <section aria-labelledby="musteri-sekmeler" className="mt-8 border-t border-border pt-6">
-      <h2 id="musteri-sekmeler" className="sr-only">{t("cu.tabs")}</h2>
+      <h2 id="musteri-sekmeler" className="sr-only">
+        {t("cu.tabs")}
+      </h2>
       <Segmented<Tab>
         label={t("cu.tabs")}
         value={tab}

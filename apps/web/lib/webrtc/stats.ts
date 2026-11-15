@@ -115,7 +115,13 @@ export class QualityAgg {
   }
   summary(): QualitySummaryMsg | null {
     if (this.empty) return null;
-    return { t: "quality.summary", fps: QualityAgg.agg(this.v.fps), kbps: QualityAgg.agg(this.v.kbps), rttMs: QualityAgg.agg(this.v.rttMs), connType: this.conn ?? "host" };
+    return {
+      t: "quality.summary",
+      fps: QualityAgg.agg(this.v.fps),
+      kbps: QualityAgg.agg(this.v.kbps),
+      rttMs: QualityAgg.agg(this.v.rttMs),
+      connType: this.conn ?? "host",
+    };
   }
 }
 

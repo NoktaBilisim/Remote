@@ -215,7 +215,14 @@ export function Combobox({
                   </li>
                 ))}
             </ul>
-            <p role="status" className={status === "idle" || (status === "ready" && items.length > 0) ? "sr-only" : "flex min-h-11 items-center gap-2 px-3 text-sm text-fg-muted"}>
+            <p
+              role="status"
+              className={
+                status === "idle" || (status === "ready" && items.length > 0)
+                  ? "sr-only"
+                  : "flex min-h-11 items-center gap-2 px-3 text-sm text-fg-muted"
+              }
+            >
               {status === "loading" && (
                 <>
                   <LoaderCircle aria-hidden className="size-4 animate-spin" />

@@ -56,9 +56,13 @@ const toDraft = (f: HistoryFilters): Draft => ({
 
 /** /history filtre formu: durum URL'de (AC-60); Enter/Filtrele ile uygulanır, sayfa 1'e döner. */
 export function HistoryFiltersForm({ filters, technicians, tenants, customerFirmName }: Props) {
-  const [firmMode, setFirmMode] = useState<"" | "none" | "customer">(filters.customerFirm === "none" ? "none" : filters.customerFirm ? "customer" : "");
+  const [firmMode, setFirmMode] = useState<"" | "none" | "customer">(
+    filters.customerFirm === "none" ? "none" : filters.customerFirm ? "customer" : "",
+  );
   const [firm, setFirm] = useState<ComboOption | null>(
-    filters.customerFirm && filters.customerFirm !== "none" ? { id: filters.customerFirm, label: customerFirmName ?? t("rq.cf.selected") } : null,
+    filters.customerFirm && filters.customerFirm !== "none"
+      ? { id: filters.customerFirm, label: customerFirmName ?? t("rq.cf.selected") }
+      : null,
   );
   const router = useRouter();
   const [draft, setDraft] = useState<Draft>(() => toDraft(filters));
@@ -101,8 +105,26 @@ export function HistoryFiltersForm({ filters, technicians, tenants, customerFirm
       data-testid="history-filters"
       className="grid grid-cols-1 gap-4 rounded-lg border border-border bg-surface p-4 sm:grid-cols-2 lg:grid-cols-4"
     >
-      <TextField label={t("h.f.from")} type="date" name="from" value={draft.from} max={today} onChange={set("from")} error={errors.from} hint={t("h.f.dateHint")} />
-      <TextField label={t("h.f.to")} type="date" name="to" value={draft.to} max={today} onChange={set("to")} error={errors.to} hint={t("h.f.dateHint")} />
+      <TextField
+        label={t("h.f.from")}
+        type="date"
+        name="from"
+        value={draft.from}
+        max={today}
+        onChange={set("from")}
+        error={errors.from}
+        hint={t("h.f.dateHint")}
+      />
+      <TextField
+        label={t("h.f.to")}
+        type="date"
+        name="to"
+        value={draft.to}
+        max={today}
+        onChange={set("to")}
+        error={errors.to}
+        hint={t("h.f.dateHint")}
+      />
       <SelectField
         label={t("h.f.status")}
         name="status"
@@ -125,10 +147,24 @@ export function HistoryFiltersForm({ filters, technicians, tenants, customerFirm
         options={[all, ...Object.entries(SESSION_SOURCE_LABELS).map(([value, label]) => ({ value, label }))]}
       />
       {technicians && (
-        <SelectField label={t("h.f.tech")} name="technicianId" value={draft.technicianId} onChange={set("technicianId")} options={[all, ...technicians]} hint={t("h.f.optionsHint")} />
+        <SelectField
+          label={t("h.f.tech")}
+          name="technicianId"
+          value={draft.technicianId}
+          onChange={set("technicianId")}
+          options={[all, ...technicians]}
+          hint={t("h.f.optionsHint")}
+        />
       )}
       {tenants && (
-        <SelectField label={t("h.f.tenant")} name="tenantId" value={draft.tenantId} onChange={set("tenantId")} options={[all, ...tenants]} hint={t("h.f.optionsHint")} />
+        <SelectField
+          label={t("h.f.tenant")}
+          name="tenantId"
+          value={draft.tenantId}
+          onChange={set("tenantId")}
+          options={[all, ...tenants]}
+          hint={t("h.f.optionsHint")}
+        />
       )}
       <TextField
         label={t("h.f.customer")}

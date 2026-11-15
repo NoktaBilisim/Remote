@@ -20,7 +20,11 @@ describe("P9 sözleşme", () => {
   it("AC-73: rol varsayılanı ve yönetilebilir roller", () => {
     expect([roleDefaultGranted("ADMIN"), roleDefaultGranted("USER")]).toEqual([true, false]);
     expect(createUserInputSchema.safeParse({ email: "A@B.CO", fullName: "Ad Soyad", role: "SUPER_ADMIN" }).success).toBe(false);
-    expect(createUserInputSchema.parse({ email: " A@B.CO ", fullName: " Ad Soyad ", role: "USER" })).toEqual({ email: "a@b.co", fullName: "Ad Soyad", role: "USER" });
+    expect(createUserInputSchema.parse({ email: " A@B.CO ", fullName: " Ad Soyad ", role: "USER" })).toEqual({
+      email: "a@b.co",
+      fullName: "Ad Soyad",
+      role: "USER",
+    });
   });
 
   it("AC-70: kısa ad biçimi ve geçiş girdisi", () => {

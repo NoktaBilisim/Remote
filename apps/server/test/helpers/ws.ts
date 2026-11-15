@@ -79,7 +79,15 @@ export async function roomFixture(rooms: Rooms, perms: PermissionKey[] = ["sessi
   const row = await repo.findForSignal(testDb(), s.id);
   if (!row) throw new Error("oturum yok");
   const techPeer = fakePeer();
-  const tech: TechConn = { peer: techPeer, userId: user.id, username: user.email, authToken: "x", permissions: new Set(perms), role: "USER", ctx: { ip: "10.0.0.1", userAgent: "test", requestId: "r" } };
+  const tech: TechConn = {
+    peer: techPeer,
+    userId: user.id,
+    username: user.email,
+    authToken: "x",
+    permissions: new Set(perms),
+    role: "USER",
+    ctx: { ip: "10.0.0.1", userAgent: "test", requestId: "r" },
+  };
   const room = rooms.attachTech(row, tech);
   const consent = await acceptConsent(testDb(), tenant.id, await currentConsentId(tenant.id), { ip: "203.0.113.7", userAgent: "test-ua" });
   /** join + ticket ile WS → LOBBY. */
@@ -104,7 +112,12 @@ export interface WsClient {
 }
 
 /** Açılırsa istemci; upgrade reddedilirse HTTP durum koduyla reject. */
-export function connect(url: string, protocols: string[], headers: Record<string, string> = {}, opts: ClientOptions = {}): Promise<WsClient> {
+export function connect(
+  url: string,
+  protocols: string[],
+  headers: Record<string, string> = {},
+  opts: ClientOptions = {},
+): Promise<WsClient> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, protocols, { ...opts, headers });
     const msgs: ServerOutbound[] = [];
@@ -113,7 +126,9 @@ export function connect(url: string, protocols: string[], headers: Record<string
       msgs.push(JSON.parse(d.toString()) as ServerOutbound);
       waiters.splice(0).forEach((w) => w());
     });
-    const closed = new Promise<{ code: number; reason: string }>((r) => ws.on("close", (code, reason) => r({ code, reason: reason.toString() })));
+    const closed = new Promise<{ code: number; reason: string }>((r) =>
+      ws.on("close", (code, reason) => r({ code, reason: reason.toString() })),
+    );
     ws.on("unexpected-response", (_req, res) => reject(new Error(`HTTP ${res.statusCode}`)));
     ws.on("error", (e) => reject(e));
     ws.on("open", () =>
@@ -122,7 +137,8 @@ export function connect(url: string, protocols: string[], headers: Record<string
         msgs,
         closed,
         send: (o) => ws.send(JSON.stringify(o)),
-        waitFor: (t, ms = 10_000) => // QA-P8b-1: yük altında 3 sn tavanı yetmiyor; mesaj gelince hemen döner
+        waitFor: (t, ms = 10_000) =>
+          // QA-P8b-1: yük altında 3 sn tavanı yetmiyor; mesaj gelince hemen döner
           new Promise((res, rej) => {
             const timer = setTimeout(() => rej(new Error(`beklenen mesaj gelmedi: ${t}`)), ms);
             const check = () => {

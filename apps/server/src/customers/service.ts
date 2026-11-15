@@ -18,7 +18,14 @@ import type {
   ListCustomersQuery,
   UpdateCustomerData,
 } from "@remote/contracts/api/customers";
-import { CUSTOMER_NAME_CONFLICT_MESSAGE, CUSTOMER_OPTIONS_MAX, customerKeys, digitsOf, foldKey, suggestFileLabel } from "@remote/contracts/api/customers";
+import {
+  CUSTOMER_NAME_CONFLICT_MESSAGE,
+  CUSTOMER_OPTIONS_MAX,
+  customerKeys,
+  digitsOf,
+  foldKey,
+  suggestFileLabel,
+} from "@remote/contracts/api/customers";
 import type { SupportRequestListResponse } from "@remote/contracts/api/requests";
 import type { SessionListResponse } from "@remote/contracts/api/sessions";
 import { CUSTOMER_AUDIT } from "@remote/contracts/audit";
@@ -196,7 +203,12 @@ async function assertExists(svc: RequestService, tenantId: string, id: string): 
 }
 
 /** GET /customers/:id/requests (AC-178): tüm durumlar, yeniden eskiye. */
-export async function customerRequests(svc: RequestService, tenantId: string, id: string, q: CustomerTabQuery): Promise<SupportRequestListResponse> {
+export async function customerRequests(
+  svc: RequestService,
+  tenantId: string,
+  id: string,
+  q: CustomerTabQuery,
+): Promise<SupportRequestListResponse> {
   await assertExists(svc, tenantId, id);
   const { rows, total } = await rrepo.listByCustomer(svc.d.db, tenantId, id, {
     skip: (q.page - 1) * q.pageSize,
@@ -213,18 +225,37 @@ export async function customerRequests(svc: RequestService, tenantId: string, id
 }
 
 /** GET /customers/:id/sessions (AC-178, K23): oturum geçmişi kapsamı (USER yalnız kendi oturumları). */
-export async function customerSessions(svc: RequestService, auth: AuthContext, tenantId: string, id: string, q: CustomerTabQuery): Promise<SessionListResponse> {
+export async function customerSessions(
+  svc: RequestService,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  q: CustomerTabQuery,
+): Promise<SessionListResponse> {
   await assertExists(svc, tenantId, id);
   const scope = historyScope(auth); // tenantScope önce zorlandı → kind "tenant"
-  const { rows, total } = await hrepo.listHistory(svc.d.db, scope, { customerFirm: id }, "createdAt:desc", { skip: (q.page - 1) * q.pageSize, take: q.pageSize });
+  const { rows, total } = await hrepo.listHistory(svc.d.db, scope, { customerFirm: id }, "createdAt:desc", {
+    skip: (q.page - 1) * q.pageSize,
+    take: q.pageSize,
+  });
   // P13b-L: SessionListItem.waitingGuests (S13L-1: sessions.view yoksa 0).
-  return withWaitingGuests({ items: rows.map((r) => toListItem(r, scope, auth.user.id)), page: q.page, pageSize: q.pageSize, total }, svc.d.rooms, auth);
+  return withWaitingGuests(
+    { items: rows.map((r) => toListItem(r, scope, auth.user.id)), page: q.page, pageSize: q.pageSize, total },
+    svc.d.rooms,
+    auth,
+  );
 }
 
 // ------------------------------------------------------------------ yazma
 
 /** POST /customers (AC-167, 168): ayar tembel → TX [customers INSERT → request_refs INSERT → audit]. */
-export async function createCustomer(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string, input: CreateCustomerData): Promise<CustomerDetail> {
+export async function createCustomer(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  input: CreateCustomerData,
+): Promise<CustomerDetail> {
   await writeLimit(svc, ctx, auth, tenantId);
   await ensureSettings(svc, tenantId);
   const id = newId();
@@ -279,7 +310,14 @@ const FIELDS = ["name", "fileLabel", "contactName", "phone", "email", "note"] as
 const PII = ["contactName", "phone", "email", "note"] as const;
 
 /** PATCH /customers/:id (AC-167, 195): yalnız değişen alanlar; boşaltma; pasifte de serbest; audit maskeli (K19). */
-export async function updateCustomer(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string, input: UpdateCustomerData): Promise<CustomerDetail> {
+export async function updateCustomer(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  input: UpdateCustomerData,
+): Promise<CustomerDetail> {
   await writeLimit(svc, ctx, auth, tenantId);
   try {
     await svc.d.db.$transaction(async (tx) => {
@@ -305,7 +343,8 @@ export async function updateCustomer(svc: RequestService, ctx: AuditContext, aut
         ...customerKeys(next.name, next.contactName, next.phone),
         ...(writesPii ? { anonymizedAt: null } : {}), // CHECK customers_anonymized_chk
       });
-      const pick = (src: CustomerAuditFields): CustomerAuditFields => Object.fromEntries(changed.map((f) => [f, src[f]])) as CustomerAuditFields;
+      const pick = (src: CustomerAuditFields): CustomerAuditFields =>
+        Object.fromEntries(changed.map((f) => [f, src[f]])) as CustomerAuditFields;
       await writeAudit(tx, ctx, {
         ...who(auth, tenantId),
         action: CUSTOMER_AUDIT.UPDATED,
@@ -324,7 +363,13 @@ export async function updateCustomer(svc: RequestService, ctx: AuditContext, aut
 }
 
 /** POST /customers/:id/rotate-ref (AC-170): yeni ref; bu müşterinin kayıtları CUSTOMER_ROTATED; bekleyen talepler etkilenmez. */
-export async function rotateCustomerRef(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string): Promise<CustomerDetail> {
+export async function rotateCustomerRef(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+): Promise<CustomerDetail> {
   await writeLimit(svc, ctx, auth, tenantId);
   const revoked = await withTxRetry(() =>
     svc.d.db.$transaction(async (tx) => {
@@ -367,7 +412,13 @@ export async function rotateCustomerRef(svc: RequestService, ctx: AuditContext, 
  * POST /customers/:id/deactivate (AC-171): TX [ACTIVE→PASSIVE koşullu → kayıtlar CUSTOMER_PASSIVE → audit]; commit sonrası
  * bekleyen talepler CANCELLED(CUSTOMER_PASSIVE) (süpürücü yedek ≤ 60 sn).
  */
-export async function deactivateCustomer(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string): Promise<CustomerDetail> {
+export async function deactivateCustomer(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+): Promise<CustomerDetail> {
   await writeLimit(svc, ctx, auth, tenantId);
   const { revoked, cancelled } = await withTxRetry(() =>
     svc.d.db.$transaction(async (tx) => {
@@ -422,7 +473,13 @@ export async function deactivateCustomer(svc: RequestService, ctx: AuditContext,
 }
 
 /** POST /customers/:id/reactivate (AC-171): YENİ ref; eski dosyalar ve kayıtlar geçersiz kalır. */
-export async function reactivateCustomer(svc: RequestService, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string): Promise<CustomerDetail> {
+export async function reactivateCustomer(
+  svc: RequestService,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+): Promise<CustomerDetail> {
   await writeLimit(svc, ctx, auth, tenantId);
   await withTxRetry(() =>
     svc.d.db.$transaction(async (tx) => {
@@ -478,7 +535,11 @@ export async function anonymizeCustomers(svc: RequestService, now = new Date(svc
 }
 
 /** P13a: tek tenant için müşteri anonimleştirme (saklama işinin tenant döngüsü). */
-export async function anonymizeCustomersOf(svc: RequestService, t: { tenantId: string; retentionDays: number }, now: Date): Promise<number> {
+export async function anonymizeCustomersOf(
+  svc: RequestService,
+  t: { tenantId: string; retentionDays: number },
+  now: Date,
+): Promise<number> {
   let total = 0;
   const cutoff = new Date(now.getTime() - t.retentionDays * DAY_MS);
   for (const c of await repo.anonymizeCandidates(svc.d.db, t.tenantId, cutoff, 1000)) {

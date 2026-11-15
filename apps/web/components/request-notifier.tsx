@@ -63,7 +63,11 @@ const setCount = (n: number) => {
 const setConnected = (c: boolean) => patch({ connected: c });
 
 export function useRequestNotifier() {
-  const s = useSyncExternalStore(subscribeSnap, () => snap, () => SERVER_SNAPSHOT);
+  const s = useSyncExternalStore(
+    subscribeSnap,
+    () => snap,
+    () => SERVER_SNAPSHOT,
+  );
   return { ...s, setSound, subscribe };
 }
 
@@ -85,10 +89,14 @@ export function RequestNotifier({ enabled }: { enabled: boolean }) {
           setCount(m.pending);
           break;
         case "request.new":
-          toast(t("rq.toast.new", { name: m.customerName || t("rq.noName"), firm: m.customerFirm?.name ?? GENERAL_CUSTOMER_LABEL }), "info", {
-            action: { label: t("rq.toast.view"), href: `/requests#talep-${m.id}` },
-            durationMs: 8000,
-          });
+          toast(
+            t("rq.toast.new", { name: m.customerName || t("rq.noName"), firm: m.customerFirm?.name ?? GENERAL_CUSTOMER_LABEL }),
+            "info",
+            {
+              action: { label: t("rq.toast.view"), href: `/requests#talep-${m.id}` },
+              durationMs: 8000,
+            },
+          );
           if (snap.sound) void playChime();
           break;
         case "request.connect_failed":

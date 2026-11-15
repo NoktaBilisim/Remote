@@ -13,7 +13,14 @@ afterAll(() => app.close());
 let ipSeq = 0;
 const freshIp = () => `10.${(ipSeq >> 8) & 255}.${ipSeq++ & 255}.7`; // her testte ayrı /24 + /32
 const resolve = (payload: object, ip: string, extra: Partial<InjectOptions> = {}) =>
-  app.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers: { origin: ORIGIN }, payload: { clientKind: "BROWSER", ...payload }, remoteAddress: ip, ...extra });
+  app.inject({
+    method: "POST",
+    url: "/api/v1/public/sessions/resolve",
+    headers: { origin: ORIGIN },
+    payload: { clientKind: "BROWSER", ...payload },
+    remoteAddress: ip,
+    ...extra,
+  });
 const errCode = (r: { json: <T>() => T }) => r.json<{ error: { code: string } }>().error.code;
 
 async function fixture() {

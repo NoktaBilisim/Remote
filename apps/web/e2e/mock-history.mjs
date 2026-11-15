@@ -13,7 +13,7 @@ const TENANTS = [
   { id: "01JTENA0000000000000000002", name: "Örnek Lojistik" },
 ];
 const STATUSES = ["ENDED", "ENDED", "ENDED", "CANCELLED", "EXPIRED", "ACTIVE"];
-const NAMES = ["Ayşe Yılmaz", "Ali Demir", "=HYPERLINK(\"x\")", "Can %_ Öz", null, "Fatma Şahin"];
+const NAMES = ["Ayşe Yılmaz", "Ali Demir", '=HYPERLINK("x")', "Can %_ Öz", null, "Fatma Şahin"];
 const DAY = 86_400_000;
 const BASE = Date.parse("2026-11-10T09:00:00Z");
 export const RICH_ID = "01JHXST0000000000000000000";
@@ -52,8 +52,20 @@ function seed() {
       createdAt: new Date(created).toISOString(),
       expiresAt: new Date(created + 15 * 60_000).toISOString(),
       endedAt: ended ? new Date(ended).toISOString() : null,
-      endedBy: status === "ENDED" ? (i % 3 === 0 ? "ADMIN" : "TECH") : status === "CANCELLED" ? "TECH" : status === "EXPIRED" ? "SYSTEM" : null,
-      endReason: status === "ENDED" ? (i === 0 ? "admin" : i === 6 ? "yeni_neden" : "tech") : status === "EXPIRED" ? "expired" : status === "CANCELLED" ? "cancelled" : null,
+      endedBy:
+        status === "ENDED" ? (i % 3 === 0 ? "ADMIN" : "TECH") : status === "CANCELLED" ? "TECH" : status === "EXPIRED" ? "SYSTEM" : null,
+      endReason:
+        status === "ENDED"
+          ? i === 0
+            ? "admin"
+            : i === 6
+              ? "yeni_neden"
+              : "tech"
+          : status === "EXPIRED"
+            ? "expired"
+            : status === "CANCELLED"
+              ? "cancelled"
+              : null,
       mode: started ? (i % 4 < 2 ? "AGENT" : "BROWSER") : null,
       startedAt: started ? new Date(started).toISOString() : null,
       durationSec: started && ended ? Math.floor((ended - started) / 1000) : null,
@@ -111,11 +123,37 @@ function detail(s, who) {
     customerEmail: rich ? "ayse@ornek.com" : s.customerEmail,
     note: s.note,
     terminatedBy: s.endedBy === "ADMIN" ? { id: "01JADMN0000000000000000001", name: "Yönetici Kişi" } : null,
-    quality: rich ? { fps: { avg: 24.5, min: 10, max: 30 }, kbps: { avg: 2400, min: 800, max: 3100 }, rttMs: { avg: 42, min: 20, max: 140 }, connType: "relay" } : null,
-    files: rich ? [{ id: "01JFILE0000000000000000001", direction: "TO_CUSTOMER", fileName: "kurulum.msi", sizeBytes: 1_572_864, sha256: "ab".repeat(32), result: "OK", createdAt: at(5) }] : [],
+    quality: rich
+      ? {
+          fps: { avg: 24.5, min: 10, max: 30 },
+          kbps: { avg: 2400, min: 800, max: 3100 },
+          rttMs: { avg: 42, min: 20, max: 140 },
+          connType: "relay",
+        }
+      : null,
+    files: rich
+      ? [
+          {
+            id: "01JFILE0000000000000000001",
+            direction: "TO_CUSTOMER",
+            fileName: "kurulum.msi",
+            sizeBytes: 1_572_864,
+            sha256: "ab".repeat(32),
+            result: "OK",
+            createdAt: at(5),
+          },
+        ]
+      : [],
     consents: rich
       ? [
-          { id: "01JCONS0000000000000000001", at: at(1), level: "VIEW", decision: "GRANTED", source: "UI", consentText: { id: "01JCQNSENT0000000000000003", version: 3, sha256: "a".repeat(64) } },
+          {
+            id: "01JCONS0000000000000000001",
+            at: at(1),
+            level: "VIEW",
+            decision: "GRANTED",
+            source: "UI",
+            consentText: { id: "01JCQNSENT0000000000000003", version: 3, sha256: "a".repeat(64) },
+          },
           { id: "01JCONS0000000000000000002", at: at(2), level: "CONTROL", decision: "GRANTED", source: "UI", consentText: null },
           { id: "01JCONS0000000000000000003", at: at(3), level: "CONTROL", decision: "REVOKED", source: "HOTKEY", consentText: null },
         ]
@@ -131,23 +169,56 @@ function detail(s, who) {
           { at: at(0), action: "session.created", actor: "TECH", actorName: "Mehmet Kaya", result: "success", details: { ttlMin: 15 } },
           { at: at(1), action: "guest.admit", actor: "CUSTOMER", actorName: "Ayşe Yılmaz", result: "fail", details: { reason: "code" } },
           { at: at(1), action: "control.requested", actor: "TECH", actorName: "Mehmet Kaya", result: "success", details: { request: 1 } },
-          { at: at(2), action: "control.granted", actor: "CUSTOMER", actorName: "Ayşe Yılmaz", result: "success", details: { selfElevated: true } },
-          { at: at(3), action: "control.revoked", actor: "CUSTOMER", actorName: "Ayşe Yılmaz", result: "success", details: { source: "HOTKEY", reason: null, side: "guest" } },
+          {
+            at: at(2),
+            action: "control.granted",
+            actor: "CUSTOMER",
+            actorName: "Ayşe Yılmaz",
+            result: "success",
+            details: { selfElevated: true },
+          },
+          {
+            at: at(3),
+            action: "control.revoked",
+            actor: "CUSTOMER",
+            actorName: "Ayşe Yılmaz",
+            result: "success",
+            details: { source: "HOTKEY", reason: null, side: "guest" },
+          },
           { at: at(6), action: "gelecek.olay", actor: "SYSTEM", actorName: null, result: "success", details: {} },
-          { at: at(9), action: "session.ended", actor: "ADMIN", actorName: "Yönetici Kişi", result: "success", details: { reason: "admin", endedBy: "ADMIN" } },
+          {
+            at: at(9),
+            action: "session.ended",
+            actor: "ADMIN",
+            actorName: "Yönetici Kişi",
+            result: "success",
+            details: { reason: "admin", endedBy: "ADMIN" },
+          },
         ]
       : [],
     timelineTruncated: rich,
     // anonim oturum: zaman çizelgesinde müşteri adı yok (K-P13-3), dosya kaydı yok
     ...(s.anonymized
-      ? { timeline: [
-          { at: at(0), action: "session.created", actor: "TECH", actorName: "Mehmet Kaya", result: "success", details: { ttlMin: 15 } },
-          { at: at(1), action: "guest.admit", actor: "CUSTOMER", actorName: null, result: "success", details: {} },
-        ], files: [] }
+      ? {
+          timeline: [
+            { at: at(0), action: "session.created", actor: "TECH", actorName: "Mehmet Kaya", result: "success", details: { ttlMin: 15 } },
+            { at: at(1), action: "guest.admit", actor: "CUSTOMER", actorName: null, result: "success", details: {} },
+          ],
+          files: [],
+        }
       : {}),
     request:
       s.source === "REQUEST"
-        ? { id: "01JREQH0000000000000000001", createdAt: s.createdAt, acceptedAt: at(2), waitSec: s.waitSec, customerName: s.customerName, customerPhone: "+905321112233", customerEmail: null, description: "Yazıcı çalışmıyor https://kotu.example bağlantısı tıklanmamalı" }
+        ? {
+            id: "01JREQH0000000000000000001",
+            createdAt: s.createdAt,
+            acceptedAt: at(2),
+            waitSec: s.waitSec,
+            customerName: s.customerName,
+            customerPhone: "+905321112233",
+            customerEmail: null,
+            description: "Yazıcı çalışmıyor https://kotu.example bağlantısı tıklanmamalı",
+          }
         : null,
   };
 }
@@ -165,18 +236,36 @@ export async function handleHistory(req, res, { url, session, csrfOk, send, err,
   const path = url.split("?")[0];
   const raw = Object.fromEntries(new URLSearchParams(url.split("?")[1] ?? ""));
   if (req.method === "GET" && (path === "/api/v1/sessions" || path === "/api/v1/sessions/export.csv")) {
-    if (who.kind === "hbroken" && path === "/api/v1/sessions") return send(res, 500, err("INTERNAL", "Sunucu hatası.")), true;
+    if (who.kind === "hbroken" && path === "/api/v1/sessions") return (send(res, 500, err("INTERNAL", "Sunucu hatası.")), true);
     const parsed = listSessionsQuerySchema.safeParse(raw);
-    if (!parsed.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { [String(parsed.error.issues[0]?.path[0] ?? "_")]: parsed.error.issues[0]?.message } })), true;
+    if (!parsed.success)
+      return (
+        send(
+          res,
+          400,
+          err("VALIDATION", "Doğrulama hatası", {
+            fields: { [String(parsed.error.issues[0]?.path[0] ?? "_")]: parsed.error.issues[0]?.message },
+          }),
+        ),
+        true
+      );
     const q = parsed.data;
     const rows = filter(scoped(who, session), q, who);
     if (path === "/api/v1/sessions") {
       const items = rows.slice((q.page - 1) * q.pageSize, q.page * q.pageSize).map((s) => listItem(s, who));
-      return send(res, 200, { items, page: q.page, pageSize: q.pageSize, total: rows.length }, [], { "Cache-Control": "no-store" }), true;
+      return (send(res, 200, { items, page: q.page, pageSize: q.pageSize, total: rows.length }, [], { "Cache-Control": "no-store" }), true);
     }
-    if (!who.permissions.includes("session_history.export")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
-    if (who.kind === "hrate") return send(res, 429, err("RATE_LIMITED", "Çok fazla istek."), [], { "Retry-After": "60" }), true;
-    if (who.kind === "hbig") return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { to: "En çok 50.000 satır dışa aktarılabilir; tarih aralığını daraltın" } })), true;
+    if (!who.permissions.includes("session_history.export")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+    if (who.kind === "hrate") return (send(res, 429, err("RATE_LIMITED", "Çok fazla istek."), [], { "Retry-After": "60" }), true);
+    if (who.kind === "hbig")
+      return (
+        send(
+          res,
+          400,
+          err("VALIDATION", "Doğrulama hatası", { fields: { to: "En çok 50.000 satır dışa aktarılabilir; tarih aralığını daraltın" } }),
+        ),
+        true
+      );
     const head = ["Oturum No", "Oluşturma", "Durum", "Müşteri", "Ticket No"];
     const body = rows.map((s) => [s.id, s.createdAt, s.status, s.customerName, s.ticketNo].map(csvCell).join(";"));
     res.writeHead(200, {
@@ -191,26 +280,36 @@ export async function handleHistory(req, res, { url, session, csrfOk, send, err,
   const hm = path.match(/^\/api\/v1\/sessions\/([0-9A-Z]{26})\/history$/);
   if (hm && req.method === "GET") {
     const s = scoped(who, session).find((x) => x.id === hm[1]);
-    return s ? send(res, 200, detail(s, who)) : send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true;
+    return (s ? send(res, 200, detail(s, who)) : send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true);
   }
   const pm = path.match(/^\/api\/v1\/sessions\/([0-9A-Z]{26})$/);
   if (pm && req.method === "PATCH") {
-    if (!csrfOk) return send(res, 403, err("CSRF_INVALID", "CSRF doğrulaması başarısız.")), true;
-    if (!who.permissions.includes("session_history.edit")) return send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true;
+    if (!csrfOk) return (send(res, 403, err("CSRF_INVALID", "CSRF doğrulaması başarısız.")), true);
+    if (!who.permissions.includes("session_history.edit")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
     const s = scoped(who, session).find((x) => x.id === pm[1]);
-    if (!s) return send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true;
+    if (!s) return (send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true);
     const parsed = updateSessionInputSchema.safeParse(await readJson(req));
-    if (!parsed.success) return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { [String(parsed.error.issues[0]?.path[0])]: parsed.error.issues[0]?.message } })), true;
+    if (!parsed.success)
+      return (
+        send(
+          res,
+          400,
+          err("VALIDATION", "Doğrulama hatası", { fields: { [String(parsed.error.issues[0]?.path[0])]: parsed.error.issues[0]?.message } }),
+        ),
+        true
+      );
     // P13a: anonim oturum ya da (yarış taklidi) "ANON-409" → 409 SESSION_ANONYMIZED; sonrasında oturum anonim görünür
-    if (s.anonymized) return send(res, 409, err("SESSION_ANONYMIZED", "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.")), true;
+    if (s.anonymized)
+      return (send(res, 409, err("SESSION_ANONYMIZED", "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.")), true);
     if (parsed.data.ticketNo === "ANON-409") {
       Object.assign(s, { anonymized: true, customerName: null, customerEmail: null, note: null });
-      return send(res, 409, err("SESSION_ANONYMIZED", "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.")), true;
+      return (send(res, 409, err("SESSION_ANONYMIZED", "Bu oturum saklama süresi dolduğu için anonimleştirildi; düzenlenemez.")), true);
     }
-    if (parsed.data.ticketNo === "HATA-400") return send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { ticketNo: "Sunucu bu ticket no'yu reddetti" } })), true;
+    if (parsed.data.ticketNo === "HATA-400")
+      return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { ticketNo: "Sunucu bu ticket no'yu reddetti" } })), true);
     if (parsed.data.ticketNo !== undefined) s.ticketNo = parsed.data.ticketNo;
     if (parsed.data.note !== undefined) s.note = parsed.data.note;
-    return send(res, 200, detail(s, who)), true;
+    return (send(res, 200, detail(s, who)), true);
   }
   return false;
 }

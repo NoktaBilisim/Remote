@@ -166,8 +166,7 @@ test("AC-82, AC-86: login'de sistem logosu ve favicon linkleri", async ({ page, 
   await expect(page.locator('link[rel="icon"][href^="/favicon.ico"]')).toHaveCount(1);
   await expect(page.locator('link[rel="icon"][href^="/favicon-32x32.png"]')).toHaveCount(1);
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveCount(1);
-  for (const f of ["/favicon.ico", "/favicon-32x32.png", "/apple-touch-icon.png"])
-    expect((await request.get(f)).status()).toBe(200);
+  for (const f of ["/favicon.ico", "/favicon-32x32.png", "/apple-touch-icon.png"]) expect((await request.get(f)).status()).toBe(200);
 });
 
 test("AC-126 (web): CSP nonce'lu, unsafe-inline yok, X-Powered-By yok", async ({ request }) => {

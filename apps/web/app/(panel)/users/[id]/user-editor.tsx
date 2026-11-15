@@ -18,7 +18,16 @@ import { toUiError, type UiError } from "@/lib/error-message";
 import { formatDateTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { USER_EMAIL_MAX, USER_FULL_NAME_MAX, type ManagedRole, type UserDetail } from "@/lib/users/contract";
-import { buildUpdateUser, splitServerFields, USER_FIELDS, userDraftDirty, userDraftOf, type Errors, type UserDraft, type UserField } from "@/lib/users/form";
+import {
+  buildUpdateUser,
+  splitServerFields,
+  USER_FIELDS,
+  userDraftDirty,
+  userDraftOf,
+  type Errors,
+  type UserDraft,
+  type UserField,
+} from "@/lib/users/form";
 import { applyRoleDefaults, changedKeys, forbiddenPermLabels, lockedKeys, normalize, type PermState } from "@/lib/users/permissions";
 import { StatusPill } from "../user-list";
 
@@ -30,7 +39,15 @@ const FORM_ID = "user-edit-form";
  * kendinden geniş yetkili hesap yönetilemez (`canManage=false` → salt okunur), işlemi yapanın sahip olmadığı yetki
  * kilitli (AC-73). PATCH yalnız değişen alanları ve değişen anahtarları gönderir; 403'te form korunur.
  */
-export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: { role: string; permissions: readonly string[] }; canEdit: boolean }) {
+export function UserEditor({
+  user,
+  actor,
+  canEdit,
+}: {
+  user: UserDetail;
+  actor: { role: string; permissions: readonly string[] };
+  canEdit: boolean;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [saved, setSaved] = useState(user);
@@ -102,18 +119,28 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
     }
   };
 
-  const meta = [t(`role.${saved.role}`), saved.email, saved.lastLoginAt ? t("us.e.lastLogin", { at: formatDateTime(saved.lastLoginAt) }) : null].filter(Boolean).join(" · ");
+  const meta = [
+    t(`role.${saved.role}`),
+    saved.email,
+    saved.lastLoginAt ? t("us.e.lastLogin", { at: formatDateTime(saved.lastLoginAt) }) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const notice = !canEdit || !saved.canManage ? t("us.e.readonly") : !active ? t("us.e.passive") : saved.isSelf ? t("us.e.self") : null;
 
   return (
     <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold break-words text-fg" data-testid="user-name">{saved.fullName}</h1>
+          <h1 className="text-2xl font-semibold break-words text-fg" data-testid="user-name">
+            {saved.fullName}
+          </h1>
           <p className="mt-1 text-sm break-words text-fg-muted">{meta}</p>
         </div>
-        {canEdit && saved.canManage && !saved.isSelf && (
-          active ? (
+        {canEdit &&
+          saved.canManage &&
+          !saved.isSelf &&
+          (active ? (
             <Button variant="danger-ghost" onClick={() => setAction("deactivate")} disabled={busy} data-testid="user-deactivate">
               <Archive aria-hidden className="size-4" />
               {t("us.d.open")}
@@ -123,8 +150,7 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
               <ArchiveRestore aria-hidden className="size-4" />
               {t("us.r.open")}
             </Button>
-          )
-        )}
+          ))}
       </div>
 
       <div className="mt-4 flex flex-col gap-3">
@@ -133,7 +159,11 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
             <FormError error={{ ...formError, message: `${t("us.e.saveFailed")}. ${formError.message}` }} />
           </div>
         )}
-        {notice && <Alert tone="warning" testId="user-notice">{notice}</Alert>}
+        {notice && (
+          <Alert tone="warning" testId="user-notice">
+            {notice}
+          </Alert>
+        )}
       </div>
 
       <form id={FORM_ID} ref={formRef} onSubmit={submit} noValidate className="mt-4 grid items-start gap-6 xl:grid-cols-[20rem_1fr]">
@@ -143,10 +173,33 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
             {t("us.e.profile")}
           </h2>
           {/* P12 (AC-83): yönetici, yönetebildiği etkin kullanıcının profil resmini değiştirir/kaldırır (kendi hesabı dahil) */}
-          <AvatarUploader userId={saved.id} name={saved.fullName} avatarUrl={saved.avatarUrl ?? null} canEdit={canEdit && saved.canManage && active} />
+          <AvatarUploader
+            userId={saved.id}
+            name={saved.fullName}
+            avatarUrl={saved.avatarUrl ?? null}
+            canEdit={canEdit && saved.canManage && active}
+          />
           <fieldset disabled={!editable || busy} className="flex flex-col gap-4">
-            <TextField label={t("us.f.fullName")} value={d.fullName} onChange={set("fullName")} error={errors.fullName} maxLength={USER_FULL_NAME_MAX} autoComplete="off" data-testid="ue-name" />
-            <TextField label={t("us.f.email")} type="email" value={d.email} onChange={set("email")} error={errors.email} maxLength={USER_EMAIL_MAX} autoComplete="off" spellCheck={false} data-testid="ue-email" />
+            <TextField
+              label={t("us.f.fullName")}
+              value={d.fullName}
+              onChange={set("fullName")}
+              error={errors.fullName}
+              maxLength={USER_FULL_NAME_MAX}
+              autoComplete="off"
+              data-testid="ue-name"
+            />
+            <TextField
+              label={t("us.f.email")}
+              type="email"
+              value={d.email}
+              onChange={set("email")}
+              error={errors.email}
+              maxLength={USER_EMAIL_MAX}
+              autoComplete="off"
+              spellCheck={false}
+              data-testid="ue-email"
+            />
             <SelectField
               label={t("us.f.role")}
               value={d.role}
@@ -167,7 +220,9 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
                 {t("us.e.account")}
                 <span className="block text-xs font-normal text-fg-muted">{t("us.e.accountHint")}</span>
               </dt>
-              <dd><StatusPill status={saved.status} testId="user-status" /></dd>
+              <dd>
+                <StatusPill status={saved.status} testId="user-status" />
+              </dd>
             </div>
             <div className="flex items-start justify-between gap-3">
               <dt className="font-medium text-fg">
@@ -175,10 +230,18 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
                 <span className="block text-xs font-normal text-fg-muted">{t("us.e.twofaHint")}</span>
               </dt>
               <dd className="flex flex-col items-end gap-2">
-                <span className={`text-sm ${saved.totpEnabled ? "text-success" : "text-fg-muted"}`} data-testid="user-2fa">{saved.totpEnabled ? t("us.e.twofaOn") : t("us.e.twofaOff")}</span>
+                <span className={`text-sm ${saved.totpEnabled ? "text-success" : "text-fg-muted"}`} data-testid="user-2fa">
+                  {saved.totpEnabled ? t("us.e.twofaOn") : t("us.e.twofaOff")}
+                </span>
                 {/* P10 (AC-115): yönetici 2FA sıfırlaması — kendi hesabı hariç, yönetebildiği etkin hesapta */}
                 {saved.totpEnabled && canEdit && saved.canManage && !saved.isSelf && active && (
-                  <Button type="button" variant="secondary" onClick={() => setAction("reset-mfa")} disabled={busy} data-testid="user-reset-mfa">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setAction("reset-mfa")}
+                    disabled={busy}
+                    data-testid="user-reset-mfa"
+                  >
                     <KeyRound aria-hidden className="size-4" />
                     {t("us.m.open")}
                   </Button>
@@ -202,7 +265,9 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
         </section>
       </form>
 
-      {editable && <SaveBar dirty={dirty} busy={busy} formId={FORM_ID} onReset={reset} message={t("us.e.unsaved")} leaveBody={t("us.e.leaveBody")} />}
+      {editable && (
+        <SaveBar dirty={dirty} busy={busy} formId={FORM_ID} onReset={reset} message={t("us.e.unsaved")} leaveBody={t("us.e.leaveBody")} />
+      )}
 
       <StatusDialog
         action={action}
@@ -224,7 +289,17 @@ export function UserEditor({ user, actor, canEdit }: { user: UserDetail; actor: 
  * Pasife al / yeniden etkinleştir onayı (`alertdialog`, varsayılan odak "Vazgeç"). Pasife alma metni etkisini söyler:
  * tüm oturumlar kapanır, açık destek oturumları sonlanır (AC-115). Başarıda güncel kayıt GET ile alınır.
  */
-function StatusDialog({ action, user, onClose, onDone }: { action: "deactivate" | "reactivate" | "reset-mfa" | null; user: UserDetail; onClose: () => void; onDone: (u: UserDetail) => void }) {
+function StatusDialog({
+  action,
+  user,
+  onClose,
+  onDone,
+}: {
+  action: "deactivate" | "reactivate" | "reset-mfa" | null;
+  user: UserDetail;
+  onClose: () => void;
+  onDone: (u: UserDetail) => void;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -271,9 +346,23 @@ function StatusDialog({ action, user, onClose, onDone }: { action: "deactivate" 
       footer={
         action && (
           <>
-            <Button variant="secondary" data-autofocus onClick={onClose} disabled={busy} className="sm:ml-auto">{t("rq.rj.cancel")}</Button>
-            <Button variant={deact || mfa ? "danger" : "primary"} loading={busy} onClick={() => void run()} data-testid="user-action-confirm">
-              {!busy && (mfa ? <KeyRound aria-hidden className="size-4" /> : deact ? <Archive aria-hidden className="size-4" /> : <ArchiveRestore aria-hidden className="size-4" />)}
+            <Button variant="secondary" data-autofocus onClick={onClose} disabled={busy} className="sm:ml-auto">
+              {t("rq.rj.cancel")}
+            </Button>
+            <Button
+              variant={deact || mfa ? "danger" : "primary"}
+              loading={busy}
+              onClick={() => void run()}
+              data-testid="user-action-confirm"
+            >
+              {!busy &&
+                (mfa ? (
+                  <KeyRound aria-hidden className="size-4" />
+                ) : deact ? (
+                  <Archive aria-hidden className="size-4" />
+                ) : (
+                  <ArchiveRestore aria-hidden className="size-4" />
+                ))}
               {t(`${k}.confirm` as "us.d.confirm")}
             </Button>
           </>

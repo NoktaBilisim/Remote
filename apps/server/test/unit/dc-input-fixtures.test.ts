@@ -4,7 +4,10 @@ import { readFileSync } from "node:fs";
 import { parseInputMessage } from "@remote/contracts/dc";
 import { describe, expect, it } from "vitest";
 
-const fx = JSON.parse(readFileSync(new URL("../../../../packages/contracts/fixtures/dc-input.json", import.meta.url), "utf8")) as { valid: unknown[]; invalid: unknown[] };
+const fx = JSON.parse(readFileSync(new URL("../../../../packages/contracts/fixtures/dc-input.json", import.meta.url), "utf8")) as {
+  valid: unknown[];
+  invalid: unknown[];
+};
 
 describe("DC input fixtures", () => {
   it.each(fx.valid.map((m) => [JSON.stringify(m), m]))("AC-48 geçerli: %s", (_n, m) => {

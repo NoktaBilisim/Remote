@@ -30,7 +30,14 @@ import {
 } from "@remote/contracts/api/sessions";
 import { CONTROL_AUDIT } from "@remote/contracts/audit";
 import type { CustomerFirmRef, CustomerStatus } from "@remote/contracts/api/customers";
-import { END_REASON_LABELS, SESSION_ENDED_BY_LABELS, SESSION_MODE_LABELS, SESSION_SOURCE_LABELS, SESSION_STATUS_LABELS, labelOf } from "@remote/contracts/labels";
+import {
+  END_REASON_LABELS,
+  SESSION_ENDED_BY_LABELS,
+  SESSION_MODE_LABELS,
+  SESSION_SOURCE_LABELS,
+  SESSION_STATUS_LABELS,
+  labelOf,
+} from "@remote/contracts/labels";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import { CSV_BOM, csvRow, hms, istanbulDateTime } from "../lib/csv.ts";
@@ -96,20 +103,29 @@ export function toListItem(r: hrepo.HistoryListRow, scope: hrepo.HistoryScope, v
 }
 
 /** GET /sessions (AC-60, 61). Müşteri filtresi doluyken kullanıcı başına hız sınırı (S8-3; `%x%` taraması pahalı). */
-export async function listHistorySessions(db: Db, auth: AuthContext, q: ListSessionsQuery, customerLimit?: FixedWindowCounter): Promise<Omit<SessionListResponse, "items"> & { items: Omit<SessionListItem, "waitingGuests">[] }> {
+export async function listHistorySessions(
+  db: Db,
+  auth: AuthContext,
+  q: ListSessionsQuery,
+  customerLimit?: FixedWindowCounter,
+): Promise<Omit<SessionListResponse, "items"> & { items: Omit<SessionListItem, "waitingGuests">[] }> {
   if (q.customer !== undefined && customerLimit) {
     const wait = customerLimit.blockedFor(auth.user.id);
     if (wait > 0 || customerLimit.hit(auth.user.id)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
   }
   const scope = historyScope(auth);
-  const { rows, total } = await hrepo.listHistory(db, scope, resolveFilter(scope, q), q.sort, { skip: (q.page - 1) * q.pageSize, take: q.pageSize });
+  const { rows, total } = await hrepo.listHistory(db, scope, resolveFilter(scope, q), q.sort, {
+    skip: (q.page - 1) * q.pageSize,
+    take: q.pageSize,
+  });
   return { items: rows.map((r) => toListItem(r, scope, auth.user.id)), page: q.page, pageSize: q.pageSize, total };
 }
 
 // ---- Detay (AC-62) ----
 
 type Json = unknown;
-const asObject = (v: Json): Record<string, Json> => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, Json>) : {});
+const asObject = (v: Json): Record<string, Json> =>
+  v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, Json>) : {};
 const MASKED = "***";
 const NUMERIC_KEYS: ReadonlySet<string> = new Set(["ttlMin", "request", "monitorId"]);
 
@@ -180,12 +196,23 @@ export function deriveControlPeriods(
       if (open) out.push(open);
       const [a, next] = take(granted, gi, c.createdAt);
       gi = next;
-      open = { grantedAt: c.createdAt.toISOString(), revokedAt: null, revokedSource: null, revokedReason: null, selfElevated: a ? selfElevatedOf(asObject(a.newValue).selfElevated) : null };
+      open = {
+        grantedAt: c.createdAt.toISOString(),
+        revokedAt: null,
+        revokedSource: null,
+        revokedReason: null,
+        selfElevated: a ? selfElevatedOf(asObject(a.newValue).selfElevated) : null,
+      };
     } else if (c.decision === "REVOKED" && open) {
       const [a, next] = take(closes, ci, c.createdAt);
       ci = next;
       const reason = a ? (a.action === CONTROL_AUDIT.RELEASED ? "tech" : asObject(a.newValue).reason) : null;
-      out.push({ ...open, revokedAt: c.createdAt.toISOString(), revokedSource: c.source as ConsentRecordSource, revokedReason: typeof reason === "string" ? reason : null });
+      out.push({
+        ...open,
+        revokedAt: c.createdAt.toISOString(),
+        revokedSource: c.source as ConsentRecordSource,
+        revokedReason: typeof reason === "string" ? reason : null,
+      });
       open = null;
     }
   }
@@ -193,7 +220,13 @@ export function deriveControlPeriods(
   return out;
 }
 
-async function buildDetail(db: Db, log: HistoryLog, scope: hrepo.HistoryScope, row: hrepo.HistoryDetailRow, viewerId: string): Promise<SessionHistoryDetail> {
+async function buildDetail(
+  db: Db,
+  log: HistoryLog,
+  scope: hrepo.HistoryScope,
+  row: hrepo.HistoryDetailRow,
+  viewerId: string,
+): Promise<SessionHistoryDetail> {
   const s = { id: row.id, tenantId: row.tenantId };
   const anonymized = row.anonymizedAt !== null;
   const [consents, files, timelineRows, controlAudits] = await Promise.all([
@@ -217,7 +250,9 @@ async function buildDetail(db: Db, log: HistoryLog, scope: hrepo.HistoryScope, r
 
   // S-P13a-1: yeni guest.* kayıtlarında ad yok; müşteri adı oturum satırından ve yalnız kabul edilen misafire (guestId
   // eşleşmesi; guestId'siz müşteri olayları = kabul edilen misafir) gösterilir. Eski kayıtların `details.name`'i önceliklidir.
-  const admittedGuestId = events.map((a) => (a.action === "guest.admitted" ? asObject(a.newValue).guestId : undefined)).find((g) => typeof g === "string");
+  const admittedGuestId = events
+    .map((a) => (a.action === "guest.admitted" ? asObject(a.newValue).guestId : undefined))
+    .find((g) => typeof g === "string");
   const isAdmittedGuest = (a: { newValue: Json }): boolean => {
     const g = asObject(a.newValue).guestId;
     return typeof g !== "string" || g === admittedGuestId;
@@ -250,27 +285,23 @@ async function buildDetail(db: Db, log: HistoryLog, scope: hrepo.HistoryScope, r
     note: anonymized ? null : row.note,
     terminatedBy: row.endedBy === "ADMIN" && row.terminatedBy ? { id: row.terminatedBy, name: names.get(row.terminatedBy) ?? "" } : null,
     quality,
-    files: (anonymized ? [] : files).map(
-      (f): SessionFileRecord => ({
-        id: f.id,
-        direction: f.direction as SessionFileRecord["direction"],
-        fileName: f.fileName,
-        sizeBytes: Number(f.sizeBytes),
-        sha256: f.sha256,
-        result: f.result as SessionFileRecord["result"],
-        createdAt: f.createdAt.toISOString(),
-      }),
-    ),
-    consents: consents.map(
-      (c): SessionConsentRecord => ({
-        id: c.id,
-        at: c.createdAt.toISOString(),
-        level: c.level as ConsentLevel,
-        decision: c.decision as ConsentDecision,
-        source: c.source as ConsentRecordSource,
-        consentText: c.consentText ? { id: c.consentText.id, version: c.consentText.version, sha256: c.consentText.sha256 } : null,
-      }),
-    ),
+    files: (anonymized ? [] : files).map((f): SessionFileRecord => ({
+      id: f.id,
+      direction: f.direction as SessionFileRecord["direction"],
+      fileName: f.fileName,
+      sizeBytes: Number(f.sizeBytes),
+      sha256: f.sha256,
+      result: f.result as SessionFileRecord["result"],
+      createdAt: f.createdAt.toISOString(),
+    })),
+    consents: consents.map((c): SessionConsentRecord => ({
+      id: c.id,
+      at: c.createdAt.toISOString(),
+      level: c.level as ConsentLevel,
+      decision: c.decision as ConsentDecision,
+      source: c.source as ConsentRecordSource,
+      consentText: c.consentText ? { id: c.consentText.id, version: c.consentText.version, sha256: c.consentText.sha256 } : null,
+    })),
     controlPeriods: deriveControlPeriods(consents, controlAudits),
     timeline,
     timelineTruncated,
@@ -304,9 +335,19 @@ export async function getHistoryDetail(db: Db, log: HistoryLog, auth: AuthContex
  * Not/ticket güncelleme (§4): kapsam koşulu UPDATE'te; count 0 → 404. Audit `session.updated` yalnız ticketNo ve not
  * uzunluğu (not metni audit'e yazılmaz — audit 730 gün, KVKK). UPDATE + audit tek TX.
  */
-export async function updateHistory(db: Db, log: HistoryLog, ctx: AuditContext, auth: AuthContext, id: string, data: UpdateSessionData): Promise<SessionHistoryDetail> {
+export async function updateHistory(
+  db: Db,
+  log: HistoryLog,
+  ctx: AuditContext,
+  auth: AuthContext,
+  id: string,
+  data: UpdateSessionData,
+): Promise<SessionHistoryDetail> {
   const scope = historyScope(auth);
-  const patch = { ...(data.ticketNo !== undefined ? { ticketNo: data.ticketNo } : {}), ...(data.note !== undefined ? { note: data.note } : {}) };
+  const patch = {
+    ...(data.ticketNo !== undefined ? { ticketNo: data.ticketNo } : {}),
+    ...(data.note !== undefined ? { note: data.note } : {}),
+  };
   await db.$transaction(async (tx) => {
     const before = await hrepo.findHistory(tx, scope, id);
     if (!before) throw new AppError("NOT_FOUND");
@@ -367,7 +408,15 @@ const exportFilename = (now: Date): string => {
  * `session.exported` (müşteri arama metni yazılmaz) → keyset partileriyle akış. Akış sırasında hata: log + ref, bağlantı
  * kesilir (dosya yarım kalır, istemci indirme hatası görür).
  */
-export async function exportHistoryCsv(db: Db, log: HistoryLog, ctx: AuditContext, auth: AuthContext, q: ListSessionsQuery, limiter: FixedWindowCounter, now = new Date()): Promise<CsvExport> {
+export async function exportHistoryCsv(
+  db: Db,
+  log: HistoryLog,
+  ctx: AuditContext,
+  auth: AuthContext,
+  q: ListSessionsQuery,
+  limiter: FixedWindowCounter,
+  now = new Date(),
+): Promise<CsvExport> {
   const wait = limiter.blockedFor(auth.user.id);
   if (wait > 0 || limiter.hit(auth.user.id)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
   const scope = historyScope(auth);
@@ -395,7 +444,9 @@ export async function exportHistoryCsv(db: Db, log: HistoryLog, ctx: AuditContex
   });
 
   const withTenant = scope.kind === "all";
-  const header = withTenant ? [SESSION_CSV_COLUMNS[0], SESSION_CSV_TENANT_COLUMN, ...SESSION_CSV_COLUMNS.slice(1)] : [...SESSION_CSV_COLUMNS];
+  const header = withTenant
+    ? [SESSION_CSV_COLUMNS[0], SESSION_CSV_TENANT_COLUMN, ...SESSION_CSV_COLUMNS.slice(1)]
+    : [...SESSION_CSV_COLUMNS];
   async function* generate(): AsyncGenerator<string> {
     yield CSV_BOM + csvRow(header);
     let after: { createdAt: Date; id: string } | null = null;

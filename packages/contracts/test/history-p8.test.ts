@@ -6,7 +6,16 @@ import { END_REASON_LABELS, describeTimelineEvent, labelOf } from "../src/labels
 describe("listSessionsQuerySchema (AC-60)", () => {
   it("AC-60: varsayılanlar ve geçerli filtreler", () => {
     expect(listSessionsQuerySchema.parse({})).toEqual({ page: 1, pageSize: 25, sort: "createdAt:desc" });
-    const q = listSessionsQuerySchema.parse({ status: "ENDED", mode: "AGENT", from: "2026-01-01", to: "2026-01-31", customer: "  Ayşe ", page: "2", pageSize: "100", sort: "createdAt:asc" });
+    const q = listSessionsQuerySchema.parse({
+      status: "ENDED",
+      mode: "AGENT",
+      from: "2026-01-01",
+      to: "2026-01-31",
+      customer: "  Ayşe ",
+      page: "2",
+      pageSize: "100",
+      sort: "createdAt:asc",
+    });
     expect(q).toMatchObject({ customer: "Ayşe", page: 2, pageSize: 100, mode: "AGENT" });
   });
 
@@ -31,7 +40,7 @@ describe("listSessionsQuerySchema (AC-60)", () => {
 });
 
 describe("updateSessionInputSchema (AC-63)", () => {
-  it("AC-63: ticketNo ≤ 50 (trim), note ≤ 4000, \"\" ve null → null, \\n \\t notta serbest", () => {
+  it('AC-63: ticketNo ≤ 50 (trim), note ≤ 4000, "" ve null → null, \\n \\t notta serbest', () => {
     expect(updateSessionInputSchema.parse({ ticketNo: "  INC-1 " })).toEqual({ ticketNo: "INC-1" });
     expect(updateSessionInputSchema.parse({ ticketNo: "", note: "" })).toEqual({ ticketNo: null, note: null });
     expect(updateSessionInputSchema.parse({ note: null })).toEqual({ note: null });
@@ -79,14 +88,26 @@ describe("labels.ts", () => {
 
   it("zaman çizelgesi metinleri (§3 tablo)", () => {
     expect(describeTimelineEvent({ action: "control.requested", details: { request: 2 } }).label).toBe("Kontrol istendi (2/5)");
-    expect(describeTimelineEvent({ action: "control.granted", details: { selfElevated: true } })).toEqual({ label: "Kontrol verildi", note: "Müşteri istemcisi yönetici olarak çalışıyordu", warn: true });
+    expect(describeTimelineEvent({ action: "control.granted", details: { selfElevated: true } })).toEqual({
+      label: "Kontrol verildi",
+      note: "Müşteri istemcisi yönetici olarak çalışıyordu",
+      warn: true,
+    });
     expect(describeTimelineEvent({ action: "control.granted", details: { selfElevated: null } }).note).toBe("Yönetici durumu bilinmiyor");
     expect(describeTimelineEvent({ action: "control.granted", details: { selfElevated: false } }).note).toBeNull();
     expect(describeTimelineEvent({ action: "control.revoked", details: { source: "HOTKEY" } }).label).toBe("Müşteri kapattı (kısayol)");
-    expect(describeTimelineEvent({ action: "control.revoked", details: { source: "RECONNECT", side: "tech" } }).label).toBe("Teknisyen bağlantısı koptu");
-    expect(describeTimelineEvent({ action: "control.revoked", details: { source: "SYSTEM", reason: "audit" } }).label).toBe("Kayıt yazılamadı — güvenlik için kapatıldı");
-    expect(describeTimelineEvent({ action: "control.cancelled", details: { by: "agent" } }).label).toBe("İstek müşteri tarafında bağlantı kesilince kapandı");
+    expect(describeTimelineEvent({ action: "control.revoked", details: { source: "RECONNECT", side: "tech" } }).label).toBe(
+      "Teknisyen bağlantısı koptu",
+    );
+    expect(describeTimelineEvent({ action: "control.revoked", details: { source: "SYSTEM", reason: "audit" } }).label).toBe(
+      "Kayıt yazılamadı — güvenlik için kapatıldı",
+    );
+    expect(describeTimelineEvent({ action: "control.cancelled", details: { by: "agent" } }).label).toBe(
+      "İstek müşteri tarafında bağlantı kesilince kapandı",
+    );
     expect(describeTimelineEvent({ action: "monitor.denied", details: { monitorId: 2 } }).label).toBe("Monitör 2 reddedildi");
-    expect(describeTimelineEvent({ action: "session.ended", details: { reason: "customer" } }).label).toBe("Oturum bitti (Müşteri bitirdi)");
+    expect(describeTimelineEvent({ action: "session.ended", details: { reason: "customer" } }).label).toBe(
+      "Oturum bitti (Müşteri bitirdi)",
+    );
   });
 });

@@ -63,12 +63,7 @@ export function CancelDialog({
           <Button variant="secondary" data-autofocus onClick={close} disabled={busy} className="sm:ml-auto">
             {t("c.dismiss")}
           </Button>
-          <Button
-            variant="secondary"
-            onClick={confirm}
-            loading={busy}
-            className="border-danger/40 text-danger hover:bg-danger-surface"
-          >
+          <Button variant="secondary" onClick={confirm} loading={busy} className="border-danger/40 text-danger hover:bg-danger-surface">
             {!busy && <CircleX aria-hidden className="size-4" />}
             {t("c.confirm")}
           </Button>

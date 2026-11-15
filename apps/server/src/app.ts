@@ -150,7 +150,8 @@ function helmetOptions(env: Env) {
 export function buildApp(deps: AppDeps): FastifyInstance {
   const { env } = deps;
   // B-P10-3: zorunlu 2FA kurulumu production'da kapatılamaz (savunma derinliği; server.ts zaten vermez).
-  if (deps.mfaSetupEnforcement === false && env.NODE_ENV === "production") throw new Error("mfaSetupEnforcement:false production'da kullanılamaz");
+  if (deps.mfaSetupEnforcement === false && env.NODE_ENV === "production")
+    throw new Error("mfaSetupEnforcement:false production'da kullanılamaz");
   const app = Fastify({
     loggerInstance: deps.logger ?? createLogger(env.LOG_LEVEL),
     trustProxy: env.TRUSTED_PROXY_CIDR ?? false, // G-11: yalnız Caddy
@@ -185,7 +186,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     deps.netguard ??
     createNetGuard({
       denyHosts: [new URL(env.PUBLIC_BASE_URL).hostname], // B-P10-1: kendi adresimiz de yasak
-      onSelfUnresolved: (host, cached) => app.log.warn({ alarm: "netguard_self_unresolved", host, cached }, cached ? "kendi adımız çözülemedi; son başarılı çözüm kullanıldı" : "kendi adımız çözülemedi; SMTP hedefi reddedildi (fail-closed)"),
+      onSelfUnresolved: (host, cached) =>
+        app.log.warn(
+          { alarm: "netguard_self_unresolved", host, cached },
+          cached
+            ? "kendi adımız çözülemedi; son başarılı çözüm kullanıldı"
+            : "kendi adımız çözülemedi; SMTP hedefi reddedildi (fail-closed)",
+        ),
     });
   const mail = new MailService({
     db: deps.db,
@@ -201,7 +208,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const uploads = new UploadStore(env.UPLOADS_DIR);
   app.decorate("uploads", uploads);
   app.addHook("onReady", async () => {
-    if (!(await uploads.writable())) app.log.error({ alarm: "uploads_not_writable" }, "UPLOADS_DIR yazılamıyor; logo/avatar yüklemesi çalışmaz");
+    if (!(await uploads.writable()))
+      app.log.error({ alarm: "uploads_not_writable" }, "UPLOADS_DIR yazılamıyor; logo/avatar yüklemesi çalışmaz");
   });
   app.decorate("secrets", secrets);
   app.decorate("netguard", netguard);
@@ -215,7 +223,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
   const sig = deps.signaling ?? {};
   const turn = { urls: env.turnUrls, secret: env.TURN_SECRET, ttlMin: env.TURN_CRED_TTL_MIN };
-  const rooms = new Rooms({ db: deps.db, log: app.log, turn, metrics, ...(sig.clock ? { clock: sig.clock } : {}), ...(sig.timing ? { timing: sig.timing } : {}) });
+  const rooms = new Rooms({
+    db: deps.db,
+    log: app.log,
+    turn,
+    metrics,
+    ...(sig.clock ? { clock: sig.clock } : {}),
+    ...(sig.timing ? { timing: sig.timing } : {}),
+  });
   app.decorate("rooms", rooms);
   // P11 (G-13): panel TURN kaydı varsa env yerine o; okunamazsa env ile devam (alarm logu).
   app.addHook("onReady", async () => {
@@ -229,9 +244,23 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   metrics.gauge("rs_active_sessions", "Admit edilmiş (ACTIVE) oturum sayısı", () => rooms.activeCount);
   metrics.gauge("rs_resolve_failed", "Başarısız kod çözümleme (süreç başından beri)", () => publicLimits.resolveFailed.total);
   // P8b (mimari-e9 §2): bildirim merkezi, hız sınırları, WhatsApp istemcisi, talep servisi.
-  const hub: RequestHub = new RequestHub(rooms.clock, (tenantId: string) => requests.statesOf(tenantId), (err) => app.log.error({ err }, "talep sıra yayını hatası"));
+  const hub: RequestHub = new RequestHub(
+    rooms.clock,
+    (tenantId: string) => requests.statesOf(tenantId),
+    (err) => app.log.error({ err }, "talep sıra yayını hatası"),
+  );
   const requestLimits = createRequestLimits();
-  const notifier = new WhatsappNotifier({ url: env.WHATSAPP_SERVICE_URL, apiKey: env.WHATSAPP_SERVICE_API_KEY ?? null, production: env.NODE_ENV === "production", publicBaseUrl: env.PUBLIC_BASE_URL, db: deps.db, log: app.log, metrics, clock: rooms.clock, ...(deps.whatsappFetch ? { fetch: deps.whatsappFetch } : {}) });
+  const notifier = new WhatsappNotifier({
+    url: env.WHATSAPP_SERVICE_URL,
+    apiKey: env.WHATSAPP_SERVICE_API_KEY ?? null,
+    production: env.NODE_ENV === "production",
+    publicBaseUrl: env.PUBLIC_BASE_URL,
+    db: deps.db,
+    log: app.log,
+    metrics,
+    clock: rooms.clock,
+    ...(deps.whatsappFetch ? { fetch: deps.whatsappFetch } : {}),
+  });
   app.decorate("whatsapp", notifier);
   // P12b (AC-196): panel WhatsApp adresi varsa env yerine o; okunamazsa env ile devam (alarm logu).
   app.addHook("onReady", async () => {
@@ -241,7 +270,19 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       app.log.error({ err, alarm: "whatsapp_settings_load" }, "WhatsApp panel ayarı okunamadı; env kullanılıyor");
     }
   });
-  const requests: RequestService = new RequestService({ db: deps.db, env, log: app.log, rooms, hub, limits: requestLimits, notifier, mail, metrics, clock: rooms.clock, timing: rooms.timing });
+  const requests: RequestService = new RequestService({
+    db: deps.db,
+    env,
+    log: app.log,
+    rooms,
+    hub,
+    limits: requestLimits,
+    notifier,
+    mail,
+    metrics,
+    clock: rooms.clock,
+    timing: rooms.timing,
+  });
   app.decorate("requests", requests);
   const retention = new RetentionJob(requests);
   app.decorate("retention", retention);
@@ -266,7 +307,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     notifier.close();
     closeRequestLimits(requestLimits);
   });
-  attachSignaling(app, rooms, sig, requestChannels(app, requests, sig.revalidateMs), () => ({ request: hub.requestCount, panel: hub.panelCount }));
+  attachSignaling(app, rooms, sig, requestChannels(app, requests, sig.revalidateMs), () => ({
+    request: hub.requestCount,
+    panel: hub.panelCount,
+  }));
   if (deps.startJobs) {
     let jobs: Scheduler | undefined;
     app.addHook("onReady", async () => {

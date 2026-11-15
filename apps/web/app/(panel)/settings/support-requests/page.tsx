@@ -29,7 +29,11 @@ export default async function SupportRequestSettingsPage() {
     return (
       <>
         {header}
-        <div className="mt-6 max-w-xl"><Alert tone="warning" testId="settings-forbidden">{t("srs.forbidden")}</Alert></div>
+        <div className="mt-6 max-w-xl">
+          <Alert tone="warning" testId="settings-forbidden">
+            {t("srs.forbidden")}
+          </Alert>
+        </div>
       </>
     );
   }
@@ -50,7 +54,13 @@ export default async function SupportRequestSettingsPage() {
       <>
         {header}
         <div className="mt-6 max-w-xl">
-          {res.status === 403 ? <Alert tone="warning" testId="settings-forbidden">{t("srs.forbidden")}</Alert> : <LoadError />}
+          {res.status === 403 ? (
+            <Alert tone="warning" testId="settings-forbidden">
+              {t("srs.forbidden")}
+            </Alert>
+          ) : (
+            <LoadError />
+          )}
         </div>
       </>
     );

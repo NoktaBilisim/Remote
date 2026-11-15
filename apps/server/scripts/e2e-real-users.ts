@@ -40,7 +40,14 @@ async function upsertAdmin(prisma: PrismaClient, tenantId: string, email: string
         data: { passwordHash, mustChangePassword: false, failedLoginCount: 0, failedWindowAt: null, lockedUntil: null, status: "ACTIVE" },
       }),
       prisma.auditLog.create({
-        data: { tenantId, action: "user.password_reset", entity: "users", entityId: existing.id, newValue: { email, source: "e2e-real-users" }, result: "success" },
+        data: {
+          tenantId,
+          action: "user.password_reset",
+          entity: "users",
+          entityId: existing.id,
+          newValue: { email, source: "e2e-real-users" },
+          result: "success",
+        },
       }),
     ]);
     return "updated";
@@ -49,7 +56,14 @@ async function upsertAdmin(prisma: PrismaClient, tenantId: string, email: string
   await prisma.$transaction([
     prisma.user.create({ data: { id, tenantId, email, fullName, role: "ADMIN", passwordHash, mustChangePassword: false } }),
     prisma.auditLog.create({
-      data: { tenantId, action: "user.created", entity: "users", entityId: id, newValue: { email, role: "ADMIN", source: "e2e-real-users" }, result: "success" },
+      data: {
+        tenantId,
+        action: "user.created",
+        entity: "users",
+        entityId: id,
+        newValue: { email, role: "ADMIN", source: "e2e-real-users" },
+        result: "success",
+      },
     }),
   ]);
   return "created";
@@ -58,7 +72,9 @@ async function upsertAdmin(prisma: PrismaClient, tenantId: string, email: string
 async function main(): Promise<void> {
   if (process.env.NODE_ENV === "production") throw new Error("NODE_ENV=production iken çalıştırılamaz");
   if (process.env.E2E_REAL_ALLOW !== "1") {
-    throw new Error("açık izin yok: bu araç demo tenant'taki ADMIN parolalarını sıfırlar; yalnız test/staging DB'sinde E2E_REAL_ALLOW=1 ile çalıştırın");
+    throw new Error(
+      "açık izin yok: bu araç demo tenant'taki ADMIN parolalarını sıfırlar; yalnız test/staging DB'sinde E2E_REAL_ALLOW=1 ile çalıştırın",
+    );
   }
   const { emails, password } = readInput();
   const prisma = new PrismaClient({ adapter: new PrismaMariaDb(requireEnv("DATABASE_URL")) });

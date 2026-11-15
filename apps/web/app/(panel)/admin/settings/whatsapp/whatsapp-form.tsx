@@ -144,16 +144,33 @@ export function WhatsappForm({ initial: raw }: { initial: WhatsappServiceView })
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       {!configured ? (
-        <Alert tone="info" testId="wa-svc-empty">{t("wa.svc.empty")}</Alert>
+        <Alert tone="info" testId="wa-svc-empty">
+          {t("wa.svc.empty")}
+        </Alert>
       ) : (
         <>
-          {saved.source === "env" && <Alert tone="info" testId="wa-svc-env-source">{t("wa.svc.envSource")}</Alert>}
+          {saved.source === "env" && (
+            <Alert tone="info" testId="wa-svc-env-source">
+              {t("wa.svc.envSource")}
+            </Alert>
+          )}
         </>
       )}
-      {saved.insecure && <Alert tone="warning" testId="wa-svc-insecure">{t("wa.svc.insecure", { warning: WA_INSECURE_WARNING })}</Alert>}
+      {saved.insecure && (
+        <Alert tone="warning" testId="wa-svc-insecure">
+          {t("wa.svc.insecure", { warning: WA_INSECURE_WARNING })}
+        </Alert>
+      )}
       {formError && <FormError error={formError} />}
 
-      <form id={FORM_ID} onSubmit={submit} noValidate className="flex flex-col gap-6" data-testid="wa-svc-form" data-ready={ready ? "true" : "false"}>
+      <form
+        id={FORM_ID}
+        onSubmit={submit}
+        noValidate
+        className="flex flex-col gap-6"
+        data-testid="wa-svc-form"
+        data-ready={ready ? "true" : "false"}
+      >
         <fieldset disabled={busy} className="flex flex-col gap-6">
           <Section
             id="wa-svc"
@@ -162,11 +179,18 @@ export function WhatsappForm({ initial: raw }: { initial: WhatsappServiceView })
             aside={<SourceBadge source={saved.source} panel={t("wa.svc.panelBadge")} env={t("wa.svc.envBadge")} />}
           >
             <p className="text-sm text-fg-muted">{t("wa.svc.intro")}</p>
-            <dl className="grid gap-x-4 gap-y-2 rounded-md border border-border bg-canvas px-3 py-2.5 text-sm sm:grid-cols-[9rem_1fr]" data-testid="wa-svc-summary">
+            <dl
+              className="grid gap-x-4 gap-y-2 rounded-md border border-border bg-canvas px-3 py-2.5 text-sm sm:grid-cols-[9rem_1fr]"
+              data-testid="wa-svc-summary"
+            >
               <dt className="text-fg-muted">{t("wa.svc.effective")}</dt>
-              <dd className="min-w-0 font-mono break-all text-fg" data-testid="wa-svc-effective">{saved.url ?? t("wa.svc.none")}</dd>
+              <dd className="min-w-0 font-mono break-all text-fg" data-testid="wa-svc-effective">
+                {saved.url ?? t("wa.svc.none")}
+              </dd>
               <dt className="text-fg-muted">{t("wa.svc.updated")}</dt>
-              <dd className="text-fg tabular-nums" data-testid="wa-svc-updated">{saved.updatedAt ? formatDateTime(saved.updatedAt) : t("wa.svc.never")}</dd>
+              <dd className="text-fg tabular-nums" data-testid="wa-svc-updated">
+                {saved.updatedAt ? formatDateTime(saved.updatedAt) : t("wa.svc.never")}
+              </dd>
             </dl>
             <TextField
               ref={urlRef}
@@ -215,7 +239,14 @@ export function WhatsappForm({ initial: raw }: { initial: WhatsappServiceView })
 
       <WhatsappTestSection configured={configured} canTest={canTest} dirty={dirty} ready={ready} />
 
-      <SaveBar dirty={dirty && !confirmReset && !confirmKeyRemove} busy={busy} formId={FORM_ID} onReset={reset} message={t("wa.svc.unsaved")} leaveBody={t("wa.svc.leaveBody")} />
+      <SaveBar
+        dirty={dirty && !confirmReset && !confirmKeyRemove}
+        busy={busy}
+        formId={FORM_ID}
+        onReset={reset}
+        message={t("wa.svc.unsaved")}
+        leaveBody={t("wa.svc.leaveBody")}
+      />
 
       <WhatsappApiKeyRemoveDialog
         open={confirmKeyRemove}

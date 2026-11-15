@@ -29,7 +29,17 @@ const toDraft = (f: AuditFilters): Draft => ({
  * denetlenir (başlangıç ≤ bitiş, ≤ 731 gün) — geçersizse istek atılmaz. Kullanıcı seçenekleri /users'tan (yoksa sayfadaki
  * kayıtlardan), firma filtresi yalnız firma seçmemiş Super Admin'de.
  */
-export function AuditFiltersForm({ filters, users, usersHint, tenants }: { filters: AuditFilters; users: Opt[]; usersHint?: string; tenants: Opt[] | null }) {
+export function AuditFiltersForm({
+  filters,
+  users,
+  usersHint,
+  tenants,
+}: {
+  filters: AuditFilters;
+  users: Opt[];
+  usersHint?: string;
+  tenants: Opt[] | null;
+}) {
   const router = useRouter();
   const [draft, setDraft] = useState<Draft>(() => toDraft(filters));
   const [errors, setErrors] = useState<Partial<Record<"from" | "to", string>>>({});
@@ -46,7 +56,13 @@ export function AuditFiltersForm({ filters, users, usersHint, tenants }: { filte
     e.preventDefault();
     const err = rangeError(draft.from || undefined, draft.to || undefined, today);
     if (err) {
-      setErrors(err === "date" ? { [draft.from && !/^\d{4}-\d{2}-\d{2}$/.test(draft.from) ? "from" : "to"]: t("h.v.date") } : err === "order" ? { to: t("h.v.dateOrder") } : { from: t("au.v.range") });
+      setErrors(
+        err === "date"
+          ? { [draft.from && !/^\d{4}-\d{2}-\d{2}$/.test(draft.from) ? "from" : "to"]: t("h.v.date") }
+          : err === "order"
+            ? { to: t("h.v.dateOrder") }
+            : { from: t("au.v.range") },
+      );
       return;
     }
     const next = Object.fromEntries(Object.entries(draft).filter(([, v]) => v !== "")) as AuditFilters;
@@ -66,10 +82,47 @@ export function AuditFiltersForm({ filters, users, usersHint, tenants }: { filte
       data-testid="audit-filters"
       className="grid grid-cols-1 gap-4 rounded-lg border border-border bg-surface p-4 sm:grid-cols-2 lg:grid-cols-4"
     >
-      <TextField label={t("h.f.from")} type="date" name="from" value={draft.from} max={today} onChange={set("from")} error={errors.from} hint={t("au.f.rangeHint")} data-testid="audit-from" />
-      <TextField label={t("h.f.to")} type="date" name="to" value={draft.to} max={today} onChange={set("to")} error={errors.to} hint={t("h.f.dateHint")} data-testid="audit-to" />
-      {tenants && <SelectField label={t("h.f.tenant")} name="tenantId" value={draft.tenantId} onChange={set("tenantId")} options={[all, ...tenants]} data-testid="audit-tenant" />}
-      <SelectField label={t("au.f.user")} name="userId" value={draft.userId} onChange={set("userId")} options={[all, ...users]} hint={usersHint} data-testid="audit-user" />
+      <TextField
+        label={t("h.f.from")}
+        type="date"
+        name="from"
+        value={draft.from}
+        max={today}
+        onChange={set("from")}
+        error={errors.from}
+        hint={t("au.f.rangeHint")}
+        data-testid="audit-from"
+      />
+      <TextField
+        label={t("h.f.to")}
+        type="date"
+        name="to"
+        value={draft.to}
+        max={today}
+        onChange={set("to")}
+        error={errors.to}
+        hint={t("h.f.dateHint")}
+        data-testid="audit-to"
+      />
+      {tenants && (
+        <SelectField
+          label={t("h.f.tenant")}
+          name="tenantId"
+          value={draft.tenantId}
+          onChange={set("tenantId")}
+          options={[all, ...tenants]}
+          data-testid="audit-tenant"
+        />
+      )}
+      <SelectField
+        label={t("au.f.user")}
+        name="userId"
+        value={draft.userId}
+        onChange={set("userId")}
+        options={[all, ...users]}
+        hint={usersHint}
+        data-testid="audit-user"
+      />
       <SelectField
         label={t("au.f.action")}
         name="action"

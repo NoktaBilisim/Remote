@@ -46,7 +46,21 @@ export const CUSTOMER_NAME_CONFLICT_MESSAGE = "Bu adla bir müşteri zaten var";
 // Katlama ve etiket (mimari-e10 §3.6; web + server ortak; fixture `fixtures/customers.json`)
 // ---------------------------------------------------------------------------------------------------------------
 
-const TR_FOLD: Readonly<Record<string, string>> = { İ: "i", I: "i", ı: "i", Ş: "s", ş: "s", Ğ: "g", ğ: "g", Ç: "c", ç: "c", Ö: "o", ö: "o", Ü: "u", ü: "u" };
+const TR_FOLD: Readonly<Record<string, string>> = {
+  İ: "i",
+  I: "i",
+  ı: "i",
+  Ş: "s",
+  ş: "s",
+  Ğ: "g",
+  ğ: "g",
+  Ç: "c",
+  ç: "c",
+  Ö: "o",
+  ö: "o",
+  Ü: "u",
+  ü: "u",
+};
 
 /**
  * Harf ve Türkçe karakter duyarsız anahtar: NFKC → Türkçe harfler ASCII'ye → `toLowerCase()` (Türkçe harfler önceden
@@ -67,7 +81,20 @@ export function foldKey(s: string): string {
 /** Yalnız ASCII rakamlar (telefon araması). */
 export const digitsOf = (s: string): string => s.replace(/[^0-9]/g, "");
 
-const TR_ASCII: Readonly<Record<string, string>> = { ı: "i", İ: "I", ş: "s", Ş: "S", ğ: "g", Ğ: "G", ç: "c", Ç: "C", ö: "o", Ö: "O", ü: "u", Ü: "U" };
+const TR_ASCII: Readonly<Record<string, string>> = {
+  ı: "i",
+  İ: "I",
+  ş: "s",
+  Ş: "S",
+  ğ: "g",
+  Ğ: "G",
+  ç: "c",
+  Ç: "C",
+  ö: "o",
+  Ö: "O",
+  ü: "u",
+  Ü: "U",
+};
 
 /**
  * Dosya etiketi önerisi (AC-130, AC-167; P8b `fileLabelOf` buraya taşındı, davranış aynı): Türkçe harfler ASCII'ye,

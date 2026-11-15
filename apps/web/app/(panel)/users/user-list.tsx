@@ -9,7 +9,11 @@ import type { UserListItem } from "@/lib/users/contract";
 export function StatusPill({ status, testId = "status-pill" }: { status: "ACTIVE" | "PASSIVE"; testId?: string }) {
   const cls = status === "ACTIVE" ? "bg-success-surface text-success" : "bg-surface-muted text-fg-muted";
   return (
-    <span data-testid={testId} data-status={status} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${cls}`}>
+    <span
+      data-testid={testId}
+      data-status={status}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${cls}`}
+    >
       <span aria-hidden className="size-1.5 rounded-full bg-current" />
       {t(`us.status.${status}`)}
     </span>
@@ -36,26 +40,47 @@ export function UserList({ items, selfId }: { items: UserListItem[]; selfId: str
   );
   return (
     <>
-      <div className="hidden overflow-x-auto rounded-lg border border-border bg-surface md:block" tabIndex={0} role="region" aria-label={t("us.tableRegion")}>
+      <div
+        className="hidden overflow-x-auto rounded-lg border border-border bg-surface md:block"
+        tabIndex={0}
+        role="region"
+        aria-label={t("us.tableRegion")}
+      >
         <table className="w-full text-left text-sm" data-testid="users-table">
           <caption className="sr-only">{t("us.title")}</caption>
           <thead className="bg-surface-muted text-xs text-fg-muted">
             <tr>
-              <th scope="col" className="px-3 py-3 font-medium">{t("us.col.name")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("us.col.email")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("us.col.role")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("us.col.lastLogin")}</th>
-              <th scope="col" className="px-3 py-3 font-medium">{t("us.col.status")}</th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("us.col.name")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("us.col.email")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("us.col.role")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("us.col.lastLogin")}
+              </th>
+              <th scope="col" className="px-3 py-3 font-medium">
+                {t("us.col.status")}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {items.map((u) => (
               <tr key={u.id} data-testid="user-row" className="hover:bg-surface-muted">
                 <td className="max-w-72 px-3 py-1">{nameCell(u)}</td>
-                <td className="max-w-64 truncate px-3 py-1 text-fg" title={u.email}>{u.email}</td>
-                <td className="px-3 py-1 whitespace-nowrap text-fg" data-testid="user-role">{roleText(u.role)}</td>
+                <td className="max-w-64 truncate px-3 py-1 text-fg" title={u.email}>
+                  {u.email}
+                </td>
+                <td className="px-3 py-1 whitespace-nowrap text-fg" data-testid="user-role">
+                  {roleText(u.role)}
+                </td>
                 <td className="px-3 py-1 whitespace-nowrap tabular-nums text-fg">{lastLogin(u)}</td>
-                <td className="px-3 py-1"><StatusPill status={u.status} testId="user-status" /></td>
+                <td className="px-3 py-1">
+                  <StatusPill status={u.status} testId="user-status" />
+                </td>
               </tr>
             ))}
           </tbody>

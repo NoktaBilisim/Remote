@@ -14,12 +14,14 @@ function deferred() {
 function job(g: ConcurrencyGate, key: string) {
   const d = deferred();
   const state = { started: false, error: undefined as unknown };
-  const done = g.run(key, async () => {
-    state.started = true;
-    await d.p;
-  }).catch((e: unknown) => {
-    state.error = e;
-  });
+  const done = g
+    .run(key, async () => {
+      state.started = true;
+      await d.p;
+    })
+    .catch((e: unknown) => {
+      state.error = e;
+    });
   return { state, release: d.resolve, done };
 }
 

@@ -14,7 +14,17 @@ import { TextField } from "@/components/ui/text-field";
 import { useToast } from "@/components/ui/toast";
 import { MailTestDialog } from "@/components/account/mail-test-dialog";
 import { SMTP_DEFAULT_PORTS, type SmtpSecurity, type SmtpSettingsView, type TenantSettingsView } from "@/lib/account/contract";
-import { buildSmtpInput, smtpCredsAllowed, smtpDirty, smtpPortOptions, smtpServerFields, suggestPort, toSmtpState, type SmtpField, type SmtpState } from "@/lib/account/smtp-form";
+import {
+  buildSmtpInput,
+  smtpCredsAllowed,
+  smtpDirty,
+  smtpPortOptions,
+  smtpServerFields,
+  suggestPort,
+  toSmtpState,
+  type SmtpField,
+  type SmtpState,
+} from "@/lib/account/smtp-form";
 import { api, ApiError, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
@@ -65,7 +75,12 @@ export function SmtpForm({ initial, canEdit }: { initial: SmtpSettingsView | nul
   };
   const setSecurity = (security: SmtpSecurity) => {
     setSt((s) => ({ ...s, security, port: suggestPort(s.port, security) }));
-    setErrors((x) => ({ ...x, security: undefined, port: undefined, ...(smtpCredsAllowed(security) ? {} : { user: undefined, password: undefined }) }));
+    setErrors((x) => ({
+      ...x,
+      security: undefined,
+      port: undefined,
+      ...(smtpCredsAllowed(security) ? {} : { user: undefined, password: undefined }),
+    }));
   };
   const reset = () => {
     setSt(base);
@@ -121,18 +136,46 @@ export function SmtpForm({ initial, canEdit }: { initial: SmtpSettingsView | nul
   const hasPw = Boolean(saved?.hasPassword) && credsOn;
   return (
     <div className="flex max-w-3xl flex-col gap-6">
-      {!canEdit && <Alert tone="warning" testId="settings-readonly">{t("set.readonly")}</Alert>}
-      {!saved && <Alert tone="warning" testId="smtp-unconfigured">{t("smtp.unconfigured")}</Alert>}
+      {!canEdit && (
+        <Alert tone="warning" testId="settings-readonly">
+          {t("set.readonly")}
+        </Alert>
+      )}
+      {!saved && (
+        <Alert tone="warning" testId="smtp-unconfigured">
+          {t("smtp.unconfigured")}
+        </Alert>
+      )}
       {formError && <FormError error={formError} />}
       <form id={FORM_ID} ref={formRef} onSubmit={submit} noValidate className="flex flex-col gap-6" data-testid="smtp-form">
         <fieldset disabled={!canEdit || busy} className="flex flex-col gap-6">
           <Section id="srv" title={t("smtp.server")} Icon={Server}>
             <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
-              <TextField label={t("smtp.host")} value={st.host} onChange={set("host")} error={errors.host} placeholder="smtp.ornek.com" autoComplete="off" spellCheck={false} autoCapitalize="none" maxLength={253} data-testid="smtp-host" />
-              <SelectField label={t("smtp.port")} value={st.port} onChange={set("port")} error={errors.port} options={smtpPortOptions(st.port, (port) => t("smtp.portInvalid", { port }))} data-testid="smtp-port" />
+              <TextField
+                label={t("smtp.host")}
+                value={st.host}
+                onChange={set("host")}
+                error={errors.host}
+                placeholder="smtp.ornek.com"
+                autoComplete="off"
+                spellCheck={false}
+                autoCapitalize="none"
+                maxLength={253}
+                data-testid="smtp-host"
+              />
+              <SelectField
+                label={t("smtp.port")}
+                value={st.port}
+                onChange={set("port")}
+                error={errors.port}
+                options={smtpPortOptions(st.port, (port) => t("smtp.portInvalid", { port }))}
+                data-testid="smtp-port"
+              />
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-fg" aria-hidden>{t("smtp.security")}</span>
+              <span className="text-sm font-medium text-fg" aria-hidden>
+                {t("smtp.security")}
+              </span>
               <Segmented
                 label={t("smtp.security")}
                 value={st.security}
@@ -145,11 +188,19 @@ export function SmtpForm({ initial, canEdit }: { initial: SmtpSettingsView | nul
                 ]}
               />
               {errors.security ? (
-                <p className="text-xs font-medium text-danger" role="alert" data-testid="smtp-security-error">{errors.security}</p>
+                <p className="text-xs font-medium text-danger" role="alert" data-testid="smtp-security-error">
+                  {errors.security}
+                </p>
               ) : (
-                <p className="text-xs text-fg-muted" data-testid="smtp-port-hint">{t("smtp.portHint", { port: SMTP_DEFAULT_PORTS[st.security] })}</p>
+                <p className="text-xs text-fg-muted" data-testid="smtp-port-hint">
+                  {t("smtp.portHint", { port: SMTP_DEFAULT_PORTS[st.security] })}
+                </p>
               )}
-              {st.security === "NONE" && <Alert tone="warning" testId="smtp-insecure">{t("smtp.insecure")}</Alert>}
+              {st.security === "NONE" && (
+                <Alert tone="warning" testId="smtp-insecure">
+                  {t("smtp.insecure")}
+                </Alert>
+              )}
             </div>
           </Section>
 
@@ -160,7 +211,19 @@ export function SmtpForm({ initial, canEdit }: { initial: SmtpSettingsView | nul
                 {saved?.user ? ` ${t("smtp.credsWillClear")}` : ""}
               </p>
             )}
-            <TextField label={t("smtp.user")} value={credsOn ? st.user : ""} onChange={set("user")} disabled={!credsOn} error={errors.user} hint={credsOn ? t("smtp.userHint") : undefined} autoComplete="off" spellCheck={false} autoCapitalize="none" maxLength={190} data-testid="smtp-user" />
+            <TextField
+              label={t("smtp.user")}
+              value={credsOn ? st.user : ""}
+              onChange={set("user")}
+              disabled={!credsOn}
+              error={errors.user}
+              hint={credsOn ? t("smtp.userHint") : undefined}
+              autoComplete="off"
+              spellCheck={false}
+              autoCapitalize="none"
+              maxLength={190}
+              data-testid="smtp-user"
+            />
             <TextField
               label={t("smtp.password")}
               type="password"
@@ -179,17 +242,46 @@ export function SmtpForm({ initial, canEdit }: { initial: SmtpSettingsView | nul
 
           <Section id="from" title={t("smtp.from")} Icon={UserRound}>
             <div className="grid gap-4 sm:grid-cols-2">
-              <TextField label={t("smtp.fromName")} value={st.fromName} onChange={set("fromName")} error={errors.fromName} placeholder={t("app.name")} maxLength={100} autoComplete="off" data-testid="smtp-from-name" />
-              <TextField label={t("smtp.fromEmail")} type="email" value={st.fromEmail} onChange={set("fromEmail")} error={errors.fromEmail} placeholder="destek@ornek.com" maxLength={190} autoComplete="off" spellCheck={false} data-testid="smtp-from-email" />
+              <TextField
+                label={t("smtp.fromName")}
+                value={st.fromName}
+                onChange={set("fromName")}
+                error={errors.fromName}
+                placeholder={t("app.name")}
+                maxLength={100}
+                autoComplete="off"
+                data-testid="smtp-from-name"
+              />
+              <TextField
+                label={t("smtp.fromEmail")}
+                type="email"
+                value={st.fromEmail}
+                onChange={set("fromEmail")}
+                error={errors.fromEmail}
+                placeholder="destek@ornek.com"
+                maxLength={190}
+                autoComplete="off"
+                spellCheck={false}
+                data-testid="smtp-from-email"
+              />
             </div>
           </Section>
         </fieldset>
       </form>
 
       <Section id="test" title={t("smtp.testTitle")} Icon={Send}>
-        <p className="text-sm text-fg-muted" id="smtp-test-note">{!saved ? t("smtp.testNeedsConfig") : dirty ? t("smtp.testNeedsSave") : t("smtp.testBody")}</p>
+        <p className="text-sm text-fg-muted" id="smtp-test-note">
+          {!saved ? t("smtp.testNeedsConfig") : dirty ? t("smtp.testNeedsSave") : t("smtp.testBody")}
+        </p>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Button type="button" variant="secondary" disabled={!saved || dirty || !canEdit} aria-describedby="smtp-test-note" onClick={() => setTestOpen(true)} data-testid="smtp-test-open">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!saved || dirty || !canEdit}
+            aria-describedby="smtp-test-note"
+            onClick={() => setTestOpen(true)}
+            data-testid="smtp-test-open"
+          >
             <Send aria-hidden className="size-4" />
             {t("smtp.test")}
           </Button>
@@ -211,7 +303,16 @@ export function SmtpForm({ initial, canEdit }: { initial: SmtpSettingsView | nul
         </div>
       </Section>
 
-      {canEdit && <SaveBar dirty={dirty && !confirmClear} busy={busy} formId={FORM_ID} onReset={reset} message={t("smtp.unsaved")} leaveBody={t("smtp.leaveBody")} />}
+      {canEdit && (
+        <SaveBar
+          dirty={dirty && !confirmClear}
+          busy={busy}
+          formId={FORM_ID}
+          onReset={reset}
+          message={t("smtp.unsaved")}
+          leaveBody={t("smtp.leaveBody")}
+        />
+      )}
 
       <Dialog
         open={confirmClear}
@@ -246,7 +347,14 @@ export function SmtpForm({ initial, canEdit }: { initial: SmtpSettingsView | nul
           </>
         }
       />
-      <MailTestDialog open={testOpen} onClose={() => setTestOpen(false)} path="/settings/smtp/test" title={t("smtp.test")} body={t("smtp.testDialogBody")} testId="smtp-test-dialog" />
+      <MailTestDialog
+        open={testOpen}
+        onClose={() => setTestOpen(false)}
+        path="/settings/smtp/test"
+        title={t("smtp.test")}
+        body={t("smtp.testDialogBody")}
+        testId="smtp-test-dialog"
+      />
     </div>
   );
 }

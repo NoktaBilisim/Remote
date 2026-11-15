@@ -12,7 +12,17 @@ import { t } from "@/lib/i18n";
 type Tab = "chat" | "files";
 
 /** Müşteri sayfası: teknisyenle sohbet + dosyalar. `file_transfer` yeteneği yoksa Dosyalar sekmesi gizli (G-09). */
-export function GuestCollab({ collab, filesAllowed, techName, onChatVisible }: { collab: Collab; filesAllowed: boolean; techName: string; onChatVisible: (v: boolean) => void }) {
+export function GuestCollab({
+  collab,
+  filesAllowed,
+  techName,
+  onChatVisible,
+}: {
+  collab: Collab;
+  filesAllowed: boolean;
+  techName: string;
+  onChatVisible: (v: boolean) => void;
+}) {
   const [tab, setTab] = useState<Tab>("chat");
   // Gelen dosya teklifi: kabul diyaloğu Dosyalar sekmesinde → yeni teklifte oraya geç (render sırasında, efektsiz)
   const offer = collab.transfers.find((x) => x.dir === "in" && x.status === "pending")?.fid ?? null;
@@ -24,20 +34,35 @@ export function GuestCollab({ collab, filesAllowed, techName, onChatVisible }: {
   const cur = filesAllowed ? tab : "chat";
   useEffect(() => onChatVisible(cur === "chat"), [cur, onChatVisible]);
   return (
-    <section aria-labelledby="iletisim-t" className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 shadow-sm" data-testid="guest-collab">
-      <h2 id="iletisim-t" className="text-lg font-semibold text-fg">{t("p5.g.collab")}</h2>
+    <section
+      aria-labelledby="iletisim-t"
+      className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 shadow-sm"
+      data-testid="guest-collab"
+    >
+      <h2 id="iletisim-t" className="text-lg font-semibold text-fg">
+        {t("p5.g.collab")}
+      </h2>
       {filesAllowed && (
         <Segmented<Tab>
           label={t("p5.side")}
           value={cur}
           onChange={setTab}
           options={[
-            { value: "chat", label: t("p5.tab.chat"), icon: <MessageSquare aria-hidden className="size-4" />, ...(collab.chat.unread ? { count: collab.chat.unread } : {}) },
+            {
+              value: "chat",
+              label: t("p5.tab.chat"),
+              icon: <MessageSquare aria-hidden className="size-4" />,
+              ...(collab.chat.unread ? { count: collab.chat.unread } : {}),
+            },
             { value: "files", label: t("p5.tab.files"), icon: <Paperclip aria-hidden className="size-4" /> },
           ]}
         />
       )}
-      {cur === "chat" ? <ChatPanel collab={collab} peerName={techName} /> : <FilesPanel collab={collab} allowed={filesAllowed} peerName={techName} />}
+      {cur === "chat" ? (
+        <ChatPanel collab={collab} peerName={techName} />
+      ) : (
+        <FilesPanel collab={collab} allowed={filesAllowed} peerName={techName} />
+      )}
       {/* Teklif yetkisiz gelse bile FilesPanel kapalıyken diyalog açılmaz: FileTransfers otomatik reddeder */}
     </section>
   );

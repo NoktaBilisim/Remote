@@ -1,6 +1,14 @@
 // P10 hesap güvenliği servisleri: 2FA kurulum/etkinleştirme/doğrulama (AC-67), tüm cihazlardan çıkış (AC-68, 115),
 // e-posta ile şifre sıfırlama (AC-66), kilit bildirimi (AC-65). Handler'lar yalnız doğrulama + çağrı + yanıt.
-import { RECOVERY_CODE_COUNT, RESET_PASSWORD_PATH, RESET_TOKEN_TTL_MIN, type MfaEnableResponse, type MfaSetupResponse, type MfaVerifyInput, type PasswordResetInput } from "@remote/contracts/api/auth";
+import {
+  RECOVERY_CODE_COUNT,
+  RESET_PASSWORD_PATH,
+  RESET_TOKEN_TTL_MIN,
+  type MfaEnableResponse,
+  type MfaSetupResponse,
+  type MfaVerifyInput,
+  type PasswordResetInput,
+} from "@remote/contracts/api/auth";
 import { AUTH_AUDIT } from "@remote/contracts/audit";
 import QRCode from "qrcode";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
@@ -70,7 +78,10 @@ function hitMfaLimit(d: AccountDeps, userId: string, ip: string): void {
   if (wait > 0) throw new AppError("RATE_LIMITED", { retryAfterSec: wait });
   const pairHit = d.limits.mfaPair.hit(pair);
   const userHit = d.limits.mfaUser.hit(userId);
-  if (pairHit || userHit) throw new AppError("RATE_LIMITED", { retryAfterSec: Math.max(d.limits.mfaPair.blockedFor(pair), d.limits.mfaUser.blockedFor(userId)) || 60 });
+  if (pairHit || userHit)
+    throw new AppError("RATE_LIMITED", {
+      retryAfterSec: Math.max(d.limits.mfaPair.blockedFor(pair), d.limits.mfaUser.blockedFor(userId)) || 60,
+    });
 }
 function resetMfaLimit(d: AccountDeps, userId: string, ip: string): void {
   d.limits.mfaPair.reset(`${userId}|${ipKey(ip)}`);
@@ -78,16 +89,27 @@ function resetMfaLimit(d: AccountDeps, userId: string, ip: string): void {
 }
 
 /** Şifreli sır (koşullu UPDATE için ham bayt) + çözülmüş hali. `db` TX içinde `tx` verilir. */
-async function loadSecret(d: AccountDeps, db: Pick<Db, "user">, userId: string): Promise<{ enc: Uint8Array<ArrayBuffer> | null; secret: string | null; enabled: boolean }> {
+async function loadSecret(
+  d: AccountDeps,
+  db: Pick<Db, "user">,
+  userId: string,
+): Promise<{ enc: Uint8Array<ArrayBuffer> | null; secret: string | null; enabled: boolean }> {
   const u = await db.user.findUniqueOrThrow({ where: { id: userId }, select: { totpSecretEnc: true, totpEnabled: true } });
-  return { enc: u.totpSecretEnc, secret: u.totpSecretEnc ? d.secrets.decrypt(u.totpSecretEnc, aadFor.totpSecret(userId)) : null, enabled: u.totpEnabled };
+  return {
+    enc: u.totpSecretEnc,
+    secret: u.totpSecretEnc ? d.secrets.decrypt(u.totpSecretEnc, aadFor.totpSecret(userId)) : null,
+    enabled: u.totpEnabled,
+  };
 }
 
 /** POST /auth/mfa/setup: yeni sır (şifreli) yazılır; etkinse 409 (önce Admin sıfırlaması). */
 export async function mfaSetup(d: AccountDeps, ctx: AuditContext, auth: AuthContext): Promise<MfaSetupResponse> {
   const secret = newTotpSecret();
   await d.db.$transaction(async (tx) => {
-    const r = await tx.user.updateMany({ where: { id: auth.user.id, totpEnabled: false }, data: { totpSecretEnc: d.secrets.encrypt(secret, aadFor.totpSecret(auth.user.id)), totpLastStep: null } });
+    const r = await tx.user.updateMany({
+      where: { id: auth.user.id, totpEnabled: false },
+      data: { totpSecretEnc: d.secrets.encrypt(secret, aadFor.totpSecret(auth.user.id)), totpLastStep: null },
+    });
     if (r.count === 0) throw new AppError("CONFLICT", { message: "İki adımlı doğrulama zaten etkin." });
     await writeAudit(tx, ctx, { ...who(auth), action: AUTH_AUDIT.MFA_SETUP, entity: "users", entityId: auth.user.id, result: "success" });
   });
@@ -108,19 +130,42 @@ export async function mfaEnable(d: AccountDeps, ctx: AuditContext, auth: AuthCon
   if (!secret || !enc) throw new AppError("CONFLICT", { message: "Önce kurulumu başlatın." });
   const step = matchTotp(secret, code, d.now?.() ?? Date.now());
   if (step === null) {
-    await writeAudit(d.db, ctx, { ...who(auth), action: AUTH_AUDIT.MFA_ENABLED, entity: "users", entityId: auth.user.id, result: "fail", newValue: { reason: "invalid_code" } });
+    await writeAudit(d.db, ctx, {
+      ...who(auth),
+      action: AUTH_AUDIT.MFA_ENABLED,
+      entity: "users",
+      entityId: auth.user.id,
+      result: "fail",
+      newValue: { reason: "invalid_code" },
+    });
     throw new AppError("VALIDATION", { fields: { code: "Kod hatalı veya süresi geçmiş." } });
   }
   const codes = Array.from({ length: RECOVERY_CODE_COUNT }, newRecoveryCode);
   const now = new Date();
   await d.db.$transaction(async (tx) => {
-    const r = await tx.user.updateMany({ where: { id: auth.user.id, totpEnabled: false, totpSecretEnc: { equals: enc } }, data: { totpEnabled: true, totpLastStep: BigInt(step) } });
-    if (r.count === 0) throw new AppError("CONFLICT", { message: "Kurulum değişti veya iki adımlı doğrulama zaten etkin; sayfayı yenileyin." });
+    const r = await tx.user.updateMany({
+      where: { id: auth.user.id, totpEnabled: false, totpSecretEnc: { equals: enc } },
+      data: { totpEnabled: true, totpLastStep: BigInt(step) },
+    });
+    if (r.count === 0)
+      throw new AppError("CONFLICT", { message: "Kurulum değişti veya iki adımlı doğrulama zaten etkin; sayfayı yenileyin." });
     await tx.recoveryCode.deleteMany({ where: { userId: auth.user.id } });
-    await tx.recoveryCode.createMany({ data: codes.map((c) => ({ id: newId(), userId: auth.user.id, codeHash: recoveryCodeHash(d.secrets, c) })) });
+    await tx.recoveryCode.createMany({
+      data: codes.map((c) => ({ id: newId(), userId: auth.user.id, codeHash: recoveryCodeHash(d.secrets, c) })),
+    });
     await tx.authSession.update({ where: { id: auth.sessionId }, data: { mfaPassed: true } });
-    const revoked = await tx.authSession.updateMany({ where: { userId: auth.user.id, revokedAt: null, id: { not: auth.sessionId } }, data: { revokedAt: now } });
-    await writeAudit(tx, ctx, { ...who(auth), action: AUTH_AUDIT.MFA_ENABLED, entity: "users", entityId: auth.user.id, result: "success", newValue: { revokedSessions: revoked.count } });
+    const revoked = await tx.authSession.updateMany({
+      where: { userId: auth.user.id, revokedAt: null, id: { not: auth.sessionId } },
+      data: { revokedAt: now },
+    });
+    await writeAudit(tx, ctx, {
+      ...who(auth),
+      action: AUTH_AUDIT.MFA_ENABLED,
+      entity: "users",
+      entityId: auth.user.id,
+      result: "success",
+      newValue: { revokedSessions: revoked.count },
+    });
   });
   resetMfaLimit(d, auth.user.id, ctx.ip);
   void d.mail
@@ -139,7 +184,14 @@ export async function mfaVerify(d: AccountDeps, ctx: AuditContext, auth: AuthCon
   const userId = auth.user.id;
   const method = "code" in input ? "totp" : "recovery";
   const fail = async (reason: string): Promise<never> => {
-    await writeAudit(d.db, ctx, { ...who(auth), action: AUTH_AUDIT.MFA_VERIFY, entity: "users", entityId: userId, result: "fail", newValue: { method, reason } });
+    await writeAudit(d.db, ctx, {
+      ...who(auth),
+      action: AUTH_AUDIT.MFA_VERIFY,
+      entity: "users",
+      entityId: userId,
+      result: "fail",
+      newValue: { method, reason },
+    });
     throw new AppError("UNAUTHENTICATED", { message: "Doğrulama kodu hatalı." });
   };
   const now = new Date(d.now?.() ?? Date.now());
@@ -148,16 +200,29 @@ export async function mfaVerify(d: AccountDeps, ctx: AuditContext, auth: AuthCon
       const { secret } = await loadSecret(d, tx, userId);
       const step = secret ? matchTotp(secret, input.code, now.getTime()) : null;
       if (step === null) return null;
-      const r = await tx.user.updateMany({ where: { id: userId, totpEnabled: true, OR: [{ totpLastStep: null }, { totpLastStep: { lt: BigInt(step) } }] }, data: { totpLastStep: BigInt(step) } });
+      const r = await tx.user.updateMany({
+        where: { id: userId, totpEnabled: true, OR: [{ totpLastStep: null }, { totpLastStep: { lt: BigInt(step) } }] },
+        data: { totpLastStep: BigInt(step) },
+      });
       if (r.count === 0) return "replay" as const;
     } else {
-      const r = await tx.recoveryCode.updateMany({ where: { userId, codeHash: { in: recoveryCodeCandidates(d.secrets, input.recoveryCode) }, usedAt: null }, data: { usedAt: now } });
+      const r = await tx.recoveryCode.updateMany({
+        where: { userId, codeHash: { in: recoveryCodeCandidates(d.secrets, input.recoveryCode) }, usedAt: null },
+        data: { usedAt: now },
+      });
       if (r.count !== 1) return null;
     }
     await tx.authSession.updateMany({ where: { id: auth.sessionId, revokedAt: null }, data: { revokedAt: now } });
     const s = await openSession(tx, userId, ctx, now, auth.expiresAt, true);
     const left = await tx.recoveryCode.count({ where: { userId, usedAt: null } });
-    await writeAudit(tx, ctx, { ...who(auth), action: AUTH_AUDIT.MFA_VERIFY, entity: "users", entityId: userId, result: "success", newValue: { method, remaining: left } });
+    await writeAudit(tx, ctx, {
+      ...who(auth),
+      action: AUTH_AUDIT.MFA_VERIFY,
+      entity: "users",
+      entityId: userId,
+      result: "success",
+      newValue: { method, remaining: left },
+    });
     return { ...s, left };
   });
   if (opened === null) return fail("invalid_code");
@@ -174,8 +239,18 @@ export async function recoveryCodesLeft(db: Db, userId: string): Promise<number>
 export async function logoutAll(d: AccountDeps, ctx: AuditContext, auth: AuthContext): Promise<number> {
   const now = new Date();
   const count = await d.db.$transaction(async (tx) => {
-    const r = await tx.authSession.updateMany({ where: { userId: auth.user.id, revokedAt: null, id: { not: auth.sessionId } }, data: { revokedAt: now } });
-    await writeAudit(tx, ctx, { ...who(auth), action: AUTH_AUDIT.LOGOUT_ALL, entity: "auth_sessions", entityId: auth.sessionId, result: "success", newValue: { revokedSessions: r.count } });
+    const r = await tx.authSession.updateMany({
+      where: { userId: auth.user.id, revokedAt: null, id: { not: auth.sessionId } },
+      data: { revokedAt: now },
+    });
+    await writeAudit(tx, ctx, {
+      ...who(auth),
+      action: AUTH_AUDIT.LOGOUT_ALL,
+      entity: "auth_sessions",
+      entityId: auth.sessionId,
+      result: "success",
+      newValue: { revokedSessions: r.count },
+    });
     return r.count;
   });
   try {
@@ -193,28 +268,53 @@ export async function logoutAll(d: AccountDeps, ctx: AuditContext, auth: AuthCon
 export function forgotPassword(d: AccountDeps, ctx: AuditContext, email: string): void {
   hitLimit(d.limits.forgotIp, ctx.ip);
   setImmediate(() => {
-    void processForgot(d, ctx, email).catch((err: unknown) => d.log.error({ err, event: "password_forgot_failed" }, "şifre sıfırlama isteği işlenemedi"));
+    void processForgot(d, ctx, email).catch((err: unknown) =>
+      d.log.error({ err, event: "password_forgot_failed" }, "şifre sıfırlama isteği işlenemedi"),
+    );
   });
 }
 
 async function processForgot(d: AccountDeps, ctx: AuditContext, email: string): Promise<void> {
   const user = await repo.findUserByLogin(d.db, email);
-  const base = { tenantId: user?.tenantId ?? null, userId: user?.id ?? null, username: user?.email ?? email, action: AUTH_AUDIT.PASSWORD_RESET_REQUESTED, entity: "users", entityId: user?.id ?? null };
+  const base = {
+    tenantId: user?.tenantId ?? null,
+    userId: user?.id ?? null,
+    username: user?.email ?? email,
+    action: AUTH_AUDIT.PASSWORD_RESET_REQUESTED,
+    entity: "users",
+    entityId: user?.id ?? null,
+  };
   const reject = (reason: string) => writeAudit(d.db, ctx, { ...base, result: "fail", newValue: { reason } });
   if (!user || !canSignIn(user)) return reject("unknown_or_inactive");
   const cfg = await d.mail.configFor(user.tenantId);
   if (!cfg) return reject("no_smtp");
   const now = new Date();
-  const recent = await d.db.passwordResetToken.count({ where: { userId: user.id, createdAt: { gte: new Date(now.getTime() - 60 * MIN) } } });
+  const recent = await d.db.passwordResetToken.count({
+    where: { userId: user.id, createdAt: { gte: new Date(now.getTime() - 60 * MIN) } },
+  });
   if (recent >= RESET_PER_ACCOUNT_HOUR) return reject("rate_limited");
   const token = newSecretToken();
   await d.db.$transaction(async (tx) => {
     await tx.passwordResetToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: now } });
-    await tx.passwordResetToken.create({ data: { id: newId(), userId: user.id, tokenHash: sha256Hex(token), createdAt: now, expiresAt: new Date(now.getTime() + RESET_TOKEN_TTL_MIN * MIN) } });
+    await tx.passwordResetToken.create({
+      data: {
+        id: newId(),
+        userId: user.id,
+        tokenHash: sha256Hex(token),
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + RESET_TOKEN_TTL_MIN * MIN),
+      },
+    });
     await writeAudit(tx, ctx, { ...base, result: "success" });
   });
   const link = `${d.publicBaseUrl.replace(/\/+$/, "")}${RESET_PASSWORD_PATH}#token=${token}`;
-  await d.mail.sendForTenant(ctx, { tenantId: user.tenantId, userId: user.id, username: user.email, kind: "password_reset", entity: "users", entityId: user.id }, user.email, passwordResetMail({ link, ttlMin: RESET_TOKEN_TTL_MIN }), cfg);
+  await d.mail.sendForTenant(
+    ctx,
+    { tenantId: user.tenantId, userId: user.id, username: user.email, kind: "password_reset", entity: "users", entityId: user.id },
+    user.email,
+    passwordResetMail({ link, ttlMin: RESET_TOKEN_TTL_MIN }),
+    cfg,
+  );
 }
 
 /** POST /auth/password/reset (AC-66): tek kullanım koşullu UPDATE; şifre + kilit sayaçları + tüm oturumlar aynı TX'te. */
@@ -227,12 +327,27 @@ export async function resetPassword(d: AccountDeps, ctx: AuditContext, input: Pa
   if (!row || !user || !canSignIn(user)) throw new AppError("RESET_TOKEN_INVALID");
   const passwordHash = await hashPassword(input.next);
   await d.db.$transaction(async (tx) => {
-    const r = await tx.passwordResetToken.updateMany({ where: { tokenHash: hash, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
+    const r = await tx.passwordResetToken.updateMany({
+      where: { tokenHash: hash, usedAt: null, expiresAt: { gt: now } },
+      data: { usedAt: now },
+    });
     if (r.count !== 1) throw new AppError("RESET_TOKEN_INVALID");
     await tx.passwordResetToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: now } });
-    await tx.user.update({ where: { id: user.id }, data: { passwordHash, mustChangePassword: false, failedLoginCount: 0, failedWindowAt: null, lockedUntil: null } });
+    await tx.user.update({
+      where: { id: user.id },
+      data: { passwordHash, mustChangePassword: false, failedLoginCount: 0, failedWindowAt: null, lockedUntil: null },
+    });
     const revoked = await repo.revokeUserSessions(tx, user.id, now);
-    await writeAudit(tx, ctx, { tenantId: user.tenantId, userId: user.id, username: user.email, action: AUTH_AUDIT.PASSWORD_RESET, entity: "users", entityId: user.id, result: "success", newValue: { revokedSessions: revoked } });
+    await writeAudit(tx, ctx, {
+      tenantId: user.tenantId,
+      userId: user.id,
+      username: user.email,
+      action: AUTH_AUDIT.PASSWORD_RESET,
+      entity: "users",
+      entityId: user.id,
+      result: "success",
+      newValue: { revokedSessions: revoked },
+    });
   });
   try {
     await d.endLive(user.id);
@@ -249,8 +364,12 @@ export function lockNotifier(d: AccountDeps, ctx: AuditContext) {
   return (u: { id: string; tenantId: string | null; email: string }): void => {
     if (d.limits.lockMail.blockedFor(u.id) > 0 || d.limits.lockMail.hit(u.id)) return;
     void d.mail
-      .sendForTenant(ctx, { tenantId: u.tenantId, userId: u.id, username: u.email, kind: "account_locked", entity: "users", entityId: u.id }, u.email, accountLockedMail({ minutes: 15 }))
+      .sendForTenant(
+        ctx,
+        { tenantId: u.tenantId, userId: u.id, username: u.email, kind: "account_locked", entity: "users", entityId: u.id },
+        u.email,
+        accountLockedMail({ minutes: 15 }),
+      )
       .catch((err: unknown) => d.log.error({ err, event: "lock_notify_failed" }, "kilit bildirimi gönderilemedi"));
   };
 }
-

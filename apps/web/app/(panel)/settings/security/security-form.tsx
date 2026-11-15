@@ -40,9 +40,18 @@ export function SecurityForm({ initial, canEdit }: { initial: boolean; canEdit: 
   };
 
   return (
-    <section aria-labelledby="sec-h" className="flex max-w-3xl flex-col gap-4 rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-6">
-      <h2 id="sec-h" className="text-base font-semibold text-fg">{t("sec.mfaTitle")}</h2>
-      {!canEdit && <Alert tone="warning" testId="settings-readonly">{t("set.readonly")}</Alert>}
+    <section
+      aria-labelledby="sec-h"
+      className="flex max-w-3xl flex-col gap-4 rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-6"
+    >
+      <h2 id="sec-h" className="text-base font-semibold text-fg">
+        {t("sec.mfaTitle")}
+      </h2>
+      {!canEdit && (
+        <Alert tone="warning" testId="settings-readonly">
+          {t("set.readonly")}
+        </Alert>
+      )}
       <FormError error={error} />
       <Switch
         label={t("sec.mfaLabel")}

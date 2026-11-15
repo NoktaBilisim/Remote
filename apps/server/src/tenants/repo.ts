@@ -27,7 +27,13 @@ export async function listTenants(db: DbOrTx, q: ListTenantsQuery): Promise<{ ro
     ...(q.q ? { OR: [{ name: { contains: q.q } }, { slug: { contains: q.q.toLowerCase() } }] } : {}),
   };
   const [rows, total] = await Promise.all([
-    db.tenant.findMany({ where, select: tenantSelect, orderBy: [{ name: "asc" }, { id: "asc" }], skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
+    db.tenant.findMany({
+      where,
+      select: tenantSelect,
+      orderBy: [{ name: "asc" }, { id: "asc" }],
+      skip: (q.page - 1) * q.pageSize,
+      take: q.pageSize,
+    }),
     db.tenant.count({ where }),
   ]);
   return { rows, total };
@@ -37,7 +43,10 @@ export function findTenant(db: DbOrTx, id: string): Promise<TenantRow | null> {
   return db.tenant.findFirst({ where: { ...live, id }, select: tenantSelect });
 }
 
-export async function lockTenant(tx: Prisma.TransactionClient, id: string): Promise<{ id: string; name: string; slug: string; status: string } | null> {
+export async function lockTenant(
+  tx: Prisma.TransactionClient,
+  id: string,
+): Promise<{ id: string; name: string; slug: string; status: string } | null> {
   const rows = await tx.$queryRaw<{ id: string; name: string; slug: string; status: string }[]>`
     SELECT id, name, slug, status FROM tenants WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`;
   return rows[0] ?? null;
@@ -102,6 +111,10 @@ export async function lockSettings(tx: Prisma.TransactionClient, tenantId: strin
   return tx.tenantSettings.findUniqueOrThrow({ where: { tenantId }, select: settingsSelect });
 }
 
-export async function updateSettings(tx: Prisma.TransactionClient, tenantId: string, data: Prisma.TenantSettingsUpdateInput): Promise<SettingsRow> {
+export async function updateSettings(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  data: Prisma.TenantSettingsUpdateInput,
+): Promise<SettingsRow> {
   return tx.tenantSettings.update({ where: { tenantId }, data, select: settingsSelect });
 }

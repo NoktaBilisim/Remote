@@ -5,7 +5,15 @@ import { recoveryFileName, recoveryFileText } from "./recovery";
 import { readResetToken } from "./reset-token";
 import { buildSmtpInput, smtpCredsAllowed, smtpDirty, smtpPortOptions, smtpServerFields, suggestPort, toSmtpState } from "./smtp-form";
 
-const view = { host: "smtp.ornek.com", port: 587, security: "STARTTLS" as const, user: "destek", fromName: "Destek", fromEmail: "destek@ornek.com", hasPassword: true };
+const view = {
+  host: "smtp.ornek.com",
+  port: 587,
+  security: "STARTTLS" as const,
+  user: "destek",
+  fromName: "Destek",
+  fromEmail: "destek@ornek.com",
+  hasPassword: true,
+};
 
 describe("P10 SMTP formu (AC-79)", () => {
   it("güvenlik seçimi portu önerir; özel port korunur", () => {
@@ -18,7 +26,13 @@ describe("P10 SMTP formu (AC-79)", () => {
     const st = toSmtpState(view);
     expect(st.password).toBe("");
     const r = buildSmtpInput(st);
-    expect(r.input).toMatchObject({ host: "smtp.ornek.com", port: 587, security: "STARTTLS", user: "destek", fromEmail: "destek@ornek.com" });
+    expect(r.input).toMatchObject({
+      host: "smtp.ornek.com",
+      port: 587,
+      security: "STARTTLS",
+      user: "destek",
+      fromEmail: "destek@ornek.com",
+    });
     expect(r.input && "password" in r.input).toBe(false);
     expect(buildSmtpInput({ ...st, password: "yeni-sifre" }).input).toMatchObject({ password: "yeni-sifre" });
   });
@@ -33,7 +47,8 @@ describe("P10 SMTP formu (AC-79)", () => {
   it("B-P10-1: port yalnız 25/465/587/2525; eski kayıtlı port seçeneklerde işaretli kalır", () => {
     const st = toSmtpState(view);
     expect(buildSmtpInput({ ...st, port: "2525" }).input).toMatchObject({ port: 2525 });
-    for (const port of ["22", "2526", "", "abc"]) expect(buildSmtpInput({ ...st, port }).errors.port).toBe("Port 25, 465, 587 veya 2525 olmalı");
+    for (const port of ["22", "2526", "", "abc"])
+      expect(buildSmtpInput({ ...st, port }).errors.port).toBe("Port 25, 465, 587 veya 2525 olmalı");
     const lbl = (p: string) => `${p} (eski)`;
     expect(smtpPortOptions("587", lbl).map((o) => o.value)).toEqual(["25", "465", "587", "2525"]);
     expect(smtpPortOptions("2526", lbl).at(-1)).toEqual({ value: "2526", label: "2526 (eski)" });
@@ -58,7 +73,10 @@ describe("P10 SMTP formu (AC-79)", () => {
     const a = toSmtpState(view);
     expect(smtpDirty(a, { ...a, host: " smtp.ornek.com " })).toBe(false);
     expect(smtpDirty(a, { ...a, password: "x" })).toBe(true);
-    expect(smtpServerFields({ "smtp.host": "Bu sunucu adresi kullanılamaz.", _: "genel" })).toEqual({ errors: { host: "Bu sunucu adresi kullanılamaz." }, rest: ["genel"] });
+    expect(smtpServerFields({ "smtp.host": "Bu sunucu adresi kullanılamaz.", _: "genel" })).toEqual({
+      errors: { host: "Bu sunucu adresi kullanılamaz." },
+      rest: ["genel"],
+    });
     expect(smtpServerFields({ "smtp.port": "P", "smtp.security": "S" }).errors).toEqual({ port: "P", security: "S" });
   });
 });

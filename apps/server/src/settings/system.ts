@@ -65,12 +65,14 @@ export function mysqlFromUrl(databaseUrl: string): MysqlCore & { password: strin
 
 function asMysqlCore(v: unknown): MysqlCore | null {
   const o = v as Partial<MysqlCore> | null;
-  if (!o || typeof o.host !== "string" || typeof o.port !== "number" || typeof o.database !== "string" || typeof o.user !== "string") return null;
+  if (!o || typeof o.host !== "string" || typeof o.port !== "number" || typeof o.database !== "string" || typeof o.user !== "string")
+    return null;
   return { host: o.host, port: o.port, database: o.database, user: o.user };
 }
 
 /** Şifrenin bağlı olduğu hedef: host + port + kullanıcı (veritabanı adı değil). */
-const sameTarget = (a: MysqlCore, b: MysqlCore): boolean => a.host.toLowerCase() === b.host.toLowerCase() && a.port === b.port && a.user === b.user;
+const sameTarget = (a: MysqlCore, b: MysqlCore): boolean =>
+  a.host.toLowerCase() === b.host.toLowerCase() && a.port === b.port && a.user === b.user;
 const sameCore = (a: MysqlCore, b: MysqlCore): boolean => sameTarget(a, b) && a.database === b.database;
 
 /**
@@ -107,12 +109,18 @@ export async function getMysqlSettings(d: SystemDeps): Promise<MysqlSettingsView
  * PUT. B-P11-1: kayıtlı şifre varken host/port/kullanıcı değişiyorsa şifre zorunlu (400 `fields.password`) — kayıtlı şifre
  * yeni hedefe taşınmaz. Şifre hedefe bağlı AAD ile saklanır (`aadFor.mysqlSecret`).
  */
-export async function saveMysqlSettings(d: SystemDeps, ctx: AuditContext, auth: AuthContext, input: MysqlSettingsData): Promise<MysqlSettingsSaveResponse> {
+export async function saveMysqlSettings(
+  d: SystemDeps,
+  ctx: AuditContext,
+  auth: AuthContext,
+  input: MysqlSettingsData,
+): Promise<MysqlSettingsSaveResponse> {
   const core: MysqlCore = { host: input.host, port: input.port, database: input.database, user: input.user };
   await d.db.$transaction(async (tx) => {
     const before = await tx.systemSetting.findUnique({ where: { key: "mysql" }, select: { valueJson: true, secretEnc: true } });
     const old = before ? asMysqlCore(before.valueJson) : null;
-    if (input.password === undefined && before?.secretEnc && !(old && sameTarget(old, core))) throw new AppError("VALIDATION", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } });
+    if (input.password === undefined && before?.secretEnc && !(old && sameTarget(old, core)))
+      throw new AppError("VALIDATION", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } });
     // P13a (B-P12b-5): değer değişmediyse (aynı hedef + veritabanı, yeni şifre yok) yazım ve audit yok.
     if (old && sameCore(old, core) && input.password === undefined) return;
     const secretEnc = input.password !== undefined ? d.secrets.encrypt(input.password, aadFor.mysqlSecret(core)) : undefined;
@@ -148,9 +156,17 @@ export const GLOBAL_KEY = "all";
  * `secret_unreadable`. Hız: 5/dk/kullanıcı + 20/dk global. Başarısızlıkta süre dönmez (B-P11-4: port tarama sinyali).
  * Sonuç ve sınıf audit'e, ham hata yalnız loga.
  */
-export async function testMysql(d: SystemDeps, ctx: AuditContext, auth: AuthContext, input: MysqlSettingsData, limits: MysqlTestLimits, probe: (t: ProbeTarget) => Promise<ProbeResult> = probeMysql): Promise<MysqlTestResponse> {
+export async function testMysql(
+  d: SystemDeps,
+  ctx: AuditContext,
+  auth: AuthContext,
+  input: MysqlSettingsData,
+  limits: MysqlTestLimits,
+  probe: (t: ProbeTarget) => Promise<ProbeResult> = probeMysql,
+): Promise<MysqlTestResponse> {
   const wait = Math.max(limits.perUser.blockedFor(auth.user.id), limits.global.blockedFor(GLOBAL_KEY));
-  if (wait > 0 || limits.perUser.hit(auth.user.id) || limits.global.hit(GLOBAL_KEY)) throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
+  if (wait > 0 || limits.perUser.hit(auth.user.id) || limits.global.hit(GLOBAL_KEY))
+    throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
   const core: MysqlCore = { host: input.host, port: input.port, database: input.database, user: input.user };
   let password = input.password;
   let unreadable = false;
@@ -168,10 +184,23 @@ export async function testMysql(d: SystemDeps, ctx: AuditContext, auth: AuthCont
     }
     if (password === undefined && !unreadable) throw new AppError("VALIDATION", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } });
   }
-  const out: ProbeResult = unreadable || password === undefined ? { ok: false, reason: "secret_unreadable", latencyMs: 0, err: null } : await probe({ ...core, password });
+  const out: ProbeResult =
+    unreadable || password === undefined
+      ? { ok: false, reason: "secret_unreadable", latencyMs: 0, err: null }
+      : await probe({ ...core, password });
   if (!out.ok && out.err) {
     const e = out.err as { errno?: unknown; code?: unknown; message?: unknown };
-    d.log.warn({ event: "mysql_test_failed", ref: newId(), reason: out.reason, errno: e.errno, code: e.code, msg: typeof e.message === "string" ? e.message.slice(0, 300) : undefined }, "MySQL bağlantı testi başarısız");
+    d.log.warn(
+      {
+        event: "mysql_test_failed",
+        ref: newId(),
+        reason: out.reason,
+        errno: e.errno,
+        code: e.code,
+        msg: typeof e.message === "string" ? e.message.slice(0, 300) : undefined,
+      },
+      "MySQL bağlantı testi başarısız",
+    );
   }
   await writeAudit(d.db, ctx, {
     ...who(auth),
@@ -195,7 +224,10 @@ function asUrls(v: unknown): string[] | null {
 }
 
 export async function getTurnSettings(d: SystemDeps): Promise<TurnSettingsView> {
-  const row = await d.db.systemSetting.findUnique({ where: { key: "turn" }, select: { valueJson: true, secretEnc: true, updatedAt: true } });
+  const row = await d.db.systemSetting.findUnique({
+    where: { key: "turn" },
+    select: { valueJson: true, secretEnc: true, updatedAt: true },
+  });
   const urls = row ? asUrls(row.valueJson) : null;
   if (!row || !urls) return { urls: [...d.turnEnv.urls], hasSecret: Boolean(d.turnEnv.secret), source: "env", updatedAt: null };
   return { urls, hasSecret: row.secretEnc !== null, source: "panel", updatedAt: row.updatedAt.toISOString() };
@@ -217,13 +249,20 @@ export async function effectiveTurn(d: SystemDeps): Promise<TurnConfig> {
   return { urls, secret, ttlMin: d.turnEnv.ttlMin };
 }
 
-export async function saveTurnSettings(d: SystemDeps, ctx: AuditContext, auth: AuthContext, input: TurnSettingsData): Promise<TurnSettingsView> {
+export async function saveTurnSettings(
+  d: SystemDeps,
+  ctx: AuditContext,
+  auth: AuthContext,
+  input: TurnSettingsData,
+): Promise<TurnSettingsView> {
   await d.db.$transaction(async (tx) => {
     const before = await tx.systemSetting.findUnique({ where: { key: "turn" }, select: { valueJson: true, secretEnc: true } });
-    if (hasTurnUrl(input.urls) && input.secret === undefined && !before?.secretEnc) throw new AppError("VALIDATION", { fields: { secret: TURN_SECRET_REQUIRED_MESSAGE } });
+    if (hasTurnUrl(input.urls) && input.secret === undefined && !before?.secretEnc)
+      throw new AppError("VALIDATION", { fields: { secret: TURN_SECRET_REQUIRED_MESSAGE } });
     const oldUrls = before ? asUrls(before.valueJson) : null;
     // P13a (B-P12b-5): aynı adres listesi (sıra dahil) ve yeni secret yok → yazım ve audit yok.
-    if (oldUrls && input.secret === undefined && oldUrls.length === input.urls.length && oldUrls.every((u, i) => u === input.urls[i])) return;
+    if (oldUrls && input.secret === undefined && oldUrls.length === input.urls.length && oldUrls.every((u, i) => u === input.urls[i]))
+      return;
     const secretEnc = input.secret !== undefined ? d.secrets.encrypt(input.secret, aadFor.systemSecret("turn")) : undefined;
     await tx.systemSetting.upsert({
       where: { key: "turn" },
@@ -254,7 +293,15 @@ export async function deleteTurnSettings(d: SystemDeps, ctx: AuditContext, auth:
     const oldUrls = before ? asUrls(before.valueJson) : null;
     if (!before || (!oldUrls && !before.secretEnc)) return;
     await tx.systemSetting.update({ where: { key: "turn" }, data: { valueJson: { urls: [] }, secretEnc: null, updatedBy: auth.user.id } });
-    await writeAudit(tx, ctx, { ...who(auth), action: SYSTEM_AUDIT.TURN_DELETED, entity: "system_settings", entityId: "turn", result: "success", ...(oldUrls ? { oldValue: { urls: oldUrls } } : {}), newValue: { source: "env" } });
+    await writeAudit(tx, ctx, {
+      ...who(auth),
+      action: SYSTEM_AUDIT.TURN_DELETED,
+      entity: "system_settings",
+      entityId: "turn",
+      result: "success",
+      ...(oldUrls ? { oldValue: { urls: oldUrls } } : {}),
+      newValue: { source: "env" },
+    });
   });
   return getTurnSettings(d);
 }

@@ -35,7 +35,15 @@ export function WhatsappApiKeyField({
       id="wa-key"
       title={t("wa.svc.keyTitle")}
       Icon={KeyRound}
-      aside={<SourceBadge testId="wa-key-source" source={saved.apiKeySource} panel={t("wa.svc.keyPanelBadge")} env={t("wa.svc.keyEnvBadge")} none={t("wa.svc.keyNoneBadge")} />}
+      aside={
+        <SourceBadge
+          testId="wa-key-source"
+          source={saved.apiKeySource}
+          panel={t("wa.svc.keyPanelBadge")}
+          env={t("wa.svc.keyEnvBadge")}
+          none={t("wa.svc.keyNoneBadge")}
+        />
+      }
     >
       <p className="text-sm text-fg-muted">{t("wa.svc.keyIntro")}</p>
       <TextField
@@ -46,7 +54,15 @@ export function WhatsappApiKeyField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         error={error}
-        hint={saved.apiKeySource === "panel" ? t("wa.svc.keyHintSet") : saved.apiKeySource === "env" ? t("wa.svc.keyHintEnv") : saved.source === "panel" ? t("wa.svc.keyHintPanelNone") : t("wa.svc.keyHintNone")}
+        hint={
+          saved.apiKeySource === "panel"
+            ? t("wa.svc.keyHintSet")
+            : saved.apiKeySource === "env"
+              ? t("wa.svc.keyHintEnv")
+              : saved.source === "panel"
+                ? t("wa.svc.keyHintPanelNone")
+                : t("wa.svc.keyHintNone")
+        }
         autoComplete="new-password"
         spellCheck={false}
         autoCapitalize="none"
@@ -95,27 +111,27 @@ export function WhatsappApiKeyRemoveDialog({
     }
   };
   return (
-<Dialog
-  open={open}
-  onClose={() => {
-    if (!busy) onClose();
-  }}
-  role="alertdialog"
-  size="sm"
-  testId="wa-key-remove-dialog"
-  title={t("wa.svc.keyRemoveTitle")}
-  description={t("wa.svc.keyRemoveBody")}
-  footer={
-    <>
-      <Button variant="secondary" data-autofocus disabled={busy} className="sm:ml-auto" onClick={() => onClose()}>
-        {t("rq.rj.cancel")}
-      </Button>
-      <Button variant="danger" loading={busy} onClick={() => void remove()} data-testid="wa-key-remove-confirm">
-        {!busy && <Trash2 aria-hidden className="size-4" />}
-        {t("wa.svc.keyRemove")}
-      </Button>
-    </>
-  }
-/>
+    <Dialog
+      open={open}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      role="alertdialog"
+      size="sm"
+      testId="wa-key-remove-dialog"
+      title={t("wa.svc.keyRemoveTitle")}
+      description={t("wa.svc.keyRemoveBody")}
+      footer={
+        <>
+          <Button variant="secondary" data-autofocus disabled={busy} className="sm:ml-auto" onClick={() => onClose()}>
+            {t("rq.rj.cancel")}
+          </Button>
+          <Button variant="danger" loading={busy} onClick={() => void remove()} data-testid="wa-key-remove-confirm">
+            {!busy && <Trash2 aria-hidden className="size-4" />}
+            {t("wa.svc.keyRemove")}
+          </Button>
+        </>
+      }
+    />
   );
 }

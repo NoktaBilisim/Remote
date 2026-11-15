@@ -1,8 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { canonicalWaUrl, checkTestPhone, checkWaApiKey, waKeyNeedsReenter, checkWaUrl, normalizeWaUrl, normalizeWaView, WA_URL_MESSAGES, waDirty, waFieldValue, waServerFields, type WhatsappServiceView } from "./whatsapp";
+import {
+  canonicalWaUrl,
+  checkTestPhone,
+  checkWaApiKey,
+  waKeyNeedsReenter,
+  checkWaUrl,
+  normalizeWaUrl,
+  normalizeWaView,
+  WA_URL_MESSAGES,
+  waDirty,
+  waFieldValue,
+  waServerFields,
+  type WhatsappServiceView,
+} from "./whatsapp";
 
-const panel: WhatsappServiceView = { url: "https://wa.ornek.com:3000", source: "panel", insecure: false, updatedAt: "2026-11-13T09:00:00.000Z", apiKeySet: true, apiKeySource: "panel" };
-const env: WhatsappServiceView = { url: "http://10.0.0.5:3000", source: "env", insecure: false, updatedAt: null, apiKeySet: false, apiKeySource: null };
+const panel: WhatsappServiceView = {
+  url: "https://wa.ornek.com:3000",
+  source: "panel",
+  insecure: false,
+  updatedAt: "2026-11-13T09:00:00.000Z",
+  apiKeySet: true,
+  apiKeySource: "panel",
+};
+const env: WhatsappServiceView = {
+  url: "http://10.0.0.5:3000",
+  source: "env",
+  insecure: false,
+  updatedAt: null,
+  apiKeySet: false,
+  apiKeySource: null,
+};
 
 describe("AC-196 WhatsApp servis adresi ön kontrolü", () => {
   it("http/https kabul; sondaki / kırpılır", () => {
@@ -71,7 +98,8 @@ describe("S-P13b-3 WhatsApp servis anahtarı ön kontrolü", () => {
     expect(checkWaApiKey("a".repeat(256)).apiKey).toHaveLength(256);
   });
   it("kısa, uzun, boşluklu ve kontrol karakterli reddedilir", () => {
-    for (const bad of ["a".repeat(15), "a".repeat(257), `${"a".repeat(16)} x`, `${"a".repeat(16)}\n`, ` ${"a".repeat(16)}`]) expect(checkWaApiKey(bad).error).toContain("16");
+    for (const bad of ["a".repeat(15), "a".repeat(257), `${"a".repeat(16)} x`, `${"a".repeat(16)}\n`, ` ${"a".repeat(16)}`])
+      expect(checkWaApiKey(bad).error).toContain("16");
   });
   it("görünüm: eksik anahtar alanları güvenli varsayılana iner", () => {
     expect(normalizeWaView({ url: null, source: "env", insecure: false, updatedAt: null }).apiKeySource).toBeNull();

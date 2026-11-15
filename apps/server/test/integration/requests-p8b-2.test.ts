@@ -32,11 +32,21 @@ function makeNotifier(o: { url?: string; production?: boolean; fetch?: FetchLike
   clock.t = Math.floor(Date.now() / HOUR) * HOUR + 60_000;
   const warns: Record<string, unknown>[] = [];
   const log = { info: () => undefined, warn: (obj: object) => void warns.push(obj as Record<string, unknown>), error: () => undefined };
-  const n = new WhatsappNotifier({ url: o.url ?? fake.url, production: o.production ?? false, publicBaseUrl: ORIGIN, db: testDb(), log, metrics: createMetrics(), clock, ...(o.fetch ? { fetch: o.fetch } : {}) });
+  const n = new WhatsappNotifier({
+    url: o.url ?? fake.url,
+    production: o.production ?? false,
+    publicBaseUrl: ORIGIN,
+    db: testDb(),
+    log,
+    metrics: createMetrics(),
+    clock,
+    ...(o.fetch ? { fetch: o.fetch } : {}),
+  });
   return { n, clock, warns };
 }
 
-const notifyAudits = (tenantId: string) => testDb().auditLog.findMany({ where: { tenantId, action: "request.notify" }, orderBy: { id: "asc" } });
+const notifyAudits = (tenantId: string) =>
+  testDb().auditLog.findMany({ where: { tenantId, action: "request.notify" }, orderBy: { id: "asc" } });
 const nv = (a: { newValue: unknown }) => a.newValue as { channel: string; recipient: string | null; result: string; attempts: number };
 const phone = (i: number) => `+90532${String(i).padStart(7, "0")}`;
 const sends = () => fake.hits.filter((h) => h.path === "/send-message");
@@ -48,24 +58,43 @@ describe("P8b-1 WhatsApp bildirimi (AC-150)", () => {
     await testDb().tenant.update({ where: { id: t.id }, data: { name: "Örnek *Bilgi*  _İşlem_\t~Ltd~ `A`" } });
     const ref = await createRequestSettings(t.id, { waEnabled: true, waRecipients: ["+905321112233", "+905441112233"] });
     const ip = "198.51.100.77";
-    const info = await live.app.inject({ method: "GET", url: `/api/v1/public/requests/tenant?ref=${ref}`, headers: { "x-forwarded-for": ip } });
+    const info = await live.app.inject({
+      method: "GET",
+      url: `/api/v1/public/requests/tenant?ref=${ref}`,
+      headers: { "x-forwarded-for": ip },
+    });
     const consentTextId = info.json<{ consentText: { id: string } }>().consentText.id;
     const r = await live.app.inject({
       method: "POST",
       url: "/api/v1/public/requests",
       headers: { "x-forwarded-for": ip },
-      payload: { ref, clientInstanceId: "A".repeat(22), clientVersion: "0.9.0", customerName: "Ayşe Müşteri", phone: "0532 123 45 67", email: "ayse@example.test", description: "Yazıcı çalışmıyor lütfen yardım", consentTextId, consentAccepted: true },
+      payload: {
+        ref,
+        clientInstanceId: "A".repeat(22),
+        clientVersion: "0.9.0",
+        customerName: "Ayşe Müşteri",
+        phone: "0532 123 45 67",
+        email: "ayse@example.test",
+        description: "Yazıcı çalışmıyor lütfen yardım",
+        consentTextId,
+        consentAccepted: true,
+      },
     });
     expect(r.statusCode).toBe(201);
     const { requestId, requestCode } = r.json<{ requestId: string; requestCode: string }>();
 
     await expect.poll(() => sends().length).toBe(2);
-    expect(sends().map((h) => h.body.phoneNumber).sort()).toEqual(["905321112233", "905441112233"]);
+    expect(
+      sends()
+        .map((h) => h.body.phoneNumber)
+        .sort(),
+    ).toEqual(["905321112233", "905441112233"]);
     const expected = `Yeni destek talebi – Örnek Bilgi İşlem Ltd A – panelde görüntüleyin. Talep kodu: ${requestCode}\n${ORIGIN}/requests`;
     for (const h of sends()) {
       expect(Object.keys(h.body).sort()).toEqual(["message", "phoneNumber"]); // attachments hiç yok
       expect(h.body.message).toBe(expected);
-      for (const pii of ["Ayşe", "5321234567", "123 45 67", "ayse@", "Yazıcı", requestId]) expect(String(h.body.message)).not.toContain(pii);
+      for (const pii of ["Ayşe", "5321234567", "123 45 67", "ayse@", "Yazıcı", requestId])
+        expect(String(h.body.message)).not.toContain(pii);
     }
 
     await expect.poll(async () => (await notifyAudits(t.id)).length).toBe(2);
@@ -83,12 +112,25 @@ describe("P8b-1 WhatsApp bildirimi (AC-150)", () => {
     const t = await createTenant();
     const ref = await createRequestSettings(t.id, { waEnabled: false, waRecipients: ["+905321112233"] });
     const ip = "198.51.100.78";
-    const info = await live.app.inject({ method: "GET", url: `/api/v1/public/requests/tenant?ref=${ref}`, headers: { "x-forwarded-for": ip } });
+    const info = await live.app.inject({
+      method: "GET",
+      url: `/api/v1/public/requests/tenant?ref=${ref}`,
+      headers: { "x-forwarded-for": ip },
+    });
     const r = await live.app.inject({
       method: "POST",
       url: "/api/v1/public/requests",
       headers: { "x-forwarded-for": ip },
-      payload: { ref, clientInstanceId: "B".repeat(22), clientVersion: "0.9.0", customerName: "Ayşe Müşteri", phone: "0532 123 45 67", description: "Yazıcı çalışmıyor lütfen yardım", consentTextId: info.json<{ consentText: { id: string } }>().consentText.id, consentAccepted: true },
+      payload: {
+        ref,
+        clientInstanceId: "B".repeat(22),
+        clientVersion: "0.9.0",
+        customerName: "Ayşe Müşteri",
+        phone: "0532 123 45 67",
+        description: "Yazıcı çalışmıyor lütfen yardım",
+        consentTextId: info.json<{ consentText: { id: string } }>().consentText.id,
+        consentAccepted: true,
+      },
     });
     expect(r.statusCode).toBe(201);
     await new Promise((res) => setTimeout(res, 200));
@@ -152,7 +194,10 @@ describe("P8b-1 WhatsApp bildirimi (AC-150)", () => {
 
     clock.advance(HOUR - 60_000); // pencere sonu → özet
     await expect.poll(() => sends().length).toBe(11);
-    expect(sends()[10]?.body).toEqual({ phoneNumber: phone(3).slice(1), message: `Son 1 saatte 2 yeni destek talebi daha – Firma A – panelde görüntüleyin.\n${ORIGIN}/requests` });
+    expect(sends()[10]?.body).toEqual({
+      phoneNumber: phone(3).slice(1),
+      message: `Son 1 saatte 2 yeni destek talebi daha – Firma A – panelde görüntüleyin.\n${ORIGIN}/requests`,
+    });
     clock.advance(HOUR);
     await new Promise((r) => setTimeout(r, 50));
     expect(sends()).toHaveLength(11); // bastırma yoksa yeni özet yok
@@ -233,12 +278,20 @@ describe("P8b-1 WhatsApp bildirimi (AC-150)", () => {
 
 // ------------------------------------------------------------------------------------------------ ayarlar
 
-async function settingsAdmin(tenantId: string, perms: Record<string, boolean> = { "settings.view": true, "settings.edit": true }): Promise<Session> {
+async function settingsAdmin(
+  tenantId: string,
+  perms: Record<string, boolean> = { "settings.view": true, "settings.edit": true },
+): Promise<Session> {
   if (!live) throw new Error("live yok");
   return loginAs(live.app, await createUser({ tenantId, role: "USER", perms }));
 }
 const S = "/api/v1/settings/support-requests";
-const validBody = () => ({ waitMinutes: 30, trustedCidrs: [] as string[], whatsapp: { enabled: false, recipients: [] as string[] }, email: { enabled: false, recipients: [] as string[] } });
+const validBody = () => ({
+  waitMinutes: 30,
+  trustedCidrs: [] as string[],
+  whatsapp: { enabled: false, recipients: [] as string[] },
+  email: { enabled: false, recipients: [] as string[] },
+});
 const put = (s: Session, payload: unknown) => {
   if (!live) throw new Error("live yok");
   return live.app.inject({ method: "PUT", url: S, headers: s.headers, payload: payload as object });
@@ -253,13 +306,27 @@ describe("P8b-1 talep ayarları (AC-131, AC-152)", () => {
   it("AC-152: PUT kaydeder (CIDR ağ adresine normalize), audit eski→yeni ve WhatsApp alıcıları maskeli", async () => {
     const t = await createTenant();
     const s = await settingsAdmin(t.id);
-    const body = { ...validBody(), waitMinutes: 45, trustedCidrs: ["203.0.113.7/24", "2001:db8:abcd::1/32"], whatsapp: { enabled: true, recipients: ["0532 111 22 33", "+90 544 111 22 33"] } };
+    const body = {
+      ...validBody(),
+      waitMinutes: 45,
+      trustedCidrs: ["203.0.113.7/24", "2001:db8:abcd::1/32"],
+      whatsapp: { enabled: true, recipients: ["0532 111 22 33", "+90 544 111 22 33"] },
+    };
     const r = await put(s, body);
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toMatchObject({ waitMinutes: 45, trustedCidrs: ["203.0.113.0/24", "2001:db8::/32"], whatsapp: { enabled: true, recipients: ["+905321112233", "+905441112233"], serviceConfigured: true, insecure: false } });
+    expect(r.json()).toMatchObject({
+      waitMinutes: 45,
+      trustedCidrs: ["203.0.113.0/24", "2001:db8::/32"],
+      whatsapp: { enabled: true, recipients: ["+905321112233", "+905441112233"], serviceConfigured: true, insecure: false },
+    });
     const a = await testDb().auditLog.findFirstOrThrow({ where: { tenantId: t.id, action: "settings.support_requests.updated" } });
     expect(a.oldValue).toMatchObject({ waitMinutes: 30, waRecipients: [], trustedCidrs: [] });
-    expect(a.newValue).toMatchObject({ waitMinutes: 45, waEnabled: true, waRecipients: ["+90******2233", "+90******2233"], trustedCidrs: ["203.0.113.0/24", "2001:db8::/32"] });
+    expect(a.newValue).toMatchObject({
+      waitMinutes: 45,
+      waEnabled: true,
+      waRecipients: ["+90******2233", "+90******2233"],
+      trustedCidrs: ["203.0.113.0/24", "2001:db8::/32"],
+    });
     expect(asText(a)).not.toContain("5321112233");
   });
 
@@ -287,14 +354,21 @@ describe("P8b-1 talep ayarları (AC-131, AC-152)", () => {
       expect(errCode(r), name).toBe("VALIDATION");
     }
     // sınırda geçerli: 5 alıcı, 10 CIDR, /16 ve /32
-    const edge = await put(s, { ...validBody(), waitMinutes: 120, trustedCidrs: [...cidrs(8), "198.18.0.0/16", "2001:db8::/32"].slice(0, 10), whatsapp: { enabled: true, recipients: [1, 2, 3, 4, 5].map((i) => phone(600 + i)) } });
+    const edge = await put(s, {
+      ...validBody(),
+      waitMinutes: 120,
+      trustedCidrs: [...cidrs(8), "198.18.0.0/16", "2001:db8::/32"].slice(0, 10),
+      whatsapp: { enabled: true, recipients: [1, 2, 3, 4, 5].map((i) => phone(600 + i)) },
+    });
     expect(edge.statusCode).toBe(200);
     expect(await testDb().auditLog.count({ where: { tenantId: t.id, action: "settings.support_requests.updated" } })).toBe(1);
 
     const viewer = await settingsAdmin(t.id, { "settings.view": true, "support_requests.view": true });
     expect((await put(viewer, validBody())).statusCode).toBe(403);
     expect((await live?.app.inject({ method: "GET", url: S, headers: viewer.headers }))?.statusCode).toBe(403);
-    expect((await live?.app.inject({ method: "POST", url: `${S}/rotate-ref`, headers: viewer.headers, payload: {} }))?.statusCode).toBe(403);
+    expect((await live?.app.inject({ method: "POST", url: `${S}/rotate-ref`, headers: viewer.headers, payload: {} }))?.statusCode).toBe(
+      403,
+    );
   });
 
   it("AC-131: rotate-ref — eski ref anında 404 (bilinmeyen ref ile aynı gövde), yeni ref çalışır, bekleyen talep etkilenmez, audit yalnız ilk 4 karakter", async () => {
@@ -302,12 +376,17 @@ describe("P8b-1 talep ayarları (AC-131, AC-152)", () => {
     const app = live.app;
     const t = await createTenant();
     const s = await settingsAdmin(t.id);
-    const before = (await app.inject({ method: "GET", url: S, headers: s.headers })).json<{ downloadUrl: string; refPrefix: string; refRotatedAt: string | null }>();
+    const before = (await app.inject({ method: "GET", url: S, headers: s.headers })).json<{
+      downloadUrl: string;
+      refPrefix: string;
+      refRotatedAt: string | null;
+    }>();
     const oldRef = refOf(before.downloadUrl);
     expect(oldRef).toHaveLength(16);
     expect(before.refRotatedAt).toBeNull();
     const pending = await createRequestRow(t.id);
-    const info = (ref: string) => app.inject({ method: "GET", url: `/api/v1/public/requests/tenant?ref=${ref}`, headers: { "x-forwarded-for": "198.51.100.90" } });
+    const info = (ref: string) =>
+      app.inject({ method: "GET", url: `/api/v1/public/requests/tenant?ref=${ref}`, headers: { "x-forwarded-for": "198.51.100.90" } });
     expect((await info(oldRef)).statusCode).toBe(200);
 
     const rot = await app.inject({ method: "POST", url: `${S}/rotate-ref`, headers: s.headers, payload: {} });
@@ -323,13 +402,21 @@ describe("P8b-1 talep ayarları (AC-131, AC-152)", () => {
     expect(stale.statusCode).toBe(404);
     const strip = (b: string) => b.replace(/"requestId":"[0-9A-Z]{26}"/, "");
     expect(strip(stale.body)).toBe(strip(unknown.body));
-    const dl = await app.inject({ method: "GET", url: `/api/v1/public/agent/request-download?ref=${oldRef}`, headers: { "x-forwarded-for": "198.51.100.91" } });
+    const dl = await app.inject({
+      method: "GET",
+      url: `/api/v1/public/agent/request-download?ref=${oldRef}`,
+      headers: { "x-forwarded-for": "198.51.100.91" },
+    });
     expect(dl.statusCode).toBe(404);
     expect((await info(newRef)).statusCode).toBe(200);
     expect((await testDb().supportRequest.findUniqueOrThrow({ where: { id: pending.id } })).status).toBe("PENDING");
 
     const a = await testDb().auditLog.findFirstOrThrow({ where: { tenantId: t.id, action: "settings.support_requests.ref_rotated" } });
-    expect(a).toMatchObject({ result: "success", oldValue: { refPrefix: oldRef.slice(0, 4) }, newValue: { refPrefix: newRef.slice(0, 4) } });
+    expect(a).toMatchObject({
+      result: "success",
+      oldValue: { refPrefix: oldRef.slice(0, 4) },
+      newValue: { refPrefix: newRef.slice(0, 4) },
+    });
     expect(asText(a)).not.toContain(oldRef);
     expect(asText(a)).not.toContain(newRef);
   });
@@ -339,7 +426,8 @@ describe("P8b-1 talep ayarları (AC-131, AC-152)", () => {
     const app = live.app;
     const t = await createTenant();
     const s = await settingsAdmin(t.id);
-    const test = (sess: Session, payload: object = { phone: "0532 111 22 33" }) => app.inject({ method: "POST", url: `${S}/whatsapp/test`, headers: sess.headers, payload });
+    const test = (sess: Session, payload: object = { phone: "0532 111 22 33" }) =>
+      app.inject({ method: "POST", url: `${S}/whatsapp/test`, headers: sess.headers, payload });
     const ok = await test(s);
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toEqual({ ok: true, message: "Test mesajı gönderildi." });
@@ -351,7 +439,10 @@ describe("P8b-1 talep ayarları (AC-131, AC-152)", () => {
     expect(failed.json()).toMatchObject({ ok: false });
     expect(fake.hits).toHaveLength(2); // tek deneme, yeniden deneme yok
 
-    const audits = await testDb().auditLog.findMany({ where: { tenantId: t.id, action: "settings.whatsapp.test" }, orderBy: { id: "asc" } });
+    const audits = await testDb().auditLog.findMany({
+      where: { tenantId: t.id, action: "settings.whatsapp.test" },
+      orderBy: { id: "asc" },
+    });
     expect(audits.map((a) => [a.result, a.newValue])).toEqual([
       ["success", { recipient: "+90******2233", result: "success" }],
       ["fail", { recipient: "+90******2233", result: "fail" }],
@@ -371,14 +462,27 @@ describe("P8b-1 talep ayarları (AC-131, AC-152)", () => {
 
 describe("P8b-1 WhatsApp fail-closed (production)", () => {
   it("AC-152 / §13.5: production + http + genel adres → ayarlarda insecure=true, test ucu 502 UPSTREAM, servise istek yok", async () => {
-    live = await startLive({ env: { ...PROXY, NODE_ENV: "production", SESSION_REF_KEY: "k".repeat(40), APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS, WHATSAPP_SERVICE_URL: "http://203.0.113.10:3000" } });
+    live = await startLive({
+      env: {
+        ...PROXY,
+        NODE_ENV: "production",
+        SESSION_REF_KEY: "k".repeat(40),
+        APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS,
+        WHATSAPP_SERVICE_URL: "http://203.0.113.10:3000",
+      },
+    });
     const t = await createTenant();
     await testDb().tenantSettings.update({ where: { tenantId: t.id }, data: { requireTech2fa: false } }); // prod'da 2FA kurulum kapısı açık (B-P10-3)
     const s = await settingsAdmin(t.id);
     const g = await live.app.inject({ method: "GET", url: S, headers: s.headers });
     expect(g.statusCode).toBe(200);
     expect(g.json<{ whatsapp: { insecure: boolean } }>().whatsapp.insecure).toBe(true);
-    const r = await live.app.inject({ method: "POST", url: `${S}/whatsapp/test`, headers: s.headers, payload: { phone: "0532 111 22 33" } });
+    const r = await live.app.inject({
+      method: "POST",
+      url: `${S}/whatsapp/test`,
+      headers: s.headers,
+      payload: { phone: "0532 111 22 33" },
+    });
     expect(r.statusCode).toBe(502);
     expect(errCode(r)).toBe("UPSTREAM");
     expect(r.json<{ error: { message: string } }>().error.message).toBe("Servis güvenli yapılandırılmamış.");

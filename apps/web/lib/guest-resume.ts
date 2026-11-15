@@ -34,7 +34,10 @@ const store = (): Store | undefined => {
 export async function resumeKey(linkToken: string): Promise<string | null> {
   try {
     const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(linkToken));
-    const hex = [...new Uint8Array(d)].slice(0, 16).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const hex = [...new Uint8Array(d)]
+      .slice(0, 16)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
     return `${STORAGE_PREFIX}resume.${hex}`;
   } catch {
     return null;

@@ -18,7 +18,9 @@ export function RequestCustomerFilter({ value, selectedName, basePath }: { value
   const [pending, start] = useTransition();
   const initialMode: Mode = value === "general" ? "general" : value ? "customer" : "";
   const [mode, setMode] = useState<Mode>(initialMode);
-  const [picked, setPicked] = useState<ComboOption | null>(value && value !== "general" ? { id: value, label: selectedName ?? t("rq.cf.selected") } : null);
+  const [picked, setPicked] = useState<ComboOption | null>(
+    value && value !== "general" ? { id: value, label: selectedName ?? t("rq.cf.selected") } : null,
+  );
 
   const go = (customer?: string) => {
     const u = new URL(basePath, "http://x");

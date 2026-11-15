@@ -9,7 +9,17 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { api, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
-import { ACCEPT_ATTR, INVALID_IMAGE_MESSAGE, isDefaultLogo, loadImage, precheckDimensions, precheckFile, readAsDataUrl, uploadBody, uploadError } from "@/lib/branding/image";
+import {
+  ACCEPT_ATTR,
+  INVALID_IMAGE_MESSAGE,
+  isDefaultLogo,
+  loadImage,
+  precheckDimensions,
+  precheckFile,
+  readAsDataUrl,
+  uploadBody,
+  uploadError,
+} from "@/lib/branding/image";
 import type { UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
 
@@ -44,13 +54,16 @@ export function LogoUploader({
   const inputRef = useRef<HTMLInputElement>(null);
   const hintId = useId();
   // Hidrasyon tamamlandı (dosya seçimi olayları ancak bundan sonra işlenir; e2e bekler)
-  const ready = useSyncExternalStore(noop, () => true, () => false);
+  const ready = useSyncExternalStore(
+    noop,
+    () => true,
+    () => false,
+  );
   const [url, setUrl] = useState(logoUrl);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
   const [confirm, setConfirm] = useState(false);
-
 
   const custom = !isDefaultLogo(url);
 
@@ -115,7 +128,11 @@ export function LogoUploader({
           <div className="flex min-h-24 items-center rounded-lg border border-border bg-surface-muted p-2">
             <LogoImage variant="full" url={url} alt={custom ? alt : t("app.systemLogoAlt")} testId={`${testId}-current`} />
           </div>
-          {!custom && removable && <p className="text-xs text-fg-muted" data-testid={`${testId}-none`}>{t("lg.none")}</p>}
+          {!custom && removable && (
+            <p className="text-xs text-fg-muted" data-testid={`${testId}-none`}>
+              {t("lg.none")}
+            </p>
+          )}
         </figure>
         {preview && (
           <figure className="flex flex-col gap-2" data-testid={`${testId}-preview`}>
@@ -137,7 +154,9 @@ export function LogoUploader({
 
       {canEdit && (
         <>
-          <p id={hintId} className="text-xs text-fg-muted">{t("lg.hint")}</p>
+          <p id={hintId} className="text-xs text-fg-muted">
+            {t("lg.hint")}
+          </p>
           <div className="flex flex-wrap gap-2">
             {preview ? (
               <>
@@ -151,7 +170,13 @@ export function LogoUploader({
                 </Button>
               </>
             ) : (
-              <Button variant="secondary" onClick={() => inputRef.current?.click()} disabled={busy} aria-describedby={hintId} data-testid={`${testId}-pick`}>
+              <Button
+                variant="secondary"
+                onClick={() => inputRef.current?.click()}
+                disabled={busy}
+                aria-describedby={hintId}
+                data-testid={`${testId}-pick`}
+              >
                 <ImageUp aria-hidden className="size-4" />
                 {custom ? t("lg.change") : t("lg.pick")}
               </Button>

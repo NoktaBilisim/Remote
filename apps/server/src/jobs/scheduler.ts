@@ -21,7 +21,14 @@ export interface Scheduler {
  * P13a: `retention` verilirse günlük 03:30 Europe/Istanbul saklama işi (jobs/retention.ts; AC-159, 195, 197..199).
  * Bir sonraki tur önceki bittikten sonra kurulur (üst üste binmez).
  */
-export function startScheduler(db: Db, log: FastifyBaseLogger, rooms?: RoomNotifier, intervalMs = EXPIRY_INTERVAL_MS, requests?: RequestService, retention?: RetentionJob): Scheduler {
+export function startScheduler(
+  db: Db,
+  log: FastifyBaseLogger,
+  rooms?: RoomNotifier,
+  intervalMs = EXPIRY_INTERVAL_MS,
+  requests?: RequestService,
+  retention?: RetentionJob,
+): Scheduler {
   let running = false;
   let sweeping = false;
   const runRequestSweep = async (): Promise<void> => {
@@ -29,7 +36,8 @@ export function startScheduler(db: Db, log: FastifyBaseLogger, rooms?: RoomNotif
     sweeping = true;
     try {
       const r = await sweepRequests(requests);
-      if (r.expired + r.connectFailed + r.tenantPassive + r.customerPassive + r.bindingsRevoked > 0) log.info({ job: "request-sweep", ...r }, "talep durumları güncellendi");
+      if (r.expired + r.connectFailed + r.tenantPassive + r.customerPassive + r.bindingsRevoked > 0)
+        log.info({ job: "request-sweep", ...r }, "talep durumları güncellendi");
     } catch (err) {
       log.error({ err, job: "request-sweep" }, "zamanlanmış iş hatası");
     } finally {
@@ -39,15 +47,18 @@ export function startScheduler(db: Db, log: FastifyBaseLogger, rooms?: RoomNotif
   let retentionTimer: NodeJS.Timeout | undefined;
   const armRetention = (): void => {
     if (!retention) return;
-    retentionTimer = setTimeout(() => {
-      void retention
-        .run()
-        .then((r) => {
-          if (r) log.info({ job: "retention", tenants: r.tenants, failures: r.failures, ...r.totals }, "saklama işi tamamlandı");
-        })
-        .catch((err: unknown) => log.error({ err, job: "retention" }, "zamanlanmış iş hatası"))
-        .finally(armRetention);
-    }, nextRetentionAt(Date.now()) - Date.now());
+    retentionTimer = setTimeout(
+      () => {
+        void retention
+          .run()
+          .then((r) => {
+            if (r) log.info({ job: "retention", tenants: r.tenants, failures: r.failures, ...r.totals }, "saklama işi tamamlandı");
+          })
+          .catch((err: unknown) => log.error({ err, job: "retention" }, "zamanlanmış iş hatası"))
+          .finally(armRetention);
+      },
+      nextRetentionAt(Date.now()) - Date.now(),
+    );
     retentionTimer.unref();
   };
   armRetention();

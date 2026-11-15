@@ -8,7 +8,10 @@ import { createSupportSessionRow, createTenant, createUser, testDb } from "../he
 import { createRequestRow } from "../helpers/requests.ts";
 
 async function rejectsWith(p: Promise<unknown>, needle: string | RegExp) {
-  const err = await p.then(() => null, (e: unknown) => e);
+  const err = await p.then(
+    () => null,
+    (e: unknown) => e,
+  );
   expect(err, `reddedilmeliydi: ${String(needle)}`).toBeInstanceOf(Error);
   const text = `${(err as Error).message} ${JSON.stringify((err as { meta?: unknown }).meta ?? {})}`;
   expect(text).toMatch(needle);
@@ -24,7 +27,16 @@ async function customer(tenantId: string, o: { name?: string; nameKey?: string; 
   const nameKey = o.nameKey ?? name.toLowerCase();
   const ref = newTenantRef();
   const c = await db().customer.create({
-    data: { id, tenantId, name, nameKey, searchKey: `${nameKey}  ${o.phone?.replace(/\D/g, "") ?? ""}`.trimEnd(), fileLabel: "Musteri", requestRef: ref, phone: o.phone ?? null },
+    data: {
+      id,
+      tenantId,
+      name,
+      nameKey,
+      searchKey: `${nameKey}  ${o.phone?.replace(/\D/g, "") ?? ""}`.trimEnd(),
+      fileLabel: "Musteri",
+      requestRef: ref,
+      phone: o.phone ?? null,
+    },
   });
   await db().requestRef.create({ data: { ref, tenantId, customerId: id } });
   return c;
@@ -68,7 +80,10 @@ describe("P8c-1 customers", () => {
     const cols = await db().$queryRaw<{ c: string; k: string }[]>`
       SELECT COLUMN_NAME AS c, COLLATION_NAME AS k FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customers' AND COLUMN_NAME IN ('name_key','search_key') ORDER BY COLUMN_NAME`;
-    expect(cols).toEqual([{ c: "name_key", k: "utf8mb4_bin" }, { c: "search_key", k: "utf8mb4_bin" }]);
+    expect(cols).toEqual([
+      { c: "name_key", k: "utf8mb4_bin" },
+      { c: "search_key", k: "utf8mb4_bin" },
+    ]);
   });
 
   it("AC-167/195: biçim, metin, durum ve anonimleştirme CHECK'leri", async () => {
@@ -91,7 +106,8 @@ describe("P8c-1 customers", () => {
     await rejectsWith(upd({ nameKey: "baska ad" }), /customers_search_key_chk/);
     await rejectsWith(upd({ nameKey: " x", searchKey: " x" }), /customers_name_key_chk/);
     // ADR-0014 ikili enum + PASSIVE ⇔ passive_at.
-    for (const bad of ["passive", "PASSIVE ", "PÁSSIVE"]) await rejectsWith(upd({ status: bad, passiveAt: new Date() }), /customers_status_chk/);
+    for (const bad of ["passive", "PASSIVE ", "PÁSSIVE"])
+      await rejectsWith(upd({ status: bad, passiveAt: new Date() }), /customers_status_chk/);
     await rejectsWith(upd({ status: "PASSIVE" }), /customers_passive_chk/);
     await rejectsWith(upd({ passiveAt: new Date() }), /customers_passive_chk/);
     await expect(upd({ status: "PASSIVE", passiveAt: new Date() })).resolves.toEqual({ count: 1 });
@@ -121,7 +137,10 @@ describe("P8c-1 request_refs (tek ref ad alanı, ADR-0006 r5)", () => {
     await db().customer.update({ where: { id: c.id }, data: { requestRef: fresh, refRotatedAt: new Date() } });
     await rejectsWith(db().requestRef.create({ data: { ref: c.requestRef, tenantId, customerId: null } }), /PRIMARY|P2002|Unique/i);
     await rejectsWith(db().requestRef.create({ data: { ref: "ABCDEFGHIJKLMNOP", tenantId } }), /request_refs_ref_fmt_chk/);
-    for (const sql of [`UPDATE request_refs SET customer_id = NULL WHERE ref = '${fresh}'`, `DELETE FROM request_refs WHERE ref = '${fresh}'`]) {
+    for (const sql of [
+      `UPDATE request_refs SET customer_id = NULL WHERE ref = '${fresh}'`,
+      `DELETE FROM request_refs WHERE ref = '${fresh}'`,
+    ]) {
       await expect(db().$executeRawUnsafe(sql), sql).rejects.toThrow();
     }
   });
@@ -130,14 +149,19 @@ describe("P8c-1 request_refs (tek ref ad alanı, ADR-0006 r5)", () => {
     const a = await fixture();
     const b = await fixture();
     const c = await customer(a.tenantId);
-    await rejectsWith(db().requestRef.create({ data: { ref: newTenantRef(), tenantId: b.tenantId, customerId: c.id } }), /request_refs_tenant_id_customer_id_fkey/);
+    await rejectsWith(
+      db().requestRef.create({ data: { ref: newTenantRef(), tenantId: b.tenantId, customerId: c.id } }),
+      /request_refs_tenant_id_customer_id_fkey/,
+    );
   });
 
   it("AC-168: geri doldurma ifadesi idempotent; tüm Genel ref'ler ad alanında", async () => {
     const { tenantId } = await fixture();
     // P8b şekli: ad alanına yazılmamış Genel ref (geri doldurmanın konusu); yardımcı P8c'de ad alanına yazdığı için doğrudan
     const ref = newTenantRef();
-    await db().tenantRequestSettings.create({ data: { tenantId, requestRef: ref, fileLabel: "TestFirma", waitMinutes: 30, waRecipients: [], emailRecipients: [], trustedCidrs: [] } });
+    await db().tenantRequestSettings.create({
+      data: { tenantId, requestRef: ref, fileLabel: "TestFirma", waitMinutes: 30, waRecipients: [], emailRecipients: [], trustedCidrs: [] },
+    });
     const backfill = `INSERT INTO request_refs (ref, tenant_id, customer_id, created_at)
       SELECT s.request_ref, s.tenant_id, NULL, COALESCE(s.ref_rotated_at, s.created_at) FROM tenant_request_settings s
       WHERE s.tenant_id = '${tenantId}' AND NOT EXISTS (SELECT 1 FROM request_refs r WHERE r.ref = s.request_ref)`;
@@ -161,7 +185,10 @@ describe("P8c-1 device_bindings (bilgisayar kaydı, ADR-0017)", () => {
     for (const bad of ["forgotten", "FORGOTTEN ", "FÓRGOTTEN", "DELETED"]) {
       await rejectsWith(upd({ revokedAt: new Date(), revokeReason: bad, keyHash: null }), /device_bindings_revoke_reason_chk/);
     }
-    await rejectsWith(binding(tenantId, sessionId, { keyHash: b.keyHash ?? "" }), /device_bindings_key_hash_key|device_bindings_active_session_id_key/);
+    await rejectsWith(
+      binding(tenantId, sessionId, { keyHash: b.keyHash ?? "" }),
+      /device_bindings_key_hash_key|device_bindings_active_session_id_key/,
+    );
     const r = await revoke(b.id, "ADMIN_REVOKED");
     expect(r).toMatchObject({ keyHash: null, revokeReason: "ADMIN_REVOKED", activeSessionId: null });
     await expect(db().$executeRawUnsafe(`DELETE FROM device_bindings WHERE id = '${b.id}'`)).rejects.toThrow();
@@ -220,11 +247,15 @@ describe("P8c-1 support_requests / support_sessions müşteri ve kayıt bağı",
     const { tenantId } = await fixture();
     const close = async (reason: string) => {
       const rq = await createRequestRow(tenantId);
-      return db().supportRequest.updateMany({ where: { id: rq.id, status: "PENDING" }, data: { status: "CANCELLED", cancelReason: reason, closedAt: new Date() } });
+      return db().supportRequest.updateMany({
+        where: { id: rq.id, status: "PENDING" },
+        data: { status: "CANCELLED", cancelReason: reason, closedAt: new Date() },
+      });
     };
     await expect(close("CUSTOMER_PASSIVE")).resolves.toEqual({ count: 1 });
     await expect(close("BINDING_REVOKED")).resolves.toEqual({ count: 1 });
-    for (const bad of ["customer_passive", "BINDING_REVOKED ", "ADMIN_REVOKED"]) await rejectsWith(close(bad), /support_requests_cancel_reason_chk/);
+    for (const bad of ["customer_passive", "BINDING_REVOKED ", "ADMIN_REVOKED"])
+      await rejectsWith(close(bad), /support_requests_cancel_reason_chk/);
   });
 
   it("şema: P8c indeksleri ve FK sütun sırası", async () => {

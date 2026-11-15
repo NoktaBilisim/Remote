@@ -8,7 +8,15 @@ import { Segmented } from "@/components/ui/segmented";
 import { formatRemaining, formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { SPECIAL_COMBOS, type SpecialComboId } from "@/lib/control/input";
-import { canRequestMonitor, cooldownLeft, MAX_CONTROL_REQUESTS, monitorBlockLeft, requestsLeft, type ControlState, type Monitor as Mon } from "@/lib/control/machine";
+import {
+  canRequestMonitor,
+  cooldownLeft,
+  MAX_CONTROL_REQUESTS,
+  monitorBlockLeft,
+  requestsLeft,
+  type ControlState,
+  type Monitor as Mon,
+} from "@/lib/control/machine";
 
 /**
  * "Kontrol iste" durum makinesi görünümü (DESIGN §6 `console/control-button.tsx`; AC-47, 50, 99, 116).
@@ -56,7 +64,10 @@ export function ControlButton({
   } else if (s.phase === "granted") {
     body = (
       <>
-        <span data-testid="control-on" className="inline-flex items-center gap-1.5 rounded-full bg-control-frame px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-on-control">
+        <span
+          data-testid="control-on"
+          className="inline-flex items-center gap-1.5 rounded-full bg-control-frame px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-on-control"
+        >
           {/* İkonsuz: şerit 1280 px'te tek satır kalsın (TEST-P7-2); durum metin + kırmızı çerçeveyle verilir */}
           {t("p7.on")}
         </span>
@@ -87,7 +98,14 @@ export function ControlButton({
     const released = s.phase === "ended" && s.endedBy === "tech";
     const disabled = !available || cd > 0 || left === 0;
     body = (
-      <Button ref={mainRef} variant={disabled ? "secondary" : "primary"} disabled={disabled} onClick={onRequest} aria-describedby={noteId} data-testid="control-request">
+      <Button
+        ref={mainRef}
+        variant={disabled ? "secondary" : "primary"}
+        disabled={disabled}
+        onClick={onRequest}
+        aria-describedby={noteId}
+        data-testid="control-request"
+      >
         <Hand aria-hidden className="size-4" />
         {denied ? (cd > 0 ? t("p7.retryIn", { time: formatRemaining(cd) }) : t("p7.retry")) : released ? t("p7.resume") : t("p7.request")}
       </Button>
@@ -106,7 +124,12 @@ export function ControlButton({
     // `contents`: öğeler sahne şeridinde doğrudan akar (dar ekranda "Görünüm" menüsüyle aynı satıra sarabilir)
     <div className="contents" data-testid="control-bar" data-phase={s.forbidden ? "forbidden" : s.phase}>
       {body}
-      <p id={noteId} role="status" data-testid="control-note" className={`${s.phase === "granted" && !s.forbidden ? "sr-only" : "line-clamp-2 max-w-64 min-w-0 text-xs"} ${s.error || s.notice || s.forbidden ? "text-warning" : "text-fg-muted"}`}>
+      <p
+        id={noteId}
+        role="status"
+        data-testid="control-note"
+        className={`${s.phase === "granted" && !s.forbidden ? "sr-only" : "line-clamp-2 max-w-64 min-w-0 text-xs"} ${s.error || s.notice || s.forbidden ? "text-warning" : "text-fg-muted"}`}
+      >
         {note.join(" · ")}
       </p>
     </div>
@@ -122,24 +145,24 @@ function SpecialKeys({ onKeys }: { onKeys: (id: SpecialComboId) => void }) {
   return (
     <Menu label={t("p7.keys")} icon={<Keyboard aria-hidden className="size-4" />} testId="special-keys">
       <>
-          <ul aria-label={t("p7.keys")}>
-            {SPECIAL_COMBOS.map((c) => (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  data-testid={`key-${c.id}`}
-                  onClick={(e) => {
-                    onKeys(c.id);
-                    closeMenu(e.currentTarget);
-                  }}
-                  className="flex min-h-11 w-full cursor-pointer items-center rounded-sm px-3 text-left text-sm text-fg hover:bg-surface-muted"
-                >
-                  {t(`p7.combo.${c.id}`)}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <p className="border-t border-border px-3 py-2 text-xs text-fg-muted">{t("p7.kbHint")}</p>
+        <ul aria-label={t("p7.keys")}>
+          {SPECIAL_COMBOS.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                data-testid={`key-${c.id}`}
+                onClick={(e) => {
+                  onKeys(c.id);
+                  closeMenu(e.currentTarget);
+                }}
+                className="flex min-h-11 w-full cursor-pointer items-center rounded-sm px-3 text-left text-sm text-fg hover:bg-surface-muted"
+              >
+                {t(`p7.combo.${c.id}`)}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <p className="border-t border-border px-3 py-2 text-xs text-fg-muted">{t("p7.kbHint")}</p>
       </>
     </Menu>
   );
@@ -156,12 +179,17 @@ export function MonitorPicker({ s, now, onRequest }: { s: ControlState; now: num
   const blockLeft = monitorBlockLeft(s, at);
   const disabled = now !== null && !canRequestMonitor(s, at);
   const outcome =
-    pending >= 0 ? t("p7.monitorWait", { name: monitorName(s.monitors[pending]!, pending) })
-    : s.monitorOutcome === "denied" ? t("p7.monitorDenied")
-    : s.monitorOutcome === "noAnswer" ? t("p7.monitorNoAnswer")
-    : s.monitorOutcome === "rate" ? t("p7.monitorRate")
-    : s.monitorOutcome === "already" ? t("p7.monitorAlready")
-    : t("p7.monitorHint");
+    pending >= 0
+      ? t("p7.monitorWait", { name: monitorName(s.monitors[pending]!, pending) })
+      : s.monitorOutcome === "denied"
+        ? t("p7.monitorDenied")
+        : s.monitorOutcome === "noAnswer"
+          ? t("p7.monitorNoAnswer")
+          : s.monitorOutcome === "rate"
+            ? t("p7.monitorRate")
+            : s.monitorOutcome === "already"
+              ? t("p7.monitorAlready")
+              : t("p7.monitorHint");
   const note = pending < 0 && blockLeft > 0 ? `${outcome} · ${t("p7.monitorRetryIn", { time: formatRemaining(blockLeft) })}` : outcome;
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="monitor-picker">
@@ -170,10 +198,22 @@ export function MonitorPicker({ s, now, onRequest }: { s: ControlState; now: num
         value={s.activeMonitor === null ? "" : String(s.activeMonitor)}
         onChange={(v) => onRequest(Number(v))}
         disabled={disabled}
-        options={s.monitors.map((m, i) => ({ value: String(m.id), label: monitorName(m, i), icon: <Monitor aria-hidden className="size-4" /> }))}
+        options={s.monitors.map((m, i) => ({
+          value: String(m.id),
+          label: monitorName(m, i),
+          icon: <Monitor aria-hidden className="size-4" />,
+        }))}
       />
       {/* Sabit ipucu yalnız ekran okuyucuya (şerit dar ekranda satır kırmasın); bekleme/sonuç görünür yazılır */}
-      <p role="status" data-testid="monitor-note" className={pending >= 0 || (s.monitorOutcome !== null && s.monitorOutcome !== "switched") ? "max-w-44 text-xs text-fg-muted" : "sr-only"}>{note}</p>
+      <p
+        role="status"
+        data-testid="monitor-note"
+        className={
+          pending >= 0 || (s.monitorOutcome !== null && s.monitorOutcome !== "switched") ? "max-w-44 text-xs text-fg-muted" : "sr-only"
+        }
+      >
+        {note}
+      </p>
     </div>
   );
 }

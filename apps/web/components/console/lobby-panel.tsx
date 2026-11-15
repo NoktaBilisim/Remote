@@ -44,7 +44,11 @@ export function LobbyPanel({
           : undefined);
 
   return (
-    <section aria-labelledby="lobi-t" data-testid="lobby-panel" className="flex w-full max-w-xl flex-col gap-4 rounded-lg border border-border bg-surface p-4 text-fg shadow-md sm:p-6">
+    <section
+      aria-labelledby="lobi-t"
+      data-testid="lobby-panel"
+      className="flex w-full max-w-xl flex-col gap-4 rounded-lg border border-border bg-surface p-4 text-fg shadow-md sm:p-6"
+    >
       <h2 id="lobi-t" className="inline-flex items-center gap-2 text-lg font-semibold">
         <Users aria-hidden className="size-5 text-fg-muted" />
         {t("cl.title", { n: state.pending.length })}
@@ -76,7 +80,9 @@ export function LobbyPanel({
               <p className="truncate font-semibold">{p.name}</p>
               <p className="text-xs text-fg-muted">
                 {t(p.guestKind === "AGENT" ? "cl.kindAgent" : "cl.kindBrowser")} ·{" "}
-                <span className="tabular-nums">{t("cl.waitingFor", { time: now === null ? "—" : formatRemaining(now - Date.parse(p.since)) })}</span>
+                <span className="tabular-nums">
+                  {t("cl.waitingFor", { time: now === null ? "—" : formatRemaining(now - Date.parse(p.since)) })}
+                </span>
               </p>
             </div>
             <Button variant="danger-ghost" onClick={() => onReject(p)} aria-label={t("cl.rejectRow", { name: p.name })}>
@@ -86,11 +92,7 @@ export function LobbyPanel({
           </li>
         ))}
       </ul>
-      {state.rejects >= REJECT_SUGGEST && (
-        <Alert tone="warning">
-          {t("cl.leaked")}
-        </Alert>
-      )}
+      {state.rejects >= REJECT_SUGGEST && <Alert tone="warning">{t("cl.leaked")}</Alert>}
     </section>
   );
 }

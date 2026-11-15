@@ -17,7 +17,10 @@ const origin = z.url().transform((v) => new URL(v).origin);
 /** `v1:<base64 32 bayt>[,v2:...]` (mimari §3.2, §8.1). Sürüm 1..255 tekil; her anahtar tam 32 bayt. */
 export function parseEncryptionKeys(raw: string): Map<number, Buffer> | null {
   const keys = new Map<number, Buffer>();
-  for (const part of raw.split(",").map((p) => p.trim()).filter(Boolean)) {
+  for (const part of raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)) {
     const m = /^v(\d{1,3}):([A-Za-z0-9+/]+={0,2})$/.exec(part);
     if (!m?.[1] || !m[2]) return null;
     const ver = Number(m[1]);
@@ -72,11 +75,17 @@ const schema = z
     // (panel adresine panel anahtarı gider). Loglanmaz; değer hata mesajına yazılmaz.
     WHATSAPP_SERVICE_API_KEY: waApiKeySchema.optional(),
     // P8b r2 (§13.4, G-E9-4): asgari Windows istemci sürümü; boş = kontrol yok. Düşük sürüm → 426 CLIENT_OUTDATED.
-    MIN_AGENT_VERSION: z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/, "x.y.z biçiminde olmalı").optional(),
+    MIN_AGENT_VERSION: z
+      .string()
+      .regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/, "x.y.z biçiminde olmalı")
+      .optional(),
     // P10 (mimari §3.2, §8.1): `*_enc` alanlarının AES-256-GCM anahtarları; yeni yazım en yüksek sürümle, okuma `ver`
     // baytına göre (rotasyon: yeni sürüm eklenir, eski okunabilir kalır). Production'da zorunlu; geliştirme/testte boşsa
     // süreç başına rastgele (yeniden başlatmada kayıtlı SMTP şifresi/TOTP sırrı çözülemez). Loglanmaz.
-    APP_ENCRYPTION_KEYS: z.string().refine((v) => parseEncryptionKeys(v) !== null, "v1:<base64 32 bayt>[,v2:...] biçiminde olmalı").optional(),
+    APP_ENCRYPTION_KEYS: z
+      .string()
+      .refine((v) => parseEncryptionKeys(v) !== null, "v1:<base64 32 bayt>[,v2:...] biçiminde olmalı")
+      .optional(),
     // P12 (AC-84, T16): logo/avatar yükleme kökü; `{tenantId|system}/{rastgele}.{png|jpg|webp}` altında. Kalıcı volume,
     // `node` kullanıcısı yazabilmeli (compose/runbook: devops). Mutlak yol.
     UPLOADS_DIR: z.string().startsWith("/", "mutlak yol olmalı").default("/data/uploads"),
@@ -99,9 +108,15 @@ const schema = z
     message: "turn:/turns: URL'si varken zorunlu",
   })
   .transform((e) => {
-    const list = e.ALLOWED_ORIGINS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+    const list =
+      e.ALLOWED_ORIGINS?.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean) ?? [];
     const allowedOrigins = (list.length > 0 ? list : [e.PUBLIC_BASE_URL]).map((o) => origin.parse(o));
-    const turnUrls = e.TURN_URLS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+    const turnUrls =
+      e.TURN_URLS?.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean) ?? [];
     const encryptionKeys = e.APP_ENCRYPTION_KEYS ? parseEncryptionKeys(e.APP_ENCRYPTION_KEYS) : null;
     return { ...e, WHATSAPP_SERVICE_URL: e.WHATSAPP_SERVICE_URL ?? "", allowedOrigins, turnUrls, encryptionKeys };
   });

@@ -2,8 +2,16 @@
 // Ortak fixture (fixtures/file-names.json) apps/server/test/unit/file-names.test.ts'te doğrulanır (node fs).
 import { describe, expect, it } from "vitest";
 import {
-  ANNOT_MAX_POINTS, CHAT_MAX_CHARS, DC_CTL_MAX_BYTES, FILE_CHUNK_MAX_PAYLOAD, FileReceiveGuard, ctlAllowed, decodeFileChunk,
-  encodeFileChunk, maxFileBytes, parseCtlMessage,
+  ANNOT_MAX_POINTS,
+  CHAT_MAX_CHARS,
+  DC_CTL_MAX_BYTES,
+  FILE_CHUNK_MAX_PAYLOAD,
+  FileReceiveGuard,
+  ctlAllowed,
+  decodeFileChunk,
+  encodeFileChunk,
+  maxFileBytes,
+  parseCtlMessage,
 } from "../src/dc.ts";
 import { fileNameWarning, isSanitizedFileName, sanitizeFileName } from "../src/files.ts";
 
@@ -12,7 +20,9 @@ const j = (o: unknown) => JSON.stringify(o);
 
 describe("P5 ctl mesajları", () => {
   it("AC-35: chat 1..2000 karakter, HTML düz metin olarak taşınır; fazlası/boş reddedilir", () => {
-    expect(parseCtlMessage(j({ t: "chat", id: "m1", text: "<img src=x onerror=alert(1)>", ts: 1 }))).toMatchObject({ text: "<img src=x onerror=alert(1)>" });
+    expect(parseCtlMessage(j({ t: "chat", id: "m1", text: "<img src=x onerror=alert(1)>", ts: 1 }))).toMatchObject({
+      text: "<img src=x onerror=alert(1)>",
+    });
     expect(parseCtlMessage(j({ t: "chat", id: "m1", text: "a".repeat(CHAT_MAX_CHARS), ts: 1 }))).not.toBeNull();
     expect(parseCtlMessage(j({ t: "chat", id: "m1", text: "a".repeat(CHAT_MAX_CHARS + 1), ts: 1 }))).toBeNull();
     expect(parseCtlMessage(j({ t: "chat", id: "m1", text: "", ts: 1 }))).toBeNull();

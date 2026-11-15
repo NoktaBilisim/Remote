@@ -24,7 +24,17 @@ const userSelect = {
   status: true,
   deletedAt: true,
   totpEnabled: true,
-  tenant: { select: { id: true, name: true, slug: true, status: true, deletedAt: true, logoPath: true, settings: { select: { requireTech2fa: true } } } },
+  tenant: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      status: true,
+      deletedAt: true,
+      logoPath: true,
+      settings: { select: { requireTech2fa: true } },
+    },
+  },
 } as const;
 
 export type LoginUser = Prisma.UserGetPayload<{ select: typeof userSelect }>;

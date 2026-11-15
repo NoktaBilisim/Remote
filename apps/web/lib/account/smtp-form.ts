@@ -5,7 +5,15 @@
  * B-P10-1: port yalnız `SMTP_ALLOWED_PORTS`. B-P10-5: güvenlik "Yok" iken kullanıcı adı/şifre gönderilmez (alanlar
  * pasif; durumdaki değer korunur, SSL/TLS'e dönülünce geri gelir). "Yok" ile kaydetmek kayıtlı kimliği siler.
  */
-import { SMTP_ALLOWED_PORTS, SMTP_DEFAULT_PORTS, SMTP_PORT_MESSAGE, smtpSettingsInputSchema, type SmtpSecurity, type SmtpSettingsInput, type SmtpSettingsView } from "./contract";
+import {
+  SMTP_ALLOWED_PORTS,
+  SMTP_DEFAULT_PORTS,
+  SMTP_PORT_MESSAGE,
+  smtpSettingsInputSchema,
+  type SmtpSecurity,
+  type SmtpSettingsInput,
+  type SmtpSettingsView,
+} from "./contract";
 
 export interface SmtpState {
   host: string;

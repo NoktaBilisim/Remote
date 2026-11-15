@@ -80,14 +80,18 @@ export function TenantSwitcher({ acting }: { acting: Ref | null }) {
           </p>
         ) : load.kind === "error" ? (
           <div className="flex flex-col gap-1 px-1 py-1" data-testid="tenant-switcher-error">
-            <p role="alert" className="px-2 text-sm text-danger">{t("ts.error")}</p>
+            <p role="alert" className="px-2 text-sm text-danger">
+              {t("ts.error")}
+            </p>
             <button type="button" className={itemCls} onClick={() => void fetchList()}>
               <RotateCw aria-hidden className="size-4" />
               {t("ts.retry")}
             </button>
           </div>
         ) : load.items.length === 0 ? (
-          <p className="flex min-h-11 items-center px-3 text-sm text-fg-muted" data-testid="tenant-switcher-empty">{t("ts.empty")}</p>
+          <p className="flex min-h-11 items-center px-3 text-sm text-fg-muted" data-testid="tenant-switcher-empty">
+            {t("ts.empty")}
+          </p>
         ) : (
           <ul className="max-h-72 overflow-y-auto" data-testid="tenant-switcher-list">
             {load.items.map((x) => {
@@ -101,7 +105,11 @@ export function TenantSwitcher({ acting }: { acting: Ref | null }) {
                     disabled={busy !== null || current}
                     onClick={(e) => void go(x, e.currentTarget)}
                   >
-                    {busy === x.id ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <Check aria-hidden className={`size-4 ${current ? "text-primary" : "invisible"}`} />}
+                    {busy === x.id ? (
+                      <LoaderCircle aria-hidden className="size-4 animate-spin" />
+                    ) : (
+                      <Check aria-hidden className={`size-4 ${current ? "text-primary" : "invisible"}`} />
+                    )}
                     <span className="min-w-0 flex-1 truncate">{x.name}</span>
                   </button>
                 </li>
@@ -111,7 +119,13 @@ export function TenantSwitcher({ acting }: { acting: Ref | null }) {
         )}
         <div className="mt-1 border-t border-border pt-1">
           {acting && (
-            <button type="button" className={itemCls} disabled={busy !== null} onClick={(e) => void go(null, e.currentTarget)} data-testid="tenant-switcher-clear">
+            <button
+              type="button"
+              className={itemCls}
+              disabled={busy !== null}
+              onClick={(e) => void go(null, e.currentTarget)}
+              data-testid="tenant-switcher-clear"
+            >
               {busy === "none" ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <LogOut aria-hidden className="size-4" />}
               {t("ts.clear")}
             </button>

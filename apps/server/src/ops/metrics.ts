@@ -61,13 +61,19 @@ export function createMetrics(): Metrics {
   m.counter("rs_requests_created_total", "Oluşturulan destek talepleri (P8b; P8c via: ref|binding)");
   m.counter("rs_bindings_issued_total", "Verilen/yenilenen bilgisayar kayıtları (P8c; renewed: true|false)");
   m.counter("rs_binding_invalid_total", "Geçersiz bilgisayar kaydı denemeleri (P8c; rs_request_ref_invalid_total'a da sayılır)");
-  m.counter("rs_binding_denied_total", "Verilmeyen bilgisayar kayıtları (P8c B-P8c-4; reason: stale_source|inactive|rate|no_offer|browser)");
+  m.counter(
+    "rs_binding_denied_total",
+    "Verilmeyen bilgisayar kayıtları (P8c B-P8c-4; reason: stale_source|inactive|rate|no_offer|browser)",
+  );
   m.counter("rs_bindings_revoked_total", "Geçersizleştirilen bilgisayar kayıtları (P8c; reason)");
   m.counter("rs_request_ref_invalid_total", "Geçersiz firma ref'i denemeleri (P8b; alarm > 100/dk)");
   m.counter("rs_request_rate_limited_total", "Talep hız/bekleyen sınırı aşımları (bucket)");
   m.counter("rs_request_gate_rejected_total", "Talep oluşturma kapısı dolu → 503 (reason: full|timeout; S8b-5)");
   m.counter("rs_request_notify_total", "Talep bildirimleri (channel, result: ok|failed|suppressed)");
-  m.counter("rs_retention_rows_total", "Saklama işinin değiştirdiği/sildiği satırlar (P13a; kind: sessions|consents|files|requests|customers|bindings|audit|auth_sessions|reset_tokens)");
+  m.counter(
+    "rs_retention_rows_total",
+    "Saklama işinin değiştirdiği/sildiği satırlar (P13a; kind: sessions|consents|files|requests|customers|bindings|audit|auth_sessions|reset_tokens)",
+  );
   m.counter("rs_retention_failures_total", "Saklama işinde başarısız adımlar (P13a; firma adımı, global adım, audit yazımı)");
   m.counter("rs_sessions_ended_total", "Sinyalizasyon üzerinden biten oturumlar (reason)");
   m.counter(

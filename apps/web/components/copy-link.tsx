@@ -11,15 +11,28 @@ import { copyText } from "@/lib/use-now";
  * reddedilirse bağlantı salt okunur alanda **seçili** gösterilir (kullanıcı Ctrl+C ile alır).
  * `srLabel`: ekran okuyucu için kimin bağlantısı olduğu ("Bağlantıyı kopyala: Acme").
  */
-export function CopyLink({ url, srLabel, testId = "copy-link", className = "" }: { url: string; srLabel: string; testId?: string; className?: string }) {
+export function CopyLink({
+  url,
+  srLabel,
+  testId = "copy-link",
+  className = "",
+}: {
+  url: string;
+  srLabel: string;
+  testId?: string;
+  className?: string;
+}) {
   const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
   const inputRef = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const id = useId();
 
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
   useEffect(() => {
     if (state === "manual") {
       inputRef.current?.focus();

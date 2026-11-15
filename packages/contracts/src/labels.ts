@@ -2,7 +2,16 @@
 // CHECK'i olmayan değerler (`end_reason`, audit `action`) bilinmiyorsa ham gösterilir: `labelOf` boş bırakmaz, hata atmaz.
 import type { CustomerStatus } from "./api/customers.ts";
 import type { CancelReason, NetworkMatch, RequestStatus } from "./api/requests.ts";
-import type { ConsentDecision, ConsentLevel, ConsentRecordSource, SessionEndedBy, SessionMode, SessionSource, SessionStatus, TimelineEvent } from "./api/sessions.ts";
+import type {
+  ConsentDecision,
+  ConsentLevel,
+  ConsentRecordSource,
+  SessionEndedBy,
+  SessionMode,
+  SessionSource,
+  SessionStatus,
+  TimelineEvent,
+} from "./api/sessions.ts";
 
 /** Bilinen değer → etiket; bilinmeyen → ham değer; null/undefined → "". */
 export function labelOf(map: Readonly<Record<string, string>>, value: string | null | undefined): string {
@@ -85,7 +94,8 @@ export const VIA_BINDING_LABEL = "Kayıtlı bilgisayar";
 export const BINDING_REVOKED_LABEL = "Kaydı iptal edilmiş bilgisayar";
 export const STALE_SOURCE_LABEL = "Bu talep bağlantı yenilenmeden önce açıldı";
 /** "Kayıtlı bilgisayar — <müşteri firma | Genel>" (kapsamlı rozet metni). */
-export const viaBindingLabel = (customerFirmName: string | null): string => `${VIA_BINDING_LABEL} — ${customerFirmName ?? GENERAL_CUSTOMER_LABEL}`;
+export const viaBindingLabel = (customerFirmName: string | null): string =>
+  `${VIA_BINDING_LABEL} — ${customerFirmName ?? GENERAL_CUSTOMER_LABEL}`;
 
 /**
  * P8b (AC-146, G-E9-15): bilinen ağ metni. IP/TRUSTED güven veren rozet; PREFIX nötr (uyarıyı kaldırmaz); NONE metinsiz.

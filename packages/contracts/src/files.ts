@@ -33,8 +33,12 @@ function truncate(name: string): string {
   if (cps.length <= FILE_NAME_MAX) return name;
   const dot = name.lastIndexOf(".");
   const ext = dot > 0 ? Array.from(name.slice(dot)) : [];
-  if (ext.length === 0 || ext.length > EXT_KEEP_MAX) return cps.slice(0, FILE_NAME_MAX).join("").replace(TRAILING, "") || FILE_NAME_FALLBACK;
-  const base = cps.slice(0, FILE_NAME_MAX - ext.length).join("").replace(TRAILING, "");
+  if (ext.length === 0 || ext.length > EXT_KEEP_MAX)
+    return cps.slice(0, FILE_NAME_MAX).join("").replace(TRAILING, "") || FILE_NAME_FALLBACK;
+  const base = cps
+    .slice(0, FILE_NAME_MAX - ext.length)
+    .join("")
+    .replace(TRAILING, "");
   return `${base}${ext.join("")}`;
 }
 
@@ -47,13 +51,78 @@ export function isSanitizedFileName(name: string): boolean {
  * yardımcıları, Office makro eklentileri, kabuk kısayolları ve tarayıcıda açılıp oltalama için kullanılan HTML/SVG/MHT);
  * S6-8 ile yine genişletildi. Go eşi (`apps/agent-win/internal/files`) bu listeyle test ile karşılaştırılır. */
 export const DANGEROUS_EXT: ReadonlySet<string> = new Set([
-  "exe", "msi", "bat", "cmd", "ps1", "psm1", "vbs", "js", "wsf", "sh", "scr", "lnk", "hta", "cpl", "msc", "jar", "dll",
-  "com", "pif", "reg", "scf", "url", "chm", "iso", "img", "vhd", "vhdx", "appx", "msix", "appinstaller", "application",
-  "xll", "docm", "xlsm",
-  "vbe", "jse", "ws", "wsh", "msp", "mst", "inf", "ps1xml", "psc1", "psd1", "settingcontent-ms", "library-ms",
-  "searchconnector-ms", "appref-ms", "gadget", "xbap", "xlam", "xla", "pptm", "dotm", "html", "htm", "mht", "mhtml", "svg",
+  "exe",
+  "msi",
+  "bat",
+  "cmd",
+  "ps1",
+  "psm1",
+  "vbs",
+  "js",
+  "wsf",
+  "sh",
+  "scr",
+  "lnk",
+  "hta",
+  "cpl",
+  "msc",
+  "jar",
+  "dll",
+  "com",
+  "pif",
+  "reg",
+  "scf",
+  "url",
+  "chm",
+  "iso",
+  "img",
+  "vhd",
+  "vhdx",
+  "appx",
+  "msix",
+  "appinstaller",
+  "application",
+  "xll",
+  "docm",
+  "xlsm",
+  "vbe",
+  "jse",
+  "ws",
+  "wsh",
+  "msp",
+  "mst",
+  "inf",
+  "ps1xml",
+  "psc1",
+  "psd1",
+  "settingcontent-ms",
+  "library-ms",
+  "searchconnector-ms",
+  "appref-ms",
+  "gadget",
+  "xbap",
+  "xlam",
+  "xla",
+  "pptm",
+  "dotm",
+  "html",
+  "htm",
+  "mht",
+  "mhtml",
+  "svg",
   // S6-8: OneNote eki, betik bileşenleri, tanılama paketi, internet kısayolu, Access projeleri, Java Web Start, kabin.
-  "one", "onepkg", "wsc", "sct", "diagcab", "website", "ade", "adp", "mde", "mshxml", "jnlp", "cab",
+  "one",
+  "onepkg",
+  "wsc",
+  "sct",
+  "diagcab",
+  "website",
+  "ade",
+  "adp",
+  "mde",
+  "mshxml",
+  "jnlp",
+  "cab",
 ]);
 
 function extensions(name: string): string[] {

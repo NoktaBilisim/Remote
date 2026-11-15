@@ -4,7 +4,17 @@ import { CSRF_COOKIE, SESSION_COOKIE } from "@remote/contracts/api/auth";
 import type { SwitchTenantResponse, TenantItem, TenantListResponse, TenantSettingsView } from "@remote/contracts/api/tenants";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { createSupportSessionRow, createTenant, createUser, loginRequest, makeApp, ORIGIN, testDb, type Session, type TestUser } from "../helpers/app.ts";
+import {
+  createSupportSessionRow,
+  createTenant,
+  createUser,
+  loginRequest,
+  makeApp,
+  ORIGIN,
+  testDb,
+  type Session,
+  type TestUser,
+} from "../helpers/app.ts";
 import { createRequestRow } from "../helpers/requests.ts";
 import { admitted, startLive, techSession, type Live } from "../helpers/signal-flow.ts";
 import { newId, sha256Hex } from "../../src/lib/ids.ts";
@@ -19,7 +29,9 @@ afterAll(() => app.close());
 const db = () => testDb();
 let ipSeq = 0;
 async function signIn(user: TestUser, a: FastifyInstance = app): Promise<Session> {
-  const res = await a.inject(loginRequest(user.email, user.password, { remoteAddress: `10.8.${Math.floor(++ipSeq / 250)}.${(ipSeq % 250) + 1}` }));
+  const res = await a.inject(
+    loginRequest(user.email, user.password, { remoteAddress: `10.8.${Math.floor(++ipSeq / 250)}.${(ipSeq % 250) + 1}` }),
+  );
   if (res.statusCode !== 200) throw new Error(`login ${res.statusCode}`);
   const jar = Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
   const token = jar[SESSION_COOKIE] ?? "";
@@ -49,7 +61,13 @@ describe("AC-70 firma CRUD (Super Admin)", () => {
     const dup = await call(sa, "POST", "/admin/tenants", { name: "Başka", slug: s1 });
     expect(dup.statusCode).toBe(409);
     expect(dup.json().error.fields).toHaveProperty("slug");
-    for (const bad of [{ name: "A", slug: slug() }, { name: "Firma", slug: "Büyük Harf" }, { name: "Firma", slug: "-tire" }, { name: "Firma" }, { name: "Firma", slug: slug(), x: 1 }]) {
+    for (const bad of [
+      { name: "A", slug: slug() },
+      { name: "Firma", slug: "Büyük Harf" },
+      { name: "Firma", slug: "-tire" },
+      { name: "Firma" },
+      { name: "Firma", slug: slug(), x: 1 },
+    ]) {
       expect((await call(sa, "POST", "/admin/tenants", bad)).statusCode).toBe(400);
     }
   });
@@ -91,7 +109,9 @@ describe("AC-70 firma geçişi", () => {
     expect((await call(sa, "POST", "/admin/switch-tenant", { tenantId: passive.id })).statusCode).toBe(404);
     expect((await call(sa, "POST", "/admin/switch-tenant", { tenantId: newId() })).statusCode).toBe(404);
     expect((await call(sa, "POST", "/admin/switch-tenant", { tenantId: "x" })).statusCode).toBe(400);
-    expect((await call(sa, "POST", "/admin/switch-tenant", { tenantId: null })).json<SwitchTenantResponse>()).toEqual({ actingTenant: null });
+    expect((await call(sa, "POST", "/admin/switch-tenant", { tenantId: null })).json<SwitchTenantResponse>()).toEqual({
+      actingTenant: null,
+    });
     expect((await call(sa, "GET", "/users")).statusCode).toBe(403);
   });
 });
@@ -112,7 +132,15 @@ describe("AC-70 firma pasife alma", () => {
     const done = await createSupportSessionRow({ tenantId: t.id, technicianId: admin.id, status: "ENDED" });
     const reqRow = await createRequestRow(t.id);
     const binding = await db().deviceBinding.create({
-      data: { id: newId(), tenantId: t.id, keyHash: sha256Hex(newId()), clientVersion: "0.10.0", firstSessionId: done.id, lastSessionId: done.id, lastUsedAt: new Date() },
+      data: {
+        id: newId(),
+        tenantId: t.id,
+        keyHash: sha256Hex(newId()),
+        clientVersion: "0.10.0",
+        firstSessionId: done.id,
+        lastSessionId: done.id,
+        lastUsedAt: new Date(),
+      },
     });
 
     const res = await call(sa, "POST", `/admin/tenants/${t.id}/deactivate`, {});
@@ -121,9 +149,20 @@ describe("AC-70 firma pasife alma", () => {
     expect((await call(as, "GET", "/auth/me")).statusCode).toBe(401);
     expect(await db().authSession.count({ where: { userId: admin.id, revokedAt: null } })).toBe(0);
     expect((await app.inject(loginRequest(admin.email, admin.password, { remoteAddress: "10.7.0.1" }))).statusCode).toBe(401);
-    expect(await db().supportSession.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({ status: "CANCELLED", endedBy: "SYSTEM", endReason: "tenant_passive", activeCode: null });
-    expect(await db().supportRequest.findUniqueOrThrow({ where: { id: reqRow.id } })).toMatchObject({ status: "CANCELLED", cancelReason: "TENANT_PASSIVE" });
-    expect(await db().deviceBinding.findUniqueOrThrow({ where: { id: binding.id } })).toMatchObject({ revokeReason: "TENANT_PASSIVE", keyHash: null });
+    expect(await db().supportSession.findUniqueOrThrow({ where: { id: pending.id } })).toMatchObject({
+      status: "CANCELLED",
+      endedBy: "SYSTEM",
+      endReason: "tenant_passive",
+      activeCode: null,
+    });
+    expect(await db().supportRequest.findUniqueOrThrow({ where: { id: reqRow.id } })).toMatchObject({
+      status: "CANCELLED",
+      cancelReason: "TENANT_PASSIVE",
+    });
+    expect(await db().deviceBinding.findUniqueOrThrow({ where: { id: binding.id } })).toMatchObject({
+      revokeReason: "TENANT_PASSIVE",
+      keyHash: null,
+    });
     const audit = await db().auditLog.findFirstOrThrow({ where: { entityId: t.id, action: "tenant.deactivated" } });
     expect(audit.newValue).toMatchObject({ status: "PASSIVE", revokedSessions: 1, cancelledSessions: 1 });
     expect((await call(sa, "POST", `/admin/tenants/${t.id}/deactivate`, {})).statusCode).toBe(409);
@@ -140,7 +179,11 @@ describe("AC-70 firma pasife alma", () => {
     expect((await call(sa, "POST", `/admin/tenants/${t.tenantId}/deactivate`, {}, live.app)).statusCode).toBe(200);
     expect((await g.guest.waitFor("session.ended", 5000)).reason).toBe("tenant_passive");
     expect((await t.ws.waitFor("session.ended", 5000)).reason).toBe("tenant_passive");
-    expect(await db().supportSession.findUniqueOrThrow({ where: { id: t.sessionId } })).toMatchObject({ status: "ENDED", endedBy: "SYSTEM", endReason: "tenant_passive" });
+    expect(await db().supportSession.findUniqueOrThrow({ where: { id: t.sessionId } })).toMatchObject({
+      status: "ENDED",
+      endedBy: "SYSTEM",
+      endReason: "tenant_passive",
+    });
     expect(live.app.rooms.size).toBe(0);
   });
 });
@@ -150,7 +193,16 @@ describe("AC-4 tenant ayarları", () => {
     const t = await createTenant();
     const admin = await createUser({ tenantId: t.id, role: "ADMIN" });
     const s = await signIn(admin);
-    expect((await call(s, "GET", "/settings/tenant")).json<TenantSettingsView>()).toEqual({ logoUrl: null, sessionTtlMin: 15, maxOpenSessions: 3, maxActiveHours: 4, maxFileMb: 100, retentionDays: 365, requireTech2fa: true, smtp: null });
+    expect((await call(s, "GET", "/settings/tenant")).json<TenantSettingsView>()).toEqual({
+      logoUrl: null,
+      sessionTtlMin: 15,
+      maxOpenSessions: 3,
+      maxActiveHours: 4,
+      maxFileMb: 100,
+      retentionDays: 365,
+      requireTech2fa: true,
+      smtp: null,
+    });
     for (const v of [14, 31, 20.5, "20"]) {
       const r = await call(s, "PUT", "/settings/tenant", { sessionTtlMin: v });
       expect(r.statusCode, String(v)).toBe(400);

@@ -1,6 +1,18 @@
 "use client";
 
-import { Expand, Hourglass, LoaderCircle, Maximize, Minimize, MonitorCog, ScanSearch, ScreenShareOff, ShieldAlert, ShieldUser, WifiOff } from "lucide-react";
+import {
+  Expand,
+  Hourglass,
+  LoaderCircle,
+  Maximize,
+  Minimize,
+  MonitorCog,
+  ScanSearch,
+  ScreenShareOff,
+  ShieldAlert,
+  ShieldUser,
+  WifiOff,
+} from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnnotLayer, type DrawInput } from "@/components/collab/annot-layer";
 import { Button } from "@/components/ui/button";
@@ -23,9 +35,27 @@ const PEER_WINDOW_MS = 120_000;
 const COMPACT_BELOW_PX = 960;
 type ViewMode = "fit" | "actual";
 
-function Msg({ icon, title, children, alert, panel, testId }: { icon: ReactNode; title: string; children?: ReactNode; alert?: boolean; panel?: boolean; testId?: string }) {
+function Msg({
+  icon,
+  title,
+  children,
+  alert,
+  panel,
+  testId,
+}: {
+  icon: ReactNode;
+  title: string;
+  children?: ReactNode;
+  alert?: boolean;
+  panel?: boolean;
+  testId?: string;
+}) {
   return (
-    <div role={alert ? "alert" : "status"} data-testid={testId} className={`flex max-w-md flex-col items-center gap-2 px-4 text-center text-on-stage ${panel ? "rounded-lg bg-stage/90 py-4 shadow-lg" : ""}`}>
+    <div
+      role={alert ? "alert" : "status"}
+      data-testid={testId}
+      className={`flex max-w-md flex-col items-center gap-2 px-4 text-center text-on-stage ${panel ? "rounded-lg bg-stage/90 py-4 shadow-lg" : ""}`}
+    >
       {icon}
       <h2 className="text-lg font-semibold">{title}</h2>
       {children && <div className="text-sm">{children}</div>}
@@ -141,27 +171,51 @@ export function Stage({
   const live = state.phase === "live";
   const spin = <LoaderCircle aria-hidden className="size-8 animate-spin motion-reduce:animate-none" />;
   let overlay: ReactNode = null;
-  if (state.reconnectSince !== null) overlay = <Msg alert icon={<WifiOff aria-hidden className="size-8" />} title={t("cs.selfLost")}>{t("cs.selfLostBody")}</Msg>;
+  if (state.reconnectSince !== null)
+    overlay = (
+      <Msg alert icon={<WifiOff aria-hidden className="size-8" />} title={t("cs.selfLost")}>
+        {t("cs.selfLostBody")}
+      </Msg>
+    );
   else if (state.phase === "connecting") overlay = <Msg icon={spin} title={t("cs.connecting")} />;
   else if (state.phase === "waiting" && state.pending.length > 0) overlay = lobby;
   else if (state.phase === "waiting")
     overlay = (
       <Msg icon={<Hourglass aria-hidden className="size-8" />} title={t("cs.waitingTitle")}>
         <p>{t("cs.waitingBody")}</p>
-        <p className="mt-2">{t("cs.verify")} <CodeDisplay code={verifyCode} size="sm" /></p>
-        {sessionCode && <p className="mt-1">{t("cs.sessionCode")} <CodeDisplay code={sessionCode} size="sm" /></p>}
+        <p className="mt-2">
+          {t("cs.verify")} <CodeDisplay code={verifyCode} size="sm" />
+        </p>
+        {sessionCode && (
+          <p className="mt-1">
+            {t("cs.sessionCode")} <CodeDisplay code={sessionCode} size="sm" />
+          </p>
+        )}
       </Msg>
     );
   else if (live && state.peerLostSince !== null)
     overlay = (
       <Msg alert icon={<WifiOff aria-hidden className="size-8" />} title={t("cs.peerLost")}>
         {t("cs.peerLostBody", { time: now === null ? "—" : formatRemaining(state.peerLostSince + PEER_WINDOW_MS - now) })}
-        {control?.endedNote && <p className="mt-2 font-medium" data-testid="stage-control-ended">{control.endedNote}</p>}
+        {control?.endedNote && (
+          <p className="mt-2 font-medium" data-testid="stage-control-ended">
+            {control.endedNote}
+          </p>
+        )}
       </Msg>
     );
-  else if (live && state.share === "unknown") overlay = <Msg icon={spin} title={t("cs.notShared")}>{t("cs.notSharedBody")}</Msg>;
+  else if (live && state.share === "unknown")
+    overlay = (
+      <Msg icon={spin} title={t("cs.notShared")}>
+        {t("cs.notSharedBody")}
+      </Msg>
+    );
   else if (live && state.share === "stopped")
-    overlay = <Msg icon={<ScreenShareOff aria-hidden className="size-8" />} title={t("cs.stopped")}>{t("cs.stoppedBody")}</Msg>;
+    overlay = (
+      <Msg icon={<ScreenShareOff aria-hidden className="size-8" />} title={t("cs.stopped")}>
+        {t("cs.stoppedBody")}
+      </Msg>
+    );
   else if (live && control?.secureDesktop)
     overlay = (
       <Msg alert panel testId="stage-secure" icon={<ShieldAlert aria-hidden className="size-8" />} title={t("p7.secureTitle")}>
@@ -213,7 +267,11 @@ export function Stage({
     >
       {strip && (
         // Araç şeridi görüntünün dışında (QA görsel bulgu: P5'te sağ üstte görüntünün ~60 px'ini kapatıyordu)
-        <div className="relative z-20 flex flex-wrap items-center gap-2 border-b border-border bg-surface p-2" data-testid="stage-tools" data-compact={compact}>
+        <div
+          className="relative z-20 flex flex-wrap items-center gap-2 border-b border-border bg-surface p-2"
+          data-testid="stage-tools"
+          data-compact={compact}
+        >
           {/* Kontrol sırasında işaretleme zaten pasif: şeritte yer kaplamaz (TEST-P7-2) */}
           {showing && !actual && !capturing && tools}
           {controlBar}
@@ -231,12 +289,14 @@ export function Stage({
                 icon={<MonitorCog aria-hidden className="size-4" />}
                 testId="stage-view-menu"
                 align="end"
-                busy={monitorBusy ? (
-                  <>
-                    <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
-                    <span className="sr-only">{t("cs.viewMenuBusy")}</span>
-                  </>
-                ) : undefined}
+                busy={
+                  monitorBusy ? (
+                    <>
+                      <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+                      <span className="sr-only">{t("cs.viewMenuBusy")}</span>
+                    </>
+                  ) : undefined
+                }
               >
                 <div className="flex flex-col gap-3 p-2">
                   {monitors}
@@ -249,13 +309,21 @@ export function Stage({
         </div>
       )}
       {control?.selfElevated && (
-        <p role="status" data-testid="stage-self-elevated" className="flex items-center justify-center gap-2 bg-warning-surface px-3 py-2 text-sm font-medium text-warning">
+        <p
+          role="status"
+          data-testid="stage-self-elevated"
+          className="flex items-center justify-center gap-2 bg-warning-surface px-3 py-2 text-sm font-medium text-warning"
+        >
           <ShieldUser aria-hidden className="size-4 shrink-0" />
           {t("p7.selfElevated")}
         </p>
       )}
       {showing && control?.elevated && (
-        <p role="status" data-testid="stage-elevated" className="flex items-center justify-center gap-2 bg-warning-surface px-3 py-2 text-sm font-medium text-warning">
+        <p
+          role="status"
+          data-testid="stage-elevated"
+          className="flex items-center justify-center gap-2 bg-warning-surface px-3 py-2 text-sm font-medium text-warning"
+        >
           <ShieldAlert aria-hidden className="size-4 shrink-0" />
           {t("p7.elevated")}
         </p>
@@ -284,7 +352,9 @@ export function Stage({
             aria-label={t("cs.video", { name: state.guest?.name ?? t("c.customer") })}
             className={`${actual ? "size-auto max-w-none" : "size-full object-contain"} ${showing ? "" : "invisible"}`}
           />
-          {showing && !actual && annot && <AnnotLayer video={ref} state={annot.state} input={capturing ? null : annot.input} label={t("p5.a.layer")} />}
+          {showing && !actual && annot && (
+            <AnnotLayer video={ref} state={annot.state} input={capturing ? null : annot.input} label={t("p5.a.layer")} />
+          )}
         </div>
         {overlay && <div className="relative z-10 flex w-full items-center justify-center">{overlay}</div>}
       </div>

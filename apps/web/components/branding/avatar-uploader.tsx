@@ -11,7 +11,19 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { api, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
-import { ACCEPT_ATTR, AVATAR_PX, cropToBlob, INVALID_IMAGE_MESSAGE, loadImage, precheckDimensions, precheckFile, readAsDataUrl, uploadBody, uploadError, type Area } from "@/lib/branding/image";
+import {
+  ACCEPT_ATTR,
+  AVATAR_PX,
+  cropToBlob,
+  INVALID_IMAGE_MESSAGE,
+  loadImage,
+  precheckDimensions,
+  precheckFile,
+  readAsDataUrl,
+  uploadBody,
+  uploadError,
+  type Area,
+} from "@/lib/branding/image";
 import type { UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
 
@@ -25,13 +37,29 @@ const noop = () => () => undefined;
  * yuvarlak önizleme, sürükle/ok tuşları + yakınlaştırma kaydırıcısı) → canvas ile 256×256 WEBP → POST multipart.
  * Kaldırma onaylı (yıkıcı, odak "Vazgeç"te). `userId`: `me` (kendi) veya yönetilen kullanıcının id'si.
  */
-export function AvatarUploader({ userId, name, avatarUrl, canEdit, testId = "avatar-uploader" }: { userId: string; name: string; avatarUrl: string | null; canEdit: boolean; testId?: string }) {
+export function AvatarUploader({
+  userId,
+  name,
+  avatarUrl,
+  canEdit,
+  testId = "avatar-uploader",
+}: {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  canEdit: boolean;
+  testId?: string;
+}) {
   const router = useRouter();
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
   const hintId = useId();
   // Hidrasyon tamamlandı (dosya seçimi olayları ancak bundan sonra işlenir; e2e bekler)
-  const ready = useSyncExternalStore(noop, () => true, () => false);
+  const ready = useSyncExternalStore(
+    noop,
+    () => true,
+    () => false,
+  );
   const [url, setUrl] = useState(avatarUrl);
   const [pick, setPick] = useState<Pick | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -41,7 +69,6 @@ export function AvatarUploader({ userId, name, avatarUrl, canEdit, testId = "ava
   const [error, setError] = useState<UiError | null>(null);
   const [dialogError, setDialogError] = useState<UiError | null>(null);
   const [confirm, setConfirm] = useState(false);
-
 
   const onFile = async (file: File | undefined) => {
     if (inputRef.current) inputRef.current.value = ""; // aynı dosya yeniden seçilebilsin
@@ -104,17 +131,35 @@ export function AvatarUploader({ userId, name, avatarUrl, canEdit, testId = "ava
   };
 
   return (
-    <div className="flex flex-col gap-3" data-testid={testId} data-has-avatar={url ? "true" : "false"} data-ready={ready ? "true" : "false"}>
+    <div
+      className="flex flex-col gap-3"
+      data-testid={testId}
+      data-has-avatar={url ? "true" : "false"}
+      data-ready={ready ? "true" : "false"}
+    >
       <div className="flex items-center gap-3">
         <Avatar name={name} src={url} size="lg" testId={`${testId}-image`} />
         {canEdit && (
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="secondary" onClick={() => inputRef.current?.click()} disabled={busy} aria-describedby={hintId} data-testid={`${testId}-pick`}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => inputRef.current?.click()}
+              disabled={busy}
+              aria-describedby={hintId}
+              data-testid={`${testId}-pick`}
+            >
               <Upload aria-hidden className="size-4" />
               {url ? t("av.change") : t("av.upload")}
             </Button>
             {url && (
-              <Button type="button" variant="danger-ghost" onClick={() => (setDialogError(null), setConfirm(true))} disabled={busy} data-testid={`${testId}-remove`}>
+              <Button
+                type="button"
+                variant="danger-ghost"
+                onClick={() => (setDialogError(null), setConfirm(true))}
+                disabled={busy}
+                data-testid={`${testId}-remove`}
+              >
                 <Trash2 aria-hidden className="size-4" />
                 {t("av.remove")}
               </Button>
@@ -124,7 +169,9 @@ export function AvatarUploader({ userId, name, avatarUrl, canEdit, testId = "ava
       </div>
       {canEdit && (
         <>
-          <p id={hintId} className="text-xs text-fg-muted">{t("av.hint")}</p>
+          <p id={hintId} className="text-xs text-fg-muted">
+            {t("av.hint")}
+          </p>
           <input
             ref={inputRef}
             type="file"

@@ -8,7 +8,8 @@
  *  - herhangi bir keyfi değerde `px` (`text-[13px]`, `w-[200px]`, `align-[-3px]`) — rem/%/fr/vh ve calc serbest.
  * Gerekçeli istisna: satıra `// eslint-disable-next-line remote/design-tokens -- <gerekçe>`.
  */
-const COLOR_UTIL = /(?:^|[\s:])(?:bg|text|border(?:-[trblxyse])?|outline|ring|ring-offset|fill|stroke|from|via|to|decoration|accent|caret|divide|placeholder|shadow)-\[(?!var\(--)[^\]]+\]/;
+const COLOR_UTIL =
+  /(?:^|[\s:])(?:bg|text|border(?:-[trblxyse])?|outline|ring|ring-offset|fill|stroke|from|via|to|decoration|accent|caret|divide|placeholder|shadow)-\[(?!var\(--)[^\]]+\]/;
 const RAW_COLOR = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch|color-mix)\(/;
 const ARBITRARY_PX = /-\[[^\]]*\d(?:\.\d+)?px[^\]]*\]/;
 const CLASS_NAME_ATTR = /^(?:className|class)$/;

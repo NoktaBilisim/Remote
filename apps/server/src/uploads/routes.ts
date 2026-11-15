@@ -2,7 +2,13 @@
 // multipart gövdeyi 415 → 400 ile reddeder. Sıra: requireAuth (CSRF) → yetki/kapsam → hedef (404/403) → hız sınırı →
 // gövde okuma (2 MB) → servis. Gövde hedef/yetki doğrulanmadan okunmaz.
 import multipart from "@fastify/multipart";
-import { UPLOAD_MAX_BYTES, UPLOADS_PER_HOUR, type AvatarResponse, type LogoResponse, type SystemLogoResponse } from "@remote/contracts/api/branding";
+import {
+  UPLOAD_MAX_BYTES,
+  UPLOADS_PER_HOUR,
+  type AvatarResponse,
+  type LogoResponse,
+  type SystemLogoResponse,
+} from "@remote/contracts/api/branding";
 import { userIdSchema } from "@remote/contracts/api/users";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
@@ -11,7 +17,15 @@ import { AppError } from "../lib/errors.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import { manageableUser } from "../users/service.ts";
 import { readUpload } from "./multipart.ts";
-import { removeAvatar, removeTenantLogo, uploadAvatar, uploadSystemLogo, uploadTenantLogo, type AvatarTarget, type BrandingDeps } from "./service.ts";
+import {
+  removeAvatar,
+  removeTenantLogo,
+  uploadAvatar,
+  uploadSystemLogo,
+  uploadTenantLogo,
+  type AvatarTarget,
+  type BrandingDeps,
+} from "./service.ts";
 
 export async function uploadRoutes(app: FastifyInstance, opts: { deps: BrandingDeps }): Promise<void> {
   await app.register(multipart, { limits: { fileSize: UPLOAD_MAX_BYTES, files: 1, fields: 0, parts: 1 }, throwFileSizeLimit: true });
@@ -38,7 +52,9 @@ export async function uploadRoutes(app: FastifyInstance, opts: { deps: BrandingD
     consume(req);
     return uploadTenantLogo(d, auditContext(req), authOf(req), tenantId, read(req));
   });
-  app.delete("/settings/logo", editSettings, async (req): Promise<LogoResponse> => removeTenantLogo(d, auditContext(req), authOf(req), tenantScope(req).tenantId));
+  app.delete("/settings/logo", editSettings, async (req): Promise<LogoResponse> =>
+    removeTenantLogo(d, auditContext(req), authOf(req), tenantScope(req).tenantId),
+  );
 
   // --- avatar: `me`/kendi id'si serbest; başkası users.edit + kapsam + canManage ---
   const target = async (req: FastifyRequest): Promise<AvatarTarget> => {
@@ -55,7 +71,9 @@ export async function uploadRoutes(app: FastifyInstance, opts: { deps: BrandingD
     consume(req);
     return uploadAvatar(d, auditContext(req), authOf(req), t, read(req));
   });
-  app.delete("/users/:id/avatar", async (req): Promise<AvatarResponse> => removeAvatar(d, auditContext(req), authOf(req), await target(req)));
+  app.delete("/users/:id/avatar", async (req): Promise<AvatarResponse> =>
+    removeAvatar(d, auditContext(req), authOf(req), await target(req)),
+  );
 
   // --- sistem logosu (SUPER_ADMIN) ---
   app.post("/admin/settings/system-logo", { preHandler: requireSuperAdmin }, async (req): Promise<SystemLogoResponse> => {

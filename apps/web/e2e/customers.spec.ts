@@ -18,7 +18,10 @@ async function signInCu(context: BrowserContext, scenario = "rqcu"): Promise<str
 }
 const cards = (p: Page) => p.getByTestId("request-card");
 
-test("AC-166/169/176 kritik akış: müşteri oluştur → bağlantıyı kopyala → talep listesinde müşteri filtresi", async ({ page, context }, info) => {
+test("AC-166/169/176 kritik akış: müşteri oluştur → bağlantıyı kopyala → talep listesinde müşteri filtresi", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await signInCu(context);
@@ -74,7 +77,10 @@ test("AC-166/169/176 kritik akış: müşteri oluştur → bağlantıyı kopyala
   await expect(page).toHaveURL(/tab=history.*customer=general/);
 });
 
-test("AC-167 form: alan bazlı hata, 409 ad çakışması, not alanında sekme yasak, kaydedilmemiş değişiklik uyarısı", async ({ page, context }, info) => {
+test("AC-167 form: alan bazlı hata, 409 ad çakışması, not alanında sekme yasak, kaydedilmemiş değişiklik uyarısı", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInCu(context);
   await page.goto("/customers");
@@ -107,14 +113,19 @@ test("AC-167 form: alan bazlı hata, 409 ad çakışması, not alanında sekme y
   await expect(form).toBeHidden();
 });
 
-test("AC-170/171: bağlantıyı yenile ve pasife al onayları (odak Vazgeç), pasifte bağlantı yok, yeniden aktif et", async ({ page, context }, info) => {
+test("AC-170/171: bağlantıyı yenile ve pasife al onayları (odak Vazgeç), pasifte bağlantı yok, yeniden aktif et", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInCu(context);
   await page.goto("/customers/01JC5ST0000000000000000001");
   const before = await page.getByTestId("customer-download-url").textContent();
   await page.getByTestId("customer-rotate").click();
   const rot = page.getByTestId("customer-rotate-dialog");
-  await expect(rot).toContainText("Bu müşteriye daha önce gönderilen tüm dosyalar ve bu müşteri için hatırlanan bilgisayarlar çalışmayı durduracak");
+  await expect(rot).toContainText(
+    "Bu müşteriye daha önce gönderilen tüm dosyalar ve bu müşteri için hatırlanan bilgisayarlar çalışmayı durduracak",
+  );
   await expect(rot.getByRole("button", { name: "Vazgeç" })).toBeFocused();
   await rot.getByTestId("customer-action-confirm").click();
   await expect(page.getByTestId("toast").filter({ hasText: "Bağlantı yenilendi" })).toBeVisible();
@@ -243,7 +254,10 @@ test("AC-180: Yeni Destek Oturumu — isteğe bağlı müşteri seçimi, oluştu
   await signInCu(context);
   await page.goto("/customers"); // müşteri deposunu tohumla
   await page.goto("/sessions");
-  await page.getByRole("button", { name: /Yeni destek oturumu/i }).first().click();
+  await page
+    .getByRole("button", { name: /Yeni destek oturumu/i })
+    .first()
+    .click();
   const dlg = page.getByTestId("new-session-dialog");
   const combo = dlg.getByRole("combobox", { name: "Müşteri firma (isteğe bağlı)" });
   await combo.press("ArrowDown");
@@ -305,7 +319,10 @@ test("AC-166: müşterisiz firma — boş durum yönlendirir (Yeni müşteri + y
   await expect(page.getByTestId("customer-form").getByLabel("Firma adı")).toBeFocused();
 });
 
-test("AC-166/178: hata durumları — liste 500 ve detay Talepler sekmesi 500 → Tekrar dene ile toparlanır", async ({ page, context }, info) => {
+test("AC-166/178: hata durumları — liste 500 ve detay Talepler sekmesi 500 → Tekrar dene ile toparlanır", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInCu(context, "rqcubroken");
   await page.goto("/customers");

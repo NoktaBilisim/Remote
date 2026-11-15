@@ -82,7 +82,13 @@ export function endRoom(id, reason) {
 }
 
 function end(rec, reason) {
-  Object.assign(rec.view, { status: "ENDED", code: null, endedAt: iso(0), endedBy: reason === "tech" ? "TECH" : "CUSTOMER", endReason: reason });
+  Object.assign(rec.view, {
+    status: "ENDED",
+    code: null,
+    endedAt: iso(0),
+    endedBy: reason === "tech" ? "TECH" : "CUSTOMER",
+    endReason: reason,
+  });
   endRoom(rec.view.id, reason);
 }
 
@@ -94,12 +100,29 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName) {
   r.maxEndsAt ??= iso(8 * 3600_000);
   r.guest = ws;
   r.token = randomBytes(32).toString("base64url");
-  send(ws, { t: "hello", role: "guest", sessionId: rec.view.id, peerPresent: Boolean(r.tech), iceServers: [], maxEndsAt: r.maxEndsAt, reconnectToken: r.token, caps: rec.caps, maxFileMb: rec.maxFileMb });
+  send(ws, {
+    t: "hello",
+    role: "guest",
+    sessionId: rec.view.id,
+    peerPresent: Boolean(r.tech),
+    iceServers: [],
+    maxEndsAt: r.maxEndsAt,
+    reconnectToken: r.token,
+    caps: rec.caps,
+    maxFileMb: rec.maxFileMb,
+  });
   // Gerçek sunucu sırası (active.ts scheduleActive): admit'te teknisyene ice.servers, peer.joined'dan ÖNCE.
   // Teknisyen ilk teklifi admit sonrası ICE listesi gelene kadar erteler (tech-machine iceGate); yeniden
   // bağlanmada (first=false) sunucu ice.servers göndermez, kapı aynı WS'te zaten açıktır.
   if (first) send(r.tech, { t: "ice.servers", iceServers: [] });
-  send(r.tech, { t: "peer.joined", role: "guest", guestKind: kind, ...(guestName ? { guestName } : {}), ...(first ? { maxEndsAt: r.maxEndsAt } : {}), maxFileMb: rec.maxFileMb });
+  send(r.tech, {
+    t: "peer.joined",
+    role: "guest",
+    guestKind: kind,
+    ...(guestName ? { guestName } : {}),
+    ...(first ? { maxEndsAt: r.maxEndsAt } : {}),
+    maxFileMb: rec.maxFileMb,
+  });
   ws.on("message", (raw) => {
     const m = JSON.parse(String(raw));
     log(rec.view.id, "guest", m);
@@ -110,9 +133,13 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName) {
         r.ctl.active = m.activeMonitor;
         if (r.ctl.monPending?.id === m.activeMonitor) r.ctl.monPending = null;
       }
-      send(r.tech, { t: "share.state", state: m.state, ...(m.monitors ? { monitors: m.monitors } : {}), ...(m.activeMonitor !== undefined ? { activeMonitor: m.activeMonitor } : {}) });
-    }
-    else if (m.t === "control.state") {
+      send(r.tech, {
+        t: "share.state",
+        state: m.state,
+        ...(m.monitors ? { monitors: m.monitors } : {}),
+        ...(m.activeMonitor !== undefined ? { activeMonitor: m.activeMonitor } : {}),
+      });
+    } else if (m.t === "control.state") {
       if (m.state === "GRANTED") {
         // K2: GRANTED yalnız bekleyen istekte işlenir; VIEW'da misafire stale, GRANTED'de yok say
         if (r.ctl.state !== "REQUESTED") return r.ctl.state === "VIEW" && send(ws, { t: "control.revoke", reason: "stale" });
@@ -130,8 +157,13 @@ function admitted(r, rec, ws, kind = "BROWSER", guestName) {
       r.ctl.monPending = null;
       r.ctl.monDeniedAt = Date.now();
       send(r.tech, { t: "monitor.denied", monitorId: m.monitorId });
-    }
-    else if (m.t === "env.state") send(r.tech, { t: "env.state", elevatedForeground: m.elevatedForeground, secureDesktop: m.secureDesktop, selfElevated: m.selfElevated });
+    } else if (m.t === "env.state")
+      send(r.tech, {
+        t: "env.state",
+        elevatedForeground: m.elevatedForeground,
+        secureDesktop: m.secureDesktop,
+        selfElevated: m.selfElevated,
+      });
     else if (m.t === "session.end") end(rec, "customer");
   });
   ws.on("close", () => {
@@ -149,7 +181,16 @@ function onTech(ws, rec) {
   }
   r.tech = ws;
   const active = rec.view.status === "ACTIVE";
-  send(ws, { t: "hello", role: "tech", sessionId: rec.view.id, peerPresent: Boolean(r.guest), iceServers: [], maxEndsAt: active ? iso(8 * 3600_000) : null, ...(active ? { maxFileMb: rec.maxFileMb } : {}), ...(r.guest ? { guestKind: r.guestKind, ...(r.guestName ? { guestName: r.guestName } : {}) } : {}) });
+  send(ws, {
+    t: "hello",
+    role: "tech",
+    sessionId: rec.view.id,
+    peerPresent: Boolean(r.guest),
+    iceServers: [],
+    maxEndsAt: active ? iso(8 * 3600_000) : null,
+    ...(active ? { maxFileMb: rec.maxFileMb } : {}),
+    ...(r.guest ? { guestKind: r.guestKind, ...(r.guestName ? { guestName: r.guestName } : {}) } : {}),
+  });
   for (const [guestId, e] of r.lobby) send(ws, { t: "peer.pending", guestId, name: e.name, guestKind: "BROWSER", since: e.since });
   ws.on("message", (raw) => {
     const m = JSON.parse(String(raw));
@@ -173,8 +214,10 @@ function onTech(ws, rec) {
       e.ws.close(1000);
       send(ws, { t: "peer.pending.left", guestId: m.guestId, reason: "rejected" });
     } else if (m.t === "control.request") {
-      if (!rec.canControl || r.guestKind !== "AGENT") return send(ws, { t: "error", code: "FORBIDDEN", message: "Uzaktan kontrol yetkiniz yok." });
-      if (r.ctl.forwarded >= 5 || Date.now() - r.ctl.deniedAt < 30_000) return send(ws, { t: "error", code: "RATE_LIMITED", message: "Çok sık istek." });
+      if (!rec.canControl || r.guestKind !== "AGENT")
+        return send(ws, { t: "error", code: "FORBIDDEN", message: "Uzaktan kontrol yetkiniz yok." });
+      if (r.ctl.forwarded >= 5 || Date.now() - r.ctl.deniedAt < 30_000)
+        return send(ws, { t: "error", code: "RATE_LIMITED", message: "Çok sık istek." });
       if (r.ctl.state !== "VIEW") return send(ws, { t: "error", code: "CONFLICT", message: "Bekleyen istek var." });
       r.ctl.forwarded++;
       r.ctl.state = "REQUESTED";
@@ -189,7 +232,8 @@ function onTech(ws, rec) {
         r.ctl.monDeniedAt = r.ctl.monPending.at + 30_000;
         r.ctl.monPending = null;
       }
-      if (r.ctl.monPending !== null) return send(ws, { t: "error", code: "CONFLICT", message: "Önceki monitör isteği müşteride bekliyor." });
+      if (r.ctl.monPending !== null)
+        return send(ws, { t: "error", code: "CONFLICT", message: "Önceki monitör isteği müşteride bekliyor." });
       if (Date.now() - r.ctl.monDeniedAt < 30_000) return send(ws, { t: "error", code: "RATE_LIMITED", message: "Çok sık istek." });
       r.ctl.monPending = { id: m.monitorId, at: now };
       send(r.guest, { t: "monitor.request", monitorId: m.monitorId });
@@ -229,9 +273,14 @@ function onGuestTicket(ws, entry) {
 export function attachWs(srv) {
   srv.on("upgrade", (req, sock, head) => {
     const url = new URL(req.url ?? "/", "http://mock");
-    const protos = String(req.headers["sec-websocket-protocol"] ?? "").split(",").map((s) => s.trim());
+    const protos = String(req.headers["sec-websocket-protocol"] ?? "")
+      .split(",")
+      .map((s) => s.trim());
     if (url.pathname === "/ws/panel") {
-      const cookie = String(req.headers.cookie ?? "").split(";").map((p) => p.trim().split("=")).find(([k]) => k === SESSION_COOKIE_NAME)?.[1];
+      const cookie = String(req.headers.cookie ?? "")
+        .split(";")
+        .map((p) => p.trim().split("="))
+        .find(([k]) => k === SESSION_COOKIE_NAME)?.[1];
       return panelUpgrade(req, sock, head, cookie ? decodeURIComponent(cookie) : undefined);
     }
     if (url.pathname === "/ws/tech") {

@@ -24,7 +24,10 @@ export const WA_LIMITS = { tenantPerHour: 30, recipientPerHour: 10, globalPerHou
 const HOUR_MS = 3_600_000;
 const FIRM_MAX = 60;
 
-export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal; redirect: "manual" }) => Promise<{ ok: boolean; status: number; body?: { cancel(): Promise<void> } | null }>;
+export type FetchLike = (
+  url: string,
+  init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal; redirect: "manual" },
+) => Promise<{ ok: boolean; status: number; body?: { cancel(): Promise<void> } | null }>;
 
 interface Log {
   info(obj: object, msg: string): void;
@@ -49,8 +52,19 @@ export interface WhatsappDeps {
 // P13a (T33, mimari-p13 §3): link-local `169.254.0.0/16` (bulut metadata) ve `fe80::/10` "özel ağ" SAYILMAZ → canlıda
 // `http://` + link-local adres kanalı kapatır. Loopback (`127.0.0.0/8`, `::1`) özel kalır.
 const PRIVATE = new BlockList();
-for (const [net, bits] of [["10.0.0.0", 8], ["172.16.0.0", 12], ["192.168.0.0", 16], ["127.0.0.0", 8], ["100.64.0.0", 10]] as const) PRIVATE.addSubnet(net, bits, "ipv4");
-for (const [net, bits] of [["::1", 128], ["fc00::", 7]] as const) PRIVATE.addSubnet(net, bits, "ipv6");
+for (const [net, bits] of [
+  ["10.0.0.0", 8],
+  ["172.16.0.0", 12],
+  ["192.168.0.0", 16],
+  ["127.0.0.0", 8],
+  ["100.64.0.0", 10],
+] as const)
+  PRIVATE.addSubnet(net, bits, "ipv4");
+for (const [net, bits] of [
+  ["::1", 128],
+  ["fc00::", 7],
+] as const)
+  PRIVATE.addSubnet(net, bits, "ipv6");
 
 /** Host özel ağ/loopback mu (yalnız IP sabitleri ve `localhost`; DNS çözülmez — ad her zaman "genel" sayılır). */
 export function isPrivateHost(host: string): boolean {
@@ -103,7 +117,14 @@ export function isParsableServiceUrl(url: string): boolean {
 
 /** Firma adı: tek satır, WhatsApp biçim karakterleri (`* _ ~ \``) yok, ≤ 60 karakter. */
 export function firmLabel(name: string): string {
-  return [...name.replace(/[*_~`]/g, "").replace(/\s+/g, " ").trim()].slice(0, FIRM_MAX).join("");
+  return [
+    ...name
+      .replace(/[*_~`]/g, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  ]
+    .slice(0, FIRM_MAX)
+    .join("");
 }
 
 /** Kişisel verisiz şablon (§13.5): satır 1 firma + talep kodu, satır 2 sabit panel bağlantısı. */
@@ -192,9 +213,18 @@ export class WhatsappNotifier {
     this.apiKey = key;
     this.insecureNow = urlInsecure || (this.d.production && plainKey);
     if (invalid) this.d.log.error({ alarm: "whatsapp_invalid_url" }, "WhatsApp servis adresi ayrıştırılamıyor: kanal kapalı");
-    else if (urlInsecure) this.d.log.warn({ alarm: "whatsapp_insecure" }, "WhatsApp servisi güvenli yapılandırılmamış (production + http + genel adres): kanal kapalı");
-    else if (plainKey && this.d.production) this.d.log.warn({ alarm: "whatsapp_key_over_http" }, "WhatsApp servis anahtarı düz http ile gidecekti: kanal kapalı (https gerekli)");
-    else if (plainKey) this.d.log.warn({ event: "whatsapp_key_over_http" }, "WhatsApp servis anahtarı şifresiz (http) gönderilecek — yalnız geliştirme ortamında izinli");
+    else if (urlInsecure)
+      this.d.log.warn(
+        { alarm: "whatsapp_insecure" },
+        "WhatsApp servisi güvenli yapılandırılmamış (production + http + genel adres): kanal kapalı",
+      );
+    else if (plainKey && this.d.production)
+      this.d.log.warn({ alarm: "whatsapp_key_over_http" }, "WhatsApp servis anahtarı düz http ile gidecekti: kanal kapalı (https gerekli)");
+    else if (plainKey)
+      this.d.log.warn(
+        { event: "whatsapp_key_over_http" },
+        "WhatsApp servis anahtarı şifresiz (http) gönderilecek — yalnız geliştirme ortamında izinli",
+      );
   }
 
   /** Kanal kullanılabilir mi (ayar ekranı ve gönderim kapısı). */
@@ -207,7 +237,15 @@ export class WhatsappNotifier {
   }
 
   private newWindow(start: number): Window {
-    return { start, tenant: new Map(), recipient: new Map(), global: 0, suppressed: new Map(), suppressedAudited: new Set(), globalAlarmed: false };
+    return {
+      start,
+      tenant: new Map(),
+      recipient: new Map(),
+      global: 0,
+      suppressed: new Map(),
+      suppressedAudited: new Set(),
+      globalAlarmed: false,
+    };
   }
 
   /** Pencere döndüyse bastırılanların özetini gönderir (yeni pencerenin sınırına dahil). */
@@ -216,16 +254,20 @@ export class WhatsappNotifier {
     if (start === this.win.start) return;
     const old = this.win;
     this.win = this.newWindow(start);
-    for (const s of old.suppressed.values()) this.enqueue(s.tenantId, s.phone, summaryMessage(s.firm, s.count, this.d.publicBaseUrl), "summary");
+    for (const s of old.suppressed.values())
+      this.enqueue(s.tenantId, s.phone, summaryMessage(s.firm, s.count, this.d.publicBaseUrl), "summary");
   }
 
   private scheduleFlush(): void {
     if (this.flushTimer !== undefined || this.closed) return;
     const at = this.win.start + HOUR_MS;
-    this.flushTimer = this.d.clock.setTimeout(() => {
-      this.flushTimer = undefined;
-      this.rotate();
-    }, Math.max(0, at - this.d.clock.now()));
+    this.flushTimer = this.d.clock.setTimeout(
+      () => {
+        this.flushTimer = undefined;
+        this.rotate();
+      },
+      Math.max(0, at - this.d.clock.now()),
+    );
   }
 
   /** Sınır kontrolü + sayım; izin yoksa false (bastırıldı). */
@@ -331,7 +373,13 @@ export class WhatsappNotifier {
     const timer = this.d.clock.setTimeout(() => ctrl.abort(), WA_TIMEOUT_MS);
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json", ...(this.apiKey ? { "x-api-key": this.apiKey } : {}) };
-      const res = await this.fetchFn(endpoint(this.url, path), { method: "POST", headers, body: JSON.stringify(body), signal: ctrl.signal, redirect: "manual" }); // S8b-1: 3xx izlenmez (SSRF)
+      const res = await this.fetchFn(endpoint(this.url, path), {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+        redirect: "manual",
+      }); // S8b-1: 3xx izlenmez (SSRF)
       void res.body?.cancel().catch(() => undefined); // B-P12b-6: gövde okunmaz/yansıtılmaz; soket ve tampon bırakılır
       if (res.ok) return "ok";
       if (res.status === 401) {
@@ -343,7 +391,10 @@ export class WhatsappNotifier {
       return res.status >= 300 && res.status < 400 ? "redirect" : "http_error";
     } catch (err) {
       const timedOut = ctrl.signal.aborted;
-      this.d.log.warn({ event: timedOut ? "whatsapp_timeout" : "whatsapp_unreachable", path, err: err instanceof Error ? err.name : "unknown" }, "WhatsApp servisine ulaşılamadı");
+      this.d.log.warn(
+        { event: timedOut ? "whatsapp_timeout" : "whatsapp_unreachable", path, err: err instanceof Error ? err.name : "unknown" },
+        "WhatsApp servisine ulaşılamadı",
+      );
       return timedOut ? "timeout" : "unreachable";
     } finally {
       this.d.clock.clearTimeout(timer);

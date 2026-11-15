@@ -26,7 +26,8 @@ export interface RequestConn {
 
 /** 0.9.x'e giden `request.closed`: bilinmeyen neden → TENANT_PASSIVE (DB'de gerçek neden kalır). */
 export function legacyClosed(msg: RequestOutbound): RequestOutbound {
-  if (msg.t !== "request.closed" || msg.reason === undefined || (LEGACY_CANCEL_REASONS as readonly string[]).includes(msg.reason)) return msg;
+  if (msg.t !== "request.closed" || msg.reason === undefined || (LEGACY_CANCEL_REASONS as readonly string[]).includes(msg.reason))
+    return msg;
   return { ...msg, reason: "TENANT_PASSIVE" };
 }
 
@@ -58,7 +59,12 @@ export class RequestHub {
   private readonly statesOf: (tenantId: string) => Promise<Map<string, RequestStatePayload>>;
   private readonly onError: (err: unknown) => void;
 
-  constructor(clock: Clock, statesOf: (tenantId: string) => Promise<Map<string, RequestStatePayload>>, onError: (err: unknown) => void, refreshMs = REFRESH_MS) {
+  constructor(
+    clock: Clock,
+    statesOf: (tenantId: string) => Promise<Map<string, RequestStatePayload>>,
+    onError: (err: unknown) => void,
+    refreshMs = REFRESH_MS,
+  ) {
     this.clock = clock;
     this.statesOf = statesOf;
     this.onError = onError;

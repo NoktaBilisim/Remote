@@ -82,11 +82,17 @@ export function ResetForm() {
           </p>
           <p className="mt-1">{t("rp.invalidBody")}</p>
         </Alert>
-        <Link href="/forgot-password" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-on-primary hover:bg-primary-hover">
+        <Link
+          href="/forgot-password"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-on-primary hover:bg-primary-hover"
+        >
           <KeyRound aria-hidden className="size-4" />
           {t("rp.newLink")}
         </Link>
-        <Link href="/login" className="inline-flex min-h-11 items-center justify-center gap-2 self-center rounded-md px-3 text-sm font-medium text-primary hover:underline">
+        <Link
+          href="/login"
+          className="inline-flex min-h-11 items-center justify-center gap-2 self-center rounded-md px-3 text-sm font-medium text-primary hover:underline"
+        >
           <ArrowLeft aria-hidden className="size-4" />
           {t("fp.back")}
         </Link>
@@ -95,11 +101,38 @@ export function ResetForm() {
   }
 
   return (
-    <form ref={formRef} noValidate onSubmit={onSubmit} className="mt-1 flex flex-col gap-4" aria-label={t("rp.title")} data-testid="reset-form">
+    <form
+      ref={formRef}
+      noValidate
+      onSubmit={onSubmit}
+      className="mt-1 flex flex-col gap-4"
+      aria-label={t("rp.title")}
+      data-testid="reset-form"
+    >
       <p className="mb-2 text-sm text-fg-muted">{t("rp.subtitle")}</p>
       <FormError error={serverError} />
-      <TextField name="next" type="password" label={t("pw.next")} hint={t("pw.nextHint")} autoComplete="new-password" minLength={12} required revealable disabled={submitting} error={errors.next} />
-      <TextField name="confirm" type="password" label={t("pw.confirm")} autoComplete="new-password" required revealable disabled={submitting} error={errors.confirm} />
+      <TextField
+        name="next"
+        type="password"
+        label={t("pw.next")}
+        hint={t("pw.nextHint")}
+        autoComplete="new-password"
+        minLength={12}
+        required
+        revealable
+        disabled={submitting}
+        error={errors.next}
+      />
+      <TextField
+        name="confirm"
+        type="password"
+        label={t("pw.confirm")}
+        autoComplete="new-password"
+        required
+        revealable
+        disabled={submitting}
+        error={errors.confirm}
+      />
       <Button type="submit" loading={submitting} className="mt-2 w-full" data-testid="reset-submit">
         {!submitting && <KeyRound aria-hidden className="size-4" />}
         {submitting ? t("pw.submitting") : t("rp.submit")}

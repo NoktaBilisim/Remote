@@ -91,7 +91,9 @@ export function NoteForm({ session }: { session: Pick<SessionHistoryDetail, "id"
         data-testid="ticket-input"
       />
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={noteId} className="text-sm font-medium text-fg">{t("h.n.note")}</label>
+        <label htmlFor={noteId} className="text-sm font-medium text-fg">
+          {t("h.n.note")}
+        </label>
         <textarea
           id={noteId}
           name="note"
@@ -105,27 +107,50 @@ export function NoteForm({ session }: { session: Pick<SessionHistoryDetail, "id"
           className={`w-full resize-y rounded-md border bg-surface px-3 py-2 text-base text-fg shadow-sm focus-visible:border-ring disabled:opacity-60 sm:text-sm ${errors.note || noteOver ? "border-danger" : "border-border"}`}
         />
         <div className="flex flex-wrap justify-between gap-2 text-xs">
-          {errors.note ? <p id={`${noteId}-err`} className="font-medium text-danger">{errors.note}</p> : <span />}
-          <p id={`${noteId}-count`} className={`tabular-nums ${noteOver ? "font-medium text-danger" : "text-fg-muted"}`} data-testid="note-count" aria-live={noteLen > NOTE_MAX - 200 ? "polite" : "off"}>
+          {errors.note ? (
+            <p id={`${noteId}-err`} className="font-medium text-danger">
+              {errors.note}
+            </p>
+          ) : (
+            <span />
+          )}
+          <p
+            id={`${noteId}-count`}
+            className={`tabular-nums ${noteOver ? "font-medium text-danger" : "text-fg-muted"}`}
+            data-testid="note-count"
+            aria-live={noteLen > NOTE_MAX - 200 ? "polite" : "off"}
+          >
             {t("h.n.count", { n: formatNumber(noteLen), max: formatNumber(NOTE_MAX) })}
           </p>
         </div>
       </div>
-      {!locked && <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" loading={busy} disabled={!patch} data-testid="note-save">
-          {!busy && <Save aria-hidden className="size-4" />}
-          {t("h.n.save")}
-        </Button>
-        {patch && !busy && (
-          <>
-            <Button type="button" variant="ghost" onClick={() => { setV(initial); setErrors({}); setServerError(null); }}>
-              <RotateCcw aria-hidden className="size-4" />
-              {t("h.n.reset")}
-            </Button>
-            <p className="text-xs font-medium text-warning" role="status" data-testid="note-dirty">{t("h.n.unsaved")}</p>
-          </>
-        )}
-      </div>}
+      {!locked && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="submit" loading={busy} disabled={!patch} data-testid="note-save">
+            {!busy && <Save aria-hidden className="size-4" />}
+            {t("h.n.save")}
+          </Button>
+          {patch && !busy && (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setV(initial);
+                  setErrors({});
+                  setServerError(null);
+                }}
+              >
+                <RotateCcw aria-hidden className="size-4" />
+                {t("h.n.reset")}
+              </Button>
+              <p className="text-xs font-medium text-warning" role="status" data-testid="note-dirty">
+                {t("h.n.unsaved")}
+              </p>
+            </>
+          )}
+        </div>
+      )}
       <LeaveDialog guard={guard} body={t("h.n.leaveBody")} />
     </form>
   );

@@ -8,7 +8,16 @@ import type { AuthContext } from "../../src/auth/session.ts";
 import { newId, sha256Hex } from "../../src/lib/ids.ts";
 import * as repo from "../../src/sessions/repo.ts";
 import { listHistorySessions } from "../../src/sessions/history.ts";
-import { createSupportSessionRow, createTenant, createUser, loginAs, makeApp, testDb, type Session, type TestUser } from "../helpers/app.ts";
+import {
+  createSupportSessionRow,
+  createTenant,
+  createUser,
+  loginAs,
+  makeApp,
+  testDb,
+  type Session,
+  type TestUser,
+} from "../helpers/app.ts";
 
 const HIST = { "sessions.view": true, "session_history.view": true, "session_history.edit": true, "session_history.export": true };
 
@@ -51,7 +60,9 @@ async function mk(o: Mk): Promise<string> {
       endedAt: new Date(o.createdAt.getTime() + 3725_000),
       endedBy: consumed ? "CUSTOMER" : "SYSTEM",
       endReason: consumed ? "customer" : status.toLowerCase(),
-      ...(consumed ? { consumedAt: new Date(o.createdAt.getTime() + 5_000), mode: o.mode ?? "BROWSER", customerName: o.customerName ?? null } : {}),
+      ...(consumed
+        ? { consumedAt: new Date(o.createdAt.getTime() + 5_000), mode: o.mode ?? "BROWSER", customerName: o.customerName ?? null }
+        : {}),
       ...(o.ticketNo ? { ticketNo: o.ticketNo } : {}),
       ...(o.note ? { note: o.note } : {}),
     },
@@ -61,7 +72,12 @@ async function mk(o: Mk): Promise<string> {
 
 const get = (who: string, url: string) => app.inject({ method: "GET", url, headers: sess[who]?.headers });
 const patch = (who: string, id: string, payload: unknown, headers: Record<string, string> = {}) =>
-  app.inject({ method: "PATCH", url: `/api/v1/sessions/${id}`, headers: { ...sess[who]?.headers, ...headers }, payload: payload as object });
+  app.inject({
+    method: "PATCH",
+    url: `/api/v1/sessions/${id}`,
+    headers: { ...sess[who]?.headers, ...headers },
+    payload: payload as object,
+  });
 
 beforeAll(async () => {
   app = makeApp();
@@ -76,7 +92,13 @@ beforeAll(async () => {
   s1 = await mk({ tenantId: A, technicianId: u1.id, createdAt: new Date("2020-03-01T10:00:00Z"), customerName: "Ayşe Yılmaz" });
   s2 = await mk({ tenantId: A, technicianId: u2.id, createdAt: new Date("2020-03-02T10:00:00Z"), customerName: "Mehmet Kaya" });
   sB = await mk({ tenantId: B, technicianId: uB.id, createdAt: new Date("2020-03-03T10:00:00Z"), customerName: "Ayşe B" });
-  for (const [k, u] of [["admin", adminA], ["u1", u1], ["u2", u2], ["super", superAdmin]] as const) sess[k] = await loginAs(app, u);
+  for (const [k, u] of [
+    ["admin", adminA],
+    ["u1", u1],
+    ["u2", u2],
+    ["super", superAdmin],
+  ] as const)
+    sess[k] = await loginAs(app, u);
 });
 afterAll(() => app.close());
 
@@ -90,12 +112,42 @@ describe("AC-60 liste filtreleri ve sayfalama", () => {
     tech2 = await createUser({ tenantId: T, perms: HIST });
     sess.adminT = await loginAs(app, await createUser({ tenantId: T, role: "ADMIN" }));
     // İstanbul günü sınırı: 2026-01-10T21:00Z = 11 Ocak 00:00 (dahil); 20:59:59.999Z = 10 Ocak (hariç).
-    await mk({ tenantId: T, technicianId: tech1.id, createdAt: new Date("2026-01-10T20:59:59.999Z"), customerName: "Önceki Gün", mode: "AGENT" });
-    await mk({ tenantId: T, technicianId: tech1.id, createdAt: new Date("2026-01-10T21:00:00.000Z"), customerName: "Ayşe Yılmaz", mode: "AGENT" });
-    await mk({ tenantId: T, technicianId: tech2.id, createdAt: new Date("2026-01-11T20:59:59.999Z"), customerName: "AYŞE yılmaz", mode: "BROWSER" });
-    await mk({ tenantId: T, technicianId: tech2.id, createdAt: new Date("2026-01-11T21:00:00.000Z"), customerName: "Ertesi Gün", mode: "BROWSER" });
+    await mk({
+      tenantId: T,
+      technicianId: tech1.id,
+      createdAt: new Date("2026-01-10T20:59:59.999Z"),
+      customerName: "Önceki Gün",
+      mode: "AGENT",
+    });
+    await mk({
+      tenantId: T,
+      technicianId: tech1.id,
+      createdAt: new Date("2026-01-10T21:00:00.000Z"),
+      customerName: "Ayşe Yılmaz",
+      mode: "AGENT",
+    });
+    await mk({
+      tenantId: T,
+      technicianId: tech2.id,
+      createdAt: new Date("2026-01-11T20:59:59.999Z"),
+      customerName: "AYŞE yılmaz",
+      mode: "BROWSER",
+    });
+    await mk({
+      tenantId: T,
+      technicianId: tech2.id,
+      createdAt: new Date("2026-01-11T21:00:00.000Z"),
+      customerName: "Ertesi Gün",
+      mode: "BROWSER",
+    });
     await mk({ tenantId: T, technicianId: tech1.id, createdAt: new Date("2026-01-12T10:00:00Z"), status: "CANCELLED" });
-    await mk({ tenantId: T, technicianId: tech2.id, createdAt: new Date("2026-01-12T11:00:00Z"), customerName: "Yüzde%Ali_x", mode: "AGENT" });
+    await mk({
+      tenantId: T,
+      technicianId: tech2.id,
+      createdAt: new Date("2026-01-12T11:00:00Z"),
+      customerName: "Yüzde%Ali_x",
+      mode: "AGENT",
+    });
   });
   const list = async (qs: string) => {
     const r = await get("adminT", `/api/v1/sessions${qs}`);
@@ -149,7 +201,10 @@ describe("AC-60 liste filtreleri ve sayfalama", () => {
       expect(r.statusCode, qs).toBe(400);
       expect(r.json<{ error: { code: string } }>().error.code).toBe("VALIDATION");
     }
-    expect((await get("adminT", "/api/v1/sessions?from=2026-02-02&to=2026-02-01")).json<{ error: { fields: Record<string, string> } }>().error.fields).toHaveProperty("to");
+    expect(
+      (await get("adminT", "/api/v1/sessions?from=2026-02-02&to=2026-02-01")).json<{ error: { fields: Record<string, string> } }>().error
+        .fields,
+    ).toHaveProperty("to");
   });
 });
 
@@ -157,7 +212,10 @@ describe("AC-61 historyScope — 5 uç, IDOR", () => {
   it("AC-61: USER yalnız kendi oturumlarını listeler; technicianId/tenantId filtresi kapsamı genişletmez", async () => {
     for (const qs of ["", `?technicianId=${u2.id}`, `?tenantId=${B}`]) {
       const b = (await get("u1", `/api/v1/sessions${qs}`)).json<SessionListResponse>();
-      expect(b.items.map((i) => i.id), qs).toEqual([s1]);
+      expect(
+        b.items.map((i) => i.id),
+        qs,
+      ).toEqual([s1]);
     }
   });
 
@@ -194,7 +252,9 @@ describe("AC-61 historyScope — 5 uç, IDOR", () => {
 
     const acting = await loginAs(app, superAdmin);
     await testDb().authSession.update({ where: { tokenHash: sha256Hex(acting.token) }, data: { actingTenantId: A } });
-    const scoped = (await app.inject({ method: "GET", url: `/api/v1/sessions?pageSize=100&tenantId=${B}`, headers: acting.headers })).json<SessionListResponse>();
+    const scoped = (
+      await app.inject({ method: "GET", url: `/api/v1/sessions?pageSize=100&tenantId=${B}`, headers: acting.headers })
+    ).json<SessionListResponse>();
     expect(scoped.items.map((i) => i.id)).toEqual(expect.arrayContaining([s1, s2]));
     expect(scoped.items.map((i) => i.id)).not.toContain(sB);
     expect(scoped.items[0]?.tenant).toBeNull();
@@ -211,7 +271,10 @@ describe("AC-61 historyScope — 5 uç, IDOR", () => {
     expect((await g(none, "/api/v1/sessions")).statusCode).toBe(403);
     expect((await g(onlyConsole, `/api/v1/sessions/${s1}/history`)).statusCode).toBe(403);
     expect((await g(onlyHistory, "/api/v1/sessions/export.csv")).statusCode).toBe(403);
-    expect((await app.inject({ method: "PATCH", url: `/api/v1/sessions/${s1}`, headers: onlyHistory.headers, payload: { note: "x" } })).statusCode).toBe(403);
+    expect(
+      (await app.inject({ method: "PATCH", url: `/api/v1/sessions/${s1}`, headers: onlyHistory.headers, payload: { note: "x" } }))
+        .statusCode,
+    ).toBe(403);
   });
 });
 
@@ -219,7 +282,9 @@ describe("S8-2 katılım kodu yalnız kendi teknisyenine; S8-3 müşteri aramas�
   it("S8-2: bekleyen oturumun kodu liste/detay/:id'de yalnız sahibine; ADMIN ve SUPER_ADMIN null görür", async () => {
     const p = await createSupportSessionRow({ tenantId: A, technicianId: u1.id });
     const codeIn = async (who: string) => {
-      const list = (await get(who, `/api/v1/sessions?status=PENDING&pageSize=100${who === "super" ? `&tenantId=${A}` : ""}`)).json<SessionListResponse>();
+      const list = (
+        await get(who, `/api/v1/sessions?status=PENDING&pageSize=100${who === "super" ? `&tenantId=${A}` : ""}`)
+      ).json<SessionListResponse>();
       const item = list.items.find((i) => i.id === p.id);
       const det = (await get(who, `/api/v1/sessions/${p.id}/history`)).json<SessionHistoryDetail>();
       const one = (await get(who, `/api/v1/sessions/${p.id}`)).json<{ code: string | null }>();
@@ -258,36 +323,113 @@ describe("AC-62 detay", () => {
     id = newId();
     await testDb().supportSession.create({
       data: {
-        id, tenantId: T, technicianId: tech.id, tokenHash: sha256Hex(id), techVerifyCode: "1234", status: "ENDED", createdAt: base,
-        expiresAt: at(900), consumedAt: at(10), mode: "AGENT", endedAt: at(130), endedBy: "ADMIN", endReason: "admin", terminatedBy: admin.id,
-        customerName: "Ayşe Yılmaz", customerEmail: "ayse@example.test", ticketNo: "INC-7", note: "not",
-        qualitySummary: { fps: { avg: 20, min: 10, max: 30 }, kbps: { avg: 900, min: 100, max: 2000 }, rttMs: { avg: 40, min: 20, max: 90 }, connType: "relay" },
+        id,
+        tenantId: T,
+        technicianId: tech.id,
+        tokenHash: sha256Hex(id),
+        techVerifyCode: "1234",
+        status: "ENDED",
+        createdAt: base,
+        expiresAt: at(900),
+        consumedAt: at(10),
+        mode: "AGENT",
+        endedAt: at(130),
+        endedBy: "ADMIN",
+        endReason: "admin",
+        terminatedBy: admin.id,
+        customerName: "Ayşe Yılmaz",
+        customerEmail: "ayse@example.test",
+        ticketNo: "INC-7",
+        note: "not",
+        qualitySummary: {
+          fps: { avg: 20, min: 10, max: 30 },
+          kbps: { avg: 900, min: 100, max: 2000 },
+          rttMs: { avg: 40, min: 20, max: 90 },
+          connType: "relay",
+        },
       },
     });
     const text = await testDb().consentText.findFirstOrThrow({ where: { tenantId: T, isCurrent: true } });
     const consent = (s: number, level: string, decision: string, source: string, client = false) =>
       testDb().sessionConsent.create({
-        data: { id: newId(), sessionId: id, tenantId: T, level, decision, source, createdAt: at(s), ...(client ? { ip: "203.0.113.77", userAgent: "GizliTarayici/1.0" } : {}), ...(level === "VIEW" ? { consentTextId: text.id, consentSha256: text.sha256 } : {}) },
+        data: {
+          id: newId(),
+          sessionId: id,
+          tenantId: T,
+          level,
+          decision,
+          source,
+          createdAt: at(s),
+          ...(client ? { ip: "203.0.113.77", userAgent: "GizliTarayici/1.0" } : {}),
+          ...(level === "VIEW" ? { consentTextId: text.id, consentSha256: text.sha256 } : {}),
+        },
       });
     await consent(10, "VIEW", "GRANTED", "UI", true);
     await consent(30, "CONTROL", "GRANTED", "UI", true);
     await consent(60, "CONTROL", "REVOKED", "TECH");
     await consent(90, "CONTROL", "GRANTED", "UI", true);
-    const audit = (s: number, action: string, extra: { userId?: string; username?: string; newValue?: object; oldValue?: object; result?: string }) =>
-      testDb().auditLog.create({ data: { createdAt: at(s), tenantId: T, entity: "support_sessions", entityId: id, action, result: extra.result ?? "success", userId: extra.userId ?? null, username: extra.username ?? null, ipAddress: "203.0.113.77", userAgent: "GizliTarayici/1.0", ...(extra.newValue ? { newValue: extra.newValue } : {}), ...(extra.oldValue ? { oldValue: extra.oldValue } : {}) } });
-    await audit(0, "session.created", { userId: tech.id, username: tech.email, newValue: { status: "PENDING", ttlMin: 15, expiresAt: "x" } });
-    await audit(5, "guest.pending", { username: "customer", newValue: { guestId: "g", name: "Ayşe Yılmaz", ip: "203.0.113.77", consentTextId: text.id } });
-    await audit(10, "guest.admitted", { userId: tech.id, newValue: { guestId: "g", name: "Ayşe Yılmaz", guestKind: "AGENT", consentSha256: text.sha256 } });
+    const audit = (
+      s: number,
+      action: string,
+      extra: { userId?: string; username?: string; newValue?: object; oldValue?: object; result?: string },
+    ) =>
+      testDb().auditLog.create({
+        data: {
+          createdAt: at(s),
+          tenantId: T,
+          entity: "support_sessions",
+          entityId: id,
+          action,
+          result: extra.result ?? "success",
+          userId: extra.userId ?? null,
+          username: extra.username ?? null,
+          ipAddress: "203.0.113.77",
+          userAgent: "GizliTarayici/1.0",
+          ...(extra.newValue ? { newValue: extra.newValue } : {}),
+          ...(extra.oldValue ? { oldValue: extra.oldValue } : {}),
+        },
+      });
+    await audit(0, "session.created", {
+      userId: tech.id,
+      username: tech.email,
+      newValue: { status: "PENDING", ttlMin: 15, expiresAt: "x" },
+    });
+    await audit(5, "guest.pending", {
+      username: "customer",
+      newValue: { guestId: "g", name: "Ayşe Yılmaz", ip: "203.0.113.77", consentTextId: text.id },
+    });
+    await audit(10, "guest.admitted", {
+      userId: tech.id,
+      newValue: { guestId: "g", name: "Ayşe Yılmaz", guestKind: "AGENT", consentSha256: text.sha256 },
+    });
     await audit(20, "control.requested", { userId: tech.id, newValue: { request: "1" } });
     await audit(30, "control.granted", { username: "customer", newValue: { decision: "GRANTED", source: "UI", selfElevated: "true" } });
     await audit(45, "file.transfer", { userId: tech.id, newValue: { fileName: "gizli.txt" } });
     await audit(60, "control.released", { userId: tech.id, newValue: { decision: "REVOKED", source: "TECH", via: "release" } });
     await audit(90, "control.granted", { username: "customer", newValue: { selfElevated: "unknown" } });
-    await audit(100, "session.caps_changed", { username: "system", oldValue: { caps: "remote_control,file_transfer" }, newValue: { caps: "file_transfer" } });
+    await audit(100, "session.caps_changed", {
+      username: "system",
+      oldValue: { caps: "remote_control,file_transfer" },
+      newValue: { caps: "file_transfer" },
+    });
     await audit(130, "session.terminated", { userId: admin.id, newValue: { status: "ENDED", endedBy: "ADMIN", reason: "Politika" } });
     // Başka tenant'a yazılmış aynı entity_id'li kayıt zaman çizelgesine girmez.
-    await testDb().auditLog.create({ data: { tenantId: A, entity: "support_sessions", entityId: id, action: "session.cancelled", result: "success" } });
-    await testDb().sessionFile.create({ data: { id: newId(), sessionId: id, tenantId: T, direction: "TO_CUSTOMER", fileName: "rapor.pdf", sizeBytes: 5_000_000n, sha256: "a".repeat(64), result: "OK", createdAt: at(45) } });
+    await testDb().auditLog.create({
+      data: { tenantId: A, entity: "support_sessions", entityId: id, action: "session.cancelled", result: "success" },
+    });
+    await testDb().sessionFile.create({
+      data: {
+        id: newId(),
+        sessionId: id,
+        tenantId: T,
+        direction: "TO_CUSTOMER",
+        fileName: "rapor.pdf",
+        sizeBytes: 5_000_000n,
+        sha256: "a".repeat(64),
+        result: "OK",
+        createdAt: at(45),
+      },
+    });
   });
 
   it("AC-62: başlangıç/bitiş/süre, müşteri, kalite, dosyalar, sonlandıran, not/ticket", async () => {
@@ -296,12 +438,31 @@ describe("AC-62 detay", () => {
     expect(r.headers["cache-control"]).toBe("no-store");
     const d = r.json<SessionHistoryDetail>();
     expect(d).toMatchObject({
-      id, mode: "AGENT", durationSec: 120, customerName: "Ayşe Yılmaz", customerEmail: "ayse@example.test", ticketNo: "INC-7", note: "not",
-      endedBy: "ADMIN", endReason: "admin", terminatedBy: { id: admin.id, name: "Yönetici Ünal" }, timelineTruncated: false,
+      id,
+      mode: "AGENT",
+      durationSec: 120,
+      customerName: "Ayşe Yılmaz",
+      customerEmail: "ayse@example.test",
+      ticketNo: "INC-7",
+      note: "not",
+      endedBy: "ADMIN",
+      endReason: "admin",
+      terminatedBy: { id: admin.id, name: "Yönetici Ünal" },
+      timelineTruncated: false,
       quality: { connType: "relay", fps: { avg: 20, min: 10, max: 30 } },
     });
     expect(d).not.toHaveProperty("waitingGuests"); // P13b-L §4.2: detay canlı lobi durumu taşımaz
-    expect(d.files).toEqual([{ id: expect.any(String), direction: "TO_CUSTOMER", fileName: "rapor.pdf", sizeBytes: 5_000_000, sha256: "a".repeat(64), result: "OK", createdAt: expect.any(String) }]);
+    expect(d.files).toEqual([
+      {
+        id: expect.any(String),
+        direction: "TO_CUSTOMER",
+        fileName: "rapor.pdf",
+        sizeBytes: 5_000_000,
+        sha256: "a".repeat(64),
+        result: "OK",
+        createdAt: expect.any(String),
+      },
+    ]);
   });
 
   it("AC-62: onay kayıtları (ip/UA yok) ve kontrol dönemleri (TECH kapanışı, selfElevated, kapanışsız dönem)", async () => {
@@ -309,18 +470,39 @@ describe("AC-62 detay", () => {
     expect(r.body).not.toContain("203.0.113.77");
     expect(r.body).not.toContain("GizliTarayici");
     const d = r.json<SessionHistoryDetail>();
-    expect(d.consents.map((c) => `${c.level}/${c.decision}/${c.source}`)).toEqual(["VIEW/GRANTED/UI", "CONTROL/GRANTED/UI", "CONTROL/REVOKED/TECH", "CONTROL/GRANTED/UI"]);
+    expect(d.consents.map((c) => `${c.level}/${c.decision}/${c.source}`)).toEqual([
+      "VIEW/GRANTED/UI",
+      "CONTROL/GRANTED/UI",
+      "CONTROL/REVOKED/TECH",
+      "CONTROL/GRANTED/UI",
+    ]);
     expect(Object.keys(d.consents[0] ?? {}).sort()).toEqual(["at", "consentText", "decision", "id", "level", "source"]);
     expect(d.consents[0]?.consentText).toMatchObject({ version: 1, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
     expect(d.controlPeriods).toEqual([
-      { grantedAt: "2026-04-01T09:00:30.000Z", revokedAt: "2026-04-01T09:01:00.000Z", revokedSource: "TECH", revokedReason: "tech", selfElevated: true },
+      {
+        grantedAt: "2026-04-01T09:00:30.000Z",
+        revokedAt: "2026-04-01T09:01:00.000Z",
+        revokedSource: "TECH",
+        revokedReason: "tech",
+        selfElevated: true,
+      },
       { grantedAt: "2026-04-01T09:01:30.000Z", revokedAt: null, revokedSource: null, revokedReason: null, selfElevated: null },
     ]);
   });
 
   it("AC-62: zaman çizelgesi izin listesi + izdüşüm; actor/actorName; file.* ve başka tenant kaydı yok", async () => {
     const d = (await get("techT", `/api/v1/sessions/${id}/history`)).json<SessionHistoryDetail>();
-    expect(d.timeline.map((e) => e.action)).toEqual(["session.created", "guest.pending", "guest.admitted", "control.requested", "control.granted", "control.released", "control.granted", "session.caps_changed", "session.terminated"]);
+    expect(d.timeline.map((e) => e.action)).toEqual([
+      "session.created",
+      "guest.pending",
+      "guest.admitted",
+      "control.requested",
+      "control.granted",
+      "control.released",
+      "control.granted",
+      "session.caps_changed",
+      "session.terminated",
+    ]);
     const by = (a: string) => d.timeline.find((e) => e.action === a);
     expect(by("session.created")).toMatchObject({ actor: "TECH", actorName: "Teknisyen Çağrı", details: { ttlMin: 15 } });
     expect(by("guest.pending")).toMatchObject({ actor: "CUSTOMER", actorName: "Ayşe Yılmaz", details: { name: "Ayşe Yılmaz" } });
@@ -329,7 +511,11 @@ describe("AC-62 detay", () => {
     expect(by("control.requested")?.details).toEqual({ request: 1 });
     expect(by("control.granted")).toMatchObject({ actor: "CUSTOMER", details: { selfElevated: true } });
     expect(by("control.released")?.details).toEqual({ via: "release" });
-    expect(by("session.caps_changed")).toMatchObject({ actor: "SYSTEM", actorName: null, details: { oldCaps: "remote_control,file_transfer", newCaps: "file_transfer" } });
+    expect(by("session.caps_changed")).toMatchObject({
+      actor: "SYSTEM",
+      actorName: null,
+      details: { oldCaps: "remote_control,file_transfer", newCaps: "file_transfer" },
+    });
     expect(by("session.terminated")).toMatchObject({ actor: "ADMIN", actorName: "Yönetici Ünal", details: { reason: "Politika" } });
     expect(JSON.stringify(d.timeline)).not.toMatch(/gizli\.txt|consentSha256|guestId|expiresAt/);
   });
@@ -339,7 +525,15 @@ describe("AC-62 detay", () => {
     const t = await createUser({ tenantId: tid, perms: HIST });
     const s = await createSupportSessionRow({ tenantId: tid, technicianId: t.id, status: "ENDED" });
     await testDb().supportSession.update({ where: { id: s.id }, data: { qualitySummary: { bozuk: true } } });
-    await testDb().auditLog.createMany({ data: Array.from({ length: 501 }, () => ({ tenantId: tid, entity: "support_sessions", entityId: s.id, action: "control.requested", result: "success" })) });
+    await testDb().auditLog.createMany({
+      data: Array.from({ length: 501 }, () => ({
+        tenantId: tid,
+        entity: "support_sessions",
+        entityId: s.id,
+        action: "control.requested",
+        result: "success",
+      })),
+    });
     const r = await app.inject({ method: "GET", url: `/api/v1/sessions/${s.id}/history`, headers: (await loginAs(app, t)).headers });
     expect(r.statusCode).toBe(200);
     const d = r.json<SessionHistoryDetail>();
@@ -356,12 +550,20 @@ describe("AC-63 PATCH /sessions/:id", () => {
     const r = await patch("u1", s1, { ticketNo: "  INC-42 ", note });
     expect(r.statusCode, r.body).toBe(200);
     expect(r.json<SessionHistoryDetail>()).toMatchObject({ id: s1, ticketNo: "INC-42", note: "Satır 1\nSatır 2\tsekme — çğıöşü" });
-    const a = await testDb().auditLog.findFirstOrThrow({ where: { tenantId: A, entityId: s1, action: "session.updated" }, orderBy: { id: "desc" } });
-    expect(a).toMatchObject({ userId: u1.id, result: "success", oldValue: { ticketNo: null, noteLength: 0 }, newValue: { ticketNo: "INC-42", noteLength: 30 } });
+    const a = await testDb().auditLog.findFirstOrThrow({
+      where: { tenantId: A, entityId: s1, action: "session.updated" },
+      orderBy: { id: "desc" },
+    });
+    expect(a).toMatchObject({
+      userId: u1.id,
+      result: "success",
+      oldValue: { ticketNo: null, noteLength: 0 },
+      newValue: { ticketNo: "INC-42", noteLength: 30 },
+    });
     expect(JSON.stringify([a.oldValue, a.newValue])).not.toContain("Satır");
   });
 
-  it("AC-63: yalnız gönderilen alan değişir; \"\" ve null → NULL; çift gönderim aynı sonucu verir", async () => {
+  it('AC-63: yalnız gönderilen alan değişir; "" ve null → NULL; çift gönderim aynı sonucu verir', async () => {
     await patch("u1", s1, { ticketNo: "INC-1", note: "ilk" });
     expect((await patch("u1", s1, { note: "" })).json<SessionHistoryDetail>()).toMatchObject({ ticketNo: "INC-1", note: null });
     expect((await patch("u1", s1, { ticketNo: null })).json<SessionHistoryDetail>()).toMatchObject({ ticketNo: null, note: null });
@@ -371,7 +573,15 @@ describe("AC-63 PATCH /sessions/:id", () => {
   });
 
   it("AC-63: geçersiz girdi 400 (boş, bilinmeyen alan, uzunluk, Cc/bidi); CSRF/Origin yoksa 403", async () => {
-    for (const body of [{}, { foo: 1 }, { ticketNo: "x".repeat(51) }, { note: "n".repeat(4001) }, { ticketNo: "A\nB" }, { note: "a‮b" }, { note: "a\rb" }]) {
+    for (const body of [
+      {},
+      { foo: 1 },
+      { ticketNo: "x".repeat(51) },
+      { note: "n".repeat(4001) },
+      { ticketNo: "A\nB" },
+      { note: "a‮b" },
+      { note: "a\rb" },
+    ]) {
       const r = await patch("u1", s1, body);
       expect(r.statusCode, JSON.stringify(body)).toBe(400);
     }
@@ -390,12 +600,24 @@ describe("AC-63/124 CSV dışa aktarma", () => {
     tech = await createUser({ tenantId: T, perms: HIST });
     await testDb().user.update({ where: { id: tech.id }, data: { fullName: "@Teknisyen" } });
     csvSess = await loginAs(app, await createUser({ tenantId: T, role: "ADMIN" }));
-    await mk({ tenantId: T, technicianId: tech.id, createdAt: new Date("2026-01-10T21:00:00Z"), customerName: "=HYPERLINK(\"http://x\")", ticketNo: "+905551112233", note: "-2+3;\"alıntı\"\nikinci satır", mode: "AGENT" });
+    await mk({
+      tenantId: T,
+      technicianId: tech.id,
+      createdAt: new Date("2026-01-10T21:00:00Z"),
+      customerName: '=HYPERLINK("http://x")',
+      ticketNo: "+905551112233",
+      note: '-2+3;"alıntı"\nikinci satır',
+      mode: "AGENT",
+    });
     await mk({ tenantId: T, technicianId: tech.id, createdAt: new Date("2026-01-12T08:00:00Z"), status: "CANCELLED" });
   });
 
   it("AC-63, AC-124: BOM, ; ayraç, CRLF, Türkçe başlık, Europe/Istanbul zaman, formül kaçışı → RFC 4180; audit session.exported", async () => {
-    const r = await app.inject({ method: "GET", url: "/api/v1/sessions/export.csv?sort=createdAt:asc&customer=hyper", headers: csvSess.headers });
+    const r = await app.inject({
+      method: "GET",
+      url: "/api/v1/sessions/export.csv?sort=createdAt:asc&customer=hyper",
+      headers: csvSess.headers,
+    });
     expect(r.statusCode, r.body).toBe(200);
     expect(r.headers["content-type"]).toBe("text/csv; charset=utf-8");
     expect(r.headers["content-disposition"]).toMatch(/^attachment; filename="oturumlar-\d{8}-\d{4}\.csv"$/);
@@ -404,13 +626,20 @@ describe("AC-63/124 CSV dışa aktarma", () => {
     const raw = r.rawPayload.toString("utf8");
     expect(raw.startsWith("﻿")).toBe(true);
     const lines = raw.slice(1).split("\r\n");
-    expect(lines[0]).toBe("Oturum No;Oluşturma;Başlangıç;Bitiş;Süre;Durum;Mod;Kaynak;Müşteri firma;Bekleme;Teknisyen;Müşteri;Ticket No;Sonlandıran;Bitiş nedeni;Not");
+    expect(lines[0]).toBe(
+      "Oturum No;Oluşturma;Başlangıç;Bitiş;Süre;Durum;Mod;Kaynak;Müşteri firma;Bekleme;Teknisyen;Müşteri;Ticket No;Sonlandıran;Bitiş nedeni;Not",
+    );
     expect(raw.slice(1)).toContain(
       `;2026-01-11 00:00:00;2026-01-11 00:00:05;2026-01-11 01:02:05;01:02:00;Bitti;İstemci;Teknisyen;;;'@Teknisyen;"'=HYPERLINK(""http://x"")";'+905551112233;Müşteri;Müşteri bitirdi;"'-2+3;""alıntı""\nikinci satır"\r\n`,
     );
     expect(raw.slice(1).split("\r\n").filter(Boolean)).toHaveLength(2); // başlık + 1 satır (müşteri filtresi)
     const a = await testDb().auditLog.findFirstOrThrow({ where: { tenantId: T, action: "session.exported" }, orderBy: { id: "desc" } });
-    expect(a).toMatchObject({ entity: "support_sessions", entityId: null, result: "success", newValue: { customerFilter: true, rows: 1, status: null, mode: null } });
+    expect(a).toMatchObject({
+      entity: "support_sessions",
+      entityId: null,
+      result: "success",
+      newValue: { customerFilter: true, rows: 1, status: null, mode: null },
+    });
     expect(JSON.stringify(a.newValue)).not.toContain("hyper");
   });
 
@@ -441,8 +670,17 @@ describe("AC-63/124 CSV dışa aktarma", () => {
     const same = new Date("2026-05-05T05:05:05Z"); // aynı created_at → ikincil sıra id
     await testDb().supportSession.createMany({
       data: Array.from({ length: 1205 }, (_, i) => ({
-        id: newId(), tenantId: tid, technicianId: t.id, tokenHash: sha256Hex(`${tid}-${i}`), techVerifyCode: "1234", status: "EXPIRED",
-        createdAt: i % 2 ? same : new Date(same.getTime() + i), expiresAt: new Date(same.getTime() + 900_000 + i), endedAt: new Date(same.getTime() + 900_000 + i), endedBy: "SYSTEM", endReason: "expired",
+        id: newId(),
+        tenantId: tid,
+        technicianId: t.id,
+        tokenHash: sha256Hex(`${tid}-${i}`),
+        techVerifyCode: "1234",
+        status: "EXPIRED",
+        createdAt: i % 2 ? same : new Date(same.getTime() + i),
+        expiresAt: new Date(same.getTime() + 900_000 + i),
+        endedAt: new Date(same.getTime() + 900_000 + i),
+        endedBy: "SYSTEM",
+        endReason: "expired",
       })),
     });
     const r = await app.inject({ method: "GET", url: "/api/v1/sessions/export.csv", headers: (await loginAs(app, t)).headers });
@@ -458,7 +696,9 @@ describe("P8 admit: müşteri adı/e-postası tüketim UPDATE'inde yazılır", (
     const t = await createUser({ tenantId: tid });
     const s = await createSupportSessionRow({ tenantId: tid, technicianId: t.id });
     expect(await repo.consumeForAdmit(testDb(), s.id, new Date(), "AGENT", { name: "Ayşe Yılmaz", email: "ayse@example.test" })).toBe(1);
-    expect(await testDb().supportSession.findUnique({ where: { id: s.id }, select: { customerName: true, customerEmail: true, mode: true } })).toEqual({ customerName: "Ayşe Yılmaz", customerEmail: "ayse@example.test", mode: "AGENT" });
+    expect(
+      await testDb().supportSession.findUnique({ where: { id: s.id }, select: { customerName: true, customerEmail: true, mode: true } }),
+    ).toEqual({ customerName: "Ayşe Yılmaz", customerEmail: "ayse@example.test", mode: "AGENT" });
   });
 });
 
@@ -469,9 +709,27 @@ describe("AC-60 performans: 10.000 kayıtta ilk sayfa < 500 ms (ADMIN, USER, SUP
     expect(seeded.total).toBe(10_000);
     await testDb().$executeRawUnsafe("ANALYZE TABLE support_sessions");
     const mkAuth = (role: "ADMIN" | "USER" | "SUPER_ADMIN", userId: string, tenantId: string | null): AuthContext => ({
-      sessionId: "perf", expiresAt: new Date(Date.now() + 60_000),
-      user: { id: userId, email: "perf@example.test", username: null, fullName: "Perf", role, tenantId, theme: "SYSTEM", avatarUrl: null, mustChangePassword: false },
-      tenantId, tenant: null, actingTenant: null, mfaStage: "ok" as const, mfaRequired: false, totpEnabled: false, logoPath: null, permissions: new Set(),
+      sessionId: "perf",
+      expiresAt: new Date(Date.now() + 60_000),
+      user: {
+        id: userId,
+        email: "perf@example.test",
+        username: null,
+        fullName: "Perf",
+        role,
+        tenantId,
+        theme: "SYSTEM",
+        avatarUrl: null,
+        mustChangePassword: false,
+      },
+      tenantId,
+      tenant: null,
+      actingTenant: null,
+      mfaStage: "ok" as const,
+      mfaRequired: false,
+      totpEnabled: false,
+      logoPath: null,
+      permissions: new Set(),
     });
     const q = listSessionsQuerySchema.parse({});
     const cases: [string, AuthContext][] = [

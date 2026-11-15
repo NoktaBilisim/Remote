@@ -99,7 +99,10 @@ test("AC-8: teknisyen iptal edince açık müşteri sayfası yoklamayla 'Oturum 
   await guest.goto(new URL(link).pathname);
   await expect(guest.getByTestId("guest-tech")).toBeVisible();
 
-  await rows(page).first().getByRole("button", { name: /Oturumu iptal et/ }).click();
+  await rows(page)
+    .first()
+    .getByRole("button", { name: /Oturumu iptal et/ })
+    .click();
   await page.getByTestId("cancel-dialog").getByRole("button", { name: "Evet, iptal et" }).click();
   await expect(page.getByTestId("toast")).toContainText("Oturum iptal edildi");
   // 2 sn yoklama → en geç ~4 sn

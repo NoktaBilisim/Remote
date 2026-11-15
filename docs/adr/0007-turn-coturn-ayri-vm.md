@@ -1,9 +1,15 @@
 # ADR-0007 — coturn ayrı VM/public IP, TURN-TLS 443, HMAC kısa ömürlü credential
+
 Durum: Kabul, r6 (G-05, G-13, K3; r5: QA-P3-6, S-P3-2, S-P3-3; **r6: "ayrı VM/IP + 443 + `turn.<domain>`" maddeleri prod için ADR-0018 ile değiştirildi**) · Tarih: 2026-11-10
+
 > **r6 (2026-11-14, K3 kullanıcı kararı):** Prod aynı sunucuda, ayrı IP yok. TURN 3478 + 5349 (LE `remote-turn`), relay 49160–49479, 443 yok (risk kabulü) → **ADR-0018**. Bu ADR'nin HMAC credential, denied-peer-ip, host OUTPUT kuralı (r5 m.4), IPv6 (r5 m.5) ve 4.18 farkları maddeleri aynen geçerlidir.
+
 ## Bağlam
+
 Kurumsal ağlarda çoğu zaman yalnız 443/TCP açık (R4); publish sunucusunda 443 dolu.
+
 ## Karar
+
 - coturn ayrı VM, ayrı public IP: `listening-port=3478` (UDP/TCP), `tls-listening-port=443`, `min-port=49160 max-port=49199` (UDP relay), `fingerprint`, `use-auth-secret`, `static-auth-secret=<TURN_SECRET>`, `realm=<domain>`, `no-multicast-peers`, `no-tcp-relay` (CLI kapalı ve loopback peer yasağı 4.18'de varsayılan — r5), `user-quota=8` (r3), `total-quota=200`, `max-bps=8000000`, `bps-capacity=<K3>`, `prometheus`.
 - `denied-peer-ip` iki katman (G-05): (a) **sabit liste** `turnserver.base.conf` (repo): 0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, 224/4, 240/4, 255.255.255.255, ::1, ::ffff:0:0/96, 64:ff9b::/96, 100::/64, 2001::/32, 2001:db8::/32, 2002::/16, fc00::/7, fe80::/10, ff00::/8; (b) **ortam listesi** `denied-peer-ip.local.conf` (git-ignore; public repoya altyapı IP'si yazılmaz): publish sunucusu 185.126.217.99, sağlayıcı bloğu 185.126.217.0/24, Proxmox yönetim IP'si, TURN'ün kendi IP'si. `entrypoint.sh` ikisini birleştirir (coturn sürümü CIDR kabul etmiyorsa satırlar `a-b` aralık biçiminde yazılır). TURN'ün kendi relay IP'si relay↔relay için `allowed-peer-ip` ile açılır. Doğrulama `test-denied.sh` (`turnutils_uclient`, her satıra negatif deneme).
 - Credential (server `signaling/turn.ts`): `username = <unixExpiry>:<sessionId>`, `credential = base64(HMAC-SHA1(secret, username))`, `expiry = min(now + kalan oturum süresi, now + 60 dk)` (G-13, AC-21). İstemciye yalnız bu çift ve **yalnız admit sonrası** gider (G-01). Bitişten 5 dk önce sunucu `ice.servers` gönderir, teknisyen ICE restart yapar (mevcut yeniden bağlanma yolu; yeni mekanizma yok). Alarm: `turn_allocations > 2×active_sessions+10`.
@@ -18,7 +24,11 @@ Kurumsal ağlarda çoğu zaman yalnız 443/TCP açık (R4); publish sunucusunda 
   3. **`no-cli` / `no-loopback-peers` yazılmaz:** 4.18'de `no-cli` hata verir, CLI zaten `--cli` verilmedikçe kapalıdır; loopback peer yasağı varsayılandır (`allow-loopback-peers` yazılmaz). Kanıt çalışma zamanında: `ss -tlnp` çıktısında 5766 yok, 9641 yalnız 127.0.0.1 (runbook §9). `::1` ve `127/8` denied listede kalır (savunma derinliği).
   4. **relay↔relay (S-P3-2):** `allowed-peer-ip=<TURN public IP>` korunur (aynı TURN üzerinden iki relay'li çift için gerekli), ancak coturn port ayırmadığından **host OUTPUT kuralı zorunludur**: kaynak UDP portu `min-port:max-port` ve hedefi TURN public IP'si olan paketlerde hedef port aynı aralıkta değilse DROP (nftables/iptables, runbook §9; kalıcı). `test-denied.sh` negatif: `<PUBLIC_IP>:3478` ve `<PUBLIC_IP>:53` relay edilemez. Kural staging (paylaşımlı host) için **P3 kapanış şartı**; prod ayrı VM'de de aynı kural uygulanır.
   5. **IPv6 / relay-ip (S-P3-3):** Entrypoint `relay-ip=<private v4>` (`TURN_EXTERNAL_IP`'nin iç kısmı) üretir; host'ta global IPv6 varsa ya `listening-ip`/`relay-ip` yalnız IPv4'e bağlanır ya da host'un IPv6 /64'ü ve sağlayıcı IPv6 bloğu local listeye `a-b` biçiminde eklenir. Staging'de global IPv6 yok (S-P2-5 bulgusu); prod ağında doğrulama **P13/prod açılış şartı** (gereksinimler §9). `test-denied.sh`'e IPv6 allocation denemesi eklenir (host IPv6 yoksa SKIP + gerekçe).
+
 ## Alternatifler
+
 443'ü SNI ile paylaşma (publish sunucusundaki mevcut servise müdahale; reddedildi); yalnız 5349 (kurumsal ağlarda kapalı); Pion TURN gömülü (coturn daha olgun).
+
 ## Sonuçlar
+
 Host güvenlik duvarı TURN güvenliğinin parçasıdır (S-P3-2): coturn tek başına port bazlı peer kısıtı yapamaz; runbook kuralı silinirse relay host'un tüm UDP servislerine açılır. Ek VM maliyeti; relay bant genişliği TURN VM'de (R7, K3). Secret rotasyonu çift secret ile kesintisiz.

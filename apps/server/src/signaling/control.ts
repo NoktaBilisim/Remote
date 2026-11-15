@@ -5,7 +5,13 @@
 // kontrol geri alınır (G-15). Kapatma yönündeki hiçbir yol DB yazımını beklemez: önce bellek + mesaj, sonra kayıt.
 import { CONTROL_AUDIT } from "@remote/contracts/audit";
 import type { PermissionKey } from "@remote/contracts/permissions";
-import { CONTROL_DENY_COOLDOWN_MS, CONTROL_REQUEST_MAX, type Cap, type ControlRevokeReason, type ControlSource } from "@remote/contracts/ws";
+import {
+  CONTROL_DENY_COOLDOWN_MS,
+  CONTROL_REQUEST_MAX,
+  type Cap,
+  type ControlRevokeReason,
+  type ControlSource,
+} from "@remote/contracts/ws";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { JsonObject } from "../audit/mask.ts";
 import { newId } from "../lib/ids.ts";
@@ -29,16 +35,48 @@ export function newControl(): ControlRoom {
 
 const guestCtx = (g: Guest): AuditContext => g.ctx ?? { ip: g.consent.ip, userAgent: g.consent.userAgent, requestId: newId() };
 const techActor = (t: TechConn) => ({ userId: t.userId, username: t.username });
-const systemClose = (extra: JsonObject): CloseRecord => ({ source: "SYSTEM", action: CONTROL_AUDIT.REVOKED, ctx: SYSTEM_CTX, actor: SYSTEM, extra });
+const systemClose = (extra: JsonObject): CloseRecord => ({
+  source: "SYSTEM",
+  action: CONTROL_AUDIT.REVOKED,
+  ctx: SYSTEM_CTX,
+  actor: SYSTEM,
+  extra,
+});
 
 /** Onay satırı + audit tek TX (AC-111 zaman çizelgesi). Müşteri kaynağı dışında (SYSTEM/RECONNECT/TECH) ip/user_agent yazılmaz. */
-async function recordControl(rooms: Rooms, room: Room, decision: ConsentDecision, source: ConsentSource, ctx: AuditContext, actor: { userId?: string; username: string }, action: string, extra: JsonObject = {}): Promise<void> {
+async function recordControl(
+  rooms: Rooms,
+  room: Room,
+  decision: ConsentDecision,
+  source: ConsentSource,
+  ctx: AuditContext,
+  actor: { userId?: string; username: string },
+  action: string,
+  extra: JsonObject = {},
+): Promise<void> {
   const client = source === "UI" || source === "HOTKEY";
   await rooms.db.$transaction(async (tx) => {
     await tx.sessionConsent.create({
-      data: { id: newId(), sessionId: room.sessionId, tenantId: room.tenantId, level: "CONTROL", decision, source, ip: client ? ctx.ip.slice(0, 45) : null, userAgent: client ? ctx.userAgent.slice(0, 300) : null },
+      data: {
+        id: newId(),
+        sessionId: room.sessionId,
+        tenantId: room.tenantId,
+        level: "CONTROL",
+        decision,
+        source,
+        ip: client ? ctx.ip.slice(0, 45) : null,
+        userAgent: client ? ctx.userAgent.slice(0, 300) : null,
+      },
     });
-    await writeAudit(tx, ctx, { tenantId: room.tenantId, ...actor, action, entity: "support_sessions", entityId: room.sessionId, result: "success", newValue: { decision, source, ...extra } });
+    await writeAudit(tx, ctx, {
+      tenantId: room.tenantId,
+      ...actor,
+      action,
+      entity: "support_sessions",
+      entityId: room.sessionId,
+      result: "success",
+      newValue: { decision, source, ...extra },
+    });
   });
 }
 
@@ -92,15 +130,34 @@ function recordClose(rooms: Rooms, room: Room, granting: boolean, rec: CloseReco
     room.control.interrupt ??= rec;
     return Promise.resolve();
   }
-  return enqueue(rooms, room, () => recordControl(rooms, room, "REVOKED", rec.source, rec.ctx, rec.actor, rec.action, rec.extra).catch((err: unknown) => void logFail(rooms, room, event, err)));
+  return enqueue(rooms, room, () =>
+    recordControl(rooms, room, "REVOKED", rec.source, rec.ctx, rec.actor, rec.action, rec.extra).catch(
+      (err: unknown) => void logFail(rooms, room, event, err),
+    ),
+  );
 }
 
 /**
  * İstek audit'i iletimden **önce** (QA-P7-5): zaman çizelgesinde istek satırı müşterinin kararından önce gelir. Açma
  * yönü değil — yazılamazsa (hata / 800 ms) log + ref + metrik `*_request_audit_failed`, istek yine iletilir.
  */
-async function auditBeforeForward(rooms: Rooms, room: Room, tech: TechConn, action: string, newValue: JsonObject, event: string): Promise<void> {
-  const write = writeAudit(rooms.db, tech.ctx, { tenantId: room.tenantId, ...techActor(tech), action, entity: "support_sessions", entityId: room.sessionId, result: "success", newValue }).then(
+async function auditBeforeForward(
+  rooms: Rooms,
+  room: Room,
+  tech: TechConn,
+  action: string,
+  newValue: JsonObject,
+  event: string,
+): Promise<void> {
+  const write = writeAudit(rooms.db, tech.ctx, {
+    tenantId: room.tenantId,
+    ...techActor(tech),
+    action,
+    entity: "support_sessions",
+    entityId: room.sessionId,
+    result: "success",
+    newValue,
+  }).then(
     () => undefined,
     (err: unknown) => {
       logFail(rooms, room, event, err);
@@ -114,9 +171,26 @@ async function auditBeforeForward(rooms: Rooms, room: Room, tech: TechConn, acti
   }
 }
 
-export type RequestResult = "forwarded" | "forbidden" | "browser" | "no_guest" | "conflict" | "cooldown" | "limit" | "invalid_monitor" | "already_active" | "superseded";
+export type RequestResult =
+  | "forwarded"
+  | "forbidden"
+  | "browser"
+  | "no_guest"
+  | "conflict"
+  | "cooldown"
+  | "limit"
+  | "invalid_monitor"
+  | "already_active"
+  | "superseded";
 
-function refuse(rooms: Rooms, tech: TechConn, code: "FORBIDDEN" | "CONFLICT" | "RATE_LIMITED" | "VALIDATION", message: string, result: RequestResult, kind: "control" | "monitor"): RequestResult {
+function refuse(
+  rooms: Rooms,
+  tech: TechConn,
+  code: "FORBIDDEN" | "CONFLICT" | "RATE_LIMITED" | "VALIDATION",
+  message: string,
+  result: RequestResult,
+  kind: "control" | "monitor",
+): RequestResult {
   tech.peer.send({ t: "error", code, message });
   rooms.metrics.inc("rs_control_total", { event: `${kind}_request_${result}` });
   return result;
@@ -126,14 +200,18 @@ function refuse(rooms: Rooms, tech: TechConn, code: "FORBIDDEN" | "CONFLICT" | "
 export async function handleControlRequest(rooms: Rooms, room: Room, tech: TechConn): Promise<RequestResult> {
   const c = room.control;
   const g = room.admitted;
-  if (!tech.permissions.has("remote_control.use") || !room.caps.includes("remote_control")) return refuse(rooms, tech, "FORBIDDEN", "Uzaktan kontrol yetkiniz yok.", "forbidden", "control");
+  if (!tech.permissions.has("remote_control.use") || !room.caps.includes("remote_control"))
+    return refuse(rooms, tech, "FORBIDDEN", "Uzaktan kontrol yetkiniz yok.", "forbidden", "control");
   if (!g?.peer) return refuse(rooms, tech, "CONFLICT", "Müşteri bağlı değil.", "no_guest", "control");
   if (g.kind !== "AGENT") return refuse(rooms, tech, "FORBIDDEN", "Müşteri tarayıcı modunda: yalnız görüntüleme.", "browser", "control");
-  if (c.state === "REQUESTED" && !c.granting) return refuse(rooms, tech, "CONFLICT", "Önceki kontrol isteği müşteride bekliyor.", "conflict", "control");
+  if (c.state === "REQUESTED" && !c.granting)
+    return refuse(rooms, tech, "CONFLICT", "Önceki kontrol isteği müşteride bekliyor.", "conflict", "control");
   if (c.state !== "VIEW" || c.granting) return refuse(rooms, tech, "CONFLICT", "Kontrol zaten açık.", "conflict", "control");
   const now = rooms.clock.now();
-  if (c.deniedAt !== undefined && now - c.deniedAt < CONTROL_DENY_COOLDOWN_MS) return refuse(rooms, tech, "RATE_LIMITED", "Müşteri reddetti; 30 sn sonra tekrar isteyebilirsiniz.", "cooldown", "control");
-  if (c.requests >= CONTROL_REQUEST_MAX) return refuse(rooms, tech, "RATE_LIMITED", "Bu oturumda kontrol isteği sınırına ulaşıldı.", "limit", "control");
+  if (c.deniedAt !== undefined && now - c.deniedAt < CONTROL_DENY_COOLDOWN_MS)
+    return refuse(rooms, tech, "RATE_LIMITED", "Müşteri reddetti; 30 sn sonra tekrar isteyebilirsiniz.", "cooldown", "control");
+  if (c.requests >= CONTROL_REQUEST_MAX)
+    return refuse(rooms, tech, "RATE_LIMITED", "Bu oturumda kontrol isteği sınırına ulaşıldı.", "limit", "control");
   c.requests += 1;
   c.state = "REQUESTED";
   const epoch = c.epoch;
@@ -169,14 +247,26 @@ export function handleControlClose(rooms: Rooms, room: Room, tech: TechConn, kin
     guest?.send({ t: "control.cancel" });
     tech.peer.send({ t: "control.state", state: "VIEW", source: "TECH" });
     rooms.metrics.inc("rs_control_total", { event: "cancelled" });
-    return writeAudit(rooms.db, tech.ctx, { tenantId: room.tenantId, ...techActor(tech), action: CONTROL_AUDIT.CANCELLED, entity: "support_sessions", entityId: room.sessionId, result: "success", newValue: { request: String(c.requests) } }).catch(
-      (err: unknown) => void logFail(rooms, room, "control_cancel_audit_failed", err),
-    );
+    return writeAudit(rooms.db, tech.ctx, {
+      tenantId: room.tenantId,
+      ...techActor(tech),
+      action: CONTROL_AUDIT.CANCELLED,
+      entity: "support_sessions",
+      entityId: room.sessionId,
+      result: "success",
+      newValue: { request: String(c.requests) },
+    }).catch((err: unknown) => void logFail(rooms, room, "control_cancel_audit_failed", err));
   }
   guest?.send({ t: "control.release" });
   tech.peer.send({ t: "control.state", state: "VIEW", source: "TECH" });
   rooms.metrics.inc("rs_control_total", { event: kind === "release" ? "released" : "released_by_cancel" });
-  return recordClose(rooms, room, granting, { source: "TECH", action: CONTROL_AUDIT.RELEASED, ctx: tech.ctx, actor: techActor(tech), extra: { via: kind } }, "control_release_audit_failed");
+  return recordClose(
+    rooms,
+    room,
+    granting,
+    { source: "TECH", action: CONTROL_AUDIT.RELEASED, ctx: tech.ctx, actor: techActor(tech), extra: { via: kind } },
+    "control_release_audit_failed",
+  );
 }
 
 /**
@@ -189,18 +279,29 @@ export async function handleMonitorRequest(rooms: Rooms, room: Room, tech: TechC
   if (!g?.peer) return refuse(rooms, tech, "CONFLICT", "Müşteri bağlı değil.", "no_guest", "monitor");
   if (g.kind !== "AGENT") return refuse(rooms, tech, "FORBIDDEN", "Monitör değiştirme yalnız istemci modunda.", "browser", "monitor");
   const monitors = room.share?.monitors;
-  if (monitors && !monitors.some((m) => m.id === monitorId)) return refuse(rooms, tech, "VALIDATION", "Monitör bulunamadı.", "invalid_monitor", "monitor");
+  if (monitors && !monitors.some((m) => m.id === monitorId))
+    return refuse(rooms, tech, "VALIDATION", "Monitör bulunamadı.", "invalid_monitor", "monitor");
   // S7-15: zaten paylaşılan monitör için istek açılmaz (sonraki share.state onaysız monitor.granted yazdırmasın).
-  if (room.share?.activeMonitor === monitorId) return refuse(rooms, tech, "VALIDATION", "Bu monitör zaten paylaşılıyor.", "already_active", "monitor");
+  if (room.share?.activeMonitor === monitorId)
+    return refuse(rooms, tech, "VALIDATION", "Bu monitör zaten paylaşılıyor.", "already_active", "monitor");
   const now = rooms.clock.now();
   expireMonitor(c, now);
   if (c.monitorPending) return refuse(rooms, tech, "CONFLICT", "Önceki monitör isteği müşteride bekliyor.", "conflict", "monitor");
-  if (c.monitorDeniedAt !== undefined && now - c.monitorDeniedAt < CONTROL_DENY_COOLDOWN_MS) return refuse(rooms, tech, "RATE_LIMITED", "Müşteri onaylamadı; 30 sn sonra tekrar deneyin.", "cooldown", "monitor");
-  if (c.monitorRequests >= CONTROL_REQUEST_MAX) return refuse(rooms, tech, "RATE_LIMITED", "Bu oturumda monitör isteği sınırına ulaşıldı.", "limit", "monitor");
+  if (c.monitorDeniedAt !== undefined && now - c.monitorDeniedAt < CONTROL_DENY_COOLDOWN_MS)
+    return refuse(rooms, tech, "RATE_LIMITED", "Müşteri onaylamadı; 30 sn sonra tekrar deneyin.", "cooldown", "monitor");
+  if (c.monitorRequests >= CONTROL_REQUEST_MAX)
+    return refuse(rooms, tech, "RATE_LIMITED", "Bu oturumda monitör isteği sınırına ulaşıldı.", "limit", "monitor");
   c.monitorRequests += 1;
   const pending = { id: monitorId, at: now, peer: g.peer };
   c.monitorPending = pending;
-  await auditBeforeForward(rooms, room, tech, CONTROL_AUDIT.MONITOR_REQUESTED, { monitorId: String(monitorId), request: String(c.monitorRequests) }, "monitor_request_audit_failed");
+  await auditBeforeForward(
+    rooms,
+    room,
+    tech,
+    CONTROL_AUDIT.MONITOR_REQUESTED,
+    { monitorId: String(monitorId), request: String(c.monitorRequests) },
+    "monitor_request_audit_failed",
+  );
   if (!rooms.live(room) || c.monitorPending !== pending || room.admitted !== g || g.peer !== pending.peer) {
     rooms.metrics.inc("rs_control_total", { event: "monitor_request_superseded" });
     return "superseded";
@@ -238,9 +339,15 @@ export async function handleMonitorDenied(rooms: Rooms, room: Room, guest: Guest
   c.monitorDeniedAt = now;
   room.tech?.peer.send({ t: "monitor.denied", monitorId });
   rooms.metrics.inc("rs_control_total", { event: "monitor_denied" });
-  await writeAudit(rooms.db, guestCtx(guest), { tenantId: room.tenantId, ...CUSTOMER, action: CONTROL_AUDIT.MONITOR_DENIED, entity: "support_sessions", entityId: room.sessionId, result: "success", newValue: { monitorId: String(monitorId) } }).catch(
-    (err: unknown) => void logFail(rooms, room, "monitor_denied_audit_failed", err),
-  );
+  await writeAudit(rooms.db, guestCtx(guest), {
+    tenantId: room.tenantId,
+    ...CUSTOMER,
+    action: CONTROL_AUDIT.MONITOR_DENIED,
+    entity: "support_sessions",
+    entityId: room.sessionId,
+    result: "success",
+    newValue: { monitorId: String(monitorId) },
+  }).catch((err: unknown) => void logFail(rooms, room, "monitor_denied_audit_failed", err));
 }
 
 /**
@@ -253,9 +360,15 @@ export async function onShareMonitor(rooms: Rooms, room: Room, guest: Guest, act
   if (guest.peer === undefined || guest.peer !== c.monitorPending.peer) return;
   c.monitorPending = undefined;
   rooms.metrics.inc("rs_control_total", { event: "monitor_granted" });
-  await writeAudit(rooms.db, guestCtx(guest), { tenantId: room.tenantId, ...CUSTOMER, action: CONTROL_AUDIT.MONITOR_GRANTED, entity: "support_sessions", entityId: room.sessionId, result: "success", newValue: { monitorId: String(activeMonitor) } }).catch(
-    (err: unknown) => void logFail(rooms, room, "monitor_granted_audit_failed", err),
-  );
+  await writeAudit(rooms.db, guestCtx(guest), {
+    tenantId: room.tenantId,
+    ...CUSTOMER,
+    action: CONTROL_AUDIT.MONITOR_GRANTED,
+    entity: "support_sessions",
+    entityId: room.sessionId,
+    result: "success",
+    newValue: { monitorId: String(activeMonitor) },
+  }).catch((err: unknown) => void logFail(rooms, room, "monitor_granted_audit_failed", err));
 }
 
 /**
@@ -273,13 +386,19 @@ export function handleEnvState(rooms: Rooms, room: Room, guest: Guest, m: GuestE
 }
 
 /** K8: GRANTED audit'i için istemcinin yönetici durumu; env.state hiç gelmediyse "unknown". */
-const selfElevatedOf = (room: Room): "true" | "false" | "unknown" => (room.guestEnv === undefined ? "unknown" : room.guestEnv.selfElevated ? "true" : "false");
+const selfElevatedOf = (room: Room): "true" | "false" | "unknown" =>
+  room.guestEnv === undefined ? "unknown" : room.guestEnv.selfElevated ? "true" : "false";
 
 /**
  * control.state (guest → S → tech): kayıt + iletim (AC-29, 50, 99, 111; §3.3). Kaynak kısıtı şemada (S7-10): GRANTED
  * yalnız UI, VIEW yalnız UI|HOTKEY|DENIED|SYSTEM. Yalnız durum geçişleri kaydedilir.
  */
-export function handleControlState(rooms: Rooms, room: Room, guest: Guest, m: { state: "VIEW" | "GRANTED"; source: ControlSource }): Promise<void> {
+export function handleControlState(
+  rooms: Rooms,
+  room: Room,
+  guest: Guest,
+  m: { state: "VIEW" | "GRANTED"; source: ControlSource },
+): Promise<void> {
   if (guest.kind !== "AGENT") {
     rooms.metrics.inc("rs_control_total", { event: "control_state_ignored" });
     return Promise.resolve();
@@ -308,7 +427,9 @@ async function onGranted(rooms: Rooms, room: Room, guest: Guest): Promise<void> 
   const epoch = c.epoch;
   c.granting = true;
   c.interrupt = undefined;
-  const write = recordControl(rooms, room, "GRANTED", "UI", guestCtx(guest), CUSTOMER, CONTROL_AUDIT.GRANTED, { selfElevated: selfElevatedOf(room) });
+  const write = recordControl(rooms, room, "GRANTED", "UI", guestCtx(guest), CUSTOMER, CONTROL_AUDIT.GRANTED, {
+    selfElevated: selfElevatedOf(room),
+  });
   const outcome = await settleWithin(rooms.clock, write, CONTROL_AUDIT_TIMEOUT_MS);
   c.granting = false;
   if (outcome !== "ok") {
@@ -324,10 +445,12 @@ async function onGranted(rooms: Rooms, room: Room, guest: Guest): Promise<void> 
       room.tech?.peer.send({ t: "error", code: "INTERNAL", message: `Kontrol kaydı yazılamadı; kontrol geri alındı (ref: ${ref}).` });
     }
     if (outcome === "timeout") {
-      void write.then(
-        () => recordControl(rooms, room, "REVOKED", balance.source, balance.ctx, balance.actor, balance.action, balance.extra),
-        () => undefined,
-      ).catch((err: unknown) => void logFail(rooms, room, "control_audit_balance_failed", err));
+      void write
+        .then(
+          () => recordControl(rooms, room, "REVOKED", balance.source, balance.ctx, balance.actor, balance.action, balance.extra),
+          () => undefined,
+        )
+        .catch((err: unknown) => void logFail(rooms, room, "control_audit_balance_failed", err));
     }
     return;
   }
@@ -335,7 +458,9 @@ async function onGranted(rooms: Rooms, room: Room, guest: Guest): Promise<void> 
     // Kayıt yazılırken kontrol kapatıldı (bırakma, yetki, kopma, oturum sonu): zaman çizelgesi o kapatmayla dengelenir.
     const rec = c.interrupt ?? systemClose({ reason: "superseded" });
     c.interrupt = undefined;
-    await recordControl(rooms, room, "REVOKED", rec.source, rec.ctx, rec.actor, rec.action, rec.extra).catch((err: unknown) => void logFail(rooms, room, "control_audit_balance_failed", err));
+    await recordControl(rooms, room, "REVOKED", rec.source, rec.ctx, rec.actor, rec.action, rec.extra).catch(
+      (err: unknown) => void logFail(rooms, room, "control_audit_balance_failed", err),
+    );
     return;
   }
   c.state = "GRANTED";
@@ -353,7 +478,9 @@ async function onView(rooms: Rooms, room: Room, guest: Guest, source: ControlSou
     c.deniedAt = rooms.clock.now();
     room.tech?.peer.send({ t: "control.state", state: "VIEW", source: "DENIED" });
     rooms.metrics.inc("rs_control_total", { event: "denied" });
-    await recordControl(rooms, room, "DENIED", "UI", guestCtx(guest), CUSTOMER, CONTROL_AUDIT.DENIED).catch((err: unknown) => void logFail(rooms, room, "control_deny_audit_failed", err));
+    await recordControl(rooms, room, "DENIED", "UI", guestCtx(guest), CUSTOMER, CONTROL_AUDIT.DENIED).catch(
+      (err: unknown) => void logFail(rooms, room, "control_deny_audit_failed", err),
+    );
     return;
   }
   if (c.state === "VIEW") return; // sunucu kapattıktan sonraki istemci onayı (SYSTEM) — zaten kayıtlı
@@ -365,15 +492,23 @@ async function onView(rooms: Rooms, room: Room, guest: Guest, source: ControlSou
     // §3.3 K6: bekleyen istek müşteri kararı olmadan istemcide kapandı (ör. PeerConnection koptu). Consent yok (müşteriye
     // ret atfedilmez), 30 sn bekleme/sayaç yok; control.requested'in kapanışı audit control.cancelled{by:"agent"} (en iyi çaba).
     rooms.metrics.inc("rs_control_total", { event: "cancelled_by_agent" });
-    void writeAudit(rooms.db, guestCtx(guest), { tenantId: room.tenantId, ...CUSTOMER, action: CONTROL_AUDIT.CANCELLED, entity: "support_sessions", entityId: room.sessionId, result: "success", newValue: { by: "agent", source } }).catch(
-      (err: unknown) => void logFail(rooms, room, "control_cancel_audit_failed", err),
-    );
+    void writeAudit(rooms.db, guestCtx(guest), {
+      tenantId: room.tenantId,
+      ...CUSTOMER,
+      action: CONTROL_AUDIT.CANCELLED,
+      entity: "support_sessions",
+      entityId: room.sessionId,
+      result: "success",
+      newValue: { by: "agent", source },
+    }).catch((err: unknown) => void logFail(rooms, room, "control_cancel_audit_failed", err));
     return;
   }
   rooms.metrics.inc("rs_control_total", { event: `revoked_${source.toLowerCase()}` });
   // AC-111: müşteri kapattı (UI) / kısayol (HOTKEY) / istemci kendiliğinden kapattı (SYSTEM).
   const consentSource: ConsentSource = source === "HOTKEY" || source === "SYSTEM" ? source : "UI";
-  await recordControl(rooms, room, "REVOKED", consentSource, guestCtx(guest), CUSTOMER, CONTROL_AUDIT.REVOKED).catch((err: unknown) => void logFail(rooms, room, "control_revoke_audit_failed", err));
+  await recordControl(rooms, room, "REVOKED", consentSource, guestCtx(guest), CUSTOMER, CONTROL_AUDIT.REVOKED).catch(
+    (err: unknown) => void logFail(rooms, room, "control_revoke_audit_failed", err),
+  );
 }
 
 /** Kapatma ortak adımı: VIEW + epoch; kontrol açık mıydı / açılış yazılıyor muydu. VIEW'daysa null. */
@@ -410,7 +545,20 @@ export function resetOnGuestGone(rooms: Rooms, room: Room): void {
   if (!r) return;
   room.tech?.peer.send({ t: "control.state", state: "VIEW", source: "RECONNECT" });
   rooms.metrics.inc("rs_control_total", { event: "reset_guest_gone" });
-  if (r.opened) void recordClose(rooms, room, r.granting, { source: "RECONNECT", action: CONTROL_AUDIT.REVOKED, ctx: SYSTEM_CTX, actor: SYSTEM, extra: { reason: "disconnect", side: "guest" } }, "control_revoke_audit_failed");
+  if (r.opened)
+    void recordClose(
+      rooms,
+      room,
+      r.granting,
+      {
+        source: "RECONNECT",
+        action: CONTROL_AUDIT.REVOKED,
+        ctx: SYSTEM_CTX,
+        actor: SYSTEM,
+        extra: { reason: "disconnect", side: "guest" },
+      },
+      "control_revoke_audit_failed",
+    );
 }
 
 /**
@@ -423,7 +571,14 @@ export function revokeOnTechChange(rooms: Rooms, room: Room): void {
   const r = closeState(room.control);
   room.admitted?.peer?.send({ t: "control.revoke", reason: "reconnect" });
   rooms.metrics.inc("rs_control_total", { event: "revoke_reconnect" });
-  if (r?.opened) void recordClose(rooms, room, r.granting, { source: "RECONNECT", action: CONTROL_AUDIT.REVOKED, ctx: SYSTEM_CTX, actor: SYSTEM, extra: { reason: "disconnect", side: "tech" } }, "control_revoke_audit_failed");
+  if (r?.opened)
+    void recordClose(
+      rooms,
+      room,
+      r.granting,
+      { source: "RECONNECT", action: CONTROL_AUDIT.REVOKED, ctx: SYSTEM_CTX, actor: SYSTEM, extra: { reason: "disconnect", side: "tech" } },
+      "control_revoke_audit_failed",
+    );
 }
 
 /**
@@ -454,9 +609,16 @@ export async function narrowCaps(rooms: Rooms, room: Room, perms: ReadonlySet<Pe
   const jobs: Promise<void>[] = [];
   if (!next.includes("remote_control")) jobs.push(revokeControl(rooms, room, "permission"));
   jobs.push(
-    writeAudit(rooms.db, SYSTEM_CTX, { tenantId: room.tenantId, ...SYSTEM, action: CONTROL_AUDIT.CAPS_CHANGED, entity: "support_sessions", entityId: room.sessionId, result: "success", oldValue: { caps: old.join(",") }, newValue: { caps: next.join(",") } }).catch(
-      (err: unknown) => void logFail(rooms, room, "caps_audit_failed", err),
-    ),
+    writeAudit(rooms.db, SYSTEM_CTX, {
+      tenantId: room.tenantId,
+      ...SYSTEM,
+      action: CONTROL_AUDIT.CAPS_CHANGED,
+      entity: "support_sessions",
+      entityId: room.sessionId,
+      result: "success",
+      oldValue: { caps: old.join(",") },
+      newValue: { caps: next.join(",") },
+    }).catch((err: unknown) => void logFail(rooms, room, "caps_audit_failed", err)),
   );
   await Promise.all(jobs);
 }

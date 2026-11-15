@@ -145,7 +145,8 @@ export const SMTP_DEFAULT_PORTS: Record<SmtpSecurity, number> = { NONE: 25, SSL:
 export const SMTP_ALLOWED_PORTS = [25, 465, 587, 2525] as const;
 export const SMTP_PORT_MESSAGE = "Port 25, 465, 587 veya 2525 olmalı";
 /** B-P10-5: güvenlik "Yok" iken kimlik bilgisi düz metin gider → reddedilir (alan hatası `smtp.security`). */
-export const SMTP_INSECURE_AUTH_MESSAGE = "Kullanıcı adı/şifre için SSL veya STARTTLS seçin (şifresiz bağlantıda kimlik bilgisi açık gider)";
+export const SMTP_INSECURE_AUTH_MESSAGE =
+  "Kullanıcı adı/şifre için SSL veya STARTTLS seçin (şifresiz bağlantıda kimlik bilgisi açık gider)";
 /** AC-122: kayıt/test ret mesajı — genel (hangi aralığa düştüğü söylenmez). */
 export const SMTP_HOST_NOT_ALLOWED_MESSAGE = "Bu sunucu adresi kullanılamaz.";
 
@@ -180,11 +181,21 @@ export const smtpHostSchema = z
 
 const smtpUserSchema = z.preprocess(
   blankToNull,
-  z.string().trim().max(190, "Kullanıcı adı en çok 190 karakter olabilir").refine((v) => !CONTROL_CHARS.test(v), "Kullanıcı adı kontrol karakteri içeremez").nullable(),
+  z
+    .string()
+    .trim()
+    .max(190, "Kullanıcı adı en çok 190 karakter olabilir")
+    .refine((v) => !CONTROL_CHARS.test(v), "Kullanıcı adı kontrol karakteri içeremez")
+    .nullable(),
 );
 const smtpFromNameSchema = z.preprocess(
   blankToNull,
-  z.string().trim().max(100, "Gönderen adı en çok 100 karakter olabilir").refine((v) => !CONTROL_CHARS.test(v), "Gönderen adı kontrol karakteri içeremez").nullable(),
+  z
+    .string()
+    .trim()
+    .max(100, "Gönderen adı en çok 100 karakter olabilir")
+    .refine((v) => !CONTROL_CHARS.test(v), "Gönderen adı kontrol karakteri içeremez")
+    .nullable(),
 );
 
 /**
@@ -194,16 +205,25 @@ const smtpFromNameSchema = z.preprocess(
 export const smtpSettingsInputSchema = z
   .strictObject({
     host: smtpHostSchema,
-    port: z.number({ error: SMTP_PORT_MESSAGE }).int(SMTP_PORT_MESSAGE).refine((p) => (SMTP_ALLOWED_PORTS as readonly number[]).includes(p), SMTP_PORT_MESSAGE),
+    port: z
+      .number({ error: SMTP_PORT_MESSAGE })
+      .int(SMTP_PORT_MESSAGE)
+      .refine((p) => (SMTP_ALLOWED_PORTS as readonly number[]).includes(p), SMTP_PORT_MESSAGE),
     security: z.enum(SMTP_SECURITIES, { error: "Güvenlik seçimi geçersiz" }),
     user: smtpUserSchema.optional().transform((v) => v ?? null),
-    password: z.string().max(200, "Şifre en çok 200 karakter olabilir").optional().transform((v) => (v ? v : undefined)),
+    password: z
+      .string()
+      .max(200, "Şifre en çok 200 karakter olabilir")
+      .optional()
+      .transform((v) => (v ? v : undefined)),
     fromName: smtpFromNameSchema.optional().transform((v) => v ?? null),
     fromEmail: z.string().trim().toLowerCase().max(190, "E-posta en çok 190 karakter olabilir").pipe(z.email("E-posta adresi geçersiz")),
   })
   .superRefine((s, ctx) => {
-    if (s.password !== undefined && s.user === null) ctx.addIssue({ code: "custom", path: ["user"], message: "Şifre için kullanıcı adı gerekli" });
-    if (s.security === "NONE" && (s.user !== null || s.password !== undefined)) ctx.addIssue({ code: "custom", path: ["security"], message: SMTP_INSECURE_AUTH_MESSAGE });
+    if (s.password !== undefined && s.user === null)
+      ctx.addIssue({ code: "custom", path: ["user"], message: "Şifre için kullanıcı adı gerekli" });
+    if (s.security === "NONE" && (s.user !== null || s.password !== undefined))
+      ctx.addIssue({ code: "custom", path: ["security"], message: SMTP_INSECURE_AUTH_MESSAGE });
   });
 export type SmtpSettingsInput = z.input<typeof smtpSettingsInputSchema>;
 export type SmtpSettingsData = z.output<typeof smtpSettingsInputSchema>;

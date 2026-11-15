@@ -12,16 +12,42 @@ import { mysqlFromUrl } from "../../src/settings/system.ts";
 
 describe("P11 audit okuma görünümü", () => {
   it("AC-76/AC-75: okumada maske yeniden uygulanır (savunma derinliği)", () => {
-    expect(auditValueView("user.updated", { password: "düz", nested: { apiKey: "k", name: "Ali" }, permKey: "audit.view" })).toEqual({ password: "***", nested: { apiKey: "***", name: "Ali" }, permKey: "audit.view" });
+    expect(auditValueView("user.updated", { password: "düz", nested: { apiKey: "k", name: "Ali" }, permKey: "audit.view" })).toEqual({
+      password: "***",
+      nested: { apiKey: "***", name: "Ali" },
+      permKey: "audit.view",
+    });
     expect(auditValueView("user.updated", null)).toBeNull();
   });
 
   it("AC-76 (B-P10 koşulu): mail.* / settings.*.test / SMTP kayıtlarında yalnız izinli alan + reason sınıfı", () => {
-    for (const a of ["mail.sent", "settings.smtp.test", "settings.email.test", "settings.whatsapp.test", "settings.mysql.test", "session.email", "tenant.smtp_changed"]) expect(isOutboundAction(a), a).toBe(true);
+    for (const a of [
+      "mail.sent",
+      "settings.smtp.test",
+      "settings.email.test",
+      "settings.whatsapp.test",
+      "settings.mysql.test",
+      "session.email",
+      "tenant.smtp_changed",
+    ])
+      expect(isOutboundAction(a), a).toBe(true);
     for (const a of ["auth.login", "settings.mysql.updated", "session.created"]) expect(isOutboundAction(a), a).toBe(false);
-    const raw = { kind: "smtp_test", recipient: "a***@x.test", reason: "554 5.7.1 Relay denied by mx.example banner", responseCode: 554, response: "220 mx.example ESMTP", error: "Connection refused", result: "fail", detail: { msg: "x" } };
+    const raw = {
+      kind: "smtp_test",
+      recipient: "a***@x.test",
+      reason: "554 5.7.1 Relay denied by mx.example banner",
+      responseCode: 554,
+      response: "220 mx.example ESMTP",
+      error: "Connection refused",
+      result: "fail",
+      detail: { msg: "x" },
+    };
     expect(auditValueView("mail.sent", raw)).toEqual({ kind: "smtp_test", recipient: "a***@x.test", reason: "other", result: "fail" });
-    expect(auditValueView("settings.smtp.test", { recipient: "a***@x.test", result: "fail", reason: "auth" })).toEqual({ recipient: "a***@x.test", result: "fail", reason: "auth" });
+    expect(auditValueView("settings.smtp.test", { recipient: "a***@x.test", result: "fail", reason: "auth" })).toEqual({
+      recipient: "a***@x.test",
+      result: "fail",
+      reason: "auth",
+    });
     expect(auditValueView("mail.sent", ["dizi"])).toBeNull();
   });
 
@@ -51,19 +77,39 @@ describe("P11 audit okuma görünümü", () => {
   it("AC-76: varsayılan son 30 gün; > 731 gün 400; tenant kapsamında tenantId yok sayılır; önek filtresi", () => {
     const now = new Date("2026-11-12T12:00:00Z");
     const tid = "01J00000000000000000000000";
-    const f = resolveAuditFilter({ kind: "tenant", tenantId: "01K00000000000000000000000" }, listAuditQuerySchema.parse({ tenantId: tid, action: "auth.*" }), now);
+    const f = resolveAuditFilter(
+      { kind: "tenant", tenantId: "01K00000000000000000000000" },
+      listAuditQuerySchema.parse({ tenantId: tid, action: "auth.*" }),
+      now,
+    );
     expect(f.to).toEqual(now);
     expect(now.getTime() - f.from.getTime()).toBe(30 * 86_400_000);
     expect(f.tenantId).toBeUndefined();
     expect(f.action).toEqual({ value: "auth.", prefix: true });
-    expect(resolveAuditFilter({ kind: "all" }, listAuditQuerySchema.parse({ tenantId: tid, action: "auth.login" }), now)).toMatchObject({ tenantId: tid, action: { value: "auth.login", prefix: false } });
-    expect(() => resolveAuditFilter({ kind: "all" }, listAuditQuerySchema.parse({ from: "2024-01-01", to: "2026-01-01" }), now)).toThrow(AppError);
+    expect(resolveAuditFilter({ kind: "all" }, listAuditQuerySchema.parse({ tenantId: tid, action: "auth.login" }), now)).toMatchObject({
+      tenantId: tid,
+      action: { value: "auth.login", prefix: false },
+    });
+    expect(() => resolveAuditFilter({ kind: "all" }, listAuditQuerySchema.parse({ from: "2024-01-01", to: "2026-01-01" }), now)).toThrow(
+      AppError,
+    );
     // 731 gün (dahil) geçer
-    expect(() => resolveAuditFilter({ kind: "all" }, listAuditQuerySchema.parse({ from: "2024-01-01", to: "2025-12-31" }), now)).not.toThrow();
+    expect(() =>
+      resolveAuditFilter({ kind: "all" }, listAuditQuerySchema.parse({ from: "2024-01-01", to: "2025-12-31" }), now),
+    ).not.toThrow();
   });
 
   it("AC-76: sorgu şeması — geçersiz işlem/sonuç/tarih, ters aralık, bilinmeyen alan reddedilir", () => {
-    for (const q of [{ action: "AUTH.*" }, { action: "auth*" }, { action: "auth.%" }, { result: "ok" }, { from: "2026-02-30" }, { from: "2026-02-02", to: "2026-02-01" }, { page: "2" }, { cursor: "a b" }]) {
+    for (const q of [
+      { action: "AUTH.*" },
+      { action: "auth*" },
+      { action: "auth.%" },
+      { result: "ok" },
+      { from: "2026-02-30" },
+      { from: "2026-02-02", to: "2026-02-01" },
+      { page: "2" },
+      { cursor: "a b" },
+    ]) {
       expect(listAuditQuerySchema.safeParse(q).success, JSON.stringify(q)).toBe(false);
     }
     expect(listAuditQuerySchema.parse({ action: "", result: "" })).toEqual({});
@@ -71,7 +117,9 @@ describe("P11 audit okuma görünümü", () => {
   });
 
   it("AC-124: audit CSV hücreleri formül kaçışlı (=, +, -, @, TAB, CR) ve RFC 4180 tırnaklı", () => {
-    expect(csvRow(["=HYPERLINK(\"x\")", "+1", "-2", "@SUM(A1)", "\tx", "\rx", "{\"a\":1}"])).toBe(`"'=HYPERLINK(""x"")";'+1;'-2;'@SUM(A1);'\tx;"'\rx";"{""a"":1}"\r\n`);
+    expect(csvRow(['=HYPERLINK("x")', "+1", "-2", "@SUM(A1)", "\tx", "\rx", '{"a":1}'])).toBe(
+      `"'=HYPERLINK(""x"")";'+1;'-2;'@SUM(A1);'\tx;"'\rx";"{""a"":1}"\r\n`,
+    );
   });
 });
 
@@ -111,14 +159,25 @@ describe("P11 MySQL bağlantı testi", () => {
   });
 
   it("AC-77: DATABASE_URL'den görünüm türetme (şifre ayrı)", () => {
-    expect(mysqlFromUrl("mysql://app:s%40fre@db:3307/remote?x=1")).toEqual({ host: "db", port: 3307, database: "remote", user: "app", password: "s@fre" });
+    expect(mysqlFromUrl("mysql://app:s%40fre@db:3307/remote?x=1")).toEqual({
+      host: "db",
+      port: 3307,
+      database: "remote",
+      user: "app",
+      password: "s@fre",
+    });
     expect(mysqlFromUrl("mysql://app@db/remote").port).toBe(3306);
   });
 });
 
 describe("P11 sözleşme şemaları (DB CHECK ile birebir)", () => {
   it("AC-77/AC-78: mysql — port varsayılan 3306, tamsayı; database/user/host kuralları; boş şifre = korunur", () => {
-    expect(mysqlSettingsInputSchema.parse({ host: "DB.Example.com", database: "remote", user: "rapor", password: "" })).toEqual({ host: "db.example.com", port: 3306, database: "remote", user: "rapor" });
+    expect(mysqlSettingsInputSchema.parse({ host: "DB.Example.com", database: "remote", user: "rapor", password: "" })).toEqual({
+      host: "db.example.com",
+      port: 3306,
+      database: "remote",
+      user: "rapor",
+    });
     for (const bad of [
       { host: "db", port: "3306", database: "r", user: "u" },
       { host: "db", port: 0, database: "r", user: "u" },
@@ -129,11 +188,14 @@ describe("P11 sözleşme şemaları (DB CHECK ile birebir)", () => {
       { host: "db", database: "r", user: "x".repeat(33) },
       { host: "db", database: "r", user: "a\u202Eb" },
       { host: "db", database: "r", user: "u", extra: 1 },
-    ]) expect(mysqlSettingsInputSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    ])
+      expect(mysqlSettingsInputSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
   });
 
   it("AC-78: turn — şema, tekil, ≤ 10, en az 1, secret 32..256 ASCII", () => {
-    expect(turnSettingsInputSchema.parse({ urls: ["stun:s.test:3478", "turns:t.test:5349"], secret: "" })).toEqual({ urls: ["stun:s.test:3478", "turns:t.test:5349"] });
+    expect(turnSettingsInputSchema.parse({ urls: ["stun:s.test:3478", "turns:t.test:5349"], secret: "" })).toEqual({
+      urls: ["stun:s.test:3478", "turns:t.test:5349"],
+    });
     for (const bad of [
       { urls: [] },
       { urls: ["http://x.test"] },
@@ -144,7 +206,8 @@ describe("P11 sözleşme şemaları (DB CHECK ile birebir)", () => {
       { urls: ["turn:a.test"], secret: "ş".repeat(40) },
       { urls: ["turn:a.test"], secret: `${"a".repeat(32)}#yorum` },
       { urls: ["turn:a.test"], secret: `${"a".repeat(32)} b` },
-    ]) expect(turnSettingsInputSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    ])
+      expect(turnSettingsInputSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
   });
 
   it("AC-29: aydınlatma metni — CRLF → LF, kırpma, 50..20000, kontrol/bidi karakteri reddi", () => {

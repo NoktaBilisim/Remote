@@ -70,12 +70,20 @@ export function Menu({
       }}
     >
       {variant === "avatar" ? (
-        <summary title={title} className="inline-flex size-11 cursor-pointer list-none items-center justify-center rounded-full hover:bg-surface-muted [&::-webkit-details-marker]:hidden" aria-label={ariaLabel}>
+        <summary
+          title={title}
+          className="inline-flex size-11 cursor-pointer list-none items-center justify-center rounded-full hover:bg-surface-muted [&::-webkit-details-marker]:hidden"
+          aria-label={ariaLabel}
+        >
           {icon}
           <span className="sr-only">{label}</span>
         </summary>
       ) : (
-        <summary title={title} className="inline-flex min-h-11 max-w-full cursor-pointer list-none items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm font-medium whitespace-nowrap text-fg hover:bg-surface-muted [&::-webkit-details-marker]:hidden" aria-label={ariaLabel}>
+        <summary
+          title={title}
+          className="inline-flex min-h-11 max-w-full cursor-pointer list-none items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm font-medium whitespace-nowrap text-fg hover:bg-surface-muted [&::-webkit-details-marker]:hidden"
+          aria-label={ariaLabel}
+        >
           {icon}
           {labelClassName ? <span className={labelClassName}>{label}</span> : label}
           {busy}

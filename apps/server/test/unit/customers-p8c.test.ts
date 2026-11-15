@@ -8,11 +8,33 @@ import { legacyClosed } from "../../src/requests/hub.ts";
 
 describe("AC-173 / AC-195 customerAuditView", () => {
   it("AC-173: izinli liste — ad/etiket/durum açık, ref 4 karakter, kişi/not <dolu>, telefon/e-posta maskeli; null korunur", () => {
-    const v = customerAuditView({ name: "Firma", fileLabel: "Firma", status: "ACTIVE", refPrefix: "abcdefghijklmnop", contactName: "Ayşe Yılmaz", phone: "+905321112233", email: "ayse@ornek.com", note: "gizli not" });
-    expect(v).toMatchObject({ name: "Firma", fileLabel: "Firma", status: "ACTIVE", refPrefix: "abcd", contactName: "<dolu>", note: "<dolu>", email: "a***@ornek.com" });
+    const v = customerAuditView({
+      name: "Firma",
+      fileLabel: "Firma",
+      status: "ACTIVE",
+      refPrefix: "abcdefghijklmnop",
+      contactName: "Ayşe Yılmaz",
+      phone: "+905321112233",
+      email: "ayse@ornek.com",
+      note: "gizli not",
+    });
+    expect(v).toMatchObject({
+      name: "Firma",
+      fileLabel: "Firma",
+      status: "ACTIVE",
+      refPrefix: "abcd",
+      contactName: "<dolu>",
+      note: "<dolu>",
+      email: "a***@ornek.com",
+    });
     const s = JSON.stringify(v);
     for (const raw of ["Ayşe", "Yılmaz", "gizli not", "5321112233", "ayse@", "efgh"]) expect(s).not.toContain(raw);
-    expect(customerAuditView({ contactName: null, phone: null, email: null, note: null })).toEqual({ contactName: null, phone: null, email: null, note: null });
+    expect(customerAuditView({ contactName: null, phone: null, email: null, note: null })).toEqual({
+      contactName: null,
+      phone: null,
+      email: null,
+      note: null,
+    });
     expect(customerAuditView({})).toEqual({});
   });
 
@@ -24,9 +46,21 @@ describe("AC-173 / AC-195 customerAuditView", () => {
 
 describe("AC-191 0.9.x kapanış nedeni eşlemesi", () => {
   it("AC-191: CUSTOMER_PASSIVE / BINDING_REVOKED → TENANT_PASSIVE; bilinen nedenler ve diğer mesajlar aynen", () => {
-    expect(legacyClosed({ t: "request.closed", status: "CANCELLED", reason: "CUSTOMER_PASSIVE" })).toEqual({ t: "request.closed", status: "CANCELLED", reason: "TENANT_PASSIVE" });
-    expect(legacyClosed({ t: "request.closed", status: "CANCELLED", reason: "BINDING_REVOKED" })).toEqual({ t: "request.closed", status: "CANCELLED", reason: "TENANT_PASSIVE" });
-    expect(legacyClosed({ t: "request.closed", status: "CANCELLED", reason: "CUSTOMER" })).toEqual({ t: "request.closed", status: "CANCELLED", reason: "CUSTOMER" });
+    expect(legacyClosed({ t: "request.closed", status: "CANCELLED", reason: "CUSTOMER_PASSIVE" })).toEqual({
+      t: "request.closed",
+      status: "CANCELLED",
+      reason: "TENANT_PASSIVE",
+    });
+    expect(legacyClosed({ t: "request.closed", status: "CANCELLED", reason: "BINDING_REVOKED" })).toEqual({
+      t: "request.closed",
+      status: "CANCELLED",
+      reason: "TENANT_PASSIVE",
+    });
+    expect(legacyClosed({ t: "request.closed", status: "CANCELLED", reason: "CUSTOMER" })).toEqual({
+      t: "request.closed",
+      status: "CANCELLED",
+      reason: "CUSTOMER",
+    });
     expect(legacyClosed({ t: "request.closed", status: "EXPIRED" })).toEqual({ t: "request.closed", status: "EXPIRED" });
   });
 });

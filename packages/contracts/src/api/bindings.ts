@@ -29,9 +29,11 @@ export type BindingRevokeReason = (typeof BINDING_REVOKE_REASONS)[number];
 export const BINDING_ISSUE_PER_SESSION = 3;
 
 /** İstemci metinleri (AC-185, AC-186, AC-190; Go istemciyle ortak — fixture). */
-export const BINDING_INVALID_MESSAGE = "Bu bilgisayarın destek kaydı artık geçerli değil. Firmanızdan yeni dosya isteyin ya da teknisyeninizin verdiği kodla bağlanın.";
+export const BINDING_INVALID_MESSAGE =
+  "Bu bilgisayarın destek kaydı artık geçerli değil. Firmanızdan yeni dosya isteyin ya da teknisyeninizin verdiği kodla bağlanın.";
 export const BINDING_FORGOTTEN_MESSAGE = "Bu bilgisayar unutuldu";
-export const BINDING_NO_SOURCE_MESSAGE = "Destek istemek için firmanızın gönderdiği dosyayı kullanın veya teknisyeninizin verdiği kodu girin";
+export const BINDING_NO_SOURCE_MESSAGE =
+  "Destek istemek için firmanızın gönderdiği dosyayı kullanın veya teknisyeninizin verdiği kodu girin";
 /** `binding.request` reddi (`error{CONFLICT}`): oturum/tenant/müşteri uygun değil ya da bayat kaynak (§15.1). */
 export const BINDING_DENIED_MESSAGE = "Kayıt verilemedi";
 

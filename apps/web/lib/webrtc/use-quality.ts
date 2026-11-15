@@ -26,13 +26,16 @@ export function useQuality(pc: RTCPeerConnection | null, send: (m: QualitySummar
     const prev: Prev = { c: null };
     let alive = true;
     const tick = setInterval(() => {
-      pc.getStats().then((r) => {
-        if (!alive) return;
-        const s = sampleFromStats(r as unknown as Map<string, never>, prev, performance.now());
-        if (s.fps === null && s.rttMs === null) return; // medya henüz yok
-        agg.current.add(s);
-        setSamples((xs) => [...xs, s].slice(-KEEP));
-      }, () => undefined);
+      pc.getStats().then(
+        (r) => {
+          if (!alive) return;
+          const s = sampleFromStats(r as unknown as Map<string, never>, prev, performance.now());
+          if (s.fps === null && s.rttMs === null) return; // medya henüz yok
+          agg.current.add(s);
+          setSamples((xs) => [...xs, s].slice(-KEEP));
+        },
+        () => undefined,
+      );
     }, 1000);
     const sum = setInterval(flush, SUMMARY_INTERVAL_MS);
     return () => {

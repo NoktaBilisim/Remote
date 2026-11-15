@@ -14,7 +14,10 @@ test("AC-60: liste, sayfalama (25 varsayılan) ve sayfa boyutu URL'de; kenar men
   await signIn(context, "hu");
   await page.goto("/history");
   await expect(page).toHaveTitle(/Oturum geçmişi · Nokta Uzaktan Destek/);
-  await expect(page.getByRole("navigation", { name: "Ana menü" }).getByRole("link", { name: "Oturum geçmişi" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "Ana menü" }).getByRole("link", { name: "Oturum geçmişi" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
   await expect(rows(page)).toHaveCount(25);
   await expect(page.getByTestId("history-count")).toHaveText("30 oturumdan 1–25 arası");
   await page.getByRole("navigation", { name: "Sayfalar" }).getByRole("link", { name: "Sonraki sayfa" }).click();
@@ -49,7 +52,10 @@ test("AC-60: filtreler (durum, mod, tarih, müşteri) URL'de kalır; yenilemede 
   await expect(rows(page)).toHaveCount(25);
 });
 
-test("AC-60: istemci doğrulaması — bitiş < başlangıç ve 1 karakterlik müşteri istek atmaz; geçersiz URL filtresi yok sayılır", async ({ page, context }, info) => {
+test("AC-60: istemci doğrulaması — bitiş < başlangıç ve 1 karakterlik müşteri istek atmaz; geçersiz URL filtresi yok sayılır", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signIn(context, "hu");
   await page.goto("/history?status=BOGUS&from=2026-02-30&pageSize=500");
@@ -134,7 +140,10 @@ test("AC-61: kapsam dışı / olmayan oturum → bulunamadı (404)", async ({ pa
   await expect(page.getByTestId("history-not-found")).toContainText("Oturum bulunamadı");
 });
 
-test("AC-63: ticket + not — sayaç, doğrulama, sunucu alan hatası, kaydet + toast, kalıcılık, ayrılma uyarısı", async ({ page, context }, info) => {
+test("AC-63: ticket + not — sayaç, doğrulama, sunucu alan hatası, kaydet + toast, kalıcılık, ayrılma uyarısı", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signIn(context, "hu");
   await page.goto(`/history/${RICH}`);
@@ -197,7 +206,10 @@ test("AC-63/124: Dışa aktar — filtreli CSV iner (BOM, ';', formül kaçış�
   expect(csv).toContain(`"'=HYPERLINK(""x"")"`);
   await expect(page.getByTestId("toast")).toContainText("CSV dosyası indirildi");
 
-  for (const [scenario, text] of [["hbig", "En çok 50.000 satır"], ["hrate", "1 dakika sonra"]] as const) {
+  for (const [scenario, text] of [
+    ["hbig", "En çok 50.000 satır"],
+    ["hrate", "1 dakika sonra"],
+  ] as const) {
     await context.clearCookies();
     await signIn(context, scenario);
     await page.goto("/history");
@@ -258,8 +270,7 @@ for (const scheme of ["light", "dark"] as const) {
 }
 
 /** Bir kabın yatay taşması (scrollWidth - clientWidth). */
-const hOverflow = (p: Page, testId: string) =>
-  p.getByTestId(testId).evaluate((el) => el.scrollWidth - el.clientWidth);
+const hOverflow = (p: Page, testId: string) => p.getByTestId(testId).evaluate((el) => el.scrollWidth - el.clientWidth);
 
 test("TEST-P8-2: SUPER_ADMIN liste 1280 px — tablo kabı taşmaz, Firma/Teknisyen tek satır", async ({ page, context }, info) => {
   desktopOnly(info.project.name);
@@ -278,7 +289,10 @@ test("TEST-P8-2: SUPER_ADMIN liste 1280 px — tablo kabı taşmaz, Firma/Teknis
   }
 });
 
-test("TEST-P8-1: detay dosya/onay tabloları — ≥ 1280 taşma yok, ad tek satır, SHA kısaltılmış + kopyala; 1024/390 px kart", async ({ page, context }, info) => {
+test("TEST-P8-1: detay dosya/onay tabloları — ≥ 1280 taşma yok, ad tek satır, SHA kısaltılmış + kopyala; 1024/390 px kart", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signIn(context, "hu");
   for (const width of [1440, 1280]) {

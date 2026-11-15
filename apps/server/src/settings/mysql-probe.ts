@@ -41,13 +41,25 @@ export function classifyMysqlError(err: unknown): MysqlTestReason {
   const e = (typeof err === "object" && err !== null ? err : {}) as { errno?: unknown; code?: unknown };
   const errno = typeof e.errno === "number" ? e.errno : 0;
   const code = typeof e.code === "string" ? e.code : "";
-  if (errno === 1045 || errno === 1698 || errno === 1251 || code === "ER_AUTHENTICATION_PLUGIN_NOT_SUPPORTED" || code === "ER_ACCESS_DENIED_ERROR") return "auth";
+  if (
+    errno === 1045 ||
+    errno === 1698 ||
+    errno === 1251 ||
+    code === "ER_AUTHENTICATION_PLUGIN_NOT_SUPPORTED" ||
+    code === "ER_ACCESS_DENIED_ERROR"
+  )
+    return "auth";
   if (errno === 1044 || errno === 1049 || code === "ER_BAD_DB_ERROR" || code === "ER_DBACCESS_DENIED_ERROR") return "database";
-  if (errno === 45012 || errno === 45026 || code === "ER_CONNECTION_TIMEOUT" || code === "ER_SOCKET_TIMEOUT" || code === "ETIMEDOUT") return "timeout";
+  if (errno === 45012 || errno === 45026 || code === "ER_CONNECTION_TIMEOUT" || code === "ER_SOCKET_TIMEOUT" || code === "ETIMEDOUT")
+    return "timeout";
   return "connect";
 }
 
-export async function probeMysql(t: ProbeTarget, timeoutMs = MYSQL_TEST_TIMEOUT_MS, drv: MariadbDriver = mariadbDriver()): Promise<ProbeResult> {
+export async function probeMysql(
+  t: ProbeTarget,
+  timeoutMs = MYSQL_TEST_TIMEOUT_MS,
+  drv: MariadbDriver = mariadbDriver(),
+): Promise<ProbeResult> {
   const started = Date.now();
   let timer: NodeJS.Timeout | undefined;
   const pending = drv.createConnection({
@@ -69,11 +81,17 @@ export async function probeMysql(t: ProbeTarget, timeoutMs = MYSQL_TEST_TIMEOUT_
     }
   })();
   try {
-    const out = await Promise.race([work, new Promise<typeof TIMEOUT>((resolve) => (timer = setTimeout(() => resolve(TIMEOUT), timeoutMs)))]);
+    const out = await Promise.race([
+      work,
+      new Promise<typeof TIMEOUT>((resolve) => (timer = setTimeout(() => resolve(TIMEOUT), timeoutMs))),
+    ]);
     const latencyMs = Date.now() - started;
     if (out === TIMEOUT) {
       // Geç gelen bağlantı sızmasın: kurulursa hemen kapatılır.
-      pending.then((c) => c.destroy(), () => undefined);
+      pending.then(
+        (c) => c.destroy(),
+        () => undefined,
+      );
       work.catch(() => undefined);
       return { ok: false, reason: "timeout", latencyMs, err: new Error("probe timeout") };
     }

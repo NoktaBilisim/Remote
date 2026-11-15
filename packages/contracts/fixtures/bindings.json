@@ -20,8 +20,20 @@
     ],
     "serverOutbound": [
       { "t": "binding.offer" },
-      { "t": "binding.issued", "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "tenantName": "Nokta Bilişim", "customerFirmName": "Örnek Müşteri A.Ş.", "renewed": false },
-      { "t": "binding.issued", "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "tenantName": "Nokta Bilişim", "customerFirmName": null, "renewed": true }
+      {
+        "t": "binding.issued",
+        "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "tenantName": "Nokta Bilişim",
+        "customerFirmName": "Örnek Müşteri A.Ş.",
+        "renewed": false
+      },
+      {
+        "t": "binding.issued",
+        "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "tenantName": "Nokta Bilişim",
+        "customerFirmName": null,
+        "renewed": true
+      }
     ],
     "statusInput": [{ "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "clientVersion": "0.10.0" }],
     "revokeInput": [{ "bindingKey": "rsb_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }]

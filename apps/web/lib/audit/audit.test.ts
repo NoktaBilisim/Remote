@@ -17,10 +17,15 @@ describe("audit filtreleri (AC-76)", () => {
   it("firma filtresi yalnız izin varken; işlem adı biçimi sözleşme şemasıyla", () => {
     expect(parseAuditParams({ tenantId: ULID }, { allowTenant: true, today: TODAY }).filters.tenantId).toBe(ULID);
     expect(parseAuditParams({ action: "<script>" }, { allowTenant: false, today: TODAY }).ignored).toEqual(["action"]);
-    expect(parseAuditParams({ action: "settings.mysql.test" }, { allowTenant: false, today: TODAY }).filters.action).toBe("settings.mysql.test");
+    expect(parseAuditParams({ action: "settings.mysql.test" }, { allowTenant: false, today: TODAY }).filters.action).toBe(
+      "settings.mysql.test",
+    );
   });
   it("aralık: başlangıç > bitiş → bitiş yok sayılır; 731 günü aşan → başlangıç yok sayılır", () => {
-    expect(parseAuditParams({ from: "2026-11-10", to: "2026-11-01" }, { allowTenant: false, today: TODAY })).toEqual({ filters: { from: "2026-11-10" }, ignored: ["to"] });
+    expect(parseAuditParams({ from: "2026-11-10", to: "2026-11-01" }, { allowTenant: false, today: TODAY })).toEqual({
+      filters: { from: "2026-11-10" },
+      ignored: ["to"],
+    });
     expect(parseAuditParams({ from: addDays(TODAY, -732) }, { allowTenant: false, today: TODAY }).ignored).toEqual(["from"]);
     expect(rangeError(addDays(TODAY, -731), undefined, TODAY)).toBeNull();
     expect(rangeError("2026-01-02", "2026-01-01", TODAY)).toBe("order");
@@ -51,7 +56,10 @@ describe("audit işlem etiketleri ve detay", () => {
     expect(isMailAction("mail.sent")).toBe(true);
     expect(isMailAction("settings.smtp.test")).toBe(true);
     expect(isMailAction("user.updated")).toBe(false);
-    expect(auditPayload({ action: "mail.sent", oldValue: null, newValue: { reason: "auth", to: "a***@x.com", subject: "S" } })).toEqual({ kind: "reason", reason: "auth" });
+    expect(auditPayload({ action: "mail.sent", oldValue: null, newValue: { reason: "auth", to: "a***@x.com", subject: "S" } })).toEqual({
+      kind: "reason",
+      reason: "auth",
+    });
     const p = auditPayload({ action: "user.updated", oldValue: { fullName: "<b>A</b>" }, newValue: null });
     expect(p).toEqual({ kind: "json", oldValue: '{\n  "fullName": "<b>A</b>"\n}', newValue: null });
   });
@@ -65,8 +73,20 @@ describe("P13a audit etiketleri (AC-199, T-P12b)", () => {
     expect(g?.options.map((o) => o.value)).toEqual(["retention.*", "retention.run"]);
   });
   it("dış gönderim reason kodları: WhatsApp, SMTP, MySQL ve izdüşüm 'other' Türkçe; bilinmeyen ham", () => {
-    for (const k of ["unconfigured", "insecure", "timeout", "http_error", "redirect", "unreachable", "invalid_response", "other"]) expect(OUTBOUND_REASON_LABELS[k]).toBeTruthy();
-    for (const k of ["connect", "auth", "tls", "rejected", "port_not_allowed", "insecure_auth", "not_configured", "database", "secret_unreadable"]) expect(OUTBOUND_REASON_LABELS[k]).toBeTruthy();
+    for (const k of ["unconfigured", "insecure", "timeout", "http_error", "redirect", "unreachable", "invalid_response", "other"])
+      expect(OUTBOUND_REASON_LABELS[k]).toBeTruthy();
+    for (const k of [
+      "connect",
+      "auth",
+      "tls",
+      "rejected",
+      "port_not_allowed",
+      "insecure_auth",
+      "not_configured",
+      "database",
+      "secret_unreadable",
+    ])
+      expect(OUTBOUND_REASON_LABELS[k]).toBeTruthy();
     expect(reasonLabel("unreachable")).toBe("Servise ulaşılamadı");
     expect(reasonLabel("yeni_kod")).toBe("yeni_kod");
   });

@@ -19,7 +19,15 @@ import { ApiError } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
 
-export { AVATAR_PX, DEFAULT_LOGO_URL, IMAGE_DIMENSIONS_MESSAGE, INVALID_IMAGE_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE, UPLOAD_ACCEPT, UPLOAD_MAX_BYTES };
+export {
+  AVATAR_PX,
+  DEFAULT_LOGO_URL,
+  IMAGE_DIMENSIONS_MESSAGE,
+  INVALID_IMAGE_MESSAGE,
+  PAYLOAD_TOO_LARGE_MESSAGE,
+  UPLOAD_ACCEPT,
+  UPLOAD_MAX_BYTES,
+};
 export type { AvatarResponse, LogoResponse, PublicBrandingResponse, SystemLogoResponse } from "@remote/contracts/api/branding";
 
 /** `<input accept>` değeri. */

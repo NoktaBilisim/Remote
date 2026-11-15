@@ -18,7 +18,8 @@ const iso = (ms: number): string => new Date(ms).toISOString();
 function grant(rooms: Rooms, room: Room, fresh = false): IceGrant {
   const now = rooms.clock.now();
   const c = room.iceGrant;
-  if (!fresh && c && c.cfg === rooms.turn && c.grant.expiresAt !== null && c.grant.expiresAt - now > rooms.timing.iceRefreshBeforeMs) return c.grant;
+  if (!fresh && c && c.cfg === rooms.turn && c.grant.expiresAt !== null && c.grant.expiresAt - now > rooms.timing.iceRefreshBeforeMs)
+    return c.grant;
   const g = iceServersFor(rooms.turn, room.sessionId, now, room.maxEndsAt ?? now);
   room.iceGrant = g.expiresAt === null ? undefined : { cfg: rooms.turn, grant: g };
   return g;
@@ -64,7 +65,14 @@ export function sendHelloGuest(rooms: Rooms, room: Room, guest: Guest): void {
 
 /** Teknisyene misafir katıldı (admit ve misafir yeniden bağlanması): ad + ACTIVE bitiş zamanı (TEST-P4-2). */
 export function sendGuestJoined(room: Room, guest: Guest): void {
-  room.tech?.peer.send({ t: "peer.joined", role: "guest", guestKind: guest.kind, guestName: guest.name, ...(room.maxEndsAt ? { maxEndsAt: iso(room.maxEndsAt) } : {}), ...(room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}) });
+  room.tech?.peer.send({
+    t: "peer.joined",
+    role: "guest",
+    guestKind: guest.kind,
+    guestName: guest.name,
+    ...(room.maxEndsAt ? { maxEndsAt: iso(room.maxEndsAt) } : {}),
+    ...(room.maxFileMb ? { maxFileMb: room.maxFileMb } : {}),
+  });
 }
 
 function scheduleIceRefresh(rooms: Rooms, room: Room): void {
@@ -72,13 +80,16 @@ function scheduleIceRefresh(rooms: Rooms, room: Room): void {
   if (exp === null) return;
   const at = exp - rooms.timing.iceRefreshBeforeMs;
   if (room.maxEndsAt !== undefined && exp >= room.maxEndsAt) return; // credential oturum sonuna kadar geçerli
-  room.timers.iceRefresh = rooms.clock.setTimeout(() => {
-    if (!rooms.live(room)) return;
-    const { iceServers } = grant(rooms, room, true);
-    room.tech?.peer.send({ t: "ice.servers", iceServers });
-    room.admitted?.peer?.send({ t: "ice.servers", iceServers });
-    scheduleIceRefresh(rooms, room);
-  }, Math.max(0, at - rooms.clock.now()));
+  room.timers.iceRefresh = rooms.clock.setTimeout(
+    () => {
+      if (!rooms.live(room)) return;
+      const { iceServers } = grant(rooms, room, true);
+      room.tech?.peer.send({ t: "ice.servers", iceServers });
+      room.admitted?.peer?.send({ t: "ice.servers", iceServers });
+      scheduleIceRefresh(rooms, room);
+    },
+    Math.max(0, at - rooms.clock.now()),
+  );
 }
 
 /**
@@ -90,12 +101,15 @@ export function scheduleActive(rooms: Rooms, room: Room, guest: Guest, consumedA
   room.maxEndsAt = consumedAt + maxHours * HOUR_MS;
   const now = rooms.clock.now();
   const warnAt = room.maxEndsAt - rooms.timing.warnBeforeMs;
-  room.timers.warn = rooms.clock.setTimeout(() => {
-    if (!rooms.live(room) || room.maxEndsAt === undefined) return;
-    const msg = { t: "session.warning", kind: "max_duration_5min", endsAt: iso(room.maxEndsAt) } as const;
-    room.tech?.peer.send(msg);
-    room.admitted?.peer?.send(msg);
-  }, Math.max(0, warnAt - now));
+  room.timers.warn = rooms.clock.setTimeout(
+    () => {
+      if (!rooms.live(room) || room.maxEndsAt === undefined) return;
+      const msg = { t: "session.warning", kind: "max_duration_5min", endsAt: iso(room.maxEndsAt) } as const;
+      room.tech?.peer.send(msg);
+      room.admitted?.peer?.send(msg);
+    },
+    Math.max(0, warnAt - now),
+  );
   room.timers.maxEnd = rooms.clock.setTimeout(() => void rooms.finish(room, "max_duration", "SYSTEM"), Math.max(0, room.maxEndsAt - now));
   scheduleIceRefresh(rooms, room);
   sendHelloGuest(rooms, room, guest);

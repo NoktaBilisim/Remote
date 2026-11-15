@@ -26,13 +26,18 @@ afterEach(async () => {
   live = undefined;
 });
 
-async function login(app: Live["app"], tenantId: string, o: { role?: "ADMIN" | "USER"; perms?: Record<string, boolean> } = {}): Promise<{ id: string; s: Session }> {
+async function login(
+  app: Live["app"],
+  tenantId: string,
+  o: { role?: "ADMIN" | "USER"; perms?: Record<string, boolean> } = {},
+): Promise<{ id: string; s: Session }> {
   const user = await createUser({ tenantId, role: o.role ?? "USER", ...(o.perms ? { perms: o.perms } : {}) });
   return { id: user.id, s: await loginAs(app, user) };
 }
 
 describe("AC-156 talep oturumunda P7 kontrol akışı (regresyon)", () => {
-  const controlConsents = (sessionId: string) => testDb().sessionConsent.findMany({ where: { sessionId, level: "CONTROL" }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+  const controlConsents = (sessionId: string) =>
+    testDb().sessionConsent.findMany({ where: { sessionId, level: "CONTROL" }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
   const audits = (sessionId: string, action: string) => testDb().auditLog.findMany({ where: { entityId: sessionId, action } });
 
   /** API talebi → kabul → teknisyen + ön-kabullü AGENT misafir (ACTIVE oda). */
@@ -90,7 +95,11 @@ describe("AC-156 talep oturumunda P7 kontrol akışı (regresyon)", () => {
     expect(await r.tech.waitFor("control.state")).toEqual({ t: "control.state", state: "VIEW", source: "HOTKEY" });
     await expect
       .poll(async () => (await controlConsents(r.sessionId)).map((c) => [c.decision, c.source]))
-      .toEqual([["DENIED", "UI"], ["GRANTED", "UI"], ["REVOKED", "HOTKEY"]]);
+      .toEqual([
+        ["DENIED", "UI"],
+        ["GRANTED", "UI"],
+        ["REVOKED", "HOTKEY"],
+      ]);
     const granted = (await controlConsents(r.sessionId))[1];
     expect(granted?.ip).toBe("127.0.0.1"); // istemci bağlantısının IP'si (müşteri onayı)
     expect(await audits(r.sessionId, CONTROL_AUDIT.REQUESTED)).toHaveLength(2);
@@ -109,7 +118,10 @@ describe("AC-156 talep oturumunda P7 kontrol akışı (regresyon)", () => {
     r.guest.send({ t: "control.state", state: "GRANTED", source: "UI" });
     expect(await r.tech.waitFor("control.state")).toMatchObject({ state: "GRANTED" });
 
-    await testDb().userPermission.update({ where: { userId_permKey: { userId: r.techId, permKey: "remote_control.use" } }, data: { granted: false } });
+    await testDb().userPermission.update({
+      where: { userId_permKey: { userId: r.techId, permKey: "remote_control.use" } },
+      data: { granted: false },
+    });
     expect(await r.guest.waitFor("control.revoke")).toEqual({ t: "control.revoke", reason: "permission" });
     expect(await r.guest.waitFor("caps.update")).toEqual({ t: "caps.update", caps: ["file_transfer"] });
     expect(await r.tech.waitFor("control.state")).toMatchObject({ state: "VIEW", source: "SYSTEM" });
@@ -161,12 +173,24 @@ describe("AC-130 iki tenant aynı ikili", () => {
       const t = await createTenant();
       await testDb().tenant.update({ where: { id: t.id }, data: { name } });
       const admin = await login(live.app, t.id, { role: "ADMIN" });
-      const st = (await live.app.inject({ method: "GET", url: "/api/v1/settings/support-requests", headers: admin.s.headers })).json<{ downloadUrl: string; fileName: string }>();
-      const dl = await live.app.inject({ method: "GET", url: new URL(st.downloadUrl).pathname + new URL(st.downloadUrl).search, headers: { "x-forwarded-for": "198.51.140.1" } });
+      const st = (await live.app.inject({ method: "GET", url: "/api/v1/settings/support-requests", headers: admin.s.headers })).json<{
+        downloadUrl: string;
+        fileName: string;
+      }>();
+      const dl = await live.app.inject({
+        method: "GET",
+        url: new URL(st.downloadUrl).pathname + new URL(st.downloadUrl).search,
+        headers: { "x-forwarded-for": "198.51.140.1" },
+      });
       expect(dl.statusCode).toBe(302);
       const loc = String(dl.headers.location);
       expect(loc).toBe(`/downloads/${st.fileName}`);
-      const gate = await live.app.inject({ method: "GET", url: "/internal/agent-ready", remoteAddress: "127.0.0.1", headers: { "x-forwarded-method": "GET", "x-forwarded-uri": loc } });
+      const gate = await live.app.inject({
+        method: "GET",
+        url: "/internal/agent-ready",
+        remoteAddress: "127.0.0.1",
+        headers: { "x-forwarded-method": "GET", "x-forwarded-uri": loc },
+      });
       expect(gate.statusCode).toBe(204);
       expect(caddy.matcher.test(loc)).toBe(true);
       locations.push(loc);
@@ -178,7 +202,13 @@ describe("AC-130 iki tenant aynı ikili", () => {
     // Caddy her iki yolu da aynı volume dosyasına yazar (root + rewrite); testte volume = geçici dizin.
     const served = locations.map(() => join(dir, caddy.rewrite));
     expect(new Set(served).size).toBe(1);
-    const hashes = await Promise.all(served.map(async (p) => createHash("sha256").update(await readFile(p)).digest("hex")));
+    const hashes = await Promise.all(
+      served.map(async (p) =>
+        createHash("sha256")
+          .update(await readFile(p))
+          .digest("hex"),
+      ),
+    );
     expect(hashes).toEqual([sha, sha]);
   });
 });
@@ -247,7 +277,9 @@ describe("AC-146 liste performansı", () => {
     const pending = await measure("/api/v1/support-requests?tab=pending");
     const history = await measure("/api/v1/support-requests?tab=history&pageSize=100");
     const historyLast = await measure("/api/v1/support-requests?tab=history&pageSize=100&page=10");
-    const list = (await live.app.inject({ method: "GET", url: "/api/v1/support-requests?tab=history&pageSize=100", headers: admin.s.headers })).json<{ total: number; items: unknown[] }>();
+    const list = (
+      await live.app.inject({ method: "GET", url: "/api/v1/support-requests?tab=history&pageSize=100", headers: admin.s.headers })
+    ).json<{ total: number; items: unknown[] }>();
     expect(list.total).toBe(960);
     expect(list.items).toHaveLength(100);
     expect({ pending, history, historyLast }).toSatisfy((m: Record<string, number>) => Object.values(m).every((v) => v < PERF_LIMIT_MS));

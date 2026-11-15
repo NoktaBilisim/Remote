@@ -23,7 +23,6 @@ const ERROR_WINDOW_MS = 5_000;
 /** Son istekle eşlenen sunucu hataları (K7, S7-15). */
 const MAPPED_ERRORS = new Set<string>(["FORBIDDEN", "RATE_LIMITED", "CONFLICT", "VALIDATION"]);
 
-
 export type ControlPhase = "idle" | "requested" | "granted" | "denied" | "ended";
 /**
  * `tech` = teknisyen bıraktı (K1), `cancel` = teknisyen bekleyen isteği geri çekti (K2),
@@ -143,7 +142,13 @@ export function isUnexpectedGrant(s: ControlState, m: ServerOutbound): boolean {
 /** Kontrolü kapatır (yakalama biter); yalnız açık/istenmiş kontrolde neden yazılır. */
 function stop(s: ControlState, cause: ControlEndCause, now: number, phase: ControlPhase = "ended"): ControlState {
   const open = s.phase === "granted" || s.phase === "requested";
-  return { ...s, phase: open ? phase : s.phase === "denied" ? "denied" : s.phase, notice: open ? null : s.notice, endedBy: open ? cause : s.endedBy, endedAt: open ? now : s.endedAt };
+  return {
+    ...s,
+    phase: open ? phase : s.phase === "denied" ? "denied" : s.phase,
+    notice: open ? null : s.notice,
+    endedBy: open ? cause : s.endedBy,
+    endedAt: open ? now : s.endedAt,
+  };
 }
 
 function shareInfo(m: { monitors?: Monitor[] | undefined; activeMonitor?: number | undefined }) {
@@ -161,7 +166,13 @@ export function controlReducer(s: ControlState, e: ControlEvent): ControlState {
       return canCancel(s) ? { ...stop(s, "cancel", e.now), lastSent: null } : s;
     case "monitor":
       if (!canRequestMonitor(s, e.now) || e.id === s.activeMonitor || !s.monitors.some((x) => x.id === e.id)) return s;
-      return { ...s, monitorPending: { id: e.id, at: e.now }, monitorRequests: s.monitorRequests + 1, monitorOutcome: null, lastSent: { kind: "monitor", at: e.now } };
+      return {
+        ...s,
+        monitorPending: { id: e.id, at: e.now },
+        monitorRequests: s.monitorRequests + 1,
+        monitorOutcome: null,
+        lastSent: { kind: "monitor", at: e.now },
+      };
     case "monitorTimeout":
       return s.monitorPending && e.now - s.monitorPending.at >= MONITOR_TIMEOUT_MS
         ? { ...s, monitorPending: null, monitorOutcome: "noAnswer", monitorBlockedUntil: e.now + MONITOR_BLOCK_MS }
@@ -217,7 +228,9 @@ function onMsg(s: ControlState, m: ServerOutbound, now: number): ControlState {
     case "control.state":
       if (m.state === "GRANTED") {
         // Yalnız bekleyen istek izne döner (S7-2); beklenmeyen GRANTED durumu değiştirmez
-        return s.phase === "requested" && !s.forbidden ? { ...s, phase: "granted", error: null, notice: null, endedBy: null, endedAt: null } : s;
+        return s.phase === "requested" && !s.forbidden
+          ? { ...s, phase: "granted", error: null, notice: null, endedBy: null, endedAt: null }
+          : s;
       }
       if (m.source === "DENIED") return { ...s, phase: "denied", deniedAt: now };
       if (m.source === "RECONNECT") return stop(s, "reconnect", now, "idle");
@@ -234,7 +247,9 @@ function onMsg(s: ControlState, m: ServerOutbound, now: number): ControlState {
       return { ...stop(s, "system", now), forbidden: s.forbidden || m.reason === "permission" };
     case "monitor.denied":
       // K4: müşteri reddetti — 30 sn beklemeden hemen yazılır; başka monitöre ait geç ret yok sayılır
-      return s.monitorPending?.id === m.monitorId ? { ...s, monitorPending: null, monitorOutcome: "denied", monitorBlockedUntil: now + MONITOR_BLOCK_MS } : s;
+      return s.monitorPending?.id === m.monitorId
+        ? { ...s, monitorPending: null, monitorOutcome: "denied", monitorBlockedUntil: now + MONITOR_BLOCK_MS }
+        : s;
     case "caps.update":
       return m.caps.includes("remote_control") ? s : { ...stop(s, "system", now), forbidden: true };
     case "env.state":
@@ -250,7 +265,14 @@ function onMsg(s: ControlState, m: ServerOutbound, now: number): ControlState {
         if (m.code === "VALIDATION") return s;
         // İstek iletilmedi: sayaç geri alınır; ret bekleme süresi sürüyorsa "denied"e döner
         const back: ControlPhase = s.deniedAt !== null && now - s.deniedAt < DENY_COOLDOWN_MS ? "denied" : "idle";
-        return { ...s, phase: back, requests: Math.max(0, s.requests - 1), lastSent: null, forbidden: s.forbidden || m.code === "FORBIDDEN", error: m.code === "RATE_LIMITED" ? "rate" : null };
+        return {
+          ...s,
+          phase: back,
+          requests: Math.max(0, s.requests - 1),
+          lastSent: null,
+          forbidden: s.forbidden || m.code === "FORBIDDEN",
+          error: m.code === "RATE_LIMITED" ? "rate" : null,
+        };
       }
       if (last.kind === "monitor" && s.monitorPending) {
         // İstek iletilmedi → bekleme kapanır, sayaç geri alınır. S7-15: zaten paylaşılan monitör (VALIDATION) bekleme

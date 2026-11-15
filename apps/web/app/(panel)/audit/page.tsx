@@ -55,7 +55,11 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   const forbidden = (
     <>
       {header}
-      <div className="mt-6 max-w-xl"><Alert tone="warning" testId="audit-forbidden">{t("au.forbidden")}</Alert></div>
+      <div className="mt-6 max-w-xl">
+        <Alert tone="warning" testId="audit-forbidden">
+          {t("au.forbidden")}
+        </Alert>
+      </div>
     </>
   );
   if (!perms.includes("audit.view")) return forbidden;
@@ -77,7 +81,9 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
           {res.status === 400 ? (
             <Alert tone="warning" testId="audit-bad-filter">
               {t("h.ignored", { fields: t("h.filters") })}{" "}
-              <Link href={auditHref({})} className="font-medium underline">{t("h.f.clear")}</Link>
+              <Link href={auditHref({})} className="font-medium underline">
+                {t("h.f.clear")}
+              </Link>
             </Alert>
           ) : (
             <LoadError />
@@ -111,12 +117,25 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
           <p className="mt-1 max-w-2xl text-sm text-fg-muted">{allTenants ? t("au.subtitleAll") : t("au.subtitle")}</p>
         </div>
         {perms.includes("audit.export") && items.length > 0 && (
-          <CsvExportButton path={auditExportPath(filters)} label={t("au.export")} hint={t("au.exportHint")} fallbackName="audit-log.csv" testId="audit-export" errorTestId="audit-export-error" />
+          <CsvExportButton
+            path={auditExportPath(filters)}
+            label={t("au.export")}
+            hint={t("au.exportHint")}
+            fallbackName="audit-log.csv"
+            testId="audit-export"
+            errorTestId="audit-export-error"
+          />
         )}
       </div>
 
       <div className="mt-6">
-        <AuditFiltersForm key={auditHref(filters)} filters={filters} users={sortOpts(userMap, filters.userId)} usersHint={usersHint} tenants={tenants} />
+        <AuditFiltersForm
+          key={auditHref(filters)}
+          filters={filters}
+          users={sortOpts(userMap, filters.userId)}
+          usersHint={usersHint}
+          tenants={tenants}
+        />
       </div>
 
       {ignored.length > 0 && (
@@ -135,7 +154,11 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
               title={t("au.emptyFilterTitle")}
               body={t("au.emptyFilterBody")}
               testId="audit-empty-filter"
-              action={<Link href={auditHref({})} className={linkCls}>{t("h.f.clear")}</Link>}
+              action={
+                <Link href={auditHref({})} className={linkCls}>
+                  {t("h.f.clear")}
+                </Link>
+              }
             />
           ) : (
             <EmptyState Icon={ScrollText} title={t("au.emptyTitle")} body={t("au.emptyBody")} testId="audit-empty" />

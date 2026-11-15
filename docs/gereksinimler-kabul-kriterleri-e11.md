@@ -1,8 +1,10 @@
 # Kabul kriterleri — E11 (bölüm A: G1–G4, AC-201..AC-244)
-Tarih: 2026-11-14   Durum: ONAYLANDI (2026-11-14; mimari-e11 sonrası revizyon r2: AC-206, 215, 216, 224, 225, 241). Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e11.md`. Bölüm B (G5–G8): `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e11-b.md`. Tasarım: `docs/mimari-e11.md`, ADR-0021..0028.
+
+Tarih: 2026-11-14 Durum: ONAYLANDI (2026-11-14; mimari-e11 sonrası revizyon r2: AC-206, 215, 216, 224, 225, 241). Ana doküman: `/Users/mennan/Projeler/Remote/docs/gereksinimler-e11.md`. Bölüm B (G5–G8): `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri-e11-b.md`. Tasarım: `docs/mimari-e11.md`, ADR-0021..0028.
 Kural: her AC otomatik testle (birim/entegrasyon/e2e) ya da adı verilen elle ölçümle kanıtlanır. Bulgu kapatan AC'de kanıt, raporundaki yeniden üretim adımının artık başarısız olmasıdır.
 
 ## G1 — Güvenlik ve kalite bulguları
+
 - AC-201: 6 eski CHECK (`customers_file_label_chk`, `customers_phone_fmt_chk`, `support_requests_phone_fmt_chk`, `support_requests_client_version_fmt_chk`, `device_bindings_client_version_fmt_chk`, `tenant_request_settings_file_label_chk`) `\z` kullanır; sonu `\n` olan değerle INSERT 3819 döner; ön kontrol ihlal eden satır sayısını raporlar; `down.sql` eski hâle döner.
 - AC-202: (B-P9-2) Kullanıcı yönetimi TX'i aktör ve hedef satırlarını id sırasıyla `FOR UPDATE` kilitler, aktörün rol/yetkisini TX içinde yeniden okur; paralel istekte yetkisi düşürülen aktörün işlemi 403 döner (gecikme kancalı test).
 - AC-203: (B-P9-3/4) `/users` ve `/admin/*` yazma uçları kullanıcı başına 30/dk, `POST /users` 10/dk ile sınırlıdır; aşımda 429 `RATE_LIMITED` + `Retry-After`; 409 e-posta çakışması audit'e `result: "fail"` yazılır.
@@ -24,6 +26,7 @@ Kural: her AC otomatik testle (birim/entegrasyon/e2e) ya da adı verilen elle ö
 - AC-219: Entegrasyon ve e2e paketleri CI'da 20 ardışık koşuda 0 kararsız hata verir; `docs/implementation.md` kararsız test listesi boştur.
 
 ## G2 — UI ve erişilebilirlik
+
 - AC-220: `/users/<olmayan id>` ve `/customers/<olmayan id>` belge yanıtı HTTP 404'tür ve sayfada tek h1 "… bulunamadı" vardır.
 - AC-221: Kapalı ve kilitli toggle izi iki temada zemine karşı ≥ 3:1 kontrast verir (WCAG 1.4.11; token DESIGN.md'de).
 - AC-222: 375/390 px'te menüdeki etkin öğe görünür alandadır ve kaydırılabilir menüde kaydırma ipucu vardır (e2e görünürlük kontrolü).
@@ -37,6 +40,7 @@ Kural: her AC otomatik testle (birim/entegrasyon/e2e) ya da adı verilen elle ö
 - AC-230: 256 MB üzerine yazma uyarısı bileşen testinde eşik altı/üstü iki durumla doğrulanır.
 
 ## G3 — Küçük özellikler
+
 - AC-231: Hesap sayfasında "Kurtarma kodlarını yenile" vardır; geçerli TOTP ile `POST /auth/mfa/recovery-codes` 10 yeni kod döner, eski kodlar anında geçersizleşir, kodlar yalnız bir kez gösterilir; yanlış TOTP 5 denemede kilitlenir; audit `mfa.recovery_regenerated` (kod içermez).
 - AC-232: Super Admin, başka bir Super Admin'in şifresini panelden sıfırlayabilir (geçici şifre bir kez gösterilir, ilk girişte değişim zorunlu, hedefin tüm oturumları kapanır, step-up AC-215); kendi şifresini bu yolla sıfırlayamaz; audit yazılır. Tek Super Admin varsa yol CLI'dır (P13b, AC-299).
 - AC-233: Sistem ayarlarında "Sistem logosunu kaldır" vardır; onaydan sonra login ve PDF varsayılan Nokta logosuna döner; `app` yetkisi grants.sql + `check-app-grants.sh` ile doğrulanır; audit yazılır.
@@ -48,6 +52,7 @@ Kural: her AC otomatik testle (birim/entegrasyon/e2e) ya da adı verilen elle ö
 - AC-239: (S12) Tenant ayarı "Talep kabulünde kabul kodu iste" açıkken kabul, müşterinin okuduğu 4 haneli kodla tamamlanır (AC-112 kuralları); kapalıyken bugünkü akış değişmez.
 
 ## G4 — Kalıcı silme (K27) ve dosya temizliği
+
 - AC-240: Anonimleştirilmiş oturum, talep, onay ve bilgisayar kaydı satırları, anonimleşmeden 30 gün sonra gece işinde FK sırasına uygun kalıcı silinir; ikinci koşu 0 satır siler; `retention.run` audit'i silinen sayıları içerir.
 - AC-241: (r2 — K-E11-4) Admin, pasif bir kullanıcıyı kalıcı siler (onay diyaloğunda kullanıcı adını yazarak); kişisel alanlar silinir, geçmiş ve audit ekranında "Silinmiş kullanıcı #<kısa id>" görünür, avatar dosyası diskten silinir; aktif kullanıcıda düğme pasiftir. Audit satırlarındaki eski `username` değeri değiştirilmez (audit değiştirilemezliği), audit saklama süresi (730 gün) dolunca satırla birlikte silinir; o güne kadar audit ekranında ve CSV'sinde **maskelenmiş** gösterilir (ör. `a***@***`), açık hâli hiçbir görünüm ucundan dönmez (entegrasyon testi).
 - AC-242: Super Admin, en az 30 gündür pasif bir firmayı kalıcı siler (firma adını yazarak onay); firmanın tüm satırları (audit hariç, audit saklama süresine tabi) ve `uploads/{tenantId}/` klasörü silinir; işlem tek iş olarak ilerler, kesilirse kaldığı yerden sürer.

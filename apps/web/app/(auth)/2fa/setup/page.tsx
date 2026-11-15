@@ -28,7 +28,9 @@ export default async function MfaSetupPage() {
       <p className="mt-1 mb-4 text-sm text-fg-muted">{t("mfa.s.subtitle")}</p>
       {forced && (
         <div className="mb-4">
-          <Alert tone="warning" testId="mfa-required">{t("mfa.s.required")}</Alert>
+          <Alert tone="warning" testId="mfa-required">
+            {t("mfa.s.required")}
+          </Alert>
         </div>
       )}
       <MfaSetup gate={forced} account={account} doneHref={forced ? "/" : "/account"} />

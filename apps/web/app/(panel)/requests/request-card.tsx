@@ -1,6 +1,20 @@
 "use client";
 
-import { Building2, Ellipsis, Hourglass, Info, Mail, MonitorSmartphone, Phone, ShieldAlert, ShieldCheck, ShieldOff, TriangleAlert, UserCheck, UserX } from "lucide-react";
+import {
+  Building2,
+  Ellipsis,
+  Hourglass,
+  Info,
+  Mail,
+  MonitorSmartphone,
+  Phone,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldOff,
+  TriangleAlert,
+  UserCheck,
+  UserX,
+} from "lucide-react";
 import {
   BINDING_REVOKED_LABEL,
   CANCEL_REASON_LABELS,
@@ -32,7 +46,10 @@ const STATUS_PILL: Record<RequestStatus, string> = {
 
 export function RequestStatusBadge({ status }: { status: RequestStatus }) {
   return (
-    <span data-testid="request-status" className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_PILL[status]}`}>
+    <span
+      data-testid="request-status"
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_PILL[status]}`}
+    >
       <span aria-hidden className="size-1.5 rounded-full bg-current" />
       {labelOf(REQUEST_STATUS_LABELS, status)}
     </span>
@@ -43,7 +60,8 @@ export function RequestStatusBadge({ status }: { status: RequestStatus }) {
 export function SourceIndicator({
   item,
 }: {
-  item: Pick<SupportRequestItem, "networkMatch" | "knownDevice"> & Partial<Pick<SupportRequestItem, "viaBinding" | "bindingRevoked" | "staleSource" | "customerFirm">>;
+  item: Pick<SupportRequestItem, "networkMatch" | "knownDevice"> &
+    Partial<Pick<SupportRequestItem, "viaBinding" | "bindingRevoked" | "staleSource" | "customerFirm">>;
 }) {
   const v = sourceView(item.networkMatch, item.knownDevice);
   // P8c r2 (§15.1, §15.7 K20): kayıtlı bilgisayar = bilinen kaynak, NÖTR rozet (doğrulama değildir); yalnız kayıt etkinken.
@@ -53,13 +71,19 @@ export function SourceIndicator({
   return (
     <div className="flex flex-col gap-1.5" data-testid="request-source" data-known={v.known || binding}>
       {binding && (
-        <span data-testid="request-via-binding" className="inline-flex w-fit items-start gap-1.5 rounded-md bg-surface-muted px-2.5 py-1 text-xs font-medium text-fg">
+        <span
+          data-testid="request-via-binding"
+          className="inline-flex w-fit items-start gap-1.5 rounded-md bg-surface-muted px-2.5 py-1 text-xs font-medium text-fg"
+        >
           <ShieldCheck aria-hidden className="mt-px size-4 shrink-0" />
           {viaBindingLabel(item.customerFirm?.name ?? null)}
         </span>
       )}
       {revoked && (
-        <span data-testid="request-binding-revoked" className="inline-flex w-fit items-start gap-1.5 rounded-md bg-warning-surface px-2.5 py-1 text-xs font-medium text-warning">
+        <span
+          data-testid="request-binding-revoked"
+          className="inline-flex w-fit items-start gap-1.5 rounded-md bg-warning-surface px-2.5 py-1 text-xs font-medium text-warning"
+        >
           <ShieldAlert aria-hidden className="mt-px size-4 shrink-0" />
           {BINDING_REVOKED_LABEL}
         </span>
@@ -84,12 +108,19 @@ export function SourceIndicator({
           </ul>
         </>
       ) : binding || revoked ? null : (
-        <span data-testid="request-first-seen" className="inline-flex w-fit items-start gap-1.5 rounded-md bg-warning-surface px-2.5 py-1 text-xs font-medium text-warning">
+        <span
+          data-testid="request-first-seen"
+          className="inline-flex w-fit items-start gap-1.5 rounded-md bg-warning-surface px-2.5 py-1 text-xs font-medium text-warning"
+        >
           <ShieldAlert aria-hidden className="mt-px size-4 shrink-0" />
           {FIRST_SEEN_SOURCE_LABEL}
         </span>
       )}
-      {v.sameBlock && <span className="text-xs text-fg-muted" data-testid="request-same-block">{NETWORK_MATCH_LABELS.PREFIX}</span>}
+      {v.sameBlock && (
+        <span className="text-xs text-fg-muted" data-testid="request-same-block">
+          {NETWORK_MATCH_LABELS.PREFIX}
+        </span>
+      )}
     </div>
   );
 }
@@ -98,7 +129,11 @@ export function RequestCode({ code }: { code: string }) {
   return (
     <div className="flex flex-col">
       <span className="text-xs font-medium text-fg-muted">{t("rq.code")}</span>
-      <span data-testid="request-code" aria-label={t("rq.codeSr", { digits: code.split("").join(" ") })} className="font-mono text-3xl font-bold tracking-wider text-fg tabular-nums">
+      <span
+        data-testid="request-code"
+        aria-label={t("rq.codeSr", { digits: code.split("").join(" ") })}
+        className="font-mono text-3xl font-bold tracking-wider text-fg tabular-nums"
+      >
         {formatRequestCode(code)}
       </span>
     </div>
@@ -128,22 +163,29 @@ export function RequestCard({
   const waitSec = pending && now ? Math.max(item.waitSec, Math.floor((now - Date.parse(item.createdAt)) / 1000)) : item.waitSec;
   const name = item.customerName ?? t("rq.anon");
   const titleId = `talep-${item.id}-t`;
-  const revokeMenu = onRevokeBinding && item.viaBinding ? (
-    <Menu label={t("rq.more")} icon={<Ellipsis aria-hidden className="size-4" />} align="end" testId="request-menu" panelLabel={t("rq.moreFor", { name })}>
-      <button
-        type="button"
-        onClick={(e) => {
-          closeMenu(e.currentTarget);
-          onRevokeBinding();
-        }}
-        data-testid="request-revoke-binding"
-        className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-sm px-3 text-left text-sm text-danger hover:bg-danger-surface"
+  const revokeMenu =
+    onRevokeBinding && item.viaBinding ? (
+      <Menu
+        label={t("rq.more")}
+        icon={<Ellipsis aria-hidden className="size-4" />}
+        align="end"
+        testId="request-menu"
+        panelLabel={t("rq.moreFor", { name })}
       >
-        <ShieldOff aria-hidden className="size-4 shrink-0" />
-        {t("rq.revoke.open")}
-      </button>
-    </Menu>
-  ) : null;
+        <button
+          type="button"
+          onClick={(e) => {
+            closeMenu(e.currentTarget);
+            onRevokeBinding();
+          }}
+          data-testid="request-revoke-binding"
+          className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-sm px-3 text-left text-sm text-danger hover:bg-danger-surface"
+        >
+          <ShieldOff aria-hidden className="size-4 shrink-0" />
+          {t("rq.revoke.open")}
+        </button>
+      </Menu>
+    ) : null;
   return (
     <article
       id={`talep-${item.id}`}
@@ -155,34 +197,58 @@ export function RequestCard({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h3 id={titleId} className="text-base font-semibold text-fg wrap-anywhere">{name}</h3>
+            <h3 id={titleId} className="text-base font-semibold text-fg wrap-anywhere">
+              {name}
+            </h3>
             {!pending && <RequestStatusBadge status={item.status} />}
           </div>
           <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
             <div className="flex min-w-0 items-center gap-2 sm:col-span-2">
-              <dt><Building2 aria-hidden className="size-4 text-fg-muted" /><span className="sr-only">{t("rq.firm")}</span></dt>
-              <dd className="font-medium text-fg wrap-anywhere" data-testid="request-firm">{item.customerFirm?.name ?? GENERAL_CUSTOMER_LABEL}</dd>
+              <dt>
+                <Building2 aria-hidden className="size-4 text-fg-muted" />
+                <span className="sr-only">{t("rq.firm")}</span>
+              </dt>
+              <dd className="font-medium text-fg wrap-anywhere" data-testid="request-firm">
+                {item.customerFirm?.name ?? GENERAL_CUSTOMER_LABEL}
+              </dd>
             </div>
             <div className="flex min-w-0 items-center gap-2">
-              <dt><Phone aria-hidden className="size-4 text-fg-muted" /><span className="sr-only">{t("rq.phone")}</span></dt>
+              <dt>
+                <Phone aria-hidden className="size-4 text-fg-muted" />
+                <span className="sr-only">{t("rq.phone")}</span>
+              </dt>
               <dd className="text-fg tabular-nums wrap-anywhere">{item.customerPhone ?? "—"}</dd>
             </div>
             <div className="flex min-w-0 items-center gap-2">
-              <dt><Mail aria-hidden className="size-4 text-fg-muted" /><span className="sr-only">{t("rq.email")}</span></dt>
+              <dt>
+                <Mail aria-hidden className="size-4 text-fg-muted" />
+                <span className="sr-only">{t("rq.email")}</span>
+              </dt>
               <dd className="text-fg wrap-anywhere">{item.customerEmail ?? "—"}</dd>
             </div>
             <div className="flex min-w-0 items-center gap-2">
-              <dt><Hourglass aria-hidden className="size-4 text-fg-muted" /><span className="sr-only">{t("rq.wait")}</span></dt>
+              <dt>
+                <Hourglass aria-hidden className="size-4 text-fg-muted" />
+                <span className="sr-only">{t("rq.wait")}</span>
+              </dt>
               <dd className="text-fg tabular-nums" data-testid="request-wait">
                 {pending ? t("rq.waiting", { d: formatDuration(waitSec) }) : t("rq.waited", { d: formatDuration(waitSec) })}
               </dd>
             </div>
             <div className="flex min-w-0 items-center gap-2">
-              <dt><MonitorSmartphone aria-hidden className="size-4 text-fg-muted" /><span className="sr-only">{t("rq.version")}</span></dt>
-              <dd className="text-fg-muted">{t("rq.versionValue", { v: item.clientVersion })} · {formatDateTime(item.createdAt)}</dd>
+              <dt>
+                <MonitorSmartphone aria-hidden className="size-4 text-fg-muted" />
+                <span className="sr-only">{t("rq.version")}</span>
+              </dt>
+              <dd className="text-fg-muted">
+                {t("rq.versionValue", { v: item.clientVersion })} · {formatDateTime(item.createdAt)}
+              </dd>
             </div>
           </dl>
-          <p className="mt-3 rounded-md bg-canvas px-3 py-2 text-sm whitespace-pre-wrap text-fg wrap-anywhere" data-testid="request-description">
+          <p
+            className="mt-3 rounded-md bg-canvas px-3 py-2 text-sm whitespace-pre-wrap text-fg wrap-anywhere"
+            data-testid="request-description"
+          >
             {item.description ?? t("rq.noDescription")}
           </p>
           {!pending && <ClosedInfo item={item} />}
@@ -242,14 +308,19 @@ function ClosedInfo({ item }: { item: SupportRequestItem }) {
       {item.rejectMessage && (
         <>
           <dt className="text-fg-muted">{t("rq.rejectMessage")}</dt>
-          <dd className="text-fg wrap-anywhere" data-testid="request-reject-message">{item.rejectMessage}</dd>
+          <dd className="text-fg wrap-anywhere" data-testid="request-reject-message">
+            {item.rejectMessage}
+          </dd>
         </>
       )}
       {item.sessionId && (
         <>
           <dt className="text-fg-muted">{t("rq.session")}</dt>
           <dd>
-            <Link href={`/history/${item.sessionId}`} className="inline-flex min-h-11 items-center font-medium text-primary hover:underline">
+            <Link
+              href={`/history/${item.sessionId}`}
+              className="inline-flex min-h-11 items-center font-medium text-primary hover:underline"
+            >
               {t("rq.sessionLink")}
             </Link>
           </dd>

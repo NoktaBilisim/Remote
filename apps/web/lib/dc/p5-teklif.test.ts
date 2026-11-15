@@ -3,7 +3,14 @@ import { FileTransfers, OFFER_LIMIT, OFFER_TIMEOUT_MS, SELF_OFFER_LIMIT, type Fi
 import type { CtlMessage, FileMetaMsg } from "./ctl";
 
 // TEST-P5-1: alıcı sınırı aşan teklifi sessizce düşürür; gönderen kilitte kalmamalı.
-const ch = (): FileChannelLike => ({ readyState: "open", bufferedAmount: 0, bufferedAmountLowThreshold: 0, send: () => undefined, addEventListener: () => undefined, removeEventListener: () => undefined });
+const ch = (): FileChannelLike => ({
+  readyState: "open",
+  bufferedAmount: 0,
+  bufferedAmountLowThreshold: 0,
+  send: () => undefined,
+  addEventListener: () => undefined,
+  removeEventListener: () => undefined,
+});
 
 /** Gönderen (konsol) ↔ alıcı (müşteri) eşi; ctl mesajları doğrudan karşıya iletilir. */
 function pair(clock: { t: number }, selfThrottle = true) {
@@ -13,17 +20,41 @@ function pair(clock: { t: number }, selfThrottle = true) {
   let inc: Transfer[] = [];
   const holder: { a?: FileTransfers; b?: FileTransfers } = {};
   const a = new FileTransfers({
-    inbound: "TO_TECH", file: ch(), sendMeta: (m) => meta.push(m), onChange: (l) => (out = l), allowed: () => true, now: () => clock.t,
-    sendCtl: (m) => { sent.push(m); void holder.b!.onCtl(m); },
+    inbound: "TO_TECH",
+    file: ch(),
+    sendMeta: (m) => meta.push(m),
+    onChange: (l) => (out = l),
+    allowed: () => true,
+    now: () => clock.t,
+    sendCtl: (m) => {
+      sent.push(m);
+      void holder.b!.onCtl(m);
+    },
     selfThrottle: () => selfThrottle,
   });
   const b = new FileTransfers({
-    inbound: "TO_CUSTOMER", file: ch(), sendMeta: () => undefined, onChange: (l) => (inc = l), allowed: () => true, now: () => clock.t,
+    inbound: "TO_CUSTOMER",
+    file: ch(),
+    sendMeta: () => undefined,
+    onChange: (l) => (inc = l),
+    allowed: () => true,
+    now: () => clock.t,
     sendCtl: (m) => void holder.a!.onCtl(m),
   });
   holder.a = a;
   holder.b = b;
-  return { a, b, sent, meta, get out() { return out; }, get inc() { return inc; } };
+  return {
+    a,
+    b,
+    sent,
+    meta,
+    get out() {
+      return out;
+    },
+    get inc() {
+      return inc;
+    },
+  };
 }
 const f = (n: string) => new File(["x"], n);
 

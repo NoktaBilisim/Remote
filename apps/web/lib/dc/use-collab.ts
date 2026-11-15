@@ -26,8 +26,7 @@ export interface CollabOptions {
   maxFileMb?: number;
 }
 
-const e2eCorrupt = () =>
-  process.env.NEXT_PUBLIC_RS_E2E === "1" && Boolean((globalThis as { __rsCorruptSha?: boolean }).__rsCorruptSha);
+const e2eCorrupt = () => process.env.NEXT_PUBLIC_RS_E2E === "1" && Boolean((globalThis as { __rsCorruptSha?: boolean }).__rsCorruptSha);
 
 const e2eChunkDelay = () =>
   process.env.NEXT_PUBLIC_RS_E2E === "1" ? Number((globalThis as { __rsSlowFileMs?: number }).__rsSlowFileMs) || 0 : 0;
@@ -73,8 +72,7 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
       else if (m.t.startsWith("file.")) {
         // G-09/AC-119: yetki yoksa yalnız teklif işlenir (otomatik ret); diğer file.* düşer
         if (opts.current.filesAllowed || m.t === "file.offer") void t.onCtl(m);
-      }
-      else if (m.t.startsWith("annot.") && opts.current.receiveAnnot) setAnnot((s) => annotReducer(s, m));
+      } else if (m.t.startsWith("annot.") && opts.current.receiveAnnot) setAnnot((s) => annotReducer(s, m));
     };
     const onFile = (e: MessageEvent) => e.data instanceof ArrayBuffer && t.onFrame(e.data);
     ch.ctl.addEventListener("message", onCtl);
@@ -91,23 +89,32 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
     if (o.chatVisible) chatDispatch({ type: "read" });
   }, [o.chatVisible]);
 
-  const sendCtl = useCallback((m: CtlMessage) => {
-    if (ch?.ctl.readyState !== "open") return false;
-    ch.ctl.send(JSON.stringify(m));
-    return true;
-  }, [ch]);
+  const sendCtl = useCallback(
+    (m: CtlMessage) => {
+      if (ch?.ctl.readyState !== "open") return false;
+      ch.ctl.send(JSON.stringify(m));
+      return true;
+    },
+    [ch],
+  );
 
-  const sendChat = useCallback((text: string): boolean => {
-    const item = prepareChat(text);
-    if (!item || !sendCtl({ t: "chat", id: item.id, text: item.text, ts: item.ts })) return false;
-    chatDispatch({ type: "out", item });
-    return true;
-  }, [sendCtl]);
+  const sendChat = useCallback(
+    (text: string): boolean => {
+      const item = prepareChat(text);
+      if (!item || !sendCtl({ t: "chat", id: item.id, text: item.text, ts: item.ts })) return false;
+      chatDispatch({ type: "out", item });
+      return true;
+    },
+    [sendCtl],
+  );
 
   /** Çizim gönder + yerelde uygula (geri al/temizle kendi listemizde de geçerli). */
-  const sendAnnot = useCallback((m: Extract<CtlMessage, { t: `annot.${string}` }>) => {
-    if (sendCtl(m) && m.t !== "annot.laser") setAnnot((s) => annotReducer(s, m));
-  }, [sendCtl]);
+  const sendAnnot = useCallback(
+    (m: Extract<CtlMessage, { t: `annot.${string}` }>) => {
+      if (sendCtl(m) && m.t !== "annot.laser") setAnnot((s) => annotReducer(s, m));
+    },
+    [sendCtl],
+  );
 
   return {
     ready: ch !== null,

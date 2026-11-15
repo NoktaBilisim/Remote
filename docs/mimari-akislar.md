@@ -1,7 +1,9 @@
 # Sequence Akışları
+
 Ana belge: `docs/mimari.md` §2. Mesaj adları `docs/mimari-protokol.md`, uçlar `docs/mimari-api.md` ile birebirdir.
 
 ## A1. Oturum oluşturma + tarayıcı modu katılımı
+
 ```mermaid
 sequenceDiagram
   autonumber
@@ -44,10 +46,12 @@ sequenceDiagram
   T-->C: DTLS-SRTP medya (P2P veya TURN)
   C->>S: share.state{sharing}
 ```
+
 Not (P3 giriş şartı 2): tüketim **yalnız** admit'teki tek atomik koşullu UPDATE ile olur; resolve ve join okur ama yazmaz, iptal/süre dolumu ile yarışta tek kazanan InnoDB satır kilidiyle belirlenir (mimari-protokol §3.2; P2 kalıbı `sessions/repo.ts` `cancelPending`). Resolve/join Origin kuralı: tarayıcı Origin'li + `clientKind=BROWSER` (ADR-0012).
 Not: getDisplayMedia join'den önce çağrılır; müşteri seçimi iptal ederse join yapılmaz (AC-30). Ret: `guest.reject{guestId}` → misafire `session.ended{rejected}`, oturum PENDING, kod geçerli (AC-113). Admit öncesi misafirden gelen `sdp.*`/`ice` → 1008.
 
 ## A2. Go istemci modu — kodla eşleme
+
 ```mermaid
 sequenceDiagram
   autonumber
@@ -82,6 +86,7 @@ sequenceDiagram
 ```
 
 ## A3. Kontrol izni ver / reddet / kapat
+
 ```mermaid
 sequenceDiagram
   autonumber
@@ -120,6 +125,7 @@ sequenceDiagram
 ```
 
 ## A4. Kopma, yeniden bağlanma, sonlandırma
+
 ```mermaid
 sequenceDiagram
   autonumber
@@ -145,11 +151,13 @@ sequenceDiagram
   S->>G: session.ended{tech}
   G->>G: AGENT: gate kapalı, yarım .part silinir (%TEMP% yazımı yok, ADR-0004 r2), 3 sn içinde çıkış (AC-107)
 ```
+
 Teknisyen tarafı kopması da aynı 120 sn kuralı ile; teknisyen sayfayı yenilediğinde çerez + sahiplik ile odaya döner.
 Max süre (AC-13): `maxDurationTimer` 5 dk kala `session.warning`, sonunda `session.ended{max_duration}`.
 İptal (AC-8): `POST /cancel` → DB CANCELLED + `active_code=NULL` + açık resolve/guest soketlerine `session.ended{cancelled}`; join TX'i `status=PENDING` koşullu UPDATE yapar (yarış yok).
 
 ## A5. Yönetici zorla sonlandırma ve canlı yetki iptali (G-04)
+
 ```mermaid
 sequenceDiagram
   autonumber
@@ -173,7 +181,9 @@ sequenceDiagram
 ```
 
 ## A7. Bilgisayar kaydı (P8c; mimari-e10 §2.1, §3.4, §15.1–15.4; ADR-0017)
+
 ### A7a. Kayıt verilmesi (her başarılı istemci oturumu)
+
 ```mermaid
 sequenceDiagram
   autonumber
@@ -204,6 +214,7 @@ sequenceDiagram
 ```
 
 ### A7b. Kayıtla talep
+
 ```mermaid
 sequenceDiagram
   autonumber
@@ -225,6 +236,7 @@ sequenceDiagram
 ```
 
 ### A7c. "Bu bilgisayarı unut"
+
 ```mermaid
 sequenceDiagram
   autonumber

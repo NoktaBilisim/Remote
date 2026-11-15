@@ -15,10 +15,14 @@ export function TenantFilters({ params }: { params: TenantListParams }) {
   const [pending, start] = useTransition();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const id = useId();
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
-  const go = (p: Partial<TenantListParams>) => start(() => router.replace(tenantsHref({ q: params.q, status: params.status, ...p, page: 1 })));
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const go = (p: Partial<TenantListParams>) =>
+    start(() => router.replace(tenantsHref({ q: params.q, status: params.status, ...p, page: 1 })));
   const onText = (v: string) => {
     setText(v);
     if (timer.current) clearTimeout(timer.current);
@@ -29,7 +33,9 @@ export function TenantFilters({ params }: { params: TenantListParams }) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between" data-testid="tenant-filters">
       <div className="flex w-full max-w-md flex-col gap-1.5">
-        <label htmlFor={id} className="text-sm font-medium text-fg">{t("tn.search")}</label>
+        <label htmlFor={id} className="text-sm font-medium text-fg">
+          {t("tn.search")}
+        </label>
         <div className="relative">
           <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-muted" />
           <input

@@ -9,7 +9,13 @@ import { lockedKeys } from "@/lib/users/permissions";
 import { NewUserDialog } from "./new-user-dialog";
 
 /** "Yeni kullanıcı" (yalnız `users.create`). Geçici şifre adımından sonra liste yenilenir veya yetki ekranına gidilir. */
-export function UsersActions({ actor, layout = "header" }: { actor: { role: string; permissions: readonly string[] }; layout?: "header" | "empty" }) {
+export function UsersActions({
+  actor,
+  layout = "header",
+}: {
+  actor: { role: string; permissions: readonly string[] };
+  layout?: "header" | "empty";
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const locked = useMemo(() => lockedKeys(actor), [actor]);

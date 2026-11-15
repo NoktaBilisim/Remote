@@ -27,7 +27,15 @@ describe("log tarama", () => {
     const parsed = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
     expect(parsed.filter((p) => "req" in p || "res" in p).every((p) => typeof p.reqId === "string")).toBe(true);
     const all = lines.join("\n");
-    for (const secret of [u.password, "Yanlis-Sifre-777", sessionToken, s.headers["x-csrf-token"], "gizli-bearer", "GizliLinkTokeni123", "GizliNonce"]) {
+    for (const secret of [
+      u.password,
+      "Yanlis-Sifre-777",
+      sessionToken,
+      s.headers["x-csrf-token"],
+      "gizli-bearer",
+      "GizliLinkTokeni123",
+      "GizliNonce",
+    ]) {
       expect(secret.length).toBeGreaterThan(0);
       expect(all).not.toContain(secret);
     }

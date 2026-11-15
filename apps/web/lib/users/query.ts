@@ -14,7 +14,8 @@ export interface UserListParams {
 
 type SP = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
-const pick = <T extends string>(v: string | undefined, allowed: readonly T[], fallback: T): T => ((allowed as readonly string[]).includes(v ?? "") ? (v as T) : fallback);
+const pick = <T extends string>(v: string | undefined, allowed: readonly T[], fallback: T): T =>
+  (allowed as readonly string[]).includes(v ?? "") ? (v as T) : fallback;
 
 export function parseUserParams(sp: SP): UserListParams {
   const page = Number(one(sp.page));

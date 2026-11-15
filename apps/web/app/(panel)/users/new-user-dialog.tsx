@@ -13,7 +13,15 @@ import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
 import { copyText } from "@/lib/use-now";
 import { USER_EMAIL_MAX, USER_FULL_NAME_MAX, type CreateUserResponse, type ManagedRole } from "@/lib/users/contract";
-import { buildCreateUser, emptyUserDraft, splitServerFields, USER_FIELDS, type Errors, type UserDraft, type UserField } from "@/lib/users/form";
+import {
+  buildCreateUser,
+  emptyUserDraft,
+  splitServerFields,
+  USER_FIELDS,
+  type Errors,
+  type UserDraft,
+  type UserField,
+} from "@/lib/users/form";
 import { applyRoleDefaults, forbiddenPermLabels, normalize } from "@/lib/users/permissions";
 
 /**
@@ -93,8 +101,29 @@ export function NewUserDialog({
         <form ref={formRef} onSubmit={submit} noValidate className="flex flex-col gap-4">
           {formError && <FormError error={formError} />}
           <fieldset disabled={busy} className="flex flex-col gap-4">
-            <TextField label={t("us.f.fullName")} value={d.fullName} onChange={set("fullName")} error={errors.fullName} maxLength={USER_FULL_NAME_MAX} autoComplete="off" required data-autofocus data-testid="uf-name" />
-            <TextField label={t("us.f.email")} type="email" value={d.email} onChange={set("email")} error={errors.email} maxLength={USER_EMAIL_MAX} autoComplete="off" spellCheck={false} required data-testid="uf-email" />
+            <TextField
+              label={t("us.f.fullName")}
+              value={d.fullName}
+              onChange={set("fullName")}
+              error={errors.fullName}
+              maxLength={USER_FULL_NAME_MAX}
+              autoComplete="off"
+              required
+              data-autofocus
+              data-testid="uf-name"
+            />
+            <TextField
+              label={t("us.f.email")}
+              type="email"
+              value={d.email}
+              onChange={set("email")}
+              error={errors.email}
+              maxLength={USER_EMAIL_MAX}
+              autoComplete="off"
+              spellCheck={false}
+              required
+              data-testid="uf-email"
+            />
             <SelectField
               label={t("us.f.role")}
               value={d.role}
@@ -109,7 +138,9 @@ export function NewUserDialog({
             />
           </fieldset>
           <div className="flex flex-col-reverse gap-2 border-t border-border pt-3 sm:flex-row sm:justify-end">
-            <Button type="button" variant="secondary" onClick={requestClose} disabled={busy}>{t("rq.rj.cancel")}</Button>
+            <Button type="button" variant="secondary" onClick={requestClose} disabled={busy}>
+              {t("rq.rj.cancel")}
+            </Button>
             <Button type="submit" loading={busy} data-testid="uf-submit">
               {!busy && <UserPlus aria-hidden className="size-4" />}
               {t("us.f.create")}
@@ -127,8 +158,18 @@ export function NewUserDialog({
         description={t("us.f.leaveBody")}
         footer={
           <>
-            <Button variant="secondary" data-autofocus onClick={() => setConfirmClose(false)} className="sm:ml-auto">{t("us.f.stay")}</Button>
-            <Button variant="danger-ghost" onClick={() => { setConfirmClose(false); onClose(); }}>{t("h.n.discard")}</Button>
+            <Button variant="secondary" data-autofocus onClick={() => setConfirmClose(false)} className="sm:ml-auto">
+              {t("us.f.stay")}
+            </Button>
+            <Button
+              variant="danger-ghost"
+              onClick={() => {
+                setConfirmClose(false);
+                onClose();
+              }}
+            >
+              {t("h.n.discard")}
+            </Button>
           </>
         }
       />
@@ -175,8 +216,12 @@ function TemporaryPassword({ created, onDone }: { created: CreateUserResponse; o
       footer={
         warn ? (
           <>
-            <Button ref={backRef} variant="secondary" onClick={() => setWarn(false)} className="sm:ml-auto">{t("us.pw.back")}</Button>
-            <Button variant="danger-ghost" onClick={() => onDone(false)} data-testid="pw-close-anyway">{t("us.pw.closeAnyway")}</Button>
+            <Button ref={backRef} variant="secondary" onClick={() => setWarn(false)} className="sm:ml-auto">
+              {t("us.pw.back")}
+            </Button>
+            <Button variant="danger-ghost" onClick={() => onDone(false)} data-testid="pw-close-anyway">
+              {t("us.pw.closeAnyway")}
+            </Button>
           </>
         ) : (
           <>
@@ -211,16 +256,30 @@ function TemporaryPassword({ created, onDone }: { created: CreateUserResponse; o
               data-testid="temp-password"
               className="min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-muted px-3 font-mono text-base tracking-wide text-fg sm:text-sm"
             />
-            <Button type="button" variant="secondary" onClick={() => void doCopy()} data-autofocus data-testid="pw-copy" className="shrink-0">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void doCopy()}
+              data-autofocus
+              data-testid="pw-copy"
+              className="shrink-0"
+            >
               {copy === "copied" ? <Check aria-hidden className="size-4 text-success" /> : <Copy aria-hidden className="size-4" />}
               {t("us.pw.copy")}
             </Button>
           </div>
-          <p role="status" className={copy === "idle" ? "sr-only" : `text-xs font-medium ${copy === "copied" ? "text-success" : "text-fg-muted"}`}>
+          <p
+            role="status"
+            className={copy === "idle" ? "sr-only" : `text-xs font-medium ${copy === "copied" ? "text-success" : "text-fg-muted"}`}
+          >
             {copy === "copied" ? t("us.pw.copied") : copy === "manual" ? t("us.pw.manual") : ""}
           </p>
         </div>
-        {warn && <Alert tone="danger" testId="pw-not-copied">{t("us.pw.notCopied")}</Alert>}
+        {warn && (
+          <Alert tone="danger" testId="pw-not-copied">
+            {t("us.pw.notCopied")}
+          </Alert>
+        )}
       </div>
     </Dialog>
   );

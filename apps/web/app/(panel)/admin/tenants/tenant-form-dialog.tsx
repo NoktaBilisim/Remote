@@ -11,13 +11,30 @@ import { api, ApiError } from "@/lib/api";
 import { toUiError, type UiError } from "@/lib/error-message";
 import { t } from "@/lib/i18n";
 import { TENANT_NAME_MAX, TENANT_SLUG_CONFLICT_MESSAGE, TENANT_SLUG_MAX, type TenantItem } from "@/lib/users/contract";
-import { buildTenant, splitServerFields, suggestSlug, TENANT_FIELDS, tenantDraftOf, type Errors, type TenantDraft, type TenantField } from "@/lib/users/form";
+import {
+  buildTenant,
+  splitServerFields,
+  suggestSlug,
+  TENANT_FIELDS,
+  tenantDraftOf,
+  type Errors,
+  type TenantDraft,
+  type TenantField,
+} from "@/lib/users/form";
 
 /**
  * Yeni firma / Düzenle (AC-70). Kısa ad yeni firmada addan önerilir (elle düzenlenince öneri durur); düzenlemede
  * değiştirmenin etkisi (eski giriş bağlantıları) uyarılır. 409 → kısa ad altında. Kirli formda kapatma onayı.
  */
-export function TenantFormDialog({ tenant, onClose, onSaved }: { tenant?: TenantItem; onClose: () => void; onSaved: (x: TenantItem) => void }) {
+export function TenantFormDialog({
+  tenant,
+  onClose,
+  onSaved,
+}: {
+  tenant?: TenantItem;
+  onClose: () => void;
+  onSaved: (x: TenantItem) => void;
+}) {
   const [base] = useState<TenantDraft>(() => tenantDraftOf(tenant));
   const [d, setD] = useState<TenantDraft>(base);
   const [slugTouched, setSlugTouched] = useState(Boolean(tenant));
@@ -51,7 +68,11 @@ export function TenantFormDialog({ tenant, onClose, onSaved }: { tenant?: Tenant
     if (tenant && Object.keys(r.body).length === 0) return onClose();
     setBusy(true);
     try {
-      onSaved(tenant ? await api<TenantItem>("PATCH", `/admin/tenants/${tenant.id}`, r.body) : await api<TenantItem>("POST", "/admin/tenants", r.body));
+      onSaved(
+        tenant
+          ? await api<TenantItem>("PATCH", `/admin/tenants/${tenant.id}`, r.body)
+          : await api<TenantItem>("POST", "/admin/tenants", r.body),
+      );
     } catch (err) {
       if (err instanceof ApiError && (err.status === 400 || err.status === 409) && err.fields) {
         const { errors: fe, rest } = splitServerFields(err.fields, TENANT_FIELDS);
@@ -112,10 +133,16 @@ export function TenantFormDialog({ tenant, onClose, onSaved }: { tenant?: Tenant
                 setErrors((x) => ({ ...x, slug: undefined }));
               }}
             />
-            {slugChanged && <Alert tone="warning" testId="tf-slug-warning">{t("tn.f.slugEditHint")}</Alert>}
+            {slugChanged && (
+              <Alert tone="warning" testId="tf-slug-warning">
+                {t("tn.f.slugEditHint")}
+              </Alert>
+            )}
           </fieldset>
           <div className="flex flex-col-reverse gap-2 border-t border-border pt-3 sm:flex-row sm:justify-end">
-            <Button type="button" variant="secondary" onClick={requestClose} disabled={busy}>{t("rq.rj.cancel")}</Button>
+            <Button type="button" variant="secondary" onClick={requestClose} disabled={busy}>
+              {t("rq.rj.cancel")}
+            </Button>
             <Button type="submit" loading={busy} data-testid="tf-submit">
               {!busy && <Save aria-hidden className="size-4" />}
               {tenant ? t("tn.f.save") : t("tn.f.create")}
@@ -133,8 +160,18 @@ export function TenantFormDialog({ tenant, onClose, onSaved }: { tenant?: Tenant
         description={t("tn.f.leaveBody")}
         footer={
           <>
-            <Button variant="secondary" data-autofocus onClick={() => setConfirmClose(false)} className="sm:ml-auto">{t("tn.f.stay")}</Button>
-            <Button variant="danger-ghost" onClick={() => { setConfirmClose(false); onClose(); }}>{t("h.n.discard")}</Button>
+            <Button variant="secondary" data-autofocus onClick={() => setConfirmClose(false)} className="sm:ml-auto">
+              {t("tn.f.stay")}
+            </Button>
+            <Button
+              variant="danger-ghost"
+              onClick={() => {
+                setConfirmClose(false);
+                onClose();
+              }}
+            >
+              {t("h.n.discard")}
+            </Button>
           </>
         }
       />

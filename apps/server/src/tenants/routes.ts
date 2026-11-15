@@ -92,10 +92,19 @@ export async function tenantSettingsRoutes(app: FastifyInstance): Promise<void> 
   app.addHook("preHandler", requireAuth);
   app.addHook("onSend", noStore);
 
-  app.get("", { preHandler: requirePerm("settings.view") }, async (req): Promise<TenantSettingsView> => getTenantSettings(app.db, tenantScope(req).tenantId));
+  app.get("", { preHandler: requirePerm("settings.view") }, async (req): Promise<TenantSettingsView> =>
+    getTenantSettings(app.db, tenantScope(req).tenantId),
+  );
 
   app.put("", { preHandler: requirePerm("settings.edit") }, async (req): Promise<TenantSettingsView> => {
     const { tenantId } = tenantScope(req);
-    return updateTenantSettings(app.db, app, auditContext(req), authOf(req), tenantId, parseInput(updateTenantSettingsInputSchema, req.body));
+    return updateTenantSettings(
+      app.db,
+      app,
+      auditContext(req),
+      authOf(req),
+      tenantId,
+      parseInput(updateTenantSettingsInputSchema, req.body),
+    );
   });
 }

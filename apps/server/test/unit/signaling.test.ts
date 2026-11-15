@@ -19,7 +19,11 @@ describe("TURN credential", () => {
     const turn = g.iceServers.find((s) => s.username);
     expect(g.expiresAt).toBe(now + 3_600_000);
     expect(turn?.username).toBe(`${(now + 3_600_000) / 1000}:S1`);
-    expect(turn?.credential).toBe(createHmac("sha1", cfg.secret).update(turn?.username ?? "").digest("base64"));
+    expect(turn?.credential).toBe(
+      createHmac("sha1", cfg.secret)
+        .update(turn?.username ?? "")
+        .digest("base64"),
+    );
     expect(iceServersFor(cfg, "S1", now, now + 10 * 60_000).expiresAt).toBe(now + 10 * 60_000);
   });
   it("AC-21: secret yoksa yalnız STUN, credential yok", () => {
@@ -65,7 +69,10 @@ describe("env (P3)", () => {
   const base = { NODE_ENV: "test", PUBLIC_BASE_URL: "https://rs.test", DATABASE_URL: "mysql://a:b@h/d" };
   it("turn: URL'si varken TURN_SECRET zorunlu; liste ayrıştırılır", () => {
     expect(() => loadEnv({ ...base, TURN_URLS: "stun:a:3478,turn:a:3478" })).toThrow("TURN_SECRET");
-    expect(loadEnv({ ...base, TURN_URLS: "stun:a:3478, turns:a:5349", TURN_SECRET: FAKE_TURN_SECRET_32 }).turnUrls).toEqual(["stun:a:3478", "turns:a:5349"]);
+    expect(loadEnv({ ...base, TURN_URLS: "stun:a:3478, turns:a:5349", TURN_SECRET: FAKE_TURN_SECRET_32 }).turnUrls).toEqual([
+      "stun:a:3478",
+      "turns:a:5349",
+    ]);
     expect(loadEnv({ ...base, TURN_URLS: "stun:a:3478" }).TURN_CRED_TTL_MIN).toBe(20);
   });
 });

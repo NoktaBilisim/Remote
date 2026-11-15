@@ -20,7 +20,11 @@ export type PublicClientKind = "BROWSER" | "AGENT";
  * Public istemci türü kuralı (ADR-0012, mimari-api "Public istemci türü"): Origin varsa allowlist + BROWSER;
  * yoksa yalnız AGENT ve `Sec-Fetch-Site`/`Sec-Fetch-Mode` yok. Upgrade isteğinde de aynı başlıklarla çağrılır.
  */
-export function publicClientAllowed(headers: Record<string, string | string[] | undefined>, allowedOrigins: readonly string[], kind: PublicClientKind): boolean {
+export function publicClientAllowed(
+  headers: Record<string, string | string[] | undefined>,
+  allowedOrigins: readonly string[],
+  kind: PublicClientKind,
+): boolean {
   const origin = headers.origin;
   if (origin !== undefined) return kind === "BROWSER" && typeof origin === "string" && allowedOrigins.includes(origin);
   return kind === "AGENT" && headers["sec-fetch-site"] === undefined && headers["sec-fetch-mode"] === undefined;
@@ -43,7 +47,9 @@ function checkCsrf(req: FastifyRequest): void {
  */
 export async function requireAuth(req: FastifyRequest): Promise<void> {
   const token = req.cookies[SESSION_COOKIE];
-  const auth = token ? await resolveSession(req.server.db, token, new Date(), { setupEnforced: req.server.mfaSetupEnforced, allowPartial: true }) : null;
+  const auth = token
+    ? await resolveSession(req.server.db, token, new Date(), { setupEnforced: req.server.mfaSetupEnforced, allowPartial: true })
+    : null;
   if (!auth) throw new AppError("UNAUTHENTICATED");
   if (UNSAFE_METHODS.has(req.method)) checkCsrf(req);
   const cfg = req.routeOptions.config;

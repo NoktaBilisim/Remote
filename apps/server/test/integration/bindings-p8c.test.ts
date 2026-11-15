@@ -15,7 +15,13 @@ import { connect, techHeaders, type WsClient } from "../helpers/ws.ts";
 import { seedTenantConsent } from "../../prisma/seed-consent.ts";
 
 const PROXY = { TRUSTED_PROXY_CIDR: "127.0.0.1/32" };
-const REQ_PERMS = { ...TECH_PERMS, "support_requests.view": true, "support_requests.accept": true, "customers.view": true, "customers.edit": true };
+const REQ_PERMS = {
+  ...TECH_PERMS,
+  "support_requests.view": true,
+  "support_requests.accept": true,
+  "customers.view": true,
+  "customers.edit": true,
+};
 const asText = (v: unknown) => JSON.stringify(v, (_k, x: unknown) => (typeof x === "bigint" ? String(x) : x));
 const errOf = (r: { json: <T>() => T }) => r.json<{ error: { code: string; message: string } }>().error;
 let ipSeq = 0;
@@ -73,7 +79,12 @@ async function issue(guest: WsClient, previousKey?: string) {
 }
 
 const status = (x: Ctx, bindingKey: string, ip = nextIp()) =>
-  x.l.app.inject({ method: "POST", url: "/api/v1/public/bindings/status", headers: { "x-forwarded-for": ip }, payload: { bindingKey, clientVersion: "0.10.0" } });
+  x.l.app.inject({
+    method: "POST",
+    url: "/api/v1/public/bindings/status",
+    headers: { "x-forwarded-for": ip },
+    payload: { bindingKey, clientVersion: "0.10.0" },
+  });
 const FAKE_KEY = `rsb_${"A".repeat(43)}`;
 
 describe("AC-181 kayıt verme (WS)", () => {
@@ -98,7 +109,8 @@ describe("AC-181 kayıt verme (WS)", () => {
     await g.guest.waitFor("binding.issued");
     g.guest.send({ t: "binding.request" });
     expect(await g.guest.waitFor("error")).toMatchObject({ code: "RATE_LIMITED" });
-    const metrics = (await x.l.app.inject({ method: "GET", url: "/metrics", headers: { authorization: `Bearer ${FAKE_METRICS_TOKEN}` } })).body;
+    const metrics = (await x.l.app.inject({ method: "GET", url: "/metrics", headers: { authorization: `Bearer ${FAKE_METRICS_TOKEN}` } }))
+      .body;
     expect(metrics).toMatch(/rs_bindings_issued_total\{renewed="false"\} [1-9]/);
     expect(metrics).toMatch(/rs_bindings_issued_total\{renewed="true"\} [1-9]/);
     expect(metrics).toMatch(/rs_requests_created_total\{via="ref"\} [1-9]/);
@@ -121,7 +133,10 @@ describe("AC-181 kayıt verme (WS)", () => {
     const c = await createCustomerRow(x.tenantId);
     const ip = nextIp();
     const consentTextId = (await testDb().consentText.findFirstOrThrow({ where: { tenantId: x.tenantId, isCurrent: true } })).id;
-    const cr = (await x.rc.createReq(c.requestRef, ip, { version: "0.10.0", consentTextId })).json<{ requestId: string; requestSecret: string }>();
+    const cr = (await x.rc.createReq(c.requestRef, ip, { version: "0.10.0", consentTextId })).json<{
+      requestId: string;
+      requestSecret: string;
+    }>();
     const reqWs = await x.rc.reqWs(cr.requestSecret);
     await waitMsg(reqWs, "request.state");
     await testDb().customer.update({ where: { id: c.id }, data: { refRotatedAt: new Date(Date.now() + 1000) } });
@@ -133,7 +148,9 @@ describe("AC-181 kayıt verme (WS)", () => {
     guest.send({ t: "binding.request" });
     expect(await guest.waitFor("error")).toMatchObject({ code: "CONFLICT", message: "Kayıt verilemedi" });
     expect(await testDb().deviceBinding.count({ where: { tenantId: x.tenantId } })).toBe(0);
-    expect(await testDb().auditLog.findFirstOrThrow({ where: { tenantId: x.tenantId, action: "binding.denied" } })).toMatchObject({ result: "fail" });
+    expect(await testDb().auditLog.findFirstOrThrow({ where: { tenantId: x.tenantId, action: "binding.denied" } })).toMatchObject({
+      result: "fail",
+    });
   });
 });
 
@@ -151,7 +168,10 @@ describe("AC-182 / AC-184 / AC-185 / AC-186 / AC-187 kayıtla talep ve geçersiz
     const r1 = await body(nextIp());
     expect(r1.statusCode, r1.body).toBe(201);
     const id1 = r1.json<{ requestId: string }>().requestId;
-    expect(await testDb().supportRequest.findUniqueOrThrow({ where: { id: id1 } })).toMatchObject({ customerId: c.id, bindingId: expect.any(String) });
+    expect(await testDb().supportRequest.findUniqueOrThrow({ where: { id: id1 } })).toMatchObject({
+      customerId: c.id,
+      bindingId: expect.any(String),
+    });
     const item = (await x.l.app.inject({ method: "GET", url: `/api/v1/support-requests/${id1}`, headers: x.tech.headers })).json();
     expect(item).toMatchObject({ customerFirm: { id: c.id }, viaBinding: true, bindingRevoked: false });
     const r2 = await body(nextIp());
@@ -168,11 +188,26 @@ describe("AC-182 / AC-184 / AC-185 / AC-186 / AC-187 kayıtla talep ve geçersiz
     const x = await boot();
     const g = await acceptedGuest(x, {});
     const { bindingKey } = await issue(g.guest);
-    const resolve = await x.l.app.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers: { "x-forwarded-for": nextIp() }, payload: { code: bindingKey } });
+    const resolve = await x.l.app.inject({
+      method: "POST",
+      url: "/api/v1/public/sessions/resolve",
+      headers: { "x-forwarded-for": nextIp() },
+      payload: { code: bindingKey },
+    });
     expect([400, 401, 404]).toContain(resolve.statusCode);
-    const resolve2 = await x.l.app.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers: { "x-forwarded-for": nextIp() }, payload: { bindingKey } });
+    const resolve2 = await x.l.app.inject({
+      method: "POST",
+      url: "/api/v1/public/sessions/resolve",
+      headers: { "x-forwarded-for": nextIp() },
+      payload: { bindingKey },
+    });
     expect([400, 401, 404]).toContain(resolve2.statusCode);
-    const join = await x.l.app.inject({ method: "POST", url: "/api/v1/public/sessions/join", headers: { "x-forwarded-for": nextIp() }, payload: { bindingKey, name: "X" } });
+    const join = await x.l.app.inject({
+      method: "POST",
+      url: "/api/v1/public/sessions/join",
+      headers: { "x-forwarded-for": nextIp() },
+      payload: { bindingKey, name: "X" },
+    });
     expect([400, 401, 404]).toContain(join.statusCode);
     await expect(x.rc.guestWs(bindingKey)).rejects.toThrow();
   });
@@ -184,7 +219,9 @@ describe("AC-182 / AC-184 / AC-185 / AC-186 / AC-187 kayıtla talep ve geçersiz
     const { bindingKey } = await issue(g.guest);
     const admin = await createUser({ tenantId: x.tenantId, role: "ADMIN" });
     const as = await loginAs(x.l.app, admin);
-    expect((await x.l.app.inject({ method: "POST", url: `/api/v1/customers/${c.id}/rotate-ref`, headers: as.headers, payload: {} })).statusCode).toBe(200);
+    expect(
+      (await x.l.app.inject({ method: "POST", url: `/api/v1/customers/${c.id}/rotate-ref`, headers: as.headers, payload: {} })).statusCode,
+    ).toBe(200);
     const row = await testDb().deviceBinding.findFirstOrThrow({ where: { tenantId: x.tenantId } });
     expect(row).toMatchObject({ keyHash: null, revokeReason: "CUSTOMER_ROTATED" });
     const s1 = await status(x, bindingKey);
@@ -204,10 +241,16 @@ describe("AC-182 / AC-184 / AC-185 / AC-186 / AC-187 kayıtla talep ve geçersiz
     const g = await acceptedGuest(x, {});
     const { bindingKey } = await issue(g.guest);
     const consentTextId = (await testDb().consentText.findFirstOrThrow({ where: { tenantId: x.tenantId, isCurrent: true } })).id;
-    const r = (await x.rc.createReq("unused", nextIp(), { consentTextId, extra: { ref: undefined, bindingKey }, version: "0.10.0" })).json<{ requestId: string }>();
-    const rv = (id: string) => x.l.app.inject({ method: "POST", url: `/api/v1/support-requests/${id}/revoke-binding`, headers: x.tech.headers, payload: {} });
+    const r = (await x.rc.createReq("unused", nextIp(), { consentTextId, extra: { ref: undefined, bindingKey }, version: "0.10.0" })).json<{
+      requestId: string;
+    }>();
+    const rv = (id: string) =>
+      x.l.app.inject({ method: "POST", url: `/api/v1/support-requests/${id}/revoke-binding`, headers: x.tech.headers, payload: {} });
     expect((await rv(r.requestId)).statusCode).toBe(204);
-    expect(await testDb().supportRequest.findUniqueOrThrow({ where: { id: r.requestId } })).toMatchObject({ status: "CANCELLED", cancelReason: "BINDING_REVOKED" });
+    expect(await testDb().supportRequest.findUniqueOrThrow({ where: { id: r.requestId } })).toMatchObject({
+      status: "CANCELLED",
+      cancelReason: "BINDING_REVOKED",
+    });
     expect((await rv(r.requestId)).statusCode).toBe(409);
     expect((await rv(g.requestId)).statusCode).toBe(404); // ref'ten açılmış, kaydı yok
     expect((await testDb().deviceBinding.findFirstOrThrow({ where: { tenantId: x.tenantId } })).revokeReason).toBe("ADMIN_REVOKED");
@@ -215,7 +258,10 @@ describe("AC-182 / AC-184 / AC-185 / AC-186 / AC-187 kayıtla talep ve geçersiz
     const g2 = await acceptedGuest(x, {});
     await issue(g2.guest);
     const admin = await loginAs(x.l.app, await createUser({ tenantId: x.tenantId, role: "ADMIN" }));
-    expect((await x.l.app.inject({ method: "POST", url: "/api/v1/settings/support-requests/rotate-ref", headers: admin.headers, payload: {} })).statusCode).toBe(200);
+    expect(
+      (await x.l.app.inject({ method: "POST", url: "/api/v1/settings/support-requests/rotate-ref", headers: admin.headers, payload: {} }))
+        .statusCode,
+    ).toBe(200);
     expect(await testDb().deviceBinding.count({ where: { tenantId: x.tenantId, revokedAt: null } })).toBe(0);
     expect(await testDb().deviceBinding.count({ where: { tenantId: x.tenantId, revokeReason: "GENERAL_ROTATED" } })).toBe(1);
   });
@@ -240,11 +286,20 @@ describe("AC-182 / AC-184 / AC-185 / AC-186 / AC-187 kayıtla talep ve geçersiz
     const x = await boot();
     const g = await acceptedGuest(x, {});
     const { bindingKey } = await issue(g.guest);
-    const rv = (payload: unknown) => x.l.app.inject({ method: "POST", url: "/api/v1/public/bindings/revoke", headers: { "x-forwarded-for": nextIp() }, payload: payload as Record<string, unknown> });
+    const rv = (payload: unknown) =>
+      x.l.app.inject({
+        method: "POST",
+        url: "/api/v1/public/bindings/revoke",
+        headers: { "x-forwarded-for": nextIp() },
+        payload: payload as Record<string, unknown>,
+      });
     expect((await rv({ bindingKey: FAKE_KEY })).statusCode).toBe(204);
     expect((await rv({ foo: 1 })).statusCode).toBe(204);
     expect((await rv({ bindingKey })).statusCode).toBe(204);
-    expect(await testDb().deviceBinding.findFirstOrThrow({ where: { tenantId: x.tenantId } })).toMatchObject({ revokeReason: "FORGOTTEN", keyHash: null });
+    expect(await testDb().deviceBinding.findFirstOrThrow({ where: { tenantId: x.tenantId } })).toMatchObject({
+      revokeReason: "FORGOTTEN",
+      keyHash: null,
+    });
     expect((await rv({ bindingKey })).statusCode).toBe(204);
     expect(await testDb().auditLog.count({ where: { tenantId: x.tenantId, action: "binding.revoked" } })).toBe(1);
   });
@@ -269,7 +324,10 @@ describe("AC-182 / AC-184 / AC-185 / AC-186 / AC-187 kayıtla talep ve geçersiz
     const g3 = await acceptedGuest(y, {});
     const m3 = await issue(g3.guest, m2.bindingKey);
     expect(m3).toMatchObject({ renewed: false, customerFirmName: null });
-    expect(await testDb().deviceBinding.findFirstOrThrow({ where: { tenantId: x.tenantId } })).toMatchObject({ revokeReason: "REPLACED", keyHash: null });
+    expect(await testDb().deviceBinding.findFirstOrThrow({ where: { tenantId: x.tenantId } })).toMatchObject({
+      revokeReason: "REPLACED",
+      keyHash: null,
+    });
     const replaced = await testDb().auditLog.findFirstOrThrow({ where: { tenantId: x.tenantId, action: "binding.revoked" } });
     expect(asText(replaced)).not.toContain(t2.id); // karşı tenant kimliği yazılmaz
   });
@@ -290,8 +348,10 @@ describe("K20 hız kovaları", () => {
 // ------------------------------------------------------------------ P8c-1 düzeltme turu 1 (QA 1–7, güvenlik B-P8c-1..6)
 
 const consentOf = async (tenantId: string) => (await testDb().consentText.findFirstOrThrow({ where: { tenantId, isCurrent: true } })).id;
-const viaKey = async (x: Ctx, bindingKey: string, ip = nextIp()) => x.rc.createReq("unused", ip, { consentTextId: await consentOf(x.tenantId), extra: { ref: undefined, bindingKey }, version: "0.10.0" });
-const metricsOf = async (x: Ctx) => (await x.l.app.inject({ method: "GET", url: "/metrics", headers: { authorization: `Bearer ${FAKE_METRICS_TOKEN}` } })).body;
+const viaKey = async (x: Ctx, bindingKey: string, ip = nextIp()) =>
+  x.rc.createReq("unused", ip, { consentTextId: await consentOf(x.tenantId), extra: { ref: undefined, bindingKey }, version: "0.10.0" });
+const metricsOf = async (x: Ctx) =>
+  (await x.l.app.inject({ method: "GET", url: "/metrics", headers: { authorization: `Bearer ${FAKE_METRICS_TOKEN}` } })).body;
 
 describe("AC-181 negatif yollar (kayıt yazılmaz)", () => {
   it("AC-181: lobideki (admit öncesi) misafirin binding.request'i 1008 ile kapanır; BROWSER misafir teklif almaz ve FORBIDDEN; teklifsiz AGENT CONFLICT — hiçbirinde kayıt yok", async () => {
@@ -322,7 +382,9 @@ describe("AC-181 negatif yollar (kayıt yazılmaz)", () => {
     g.guest.send({ t: "binding.request" });
     expect(await g.guest.waitFor("error")).toMatchObject({ code: "CONFLICT" });
     expect(await testDb().deviceBinding.count({ where: { tenantId: x.tenantId } })).toBe(0);
-    expect((await testDb().auditLog.findFirstOrThrow({ where: { tenantId: x.tenantId, action: "binding.denied" } })).newValue).toMatchObject({ reason: "inactive" });
+    expect(
+      (await testDb().auditLog.findFirstOrThrow({ where: { tenantId: x.tenantId, action: "binding.denied" } })).newValue,
+    ).toMatchObject({ reason: "inactive" });
     expect(await metricsOf(x)).toMatch(/rs_binding_denied_total\{reason="inactive"\} [1-9]/);
   });
 });
@@ -337,7 +399,10 @@ describe("§15.1 (2)(3) iptal edilmiş kayıttan açılan talep", () => {
     expect(cr.statusCode, cr.body).toBe(201);
     const { requestId, requestSecret } = cr.json<{ requestId: string; requestSecret: string }>();
     // iptal (bekleyen kalsın diye doğrudan DB; panel ucu bekleyeni de kapatır)
-    await testDb().deviceBinding.updateMany({ where: { tenantId: x.tenantId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: "ADMIN_REVOKED", keyHash: null } });
+    await testDb().deviceBinding.updateMany({
+      where: { tenantId: x.tenantId, revokedAt: null },
+      data: { revokedAt: new Date(), revokeReason: "ADMIN_REVOKED", keyHash: null },
+    });
     const item = (await x.l.app.inject({ method: "GET", url: `/api/v1/support-requests/${requestId}`, headers: x.tech.headers })).json();
     expect(item).toMatchObject({ viaBinding: false, bindingRevoked: true, staleSource: true, customerFirm: { id: c.id } });
     const reqWs = await x.rc.reqWs(requestSecret);
@@ -397,7 +462,9 @@ describe("AC-184 kayıt anahtarı yalnız talep açar", () => {
     await expect(x.rc.reqWs(bindingKey)).rejects.toThrow(/HTTP 40[34]/);
     await expect(connect(`${x.l.base}/ws/guest`, ["rs.v1", `rs.reconnect.${bindingKey}`])).rejects.toThrow(/HTTP 40[34]/);
     await expect(connect(`${x.l.base}/ws/guest`, ["rs.v1", `rs.ticket.${bindingKey}`])).rejects.toThrow(/HTTP 40[34]/);
-    await expect(connect(`${x.l.base}/ws/tech?sessionId=${g.sessionId}`, ["rs.v1"], techHeaders(bindingKey, ORIGIN))).rejects.toThrow(/HTTP 40[34]/);
+    await expect(connect(`${x.l.base}/ws/tech?sessionId=${g.sessionId}`, ["rs.v1"], techHeaders(bindingKey, ORIGIN))).rejects.toThrow(
+      /HTTP 40[34]/,
+    );
     expect(x.logs.join("\n")).not.toContain(bindingKey);
   });
 });
@@ -462,7 +529,11 @@ describe("B-P8c-1 pasife alma yarışı", () => {
     const acc = await x.rc.accept(x.tech.headers, requestId);
     expect(acc.statusCode).toBe(409);
     expect(errOf(acc).code).toBe("REQUEST_CLOSED");
-    expect(await testDb().supportRequest.findUniqueOrThrow({ where: { id: requestId } })).toMatchObject({ status: "CANCELLED", cancelReason: "CUSTOMER_PASSIVE", acceptedBy: null });
+    expect(await testDb().supportRequest.findUniqueOrThrow({ where: { id: requestId } })).toMatchObject({
+      status: "CANCELLED",
+      cancelReason: "CUSTOMER_PASSIVE",
+      acceptedBy: null,
+    });
     expect(await testDb().supportSession.count({ where: { requestId } })).toBe(0);
     // talep TX'i pasif müşteriyi FOR SHARE ile görür: yeni talep yazılmaz (tek 404)
     const again = await x.rc.createReq(c.requestRef, nextIp(), { version: "0.10.0", consentTextId: await consentOf(x.tenantId) });
@@ -473,9 +544,14 @@ describe("B-P8c-1 pasife alma yarışı", () => {
     const p2 = await x.rc.createReq(c2.requestRef, nextIp(), { version: "0.10.0", consentTextId: await consentOf(x.tenantId) });
     expect([p1.statusCode, p2.statusCode]).toEqual([201, 201]);
     const admin = await loginAs(x.l.app, await createUser({ tenantId: x.tenantId, role: "ADMIN" }));
-    expect((await x.l.app.inject({ method: "POST", url: `/api/v1/customers/${c2.id}/deactivate`, headers: admin.headers, payload: {} })).statusCode).toBe(200);
+    expect(
+      (await x.l.app.inject({ method: "POST", url: `/api/v1/customers/${c2.id}/deactivate`, headers: admin.headers, payload: {} }))
+        .statusCode,
+    ).toBe(200);
     expect(await testDb().supportRequest.count({ where: { customerId: c2.id, status: "PENDING" } })).toBe(0);
-    const d = await testDb().auditLog.findFirstOrThrow({ where: { tenantId: x.tenantId, action: "customer.deactivated", entityId: c2.id } });
+    const d = await testDb().auditLog.findFirstOrThrow({
+      where: { tenantId: x.tenantId, action: "customer.deactivated", entityId: c2.id },
+    });
     expect(d.newValue).toMatchObject({ cancelledRequests: 2 });
   });
 
@@ -486,7 +562,8 @@ describe("B-P8c-1 pasife alma yarışı", () => {
     // Yarış benzetimi: peek ACTIVE döndükten SONRA, TX'ten ÖNCE müşteri pasife alınır (pasife alma TX'inin commit'i).
     const spy = vi.spyOn(RequestService.prototype, "resolveRef").mockImplementation(async function (this: RequestService, ref: unknown) {
       const r = await real.call(this, ref);
-      if (r?.customer?.id === c.id) await testDb().customer.update({ where: { id: c.id }, data: { status: "PASSIVE", passiveAt: new Date() } });
+      if (r?.customer?.id === c.id)
+        await testDb().customer.update({ where: { id: c.id }, data: { status: "PASSIVE", passiveAt: new Date() } });
       return r;
     });
     try {
@@ -502,7 +579,11 @@ describe("B-P8c-1 pasife alma yarışı", () => {
 });
 
 /** InnoDB kilitlenme kurbanının Prisma 7 sürücü bağdaştırıcısı şekli (P2034 / 1213). */
-const deadlock = () => Object.assign(new Prisma.PrismaClientKnownRequestError("Deadlock found when trying to get lock", { code: "P2034", clientVersion: "test" }), { meta: { driverAdapterError: { cause: { code: 1213 } } } });
+const deadlock = () =>
+  Object.assign(
+    new Prisma.PrismaClientKnownRequestError("Deadlock found when trying to get lock", { code: "P2034", clientVersion: "test" }),
+    { meta: { driverAdapterError: { cause: { code: 1213 } } } },
+  );
 
 describe("B-P8c2-2 pasife alma / ref yenilemede geçici DB hatası", () => {
   const adminOf = async (x: Ctx) => loginAs(x.l.app, await createUser({ tenantId: x.tenantId, role: "ADMIN" }));
@@ -561,8 +642,16 @@ describe("B-P8c-3 revoke-binding yetkisi", () => {
     const g = await acceptedGuest(x, {});
     const { bindingKey } = await issue(g.guest);
     const r = (await viaKey(x, bindingKey)).json<{ requestId: string }>();
-    const u = await loginAs(x.l.app, await createUser({ tenantId: x.tenantId, role: "USER", perms: { "customers.view": true, "customers.edit": true } }));
-    const res = await x.l.app.inject({ method: "POST", url: `/api/v1/support-requests/${r.requestId}/revoke-binding`, headers: u.headers, payload: {} });
+    const u = await loginAs(
+      x.l.app,
+      await createUser({ tenantId: x.tenantId, role: "USER", perms: { "customers.view": true, "customers.edit": true } }),
+    );
+    const res = await x.l.app.inject({
+      method: "POST",
+      url: `/api/v1/support-requests/${r.requestId}/revoke-binding`,
+      headers: u.headers,
+      payload: {},
+    });
     expect(res.statusCode).toBe(403);
     expect(await testDb().deviceBinding.count({ where: { tenantId: x.tenantId, revokedAt: null } })).toBe(1);
   });
@@ -593,7 +682,10 @@ describe("AC-192 talepten doğan oturumda TURN", () => {
     expect(iceAt).toBeLessThan(order.indexOf("peer.joined"));
     const ice = tech.msgs[iceAt] as Extract<(typeof tech.msgs)[number], { t: "ice.servers" }>;
     expect(ice.iceServers.some((s) => [s.urls].flat().some((u) => u.startsWith("turn:")) && s.username && s.credential)).toBe(true);
-    expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: sessionId } })).toMatchObject({ customerId: c.id, status: "ACTIVE" });
+    expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: sessionId } })).toMatchObject({
+      customerId: c.id,
+      status: "ACTIVE",
+    });
   });
 });
 
@@ -605,7 +697,8 @@ describe("AC-188 seed aydınlatma metni", () => {
     const cur = await testDb().consentText.findFirstOrThrow({ where: { tenantId: t.id, isCurrent: true } });
     expect(cur.version).toBe(before.version + 1);
     expect(cur.createdBy).toBeNull();
-    for (const s of ["Bu bilgisayarı unut", "kayıt anahtarı", "saklama süresi", "tek yönlü özeti", "Seed Firma"]) expect(cur.body).toContain(s);
+    for (const s of ["Bu bilgisayarı unut", "kayıt anahtarı", "saklama süresi", "tek yönlü özeti", "Seed Firma"])
+      expect(cur.body).toContain(s);
     expect((await testDb().consentText.findUniqueOrThrow({ where: { id: before.id } })).isCurrent).toBe(false);
     expect(await seedTenantConsent(testDb(), { id: t.id, name: "Seed Firma" })).toBe(false);
     expect(await testDb().consentText.count({ where: { tenantId: t.id } })).toBe(2);

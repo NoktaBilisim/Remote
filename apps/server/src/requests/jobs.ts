@@ -25,7 +25,16 @@ export async function sweepRequests(svc: RequestService, now = new Date(svc.d.cl
   for (const r of await repo.findExpired(svc.d.db, now, BATCH)) {
     const ok = await svc.d.db.$transaction(async (tx) => {
       if ((await repo.expireOne(tx, r.id, now)) === 0) return false;
-      await writeAudit(tx, SYSTEM_CTX, { tenantId: r.tenantId, ...SYSTEM, action: "request.expired", entity: "support_requests", entityId: r.id, result: "success", oldValue: { status: "PENDING" }, newValue: { status: "EXPIRED" } });
+      await writeAudit(tx, SYSTEM_CTX, {
+        tenantId: r.tenantId,
+        ...SYSTEM,
+        action: "request.expired",
+        entity: "support_requests",
+        entityId: r.id,
+        result: "success",
+        oldValue: { status: "PENDING" },
+        newValue: { status: "EXPIRED" },
+      });
       return true;
     });
     if (!ok) continue;
@@ -35,7 +44,8 @@ export async function sweepRequests(svc: RequestService, now = new Date(svc.d.cl
     svc.d.hub.queueChanged(r.tenantId);
     await svc.publishCount(r.tenantId);
   }
-  for (const r of await repo.findConnectDue(svc.d.db, now, BATCH)) if (await svc.connectTimeout(r.id, "connect_timeout")) out.connectFailed++;
+  for (const r of await repo.findConnectDue(svc.d.db, now, BATCH))
+    if (await svc.connectTimeout(r.id, "connect_timeout")) out.connectFailed++;
   for (const r of await repo.findPassivePending(svc.d.db, BATCH)) if (await svc.cancelSystem(r.id, "TENANT_PASSIVE")) out.tenantPassive++;
   out.customerPassive = await sweepCustomerPassive(svc, BATCH);
   out.bindingsRevoked = await sweepPassiveTenantBindings(svc);
@@ -49,7 +59,12 @@ export const pendingGauge = { value: 0 };
 /** Açılış (§3.5): PENDING talepler için 120 sn tolerans — istemciler yeniden bağlanabilir; bağlanmayan DISCONNECTED olur. */
 export async function armOrphanedPending(svc: RequestService): Promise<number> {
   const rows = await repo.findAllPending(svc.d.db, 10_000);
-  for (const r of rows) svc.d.hub.setDisconnect(r.id, () => void svc.cancelSystem(r.id, "DISCONNECTED").catch((e: unknown) => svc.logErr(e, "request_disconnect")), svc.d.timing.requestDisconnectMs);
+  for (const r of rows)
+    svc.d.hub.setDisconnect(
+      r.id,
+      () => void svc.cancelSystem(r.id, "DISCONNECTED").catch((e: unknown) => svc.logErr(e, "request_disconnect")),
+      svc.d.timing.requestDisconnectMs,
+    );
   return rows.length;
 }
 

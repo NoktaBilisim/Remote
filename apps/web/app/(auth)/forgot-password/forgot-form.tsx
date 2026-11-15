@@ -47,7 +47,10 @@ export function ForgotForm() {
   }
 
   const back = (
-    <Link href="/login" className="inline-flex min-h-11 items-center justify-center gap-2 self-center rounded-md px-3 text-sm font-medium text-primary hover:underline">
+    <Link
+      href="/login"
+      className="inline-flex min-h-11 items-center justify-center gap-2 self-center rounded-md px-3 text-sm font-medium text-primary hover:underline"
+    >
       <ArrowLeft aria-hidden className="size-4" />
       {t("fp.back")}
     </Link>

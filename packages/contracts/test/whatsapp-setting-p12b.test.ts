@@ -6,7 +6,15 @@ const parse = (url: unknown) => whatsappSettingsInputSchema.safeParse({ url });
 
 describe("P12b WhatsApp servis adresi sözleşmesi", () => {
   it("AC-196: http/https, port, yol, IPv6, tam 200 karakter kabul; sondaki / kırpılır", () => {
-    for (const url of ["http://203.0.113.10:3000", "http://localhost:3000", "https://wa.example.com", "https://wa.example.com:8443/api/v1", "http://[2001:db8::5]:3000", "http://x", `https://${"a".repeat(192)}`]) {
+    for (const url of [
+      "http://203.0.113.10:3000",
+      "http://localhost:3000",
+      "https://wa.example.com",
+      "https://wa.example.com:8443/api/v1",
+      "http://[2001:db8::5]:3000",
+      "http://x",
+      `https://${"a".repeat(192)}`,
+    ]) {
       const r = parse(url);
       expect(r.success, url).toBe(true);
       expect(r.data?.url).toBe(url);
@@ -55,7 +63,8 @@ describe("P12b WhatsApp servis adresi sözleşmesi", () => {
   it("AC-196: test girdisi E.164 / 90… (servise + olmadan gider; normalize +90…); geçersiz numara reddi", () => {
     expect(whatsappAdminTestInputSchema.parse({ phoneNumber: "0532 111 22 33" }).phoneNumber).toBe("+905321112233");
     expect(whatsappAdminTestInputSchema.parse({ phoneNumber: "905321112233" }).phoneNumber).toBe("+905321112233");
-    for (const p of ["", "abc", "+0123", "1".repeat(41)]) expect(whatsappAdminTestInputSchema.safeParse({ phoneNumber: p }).success, p).toBe(false);
+    for (const p of ["", "abc", "+0123", "1".repeat(41)])
+      expect(whatsappAdminTestInputSchema.safeParse({ phoneNumber: p }).success, p).toBe(false);
     expect(whatsappAdminTestInputSchema.safeParse({ phone: "+905321112233" }).success).toBe(false);
   });
 

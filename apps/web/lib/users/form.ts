@@ -28,7 +28,10 @@ function issuesToErrors<F extends string>(error: z.ZodError, fields: readonly F[
 }
 
 /** Sunucu `fields` → bilinen alanlar + kalan mesajlar (form üstünde). */
-export function splitServerFields<F extends string>(fields: Record<string, string>, known: readonly F[]): { errors: Errors<F>; rest: string[] } {
+export function splitServerFields<F extends string>(
+  fields: Record<string, string>,
+  known: readonly F[],
+): { errors: Errors<F>; rest: string[] } {
   const errors: Errors<F> = {};
   const rest: string[] = [];
   for (const [k, v] of Object.entries(fields)) {
@@ -56,7 +59,10 @@ export const userDraftOf = (u: Pick<UserDetail, "fullName" | "email" | "role">):
   role: u.role === "ADMIN" ? "ADMIN" : "USER",
 });
 
-export function buildCreateUser(d: UserDraft, permissions: PermState): { ok: true; body: CreateUserInput } | { ok: false; errors: Errors<UserField> } {
+export function buildCreateUser(
+  d: UserDraft,
+  permissions: PermState,
+): { ok: true; body: CreateUserInput } | { ok: false; errors: Errors<UserField> } {
   const r = createUserInputSchema.safeParse({ ...d, permissions });
   return r.success ? { ok: true, body: r.data } : { ok: false, errors: issuesToErrors(r.error, USER_FIELDS) };
 }
@@ -114,7 +120,10 @@ export function suggestSlug(name: string): string {
 
 export const tenantDraftOf = (x?: Pick<TenantItem, "name" | "slug">): TenantDraft => ({ name: x?.name ?? "", slug: x?.slug ?? "" });
 
-export function buildTenant(d: TenantDraft, base?: TenantDraft): { ok: true; body: CreateTenantInput | UpdateTenantInput } | { ok: false; errors: Errors<TenantField> } {
+export function buildTenant(
+  d: TenantDraft,
+  base?: TenantDraft,
+): { ok: true; body: CreateTenantInput | UpdateTenantInput } | { ok: false; errors: Errors<TenantField> } {
   const r = createTenantInputSchema.safeParse(d);
   if (!r.success) return { ok: false, errors: issuesToErrors(r.error, TENANT_FIELDS) };
   if (!base) return { ok: true, body: r.data };

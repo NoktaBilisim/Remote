@@ -44,7 +44,7 @@ describe("AC-130 file_label", () => {
     expect(fileLabelOf("ş".repeat(25))).toBe("s".repeat(20));
   });
 
-  it("AC-130: ASCII'ye indirgenemeyen / boş ad → \"Firma\"", () => {
+  it('AC-130: ASCII\'ye indirgenemeyen / boş ad → "Firma"', () => {
     expect(fileLabelOf("")).toBe("Firma");
     expect(fileLabelOf("   ")).toBe("Firma");
     expect(fileLabelOf("—…!?")).toBe("Firma");

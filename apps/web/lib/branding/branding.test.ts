@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { ApiError, api } from "@/lib/api";
-import { IMAGE_DIMENSIONS_MESSAGE, INVALID_IMAGE_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE, UPLOAD_MAX_BYTES, isDefaultLogo, precheckDimensions, precheckFile, squareCrop, uploadBody, uploadError } from "@/lib/branding/image";
+import {
+  IMAGE_DIMENSIONS_MESSAGE,
+  INVALID_IMAGE_MESSAGE,
+  PAYLOAD_TOO_LARGE_MESSAGE,
+  UPLOAD_MAX_BYTES,
+  isDefaultLogo,
+  precheckDimensions,
+  precheckFile,
+  squareCrop,
+  uploadBody,
+  uploadError,
+} from "@/lib/branding/image";
 import { cookieToTheme, htmlThemeClass, isTheme, resolveTheme, themeCookieString, themeToCookie } from "@/lib/theme";
 
 describe("P12 tema çözümleme (AC-85)", () => {

@@ -2,7 +2,19 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 /** Ayar formu bölümü (SMTP formundaki bölümle aynı görünüm): `surface` kart, ikonlu h2. */
-export function Section({ id, title, Icon, children, aside }: { id: string; title: string; Icon: LucideIcon; children: ReactNode; aside?: ReactNode }) {
+export function Section({
+  id,
+  title,
+  Icon,
+  children,
+  aside,
+}: {
+  id: string;
+  title: string;
+  Icon: LucideIcon;
+  children: ReactNode;
+  aside?: ReactNode;
+}) {
   return (
     <section aria-labelledby={`${id}-h`} className="rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -21,10 +33,31 @@ export function Section({ id, title, Icon, children, aside }: { id: string; titl
  * Kaynak rozeti: panelde kayıtlı / ortam değişkenleri. Renk yalnız değil, metin.
  * Panel `primary-surface`; ortam nötr `surface-muted`.
  */
-export function SourceBadge({ source, panel, env, none, testId = "setting-source" }: { source: "panel" | "env" | null; panel: string; env: string; none?: string; testId?: string }) {
-  const cls = source === "panel" ? "bg-primary-surface text-primary" : source === "env" ? "bg-surface-muted text-fg" : "border border-dashed border-border bg-surface-muted text-fg-muted";
+export function SourceBadge({
+  source,
+  panel,
+  env,
+  none,
+  testId = "setting-source",
+}: {
+  source: "panel" | "env" | null;
+  panel: string;
+  env: string;
+  none?: string;
+  testId?: string;
+}) {
+  const cls =
+    source === "panel"
+      ? "bg-primary-surface text-primary"
+      : source === "env"
+        ? "bg-surface-muted text-fg"
+        : "border border-dashed border-border bg-surface-muted text-fg-muted";
   return (
-    <span data-testid={testId} data-source={source ?? "none"} className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
+    <span
+      data-testid={testId}
+      data-source={source ?? "none"}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}
+    >
       {source === "panel" ? panel : source === "env" ? env : (none ?? env)}
     </span>
   );

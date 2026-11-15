@@ -32,7 +32,11 @@ export function AgentDownload({
   const guideId = useId();
   const [state, setState] = useState<State>("idle");
   const [detail, setDetail] = useState<string | undefined>();
-  const host = useSyncExternalStore(noop, () => window.location.host, () => "");
+  const host = useSyncExternalStore(
+    noop,
+    () => window.location.host,
+    () => "",
+  );
   const href = agentDownloadUrl(sessionRef);
   const checking = state === "checking";
 

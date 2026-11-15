@@ -26,9 +26,16 @@ async function firstPaintClass(p: Page, path = "/") {
   const html = await (await p.request.get(path)).text();
   return /<html[^>]*>/.exec(html)?.[0] ?? "";
 }
-const png = (w: number, h: number) => sharp({ create: { width: w, height: h, channels: 3, background: { r: 10, g: 108, b: 176 } } }).png().toBuffer();
+const png = (w: number, h: number) =>
+  sharp({ create: { width: w, height: h, channels: 3, background: { r: 10, g: 108, b: 176 } } })
+    .png()
+    .toBuffer();
 
-test("AC-85 kritik akış: tema menüden seçilir → anında uygulanır → yenilemede ilk boyamada doğru; başka cihaz aynı tema", async ({ page, context, browser }, info) => {
+test("AC-85 kritik akış: tema menüden seçilir → anında uygulanır → yenilemede ilk boyamada doğru; başka cihaz aynı tema", async ({
+  page,
+  context,
+  browser,
+}, info) => {
   desktopOnly(info.project.name);
   const sid = await signInBr(context, "br");
   await page.emulateMedia({ colorScheme: "light" });
@@ -80,7 +87,10 @@ test("AC-85: oturumsuz giriş ekranı tarayıcıdaki son tercihe uyar (çerez), 
   expect(await firstPaintClass(page, "/login")).toMatch(/class="dark"/);
 });
 
-test("AC-83 kritik akış: avatar yükle (kare kırp) → üst menüde görünür → kaldır (onaylı); hatalı dosyalar reddedilir", async ({ page, context }, info) => {
+test("AC-83 kritik akış: avatar yükle (kare kırp) → üst menüde görünür → kaldır (onaylı); hatalı dosyalar reddedilir", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInBr(context, "br");
   await page.goto("/account");
@@ -112,7 +122,9 @@ test("AC-83 kritik akış: avatar yükle (kare kırp) → üst menüde görünü
   await expect(page.getByTestId("toast").last()).toContainText("Profil resmi güncellendi");
   await expect(up).toHaveAttribute("data-has-avatar", "true");
   await expect(page.locator("img[data-testid=current-user-avatar]")).toBeVisible(); // üst menü
-  const dims = await page.locator("img[data-testid=avatar-uploader-image]").evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight]);
+  const dims = await page
+    .locator("img[data-testid=avatar-uploader-image]")
+    .evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight]);
   expect(dims).toEqual([256, 256]);
 
   // Kaldır: onay diyaloğu, odak Vazgeç'te
@@ -125,7 +137,10 @@ test("AC-83 kritik akış: avatar yükle (kare kırp) → üst menüde görünü
   await expect(page.getByTestId("current-user-avatar")).toHaveText("MM");
 });
 
-test("AC-81 kritik akış: firma logosu önizleme → kaydet → üst menüde; sunucu reddi; kaldır → sistem logosu", async ({ page, context }, info) => {
+test("AC-81 kritik akış: firma logosu önizleme → kaydet → üst menüde; sunucu reddi; kaldır → sistem logosu", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInBr(context, "br");
   await page.goto("/settings/logo");
@@ -169,14 +184,20 @@ test("AC-82: login her zaman logo gösterir — ?tenant=<slug> firmanın logosu,
 });
 
 const DIMS = "Resim boyutları uygun değil";
-test("Sayfa testi bulgusu: boyut/oran reddi doğru mesajla — logo ve avatar 3000×40 / 8×8 (ön kontrol) + sunucu mesajı", async ({ page, context }, info) => {
+test("Sayfa testi bulgusu: boyut/oran reddi doğru mesajla — logo ve avatar 3000×40 / 8×8 (ön kontrol) + sunucu mesajı", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInBr(context, "br");
   await page.goto("/settings/logo");
   await expect(page.getByTestId("logo-uploader")).toHaveAttribute("data-ready", "true");
   const logoIn = page.getByTestId("logo-uploader-input");
   const logoErr = page.getByTestId("logo-uploader-error");
-  for (const [w, h] of [[3000, 40], [8, 8]] as const) {
+  for (const [w, h] of [
+    [3000, 40],
+    [8, 8],
+  ] as const) {
     await logoIn.setInputFiles({ name: `l-${w}x${h}.png`, mimeType: "image/png", buffer: await png(w, h) });
     await expect(logoErr).toContainText(DIMS);
     await expect(logoErr).not.toContainText("Yalnız PNG");
@@ -193,7 +214,11 @@ test("Sayfa testi bulgusu: boyut/oran reddi doğru mesajla — logo ve avatar 30
   await page.goto("/account");
   await expect(page.getByTestId("avatar-uploader")).toHaveAttribute("data-ready", "true");
   const avIn = page.getByTestId("avatar-uploader-input");
-  for (const [w, h] of [[3000, 40], [8, 8], [500, 100]] as const) {
+  for (const [w, h] of [
+    [3000, 40],
+    [8, 8],
+    [500, 100],
+  ] as const) {
     await avIn.setInputFiles({ name: `a-${w}x${h}.png`, mimeType: "image/png", buffer: await png(w, h) });
     await expect(page.getByTestId("avatar-uploader-error")).toContainText(DIMS);
     await expect(page.getByTestId("avatar-crop-dialog")).toHaveJSProperty("open", false);
@@ -208,7 +233,9 @@ async function loginLogo(p: Page, headers: Record<string, string>) {
   return /data-testid="login-logo" data-logo="(\w+)"/.exec(html)?.[1];
 }
 
-test("B-P12-1: login marka çağrısı istemci IP'sini iletir — bir ziyaretçinin limiti aşması başkasının logosunu bozmaz", async ({ page }, info) => {
+test("B-P12-1: login marka çağrısı istemci IP'sini iletir — bir ziyaretçinin limiti aşması başkasının logosunu bozmaz", async ({
+  page,
+}, info) => {
   desktopOnly(info.project.name);
   const attacker = rndIp();
   const other = rndIp();
@@ -245,7 +272,9 @@ test("AC-82: Super Admin sistem logosunu değiştirir (Sistem ayarları sekmesi)
   await expect(up).toHaveAttribute("data-custom", "false");
   await expect(up).toHaveAttribute("data-ready", "true");
   await expect(page.getByTestId("system-logo-uploader-remove")).toHaveCount(0); // bu pakette kaldırma yok
-  await page.getByTestId("system-logo-uploader-input").setInputFiles({ name: "sistem.png", mimeType: "image/png", buffer: await png(300, 100) });
+  await page
+    .getByTestId("system-logo-uploader-input")
+    .setInputFiles({ name: "sistem.png", mimeType: "image/png", buffer: await png(300, 100) });
   await page.getByTestId("system-logo-uploader-save").click();
   await expect(page.getByTestId("toast").last()).toContainText("Sistem logosu kaydedildi");
   await expect(up).toHaveAttribute("data-custom", "true");
@@ -283,7 +312,9 @@ test("AC-87: menü, sekme ve hesap menüsü bağlantılarının hepsinde ikon va
   await signInBr(context, "br");
   await page.goto("/settings/logo");
   await openMenu(page);
-  const items = page.locator('nav[aria-label="Ana menü"] a, [data-testid="settings-tabs"] a, [data-testid="user-menu"] [role="group"] a, [data-testid="user-menu"] [role="group"] button');
+  const items = page.locator(
+    'nav[aria-label="Ana menü"] a, [data-testid="settings-tabs"] a, [data-testid="user-menu"] [role="group"] a, [data-testid="user-menu"] [role="group"] button',
+  );
   const n = await items.count();
   expect(n).toBeGreaterThan(8);
   for (let i = 0; i < n; i++) await expect(items.nth(i).locator("svg"), await items.nth(i).innerText()).toHaveCount(1);

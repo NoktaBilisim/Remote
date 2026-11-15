@@ -25,8 +25,21 @@ function make(o: { url: string; production?: boolean; respond?: (url: string) =>
     calls.push({ url, body: init.body, redirect: init.redirect, apiKey: init.headers["x-api-key"] });
     return o.respond ? o.respond(url) : { ok: true, status: 200 };
   };
-  const log = { info: () => undefined, warn: (obj: object) => void warns.push(obj as Record<string, unknown>), error: (obj: object) => void errors.push(obj as Record<string, unknown>) };
-  const n = new WhatsappNotifier({ url: o.url, production: o.production ?? false, publicBaseUrl: "https://rs.test", db: {} as Db, log, metrics: createMetrics(), clock, fetch });
+  const log = {
+    info: () => undefined,
+    warn: (obj: object) => void warns.push(obj as Record<string, unknown>),
+    error: (obj: object) => void errors.push(obj as Record<string, unknown>),
+  };
+  const n = new WhatsappNotifier({
+    url: o.url,
+    production: o.production ?? false,
+    publicBaseUrl: "https://rs.test",
+    db: {} as Db,
+    log,
+    metrics: createMetrics(),
+    clock,
+    fetch,
+  });
   return { n, calls, warns, errors, clock };
 }
 
@@ -47,7 +60,11 @@ describe("P12b WhatsApp etkin adres (AC-196)", () => {
     expect(n.usable).toBe(true);
     expect(warns).toHaveLength(0);
     n.setUrl("http://203.0.113.10:3000");
-    expect({ configured: n.configured, insecure: n.insecure, usable: n.usable }).toEqual({ configured: true, insecure: true, usable: false });
+    expect({ configured: n.configured, insecure: n.insecure, usable: n.usable }).toEqual({
+      configured: true,
+      insecure: true,
+      usable: false,
+    });
     expect(warns.filter((w) => w.alarm === "whatsapp_insecure")).toHaveLength(1);
     expect(JSON.stringify(warns)).not.toContain("203.0.113.10");
     expect(await n.test("+905321112233")).toEqual({ ok: false, message: "Servis güvenli yapılandırılmamış.", reason: "insecure" });
@@ -75,7 +92,10 @@ describe("P12b WhatsApp etkin adres (AC-196)", () => {
     const r307 = status(307);
     expect(await r307.n.test("+905321112233")).toMatchObject({ ok: false, reason: "redirect" });
     expect(r307.calls).toHaveLength(1);
-    const down = make({ url: "http://127.0.0.1:3000", respond: async () => Promise.reject(new TypeError("fetch failed: connect ECONNREFUSED 127.0.0.1:3000")) });
+    const down = make({
+      url: "http://127.0.0.1:3000",
+      respond: async () => Promise.reject(new TypeError("fetch failed: connect ECONNREFUSED 127.0.0.1:3000")),
+    });
     const out = await down.n.test("+905321112233");
     expect(out).toEqual({ ok: false, message: WA_TEST_MESSAGES.unreachable, reason: "unreachable" });
     expect(out.message).not.toContain("127.0.0.1");
@@ -87,7 +107,16 @@ describe("P12b WhatsApp etkin adres (AC-196)", () => {
         signal = init.signal;
         init.signal.addEventListener("abort", () => rej(new DOMException("aborted", "AbortError")));
       });
-    const slow = new WhatsappNotifier({ url: "http://127.0.0.1:3000", production: false, publicBaseUrl: "https://rs.test", db: {} as Db, log: { info: () => undefined, warn: () => undefined, error: () => undefined }, metrics: createMetrics(), clock, fetch: hangFetch });
+    const slow = new WhatsappNotifier({
+      url: "http://127.0.0.1:3000",
+      production: false,
+      publicBaseUrl: "https://rs.test",
+      db: {} as Db,
+      log: { info: () => undefined, warn: () => undefined, error: () => undefined },
+      metrics: createMetrics(),
+      clock,
+      fetch: hangFetch,
+    });
     const p = slow.test("+905321112233");
     await Promise.resolve();
     clock.advance(WA_TIMEOUT_MS - 1);
@@ -100,7 +129,12 @@ describe("P12b WhatsApp etkin adres (AC-196)", () => {
     for (const production of [false, true]) {
       const { n, calls, errors } = make({ url: "https://wa.example.com", production });
       expect(() => n.setUrl("http://a:99999")).not.toThrow();
-      expect({ url: n.effectiveUrl, configured: n.configured, insecure: n.insecure, usable: n.usable }).toEqual({ url: "http://a:99999", configured: true, insecure: true, usable: false });
+      expect({ url: n.effectiveUrl, configured: n.configured, insecure: n.insecure, usable: n.usable }).toEqual({
+        url: "http://a:99999",
+        configured: true,
+        insecure: true,
+        usable: false,
+      });
       expect(errors.filter((e) => e.alarm === "whatsapp_invalid_url")).toHaveLength(1);
       expect(JSON.stringify(errors)).not.toContain("99999");
       expect(await n.test("+905321112233")).toMatchObject({ ok: false, reason: "insecure" });
@@ -123,19 +157,43 @@ describe("P12b WhatsApp etkin adres (AC-196)", () => {
       expect(cancelled, String(status)).toBe(1);
     }
     // cancel reddi sonucu bozmaz
-    const rejecting = make({ url: "http://127.0.0.1:3000", respond: async () => ({ ok: true, status: 200, body: { cancel: () => Promise.reject(new Error("x")) } }) });
+    const rejecting = make({
+      url: "http://127.0.0.1:3000",
+      respond: async () => ({ ok: true, status: 200, body: { cancel: () => Promise.reject(new Error("x")) } }),
+    });
     expect(await rejecting.n.test("+905321112233")).toMatchObject({ ok: true });
   });
 
   it("QA-P12b: iki test ucunun audit numara anahtarı `recipient` — audit görünümünde maskeli kalır", () => {
-    expect(auditValueView("settings.whatsapp.test", { recipient: "+90******2233", result: "fail", reason: "insecure" })).toEqual({ recipient: "+90******2233", result: "fail", reason: "insecure" });
+    expect(auditValueView("settings.whatsapp.test", { recipient: "+90******2233", result: "fail", reason: "insecure" })).toEqual({
+      recipient: "+90******2233",
+      result: "fail",
+      reason: "insecure",
+    });
   });
 });
 
 describe("P13a K13 sınıflaması (T33, mimari-p13 §3)", () => {
   it("T33: canlıda http:// + link-local (169.254/16, fe80::/10) güvensiz → kanal kapalı; loopback ve özel ağ özel kalır", () => {
-    for (const url of ["http://169.254.169.254", "http://169.254.1.2:3000", "http://[fe80::1]:3000", "http://[febf::1]", "http://203.0.113.5:3000", "http://wa.example.com"]) expect(isInsecureServiceUrl(url, true), url).toBe(true);
-    for (const url of ["http://127.0.0.1:3000", "http://[::1]:3000", "http://localhost:3000", "http://10.0.0.5:3000", "http://192.168.1.1", "http://[fd00::5]", "https://169.254.169.254"]) expect(isInsecureServiceUrl(url, true), url).toBe(false);
+    for (const url of [
+      "http://169.254.169.254",
+      "http://169.254.1.2:3000",
+      "http://[fe80::1]:3000",
+      "http://[febf::1]",
+      "http://203.0.113.5:3000",
+      "http://wa.example.com",
+    ])
+      expect(isInsecureServiceUrl(url, true), url).toBe(true);
+    for (const url of [
+      "http://127.0.0.1:3000",
+      "http://[::1]:3000",
+      "http://localhost:3000",
+      "http://10.0.0.5:3000",
+      "http://192.168.1.1",
+      "http://[fd00::5]",
+      "https://169.254.169.254",
+    ])
+      expect(isInsecureServiceUrl(url, true), url).toBe(false);
     expect(isInsecureServiceUrl("http://169.254.169.254", false)).toBe(false); // geliştirme ortamında kural uygulanmaz
   });
 });

@@ -6,12 +6,24 @@ import { newId, newRequestCode, newSecretToken, newTenantRef, sha256Hex } from "
 import { ORIGIN, testDb } from "./app.ts";
 import { connect, techHeaders, type WsClient } from "./ws.ts";
 
-export async function createRequestSettings(tenantId: string, o: { trustedCidrs?: string[]; waEnabled?: boolean; waRecipients?: string[]; waitMinutes?: number } = {}) {
+export async function createRequestSettings(
+  tenantId: string,
+  o: { trustedCidrs?: string[]; waEnabled?: boolean; waRecipients?: string[]; waitMinutes?: number } = {},
+) {
   const ref = newTenantRef();
   // P8c (db-notlari P8c-1): her Genel ref tek ad alanına da kayıtlı (ADR-0006 r5).
   await testDb().requestRef.create({ data: { ref, tenantId, customerId: null } });
   await testDb().tenantRequestSettings.create({
-    data: { tenantId, requestRef: ref, fileLabel: "TestFirma", waitMinutes: o.waitMinutes ?? 30, waEnabled: o.waEnabled ?? false, waRecipients: o.waRecipients ?? [], emailRecipients: [], trustedCidrs: o.trustedCidrs ?? [] },
+    data: {
+      tenantId,
+      requestRef: ref,
+      fileLabel: "TestFirma",
+      waitMinutes: o.waitMinutes ?? 30,
+      waEnabled: o.waEnabled ?? false,
+      waRecipients: o.waRecipients ?? [],
+      emailRecipients: [],
+      trustedCidrs: o.trustedCidrs ?? [],
+    },
   });
   return ref;
 }
@@ -23,7 +35,17 @@ export async function createCustomerRow(tenantId: string, o: { name?: string; ph
   const ref = newTenantRef();
   const { nameKey, searchKey } = customerKeys(name, null, o.phone ?? null);
   const c = await testDb().customer.create({
-    data: { id, tenantId, name, nameKey, searchKey, fileLabel: suggestFileLabel(name), requestRef: ref, phone: o.phone ?? null, status: o.status ?? "ACTIVE" },
+    data: {
+      id,
+      tenantId,
+      name,
+      nameKey,
+      searchKey,
+      fileLabel: suggestFileLabel(name),
+      requestRef: ref,
+      phone: o.phone ?? null,
+      status: o.status ?? "ACTIVE",
+    },
   });
   await testDb().requestRef.create({ data: { ref, tenantId, customerId: id } }); // FK sırası: önce customers
   return c;
@@ -33,7 +55,15 @@ let seq = 0;
 /** PENDING talep (varsayılan). `createdAt` geçmişe alınabilir (süre dolumu / anonimleştirme testleri). */
 export async function createRequestRow(
   tenantId: string,
-  o: { createdAt?: Date; waitMinutes?: number; ip?: string; customerName?: string; customerEmail?: string; description?: string; deviceHash?: string } = {},
+  o: {
+    createdAt?: Date;
+    waitMinutes?: number;
+    ip?: string;
+    customerName?: string;
+    customerEmail?: string;
+    description?: string;
+    deviceHash?: string;
+  } = {},
 ) {
   const db = testDb();
   const consent = await db.consentText.findFirstOrThrow({ where: { tenantId, isCurrent: true }, select: { id: true, sha256: true } });
@@ -93,7 +123,11 @@ export async function startFakeWhatsapp(plan: WaPlan = () => 200): Promise<FakeW
     req.on("data", (c: Buffer) => chunks.push(c));
     req.on("end", () => {
       const key = req.headers["x-api-key"];
-      const hit: WaHit = { path: req.url ?? "", body: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as Record<string, unknown>, apiKey: typeof key === "string" ? key : undefined };
+      const hit: WaHit = {
+        path: req.url ?? "",
+        body: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as Record<string, unknown>,
+        apiKey: typeof key === "string" ? key : undefined,
+      };
       fake.hits.push(hit);
       const out = fake.plan(fake.hits.length, hit);
       if (out === "hang") return void hung.add(res);
@@ -123,7 +157,8 @@ export interface CreateReqOpts {
 
 /** Canlı uygulama üzerinde public talep akışı kısayolları (P8b testleri). XFF ile istemci IP'si (TRUSTED_PROXY_CIDR 127.0.0.1/32). */
 export function requestClient(app: FastifyInstance, base: string) {
-  const tenantInfo = (ref: string, ip: string) => app.inject({ method: "GET", url: `/api/v1/public/requests/tenant?ref=${ref}`, headers: { "x-forwarded-for": ip } });
+  const tenantInfo = (ref: string, ip: string) =>
+    app.inject({ method: "GET", url: `/api/v1/public/requests/tenant?ref=${ref}`, headers: { "x-forwarded-for": ip } });
   const consentId = async (ref: string, ip: string) => (await tenantInfo(ref, ip)).json<{ consentText: { id: string } }>().consentText.id;
   const createReq = async (ref: string, ip: string, o: CreateReqOpts = {}) =>
     app.inject({
@@ -143,16 +178,25 @@ export function requestClient(app: FastifyInstance, base: string) {
         ...o.extra,
       },
     });
-  const cancel = (secret: string, ip: string) => app.inject({ method: "POST", url: "/api/v1/public/requests/cancel", headers: { "x-forwarded-for": ip }, payload: { requestSecret: secret } });
-  const reqWs = (secret: string, headers: Record<string, string> = {}) => connect(`${base}/ws/request`, ["rs.v1", `rs.req.${secret}`], headers);
+  const cancel = (secret: string, ip: string) =>
+    app.inject({
+      method: "POST",
+      url: "/api/v1/public/requests/cancel",
+      headers: { "x-forwarded-for": ip },
+      payload: { requestSecret: secret },
+    });
+  const reqWs = (secret: string, headers: Record<string, string> = {}) =>
+    connect(`${base}/ws/request`, ["rs.v1", `rs.req.${secret}`], headers);
   const panelWs = (token: string) => connect(`${base}/ws/panel`, ["rs.v1"], techHeaders(token, ORIGIN));
   const guestWs = (ticket: string) => connect(`${base}/ws/guest`, ["rs.v1", `rs.ticket.${ticket}`]);
-  const accept = (headers: Record<string, string>, id: string) => app.inject({ method: "POST", url: `/api/v1/support-requests/${id}/accept`, headers, payload: {} });
+  const accept = (headers: Record<string, string>, id: string) =>
+    app.inject({ method: "POST", url: `/api/v1/support-requests/${id}/accept`, headers, payload: {} });
   return { tenantInfo, consentId, createReq, cancel, reqWs, panelWs, guestWs, accept };
 }
 
 /** WsClient mesajı (P8b mesajları ServerOutbound birliğinde değil). */
-export const waitMsg = async <T = Record<string, unknown>>(c: WsClient, t: string, ms?: number): Promise<T> => (await c.waitFor(t as never, ms)) as unknown as T;
+export const waitMsg = async <T = Record<string, unknown>>(c: WsClient, t: string, ms?: number): Promise<T> =>
+  (await c.waitFor(t as never, ms)) as unknown as T;
 export const hasMsg = (c: WsClient, t: string): boolean => c.msgs.some((m) => (m as { t: string }).t === t);
 
 /**
@@ -160,7 +204,10 @@ export const hasMsg = (c: WsClient, t: string): boolean => c.msgs.some((m) => (m
  * Testte bekleme kısaltılır (Retry-After saniyesi × `scaleMs`, + jitter); başka yanıt hemen döner. `signal` iptalinde
  * son yanıtla durur.
  */
-export async function retryNotReady<R extends { statusCode: number; headers: Record<string, unknown> }>(send: () => Promise<R>, o: { attempts?: number; scaleMs?: number; signal?: AbortSignal } = {}): Promise<R & { retries: number }> {
+export async function retryNotReady<R extends { statusCode: number; headers: Record<string, unknown> }>(
+  send: () => Promise<R>,
+  o: { attempts?: number; scaleMs?: number; signal?: AbortSignal } = {},
+): Promise<R & { retries: number }> {
   const attempts = o.attempts ?? 30;
   for (let retries = 0; ; retries++) {
     const r = await send();

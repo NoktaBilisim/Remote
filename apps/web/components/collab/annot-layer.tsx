@@ -2,7 +2,19 @@
 
 import { useEffect, useRef, type PointerEvent, type RefObject } from "react";
 import type { AnnotColor, AnnotTool } from "@/lib/dc/ctl";
-import { annotPalette, contentRect, drawAnnotations, laserAlpha, normalize, simplify, throttle, LASER_INTERVAL_MS, type AnnotState, type Pt, type Stroke } from "@/lib/dc/annot";
+import {
+  annotPalette,
+  contentRect,
+  drawAnnotations,
+  laserAlpha,
+  normalize,
+  simplify,
+  throttle,
+  LASER_INTERVAL_MS,
+  type AnnotState,
+  type Pt,
+  type Stroke,
+} from "@/lib/dc/annot";
 import { newId } from "@/lib/dc/ctl";
 
 export type DrawTool = AnnotTool | "laser";
@@ -17,7 +29,17 @@ export interface DrawInput {
  * İşaretleme katmanı (AC-37, 56, 57): video kutusunun üstünde canvas. `input` verilirse (teknisyen) işaretçiyle
  * çizer; verilmezse yalnız gösterir (müşteri). Lazer 1 sn'de söner. Girdi olayı üretmez (AC-58).
  */
-export function AnnotLayer({ video, state, input, label }: { video: RefObject<HTMLVideoElement | null>; state: AnnotState; input?: DrawInput | null; label: string }) {
+export function AnnotLayer({
+  video,
+  state,
+  input,
+  label,
+}: {
+  video: RefObject<HTMLVideoElement | null>;
+  state: AnnotState;
+  input?: DrawInput | null;
+  label: string;
+}) {
   const cv = useRef<HTMLCanvasElement>(null);
   const draft = useRef<Stroke | null>(null);
   const st = useRef(state);

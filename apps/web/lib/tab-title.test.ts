@@ -28,7 +28,9 @@ describe("sekme başlığı (AC-308)", () => {
     expect(stripPrefixes("Talepler · Nokta")).toBe("Talepler · Nokta");
   });
   it("/console yolunda başlığa dokunulmaz (konsolun kendi sohbet öneki korunur)", () => {
-    expect(applyTitle("(2) Konsol: Ayşe", { lobby: 1, requests: 3 }, `/sessions/01JSES0000000000000000000A/console`)).toBe("(2) Konsol: Ayşe");
+    expect(applyTitle("(2) Konsol: Ayşe", { lobby: 1, requests: 3 }, `/sessions/01JSES0000000000000000000A/console`)).toBe(
+      "(2) Konsol: Ayşe",
+    );
   });
   it("titleWithCount (P8b-1) davranışı değişmedi", () => {
     expect(titleWithCount("Talepler · Nokta", 3)).toBe("(3) Talepler · Nokta");

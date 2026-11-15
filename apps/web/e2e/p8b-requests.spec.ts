@@ -25,7 +25,10 @@ const openSockets = async (page: Page, cookie: string) =>
 const hook = (page: Page, ev: string, cookie: string, id?: string) =>
   page.request.get(`http://127.0.0.1:4217/__e2e/rq/${ev}/${cookie}${id ? `?id=${id}` : ""}`);
 
-test("AC-146: kuyruk eskiden yeniye; kart: kod, ipucu, bilinen kaynak, düz metin açıklama; menü rozeti ve sekme başlığı", async ({ page, context }, info) => {
+test("AC-146: kuyruk eskiden yeniye; kart: kod, ipucu, bilinen kaynak, düz metin açıklama; menü rozeti ve sekme başlığı", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInRq(context, "rqadm");
   await page.goto("/requests");
@@ -62,7 +65,10 @@ test("AC-146: kuyruk eskiden yeniye; kart: kod, ipucu, bilinen kaynak, düz meti
   await expect(c.getByTestId("request-first-seen")).toBeVisible();
 });
 
-test("AC-149: /ws/panel — yeni talep toast + Görüntüle, rozet, liste; kaldırılan düşer; yoğunluk bandı; vazgeçti toast; yeniden bağlanma", async ({ page, context }, info) => {
+test("AC-149: /ws/panel — yeni talep toast + Görüntüle, rozet, liste; kaldırılan düşer; yoğunluk bandı; vazgeçti toast; yeniden bağlanma", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   const cookie = await signInRq(context, "rqadm");
   await page.goto("/sessions");
@@ -131,7 +137,10 @@ test("TEST-P8b-2: kabul → konsol → geri: kabul edilen talep kuyrukta yeniden
   await expect(card(page, "Can Öz")).toHaveCount(0);
 });
 
-test("AC-157: ret — hazır mesaj varsayılan; 'Diğer'de bağlantı/telefon reddedilir; geçerli mesajla kart düşer", async ({ page, context }, info) => {
+test("AC-157: ret — hazır mesaj varsayılan; 'Diğer'de bağlantı/telefon reddedilir; geçerli mesajla kart düşer", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInRq(context, "rqadm");
   await page.goto("/requests");
@@ -155,7 +164,11 @@ test("AC-157: ret — hazır mesaj varsayılan; 'Diğer'de bağlantı/telefon re
   await expect(page.getByTestId("request-reject-message").first()).toHaveText("Yarın sabah dönüş yapacağız");
 });
 
-test("AC-146: geçmiş sekmesi + durum filtresi; boş ve hata durumları; yetki (USER yalnız görüntüler, Super Admin firma seçmeli)", async ({ page, context, browser }, info) => {
+test("AC-146: geçmiş sekmesi + durum filtresi; boş ve hata durumları; yetki (USER yalnız görüntüler, Super Admin firma seçmeli)", async ({
+  page,
+  context,
+  browser,
+}, info) => {
   desktopOnly(info.project.name);
   await signInRq(context, "rqadm");
   await page.goto("/requests?tab=history");
@@ -192,7 +205,10 @@ test("AC-146: geçmiş sekmesi + durum filtresi; boş ve hata durumları; yetki 
   }
 });
 
-test("Super Admin firma seçmeden /sessions: liste görünür, oluştur/iptal/sonlandır yok, firma seçme notu var", async ({ context, page }) => {
+test("Super Admin firma seçmeden /sessions: liste görünür, oluştur/iptal/sonlandır yok, firma seçme notu var", async ({
+  context,
+  page,
+}) => {
   await signInRq(context, "rqsa");
   await page.goto("/sessions");
   await expect(page.getByTestId("sessions-pick-tenant")).toContainText("üst menüden bir firma seçin");
@@ -200,7 +216,10 @@ test("Super Admin firma seçmeden /sessions: liste görünür, oluştur/iptal/so
   await expect(page.getByRole("button", { name: /İptal et|Zorla sonlandır/ })).toHaveCount(0);
 });
 
-test("AC-129/131/152: ayarlar — bağlantı kopyala, onaylı yenile, alan hataları, kaydet, WhatsApp testi", async ({ page, context }, info) => {
+test("AC-129/131/152: ayarlar — bağlantı kopyala, onaylı yenile, alan hataları, kaydet, WhatsApp testi", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await signInRq(context, "rqadm");
@@ -261,7 +280,10 @@ test("TEST-P8b-1: ayarlar — kaydedilmemiş değişiklikte menü bağlantısı 
   await expect(page.getByTestId("save-bar")).toBeVisible();
 
   const leave = page.getByTestId("leave-dialog");
-  await page.getByRole("navigation", { name: "Ana menü" }).getByRole("link", { name: /Talepler/ }).click();
+  await page
+    .getByRole("navigation", { name: "Ana menü" })
+    .getByRole("link", { name: /Talepler/ })
+    .click();
   await expect(leave.getByRole("button", { name: "Sayfada kal" })).toBeFocused();
   await leave.getByRole("button", { name: "Sayfada kal" }).click();
   await expect(page).toHaveURL(/\/settings\/support-requests$/);
@@ -273,7 +295,10 @@ test("TEST-P8b-1: ayarlar — kaydedilmemiş değişiklikte menü bağlantısı 
   await leave.getByRole("button", { name: "Sayfada kal" }).click();
   await expect(wait).toHaveValue("45");
 
-  await page.getByRole("navigation", { name: "Ana menü" }).getByRole("link", { name: /Talepler/ }).click();
+  await page
+    .getByRole("navigation", { name: "Ana menü" })
+    .getByRole("link", { name: /Talepler/ })
+    .click();
   await leave.getByRole("button", { name: "Kaydetmeden ayrıl" }).click();
   await expect(page).toHaveURL(/\/requests$/);
 });

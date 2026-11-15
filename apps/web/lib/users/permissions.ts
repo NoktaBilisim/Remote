@@ -33,13 +33,19 @@ const MODULES: readonly PermModule[] = PERMISSION_MODULES;
 
 export function buildMatrix(modules: readonly PermModule[] = MODULES): MatrixRow[] {
   return modules.map((m) => {
-    const cells = Object.fromEntries(STANDARD_ACTIONS.map((a) => [a, m.actions.includes(a) ? `${m.key}.${a}` : null])) as Record<StandardAction, string | null>;
-    const other = m.actions.filter((a) => !(STANDARD_ACTIONS as readonly string[]).includes(a)).map((a) => ({ key: `${m.key}.${a}`, action: a }));
+    const cells = Object.fromEntries(STANDARD_ACTIONS.map((a) => [a, m.actions.includes(a) ? `${m.key}.${a}` : null])) as Record<
+      StandardAction,
+      string | null
+    >;
+    const other = m.actions
+      .filter((a) => !(STANDARD_ACTIONS as readonly string[]).includes(a))
+      .map((a) => ({ key: `${m.key}.${a}`, action: a }));
     return { module: m.key, cells, other, keys: m.actions.map((a) => `${m.key}.${a}`) };
   });
 }
 
-export const allKeys = (modules: readonly PermModule[] = MODULES): string[] => modules.flatMap((m) => m.actions.map((a) => `${m.key}.${a}`));
+export const allKeys = (modules: readonly PermModule[] = MODULES): string[] =>
+  modules.flatMap((m) => m.actions.map((a) => `${m.key}.${a}`));
 
 /** Sunucudan gelen (eksik olabilen) yetki sözlüğü → tanımdaki her anahtar için boolean; tanım dışı anahtar atılır. */
 export function normalize(perms: Partial<Record<string, boolean>> | undefined, modules: readonly PermModule[] = MODULES): PermState {
@@ -82,7 +88,12 @@ export function toggleGroup(keys: readonly string[], state: PermState, locked: R
 export const groupLocked = (keys: readonly string[], locked: ReadonlySet<string>) => keys.every((k) => locked.has(k));
 
 /** Rol değişince kilitsiz yetkiler o rolün varsayılanına döner; kilitli olanlar korunur. */
-export function applyRoleDefaults(role: ManagedRole, state: PermState, locked: ReadonlySet<string>, modules: readonly PermModule[] = MODULES): PermState {
+export function applyRoleDefaults(
+  role: ManagedRole,
+  state: PermState,
+  locked: ReadonlySet<string>,
+  modules: readonly PermModule[] = MODULES,
+): PermState {
   const d = roleDefaults(role, modules);
   return Object.fromEntries(Object.keys(d).map((k) => [k, locked.has(k) ? state[k] === true : d[k] === true]));
 }

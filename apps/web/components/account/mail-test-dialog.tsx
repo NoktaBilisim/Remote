@@ -20,7 +20,21 @@ import { t } from "@/lib/i18n";
  * Test sonuçlanana kadar (başarısız test ~12 sn sürebilir) diyalog kapatılamaz: Esc / X `onDismiss` ile yutulur, Kapat
  * pasif; bekleme metni `role="status"` ile duyurulur (P10 test raporu bulgu 1).
  */
-export function MailTestDialog({ open, onClose, path, title, body, testId }: { open: boolean; onClose: () => void; path: string; title: string; body: string; testId: string }) {
+export function MailTestDialog({
+  open,
+  onClose,
+  path,
+  title,
+  body,
+  testId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  path: string;
+  title: string;
+  body: string;
+  testId: string;
+}) {
   const router = useRouter();
   const [to, setTo] = useState("");
   const [error, setError] = useState<string>();
@@ -47,13 +61,20 @@ export function MailTestDialog({ open, onClose, path, title, body, testId }: { o
     setBusy(true);
     try {
       const r = await api<SmtpTestResponse | { ok: boolean; message: string }>("POST", path, parsed.data);
-      setResult(r.ok ? { tone: "success", message: r.message || t("smtp.testOk", { to: parsed.data.to }) } : { tone: "danger", message: r.message || SMTP_SEND_FAILED_MESSAGE });
+      setResult(
+        r.ok
+          ? { tone: "success", message: r.message || t("smtp.testOk", { to: parsed.data.to }) }
+          : { tone: "danger", message: r.message || SMTP_SEND_FAILED_MESSAGE },
+      );
     } catch (err) {
       if (isUnauthenticated(err)) return router.replace(EXPIRED_LOGIN_PATH);
       if (err instanceof ApiError && err.status === 400 && err.fields?.to) setError(err.fields.to);
       else {
         const ui = toUiError(err);
-        setResult({ tone: ui.tone, message: err instanceof ApiError && err.status === 502 ? err.message || SMTP_SEND_FAILED_MESSAGE : ui.message });
+        setResult({
+          tone: ui.tone,
+          message: err instanceof ApiError && err.status === 502 ? err.message || SMTP_SEND_FAILED_MESSAGE : ui.message,
+        });
       }
     } finally {
       setBusy(false);
@@ -63,7 +84,18 @@ export function MailTestDialog({ open, onClose, path, title, body, testId }: { o
   return (
     <Dialog open={open} onClose={close} onDismiss={close} size="sm" testId={testId} title={title} description={body}>
       <form noValidate onSubmit={send} className="flex flex-col gap-4">
-        <TextField data-autofocus label={t("smtp.testTo")} type="email" value={to} onChange={(e) => setTo(e.target.value)} error={error} autoComplete="email" spellCheck={false} disabled={busy} data-testid="mail-test-to" />
+        <TextField
+          data-autofocus
+          label={t("smtp.testTo")}
+          type="email"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          error={error}
+          autoComplete="email"
+          spellCheck={false}
+          disabled={busy}
+          data-testid="mail-test-to"
+        />
         {busy && (
           <p role="status" className="flex items-start gap-2 text-sm text-fg-muted" data-testid="mail-test-waiting">
             <LoaderCircle aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" />
@@ -76,7 +108,9 @@ export function MailTestDialog({ open, onClose, path, title, body, testId }: { o
           </Alert>
         )}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button type="button" variant="secondary" onClick={close} disabled={busy}>{t("d.close")}</Button>
+          <Button type="button" variant="secondary" onClick={close} disabled={busy}>
+            {t("d.close")}
+          </Button>
           <Button type="submit" loading={busy} data-testid="mail-test-send">
             {!busy && <Send aria-hidden className="size-4" />}
             {t("smtp.testSend")}

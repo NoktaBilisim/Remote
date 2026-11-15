@@ -153,35 +153,73 @@ export interface CrossTenantCase {
 export const CROSS_TENANT_CASES: CrossTenantCase[] = [
   { route: "GET /api/v1/sessions/:id", request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}` }) },
   { route: "POST /api/v1/sessions/:id/cancel", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/cancel` }) },
-  { route: "POST /api/v1/sessions/:id/terminate", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/terminate` }) },
+  {
+    route: "POST /api/v1/sessions/:id/terminate",
+    request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/terminate` }),
+  },
   { route: "GET /api/v1/sessions/:id/history", request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}/history` }) },
-  { route: "PATCH /api/v1/sessions/:id", request: (fx) => ({ method: "PATCH", url: `/api/v1/sessions/${fx.a.sessionId}`, payload: { note: "x" } }) },
+  {
+    route: "PATCH /api/v1/sessions/:id",
+    request: (fx) => ({ method: "PATCH", url: `/api/v1/sessions/${fx.a.sessionId}`, payload: { note: "x" } }),
+  },
   { route: "GET /api/v1/support-requests/:id", request: (fx) => ({ method: "GET", url: `/api/v1/support-requests/${fx.a.requestId}` }) },
-  { route: "POST /api/v1/support-requests/:id/accept", request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/accept`, payload: {} }) },
-  { route: "POST /api/v1/support-requests/:id/revoke-binding", request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/revoke-binding`, payload: {} }) },
+  {
+    route: "POST /api/v1/support-requests/:id/accept",
+    request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/accept`, payload: {} }),
+  },
+  {
+    route: "POST /api/v1/support-requests/:id/revoke-binding",
+    request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/revoke-binding`, payload: {} }),
+  },
   ...(["GET /api/v1/customers/:id", "GET /api/v1/customers/:id/requests", "GET /api/v1/customers/:id/sessions"] as const).map((route) => ({
     route,
     request: (fx: TwoTenants): InjectOptions => ({ method: "GET", url: route.slice(4).replace(":id", fx.a.customerId) }),
   })),
-  { route: "PATCH /api/v1/customers/:id", request: (fx) => ({ method: "PATCH", url: `/api/v1/customers/${fx.a.customerId}`, payload: { note: "x" } }) },
+  {
+    route: "PATCH /api/v1/customers/:id",
+    request: (fx) => ({ method: "PATCH", url: `/api/v1/customers/${fx.a.customerId}`, payload: { note: "x" } }),
+  },
   ...(["rotate-ref", "deactivate", "reactivate"] as const).map((a) => ({
     route: `POST /api/v1/customers/:id/${a}`,
     request: (fx: TwoTenants): InjectOptions => ({ method: "POST", url: `/api/v1/customers/${fx.a.customerId}/${a}`, payload: {} }),
   })),
   // P9: A tenant'ının kullanıcısını B Admin'i hedefler → 404
   { route: "GET /api/v1/users/:id", request: (fx) => ({ method: "GET", url: `/api/v1/users/${fx.a.user.id}` }) },
-  { route: "PATCH /api/v1/users/:id", request: (fx) => ({ method: "PATCH", url: `/api/v1/users/${fx.a.user.id}`, payload: { fullName: "Başka Firma" } }) },
+  {
+    route: "PATCH /api/v1/users/:id",
+    request: (fx) => ({ method: "PATCH", url: `/api/v1/users/${fx.a.user.id}`, payload: { fullName: "Başka Firma" } }),
+  },
   // P10: başka tenant'ın oturumu / kullanıcısı → 404
-  { route: "POST /api/v1/sessions/:id/email", request: (fx) => ({ method: "POST", url: `/api/v1/sessions/${fx.a.sessionId}/email`, payload: { to: "x@example.test", link: "https://x.test/session/y" } }) },
+  {
+    route: "POST /api/v1/sessions/:id/email",
+    request: (fx) => ({
+      method: "POST",
+      url: `/api/v1/sessions/${fx.a.sessionId}/email`,
+      payload: { to: "x@example.test", link: "https://x.test/session/y" },
+    }),
+  },
   ...(["deactivate", "reactivate", "reset-mfa"] as const).map((a) => ({
     route: `POST /api/v1/users/:id/${a}`,
     request: (fx: TwoTenants): InjectOptions => ({ method: "POST", url: `/api/v1/users/${fx.a.user.id}/${a}`, payload: {} }),
   })),
   // P12: A kullanıcısının avatarı / A klasöründeki dosya → 404
-  { route: "POST /api/v1/users/:id/avatar", request: (fx) => ({ method: "POST", url: `/api/v1/users/${fx.a.user.id}/avatar`, payload: {} }) },
+  {
+    route: "POST /api/v1/users/:id/avatar",
+    request: (fx) => ({ method: "POST", url: `/api/v1/users/${fx.a.user.id}/avatar`, payload: {} }),
+  },
   { route: "DELETE /api/v1/users/:id/avatar", request: (fx) => ({ method: "DELETE", url: `/api/v1/users/${fx.a.user.id}/avatar` }) },
-  { route: "GET /api/v1/files/avatar/:tenantId/:file", request: (fx) => ({ method: "GET", url: `/api/v1/files/avatar/${fx.a.tenantId}/${"A".repeat(24)}.webp` }) },
-  { route: "POST /api/v1/support-requests/:id/reject", request: (fx) => ({ method: "POST", url: `/api/v1/support-requests/${fx.a.requestId}/reject`, payload: { message: "Şu an müsait değiliz" } }) },
+  {
+    route: "GET /api/v1/files/avatar/:tenantId/:file",
+    request: (fx) => ({ method: "GET", url: `/api/v1/files/avatar/${fx.a.tenantId}/${"A".repeat(24)}.webp` }),
+  },
+  {
+    route: "POST /api/v1/support-requests/:id/reject",
+    request: (fx) => ({
+      method: "POST",
+      url: `/api/v1/support-requests/${fx.a.requestId}/reject`,
+      payload: { message: "Şu an müsait değiliz" },
+    }),
+  },
 ];
 
 /** buildApp sonrası, ready'den ÖNCE çağrılmalı (rotalar eklentilerde ready'de yüklenir). */
@@ -197,7 +235,11 @@ export async function twoTenants(): Promise<TwoTenants> {
   const side = async () => {
     const t = await createTenant();
     const admin = await createUser({ tenantId: t.id, role: "ADMIN" });
-    const user = await createUser({ tenantId: t.id, role: "USER", perms: { "sessions.view": true, "session_history.view": true, "session_history.export": true } });
+    const user = await createUser({
+      tenantId: t.id,
+      role: "USER",
+      perms: { "sessions.view": true, "session_history.view": true, "session_history.export": true },
+    });
     const session = await createSupportSessionRow({ tenantId: t.id, technicianId: user.id });
     const request = await createRequestRow(t.id); // P8b
     const customer = await createCustomerRow(t.id); // P8c

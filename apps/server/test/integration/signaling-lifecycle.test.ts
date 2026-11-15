@@ -121,11 +121,14 @@ describe("P3 reconnect + bitiş (gerçek WS)", () => {
     expect((await live.app.inject({ method: "GET", url: "/metrics" })).statusCode).toBe(404);
     await live.close();
     live = await startLive({ env: { METRICS_TOKEN: FAKE_METRICS_TOKEN } });
-    expect((await live.app.inject({ method: "GET", url: "/metrics", headers: { authorization: "Bearer yanlis-token-000000" } })).statusCode).toBe(401);
+    expect(
+      (await live.app.inject({ method: "GET", url: "/metrics", headers: { authorization: "Bearer yanlis-token-000000" } })).statusCode,
+    ).toBe(401);
     const ok = await live.app.inject({ method: "GET", url: "/metrics", headers: { authorization: `Bearer ${FAKE_METRICS_TOKEN}` } });
     expect(ok.statusCode).toBe(200);
     expect(ok.body).toContain("rs_active_rooms");
-    for (const m of ["rs_resolve_failed ", "rs_ws_connections ", "rs_active_sessions ", "rs_ws_connections_total"]) expect(ok.body).toContain(m);
+    for (const m of ["rs_resolve_failed ", "rs_ws_connections ", "rs_active_sessions ", "rs_ws_connections_total"])
+      expect(ok.body).toContain(m);
     expect(ok.body).not.toContain("rs_resolve_failed_total");
   });
 });
@@ -172,7 +175,11 @@ describe("P3 zamanlayıcılar (sahte saat)", () => {
     rooms.detachGuest(fx.room, g.entry, g.peer);
     rooms.reattachGuest(fx.room, g.peer);
     expect(userOf(g.peer.of("hello").at(-1)?.iceServers)).toBe(refreshed);
-    const valid = new Set([...g.peer.of("hello"), ...g.peer.of("ice.servers")].map((m) => userOf(m.iceServers)).filter((u) => Number(u.split(":")[0]) * 1000 > clock.now()));
+    const valid = new Set(
+      [...g.peer.of("hello"), ...g.peer.of("ice.servers")]
+        .map((m) => userOf(m.iceServers))
+        .filter((u) => Number(u.split(":")[0]) * 1000 > clock.now()),
+    );
     expect(valid.size).toBeLessThanOrEqual(2);
   });
 

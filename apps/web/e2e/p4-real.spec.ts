@@ -103,10 +103,15 @@ async function admit(page: Page, code: string, name: string) {
 
 const videoLive = (page: Page) =>
   expect
-    .poll(() => page.getByTestId("console-video").evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.videoWidth > 0), { timeout: 20_000 })
+    .poll(() => page.getByTestId("console-video").evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.videoWidth > 0), {
+      timeout: 20_000,
+    })
     .toBe(true);
 
-test("REAL AC-28..33, 59, 112: login → oturum → lobi → kabul → paylaşım → video → durdur/yeniden → teknisyen bitirir", async ({ page, browser }) => {
+test("REAL AC-28..33, 59, 112: login → oturum → lobi → kabul → paylaşım → video → durdur/yeniden → teknisyen bitirir", async ({
+  page,
+  browser,
+}) => {
   await login(page);
   const link = await createSession(page);
   const [gctx, g] = await openGuest(browser, link);
@@ -153,7 +158,10 @@ test("REAL AC-59: müşteri bitirir → iki taraf bitiş", async ({ page, browse
   await gctx.close();
 });
 
-test("REAL AC-24: teknisyen konsolu yenilenir (paylaşım sürerken) → yeniden bağlanır, video ve paylaşım durumu geri gelir", async ({ page, browser }) => {
+test("REAL AC-24: teknisyen konsolu yenilenir (paylaşım sürerken) → yeniden bağlanır, video ve paylaşım durumu geri gelir", async ({
+  page,
+  browser,
+}) => {
   await login(page);
   const link = await createSession(page);
   const [gctx, g] = await openGuest(browser, link);

@@ -1,7 +1,9 @@
 # ADR-0020 — Yedek bütünlüğü (manifest imzası, migrator ile yükleme) ve hedeften bağımsız site dışı gönderim kancası
+
 Tarih: 2026-11-14 · Durum: Kabul · İlgili: AC-91, AC-200, S-P13a-2, S-P13a-6, I-P11-1, ADR-0019, `docs/mimari-p13.md` §4, §7.7
 
 ## Bağlam
+
 - P13a yedeği gizli ama kimliği doğrulanmamış: age, alıcının açık anahtarını bilen herkesin geçerli yedek üretmesine izin verir.
   Geri yükleme root ile yapılıyor. Güvenlik raporu (S-P13a-2), site dışı kopyadan **önce** imza, migrator ile yükleme ve tam
   karşılaştırma istiyor.
@@ -10,6 +12,7 @@ Tarih: 2026-11-14 · Durum: Kabul · İlgili: AC-91, AC-200, S-P13a-2, S-P13a-6,
   Kötü niyetli ya da hatalı bir migration ile bu olabilir.
 
 ## Karar
+
 1. **İmza:** `ssh-keygen -Y sign` (OpenSSH, ed25519, ad alanı `remote-backup`) kullanılır. Yeni paket eklenmez; minisign eklenmez.
    - **İmza anahtarı:** sunucuda üretilir, `/etc/remote-backup/manifest_ed25519` (root 600, parolasız; gözetimsiz çalışır), sunucudan
      çıkmaz.
@@ -38,7 +41,7 @@ Tarih: 2026-11-14 · Durum: Kabul · İlgili: AC-91, AC-200, S-P13a-2, S-P13a-6,
      (TTY yoksa ret) ve manifest `env=production`. **Başka ortamın yedeği prod'a yüklenemez.**
 4. **Site dışı kanca (hedeften bağımsız):** `backup.env` `BACKUP_OFFSITE_CMD` tanımlanır.
    - **Ne zaman çalışır:** Yerel yedek imzalanıp `.partial`'dan son adına taşındıktan **sonra**, root olarak, `timeout
-     ${BACKUP_OFFSITE_TIMEOUT_SEC:-1800}` ile.
+${BACKUP_OFFSITE_TIMEOUT_SEC:-1800}` ile.
    - **Komuta verilen ortam değişkenleri:** `REMOTE_BACKUP_RUN_DIR`, `REMOTE_BACKUP_RUN`, `REMOTE_BACKUP_DIR`, `REMOTE_BACKUP_HOST`,
      `REMOTE_BACKUP_ENV`.
    - **Dizin içeriği:** yalnız 4 dosya (`db.sql.gz.age`, `uploads.tar.gz.age`, `manifest.json`, `manifest.json.sig`). Dizin
@@ -62,6 +65,7 @@ Tarih: 2026-11-14 · Durum: Kabul · İlgili: AC-91, AC-200, S-P13a-2, S-P13a-6,
    - Tam "WORM" özelliği hedef seçimiyle tamamlanır (Sonra).
 
 ## Alternatifler
+
 - minisign: İmza biçimi daha sade, ama host'a yeni paket gerekir. OpenSSH zaten kurulu ve bakımı sürüyor. Geri dönüş kolay:
   `restore.sh`'te doğrulayıcı tek fonksiyondur.
 - age ile imza: age imzalamaz.
@@ -72,6 +76,7 @@ Tarih: 2026-11-14 · Durum: Kabul · İlgili: AC-91, AC-200, S-P13a-2, S-P13a-6,
 - Kanca başarısızsa birimi `failed` yapmak: "FAILED = yerel yedek yok (Kritik)" anlamını bozar. Site dışı hata "Uyarı" düzeyindedir.
 
 ## Sonuçlar
+
 - Operatörün yeni ön koşulları: `allowed_signers` kopyası ve age özel anahtarı birlikte kasada durur.
 - `restore.sh` P13a dönemi imzasız yedekleri reddeder. Staging'in son yedeği P13b koduyla alınmalıdır (ADR-0019 sıra A).
 - Kanca root olarak çalışır. `backup.env` için P13a'nın root ve 600 denetimi bu yüzden zorunlu kalır.

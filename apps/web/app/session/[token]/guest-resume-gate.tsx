@@ -37,7 +37,13 @@ export function GuestResumeGate({ kind }: { kind: GuestEnd }) {
   }, [kind]);
 
   if (!check.done) {
-    return <div aria-busy="true" data-testid="guest-resume-check" className="h-48 animate-pulse rounded-lg border border-border bg-surface motion-reduce:animate-none" />;
+    return (
+      <div
+        aria-busy="true"
+        data-testid="guest-resume-check"
+        className="h-48 animate-pulse rounded-lg border border-border bg-surface motion-reduce:animate-none"
+      />
+    );
   }
   const { key, resume } = check;
   if (resume && key) {

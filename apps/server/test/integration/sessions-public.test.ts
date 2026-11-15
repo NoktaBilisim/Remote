@@ -26,11 +26,13 @@ type St = "PENDING" | "ACTIVE" | "ENDED" | "EXPIRED" | "CANCELLED";
 async function session(status: St = "PENDING", createdAt?: Date) {
   const t = await createTenant();
   const tech = await createUser({ tenantId: t.id, role: "ADMIN" });
-  return { tenant: t, row: await createSupportSessionRow({ tenantId: t.id, technicianId: tech.id, status, ...(createdAt ? { createdAt } : {}) }) };
+  return {
+    tenant: t,
+    row: await createSupportSessionRow({ tenantId: t.id, technicianId: tech.id, status, ...(createdAt ? { createdAt } : {}) }),
+  };
 }
 const past = () => new Date(Date.now() - 16 * 60_000);
-const resolveAudits = (entityId: string) =>
-  testDb().auditLog.findMany({ where: { entityId, action: "session.resolve" } });
+const resolveAudits = (entityId: string) => testDb().auditLog.findMany({ where: { entityId, action: "session.resolve" } });
 
 describe("POST /public/sessions/resolve", () => {
   it("AC-3: kodla çözümleme firma, teknisyen ve teknisyen teyit kodunu döner; tüketmez", async () => {
@@ -123,7 +125,13 @@ describe("global başarısız kod alarmı (G-02, S-P2-3)", () => {
     const own = makeApp({ logger: createLogger("warn", sink) });
     // 101 hata, 11 ayrı /24 önekine dağıtılmış: hiçbir ip (≤10) ya da önek (≤30) limiti aşılmaz.
     for (let i = 0; i < 101; i++) {
-      const res = await own.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers: { origin: ORIGIN }, payload: { clientKind: "BROWSER", code: "00000002" }, remoteAddress: `198.19.${i % 11}.${Math.floor(i / 11) + 1}` });
+      const res = await own.inject({
+        method: "POST",
+        url: "/api/v1/public/sessions/resolve",
+        headers: { origin: ORIGIN },
+        payload: { clientKind: "BROWSER", code: "00000002" },
+        remoteAddress: `198.19.${i % 11}.${Math.floor(i / 11) + 1}`,
+      });
       expect(res.statusCode).toBe(404);
     }
     await own.close();
@@ -135,7 +143,8 @@ describe("global başarısız kod alarmı (G-02, S-P2-3)", () => {
 });
 
 describe("GET /public/sessions/status", () => {
-  const status = (ref: string, ip: string) => app.inject({ method: "GET", url: `/api/v1/public/sessions/status?ref=${ref}`, remoteAddress: ip });
+  const status = (ref: string, ip: string) =>
+    app.inject({ method: "GET", url: `/api/v1/public/sessions/status?ref=${ref}`, remoteAddress: ip });
 
   it("AC-5 (QA-P2-2): yoklamada süresi dolmuş PENDING → EXPIRED döner, satır EXPIRED olur, session.expired audit", async () => {
     const { row } = await session("PENDING", past());
@@ -180,7 +189,13 @@ describe("GET /public/sessions/status", () => {
     const own = makeApp({ env: { TRUSTED_PROXY_CIDR: "172.30.0.2/31" }, logger: createLogger("warn", sink) });
     const { row } = await session();
     const req = (remoteAddress: string, headers: Record<string, string> = {}) =>
-      own.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers: { origin: ORIGIN, ...headers }, payload: { clientKind: "BROWSER", token: row.token }, remoteAddress });
+      own.inject({
+        method: "POST",
+        url: "/api/v1/public/sessions/resolve",
+        headers: { origin: ORIGIN, ...headers },
+        payload: { clientKind: "BROWSER", token: row.token },
+        remoteAddress,
+      });
     // XFF'li (doğru yapılandırma): istemci IP'si proxy değil → alarm yok
     expect((await req("172.30.0.3", { "x-forwarded-for": "203.0.113.9" })).statusCode).toBe(200);
     // Proxy dışı doğrudan istemci → alarm yok

@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { actualViewSize, comboMsgs, keyMsg, mouseButton, pointFromClient, printableKey, releaseComboTracker, SPECIAL_COMBOS, wheelMsg } from "./input";
+import {
+  actualViewSize,
+  comboMsgs,
+  keyMsg,
+  mouseButton,
+  pointFromClient,
+  printableKey,
+  releaseComboTracker,
+  SPECIAL_COMBOS,
+  wheelMsg,
+} from "./input";
 import { parseInputMessage } from "@remote/contracts/dc";
 import { inputMsgSchema } from "./protocol";
 
@@ -48,7 +58,12 @@ describe("P7 girdi eşlemesi", () => {
     // 580×352 kutu, 1280×720 içerik → ölçek 0.453125, içerik 580×326.25, y bandı 12.875
     const box = { left: 276, top: 365, width: 580, height: 352 };
     const s = 580 / 1280;
-    for (const [px, py] of [[0, 0], [640, 360], [1279, 719], [123, 456]] as const) {
+    for (const [px, py] of [
+      [0, 0],
+      [640, 360],
+      [1279, 719],
+      [123, 456],
+    ] as const) {
       const p = pointFromClient(276 + px * s, 365 + 12.875 + py * s, box, 1280, 720)!;
       expect(Math.abs(p[0] * 1280 - px)).toBeLessThanOrEqual(1);
       expect(Math.abs(p[1] * 720 - py)).toBeLessThanOrEqual(1);
@@ -78,7 +93,15 @@ describe("P7 girdi eşlemesi", () => {
     expect(keyMsg({ type: "keydown", code: "KeyA", key: "a", isComposing: true })).toBeNull();
     expect(keyMsg({ type: "keydown", code: "", key: "a" })).toBeNull();
     expect(keyMsg({ type: "keydown", code: "Key-A", key: "a" })).toBeNull(); // kod sözleşmesi ^[A-Za-z0-9]{1,32}$
-    for (const [code, key] of <[string, string][]>[["ShiftLeft", "Shift"], ["Enter", "Enter"], ["ArrowUp", "ArrowUp"], ["Digit1", "1"], ["Semicolon", "ş"], ["F12", "F12"], ["MetaLeft", "Meta"]]) {
+    for (const [code, key] of <[string, string][]>[
+      ["ShiftLeft", "Shift"],
+      ["Enter", "Enter"],
+      ["ArrowUp", "ArrowUp"],
+      ["Digit1", "1"],
+      ["Semicolon", "ş"],
+      ["F12", "F12"],
+      ["MetaLeft", "Meta"],
+    ]) {
       const m = keyMsg({ type: "keyup", code, key })!;
       valid(m);
       if (key.length > 1) expect("key" in m).toBe(false); // özel tuş adları key ile gitmez
@@ -90,7 +113,10 @@ describe("P7 girdi eşlemesi", () => {
 
   it("Ctrl+Alt+Shift tek başına basılıp bırakılınca klavye yakalaması bırakılır; araya tuş girerse bırakılmaz", () => {
     const tr = releaseComboTracker();
-    const seq = (codes: string[], ups: string[]) => [...codes.map((code) => tr.feed({ type: "keydown", code })), ...ups.map((code) => tr.feed({ type: "keyup", code }))];
+    const seq = (codes: string[], ups: string[]) => [
+      ...codes.map((code) => tr.feed({ type: "keydown", code })),
+      ...ups.map((code) => tr.feed({ type: "keyup", code })),
+    ];
     expect(seq(["ControlLeft", "AltLeft", "ShiftLeft"], ["ShiftLeft", "AltLeft", "ControlLeft"]).at(-1)).toBe(true);
     expect(seq(["ControlLeft", "AltLeft", "ShiftLeft", "KeyQ"], ["KeyQ", "ShiftLeft", "AltLeft", "ControlLeft"]).some(Boolean)).toBe(false);
     expect(seq(["ControlLeft", "ShiftLeft"], ["ShiftLeft", "ControlLeft"]).some(Boolean)).toBe(false);
@@ -99,7 +125,12 @@ describe("P7 girdi eşlemesi", () => {
   it("AC-48: özel kombinasyonlar şemaya uyar; Ctrl+Alt+Del yok", () => {
     const all = SPECIAL_COMBOS.flatMap((c) => comboMsgs(c.codes));
     all.forEach(valid);
-    expect(comboMsgs(["AltLeft", "Tab"]).map((m) => (m.t === "k" ? `${m.code}:${m.down}` : ""))).toEqual(["AltLeft:true", "Tab:true", "Tab:false", "AltLeft:false"]);
+    expect(comboMsgs(["AltLeft", "Tab"]).map((m) => (m.t === "k" ? `${m.code}:${m.down}` : ""))).toEqual([
+      "AltLeft:true",
+      "Tab:true",
+      "Tab:false",
+      "AltLeft:false",
+    ]);
     expect(SPECIAL_COMBOS.some((c) => (c.codes as readonly string[]).includes("Delete"))).toBe(false);
   });
 });

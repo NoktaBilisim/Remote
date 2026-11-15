@@ -29,7 +29,11 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
       <>
         <Breadcrumb items={crumbs} />
         <h1 className="text-2xl font-semibold text-fg">{t("h.d.title")}</h1>
-        <div className="mt-6 max-w-xl"><Alert tone="warning" testId="history-forbidden">{t("h.forbidden")}</Alert></div>
+        <div className="mt-6 max-w-xl">
+          <Alert tone="warning" testId="history-forbidden">
+            {t("h.forbidden")}
+          </Alert>
+        </div>
       </>
     );
   }
@@ -43,7 +47,13 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
         <Breadcrumb items={crumbs} />
         <h1 className="text-2xl font-semibold text-fg">{t("h.d.title")}</h1>
         <div className="mt-6 max-w-xl">
-          {res.status === 403 ? <Alert tone="warning" testId="history-forbidden">{t("h.forbidden")}</Alert> : <LoadError />}
+          {res.status === 403 ? (
+            <Alert tone="warning" testId="history-forbidden">
+              {t("h.forbidden")}
+            </Alert>
+          ) : (
+            <LoadError />
+          )}
         </div>
       </>
     );
@@ -63,8 +73,16 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
         </h1>
         {anon && <AnonymizedBadge />}
       </div>
-      <p className="mt-1 text-sm text-fg-muted tabular-nums">{formatDateTime(s.createdAt)} · {s.technician.name}</p>
-      {anon && <div className="mt-4 max-w-3xl"><Alert tone="info" testId="history-anonymized">{t("h.anon.note")}</Alert></div>}
+      <p className="mt-1 text-sm text-fg-muted tabular-nums">
+        {formatDateTime(s.createdAt)} · {s.technician.name}
+      </p>
+      {anon && (
+        <div className="mt-4 max-w-3xl">
+          <Alert tone="info" testId="history-anonymized">
+            {t("h.anon.note")}
+          </Alert>
+        </div>
+      )}
 
       <div className="mt-6 flex flex-col gap-8">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
@@ -83,7 +101,9 @@ export default async function HistoryDetailPage({ params }: { params: Promise<{ 
                 <dd className="mt-2 text-xs text-fg-muted">{t(anon ? "h.anon.readonly" : "h.n.readonly")}</dd>
               </dl>
             ) : (
-              <p className="text-sm text-fg-muted" data-testid="note-readonly">{t("h.n.empty")} {t(anon ? "h.anon.readonly" : "h.n.readonly")}</p>
+              <p className="text-sm text-fg-muted" data-testid="note-readonly">
+                {t("h.n.empty")} {t(anon ? "h.anon.readonly" : "h.n.readonly")}
+              </p>
             )}
           </Section>
         </div>

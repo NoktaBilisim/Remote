@@ -10,7 +10,17 @@
 //  - AC-74: etkin kümede değişen her anahtar için ayrı audit satırı (kim → kime, permKey, eski → yeni), aynı TX.
 //  - AC-115 / G-04: commit SONRASI canlı yansıma — pasif/rol değişimi → `rooms.endByTechnician` + panel 4401;
 //    yalnız yetki değişimi → `rooms.applyPermChange` (+ `support_requests.view` kalktıysa panel 4401).
-import type { CreateUserData, CreateUserResponse, ListUsersQuery, ManagedRole, UpdateUserData, UserDetail, UserListItem, UserListResponse, UserStatus } from "@remote/contracts/api/users";
+import type {
+  CreateUserData,
+  CreateUserResponse,
+  ListUsersQuery,
+  ManagedRole,
+  UpdateUserData,
+  UserDetail,
+  UserListItem,
+  UserListResponse,
+  UserStatus,
+} from "@remote/contracts/api/users";
 import { TEMPORARY_PASSWORD_LENGTH, USER_EMAIL_CONFLICT_MESSAGE } from "@remote/contracts/api/users";
 import { USER_AUDIT } from "@remote/contracts/audit";
 import { PERMISSION_KEYS, effectivePermissions, roleDefaultGranted, type PermissionKey, type Role } from "@remote/contracts/permissions";
@@ -42,7 +52,8 @@ const asManaged = (r: repo.UserRow): ManagedRow => r as ManagedRow;
 
 const who = (auth: AuthContext, tenantId: string) => ({ tenantId, userId: auth.user.id, username: auth.user.email });
 
-const emailConflict = (): AppError => new AppError("CONFLICT", { message: USER_EMAIL_CONFLICT_MESSAGE, fields: { email: USER_EMAIL_CONFLICT_MESSAGE } });
+const emailConflict = (): AppError =>
+  new AppError("CONFLICT", { message: USER_EMAIL_CONFLICT_MESSAGE, fields: { email: USER_EMAIL_CONFLICT_MESSAGE } });
 
 function effectiveOf(role: Role, rows: readonly { permKey: string; granted: boolean }[]): Set<PermissionKey> {
   return new Set(effectivePermissions(role, rows));
@@ -81,7 +92,11 @@ function toDetail(r: repo.UserRow, auth: AuthContext): UserDetail {
  * İstenen yetki haritasını mevcut ezmelerin üstüne uygular, rol varsayılanına eşit satırları atar (normalize).
  * Tanım dışı eski anahtarlar düşer.
  */
-function normalizeRows(role: ManagedRole, current: readonly { permKey: string; granted: boolean }[], requested: Readonly<Record<string, boolean>> | undefined) {
+function normalizeRows(
+  role: ManagedRole,
+  current: readonly { permKey: string; granted: boolean }[],
+  requested: Readonly<Record<string, boolean>> | undefined,
+) {
   const known: ReadonlySet<string> = new Set(PERMISSION_KEYS);
   const merged = new Map<string, boolean>();
   for (const r of current) if (known.has(r.permKey)) merged.set(r.permKey, r.granted);
@@ -105,7 +120,15 @@ function assertGrantable(auth: AuthContext, changed: readonly PermissionKey[]): 
   });
 }
 
-async function permissionAudits(tx: Parameters<typeof writeAudit>[0], ctx: AuditContext, auth: AuthContext, tenantId: string, targetId: string, before: ReadonlySet<PermissionKey>, after: ReadonlySet<PermissionKey>): Promise<void> {
+async function permissionAudits(
+  tx: Parameters<typeof writeAudit>[0],
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  targetId: string,
+  before: ReadonlySet<PermissionKey>,
+  after: ReadonlySet<PermissionKey>,
+): Promise<void> {
   for (const permKey of diffKeys(before, after)) {
     await writeAudit(tx, ctx, {
       ...who(auth, tenantId),
@@ -138,7 +161,8 @@ export async function listUsers(db: Db, tenantId: string, q: ListUsersQuery): Pr
  */
 export async function manageableUser(db: Db, auth: AuthContext, tenantId: string, id: string): Promise<{ id: string; tenantId: string }> {
   const row = await loadOrThrow(db, { tenantId }, id);
-  if (!canManage(auth, effectiveOf(row.role as Role, row.permissions))) throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı yönetemezsiniz." });
+  if (!canManage(auth, effectiveOf(row.role as Role, row.permissions)))
+    throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı yönetemezsiniz." });
   return { id: row.id, tenantId };
 }
 
@@ -146,7 +170,13 @@ export async function getUser(db: Db, auth: AuthContext, tenantId: string, id: s
   return toDetail(await loadOrThrow(db, { tenantId }, id), auth);
 }
 
-export async function createUser(db: Db, ctx: AuditContext, auth: AuthContext, tenantId: string, input: CreateUserData): Promise<CreateUserResponse> {
+export async function createUser(
+  db: Db,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  input: CreateUserData,
+): Promise<CreateUserResponse> {
   const rows = normalizeRows(input.role, [], input.permissions);
   const after = effectiveOf(input.role, rows);
   assertGrantable(auth, [...after]);
@@ -155,9 +185,24 @@ export async function createUser(db: Db, ctx: AuditContext, auth: AuthContext, t
   const id = newId();
   try {
     await db.$transaction(async (tx) => {
-      await repo.insertUser(tx, { id, tenantId, email: input.email, fullName: input.fullName, role: input.role, passwordHash, mustChangePassword: true });
+      await repo.insertUser(tx, {
+        id,
+        tenantId,
+        email: input.email,
+        fullName: input.fullName,
+        role: input.role,
+        passwordHash,
+        mustChangePassword: true,
+      });
       await repo.replacePermissions(tx, id, rows);
-      await writeAudit(tx, ctx, { ...who(auth, tenantId), action: USER_AUDIT.CREATED, entity: ENTITY, entityId: id, result: "success", newValue: { email: input.email, fullName: input.fullName, role: input.role, status: "ACTIVE" } });
+      await writeAudit(tx, ctx, {
+        ...who(auth, tenantId),
+        action: USER_AUDIT.CREATED,
+        entity: ENTITY,
+        entityId: id,
+        result: "success",
+        newValue: { email: input.email, fullName: input.fullName, role: input.role, status: "ACTIVE" },
+      });
       await permissionAudits(tx, ctx, auth, tenantId, id, effectiveOf(input.role, []), after);
     });
   } catch (err) {
@@ -167,7 +212,15 @@ export async function createUser(db: Db, ctx: AuditContext, auth: AuthContext, t
   return { user: await getUser(db, auth, tenantId, id), temporaryPassword };
 }
 
-export async function updateUser(db: Db, fx: UserLiveEffects, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string, input: UpdateUserData): Promise<UserDetail> {
+export async function updateUser(
+  db: Db,
+  fx: UserLiveEffects,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  input: UpdateUserData,
+): Promise<UserDetail> {
   const scope = { tenantId };
   let outcome: { roleChanged: boolean; before: Set<PermissionKey>; after: Set<PermissionKey> };
   try {
@@ -181,7 +234,8 @@ export async function updateUser(db: Db, fx: UserLiveEffects, ctx: AuditContext,
       const after = effectiveOf(role, rows);
       const changed = diffKeys(before, after);
       const roleChanged = role !== cur.role;
-      if (cur.id === auth.user.id && (roleChanged || changed.length > 0)) throw new AppError("FORBIDDEN", { message: "Kendi rolünüzü veya yetkilerinizi değiştiremezsiniz." });
+      if (cur.id === auth.user.id && (roleChanged || changed.length > 0))
+        throw new AppError("FORBIDDEN", { message: "Kendi rolünüzü veya yetkilerinizi değiştiremezsiniz." });
       assertGrantable(auth, changed);
 
       const fields: Record<string, string> = {};
@@ -191,7 +245,15 @@ export async function updateUser(db: Db, fx: UserLiveEffects, ctx: AuditContext,
       if (roleChanged) [fields.role, old.role] = [role, cur.role];
       if (Object.keys(fields).length > 0) {
         await repo.updateUser(tx, id, fields);
-        await writeAudit(tx, ctx, { ...who(auth, tenantId), action: USER_AUDIT.UPDATED, entity: ENTITY, entityId: id, result: "success", oldValue: old, newValue: fields });
+        await writeAudit(tx, ctx, {
+          ...who(auth, tenantId),
+          action: USER_AUDIT.UPDATED,
+          entity: ENTITY,
+          entityId: id,
+          result: "success",
+          oldValue: old,
+          newValue: fields,
+        });
       }
       if (input.permissions !== undefined || roleChanged) await repo.replacePermissions(tx, id, rows);
       await permissionAudits(tx, ctx, auth, tenantId, id, before, after);
@@ -206,7 +268,11 @@ export async function updateUser(db: Db, fx: UserLiveEffects, ctx: AuditContext,
 }
 
 /** AC-115 / G-04 / G-E9-14: commit sonrası; hata loglanır (60 sn yeniden doğrulama yedek yoldur), yanıt bozulmaz. */
-async function liveAfterUpdate(fx: UserLiveEffects, id: string, o: { roleChanged: boolean; before: Set<PermissionKey>; after: Set<PermissionKey> }): Promise<void> {
+async function liveAfterUpdate(
+  fx: UserLiveEffects,
+  id: string,
+  o: { roleChanged: boolean; before: Set<PermissionKey>; after: Set<PermissionKey> },
+): Promise<void> {
   try {
     if (o.roleChanged) {
       await fx.rooms.endByTechnician(id);
@@ -227,10 +293,16 @@ async function setStatus(db: Db, ctx: AuditContext, auth: AuthContext, tenantId:
     if (!(await repo.lockUser(tx, scope, id))) throw new AppError("NOT_FOUND");
     const cur = asManaged((await repo.findUser(tx, scope, id)) as repo.UserRow);
     if (cur.id === auth.user.id) throw new AppError("FORBIDDEN", { message: "Kendi hesabınızın durumunu değiştiremezsiniz." });
-    if (!canManage(auth, effectiveOf(cur.role, cur.permissions))) throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı yönetemezsiniz." });
-    if (cur.status === next) throw new AppError("CONFLICT", { message: next === "PASSIVE" ? "Kullanıcı zaten pasif." : "Kullanıcı zaten aktif." });
+    if (!canManage(auth, effectiveOf(cur.role, cur.permissions)))
+      throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı yönetemezsiniz." });
+    if (cur.status === next)
+      throw new AppError("CONFLICT", { message: next === "PASSIVE" ? "Kullanıcı zaten pasif." : "Kullanıcı zaten aktif." });
     const now = new Date();
-    await repo.updateUser(tx, id, next === "ACTIVE" ? { status: next, failedLoginCount: 0, failedWindowAt: null, lockedUntil: null } : { status: next });
+    await repo.updateUser(
+      tx,
+      id,
+      next === "ACTIVE" ? { status: next, failedLoginCount: 0, failedWindowAt: null, lockedUntil: null } : { status: next },
+    );
     const extra: Record<string, number> = {};
     if (next === "PASSIVE") {
       extra.revokedSessions = await repo.revokeUserSessions(tx, id, now);
@@ -249,7 +321,14 @@ async function setStatus(db: Db, ctx: AuditContext, auth: AuthContext, tenantId:
 }
 
 /** POST /users/:id/deactivate (AC-115, G-04): oturumlar iptal, bekleyen kod oturumları iptal, canlı odalar biter. */
-export async function deactivateUser(db: Db, fx: UserLiveEffects, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string): Promise<void> {
+export async function deactivateUser(
+  db: Db,
+  fx: UserLiveEffects,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+): Promise<void> {
   await setStatus(db, ctx, auth, tenantId, id, "PASSIVE");
   try {
     await fx.rooms.endByTechnician(id);
@@ -269,20 +348,37 @@ export async function reactivateUser(db: Db, ctx: AuditContext, auth: AuthContex
  * kurtarma kodları silinir, oturumlar iptal; commit sonrası canlı odalar biter. Kendi hesabı / daha geniş yetkili hesap
  * 403; 2FA hiç kurulmamışsa 409. Kullanıcı bir sonraki girişte (zorunluysa) yeniden kurar.
  */
-export async function resetUserMfa(db: Db, fx: UserLiveEffects, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string): Promise<void> {
+export async function resetUserMfa(
+  db: Db,
+  fx: UserLiveEffects,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+): Promise<void> {
   const scope = { tenantId };
   await db.$transaction(async (tx) => {
     if (!(await repo.lockUser(tx, scope, id))) throw new AppError("NOT_FOUND");
     const cur = asManaged((await repo.findUser(tx, scope, id)) as repo.UserRow);
     if (cur.id === auth.user.id) throw new AppError("FORBIDDEN", { message: "Kendi iki adımlı doğrulamanızı sıfırlayamazsınız." });
-    if (!canManage(auth, effectiveOf(cur.role, cur.permissions))) throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı yönetemezsiniz." });
+    if (!canManage(auth, effectiveOf(cur.role, cur.permissions)))
+      throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı yönetemezsiniz." });
     const row = await tx.user.findUniqueOrThrow({ where: { id }, select: { totpEnabled: true, totpSecretEnc: true } });
-    if (!row.totpEnabled && row.totpSecretEnc === null) throw new AppError("CONFLICT", { message: "Bu kullanıcıda iki adımlı doğrulama kurulu değil." });
+    if (!row.totpEnabled && row.totpSecretEnc === null)
+      throw new AppError("CONFLICT", { message: "Bu kullanıcıda iki adımlı doğrulama kurulu değil." });
     const now = new Date();
     await tx.user.update({ where: { id }, data: { totpSecretEnc: null, totpEnabled: false, totpLastStep: null } });
     const codes = await tx.recoveryCode.deleteMany({ where: { userId: id } });
     const revokedSessions = await repo.revokeUserSessions(tx, id, now);
-    await writeAudit(tx, ctx, { ...who(auth, tenantId), action: USER_AUDIT.MFA_RESET, entity: ENTITY, entityId: id, result: "success", oldValue: { mfaEnabled: row.totpEnabled }, newValue: { mfaEnabled: false, deletedCodes: codes.count, revokedSessions } });
+    await writeAudit(tx, ctx, {
+      ...who(auth, tenantId),
+      action: USER_AUDIT.MFA_RESET,
+      entity: ENTITY,
+      entityId: id,
+      result: "success",
+      oldValue: { mfaEnabled: row.totpEnabled },
+      newValue: { mfaEnabled: false, deletedCodes: codes.count, revokedSessions },
+    });
   });
   try {
     await fx.rooms.endByTechnician(id);

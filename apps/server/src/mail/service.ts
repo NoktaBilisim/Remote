@@ -101,7 +101,18 @@ export class MailService {
   /** Tenant SMTP ayarı; yoksa veya şifre çözülemiyorsa null (çözülemezse alarm logu). */
   async configFor(tenantId: string | null): Promise<SmtpConfig | null> {
     if (!tenantId) return null;
-    const s = await this.d.db.tenantSettings.findUnique({ where: { tenantId }, select: { smtpHost: true, smtpPort: true, smtpSecurity: true, smtpUser: true, smtpPassEnc: true, smtpFromName: true, smtpFromEmail: true } });
+    const s = await this.d.db.tenantSettings.findUnique({
+      where: { tenantId },
+      select: {
+        smtpHost: true,
+        smtpPort: true,
+        smtpSecurity: true,
+        smtpUser: true,
+        smtpPassEnc: true,
+        smtpFromName: true,
+        smtpFromEmail: true,
+      },
+    });
     if (!s?.smtpHost || !s.smtpPort || !s.smtpSecurity || !s.smtpFromEmail) return null;
     let pass: string | null = null;
     if (s.smtpPassEnc) {
@@ -112,7 +123,15 @@ export class MailService {
         return null;
       }
     }
-    return { host: s.smtpHost, port: s.smtpPort, security: s.smtpSecurity as SmtpSecurity, user: s.smtpUser, pass, fromName: s.smtpFromName, fromEmail: s.smtpFromEmail };
+    return {
+      host: s.smtpHost,
+      port: s.smtpPort,
+      security: s.smtpSecurity as SmtpSecurity,
+      user: s.smtpUser,
+      pass,
+      fromName: s.smtpFromName,
+      fromEmail: s.smtpFromEmail,
+    };
   }
 
   /** Ham gönderim (audit yok). netguard hatası (HOST_NOT_ALLOWED) yukarı fırlatılır. `attempts`: 1 (etkileşimli) / 2. */
@@ -151,13 +170,35 @@ export class MailService {
       });
       let timer: NodeJS.Timeout | undefined;
       try {
-        const sending = t.sendMail({ from: cfg.fromName ? { name: cfg.fromName, address: cfg.fromEmail } : cfg.fromEmail, to, subject: content.subject, text: content.text, html: renderMailHtml(logoUrl, content.bodyHtml), disableFileAccess: true, disableUrlAccess: true });
+        const sending = t.sendMail({
+          from: cfg.fromName ? { name: cfg.fromName, address: cfg.fromEmail } : cfg.fromEmail,
+          to,
+          subject: content.subject,
+          text: content.text,
+          html: renderMailHtml(logoUrl, content.bodyHtml),
+          disableFileAccess: true,
+          disableUrlAccess: true,
+        });
         sending.catch(() => undefined); // tavan aşıldıktan sonraki geç ret işlenmemiş kalmasın
-        await Promise.race([sending, new Promise((_r, rej) => (timer = setTimeout(() => rej(Object.assign(new Error("smtp attempt cap"), { code: "ETIMEDOUT" })), cap)))]);
+        await Promise.race([
+          sending,
+          new Promise(
+            (_r, rej) => (timer = setTimeout(() => rej(Object.assign(new Error("smtp attempt cap"), { code: "ETIMEDOUT" })), cap)),
+          ),
+        ]);
         return { ok: true };
       } catch (err) {
         last = classify(err);
-        this.d.log.warn({ event: "smtp_send_failed", reason: last, attempt, code: (err as { code?: unknown }).code, responseCode: (err as { responseCode?: unknown }).responseCode }, "SMTP gönderimi başarısız");
+        this.d.log.warn(
+          {
+            event: "smtp_send_failed",
+            reason: last,
+            attempt,
+            code: (err as { code?: unknown }).code,
+            responseCode: (err as { responseCode?: unknown }).responseCode,
+          },
+          "SMTP gönderimi başarısız",
+        );
         for (const sock of sockets) sock.destroy(); // B-P10-11: tavan/başarısızlık → bağlantı gerçekten kapanır
         if (last !== "connect") break;
       } finally {
@@ -173,7 +214,21 @@ export class MailService {
    * HOST_NOT_ALLOWED (kayıttan sonra DNS değişti) → `connect` sayılır, fırlatılmaz.
    * `interactive`: kullanıcı yanıt bekliyor → tek deneme; başarısızlık yanıtı en az deneme tavanı kadar sürer (B-P10-1).
    */
-  async sendForTenant(ctx: AuditContext, a: { tenantId: string | null; userId?: string | null; username?: string | null; kind: string; entity: string; entityId?: string | null }, to: string, content: MailContent, cfg?: SmtpConfig | null, opts: { interactive?: boolean } = {}): Promise<SendOutcome> {
+  async sendForTenant(
+    ctx: AuditContext,
+    a: {
+      tenantId: string | null;
+      userId?: string | null;
+      username?: string | null;
+      kind: string;
+      entity: string;
+      entityId?: string | null;
+    },
+    to: string,
+    content: MailContent,
+    cfg?: SmtpConfig | null,
+    opts: { interactive?: boolean } = {},
+  ): Promise<SendOutcome> {
     const started = Date.now();
     const conf = cfg === undefined ? await this.configFor(a.tenantId) : cfg;
     let out: SendOutcome;
@@ -196,7 +251,13 @@ export class MailService {
         entity: a.entity,
         entityId: a.entityId ?? null,
         result: out.ok ? "success" : "fail",
-        newValue: { kind: a.kind, recipient: maskEmail(to), subject: content.subject, result: out.ok ? "success" : "fail", ...(out.ok ? {} : { reason: out.reason }) },
+        newValue: {
+          kind: a.kind,
+          recipient: maskEmail(to),
+          subject: content.subject,
+          result: out.ok ? "success" : "fail",
+          ...(out.ok ? {} : { reason: out.reason }),
+        },
       });
     } catch (err) {
       this.d.log.error({ err, event: "mail_audit_failed" }, "e-posta audit'i yazılamadı");

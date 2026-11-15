@@ -32,7 +32,10 @@ export function QualityPanel({ last, verdict }: { last: Sample | null; verdict: 
   ];
   return (
     <div className="flex flex-col gap-3" data-testid="quality-panel" data-level={verdict.level}>
-      <p role="status" className={`inline-flex items-center gap-2 self-start rounded-full px-2.5 py-0.5 text-xs font-medium ${TONE[verdict.level]}`}>
+      <p
+        role="status"
+        className={`inline-flex items-center gap-2 self-start rounded-full px-2.5 py-0.5 text-xs font-medium ${TONE[verdict.level]}`}
+      >
         <Signal aria-hidden className="size-4" />
         {t(`p5.q.level.${verdict.level}` as MessageKey)}
         {verdict.issues.length > 0 && ` — ${verdict.issues.map((i) => t(`p5.q.issue.${i}` as MessageKey)).join(", ")}`}

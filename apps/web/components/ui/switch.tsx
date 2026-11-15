@@ -60,11 +60,17 @@ export function Switch({
 
 /** Görsel ray + topuz (ortak). `mixed`: topuz ortada, ray `fg-muted` (kısmi grup). Yalnız transform animasyonlu. */
 function Track({ checked }: { checked: boolean | "mixed" }) {
-  const rail = checked === true ? "border-primary bg-primary" : checked === "mixed" ? "border-fg-muted bg-fg-muted" : "border-border bg-surface-muted";
+  const rail =
+    checked === true ? "border-primary bg-primary" : checked === "mixed" ? "border-fg-muted bg-fg-muted" : "border-border bg-surface-muted";
   const knob = checked === true ? "translate-x-5" : checked === "mixed" ? "translate-x-2.5" : "translate-x-0.5";
   return (
-    <span aria-hidden className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors duration-150 ease-out ${rail}`}>
-      <span className={`size-5 rounded-full bg-surface shadow-sm transition-transform duration-150 ease-out motion-reduce:transition-none ${knob}`} />
+    <span
+      aria-hidden
+      className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors duration-150 ease-out ${rail}`}
+    >
+      <span
+        className={`size-5 rounded-full bg-surface shadow-sm transition-transform duration-150 ease-out motion-reduce:transition-none ${knob}`}
+      />
     </span>
   );
 }

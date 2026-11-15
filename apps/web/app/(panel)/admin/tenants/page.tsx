@@ -40,7 +40,11 @@ export default async function TenantsPage({ searchParams }: { searchParams: Prom
   const forbidden = (
     <>
       {header}
-      <div className="mt-6 max-w-xl"><Alert tone="warning" testId="tenants-forbidden">{t("tn.forbidden")}</Alert></div>
+      <div className="mt-6 max-w-xl">
+        <Alert tone="warning" testId="tenants-forbidden">
+          {t("tn.forbidden")}
+        </Alert>
+      </div>
     </>
   );
   if (!isSa) return forbidden;
@@ -53,7 +57,9 @@ export default async function TenantsPage({ searchParams }: { searchParams: Prom
     return (
       <>
         {header}
-        <div className="mt-6 max-w-xl"><LoadError /></div>
+        <div className="mt-6 max-w-xl">
+          <LoadError />
+        </div>
       </>
     );
   }
@@ -64,20 +70,57 @@ export default async function TenantsPage({ searchParams }: { searchParams: Prom
   let body;
   if (items.length > 0) body = <TenantList items={items} actingId={me.me.actingTenant?.id ?? null} />;
   else if (total > 0)
-    body = <EmptyState Icon={SearchX} title={t("us.beyond", { pages })} body={t("us.beyondBody")} testId="tenants-beyond" action={<Link href={tenantsHref({ ...params, page: 1 })} className={linkCls}>{t("h.firstPage")}</Link>} />;
+    body = (
+      <EmptyState
+        Icon={SearchX}
+        title={t("us.beyond", { pages })}
+        body={t("us.beyondBody")}
+        testId="tenants-beyond"
+        action={
+          <Link href={tenantsHref({ ...params, page: 1 })} className={linkCls}>
+            {t("h.firstPage")}
+          </Link>
+        }
+      />
+    );
   else if (filtered)
-    body = <EmptyState Icon={SearchX} title={t("tn.noMatch")} body={t("tn.noMatchBody")} testId="tenants-no-match" action={<Link href={tenantsHref({})} className={linkCls}>{t("tn.clear")}</Link>} />;
-  else body = <EmptyState Icon={Building} title={t("tn.emptyTitle")} body={t("tn.emptyBody")} testId="tenants-empty" action={<NewTenantButton testId="tenant-new-empty" />} />;
+    body = (
+      <EmptyState
+        Icon={SearchX}
+        title={t("tn.noMatch")}
+        body={t("tn.noMatchBody")}
+        testId="tenants-no-match"
+        action={
+          <Link href={tenantsHref({})} className={linkCls}>
+            {t("tn.clear")}
+          </Link>
+        }
+      />
+    );
+  else
+    body = (
+      <EmptyState
+        Icon={Building}
+        title={t("tn.emptyTitle")}
+        body={t("tn.emptyBody")}
+        testId="tenants-empty"
+        action={<NewTenantButton testId="tenant-new-empty" />}
+      />
+    );
 
   return (
     <>
       {header}
-      <div className="mt-6"><TenantFilters params={params} /></div>
+      <div className="mt-6">
+        <TenantFilters params={params} />
+      </div>
       <section className="mt-4" aria-label={t("tn.title")}>
         {body}
         {total > 0 && (
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-fg-muted tabular-nums" role="status" data-testid="tenants-count">{t("tn.count", { n: formatNumber(total) })}</p>
+            <p className="text-sm text-fg-muted tabular-nums" role="status" data-testid="tenants-count">
+              {t("tn.count", { n: formatNumber(total) })}
+            </p>
             {pages > 1 && (
               <nav aria-label={t("h.pager")} className="flex items-center gap-2 text-sm">
                 {page > 1 && (
@@ -86,7 +129,9 @@ export default async function TenantsPage({ searchParams }: { searchParams: Prom
                     {t("h.prev")}
                   </Link>
                 )}
-                <span className="px-1 tabular-nums text-fg" aria-current="page">{t("h.pageOf", { page: formatNumber(page), pages: formatNumber(pages) })}</span>
+                <span className="px-1 tabular-nums text-fg" aria-current="page">
+                  {t("h.pageOf", { page: formatNumber(page), pages: formatNumber(pages) })}
+                </span>
                 {page < pages && (
                   <Link href={tenantsHref({ ...params, page: page + 1 })} rel="next" className={linkCls}>
                     {t("h.next")}

@@ -16,7 +16,8 @@ function codeOf(err: unknown): string {
 
 function mapError(err: unknown): AppError {
   const code = codeOf(err);
-  if (code === "FST_REQ_FILE_TOO_LARGE" || code === "FST_FILES_LIMIT" || code === "FST_PARTS_LIMIT") return new AppError("PAYLOAD_TOO_LARGE");
+  if (code === "FST_REQ_FILE_TOO_LARGE" || code === "FST_FILES_LIMIT" || code === "FST_PARTS_LIMIT")
+    return new AppError("PAYLOAD_TOO_LARGE");
   return noFile();
 }
 

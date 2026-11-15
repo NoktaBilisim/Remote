@@ -27,7 +27,11 @@ export function CustomersActions({ canCreate, layout = "header" }: { canCreate: 
           {t("cu.new")}
         </Button>
       )}
-      <Button variant={layout === "header" ? "secondary" : "ghost"} onClick={() => setHelp(true)} data-testid={layout === "header" ? "customers-help-open" : "customers-help-open-empty"}>
+      <Button
+        variant={layout === "header" ? "secondary" : "ghost"}
+        onClick={() => setHelp(true)}
+        data-testid={layout === "header" ? "customers-help-open" : "customers-help-open-empty"}
+      >
         <CircleHelp aria-hidden className="size-4" />
         {t("cu.help.open")}
       </Button>

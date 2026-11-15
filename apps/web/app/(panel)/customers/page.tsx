@@ -33,7 +33,11 @@ function GeneralLink({ data, canSettings }: { data: GeneralLinkResponse | null; 
             {t("cu.general.title")}
           </h2>
           <p className="mt-1 text-sm text-fg-muted">{t("cu.general.body")}</p>
-          {data && <p className="mt-1 truncate font-mono text-xs text-fg-muted" title={data.fileName} data-testid="general-file-name">{data.fileName}</p>}
+          {data && (
+            <p className="mt-1 truncate font-mono text-xs text-fg-muted" title={data.fileName} data-testid="general-file-name">
+              {data.fileName}
+            </p>
+          )}
           {canSettings && (
             <Link href="/settings/support-requests" className={linkCls}>
               <Settings aria-hidden className="size-4" />
@@ -44,7 +48,11 @@ function GeneralLink({ data, canSettings }: { data: GeneralLinkResponse | null; 
         {data ? (
           <CopyLink url={data.downloadUrl} srLabel={t("cu.general.copy")} testId="general-copy" />
         ) : (
-          <div className="lg:max-w-sm"><Alert tone="warning" testId="general-link-error">{t("cu.general.error")}</Alert></div>
+          <div className="lg:max-w-sm">
+            <Alert tone="warning" testId="general-link-error">
+              {t("cu.general.error")}
+            </Alert>
+          </div>
         )}
       </div>
     </section>
@@ -80,7 +88,11 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
     return (
       <>
         {header}
-        <div className="mt-6 max-w-xl"><Alert tone="warning" testId="customers-forbidden">{t("cu.forbidden")}</Alert></div>
+        <div className="mt-6 max-w-xl">
+          <Alert tone="warning" testId="customers-forbidden">
+            {t("cu.forbidden")}
+          </Alert>
+        </div>
       </>
     );
   }
@@ -88,7 +100,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
     return (
       <>
         {header}
-        <div className="mt-6"><EmptyState Icon={Building2} title={t("rq.pickTenantTitle")} body={t("cu.pickTenantBody")} testId="customers-pick-tenant" /></div>
+        <div className="mt-6">
+          <EmptyState Icon={Building2} title={t("rq.pickTenantTitle")} body={t("cu.pickTenantBody")} testId="customers-pick-tenant" />
+        </div>
       </>
     );
   }
@@ -107,7 +121,13 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
         {header}
         {generalStrip}
         <div className="mt-6 max-w-xl">
-          {res.status === 403 ? <Alert tone="warning" testId="customers-forbidden">{t("cu.forbidden")}</Alert> : <LoadError />}
+          {res.status === 403 ? (
+            <Alert tone="warning" testId="customers-forbidden">
+              {t("cu.forbidden")}
+            </Alert>
+          ) : (
+            <LoadError />
+          )}
         </div>
       </>
     );
@@ -125,7 +145,11 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
         title={t("cu.beyond", { pages })}
         body={t("cu.beyondBody")}
         testId="customers-beyond"
-        action={<Link href={customersHref({ ...params, page: 1 })} className={linkCls}>{t("h.firstPage")}</Link>}
+        action={
+          <Link href={customersHref({ ...params, page: 1 })} className={linkCls}>
+            {t("h.firstPage")}
+          </Link>
+        }
       />
     );
   else if (params.q)
@@ -135,11 +159,22 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
         title={t("cu.noMatch")}
         body={t("cu.noMatchBody", { q: params.q })}
         testId="customers-no-match"
-        action={<Link href={customersHref({ status: params.status })} className={linkCls}>{t("cu.clearSearch")}</Link>}
+        action={
+          <Link href={customersHref({ status: params.status })} className={linkCls}>
+            {t("cu.clearSearch")}
+          </Link>
+        }
       />
     );
   else if (params.status !== "active")
-    body = <EmptyState Icon={Building2} title={params.status === "passive" ? t("cu.emptyPassive") : t("cu.emptyTitle")} body={t("cu.emptyFilterBody")} testId="customers-empty-filter" />;
+    body = (
+      <EmptyState
+        Icon={Building2}
+        title={params.status === "passive" ? t("cu.emptyPassive") : t("cu.emptyTitle")}
+        body={t("cu.emptyFilterBody")}
+        testId="customers-empty-filter"
+      />
+    );
   else
     body = (
       <EmptyState
@@ -155,12 +190,16 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
     <>
       {header}
       {generalStrip}
-      <div className="mt-6"><CustomerFilters params={params} /></div>
+      <div className="mt-6">
+        <CustomerFilters params={params} />
+      </div>
       <section className="mt-4" aria-label={t("cu.title")}>
         {body}
         {total > 0 && (
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-fg-muted tabular-nums" role="status" data-testid="customers-count">{t("cu.count", { n: formatNumber(total) })}</p>
+            <p className="text-sm text-fg-muted tabular-nums" role="status" data-testid="customers-count">
+              {t("cu.count", { n: formatNumber(total) })}
+            </p>
             {pages > 1 && (
               <nav aria-label={t("h.pager")} className="flex items-center gap-2 text-sm">
                 {page > 1 ? (
@@ -169,7 +208,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
                     {t("h.prev")}
                   </Link>
                 ) : null}
-                <span className="px-1 tabular-nums text-fg" aria-current="page">{t("h.pageOf", { page: formatNumber(page), pages: formatNumber(pages) })}</span>
+                <span className="px-1 tabular-nums text-fg" aria-current="page">
+                  {t("h.pageOf", { page: formatNumber(page), pages: formatNumber(pages) })}
+                </span>
                 {page < pages ? (
                   <Link href={customersHref({ ...params, page: page + 1 })} rel="next" className={linkCls}>
                     {t("h.next")}

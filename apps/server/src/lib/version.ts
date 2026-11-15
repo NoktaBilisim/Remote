@@ -15,4 +15,5 @@ export function compareVersions(a: string, b: string): number {
 }
 
 /** `min` tanımlı ve `version` (yoksa 0.0.0) ondan düşükse true. */
-export const isOutdated = (version: string | undefined, min: string | undefined): boolean => min !== undefined && compareVersions(version ?? "0.0.0", min) < 0;
+export const isOutdated = (version: string | undefined, min: string | undefined): boolean =>
+  min !== undefined && compareVersions(version ?? "0.0.0", min) < 0;

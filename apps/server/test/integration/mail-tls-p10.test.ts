@@ -22,7 +22,27 @@ const received: string[] = [];
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "rs-tls-"));
-  execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(dir, "k.pem"), "-out", join(dir, "c.pem"), "-days", "1", "-subj", "/CN=smtp.test", "-addext", "subjectAltName=DNS:smtp.test"], { stdio: "ignore" });
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      join(dir, "k.pem"),
+      "-out",
+      join(dir, "c.pem"),
+      "-days",
+      "1",
+      "-subj",
+      "/CN=smtp.test",
+      "-addext",
+      "subjectAltName=DNS:smtp.test",
+    ],
+    { stdio: "ignore" },
+  );
   cert = readFileSync(join(dir, "c.pem"), "utf8");
   smtp = new SMTPServer({
     secure: true,
@@ -54,7 +74,10 @@ describe("SMTP TLS sertifika adı doğrulaması (servername)", () => {
     new MailService({
       db: {} as Db,
       secrets: new SecretBox(null),
-      netguard: createNetGuard({ lookupAll: async (h) => (h === "smtp.test" || h === "baska-ad.test" ? ["127.0.0.1"] : []), isBlocked: () => false }),
+      netguard: createNetGuard({
+        lookupAll: async (h) => (h === "smtp.test" || h === "baska-ad.test" ? ["127.0.0.1"] : []),
+        isBlocked: () => false,
+      }),
       metrics: createMetrics(),
       log: { warn: () => undefined, error: () => undefined },
       logoUrlFor: async () => "https://rs.test/img/logo.png",
@@ -62,10 +85,20 @@ describe("SMTP TLS sertifika adı doğrulaması (servername)", () => {
       attemptCapMs: 5_000,
       transport: (o) => {
         seen.push(o);
-        return nodemailer.createTransport({ ...o, port, tls: { ...(o.tls as object), ca: [cert] } } as Parameters<typeof nodemailer.createTransport>[0]);
+        return nodemailer.createTransport({ ...o, port, tls: { ...(o.tls as object), ca: [cert] } } as Parameters<
+          typeof nodemailer.createTransport
+        >[0]);
       },
     });
-  const cfg: SmtpConfig = { host: "smtp.test", port: 465, security: "SSL", user: null, pass: null, fromName: null, fromEmail: "destek@firma.test" };
+  const cfg: SmtpConfig = {
+    host: "smtp.test",
+    port: 465,
+    security: "SSL",
+    user: null,
+    pass: null,
+    fromName: null,
+    fromEmail: "destek@firma.test",
+  };
   const content = { subject: "s", text: "t", bodyHtml: "<p>t</p>" };
 
   it("AC-122: IP'ye bağlanır, sertifika ayar adına (smtp.test) göre doğrulanır → gönderim başarılı", async () => {

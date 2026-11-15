@@ -16,8 +16,15 @@ export default async function LogoSettingsPage() {
       title={t("lg.title")}
       subtitle={t("lg.subtitle")}
       render={(data, canEdit) => (
-        <section aria-label={t("lg.title")} className="mt-6 flex max-w-3xl flex-col gap-4 rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-6">
-          {!canEdit && <Alert tone="warning" testId="settings-readonly">{t("set.readonly")}</Alert>}
+        <section
+          aria-label={t("lg.title")}
+          className="mt-6 flex max-w-3xl flex-col gap-4 rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-6"
+        >
+          {!canEdit && (
+            <Alert tone="warning" testId="settings-readonly">
+              {t("set.readonly")}
+            </Alert>
+          )}
           <LogoUploader
             endpoint="/settings/logo"
             logoUrl={data.logoUrl ?? null}

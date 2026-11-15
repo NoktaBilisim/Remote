@@ -28,18 +28,41 @@ export async function techSession(live: Live, tenantId?: string) {
   const created = res.json<{ id: string; link: string; code: string }>();
   const ws = await connect(`${live.base}/ws/tech?sessionId=${created.id}`, ["rs.v1"], techHeaders(s.token, ORIGIN));
   await ws.waitFor("hello");
-  return { tenantId: tid, consentTextId: await currentConsentId(tid), tech, techAuth: s, sessionId: created.id, token: created.link.split("/").pop() ?? "", code: created.code, ws };
+  return {
+    tenantId: tid,
+    consentTextId: await currentConsentId(tid),
+    tech,
+    techAuth: s,
+    sessionId: created.id,
+    token: created.link.split("/").pop() ?? "",
+    code: created.code,
+    ws,
+  };
 }
 
 export type TechSide = Awaited<ReturnType<typeof techSession>>;
 
 /** resolve + join (BROWSER, Origin'li) → misafir WS lobide. */
-export async function joinGuest(live: Live, t: Pick<TechSide, "token">, ip = "203.0.113.20"): Promise<{ ws: WsClient; admitCode: string; guestId: string }> {
+export async function joinGuest(
+  live: Live,
+  t: Pick<TechSide, "token">,
+  ip = "203.0.113.20",
+): Promise<{ ws: WsClient; admitCode: string; guestId: string }> {
   const headers = { origin: ORIGIN, "x-forwarded-for": ip };
-  const r = await live.app.inject({ method: "POST", url: "/api/v1/public/sessions/resolve", headers, payload: { token: t.token, clientKind: "BROWSER" } });
+  const r = await live.app.inject({
+    method: "POST",
+    url: "/api/v1/public/sessions/resolve",
+    headers,
+    payload: { token: t.token, clientKind: "BROWSER" },
+  });
   if (r.statusCode !== 200) throw new Error(`resolve ${r.statusCode} ${r.body}`);
   const { joinNonce, consentText } = r.json<{ joinNonce: string; consentText: { id: string } }>();
-  const j = await live.app.inject({ method: "POST", url: "/api/v1/public/sessions/join", headers, payload: { joinNonce, customerName: "Ayşe Müşteri", consentAccepted: true, consentTextId: consentText.id } });
+  const j = await live.app.inject({
+    method: "POST",
+    url: "/api/v1/public/sessions/join",
+    headers,
+    payload: { joinNonce, customerName: "Ayşe Müşteri", consentAccepted: true, consentTextId: consentText.id },
+  });
   if (j.statusCode !== 200) throw new Error(`join ${j.statusCode} ${j.body}`);
   const { wsTicket, admitCode } = j.json<{ wsTicket: string; admitCode: string }>();
   const ws = await connect(`${live.base}/ws/guest`, ["rs.v1", `rs.ticket.${wsTicket}`], { origin: ORIGIN });

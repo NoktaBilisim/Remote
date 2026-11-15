@@ -67,12 +67,25 @@ export const TENANT_PREFIX_RE = /^[0-9A-Z]{26}$/;
 export const SYSTEM_PREFIX = "system";
 /** `tenants_logo_path_chk` (öndek = tenant id). */
 export const logoPathSchema = (tenantId: string) =>
-  z.string().max(200).regex(/^[0-9A-Z]{26}\/[A-Za-z0-9_-]{16,100}\.(png|jpg|webp)$/).refine((p) => p.split("/")[0] === tenantId);
+  z
+    .string()
+    .max(200)
+    .regex(/^[0-9A-Z]{26}\/[A-Za-z0-9_-]{16,100}\.(png|jpg|webp)$/)
+    .refine((p) => p.split("/")[0] === tenantId);
 /** `users_avatar_path_chk` (öndek = tenant id, Super Admin → `system`). */
 export const avatarPathSchema = (tenantId: string | null) =>
-  z.string().max(200).regex(/^([0-9A-Z]{26}|system)\/[A-Za-z0-9_-]{16,100}\.(png|jpg|webp)$/).refine((p) => p.split("/")[0] === (tenantId ?? SYSTEM_PREFIX));
+  z
+    .string()
+    .max(200)
+    .regex(/^([0-9A-Z]{26}|system)\/[A-Za-z0-9_-]{16,100}\.(png|jpg|webp)$/)
+    .refine((p) => p.split("/")[0] === (tenantId ?? SYSTEM_PREFIX));
 /** `system_settings_system_logo_chk` value_json `{ path }`. */
-export const systemLogoValueSchema = z.strictObject({ path: z.string().max(200).regex(/^system\/[A-Za-z0-9_-]{16,100}\.(png|jpg|webp)$/) });
+export const systemLogoValueSchema = z.strictObject({
+  path: z
+    .string()
+    .max(200)
+    .regex(/^system\/[A-Za-z0-9_-]{16,100}\.(png|jpg|webp)$/),
+});
 
 /** Logo / sistem logosu herkese açık (login, müşteri sayfası, e-posta); avatar oturumlu (aynı tenant veya Super Admin). */
 export const FILES_BASE = "/api/v1/files";

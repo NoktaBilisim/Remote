@@ -3,11 +3,26 @@
 // (vitest.config.ts). Gerçek MySQL: app (TEST_DATABASE_URL) + migrator (geçmiş tarihli audit fikstürü, tetikleyici muafı).
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { SESSION_ANONYMIZED_MESSAGE, SESSION_CSV_ANONYMIZED, type SessionHistoryDetail, type SessionListResponse } from "@remote/contracts/api/sessions";
+import {
+  SESSION_ANONYMIZED_MESSAGE,
+  SESSION_CSV_ANONYMIZED,
+  type SessionHistoryDetail,
+  type SessionListResponse,
+} from "@remote/contracts/api/sessions";
 import { RETENTION_AUDIT } from "@remote/contracts/audit";
 import { newId, sha256Hex } from "../../src/lib/ids.ts";
 import { RetentionJob, SESSION_BATCH } from "../../src/jobs/retention.ts";
-import { createSupportSessionRow, createTenant, createUser, loginAs, makeApp, testDb, testFixtureDb, type Session, type TestUser } from "../helpers/app.ts";
+import {
+  createSupportSessionRow,
+  createTenant,
+  createUser,
+  loginAs,
+  makeApp,
+  testDb,
+  testFixtureDb,
+  type Session,
+  type TestUser,
+} from "../helpers/app.ts";
 import { FAKE_METRICS_TOKEN } from "../helpers/secrets.ts";
 
 // AC-199 fail-soft: seçilen tenant'ın oturum adımı hata verir; diğerleri sürer.
@@ -43,7 +58,12 @@ async function tenantWith(retentionDays: number) {
 }
 
 /** Kişisel alanları dolu bitmiş oturum + onay (ip/UA) + dosya meta + müşteri adlı zaman çizelgesi audit'i. */
-async function finishedSession(tenantId: string, technicianId: string, ageDays: number, status: "ENDED" | "EXPIRED" | "CANCELLED" = "ENDED") {
+async function finishedSession(
+  tenantId: string,
+  technicianId: string,
+  ageDays: number,
+  status: "ENDED" | "EXPIRED" | "CANCELLED" = "ENDED",
+) {
   const id = newId();
   const createdAt = new Date(Date.now() - ageDays * DAY);
   const consumed = status === "ENDED";
@@ -62,20 +82,69 @@ async function finishedSession(tenantId: string, technicianId: string, ageDays: 
       endReason: consumed ? "customer" : status.toLowerCase(),
       // customer_consumed_chk / guest_keys_chk: ad, e-posta ve misafir ağ anahtarları yalnız admit edilmiş oturumda.
       ...(consumed
-        ? { consumedAt: new Date(createdAt.getTime() + 5_000), mode: "BROWSER", qualitySummary: { fps: { avg: 20, min: 15, max: 25 }, kbps: { avg: 900, min: 500, max: 1200 }, rttMs: { avg: 30, min: 20, max: 50 }, connType: "host" }, customerName: "Ayşe Yılmaz", customerEmail: "ayse@example.test", guestNetKey: "4:203.0.113", guestIpKey: "4:203.0.113.7" }
+        ? {
+            consumedAt: new Date(createdAt.getTime() + 5_000),
+            mode: "BROWSER",
+            qualitySummary: {
+              fps: { avg: 20, min: 15, max: 25 },
+              kbps: { avg: 900, min: 500, max: 1200 },
+              rttMs: { avg: 30, min: 20, max: 50 },
+              connType: "host",
+            },
+            customerName: "Ayşe Yılmaz",
+            customerEmail: "ayse@example.test",
+            guestNetKey: "4:203.0.113",
+            guestIpKey: "4:203.0.113.7",
+          }
         : {}),
       note: "Müşteri notu",
       ticketNo: "TCK-42",
     },
   });
-  await testDb().sessionConsent.create({ data: { id: newId(), sessionId: id, tenantId, level: "VIEW", decision: "GRANTED", source: "UI", ip: "203.0.113.7", userAgent: "Mozilla/5.0" } });
-  await testDb().sessionFile.create({ data: { id: newId(), sessionId: id, tenantId, direction: "TO_TECH", fileName: "rapor.pdf", sizeBytes: 10n, sha256: "a".repeat(64), result: "OK" } });
-  await testDb().auditLog.create({ data: { tenantId, username: "customer", action: "guest.pending", entity: "support_sessions", entityId: id, newValue: { name: "Ayşe Yılmaz" }, result: "success" } });
+  await testDb().sessionConsent.create({
+    data: {
+      id: newId(),
+      sessionId: id,
+      tenantId,
+      level: "VIEW",
+      decision: "GRANTED",
+      source: "UI",
+      ip: "203.0.113.7",
+      userAgent: "Mozilla/5.0",
+    },
+  });
+  await testDb().sessionFile.create({
+    data: {
+      id: newId(),
+      sessionId: id,
+      tenantId,
+      direction: "TO_TECH",
+      fileName: "rapor.pdf",
+      sizeBytes: 10n,
+      sha256: "a".repeat(64),
+      result: "OK",
+    },
+  });
+  await testDb().auditLog.create({
+    data: {
+      tenantId,
+      username: "customer",
+      action: "guest.pending",
+      entity: "support_sessions",
+      entityId: id,
+      newValue: { name: "Ayşe Yılmaz" },
+      result: "success",
+    },
+  });
   return id;
 }
 
 const retentionAudits = (tenantId: string | null) =>
-  testDb().auditLog.findMany({ where: { action: RETENTION_AUDIT.RUN, tenantId }, orderBy: { id: "asc" }, select: { newValue: true, result: true, username: true, userId: true, entity: true } });
+  testDb().auditLog.findMany({
+    where: { action: RETENTION_AUDIT.RUN, tenantId },
+    orderBy: { id: "asc" },
+    select: { newValue: true, result: true, username: true, userId: true, entity: true },
+  });
 
 describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
   let tenantId: string;
@@ -105,7 +174,14 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
     expect(r).not.toBeNull();
     for (const id of [oldEnded, oldExpired]) {
       const s = await testDb().supportSession.findUniqueOrThrow({ where: { id } });
-      expect(s).toMatchObject({ customerName: null, customerEmail: null, note: null, guestNetKey: null, guestIpKey: null, ticketNo: "TCK-42" });
+      expect(s).toMatchObject({
+        customerName: null,
+        customerEmail: null,
+        note: null,
+        guestNetKey: null,
+        guestIpKey: null,
+        ticketNo: "TCK-42",
+      });
       expect(s.anonymizedAt).not.toBeNull();
       const consents = await testDb().sessionConsent.findMany({ where: { sessionId: id } });
       expect(consents).toHaveLength(1);
@@ -116,7 +192,10 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
     expect(ended).toMatchObject({ mode: "BROWSER" });
     expect(ended.qualitySummary).not.toBeNull();
     // Saklama süresi dolmamış ve bitmemiş oturum değişmez.
-    expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: young } })).toMatchObject({ customerName: "Ayşe Yılmaz", anonymizedAt: null });
+    expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: young } })).toMatchObject({
+      customerName: "Ayşe Yılmaz",
+      anonymizedAt: null,
+    });
     expect(await testDb().sessionFile.count({ where: { sessionId: young } })).toBe(1);
     expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: oldPending } })).toMatchObject({ anonymizedAt: null });
     const audits = await retentionAudits(tenantId);
@@ -126,11 +205,16 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
   });
 
   it("AC-197: aynı gün ikinci çalıştırma hiçbir satırı değiştirmez (idempotent) ve audit yazmaz", async () => {
-    const before = await testDb().supportSession.findUniqueOrThrow({ where: { id: oldEnded }, select: { anonymizedAt: true, updatedAt: true } });
+    const before = await testDb().supportSession.findUniqueOrThrow({
+      where: { id: oldEnded },
+      select: { anonymizedAt: true, updatedAt: true },
+    });
     const r = await app.retention.run();
     expect(r?.failures).toBe(0);
     expect(Object.values(r?.totals ?? {}).reduce((a, b) => a + b, 0)).toBe(0);
-    expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: oldEnded }, select: { anonymizedAt: true, updatedAt: true } })).toEqual(before);
+    expect(
+      await testDb().supportSession.findUniqueOrThrow({ where: { id: oldEnded }, select: { anonymizedAt: true, updatedAt: true } }),
+    ).toEqual(before);
     expect(await retentionAudits(tenantId)).toHaveLength(1);
   });
 
@@ -140,7 +224,9 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
   });
 
   it("AC-197: liste/detay `anonymized`, müşteri adı hiçbir alanda yok (zaman çizelgesi dahil), dosyalar boş", async () => {
-    const list = (await app.inject({ method: "GET", url: "/api/v1/sessions?pageSize=100", headers: techS.headers })).json<SessionListResponse>();
+    const list = (
+      await app.inject({ method: "GET", url: "/api/v1/sessions?pageSize=100", headers: techS.headers })
+    ).json<SessionListResponse>();
     const item = list.items.find((i) => i.id === oldEnded);
     expect(item).toMatchObject({ anonymized: true, customerName: null, ticketNo: "TCK-42" });
     const res = await app.inject({ method: "GET", url: `/api/v1/sessions/${oldEnded}/history`, headers: techS.headers });
@@ -156,7 +242,9 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
 
   it("AC-197: anonim olmayan oturum `anonymized: false` ve ad görünür (kapsam değişmedi)", async () => {
     const other = await finishedSession(tenantId, tech.id, 1);
-    const d = (await app.inject({ method: "GET", url: `/api/v1/sessions/${other}/history`, headers: techS.headers })).json<SessionHistoryDetail>();
+    const d = (
+      await app.inject({ method: "GET", url: `/api/v1/sessions/${other}/history`, headers: techS.headers })
+    ).json<SessionHistoryDetail>();
     expect(d).toMatchObject({ anonymized: false, customerName: "Ayşe Yılmaz" });
     expect(d.timeline.find((e) => e.action === "guest.pending")).toMatchObject({ actorName: "Ayşe Yılmaz" });
   });
@@ -165,7 +253,10 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
     for (const payload of [{ note: "yeni not" }, { ticketNo: "X-1" }]) {
       const res = await app.inject({ method: "PATCH", url: `/api/v1/sessions/${oldEnded}`, headers: techS.headers, payload });
       expect(res.statusCode).toBe(409);
-      expect(res.json<{ error: { code: string; message: string } }>().error).toMatchObject({ code: "SESSION_ANONYMIZED", message: SESSION_ANONYMIZED_MESSAGE });
+      expect(res.json<{ error: { code: string; message: string } }>().error).toMatchObject({
+        code: "SESSION_ANONYMIZED",
+        message: SESSION_ANONYMIZED_MESSAGE,
+      });
     }
     expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: oldEnded } })).toMatchObject({ note: null, ticketNo: "TCK-42" });
   });
@@ -173,11 +264,16 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
   it("AC-197: başka tenant'ın anonim oturumu 404 kalır (AC-61 kapsamı 409'dan önce)", async () => {
     const otherTenant = await tenantWith(90);
     const outsider = await loginAs(app, await createUser({ tenantId: otherTenant, role: "ADMIN", perms: HIST }));
-    const res = await app.inject({ method: "PATCH", url: `/api/v1/sessions/${oldEnded}`, headers: outsider.headers, payload: { note: "x" } });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/sessions/${oldEnded}`,
+      headers: outsider.headers,
+      payload: { note: "x" },
+    });
     expect(res.statusCode).toBe(404);
   });
 
-  it("AC-197: CSV'de anonim satır \"Anonimleştirildi\", müşteri adı ve not yok", async () => {
+  it('AC-197: CSV\'de anonim satır "Anonimleştirildi", müşteri adı ve not yok', async () => {
     const res = await app.inject({ method: "GET", url: "/api/v1/sessions/export.csv", headers: techS.headers });
     expect(res.statusCode).toBe(200);
     const line = res.body.split("\r\n").find((l) => l.startsWith(oldEnded));
@@ -191,13 +287,28 @@ describe("P13a saklama işi — oturum anonimleştirme (AC-197)", () => {
 describe("P13a saklama işi — global silmeler (AC-198)", () => {
   it("AC-198: 730 günden eski audit silinir, daha yenisi kalır; giriş oturumu/sıfırlama bağlantısı +7 g; firma alanı boş tek retention.run", async () => {
     const mig = testFixtureDb();
-    const old = await mig.auditLog.create({ data: { action: "p13a.job", entity: "audit_logs", result: "success", createdAt: new Date(Date.now() - 731 * DAY) }, select: { id: true } });
-    const keep = await mig.auditLog.create({ data: { action: "p13a.job", entity: "audit_logs", result: "success", createdAt: new Date(Date.now() - 729 * DAY) }, select: { id: true } });
+    const old = await mig.auditLog.create({
+      data: { action: "p13a.job", entity: "audit_logs", result: "success", createdAt: new Date(Date.now() - 731 * DAY) },
+      select: { id: true },
+    });
+    const keep = await mig.auditLog.create({
+      data: { action: "p13a.job", entity: "audit_logs", result: "success", createdAt: new Date(Date.now() - 729 * DAY) },
+      select: { id: true },
+    });
     const user = await createUser({ tenantId: null, role: "SUPER_ADMIN" });
     const sess = async (expiresDaysAgo: number, revokedDaysAgo: number | null) => {
       const id = newId();
       await testDb().authSession.create({
-        data: { id, userId: user.id, tokenHash: sha256Hex(newId()), ip: "198.51.100.1", userAgent: "ua", lastSeenAt: new Date(), expiresAt: new Date(Date.now() - expiresDaysAgo * DAY), revokedAt: revokedDaysAgo === null ? null : new Date(Date.now() - revokedDaysAgo * DAY) },
+        data: {
+          id,
+          userId: user.id,
+          tokenHash: sha256Hex(newId()),
+          ip: "198.51.100.1",
+          userAgent: "ua",
+          lastSeenAt: new Date(),
+          expiresAt: new Date(Date.now() - expiresDaysAgo * DAY),
+          revokedAt: revokedDaysAgo === null ? null : new Date(Date.now() - revokedDaysAgo * DAY),
+        },
       });
       return id;
     };
@@ -208,7 +319,9 @@ describe("P13a saklama işi — global silmeler (AC-198)", () => {
     const token = async (expiresDaysAgo: number) => {
       const id = newId();
       const expiresAt = new Date(Date.now() - expiresDaysAgo * DAY);
-      await testDb().passwordResetToken.create({ data: { id, userId: user.id, tokenHash: sha256Hex(newId()), createdAt: new Date(expiresAt.getTime() - 30 * 60_000), expiresAt } });
+      await testDb().passwordResetToken.create({
+        data: { id, userId: user.id, tokenHash: sha256Hex(newId()), createdAt: new Date(expiresAt.getTime() - 30 * 60_000), expiresAt },
+      });
       return id;
     };
     const tokOld = await token(8);
@@ -220,9 +333,9 @@ describe("P13a saklama işi — global silmeler (AC-198)", () => {
     expect(r?.failures).toBe(0);
     expect(await testDb().auditLog.count({ where: { id: old.id } })).toBe(0);
     expect(await testDb().auditLog.count({ where: { id: keep.id } })).toBe(1);
-    expect(await testDb().authSession.findMany({ where: { id: { in: [expiredOld, revokedRecently, expiredRecent] } }, select: { id: true } })).toEqual(
-      expect.arrayContaining([{ id: revokedRecently }, { id: expiredRecent }]),
-    );
+    expect(
+      await testDb().authSession.findMany({ where: { id: { in: [expiredOld, revokedRecently, expiredRecent] } }, select: { id: true } }),
+    ).toEqual(expect.arrayContaining([{ id: revokedRecently }, { id: expiredRecent }]));
     expect(await testDb().authSession.count({ where: { id: expiredOld } })).toBe(0);
     expect(await testDb().passwordResetToken.count({ where: { id: tokOld } })).toBe(0);
     expect(await testDb().passwordResetToken.count({ where: { id: tokRecent } })).toBe(1);
@@ -236,7 +349,10 @@ describe("P13a saklama işi — global silmeler (AC-198)", () => {
   });
 
   it("AC-198: uygulama kullanıcısı 730 günden yeni audit'i silemez ve eklediği kaydı geri tarihleyemez", async () => {
-    const row = await testDb().auditLog.create({ data: { action: "p13a.job", entity: "audit_logs", result: "success", createdAt: new Date("2019-01-01T00:00:00Z") }, select: { id: true, createdAt: true } });
+    const row = await testDb().auditLog.create({
+      data: { action: "p13a.job", entity: "audit_logs", result: "success", createdAt: new Date("2019-01-01T00:00:00Z") },
+      select: { id: true, createdAt: true },
+    });
     expect(Math.abs(row.createdAt.getTime() - Date.now())).toBeLessThan(60_000);
     await expect(testDb().auditLog.deleteMany({ where: { id: row.id } })).rejects.toThrow(/older than 730 days/);
   });
@@ -292,7 +408,10 @@ describe("P13a saklama işi — partiler, fail-soft, metrikler (AC-199)", () => 
     }
     expect(r?.failures).toBe(1);
     expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: sGood } })).toMatchObject({ customerName: null });
-    expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: sBad } })).toMatchObject({ customerName: "Ayşe Yılmaz", anonymizedAt: null });
+    expect(await testDb().supportSession.findUniqueOrThrow({ where: { id: sBad } })).toMatchObject({
+      customerName: "Ayşe Yılmaz",
+      anonymizedAt: null,
+    });
     expect((await retentionAudits(bad))[0]).toMatchObject({ result: "fail" });
     expect((await retentionAudits(good))[0]).toMatchObject({ result: "success" });
 

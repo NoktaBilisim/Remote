@@ -69,17 +69,53 @@ export function parseFilters(sp: SearchParams): { filters: HistoryFilters; ignor
     if (ok(v)) set(v);
     else ignored.push(key);
   };
-  take("status", (v) => (SESSION_STATUSES as readonly string[]).includes(v), (v) => (f.status = v as SessionStatus));
-  take("mode", (v) => (SESSION_MODES as readonly string[]).includes(v), (v) => (f.mode = v as SessionMode));
-  take("source", (v) => (SESSION_SOURCES as readonly string[]).includes(v), (v) => (f.source = v as SessionSource));
+  take(
+    "status",
+    (v) => (SESSION_STATUSES as readonly string[]).includes(v),
+    (v) => (f.status = v as SessionStatus),
+  );
+  take(
+    "mode",
+    (v) => (SESSION_MODES as readonly string[]).includes(v),
+    (v) => (f.mode = v as SessionMode),
+  );
+  take(
+    "source",
+    (v) => (SESSION_SOURCES as readonly string[]).includes(v),
+    (v) => (f.source = v as SessionSource),
+  );
   take("from", isCalendarDay, (v) => (f.from = v));
   take("to", isCalendarDay, (v) => (f.to = v));
-  take("technicianId", (v) => ULID.test(v), (v) => (f.technicianId = v));
-  take("tenantId", (v) => ULID.test(v), (v) => (f.tenantId = v));
-  take("customer", (v) => checkCustomer(v).value !== undefined, (v) => (f.customer = checkCustomer(v).value));
-  take("customerFirm", (v) => v === "none" || ULID.test(v), (v) => (f.customerFirm = v));
-  take("page", (v) => int(v) >= 1 && int(v) <= 10_000, (v) => (f.page = int(v)));
-  take("pageSize", (v) => int(v) >= 1 && int(v) <= SESSION_PAGE_SIZE_MAX, (v) => (f.pageSize = int(v)));
+  take(
+    "technicianId",
+    (v) => ULID.test(v),
+    (v) => (f.technicianId = v),
+  );
+  take(
+    "tenantId",
+    (v) => ULID.test(v),
+    (v) => (f.tenantId = v),
+  );
+  take(
+    "customer",
+    (v) => checkCustomer(v).value !== undefined,
+    (v) => (f.customer = checkCustomer(v).value),
+  );
+  take(
+    "customerFirm",
+    (v) => v === "none" || ULID.test(v),
+    (v) => (f.customerFirm = v),
+  );
+  take(
+    "page",
+    (v) => int(v) >= 1 && int(v) <= 10_000,
+    (v) => (f.page = int(v)),
+  );
+  take(
+    "pageSize",
+    (v) => int(v) >= 1 && int(v) <= SESSION_PAGE_SIZE_MAX,
+    (v) => (f.pageSize = int(v)),
+  );
   // from > to → sunucu 400 verir; bitişi yok say (başlangıç korunur)
   if (f.from && f.to && f.from > f.to) {
     delete f.to;

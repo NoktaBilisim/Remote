@@ -1,8 +1,10 @@
 # ADR-0018 — Prod TURN aynı sunucuda: 3478 + 5349 TLS (443 yok), Let's Encrypt sertifikası, risk kabulü
+
 Tarih: 2026-11-14 · Durum: Kabul · İlgili: ADR-0007 (r6 ile kısmen bunun yerine geçer), ADR-0015, ADR-0019, AC-21, AC-22, AC-23,
 R4, K3, `docs/mimari-p13.md` §7.4, runbook §9
 
 ## Bağlam
+
 ADR-0007 prod için ayrı VM ve ayrı genel IP'de `tls-listening-port=443` öngörüyordu. Gerekçe R4'tü: kurumsal ağların bir kısmı
 yalnız 443/TCP çıkışına izin verir. Kullanıcı 2026-11-14'te K3'ü kapattı: **prod aynı sunucuda (185.126.217.99, VM 192.168.25.10)
 çalışacak, ayrı IP yok.** Bu IP'de 80/443'ü host nginx tutuyor ve başka siteler de orada yayında (ADR-0015). Alan adı (K1)
@@ -10,6 +12,7 @@ yalnız 443/TCP çıkışına izin verir. Kullanıcı 2026-11-14'te K3'ü kapatt
 yalnız-TLS yolu çalışmıyordu (TEST-NAT-1).
 
 ## Karar
+
 1. **Portlar (prod = bugünkü staging düzeni):** 3478/UDP+TCP (STUN, TURN), 5349/TCP (TURN-TLS), relay **49160–49479/UDP**
    (320 port, 1:1 NAT, kaynak adres korunur). 443 kullanılmaz. coturn `network_mode: host` ve host OUTPUT kuralı (ADR-0007 r5 m.4)
    aynen kalır.
@@ -37,6 +40,7 @@ yalnız-TLS yolu çalışmıyordu (TEST-NAT-1).
    sunucudan gelir.
 
 ## Risk kabulü (R4)
+
 - **Etki:** Yalnız 443/TCP çıkışına izin veren veya TLS'i 443 dışında engelleyen kurumsal güvenlik duvarlarının arkasındaki müşteride
   P2P kurulamazsa TURN da kurulamaz ve oturum görüntüsüz kalır. Teknisyen başka kanala (telefonla yönlendirme, müşterinin başka ağı)
   geçer.
@@ -47,6 +51,7 @@ yalnız-TLS yolu çalışmıyordu (TEST-NAT-1).
 - **Kabul eden:** kullanıcı (K3 kararı, 2026-11-14). Gözden geçirme tarihi: prod açılışından 3 ay sonra.
 
 ## Alternatifler
+
 - 443'ü host nginx `stream` + `ssl_preread` (SNI/ALPN) ile coturn'le paylaşmak: Paylaşımlı sunucudaki **tüm** sitelerin 443
   dinleyicisini stream katmanına taşımayı gerektirir. Diğer servislere müdahale riski yüksektir; ADR-0007'deki ret gerekçesi geçerlidir.
 - TURN'ü web sertifikasıyla (aynı anahtar) çalıştırmak: Ek certbot kaydı gerekmez, ama coturn ele geçirilirse web TLS anahtarı da
@@ -57,6 +62,7 @@ yalnız-TLS yolu çalışmıyordu (TEST-NAT-1).
   reddedildi.
 
 ## Sonuçlar
+
 - ADR-0007'nin "ayrı VM, 443, `turn.<domain>`" maddeleri prod için geçersizdir (ADR-0007 r6). HMAC credential, denied-peer-ip,
   host OUTPUT kuralı, IPv6 ve log saklama maddeleri değişmeden geçerlidir.
 - TURN'ün kendi IP'si uygulama IP'siyle aynı olduğu için S-P3-2 kuralı (host OUTPUT) prod'da da **kapanış şartıdır**.

@@ -28,7 +28,13 @@ describe("yetki matrisi (AC-71, AC-72)", () => {
 
   it("standart eylemler sütuna, diğerleri 'Diğer'e düşer; olmayan eylem null", () => {
     const s = buildMatrix().find((r) => r.module === "sessions")!;
-    expect(s.cells).toEqual({ view: "sessions.view", create: "sessions.create", edit: "sessions.edit", delete: "sessions.delete", export: null });
+    expect(s.cells).toEqual({
+      view: "sessions.view",
+      create: "sessions.create",
+      edit: "sessions.edit",
+      delete: "sessions.delete",
+      export: null,
+    });
     expect(s.other).toEqual([{ key: "sessions.terminate", action: "terminate" }]);
     const rc = buildMatrix().find((r) => r.module === "remote_control")!;
     expect(Object.values(rc.cells).every((v) => v === null)).toBe(true);
@@ -129,7 +135,12 @@ describe("kullanıcı formu", () => {
       expect(bad.errors.email).toBe("E-posta adresi geçersiz");
     }
     const ok = buildCreateUser({ fullName: "Can Aydın", email: " Can@Ornek.COM ", role: "ADMIN" }, { "sessions.view": true });
-    expect(ok.ok && ok.body).toEqual({ fullName: "Can Aydın", email: "can@ornek.com", role: "ADMIN", permissions: { "sessions.view": true } });
+    expect(ok.ok && ok.body).toEqual({
+      fullName: "Can Aydın",
+      email: "can@ornek.com",
+      role: "ADMIN",
+      permissions: { "sessions.view": true },
+    });
   });
 
   it("güncelleme: yalnız değişen alanlar ve değişen yetki anahtarları", () => {
@@ -137,19 +148,39 @@ describe("kullanıcı formu", () => {
     const basePerms = normalize({ "sessions.view": true });
     const none = buildUpdateUser(base, base, basePerms, basePerms);
     expect(none.ok && none.body).toEqual({});
-    const r = buildUpdateUser({ ...base, fullName: "Can Aydın Yılmaz" }, base, { ...basePerms, "audit.view": true, "sessions.view": false }, basePerms);
+    const r = buildUpdateUser(
+      { ...base, fullName: "Can Aydın Yılmaz" },
+      base,
+      { ...basePerms, "audit.view": true, "sessions.view": false },
+      basePerms,
+    );
     expect(r.ok && r.body).toEqual({ fullName: "Can Aydın Yılmaz", permissions: { "sessions.view": false, "audit.view": true } });
   });
 
   it("rol değişince (USER→ADMIN) kilitli anahtar açıkça false gider; sunucunun hesapladığı küme ekranla aynı, AC-73 403'ü yok", () => {
     // Sunucu kuralının aynısı (users/service.ts normalizeRows + effectivePermissions): gövde > mevcut ezme > yeni rol varsayılanı.
-    const serverAfter = (role: "ADMIN" | "USER", curRole: "ADMIN" | "USER", cur: Record<string, boolean>, req: Record<string, boolean> | undefined) => {
-      const overrides = Object.entries(cur).filter(([, v]) => v !== (curRole === "ADMIN")).map(([permKey, granted]) => ({ permKey, granted }));
+    const serverAfter = (
+      role: "ADMIN" | "USER",
+      curRole: "ADMIN" | "USER",
+      cur: Record<string, boolean>,
+      req: Record<string, boolean> | undefined,
+    ) => {
+      const overrides = Object.entries(cur)
+        .filter(([, v]) => v !== (curRole === "ADMIN"))
+        .map(([permKey, granted]) => ({ permKey, granted }));
       const merged = new Map(overrides.map((o) => [o.permKey, o.granted]));
       for (const [k, v] of Object.entries(req ?? {})) merged.set(k, v);
-      return new Set(effectivePermissions(role, [...merged].map(([permKey, granted]) => ({ permKey: permKey as PermissionKey, granted }))));
+      return new Set(
+        effectivePermissions(
+          role,
+          [...merged].map(([permKey, granted]) => ({ permKey: permKey as PermissionKey, granted })),
+        ),
+      );
     };
-    const actor: { role: string; permissions: readonly string[] } = { role: "ADMIN", permissions: PERMISSION_KEYS.filter((k) => k !== "audit.export") };
+    const actor: { role: string; permissions: readonly string[] } = {
+      role: "ADMIN",
+      permissions: PERMISSION_KEYS.filter((k) => k !== "audit.export"),
+    };
     const locked = lockedKeys(actor);
     const base = userDraftOf({ fullName: "Can Aydın", email: "can@ornek.com", role: "USER" });
     const basePerms = normalize({ "sessions.view": true });
@@ -162,7 +193,11 @@ describe("kullanıcı formu", () => {
     expect(r.body.permissions?.["audit.export"]).toBe(false);
     const before = serverAfter("USER", "USER", basePerms, undefined);
     const after = serverAfter("ADMIN", "USER", basePerms, r.body.permissions);
-    expect([...after].sort()).toEqual(Object.keys(perms).filter((k) => perms[k]).sort());
+    expect([...after].sort()).toEqual(
+      Object.keys(perms)
+        .filter((k) => perms[k])
+        .sort(),
+    );
     const changed = PERMISSION_KEYS.filter((k) => before.has(k) !== after.has(k));
     expect(changed.filter((k) => !actor.permissions.includes(k))).toEqual([]);
     // Eski davranış (yalnız değişen anahtarlar) sunucuda kilitli anahtarı açardı → 403.
@@ -180,7 +215,11 @@ describe("kullanıcı formu", () => {
   });
 
   it("sunucu alan hataları: bilinen alan → alan, diğerleri form üstü", () => {
-    const r = splitServerFields({ email: "Bu e-posta kullanılıyor", "permissions.audit.export": "Veremezsiniz", x: "Diğer" }, ["fullName", "email", "role"] as const);
+    const r = splitServerFields({ email: "Bu e-posta kullanılıyor", "permissions.audit.export": "Veremezsiniz", x: "Diğer" }, [
+      "fullName",
+      "email",
+      "role",
+    ] as const);
     expect(r.errors).toEqual({ email: "Bu e-posta kullanılıyor" });
     expect(r.rest).toEqual(["Veremezsiniz", "Diğer"]);
   });

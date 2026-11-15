@@ -42,7 +42,8 @@ export function RevokeBindingDialog({
       await api("POST", `/support-requests/${item.id}/revoke-binding`, {});
       onDone(item.id);
     } catch (e) {
-      if (e instanceof ApiError && (e.status === 409 || e.status === 404)) onGone(item.id, e.status === 409 ? t("rq.revoke.already") : t("rq.err.closed"));
+      if (e instanceof ApiError && (e.status === 409 || e.status === 404))
+        onGone(item.id, e.status === 409 ? t("rq.revoke.already") : t("rq.err.closed"));
       else setError(toUiError(e));
     } finally {
       setBusy(false);

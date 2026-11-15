@@ -31,7 +31,11 @@ export function toUiError(e: unknown, byStatus: Partial<Record<number, string>> 
  * Karşılaştırma büyük/küçük harf ve sondaki noktalama duyarsız; kalan metin boşsa "" döner.
  */
 export function withoutLeadingTitle(message: string, title: string): string {
-  const norm = (s: string) => s.trim().replace(/[.!?:]+$/, "").toLocaleLowerCase("tr");
+  const norm = (s: string) =>
+    s
+      .trim()
+      .replace(/[.!?:]+$/, "")
+      .toLocaleLowerCase("tr");
   const m = /^\s*([^.!?]*[.!?]*)\s*([\s\S]*)$/.exec(message);
   if (!m || norm(m[1] ?? "") !== norm(title)) return message.trim();
   return (m[2] ?? "").trim();

@@ -76,7 +76,10 @@ async function setHidden(page: Page, hidden: boolean) {
 const navSessions = (page: Page) => page.getByRole("navigation", { name: "Ana menü" }).getByRole("link", { name: /Oturumlar/ });
 const toasts = (page: Page) => page.getByTestId("toast");
 async function newSession(page: Page) {
-  const r = await page.request.post("/api/v1/sessions", { headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" }, data: {} });
+  const r = await page.request.post("/api/v1/sessions", {
+    headers: { [CSRF_HEADER]: "csrf-test-token", Origin: "http://localhost:3217" },
+    data: {},
+  });
   expect(r.status()).toBe(201);
   return (await r.json()) as { id: string; link: string };
 }
@@ -92,7 +95,11 @@ async function guestJoins(browser: Browser, link: string) {
   return ((await g.getByTestId("admit-code").getAttribute("aria-label")) ?? "").replace(/\s/g, "");
 }
 
-test("AC-304/305/307/311: liste açıkken misafir gelir → ≤ 10 sn rozet + toast → rozetle konsol, lobi ilk ekranda → kabul → rozet yok", async ({ page, context, browser }, info) => {
+test("AC-304/305/307/311: liste açıkken misafir gelir → ≤ 10 sn rozet + toast → rozetle konsol, lobi ilk ekranda → kabul → rozet yok", async ({
+  page,
+  context,
+  browser,
+}, info) => {
   desktopOnly(info.project.name);
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.clock.install();
@@ -151,11 +158,20 @@ test("AC-305: waiting 3 → (3); 0 → rozet kaybolur (yuva kalır); ACTIVE/EXPI
   await signInAs(ctx2, "admin");
   await page.goto("/sessions");
   for (const label of ["Aktif", "Süresi doldu"]) {
-    await expect(page.locator('[data-testid="session-row"], [data-testid="session-card"]').filter({ visible: true }).filter({ hasText: label }).getByTestId("waiting-slot")).toHaveCount(0);
+    await expect(
+      page
+        .locator('[data-testid="session-row"], [data-testid="session-card"]')
+        .filter({ visible: true })
+        .filter({ hasText: label })
+        .getByTestId("waiting-slot"),
+    ).toHaveCount(0);
   }
 });
 
-test("AC-306/312: support_requests.view olmayan kullanıcı başka sayfadayken sayaç ≤ 10 sn; 0'da gizli; 360 px'te görünür; Enter /sessions", async ({ page, context }) => {
+test("AC-306/312: support_requests.view olmayan kullanıcı başka sayfadayken sayaç ≤ 10 sn; 0'da gizli; 360 px'te görünür; Enter /sessions", async ({
+  page,
+  context,
+}) => {
   await page.clock.install();
   await signInAs(context, "noreq");
   await page.goto("/");
@@ -181,7 +197,10 @@ test("AC-306/312: support_requests.view olmayan kullanıcı başka sayfadayken s
   await expect(page.getByTestId("lobby-badge")).toHaveCount(0);
 });
 
-test("AC-307: tek toast; ikinci yoklamada yeni toast yok (≥ 10 sn kalır); reload → toast yok, sayaç var; iki oturum → '2 müşteri' + liste", async ({ page, context }, info) => {
+test("AC-307: tek toast; ikinci yoklamada yeni toast yok (≥ 10 sn kalır); reload → toast yok, sayaç var; iki oturum → '2 müşteri' + liste", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await page.clock.install();
   await signInAs(context, "lob");
@@ -230,7 +249,9 @@ test("AC-308: gizli sekmede başlık öneki; görünürde yok; talep + lobi sır
   const cookie = await signInAs(context, "rqadm");
   await openAt(page, "/requests");
   await expect(page).toHaveTitle(/^\(3\) Talepler · /);
-  expect((await page.request.get(`${MOCK}/__e2e/lobby-extra/${cookie}?id=01JXBEXTRA0000000000000001&waiting=1&arrivals=1`)).ok()).toBe(true);
+  expect((await page.request.get(`${MOCK}/__e2e/lobby-extra/${cookie}?id=01JXBEXTRA0000000000000001&waiting=1&arrivals=1`)).ok()).toBe(
+    true,
+  );
   await setHidden(page, true);
   await tick(page);
   await expect(page).toHaveTitle(/^\(1\) Müşteri bekliyor — \(3\) Talepler · /);
@@ -272,7 +293,11 @@ test("AC-309: ADMIN — başkasının satırında bağlantısız rozet; sayaç y
   await expect(page.getByTestId("lobby-badge")).toHaveText(/^1/);
 });
 
-test("AC-310: firma seçmemiş Super Admin — rozet var, bağlantı yok, sayaç yok, waiting ucu çağrılmaz; firma seçmiş SA sayaç + toast", async ({ page, context, browser }, info) => {
+test("AC-310: firma seçmemiş Super Admin — rozet var, bağlantı yok, sayaç yok, waiting ucu çağrılmaz; firma seçmiş SA sayaç + toast", async ({
+  page,
+  context,
+  browser,
+}, info) => {
   desktopOnly(info.project.name);
   const waitingReqs: string[] = [];
   page.on("request", (q) => q.url().endsWith(WAITING) && waitingReqs.push(q.url()));
@@ -301,7 +326,10 @@ test("AC-310: firma seçmemiş Super Admin — rozet var, bağlantı yok, sayaç
   await ctx.close();
 });
 
-test("AC-312: /sessions 360 + 1280 px, iki tema axe 0 + taşma yok; rozete Tab ile ulaşılır + Enter konsolu açar; aria-live aynı değerde değişmez", async ({ page, context }, info) => {
+test("AC-312: /sessions 360 + 1280 px, iki tema axe 0 + taşma yok; rozete Tab ile ulaşılır + Enter konsolu açar; aria-live aynı değerde değişmez", async ({
+  page,
+  context,
+}, info) => {
   await page.clock.install();
   await signInAs(context, "lob");
   await page.goto("/");
@@ -313,7 +341,11 @@ test("AC-312: /sessions 360 + 1280 px, iki tema axe 0 + taşma yok; rozete Tab i
   await expect(live).toHaveText("1 müşteri bekleme odasında");
   await live.evaluate((el) => {
     (window as unknown as { __m: number }).__m = 0;
-    new MutationObserver(() => (window as unknown as { __m: number }).__m++).observe(el, { childList: true, characterData: true, subtree: true });
+    new MutationObserver(() => (window as unknown as { __m: number }).__m++).observe(el, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
   });
   await tick(page);
   expect(await page.evaluate(() => (window as unknown as { __m: number }).__m)).toBe(0);
@@ -344,7 +376,10 @@ test("AC-312: /sessions 360 + 1280 px, iki tema axe 0 + taşma yok; rozete Tab i
   await expect(page).toHaveURL(new RegExp(`/sessions/${a}/console$`));
 });
 
-test("AC-313: belirme yalnız opacity/transform ≤ 200 ms; sonsuz animasyon yok; reduced-motion'da yalnız opacity", async ({ page, context }, info) => {
+test("AC-313: belirme yalnız opacity/transform ≤ 200 ms; sonsuz animasyon yok; reduced-motion'da yalnız opacity", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInAs(context, "lob");
   await page.goto("/");
@@ -352,10 +387,20 @@ test("AC-313: belirme yalnız opacity/transform ≤ 200 ms; sonsuz animasyon yok
   await setLobby(page, a!, 1);
   await page.goto("/sessions");
   const read = (sel: string) =>
-    page.locator(sel).filter({ visible: true }).first().evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return { prop: cs.transitionProperty, dur: cs.transitionDuration, ease: cs.transitionTimingFunction, iter: cs.animationIterationCount, anim: cs.animationName };
-    });
+    page
+      .locator(sel)
+      .filter({ visible: true })
+      .first()
+      .evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          prop: cs.transitionProperty,
+          dur: cs.transitionDuration,
+          ease: cs.transitionTimingFunction,
+          iter: cs.animationIterationCount,
+          anim: cs.animationName,
+        };
+      });
   for (const sel of ['[data-testid="lobby-badge"]', '[data-testid="waiting-badge"]']) {
     const s = await read(sel);
     expect(s.prop).toBe("opacity, transform");

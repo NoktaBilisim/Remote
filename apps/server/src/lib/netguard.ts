@@ -11,12 +11,28 @@ import { BlockList, isIP } from "node:net";
 import { AppError } from "./errors.ts";
 
 const V4: readonly [string, number][] = [
-  ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12],
-  ["192.0.0.0", 24], ["192.0.2.0", 24], ["192.168.0.0", 16], ["198.18.0.0", 15], ["198.51.100.0", 24], ["203.0.113.0", 24],
-  ["224.0.0.0", 4], ["240.0.0.0", 4],
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
 ];
 /** 2000::/3 içindeki özel amaçlı bloklar: IETF protokol (Teredo 2001::/32 dahil), belgeleme, 6to4, yeni belgeleme. */
-const V6_DENY_IN_GLOBAL: readonly [string, number][] = [["2001::", 23], ["2001:db8::", 32], ["2002::", 16], ["3fff::", 20]];
+const V6_DENY_IN_GLOBAL: readonly [string, number][] = [
+  ["2001::", 23],
+  ["2001:db8::", 32],
+  ["2002::", 16],
+  ["3fff::", 20],
+];
 const BLOCKED_V4 = new BlockList();
 for (const [n, b] of V4) BLOCKED_V4.addSubnet(n, b, "ipv4");
 const GLOBAL_V6 = new BlockList();
@@ -55,7 +71,7 @@ function formatIpv6(b: number[]): string {
   const w = Array.from({ length: 8 }, (_, i) => ((b[2 * i] ?? 0) << 8) | (b[2 * i + 1] ?? 0));
   let best = -1;
   let bestLen = 1;
-  for (let i = 0; i < 8; ) {
+  for (let i = 0; i < 8;) {
     let j = i;
     while (j < 8 && w[j] === 0) j++;
     if (j - i > bestLen) [best, bestLen] = [i, j - i];
@@ -135,7 +151,8 @@ export function createNetGuard(o: NetGuardOptions = {}): NetGuard {
     async resolve(host: string): Promise<string> {
       const ips = await ipsOf(bare(host));
       const self = await selfIps();
-      if (!self || ips.length === 0 || ips.some((ip) => blocked(ip) || self.has(canonicalIp(ip)))) throw new AppError("HOST_NOT_ALLOWED", { message: HOST_NOT_ALLOWED_MESSAGE });
+      if (!self || ips.length === 0 || ips.some((ip) => blocked(ip) || self.has(canonicalIp(ip))))
+        throw new AppError("HOST_NOT_ALLOWED", { message: HOST_NOT_ALLOWED_MESSAGE });
       return ips[0] as string;
     },
   };

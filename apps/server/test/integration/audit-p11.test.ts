@@ -25,20 +25,54 @@ beforeAll(async () => {
   sAdminA = await loginAs(app, adminA);
   sSuper = await loginAs(app, superAdmin);
 });
-afterAll(async () => { await app.close(); await testFixtureDb().$disconnect(); });
+afterAll(async () => {
+  await app.close();
+  await testFixtureDb().$disconnect();
+});
 
-type Row = { tenantId?: string | null; userId?: string | null; username?: string | null; action: string; result?: string; newValue?: object; oldValue?: object; createdAt?: Date };
+type Row = {
+  tenantId?: string | null;
+  userId?: string | null;
+  username?: string | null;
+  action: string;
+  result?: string;
+  newValue?: object;
+  oldValue?: object;
+  createdAt?: Date;
+};
 async function insert(r: Row): Promise<string> {
   // P13a: app'in created_at'i DB saatine zorlanır → geçmiş tarihli fikstür migrator bağlantısıyla.
   const row = await (r.createdAt ? testFixtureDb() : testDb()).auditLog.create({
-    data: { tenantId: r.tenantId ?? null, userId: r.userId ?? null, username: r.username ?? null, action: r.action, entity: "p11_test", result: r.result ?? "success", ...(r.newValue ? { newValue: r.newValue } : {}), ...(r.oldValue ? { oldValue: r.oldValue } : {}), ipAddress: "203.0.113.5", userAgent: "vitest", ...(r.createdAt ? { createdAt: r.createdAt } : {}) },
+    data: {
+      tenantId: r.tenantId ?? null,
+      userId: r.userId ?? null,
+      username: r.username ?? null,
+      action: r.action,
+      entity: "p11_test",
+      result: r.result ?? "success",
+      ...(r.newValue ? { newValue: r.newValue } : {}),
+      ...(r.oldValue ? { oldValue: r.oldValue } : {}),
+      ipAddress: "203.0.113.5",
+      userAgent: "vitest",
+      ...(r.createdAt ? { createdAt: r.createdAt } : {}),
+    },
     select: { id: true },
   });
   return row.id.toString();
 }
 
 const list = (s: Session, qs: string) => app.inject({ method: "GET", url: `/api/v1/audit?${qs}`, headers: s.headers });
-type Item = { id: string; action: string; tenantId: string | null; tenantName: string | null; userFullName: string | null; avatarUrl: null; newValue: unknown; oldValue: unknown; result: string };
+type Item = {
+  id: string;
+  action: string;
+  tenantId: string | null;
+  tenantName: string | null;
+  userFullName: string | null;
+  avatarUrl: null;
+  newValue: unknown;
+  oldValue: unknown;
+  result: string;
+};
 const itemsOf = (body: string): Item[] => (JSON.parse(body) as { items: Item[] }).items;
 
 describe("GET /audit (AC-76)", () => {
@@ -64,10 +98,16 @@ describe("GET /audit (AC-76)", () => {
     const a = await insert({ tenantId: tA, action: act });
     const b = await insert({ tenantId: tB, action: act });
     const sys = await insert({ tenantId: null, action: act });
-    expect(itemsOf((await list(sSuper, `action=${act}`)).body).map((i) => i.id).sort()).toEqual([a, b, sys].sort());
+    expect(
+      itemsOf((await list(sSuper, `action=${act}`)).body)
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual([a, b, sys].sort());
     expect(itemsOf((await list(sSuper, `action=${act}&tenantId=${tB}`)).body).map((i) => i.id)).toEqual([b]);
     const s2 = await loginAs(app, superAdmin);
-    expect((await app.inject({ method: "POST", url: "/api/v1/admin/switch-tenant", headers: s2.headers, payload: { tenantId: tA } })).statusCode).toBe(200);
+    expect(
+      (await app.inject({ method: "POST", url: "/api/v1/admin/switch-tenant", headers: s2.headers, payload: { tenantId: tA } })).statusCode,
+    ).toBe(200);
     expect(itemsOf((await list(s2, `action=${act}&tenantId=${tB}`)).body).map((i) => i.id)).toEqual([a]);
   });
 
@@ -76,7 +116,10 @@ describe("GET /audit (AC-76)", () => {
     const u1 = await insert({ tenantId: tA, action: `${pre}.login`, userId: adminA.id, result: "fail" });
     const u2 = await insert({ tenantId: tA, action: `${pre}.logout`, userId: adminB.id });
     await insert({ tenantId: tA, action: `${pre}x.other` }); // önek "pre." ile eşleşmemeli
-    const ids = async (qs: string) => itemsOf((await list(sAdminA, qs)).body).map((i) => i.id).sort();
+    const ids = async (qs: string) =>
+      itemsOf((await list(sAdminA, qs)).body)
+        .map((i) => i.id)
+        .sort();
     expect(await ids(`action=${pre}.*`)).toEqual([u1, u2].sort());
     expect(await ids(`action=${pre}.login`)).toEqual([u1]);
     expect(await ids(`action=${pre}.*&userId=${adminA.id}`)).toEqual([u1]);
@@ -89,11 +132,15 @@ describe("GET /audit (AC-76)", () => {
     const act = `${P}.page`;
     const base = Date.now() - 60_000;
     const made: string[] = [];
-    for (let i = 0; i < 53; i++) made.push(await insert({ tenantId: tA, action: act, createdAt: new Date(base + Math.floor(i / 2) * 1000) })); // eş zamanlı çiftler
+    for (let i = 0; i < 53; i++)
+      made.push(await insert({ tenantId: tA, action: act, createdAt: new Date(base + Math.floor(i / 2) * 1000) })); // eş zamanlı çiftler
     const r1 = JSON.parse((await list(sAdminA, `action=${act}`)).body) as { items: Item[]; nextCursor: string | null };
     expect(r1.items).toHaveLength(50);
     expect(r1.nextCursor).toEqual(expect.any(String));
-    const r2 = JSON.parse((await list(sAdminA, `action=${act}&cursor=${r1.nextCursor}`)).body) as { items: Item[]; nextCursor: string | null };
+    const r2 = JSON.parse((await list(sAdminA, `action=${act}&cursor=${r1.nextCursor}`)).body) as {
+      items: Item[];
+      nextCursor: string | null;
+    };
     expect(r2.items).toHaveLength(3);
     expect(r2.nextCursor).toBeNull();
     const all = [...r1.items, ...r2.items].map((i) => i.id);
@@ -123,15 +170,28 @@ describe("GET /audit (AC-76)", () => {
   it("AC-76/AC-75 (G-15): okumada maske; mail.*/settings.*.test yalnız reason sınıfı — ham hata/yanıt kodu/banner yok", async () => {
     const leak = "554 5.7.1 <mx.example ESMTP Postfix> Relay denied";
     await insert({ tenantId: tA, action: `${P}.mask`, newValue: { password: "DuzSifre-1", token: "tok", name: "Ali" } });
-    await insert({ tenantId: tA, action: "mail.sent", newValue: { kind: P, recipient: "a***@x.test", reason: leak, responseCode: 554, response: leak, result: "fail" } });
-    await insert({ tenantId: tA, action: "settings.smtp.test", newValue: { recipient: "b***@x.test", reason: "auth", banner: leak, result: "fail" } });
+    await insert({
+      tenantId: tA,
+      action: "mail.sent",
+      newValue: { kind: P, recipient: "a***@x.test", reason: leak, responseCode: 554, response: leak, result: "fail" },
+    });
+    await insert({
+      tenantId: tA,
+      action: "settings.smtp.test",
+      newValue: { recipient: "b***@x.test", reason: "auth", banner: leak, result: "fail" },
+    });
     const masked = await list(sAdminA, `action=${P}.mask`);
     expect(itemsOf(masked.body)[0]?.newValue).toEqual({ password: "***", token: "***", name: "Ali" });
     expect(masked.body).not.toContain("DuzSifre-1");
     const mail = await list(sAdminA, "action=mail.*");
     expect(mail.body).not.toContain("Relay denied");
     expect(mail.body).not.toContain("554");
-    expect(itemsOf(mail.body).find((i) => (i.newValue as { kind?: string }).kind === P)?.newValue).toEqual({ kind: P, recipient: "a***@x.test", reason: "other", result: "fail" });
+    expect(itemsOf(mail.body).find((i) => (i.newValue as { kind?: string }).kind === P)?.newValue).toEqual({
+      kind: P,
+      recipient: "a***@x.test",
+      reason: "other",
+      result: "fail",
+    });
     const test = await list(sAdminA, "action=settings.smtp.test");
     expect(test.body).not.toContain("ESMTP");
     expect(itemsOf(test.body)[0]?.newValue).toEqual({ recipient: "b***@x.test", reason: "auth", result: "fail" });
@@ -153,7 +213,11 @@ describe("audit değiştirilemez (AC-76, AC-123)", () => {
   it("AC-76: /audit, /audit/:id, /audit/export.csv için POST/PUT/PATCH/DELETE → 405 METHOD_NOT_ALLOWED + Allow; kayıt değişmez", async () => {
     const id = await insert({ tenantId: tA, action: `${P}.ro` });
     for (const method of ["POST", "PUT", "PATCH", "DELETE"] as const) {
-      for (const [url, allow] of [["/api/v1/audit", "GET, HEAD"], [`/api/v1/audit/${id}`, ""], ["/api/v1/audit/export.csv", "GET, HEAD"]] as const) {
+      for (const [url, allow] of [
+        ["/api/v1/audit", "GET, HEAD"],
+        [`/api/v1/audit/${id}`, ""],
+        ["/api/v1/audit/export.csv", "GET, HEAD"],
+      ] as const) {
         const res = await app.inject({ method, url, headers: sAdminA.headers, payload: { action: "x" } });
         expect(res.statusCode, `${method} ${url}`).toBe(405);
         expect(res.headers.allow, `${method} ${url}`).toBe(allow);
@@ -168,7 +232,7 @@ describe("audit değiştirilemez (AC-76, AC-123)", () => {
 describe("GET /audit/export.csv (AC-124)", () => {
   it("AC-124: BOM, ';', formül kaçışı; dışa aktarım audit'e yazılır (filtre özeti + satır)", async () => {
     const act = `${P}.csv`;
-    await insert({ tenantId: tA, action: act, username: "=HYPERLINK(\"http://x\")", newValue: { note: "@SUM(A1)" } });
+    await insert({ tenantId: tA, action: act, username: '=HYPERLINK("http://x")', newValue: { note: "@SUM(A1)" } });
     await insert({ tenantId: tA, action: act, username: "+90", userId: adminA.id });
     const res = await app.inject({ method: "GET", url: `/api/v1/audit/export.csv?action=${act}`, headers: sAdminA.headers });
     expect(res.statusCode).toBe(200);
@@ -181,7 +245,10 @@ describe("GET /audit/export.csv (AC-124)", () => {
     expect(res.body).toContain(`"'=HYPERLINK(""http://x"")"`);
     expect(res.body).toContain(";'+90;Test Kullanıcı;");
     expect(res.body).toContain(`"{""note"":""@SUM(A1)""}"`);
-    const exp = await testDb().auditLog.findFirstOrThrow({ where: { action: "audit.exported", userId: adminA.id }, orderBy: { id: "desc" } });
+    const exp = await testDb().auditLog.findFirstOrThrow({
+      where: { action: "audit.exported", userId: adminA.id },
+      orderBy: { id: "desc" },
+    });
     expect(exp).toMatchObject({ tenantId: tA, entity: "audit_logs", result: "success" });
     expect(exp.newValue).toMatchObject({ action: act, rows: 2, tenantId: null, userId: null, result: null });
   });
@@ -190,12 +257,15 @@ describe("GET /audit/export.csv (AC-124)", () => {
     const act = `${P}.csv2`;
     await insert({ tenantId: tB, action: act });
     const res = await app.inject({ method: "GET", url: `/api/v1/audit/export.csv?action=${act}`, headers: sSuper.headers });
-    expect(res.body.split("\r\n")[0]).toBe("\uFEFFTarih;Firma;Kullanıcı;Ad Soyad;İşlem;Varlık;Kayıt;Sonuç;IP adresi;Tarayıcı;Eski değer;Yeni değer");
+    expect(res.body.split("\r\n")[0]).toBe(
+      "\uFEFFTarih;Firma;Kullanıcı;Ad Soyad;İşlem;Varlık;Kayıt;Sonuç;IP adresi;Tarayıcı;Eski değer;Yeni değer",
+    );
     const viewer = await loginAs(app, await createUser({ tenantId: tB, perms: { "audit.view": true } }));
     expect((await app.inject({ method: "GET", url: "/api/v1/audit/export.csv", headers: viewer.headers })).statusCode).toBe(403);
     const s = await loginAs(app, await createUser({ tenantId: tB, role: "ADMIN" }));
     const codes: number[] = [];
-    for (let i = 0; i < 6; i++) codes.push((await app.inject({ method: "GET", url: `/api/v1/audit/export.csv?action=${act}`, headers: s.headers })).statusCode);
+    for (let i = 0; i < 6; i++)
+      codes.push((await app.inject({ method: "GET", url: `/api/v1/audit/export.csv?action=${act}`, headers: s.headers })).statusCode);
     expect(codes).toEqual([200, 200, 200, 200, 200, 429]);
   });
 });

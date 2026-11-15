@@ -22,7 +22,10 @@ async function open(page: Page) {
   await expect(page.getByTestId("wa-svc-form")).toHaveAttribute("data-ready", "true"); // hidrasyon bitmeden yazma
 }
 
-test("AC-196 kritik akış: env kaynağı → ön kontrol → kaydet (Panel) → test başarı/hata → ortam değişkenine dön (onaylı)", async ({ page, context }, info) => {
+test("AC-196 kritik akış: env kaynağı → ön kontrol → kaydet (Panel) → test başarı/hata → ortam değişkenine dön (onaylı)", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInAu(context, "ausa");
   await page.goto("/admin/settings/mysql");
@@ -285,7 +288,10 @@ test("S-P13b-3 servis anahtarı: kayıt, geri yazılmaz, hata, kaldırma onayı,
   await expect(page.getByTestId("wa-key-remove")).toHaveCount(0);
 });
 
-test("S-P13b-3 servis anahtarı: adres kökeni değişince anahtar yeniden istenir; panel adresinde anahtar yoksa ipucu", async ({ page, context }, info) => {
+test("S-P13b-3 servis anahtarı: adres kökeni değişince anahtar yeniden istenir; panel adresinde anahtar yoksa ipucu", async ({
+  page,
+  context,
+}, info) => {
   desktopOnly(info.project.name);
   await signInAu(context, "ausains");
   await open(page);

@@ -7,8 +7,14 @@ import { iceGate, initialIceGate, initialTech, techReducer, type IceGate, type T
 const SID = "01JABCDEFGHJKMNPQRSTVWXYZ0";
 const GID = "01JABCDEFGHJKMNPQRSTVWXYZ1";
 const hello = (over: Partial<Extract<ServerOutbound, { t: "hello" }>> = {}): ServerOutbound => ({
-  t: "hello", role: "guest", sessionId: SID, peerPresent: true, iceServers: [], maxEndsAt: "2026-11-11T12:00:00.000Z",
-  reconnectToken: "a".repeat(43), ...over,
+  t: "hello",
+  role: "guest",
+  sessionId: SID,
+  peerPresent: true,
+  iceServers: [],
+  maxEndsAt: "2026-11-11T12:00:00.000Z",
+  reconnectToken: "a".repeat(43),
+  ...over,
 });
 const g = (s: GuestState, ...ms: ServerOutbound[]) => ms.reduce((a, m) => guestReducer(a, { type: "msg", m }), s);
 const tm = (s: TechState, ...ms: ServerOutbound[]) => ms.reduce((a, m) => techReducer(a, { type: "msg", m, now: 1000 }), s);
@@ -65,7 +71,13 @@ describe("misafir F5 dönüşü (TEST-P4-1)", () => {
 });
 
 describe("teknisyen durum makinesi", () => {
-  const pending = (id = GID, name = "Ayşe"): ServerOutbound => ({ t: "peer.pending", guestId: id, name, guestKind: "BROWSER", since: "2026-11-11T10:00:00.000Z" });
+  const pending = (id = GID, name = "Ayşe"): ServerOutbound => ({
+    t: "peer.pending",
+    guestId: id,
+    name,
+    guestKind: "BROWSER",
+    since: "2026-11-11T10:00:00.000Z",
+  });
   it("PENDING hello → lobi → hatalı kod → kabul → paylaşım", () => {
     let s = tm(initialTech, hello({ role: "tech", maxEndsAt: null, peerPresent: false, reconnectToken: undefined }), pending(), pending());
     expect(s.phase).toBe("waiting");
@@ -137,10 +149,13 @@ describe("teknisyen durum makinesi", () => {
 describe("teknisyen ilk teklif kapısı (TURN'süz ilk teklif düzeltmesi)", () => {
   const TURN = [{ urls: ["turn:turn.example:3478"], username: "1:x", credential: "c" }];
   const run = (ms: ServerOutbound[], g: IceGate = initialIceGate) =>
-    ms.reduce<{ gate: IceGate; starts: number }>((a, m) => {
-      const r = iceGate(a.gate, m);
-      return { gate: r.gate, starts: a.starts + (r.start ? 1 : 0) };
-    }, { gate: g, starts: 0 });
+    ms.reduce<{ gate: IceGate; starts: number }>(
+      (a, m) => {
+        const r = iceGate(a.gate, m);
+        return { gate: r.gate, starts: a.starts + (r.start ? 1 : 0) };
+      },
+      { gate: g, starts: 0 },
+    );
   const pendingHello = hello({ role: "tech", peerPresent: false, maxEndsAt: null, reconnectToken: undefined });
   const joined: ServerOutbound = { t: "peer.joined", role: "guest", guestKind: "AGENT" };
 

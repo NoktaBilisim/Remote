@@ -1,8 +1,10 @@
 # Kabul Kriterleri — Remote Support — Bölüm 1/2 (E1–E4)
+
 Ana dosya: `/Users/mennan/Projeler/Remote/docs/gereksinimler-kabul-kriterleri.md`. Tarih: 2026-11-11. Durum: TASLAK.
 Kaynak notu: parantez içindeki kod (G-nn) `docs/guvenlik-raporu.md` bulgusunu, (Kn) `docs/mimari.md` §12 kararını gösterir. Notsuz AC'ler 2026-11-10 metnidir.
 
 ## E1 — Oturum yaşam döngüsü
+
 - AC-1: Üretilen token CSPRNG'den ≥ 32 bayt entropi taşır, base64url kodludur; link `https://<alan-adı>[:port]/session/{token}` biçimindedir.
 - AC-2: Token DB'de yalnızca SHA-256 özeti olarak saklanır; DB dökümünde düz token bulunmaz.
 - AC-3: Her oturuma 8 haneli sayısal kısa kod atanır (ekranda `4829 1376` biçiminde); kod yalnız oturum bekleme (PENDING) durumundayken geçerlidir ve bekleyen oturumlar arasında global tekildir. Başarısız kod çözümlemesi IP başına (IPv4 /32, IPv6 /64) 10/dk ve ağ öneki başına (IPv4 /24, IPv6 /56) 30/dk ile sınırlıdır; aşımda yalnız o kaynak 15 dk 429 alır, diğer kaynakların kod girişi etkilenmez. (G-02)
@@ -19,6 +21,7 @@ Kaynak notu: parantez içindeki kod (G-nn) `docs/guvenlik-raporu.md` bulgusunu, 
 - AC-114: Admin (aynı tenant, `sessions.terminate` yetkisiyle) ve Super Admin aktif oturumu "Zorla sonlandır" ile bitirir; iki taraf 5 sn içinde "Oturum yönetici tarafından sonlandırıldı" görür, istemci AC-107'ye göre kapanır; işlem audit log'a yazılır. (G-04)
 
 ## E2 — Sinyalizasyon ve bağlantı
+
 - AC-14: WS bağlantısı yalnız izinli Origin'den kabul edilir (tarayıcı); farklı Origin 403 alır. Native istemci Origin yerine tek kullanımlık ticket (`kind=AGENT`) ile doğrulanır; ticket ve yeniden bağlanma anahtarı URL'de taşınmaz (URL'de gelirse 403). (G-10, G-20)
 - AC-15: Teknisyen WS'i geçerli oturum çerezi + oturum sahipliği ile açılır; başka teknisyenin oturumuna katılma 403 döner (IDOR testi).
 - AC-16: Müşteri katılımı token/kod + sunucudan alınan tek kullanımlık nonce (60 sn geçerli) ile yapılır; aynı nonce ikinci kez reddedilir.
@@ -36,6 +39,7 @@ Kaynak notu: parantez içindeki kod (G-nn) `docs/guvenlik-raporu.md` bulgusunu, 
 - AC-120: Müşteri bağlıyken aynı yeniden bağlanma anahtarıyla gelen ikinci bağlantı reddedilir ve audit log'a yazılır; sunucu ve proxy loglarında ticket/yeniden bağlanma anahtarı bulunmaz (log tarama testi). (G-10)
 
 ## E3 — Tarayıcı-yalnız müşteri modu ve karşılama sayfası
+
 - AC-26: Karşılama sayfası tenant logosu, firma adı, teknisyen adı/avatarı ve "Teknisyen doğrulama kodu"nu gösterir; aynı kod teknisyen konsolunda görünür. Bu kod müşterinin teknisyeni teyit etmesi içindir; müşteriyi doğrulamaz (müşteri doğrulaması AC-112). (G-01)
 - AC-27: Windows masaüstü tarayıcıda birincil buton "Hızlı Destek uygulamasını indir" (imzasız istemci, dosya adında 8 haneli kod; SmartScreen "Ek bilgi → Yine de çalıştır" rehberi aynı adımda), ikincil seçenek "Uygulama çalışmıyor mu? Tarayıcıdan yalnızca görüntü paylaş"tır; macOS/Linux'ta yalnız tarayıcı modu sunulur. (K8, G-25)
 - AC-28: Müşteri ad-soyad (2–100 karakter) girmeden ve KVKK aydınlatma onayını işaretlemeden "Paylaşımı Başlat" pasiftir.
@@ -54,6 +58,7 @@ Kaynak notu: parantez içindeki kod (G-nn) `docs/guvenlik-raporu.md` bulgusunu, 
 - AC-127: Katılımda gönderilen aydınlatma metni kimliği oturumun tenant'ına ait güncel sürüm değilse katılım 400 ile reddedilir. (G-24)
 
 ## E4 — Teknisyen konsolu
+
 - AC-40: Müşteri paylaşımı onayladıktan sonra teknisyende ilk kare p95 < 5 sn (doğrudan), < 8 sn (TURN) içinde görünür (staging testi).
 - AC-41: 1920x1080 kaynak ve ≥ 5 Mbps bağlantıda görüntü ≥ 15 FPS ve 10 pt metin okunur çözünürlükte iletilir.
 - AC-42: RTT < 50 ms ağda uçtan uca görüntü gecikmesi (ekran saati karşılaştırma testi) p95 < 400 ms'dir.

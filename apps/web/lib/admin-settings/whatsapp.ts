@@ -3,7 +3,18 @@
  * `@remote/contracts/api/system-settings`'ten (sunucuyla tek kaynak); burada yalnız alan bazlı ön kontrol mesajları.
  * Sunucu son sözü söyler: istemci kontrolü yalnız gereksiz isteği önler; 400 `fields.url` alana yazılır.
  */
-import { WA_API_KEY_MESSAGE, WA_API_KEY_REENTER, WA_INSECURE_WARNING, WA_URL_MAX, waApiKeySchema, waServiceUrlSchema, type WhatsappAdminTestInput, type WhatsappAdminTestResponse, type WhatsappSettingsInput, type WhatsappSettingsView } from "@remote/contracts/api/system-settings";
+import {
+  WA_API_KEY_MESSAGE,
+  WA_API_KEY_REENTER,
+  WA_INSECURE_WARNING,
+  WA_URL_MAX,
+  waApiKeySchema,
+  waServiceUrlSchema,
+  type WhatsappAdminTestInput,
+  type WhatsappAdminTestResponse,
+  type WhatsappSettingsInput,
+  type WhatsappSettingsView,
+} from "@remote/contracts/api/system-settings";
 import { normalizePhone } from "@/lib/requests/validate";
 
 /**
@@ -11,9 +22,20 @@ import { normalizePhone } from "@/lib/requests/validate";
  */
 export type WhatsappSource = WhatsappSettingsView["source"];
 export type WhatsappServiceView = WhatsappSettingsView;
-export function normalizeWaView(v: Omit<WhatsappSettingsView, "source" | "apiKeySet" | "apiKeySource"> & { source: string; apiKeySet?: boolean; apiKeySource?: string | null }): WhatsappServiceView {
+export function normalizeWaView(
+  v: Omit<WhatsappSettingsView, "source" | "apiKeySet" | "apiKeySource"> & {
+    source: string;
+    apiKeySet?: boolean;
+    apiKeySource?: string | null;
+  },
+): WhatsappServiceView {
   const src = String(v.source).toLowerCase();
-  return { ...v, source: src === "panel" ? src : "env", apiKeySet: Boolean(v.apiKeySet), apiKeySource: v.apiKeySource === "panel" || v.apiKeySource === "env" ? v.apiKeySource : null };
+  return {
+    ...v,
+    source: src === "panel" ? src : "env",
+    apiKeySet: Boolean(v.apiKeySet),
+    apiKeySource: v.apiKeySource === "panel" || v.apiKeySource === "env" ? v.apiKeySource : null,
+  };
 }
 export type WhatsappServiceInput = WhatsappSettingsInput;
 export type WhatsappServiceTestInput = WhatsappAdminTestInput;
@@ -78,7 +100,8 @@ export function checkWaUrl(raw: string): { url?: string; error?: string } {
 export const waFieldValue = (v: WhatsappServiceView): string => (v.source === "panel" && v.url ? v.url : "");
 
 /** Kanonik karşılaştırma: `HTTPS://WA.ornek.com/` ile kayıtlı `https://wa.ornek.com` aynı adres → kirli değil. */
-export const waDirty = (field: string, saved: WhatsappServiceView): boolean => canonicalWaUrl(field) !== canonicalWaUrl(waFieldValue(saved));
+export const waDirty = (field: string, saved: WhatsappServiceView): boolean =>
+  canonicalWaUrl(field) !== canonicalWaUrl(waFieldValue(saved));
 
 /** Sunucu `fields` → `url` alan hatası + alana bağlanamayanlar (form üstü). */
 export function waServerFields(fields: Record<string, string>, key: "url" | "phoneNumber"): { error?: string; rest: string[] } {

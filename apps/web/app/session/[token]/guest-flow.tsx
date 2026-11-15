@@ -26,5 +26,13 @@ export function GuestFlow({ data, abuseEmail }: { data: ResolveData; abuseEmail:
   const [joined, setJoined] = useState<(JoinSessionResponse & { customerName: string }) | null>(null);
   const storeKey = useResumeKey();
   if (!joined) return <GuestWelcome data={data} abuseEmail={abuseEmail} onJoined={setJoined} />;
-  return <GuestSession info={joined} verifyCode={data.techVerifyCode} sessionRef={data.sessionRef} cred={{ ticket: joined.wsTicket }} storeKey={storeKey} />;
+  return (
+    <GuestSession
+      info={joined}
+      verifyCode={data.techVerifyCode}
+      sessionRef={data.sessionRef}
+      cred={{ ticket: joined.wsTicket }}
+      storeKey={storeKey}
+    />
+  );
 }
