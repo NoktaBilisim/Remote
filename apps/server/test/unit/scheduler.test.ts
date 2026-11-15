@@ -4,6 +4,7 @@ import { startScheduler, type Scheduler } from "../../src/jobs/scheduler.ts";
 import type { Db } from "../../src/lib/db.ts";
 import { OUTBOX_POLL_MS, type NotifyOutbox } from "../../src/notify/outbox.ts";
 import type { TenantPurgeRunner } from "../../src/jobs/tenant-purge.ts";
+import type { RetentionJob } from "../../src/jobs/retention.ts";
 
 // Sahte db: expireDue yalnız supportSession.findMany'yi çağırır (boş liste → oturum yok).
 function fakeDb(findMany: () => Promise<unknown[]>) {
@@ -15,6 +16,7 @@ function fakeLog() {
   return { log: { info: vi.fn(), error } as unknown as FastifyBaseLogger, error };
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
 let jobs: Scheduler | undefined;
 afterEach(() => {
   jobs?.stop();
@@ -72,5 +74,20 @@ describe("jobs/scheduler (QA-P2-8)", () => {
     jobs.stop();
     await vi.advanceTimersByTimeAsync(OUTBOX_POLL_MS * 3);
     expect(outbox.tick).toHaveBeenCalledTimes(1);
+  });
+
+  it("PT-K11-B1: saklama turu sürerken stop() → tur bitince yeni saklama turu planlanmaz", async () => {
+    vi.useFakeTimers();
+    let release: () => void = () => undefined;
+    const retention = { run: vi.fn(() => new Promise<null>((r) => (release = () => r(null)))) };
+    const table = [undefined, retention as unknown as RetentionJob] as const;
+    jobs = startScheduler(fakeDb(() => Promise.resolve([])).db, fakeLog().log, undefined, 60_000, ...table);
+    await vi.advanceTimersByTimeAsync(DAY_MS); // ilk 03:30 turu başlar ve askıda kalır
+    expect(retention.run).toHaveBeenCalledTimes(1);
+    jobs.stop();
+    release();
+    await vi.advanceTimersByTimeAsync(DAY_MS * 3);
+    expect(retention.run).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

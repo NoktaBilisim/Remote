@@ -117,3 +117,6 @@ Dizgi sabitleri (audit eylemi, metrik adı, log mesajı, hata kodu, yol) kümesi
   zamanlayıcıyı iptal eder; o anda bir saklama turu sürüyorsa turun `.finally`'si yeni (unref'li) zamanlayıcı kurar —
   diğer üç iş `stopped` bayrağını denetler, saklama denetlemez. Etki: kapanmış uygulamada ertesi 03:30'da kapalı DB'ye tur
   (unref olduğu için süreci açık tutmaz). Davranış aynen korundu (`stoppable: false`); `fix:` işi olarak ayrı ele alınmalı.
+  - **Düzeltildi:** `TimedJob.stoppable` alanı kaldırıldı; `startTimedJob` her işte (saklama dahil) yeniden kurmadan önce
+    `stopped` bayrağını denetler. Aralık, ilk tetik, hata/log davranışı aynı. Regresyon testi
+    `test/unit/scheduler.test.ts` "PT-K11-B1: …" (düzeltme öncesi kırmızı: `run` 2 kez çağrıldı).

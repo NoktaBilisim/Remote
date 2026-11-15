@@ -21,14 +21,13 @@ export interface Scheduler {
 
 /**
  * Zamanlayıcı tablosundaki tek iş: `tick` turu çalıştırır (sonucu ve hatayı kendisi loglar), bitince `delay()` sonra yeniden
- * kurulur. `stoppable` → `stop()` sonrası yeniden kurulmaz (saklama işinde bu denetim yoktu; aynen korunur).
+ * kurulur; `stop()` sonrası (süren tur bitse de) yeniden kurulmaz.
  */
 interface TimedJob {
   /** Açılış adımı; `arm` ilk turu kurar. */
   start(arm: () => void): void;
   tick(): Promise<unknown>;
   delay(): number;
-  stoppable: boolean;
 }
 
 /** P13a: günlük 03:30 Europe/Istanbul saklama işi (jobs/retention.ts; AC-159, 195, 197..199). */
@@ -43,7 +42,6 @@ function retentionJob(log: FastifyBaseLogger, retention: RetentionJob): TimedJob
         })
         .catch((err: unknown) => log.error({ err, job: "retention" }, "zamanlanmış iş hatası")),
     delay: () => nextRetentionAt(Date.now()) - Date.now(),
-    stoppable: false,
   };
 }
 
@@ -63,7 +61,6 @@ function orphanScanJob(log: FastifyBaseLogger, orphanScan: OrphanScanJob): Timed
         })
         .catch((err: unknown) => log.error({ err, job: "orphan-scan" }, "zamanlanmış iş hatası")),
     delay: () => nextOrphanScanAt(Date.now()) - Date.now(),
-    stoppable: true,
   };
 }
 
@@ -82,7 +79,6 @@ function tenantPurgeJob(log: FastifyBaseLogger, tenantPurge: TenantPurgeRunner):
         })
         .catch((err: unknown) => log.error({ err, job: "tenant-purge" }, "zamanlanmış iş hatası")),
     delay: () => PURGE_INTERVAL_MS,
-    stoppable: true,
   };
 }
 
@@ -96,7 +92,6 @@ function outboxJob(log: FastifyBaseLogger, outbox: NotifyOutbox): TimedJob {
         .finally(arm),
     tick: () => outbox.tick().catch((err: unknown) => log.error({ err, job: "notify-outbox" }, "zamanlanmış iş hatası")),
     delay: () => OUTBOX_POLL_MS,
-    stoppable: true,
   };
 }
 
@@ -104,7 +99,7 @@ function outboxJob(log: FastifyBaseLogger, outbox: NotifyOutbox): TimedJob {
 function startTimedJob(job: TimedJob, isStopped: () => boolean): () => void {
   let timer: NodeJS.Timeout | undefined;
   const arm = (): void => {
-    if (job.stoppable && isStopped()) return;
+    if (isStopped()) return;
     timer = setTimeout(() => {
       void job.tick().finally(arm);
     }, job.delay());
