@@ -40,6 +40,9 @@ type ctrl struct {
 	// img doluysa denetim SS_BITMAP'tır; bmp her layout'ta (DPI) img'den yeniden üretilir, sahibi formdur.
 	img image.Image
 	bmp uintptr
+	// AC-247: denetim türü ve son uygulanan tema (theme_windows.go).
+	kind int
+	dark bool
 }
 
 type form struct {
@@ -62,6 +65,9 @@ type form struct {
 	// S7-5: bu forma gelen son sol düğme basışının / tuş basışının kaynağı enjekte (veya bilinmiyor) muydu.
 	downInjected bool
 	keyInjected  bool
+	// AC-247: themed newForm pencereleri (gösterge/işaretleme katmanı hariç); dark son uygulanan başlık teması.
+	themed bool
+	dark   bool
 }
 
 // inputMark şu an işlenen girdi mesajı ve kaynağı (S7-5). İzin düğmesinin BN_CLICKED'i bu mesajın işlenmesi
@@ -79,6 +85,7 @@ type thread struct {
 	msgWnd uintptr
 	forms  map[uintptr]*form
 	done   chan struct{}
+	theme  themeState // AC-247; yalnız UI iş parçacığında
 }
 
 var (
@@ -96,6 +103,7 @@ func startThread() (*thread, error) {
 		runtime.LockOSThread()
 		defer close(t.done)
 		procOnce.Do(func() { wndProc = windows.NewCallback(dispatch) })
+		t.loadTheme()
 		bg := win.SysColorBrush(win.COLOR_WINDOW)
 		for _, c := range []string{classForm, classBar, classOverlay} {
 			if err := win.RegisterClass(c, wndProc, bg); err != nil {
@@ -237,14 +245,19 @@ func dispatch(h uintptr, msg uint32, wp, lp uintptr) uintptr {
 			f.activate(loword(wp) != 0)
 		}
 	case win.WM_CTLCOLORSTATIC:
-		dc := wp
-		win.SetBkColor(dc, win.SysColor(win.COLOR_WINDOW))
-		for _, c := range f.ctrls {
-			if c.h == lp && c.colored {
-				win.SetTextColor(dc, c.color)
-			}
+		return f.ctlColorStatic(wp, lp)
+	case win.WM_CTLCOLOREDIT, win.WM_CTLCOLORLISTBOX:
+		if br, ok := f.ctlColorField(wp); ok {
+			return br
 		}
-		return win.SysColorBrush(win.COLOR_WINDOW)
+	case win.WM_CTLCOLORBTN:
+		if f.themed && t.theme.dark {
+			return t.bgBrush()
+		}
+	case win.WM_SETTINGCHANGE:
+		if wp == win.SPI_SETHIGHCONTRAST || win.SettingName(lp) == "ImmersiveColorSet" {
+			t.refreshTheme()
+		}
 	case win.WM_DPICHANGED:
 		f.dpi = loword(wp)
 		r := *(**win.RECT)(unsafe.Pointer(&lp)) // lParam: önerilen pencere dikdörtgeni
@@ -252,7 +265,7 @@ func dispatch(h uintptr, msg uint32, wp, lp uintptr) uintptr {
 		win.SetWindowPos(h, 0, r.Left, r.Top, r.Right-r.Left, r.Bottom-r.Top, win.SWP_NOZORDER|win.SWP_NOACTIVATE)
 		return 0
 	case win.WM_ERASEBKGND:
-		if f.paint != nil {
+		if f.paint != nil || f.eraseThemed(wp) {
 			return 1
 		}
 	case win.WM_PAINT:
@@ -280,6 +293,8 @@ func (t *thread) newForm(title string, cw, ch int32, topmost bool) *form {
 	f.dpi = win.DPI(f.h)
 	f.ctrls = []*ctrl{}
 	t.forms[f.h] = f
+	f.themed = true
+	f.applyTheme() // AC-247: başlık çubuğu gösterilmeden önce
 	return f
 }
 
@@ -301,7 +316,7 @@ func (f *form) s(v int32) int32 { return v * int32(f.dpi) / 96 }
 // add alt denetim ekler.
 func (f *form) add(class, text string, style, ex uint32, id int, x, y, w, z int32, font int) *ctrl {
 	h := win.CreateWindow(ex, class, text, win.WS_CHILD|win.WS_VISIBLE|style, 0, 0, 0, 0, f.h, uintptr(id))
-	c := &ctrl{h: h, x: x, y: y, w: w, z: z, font: font}
+	c := &ctrl{h: h, x: x, y: y, w: w, z: z, font: font, kind: ctrlKind(class, style)}
 	f.ctrls = append(f.ctrls, c)
 	return c
 }
@@ -326,7 +341,7 @@ func (f *form) picture(img image.Image, x, y, w, z int32) *ctrl {
 // setPicture kutu boyutunda 24 bit DIB üretip denetime verir; önceki bitmap silinir.
 func (f *form) setPicture(c *ctrl) {
 	w, h := f.s(c.w), f.s(c.z)
-	bg := win.SysColor(win.COLOR_WINDOW) // COLORREF 0x00BBGGRR
+	bg := f.t.logoBg() // COLORREF 0x00BBGGRR (AC-247: koyu modda açık logo zemini)
 	px := fitBGR(c.img, int(w), int(h), color.RGBA{R: uint8(bg), G: uint8(bg >> 8), B: uint8(bg >> 16), A: 255})
 	hb := win.Bitmap24(w, h, px)
 	if hb == 0 {
@@ -376,6 +391,7 @@ func (f *form) layout() {
 			f.setPicture(c)
 		}
 	}
+	f.applyTheme()
 }
 
 // size istemci boyutundan pencere boyutu (DPI'a göre).

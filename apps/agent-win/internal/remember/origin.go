@@ -72,3 +72,13 @@ func canonicalPort(p, hostport string) (string, bool) {
 	}
 	return strconv.Itoa(n), true
 }
+
+// SameRegistration AC-251 (AC-187 eki): yeni kayıt önceki kaydın sürdürülmesi mi? Karşılaştırma (köken, tenant
+// kimliği) çiftiyledir; görünen ad yalnız metin içindir. Tenant kimliği istemciye hiç gönderilmez (G-E10-4); onun
+// yerine sunucunun kimlikle verdiği karar kullanılır: `binding.issued.renewed` = önceki anahtar (yalnız aynı kökene
+// gönderilir) aynı tenant'ın etkin kaydıydı ve yenilendi. Köken farklıysa ya da sunucu yeni kayıt açtıysa (başka
+// tenant, iptal edilmiş/geçersiz önceki kayıt) değişim sayılır. Aynı tenant içinde müşteri değişimi ad ile anlaşılır
+// (sunucu müşteri kimliği göndermez; AC-187).
+func SameRegistration(prev Binding, server string, renewed bool, customerName string) bool {
+	return prev.Server == server && renewed && prev.CustomerName == customerName
+}

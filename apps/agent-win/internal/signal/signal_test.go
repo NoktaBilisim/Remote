@@ -327,3 +327,40 @@ func TestAC111ControlStateEncode(t *testing.T) {
 		t.Fatal("K8: selfElevated eksik env.state reddedilmeli")
 	}
 }
+
+// AC-234: share.state reason/method sözleşmesi (contracts SHARE_FAIL_REASON_PATTERN, SHARE_METHODS); 0.10.x biçimi
+// (alansız) geçerli kalır; teknisyen hello `share` anlık görüntüsü de aynı kurallarla.
+func TestAC234ShareStateReasonMethod(t *testing.T) {
+	ok := []ShareState{
+		{T: "share.state", State: "stopped"},
+		{T: "share.state", State: "stopped", Reason: "DXGI_UNSUPPORTED", Method: "DXGI"},
+		{T: "share.state", State: "stopped", Reason: "D3D_DEVICE"},
+		{T: "share.state", State: "stopped", Reason: "GDI_FAILED", Method: "GDI"},
+		{T: "share.state", State: "stopped", Reason: "OTHER", Method: "WGC"},
+		{T: "share.state", State: "stopped", Reason: strings.Repeat("A", 32)},
+	}
+	for _, m := range ok {
+		if _, err := Encode(m); err != nil {
+			t.Errorf("AC-234 geçerli reddedildi %+v: %v", m, err)
+		}
+	}
+	bad := []ShareState{
+		{T: "share.state", State: "stopped", Reason: "dxgi"},
+		{T: "share.state", State: "stopped", Reason: "OTHER 0x80004005"},
+		{T: "share.state", State: "stopped", Reason: strings.Repeat("A", 33)},
+		{T: "share.state", State: "stopped", Method: "DXGI1"},
+	}
+	for _, m := range bad {
+		if _, err := Encode(m); err == nil {
+			t.Errorf("AC-234 geçersiz kabul edildi %+v", m)
+		}
+	}
+	raw := `{"t":"hello","role":"tech","sessionId":"01JC0000000000000000000000","peerPresent":true,"iceServers":[],` +
+		`"maxEndsAt":null,"share":{"state":"stopped","reason":"NO_H264_ENCODER","method":"DXGI"}}`
+	if _, err := ParseServer([]byte(raw)); err != nil {
+		t.Fatalf("hello.share reason/method: %v", err)
+	}
+	if _, err := ParseServer([]byte(strings.Replace(raw, `"DXGI"`, `"X"`, 1))); err == nil {
+		t.Fatal("hello.share geçersiz method kabul edildi")
+	}
+}

@@ -571,7 +571,7 @@ func TestAC112LobbyRejected(t *testing.T) {
 func TestRunTicketDialFailureIsFailed(t *testing.T) {
 	h := newHarness(t)
 	h.deps.Dial = func(context.Context, signal.Credential) (Conn, error) { return nil, errors.New("ağ") }
-	if o := RunTicket(context.Background(), h.deps, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "Mehmet"); !o.Failed || o.Message != msgLost {
+	if o := RunTicket(context.Background(), h.deps, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "Mehmet", ""); !o.Failed || o.Message != msgLost {
 		t.Fatalf("%+v", o)
 	}
 }
@@ -584,7 +584,7 @@ func TestAC154AC156RunTicketSkipsLobbyAndSignalsAdmitted(t *testing.T) {
 	h.deps.Admitted = func() { admitted <- struct{}{} }
 	out := make(chan Outcome, 1)
 	go func() {
-		out <- RunTicket(context.Background(), h.deps, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "Mehmet")
+		out <- RunTicket(context.Background(), h.deps, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "Mehmet", "")
 	}()
 	if cred := recv(t, h.creds); cred.Ticket != "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" || cred.Reconnect != "" {
 		t.Fatalf("%+v", cred)

@@ -6476,3 +6476,304 @@ Geçici `rs-p16fix2-b41e1e` (mysql 8.4.13, `--max-connections=300`), iş sonunda
 - Yalnız `replacePermissions` düzeltmesiyle yapılan ara set (purge düzeltmesi öncesi) 5 koşudan 3'ünde kırmızıydı:
   AC-202 ve `account-p10`. Bu set ikinci kök nedeni ortaya çıkardı. Kayıt amaçlı yazıldı; "Kararsız testler"e yeni satır
   gerekmiyor.
+
+## P17 I0 (WGC prototipi) — K-E11-3 kararı (backend-dev Go, 2026-11-15)
+
+Zaman kutulu D-WGC prototipi (mimari-e11 §8.1 AC-248, §8.3 I0). Gerçek Windows'ta çalıştırma imkânı yoktu. Karar
+aşağıdaki üç ölçüte göre verildi; çalışma kanıtını CI `test-windows` (windows-2025) job'undaki duman testi sağlayacak.
+
+### Ne yazıldı
+
+- `apps/agent-win/internal/capture/wgc_windows.go` (build tag `windows && (amd64 || arm64)`): `wgcSupported()`
+  (GraphicsCaptureSession.IsSupported), `openWGCWindow(hwnd)`, `(*wgcWindow).acquire(timeoutMs, fn)` ve `close()`.
+  Akış: BGRA destekli D3D11 cihazı (donanım, yoksa WARP) → `IDXGIDevice` → `CreateDirect3D11DeviceFromDXGIDevice` →
+  WinRT `IDirect3DDevice`. Sonra `RoGetActivationFactory(GraphicsCaptureItem, IGraphicsCaptureItemInterop)` →
+  `CreateForWindow`, `Direct3D11CaptureFramePool` Statics2 → `CreateFreeThreaded` → `CreateCaptureSession` →
+  `StartCapture`. Kare için `TryGetNextFrame` → `Surface` → `IDirect3DDxgiInterfaceAccess.GetInterface(ID3D11Texture2D)`
+  → staging → `Map`. Bu son adım `dxgi_windows.go` ile aynıdır. Pencere boyutu değişince havuz `Recreate` ile yeniden
+  kurulur; kare içerik boyutuna kırpılır. `acquire` imzası `duplicator.acquire` ile aynıdır, böylece I4 aynı hatta bağlar.
+- `apps/agent-win/internal/capture/wgc_windows_test.go`: `TestAC248WGCWindowSmoke`. Düz kırmızı bir pencere oluşturur,
+  WGC ile tek kare alır; boyutun ≥100x100 ve istemci alanı ortasının kırmızı olduğunu doğrular. Açılış ve ilk kare
+  süresini `t.Logf` ile yazar. Yalnız üç durumda **neden yazarak Skip** eder: sınıf kayıtlı değil
+  (`REGDB_E_CLASSNOTREG`), `IsSupported=false`, `OpenInputDesktop` başarısız (hizmet oturumu / kilitli ekran). Diğer
+  her hata kırmızıdır.
+- Prototip kodu üretim akışına bağlanmadı; bilinçli olarak yalnız testten çağrılıyor. Bağlama I4'ün işi.
+  `select.go` ve `reason.go`'ya dokunulmadı (I2 kullanıyor). Hatalar şimdilik `ReasonOther` + sabit Op adıyla dönüyor
+  (`CreateForWindow`, `CreateFreeThreaded`, `TryGetNextFrame` …). WGC'ye özgü neden kodlarını I4 ekleyecek.
+
+### Değerlendirme
+
+| Ölçüt                                        | Sonuç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) Yeni bağımlılık olmadan uygulanabilirlik | **Evet.** Yalnız `golang.org/x/sys/windows` ve mevcut `comObj`/`procHR` elle vtable kalıbı kullanıldı (~250 satır). Ek DLL'ler sistemde var: `combase.dll` (`RoGetActivationFactory`, `WindowsCreateString/DeleteString`) ve `d3d11.dll` (`CreateDirect3D11DeviceFromDXGIDevice`). Hepsi `NewLazySystemDLL` ile yükleniyor (G-08). `go.mod` değişmedi, §10.4 gerekçesi gerekmiyor. `RoActivateInstance` gerekmedi: kullanılan sınıfların varsayılan kurucusu yok, statik fabrika (`RoGetActivationFactory`) doğru giriş noktası.                                                                                                                                                                                                                                                                                                                                  |
+| (b) Karmaşıklık / risk                       | **Orta, yönetilebilir.** IID'ler ve vtable sıraları SDK meta verisinden doğrulandı: mingw-w64 `windows.graphics.capture(.interop).h`, `windows.graphics.directx.direct3d11.h`, `windows.foundation.h`; bu başlıklarda olmayan arayüzler için Wine IDL'i. Kalan riskler: ① `SizeInt32` değerle geçiriliyor (amd64/arm64'te tek yazmaç; 386 bu yüzden build tag dışında). ② `CreateForWindow` + serbest iş parçacıklı havuz Windows 10 1903+ ister; daha eskide `IsSupported`/sınıf hatası → I4'te pencere modu gizlenir, tam ekran (DXGI) kalır. ③ Win10/11'de yakalanan pencerede sarı kenarlık var. Kaldırılması `IsBorderRequired` ve erişim izni ister; kapsam dışı, kabul. ④ Simge durumundaki pencere kare üretmez; I4 `IsIconic` ile siyah kare + kaplama yapar (AC-248 metni zaten bunu istiyor). ⑤ Çalışma zamanı doğrulaması henüz yok (aşağıdaki kapı). |
+| (c) CI duman testi                           | **Var:** `TestAC248WGCWindowSmoke`, `test-windows` job'undaki mevcut `go test -count=1 ./...` adımında koşar. Workflow değişikliği gerekmez.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+### K-E11-3 kararı: **GO** (I4'te pencere modu yapılır), tek kapıyla
+
+- **Kapı:** commit sonrası `test-windows` (windows-2025) job'unda `TestAC248WGCWindowSmoke` **PASS** ya da gerekçeli
+  **SKIP** olmalı. Runner'da etkileşimli masaüstü yoksa test Skip eder. Bu durumda çalışma kanıtı I4 başında Windows VM'de
+  aynı testle alınır: `go test -run AC248 -v ./internal/capture`.
+- Test HRESULT ile **kırmızı** olursa I4 ilk gün düzeltmeyi dener (olası nedenler: vtable dizini, `SizeInt32` ABI).
+  Gün sonunda çözülmezse karar **NO-GO**'ya döner: AC-248 P20'ye kayar (K-E11-3), P17 kalan AC'lerle kapanır.
+- Sözleşme değişikliği yok; frontend-dev için bir şey yok.
+
+### Doğrulama (yerel, `golang:1.26` konteyneri)
+
+- `gofmt -l internal/capture` temiz.
+- `GOOS=windows GOARCH=amd64`: `go vet ./internal/capture ./internal/win` 0, `go build ./...` 0, `go test -c ./internal/capture` 0.
+- `GOOS=windows GOARCH=arm64 go vet ./internal/capture` 0.
+- Linux'ta `go vet` ve `go test ./internal/capture ./internal/win` yeşil. Buna S6-1 `uintptr(unsafe.Pointer)` denetimi de
+  dahil; yeni dosyalardaki dönüşümlerin tamamı çağrı argümanında.
+- Not: tam `go vet ./...` şu an `internal/flow/flow_test.go`'da (`RunTicket` imzası) kırmızı. Sebep paralel I1 işinin
+  yarım değişikliği, bu paketle ilgisi yok.
+
+## P17 I1 — AC-234 (istemci), AC-239 (istemci), AC-250, AC-251 (backend-dev Go, 2026-11-15)
+
+Kapsam: mimari-e11 §8 / §8.1 satırları 234, 239, 250, 251. Sunucu ve `packages/contracts` değişmedi; istemci
+P15 sözleşmesine (`contracts/src/ws.ts` `shareStateSchema`, `ws-request.ts` `request.accepted.admitCode`) birebir uyar.
+Not: I0'ın yukarıda andığı `flow_test.go` `RunTicket` imza kırmızısı bu turda kapandı (çağrılar güncellendi).
+
+### Değişen dosyalar (`apps/agent-win/`)
+
+| Dosya | Değişiklik |
+| --- | --- |
+| `internal/capture/reason.go` | `Error.Method` alanı (hatanın ait olduğu yakalama yolu) + `(*Error).ShareMethod()` → contracts `SHARE_METHODS` değeri (DXGI1 → DXGI; WGC). Method boşsa yalnız nedenin kesin belirlediği yol: `GDI_FAILED`→GDI; `DXGI_*`, `D3D_DEVICE`, `FIRST_FRAME_TIMEOUT`→DXGI; diğerleri "" (alan gönderilmez) |
+| `internal/signal/messages.go` | `ShareState` ve `ShareSnapshot` (`hello.share`) için `reason`/`method` (omitempty); `validateShare` contracts deseni `^[A-Z0-9_]{1,32}$` ve enum `DXGI\|GDI\|WGC` |
+| `internal/flow/flow.go` | AC-234: `sendStopped(err)` hata anında döngüden beklemesiz `share.state {stopped, reason, method}`; neden yalnız `capture.Reason` sabiti (HRESULT/Op gitmez), tipsiz hata `OTHER`, hata yoksa alansız (0.10.x biçimi). Aynı soket + aynı durum/neden/yöntem 5 sn içinde tekrar gönderilmez; durum değişimi ve farklı neden hemen gider; yeni sokette (yeniden bağlanma) sınır sıfırlanır. AC-250: soket kopuşunda `bindingPending = false`. AC-239: `RunTicket(..., admitCode)` — kod varsa lobi ekranı (`UI.Lobby`, kod büyük yazı) ve `lobby.wait` → `hello`; yoksa eski "Teknisyen bağlanıyor…" |
+| `internal/request/ws.go` | `Accepted.AdmitCode` (`admitCode`, sıkı şema); varsa (null/boş dahil) 4 hane olmalı (`validAdmitCode`) |
+| `internal/request/types.go`, `wait.go` | `AcceptView.AdmitCode`, `Outcome.AdmitCode` taşınır |
+| `internal/launch/run.go` | `flow.RunTicket(..., res.AdmitCode)` |
+| `internal/ui/accept.go` (+ `request_windows.go` tek satır) | AC-239: onay diyaloğunda talep kodu satırının sonuna "Kabul kodu: 0 9 3 7" (gövde yüksekliği değişmesin diye aynı satır; I3'ün `control_windows.go` düzenine dokunulmadı). Paylaşım sonrası lobi ekranı kodu `fontBig` ile gösterir (mevcut `screens_windows.go` Lobby, değişmedi) |
+| `internal/remember/origin.go` | AC-251: `SameRegistration(prev, server, renewed, customer)` |
+| `internal/launch/keeper.go` | `Issued` değişim kararı ad yerine `SameRegistration` ile |
+| Testler | yeni `internal/flow/p17_test.go`, `internal/request/p17_test.go`; eklemeler `signal/signal_test.go`, `ui/accept_test.go`, `launch/run_test.go` (AC-187 testi `Renewed: true` ile güncellendi) |
+
+### Tasarımdan sapmalar (gerekçeli)
+
+1. **AC-251 "(origin, tenantId)":** Sunucu istemciye tenant kimliği göndermez (G-E10-4: "karşı tenant kimliği hiçbir
+   tarafta yazılmaz"; `binding.issued` şemasında yok) ve P17'de şema değişmez. Kimlik karşılaştırması bu yüzden
+   sunucunun tenant kimliğiyle verdiği karar üzerinden yapılır: `binding.issued.renewed` = önceki anahtar (yalnız aynı
+   kökene gönderilir) aynı tenant'ın etkin kaydıydı (`bindings/service.ts` `target`). Değişim = köken farklı **veya**
+   `renewed=false` **veya** müşteri adı farklı. Sonuç mimari testiyle aynı: aynı ad + farklı tenant → bilgi; aynı
+   tenant + ad değişimi → yok. Yan etki: aynı tenant'ta önceki kayıt panelden iptal edilmişse yeni kayıt da "artık …
+   için kayıtlı" gösterir (kayıt gerçekten yenilendi; kabul edilebilir). Karşılaştırma `ui/home.go`'da değil
+   `launch/keeper.go`'dadır (değişim kararı orada; `ui/home.go` yalnız metni çizer, değişmedi).
+2. **AC-239 alanın yeri:** §8.1 `internal/signal/messages.go (RequestAccepted.AdmitCode)` diyor; `request.accepted`
+   `/ws/request` mesajıdır ve istemcide `internal/request/ws.go` `Accepted`'tadır — oraya eklendi (`signal.DecodeStrict`
+   aynı sıkı çözücü).
+3. **AC-234 neden deseni:** mimari `^[A-Z_]{1,32}$` yazıyor; P15 contracts `SHARE_FAIL_REASON_PATTERN` =
+   `^[A-Z0-9_]{1,32}$` (rakamlı `D3D_DEVICE` sabiti için gerekli). §8.1 "P15 farklıysa P15 geçerlidir" → contracts deseni.
+4. **AC-234 `method` doldurma (açık iş):** I1'e `capture/` altında yalnız `reason.go` açık olduğundan
+   `source_windows.go` hatalara `Method` yazmıyor; `ShareMethod()` şu an nedenden çıkarım yapar (tablo yukarıda) ve
+   MF/kodlayıcı/NO_OUTPUT/OTHER nedenlerinde `method` gönderilmez (isteğe bağlı alan). Tam "son denenen yol" için
+   `source_windows.go`'da iki satır gerekir: `run()` içindeki `fail(e)` öncesi `e.Method = <son deneme>` (p.attempts
+   son öğe ya da p.method) ve yayın hatasında `e.Method = p.method`. Öneri: I2 (`select/mf/dxgi`) ya da I4 (WGC) bu
+   dosyaya dokunurken eklesin; flow tarafı hazır (`Method` set edilmiş hata testte doğrulandı).
+5. **Sürüm 0.11.0:** Kodda sabit sürüm yok; `config.version` yalnız ldflags ile `build/build.sh <server> <x.y.z>`,
+   değer `agent-win.yml`'de etiketten (`agent-v0.11.0`) gelir — I5 (devops). Sunucu `admitCode`'u yalnız
+   `clientVersion ≥ 0.11.0`'a ürettiği için Release etiketi 0.11.0 olmalı; aksi hâlde ayar açık tenant'ta talep 409
+   `ACCEPT_CODE_CLIENT_UNSUPPORTED` alır.
+
+### Bağımlılık
+
+Yeni Go bağımlılığı yok (testteki `github.com/coder/websocket` zaten modülde).
+
+### Testler ve sonuç
+
+AC ↔ test: AC-234 `TestAC234ShareFailureFields` (her `Reason` → JSON alanları), `TestAC234StoppedReasonOnOpenFailure`,
+`TestAC234StoppedRepeatLimit` (5 sn sınırı, farklı neden/durum değişimi), `TestAC234StoppedResentAfterReconnect`,
+`TestAC234StoppedReachesFakeServerWithin1s` (gerçek `signal.Dial` + TLS `httptest` sahte sinyal sunucusu; hata →
+sunucuya varış ≤ 1 sn, ölçülen ~ms), `signal.TestAC234ShareStateReasonMethod` (desen/enum, `hello.share`); AC-239
+`request.TestAC239AcceptedAdmitCodeStrict` (kodlu/kodsuz/geçersiz/null/harf duyarlı), `flow.TestAC239RunTicketAdmitCodeShowsLobby`,
+`ui.TestAC239AdmitLine`; AC-250 `TestAC250DisconnectResetsBindingPending` (istek → kopuş → yeni teklif → tam 1 istek);
+AC-251 `launch.TestAC251SameNameDifferentTenantShowsChange`.
+
+```
+docker run --rm -v "$PWD:/repo" -w /repo/apps/agent-win golang:1.26 go vet ./... && go test -race -count=1 ./...
+→ 19 paket ok (flow 7.4 s); flow/signal/request/launch -count=3 ok
+docker run ... -e GOOS=windows -e GOARCH=amd64 -e CGO_ENABLED=0 golang:1.26 go vet ./... && go build ./...  → ok
+```
+
+Not: Testler repo kökü bağlanarak koşulmalı (`packages/contracts/fixtures` gerekiyor). `gofmt -l` yalnız I3'ün
+`internal/ui/theme_test.go` dosyasını listeliyor (bu paketin dışında).
+
+### frontend-dev / konsol için
+
+Sözleşme değişmedi. 0.11.0 istemci `share.state`'e `reason` (sabit kod) ve çoğu durumda `method` ekler; `method`
+MF/kodlayıcı/monitör/OTHER nedenlerinde yoktur (madde 4) — konsol `describeShareFailure(reason, undefined)` yolunu
+zaten destekliyor.
+
+## P17 I3 — AC-247 (koyu tema), AC-249 (reparse/junction koruması) (backend-dev Go, 2026-11-15)
+
+### Değişen / yeni dosyalar (`apps/agent-win/`)
+
+- `internal/ui/theme.go` (yeni): tek renk tablosu (açık/koyu `palette`), `useDark` kararı, WCAG göreli parlaklık ve
+  kontrast fonksiyonu. Açık tablo 0.10.x (beyaz/siyah, uyarı #b91c1c); koyu tablo DESIGN.md §2 koyu token'ları.
+- `internal/ui/theme_windows.go` (yeni): tema durumu (UI iş parçacığı), `WM_CTLCOLOR*` boyama, koyu zemin silme,
+  `applyTheme` (DWM başlık + denetim görsel stili), `refreshTheme` (WM_SETTINGCHANGE).
+- `internal/ui/form_windows.go`: `ctrl.kind/dark`, `form.themed/dark`, `thread.theme` alanları; dispatch'te
+  `WM_CTLCOLORSTATIC/EDIT/LISTBOX/BTN`, `WM_SETTINGCHANGE` ("ImmersiveColorSet" veya `SPI_SETHIGHCONTRAST`),
+  `WM_ERASEBKGND`; `newForm` ve `layout` sonunda `applyTheme`; logo zemini `logoBg()`.
+- `internal/win/theme_windows.go` (yeni, ortak `win_windows.go`'ya dokunulmadı): `AppsUseLightTheme` (HKCU
+  `…\Themes\Personalize`), `HighContrast`, `DarkTitleBar` (DWMWA 20, olmazsa 19; hata yok sayılır), `SetWindowTheme`,
+  `ClassicTheme`, `SettingName`, `Redraw`.
+- `internal/diag/reparse_windows.go` (yeniden yazıldı): `diag.Dir` — `CreateFile(FILE_FLAG_OPEN_REPARSE_POINT |
+  FILE_FLAG_BACKUP_SEMANTICS)` + `GetFileInformationByHandleEx(FileAttributeTagInfo)` ile reparse reddi; klasör zinciri
+  (üst klasör = %LOCALAPPDATA% ve NoktaDestek) `FILE_SHARE_DELETE` olmadan açık tutulur; silme
+  `SetFileInformationByHandle(FileDispositionInfoEx, DELETE|POSIX_SEMANTICS)` (desteklenmezse `FileDispositionInfo`);
+  yeniden adlandırma handle üzerinden `FileRenameInfo` (yalnız dosya adı, aynı klasör).
+- `internal/diag/reparse.go` (Windows dışı): aynı `Dir` API'si, `Lstat` mod biti denetimi (`isReparse` yalnız burada kaldı).
+- `internal/diag/diag.go`: `ErrReparse` (dışa açık), `Mode` (`ModeRead/ModeAppend/ModeCreate`); `Log.Write` `Dir`
+  üzerinden (eski `safe` + yol ile `os.Rename/OpenFile` kaldırıldı).
+- `internal/remember/remember.go`: `load/write/forgetAll` `diag.Dir` üzerinden; yol ile `os.Remove`/`os.Rename`
+  kalmadı (`forgetIn` handle ile siler, klasörü yalnız boşsa handle ile siler).
+- Testler: `internal/ui/theme_test.go`, `internal/diag/reparse_windows_test.go`, `internal/remember/reparse_windows_test.go`.
+- `DESIGN.md` "Win32 istemci" satırı: koyu tema renkleri eklendi (eski "temadan bağımsız açık görünüm" metni güncellendi).
+
+### Tasarımdan sapmalar / ayrıntılar (gerekçeli)
+
+1. **Açık modda sistem renkleri:** Tablo açık değerleri 0.10.x'e eşittir (regresyon testi), ama çalışırken açık modda
+   pencere/metin rengi 0.10.x'teki gibi `GetSysColor`'dan okunur ve hiçbir ek tema çağrısı yapılmaz — yüksek
+   karşıtlık/özel renk şemaları bozulmasın ("açık modda bugünkü görünüm değişmez").
+2. **Yüksek karşıtlık açıkken koyu tablo uygulanmaz** (`useDark`): kullanıcının erişilebilirlik renkleri ezilmez.
+3. **Onay kutusu koyu modda klasik çizim** (`SetWindowTheme(h, " ", " ")`): görsel stilli onay kutusu
+   `WM_CTLCOLORSTATIC` metin rengini yok sayar; aksi hâlde koyu zeminde siyah metin kalırdı. Düğme/liste
+   `DarkMode_Explorer`, metin kutusu `DarkMode_CFD` (Windows 10 1809+; eski sürümde çağrı etkisiz, renkler yine tablodan).
+   Sistem `MessageBox` diyalogları temalanmaz (Windows API sınırı). Devre dışı düğme metni WCAG kapsamı dışıdır.
+4. **Sabit bağ (hard link) reddi:** Yazma kiplerinde açılan dosyanın `NumberOfLinks == 1` olmalı; aksi hâlde
+   `ErrReparse`. Reparse denetimi tek başına "hatirla.bin/tanilama.log başka dosyanın ikinci bağı" saldırısını önlemez.
+5. **Gerçek yol denetimi:** NoktaDestek'in `GetFinalPathNameByHandle` sonucu üst klasörün gerçek yolu + ad olmalı
+   (iki açılış arasında değiştirme TOCTOU'su).
+6. **"Reddet, logla":** İstemcide tanılama logu dışında yerel log yok ve hedef zaten o log (yükseltilmiş süreçte de
+   kapalı); bu yüzden red tipli hata (`diag.ErrReparse`) olarak çağırana döner, kayıt yazılmaz. Bağlantı olan girdi
+   silinmez de (yalnız reddedilir) — tasarım metniyle aynı.
+7. **Üst klasör var olmalı:** `OpenDir(create=true)` yalnız son bileşeni oluşturur (`MkdirAll` yerine); %LOCALAPPDATA%
+   her zaman vardır. %LOCALAPPDATA% bir junction ise (ör. taşınmış profil) hatırlama/log kapalı kalır (güvenli başarısızlık).
+
+### Bağımlılık
+
+Yeni modül yok. `golang.org/x/sys/windows/registry` mevcut `golang.org/x/sys` modülünün alt paketidir.
+
+### AC ↔ test
+
+- AC-247: `ui.TestAC247ContrastTableWCAGAA` (iki temada her metin/zemin çifti ≥ 4.5:1), `TestAC247LightPaletteMatches010x`,
+  `TestAC247DarkPaletteDesignTokens`, `TestAC247UseDarkDecision` (değer yok → açık, 0 → koyu, yüksek karşıtlık → açık),
+  `TestAC247ContrastFunction`. Görsel doğrulama I6 (Windows 10/11 elle tur, açık/koyu ve canlı geçiş).
+- AC-249 (Windows runner, `//go:build windows`): `diag.TestAC249JunctionLogDirRefused`, `TestAC249JunctionParentRefused`,
+  `TestAC249SymlinkLogFileAndRotationRefused` (dosya symlink'i ayrıcalık isterse yalnız o test `t.Skip`),
+  `TestAC249HardLinkLogRefused`, `TestAC249HandleRenameRemove`, `TestAC249RemoveIfEmptyKeepsNonEmpty`;
+  `remember.TestAC249JunctionStoreDirWriteLoadForgetRefused`, `TestAC249JunctionParentChainRefused`,
+  `TestAC249SymlinkFileNotFollowed`, `TestAC249HardLinkForgetRemovesOnlyLink`. Hepsinde kurban dosyanın SHA-256'sı
+  önce/sonra eşit. Junction `mklink /J` ile (yönetici gerekmez). Mevcut diag/remember testleri yeni API ile değişmeden geçiyor.
+
+```
+docker run --rm -v "$PWD:/repo" -w /repo/apps/agent-win golang:1.26 go test -race -count=1 ./...   → tüm paketler ok
+docker run ... golang:1.26 go vet ./... ; gofmt -l internal/{ui,diag,remember,win}                → temiz
+docker run ... -e GOOS=windows -e GOARCH=amd64 -e CGO_ENABLED=0 golang:1.26 go vet ./... && go build ./... → ok
+staticcheck 2026.1 (windows+linux) internal/{diag,remember,ui,win}: I3 kodunda bulgu yok
+```
+
+Windows'a özgü testler bu makinede koşamadı (Go/Windows yok); CI `test-windows` (windows-2025) job'unda koşar.
+
+### frontend-dev için
+
+Sözleşme değişikliği yok.
+
+## P17 I2 — AC-245 kodlayıcı yedeği + AC-246 dirty-rect (backend-dev, Go)
+
+### Değişen dosyalar (`apps/agent-win/internal/capture`)
+
+- `encoder.go` (yeni, platformdan bağımsız): `Encoder` arayüzü (`Encode(f *NV12, dur, key) (au, isKey, err)`,
+  `SetBitrate`, `Close`), `Fallback` (neden/işlem/HRESULT), `fallbackEncoder`: donanım `Encode` hatası (ENCODE_FAILED)
+  ya da girdi alırken 3 sn çıktı yoksa (`EncoderStall`) yazılım MFT'yi aynı çözünürlük/kare hızı/Baseline profil ile
+  açar, donanımı kapatır, **aynı kareyi zorunlu IDR ile** yazılımda kodlar, son `SetBitrate` değerini taşır. Tek yönlü;
+  yazılım açılamazsa donanımın hatası döner (0.10.x davranışı: yayın hatası).
+- `select.go`: `selectEncoder(open, allowHW, now, onSwitch)` donanımı önce dener (`fallbackEncoder` ile sarar), olmazsa
+  yazılım; oturumda geçiş olduysa (`allowHW=false`, çözünürlük değişiminde yeniden kurulum) donanım hiç denenmez.
+  `lastMethod`/`withMethod` (aşağıda, I1 isteği).
+- `mf_windows.go`: `newEncoder` → `openEncoder(w, h, fps, hw)`; `encoder` artık `Encoder` (`close` → `Close`),
+  tanılama alanları (`hw`, `hwReason`) pipeline'a taşındı. MFT kurulumu, IDR zorlama, SPS/PPS önbelleği değişmedi.
+- `nv12.go`: `ConvertBGRA` tablo + bölge fonksiyonlarına bölündü (çıktı bayt bayt aynı; eski testler değişmeden geçer).
+  Yeni: `ConvertBGRARegions`, `Rect`, `Damage`, `surfaceToDesktop` (dört döndürme), `outRange`/`desktopRegion` (16 px
+  hizalı genişletme), `frameConv` (sürekli NV12 tamponu: geçerliyse yalnız kirli bölgeler + **önceki imlecin bölgesi**
+  yeniden dönüştürülür, sonra imleç bindirilir).
+- `cursor.go`: `cursorBounds` çıkarıldı, `OverlayCursor` aynı `outRange`'i kullanır (davranış aynı; mevcut testler geçer).
+- `dxgi_windows.go`: `GetFrameMoveRects` (vtable 10) + `GetFrameDirtyRects` (9), `damage()`; `AccumulatedFrames == 0`
+  (ve `LastPresentTime == 0`) ve imleç değişmediyse kare atlanır (kodlayıcıya gitmez).
+- `source_windows.go`: pipeline `Encoder` + `frameConv` kullanır; kaynak yeniden açılınca `invalidate`; geçişte yerel
+  diag kaydı `olay=encoder_fallback kodlayici=SW donanim_kodlayici=<neden> neden=<neden> islem=<op> hr=…`;
+  AC-234 `Error.Method` ataması.
+- Testler: `encoder_test.go`, `nv12_dirty_test.go` (yeni).
+
+### Tasarımdan sapmalar / ayrıntılar (gerekçeli)
+
+1. **Arayüz imzası:** mimari `Encoder{Encode(frame) error}` kısaltmasıdır; kodlayıcı Annex-B çıktısını ve IDR
+   bilgisini döndürmek zorunda olduğundan imza mevcut `Encode(f, dur, key) ([]byte, bool, error)` korunarak
+   arayüzleştirildi (+ `SetBitrate`, `Close`; ratectl ve kapanış için gerekli).
+2. **Sessizlik nedeni:** yeni `Reason` eklenmedi; 3 sn sessizlik `ENCODE_FAILED` + `Op=EncoderStall` olarak loglanır
+   (neden yalnız yerel diag'a gider, `share.state`'e gitmez; reason.go/contracts değişmez).
+3. **Olay sabiti capture'da:** `encoder_fallback` `diag.Report.Event` dizesi olarak `source_windows.go`'da tanımlı
+   (I3 `diag.go` üzerinde çalışırken çakışmamak için); istenirse sonra `diag` sabitlerine taşınır.
+4. **Kare atlama koşulu:** görüntü güncellemesi `AccumulatedFrames != 0 || LastPresentTime != 0` sayılır; ikisi de 0
+   ise atlanır. Yalnız `AccumulatedFrames`'e bakmak, tutarsız bildiren sürücüde güncellemeyi kaybettirip görüntüyü
+   bir sonraki değişime kadar bayat bırakabilirdi; maliyeti en çok bir fazla dönüşüm.
+5. **Tam dönüşüme düşme:** taşıma dikdörtgeni, > 64 kirli dikdörtgen (mimari), ayrıca meta veri yok/okunamadı, yeni
+   görüntüde 0 kirli dikdörtgen, ilk kare, boyut/döndürme değişimi, kaynak yeniden açılışı ve yarıda kalan dönüşüm
+   (`valid=false`). GDI ve (I4) WGC kirli bölge bildirmez → her kare tam (değişiklik yok).
+6. **İmleç:** imleç NV12 tamponuna bindirildiği için kirli bölgelere önceki karenin imleç bölgesi eklenir (eski iz
+   silinir), sonra yeni imleç bindirilir; yalnız imleç hareketinde yalnız bu iki küçük bölge dönüştürülür. Kodlayıcı
+   yine tam kare kodlar.
+7. **Asılı kalan senkron MFT:** donanım MFT'si bir çağrıda süresiz bloklanırsa (senkron yol) 3 sn kuralı tetiklenemez
+   (aynı iş parçacığı); asenkron donanım MFT'lerinde mevcut 500 ms olay zaman aşımı hata olarak yedeğe geçirir.
+   Elle test (I6, sürücü devre dışı) bunu doğrular.
+
+### AC-234 ek iş (I1 isteği): `Error.Method`
+
+- Açılış hatasında `fail` öncesi `withMethod(e, lastMethod(p.attempts))` → `share.state.method` son denenen yol
+  (ör. DXGI_UNSUPPORTED nedeni + GDI yolu). Yayın hatasında (kodlayıcı geçişi sonrası yazılım hatası dahil)
+  `withMethod(e, p.method)`; DXGI1 → `ShareMethod()` "DXGI". Yol bilinmiyorsa (COM/MF başlatma) boş kalır, nedenden
+  çıkarım sürer. Test: `TestAC234MethodIsLastTriedPath`.
+
+### AC ↔ test
+
+- AC-245: `TestAC245HardwareErrorSwitchesToSoftwareWithIDR` (5. karede donanım hatası → aynı kare yazılımda IDR, akış
+  kesilmez, donanım kapanır, bit hızı taşınır, geri dönüş yok), `TestAC245HardwareSilenceSwitchesWithinFiveSeconds`
+  (sahte saat, 30 fps; boşluk ∈ [3 sn, 5 sn]), `TestAC245ShortEncoderLatencyDoesNotSwitch`,
+  `TestAC245SoftwareUnavailableKeepsHardwareError`, `TestAC245SelectEncoderOrder`. Windows elle testi I6.
+- AC-246: `TestAC246PartialConversionEqualsFull` (5 boyut × 4 döndürme, ölçek 2560×1440→1920×1080, tek boyutlar,
+  satır dolgusu, kenara dayalı/taşan rastgele dikdörtgenler, imleç hareketi/şekil/görünürlük, ardışık kareler: her
+  karede `frameConv` = `ConvertBGRA + OverlayCursor` bayt eşitliği), `TestAC246FullConversionTriggers`,
+  `TestAC246RegionsAligned16AndClipped`.
+
+### Ölçüm (AC-246; saf Go, gerçek ölçüm I6)
+
+`BenchmarkAC246Convert1080p` (docker golang:1.26, linux/arm64 — Apple Silicon; mutlak değerler Windows/x64'ten farklıdır,
+oran anlamlıdır):
+
+| Senaryo | ns/kare | Tam dönüşüme göre |
+| --- | --- | --- |
+| full (0.10.x davranışı, her kare) | 3 438 640 | — |
+| idle_dirty (saat 100×35 + metin imleci 2×20 + fare imleci) | 11 670 | %99.7 az |
+| typing_dirty (10 satır parçası 800×20) | 434 082 | %87 az |
+
+Dönüşüm maliyetinde kazanç ≥ %40 hedefinin çok üstünde; ancak AC'nin ölçütü **süreç CPU'su** (yakalama kopyası +
+kodlama dahil, 1080p durağan masaüstü 60 sn, D12 0.10.x tabanı). Kodlama tam kare sürdüğünden toplam kazanç
+dönüşümün CPU payına bağlıdır; bu ölçüm Windows makinesinde I6'da test-operatoru tarafından yapılır ve
+`docs/test-raporu.md`'ye yazılır.
+
+```
+docker run --rm -v "$PWD:/src" -w /src/apps/agent-win golang:1.26 go test -race -count=1 ./...   → tüm paketler ok
+docker run ... golang:1.26 gofmt -l ./internal/capture ; go vet ./internal/capture             → temiz
+docker run ... -e GOOS=windows -e GOARCH=amd64 -e CGO_ENABLED=0 golang:1.26 go vet ./internal/capture && go build ./... → ok
+GOOS=windows go test -c ./internal/capture                                                       → derleniyor
+```
+
+### Bağımlılık
+
+Yeni modül yok (`encoding/binary` standart kütüphane).
+
+### frontend-dev / I4 için
+
+Sözleşme değişikliği yok. I4: `select.go`'ya `selectEncoder`, `lastMethod`, `withMethod` eklendi; WGC grabber'ı
+`damager` uygulamazsa her kare tam dönüştürülür (doğru davranış), ek iş gerekmez.

@@ -95,10 +95,14 @@ type Monitor struct {
 	Primary bool   `json:"primary"`
 }
 
+// ShareState `share.state`. Reason/Method P15/P17 (AC-234): paylaşım durduğunda neden kodu (capture.Reason) ve son
+// yakalama yolu; isteğe bağlı (0.10.x göndermez).
 type ShareState struct {
 	T             string    `json:"t"`
 	ID            string    `json:"id,omitempty"`
 	State         string    `json:"state"`
+	Reason        string    `json:"reason,omitempty"`
+	Method        string    `json:"method,omitempty"`
 	Monitors      []Monitor `json:"monitors,omitempty"`
 	ActiveMonitor *int      `json:"activeMonitor,omitempty"`
 }
@@ -155,9 +159,21 @@ func (m Ice) validate() error {
 	return validateIce(m)
 }
 
-func validateShare(state string, mons []Monitor, active *int) error {
+// shareReasonRe contracts `SHARE_FAIL_REASON_PATTERN`; shareMethods `SHARE_METHODS` (ws.ts, P15 AC-234).
+var (
+	shareReasonRe = regexp.MustCompile(`^[A-Z0-9_]{1,32}$`)
+	shareMethods  = []string{"DXGI", "GDI", "WGC"}
+)
+
+func validateShare(state, reason, method string, mons []Monitor, active *int) error {
 	if state != "sharing" && state != "stopped" {
 		return fail("share.state", "state")
+	}
+	if reason != "" && !shareReasonRe.MatchString(reason) {
+		return fail("share.state", "reason")
+	}
+	if method != "" && !slices.Contains(shareMethods, method) {
+		return fail("share.state", "method")
 	}
 	if len(mons) > monitorsMax {
 		return fail("share.state", "monitör sayısı")
@@ -178,7 +194,7 @@ func (m ShareState) validate() error {
 	if m.T != "share.state" {
 		return fail(m.T, "tip")
 	}
-	if err := validateShare(m.State, m.Monitors, m.ActiveMonitor); err != nil {
+	if err := validateShare(m.State, m.Reason, m.Method, m.Monitors, m.ActiveMonitor); err != nil {
 		return err
 	}
 	return checkID(m.T, m.ID)
@@ -315,6 +331,8 @@ type IceServer struct {
 
 type ShareSnapshot struct {
 	State         string    `json:"state"`
+	Reason        string    `json:"reason,omitempty"`
+	Method        string    `json:"method,omitempty"`
 	Monitors      []Monitor `json:"monitors,omitempty"`
 	ActiveMonitor *int      `json:"activeMonitor,omitempty"`
 }
@@ -532,7 +550,7 @@ func ParseServer(raw []byte) (Inbound, error) {
 				validIceServers(m.IceServers) && (m.MaxEndsAt == nil || isISO(*m.MaxEndsAt)) && validMaxFileMb(m.MaxFileMb) &&
 				(m.ReconnectToken == "" || tokenRe.MatchString(m.ReconnectToken)) &&
 				(m.GuestName == nil || utf16Len(*m.GuestName) <= nameMax) &&
-				(m.Share == nil || validateShare(m.Share.State, m.Share.Monitors, m.Share.ActiveMonitor) == nil)
+				(m.Share == nil || validateShare(m.Share.State, m.Share.Reason, m.Share.Method, m.Share.Monitors, m.Share.ActiveMonitor) == nil)
 		})
 	case "lobby.wait":
 		return decodeValid(raw, func(m *LobbyWait) bool { return isISO(m.ExpiresAt) })

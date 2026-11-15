@@ -60,6 +60,9 @@ type Accepted struct {
 	TechnicianName  string `json:"technicianName"`
 	TechVerifyCode  string `json:"techVerifyCode"`
 	TicketExpiresAt string `json:"ticketExpiresAt"`
+	// AdmitCode P15/P17 (AC-239): yalnız tenant "kabul kodu iste" açıkken ve istemci ≥ 0.11.0 ise; 4 hane. Müşteri
+	// ekranında büyük gösterilir, teknisyen konsola girer. Yoksa eski akış.
+	AdmitCode string `json:"admitCode,omitempty"`
 }
 
 // Closed `request.closed`: son durum; ardından sunucu 1000 ile kapatır.
@@ -81,6 +84,19 @@ func (State) isInbound()    {}
 func (Accepted) isInbound() {}
 func (Closed) isInbound()   {}
 func (ErrorMsg) isInbound() {}
+
+// validAdmitCode AC-239: `admitCode` isteğe bağlı ama varsa (null/boş dahil) 4 hane olmalı (zod `.optional()`).
+func validAdmitCode(raw []byte, code string) bool {
+	if verifyRe.MatchString(code) {
+		return true
+	}
+	var keys map[string]json.RawMessage
+	if json.Unmarshal(raw, &keys) != nil {
+		return false
+	}
+	_, has := keys["admitCode"]
+	return !has
+}
 
 func bad(t, why string) error { return fmt.Errorf("request: %s: %s", t, why) }
 
@@ -109,7 +125,7 @@ func ParseServer(raw []byte) (Inbound, error) {
 			return nil, bad(head.T, err.Error())
 		}
 		if !secretRe.MatchString(m.WsTicket) || m.TechnicianName == "" || utf16Len(m.TechnicianName) > techNameMax ||
-			!verifyRe.MatchString(m.TechVerifyCode) || !signal.IsISO(m.TicketExpiresAt) {
+			!verifyRe.MatchString(m.TechVerifyCode) || !signal.IsISO(m.TicketExpiresAt) || !validAdmitCode(raw, m.AdmitCode) {
 			return nil, bad(head.T, "alan")
 		}
 		m.TechnicianName = Display(m.TechnicianName, "Teknisyen") // S8b2-3: arayüze yalnız süzülmüş ad gider

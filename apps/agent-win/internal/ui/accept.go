@@ -24,3 +24,20 @@ func acceptDecision(open bool, cur, next acceptKey) acceptAction {
 	}
 	return acceptReopen
 }
+
+// admitLine AC-239: onay diyaloğunda talep kodu satırının sonuna eklenen kabul kodu (rakamlar aralıklı, okunur; gövde
+// yüksekliği değişmesin diye ayrı satır değil). Kod boşsa "" (eski akış). "Ekranımı paylaş"tan sonra aynı kod lobi
+// ekranında büyük yazıyla ve okuma yönergesiyle gösterilir (screens_windows.go Lobby, flow.RunTicket).
+func admitLine(code string) string {
+	if code == "" {
+		return ""
+	}
+	spaced := make([]byte, 0, 2*len(code))
+	for i := 0; i < len(code); i++ {
+		if i > 0 {
+			spaced = append(spaced, ' ')
+		}
+		spaced = append(spaced, code[i])
+	}
+	return "  ·  Kabul kodu: " + string(spaced)
+}

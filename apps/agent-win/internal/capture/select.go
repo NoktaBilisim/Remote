@@ -135,3 +135,51 @@ const (
 	acquireWaitMs = 100 // NextFrame içinde ctx iptali en geç bu süre + kodlama kadar gecikir
 	reopenPause   = 100 * time.Millisecond
 )
+
+// encoderChoice seçilen kodlayıcı ve tanılama bilgisi.
+type encoderChoice struct {
+	enc      Encoder
+	hw       bool   // donanım kodlayıcıyla başladı (yayında yazılıma düşebilir)
+	hwReason Reason // donanım kurulamadıysa nedeni (tanılama)
+}
+
+// selectEncoder (AC-245) allowHW ise önce donanım MFT'sini açar ve yayında yazılıma geçebilen fallbackEncoder ile
+// sarar; donanım kurulamazsa ya da oturumda daha önce yazılıma düşüldüyse (allowHW=false, tek yönlü) doğrudan yazılım
+// MFT'si (CLSID_MSH264EncoderMFT) açılır. İkisi de olmazsa yazılımın tipli hatası döner.
+func selectEncoder(open func(hw bool) (Encoder, error), allowHW bool, now func() time.Time, onSwitch func(Fallback)) (encoderChoice, error) {
+	var hwReason Reason
+	if allowHW {
+		hwEnc, err := open(true)
+		if err == nil {
+			return encoderChoice{enc: &fallbackEncoder{
+				cur: hwEnc, hw: true, now: now, onSwitch: onSwitch,
+				openSW: func() (Encoder, error) { return open(false) },
+			}, hw: true}, nil
+		}
+		if e, ok := AsError(err); ok {
+			hwReason = e.Reason
+		}
+	}
+	sw, err := open(false)
+	if err != nil {
+		return encoderChoice{}, err
+	}
+	return encoderChoice{enc: sw, hwReason: hwReason}, nil
+}
+
+// lastMethod son denenen yakalama yolu (AC-234 `share.state.method`); deneme yoksa boş.
+func lastMethod(tried []attempt) Method {
+	if len(tried) == 0 {
+		return ""
+	}
+	return tried[len(tried)-1].m
+}
+
+// withMethod e'nin yolunu m yapar (m boşsa dokunmaz; ShareMethod o zaman nedenden çıkarır). Açılışta son denenen
+// yol, yayında (kodlayıcı geçişi dahil) yayındaki yakalama yolu verilir.
+func withMethod(e *Error, m Method) *Error {
+	if e != nil && m != "" {
+		e.Method = m
+	}
+	return e
+}

@@ -123,6 +123,8 @@ type AcceptView struct {
 	TechVerifyCode string
 	RequestCode    string
 	Remaining      time.Duration
+	// AdmitCode AC-239: kabul kodu (4 hane); boşsa gösterilmez.
+	AdmitCode string
 }
 
 // ClosedView talep kapandı ekranı.
@@ -172,6 +174,8 @@ type Outcome struct {
 	Kind     OutcomeKind
 	Ticket   string
 	TechName string
+	// AdmitCode AC-239: doluysa `/ws/guest` lobiye düşer, kod lobi ekranında gösterilir (flow.RunTicket).
+	AdmitCode string
 	// Release `/ws/request`'i bırakır (bkz. ReleaseKind). Bir kez çalışır; sonraki çağrılar etkisizdir.
 	Release func(ReleaseKind)
 }

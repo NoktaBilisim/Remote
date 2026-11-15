@@ -10,8 +10,6 @@ package diag
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -183,25 +181,22 @@ func NewLog(dir string, elevated bool, persistent func() bool) *Log {
 	return &Log{Dir: dir, Enabled: persistent}
 }
 
-var errReparse = errors.New("diag: yol bağlantı/reparse noktası; yazılmadı")
+// ErrReparse yol (veya klasör zincirindeki bir bileşen) bağlantı/reparse noktası, beklenen türde değil ya da yazma
+// için açılan dosyanın birden çok bağı var (AC-249, CWE-59); hiçbir şey yazılmaz/taşınmaz/silinmez.
+var ErrReparse = errors.New("diag: yol bağlantı/reparse noktası; işlem yapılmadı")
 
-// safe yol yoksa veya düzenli dosya/klasörse nil; sembolik bağlantı, junction veya başka reparse noktasıysa hata.
-func safe(path string) error {
-	fi, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if isReparse(fi) {
-		return errReparse
-	}
-	return nil
-}
+// Mode Dir.Open kipi.
+type Mode int
 
-// Write kaydı dosyanın sonuna ekler; sınır aşılacaksa önce mevcut dosya `.1`'e döner. Klasör, dosya ve dönen kopya
-// reparse noktasıysa hiçbir şey yazılmaz/taşınmaz. Hata çağırana bilgi içindir (akış etkilenmez).
+const (
+	ModeRead   Mode = iota // var olan dosyayı okuma
+	ModeAppend             // sona ekleme (yoksa oluşturur)
+	ModeCreate             // yalnız yeni dosya (varsa os.ErrExist)
+)
+
+// Write kaydı dosyanın sonuna ekler; sınır aşılacaksa önce mevcut dosya `.1`'e döner. Klasör zinciri, dosya ve dönen
+// kopya Dir üzerinden (Windows: handle ile, AC-249) açılır/taşınır; reparse noktasıysa hiçbir şey yazılmaz/taşınmaz.
+// Hata çağırana bilgi içindir (akış etkilenmez).
 func (l *Log) Write(r Report) error {
 	if l == nil || l.Dir == "" {
 		return nil
@@ -219,32 +214,28 @@ func (l *Log) Write(r Report) error {
 	if int64(len(rec)) > limit {
 		rec = rec[:limit]
 	}
-	path, old := filepath.Join(l.Dir, FileName), filepath.Join(l.Dir, OldName)
-	if err := safe(l.Dir); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(l.Dir, 0o700); err != nil {
-		return err
-	}
-	for _, p := range []string{l.Dir, path, old} {
-		if err := safe(p); err != nil {
-			return err
-		}
-	}
-	if st, err := os.Lstat(path); err == nil && st.Size()+int64(len(rec)) > limit {
-		if err := os.Rename(path, old); err != nil {
-			return err
-		}
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	d, err := OpenDir(l.Dir, true)
 	if err != nil {
 		return err
 	}
-	if fi, err := f.Stat(); err != nil || isReparse(fi) || !fi.Mode().IsRegular() {
+	defer d.Close()
+	f, err := d.Open(FileName, ModeAppend)
+	if err != nil {
+		return err
+	}
+	st, err := f.Stat()
+	if err != nil {
 		_ = f.Close()
-		return errReparse
+		return err
+	}
+	if st.Size()+int64(len(rec)) > limit {
+		_ = f.Close()
+		if err := d.Rename(FileName, OldName); err != nil {
+			return err
+		}
+		if f, err = d.Open(FileName, ModeAppend); err != nil {
+			return err
+		}
 	}
 	_, werr := f.WriteString(rec)
 	return errors.Join(werr, f.Close())

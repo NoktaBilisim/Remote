@@ -346,7 +346,7 @@ func (u *UI) RequestWaiting(v request.WaitView) {
 
 func acceptBody(v request.AcceptView) string {
 	return "Teknisyen doğrulama kodu: " + v.TechVerifyCode + " (telefondaki teknisyen de bu kodu söylemeli)\r\n" +
-		"Talep kodunuz: " + codeText(v.RequestCode) + "\r\n" +
+		"Talep kodunuz: " + codeText(v.RequestCode) + admitLine(v.AdmitCode) + "\r\n" +
 		"\"Ekranımı paylaş\" derseniz teknisyen ekranınızı görür; uzaktan kontrol için ayrıca izin istenir.\r\n" +
 		"Kalan süre: " + mmss(v.Remaining)
 }

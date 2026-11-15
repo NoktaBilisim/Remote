@@ -36,7 +36,7 @@ func (k *keeper) PreviousKey() string {
 }
 
 // Issued kaydı yazar (tek kayıt, üzerine yazar — AC-187). Yazma hatası sessiz. Önceki kayıt (herhangi bir köken)
-// farklı firma/müşteriye aitse etiket döner.
+// farklı firma/müşteriye aitse etiket döner; firma karşılaştırması ad ile değil (köken, tenant kimliği) iledir (AC-251).
 func (k *keeper) Issued(m signal.BindingIssued) string {
 	customer := ""
 	if m.CustomerFirmName != nil {
@@ -51,7 +51,7 @@ func (k *keeper) Issued(m signal.BindingIssued) string {
 	defer k.mu.Unlock()
 	prev := k.prev
 	k.prev = &b
-	if prev == nil || (prev.TenantName == b.TenantName && prev.CustomerName == b.CustomerName) {
+	if prev == nil || remember.SameRegistration(*prev, b.Server, m.Renewed, b.CustomerName) {
 		return ""
 	}
 	return request.Label(b.TenantName, b.CustomerName)

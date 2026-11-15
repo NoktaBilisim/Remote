@@ -293,7 +293,7 @@ func TestAC187KeeperSavesCanonicalAndReportsChange(t *testing.T) {
 	if d.Binding == nil || d.Binding.Server != server || d.Binding.CustomerName != "Yeni Müşteri" || k.PreviousKey() != key {
 		t.Fatalf("%+v", d.Binding)
 	}
-	if c := k.Issued(signal.BindingIssued{T: "binding.issued", BindingKey: key, TenantName: "Nokta", CustomerFirmName: &firm}); c != "" {
+	if c := k.Issued(signal.BindingIssued{T: "binding.issued", BindingKey: key, TenantName: "Nokta", CustomerFirmName: &firm, Renewed: true}); c != "" {
 		t.Fatal("aynı firma/müşteri yenilemesi bilgi göstermez")
 	}
 	if c := k.Issued(signal.BindingIssued{T: "binding.issued", BindingKey: key, TenantName: "Başka"}); c != "Başka" ||
@@ -303,6 +303,38 @@ func TestAC187KeeperSavesCanonicalAndReportsChange(t *testing.T) {
 	bad := newKeeper(&failStore{Store: s}, server, nil, now)
 	if c := bad.Issued(signal.BindingIssued{T: "binding.issued", BindingKey: key, TenantName: "X"}); c != "" {
 		t.Fatal("yazılamazsa sessiz")
+	}
+}
+
+// AC-251: değişim (köken, tenant kimliği) ile anlaşılır — sunucunun `renewed` kararı tenant kimliğiyle verilir.
+func TestAC251SameNameDifferentTenantShowsChange(t *testing.T) {
+	now := func() time.Time { return time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC) }
+	firm := "Örnek A.Ş."
+	prev := func(srv string) *remember.Binding {
+		return &remember.Binding{Server: srv, Key: key, TenantName: "Nokta", CustomerName: firm,
+			IssuedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)}
+	}
+	issue := func(tenant string, renewed bool) signal.BindingIssued {
+		return signal.BindingIssued{T: "binding.issued", BindingKey: key, TenantName: tenant, CustomerFirmName: &firm,
+			Renewed: renewed}
+	}
+	cases := []struct {
+		name    string
+		prevSrv string
+		tenant  string
+		renewed bool
+		want    string
+	}{
+		{"aynı ad + farklı tenant (sunucu yeni kayıt açtı)", server, "Nokta", false, "Nokta – Örnek A.Ş."},
+		{"aynı tenant + ad değişimi", server, "Nokta Bilişim", true, ""},
+		{"aynı tenant + aynı ad", server, "Nokta", true, ""},
+		{"farklı köken, aynı ad", "https://eski.example:443", "Nokta", true, "Nokta – Örnek A.Ş."},
+	}
+	for _, c := range cases {
+		k := newKeeper(newStore(t, nil), server, prev(c.prevSrv), now)
+		if got := k.Issued(issue(c.tenant, c.renewed)); got != c.want {
+			t.Errorf("AC-251 %s: %q, beklenen %q", c.name, got, c.want)
+		}
 	}
 }
 

@@ -139,17 +139,24 @@ func (s *source) run(o Opener, device string, initErr chan<- error) {
 	}
 	defer func() { _, _, _ = pMFShutdown.Call() }()
 	p := &pipeline{device: device, kc: &s.kc, rc: newRateCtl(), fps: targetFPS}
+	p.onFallback = func(fb Fallback) { // AC-245: yerel diag `encoder_fallback`; oturum sürer
+		r := rep
+		r.Event, r.Encoder, r.HWReason = eventEncoderFallback, encoderSW, string(fb.Reason)
+		r.Reason, r.Op, r.HR = string(fb.Reason), fb.Op, fb.HR
+		o.write(r, true)
+	}
 	defer p.close()
 	err := p.start()
 	rep.Attempts, rep.Method = p.attemptLog(), string(p.method)
 	if p.enc != nil {
-		rep.Encoder, rep.HWReason = encoderKind(p.enc), string(p.enc.hwReason)
+		rep.Encoder, rep.HWReason = p.encoderKind(), string(p.hwReason)
 	}
 	if err != nil {
 		e, ok := AsError(err)
 		if !ok {
 			e = &Error{Reason: ReasonOther, Op: "Start"}
 		}
+		withMethod(e, lastMethod(p.attempts)) // AC-234: share.state.method = son denenen yol
 		fail(e)
 		return
 	}
@@ -163,6 +170,9 @@ func (s *source) run(o Opener, device string, initErr chan<- error) {
 		select {
 		case r := <-s.reqs:
 			f, err := p.next(r.ctx)
+			if e, ok := AsError(err); ok {
+				withMethod(e, p.method) // yayın hatası (kodlayıcı geçişi dahil): yayındaki yakalama yolu
+			}
 			if e, ok := AsError(err); ok && !logged {
 				logged = true
 				rep.Event, rep.Reason, rep.Op, rep.HR = diag.EventStreamFail, string(e.Reason), e.Op, e.HR
@@ -175,31 +185,43 @@ func (s *source) run(o Opener, device string, initErr chan<- error) {
 	}
 }
 
-func encoderKind(e *encoder) string {
-	if e.hw {
-		return "HW"
+// Tanılama değerleri (diag.Report.Event / Encoder).
+const (
+	eventEncoderFallback = "encoder_fallback" // AC-245: yayında donanım → yazılım kodlayıcı
+	encoderHW            = "HW"
+	encoderSW            = "SW"
+)
+
+// encoderKind tanılama için kodlayıcı türü (yayında yazılıma düşüldüyse SW).
+func (p *pipeline) encoderKind() string {
+	if p.encHW && !p.hwOff {
+		return encoderHW
 	}
-	return "SW"
+	return encoderSW
 }
 
 // pipeline worker iş parçacığının durumu.
 type pipeline struct {
-	device   string
-	kc       *keyClock
-	rc       *rateCtl
-	fps      int // kodlayıcının hedef kare hızı (GDI'da gdiFPS)
-	g        grabber
-	method   Method
-	reopen   func() (grabber, error)
-	attempts []attempt
-	enc      *encoder
-	frame    *NV12
-	resized  bool
-	retryAt  time.Time
-	backoff  time.Duration
-	lastEmit time.Time
-	nextAt   time.Time
-	convCost time.Duration // son BGRA→NV12 dönüşüm süresi
+	device     string
+	kc         *keyClock
+	rc         *rateCtl
+	fps        int // kodlayıcının hedef kare hızı (GDI'da gdiFPS)
+	g          grabber
+	method     Method
+	reopen     func() (grabber, error)
+	attempts   []attempt
+	enc        Encoder
+	encHW      bool   // kodlayıcı donanımla başladı
+	hwReason   Reason // donanım kodlayıcı kurulamadıysa nedeni
+	hwOff      bool   // oturumda yazılıma düşüldü: yeniden kurulumda donanım denenmez (AC-245, tek yönlü)
+	onFallback func(Fallback)
+	cv         frameConv // sürekli NV12 tamponu, kirli bölge dönüşümü (AC-246)
+	resized    bool
+	retryAt    time.Time
+	backoff    time.Duration
+	lastEmit   time.Time
+	nextAt     time.Time
+	convCost   time.Duration // son BGRA→NV12 dönüşüm süresi
 }
 
 // start yöntem zincirini (DXGI → DXGI1 → GDI) dener, ilk kareyi alır ve kodlayıcıyı kurar. Kodlayıcı hatası yöntem
@@ -211,7 +233,7 @@ func (p *pipeline) start() error {
 		{MethodGDI, func() (grabber, error) { return wrapGDI(openGDI(p.device)) }},
 	}
 	first := func(c methodOpener, g grabber) (grabber, error) {
-		p.frame = nil
+		p.cv = frameConv{}
 		return awaitFirst(g, c.open, p.convert, time.Now().Add(openFirstFrame), time.Now, time.Sleep)
 	}
 	g, i, tried, err := selectMethod(chain, first)
@@ -254,18 +276,20 @@ func (p *pipeline) attemptLog() []diag.Attempt {
 	return out
 }
 
-// convert g'nin karesini NV12'ye çevirip (DXGI'da) imleci bindiren işlev.
+// damager değişen bölgeyi bildiren kaynak (DXGI). Bildirmeyen kaynakta (GDI, WGC) her kare tam dönüştürülür.
+type damager interface{ damage() Damage }
+
+// convert g'nin karesini NV12'ye çevirip (DXGI'da) imleci bindiren işlev; DXGI'da yalnız kirli bölgeler (AC-246).
 func (p *pipeline) convert(g grabber) func(px []byte, w, h, pitch int) error {
 	return func(px []byte, w, h, pitch int) error {
-		rot := g.rotation()
-		ow, oh := OutputSize(DesktopSize(w, h, rot))
-		if p.frame == nil || p.frame.W != ow || p.frame.H != oh {
-			p.frame, p.resized = NewNV12(ow, oh), true
+		dmg := Damage{Full: true}
+		if d, ok := g.(damager); ok {
+			dmg = d.damage()
 		}
 		t0 := time.Now()
-		err := ConvertBGRA(p.frame, px, w, h, pitch, rot)
-		if err == nil {
-			err = OverlayCursor(p.frame, px, w, h, pitch, rot, g.cursor())
+		resized, err := p.cv.convert(px, w, h, pitch, g.rotation(), g.cursor(), dmg)
+		if resized {
+			p.resized = true
 		}
 		p.convCost = time.Since(t0)
 		return err
@@ -274,19 +298,26 @@ func (p *pipeline) convert(g grabber) func(px []byte, w, h, pitch int) error {
 
 // ensureEncoder kare boyutu değiştiyse veya kodlayıcı yoksa kurar.
 func (p *pipeline) ensureEncoder() error {
-	if p.frame == nil || (!p.resized && p.enc != nil) {
+	f := p.cv.frame
+	if f == nil || (!p.resized && p.enc != nil) {
 		return nil
 	}
 	p.resized = false
 	if p.enc != nil {
-		p.enc.close()
+		p.enc.Close()
 		p.enc = nil
 	}
-	enc, err := newEncoder(p.frame.W, p.frame.H, p.fps)
+	open := func(hw bool) (Encoder, error) { return openEncoder(f.W, f.H, p.fps, hw) }
+	ch, err := selectEncoder(open, !p.hwOff, time.Now, func(fb Fallback) {
+		p.hwOff = true
+		if p.onFallback != nil {
+			p.onFallback(fb)
+		}
+	})
 	if err != nil {
 		return err
 	}
-	p.enc = enc
+	p.enc, p.encHW, p.hwReason = ch.enc, ch.hw, ch.hwReason
 	p.kc.Request()
 	return nil
 }
@@ -308,6 +339,7 @@ func (p *pipeline) grab() (bool, error) {
 			return false, nil
 		}
 		p.g, p.backoff = g, 0
+		p.cv.invalidate() // yeni çoğaltma: önceki tamponla ilişki yok, ilk kare tam dönüşür
 		p.kc.Request()
 	}
 	changed, err := p.g.acquire(acquireWaitMs, p.convert(p.g))
@@ -351,7 +383,7 @@ func (p *pipeline) next(ctx context.Context) (rtc.Frame, error) {
 		if !p.lastEmit.IsZero() {
 			dur = now.Sub(p.lastEmit)
 		}
-		data, key, err := p.enc.Encode(p.frame, dur, p.kc.Due(now))
+		data, key, err := p.enc.Encode(p.cv.frame, dur, p.kc.Due(now))
 		if err != nil {
 			return rtc.Frame{}, tag(err, stageEncode, "Encode")
 		}
@@ -360,7 +392,7 @@ func (p *pipeline) next(ctx context.Context) (rtc.Frame, error) {
 			cost += p.convCost
 		}
 		if p.rc.Observe(cost) {
-			p.enc.SetBitrate(bitrateFor(p.frame.W, p.frame.H, p.rc.FPS()))
+			p.enc.SetBitrate(bitrateFor(p.cv.frame.W, p.cv.frame.H, p.rc.FPS()))
 		}
 		if len(data) == 0 { // kodlayıcı gecikmesi: karenin çıktısı sonraki turda gelir
 			continue
@@ -376,7 +408,7 @@ func (p *pipeline) next(ctx context.Context) (rtc.Frame, error) {
 
 func (p *pipeline) close() {
 	if p.enc != nil {
-		p.enc.close()
+		p.enc.Close()
 	}
 	if p.g != nil {
 		p.g.close()

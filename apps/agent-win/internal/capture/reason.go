@@ -6,7 +6,8 @@ import (
 )
 
 // Reason ekran yakalama hatasının sabit, kişisel veri içermeyen neden kodu (istemci 0.10.2). Müşteri durum satırında
-// ve tanılama logunda (internal/diag) gösterilir; teknisyen paneline iletimi sonraki pakettedir.
+// ve tanılama logunda (internal/diag) gösterilir; 0.11.0'dan (AC-234) itibaren `share.state.reason` ile teknisyen
+// konsoluna da gider. Değerler contracts `SHARE_FAIL_REASON_PATTERN` (`^[A-Z0-9_]{1,32}$`) ile uyumludur.
 type Reason string
 
 const (
@@ -24,12 +25,38 @@ const (
 	ReasonOther             Reason = "OTHER"
 )
 
-// Error tipli yakalama hatası. Op sabit işlem adıdır (ör. "DuplicateOutput"); HR varsa HRESULT.
+// Error tipli yakalama hatası. Op sabit işlem adıdır (ör. "DuplicateOutput"); HR varsa HRESULT. Method hatanın
+// ait olduğu yakalama yoludur (boşsa bilinmiyor; ShareMethod nedenden çıkarır).
 type Error struct {
 	Reason Reason
 	Op     string
 	HR     uint32
+	Method Method
 }
+
+// ShareMethod AC-234 `share.state.method` değeri (contracts `SHARE_METHODS`: DXGI | GDI | WGC). DXGI1
+// (DuplicateOutput1) DXGI ailesidir. Method boşsa yalnız nedenin kesin belirlediği yol döner (GDI_FAILED → GDI;
+// DXGI_*, D3D_DEVICE, FIRST_FRAME_TIMEOUT → DXGI); belirlenemezse "" (alan gönderilmez).
+func (e *Error) ShareMethod() string {
+	switch e.Method {
+	case MethodDXGI, MethodDXGI1:
+		return string(MethodDXGI)
+	case MethodGDI:
+		return string(MethodGDI)
+	case methodWGC:
+		return string(methodWGC)
+	}
+	switch e.Reason {
+	case ReasonGDI:
+		return string(MethodGDI)
+	case ReasonDXGIUnsupported, ReasonDXGIAccessDenied, ReasonDXGINotAvailable, ReasonD3DDevice, ReasonFirstFrameTimeout:
+		return string(MethodDXGI)
+	}
+	return ""
+}
+
+// methodWGC Windows.Graphics.Capture yolu (AC-248, I0/I4); sözleşme değeri burada sabitlenir.
+const methodWGC Method = "WGC"
 
 func (e *Error) Error() string {
 	if e.HR != 0 {

@@ -90,7 +90,7 @@ func (r *runner) wait(ctx context.Context, c *api.CreateRequestResult) (bool, *O
 		if st.Share != nil {
 			r.d.UI.RequestWaitClose()
 			return false, &Outcome{Kind: OutShare, Ticket: st.Share.WsTicket, TechName: st.Share.TechnicianName,
-				Release: w.release(wcancel)}
+				AdmitCode: st.Share.AdmitCode, Release: w.release(wcancel)}
 		}
 		if done, back, out := w.apply(ctx, st); done {
 			wcancel()
@@ -309,7 +309,7 @@ func (w *waiter) apply(ctx context.Context, st Step) (bool, bool, *Outcome) {
 	}
 	if a := st.Accept; a != nil {
 		d.UI.RequestAccepted(AcceptView{Tenant: w.view.Tenant, Logo: w.view.Logo, TechName: a.TechnicianName,
-			TechVerifyCode: a.TechVerifyCode, RequestCode: w.view.Code, Remaining: w.remaining(now)})
+			TechVerifyCode: a.TechVerifyCode, RequestCode: w.view.Code, Remaining: w.remaining(now), AdmitCode: a.AdmitCode})
 	}
 	if st.Send != "" {
 		if w.conn == nil || w.conn.Send(w.wctx, st.Send) != nil {

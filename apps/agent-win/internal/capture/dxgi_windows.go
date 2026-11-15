@@ -3,6 +3,7 @@
 package capture
 
 import (
+	"encoding/binary"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -19,6 +20,8 @@ const (
 	vtOutput6GetDesc1       = 27
 	vtDuplGetDesc           = 7
 	vtDuplAcquireNextFrame  = 8
+	vtDuplGetDirtyRects     = 9
+	vtDuplGetMoveRects      = 10
 	vtDuplGetPointerShape   = 11
 	vtDuplReleaseFrame      = 14
 	vtDeviceCreateTexture2D = 5
@@ -99,6 +102,9 @@ type duplicator struct {
 	rot                       Rotation
 	cur                       Cursor // son bildirilen imleç (konum + şekil); kareye bindirmeyi çağıran yapar
 	shapeBuf                  []byte
+	dmg                       Damage // son acquire'ın değişen bölgesi (fn içinde geçerli; AC-246)
+	meta                      []byte // GetFrameMoveRects/GetFrameDirtyRects tamponu (yeniden kullanılır)
+	rects                     []Rect
 }
 
 // openDuplicator GDI aygıt adı (\\.\DISPLAYn) eşleşen DXGI çıkışı için D3D11 cihazı ve çoğaltma oturumu açar.
@@ -194,8 +200,10 @@ func findOutput(factory *comObj, device string) (ai int, adapter, output *comObj
 
 // acquire en çok timeoutMs bekler; masaüstü görüntüsü veya imleç (konum, görünürlük, şekil) değiştiyse yüzeyi
 // eşleyip fn'e verir (fn dönene kadar geçerli) ve true döner. Yalnız imleç değiştiyse yeni kare kopyalanmaz; staging
-// dokusu son masaüstü görüntüsünü tuttuğundan o yeniden eşlenir. Değişiklik yoksa veya zaman aşımında false, nil.
-// Diğer hatalar (ACCESS_LOST, masaüstü değişimi, cihaz kaybı) çağırana döner; çağıran oturumu kapatıp yeniden kurar.
+// dokusu son masaüstü görüntüsünü tuttuğundan o yeniden eşlenir. Zaman aşımında ya da görüntü birikmemişse
+// (AccumulatedFrames == 0 ve LastPresentTime == 0) ve imleç de değişmediyse kare atlanır: false, nil (AC-246).
+// Yeni görüntüde değişen bölge (damage) kirli/taşıma dikdörtgenlerinden çıkarılır. Diğer hatalar (ACCESS_LOST,
+// masaüstü değişimi, cihaz kaybı) çağırana döner; çağıran oturumu kapatıp yeniden kurar.
 func (d *duplicator) acquire(timeoutMs uint32, fn func(px []byte, w, h, pitch int) error) (bool, error) {
 	var info dxgiOutduplFrameInfo
 	var res *comObj
@@ -212,12 +220,15 @@ func (d *duplicator) acquire(timeoutMs uint32, fn func(px []byte, w, h, pitch in
 	if err != nil {
 		return false, err
 	}
-	if info.LastPresentTime != 0 {
+	if info.AccumulatedFrames != 0 || info.LastPresentTime != 0 {
 		if err := d.copyFrame(res); err != nil {
 			return false, err
 		}
+		d.dmg = d.frameDamage(&info)
 	} else if !pointer || d.staging == nil {
 		return false, nil
+	} else {
+		d.dmg = Damage{} // görüntü aynı; yalnız imleç
 	}
 	var m d3d11Mapped
 	if hr := d.ctx.call(vtCtxMap, uintptr(unsafe.Pointer(d.staging)), 0, d3d11MapRead, 0, uintptr(unsafe.Pointer(&m))); hr.failed() {
@@ -232,6 +243,43 @@ func (d *duplicator) acquire(timeoutMs uint32, fn func(px []byte, w, h, pitch in
 		return false, err
 	}
 	return true, nil
+}
+
+// damage son acquire'ın değişen bölgesi (frameConv; fn içinde çağrılır).
+func (d *duplicator) damage() Damage { return d.dmg }
+
+// frameDamage kirli dikdörtgenleri (yüzey koordinatı) okur. Taşıma dikdörtgeni varsa, meta veri yoksa/okunamazsa ya da
+// dikdörtgen sayısı maxDirtyRects'i aşarsa tam dönüşüm (Full) istenir (mimari §8.1 AC-246).
+func (d *duplicator) frameDamage(info *dxgiOutduplFrameInfo) Damage {
+	n := int(info.TotalMetadataBufferSize)
+	if n == 0 {
+		return Damage{Full: true}
+	}
+	if cap(d.meta) < n {
+		d.meta = make([]byte, n)
+	}
+	buf := d.meta[:n]
+	var need uint32
+	if hr := d.dup.call(vtDuplGetMoveRects, uintptr(n), uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&need))); hr.failed() || need != 0 {
+		return Damage{Full: true}
+	}
+	need = 0
+	if hr := d.dup.call(vtDuplGetDirtyRects, uintptr(n), uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&need))); hr.failed() {
+		return Damage{Full: true}
+	}
+	count := int(need) / 16 // RECT: 4 × int32
+	if count == 0 || count > maxDirtyRects || int(need) > n {
+		return Damage{Full: true}
+	}
+	d.rects = d.rects[:0]
+	for i := 0; i < count; i++ {
+		r := buf[i*16:]
+		d.rects = append(d.rects, Rect{
+			X0: int(int32(binary.LittleEndian.Uint32(r[0:]))), Y0: int(int32(binary.LittleEndian.Uint32(r[4:]))),
+			X1: int(int32(binary.LittleEndian.Uint32(r[8:]))), Y1: int(int32(binary.LittleEndian.Uint32(r[12:]))),
+		})
+	}
+	return Damage{Rects: d.rects}
 }
 
 // updatePointer karedeki imleç bilgisini d.cur'a işler; görünen imleç değiştiyse true. Konum ve görünürlük yalnız

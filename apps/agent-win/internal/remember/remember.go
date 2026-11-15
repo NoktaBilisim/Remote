@@ -10,7 +10,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"remote-support/agent-win/internal/diag"
@@ -55,25 +54,32 @@ func (s *Store) LoadPersonal() (Personal, bool) {
 	return *d.Personal, true
 }
 
+// load dosyayı klasör zinciri denetimiyle (diag.Dir; Windows'ta handle ile, AC-249) okur. Klasör veya dosya bağlantı/
+// reparse noktasıysa okunmaz ve hiçbir şey silinmez.
 func (s *Store) load() (Data, bool) {
-	f, err := os.Open(filepath.Join(s.Dir, fileName))
+	dir, err := diag.OpenDir(s.Dir, false)
+	if err != nil {
+		return Data{}, false
+	}
+	defer dir.Close()
+	f, err := dir.Open(fileName, diag.ModeRead)
 	if err != nil {
 		return Data{}, false
 	}
 	sealed, err := io.ReadAll(io.LimitReader(f, sealedMax+1))
 	_ = f.Close()
 	if err != nil || len(sealed) > sealedMax {
-		_ = s.forgetAll()
+		_ = s.forgetIn(dir)
 		return Data{}, false
 	}
 	plain, err := s.Unprotect(sealed)
 	if err != nil || len(plain) > plainMax {
-		_ = s.forgetAll()
+		_ = s.forgetIn(dir)
 		return Data{}, false
 	}
 	d, err := decode(plain)
 	if err != nil {
-		_ = s.forgetAll()
+		_ = s.forgetIn(dir)
 		return Data{}, false
 	}
 	return d, true
@@ -126,8 +132,9 @@ func (s *Store) ForgetAll() error {
 	return s.forgetAll()
 }
 
-// write aynı klasörde `.tmp` (O_EXCL) → yeniden adlandırma (Windows'ta MoveFileEx(MOVEFILE_REPLACE_EXISTING)).
-// Önceki çalışmadan kalan tmp → silinir ve bir kez yeniden denenir (G-E9-13).
+// write aynı klasörde `.tmp` (yalnız yeni dosya) → handle üzerinden yeniden adlandırma (diag.Dir, AC-249; var olan
+// hatirla.bin'in üzerine). Önceki çalışmadan kalan tmp → silinir ve bir kez yeniden denenir (G-E9-13). Klasör zinciri,
+// tmp veya hedef bağlantı/reparse noktasıysa diag.ErrReparse; hedef dışı dosya değişmez.
 func (s *Store) write(d Data) error {
 	plain, err := encode(d)
 	if err != nil {
@@ -140,14 +147,15 @@ func (s *Store) write(d Data) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
+	dir, err := diag.OpenDir(s.Dir, true)
+	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(s.Dir, tmpName)
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	defer dir.Close()
+	f, err := dir.Open(tmpName, diag.ModeCreate)
 	if errors.Is(err, os.ErrExist) {
-		_ = os.Remove(tmp)
-		f, err = os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		_ = dir.Remove(tmpName)
+		f, err = dir.Open(tmpName, diag.ModeCreate)
 	}
 	if err != nil {
 		return err
@@ -156,27 +164,40 @@ func (s *Store) write(d Data) error {
 	serr := f.Sync()
 	cerr := f.Close()
 	if err := errors.Join(werr, serr, cerr); err != nil {
-		_ = os.Remove(tmp)
+		_ = dir.Remove(tmpName)
 		return err
 	}
-	if err := os.Rename(tmp, filepath.Join(s.Dir, fileName)); err != nil {
-		_ = os.Remove(tmp)
+	if err := dir.Rename(tmpName, fileName); err != nil {
+		_ = dir.Remove(tmpName)
 		return err
 	}
 	return nil
 }
 
+// forgetAll klasör yoksa nil; klasör zinciri bağlantıysa diag.ErrReparse (hiçbir şey silinmez).
 func (s *Store) forgetAll() error {
+	dir, err := diag.OpenDir(s.Dir, false)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return s.forgetIn(dir)
+}
+
+// forgetIn dosyaları handle üzerinden siler (yol ile os.Remove yok, AC-249); bağlantı olan girdi silinmez ve hata
+// döner. Hepsi silindiyse klasör yalnız boşsa silinir.
+func (s *Store) forgetIn(dir *diag.Dir) error {
 	var errs []error
 	for _, n := range []string{fileName, tmpName, diag.FileName, diag.OldName} {
-		if err := os.Remove(filepath.Join(s.Dir, n)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := dir.Remove(n); err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, err)
 		}
 	}
 	if len(errs) == 0 {
-		if ents, err := os.ReadDir(s.Dir); err == nil && len(ents) == 0 {
-			_ = os.Remove(s.Dir)
-		}
+		dir.RemoveIfEmpty()
 	}
 	return errors.Join(errs...)
 }

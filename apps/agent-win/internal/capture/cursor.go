@@ -119,28 +119,37 @@ func srcOffset(dx, dy, srcW, srcH, stride int, rot Rotation) int {
 // ceilDiv a ≥ 0, b > 0 için ⌈a/b⌉.
 func ceilDiv(a, b int) int { return (a + b - 1) / b }
 
+// cursorBounds imlecin masaüstündeki (dw×dh) görünür dikdörtgeni; görünmüyorsa, şekli geçersizse veya tamamen dışarıdaysa
+// boş.
+func cursorBounds(c *Cursor, dw, dh int) Rect {
+	if c == nil || !c.Visible {
+		return Rect{}
+	}
+	sw, sh, ok := c.Shape.Size()
+	if !ok {
+		return Rect{}
+	}
+	r := Rect{max(c.X, 0), max(c.Y, 0), min(c.X+sw, dw), min(c.Y+sh, dh)}
+	if r.empty() {
+		return Rect{}
+	}
+	return r
+}
+
 // OverlayCursor ConvertBGRA ile doldurulmuş dst üzerine imleci bindirir: imleç görünmüyorsa, şekli geçersizse veya
 // tamamen çıktının dışındaysa dst değişmez. Masaüstü kenarında şekil kırpılır. src, ConvertBGRA'ya verilenle aynı
 // (salt okunur) yüzeydir.
 func OverlayCursor(dst *NV12, src []byte, srcW, srcH, stride int, rot Rotation, c *Cursor) error {
-	W, H := dst.W, dst.H
-	if W < 2 || H < 2 || W%2 != 0 || H%2 != 0 || len(dst.Data) < W*H*3/2 ||
-		srcW < 1 || srcH < 1 || stride < srcW*4 || len(src) < stride*(srcH-1)+srcW*4 {
+	if !validFrame(dst, src, srcW, srcH, stride) {
 		return errBadFrame
 	}
-	if c == nil || !c.Visible {
-		return nil
-	}
-	sw, sh, ok := c.Shape.Size()
-	if !ok {
-		return nil
-	}
+	W, H := dst.W, dst.H
 	dw, dh := DesktopSize(srcW, srcH, rot)
-	x0, y0 := max(c.X, 0), max(c.Y, 0)
-	x1, y1 := min(c.X+sw, dw), min(c.Y+sh, dh)
-	if x0 >= x1 || y0 >= y1 {
+	b := cursorBounds(c, dw, dh)
+	if b.empty() {
 		return nil
 	}
+	x0, y0, x1, y1 := b.X0, b.Y0, b.X1, b.Y1
 	pw, ph := x1-x0, y1-y0
 	patch := make([]byte, pw*ph*4)
 	for py := 0; py < ph; py++ {
@@ -153,8 +162,8 @@ func OverlayCursor(dst *NV12, src []byte, srcW, srcH, stride int, rot Rotation, 
 
 	// Örneklenen masaüstü koordinatı x*dw/W ∈ [x0, x1) olan çıkış sütunları; NV12 renk örneği 2×2 olduğundan çifte
 	// genişletilir.
-	xs, xe := ceilDiv(x0*W, dw)&^1, min(W, (ceilDiv(x1*W, dw)+1)&^1)
-	ys, ye := ceilDiv(y0*H, dh)&^1, min(H, (ceilDiv(y1*H, dh)+1)&^1)
+	xs, xe := outRange(x0, x1, dw, W, 2)
+	ys, ye := outRange(y0, y1, dh, H, 2)
 	if xs >= xe || ys >= ye {
 		return nil // imleç küçültmede örnekler arasına düştü
 	}

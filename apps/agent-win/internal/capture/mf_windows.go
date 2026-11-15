@@ -123,8 +123,9 @@ type variant struct {
 
 var errEncoderTimeout = errors.New("capture: kodlayıcı yanıt vermedi")
 
-// encoder Media Foundation H.264 kodlayıcı MFT (Baseline, CBR, düşük gecikme). Donanım MFT'si (çoğu asenkron)
-// denenir, kurulamazsa yazılım "H264 Encoder MFT" (senkron) kullanılır.
+// encoder Media Foundation H.264 kodlayıcı MFT (Baseline, CBR, düşük gecikme): donanım MFT'si (çoğu asenkron) ya da
+// yazılım "H264 Encoder MFT" (CLSID_MSH264EncoderMFT, senkron). Hangisinin önce deneneceğine ve yayında yazılıma
+// geçişe selectEncoder karar verir (AC-245).
 type encoder struct {
 	act, mft, codec, events *comObj
 	async                   bool
@@ -134,34 +135,25 @@ type encoder struct {
 	pts                     int64 // 100 ns
 	needInput               int   // asenkron: bekleyen METransformNeedInput sayısı
 	ps                      paramSets
-	hw                      bool   // donanım MFT'si (tanılama)
-	hwReason                Reason // yazılıma düşüldüyse donanım kodlayıcının nedeni (tanılama)
 }
 
-// newEncoder önce donanım, olmazsa yazılım kodlayıcı kurar. Hata tiplidir: NO_H264_ENCODER (MFT yok, ör. Windows N)
-// veya ENCODER_CONFIG (türler/parametreler kabul edilmedi).
-func newEncoder(w, h, fps int) (*encoder, error) {
-	e, hwErr := createEncoder(w, h, fps, true)
-	if hwErr == nil {
-		return e, nil
-	}
-	e, err := createEncoder(w, h, fps, false)
+// openEncoder hw ise donanım, değilse yazılım kodlayıcı kurar (aynı çözünürlük, kare hızı, profil). Hata tiplidir:
+// NO_H264_ENCODER (MFT yok, ör. Windows N) veya ENCODER_CONFIG (türler/parametreler kabul edilmedi).
+func openEncoder(w, h, fps int, hw bool) (Encoder, error) {
+	e, err := createEncoder(w, h, fps, hw)
 	if err != nil {
 		return nil, err
-	}
-	if he, ok := AsError(hwErr); ok {
-		e.hwReason = he.Reason
 	}
 	return e, nil
 }
 
 func createEncoder(w, h, fps int, hw bool) (*encoder, error) {
-	e := &encoder{w: w, h: h, hw: hw}
+	e := &encoder{w: w, h: h}
 	if err := e.activate(hw); err != nil {
 		return nil, tag(err, stageEncoderCreate, "MFTEnumEx")
 	}
 	if err := e.configure(w, h, fps); err != nil {
-		e.close()
+		e.Close()
 		return nil, tag(err, stageEncoderConfig, "Configure")
 	}
 	return e, nil
@@ -519,7 +511,8 @@ func (e *encoder) processOutput() (out []byte, more bool, err error) {
 	return out, true, nil
 }
 
-func (e *encoder) close() {
+// Close MFT'yi durdurup bırakır (tekrar çağrılabilir).
+func (e *encoder) Close() {
 	if e.mft != nil {
 		e.mft.call(vtMFTProcessMessage, mftMsgEndOfStream, 0)
 	}

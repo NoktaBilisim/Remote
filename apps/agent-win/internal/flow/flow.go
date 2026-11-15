@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"remote-support/agent-win/internal/api"
+	"remote-support/agent-win/internal/capture"
 	"remote-support/agent-win/internal/control"
 	"remote-support/agent-win/internal/dc"
 	"remote-support/agent-win/internal/env"
@@ -182,13 +183,15 @@ func Run(ctx context.Context, d Deps, initial string) Outcome {
 	return s.finish(s.run(ctx, jr))
 }
 
-// RunTicket P8b-2 (mimari-protokol §5.2): talepten doğan oturum. Kod/karşılama/join/lobi yoktur — müşteri onayı
+// RunTicket P8b-2 (mimari-protokol §5.2): talepten doğan oturum. Kod/karşılama/join yoktur — müşteri onayı
 // ("Ekranımı paylaş") internal/request'te alındı; `/ws/guest`'e talebin ticket'ıyla bağlanılır, sunucu doğrudan `hello`
 // gönderir. Sonrası (kontrol izni, dosya, oturum sonu) Run ile aynı yoldur (AC-156).
-func RunTicket(ctx context.Context, d Deps, ticket, techName string) Outcome {
+// P17 (AC-239): admitCode doluysa (tenant "kabul kodu iste" açık) sunucu önce `lobby.wait` gönderir; lobi ekranı kodu
+// büyük gösterir, teknisyen kodu konsola girince `hello` gelir. Boşsa eski akış ("Teknisyen bağlanıyor…").
+func RunTicket(ctx context.Context, d Deps, ticket, techName, admitCode string) Outcome {
 	d = withDefaults(d)
-	s := &session{d: d, techName: techName, gate: newGate(d.Gate), pendingMon: -1, preAdmitted: true}
-	return s.finish(s.run(ctx, &api.JoinResult{WsTicket: ticket, TechnicianName: techName}))
+	s := &session{d: d, techName: techName, gate: newGate(d.Gate), pendingMon: -1, preAdmitted: admitCode == ""}
+	return s.finish(s.run(ctx, &api.JoinResult{WsTicket: ticket, TechnicianName: techName, AdmitCode: admitCode}))
 }
 
 func withDefaults(d Deps) Deps {
@@ -323,6 +326,9 @@ type session struct {
 	shareErr chan error
 	// captureErr son kaynak açma hatası (0.10.2: durum satırında neden kodu).
 	captureErr error
+	// lastShare bu sokette son gönderilen share.state (AC-234 tekrar sınırı); lastShareAt gönderim anı.
+	lastShare   signal.ShareState
+	lastShareAt time.Time
 
 	files   *transfer.Manager
 	lastPct int64
@@ -391,6 +397,8 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 				}
 				// AC-24: kabul edilmiş misafir reconnectToken ile 120 sn içinde döner; yeni PeerConnection kurulur.
 				s.closeControl(ctx, "", true) // kopuşta kapı kapanır; sunucu durumu VIEW yapar (AC-24)
+				// AC-250 (B-P8c2-4): yanıtı gelmemiş kayıt isteği soketle gitti; yeni soketteki teklif yeni istek doğurur.
+				s.bindingPending = false
 				s.phase = phReconnecting
 				reconnectDeadline = s.d.Now().Add(s.d.ReconnectWindow)
 				s.dropPeer()
@@ -413,7 +421,7 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 			s.onEnv(ctx, st)
 		case err := <-s.shareErr:
 			s.stopStream()
-			s.sendShare(ctx, "stopped")
+			s.sendStopped(ctx, err)
 			s.d.UI.Status(captureStatus(err))
 		}
 	}
@@ -421,6 +429,7 @@ func (s *session) run(ctx context.Context, jr *api.JoinResult) Outcome {
 
 func (s *session) attach(ctx context.Context, c Conn) {
 	s.conn = c
+	s.lastShare, s.lastShareAt = signal.ShareState{}, time.Time{} // yeni soket: sunucu durumu yeniden alır
 	go func() {
 		for {
 			m, err := c.Read(ctx)
@@ -581,7 +590,7 @@ func (s *session) onHello(ctx context.Context, h signal.Hello) (Outcome, bool) {
 	s.setInputMonitor()
 	s.startEnv(ctx)
 	if s.src == nil {
-		s.sendShare(ctx, "stopped")
+		s.sendStopped(ctx, s.captureErr)
 		s.d.UI.Status(captureStatus(s.captureErr))
 		return Outcome{}, false
 	}
@@ -640,6 +649,45 @@ func (s *session) sendShare(ctx context.Context, state string) {
 	if state == "sharing" {
 		m.Monitors, m.ActiveMonitor = s.monitors, s.monitor
 	}
+	s.sendShareMsg(ctx, m)
+}
+
+// shareRepeatWindow AC-234 (mimari-e11 §8.1): aynı neden tekrar ederse bu sürede en çok bir share.state.
+const shareRepeatWindow = 5 * time.Second
+
+// sendStopped AC-234: paylaşım başlatılamadı ya da yayında kalıcı hata → hemen (döngüde, beklemesiz) `share.state`
+// {stopped, reason, method}. Tipli yakalama hatası yoksa neden OTHER; hata hiç yoksa (monitör yok) alanlar gönderilmez.
+func (s *session) sendStopped(ctx context.Context, err error) {
+	m := signal.ShareState{T: "share.state", State: "stopped"}
+	m.Reason, m.Method = shareFailure(err)
+	s.sendShareMsg(ctx, m)
+}
+
+// shareFailure hatanın `share.state` neden kodu ve yöntemi. Neden yalnız sabit küme (capture.Reason); HRESULT/işlem
+// adı gönderilmez (kişisel veri yok, contracts deseni).
+func shareFailure(err error) (reason, method string) {
+	if err == nil {
+		return "", ""
+	}
+	e, ok := capture.AsError(err)
+	if !ok || e.Reason == "" {
+		return string(capture.ReasonOther), ""
+	}
+	return string(e.Reason), e.ShareMethod()
+}
+
+// sendShareMsg aynı soketteki son durumla birebir aynı "stopped" mesajı 5 sn içinde tekrar gönderilmez (durum
+// değişimi — sharing ↔ stopped ya da farklı neden — her zaman gider).
+func (s *session) sendShareMsg(ctx context.Context, m signal.ShareState) {
+	if s.conn == nil {
+		return
+	}
+	now := s.d.Now()
+	if m.State == "stopped" && s.lastShare.State == "stopped" && s.lastShare.Reason == m.Reason &&
+		s.lastShare.Method == m.Method && now.Sub(s.lastShareAt) < shareRepeatWindow {
+		return
+	}
+	s.lastShare, s.lastShareAt = m, now
 	s.send(ctx, m)
 }
 

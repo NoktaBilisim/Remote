@@ -25,3 +25,13 @@ func TestS8b24AcceptDecision(t *testing.T) {
 		}
 	}
 }
+
+// AC-239: onay diyaloğunda kabul kodu aralıklı rakamlarla; kodsuzsa satır eklenmez (eski akış).
+func TestAC239AdmitLine(t *testing.T) {
+	if got := admitLine("0937"); got != "  ·  Kabul kodu: 0 9 3 7" {
+		t.Fatalf("%q", got)
+	}
+	if admitLine("") != "" {
+		t.Fatal("kodsuz mesajda satır olmamalı")
+	}
+}
