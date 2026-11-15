@@ -7,6 +7,8 @@ import (
 	"image/color"
 	"image/png"
 	"sync"
+
+	"remote-support/agent-win/internal/tray"
 )
 
 // systemLogoPNG Nokta Bilişim amblemi (NOKTA_LOGO/nokta-kucuk.png; ortak standart 1.5). Firma logosu yoksa,
@@ -50,30 +52,11 @@ func fitBGR(img image.Image, w, h int, bg color.RGBA) []byte {
 	if sw <= 0 || sh <= 0 {
 		return out
 	}
-	dw, dh := sw, sh
-	if dw > w || dh > h {
-		if sw*h > sh*w { // genişlik sınırlıyor
-			dw, dh = w, max(1, sh*w/sw)
-		} else {
-			dw, dh = max(1, sw*h/sh), h
-		}
-	}
+	dw, dh := fitSize(sw, sh, w, h)
 	oy := (h - dh) / 2
 	for y := 0; y < dh; y++ {
-		y0, y1 := b.Min.Y+y*sh/dh, b.Min.Y+max((y+1)*sh/dh, y*sh/dh+1)
 		for x := 0; x < dw; x++ {
-			x0, x1 := b.Min.X+x*sw/dw, b.Min.X+max((x+1)*sw/dw, x*sw/dw+1)
-			var r, g, bl, a, n uint64
-			for sy := y0; sy < y1; sy++ {
-				for sx := x0; sx < x1; sx++ {
-					c := color.NRGBA64Model.Convert(img.At(sx, sy)).(color.NRGBA64)
-					r += uint64(c.R) * uint64(c.A)
-					g += uint64(c.G) * uint64(c.A)
-					bl += uint64(c.B) * uint64(c.A)
-					a += uint64(c.A)
-					n++
-				}
-			}
+			r, g, bl, a, n := tray.AreaSum(img, x, y, dw, dh)
 			o := (oy+y)*stride + x*3
 			if a == 0 {
 				continue
@@ -88,4 +71,17 @@ func fitBGR(img image.Image, w, h int, bg color.RGBA) []byte {
 		}
 	}
 	return out
+}
+
+// fitSize sw×sh kaynağın w×h kutusuna en-boy oranı korunarak sığan boyutu (yalnız küçültme; sığıyorsa aynı boyut).
+func fitSize(sw, sh, w, h int) (int, int) {
+	dw, dh := sw, sh
+	if dw > w || dh > h {
+		if sw*h > sh*w { // genişlik sınırlıyor
+			dw, dh = w, max(1, sh*w/sw)
+		} else {
+			dw, dh = max(1, sw*h/sh), h
+		}
+	}
+	return dw, dh
 }

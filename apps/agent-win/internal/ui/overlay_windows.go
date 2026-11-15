@@ -157,41 +157,51 @@ func (o *overlay) paint(dc uintptr, r win.RECT) {
 	px := func(p [2]float64) (int32, int32) { return int32(p[0] * float64(w)), int32(p[1] * float64(h)) }
 	oldBrush := win.SelectObject(mem, win.StockObject(win.NULL_BRUSH))
 	for _, s := range o.strokes {
-		pen := win.Pen(o.f.s(4), annotRGB[s.color])
-		oldPen := win.SelectObject(mem, pen)
-		x0, y0 := px(s.pts[0])
-		x1, y1 := px(s.pts[len(s.pts)-1])
-		switch s.tool {
-		case "rect":
-			win.Rectangle(mem, min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
-		case "arrow":
-			win.MoveTo(mem, x0, y0)
-			win.LineTo(mem, x1, y1)
-			drawHead(mem, x0, y0, x1, y1, o.f.s(16))
-		default:
-			win.MoveTo(mem, x0, y0)
-			for _, p := range s.pts[1:] {
-				x, y := px(p)
-				win.LineTo(mem, x, y)
-			}
-		}
-		win.SelectObject(mem, oldPen)
-		win.DeleteObject(pen)
+		o.drawStroke(mem, s, px)
 	}
 	if o.laser != nil {
-		br := win.SolidBrush(annotRGB["red"])
-		ob := win.SelectObject(mem, br)
-		x, y := px(*o.laser)
-		d := o.f.s(8)
-		win.Ellipse(mem, x-d, y-d, x+d, y+d)
-		win.SelectObject(mem, ob)
-		win.DeleteObject(br)
+		o.drawLaser(mem, px)
 	}
 	win.SelectObject(mem, oldBrush)
 	win.BitBlt(dc, 0, 0, w, h, mem)
 	win.SelectObject(mem, oldBmp)
 	win.DeleteObject(bmp)
 	win.DeleteDC(mem)
+}
+
+// drawStroke tek çizim (dikdörtgen, ok veya serbest çizgi) kendi renginde kalemle.
+func (o *overlay) drawStroke(mem uintptr, s stroke, px func([2]float64) (int32, int32)) {
+	pen := win.Pen(o.f.s(4), annotRGB[s.color])
+	oldPen := win.SelectObject(mem, pen)
+	x0, y0 := px(s.pts[0])
+	x1, y1 := px(s.pts[len(s.pts)-1])
+	switch s.tool {
+	case "rect":
+		win.Rectangle(mem, min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+	case "arrow":
+		win.MoveTo(mem, x0, y0)
+		win.LineTo(mem, x1, y1)
+		drawHead(mem, x0, y0, x1, y1, o.f.s(16))
+	default:
+		win.MoveTo(mem, x0, y0)
+		for _, p := range s.pts[1:] {
+			x, y := px(p)
+			win.LineTo(mem, x, y)
+		}
+	}
+	win.SelectObject(mem, oldPen)
+	win.DeleteObject(pen)
+}
+
+// drawLaser lazer noktası (kırmızı daire).
+func (o *overlay) drawLaser(mem uintptr, px func([2]float64) (int32, int32)) {
+	br := win.SolidBrush(annotRGB["red"])
+	ob := win.SelectObject(mem, br)
+	x, y := px(*o.laser)
+	d := o.f.s(8)
+	win.Ellipse(mem, x-d, y-d, x+d, y+d)
+	win.SelectObject(mem, ob)
+	win.DeleteObject(br)
 }
 
 // drawHead ok ucu: bitiş noktasından geriye ±30° iki çizgi.

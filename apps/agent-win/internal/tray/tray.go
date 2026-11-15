@@ -79,20 +79,8 @@ func IconPixels(img image.Image, size int) []byte {
 	}
 	ox, oy := (size-dw)/2, (size-dh)/2
 	for y := 0; y < dh; y++ {
-		y0, y1 := b.Min.Y+y*sh/dh, b.Min.Y+max((y+1)*sh/dh, y*sh/dh+1)
 		for x := 0; x < dw; x++ {
-			x0, x1 := b.Min.X+x*sw/dw, b.Min.X+max((x+1)*sw/dw, x*sw/dw+1)
-			var r, g, bl, a, n uint64
-			for sy := y0; sy < y1; sy++ {
-				for sx := x0; sx < x1; sx++ {
-					c := color.NRGBA64Model.Convert(img.At(sx, sy)).(color.NRGBA64)
-					r += uint64(c.R) * uint64(c.A)
-					g += uint64(c.G) * uint64(c.A)
-					bl += uint64(c.B) * uint64(c.A)
-					a += uint64(c.A)
-					n++
-				}
-			}
+			r, g, bl, a, n := AreaSum(img, x, y, dw, dh)
 			if a == 0 {
 				continue
 			}
@@ -104,6 +92,27 @@ func IconPixels(img image.Image, size int) []byte {
 		}
 	}
 	return out
+}
+
+// AreaSum alan ortalamasıyla küçültmenin tek hücresi: img dw×dh ızgaraya bölündüğünde (x, y) hücresine düşen kaynak
+// piksellerin alfa ağırlıklı renk toplamları (r, g, b; 16 bit kanal × 16 bit alfa), alfa toplamı a ve piksel sayısı n.
+// Hücre en az bir kaynak pikseli kapsar. IconPixels (tepsi simgesi) ve ui logo sığdırması (fitBGR) ortak kullanır.
+func AreaSum(img image.Image, x, y, dw, dh int) (r, g, b, a, n uint64) {
+	bd := img.Bounds()
+	sw, sh := bd.Dx(), bd.Dy()
+	y0, y1 := bd.Min.Y+y*sh/dh, bd.Min.Y+max((y+1)*sh/dh, y*sh/dh+1)
+	x0, x1 := bd.Min.X+x*sw/dw, bd.Min.X+max((x+1)*sw/dw, x*sw/dw+1)
+	for sy := y0; sy < y1; sy++ {
+		for sx := x0; sx < x1; sx++ {
+			c := color.NRGBA64Model.Convert(img.At(sx, sy)).(color.NRGBA64)
+			r += uint64(c.R) * uint64(c.A)
+			g += uint64(c.G) * uint64(c.A)
+			b += uint64(c.B) * uint64(c.A)
+			a += uint64(c.A)
+			n++
+		}
+	}
+	return r, g, b, a, n
 }
 
 // truncate Win32 sabit uzunluklu dizi alanları için (sonlandırıcı dahil n UTF-16 birimi): fazlası kesilir.
