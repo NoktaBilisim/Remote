@@ -1,62 +1,85 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import { Building2, ChevronLeft, ChevronRight, Link2, SearchX, Settings } from "lucide-react";
-import { Breadcrumb } from "@/components/breadcrumb";
-import { CopyLink } from "@/components/copy-link";
+import { Building2, SearchX } from "lucide-react";
+import { LinkEmpty, ListFooter, ListNotice, ListPageHeader } from "@/components/list-page";
 import { LoadError } from "@/components/load-error";
 import { Alert } from "@/components/ui/alert";
 import { EmptyState } from "@/components/ui/empty-state";
 import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import type { CustomerListResponse, GeneralLinkResponse } from "@/lib/customers/contract";
-import { customerPageCount, customersApiPath, customersHref, parseCustomerParams } from "@/lib/customers/query";
+import { customerPageCount, customersApiPath, customersHref, parseCustomerParams, type CustomerListParams } from "@/lib/customers/query";
 import { formatNumber } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 import { CustomerFilters } from "../customer-filters";
 import { CustomerList } from "../customer-list";
 import { CustomersActions, CustomersActionsProvider } from "../customers-actions";
+import { GeneralLink } from "../general-link";
 
 export const metadata: Metadata = { title: t("nav.customers") };
 
 type SP = Record<string, string | string[] | undefined>;
-const linkCls = "inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-primary hover:underline";
 
-/** Genel bağlantı şeridi (AC-175): salt okunur + Kopyala; yenileme yalnız Ayarlar'dan. Alınamazsa kısmi durum uyarısı. */
-function GeneralLink({ data, canSettings }: { data: GeneralLinkResponse | null; canSettings: boolean }) {
+const forbidden = (
+  <Alert tone="warning" testId="customers-forbidden">
+    {t("cu.forbidden")}
+  </Alert>
+);
+
+/** Liste gövdesi: satırlar; yoksa sırayla sayfa dışı / arama eşleşmesi yok / pasif filtre boş / hiç müşteri yok. */
+function customersBody(data: CustomerListResponse, params: CustomerListParams, canCreate: boolean): ReactNode {
+  const { items, total } = data;
+  if (items.length > 0) return <CustomerList items={items} />;
+  if (total > 0)
+    return (
+      <LinkEmpty
+        Icon={SearchX}
+        title={t("cu.beyond", { pages: customerPageCount(total, data.pageSize) })}
+        body={t("cu.beyondBody")}
+        testId="customers-beyond"
+        href={customersHref({ ...params, page: 1 })}
+        label={t("h.firstPage")}
+      />
+    );
+  if (params.q)
+    return (
+      <LinkEmpty
+        Icon={SearchX}
+        title={t("cu.noMatch")}
+        body={t("cu.noMatchBody", { q: params.q })}
+        testId="customers-no-match"
+        href={customersHref({ status: params.status })}
+        label={t("cu.clearSearch")}
+      />
+    );
+  if (params.status === "passive")
+    return <EmptyState Icon={Building2} title={t("cu.emptyPassive")} body={t("cu.emptyFilterBody")} testId="customers-empty-filter" />;
+  // AC-223: `status=all` boşken de varsayılan boş durum ("Yeni müşteri" + yardım) — hiç müşteri yok demektir
   return (
-    <section aria-labelledby="genel-baglanti" data-testid="general-link" className="mt-6 rounded-lg border border-border bg-surface p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1">
-          <h2 id="genel-baglanti" className="flex items-center gap-2 text-base font-semibold text-fg">
-            <Link2 aria-hidden className="size-5 text-primary" />
-            {t("cu.general.title")}
-          </h2>
-          <p className="mt-1 text-sm text-fg-muted">{t("cu.general.body")}</p>
-          {data && (
-            <p className="mt-1 truncate font-mono text-xs text-fg-muted" title={data.fileName} data-testid="general-file-name">
-              {data.fileName}
-            </p>
-          )}
-          {canSettings && (
-            <Link href="/settings/support-requests" className={linkCls}>
-              <Settings aria-hidden className="size-4" />
-              {t("cu.general.manage")}
-            </Link>
-          )}
-        </div>
-        {data ? (
-          <CopyLink url={data.downloadUrl} srLabel={t("cu.general.copy")} testId="general-copy" />
-        ) : (
-          <div className="lg:max-w-sm">
-            <Alert tone="warning" testId="general-link-error">
-              {t("cu.general.error")}
-            </Alert>
-          </div>
-        )}
-      </div>
-    </section>
+    <EmptyState
+      Icon={Building2}
+      title={t("cu.emptyTitle")}
+      body={t("cu.emptyBody")}
+      testId="customers-empty"
+      action={<CustomersActions canCreate={canCreate} layout="empty" />}
+    />
   );
+}
+
+/** Erişim: görüntüleme, oluşturma ve P19 (AC-263, S-P19-14) dışa/içe aktarma; Super Admin firma seçmeli. */
+function customerAccess(me: { permissions: readonly string[]; user: { role: string }; actingTenant?: unknown }) {
+  const perms = me.permissions;
+  const canCreate = perms.includes("customers.create");
+  return {
+    perms,
+    canCreate,
+    allowed: perms.includes("customers.view"),
+    pickTenant: me.user.role === "SUPER_ADMIN" && !me.actingTenant,
+    // dışa aktar view+export; içe aktar import+create+view BİRLİKTE yoksa gizli (sunucu da denetler)
+    canExport: perms.includes("customers.export"),
+    canImport: perms.includes("customers.import") && canCreate && perms.includes("customers.view"),
+  };
 }
 
 /**
@@ -66,43 +89,29 @@ function GeneralLink({ data, canSettings }: { data: GeneralLinkResponse | null; 
 export default async function CustomersPage({ searchParams }: { searchParams: Promise<SP> }) {
   const me = await getMe();
   if (me.kind !== "ok") redirect(EXPIRED_LOGIN_PATH);
-  const perms = me.me.permissions as readonly string[];
-  const canCreate = perms.includes("customers.create");
-  const allowed = perms.includes("customers.view");
-  const pickTenant = me.me.user.role === "SUPER_ADMIN" && !me.me.actingTenant;
+  const a = customerAccess({ ...me.me, permissions: me.me.permissions as readonly string[] });
   const params = parseCustomerParams(await searchParams);
-  // P19 (AC-263, S-P19-14): dışa aktar view+export; içe aktar import+create+view BİRLİKTE yoksa gizli (sunucu da denetler)
-  const canExport = perms.includes("customers.export");
-  const canImport = perms.includes("customers.import") && canCreate && perms.includes("customers.view");
-
   const header = (
-    <>
-      <Breadcrumb items={[{ label: t("nav.customers") }]} />
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold text-fg">{t("cu.title")}</h1>
-          <p className="mt-1 max-w-2xl text-sm text-fg-muted">{t("cu.subtitle")}</p>
-        </div>
-        {allowed && !pickTenant && (
-          <CustomersActions canCreate={canCreate} canExport={canExport} canImport={canImport} exportStatus={params.status} />
-        )}
-      </div>
-    </>
+    <ListPageHeader
+      crumb={t("nav.customers")}
+      title={t("cu.title")}
+      subtitle={t("cu.subtitle")}
+      actions={
+        a.allowed &&
+        !a.pickTenant && (
+          <CustomersActions canCreate={a.canCreate} canExport={a.canExport} canImport={a.canImport} exportStatus={params.status} />
+        )
+      }
+    />
   );
-
-  if (!allowed) {
+  if (!a.allowed)
     return (
       <>
         {header}
-        <div className="mt-6 max-w-xl">
-          <Alert tone="warning" testId="customers-forbidden">
-            {t("cu.forbidden")}
-          </Alert>
-        </div>
+        <ListNotice>{forbidden}</ListNotice>
       </>
     );
-  }
-  if (pickTenant) {
+  if (a.pickTenant)
     return (
       <>
         {header}
@@ -111,7 +120,6 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
         </div>
       </>
     );
-  }
 
   const [res, general] = await Promise.all([
     serverGet<CustomerListResponse>(customersApiPath(params)),
@@ -119,72 +127,17 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
   ]);
   if ((res.kind === "error" && res.status === 401) || (general.kind === "error" && general.status === 401)) redirect(EXPIRED_LOGIN_PATH);
 
-  const generalStrip = <GeneralLink data={general.kind === "ok" ? general.data : null} canSettings={perms.includes("settings.edit")} />;
-  if (res.kind === "error") {
+  const generalStrip = <GeneralLink data={general.kind === "ok" ? general.data : null} canSettings={a.perms.includes("settings.edit")} />;
+  if (res.kind === "error")
     return (
       <CustomersActionsProvider>
         {header}
         {generalStrip}
-        <div className="mt-6 max-w-xl">
-          {res.status === 403 ? (
-            <Alert tone="warning" testId="customers-forbidden">
-              {t("cu.forbidden")}
-            </Alert>
-          ) : (
-            <LoadError />
-          )}
-        </div>
+        <ListNotice>{res.status === 403 ? forbidden : <LoadError />}</ListNotice>
       </CustomersActionsProvider>
     );
-  }
 
-  const { items, total } = res.data;
-  const pages = customerPageCount(total, res.data.pageSize);
-  const page = params.page;
-  let body;
-  if (items.length > 0) body = <CustomerList items={items} />;
-  else if (total > 0)
-    body = (
-      <EmptyState
-        Icon={SearchX}
-        title={t("cu.beyond", { pages })}
-        body={t("cu.beyondBody")}
-        testId="customers-beyond"
-        action={
-          <Link href={customersHref({ ...params, page: 1 })} className={linkCls}>
-            {t("h.firstPage")}
-          </Link>
-        }
-      />
-    );
-  else if (params.q)
-    body = (
-      <EmptyState
-        Icon={SearchX}
-        title={t("cu.noMatch")}
-        body={t("cu.noMatchBody", { q: params.q })}
-        testId="customers-no-match"
-        action={
-          <Link href={customersHref({ status: params.status })} className={linkCls}>
-            {t("cu.clearSearch")}
-          </Link>
-        }
-      />
-    );
-  else if (params.status === "passive")
-    body = <EmptyState Icon={Building2} title={t("cu.emptyPassive")} body={t("cu.emptyFilterBody")} testId="customers-empty-filter" />;
-  // AC-223: `status=all` boşken de varsayılan boş durum ("Yeni müşteri" + yardım) — hiç müşteri yok demektir
-  else
-    body = (
-      <EmptyState
-        Icon={Building2}
-        title={t("cu.emptyTitle")}
-        body={t("cu.emptyBody")}
-        testId="customers-empty"
-        action={<CustomersActions canCreate={canCreate} layout="empty" />}
-      />
-    );
-
+  const { total } = res.data;
   return (
     <CustomersActionsProvider>
       {header}
@@ -193,32 +146,15 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
         <CustomerFilters params={params} />
       </div>
       <section className="mt-4" aria-label={t("cu.title")}>
-        {body}
+        {customersBody(res.data, params, a.canCreate)}
         {total > 0 && (
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-fg-muted tabular-nums" role="status" data-testid="customers-count">
-              {t("cu.count", { n: formatNumber(total) })}
-            </p>
-            {pages > 1 && (
-              <nav aria-label={t("h.pager")} className="flex items-center gap-2 text-sm">
-                {page > 1 ? (
-                  <Link href={customersHref({ ...params, page: Math.min(page - 1, pages) })} rel="prev" className={linkCls}>
-                    <ChevronLeft aria-hidden className="size-4" />
-                    {t("h.prev")}
-                  </Link>
-                ) : null}
-                <span className="px-1 tabular-nums text-fg" aria-current="page">
-                  {t("h.pageOf", { page: formatNumber(page), pages: formatNumber(pages) })}
-                </span>
-                {page < pages ? (
-                  <Link href={customersHref({ ...params, page: page + 1 })} rel="next" className={linkCls}>
-                    {t("h.next")}
-                    <ChevronRight aria-hidden className="size-4" />
-                  </Link>
-                ) : null}
-              </nav>
-            )}
-          </div>
+          <ListFooter
+            count={t("cu.count", { n: formatNumber(total) })}
+            countTestId="customers-count"
+            page={params.page}
+            pages={customerPageCount(total, res.data.pageSize)}
+            hrefFor={(page) => customersHref({ ...params, page })}
+          />
         )}
       </section>
     </CustomersActionsProvider>

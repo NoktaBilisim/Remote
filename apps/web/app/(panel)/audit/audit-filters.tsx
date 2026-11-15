@@ -1,9 +1,8 @@
 "use client";
 
-import { Filter, FilterX } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
-import { Button } from "@/components/ui/button";
+import { FilterButtons } from "@/components/filter-buttons";
 import { SelectField } from "@/components/ui/select-field";
 import { TextField } from "@/components/ui/text-field";
 import { actionOptionGroups } from "@/lib/audit/actions";
@@ -140,16 +139,11 @@ export function AuditFiltersForm({
         options={[all, ...AUDIT_RESULTS.map((r) => ({ value: r, label: AUDIT_RESULT_LABELS[r] }))]}
         data-testid="audit-result"
       />
-      <div className={`flex flex-wrap items-end gap-2 sm:col-span-2 ${tenants ? "lg:col-span-2" : "lg:col-span-2 lg:col-start-3"}`}>
-        <Button type="submit" loading={pending} data-testid="filter-apply">
-          {!pending && <Filter aria-hidden className="size-4" />}
-          {t("h.f.apply")}
-        </Button>
-        <Button type="button" variant="ghost" onClick={clear} disabled={pending} data-testid="filter-clear">
-          <FilterX aria-hidden className="size-4" />
-          {t("h.f.clear")}
-        </Button>
-      </div>
+      <FilterButtons
+        pending={pending}
+        onClear={clear}
+        className={`flex flex-wrap items-end gap-2 sm:col-span-2 ${tenants ? "lg:col-span-2" : "lg:col-span-2 lg:col-start-3"}`}
+      />
     </form>
   );
 }
