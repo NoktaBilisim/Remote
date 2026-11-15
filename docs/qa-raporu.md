@@ -1,3 +1,111 @@
+# QA Raporu — P20 Tur 2 (istemci 0.12.0, tek ana ekran)
+
+DURUM: DÜZELTİLMELİ
+
+Tarih: 2026-11-15 · Denetçi: qa-denetci · Dal `p20-wip`, HEAD `dbe87cd`. Kapsam yalnız Tur 1'den (`f4b2a20`) sonraki
+değişiklikler: `b1749e9` (Windows CI düzeltmeleri), `dc20af0` + `3a2621e` (CI/test betikleri), `dbe87cd` (tek ana ekran,
+K-P20-14). Kod değiştirilmedi, staging'e bağlanılmadı, ACCESS.txt okunmadı.
+
+Karar gerekçesi: kod tasarıma (mimari-e11 §8d.14 K-P20-14) uyuyor, testler yeşil, ölü referans yok. Ancak gereksinim
+metinleri kararla çelişiyor. AC-189 ana ekranda "Kötüye kullanımı bildir" düğmesini ve 4 öğeli Tab sırasını istiyor.
+AC-182 "Bu bilgisayar … için kayıtlı" satırını istiyor. `docs/gereksinimler*.md` içinde K-P20-14'e ait değişiklik notu
+yok. Bu nedenle AC-182 ve AC-189 ⚠️. HEAD'in (`dbe87cd`) agent-win koşusu yeşil bitti; ci koşusu rapor anında sürüyordu.
+
+## Test sonucu
+
+| Komut                                                                           | Sonuç                                            |
+| ------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `docker run … golang:1.26 go test -race ./...` (apps/agent-win)                 | **21/21 paket `ok`**, FAIL yok, skip yok (Linux) |
+| `docker run … -e GOOS=windows golang:1.26 go vet ./...` ve Linux `go vet ./...` | ikisi de temiz (çıkış 0)                         |
+| `gh run list --branch p20-wip`                                                  | aşağıdaki tablo                                  |
+
+| Commit           | agent-win (Windows)                              | ci                     | Not                                                                                                                                                                                |
+| ---------------- | ------------------------------------------------ | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `b1749e9`        | ❌ 43715129512                                   | ❌                     | 4 Windows düzeltmesi geçti. Kırmızının tek nedeni trace-check öz test adımı: tüm beklenen çıkış kodları tuttu ama son `$LASTEXITCODE` (1) adımı düşürdü. `dc20af0` bunu düzeltiyor |
+| `dc20af0`        | ✅ 43716092350                                   | ❌ 43716092395         | ci kırmızısı Caddy testi "hata logu satırı yok" (`docker logs \| grep -q` + pipefail SIGPIPE). `3a2621e` bunu düzeltiyor                                                           |
+| `3a2621e`        | ✅ 43717009312                                   | ⚪ iptal               | `dbe87cd` push'u nedeniyle iptal edildi (concurrency). e2e ve MySQL işleri sonuçsuz                                                                                                |
+| `dbe87cd` (HEAD) | ✅ 43717420368 (go test Windows dahil tüm işler) | ⏳ 43717420353 sürüyor | agent-win tamamen yeşil                                                                                                                                                            |
+
+Sonuç: b1749e9 sonrası agent-win üç kez yeşil (`dc20af0`, `3a2621e`, `dbe87cd`). Tur 1'deki "CI kanıtı bekliyor" maddesi bu
+koşularla kapandı: zorunlu Windows testleri, trace-check öz testi ve tekrarlanabilirlik geçti. Eksik kalan tek şey HEAD ci koşusunun (e2e, MySQL) yeşil sonucu.
+
+## Kabul kriterleri
+
+| AC                                        | Durum | Kanıt (test adı) veya eksik                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC-182 kayıtla/ref ile ana ekran, öncelik | ⚠️    | Davranış kanıtlı: `TestAC182AC183AC190AC254DecideTable` (tüm satırlar, `FileRow`), `TestAC182RefOpensFirmHomeWithFileFirmSelected` (dosya satırı ilk ve seçili, ad sunucudan, talep ref ile, `infos == 1` ile ilk yanıt yeniden sorulmuyor, kayıtsızda tek satır), `TestAC182RefRows5And6AndNetError`, `TestAC182BindingModeRequestUsesKeyNoRefNoDeviceKey`, `TestAC182Row1CodeFlowResolvedOnceWithNotice`. **Eksik:** AC metni "Bu bilgisayar <tenant>[ – <müşteri>] için kayıtlı" satırını istiyor. Kod "Kayıtlı firma: …" (`ui/home.go` `singlePrefix`) gösteriyor. Değişiklik ne gereksinimlerde ne implementation.md sapmalarında yazılı. "5 sn" Windows elle (G1) |
+| AC-183 süresi dolmuş kod                  | ✅    | `TestAC183Row2ExpiredCodeWithBindingOpensFirmHome`, `TestAC183Row3ExpiredCodeNoBindingShowsMessageAndCode`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| AC-189 iki yol tek ekranda, Tab sırası    | ⚠️    | "Destek iste" + "Bağlantı kodum var", footer (sunucu, sürüm, parmak izi) ve dolandırıcılık uyarısı ana ekranda var (`ui/home_windows.go`, `TestAC190AC189FirmHomeSingleScreen`, `TestAC254FirmHomeButtonsAndOthers`). **Eksik:** AC Tab sırası "… → Bu bilgisayarı unut → Kötüye kullanımı bildir". Kod "… → Bu firmayı unut → Bu bilgisayarı unut (tüm firmalar)" ve ana ekranda "Kötüye kullanımı bildir" yok (yalnız talep formunda). K-P20-14 ve implementation.md bunu bilinçli kaldırıyor, ama AC metni revize edilmedi                                                                                                                                           |
+| AC-190 kaynaksız dosya                    | ✅    | `TestAC190Row7And8BareFile` (satırsız, status isteği yok), `TestAC190AC189FirmHomeSingleScreen` ("Destek iste" pasif, `MsgNoSource`, varsayılan "Bağlantı kodum var"), `TestAC190NoSourceReturnsHome` (talep modu ağsız `OutBack`)                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| AC-253 tepsi + Windows açılışı            | ✅    | Yeni: `TestAC253RefOpenTogglesSameRules` (dosyayla açılışta kayıtlı → etkin ve tercih yazılıyor; kayıtsız → pasif + `hintTrayNoFirm`, `SetTray` yazmıyor; yükseltilmiş → pasif), `TestAC253CodeSessionEndThenTrayRule` (kod oturumu sonu: tercih açık → tepsi, kapalı → çıkış, yükseltilmiş → çıkış). `Standalone` kaldırıldı; `TestAC107NormalExitWhenNotResident` kalan durumlarla yeşil. Tur 1 kanıtları geçerli                                                                                                                                                                                                                                                     |
+| AC-254 çoklu firma                        | ✅    | `TestAC254SupportSelectedFirmOpensFormDirectly`, `TestAC254ForgetOneRevokesOnlyThatKey` (son öğe → aynı ekran satırsız + Run silme), `TestAC254ForgetAllRevokesOwnOriginOnly` (döngü aynı ekranda, `MsgForgotten`), `TestGP2018UnreadableOffersForgetAndNotices`, `TestT43ForeignOriginBindingIgnoredNotDeleted` (başka köken `Others`'ta). `forgettable` dosya satırında "Bu firmayı unut"u engelliyor (UI testi + `FirmForgetOne` index kaydırması `firmHome`'da `i--`). Windows: `b1749e9` düzeltmeleri `dc20af0`/`3a2621e` koşularında yeşil                                                                                                                        |
+| AC-185 (bağlantılı)                       | ✅    | `TestAC185StatusInvalidClearsBindingKeepsPersonal` (launch + request), `TestAC185CreateInvalidReturnsToHome` (`OutBack` + `MsgBindingInvalid`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+**K-P20-14 kodla karşılanıyor:** her açılış yolu `firmHome` (`launch/run.go:105-115`), `Decision.Source` kaldırıldı,
+`request.RequestHome`, `HomeView`, `HomeAction`, `Deps.Notice`, `Deps.ForgetComputer` ve `firmRequestUI` silindi.
+`Resident.Standalone` ve main'deki dosya adı denetimi silindi. **Ölü referans taraması**
+(`RequestHome|HomeView|HomeAction|homeButtons|registeredText|idHomeAbuse|Standalone|Source*|ScreenRequest|requestDeps|firmRequestUI|ForgetComputer|noticeForgetAll|homeNotice|homeDone`)
+yalnız `TestAC186ForgetComputerDeletesThenRevokes` test adını buldu. Bu bir test adı, ölü kod değil. Windows vet temiz;
+`pairing` importu main'den doğru kaldırıldı.
+
+**b1749e9 incelemesi:** OpenDir handle'ında DELETE erişiminin kaldırılması, paylaşım ihlalinde sınırlı yeniden deneme,
+DPAPI 87 → format sınıfı ve tepsi mutex'inin kullanıcı SID sahibiyle oluşturulması Windows CI'da (`dc20af0`, `3a2621e`)
+yeşil. implementation.md'de gerekçeli. Açık risk olarak rename `ERROR_ACCESS_DENIED` (AV) yazılmış.
+
+## Düzeltilmeli
+
+1. [proje-yoneticisi] `docs/gereksinimler-kabul-kriterleri-e10.md` AC-189 (satır 58) ve AC-182 (satır 47) → K-P20-14'e
+   göre revize edilmeli. Asıl metne dokunulmayacaksa `gereksinimler.md` / e11-b'ye tarihli bir değişiklik notu da olur.
+   - AC-189 Tab sırası: "liste → Destek iste → Bağlantı kodum var → Bu firmayı unut → Bu bilgisayarı unut (tüm
+     firmalar)". "Kötüye kullanımı bildir" yalnız talep formunda (AC-164).
+   - AC-182: kayıt satırı "Kayıtlı firma: <firma>[ – <müşteri>] (kayıt: GG.AA.YYYY)" veya liste. Firma dosyası satırı
+     "Bu dosyanın firması: <ad>", ilk ve seçili.
+   - AC-182/§8.1 satır 6: geçersiz ref + kayıt yok → ana ekran bilgi satırı (engel ekranı yerine).
+
+   Alternatif: kullanıcı düğmenin ana ekranda kalmasını isterse [backend-dev] `ui/home.go` `firmButtons`'a seçili satırın
+   abuse adresiyle düğme eklenir. Bu, tasarım kararını geri almak demektir; koordinatör seçmeli.
+
+2. [backend-dev] `docs/implementation.md` "P20 tek ekran" → "Tasarımdan sapmalar"a tek kayıt metninin "Bu bilgisayar …
+   için kayıtlı"dan "Kayıtlı firma: …"ya değiştiği eklenmeli (şu an yazılı değil).
+3. [devops] HEAD `dbe87cd` ci koşusu (43717420353) yeşil bitmeli (agent-win 43717420368 yeşil).
+   `3a2621e` ci koşusu iptal edildiği için e2e ve MySQL işleri Tur 1 sonrası hiç yeşil sonuç vermedi. Sonuç
+   implementation.md "P20 K7"ye yazılmalı. Kırmızıysa bu rapor yeniden açılır.
+
+## Definition of Done
+
+| Madde                                      | Durum | Not                                                                                                                                                                                                                                 |
+| ------------------------------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Her AC testle kanıtlandı, testler yeşil | ⚠️    | Linux Go 21/21 ve HEAD Windows CI yeşil. AC-182/189 metin çelişkisi. HEAD ci (e2e, MySQL) sürüyor                                                                                                                                   |
+| 2. Lint / vet                              | ✅    | Windows ve Linux `go vet` temiz. Bu turda pnpm tarafı değişmedi (yalnız `deploy/test-caddy.sh`, CI ile doğrulandı)                                                                                                                  |
+| 3. qa GEÇTİ, güvenlik Kritik/Yüksek 0      | ❌    | Bu tur DÜZELTİLMELİ. `dbe87cd` için güvenlik turu ayrı                                                                                                                                                                              |
+| 4. test-operatoru / Windows elle           | ⏳    | `docs/test-raporu.md` "P20 — Windows elle test listesi"ne G (firma dosyasıyla açılış, 9 adım) ve H (kod oturumu sonu tepsi, 6 adım) eklendi. A10, K-P20-14'e göre güncellendi (eski "tepsiye inmez" beklentisi kararla çelişiyordu) |
+| 5. Migration                               | ✅    | Şema değişikliği yok                                                                                                                                                                                                                |
+| 6. Dokümantasyon                           | ✅    | Kılavuz tek ekranı anlatıyor; eski 0.10–0.11 tablosu açıkça "eski" olarak işaretli. CHANGELOG, DATASHEET, README ve PDF güncel (`dbe87cd`)                                                                                          |
+| 7. Sapmalar gerekçeli                      | ⚠️    | 5 sapma gerekçeli. Tek kayıt metni değişikliği eksik (madde 2)                                                                                                                                                                      |
+
+## Öneriler (zorunlu değil)
+
+1. [backend-dev] `launch/home.go` 565 satır (Tur 1'de 524). Dosya satırı ve talep (`fileFirm`, `requestFile`) ayrı dosyaya
+   alınabilir; PT paketine uygun.
+2. [backend-dev] `TestAC186ForgetComputerDeletesThenRevokes` adı kaldırılan `ForgetComputer` alanını çağrıştırıyor;
+   PT'de `…ForgetAll…` olarak adlandırılabilir.
+3. [mimar] Dosyanın firması kayıtlıysa çift satır görünüyor (gerekçeli, sunucuda firma kimliği yok). İleride
+   `tenant-info` yanıtına opak bir tenant özeti eklenirse eşleme yapılabilir. "Sonra" listesine alınsın.
+4. [backend-dev] `firmHome`'da dosya satırı index kaydırması (`i--`) ile FirmForgetOne'ın dosya satırına düşmediği
+   yalnız UI tarafında (`forgettable`) korunuyor. Launch tarafında `act.Index == 0 && file != nil` için
+   `FirmForgetOne` → `valid=false` zaten sağlanıyor (i = -1). Bunu sabitleyen bir launch testi eklenebilir.
+
+## Olumlu
+
+- `Decide` tablosu sadeleşti: tek `ScreenHome` ve `FileRow`/`Notice`. Tablo testi her satırı birebir sabitliyor.
+- İlk `tenant-info` yanıtının yeniden sorulmadığı sayaçla (`infos == 1`) kanıtlanmış.
+- Kayıtsız bilgisayarda tepsi kutusu fail-closed: `setTray` önce `toggles` ile etkinliği yeniden denetliyor, pasifse hiç
+  yazmıyor (testle kanıtlı).
+- `b1749e9`'daki 4 Windows hatası (paylaşım ihlali, DPAPI sınıfı, mutex sahibi) CI'da yakalandı ve CI'da kapandı. Tur 1'in
+  "CI kanıtı bekliyor" şartı karşılandı.
+
+---
+
 # QA Raporu — Tur 1 (P20 / K8, istemci 0.12.0)
 
 DURUM: GEÇTİ (koşullu: Windows CI kanıtı bekliyor, aşağıdaki "CI kanıtı" bölümü)

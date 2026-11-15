@@ -8841,3 +8841,8 @@ gofmt -l .   # boş
 
 Sözleşme değişikliği yok (yalnız Go istemci içi). Windows elle test listesine eklenecek: firma dosyasıyla açılış (dosya
 satırı üstte, tepsi kutuları), kod oturumu sonrası tepsi.
+
+### P20 tek ekran — ek sapma notu (qa tur 2, 2026-11-15)
+
+- Kayıtlı firma satırı metni "Bu bilgisayar … için kayıtlı" yerine "Kayıtlı firma: <ad>" (`ui/home.go` `singlePrefix`); çoklu firma listesinde tutarlı kısa biçim. AC-182 metni revize edildi (`gereksinimler-kabul-kriterleri-e10.md`, revizyon notu).
+- "Kötüye kullanımı bildir" ana ekrandan kaldırıldı, yalnız talep formunda; AC-189 revizyon notu eklendi (K-P20-14 sadelik).

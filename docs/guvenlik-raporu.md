@@ -1,3 +1,110 @@
+# Güvenlik Raporu — P20 kod turu 2 (p20-wip f4b2a20..dbe87cd, 2026-11-15)
+
+DURUM: GEÇTİ (Kritik 0 / Yüksek 0).
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 (+ 2 bilgi notu).
+Kapsam: yalnız `f4b2a20..dbe87cd` farkı — `apps/agent-win/internal/diag/reparse_windows.go`, `internal/remember/{remember,class,dpapi_windows}.go`,
+`internal/tray/{tray_windows,resident}.go`, `internal/launch/{decide,run,home}.go`, `internal/request/{home,run,types}.go`,
+`internal/ui/home*.go`, `cmd/noktadestek/main.go`. Doküman/CI/caddy test değişiklikleri güvenlik açısından incelendi, bulgu yok.
+Windows'a özgü davranışlar (paylaşım kipleri, DPAPI hata kodları, nesne güvenliği) kod + Windows API semantiği üzerinden değerlendirildi;
+Windows testleri yerelde koşulmadı (Windows CI esas).
+
+## Bulgular (öncelik sırasıyla)
+
+### [DÜŞÜK] S-P20-K4 DPAPI `ERROR_INVALID_PARAMETER` (87) koşulsuz "kesin biçim hatası" (sınıf 1) → `kayitlar.bin` silinir — A04 (veri kaybı / sağlamlık)
+
+Yer: `apps/agent-win/internal/remember/dpapi_windows.go:40-55` (`case ... uint32(windows.ERROR_INVALID_PARAMETER)`),
+`internal/remember/remember.go:243-246` (sınıf 1 → `dropBroken`), `class.go:13-15`.
+Sorun: 87, `CryptUnprotectData`'nın DPAPI zarfını (sürüm + sağlayıcı GUID + uzunluklar) ayrıştıramadığında döner; kodun yorumundaki
+"geçici kaynağı yoktur" varsayımı Microsoft tarafından belgelenmiş bir sözleşme değil, CI gözlemidir. Kod yalnız mühür içeriğine
+bağlanır ama doğrulanmaz: geçerli zarf başlığı taşıyan bir dosyada 87 görülürse (ör. ileride bir Windows/LSA sürüm değişikliği, üçüncü
+parti kimlik sağlayıcı/kredansiyel roaming etkileşimi) kullanıcının tüm firma kayıtları sessizce silinir (sınıf 2'deki "dokunma +
+SuggestForget" yolu yerine). Güvenlik sınırı aşılmaz: dosyayı bozabilen saldırgan (aynı kullanıcı/yönetici) dosyayı zaten silebilir;
+risk yalnız kaza eseri veri kaybıdır ve kurtarma yolu vardır (firma dosyası/kodla yeniden kayıt). Yazım tmp → rename ile atomik
+olduğundan kırpılmış dosya olasılığı zaten düşük.
+İstismar senaryosu: Kasıtlı istismar yok. Olası kaza: geçerli bir mühür çevresel bir nedenle 87 döndürür → açılışta kayıtlar silinir,
+kullanıcı firma listesini boş görür; sunucuda öksüz bağlama kayıtları kalır (sunucu tarafı iptal gitmez).
+Düzeltme (Sonra, P20 kapanışını engellemez): 87'yi sınıf 1 saymadan önce zarf başlığını yerel olarak doğrula —
+`len(sealed) >= 20`, ilk 4 bayt `01 00 00 00` ve ardından sağlayıcı GUID'i `D08C9DDF-0115-D111-8C7A-00C04FC297EB` (bayt dizisi
+`d0 8c 9d df 01 15 d1 11 8c 7a 00 c0 4f c2 97 eb`). Başlık bozuk/kısa → sınıf 1 (bugünkü davranış, CI senaryosu korunur); başlık geçerli
+ama 87 → sınıf 2 (`ClassDPAPI`, dokunulmaz, sayaç + `SuggestForget`). Birim testi: kısa mühür → format; geçerli başlık + 87 → dpapi.
+Atanan: backend-dev (Go). `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmesi önerilir.
+
+## Odak sorularına yanıtlar (kanıtlı)
+
+1. **OpenDir sabitleme handle'ında DELETE'in kaldırılması / RemoveIfEmpty (AC-249, TOCTOU) — zayıflama YOK.**
+   Sabitlemeyi sağlayan şey handle'ın istediği erişim değil, verdiği paylaşım kipidir: `reparse_windows.go:137` hâlâ `shareNoDel`
+   (`FILE_SHARE_DELETE` yok, `:44`). Klasörü yeniden adlandırmak/silmek için başka bir açılışın `DELETE` istemesi gerekir; CreateFile
+   paylaşım denetimi gereği bu, bizim açık handle'ımız varken `ERROR_SHARING_VIOLATION` alır. Üst klasör de aynı kiple açık (`:117`).
+   `RemoveIfEmpty` (`:298-313`): sabitleme handle'ı kapatılıp yol üzerinden `DELETE` ile yeniden açılır — arada kısa bir pencere vardır,
+   ancak (a) yeniden açılış `FILE_FLAG_OPEN_REPARSE_POINT` + `checkHandle` ile reparse/junction'ı reddeder (`:85-95`), (b) `pinned(h)`
+   (`:153-163`) yeni handle'ın gerçek yolunu hâlâ açık tutulan üst klasörün gerçek yolu + adla karşılaştırır, (c) silme handle üzerinden
+   (`dispose`, `:265-274`) ve POSIX semantiğiyle yalnız boş klasörde başarılı olur. Pencerede klasörü takas edebilmek %LOCALAPPDATA%'ya
+   yazma yetkisi (aynı kullanıcı/yönetici) gerektirir; bu durumda bile en kötü sonuç doğrulanmış konumdaki **boş** bir klasörün silinmesidir.
+   Başka süreç klasörü açık tutuyorsa yeni `DELETE` açılışı paylaşım ihlali alır ve klasör kalır (doğru). Bulgu yok.
+
+2. **acquire/tryAcquire paylaşım ihlali yeniden denemesi — G-P20-18 KORUNUYOR.**
+   `remember.go:89-124`: yeniden deneme yalnız `diag.OpenDir` ve kilit dosyasının `ModeLock` açılışındaki `isSharing` hatalarında
+   (`lock_windows.go:30-32`) yapılır; bu noktada `kayitlar.bin` ne okunmuş ne yazılmıştır. `ErrReparse` ve diğer hatalar yeniden
+   denenmez (`retry=false`). Süre (2 sn) dolarsa paylaşım hatası döner → `classify` `ClassSharing` (sınıf 2) → `LoadState`
+   `StatusUnreadable` (`:161-174`), `update` yazmaz. Kilit dosyası `OPEN_ALWAYS` ile oluşabilir (önceki davranışla aynı; kişisel veri
+   içermez). Toplam bekleme üst sınırı değişmedi (kilit + paylaşım aynı süre bütçesinde). `wipe` (`:449-466`) kilit dosyasını başka
+   süreç açıkken silemezse sessizce bırakır — veri kaybı/yarış yok. Bulgu yok.
+
+3. **DPAPI 87 → sınıf 1** — bkz. S-P20-K4 (Düşük). Kasıtlı istismar yolu yok (dosyayı bozabilen zaten silebilir); kaza eseri veri kaybı
+   riski için "başlık geçerliyse sınıf 2" daraltması önerilir. Tam "silme yerine yalnız öner" geri dönüşü gerekmiyor: CI'daki kırpılmış
+   mühür senaryosu (gerçek biçim hatası) silinmeye devam etmeli, aksi hâlde kullanıcı her açılışta okunamaz dosyayla kalır.
+
+4. **Tepsi mutex'i `O:<kullanıcı SID>` — G-P20-16 SAĞLAM.**
+   `tray_windows.go:422-451`: SDDL'de `D:` olmadığından `SE_DACL_PRESENT` set edilmez → NULL DACL **değil**, nesne yöneticisi
+   belirtecin varsayılan DACL'ini uygular (kullanıcı + SYSTEM [+ oturum SID'i]); yani önceki `CreateMutex(nil, …)` ile aynı DACL. Başka
+   kullanıcı açamaz (`ERROR_ACCESS_DENIED` → `LockForeign`). Squatting: `Local\` oturuma özeldir; aynı oturumdaki başka kullanıcı (`runas`)
+   adı önceden oluşturabilir, fakat sahip olarak yalnız kendi SID'ini (veya `SE_GROUP_OWNER` grubunu) atayabilir — kurbanın SID'ini sahip
+   yazmak `SeRestorePrivilege` gerektirir (yönetici = tehdit modeli dışı). Sonuç `ownedBy` (`:453-460`) ile `LockForeign`; tepsi yine
+   başlar, yalnız tek örnek kuralı devre dışı kalır (G-P20-16'da kabul edilmiş DoS etkisi, değişmedi). Kullanıcı SID'ini sahip yapmak
+   ayrıcalık gerektirmez (TokenUser her zaman geçerli sahip). Bulgu yok.
+   Bilgi notu: yükseltilmiş örnek mutex'i önce oluşturursa varsayılan DACL'i (Administrators + SYSTEM) ve High bütünlük etiketi nedeniyle
+   aynı kullanıcının yükseltilmemiş örneği `LockForeign` alır. Üretimde ulaşılamaz: yükseltilmiş süreç tepsiye inmez
+   (`resident.go:143` `r.Elevated`), yalnız CI'nın tümüyle yükseltilmiş çalıştırıcısında görülür.
+
+5. **Tek ekran (dbe87cd) — beklenen kontroller KARŞILANDI, kalıcılık kötüye kullanımı YOK.**
+   - Dosya adındaki etiket kullanılmıyor (G-E9-11): dosya satırının adı yalnız sunucu yanıtından ve `request.Display` süzgecinden
+     (`launch/home.go:186-195`); yanıt yoksa sabit önek. `pairing.RefFromFileName` yalnız ref'i verir.
+   - Ref talebinde kayıt anahtarı gönderilmiyor: `requestFile` (`home.go:422-434`) yalnız `rd.Ref` atar; `baseRequest` (`run.go:130-139`)
+     `d.Request`'ten kopyalar ve main'deki `request.Deps` `BindingKey` taşımaz (`main.go:305-309`); `CreateRequestBody` `BindingKey`'i
+     `r.d.BindingKey`'den alır (`request/run.go:366`) → boş.
+   - "Bu firmayı unut" yalnız kayıtlarda: UI `forgettable` dosya satırını pasif tutar (`ui/home.go:57-59`); arka uçta da dosya satırı
+     `i-- → -1` ile `valid=false` olur (`home.go:209-214, 232`) — UI atlansa bile `forgetOne` çağrılmaz.
+   - Kalıcılık: kayıt yokken "Tepside çalıştır" ve "Windows açılışında başlat" pasif ve yazmaz. `toggles` `TrayEnabled` için gömülü
+     kökende ≥1 kayıt + `StatusOK` şartı (`home.go:444-447`), `AutostartEnabled` için `Tray && TrayEnabled` (`:454`); `setTray` önce bu
+     kapıyı denetler (`:477-480`), `setAutostart` yalnız açarken kapıyı denetler (kapatma her zaman serbest, doğru); `SetPrefs` kayıtsız
+     dosyada `ErrNoBinding` döner (`remember.go:410-417`) — üç katman. Tepsiye inme `Eligible` = `StatusOK && Prefs.Tray && kayıt>0`
+     (`resident.go:19-21, 143`); `Standalone`'ın kaldırılması kayıtsız kullanıcıda etkisizdir. Birim testi mevcut:
+     `launch/run_test.go:254-263` (kayıtsız ref açılışı → kutular pasif, `SetTray(true)` yazmaz).
+   - Kayıtlı kullanıcı başka firmanın dosyasını açarsa kutular mevcut kendi kaydı üzerinden etkin olur; Run değeri yine yalnız açık
+     kullanıcı eylemiyle ve autorun ACL/konum denetimlerinden (G-P20-1/14, `autorun.go:261-284`) geçerek yazılır. Yeni kayıt yalnız oturum
+     içindeki AC-188 bildirimli bağlama yolundan doğar (değişmedi). Bulgu yok.
+
+## Otomatik tarama çıktıları
+
+- `docker run golang:1.26 … go test ./...` (apps/agent-win, linux): 21 paketin tümü `ok` (diag, launch, remember, request, tray, ui dahil).
+- `GOOS=windows GOARCH=amd64 go vet ./...`: temiz (çıkış 0); `go test -c` (windows/amd64) remember, diag, tray, launch derleniyor.
+- Bu farkta yeni bağımlılık yok (`go.mod`/lockfile değişmedi) → bağımlılık taraması yeniden koşulmadı; gizli bilgi taraması: farkta
+  anahtar/şifre/token deseni yok (CI gitleaks esas).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+- Yok. Tur 1 bulguları (S-P20-K1 `Verify` eksik yol, K2 `SignalExisting` sahip doğrulaması, K3 mutex handle'ının tutulması) bu farktan
+  önce kapatılmış durumda: `autorun.go:315` (Missing → silme), `tray_windows.go:344-371` (`processUserIs`), `main.go:245` (`lock` tutuluyor).
+
+## Olumlu
+
+- Paylaşım ihlali yeniden denemesi veri okumadan önceki aşamaya sınırlandırılmış; sınıf 2 "dokunma" kuralı korunmuş.
+- `RemoveIfEmpty` kısa ömürlü `DELETE` handle'ını aynı reparse + gerçek yol denetiminden geçiriyor; sabitleme kipi değişmedi.
+- Mutex sahibi açıkça kullanıcı SID'i; NULL DACL tuzağına düşülmemiş (SDDL'de `D:` yok).
+- Tek ekran sadeleştirmesi güvenlik kapılarını UI'ya bırakmamış: unut/tepsi/başlatma kararları launch katmanında ve depoda yeniden denetleniyor.
+
+---
+
 # Güvenlik Raporu — P20 kod turu 1 (p20-wip 33c3176, 2026-11-15)
 
 DURUM: GEÇTİ (Kritik 0 / Yüksek 0).
