@@ -22,10 +22,13 @@ export default async function MfaVerifyPage({ searchParams }: { searchParams: Se
   if (state.kind === "error") return <LoadError />;
   const gate = gateOf(state);
   if (gate !== "/login/2fa") redirect(gate ?? "/");
+  // Super Admin hiçbir zaman (K-P27a-2); sunucu da false döner, istemci ayrıca eler
+  const remember = state.kind === "ok" && state.me.user.role !== "SUPER_ADMIN" && state.me.mfa?.rememberDeviceAvailable === true;
   return (
     <>
       <h1 className="text-xl font-semibold text-fg">{t("mfa.v.title")}</h1>
-      <MfaVerifyForm next={next ?? null} />
+      {/* P27a (AC-325): kutu yalnız sunucu izin veriyorsa (firma anahtarı açık, Super Admin değil) */}
+      <MfaVerifyForm next={next ?? null} rememberAvailable={remember} />
     </>
   );
 }

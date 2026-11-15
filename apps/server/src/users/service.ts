@@ -31,6 +31,7 @@ import { deletedUserLabel } from "@remote/contracts/audit";
 import type { PermissionKey, Role } from "@remote/contracts/permissions";
 import type { AuditContext } from "../audit/service.ts";
 import { hashPassword } from "../auth/password.ts";
+import { countForUser } from "../auth/trusted-device-repo.ts";
 import type { AuthContext } from "../auth/session.ts";
 import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
@@ -52,7 +53,7 @@ import {
 import * as repo from "./repo.ts";
 import { appendUserLedger, purgeTx, type UserPurgeEffects } from "./purge.ts";
 import { toDetail, toItem } from "./view.ts";
-import { createTx, resetMfaTx, setStatusTx, updateTx } from "./writes.ts";
+import { createTx, forgetDevicesTx, resetMfaTx, setStatusTx, updateTx } from "./writes.ts";
 
 /** Commit sonrası canlı yansıma için gereken dar arayüz (app.rooms + app.requestHub). */
 export interface UserLiveEffects {
@@ -128,7 +129,8 @@ export async function manageableUser(db: Db, auth: AuthContext, tenantId: string
 }
 
 export async function getUser(db: Db, auth: AuthContext, tenantId: string, id: string): Promise<UserDetail> {
-  return toDetail(await loadOrThrow(db, { tenantId }, id), auth);
+  const row = await loadOrThrow(db, { tenantId }, id);
+  return toDetail(row, auth, await countForUser(db, row.id, new Date()));
 }
 
 export async function createUser(
@@ -262,6 +264,23 @@ export async function resetUserMfa(
   } catch (err) {
     fx.log.error({ err, alarm: "user_live_effect" }, "2FA sıfırlama canlı oturuma yansıtılamadı (yedek: 60 sn doğrulama)");
   }
+}
+
+/**
+ * POST /users/:id/forget-devices (P27a AC-330): kullanıcının tüm hatırlanan cihazları tek TX'te silinir. Kendi hesabı /
+ * daha geniş yetkili hesap 403 (+ fail audit), başka firma 404. Oturumlara dokunulmaz (yalnız TOTP atlaması kalkar).
+ */
+export async function forgetUserDevices(
+  db: Db,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  hooks: LockHooks = {},
+): Promise<number> {
+  return auditFailures(db, ctx, auth, tenantId, id, "forget_devices", () =>
+    db.$transaction(async (tx) => forgetDevicesTx({ tx, ctx, auth, tenantId, hooks }, id)),
+  );
 }
 
 // ---------------------------------------------------------------------------------------------------------------

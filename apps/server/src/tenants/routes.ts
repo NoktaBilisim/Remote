@@ -41,6 +41,8 @@ import {
   updateTenantSettings,
   type TenantLiveEffects,
 } from "./service.ts";
+import { activeDeviceCount } from "../unattended/repo.ts";
+import { sendInternalNotice, smtpChangeNoticeMail, smtpWillChange, type SmtpInput } from "../unattended/mail.ts";
 import { cancelPurge, previewPurge, purgeJobs, purgeStatus, schedulePurge } from "./purge-service.ts";
 
 function idParam(req: FastifyRequest): string {
@@ -155,13 +157,39 @@ export async function tenantSettingsRoutes(app: FastifyInstance): Promise<void> 
 
   app.put("", { preHandler: requirePerm("settings.edit") }, async (req): Promise<TenantSettingsView> => {
     const { tenantId } = tenantScope(req);
-    return updateTenantSettings(
-      app.db,
-      app,
-      auditContext(req),
-      authOf(req),
-      tenantId,
-      parseInput(updateTenantSettingsInputSchema, req.body),
-    );
+    const input = parseInput(updateTenantSettingsInputSchema, req.body);
+    const extra = input.smtp === undefined ? undefined : await smtpChangeGuard(app, req, tenantId, input.smtp);
+    return updateTenantSettings(app.db, app, auditContext(req), authOf(req), tenantId, input, extra);
   });
+}
+
+/**
+ * P27 (AC-336, O-P27-r2-1; mimari-p27 §7.2 r2, r3): firmada iptal edilmemiş gözetimsiz cihaz varken SMTP değişikliği step-up ister
+ * ve kayıttan ÖNCE ESKİ yapılandırmayla diğer `unattended.manage` / `settings.edit` sahiplerine iç e-posta gider (gönderilemezse
+ * kayıt yine yapılır). Dönen alanlar mevcut ayar audit'ine eklenir: `unattendedDevices`, `smtpChangeNotice`.
+ */
+async function smtpChangeGuard(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  tenantId: string,
+  smtp: SmtpInput | null,
+): Promise<{ unattendedDevices: number; smtpChangeNotice: "sent" | "failed" } | undefined> {
+  const devices = await activeDeviceCount(app.db, tenantId);
+  if (devices === 0 || !(await smtpWillChange(app.db, tenantId, smtp))) return undefined;
+  await requireStepUp()(req);
+  const auth = authOf(req);
+  const out = await sendInternalNotice({
+    db: app.db,
+    mail: app.mail,
+    ctx: auditContext(req),
+    tenantId,
+    actor: { userId: auth.user.id, username: auth.user.email },
+    perms: ["unattended.manage", "settings.edit"],
+    kind: "unattended_smtp_change",
+    entity: "tenant_settings",
+    entityId: tenantId,
+    content: smtpChangeNoticeMail({ user: auth.user.fullName, devices, at: new Date() }),
+    cfg: await app.mail.configFor(tenantId),
+  });
+  return { unattendedDevices: devices, smtpChangeNotice: out.failed > 0 ? "failed" : "sent" };
 }

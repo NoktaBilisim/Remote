@@ -3,6 +3,7 @@
 // ilgili pakette eklenir.
 import { isIP } from "node:net";
 import { serviceUrlSchema } from "@remote/contracts/api/notify";
+import { UNATTENDED_MODES } from "@remote/contracts/api/unattended";
 import { waApiKeySchema, waServiceUrlSchema } from "@remote/contracts/api/system-settings";
 import { z } from "zod";
 
@@ -34,6 +35,19 @@ export function parseEncryptionKeys(raw: string): Map<number, Buffer> | null {
 
 /** S14-7: herkesçe bilinen/zayıf anahtar — tüm baytları aynı (CI'daki 32 sıfır bayt dahil). Production'da reddedilir. */
 const isWeakEncryptionKey = (key: Buffer): boolean => key.every((b) => b === key[0]);
+
+/** P27 (§4.5 r2, K-P27-22; AC-342): DEPLOY_ENV zorunluluğu ve `unsigned` ⇔ staging; `signed` → SHA listesi zorunlu. */
+function deployEnvRules(
+  e: { NODE_ENV: string; DEPLOY_ENV?: string | undefined; UNATTENDED_MODE: string; UNATTENDED_SIGNED_SHA256?: string | undefined },
+  ctx: z.RefinementCtx,
+): void {
+  const issue = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
+  if (!e.DEPLOY_ENV && e.NODE_ENV === "production") issue("DEPLOY_ENV", "DEPLOY_ENV gerekli (production)");
+  if (!e.DEPLOY_ENV && e.UNATTENDED_MODE !== "off") issue("DEPLOY_ENV", "DEPLOY_ENV gerekli (UNATTENDED_MODE off değil)");
+  if (e.UNATTENDED_MODE === "unsigned" && e.DEPLOY_ENV !== "staging")
+    issue("UNATTENDED_MODE", "unsigned yalnız DEPLOY_ENV=staging iken kabul edilir");
+  if (e.UNATTENDED_MODE === "signed" && !e.UNATTENDED_SIGNED_SHA256) issue("UNATTENDED_SIGNED_SHA256", "signed modda zorunlu");
+}
 
 const schema = z
   .object({
@@ -100,6 +114,22 @@ const schema = z
     // P16 (AC-240, ADR-0030 m.6, mimari-e11 §7.7): gece kalıcı silme modu. `dry` (varsayılan) aday sayılarını audit'e yazar,
     // hiçbir satır silmez; `on` 30 g önce anonimleşmiş satırları siler. Staging `on`; prod ilk `dry` raporu kontrol edilince.
     RETENTION_PURGE_MODE: z.enum(["dry", "on"]).default("dry"),
+    // P27 (mimari-p27 §4.5, §8.1, K-P27-3/22; AC-297, 342): dağıtım ortamı ve gözetimsiz erişim imza kapısı. DEPLOY_ENV
+    // varsayılansız: production'da ya da UNATTENDED_MODE ≠ off iken zorunlu; `unsigned` yalnız staging.
+    DEPLOY_ENV: z.enum(["production", "staging", "development"]).optional(),
+    UNATTENDED_MODE: z.enum(UNATTENDED_MODES).default("off"),
+    // `signed` modda zorunlu: virgüllü 64-hex servis ikilisi SHA-256 listesi (Release attestation'ından).
+    UNATTENDED_SIGNED_SHA256: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}(\s*,\s*[0-9a-fA-F]{64})*$/, "virgüllü 64 haneli onaltılık SHA-256 listesi olmalı")
+      .optional(),
+    // Servis ikilisi indirme ucu (AGENT_* kalıbı): ikisi dolu ve dosya hash'i eşleşmedikçe 503.
+    UNATTENDED_AGENT_PATH: z.string().startsWith("/", "mutlak yol olmalı").optional(),
+    UNATTENDED_AGENT_SHA256: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/, "64 haneli onaltılık SHA-256 olmalı")
+      .transform((v) => v.toLowerCase())
+      .optional(),
   })
   .refine((e) => e.NODE_ENV !== "production" || e.TRUSTED_PROXY_CIDR, {
     path: ["TRUSTED_PROXY_CIDR"],
@@ -121,6 +151,7 @@ const schema = z
       message: "production'da zayıf anahtar (tüm baytları aynı) kabul edilmez; openssl rand -base64 32 ile üretin",
     },
   )
+  .superRefine(deployEnvRules)
   .refine((e) => e.TURN_SECRET || !/(^|,)\s*turns?:/.test(e.TURN_URLS ?? ""), {
     path: ["TURN_SECRET"],
     message: "turn:/turns: URL'si varken zorunlu",
@@ -143,6 +174,12 @@ const schema = z
       allowedOrigins,
       turnUrls,
       encryptionKeys,
+      unattendedSignedSha256: new Set(
+        (e.UNATTENDED_SIGNED_SHA256 ?? "")
+          .split(",")
+          .map((h) => h.trim().toLowerCase())
+          .filter(Boolean),
+      ),
     };
   });
 

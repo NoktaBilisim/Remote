@@ -1,12 +1,12 @@
 "use client";
 
-import { Archive, ArchiveRestore, KeyRound, RotateCw, ShieldCheck, Trash2, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, KeyRound, MonitorX, RotateCw, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { PermissionMatrix } from "@/components/admin/permission-matrix";
 import { AvatarUploader } from "@/components/branding/avatar-uploader";
 import { FormError } from "@/components/form-error";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatNumber } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { USER_STALE_WRITE_MESSAGE } from "@/lib/users/contract";
 import { userDeleteState } from "@/lib/users/delete";
@@ -189,7 +189,42 @@ function AccountFacts({ ed, canEdit }: { ed: Ed; canEdit: boolean }) {
           )}
         </dd>
       </div>
+      <TrustedDevicesFact ed={ed} canEdit={canEdit} />
     </dl>
+  );
+}
+
+/**
+ * P27a (AC-330): hatırlanan cihaz sayısı (ayrıntı yalnız kullanıcının kendi profilinde) + `users.edit` ile onaylı
+ * "Hatırlanan cihazları kaldır"; kendi hesabında düğme yok (profil yolu), sayı 0 iken pasif.
+ */
+function TrustedDevicesFact({ ed, canEdit }: { ed: Ed; canEdit: boolean }) {
+  const { saved } = ed;
+  const n = saved.trustedDeviceCount ?? 0;
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <dt className="font-medium text-fg">
+        {t("acc.td.adminLabel")}
+        <span className="block text-xs font-normal text-fg-muted">{t("acc.td.adminHint")}</span>
+      </dt>
+      <dd className="flex flex-col items-end gap-2">
+        <span className="text-sm text-fg tabular-nums" data-testid="user-td-count">
+          {t("acc.td.adminCount", { n: formatNumber(n) })}
+        </span>
+        {canEdit && saved.canManage && !saved.isSelf && (
+          <Button
+            type="button"
+            variant="danger-ghost"
+            onClick={() => ed.setAction("forget-devices")}
+            disabled={ed.busy || n === 0}
+            data-testid="user-forget-devices"
+          >
+            <MonitorX aria-hidden className="size-4" />
+            {t("acc.td.adminRemove")}
+          </Button>
+        )}
+      </dd>
+    </div>
   );
 }
 

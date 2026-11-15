@@ -5,14 +5,15 @@
 import type { TenantPurgeState, TenantPurgeStep } from "@remote/contracts/api/tenants";
 import { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
-import { byTenant, byTenantUser, n, unlinkBindings, USERS_OF, type TablePart } from "./tenant-purge-parts.ts";
+import { byTenant, byTenantUser, n, unattendedDevices, unlinkBindings, USERS_OF, type TablePart } from "./tenant-purge-parts.ts";
 
 type Tx = Prisma.TransactionClient;
 type DbOrTx = Db | Tx;
 
 /**
  * Veri adımları (ADR-0030 m.2, 2..14) → tablo parçaları. FENCE, TENANT_ROW, FILES, DONE özel adımlardır (yürütücü).
- * Meta-test: `tenants`'a FK veren tablolar ⊆ bu tablolar ∪ {auth_sessions (FENCE), tenants'a FK taşımayan istisnalar}.
+ * Meta-test: `tenants`'a FK veren tablolar ⊆ bu tablolar ∪ {auth_sessions (FENCE), tenants'a FK taşımayan istisnalar};
+ * USER_CHILDREN içinde tenants'a FK veren tek tablo `trusted_devices` (P27a).
  */
 export const DATA_STEPS: Readonly<Partial<Record<TenantPurgeStep, readonly TablePart[]>>> = {
   SESSION_FILES: [byTenant("session_files")],
@@ -22,7 +23,15 @@ export const DATA_STEPS: Readonly<Partial<Record<TenantPurgeStep, readonly Table
   MESSAGES: [byTenant("session_messages"), byTenant("notification_outbox")],
   REQUEST_UNLINK: [unlinkBindings],
   BINDINGS: [byTenant("device_bindings")],
-  SESSIONS: [byTenant("support_sessions")],
+  // P27 (mimari-p27 §3.6, K0 devir notu): cihaz tabloları oturumlardan SONRA (support_sessions.device_id → devices), müşteri ve
+  // kullanıcılardan ÖNCE; sıra: adresler, kodlar (device_id FK), grant'lar, cihazlar.
+  SESSIONS: [
+    byTenant("support_sessions"),
+    byTenant("customer_notify_contacts"),
+    byTenant("unattended_registration_codes"),
+    byTenant("unattended_device_grants"),
+    unattendedDevices,
+  ],
   REQUESTS: [byTenant("support_requests")],
   REQUEST_BLOCKS: [byTenant("request_blocks")],
   REQUEST_REFS: [byTenant("request_refs")],
@@ -35,6 +44,8 @@ export const DATA_STEPS: Readonly<Partial<Record<TenantPurgeStep, readonly Table
     byTenantUser("recovery_codes"),
     byTenantUser("password_reset_tokens"),
     byTenantUser("auth_sessions"),
+    // P27a (AC-334): tenants'a da FK verir (tenant_id NOT NULL + IX) → firma koşuluyla; users'tan (USERS) önce silinmeli.
+    byTenant("trusted_devices"),
   ],
   USERS: [byTenant("users")],
 };

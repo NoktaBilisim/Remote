@@ -182,6 +182,7 @@ describe("AC-4 tenant ayarları", () => {
       maxFileMb: 100,
       retentionDays: 365,
       requireTech2fa: true,
+      mfaRememberDevice: true, // P27a (AC-331): varsayılan açık
       smtp: null,
     });
     for (const v of [14, 31, 20.5, "20"]) {

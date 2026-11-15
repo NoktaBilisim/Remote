@@ -66,6 +66,7 @@ async function replayUser(db: Db, id: string, intentOnly: boolean): Promise<Outc
     await tx.$executeRaw`DELETE FROM recovery_codes WHERE user_id = ${id}`;
     await tx.$executeRaw`DELETE FROM password_reset_tokens WHERE user_id = ${id}`;
     await tx.$executeRaw`DELETE FROM auth_sessions WHERE user_id = ${id}`;
+    await tx.$executeRaw`DELETE FROM trusted_devices WHERE user_id = ${id}`; // P27a (AC-334)
     return "applied";
   });
 }

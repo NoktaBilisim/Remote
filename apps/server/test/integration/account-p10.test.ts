@@ -262,7 +262,7 @@ describe("AC-68 oturum süresi ve tüm cihazlardan çıkış", () => {
     const a = await signIn(user);
     const b = await signIn(user);
     const r = await call(a.s, "POST", "/auth/logout-all", {});
-    expect(r.json()).toEqual({ revokedSessions: 1 });
+    expect(r.json()).toEqual({ revokedSessions: 1, revokedTrustedDevices: 0 }); // P27a: sözleşme alanı (AC-328)
     expect((await call(b.s, "GET", "/auth/me")).statusCode).toBe(401);
     expect((await call(a.s, "GET", "/auth/me")).statusCode).toBe(200);
     expect(await db().auditLog.count({ where: { action: "auth.logout_all", userId: user.id } })).toBe(1);

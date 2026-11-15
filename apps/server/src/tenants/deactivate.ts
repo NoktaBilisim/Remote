@@ -3,6 +3,7 @@
 import { BINDING_AUDIT, TENANT_AUDIT } from "@remote/contracts/audit";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
+import { deleteForTenant as deleteTenantTrustedDevices } from "../auth/trusted-device-repo.ts";
 import { revokeForTenant as revokeTenantBindings } from "../bindings/repo.ts";
 import type { Prisma } from "../generated/prisma/client.ts";
 import { AppError } from "../lib/errors.ts";
@@ -66,6 +67,8 @@ export async function deactivateTx(
   const now = new Date();
   await repo.updateTenant(tx, id, { status: "PASSIVE" });
   const revokedSessions = await repo.revokeTenantSessions(tx, id, now);
+  // P27a (AC-328, mimari-p27a §3.4): firmanın tüm hatırlanan cihazları aynı TX'te.
+  const revokedTrustedDevices = await deleteTenantTrustedDevices(tx, id);
   const cancelledSessions = await repo.cancelTenantPending(tx, id, now);
   // S-P18-T5: firma pasifinde bekleyen taleplerin ataması aynı TX'te kalkar (talepler ardından TENANT_PASSIVE iptal; panel
   // soketleri kapanacağı için `request.updated` yayını yok).
@@ -81,7 +84,14 @@ export async function deactivateTx(
     entityId: id,
     result: "success",
     oldValue: { status: "ACTIVE" },
-    newValue: { status: "PASSIVE", revokedSessions, cancelledSessions, cancelledRequests: requestIds.length, revokedBindings },
+    newValue: {
+      status: "PASSIVE",
+      revokedSessions,
+      cancelledSessions,
+      cancelledRequests: requestIds.length,
+      revokedBindings,
+      revokedTrustedDevices,
+    },
   });
   return { requestIds, revokedBindings };
 }

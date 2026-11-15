@@ -386,7 +386,7 @@ describe("P13a saklama işi — global silmeler (AC-198)", () => {
     const audits = await retentionAudits(null);
     expect(audits).toHaveLength(auditsBefore + 1);
     const g = audits.at(-1)?.newValue as Record<string, number>;
-    expect(Object.keys(g).sort()).toEqual(["audit", "authSessions", "purgeCandidates", "resetTokens"]); // P16: dry iş satırı adayı
+    expect(Object.keys(g).sort()).toEqual(["audit", "authSessions", "purgeCandidates", "resetTokens", "trustedDevices"]); // P16: dry iş satırı adayı
     expect(g.audit).toBeGreaterThanOrEqual(1);
     expect(g.authSessions).toBeGreaterThanOrEqual(1);
     expect(g.resetTokens).toBeGreaterThanOrEqual(1);

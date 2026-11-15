@@ -12,7 +12,8 @@ import { changedKeys, lockedKeys, normalize, permsForRole, type PermState } from
 import { forbiddenMessage, serverFieldErrors } from "../user-fields";
 
 type Actor = { role: string; permissions: readonly string[] };
-export type UserAction = "deactivate" | "reactivate" | "reset-mfa";
+/** P27a (AC-330): `forget-devices` → POST /users/:id/forget-devices (aynı onay diyaloğu kalıbı). */
+export type UserAction = "deactivate" | "reactivate" | "reset-mfa" | "forget-devices";
 
 /** Kayıtlı kayıt + profil taslağı + yetki haritası + alan/form hataları. */
 function useUserDraft(user: UserDetail, actor: Actor) {

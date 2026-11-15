@@ -350,6 +350,7 @@ describe("P12b WhatsApp güvensiz adres — production (AC-196, AC-150, K13)", (
       env: {
         ...PROXY,
         NODE_ENV: "production",
+        DEPLOY_ENV: "production",
         SESSION_REF_KEY: "k".repeat(40),
         APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS,
         WHATSAPP_SERVICE_URL: envFake.url,
@@ -473,6 +474,7 @@ describe("P13a sistem ayarları (B-P12b-4, B-P12b-5, T33; mimari-p13 §3)", () =
       env: {
         ...PROXY,
         NODE_ENV: "production",
+        DEPLOY_ENV: "production",
         SESSION_REF_KEY: "k".repeat(40),
         APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS,
         WHATSAPP_SERVICE_URL: envFake.url,

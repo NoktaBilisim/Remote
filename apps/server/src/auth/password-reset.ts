@@ -11,6 +11,7 @@ import { MIN, hitLimit } from "./account-shared.ts";
 import { hashPassword } from "./password.ts";
 import * as repo from "./repo.ts";
 import { canSignIn } from "./session.ts";
+import { deleteForUser } from "./trusted-device-repo.ts";
 
 const RESET_PER_ACCOUNT_HOUR = 3;
 
@@ -101,6 +102,7 @@ export async function resetPassword(d: AccountDeps, ctx: AuditContext, input: Pa
       data: { passwordHash, mustChangePassword: false, failedLoginCount: 0, failedWindowAt: null, lockedUntil: null },
     });
     const revoked = await repo.revokeUserSessions(tx, user.id, now);
+    const revokedTrustedDevices = await deleteForUser(tx, user.id); // P27a AC-328
     await writeAudit(tx, ctx, {
       tenantId: user.tenantId,
       userId: user.id,
@@ -109,7 +111,7 @@ export async function resetPassword(d: AccountDeps, ctx: AuditContext, input: Pa
       entity: "users",
       entityId: user.id,
       result: "success",
-      newValue: { revokedSessions: revoked },
+      newValue: { revokedSessions: revoked, revokedTrustedDevices },
     });
   });
   try {

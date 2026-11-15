@@ -79,6 +79,30 @@ export function recoveryCodeUsedMail(o: { remaining: number }): MailContent {
   return { subject, text, bodyHtml };
 }
 
+/**
+ * P27a (AC-335a, K-P27a-10): "Bu cihazı 30 gün hatırla" ile yeni cihaz hatırlandı. Belirteç ve bağlantı içermez; UA özeti
+ * kullanıcı girdisinden türediği için kaçışlı ve tek satır.
+ */
+export function trustedDeviceCreatedMail(o: { uaSummary: string; ip: string; at: Date }): MailContent {
+  const device = oneLine(o.uaSummary);
+  const ip = oneLine(o.ip);
+  const when = istanbul(o.at);
+  const subject = "Yeni cihaz hatırlandı";
+  const advice = "Siz değilseniz Hesabım → Hatırlanan cihazlar → Tümünü kaldır ve şifrenizi değiştirin.";
+  const text = `Hesabınızda yeni bir cihaz 30 gün boyunca hatırlanacak şekilde kaydedildi.\n\nCihaz: ${device}\nIP: ${ip}\nZaman: ${when} (Türkiye saati)\n\n${advice}`;
+  const bodyHtml = `<p>Hesabınızda <b>yeni bir cihaz</b> 30 gün boyunca hatırlanacak şekilde kaydedildi.</p><p>Cihaz: ${esc(device)}<br>IP: ${esc(ip)}<br>Zaman: ${esc(when)} (Türkiye saati)</p><p>${esc(advice)}</p>`;
+  return { subject, text, bodyHtml };
+}
+
+/** P27a (AC-335b, K-P27a-11): hatırlanan cihaz belirtecinin yeniden kullanımı tespit edildi. Belirteç/bağlantı yok. */
+export function trustedDeviceReuseMail(o: { at: Date }): MailContent {
+  const when = istanbul(o.at);
+  const subject = "Hatırlanan cihaz belirteci yeniden kullanıldı";
+  const text = `Hatırlanan bir cihazın belirteci başka bir yerde kullanıldı (${when}, Türkiye saati); güvenliğiniz için tüm hatırlanan cihazlarınız kaldırıldı ve açık oturumlarınız kapatıldı.\n\nSiz değilseniz şifrenizi değiştirin.`;
+  const bodyHtml = `<p>Hatırlanan bir cihazın belirteci <b>başka bir yerde kullanıldı</b> (${esc(when)}, Türkiye saati); güvenliğiniz için tüm hatırlanan cihazlarınız kaldırıldı ve açık oturumlarınız kapatıldı.</p><p>Siz değilseniz şifrenizi değiştirin.</p>`;
+  return { subject, text, bodyHtml };
+}
+
 export function smtpTestMail(o: { firm: string }): MailContent {
   const subject = oneLine(`${o.firm} – SMTP test e-postası`);
   const text = "Bu bir test e-postasıdır. SMTP ayarlarınız çalışıyor.";

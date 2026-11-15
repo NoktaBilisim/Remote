@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { ChangePasswordForm } from "@/app/(auth)/change-password/change-password-form";
 import { RecoveryRegenerate } from "@/components/account/recovery-regenerate";
+import { TrustedDevices } from "@/components/account/trusted-devices";
 import { FormError } from "@/components/form-error";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -35,10 +36,21 @@ function Section({ id, title, Icon, children }: { id: string; title: string; Ico
 /**
  * Hesap güvenliği bölümleri: şifre değiştir (AC-66), 2FA durumu (AC-67), tüm cihazlardan çıkış (AC-68/115 — onaylı,
  * yıkıcı; bu oturum açık kalır, diğerleri ve açık destek oturumları ≤ 5 sn'de kapanır), kurtarma kodlarını yenile (P15, AC-231).
+ * P27a (AC-329): "Oturumlar"ın üstünde "Hatırlanan cihazlar" — yalnız firma kullanıcılarında (`trustedDevices`); şifre
+ * değişimi ve tüm cihazlardan çıkış sunucuda cihazları da sildiği için (AC-328) liste ardından yeniden alınır.
  */
-export function AccountSecurity({ mfa, account }: { mfa: MfaStatus | null; account: string }) {
+export function AccountSecurity({
+  mfa,
+  account,
+  trustedDevices = false,
+}: {
+  mfa: MfaStatus | null;
+  account: string;
+  trustedDevices?: boolean;
+}) {
   const router = useRouter();
   const toast = useToast();
+  const [tdKey, setTdKey] = useState(0);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
@@ -49,6 +61,7 @@ export function AccountSecurity({ mfa, account }: { mfa: MfaStatus | null; accou
     try {
       const r = await api<LogoutAllResponse | undefined>("POST", "/auth/logout-all", {});
       setConfirm(false);
+      setTdKey((k) => k + 1);
       toast(t("acc.la.done", { n: r?.revokedSessions ?? 0 }));
     } catch (e) {
       if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
@@ -64,7 +77,12 @@ export function AccountSecurity({ mfa, account }: { mfa: MfaStatus | null; accou
       <Section id="pw" title={t("acc.pw")} Icon={KeyRound}>
         <p className="text-sm text-fg-muted">{t("acc.pwBody")}</p>
         <div className="max-w-md">
-          <ChangePasswordForm onDone={() => toast(t("acc.pwDone"))} />
+          <ChangePasswordForm
+            onDone={() => {
+              setTdKey((k) => k + 1);
+              toast(t("acc.pwDone"));
+            }}
+          />
         </div>
       </Section>
 
@@ -103,6 +121,8 @@ export function AccountSecurity({ mfa, account }: { mfa: MfaStatus | null; accou
           </>
         )}
       </Section>
+
+      {trustedDevices && <TrustedDevices reloadKey={tdKey} />}
 
       <Section id="sessions" title={t("acc.la")} Icon={MonitorSmartphone}>
         <p className="text-sm text-fg-muted">{t("acc.laBody")}</p>

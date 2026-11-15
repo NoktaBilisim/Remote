@@ -7,6 +7,7 @@ import {
   USERS_WRITES_PER_MIN,
   createUserInputSchema,
   deleteUserInputSchema,
+  forgetDevicesInputSchema,
   parseUserIfMatch,
   userEtag,
   listUsersQuerySchema,
@@ -15,6 +16,7 @@ import {
   userIdSchema,
   userOptionsQuerySchema,
   type CreateUserResponse,
+  type ForgetDevicesResponse,
   type UserDetail,
   type UserListResponse,
   type UserOptionsResponse,
@@ -27,6 +29,7 @@ import { FixedWindowCounter } from "../lib/rate.ts";
 import {
   createUser,
   deactivateUser,
+  forgetUserDevices,
   getUser,
   listUsers,
   purgeUser,
@@ -160,6 +163,14 @@ function actionRoutes(app: FastifyInstance, { fx, edit }: RouteKit): void {
     parseInput(userActionInputSchema, req.body);
     await resetUserMfa(app.db, fx(), auditContext(req), authOf(req), tenantId, id);
     return reply.status(204).send();
+  });
+
+  // P27a (AC-330, K-P27a-9): Admin kullanıcının tüm hatırlanan cihazlarını kaldırır (kendi hesabı profil yolundan).
+  app.post("/:id/forget-devices", edit, async (req): Promise<ForgetDevicesResponse> => {
+    const { tenantId } = tenantScope(req);
+    const id = idParam(req);
+    parseInput(forgetDevicesInputSchema, req.body);
+    return { revoked: await forgetUserDevices(app.db, auditContext(req), authOf(req), tenantId, id) };
   });
 
   app.post("/:id/reactivate", edit, async (req, reply) => {

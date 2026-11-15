@@ -68,7 +68,8 @@ export default async function AccountPage() {
               <ThemePicker testId="acc-theme" />
             </div>
           </section>
-          <AccountSecurity mfa={mfa ?? null} account={user.email} />
+          {/* P27a (AC-329, K-P27a-2): hatırlanan cihazlar yalnız firma kullanıcılarında */}
+          <AccountSecurity mfa={mfa ?? null} account={user.email} trustedDevices={user.role !== "SUPER_ADMIN"} />
         </div>
       </div>
     </>

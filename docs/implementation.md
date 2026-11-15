@@ -9098,6 +9098,173 @@ Test (geçici `rs-p27a-k2-12310` ve `rs-p27a-k2-b`, mysql 8.4.13, `--max-connect
   59/59 geçti. Server çalışma zamanında değişiklik olmadığı için bunları zamanlama kararsızlığı sayıyorum.
 - eslint (contracts + yeni server dosyaları) temiz. Kendi dosyalarımda prettier temiz ve tsc hatası yok.
 
+### P27a-K4 (kullanıcı/firma/ayar tarafı: iptal noktaları, Admin ucu, saklama, silme) — backend-dev — 2026-11-15
+
+AC-328 (K4 noktaları), AC-330, AC-331, AC-334. Bütün silmeler `auth/trusted-device-repo.ts` üzerinden ve çağıranın
+TX'inde yapılır (`deleteForUser`, `deleteForTenant`, `deleteExpired`, `countForUser`). KVKK CLI istisna; gerekçesi aşağıda.
+
+Değişen dosyalar (`apps/server/`):
+
+- `src/users/writes.ts`: `resetMfaTx` ve `writeStatus(PASSIVE)` cihazları siler. Audit'e `revokedTrustedDevices` eklendi
+  (`user.mfa_reset`, `user.deactivated`). Yeni `forgetDevicesTx`: aktör kilidi + `users.edit` TX içinde → kapsam (404) →
+  kendi hesabı 403 → `assertManage` 403 → silme → audit `auth.trusted_device_revoked {reason:"admin", count}`
+  (entity `users`, hedef id).
+- `src/users/service.ts`: `forgetUserDevices` (`auditFailures` op `forget_devices`). `getUser` →
+  `countForUser(now)` (süresi dolmamışlar).
+- `src/users/routes.ts`: `POST /users/:id/forget-devices` (`users.edit`, `tenantScope`, `forgetDevicesInputSchema` →
+  `{revoked}`; yazma hız sınırı ve `no-store` mevcut kancalardan).
+- `src/users/view.ts`: `toDetail(..., trustedDeviceCount)`.
+- `src/users/guard.ts`: `Op` += `forget_devices` (fail audit `newValue.op`).
+- `src/users/purge.ts`: `purgeTx` içinde `deleteUserChildren` sonrası savunmacı silme. Audit'e ayrı alan yazılmaz.
+- `src/tenants/deactivate.ts` (firma pasif dalı burada; `service.ts` yalnız çağırır): `revokeTenantSessions` yanında
+  `deleteForTenant`. Audit `tenant.deactivated` için `revokedTrustedDevices`.
+- `src/tenants/settings.ts` + `src/tenants/repo.ts`: `mfaRememberDevice` görünümde ve SCALARS'ta. true→false geçişinde aynı
+  TX'te `deleteForTenant` çalışır. Audit `old {mfaRememberDevice:true}` / `new {mfaRememberDevice:false,
+revokedTrustedDevices:n}` olur. Açmak hiçbir şey silmez; aynı değer yazma ve audit üretmez.
+- `src/jobs/retention.ts` + `retention-counts.ts`: global adımda `drain(deleteExpired(now))`. Sayaç `trustedDevices`,
+  metrik `kind="trusted_devices"`. `src/ops/metrics.ts`'te yalnız yardım metni değişti.
+- `src/jobs/tenant-purge-repo.ts`: `USER_CHILDREN` += `byTenant("trusted_devices")`.
+- `src/cli/erasure.ts`: `replayUser` içine `DELETE FROM trusted_devices WHERE user_id = ?` (`auth_sessions` yanında).
+- Testler: yeni `test/integration/p27a-revoke.test.ts` (10 `it`, AC adlı). `test/helpers/tenant-purge.ts`:
+  `TENANT_TABLES` += `trusted_devices`, `seedPurgeTenant` artık bir cihaz satırı da üretiyor.
+  `tenant-purge-meta-p16.test.ts`: `USER_CHILDREN_WITH_TENANT_FK = ["trusted_devices"]` istisnası ve users FK listesine
+  `trusted_devices.user_id/tenant_id` eklendi. `test/helpers/tenant-matrix.ts`: yeni uç `tenant` sınıfına ve 404 matrisine
+  eklendi. `tenants-p9.test.ts` görünüm beklentisine `mfaRememberDevice: true` eklendi.
+  `retention-p13a-job.test.ts` global audit anahtar listesine `trustedDevices` eklendi.
+
+Tasarımdan sapmalar (gerekçeli):
+
+- mimari §3.3 `byTenantUser("trusted_devices")` diyordu; `byTenant` kullanıldı. Gerekçe: `tenant_id NOT NULL`, IX(tenant_id)
+  var ve bileşik FK satırın firmasını kullanıcınınkine eşitliyor. Bu yüzden iki koşul aynı satırları seçiyor, `byTenant`
+  ise kullanıcı listesi okumadan dizin aralığıyla siliyor. Satır `USERS` adımından önce siliniyor (FK RESTRICT).
+- Dosya listesi dışında dokunulanlar: `tenants/deactivate.ts` (firma pasif TX'i burada), `users/guard.ts` (`Op` tipi),
+  `ops/metrics.ts` (yardım metni), test yardımcıları ve gerileme testleri. Bu dosyalara K3 ya da K5 dokunmuyor.
+- `cli/erasure.ts` repo işlevi yerine ham SQL kullanıyor (migrator bağlantısı, komşu satırlarla aynı kalıp; mimari §3.3
+  metni de böyle).
+- `forget-devices` kullanıcı sürümünü (`version`) artırmaz: kullanıcı satırı değişmiyor. Bu sayede editördeki ETag
+  bozulmuyor. 0 cihazda da 200 döner ve `count:0` audit yazar; çift gönderimde de sonuç aynı kalır.
+- `deleteForUser` süresi dolmuş satırları da siler. Bu yüzden `revoked` sayısı, ekranda gösterilen
+  `trustedDeviceCount`'tan büyük olabilir (test bunu sınıyor).
+
+Bağımlılık: yok. Env: yok.
+
+Test (geçici `rs-mysql-p27a-k4`, mysql 8.4.13, `--max-connections=300`, silindi):
+
+- `p27a-revoke` 10/10.
+- Gerileme `tenant-purge-meta-p16`, `tenant-purge-p16`, `users-p9`, `tenants-p9`, `users-delete-p16`,
+  `security-p14a-users`, `security-p14a-tenants`, `p27a-repo`, `retention-p13a-job`, `retention-p16-purge`,
+  `tenant-isolation`: P27a kaynaklı kırmızı yok. `tenant-purge-meta-p16` testlerinde kalan 2 kırmızı yalnız P27
+  (gözetimsiz) tablolarından geliyor: `unattended_*`, `customer_notify_contacts` (P27 K0/K4 işi). Fark listesinde
+  `trusted_devices` yok.
+- server unit 442/442. eslint (dokunulan dosyalar) temiz, prettier (dokunulan dosyalar) temiz.
+- tsc: K4 kaynaklı hata yok. Kalan hatalar `src/auth/routes.ts` (K3, 3 alan) ve `src/notify/outbox.ts` (P27 şeması,
+  `requestId` nullable).
+
+frontend-dev (K5) için sözleşme notları (contracts değişmedi, K2'deki gibi):
+
+- `GET /users/:id` → `trustedDeviceCount` (süresi dolmamış).
+- `POST /users/:id/forget-devices` gövde `{}` → 200 `{revoked}`. Kendi id 403, başka firma 404, geniş yetkili 403,
+  gövdede fazla alan 400. Sürüm ve ETag değişmez; yeniden GET gerekmez, sayı 0 yapılabilir.
+- `PUT /settings/tenant {mfaRememberDevice}` → `TenantSettingsView.mfaRememberDevice`.
+
+### P27a-K5 ("Bu cihazı 30 gün hatırla" arayüzü) — frontend-dev — 2026-11-15
+
+AC-325, 329, 330, 331 (UI). Sözleşmeye göre mock ile yazıldı (K3/K4 paralel); contracts değişmedi, alan uydurulmadı.
+
+#### Rotalar
+
+| Yol                  | Auth                                      | Değişiklik                                                                                                                                                                                                                             |
+| -------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/login/2fa`         | yarı oturum (2FA aşaması `verify`)        | Kod modunda "Bu cihazı 30 gün hatırla" onay kutusu (varsayılan işaretsiz, yardım metni `aria-describedby`); yalnız `me.mfa.rememberDeviceAvailable` true ve rol Super Admin değilken. Kurtarma kodu modunda gizli ve gövdeye eklenmez. |
+| `/account`           | tam oturum                                | "Oturumlar"ın üstünde "Hatırlanan cihazlar" bölümü (yalnız firma kullanıcıları): liste, "Bu cihaz" rozeti, tek tek Kaldır, onaylı Tümünü kaldır. Şifre değişimi / tüm cihazlardan çıkış sonrası liste yeniden alınır.                  |
+| `/users/[id]`        | `users.view` (düğme `users.edit`)         | Hesap bilgilerinde "Hatırlanan cihazlar" satırı: sayı + "Hatırlanan cihazları kaldır" (`MonitorX`, onay diyaloğu, sayı 0 iken pasif; kendi hesabında / yönetemediği hesapta düğme yok).                                                |
+| `/settings/security` | `settings.view` (anahtar `settings.edit`) | İkinci anahtar "2FA cihaz hatırlama" (Super Admin hariç notu); kapatmada onay diyaloğu (tüm hatırlanan cihazlar silinir), açma onaysız; anında kayıt, salt okunurda pasif.                                                             |
+
+#### Değişen / yeni dosyalar
+
+- `apps/web/app/(auth)/login/2fa/mfa-verify-form.tsx`, `page.tsx` — `RememberBox`, `rememberAvailable` prop'u.
+- `apps/web/components/account/trusted-devices.tsx` (yeni) — 5 durum: 2 satır iskelet · boş metin · `FormError` + "Tekrar dene" (`RotateCw`) · kısmi (silme başarısız → satır kalır + `danger` toast; 404 → satır düşer, "zaten kaldırılmış") · başarılı (toast). İkonlar `MonitorCheck` (bölüm), `Laptop` (satır), `Trash2`.
+- `apps/web/app/(panel)/account/account-security.tsx`, `page.tsx` — bölüm yerleşimi, `trustedDevices` (rol ≠ SUPER_ADMIN), `reloadKey`.
+- `apps/web/app/(panel)/users/[id]/use-user-editor.ts` (`UserAction` + `forget-devices`), `user-dialogs.tsx` (mevcut `StatusDialog` kalıbı: POST → GET → toast), `user-editor-parts.tsx` (`TrustedDevicesFact`).
+- `apps/web/app/(panel)/settings/security/security-form.tsx` (anahtar başına anında kayıt `useInstantSettings` + `RememberOffDialog`), `page.tsx` (ilk değer).
+- `apps/web/lib/account/contract.ts` (tür yeniden dışa aktarımı), `lib/account/trusted-devices.ts` (yeni: `mfaVerifyBody`, `deviceMeta`) + `trusted-devices.test.ts` (5 test).
+- `apps/web/messages/tr.json` — `mfa.v.remember*`, `acc.td*`, `sec.remember*`.
+- `apps/web/e2e/mock-p27a.mjs` (yeni), `mock-account.mjs` (çağrı + `req.__body` devri), `e2e/p27a-trusted-device.spec.ts` (7 test × desktop/mobile, axe açık+koyu).
+
+#### Sapmalar
+
+- Dosya planı dışı küçük dokunuşlar: `account/page.tsx` (rol prop'u), `settings/security/page.tsx` (ilk değer), `lib/account/trusted-devices.ts(+test)`, `e2e/mock-p27a.mjs`. Gerekçe: rol bilgisi yalnız sayfada; `mock-account.mjs` 300 satır sınırını aşacağı için P27a mock'u ayrı dosyada.
+- Bileşen testi: projede vitest yalnız `lib/**/*.test.ts` + `node` ortamı (jsdom/testing-library yok, yeni bağımlılık eklenmedi). Saf mantık `lib`'te birim testli; davranış/durumlar Playwright'ta.
+- Tek cihaz "Kaldır" onaysız (mimari §6: onay yalnız "Tümünü kaldır"; kısmi durum satır içi). Etkisi geri alınabilir (bir sonraki girişte kod).
+- i18n: mimari listesine ek anahtarlar `acc.td.ip`, `removeAria`, `removeFailed`, `alreadyGone`, `adminLabel/Hint/Title/ConfirmButton/Done`, `sec.rememberOffTitle/OffButton`.
+- `account-security.tsx` `AccountSecurity` işlevi önceden de > 40 satırdı (JSX); bu görevde yalnız birkaç satır eklendi, bölünmedi.
+- Not (bulgu, düzeltilmedi): `FormError` içindeki istek kimliği satırı (`.opacity-80 .font-mono`) `danger` zeminde axe `color-contrast` ihlali veriyor — liste hata durumunda görünür (ilk e2e koşusunda yakalandı; P27a e2e'de hata durumu axe'la taranmıyor). Ortak primitif; ayrı düzeltme önerilir.
+
+#### Doğrulama (2026-11-15)
+
+`pnpm --filter @remote/web lint` · `typecheck` · `test` (391) yeşil; `playwright test p27a-trusted-device p10-account p12-branding p9-users p14a-a4` 94 geçti / 0 kaldı.
+
+### P27a-K3 (auth dalı: login/verify/me/logout-all, profil uçları, geçersiz kılma, e-postalar) — backend-dev — 2026-11-15
+
+Mimari-p27a r3 §2, §4.1–4.3, §5.1–5.3, §3.4 (K3 satırları), §10 K3; AC-325..329, 331 (Super Admin + anahtar kuralı), 332, 333,
+335a, 335b.
+
+| Dosya                                                  | Değişiklik                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/server/src/auth/trusted-device.ts`               | K3 ekleri: `rememberAllowed` (Super Admin/firmasız → false; ayar satırı yoksa açık), `uaSummary` (sabit etiketli regex), `set/clearTrustedDeviceCookie` (host-only, `Path=/api/v1/auth`), `issue`, `consumeAtLogin` (+ `reuseTx`), `currentTrustedDeviceId`, `rememberAvailable`, `notifyTrustedDeviceCreated`, `afterTrustedDeviceReuse` (e-posta + `endLive`) |
+| `apps/server/src/auth/trusted-device-routes.ts` (yeni) | `GET /auth/trusted-devices`, `DELETE /auth/trusted-devices[/:id]` (yalnız kendi; 404; audit `revoked {reason:"user", count}`; bu cihazsa çerez silinir, `currentCleared`)                                                                                                                                                                                       |
+| `auth/service.ts`                                      | `login`: §5.1 adım 5 (`consumeAtLogin` login TX'inde, `openSession`'dan önce); `auth.login {mfa:"remembered"}`; log alanı `trustedDevice` (yalnız çerez geldiyse). `changePassword`: `deleteForUser` + `revokedTrustedDevices`                                                                                                                                  |
+| `auth/account.ts`                                      | `mfaVerify(…, trustedCookies)`: TOTP + `rememberDevice` + `rememberAllowed` (TX içinde güncel kullanıcıyla) → `issue`; commit sonrası e-posta. `enableTx` ve `logoutAll`: `deleteForUser` + `revokedTrustedDevices` (logoutAll artık `{revokedSessions, revokedTrustedDevices}` döner)                                                                          |
+| `auth/password-reset.ts`, `auth/superadmin-reset.ts`   | aynı TX'te `deleteForUser`, audit'e `revokedTrustedDevices`                                                                                                                                                                                                                                                                                                     |
+| `auth/repo.ts`                                         | `LoginUser` `tenant.settings` seçimine `mfaRememberDevice`                                                                                                                                                                                                                                                                                                      |
+| `auth/routes.ts`                                       | login (çerez okuma ≤ 2, döndürülen çerezi yazma / silme, reuse sonrası bildirim), verify (`deviceRemembered`), logout-all (çerez silme), me (`rememberDeviceAvailable` = aşama `verify` + TOTP + izin), profil uçlarının kaydı (`app-routes.ts` değişmedi)                                                                                                      |
+| `mail/templates.ts`                                    | `trustedDeviceCreatedMail`, `trustedDeviceReuseMail` (bağlantısız, kaçışlı)                                                                                                                                                                                                                                                                                     |
+| testler                                                | `test/integration/p27a-auth.test.ts` (26), `test/integration/p27a-rotation.test.ts` (4), `test/unit/trusted-device.test.ts` (15), yardımcı `test/helpers/trusted-device.ts` (yeni)                                                                                                                                                                              |
+
+Tasarımdan sapmalar / notlar (gerekçeli):
+
+- Super Admin sıfırlaması (§3.4) `deleteForUser` çağırır, ama Super Admin satırı yapısal olarak oluşamadığı için sayı her zaman 0
+  (savunma amaçlı). Audit'e yine yazılıyor.
+- `revokedTrustedDevices` toplu iptal satırlarına **her zaman** (0 dahil) yazılır. Bu yüzden iki mevcut katı eşitlik testi güncellendi:
+  `account-p10` (logout-all yanıtı; alan sözleşmede zorunlu) ve `superadmin-reset-p13b` (iki `toEqual`, `revokedTrustedDevices: 0`).
+- Reuse dalında commit sonrası `endLive(userId)` da çağrılır (logout-all kalıbı). Gerekçe: iptal edilen oturumların canlı odaları ve
+  panel soketleri 60 sn beklemeden kapansın.
+- `mail.sent` `kind` değerleri: `trusted_device_created`, `trusted_device_reuse`.
+- **Hata düzeltmesi (K3 dosyası `account.ts`, kapsam dışı ama testleri etkiliyordu):** `enableTx` önceden `recovery_codes`'ta olmayan
+  satırları DELETE ediyordu. Bu boşluk kilidi alıyor, sonra aynı boşluğa INSERT yapılıyordu. Bu yüzden eşzamanlı iki ilk
+  etkinleştirme InnoDB deadlock'una düşüp 503 dönüyordu (`SHOW ENGINE INNODB STATUS` ile doğrulandı). Artık yalnız satır varsa
+  siliniyor. Aynı dalda **ikinci, mevcut** bir deadlock daha var: eşzamanlı `enableTx`'lerdeki "diğer oturumları iptal" UPDATE'i,
+  `auth_sessions(user_id, revoked_at)` next-key kilidi yüzünden çakışıyor. **Dokunulmadı**, takip önerilir (account-p10 /
+  security-p14a-auth dosyalarındaki zamanlama kararsızlığının kökü bu). Test yardımcısı `enroll` 503'te bir kez yeniden dener
+  (istemci sözleşmesi).
+- `trusted-device.ts` ~340 satır (hedef 300). §7 dosya planı bölmeye izin vermediği için tek dosyada bırakıldı. Gerekirse bildirimler
+  ayrı dosyaya taşınabilir.
+- pt-surface anlık görüntüsü güncellendi: +3 profil ucu (+HEAD). K4'ün çalışma ağacında kayıtlı `POST /users/:id/forget-devices`'ı
+  da içeriyor.
+- Yeni bağımlılık, env değişkeni ve hata kodu yok.
+
+frontend-dev (K5) uyumu: `GET /auth/me` → `mfa.rememberDeviceAvailable`, `POST /auth/mfa/verify` → `deviceRemembered`,
+`DELETE /auth/trusted-devices[/:id]` → `{ revoked, currentCleared }`. Olmayan ya da başkasına ait id 404 döner, biçimsiz id 400
+(`VALIDATION`). Yarım oturumda liste 403 `MFA_REQUIRED`, oturumsuz istek 401. `POST /auth/logout-all` →
+`{ revokedSessions, revokedTrustedDevices }` döner ve çerezi siler.
+
+Test (benzersiz `rs-p27a-k3-db`, mysql 8.4.13, `--max-connections=300`; **silindi**). Paylaşılan ağaçtaki P27 migration'ı
+(`20261121010000_p27_unattended`) MySQL 1064 ile uygulanamadığı için scratch'te HEAD `grants.sql` + P27a'ya kadarki
+migration'larla kuruldu (P27'nin işi).
+
+- `p27a-auth` + `p27a-rotation`: 30/30, 6 tekrar kararlı. Paralel iki atlamada biri reuse.
+- unit: `trusted-device.test.ts` 15/15. Unit suite 451/456. 5 kırmızı `env-logger`/`security-p10`'da ve çalışma ağacındaki P27
+  `env.ts` değişikliğinden geliyor (K3 dışı).
+- Gerileme `auth-login` 7/7, `auth-session` 7/7, `auth-fix1` 8/8, `superadmin-reset-p13b` 8/8 (tek başına; paralel koşuda global
+  fail-sayımı p15-backend ile yarışıyor, mevcut). `account-p10` 18/22: 4 kırmızının hepsi P27 WIP istemcisindeki
+  `support_sessions.device_id` (DB'de P27 yok). `security-p14a-auth` 4/5: AC-215 kurtarma kodlu step-up testi deterministik
+  500 veriyor. Kök neden **tespit edilmedi**. `p27a-auth`'taki aynı `PUT /settings/tenant` geçiyor; ağaçta K4 (`tenants/settings.ts`)
+  ve P27 (`env.ts`, `lib/crypto.ts`) değişiklikleri var. Açık madde.
+- Son birleşik koşuda (unit + p27a + p13b) 6 kırmızının 5'i yukarıdaki env testleri. 1 entegrasyon kırmızısı konteyner silindikten sonra
+  tanımlanamadı. **Açık madde**: yeniden koşulmalı.
+- `tsc --noEmit` (server): **0 hata** (routes.ts 122/160/239 kapandı). eslint (auth, mail, yeni/değişen testler) temiz. prettier
+  (K3 dosyaları) temiz.
+
 ## P27
 
 ### P27-K1 — contracts: gözetimsiz erişim sözleşmeleri (backend-dev, 2026-11-15)
@@ -9187,3 +9354,402 @@ Yok.
 - Pasif "Bağlan" ipucu: `CONNECT_BLOCKED_REASON_LABELS[connectBlockedReason]`. Hata metinleri: `UNATTENDED_ERROR_MESSAGES`.
   Bantlar: `UNATTENDED_OFF_BANNER`, `UNATTENDED_TEST_BANNER`. Yoklama: `DEVICE_POLL_MS`.
 - `tr.json`'a eklenen 9 anahtar (yukarıda) dışında `un.*` anahtarları K8'e ait.
+
+## P27
+
+### P27-K0 (şema, migration, grants) — dba — 2026-11-15
+
+Mimari-p27 §3 (r2/r3), §9 K0, §15; AC-273, 293, 296, 336, 337 (veri katmanı). Ayrıntı: `docs/db-notlari.md` "P27".
+
+| Dosya                                                          | Değişiklik                                                                                                                                                                             |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/server/prisma/schema.prisma`                             | `UnattendedDevice`, `UnattendedDeviceGrant`, `UnattendedRegistrationCode`, `CustomerNotifyContact`; `SupportSession.deviceId`; `NotificationOutbox.requestId?`, `sessionId`, `eventId` |
+| `apps/server/prisma/migrations/20261121010000_p27_unattended/` | `migration.sql`, `down.sql` (koruma + REVOKE), `precheck.sql`                                                                                                                          |
+| `apps/server/prisma/sql/grants.sql`                            | 4 tablo (grants'ta UPDATE yok)                                                                                                                                                         |
+| `deploy/mysql/check-app-grants.sh`                             | P27 bölümü (+81), DELETE yetkili tablo kümesi                                                                                                                                          |
+| `docs/db-notlari.md`                                           | "P27" bölümü                                                                                                                                                                           |
+
+Mimariye notlar (mimari-p27 §3'e işlenmek üzere): migration adı `20261121010000_p27_unattended` (mimarideki damga P27a'nın);
+grants UQ(device_id, tenant_id, user_id) + bileşik user FK (Super Admin grant alamaz, DB'de); kullanıcı FK'leri tekil (Super Admin
+kod/grant verebilir); kind ↔ çapa CHECK; anonim oturumda `device_id` NULL zorunlu; cihaz oturumu kod/TTL/ad kuralları talep yolu
+gibi (kod yok, 60 sn ±5, `customer_name` PENDING INSERT'te, 1 karakter ad serbest). **§3.6 firma silme sırası değişmeli:** cihazlar
+oturumlardan sonra silinir; `device_id` NULL'lama yolu TTL CHECK'ine çarpar.
+
+K2/K3/K4 için: grant EXISTS sorgusunda `g.tenant_id = d.tenant_id` yazın (UQ tam eşitlik); PENDING cihaz oturumu `expires_at =
+created_at + 60 sn`, `active_code` NULL, `customer_id` = cihazın müşterisi; admit `mode='UNATTENDED'`; outbox `UNATTENDED_STARTED`
+yalnız `session_id`, `UN_*` yalnız `event_id` ile.
+
+Kırılan mevcut testler (düzeltme sahibi K4 / ilgili paket; K0 dokunmadı):
+
+- `typecheck`: `src/notify/outbox.ts` 248/250 (`request_id` artık NULL olabilir — K4). `src/auth/routes.ts` 3 hata paralel P27a
+  contracts değişikliğinden (K0 dışı).
+- `test:int` 804/810: `session-history-p8` ikili CHECK sayısı 50 → **53** (yeni: revoke_reason, revoked, kind_anchor);
+  `tenant-purge-meta-p16` iki test (yeni tablolar + `trusted_devices` adım/istisna listesine — K4); `pt-surface`, `tenant-isolation`,
+  `tenants-p9` paralel P27a işinden (`forget-devices` rotası, `mfaRememberDevice`), K0 dışı.
+- Server unit 442/442. Seed OK (cihaz seed'i eklenmedi: gerçek Ed25519 anahtarı olmadan sahte cihaz yanıltıcı olur).
+
+### P27 K5 — Windows gözetimsiz erişim servisi (Go) — backend-dev — 2026-11-15
+
+AC: 273 (kurulum/kayıt, olay günlüğü), 274 (kurulum/kaldırma/yeniden başlatma), 295, 338 (boru kimliği), 340, 341.
+Kaynak: `docs/mimari-p27.md` §4.4, §5.1–5.7, §9 K5, §15, r3 (D-P27-r2-1); sözleşme `packages/contracts/src/ws-device.ts` (K1).
+
+#### Dosyalar (hepsi yeni; mevcut paketlerde değişiklik yok)
+
+- `apps/agent-win/cmd/noktadestek-servis/main.go`: ilk deyim `dllsafe.Harden()`, kip ayrıştırma, `--service`, `--install`,
+  `--uninstall`, `--enable`. K6/K7 kancaları: `runHelper`, `runUI`, `installUI`, `uninstallUI` (boşken `exitUnavailable`).
+- `internal/servis/` platformsuz: `wire.go` (`/ws/device` tipleri, strict çözüm, sözleşme denetimi), `wsdevice.go` +
+  `wsdevice_io.go` (istemci, meydan okuma, 1-2-4-…-30 sn + %20 titreşim, 4401/4403/4409), `key.go` (Ed25519, DPAPI geçici →
+  SYSTEM taşıma, imza dizesi, `Origin`), `core.go` (`helperMu`: yerel anahtar + yardımcı yaşam döngüsü), `pipecmd.go` (boru
+  komut süzgeci), `register.go` (kayıt istemcisi), `events.go` (1001–1005), `mode.go` (kipler, adlar, SDDL, tırnaklı komutlar),
+  `acl.go` (ACE kümesi karşılaştırması).
+- `internal/servis/helperio/helperio.go`: servis ↔ yardımcı sözleşmesi (boru JSON girdisi, çıkış kodu = neden). Yalnız
+  standart kütüphane; K6 bunu içe aktarır (yardımcının `internal/servis`'i içe aktarması gerekmez).
+- `internal/servis/*_windows.go`: `svc_windows.go` (SCM, açılış denetimleri, WTS konsol değişimi), `registry_windows.go`
+  (HKLM, `RegNotifyChangeKeyValue`, Run/Uninstall), `pipe_windows.go` (sunucu), `pipeclient_windows.go` (istemci: SQOS +
+  PID doğrulama), `eventlog_windows.go`, `launch_windows.go` (kısıtlı jeton, job, öznitelikler), `key_windows.go` (DPAPI,
+  `diag.Dir` üzerinden dosya), `acl_windows.go` (atomik klasör, açılış doğrulaması), `install_windows.go`,
+  `uninstall_windows.go`, `signed_windows.go` (WinVerifyTrust), `paths_windows.go`.
+- Testler: `wire_test.go` (K1 fikstürü `fixtures/ws-device.json` valid/invalid + `authMessage`), `wsdevice_test.go` (TLS
+  httptest sunucusu: imza doğrulama, Origin'siz, connect, revoked, 4403), `key_test.go`, `core_test.go` (eşzamanlı
+  disable yarışı ×200), `pipecmd_test.go`, `register_test.go`, `mode_test.go`, `acl_test.go`, `boundary_test.go` (AST:
+  `main` ilk çağrı dllsafe; `InsecureSkipVerify`/`os.Getenv` yok — `internal/servis`, `internal/unattended`, cmd),
+  `helperio/helperio_test.go`.
+
+Bağımlılık eklenmedi (`x/sys/windows` `svc`, `svc/mgr`, `svc/eventlog`, `registry`; `coder/websocket`; `crypto/ed25519`).
+
+#### Tasarımdan sapmalar (gerekçeli)
+
+1. **Kurulum sırası:** güvenli veri klasörü (yeniden adlandırma + atomik oluşturma) kayıt isteğinden **önce** hazırlanır;
+   §5.3'te "başarıda" sonrası yazılıydı. Gerekçe: klasör güvensizse ya da D-P27-r2-1 yarışı oluşursa tek kullanımlık kod boşa
+   harcanmaz; `device.key.tmp` yine yalnız atomik oluşturma başarılıysa yazılır.
+2. **Var olan klasör her durumda kenara alınır** (`.eski-<zaman>`), yalnız güvensizken değil. Gerekçe: r3 kuralı
+   (`ERROR_ALREADY_EXISTS` = kurulum hatası) ile güvenli ama artık bir klasör kurulumu kalıcı olarak engellerdi; eski anahtar
+   dosyası da yeniden kullanılmaz. Olay 1004 `folder_renamed` yazılır.
+3. **Boruda `unregister` komutu** (§5.4 "yalnız status ve disable" ↔ §5.3 "boruyla servise unregister" çelişkisi): komut
+   vardır ama yalnız **yükseltilmiş** istemci jetonundan kabul edilir (`AuthorizePipe`); standart kullanıcı cihaz kaydını
+   sunucudan düşüremez. `enable` borudan her durumda reddedilir.
+4. **Boru DACL'ında INTERACTIVE erişimi `0x120083`** (okuma/yazma verisi + öznitelik okuma + eşzamanlama), `GRGW` değil:
+   genel yazma `FILE_APPEND_DATA` = `FILE_CREATE_PIPE_INSTANCE` içerir; standart kullanıcı ek örnek açıp istemcileri
+   karşılayabilirdi (FIRST_PIPE_INSTANCE yalnız ilk örneği korur). İstemci de `GENERIC_WRITE` istemez (K7 dikkat).
+5. **`servis.log` yazılmadı.** `diag.Log` dosya adı sabit (`tanilama.log`) ve yükseltilmiş süreçte kapalıdır (CWE-59);
+   paket değiştirilmeden kullanılamıyor. Servis hataları olay günlüğüne 1004 (durum değişiminde bir kez) olarak yazılır.
+   Açık nokta: gerekirse ayrı görevde `diag`'a ad parametresi.
+6. **Yardımcıya sunucu adresi borudan verilmez**; yardımcı aynı ikilideki `config.Load()`'u kullanır (adres yalnız ldflags,
+   D-P27-2 — ikinci kaynak yok). Girdi: `sessionId`, `ticket`, `techName`, `tenantName`, `techIp`, `indicatorText`
+   (sunucudan, K1 `connect.indicatorText`; TEST öneki dahil), `expiresInSec`.
+7. **`connect.result` yalnız ret durumunda** gönderilir (`ok:false` + neden): yerel kapalı/meşgul/konsol yok/başlatma hatası
+   anında; `indicator_failed`/`helper_failed`/`no_console` çıkış kodlarında yardımcı bitince. `ok:true` gönderilmez (başarı
+   yardımcının `/ws/guest` katılımıdır). Sözleşme ikisine de izin verir. Her yardımcı bitişinde ayrıca `session.closed`.
+8. **HKLM\SOFTWARE\NoktaDestek\Servis ACL'ı** HKLM\SOFTWARE'den devralınır (SYSTEM/Administrators yazma, Users okuma);
+   ayrıca SD yazılmadı — mimarinin istediği küme varsayılanla aynı.
+9. `--uninstall` yükseltilmemiş açılırsa kendini `runas` ile yeniden başlatır; Program Files'tan çalışıyorsa `%TEMP%`
+   kopyasından devam eder (`MoveFileEx(DELAY_UNTIL_REBOOT)`). `--install`/`--enable` kendini yükseltmez (K7 UAC ile çağırır).
+10. Yardımcı kesilince (`TerminateProcess`) çıkış kodu `30`; `session.closed.reason` serviste tutulan nedendir
+    (`local_disabled`, `device_revoked`, `server`, `session_changed`, `service_stop`).
+11. Açılış denetimi (klasör ACL, HKLM kaydı, anahtar) başarısızsa servis **durmaz**: `/ws/device`'a bağlanmaz, yardımcı
+    başlatamaz, olay 1004 yazar; boru `status`=`unsafe` ve `disable` çalışmaya devam eder (SCM yeniden başlatma döngüsü yok).
+
+#### K6 / K7 / K9 için arayüz
+
+- K6: `helperio.Read(os.Stdin)`; çıkış kodları `helperio.Exit*`; `--helper` kancası `runHelper(cfg)` (main.go'ya bir satır).
+  Yardımcının `LocalSystem` + ebeveyn servis denetimi ve jeton ayrıcalık denetimi K6'dadır (beklenen: yalnız
+  `SeChangeNotifyPrivilege`).
+- K7: `servis.CallPipe(cmd)` (SQOS IDENTIFICATION + `GetNamedPipeServerProcessId` = `servis.ServicePID()`; uyuşmazlıkta
+  `ErrServiceUnverified`, metin `ServiceUnverifiedText`), "Kapalı" için `servis.RegSwitch{}.Enabled()` (HKLM),
+  `servis.InstallUI` (`AskCode(prev)` — önceki hata metniyle yeniden sorma, `ShowError`, `ShowDone`), `servis.UninstallUI`
+  (`UninstallConfirmText`), kip kancası `runUI(mode, cfg)` (pencere + `--tray`). Boru `status` durumları: `connecting`,
+  `online`, `rejected`, `revoked`, `offline`, `unsafe`, `session` (+ `techName`).
+- K9: ikinci ikili `./cmd/noktadestek-servis` (aynı ldflags: `config.serverURL`, `config.version`); manifest asInvoker;
+  `trace-check.ps1 -Servis` denetim listesi §5.3 (ImagePath `"…\NoktaDestekServis.exe" --service`).
+
+#### Doğrulama (docker golang:1.26, 2026-11-15)
+
+- `gofmt -l .` boş; `go vet ./...` (linux) ve `GOOS=windows GOARCH=amd64 go vet ./...` temiz.
+- `go test -race -count=1 ./...` (linux): 23 paket ok, 0 hata; `internal/servis` + `helperio` 39 test geçti.
+- `GOOS=windows go test -c` (`internal/servis`, `helperio`) derlendi; `GOOS=windows go build ./cmd/noktadestek-servis`
+  (ldflags'lı) derlendi.
+- `staticcheck` v0.8.2 `./...` linux + windows/amd64 temiz.
+- `internal/win` S6-1 (`uintptr(unsafe.Pointer)` yalnız `Call` argümanında) testi yeşil — `SetInformationJobObject` bu
+  nedenle `LazyProc.Call` ile çağrılır.
+
+#### Windows elle test adımları (K11 kanıtı; K7 kancaları bağlandıktan sonra)
+
+1. **Squatting (AC-340):** standart kullanıcıyla `%ProgramData%\NoktaDestek Servis` ve içine `Gelen` oluştur → kur → eski
+   klasör `NoktaDestek Servis.eski-*`, yenisinde `icacls`: sahip BA, `(P)` korumalı, yalnız SY/BA tam (+ `Gelen` AU RX);
+   olay 1004 `folder_renamed`.
+2. **Yarış (D-P27-r2-1):** yeniden adlandırmadan hemen sonra klasörü yeniden yaratan döngü (standart kullanıcı PowerShell)
+   çalışırken kur → kurulum "Klasör güvenli değil" ile durur, `device.key.tmp` yazılmaz, kayıt kodu harcanmaz.
+3. **Açılış doğrulaması:** kurulu cihazda `Gelen` ACL'ına Users yazma ekle → servisi yeniden başlat → olay 1004
+   `folder_acl`, panelde çevrimdışı, boru `status`=`unsafe`. `Gelen` yerine junction → aynı sonuç.
+4. **Anahtar (AC-340):** ilk açılıştan sonra `device.key.tmp` yok; yönetici PowerShell'inde `device.key` DPAPI ile
+   çözülemez (yalnız SYSTEM, `psexec -s` ile çözülür).
+5. **Jeton dökümü (AC-341):** bağlantı sırasında Process Explorer → yardımcı `NoktaDestekServis.exe --helper`: kullanıcı
+   SYSTEM, oturum = konsol, ayrıcalıklar yalnız `SeChangeNotifyPrivilege`; Job sekmesi: Active Process Limit 1,
+   Kill on close; yardımcıdan `cmd.exe` açma denemesi başarısız. Handles: devralınan yalnız boru okuma ucu.
+6. **ImagePath (D-P27-2):** `sc qc NoktaDestekServis` → `"C:\Program Files\NoktaDestek Servis\NoktaDestekServis.exe"
+--service`, AUTO_START; `sc qfailure` → 3× restart/10000 ms.
+7. **Yerel kapatma (AC-295):** standart kullanıcı tepsiden kapat → ≤ 2 sn görüntü kesilir; olay 1003 kullanıcı adı jetondan;
+   `--enable` UAC ister; `reg add … LocalEnabled 0` (yönetici) da aynı kesmeyi yapar.
+8. **Boru (AC-338):** servis durdurulmuşken başka süreç `\\.\pipe\NoktaDestekServis` adını alsın → servis başlatılınca olay
+   1004 `pipe_squatted`; K7 istemcisi sahte sunucuya "Servis doğrulanamadı" der. Standart kullanıcı `{"cmd":"unregister"}`
+   → `forbidden`.
+9. **Yeniden başlatma (AC-274):** cihaz yeniden başlatılır → panelde ≤ 2 dk çevrimiçi (oturum açılmadan).
+10. **Kaldırma (AC-274):** Ayarlar → Uygulamalar → kaldır → UAC → onay → servis, Run, Uninstall, HKLM, olay kaynağı,
+    `%ProgramData%\NoktaDestek Servis`, Program Files klasörü yok; `trace-check.ps1 -Servis` temiz; panelde cihaz iptal
+    (`UNINSTALLED`); olay 1005.
+
+#### Açık noktalar
+
+- K7 gelene kadar `--install`, `--uninstall`, pencere ve tepsi `exitUnavailable` döner; K6 gelene kadar yardımcı
+  başlatılınca hemen çıkar → sunucuya `connect.result{helper_failed}`.
+- `servis.log` (madde 5) ve HKLM anahtarına açık SD (madde 8) güvenlik kod turunda değerlendirilmeli.
+- `os.RemoveAll` junction'ı izlemez (Go ≥ 1.23 davranışı) varsayımı Windows elle test 10'da doğrulanmalı.
+
+### P27 K6 — Gözetimsiz yardımcı süreç + gösterge (Go) — backend-dev — 2026-11-15
+
+AC: 273 (tam erişim: otomatik kontrol/dosya/monitör), 274 (yardımcı kısmı), 294, 340 (`Gelen` gerçek yol), 341 (jeton/ebeveyn
+denetimi, derleme sınırı), 342 (gösterge metni/TEST — masaüstü değişimi K6b). Kaynak: `docs/mimari-p27.md` §5.2, §5.5, §5.6, §9 K6.
+
+#### Dosyalar
+
+- Yeni `apps/agent-win/internal/unattended/helper/`: `helper.go` (Run: gösterge → doğrulama → `flow.RunTicket`; çıkış kodu),
+  `headless.go` (arayüzsüz `flow.UI`: dosya/monitör otomatik kabul, paylaşım = birincil, sohbet/işaretleme yok),
+  `checks.go` (platformsuz kurallar: ayrıcalık izin listesi, `samePath`, gösterge düzeni doğrulaması), `main_windows.go`
+  (`Main` + P20 paketleriyle `flow.Deps`), `indicator_windows.go` (gösterge), `process_windows.go` (LocalSystem, ayrıcalık,
+  ebeveyn = SCM servis PID'i, konsol oturumu), `incoming_windows.go` (`Gelen` sabitleme + yazım denetimi).
+  Testler: `helper_test.go`, `headless_test.go`, `checks_test.go`, `boundary_test.go`.
+- Yeni `apps/agent-win/cmd/noktadestek-servis/helper.go`: `func init() { runHelper = helper.Main }` (main.go'ya dokunulmadı).
+- `internal/flow` (+12 satır): `Deps.Unattended` (control.request → arayüzsüz `GRANTED{UNATTENDED}`, kısayol şartı yok),
+  `Deps.CheckDir` → `transfer.Deps.CheckDir`.
+- `internal/transfer` (+17 satır; dosya önceden 340 satırdı): `Deps.CheckDir` — `.part` açılışından ve yerleştirmeden önce
+  çağrılır, hata → ret. Katılımlı oturumda nil (davranış değişmez). Test: `checkdir_test.go`.
+
+Bağımlılık eklenmedi.
+
+#### Tasarımdan sapmalar (gerekçeli)
+
+1. **Dosya adları:** mimarideki `{helper.go, deps.go, indicator.go}` yerine Windows'a özgü kod `*_windows.go`'lara bölündü
+   (Linux testleri için platformsuz çekirdek ayrı). İçerik aynı.
+2. **Gösterge `internal/ui`'den taşınmadı, yardımcıda ayrı yazıldı** (~200 satır, `internal/win` ilkelleriyle). Gerekçe:
+   Go'da derleme sınırı paket düzeyindedir; `ui` paketinin herhangi bir dosyasını kullanmak `MessageBox`/`OpenURL`
+   çağıran dosyaları da kümeye sokar. `ui` paketi değiştirilmedi (K7 paralel çalışıyor). Görünüm AC-103 ile aynı (kırmızı
+   5 px kenar, üst-orta etiket, alfa 235, tıklama geçirgen, yakalamadan hariç); etiket genişliği metin uzunluğuna göre (≥ 460 px).
+3. **Derleme sınırı yorumu:** `internal/win` `MessageBox`/`OpenURL`/`OpenMailto` işlevlerini ve `ShellExecuteW` proc'unu
+   **tanımlar** (P20 için). `boundary_test.go` bu tanımları atlar, kümedeki herhangi bir başvuruyu (ad, seçici, NewProc dizesi)
+   ve yasak paketleri (`ui`, `tray`, `request`, `launch`, `servis` [helperio hariç], `servisui`, `autorun`, `os/exec`) hata
+   sayar. Yardımcı aynı ikilide (`NoktaDestekServis.exe`) olduğundan sınır çağrı kümesi düzeyindedir, ikili düzeyinde değil.
+4. **Ayrıcalık denetimi "etkin" değil "mevcut"** ayrıcalıklara bakar: devre dışı ayrıcalık süreç tarafından açılabilir.
+   İzin listesi yalnız `SeChangeNotifyPrivilege` (K5 `DISABLE_MAX_PRIVILEGE` ile tutarlı).
+5. **`internal/servis` içe aktarılmaz** (kaldırma kodu `ShellExecute` içerir): servis adı/klasör adları ve `ServicePID` eşi
+   yardımcıda tekrarlandı; `TestNamesMatchServis` sabitlerin eşitliğini denetler.
+6. **Çıkış kodu:** katılım (`hello`) öncesi bağlantı/protokol hatası `helper_failed` (21); katılım sonrası her bitiş `0`
+   (sunucu oturumu zaten yönetir). Oturum sırasında gösterge doğrulanamazsa (1 sn'lik yeniden doğrulama + bir yeniden çizim
+   başarısız ya da WM_DISPLAYCHANGE sonrası çizilemedi) yardımcı `session.end` gönderir, ≤ 1 sn içinde biter, çıkış `20`.
+7. **`Gelen` doğrulanamazsa oturum sürer, tüm dosya teklifleri reddedilir** (fail-closed yalnız dosya için). Klasör oturum
+   boyunca `FILE_SHARE_DELETE` verilmeden açık tutulur (yeniden adlandırılamaz); her yazımda ayrıca `OPEN_REPARSE_POINT` ile
+   açılıp reparse özniteliği ve `GetFinalPathNameByHandle` = `%ProgramData%\NoktaDestek Servis\Gelen` denetlenir (ara bileşen
+   junction'ı gerçek yolu değiştirdiği için yakalanır). `.part` aynı denetimden sonra tam yolla açılır (mimarinin izin verdiği yol).
+8. Kapatma kısayolu ve yerel öncelik kancaları (`input.Start`) kurulmaz; mimari §5.6 gereği yerel anahtar geçerlidir.
+9. `/ws/guest` el sıkışmasına 30 sn üst süre (askıda yardımcı servisi meşgul tutmasın).
+
+#### K6b / K7 için kancalar
+
+- K6b: masaüstü izleme `helper.Run`'a eklenecek; gösterge yeniden çizimi için `winIndicator.rebuild()` ve doğrulama
+  `verifyLayout` hazır. Önce yakalama/girdi durdur → `rebuild` → devam sırası K6b'dedir (bu pakette yakalama durdurulmaz).
+  Gösterge şu an `winsta0\default` masaüstünde; `SetThreadDesktop` K6b. Ek ayrıcalık gerekirse `checks.go`
+  `allowedPrivileges`'a adıyla eklenir (test listeyi sabitler; değiştirmek bilinçli olmalı).
+- K7: ortak dosya yok; `cmd/noktadestek-servis/helper.go` ayrı.
+
+#### Doğrulama (docker golang:1.26, 2026-11-15)
+
+- `gofmt -l .` boş; `go vet ./...` linux + `GOOS=windows GOARCH=amd64` temiz.
+- `go test -race -count=1 ./...`: 25 paket ok, 0 hata (yeni: `unattended/helper` 14 test, `transfer` +2).
+- `GOOS=windows go test -c` (`unattended/helper`, `flow`, `transfer`) derlendi; `GOOS=windows go build` (ldflags'lı)
+  `./cmd/noktadestek-servis` + `./cmd/noktadestek` derlendi.
+- `staticcheck` v0.8.2 `./...` linux + windows/amd64 temiz.
+
+#### Windows elle test adımları (K6; staging ikilisi, yönetici PowerShell)
+
+1. Kurulu servis + kayıtlı cihaz; panelden "Bağlan" → tek ve çift monitörde her monitörde kırmızı kenarlık + üst-orta etiket,
+   metin `TEST — imzasız · Uzaktan bağlantı: <teknisyen> — <firma>`; teknisyen görüntüsünde çerçeve görünmez; etikete
+   tıklama alttaki pencereye geçer; Alt+F4/görev çubuğunda pencere yok.
+2. Teknisyen "Kontrol iste" → cihazda diyalog açılmadan kontrol başlar; konsol kaynağı "Gözetimsiz".
+3. Dosya gönder → `C:\ProgramData\NoktaDestek Servis\Gelen\` altında, MOTW (`Get-Content -Stream Zone.Identifier`) var.
+4. Oturum sırasında `Gelen`'i yeniden adlandırmayı dene (yönetici) → paylaşım ihlali. Oturum yokken `Gelen`'i silip yerine
+   junction kur (`mklink /J`) → bağlan, dosya gönder → reddedilir (REJECTED), hedefe yazılmaz.
+5. Oturum sırasında monitör çıkar/ekle → gösterge yeni düzende yeniden çizilir; çizilemezse oturum `indicator_failed` biter.
+6. `PsExec -s NoktaDestekServis.exe --helper` (ebeveyn servis değil) → anında çıkış 21, pencere yok; standart kullanıcıyla
+   `--helper` → çıkış 21. Process Explorer: yardımcı jetonunda yalnız `SeChangeNotifyPrivilege`, job içinde.
+7. Gösterge pencerelerinden birini (Process Hacker ile) gizle/kapat → ≤ 2 sn içinde yeniden çizilir; çizilemezse oturum biter.
+8. Yerel anahtar "Kapat" → yardımcı ≤ 2 sn içinde kesilir, gösterge kalkar (K5 yolu).
+
+Açık noktalar: kilit ekranı/UAC'de gösterge ve O-P27-4 sırası K6b; gösterge metni sunucudan geldiği gibi gösterilir
+(TEST öneki sunucunun `deviceIndicatorText`'inde), istemci kendi imza durumundan önek eklemez.
+
+### P27 K7 — gözetimsiz servis ayar penceresi, tepsi, kurulum/kaldırma arayüzü (Go) — backend-dev — 2026-11-15
+
+AC: 274 (kurulum/kaldırma UI), 295 (yerel kapatma), 338 (boru PID doğrulama, "Servis doğrulanamadı", "Kapalı" HKLM'den),
+273 (kur). Kaynak: `docs/mimari-p27.md` §5.1, §5.3, §5.4, §9 K7, §15 O-P27-1; K5 arayüzü ("P27 K5" bölümü).
+
+#### Dosyalar
+
+- Yeni `internal/servisui/`: `text.go` (platformsuz: `Snapshot` → `View` durum önceliği, metinler, ipucu, ad temizleme,
+  `Merge`, UTF-16 kesme), `state_windows.go` (HKLM kayıt/`LocalEnabled`/`DisplayVersion` okuma, `servis.CallPipe`
+  sınıflama, `disable`, UAC `runas` başlatma, kurulum sonrası tepsi başlatma), `window_windows.go` (`Run` kancası + tek
+  ayar penceresi, 2 sn yoklama), `tray_windows.go` + `tray_icon_windows.go` + `tray_run_windows.go` (simge, menü, döngü,
+  kullanıcı başına tek örnek), `code_dialog_windows.go` (`InstallDialog` = `servis.InstallUI`, `UninstallDialog` =
+  `servis.UninstallUI`). Testler: `text_test.go` (Linux, AC adlı), `servisui_windows_test.go` (Windows derlenir).
+- Yeni `internal/ui/panel_windows.go`: P20 form altyapısının dışa açık ince kabuğu (`ui.OpenPanel`, `Panel.SetText/Show/
+Enable/Text/Raise/Close/Done/Handle`). **Mevcut `ui` dosyalarında değişiklik yok**; MessageBox/ShellExecute/URL yok.
+- `cmd/noktadestek-servis/main.go`: yalnız import + üç kanca satırı (`runUI = servisui.Run`, `installUI =
+&servisui.InstallDialog{}`, `uninstallUI = servisui.UninstallDialog{}`); `runHelper` satırına dokunulmadı.
+- `internal/servis/uninstall_windows.go`: `removeProgramDir` (Program Files klasörü ≤ ~6 sn yeniden denenir).
+
+Bağımlılık eklenmedi.
+
+#### Davranış
+
+- **Pencere** (argümansız ve tepsi "Ayarlar…" — aynı kod): logo, durum (Kurulu değil / Servis doğrulanamadı / Yerel
+  olarak kapalı / İptal edildi / Bağlantı var: <teknisyen> / Çevrimiçi / Bağlanamıyor), açıklama, destek firması,
+  müşteri, cihaz kimliğinin ilk 8 karakteri; düğmeler "Kur…" | "Gözetimsiz erişimi kapat" | "Gözetimsiz erişimi aç…",
+  sürüm farkında "Güncelle…", "Kaldır…". Öncelik: kurulu değil → doğrulanamadı → yerel kapalı → iptal → bağlantı →
+  çevrimiçi → bağlanamıyor. "Kapalı" yalnız HKLM `LocalEnabled`'dan (okunamazsa kapalı). Okumalar UI iş parçacığı
+  dışında; boru meşgulse önceki durum korunur.
+- **Kapatma**: boru `disable` (standart kullanıcı, `CallPipe` — SQOS IDENTIFICATION + sunucu PID = SCM PID; erişim
+  GENERIC_WRITE değil K5'teki dar maske). Uyuşmazlıkta "Servis doğrulanamadı". **Açma/Kur/Güncelle/Kaldır**: aynı ikili
+  `runas` ile `--enable` / `--install` / `--uninstall`; UAC reddi hata sayılmaz.
+- **Tepsi** (`--tray`): ipucu "Gözetimsiz erişim: Açık / Kapalı / Bağlantı var: <ad>" (diğer durumlarda durum metni),
+  menü: durum satırı (pasif) · kapat ya da aç… · Ayarlar… (varsayılan); "Çık" yok, WM_CLOSE yok sayılır. 3 sn yoklama +
+  `servis.WatchLocal` (değişimde anında). Kurulu değilse/kayıt silinince çıkar. Tek örnek `Local\NoktaDestekServis.Tray.
+<SID özeti>` (P20 adından ayrı; yabancı sahipli adda yine başlar — P20 G-P20-16 kalıbı).
+- **Kurulum kutusu**: tek alan (≤ 32 karakter); kayıt boyunca açık ve pasif ("Kaydediliyor…"), hata metniyle yeniden
+  sorar; bitince ≈ 10 sn çevrimiçi beklenir → "Kuruldu — çevrimiçi." ya da "Kuruldu — sunucuya bağlanılıyor…" + firma/
+  müşteri/cihaz. Kaldırma onayı `servis.UninstallConfirmText`, varsayılan "Hayır".
+
+#### Tasarımdan sapmalar (gerekçeli)
+
+1. **`internal/ui`'ya yeni dosya** (`panel_windows.go`): §9 "bu paketlerde dosya değişmez" — mevcut dosyalar değişmedi,
+   P20 davranışı aynı. Gerekçe: tema tablosu (AC-247, DESIGN "tek tablo"), DPI ve logo kutusu yalnız `ui` içinde ve
+   dışa kapalı; kopyalamak tek tablo kuralını bozardı.
+2. **P20 `tray.Icon` kullanılmadı**, yalnız `tray.IconPixels`: menüsü sabit (Destek iste / Aç / Çık — "Çık" §5.4'te
+   yasak) ve tek örnek mutex'i P20 ile aynı ad (iki ürün aynı kullanıcıda çakışırdı). Simge/menü kodu `servisui`'de.
+3. **K5 dosyasında küçük değişiklik** (`uninstall_windows.go` `removeProgramDir`): tepsi/pencere süreçleri kurulu
+   ikiliden çalışır; HKLM kaydı silinince ≤ 3 sn'de çıkarlar ama `os.RemoveAll` hemen koşuyordu → Program Files kalıntısı
+   (AC-274 "iz bırakmadan"). ≤ 24 × 250 ms yeniden deneme.
+4. **Kurulumdan hemen sonra tepsi**: bağımsız pencere, kurulu-değil → kurulu geçişinde kurulu ikiliyi `--tray` ile
+   (yükseltmesiz) başlatır; HKLM Run yalnız sonraki oturumda çalışırdı. Yükseltilmiş `--install` süreci tepsi başlatmaz.
+5. Pencere süreç başına tek değil (Başlat menüsünden ikinci açılış ikinci pencere); tepsi süreci içinde tektir. Sadelik.
+6. Ek durum açıklamaları (ör. `unsafe` → "klasör izinleri bozuk", `rejected`) "Bağlanamıyor" altında açıklama satırıdır;
+   durum listesi §5.4 ile aynı + AC-338 "Servis doğrulanamadı".
+
+#### Doğrulama (docker golang:1.26, 2026-11-15)
+
+- `gofmt -l` (servisui, ui, servis, cmd) boş. Not: paralel K6 dosyaları `internal/flow/session_server.go`,
+  `internal/unattended/helper/{headless.go, helper_test.go}` gofmt dışıydı (K6'nın; dokunulmadı); o anda tüm ağaç
+  `GOOS=windows go vet` K6 `helper_test.go:111` (`input` yeniden bildirimi) yüzünden düşüyordu.
+- `GOOS=windows go vet` servisui/ui/servis/tray/cmd ve `go vet` (linux) temiz; `GOOS=windows go build
+./cmd/noktadestek-servis` derlendi.
+- `go test -race -count=1 ./...` (linux): 25 paket ok, 0 hata; `internal/servisui` 13 test (AC-274/295/338 adlı).
+  `internal/win` S6-1 (`uintptr(unsafe.Pointer)` yalnız Call argümanında) yeşil.
+- `GOOS=windows go test -c`: servisui, ui, servis, tray derlendi.
+- `staticcheck` v0.8.2 linux + windows/amd64 (servisui, servis, ui, tray, cmd) temiz.
+- Dosyalar ≤ 300 satır, işlevler ≤ 40 satır.
+
+#### Windows elle test adımları (K11 kanıtı)
+
+1. **Kur (AC-273/274):** standart kullanıcı İndirilenler'den çift tık → "Kurulu değil", "Kur…" → UAC (yönetici bilgisi)
+   → kod kutusu; hatalı kod → kırmızı hata metniyle yeniden sorar, kod harcanmaz; geçerli kod → "Kaydediliyor…" →
+   "Kuruldu — çevrimiçi." + firma/müşteri/cihaz. Pencere ≤ 2 sn'de "Çevrimiçi"; tepsi simgesi hemen görünür.
+   UAC "Hayır" → pencerede hata yok, durum değişmez. Kutuda "Vazgeç"/Esc/X → kurulum yok, klasör kalmaz.
+2. **Yerel kapatma (AC-295):** bağlantı sürerken standart kullanıcı tepsi → "Gözetimsiz erişimi kapat" → ≤ 2 sn görüntü
+   kesilir; ipucu "Gözetimsiz erişim: Kapalı"; pencere "Yerel olarak kapalı" ve "Gözetimsiz erişimi aç…"; olay 1003
+   kullanıcı adı. "aç…" → UAC; standart kullanıcı yönetici bilgisi olmadan açamaz. Yönetici `reg add … LocalEnabled
+/t REG_DWORD /d 0 /f` → tepsi/pencere anında "Kapalı" (boru değil HKLM).
+3. **Boru kimliği (AC-338):** servisi durdur; sahte boru sunucusu (`\\.\pipe\NoktaDestekServis`, ör. PowerShell
+   `NamedPipeServerStream`) çalıştır, servisi başlatmadan pencereyi aç → "Servis doğrulanamadı"; "kapat" → aynı metin;
+   sahte sunucuya istek satırı yazılmaz (sunucu tarafında okunan veri yok). Sahte sunucu kapatılıp servis başlatılınca
+   durum düzelir.
+4. **Bağlantı göstergesi:** teknisyen bağlıyken ipucu "Gözetimsiz erişim: Bağlantı var: <ad>", menü ilk satırı aynı.
+5. **Tek tepsi:** `NoktaDestekServis.exe --tray` ikinci kez → ikinci simge yok; P20 tepsisi (NoktaDestek.exe) açıkken
+   ikisi birlikte görünür. Görev yöneticisinden "Pencereyi kapat" tepsiyi kapatmaz; menüde "Çık" yok.
+6. **Güncelle:** daha yeni sürüm ikiliyi İndirilenler'den aç → "Güncelle…" → UAC → servis yeniden başlar, cihaz kimliği
+   aynı.
+7. **Kaldır (AC-274):** pencere "Kaldır…" (veya Uygulamalar) → UAC → onay (varsayılan "Hayır") → açık tepsi ve pencere
+   ≤ 3 sn'de kapanır; `C:\Program Files\NoktaDestek Servis` kalmaz (tepsi açıkken de); `trace-check.ps1 -Servis` temiz.
+8. **Tema/DPI:** Windows koyu/açık modda pencere ve kod kutusu okunaklı (logo açık zeminde), %150 ölçekte kesik yok.
+
+#### frontend-dev için
+
+Sözleşme değişikliği yok (yalnız Windows ikilisi).
+
+### P27-K2 — gözetimsiz erişim REST katmanı (backend-dev, 2026-11-15) — KISMİ, devredildi
+
+Kaynak: `docs/mimari-p27.md` r2+r3 §4.2, §4.5, §7, §9 K2; koordinatör devir notları (K0/K1). Commit yok.
+
+**Yapılan (kod):**
+
+- Yeni `apps/server/src/unattended/`: `gate.ts` (mod + imza + SHA listesi), `repo.ts` (liste/ayrıntı, `lockDevice` FOR UPDATE,
+  grant/adres sorguları, `activeDeviceCount`), `service.ts` (`DeviceLink` arayüzü + `OFFLINE_LINK`, liste keyset (ad, id),
+  ayrıntı, `canConnect`/`connectBlockedReason` sırası no_grant → unsigned → offline → local_disabled → no_contacts → smtp,
+  PUT grants (cihaz kilidi, ekleme varsa step-up, aday doğrulama, ilk grant `verified_at`, audit eski→yeni + `selfGrant`, commit
+  sonrası `grantsRemoved` + diğer `manage` sahiplerine e-posta), revoke (kilit, iptal üçlüsü + `last_ip=NULL`, grant DELETE, audit,
+  commit sonrası `revoked`; ikinci iptal 409)), `registration.ts` (kod üretimi 80 bit Crockford, HMAC `unattended-code` sabit
+  sürüm 1; üretimde 404 → 409 mod → 409 adres → 409 SMTP; bekleyen liste; iptal; `POST /register`: AGENT istemci kuralı, IP 10/sa,
+  IP başına 5 yanlış kodda 15 dk kilit, sistem geneli yalnız başarısız 100/sa, kod FOR UPDATE → kapı → cihaz INSERT → koşullu
+  tüketim → `UN_DEVICE_REGISTERED` outbox → audit; commit sonrası `manage` sahiplerine e-posta; açık anahtar çakışması 409),
+  `contacts.ts` (GET/PUT; müşteri FOR UPDATE, fark yoksa yazma yok, DELETE+INSERT, eski ∪ yeni e-postalara `UN_CONTACTS_CHANGED`,
+  maskeli audit + `stepUp:true` + `eventId`), `download.ts` (`AgentBinary` ile 503 fail-closed, oturumlu akış), `mail.ts` (iç
+  güvenlik e-postaları + alıcı süzgeci + `smtpWillChange`), `routes.ts` (panel eklentisi + ayrı kimliksiz kayıt eklentisi; yazma
+  kovası 30/dk/kullanıcı).
+- `app-routes.ts`: iki eklenti `/api/v1/unattended` altında (K3 `link` seçeneğini buradan verir).
+- `env.ts`: `DEPLOY_ENV` (varsayılansız; production'da ve mod ≠ off iken zorunlu), `UNATTENDED_MODE` (varsayılan off; unsigned ⇔
+  staging), `UNATTENDED_SIGNED_SHA256` (signed'da zorunlu), `UNATTENDED_AGENT_PATH`, `UNATTENDED_AGENT_SHA256`; türetilmiş
+  `unattendedSignedSha256` kümesi. `.env.example` / compose / runbook K9'da.
+- `ops/metrics.ts`: `rs_unattended_{connect,device_auth,register,sessions_ended,device_replaced}_total` tanımları.
+- `tenants/routes.ts` (+ `tenants/service.ts`, `tenants/settings.ts` yalnız `auditExtra` parametresi): etkin cihaz varken SMTP
+  değişen PUT'ta `requireStepUp`; kayıttan ÖNCE eski yapılandırmayla diğer `unattended.manage`/`settings.edit` sahiplerine iç
+  e-posta (O-P27-r2-1); mevcut ayar audit'ine `unattendedDevices`, `smtpChangeNotice: sent|failed`.
+- K4'ten öne alınanlar (koordinatör kararı): `notify/outbox.ts` typecheck düzeltmesi — işçi yalnız `request_id IS NOT NULL`
+  satırları talep eder (yeni türlerin teslimi K4); `jobs/tenant-purge-repo.ts` SESSIONS adımına sırayla contacts, codes, grants,
+  devices (cihaz silme `tenant-purge-parts.ts` `unattendedDevices`: kalan oturumu olan cihaz o partide atlanır — FK hatası yok);
+  `jobs/retention-repo.ts` anonimleştirmede `device_id = NULL`.
+- `lib/crypto.ts`: `MacPurpose` += `"unattended-code"` (tek satır).
+
+**Tasarımdan sapmalar (gerekçeli):**
+
+- `POST /devices/:id/connect` yazılmadı: hub/oda gerektirir, koordinatör K3'e bıraktı. K3 ön koşul zincirinde `service.ts`
+  `blockedReason`, `repo.lockDevice`, `gate.allows` ve `mail.ts` (kurtarma koduyla bağlantı iç e-postası) yeniden kullanılabilir.
+- Canlı taraf `DeviceLink` arayüzüyle soyutlandı (K3 hub'ı uygular, `unattendedRoutes` `{ link }` seçeneğine verir); verilmezse
+  hiçbir cihaz çevrimiçi değil. Çevrimiçi göstergesi (`rs_unattended_devices_online`) K3'te kaydedilir.
+- Liste imleci = son cihazın id'si (sözleşme imleci ≤ 64 karakter; ad+id sığmaz), sunucu imleç cihazının adını okur.
+- İç e-posta şablonları `unattended/mail.ts`'te (mail/templates.ts paralel P27a'da); K4 isterse taşır. Olay e-postalarının
+  içeriği için K4 işçisi audit'teki `eventId`'yi kullanabilir (outbox satırında içerik yok).
+- `mail/templates.ts` `esc`/`istanbul` dışa açık olmadığından `unattended/mail.ts`'te küçük kopya var (K4 taşırken birleştirir).
+
+**Bağımlılık:** yok.
+
+**Testler / doğrulama (konteyner `rs-p27-k2-db`, iş sonunda silindi):**
+
+- `pnpm -r`'den server: typecheck 0 hata, lint 0; `pnpm --filter @remote/server test` (unit) 456/456.
+- Güncellenen mevcut testler: `session-history-p8` CHECK 50→53; `tenant-purge-meta-p16` users FK listesi + 6 P27 FK;
+  `test/helpers/tenant-purge.ts` P27 fikstürü (cihaz + grant + adres + kullanılmış kod + cihaz oturumu) ve tablo listesi;
+  `pt-surface` rota anlık görüntüsü (yeni uçlar, `-u`); `env-logger`/`security-p10` (unit) ve `requests-p8b-2`/`whatsapp-admin-p12b`
+  production fikstürlerine `DEPLOY_ENV: "production"`. Yeni yardımcı `test/helpers/unattended.ts` (cihaz/grant/adres/oturum
+  satırları, `fakeLink`, `setSmtp`, `UNSIGNED_ENV`).
+- Entegrasyon (12 dosya): session-history-p8, tenant-purge-meta-p16, tenant-purge-p16, tenants-p9, p19-notify-j3, pt-surface,
+  permissions-ac72-p9, requests-p8b-2, whatsapp-admin-p12b, retention-p13a-job, retention-p16-purge, tenant-isolation →
+  113/114; **kırık 1:** `tenant-isolation` "AC-69 her uç sınıflandırılmış" — yeni `/api/v1/unattended/*` uçları
+  `test/helpers/tenant-matrix.ts` `ROUTE_CLASSES`'ta yok.
+
+**Yapılmayan (devralan ajan için):**
+
+1. `tenant-matrix.ts`: sınıflandırma — `status`, `devices` (liste), `registration-codes` GET/POST, `download` → `scoped`;
+   `POST /register` → `public`; `devices/:id` GET, `grants` PUT, `revoke`, `registration-codes/:id` DELETE, `customers/:customerId/contacts`
+   GET/PUT → `tenant` + `CROSS_TENANT_CASES` (fikstüre A firmasının cihaz/kod/müşteri id'si).
+2. Yeni AC testleri yazılmadı: `test/integration/unattended-api.test.ts` (AC-275, 293, 336, 337, 338 revoke ‖ grants),
+   `unattended-register.test.ts` (AC-273 tek kullanım/eşzamanlı kayıt, AC-297 signed, AC-339 başarısız tavan + IP kilidi,
+   AC-337 outbox + iç e-posta), `env-deploy.test.ts` (AC-342: prod+DEPLOY_ENV yok, prod+unsigned, DEPLOY_ENV yok+signed,
+   staging+unsigned açılır). Çevrimiçi senaryolar için test, `unattendedRoutes`'ı `fakeLink` ile ikinci bir önekte kaydedebilir.
+3. K3: connect ucu (+ kullanıcı başına 20/sa), hub `DeviceLink` uygulaması ve `app-routes.ts`'te `link` verilmesi.
+4. K4: outbox işçisinde `UNATTENDED_STARTED`/`UN_*` teslimi (şimdi PENDING bekler), müşteri anonimleştirmesinde adres silme.
+5. K9: yeni 5 env için `.env.example`, compose (`server`), runbook.

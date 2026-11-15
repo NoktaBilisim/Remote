@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -26,6 +27,8 @@ type UninstallUI interface {
 	Confirm() bool
 	ShowError(msg string)
 }
+
+const programDirTries = 24
 
 // UninstallConfirmText onay metni (K7 aynı metni gösterir).
 const UninstallConfirmText = "Nokta Destek gözetimsiz erişim kaldırılsın mı? Gelen dosyalar klasörü de silinir."
@@ -76,7 +79,18 @@ func uninstallLocal() {
 		_ = os.RemoveAll(d) // junction bağlantının kendisi silinir, hedefi izlenmez (os.RemoveAll, Go ≥ 1.23)
 	}
 	if d, err := ProgramDir(); err == nil {
-		_ = os.RemoveAll(d)
+		removeProgramDir(d)
+	}
+}
+
+// removeProgramDir K7: kullanıcı oturumlarındaki tepsi/ayar penceresi süreçleri kurulu ikiliden çalışır ve HKLM kaydı
+// silinince en geç ~3 sn'de çıkar; ikilinin kilidi kalkana kadar en çok ~6 sn yeniden denenir.
+func removeProgramDir(d string) {
+	for i := 0; i < programDirTries; i++ {
+		if err := os.RemoveAll(d); err == nil {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
 }
 

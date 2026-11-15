@@ -42,7 +42,7 @@ export const NOTIFY_RECIPIENT_KEY_VERSION = 1;
 export const keyVersionOf = (data: Uint8Array): number => data[0] ?? 0;
 
 /** HKDF amaç etiketleri (anahtar ayrımı). */
-type MacPurpose = "recovery-code" | "avatar-url" | "purge-preview" | "web-form-token" | "notify-recipient";
+type MacPurpose = "recovery-code" | "avatar-url" | "purge-preview" | "web-form-token" | "notify-recipient" | "unattended-code";
 
 export class SecretBox {
   private readonly keys: Map<number, Buffer>;

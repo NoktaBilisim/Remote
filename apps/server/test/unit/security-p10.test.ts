@@ -372,6 +372,7 @@ describe("B-P10-3 test kanalı production'da kapalı", () => {
   it("B-P10-3: NODE_ENV=production iken buildApp({mfaSetupEnforcement:false}) hata fırlatır", () => {
     const env = loadEnv({
       NODE_ENV: "production",
+      DEPLOY_ENV: "production",
       PUBLIC_BASE_URL: "https://rs.test",
       DATABASE_URL: "mysql://app:x@db/remote",
       TRUSTED_PROXY_CIDR: "172.30.0.2/32",

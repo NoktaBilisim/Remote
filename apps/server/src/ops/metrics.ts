@@ -106,7 +106,7 @@ export function createMetrics(): Metrics {
   m.counter("rs_calendar_fallback_total", "Kurulamayan mesai takvimi → Europe/Istanbul + SLA yok (P18 S-P18-T12; tenant)");
   m.counter(
     "rs_retention_rows_total",
-    "Saklama işinin değiştirdiği/sildiği satırlar (P13a; kind: sessions|consents|files|requests|customers|bindings|audit|auth_sessions|reset_tokens)",
+    "Saklama işinin değiştirdiği/sildiği satırlar (P13a; kind: sessions|consents|files|requests|customers|bindings|audit|auth_sessions|reset_tokens|trusted_devices)",
   );
   m.counter("rs_retention_failures_total", "Saklama işinde başarısız adımlar (P13a; firma adımı, global adım, audit yazımı)");
   m.counter("rs_sessions_ended_total", "Sinyalizasyon üzerinden biten oturumlar (reason)");
@@ -114,6 +114,15 @@ export function createMetrics(): Metrics {
     "rs_control_total",
     "Uzaktan kontrol olayları (P7, §3.3; event: {control|monitor}_request_{forwarded|forbidden|browser|no_guest|conflict|cooldown|limit|invalid_monitor|already_active|superseded}, *_request_audit_failed, granted, denied, cancelled, cancelled_by_agent, released, released_by_cancel, {release|cancel}_ignored, revoked_{ui|hotkey|system}, revoke_{permission|audit|admin|reconnect|session_ended}, reset_guest_gone, grant_audit_{error|timeout}, grant_without_cap, control_state_unexpected, monitor_{granted|denied}, monitor_denied_{unexpected|ignored}, caps_narrowed, {control_state|env_state}_ignored)",
   );
+  // P27 (mimari-p27 §7.3): gözetimsiz erişim sayaçları (tenant etiketi yok). Çevrimiçi göstergesi hub ile (K3) kaydedilir.
+  m.counter(
+    "rs_unattended_connect_total",
+    "Gözetimsiz bağlantı istekleri (result: ok|forbidden|not_found|step_up|local_disabled|no_contact|no_channel|unsigned|offline|busy|limit)",
+  );
+  m.counter("rs_unattended_device_auth_total", "Cihaz kimlik doğrulamaları (result; unauth_cap dahil)");
+  m.counter("rs_unattended_register_total", "Cihaz kayıt denemeleri (result: ok|invalid_code|cap|disabled|rate)");
+  m.counter("rs_unattended_sessions_ended_total", "Biten gözetimsiz oturumlar (reason)");
+  m.counter("rs_unattended_device_replaced_total", "Aynı cihazın yeniden bağlanıp eski soketi düşürmesi (4409)");
   return m;
 }
 

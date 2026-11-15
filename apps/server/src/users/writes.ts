@@ -1,10 +1,11 @@
 // Kullanıcı yazma TX gövdeleri (service.ts'ten taşındı, PT-K12): oluşturma, güncelleme, pasif/aktif, 2FA sıfırlama.
 // Kurallar ve kilit/karar sırası service.ts başlığında (AC-202..207); her işlev çağıranın TX'inde koşar. Silme: purge.ts.
 import type { CreateUserData, ManagedRole, UpdateUserData, UserStatus } from "@remote/contracts/api/users";
-import { USER_AUDIT } from "@remote/contracts/audit";
+import { AUTH_AUDIT, USER_AUDIT } from "@remote/contracts/audit";
 import type { PermissionKey } from "@remote/contracts/permissions";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
+import { deleteForUser as deleteTrustedDevices } from "../auth/trusted-device-repo.ts";
 import type { Prisma } from "../generated/prisma/client.ts";
 import { AppError } from "../lib/errors.ts";
 import { unassignWithAudit, type UnassignedRow } from "../requests/assign.ts";
@@ -133,6 +134,8 @@ async function writeStatus(
   let unassigned: UnassignedRow[] = [];
   if (next === "PASSIVE") {
     extra.revokedSessions = await repo.revokeUserSessions(tx, id, now);
+    // P27a (AC-328): pasif (silme de pasiften geçer) → hatırlanan cihazların tümü aynı TX'te.
+    extra.revokedTrustedDevices = await deleteTrustedDevices(tx, id);
     extra.cancelledSessions = await repo.cancelPendingOfTechnician(tx, { tenantId: w.tenantId }, id, now);
     // S-P18-T5: pasif kullanıcıya atanmış bekleyen talepler aynı TX'te atanmamışa döner.
     unassigned = await unassignWithAudit(tx, ctx, { userId: auth.user.id, username: auth.user.email }, { userId: id });
@@ -179,6 +182,7 @@ export async function resetMfaTx(w: WriteCtx, id: string): Promise<void> {
   });
   const codes = await tx.recoveryCode.deleteMany({ where: { userId: id } });
   const revokedSessions = await repo.revokeUserSessions(tx, id, now);
+  const revokedTrustedDevices = await deleteTrustedDevices(tx, id); // P27a (AC-328)
   await writeAudit(tx, ctx, {
     ...who(auth, tenantId),
     action: USER_AUDIT.MFA_RESET,
@@ -186,8 +190,32 @@ export async function resetMfaTx(w: WriteCtx, id: string): Promise<void> {
     entityId: id,
     result: "success",
     oldValue: { mfaEnabled: row.totpEnabled },
-    newValue: { mfaEnabled: false, deletedCodes: codes.count, revokedSessions },
+    newValue: { mfaEnabled: false, deletedCodes: codes.count, revokedSessions, revokedTrustedDevices },
   });
+}
+
+/**
+ * POST /users/:id/forget-devices TX gövdesi (P27a AC-330, mimari-p27a §3.4/§4.2, K-P27a-9): aktör kilidi + `users.edit`
+ * TX içinde yeniden okunur → hedef kapsamda (başka firma 404) → kendi hesabı 403 (profil yolu) → daha geniş yetkili 403 →
+ * tüm hatırlanan cihazlar silinir + audit `auth.trusted_device_revoked {reason:"admin", count}` (aktör Admin, hedef
+ * kullanıcı). Kullanıcı satırı değişmediği için sürüm artmaz; 0 cihazda da başarılı (audit `count: 0`, idempotent).
+ */
+export async function forgetDevicesTx(w: WriteCtx, id: string): Promise<number> {
+  const { tx, ctx, auth, tenantId } = w;
+  const actor = await lockActor(tx, auth, tenantId, [id], "users.edit", w.hooks);
+  const cur = asManaged(await loadOrThrow(tx, { tenantId }, id));
+  if (cur.id === auth.user.id) throw new DeniedError("Kendi cihazlarınızı Hesabım sayfasından kaldırın.", ["self"]);
+  assertManage(actor, effectiveOf(cur.role, cur.permissions), "Sizden daha geniş yetkili bir hesabı yönetemezsiniz.");
+  const count = await deleteTrustedDevices(tx, id);
+  await writeAudit(tx, ctx, {
+    ...who(auth, tenantId),
+    action: AUTH_AUDIT.TRUSTED_DEVICE_REVOKED,
+    entity: ENTITY,
+    entityId: id,
+    result: "success",
+    newValue: { reason: "admin", count },
+  });
+  return count;
 }
 
 /** POST /users TX gövdesi: aktör kilidi + AC-73, satır + ezmeler + audit (oluşturma ve yetki satırları). */

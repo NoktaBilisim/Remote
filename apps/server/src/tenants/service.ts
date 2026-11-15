@@ -242,7 +242,8 @@ export async function updateTenantSettings(
   auth: AuthContext,
   tenantId: string,
   input: UpdateTenantSettingsData,
+  auditExtra?: Record<string, number | string>,
 ): Promise<TenantSettingsView> {
   if (input.smtp) await sec.netguard.resolve(input.smtp.host);
-  return db.$transaction(async (tx) => settingsTx(tx, sec.secrets, ctx, auth, tenantId, input));
+  return db.$transaction(async (tx) => settingsTx(tx, sec.secrets, ctx, auth, tenantId, input, auditExtra));
 }

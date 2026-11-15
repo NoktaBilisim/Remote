@@ -14,6 +14,7 @@ import (
 	"remote-support/agent-win/internal/dllsafe"
 	"remote-support/agent-win/internal/env"
 	"remote-support/agent-win/internal/servis"
+	"remote-support/agent-win/internal/servisui"
 	"remote-support/agent-win/internal/ui"
 )
 
@@ -30,9 +31,9 @@ const (
 // paketlerini burada bağlar. Boş kanca → exitUnavailable (sessiz; servis/kurulum çekirdeği K5'tedir).
 var (
 	runHelper   func(cfg config.Config) int
-	runUI       func(mode servis.Mode, cfg config.Config) int
-	installUI   servis.InstallUI
-	uninstallUI servis.UninstallUI
+	runUI       func(mode servis.Mode, cfg config.Config) int = servisui.Run
+	installUI   servis.InstallUI                              = &servisui.InstallDialog{}
+	uninstallUI servis.UninstallUI                            = servisui.UninstallDialog{}
 )
 
 func main() {

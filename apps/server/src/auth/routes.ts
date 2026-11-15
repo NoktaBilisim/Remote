@@ -39,6 +39,14 @@ import { logoutAll, mfaEnable, mfaSetup, mfaVerify, recoveryCodesLeft } from "./
 import { forgotPassword, lockNotifier, resetPassword } from "./password-reset.ts";
 import { regenerateRecoveryCodes, stepUp } from "./step-up.ts";
 import { changePassword, login, logout } from "./service.ts";
+import { trustedDeviceRoutes } from "./trusted-device-routes.ts";
+import {
+  afterTrustedDeviceReuse,
+  clearTrustedDeviceCookie,
+  readTrustedDeviceCookies,
+  rememberAvailable,
+  setTrustedDeviceCookie,
+} from "./trusted-device.ts";
 import { setTheme } from "../uploads/service.ts";
 import { effectiveLogoUrl } from "../uploads/urls.ts";
 
@@ -80,6 +88,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   logoutRoute(app);
   profileRoutes(app);
   meRoute(app);
+  trustedDeviceRoutes(app);
 }
 
 /** Giriş (public, Origin zorunlu). */
@@ -97,8 +106,14 @@ function loginRoute(app: FastifyInstance): void {
       app.mfaSetupEnforced,
       req.cookies[SESSION_COOKIE],
       lockNotifier(app.account, ctx),
+      readTrustedDeviceCookies(req.headers.cookie),
     );
     setSessionCookies(reply, result);
+    // P27a (§5.1): atlamada döndürülen çerez; yeniden kullanım / geçersiz çerezde host-only silme.
+    const td = result.trusted;
+    if (td.kind === "used") setTrustedDeviceCookie(reply, td.cookie);
+    else if (td.kind === "reuse" || td.clearCookie) clearTrustedDeviceCookie(reply);
+    if (td.kind === "reuse") afterTrustedDeviceReuse(app.account, ctx, result.owner);
     setThemeCookie(reply, result.user.theme);
     return {
       user: result.user,
@@ -116,10 +131,11 @@ function mfaRoutes(app: FastifyInstance): void {
     { config: { allowPasswordChangePending: true, mfaVerifyStage: true }, preHandler: requireAuth },
     async (req, reply): Promise<MfaVerifyResponse> => {
       const input = parseInput(mfaVerifyInputSchema, req.body);
-      const out = await mfaVerify(app.account, auditContext(req), authOf(req), input);
+      const out = await mfaVerify(app.account, auditContext(req), authOf(req), input, readTrustedDeviceCookies(req.headers.cookie));
       setSessionCookies(reply, out.session);
+      if (out.device) setTrustedDeviceCookie(reply, out.device.cookie);
       noStore(reply);
-      return { user: out.user, recoveryCodesLeft: out.recoveryCodesLeft };
+      return { user: out.user, recoveryCodesLeft: out.recoveryCodesLeft, deviceRemembered: out.device !== null };
     },
   );
 
@@ -155,9 +171,11 @@ function mfaRoutes(app: FastifyInstance): void {
 /** Tüm cihazlardan çıkış + şifre sıfırlama (P10). */
 function passwordRoutes(app: FastifyInstance): void {
   // --- P10: tüm cihazlardan çıkış (AC-68, 115) ---
-  app.post("/logout-all", { preHandler: requireAuth }, async (req): Promise<LogoutAllResponse> => {
+  app.post("/logout-all", { preHandler: requireAuth }, async (req, reply): Promise<LogoutAllResponse> => {
     parseInput(logoutAllInputSchema, req.body);
-    return { revokedSessions: await logoutAll(app.account, auditContext(req), authOf(req)) };
+    const out = await logoutAll(app.account, auditContext(req), authOf(req));
+    clearTrustedDeviceCookie(reply); // P27a AC-328: bu cihaz dahil
+    return out;
   });
 
   // --- P10: e-posta ile şifre sıfırlama (AC-66) — public, Origin zorunlu, CSRF çerezi yok ---
@@ -241,6 +259,8 @@ function meRoute(app: FastifyInstance): void {
         required: auth.mfaRequired,
         stage: auth.mfaStage,
         recoveryCodesLeft: auth.totpEnabled && ok ? await recoveryCodesLeft(app.db, auth.user.id) : 0,
+        // P27a (AC-325, K-P27a-2): yalnız doğrulama aşamasında ve izin varsa (Super Admin'de her zaman false).
+        rememberDeviceAvailable: auth.mfaStage === "verify" && (await rememberAvailable(app.db, auth.user.id)),
       },
       // Yarım oturumda seçili firma bilgisi verilmez → kullanıcının kendi firması / sistem logosu.
       logoUrl: await effectiveLogoUrl(app.db, ok || auth.tenant ? auth.logoPath : null),

@@ -39,7 +39,7 @@ export async function anonymizeSessionBatch(db: Db, tenantId: string, cutoff: Da
     // S16-14: `anonymized_at` DB saatiyle (UTC_TIMESTAMP(3); sunucu `--default-time-zone=+00:00`) yazılır — iş mantıksal
     // saatle (`now`/`cutoff`) aday seçer, ama damga S16-3 tetikleyicisinin `[−1 g, +1 dk]` aralığında kalır.
     const sessions = await tx.$executeRaw`UPDATE support_sessions
-      SET customer_name = NULL, customer_email = NULL, note = NULL, guest_net_key = NULL, guest_ip_key = NULL,
+      SET customer_name = NULL, customer_email = NULL, note = NULL, guest_net_key = NULL, guest_ip_key = NULL, device_id = NULL,
           anonymized_at = UTC_TIMESTAMP(3)
       WHERE tenant_id = ${tenantId} AND id IN (${Prisma.join(ids)}) AND anonymized_at IS NULL
         AND status IN (${Prisma.join([...FINISHED_STATUSES])})`;

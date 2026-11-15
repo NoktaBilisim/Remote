@@ -27,6 +27,7 @@ import { adminSettingsRoutes, consentTextRoutes } from "./settings/routes.ts";
 import { fileRoutes, publicBrandingRoutes } from "./uploads/files.ts";
 import { uploadRoutes } from "./uploads/routes.ts";
 import type { UploadStore } from "./uploads/store.ts";
+import { unattendedRegisterRoutes, unattendedRoutes } from "./unattended/routes.ts";
 
 /** CSP / başlıklar (mimari §5.4, G-19, AC-126). connect-src WS origin'i portu içerir. */
 function helmetOptions(env: Env) {
@@ -97,6 +98,9 @@ function registerAdminRoutes(app: FastifyInstance, deps: AppDeps, uploads: Uploa
   void app.register(uploadRoutes, { prefix: "/api/v1", deps: { db: deps.db, store: uploads, log: app.log } });
   void app.register(fileRoutes, { prefix: "/api/v1", store: uploads });
   void app.register(publicBrandingRoutes, { prefix: "/api/v1/public" });
+  // P27 (mimari-p27 §4.2): panel uçları + cihaz kayıt ucu (kimliksiz). K3 `link` (DeviceHub) seçeneğini buraya verir.
+  void app.register(unattendedRoutes, { prefix: "/api/v1/unattended" });
+  void app.register(unattendedRegisterRoutes, { prefix: "/api/v1/unattended" });
 }
 
 /** Tüm eklenti ve rota kayıtları, buildApp'teki sırayla. */

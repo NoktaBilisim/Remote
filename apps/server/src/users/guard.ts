@@ -21,7 +21,7 @@ export interface LockHooks {
   afterLock?: () => Promise<void>;
 }
 
-type Op = "create" | "update" | "deactivate" | "reactivate" | "reset_mfa" | "delete";
+type Op = "create" | "update" | "deactivate" | "reactivate" | "reset_mfa" | "forget_devices" | "delete";
 
 /** Audit'e `denied` anahtarlarıyla yazılan 403 (AC-204). */
 export class DeniedError extends AppError {

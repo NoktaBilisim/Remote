@@ -55,3 +55,15 @@ export const unlinkBindings: TablePart = {
   batch: (tx, t) =>
     tx.$executeRaw`UPDATE support_requests SET binding_id = NULL WHERE tenant_id = ${t} AND binding_id IS NOT NULL LIMIT ${PURGE_BATCH}`,
 };
+
+/**
+ * P27: cihazlar oturumlarla aynı adımda (SESSIONS) silinir; oturum partisi (LIMIT 500) bitmeden kalan oturumu olan cihaz bu
+ * partide atlanır (FK RESTRICT hatası yerine sonraki tur). Sayım tüm cihazlardır (önizleme).
+ */
+export const unattendedDevices: TablePart = {
+  table: "unattended_devices",
+  count: async (db, t) => n(await db.$queryRaw<{ c: bigint }[]>`SELECT COUNT(*) AS c FROM unattended_devices WHERE tenant_id = ${t}`),
+  batch: (tx, t) =>
+    tx.$executeRaw`DELETE FROM unattended_devices WHERE tenant_id = ${t} AND NOT EXISTS (SELECT 1 FROM support_sessions s
+      WHERE s.device_id = unattended_devices.id AND s.tenant_id = unattended_devices.tenant_id) LIMIT ${PURGE_BATCH}`,
+};

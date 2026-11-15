@@ -33,6 +33,7 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "POST /api/v1/settings/support-requests/email/test": "scoped",
   "POST /api/v1/sessions/:id/email": "tenant",
   "POST /api/v1/users/:id/reset-mfa": "tenant",
+  "POST /api/v1/users/:id/forget-devices": "tenant", // P27a (AC-330)
   "DELETE /api/v1/users/:id": "tenant", // P16 (AC-241): step-up'lı B Admin'i → A kullanıcısı 404
   // P2
   "POST /api/v1/sessions": "self",
@@ -284,7 +285,7 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
     route: "GET /api/v1/sessions/:id/send-link/options",
     request: (fx) => ({ method: "GET", url: `/api/v1/sessions/${fx.a.sessionId}/send-link/options` }),
   },
-  ...(["deactivate", "reactivate", "reset-mfa"] as const).map((a) => ({
+  ...(["deactivate", "reactivate", "reset-mfa", "forget-devices"] as const).map((a) => ({
     route: `POST /api/v1/users/:id/${a}`,
     request: (fx: TwoTenants): InjectOptions => ({ method: "POST", url: `/api/v1/users/${fx.a.user.id}/${a}`, payload: {} }),
   })),

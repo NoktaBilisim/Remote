@@ -13,14 +13,26 @@ const base = {
 
 describe("env", () => {
   it("AC-78: production'da APP_ENCRYPTION_KEYS zorunlu; hatalı biçim reddedilir, değer mesajda yok", () => {
-    const prod = { ...base, NODE_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/32", SESSION_REF_KEY: refKey };
+    const prod = {
+      ...base,
+      NODE_ENV: "production",
+      DEPLOY_ENV: "production",
+      TRUSTED_PROXY_CIDR: "172.30.0.2/32",
+      SESSION_REF_KEY: refKey,
+    };
     expect(() => loadEnv({ ...prod, APP_ENCRYPTION_KEYS: undefined })).toThrow(/APP_ENCRYPTION_KEYS/);
     expect(() => loadEnv({ ...prod, APP_ENCRYPTION_KEYS: "v1:gizlideger" })).toThrow(/^(?!.*gizlideger).*APP_ENCRYPTION_KEYS/);
     expect(loadEnv(prod).encryptionKeys?.get(1)).toHaveLength(32);
   });
 
   it("S14-7: production'da tüm baytları aynı anahtar (CI'daki sıfır anahtar dahil) reddedilir; geliştirmede kabul", () => {
-    const prod = { ...base, NODE_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/32", SESSION_REF_KEY: refKey };
+    const prod = {
+      ...base,
+      NODE_ENV: "production",
+      DEPLOY_ENV: "production",
+      TRUSTED_PROXY_CIDR: "172.30.0.2/32",
+      SESSION_REF_KEY: refKey,
+    };
     const zero = `v1:${Buffer.alloc(32, 0).toString("base64")}`;
     expect(zero).toBe("v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="); // .github/workflows/ci.yml compose adımındaki değer
     const same = `v1:${Buffer.alloc(32, 0x41).toString("base64")}`;
@@ -35,15 +47,23 @@ describe("env", () => {
   });
 
   it("AC-121: production'da TRUSTED_PROXY_CIDR zorunlu; hata mesajı değer sızdırmaz", () => {
-    expect(() => loadEnv({ ...base, NODE_ENV: "production" })).toThrow(/TRUSTED_PROXY_CIDR/);
-    expect(() => loadEnv({ ...base, NODE_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/33" })).toThrow(/CIDR/);
+    expect(() => loadEnv({ ...base, NODE_ENV: "production", DEPLOY_ENV: "production" })).toThrow(/TRUSTED_PROXY_CIDR/);
+    expect(() => loadEnv({ ...base, NODE_ENV: "production", DEPLOY_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/33" })).toThrow(
+      /CIDR/,
+    );
     expect(() => loadEnv({ ...base, DATABASE_URL: "postgres://app:gizli@db" })).not.toThrow(/gizli/);
-    const env = loadEnv({ ...base, NODE_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/32", SESSION_REF_KEY: refKey });
+    const env = loadEnv({
+      ...base,
+      NODE_ENV: "production",
+      DEPLOY_ENV: "production",
+      TRUSTED_PROXY_CIDR: "172.30.0.2/32",
+      SESSION_REF_KEY: refKey,
+    });
     expect(env.allowedOrigins).toEqual(["https://rs.test:4450"]);
   });
 
   it("S-P2-7: production'da SESSION_REF_KEY zorunlu (≥32); geliştirmede opsiyonel", () => {
-    const prod = { ...base, NODE_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/32" };
+    const prod = { ...base, NODE_ENV: "production", DEPLOY_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/32" };
     expect(() => loadEnv(prod)).toThrow(/SESSION_REF_KEY/);
     expect(() => loadEnv({ ...prod, SESSION_REF_KEY: "kisa" })).toThrow(/SESSION_REF_KEY/);
     expect(loadEnv({ ...prod, SESSION_REF_KEY: refKey }).SESSION_REF_KEY).toBe(refKey);
@@ -115,7 +135,13 @@ describe("boş env değeri = tanımsız (compose `${X:-}`)", () => {
   });
 
   it("production'da zorunlu alanlar boşken yine hata; dolu ama geçersiz değer yine hata", () => {
-    const prod = { ...base, NODE_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/32", SESSION_REF_KEY: refKey };
+    const prod = {
+      ...base,
+      NODE_ENV: "production",
+      DEPLOY_ENV: "production",
+      TRUSTED_PROXY_CIDR: "172.30.0.2/32",
+      SESSION_REF_KEY: refKey,
+    };
     expect(() => loadEnv({ ...prod, SESSION_REF_KEY: "" })).toThrow(/SESSION_REF_KEY/);
     expect(() => loadEnv({ ...prod, TRUSTED_PROXY_CIDR: " " })).toThrow(/TRUSTED_PROXY_CIDR/);
     expect(() => loadEnv({ ...base, DATABASE_URL: "" })).toThrow(/DATABASE_URL/);

@@ -1,8 +1,9 @@
 "use client";
 
-import { Archive, ArchiveRestore, KeyRound, RotateCw } from "lucide-react";
+import { Archive, ArchiveRestore, KeyRound, MonitorX, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import type { ForgetDevicesResponse } from "@remote/contracts/api/users";
 import { FormError } from "@/components/form-error";
 import { Button } from "@/components/ui/button";
 import { ConfirmNameDialog } from "@/components/ui/confirm-name-dialog";
@@ -23,6 +24,7 @@ function useStatusRun(action: UserAction | null, user: UserDetail, onClose: () =
   const [error, setError] = useState<UiError | null>(null);
   const deact = action === "deactivate";
   const mfa = action === "reset-mfa";
+  const forget = action === "forget-devices";
   const k = mfa ? "us.m" : deact ? "us.d" : "us.r";
 
   const run = async () => {
@@ -30,9 +32,10 @@ function useStatusRun(action: UserAction | null, user: UserDetail, onClose: () =
     setBusy(true);
     setError(null);
     try {
-      await api<unknown>("POST", `/users/${user.id}/${action}`, {});
+      const r = await api<ForgetDevicesResponse | undefined>("POST", `/users/${user.id}/${action}`, {});
       const next = await api<UserDetail>("GET", `/users/${user.id}`);
-      toast(t(`${k}.done` as "us.d.done", { name: user.fullName }));
+      if (forget) toast(t("acc.td.adminDone", { name: user.fullName, n: r?.revoked ?? 0 }));
+      else toast(t(`${k}.done` as "us.d.done", { name: user.fullName }));
       onDone(next);
     } catch (e) {
       if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
@@ -45,7 +48,7 @@ function useStatusRun(action: UserAction | null, user: UserDetail, onClose: () =
       setBusy(false);
     }
   };
-  return { busy, error, setError, deact, mfa, k, run };
+  return { busy, error, setError, deact, mfa, forget, k, run };
 }
 
 type StatusProps = {
@@ -57,16 +60,21 @@ type StatusProps = {
 
 /** "Vazgeç" (varsayılan odak) + eyleme göre ikonlu onay düğmesi. */
 function StatusFooter({ s, onClose }: { s: ReturnType<typeof useStatusRun>; onClose: () => void }) {
-  const { busy, deact, mfa, k, run } = s;
-  const Icon = mfa ? KeyRound : deact ? Archive : ArchiveRestore;
+  const { busy, deact, mfa, forget, k, run } = s;
+  const Icon = forget ? MonitorX : mfa ? KeyRound : deact ? Archive : ArchiveRestore;
   return (
     <>
       <Button variant="secondary" data-autofocus onClick={onClose} disabled={busy} className="sm:ml-auto">
         {t("rq.rj.cancel")}
       </Button>
-      <Button variant={deact || mfa ? "danger" : "primary"} loading={busy} onClick={() => void run()} data-testid="user-action-confirm">
+      <Button
+        variant={deact || mfa || forget ? "danger" : "primary"}
+        loading={busy}
+        onClick={() => void run()}
+        data-testid="user-action-confirm"
+      >
         {!busy && <Icon aria-hidden className="size-4" />}
-        {t(`${k}.confirm` as "us.d.confirm")}
+        {forget ? t("acc.td.adminConfirmButton") : t(`${k}.confirm` as "us.d.confirm")}
       </Button>
     </>
   );
@@ -78,7 +86,8 @@ function StatusFooter({ s, onClose }: { s: ReturnType<typeof useStatusRun>; onCl
  */
 export function StatusDialog({ action, user, onClose, onDone }: StatusProps) {
   const s = useStatusRun(action, user, onClose, onDone);
-  const { busy, error, setError, k } = s;
+  const { busy, error, setError, forget, k } = s;
+  const title = forget ? t("acc.td.adminTitle", { name: user.fullName }) : t(`${k}.title` as "us.d.title", { name: user.fullName });
   return (
     <Dialog
       open={action !== null}
@@ -91,8 +100,8 @@ export function StatusDialog({ action, user, onClose, onDone }: StatusProps) {
       role="alertdialog"
       size="sm"
       testId={action ? `user-${action}-dialog` : undefined}
-      title={action ? t(`${k}.title` as "us.d.title", { name: user.fullName }) : ""}
-      description={action ? t(`${k}.body` as "us.d.body") : undefined}
+      title={action ? title : ""}
+      description={action ? (forget ? t("acc.td.adminConfirm") : t(`${k}.body` as "us.d.body")) : undefined}
       footer={action && <StatusFooter s={s} onClose={onClose} />}
     >
       {error && <FormError error={error} />}

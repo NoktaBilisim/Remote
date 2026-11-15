@@ -7,6 +7,7 @@ import {
 } from "@remote/contracts/api/users";
 import { USER_AUDIT, deletedUserLabel } from "@remote/contracts/audit";
 import { writeAudit } from "../audit/service.ts";
+import { deleteForUser as deleteTrustedDevices } from "../auth/trusted-device-repo.ts";
 import { AppError } from "../lib/errors.ts";
 import type { UserPhase } from "../ops/erasure-ledger.ts";
 import { unassignWithAudit } from "../requests/assign.ts";
@@ -55,6 +56,8 @@ export async function purgeTx(
   await appendUserLedger(fx, id, "intent", at);
   if ((await repo.tombstone(tx, id, expectedVersion, deletedUserLabel(id), at)) !== 1) throw stale();
   const counts = await repo.deleteUserChildren(tx, id);
+  // P27a (AC-334, D-P27a-4): pasife alma cihazları zaten sildi; savunma (FK RESTRICT takılmasın). Audit'e ayrı alan yok.
+  await deleteTrustedDevices(tx, id);
   // S-P18-T5: kullanıcı zaten PASSIVE (pasife almada atamalar kalktı); savunma amaçlı aynı TX'te tekrar (yayın yok —
   // pasife almada yapıldı; satır kalmış olamaz).
   await unassignWithAudit(tx, ctx, { userId: auth.user.id, username: auth.user.email }, { userId: id });

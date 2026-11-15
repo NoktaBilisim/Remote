@@ -15,7 +15,10 @@ import type { MailService } from "../mail/service.ts";
 import { mfaEnabledMail } from "../mail/templates.ts";
 import { MIN, consumeSecondFactor, hitMfaLimit, loadSecret, resetMfaLimit, who } from "./account-shared.ts";
 import { newRecoveryCode, newTotpSecret, otpauthUrl, recoveryCodeHash, matchTotp } from "./mfa.ts";
+import { findUserById } from "./repo.ts";
 import { openSession, type AuthContext } from "./session.ts";
+import { deleteForUser } from "./trusted-device-repo.ts";
+import { issue, notifyTrustedDeviceCreated, rememberAllowed, type IssuedTrustedDevice } from "./trusted-device.ts";
 
 export interface AccountLimits {
   /**
@@ -132,7 +135,10 @@ async function enableTx(
   });
   if (r.count === 0)
     throw new AppError("CONFLICT", { message: "Kurulum değişti veya iki adımlı doğrulama zaten etkin; sayfayı yenileyin." });
-  await tx.recoveryCode.deleteMany({ where: { userId: auth.user.id } });
+  // Olmayan satırı silen DELETE boşluk kilidi alır; eşzamanlı iki ilk etkinleştirme sonra aynı boşluğa INSERT ederek
+  // deadlock'a giriyordu (503). Kullanıcı satırı yukarıda X kilitli → bu kullanıcı için sayım güvenilir.
+  if ((await tx.recoveryCode.count({ where: { userId: auth.user.id } })) > 0)
+    await tx.recoveryCode.deleteMany({ where: { userId: auth.user.id } });
   await tx.recoveryCode.createMany({
     data: codes.map((c) => ({ id: newId(), userId: auth.user.id, codeHash: recoveryCodeHash(d.secrets, c) })),
   });
@@ -141,21 +147,44 @@ async function enableTx(
     where: { userId: auth.user.id, revokedAt: null, id: { not: auth.sessionId } },
     data: { revokedAt: now },
   });
+  const revokedTrustedDevices = await deleteForUser(tx, auth.user.id); // P27a AC-328
   await writeAudit(tx, ctx, {
     ...who(auth),
     action: AUTH_AUDIT.MFA_ENABLED,
     entity: "users",
     entityId: auth.user.id,
     result: "success",
-    newValue: { revokedSessions: revoked.count },
+    newValue: { revokedSessions: revoked.count, revokedTrustedDevices },
   });
+}
+
+/** P27a (§5.2): TOTP + `rememberDevice` + `rememberAllowed` (TX içinde güncel firma anahtarıyla) → güvenilir cihaz. */
+async function maybeRemember(
+  tx: Prisma.TransactionClient,
+  ctx: AuditContext,
+  auth: AuthContext,
+  input: MfaVerifyInput,
+  existingCookies: readonly string[],
+  now: Date,
+): Promise<IssuedTrustedDevice | null> {
+  if (!("code" in input) || input.rememberDevice !== true) return null;
+  const u = await findUserById(tx, auth.user.id);
+  if (!u || !rememberAllowed(u)) return null;
+  return issue(tx, ctx, { id: u.id, tenantId: u.tenantId, email: u.email }, existingCookies, now);
 }
 
 /**
  * POST /auth/mfa/verify: TOTP (±1 adım, `totp_last_step` koşullu UPDATE → aynı/eski kod ikinci kez kabul edilmez) ya da
  * kurtarma kodu (koşullu `used_at`). Başarıda oturum token'ı yenilenir (yarım oturum → tam oturum; sabitleme yok).
+ * P27a: `rememberDevice` (yalnız TOTP) + izin → aynı TX'te güvenilir cihaz; commit sonrası "yeni cihaz" e-postası.
  */
-export async function mfaVerify(d: AccountDeps, ctx: AuditContext, auth: AuthContext, input: MfaVerifyInput) {
+export async function mfaVerify(
+  d: AccountDeps,
+  ctx: AuditContext,
+  auth: AuthContext,
+  input: MfaVerifyInput,
+  trustedCookies: readonly string[] = [],
+) {
   hitMfaLimit(d, auth.user.id, ctx.ip);
   if (auth.mfaStage !== "verify") throw new AppError("CONFLICT", { message: "Bu oturum için doğrulama gerekmiyor." });
   const userId = auth.user.id;
@@ -188,40 +217,51 @@ export async function mfaVerify(d: AccountDeps, ctx: AuditContext, auth: AuthCon
       result: "success",
       newValue: { method, remaining: left },
     });
-    return { ...s, left };
+    const device = await maybeRemember(tx, ctx, auth, input, trustedCookies, now);
+    return { ...s, left, device };
   });
   if (opened === null) return fail("invalid_code");
   if (opened === "replay") return fail("replayed_code");
   resetMfaLimit(d, userId, ctx.ip);
-  return { session: opened, user: auth.user, recoveryCodesLeft: opened.left };
+  if (opened.device)
+    notifyTrustedDeviceCreated(d, ctx, { id: userId, tenantId: auth.user.tenantId, email: auth.user.email }, opened.device);
+  return { session: opened, user: auth.user, recoveryCodesLeft: opened.left, device: opened.device };
 }
 
 export async function recoveryCodesLeft(db: Db, userId: string): Promise<number> {
   return db.recoveryCode.count({ where: { userId, usedAt: null } });
 }
 
-/** POST /auth/logout-all (AC-68, 115): diğer oturumlar iptal; commit sonrası canlı odalar + panel soketleri biter. */
-export async function logoutAll(d: AccountDeps, ctx: AuditContext, auth: AuthContext): Promise<number> {
+/**
+ * POST /auth/logout-all (AC-68, 115): diğer oturumlar iptal; commit sonrası canlı odalar + panel soketleri biter.
+ * P27a (AC-328): kullanıcının TÜM hatırlanan cihazları da (bu cihaz dahil) aynı TX'te silinir; uç çerezi siler.
+ */
+export async function logoutAll(
+  d: AccountDeps,
+  ctx: AuditContext,
+  auth: AuthContext,
+): Promise<{ revokedSessions: number; revokedTrustedDevices: number }> {
   const now = new Date();
-  const count = await d.db.$transaction(async (tx) => {
+  const out = await d.db.$transaction(async (tx) => {
     const r = await tx.authSession.updateMany({
       where: { userId: auth.user.id, revokedAt: null, id: { not: auth.sessionId } },
       data: { revokedAt: now },
     });
+    const revokedTrustedDevices = await deleteForUser(tx, auth.user.id);
     await writeAudit(tx, ctx, {
       ...who(auth),
       action: AUTH_AUDIT.LOGOUT_ALL,
       entity: "auth_sessions",
       entityId: auth.sessionId,
       result: "success",
-      newValue: { revokedSessions: r.count },
+      newValue: { revokedSessions: r.count, revokedTrustedDevices },
     });
-    return r.count;
+    return { revokedSessions: r.count, revokedTrustedDevices };
   });
   try {
     await d.endLive(auth.user.id);
   } catch (err) {
     d.log.error({ err, alarm: "user_live_effect" }, "tüm cihazlardan çıkış canlı oturuma yansıtılamadı (yedek: 60 sn doğrulama)");
   }
-  return count;
+  return out;
 }

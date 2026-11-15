@@ -32,7 +32,7 @@ const userSelect = {
       status: true,
       deletedAt: true,
       logoPath: true,
-      settings: { select: { requireTech2fa: true } },
+      settings: { select: { requireTech2fa: true, mfaRememberDevice: true } },
     },
   },
 } as const;

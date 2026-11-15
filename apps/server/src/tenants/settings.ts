@@ -1,9 +1,12 @@
 // Tenant ayarları görünümü ve PUT TX gövdesi (service.ts'ten taşındı, PT-K12; AC-4, P10 AC-67/78/79/122).
 // SMTP şifresi audit'e yalnız `smtpPassword: "***"` olarak (değiştiyse) girer.
+// P27a (AC-331, K-P27a-1): `mfaRememberDevice` true→false aynı TX'te firmanın tüm hatırlanan cihazlarını siler; audit
+// `newValue.revokedTrustedDevices` (mimari-p27a §3.4). Yeniden açmak eskileri geri getirmez.
 import type { SmtpSecurity, TenantSettingsView, UpdateTenantSettingsData } from "@remote/contracts/api/tenants";
 import { TENANT_AUDIT } from "@remote/contracts/audit";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
+import { deleteForTenant } from "../auth/trusted-device-repo.ts";
 import type { Prisma } from "../generated/prisma/client.ts";
 import { aadFor, type SecretBox } from "../lib/crypto.ts";
 import { tenantLogoUrl } from "../uploads/urls.ts";
@@ -12,7 +15,7 @@ import * as repo from "./repo.ts";
 
 export function settingsView(r: repo.SettingsRow): TenantSettingsView {
   const logoUrl = tenantLogoUrl(r.tenant.logoPath);
-  const { sessionTtlMin, maxOpenSessions, maxActiveHours, maxFileMb, retentionDays, requireTech2fa } = r;
+  const { sessionTtlMin, maxOpenSessions, maxActiveHours, maxFileMb, retentionDays, requireTech2fa, mfaRememberDevice } = r;
   const smtp =
     r.smtpHost && r.smtpPort && r.smtpSecurity && r.smtpFromEmail
       ? {
@@ -25,10 +28,18 @@ export function settingsView(r: repo.SettingsRow): TenantSettingsView {
           hasPassword: r.smtpPassEnc !== null,
         }
       : null;
-  return { logoUrl, sessionTtlMin, maxOpenSessions, maxActiveHours, maxFileMb, retentionDays, requireTech2fa, smtp };
+  return { logoUrl, sessionTtlMin, maxOpenSessions, maxActiveHours, maxFileMb, retentionDays, requireTech2fa, mfaRememberDevice, smtp };
 }
 
-const SCALARS = ["sessionTtlMin", "maxOpenSessions", "maxActiveHours", "maxFileMb", "retentionDays", "requireTech2fa"] as const;
+const SCALARS = [
+  "sessionTtlMin",
+  "maxOpenSessions",
+  "maxActiveHours",
+  "maxFileMb",
+  "retentionDays",
+  "requireTech2fa",
+  "mfaRememberDevice",
+] as const;
 type SmtpAudit = {
   host: string | null;
   port: number | null;
@@ -93,6 +104,7 @@ export async function settingsTx(
   auth: AuthContext,
   tenantId: string,
   input: UpdateTenantSettingsData,
+  auditExtra?: Record<string, number | string>,
 ): Promise<TenantSettingsView> {
   const cur = await repo.lockSettings(tx, tenantId);
   const next: Record<string, unknown> = {};
@@ -112,6 +124,8 @@ export async function settingsTx(
   }
   if (Object.keys(data).length === 0) return settingsView(cur);
   const saved = await repo.updateSettings(tx, tenantId, data);
+  if (next.mfaRememberDevice === false) next.revokedTrustedDevices = await deleteForTenant(tx, tenantId);
+  if (auditExtra && next.smtp) Object.assign(next, auditExtra); // P27 (AC-336): SMTP değişikliğinde etkin cihaz sayısı + bildirim sonucu
   await writeAudit(tx, ctx, {
     tenantId,
     ...actor(auth),

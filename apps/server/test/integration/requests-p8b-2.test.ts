@@ -467,6 +467,7 @@ describe("P8b-1 WhatsApp fail-closed (production)", () => {
       env: {
         ...PROXY,
         NODE_ENV: "production",
+        DEPLOY_ENV: "production",
         SESSION_REF_KEY: "k".repeat(40),
         APP_ENCRYPTION_KEYS: FAKE_APP_ENCRYPTION_KEYS,
         WHATSAPP_SERVICE_URL: "http://203.0.113.10:3000",

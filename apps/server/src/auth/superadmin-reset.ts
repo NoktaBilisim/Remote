@@ -7,6 +7,7 @@ import type { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 import { newId, newTemporaryPassword } from "../lib/ids.ts";
 import { hashPassword } from "./password.ts";
+import { deleteForUser } from "./trusted-device-repo.ts";
 
 /** Geçici parola uzunluğu (karışmayan 56 sembol × 20 ≈ 116 bit; politika ≥ 12). */
 const SUPERADMIN_TEMP_PASSWORD_LENGTH = 20;
@@ -69,10 +70,13 @@ export async function resetSuperadminById(
     const sessions = await tx.authSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
     await tx.passwordResetToken.updateMany({ where: { userId, usedAt: null }, data: { usedAt: now } });
     if (resetMfa) await tx.recoveryCode.deleteMany({ where: { userId } });
+    // P27a AC-328: Super Admin satırı yapısal olarak oluşamaz (K-P27a-2); savunma amaçlı, sayı audit'te.
+    const revokedTrustedDevices = await deleteForUser(tx, userId);
     const newValue = {
       mustChangePassword: true,
       mfaReset: resetMfa,
       revokedSessions: sessions.count,
+      revokedTrustedDevices,
       ...(actor.via === "panel" ? { via: "panel" } : {}),
     };
     await writeAudit(tx, ctx, {

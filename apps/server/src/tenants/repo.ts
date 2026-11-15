@@ -119,6 +119,7 @@ const settingsSelect = {
   maxFileMb: true,
   retentionDays: true,
   requireTech2fa: true,
+  mfaRememberDevice: true, // P27a (AC-331)
   smtpHost: true,
   smtpPort: true,
   smtpSecurity: true,

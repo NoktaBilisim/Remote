@@ -20,6 +20,9 @@ export type {
   MfaVerifyResponse,
   StepUpMethod,
   StepUpResponse,
+  TrustedDeviceListResponse,
+  TrustedDeviceRevokeResponse,
+  TrustedDeviceView,
 } from "@remote/contracts/api/auth";
 export {
   SMTP_ALLOWED_PORTS,

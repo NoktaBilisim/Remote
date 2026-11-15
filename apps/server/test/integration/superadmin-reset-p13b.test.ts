@@ -124,7 +124,7 @@ describe("P13b reset-superadmin CLI (§7.7)", () => {
       result: "success",
     });
     expect(audits[0]?.ipAddress ?? "").toBe("");
-    expect(audits[0]?.newValue).toEqual({ mustChangePassword: true, mfaReset: false, revokedSessions: 1 });
+    expect(audits[0]?.newValue).toEqual({ mustChangePassword: true, mfaReset: false, revokedSessions: 1, revokedTrustedDevices: 0 });
     const auditText = JSON.stringify(audits, (_k, v: unknown) => (typeof v === "bigint" ? String(v) : v));
     expect(auditText).not.toContain(temp);
     expect(auditText).not.toContain(after.passwordHash);
@@ -141,7 +141,7 @@ describe("P13b reset-superadmin CLI (§7.7)", () => {
     expect(await userRow(user.id)).toMatchObject({ totpEnabled: false, totpSecretEnc: null, totpLastStep: null, mustChangePassword: true });
     expect(await testDb().recoveryCode.count({ where: { userId: user.id } })).toBe(0);
     const [audit] = await resetAudits({ entityId: user.id });
-    expect(audit?.newValue).toEqual({ mustChangePassword: true, mfaReset: true, revokedSessions: 1 });
+    expect(audit?.newValue).toEqual({ mustChangePassword: true, mfaReset: true, revokedSessions: 1, revokedTrustedDevices: 0 });
   });
 
   it("G-P13b-10: --reset-mfa sonrası ilk girişte 2FA kurulumu zorunlu (P10 kuralı); geçici parola 24 saat sonra reddedilir", async () => {

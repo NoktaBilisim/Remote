@@ -22,7 +22,8 @@ export function toItem(r: repo.UserRow): UserListItem {
   };
 }
 
-export function toDetail(r: repo.UserRow, auth: AuthContext): UserDetail {
+/** `trustedDeviceCount`: P27a (AC-330) süresi dolmamış hatırlanan cihaz sayısı (`trusted-device-repo.countForUser`). */
+export function toDetail(r: repo.UserRow, auth: AuthContext, trustedDeviceCount: number): UserDetail {
   const eff = effectiveOf(r.role as Role, r.permissions);
   const permissions = Object.fromEntries(PERMISSION_KEYS.map((k) => [k, eff.has(k)])) as Record<PermissionKey, boolean>;
   return {
@@ -31,5 +32,6 @@ export function toDetail(r: repo.UserRow, auth: AuthContext): UserDetail {
     permissions,
     isSelf: r.id === auth.user.id,
     canManage: exceeding(sessionActor(auth), eff).length === 0,
+    trustedDeviceCount,
   };
 }

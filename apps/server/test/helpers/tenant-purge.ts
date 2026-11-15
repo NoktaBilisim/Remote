@@ -5,6 +5,7 @@ import { newId, newSecretToken, sha256Hex } from "../../src/lib/ids.ts";
 import { writeAudit } from "../../src/audit/service.ts";
 import { createSupportSessionRow, createTenant, createUser, testDb, testFixtureDb, type Session, type TestUser } from "./app.ts";
 import { createCustomerRow, createRequestRow, createRequestSettings } from "./requests.ts";
+import { contactRow, createDeviceRow, deviceSessionRow, grantRow } from "./unattended.ts";
 
 export interface PurgeFixture {
   tenantId: string;
@@ -111,6 +112,36 @@ export async function seedPurgeTenant(app: FastifyInstance): Promise<PurgeFixtur
   await db.businessHoliday.create({
     data: { id: newId(), tenantId: t.id, day: new Date("2026-04-23T00:00:00Z"), name: "Ulusal Egemenlik", createdBy: admin.id },
   });
+  // P27a (AC-334): hatırlanan cihaz (USER_CHILDREN; tenants'a da FK). API ile pasife alma bunu siler (AC-328) — satır yalnız
+  // geri yüklenmiş/migrator ile pasife alınmış fikstürlerde silme adımına kalır.
+  await db.trustedDevice.create({
+    data: {
+      id: newId(),
+      tenantId: t.id,
+      userId: user.id,
+      tokenHash: sha256Hex(newSecretToken()),
+      uaSummary: "Chrome · Windows",
+      ip: "203.0.113.9",
+      expiresAt: new Date(Date.now() + 86_400_000),
+    },
+  });
+  // P27 (SESSIONS adımı, oturumlardan sonra): adres, kullanılmış kayıt kodu, grant, cihaz + cihaza bağlı bitmiş oturum.
+  const deviceId = await createDeviceRow({ tenantId: t.id, customerId: customer.id });
+  await grantRow(t.id, deviceId, user.id);
+  await contactRow(t.id, customer.id);
+  await deviceSessionRow(t.id, user.id, deviceId);
+  await db.unattendedRegistrationCode.create({
+    data: {
+      id: newId(),
+      tenantId: t.id,
+      customerId: customer.id,
+      codeHash: sha256Hex(newId()),
+      createdBy: admin.id,
+      expiresAt: new Date(Date.now() + 3_600_000),
+      usedAt: new Date(),
+      deviceId,
+    },
+  });
   const fileRel = await app.uploads.save(t.id, "png", Buffer.from("not-really-a-png"));
   return { tenantId: t.id, tenantName: t.name, admin, user, fileRel };
 }
@@ -138,6 +169,10 @@ const TENANT_TABLES = [
   "notification_outbox",
   "device_bindings",
   "support_sessions",
+  "customer_notify_contacts", // P27: SESSIONS adımında oturumlardan sonra
+  "unattended_registration_codes",
+  "unattended_device_grants",
+  "unattended_devices",
   "support_requests",
   "request_blocks",
   "request_refs",
@@ -146,6 +181,7 @@ const TENANT_TABLES = [
   "tenant_settings",
   "business_holidays",
   "consent_texts",
+  "trusted_devices", // P27a: kullanıcı alt tablosu ama tenant_id NOT NULL (USER_CHILDREN adımında firma koşuluyla silinir)
   "users",
 ] as const;
 

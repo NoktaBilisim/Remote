@@ -17,6 +17,8 @@ import { hashPassword, verifyPassword } from "./password.ts";
 import * as repo from "./repo.ts";
 import { superadminTempPasswordExpired } from "./superadmin-reset.ts";
 import { canSignIn, mfaStageOf, openSession, toAuthUser, type AuthContext } from "./session.ts";
+import { deleteForUser } from "./trusted-device-repo.ts";
+import { consumeAtLogin, type TrustedLoginOutcome } from "./trusted-device.ts";
 
 /** P10 (AC-65): hesap geneli kilit konduğunda hesap sahibine bildirim (asenkron; SMTP yoksa yalnız audit). */
 type LockNotifier = (user: { id: string; tenantId: string | null; email: string }) => void;
@@ -125,7 +127,11 @@ function accountWait(limits: AuthLimits, user: repo.LoginUser | null, login: str
   return Math.max(db, limits.accountFallback.blockedFor(user.id));
 }
 
-/** `previousToken`: aynı tarayıcıdan gelen eski oturum çerezi; başarılı girişte iptal edilir (S1-10). */
+/**
+ * `previousToken`: aynı tarayıcıdan gelen eski oturum çerezi; başarılı girişte iptal edilir (S1-10).
+ * P27a `trustedCookies`: ham `Cookie` başlığından `__Secure-rs_td` değerleri (≤ 2); yalnız şifre/kilit/geçici şifre
+ * denetimlerinden SONRA, login TX'inde tüketilir (mimari-p27a §5.1 adım 5).
+ */
 export async function login(
   db: Db,
   limits: AuthLimits,
@@ -135,6 +141,7 @@ export async function login(
   setupEnforced: boolean,
   previousToken?: string,
   onLock?: LockNotifier,
+  trustedCookies: readonly string[] = [],
 ) {
   const ip = ipKey(ctx.ip);
   const ipWait = limits.ip.blockedFor(ip);
@@ -189,15 +196,26 @@ export async function login(
 
   limits.pair.reset(pairKey);
   limits.accountFallback.reset(user.id);
-  const session = await db.$transaction(async (tx) => {
+  const { session, trusted } = await db.$transaction(async (tx) => {
     if (user.failedLoginCount > 0 || user.lockedUntil) await repo.clearFailures(tx, user.id);
     if (previousToken) await repo.revokeSessionByHash(tx, sha256Hex(previousToken), now);
+    // P27a (§5.1 adım 5): yeniden kullanımda oturum iptali BURADA, yeni oturum açılmadan önce.
+    const td: TrustedLoginOutcome = await consumeAtLogin(tx, ctx, user, trustedCookies, now);
+    const mfaPassed = td.kind === "used" || !user.totpEnabled;
     // P10 (AC-67): 2FA etkinse oturum yarım açılır (mfa_passed=false) → yalnız /auth/mfa/verify.
-    const opened = await openSession(tx, user.id, ctx, now, undefined, !user.totpEnabled);
-    await writeAudit(tx, ctx, { ...who(user, login), action: "auth.login", entity: "users", entityId: user.id, result: "success" });
-    return opened;
+    const opened = await openSession(tx, user.id, ctx, now, undefined, mfaPassed);
+    await writeAudit(tx, ctx, {
+      ...who(user, login),
+      action: "auth.login",
+      entity: "users",
+      entityId: user.id,
+      result: "success",
+      ...(td.kind === "used" ? { newValue: { mfa: "remembered" } } : {}),
+    });
+    return { session: { ...opened, mfaPassed }, trusted: td };
   });
-  return { ...session, user: toAuthUser(user), mfaStage: mfaStageOf(user, !user.totpEnabled, setupEnforced) };
+  if (trustedCookies.length > 0) log.info({ event: "auth_login", userId: user.id, trustedDevice: trusted.kind }, "giriş");
+  return { ...session, user: toAuthUser(user), mfaStage: mfaStageOf(user, session.mfaPassed, setupEnforced), trusted, owner: user };
 }
 
 const authWho = (auth: AuthContext) => ({ tenantId: auth.user.tenantId, userId: auth.user.id, username: auth.user.email });
@@ -240,8 +258,9 @@ export async function changePassword(db: Db, limits: AuthLimits, ctx: AuditConte
     await repo.updatePassword(tx, user.id, passwordHash);
     const revoked = await repo.revokeUserSessions(tx, user.id, now);
     await tx.passwordResetToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: now } }); // P10: açık sıfırlama bağlantıları geçersiz
+    const revokedTrustedDevices = await deleteForUser(tx, user.id); // P27a AC-328
     const renewed = await openSession(tx, user.id, ctx, now, auth.expiresAt);
-    await writeAudit(tx, ctx, { ...base, result: "success", newValue: { revokedSessions: revoked } });
+    await writeAudit(tx, ctx, { ...base, result: "success", newValue: { revokedSessions: revoked, revokedTrustedDevices } });
     return renewed;
   });
 }

@@ -12,6 +12,7 @@ import {
 import { sessionEmailInputSchema } from "@remote/contracts/api/sessions";
 import { mfaRecoveryCodesInputSchema } from "@remote/contracts/api/auth";
 import { PERMISSION_KEYS } from "@remote/contracts/permissions";
+import { handleP27a } from "./mock-p27a.mjs";
 
 export const RESET_OK = "r".repeat(43);
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
@@ -79,9 +80,11 @@ const fieldsOf = (error) => Object.fromEntries(error.issues.map((i) => [i.path.l
 export async function handleAccount(req, res, { url, session, csrfOk, send, err, readJson, sessionCookies }) {
   const path = url.split("?")[0];
   const post = req.method === "POST";
+  // P27a: cihaz hatırlama senaryoları (hatirla@ / sa2fa@ girişleri, u-td* çerezleri)
+  if (await handleP27a(req, res, { url, session, csrfOk, send, err, readJson, sessionCookies })) return true;
 
   if (post && path === "/api/v1/auth/login") {
-    const body = await readJson(req);
+    const body = req.__body ?? (await readJson(req));
     const kind = logins[String(body.login ?? "").toLowerCase()];
     if (!kind) {
       req.__body = body; // mock-api'nin kendi giriş işleyicisine devret

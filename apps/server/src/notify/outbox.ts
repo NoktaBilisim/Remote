@@ -5,6 +5,8 @@
 //  - İşçi: 2 sn'de bir PENDING ∧ next_at ≤ now → SENDING (commit) → gönder → SENT / yeniden deneme (0, 10, 30 sn; 3 deneme)
 //    / FAILED. Kalıcı nedenler yeniden denenmez. Son durumda `recipient_enc = NULL` (aynı UPDATE). Çökme kurtarma: SENDING
 //    ∧ updated_at < now − 60 sn → PENDING (en az bir kez teslim, K-P19-4).
+//  - P27 (K-P27-14): `request_id` NULL olabilir (UNATTENDED_STARTED / UN_* satırları). Bu işçi şimdilik yalnız talep satırlarını
+//    talep eder; yeni türlerin teslimi K4'te (implementation.md P27-K2).
 //  - Temizlik: SENT/FAILED ∧ updated_at < now − 7 g, ≤ 1000/parti. Hacim göstergesi 5 dk'da bir (tenant etiketi yok).
 //  - Metrik sözleşmesi (J6 remote-watch): `rs_notify_outbox_total{channel,result=sent|failed}` yalnız son durumlar ve
 //    `rate_limited` HARİÇ; `rs_notify_rate_limited_total{scope,channel}`; göstergeler boş kuyrukta da 0.
@@ -208,7 +210,7 @@ export class NotifyOutbox {
   private async claim(now: number): Promise<string[]> {
     return this.d.db.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM notification_outbox
-        WHERE state = 'PENDING' AND next_at <= ${new Date(now)} ORDER BY next_at LIMIT ${OUTBOX_BATCH} FOR UPDATE SKIP LOCKED`;
+        WHERE state = 'PENDING' AND next_at <= ${new Date(now)} AND request_id IS NOT NULL ORDER BY next_at LIMIT ${OUTBOX_BATCH} FOR UPDATE SKIP LOCKED`;
       const ids = rows.map((x) => x.id);
       if (ids.length > 0)
         await tx.notificationOutbox.updateMany({ where: { id: { in: ids }, state: "PENDING" }, data: { state: "SENDING" } });
@@ -235,7 +237,9 @@ export class NotifyOutbox {
           tenant: { select: { name: true } },
         },
       });
-      if (!row || row.state !== "SENDING") return;
+      // P27: oturum/olay çapalı satırlar (request_id NULL) K4 işçisine kadar talep edilmez (claim süzer); savunma.
+      if (!row || row.state !== "SENDING" || !row.requestId || !row.request) return;
+      const requestId = row.requestId;
       const kind = row.kind as NotifyKind;
       const channel = row.channel as NotifyChannel;
       let to: string | null = null;
@@ -245,9 +249,9 @@ export class NotifyOutbox {
         to = null;
       }
       const reason: Reason | "ok" = to
-        ? await this.send(row.tenantId, channel, row.recipientHash, to, kind, row.tenant.name, row.request.requestCode, row.requestId)
+        ? await this.send(row.tenantId, channel, row.recipientHash, to, kind, row.tenant.name, row.request.requestCode, requestId)
         : "recipient_unreadable";
-      await this.settle(id, row, reason);
+      await this.settle(id, { ...row, requestId }, reason);
     } catch (err) {
       // Satır SENDING kalır → 60 sn sonra kurtarma ile yeniden denenir.
       this.d.log.error({ err, job: "notify-outbox" }, "bildirim teslimi hatası");
