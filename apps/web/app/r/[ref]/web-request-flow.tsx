@@ -34,11 +34,24 @@ const session = (): Storage | null => {
   }
 };
 
-/**
- * Form ↔ bekleme durumu. F5'te `sessionStorage`'daki talep sırrıyla bekleme sayfasına dönülür (sekme kapsamı).
- * Tenant bilgisi (logo) yalnız form bilgisinden gelir; bekleme ekranında aynı çerçeve kullanılır.
- */
-export function WebRequestFlow({ tenantRef }: { tenantRef: string }) {
+const saveStored = (tenantRef: string, stored: StoredRequest) => {
+  try {
+    session()?.setItem(storeKeyOf(tenantRef), JSON.stringify(stored));
+  } catch {
+    /* sekme depolaması kapalı: F5 dönüşü olmaz, akış sürer */
+  }
+};
+
+const clearStored = (tenantRef: string) => {
+  try {
+    session()?.removeItem(storeKeyOf(tenantRef));
+  } catch {
+    /* yok sayılır */
+  }
+};
+
+/** Form bilgisi + talep (F5'te sekme deposundan) durumu ve geçişleri. */
+function useWebRequestFlow(tenantRef: string) {
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   // undefined = kullanıcı henüz seçim yapmadı → sekme deposundaki kayıt (F5 dönüşü); hidrasyondan önce bilinmez
   const [override, setReq] = useState<StoredRequest | null | undefined>(undefined);
@@ -61,79 +74,81 @@ export function WebRequestFlow({ tenantRef }: { tenantRef: string }) {
 
   const onCreated = (r: CreateRequestResponse, customerName: string) => {
     const stored = { requestSecret: r.requestSecret, requestCode: r.requestCode, customerName };
-    try {
-      session()?.setItem(storeKeyOf(tenantRef), JSON.stringify(stored));
-    } catch {
-      /* sekme depolaması kapalı: F5 dönüşü olmaz, akış sürer */
-    }
+    saveStored(tenantRef, stored);
     setReq(stored);
   };
-  const onFinished = () => {
-    try {
-      session()?.removeItem(storeKeyOf(tenantRef));
-    } catch {
-      /* yok sayılır */
-    }
+  const onFinished = () => clearStored(tenantRef);
+  const reload = () => {
+    setLoad({ kind: "loading" });
+    void fetchInfo();
   };
   const newRequest = () => {
     onFinished();
     setReq(null);
-    setLoad({ kind: "loading" });
-    void fetchInfo();
+    reload();
   };
+  return { load, setLoad, req, fetchInfo, onCreated, onFinished, newRequest, reload };
+}
 
-  const tenant = load.kind === "ok" ? load.info.tenant : undefined;
-  let body;
+function FlowLoading() {
+  return (
+    <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4 shadow-sm" data-testid="wr-loading" aria-busy>
+      <span className="sr-only">{t("wr.loading")}</span>
+      <Skeleton className="h-6 w-1/2" />
+      <Skeleton className="h-11 w-full" />
+      <Skeleton className="h-11 w-full" />
+      <Skeleton className="h-24 w-full" />
+      <Skeleton className="h-11 w-40" />
+    </div>
+  );
+}
+
+type Flow = ReturnType<typeof useWebRequestFlow>;
+
+/** Gövde seçimi (öncelik: talep → bulunamadı → yükleniyor → hız sınırı/hata → form). */
+function flowBody(tenantRef: string, f: Flow) {
+  const { load, req } = f;
   if (req)
-    body = (
+    return (
       <WaitingRoom
         request={req}
         tenantRef={tenantRef}
         retentionDays={load.kind === "ok" ? load.info.chatRetentionDays : null}
-        onFinished={onFinished}
-        onNewRequest={newRequest}
+        onFinished={f.onFinished}
+        onNewRequest={f.newRequest}
       />
     );
-  else if (load.kind === "notFound") body = <GuestEndScreen kind="notFound" />;
-  else if (load.kind === "loading" || req === undefined)
-    body = (
-      <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4 shadow-sm" data-testid="wr-loading" aria-busy>
-        <span className="sr-only">{t("wr.loading")}</span>
-        <Skeleton className="h-6 w-1/2" />
-        <Skeleton className="h-11 w-full" />
-        <Skeleton className="h-11 w-full" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-11 w-40" />
-      </div>
-    );
-  else if (load.kind === "rate" || load.kind === "error")
-    body = (
+  if (load.kind === "notFound") return <GuestEndScreen kind="notFound" />;
+  if (load.kind === "loading" || req === undefined) return <FlowLoading />;
+  if (load.kind === "rate" || load.kind === "error")
+    return (
       <GuestEndScreen
         kind={load.kind}
         action={
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setLoad({ kind: "loading" });
-              void fetchInfo();
-            }}
-            data-testid="wr-retry"
-          >
+          <Button variant="secondary" onClick={f.reload} data-testid="wr-retry">
             {t("wr.retry")}
           </Button>
         }
       />
     );
-  else
-    body = (
-      <WebRequestForm
-        tenantRef={tenantRef}
-        info={load.info}
-        issuedAt={load.issuedAt}
-        refreshInfo={fetchInfo}
-        onCreated={onCreated}
-        onNotFound={() => setLoad({ kind: "notFound" })}
-      />
-    );
-  return <GuestShell tenant={tenant}>{body}</GuestShell>;
+  return (
+    <WebRequestForm
+      tenantRef={tenantRef}
+      info={load.info}
+      issuedAt={load.issuedAt}
+      refreshInfo={f.fetchInfo}
+      onCreated={f.onCreated}
+      onNotFound={() => f.setLoad({ kind: "notFound" })}
+    />
+  );
+}
+
+/**
+ * Form ↔ bekleme durumu. F5'te `sessionStorage`'daki talep sırrıyla bekleme sayfasına dönülür (sekme kapsamı).
+ * Tenant bilgisi (logo) yalnız form bilgisinden gelir; bekleme ekranında aynı çerçeve kullanılır.
+ */
+export function WebRequestFlow({ tenantRef }: { tenantRef: string }) {
+  const f = useWebRequestFlow(tenantRef);
+  const tenant = f.load.kind === "ok" ? f.load.info.tenant : undefined;
+  return <GuestShell tenant={tenant}>{flowBody(tenantRef, f)}</GuestShell>;
 }
