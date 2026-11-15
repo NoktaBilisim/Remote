@@ -24,23 +24,27 @@ model Tenant {
   createdAt DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
-  settings        TenantSettings?
-  users           User[]
-  actingSessions  AuthSession[]
-  supportSessions SupportSession[]
-  consentTexts    ConsentText[]
-  sessionConsents SessionConsent[]
-  sessionFiles    SessionFile[]
-  requestSettings TenantRequestSettings?
-  supportRequests SupportRequest[]
-  customers       Customer[]
-  requestRefs     RequestRef[]
-  deviceBindings  DeviceBinding[]
-  requestBlocks   RequestBlock[]
-  messages        SessionMessage[]
-  holidays        BusinessHoliday[]
-  notifications   NotificationOutbox[]
-  trustedDevices  TrustedDevice[]
+  settings          TenantSettings?
+  users             User[]
+  actingSessions    AuthSession[]
+  supportSessions   SupportSession[]
+  consentTexts      ConsentText[]
+  sessionConsents   SessionConsent[]
+  sessionFiles      SessionFile[]
+  requestSettings   TenantRequestSettings?
+  supportRequests   SupportRequest[]
+  customers         Customer[]
+  requestRefs       RequestRef[]
+  deviceBindings    DeviceBinding[]
+  requestBlocks     RequestBlock[]
+  messages          SessionMessage[]
+  holidays          BusinessHoliday[]
+  notifications     NotificationOutbox[]
+  trustedDevices    TrustedDevice[]
+  unattendedDevices UnattendedDevice[]
+  unattendedGrants  UnattendedDeviceGrant[]
+  unattendedCodes   UnattendedRegistrationCode[]
+  notifyContacts    CustomerNotifyContact[]
 
   @@map("tenants")
 }
@@ -98,25 +102,30 @@ model User {
   createdAt          DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
-  tenant             Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  permissions        UserPermission[]
-  authSessions       AuthSession[]
-  supportSessions    SupportSession[]     @relation("SessionTechnician")
-  terminatedSessions SupportSession[]     @relation("SessionTerminator")
-  consentTexts       ConsentText[]
-  acceptedRequests   SupportRequest[]     @relation("RequestAcceptor")
-  rejectedRequests   SupportRequest[]     @relation("RequestRejector")
-  createdCustomers   Customer[]
-  recoveryCodes      RecoveryCode[]
-  passwordResets     PasswordResetToken[]
-  systemSettings     SystemSetting[]
-  requestBlocks      RequestBlock[]
-  purgeJobsStarted   TenantPurgeJob[]     @relation("PurgeJobStarter")
-  purgeJobsCancelled TenantPurgeJob[]     @relation("PurgeJobCanceller")
-  assignedRequests   SupportRequest[]     @relation("RequestAssignee")
-  sentMessages       SessionMessage[]
-  createdHolidays    BusinessHoliday[]
-  trustedDevices     TrustedDevice[]
+  tenant               Tenant?                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  permissions          UserPermission[]
+  authSessions         AuthSession[]
+  supportSessions      SupportSession[]             @relation("SessionTechnician")
+  terminatedSessions   SupportSession[]             @relation("SessionTerminator")
+  consentTexts         ConsentText[]
+  acceptedRequests     SupportRequest[]             @relation("RequestAcceptor")
+  rejectedRequests     SupportRequest[]             @relation("RequestRejector")
+  createdCustomers     Customer[]
+  recoveryCodes        RecoveryCode[]
+  passwordResets       PasswordResetToken[]
+  systemSettings       SystemSetting[]
+  requestBlocks        RequestBlock[]
+  purgeJobsStarted     TenantPurgeJob[]             @relation("PurgeJobStarter")
+  purgeJobsCancelled   TenantPurgeJob[]             @relation("PurgeJobCanceller")
+  assignedRequests     SupportRequest[]             @relation("RequestAssignee")
+  sentMessages         SessionMessage[]
+  createdHolidays      BusinessHoliday[]
+  trustedDevices       TrustedDevice[]
+  unattendedRegistered UnattendedDevice[]           @relation("UnattendedRegisteredBy")
+  unattendedRevoked    UnattendedDevice[]           @relation("UnattendedRevokedBy")
+  unattendedGrants     UnattendedDeviceGrant[]      @relation("UnattendedGrantUser")
+  unattendedGrantsMade UnattendedDeviceGrant[]      @relation("UnattendedGrantCreator")
+  unattendedCodes      UnattendedRegistrationCode[]
 
   @@unique([id, tenantId]) // P18 (S-P18-T5): support_requests (assigned_to, tenant_id) bileşik FK hedefi — atanan aynı tenant'ta
   @@index([tenantId, status])
@@ -274,7 +283,7 @@ model SupportSession {
   endedAt        DateTime? @map("ended_at") @db.DateTime(3) // iptal/expiry/bitiş anı
   endedBy        String?   @map("ended_by") @db.VarChar(20) // TECH | CUSTOMER | ADMIN | SYSTEM
   endReason      String?   @map("end_reason") @db.VarChar(40) // ör. cancelled, expired
-  mode           String?   @db.VarChar(20) // AGENT | BROWSER; admit anında set (A1/A2)
+  mode           String?   @db.VarChar(20) // AGENT | BROWSER | UNATTENDED (P27); admit anında set (A1/A2)
   consumedAt     DateTime? @map("consumed_at") @db.DateTime(3) // admit = tüketim = ACTIVE başlangıcı (AC-6/7/13)
   terminatedBy   String?   @map("terminated_by") @db.Char(26) // zorla sonlandıran Admin/Super Admin (G-04, AC-114)
   qualitySummary Json?     @map("quality_summary") // AC-46: quality.summary {fps,kbps,rttMs{avg,min,max},connType}
@@ -287,18 +296,23 @@ model SupportSession {
   guestIpKey     String?   @map("guest_ip_key") @db.VarChar(64) // P8b G-E9-15: misafirin tam ipKey'i (IPv4 /32, IPv6 /64) — "bilinen ağ" rozeti yalnız tam eşleşmede; retention'da NULL
   customerId     String?   @map("customer_id") @db.Char(26) // P8c AC-177/180: müşteri FİRMA (customers); customer_name misafir KİŞİdir. Kabul TX'inde talepten kopya veya POST /sessions customerId
   anonymizedAt   DateTime? @map("anonymized_at") @db.DateTime(3) // P13a AC-197: saklama işi kişisel alanları NULL'ladığı an (CHECK support_sessions_anonymized_chk)
+  // P27 (mimari-p27 §3.5): gözetimsiz oturumun cihazı. request_id ile birlikte dolu olamaz; anonimleştirme NULL'lar (cihaz satırı
+  // silinebilsin). Kod/TTL/müşteri adı CHECK'leri talep oturumu gibi (kod yok, 60 sn penceresi, customer_name = cihaz adı).
+  deviceId       String?   @map("device_id") @db.Char(26)
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
-  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  technician    User             @relation("SessionTechnician", fields: [technicianId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  terminator    User?            @relation("SessionTerminator", fields: [terminatedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  request       SupportRequest?  @relation(fields: [requestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  customer      Customer?        @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  technician    User                 @relation("SessionTechnician", fields: [technicianId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  terminator    User?                @relation("SessionTerminator", fields: [terminatedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  request       SupportRequest?      @relation(fields: [requestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  customer      Customer?            @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  device        UnattendedDevice?    @relation(fields: [deviceId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  notifications NotificationOutbox[]
   consents      SessionConsent[]
   files         SessionFile[]
-  bindingsFirst DeviceBinding[]  @relation("BindingFirstSession")
-  bindingsLast  DeviceBinding[]  @relation("BindingLastSession")
+  bindingsFirst DeviceBinding[]      @relation("BindingFirstSession")
+  bindingsLast  DeviceBinding[]      @relation("BindingLastSession")
   messages      SessionMessage[]
 
   @@unique([id, tenantId]) // P4: session_consents/P5: session_files (session_id, tenant_id) bileşik FK hedefi (tenant tutarlılığı)
@@ -314,6 +328,7 @@ model SupportSession {
   @@index([tenantId, guestIpKey, consumedAt]) // P8b G-E9-15 tam IP eşleşmesi (son 90 gün admit)
   @@index([tenantId, anonymizedAt, createdAt]) // P13a retention aday sorgusu (tenant + anonymized_at IS NULL + created_at < cutoff)
   @@index([tenantId, customerId, createdAt]) // P8c geçmiş müşteri filtresi + müşteri detayı Oturumlar sekmesi + customer FK (tenant_id, customer_id)
+  @@index([deviceId, tenantId]) // P27 device FK + cihazın oturumları (DEVICE_BUSY, son oturum, temizlikte "bağlı oturum yok")
   @@map("support_sessions")
 }
 
@@ -352,7 +367,7 @@ model SessionConsent {
   tenantId      String   @map("tenant_id") @db.Char(26)
   level         String   @db.VarChar(20) // VIEW | CONTROL
   decision      String   @db.VarChar(20) // GRANTED | DENIED | REVOKED
-  source        String   @db.VarChar(20) // UI | HOTKEY | RECONNECT | SYSTEM | TECH (P7, ADR-0013: teknisyen bırakması)
+  source        String   @db.VarChar(20) // UI | HOTKEY | RECONNECT | SYSTEM | TECH (P7, ADR-0013) | UNATTENDED (P27)
   consentTextId String?  @map("consent_text_id") @db.Char(26) // join anında onaylanan metin (A1)
   consentSha256 String?  @map("consent_sha256") @db.Char(64) // = consent_texts.sha256 (bileşik FK)
   ip            String?  @db.VarChar(45) // SYSTEM kaynağında yok; retention'da NULL
@@ -550,12 +565,15 @@ model Customer {
   createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
-  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  creator         User?            @relation(fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  requestRefs     RequestRef[]
-  deviceBindings  DeviceBinding[]
-  supportRequests SupportRequest[]
-  supportSessions SupportSession[]
+  tenant            Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  creator           User?                        @relation(fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  requestRefs       RequestRef[]
+  deviceBindings    DeviceBinding[]
+  supportRequests   SupportRequest[]
+  supportSessions   SupportSession[]
+  unattendedDevices UnattendedDevice[]
+  unattendedCodes   UnattendedRegistrationCode[]
+  notifyContacts    CustomerNotifyContact[]
 
   @@unique([tenantId, nameKey]) // ad tekilliği (pasifler dahil) + liste name_key sırası (status filtresiz)
   @@unique([tenantId, id]) // bileşik FK hedefi (request_refs, device_bindings, support_requests, support_sessions)
@@ -759,8 +777,10 @@ model BusinessHoliday {
 model NotificationOutbox {
   id            String    @id @db.Char(26)
   tenantId      String    @map("tenant_id") @db.Char(26)
-  requestId     String    @map("request_id") @db.Char(26)
-  kind          String    @db.VarChar(20) // REQ_ACCEPTED | REQ_REJECTED | REQ_EXPIRED
+  requestId     String?   @map("request_id") @db.Char(26) // P27: NULL olabilir — tam olarak biri dolu: request_id | session_id | event_id
+  sessionId     String?   @map("session_id") @db.Char(26) // P27 UNATTENDED_STARTED
+  eventId       String?   @map("event_id") @db.Char(26) // P27 UN_* güvenlik olayı çapası (FK'siz ULID; aynı olayın satırları aynı değer)
+  kind          String    @db.VarChar(20) // REQ_ACCEPTED | REQ_REJECTED | REQ_EXPIRED | UNATTENDED_STARTED | UN_CONTACTS_CHANGED | UN_DEVICE_REGISTERED
   channel       String    @db.VarChar(20) // SMS | WHATSAPP | EMAIL
   recipientEnc  Bytes?    @map("recipient_enc") @db.VarBinary(600) // ver | iv | tag | E.164 ya da e-posta; son durumda NULL
   recipientMask String    @map("recipient_mask") @db.VarChar(64) // maskPhone / maskEmail (audit, ekran)
@@ -773,12 +793,131 @@ model NotificationOutbox {
   createdAt     DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt     DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
-  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  request SupportRequest @relation(fields: [requestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  request SupportRequest? @relation(fields: [requestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session SupportSession? @relation(fields: [sessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([requestId, tenantId, kind, channel]) // idempotent kuyruğa alma (talep/tür/kanal başına tek satır) + bileşik request FK (dba sapma: tenant_id ikinci sütun)
+  @@unique([sessionId, tenantId, kind, channel, recipientHash]) // P27 (K-P27-14): oturum × kanal × alıcı tekil (≤ 5 adres) + bileşik session FK
+  @@unique([eventId, tenantId, kind, channel, recipientHash]) // P27: olay × kanal × alıcı tekil
   @@index([state, nextAt]) // işçi (PENDING, next_at ≤ now), SENDING kurtarma, 7 gün temizlik
   @@index([recipientHash, createdAt]) // S-P19-12 alıcı × kanal tavanı (firma içi 3 / sistem 5 / 24 sa)
   @@index([tenantId, channel, createdAt]) // tenant FK + firma × kanal saatlik tavan + hacim gauge + firma silme partisi
   @@map("notification_outbox")
+}
+
+// P27-K0 (mimari-p27 §3.1, r2 §15; AC-273, 275, 293–297, 336, 337): gözetimsiz erişim cihazı. app SELECT/INSERT/UPDATE/DELETE.
+// İptal = UPDATE (revoked_*, last_ip NULL); DELETE yalnız gece işi (revoked + 30 g, bağlı oturum yok) ve firma silme.
+// Elle CHECK'ler (migration.sql): ad/OS metin kuralı (1..64, kırpılmış, Cc/Cf/Zl/Zp/U+034F/U+180E yok — contracts
+// deviceTextSchema), public_key 32 bayt, agent_version semver, binary_sha256 küçük hex, revoke üçlüsü (revoked_at ⇔ reason;
+// revoked_by yalnız ADMIN'de), iptalde last_ip NULL, revoke_reason ikili enum.
+// Kullanıcı FK'leri tekil (registered_by/revoked_by): Super Admin tenant geçişiyle `manage` yapabilir (users.tenant_id NULL).
+model UnattendedDevice {
+  id             String    @id @db.Char(26) // ULID; cihaz kimliği
+  tenantId       String    @map("tenant_id") @db.Char(26)
+  customerId     String    @map("customer_id") @db.Char(26)
+  name           String    @db.VarChar(64) // Windows bilgisayar adı (beyan)
+  publicKey      Bytes     @unique @map("public_key") @db.VarBinary(32) // Ed25519
+  osVersion      String    @map("os_version") @db.VarChar(64)
+  agentVersion   String    @map("agent_version") @db.VarChar(20) // her device.auth'ta güncellenir
+  binarySha256   String    @map("binary_sha256") @db.Char(64)
+  signed         Boolean // WinVerifyTrust beyanı (AC-297, yalnız kullanılabilirlik kapısı)
+  localEnabled   Boolean   @default(true) @map("local_enabled") // yalnız servis beyanı (AC-295)
+  lastSeenAt     DateTime? @map("last_seen_at") @db.DateTime(3)
+  lastIp         String?   @map("last_ip") @db.VarChar(45) // iptalde NULL (CHECK)
+  registeredIp   String    @map("registered_ip") @db.VarChar(45) // r2 O-P27-5: kayıt isteğinin IP'si
+  registeredBy   String?   @map("registered_by") @db.Char(26) // kodu üreten kullanıcı; kullanıcı silmede NULL
+  verifiedAt     DateTime? @map("verified_at") @db.DateTime(3) // r2 O-P27-5: ilk grant anı ("Yeni — doğrulanmadı" rozeti)
+  notifyFailedAt DateTime? @map("notify_failed_at") @db.DateTime(3) // r2 Y-P27-1: son UNATTENDED_STARTED FAILED; SENT'te NULL
+  revokedAt      DateTime? @map("revoked_at") @db.DateTime(3)
+  revokedBy      String?   @map("revoked_by") @db.Char(26)
+  revokeReason   String?   @map("revoke_reason") @db.VarChar(20) // ADMIN | UNINSTALLED | CUSTOMER_PASSIVE
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant    Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  customer  Customer                     @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  registrar User?                        @relation("UnattendedRegisteredBy", fields: [registeredBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  revoker   User?                        @relation("UnattendedRevokedBy", fields: [revokedBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  grants    UnattendedDeviceGrant[]
+  codes     UnattendedRegistrationCode[]
+  sessions  SupportSession[]
+
+  @@unique([id, tenantId]) // bileşik FK hedefi (support_sessions, grants, codes)
+  @@index([tenantId, revokedAt, name]) // liste (etkinler, ad sırası) + tenant FK
+  @@index([tenantId, customerId, revokedAt]) // müşteri pasifi toplu iptal + customer FK (tenant_id, customer_id)
+  @@index([revokedAt]) // gece temizliği (revoked_at < now − 30 g)
+  @@index([registeredBy]) // FK
+  @@index([revokedBy]) // FK
+  @@map("unattended_devices")
+}
+
+// P27-K0 (mimari-p27 §3.2; AC-293): cihaz yetkisi. Değişmez satır: verme INSERT, geri alma DELETE (updated_at yok; app
+// SELECT/INSERT/DELETE, UPDATE yok). Bileşik FK'ler (device_id, tenant_id) ve (user_id, tenant_id) aynı tenant_id'yi paylaşır →
+// kullanıcı cihazın firmasında olmalı; Super Admin (users.tenant_id NULL) grant alamaz (K-P27-9, DB'de zorlanır).
+model UnattendedDeviceGrant {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  deviceId  String   @map("device_id") @db.Char(26)
+  userId    String   @map("user_id") @db.Char(26)
+  createdBy String?  @map("created_by") @db.Char(26) // veren; kullanıcı silmede NULL (Super Admin olabilir → tekil FK)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  device  UnattendedDevice @relation(fields: [deviceId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  user    User             @relation("UnattendedGrantUser", fields: [userId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  creator User?            @relation("UnattendedGrantCreator", fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([deviceId, tenantId, userId]) // cihaz × kullanıcı tekil + device FK öneki (dba sapma: mimari UQ(device_id, user_id))
+  @@index([userId, tenantId]) // user FK + kullanıcının grant'ları (kullanıcı silme/pasif)
+  @@index([tenantId]) // tenant FK + firma silme partisi
+  @@index([createdBy]) // FK
+  @@map("unattended_device_grants")
+}
+
+// P27-K0 (mimari-p27 §3.3; AC-273): tek kullanımlık kayıt kodu. Düz kod DB'de yok (HMAC-SHA256 hex). Tüketim = koşullu UPDATE
+// `used_at IS NULL AND expires_at > ?` + cihaz INSERT tek TX. app SELECT/INSERT/UPDATE/DELETE. Elle CHECK'ler: code_hash hex,
+// (used_at IS NULL) = (device_id IS NULL), expires_at ∈ (created_at, created_at + 24 sa + 1 dk].
+model UnattendedRegistrationCode {
+  id         String    @id @db.Char(26)
+  tenantId   String    @map("tenant_id") @db.Char(26)
+  customerId String    @map("customer_id") @db.Char(26)
+  codeHash   String    @unique @map("code_hash") @db.Char(64) // HMAC-SHA256 hex (macAt, amaç "unattended-code")
+  createdBy  String?   @map("created_by") @db.Char(26) // Super Admin olabilir → tekil FK; kullanıcı silmede NULL
+  expiresAt  DateTime  @map("expires_at") @db.DateTime(3) // created_at + 24 sa
+  usedAt     DateTime? @map("used_at") @db.DateTime(3)
+  deviceId   String?   @map("device_id") @db.Char(26) // kodla kaydolan cihaz (used_at ile birlikte)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  customer Customer          @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  creator  User?             @relation(fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  device   UnattendedDevice? @relation(fields: [deviceId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([deviceId, tenantId]) // bir cihaz tek kodla kaydolur + device FK
+  @@index([tenantId, usedAt, expiresAt]) // bekleyen kodlar listesi + tenant FK
+  @@index([tenantId, customerId]) // customer FK + müşteri pasifinde bekleyen kodlar
+  @@index([expiresAt]) // gece temizliği (kullanılmış/süresi dolmuş + 7 g)
+  @@index([createdBy]) // FK
+  @@map("unattended_registration_codes")
+}
+
+// P27-K0 (mimari-p27 §3.4, K-P27-10; AC-296): müşteri başına ≤ 5 bildirim adresi (sınır servis TX'inde FOR UPDATE sayımla).
+// Kişisel veri: müşteri anonimleştirmesinde DELETE; panelden düzenleme TX'te DELETE+INSERT. app SELECT/INSERT/UPDATE/DELETE.
+// Elle CHECK'ler: e-posta iskeleti (`\z`), telefon E.164.
+model CustomerNotifyContact {
+  id         String   @id @db.Char(26)
+  tenantId   String   @map("tenant_id") @db.Char(26)
+  customerId String   @map("customer_id") @db.Char(26)
+  email      String   @db.VarChar(254)
+  phone      String?  @db.VarChar(16) // E.164
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  customer Customer @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, customerId, email]) // müşteri içinde tekil (unicode_ci → büyük/küçük harf duyarsız) + customer FK (dba sapma: sütun sırası)
+  @@map("customer_notify_contacts")
 }

@@ -131,3 +131,17 @@ REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON notification_outbox 
 -- saklama, firma silme USER_CHILDREN, KVKK erasure, purgeTx). Tetikleyici yok; kurallar CHECK + bileşik FK'de. DDL yok.
 GRANT SELECT, INSERT, UPDATE, DELETE ON trusted_devices TO 'app'@'%';
 REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON trusted_devices FROM 'app'@'%';
+
+-- P27 gözetimsiz erişim (mimari-p27 §3.1–3.6; AC-273, 275, 293, 296). Tetikleyici yok; kurallar CHECK + bileşik FK'de. DDL yok.
+-- unattended_devices: kayıt INSERT, auth/iptal/rozet UPDATE, gece temizliği (iptal + 30 g, bağlı oturum yok) ve firma silme DELETE.
+GRANT SELECT, INSERT, UPDATE, DELETE ON unattended_devices TO 'app'@'%';
+REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON unattended_devices FROM 'app'@'%';
+-- unattended_device_grants: değişmez satır — verme INSERT, geri alma DELETE (request_blocks kalıbı). UPDATE YOK.
+GRANT SELECT, INSERT, DELETE ON unattended_device_grants TO 'app'@'%';
+REVOKE IF EXISTS UPDATE, ALTER, DROP, INDEX, TRIGGER, REFERENCES ON unattended_device_grants FROM 'app'@'%';
+-- unattended_registration_codes: üretim INSERT, tüketim UPDATE (used_at + device_id), iptal/temizlik/firma silme DELETE.
+GRANT SELECT, INSERT, UPDATE, DELETE ON unattended_registration_codes TO 'app'@'%';
+REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON unattended_registration_codes FROM 'app'@'%';
+-- customer_notify_contacts: panel düzenleme (TX'te DELETE + INSERT), müşteri anonimleştirmesi ve firma silme DELETE.
+GRANT SELECT, INSERT, UPDATE, DELETE ON customer_notify_contacts TO 'app'@'%';
+REVOKE IF EXISTS ALTER, DROP, INDEX, TRIGGER, REFERENCES ON customer_notify_contacts FROM 'app'@'%';

@@ -394,7 +394,7 @@ run_root 0 "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHER
 run_root 0 "SELECT (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE<>'USAGE') + (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\") + (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND PRIVILEGE_TYPE IN ('TRIGGER','ALTER','DROP','CREATE','INDEX','REFERENCES','GRANT OPTION'))" "app: global/DB yetkisi yok, hiçbir tabloda TRIGGER/ALTER/DROP/CREATE/INDEX yok"
 run_root 0 "SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs' AND PRIVILEGE_TYPE NOT IN ('SELECT','INSERT','DELETE')" "app: audit_logs yalnız SELECT/INSERT/DELETE (DELETE P13a)"
 # P13a (K27) + P16 (ADR-0030 m.3): DELETE yetkisi tam olarak bu tablolarda; P16'nın 8 tablosunda koşul tetikleyicide.
-run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customers,device_bindings,notification_outbox,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,trusted_devices,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
+run_root "audit_logs,auth_sessions,business_holidays,consent_texts,customer_notify_contacts,customers,device_bindings,notification_outbox,password_reset_tokens,recovery_codes,request_blocks,request_refs,session_consents,session_files,session_messages,support_requests,support_sessions,tenant_purge_jobs,tenant_request_settings,tenant_settings,tenants,trusted_devices,unattended_device_grants,unattended_devices,unattended_registration_codes,user_permissions,users" "SELECT GROUP_CONCAT(TABLE_NAME ORDER BY CAST(TABLE_NAME AS BINARY)) FROM information_schema.TABLE_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE() AND PRIVILEGE_TYPE='DELETE'" "app: DELETE yetkili tablo kümesi (K27)"
 run_root "consent_texts.is_current:UPDATE,consent_texts.updated_at:UPDATE,password_reset_tokens.updated_at:UPDATE,password_reset_tokens.used_at:UPDATE,recovery_codes.updated_at:UPDATE,recovery_codes.used_at:UPDATE,session_consents.ip:UPDATE,session_consents.user_agent:UPDATE" "SELECT GROUP_CONCAT(CONCAT(TABLE_NAME,'.',COLUMN_NAME,':',PRIVILEGE_TYPE) ORDER BY CAST(TABLE_NAME AS BINARY),CAST(COLUMN_NAME AS BINARY)) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_SCHEMA=DATABASE()" "app: sütun düzeyi yetki kümesi (P13a session_consents ip/user_agent)"
 run_root 0 "SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES WHERE GRANTEE=\"'app'@'%'\" AND TABLE_NAME='audit_logs'" "app: audit_logs sütun düzeyi UPDATE yok"
 run DENIED "DROP TRIGGER audit_logs_force_created_at" "denied"
@@ -763,6 +763,107 @@ run DENIED "$TX $TD1; UPDATE trusted_devices SET expires_at=expires_at+INTERVAL 
 run DENIED "$TX $(td "$H1" "CONCAT('Chrome',CHAR(13),CHAR(10),'Bcc: x')" "$E30"); $R" trusted_devices_ua_summary_chk
 run DENIED "$TX $(td "$H1" "CONCAT('Chrome',CONVERT(X'E280AE' USING utf8mb4),'swodniW')" "$E30"); $R" trusted_devices_ua_summary_chk   # U+202E (Cf)
 run DENIED "$TX $(td "$H1" "REPEAT('u',81)" "$E30"); $R" "Data too long"
+# P27 (mimari-p27 §3; AC-273, 275, 293, 296, 336, 337; K-P27-9/14): unattended_devices / registration_codes /
+# customer_notify_contacts (SELECT/INSERT/UPDATE/DELETE), unattended_device_grants (SELECT/INSERT/DELETE; UPDATE yok);
+# support_sessions cihaz oturumu (kod yok, 60 sn, UNATTENDED), session_consents UNATTENDED, outbox session/event çapası. Tümü
+# geri alınan TX'te.
+UD="INSERT INTO unattended_devices (id,tenant_id,customer_id,name,public_key,os_version,agent_version,binary_sha256,signed,registered_ip,registered_by,updated_at) VALUES"
+GDV="'0000000000000000000GRANTDV'"; GK="'00000000000000000000GRANTK'"
+UDV="$GDV,'$GT',$GK,'PC-01',RANDOM_BYTES(32),'Windows 11 Pro 23H2','0.27.0',$H1,0,'203.0.113.7',$GU,NOW(3)"
+UD1="$CU1; $UD ($UDV)"
+ud() { echo "$CU1; $UD (${UDV/$1/$2})"; }  # $1 → $2 değiştir
+UUD="UPDATE unattended_devices SET"; WUD="WHERE id=$GDV"
+UG="INSERT INTO unattended_device_grants (id,tenant_id,device_id,user_id,created_by) VALUES"
+UG1="$UG ('0000000000000000000GRANTGR','$GT',$GDV,$GU,$GU)"
+URC="INSERT INTO unattended_registration_codes (id,tenant_id,customer_id,code_hash,created_by,expires_at,updated_at) VALUES"
+GQ="'00000000000000000000GRANTQ'"
+URC1="$URC ($GQ,'$GT',$GK,$H2,$GU,NOW(3)+INTERVAL 24 HOUR,NOW(3))"
+NC="INSERT INTO customer_notify_contacts (id,tenant_id,customer_id,email,phone,updated_at) VALUES"
+NC1="$NC ('0000000000000000000GRANTNC','$GT',$GK,'bt@musteri.test','+905301112233',NOW(3))"
+USSC="id,tenant_id,technician_id,token_hash,active_code,tech_verify_code,status,expires_at,created_at,updated_at,device_id,customer_id,customer_name"
+USSV="'00000000000000000000GRANTS',$T,$H1,NULL,'0427','PENDING',NOW(3)+INTERVAL 60 SECOND,NOW(3),NOW(3),$GDV,$GK,'PC-01'"
+USS="INSERT INTO support_sessions ($USSC) VALUES ($USSV)"
+uss() { echo "INSERT INTO support_sessions ($USSC) VALUES (${USSV/$1/$2})"; }
+UADM="UPDATE support_sessions SET status='ACTIVE',consumed_at=NOW(3),mode='UNATTENDED' WHERE id='00000000000000000000GRANTS'"
+UEND="UPDATE support_sessions SET status='ENDED',ended_at=NOW(3),ended_by='TECH',end_reason='tech_end' WHERE id='00000000000000000000GRANTS'"
+UANON="UPDATE support_sessions SET customer_name=NULL,device_id=NULL,anonymized_at=NOW(3) WHERE id='00000000000000000000GRANTS'"
+OBS="INSERT INTO notification_outbox (id,tenant_id,request_id,session_id,event_id,kind,channel,recipient_enc,recipient_mask,recipient_hash,updated_at) VALUES"
+obs() { echo "$OBS ('$1','$GT',$2,$3,$4,'$5','EMAIL',RANDOM_BYTES(45),'b***@musteri.test',$6,NOW(3))"; }  # id req ses evt kind hash
+GSE="'00000000000000000000GRANTS'"; GEV="'01JZ0000000000000000000EVT'"
+SA="INSERT INTO users (id,tenant_id,email,full_name,role,password_hash,updated_at) VALUES ('00000000000000000000GRANTZ',NULL,'grant-sa@invalid.test','Grant SA','SUPER_ADMIN','x',NOW(3))"
+run OK     "SELECT COUNT(*) FROM unattended_devices; SELECT COUNT(*) FROM unattended_device_grants; SELECT COUNT(*) FROM unattended_registration_codes; SELECT COUNT(*) FROM customer_notify_contacts"
+# Akış: kod → kayıt (kod tüketimi) → grant (verified_at) → bağlan (PENDING, kod yok, 60 sn) → admit (UNATTENDED + onay) → outbox → bitiş → anonim
+run OK     "$TX $CU1; $URC1; $UD ($UDV); UPDATE unattended_registration_codes SET used_at=NOW(3),device_id=$GDV WHERE id=$GQ AND used_at IS NULL AND expires_at > NOW(3); $UG1; $UUD verified_at=NOW(3) $WUD; $R"
+run OK     "$TX $UD1; $USS; $UADM; INSERT INTO session_consents (id,session_id,tenant_id,level,decision,source) VALUES ('0000000000000000000GRANTSC',$GSE,'$GT','VIEW','GRANTED','UNATTENDED'); $(obs 0000000000000000000GRANTO1 NULL "$GSE" NULL UNATTENDED_STARTED "$H1"); $(obs 0000000000000000000GRANTO2 NULL "$GSE" NULL UNATTENDED_STARTED "$H2"); $UEND; $UANON; DELETE FROM notification_outbox WHERE session_id=$GSE; $R"
+run OK     "$TX $UD1; $USS; UPDATE support_sessions SET status='CANCELLED',ended_at=NOW(3),ended_by='SYSTEM',end_reason='device_timeout' WHERE id=$GSE; $UANON; $R"   # zaman aşımı + anonim (60 sn, device NULL)
+run OK     "$TX $UD1; $(uss "'PC-01'" "'X'"); $R"                                                                   # 1 karakterlik cihaz adı
+run OK     "$TX $UD1; $(obs 0000000000000000000GRANTO1 NULL NULL "$GEV" UN_DEVICE_REGISTERED "$H1"); $(obs 0000000000000000000GRANTO2 NULL NULL "$GEV" UN_CONTACTS_CHANGED "$H1"); $R"
+run OK     "$TX $UD1; $UUD local_enabled=0,last_seen_at=NOW(3),last_ip='198.51.100.9',agent_version='0.27.1',signed=1,notify_failed_at=NOW(3) $WUD; $UUD notify_failed_at=NULL $WUD; $R"
+run OK     "$TX $UD1; $UG1; DELETE FROM unattended_device_grants WHERE device_id=$GDV; $UUD revoked_at=NOW(3),revoked_by=$GU,revoke_reason='ADMIN',last_ip=NULL $WUD; DELETE FROM unattended_devices $WUD; $R"
+run OK     "$TX $UD1; $UUD revoked_at=NOW(3),revoke_reason='UNINSTALLED' $WUD; $R"
+run OK     "$TX $CU1; $NC1; UPDATE customer_notify_contacts SET phone=NULL WHERE customer_id=$GK; DELETE FROM customer_notify_contacts WHERE tenant_id='$GT' AND customer_id=$GK; $R"
+run OK     "$TX $CU1; $URC1; DELETE FROM unattended_registration_codes WHERE id=$GQ; $R"
+run DENIED "$TX $UD1; $UG1; UPDATE unattended_device_grants SET user_id=$GU WHERE device_id=$GDV; $R" "denied"   # UPDATE yetkisi yok
+for t in unattended_devices unattended_device_grants unattended_registration_codes customer_notify_contacts; do
+  run DENIED "ALTER TABLE $t ADD COLUMN x INT" "denied"
+  run DENIED "CREATE TRIGGER t_x BEFORE INSERT ON $t FOR EACH ROW SET @a=1" "denied"
+done
+run DENIED "DROP TABLE unattended_devices" "denied"
+# §3 negatifleri — cihaz
+run DENIED "$TX $(ud "'PC-01'" "''"); $R" unattended_devices_name_chk
+run DENIED "$TX $(ud "'PC-01'" "' PC-01'"); $R" unattended_devices_name_chk
+run DENIED "$TX $(ud "'PC-01'" "CONCAT('PC',CHAR(10),'01')"); $R" unattended_devices_name_chk
+run DENIED "$TX $(ud "'PC-01'" "CONCAT('PC',CONVERT(X'E280AE' USING utf8mb4),'01')"); $R" unattended_devices_name_chk   # U+202E
+run DENIED "$TX $(ud "'PC-01'" "CONCAT('PC',CONVERT(X'CD8F' USING utf8mb4),'01')"); $R" unattended_devices_name_chk     # U+034F
+run DENIED "$TX $(ud "'Windows 11 Pro 23H2'" "CONCAT('Win',CHAR(9))"); $R" unattended_devices_os_version_chk
+run DENIED "$TX $(ud "RANDOM_BYTES(32)" "RANDOM_BYTES(31)"); $R" unattended_devices_public_key_chk
+run DENIED "$TX $(ud "'0.27.0'" "'0.27.0-beta'"); $R" unattended_devices_agent_version_chk
+run DENIED "$TX $(ud "'0.27.0'" "CONCAT('0.27.0',CHAR(10))"); $R" unattended_devices_agent_version_chk
+run DENIED "$TX $(ud "$H1" "UPPER($H1)"); $R" unattended_devices_binary_sha256_chk
+run DENIED "$TX $(ud "RANDOM_BYTES(32)" "REPEAT(X'01',32)"); $UD ('0000000000000000000GRANTDW','$GT',$GK,'PC-02',REPEAT(X'01',32),'Win','0.27.0',$H1,0,'203.0.113.7',NULL,NOW(3)); $R" "Duplicate entry"   # public_key tekil
+run DENIED "$TX $UD1; $UUD revoked_at=NOW(3) $WUD; $R" unattended_devices_revoked_chk                                  # neden yok
+run DENIED "$TX $UD1; $UUD revoked_at=NOW(3),revoke_reason='UNINSTALLED',revoked_by=$GU $WUD; $R" unattended_devices_revoked_chk   # by yalnız ADMIN
+run DENIED "$TX $UD1; $UUD last_ip='198.51.100.9' $WUD; $UUD revoked_at=NOW(3),revoke_reason='ADMIN' $WUD; $R" unattended_devices_revoked_chk   # iptalde last_ip kalmaz
+enum_case unattended_devices_revoke_reason_chk ADMIN admin "CONCAT($AA,'DMIN')" "$TX $UD1; $UUD revoked_at=NOW(3),revoke_reason=@V@ $WUD; $R"
+run DENIED "$TX $UD1; $UUD revoked_at=NOW(3),revoke_reason='EXPIRED' $WUD; $R" unattended_devices_revoke_reason_chk
+run DENIED "$TX $GX; $CU1; $UD ($GDV,'00000000000000000000GRANTX',$GK,'PC-01',RANDOM_BYTES(32),'Win','0.27.0',$H1,0,'203.0.113.7',NULL,NOW(3)); $R" unattended_devices_tenant_id_customer_id_fkey   # başka firmanın müşterisi
+# grant
+run DENIED "$TX $UD1; $UG1; $UG ('0000000000000000000GRANTGS','$GT',$GDV,$GU,NULL); $R" "Duplicate entry"
+run DENIED "$TX $UD1; $SA; $UG ('0000000000000000000GRANTGS','$GT',$GDV,'00000000000000000000GRANTZ',$GU); $R" unattended_device_grants_user_id_tenant_id_fkey   # K-P27-9 Super Admin
+run DENIED "$TX $UD1; $GX; $UG ('0000000000000000000GRANTGS','00000000000000000000GRANTX',$GDV,$GU,NULL); $R" unattended_device_grants_device_id_tenant_id_fkey   # tenant uyuşmazlığı
+run OK     "$TX $UD1; $SA; $UG ('0000000000000000000GRANTGS','$GT',$GDV,$GU,'00000000000000000000GRANTZ'); $R"   # Super Admin grant VEREBİLİR (created_by tekil FK)
+# kayıt kodu
+run DENIED "$TX $CU1; $URC ($GQ,'$GT',$GK,'ABCD-1234-EFGH-5678',$GU,NOW(3)+INTERVAL 24 HOUR,NOW(3)); $R" unattended_registration_codes_code_hash_chk
+run DENIED "$TX $CU1; $URC ($GQ,'$GT',$GK,$H2,$GU,NOW(3)+INTERVAL 25 HOUR,NOW(3)); $R" unattended_registration_codes_ttl_chk
+run DENIED "$TX $CU1; $URC1; UPDATE unattended_registration_codes SET expires_at=expires_at+INTERVAL 1 HOUR WHERE id=$GQ; $R" unattended_registration_codes_ttl_chk
+run DENIED "$TX $CU1; $URC1; UPDATE unattended_registration_codes SET used_at=NOW(3) WHERE id=$GQ; $R" unattended_registration_codes_used_chk
+run DENIED "$TX $UD1; $URC1; UPDATE unattended_registration_codes SET used_at=NOW(3),device_id=$GDV WHERE id=$GQ; $URC ('00000000000000000000GRANTJ','$GT',$GK,REPEAT('c',64),NULL,NOW(3)+INTERVAL 1 HOUR,NOW(3)); UPDATE unattended_registration_codes SET used_at=NOW(3),device_id=$GDV WHERE id='00000000000000000000GRANTJ'; $R" "Duplicate entry"   # cihaz tek kod
+# bildirim adresi
+run DENIED "$TX $CU1; $NC1; $NC ('0000000000000000000GRANTND','$GT',$GK,'BT@Musteri.TEST',NULL,NOW(3)); $R" "Duplicate entry"   # büyük/küçük harf duyarsız tekil
+run DENIED "$TX $CU1; $NC ('0000000000000000000GRANTNC','$GT',$GK,CONCAT('bt@musteri.test',CHAR(10)),NULL,NOW(3)); $R" customer_notify_contacts_email_chk
+run DENIED "$TX $CU1; $NC ('0000000000000000000GRANTNC','$GT',$GK,'bt@musteri.test','05301112233',NOW(3)); $R" customer_notify_contacts_phone_chk
+# support_sessions cihaz oturumu
+run DENIED "$TX $UD1; $(uss "NULL,'0427'" "'48291376','0427'"); $R" support_sessions_code_pending_chk                     # cihaz oturumunda kod yok
+run DENIED "$TX $UD1; $(uss "INTERVAL 60 SECOND" "INTERVAL 15 MINUTE"); $R" support_sessions_ttl_chk
+run DENIED "$TX $UD1; $USS; UPDATE support_sessions SET status='ACTIVE',consumed_at=NOW(3),mode='AGENT' WHERE id=$GSE; $R" support_sessions_device_mode_chk
+run DENIED "$TX $ADM; UPDATE support_sessions SET mode='UNATTENDED' WHERE id=$GSE; $R" support_sessions_unattended_device_chk   # cihazsız UNATTENDED
+run DENIED "$TX $RQ; $ACC; $UD1; $RSR; UPDATE support_sessions SET device_id=$GDV WHERE id=$GSE; $R" support_sessions_device_request_chk
+run DENIED "$TX $UD1; $USS; $UADM; $UEND; UPDATE support_sessions SET customer_name=NULL,anonymized_at=NOW(3) WHERE id=$GSE; $R" support_sessions_anonymized_chk   # anonimde device_id kalmaz
+run DENIED "$TX $UD1; $USS; DELETE FROM unattended_devices $WUD; $R" support_sessions_device_id_tenant_id_fkey
+enum_case support_sessions_mode_chk UNATTENDED unattended "CONCAT('UN',$AA,'TTENDED')" "$TX $UD1; $USS; UPDATE support_sessions SET status='ACTIVE',consumed_at=NOW(3),mode=@V@ WHERE id=$GSE; $R"
+enum_case session_consents_source_chk UNATTENDED unattended "CONCAT('UN',$AA,'TTENDED')" "$TX $ADM; $SC ('00000000000000000000GRANTV','00000000000000000000GRANTS','00000000000000000000GRANTT','CONTROL','GRANTED',@V@,NULL,NULL,NULL,NULL); $R"
+# outbox çapası
+run DENIED "$TX $UD1; $USS; $(obs 0000000000000000000GRANTO1 NULL "$GSE" "$GEV" UNATTENDED_STARTED "$H1"); $R" notification_outbox_anchor_chk
+run DENIED "$TX $(obs 0000000000000000000GRANTO1 NULL NULL NULL UN_DEVICE_REGISTERED "$H1"); $R" notification_outbox_anchor_chk
+run DENIED "$TX $UD1; $USS; $(obs 0000000000000000000GRANTO1 NULL "$GSE" NULL UN_CONTACTS_CHANGED "$H1"); $R" notification_outbox_kind_anchor_chk
+run DENIED "$TX $(obs 0000000000000000000GRANTO1 NULL NULL "$GEV" UNATTENDED_STARTED "$H1"); $R" notification_outbox_kind_anchor_chk
+run DENIED "$TX $RQ; $(obs 0000000000000000000GRANTO1 "$GRR" NULL NULL UN_DEVICE_REGISTERED "$H1"); $R" notification_outbox_kind_anchor_chk
+run DENIED "$TX $(obs 0000000000000000000GRANTO1 NULL NULL "'not-a-ulid'" UN_DEVICE_REGISTERED "$H1"); $R" notification_outbox_event_id_chk
+run DENIED "$TX $UD1; $USS; $(obs 0000000000000000000GRANTO1 NULL "$GSE" NULL UNATTENDED_STARTED "$H1"); $(obs 0000000000000000000GRANTO2 NULL "$GSE" NULL UNATTENDED_STARTED "$H1"); $R" "Duplicate entry"   # aynı alıcı
+run DENIED "$TX $(obs 0000000000000000000GRANTO1 NULL "'0000000000000000000NOSESS'" NULL UNATTENDED_STARTED "$H1"); $R" notification_outbox_session_id_tenant_id_fkey
+# UN_DEVICE_REGISTERED tam 20 karakter: sondaki boşluk VARCHAR(20)'de sessizce kırpılır → boşluk varyantı 18 karakterlik türle sınanır.
+enum_case notification_outbox_kind_chk UNATTENDED_STARTED unattended_started "CONCAT('UN',$AA,'TTENDED_STARTED')" "$TX $UD1; $USS; $(obs 0000000000000000000GRANTO1 NULL "$GSE" NULL @KIND@ "$H1" | sed "s/'@KIND@'/@V@/"); $R"
+run DENIED "$TX $(obs 0000000000000000000GRANTO1 NULL NULL "$GEV" un_device_registered "$H1"); $R" notification_outbox_kind_chk
 # Temizlik (FK sırasıyla)
 run_mig OK "DELETE FROM tenant_purge_jobs WHERE tenant_id IN ('00000000000000000000GRANTT','00000000000000000000GRANTW'); DELETE FROM session_consents WHERE id IN ('00000000000000000000GRANT9','0000000000000000000GRANT10'); DELETE FROM support_sessions WHERE id IN ('00000000000000000000GRANT7','00000000000000000000GRANT8'); DELETE FROM customers WHERE id='00000000000000000000GRANTY'; DELETE FROM tenants WHERE id='00000000000000000000GRANTW'; DELETE FROM users WHERE id='00000000000000000000GRANTU'; DELETE FROM tenant_settings WHERE tenant_id='00000000000000000000GRANTT'; DELETE FROM tenants WHERE id='00000000000000000000GRANTT'"  # P16: app tenant/users silemez (tetikleyici) → migrator
 # P13a `backup` kullanıcısı (mimari-p13 §4): yalnız 'backup'@'localhost'; DB'de SELECT, SHOW VIEW, TRIGGER; global yetki yok.

@@ -1366,3 +1366,71 @@ Firma silme: tabloda tenant FK olduğundan P16 meta-testi `auth_sessions` gibi i
   silindi. Yeniden up → diff 0, grants 649/649.
 - Server typecheck temiz, unit 435/435. `test:int` 794/796: `tenant-purge-meta-p16` iki meta-testi yeni tabloyu ister
   (beklenen; K4 USER_CHILDREN + meta-test listesi).
+
+## P27 — gözetimsiz erişim: unattended_devices, grants, kayıt kodları, bildirim adresleri, oturum/onay/outbox ekleri (K0, 2026-11-15)
+
+Migration `apps/server/prisma/migrations/20261121010000_p27_unattended/{migration.sql,down.sql,precheck.sql}` (mimari-p27 §3 r2/r3,
+§15). Ad: mimarideki `20261121000000_p27_unattended` damgası P27a'da kullanıldığı için `20261121010000`. Veri taşıma yok.
+
+### Şema
+
+| Tablo / değişiklik                    | Ayrıntı                                                                                                                                                                                                                                         |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unattended_devices` (yeni)           | §3.1 + r2 `registered_ip` (NOT NULL), `verified_at`, `notify_failed_at`. CHECK: ad/OS 1..64 kırpılmış, Cc/Cf/Zl/Zp/U+034F/U+180E yok; `public_key` 32 bayt (UQ); semver; sha küçük hex; `revoke_reason` ikili enum; revoked_at ⇔ reason, by yalnız ADMIN, iptalde `last_ip` NULL |
+| `unattended_device_grants` (yeni)     | append/delete (updated_at yok). UQ(device_id, tenant_id, user_id); bileşik FK'ler (device_id, tenant_id) ve **(user_id, tenant_id) → users** → grant alan kullanıcı cihazın firmasında, Super Admin grant alamaz (K-P27-9 DB'de)              |
+| `unattended_registration_codes` (yeni)| `code_hash` hex UQ; (used_at IS NULL) = (device_id IS NULL); TTL ≤ 24 sa + 1 dk (süre uzatılamaz); UQ(device_id, tenant_id) (cihaz tek kodla)                                                                                                    |
+| `customer_notify_contacts` (yeni)     | UQ(tenant_id, customer_id, email) — unicode_ci → büyük/küçük harf duyarsız; e-posta iskeleti `\z`, telefon E.164. ≤ 5 sınırı serviste (FOR UPDATE sayım)                                                                                         |
+| `support_sessions`                    | `device_id` + FK (device_id, tenant_id) + IX(device_id, tenant_id). `mode` += UNATTENDED. Yeni: device_request, device_mode, unattended_device CHECK'leri (§3.5). Genişleyen: code_pending/ttl/customer_consumed (cihaz oturumu talep yolu gibi: kod yok, 60 sn ±5, ad PENDING'de), customer_name (cihazda alt sınır 1), anonymized (`device_id` NULL) |
+| `session_consents`                    | `source_chk` += UNATTENDED                                                                                                                                                                                                                      |
+| `notification_outbox`                 | `request_id` NULL; `session_id` (+FK), `event_id` (ULID CHECK); `anchor_chk` (tam bir çapa), `kind_anchor_chk` (REQ_* ⇔ request, UNATTENDED_STARTED ⇔ session, UN_* ⇔ event; küme dışı tür yalnız kind_chk'ye takılır); UQ(session_id, tenant_id, kind, channel, recipient_hash), UQ(event_id, …) |
+
+Sapmalar (mimariye göre): grants UQ sütun sırası (bileşik FK öneki) ve IX(user_id, tenant_id) + IX(tenant_id) (mimari IX(tenant_id,
+user_id) user FK'yi karşılamaz); contacts/codes müşteri FK'si (tenant_id, customer_id) sırasında (P8c karar 1); kullanıcı
+FK'leri (`registered_by`, `revoked_by`, `created_by`) tekil — Super Admin tenant geçişiyle kod üretip grant verebilir. Mimaride
+olmayan daraltmalar: kind ↔ çapa, anonim oturumda device_id NULL, cihaz metin/biçim CHECK'leri, kod TTL. `stepUpMethod` ve
+`replacedAlert` sütun değildir (audit alanı / hub sayacı).
+
+### Sorgu desenleri (K2–K4 için; EXPLAIN K2 entegrasyon testinde sabitlenmeli)
+
+| Sorgu                                                                                                       | İndeks                                         |
+| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Liste: `tenant_id=? AND revoked_at IS NULL ORDER BY name` (+ `manage` yoksa `EXISTS grant`)                  | IX(tenant_id, revoked_at, name)                |
+| Grant EXISTS: `g.device_id = d.id AND g.tenant_id = d.tenant_id AND g.user_id = ?` — **tenant_id'yi yazın** | UQ(device_id, tenant_id, user_id) tam eşitlik  |
+| Müşteri pasifi: `tenant_id=? AND customer_id=? AND revoked_at IS NULL`                                       | IX(tenant_id, customer_id, revoked_at)         |
+| Cihaz meşgul / son oturum: `device_id=? AND tenant_id=? AND status IN (…)`                                   | IX(device_id, tenant_id)                       |
+| Bekleyen kodlar: `tenant_id=? AND used_at IS NULL AND expires_at > ?`                                        | IX(tenant_id, used_at, expires_at)             |
+| Gece temizliği: cihaz `revoked_at < ?` (≤ 500) + `NOT EXISTS support_sessions(device_id)`; kod `expires_at < ?` | IX(revoked_at), IX(device_id, tenant_id); IX(expires_at) |
+
+### Kilit ve bakım penceresi (R-P27-5)
+
+- Yeni 4 tablo boş → kilit yok. `support_sessions.device_id` ADD COLUMN INSTANT.
+- COPY (tablo yeniden yazılır, süresince yazım bekler), **tablo başına tek ALTER**: `support_sessions` (indeks + FK + 6 DROP/ADD +
+  3 yeni CHECK), `session_consents` (source_chk), `notification_outbox` (MODIFY + 2 sütun + 2 UQ + FK + CHECK'ler). Staging süresi
+  **ölçülmedi** (dba staging'e bağlanmadı): deploy öncesi `SELECT COUNT(*)` üç tabloda; oturum/onay tabloları retention'lı ama
+  büyükse bakım penceresinde, `UNATTENDED_MODE=off` ve açık oturum yokken çalıştırın. Ön kontrol gerekmez (mevcut satırlar geçer).
+- Tetikleyici/yordam yok → 23 (lib.sh, audit-continuity sabiti değişmez).
+
+### Geri alma
+
+`precheck.sql` (yalnız okuma) → hepsi 0 olmalı; `down.sql` `p27_down_guard_chk` ile gözetimsiz oturum/onay, talep dışı outbox, cihaz
+ya da kod varsa hiçbir şey değiştirmeden 3819 verir (test edildi). Kalıcı kayıp: bildirim adresleri. Outbox'ta talep FK'si MODIFY
+için düşürülüp ayrı ALTER'da geri eklenir (MySQL 1832). **Önce P27 kodu ve grants.sql geri alınmalı.**
+
+### Silme yolları — K4 notları
+
+- **Firma silme:** cihazları SESSIONS adımından **sonra**, CUSTOMERS/USERS'tan önce silin (sıra: contacts, codes, grants, devices;
+  codes cihaza FK verir → önce). Mimarideki "oturumlardan önce `device_id` NULL'la" yolu, anonimleşmemiş cihaz oturumunda
+  `support_sessions_ttl_chk`'ye (60 sn penceresi, request/device/anonim yok) çarpar — kullanmayın. Adım enum'u değişmez (parça).
+- **Retention:** anonimleştirme UPDATE'i `device_id = NULL` yazmalı (anonymized_chk); oturumun outbox satırları aynı TX'te silinir.
+- **Kullanıcı silme:** grant DELETE; `registered_by`/`revoked_by`/codes.`created_by`/grants.`created_by` NULL.
+- **Gece işi:** cihaz DELETE'ten önce o cihaza bağlı kod satırları silinmiş olmalı (normalde used + 7 g < revoked + 30 g).
+
+### Yetkiler
+
+devices/codes/contacts SELECT/INSERT/UPDATE/DELETE; grants SELECT/INSERT/DELETE (UPDATE yok); hepsinde DDL REVOKE.
+
+### Test (2026-11-15, geçici `rs-p27-k0-*`, mysql 8.4.13, `--max-connections=300`, silindi)
+
+- Temiz up (25 migration) OK; `migrate diff --exit-code` 0; tetikleyici 23. `check-app-grants.sh` **730/730 PASS** (+81 P27).
+- Dolu DB (1 cihaz) down → `p27_down_guard_chk` 3819, değişiklik yok. Boş DB down → P27a şemasına diff 0, tables_priv satırı yok,
+  kayıt silindi, tetikleyici 23; yeniden up → diff 0, grants 730/730. Seed OK.
