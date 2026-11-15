@@ -9,12 +9,14 @@ import { formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 
 /**
- * Sohbet (AC-35, AC-52). Mesajlar React metin düğümü olarak basılır (HTML yorumlanmaz; `dangerouslySetInnerHTML`
+ * Sohbet (AC-35, AC-52; AC-227 gönderen hız sınırı). Mesajlar React metin düğümü olarak basılır (HTML yorumlanmaz; `dangerouslySetInnerHTML`
  * yok). Durumlar: bağlanıyor (pasif), boş, gönderim hatası, liste.
  */
 export function ChatPanel({ collab, peerName }: { collab: Collab; peerName: string }) {
   const [text, setText] = useState("");
   const [err, setErr] = useState(false);
+  /** AC-227: gönderen hız sınırı aşıldı — mesaj gönderilmedi, metin girişte kaldı. */
+  const [tooFast, setTooFast] = useState(false);
   const list = useRef<HTMLDivElement>(null);
   const inputId = useId();
   const items = collab.chat.items;
@@ -27,9 +29,10 @@ export function ChatPanel({ collab, peerName }: { collab: Collab; peerName: stri
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
     if (!text.trim()) return;
-    const ok = collab.sendChat(text);
-    setErr(!ok);
-    if (ok) setText("");
+    const r = collab.sendChat(text);
+    setErr(r === "error");
+    setTooFast(r === "rate");
+    if (r === "sent") setText("");
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) submit(e as unknown as FormEvent);
@@ -93,6 +96,7 @@ export function ChatPanel({ collab, peerName }: { collab: Collab; peerName: stri
           maxLength={CHAT_MAX}
           value={text}
           disabled={!collab.ready}
+          aria-describedby={tooFast ? `${inputId}-rate` : undefined}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
           placeholder={collab.ready ? t("p5.chat.placeholder") : t("p5.connecting")}
@@ -106,6 +110,10 @@ export function ChatPanel({ collab, peerName }: { collab: Collab; peerName: stri
           )}
         </Button>
       </form>
+      {/* AC-227: canlı bölge hep DOM'da (ekran okuyucu metin değişimini okur); metin yalnız aşımda */}
+      <p id={`${inputId}-rate`} role="status" className="text-sm text-warning empty:hidden" data-testid="chat-rate">
+        {tooFast ? t("p5.chat.tooFast") : ""}
+      </p>
       {text.length > CHAT_MAX - 200 && (
         <p className="text-right text-xs tabular-nums text-fg-muted">
           {text.length}/{CHAT_MAX}

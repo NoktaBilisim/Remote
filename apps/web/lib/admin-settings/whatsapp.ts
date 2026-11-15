@@ -8,6 +8,7 @@ import {
   WA_API_KEY_REENTER,
   WA_INSECURE_WARNING,
   WA_URL_MAX,
+  canonicalWaUrl as contractsCanonicalWaUrl,
   waApiKeySchema,
   waServiceUrlSchema,
   type WhatsappAdminTestInput,
@@ -57,16 +58,12 @@ export const WA_PHONE_MESSAGES = { required: "Telefon numarası gerekli", invali
 export const normalizeWaUrl = (raw: string): string => raw.trim().replace(/\/+$/, "");
 
 /**
- * WHATWG kanonik biçim (sunucuyla aynı kural, B-P12b-4): şema/host küçük harf, ondalık/onaltılı IPv4 noktalı, IDN
- * punycode, varsayılan port atılır; sondaki `/` kırpılır. Ayrıştırılamazsa yalnız kırpılmış ham değer.
+ * WHATWG kanonik biçim — kural tek kaynaktan: contracts `canonicalWaUrl` (sunucuyla aynı, B-P12b-4; AC-217). Web'in
+ * kirli karşılaştırması için kurala uymayan değerde kırpılmış ham değer döner (contracts null döner).
  */
 export function canonicalWaUrl(raw: string): string {
   const v = normalizeWaUrl(raw);
-  try {
-    return normalizeWaUrl(new URL(v).href);
-  } catch {
-    return v;
-  }
+  return contractsCanonicalWaUrl(v) ?? v;
 }
 
 /** Görünmez/biçim/satır ayırıcı ve kontrol karakterleri (sunucu ve DB CHECK de reddeder). */

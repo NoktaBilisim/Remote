@@ -92,11 +92,18 @@ if [ "${TURN_TEST_BPS:-1}" = 1 ]; then
     echo "PASS  allocation başına tavan ~1 MB/s = 8 Mbit/s (birim BAYT/sn; bit olsaydı ~125 KB/s)"
   else echo "FAIL  bant ölçümü: teklif $S1, teslim $R1 (beklenen teklif > 1,1 MB/s, teslim 0,9-1,1 MB/s)"; exit 1; fi
   # G-P13b-12: tavan oturum/kullanıcı değil ALLOCATION başınadır: aynı credential ile 2 allocation ~2 MB/s taşır.
-  uc bps2 -m 2 -l 1200 -z 1 -n 3000
-  R2="$(rate bps2 recv)"
-  echo "      aynı credential, 2 allocation: teslim ~$R2 B/s"
+  # P14a A5 (AC-219): -n 3000 (allocation başına ~3 sn) CI'da bir kez 997200 verdi (e433a05): iki allocation sırayla
+  # açılınca örtüşen tam saniye 1-2 kalıyor, medyan tek akışa düşüyordu. -n 8000 (~8 sn) ile örtüşme medyanı belirler;
+  # eşik değişmedi (retry yok). Düşerse saniyelik seri ve teklif yazılır (ölçüm mü, tavan mı ayırt edilir).
+  uc bps2 -m 2 -l 1200 -z 1 -n 8000
+  R2="$(rate bps2 recv)"; S2="$(rate bps2 send)"
+  echo "      aynı credential, 2 allocation: teklif ~$S2 B/s, teslim ~$R2 B/s"
   if [ "$R2" -ge 1800000 ]; then echo "PASS  max-bps allocation başına uygulanıyor (2 allocation ~2 MB/s; G-P13b-12)"
-  else echo "FAIL  2 allocation teslimi $R2 (allocation başına ise ~2 MB/s beklenir)"; exit 1; fi
+  else
+    echo "FAIL  2 allocation teslimi $R2 (allocation başına ise ~2 MB/s beklenir; teklif $S2, < 2,2 MB/s ise istemci iki akışı sürmedi)"
+    echo "      saniyelik teslim: $(grep -o 'tot_recv_bytes ~ [0-9]*' "$TMP/bps2.log" | awk '{print $3}' | awk 'NR>1 {printf "%d ", $1-p} {p=$1}')"
+    exit 1
+  fi
 fi
 
 if [ "${TURN_TEST_CAP:-1}" = 1 ]; then

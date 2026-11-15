@@ -866,3 +866,89 @@ Mimari-p13 §7.6, §7.11, §7.16 D1/D2; ADR-0020 m.2 ve m.5; güvenlik raporu P1
 - **down.sql:** önce kayıtlı anahtarı siliyor (`secret_enc = NULL`), sonra P13a CHECK'ini geri kuruyor ve migration kaydını siliyor. Doğru; önce sunucu kodu geri alınmalı.
 - **`check-app-grants.sh` (+3 → 387):** adres + anahtar OK; kısa blob → `secret_enc_chk`; kullanıcı bilgisi içeren adres + anahtar → `whatsapp_chk`. Var olan "adres null + anahtar" DENIED denemesi geçerli kalıyor.
 - **Test** (`rs-p13b-dba-wa-cbc48d`, silindi): up → anahtarlı INSERT OK; anahtar varken url null yapılınca 3819. down → anahtar NULL; anahtarlı INSERT 3819 (P13a kuralı geri geldi). Yeniden up → OK, drift 0, tetikleyici 3. `check-app-grants` 387/387.
+
+## P14a — 6 biçim CHECK'i `\z`, `users.version`, `auth_sessions.step_up_at` (A1, 2026-11-15)
+
+Migration `apps/server/prisma/migrations/20261116000000_p14a_security/{migration.sql,down.sql}`. Mimari-e11 §4.1; ADR-0014, ADR-0022, ADR-0023; AC-201, 206, 215. Veri taşıma yok. Yeni tablo yok. **`grants.sql` değişmedi:** `users` ve `auth_sessions`'ta app'in tablo düzeyi UPDATE yetkisi yeni sütunları kapsıyor. `check-app-grants.sh` app yetki kümesi aynı kaldı. Seed değişmedi: `version` 0, `step_up_at` NULL varsayılanla geliyor, geliştirme ortamı boş kalmıyor.
+
+### Şema
+
+| Değişiklik                                                                                                                                                                                                             | Ayrıntı                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `customers_file_label_chk`, `customers_phone_fmt_chk`, `support_requests_phone_fmt_chk`, `support_requests_client_version_fmt_chk`, `device_bindings_client_version_fmt_chk`, `tenant_request_settings_file_label_chk` | Desenler aynı, yalnız son çapa `$` yerine `\z`, `'c'` korunuyor. Tablo başına tek ALTER (DROP + ADD), COPY |
+| `users.version INT UNSIGNED NOT NULL DEFAULT 0`                                                                                                                                                                        | Prisma `version Int @db.UnsignedInt`. INSTANT. İndeks yok: koşullu UPDATE PK ile tek satırı buluyor        |
+| `auth_sessions.step_up_at DATETIME(3) NULL`                                                                                                                                                                            | Prisma `stepUpAt`. INSTANT. İndeks yok: guard zaten okunan oturum satırına bakıyor                         |
+
+**ICU `$` bulgusunun kapsamı (8.4.13'te denendi):** `$` yalnız `\n`'den değil, girdinin sonundaki herhangi bir **tek** satır sonlandırıcıdan önce de eşleşiyor: LF, CR, CRLF, VT, FF, NEL (U+0085), LS (U+2028), PS (U+2029). İki sonlandırıcı (`\n\n`) eşleşmiyor. `\z` hepsini reddediyor.
+
+**Kapsam dışı açık (mimar kararı gerekiyor; AC-201 yalnız 6 CHECK'i sayıyor):** e-posta iskeleti `^[^@\s\p{Cc}\p{Cf}]+@[^@\s\p{Cc}\p{Cf}]+$` da sondaki tek bir sonlandırıcıyı kabul ediyor (`'a@b.test\n'` ve `'a@b.test\r\n'` → 1). Etkilenen CHECK'ler: `customers_email_fmt_chk`, `support_requests_email_fmt_chk`, `support_sessions_customer_email_chk`, `tenant_settings_smtp_from_email_chk`. Sonuncusu SMTP başlığına gidiyor, CRLF başlık enjeksiyonunda tek savunma zod kalıyor. Öneri: P15 dba paketinde aynı kalıpla (ön kontrol + `\z`) düzeltilsin. Sabit uzunluklu `CHAR(n)` + `{n}` desenleri etkilenmiyor (sonlandırıcı sütuna sığmıyor). `session_files_file_name_chk` içindeki `[. ]$` bir `NOT` deseni, yalnız daha fazla değeri reddediyor.
+
+### Ön kontrol (AC-201)
+
+- Migration, ALTER'lardan önce geçici bir saklı yordam (`p14a_precheck`) oluşturup çağırıyor. Yordam yeni desenleri ihlal eden satırları tablo bazında sayıyor; ihlal varsa `SIGNAL SQLSTATE '45000'` ile **hiçbir şey değişmeden** durduruyor. Mesaj örneği: `P14A_PRECHECK customers=2 support_requests=1`. Mesaj yalnız ihlali olan tabloları ve satır sayısını içeriyor (`customers` iki CHECK için tek sayı, yani ihlalli satır sayısı). Prisma bunu `P3018` çıktısında gösteriyor, migrate logunda da görünüyor.
+- SIGNAL yalnız saklı program içinde geçerli, bu yüzden yordam kullanıldı. DEFINER migrator. CREATE ROUTINE yetkisi `<db>`.* ALL kapsamında. Binlog bayrağı (1419) yalnız fonksiyon ve tetikleyici için gerekli, yordam için değil.
+- **Kalıntı:** ön kontrol düşerse yordam DB'de kalıyor. Zararsız (yalnız okuyor). Bir sonraki deneme önce `DROP PROCEDURE IF EXISTS` yapıyor, `down.sql` de siliyor. Arada alınan bir `restore-sec-snapshot` `routines=` farkı verirse: `DROP PROCEDURE IF EXISTS p14a_precheck;`.
+- **Sütun bazında döküm** (yalnız okuma, migrator; ihlal çıkınca hangi sütun olduğunu görmek için):
+
+```sql
+SELECT 'customers.file_label' AS col, COUNT(*) AS n FROM customers WHERE NOT REGEXP_LIKE(file_label, '^[A-Za-z0-9]{1,20}\\z', 'c')
+UNION ALL SELECT 'customers.phone', COUNT(*) FROM customers WHERE NOT REGEXP_LIKE(phone, '^[+][1-9][0-9]{7,14}\\z', 'c')
+UNION ALL SELECT 'support_requests.customer_phone', COUNT(*) FROM support_requests WHERE NOT REGEXP_LIKE(customer_phone, '^[+][1-9][0-9]{7,14}\\z', 'c')
+UNION ALL SELECT 'support_requests.client_version', COUNT(*) FROM support_requests WHERE NOT REGEXP_LIKE(client_version, '^[0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}\\z', 'c')
+UNION ALL SELECT 'device_bindings.client_version', COUNT(*) FROM device_bindings WHERE NOT REGEXP_LIKE(client_version, '^[0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}\\z', 'c')
+UNION ALL SELECT 'tenant_request_settings.file_label', COUNT(*) FROM tenant_request_settings WHERE NOT REGEXP_LIKE(file_label, '^[A-Za-z0-9]{1,20}\\z', 'c');
+```
+
+### Düzeltme SQL'i (ön kontrol düşerse; migrator, önce yedek — runbook §18)
+
+Eski CHECK'ten geçmiş bir değerin yeni desenden kalmasının tek nedeni, sondaki tek satır sonlandırıcı. Sonlandırıcı kırpılınca değer eski desenin gövdesine birebir uyuyor. Kişisel veri anlamı değişmiyor, yalnız görünmez karakter siliniyor. İdempotent: ikinci çalıştırma 0 satır günceller.
+
+```sql
+-- Sondaki tek satır sonlandırıcı: CRLF | LF | VT | FF | CR | NEL | LS | PS
+SET @t = '(\\r\\n|[\\n\\x{0B}\\x{0C}\\r\\x{85}\\x{2028}\\x{2029}])\\z';
+UPDATE customers SET file_label = REGEXP_REPLACE(file_label, @t, '') WHERE NOT REGEXP_LIKE(file_label, '^[A-Za-z0-9]{1,20}\\z', 'c');
+UPDATE customers SET phone = REGEXP_REPLACE(phone, @t, '') WHERE NOT REGEXP_LIKE(phone, '^[+][1-9][0-9]{7,14}\\z', 'c');
+UPDATE support_requests SET customer_phone = REGEXP_REPLACE(customer_phone, @t, '') WHERE NOT REGEXP_LIKE(customer_phone, '^[+][1-9][0-9]{7,14}\\z', 'c');
+UPDATE support_requests SET client_version = REGEXP_REPLACE(client_version, @t, '') WHERE NOT REGEXP_LIKE(client_version, '^[0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}\\z', 'c');
+UPDATE device_bindings SET client_version = REGEXP_REPLACE(client_version, @t, '') WHERE NOT REGEXP_LIKE(client_version, '^[0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}\\z', 'c');
+UPDATE tenant_request_settings SET file_label = REGEXP_REPLACE(file_label, @t, '') WHERE NOT REGEXP_LIKE(file_label, '^[A-Za-z0-9]{1,20}\\z', 'c');
+```
+
+Ardından: `prisma migrate resolve --rolled-back 20261116000000_p14a_security` → `pnpm db:migrate`. Döküm sorgusu hâlâ 0 olmayan satır gösteriyorsa (sonlandırıcı dışı bir ihlal, eski CHECK'le olanaksız) satırlar elle düzeltilmez, mimara bildirilir. `customers`'ta `phone` değişirse `search_key` aynı kalıyor, çünkü anahtar yalnız rakamlardan üretiliyor.
+
+### Kilit ve geri alma
+
+- **Kilit:** 4 tablo COPY ile yeniden yazılıyor (customers, support_requests, device_bindings, tenant_request_settings). Sütunlar INSTANT. Migrate, compose'da server'dan önce `migrate` servisinde çalışıyor. Ön kontrol ile ALTER arasında yazma olmuyor.
+- **`down.sql`:** guard yok. Gerekçe: 6 CHECK eski `$` desenine gevşiyor, mevcut her satır uyuyor. Düşen iki sütun yeniden üretilebilir veri (version sayacı, step-up anı). Kalıntı yordamı da siliyor, ardından sütunları düşürüyor (INSTANT), CHECK'leri `$`'a döndürüyor ve `_prisma_migrations` kaydını siliyor. **Önce P14a sunucu kodu geri alınmalı.**
+
+### B1 — `tenants(name)` indeksi: **gerek yok** (AC-226, mimari-e11 §5.1)
+
+Ölçüm (8.4.13, `tenants` utf8mb4_unicode_ci, 250 firma fixture'ı, %10 pasif, Türkçe adlar). Sorgu biçimi: `WHERE deleted_at IS NULL AND name LIKE ? ORDER BY (name LIKE 'q%') DESC, (status='ACTIVE') DESC, name LIMIT 20`.
+
+| Sorgu                        | İndeks yok (EXPLAIN ANALYZE)       | Geçici IX(name) ile                                     |
+| ---------------------------- | ---------------------------------- | ------------------------------------------------------- |
+| önek `name LIKE 'nok%'`      | tam tarama 250 satır, **0,11 ms**  | aralık taraması 25 satır, 0,08 ms                       |
+| içerir `name LIKE '%biliş%'` | tam tarama 250 satır, **0,08 ms**  | **indeks kullanılmıyor** (baştaki `%`), yine tam tarama |
+| boş `q` (ilk 20, aktif önce) | tam tarama + sıralama, **0,12 ms** | —                                                       |
+| 10.000 firma, içerir / önek  | 2,6 ms / 1,4 ms                    | —                                                       |
+
+- **Karar:** indeks eklenmedi. AC-226 ölçütü p95 ≤ 500 ms; sorgu 250 firmada bunun ~1/4000'i. İçerir araması B-tree kullanamıyor, önekte de kazanç mikrosaniye düzeyinde. İndeks her firma yazmasına maliyet ekler ve ölçülebilir fayda sağlamaz.
+- Harf duyarsızlığı unicode_ci harmanlamasından geliyor: `LIKE '%BİLİŞİM%'` ve `LIKE 'çağ%'` doğru eşleşti. Backend `LOWER()` ya da `COLLATE` eklememeli, eklerse sonuç değişmez ama maliyet artar.
+- **Yeniden değerlendirme eşiği:** firma sayısı 50.000'i aşarsa ya da ölçülen p95 50 ms'yi geçerse. O durumda içerir için `FULLTEXT … WITH PARSER ngram`, önek için IX(name).
+- **Backend'e (B2):** `LIMIT 20` zorunlu, `q` uzunluğu ≤ 120 (sütun genişliği). `q` içindeki `%` ve `_` LIKE kaçışıyla verilmeli (Prisma `contains` / `startsWith` bunu yapıyor).
+
+### Test (2026-11-15, geçici `mysql:8.4.13` binlog açık + bayrak, `rs-p14a-dba-7f3c1e:33447`, silindi)
+
+- **Temiz up:** HEAD → P14a OK. `migrate diff --exit-code` 0 (drift yok), `migrate status` güncel.
+- **Ön kontrol:** down sonrası eski `$` CHECK'iyle `tenant_request_settings`'e `'Firma\n'` ve `'Firma\r\n'` yazıldı. `migrate deploy` → `P3018` + `P14A_PRECHECK tenant_request_settings=2`. 6 CHECK `$`'da kaldı, sütunlar eklenmedi (değişiklik yok), yordam kaldı (beklenen). Düzeltme SQL'i iki satırı `Firma`'ya kırptı → resolve → `pnpm db:migrate` OK, yordam silindi, drift 0.
+- **down → up döngüsü:** down sonrası Prisma diff yalnız iki `ADD COLUMN` gösterdi (CHECK'ler Prisma dışında). up sonrası drift 0. 6 CHECK'in `CHECK_CLAUSE`'u ilk up ile birebir aynı.
+- `test/integration/security-p14a-db.test.ts` (yeni, 5 test): 6 CHECK'te `\n` sonlu UPDATE → 3819 + kısıt adı, geçerli değer kabul; 8 sonlandırıcının hepsi ret; information_schema'da `\z` var, `$` yok; `version` 0, koşullu `UPDATE … AND version=?` 1/0, negatif 1264; `step_up_at` `datetime(3)` NULL. **Ayırt edicilik:** down sonrası (`$` desenleri) AC-201 testlerinin 3'ü de düştü, up sonrası geçti.
+- `check-app-grants.sh` += 6 `CHAR(10)` negatifi (her CHECK için, kısıt adıyla) → **393/393 PASS**.
+- Server: typecheck temiz, `test` 368/368, `test:int` **559/559** (56 dosya, temiz DB + P14a).
+
+### İkinci migration: `20261116010000_p14a_mysql_tls` (A3, AC-211; yazan backend-dev)
+
+- **Ne yapıyor:** `system_settings_mysql_chk` CHECK'indeki JSON şemasına isteğe bağlı `requireTls: boolean` alanı ekleniyor. Şemanın geri kalanı P11 ile birebir aynı (`host`/`port`/`database`/`user` zorunlu, `additionalProperties:false`, `user`'da Cc/Cf/Zl/Zp yok). `DROP CHECK` + `ADD CONSTRAINT` tek `ALTER` içinde, bu yüzden kısıtsız bir ara an yok. `system_settings` en çok 3 satır, kilit önemsiz. Yeni tablo ya da yetki yok, `grants.sql` değişmedi.
+- **Gerekçe:** A1 migration'ı (§4.1) bu alanı kapsamıyordu. P11 şeması `additionalProperties:false` olduğu için A3'ün yazdığı `requireTls` anahtarı 3819 ile reddediliyordu. Alan zorunlu değil, eski satırlar geçerli kalıyor; okuyucu alan yoksa `false` sayıyor. QA Tur 1 bu ek migration'ı gerekçeli kabul etti.
+- **`down.sql` (elle; Prisma çalıştırmaz):** önce `mysql` satırındaki `requireTls` anahtarı `JSON_REMOVE` ile siliniyor (P11 şeması bilinmeyen anahtarı reddettiği için bu sıra şart). Ardından CHECK P11 şemasına döndürülüyor ve `_prisma_migrations` kaydı siliniyor. **Önce P14a A3 sunucu kodu geri alınmalı.** Silinen veri yalnız TLS zorunluluğu tercihi; geri alındığında varsayılan `false` olur ve yönetici paneli yeniden işaretleyebilir.
+- Komut: `pnpm --filter @remote/server exec prisma db execute --file prisma/migrations/20261116010000_p14a_mysql_tls/down.sql` (migrator).

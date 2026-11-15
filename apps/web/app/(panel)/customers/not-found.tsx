@@ -4,14 +4,14 @@ import { Breadcrumb } from "@/components/breadcrumb";
 import { EmptyState } from "@/components/ui/empty-state";
 import { t } from "@/lib/i18n";
 
-/** Yok ya da başka firmanın müşterisi (sunucu 404; AC-172 — varlık sızdırılmaz). */
+/** AC-220: `[id]` sayfasının notFound()'u buraya düşer (loading sınırı yok → gerçek HTTP 404). Yok ya da başka firmanın müşterisi (sunucu 404; AC-172 — varlık sızdırılmaz). */
 export default function CustomerNotFound() {
   return (
     <>
       <Breadcrumb items={[{ label: t("nav.customers"), href: "/customers" }, { label: t("cu.notFoundTitle") }]} />
-      <h1 className="sr-only">{t("cu.notFoundTitle")}</h1>
       <EmptyState
         Icon={SearchX}
+        headingLevel={1}
         title={t("cu.notFoundTitle")}
         body={t("cu.notFoundBody")}
         testId="customer-not-found"

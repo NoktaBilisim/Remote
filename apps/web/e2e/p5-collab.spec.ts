@@ -112,6 +112,23 @@ async function acceptOffer(p: Page) {
   await p.getByTestId("file-accept").click();
 }
 
+test("AC-227 (TEST-P5-4): gönderen sohbeti 5/sn ile sınırlı — aşımda uyarı, alıcıda sessiz düşme 0", async ({ page, context, browser }) => {
+  await signIn(context, "p5");
+  const { g } = await live(page, browser);
+  const input = page.getByTestId("chat-input");
+  await input.focus();
+  // 12 mesaj art arda (tuş başına ms'ler): ilk 1 sn'de en çok 5'i gider, fazlası gönderilmez ve uyarı çıkar
+  await page.keyboard.type(Array.from({ length: 12 }, (_, i) => `m${i + 1}\n`).join(""));
+  await expect(page.getByTestId("chat-rate")).toHaveText(/Çok hızlı yazıyorsunuz/);
+  await expect(page.getByTestId("chat-rate")).toHaveAttribute("role", "status");
+  const mine = await page.getByTestId("chat-msg").count();
+  expect(mine).toBeGreaterThanOrEqual(5);
+  expect(mine).toBeLessThan(12);
+  // gönderilen her mesaj alıcıda görünür (kuyruğa alınmış/sessizce düşmüş mesaj yok)
+  await expect(g.getByTestId("chat-msg")).toHaveCount(mine);
+  expect(await axeScan(page, '[data-testid="chat-panel"]')).toEqual([]);
+});
+
 test("AC-35/52: sohbet iki yön; HTML/XSS denemesi düz metin kalır, betik çalışmaz", async ({ page, context, browser }) => {
   await signIn(context, "p5");
   const { g } = await live(page, browser);

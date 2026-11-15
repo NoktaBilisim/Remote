@@ -78,6 +78,14 @@ const picker = (): SavePicker | undefined => (globalThis as { showSaveFilePicker
 /** Tarayıcı dosyayı doğrudan diske yazabiliyor mu (File System Access). */
 export const canStreamToDisk = () => typeof picker() === "function";
 
+/**
+ * AC-230: kabul diyaloğundaki "256 MB üzeri doğrudan diske yazılır; seçtiğiniz dosyanın üzerine yazılır" uyarısı
+ * gösterilsin mi? Yalnız eşik (`DISK_MIN_BYTES`) AŞILINCA ve tarayıcı diske akış destekliyorsa (kayıt penceresi açılacaksa).
+ */
+export function shouldWarnLargeWrite(bytes: number, streamToDisk: boolean = canStreamToDisk()): boolean {
+  return streamToDisk && bytes > DISK_MIN_BYTES;
+}
+
 /** Alınan içeriğin hedefi: bellek (tek kopya, 8 MB'lık Blob grupları) ya da disk (doğrulanmadan kaydedilmez). */
 interface Sink {
   write(u: Uint8Array): void;

@@ -26,6 +26,8 @@ export interface AuthContext {
   mfaStage: MfaStage;
   mfaRequired: boolean;
   totpEnabled: boolean;
+  /** P14a (AC-215, ADR-0022): bu oturumdaki son başarılı step-up anı; `requireStepUp` 5 dk içinde olmasını ister. */
+  stepUpAt: Date | null;
   /** P12 (AC-81): etkin tenant'ın (Super Admin'de seçili firma) logo yolu; null → sistem logosu. */
   logoPath: string | null;
 }
@@ -133,6 +135,7 @@ export async function resolveSession(db: Db, token: string, now: Date, policy: S
     mfaStage,
     mfaRequired: mfaRequiredFor(s.user),
     totpEnabled: s.user.totpEnabled,
+    stepUpAt: s.stepUpAt,
     logoPath: (acting ?? s.user.tenant)?.logoPath ?? null,
   };
 }

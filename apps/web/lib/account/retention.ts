@@ -1,9 +1,10 @@
 // P13a (AC-197): firma veri saklama süresi (gün). Aralık tek kaynaktan: contracts `TENANT_SETTINGS_LIMITS.retentionDays`
 // (DB CHECK ile aynı, 90–730; varsayılan 365). Sunucu son sözü söyler: 400 `fields.retentionDays` alana yazılır.
-import { TENANT_SETTINGS_LIMITS } from "@remote/contracts/api/tenants";
+import { RETENTION_DEFAULT_DAYS, TENANT_SETTINGS_LIMITS } from "@remote/contracts/api/tenants";
 
 export const RETENTION_LIMITS = TENANT_SETTINGS_LIMITS.retentionDays;
-export const RETENTION_DEFAULT_DAYS = 365;
+/** AC-217: varsayılan tek kaynaktan (contracts; sunucu da bunu kullanır). */
+export { RETENTION_DEFAULT_DAYS };
 
 /** Alan metni → tam sayı gün; boş, ondalık, harf ve aralık dışı reddedilir (mesaj Türkçe, aralığı söyler). */
 export function checkRetentionDays(raw: string): { days?: number; error?: string } {

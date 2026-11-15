@@ -80,6 +80,38 @@ export const listTenantsQuerySchema = z.strictObject({
 });
 export type ListTenantsQuery = z.infer<typeof listTenantsQuerySchema>;
 
+/** P14b (AC-226): `GET /admin/tenants/options` en çok sonuç (aranabilir firma seçici). */
+export const TENANT_OPTIONS_MAX = 20;
+
+/**
+ * GET /admin/tenants/options?q=&limit= (SUPER_ADMIN; AC-226). `q` adda harf duyarsız önek + içerir (boş → ilk `limit`);
+ * sıra: önek eşleşmesi önce, aktif önce, ada göre. Silinmiş firma yok; pasif firma `status` ile döner.
+ */
+export const tenantOptionsQuerySchema = z.strictObject({
+  q: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z
+      .string()
+      .max(480, `Arama en çok ${TENANT_NAME_MAX} karakter olabilir`)
+      .refine((v) => !UNSAFE_NAME_CHARS.test(v), "Görünmez veya kontrol karakteri içeremez")
+      .trim()
+      .refine((v) => codePoints(v) <= TENANT_NAME_MAX, `Arama en çok ${TENANT_NAME_MAX} karakter olabilir`)
+      .optional(),
+  ),
+  limit: z.coerce.number().int().min(1).max(TENANT_OPTIONS_MAX).default(TENANT_OPTIONS_MAX),
+});
+export type TenantOptionsQuery = z.infer<typeof tenantOptionsQuerySchema>;
+
+export interface TenantOption {
+  id: string;
+  name: string;
+  slug: string;
+  status: TenantStatus;
+}
+export interface TenantOptionsResponse {
+  items: TenantOption[];
+}
+
 /**
  * POST /admin/switch-tenant (AC-70): `tenantId` → o firmanın bağlamına geç (yalnız ACTIVE firma; değilse 404);
  * `null` → firma bağlamından çık. Mevcut oturuma yazılır (`auth_sessions.acting_tenant_id`), audit `tenant.switched`.
@@ -123,6 +155,8 @@ export const TENANT_SETTINGS_LIMITS = {
   maxFileMb: { min: 1, max: 2048 },
   retentionDays: { min: 90, max: 730 },
 } as const;
+/** Firma veri saklama süresi varsayılanı (gün); `tenant_settings.retention_days` DB varsayılanıyla aynı (P14a AC-217). */
+export const RETENTION_DEFAULT_DAYS = 365;
 
 const range = (k: keyof typeof TENANT_SETTINGS_LIMITS) => {
   const { min, max } = TENANT_SETTINGS_LIMITS[k];

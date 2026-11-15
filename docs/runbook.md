@@ -2598,3 +2598,57 @@ proxy-guard tek port: `PROXY_GUARD_PORT=4451 PROXY_GUARD_DST4=127.0.0.0/8,172.30
 | `verify-and-publish`: "staging exe … yalnız DEPLOY_ENV=staging"                | yanlış `--deploy-dir` (prod) → `--deploy-dir /opt/remote-stg/deploy` ya da varsayılan                                         |
 | `restore.sh`: "compose projesi 'remote-stg', beklenen 'remote'"                | staging'de `RESTORE_EXPECT_PROJECT=remote-stg` verilmedi (bilinçli: varsayılan prod adı)                                      |
 | `remote-backup@stg` "prod varsayılan yollarını kullanıyor"                     | birim dışından (elle) çalıştırıldı ya da şablon eski → `systemctl start remote-backup@stg` ya da üç yolu `backup.env`'e yazın |
+
+## 22. P14a A5 — CI kabuk/iş akışı denetimi, kararlılık koşusu, kod denemesi ve MySQL testi alarmları (devops, 2026-11-15; AC-208, AC-212, AC-219)
+
+### 22.1 CI ve kararlılık
+
+| İş                                       | Ne yapar                                                                                                                                                                                                         | Yerelde aynı komut                                                                                                                                                                                                                        |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml` → `shellcheck + actionlint`     | `deploy/**/*.sh` + `scripts/*.sh` shellcheck 0.11.0 (`-S warning`: uyarı/hata düşürür; info/style notları — bilinçli SC2016/SC2015 — düşürmez); `.github/workflows/*` actionlint 1.7.8. İmajlar digest ile sabit | `find deploy scripts -name '*.sh' -print0 \| sort -z \| xargs -0 docker run --rm -e LANG=C.UTF-8 -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.11.0 -S warning` · `docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.8` |
+| `stability.yml` (elle + Pazartesi 02:17) | `scripts/repeat-tests.sh <n>`: entegrasyon (vitest) n ayrı süreç + Playwright `--repeat-each n --retries 0`; varsayılan n = 20; izin `contents: read`                                                            | `TEST_DATABASE_URL=… scripts/repeat-tests.sh 20 [int\|e2e\|all]` (çıkış 0 = hepsi yeşil; günlük yolu sonda)                                                                                                                               |
+
+- Elle tetikleme: GitHub → Actions → `stability` → "Run workflow" (`runs` girdisi) ya da `gh workflow run stability.yml -f runs=20`.
+  Sonuç (`SONUÇ: x/y yeşil` + düşen test adları) qa raporuna yazılır. Kararsız test **retry ile gizlenmez**: kök neden
+  düzeltilir; düzelene kadar `docs/implementation.md` "Kararsız testler" listesine yazılır (AC-219: liste boş olmalı).
+- Yeni `ci.yml` işi `shellcheck + actionlint` main dalı koruma kuralında "required status check" olarak eklenir (repo
+  sahibi; Settings → Branches). `stability` zorunlu kontrol DEĞİLDİR (PR'da çalışmaz).
+- CI `build` işi "compose yapılandırması geçerli" adımı `.env.example`'dan sahte bir `.env` üretir. Compose'a yeni
+  **zorunlu** (`${X:?…}`) anahtar eklenirse bu adımdaki `sed` listesine CI'ya özgü sahte değer eklenir (sır değil);
+  aksi hâlde adım "required variable X is missing a value" ile düşer (P10'da `APP_ENCRYPTION_KEYS` için olan buydu,
+  P14a A5'te düzeltildi).
+
+### 22.2 Alarm eşikleri (metrikler server `/metrics`, Bearer `METRICS_TOKEN`; A3 ile gelir)
+
+| Kural                                                                            | Önem      | Anlamı / ilk müdahale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `increase(rs_guest_code_rate_limited_total{scope="prefix"}[15m]) >= 20` (AC-208) | **Uyarı** | Sayaç **kilitlenen kova başına bir** artar (kilitliyken yeniden denemeler sayılmaz; S14-6) → 15 dk'da ≥ 20 farklı önek kovasının kilitlenmesi = dağıtık kod numaralandırma/kaba kuvvet; tek istemci alarmı tetikleyemez. IP sınırı (`scope="ip"`) tek başına alarm değildir (pano). Müdahale: Caddy/nginx erişim logunda `/api/guest` 429'larının kaynak IP dağılımı (sorgu dizesi loglanmaz, G-10); tek kaynaksa host güvenlik duvarında geçici engel; dağıtıksa açık oturum kodlarının süresi kısa tutulur ve olay kaydı açılır |
+| `increase(rs_mysql_test_failed_total[1h]) >= 10` (AC-212; tüm `class` toplamı)   | **Uyarı** | Super Admin MySQL "Bağlantıyı Test Et" ile port tarama / parola deneme sinyali (B-P11-4). Müdahale: audit `settings.mysql.test` kayıtlarından kim/hangi IP (§1 audit sorgusu); beklenmiyorsa hesabın oturumlarını kapat, parolayı/2FA'yı sıfırla; `class` dağılımı (`connect`/`auth`/`tls`/`timeout`) hedefi gösterir                                                                                                                                                                                                             |
+
+**İzleme yöntemi.** Prometheus yokken iki kural `remote-watch` (§20.4, 10 dk) içinde uygulanır: her koşuda `/metrics`'ten
+iki sayaç okunur (prefix serisi; mysql tüm `class` toplamı), `/var/lib/remote-watch[/<örnek>]/state`
+`counter_samples=` satırında 90 dk örnek tutulur. Artış = pencereden eski en yeni örnekten bugüne ardışık farklar
+(azalma = server yeniden başladı → yeni değer artış sayılır). Timer 10 dk olduğundan etkin pencere **en az** kural
+penceresidir (15 dk → ~20 dk, 1 sa → ~70 dk; biraz daha hassas). Kontrol adları `guest-code-prefix` ve
+`mysql-test-failed` (`remote_watch_check_ok{check=…}`), alarm kanalı diğer kontrollerle aynı (`WATCH_ALERT_CMD`).
+Eşikler `watch.env`: `WATCH_GUEST_PREFIX_MAX` (20), `WATCH_MYSQL_FAIL_MAX` (10). Metrik henüz yoksa (A3 yayında değil)
+kontrol değerlendirilmez, alarm üretmez; ilk koşuda taban olmadığından alarm yoktur.
+
+Elle kontrol (sunucuda, server konteyneri içinden; token ekrana yazılmaz):
+
+```bash
+docker compose exec -T server node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+process.env.METRICS_TOKEN}}).then(r=>r.text()).then(t=>console.log(t.split('\n').filter(l=>/^rs_(guest_code_rate_limited|mysql_test_failed)_total/.test(l)).join('\n')))"
+```
+
+**Yayın (remote-watch güncellemesi):** `deploy/ops/remote-watch.sh install` (kurulu kopya yenilenir; `watch.env`
+korunur; ikinci örnek için `install stg`). Doğrulama: `systemctl start remote-watch.service` →
+`journalctl -t remote-watch -n 5` "OK (<n> kontrol)", `status.prom`'da `check="guest-code-prefix"` ve
+`check="mysql-test-failed"` satırları. **Geri alma:** önceki commit'teki `remote-watch.sh` ile `install` yeniden
+çalıştırılır (`counter_samples` satırını eski sürüm yok sayar). Yerel test: `deploy/ops/test-watch.sh`
+(alarm/eşik/pencere/yeniden başlama/metrik yok senaryoları dahil).
+
+### 22.3 coturn bant testi (CI `turn` işi)
+
+`deploy/turn/test-local.sh` 2 allocation ölçümü `-n 3000`'den `-n 8000`'e çıkarıldı (e433a05'te CI'da bir kez
+997200 B/s: iki allocation sırayla açılınca örtüşen tam saniye 1-2 kalıyor, medyan tek akışa düşüyordu). Eşik
+değişmedi, retry yok; düşerse teklif ve saniyelik seri yazılır (teklif < 2,2 MB/s ise ölçüm, değilse tavan sorunu).

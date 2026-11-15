@@ -117,8 +117,9 @@ SEED_SUPERADMIN_EMAIL="sa-$(rand 4)@e2e.invalid" SEED_SUPERADMIN_PASSWORD="Sa-$(
 
 # --- 3) İki ADMIN teknisyen (demo tenant) ---
 log "3/6 e2e:real:users"
-export E2E_REAL_LOGIN="tech1-$(rand 4)@e2e.invalid" E2E_REAL_LOGIN2="tech2-$(rand 4)@e2e.invalid"
-export E2E_REAL_PASSWORD="Tp-$(rand 16)"
+E2E_REAL_LOGIN="tech1-$(rand 4)@e2e.invalid"; E2E_REAL_LOGIN2="tech2-$(rand 4)@e2e.invalid"
+E2E_REAL_PASSWORD="Tp-$(rand 16)"
+export E2E_REAL_LOGIN E2E_REAL_LOGIN2 E2E_REAL_PASSWORD
 pnpm --silent --dir "$SNAP" --filter @remote/web e2e:real:users >/dev/null || fail_setup "e2e:real:users"
 
 # --- 4) Server ---

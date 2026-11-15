@@ -45,6 +45,12 @@ export function parseDcEnvelope(raw: unknown): DcEnvelope | null {
 
 /** AC-35: chat metni üst sınırı (karakter). Alıcı `textContent` ile basar. */
 export const CHAT_MAX_CHARS = 2000;
+/**
+ * AC-227 (TEST-P5-4): gönderen tarafta sohbet hız sınırı (mesaj / kayan 1 sn). Aşımda mesaj gönderilmez, kuyruğa alınmaz;
+ * arayüz "Çok hızlı yazıyorsunuz" der. Alıcı sınırı (web `lib/dc/rate.ts` `IN_LIMITS.chat`) bunun 2 katıdır → ağ
+ * gecikmesindeki sıkışmada bile meşru mesaj alıcıda sessizce düşmez.
+ */
+export const CHAT_SEND_PER_SEC = 5;
 /** AC-56: tek çizgide en çok nokta. */
 export const ANNOT_MAX_POINTS = 500;
 /** AC-57: lazer gönderim sıklığı üst sınırı (mesaj/sn) ve alıcıda sönümleme süresi (ms). */

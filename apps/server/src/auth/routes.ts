@@ -10,12 +10,14 @@ import {
   passwordChangeInputSchema,
   passwordForgotInputSchema,
   passwordResetInputSchema,
+  stepUpInputSchema,
   type LoginResponse,
   type LogoutAllResponse,
   type MeResponse,
   type MfaEnableResponse,
   type MfaSetupResponse,
   type MfaVerifyResponse,
+  type StepUpResponse,
 } from "@remote/contracts/api/auth";
 import {
   THEME_COOKIE,
@@ -31,7 +33,17 @@ import { auditContext } from "../audit/service.ts";
 import { parseInput } from "../lib/errors.ts";
 import { sha256Hex } from "../lib/ids.ts";
 import { authOf, checkOrigin, requireAuth } from "./guards.ts";
-import { forgotPassword, lockNotifier, logoutAll, mfaEnable, mfaSetup, mfaVerify, recoveryCodesLeft, resetPassword } from "./account.ts";
+import {
+  forgotPassword,
+  lockNotifier,
+  logoutAll,
+  mfaEnable,
+  mfaSetup,
+  mfaVerify,
+  recoveryCodesLeft,
+  resetPassword,
+  stepUp,
+} from "./account.ts";
 import { changePassword, login, logout } from "./service.ts";
 import { setTheme } from "../uploads/service.ts";
 import { effectiveLogoUrl } from "../uploads/urls.ts";
@@ -117,6 +129,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const out = await mfaEnable(app.account, auditContext(req), authOf(req), code);
     app.requestHub.closeByUser(authOf(req).user.id); // diğer oturumların panel soketleri (iptal edildi)
     return out;
+  });
+
+  // --- P14a: step-up 2FA (AC-215, ADR-0022) — tam oturum (2FA aşaması ok) ister ---
+  app.post("/step-up", { preHandler: requireAuth }, async (req, reply): Promise<StepUpResponse> => {
+    const input = parseInput(stepUpInputSchema, req.body);
+    noStore(reply);
+    return stepUp(app.account, auditContext(req), authOf(req), input);
   });
 
   // --- P10: tüm cihazlardan çıkış (AC-68, 115) ---

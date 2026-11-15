@@ -81,18 +81,19 @@ model User {
   avatarPath         String?   @map("avatar_path") @db.VarChar(200)
   theme              String    @default("SYSTEM") @db.VarChar(20) // LIGHT | DARK | SYSTEM
   status             String    @default("ACTIVE") @db.VarChar(20) // ACTIVE | PASSIVE
+  version            Int       @default(0) @db.UnsignedInt // P14a (ADR-0023, AC-206): If-Match / ETag "v<n>"; her yönetim yazmasında +1 (koşullu UPDATE)
   deletedAt          DateTime? @map("deleted_at") @db.DateTime(3)
   createdAt          DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
-  tenant             Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  tenant             Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   permissions        UserPermission[]
   authSessions       AuthSession[]
-  supportSessions    SupportSession[] @relation("SessionTechnician")
-  terminatedSessions SupportSession[] @relation("SessionTerminator")
+  supportSessions    SupportSession[]     @relation("SessionTechnician")
+  terminatedSessions SupportSession[]     @relation("SessionTerminator")
   consentTexts       ConsentText[]
-  acceptedRequests   SupportRequest[] @relation("RequestAcceptor")
-  rejectedRequests   SupportRequest[] @relation("RequestRejector")
+  acceptedRequests   SupportRequest[]     @relation("RequestAcceptor")
+  rejectedRequests   SupportRequest[]     @relation("RequestRejector")
   createdCustomers   Customer[]
   recoveryCodes      RecoveryCode[]
   passwordResets     PasswordResetToken[]
@@ -162,6 +163,7 @@ model AuthSession {
   expiresAt      DateTime  @map("expires_at") @db.DateTime(3) // mutlak ≤ 8 sa
   revokedAt      DateTime? @map("revoked_at") @db.DateTime(3)
   mfaPassed      Boolean   @default(false) @map("mfa_passed")
+  stepUpAt       DateTime? @map("step_up_at") @db.DateTime(3) // P14a (ADR-0022, AC-215): son başarılı step-up anı (UTC); guard 5 dk
   createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 

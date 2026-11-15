@@ -181,6 +181,7 @@ run DENIED "DELETE FROM tenant_request_settings WHERE tenant_id='000000000000000
 run DENIED "ALTER TABLE tenant_request_settings ADD COLUMN x INT"
 run DENIED "$TX $RS ('00000000000000000000GRANTT','ABCDEFGHIJK23456','GrantTest','[]','[]','[]',NOW(3)); $R" tenant_request_settings_ref_fmt_chk
 run DENIED "$TX $RS ('00000000000000000000GRANTT','abcdefghijk23456','Grant-Test','[]','[]','[]',NOW(3)); $R" tenant_request_settings_file_label_chk
+run DENIED "$TX $RS ('00000000000000000000GRANTT','abcdefghijk23456',CONCAT('GrantTest',CHAR(10)),'[]','[]','[]',NOW(3)); $R" tenant_request_settings_file_label_chk  # P14a AC-201 \\z
 run DENIED "$TX $RS1; UPDATE tenant_request_settings SET wait_minutes=5 WHERE tenant_id='00000000000000000000GRANTT'; $R" tenant_request_settings_wait_chk
 run DENIED "$TX $RS1; UPDATE tenant_request_settings SET wa_recipients='[\"905301112233\"]' WHERE tenant_id='00000000000000000000GRANTT'; $R" tenant_request_settings_wa_recipients_chk
 run DENIED "$TX $RS1; UPDATE tenant_request_settings SET wa_recipients='[\"+905301112233\",\"+905301112233\"]' WHERE tenant_id='00000000000000000000GRANTT'; $R" tenant_request_settings_wa_recipients_chk
@@ -202,6 +203,8 @@ run DENIED "ALTER TABLE support_requests ADD COLUMN x INT"
 run DENIED "$TX $(rq "'123456'" "'12345A'"); $R" support_requests_code_fmt_chk
 run DENIED "$TX $(rq "'+905301112233'" "'05301112233'"); $R" support_requests_phone_fmt_chk
 run DENIED "$TX $(rq "'0.9.0'" "'0.9'"); $R" support_requests_client_version_fmt_chk
+run DENIED "$TX $(rq "'0.9.0'" "CONCAT('0.9.0',CHAR(10))"); $R" support_requests_client_version_fmt_chk  # P14a AC-201
+run DENIED "$TX $(rq "'+905301112233'" "CONCAT('+905301112233',CHAR(10))"); $R" support_requests_phone_fmt_chk  # P14a AC-201
 run DENIED "$TX $(rq "'AAAAAAAAAAAAAAAAAAAAAA'" "'AAAA'"); $R" support_requests_client_instance_fmt_chk
 run DENIED "$TX $(rq "'Ayse Yilmaz'" "'A'"); $R" support_requests_customer_name_chk
 run DENIED "$TX $(rq "'Ayse Yilmaz'" "CONCAT('Ali',$RTLO,'fdp.exe')"); $R" support_requests_customer_name_chk
@@ -267,6 +270,7 @@ run DENIED "$TX $CU1; $GX; $RR ('cccccccccccccccc','00000000000000000000GRANTX',
 run DENIED "$TX $(cu "'Grant Musteri'" "'A'"); $R" customers_name_chk
 run DENIED "$TX $(cu "'Grant Musteri'" "CONCAT('Grant',$RTLO,'exe')"); $R" customers_name_chk
 run DENIED "$TX $(cu "'GrantMusteri'" "'Grant-Musteri'"); $R" customers_file_label_chk
+run DENIED "$TX $(cu "'GrantMusteri'" "CONCAT('GrantMusteri',CHAR(10))"); $R" customers_file_label_chk  # P14a AC-201
 run DENIED "$TX $(cu "'cccccccccccccccc'" "'cccccccccccccc01'"); $R" customers_ref_fmt_chk
 run DENIED "$TX $(cu "'grant musteri 905301112233'" "'baska 905301112233'"); $R" customers_search_key_chk
 run DENIED "$TX $(cu "'grant musteri','grant musteri 9" "' grant musteri',' grant musteri 9"); $R" customers_name_key_chk
@@ -274,6 +278,7 @@ run DENIED "$TX $CU1; $UC status='passive',passive_at=NOW(3) $WC; $R" customers_
 run DENIED "$TX $CU1; $UC status='PASSIVE' $WC; $R" customers_passive_chk
 run DENIED "$TX $CU1; $UC passive_at=NOW(3) $WC; $R" customers_passive_chk
 run DENIED "$TX $CU1; $UC phone='05301112233' $WC; $R" customers_phone_fmt_chk
+run DENIED "$TX $CU1; $UC phone=CONCAT('+905301112233',CHAR(10)) $WC; $R" customers_phone_fmt_chk  # P14a AC-201
 run DENIED "$TX $CU1; $UC email='gecersiz' $WC; $R" customers_email_fmt_chk
 run DENIED "$TX $CU1; $UC contact_name='' $WC; $R" customers_contact_name_chk
 run DENIED "$TX $CU1; $UC note=CONCAT('a',CHAR(9),'b') $WC; $R" customers_note_chk
@@ -295,6 +300,7 @@ run DENIED "$TX $CU1; $ADM; $DB1; $UB revoked_at=NOW(3),key_hash=NULL $WB; $R" d
 run DENIED "$TX $CU1; $ADM; $DB1; $UB revoked_at=NOW(3),revoke_reason='forgotten',key_hash=NULL $WB; $R" device_bindings_revoke_reason_chk
 run DENIED "$TX $CU1; $ADM; $DB1; $UB key_hash=UPPER($H2) $WB; $R" device_bindings_key_hash_fmt_chk
 run DENIED "$TX $CU1; $ADM; $DB1; $UB client_version='0.10' $WB; $R" device_bindings_client_version_fmt_chk
+run DENIED "$TX $CU1; $ADM; $DB1; $UB client_version=CONCAT('0.10.0',CHAR(10)) $WB; $R" device_bindings_client_version_fmt_chk  # P14a AC-201
 run DENIED "$TX $CU1; $ADM; $DB1; $UB issue_count=0 $WB; $R" device_bindings_issue_count_chk
 run DENIED "$TX $CU1; $ADM; $DB1; $UB active_session_id=NULL $WB; $R" "generated column"
 run DENIED "DELETE FROM device_bindings WHERE id='00000000000000000000GRANTB'"

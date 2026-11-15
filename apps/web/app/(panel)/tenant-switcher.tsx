@@ -1,64 +1,73 @@
 "use client";
 
-import { Building, Check, LoaderCircle, LogOut, RotateCw, Settings2 } from "lucide-react";
+import { Building, LoaderCircle, LogOut, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
+import { Combobox, type ComboOption } from "@/components/ui/combobox";
 import { closeMenu, Menu } from "@/components/ui/menu";
 import { useToast } from "@/components/ui/toast";
-import { api, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api";
+import { EXPIRED_LOGIN_PATH, isUnauthenticated, api } from "@/lib/api";
 import { t } from "@/lib/i18n";
-import type { SwitchTenantResponse, TenantListResponse } from "@/lib/users/contract";
+import type { SwitchTenantResponse } from "@/lib/users/contract";
+import { loadTenantOptions, TENANT_COMBO_DEBOUNCE_MS } from "@/lib/users/tenant-options";
 
 type Ref = { id: string; name: string };
-type Load = { kind: "idle" } | { kind: "loading" } | { kind: "error" } | { kind: "ok"; items: Ref[] };
 
 const itemCls =
   "flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-sm px-3 text-left text-sm text-fg hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60";
 
 /**
  * Super Admin firma geçişi (AC-70; POST /admin/switch-tenant). Üst menüde etkin firma göstergesi: ad her genişlikte
- * görünür, dar ekranda kalan yere göre kısaltılır (TO-P9-1/6; tam ad erişilebilir adda ve `title`'da). Liste menü açılınca bir kez yüklenir (GET /admin/tenants, yalnız aktif): yükleniyor / hata +
- * tekrar dene / boş / liste. Seçimde istek → toast + sunucudan yeniden çizim (tüm sayfa yeni bağlamla).
- * Animasyonsuz (sık kullanılan menü).
+ * görünür, dar ekranda kalan yere göre kısaltılır (TO-P9-1/6; tam ad erişilebilir adda ve `title`'da).
+ * P14b (AC-226): firma listesi aramalı seçici — `GET /admin/tenants/options?q=&limit=20` (sunucu süzer, yalnız aktif
+ * firmalar seçilebilir), WAI-ARIA combobox (↑↓ Enter Esc), 250 ms gecikme. Menü açılınca arama alanına odaklanır ve
+ * ilk 20 firma listelenir; yükleniyor / hata / boş durumları combobox'ın durum satırında. Seçimde istek → toast +
+ * sunucudan yeniden çizim. Animasyonsuz (sık kullanılan menü).
  */
 export function TenantSwitcher({ acting }: { acting: Ref | null }) {
   const router = useRouter();
   const toast = useToast();
-  const [load, setLoad] = useState<Load>({ kind: "idle" });
   const [busy, setBusy] = useState<string | null>(null);
+  const [comboKey, setComboKey] = useState(0);
   const [, start] = useTransition();
+  const boxRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const fetchList = async () => {
-    setLoad({ kind: "loading" });
-    try {
-      const r = await api<TenantListResponse>("GET", "/admin/tenants?status=active&pageSize=100");
-      setLoad({ kind: "ok", items: r.items.map((x) => ({ id: x.id, name: x.name })) });
-    } catch (e) {
-      if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
-      setLoad({ kind: "error" });
-    }
-  };
+  const load = useCallback(
+    async (q: string, signal: AbortSignal): Promise<ComboOption[]> => {
+      try {
+        const items = await loadTenantOptions(q, signal);
+        return items
+          .filter((x) => x.status === "ACTIVE")
+          .map((x) => ({ id: x.id, label: x.name, hint: x.id === acting?.id ? t("ts.current") : undefined }));
+      } catch (e) {
+        if (isUnauthenticated(e)) router.replace(EXPIRED_LOGIN_PATH);
+        throw e;
+      }
+    },
+    [acting?.id, router],
+  );
 
-  const go = async (target: Ref | null, el: Element) => {
+  const go = async (target: Ref | null) => {
     setBusy(target?.id ?? "none");
     try {
       const r = await api<SwitchTenantResponse>("POST", "/admin/switch-tenant", { tenantId: target?.id ?? null });
-      closeMenu(el);
+      closeMenu(boxRef.current?.querySelector("summary") ?? null);
       toast(r.actingTenant ? t("ts.switched", { name: r.actingTenant.name }) : t("ts.cleared"));
       start(() => router.refresh());
     } catch (e) {
       if (isUnauthenticated(e)) return router.replace(EXPIRED_LOGIN_PATH);
       toast(t("ts.failed"), "danger");
-      setLoad({ kind: "idle" }); // liste bayat olabilir (ör. firma pasife alındı) → bir sonraki açılışta yeniden
     } finally {
       setBusy(null);
+      setComboKey((k) => k + 1); // seçim alanı temiz başlasın (liste bayat olabilir: ör. firma pasife alındı)
     }
   };
 
   const name = acting?.name ?? t("ts.none");
   return (
-    <div className="min-w-0" data-testid="tenant-switcher" data-acting={acting?.id ?? ""}>
+    <div className="min-w-0" data-testid="tenant-switcher" data-acting={acting?.id ?? ""} ref={boxRef}>
       <Menu
         testId="tenant-switcher-menu"
         align="end"
@@ -68,62 +77,39 @@ export function TenantSwitcher({ acting }: { acting: Ref | null }) {
         ariaLabel={acting ? t("ts.trigger", { name: acting.name }) : t("ts.triggerNone")}
         icon={<Building aria-hidden className={`size-4 shrink-0 ${acting ? "text-primary" : "text-warning"}`} />}
         panelLabel={t("ts.panel")}
-        onOpen={() => {
-          if (load.kind === "idle" || load.kind === "error") void fetchList();
-        }}
+        onOpen={() => requestAnimationFrame(() => inputRef.current?.focus())}
       >
-        <p className="px-3 pt-2 pb-1 text-xs font-medium text-fg-muted">{t("ts.label")}</p>
-        {load.kind === "loading" || load.kind === "idle" ? (
-          <p role="status" className="flex min-h-11 items-center gap-2 px-3 text-sm text-fg-muted" data-testid="tenant-switcher-loading">
-            <LoaderCircle aria-hidden className="size-4 animate-spin" />
-            {t("ts.loading")}
-          </p>
-        ) : load.kind === "error" ? (
-          <div className="flex flex-col gap-1 px-1 py-1" data-testid="tenant-switcher-error">
-            <p role="alert" className="px-2 text-sm text-danger">
-              {t("ts.error")}
+        <div className="w-72 max-w-[calc(100vw-2rem)] px-2 pt-2 pb-1">
+          <Combobox
+            key={comboKey}
+            label={t("ts.label")}
+            placeholder={t("ts.searchPh")}
+            value={null}
+            onChange={(o) => {
+              if (o && o.id !== acting?.id) void go({ id: o.id, name: o.label });
+            }}
+            load={load}
+            debounceMs={TENANT_COMBO_DEBOUNCE_MS}
+            openOnFocus
+            inline
+            inputRef={inputRef}
+            disabled={busy !== null}
+            testId="tenant-switcher-combobox"
+          />
+          {busy !== null && busy !== "none" && (
+            <p role="status" className="flex min-h-11 items-center gap-2 px-1 text-sm text-fg-muted">
+              <LoaderCircle aria-hidden className="size-4 animate-spin" />
+              {t("ts.switching")}
             </p>
-            <button type="button" className={itemCls} onClick={() => void fetchList()}>
-              <RotateCw aria-hidden className="size-4" />
-              {t("ts.retry")}
-            </button>
-          </div>
-        ) : load.items.length === 0 ? (
-          <p className="flex min-h-11 items-center px-3 text-sm text-fg-muted" data-testid="tenant-switcher-empty">
-            {t("ts.empty")}
-          </p>
-        ) : (
-          <ul className="max-h-72 overflow-y-auto" data-testid="tenant-switcher-list">
-            {load.items.map((x) => {
-              const current = x.id === acting?.id;
-              return (
-                <li key={x.id}>
-                  <button
-                    type="button"
-                    className={itemCls}
-                    aria-current={current || undefined}
-                    disabled={busy !== null || current}
-                    onClick={(e) => void go(x, e.currentTarget)}
-                  >
-                    {busy === x.id ? (
-                      <LoaderCircle aria-hidden className="size-4 animate-spin" />
-                    ) : (
-                      <Check aria-hidden className={`size-4 ${current ? "text-primary" : "invisible"}`} />
-                    )}
-                    <span className="min-w-0 flex-1 truncate">{x.name}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+          )}
+        </div>
         <div className="mt-1 border-t border-border pt-1">
           {acting && (
             <button
               type="button"
               className={itemCls}
               disabled={busy !== null}
-              onClick={(e) => void go(null, e.currentTarget)}
+              onClick={() => void go(null)}
               data-testid="tenant-switcher-clear"
             >
               {busy === "none" ? <LoaderCircle aria-hidden className="size-4 animate-spin" /> : <LogOut aria-hidden className="size-4" />}

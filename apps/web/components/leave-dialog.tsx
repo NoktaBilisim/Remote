@@ -5,12 +5,17 @@ import { Dialog } from "@/components/ui/dialog";
 import { t } from "@/lib/i18n";
 import type { useLeaveGuard } from "@/lib/use-leave-guard";
 
-/** `useLeaveGuard` onay diyaloğu: "Sayfada kal" varsayılan odak (yıkıcı olmayan seçim), "Kaydetmeden ayrıl" ikincil. */
+/**
+ * `useLeaveGuard` onay diyaloğu: "Sayfada kal" varsayılan odak (yıkıcı olmayan seçim), "Kaydetmeden ayrıl" ikincil.
+ * Esc / X `onDismiss` ile eşzamanlı `stay` çağırır: yerel kapanışın asenkron `close` olayını beklemek, geri tuşu
+ * nöbetçisinin yeniden itilmesini geciktiriyordu (hızlı ikinci "geri" yakalanmıyordu — AC-228 e2e kararsızlığı).
+ */
 export function LeaveDialog({ guard, body }: { guard: ReturnType<typeof useLeaveGuard>; body: string }) {
   return (
     <Dialog
       open={guard.target !== null}
       onClose={guard.stay}
+      onDismiss={guard.stay}
       role="alertdialog"
       size="sm"
       testId="leave-dialog"

@@ -4,24 +4,33 @@ import { SESSION_STATUSES } from "@remote/contracts/api/sessions";
 import { SESSION_MODE_LABELS, SESSION_SOURCE_LABELS } from "@remote/contracts/labels";
 import { Filter, FilterX } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { CustomerCombobox } from "@/components/customer-combobox";
 import { Button } from "@/components/ui/button";
-import type { ComboOption } from "@/components/ui/combobox";
+import { Combobox, type ComboOption } from "@/components/ui/combobox";
 import { SelectField } from "@/components/ui/select-field";
 import { TextField } from "@/components/ui/text-field";
 import { istanbulDay } from "@/lib/format";
 import { checkCustomer, historyHref, isCalendarDay, type HistoryFilters } from "@/lib/history/query";
 import { t } from "@/lib/i18n";
+import { loadTenantOptions, rememberTenantLabel, TENANT_COMBO_DEBOUNCE_MS, tenantLabelOf } from "@/lib/users/tenant-options";
+import { loadUserOptions, techOptions } from "@/lib/users/user-options";
 
 type Opt = { value: string; label: string };
 
 interface Props {
   filters: HistoryFilters;
-  /** ADMIN / SUPER_ADMIN: teknisyen filtresi (USER'da sunucu yok sayar → gizli). */
+  /**
+   * ADMIN / SUPER_ADMIN: teknisyen filtresi (USER'da sunucu yok sayar → gizli). P14b (AC-225): yalnız `/users/options`
+   * tam listesi; firma seçmemiş Super Admin'de firma filtresi boşsa boş (seçici pasif), firma seçince istemci yükler.
+   */
   technicians: Opt[] | null;
-  /** Yalnız SUPER_ADMIN firma seçmemişken. */
-  tenants: Opt[] | null;
+  /** Sunucu tarafı seçenek isteği başarısız → alan altında hata ipucu. */
+  techniciansError?: boolean;
+  /** Yalnız SUPER_ADMIN firma seçmemişken: aramalı firma seçici (AC-226, `/admin/tenants/options`). */
+  showTenant: boolean;
+  /** URL'deki `tenantId`'nin adı (sayfadaki kayıtlardan; yoksa genel etiket). */
+  tenantLabel?: string;
   /** P8c (AC-179): seçili müşteri firmanın adı (sayfadaki kayıtlardan; yoksa genel etiket). */
   customerFirmName?: string;
 }
@@ -55,7 +64,49 @@ const toDraft = (f: HistoryFilters): Draft => ({
 });
 
 /** /history filtre formu: durum URL'de (AC-60); Enter/Filtrele ile uygulanır, sayfa 1'e döner. */
-export function HistoryFiltersForm({ filters, technicians, tenants, customerFirmName }: Props) {
+export function HistoryFiltersForm({ filters, technicians, techniciansError, showTenant, tenantLabel, customerFirmName }: Props) {
+  const [techs, setTechs] = useState<Opt[] | null>(technicians);
+  const [techState, setTechState] = useState<"idle" | "loading" | "error">(techniciansError ? "error" : "idle");
+  const techAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => techAbort.current?.abort(), []);
+  /** AC-225: Super Admin firma filtresini değiştirince teknisyen listesi o firmanın `/users/options?tenantId=` yanıtı. */
+  const reloadTechs = (tenantId: string) => {
+    techAbort.current?.abort();
+    setTechs([]);
+    if (!tenantId) {
+      setTechState("idle");
+      return;
+    }
+    const ac = new AbortController();
+    techAbort.current = ac;
+    setTechState("loading");
+    loadUserOptions(tenantId, ac.signal).then(
+      (items) => {
+        setTechs(techOptions(items));
+        setTechState("idle");
+      },
+      () => {
+        if (!ac.signal.aborted) setTechState("error");
+      },
+    );
+  };
+  const [tenant, setTenant] = useState<ComboOption | null>(
+    filters.tenantId
+      ? {
+          id: filters.tenantId,
+          label: tenantLabel ?? tenantLabelOf(filters.tenantId) ?? t("h.f.selected", { id: filters.tenantId.slice(-6) }),
+        }
+      : null,
+  );
+  const loadTenants = useCallback(
+    async (q: string, signal: AbortSignal): Promise<ComboOption[]> =>
+      (await loadTenantOptions(q, signal)).map((x) => ({
+        id: x.id,
+        label: x.name,
+        hint: x.status === "PASSIVE" ? t("h.f.tenantPassive") : undefined,
+      })),
+    [],
+  );
   const [firmMode, setFirmMode] = useState<"" | "none" | "customer">(
     filters.customerFirm === "none" ? "none" : filters.customerFirm ? "customer" : "",
   );
@@ -75,6 +126,16 @@ export function HistoryFiltersForm({ filters, technicians, tenants, customerFirm
     setErrors((x) => ({ ...x, [k]: undefined }));
   };
   const all: Opt = { value: "", label: t("h.f.all") };
+  /** AC-225: firma seçmemiş Super Admin'de firma filtresi boşken teknisyen seçici pasif (URL'deki seçili id korunur). */
+  const techLocked = showTenant && !draft.tenantId;
+  const techHint =
+    techState === "error"
+      ? t("h.f.techError")
+      : techState === "loading"
+        ? t("h.f.techLoading")
+        : techLocked
+          ? t("h.f.techPickTenant")
+          : undefined;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -93,6 +154,8 @@ export function HistoryFiltersForm({ filters, technicians, tenants, customerFirm
     setDraft(toDraft({ page: 1, pageSize: filters.pageSize }));
     setFirmMode("");
     setFirm(null);
+    setTenant(null);
+    if (showTenant) reloadTechs("");
     setErrors({});
     start(() => router.push(historyHref({ pageSize: filters.pageSize })));
   };
@@ -146,24 +209,35 @@ export function HistoryFiltersForm({ filters, technicians, tenants, customerFirm
         onChange={set("source")}
         options={[all, ...Object.entries(SESSION_SOURCE_LABELS).map(([value, label]) => ({ value, label }))]}
       />
-      {technicians && (
+      {techs && (
         <SelectField
           label={t("h.f.tech")}
           name="technicianId"
           value={draft.technicianId}
           onChange={set("technicianId")}
-          options={[all, ...technicians]}
-          hint={t("h.f.optionsHint")}
+          options={[all, ...techs]}
+          disabled={techLocked || techState === "loading"}
+          aria-busy={techState === "loading" || undefined}
+          hint={techHint}
+          data-testid="history-tech"
         />
       )}
-      {tenants && (
-        <SelectField
+      {showTenant && (
+        <Combobox
           label={t("h.f.tenant")}
-          name="tenantId"
-          value={draft.tenantId}
-          onChange={set("tenantId")}
-          options={[all, ...tenants]}
-          hint={t("h.f.optionsHint")}
+          value={tenant}
+          onChange={(o) => {
+            setTenant(o);
+            if (o) rememberTenantLabel(o.id, o.label);
+            // önceki firmanın teknisyeni yeni firmada anlamsız → seçim sıfırlanır
+            setDraft((d) => ({ ...d, tenantId: o?.id ?? "", technicianId: "" }));
+            if ((o?.id ?? "") !== draft.tenantId) reloadTechs(o?.id ?? "");
+          }}
+          load={loadTenants}
+          debounceMs={TENANT_COMBO_DEBOUNCE_MS}
+          placeholder={t("ts.searchPh")}
+          hint={t("h.f.tenantHint")}
+          testId="history-tenant-combobox"
         />
       )}
       <TextField

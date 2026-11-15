@@ -4,22 +4,26 @@ import {
   RECOVERY_CODE_COUNT,
   RESET_PASSWORD_PATH,
   RESET_TOKEN_TTL_MIN,
+  STEP_UP_MAX_AGE_SEC,
   type MfaEnableResponse,
   type MfaSetupResponse,
   type MfaVerifyInput,
   type PasswordResetInput,
+  type StepUpData,
+  type StepUpResponse,
 } from "@remote/contracts/api/auth";
 import { AUTH_AUDIT } from "@remote/contracts/audit";
 import QRCode from "qrcode";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { aadFor, type SecretBox } from "../lib/crypto.ts";
 import type { Db } from "../lib/db.ts";
+import type { Prisma } from "../generated/prisma/client.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId, newSecretToken, sha256Hex } from "../lib/ids.ts";
 import { ipKey } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import type { MailService } from "../mail/service.ts";
-import { accountLockedMail, mfaEnabledMail, passwordResetMail } from "../mail/templates.ts";
+import { accountLockedMail, mfaEnabledMail, passwordResetMail, recoveryCodeUsedMail } from "../mail/templates.ts";
 import { matchTotp, newRecoveryCode, newTotpSecret, otpauthUrl, recoveryCodeCandidates, recoveryCodeHash } from "./mfa.ts";
 import { hashPassword } from "./password.ts";
 import * as repo from "./repo.ts";
@@ -102,15 +106,33 @@ async function loadSecret(
   };
 }
 
-/** POST /auth/mfa/setup: yeni sır (şifreli) yazılır; etkinse 409 (önce Admin sıfırlaması). */
-export async function mfaSetup(d: AccountDeps, ctx: AuditContext, auth: AuthContext): Promise<MfaSetupResponse> {
+/** Testlere özel gecikme kancası (ADR-0023): üretimde verilmez, env bayrağı yok. */
+export interface RaceHooks {
+  afterLock?: () => Promise<void>;
+}
+
+/**
+ * POST /auth/mfa/setup: yeni sır (şifreli) yazılır; etkinse 409 (önce Admin sıfırlaması). P14a (AC-214): sürüm okunur,
+ * yazım koşullu `UPDATE … WHERE id AND totp_enabled=0 AND version=?` + `version+1` — paralel iki kurulumdan yalnız biri
+ * sır yazar, diğeri deterministik 409 alır (sürüm okuma ile UPDATE arasına giren yazım kaybolmaz).
+ */
+export async function mfaSetup(d: AccountDeps, ctx: AuditContext, auth: AuthContext, hooks: RaceHooks = {}): Promise<MfaSetupResponse> {
   const secret = newTotpSecret();
+  const busy = (): AppError =>
+    new AppError("CONFLICT", { message: "İki adımlı doğrulama zaten etkin veya kurulum değişti; sayfayı yenileyin." });
+  const cur = await d.db.user.findUniqueOrThrow({ where: { id: auth.user.id }, select: { version: true, totpEnabled: true } });
+  if (cur.totpEnabled) throw busy();
+  await hooks.afterLock?.();
   await d.db.$transaction(async (tx) => {
     const r = await tx.user.updateMany({
-      where: { id: auth.user.id, totpEnabled: false },
-      data: { totpSecretEnc: d.secrets.encrypt(secret, aadFor.totpSecret(auth.user.id)), totpLastStep: null },
+      where: { id: auth.user.id, totpEnabled: false, version: cur.version },
+      data: {
+        totpSecretEnc: d.secrets.encrypt(secret, aadFor.totpSecret(auth.user.id)),
+        totpLastStep: null,
+        version: { increment: 1 },
+      },
     });
-    if (r.count === 0) throw new AppError("CONFLICT", { message: "İki adımlı doğrulama zaten etkin." });
+    if (r.count === 0) throw busy();
     await writeAudit(tx, ctx, { ...who(auth), action: AUTH_AUDIT.MFA_SETUP, entity: "users", entityId: auth.user.id, result: "success" });
   });
   const url = otpauthUrl(secret, auth.user.email);
@@ -196,22 +218,10 @@ export async function mfaVerify(d: AccountDeps, ctx: AuditContext, auth: AuthCon
   };
   const now = new Date(d.now?.() ?? Date.now());
   const opened = await d.db.$transaction(async (tx) => {
-    if ("code" in input) {
-      const { secret } = await loadSecret(d, tx, userId);
-      const step = secret ? matchTotp(secret, input.code, now.getTime()) : null;
-      if (step === null) return null;
-      const r = await tx.user.updateMany({
-        where: { id: userId, totpEnabled: true, OR: [{ totpLastStep: null }, { totpLastStep: { lt: BigInt(step) } }] },
-        data: { totpLastStep: BigInt(step) },
-      });
-      if (r.count === 0) return "replay" as const;
-    } else {
-      const r = await tx.recoveryCode.updateMany({
-        where: { userId, codeHash: { in: recoveryCodeCandidates(d.secrets, input.recoveryCode) }, usedAt: null },
-        data: { usedAt: now },
-      });
-      if (r.count !== 1) return null;
-    }
+    const factor = "code" in input ? { totp: input.code } : { recovery: input.recoveryCode };
+    const check = await consumeSecondFactor(d, tx, userId, factor, now);
+    if (check === "invalid") return null;
+    if (check === "replay") return "replay" as const;
     await tx.authSession.updateMany({ where: { id: auth.sessionId, revokedAt: null }, data: { revokedAt: now } });
     const s = await openSession(tx, userId, ctx, now, auth.expiresAt, true);
     const left = await tx.recoveryCode.count({ where: { userId, usedAt: null } });
@@ -229,6 +239,89 @@ export async function mfaVerify(d: AccountDeps, ctx: AuditContext, auth: AuthCon
   if (opened === "replay") return fail("replayed_code");
   resetMfaLimit(d, userId, ctx.ip);
   return { session: opened, user: auth.user, recoveryCodesLeft: opened.left };
+}
+
+/**
+ * İkinci faktörü doğrular ve TÜKETİR (TX içinde) — giriş doğrulaması (`/auth/mfa/verify`) ve step-up (`/auth/step-up`)
+ * aynı fonksiyonu kullanır (P14a, ADR-0022: kopya yok). TOTP: ±1 adım, `totp_last_step` koşullu UPDATE (aynı/eski kod
+ * ikinci kez kabul edilmez → "replay"). Kurtarma kodu: koşullu `used_at` (ikinci kullanımda "invalid").
+ */
+async function consumeSecondFactor(
+  d: AccountDeps,
+  tx: Prisma.TransactionClient,
+  userId: string,
+  factor: { totp: string } | { recovery: string },
+  now: Date,
+): Promise<"ok" | "invalid" | "replay"> {
+  if ("totp" in factor) {
+    const { secret } = await loadSecret(d, tx, userId);
+    const step = secret ? matchTotp(secret, factor.totp, now.getTime()) : null;
+    if (step === null) return "invalid";
+    const r = await tx.user.updateMany({
+      where: { id: userId, totpEnabled: true, OR: [{ totpLastStep: null }, { totpLastStep: { lt: BigInt(step) } }] },
+      data: { totpLastStep: BigInt(step) },
+    });
+    return r.count === 0 ? "replay" : "ok";
+  }
+  const r = await tx.recoveryCode.updateMany({
+    where: { userId, codeHash: { in: recoveryCodeCandidates(d.secrets, factor.recovery) }, usedAt: null },
+    data: { usedAt: now },
+  });
+  return r.count === 1 ? "ok" : "invalid";
+}
+
+/**
+ * POST /auth/step-up (P14a, AC-215, ADR-0022; K-E11-1): TOTP veya kurtarma kodu. Deneme sayacı `/auth/mfa/verify` ile
+ * ortak. Başarıda aynı TX'te faktör tüketilir + `auth_sessions.step_up_at = now` + audit `auth.step_up {method,
+ * remaining}` (kod yazılmaz). Kurtarma koduyla: commit sonrası "Kurtarma kodunuz kullanıldı" e-postası (SMTP yoksa
+ * `mail.sent{not_configured}` audit'i kalır) ve yanıtta `recoveryCodesLeft`. Hatalı kod → 400 `fields.code` (401 değil:
+ * istemci oturumun düştüğünü sanmasın).
+ */
+export async function stepUp(d: AccountDeps, ctx: AuditContext, auth: AuthContext, input: StepUpData): Promise<StepUpResponse> {
+  if (!auth.totpEnabled) throw new AppError("MFA_SETUP_REQUIRED");
+  const userId = auth.user.id;
+  hitMfaLimit(d, userId, ctx.ip);
+  const now = new Date(d.now?.() ?? Date.now());
+  const factor = input.method === "TOTP" ? { totp: input.code } : { recovery: input.code };
+  const out = await d.db.$transaction(async (tx) => {
+    const check = await consumeSecondFactor(d, tx, userId, factor, now);
+    if (check !== "ok") return check;
+    const s = await tx.authSession.updateMany({ where: { id: auth.sessionId, revokedAt: null }, data: { stepUpAt: now } });
+    if (s.count !== 1) throw new AppError("UNAUTHENTICATED");
+    const left = await tx.recoveryCode.count({ where: { userId, usedAt: null } });
+    await writeAudit(tx, ctx, {
+      ...who(auth),
+      action: AUTH_AUDIT.STEP_UP,
+      entity: "auth_sessions",
+      entityId: auth.sessionId,
+      result: "success",
+      newValue: { method: input.method, remaining: left },
+    });
+    return left;
+  });
+  if (typeof out !== "number") {
+    await writeAudit(d.db, ctx, {
+      ...who(auth),
+      action: AUTH_AUDIT.STEP_UP,
+      entity: "auth_sessions",
+      entityId: auth.sessionId,
+      result: "fail",
+      newValue: { method: input.method, reason: out === "replay" ? "replayed_code" : "invalid_code" },
+    });
+    throw new AppError("VALIDATION", { fields: { code: "Kod hatalı veya süresi geçmiş." } });
+  }
+  resetMfaLimit(d, userId, ctx.ip);
+  const stepUpUntil = new Date(now.getTime() + STEP_UP_MAX_AGE_SEC * 1000).toISOString();
+  if (input.method === "TOTP") return { stepUpUntil, method: "TOTP" };
+  void d.mail
+    .sendForTenant(
+      ctx,
+      { ...who(auth), kind: "recovery_code_used", entity: "users", entityId: userId },
+      auth.user.email,
+      recoveryCodeUsedMail({ remaining: out }),
+    )
+    .catch((err: unknown) => d.log.error({ err, event: "recovery_used_notify_failed" }, "kurtarma kodu bildirimi gönderilemedi"));
+  return { stepUpUntil, method: "RECOVERY", recoveryCodesLeft: out };
 }
 
 export async function recoveryCodesLeft(db: Db, userId: string): Promise<number> {

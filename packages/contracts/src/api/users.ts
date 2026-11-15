@@ -33,6 +33,31 @@ export type UserListSort = (typeof USER_LIST_SORTS)[number];
 /** 409 `fields.email` (e-posta tüm sistemde tekil — giriş kimliği). */
 export const USER_EMAIL_CONFLICT_MESSAGE = "Bu e-posta adresi başka bir hesapta kullanılıyor";
 
+/**
+ * P14a (AC-206, ADR-0023) iyimser kilit: `GET /users/:id` yanıtı `version` alanı + `ETag: "v<version>"`; `PATCH /users/:id`
+ * `If-Match: "v<n>"` ister (yoksa/bozuksa 428 `PRECONDITION_REQUIRED`, sürüm güncel değilse 409 `STALE_WRITE` + bu mesaj).
+ * PATCH yanıtı da yeni `ETag` taşır. Pasif/aktif/2FA sıfırlama ve 2FA kurulumu da sürümü artırır (If-Match istemez).
+ */
+export const USER_STALE_WRITE_MESSAGE = "Kayıt başkası tarafından değiştirildi, yeniden yükleyin";
+export const USER_IF_MATCH_REQUIRED_MESSAGE = "Kayıt sürümü (If-Match) eksik; sayfayı yeniden yükleyin.";
+/** `ETag` / `If-Match` değeri: `"v<n>"` (güçlü doğrulayıcı, tırnaklı). */
+export const userEtag = (version: number): string => `"v${version}"`;
+/** `If-Match` başlığından sürüm; yok, `*`, liste ya da bozuk biçim → null (sunucu 428 döner). */
+export function parseUserIfMatch(header: string | string[] | undefined): number | null {
+  if (typeof header !== "string") return null;
+  const m = /^\s*"v(\d{1,10})"\s*$/.exec(header);
+  if (!m?.[1]) return null;
+  const n = Number(m[1]);
+  return Number.isSafeInteger(n) && n <= 4_294_967_295 ? n : null;
+}
+
+/** P14a (AC-203): `/users*` yazma uçları kullanıcı başına 30/dk; `POST /users` ayrıca 10/dk → 429 `RATE_LIMITED` + `Retry-After`. */
+export const USERS_WRITES_PER_MIN = 30;
+export const USERS_CREATES_PER_MIN = 10;
+
+/** P14b (AC-225): `GET /users/options` üst sınırı (tam liste; 150 teknisyenli fixture'da 150). */
+export const USER_OPTIONS_MAX = 1000;
+
 /** Geçici şifre uzunluğu (≥ PASSWORD_MIN 12); yalnız oluşturma yanıtında döner, ilk girişte değiştirilir. */
 export const TEMPORARY_PASSWORD_LENGTH = 16;
 
@@ -160,6 +185,8 @@ export interface UserListResponse {
 }
 
 export interface UserDetail extends UserListItem {
+  /** P14a (AC-206): iyimser kilit sürümü; `PATCH` `If-Match: userEtag(version)` ile gönderilir. */
+  version: number;
   /** Etkin yetkiler: tanımdaki HER anahtar için bool (rol varsayılanı + kullanıcı bazlı ezmeler). */
   permissions: Record<PermissionKey, boolean>;
   /** İsteği yapan kendisi mi (kendi rolü/yetkisi değiştirilemez, kendini pasife alamaz). */
@@ -175,4 +202,28 @@ export interface UserDetail extends UserListItem {
 export interface CreateUserResponse {
   user: UserDetail;
   temporaryPassword: string;
+}
+
+/**
+ * GET /users/options sorgusu (QA Tur 1, AC-225). Bilinmeyen parametre 400 (strict). `tenantId` yalnız firma seçmemiş
+ * SUPER_ADMIN'de kullanılır; firma seçili olan veya SUPER_ADMIN olmayan rollerde sunucuda yok sayılır (kapsam ezer —
+ * `GET /sessions` `tenantId` kuralıyla aynı).
+ */
+export const userOptionsQuerySchema = z.strictObject({ tenantId: userIdSchema.optional() });
+export type UserOptionsQuery = z.infer<typeof userOptionsQuerySchema>;
+
+/**
+ * GET /users/options (P14b, AC-225): filtre seçicisi için teknisyen listesi — sayfasız, en çok `USER_OPTIONS_MAX`,
+ * `fullName` sırası, pasifler dahil (geçmiş kayıtlarda görünürler). Kapsam: etkin tenant; firma seçmemiş Super Admin
+ * `?tenantId=` ile bir firmayı seçer (yoksa 403, firma yoksa 404). USER rolü yalnız kendisini görür (oturum geçmişi
+ * `historyScope` kuralı). Yetki: `session_history.view` | `support_requests.view` | `users.view` (biri yeterli).
+ * SUPER_ADMIN hesapları listelenmez.
+ */
+export interface UserOption {
+  id: string;
+  fullName: string;
+  status: UserStatus;
+}
+export interface UserOptionsResponse {
+  items: UserOption[];
 }

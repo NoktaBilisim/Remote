@@ -1,13 +1,16 @@
 // Firma (tenant) yönetimi, Super Admin firma geçişi ve tenant ayarları (P9; AC-70, AC-4, AC-115, AC-145;
-// mimari-e9 §3.4 `cancelAllForTenant`, mimari-e10 §3.4 `revokeForTenant`).
+// mimari-e10 §3.4 `revokeForTenant`).
 // Pasife alma: tek TX'te durum + tenant kullanıcılarının oturumları iptal + bekleyen kod oturumları CANCELLED
-// (tenant_passive) + audit; commit SONRASI canlı odalar `tenant_passive` ile biter, panel soketleri 4401, bekleyen
-// talepler TENANT_PASSIVE iptal, bilgisayar kayıtları geçersiz. Commit sonrası adımların yedekleri: talep ve kayıt
-// süpürücüleri (30 sn) ve /ws/tech 60 sn yeniden doğrulaması (pasif tenant → endByTechnician).
+// (tenant_passive) + P14a (AC-205): bekleyen talepler CANCELLED(TENANT_PASSIVE) ve bilgisayar kayıtları
+// TENANT_PASSIVE geçersiz + audit — hepsi AYNI commit (pasif → hemen aktif senaryosunda eski talep/kayıt geçerli kalmaz).
+// Commit SONRASI yalnız bildirimler: canlı odalar `tenant_passive` ile biter, panel soketleri 4401, talep sahiplerine
+// `request.closed`. Yedekler: talep/kayıt süpürücüleri (30 sn) ve /ws/tech 60 sn yeniden doğrulaması.
 import type {
   CreateTenantData,
   ListTenantsQuery,
   SmtpSecurity,
+  TenantOptionsQuery,
+  TenantOptionsResponse,
   SwitchTenantResponse,
   TenantItem,
   TenantListResponse,
@@ -19,7 +22,8 @@ import type {
 import { aadFor, type SecretBox } from "../lib/crypto.ts";
 import type { NetGuard } from "../lib/netguard.ts";
 import { TENANT_SLUG_CONFLICT_MESSAGE } from "@remote/contracts/api/tenants";
-import { TENANT_AUDIT } from "@remote/contracts/audit";
+import { BINDING_AUDIT, TENANT_AUDIT } from "@remote/contracts/audit";
+import { revokeForTenant as revokeTenantBindings } from "../bindings/repo.ts";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import type { AuthContext } from "../auth/session.ts";
 import { conflictIndex, type Db } from "../lib/db.ts";
@@ -35,10 +39,10 @@ const SLUG_UQ = "tenants_slug_key";
 export interface TenantLiveEffects {
   rooms: { endByTenant(tenantId: string): Promise<void> };
   hub: { closeByTenant(tenantId: string): number; closeByAuthToken(tokenHash: string): number };
-  /** `requests.cancelAllForTenant` (AC-145). */
-  cancelRequests(tenantId: string): Promise<number>;
-  /** `bindings.revokeForTenant` (mimari-e10 §3.4). */
-  revokeBindings(tenantId: string): Promise<number>;
+  /** Commit sonrası: iptal edilen talebin müşteri/panel bildirimi (`requests.closedAfterCommit`, AC-145). */
+  requestClosed(tenantId: string, requestId: string): Promise<void>;
+  /** Commit sonrası: `rs_bindings_revoked_total{reason:TENANT_PASSIVE}` (mimari-e10 §3.4). */
+  bindingsRevoked(count: number): void;
   log: { error(obj: object, msg: string): void; info(obj: object, msg: string): void };
 }
 
@@ -124,7 +128,10 @@ export async function updateTenant(db: Db, ctx: AuditContext, auth: AuthContext,
   return getOrThrow(db, id);
 }
 
-/** POST /admin/tenants/:id/deactivate (AC-70, AC-115, AC-145). Zaten pasif → 409. */
+/** Kayıt geçersizleştirme parti boyutu (bindings süpürücüsüyle aynı). */
+const BINDING_BATCH = 1000;
+
+/** POST /admin/tenants/:id/deactivate (AC-70, AC-115, AC-145, P14a AC-205). Zaten pasif → 409. */
 export async function deactivateTenant(
   db: Db,
   fx: TenantLiveEffects,
@@ -132,7 +139,7 @@ export async function deactivateTenant(
   auth: AuthContext,
   id: string,
 ): Promise<TenantItem> {
-  await db.$transaction(async (tx) => {
+  const done = await db.$transaction(async (tx) => {
     const cur = await repo.lockTenant(tx, id);
     if (!cur) throw new AppError("NOT_FOUND");
     if (cur.status === "PASSIVE") throw new AppError("CONFLICT", { message: "Firma zaten pasif." });
@@ -140,6 +147,33 @@ export async function deactivateTenant(
     await repo.updateTenant(tx, id, { status: "PASSIVE" });
     const revokedSessions = await repo.revokeTenantSessions(tx, id, now);
     const cancelledSessions = await repo.cancelTenantPending(tx, id, now);
+    const requestIds = await repo.cancelTenantRequests(tx, id, now);
+    let revokedBindings = 0;
+    for (;;) {
+      const n = await revokeTenantBindings(tx, id, now, BINDING_BATCH);
+      revokedBindings += n;
+      if (n < BINDING_BATCH) break;
+    }
+    for (const requestId of requestIds)
+      await writeAudit(tx, ctx, {
+        tenantId: id,
+        ...actor(auth),
+        action: "request.cancelled",
+        entity: "support_requests",
+        entityId: requestId,
+        result: "success",
+        oldValue: { status: "PENDING" },
+        newValue: { status: "CANCELLED", reason: "TENANT_PASSIVE" },
+      });
+    if (revokedBindings > 0)
+      await writeAudit(tx, ctx, {
+        tenantId: id,
+        ...actor(auth),
+        action: BINDING_AUDIT.REVOKED,
+        entity: "device_bindings",
+        result: "success",
+        newValue: { reason: "TENANT_PASSIVE", count: revokedBindings },
+      });
     await writeAudit(tx, ctx, {
       tenantId: id,
       ...actor(auth),
@@ -148,29 +182,36 @@ export async function deactivateTenant(
       entityId: id,
       result: "success",
       oldValue: { status: "ACTIVE" },
-      newValue: { status: "PASSIVE", revokedSessions, cancelledSessions },
+      newValue: { status: "PASSIVE", revokedSessions, cancelledSessions, cancelledRequests: requestIds.length, revokedBindings },
     });
+    return { requestIds, revokedBindings };
   });
-  await afterDeactivate(fx, id);
+  await afterDeactivate(fx, id, done);
   return getOrThrow(db, id);
 }
 
-/** Her adım ayrı: biri düşse de diğerleri çalışır; hata loglanır (yedek yollar §başlık). */
-async function afterDeactivate(fx: TenantLiveEffects, id: string): Promise<void> {
+/** Yalnız bildirimler; her adım ayrı (biri düşse de diğerleri çalışır), hata loglanır — DB durumu zaten commit'te. */
+async function afterDeactivate(fx: TenantLiveEffects, id: string, done: { requestIds: string[]; revokedBindings: number }): Promise<void> {
   const step = async (name: string, run: () => Promise<unknown>): Promise<void> => {
     try {
       await run();
     } catch (err) {
       fx.log.error(
         { err, alarm: "tenant_passive_effect", step: name, tenantId: id },
-        "firma pasife alma sonrası adım başarısız (yedek yol devralır)",
+        "firma pasife alma sonrası bildirim başarısız (yedek yol devralır)",
       );
     }
   };
   await step("rooms", () => fx.rooms.endByTenant(id));
   await step("panels", async () => fx.hub.closeByTenant(id));
-  await step("requests", () => fx.cancelRequests(id));
-  await step("bindings", () => fx.revokeBindings(id));
+  for (const requestId of done.requestIds) await step("requests", () => fx.requestClosed(id, requestId));
+  await step("bindings", async () => fx.bindingsRevoked(done.revokedBindings));
+}
+
+/** GET /admin/tenants/options (P14b, AC-226). */
+export async function tenantOptions(db: Db, q: TenantOptionsQuery): Promise<TenantOptionsResponse> {
+  const rows = await repo.tenantOptions(db, q.q, q.limit);
+  return { items: rows.map((r) => ({ id: r.id, name: r.name, slug: r.slug, status: r.status as TenantStatus })) };
 }
 
 /** POST /admin/tenants/:id/reactivate: yalnız durum; iptal edilen oturum/talep/kayıtlar geri gelmez. Zaten aktif → 409. */

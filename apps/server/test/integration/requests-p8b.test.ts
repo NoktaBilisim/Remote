@@ -342,8 +342,9 @@ describe("P8b-1 süpürücü / anonimleştirme / geçmiş", () => {
     const old = new Date(Date.now() - 400 * 86_400_000); // varsayılan retention_days 365
     const { id } = await createRequestRow(t.id, { createdAt: old });
     await testDb().supportRequest.update({ where: { id }, data: { status: "EXPIRED", closedAt: old } });
-    const { anonymizeRequests } = await import("../../src/requests/jobs.ts");
-    await anonymizeRequests(live.app.requests);
+    const { anonymizeRequestsOf } = await import("../../src/requests/jobs.ts");
+    const { forEachRetentionTenant } = await import("../helpers/retention.ts");
+    await forEachRetentionTenant(live.app.requests, anonymizeRequestsOf);
     const row = await testDb().supportRequest.findUniqueOrThrow({ where: { id } });
     expect(row).toMatchObject({ customerName: null, customerPhone: null, description: null, ip: null });
     expect(row.anonymizedAt).not.toBeNull();

@@ -1,4 +1,4 @@
-# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L)
+# API Dokümanı — Remote Support (P1–P8, P8b-1, P8c, P9, P10, P11, P12, P12b, P13a, P13b, P13b-L, P14a, P14b)
 
 Bu belge P1–P8, P8b-1, P8c-1, P9, P10, P11, P12, P12b, P13a, P13b ve P13b-L'de **kodda var olan** uçları anlatır. Sonraki paketlerin bağlayıcı sözleşmesi
 `docs/mimari-api.md`'dedir. Kaynak: `apps/server/src/auth/routes.ts`, `auth/guards.ts`, `lib/errors.ts`,
@@ -98,12 +98,15 @@ stack, SQL veya iç ayrıntı içermez.
 | `CSRF_INVALID`             | 403  | Origin eksik/izinsiz veya `X-CSRF-Token` eşleşmiyor                                                                                                                                                                                                                                                                                                                      |
 | `PASSWORD_CHANGE_REQUIRED` | 403  | İlk giriş şifre değişimi yapılmadan başka uç çağrıldı                                                                                                                                                                                                                                                                                                                    |
 | `MFA_REQUIRED`             | 403  | P10: oturum 2FA kodu bekliyor ("Devam etmek için iki adımlı doğrulama kodunu girin.")                                                                                                                                                                                                                                                                                    |
-| `MFA_SETUP_REQUIRED`       | 403  | P10: 2FA zorunlu ama kurulmamış ("Devam etmeden önce iki adımlı doğrulamayı kurmanız gerekiyor.")                                                                                                                                                                                                                                                                        |
+| `MFA_STEP_UP_REQUIRED`     | 401  | P14a: hassas işlem (MySQL/TURN/WhatsApp sistem ayarı PUT/DELETE) son 5 dk içinde step-up ister; oturum geçerlidir → kod sor, `POST /auth/step-up`, isteği bir kez tekrarla                                                                                                                                                                                               |
+| `MFA_SETUP_REQUIRED`       | 403  | P14a: step-up gereken uçta TOTP kurulu değil. P10: 2FA zorunlu ama kurulmamış ("Devam etmeden önce iki adımlı doğrulamayı kurmanız gerekiyor.")                                                                                                                                                                                                                          |
 | `HOST_NOT_ALLOWED`         | 400  | P10: SMTP sunucusu özel/iç ağ/loopback/link-local/CGNAT adresine veya sunucunun kendi adresine çözülüyor ("Bu sunucu adresi kullanılamaz.")                                                                                                                                                                                                                              |
 | `RESET_TOKEN_INVALID`      | 410  | P10: şifre sıfırlama bağlantısı geçersiz, kullanılmış veya süresi dolmuş                                                                                                                                                                                                                                                                                                 |
 | `NOT_FOUND`                | 404  | Yol veya kayıt yok (başka tenant'ın / başka teknisyenin kaydı da 404)                                                                                                                                                                                                                                                                                                    |
 | `REQUEST_REF_INVALID`      | 404  | P8b: firma ref'i geçersiz, yenilenmiş, firma pasif veya ayarı yok (hepsi aynı yanıt)                                                                                                                                                                                                                                                                                     |
 | `CONFLICT`                 | 409  | Kayıt işleme uygun durumda değil (ör. PENDING olmayan oturumu iptal, ACTIVE olmayanı sonlandırma); P9: e-posta/kısa ad çakışması (`fields.email` / `fields.slug`), zaten pasif/aktif                                                                                                                                                                                     |
+| `STALE_WRITE`              | 409  | P14a: `PATCH /users/:id` `If-Match` sürümü güncel değil ("Kayıt başkası tarafından değiştirildi, yeniden yükleyin")                                                                                                                                                                                                                                                      |
+| `PRECONDITION_REQUIRED`    | 428  | P14a: `PATCH /users/:id` `If-Match: "v<n>"` başlığı yok veya bozuk                                                                                                                                                                                                                                                                                                       |
 | `LOBBY_FULL`               | 409  | Bekleme odasında 3 misafir var (join)                                                                                                                                                                                                                                                                                                                                    |
 | `OPEN_SESSION_LIMIT`       | 409  | Teknisyenin açık oturum sınırı dolu (P8b: talep kabulünde talep beklemede kalır)                                                                                                                                                                                                                                                                                         |
 | `REQUEST_PENDING`          | 409  | P8b: bu istemci örneğinin zaten bekleyen talebi var                                                                                                                                                                                                                                                                                                                      |
@@ -127,83 +130,86 @@ stack, SQL veya iç ayrıntı içermez.
 
 ## Uçlar
 
-| Metot                       | Yol                                                                               | Yetki                                                             | Başarı                |
-| --------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------- |
-| POST                        | `/api/v1/auth/login`                                                              | Public (Origin)                                                   | 200 + iki çerez       |
-| POST                        | `/api/v1/auth/logout`                                                             | Oturum + CSRF                                                     | 204, çerezler silinir |
-| GET                         | `/api/v1/auth/me`                                                                 | Oturum                                                            | 200                   |
-| POST                        | `/api/v1/auth/password/change`                                                    | Oturum + CSRF                                                     | 204 + yeni çerezler   |
-| POST                        | `/api/v1/auth/mfa/setup` (P10)                                                    | Oturum + CSRF, aşama `setup` veya `ok`                            | 200                   |
-| POST                        | `/api/v1/auth/mfa/enable` (P10)                                                   | Oturum + CSRF, aşama `setup` veya `ok`                            | 200                   |
-| POST                        | `/api/v1/auth/mfa/verify` (P10)                                                   | Oturum (aşama `verify`) + CSRF                                    | 200 + yeni çerezler   |
-| POST                        | `/api/v1/auth/logout-all` (P10)                                                   | Oturum + CSRF                                                     | 200                   |
-| POST                        | `/api/v1/auth/password/forgot` (P10)                                              | Public (Origin)                                                   | 202                   |
-| POST                        | `/api/v1/auth/password/reset` (P10)                                               | Public (Origin)                                                   | 204                   |
-| POST                        | `/api/v1/settings/smtp/test` (P10)                                                | Oturum + CSRF, `settings.edit`, firma bağlamı                     | 200                   |
-| POST                        | `/api/v1/settings/support-requests/email/test` (P10)                              | Oturum + CSRF, `settings.edit`                                    | 200                   |
-| POST                        | `/api/v1/sessions/:id/email` (P10)                                                | Oturum + CSRF, `sessions.create`, oturumun teknisyeni             | 200                   |
-| POST                        | `/api/v1/users/:id/reset-mfa` (P10)                                               | Oturum + CSRF, `users.edit`                                       | 204                   |
-| POST                        | `/api/v1/sessions`                                                                | Oturum + CSRF, `sessions.create`                                  | 201                   |
-| GET                         | `/api/v1/sessions`                                                                | Oturum, `sessions.view` **veya** `session_history.view`           | 200                   |
-| GET                         | `/api/v1/sessions/waiting` (P13b-L)                                               | Oturum, `sessions.view`, firma bağlamı                            | 200                   |
-| GET                         | `/api/v1/sessions/export.csv` (P8)                                                | Oturum, `session_history.export`                                  | 200 (CSV akışı)       |
-| GET                         | `/api/v1/sessions/:id`                                                            | Oturum, `sessions.view`                                           | 200                   |
-| GET                         | `/api/v1/sessions/:id/history` (P8)                                               | Oturum, `session_history.view`                                    | 200                   |
-| PATCH                       | `/api/v1/sessions/:id` (P8)                                                       | Oturum + CSRF, `session_history.edit`                             | 200                   |
-| POST                        | `/api/v1/sessions/:id/cancel`                                                     | Oturum + CSRF, `sessions.delete`                                  | 200                   |
-| POST                        | `/api/v1/sessions/:id/terminate`                                                  | Oturum + CSRF, `sessions.terminate`                               | 200                   |
-| POST                        | `/api/v1/public/sessions/resolve`                                                 | Public (Origin veya AGENT)                                        | 200                   |
-| POST                        | `/api/v1/public/sessions/join`                                                    | Public (Origin veya AGENT)                                        | 200                   |
-| GET                         | `/api/v1/public/sessions/status`                                                  | Public                                                            | 200                   |
-| GET                         | `/api/v1/public/agent/download` (P6)                                              | Public                                                            | 302                   |
-| GET                         | `/downloads/NoktaDestek.exe`, `/downloads/Destek-<8 hane>.exe` (P6, Caddy statik) | Public, server bütünlük kapısı                                    | 200                   |
-| GET                         | `/health`, `/ready`                                                               | Yalnız iç ağ                                                      | 200                   |
-| GET                         | `/metrics`                                                                        | Yalnız iç ağ + `METRICS_TOKEN` (Bearer)                           | 200                   |
-| GET                         | `/internal/agent-ready` (P6)                                                      | Yalnız Caddy `forward_auth`; dışarıya kapalı                      | 204                   |
-| WS                          | `/ws/tech?sessionId=<id>`                                                         | Oturum çerezi + Origin, oturumun teknisyeni                       | 101                   |
-| WS                          | `/ws/guest`                                                                       | Subprotocol'de `wsTicket` veya `reconnectToken`                   | 101                   |
-| GET                         | `/api/v1/public/requests/tenant?ref=` (P8b)                                       | Public                                                            | 200                   |
-| POST                        | `/api/v1/public/requests` (P8b)                                                   | Public (yalnız AGENT: Origin ve `Sec-Fetch-*` yok)                | 201                   |
-| POST                        | `/api/v1/public/requests/cancel` (P8b)                                            | Public (yalnız AGENT)                                             | 204                   |
-| GET                         | `/api/v1/public/agent/request-download?ref=` (P8b)                                | Public                                                            | 302                   |
-| GET                         | `/downloads/NoktaDestek-<firma>-<ref>.exe` (P8b, Caddy statik)                    | Public, server ref + bütünlük kapısı                              | 200                   |
-| GET                         | `/api/v1/support-requests` (P8b)                                                  | Oturum, `support_requests.view`                                   | 200                   |
-| GET                         | `/api/v1/support-requests/count` (P8b)                                            | Oturum, `support_requests.view`                                   | 200                   |
-| GET                         | `/api/v1/support-requests/:id` (P8b)                                              | Oturum, `support_requests.view`                                   | 200                   |
-| POST                        | `/api/v1/support-requests/:id/accept` (P8b)                                       | Oturum + CSRF, `support_requests.view` + `accept`                 | 200                   |
-| POST                        | `/api/v1/support-requests/:id/reject` (P8b)                                       | Oturum + CSRF, `support_requests.view` + `accept`                 | 204                   |
-| GET                         | `/api/v1/settings/support-requests` (P8b)                                         | Oturum, `settings.edit`                                           | 200                   |
-| PUT                         | `/api/v1/settings/support-requests` (P8b)                                         | Oturum + CSRF, `settings.edit`                                    | 200                   |
-| POST                        | `/api/v1/settings/support-requests/rotate-ref` (P8b)                              | Oturum + CSRF, `settings.edit`                                    | 200                   |
-| POST                        | `/api/v1/settings/support-requests/whatsapp/test` (P8b)                           | Oturum + CSRF, `settings.edit`                                    | 200                   |
-| WS                          | `/ws/request` (P8b)                                                               | Subprotocol `rs.v1, rs.req.<requestSecret>`; Origin yok           | 101                   |
-| WS                          | `/ws/panel` (P8b)                                                                 | Oturum çerezi + Origin, `support_requests.view`, tenant bağlamı   | 101                   |
-| GET                         | `/api/v1/users` (P9)                                                              | Oturum, `users.view`, firma bağlamı                               | 200                   |
-| POST                        | `/api/v1/users` (P9)                                                              | Oturum + CSRF, `users.create`, firma bağlamı                      | 201                   |
-| GET                         | `/api/v1/users/:id` (P9)                                                          | Oturum, `users.view`                                              | 200                   |
-| PATCH                       | `/api/v1/users/:id` (P9)                                                          | Oturum + CSRF, `users.edit`                                       | 200                   |
-| POST                        | `/api/v1/users/:id/deactivate` · `/reactivate` (P9)                               | Oturum + CSRF, `users.edit`                                       | 204                   |
-| GET                         | `/api/v1/settings/tenant` (P9)                                                    | Oturum, `settings.view`, firma bağlamı                            | 200                   |
-| PUT                         | `/api/v1/settings/tenant` (P9)                                                    | Oturum + CSRF, `settings.edit`, firma bağlamı                     | 200                   |
-| GET · POST                  | `/api/v1/admin/tenants` (P9)                                                      | Oturum (+ CSRF), yalnız SUPER_ADMIN                               | 200 · 201             |
-| GET · PATCH                 | `/api/v1/admin/tenants/:id` (P9)                                                  | Oturum (+ CSRF), yalnız SUPER_ADMIN                               | 200                   |
-| POST                        | `/api/v1/admin/tenants/:id/deactivate` · `/reactivate` (P9)                       | Oturum + CSRF, yalnız SUPER_ADMIN                                 | 200                   |
-| POST                        | `/api/v1/admin/switch-tenant` (P9)                                                | Oturum + CSRF, yalnız SUPER_ADMIN                                 | 200                   |
-| GET                         | `/api/v1/audit` · `/api/v1/audit/export.csv` (P11)                                | Oturum, `audit.view` · `audit.export`                             | 200                   |
-| POST · PUT · PATCH · DELETE | `/api/v1/audit`, `/audit/export.csv`, `/audit/:id` (P11)                          | —                                                                 | 405                   |
-| GET · PUT                   | `/api/v1/admin/settings/mysql` (P11)                                              | Oturum (+ CSRF), yalnız SUPER_ADMIN                               | 200                   |
-| POST                        | `/api/v1/admin/settings/mysql/test` (P11)                                         | Oturum + CSRF, yalnız SUPER_ADMIN                                 | 200                   |
-| GET · PUT · DELETE          | `/api/v1/admin/settings/turn` (P11)                                               | Oturum (+ CSRF), yalnız SUPER_ADMIN                               | 200                   |
-| GET · PUT · DELETE          | `/api/v1/admin/settings/whatsapp` (P12b)                                          | Oturum (+ CSRF), yalnız SUPER_ADMIN                               | 200                   |
-| POST                        | `/api/v1/admin/settings/whatsapp/test` (P12b)                                     | Oturum + CSRF, yalnız SUPER_ADMIN                                 | 200                   |
-| GET · PUT                   | `/api/v1/settings/consent-text` (P11)                                             | Oturum (+ CSRF), `settings.view` · `settings.edit`, firma bağlamı | 200                   |
-| PATCH                       | `/api/v1/auth/me/preferences` (P12)                                               | Oturum + CSRF (şifre değişimi / 2FA kurulumu aşamasında da)       | 200 + `rs_theme`      |
-| POST · DELETE               | `/api/v1/settings/logo` (P12)                                                     | Oturum + CSRF, `settings.edit`, firma bağlamı                     | 200                   |
-| POST · DELETE               | `/api/v1/users/:id/avatar` (P12; `:id` = `me` olabilir)                           | Oturum + CSRF; kendi hesabı serbest, başkası `users.edit`         | 200                   |
-| POST                        | `/api/v1/admin/settings/system-logo` (P12)                                        | Oturum + CSRF, yalnız SUPER_ADMIN                                 | 200                   |
-| GET                         | `/api/v1/files/logo/:tenantId/:file`, `/api/v1/files/system-logo/:file` (P12)     | Public                                                            | 200 (PNG)             |
-| GET                         | `/api/v1/files/avatar/:tenantId/:file` (P12)                                      | Oturum (aynı firma veya Super Admin)                              | 200 (WEBP)            |
-| GET                         | `/api/v1/public/branding?tenant=<slug>` (P12)                                     | Public                                                            | 200                   |
+| Metot                       | Yol                                                                               | Yetki                                                                     | Başarı                |
+| --------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------- |
+| POST                        | `/api/v1/auth/login`                                                              | Public (Origin)                                                           | 200 + iki çerez       |
+| POST                        | `/api/v1/auth/logout`                                                             | Oturum + CSRF                                                             | 204, çerezler silinir |
+| GET                         | `/api/v1/auth/me`                                                                 | Oturum                                                                    | 200                   |
+| POST                        | `/api/v1/auth/password/change`                                                    | Oturum + CSRF                                                             | 204 + yeni çerezler   |
+| POST                        | `/api/v1/auth/mfa/setup` (P10)                                                    | Oturum + CSRF, aşama `setup` veya `ok`                                    | 200                   |
+| POST                        | `/api/v1/auth/mfa/enable` (P10)                                                   | Oturum + CSRF, aşama `setup` veya `ok`                                    | 200                   |
+| POST                        | `/api/v1/auth/mfa/verify` (P10)                                                   | Oturum (aşama `verify`) + CSRF                                            | 200 + yeni çerezler   |
+| POST                        | `/api/v1/auth/step-up` (P14a)                                                     | Oturum (aşama `ok`) + CSRF, TOTP kurulu                                   | 200                   |
+| POST                        | `/api/v1/auth/logout-all` (P10)                                                   | Oturum + CSRF                                                             | 200                   |
+| POST                        | `/api/v1/auth/password/forgot` (P10)                                              | Public (Origin)                                                           | 202                   |
+| POST                        | `/api/v1/auth/password/reset` (P10)                                               | Public (Origin)                                                           | 204                   |
+| POST                        | `/api/v1/settings/smtp/test` (P10)                                                | Oturum + CSRF, `settings.edit`, firma bağlamı                             | 200                   |
+| POST                        | `/api/v1/settings/support-requests/email/test` (P10)                              | Oturum + CSRF, `settings.edit`                                            | 200                   |
+| POST                        | `/api/v1/sessions/:id/email` (P10)                                                | Oturum + CSRF, `sessions.create`, oturumun teknisyeni                     | 200                   |
+| POST                        | `/api/v1/users/:id/reset-mfa` (P10)                                               | Oturum + CSRF, `users.edit`                                               | 204                   |
+| POST                        | `/api/v1/sessions`                                                                | Oturum + CSRF, `sessions.create`                                          | 201                   |
+| GET                         | `/api/v1/sessions`                                                                | Oturum, `sessions.view` **veya** `session_history.view`                   | 200                   |
+| GET                         | `/api/v1/sessions/waiting` (P13b-L)                                               | Oturum, `sessions.view`, firma bağlamı                                    | 200                   |
+| GET                         | `/api/v1/sessions/export.csv` (P8)                                                | Oturum, `session_history.export`                                          | 200 (CSV akışı)       |
+| GET                         | `/api/v1/sessions/:id`                                                            | Oturum, `sessions.view`                                                   | 200                   |
+| GET                         | `/api/v1/sessions/:id/history` (P8)                                               | Oturum, `session_history.view`                                            | 200                   |
+| PATCH                       | `/api/v1/sessions/:id` (P8)                                                       | Oturum + CSRF, `session_history.edit`                                     | 200                   |
+| POST                        | `/api/v1/sessions/:id/cancel`                                                     | Oturum + CSRF, `sessions.delete`                                          | 200                   |
+| POST                        | `/api/v1/sessions/:id/terminate`                                                  | Oturum + CSRF, `sessions.terminate`                                       | 200                   |
+| POST                        | `/api/v1/public/sessions/resolve`                                                 | Public (Origin veya AGENT)                                                | 200                   |
+| POST                        | `/api/v1/public/sessions/join`                                                    | Public (Origin veya AGENT)                                                | 200                   |
+| GET                         | `/api/v1/public/sessions/status`                                                  | Public                                                                    | 200                   |
+| GET                         | `/api/v1/public/agent/download` (P6)                                              | Public                                                                    | 302                   |
+| GET                         | `/downloads/NoktaDestek.exe`, `/downloads/Destek-<8 hane>.exe` (P6, Caddy statik) | Public, server bütünlük kapısı                                            | 200                   |
+| GET                         | `/health`, `/ready`                                                               | Yalnız iç ağ                                                              | 200                   |
+| GET                         | `/metrics`                                                                        | Yalnız iç ağ + `METRICS_TOKEN` (Bearer)                                   | 200                   |
+| GET                         | `/internal/agent-ready` (P6)                                                      | Yalnız Caddy `forward_auth`; dışarıya kapalı                              | 204                   |
+| WS                          | `/ws/tech?sessionId=<id>`                                                         | Oturum çerezi + Origin, oturumun teknisyeni                               | 101                   |
+| WS                          | `/ws/guest`                                                                       | Subprotocol'de `wsTicket` veya `reconnectToken`                           | 101                   |
+| GET                         | `/api/v1/public/requests/tenant?ref=` (P8b)                                       | Public                                                                    | 200                   |
+| POST                        | `/api/v1/public/requests` (P8b)                                                   | Public (yalnız AGENT: Origin ve `Sec-Fetch-*` yok)                        | 201                   |
+| POST                        | `/api/v1/public/requests/cancel` (P8b)                                            | Public (yalnız AGENT)                                                     | 204                   |
+| GET                         | `/api/v1/public/agent/request-download?ref=` (P8b)                                | Public                                                                    | 302                   |
+| GET                         | `/downloads/NoktaDestek-<firma>-<ref>.exe` (P8b, Caddy statik)                    | Public, server ref + bütünlük kapısı                                      | 200                   |
+| GET                         | `/api/v1/support-requests` (P8b)                                                  | Oturum, `support_requests.view`                                           | 200                   |
+| GET                         | `/api/v1/support-requests/count` (P8b)                                            | Oturum, `support_requests.view`                                           | 200                   |
+| GET                         | `/api/v1/support-requests/:id` (P8b)                                              | Oturum, `support_requests.view`                                           | 200                   |
+| POST                        | `/api/v1/support-requests/:id/accept` (P8b)                                       | Oturum + CSRF, `support_requests.view` + `accept`                         | 200                   |
+| POST                        | `/api/v1/support-requests/:id/reject` (P8b)                                       | Oturum + CSRF, `support_requests.view` + `accept`                         | 204                   |
+| GET                         | `/api/v1/settings/support-requests` (P8b)                                         | Oturum, `settings.edit`                                                   | 200                   |
+| PUT                         | `/api/v1/settings/support-requests` (P8b)                                         | Oturum + CSRF, `settings.edit`                                            | 200                   |
+| POST                        | `/api/v1/settings/support-requests/rotate-ref` (P8b)                              | Oturum + CSRF, `settings.edit`                                            | 200                   |
+| POST                        | `/api/v1/settings/support-requests/whatsapp/test` (P8b)                           | Oturum + CSRF, `settings.edit`                                            | 200                   |
+| WS                          | `/ws/request` (P8b)                                                               | Subprotocol `rs.v1, rs.req.<requestSecret>`; Origin yok                   | 101                   |
+| WS                          | `/ws/panel` (P8b)                                                                 | Oturum çerezi + Origin, `support_requests.view`, tenant bağlamı           | 101                   |
+| GET                         | `/api/v1/users` (P9)                                                              | Oturum, `users.view`, firma bağlamı                                       | 200                   |
+| POST                        | `/api/v1/users` (P9)                                                              | Oturum + CSRF, `users.create`, firma bağlamı                              | 201                   |
+| GET                         | `/api/v1/users/options?tenantId=` (P14b)                                          | Oturum, `session_history.view` \| `support_requests.view` \| `users.view` | 200                   |
+| GET                         | `/api/v1/users/:id` (P9; P14a `ETag`)                                             | Oturum, `users.view`                                                      | 200 + `ETag`          |
+| PATCH                       | `/api/v1/users/:id` (P9; P14a `If-Match` zorunlu)                                 | Oturum + CSRF, `users.edit`                                               | 200 + `ETag`          |
+| POST                        | `/api/v1/users/:id/deactivate` · `/reactivate` (P9)                               | Oturum + CSRF, `users.edit`                                               | 204                   |
+| GET                         | `/api/v1/settings/tenant` (P9)                                                    | Oturum, `settings.view`, firma bağlamı                                    | 200                   |
+| PUT                         | `/api/v1/settings/tenant` (P9)                                                    | Oturum + CSRF, `settings.edit`, firma bağlamı                             | 200                   |
+| GET · POST                  | `/api/v1/admin/tenants` (P9)                                                      | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200 · 201             |
+| GET                         | `/api/v1/admin/tenants/options` (P14b)                                            | Oturum, yalnız SUPER_ADMIN                                                | 200                   |
+| GET · PATCH                 | `/api/v1/admin/tenants/:id` (P9)                                                  | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
+| POST                        | `/api/v1/admin/tenants/:id/deactivate` · `/reactivate` (P9)                       | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| POST                        | `/api/v1/admin/switch-tenant` (P9)                                                | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| GET                         | `/api/v1/audit` · `/api/v1/audit/export.csv` (P11)                                | Oturum, `audit.view` · `audit.export`                                     | 200                   |
+| POST · PUT · PATCH · DELETE | `/api/v1/audit`, `/audit/export.csv`, `/audit/:id` (P11)                          | —                                                                         | 405                   |
+| GET · PUT                   | `/api/v1/admin/settings/mysql` (P11; P14a PUT step-up)                            | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
+| POST                        | `/api/v1/admin/settings/mysql/test` (P11)                                         | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| GET · PUT · DELETE          | `/api/v1/admin/settings/turn` (P11; P14a PUT/DELETE step-up)                      | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
+| GET · PUT · DELETE          | `/api/v1/admin/settings/whatsapp` (P12b; P14a PUT/DELETE step-up)                 | Oturum (+ CSRF), yalnız SUPER_ADMIN                                       | 200                   |
+| POST                        | `/api/v1/admin/settings/whatsapp/test` (P12b)                                     | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| GET · PUT                   | `/api/v1/settings/consent-text` (P11)                                             | Oturum (+ CSRF), `settings.view` · `settings.edit`, firma bağlamı         | 200                   |
+| PATCH                       | `/api/v1/auth/me/preferences` (P12)                                               | Oturum + CSRF (şifre değişimi / 2FA kurulumu aşamasında da)               | 200 + `rs_theme`      |
+| POST · DELETE               | `/api/v1/settings/logo` (P12)                                                     | Oturum + CSRF, `settings.edit`, firma bağlamı                             | 200                   |
+| POST · DELETE               | `/api/v1/users/:id/avatar` (P12; `:id` = `me` olabilir)                           | Oturum + CSRF; kendi hesabı serbest, başkası `users.edit`                 | 200                   |
+| POST                        | `/api/v1/admin/settings/system-logo` (P12)                                        | Oturum + CSRF, yalnız SUPER_ADMIN                                         | 200                   |
+| GET                         | `/api/v1/files/logo/:tenantId/:file`, `/api/v1/files/system-logo/:file` (P12)     | Public                                                                    | 200 (PNG)             |
+| GET                         | `/api/v1/files/avatar/:tenantId/:file` (P12)                                      | Oturum (aynı firma veya Super Admin)                                      | 200 (WEBP)            |
+| GET                         | `/api/v1/public/branding?tenant=<slug>` (P12)                                     | Public                                                                    | 200                   |
 
 ### POST /api/v1/auth/login
 
@@ -328,6 +334,53 @@ Hatalar: 401 `UNAUTHENTICATED` "Doğrulama kodu hatalı.", 409 "Bu oturum için 
 
 **2FA deneme sınırı** (verify ve enable ortak): aynı hesap + IP 5 deneme / 5 dk; hesap geneli (IP'den bağımsız) 15 deneme /
 15 dk; aşımda 429 `RATE_LIMITED` + `Retry-After`. Başarılı doğrulama sayaçları sıfırlar.
+
+### POST /api/v1/auth/step-up (P14a)
+
+Hassas işlemlerden önce taze 2FA kanıtı (ADR-0022). Gövde `{ "method": "TOTP", "code": "123456" }` **veya**
+`{ "method": "RECOVERY", "code": "ABCDE-FGHIJ" }`. Başarıda bu oturumun `step_up_at` alanı yazılır; hassas uçlar
+`stepUpUntil` anına (5 dk) kadar açık kalır. `Cache-Control: no-store`.
+
+```json
+{ "stepUpUntil": "2026-11-15T10:05:00.000Z", "method": "RECOVERY", "recoveryCodesLeft": 9 }
+```
+
+- TOTP: aynı/eski zaman adımı ikinci kez kabul edilmez. Kurtarma kodu tüketilir (tek kullanımlık).
+- Kurtarma koduyla: firma SMTP'si varsa "Kurtarma kodunuz kullanıldı" e-postası gider; `recoveryCodesLeft` ≤ 3 ise
+  arayüz yenileme uyarısı gösterir. TOTP ile yanıtta `recoveryCodesLeft` yoktur.
+- Audit `auth.step_up` `{ method, remaining }` (kod yazılmaz); hatada `{ method, reason }`.
+- Hatalar: 400 `fields.code` "Kod hatalı veya süresi geçmiş." (401 değil), 403 `MFA_SETUP_REQUIRED` (TOTP kurulu değil),
+  429 (deneme sınırı verify/enable ile ortak).
+- Step-up isteyen uçlar: `PUT /admin/settings/mysql`, `PUT|DELETE /admin/settings/turn`, `PUT|DELETE /admin/settings/whatsapp`.
+  Eksikse 401 `MFA_STEP_UP_REQUIRED`, TOTP yoksa 403 `MFA_SETUP_REQUIRED`.
+
+### Kullanıcı düzenleme: ETag / If-Match (P14a)
+
+`GET /users/:id` yanıtı `version` alanı ve `ETag: "v<version>"` başlığı taşır. `PATCH /users/:id` için
+`If-Match: "v<n>"` zorunludur: yoksa ya da bozuksa (`*`, zayıf `W/`, liste) 428 `PRECONDITION_REQUIRED`; araya başka bir
+değişiklik girdiyse 409 `STALE_WRITE`. Başarılı PATCH yeni `ETag` döner. Değişiklik içermeyen PATCH sürümü artırmaz.
+Pasif/aktif, 2FA sıfırlama ve kullanıcının 2FA kurulumu da sürümü artırır. Yetki/üstünlük/kendi hesabı kaynaklı 403'ler
+ve e-posta çakışması audit'e `result: "fail"` ile yazılır (`{ op, denied }` / `{ op, reason: "email_taken" }`).
+
+**Hız sınırı (P14a):** `/users*` yazma uçları kullanıcı başına 30/dk, `POST /users` ayrıca 10/dk; `/admin/tenants*` ve
+`/admin/switch-tenant` yazmaları 30/dk. Aşımda 429 `RATE_LIMITED` + `Retry-After`.
+
+### GET /api/v1/users/options?tenantId= (P14b)
+
+Filtre seçicisi için teknisyen listesi: `{ "items": [{ "id", "fullName", "status" }] }`. Sayfasız, en çok 1.000, ad
+sırasıyla, pasif kullanıcılar dahil, Super Admin hesapları hariç. Etkin firma kapsamında çalışır. USER rolü yalnız
+kendisini görür.
+
+`tenantId` (isteğe bağlı, ULID) yalnız firma seçmemiş Super Admin içindir: o firmanın teknisyenlerini döndürür
+(firma yoksa/silinmişse 404). Super Admin firma seçmemişse ve `tenantId` vermezse 403. Firma seçmiş Super Admin'de ve
+diğer rollerde parametre **yok sayılır**; her zaman etkin firma döner, başka firmanın listesi alınamaz (`GET /sessions`
+`tenantId` kuralıyla aynı). Bozuk kimlik veya bilinmeyen parametre 400 `VALIDATION`.
+
+### GET /api/v1/admin/tenants/options?q=&limit= (P14b)
+
+Aranabilir firma seçici (yalnız Super Admin): `{ "items": [{ "id", "name", "slug", "status" }] }`. `q` adda harf duyarsız
+önek + içerir araması (≤ 120 karakter, `%`/`_` düz karakter sayılır); `limit` 1–20 (varsayılan 20). Sıra: önek eşleşmesi
+önce, aktif firmalar önce, ada göre. Silinmiş firmalar dönmez.
 
 ### POST /api/v1/auth/logout-all (P10)
 
@@ -1357,7 +1410,11 @@ Sunucu → istemci: `request.state` (sıra, talep kodu, süreler; 10 sn'de bir v
 
 ### WebSocket `/ws/panel` (teknisyen paneli, tek yönlü)
 
-Oturum çerezi + izinli `Origin` + `support_requests.view` + firma bağlamı; kullanıcı başına ≤ 5 soket (6. → 4429).
+Oturum çerezi + izinli `Origin` + `support_requests.view` + firma bağlamı; kullanıcı başına ≤ 5 soket (6. → 4429,
+gerekçe `too_many`; istemci yeniden denemez). **P14a (AC-216):** oturum başına upgrade sınırı 30/dk (oturum token'ının
+SHA-256'sı anahtar). Aşımda upgrade kabul edilir ve hemen `close(4429, "retry=<sn>")` ile kapanır (WS'de `Retry-After`
+yok); istemci `<sn>` ± %20 bekleyip sessizce yeniden bağlanır. Metrik `rs_ws_rejected_total{role="panel",reason="session_rate"}`.
+IP kovası (HTTP 429) ayrı ve değişmedi.
 İstemciden gelen her mesaj 1008. Çıkış, şifre değişimi veya yetki kaybında 4401. Mesajlar: `queue.count`,
 `request.new` (ad + açıklamanın ilk 100 karakteri; telefon/e-posta yok), `request.removed`,
 `request.connect_failed` ve `request.declined` (yalnız kabul edene), `queue.alert` (olağan dışı yoğunluk).
@@ -1862,27 +1919,29 @@ yeniden başlatılır (runbook §15).
 GET yanıtı (`MysqlSettingsView`); şifre hiçbir zaman dönmez:
 
 ```json
-{ "host": "mysql", "port": 3306, "database": "remote", "user": "app", "hasPassword": true,
+{ "host": "mysql", "port": 3306, "database": "remote", "user": "app", "hasPassword": true, "requireTls": false,
   "updatedAt": "2026-11-13T09:00:00.000Z", "source": "panel", "matchesRunning": true }
 ```
 
 `source: "env"` → panelde kayıt yok; değerler çalışan `DATABASE_URL`'den türetilir. `matchesRunning: false` → kayıtlı
 değerler çalışan bağlantıdan farklı.
 
-PUT gövdesi `{ host, port, database, user, password? }`:
+PUT gövdesi `{ host, port, database, user, password?, requireTls? }` (P14a: PUT step-up ister, bkz. `POST /auth/step-up`):
 
-| Alan       | Kural                                                                                                                       |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `host`     | Ad, IPv4 veya köşeli parantezli IPv6 (SMTP host kuralı; iç ağ adresi **serbest**, DB iç ağda olabilir)                      |
-| `port`     | 1–65535, varsayılan 3306                                                                                                    |
-| `database` | `[A-Za-z0-9_$-]{1,64}`                                                                                                      |
-| `user`     | 1–32, kontrol karakteri yok                                                                                                 |
-| `password` | ≤ 200. Boş/verilmemiş → kayıtlı şifre korunur. AES-256-GCM ile, hedefe (host + port + kullanıcı) bağlı AAD altında saklanır |
+| Alan         | Kural                                                                                                                                                                               |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `host`       | Ad, IPv4 veya köşeli parantezli IPv6 (SMTP host kuralı; iç ağ adresi **serbest**, DB iç ağda olabilir)                                                                              |
+| `port`       | 1–65535, varsayılan 3306                                                                                                                                                            |
+| `database`   | `[A-Za-z0-9_$-]{1,64}`                                                                                                                                                              |
+| `user`       | 1–32, kontrol karakteri yok                                                                                                                                                         |
+| `password`   | ≤ 200. Boş/verilmemiş → kayıtlı şifre korunur. AES-256-GCM ile, hedefe (host + port + kullanıcı) bağlı AAD altında saklanır                                                         |
+| `requireTls` | P14a (AC-211): boolean, verilmezse `false`. Saklanır ve değişmeyen kayıt karşılaştırmasına girer; formun her PUT'ta açıkça göndermesi gerekir (yoksa kayıtlı `true` → `false` olur) |
 
 Kayıtlı şifre varken host, port veya kullanıcı değişip `password` boşsa → 400 `fields.password` "Farklı sunucu veya
 kullanıcı için şifreyi girin" (kayıtlı şifre yeni hedefe taşınmaz). Yanıt: GET görünümü + `{ "restartRequired": true,
 "message": "Ayar kaydedildi. Uygulamak için sunucudaki .env (DATABASE_URL) güncellenip servis yeniden başlatılmalıdır." }`.
-Audit `settings.mysql.updated` (eski → yeni; şifre yalnız `"changed"` işareti). Hatalar: 400, 401, 403.
+Audit `settings.mysql.updated` (eski → yeni; şifre yalnız `"changed"` işareti; değişmeyen PUT audit yazmaz). Hatalar: 400,
+401 (`MFA_STEP_UP_REQUIRED` dahil), 403 (`MFA_SETUP_REQUIRED` dahil), 429.
 
 ### POST /api/v1/admin/settings/mysql/test
 
@@ -1904,17 +1963,22 @@ curl -sk -X POST https://localhost:4450/api/v1/admin/settings/mysql/test \
 Bağlantı denendi ama başarısızsa yine **200** döner, `ok: false` ve `latencyMs: null` (süre zamanlama sinyali vermesin diye
 yalnız başarıda döner). Mesajlar sınıflıdır:
 
-| Sınıf               | `message`                                               |
-| ------------------- | ------------------------------------------------------- |
-| `connect`           | Sunucuya bağlanılamadı.                                 |
-| `auth`              | Kimlik reddedildi (kullanıcı adı veya şifre hatalı).    |
-| `database`          | Veritabanı bulunamadı veya bu kullanıcının erişimi yok. |
-| `timeout`           | Bağlantı 10 saniye içinde kurulamadı (zaman aşımı).     |
-| `secret_unreadable` | Kayıtlı şifre okunamadı; şifreyi yeniden girin.         |
+| Sınıf               | `message`                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------- |
+| `connect`           | Sunucuya bağlanılamadı.                                                                     |
+| `auth`              | Kimlik reddedildi (kullanıcı adı veya şifre hatalı).                                        |
+| `database`          | Veritabanı bulunamadı veya bu kullanıcının erişimi yok.                                     |
+| `timeout`           | Bağlantı 10 saniye içinde kurulamadı (zaman aşımı).                                         |
+| `tls`               | Güvenli (TLS) bağlantı kurulamadı: sunucu TLS desteklemiyor veya sertifikası doğrulanamadı. |
+| `secret_unreadable` | Kayıtlı şifre okunamadı; şifreyi yeniden girin.                                             |
 
 Ham sürücü hatası yalnız server logunda (`event:"mysql_test_failed"` + `ref`). Her deneme audit `settings.mysql.test`
 (hedef + sonuç + sınıf). Hız: kullanıcı başına 5/dk **ve** tüm Super Admin'ler için ortak 20/dk; aşımda 429 + `Retry-After`.
-Test bağlantısı TLS kullanmaz (bkz. `docs/gereksinimler-sonra-acik.md` "P11'den"). Hatalar: 400, 401, 403, 429.
+**TLS (P14a, AC-211):** test bağlantısı adı bir kez çözülen IP'ye yapılır (DNS rebinding yok). `requireTls: true` →
+TLS zorunlu, sertifika doğrulanır ve ayar adına göre kimlik denetlenir; TLS kurulamazsa sınıf `tls`. `requireTls: false` →
+TLS'siz bağlantı; sunucu açık anahtarının istenmesi (`allowPublicKeyRetrieval`) yalnız çözülen adres loopback veya özel
+ağdaysa açılır. Başarısız testler `rs_mysql_test_failed_total{class: connect|auth|tls|timeout|other}` metriğinde sayılır
+(alarm eşiği runbook §22). Test ucu step-up istemez. Hatalar: 400, 401, 403, 429.
 
 ### GET / PUT / DELETE /api/v1/admin/settings/turn
 

@@ -12,6 +12,28 @@ const TENANTS = [
   { id: "01JTENA0000000000000000001", name: "Demo Firma" },
   { id: "01JTENA0000000000000000002", name: "Örnek Lojistik" },
 ];
+// P14b (AC-225/226) seçenek fixture'ları: 150 teknisyen (ilk ikisi kayıtlardaki), 250 firma (ilk ikisi kayıtlardaki)
+const TECH_OPTIONS = [
+  ...TECHS.map((x) => ({ id: x.id, fullName: x.name, status: "ACTIVE" })),
+  ...Array.from({ length: 148 }, (_, i) => ({
+    id: `01JTECHX${String(i + 3).padStart(18, "0")}`,
+    fullName: `Teknisyen ${String(i + 3).padStart(3, "0")}`,
+    status: i % 50 === 0 ? "PASSIVE" : "ACTIVE",
+  })),
+].sort((a, b) => a.fullName.localeCompare(b.fullName, "tr"));
+// AC-225: Örnek Lojistik'in teknisyenleri — biri hiçbir oturum kaydında yok (sayfa kayıtlarından türetilemez)
+export const LOJISTIK_TECH = { id: "01JTECHR00000000000000000Z", fullName: "Lojistik Teknisyeni", status: "ACTIVE" };
+const LOJISTIK_TECH_OPTIONS = [LOJISTIK_TECH, { id: TECHS[1].id, fullName: TECHS[1].name, status: "ACTIVE" }];
+const TENANT_OPTIONS = [
+  ...TENANTS.map((x, i) => ({ id: x.id, name: x.name, slug: `t${i}`, status: "ACTIVE" })),
+  ...Array.from({ length: 248 }, (_, i) => ({
+    id: `01JTENAX${String(i + 3).padStart(18, "0")}`,
+    name: `${["Anadolu", "Boğaziçi", "Çağdaş", "Deniz", "Ege"][i % 5]} Firma ${String(i + 3).padStart(3, "0")}`,
+    slug: `f${i + 3}`,
+    status: i % 40 === 0 ? "PASSIVE" : "ACTIVE",
+  })),
+];
+const foldTr = (v) => v.toLocaleLowerCase("tr-TR");
 const STATUSES = ["ENDED", "ENDED", "ENDED", "CANCELLED", "EXPIRED", "ACTIVE"];
 const NAMES = ["Ayşe Yılmaz", "Ali Demir", '=HYPERLINK("x")', "Can %_ Öz", null, "Fatma Şahin"];
 const DAY = 86_400_000;
@@ -235,6 +257,35 @@ export async function handleHistory(req, res, { url, session, csrfOk, send, err,
   if (!who) return false;
   const path = url.split("?")[0];
   const raw = Object.fromEntries(new URLSearchParams(url.split("?")[1] ?? ""));
+  // P14b (AC-225): teknisyen seçenekleri — USER yalnız kendisi; diğer rollerde `tenantId` yok sayılır. Firma seçmemiş
+  // Super Admin `?tenantId=` ile firma seçer (yoksa 403, bilinmeyen firma 404): Demo Firma → 150 teknisyen, Örnek
+  // Lojistik → kayıtlarda olmayan "Lojistik Teknisyeni" dahil 2, diğer firmalar boş.
+  if (req.method === "GET" && path === "/api/v1/users/options") {
+    if (who.user.role === "SUPER_ADMIN") {
+      if (!raw.tenantId) return (send(res, 403, err("FORBIDDEN", "Önce bir firma seçin.")), true);
+      if (!TENANT_OPTIONS.some((x) => x.id === raw.tenantId)) return (send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true);
+      const items = raw.tenantId === TENANTS[0].id ? TECH_OPTIONS : raw.tenantId === TENANTS[1].id ? LOJISTIK_TECH_OPTIONS : [];
+      return (send(res, 200, { items }, [], { "Cache-Control": "no-store" }), true);
+    }
+    if (who.user.role === "USER")
+      return (send(res, 200, { items: [{ id: who.user.id, fullName: who.user.fullName, status: "ACTIVE" }] }), true);
+    return (send(res, 200, { items: TECH_OPTIONS }), true);
+  }
+  // P14b (AC-226): firma seçenekleri — SUPER_ADMIN; ad önek + içerir, harf duyarsız, aktif önce, ≤ limit (20)
+  if (req.method === "GET" && path === "/api/v1/admin/tenants/options") {
+    if (who.user.role !== "SUPER_ADMIN") return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+    const k = foldTr((raw.q ?? "").trim());
+    const limit = Math.min(20, Math.max(1, Number(raw.limit ?? 20) || 20));
+    const items = TENANT_OPTIONS.filter((x) => !k || foldTr(x.name).includes(k))
+      .sort(
+        (a, b) =>
+          (a.status === "ACTIVE" ? 0 : 1) - (b.status === "ACTIVE" ? 0 : 1) ||
+          (k ? Number(!foldTr(a.name).startsWith(k)) - Number(!foldTr(b.name).startsWith(k)) : 0) ||
+          a.name.localeCompare(b.name, "tr"),
+      )
+      .slice(0, limit);
+    return (send(res, 200, { items }), true);
+  }
   if (req.method === "GET" && (path === "/api/v1/sessions" || path === "/api/v1/sessions/export.csv")) {
     if (who.kind === "hbroken" && path === "/api/v1/sessions") return (send(res, 500, err("INTERNAL", "Sunucu hatası.")), true);
     const parsed = listSessionsQuerySchema.safeParse(raw);

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ThemeProvider } from "@/components/branding/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
+import { StepUpProvider } from "@/components/account/step-up-dialog";
 import { LogoImage } from "@/components/brand-logo";
 import { LoadError } from "@/components/load-error";
 import { LobbyNotifier } from "@/components/lobby-notifier";
@@ -87,6 +88,8 @@ export default async function PanelLayout({ children }: { children: React.ReactN
               {lobby && <LobbyNotifier enabled scopeKey={`${user.id}:${(actingTenant ?? tenant)?.id ?? ""}`} />}
               <TabTitle />
               <SessionWatch />
+              {/* P14a (AC-215): hassas uçların 401 MFA_STEP_UP_REQUIRED yanıtında kod soran tek diyalog (lib/api kaydı) */}
+              <StepUpProvider />
               {children}
             </main>
           </div>

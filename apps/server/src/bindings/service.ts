@@ -8,6 +8,7 @@ import {
   bindingRevokeInputSchema,
   bindingStatusInputSchema,
 } from "@remote/contracts/api/bindings";
+import { RETENTION_DEFAULT_DAYS } from "@remote/contracts/api/tenants";
 import { BINDING_AUDIT } from "@remote/contracts/audit";
 import type { ServerOutbound } from "@remote/contracts/ws";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
@@ -35,7 +36,7 @@ const tenantActive = (t: { status: string; deletedAt: Date | null }): boolean =>
 function usable(row: repo.BindingUseRow, now: number): boolean {
   if (!tenantActive(row.tenant) || !row.tenant.requestSettings) return false;
   if (row.customer && row.customer.status !== "ACTIVE") return false;
-  const retention = row.tenant.settings?.retentionDays ?? 365;
+  const retention = row.tenant.settings?.retentionDays ?? RETENTION_DEFAULT_DAYS;
   return row.lastUsedAt.getTime() > now - retention * DAY_MS;
 }
 
@@ -342,14 +343,10 @@ export async function sweepPassiveTenantBindings(svc: RequestService): Promise<n
   return n;
 }
 
-/** Günlük 03:30 (V28): son kullanımdan tenant `retention_days` geçmiş etkin kayıtlar → EXPIRED; tenant başına özet audit. */
-export async function expireIdleBindings(svc: RequestService, now = new Date(svc.d.clock.now())): Promise<number> {
-  let total = 0;
-  for (const t of await rrepo.retentionTenants(svc.d.db)) total += await expireIdleBindingsOf(svc, t, now);
-  return total;
-}
-
-/** P13a: tek tenant için boşta kayıt dolumu (saklama işinin tenant döngüsü; fail-soft tenant başına). */
+/**
+ * Günlük 03:30 (V28; P13a saklama işinin tenant döngüsü, fail-soft tenant başına): son kullanımdan tenant `retention_days`
+ * geçmiş etkin kayıtlar → EXPIRED; tenant başına özet audit.
+ */
 export async function expireIdleBindingsOf(
   svc: RequestService,
   t: { tenantId: string; retentionDays: number },

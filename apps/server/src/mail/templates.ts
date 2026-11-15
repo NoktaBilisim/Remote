@@ -67,6 +67,18 @@ export function mfaEnabledMail(): MailContent {
   return { subject, text, bodyHtml };
 }
 
+/**
+ * P14a (AC-215, ADR-0022 telafi kontrolü): step-up'ta kurtarma kodu kullanıldı. Kod içermez; kalan sayı ≤ 3 ise yenileme
+ * önerisi (AC-231 yolu).
+ */
+export function recoveryCodeUsedMail(o: { remaining: number }): MailContent {
+  const subject = "Kurtarma kodunuz kullanıldı";
+  const low = o.remaining <= 3 ? " Kurtarma kodlarınız azaldı; hesap sayfanızdan yenileyin." : "";
+  const text = `Hesabınızda bir hassas işlemi onaylamak için kurtarma kodu kullanıldı. Kalan kurtarma kodu: ${o.remaining}.${low}\n\nBu işlemi siz yapmadıysanız hemen şifrenizi değiştirin ve yöneticinize başvurun.`;
+  const bodyHtml = `<p>Hesabınızda bir hassas işlemi onaylamak için <b>kurtarma kodu kullanıldı</b>. Kalan kurtarma kodu: <b>${o.remaining}</b>.${esc(low)}</p><p>Bu işlemi siz yapmadıysanız hemen şifrenizi değiştirin ve yöneticinize başvurun.</p>`;
+  return { subject, text, bodyHtml };
+}
+
 export function smtpTestMail(o: { firm: string }): MailContent {
   const subject = oneLine(`${o.firm} – SMTP test e-postası`);
   const text = "Bu bir test e-postasıdır. SMTP ayarlarınız çalışıyor.";

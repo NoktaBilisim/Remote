@@ -211,7 +211,7 @@ test("AC-77/78 Super Admin MySQL: test başarı/hata/429, şifre forma yazılmaz
   await page.getByTestId("mysql-database").fill("remote2");
   const put = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith("/api/v1/admin/settings/mysql"));
   await page.getByTestId("save-bar-save").click();
-  expect((await put).postDataJSON()).toEqual({ host: "mysql", port: 3306, database: "remote2", user: "app" });
+  expect((await put).postDataJSON()).toEqual({ host: "mysql", port: 3306, database: "remote2", user: "app", requireTls: false });
   await expect(page.getByTestId("mysql-restart")).toContainText("yeniden başlatılmalı");
   await expect(page.getByTestId("setting-source").first()).toHaveText("Panelde kayıtlı");
   await expect(pw).toHaveValue("");

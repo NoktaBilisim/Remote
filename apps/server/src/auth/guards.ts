@@ -1,5 +1,5 @@
 // Ortak guard'lar (mimari §5.1, ADR-0008). Uç sırası: requireAuth → requirePerm → tenantScope → zod → servis.
-import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "@remote/contracts/api/auth";
+import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE, STEP_UP_MAX_AGE_SEC } from "@remote/contracts/api/auth";
 import type { PermissionKey } from "@remote/contracts/permissions";
 import type { FastifyRequest } from "fastify";
 import { AppError } from "../lib/errors.ts";
@@ -79,6 +79,20 @@ export function requireAnyPerm(...keys: readonly PermissionKey[]) {
   return async (req: FastifyRequest): Promise<void> => {
     const perms = authOf(req).permissions;
     if (!keys.some((k) => perms.has(k))) throw new AppError("FORBIDDEN");
+  };
+}
+
+/**
+ * P14a (AC-215, ADR-0022) — hassas işlemler için ortak step-up guard'ı (P24 SSO, P25 API anahtarı da bunu kullanır).
+ * requireAuth'tan sonra: TOTP kurulu değil → 403 `MFA_SETUP_REQUIRED`; bu oturumda son `maxAgeSec` içinde step-up yok →
+ * 401 `MFA_STEP_UP_REQUIRED` (istemci kodu sorar, `POST /auth/step-up`, isteği bir kez tekrarlar).
+ */
+export function requireStepUp(maxAgeSec: number = STEP_UP_MAX_AGE_SEC) {
+  return async (req: FastifyRequest): Promise<void> => {
+    const auth = authOf(req);
+    if (!auth.totpEnabled) throw new AppError("MFA_SETUP_REQUIRED");
+    const at = auth.stepUpAt?.getTime();
+    if (at === undefined || Date.now() - at > maxAgeSec * 1000) throw new AppError("MFA_STEP_UP_REQUIRED");
   };
 }
 

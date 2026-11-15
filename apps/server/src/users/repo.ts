@@ -1,7 +1,7 @@
 // Kullanıcı yönetimi veri erişimi (P9). Her fonksiyon tenant kapsamını zorunlu parametre alır (mimari §5.1, AC-69);
 // SUPER_ADMIN hesapları (tenant_id NULL) hiçbir kapsamda görünmez.
 import type { ListUsersQuery } from "@remote/contracts/api/users";
-import type { Prisma } from "../generated/prisma/client.ts";
+import { Prisma } from "../generated/prisma/client.ts";
 import type { Db } from "../lib/db.ts";
 
 type DbOrTx = Db | Prisma.TransactionClient;
@@ -22,6 +22,7 @@ const userSelect = {
   totpEnabled: true,
   avatarPath: true,
   createdAt: true,
+  version: true,
   permissions: { select: { permKey: true, granted: true } },
   authSessions: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
 } as const;
@@ -58,11 +59,37 @@ export function findUser(db: DbOrTx, scope: TenantScope, id: string): Promise<Us
   return db.user.findFirst({ where: { ...scoped(scope), id }, select: userSelect });
 }
 
-/** Eşzamanlı yönetim işlemleri sıraya girer (TX içinde, okumadan önce). Kapsam dışı/yok → false. */
-export async function lockUser(tx: Prisma.TransactionClient, scope: TenantScope, id: string): Promise<boolean> {
-  const rows = await tx.$queryRaw<{ id: string }[]>`
-    SELECT id FROM users WHERE id = ${id} AND tenant_id = ${scope.tenantId} AND deleted_at IS NULL AND role IN ('ADMIN', 'USER') FOR UPDATE`;
-  return rows.length > 0;
+/**
+ * P14a (AC-202, ADR-0023): aktör ve hedef satırları TX başında id sırasıyla `FOR UPDATE` (kilitlenme önlemi — iki
+ * yönetici birbirini düzenlese de kilit sırası aynı). Kapsam burada süzülmez: hedef kapsamı `findUser` ile (404) bakılır.
+ */
+export async function lockUsers(tx: Prisma.TransactionClient, ids: readonly string[]): Promise<void> {
+  const sorted = [...new Set(ids)].sort();
+  await tx.$queryRaw`SELECT id FROM users WHERE id IN (${Prisma.join(sorted)}) ORDER BY id FOR UPDATE`;
+}
+
+/** İşlemi yapanın TX içindeki güncel rol/durum/yetki satırları (oturumdaki kopya bayat olabilir — AC-202). */
+export function readActor(tx: Prisma.TransactionClient, id: string) {
+  return tx.user.findUnique({
+    where: { id },
+    select: { role: true, status: true, deletedAt: true, tenantId: true, permissions: { select: { permKey: true, granted: true } } },
+  });
+}
+
+/** Koşullu sürüm artışı (ADR-0023): satır beklenen sürümde değilse 0 → çağıran 409 `STALE_WRITE`. */
+export async function bumpVersion(tx: Prisma.TransactionClient, id: string, expected: number): Promise<number> {
+  const r = await tx.user.updateMany({ where: { id, version: expected }, data: { version: { increment: 1 } } });
+  return r.count;
+}
+
+/** P14b (AC-225): filtre seçeneği — kapsamdaki ADMIN/USER (pasifler dahil), ad sırası, üst sınır. `onlyId`: USER kendisi. */
+export function listUserOptions(db: DbOrTx, scope: TenantScope, take: number, onlyId?: string) {
+  return db.user.findMany({
+    where: { ...scoped(scope), ...(onlyId ? { id: onlyId } : {}) },
+    select: { id: true, fullName: true, status: true },
+    orderBy: [{ fullName: "asc" }, { id: "asc" }],
+    take,
+  });
 }
 
 export async function insertUser(tx: Prisma.TransactionClient, data: Prisma.UserUncheckedCreateInput): Promise<void> {

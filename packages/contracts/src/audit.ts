@@ -68,6 +68,11 @@ export const AUTH_AUDIT = {
   LOGOUT_ALL: "auth.logout_all",
   PASSWORD_RESET_REQUESTED: "auth.password_reset_requested",
   PASSWORD_RESET: "auth.password_reset",
+  /**
+   * P14a (AC-215, ADR-0022): step-up doğrulaması. `newValue: { method: "TOTP"|"RECOVERY", remaining }` (kalan kurtarma
+   * kodu sayısı; kod ASLA yazılmaz); başarısızda `{ method, reason }` (invalid_code | replayed_code).
+   */
+  STEP_UP: "auth.step_up",
   /** P13b (mimari-p13 §7.7): sunucudaki `reset-superadmin` CLI'si; `username="cli"`, parola/hash yazılmaz. */
   SUPERADMIN_RESET: "auth.superadmin_reset",
 } as const;
@@ -91,9 +96,11 @@ export const TENANT_AUDIT = {
 
 /**
  * P11 sistem ayarları, aydınlatma metni ve audit dışa aktarımı (AC-76, 77, 78, 124; AC-29). Entity `system_settings`
- * (entity_id `mysql` | `turn`), `consent_texts`, `audit_logs`. Şifre / TURN secret / metin gövdesi ASLA yazılmaz:
- * değişiklik yalnız `password: "***"` / `secret: "***"` anahtarının varlığıyla görünür (mask.ts), metin için
- * `{ version, sha256 }`. Test sonucu yalnız `reason` sınıfını taşır (ham sürücü hatası yalnız server logunda).
+ * (entity_id `mysql` | `turn` | `whatsapp`), `consent_texts`, `audit_logs`. Şifre / TURN secret / metin gövdesi ASLA
+ * yazılmaz: servis değişikliği `password: "changed"` / `secret: "changed"` bayrağıyla bildirir, mask.ts anahtar adından
+ * (`pass|secret`) değeri `"***"` yapar → kayıtta `password: "***"` / `secret: "***"` (yalnız değiştiyse var). Metin için
+ * `{ version, sha256 }`. MySQL değeri P14a'dan beri `requireTls` taşır. Test sonucu yalnız `reason` sınıfını taşır (ham
+ * sürücü hatası yalnız server logunda). P14a (AC-217): değişmeyen PUT (mysql/turn) yazım ve audit üretmez.
  */
 export const SYSTEM_AUDIT = {
   MYSQL_UPDATED: "settings.mysql.updated",

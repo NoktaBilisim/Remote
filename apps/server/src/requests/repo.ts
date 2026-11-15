@@ -76,6 +76,15 @@ export async function lockSettings(tx: Prisma.TransactionClient, tenantId: strin
   await tx.$queryRaw`SELECT tenant_id FROM tenant_request_settings WHERE tenant_id = ${tenantId} FOR UPDATE`;
 }
 
+/** S14-4: kilit altında tenant durumu (FOR SHARE) — pasife alma commit'iyle yarışta pasif tenant'a PENDING yazılmaz. */
+export async function shareTenantActive(tx: Prisma.TransactionClient, tenantId: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<
+    { status: string; deleted_at: Date | null }[]
+  >`SELECT status, deleted_at FROM tenants WHERE id = ${tenantId} FOR SHARE`;
+  const t = rows[0];
+  return t !== undefined && t.status === "ACTIVE" && t.deleted_at === null;
+}
+
 export const jsonStrings = (v: Prisma.JsonValue): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
 // ---------------- Oluşturma ----------------
@@ -361,10 +370,6 @@ export function findCustomerPassivePending(db: DbOrTx, take: number) {
 
 export function findPendingOfCustomer(db: DbOrTx, tenantId: string, customerId: string) {
   return db.supportRequest.findMany({ where: { tenantId, customerId, status: "PENDING" }, select: { id: true, tenantId: true } });
-}
-
-export function findPendingOfTenant(db: DbOrTx, tenantId: string) {
-  return db.supportRequest.findMany({ where: { tenantId, status: "PENDING" }, select: { id: true, tenantId: true } });
 }
 
 export function findAllPending(db: DbOrTx, take: number) {

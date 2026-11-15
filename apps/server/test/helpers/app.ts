@@ -192,3 +192,23 @@ export async function createSupportSessionRow(o: {
   });
   return { id, token, code };
 }
+
+/**
+ * P14a (AC-215): hassas uçları (`requireStepUp`) kullanan testler için oturum — giriş + kullanıcıya sahte TOTP kaydı
+ * (yalnız `totp_enabled` bayrağı için; sır hiç çözülmez) + bu oturum 2FA geçmiş ve step-up'lı. Step-up akışının kendisi
+ * `security-p14a-auth.test.ts`'te gerçek TOTP ile sınanır.
+ */
+export async function loginStepUp(app: FastifyInstance, user: TestUser, password = user.password): Promise<Session> {
+  const s = await loginAs(app, user, password);
+  await testDb().user.updateMany({
+    where: { id: user.id, totpEnabled: false },
+    data: { totpEnabled: true, totpSecretEnc: new Uint8Array(40), totpLastStep: null },
+  });
+  await markStepUp(s);
+  return s;
+}
+
+/** Oturumu 2FA geçmiş + step-up'lı işaretler (gerçek 2FA kurulumundan sonra hassas uçlar için; AC-215). */
+export async function markStepUp(s: Session): Promise<void> {
+  await testDb().authSession.update({ where: { tokenHash: sha256Hex(s.token) }, data: { mfaPassed: true, stepUpAt: new Date() } });
+}

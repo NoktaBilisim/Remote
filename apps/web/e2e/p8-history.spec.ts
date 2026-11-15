@@ -88,10 +88,10 @@ test("AC-61: ADMIN teknisyen filtresi + sütunu; SUPER_ADMIN firma filtresi + s�
   await page.goto("/history");
   await expect(page.getByTestId("history-count")).toContainText("80 oturumdan");
   await expect(page.getByTestId("history-table").getByRole("columnheader", { name: "Firma" })).toBeVisible();
-  // Firma seçenekleri bu sayfadaki kayıtlardan gelir (liste ucu P9); URL'den gelen filtre seçili görünür
+  // P14b (AC-226): firma filtresi aramalı seçici; URL'den gelen filtre adıyla seçili görünür
   await page.goto("/history?tenantId=01JTENA0000000000000000002");
   await expect(page.getByTestId("history-count")).toContainText("20 oturumdan");
-  await expect(page.getByTestId("history-filters").getByLabel("Firma")).toHaveValue("01JTENA0000000000000000002");
+  await expect(page.getByTestId("history-filters").getByRole("combobox", { name: "Firma", exact: true })).toHaveValue("Örnek Lojistik");
   for (const r of await rows(page).all()) await expect(r).toContainText("Örnek Lojistik");
 });
 

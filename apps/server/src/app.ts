@@ -166,7 +166,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const authLimits = deps.authLimits ?? createAuthLimits();
   app.decorate("authLimits", authLimits);
   app.addHook("onClose", async () => closeAuthLimits(authLimits));
-  const publicLimits = createPublicLimits(app.log, env.TRUSTED_PROXY_CIDR);
+  const metrics = createMetrics();
+  app.decorate("metrics", metrics);
+  const publicLimits = createPublicLimits(app.log, env.TRUSTED_PROXY_CIDR, metrics);
   app.decorate("publicLimits", publicLimits);
   app.decorate("sessionRefKey", refKeyFrom(env.SESSION_REF_KEY));
   app.addHook("onClose", async () => closePublicLimits(publicLimits));
@@ -178,8 +180,6 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.addHook("onReady", async () => {
     await agentBinary.check();
   });
-  const metrics = createMetrics();
-  app.decorate("metrics", metrics);
   // P10: gizli alanlar, netguard (G-12), e-posta.
   const secrets = new SecretBox(env.encryptionKeys);
   const netguard =

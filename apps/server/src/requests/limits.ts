@@ -1,5 +1,6 @@
 // Talep hız sınırları (mimari-e9 §5.4 + §13.6; AC-132, 143, 144). Bellek içi (ADR-0005). Aşımda o anahtar 15 dk 429.
 // `FixedWindowCounter(limit+1, …)`: N. olay serbest, N+1. kilidi başlatır (auth/public kalıbı).
+import { WS_PANEL_UPGRADES_PER_MIN } from "@remote/contracts/ws-request";
 import { AppError } from "../lib/errors.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 
@@ -55,6 +56,8 @@ export interface RequestLimits {
   wsUpgrade: FixedWindowCounter;
   /** `/ws/panel` upgrade 31/dk/ipKey. */
   panelUpgrade: FixedWindowCounter;
+  /** P14a (AC-216): `/ws/panel` upgrade 30/dk/kimlik oturumu (anahtar: oturum token'ının SHA-256'sı); aşımda 4429 `retry=`. */
+  panelSession: FixedWindowCounter;
   /** P8c (mimari-e10 §5.3): geçerli kayıt durum sorgusu 60/dk/ipKey. */
   bindingStatus: FixedWindowCounter;
   /** P8c: kayıt iptali ("Bu bilgisayarı unut") 30/dk/ipKey. */
@@ -84,6 +87,7 @@ export function createRequestLimits(): RequestLimits {
     rateAudit: new FixedWindowCounter(2, MIN, MIN),
     wsUpgrade: new FixedWindowCounter(31, MIN, MIN),
     panelUpgrade: new FixedWindowCounter(31, MIN, MIN),
+    panelSession: new FixedWindowCounter(WS_PANEL_UPGRADES_PER_MIN + 1, MIN, MIN),
     bindingStatus: new FixedWindowCounter(61, MIN, BLOCK),
     bindingRevoke: new FixedWindowCounter(31, MIN, BLOCK),
     createBinding: new FixedWindowCounter(7, HOUR, BLOCK),

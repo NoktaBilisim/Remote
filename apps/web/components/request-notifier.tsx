@@ -8,7 +8,7 @@ import { formatTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { GENERAL_CUSTOMER_LABEL } from "@remote/contracts/labels";
 import { parsePanelMessage, type PanelMessage } from "@/lib/requests/contract";
-import { panelBackoff, panelCloseAction } from "@/lib/requests/panel-socket";
+import { panelCloseAction, panelRetryDelay } from "@/lib/requests/panel-socket";
 import { playChime, readSoundPref, writeSoundPref } from "@/lib/requests/sound";
 import { setTitlePart } from "@/lib/tab-title";
 
@@ -156,8 +156,9 @@ export function RequestNotifier({ enabled }: { enabled: boolean }) {
         setConnected(false);
         if (stopped) return;
         if (!opened) unopened++;
-        if (panelCloseAction(e.code, opened || everOpened, unopened) === "stop") return;
-        timer = setTimeout(connect, panelBackoff(attempt++));
+        // AC-216: 4429 `retry=<sn>` → sunucunun süresi ± %20 kadar bekle; konsola yazılmaz (sessiz yeniden bağlanma)
+        if (panelCloseAction(e.code, opened || everOpened, unopened, e.reason) === "stop") return;
+        timer = setTimeout(connect, panelRetryDelay(e.code, e.reason, attempt++));
       };
     };
     void refreshCount();

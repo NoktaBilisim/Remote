@@ -7,7 +7,7 @@
 //   usslow  liste 1,5 sn gecikmeli (iskelet)
 //   ussa    SUPER_ADMIN; firma bağlamı `switch-tenant` ile değişir (başlangıçta yok)
 import { PERMISSION_KEYS } from "@remote/contracts/permissions";
-import { createUserInputSchema, updateUserInputSchema } from "@remote/contracts/api/users";
+import { createUserInputSchema, parseUserIfMatch, updateUserInputSchema, userEtag } from "@remote/contracts/api/users";
 import { createTenantInputSchema, switchTenantInputSchema, updateTenantInputSchema } from "@remote/contracts/api/tenants";
 
 const iso = (ms = 0) => new Date(Date.now() + ms).toISOString();
@@ -52,6 +52,7 @@ export function usersUser(cookie) {
 }
 
 const user = (o) => ({
+  version: 1,
   username: null,
   status: "ACTIVE",
   mustChangePassword: false,
@@ -147,6 +148,22 @@ export async function handleUsers(req, res, { url, session, csrfOk, send, err, r
 
   if (isAdmin) {
     if (!isSa) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+    // P14b (AC-226): aramalı firma seçici — ad önek + içerir, harf duyarsız, aktif önce, en çok `limit` (≤ 20)
+    if (path === "/api/v1/admin/tenants/options" && req.method === "GET") {
+      const k = fold((q.get("q") ?? "").trim());
+      const limit = Math.min(20, Math.max(1, Number(q.get("limit") ?? 20) || 20));
+      const items = s.tenants
+        .filter((x) => !k || fold(x.name).includes(k))
+        .sort(
+          (a, b) =>
+            (a.status === "ACTIVE" ? 0 : 1) - (b.status === "ACTIVE" ? 0 : 1) ||
+            (k ? Number(!fold(a.name).startsWith(k)) - Number(!fold(b.name).startsWith(k)) : 0) ||
+            a.name.localeCompare(b.name, "tr"),
+        )
+        .slice(0, limit)
+        .map((x) => ({ id: x.id, name: x.name, slug: x.slug, status: x.status }));
+      return (send(res, 200, { items }), true);
+    }
     if (path === "/api/v1/admin/switch-tenant" && req.method === "POST") {
       const p = switchTenantInputSchema.safeParse(await readJson(req));
       if (!p.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true);
@@ -221,6 +238,22 @@ export async function handleUsers(req, res, { url, session, csrfOk, send, err, r
       true
     );
   }
+  // P14b (AC-225): teknisyen seçenekleri — sayfasız tam liste (ad sırası)
+  if (path === "/api/v1/users/options" && req.method === "GET") {
+    const items = [...s.users]
+      .sort((a, b) => a.fullName.localeCompare(b.fullName, "tr"))
+      .map((u) => ({ id: u.id, fullName: u.fullName, status: u.status }));
+    return (send(res, 200, { items }), true);
+  }
+  // E2E kancası (yalnız test): başka bir yöneticinin araya giren düzenlemesi — ad değişir, sürüm artar (AC-206)
+  const bump = path.match(/^\/api\/v1\/users\/([0-9A-Z]{26})\/__bump$/);
+  if (bump && req.method === "GET") {
+    const u = s.users.find((y) => y.id === bump[1]);
+    if (!u) return (send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true);
+    u.fullName = `${u.fullName} (güncel)`;
+    u.version++;
+    return (send(res, 200, { version: u.version }), true);
+  }
   if (path === "/api/v1/users" && req.method === "POST") {
     if (!can("users.create")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
     const p = createUserInputSchema.safeParse(await readJson(req));
@@ -249,9 +282,13 @@ export async function handleUsers(req, res, { url, session, csrfOk, send, err, r
   if (!can("users.view")) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
   const u = s.users.find((y) => y.id === um[1]);
   if (!u) return (send(res, 404, err("NOT_FOUND", "Bulunamadı.")), true);
-  if (!um[2] && req.method === "GET") return (send(res, 200, detail(u)), true);
+  if (!um[2] && req.method === "GET") return (send(res, 200, detail(u), [], { ETag: userEtag(u.version) }), true);
   if (!can("users.edit") || !canManage(u)) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
   if (!um[2] && req.method === "PATCH") {
+    // P14a (AC-206): If-Match zorunlu (gövde doğrulamasından önce) → yoksa 428, sürüm tutmazsa 409 STALE_WRITE
+    const want = parseUserIfMatch(req.headers["if-match"]);
+    if (want === null) return (send(res, 428, err("PRECONDITION_REQUIRED", "If-Match başlığı gerekli.")), true);
+    if (want !== u.version) return (send(res, 409, err("STALE_WRITE", "Kayıt başkası tarafından değiştirildi, yeniden yükleyin")), true);
     const p = updateUserInputSchema.safeParse(await readJson(req));
     if (!p.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true);
     // Sunucu (users/service.ts updateUser) ile aynı kural: anahtar başına gövde > mevcut ezme (eski rol varsayılanından
@@ -283,7 +320,9 @@ export async function handleUsers(req, res, { url, session, csrfOk, send, err, r
     if (p.data.email) u.email = p.data.email;
     u.role = role;
     u.permissions = after;
-    return (send(res, 200, detail(u)), true);
+    u.version++; // istemci yalnız farkı gönderir
+
+    return (send(res, 200, detail(u), [], { ETag: userEtag(u.version) }), true);
   }
   // P10 (AC-115): 2FA sıfırlama
   if (um[2] === "reset-mfa" && req.method === "POST") {

@@ -162,7 +162,7 @@ describe("S-P5-5 indirme türü", () => {
 });
 
 describe("S-P5-6 gelen chat/annot hız sınırı", () => {
-  it("chat 5/sn, çizim 30/sn, lazer 30/sn; pencere geçince yeniden", () => {
+  it("chat 10/sn (gönderen 5/sn × 2, AC-227), çizim 30/sn, lazer 30/sn; pencere geçince yeniden", () => {
     let t = 0;
     const allow = inboundLimiter(() => t);
     const count = (k: string, n: number) => Array.from({ length: n }, () => allow(k)).filter(Boolean).length;

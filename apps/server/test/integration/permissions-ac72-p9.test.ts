@@ -54,7 +54,7 @@ describe("AC-72 tek tanım", () => {
     const patched = await app.inject({
       method: "PATCH",
       url: `/api/v1/users/${u.id}`,
-      headers: s.headers,
+      headers: { ...s.headers, "if-match": `"v${u.version}"` }, // P14a (AC-206)
       payload: { permissions: { "p9_gecici.use": true } },
     });
     expect(patched.statusCode).toBe(200);

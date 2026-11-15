@@ -35,6 +35,7 @@ function auth(role: "USER" | "ADMIN" | "SUPER_ADMIN", tenantId: string | null): 
     mfaStage: "ok" as const,
     mfaRequired: false,
     totpEnabled: false,
+    stepUpAt: null,
     logoPath: null,
     permissions: new Set<PermissionKey>(),
   };

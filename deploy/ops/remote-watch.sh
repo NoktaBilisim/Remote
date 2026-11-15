@@ -35,7 +35,8 @@ TAG=remote-watch
 
 WATCH_ENV_KEYS="WATCH_ALERT_CMD WATCH_REPEAT_MIN WATCH_DISK_MAX_PCT WATCH_CERT_MIN_DAYS WATCH_DEPLOY_DIR WATCH_PUBLIC_HOST
 WATCH_SERVICES WATCH_PROJECT WATCH_TURN_CONTAINER WATCH_TURN_TLS WATCH_TURN_CERT_FILE WATCH_LE_DIR WATCH_BACKUP_STATUS
-WATCH_BACKUP_DIR WATCH_DISK_PATHS WATCH_OFFSITE_REMIND_DAYS WATCH_TREE_DIR WATCH_TIMERS WATCH_TURN_CHECKS"
+WATCH_BACKUP_DIR WATCH_DISK_PATHS WATCH_OFFSITE_REMIND_DAYS WATCH_TREE_DIR WATCH_TIMERS WATCH_TURN_CHECKS
+WATCH_GUEST_PREFIX_MAX WATCH_MYSQL_FAIL_MAX"
 
 # P13c: isteğe bağlı örnek adı (2. argüman). Boş = prod (bugünkü adlar/yollar birebir).
 INST="${2:-}"
@@ -157,11 +158,14 @@ BSTATUS="${WATCH_BACKUP_STATUS:-/var/lib/remote-backup$S/status.prom}"
 BDIR="${WATCH_BACKUP_DIR:-/var/backups/remote$S}"
 DISKS="${WATCH_DISK_PATHS:-/ /var/lib/docker $BDIR}"
 REMIND_DAYS="${WATCH_OFFSITE_REMIND_DAYS:-7}"
+# P14a A5 (AC-208/212; runbook §22): sayaç artış eşikleri. Pencere 15 dk / 1 sa (timer 10 dk -> en az pencere kadar).
+GP_MAX="${WATCH_GUEST_PREFIX_MAX:-20}"
+MF_MAX="${WATCH_MYSQL_FAIL_MAX:-10}"
 TREE="${WATCH_TREE_DIR-/opt/remote$S}"
 if [ -n "$INST" ]; then TIMERS="${WATCH_TIMERS:-remote-backup@$INST.timer}"; TURN_CHECKS="${WATCH_TURN_CHECKS:-0}"
 else TIMERS="${WATCH_TIMERS:-remote-turn-fw.timer remote-backup.timer}"; TURN_CHECKS="${WATCH_TURN_CHECKS:-1}"; fi
 case "$TURN_CHECKS" in 0|1) ;; *) die "WATCH_TURN_CHECKS 0 ya da 1 olmalı" ;; esac
-for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS; do
+for v in REPEAT_MIN DISK_MAX CERT_DAYS REMIND_DAYS GP_MAX MF_MAX; do
   case "${!v}" in ''|*[!0-9]*) die "WATCH_${v} sayı olmalı (bulunan: ${!v})" ;; esac
 done
 for c in docker systemctl curl openssl df timeout awk; do command -v "$c" >/dev/null 2>&1 || die "'$c' bulunamadı"; done
@@ -231,14 +235,20 @@ fi
 
 # Saklama işi (runbook §18.6 mantığı): metrik + süreç yaşı; hata sayacı son 24 saatte arttıysa alarm.
 seen retention
-RET_FC=""
+RET_FC=""; R_GP=""; R_MF=""
 if [ -n "$SERVER_C" ]; then
-  rt="$(timeout 20 docker exec "$SERVER_C" node -e "fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log((m?m[1]:'yok')+' '+(f?f[1]:'0'))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
+  # 3./4. alan (P14a A5): rs_guest_code_rate_limited_total{scope="prefix"} ve rs_mysql_test_failed_total (tüm class) toplamı;
+  # seri yoksa "-" (metrik henüz yayında değil -> değerlendirilmez).
+  rt="$(timeout 20 docker exec "$SERVER_C" node -e "const sum=(t,re)=>{let n=0,k=0;for(const x of t.matchAll(re)){n+=Number(x[1]);k++}return k?String(n):'-'};fetch('http://127.0.0.1:3001/metrics',{headers:{authorization:'Bearer '+(process.env.METRICS_TOKEN||'')}}).then(r=>r.text()).then(t=>{const m=t.match(/^rs_retention_last_success_timestamp_seconds (\S+)/m);const f=t.match(/^rs_retention_failures_total (\S+)/m);console.log((m?m[1]:'yok')+' '+(f?f[1]:'0')+' '+sum(t,/^rs_guest_code_rate_limited_total\{[^}]*scope=\"prefix\"[^}]*\} (\S+)/gm)+' '+sum(t,/^rs_mysql_test_failed_total(?:\{[^}]*\})? (\S+)/gm))}).catch(()=>console.log('yok 0'))" 2>/dev/null)" || rt="yok 0"
   started="$(docker inspect -f '{{.State.StartedAt}}' "$SERVER_C" 2>/dev/null)"
   st_epoch="$(date -d "$started" +%s 2>/dev/null || echo "$NOW")"
-  read -r r_last r_fail <<<"$rt"
+  read -r r_last r_fail R_GP R_MF _ <<<"$rt"
   r_last="${r_last%.*}"; r_fail="${r_fail%.*}"
+  # S14-2: konteyner çıktısı güvenilmez; $(( )) bash aritmetiği `a[$(komut)]` ile komut çalıştırır -> yalnız ^[0-9]+$ girer.
+  [[ "$st_epoch" =~ ^[0-9]+$ ]] || { err "UYARI: server başlangıç zamanı geçersiz; şimdi varsayıldı"; st_epoch="$NOW"; }
+  if [[ -n "$r_fail" && ! "$r_fail" =~ ^[0-9]+$ ]]; then err "UYARI: rs_retention_failures_total geçersiz; yok sayıldı"; r_fail=""; fi
   if [ "$r_last" = yok ] || [ -z "$r_last" ]; then fail retention "rs_retention metriği yok (METRICS_TOKEN?)"
+  elif ! [[ "$r_last" =~ ^[0-9]+$ ]]; then err "UYARI: rs_retention_last_success_timestamp_seconds geçersiz"; fail retention "rs_retention metrik değeri geçersiz"
   elif [ $((NOW - st_epoch)) -ge 93600 ] && [ $((NOW - r_last)) -ge 93600 ]; then fail retention "26 saattir başarılı saklama turu yok"; fi
   RET_FC="$r_fail"
 fi
@@ -296,6 +306,7 @@ STATE="$STATE_DIR/state"
 st_get() { [ -f "$STATE" ] && sed -n "s/^$1=//p" "$STATE" | tail -1; }
 prev_fail="$(st_get failing)"; last_sent="$(st_get last_sent)"; remind="$(st_get offsite_remind)"
 prev_rfc="$(st_get retention_fail_count)"; prev_rfa="$(st_get retention_fail_at)"
+samples="$(st_get counter_samples)"
 case "$last_sent" in ''|*[!0-9]*) last_sent=0 ;; esac
 case "$remind" in ''|*[!0-9]*) remind=0 ;; esac
 
@@ -307,6 +318,28 @@ if [ -n "$RET_FC" ] && [[ "$RET_FC" =~ ^[0-9]+$ ]]; then
   prev_rfc="$RET_FC"
   [ $((NOW - prev_rfa)) -ge "$DAY" ] || fail retention "rs_retention_failures_total son 24 saatte arttı"
 fi
+
+# P14a A5 (AC-208/212): sayaç örnekleri "ts:prefix:mysql" (90 dk tutulur). Artış = pencere başından (pencereden eski en
+# yeni örnek; yoksa en eski) bugüne ardışık farkların toplamı; azalma = süreç yeniden başladı -> yeni değer artış sayılır.
+seen guest-code-prefix; seen mysql-test-failed
+num() { [[ "${1%.*}" =~ ^[0-9]+$ ]] && echo "${1%.*}"; }
+gp="$(num "$R_GP")"; mf="$(num "$R_MF")"
+kept=""
+for x in $samples; do IFS=: read -r ts _ _ <<<"$x"; [[ "$ts" =~ ^[0-9]+$ ]] && [ $((NOW - ts)) -le 5400 ] && kept="${kept:+$kept }$x"; done
+samples="$kept"; [ -z "$gp$mf" ] || samples="${samples:+$samples }$NOW:${gp:--}:${mf:--}"
+incr() {  # incr <alan 2|3> <pencere sn> -> artış (örnek yoksa boş)
+  local f="$1" w="$2" base=0 i=0 x ts v prev="" sum=0 n=0 arr=()
+  for x in $samples; do arr+=("$x"); done
+  for x in "${arr[@]+"${arr[@]}"}"; do ts="${x%%:*}"; [[ "$ts" =~ ^[0-9]+$ ]] && [ $((NOW - ts)) -ge "$w" ] && base="$i"; i=$((i + 1)); done
+  for x in "${arr[@]:base}"; do
+    v="$(cut -d: -f"$f" <<<"$x")"; [[ "$v" =~ ^[0-9]+$ ]] || { prev=""; continue; }
+    if [ -n "$prev" ]; then if [ "$v" -ge "$prev" ]; then sum=$((sum + v - prev)); else sum=$((sum + v)); fi; n=$((n + 1)); fi
+    prev="$v"
+  done
+  [ "$n" -gt 0 ] && echo "$sum"
+}
+d="$(incr 2 900)"; [ -z "$d" ] || [ "$d" -lt "$GP_MAX" ] || fail guest-code-prefix "rs_guest_code_rate_limited_total{scope=prefix} +$d / >=15 dk (eşik $GP_MAX)"
+d="$(incr 3 3600)"; [ -z "$d" ] || [ "$d" -lt "$MF_MAX" ] || fail mysql-test-failed "rs_mysql_test_failed_total +$d / >=1 sa (eşik $MF_MAX)"
 
 cur=""
 for x in "${FAILS[@]+"${FAILS[@]}"}"; do
@@ -348,8 +381,8 @@ if [ -f "$BSTATUS" ] && [ "$(prom remote_backup_offsite_configured)" = 0 ]; then
 fi
 
 tmp="$STATE.tmp.$$"
-printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\n' \
-  "$keep" "$last_sent" "$remind" "${prev_rfc:-}" "${prev_rfa:-}" >"$tmp" && mv -f "$tmp" "$STATE"
+printf 'failing=%s\nlast_sent=%s\noffsite_remind=%s\nretention_fail_count=%s\nretention_fail_at=%s\ncounter_samples=%s\n' \
+  "$keep" "$last_sent" "$remind" "${prev_rfc:-}" "${prev_rfa:-}" "$samples" >"$tmp" && mv -f "$tmp" "$STATE"
 tmp="$STATE_DIR/status.prom.tmp.$$"
 {
   echo "# $TAG (mimari-p13 §7.8); sır yok"

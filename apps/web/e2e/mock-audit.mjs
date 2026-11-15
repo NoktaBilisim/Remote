@@ -10,8 +10,12 @@
 //   ausains  SUPER_ADMIN, WhatsApp servisi panelde http:// + genel adres (insecure, canlı ortam varsayımı)
 //   ausabrk  SUPER_ADMIN, WhatsApp ayarı ilk GET'te 500 (sonra 200 → "Tekrar dene")
 //   ausadef  SUPER_ADMIN, WhatsApp servisi panel yok + env yok → adres null, source "env" (yapılandırılmamış)
+//   ausasu   SUPER_ADMIN, P14a step-up (AC-215): sistem ayarı yazımı son 5 dk'da step-up ister (401 MFA_STEP_UP_REQUIRED);
+//            POST /auth/step-up TOTP "123456" geçer, "000000" → 429; kurtarma kodu "ABCDE-FGHIJ" bir kez geçer (kalan 2),
+//            ikinci kullanımda 400 fields.code. MySQL kaydı panelde, requireTls=true (AC-211).
 import { PERMISSION_KEYS } from "@remote/contracts/permissions";
 import { listAuditQuerySchema } from "@remote/contracts/api/audit";
+import { stepUpInputSchema } from "@remote/contracts/api/auth";
 import {
   MYSQL_PASSWORD_REQUIRED_MESSAGE,
   WA_API_KEY_REENTER,
@@ -35,7 +39,7 @@ export const AU = {
 const ALL_NO_WS = PERMISSION_KEYS.filter((k) => !k.startsWith("support_requests."));
 
 export function auditUser(cookie) {
-  const m = cookie?.match(/^u-(auadm|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|brk|def)?)-/);
+  const m = cookie?.match(/^u-(auadm|auview|aunone|auempty|aubroken|ausa(?:wa0|ins|brk|def|su)?)-/);
   if (!m) return null;
   const kind = m[1];
   const role = kind.startsWith("ausa") ? "SUPER_ADMIN" : kind === "auview" || kind === "aunone" ? "USER" : "ADMIN";
@@ -237,11 +241,15 @@ function astore(cookie, kind) {
       port: 3306,
       database: "remote",
       user: "app",
+      requireTls: kind === "ausasu",
       hasPassword: true,
       updatedAt: null,
-      source: "env",
+      source: kind === "ausasu" ? "panel" : "env",
       matchesRunning: true,
     },
+    stepUpUntil: 0,
+    usedRecovery: new Set(),
+    mysqlPuts: [],
     wa: waInitial(kind),
     waTests: [],
     turn: {
@@ -295,7 +303,8 @@ export async function handleAudit(req, res, { url, session, csrfOk, send, err, r
   const isConsent = path === "/api/v1/settings/consent-text";
   const isUsers = path === "/api/v1/users" && req.method === "GET";
   const isTenants = path === "/api/v1/admin/tenants" && req.method === "GET";
-  if (!isAudit && !isSys && !isConsent && !isUsers && !isTenants) return false;
+  const isStepUp = path === "/api/v1/auth/step-up" && req.method === "POST" && who.kind === "ausasu";
+  if (!isAudit && !isSys && !isConsent && !isUsers && !isTenants && !isStepUp) return false;
   const s = astore(session, who.kind);
   const can = (p) => who.permissions.includes(p);
   const isSa = who.user.role === "SUPER_ADMIN";
@@ -398,14 +407,39 @@ export async function handleAudit(req, res, { url, session, csrfOk, send, err, r
     return false;
   }
 
+  // P14a (AC-215) step-up: TOTP veya kurtarma kodu; hatalı kod 400 fields.code (backend sapması), çok deneme 429
+  if (isStepUp) {
+    const p = stepUpInputSchema.safeParse(await readJson(req));
+    if (!p.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true);
+    const { method, code } = p.data;
+    if (method === "TOTP" && code === "000000")
+      return (send(res, 429, err("RATE_LIMITED", "Çok fazla deneme."), [], { "Retry-After": "300" }), true);
+    const ok = method === "TOTP" ? code === "123456" : code.replace("-", "") === "ABCDEFGHIJ" && !s.usedRecovery.has(code);
+    if (!ok) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { code: "Kod hatalı" } })), true);
+    if (method === "RECOVERY") s.usedRecovery.add(code);
+    s.stepUpUntil = Date.now() + 300_000;
+    return (
+      send(res, 200, {
+        stepUpUntil: new Date(s.stepUpUntil).toISOString(),
+        method,
+        ...(method === "RECOVERY" ? { recoveryCodesLeft: 2 } : {}),
+      }),
+      true
+    );
+  }
+
   // Sistem ayarları — yalnız SUPER_ADMIN (rol kontrolü)
   if (!isSa) return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
+  // ausasu: yazımlar (PUT/DELETE) son 5 dk içinde step-up ister (sunucu `requireStepUp`)
+  if (who.kind === "ausasu" && (req.method === "PUT" || req.method === "DELETE") && Date.now() > s.stepUpUntil)
+    return (send(res, 401, err("MFA_STEP_UP_REQUIRED", "Bu işlem için kimliğinizi yeniden doğrulayın.")), true);
   if (path === "/api/v1/admin/settings/mysql" && req.method === "GET") return (send(res, 200, s.mysql), true);
   if (path === "/api/v1/admin/settings/mysql" && req.method === "PUT") {
     const body = await readJson(req);
     const p = mysqlSettingsInputSchema.safeParse(body);
     if (!p.success) return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: fieldsOf(p.error) })), true);
     const { password, ...rest } = p.data;
+    s.mysqlPuts.push(body);
     // Kayıtlı şifre yalnız aynı host + port + kullanıcı için (backend kuralı)
     if (!password && (rest.host !== s.mysql.host || rest.port !== s.mysql.port || rest.user !== s.mysql.user))
       return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } })), true);

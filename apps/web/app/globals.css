@@ -47,6 +47,8 @@
   --color-annot-yellow: var(--rs-annot-yellow);
   --color-annot-green: var(--rs-annot-green);
   --color-annot-blue: var(--rs-annot-blue);
+  --color-switch-track-off: var(--rs-switch-track-off);
+  --color-switch-track-locked: var(--rs-switch-track-locked);
   --shadow-lg: var(--rs-shadow-lg);
   --shadow-sm: var(--rs-shadow-sm);
   --shadow-md: var(--rs-shadow-md);
@@ -86,6 +88,9 @@
   --rs-annot-yellow: #f5c518;
   --rs-annot-green: #22c55e;
   --rs-annot-blue: #3b8bf6;
+  /* P14b AC-221: kapalı / kilitli anahtar rayı — surface, surface-muted ve canvas zemininde ≥ 3:1 (WCAG 1.4.11) */
+  --rs-switch-track-off: #717d8a;
+  --rs-switch-track-locked: #7b8794;
   --rs-shadow-lg: 0 16px 40px rgb(16 24 40 / 0.18), 0 2px 6px rgb(16 24 40 / 0.08);
 }
 
@@ -120,6 +125,8 @@
   --rs-primary-surface: #10283a;
   --rs-overlay: rgb(0 0 0 / 0.62);
   --rs-stage: #07090c;
+  --rs-switch-track-off: #7b8794;
+  --rs-switch-track-locked: #66717e;
   --rs-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
 }
 
@@ -148,6 +155,8 @@
     --rs-primary-surface: #10283a;
     --rs-overlay: rgb(0 0 0 / 0.62);
     --rs-stage: #07090c;
+    --rs-switch-track-off: #7b8794;
+    --rs-switch-track-locked: #66717e;
     --rs-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
   }
 }
@@ -169,6 +178,26 @@
  * AC-87: hareket azaltma açıkken hareket (transform/scale/dönme/kayma) animasyonu yok, yalnız opaklık geçişi kalır.
  * Dönen yükleniyor ikonları durur (yanındaki metin/aria-busy durumu anlatır). Test: e2e/p12-branding.spec.ts.
  */
+/*
+ * AC-222: yatay kaydırılan menüde kaydırma ipucu — taşan kenar maskeyle soluklaşır (yalnız alfa; renk token'ı gerekmez).
+ * `data-more-start` / `data-more-end` side-nav.tsx'te kaydırma konumundan gelir; md+ menü dikeydir, maske yok.
+ */
+.scroll-hint-x[data-more-end] {
+  mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent);
+}
+.scroll-hint-x[data-more-start] {
+  mask-image: linear-gradient(to right, transparent, black 2.5rem);
+}
+.scroll-hint-x[data-more-start][data-more-end] {
+  mask-image: linear-gradient(to right, transparent, black 2.5rem, black calc(100% - 2.5rem), transparent);
+}
+@media (min-width: 48rem) {
+  .scroll-hint-x[data-more-start],
+  .scroll-hint-x[data-more-end] {
+    mask-image: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

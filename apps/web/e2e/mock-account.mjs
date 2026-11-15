@@ -1,7 +1,7 @@
 // E2E sahte API — P10 hesap güvenliği + SMTP (mimari-api "Auth", /settings/tenant, /settings/smtp/test, /sessions/:id/email).
 // Yalnız test. Girişle gelen yarı oturumlar: mfa@ornek.com (2FA etkin → kod adımı), zorunlu@ornek.com (ADMIN, 2FA yok → kurulum
 // kapısı). Çerez senaryoları (u-<senaryo>-<rastgele>): acc (ADMIN, 2FA etkin, 2 kurtarma kodu, SMTP ayarlı), nosmtp (ADMIN,
-// SMTP yok), accro (USER, yalnız settings.view). Sabitler: TOTP "123456", kurtarma "abcde-23456" (sunucu gibi normalize: tire/boşluk silinir, küçük harf), sıfırlama tokenı RESET_OK.
+// SMTP yok), accro (USER, yalnız settings.view), accbad (ADMIN; ilk GET /settings/tenant 500 — P14b AC-224). Sabitler: TOTP "123456", kurtarma "abcde-23456" (sunucu gibi normalize: tire/boşluk silinir, küçük harf), sıfırlama tokenı RESET_OK.
 import {
   SMTP_INSECURE_AUTH_MESSAGE,
   SMTP_PORT_MESSAGE,
@@ -20,7 +20,7 @@ const logins = { "mfa@ornek.com": "mfa", "zorunlu@ornek.com": "setup" };
 
 const stores = new Map();
 function st(cookie) {
-  const m = cookie?.match(/^a-(mfa|setup)-|^u-(acc|nosmtp|accro)-/);
+  const m = cookie?.match(/^a-(mfa|setup)-|^u-(acc|nosmtp|accro|accbad)-/);
   if (!m) return null;
   const kind = m[1] ?? m[2];
   let s = stores.get(cookie);
@@ -175,6 +175,11 @@ export async function handleAccount(req, res, { url, session, csrfOk, send, err,
   }
 
   if (path === "/api/v1/settings/tenant") {
+    // P14b (AC-224): u-accbad-* → ilk GET 500 (hata + Tekrar dene), sonrakiler 200
+    if (req.method === "GET" && s.kind === "accbad" && !s.failedOnce) {
+      s.failedOnce = true;
+      return (send(res, 500, err("INTERNAL", "Beklenmeyen hata.")), true);
+    }
     if (req.method === "GET") return (send(res, 200, s.settings), true);
     if (req.method === "PUT") {
       if (s.role === "USER") return (send(res, 403, err("FORBIDDEN", "Yetkiniz yok.")), true);
@@ -197,6 +202,11 @@ export async function handleAccount(req, res, { url, session, csrfOk, send, err,
       // P13a: retentionDays 729 → sunucu alan hatası taklidi (istemci aralığı geçer, sunucu reddeder)
       if (p.data.retentionDays === 729)
         return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { retentionDays: "Sunucu bu süreyi reddetti" } })), true);
+      // P14b (AC-224): maxFileMb 2047 → sunucu alan hatası taklidi
+      if (p.data.maxFileMb === 2047)
+        return (send(res, 400, err("VALIDATION", "Doğrulama hatası", { fields: { maxFileMb: "Sunucu bu sınırı reddetti" } })), true);
+      for (const k of ["sessionTtlMin", "maxActiveHours", "maxOpenSessions", "maxFileMb"])
+        if (p.data[k] !== undefined) s.settings[k] = p.data[k];
       if (p.data.retentionDays !== undefined) s.settings.retentionDays = p.data.retentionDays;
       if (p.data.requireTech2fa !== undefined) s.settings.requireTech2fa = p.data.requireTech2fa;
       if (p.data.smtp === null) s.settings.smtp = null;

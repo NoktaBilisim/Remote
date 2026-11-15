@@ -2,6 +2,8 @@
 
 import {
   Building,
+  ChevronLeft,
+  ChevronRight,
   Building2,
   History,
   House,
@@ -15,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { LobbyCountBadge } from "@/components/lobby-notifier";
 import { RequestCountBadge } from "@/components/request-notifier";
 import { t, type MessageKey } from "@/lib/i18n";
@@ -38,9 +41,49 @@ const items: { href: string; label: MessageKey; Icon: LucideIcon; perm?: string;
 export function SideNav({ permissions, role }: { permissions: readonly string[]; role: string }) {
   const pathname = usePathname();
   const visible = items.filter((i) => (!i.perm || permissions.includes(i.perm)) && (!i.superAdmin || role === "SUPER_ADMIN"));
+  const listRef = useRef<HTMLUListElement>(null);
+  const [more, setMore] = useState({ start: false, end: false });
+
+  // AC-222: dar ekranda menü yatay kayar. Etkin öğe açılışta/rota değişince görünür alana alınır (animasyonsuz —
+  // menü günde çok kez kullanılır, std. 1.8); kaydırılabilir yön kenar maskesi + aria-hidden ok ile belirtilir.
+  useEffect(() => {
+    const ul = listRef.current;
+    if (!ul) return;
+    const update = () => {
+      const max = ul.scrollWidth - ul.clientWidth;
+      const next = { start: max > 1 && ul.scrollLeft > 1, end: max > 1 && ul.scrollLeft < max - 1 };
+      setMore((m) => (m.start === next.start && m.end === next.end ? m : next));
+    };
+    // scrollIntoView yerine yalnız yatay "nearest": sayfa dikeyde kaymaz, md+ dikey menüde hiçbir şey yapılmaz
+    const active = ul.querySelector<HTMLElement>('[aria-current="page"]');
+    if (active && ul.scrollWidth > ul.clientWidth) {
+      const a = active.getBoundingClientRect();
+      const box = ul.getBoundingClientRect();
+      // kenar maskesi (2.5rem, globals.css .scroll-hint-x) etkin öğeyi soldurmasın
+      const pad = 2.5 * parseFloat(getComputedStyle(document.documentElement).fontSize);
+      if (a.left < box.left + pad) ul.scrollLeft += a.left - box.left - pad;
+      else if (a.right > box.right - pad) ul.scrollLeft += a.right - box.right + pad;
+    }
+    update();
+    ul.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(ul);
+    return () => {
+      ul.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, [pathname]);
+
   return (
-    <nav aria-label={t("panel.nav")} className="px-2 py-2 md:py-4">
-      <ul className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
+    <nav aria-label={t("panel.nav")} className="relative px-2 py-2 md:py-4" data-testid="side-nav">
+      {/* CI 390 px taşması (2 px): rozetlerin sr-only metni position:absolute — içerme bloğu kaydırma kapsayıcısı (relative)
+      olmazsa kayan şeridin dışındaki öğede belgeyi taşırır (Linux'ta geniş font). relative → kırpılır. */}
+      <ul
+        ref={listRef}
+        data-more-start={more.start || undefined}
+        data-more-end={more.end || undefined}
+        className="scroll-hint-x relative flex gap-1 overflow-x-auto md:flex-col md:overflow-visible"
+      >
         {visible.map(({ href, label, Icon, match }) => {
           const active = href === "/" ? pathname === "/" : pathname.startsWith(match ?? href);
           return (
@@ -61,6 +104,20 @@ export function SideNav({ permissions, role }: { permissions: readonly string[];
           );
         })}
       </ul>
+      {more.start && (
+        <ChevronLeft
+          aria-hidden
+          data-testid="nav-scroll-hint-start"
+          className="pointer-events-none absolute top-1/2 left-0 size-4 -translate-y-1/2 text-fg-muted md:hidden"
+        />
+      )}
+      {more.end && (
+        <ChevronRight
+          aria-hidden
+          data-testid="nav-scroll-hint-end"
+          className="pointer-events-none absolute top-1/2 right-0 size-4 -translate-y-1/2 text-fg-muted md:hidden"
+        />
+      )}
     </nav>
   );
 }

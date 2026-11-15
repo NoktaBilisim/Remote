@@ -9,6 +9,11 @@ export const ERROR_STATUS = {
   /** P10 (G-12, AC-122): SMTP sunucu adresi özel/loopback/link-local/CGNAT/Docker ağına çözümlendi (genel mesaj). */
   HOST_NOT_ALLOWED: 400,
   UNAUTHENTICATED: 401,
+  /**
+   * P14a (AC-215, ADR-0022): hassas işlem son 5 dk içinde step-up ister (`POST /auth/step-up`). Oturum geçerli;
+   * istemci kodu sorar ve isteği bir kez tekrarlar. TOTP'si kurulu olmayan kullanıcıya 403 `MFA_SETUP_REQUIRED`.
+   */
+  MFA_STEP_UP_REQUIRED: 401,
   FORBIDDEN: 403,
   /** CSRF başlığı/çerezi eksik ya da eşleşmiyor veya Origin izinli değil. */
   CSRF_INVALID: 403,
@@ -23,6 +28,8 @@ export const ERROR_STATUS = {
   METHOD_NOT_ALLOWED: 405,
   /** Durum uygun değil (ör. iptal edilecek oturum PENDING değil). */
   CONFLICT: 409,
+  /** P14a (AC-206, ADR-0023): `If-Match` sürümü güncel değil — kayıt başkası tarafından değiştirildi; yeniden yükleyin. */
+  STALE_WRITE: 409,
   /** Teknisyenin açık (PENDING/ACTIVE) oturum üst sınırı dolu (AC-11). */
   OPEN_SESSION_LIMIT: 409,
   /** Lobide bekleyen misafir sınırı (3) dolu (AC-112). */
@@ -52,6 +59,8 @@ export const ERROR_STATUS = {
   /** P12 (AC-84): yükleme 2 MB'ı aşıyor. */
   PAYLOAD_TOO_LARGE: 413,
   ACCOUNT_LOCKED: 423,
+  /** P14a (AC-206): `PATCH /users/:id` `If-Match: "v<n>"` başlığı olmadan (ya da bozuk biçimde) geldi. */
+  PRECONDITION_REQUIRED: 428,
   /** P8b r2 (§13.4): AGENT sürümü MIN_AGENT_VERSION'dan düşük; `fields.minVersion`. */
   CLIENT_OUTDATED: 426,
   RATE_LIMITED: 429,

@@ -17,7 +17,7 @@ import {
 } from "@remote/contracts/api/system-settings";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
-import { authOf, requireAuth, requirePerm, requireSuperAdmin, tenantScope } from "../auth/guards.ts";
+import { authOf, requireAuth, requirePerm, requireStepUp, requireSuperAdmin, tenantScope } from "../auth/guards.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
 import { getConsentSettings, saveConsentText } from "./consent.ts";
@@ -58,6 +58,7 @@ export function systemDeps(app: FastifyInstance): SystemDeps {
     whatsappEnvUrl: app.env.WHATSAPP_SERVICE_URL,
     whatsappEnvApiKey: app.env.WHATSAPP_SERVICE_API_KEY,
     production: app.env.NODE_ENV === "production",
+    metrics: app.metrics,
   };
 }
 
@@ -106,8 +107,11 @@ export async function adminSettingsRoutes(
     writeLimit.close();
   });
 
+  // P14a (AC-215, ADR-0022): sistem ayarı değişikliği (PUT/DELETE mysql|turn|whatsapp) son 5 dk içinde step-up ister.
+  const stepUp = { preHandler: requireStepUp() };
+
   app.get("/mysql", async (): Promise<MysqlSettingsView> => getMysqlSettings(d));
-  app.put("/mysql", async (req): Promise<MysqlSettingsSaveResponse> => {
+  app.put("/mysql", stepUp, async (req): Promise<MysqlSettingsSaveResponse> => {
     const input = parseInput(mysqlSettingsInputSchema, req.body);
     writeGuard(req);
     return saveMysqlSettings(d, auditContext(req), authOf(req), input);
@@ -117,14 +121,14 @@ export async function adminSettingsRoutes(
   );
 
   app.get("/turn", async (): Promise<TurnSettingsView> => getTurnSettings(d));
-  app.put("/turn", async (req): Promise<TurnSettingsView> => {
+  app.put("/turn", stepUp, async (req): Promise<TurnSettingsView> => {
     const input = parseInput(turnSettingsInputSchema, req.body);
     writeGuard(req);
     const out = await saveTurnSettings(d, auditContext(req), authOf(req), input);
     await applyTurn(app);
     return out;
   });
-  app.delete("/turn", async (req): Promise<TurnSettingsView> => {
+  app.delete("/turn", stepUp, async (req): Promise<TurnSettingsView> => {
     writeGuard(req);
     const out = await deleteTurnSettings(d, auditContext(req), authOf(req));
     await applyTurn(app);
@@ -132,7 +136,7 @@ export async function adminSettingsRoutes(
   });
 
   app.get("/whatsapp", async (): Promise<WhatsappSettingsView> => getWhatsappSettings(d));
-  app.put("/whatsapp", async (req): Promise<WhatsappSettingsView> => {
+  app.put("/whatsapp", stepUp, async (req): Promise<WhatsappSettingsView> => {
     const input = parseInput(whatsappSettingsInputSchema, req.body);
     writeGuard(req);
     return waSerial(async () => {
@@ -141,7 +145,7 @@ export async function adminSettingsRoutes(
       return getWhatsappSettings(d);
     });
   });
-  app.delete("/whatsapp", async (req): Promise<WhatsappSettingsView> => {
+  app.delete("/whatsapp", stepUp, async (req): Promise<WhatsappSettingsView> => {
     writeGuard(req);
     return waSerial(async () => {
       const t = await deleteWhatsappSettings(d, auditContext(req), authOf(req));

@@ -528,13 +528,6 @@ export async function sweepCustomerPassive(svc: RequestService, take = 500): Pro
  * Günlük 03:30 (AC-195, §3.7): pasif + `passive_at`'ten tenant `retention_days` geçmiş müşterilerin kişisel alanları
  * NULL + `search_key` yeniden + `anonymized_at`; audit `customer.anonymized` (system, eski değer yok — §15.6 (3)).
  */
-export async function anonymizeCustomers(svc: RequestService, now = new Date(svc.d.clock.now())): Promise<number> {
-  let total = 0;
-  for (const t of await rrepo.retentionTenants(svc.d.db)) total += await anonymizeCustomersOf(svc, t, now);
-  return total;
-}
-
-/** P13a: tek tenant için müşteri anonimleştirme (saklama işinin tenant döngüsü). */
 export async function anonymizeCustomersOf(
   svc: RequestService,
   t: { tenantId: string; retentionDays: number },

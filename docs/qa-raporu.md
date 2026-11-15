@@ -542,3 +542,164 @@ Yok.
 ### Olumlu
 
 - SIGPIPE düzeltmesi tek noktayla sınırlı kalmamış; aynı sınıftaki bütün üretim borularını taramış, imza doğrulamasındaki gizli bir yanlış FAIL olasılığını da kapatmış.
+
+## P14a/P14b — Tur 1
+
+Tarih: 2026-11-15 · Denetçi: qa-denetci · Kapsam: AC-201..219 (P14a), AC-220..230 (P14b); implementation.md "P14a A0", "A5", "A1/B1", "B3 bölüm 1", "A3", "A2+B2", "S14-2", "P14 güvenlik düzeltmeleri", "A4+B3 bölüm 2"; `git diff b2e5771` + izlenmeyen dosyalar. Staging'e bağlanılmadı.
+
+DURUM: DÜZELTİLMELİ
+
+### Test sonucu
+
+| Komut                                                                                                                                                                                                        | Sonuç                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run lint` / `pnpm -r run typecheck` / `pnpm format:check`                                                                                                                                           | temiz / temiz / "All matched files use Prettier code style!"                                                                  |
+| server `test` (unit)                                                                                                                                                                                         | 23 dosya / 377 geçti                                                                                                          |
+| server `test:int` (geçici `mysql:8.4.13` `rs-qa-p14t1-x7k3`, 01-users.sh + `db:migrate` + `check-app-grants.sh` 393 PASS)                                                                                    | 62 dosya / **604 geçti**, 0 düştü, 0 skip                                                                                     |
+| contracts `test`                                                                                                                                                                                             | 11 dosya / 84 geçti                                                                                                           |
+| web `test` (vitest)                                                                                                                                                                                          | 34 dosya / 321 geçti                                                                                                          |
+| web `e2e` (tam)                                                                                                                                                                                              | **356 geçti**, 0 düştü, 150 skip (hepsi `test.skip(project.name …)` proje ayrımı: desktopOnly/mobil/perf; `fixme`/`only` yok) |
+| `scripts/repeat-tests.sh 3 int` (retry 0)                                                                                                                                                                    | 3/3 yeşil (604/604 her koşu; 85/103/121 sn)                                                                                   |
+| `deploy/ops/test-watch.sh` · `deploy/agent/test-publish-lock.sh` · `deploy/backup/test-backup.sh`                                                                                                            | GEÇTİ · GEÇTİ · GEÇTİ (73 PASS)                                                                                               |
+| shellcheck 0.11.0 `-S warning` (29 dosya: `deploy/**/*.sh`, `scripts/*.sh`)                                                                                                                                  | 0 bulgu                                                                                                                       |
+| AC-201 elle: `down.sql` → `$` CHECK'ler geri, iki sütun yok, migration kaydı silindi; `\n` sonlu satırla `migrate deploy` → 1644 `P14A_PRECHECK customers=1` (durdu); satır düzeltilince up temiz, `\z` geri | GEÇTİ                                                                                                                         |
+| Gecikme kancalı testler (AC-202 ×2, AC-206, AC-214): her biri test içinde 20 tur; tam koşu + tekrar koşularında hepsi yeşil                                                                                  | 20/20                                                                                                                         |
+
+AC-219 notu: 20 ardışık koşu `.github/workflows/stability.yml` (workflow_dispatch + haftalık, int + e2e, retry 0) ile CI'da yapılacak; henüz koşulmadı (commit/push yok). Yerel örnek yukarıda.
+
+### Kabul kriterleri
+
+| AC  | Durum       | Kanıt veya eksik                                                                                                                                                                                                                                                                                                                                |
+| --- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 201 | ✅          | `security-p14a-db` "AC-201" ×3 (6 CHECK × `\n` → 3819, 8 sonlandırıcı, information_schema `\z`); ön kontrol + down/up elle doğrulandı                                                                                                                                                                                                           |
+| 202 | ✅          | `security-p14a-users` "AC-202" ×3 (gecikme kancalı 20/20 → FORBIDDEN + `denied:["users.edit"]`, id sıralı kilit deadlock yok, pasif aktör)                                                                                                                                                                                                      |
+| 203 | ✅          | "AC-203" ×3 (POST 10/dk, toplam 30/dk, /admin 30/dk, Retry-After, 409 `result:fail` e-postasız). `/admin/settings/*` 10/dk'da kaldı (daha sıkı, sapma 5)                                                                                                                                                                                        |
+| 204 | ✅          | "AC-204" + "AC-204/S14-5"                                                                                                                                                                                                                                                                                                                       |
+| 205 | ✅          | `security-p14a-tenants` "AC-205" ×2 (commit sonrası adımlar düşse de iptal/geçersiz, yeniden etkinleştirmede geri gelmez) + `p14a-a3` "AC-205/S14-4"                                                                                                                                                                                            |
+| 206 | ✅          | `security-p14a-users` "AC-206" ×3 (428/409/mesaj, sürüm artışı, kancalı 20/20) + e2e `p14a-a4` "AC-206" ×2 (rol geri alma, If-Match + 409 + Yeniden yükle)                                                                                                                                                                                      |
+| 207 | ✅          | "AC-207" (tam harita + kilitli anahtar + rol → 200, tekrar → audit/sürüm yok). Not: AC "users-p9" diyor, test `security-p14a-users`'da                                                                                                                                                                                                          |
+| 208 | ✅          | `p14a-a3` "AC-208" (/metrics) + unit "AC-208/S14-6"; runbook §22.2 eşik; test-watch 11 yeni test                                                                                                                                                                                                                                                |
+| 209 | ✅          | `p14a-a3` "AC-209" ×2 + "AC-209/S14-1"                                                                                                                                                                                                                                                                                                          |
+| 210 | ✅          | `p14a-a3` "AC-210" (35 güvenilen açık, dışı 31. → 429)                                                                                                                                                                                                                                                                                          |
+| 211 | ✅          | `p14a-a3` "AC-211" ×2 (sahte TLS'siz + gerçek MySQL → `tls`), unit (loopback/özel/public), `p14a-a3-settings` kalıcılık + CHECK, e2e "AC-211"                                                                                                                                                                                                   |
+| 212 | ✅          | `p14a-a3` "AC-212" + runbook §22.2 (1 sa ≥ 10)                                                                                                                                                                                                                                                                                                  |
+| 213 | ✅          | `mail-starttls-p14a` "AC-213" ×4 (yanlış ad → `tls` ileti 0; ilan etmeyen → düz metne düşmez; desteklemeyen → gönderim yok)                                                                                                                                                                                                                     |
+| 214 | ✅          | `security-p14a-auth` "AC-214" (kancalı 20/20, kazananın sırrı geçerli)                                                                                                                                                                                                                                                                          |
+| 215 | ✅          | `security-p14a-auth` "AC-215" ×4 (403 SETUP, 401 STEP_UP, 5 dk, TOTP tekrar ret, kurtarma kodu tüketimi + e-posta + `remaining`, sayaç ortak) + e2e ×2 + web `p14a-a4.test`. Not: audit adı `auth.step_up{method:"RECOVERY"}` — AC metni `mfa.step_up{method:"recovery_code"}` (mimari §4.2'ye uyuldu, sapma 2; AC metni hizalanmalı, Öneriler) |
+| 216 | ✅          | `p14a-a3` "AC-216" (31. → 4429 `retry=`, oturum kovası) + e2e ×2 (sessiz yeniden bağlanma, 12 gezinti tek bağlantı, konsol 0) + `requests.test` jitter                                                                                                                                                                                          |
+| 217 | ✅          | `p14a-a3-settings` "AC-217" ×3 (değişmeyen mysql/turn audit yok, `_` filtre), `dark-tokens.test`, `startup-check.test`, contracts `RETENTION_DEFAULT_DAYS`/`canonicalWaUrl` web'de contracts'tan, global retention fonksiyonları silindi, CI shellcheck                                                                                         |
+| 218 | ✅          | ADR-0024 + `pnpm format:check` 0 fark + CI `quality` adımı (AC adlı test gerekmez)                                                                                                                                                                                                                                                              |
+| 219 | ⚠️ kanıtsız | CI 20 koşu henüz yok; yerel 3/3 örnek. `stability.yml` çalıştırılıp sonucu raporlanmalı                                                                                                                                                                                                                                                         |
+| 220 | ✅          | e2e `p14b-ui` "AC-220" (HTTP 404, tek h1, axe iki tema; var olan kayıt 200)                                                                                                                                                                                                                                                                     |
+| 221 | ✅          | `switch-contrast.test` "AC-221" (iki tema × zeminler ≥ 3:1, kilitli opaklık yok)                                                                                                                                                                                                                                                                |
+| 222 | ✅          | e2e "AC-222" (375/390, `toBeInViewport`, ipucu)                                                                                                                                                                                                                                                                                                 |
+| 223 | ✅          | e2e "AC-223" + `customers.spec`                                                                                                                                                                                                                                                                                                                 |
+| 224 | ✅          | e2e "AC-224" ×2 (alanlar, istemci/sunucu hata, salt okunur, hata durumu, 390 px, axe iki tema) + `security-p14a-tenants` "AC-224" (alan doğrulama, audit eski→yeni) + `limits.test`                                                                                                                                                             |
+| 225 | ❌          | Tenant kapsamlı yol ✅ (`security-p14a-users` "AC-225" ×2, e2e 150 seçenek). **Eksik:** firma seçmemiş Super Admin'de `/history` teknisyen seçenekleri hâlâ **sayfadaki kayıtlardan** üretiliyor (`history/page.tsx:40-48, 88, 112-115`) — AC "sayfadaki kayıtlardan değil seçenek uçlarından" der (madde 1)                                    |
+| 226 | ✅          | `security-p14a-tenants` "AC-226" ×4 (≤ 20, sıralama, joker kaçışı, 250 firmada p95 ≤ 500 ms, yalnız SA) + e2e ×2 (klavye, 250 ms debounce)                                                                                                                                                                                                      |
+| 227 | ✅          | e2e `p5-collab` "AC-227", `chat-rate.test` (alıcı ≥ gönderen, gecikmeli simülasyonda 0 düşme)                                                                                                                                                                                                                                                   |
+| 228 | ✅          | e2e "AC-228" (+ LeaveDialog Esc kök neden düzeltmesi)                                                                                                                                                                                                                                                                                           |
+| 229 | ✅          | e2e `p12-branding` "AC-229" (gerçek `type:""` File), `branding.test`                                                                                                                                                                                                                                                                            |
+| 230 | ✅          | `large-write.test` "AC-230" (altı/tam/üstü); `files-panel.tsx:169` aynı fonksiyonu kullanır. DOM bileşen test altyapısı yok — mimari §5.1 saf fonksiyon kararıyla uyumlu                                                                                                                                                                        |
+
+### Sapma değerlendirmesi
+
+Kabul (gerekçeli, davranış AC'yi karşılıyor): A2 sapma 1 (hatalı kod 400), 3 (`CONFLICT` + `fields.email`), 4 (`TENANT_PASSIVE`), 5, 6, 7, 8; A3 `p14a_mysql_tls` ek migration; B3 AC-220 `[id]/layout.tsx` yazılmaması (404 doğrulandı), AC-223 bağlam/ref, AC-227 kayan pencere; A0 `eslint-config-prettier` eklenmemesi; B1 indeks yok (ölçümlü). Kabul edilmeyen: A2 sapma 9 + A4 sapma 1 (AC-225 Super Admin yolu, madde 1).
+
+### Düzeltilmeli
+
+1. [backend-dev] `apps/server/src/users/routes.ts` `/users/options` — firma seçmemiş Super Admin 403 alıyor, bu yüzden web sayfa kayıtlarına düşüyor → Super Admin için isteğe bağlı `?tenantId=<id>` kabul et (yalnız SUPER_ADMIN; tenant varlığı doğrulanır; aynı 1.000 üst sınır ve `fullName` sırası); diğer rollerde parametre yok sayılır veya 400. Entegrasyon testi adında "AC-225": SA + tenantId → o firmanın tam listesi, ADMIN tenantId ile başka firmayı göremez.
+2. [frontend-dev] `apps/web/app/(panel)/history/page.tsx:40-48,88,112-115` — `options(items, s => s.technician)` yedeğini kaldır. Super Admin firma filtresi seçiliyse `/users/options?tenantId=<filters.tenantId>` ile tam liste; firma seçili değilse teknisyen seçicisi pasif + "Önce firma seçin" ipucu (URL'deki seçili id "Seçili (…)" olarak korunur). e2e adı "AC-225": SA'da firma seçilmeden seçici pasif, firma seçilince uçtan gelen liste (sayfa kayıtlarında olmayan teknisyen de görünür).
+3. [backend-dev] `docs/api.md:1406-1412` (`/ws/panel`) — oturum başına 30 upgrade/dk aşımında upgrade kabul + `close(4429, "retry=<sn>")` ve `too_many` (6. soket) ayrımı yazılmamış → ekle. Aynısını `docs/mimari-protokol.md` §5.3 tablosuna (kapanış kodları) ekle.
+4. [backend-dev] `docs/api.md:200-201` ve §1820 civarı MySQL ayarları — `requireTls: boolean` (GET/PUT/test gövdesi, varsayılan false), test sonucu yeni sınıf `tls` ve `allowPublicKeyRetrieval` kuralı (yalnız loopback/özel IP) belgelenmemiş → ekle.
+5. [dba] `docs/db-notlari.md` "P14a" bölümü — ikinci migration `20261116010000_p14a_mysql_tls` (CHECK JSON şemasına `requireTls`, down'ı, up/down doğrulaması) hiç geçmiyor → kayıt ekle.
+6. [devops] `scripts/repeat-tests.sh:7` ve `docs/implementation.md` (A2 "Test": "`scripts/test-db.sh`") var olmayan `scripts/test-db.sh`'a atıf yapıyor → ya betiği ekle (geçici benzersiz MySQL + 01-users + migrate + grants; CI test işiyle aynı adımlar) ya da atıfları CI/runbook adımına çevir.
+7. [devops] AC-219 — push sonrası `stability.yml`'ı `runs=20` ile çalıştır; int ve e2e sonucunu (`SONUÇ: x/y`) `docs/implementation.md` "Kararsız testler" altına yaz (liste boş kalmalı). Bu yapılmadan AC-219 ✅ olamaz.
+
+### Definition of Done
+
+| Madde                                                           | Durum | Not                                                                                          |
+| --------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------- |
+| Tüm AC'ler testle kanıtlı                                       | ❌    | AC-225 eksik, AC-219 CI kanıtı yok                                                           |
+| Testler yeşil (unit/int/e2e/contracts/deploy)                   | ✅    | yukarıdaki tablo                                                                             |
+| Lint, typecheck, format temiz                                   | ✅    |                                                                                              |
+| Gecikme kancalı testler 20/20                                   | ✅    |                                                                                              |
+| Tasarım–kod uyumu, sapmalar gerekçeli                           | ✅    | sapma 9 hariç kabul                                                                          |
+| API dokümanı güncel (api.md, mimari-api.md)                     | ❌    | madde 3, 4 (mimari-api.md'de yeni uçlar/hata kodları var)                                    |
+| db-notlari güncel                                               | ❌    | madde 5                                                                                      |
+| Runbook alarmları (AC-208/212)                                  | ✅    | §22.2 + remote-watch eşikleri                                                                |
+| Yeni env → .env.example/env.ts/compose/runbook                  | ✅    | uygulama env'i yok; `WATCH_*` watch.env.example + runbook'ta                                 |
+| Yeni tablo → grants.sql                                         | ✅    | yeni tablo yok; check-app-grants 393 PASS                                                    |
+| Yeni bağımlılık gerekçeli, AGPL/GPL yok                         | ✅    | yalnız `prettier` 3.10.1 (MIT, A0'da gerekçeli)                                              |
+| Kalite taraması (`any`, hata yutma, ham renk, `.only`, PII log) | ✅    | yeni renkler yalnız `globals.css` token tanımı; tek gerekçeli `eslint-disable` (`stage.tsx`) |
+| 5 durum + iki temada axe (yeni ekranlar)                        | ✅    | `/settings/general`, step-up diyaloğu, firma seçici                                          |
+| Güvenlik Kritik/Yüksek 0                                        | ✅    | guvenlik-raporu "P14a/P14b — kod turu 2" GEÇTİ                                               |
+| Kararsız test listesi boş                                       | ⚠️    | yerelde boş; CI 20 koşu bekleniyor                                                           |
+
+### Öneriler (zorunlu değil)
+
+- AC-215 metnindeki `mfa.step_up{method:"recovery_code"}` ile koddaki/mimarideki `auth.step_up{method:"RECOVERY"}` farkı: proje-yöneticisi AC metnini mimariye hizalasın.
+- `history/[id]` olmayan id'de hâlâ 200 (B3 notu); aynı route group düzeltmesi P15'te uygulanabilir.
+- AC-207 testi `users-p9.test.ts` dosyasına da bir referansla bağlanabilir (AC metni o dosyayı anıyor).
+
+### Olumlu
+
+- Gecikme kancaları zamanlama varsayımsız (kilit tutan TX bekletiliyor); 20 tur test içinde, tam ve tekrar koşularında kararlı.
+- AC-201 ön kontrolü gerçekten durduruyor (`P14A_PRECHECK customers=1`), down/up döngüsü temiz.
+- AC-229 ve AC-228'de önceki "geçen ama geçersiz" test ve kök neden yarış düzeltilmiş; CI e2e kırmızıları kök nedenle kapatılmış (retry yok).
+- Yeni bağımlılık yok; shellcheck 0; format 0 fark.
+
+## P14a/P14b — Tur 2
+
+Tarih: 2026-11-15 · Denetçi: qa-denetci · Kapsam: Tur 1'in 7 maddesi (implementation.md "P14 QA Tur 1 düzeltmesi — AC-225", api.md, mimari-protokol §5.3, db-notlari, repeat-tests.sh) + son güvence tam e2e. Geçici konteyner `rs-qa-p14t2-m4q8` (mysql:8.4.13), iş sonunda silindi.
+
+DURUM: DÜZELTİLMELİ — yalnız madde 7 (AC-219, CI 20 koşu) açık. Kod ve doküman tarafında düzeltilecek madde kalmadı; `stability.yml` 20/20 yeşil raporlanınca GEÇTİ olur.
+
+### Test sonucu
+
+| Komut                                                              | Sonuç                                                                                            |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `pnpm -r run lint` / `pnpm -r run typecheck` / `pnpm format:check` | temiz / temiz / 0 fark                                                                           |
+| web `test` (vitest)                                                | 35 dosya / 323 geçti                                                                             |
+| server `test:int` (tam)                                            | 62 dosya / **605 geçti** (Tur 1: 604; +1 AC-225 `?tenantId=` izolasyon testi)                    |
+| `security-p14a-users` `-t AC-225`                                  | 3/3 geçti                                                                                        |
+| web `e2e` (tam)                                                    | **358 geçti**, 0 düştü, 150 skip (proje ayrımı; Tur 1: 356 + yeni AC-225 testi desktop + mobile) |
+
+### Tur 1 maddeleri
+
+| #                                          | Durum   | Doğrulama                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 [backend-dev] `/users/options?tenantId=` | ✅      | `users/service.ts:260` `userOptionsTenant`: etkin tenant önce gelir (başka rol parametreyle kapsam dışına çıkamaz), yalnız firma seçmemiş SUPER_ADMIN için `findTenant` (silinmemiş) → yoksa 404; şema `strictObject` (ULID). Entegrasyon "AC-225: ?tenantId= izolasyonu": SA A/B ayrı, parametresiz 403, bozuk 400, olmayan 404; ADMIN/USER `tenantId=B` ile B kimliği görmez |
+| 2 [frontend-dev] `/history`                | ✅      | Sayfa kayıtlarından seçenek üreten `options()` kaldırıldı; e2e "AC-225: Super Admin — firma seçilmeden teknisyen seçici pasif + ipucu …" (desktop + mobile): seçici pasif ve tek "Tümü" seçeneği var, `/users/options` çağrısı yok; firma seçilince `?tenantId=` ile kayıtlarda olmayan teknisyen dahil liste geliyor; uygula + yenile sonrasında da seçim korunuyor           |
+| 3 `/ws/panel` 4429                         | ✅      | `docs/api.md:1413-1415` (6. soket `too_many` ↔ oturum başına 30/dk `retry=<sn>`), `docs/mimari-protokol.md:236`                                                                                                                                                                                                                                                                |
+| 4 MySQL `requireTls`/`tls`                 | ✅      | `docs/api.md:1922-1978` (alan, PUT gövdesi, `tls` sınıfı, rebinding'siz çözümleme, `allowPublicKeyRetrieval` kuralı)                                                                                                                                                                                                                                                           |
+| 5 [dba] db-notlari                         | ✅      | `docs/db-notlari.md:949` "İkinci migration: `20261116010000_p14a_mysql_tls`"                                                                                                                                                                                                                                                                                                   |
+| 6 [devops] `test-db.sh` atfı               | ✅      | **Düzeltme (denetçi hatası):** betik Tur 1'de de vardı (`apps/server/scripts/test-db.sh`); ben yalnız kök `scripts/`'e bakmıştım. `repeat-tests.sh:7` artık doğru yolu gösteriyor. Bulgu geçersizdi                                                                                                                                                                            |
+| 7 [devops] AC-219                          | ⚠️ açık | Push sonrası `stability.yml` `runs=20` (int + e2e, retry 0) çalıştırılmalı; sonuç `docs/implementation.md` "Kararsız testler" altına yazılmalı                                                                                                                                                                                                                                 |
+
+### Kabul kriterleri (değişenler)
+
+| AC  | Durum       | Kanıt                                                                                                     |
+| --- | ----------- | --------------------------------------------------------------------------------------------------------- |
+| 225 | ✅          | Tur 1 kanıtları + yukarıdaki entegrasyon ve e2e testleri                                                  |
+| 219 | ⚠️ kanıtsız | Yerel kanıt Tur 1'de: `repeat-tests.sh 3 int` 3/3 ve bu turda tam koşular yeşil. CI'da 20 koşu bekleniyor |
+
+Diğer 28 AC Tur 1'deki gibi ✅; bu turdaki tam koşularda da yeşil.
+
+### Düzeltilmeli
+
+1. [devops] AC-219: push sonrası `.github/workflows/stability.yml`'ı `runs=20` ile tetikle; int ve e2e `SONUÇ: x/y` çıktısını `docs/implementation.md` "Kararsız testler" bölümüne yaz (liste boş kalmalı). Kırmızı koşu olursa kök nedeni düzelt; retry yasak.
+
+### Definition of Done
+
+| Madde                             | Durum | Not                                                                                                                                            |
+| --------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tüm AC'ler testle kanıtlı         | ⚠️    | yalnız AC-219 (CI)                                                                                                                             |
+| Testler yeşil                     | ✅    | int 605, e2e 358, web 323; lint/typecheck/format temiz                                                                                         |
+| API/protokol dokümanı, db-notlari | ✅    | madde 3-5                                                                                                                                      |
+| Sapmalar gerekçeli                | ✅    | Yeni karar: SA dışı rollerde `tenantId` yok sayılıyor (`/sessions`, `/audit` kalıbı), izolasyon testli; bilinmeyen sorgu parametresi artık 400 |
+| Yeni bağımlılık / env / tablo     | ✅    | yok                                                                                                                                            |
+
+### Olumlu
+
+- Düzeltme kapsamı dar: iş mantığı serviste, `techOptions` saf modüle taşınmış ve birim testi var. e2e "sayfa kayıtlarından seçenek yok" koşulunu doğrudan ölçüyor (istek sayısı 0, tek seçenek).

@@ -58,14 +58,30 @@ export function Switch({
   );
 }
 
-/** Görsel ray + topuz (ortak). `mixed`: topuz ortada, ray `fg-muted` (kısmi grup). Yalnız transform animasyonlu. */
-function Track({ checked }: { checked: boolean | "mixed" }) {
+/**
+ * Görsel ray + topuz (ortak). `mixed`: topuz ortada, ray `fg-muted` (kısmi grup). Kapalı ray `switch-track-off`, kilitli
+ * kapalı ray `switch-track-locked` (AC-221: iki temada zemine karşı ≥ 3:1; kilitlide opaklık düşürülmez — kontrast korunur,
+ * kilit `Lock` ikonu ve `aria-disabled` ile anlatılır). Yalnız transform animasyonlu.
+ */
+function trackClasses(checked: boolean | "mixed", locked = false): { rail: string; knob: string } {
   const rail =
-    checked === true ? "border-primary bg-primary" : checked === "mixed" ? "border-fg-muted bg-fg-muted" : "border-border bg-surface-muted";
+    checked === true
+      ? "border-primary bg-primary"
+      : checked === "mixed"
+        ? "border-fg-muted bg-fg-muted"
+        : locked
+          ? "border-switch-track-locked bg-switch-track-locked"
+          : "border-switch-track-off bg-switch-track-off";
   const knob = checked === true ? "translate-x-5" : checked === "mixed" ? "translate-x-2.5" : "translate-x-0.5";
+  return { rail, knob };
+}
+
+function Track({ checked, locked = false }: { checked: boolean | "mixed"; locked?: boolean }) {
+  const { rail, knob } = trackClasses(checked, locked);
   return (
     <span
       aria-hidden
+      data-track
       className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors duration-150 ease-out ${rail}`}
     >
       <span
@@ -115,10 +131,10 @@ export function ToggleSwitch({
           if (!locked) onChange();
         }}
         className={`inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-60 ${
-          locked ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+          locked ? "cursor-not-allowed" : "cursor-pointer"
         }`}
       >
-        <Track checked={checked} />
+        <Track checked={checked} locked={locked} />
       </button>
       {locked && <Lock aria-hidden className="-ml-1 size-3.5 text-fg-muted" />}
     </span>

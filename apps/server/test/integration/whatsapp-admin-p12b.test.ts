@@ -6,7 +6,19 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { hotp, base32Decode, stepOf } from "../../src/auth/mfa.ts";
 import { createDb, type Db } from "../../src/lib/db.ts";
-import { createTenant, createUser, loginAs, makeApp, testDb, type Session, type TestUser } from "../helpers/app.ts";
+// P14a (AC-215): sistem ayarı yazımları step-up ister → varsayılan giriş `loginStepUp`; gerçek 2FA kuran production
+// senaryoları düz giriş (`plainLogin`) + kurulum + `markStepUp`.
+import {
+  createTenant,
+  createUser,
+  loginAs as plainLogin,
+  loginStepUp as loginAs,
+  makeApp,
+  markStepUp,
+  testDb,
+  type Session,
+  type TestUser,
+} from "../helpers/app.ts";
 import { createRequestSettings, startFakeWhatsapp, type FakeWhatsapp } from "../helpers/requests.ts";
 import { FAKE_APP_ENCRYPTION_KEYS, FAKE_WA_ENV_API_KEY, FAKE_WA_PANEL_API_KEY } from "../helpers/secrets.ts";
 
@@ -325,10 +337,11 @@ describe("P12b düzeltme turu 1 (B-P12b-1, -2, -5)", () => {
 describe("P12b WhatsApp güvensiz adres — production (AC-196, AC-150, K13)", () => {
   /** Production'da Super Admin 2FA kurulumundan geçer (B-P10-3). */
   async function prodSuper(a: FastifyInstance): Promise<Session> {
-    const s = await loginAs(a, await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+    const s = await plainLogin(a, await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
     const setup = (await call(a, s, "POST", "/api/v1/auth/mfa/setup", {})).json<{ secret: string }>();
     const en = await call(a, s, "POST", "/api/v1/auth/mfa/enable", { code: hotp(base32Decode(setup.secret), stepOf(Date.now())) });
     expect(en.statusCode, en.body).toBe(200);
+    await markStepUp(s);
     return s;
   }
 
@@ -467,11 +480,12 @@ describe("P13a sistem ayarları (B-P12b-4, B-P12b-5, T33; mimari-p13 §3)", () =
     });
     extraApps.push(prod);
     await prod.ready();
-    const s = await loginAs(prod, await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
+    const s = await plainLogin(prod, await createUser({ tenantId: null, role: "SUPER_ADMIN" }));
     const setup = (await call(prod, s, "POST", "/api/v1/auth/mfa/setup", {})).json<{ secret: string }>();
     expect(
       (await call(prod, s, "POST", "/api/v1/auth/mfa/enable", { code: hotp(base32Decode(setup.secret), stepOf(Date.now())) })).statusCode,
     ).toBe(200);
+    await markStepUp(s);
     try {
       for (const url of ["http://169.254.169.254", "http://[fe80::1]:3000"]) {
         const put = await call(prod, s, "PUT", W, { url });

@@ -180,6 +180,10 @@ const count = (cookie) => pushTo(cookie, { t: "queue.count", pending: stores.get
 const wss = new WebSocketServer({ noServer: true });
 
 /** /ws/panel upgrade: çerez + view yetkisi + tenant bağlamı; aksi 403 (soket yok edilir). */
+// P14a (AC-216): oturum başına upgrade sayısı ve sıradaki n upgrade'i 4429 `retry=1` ile kapatma kancası
+const upgrades = new Map();
+const limitNext = new Map();
+
 export function panelUpgrade(req, sock, head, session) {
   const who = requestUser(session);
   // P9 (mock-users.mjs): u-us* kullanıcıları da support_requests.view taşır → bildirim soketi açık kalır, olay itilmez
@@ -191,6 +195,13 @@ export function panelUpgrade(req, sock, head, session) {
     return sock.destroy();
   }
   wss.handleUpgrade(req, sock, head, (ws) => {
+    upgrades.set(session, (upgrades.get(session) ?? 0) + 1);
+    const lim = limitNext.get(session) ?? 0;
+    if (lim > 0) {
+      // Sunucu gibi: upgrade kabul + hemen 4429 (tarayıcı WS el sıkışma başlığını okuyamaz)
+      limitNext.set(session, lim - 1);
+      return ws.close(4429, "retry=1");
+    }
     store(session, who.kind);
     const set = sockets.get(session) ?? sockets.set(session, new Set()).get(session);
     set.add(ws);
@@ -204,6 +215,10 @@ function e2eHook(url, send, res) {
   // QA-P8b-12: senkron noktası — o çerezin AÇIK /ws/panel soket sayısı (olay itmeden önce testte beklenir)
   const sk = url.match(/^\/__e2e\/rq\/sockets\/([^?]+)$/);
   if (sk) return (send(res, 200, { open: [...(sockets.get(sk[1]) ?? [])].filter((ws) => ws.readyState === 1).length }), true);
+  const up = url.match(/^\/__e2e\/rq\/upgrades\/([^?]+)$/);
+  if (up) return (send(res, 200, { upgrades: upgrades.get(up[1]) ?? 0 }), true);
+  const lim = url.match(/^\/__e2e\/rq\/limit4429\/([^?]+)\?n=(\d+)$/);
+  if (lim) return (limitNext.set(lim[1], Number(lim[2])), send(res, 200, {}), true);
   const m = url.match(/^\/__e2e\/rq\/(new|newfirm|removed|alert|declined|close4401)\/([^?]+)(?:\?id=([0-9A-Z]{26}))?$/);
   if (!m) return false;
   const [, ev, cookie, id] = m;

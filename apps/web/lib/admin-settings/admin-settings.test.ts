@@ -15,6 +15,7 @@ const view = {
   port: 3306,
   database: "remote",
   user: "app",
+  requireTls: false,
   hasPassword: true,
   updatedAt: null,
   source: "panel" as const,
@@ -25,12 +26,12 @@ describe("MySQL formu (AC-77, 78)", () => {
   it("kayıtlı şifre forma yazılmaz; boş şifre gönderilmez (korunur)", () => {
     const st = toMysqlState(view);
     expect(st.password).toBe("");
-    expect(buildMysqlInput(st).input).toEqual({ host: "db.local", port: 3306, database: "remote", user: "app" });
+    expect(buildMysqlInput(st).input).toEqual({ host: "db.local", port: 3306, database: "remote", user: "app", requireTls: false });
     expect(buildMysqlInput({ ...st, password: "yeni" }).input?.password).toBe("yeni");
   });
   it("port boşsa 3306; geçersiz port ve eksik alanlar alan hatası", () => {
     expect(buildMysqlInput({ ...toMysqlState(null), host: "h", database: "d", user: "u", port: "" }).input?.port).toBe(3306);
-    const r = buildMysqlInput({ host: "", port: "70000", database: "a b", user: "", password: "" });
+    const r = buildMysqlInput({ host: "", port: "70000", database: "a b", user: "", password: "", requireTls: false });
     expect(r.input).toBeUndefined();
     expect(Object.keys(r.errors).sort()).toEqual(["database", "host", "port", "user"]);
   });
@@ -39,6 +40,14 @@ describe("MySQL formu (AC-77, 78)", () => {
     expect(mysqlDirty(st, st)).toBe(false);
     expect(mysqlDirty({ ...st, password: "x" }, st)).toBe(true);
     expect(mysqlServerFields({ host: "Geçersiz", x: "Diğer" })).toEqual({ errors: { host: "Geçersiz" }, rest: ["Diğer"] });
+  });
+  it("AC-211: kayıtlı requireTls=true forma yüklenir ve her gövdede açıkça gönderilir (false'a düşmez); değişimi kirli", () => {
+    const st = toMysqlState({ ...view, requireTls: true });
+    expect(st.requireTls).toBe(true);
+    expect(buildMysqlInput(st).input?.requireTls).toBe(true);
+    expect(buildMysqlInput({ ...st, requireTls: false }).input?.requireTls).toBe(false);
+    expect(mysqlDirty({ ...st, requireTls: false }, st)).toBe(true);
+    expect(toMysqlState(null).requireTls).toBe(false);
   });
 });
 

@@ -137,6 +137,38 @@ export interface MfaVerifyResponse {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// P14a — Step-up 2FA (AC-215, ADR-0022; K-E11-1: TOTP veya kurtarma kodu)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Step-up geçerlilik süresi: son başarılı step-up'tan sonra hassas uçlar bu kadar saniye açık (`requireStepUp`). */
+export const STEP_UP_MAX_AGE_SEC = 300;
+/** Kalan kurtarma kodu bu sayı veya altındaysa diyalogda ve hesap sayfasında "Kurtarma kodlarınız azaldı" uyarısı. */
+export const RECOVERY_CODES_LOW_THRESHOLD = 3;
+
+export const STEP_UP_METHODS = ["TOTP", "RECOVERY"] as const;
+export type StepUpMethod = (typeof STEP_UP_METHODS)[number];
+
+/**
+ * POST /auth/step-up. TOTP: 6 hane, `totp_last_step` tekrar koruması (aynı kod ikinci kez reddedilir). RECOVERY: kod
+ * tüketilir (ikinci kullanımda ret). Hatalı kod → 400 `fields.code`; 2FA deneme sayacı `/auth/mfa/verify` ile ortak
+ * (5 / 5 dk hesap+IP, 15 / 15 dk hesap) → 429 + `Retry-After`. TOTP'si kurulu değil → 403 `MFA_SETUP_REQUIRED`.
+ */
+export const stepUpInputSchema = z.discriminatedUnion("method", [
+  z.strictObject({ method: z.literal("TOTP"), code: totpCodeSchema }),
+  z.strictObject({ method: z.literal("RECOVERY"), code: recoveryCodeSchema }),
+]);
+export type StepUpInput = z.input<typeof stepUpInputSchema>;
+export type StepUpData = z.output<typeof stepUpInputSchema>;
+
+export interface StepUpResponse {
+  /** ISO an: bu zamana kadar hassas uçlar step-up istemez (`now + STEP_UP_MAX_AGE_SEC`). */
+  stepUpUntil: string;
+  method: StepUpMethod;
+  /** Yalnız `RECOVERY` ile: kalan kullanılmamış kurtarma kodu (≤ `RECOVERY_CODES_LOW_THRESHOLD` → yenileme uyarısı). */
+  recoveryCodesLeft?: number;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // P10 — Tüm cihazlardan çıkış (AC-68, AC-115) ve şifre sıfırlama (AC-66)
 // ---------------------------------------------------------------------------------------------------------------
 

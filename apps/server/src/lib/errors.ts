@@ -3,6 +3,7 @@
 import { BINDING_INVALID_MESSAGE } from "@remote/contracts/api/bindings";
 import { INVALID_IMAGE_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from "@remote/contracts/api/branding";
 import { SESSION_ANONYMIZED_MESSAGE } from "@remote/contracts/api/sessions";
+import { USER_IF_MATCH_REQUIRED_MESSAGE, USER_STALE_WRITE_MESSAGE } from "@remote/contracts/api/users";
 import { ERROR_STATUS, type ErrorCode, type ErrorEnvelope } from "@remote/contracts/errors";
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -45,6 +46,9 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   HOST_NOT_ALLOWED: "Bu sunucu adresi kullanılamaz.",
   MFA_REQUIRED: "Devam etmek için iki adımlı doğrulama kodunu girin.",
   MFA_SETUP_REQUIRED: "Devam etmeden önce iki adımlı doğrulamayı kurmanız gerekiyor.",
+  MFA_STEP_UP_REQUIRED: "Bu işlem için iki adımlı doğrulama kodunuzu yeniden girin.",
+  STALE_WRITE: USER_STALE_WRITE_MESSAGE,
+  PRECONDITION_REQUIRED: USER_IF_MATCH_REQUIRED_MESSAGE,
   RESET_TOKEN_INVALID: "Bu şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş. Yeni bağlantı isteyin.",
 };
 

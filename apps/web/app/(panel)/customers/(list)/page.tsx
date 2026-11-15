@@ -13,9 +13,9 @@ import { customerPageCount, customersApiPath, customersHref, parseCustomerParams
 import { formatNumber } from "@/lib/format";
 import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
-import { CustomerFilters } from "./customer-filters";
-import { CustomerList } from "./customer-list";
-import { CustomersActions } from "./customers-actions";
+import { CustomerFilters } from "../customer-filters";
+import { CustomerList } from "../customer-list";
+import { CustomersActions, CustomersActionsProvider } from "../customers-actions";
 
 export const metadata: Metadata = { title: t("nav.customers") };
 
@@ -117,7 +117,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
   const generalStrip = <GeneralLink data={general.kind === "ok" ? general.data : null} canSettings={perms.includes("settings.edit")} />;
   if (res.kind === "error") {
     return (
-      <>
+      <CustomersActionsProvider>
         {header}
         {generalStrip}
         <div className="mt-6 max-w-xl">
@@ -129,7 +129,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
             <LoadError />
           )}
         </div>
-      </>
+      </CustomersActionsProvider>
     );
   }
 
@@ -166,15 +166,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
         }
       />
     );
-  else if (params.status !== "active")
-    body = (
-      <EmptyState
-        Icon={Building2}
-        title={params.status === "passive" ? t("cu.emptyPassive") : t("cu.emptyTitle")}
-        body={t("cu.emptyFilterBody")}
-        testId="customers-empty-filter"
-      />
-    );
+  else if (params.status === "passive")
+    body = <EmptyState Icon={Building2} title={t("cu.emptyPassive")} body={t("cu.emptyFilterBody")} testId="customers-empty-filter" />;
+  // AC-223: `status=all` boşken de varsayılan boş durum ("Yeni müşteri" + yardım) — hiç müşteri yok demektir
   else
     body = (
       <EmptyState
@@ -187,7 +181,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
     );
 
   return (
-    <>
+    <CustomersActionsProvider>
       {header}
       {generalStrip}
       <div className="mt-6">
@@ -222,6 +216,6 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
           </div>
         )}
       </section>
-    </>
+    </CustomersActionsProvider>
   );
 }

@@ -2,8 +2,15 @@
 // mimarideki mysql2 yerine; sapma notu implementation.md "P11 — Backend"). pnpm katı yapısında doğrudan çözülemediği
 // için `@prisma/adapter-mariadb`'nin kendi bağımlılığından çözülür. 10 sn KESİN zaman aşımı (sürücü süreleri + yarış).
 // Hata sınıflandırılır; ham hata yalnız çağıranın loguna gider.
+// P14a (AC-211): hedef ad bir kez çözülür (netguard `classifyHost`) ve o IP'ye bağlanılır. `requireTls` → TLS zorunlu +
+// sertifika ayar adına göre doğrulanır; kurulamazsa sınıf `tls`. TLS yokken `allowPublicKeyRetrieval` (caching_sha2 açık
+// anahtar akışı — karşı taraf sahte anahtarla düz şifreyi alabilir) yalnız loopback / özel ağ / tek etiketli (compose
+// servis) adda açılır.
 import { createRequire } from "node:module";
+import { checkServerIdentity } from "node:tls";
+import { isIP } from "node:net";
 import { MYSQL_TEST_TIMEOUT_MS, type MysqlTestReason } from "@remote/contracts/api/system-settings";
+import { classifyHost } from "../lib/netguard.ts";
 
 export interface TextConnection {
   query(sql: string): Promise<unknown>;
@@ -30,17 +37,29 @@ export interface ProbeTarget {
   database: string;
   user: string;
   password: string;
+  requireTls: boolean;
 }
 
 export type ProbeResult = { ok: true; latencyMs: number } | { ok: false; reason: MysqlTestReason; latencyMs: number; err: unknown };
 
 const TIMEOUT = Symbol("timeout");
 
-/** mariadb hata → sınıf. 1045/1698/eklenti → auth; 1044/1049 → database; sürücü zaman aşımı → timeout; diğer → connect. */
+/**
+ * mariadb hata → sınıf. 1045/1698/eklenti → auth; 1044/1049 → database; TLS (sunucu TLS'siz 45023, sertifika/el sıkışma
+ * hataları, sunucu "güvenli taşıma gerekli" 3159) → tls; sürücü zaman aşımı → timeout; diğer → connect.
+ */
 export function classifyMysqlError(err: unknown): MysqlTestReason {
-  const e = (typeof err === "object" && err !== null ? err : {}) as { errno?: unknown; code?: unknown };
+  const e = (typeof err === "object" && err !== null ? err : {}) as { errno?: unknown; code?: unknown; message?: unknown };
   const errno = typeof e.errno === "number" ? e.errno : 0;
   const code = typeof e.code === "string" ? e.code : "";
+  const msg = typeof e.message === "string" ? e.message : "";
+  if (
+    errno === 45023 ||
+    errno === 3159 ||
+    /^ER_SELF_SIGNED|^ER_SERVER_SSL|CERT|SSL|TLS/i.test(code) ||
+    /certificate|self[- ]signed|altnames|ssl not enabled/i.test(msg)
+  )
+    return "tls";
   if (
     errno === 1045 ||
     errno === 1698 ||
@@ -55,23 +74,49 @@ export function classifyMysqlError(err: unknown): MysqlTestReason {
   return "connect";
 }
 
-export async function probeMysql(
+/** Sürücü bağlantı seçenekleri (çözümlenmiş IP + TLS + açık anahtar kuralı); birim testleri doğrudan sınar. */
+export async function connectionOptions(
   t: ProbeTarget,
-  timeoutMs = MYSQL_TEST_TIMEOUT_MS,
-  drv: MariadbDriver = mariadbDriver(),
-): Promise<ProbeResult> {
-  const started = Date.now();
-  let timer: NodeJS.Timeout | undefined;
-  const pending = drv.createConnection({
-    host: t.host.replace(/^\[(.*)\]$/, "$1"),
+  timeoutMs: number,
+  lookupAll?: (host: string) => Promise<string[]>,
+): Promise<Record<string, unknown>> {
+  const name = t.host.replace(/^\[(.*)\]$/, "$1").toLowerCase();
+  const { cls, ip } = await classifyHost(name, lookupAll);
+  if (!ip) throw Object.assign(new Error("host unresolved"), { code: "ENOTFOUND" });
+  // S14-3: karar çözülen adreslere göre; tek etiketli ad (compose servisi) da genel IP'ye çözülürse ayrıcalık yok.
+  const localish = cls !== "public";
+  return {
+    host: ip,
     port: t.port,
     user: t.user,
     password: t.password,
     database: t.database,
     connectTimeout: timeoutMs,
     socketTimeout: timeoutMs,
-    allowPublicKeyRetrieval: true,
-  });
+    // TLS'li bağlantıda şifre zaten şifreli kanalda gider; açık anahtar isteğine gerek yok (en az ayrıcalık).
+    allowPublicKeyRetrieval: !t.requireTls && localish,
+    ...(t.requireTls
+      ? {
+          ssl: {
+            rejectUnauthorized: true,
+            ...(isIP(name) ? {} : { servername: name }),
+            // IP'ye bağlanılır; kimlik ayar adına (ya da IP literaline) göre doğrulanır.
+            checkServerIdentity: (_h: string, cert: Parameters<typeof checkServerIdentity>[1]) => checkServerIdentity(name, cert),
+          },
+        }
+      : {}),
+  };
+}
+
+export async function probeMysql(
+  t: ProbeTarget,
+  timeoutMs = MYSQL_TEST_TIMEOUT_MS,
+  drv: MariadbDriver = mariadbDriver(),
+  lookupAll?: (host: string) => Promise<string[]>,
+): Promise<ProbeResult> {
+  const started = Date.now();
+  let timer: NodeJS.Timeout | undefined;
+  const pending = connectionOptions(t, timeoutMs, lookupAll).then((o) => drv.createConnection(o));
   const work = (async () => {
     const conn = await pending;
     try {

@@ -4,6 +4,7 @@ import { SESSION_COOKIE } from "@remote/contracts/api/auth";
 import {
   createTenantInputSchema,
   listTenantsQuerySchema,
+  tenantOptionsQuerySchema,
   switchTenantInputSchema,
   tenantActionInputSchema,
   tenantIdSchema,
@@ -12,14 +13,16 @@ import {
   type SwitchTenantResponse,
   type TenantItem,
   type TenantListResponse,
+  type TenantOptionsResponse,
   type TenantSettingsView,
 } from "@remote/contracts/api/tenants";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { auditContext } from "../audit/service.ts";
 import { authOf, requireAuth, requirePerm, requireSuperAdmin, tenantScope } from "../auth/guards.ts";
-import { revokeForTenant } from "../bindings/service.ts";
+import { countRevoked } from "../bindings/service.ts";
 import { AppError, parseInput } from "../lib/errors.ts";
 import { sha256Hex } from "../lib/ids.ts";
+import { FixedWindowCounter } from "../lib/rate.ts";
 import {
   createTenant,
   deactivateTenant,
@@ -28,6 +31,7 @@ import {
   listTenants,
   reactivateTenant,
   switchTenant,
+  tenantOptions,
   updateTenant,
   updateTenantSettings,
   type TenantLiveEffects,
@@ -50,10 +54,26 @@ export async function adminTenantRoutes(app: FastifyInstance): Promise<void> {
   const fx = (): TenantLiveEffects => ({
     rooms: app.rooms,
     hub: app.requestHub,
-    cancelRequests: (id) => app.requests.cancelAllForTenant(id),
-    revokeBindings: (id) => revokeForTenant(app.requests, id),
+    requestClosed: (tenantId, requestId) => app.requests.closedAfterCommit(tenantId, requestId, "CANCELLED", { reason: "TENANT_PASSIVE" }),
+    bindingsRevoked: (n) => countRevoked(app.requests, "TENANT_PASSIVE", n),
     log: app.log,
   });
+  // P14a (AC-203): /admin/* yazma uçları kullanıcı başına 30/dk (31. → 429 + Retry-After). Sistem ayarı uçlarının
+  // (settings/routes.ts) kendi daha sıkı 10/dk kovası var.
+  const writes = new FixedWindowCounter(ADMIN_WRITES_PER_MIN + 1, 60_000, 60_000);
+  app.addHook("onClose", async () => writes.close());
+  app.addHook("preHandler", async (req) => {
+    if (req.method === "GET" || req.method === "HEAD") return;
+    const key = authOf(req).user.id;
+    const wait = writes.blockedFor(key);
+    if (wait > 0) throw new AppError("RATE_LIMITED", { retryAfterSec: wait });
+    if (writes.hit(key)) throw new AppError("RATE_LIMITED", { retryAfterSec: writes.blockedFor(key) || 60 });
+  });
+
+  // P14b (AC-226): aranabilir firma seçici (≤ 20).
+  app.get("/tenants/options", async (req): Promise<TenantOptionsResponse> =>
+    tenantOptions(app.db, parseInput(tenantOptionsQuerySchema, req.query)),
+  );
 
   app.get("/tenants", async (req): Promise<TenantListResponse> => listTenants(app.db, parseInput(listTenantsQuerySchema, req.query)));
 
@@ -87,6 +107,9 @@ export async function adminTenantRoutes(app: FastifyInstance): Promise<void> {
     return switchTenant(app.db, fx(), auditContext(req), authOf(req), tokenHash, tenantId);
   });
 }
+
+/** P14a (AC-203): `/admin/tenants*` ve `/admin/switch-tenant` yazma üst sınırı (kullanıcı başına, dakika). */
+export const ADMIN_WRITES_PER_MIN = 30;
 
 export async function tenantSettingsRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", requireAuth);

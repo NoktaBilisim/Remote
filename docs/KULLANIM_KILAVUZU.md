@@ -10,14 +10,14 @@ geliştirilir (bkz. `README.md` "Yol haritası"); kılavuz da her paketle birlik
   (konsol), Oturum geçmişi, Destek talepleri, müşterinin ekranı gelmiyorsa
 - **Admin ve teknisyen için:** Müşteriler (müşteri firmalar, bağlantı gönderme, kayıtlı bilgisayarlar)
 - **Herkes için (teknisyen, Admin, Super Admin):** Giriş ve hesap güvenliği — iki adımlı doğrulama (2FA), kurtarma
-  kodları, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış; hesap menüsü, profil resmi ve tema; giriş
-  ekranında firma logosu
+  kodları, şifremi unuttum, Hesabım sayfası, tüm cihazlardan çıkış, kritik ayarlarda kimliğinizi yeniden doğrulama;
+  hesap menüsü, profil resmi ve tema; giriş ekranında firma logosu
 - **Admin için:** Kullanıcılar ve yetkiler (2FA sıfırlama dahil), Uzaktan kontrol yetkisi ve kayıtlar, Oturum geçmişi
-  yetkileri, Ayarlar > Destek talepleri (e-posta bildirimi dahil), Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
+  yetkileri, Ayarlar > Genel (oturum ve dosya sınırları), Ayarlar > Destek talepleri (e-posta bildirimi dahil), Ayarlar > E-posta (SMTP), Audit log, Ayarlar >
   Aydınlatma metni, Ayarlar > Güvenlik, Ayarlar > Logo, kullanıcının profil resmi, kişisel verilerin saklama süresi ve
   anonimleştirme, kurumsal bilgisayarlarda Hızlı Destek'e izin verme (AppLocker / antivirüs), ağ gereksinimleri
   (güvenlik duvarı izin listesi)
-- **Super Admin için:** Firmalar ve firma geçişi, tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
+- **Super Admin için:** Firmalar ve aranabilir firma seçici, tüm firmaların oturum geçmişi, destek talepleri, Sistem ayarları
   (MySQL, TURN, sistem logosu ve WhatsApp servisi), şifre/2FA kaybı
 
 ---
@@ -101,6 +101,36 @@ Başka bir bilgisayarda oturumunuzu açık unuttuysanız veya şüpheli bir duru
 2. Kaç oturumun kapatıldığı gösterilir. Şu an kullandığınız oturum açık kalır; diğer cihazlar birkaç saniye içinde
    giriş ekranına düşer ve o cihazlardaki açık destek oturumları sonlanır.
 
+### Kritik bir ayarı değiştirirken "Kimliğinizi doğrulayın" penceresi
+
+Bazı ayarlar tüm sistemi etkiler. Bunları kaydederken sistem, şifrenizle girmiş olsanız bile kimliğinizi bir kez daha
+doğrulamanızı ister. Bugün bu pencere şu işlemlerde çıkar (yalnız Super Admin bu ekranları görür):
+
+- **Sistem ayarları > MySQL**: **Kaydet**
+- **Sistem ayarları > TURN**: **Kaydet** ve **Ortam değerlerine dön**
+- **Sistem ayarları > WhatsApp servisi**: **Kaydet** ve **Ortam değişkenine dön**
+
+**Bağlantıyı Test Et** ve **Test Mesajı Gönder** düğmeleri kod istemez.
+
+Nasıl doğrularım?
+
+1. Kaydet'e basınca **Kimliğinizi doğrulayın** penceresi açılır.
+2. Telefonunuzdaki doğrulama uygulamasında görünen **6 haneli kodu** yazıp **Doğrula**'ya basın.
+3. Telefonunuz yanınızda değilse **Kurtarma kodu kullan**'a basın ve kurtarma kodlarınızdan birini yazın (ör.
+   `abcde-12345`). Kullanılan kurtarma kodu bir daha çalışmaz; hesabınıza "Kurtarma kodunuz kullanıldı" e-postası
+   gider (firmanın e-posta ayarı varsa). **Uygulama kodunu kullan** ile 6 haneli koda geri dönersiniz.
+4. Doğrulama başarılıysa işleminiz kendiliğinden tamamlanır; bir şeyi yeniden yazmanız gerekmez.
+5. Doğrulama **5 dakika** geçerlidir. Bu süre içinde yaptığınız diğer kritik değişiklikler yeniden kod istemez.
+
+**Kurtarma kodlarınız azaldı uyarısı:** Kurtarma koduyla doğruladıysanız ve **3 veya daha az** kodunuz kaldıysa pencere
+"Kurtarma kodlarınız azaldı" der ve kaç kod kaldığını gösterir. **İşleme devam et** ile işleminizi tamamlayın, sonra
+**Hesabım › İki adımlı doğrulama** bağlantısından yeni kodlar oluşturup parola kasanıza kaydedin.
+
+**Vazgeç**'e basarsanız değişiklik **kaydedilmez** ve "İşlem yapılmadı: kimliğinizi doğrulamadınız. Tekrar denediğinizde
+kod sorulur." yazar. Oturumunuz açık kalır. Hesabınızda 2FA kurulu değilse önce 2FA kurulum ekranına yönlendirilirsiniz.
+
+Her doğrulama denetim kaydına yöntemiyle (uygulama kodu ya da kurtarma kodu) yazılır; kodun kendisi yazılmaz.
+
 ### Oturum süreleri
 
 - 30 dakika hiçbir işlem yapmazsanız oturum kapanır; sayfa "Oturumunuz sona erdi" diyerek giriş ekranına döner.
@@ -108,13 +138,17 @@ Başka bir bilgisayarda oturumunuzu açık unuttuysanız veya şüpheli bir duru
 
 ### Sık karşılaşılan mesajlar (giriş ve hesap)
 
-| Mesaj                                                           | Anlamı / ne yapmalı                                                                        |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| "Doğrulama kodu hatalı."                                        | Telefonun saati doğru mu kontrol edin; yeni kodun gelmesini bekleyip tekrar deneyin        |
-| "Çok fazla istek…"                                              | Kısa süreli bekleme; birkaç dakika sonra tekrar deneyin                                    |
-| "Bu şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş."    | Yeni bağlantı isteyin; yalnız son gelen e-postadaki bağlantı çalışır                       |
-| "Oturumunuz sona erdi"                                          | 30 dk boşta kaldınız, 8 saat doldu veya başka bir cihazdan "Tüm cihazlardan çıkış" yapıldı |
-| "Devam etmeden önce iki adımlı doğrulamayı kurmanız gerekiyor." | Hesabınızda 2FA zorunlu; kurulum adımlarını izleyin                                        |
+| Mesaj                                                            | Anlamı / ne yapmalı                                                                        |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| "Doğrulama kodu hatalı."                                         | Telefonun saati doğru mu kontrol edin; yeni kodun gelmesini bekleyip tekrar deneyin        |
+| "Çok fazla istek…"                                               | Kısa süreli bekleme; birkaç dakika sonra tekrar deneyin                                    |
+| "Bu şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş."     | Yeni bağlantı isteyin; yalnız son gelen e-postadaki bağlantı çalışır                       |
+| "Oturumunuz sona erdi"                                           | 30 dk boşta kaldınız, 8 saat doldu veya başka bir cihazdan "Tüm cihazlardan çıkış" yapıldı |
+| "Devam etmeden önce iki adımlı doğrulamayı kurmanız gerekiyor."  | Hesabınızda 2FA zorunlu; kurulum adımlarını izleyin                                        |
+| "Kod hatalı ya da süresi geçti. Uygulamadaki güncel kodu girin." | Kimlik doğrulama penceresinde: telefon saatini kontrol edin, yeni kodu bekleyip yazın      |
+| "Kurtarma kodu hatalı ya da daha önce kullanılmış."              | Kullanmadığınız başka bir kurtarma kodunu yazın                                            |
+| "Çok fazla hatalı deneme. N dakika sonra tekrar deneyin."        | Hatalı kod sınırı doldu (girişteki 2FA ile ortak); belirtilen süre kadar bekleyin          |
+| "İşlem yapılmadı: kimliğinizi doğrulamadınız…"                   | Pencereyi kapattınız; değişiklik kaydedilmedi. Kaydet'e yeniden basın ve kodu girin        |
 
 ## Herkes için: Hesap menüsü, profil resmi ve tema
 
@@ -842,6 +876,13 @@ onaylasa bile kontrol açılmaz.
   Hızlı Destek'i yönetici olarak açmış. Kontrol engellenmez; müşteri de ekranında bir uyarı görür. Gerekmiyorsa
   müşteriden programı normal açmasını isteyin.
 
+### Sohbette "Çok hızlı yazıyorsunuz" uyarısı
+
+Konsolda ve müşterinin tarayıcı sayfasında sohbetten saniyede en çok **5 mesaj** gönderilebilir. Daha hızlı gönderirseniz
+mesaj **gönderilmez**, yazdığınız metin kutuda kalır ve altında "Çok hızlı yazıyorsunuz. Mesaj gönderilmedi; bir saniye
+sonra yeniden gönderin." yazar. Bir saniye bekleyip **Gönder**'e yeniden basın. Sınırın içinde gönderilen mesajlar karşı
+tarafa eksiksiz ulaşır.
+
 ---
 
 ## Teknisyen için: Oturum geçmişi
@@ -856,6 +897,11 @@ görüntüleme yetkisi yoktur; yöneticinize başvurun. Teknisyen (User) yalnız
    - **Başlangıç / Bitiş tarihi:** oturumun açıldığı gün (Türkiye saatiyle). Bitiş, başlangıçtan önce olamaz.
    - **Durum:** Bekliyor, Aktif, Bitti, Süresi doldu, İptal.
    - **Bağlantı:** İstemci (Hızlı Destek) veya Tarayıcı.
+   - **Teknisyen** (Admin ve Super Admin'de görünür): firmanızdaki **tüm** teknisyenler listelenir; yalnız bu sayfada
+     görünenler değil. Pasif hesaplar "(pasif)" ekiyle yer alır. Firma seçmemiş Super Admin'de liste yalnız ekrandaki
+     kayıtlardan gelir; alanın altında "tam liste için önce firma seçin" yazar.
+   - **Firma** (yalnız firma seçmemiş Super Admin'de): kutuya firma adının bir kısmını yazın; yazdığınıza uyan en çok
+     20 firma listelenir. Ok tuşlarıyla seçip Enter'a basabilirsiniz. Pasif firmalar "Pasif" ekiyle görünür.
    - **Müşteri adı:** adın içinde geçen en az 2 harf.
 3. **Filtrele**'ye basın. Filtreler adres çubuğuna yazılır; bağlantıyı kopyalayıp paylaşabilir, sayfayı yenileyebilirsiniz.
 4. Sıfırlamak için **Filtreleri temizle**.
@@ -909,8 +955,9 @@ kendiliğinden silinir. Bu oturumlar listede ve ayrıntıda **Anonimleştirildi*
 - Alanı boşaltıp kaydederseniz ticket/not silinir. Bitmiş oturumlara da not eklenebilir.
 - **Ticket no alanına kişisel veri (ad, telefon, e-posta) yazmayın.** Ticket no saklama süresi dolduktan sonra da korunur;
   yalnız yardım masası kayıt numarasını yazın. Müşteriyle ilgili bilgileri **Not** alanına yazın (not süre dolunca silinir).
-- Kaydetmeden başka sayfaya geçmeye çalışırsanız uyarı çıkar (**Sayfada kal** / **Kaydetmeden ayrıl**). Tarayıcının
-  geri tuşu bu uyarıyı her zaman vermez; önce kaydedin.
+- Kaydetmeden başka sayfaya geçmeye veya tarayıcının **geri** tuşuna basmaya çalışırsanız "Kaydedilmemiş değişiklikler
+  var" penceresi çıkar. **Sayfada kal** (veya Esc) ile formunuza dönersiniz; **Kaydetmeden ayrıl** değişiklikleri atar.
+  Sekmeyi kapatırken ya da sayfayı yenilerken tarayıcının kendi uyarısı çıkar.
 - Alanlar görünüyor ama düzenlenemiyorsa ("Ticket ve notu düzenleme yetkiniz yok") yöneticinizden yetki isteyin.
 
 ### Nasıl CSV olarak dışa aktarırım ve Excel'de açarım?
@@ -1202,6 +1249,8 @@ yapılır.
 
 - Rol değişince kilitsiz yetkiler yeni rolün başlangıç değerine döner (Yönetici → hepsi açık, Teknisyen → hepsi kapalı);
   kilitli yetkiler olduğu gibi kalır. Kaydetmeden önce tabloyu kontrol edin.
+- Rolü değiştirip kaydetmeden **eski role geri alırsanız** kullanıcının kayıtlı yetkileri tabloda olduğu gibi geri gelir;
+  elle açıp kapattığınız ayarlar kaybolmaz.
 - **Önemli:** Rol değişikliği kaydedilince kullanıcının **açık destek oturumları sonlanır**; müşteriyle bağlantısı kesilir.
   Teknisyeni Yönetici'ye yükseltmeden (veya geri almadan) önce açık oturumu olmadığından emin olun.
 
@@ -1212,6 +1261,17 @@ yapılır.
    sonlanır.
 3. Pasif kullanıcıyı listede **Durum: Pasif** filtresiyle bulursunuz. **Yeniden etkinleştir** ile geri açarsınız; rolü ve
    yetkileri önceki gibi kalır.
+
+### "Kayıt başkası tarafından değiştirildi" uyarısı
+
+Siz bir kullanıcıyı düzenlerken başka bir yönetici (veya kullanıcının kendisi, ör. 2FA kurarak) aynı kaydı değiştirmiş
+olabilir. Bu durumda **Kaydet**'e bastığınızda değişiklikleriniz kaydedilmez; formun üstünde "Kayıt başkası tarafından
+değiştirildi, yeniden yükleyin" uyarısı çıkar. Böylece diğer kişinin değişikliğini fark etmeden ezmezsiniz.
+
+1. Uyarıdaki **Yeniden yükle**'ye basın. Kaydın güncel hâli gelir; formdaki kaydedilmemiş değişiklikleriniz atılır.
+2. "Güncel kayıt yüklendi; değişikliklerinizi yeniden yapıp kaydedin" mesajını görünce yetkileri ve bilgileri kontrol
+   edin, değişikliklerinizi yeniden yapın.
+3. **Kaydet**'e basın.
 
 ### Kullanıcının profil resmi
 
@@ -1227,14 +1287,16 @@ audit log'a yazılır. Kullanıcı listesinde resmi olanların resmi, olmayanlar
 
 ### Sık karşılaşılan mesajlar (Kullanıcılar)
 
-| Mesaj                                                        | Ne yapmalı                                                                               |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| Kullanıcıları görüntüleme yetkiniz yok.                      | "Kullanıcılar → Görüntüle" yetkisini yöneticinizden isteyin.                             |
-| Bu e-posta ile bir kullanıcı zaten var                       | Başka bir e-posta girin (e-posta tüm firmalarda tekildir).                               |
-| Bu kullanıcıyı düzenleme yetkiniz yok; bilgiler salt okunur. | Kullanıcı sizden geniş yetkili veya sizde "Düzenle" yetkisi yok.                         |
-| Bu kullanıcı pasif; giriş yapamaz ve düzenlenemez.           | Önce **Yeniden etkinleştir**.                                                            |
-| Kullanıcı bulunamadı                                         | Kullanıcı başka firmaya ait veya adres yanlış; **Kullanıcılara dön**.                    |
-| Değişiklikler kaydedilemedi                                  | İnternet bağlantınızı kontrol edip tekrar **Kaydet**'e basın; değerleriniz formda durur. |
+| Mesaj                                                        | Ne yapmalı                                                                                          |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Kullanıcıları görüntüleme yetkiniz yok.                      | "Kullanıcılar → Görüntüle" yetkisini yöneticinizden isteyin.                                        |
+| Bu e-posta ile bir kullanıcı zaten var                       | Başka bir e-posta girin (e-posta tüm firmalarda tekildir).                                          |
+| Bu kullanıcıyı düzenleme yetkiniz yok; bilgiler salt okunur. | Kullanıcı sizden geniş yetkili veya sizde "Düzenle" yetkisi yok.                                    |
+| Bu kullanıcı pasif; giriş yapamaz ve düzenlenemez.           | Önce **Yeniden etkinleştir**.                                                                       |
+| Kullanıcı bulunamadı                                         | Kullanıcı başka firmaya ait veya adres yanlış; **Kullanıcılara dön**.                               |
+| Değişiklikler kaydedilemedi                                  | İnternet bağlantınızı kontrol edip tekrar **Kaydet**'e basın; değerleriniz formda durur.            |
+| Kayıt başkası tarafından değiştirildi, yeniden yükleyin      | **Yeniden yükle**'ye basın, değişikliklerinizi yeniden yapıp kaydedin.                              |
+| Çok fazla istek…                                             | Dakikada en çok 30 kullanıcı değişikliği (yeni kullanıcı için 10) yapılabilir; bir dakika bekleyin. |
 
 ---
 
@@ -1282,6 +1344,31 @@ müşterinin onayı kaydedilmeden teknisyen bilgisayarı kullanamaz.
 - Güvenlik gereği bekleyen bir oturumun 8 haneli kodu yalnız oturumu açan teknisyene gösterilir.
 - Kayıtlar: not/ticket değişikliği `session.updated` (not metni değil, yalnız uzunluğu), her dışa aktarma
   `session.exported` (filtreler ve satır sayısı; aranan müşteri adı değil) olarak denetim kaydına yazılır.
+
+## Admin için: Ayarlar > Genel (oturum ve dosya sınırları)
+
+**Ayarlar > Genel** sekmesi (kaydırıcı simgesi) firmanızdaki destek oturumlarının süre ve sayı sınırlarını ve dosya
+aktarımı boyut sınırını belirler. Sekmeyi "Ayarlar → Görüntüle" yetkisi olan görür, "Ayarlar → Düzenle" yetkisi olan
+değiştirir. Düzenleme yetkiniz yoksa alanlar soluk görünür ve değiştirilemez.
+
+| Alan                                 | Aralık | Anlamı                                                                        |
+| ------------------------------------ | ------ | ----------------------------------------------------------------------------- |
+| Kod ve bağlantı geçerliliği (dakika) | 15–30  | Müşteri bu sürede bağlanmazsa 8 haneli kod ve oturum bağlantısı geçersiz olur |
+| En uzun oturum süresi (saat)         | 1–8    | Bağlı bir oturum bu süreyi aşınca kendiliğinden biter                         |
+| Teknisyen başına açık oturum sınırı  | 1–10   | Bir teknisyenin aynı anda bekleyen veya bağlı oturum sayısı                   |
+| Dosya boyutu sınırı (MB)             | 1–2048 | Oturumda gönderilen ve alınan tek dosyanın en büyük boyutu                    |
+
+Nasıl değiştiririm?
+
+1. **Ayarlar > Genel**'i açın.
+2. Değeri değiştirin. Altta "Genel ayarlarda kaydedilmemiş değişiklik var" çubuğu çıkar.
+3. **Kaydet**'e basın; "Genel ayarlar kaydedildi" yazar. Vazgeçmek için **Vazgeç**.
+
+- Aralık dışındaki değerde kayıt yapılmaz; hatalı alanın altında neden yazar ve imleç o alana gider.
+- Yeni değerler **yeni oturumlarda** geçerli olur; açık oturumlar eski sınırla sürer.
+- Her değişiklik denetim kaydına eski → yeni değerle yazılır.
+- Kaydetmeden sayfadan ayrılmaya çalışırsanız kaydedilmemiş değişiklik uyarısı çıkar.
+- Ayarlar okunamazsa sayfada hata ve **Tekrar dene** düğmesi görünür.
 
 ## Admin için: Ayarlar > Destek talepleri
 
@@ -1686,8 +1773,11 @@ Süper Yönetici içindir" uyarısı çıkar.
 
 ### Firma seçici (üst menü)
 
-- Üst menüde bina simgesiyle **etkin firma** görünür ("Firma seçilmedi" veya firma adı). Tıklayınca aktif firmalar listelenir
-  (ilk 100; arama henüz yok). Bir firmaya tıklayınca o firmaya geçersiniz; **Firma bağlamından çık** ile çıkarsınız.
+- Üst menüde bina simgesiyle **etkin firma** görünür ("Firma seçilmedi" veya firma adı). Tıklayınca arama kutusu açılır.
+- **Firma adı yazın** kutusuna adın bir kısmını yazın; yazmayı bıraktıktan kısa süre sonra uyan en çok **20 aktif firma**
+  listelenir (adı yazdığınızla başlayanlar önce). Şu an içinde olduğunuz firmanın yanında "Etkin" yazar.
+- Fareyle tıklayarak veya **↓ / ↑** ve **Enter** ile seçin; **Esc** listeyi kapatır. Seçince o firmaya geçersiniz;
+  **Firma bağlamından çık** ile çıkarsınız. Pasif firmalar bu listede çıkmaz.
 - Firma seçiliyken Kullanıcılar, Talepler, Müşteriler ve Ayarlar o firmanın verisini gösterir. Seçili değilken bu
   ekranlar "Firma seçin" der; Oturum geçmişi ve Oturumlar ise tüm firmaları gösterir (Oturumlar'da işlem yapmak için
   firma seçmek gerekir; bkz. "Teknisyen için: Oturumlar ve bekleme odası").
@@ -1732,7 +1822,9 @@ Süper Yönetici içindir" uyarısı çıkar.
 ## Super Admin için: Sistem ayarları (MySQL ve TURN)
 
 Kenar menüsünde **Sistem ayarları** (sunucu-dişli simgesi) yalnız Super Admin'e görünür; Admin bu adresi açarsa "Sistem
-ayarları yalnız Super Admin içindir." yazar. Bu ayarlar **tüm firmalar için** geçerlidir. Sayfada dört sekme vardır:
+ayarları yalnız Super Admin içindir." yazar. MySQL, TURN ve WhatsApp ayarlarını kaydederken veya ortam değerine dönerken
+son 5 dakika içinde doğrulama yapmadıysanız **Kimliğinizi doğrulayın** penceresi açılır (bkz. "Kritik bir ayarı
+değiştirirken 'Kimliğinizi doğrulayın' penceresi"). Bu ayarlar **tüm firmalar için** geçerlidir. Sayfada dört sekme vardır:
 **MySQL**, **TURN**, **Sistem logosu** (bkz. "Super Admin için: Sistem logosu") ve **WhatsApp servisi** (bkz. "Super
 Admin için: Sistem ayarları > WhatsApp servisi"). Her değişiklik audit log'a yazılır (firma alanı boş, "Sistem" kaydı olarak).
 
@@ -1741,26 +1833,29 @@ bu ekrandan kaydedilmiş değer.
 
 ### MySQL: alanlar
 
-| Alan           | Açıklama                                                                                                                                       |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sunucu (host)  | Veritabanı sunucusunun adı veya IP'si (Docker'da genelde `mysql`)                                                                              |
-| Port           | Varsayılan 3306                                                                                                                                |
-| Veritabanı adı | Harf, rakam, `_ $ -`; en çok 64 karakter                                                                                                       |
-| Kullanıcı adı  | Uygulamanın kullandığı **`app`** kullanıcısı (root veya migrator değil)                                                                        |
-| Şifre          | Maskelidir. Kaydedilen şifre forma geri yazılmaz ("Kayıtlı — değiştirmek için yazın"); boş bırakırsanız korunur. Sunucuda şifrelenmiş saklanır |
+| Alan           | Açıklama                                                                                                                                                                               |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sunucu (host)  | Veritabanı sunucusunun adı veya IP'si (Docker'da genelde `mysql`)                                                                                                                      |
+| Port           | Varsayılan 3306                                                                                                                                                                        |
+| Veritabanı adı | Harf, rakam, `_ $ -`; en çok 64 karakter                                                                                                                                               |
+| Kullanıcı adı  | Uygulamanın kullandığı **`app`** kullanıcısı (root veya migrator değil)                                                                                                                |
+| Şifre          | Maskelidir. Kaydedilen şifre forma geri yazılmaz ("Kayıtlı — değiştirmek için yazın"); boş bırakırsanız korunur. Sunucuda şifrelenmiş saklanır                                         |
+| TLS gerekli    | **Bağlantı güvenliği** bölümündeki anahtar. Açıkken MySQL'e yalnız şifreli (TLS) bağlantı kurulur ve sunucu sertifikası doğrulanır. İnternet üzerinden erişilen sunucularda açık tutun |
 
 ### MySQL: bağlantıyı nasıl test ederim?
 
 1. Alanları doldurun (kaydetmeniz gerekmez; test **formdaki değerlerle** yapılır).
 2. **Bağlantıyı Test Et**'e basın. "Test 10 saniyeye kadar sürebilir…" yazar.
 3. Sonuç: **Bağlantı başarılı** (süre ms ile) veya **Bağlantı kurulamadı** ve nedeni (sunucuya bağlanılamadı, kimlik
-   reddedildi, veritabanı yok, zaman aşımı, kayıtlı şifre okunamadı). Başarısız testte süre gösterilmez.
+   reddedildi, veritabanı yok, zaman aşımı, TLS kurulamadı, kayıtlı şifre okunamadı). Başarısız testte süre gösterilmez.
 
 - **Şifre kuralı:** Şifre alanı boşsa kayıtlı şifre **yalnız aynı sunucu, port ve kullanıcı için** kullanılır. Başka bir
   sunucu veya kullanıcı deniyorsanız şifreyi yazın; yazmazsanız şifre alanının altında "Farklı sunucu veya kullanıcı için
   şifreyi girin" çıkar. Kayıtlı şifre başka bir sunucuya hiçbir zaman gönderilmez.
-- **TLS uyarısı:** Test bağlantısı şifreleme (TLS) kullanmaz; şifre ağda açık gider. Sarı uyarı kutusu bunu her zaman
-  hatırlatır. Yalnız aynı sunucudaki veya güvenilir iç ağdaki MySQL'i test edin.
+- **TLS gerekli açıkken:** Test TLS ile yapılır ve sertifika, yazdığınız sunucu adına göre doğrulanır. Sunucu TLS
+  desteklemiyorsa veya sertifikası adla uyuşmuyorsa test "Güvenli (TLS) bağlantı kurulamadı…" hatasıyla biter.
+- **TLS gerekli kapalıyken:** Test şifreleme kullanmaz; şifre ağda açık gidebilir. Sarı uyarı kutusu bunu hatırlatır.
+  Bu kipte yalnız aynı sunucudaki veya güvenilir iç ağdaki MySQL'i test edin.
 - Kişi başına dakikada 5, tüm Super Admin'ler için toplam dakikada 20 test yapılabilir.
 
 ### MySQL: kaydetmek neyi değiştirir?
@@ -1795,16 +1890,18 @@ onaylarsanız paneldeki adresler ve anahtar silinir, uygulama yeniden `.env` de�
 
 ### Sık karşılaşılan mesajlar (Sistem ayarları)
 
-| Mesaj                                                                       | Ne yapmalı                                                                                                                     |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Farklı sunucu veya kullanıcı için şifreyi girin                             | Şifre alanını doldurun                                                                                                         |
-| Kimlik reddedildi (kullanıcı adı veya şifre hatalı)                         | Kullanıcı adı/şifreyi kontrol edin                                                                                             |
-| Veritabanı bulunamadı veya bu kullanıcının erişimi yok                      | Veritabanı adını ve kullanıcının yetkisini kontrol edin                                                                        |
-| Sunucuya bağlanılamadı / zaman aşımı                                        | Sunucu adı, port ve ağ erişimini kontrol edin                                                                                  |
-| Kayıtlı şifre okunamadı; şifreyi yeniden girin                              | Sunucunun şifreleme anahtarı değişmiş olabilir; şifreyi yazıp kaydedin                                                         |
-| Gizli anahtar en az 32 karakter olmalı / boşluk ve # içermeyen ASCII olmalı | coturn'deki anahtarı kurallara uygun üretin ve iki yerde aynı yapın                                                            |
-| En az bir adres gerekli                                                     | `.env` değerlerine dönmek için **Ortam değerlerine dön**'ü kullanın                                                            |
-| Çok fazla istek                                                             | Dakikalık test sınırı (5) ya da kaydetme/geri dönme sınırı (MySQL, TURN ve WhatsApp için toplam 10) doldu; bir dakika bekleyin |
+| Mesaj                                                                                       | Ne yapmalı                                                                                                                          |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Farklı sunucu veya kullanıcı için şifreyi girin                                             | Şifre alanını doldurun                                                                                                              |
+| Kimlik reddedildi (kullanıcı adı veya şifre hatalı)                                         | Kullanıcı adı/şifreyi kontrol edin                                                                                                  |
+| Veritabanı bulunamadı veya bu kullanıcının erişimi yok                                      | Veritabanı adını ve kullanıcının yetkisini kontrol edin                                                                             |
+| Sunucuya bağlanılamadı / zaman aşımı                                                        | Sunucu adı, port ve ağ erişimini kontrol edin                                                                                       |
+| Kayıtlı şifre okunamadı; şifreyi yeniden girin                                              | Sunucunun şifreleme anahtarı değişmiş olabilir; şifreyi yazıp kaydedin                                                              |
+| Güvenli (TLS) bağlantı kurulamadı: sunucu TLS desteklemiyor veya sertifikası doğrulanamadı. | MySQL'de TLS'yi açın, sertifikanın sunucu adıyla eşleştiğini kontrol edin; güvenilir iç ağdaysa **TLS gerekli**'yi kapatabilirsiniz |
+| Kimliğinizi doğrulayın (pencere)                                                            | Kaydetmek için doğrulama uygulamanızdaki 6 haneli kodu veya bir kurtarma kodunu girin                                               |
+| Gizli anahtar en az 32 karakter olmalı / boşluk ve # içermeyen ASCII olmalı                 | coturn'deki anahtarı kurallara uygun üretin ve iki yerde aynı yapın                                                                 |
+| En az bir adres gerekli                                                                     | `.env` değerlerine dönmek için **Ortam değerlerine dön**'ü kullanın                                                                 |
+| Çok fazla istek                                                                             | Dakikalık test sınırı (5) ya da kaydetme/geri dönme sınırı (MySQL, TURN ve WhatsApp için toplam 10) doldu; bir dakika bekleyin      |
 
 ## Super Admin için: Sistem logosu
 

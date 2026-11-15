@@ -3,7 +3,8 @@
 // AC-157/160 (kabul/ret audit + PII taraması), AC-158/159 (geçmiş detay/CSV, anonimleştirme).
 import { REQUEST_BUSY_MESSAGE } from "@remote/contracts/api/requests";
 import { afterEach, describe, expect, it } from "vitest";
-import { anonymizeRequests } from "../../src/requests/jobs.ts";
+import { anonymizeRequestsOf } from "../../src/requests/jobs.ts";
+import { forEachRetentionTenant } from "../helpers/retention.ts";
 import { sha256Hex } from "../../src/lib/ids.ts";
 import { createConsentText, createTenant, createUser, loginAs, ORIGIN, testDb, type Session } from "../helpers/app.ts";
 import { createRequestRow, createRequestSettings, requestClient, waitMsg } from "../helpers/requests.ts";
@@ -419,7 +420,7 @@ describe("AC-158 / AC-159 geçmiş ve anonimleştirme", () => {
     const young90 = await mk(short.id, 80);
     const mid730 = await mk(long.id, 400);
     const old730 = await mk(long.id, 740);
-    await anonymizeRequests(l.app.requests);
+    await forEachRetentionTenant(l.app.requests, anonymizeRequestsOf);
     const pii = {
       customerName: null,
       customerPhone: null,

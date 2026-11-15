@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { BIG_MEM_WARN_BYTES, canStreamToDisk, DISK_MIN_BYTES, type Transfer } from "@/lib/dc/files";
+import { BIG_MEM_WARN_BYTES, canStreamToDisk, shouldWarnLargeWrite, type Transfer } from "@/lib/dc/files";
 import type { Collab } from "@/lib/dc/use-collab";
 import { formatBytes } from "@/lib/format";
 import { t, type MessageKey } from "@/lib/i18n";
@@ -166,7 +166,7 @@ export function FilesPanel({ collab, allowed, peerName }: { collab: Collab; allo
           </>
         }
       >
-        {pending && pending.size > DISK_MIN_BYTES && canStreamToDisk() && (
+        {pending && shouldWarnLargeWrite(pending.size) && (
           // S-P5-T2-1 (P13a): tarayıcı kayıt penceresi seçilen dosyayı hemen oluşturur/boşaltır → uyarı diyalogdan ÖNCE
           <Alert tone="warning" testId="file-big">
             <span className="block">{t("p5.files.bigDisk")}</span>

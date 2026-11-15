@@ -21,6 +21,7 @@ function authOf(u: { id: string; email: string; username: string }, tenantId: st
     mfaStage: "ok" as const,
     mfaRequired: false,
     totpEnabled: false,
+    stepUpAt: null,
     logoPath: null,
     permissions: new Set(["sessions.delete"]),
     user: {

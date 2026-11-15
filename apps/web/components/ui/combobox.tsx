@@ -17,7 +17,9 @@ type Status = "idle" | "loading" | "ready" | "error";
 /**
  * Aranabilir seçim kutusu (DESIGN §6 `ui/combobox.tsx`, P8c): WAI-ARIA 1.2 combobox + listbox.
  * `input role=combobox` + `aria-expanded/aria-controls/aria-activedescendant`; ↑/↓/Home/End dolaşır, Enter seçer,
- * Esc kapatır (kapalıyken metni temizler), Tab kapatır. Yazım 300 ms gecikmeyle `load`'u çağırır (önceki istek iptal).
+ * Esc kapatır (kapalıyken metni temizler), Tab kapatır. Yazım `debounceMs` (varsayılan 300 ms; P14b AC-226 firma
+ * seçicide 250 ms) gecikmeyle `load`'u çağırır (önceki istek iptal). Esc'yi bileşen işlediyse olay üst öğeye (ör. menü)
+ * yayılmaz — açık liste kapanır, menü açık kalır. `openOnFocus`: odaklanınca liste açılır (menü içi seçici).
  * Liste anında açılır (sık kullanılan kontrol, animasyonsuz). Seçim yoksa odak kaybında metin seçili değere döner.
  */
 export function Combobox({
@@ -31,6 +33,10 @@ export function Combobox({
   disabled = false,
   hideLabel = false,
   testId,
+  debounceMs = COMBO_DEBOUNCE_MS,
+  openOnFocus = false,
+  inputRef: externalRef,
+  inline = false,
 }: {
   label: string;
   value: ComboOption | null;
@@ -42,6 +48,12 @@ export function Combobox({
   disabled?: boolean;
   hideLabel?: boolean;
   testId?: string;
+  debounceMs?: number;
+  openOnFocus?: boolean;
+  /** Dışarıdan odak taşımak için (ör. menü açılınca arama alanına). */
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+  /** Liste akışta (üstte yüzmez) — menü/panel içinde altındaki öğelerin üstünü örtmesin. */
+  inline?: boolean;
 }) {
   const id = useId();
   const listId = `${id}-list`;
@@ -52,7 +64,8 @@ export function Combobox({
   const [active, setActive] = useState(-1);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ctrl = useRef<AbortController | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const ownRef = useRef<HTMLInputElement>(null);
+  const inputRef = externalRef ?? ownRef;
 
   // Dışarıdan değişen seçim (ör. filtre sıfırlandı) metne yansır
   const valueId = value?.id ?? null;
@@ -95,7 +108,7 @@ export function Combobox({
 
   const schedule = (q: string) => {
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => fetchNow(q), COMBO_DEBOUNCE_MS);
+    timer.current = setTimeout(() => fetchNow(q), debounceMs);
   };
 
   const openList = () => {
@@ -124,6 +137,7 @@ export function Combobox({
     const a = comboKey(e.key, { open, active, count: items.length, hasText: text !== "" });
     if (a.kind === "none") return;
     if (e.key !== "Tab") e.preventDefault();
+    if (e.key === "Escape") e.stopPropagation();
     if (a.kind === "open") openList();
     else if (a.kind === "close") close();
     else if (a.kind === "clear") clear();
@@ -173,9 +187,11 @@ export function Combobox({
             schedule(e.target.value);
           }}
           onClick={openList}
+          onFocus={openOnFocus ? openList : undefined}
           onKeyDown={onKey}
           onBlur={() => {
-            close();
+            // inline: liste menünün parçası, odak kaybında kapanmaz (kapanırsa altındaki düğmeler tıklama anında kayar)
+            if (!inline) close();
             setText(valueLabel);
           }}
           className={`min-h-11 w-full rounded-md border bg-surface pr-12 pl-3 text-base text-fg shadow-sm placeholder:text-fg-muted focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm ${
@@ -194,7 +210,13 @@ export function Combobox({
           </button>
         )}
         {open && (
-          <div className="absolute top-full right-0 left-0 z-30 mt-1 rounded-md border border-border bg-surface p-1 shadow-lg">
+          <div
+            className={
+              inline
+                ? "mt-1 rounded-md border border-border bg-surface p-1"
+                : "absolute top-full right-0 left-0 z-30 mt-1 rounded-md border border-border bg-surface p-1 shadow-lg"
+            }
+          >
             <ul id={listId} role="listbox" aria-label={label} className="max-h-64 overflow-y-auto">
               {status !== "loading" &&
                 items.map((o, i) => (

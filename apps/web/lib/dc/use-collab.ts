@@ -11,7 +11,7 @@ import { annotReducer, initialAnnot, type AnnotState } from "./annot";
 import { chatReducer, initialChat, prepareChat } from "./chat";
 import { parseCtl, type CtlMessage, type FileDirection, type FileMetaMsg } from "./ctl";
 import { FileTransfers, type Transfer } from "./files";
-import { inboundLimiter } from "./rate";
+import { chatSendLimiter, inboundLimiter } from "./rate";
 
 export interface CollabOptions {
   inbound: FileDirection;
@@ -36,6 +36,9 @@ const e2eOfferTimeout = () =>
 
 const e2eSelfThrottle = () =>
   !(process.env.NEXT_PUBLIC_RS_E2E === "1" && (globalThis as { __rsNoSelfThrottle?: boolean }).__rsNoSelfThrottle);
+
+/** `sendChat` sonucu: gönderildi / hız sınırı (AC-227) / kanal kapalı veya geçersiz metin. */
+export type ChatSendResult = "sent" | "rate" | "error";
 
 export function useCollab(ch: Channels | null, o: CollabOptions) {
   const [chat, chatDispatch] = useReducer(chatReducer, initialChat);
@@ -98,14 +101,18 @@ export function useCollab(ch: Channels | null, o: CollabOptions) {
     [ch],
   );
 
+  // AC-227: gönderen sınırı — aşımda mesaj gönderilmez ve kuyruğa alınmaz ("rate"); metin girişte kalır
+  const chatLimit = useRef(chatSendLimiter());
   const sendChat = useCallback(
-    (text: string): boolean => {
+    (text: string): ChatSendResult => {
       const item = prepareChat(text);
-      if (!item || !sendCtl({ t: "chat", id: item.id, text: item.text, ts: item.ts })) return false;
+      if (!item || ch?.ctl.readyState !== "open") return "error";
+      if (!chatLimit.current.take()) return "rate";
+      if (!sendCtl({ t: "chat", id: item.id, text: item.text, ts: item.ts })) return "error";
       chatDispatch({ type: "out", item });
-      return true;
+      return "sent";
     },
-    [sendCtl],
+    [ch, sendCtl],
   );
 
   /** Çizim gönder + yerelde uygula (geri al/temizle kendi listemizde de geçerli). */

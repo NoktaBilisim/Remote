@@ -75,6 +75,35 @@ export async function cancelTenantPending(tx: Prisma.TransactionClient, tenantId
   return r.count;
 }
 
+/**
+ * P14a (AC-205): bekleyen talepler → CANCELLED(TENANT_PASSIVE), pasife alma TX'inin İÇİNDE (kilitli tenant satırından
+ * sonra). Dönen kimlikler commit sonrası müşteri/panel bildirimleri ve satır başı audit için.
+ */
+export async function cancelTenantRequests(tx: Prisma.TransactionClient, tenantId: string, at: Date): Promise<string[]> {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM support_requests WHERE tenant_id = ${tenantId} AND status = 'PENDING' FOR UPDATE`;
+  if (rows.length === 0) return [];
+  const ids = rows.map((r) => r.id);
+  await tx.supportRequest.updateMany({
+    where: { id: { in: ids }, status: "PENDING" },
+    data: { status: "CANCELLED", cancelReason: "TENANT_PASSIVE", closedAt: at },
+  });
+  return ids;
+}
+
+/** P14b (AC-226): firma seçici — önek eşleşmesi önce, aktif önce, ada göre; harf duyarsızlığı unicode_ci harmanlamasından. */
+export function tenantOptions(db: DbOrTx, q: string | undefined, limit: number) {
+  const like = q === undefined ? null : q.replace(/[\\%_]/g, "\\$&");
+  if (like === null)
+    return db.$queryRaw<{ id: string; name: string; slug: string; status: string }[]>`
+      SELECT id, name, slug, status FROM tenants WHERE deleted_at IS NULL
+      ORDER BY (status = 'ACTIVE') DESC, name, id LIMIT ${limit}`;
+  return db.$queryRaw<{ id: string; name: string; slug: string; status: string }[]>`
+    SELECT id, name, slug, status FROM tenants
+    WHERE deleted_at IS NULL AND name LIKE CONCAT('%', ${like}, '%')
+    ORDER BY (name LIKE CONCAT(${like}, '%')) DESC, (status = 'ACTIVE') DESC, name, id LIMIT ${limit}`;
+}
+
 export async function setActingTenant(db: DbOrTx, sessionId: string, tenantId: string | null): Promise<void> {
   await db.authSession.update({ where: { id: sessionId }, data: { actingTenantId: tenantId }, select: { id: true } });
 }

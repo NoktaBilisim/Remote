@@ -10,6 +10,7 @@ import {
   WS_REQUEST_CLOSE,
   WS_REQUEST_PREFIX,
   WS_REQUEST_RATE_PER_SEC,
+  panelRetryReason,
   type PanelOutbound,
   type RequestOutbound,
 } from "@remote/contracts/ws-request";
@@ -65,7 +66,9 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
     if (url.search !== "") return { status: 403, reason: "query" };
     if (!publicClientAllowed(req.headers, env.allowedOrigins, "AGENT")) return { status: 403, reason: "client_kind" };
     const ip = ipKey(ctx.ip);
-    if (hitBlocked(limits.wsUpgrade, ip) > 0 || blocked(limits.refInvalid, ip) > 0) return { status: 429, reason: "rate" };
+    // P14a (AC-210): `wsUpgrade` kovası güvenilen CIDR'ı (talebin tenant ayarı) sayılmaz → sayım güven belirlenince. Burada
+    // yalnız zaten kilitli anahtar reddedilir (sayım yok); ref kovası herkese aynen.
+    if (blocked(limits.wsUpgrade, ip) > 0 || blocked(limits.refInvalid, ip) > 0) return { status: 429, reason: "rate" };
     const protos = String(req.headers["sec-websocket-protocol"] ?? "")
       .split(",")
       .map((s) => s.trim());
@@ -84,6 +87,7 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
     if (row.status !== "PENDING" && !accepted) return { status: 403, reason: "state" };
     const settings = await repo.settingsByTenant(db, row.tenantId);
     const trusted = settings ? cidrListMatcher(repo.jsonStrings(settings.trustedCidrs))(ctx.ip) : false;
+    if (!trusted && hitBlocked(limits.wsUpgrade, ip) > 0) return { status: 429, reason: "rate" };
     if (!trusted && hub.ipFull(ip)) return { status: 429, reason: "ip_sockets" }; // G-E9-9; güvenilen CIDR muaf (G-E9-16)
     if (isOutdated(row.clientVersion, env.MIN_AGENT_VERSION)) return { status: 426, reason: "outdated" };
 
@@ -158,8 +162,18 @@ export function requestChannels(app: FastifyInstance, svc: RequestService, reval
     if (!token || !auth || auth.user.mustChangePassword) return { status: 403, reason: "auth" };
     if (!auth.permissions.has("support_requests.view") || !auth.tenantId) return { status: 403, reason: "permission" };
     const tenantId = auth.tenantId;
+    // P14a (AC-216): tarayıcı el sıkışma yanıtını okuyamaz → oturum kovası aşımında upgrade kabul edilip hemen
+    // 4429 `retry=<sn>` ile kapatılır (WS'de Retry-After yok). IP kovası (yukarıda, HTTP 429) aynen.
+    const sessionKey = sha256Hex(token);
+    let wait = limits.panelSession.blockedFor(sessionKey);
+    if (wait === 0 && limits.panelSession.hit(sessionKey)) wait = limits.panelSession.blockedFor(sessionKey);
+    if (wait > 0) {
+      rooms.metrics.inc("rs_ws_rejected_total", { role: "panel", reason: "session_rate" });
+      accept("panel", (ws) => ws.close(WS_REQUEST_CLOSE.TOO_MANY, panelRetryReason(wait)));
+      return null;
+    }
     accept("panel", (ws) => {
-      const conn: PanelConn = { peer: jsonPeer<PanelOutbound>(ws), userId: auth.user.id, tokenHash: sha256Hex(token), token, tenantId };
+      const conn: PanelConn = { peer: jsonPeer<PanelOutbound>(ws), userId: auth.user.id, tokenHash: sessionKey, token, tenantId };
       if (!hub.addPanel(conn)) return void ws.close(WS_REQUEST_CLOSE.TOO_MANY, "too_many");
       void repo.countPending(db, tenantId).then((pending) => conn.peer.send({ t: "queue.count", pending }));
       ws.on("message", () => {

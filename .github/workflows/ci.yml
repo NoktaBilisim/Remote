@@ -1,4 +1,4 @@
-# CI (P1): format:check (P14a) -> lint -> type-check -> test (MySQL) -> build (+ Docker imajları) ; audit, lisans, gitleaks.
+# CI (P1): format:check (P14a) -> lint (+ shellcheck/actionlint, P14a A5) -> type-check -> test (MySQL) -> build (+ Docker imajları) ; audit, lisans, gitleaks.
 # G-18: tüm Action'lar commit SHA ile sabit; varsayılan izin yalnız `contents: read`; secret kullanılmaz
 # (fork PR'leri de güvenle çalışır). main'e merge için tüm job'lar "required status check" yapılır (runbook).
 name: ci
@@ -31,6 +31,24 @@ jobs:
       - run: pnpm format:check # ADR-0024: Prettier, ana dalda 0 fark (kapsam .prettierignore)
       - run: pnpm -r --if-present run lint
       - run: pnpm -r --if-present run typecheck
+
+  shell:
+    name: shellcheck + actionlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      # P14a A5 (mimari-e11 §4.6): tüm deploy/**/*.sh + scripts/*.sh. Eşik `warning`: info/style notları (SC2016 bilinçli
+      # tek tırnaklı `sh -c '$X'`, SC2015 `a && b || c` test deyimi) düşürmez; uyarı/hata düşürür. İmajlar digest ile sabit.
+      - name: shellcheck
+        run: |
+          find deploy scripts -name '*.sh' -print0 | sort -z | xargs -0 docker run --rm -e LANG=C.UTF-8 -v "$PWD:/mnt:ro" -w /mnt \
+            koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d -S warning
+      - name: actionlint (.github/workflows)
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" -w /repo \
+            rhysd/actionlint:1.7.8@sha256:96d4a8c87dbbfb3bdd324f8fdc285fc3df5261e2decc619a4dd7e8ee52bbfd46 -color
 
   test:
     name: test (MySQL 8.4)
@@ -110,7 +128,10 @@ jobs:
             -e 's|^SESSION_REF_KEY=$|SESSION_REF_KEY=ci-only-0123456789abcdef0123456789abcdef|' \
             -e 's|^EDGE_PROXY_SECRET=$|EDGE_PROXY_SECRET=ci-only-edge-0123456789abcdef0123456789|' \
             -e 's|^TURN_URLS=$|TURN_URLS=stun:127.0.0.1:3478|' \
-            -e 's|^TURN_SECRET=$|TURN_SECRET=ci-only-turn-0123456789abcdef0123456789|' .env
+            -e 's|^TURN_SECRET=$|TURN_SECRET=ci-only-turn-0123456789abcdef0123456789|' \
+            -e 's|^APP_ENCRYPTION_KEYS=$|APP_ENCRYPTION_KEYS=v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=|' .env
+          # P14a A5: P10'dan (f537cbe) beri compose APP_ENCRYPTION_KEYS'i zorunlu ister (:?); CI'ya özgü sahte değer
+          # (32 sıfır bayt, sır değil). Zorunlu bir anahtar eklenince bu listeye eklenir (runbook §3).
           docker compose config --quiet
           if docker compose config --format json | jq -e '.services.server.environment.MIGRATE_DATABASE_URL'; then
             echo 'server MIGRATE_DATABASE_URL görmemeli'; exit 1

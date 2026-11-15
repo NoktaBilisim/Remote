@@ -137,7 +137,12 @@ describe("P11 MySQL bağlantı testi", () => {
     let destroyed = false;
     let resolveConn: (c: TextConnection) => void = () => undefined;
     const drv: MariadbDriver = { createConnection: () => new Promise<TextConnection>((r) => (resolveConn = r)) };
-    const out = await probeMysql({ host: "db.test", port: 3306, database: "d", user: "u", password: "p" }, 50, drv);
+    const out = await probeMysql(
+      { host: "db.test", port: 3306, database: "d", user: "u", password: "p", requireTls: false },
+      50,
+      drv,
+      async () => ["10.0.0.5"],
+    );
     expect(out).toMatchObject({ ok: false, reason: "timeout" });
     expect(out.latencyMs).toBeLessThan(1000);
     resolveConn({ query: async () => [], end: async () => undefined, destroy: () => (destroyed = true) });
@@ -153,7 +158,7 @@ describe("P11 MySQL bağlantı testi", () => {
         return { query: async (sql) => void calls.push(sql), end: async () => void calls.push("end"), destroy: () => undefined };
       },
     };
-    const out = await probeMysql({ host: "[::1]", port: 3306, database: "d", user: "u", password: "p" }, 1000, drv);
+    const out = await probeMysql({ host: "[::1]", port: 3306, database: "d", user: "u", password: "p", requireTls: false }, 1000, drv);
     expect(out.ok).toBe(true);
     expect(calls).toEqual(["host=::1", "SELECT 1", "end"]);
   });
@@ -177,6 +182,7 @@ describe("P11 sözleşme şemaları (DB CHECK ile birebir)", () => {
       port: 3306,
       database: "remote",
       user: "rapor",
+      requireTls: false,
     });
     for (const bad of [
       { host: "db", port: "3306", database: "r", user: "u" },

@@ -19,6 +19,21 @@ describe("env", () => {
     expect(loadEnv(prod).encryptionKeys?.get(1)).toHaveLength(32);
   });
 
+  it("S14-7: production'da tüm baytları aynı anahtar (CI'daki sıfır anahtar dahil) reddedilir; geliştirmede kabul", () => {
+    const prod = { ...base, NODE_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/32", SESSION_REF_KEY: refKey };
+    const zero = `v1:${Buffer.alloc(32, 0).toString("base64")}`;
+    expect(zero).toBe("v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="); // .github/workflows/ci.yml compose adımındaki değer
+    const same = `v1:${Buffer.alloc(32, 0x41).toString("base64")}`;
+    expect(() => loadEnv({ ...prod, APP_ENCRYPTION_KEYS: zero })).toThrow(/APP_ENCRYPTION_KEYS.*zayıf/s);
+    expect(() => loadEnv({ ...prod, APP_ENCRYPTION_KEYS: same })).toThrow(/APP_ENCRYPTION_KEYS/);
+    // rotasyon listesinde tek zayıf sürüm de yeter
+    expect(() => loadEnv({ ...prod, APP_ENCRYPTION_KEYS: `${FAKE_APP_ENCRYPTION_KEYS},${zero.replace("v1:", "v2:")}` })).toThrow(
+      /APP_ENCRYPTION_KEYS/,
+    );
+    expect(loadEnv(prod).encryptionKeys?.size).toBe(1);
+    expect(loadEnv({ ...base, NODE_ENV: "test", APP_ENCRYPTION_KEYS: zero }).encryptionKeys?.get(1)).toHaveLength(32);
+  });
+
   it("AC-121: production'da TRUSTED_PROXY_CIDR zorunlu; hata mesajı değer sızdırmaz", () => {
     expect(() => loadEnv({ ...base, NODE_ENV: "production" })).toThrow(/TRUSTED_PROXY_CIDR/);
     expect(() => loadEnv({ ...base, NODE_ENV: "production", TRUSTED_PROXY_CIDR: "172.30.0.2/33" })).toThrow(/CIDR/);

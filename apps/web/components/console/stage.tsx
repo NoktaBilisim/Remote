@@ -13,7 +13,7 @@ import {
   ShieldUser,
   WifiOff,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { AnnotLayer, type DrawInput } from "@/components/collab/annot-layer";
 import { Button } from "@/components/ui/button";
 import { CodeDisplay } from "@/components/ui/code-display";
@@ -123,6 +123,13 @@ export function Stage({
   const [mode, setMode] = useState<ViewMode>("fit");
   const [full, setFull] = useState(false);
   const [compact, setCompact] = useState(true);
+  /**
+   * TEST-P7-2 (CI kök nedeni): sabit eşik (COMPACT_BELOW_PX) font metriğinden bağımsız değil — Linux'ta (DejaVu) kontrol
+   * sırasında şerit 580 px'e sığmayıp iki satıra kırılıyordu. Şerit gerçekten kırılınca "Görünüm" etiketi görsel olarak
+   * gizlenir (ikon + ok kalır; ad `aria-label`/`title`). Genişlik değişince yeniden ölçülür.
+   */
+  const [tight, setTight] = useState(false);
+  const stripRef = useRef<HTMLDivElement>(null);
   const [vid, setVid] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   useEffect(() => {
     if (ref.current) ref.current.srcObject = stream;
@@ -131,7 +138,11 @@ export function Stage({
     const el = box.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     // Tam ekranda düzen donar: genişleyen sahne düğmeyi menüden şeride taşıyıp odağı kaybettirmesin
-    const ro = new ResizeObserver(([e]) => e && document.fullscreenElement !== el && setCompact(e.contentRect.width < COMPACT_BELOW_PX));
+    const ro = new ResizeObserver(([e]) => {
+      if (!e || document.fullscreenElement === el) return;
+      setCompact(e.contentRect.width < COMPACT_BELOW_PX);
+      setTight(false); // yeni genişlikte yeniden ölç (aşağıdaki layout effect)
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -167,6 +178,18 @@ export function Stage({
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
     else void box.current?.requestFullscreen().catch(() => undefined);
   };
+
+  // Her çizimden sonra (boyamadan önce): şerit öğeleri tek satırda mı? `display:contents` sarmalayıcıların çocukları, mutlak
+  // konumlu (sr-only) öğeler hariç. Kırılıyorsa etiketi daralt — yalnız false→true (döngü yok).
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- bilinçli: şerit içeriği (controlBar/monitors düğümleri) her çizimde değişebilir; `tight` korur, döngü yok
+  useLayoutEffect(() => {
+    const el = stripRef.current;
+    if (!el || tight) return;
+    const items = [...el.children].flatMap((c) => (getComputedStyle(c).display === "contents" ? [...c.children] : [c]));
+    const rects = items.filter((c) => getComputedStyle(c).position !== "absolute").map((c) => c.getBoundingClientRect());
+    const first = rects[0];
+    if (first && rects.some((r) => r.top >= first.bottom - 1)) setTight(true);
+  });
 
   const live = state.phase === "live";
   const spin = <LoaderCircle aria-hidden className="size-8 animate-spin motion-reduce:animate-none" />;
@@ -268,9 +291,11 @@ export function Stage({
       {strip && (
         // Araç şeridi görüntünün dışında (QA görsel bulgu: P5'te sağ üstte görüntünün ~60 px'ini kapatıyordu)
         <div
+          ref={stripRef}
           className="relative z-20 flex flex-wrap items-center gap-2 border-b border-border bg-surface p-2"
           data-testid="stage-tools"
           data-compact={compact}
+          data-tight={tight}
         >
           {/* Kontrol sırasında işaretleme zaten pasif: şeritte yer kaplamaz (TEST-P7-2) */}
           {showing && !actual && !capturing && tools}
@@ -287,6 +312,8 @@ export function Stage({
               <Menu
                 label={t("cs.viewMenu")}
                 icon={<MonitorCog aria-hidden className="size-4" />}
+                labelClassName={tight ? "sr-only" : undefined}
+                title={tight ? t("cs.viewMenu") : undefined}
                 testId="stage-view-menu"
                 align="end"
                 busy={

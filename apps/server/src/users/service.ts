@@ -10,6 +10,12 @@
 //  - AC-74: etkin kümede değişen her anahtar için ayrı audit satırı (kim → kime, permKey, eski → yeni), aynı TX.
 //  - AC-115 / G-04: commit SONRASI canlı yansıma — pasif/rol değişimi → `rooms.endByTechnician` + panel 4401;
 //    yalnız yetki değişimi → `rooms.applyPermChange` (+ `support_requests.view` kalktıysa panel 4401).
+//  - P14a (AC-202, ADR-0023): her yazma TX'i aktör+hedef satırlarını id sırasıyla `FOR UPDATE` kilitler ve aktörün
+//    rol/durum/yetkisini TX İÇİNDE yeniden okur; tüm yetki kararları (gerekli uç yetkisi, AC-73, üstünlük) bu okumayla.
+//  - P14a (AC-204): yetki/üstünlük/kendi hesabı kaynaklı her 403 TX geri alındıktan sonra audit'e `user.updated`
+//    `result:"fail"`, `newValue:{op, denied:[anahtarlar]}` ile yazılır (e-posta/ad yok). E-posta çakışması da fail audit.
+//  - P14a (AC-206): `users.version` PATCH'te `If-Match` ile karşılaştırılır (uyuşmazsa 409 `STALE_WRITE`); gerçek
+//    değişiklik, pasif/aktif ve 2FA sıfırlama sürümü +1 artırır. Değişiklik yoksa sürüm ve audit değişmez (AC-207).
 import type {
   CreateUserData,
   CreateUserResponse,
@@ -19,17 +25,20 @@ import type {
   UserDetail,
   UserListItem,
   UserListResponse,
+  UserOptionsResponse,
   UserStatus,
 } from "@remote/contracts/api/users";
-import { TEMPORARY_PASSWORD_LENGTH, USER_EMAIL_CONFLICT_MESSAGE } from "@remote/contracts/api/users";
+import { TEMPORARY_PASSWORD_LENGTH, USER_EMAIL_CONFLICT_MESSAGE, USER_OPTIONS_MAX } from "@remote/contracts/api/users";
 import { USER_AUDIT } from "@remote/contracts/audit";
 import { PERMISSION_KEYS, effectivePermissions, roleDefaultGranted, type PermissionKey, type Role } from "@remote/contracts/permissions";
 import { writeAudit, type AuditContext } from "../audit/service.ts";
 import { hashPassword } from "../auth/password.ts";
 import type { AuthContext } from "../auth/session.ts";
+import type { Prisma } from "../generated/prisma/client.ts";
 import { conflictIndex, type Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId, newTemporaryPassword } from "../lib/ids.ts";
+import { findTenant } from "../tenants/repo.ts";
 import { avatarUrlFor } from "../uploads/urls.ts";
 import * as repo from "./repo.ts";
 
@@ -46,6 +55,28 @@ export interface UserLiveEffects {
   log: { error(obj: object, msg: string): void };
 }
 
+/** Testlere özel gecikme kancası (ADR-0023): kilit alındıktan hemen sonra, okumalardan önce. Üretimde verilmez. */
+export interface LockHooks {
+  afterLock?: () => Promise<void>;
+}
+
+type Op = "create" | "update" | "deactivate" | "reactivate" | "reset_mfa";
+
+/** Audit'e `denied` anahtarlarıyla yazılan 403 (AC-204). */
+class DeniedError extends AppError {
+  readonly denied: string[];
+  constructor(message: string, denied: readonly string[], fields?: Record<string, string>) {
+    super("FORBIDDEN", { message, ...(fields ? { fields } : {}) });
+    this.denied = [...denied];
+  }
+}
+
+/** TX içinde yeniden okunan aktör (AC-202). */
+interface Actor {
+  role: Role;
+  permissions: ReadonlySet<PermissionKey>;
+}
+
 type ManagedRow = repo.UserRow & { role: ManagedRole };
 
 const asManaged = (r: repo.UserRow): ManagedRow => r as ManagedRow;
@@ -54,16 +85,23 @@ const who = (auth: AuthContext, tenantId: string) => ({ tenantId, userId: auth.u
 
 const emailConflict = (): AppError =>
   new AppError("CONFLICT", { message: USER_EMAIL_CONFLICT_MESSAGE, fields: { email: USER_EMAIL_CONFLICT_MESSAGE } });
+const stale = (): AppError => new AppError("STALE_WRITE");
 
 function effectiveOf(role: Role, rows: readonly { permKey: string; granted: boolean }[]): Set<PermissionKey> {
   return new Set(effectivePermissions(role, rows));
 }
 
-/** Admin, etkin yetkileri kendi kümesini aşan hesabı yönetemez; Super Admin her zaman. */
-function canManage(auth: AuthContext, target: Set<PermissionKey>): boolean {
-  if (auth.user.role === "SUPER_ADMIN") return true;
-  for (const k of target) if (!auth.permissions.has(k)) return false;
-  return true;
+/** Hedefin etkin yetkilerinden işlemi yapanda olmayanlar (boş → yönetebilir). Super Admin her zaman yönetir. */
+function exceeding(actor: Actor, target: ReadonlySet<PermissionKey>): PermissionKey[] {
+  if (actor.role === "SUPER_ADMIN") return [];
+  return PERMISSION_KEYS.filter((k) => target.has(k) && !actor.permissions.has(k));
+}
+
+const sessionActor = (auth: AuthContext): Actor => ({ role: auth.user.role, permissions: auth.permissions });
+
+function assertManage(actor: Actor, target: ReadonlySet<PermissionKey>, message: string): void {
+  const over = exceeding(actor, target);
+  if (over.length > 0) throw new DeniedError(message, over);
 }
 
 function toItem(r: repo.UserRow): UserListItem {
@@ -85,7 +123,13 @@ function toItem(r: repo.UserRow): UserListItem {
 function toDetail(r: repo.UserRow, auth: AuthContext): UserDetail {
   const eff = effectiveOf(r.role as Role, r.permissions);
   const permissions = Object.fromEntries(PERMISSION_KEYS.map((k) => [k, eff.has(k)])) as Record<PermissionKey, boolean>;
-  return { ...toItem(r), permissions, isSelf: r.id === auth.user.id, canManage: canManage(auth, eff) };
+  return {
+    ...toItem(r),
+    version: r.version,
+    permissions,
+    isSelf: r.id === auth.user.id,
+    canManage: exceeding(sessionActor(auth), eff).length === 0,
+  };
 }
 
 /**
@@ -111,13 +155,66 @@ function diffKeys(before: ReadonlySet<PermissionKey>, after: ReadonlySet<Permiss
 }
 
 /** AC-73: değişen her anahtar işlemi yapanda olmalı (Super Admin tümüne sahip). */
-function assertGrantable(auth: AuthContext, changed: readonly PermissionKey[]): void {
-  const missing = changed.filter((k) => !auth.permissions.has(k));
+function assertGrantable(actor: Actor, changed: readonly PermissionKey[]): void {
+  const missing = changed.filter((k) => !actor.permissions.has(k));
   if (missing.length === 0) return;
-  throw new AppError("FORBIDDEN", {
-    message: "Sahip olmadığınız bir yetkiyi veremez veya değiştiremezsiniz.",
-    fields: Object.fromEntries(missing.map((k) => [`permissions.${k}`, "Bu yetkiye sahip değilsiniz"])),
-  });
+  throw new DeniedError(
+    "Sahip olmadığınız bir yetkiyi veremez veya değiştiremezsiniz.",
+    missing,
+    Object.fromEntries(missing.map((k) => [`permissions.${k}`, "Bu yetkiye sahip değilsiniz"])),
+  );
+}
+
+/**
+ * AC-202: aktör (+hedef) satırlarını id sırasıyla kilitler, kancayı çağırır, aktörü yeniden okur. Aktör pasif/silinmiş,
+ * başka firmaya geçmiş ya da uç yetkisini (`need`) yitirmişse 403.
+ */
+async function lockActor(
+  tx: Prisma.TransactionClient,
+  auth: AuthContext,
+  tenantId: string,
+  targetIds: readonly string[],
+  need: PermissionKey,
+  hooks: LockHooks,
+): Promise<Actor> {
+  await repo.lockUsers(tx, [auth.user.id, ...targetIds]);
+  await hooks.afterLock?.();
+  const row = await repo.readActor(tx, auth.user.id);
+  const role = row?.role as Role | undefined;
+  if (!row || !role || row.status !== "ACTIVE" || row.deletedAt !== null || (role !== "SUPER_ADMIN" && row.tenantId !== tenantId))
+    throw new DeniedError("Bu işlem için yetkiniz yok.", ["actor"]);
+  const permissions = effectiveOf(role, row.permissions);
+  if (!permissions.has(need)) throw new DeniedError("Bu işlem için yetkiniz yok.", [need]);
+  return { role, permissions };
+}
+
+/** AC-204: TX geri alındıktan sonra 403 kararını audit'e yazar (PII yok); AC-203: e-posta çakışması da fail. */
+async function auditFailures<T>(
+  db: Db,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  targetId: string | null,
+  op: Op,
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    const emailTaken = conflictIndex(err) === EMAIL_UQ;
+    if (err instanceof DeniedError || emailTaken) {
+      await writeAudit(db, ctx, {
+        ...who(auth, tenantId),
+        action: op === "create" ? USER_AUDIT.CREATED : USER_AUDIT.UPDATED,
+        entity: ENTITY,
+        entityId: targetId,
+        result: "fail",
+        newValue: err instanceof DeniedError ? { op, denied: err.denied } : { op, reason: "email_taken" },
+      });
+    }
+    if (emailTaken) throw emailConflict();
+    throw err;
+  }
 }
 
 async function permissionAudits(
@@ -142,7 +239,7 @@ async function permissionAudits(
   }
 }
 
-async function loadOrThrow(db: Db, scope: repo.TenantScope, id: string): Promise<repo.UserRow> {
+async function loadOrThrow(db: Db | Prisma.TransactionClient, scope: repo.TenantScope, id: string): Promise<repo.UserRow> {
   const row = await repo.findUser(db, scope, id);
   if (!row) throw new AppError("NOT_FOUND");
   return row;
@@ -156,12 +253,33 @@ export async function listUsers(db: Db, tenantId: string, q: ListUsersQuery): Pr
 }
 
 /**
- * P12 (AC-83): başka kullanıcının avatarını değiştirme hedefi — kapsam içinde (yoksa 404) ve `canManage` (aksi 403).
+ * GET /users/options kapsamı (QA Tur 1, AC-225): etkin tenant her zaman önce gelir — firma seçili olan veya SUPER_ADMIN
+ * olmayan rollerde `requested` yok sayılır (başka firmayı göremez). Firma seçmemiş SUPER_ADMIN `requested` ile firma
+ * seçer (silinmiş/olmayan → 404); vermezse mevcut 403 kalır.
+ */
+export async function userOptionsTenant(db: Db, auth: AuthContext, requested: string | undefined): Promise<string> {
+  if (auth.tenantId) return auth.tenantId;
+  if (auth.user.role !== "SUPER_ADMIN" || !requested) throw new AppError("FORBIDDEN", { message: "Önce bir firma seçin." });
+  if (!(await findTenant(db, requested))) throw new AppError("NOT_FOUND");
+  return requested;
+}
+
+/**
+ * GET /users/options (P14b, AC-225): verilen tenant'ın teknisyenleri (tam liste, ≤ 1000). USER rolü yalnız kendisi
+ * (oturum geçmişinde yalnız kendi kayıtlarını görür — `historyScope`).
+ */
+export async function userOptions(db: Db, auth: AuthContext, tenantId: string): Promise<UserOptionsResponse> {
+  const rows = await repo.listUserOptions(db, { tenantId }, USER_OPTIONS_MAX, auth.user.role === "USER" ? auth.user.id : undefined);
+  return { items: rows.map((r) => ({ id: r.id, fullName: r.fullName, status: r.status as UserStatus })) };
+}
+
+/**
+ * P12 (AC-83): başka kullanıcının avatarını değiştirme hedefi — kapsam içinde (yoksa 404) ve yönetilebilir (aksi 403).
  * `users.edit` kontrolü uçta.
  */
 export async function manageableUser(db: Db, auth: AuthContext, tenantId: string, id: string): Promise<{ id: string; tenantId: string }> {
   const row = await loadOrThrow(db, { tenantId }, id);
-  if (!canManage(auth, effectiveOf(row.role as Role, row.permissions)))
+  if (exceeding(sessionActor(auth), effectiveOf(row.role as Role, row.permissions)).length > 0)
     throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı yönetemezsiniz." });
   return { id: row.id, tenantId };
 }
@@ -176,15 +294,17 @@ export async function createUser(
   auth: AuthContext,
   tenantId: string,
   input: CreateUserData,
+  hooks: LockHooks = {},
 ): Promise<CreateUserResponse> {
   const rows = normalizeRows(input.role, [], input.permissions);
   const after = effectiveOf(input.role, rows);
-  assertGrantable(auth, [...after]);
   const temporaryPassword = newTemporaryPassword(TEMPORARY_PASSWORD_LENGTH);
-  const passwordHash = await hashPassword(temporaryPassword);
+  const passwordHash = await hashPassword(temporaryPassword); // argon2 kilit dışında
   const id = newId();
-  try {
-    await db.$transaction(async (tx) => {
+  await auditFailures(db, ctx, auth, tenantId, null, "create", () =>
+    db.$transaction(async (tx) => {
+      const actor = await lockActor(tx, auth, tenantId, [], "users.create", hooks);
+      assertGrantable(actor, [...after]);
       await repo.insertUser(tx, {
         id,
         tenantId,
@@ -204,14 +324,15 @@ export async function createUser(
         newValue: { email: input.email, fullName: input.fullName, role: input.role, status: "ACTIVE" },
       });
       await permissionAudits(tx, ctx, auth, tenantId, id, effectiveOf(input.role, []), after);
-    });
-  } catch (err) {
-    if (conflictIndex(err) === EMAIL_UQ) throw emailConflict();
-    throw err;
-  }
+    }),
+  );
   return { user: await getUser(db, auth, tenantId, id), temporaryPassword };
 }
 
+/**
+ * PATCH /users/:id. `expectedVersion` = `If-Match` (uçta zorunlu, AC-206). Değişiklik yoksa yazma/audit/sürüm artışı
+ * yok (AC-207).
+ */
 export async function updateUser(
   db: Db,
   fx: UserLiveEffects,
@@ -220,29 +341,34 @@ export async function updateUser(
   tenantId: string,
   id: string,
   input: UpdateUserData,
+  expectedVersion: number,
+  hooks: LockHooks = {},
 ): Promise<UserDetail> {
   const scope = { tenantId };
-  let outcome: { roleChanged: boolean; before: Set<PermissionKey>; after: Set<PermissionKey> };
-  try {
-    outcome = await db.$transaction(async (tx) => {
-      if (!(await repo.lockUser(tx, scope, id))) throw new AppError("NOT_FOUND");
-      const cur = asManaged((await repo.findUser(tx, scope, id)) as repo.UserRow);
+  const outcome = await auditFailures(db, ctx, auth, tenantId, id, "update", () =>
+    db.$transaction(async (tx) => {
+      const actor = await lockActor(tx, auth, tenantId, [id], "users.edit", hooks);
+      const cur = asManaged(await loadOrThrow(tx, scope, id));
       const before = effectiveOf(cur.role, cur.permissions);
-      if (!canManage(auth, before)) throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı düzenleyemezsiniz." });
+      assertManage(actor, before, "Sizden daha geniş yetkili bir hesabı düzenleyemezsiniz.");
       const role = input.role ?? cur.role;
       const rows = normalizeRows(role, cur.permissions, input.permissions);
       const after = effectiveOf(role, rows);
       const changed = diffKeys(before, after);
       const roleChanged = role !== cur.role;
       if (cur.id === auth.user.id && (roleChanged || changed.length > 0))
-        throw new AppError("FORBIDDEN", { message: "Kendi rolünüzü veya yetkilerinizi değiştiremezsiniz." });
-      assertGrantable(auth, changed);
+        throw new DeniedError("Kendi rolünüzü veya yetkilerinizi değiştiremezsiniz.", [...(roleChanged ? ["role"] : []), ...changed]);
+      assertGrantable(actor, changed);
+      // S14-5: sürüm (409) yetki kararlarından SONRA — üstün hesaba eski sürümle gelen istek de 403 + denied audit alır.
+      if (cur.version !== expectedVersion) throw stale();
 
       const fields: Record<string, string> = {};
       const old: Record<string, string> = {};
       if (input.email !== undefined && input.email !== cur.email) [fields.email, old.email] = [input.email, cur.email];
       if (input.fullName !== undefined && input.fullName !== cur.fullName) [fields.fullName, old.fullName] = [input.fullName, cur.fullName];
       if (roleChanged) [fields.role, old.role] = [role, cur.role];
+      if (Object.keys(fields).length === 0 && changed.length === 0) return { roleChanged, before, after };
+      if ((await repo.bumpVersion(tx, id, expectedVersion)) === 0) throw stale();
       if (Object.keys(fields).length > 0) {
         await repo.updateUser(tx, id, fields);
         await writeAudit(tx, ctx, {
@@ -258,11 +384,8 @@ export async function updateUser(
       if (input.permissions !== undefined || roleChanged) await repo.replacePermissions(tx, id, rows);
       await permissionAudits(tx, ctx, auth, tenantId, id, before, after);
       return { roleChanged, before, after };
-    });
-  } catch (err) {
-    if (conflictIndex(err) === EMAIL_UQ) throw emailConflict();
-    throw err;
-  }
+    }),
+  );
   await liveAfterUpdate(fx, id, outcome);
   return getUser(db, auth, tenantId, id);
 }
@@ -287,37 +410,48 @@ async function liveAfterUpdate(
   }
 }
 
-async function setStatus(db: Db, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string, next: UserStatus): Promise<void> {
+async function setStatus(
+  db: Db,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  next: UserStatus,
+  hooks: LockHooks,
+): Promise<void> {
   const scope = { tenantId };
-  await db.$transaction(async (tx) => {
-    if (!(await repo.lockUser(tx, scope, id))) throw new AppError("NOT_FOUND");
-    const cur = asManaged((await repo.findUser(tx, scope, id)) as repo.UserRow);
-    if (cur.id === auth.user.id) throw new AppError("FORBIDDEN", { message: "Kendi hesabınızın durumunu değiştiremezsiniz." });
-    if (!canManage(auth, effectiveOf(cur.role, cur.permissions)))
-      throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı yönetemezsiniz." });
-    if (cur.status === next)
-      throw new AppError("CONFLICT", { message: next === "PASSIVE" ? "Kullanıcı zaten pasif." : "Kullanıcı zaten aktif." });
-    const now = new Date();
-    await repo.updateUser(
-      tx,
-      id,
-      next === "ACTIVE" ? { status: next, failedLoginCount: 0, failedWindowAt: null, lockedUntil: null } : { status: next },
-    );
-    const extra: Record<string, number> = {};
-    if (next === "PASSIVE") {
-      extra.revokedSessions = await repo.revokeUserSessions(tx, id, now);
-      extra.cancelledSessions = await repo.cancelPendingOfTechnician(tx, scope, id, now);
-    }
-    await writeAudit(tx, ctx, {
-      ...who(auth, tenantId),
-      action: next === "PASSIVE" ? USER_AUDIT.DEACTIVATED : USER_AUDIT.REACTIVATED,
-      entity: ENTITY,
-      entityId: id,
-      result: "success",
-      oldValue: { status: cur.status },
-      newValue: { status: next, ...extra },
-    });
-  });
+  await auditFailures(db, ctx, auth, tenantId, id, next === "PASSIVE" ? "deactivate" : "reactivate", () =>
+    db.$transaction(async (tx) => {
+      const actor = await lockActor(tx, auth, tenantId, [id], "users.edit", hooks);
+      const cur = asManaged(await loadOrThrow(tx, scope, id));
+      if (cur.id === auth.user.id) throw new DeniedError("Kendi hesabınızın durumunu değiştiremezsiniz.", ["status"]);
+      assertManage(actor, effectiveOf(cur.role, cur.permissions), "Sizden daha geniş yetkili bir hesabı yönetemezsiniz.");
+      if (cur.status === next)
+        throw new AppError("CONFLICT", { message: next === "PASSIVE" ? "Kullanıcı zaten pasif." : "Kullanıcı zaten aktif." });
+      const now = new Date();
+      await repo.updateUser(
+        tx,
+        id,
+        next === "ACTIVE"
+          ? { status: next, failedLoginCount: 0, failedWindowAt: null, lockedUntil: null, version: { increment: 1 } }
+          : { status: next, version: { increment: 1 } },
+      );
+      const extra: Record<string, number> = {};
+      if (next === "PASSIVE") {
+        extra.revokedSessions = await repo.revokeUserSessions(tx, id, now);
+        extra.cancelledSessions = await repo.cancelPendingOfTechnician(tx, scope, id, now);
+      }
+      await writeAudit(tx, ctx, {
+        ...who(auth, tenantId),
+        action: next === "PASSIVE" ? USER_AUDIT.DEACTIVATED : USER_AUDIT.REACTIVATED,
+        entity: ENTITY,
+        entityId: id,
+        result: "success",
+        oldValue: { status: cur.status },
+        newValue: { status: next, ...extra },
+      });
+    }),
+  );
 }
 
 /** POST /users/:id/deactivate (AC-115, G-04): oturumlar iptal, bekleyen kod oturumları iptal, canlı odalar biter. */
@@ -328,8 +462,9 @@ export async function deactivateUser(
   auth: AuthContext,
   tenantId: string,
   id: string,
+  hooks: LockHooks = {},
 ): Promise<void> {
-  await setStatus(db, ctx, auth, tenantId, id, "PASSIVE");
+  await setStatus(db, ctx, auth, tenantId, id, "PASSIVE", hooks);
   try {
     await fx.rooms.endByTechnician(id);
     fx.hub.closeByUser(id);
@@ -339,8 +474,15 @@ export async function deactivateUser(
 }
 
 /** POST /users/:id/reactivate: hesap kilit sayaçları sıfırlanır; şifre değişmez. */
-export async function reactivateUser(db: Db, ctx: AuditContext, auth: AuthContext, tenantId: string, id: string): Promise<void> {
-  await setStatus(db, ctx, auth, tenantId, id, "ACTIVE");
+export async function reactivateUser(
+  db: Db,
+  ctx: AuditContext,
+  auth: AuthContext,
+  tenantId: string,
+  id: string,
+  hooks: LockHooks = {},
+): Promise<void> {
+  await setStatus(db, ctx, auth, tenantId, id, "ACTIVE", hooks);
 }
 
 /**
@@ -355,31 +497,36 @@ export async function resetUserMfa(
   auth: AuthContext,
   tenantId: string,
   id: string,
+  hooks: LockHooks = {},
 ): Promise<void> {
   const scope = { tenantId };
-  await db.$transaction(async (tx) => {
-    if (!(await repo.lockUser(tx, scope, id))) throw new AppError("NOT_FOUND");
-    const cur = asManaged((await repo.findUser(tx, scope, id)) as repo.UserRow);
-    if (cur.id === auth.user.id) throw new AppError("FORBIDDEN", { message: "Kendi iki adımlı doğrulamanızı sıfırlayamazsınız." });
-    if (!canManage(auth, effectiveOf(cur.role, cur.permissions)))
-      throw new AppError("FORBIDDEN", { message: "Sizden daha geniş yetkili bir hesabı yönetemezsiniz." });
-    const row = await tx.user.findUniqueOrThrow({ where: { id }, select: { totpEnabled: true, totpSecretEnc: true } });
-    if (!row.totpEnabled && row.totpSecretEnc === null)
-      throw new AppError("CONFLICT", { message: "Bu kullanıcıda iki adımlı doğrulama kurulu değil." });
-    const now = new Date();
-    await tx.user.update({ where: { id }, data: { totpSecretEnc: null, totpEnabled: false, totpLastStep: null } });
-    const codes = await tx.recoveryCode.deleteMany({ where: { userId: id } });
-    const revokedSessions = await repo.revokeUserSessions(tx, id, now);
-    await writeAudit(tx, ctx, {
-      ...who(auth, tenantId),
-      action: USER_AUDIT.MFA_RESET,
-      entity: ENTITY,
-      entityId: id,
-      result: "success",
-      oldValue: { mfaEnabled: row.totpEnabled },
-      newValue: { mfaEnabled: false, deletedCodes: codes.count, revokedSessions },
-    });
-  });
+  await auditFailures(db, ctx, auth, tenantId, id, "reset_mfa", () =>
+    db.$transaction(async (tx) => {
+      const actor = await lockActor(tx, auth, tenantId, [id], "users.edit", hooks);
+      const cur = asManaged(await loadOrThrow(tx, scope, id));
+      if (cur.id === auth.user.id) throw new DeniedError("Kendi iki adımlı doğrulamanızı sıfırlayamazsınız.", ["mfa"]);
+      assertManage(actor, effectiveOf(cur.role, cur.permissions), "Sizden daha geniş yetkili bir hesabı yönetemezsiniz.");
+      const row = await tx.user.findUniqueOrThrow({ where: { id }, select: { totpEnabled: true, totpSecretEnc: true } });
+      if (!row.totpEnabled && row.totpSecretEnc === null)
+        throw new AppError("CONFLICT", { message: "Bu kullanıcıda iki adımlı doğrulama kurulu değil." });
+      const now = new Date();
+      await tx.user.update({
+        where: { id },
+        data: { totpSecretEnc: null, totpEnabled: false, totpLastStep: null, version: { increment: 1 } },
+      });
+      const codes = await tx.recoveryCode.deleteMany({ where: { userId: id } });
+      const revokedSessions = await repo.revokeUserSessions(tx, id, now);
+      await writeAudit(tx, ctx, {
+        ...who(auth, tenantId),
+        action: USER_AUDIT.MFA_RESET,
+        entity: ENTITY,
+        entityId: id,
+        result: "success",
+        oldValue: { mfaEnabled: row.totpEnabled },
+        newValue: { mfaEnabled: false, deletedCodes: codes.count, revokedSessions },
+      });
+    }),
+  );
   try {
     await fx.rooms.endByTechnician(id);
     fx.hub.closeByUser(id);

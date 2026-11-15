@@ -17,6 +17,7 @@ import { AppError } from "../lib/errors.ts";
 import { sha256Hex } from "../lib/ids.ts";
 import { cidrMatcher, ipKey, prefixKey } from "../lib/ip.ts";
 import { FixedWindowCounter } from "../lib/rate.ts";
+import type { Metrics } from "../ops/metrics.ts";
 import { isOutdated } from "../lib/version.ts";
 import { parseSessionRef, sessionRef } from "./codes.ts";
 import { effectiveLogoUrl } from "../uploads/urls.ts";
@@ -123,10 +124,12 @@ export interface PublicLimits {
   goneAudit: FixedWindowCounter;
   resolveFailed: ResolveFailedAlarm;
   clientIpIsProxy: ClientIpIsProxyAlarm;
+  /** P14a (AC-208): kod yolu kovası kilitlenince → `rs_guest_code_rate_limited_total{scope}` (kilit başına bir; S14-6). */
+  codeLimited: (scope: "ip" | "prefix") => void;
 }
 
 // limit N+1: N. olay serbest, N+1. olay kilidi başlatır (auth limitleriyle aynı kalıp).
-export const createPublicLimits = (log: FastifyBaseLogger, trustedProxyCidr?: string): PublicLimits => ({
+export const createPublicLimits = (log: FastifyBaseLogger, trustedProxyCidr?: string, metrics?: Pick<Metrics, "inc">): PublicLimits => ({
   codeIp: new FixedWindowCounter(11, MIN, 15 * MIN),
   codePrefix: new FixedWindowCounter(31, MIN, 15 * MIN),
   tokenIp: new FixedWindowCounter(31, MIN, MIN),
@@ -141,6 +144,7 @@ export const createPublicLimits = (log: FastifyBaseLogger, trustedProxyCidr?: st
       "public resolve istemci IP'si güvenilen proxy adresi: X-Forwarded-For gelmiyor (edge sırrı?)",
     ),
   ),
+  codeLimited: (scope) => metrics?.inc("rs_guest_code_rate_limited_total", { scope }),
 });
 
 export const closePublicLimits = (l: PublicLimits): void =>
@@ -157,7 +161,10 @@ export function consume(counter: FixedWindowCounter, key: string, blockSec: numb
 
 /** Kod yolu kovaları (ipKey 10/dk + prefixKey 30/dk) kilitliyse 429; resolve (kod) ve agent indirme ortak (G-02). */
 export function assertLookupAllowed(limits: PublicLimits, ip: string, prefix: string): void {
-  const wait = Math.max(limits.codeIp.blockedFor(ip), limits.codePrefix.blockedFor(prefix));
+  // S14-6: kilitliyken gelen istekler metriği artırmaz (sayım kilit başlarken, countFailedLookup'ta — kova başına bir).
+  const ipWait = limits.codeIp.blockedFor(ip);
+  const prefixWait = limits.codePrefix.blockedFor(prefix);
+  const wait = Math.max(ipWait, prefixWait);
   if (wait > 0) throw rateLimited(wait);
 }
 
@@ -166,6 +173,8 @@ export function countFailedLookup(limits: PublicLimits, ip: string, prefix: stri
   limits.resolveFailed.record(prefix);
   const ipHit = limits.codeIp.hit(ip);
   const prefixHit = limits.codePrefix.hit(prefix);
+  if (ipHit) limits.codeLimited("ip");
+  if (prefixHit) limits.codeLimited("prefix");
   if (ipHit || prefixHit) throw rateLimited(15 * 60);
 }
 

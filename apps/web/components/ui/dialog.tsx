@@ -9,7 +9,27 @@ import { t } from "@/lib/i18n";
  * Native <dialog> + showModal(): odak tuzağı, Esc ve arka plan "inert" tarayıcıdan gelir (DESIGN.md §6.1).
  * Giriş: scale(.95)+opacity → 1 (@starting-style), ease-out; reduced-motion'da yalnız opacity.
  * İlk odak: içerikte `data-autofocus` olan öğe (yıkıcı onayda "Vazgeç"), yoksa ilk odaklanabilir öğe.
+ * Odak tuzağı (P14a AC-215): `showModal` arka planı inert yapar ama Tab tarayıcı arayüzüne çıkabilir → son öğeden Tab
+ * ilk öğeye, ilkten Shift+Tab son öğeye döner (odak hiç diyalog dışına çıkmaz).
  */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function trapTab(e: React.KeyboardEvent<HTMLDialogElement>) {
+  if (e.key !== "Tab") return;
+  const items = [...e.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.getClientRects().length > 0);
+  const first = items[0];
+  const last = items.at(-1);
+  if (!first || !last) return;
+  const active = document.activeElement;
+  if (e.shiftKey && (active === first || active === e.currentTarget)) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
 export function Dialog({
   open,
   onClose,
@@ -74,6 +94,7 @@ export function Dialog({
           if (openRef.current && !el.open && el.isConnected) el.showModal();
         }, 0);
       }}
+      onKeyDown={trapTab}
       onCancel={(e) => {
         if (!onDismiss) return;
         e.preventDefault();

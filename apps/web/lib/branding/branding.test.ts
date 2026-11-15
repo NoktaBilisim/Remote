@@ -49,6 +49,18 @@ describe("P12 yükleme ön kontrolü ve kırpma (AC-83, 84)", () => {
     expect(precheckFile({ type: "image/jpeg", size: UPLOAD_MAX_BYTES + 1 })).toEqual({ ok: false, message: PAYLOAD_TOO_LARGE_MESSAGE });
     expect(precheckFile({ type: "image/png", size: 0 }).ok).toBe(false);
   });
+  it("AC-229: file.type boş gelen .webp/.png/.jpg istemcide reddedilmez (karar sunucuda); izinsiz MIME ve uzantı reddedilir", () => {
+    expect(precheckFile({ type: "", size: 10, name: "logo.webp" })).toEqual({ ok: true });
+    expect(precheckFile({ type: "", size: 10, name: "FOTO.JPEG" })).toEqual({ ok: true });
+    expect(precheckFile({ type: "", size: 10, name: "a.png" })).toEqual({ ok: true });
+    expect(precheckFile({ type: "", size: 10, name: "a.svg" })).toEqual({ ok: false, message: INVALID_IMAGE_MESSAGE });
+    expect(precheckFile({ type: "", size: 10, name: "webp" })).toEqual({ ok: false, message: INVALID_IMAGE_MESSAGE });
+    expect(precheckFile({ type: "image/svg+xml", size: 10, name: "x.webp" })).toEqual({ ok: false, message: INVALID_IMAGE_MESSAGE });
+    expect(precheckFile({ type: "", size: UPLOAD_MAX_BYTES + 1, name: "a.webp" })).toEqual({
+      ok: false,
+      message: PAYLOAD_TOO_LARGE_MESSAGE,
+    });
+  });
   it("boyut/oran ön kontrolü sunucuyla aynı sınırlar (kenar ≥ 16, logo ≤ 20:1, avatar ≤ 4:1)", () => {
     const bad = { ok: false, message: IMAGE_DIMENSIONS_MESSAGE };
     expect(precheckDimensions(3000, 40, "logo")).toEqual(bad); // 75:1

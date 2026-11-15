@@ -14,11 +14,25 @@ export const WS_REQUEST_PREFIX = "rs.req.";
 export const WS_REQUEST_CLOSE = {
   /** Aynı talep sırrıyla yeni bağlantı geldi; eski soket kapanır (tek sahip). */
   REPLACED: 4409,
-  /** Panel: kullanıcı başına 6. soket. */
+  /**
+   * Panel: kullanıcı başına 6. soket (gerekçe `too_many`) ya da P14a (AC-216) kimlik oturumu başına 30/dk upgrade sınırı
+   * aşıldı (gerekçe `retry=<sn>`; WS'de `Retry-After` yok — `panelRetryReason` / `parsePanelRetry`).
+   */
   TOO_MANY: 4429,
   /** Panel: oturum/yetki/tenant geçersizleşti (logout, şifre değişimi, 60 sn yeniden doğrulama). */
   AUTH_REVOKED: 4401,
 } as const;
+
+/** P14a (AC-216): `/ws/panel` upgrade'i kimlik oturumu başına dakikada en çok bu kadar (IP kovası ayrıca geçerli). */
+export const WS_PANEL_UPGRADES_PER_MIN = 30;
+const PANEL_RETRY_RE = /^retry=([1-9][0-9]{0,4})$/;
+/** 4429 kapanış gerekçesi: `retry=<sn>` (tam sayı saniye, ≥ 1). */
+export const panelRetryReason = (sec: number): string => `retry=${Math.min(99_999, Math.max(1, Math.ceil(sec)))}`;
+/** 4429 gerekçesinden bekleme saniyesi; `retry=` biçiminde değilse (ör. `too_many`) null. */
+export function parsePanelRetry(reason: string): number | null {
+  const m = PANEL_RETRY_RE.exec(reason);
+  return m ? Number(m[1]) : null;
+}
 
 /** Gelen mesaj sınırı (§5.1): 5 msg/sn. */
 export const WS_REQUEST_RATE_PER_SEC = 5;

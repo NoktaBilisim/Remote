@@ -3,7 +3,8 @@
 // mimari-e10 §15.1 (bayat kaynak), K20 hız kovaları, §10 metrikler.
 import { BINDING_INVALID_MESSAGE } from "@remote/contracts/api/bindings";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { expireIdleBindings } from "../../src/bindings/service.ts";
+import { expireIdleBindingsOf } from "../../src/bindings/service.ts";
+import { forEachRetentionTenant } from "../helpers/retention.ts";
 import { Prisma } from "../../src/generated/prisma/client.ts";
 import { sha256Hex } from "../../src/lib/ids.ts";
 import { RequestService } from "../../src/requests/service.ts";
@@ -277,8 +278,10 @@ describe("AC-182 / AC-184 / AC-185 / AC-186 / AC-187 kayıtla talep ve geçersiz
 
     const g2 = await acceptedGuest(x, {});
     await issue(g2.guest);
-    expect(await expireIdleBindings(x.l.app.requests, new Date(Date.now() + 10 * 86_400_000))).toBe(0);
-    expect(await expireIdleBindings(x.l.app.requests, new Date(Date.now() + 731 * 86_400_000))).toBeGreaterThanOrEqual(1);
+    expect(await forEachRetentionTenant(x.l.app.requests, expireIdleBindingsOf, new Date(Date.now() + 10 * 86_400_000))).toBe(0);
+    expect(
+      await forEachRetentionTenant(x.l.app.requests, expireIdleBindingsOf, new Date(Date.now() + 731 * 86_400_000)),
+    ).toBeGreaterThanOrEqual(1);
     expect(await testDb().deviceBinding.count({ where: { tenantId: x.tenantId, revokeReason: "EXPIRED", keyHash: null } })).toBe(1);
   });
 

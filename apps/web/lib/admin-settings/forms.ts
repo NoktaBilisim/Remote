@@ -19,6 +19,11 @@ export interface MysqlState {
   database: string;
   user: string;
   password: string;
+  /**
+   * P14a (AC-211): "TLS gerekli". Her PUT/test gövdesinde açıkça gönderilir — şema varsayılanı false olduğundan
+   * gönderilmeseydi kayıtlı `true` sessizce `false`'a düşerdi.
+   */
+  requireTls: boolean;
 }
 
 export function toMysqlState(v: MysqlSettingsView | null): MysqlState {
@@ -28,6 +33,7 @@ export function toMysqlState(v: MysqlSettingsView | null): MysqlState {
     database: v?.database ?? "",
     user: v?.user ?? "",
     password: "",
+    requireTls: v?.requireTls === true,
   };
 }
 
@@ -36,6 +42,7 @@ export const mysqlDirty = (a: MysqlState, b: MysqlState): boolean =>
   a.port.trim() !== b.port.trim() ||
   a.database.trim() !== b.database.trim() ||
   a.user.trim() !== b.user.trim() ||
+  a.requireTls !== b.requireTls ||
   a.password !== "";
 
 /** Alan hatalarını (ilk mesaj) toplar. Sunucu `fields` anahtarları da aynı adlarla gelir. */
@@ -55,7 +62,14 @@ const portOf = (v: string): number | undefined =>
   v.trim() === "" ? undefined : /^\d{1,5}$/.test(v.trim()) ? Number(v.trim()) : Number.NaN;
 
 export function buildMysqlInput(s: MysqlState): { input?: MysqlSettingsData; errors: Partial<Record<MysqlField, string>> } {
-  const raw = { host: s.host, port: portOf(s.port), database: s.database, user: s.user, ...(s.password ? { password: s.password } : {}) };
+  const raw = {
+    host: s.host,
+    port: portOf(s.port),
+    database: s.database,
+    user: s.user,
+    requireTls: s.requireTls,
+    ...(s.password ? { password: s.password } : {}),
+  };
   const p = mysqlSettingsInputSchema.safeParse(raw);
   if (!p.success) return { errors: fieldErrors(p.error.issues, MYSQL_FIELDS) };
   return { input: p.data, errors: {} };

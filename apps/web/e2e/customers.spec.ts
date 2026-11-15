@@ -310,7 +310,7 @@ test("AC-166: müşterisiz firma — boş durum yönlendirir (Yeni müşteri + y
   await expect(page.getByTestId("general-link")).toContainText("Genel bağlantı"); // boşken de Genel bağlantı kullanılabilir
   const helpBtn = empty.getByTestId("customers-help-open-empty");
   await helpBtn.click();
-  const help = empty.getByTestId("customers-help");
+  const help = page.getByTestId("customers-help"); // AC-223: sayfada tek diyalog örneği (boş durumun dışında)
   await expect(help.locator("ol li")).toHaveCount(5);
   await page.keyboard.press("Escape");
   await expect(help).toBeHidden();

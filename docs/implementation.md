@@ -3360,7 +3360,7 @@ tenant pasif — gerçek WS), AC-145 servis yolu.
 - B-P9-2..6 (Düşük): kodlanmadı; `docs/gereksinimler-sonra-acik.md` "Sonra / açık — P9'dan" tablosuna eklendi
   (`docs/gereksinimler.md` §9 yönlendirme satırı güncellendi).
 - Doğrulama: server `lint` ✓ · `typecheck` ✓ · `test` (unit) 17 / 285 ✓ · `test:int` (geçici DB `rs-mysql-p9fix:33326`,
-  `scripts/test-db.sh`) 40 / 384 ✓. Sözleşme değişikliği yok.
+  `apps/server/scripts/test-db.sh`) 40 / 384 ✓. Sözleşme değişikliği yok.
 
 ## P9 — Frontend (Rotalar) (frontend-dev, 2026-11-12)
 
@@ -5265,3 +5265,465 @@ Kaynak: `docs/mimari-e11.md` §3, ADR-0019 m.5, ADR-0021. Kurulum (C3) **yapılm
   değiştirdikleri dosyaları `pnpm exec prettier --write <dosya>` ile biçimler. Blame: `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
 - **Test:** `pnpm format:check` temiz; `pnpm -r run lint` 0 hata; `pnpm -r run typecheck` temiz; birim: contracts 78/78,
   web 271/271, server 368/368. MySQL entegrasyon (`test:int`) ve e2e yerelde koşulmadı (CI'da koşar).
+
+## P14a A5 — devops (CI shellcheck/actionlint, kararlılık koşusu, AC-208/212 alarmları, CI build düzeltmesi; devops, 2026-11-15)
+
+Kapsam: mimari-e11 §4.4, §4.6 A5; AC-219 (CI kısmı), AC-208/212 (runbook + izleme). Ayrıntılı işletim: runbook §22.
+
+| Dosya                                                              | Değişiklik                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.github/workflows/ci.yml`                                         | Yeni iş `shellcheck + actionlint` (shellcheck 0.11.0 `-S warning`, `deploy/**/*.sh` + `scripts/*.sh`; actionlint 1.7.8; imajlar digest ile, ek Action yok, izin `contents: read`). `build` → "compose yapılandırması geçerli": `APP_ENCRYPTION_KEYS` için CI'ya özgü sahte değer (32 sıfır bayt) |
+| `.github/workflows/stability.yml` (yeni)                           | `workflow_dispatch` (`runs`, varsayılan 20) + haftalık cron; iki iş: entegrasyon (MySQL servis, ci.yml test işiyle aynı hazırlık) ve e2e; Action'lar SHA ile, izin `contents: read`, secret yok                                                                                                  |
+| `scripts/repeat-tests.sh` (yeni)                                   | `<n> [int\|e2e\|all]`: vitest `test/integration` n ayrı süreç (`--retry 0`), Playwright `--repeat-each n --retries 0`; düşen koşu/test adları + `SONUÇ: x/y`                                                                                                                                     |
+| `deploy/ops/remote-watch.sh`, `test-watch.sh`, `watch.env.example` | Kontroller `guest-code-prefix` (≥15 dk'da +20) ve `mysql-test-failed` (1 sa'te +10); sayaç örnekleri durum dosyasında (90 dk), yeniden başlama farkı, metrik yoksa değerlendirilmez. Eşikler `WATCH_GUEST_PREFIX_MAX` / `WATCH_MYSQL_FAIL_MAX`. 11 yeni test                                     |
+| `deploy/turn/test-local.sh`                                        | 2 allocation bant ölçümü `-n 3000` → `-n 8000` + düşerse teklif/saniyelik seri (kararsızlık kök nedeni: kısa örtüşme; eşik aynı, retry yok)                                                                                                                                                      |
+| `scripts/e2e-real.sh`                                              | SC2155 (export + komut ikamesi): atama ve `export` ayrıldı; davranış aynı                                                                                                                                                                                                                        |
+| `docs/runbook.md`                                                  | §22: CI/kararlılık işletimi, AC-208/212 alarm satırları + izleme yöntemi + elle kontrol, yayın/geri alma                                                                                                                                                                                         |
+
+Kararlar / gerekçeler:
+
+- **shellcheck eşiği `warning`:** mevcut `deploy/**/*.sh` 0 uyarı/hata, 160 not (SC2016 67: bilinçli tek tırnaklı `sh -c '$X'`;
+  SC2015 63: `a && pass || fail` test deyimi; SC2031/2030/2094 host-firewall alt kabuk kalıbı; SC2086 `set -- $1` bilinçli
+  bölme). Bunları "düzeltmek" davranış riski taşır; `info/style` düşürmez. `scripts/e2e-real.sh`'daki 3 SC2155 uyarısı düzeltildi.
+- **Yeni Action yok:** shellcheck/actionlint Docker imajı (digest) ile; runner'daki sürüme bağlı kalınmaz, yerel komut aynıdır.
+- **Vitest tekrarı ayrı süreçte** (`--repeats` değil): entegrasyon fikstürleri aynı süreçte tekrarlanınca benzersiz anahtar
+  çakışması yapay hata üretebilir; ayrı süreç her koşuyu CI'daki gibi bağımsız tutar.
+- **CI `build` kök nedeni:** P10 (f537cbe) compose'a `APP_ENCRYPTION_KEYS:?` ekledi; CI adımı `.env.example`'dan üretilen
+  `.env`'e bu anahtarı doldurmuyordu → `docker compose config` "required variable … missing" ile düşüyordu. Prod compose
+  değişmedi; yalnız CI'nın sahte `.env` listesi. Yerelde aynı komutlarla doğrulandı (prod + staging katmanı `config --quiet`,
+  iki jq koruması, `caddy validate`).
+- **remote-watch pencere hassasiyeti:** 10 dk timer → etkin pencere 15 dk kuralı için ~20 dk, 1 sa için ~70 dk (en az pencere;
+  biraz daha hassas). Prometheus kurulursa runbook §22.2'deki PromQL birebir kullanılır.
+
+Doğrulama (yerel, 2026-11-15): shellcheck `-S warning` 0 · actionlint 0 (3 iş akışı) · `deploy/ops/test-watch.sh` GEÇTİ (yeni 11
+dahil) · `deploy/turn/test-local.sh` (TURN_TEST_CAP=0) 65 PASS + bant: tek 1002000 B/s, 2 allocation 2000400 B/s ·
+`repeat-tests.sh` argüman/çıkış kodu (taslak `pnpm` ile 1 düşen koşu → rc 1, `SONUÇ: 3/4`); vitest/playwright bayrakları
+gerçek araçla ayrıştı (`--list`: 462 test = 231 × 2) · compose adımı düzeltmeyle geçti. 20 koşuluk `stability` çalıştırması
+GitHub'da push sonrası yapılır (commit yok); sonuç qa raporuna.
+
+Açık (bu paketin dışı): CI `e2e` işi de kırmızı (8517725: p7-control AC-47, p8b-requests AC-164 axe light/dark, customers
+AC-194 390 px taşma) → frontend-dev. Yeni `shellcheck + actionlint` işi branch korumasında zorunlu kontrol yapılmalı (repo sahibi).
+
+### Kararsız testler
+
+(Boş — AC-219. Kararsız test bulunursa: test adı, koşu/oran, kök neden, düzelten commit. Retry ile gizlemek yasak.)
+
+## P14a A1 / P14b B1 — dba (2026-11-15)
+
+Ayrıntı ve test kayıtları: `docs/db-notlari.md` "P14a".
+
+| Dosya                                                                      | Değişiklik                                                                                                                                                                        |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/server/prisma/migrations/20261116000000_p14a_security/migration.sql` | Ön kontrol (geçici yordam + `SIGNAL 45000 'P14A_PRECHECK <tablo>=<n>'`). 6 CHECK `$` → `\z` (COPY, tablo başına tek ALTER). `users.version`, `auth_sessions.step_up_at` (INSTANT) |
+| `.../down.sql`                                                             | Kalıntı yordamı siler, iki sütunu düşürür, 6 CHECK'i `$`'a döndürür, migration kaydını siler. Guard yok (gevşetme yönünde)                                                        |
+| `apps/server/prisma/schema.prisma`                                         | `User.version Int @default(0) @db.UnsignedInt`, `AuthSession.stepUpAt DateTime? @db.DateTime(3)` (`prisma format` ilişki satırlarını hizaladı)                                    |
+| `apps/server/test/integration/security-p14a-db.test.ts`                    | Yeni: AC-201 (6 CHECK × `\n` + 8 sonlandırıcı + information_schema), version/step_up_at                                                                                           |
+| `deploy/mysql/check-app-grants.sh`                                         | 6 `CHAR(10)` negatifi (393 PASS)                                                                                                                                                  |
+
+- **Migration adı:** `20261116000000_p14a_security`. Son migration `20261115090000`'den ve bugünden sonra sıralanıyor.
+- **SIGNAL için saklı yordam:** SIGNAL saklı program dışında geçersiz. Ön kontrol sayıları tablo bazında veriyor (mimarideki `<tablo>=<n>` biçimi). Sütun bazında döküm sorgusu db-notlari'nde.
+- **grants.sql değişmedi:** yeni tablo yok, tablo düzeyi UPDATE yeni sütunları kapsıyor.
+- **B1:** `tenants(name)` indeksi **eklenmedi**. Gerekçe: 250 firmada tam tarama 0,1 ms, 10.000 firmada 2,6 ms; içerir araması B-tree kullanamıyor. Eşik ve backend (B2) notları db-notlari'nde.
+- **Backend'e (A2):** `version` artışı koşullu `UPDATE users SET …, version = version + 1 WHERE id = ? AND version = ?` ile yapılmalı (etkilenen 0 → 409 `STALE_WRITE`). Prisma'da `updateMany({ where: { id, version }, data: { version: { increment: 1 } } })`. `step_up_at` UTC yazılır.
+- **Açık bulgu (mimara, kapsam dışı):** 4 e-posta CHECK'i de sondaki tek satır sonlandırıcıyı (`\n`, `\r\n` …) kabul ediyor. `tenant_settings_smtp_from_email_chk` SMTP başlığına gidiyor. Öneri P15 dba: aynı kalıpla `\z`.
+
+## P14b B3 — frontend (bölüm 1) (frontend-dev, 2026-11-15)
+
+Kapsam: mimari-e11 §5.1 AC-220, 221, 222, 223, 224, 227, 228, 229, 230 + koordinatör ek işi (CI web e2e 4 kırmızı test).
+**AC-225/226 yapılmadı** (backend uçları `GET /users/options`, `GET /admin/tenants/options` henüz yok; B2 sonrası ayrı iş).
+Tasarım skill'i (`ui-ux-pro-max`) mevcut; değişiklikler DESIGN.md token/primitifleriyle yapıldı, yeni primitif yok.
+
+### Rotalar
+
+| Yol                                 | Auth                                              | Ne yapar                                                                                                                                          |
+| ----------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/settings/general` (yeni)          | evet, `settings.view` (düzenleme `settings.edit`) | Ayarlar > Genel: kod geçerliliği (15–30 dk), en uzun oturum (1–8 sa), açık oturum sınırı (1–10), dosya sınırı (1–2048 MB); PUT `/settings/tenant` |
+| `/users/<yok>` , `/customers/<yok>` | evet                                              | Artık gerçek HTTP 404 + tek h1 "Kullanıcı bulunamadı" / "Müşteri bulunamadı" (AC-220)                                                             |
+
+### AC → yapılan
+
+- **AC-220 (404):** Kök neden `curl -I` ile doğrulandı: düzeltme öncesi `/users/01JKS…ZZ`, `/users/abc`, `/customers/01JKS…ZZ` → **200**.
+  Neden mimaridekiyle aynı: `(panel)/loading.tsx` ve `[id]/loading.tsx` Suspense sınırı yanıtı akışla 200 başlatıyordu. **Ek bulgu:**
+  liste segmentinin `users/loading.tsx` / `customers/loading.tsx` dosyası da `[id]` alt segmentini sarıyordu (loading.tsx tüm alt
+  ağacı sarar). Yapılan: `(panel)/loading.tsx`, `users/[id]/loading.tsx`, `customers/[id]/loading.tsx` silindi; liste sayfası ve
+  iskeleti `users/(list)/`, `customers/(list)/` route group'una taşındı (URL değişmez, iskelet yalnız listeyi sarar);
+  `[id]/not-found.tsx` → `users/not-found.tsx`, `customers/not-found.tsx`; `EmptyState` `headingLevel={1}` ile tek h1. Sonrası
+  `curl`: üçü de **404**, var olan kayıt ve listeler 200. **Sapma:** mimarideki `[id]/layout.tsx` varlık kontrolü yazılmadı — sayfa
+  zaten Suspense sınırı olmadan `notFound()` çağırıyor, 404 için yeterli; `users/[id]/page.tsx`'e dokunulmadı (A4 çakışması).
+  **Not:** React SSR'da hata sınırı çalışmadığından Next 404'te `<html id="__next_error__">` kabuğu döner ve not-found içeriğini RSC
+  yükünden istemcide çizer (`<title>` sunucuda var); JS'li tarayıcıda tek h1 görünür (e2e doğrular). Genel panel iskeleti kalktığı için
+  ayarlar sayfalarına `settings/loading.tsx` eklendi (o segmentte `[id]` yok). `history/[id]` aynı kalıpta 200 dönmeye devam ediyor
+  (`history/loading.tsx` alt segmenti sarıyor) — AC kapsamında değil, aynı route group düzeltmesiyle kapatılabilir (öneri).
+- **AC-221:** `--rs-switch-track-off` / `--rs-switch-track-locked` (açık #717d8a/#7b8794, koyu #7b8794/#66717e), üç koyu seçicide aynı;
+  Tailwind `bg-switch-track-*`. `Track` kapalı/kilitli rayda bu token'ları kullanır; kilitli `ToggleSwitch`'te `opacity-60` kaldırıldı
+  (kontrastı düşürüyordu). Birim testi `lib/switch-contrast.test.ts` değerleri `globals.css`'ten okuyup surface/surface-muted/canvas
+  zemininde ≥ 3:1 hesaplar. DESIGN.md §2 ve §6 güncellendi.
+- **AC-222:** `side-nav.tsx`: rota değişince etkin öğe yatay şeritte "nearest" mantığıyla görünür alana alınır (animasyonsuz;
+  `scrollIntoView` yerine yalnız `scrollLeft` — sayfa dikeyde kaymasın, maske genişliği kadar pay). Kaydırma ipucu: `globals.css`
+  `.scroll-hint-x[data-more-start|end]` kenar `mask-image` + `aria-hidden` `ChevronLeft/Right`; md+ dikey menüde yok.
+- **AC-223:** `status=all` boşken varsayılan boş durum ("Yeni müşteri" + yardım); pasif filtre boş durumu ayrı kalır. Yardım ve form
+  diyaloğu `CustomersActionsProvider` ile sayfa düzeyinde tek örnek; tetikleyiciler bağlamdan açar. **Sapma:** mimari "ref'le açar"
+  diyor; React bağlamı aynı sonucu verir (odak native `<dialog>` ile tetikleyene döner).
+- **AC-224:** `/settings/general` (`limits-form.tsx`): istemci doğrulaması contracts `updateTenantSettingsInputSchema` ile
+  (`lib/account/limits.ts`), ilk hatalı alana odak, istek gitmez; yalnız değişen alanlar gönderilir; 400 `fields.*` alana, diğer hata
+  form üstüne; SaveBar + ayrılma uyarısı; salt okunurda alanlar pasif + uyarı; GET hatası `LoadError`; iskelet `settings/loading.tsx`.
+  **Audit:** sunucu `updateTenantSettings` bu dört alanı `SCALARS` içinde zaten eski→yeni yazıyor — backend'e ek iş yok.
+- **AC-227:** `contracts/dc.ts` `CHAT_SEND_PER_SEC = 5`. Gönderen: `chatSendLimiter()` (kayan 1 sn penceresi, mevcut `RateWindow`;
+  **sapma:** mimari "token bucket" diyor — token bucket 1 sn penceresinde 2×'e kadar izin verebildiği için alıcı penceresini aşabilirdi;
+  kayan pencere daha sıkı). Aşımda `sendChat` → `"rate"`; mesaj gönderilmez/kuyruğa alınmaz, metin girişte kalır, giriş altında
+  `role=status` "Çok hızlı yazıyorsunuz…". Alıcı `IN_LIMITS.chat` = 2 × gönderen (10/sn): ağ gecikmesinde sıkışan meşru mesaj düşmez
+  (birim testi rastgele gecikmeli simülasyonla 0 düşme doğrular). `sendChat` dönüş tipi `boolean` → `"sent" | "rate" | "error"`.
+- **AC-228:** Davranış P8b'de `useLeaveGuard`'a eklenmişti (nöbetçi `pushState`, `popstate` → diyalog, vazgeçte yeniden itme,
+  `beforeunload`); AC-63 testi kapsıyordu. Kod değişmedi; AC-228 adlı e2e eklendi (istemci gezinmesi → not → geri → başlık
+  "Kaydedilmemiş değişiklikler var", Esc ile kal, ikinci geri yine yakalanır, "Kaydetmeden ayrıl").
+- **AC-229:** `precheckFile`: `file.type === ""` ise `.png .jpg .jpeg .webp` uzantısıyla ön kabul; bildirilen izinsiz MIME (SVG) yine
+  red; `accept` özniteliğine uzantılar eklendi (MIME eşlemesi olmayan sistemde seçicide görünsün). Karar sunucuda (magic bytes).
+- **AC-230:** `shouldWarnLargeWrite(bytes, streamToDisk?)` (`lib/dc/files.ts`); `files-panel.tsx` bunu kullanır. Projede DOM bileşen
+  test altyapısı (RTL/jsdom) yok; eşik altı/tam eşik/üstü ve disk-akışı yok durumları saf fonksiyon testinde.
+
+### CI web e2e — 4 kırmızı testin kök nedeni (52518ac'den beri)
+
+1. **AC-164 (p8b-requests, light+dark) ve AC-194 (customers, mobil): 390 px'te 2 px taşma.** Yerelde geçiyordu; Linux font metriğiyle
+   (Verdana zorlanarak, DejaVu Sans ile aynı genişlik sınıfı) yeniden üretildi. Kök neden: mobil menü `<ul overflow-x-auto>` içindeki
+   sayaç rozetinin `sr-only` metni `position:absolute`; içerme bloğu kaydırma kapsayıcısı olmadığından kayan şeridin dışındaki öğede
+   kırpılmıyor ve belgeyi taşırıyordu (geniş fontta öğe 390 px'in hemen dışına düşüyor). Düzeltme: `<ul>`'ye `relative` (CSS; test
+   değişmedi). Doğrulama: aynı tanıda 5 sayfada taşma 2 → 0. Kalıcı regresyon: `p14b-ui.spec.ts` "CI 390 px taşması" (yalnız o blokta
+   `bypassCSP` ile geniş font).
+2. **AC-47/48/49/99/50 (p7-control): `strip.height ≤ 64`, CI 113.** Gerçek kırılma: kontrol sırasında şerit 580 px, içerik
+   (Kontrol sizde 109 + Kontrolü bırak 157 + Özel tuşlar 149 + Görünüm 140 + boşluklar) Linux fontunda 595 px. Kök neden: `compact`
+   kararı sabit piksel eşiğine (`COMPACT_BELOW_PX`) bağlı, font metriğine değil. Düzeltme (`stage.tsx`): her çizimden sonra
+   `useLayoutEffect` şerit öğelerinin tek satırda olup olmadığını ölçer; kırılıyorsa "Görünüm" menü etiketi `sr-only` olur (ikon + ok
+   kalır, `title` ipucu), genişlik değişince yeniden ölçülür. Test eşiği değiştirilmedi.
+   **Doğrulanamadı:** düzeltme sonrası e2e koşusu başlatılamadı — paralel bir değişiklik (`MysqlSettingsView.requireTls`, contracts)
+   `apps/web/lib/admin-settings/admin-settings.test.ts`'i tip hatasına soktu, `next build` "Failed to type check" ile duruyor
+   (A4/backend alanı, dokunulmadı). Bu düzeltildikten sonra `p7-control` ve `p14b-ui` koşulmalı.
+
+### Değişen / eklenen dosyalar (web + contracts)
+
+`app/(panel)/{users,customers}/(list)/{page,loading}.tsx` (taşındı), `{users,customers}/not-found.tsx` (taşındı), silinen
+`(panel)/loading.tsx`, `users/[id]/loading.tsx`, `customers/[id]/loading.tsx`; `customers/customers-actions.tsx`, `side-nav.tsx`,
+`settings/{settings-tabs.tsx,loading.tsx,general/page.tsx,general/limits-form.tsx}`, `app/globals.css`, `components/ui/{switch,empty-state}.tsx`,
+`components/collab/{chat-panel,files-panel}.tsx`, `components/console/stage.tsx`, `lib/account/limits.ts`, `lib/branding/image.ts`,
+`lib/dc/{rate,files,use-collab}.ts`, `messages/tr.json`, `packages/contracts/src/dc.ts`; testler `lib/switch-contrast.test.ts`,
+`lib/account/limits.test.ts`, `lib/dc/{chat-rate,large-write}.test.ts`, `lib/branding/branding.test.ts`, `lib/dc/p5-guvenlik.test.ts`,
+`e2e/p14b-ui.spec.ts` (yeni), `e2e/{customers,p12-branding,p5-collab}.spec.ts`, `e2e/mock-account.mjs` (`u-accbad-*`, sınır alanları,
+`maxFileMb 2047` sunucu alan hatası). DESIGN.md (token, ikon, `EmptyState.headingLevel`).
+
+## P14a A3 — backend
+
+Kapsam: mimari-e11 §4.2 AC-208..213, 216 (sunucu) + §4.3 sunucu maddeleri (AC-217). A2 (users/tenants/auth) dosyalarına
+dokunulmadı.
+
+**Değişen dosyalar**
+
+- `src/sessions/public.ts`, `src/app.ts`, `src/ops/metrics.ts` — AC-208: `rs_guest_code_rate_limited_total{scope: ip|prefix}`
+  (kod yolu ve agent indirme ucu ortak kovası; kilitli kova başına bir sayım). `createPublicLimits(log, cidr, metrics)`.
+  `rs_mysql_test_failed_total{class}` da kaydedildi; ikisi de `/metrics`'te sıfırla yayımlanır.
+- `src/requests/service.ts` — AC-209: sıra ön bakış → **kapı** (503 NOT_READY) → IP/önek/net48 kovaları → zod → … → TX →
+  **commit sonrası** tenant kovası `add`. Tenant kovası TX öncesi yalnız okunur (reddi aynen). Ref/kayıt çözülemezse TX'e
+  varılmadığı için kapı kullanılmaz (tek 404 yolu değişmedi). Kabul edilen not: tenant kovası okuma/sayım arasında tenant başına
+  en çok `perKey` (2) talep taşabilir.
+- `src/requests/ws.ts`, `src/requests/limits.ts` — AC-210: `/ws/request` `wsUpgrade` sayımı güven belirlendikten sonra, yalnız
+  güvenilmeyen IP için; zaten kilitli anahtar baştan (sayımsız) reddedilir; `refInvalid` kovası aynen. AC-216: `/ws/panel`
+  `panelSession` kovası (oturum token'ının SHA-256'sı, 30/dk); aşımda upgrade kabul + `close(4429, "retry=<sn>")` (kalan kilit
+  süresi), `rs_ws_rejected_total{role="panel",reason="session_rate"}`. IP kovası (HTTP 429) değişmedi.
+- `src/lib/netguard.ts` — `classifyIp` / `classifyHost` (loopback | private | public | unresolved; tek çözümleme, ilk IP döner).
+- `src/settings/mysql-probe.ts`, `src/settings/system.ts`, `src/settings/routes.ts` (yalnız `systemDeps`'e `metrics`) — AC-211:
+  `requireTls` saklanır/döner; değişmeyen kayıt karşılaştırmasına girer. Test bağlantısı çözülen IP'ye yapılır (rebinding yok);
+  `requireTls` → `ssl:{rejectUnauthorized:true, servername, checkServerIdentity(ayar adı)}`, açık anahtar isteği kapalı. TLS
+  yokken `allowPublicKeyRetrieval` yalnız loopback/özel/tek etiketli adda. Sınıf `tls`: 45023 (sunucu TLS'siz), 3159, sertifika/
+  TLS kodları. AC-212: `rs_mysql_test_failed_total{class: connect|auth|tls|timeout|other}` (database/secret_unreadable → other).
+- `prisma/migrations/20261116010000_p14a_mysql_tls/{migration,down}.sql` — **sapma (gerekçeli, mimari-e11 §4.1 notu):** P11
+  `system_settings_mysql_chk` JSON şeması ek anahtarı reddediyordu; yalnız isteğe bağlı `requireTls: boolean` eklendi.
+- `src/requests/jobs.ts`, `src/customers/service.ts`, `src/bindings/service.ts` — AC-217: çağrılmayan global sarmalayıcılar
+  (`anonymizeRequests`, `anonymizeCustomers`, `expireIdleBindings`) silindi; testler `test/helpers/retention.ts` ile `*Of`
+  fonksiyonlarını kullanır. `bindings/service.ts` varsayılan 365 → `RETENTION_DEFAULT_DAYS`.
+- `packages/contracts`: `api/system-settings.ts` (`requireTls`, `MysqlSettingsView.requireTls`, `tls` nedeni + mesajı),
+  `ws-request.ts` (`WS_PANEL_UPGRADES_PER_MIN`, `panelRetryReason`, `parsePanelRetry`), `api/tenants.ts`
+  (`RETENTION_DEFAULT_DAYS = 365`), `audit.ts` (`SYSTEM_AUDIT` JSDoc koda uyduruldu: servis `"changed"` yazar, mask.ts `***`).
+  `canonicalWaUrl` contracts'ta zaten vardı ve sunucu `waServiceUrlSchema` üzerinden kullanıyor (ek kod gerekmedi).
+- `vitest.config.ts` — `p14a-a3-settings.test.ts` paylaşılan `system_settings` satırlarını yazdığı için seri projede.
+- Web (koordinatör isteğiyle asgari): `apps/web/lib/admin-settings/admin-settings.test.ts` fixture'ına `requireTls`;
+  `apps/web/lib/startup-check.test.ts` (AC-217 startup-check birim testi; yeni dosya).
+
+**Testler (adında AC no)**: `test/unit/p14a-a3.test.ts` (208, 211, 212, 216), `test/integration/p14a-a3.test.ts` (208 /metrics,
+209 beş 503 → 201 + tenant kovası, 210 35 güvenilen upgrade / 31. güvenilmeyen 429, 211 sahte TLS'siz MySQL ve gerçek MySQL
+kendinden imzalı sertifika → `tls`, 212 metrik, 216 30 upgrade → 31. kapanış 4429 `retry=` + ayrı oturum etkilenmez),
+`test/integration/p14a-a3-settings.test.ts` (211 kalıcılık + DB CHECK, 217 değişmeyen mysql/turn → audit yok, `password/secret:"***"`,
+`tenant_settings.*` filtresi `_`'yi harfiyen eşler), `test/integration/mail-starttls-p14a.test.ts` (213: 587 STARTTLS doğru ad
+gönderir; yanlış ad → `tls`, ileti 0; STARTTLS ilan etmeyen sunucuda nodemailer `requireTLS` yine yükseltir → ileti yalnız TLS
+oturumunda; STARTTLS'i hiç desteklemeyen → `tls`, ileti 0), `packages/contracts/test/p14a-a3-contracts.test.ts`.
+Güncellenen: `settings-p11` (görünüm/probe şekline `requireTls:false`), `unit/p11` (probe imzası), retention testleri (yardımcı).
+
+**Bağımlılık:** yeni yok (`smtp-server` MIT P10'dan beri devDependency).
+
+**Komutlar ve sonuç (2026-11-15, geçici konteyner `rs-p14a-a3-q7m2`, iş sonunda silindi):**
+`pnpm --filter @remote/server lint` temiz · contracts/web lint + typecheck temiz · server `test` 23 dosya / 376 test geçti ·
+contracts 84 · web 31 dosya / 308 test · server `test:int` 61 dosya: 587 geçti, 7 düştü — A3 kapsamındaki dosyaların hepsi
+yeşil; düşenler A2'nin süren işine ait (`security-p14a-auth` AC-215 kurtarma kodu, `whatsapp-admin-p12b` iki test
+`mfa/setup` yanıtı); `settings-p11` güncellemeden sonra 14/14. Server `typecheck`: yalnız A2'nin `security-p14a-users.test.ts`
+dosyasında 1 tip hatası (A3 dosyalarında yok).
+
+**frontend-dev'in bilmesi gerekenler (A4)**
+
+- `GET/PUT /admin/settings/mysql`: yanıtta `requireTls: boolean`; PUT/test gövdesinde `requireTls` (yoksa false). Form bu alanı
+  göndermezse kayıtlı `true` değeri `false`'a döner → "TLS gerekli" kutusu A4'te eklenmeli. Test yanıtında yeni mesaj sınıfı `tls`.
+- `/ws/panel` kapanışı `4429`: gerekçe `retry=<sn>` → `parsePanelRetry(reason)` ile bekle (± %20 jitter); `too_many` (kullanıcı
+  başına 6. soket) `null` döner.
+- `RETENTION_DEFAULT_DAYS` ve `canonicalWaUrl` contracts'tan alınabilir (web kopyaları A4'te kaldırılacak; web'in "geçersizse ham
+  değer" davranışı için `canonicalWaUrl(normalizeWaUrl(v)) ?? normalizeWaUrl(v)`).
+- Devops (A5): runbook alarmları — `rs_guest_code_rate_limited_total{scope="prefix"}` 15 dk'da ≥ 20, `rs_mysql_test_failed_total`
+  1 sa'te ≥ 10.
+
+## P14a A2 + P14b B2 — backend (2026-11-15)
+
+Kapsam: mimari-e11 §4.2 (AC-202..207, 214, 215) ve §5.1 (AC-224..226). Migration hazırdı (`20261116000000_p14a_security`).
+
+### Değişen dosyalar
+
+- **contracts** (A4/B3 bunlara bağlı): `src/errors.ts` (+`MFA_STEP_UP_REQUIRED` 401, `STALE_WRITE` 409, `PRECONDITION_REQUIRED` 428),
+  `src/api/auth.ts` (`stepUpInputSchema`, `StepUpResponse`, `STEP_UP_MAX_AGE_SEC=300`, `RECOVERY_CODES_LOW_THRESHOLD=3`),
+  `src/api/users.ts` (`UserDetail.version`, `userEtag`, `parseUserIfMatch`, `USER_STALE_WRITE_MESSAGE`, `USERS_WRITES_PER_MIN=30`,
+  `USERS_CREATES_PER_MIN=10`, `UserOption`, `UserOptionsResponse`, `USER_OPTIONS_MAX=1000`), `src/api/tenants.ts`
+  (`tenantOptionsQuerySchema`, `TenantOption`, `TenantOptionsResponse`, `TENANT_OPTIONS_MAX=20`), `src/audit.ts`
+  (`AUTH_AUDIT.STEP_UP`); test `test/p14a-contracts.test.ts`.
+- **server**: `src/auth/{session,guards,account,routes}.ts` (step-up servisi + `requireStepUp()`; giriş doğrulaması ve step-up
+  ortak `consumeSecondFactor`; `mfaSetup` koşullu `version` UPDATE + `RaceHooks.afterLock`), `src/mail/templates.ts`
+  (`recoveryCodeUsedMail`), `src/users/{repo,service,routes}.ts` (kilit + aktör yeniden okuma, 403/e-posta audit'i, version,
+  If-Match/ETag, hız sınırı, `/users/options`), `src/tenants/{repo,service,routes}.ts` (pasifte talep/kayıt aynı TX, `/admin`
+  hız sınırı, `/admin/tenants/options`), `src/settings/routes.ts` (yalnız `requireStepUp` bağlama), `src/lib/errors.ts` (3 mesaj).
+- **testler**: yeni `test/integration/security-p14a-{users,auth,tenants}.test.ts`; `test/helpers/app.ts` (`loginStepUp`,
+  `markStepUp`), `test/helpers/tenant-matrix.ts` (3 yeni rota sınıfı, PATCH `If-Match`), `users-p9`/`permissions-ac72-p9`
+  (PATCH öncesi ETag okunur), `settings-p11`/`whatsapp-admin-p12b` (sistem ayarı yazımları step-up'lı oturumla),
+  `AuthContext` fikstürlerine `stepUpAt: null`.
+
+### Tasarımdan sapmalar (gerekçeli)
+
+1. **Step-up'ta hatalı kod 400 `fields.code`** (§4.2 hata listesi 401/403/429): 401 web istemcisinde "oturum düştü" yoluna
+   girer; 401 yalnız `MFA_STEP_UP_REQUIRED` (guard) için kullanılır.
+2. **Audit adları:** step-up `auth.step_up` + `method: "TOTP"|"RECOVERY"` (ADR-0022/§4.2; AC-215 metnindeki `mfa.step_up` /
+   `recovery_code` ile farklı — mevcut `auth.*` grubu korundu). 403 audit'i `user.updated` (oluşturmada `user.created`)
+   `result:"fail"`, `newValue:{op, denied}`; §4.2'deki `user.update` yazımı mevcut sabite (`USER_AUDIT.UPDATED`) eşlendi.
+   `denied`: AC-73 için eksik yetki anahtarları, üstünlük için hedefte olup aktörde olmayan anahtarlar, kendi hesabı için
+   `role`/`status`/`mfa` + değişen anahtarlar, aktör pasif/silinmiş/başka firmada için `actor`.
+3. **E-posta çakışması** 409 kodu `CONFLICT` kalır (`fields.email`; yeni `EMAIL_TAKEN` kodu açılmadı — web zaten bunu işliyor);
+   audit `{op, reason:"email_taken"}`, e-posta değeri yazılmaz.
+4. **Talep iptal nedeni `TENANT_PASSIVE`** (§4.2 `TENANT_INACTIVE` diyor; CHECK/enum'da yok, mevcut değer kullanıldı).
+   Talep iptali satır başı `request.cancelled` audit'i ve kayıtlar için tek `binding.revoked {reason, count}` artık pasife alma
+   TX'inde, aktör Super Admin. Commit sonrası yalnız bildirimler (oda, panel, `request.closed`, metrik). `requests/service.ts
+cancelAllForTenant` artık tenants'tan çağrılmıyor (A3 alanı, dokunulmadı — kullanılmıyorsa A3/sonraki tur silebilir).
+5. **Hız sınırı kapsamı:** `/users*` (avatar hariç — uploads modülünün 20/sa kovası) ve `/admin/tenants*` + `/admin/switch-tenant`
+   için eklenti başına ayrı kova (30/dk); `/admin/settings/*` mevcut daha sıkı 10/dk kovasında kaldı.
+6. **Sürüm artışı:** değişiklik içermeyen PATCH sürümü artırmaz (AC-207 "fark yoksa"); `mfa/setup` sürümü +1 artırır (yarış
+   kontrolünün çalışması için zorunlu — salt `WHERE version=?` iki paralel kurulumu da geçirirdi). `mfa/enable` ve avatar artırmaz.
+7. **AC-202 kapsamı:** create/patch/deactivate/reactivate/reset-mfa TX'leri `lockUsers([aktör, hedef])` (id sırası, `IN … ORDER BY
+id FOR UPDATE`) + aktörün rol/durum/firma/yetkisi TX içinde okunur; uç yetkisi (`users.create`/`users.edit`) de TX içinde
+   yeniden denetlenir. `argon2` hash kilit dışında.
+8. **If-Match** yalnız güçlü `"v<n>"`; `*`, `W/"v<n>"`, liste → 428 (eşleşme kuralı belirsiz kalmasın). 428 gövde
+   doğrulamasından önce döner.
+9. **`/users/options`** `tenantScope` kullanır: firma seçmemiş Super Admin 403 (tüm firmalar listesi yok). USER rolü — yetkisi
+   `support_requests.view` olsa da — yalnız kendisini görür (§5.1 "USER ve historyScope=own").
+
+### Bağımlılık
+
+Yeni bağımlılık yok.
+
+### frontend-dev için sözleşme notları
+
+- `GET /users/:id` → `version` + `ETag`; `PATCH` `If-Match: userEtag(version)` gönderilmeli. 428 `PRECONDITION_REQUIRED`,
+  409 `STALE_WRITE` (mesaj `USER_STALE_WRITE_MESSAGE`) → "Yeniden yükle". PATCH yanıtı yeni `version`/`ETag` taşır.
+- Step-up: 401 `MFA_STEP_UP_REQUIRED` → diyalog → `POST /auth/step-up {method, code}` → isteği bir kez tekrarla. Hatalı kod 400
+  `fields.code`; 429 `Retry-After`. `recoveryCodesLeft ≤ RECOVERY_CODES_LOW_THRESHOLD` → yenileme uyarısı. 403
+  `MFA_SETUP_REQUIRED` → 2FA kurulumuna yönlendir.
+- `GET /users/options` → `{items:[{id, fullName, status}]}`; `GET /admin/tenants/options?q=&limit=` → `{items:[{id, name, slug, status}]}`.
+- Kullanıcı yazma uçları 429 + `Retry-After` dönebilir.
+
+### Test
+
+Geçici MySQL `rs-p14a-a2-k9x4` (127.0.0.1:33461, `apps/server/scripts/test-db.sh`), bitince silindi.
+
+- `pnpm --filter @remote/contracts typecheck|lint|test` temiz; yeni `p14a-contracts.test.ts` 3/3.
+- `apps/server`: `pnpm typecheck` ve `pnpm lint` temiz; `pnpm test` 23 dosya / 376 test geçti.
+- Yeni entegrasyon: `security-p14a-users` 13/13, `security-p14a-auth` 5/5, `security-p14a-tenants` 7/7. Gecikme kancalı
+  testler (AC-202 ×2, AC-206, AC-214) her biri 20 ardışık tur içerir; kanca kilidi tutan TX'i bekletir, ikinci istek kilitte
+  sıraya girer (zamanlama varsayımı yok).
+- `pnpm test:int` tam koşu: **62 dosya / 601 test geçti** (seri projeler dahil).
+
+### Kararsız testler
+
+Yok. (Not: ortak scratchpad'teki `testdb.env` başka bir ajan tarafından üzerine yazıldığı için bir ara koşu silinmiş bir DB'ye
+bağlandı; bindings/retention hataları buradandı, kod kaynaklı değil. Benzersiz dosya adıyla yeniden koşuldu.)
+
+### P14a A5 — S14-2 düzeltmesi (devops, 2026-11-15)
+
+`deploy/ops/remote-watch.sh`: konteyner çıktısından gelen `r_last`, `r_fail`, `st_epoch` ve durum dosyasındaki örnek zaman
+damgaları `$(( ))`'e girmeden önce `^[0-9]+$` ile doğrulanır. Geçersizse: `r_last` → uyarı + `ALERT retention` (metrik değeri
+geçersiz), `r_fail` → yok sayılır + uyarı, `st_epoch` → şimdi + uyarı. Tarama: diğer `$(( ))` girdileri (yedek `status.prom`,
+`last_sent`/`offsite_remind`/`retention_fail_at`, disk yüzdesi, sayaç örnekleri) zaten doğrulanıyordu; `[ -gt ]` (`[[ ]]`
+değil) aritmetik değerlendirmez. `test-watch.sh`: `a[$(touch …)]` metrik/`StartedAt`/durum değerleriyle 7 enjeksiyon → dosya
+oluşmuyor; eski ifadenin savunmasız olduğu ayrıca gösterildi. test-watch GEÇTİ, shellcheck `-S warning` 0.
+
+## P14 güvenlik düzeltmeleri — backend
+
+Kaynak: `docs/guvenlik-raporu.md` "P14a/P14b (backend+db+devops) — kod turu 1" (S14-1, S14-3..S14-7). S14-2 devops, S14-8 dba.
+
+| Bulgu        | Değişiklik                                                                                                                                                                                                                                                                                                                                                                                                                                                | Test                                                                                                                                                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S14-1 (Orta) | `requests/service.ts` `create()`: kapıdan (`gated`) ÖNCE `assertCreateNotBlocked` — ip/önek/net48 kovası `blockedFor` ile (sayımsız) kilitliyse 429 + `request.rate_limited` audit (dakikada 1). `hit` kapının içinde kaldı → AC-209 "503'te kova tüketilmez" aynen. Güvenilen CIDR muaf (eskisi gibi).                                                                                                                                                   | `integration/p14a-a3.test.ts` "AC-209/S14-1": kilitli IP'den 50 paralel istek (ayar kilidi tutulurken) hepsi 429, `gateLoad` {0,0}; aynı anda başka firmanın talebi 201, kilit kalkınca meşru IP 201. Mevcut AC-209 testleri geçiyor. |
+| S14-3        | `settings/mysql-probe.ts`: `localish = cls !== "public"` (tek etiketli ad istisnası ve `SINGLE_LABEL` kaldırıldı).                                                                                                                                                                                                                                                                                                                                        | `unit/p14a-a3.test.ts` AC-211: `db` → genel IP ⇒ `allowPublicKeyRetrieval:false`; `mysql` → 172.18.x ⇒ true.                                                                                                                          |
+| S14-4        | Oluşturma TX'inde `lockSettings` sonrası `repo.shareTenantActive` (`SELECT status, deleted_at FROM tenants … FOR SHARE`); pasif/silinmiş → tek 404 yolu (ref: `REQUEST_REF_INVALID`, kayıt: `BINDING_INVALID`). Kilit sırası settings → tenants; pasife alma settings istemez → döngü yok.                                                                                                                                                                | `integration/p14a-a3.test.ts` "AC-205/S14-4": talep ayar kilidinde beklerken tenant PASSIVE → 404, satır 0.                                                                                                                           |
+| S14-5        | `users/service.ts` `updateUser`: sürüm karşılaştırması (409) `assertManage` / kendi hesabı / `assertGrantable`'dan SONRA.                                                                                                                                                                                                                                                                                                                                 | `integration/security-p14a-users.test.ts` "AC-204/S14-5": üstün hesaba ve kendi rolüne yanlış `If-Match` → 403 + `denied` audit; yetkili düzenleme yanlış sürümle hâlâ 409.                                                           |
+| S14-6        | `sessions/public.ts` `assertLookupAllowed` artık sayaç artırmaz; `rs_guest_code_rate_limited_total{scope}` yalnız kilit başlarken (`countFailedLookup`) — **kilitli kova başına bir** (bu dokümandaki A3 tanımı doğruydu, kod ona eşitlendi). `docs/runbook.md` §22.2 alarm satırı buna göre açıklandı: eşik (20 / 15 dk, mimari-e11) artık "15 dk'da kilitlenen ≥ 20 farklı önek kovası" demek; tek istemci tetikleyemez. Eşik değeri değişmedi.         | `unit/p14a-a3.test.ts` AC-208/S14-6: kilitliyken 25 + 5 ret sonrası sayaçlar 1/1. Entegrasyon AC-208 aynen.                                                                                                                           |
+| S14-7        | `env.ts`: `isWeakEncryptionKey` (tüm baytlar aynı; CI'daki 32 sıfır bayt dahil) — `NODE_ENV=production`'da listedeki herhangi bir sürüm zayıfsa başlangıç hatası (değer mesaja yazılmaz). CI etkilenmez: sıfır anahtar yalnız `docker compose config` adımında, server production modunda başlatılmıyor (ci.yml `NODE_ENV: test`). Test sahte anahtarı (`test/helpers/secrets.ts`, eskiden 32×0x11 — artık reddedilirdi) 32 baytlık ASCII metne çevrildi. | `unit/env-logger.test.ts` "S14-7": sıfır / tekrarlı / rotasyon listesinde zayıf v2 → hata; test modunda kabul.                                                                                                                        |
+| Temizlik     | Kullanılmayan `RequestService.cancelAllForTenant` ve tek kullanıcısı `repo.findPendingOfTenant` silindi (pasife alma P14a'dan beri `tenants/repo.ts cancelTenantRequests` ile aynı TX'te); `tenants/service.ts` başlık yorumundaki atıf güncellendi.                                                                                                                                                                                                      | —                                                                                                                                                                                                                                     |
+
+Sözleşme değişikliği yok (frontend etkilenmez). Yeni bağımlılık yok. Migration yok.
+
+Komutlar (apps/server): `pnpm run typecheck` ✓, `pnpm run lint` ✓, `pnpm run test` 23 dosya / 377 test ✓,
+`pnpm run test:int` (geçici MySQL 8.4 konteyneri, iş bitince silindi) 62 dosya / 604 test ✓.
+
+## P14a A4 + P14b B3 bölüm 2 — frontend (frontend-dev, 2026-11-15)
+
+Kapsam: mimari-e11 §4.6 A4 (AC-206 web, 211 web, 215 web, 216 web, 217 web maddeleri) + §5.1 AC-225/226. Sunucu dosyalarına
+dokunulmadı. Tasarım skill'i okunmadı (yeni ekran yok; mevcut primitifler genişletildi, DESIGN.md §6 güncellendi).
+
+### Rotalar
+
+Yeni rota yok. Değişen ekranlar:
+
+| Yol                     | Auth                                  | Değişen davranış                                                                                               |
+| ----------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `/admin/settings/mysql` | Super Admin                           | "Bağlantı güvenliği > TLS gerekli" anahtarı (AC-211); kayıt/test step-up isteyebilir (AC-215)                  |
+| `/admin/settings/*`     | Super Admin                           | WhatsApp/TURN/MySQL yazımlarında 401 `MFA_STEP_UP_REQUIRED` → kod diyaloğu → istek bir kez tekrarlanır         |
+| `/users/[id]`           | `users.view` (düzenleme `users.edit`) | PATCH `If-Match`; 409/428 → uyarı + "Yeniden yükle"; rol geri alınınca kayıtlı ezmeler geri gelir (AC-206)     |
+| `/history`              | `session_history.view`                | Teknisyen seçenekleri `GET /users/options` (tam liste); Super Admin firma filtresi aramalı seçici (AC-225/226) |
+| Üst menü firma seçici   | Super Admin                           | Aramalı combobox `GET /admin/tenants/options?q=&limit=20`, 250 ms gecikme, klavye (AC-226)                     |
+| Panel kabuğu            | `support_requests.view`               | `/ws/panel` 4429 `retry=<sn>` → ± %20 bekleyip sessiz yeniden bağlanma (AC-216)                                |
+
+### AC → yapılan
+
+- **AC-215 (step-up):** `components/account/step-up-dialog.tsx` (`StepUpProvider`, `(panel)/layout`'ta tek örnek) +
+  `lib/account/step-up.ts` (saf mantık). `lib/api.ts`: 401 `MFA_STEP_UP_REQUIRED` → kayıtlı işleyici → diyalog → başarıda
+  istek **bir kez** tekrarlanır (ikinci 401 çağırana gider, döngü yok); eşzamanlı istekler tek diyalog bekler; vazgeçilirse
+  `ApiError(401, MFA_STEP_UP_REQUIRED, "İşlem yapılmadı: kimliğinizi doğrulamadınız…")`. `isUnauthenticated` bu kodu
+  **oturum düşmesi saymaz** (girişe yönlendirme yok). Diyalog: odak tuzağı (native `showModal` + `ui/dialog.tsx`'e eklenen açık
+  Tab döngüsü — tüm diyaloglara yarar), TOTP 6 hane ↔ "Kurtarma kodu kullan", hata `aria-live="assertive"`, 400 `fields.code`
+  (backend sapması) → "Kod hatalı…" + alan temizlenir, 429/423 → "N dakika sonra". Kurtarma koduyla `recoveryCodesLeft ≤
+RECOVERY_CODES_LOW_THRESHOLD` → diyalog "Kurtarma kodlarınız azaldı" + Hesabım bağlantısı, "İşleme devam et" ile istek
+  tekrarlanır. `RECOVERY_LOW` artık contracts sabitinin yeniden dışa aktarımı. 403 `MFA_SETUP_REQUIRED` mevcut yolla `/2fa/setup`.
+- **AC-206:** `user-editor.tsx` PATCH `If-Match: userEtag(saved.version)` (`api()` 5. parametre `init.headers`). 409
+  `STALE_WRITE` veya 428 → `user-stale` uyarısı (`USER_STALE_WRITE_MESSAGE`) + "Yeniden yükle" (GET, taslak atılır, toast).
+  Rol: `permsForRole()` (`lib/users/permissions.ts`) — kayıtlı role dönülünce kayıtlı harita (`basePerms`, taslaktan ayrı state)
+  olduğu gibi geri gelir; başka role geçişte eski `applyRoleDefaults` davranışı.
+- **AC-211:** `MysqlState.requireTls` — kayıtlı değer yüklenir, her PUT/test gövdesinde açıkça gönderilir, kirli
+  karşılaştırmasına girer. `Switch` primitifi ("TLS gerekli"); test notu açıkken "TLS ile yapılır, sertifika doğrulanır".
+- **AC-216:** `lib/requests/panel-socket.ts`: `panelCloseAction(code, …, reason)` — 4429 + `retry=` → yeniden dene, gerekçesiz /
+  `too_many` → dur; `panelRetryDelay()` = `parsePanelRetry` sn × [0,8; 1,2]. Konsola yazma yok. Bağlantı zaten
+  `(panel)/layout`'taki `RequestNotifier`'da tek örnek (layout istemci içi gezintide yeniden bağlanmaz); e2e ile doğrulandı.
+- **AC-217 (web):** `canonicalWaUrl` contracts'tan (web sarmalayıcısı geçersiz değerde kırpılmış ham değeri döner);
+  `RETENTION_DEFAULT_DAYS` contracts'tan; `lib/dark-tokens.test.ts` iki koyu bloğun anahtar+değer eşitliği.
+- **AC-225:** `/history` sunucuda `GET /users/options` (liste isteğiyle paralel). Pasif hesap "(pasif)"; URL'deki ama listede
+  olmayan id "Seçili (…)". **Sapma:** firma seçmemiş Super Admin'de uç 403 (tenantScope, backend sapması 9) → teknisyen
+  seçenekleri eskisi gibi sayfadaki kayıtlardan, alan altında "tam liste için önce firma seçin" ipucu. Talepler ekranında
+  teknisyen filtresi yok; müşteri filtresi zaten aramalı combobox (P8c).
+- **AC-226:** `lib/users/tenant-options.ts` (`limit=20`, `q` kırpılır, 250 ms). `ui/combobox.tsx`'e `debounceMs`, `openOnFocus`,
+  `inline`, `inputRef` ve "işlenen Esc yayılmaz" eklendi (yeni primitif yok). `tenant-switcher.tsx` combobox'a geçti (yalnız
+  aktif firmalar seçilebilir, etkin firma "Etkin" ipucuyla). Ek düzeltme: seçimden sonra `closeMenu` artık `<summary>`'den çağrılır.
+  `/history` firma filtresi aynı yükleyiciyle (pasif firma "Pasif" ipucu); seçilen adın istemci içi belleği
+  (`rememberTenantLabel`) uygulanmış filtrede adı korur.
+
+### Değişen / eklenen dosyalar (yalnız apps/web + DESIGN.md)
+
+Yeni: `components/account/step-up-dialog.tsx`, `lib/account/step-up.ts`, `lib/users/tenant-options.ts`, `lib/p14a-a4.test.ts`,
+`lib/dark-tokens.test.ts`, `e2e/p14a-a4.spec.ts`. Değişen: `lib/api.ts`, `lib/account/{contract,retention}.ts`,
+`lib/admin-settings/{forms,whatsapp}.ts`, `lib/admin-settings/admin-settings.test.ts`, `lib/requests/{panel-socket,requests.test}.ts`,
+`lib/users/{contract,permissions}.ts`, `components/ui/{combobox,dialog}.tsx`, `components/request-notifier.tsx`,
+`app/(panel)/{layout,tenant-switcher}.tsx`, `app/(panel)/admin/settings/mysql/mysql-form.tsx`,
+`app/(panel)/users/[id]/user-editor.tsx`, `app/(panel)/history/{page,history-filters}.tsx`, `messages/tr.json`; e2e mock'ları
+`mock-audit.mjs` (`u-ausasu-*` step-up senaryosu), `mock-users.mjs` (sürüm/ETag/If-Match, `/users/options`,
+`/admin/tenants/options`, test kancası `GET /api/v1/users/:id/__bump`), `mock-history.mjs` (150 teknisyen / 250 firma),
+`mock-requests.mjs` (`/__e2e/rq/limit4429/<çerez>?n=`, `/__e2e/rq/upgrades/<çerez>`); güncellenen spec'ler `p8-history`,
+`p9-users` (firma seçici combobox; çıplak PATCH'e `If-Match`), `p11-admin` (PUT gövdesinde `requireTls:false`). DESIGN.md §6.
+
+### Bağımlılık
+
+Yeni bağımlılık yok.
+
+### Önceki ajanın doğrulanmamış işleri ve bulunan kararsızlıklar
+
+- **p7-control şerit kompakt modu ve side-nav taşması (B3 bölüm 1):** artık build tip hatası yok; tam koşuda `p7-control`
+  (AC-47/48/49/99/50 dahil) ve `p14b-ui` ("CI 390 px taşması" dahil) yeşil.
+- **p12-branding AC-229 testi kendi başına geçersizdi:** Playwright `setInputFiles({ mimeType: "" })` türü dosya adından
+  doldurduğu için test boş türü hiç üretmiyordu; ayrıca yükleyici `change` sonrası input'u boşalttığından `files[0]` okuması
+  yarışa giriyordu (tam koşuda düştü). Düzeltme (yalnız test): dosya tarayıcıda `new File([...], "firma.webp", { type: "" })`
+  ile oluşturulup `DataTransfer` üzerinden atanır, tür `change` anında okunur. 5/5 tekrar yeşil.
+- **AC-228 kararsızlığı (kod kök nedeni):** `LeaveDialog`'da Esc yerel kapanışı hemen yapıyor, `stay()` (geri nöbetçisini
+  yeniden iten `pushState`) kuyruktaki asenkron `close` olayında çalışıyordu → hızlı ikinci "geri" yakalanmıyordu (15 koşuda
+  5 düşme). Düzeltme: `components/leave-dialog.tsx` `onDismiss={guard.stay}` (Esc/X eşzamanlı). Sonrası AC-228 + AC-63 20×
+  tekrar: 100/100.
+
+### Test
+
+- `pnpm --filter @remote/web lint` temiz · `typecheck` temiz · `test` **34 dosya / 321 test** geçti (yeni: `lib/p14a-a4.test.ts`
+  10 test — AC-215 tek tekrar/döngü yok/vazgeç/eşzamanlı tek diyalog/işleyicisiz, AC-206 If-Match ve rol geri alma;
+  `lib/dark-tokens.test.ts` AC-217; `requests.test.ts` AC-216 jitter; `admin-settings.test.ts` AC-211).
+- Yeni e2e `e2e/p14a-a4.spec.ts` (adlarında AC no): AC-215 diyalog akışı (odak tuzağı Tab/Shift+Tab, boş/hatalı kod
+  `aria-live`, kurtarma kodu, kalan ≤ 3 uyarısı, PUT tam 2 kez), AC-215 vazgeç + 429, AC-215 390 px taşma + axe (açık/koyu),
+  AC-211 kalıcılık, AC-206 rol geri alma, AC-206 If-Match + 409 + "Yeniden yükle", AC-216 4429 `retry=1` sonrası sessiz yeniden
+  bağlanma (≥ 0,8 sn), AC-216 12 istemci içi gezinti < 60 sn: tek upgrade, konsol hatası 0 (`guardConsole`), AC-225 150 teknisyen
+  → 151 seçenek, AC-226 250 firma `q=ege&limit=20` tek istek (250 ms gecikme), ≤ 500 ms, ↓↓ Enter seçimi, AC-226 üst menü
+  klavye + Esc, AC-225/226 390 px + axe (açık/koyu).
+- **Tam e2e** `pnpm --filter @remote/web e2e`: **356 geçti, 0 düştü**, 150 atlandı (mobil projede `desktopOnly` olanlar ve
+  koşul atlamaları).
+- `pnpm format:check`: değiştirdiğim dosyalar temiz; tek uyarı `docs/guvenlik-raporu.md` (güvenlik ajanının dosyası, dokunulmadı).
+
+### Sapmalar (özet)
+
+1. AC-225: firma seçmemiş Super Admin'de `/users/options` 403 olduğundan teknisyen seçenekleri sayfadaki kayıtlardan (ipuçlu).
+2. AC-226 sunucu p95 ≤ 500 ms ölçümü gerçek sunucuda değil; e2e sahte API yanıt süresini ölçer (backend testi kapsamında).
+3. Kurtarma kodu uyarısı yalnız step-up diyaloğunda; "her girişte" uyarısı (AC-273 (3)) P10 hesap sayfası dışında bu pakette yok.
+4. Mimari "TLS gerekli kutusu" → mevcut `Switch` primitifi (anahtar) kullanıldı; yeni checkbox primitifi açılmadı.
+
+### P14a A5 — QA Tur 1 madde 6 (devops, 2026-11-15)
+
+`scripts/test-db.sh` yoktu; betik `apps/server/scripts/test-db.sh`'tadır (yeni betik eklenmedi). Atıflar düzeltildi:
+`scripts/repeat-tests.sh` başlığı (`eval "$(apps/server/scripts/test-db.sh up)"` / `down`) ve bu dosyadaki iki kısa yol
+(P9 test satırı, A2 "Test"). Test dosyalarındaki ve `vitest.config.ts`'teki `scripts/test-db.sh` iletileri `apps/server`
+dizinine göre doğrudur, dokunulmadı.
+
+## P14 QA Tur 1 düzeltmesi — AC-225
+
+QA madde 1 (backend-dev) + madde 2 (frontend-dev), tek ajan. Firma seçmemiş Super Admin'de `/history` teknisyen
+seçenekleri artık sayfadaki kayıtlardan üretilmiyor; liste her zaman `/users/options` ucundan geliyor.
+
+### Değişen dosyalar
+
+- `packages/contracts/src/api/users.ts`: `userOptionsQuerySchema` eklendi (`strictObject({ tenantId?: ULID })`) ve uç açıklaması güncellendi.
+- `apps/server/src/users/service.ts`: `userOptionsTenant(db, auth, requested)` eklendi. Etkin tenant varsa (firma seçili Super Admin ya da diğer roller) o döner, parametre yok sayılır. Firma seçmemiş Super Admin + `tenantId` verilirse `findTenant` (silinmemiş) ile kontrol edilir, firma yoksa 404. Diğer durumlarda mevcut 403 korunuyor.
+- `apps/server/src/users/routes.ts`: `/options` artık zod + `userOptionsTenant` kullanıyor. İş mantığı serviste.
+- `apps/server/test/integration/security-p14a-users.test.ts`: yeni test "AC-225: ?tenantId= izolasyonu …". Super Admin A/B firmalarını ayrı ayrı görüyor. Parametresiz istek 403, bozuk değer 400, olmayan firma 404, bilinmeyen parametre 400. ADMIN ve USER, `tenantId=B` gönderse bile yalnız kendi firmasını ya da kendisini görüyor; yanıtta B'nin kimlikleri yok.
+- `apps/web/lib/users/user-options.ts` (yeni): `userOptionsPath`, `techOptions` (page.tsx'ten taşındı) ve istemci tarafı `loadUserOptions`. Testi `lib/users/user-options.test.ts`.
+- `apps/web/app/(panel)/history/page.tsx`: `options()` yedeği silindi. Firma seçmemiş Super Admin'de URL'de `tenantId` varsa `/users/options?tenantId=` çağrılıyor, yoksa istek atılmıyor ve liste boş kalıyor (URL'deki seçili id "Seçili (…)" olarak korunuyor).
+- `apps/web/app/(panel)/history/history-filters.tsx`: `techniciansFromPage` kaldırıldı, yerine `techniciansError` geldi. Firma filtresi boşken teknisyen seçici pasif ve "Önce firma seçin…" ipucunu gösteriyor. Firma seçilince istemci `/users/options?tenantId=` ile listeyi yüklüyor (abort, yükleniyor ve hata ipucu var). Firma değişince teknisyen seçimi sıfırlanıyor.
+- `apps/web/messages/tr.json`: `h.f.techPickTenant`, `h.f.techLoading`, `h.f.techError` eklendi. `h.f.optionsHint` audit sayfasında kullanıldığı için kaldı.
+- `apps/web/e2e/mock-history.mjs`: Super Admin `?tenantId=` desteği eklendi (Demo Firma → 150 teknisyen, Örnek Lojistik → kayıtlarda olmayan "Lojistik Teknisyeni" dahil 2, diğer firmalar boş, bilinmeyen firma 404, parametresiz 403). Diğer rollerde parametre yok sayılıyor.
+- `apps/web/e2e/p14a-a4.spec.ts`: yeni test "AC-225: Super Admin — firma seçilmeden teknisyen seçici pasif + ipucu; firma seçilince liste /users/options?tenantId= ucundan …". Desktop ve mobile'da çalışıyor.
+- `docs/api.md`, `docs/mimari-api.md` (`/users/options` satırı), `docs/db-notlari.md` (P14a ikinci migration `20261116010000_p14a_mysql_tls` kaydı).
+
+### Tasarım kararları
+
+- Super Admin dışındaki rollerde `tenantId` **yok sayılıyor**, 400 dönmüyor. Bu, `GET /sessions` ve `GET /audit`'teki "kapsam ezer" kalıbıyla aynı. Etkin tenant her zaman önce geldiği için izolasyon bozulmuyor.
+- Sorgu şeması `strictObject`: bilinmeyen parametre artık 400 dönüyor (önceden sorgu tamamen yok sayılıyordu). Web istemcisi yalnız `tenantId` gönderiyor.
+- Pasif firmalar için de liste dönüyor, çünkü geçmiş kayıtları görüntülenebiliyor.
+- Yeni bağımlılık yok.
+
+### Frontend sözleşme notu
+
+`GET /users/options?tenantId=<ULID>` yalnız firma seçmemiş Super Admin'de anlamlı. Diğer durumlarda etkin firma dönüyor.
+
+### Test
+
+- contracts, server ve web: typecheck ve lint temiz. `pnpm format:check` 0.
+- server `test`: **377/377**. `test:int` (geçici `rs-mysql-ac225-*:33391`, sonra silindi): **62 dosya / 605/605**.
+- web `test`: **35 dosya / 323** geçti.
+- e2e `p8-history.spec.ts` + `p14a-a4.spec.ts`, desktop + mobile: **42 geçti, 20 atlandı** (`desktopOnly`), 0 hata.

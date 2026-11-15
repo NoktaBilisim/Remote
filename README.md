@@ -4,7 +4,7 @@ Self-hosted, çok kiracılı (multi-tenant) uzaktan destek platformu. Teknisyen 
 oturumu açar; müşteri taşınabilir Windows istemcisi (tam erişim) veya tarayıcı (yalnız görüntü) ile katılır.
 Görüntü eşler arası WebRTC ile akar; sunucu yalnız sinyalizasyon ve meta veri tutar.
 
-## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır
+## Şu anki durum: P1–P13a tamamlandı, P13b (prod açılışı) kodu hazır, P14a/P14b kodlandı (QA sürüyor)
 
 İş P1..P13 dikey paketlerle yürür (`docs/mimari.md` §10). P1–P11 ve **P12** (firma ve sistem logosu, kullanıcı profil
 resmi, kullanıcı başına tema, hesap menüsü, tasarım token lint kuralı) tamamlandı: P12 güvenlik Kritik/Yüksek 0 (doğrulama
@@ -384,6 +384,17 @@ gönderir, konsol liste gelmeden teklif üretmez (`6701567`).
 **Düzeltme — firma seçmemiş Super Admin, Oturumlar:** oluştur/iptal/sonlandır/konsol eylemleri gizlenir, yerine üst
 menüden firma seçme notu çıkar; önceden "Yeni destek oturumu" 403 ile dönüyordu (`a71d80e`).
 
+**P14a / P14b — güvenlik, kalite ve UI (AC-201..230; kodlandı, QA denetimi sürüyor)**
+
+- **Step-up doğrulama:** MySQL, TURN ve WhatsApp sistem ayarlarını kaydetmek son 5 dk içinde 2FA ister ("Kimliğinizi
+  doğrulayın" penceresi; TOTP veya kurtarma kodu; kalan kod ≤ 3 uyarısı). `POST /api/v1/auth/step-up`.
+- **İyimser kilit:** kullanıcı düzenlemede `ETag` / `If-Match`; araya giren değişiklikte 409 ve "Yeniden yükle".
+- **MySQL "TLS gerekli"**, **Ayarlar > Genel** (oturum süresi, açık oturum ve dosya boyutu sınırları), aranabilir firma
+  seçici ve tam teknisyen listesi (`GET /users/options`, `GET /admin/tenants/options`), sohbet hız sınırı (5/sn).
+- Kullanıcı/firma yazma uçlarında hız sınırı, aktör kilidi, başarısız yetki denemelerinin audit'i, firma pasife almada
+  talep/kayıt iptalinin aynı işlemde yapılması, `/ws/panel` 4429 `retry=<sn>`, yeni metrikler ve alarmlar (runbook §22).
+- Prettier (`pnpm format`), CI'da shellcheck/actionlint ve kararlılık koşusu (`stability` iş akışı). Ayrıntı `CHANGELOG.md`.
+
 API ayrıntısı: [`docs/api.md`](docs/api.md). Sürüm geçmişi: [`CHANGELOG.md`](CHANGELOG.md).
 Kullanım (müşteri, teknisyen, yönetici): [`docs/KULLANIM_KILAVUZU.md`](docs/KULLANIM_KILAVUZU.md).
 Ürün föyü: [`docs/DATASHEET.md`](docs/DATASHEET.md).
@@ -417,6 +428,8 @@ görür. `deploy/staging-users.sh` staging test hesapları için hâlâ kullanı
 | P13a ✓                                                                            | Saklama işi (anonimleştirme, audit 730 g), şifreli yedek/geri yükleme, runbook senaryo dizini, kılavuz, datasheet, PDF'ler                                                                                                 |
 | P13b (kod ✓, prod terfisi runbook §20)                                            | Prod açılışı: `remote.noktabilisim.net`, TURN-TLS 5349 + LE sertifika kancası, imzalı yedek + site dışı kanca + audit süreklilik denetimi, `reset-superadmin` CLI, `remote-watch`, `proxy-guard`, WhatsApp servis anahtarı |
 | P13b-L (kod ✓, qa GEÇTİ, güvenlik Kritik/Yüksek 0; staging testi AC-316 bekliyor) | Bekleme odası göstergesi: liste rozeti, "Oturumlar" menü sayacı, bildirim, sekme başlığı, `GET /sessions/waiting`                                                                                                          |
+| P14a (kod ✓, QA sürüyor)                                                          | G1 güvenlik/kalite: step-up 2FA, iyimser kilit, hız sınırları, MySQL TLS, metrikler, Prettier, CI kararlılık koşusu                                                                                                        |
+| P14b (kod ✓, QA sürüyor)                                                          | G2 UI/a11y: 404 sayfaları, anahtar kontrastı, mobil menü, Ayarlar > Genel, aranabilir firma seçici, sohbet hız sınırı                                                                                                      |
 | P13c                                                                              | Ayrı staging (`stg.remote.noktabilisim.net`, ayrı DB/sır/yedek); E11 özelliklerinden önce                                                                                                                                  |
 
 Prod açılışının ön koşulları ve imzalı kontrol listesi: runbook §20.1–§20.3. TURN için yalnız 443/TCP'nin açık olduğu
@@ -536,6 +549,27 @@ pnpm --filter @remote/web exec playwright install chromium
 pnpm --filter @remote/web e2e
 ```
 
+Biçim denetimi (Prettier 3.10.1, ADR-0024; CI `quality` işi `format:check` ile başlar):
+
+```bash
+pnpm format:check                                  # fark varsa 1 döner
+pnpm format                                        # tüm repoyu biçimler; tek dosya: pnpm exec prettier --write <dosya>
+git config blame.ignoreRevsFile .git-blame-ignore-revs   # blame'de tek seferlik biçim commit'ini atla
+```
+
+Kararlılık koşusu (AC-219; kararsız test retry ile gizlenmez, kök nedeni düzeltilir):
+
+```bash
+eval "$(apps/server/scripts/test-db.sh up)"        # int modu TEST_DATABASE_URL ister
+scripts/repeat-tests.sh 20 int                     # entegrasyon 20 ayrı süreçte, --retry 0
+scripts/repeat-tests.sh 20 e2e                     # Playwright --repeat-each 20 --retries 0
+apps/server/scripts/test-db.sh down
+```
+
+Sonda `SONUÇ: <geçen>/<toplam>` yazar; çıkış 0 = tüm koşular yeşil, 2 = kullanım/ön koşul hatası. GitHub'da aynı iş
+`stability` iş akışıdır: Actions → stability → Run workflow (`runs`, varsayılan 20) ve her pazartesi 02:17 UTC. Sonuç
+QA raporuna, bulunan kararsız test `docs/implementation.md` "Kararsız testler" listesine yazılır (runbook §22).
+
 TURN (coturn) testleri Docker ile yerelde koşar: `cd deploy/turn && ./test-local.sh` (runbook §9.7).
 
 Windows istemci testleri (Go kurulu olması gerekmez; CI ile aynı imaj, repo kökünden):
@@ -576,7 +610,19 @@ fiziksel ekran yakalanmaz. WebRTC hattı, sinyalizasyon, server ve DB gerçektir
 `e2e:real:users` (`apps/server/scripts/e2e-real-users.ts`) `NODE_ENV=production` iken veya `E2E_REAL_ALLOW=1` olmadan
 çalışmaz (pnpm komutu bayrağı kendisi verir). Betik prod imajına girmez.
 
-### Son test sonuçları (P13b, 2026-11-15)
+### Son test sonuçları (P14a/P14b, 2026-11-15)
+
+| Takım                                         | Sonuç                                                                                                             |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Birim (`pnpm -r run test`)                    | 782: server 377, web 321, contracts 84                                                                            |
+| Server entegrasyon (`test:int`, temiz DB)     | 604 (62 dosya); P14: `security-p14a-{db,users,auth,tenants}`, `p14a-a3`, `p14a-a3-settings`, `mail-starttls-p14a` |
+| Web e2e (sahte API/WS, tüm projeler)          | 356 geçti, 0 hata; P14 spec'leri `e2e/p14a-a4.spec.ts`, `e2e/p14b-ui.spec.ts`                                     |
+| `pnpm format:check` · shellcheck · actionlint | 0 fark · `-S warning` 0 · 0                                                                                       |
+| `deploy/ops/test-watch.sh`                    | GEÇTİ (AC-208/212 alarmları dahil)                                                                                |
+
+20 koşuluk `stability` çalıştırması (AC-219) GitHub'da push sonrası yapılır.
+
+#### Önceki paket (P13b, 2026-11-15)
 
 | Takım                                              | Sonuç                                                                                                                                     |
 | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -884,6 +930,10 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 - Logo ve avatar (P12): tür yalnız içerikten (PNG/JPEG/WEBP; SVG asla), 2 MB, 24 MP, kenar/oran sınırı, sunucuda yeniden
   kodlama ve metadata silme, rastgele ad, firma klasörü. Dosya yalnız DB'de kayıtlı yolsa sunulur; avatar oturumlu ve
   yalnız aynı firmaya (başka firma 404), logolar herkese açık. Yükleme kişi başı 20/sa, işleme 2 eşzamanlı.
+- Güvenlik/kalite (P14a): kritik sistem ayarı yazımı son 5 dk içinde step-up 2FA ister (TOTP veya tek kullanımlık kurtarma
+  kodu; kod audit'e yazılmaz). Kullanıcı düzenleme iyimser kilitli (`If-Match`, 428/409); kullanıcı yönetimi işlemleri aktörün
+  yetkisini işlem içinde yeniden okur. Kullanıcı ve firma yazma uçları hız sınırlı; yetki kaynaklı 403'ler audit'e yazılır.
+  MySQL testi isteğe bağlı TLS + sertifika doğrulaması. Prod'da zayıf şifreleme anahtarı başlangıçta reddedilir.
 - Prod (P13b): yedek manifesti imzalı, geri yükleme imza ve ortam kilidiyle; `reset-superadmin` şifreyi yalnız terminale
   yazar; yerel 4451'e yalnız root/nginx bağlanır (`proxy-guard`); HSTS `includeSubDomains`; WhatsApp servis anahtarı şifreli
   saklanır, yalnız kaydedildiği adrese gider.
@@ -899,7 +949,8 @@ docs/               Gereksinim, mimari, ADR, runbook, DB notları, API, denetim 
 - Kurallar: [`CLAUDE.md`](CLAUDE.md) (paket kuralları, değişmez kurallar), UI: [`DESIGN.md`](DESIGN.md).
 - Yeni ortam değişkeni → `.env.example` (boş) + `apps/server/src/env.ts` + `deploy/docker-compose.yml` + runbook.
 - Yeni tablo → `apps/server/prisma/sql/grants.sql`'e yetki satırı.
-- PR öncesi lint, typecheck, test ve e2e yeşil olmalı.
+- PR öncesi `pnpm format:check`, lint, typecheck, test ve e2e yeşil olmalı. Değiştirdiğiniz dosyaları
+  `pnpm exec prettier --write <dosya>` ile biçimleyin.
 - Doküman PDF'leri (`docs/pdf/` README, KULLANIM_KILAVUZU, DATASHEET): `pnpm docs:pdf` (`scripts/build-docs.sh`; ortak araç yolu `DOCS_PDF_TOOL` ile değiştirilebilir).
 
 ## Lisans

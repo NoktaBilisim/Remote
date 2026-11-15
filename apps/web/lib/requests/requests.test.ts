@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api";
 import { parsePanelMessage } from "./contract";
 import { consolePath, requestErrorMessage } from "./errors";
-import { MAX_UNOPENED, panelBackoff, panelCloseAction, titleWithCount } from "./panel-socket";
+import { MAX_UNOPENED, panelBackoff, panelCloseAction, panelRetryDelay, titleWithCount } from "./panel-socket";
 import { buildInput, isDirty, toState } from "./settings-form";
 import { readSoundPref, writeSoundPref } from "./sound";
 import { formatRequestCode, sourceView } from "./source";
@@ -52,7 +52,21 @@ describe("/ws/panel", () => {
     expect(parsePanelMessage("{bozuk")).toBeNull();
     expect(parsePanelMessage(42)).toBeNull();
   });
-  it("kapanış kararı: 4401 dene, 4429/1008 dur, açılamayan 3 denemeden sonra dur", () => {
+  it("AC-216: 4429 `retry=<sn>` → bekle ± %20 ve yeniden dene; gerekçesiz / too_many → dur", () => {
+    expect(panelCloseAction(4429, true, 0, "retry=12")).toBe("retry");
+    expect(panelCloseAction(4429, true, 0, "too_many")).toBe("stop");
+    expect(panelRetryDelay(4429, "retry=10", 5, 0)).toBe(8000);
+    expect(panelRetryDelay(4429, "retry=10", 5, 0.5)).toBe(10_000);
+    expect(panelRetryDelay(4429, "retry=10", 5, 0.999_999)).toBeLessThanOrEqual(12_000);
+    for (let i = 0; i < 50; i++) {
+      const d = panelRetryDelay(4429, "retry=10", 0);
+      expect(d).toBeGreaterThanOrEqual(8000);
+      expect(d).toBeLessThanOrEqual(12_000);
+    }
+    // 4429 dışı kapanışta üstel geri çekilme
+    expect(panelRetryDelay(1006, "retry=10", 2, 0)).toBe(4000);
+  });
+  it("kapanış kararı: 4401 dene, 4429 gerekçesiz/1008 dur, açılamayan 3 denemeden sonra dur", () => {
     expect(panelCloseAction(4401, true, 0)).toBe("retry");
     expect(panelCloseAction(4429, true, 0)).toBe("stop");
     expect(panelCloseAction(1008, true, 0)).toBe("stop");

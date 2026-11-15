@@ -4764,3 +4764,185 @@ Tarih: 2026-11-15 · Kapsam: `docs/implementation.md` "P13c — devops düzeltme
 - **S13C-16 (Bilgi):** Eşleşme büyük/küçük harfe duyarlı ve yalnız `stg.` önekini tanıyor. `STG.remote…` ya da başka bir staging adı (ör. `staging.`) yakalanmaz. Adlandırma runbook §21'de sabit olduğu için pratik etkisi yok. İsteğe bağlı: küçük harfe çevirip karşılaştırmak (devops, Sonra).
 
 DURUM: GEÇTİ (Kritik 0 / Yüksek 0 / Orta 0). S13C-14/15 kapandı. Açık kalanlar: S13C-4, S13C-6 (Düşük) ve S13C-11/12/16 (Bilgi), `docs/gereksinimler.md` §9 "Sonra".
+
+## P14a/P14b (backend+db+devops) — kod turu 1
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 2 / Düşük 6
+
+Kapsam: `git diff` (taban b2e5771, `apps/web` hariç) + izlenmeyen yeni dosyalar; mimari-e11 §4–§5, implementation.md
+"P14a A0", "A1/B1", "A5", "A3", "A2 + P14b B2" (sapmalar 1–9 dahil). Kod değiştirilmedi.
+
+### Bulgular (öncelik sırasıyla)
+
+#### [ORTA] S14-1 `/requests`: kapı IP kovalarından önce — kilitli IP ortak kapıyı (toplam 4) doldurabiliyor — A04/A05 (DoS)
+
+Yer: `apps/server/src/requests/service.ts` `create()` — `admit` kapanışı ve `peeked ? await this.gated(peeked.tenantId, admit) : await admit()` (~s. 290–442)
+Sorun: AC-209 için IP/önek/net48 kovaları, zod, consent/networkSeen/deviceSeen sorguları artık `gate.run` İÇİNDE. Önceden
+kilitli IP 429'u kapıya girmeden alıyordu; şimdi her isteği önce kapı yuvası (tenant başına 2, toplam 4) veya kuyruk yeri tutuyor.
+İstismar: geçerli tek bir talep bağlantısı (ref herkese dağıtılan müşteri linki) bilen saldırgan, IP'si zaten kilitliyken yüksek
+paralellikte POST atar; her istek kısa süre de olsa yuva/kuyruk tutar → meşru müşteriler (tüm tenant'larda, `global=4`) 503
+NOT_READY alır. Kova 503'te tüketilmediği için saldırganın maliyeti de düşmez.
+Düzeltme: kapıdan ÖNCE sayımsız ön kontrol (`blockedFor` ile ip/önek/net48 kilitliyse 429; `hit` kapı içinde kalabilir), böylece
+AC-209 "503'te kova tüketilmez" korunur, kilitli istemci kapıya hiç girmez. Entegrasyon testi: kilitli IP'den 50 paralel istek
+sırasında başka IP'nin talebi 201. (atanan: backend-dev)
+
+#### [ORTA] S14-2 remote-watch: metrik çıktısı bash aritmetiğine doğrulanmadan giriyor (konteyner → host root) — A03 (Injection)
+
+Yer: `deploy/ops/remote-watch.sh:245-248` (`read -r r_last …`; `[ $((NOW - r_last)) -ge 93600 ]`)
+Sorun: `r_last` server konteynerindeki `node`/`/metrics` çıktısından gelir, yalnız `${r_last%.*}` uygulanır. Bash aritmetiğinde
+değişkenin değeri ifade olarak değerlendirilir; `a[$(komut)]` komut ikamesi çalıştırır. Yerelde doğrulandı:
+`r_last='a[$(echo PWNED >&2)]'; $((NOW - r_last))` → `PWNED`. A5 bu satırı değiştirdi (yeni alanlar `num()` ile doğru
+süzülüyor); açık P13'ten kalma.
+İstismar: server konteynerinde kod çalıştırabilen saldırgan (`node` ikilisini/`/metrics` yanıtını değiştirerek) ilk alana yük
+koyar; root olarak çalışan timer, konteyner 26 saatten uzun ayaktaysa (`&&` kısa devresi sonrası) hostta komut çalıştırır.
+Düzeltme: okumadan hemen sonra `[[ "$r_last" =~ ^[0-9]+$ ]] || r_last=yok` (ve `r_fail` için aynı); `st_epoch` de sayı
+denetiminden geçsin. test-watch.sh'ye yük içeren negatif test. (atanan: devops)
+
+#### [DÜŞÜK] S14-3 MySQL testi: tek etiketli ad genel IP'ye çözülse de `allowPublicKeyRetrieval` açılıyor — A02
+
+Yer: `apps/server/src/settings/mysql-probe.ts` `connectionOptions()` — `localish = cls === "loopback" || cls === "private" || SINGLE_LABEL.test(name)`
+Sorun: resolv.conf arama alanı/ndots ile `db` gibi tek etiketli ad genel bir adrese çözülebilir; o durumda TLS'siz bağlantıda
+açık anahtar isteği açık kalır (MITM sahte anahtarla şifreyi alabilir). `cls` zaten hesaplanmış.
+Düzeltme: `localish = cls === "loopback" || cls === "private"` (tek etiket ancak çözülen adresler genel değilse). (backend-dev)
+Not: rebinding koruması ve sertifika doğrulaması doğru — bağlantı `classifyHost`'un döndürdüğü IP'ye gidiyor,
+`checkServerIdentity(name, cert)` ayardaki adla (IP literalinde IP ile) yapılıyor, `requireTls` iken `allowPublicKeyRetrieval:false`.
+
+#### [DÜŞÜK] S14-4 Tenant pasife alma: eşzamanlı talep oluşturma hâlâ pasif tenant'a PENDING yazabilir — A04
+
+Yer: `apps/server/src/tenants/repo.ts` `cancelTenantRequests` ↔ `requests/service.ts` oluşturma TX'i (`lockSettings` sonrası tenant durumu yeniden okunmuyor)
+Sorun: ön bakışta tenant aktif görülür; pasife alma commit olunca bekleyen INSERT (gap kilidi kalkınca) geçer → AC-205'in "aynı
+commit" niyetine rağmen pasif tenant'ta PENDING kalır (30 sn süpürücü kapatır). Kilit sırası incelendi: deadlock yok
+(pasife alma: tenants X → support_requests; oluşturma: tenant_request_settings X → INSERT).
+Düzeltme: oluşturma TX'inde `lockSettings`'ten sonra `SELECT status FROM tenants WHERE id=? FOR SHARE`; PASSIVE → tek 404
+yolu. Sıra settings → tenants, pasife alma tenants'ı tutar ama settings'i istemez → döngü oluşmaz. (backend-dev)
+
+#### [DÜŞÜK] S14-5 Kullanıcı yazımında 409/404 yetki kararından önce — 403 audit'i kaçabiliyor — A09
+
+Yer: `apps/server/src/users/service.ts` `updateUser` (`if (cur.version !== expectedVersion) throw stale();` → sonra `assertManage`)
+Sorun: üstün hesabı düzenlemeye çalışan Admin eski/yanlış sürümle gelirse 409 alır, AC-204 `denied` audit'i yazılmaz.
+Düzeltme: `assertManage` ve kendi hesabı kontrolünü sürüm karşılaştırmasından önce yap. (backend-dev)
+
+#### [DÜŞÜK] S14-6 `rs_guest_code_rate_limited_total` her reddedilen istekte artıyor; doküman "kilitli kova başına bir" diyor — A09
+
+Yer: `apps/server/src/sessions/public.ts` `assertLookupAllowed` (`if (prefixWait > 0) limits.codeLimited("prefix")`)
+Sorun: kilitliyken yeniden deneyen tek istemci sayacı istek başına artırır; `WATCH_GUEST_PREFIX_MAX=20` alarmı tek kişiyle
+tetiklenir, gerçek dağıtık kod denemesiyle ayırt edilemez. Güvenlik açığı değil, alarm kalitesi.
+Düzeltme: yalnız `hit` kilidi başlattığında say (countFailedLookup) ya da implementation/runbook metnini "reddedilen istek"
+olarak düzelt ve eşiği buna göre ayarla. (backend-dev / devops)
+
+#### [DÜŞÜK] S14-7 CI'daki sıfır baytlık `APP_ENCRYPTION_KEYS` üretimde reddedilmiyor — A05
+
+Yer: `.github/workflows/ci.yml` (`APP_ENCRYPTION_KEYS=v1:AAAA…=`), `apps/server/src/env.ts:85-120`
+Sorun: değerin kendisi sır değil ve yalnız `docker compose config` için kullanılıyor (doğru). Ancak biri bu satırı kopyalarsa
+üretim, herkesçe bilinen anahtarla açılır; env.ts sıfır/tekrarlı anahtarı reddetmiyor.
+Düzeltme: `NODE_ENV=production`'da tüm baytları aynı olan anahtar → başlangıç hatası. (backend-dev)
+
+#### [DÜŞÜK] S14-8 Sondaki satır sonlandırıcıyı kabul eden kalan desenler — A03
+
+Yer: 4 e-posta CHECK'i (dba açık bulgusu) ve `system_settings_mysql_chk` JSON şemasındaki `host`/`database` `pattern`'ları (`…$`;
+P11'den, `20261116010000_p14a_mysql_tls` aynen taşıdı).
+Sorun: zod sınırda engelliyor; DB son savunma hattı olarak `\n` sonlu değeri kabul eder (`smtp_from_email` SMTP başlığına gider).
+Düzeltme: P15 dba — aynı kalıpla `\z` / JSON şema desenini `[^\n]` ile sınırla. (dba)
+
+### Odak noktaları — doğrulanan (sorun yok)
+
+- **Step-up:** `consumeSecondFactor` giriş ve step-up'ta ortak; TOTP `totp_last_step` koşullu UPDATE (aynı/eski adım → replay,
+  giriş kodu step-up'ta tekrar kullanılamaz); kurtarma kodu `used_at IS NULL` koşullu UPDATE ve `step_up_at` yazımı ile AYNI TX,
+  oturum iptal edilmişse UNAUTHENTICATED → rollback (kod boşa harcanmaz). Sayaç `mfaPair`/`mfaUser` `/mfa/verify` ile ortak,
+  deneme doğrulamadan önce sayılıyor. `step_up_at` oturum satırında; yeni oturum (verify/rotasyon) NULL başlıyor. Guard 5 dk,
+  TOTP yok → 403. PUT/DELETE mysql|turn|whatsapp bağlı; `requireTls` true→false düşürmesi de step-up ister. Audit `{method,
+remaining}`/`{method, reason}` — kod yok. E-posta: kod/IP/oturum içermez, yalnız kalan sayı; `who(auth).tenantId` Super Admin'in
+  kendi (NULL) kapsamı → firma SMTP'sine sızmaz. Hatalı kod 400 sapması (A2 #1) kabul edilebilir.
+- **If-Match / kilit:** `lockUsers` tekil+sıralı `IN … ORDER BY id FOR UPDATE` (PK sırasıyla kilit; deadlock testi 20/20);
+  aktör TX içinde yeniden okunuyor (pasif/silinmiş/başka firma/uç yetkisi). `bumpVersion` koşullu; `If-Match` katı `"v<n>"`, 428
+  gövdeden önce. mfaSetup yarışı version ile kapalı. A2 sapmaları #6–#8 güvenlik açısından uygun.
+- **403 audit:** `{op, denied:[anahtar|role|status|mfa|actor]}`, e-posta çakışması `{op, reason}` — PII yok.
+- **Hız sınırı anahtarları:** `/users*` ve `/admin/*` kullanıcı kimliği (requireAuth hook'u önce kayıtlı); POST ayrıca 10/dk;
+  `/ws/panel` oturum token SHA-256'sı, yalnız kimlik doğrulandıktan sonra sayılıyor, IP kovası korunuyor; 4429 `retry=` doğru.
+  `/ws/request` `wsUpgrade` sayımı güvenden sonra, kilitli anahtar baştan reddediliyor, `refInvalid` herkese aynı.
+- **Tenant deactivate TX:** talep iptali + kayıt geçersizleştirme + satır audit'leri aynı TX; commit sonrası yalnız bildirim.
+- **`/users/options`:** `tenantScope` + `scoped()` (SUPER_ADMIN satırları hariç), firma seçmemiş Super Admin 403, USER yalnız
+  kendisi; alan `{id, fullName, status}` — e-posta yok. **`/admin/tenants/options`:** SUPER_ADMIN hook'u, `$queryRaw` parametreli,
+  `\ % _` kaçışı doğru (MySQL LIKE varsayılan kaçış `\`), `q` ≤ 480 + görünmez karakter reddi, `limit` şemalı.
+- **Migration'lar:** ön kontrol yordamı yalnız okur, NULL semantiği CHECK ile aynı, SIGNAL öncesi hiçbir DDL yok; tablo başına tek
+  ALTER (kısıtsız an yok); down gevşetme yönünde, kalıntı yordamı siler. `requireTls` şeması `additionalProperties:false` korunarak eklendi.
+- **CI:** stability.yml `contents: read`, secret yok, Action'lar SHA'lı, `inputs.runs` env üzerinden geçip betikte sayı denetimi
+  (ifade enjeksiyonu yok); shellcheck/actionlint imajları digest'li, `persist-credentials: false`.
+- **remote-watch yeni kontroller:** durum dosyası örnekleri ve yeni metrik alanları regex ile süzülüyor (S14-2 eski alan için).
+
+### Otomatik tarama çıktıları
+
+- gitleaks: makinede kurulu değil (çalıştırılamadı; CI gitleaks işi kapsıyor). Yerine diff + yeni dosyalarda desen taraması:
+  yalnız test fikstürü şifreleri (`p14a-a3-settings.test.ts:41,67`, `"Sifre-p14a-*"`) — sır değil.
+- `git log --all -- '*.env*'`: yalnız `.env.example` izleniyor.
+- npm/pnpm audit bu turda koşulmadı: yeni bağımlılık yok (A0'daki `prettier` 3.10.1 yalnız dev).
+
+### Tasarımda vaat edilip kodda bulunmayanlar
+
+- Yok (kapsam içi). Sapmalar implementation.md A2 #1–#9 ve A3 `requireTls` migration'ı gerekçeli; S14-1, AC-209 tasarım
+  sırasının (kapı → IP kovası) yan etkisi — mimara not: "hazır mı" kontrolü kova sayımından önce, kilitli-IP reddinden sonra olmalı.
+
+### Olumlu
+
+- İkinci faktör tüketimi tek fonksiyonda ve TX içinde; tekrar oynatma koruması giriş ile step-up arasında paylaşılıyor.
+- MySQL testinde DNS rebinding kapalı (tek çözümleme, IP'ye bağlantı, adla sertifika doğrulama).
+- Yetki kararları TX içindeki taze aktör okumasıyla; deadlock'a karşı sabit kilit sırası ve kancalı yarış testleri.
+- Orta/Düşük maddelerin `docs/gereksinimler.md` §9'a "Sonra" olarak eklenmesi önerilir (S14-1 ve S14-2'nin P14a kapanmadan
+  düzeltilmesi önerilir; küçük ve yerel değişiklikler).
+
+## P14a/P14b — kod turu 2
+
+DURUM: GEÇTİ
+Özet: Kritik 0 / Yüksek 0 / Orta 0 / Düşük 1 (açık kalan: S14-8, dba P15)
+
+Kapsam: (1) tur 1 düzeltmelerinin doğrulanması (implementation.md "P14 güvenlik düzeltmeleri — backend", "P14a A5 — S14-2
+düzeltmesi"); (2) `git diff b2e5771 -- apps/web` (implementation.md "P14b B3 bölüm 1", "P14a A4 + P14b B3 bölüm 2"). Kod değiştirilmedi.
+
+### Tur 1 bulgularının durumu
+
+| Bulgu         | Durum   | Kanıt                                                                                                                                                                                                                                               |
+| ------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S14-1 (Orta)  | KAPANDI | `requests/service.ts:311` kapıdan önce `assertCreateNotBlocked` (`blocked()`, sayımsız; ip/önek/net48), `hit` kapının içinde (`:313-317`); güvenilen CIDR muaf. Kilitli IP kapıya girmiyor; ret audit'i `rateAudit` kovasıyla sınırlı.              |
+| S14-2 (Orta)  | KAPANDI | `deploy/ops/remote-watch.sh:248-252` `st_epoch`, `r_fail`, `r_last` `$(( ))` öncesi `^[0-9]+$`; geçersiz `r_last` → alarm. Kalan `$(( ))` girdileri (durum dosyası, sayaç örnekleri) zaten süzülüyor.                                               |
+| S14-3         | KAPANDI | `settings/mysql-probe.ts:87` `localish = cls !== "public"`; tek etiket istisnası kaldırıldı.                                                                                                                                                        |
+| S14-4         | KAPANDI | `requests/repo.ts:80` `shareTenantActive` (`tenants … FOR SHARE`), `service.ts:390` `lockSettings` sonrası; pasif → tek 404 yolu. Kilit sırası settings(X) → tenants(S); pasife alma tenants(X) → support_requests, settings istemiyor → döngü yok. |
+| S14-5         | KAPANDI | `users/service.ts:340-350` `assertManage` → kendi hesabı → `assertGrantable` → sürüm karşılaştırması.                                                                                                                                               |
+| S14-6         | KAPANDI | `sessions/public.ts` sayaç yalnız `countFailedLookup`'ta kilit başlarken (`:176-177`); `assertLookupAllowed` artık saymıyor.                                                                                                                        |
+| S14-7         | KAPANDI | `env.ts:35,111` `isWeakEncryptionKey`; production'da listedeki herhangi bir zayıf sürüm başlangıçta reddediliyor, değer mesaja yazılmıyor.                                                                                                          |
+| S14-8 (Düşük) | AÇIK    | dba P15 (4 e-posta CHECK'i + `system_settings_mysql_chk` host/database deseni). `docs/gereksinimler.md` §9 "Sonra".                                                                                                                                 |
+
+### Frontend incelemesi — bulgu yok
+
+- **Step-up / api istemcisi (`lib/api.ts`, `components/account/step-up-dialog.tsx`):** yalnız 401 + `MFA_STEP_UP_REQUIRED`
+  yakalanıyor; istek bir kez tekrarlanıyor (ikinci 401 çağırana gidiyor, döngü yok); eşzamanlı istekler tek diyalog sözünü
+  paylaşıyor; işleyici yoksa hata aynen fırlıyor. Diyaloğun kendi isteği `{ stepUp: false }`. Tekrar güvenli: `requireStepUp`
+  route preHandler'ı olduğu için ilk istek hiçbir yan etki üretmeden reddediliyor. CSRF: tekrar `send()` içinden aynı başlık
+  kurulumuyla gidiyor; `init.headers` önce yayılıyor, sabit başlıklar üzerine yazıyor (ek başlık CSRF'yi ezemez). Kod: form
+  `noValidate` + `preventDefault` (URL'ye düşmüyor), konsol/log yazımı yok, alan her açılışta sıfırlanıyor; TOTP
+  `autoComplete="one-time-code"`, kurtarma kodu `autoComplete="off"`. `isUnauthenticated` step-up kodunu oturum düşmesi
+  saymıyor (girişe yanlış yönlendirme yok).
+- **If-Match (`users/[id]/user-editor.tsx:114-116`):** `userEtag(saved.version)`; 409/428 → yeniden yükle; durum değiştiren
+  eylemlerden sonra GET ile sürüm tazeleniyor (`:373-374`).
+- **Combobox / tenant-switcher XSS:** `dangerouslySetInnerHTML`/`innerHTML` yok (diff genelinde de yok); firma adları React
+  metin düğümü. Sorgu `URLSearchParams` ile kodlanıyor, `q` 120 karakterle kırpılıyor (sunucu 480).
+- **Panel WS 4429 (`lib/requests/panel-socket.ts`):** yalnız `retry=<sn>` gerekçesinde yeniden deneme; bekleme sunucunun kalan kilit
+  süresi × [0,8; 1,2] (sunucu en az 1 sn yazıyor); `too_many`/gerekçesiz 4429 ve 1008 → dur; diğer kopmalar üstel (≤ 30 sn),
+  açılamayan 3 denemede dur. Sunucu kilitliyken `hit` yapmadığı için yeniden denemeler kilidi uzatmıyor → fırtına yok.
+- **Logo/avatar ön kabul (AC-229):** `file.type === ""` ise yalnız `.png/.jpg/.jpeg/.webp` uzantısı ön kabul; bildirilen
+  izinsiz MIME (ör. `image/svg+xml`) reddediliyor; boyut sınırı aynı. Sunucu yükleme kodu değişmedi (`apps/server/src/uploads`
+  diff boş) → karar magic bytes'ta.
+- **Chat hız sınırı (AC-227):** gönderen 5/sn (`chatSendLimiter`), alıcı 10/sn (`IN_LIMITS.chat`) — kötü niyetli eş gönderen
+  sınırını atlasa da alıcı sınırı geçerli; HTML yorumlanmıyor.
+- **Leave-guard:** yalnız aynı origin `a[href]` yakalanıyor (`a.origin !== location.origin` → dokunma); `pushState` aynı URL ile;
+  açık yönlendirme yok.
+
+### Otomatik tarama çıktıları
+
+- Frontend diff'inde tehlikeli çıkış noktası taraması (`dangerouslySetInnerHTML|innerHTML|eval|new Function|console.|localStorage`):
+  yalnız bir yorum satırı (chat-panel). Yeni bağımlılık yok. gitleaks bu makinede kurulu değil (CI işi kapsıyor).
+
+### Olumlu
+
+- Step-up istemci mantığı saf fonksiyonda ve birim testli (tek tekrar / vazgeç / eşzamanlı tek diyalog).
+- Tur 1'deki iki Orta bulgu hedefli, testli ve yan etkisiz düzeltildi; S14-2 için enjeksiyon negatif testleri eklendi.

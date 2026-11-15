@@ -12,9 +12,9 @@ import { t } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
 import type { UserListResponse } from "@/lib/users/contract";
 import { parseUserParams, userPageCount, usersApiPath, usersHref } from "@/lib/users/query";
-import { UserFilters } from "./user-filters";
-import { UserList } from "./user-list";
-import { UsersActions } from "./users-actions";
+import { UserFilters } from "../user-filters";
+import { UserList } from "../user-list";
+import { UsersActions } from "../users-actions";
 
 export const metadata: Metadata = { title: t("nav.users") };
 

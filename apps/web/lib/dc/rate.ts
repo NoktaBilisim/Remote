@@ -1,3 +1,5 @@
+import { CHAT_SEND_PER_SEC } from "@remote/contracts/dc";
+
 /*
  * Alıcı tarafı hız sınırı (S-P5-1/2/6): karşı tarafın DataChannel girdisi (teklif, sohbet, çizim) bu tarafta
  * işlenmeden/sunucuya yansıtılmadan önce sınırlanır; aşan mesaj sessizce düşer.
@@ -19,8 +21,17 @@ export class RateWindow {
   }
 }
 
-/** Gelen chat / annot için alıcı sınırları (mesaj / sn). Lazer gönderende de 30/sn (annot.ts). */
-export const IN_LIMITS = { chat: 5, annot: 30, laser: 30 } as const;
+/**
+ * Gelen chat / annot için alıcı sınırları (mesaj / sn). Lazer gönderende de 30/sn (annot.ts).
+ * AC-227: alıcı chat sınırı gönderen sınırının 2 katı — gönderen kayan pencereye uyduğu sürece, paketler ağda
+ * sıkışıp art arda gelse de alıcıda sessiz düşme olmaz (sel koruması S-P5-6 yine sınırlı).
+ */
+export const IN_LIMITS = { chat: CHAT_SEND_PER_SEC * 2, annot: 30, laser: 30 } as const;
+
+/** AC-227: gönderen tarafta sohbet sınırı (kayan 1 sn penceresinde `CHAT_SEND_PER_SEC`); aşan gönderim reddedilir. */
+export function chatSendLimiter(now: () => number = Date.now): RateWindow {
+  return new RateWindow(CHAT_SEND_PER_SEC, 1000, now);
+}
 
 export function inboundLimiter(now: () => number = Date.now) {
   const w = {

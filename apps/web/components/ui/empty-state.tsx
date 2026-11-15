@@ -8,13 +8,17 @@ export function EmptyState({
   body,
   action,
   testId = "empty-state",
+  headingLevel = 2,
 }: {
   Icon: LucideIcon;
   title: string;
   body: string;
   action?: ReactNode;
   testId?: string;
+  /** 1 = sayfanın tek başlığı (ör. 404 sayfası, AC-220); varsayılan bölüm başlığı. */
+  headingLevel?: 1 | 2;
 }) {
+  const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
     <section
       data-testid={testId}
@@ -23,7 +27,7 @@ export function EmptyState({
       <span className="flex size-10 items-center justify-center rounded-md bg-surface-muted text-primary">
         <Icon aria-hidden className="size-5" />
       </span>
-      <h2 className="text-base font-semibold text-fg">{title}</h2>
+      <Heading className="text-base font-semibold text-fg">{title}</Heading>
       <p className="max-w-md text-sm text-fg-muted">{body}</p>
       {action}
     </section>

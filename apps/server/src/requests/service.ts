@@ -224,6 +224,24 @@ export class RequestService {
     throw rateLimited(wait);
   }
 
+  /**
+   * S14-1: `/public/requests` kapı öncesi ön kontrol — ip/önek/net48 kovası zaten kilitliyse 429 (sayım yok; AC-209 503'te
+   * kova tüketilmez kuralı korunur). Kilitli istemci kapı yuvası/kuyruk yeri tutamaz.
+   */
+  private async assertCreateNotBlocked(ctx: AuditContext, tenantId: string | null, ip: string, prefix: string, net: string): Promise<void> {
+    const checks: [CounterKey, string, string, string][] = [
+      ["createIp", "req.create.ip", "ip", ip],
+      ["createPrefix", "req.create.prefix", "prefix", prefix],
+    ];
+    if (isIPv6Key(net)) checks.push(["createNet48", "req.create.net48", "net48", net]);
+    for (const [counter, bucket, keyType, key] of checks) {
+      const wait = blocked(this.d.limits[counter], key);
+      if (wait === 0) continue;
+      await this.rateAudit(ctx, tenantId, bucket, keyType, key);
+      throw rateLimited(wait);
+    }
+  }
+
   async publishCount(tenantId: string): Promise<void> {
     this.d.hub.publish(tenantId, { t: "queue.count", pending: await repo.countPending(this.d.db, tenantId) });
   }
@@ -271,8 +289,9 @@ export class RequestService {
   }
 
   /**
-   * POST /public/requests (G-E9-10 sırası): Origin (route) → ipKey/önek/net48 kovaları (güvenilen CIDR muaf) → zod →
-   * sürüm → ref → bilinen kaynak → tenant kovası → TX [kilit → bekleyen sayımları → kod → INSERT → audit] → hub/WhatsApp.
+   * POST /public/requests (G-E9-10 sırası; P14a AC-209): Origin (route) → ref/kayıt ön bakışı → kapı (503 NOT_READY) →
+   * ipKey/önek/net48 kovaları (güvenilen CIDR muaf) → zod → sürüm → ref → bilinen kaynak → tenant kovası (okuma) → TX [kilit
+   * → bekleyen sayımları → kod → INSERT → audit] → commit sonrası tenant kovası sayımı → hub/WhatsApp.
    */
   async create(ctx: AuditContext, body: unknown, parse: (b: unknown) => CreateRequestData): Promise<CreateRequestResponse> {
     const ip = ipKey(ctx.ip);
@@ -286,60 +305,64 @@ export class RequestService {
     const bs = peekedBinding ? await repo.settingsByTenant(this.d.db, peekedBinding.row.tenantId) : null;
     const peeked = peekedRef?.s ?? (bs && tenantActive(bs.tenant) ? bs : null);
     const trusted = peeked ? cidrListMatcher(repo.jsonStrings(peeked.trustedCidrs))(ctx.ip) : false;
-    if (!trusted) {
-      const tid = peeked?.tenantId ?? null;
-      await this.limit(ctx, tid, "createIp", "req.create.ip", "ip", ip);
-      await this.limit(ctx, tid, "createPrefix", "req.create.prefix", "prefix", prefix);
-      if (isIPv6Key(net)) await this.limit(ctx, tid, "createNet48", "req.create.net48", "net48", net);
-    }
-    // B-P8c-5 (§5.2): biçim dışı / yok / geçersiz anahtar aynı 404 BINDING_INVALID + `req.ref_invalid` kovası (400 değil).
-    if (peekObj.bindingKey !== undefined && !peekedBinding) throw bindingInvalid(this, ip);
-    const input = parse(body);
-    if (isOutdated(input.clientVersion, this.d.env.MIN_AGENT_VERSION)) throw outdated(this.d.env.MIN_AGENT_VERSION);
-    let s: repo.SettingsRow | null = null;
-    let customerId: string | null = null;
-    let binding: { id: string; keyHash: string } | null = null;
-    if (input.bindingKey !== undefined) {
-      if (!peekedBinding || !peeked || peekedBinding.keyHash !== sha256Hex(input.bindingKey)) throw bindingInvalid(this, ip);
-      s = peeked;
-      customerId = peekedBinding.row.customerId;
-      binding = { id: peekedBinding.row.id, keyHash: peekedBinding.keyHash };
-      // §5.3: kayıt başına 6/sa (E9 ip/önek/net48 ve tenant kovalarına EK — K20, muaf değil).
-      await this.limit(ctx, s.tenantId, "createBinding", "req.create.binding", "binding", binding.id);
-    } else {
-      if (!peekedRef) throw this.refInvalid(ip); // peek aynı gövdenin ref'iyle yapıldı
-      s = peekedRef.s;
-      customerId = peekedRef.customer?.id ?? null;
-    }
-    const tenantId = s.tenantId;
-    const via = binding ? "binding" : "ref";
+    // P14a (AC-209) sıra: hazır mı (kapı; dolu/zaman aşımı → 503 NOT_READY) → IP/önek kovası → TX → commit sonrası tenant
+    // kovası. 503'te hiçbir kova tüketilmez. Ref/kayıt çözülemediyse TX'e hiç varılmaz (tek 404 yolu) → kapı gerekmez.
+    // S14-1: kilitli ip/önek/net48 kapıya HİÇ girmez (sayımsız ön kontrol); sayım (`hit`) kapının içinde kalır.
+    if (!trusted) await this.assertCreateNotBlocked(ctx, peeked?.tenantId ?? null, ip, prefix, net);
+    const admit = async () => {
+      if (!trusted) {
+        const tid = peeked?.tenantId ?? null;
+        await this.limit(ctx, tid, "createIp", "req.create.ip", "ip", ip);
+        await this.limit(ctx, tid, "createPrefix", "req.create.prefix", "prefix", prefix);
+        if (isIPv6Key(net)) await this.limit(ctx, tid, "createNet48", "req.create.net48", "net48", net);
+      }
+      // B-P8c-5 (§5.2): biçim dışı / yok / geçersiz anahtar aynı 404 BINDING_INVALID + `req.ref_invalid` kovası (400 değil).
+      if (peekObj.bindingKey !== undefined && !peekedBinding) throw bindingInvalid(this, ip);
+      const input = parse(body);
+      if (isOutdated(input.clientVersion, this.d.env.MIN_AGENT_VERSION)) throw outdated(this.d.env.MIN_AGENT_VERSION);
+      let s: repo.SettingsRow | null = null;
+      let customerId: string | null = null;
+      let binding: { id: string; keyHash: string } | null = null;
+      if (input.bindingKey !== undefined) {
+        if (!peekedBinding || !peeked || peekedBinding.keyHash !== sha256Hex(input.bindingKey)) throw bindingInvalid(this, ip);
+        s = peeked;
+        customerId = peekedBinding.row.customerId;
+        binding = { id: peekedBinding.row.id, keyHash: peekedBinding.keyHash };
+        // §5.3: kayıt başına 6/sa (E9 ip/önek/net48 ve tenant kovalarına EK — K20, muaf değil).
+        await this.limit(ctx, s.tenantId, "createBinding", "req.create.binding", "binding", binding.id);
+      } else {
+        if (!peekedRef) throw this.refInvalid(ip); // peek aynı gövdenin ref'iyle yapıldı
+        s = peekedRef.s;
+        customerId = peekedRef.customer?.id ?? null;
+      }
+      const tenantId = s.tenantId;
+      const via = binding ? "binding" : "ref";
 
-    const consent = await this.d.db.consentText.findFirst({
-      where: { id: input.consentTextId, tenantId, isCurrent: true },
-      select: { id: true, sha256: true },
-    });
-    if (!consent) {
-      throw new AppError("VALIDATION", {
-        message: "Aydınlatma metni güncel değil.",
-        fields: { consentTextId: "Aydınlatma metni güncellendi; pencereyi yeniden açıp tekrar onaylayın." },
+      const consent = await this.d.db.consentText.findFirst({
+        where: { id: input.consentTextId, tenantId, isCurrent: true },
+        select: { id: true, sha256: true },
       });
-    }
+      if (!consent) {
+        throw new AppError("VALIDATION", {
+          message: "Aydınlatma metni güncel değil.",
+          fields: { consentTextId: "Aydınlatma metni güncellendi; pencereyi yeniden açıp tekrar onaylayın." },
+        });
+      }
 
-    const now = new Date(this.d.clock.now());
-    const networkMatch = trusted ? "TRUSTED" : await repo.networkSeen(this.d.db, tenantId, ip, net, now);
-    const deviceHash = input.deviceKey ? sha256Hex(`${tenantId}${input.deviceKey}`) : null;
-    const knownDevice = deviceHash ? await repo.deviceSeen(this.d.db, tenantId, deviceHash, now) : false;
-    // G-E9-15: ayrıcalık yalnız TRUSTED veya known_device; P8c K20: etkin kayıt da "bilinen" (yalnız kuyruk ≥ 40 eşiği ve
-    // bilinen tavanı 120/sa için — ip/önek/net48/tenant kovalarından muaf DEĞİL).
-    const privileged = trusted || knownDevice || binding !== null;
+      const now = new Date(this.d.clock.now());
+      const networkMatch = trusted ? ("TRUSTED" as const) : await repo.networkSeen(this.d.db, tenantId, ip, net, now);
+      const deviceHash = input.deviceKey ? sha256Hex(`${tenantId}${input.deviceKey}`) : null;
+      const knownDevice = deviceHash ? await repo.deviceSeen(this.d.db, tenantId, deviceHash, now) : false;
+      // G-E9-15: ayrıcalık yalnız TRUSTED veya known_device; P8c K20: etkin kayıt da "bilinen" (yalnız kuyruk ≥ 40 eşiği ve
+      // bilinen tavanı 120/sa için — ip/önek/net48/tenant kovalarından muaf DEĞİL).
+      const privileged = trusted || knownDevice || binding !== null;
 
-    // S8b-5: kova + TX süreç içi kapıdan geçer (tenant başına 2, toplam 4); bekleyen bağlantı tutmaz. Kapı doluysa 503
-    // NOT_READY + Retry-After ve tenant kovası tüketilmez (kova sayımı kapının içinde).
-    const secret = newSecretToken();
-    const id = newId();
-    const expiresAt = new Date(now.getTime() + s.waitMinutes * 60_000);
-    const created = await this.gated(tenantId, async () => {
-      // Tenant kovası (§13.6): kilitlenmez; 60/sa sonrası yalnız bilinmeyen kaynak reddi, bilinen tavanı 120/sa.
+      // S8b-5: kovalar + TX süreç içi kapıdan geçer (tenant başına 2, toplam 4); bekleyen bağlantı tutmaz.
+      const secret = newSecretToken();
+      const id = newId();
+      const expiresAt = new Date(now.getTime() + s.waitMinutes * 60_000);
+      // Tenant kovası (§13.6): kilitlenmez; 60/sa sonrası yalnız bilinmeyen kaynak reddi, bilinen tavanı 120/sa. Burada yalnız
+      // okunur; sayım commit sonrası (AC-209: başarısız TX / 503 kovayı artırmaz).
       const { tenantAll, tenantKnown } = this.d.limits;
       if (
         (!privileged && tenantAll.count(tenantId) >= TENANT_UNKNOWN_PER_HOUR) ||
@@ -354,8 +377,6 @@ export class RequestService {
         await this.rateAudit(ctx, tenantId, "tenant", "tenant", tenantId);
         throw rateLimited(RATE_BLOCK_SEC, REQUEST_BUSY_MESSAGE);
       }
-      tenantAll.add(tenantId);
-      if (privileged) tenantKnown.add(tenantId);
 
       let created: { code: string; position: number } | undefined;
       // Hangi bekleyen sınırı aştı (audit kovası/anahtar türü ayrımı): IP başına 3 ya da önek (net_key) başına 10.
@@ -364,6 +385,9 @@ export class RequestService {
         try {
           created = await this.d.db.$transaction(async (tx) => {
             await repo.lockSettings(tx, tenantId); // ilk ifade (G-E9-10)
+            // S14-4: ön bakış ile kilit arasında pasife alma commit olduysa talep yazılmaz (tek 404). Sıra settings → tenants;
+            // pasife alma tenants'ı tutar, settings'i istemez → kilit döngüsü yok.
+            if (!(await repo.shareTenantActive(tx, tenantId))) throw binding ? bindingInvalid(this, ip) : this.refInvalid(ip);
             // B-P8c-1: müşteri TX içinde FOR SHARE ile yeniden doğrulanır; peek ile INSERT arasında pasife alma commit
             // olduysa talep yazılmaz (tek 404). Pasife alma bu TX'i beklerse bekleyeni kendi TX'inde iptal eder.
             if (customerId && (await crepo.shareStatus(tx, tenantId, customerId)) !== "ACTIVE")
@@ -435,10 +459,14 @@ export class RequestService {
           throw err;
         }
       }
-      return created;
-    });
+      return { created, s, tenantId, customerId, binding, input, networkMatch, knownDevice, via, privileged, secret, id, expiresAt, now };
+    };
+    const { created, s, tenantId, customerId, binding, input, networkMatch, knownDevice, via, privileged, secret, id, expiresAt, now } =
+      peeked ? await this.gated(peeked.tenantId, admit) : await admit();
 
-    // commit sonrası
+    // commit sonrası: tenant kovası yalnız yazılmış talep için artar (AC-209).
+    this.d.limits.tenantAll.add(tenantId);
+    if (privileged) this.d.limits.tenantKnown.add(tenantId);
     this.d.metrics.inc("rs_requests_created_total", { via });
     const firm = customerId ? await this.d.db.customer.findUnique({ where: { id: customerId }, select: { id: true, name: true } }) : null;
     this.d.hub.publish(tenantId, {
@@ -595,13 +623,6 @@ export class RequestService {
     if (!row) return false;
     await this.closedAfterCommit(row.tenantId, requestId, "CANCELLED", { reason });
     return true;
-  }
-
-  /** P9 tenant pasife alma servisi çağırır (AC-145); süpürücü yedek yol. */
-  async cancelAllForTenant(tenantId: string): Promise<number> {
-    let n = 0;
-    for (const r of await repo.findPendingOfTenant(this.d.db, tenantId)) if (await this.cancelSystem(r.id, "TENANT_PASSIVE")) n++;
-    return n;
   }
 
   /** GET /public/agent/request-download?ref= (AC-130, 132): 302 konumu; ref loga/audit'e yazılmaz. */

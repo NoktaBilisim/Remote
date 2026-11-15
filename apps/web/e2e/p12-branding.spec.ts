@@ -340,3 +340,32 @@ test("AC-87: prefers-reduced-motion açıkken hareket animasyonu yok, yalnız op
   await page.emulateMedia({ reducedMotion: "no-preference" });
   expect(await btn.evaluate((e) => getComputedStyle(e).transitionProperty)).toContain("transform");
 });
+
+test("AC-229: file.type boş gelen .webp istemcide reddedilmez; sunucu magic bytes ile kabul eder", async ({ page, context }, info) => {
+  desktopOnly(info.project.name);
+  await signInBr(context, "br");
+  await page.goto("/settings/logo");
+  await expect(page.getByTestId("logo-uploader")).toHaveAttribute("data-ready", "true");
+  const input = page.getByTestId("logo-uploader-input");
+  expect(await input.getAttribute("accept")).toContain(".webp"); // MIME eşlemesi olmayan sistemde seçicide görünür
+  const webp = await sharp({ create: { width: 300, height: 100, channels: 3, background: { r: 10, g: 108, b: 176 } } })
+    .webp()
+    .toBuffer();
+  // Playwright `setInputFiles` boş `mimeType`'ı dosya adından doldurur → MIME eşlemesi olmayan sistemi taklit için dosya
+  // tarayıcıda `type: ""` ile oluşturulur. Yükleyici okuduktan sonra input'u boşalttığından tür, `change` anında yakalanır.
+  const picked = await input.evaluate((el: HTMLInputElement, b64: string) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], "firma.webp", { type: "" }));
+    let type: string | undefined;
+    el.addEventListener("change", () => (type = el.files?.[0]?.type), { once: true });
+    el.files = dt.files;
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return type;
+  }, webp.toString("base64"));
+  expect(picked).toBe("");
+  await expect(page.getByTestId("logo-uploader-error")).toHaveCount(0);
+  await expect(page.getByTestId("logo-uploader-preview")).toBeVisible();
+  await page.getByTestId("logo-uploader-save").click();
+  await expect(page.getByTestId("toast").last()).toContainText("Logo kaydedildi");
+});

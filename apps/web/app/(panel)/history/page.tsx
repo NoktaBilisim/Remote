@@ -1,4 +1,4 @@
-import type { SessionListItem, SessionListResponse } from "@remote/contracts/api/sessions";
+import type { SessionListResponse } from "@remote/contracts/api/sessions";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -11,6 +11,8 @@ import { EXPIRED_LOGIN_PATH } from "@/lib/api";
 import { hasFilters, historyHref, listApiPath, pageCount, parseFilters, type SearchParams } from "@/lib/history/query";
 import { t, type MessageKey } from "@/lib/i18n";
 import { getMe, serverGet } from "@/lib/server-api";
+import type { UserOptionsResponse } from "@/lib/users/contract";
+import { techOptions, userOptionsPath } from "@/lib/users/user-options";
 import { ExportButton } from "./export-button";
 import { HistoryFiltersForm } from "./history-filters";
 import { HistoryList } from "./history-list";
@@ -31,17 +33,6 @@ const FIELD_LABEL: Record<string, MessageKey> = {
   page: "h.f.page",
   pageSize: "h.pageSize",
 };
-
-/** Filtre seçenekleri: kullanıcı/firma listesi ucu P9'da; o zamana kadar bu sayfadaki kayıtlardan + seçili değer. */
-function options(items: SessionListItem[], pick: (s: SessionListItem) => { id: string; name: string } | null, selected?: string) {
-  const map = new Map<string, string>();
-  for (const s of items) {
-    const v = pick(s);
-    if (v) map.set(v.id, v.name);
-  }
-  if (selected && !map.has(selected)) map.set(selected, t("h.f.selected", { id: selected.slice(-6) }));
-  return [...map].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "tr"));
-}
 
 /** /history — oturum geçmişi (P8: AC-60, 61, 63). Veri sunucuda; filtre durumu URL'de. Rol kapsamı arka uçta (historyScope). */
 export default async function HistoryPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -70,7 +61,13 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
   }
 
   const { filters, ignored } = parseFilters(await searchParams);
-  const res = await serverGet<SessionListResponse>(listApiPath(filters));
+  // P14b (AC-225): teknisyen seçenekleri yalnız seçenek ucundan (rol kapsamıyla, tam liste). Firma seçmemiş Super Admin:
+  // firma filtresi doluysa `?tenantId=` ile o firmanın listesi, boşsa istek yok (seçici pasif, "Önce firma seçin").
+  const techTenant = allTenants ? filters.tenantId : undefined;
+  const [res, techRes] = await Promise.all([
+    serverGet<SessionListResponse>(listApiPath(filters)),
+    role === "USER" || (allTenants && !techTenant) ? null : serverGet<UserOptionsResponse>(userOptionsPath(techTenant)),
+  ]);
   if (res.kind === "error" && res.status === 401) redirect(EXPIRED_LOGIN_PATH);
   if (res.kind === "error") {
     return (
@@ -90,6 +87,9 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
   }
 
   const { items, total } = res.data;
+  const technicians = role === "USER" ? null : techOptions(techRes?.kind === "ok" ? techRes.data.items : [], filters.technicianId);
+  const techError = techRes?.kind === "error";
+  const pickedTenant = filters.tenantId ? items.find((s) => s.tenant?.id === filters.tenantId)?.tenant : undefined;
   const pages = pageCount(total, filters.pageSize);
   const filtered = hasFilters(filters);
   return (
@@ -106,8 +106,10 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
         <HistoryFiltersForm
           key={historyHref(filters)}
           filters={filters}
-          technicians={role === "USER" ? null : options(items, (s) => s.technician, filters.technicianId)}
-          tenants={allTenants ? options(items, (s) => s.tenant, filters.tenantId) : null}
+          technicians={technicians}
+          techniciansError={techError}
+          showTenant={allTenants}
+          tenantLabel={pickedTenant?.name}
           customerFirmName={items.find((s) => s.customerFirm?.id === filters.customerFirm)?.customerFirm?.name}
         />
       </div>

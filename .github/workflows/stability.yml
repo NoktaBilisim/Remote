@@ -1,0 +1,81 @@
+# Kararlılık (P14a A5, AC-219; mimari-e11 §4.4): entegrasyon + e2e 20 koşu (scripts/repeat-tests.sh), retry 0.
+# Elle (workflow_dispatch) ve haftalık. Sonuç qa raporuna yazılır; kararsız test kök nedenle düzeltilir (retry ile gizlenmez).
+# G-18: Action'lar commit SHA ile sabit; izin yalnız `contents: read`; secret yok.
+name: stability
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Koşu sayısı"
+        required: false
+        default: "20"
+  schedule:
+    - cron: "17 2 * * 1" # Pazartesi 02:17 UTC
+permissions:
+  contents: read
+concurrency:
+  group: stability
+  cancel-in-progress: false
+env:
+  NODE_VERSION: "22.23.4"
+  NEXT_TELEMETRY_DISABLED: "1"
+  RUNS: ${{ inputs.runs || '20' }}
+
+jobs:
+  integration:
+    name: entegrasyon x N (MySQL 8.4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    services:
+      mysql:
+        image: mysql:8.4.13@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-only
+          MYSQL_DATABASE: remote
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pci-root-only --silent"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      # ci.yml test işiyle aynı, yalnız CI'da geçerli değerler.
+      MYSQL_ROOT_PASSWORD: ci-root-only
+      MYSQL_DATABASE: remote
+      MYSQL_APP_PASSWORD: ciapp
+      MYSQL_MIGRATOR_PASSWORD: cimigrator
+      MYSQL_BACKUP_PASSWORD: ci-backup-only-123
+      MIGRATE_DATABASE_URL: mysql://migrator:cimigrator@127.0.0.1:3306/remote
+      DATABASE_URL: mysql://app:ciapp@127.0.0.1:3306/remote?allowPublicKeyRetrieval=true
+      TEST_DATABASE_URL: mysql://app:ciapp@127.0.0.1:3306/remote?allowPublicKeyRetrieval=true
+      TEST_MIGRATE_DATABASE_URL: mysql://migrator:cimigrator@127.0.0.1:3306/remote?allowPublicKeyRetrieval=true
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - name: DB kullanıcıları + log_bin_trust_function_creators (ci.yml ile aynı)
+        run: |
+          docker exec -i -e MYSQL_ROOT_PASSWORD -e MYSQL_DATABASE -e MYSQL_APP_PASSWORD \
+            -e MYSQL_MIGRATOR_PASSWORD -e MYSQL_BACKUP_PASSWORD ${{ job.services.mysql.id }} bash < deploy/mysql/init/01-users.sh
+          docker exec ${{ job.services.mysql.id }} sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -NBe \
+            "SET GLOBAL log_bin_trust_function_creators = 1; SELECT @@log_bin, @@log_bin_trust_function_creators"' \
+            | tee /dev/stderr | grep -qx $'1\t1'
+      - run: pnpm db:migrate
+      - run: bash scripts/repeat-tests.sh "$RUNS" int
+
+  e2e:
+    name: e2e --repeat-each N (Playwright, mock API)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @remote/web exec playwright install --with-deps chromium
+      - run: bash scripts/repeat-tests.sh "$RUNS" e2e

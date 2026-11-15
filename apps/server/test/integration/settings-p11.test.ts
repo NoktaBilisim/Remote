@@ -7,7 +7,7 @@ import { createDb, type Db } from "../../src/lib/db.ts";
 import { aadFor } from "../../src/lib/crypto.ts";
 import type { ProbeResult, ProbeTarget } from "../../src/settings/mysql-probe.ts";
 import { CONSENT_SAVE_PER_HOUR } from "../../src/settings/routes.ts";
-import { createTenant, createUser, loginAs, makeApp, testDb, type Session, type TestUser } from "../helpers/app.ts";
+import { createTenant, createUser, loginStepUp as loginAs, makeApp, testDb, type Session, type TestUser } from "../helpers/app.ts";
 import { FAKE_P11_TURN_SECRET as SECRET } from "../helpers/secrets.ts";
 
 const dbUrl = new URL(process.env.TEST_DATABASE_URL ?? "mysql://x@127.0.0.1/x");
@@ -66,7 +66,14 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
     const res = await req(app, sSuper, "GET", "/admin/settings/mysql");
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-store");
-    expect(JSON.parse(res.body)).toEqual({ ...REAL, hasPassword: true, updatedAt: null, source: "env", matchesRunning: true });
+    expect(JSON.parse(res.body)).toEqual({
+      ...REAL,
+      requireTls: false,
+      hasPassword: true,
+      updatedAt: null,
+      source: "env",
+      matchesRunning: true,
+    });
     expect(res.body).not.toContain(REAL_PW);
   });
 
@@ -94,7 +101,7 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
     expect(body.message).toMatch(/\.env.*yeniden başlatılmalıdır/);
     expect(res.body).not.toContain(pw);
     const row = await testDb().systemSetting.findUniqueOrThrow({ where: { key: "mysql" } });
-    expect(row.valueJson).toEqual({ host: "db.internal.test", port: 3307, database: "rapor_db", user: "rapor" });
+    expect(row.valueJson).toEqual({ host: "db.internal.test", port: 3307, database: "rapor_db", user: "rapor", requireTls: false });
     expect(Buffer.from(row.secretEnc ?? []).toString("latin1")).not.toContain(pw);
     const target = { host: "db.internal.test", port: 3307, user: "rapor" };
     expect(app.secrets.decrypt(row.secretEnc ?? new Uint8Array(), aadFor.mysqlSecret(target))).toBe(pw);
@@ -207,7 +214,7 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
       (await req(app, s, "PUT", "/admin/settings/mysql", { ...REAL, host: "evil.p11.test", password: "yeni-hedef-sifresi" })).statusCode,
     ).toBe(200);
     expect((await req(fakeApp, sf, "POST", "/admin/settings/mysql/test", { ...REAL, host: "evil.p11.test" })).statusCode).toBe(200);
-    expect(probes).toEqual([{ ...REAL, host: "evil.p11.test", password: "yeni-hedef-sifresi" }]);
+    expect(probes).toEqual([{ ...REAL, host: "evil.p11.test", password: "yeni-hedef-sifresi", requireTls: false }]);
     expect(JSON.stringify(probes)).not.toContain(REAL_PW);
     // sonraki testler için gerçek hedefe dön
     expect((await req(app, s, "PUT", "/admin/settings/mysql", { ...REAL, password: REAL_PW })).statusCode).toBe(200);
@@ -253,7 +260,7 @@ describe("MySQL ayarları (AC-77, AC-78)", () => {
     }
     expect(codes).toEqual([200, 200, 200, 200, 200, 429]);
     expect(probes).toHaveLength(5);
-    expect(probes[0]).toEqual({ host: "10.0.0.1", port: 3306, database: "d", user: "u", password: "p" });
+    expect(probes[0]).toEqual({ host: "10.0.0.1", port: 3306, database: "d", user: "u", password: "p", requireTls: false });
   });
 
   it("AC-77/AC-69: yalnız SUPER_ADMIN — Admin 403", async () => {

@@ -30,14 +30,21 @@ export {
 };
 export type { AvatarResponse, LogoResponse, PublicBrandingResponse, SystemLogoResponse } from "@remote/contracts/api/branding";
 
-/** `<input accept>` değeri. */
-export const ACCEPT_ATTR = UPLOAD_ACCEPT.join(",");
-
 export type PrecheckResult = { ok: true } | { ok: false; message: string };
 
-/** Tür (tarayıcının bildirdiği MIME; SVG asla) ve boyut ön kontrolü. */
-export function precheckFile(file: { type: string; size: number }): PrecheckResult {
-  if (!(UPLOAD_ACCEPT as readonly string[]).includes(file.type)) return { ok: false, message: INVALID_IMAGE_MESSAGE };
+/** AC-229: tarayıcı MIME bildirmediğinde (`file.type === ""`, ör. bazı sistemlerde .webp) ön kabul için uzantılar. */
+export const UPLOAD_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp"] as const;
+
+/** `<input accept>` değeri: MIME + uzantı (AC-229 — MIME eşlemesi olmayan sistemde dosya seçicide .webp gizlenmesin). */
+export const ACCEPT_ATTR = [...UPLOAD_ACCEPT, ...UPLOAD_EXTENSIONS].join(",");
+
+/**
+ * Tür (tarayıcının bildirdiği MIME; SVG asla) ve boyut ön kontrolü. MIME boşsa yalnız uzantıyla ön kabul (AC-229);
+ * bildirilmiş ama izinsiz MIME (ör. image/svg+xml) uzantı ne olursa olsun reddedilir. Kesin karar sunucuda (magic bytes).
+ */
+export function precheckFile(file: { type: string; size: number; name?: string }): PrecheckResult {
+  const byExt = file.type === "" && UPLOAD_EXTENSIONS.some((e) => (file.name ?? "").toLowerCase().endsWith(e));
+  if (!byExt && !(UPLOAD_ACCEPT as readonly string[]).includes(file.type)) return { ok: false, message: INVALID_IMAGE_MESSAGE };
   if (file.size > UPLOAD_MAX_BYTES) return { ok: false, message: PAYLOAD_TOO_LARGE_MESSAGE };
   if (file.size === 0) return { ok: false, message: INVALID_IMAGE_MESSAGE };
   return { ok: true };

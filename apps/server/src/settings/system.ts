@@ -11,6 +11,7 @@ import {
   type MysqlSettingsData,
   type MysqlSettingsSaveResponse,
   type MysqlSettingsView,
+  type MysqlTestReason,
   type MysqlTestResponse,
   type TurnSettingsData,
   type TurnSettingsView,
@@ -24,6 +25,7 @@ import type { Db } from "../lib/db.ts";
 import { AppError } from "../lib/errors.ts";
 import { newId } from "../lib/ids.ts";
 import type { FixedWindowCounter } from "../lib/rate.ts";
+import type { Metrics } from "../ops/metrics.ts";
 import type { TurnConfig } from "../signaling/turn.ts";
 import { probeMysql, type ProbeResult, type ProbeTarget } from "./mysql-probe.ts";
 
@@ -39,20 +41,26 @@ export interface SystemDeps {
   /** S-P13b-3: `WHATSAPP_SERVICE_API_KEY` (yalnız env adresiyle birlikte gönderilir). */
   whatsappEnvApiKey: string | undefined;
   production: boolean;
+  /** P14a (AC-212): `rs_mysql_test_failed_total{class}`. */
+  metrics: Pick<Metrics, "inc">;
 }
 
 export const who = (auth: AuthContext) => ({ tenantId: null, userId: auth.user.id, username: auth.user.email });
 
 // ---- MySQL ----
 
-interface MysqlCore {
+interface MysqlTarget {
   host: string;
   port: number;
   database: string;
   user: string;
 }
+/** Saklanan değer: hedef + P14a (AC-211) "TLS gerekli" (eski satırlarda yok → false). */
+interface MysqlCore extends MysqlTarget {
+  requireTls: boolean;
+}
 
-export function mysqlFromUrl(databaseUrl: string): MysqlCore & { password: string } {
+export function mysqlFromUrl(databaseUrl: string): MysqlTarget & { password: string } {
   const u = new URL(databaseUrl);
   return {
     host: u.hostname,
@@ -67,13 +75,14 @@ function asMysqlCore(v: unknown): MysqlCore | null {
   const o = v as Partial<MysqlCore> | null;
   if (!o || typeof o.host !== "string" || typeof o.port !== "number" || typeof o.database !== "string" || typeof o.user !== "string")
     return null;
-  return { host: o.host, port: o.port, database: o.database, user: o.user };
+  return { host: o.host, port: o.port, database: o.database, user: o.user, requireTls: o.requireTls === true };
 }
 
 /** Şifrenin bağlı olduğu hedef: host + port + kullanıcı (veritabanı adı değil). */
-const sameTarget = (a: MysqlCore, b: MysqlCore): boolean =>
+const sameTarget = (a: MysqlTarget, b: MysqlTarget): boolean =>
   a.host.toLowerCase() === b.host.toLowerCase() && a.port === b.port && a.user === b.user;
-const sameCore = (a: MysqlCore, b: MysqlCore): boolean => sameTarget(a, b) && a.database === b.database;
+const sameDb = (a: MysqlTarget, b: MysqlTarget): boolean => sameTarget(a, b) && a.database === b.database;
+const sameCore = (a: MysqlCore, b: MysqlCore): boolean => sameDb(a, b) && a.requireTls === b.requireTls;
 
 /**
  * Kayıtlı şifreyi kaydedildiği hedefin AAD'siyle çözer (B-P11-1). Çözülemezse (anahtar rotasyonu, eski AAD biçimi, hedefi
@@ -99,10 +108,10 @@ export async function getMysqlSettings(d: SystemDeps): Promise<MysqlSettingsView
   const rec = await readMysql(d.db);
   if (!rec) {
     const { password, ...core } = running;
-    return { ...core, hasPassword: password !== "", updatedAt: null, source: "env", matchesRunning: true };
+    return { ...core, requireTls: false, hasPassword: password !== "", updatedAt: null, source: "env", matchesRunning: true };
   }
   const hasPassword = rec.secretEnc !== null && openMysqlSecret(d, rec.core, rec.secretEnc) !== null;
-  return { ...rec.core, hasPassword, updatedAt: rec.updatedAt.toISOString(), source: "panel", matchesRunning: sameCore(rec.core, running) };
+  return { ...rec.core, hasPassword, updatedAt: rec.updatedAt.toISOString(), source: "panel", matchesRunning: sameDb(rec.core, running) };
 }
 
 /**
@@ -115,13 +124,13 @@ export async function saveMysqlSettings(
   auth: AuthContext,
   input: MysqlSettingsData,
 ): Promise<MysqlSettingsSaveResponse> {
-  const core: MysqlCore = { host: input.host, port: input.port, database: input.database, user: input.user };
+  const core: MysqlCore = { host: input.host, port: input.port, database: input.database, user: input.user, requireTls: input.requireTls };
   await d.db.$transaction(async (tx) => {
     const before = await tx.systemSetting.findUnique({ where: { key: "mysql" }, select: { valueJson: true, secretEnc: true } });
     const old = before ? asMysqlCore(before.valueJson) : null;
     if (input.password === undefined && before?.secretEnc && !(old && sameTarget(old, core)))
       throw new AppError("VALIDATION", { fields: { password: MYSQL_PASSWORD_REQUIRED_MESSAGE } });
-    // P13a (B-P12b-5): değer değişmediyse (aynı hedef + veritabanı, yeni şifre yok) yazım ve audit yok.
+    // P13a (B-P12b-5): değer değişmediyse (aynı hedef + veritabanı + TLS seçimi, yeni şifre yok) yazım ve audit yok.
     if (old && sameCore(old, core) && input.password === undefined) return;
     const secretEnc = input.password !== undefined ? d.secrets.encrypt(input.password, aadFor.mysqlSecret(core)) : undefined;
     await tx.systemSetting.upsert({
@@ -141,6 +150,10 @@ export async function saveMysqlSettings(
   });
   return { ...(await getMysqlSettings(d)), restartRequired: true, message: MYSQL_APPLY_NOTE };
 }
+
+/** P14a (AC-212) metrik sınıfı: connect|auth|tls|timeout; veritabanı yok / kayıtlı şifre okunamadı → other. */
+export const mysqlFailureClass = (r: MysqlTestReason): "connect" | "auth" | "tls" | "timeout" | "other" =>
+  r === "connect" || r === "auth" || r === "tls" || r === "timeout" ? r : "other";
 
 /** Test hız kovaları: kişi başı (AC-77, 5/dk) + tüm Super Admin'ler için ortak (B-P11-4, 20/dk). */
 export interface MysqlTestLimits {
@@ -167,7 +180,7 @@ export async function testMysql(
   const wait = Math.max(limits.perUser.blockedFor(auth.user.id), limits.global.blockedFor(GLOBAL_KEY));
   if (wait > 0 || limits.perUser.hit(auth.user.id) || limits.global.hit(GLOBAL_KEY))
     throw new AppError("RATE_LIMITED", { retryAfterSec: wait || 60 });
-  const core: MysqlCore = { host: input.host, port: input.port, database: input.database, user: input.user };
+  const core: MysqlCore = { host: input.host, port: input.port, database: input.database, user: input.user, requireTls: input.requireTls };
   let password = input.password;
   let unreadable = false;
   if (password === undefined) {
@@ -188,6 +201,7 @@ export async function testMysql(
     unreadable || password === undefined
       ? { ok: false, reason: "secret_unreadable", latencyMs: 0, err: null }
       : await probe({ ...core, password });
+  if (!out.ok) d.metrics.inc("rs_mysql_test_failed_total", { class: mysqlFailureClass(out.reason) });
   if (!out.ok && out.err) {
     const e = out.err as { errno?: unknown; code?: unknown; message?: unknown };
     d.log.warn(

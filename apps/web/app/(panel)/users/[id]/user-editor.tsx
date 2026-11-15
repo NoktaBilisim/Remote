@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArchiveRestore, KeyRound, ShieldCheck, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, KeyRound, RotateCw, ShieldCheck, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { PermissionMatrix } from "@/components/admin/permission-matrix";
@@ -17,7 +17,14 @@ import { api, ApiError, EXPIRED_LOGIN_PATH, isUnauthenticated } from "@/lib/api"
 import { toUiError, type UiError } from "@/lib/error-message";
 import { formatDateTime } from "@/lib/format";
 import { t } from "@/lib/i18n";
-import { USER_EMAIL_MAX, USER_FULL_NAME_MAX, type ManagedRole, type UserDetail } from "@/lib/users/contract";
+import {
+  USER_EMAIL_MAX,
+  USER_FULL_NAME_MAX,
+  USER_STALE_WRITE_MESSAGE,
+  userEtag,
+  type ManagedRole,
+  type UserDetail,
+} from "@/lib/users/contract";
 import {
   buildUpdateUser,
   splitServerFields,
@@ -28,7 +35,7 @@ import {
   type UserDraft,
   type UserField,
 } from "@/lib/users/form";
-import { applyRoleDefaults, changedKeys, forbiddenPermLabels, lockedKeys, normalize, type PermState } from "@/lib/users/permissions";
+import { changedKeys, forbiddenPermLabels, lockedKeys, normalize, permsForRole, type PermState } from "@/lib/users/permissions";
 import { StatusPill } from "../user-list";
 
 const FORM_ID = "user-edit-form";
@@ -60,6 +67,9 @@ export function UserEditor({
   const [busy, setBusy] = useState(false);
   const [action, setAction] = useState<"deactivate" | "reactivate" | "reset-mfa" | null>(null);
   const [focusErr, setFocusErr] = useState(0);
+  /** P14a (AC-206): 409 STALE_WRITE / 428 → kayıt bayat; "Yeniden yükle" güncel kaydı alır. */
+  const [stale, setStale] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const locked = useMemo(() => lockedKeys(actor), [actor]);
 
@@ -78,7 +88,8 @@ export function UserEditor({
   };
   const setRole = (role: ManagedRole) => {
     setD((x) => ({ ...x, role }));
-    setPerms((p) => applyRoleDefaults(role, p, locked));
+    // AC-206: kayıtlı role dönülünce kayıtlı ezmeler geri gelir (kayıtlı harita `basePerms`, taslaktan ayrı)
+    setPerms((p) => permsForRole(role, { role: base.role, perms: basePerms }, p, locked));
   };
   const reset = () => {
     setD(base);
@@ -100,7 +111,10 @@ export function UserEditor({
     if (Object.keys(r.body).length === 0) return reset();
     setBusy(true);
     try {
-      const next = await api<UserDetail>("PATCH", `/users/${saved.id}`, r.body);
+      // AC-206: iyimser kilit — okunan sürüm `If-Match` ile gider; araya giren yazımda 409, başlıksız 428
+      const next = await api<UserDetail>("PATCH", `/users/${saved.id}`, r.body, undefined, {
+        headers: { "If-Match": userEtag(saved.version) },
+      });
       setSaved(next);
       setD(userDraftOf(next));
       setPerms(normalize(next.permissions));
@@ -108,6 +122,10 @@ export function UserEditor({
       router.refresh();
     } catch (err) {
       if (isUnauthenticated(err)) return router.replace(EXPIRED_LOGIN_PATH);
+      if (err instanceof ApiError && (err.code === "STALE_WRITE" || err.status === 428)) {
+        setStale(true);
+        return;
+      }
       if (err instanceof ApiError && (err.status === 400 || err.status === 409) && err.fields) {
         const { errors: fe, rest } = splitServerFields(err.fields, USER_FIELDS);
         setErrors(fe);
@@ -116,6 +134,27 @@ export function UserEditor({
       } else setFormError(toUiError(err, { 403: forbiddenMessage(err), 404: t("us.nf.body") }));
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** Güncel kaydı alır; taslak (kaydedilmemiş değişiklikler) atılır — üzerine yazmak yerine kullanıcı yeniden düzenler. */
+  const reload = async () => {
+    setReloading(true);
+    try {
+      const next = await api<UserDetail>("GET", `/users/${saved.id}`);
+      setSaved(next);
+      setD(userDraftOf(next));
+      setPerms(normalize(next.permissions));
+      setErrors({});
+      setFormError(null);
+      setStale(false);
+      toast(t("us.e.reloaded"));
+      router.refresh();
+    } catch (err) {
+      if (isUnauthenticated(err)) return router.replace(EXPIRED_LOGIN_PATH);
+      setFormError(toUiError(err, { 404: t("us.nf.body") }));
+    } finally {
+      setReloading(false);
     }
   };
 
@@ -154,6 +193,24 @@ export function UserEditor({
       </div>
 
       <div className="mt-4 flex flex-col gap-3">
+        {stale && (
+          <Alert tone="warning" testId="user-stale">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p>{USER_STALE_WRITE_MESSAGE}.</p>
+              <Button
+                type="button"
+                variant="secondary"
+                className="shrink-0"
+                loading={reloading}
+                onClick={() => void reload()}
+                data-testid="user-reload"
+              >
+                {!reloading && <RotateCw aria-hidden className="size-4" />}
+                {t("us.e.reload")}
+              </Button>
+            </div>
+          </Alert>
+        )}
         {formError && (
           <div data-testid="user-save-error">
             <FormError error={{ ...formError, message: `${t("us.e.saveFailed")}. ${formError.message}` }} />

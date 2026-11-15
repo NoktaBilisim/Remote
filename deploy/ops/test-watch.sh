@@ -68,7 +68,7 @@ good() {
   echo 0 >/scn/ready_rc; echo 0 >/scn/stun_rc; echo healthy >/scn/turn_health; echo 200 >/scn/login_code
   printf 'remote-turn-fw.timer\nremote-backup.timer\n' >/scn/timers_active; : >/scn/failed
   echo "$(date -u -d '-2 hours' +%Y-%m-%dT%H:%M:%S.000000000Z)" >/scn/started
-  echo "$(( $(date +%s) - 3600 )) 0" >/scn/metrics
+  echo "$(( $(date +%s) - 3600 )) 0 0 0" >/scn/metrics
   cat >/scn/status.prom <<P
 remote_backup_last_success_timestamp_seconds $(( $(date +%s) - 3600 ))
 remote_backup_last_run_ok 1
@@ -142,6 +142,39 @@ neg retention "echo '$((NOW - 60)) 3' >/scn/metrics"
 # Sayaç artışı 24 saat alarmda kalır (tasarım); sonraki testler için artış anı geçmişe alınır.
 sed -i "s/^retention_fail_at=.*/retention_fail_at=$((NOW - 90000))/" /var/lib/rw/state; run
 grep -q 'ALERT check=retention' /out/o && no "retention artışı 24 saat sonra hâlâ alarm" || ok "retention: artıştan 24 saat sonra alarm kalktı"
+# S14-2: konteyner çıktısındaki aritmetik enjeksiyon `$(( ))`'e girmez (dosya oluşmaz, güvenli varsayılan + uyarı).
+good; run
+for inj in 'a[$(touch /tmp/pwn1)] 0 0 0' "$((NOW - 3600)) a[\$(touch /tmp/pwn2)] 0 0" "$((NOW - 3600)) 0 a[\$(touch /tmp/pwn3)] a[\$(touch /tmp/pwn4)]"; do
+  echo "$inj" >/scn/metrics; run
+done
+echo 'a[$(touch /tmp/pwn5)]' >/scn/started; echo "$((NOW - 3600)) 0 0 0" >/scn/metrics; run
+sed -i 's/^counter_samples=.*/counter_samples=a[$(touch \/tmp\/pwn6)]:1:1 1:a[$(touch \/tmp\/pwn7)]:1/' /var/lib/rw/state; run
+ls /tmp/pwn* >/dev/null 2>&1 && no "S14-2 enjeksiyon dosya oluşturdu: $(ls /tmp/pwn*)" || ok "S14-2: a[\$(touch …)] metrik/started/durum değerleri komut çalıştırmadı"
+echo 'a[$(touch /tmp/pwn1)] 0 0 0' >/scn/metrics; run
+grep -q 'ALERT check=retention rs_retention metrik değeri geçersiz' /out/o && grep -q 'UYARI: rs_retention_last_success' /out/o \
+  && ok "S14-2: geçersiz r_last -> uyarı + ALERT retention" || no "S14-2 r_last: $(cat /out/o)"
+good; run
+# P14a A5 (AC-208/212): sayaç pencere alarmları. /scn/metrics = "<retention ts> <retention hata> <prefix> <mysql>".
+cs() { sed -i "s/^counter_samples=.*/counter_samples=$1/" /var/lib/rw/state; }
+met() { echo "$((NOW - 3600)) 0 $1 $2" >/scn/metrics; }
+cnt() {  # cnt <ad> <örnekler> <prefix> <mysql> <alarm 1|0> <açıklama>
+  good; run; cs "$2"; met "$3" "$4"; run
+  if [ "$5" = 1 ]; then grep -q "ALERT check=$1" /out/o && alerted "$1" && ok "$6" || no "$6: $(grep -E 'ALERT|OK' /out/o | head -3)"
+  else ! grep -q "ALERT check=$1" /out/o && ok "$6" || no "$6: $(grep ALERT /out/o | head -3)"; fi
+}
+cnt guest-code-prefix "" 1000 0 0 "prefix: ilk örnek (taban yok) -> alarm yok"
+cnt guest-code-prefix "$((NOW - 1200)):0:0" 19 0 0 "prefix: >=15 dk'da +19 -> alarm yok"
+cnt guest-code-prefix "$((NOW - 1200)):0:0" 20 0 1 "AC-208 prefix: >=15 dk'da +20 -> ALERT guest-code-prefix"
+cnt guest-code-prefix "$((NOW - 3000)):0:0 $((NOW - 1200)):25:0" 30 0 0 "prefix: artış pencere dışında (+5 son 15+ dk) -> alarm yok"
+cnt guest-code-prefix "$((NOW - 1200)):100:0" 25 0 1 "prefix: süreç yeniden başladı (100 -> 25) -> +25 sayılır, ALERT"
+cnt mysql-test-failed "$((NOW - 4000)):0:0 $((NOW - 3700)):0:2 $((NOW - 600)):0:8" 0 12 1 "AC-212 mysql: 1 sa'te +10 -> ALERT mysql-test-failed"
+cnt mysql-test-failed "$((NOW - 4000)):0:0 $((NOW - 3700)):0:2 $((NOW - 600)):0:8" 0 11 0 "mysql: 1 sa'te +9 -> alarm yok"
+cnt mysql-test-failed "$((NOW - 1200)):0:0" - - 0 "metrik yok ('-', A3 öncesi) -> alarm yok"
+grep -q "^counter_samples=$((NOW - 1200)):0:0$" /var/lib/rw/state && ok "metrik yokken örnek eklenmedi" || no "örnek: $(grep counter_samples /var/lib/rw/state)"
+good; cs "$((NOW - 9000)):0:0"; run
+grep -q "^counter_samples=[0-9]*:0:0$" /var/lib/rw/state && ! grep -q "counter_samples=$((NOW - 9000)):" /var/lib/rw/state \
+  && ok "90 dk'dan eski örnek atıldı" || no "budama: $(grep counter_samples /var/lib/rw/state)"
+good; run
 cp /le/$H/fullchain.pem /tmp/web.bak
 neg 'cert:web' "cp /tc/short.crt /le/$H/fullchain.pem"
 cp /tmp/web.bak /le/$H/fullchain.pem

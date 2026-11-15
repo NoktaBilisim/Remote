@@ -728,6 +728,7 @@ describe("AC-60 performans: 10.000 kayıtta ilk sayfa < 500 ms (ADMIN, USER, SUP
       mfaStage: "ok" as const,
       mfaRequired: false,
       totpEnabled: false,
+      stepUpAt: null,
       logoPath: null,
       permissions: new Set(),
     });

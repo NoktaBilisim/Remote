@@ -68,6 +68,11 @@ export function createMetrics(): Metrics {
   m.counter("rs_bindings_revoked_total", "Geçersizleştirilen bilgisayar kayıtları (P8c; reason)");
   m.counter("rs_request_ref_invalid_total", "Geçersiz firma ref'i denemeleri (P8b; alarm > 100/dk)");
   m.counter("rs_request_rate_limited_total", "Talep hız/bekleyen sınırı aşımları (bucket)");
+  m.counter(
+    "rs_guest_code_rate_limited_total",
+    "Kod/agent indirme yolunda 429 (P14a AC-208; scope: ip|prefix — alarm: 15 dk'da prefix >= 20)",
+  );
+  m.counter("rs_mysql_test_failed_total", "Başarısız MySQL bağlantı testleri (P14a AC-212; class: connect|auth|tls|timeout|other)");
   m.counter("rs_request_gate_rejected_total", "Talep oluşturma kapısı dolu → 503 (reason: full|timeout; S8b-5)");
   m.counter("rs_request_notify_total", "Talep bildirimleri (channel, result: ok|failed|suppressed)");
   m.counter(

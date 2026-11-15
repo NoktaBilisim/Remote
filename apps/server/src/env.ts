@@ -31,6 +31,9 @@ export function parseEncryptionKeys(raw: string): Map<number, Buffer> | null {
   return keys.size > 0 ? keys : null;
 }
 
+/** S14-7: herkesçe bilinen/zayıf anahtar — tüm baytları aynı (CI'daki 32 sıfır bayt dahil). Production'da reddedilir. */
+export const isWeakEncryptionKey = (key: Buffer): boolean => key.every((b) => b === key[0]);
+
 const schema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -103,6 +106,14 @@ const schema = z
     path: ["APP_ENCRYPTION_KEYS"],
     message: "production'da zorunlu (aksi halde şifreli ayarlar yeniden başlatmada okunamaz)",
   })
+  .refine(
+    (e) =>
+      e.NODE_ENV !== "production" || ![...(parseEncryptionKeys(e.APP_ENCRYPTION_KEYS ?? "")?.values() ?? [])].some(isWeakEncryptionKey),
+    {
+      path: ["APP_ENCRYPTION_KEYS"],
+      message: "production'da zayıf anahtar (tüm baytları aynı) kabul edilmez; openssl rand -base64 32 ile üretin",
+    },
+  )
   .refine((e) => e.TURN_SECRET || !/(^|,)\s*turns?:/.test(e.TURN_URLS ?? ""), {
     path: ["TURN_SECRET"],
     message: "turn:/turns: URL'si varken zorunlu",

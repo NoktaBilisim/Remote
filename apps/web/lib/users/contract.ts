@@ -10,7 +10,9 @@ export {
   USER_PAGE_SIZE_DEFAULT,
   USER_ROLE_FILTERS,
   USER_STATUS_FILTERS,
+  USER_STALE_WRITE_MESSAGE,
   createUserInputSchema,
+  userEtag,
   updateUserInputSchema,
 } from "@remote/contracts/api/users";
 export type {
@@ -21,6 +23,8 @@ export type {
   UserDetail,
   UserListItem,
   UserListResponse,
+  UserOption,
+  UserOptionsResponse,
   UserRoleFilter,
   UserStatus,
   UserStatusFilter,
@@ -30,6 +34,7 @@ export {
   TENANT_PAGE_SIZE_DEFAULT,
   TENANT_SLUG_CONFLICT_MESSAGE,
   TENANT_SLUG_MAX,
+  TENANT_OPTIONS_MAX,
   createTenantInputSchema,
   updateTenantInputSchema,
 } from "@remote/contracts/api/tenants";
@@ -39,6 +44,8 @@ export type {
   SwitchTenantResponse,
   TenantItem,
   TenantListResponse,
+  TenantOption,
+  TenantOptionsResponse,
   TenantStatus,
   UpdateTenantInput,
 } from "@remote/contracts/api/tenants";

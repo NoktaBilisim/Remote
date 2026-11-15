@@ -99,6 +99,55 @@ export function isBlockedIp(ip: string): boolean {
   return true;
 }
 
+/** Geri döngü (127/8, ::1) ve özel ağ (RFC 1918, ULA fc00::/7) — P14a AC-211 `classifyHost` için. */
+const LOOPBACK = new BlockList();
+LOOPBACK.addSubnet("127.0.0.0", 8, "ipv4");
+LOOPBACK.addAddress("::1", "ipv6");
+const PRIVATE = new BlockList();
+for (const [n, b] of [
+  ["10.0.0.0", 8],
+  ["172.16.0.0", 12],
+  ["192.168.0.0", 16],
+] as const)
+  PRIVATE.addSubnet(n, b, "ipv4");
+PRIVATE.addSubnet("fc00::", 7, "ipv6");
+
+export type HostClass = "loopback" | "private" | "public" | "unresolved";
+
+const familyOf = (ip: string): "ipv4" | "ipv6" => (isIP(ip) === 6 ? "ipv6" : "ipv4");
+
+/** Tek adres sınıfı (kanonik metinle; IPv4-mapped → IPv4). */
+export function classifyIp(ip: string): Exclude<HostClass, "unresolved"> {
+  const addr = canonicalIp(ip);
+  if (ip.includes("%") || isIP(addr) === 0) return "public"; // bölge kimlikli / geçersiz: ayrıcalık yok
+  if (LOOPBACK.check(addr, familyOf(addr))) return "loopback";
+  return PRIVATE.check(addr, familyOf(addr)) ? "private" : "public";
+}
+
+const defaultLookupAll = async (h: string): Promise<string[]> => (await lookup(h, { all: true, verbatim: true })).map((a) => a.address);
+
+/**
+ * P14a (AC-211): hedef adın sınıfı ve bağlanılacak ilk adres. Ad bir kez çözülür; çağıran bu IP'ye bağlanır (ikinci
+ * çözümleme / rebinding yok). Adreslerin HEPSİ geri döngüyse `loopback`, hepsi geri döngü ∪ özel ağdaysa `private`,
+ * biri bile genelse `public`; çözülemezse `unresolved`.
+ */
+export async function classifyHost(
+  host: string,
+  lookupAll: (host: string) => Promise<string[]> = defaultLookupAll,
+): Promise<{ cls: HostClass; ip: string | null }> {
+  const h = bare(host);
+  let ips: string[];
+  try {
+    ips = isIP(h) ? [h] : h === "localhost" ? ["127.0.0.1"] : await lookupAll(h);
+  } catch {
+    ips = [];
+  }
+  if (ips.length === 0) return { cls: "unresolved", ip: null };
+  const classes = ips.map(classifyIp);
+  const cls = classes.every((c) => c === "loopback") ? "loopback" : classes.every((c) => c !== "public") ? "private" : "public";
+  return { cls, ip: ips[0] ?? null };
+}
+
 export interface NetGuard {
   /** İzinli ilk IP; yasak/çözülemeyen → 400 HOST_NOT_ALLOWED (genel mesaj). */
   resolve(host: string): Promise<string>;
@@ -118,7 +167,7 @@ export interface NetGuardOptions {
 }
 
 export function createNetGuard(o: NetGuardOptions = {}): NetGuard {
-  const lookupAll = o.lookupAll ?? (async (h: string) => (await lookup(h, { all: true, verbatim: true })).map((a) => a.address));
+  const lookupAll = o.lookupAll ?? defaultLookupAll;
   const blocked = o.isBlocked ?? isBlockedIp;
   const ipsOf = async (h: string): Promise<string[]> => {
     try {

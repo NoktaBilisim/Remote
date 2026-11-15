@@ -98,6 +98,22 @@ export function applyRoleDefaults(
   return Object.fromEntries(Object.keys(d).map((k) => [k, locked.has(k) ? state[k] === true : d[k] === true]));
 }
 
+/**
+ * P14a (AC-206): rol seçimi değişince matris. Kayıtlı role geri dönülürse kayıtlı harita (kullanıcıya özel ezmeler dahil)
+ * olduğu gibi geri gelir; başka role geçişte kilitsiz anahtarlar o rolün varsayılanına döner (`applyRoleDefaults`).
+ * Kayıtlı harita çağıranın state'inde ayrı tutulur (taslak üzerine yazılsa da kaybolmaz).
+ */
+export function permsForRole(
+  role: ManagedRole,
+  saved: { role: string; perms: PermState },
+  current: PermState,
+  locked: ReadonlySet<string>,
+  modules: readonly PermModule[] = MODULES,
+): PermState {
+  if (role === saved.role) return { ...saved.perms };
+  return applyRoleDefaults(role, current, locked, modules);
+}
+
 /** İki durum arasında değeri farklı anahtarlar (kaydedilmemiş değişiklik + özet). */
 export function changedKeys(a: PermState, b: PermState): string[] {
   return Object.keys({ ...a, ...b }).filter((k) => (a[k] === true) !== (b[k] === true));

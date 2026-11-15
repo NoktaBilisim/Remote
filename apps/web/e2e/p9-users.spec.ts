@@ -212,7 +212,8 @@ test("AC-73 rol yükseltme: kilitli anahtarı olan Admin USER→ADMIN kaydeder (
     const csrf = document.cookie.match(/(?:^|; )__Host-rs_csrf=([^;]*)/)?.[1] ?? "";
     const r = await fetch(`/api/v1/users/${id}`, {
       method: "PATCH",
-      headers: { "content-type": "application/json", "x-csrf-token": csrf },
+      // P14a (AC-206): If-Match zorunlu (yoksa 428) — burada yetki kuralı sınanır
+      headers: { "content-type": "application/json", "x-csrf-token": csrf, "if-match": '"v1"' },
       body: JSON.stringify({ role: "ADMIN" }),
     });
     return { status: r.status, body: (await r.json()) as { error?: { fields?: Record<string, string> } } };
@@ -329,10 +330,12 @@ test("AC-70 Super Admin: firma seç → kullanıcılar; firma oluştur; pasife a
   const switcher = page.getByTestId("tenant-switcher");
   await expect(switcher.locator("summary")).toHaveAccessibleName("Firma seçilmedi. Firma seç");
   await switcher.locator("summary").click();
-  await expect(switcher.getByTestId("tenant-switcher-list")).toBeVisible();
-  // Yalnız aktif firmalar
-  await expect(switcher.getByRole("button", { name: "Eski Müşteri A.Ş." })).toHaveCount(0);
-  await switcher.getByRole("button", { name: "Demo Firma" }).click();
+  // P14b (AC-226): aramalı seçici — menü açılınca arama alanı odakta, ilk firmalar listelenir; yalnız aktif firmalar
+  await expect(switcher.getByRole("combobox", { name: "Etkin firma" })).toBeFocused();
+  const list = switcher.getByRole("listbox");
+  await expect(list.getByRole("option")).toHaveCount(2);
+  await expect(list.getByRole("option", { name: /Eski Müşteri/ })).toHaveCount(0);
+  await list.getByRole("option", { name: "Demo Firma" }).click();
   await expect(page.getByText("Demo Firma firmasına geçildi")).toBeVisible();
   await expect(switcher).toHaveAttribute("data-acting", "01JTN00000000000000000000A");
   await expect(switcher.locator("summary")).toHaveAccessibleName("Etkin firma: Demo Firma. Firma değiştir");
@@ -451,13 +454,13 @@ test("TO-P9-1/6: Super Admin üst menüsü 375 px — taşma yok, çıkış tam 
   await fits();
 
   await switcher.locator("summary").click();
-  await switcher.getByRole("button", { name: "Demo Firma" }).click();
+  await switcher.getByRole("listbox").getByRole("option", { name: "Demo Firma" }).click();
   await expect(switcher).toHaveAttribute("data-acting", "01JTN00000000000000000000A");
   await expect(switcher.locator("summary")).toHaveText("Demo Firma");
   await expect(switcher.locator("summary")).toHaveAccessibleName("Etkin firma: Demo Firma. Firma değiştir");
   await fits();
   // Menü paneli açıkken de sayfa yatay taşmaz (sağa hizalı)
   await switcher.locator("summary").click();
-  await expect(switcher.getByTestId("tenant-switcher-list")).toBeVisible();
+  await expect(switcher.getByRole("listbox").getByRole("option").first()).toBeVisible();
   await noHorizontalOverflow(page);
 });

@@ -1,12 +1,13 @@
 "use client";
 
-import { LoaderCircle, Lock, PlugZap, Server } from "lucide-react";
+import { LoaderCircle, Lock, PlugZap, Server, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { FormError } from "@/components/form-error";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { SaveBar } from "@/components/ui/save-bar";
+import { Switch } from "@/components/ui/switch";
 import { TextField } from "@/components/ui/text-field";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -232,6 +233,19 @@ export function MysqlForm({ initial }: { initial: MysqlSettingsView }) {
               data-testid="mysql-password"
             />
           </Section>
+          {/* P14a (AC-211): kayıtlı değer forma yüklenir ve her gövdede gönderilir (gönderilmezse sunucu false'a düşürür) */}
+          <Section id="my-tls" title={t("my.tlsTitle")} Icon={ShieldCheck}>
+            <Switch
+              label={t("my.requireTls")}
+              checked={st.requireTls}
+              onChange={(v) => setSt((s) => ({ ...s, requireTls: v }))}
+              disabled={busy}
+              description={t("my.requireTlsHint")}
+              onText={t("my.requireTlsOn")}
+              offText={t("my.requireTlsOff")}
+              testId="mysql-require-tls"
+            />
+          </Section>
         </fieldset>
       </form>
 
@@ -239,9 +253,15 @@ export function MysqlForm({ initial }: { initial: MysqlSettingsView }) {
         <p className="text-sm text-fg-muted" id="mysql-test-note">
           {t("my.testBody")}
         </p>
-        <Alert tone="warning" testId="mysql-tls-note">
-          {t("my.tlsNote")}
-        </Alert>
+        {st.requireTls ? (
+          <Alert tone="info" testId="mysql-tls-note">
+            {t("my.tlsNoteOn")}
+          </Alert>
+        ) : (
+          <Alert tone="warning" testId="mysql-tls-note">
+            {t("my.tlsNote")}
+          </Alert>
+        )}
         <Button
           type="button"
           variant="secondary"

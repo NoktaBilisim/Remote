@@ -137,6 +137,11 @@ export const ROUTE_CLASSES: Record<string, RouteClass> = {
   "GET /api/v1/files/avatar/:tenantId/:file": "tenant",
   "GET /api/v1/public/branding": "public",
   "PATCH /api/v1/auth/me/preferences": "self",
+  // P14a (AC-215): step-up yalnız kendi oturumuna yazar
+  "POST /api/v1/auth/step-up": "self",
+  // P14b (AC-225/226): seçenek uçları (izolasyon: security-p14a-users.test.ts "AC-225")
+  "GET /api/v1/users/options": "scoped",
+  "GET /api/v1/admin/tenants/options": "system",
 };
 
 export interface TwoTenants {
@@ -187,7 +192,13 @@ export const CROSS_TENANT_CASES: CrossTenantCase[] = [
   { route: "GET /api/v1/users/:id", request: (fx) => ({ method: "GET", url: `/api/v1/users/${fx.a.user.id}` }) },
   {
     route: "PATCH /api/v1/users/:id",
-    request: (fx) => ({ method: "PATCH", url: `/api/v1/users/${fx.a.user.id}`, payload: { fullName: "Başka Firma" } }),
+    // P14a (AC-206): geçerli biçimde If-Match (sürüm 0) — 428 değil, kapsam kararı (404) sınanır.
+    request: (fx) => ({
+      method: "PATCH",
+      url: `/api/v1/users/${fx.a.user.id}`,
+      headers: { "if-match": '"v0"' },
+      payload: { fullName: "Başka Firma" },
+    }),
   },
   // P10: başka tenant'ın oturumu / kullanıcısı → 404
   {

@@ -2,7 +2,8 @@
 // 168 (ref ad alanı, tek 404), 170 (yenileme), 171 (pasif/aktif), 172 (tenant izolasyonu), 173/195 (audit, PII),
 // 175/176 (Genel/müşteri filtresi), 177 (kabulde kopya), 178 (sekme sayaçları), 179 (CSV), 180 (POST /sessions customerId).
 import { afterEach, describe, expect, it } from "vitest";
-import { anonymizeCustomers, sweepCustomerPassive } from "../../src/customers/service.ts";
+import { anonymizeCustomersOf, sweepCustomerPassive } from "../../src/customers/service.ts";
+import { forEachRetentionTenant } from "../helpers/retention.ts";
 import { sha256Hex } from "../../src/lib/ids.ts";
 import { createTenant, createUser, loginAs, testDb, type Session } from "../helpers/app.ts";
 import { createCustomerRow, createRequestRow, createRequestSettings, requestClient, waitMsg } from "../helpers/requests.ts";
@@ -495,8 +496,10 @@ describe("AC-173 / AC-195 audit ve kişisel veri", () => {
     const p = await create(l, a.s, { name: "Eski Pasif", contactName: "Ali", phone: "0532 111 22 33", email: "a@b.co", note: "not" });
     const act = await create(l, a.s, { name: "Aktif Kalan", contactName: "Veli" });
     await api(l, a.s, "POST", `${C}/${p.id}/deactivate`, {});
-    expect(await anonymizeCustomers(l.app.requests, new Date(Date.now() + 10 * 86_400_000))).toBe(0);
-    expect(await anonymizeCustomers(l.app.requests, new Date(Date.now() + 731 * 86_400_000))).toBeGreaterThanOrEqual(1);
+    expect(await forEachRetentionTenant(l.app.requests, anonymizeCustomersOf, new Date(Date.now() + 10 * 86_400_000))).toBe(0);
+    expect(
+      await forEachRetentionTenant(l.app.requests, anonymizeCustomersOf, new Date(Date.now() + 731 * 86_400_000)),
+    ).toBeGreaterThanOrEqual(1);
     const row = await testDb().customer.findUniqueOrThrow({ where: { id: p.id } });
     expect(row).toMatchObject({ contactName: null, phone: null, email: null, note: null, name: "Eski Pasif" });
     expect(row.anonymizedAt).not.toBeNull();

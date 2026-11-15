@@ -5,6 +5,63 @@ Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/), sürümleme [Se
 
 ## [Unreleased]
 
+### Eklendi — P14a (güvenlik/kalite; AC-201–219) ve P14b (UI/erişilebilirlik; AC-220–230)
+
+- **Step-up doğrulama** (AC-215, ADR-0022): MySQL/TURN/WhatsApp sistem ayarı kaydı ve ortam değerine dönüş son 5 dk içinde
+  2FA ister. Panel "Kimliğinizi doğrulayın" penceresi açar (6 haneli TOTP veya kurtarma kodu), başarıda isteği bir kez
+  tekrarlar. Kurtarma kodu tüketilir, "Kurtarma kodunuz kullanıldı" e-postası gider, kalan kod ≤ 3 ise uyarı. API
+  `POST /api/v1/auth/step-up`; hata kodu `MFA_STEP_UP_REQUIRED` (401); audit `auth.step_up` (`method`, kalan kod sayısı).
+- **İyimser kilit** (AC-206): `GET /users/:id` `version` + `ETag`; `PATCH` `If-Match: "v<n>"` ister (yoksa 428
+  `PRECONDITION_REQUIRED`, araya değişiklik girdiyse 409 `STALE_WRITE`). Panelde "Kayıt başkası tarafından değiştirildi"
+  uyarısı ve **Yeniden yükle**. Rol kaydetmeden geri alınınca kayıtlı yetkiler geri gelir.
+- **MySQL "TLS gerekli"** (AC-211): ayar `requireTls`; açıkken test TLS ile yapılır ve sertifika doğrulanır, yeni hata sınıfı
+  `tls`. Migration `20261116010000_p14a_mysql_tls`.
+- **Ayarlar > Genel** (AC-224): kod/bağlantı geçerliliği (15–30 dk), en uzun oturum (1–8 sa), teknisyen başına açık oturum
+  (1–10), dosya boyutu sınırı (1–2048 MB); alan bazlı doğrulama, audit eski → yeni.
+- **Seçenek uçları** (AC-225/226): `GET /api/v1/users/options` (tam teknisyen listesi, ≤ 1.000) ve
+  `GET /api/v1/admin/tenants/options?q=&limit=` (≤ 20). Oturum geçmişinde teknisyen filtresi tam listeyi, Super Admin firma
+  filtresi ve üst menü firma seçici aramalı seçiciyi (klavye destekli) kullanır.
+- **Sohbet hız sınırı** (AC-227): gönderen saniyede 5 mesaj; aşımda "Çok hızlı yazıyorsunuz" ve mesaj kutuda kalır.
+- **Metrikler** (AC-208, 212): `rs_guest_code_rate_limited_total{scope}`, `rs_mysql_test_failed_total{class}`; alarm
+  eşikleri runbook §22.
+- **Biçimlendirici** (AC-218, ADR-0024): Prettier 3.10.1; `pnpm format`, `pnpm format:check` (CI `quality` işinde).
+- **CI:** `shellcheck + actionlint` işi; `stability` iş akışı (elle + haftalık, entegrasyon ve e2e 20 koşu, retry 0);
+  `scripts/repeat-tests.sh <n> [int|e2e|all]`.
+
+### Değişti — P14a / P14b
+
+- `/users*` yazma uçları kullanıcı başına 30/dk, `POST /users` 10/dk; `/admin/tenants*` ve `/admin/switch-tenant` 30/dk
+  (429 + `Retry-After`).
+- Firma pasife alınınca bekleyen talepler ve bilgisayar kayıtları aynı işlemde geçersizleşir (AC-205).
+- Kullanıcı yönetimi işlemleri aktör ve hedef satırlarını kilitleyip aktörün yetkisini yeniden okur (AC-202); yetki
+  kaynaklı 403'ler ve e-posta çakışması audit'e `result: "fail"` yazılır (AC-203, 204).
+- `/ws/panel` oturum başına 30 upgrade/dk; aşımda `close(4429, "retry=<sn>")`, panel bekleyip sessizce yeniden bağlanır (AC-216).
+- Talep kapısı 503 döndüğünde hız kovaları tüketilmez; firma kovası commit sonrası artar (AC-209). Güvenilen ağdan
+  `/ws/request` upgrade'leri sayılmaz (AC-210).
+- 6 eski CHECK satır sonu için `\z` kullanır (AC-201, migration `20261116000000_p14a_security`; `users.version`,
+  `auth_sessions.step_up_at` sütunları).
+- `/users/<yok>` ve `/customers/<yok>` gerçek HTTP 404 döner (AC-220). Kapalı/kilitli anahtar izi iki temada ≥ 3:1
+  kontrast (AC-221). Mobil menüde etkin öğe görünür, kaydırma ipucu var (AC-222). Müşteriler "Tümü" boş durumu
+  varsayılanla aynı (AC-223). Tarayıcının boş türle verdiği `.webp` istemcide reddedilmez (AC-229).
+- Tek seferlik Prettier biçimlendirmesi (`cfd9fdb`, `.git-blame-ignore-revs`).
+
+### Düzeltildi — P14a / P14b
+
+- CI `build`: `docker compose config` için `APP_ENCRYPTION_KEYS` sahte değeri eksikti.
+- CI web e2e: 390 px'te 2 px yatay taşma (mobil menü) ve kontrol şeridinin Linux fontunda satır kırması.
+- Oturum notunda "Kaydedilmemiş değişiklikler" penceresinde Esc sonrası hızlı ikinci "geri" yakalanmıyordu (AC-228).
+- SMTP 587 STARTTLS: yanlış sertifika adı ve STARTTLS'siz sunucu için ileti gönderilmediği testle doğrulandı (AC-213);
+  paralel `mfa/setup` yarışı deterministik 409 (AC-214).
+
+### Güvenlik — P14a / P14b
+
+- Kilitli IP/önek kovası talep kapısından önce denetlenir (S14-1). MySQL açık anahtar isteği yalnız loopback/özel ağ
+  adresinde (S14-3). Talep oluşturma pasif firmayı işlem içinde görür (S14-4). Sürüm kontrolü yetki kontrolünden sonra
+  (S14-5). Prod'da zayıf `APP_ENCRYPTION_KEYS` (tüm baytları aynı) başlangıçta reddedilir (S14-7).
+- Kaldırılan ölü kod: global retention sarmalayıcıları, `cancelAllForTenant`.
+- Migration iki adet. Uygulamada yeni ortam değişkeni yok; `remote-watch` için isteğe bağlı `WATCH_GUEST_PREFIX_MAX`,
+  `WATCH_MYSQL_FAIL_MAX` (`deploy/ops/watch.env.example`). Yeni çalışma zamanı bağımlılığı yok (yalnız Prettier, geliştirme).
+
 ### Eklendi — P13b-L (bekleme odası göstergesi; AC-304–315, ADR-0029)
 
 - **"Müşteri bekliyor (n)" rozeti:** Oturumlar listesinde bekleyen (PENDING) oturumun "Durum" hücresinde, bekleme

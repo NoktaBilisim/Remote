@@ -19,6 +19,9 @@ export const MYSQL_TEST_TIMEOUT_MS = 10_000;
  * `system_settings_mysql_chk` ile aynı: host = SMTP host kuralı (ASCII ad / IPv4 / [IPv6], IDN → punycode, küçük harf);
  * port 1..65535 tamsayı; database `[A-Za-z0-9_$-]{1,64}`; user 1..32, kontrol/biçim karakteri yok.
  * `password`: boş/verilmemiş → kayıtlı şifre korunur (AC-78); en çok 200.
+ * P14a (AC-211): `requireTls` (varsayılan false) — seçiliyse bağlantı testi TLS ister ve sertifikayı doğrular; TLS kurulamazsa
+ * sınıf `tls`. Kapalıyken sunucunun açık anahtarının istenmesi (`allowPublicKeyRetrieval`) yalnız ad loopback / özel ağ
+ * adresine çözülürse açılır (S14-3: tek etiketli ad istisnası yok; genel IP'ye çözülen ad → kapalı).
  */
 export const mysqlSettingsInputSchema = z.strictObject({
   host: smtpHostSchema,
@@ -39,6 +42,7 @@ export const mysqlSettingsInputSchema = z.strictObject({
     .max(32, "Kullanıcı adı en çok 32 karakter olabilir")
     .refine((v) => !CONTROL_CHARS.test(v), "Kullanıcı adı kontrol karakteri içeremez"),
   password: z.preprocess(blankToUndefined, z.string().max(200, "Şifre en çok 200 karakter olabilir").optional()),
+  requireTls: z.boolean({ error: "TLS gerekli alanı true/false olmalı" }).default(false),
 });
 export type MysqlSettingsInput = z.input<typeof mysqlSettingsInputSchema>;
 export type MysqlSettingsData = z.output<typeof mysqlSettingsInputSchema>;
@@ -49,6 +53,8 @@ export interface MysqlSettingsView {
   port: number;
   database: string;
   user: string;
+  /** P14a (AC-211): panel kaydında seçilen "TLS gerekli"; env kaynağında false. */
+  requireTls: boolean;
   hasPassword: boolean;
   updatedAt: string | null;
   source: "panel" | "env";
@@ -65,7 +71,7 @@ export interface MysqlSettingsSaveResponse extends MysqlSettingsView {
   message: string;
 }
 
-export const MYSQL_TEST_REASONS = ["connect", "auth", "database", "timeout", "secret_unreadable"] as const;
+export const MYSQL_TEST_REASONS = ["connect", "auth", "database", "timeout", "tls", "secret_unreadable"] as const;
 export type MysqlTestReason = (typeof MYSQL_TEST_REASONS)[number];
 
 /** Sınıflandırılmış genel mesajlar (ham sürücü hatası yalnız server logunda). */
@@ -75,6 +81,7 @@ export const MYSQL_TEST_MESSAGES: Readonly<Record<MysqlTestReason | "ok", string
   auth: "Kimlik reddedildi (kullanıcı adı veya şifre hatalı).",
   database: "Veritabanı bulunamadı veya bu kullanıcının erişimi yok.",
   timeout: "Bağlantı 10 saniye içinde kurulamadı (zaman aşımı).",
+  tls: "Güvenli (TLS) bağlantı kurulamadı: sunucu TLS desteklemiyor veya sertifikası doğrulanamadı.",
   secret_unreadable: "Kayıtlı şifre okunamadı; şifreyi yeniden girin.",
 };
 

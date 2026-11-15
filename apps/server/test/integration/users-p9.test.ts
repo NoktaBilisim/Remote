@@ -48,8 +48,19 @@ async function tenantWithAdmin(perms?: Record<string, boolean>) {
   return { tenantId: t.id, admin, s: await signIn(admin) };
 }
 
-const req = (s: Session, method: "GET" | "POST" | "PATCH", url: string, payload?: unknown) =>
-  app.inject({ method, url: `/api/v1${url}`, headers: s.headers, ...(payload === undefined ? {} : { payload: payload as object }) });
+/** P14a (AC-206): PATCH'ten önce güncel ETag okunup `If-Match` olarak gönderilir (P9 davranış testleri sürümden bağımsız). */
+async function ifMatch(a: FastifyInstance, s: Session, url: string): Promise<Record<string, string>> {
+  const etag = (await a.inject({ method: "GET", url: `/api/v1${url}`, headers: s.headers })).headers.etag;
+  return typeof etag === "string" ? { "if-match": etag } : {};
+}
+
+const req = async (s: Session, method: "GET" | "POST" | "PATCH", url: string, payload?: unknown) =>
+  app.inject({
+    method,
+    url: `/api/v1${url}`,
+    headers: { ...s.headers, ...(method === "PATCH" ? await ifMatch(app, s, url) : {}) },
+    ...(payload === undefined ? {} : { payload: payload as object }),
+  });
 
 const newEmail = () => `p9-${Math.random().toString(36).slice(2)}@example.test`;
 
@@ -299,8 +310,13 @@ describe("P9 canlı yansıma (AC-115, G-04)", () => {
     const admin = await createUser({ tenantId, role: "ADMIN" });
     return { admin, s: await loginAs(l.app, admin) };
   }
-  const call = (l: Live, s: Session, method: "POST" | "PATCH", url: string, payload: object) =>
-    l.app.inject({ method, url: `/api/v1${url}`, headers: s.headers, payload });
+  const call = async (l: Live, s: Session, method: "POST" | "PATCH", url: string, payload: object) =>
+    l.app.inject({
+      method,
+      url: `/api/v1${url}`,
+      headers: { ...s.headers, ...(method === "PATCH" ? await ifMatch(l.app, s, url) : {}) },
+      payload,
+    });
 
   it("AC-115: teknisyen pasife alınınca etkin oturum 5 sn içinde biter — iki tarafa session.ended{auth_revoked}, teknisyen 4401, DB ENDED", async () => {
     live = await startLive();
