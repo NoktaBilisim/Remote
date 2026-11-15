@@ -1,3 +1,223 @@
+# Güvenlik Raporu — P20 tasarım turu (p20-wip afda867, 2026-11-15)
+
+DURUM: DÜZELTİLMELİ (Yüksek 1 — tasarım düzeltmesi; kod yazılmadan mimar §8d.3/§8d.7'yi günceller).
+Özet: Kritik 0 / Yüksek 1 / Orta 4 / Düşük 8.
+Kapsam: `docs/mimari-e11.md` §8d.0–8d.14, ADR-0004 r6, `docs/mimari-protokol.md` §6.1, `docs/tasarim-kontrol.md` P20; mevcut kodla
+karşılaştırma: `apps/agent-win/internal/{remember,launch,flow,request,ui,input,control}`, `cmd/noktadestek/main.go`,
+`apps/server/src/signaling/binding.ts`, `apps/server/src/bindings/service.ts`. P20 kodu henüz yok; bulgular tasarım + mevcut
+kodun P20'de bozulan varsayımlarıdır.
+
+## Bulgular (öncelik sırasıyla)
+
+### [YÜKSEK] G-P20-1 Run hedefinin ACL'si denetlenmiyor — başka yerel kullanıcının değiştirebildiği exe kurbanın oturumunda başlar — A01/A05 (CWE-732, CWE-427)
+
+Yer: `docs/mimari-e11.md` §8d.3 `internal/autorun` satırı (ret koşulları), §8d.7 S-P20-1, ADR-0004 r6 "Otomatik başlat".
+Sorun: Ret koşulları yalnız yükseltilmiş süreç, UNC/ağ/çıkarılabilir sürücü, `%TEMP%`/INetCache/zip-geçici ve reparse'ı kapsar.
+Exe'nin ve üst klasörlerinin DACL'i denetlenmez. Windows varsayılanında `C:\` altında kullanıcının açtığı klasörler
+(`C:\Araclar\`, `C:\NoktaDestek\` …) "Authenticated Users: Modify" devralır; `C:\Users\Public\*` herkese yazılabilirdir. K-P20-2
+"exe kopyalanmaz, bulunduğu yerden çalışır" kararıyla Run değeri doğrudan bu konumları gösterebilir.
+İstismar senaryosu: Paylaşılan ofis bilgisayarı. Kullanıcı A exe'yi `C:\NoktaDestek\` içine koyar, "Windows açılışında başlat"ı
+açar. Yetkisiz yerel kullanıcı B dosyayı kendi ikilisiyle değiştirir (ya da klasöre DLL koyar). A'nın her oturum açılışında B'nin
+kodu A'nın kimliğiyle çalışır: A'nın DPAPI sırları (`kayitlar.bin` içindeki 5 firma anahtarı, tarayıcı parolaları), A yönetici
+ise bölünmüş belirteç üzerinden UAC atlatma ile yükseltme. Kalıcılık mekanizmasını ürün kurmuş olur (T17 "aynı kullanıcıdaki
+zararlı" kapsam dışı ilkesi burada geçerli değildir: saldırgan **başka** kullanıcıdır).
+Düzeltme: §8d.3 ret koşullarına ekle: (a) exe dosyası ve kökten exe'ye kadar her klasörün DACL'inde geçerli kullanıcı, SYSTEM,
+Administrators, TrustedInstaller dışındaki bir SID'e (Users, Authenticated Users, Everyone, INTERACTIVE dahil) `FILE_WRITE_DATA`,
+`FILE_APPEND_DATA`, `WRITE_DAC`, `WRITE_OWNER`, `DELETE`, klasörde `FILE_ADD_FILE`/`FILE_ADD_SUBDIRECTORY`/`FILE_DELETE_CHILD` veren
+ACE varsa seçenek pasif + açıklama ("Bu klasöre başka kullanıcılar yazabiliyor; programı İndirilenler'e veya kendi klasörünüze
+taşıyın"); (b) `C:\Users\Public` ve `%ProgramData%` açık ret. Denetim etkinleştirmede ve her normal açılışta `State` içinde
+yapılır; zayıf ACL görülürse Run değeri **silinir** ve ana ekranda bilgi verilir (`--tray` açılışında denetim anlamsız — kod zaten
+saldırganınki olabilir). Go birim testi (sahte güvenlik tanımlayıcısı) + Windows CI'da `icacls` ile Users:M verilmiş klasör reddi.
+Atanan: mimar (§8d.3/§8d.7/ADR r6 metni) → backend-dev (Go, K4).
+
+### [ORTA] G-P20-2 Kayıt dosyasında yalnız süreç içi kilit — tepsi süreci ile ref/kod dosyasıyla açılan süreç birbirinin yazımını ezer — A04 (CWE-362)
+
+Yer: `apps/agent-win/internal/remember/remember.go:31` (`mu sync.Mutex`), `:89-99` (`update`: oku → değiştir → yaz); tasarım
+§8d.3 tray satırı ("Kod/ref dosyasıyla açılan örnek tepsi örneğine bağlanmaz, bağımsız çalışır"), §8d.1 "göç `Store` kilidi altında".
+Sorun: P20'ye kadar aynı anda tek süreç vardı; P20'de yerleşik tepsi süreci + ikinci (ref dosyası/normal) süreç aynı
+`kayitlar.bin` üzerinde eşzamanlı `TouchBinding`/`SaveBinding`/`RemoveBinding`/`Migrate` yapar. `sync.Mutex` süreçler arası değildir.
+İstismar senaryosu (kazara, veri kaybı): Tepsideki süreç firma A ile talep açarken `TouchBinding` için dosyayı okur; aynı anda
+ref dosyasıyla açılan süreç firma C'nin yeni anahtarını yazar; tepsi süreci eski kopyayı yazınca C kaybolur. Sunucuda C satırı
+yetim kalır, müşteri kaydın olduğunu sanır. Renew durumunda (anahtar sunucuda döndürüldü) ezilen firmanın kaydı tamamen düşer.
+İki süreç aynı anda göç ederse `hatirla.bin` silinip `kayitlar.bin` ezilebilir.
+Düzeltme: Store'a süreçler arası kilit: `Local\NoktaDestek.Store.<SID özeti>` adlı mutex (WaitForSingleObject ≤ 2 sn, zaman aşımında
+yazma hatası olarak ele al) ya da klasör handle'ı üzerinden `kayitlar.lock` + `LockFileEx`. Göç ve her `update` bu kilit altında.
+Test: iki süreçte 100 tur eşzamanlı Save/Touch → kayıp yok (Windows CI).
+Atanan: mimar (§8d.1/§8d.3 cümlesi) → backend-dev (Go, K2).
+
+### [ORTA] G-P20-3 Okuma/DPAPI hatası tüm dosyayı siler; `update` hatada boş veriyle üzerine yazar — 5 firmanın kaydı tek geçici hatayla gider — A04/A08
+
+Yer: `apps/agent-win/internal/remember/remember.go:71-83` (okuma hatası, `Unprotect` hatası, boyut, decode → `forgetIn`),
+`:92` (`d, _ := s.load()` hata yok sayılır); tasarım §8d.1 göç m.2 "bugünkü kural (sil)".
+Sorun: Bugün tek kayıt için kabul edilebilir olan "çözülemiyorsa sil" kuralı, 5 firma + kişisel bilgi taşıyan v3 dosyada ağırlaşır.
+`CryptUnprotectData` geçici hata (profil yüklenmeden `--tray` ile oturum açılışında erken başlama, roaming/AD ana anahtar erişimi,
+AV'nin dosyayı kilitlemesi → `ReadAll` hatası) kalıcı bozulmayla ayırt edilmez. Ayrıca `update` okuma başarısızsa boş `Data` ile
+devam edip yalnız yeni alanı yazar.
+İstismar senaryosu: Oturum açılışında Run → `--tray` → DPAPI geçici hata → dosya silinir → "kayıt yok" kuralıyla Run değeri de
+silinir. Müşteri 5 firmanın kaydını ve otomatik başlatmayı sessizce kaybeder; sunucu anahtarları yetim kalır (iptal edilemez,
+anahtar artık bilinmiyor).
+Düzeltme: Hata sınıfları ayrılır: (1) kesin biçim hatası (strict decode, sürüm, boyut aşımı, `ERROR_INVALID_DATA`/`NTE_BAD_DATA`)
+→ bugünkü gibi sil; (2) G/Ç ve DPAPI'nin diğer hataları → **dokunma**, bu açılışta salt-okunur "kayıt okunamadı" durumu, yazma
+yok, `--tray`'de Run silinmez. `update` okuma hatasında yazmayı reddeder. Diag olayı `load_failed{class}` (içerik yok). Test:
+sahte `Unprotect` geçici hata → dosya ve Run yerinde.
+Atanan: backend-dev (Go, K2, K5); mimar §8d.1 m.2'ye bir cümle.
+
+### [ORTA] G-P20-4 Düz metin 8 KB bütçesi en kötü durumda yetmiyor; firma adı başka firmaların kaydını düşürebilir — A04 (CWE-400)
+
+Yer: §8d.1 "düz metin ≤ 8 KB … 5 kayıt × en kötü UTF-8 ad ~1 KB"; `apps/agent-win/internal/remember/data.go:171`
+(`json.Marshal` — HTML kaçışı açık), `apps/agent-win/internal/launch/keeper.go` (`SaveBinding` hatası sessiz).
+Sorun: `json.Marshal` `< > &` ve U+2028/2029'u 6 baytlık `\u00XX` dizisine çevirir. `tenantName` 120 + `customerName` 100 karakteri
+`&` olan bir öğe ≈ 720 + 600 + köken (≤ 267) + anahtar 47 + iki zaman damgası + alan adları ≈ 1,8 KB; 5 öğe ≈ 9 KB + `personal`
+(ad 80 → 480 B, e-posta 254) → ~10 KB > 8 KB. `tenantName`'i firma yöneticisi (başka tenant) belirler.
+İstismar senaryosu: Firma B adını `&&&…` yapar; müşteri B'ye kayıtlıdır. Firma A ile oturumda sunucu A'nın anahtarını **yeniler**
+(anahtar döner), istemci yeni dosyayı 8 KB'ı aştığı için yazamaz, hata sessizdir → dosyada A'nın eski (artık geçersiz) anahtarı
+kalır → sonraki `status` `BINDING_INVALID` → A'nın kaydı silinir. Bir tenant'ın verisi başka tenant'ın kaydını düşürür.
+Düzeltme: `json.Encoder.SetEscapeHTML(false)`; bütçe en kötü durumdan hesaplanır (5 × azami alan × kaçış + personal) ve
+`plainMax` buna göre (ör. 16 KB) — 5 öğe × azami uzunluk × `&`/4-bayt karakter fikstürüyle birim testi. Yazma hatası sessiz kalmaz:
+oturum sonu bilgi satırı "Kayıt bu bilgisayara yazılamadı" + diag olayı. Not (önceden var, P20'de belirginleşir): sunucu renew'de
+anahtarı istemci kalıcı yazmadan döndürür; yazma başarısızlığında firma kaybı bu yüzden kesindir — en azından görünür olmalı.
+Atanan: mimar (§8d.1 sınır cümlesi) → backend-dev (Go, K2/K3).
+
+### [ORTA] G-P20-5 Yerleşik süreçte oturumlar arası durum ve "X → tepsi" etkin oturumda tanımsız — A04 (CWE-668)
+
+Yer: §8d.3 `launch/resident.go` satırı, K-P20-7; `apps/agent-win/cmd/noktadestek/main.go:69-83,121` (`control.Gate`, `input.Applier`,
+`input.Start` (global kısayol `RegisterHotKey`), keeper, logo, `api.Client` süreç ömründe **bir kez** kurulur).
+Sorun: AC-107 "oturum bitince süreç kapanır" bugün durum sızıntısına karşı örtük güvencedir. K-P20-7 ile aynı süreç farklı firmaların
+art arda oturumlarını taşır. Bugün `flow.go:903` cleanup'ta `gate.Close()` var (olumlu), fakat tasarım oturum kapsamlı nesneleri
+(applier hedef monitörü, keeper "bu oturum için yazılan yuva", gösterilen firma logosu/adı, yeniden bağlanma sırrı, sohbet geçmişi,
+DC/PeerConnection, `files` indirme durumu) için sıfırlama kuralı ve testi koymuyor. Ayrıca "pencere X → tepsiye iner" kuralı etkin
+oturumda ne olacağını söylemiyor: ana pencere (bağlantıyı kes düğmesi) gizlenirken teknisyen kontrolü sürer.
+İstismar senaryosu: Firma A oturumunda açılmış durum (ör. önceki logo/ad, hedef monitör, keeper yuvası) firma B oturumuna taşınır;
+müşteri B teknisyenini A sanar ya da B'nin anahtarı A'nın yuvasına yazılır. Etkin kontrol sırasında X'e basan müşteri oturumu
+bitirdiğini sanar, oturum tepside sürer (yalnız üst bant görünür).
+Düzeltme: Tasarıma bağlayıcı kural: oturum/talep başına yeni `flow` deps kapsamı (gate kapalı başlar, applier/keeper/sohbet/logo
+sıfır); süreç ömürlü olan yalnız UI çerçevesi ve Store. Etkin oturumda X bugünkü davranışı korur (oturumu bitir onayı) ya da yalnız
+"küçült" olur ve AC-103 bandı + tepsi ipucu "Oturum sürüyor — <firma>" görünür kalır; "Çık" onaylı. Test: aynı süreçte A sonra B
+oturumu → B başında `gate.IsOpen()==false`, logo/ad B'nin, keeper yuvası doğru; ağ izleme ile oturum sonrası açık bağlantı 0.
+`--tray` boştayken global kısayol kaydı ve düşük seviye kanca yok (kısayol yalnız oturum süresince — R30 "keylogger" sezgiselini de
+azaltır).
+Atanan: mimar (§8d.3/K-P20-7 metni) → backend-dev (Go, K5).
+
+### [DÜŞÜK] G-P20-6 Run değeri biçimi: tür, önek, argüman
+
+Yer: §8d.3 autorun satırı.
+Sorun/Düzeltme: Değer türü **REG_SZ** olmalı (REG_EXPAND_SZ'de `%` içeren klasör adı ortam değişkeniyle genişler → yol kaçırma).
+`GetFinalPathNameByHandleW` `\\?\C:\…` döner: `VOLUME_NAME_DOS` ile alınıp `\\?\` öneki atılmalı, `\\?\UNC\` ret; yolda `"`
+olmadığı doğrulanmalı. `--tray` yalnız `os.Args[1] == "--tray"` ve `len(os.Args)==2` iken; `/tray`, `--tray=…` normal açılış.
+Birim testi: `%` ve boşluk içeren yol, `\\?\` öneki. Atanan: backend-dev (Go, K4/K5).
+
+### [DÜŞÜK] G-P20-7 Sohbet görünümü: EDIT kapasitesi, satır sonu, Cf/bidi tanımı — A03 (UI spoofing)
+
+Yer: §8d.3 sohbet satırı, S-P20-6.
+Sorun: Çok satırlı EDIT varsayılan 32 767 karakterde keser; geçmiş 200 × 2000 = 400 K karakter → en yeni mesajlar sessizce
+görünmez. EDIT `\r\n` ister. S-P20-6 gövde için "\n dışındaki kontrol karakterleri" der; mevcut `request.Display` `\n`'i boşluğa
+çevirdiği için gövdede kullanılamaz, ayrı süzgeç gerekir.
+Düzeltme: `EM_SETLIMITTEXT` (ör. 512 K) ya da gösterim için karakter tavanı + eskiyi düşürme; `\n`→`\r\n`, yalnız `\r` atılır;
+gövdede Cc (`\n` hariç), Cf (U+200B–200F, U+202A–202E, U+2066–2069, U+FEFF), U+2028/2029, eşlenmemiş vekil atılır. Teknisyen satırı
+önekini ("Teknisyen <ad>:") istemci üretir, gövde satır başında sahte önek üretemesin diye her satır girintilenir. Pencere başlığında
+seçili firmanın **yerel** etiketi görünür. Atanan: backend-dev (Go, K6).
+
+### [DÜŞÜK] G-P20-8 `status` döngüsünde silme kararı ve yarış
+
+Yer: §8d.3 ana ekran satırı; mevcut `internal/request/run.go:239,420`, `home.go:88` (`OnBindingInvalid` parametresiz).
+Sorun/Düzeltme: Bugün yalnız `BINDING_INVALID` koduyla silinmesi doğru (B-P8c2-1); çoklu kayıtta `OnBindingInvalid` **anahtar
+parametresi** almalı (istek anındaki anahtar kapatılır), "seçili öğe"ye göre silinmemeli — kullanıcı seçim değiştirirken yanlış
+firmayı silme yarışı. `RATE_LIMITED` (paylaşılan `req.ref_invalid` 10/dk/IP kovası, NAT arkası), 5xx, ağ ve `OUTDATED` hiçbir öğeyi
+silmez — testle sabitlenmeli. Atanan: backend-dev (Go, K3).
+
+### [DÜŞÜK] G-P20-9 Karışık sürüm: 0.11'in "unut"u 0.12 izlerini bırakır; korunan `hatirla.bin` eski dalda başka firmayı REPLACED ettirir
+
+Yer: §8d.1 m.3 (5 doluyken `hatirla.bin` korunur), §8d.8 geri alma.
+Sorun: Müşteri eski 0.11 exe'de "Bu bilgisayarı unut" derse `kayitlar.bin` ve Run değeri kalır; ertesi açılışta tepsi yine başlar
+(rıza beklentisi). 5 doluyken korunan `hatirla.bin`'deki 6. firma anahtarı, 0.11 exe başka firmanın oturumunda açılırsa eski dalda
+`previousKey` olarak gider ve o kayıt `REPLACED` olur (bilinen G-E10-4 davranışı).
+Düzeltme: Kılavuz + runbook: "eski sürüm dosyalarını silin; tam temizlik için 0.12'de 'Bu bilgisayarı unut'"; 0.12 ana ekranı
+"eski sürümden kalan kayıt" satırında bu riski bir cümleyle söyler. Atanan: teknik-yazar, mimar (bilgi).
+
+### [DÜŞÜK] G-P20-10 AV kapısında örnek gönderimi ref sızdırabilir
+
+Yer: §8d.8 m.2–4 (VirusTotal yükleme, WDSI gönderimi, "müşteri dosyasını SHA256SUMS ile doğrula").
+Sorun: Müşterinin indirdiği dosya adı `NoktaDestek-<etiket>-<ref>.exe`; VirusTotal ve WDSI gönderilen dosya adını saklar/paylaşır.
+`ref` döndürülebilir bir firma talep bağlantısıdır (`refRotatedAt`).
+Düzeltme: Runbook: yalnız Release artifact'ı nötr adla (`NoktaDestek-0.12.0.exe`) gönderilir; önce hash araması; müşteri kopyası
+asla yüklenmez (hash'i Release ile eşitse gerek yok). Atanan: devops (K7).
+
+### [DÜŞÜK] G-P20-11 `deviceKey` firmalar arası ilişkilendirme tanıtıcısı (önceden var, P20'de yaygınlaşır)
+
+Yer: `apps/agent-win/internal/request/run.go:382`, `remember/data.go:53`.
+Sorun: Kodsuz/ref'li talepte tek `deviceKey` hangi firmaya talep açılırsa gönderilir; çoklu firma kullanımıyla aynı cihaz sunucu
+DB'sinde tenant'lar arası ilişkilendirilebilir (panelde görünmez; yalnız sunucu operatörü). Öneri: köken+tenant'a (ya da ref'e) göre
+türetilmiş anahtar (HMAC(deviceKey, ref-tenant)) — gereksinimler §9 "Sonra". Atanan: mimar.
+
+### [DÜŞÜK] G-P20-12 Firma listesinde ad taklidi ve köken karışımı
+
+Yer: §8d.3 ana ekran ("aynı etiketlilerde (kayıt: tarih)").
+Sorun/Düzeltme: Kayıtlı bir firma `status`/`issued` sonrası adını başka kayıtlı firmanın adına benzetebilir (sonraki talep onun
+teknisyenine gider). Kayıt tarihi her satırda gösterilsin; adı değişen öğede bir kez "Firma adı değişti: eski → yeni" bilgisi.
+Staging ve prod exe'leri aynı `kayitlar.bin`'i paylaşır: 5 sınırı köken başına sayılmalı ya da başka kökenli öğeler ekranda ayrı
+gösterilmeli; "tümünü unut" başka kökenli anahtarları sunucuda iptal edemez (T43 doğru) — kılavuzda belirtilsin. Atanan: backend-dev
+(Go, K3), teknik-yazar.
+
+### [DÜŞÜK] G-P20-13 Tek örnek: normal açılışın tepsiye inmesi ve "göster" mesajı
+
+Yer: §8d.3 tray satırı, S-P20-3.
+Sorun/Düzeltme: Normal açılışla başlayıp X ile tepsiye inen süreç de mutex'i almalı; alamazsa (Run'dan başlamış tepsi var) tepsiye
+inmez, kapanır — iki ikon/iki yerleşik süreç olmasın. "Göster" mesajı için `ChangeWindowMessageFilterEx` ile filtre gevşetilmez
+(düşük bütünlükteki süreçler pencereyi öne getiremez). Atanan: backend-dev (Go, K5).
+
+## Tasarım iddialarının doğrulanması (S-P20-1..9)
+
+| #       | Değerlendirme                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-P20-1 | Kısmen: değer adı/biçim, kullanıcı eylemi, yükseltilmiş ret yerinde; **ACL denetimi eksik (G-P20-1)**, REG_SZ/önek (G-P20-6)                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| S-P20-2 | Yeterli; G-P20-5'teki global kısayol kaydı `--tray` boşta da kurulmamalı                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| S-P20-3 | Yeterli (`Local\` + SID özeti, veri taşımayan mesaj); G-P20-13 eki                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| S-P20-4 | **Doğru ve yeterli.** `issueTx` çoklu dalda `tenant_id = oturum tenant` süzgeci başka tenant satırını okumaz/kilitlemez/iptal etmez; `previousKey`+`previousKeys` karşılıklı dışlama, teklifsiz CONFLICT, sürüm kapısı (öz-bildirimli sürüm yetki vermez — sahte 0.12 iddiası yalnız kendi anahtarlarını etkiler), redaksiyon. 0.12'nin eski sunucuda `previousKey` göndermemesi eski dalın REPLACED etkisini kapatır. `full` istemci beyanıdır; sunucu cihaz kimliği tutmadığı için 5 sınırı zorlanamaz — kabul (kötü niyetli istemci zaten oturum başına 3 istekle sınırlı) |
+| S-P20-5 | Kısmen: yeni dosya adı + doğrulamalı göç iyi; süreçler arası kilit (G-P20-2), hata sınıfı (G-P20-3), boyut bütçesi (G-P20-4) eksik                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| S-P20-6 | Kısmen (G-P20-7); balonda gövde yok — doğru                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| S-P20-7 | Yeterli                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| S-P20-8 | Yeterli; VERSIONINFO `build/winres.json:30-35` dolu, `execution-level: as invoker` doğrulandı; G-P20-10 eki                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| S-P20-9 | Kabul edilebilir (aynı kullanıcı sınırı)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+## Otomatik tarama çıktıları
+
+- `pnpm audit --audit-level=moderate`: **No known vulnerabilities found**.
+- `git grep` gizli bilgi kalıbı: yalnız `docs/runbook.md:2336` (sır taraması komutu metni, değer yok) — yanlış pozitif.
+- `.env` git geçmişi: yalnız `.env.example`.
+- `govulncheck` yerelde yok (Go bağımlılığı P20'de değişmiyor; CI'daki tarama esas).
+
+## Tasarımda vaat edilip kodda bulunmayanlar
+
+P20 kodu yazılmadı; karşılaştırma mevcut koda karşı yapıldı. P20'de değişmesi zorunlu olup tasarımda açıkça yazılmayan mevcut
+davranışlar: `remember.Store` süreç içi kilit (G-P20-2), `load` hatada silme + `update` hatayı yok sayma (G-P20-3), `json.Marshal`
+HTML kaçışı + `plainMax 4096` (G-P20-4), `main.go` süreç ömürlü gate/applier/kısayol (G-P20-5), parametresiz `OnBindingInvalid` (G-P20-8).
+
+## İncelenemeyen alanlar (bu turda)
+
+- `apps/server/src/requests/ws.ts` P18 sohbet çıkışının (`senderName` süzgeci, kova) yeniden okunması — P18 kod turunda GEÇTİ; P20'de
+  sunucu sohbeti değişmediği için atlandı.
+- `bindings/repo.ts` yeni `lockActiveByHashesForTenant` sorgu planı/kilit sırası (K0/K1 kod turunda; IN listesinin sıralı kilitlenmesi
+  ve aynı iki anahtarlı eşzamanlı iki oturumda kilitlenme → mevcut yeniden deneme dalının kapsadığı doğrulanmalı).
+- `--tray` açılışının MOTW (Zone.Identifier) taşıyan İndirilenler exe'sinde oturum açılışında "Güvenlik Uyarısı" diyaloğu üretip
+  üretmediği — test-operatoru elle turunda (Win10/11) gözlemlenmeli.
+
+## Olumlu
+
+- Yeni dosya adı (K-P20-4) eski sürümün sessiz silmesini tasarım düzeyinde kapatıyor; geri okuma doğrulamalı göç, 5 doluyken eski
+  dosyayı koruma (sessiz kayıp yok).
+- Sunucu çoklu dalı başka tenant satırını sorguya hiç sokmuyor; audit'te karşı tenant bilgisi ve anahtar yok; `*.previousKeys`
+  redaksiyonu.
+- Kendini kopyalama/zamanlanmış görev/servis yok; Run varsayılan kapalı; yükseltilmiş süreçte pasif; `--tray` ağsız; boşta ağ yok.
+- Mevcut koruma katmanları yerinde: `dllsafe.Harden` ilk iş (`main.go:56`), `CanonicalOrigin` sıkı köken, keeper T43 köken eşitliği,
+  oturum sonunda `gate.Close()` (`flow.go:903`), AC-103 her zaman üstte bant, VERSIONINFO dolu, `as invoker`.
+- Prod yayını AV kapısına bağlı, tekrarlanabilir build (AC-289) üçüncü taraf doğrulamasına izin veriyor.
+
+## Gereksinimler §9 "Sonra" önerisi
+
+G-P20-11 (tenant'a türetilmiş deviceKey), G-P20-12 köken başına sınır.
+
+---
+
 # Güvenlik Raporu — P19 kod turu 2 (p19-wip 27fc5d4, 2026-11-15)
 
 DURUM: GEÇTİ (Kritik/Yüksek 0).
